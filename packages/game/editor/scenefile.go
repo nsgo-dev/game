@@ -213,6 +213,7 @@ func (e *Editor) RevertScene() error {
 	// A drag or tile stroke in progress is put back first, so Undo of the revert brings back the scene as it was before it.
 	e.CancelDrag2D()
 	e.CancelTileStroke()
+	e.connPick = nil
 	e.sceneSaved = saved
 	e.History.Execute(&replaceSceneCmd{ed: e, label: "Revert scene", before: e.Doc.Clone(), after: doc})
 	e.Status = "Reverted " + e.SceneLabel()

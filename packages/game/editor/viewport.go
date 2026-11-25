@@ -533,7 +533,7 @@ func (g *viewportGestures) pan(ed *Editor, ev core.PanEvent, spaceHeld, shiftHel
 	case core.GestureBegan:
 		g.spacePan = spaceHeld()
 		g.panLast = ev.Translation
-		if g.spacePan || g.middle || g.touchPan {
+		if g.spacePan || g.middle || g.touchPan || ed.PickingConnectionTarget() {
 			return
 		}
 		// The pan begins once the pointer passes the platform's slop, so the drag starts where it went down: its position less how far it has come.
@@ -656,8 +656,8 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 	var strokeTookPress bool
 	beginStroke := func(at core.Point, secondary, alt bool) {
 		strokeTookPress = false
-		// A press with Space held navigates rather than edits.
-		if !in2D() || spaceHeld() {
+		// A press with Space held navigates rather than edits, and connection target pick mode intercepts clicks instead of painting tiles.
+		if !in2D() || spaceHeld() || ed.PickingConnectionTarget() {
 			return
 		}
 		if mode, ok := ed.toolStrokeMode(secondary, alt || altHeld()); ok {
@@ -784,18 +784,21 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 					switch ev.Phase {
 					case core.GestureBegan:
 						lastPan = ev.Translation
-						began3D = hasPress
+						began3D = hasPress && !ed.PickingConnectionTarget()
 						if began3D {
 							// A press that turns into a pan first picks a gizmo
 							// handle under the press point, and orbits otherwise.
 							ed.BeginViewport3DDrag(float32(pressPos.X), float32(pressPos.Y), cw, ch, false)
 						}
 					case core.GestureChanged:
-						if hasPress {
+						if began3D && hasPress {
 							ed.UpdateViewport3DDrag(
 								float32(pressPos.X)+float32(ev.Translation.X),
 								float32(pressPos.Y)+float32(ev.Translation.Y),
 							)
+							break
+						}
+						if ed.PickingConnectionTarget() {
 							break
 						}
 						dx := float32(ev.Translation.X - lastPan.X)
@@ -834,10 +837,12 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 								}
 							}
 							x, y := float32(ev.Position.X), float32(ev.Position.Y)
-							// A press no pointer drew a stroke for, such as an accessibility action, makes the stroke of one cell.
-							if mode, ok := ed.toolStrokeMode(false, ev.Modifiers.Alt); ok && ed.ViewMode == ViewMode2D && ed.BeginTileStroke(mode, x, y) {
-								ed.EndTileStroke()
-								return
+							// A press no pointer drew a stroke for, such as an accessibility action, makes the stroke of one cell unless picking a connection target.
+							if !ed.PickingConnectionTarget() {
+								if mode, ok := ed.toolStrokeMode(false, ev.Modifiers.Alt); ok && ed.ViewMode == ViewMode2D && ed.BeginTileStroke(mode, x, y) {
+									ed.EndTileStroke()
+									return
+								}
 							}
 							ed.HandleCanvasPress(x, y)
 						},

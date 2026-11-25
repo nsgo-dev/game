@@ -534,8 +534,16 @@ func TestConnectionsPickTargetFromViewportAndSceneTree(t *testing.T) {
 		t.Fatalf("connections after scene-tree pick = %+v", ed.Doc.Connections)
 	}
 
-	// 3. Cancel pick mode.
+	// 3. Cancel pick mode via Escape key and via CancelConnectionPick.
 	app.Press("id:inspector-conn-new")
+	app.Press("id:inspector-conn-pick-target")
+	if !ed.PickingConnectionTarget() {
+		t.Fatal("expected PickingConnectionTarget to be true")
+	}
+	app.Key("escape")
+	if ed.PickingConnectionTarget() {
+		t.Fatal("Escape did not exit pick mode")
+	}
 	app.Press("id:inspector-conn-pick-target")
 	if !ed.PickingConnectionTarget() {
 		t.Fatal("expected PickingConnectionTarget to be true")
@@ -757,5 +765,181 @@ func TestConnectionsWithoutRegistryAndJumpAPI(t *testing.T) {
 	app.Press("id:inspector-conn-save")
 	if got := ed.Doc.Connections[0].Args["height"]; got != 5 {
 		t.Fatalf("edited height arg without registry = %#v, want 5", got)
+	}
+}
+
+func TestConnectionsPickTargetWorksWithPaintTileToolAndIgnoresLayerRow(t *testing.T) {
+	ed, _, _ := buttonDoorEditor(t)
+	// Place door over empty tile (1, 1) at world (24, 24) on the floor tilemap.
+	if err := ed.MoveObject("door", 24, 24); err != nil {
+		t.Fatalf("MoveObject door: %v", err)
+	}
+	ed.SelectObject("button")
+	ed.SetActiveLayer("floor")
+	ed.SetActiveTileID(2)
+	ed.SetTool(editor.ToolPaintTile)
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1200, 1600))
+
+	app.Press("id:inspector-conn-event-button-pressed-connect")
+	app.Press("id:inspector-conn-pick-target")
+	if !ed.PickingConnectionTarget() {
+		t.Fatal("expected PickingConnectionTarget to be true")
+	}
+
+	// Clicking a layer row in the scene tree while picking must not clear SelectedID or cancel pick mode.
+	app.Press("id:scene-tree-layer-floor")
+	if !ed.PickingConnectionTarget() {
+		t.Fatal("clicking a layer row cancelled target pick mode")
+	}
+	if ed.SelectedID != "button" {
+		t.Fatalf("SelectedID = %q after clicking layer row while picking, want button", ed.SelectedID)
+	}
+
+	// Click door in the viewport while ToolPaintTile is active: both mouse down/up and PressAt must pick door instead of painting tile (1, 1).
+	px, py := ed.WorldToCanvas(24, 24)
+	pt := core.Point{X: core.Points(px), Y: core.Points(py)}
+	app.MouseDownAt("id:editor-viewport-frame", pt, core.MouseButtonLeft)
+	app.MouseUpAt("id:editor-viewport-frame", pt, core.MouseButtonLeft)
+	app.PressAt("id:editor-viewport", pt)
+
+	if ed.PickingConnectionTarget() {
+		t.Fatal("PickingConnectionTarget stayed true after clicking door with ToolPaintTile active")
+	}
+	if ed.SelectedID != "button" {
+		t.Fatalf("SelectedID = %q after viewport pick with ToolPaintTile, want button", ed.SelectedID)
+	}
+	if got := ed.Doc.Layers[0].Tilemap.Data[1*4+1]; got != 0 {
+		t.Fatalf("tile (1,1) = %d after picking target with ToolPaintTile, want 0 (unpainted)", got)
+	}
+	if !app.Exists("id:inspector-conn-handler-opt-open") {
+		t.Fatal("picking door with ToolPaintTile active did not populate door's handlers")
+	}
+
+	// Also verify the OnPress tile-stroke fallback (without prior mouse down/up) picks instead of painting.
+	app.Press("id:inspector-conn-pick-target")
+	app.PressAt("id:editor-viewport", pt)
+	if ed.PickingConnectionTarget() {
+		t.Fatal("PickingConnectionTarget stayed true after PressAt fallback with ToolPaintTile")
+	}
+	if got := ed.Doc.Layers[0].Tilemap.Data[1*4+1]; got != 0 {
+		t.Fatalf("tile (1,1) = %d after PressAt fallback while picking, want 0", got)
+	}
+}
+
+func TestConnectionsPrunesStaleArgsOnHandlerTypeAndTargetSwitch(t *testing.T) {
+	ed, reg, _ := buttonDoorEditor(t)
+	if err := reg.Register(sceneformat.ComponentType{
+		Name:     "lamp",
+		Handlers: []sceneformat.Handler{{Name: "toggle", Doc: "Toggles the lamp."}},
+	}); err != nil {
+		t.Fatalf("Register lamp: %v", err)
+	}
+	if _, err := ed.PlaceObject("actors", sceneformat.ObjectDoc{
+		ID:         "lamp",
+		X:          220,
+		Y:          80,
+		Sprite:     &sceneformat.SpriteRef{Atlas: "actors", Frame: "hero"},
+		Components: map[string]any{"lamp": map[string]any{}},
+	}); err != nil {
+		t.Fatalf("PlaceObject lamp: %v", err)
+	}
+	if _, err := ed.AddConnection(sceneformat.ConnectionDoc{
+		From:    "button",
+		Event:   "pressed",
+		To:      "door",
+		Handler: "open",
+		Args:    map[string]any{"speed": 2.5},
+	}); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+	ed.SelectObject("button")
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1200, 1600))
+
+	// 1. Typing a different handler into the text input (instead of clicking a chip) must prune stale "speed".
+	app.Press("id:inspector-conn-out-0-edit")
+	app.Clear("id:inspector-conn-handler")
+	app.Type("id:inspector-conn-handler", "lock")
+	app.Press("id:inspector-conn-save")
+
+	if app.Exists("id:inspector-conn-form") {
+		t.Fatalf("form stayed open after typing handler lock (Status=%q)", ed.Status)
+	}
+	if got := ed.Doc.Connections[0]; got.Handler != "lock" || len(got.Args) != 0 {
+		t.Fatalf("connection after typing handler = %+v, want handler=lock and empty Args", got)
+	}
+
+	// Undo back to open(speed=2.5), then switch target via dropdown to lamp and pick toggle.
+	app.Post(func() { ed.Undo() })
+	app.Settle()
+	app.Press("id:inspector-conn-out-0-edit")
+	app.Press("id:inspector-conn-target")
+	app.Press("role:option lamp")
+	app.Press("id:inspector-conn-handler-opt-toggle")
+	app.Press("id:inspector-conn-save")
+
+	if app.Exists("id:inspector-conn-form") {
+		t.Fatalf("form stayed open after switching target via dropdown (Status=%q)", ed.Status)
+	}
+	if got := ed.Doc.Connections[0]; got.To != "lamp" || got.Handler != "toggle" || len(got.Args) != 0 {
+		t.Fatalf("connection after target dropdown switch = %+v, want lamp.toggle with empty Args", got)
+	}
+
+	// Undo back to open(speed=2.5), then switch target via viewport/scene-tree pick to lamp and type toggle.
+	app.Post(func() { ed.Undo() })
+	app.Settle()
+	app.Press("id:inspector-conn-out-0-edit")
+	app.Press("id:inspector-conn-pick-target")
+	app.Press("id:scene-tree-label-lamp")
+	app.Clear("id:inspector-conn-handler")
+	app.Type("id:inspector-conn-handler", "toggle")
+	app.Press("id:inspector-conn-save")
+
+	if app.Exists("id:inspector-conn-form") {
+		t.Fatalf("form stayed open after switching target via pick (Status=%q)", ed.Status)
+	}
+	if got := ed.Doc.Connections[0]; got.To != "lamp" || got.Handler != "toggle" || len(got.Args) != 0 {
+		t.Fatalf("connection after target pick switch = %+v, want lamp.toggle with empty Args", got)
+	}
+}
+
+func TestConnectionsEditFormClosesWhenEditedConnectionBecomesStale(t *testing.T) {
+	ed, _, _ := buttonDoorEditor(t)
+	if _, err := ed.AddConnection(sceneformat.ConnectionDoc{
+		From:    "button",
+		Event:   "pressed",
+		To:      "door",
+		Handler: "open",
+	}); err != nil {
+		t.Fatalf("AddConnection 0: %v", err)
+	}
+	if _, err := ed.AddConnection(sceneformat.ConnectionDoc{
+		From:    "button",
+		Event:   "pressed",
+		To:      "door",
+		Handler: "lock",
+	}); err != nil {
+		t.Fatalf("AddConnection 1: %v", err)
+	}
+	ed.SelectObject("button")
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1200, 1600))
+
+	// Open edit on index 0, then remove index 0 externally so index 1 shifts into index 0.
+	app.Press("id:inspector-conn-out-0-edit")
+	if !app.Exists("id:inspector-conn-form") {
+		t.Fatal("edit form did not open")
+	}
+	app.Post(func() { _ = ed.RemoveConnection(0) })
+	app.Settle()
+	if app.Exists("id:inspector-conn-form") {
+		t.Fatal("edit form stayed open after another connection shifted into its index")
 	}
 }

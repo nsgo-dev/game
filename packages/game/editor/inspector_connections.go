@@ -37,6 +37,7 @@ func connectionsSection(
 	handlerRef := core.NewSignal(cx, "")
 	onceVal := core.NewSignal(cx, false)
 	var draftArgs map[string]any
+	var editedConn sceneformat.ConnectionDoc
 	argsRev := core.NewSignal(cx, uint64(0))
 	setDraftArgs := func(m map[string]any) {
 		draftArgs = m
@@ -53,20 +54,52 @@ func connectionsSection(
 			ed.connPick = nil
 		}
 	})
-	cx.OnKeyWith("escape", core.KeyOptions{When: core.KeyAlways}, func() {
-		if ed.PickingConnectionTarget() {
-			ed.CancelConnectionPick()
-		}
-	})
+
+	// Only bind Escape while target picking is active so it does not swallow Escape from viewport drags or other panels.
+	pickEscape := core.Show{
+		When: func() bool {
+			_ = rev.Get()
+			return ed.PickingConnectionTarget()
+		},
+		Then: func(cx *core.Scope) core.Node {
+			cx.OnKeyWith("escape", core.KeyOptions{When: core.KeyAlways}, func() {
+				if ed.PickingConnectionTarget() {
+					ed.CancelConnectionPick()
+				}
+			})
+			return nil
+		},
+	}
 
 	closeForm := func() {
 		cancelPick()
+		editedConn = sceneformat.ConnectionDoc{}
 		mode.Set(connFormClosed)
 		editIndex.Set(-1)
 	}
 
+	// Close a stale edit form if undo, redo, or another edit removed, replaced, or shifted the connection being edited.
+	cx.Effect(func() {
+		_ = rev.Get()
+		cx.Untrack(func() {
+			if mode.GetUntracked() != connFormEdit {
+				return
+			}
+			idx := editIndex.GetUntracked()
+			if idx < 0 || ed.Doc == nil || idx >= len(ed.Doc.Connections) {
+				closeForm()
+				return
+			}
+			c := ed.Doc.Connections[idx]
+			if (c.From != objID && c.To != objID) || !connectionsEqual(c, editedConn) {
+				closeForm()
+			}
+		})
+	})
+
 	openNew := func(ev string) {
 		cancelPick()
+		editedConn = sceneformat.ConnectionDoc{}
 		fromID.Set(objID)
 		if ev == "" {
 			if events := ed.ObjectEvents(objID); len(events) > 0 {
@@ -84,6 +117,7 @@ func connectionsSection(
 
 	openEdit := func(entry ConnectionEntry) {
 		cancelPick()
+		editedConn = cloneConnectionDoc(entry.Conn)
 		fromID.Set(entry.Conn.From)
 		eventRef.Set(entry.Conn.Event)
 		targetID.Set(entry.Conn.To)
@@ -94,21 +128,48 @@ func connectionsSection(
 		mode.Set(connFormEdit)
 	}
 
+	// pruneArgsFor keeps only keys declared in the resolved registered handler's Params so switching targets or handlers never traps the form with stale hidden args.
+	pruneArgsFor := func(tID, hRef string, args map[string]any) map[string]any {
+		if len(args) == 0 {
+			return nil
+		}
+		h, ok := ed.resolveObjectHandler(strings.TrimSpace(tID), strings.TrimSpace(hRef))
+		if !ok {
+			return cloneMap(args)
+		}
+		var kept map[string]any
+		for _, p := range h.Params {
+			if v, set := args[p.Name]; set {
+				if kept == nil {
+					kept = make(map[string]any)
+				}
+				kept[p.Name] = v
+			}
+		}
+		return kept
+	}
+
+	setTarget := func(id string) {
+		if id == targetID.GetUntracked() {
+			return
+		}
+		targetID.Set(id)
+		if ed.ComponentRegistry() != nil && len(draftArgs) > 0 {
+			hRef := handlerRef.GetUntracked()
+			if _, ok := ed.resolveObjectHandler(strings.TrimSpace(id), strings.TrimSpace(hRef)); ok {
+				setDraftArgs(pruneArgsFor(id, hRef, draftArgs))
+			} else {
+				setDraftArgs(nil)
+			}
+		}
+	}
+
 	setHandler := func(hRef string) {
 		handlerRef.Set(hRef)
-		// Drop draft args that do not belong to the newly chosen registered handler so switching handlers never carries stale keys.
-		if h, ok := ed.resolveObjectHandler(targetID.GetUntracked(), hRef); ok {
-			if len(draftArgs) > 0 {
-				var kept map[string]any
-				for _, p := range h.Params {
-					if v, set := draftArgs[p.Name]; set {
-						if kept == nil {
-							kept = make(map[string]any)
-						}
-						kept[p.Name] = v
-					}
-				}
-				setDraftArgs(kept)
+		if ed.ComponentRegistry() != nil && len(draftArgs) > 0 {
+			tID := targetID.GetUntracked()
+			if _, ok := ed.resolveObjectHandler(strings.TrimSpace(tID), strings.TrimSpace(hRef)); ok {
+				setDraftArgs(pruneArgsFor(tID, hRef, draftArgs))
 			}
 		}
 	}
@@ -118,12 +179,18 @@ func connectionsSection(
 		if m == connFormClosed {
 			return
 		}
+		to := strings.TrimSpace(targetID.GetUntracked())
+		handler := strings.TrimSpace(handlerRef.GetUntracked())
+		args := cloneMap(draftArgs)
+		if ed.ComponentRegistry() != nil {
+			args = pruneArgsFor(to, handler, args)
+		}
 		conn := sceneformat.ConnectionDoc{
 			From:    strings.TrimSpace(fromID.GetUntracked()),
 			Event:   strings.TrimSpace(eventRef.GetUntracked()),
-			To:      strings.TrimSpace(targetID.GetUntracked()),
-			Handler: strings.TrimSpace(handlerRef.GetUntracked()),
-			Args:    cloneMap(draftArgs),
+			To:      to,
+			Handler: handler,
+			Args:    args,
 			Once:    onceVal.GetUntracked(),
 		}
 		var err error
@@ -330,7 +397,7 @@ func connectionsSection(
 					return opts
 				},
 				Value:    targetID.Get,
-				OnChange: func(id string) { targetID.Set(id) },
+				OnChange: setTarget,
 			}
 
 			pickBtn := ui.IconButton{
@@ -354,9 +421,7 @@ func connectionsSection(
 						ed.CancelConnectionPick()
 						return
 					}
-					ed.BeginConnectionPick(func(picked string) {
-						targetID.Set(picked)
-					})
+					ed.BeginConnectionPick(setTarget)
 				},
 			}
 
@@ -366,7 +431,7 @@ func connectionsSection(
 				Placeholder: "handler",
 				Disabled:    disabled,
 				Value:       handlerRef.Get,
-				OnChange:    handlerRef.Set,
+				OnChange:    setHandler,
 				OnSubmit:    func(string) { submitForm() },
 			}
 
@@ -664,12 +729,6 @@ func connectionsSection(
 
 	listsView := core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = rev.Get()
-		// Close a stale edit form if undo or another edit removed its connection.
-		if mode.GetUntracked() == connFormEdit {
-			if idx := editIndex.GetUntracked(); idx < 0 || ed.Doc == nil || idx >= len(ed.Doc.Connections) {
-				cx.Untrack(closeForm)
-			}
-		}
 		outgoing, incoming := ed.ObjectConnections(objID)
 		if len(outgoing) == 0 && len(incoming) == 0 {
 			return core.Text{
@@ -704,6 +763,7 @@ func connectionsSection(
 		TestID: "inspector-connections",
 		Style:  core.Style{Gap: 6},
 		Children: []core.Node{
+			pickEscape,
 			headerRow,
 			declaredEventsView,
 			formView,

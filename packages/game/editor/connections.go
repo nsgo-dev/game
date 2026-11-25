@@ -253,6 +253,8 @@ func (e *Editor) BeginConnectionPick(onPick func(targetID string)) {
 	if e == nil || e.playing || onPick == nil {
 		return
 	}
+	e.CancelDrag2D()
+	e.CancelTileStroke()
 	e.connPick = &connPickState{
 		sourceID: e.SelectedID,
 		onPick:   onPick,
@@ -409,7 +411,7 @@ func (c *addConnectionCmd) Undo() {
 	if c.index < 0 || c.index >= len(c.ed.Doc.Connections) {
 		return
 	}
-	conns := append(c.ed.Doc.Connections[:c.index], c.ed.Doc.Connections[c.index+1:]...)
+	conns := slices.Delete(c.ed.Doc.Connections, c.index, c.index+1)
 	if len(conns) == 0 {
 		conns = nil
 	}
@@ -456,7 +458,7 @@ func (c *removeConnectionCmd) Do() {
 	if c.index < 0 || c.index >= len(c.ed.Doc.Connections) {
 		return
 	}
-	conns := append(c.ed.Doc.Connections[:c.index], c.ed.Doc.Connections[c.index+1:]...)
+	conns := slices.Delete(c.ed.Doc.Connections, c.index, c.index+1)
 	if len(conns) == 0 {
 		conns = nil
 	}

@@ -123,14 +123,28 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 	}
 
 	// A press on a row selects its object in the editor, or makes its layer the active one.
-	// While connection target pick mode is active, pressing an object row picks it as the target without changing SelectedID.
+	// While connection target pick mode is active, pressing an object row picks it as the target without changing SelectedID, and pressing a layer row is ignored so pick mode and SelectedID stay intact.
+	var ignorePickKey sceneTreeKey
 	cx.Effect(func() {
 		cur, _ := selection.Cursor().(sceneTreeKey)
 		cx.Untrack(func() {
-			if cur.id != "" && ed.PickingConnectionTarget() {
-				ed.finishConnectionPick(cur.id)
+			if ed.PickingConnectionTarget() {
+				if cur == (sceneTreeKey{}) {
+					return
+				}
+				if cur == ignorePickKey {
+					ignorePickKey = sceneTreeKey{}
+					return
+				}
+				ignorePickKey = sceneTreeKey{}
+				if cur.id != "" {
+					ed.finishConnectionPick(cur.id)
+				}
 				if ed.SelectedID != "" {
 					if k := keyOf(ed.SelectedID); k.id != "" {
+						if ed.PickingConnectionTarget() {
+							ignorePickKey = k
+						}
 						selection.Set(k)
 					}
 				} else {
@@ -138,6 +152,7 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 				}
 				return
 			}
+			ignorePickKey = sceneTreeKey{}
 			switch {
 			case cur.id != "":
 				if ed.SelectedID != cur.id {
