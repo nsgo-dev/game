@@ -53,6 +53,8 @@ type File struct {
 	Editor *Editor `yaml:"editor,omitempty"`
 	// Assets declares the atlases, textures, audio, fonts, models and asset manifest game assets builds; nil declares none.
 	Assets *Assets `yaml:"assets,omitempty"`
+	// Navigation holds the settings and agent types game navmesh bakes a scene's navigation meshes with (see the navbake3d package); nil bakes one agent type called DefaultNavAgent with the default settings.
+	Navigation *Navigation `yaml:"navigation,omitempty"`
 	// Packs records the library packs installed into the project, in the order they were first installed: the files each wrote and the autoload entries and editor plugins each added, so that a later install of the pack can update it and a removal can undo it (see the tooling/library package). nil records none.
 	Packs []Pack `yaml:"packs,omitempty"`
 }
@@ -346,6 +348,48 @@ type Editor struct {
 	Plugins []string `yaml:"plugins,omitempty,flow"`
 }
 
+// DefaultNavAgent names the agent type game navmesh bakes for when game.yaml declares none.
+const DefaultNavAgent = "default"
+
+// MaxNavVertsPerPoly is the largest Navigation.MaxVertsPerPoly.
+const MaxNavVertsPerPoly = 12
+
+// Navigation is the navigation mesh bake settings of a project, as navbake3d.Settings defines them: each field 0 or omitted takes navbake3d's default. The scene's own layers are all baked.
+type Navigation struct {
+	// CellSize is the width and depth of one cell of the voxel grid the level is baked on, in world units.
+	CellSize float32 `yaml:"cellSize,omitempty"`
+	// CellHeight is the height of one cell, the precision of heights, clearances and steps.
+	CellHeight float32 `yaml:"cellHeight,omitempty"`
+	// MinRegionArea is the smallest area of an island of walkable surface that is kept.
+	MinRegionArea float32 `yaml:"minRegionArea,omitempty"`
+	// MaxEdgeLength is the longest a polygon edge along a wall may be.
+	MaxEdgeLength float32 `yaml:"maxEdgeLength,omitempty"`
+	// MaxSimplificationError is the farthest a simplified outline may stray from the walkable area.
+	MaxSimplificationError float32 `yaml:"maxSimplificationError,omitempty"`
+	// MaxVertsPerPoly is the largest number of vertices in one polygon, from 3 to MaxNavVertsPerPoly.
+	MaxVertsPerPoly int `yaml:"maxVertsPerPoly,omitempty"`
+	// DetailSampleDistance is the spacing of the height samples polygons follow uneven ground with, at least CellSize.
+	DetailSampleDistance float32 `yaml:"detailSampleDistance,omitempty"`
+	// DetailSampleMaxError is how far the polygons' triangles may stray from the sampled height.
+	DetailSampleMaxError float32 `yaml:"detailSampleMaxError,omitempty"`
+	// Agents are the agent types a scene gets a navigation mesh each for, in the order the baked file lists them; empty bakes one called DefaultNavAgent.
+	Agents []NavAgent `yaml:"agents,omitempty"`
+}
+
+// NavAgent is one agent type navigation meshes are baked for, as navbake3d.AgentType defines it; each size 0 or omitted takes navbake3d's default.
+type NavAgent struct {
+	// Name uniquely identifies the agent type, such as "humanoid".
+	Name string `yaml:"name"`
+	// Radius is how far the mesh keeps from walls and ledges.
+	Radius float32 `yaml:"radius,omitempty"`
+	// Height is the clearance the agent needs.
+	Height float32 `yaml:"height,omitempty"`
+	// MaxSlope is the steepest walkable slope in degrees, below 90.
+	MaxSlope float32 `yaml:"maxSlope,omitempty"`
+	// MaxClimb is the highest step the agent climbs.
+	MaxClimb float32 `yaml:"maxClimb,omitempty"`
+}
+
 // Pack kinds name what a library pack holds.
 const (
 	// PackAsset is a pack of assets, such as images, atlases, sounds and data files.
@@ -546,6 +590,11 @@ func (f *File) Clone() *File {
 		c.Editor = &Editor{Plugins: append([]string(nil), f.Editor.Plugins...)}
 	}
 	c.Assets = f.Assets.clone()
+	if f.Navigation != nil {
+		n := *f.Navigation
+		n.Agents = slices.Clone(f.Navigation.Agents)
+		c.Navigation = &n
+	}
 	if f.Packs != nil {
 		c.Packs = make([]Pack, len(f.Packs))
 		for i, p := range f.Packs {
@@ -620,7 +669,56 @@ func Validate(f *File) error {
 	if err := f.Assets.Validate(); err != nil {
 		return err
 	}
+	if f.Navigation != nil {
+		if err := validateNavigation(f.Navigation); err != nil {
+			return err
+		}
+	}
 	return validatePacks(f)
+}
+
+// validateNavigation refuses negative or non-finite sizes, a detail sample spacing below the cell size, a vertex limit out of range, slopes of 90 degrees or more and agent types without a name or with one repeated.
+func validateNavigation(n *Navigation) error {
+	for _, v := range []struct {
+		field string
+		v     float32
+	}{
+		{"cellSize", n.CellSize}, {"cellHeight", n.CellHeight}, {"minRegionArea", n.MinRegionArea},
+		{"maxEdgeLength", n.MaxEdgeLength}, {"maxSimplificationError", n.MaxSimplificationError},
+		{"detailSampleDistance", n.DetailSampleDistance}, {"detailSampleMaxError", n.DetailSampleMaxError},
+	} {
+		if !isFinite32(v.v) || v.v < 0 {
+			return fmt.Errorf("project: navigation %s %v must be a finite number, 0 or more", v.field, v.v)
+		}
+	}
+	if n.DetailSampleDistance != 0 && n.DetailSampleDistance < n.CellSize {
+		return fmt.Errorf("project: navigation detailSampleDistance %v must be at least cellSize %v", n.DetailSampleDistance, n.CellSize)
+	}
+	if n.MaxVertsPerPoly != 0 && (n.MaxVertsPerPoly < 3 || n.MaxVertsPerPoly > MaxNavVertsPerPoly) {
+		return fmt.Errorf("project: navigation maxVertsPerPoly %d must be 0 or from 3 to %d", n.MaxVertsPerPoly, MaxNavVertsPerPoly)
+	}
+	seen := make(map[string]struct{}, len(n.Agents))
+	for i, a := range n.Agents {
+		if err := validateName(fmt.Sprintf("navigation agent %d", i), a.Name); err != nil {
+			return err
+		}
+		if _, dup := seen[a.Name]; dup {
+			return fmt.Errorf("project: navigation agent %q is listed twice", a.Name)
+		}
+		seen[a.Name] = struct{}{}
+		for _, v := range []struct {
+			field string
+			v     float32
+		}{{"radius", a.Radius}, {"height", a.Height}, {"maxSlope", a.MaxSlope}, {"maxClimb", a.MaxClimb}} {
+			if !isFinite32(v.v) || v.v < 0 {
+				return fmt.Errorf("project: navigation agent %q %s %v must be a finite number, 0 or more", a.Name, v.field, v.v)
+			}
+		}
+		if a.MaxSlope >= 90 {
+			return fmt.Errorf("project: navigation agent %q maxSlope %v must be below 90 degrees", a.Name, a.MaxSlope)
+		}
+	}
+	return nil
 }
 
 // validateText refuses control characters and surrounding spaces, and an empty value when required.

@@ -117,6 +117,7 @@
 | `game/mcp` | 实验性 | [mcp](mcp.md) |
 | `game/modding` | 实验性 | [modding](modding.md) |
 | `game/navbake` | 实验性 | [navbake](navbake.md) |
+| `game/navbake3d` | 实验性 | [navbake3d](navbake3d.md) |
 | `game/net` | 实验性 | [net](net.md) |
 | `game/particles` | 实验性 | [particles](particles.md) |
 | `game/perf` | 实验性 | [perf](perf.md) |

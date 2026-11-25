@@ -18,6 +18,7 @@ import "github.com/nsgo-dev/game/packages/game/tooling/jsonschema"
 | Terrain definition, version 1 | `https://game.nsgo.dev/schemas/terrain.v1.json` | `*.terrain.yaml`, read by `world3d.ParseTerrain` and `world3d.LoadTerrainFS` |
 | 3D grid map, version 1 | `https://game.nsgo.dev/schemas/gridmap.v1.json` | `*.gridmap.yaml`, read by `world3d.ParseGridMap` and `world3d.LoadGridMapFS` |
 | 3D foliage layers, version 1 | `https://game.nsgo.dev/schemas/foliage.v1.json` | `*.foliage.yaml`, read by `world3d.ParseFoliage` and `world3d.LoadFoliageFS` |
+| Navigation mesh, version 1 | `https://game.nsgo.dev/schemas/navmesh.v1.json` | `*.navmesh.yaml` that `game navmesh` bakes and a scene's `navMesh` names, read by `navbake3d.Parse` and `navbake3d.LoadFS` ([navbake3d](navbake3d.md)) |
 | Project file, version 1 | `https://game.nsgo.dev/schemas/game.v1.json` | `game.yaml` at the project's root, read by `project.Parse` |
 | Behavior tree, version 1 | `https://game.nsgo.dev/schemas/bt.v1.json` | `*.bt.yaml`, read by `ai.ParseBehaviorTree` and `ai.LoadBehaviorTreeFS` |
 | Data table | generated per row type with `datatable.Schema[T]` | `*.yaml`, read by `datatable.LoadYAML` |

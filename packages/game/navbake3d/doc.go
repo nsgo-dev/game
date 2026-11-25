@@ -1,0 +1,6 @@
+// Package navbake3d bakes 3D navigation meshes from level geometry, as Recast, Godot's NavigationRegion3D and Unity's NavMeshSurface do, so a 3D game no longer authors world3d.NavMesh polygons by hand. Package navbake bakes the 2D ai.NavMesh instead.
+//
+// A Geometry collects the level's triangles from glTF models, scene3d scenes and sceneformat scene files, world3d terrain heightmaps and GridMaps, and physics3d static colliders, each on layers a Settings.LayerMask selects from. Bake rasterizes them into a heightfield, keeps the surfaces an agent type can stand on (no steeper than its MaxSlope, with its Height of clearance), lets it step up and down its MaxClimb, keeps its Radius from walls and ledges, partitions the walkable area into regions, traces and simplifies their outlines and splits them into convex polygons with triangles that follow the height of the ground. Each AgentType gets a mesh of its own.
+//
+// The result is a File, a versioned YAML document a sceneformat scene names in its navMesh field: Encode writes the same bytes for the same level every time, and Parse then Encode changes nothing. Mesh.NavMesh turns one agent type's mesh into the world3d.NavMesh that finds paths, DrawDebug and Mesh.DebugLines show it, and the game navmesh command bakes a scene from the command line.
+package navbake3d

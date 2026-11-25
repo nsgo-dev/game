@@ -19,6 +19,7 @@ import (
 
 	"github.com/nsgo-dev/game/packages/game/ai"
 	"github.com/nsgo-dev/game/packages/game/l10n"
+	"github.com/nsgo-dev/game/packages/game/navbake3d"
 	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/game/packages/game/tooling/importsettings"
@@ -118,6 +119,13 @@ var formats = []format{
 		typ:     reflect.TypeFor[world3d.FoliageDoc](),
 		pkg:     "world3d",
 		version: world3d.FoliageFormatVersion,
+	},
+	{
+		url:     navbake3d.SchemaURL,
+		title:   "NSGo game navigation mesh (version 1)",
+		typ:     reflect.TypeFor[navbake3d.File](),
+		pkg:     "navbake3d",
+		version: navbake3d.FormatVersion,
 	},
 	{
 		url:     project.SchemaURL,

@@ -86,6 +86,14 @@
         }
       ]
     },
+    "navigation": {
+      "description": "Navigation holds the settings and agent types game navmesh bakes a scene's navigation meshes with (see the navbake3d package); nil bakes one agent type called DefaultNavAgent with the default settings.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Navigation"
+        }
+      ]
+    },
     "packs": {
       "description": "Packs records the library packs installed into the project, in the order they were first installed: the files each wrote and the autoload entries and editor plugins each added, so that a later install of the pack can update it and a removal can undo it (see the tooling/library package). nil records none.",
       "type": "array",
@@ -865,6 +873,103 @@
         "name",
         "axis"
       ],
+      "additionalProperties": false
+    },
+    "NavAgent": {
+      "description": "NavAgent is one agent type navigation meshes are baked for, as navbake3d.AgentType defines it; each size 0 or omitted takes navbake3d's default.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Name uniquely identifies the agent type, such as \"humanoid\".",
+          "type": "string"
+        },
+        "radius": {
+          "description": "Radius is how far the mesh keeps from walls and ledges.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "height": {
+          "description": "Height is the clearance the agent needs.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "maxSlope": {
+          "description": "MaxSlope is the steepest walkable slope in degrees, below 90.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "maxClimb": {
+          "description": "MaxClimb is the highest step the agent climbs.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        }
+      },
+      "additionalProperties": false
+    },
+    "Navigation": {
+      "description": "Navigation is the navigation mesh bake settings of a project, as navbake3d.Settings defines them: each field 0 or omitted takes navbake3d's default. The scene's own layers are all baked.",
+      "type": "object",
+      "properties": {
+        "cellSize": {
+          "description": "CellSize is the width and depth of one cell of the voxel grid the level is baked on, in world units.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "cellHeight": {
+          "description": "CellHeight is the height of one cell, the precision of heights, clearances and steps.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "minRegionArea": {
+          "description": "MinRegionArea is the smallest area of an island of walkable surface that is kept.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "maxEdgeLength": {
+          "description": "MaxEdgeLength is the longest a polygon edge along a wall may be.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "maxSimplificationError": {
+          "description": "MaxSimplificationError is the farthest a simplified outline may stray from the walkable area.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "maxVertsPerPoly": {
+          "description": "MaxVertsPerPoly is the largest number of vertices in one polygon, from 3 to MaxNavVertsPerPoly.",
+          "type": "integer",
+          "minimum": -9223372036854776000,
+          "maximum": 9223372036854776000
+        },
+        "detailSampleDistance": {
+          "description": "DetailSampleDistance is the spacing of the height samples polygons follow uneven ground with, at least CellSize.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "detailSampleMaxError": {
+          "description": "DetailSampleMaxError is how far the polygons' triangles may stray from the sampled height.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "agents": {
+          "description": "Agents are the agent types a scene gets a navigation mesh each for, in the order the baked file lists them; empty bakes one called DefaultNavAgent.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/NavAgent"
+          }
+        }
+      },
       "additionalProperties": false
     },
     "Pack": {

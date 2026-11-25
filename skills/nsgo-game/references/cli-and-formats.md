@@ -32,6 +32,7 @@ go get -tool github.com/nsgo-dev/game/packages/game/cmd/game@latest
 | `game manifest` | `game manifest [-in assets -out -pkg -prefix -embed -embed-dir -check]` | Generate a typed Go asset manifest so missing assets fail compilation |
 | `game credits` | `game credits [-in game.yaml -out file]` | Generate the asset author/license credits file from `.import.yaml` sidecars |
 | `game pixelfx` | `game pixelfx [-out -name -fps -act -flip -set name=value -list] <category/name>` | Render a pixelfx effect (or it acted out) to a PNG sprite sheet + Aseprite JSON for `sprite.LoadAtlas` |
+| `game navmesh` | `game navmesh [-in project-dir -out file] <scene.yaml>` | Bake a scene's glTF level geometry into a `*.navmesh.yaml` navigation mesh per agent type of `game.yaml`'s `navigation` section |
 
 ### Testing, performance, shipping and shell support
 
@@ -62,9 +63,10 @@ Every file authored by a human or coding agent is plain-text YAML:
 
 | File / pattern | Package | Purpose |
 | --- | --- | --- |
-| `game.yaml` | `project` | Project name/ID, window, virtual resolution, input map, audio buses, autoloads, asset targets, export presets (`version: 1`) |
+| `game.yaml` | `project` | Project name/ID, window, virtual resolution, input map, audio buses, autoloads, asset targets, export presets, navigation bake settings and agent types (`version: 1`) |
 | `<asset>.import.yaml` | `tooling/importsettings` | Per-asset texture filter, slicing, audio settings and license/author credits (`version: 1`) |
 | `*.scene.yaml` | `sceneformat` | Scenes and prefabs: camera, layers, hierarchical objects, components and prefab instances (`version: 1`, or `version: 2` for a scene that instances or inherits other scene files) |
+| `*.navmesh.yaml`, named by a scene's `navMesh` | `navbake3d` | Baked 3D navigation meshes, one per agent type, written by `game navmesh` (`version: 1`) |
 | `<name>.<type>.yaml`, such as `stone.material.yaml` | `resource` | Shared resources; `type` is `material`, `curve`, `gradient`, `animation`, `theme`, `busLayout` or `physicsMaterial` (`version: 1`) |
 | `*.replay.yaml` | `replay` | Editable deterministic input recordings (seed, step rate, per-step action/axis transitions; `version: 2`) |
 | Any `.yaml` or `.yml` file, such as `weapons.yaml` | `tooling/datatable` | Typed game data tables (`version: 1`); `.csv` and `.json` exports load too, without a version |

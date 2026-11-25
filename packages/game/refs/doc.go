@@ -5,7 +5,7 @@
 // Scan reads a project and lists every reference one of its files makes to another, with the file, line and column that holds it:
 //
 //   - game.yaml (project.FileName): every path project.PathRefs lists, the autoloaded scenes and resources and the assets section's inputs, outputs and cache, some of which name folders (Ref.Dir) or what game assets writes (Ref.Output), which need not exist; a game.yaml that project.Parse refuses is a Problem, and none of its paths are read;
-//   - scenes (sceneformat), the files named *.scene.yaml or *.scene.yml and every other YAML file a reference names as a scene: the scene a scene inherits, the scene an object instances, an object's material and an override's material, and a tilemap's source;
+//   - scenes (sceneformat), the files named *.scene.yaml or *.scene.yml and every other YAML file a reference names as a scene: the scene a scene inherits, the navigation mesh file a scene names (navMesh, which game navmesh writes and so need not exist, Ref.Output), the scene an object instances, an object's material and an override's material, and a tilemap's source;
 //   - resource files (resource), YAML files whose header has a resource type: a material's texture;
 //   - Tiled maps (.tmj) and tilesets (.tsj, and .json files a map names as its external tileset): external tilesets, tileset and tile images and image layers;
 //   - sprite atlases, JSON files with top-level frames and meta objects: the page image in meta.image;

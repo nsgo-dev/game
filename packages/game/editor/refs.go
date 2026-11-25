@@ -261,12 +261,13 @@ func moveProjectPaths(f *project.File, move func(*string)) {
 	f.EachPath(func(_ string, p *string) { move(p) })
 }
 
-// moveScenePaths applies move to every file path doc holds: the scene it inherits, tilemap sources, and the scenes and materials of objects and overrides.
+// moveScenePaths applies move to every file path doc holds: the scene it inherits, its navigation mesh file, tilemap sources, and the scenes and materials of objects and overrides.
 func moveScenePaths(doc *sceneformat.SceneDoc, move func(*string)) {
 	if doc == nil {
 		return
 	}
 	move(&doc.Inherits)
+	move(&doc.NavMesh)
 	for _, tm := range doc.Tilemaps {
 		if tm != nil {
 			move(&tm.Source)

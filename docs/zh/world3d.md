@@ -138,6 +138,8 @@ queue.Submit(search, 0, func(_ ai.PathRequestID, _ ai.SearchStatus) {
 
 按任意正数步长分帧推进 `NavMeshSearch` 都会得到与 `FindPathWithOptions` 完全一致的 3D 贴地路径，部分路径会终止于已探索多边形上离目标最近的 3D 点。
 
+若要从关卡几何体烘焙这些多边形而不是手写，请使用 [navbake3d](navbake3d.md)：它为每种代理类型光栅化 glTF 模型、地形、`GridMap` 和物理碰撞体，`Mesh.NavMesh` 返回对应的 `NavMesh`。
+
 ### 3D 导航智能体（`NavAgent`、`NavAgentGroup`）
 
 `world3d.NavAgent` 在 `world3d.NavMesh` 上维护并局部修复 3D 多边形走廊，在水平 XZ 平面朝下一个漏斗拐角平滑转向，同时沿斜坡与多层桥梁精确跟踪地表高度（`NavPoly.HeightAt`），进入 `ArrivalRadius` 后平滑减速直至停稳于 `StoppingDistance` 内，并暴露明确的导航状态（`NavAgentIdle`、`NavAgentMoving`、`NavAgentArrived`、`NavAgentUnreachable`）：

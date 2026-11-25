@@ -1,0 +1,38 @@
+version: 1
+settings:
+  cellSize: 0.3
+  cellHeight: 0.2
+  minRegionArea: 1
+  maxEdgeLength: 12
+  maxSimplificationError: 0.4
+  maxVertsPerPoly: 6
+  detailSampleDistance: 1.8
+  detailSampleMaxError: 0.2
+  layerMask: 4294967295
+meshes:
+  - agent:
+      name: humanoid
+      radius: 0.6
+      height: 2
+      maxSlope: 45
+      maxClimb: 0.9
+    vertices:
+      - [0, 0, 0]
+      - [0, 0, 4]
+      - [4, 1, 4]
+      - [4, 1, 0]
+      - [8, 1, 4]
+      - [8, 1, 0]
+    polygons:
+      - vertices: [0, 1, 2, 3]
+        detail:
+          - [2, 0.75, 2]
+        triangles:
+          - [0, 1, 4]
+          - [1, 2, 4]
+          - [2, 3, 4]
+          - [3, 0, 4]
+      - vertices: [3, 2, 4, 5]
+        triangles:
+          - [0, 1, 2]
+          - [0, 2, 3]

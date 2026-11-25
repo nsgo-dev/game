@@ -18,6 +18,10 @@
       "description": "Name is the scene's human-readable name.",
       "type": "string"
     },
+    "navMesh": {
+      "description": "NavMesh optionally names the scene's baked navigation mesh file by its slash-separated path from the project root, such as \"levels/level1.navmesh.yaml\": a navbake3d file with one mesh per agent type, which the game navmesh command writes from the scene's geometry. In a scene that inherits another, a NavMesh set replaces the base's. Both versions accept it.",
+      "type": "string"
+    },
     "virtualWidth": {
       "description": "VirtualWidth and VirtualHeight are the scene's virtual viewport size in points. Both must be 0 or both positive.",
       "type": "number",

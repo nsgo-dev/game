@@ -117,6 +117,7 @@ Paths are relative to `github.com/nsgo-dev/game/packages`. The table is checked 
 | `game/mcp` | Experimental | [mcp](mcp.md) |
 | `game/modding` | Experimental | [modding](modding.md) |
 | `game/navbake` | Experimental | [navbake](navbake.md) |
+| `game/navbake3d` | Experimental | [navbake3d](navbake3d.md) |
 | `game/net` | Experimental | [net](net.md) |
 | `game/particles` | Experimental | [particles](particles.md) |
 | `game/perf` | Experimental | [perf](perf.md) |
