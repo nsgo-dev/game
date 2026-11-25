@@ -1,6 +1,6 @@
 # ai
 
-`game/ai` 提供可直接运行在 `game.Loop` 固定步长上的确定性游戏 AI 组件：网格 `AStar` 寻路、带漏斗平滑的 2D 导航网格 `NavMesh`、转向行为（steering）、行为树、效用 AI（Utility AI）评分、目标导向行动规划（GOAP）、攻击令牌与小队协作以及空间影响图（Influence Maps）。
+`game/ai` 提供可直接运行在 `game.Loop` 固定步长上的确定性游戏 AI 组件：网格 `AStar` 寻路、带漏斗平滑的 2D 导航网格 `NavMesh`、转向行为（steering）、行为树、效用 AI（Utility AI）评分、目标导向行动规划（GOAP）、攻击令牌与小队协作、空间影响图（Influence Maps），以及 EQS 风格的战术位置查询、掩体点与占位预订系统。
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/ai"
@@ -579,3 +579,78 @@ d.Restore()
 ```
 
 `DrawHeatmap` 会按 `cam.VisibleBounds()` 裁剪视野外格子，正值使用 `PositiveColor`（默认绿色）、负值使用 `NegativeColor`（默认红色），透明度随 `|value| / MaxAbs` 线性变化。在 `-tags release` 构建下，`DrawHeatmap` 编译为空操作桩函数，`InfluenceHeatmapEnabled()` 返回 `false`。
+
+## 战术位置查询与掩体点
+
+掩体射击、潜行与战术游戏可使用 `CoverPoint`、`TacticalQuery`、`PointReservations` 与 `QueryBudget` 回答“应该站在哪里”（相对威胁处于遮蔽的掩体位、带清晰射界的侧翼点、或低威胁的可达位置），全流程确定性排序且预热后零堆分配：
+
+```go
+// 从瓦片地图实心边缘生成掩体点（也可来自 2D/3D 物理碰撞体或场景 YAML）：
+covers := ai.GenerateCoverFromTilemap(levelMap, ai.TileCoverOptions{
+	DefaultHeight: ai.CoverFull,
+})
+
+reservations := ai.NewPointReservations(ai.ReservationConfig{
+	DefaultTimeout: 3 * time.Second,
+})
+budget := ai.NewQueryBudget(16, 8) // 每步最多 16 次视线射线检测与 8 次寻路查询
+
+query := ai.NewTacticalQuery(
+	[]ai.CandidateGenerator{
+		&ai.CoverPointGenerator{Points: covers, MaxRadius: 240},
+	},
+	&ai.AngleTest{
+		Mode:   ai.AngleCoverToTarget,
+		Filter: ai.AtMost(math.Pi / 3), // 掩体朝向与威胁方向夹角不超过 60 度
+		Weight: 2.0,
+		Invert: true,
+	},
+	&ai.CoverHeightTest{Prefer: ai.CoverFull, Weight: 1.0},
+	&ai.InfluenceTest{Layer: threatLayer, Weight: 1.5, Invert: true},
+	&ai.LOSTest{LOS: hasLineOfSight, WantClear: false, Weight: 2.0}, // 对威胁不可见
+	&ai.PathDistanceTest{Grid: navGrid, CellSize: 16, Weight: 2.0, Invert: true},
+)
+
+// 在 game.Loop.Update 中：
+budget.Reset()
+reservations.Step(dt)
+
+spot, ok := query.RunAndReserve(ai.TacticalContext{
+	QuerierID:    agentID,
+	QuerierPos:   agentPos,
+	TargetPos:    threatPos,
+	Reservations: reservations,
+	Budget:       budget,
+}, 0)
+_, _ = spot, ok
+
+// 智能体死亡或离开掩体时释放预订：
+reservations.Release(agentID)
+```
+
+### 掩体点与自动生成
+
+每个 `CoverPoint` 记录世界空间站位 `Pos`、由 `Pos` 指向掩体障碍物的单位朝向向量 `Facing`（即该掩体所阻挡的来袭威胁方向，障碍物外法线为 `Facing.Neg()`）、高度类型 `CoverHeight`（`CoverHalf` 半身掩体或 `CoverFull` 全身掩体），以及可选的 3D 高度 `Elevation`、`ID` 和 `Tags`。
+
+- **瓦片地图与网格生成**：`GenerateCoverFromTilemap(m, opts)` 合并连续的实心瓦片外露边缘（支持 `HalfCoverMask`、`HeightFunc` 或瓦片属性 `"cover": "half"|"full"`），并校验生成点落在可通行格内；`GenerateCoverFromGrid(g, origin, cellW, cellH, opts)` 可直接基于任意 `ai.Grid` 生成掩体点。
+- **2D 与 3D 碰撞体生成**：`GenerateCoverFromBoxes`、`GenerateCoverFromWorld`（支持 `physics.Box`、`physics.Circle` 柱体与 `World.Tiles`）以及 `GenerateCoverFromSegments` 从 2D 碰撞边缘生成掩体点，并剔除嵌入相邻障碍物内部的候选点。在 3D 场景中，`physics3d.World.GenerateCoverPoints(opts)` 将轴对齐盒、定向盒（OBB）、球体与胶囊体的竖直侧面投影到 XZ 平面，按高度自动区分 `CoverHalf`/`CoverFull` 并保留地面 `Elevation`。
+- **场景 YAML 编排**：通过 `sceneformat.RegisterCoverPoint(reg)` 注册内置 `"cover_point"` 组件（含 `height`、`facingX`、`facingY`、`tags` 字段），再用 `sceneformat.ExtractCoverPoints(doc)` 或 `sceneformat.ExtractBuiltCoverPoints(built)` 提取已应用父子变换的 `[]ai.CoverPoint`。
+
+### 候选点生成器与有序测试
+
+`TacticalQuery` 按声明顺序执行 `CandidateGenerator`，先排除已被其他智能体预订的位置，再依次运行 `TacticalTest`，最终按 `Score` 降序确定性排序返回存活的 `TacticalCandidate`（同分按 `CoverID`、`Pos.Y`、`Pos.X`、`Facing` 和生成顺序打破平局）：
+
+- **生成器**：`CoverPointGenerator`（支持 `MaxRadius`、`MinHeight`、`RequiredTag`）、`RingGenerator`（围绕目标或查询者的同心圆环或扇形弧，支持 `FaceCenter`）、`GridGenerator`（世界网格或 `ai.Grid` 可通行格）以及 `NavMeshGenerator`（`*ai.NavMesh` 多边形质心或等距网格采样）。
+- **测试项**：每个测试项通过 `Purpose`（`TestFilterAndScore`、`TestFilterOnly` 或 `TestScoreOnly`）、可选过滤区间 `Filter`（`AtLeast`、`AtMost`、`Between`）、权重 `Weight`、反转 `Invert` 及可选固定归一化区间 `NormMin`/`NormMax`（默认在存活候选间动态归一化）组合：
+  - `DistanceTest`：到 `OriginQuerier`、`OriginTarget` 或 `OriginCustom` 的欧氏距离。
+  - `AngleTest`：方向夹角（弧度），支持 `AngleCoverToTarget`、`AngleFlank`、`AngleToDirection` 与 `AngleFromTargetToDir`。
+  - `InfluenceTest`：直接对 `*ai.InfluenceLayer` 双线性采样评分。
+  - `CoverHeightTest`：按 `MinHeight` 过滤并偏好 `CoverHalf`/`CoverFull`。
+  - `LOSTest`：通过游戏传入的 `LOSFunc` 回调检查候选点与目标之间（可双向）的视线通畅性（`WantClear: true` 用于寻找射界，`false` 用于寻找隐蔽掩体）。
+  - `PathDistanceTest`：支持自定义 `PathCost` 回调、零分配网格 `AStar` 寻路或零分配 2D `NavMesh` 漏斗路径长度。
+  - `CustomTest`：自定义 `Eval(ctx, candidate)` 回调。
+
+### 占位预订与单步预算
+
+- **`PointReservations`**：保证任意两个智能体不会同时预订同一 `CoverID`，也不会预订间距小于 `MinSeparation` 的位置。`RunAndReserve` 自动选取并预订最优未占用点，同时原子替换该智能体的旧预订；死亡时调用 `Release(agentID)`、掩体摧毁时调用 `ReleaseCover(coverID)`、`Refresh` 续期，`Step(dt)` 确定性过期超时预订。
+- **`QueryBudget`**：对共享同一预算的所有智能体严格限制单步 `MaxRaycasts`（`LOSTest`）与 `MaxPathQueries`（`PathDistanceTest`）。进入高开销测试前，存活候选会按前置低开销测试得分确定性排序，确保有限预算优先花在最优候选上。每步开始调用一次 `Reset()`；使用 `Best`、`RunInto(dst, ctx)` 或 `RunAndReserve` 在预热后每次查询零堆分配。
