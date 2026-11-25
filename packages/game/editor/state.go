@@ -17,6 +17,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/nsgo-dev/game/packages/game/animclip"
+	"github.com/nsgo-dev/game/packages/game/internal/releaseplan"
 	"github.com/nsgo-dev/game/packages/game/l10n"
 	"github.com/nsgo-dev/game/packages/game/loaderr"
 	"github.com/nsgo-dev/game/packages/game/math2d"
@@ -362,6 +363,20 @@ type Editor struct {
 	OnOpenSourceFile func(file string, line int) error
 	// ExportCommandRunner runs `go` with args for the Export panel's release builds, streaming output to stdout and stderr; when nil the editor invokes `go` via os/exec.
 	ExportCommandRunner func(ctx context.Context, args []string, stdout, stderr io.Writer) error
+	// ReleaseCheckRunner overrides `nsgo check` for the Build and Release screen's preflight and Check project step; when nil, runProjectCheck runs over the project directory.
+	ReleaseCheckRunner func(ctx context.Context, dir string) ([]assetcheck.Problem, time.Duration, error)
+	// ReleaseStepRunner optionally overrides execution of each Build and Release step (Check project, Compile Go, Pack assets, Sign, Smoke playtest, Measure).
+	ReleaseStepRunner func(ctx context.Context, req ReleaseStepRequest, stdout, stderr io.Writer) error
+	// ReleasePlaytestRunner overrides the Smoke playtest step of a Build and Release run; when nil, a default summary is produced.
+	ReleasePlaytestRunner func(ctx context.Context, platform string, dir string) (BuildSmokePlaytestResult, error)
+	// ReleaseMeasureRunner overrides the Measure step of a Build and Release run; when nil, artifact size and category breakdown are measured from disk and compared against the last release baseline.
+	ReleaseMeasureRunner func(ctx context.Context, platform string, plan *releaseplan.Plan) (BuildArtifactResult, error)
+	// ReleaseReadinessInspector overrides platform readiness evaluation on the Build and Release screen; when nil, built-in readiness checks (including iOS bundle id, icon, certificate, provisioning profile, privacy manifest, and touch controls) are used.
+	ReleaseReadinessInspector func(platform string, dir string, f *project.File) []BuildReadinessItem
+	// OnReleaseReadinessPersonAction is called when the author clicks a readiness action that requires the person (such as signing in to Apple for a provisioning profile).
+	OnReleaseReadinessPersonAction func(platform string, item BuildReadinessItem) error
+	// OnReviewReleaseUploads is called when the author presses "Review uploads..." on the Build and Release screen; nothing is uploaded automatically.
+	OnReviewReleaseUploads func(snapshot BuildReleaseSnapshot) error
 	// OpenOutputFolder opens the release output directory in the OS file manager after a successful non-dry-run build; when nil the editor uses the host platform's default opener.
 	OpenOutputFolder func(dir string) error
 	// RunGameCommand starts the child game process for RunGame / RunGameWith, streaming output to stdout and stderr; when nil the editor launches `go tool game dev` in the open project directory in its own process group on desktop.
@@ -562,6 +577,8 @@ type Editor struct {
 	problems problemState
 	// exportPanel holds the Export & Release panel state, credits pre-flight report, and build output stream.
 	exportPanel exportPanelState
+	// buildRelease holds the full-window Build and Release screen state, preflight checks, preset build steps, logs, failures, results, and readiness checks.
+	buildRelease buildReleaseState
 	// search holds the cached project search index, active search results and Find References state.
 	search projectSearchState
 	// assetDrawer holds the Assets rail/drawer state, filter/sort/selection, preview playback, and drag-to-viewport state.

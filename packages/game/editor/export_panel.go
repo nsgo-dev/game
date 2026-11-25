@@ -866,7 +866,7 @@ func ensureExport(f *project.File) *project.Export {
 }
 
 func cleanupEmptyExport(f *project.File) {
-	if f.Export != nil && f.Export.Output == "" && len(f.Export.Presets) == 0 {
+	if f.Export != nil && f.Export.Output == "" && f.Export.Budgets == nil && len(f.Export.Presets) == 0 {
 		f.Export = nil
 	}
 }

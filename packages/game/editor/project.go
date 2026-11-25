@@ -235,6 +235,7 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 	e.dropStaleFocusedPluginPanel()
 	e.syncAudioMixer()
 	e.resetExportPanelForProject()
+	e.resetBuildReleaseForProject()
 	_ = e.RecordRecentProject(f.Name, filepath.Dir(path))
 	e.syncNavMeshForProject()
 	e.resetHUDForProject()

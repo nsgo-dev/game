@@ -98,6 +98,7 @@ type gameFileHead struct {
 // exportSection is game.yaml's export section, decoded once knownFields has refused unknown fields.
 type exportSection struct {
 	Output  string         `yaml:"output"`
+	Budgets yaml.Node      `yaml:"budgets"`
 	Presets []exportPreset `yaml:"presets"`
 }
 
@@ -172,8 +173,13 @@ func parseExportSettings(data []byte) (releaseSettings, bool, error) {
 		return releaseSettings{}, hasAssets, nil
 	}
 	// Node.Decode cannot refuse unknown fields, so the section's keys are checked first, keeping the file's line numbers in the errors.
-	if err := knownFields(&head.Export, "export", "output", "presets"); err != nil {
+	if err := knownFields(&head.Export, "export", "output", "budgets", "presets"); err != nil {
 		return releaseSettings{}, false, err
+	}
+	if budgets := field(&head.Export, "budgets"); budgets != nil && budgets.Kind == yaml.MappingNode {
+		if err := knownFields(budgets, "export budgets", "qualityProfile", "downloadSizeMB", "frameTimeP95Ms"); err != nil {
+			return releaseSettings{}, false, err
+		}
 	}
 	if presets := field(&head.Export, "presets"); presets != nil && presets.Kind == yaml.SequenceNode {
 		if len(presets.Content) == 0 {

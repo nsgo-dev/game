@@ -1,0 +1,3 @@
+### Added
+
+- `game/editor`, `game/project`: add a full-window Build and Release screen (`BuildReleaseScreenView`, `OpenBuildReleaseScreen`, `StartReleaseBuild`, `StopReleaseBuild`, `ResumeReleaseBuild`, `SetBuildPresetIncluded`, `SetBuildPresetFixProposal`, `ApplyBuildPresetFixAndRebuild`) with `export.budgets` support in `game.yaml`, BEFORE EVERY BUILD checks (`nsgo check`, smoke playtest, and budgets), sequential per-preset builds with ordered steps and `build/<platform>.log` streaming matching `game release -dry-run`, failure isolation with agent preset fix diffs, size breakdown and delta against the last release, and platform readiness checks (#1048).

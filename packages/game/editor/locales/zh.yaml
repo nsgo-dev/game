@@ -14,6 +14,8 @@ strings:
   cmd.audioMixer.label: 音频总线混音器
   cmd.bakeNavMesh3d.desc: 从当前场景的静态几何体烘焙 3D 导航网格
   cmd.bakeNavMesh3d.label: 烘焙 3D 导航网格
+  cmd.buildRelease.desc: 打开包含就绪检查、构建前校验与版本体积对比的构建与发布界面
+  cmd.buildRelease.label: 构建与发布界面
   cmd.category.edit: 编辑
   cmd.category.file: 文件
   cmd.category.gizmo3d: 3D 操纵杆
@@ -292,6 +294,7 @@ strings:
   material.title: 材质编辑器
   menu.applyOverridesToSource: 将覆盖应用到源场景
   menu.audioMixer: 音频总线混音器
+  menu.buildRelease: 构建与发布…
   menu.changes: 变更与提交
   menu.checkProblems: 检查问题
   menu.closeTab: 关闭场景标签页

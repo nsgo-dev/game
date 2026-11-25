@@ -199,6 +199,7 @@ func (e *Editor) OpenDemo() error {
 	e.dropStaleFocusedPluginPanel()
 	e.syncAudioMixer()
 	e.resetExportPanelForProject()
+	e.resetBuildReleaseForProject()
 	e.resetHUDForProject()
 	e.hud.open = false
 	e.resetPlaytestForProject()

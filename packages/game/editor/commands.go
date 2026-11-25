@@ -82,6 +82,7 @@ const (
 	CmdHUDLayout              = "project.hud"
 	CmdMaterialEditor         = "project.material"
 	CmdExport                 = "project.export"
+	CmdBuildRelease           = "project.buildRelease"
 	CmdProfiler               = "project.profiler"
 	CmdCheckProblems          = "project.check"
 	CmdFindUsages             = "project.findUsages"
@@ -1423,6 +1424,26 @@ func (e *Editor) initBuiltinCommands() {
 			},
 		},
 		{
+			ID:          CmdBuildRelease,
+			Label:       "Build & Release Screen",
+			Description: "Open the Build and Release screen with readiness, pre-build checks, and release size comparison",
+			Category:    "Project",
+			Keywords:    []string{"build", "release", "export", "readiness", "signing", "budgets", "presets", "publish"},
+			Shortcut:    "mod+shift+r",
+			Scope:       ScopeGlobal,
+			Enabled: func() bool {
+				return !e.StartScreenOpen() && !e.MergeConflictOpen() && !e.Playing() && (e.BuildReleaseScreenOpen() || e.Project != nil)
+			},
+			Checked: func() bool { return e.BuildReleaseScreenOpen() },
+			Run: func() error {
+				if e.BuildReleaseScreenOpen() {
+					e.CloseBuildReleaseScreen()
+					return nil
+				}
+				return e.OpenBuildReleaseScreen()
+			},
+		},
+		{
 			ID:          CmdProfiler,
 			Label:       "Profiler",
 			Description: "Toggle the Profiler panel for the running game",
@@ -1734,6 +1755,7 @@ var builtinCommandKeys = map[string][3]string{
 	CmdLocalization:          {"cmd.localization.label", "cmd.localization.desc", "cmd.category.project"},
 	CmdMaterialEditor:        {"cmd.materialEditor.label", "cmd.materialEditor.desc", "cmd.category.project"},
 	CmdExport:                {"cmd.export.label", "cmd.export.desc", "cmd.category.project"},
+	CmdBuildRelease:          {"cmd.buildRelease.label", "cmd.buildRelease.desc", "cmd.category.project"},
 	CmdProfiler:              {"cmd.profiler.label", "cmd.profiler.desc", "cmd.category.project"},
 	CmdCheckProblems:         {"cmd.checkProblems.label", "cmd.checkProblems.desc", "cmd.category.project"},
 	CmdFindUsages:            {"cmd.findUsages.label", "cmd.findUsages.desc", "cmd.category.project"},
