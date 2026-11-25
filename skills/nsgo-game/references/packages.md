@@ -38,7 +38,7 @@ Every non-internal package under `github.com/nsgo-dev/game/packages` (shown rela
 | `game/pixelfx/impacts` | Experimental | pixelfx impacts (blunt hit, bullet impact, critical hit, ground slam, heavy landing, hit flash, hit spark, impact frame, parry, ricochet, shield block) |
 | `game/pixelfx/lightning` | Experimental | pixelfx lightning effects (ball lightning, chain lightning, charge up, electrified, lightning strike, plasma ball, spark arc, storm cloud, tesla coil, thunderclap, zap hit) |
 | `game/pixelfx/melee` | Experimental | pixelfx melee attacks acted out by the rig (claw swipe, dagger flurry, double slash, hammer smash, heavy cleave, scythe reap, spear sweep, spin slash, sword slash, thrust, uppercut, whip crack) |
-| `game/pixelfx/moves` | Experimental | pixelfx character moves acted out by the rig (ground pound so far) |
+| `game/pixelfx/moves` | Experimental | pixelfx character moves acted out by the rig (arrow shot, earth stomp, ground pound, pistol shots, rocket launcher) |
 | `game/pixelfx/nature` | Experimental | pixelfx nature effects (acid splash, boulder, earth spike, healing bloom, leaf storm, poison cloud, quake, root snare, spore burst, thorns, tornado, toxic puddle, vine whip) |
 | `game/pixelfx/pickups` | Experimental | pixelfx pickups and loot effects (coin, chest, health, mana, keys, orbs, buffs, drops) |
 | `game/pixelfx/projectiles` | Experimental | pixelfx projectile and muzzle-flash effects (arrow, laser, rocket, missile, tracer, cannonball, disc, flare, plasma, muzzles) |

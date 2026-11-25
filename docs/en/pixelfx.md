@@ -23,7 +23,7 @@ The port follows pixelfx at commit `5294518ce7c72e48b6100a744596e0acf57f2826` wi
 | `game/pixelfx/impacts` | Impacts: blunt hit, bullet impact, critical hit, ground slam, heavy landing, hit flash, hit spark, impact frame, parry, ricochet and shield block |
 | `game/pixelfx/lightning` | Lightning: ball lightning, chain lightning, charge up, electrified, lightning strike, plasma ball, spark arc, storm cloud, tesla coil, thunderclap and zap hit |
 | `game/pixelfx/melee` | Melee attacks, each acted out by the stock character with its weapon: claw swipe, dagger flurry, double slash, hammer smash, heavy cleave, scythe reap, spear sweep, spin slash, sword slash, thrust, uppercut and whip crack. Their size options (`radius`, `reach`, `length`) are kept between 1 and 416 px |
-| `game/pixelfx/moves` | Moves acted out by a character: the ground pound so far |
+| `game/pixelfx/moves` | Moves acted out by a character: arrow shot, earth stomp, ground pound, pistol shots and rocket launcher; the remaining moves (dash strike, fireball throw, holy smite, ice lance throw, lightning call, meteor call, sword combo) follow next |
 | `game/pixelfx/critters` | Critters: bat, bird, butterfly, eyeball, fish school, flying skull, frog, ghost, jellyfish, slime, snake and wisp |
 | `game/pixelfx/ice` | Ice: blizzard vortex, freeze, frost breath, frost nova, ice crystal, ice lance, ice shatter, ice spikes, icicle fall and snowflake burst |
 | `game/pixelfx/nature` | Nature: acid splash, boulder, earth spike, healing bloom, leaf storm, poison cloud, quake, root snare, spore burst, thorns, tornado, toxic puddle and vine whip |
