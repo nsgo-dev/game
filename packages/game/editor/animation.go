@@ -135,6 +135,7 @@ func (e *Editor) SaveClipFile(path string) error {
 	}
 	e.clipMeta.path = path
 	e.filesRev++
+	e.invalidateProjectIndex()
 	e.Status = "Saved clip " + path
 	e.notify()
 	e.CheckProblems()

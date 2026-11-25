@@ -446,7 +446,7 @@ scenes/level.scene.yaml:12: sceneformat: connection 0 ("lever" held -> "west/doo
 
 编辑器也能打开游戏的[项目文件](project.md)：`OpenProject` 读取 `game.yaml` 并打开其中的主场景，`EditProject` 以可撤销的步骤修改它，`SaveProject` 写入它并同步旁边的 `nsgo.yaml`。运行 `go tool game editor <dir>` 即可打开一个项目目录。`MoveFile(from, to)` 移动项目中的文件或目录，并像 `go tool game mv` 一样改写所有指向它的引用，包括磁盘上的文件和当前打开的场景与项目（见[稳定引用](project.md#稳定引用)）；这是一个步骤，可以撤销，也可以重做。撤销会把移动改写过的每个文件逐字节恢复原样；如果某个文件在移动之后又被改过，则只把其中的引用改写回去。
 
-打开项目后，资源浏览器下方的文件浏览器（`FilesView`）列出项目中的文件和目录（`ProjectFiles`），不列出 `game index` 和 `game mv` 同样跳过的目录：名称以 `.` 或 `_` 开头的目录和名为 `testdata` 的目录。点击一项即可选中它，并把它的路径填入列表下方的输入框；改好路径后点击“Move”，就会通过 `MoveFile` 重命名或移动它；选中 `.yaml`/`.yml` 文件时也可以点击“Open Table”，在数据表编辑器中打开它（`OpenDataTableProjectFile`）。编辑器之外的操作改动了文件后，点击“Refresh”重新列出文件。
+打开项目后，资源浏览器下方的文件浏览器（`FilesView`）列出项目中的文件和目录（`ProjectFiles`），不列出 `game index` 和 `game mv` 同样跳过的目录：名称以 `.` 或 `_` 开头的目录和名为 `testdata` 的目录。点击一项即可选中它，并把它的路径填入列表下方的输入框；改好路径后点击“Move”，就会通过 `MoveFile` 重命名或移动它；选中 `.yaml`/`.yml` 文件时也可以点击“Open Table”，在数据表编辑器中打开它（`OpenDataTableProjectFile`）；点击“Find Refs”则列出整个项目中指向该文件的所有引用（`ShowReferences`）。编辑器之外的操作改动了文件后，点击“Refresh”会重新列出文件并重新扫描项目搜索与引用索引（`RefreshSearch`）。
 
 ## 数据表编辑器（#918）
 
@@ -592,3 +592,12 @@ func main() {
 - **预设与输出目录**：编辑 `export.output`（`SetExportOutput`），添加、删除和重排各平台预设（`AddExportPreset`、`RemoveExportPreset`、`MoveExportPreset`），并仅从各平台合法目标 `project.TargetsOf(platform)` 中选择构建目标（`SetExportPresetTargets`、`ToggleExportPresetTarget`）。所有修改都通过 `EditProject` 完成（经 `project.Validate` 校验并支持撤销/重做），在 `export` 为空时自动清理该小节，点击 **Save**（`SaveProject`）时写出规范 YAML 并同步 `nsgo.yaml`，与 `gameproject targets` 保持一致。
 - **鸣谢（Credits）预检**：面板打开、刷新（`CheckExportCredits`）或开始构建前，都会执行与 `game release` 相同的 `tooling/credits` 扫描。任何缺少鸣谢信息的资源都会连同其对应的 `*.import.yaml` 边车路径一并列出，并在补全前阻止发布构建；补全鸣谢后刷新即可清除告警，成功构建时会在输出目录写入 `CREDITS.md`。
 - **构建、演练与输出流**：支持构建全部预设或勾选指定目标（`ExportSelectedTargets`），并可配置分发渠道（`SetExportChannel`）、发布说明文件（`SetExportReleaseNotes`）以及 **Dry Run** 开关（`SetExportDryRun`）。`StartExportBuild` / `RunExportBuild` 与 `go tool game release` 共用同一套发布命令规划器，因此演练构建会在 UI 协程之外将完全一致的 `nsgo build` 命令行流式输出到面板的 Output 区域，非演练构建成功后自动打开解析出的输出目录（`OpenOutputFolder` / `OpenExportOutputFolder`）。
+
+## 项目搜索与查找引用（#914）
+
+打开项目后，文件浏览器的 **Search** 按钮（`SearchOpen` / `SetSearchOpen`）会在视口下方切换显示搜索与引用面板（`SearchPanelView`），用于在项目内快速跳转或回答“哪些文件引用了当前文件”：
+
+- **全项目搜索（`Search`、`SetSearchQuery`、`SearchResults`）**：索引项目中的所有文件（遵循与 `ProjectFiles` 和 `refs.Scan` 相同的目录遍历规则）并解析所有场景文件（`*.scene.yaml`、`*.scene.yml`、自动加载场景以及被其他文件引用的场景）。不区分大小写的查询（支持空格分隔的多词组合查询）可匹配文件名与路径（`SearchFile`）、文件头或 `game.index.yaml` 中的稳定 UID（`SearchUID`）、场景名称，以及场景内的对象 ID 与显示名称（`SearchObject`，含嵌套子对象）、组件类型（`SearchComponent`，含覆盖项中的组件）、预制件引用（`SearchPrefab`）和实例化/继承的场景路径（`SearchSceneRef`）。
+- **跳转到结果（`OpenSearchResult`）**：激活非场景文件的结果会在文件浏览器中选中它（`SelectedFile`）。激活场景文件或场景对象的结果会打开该场景（同步 `ScenePath` 与 `SelectedFile`）并选中匹配对象（`SelectedID`，若匹配的是嵌套子对象则回退选中其顶层祖先）。如果该场景已经打开，则直接就地选中对象，不会从磁盘重新加载，也不会丢失未保存编辑与撤销历史。
+- **查找引用（`FindReferences`、`ShowReferences`、`ShowSelectedFileReferences`、`References`、`OpenReference`）**：在文件浏览器中选中任意文件或目录并点击 **Find Refs**，即可基于 `refs.Scan` 列出所有入向引用，按 `refs.Scan` 报告的顺序逐行展示引用文件、从 1 开始的行号、字段名和原始值。点击某条引用会打开引用它的场景（若该行归属于某个顶层对象则自动选中该对象），或在文件浏览器中选中非场景引用文件。
+- **实时索引刷新（`RefreshSearch`）**：对当前已打开场景的内存编辑（`PlaceObject`、`SetObjectName`、`DeleteObject`、撤销/重做）会立即更新活动搜索结果；保存场景、项目、动画片段、数据表或本地化文件、安装/移除包，以及移动文件（`MoveFile` 及其撤销/重做，同时自动跟踪 `ReferencesTarget`）都会自动失效并刷新索引；编辑器外部的磁盘改动既可通过轻量目录指纹自动感知，也可点击 **Refresh**（`RefreshSearch`）强制重扫。

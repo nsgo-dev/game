@@ -124,7 +124,10 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 								Text:    "Refresh",
 								Size:    ui.SizeSmall,
 								Variant: ui.ButtonSecondary,
-								OnPress: func() { refresh.Set(refresh.Get() + 1) },
+								OnPress: func() {
+									refresh.Set(refresh.Get() + 1)
+									ed.report(ed.RefreshSearch())
+								},
 							},
 						},
 					},
@@ -196,6 +199,42 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 										return
 									}
 									if err := ed.OpenDataTableProjectFile(from); err != nil {
+										ed.report(err)
+									}
+								},
+							},
+						},
+					},
+					ui.HStack{
+						Gap: 6,
+						Children: []core.Node{
+							ui.ToggleButton{
+								TestID: "files-search",
+								Text:   "Search",
+								Label:  "Toggle the Project Search and References panel",
+								On: func() bool {
+									_ = rev.Get()
+									return ed.SearchOpen()
+								},
+								OnChange: func(on bool) {
+									ed.SetSearchOpen(on)
+								},
+							},
+							ui.Button{
+								TestID:  "files-find-refs",
+								Text:    "Find Refs",
+								Label:   "Find every reference to the selected file across the project",
+								Size:    ui.SizeSmall,
+								Variant: ui.ButtonSecondary,
+								Disabled: func() bool {
+									return current.Get() == ""
+								},
+								OnPress: func() {
+									from := current.Get()
+									if from == "" {
+										return
+									}
+									if _, err := ed.ShowReferences(from); err != nil {
 										ed.report(err)
 									}
 								},

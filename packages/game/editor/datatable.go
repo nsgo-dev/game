@@ -267,6 +267,7 @@ func (e *Editor) SaveDataTableFile(path string) error {
 	e.table.rowType = e.DataTableRowTypeFor(path)
 	e.table.lastErr = nil
 	e.filesRev++
+	e.invalidateProjectIndex()
 	e.Status = "Saved table " + path
 	e.notify()
 	return nil
