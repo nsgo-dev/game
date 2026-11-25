@@ -12,7 +12,7 @@ go tool nsgo dev
 
 ## 演示了什么
 
-- [`game/cards`](cards.md)：从 `board.yaml` 加载的 `Board`，用鼠标或手指拖动卡牌，规则允许的地方放下，其余的飞回原处；棋盘的 `Accept` 是每一次按键、按钮、点按和放下都要经过的同一条规则。
+- [`game/cards`](cards.md)：从 `board.yaml` 加载的 `Board`，用鼠标或手指拖动卡牌，规则允许的地方放下，其余的飞回原处；棋盘的 `Accept` 是每一次放下、每一次把手牌接上梯子或扔掉都要经过的规则，无论来自按键、按钮、点按还是拖动；摸牌和把弃牌堆翻过来则经过 `canDraw`。
 - [`game/random`](determinism.md)：第 *n* 局用以 *n* 为种子的 `random.Stream` 洗牌，所以每位玩家的第 *n* 局都是同一局，测试也能指明它们赢下和输掉的是哪几局。
 - [`game/save`](save.md)：进行中的牌局和胜负记录在每一步之后存进 `core.Storage`；读取时会检查，损坏的或不可能出现的存档会重新发一局，由更新版本的游戏写下的存档则原样保留。
 - [`game/project`](project.md) 和 [`game/input`](input.md)：`game.yaml` 的输入映射把按键和手柄按钮绑定到动作 `left`、`right`、`play`、`discard`、`draw` 和 `deal`，`Project.BindInput` 把它读进 `input.Actions`。
@@ -48,7 +48,7 @@ go tool nsgo dev
 
 - 牌组和难度在 `rules.yaml`。当测试所用的谨慎玩法在 200 局中赢下不到十分之一或超过十分之九时，`TestSomeDealsAreWon` 会失败；`table_test.go` 中的 `winDeal` 和 `loseDeal` 是完整对局测试赢下和输掉的牌局，改动规则后要重新挑选。
 - 牌桌布局在 `board.yaml`，使用显示区域的坐标。缺少规则所需槽位的牌桌会被 `newTable` 拒绝。
-- 走法在 `table.go`：`allows` 决定哪张牌可以去哪里，`judge` 决定牌局何时胜负已分。
+- 走法在 `table.go`：`allows` 决定哪张牌可以去哪里，`canDraw` 决定何时可以摸牌或把弃牌堆翻成新的摸牌堆，`judge` 决定牌局何时胜负已分。
 - 操作在 `game.yaml` 的输入映射中，用 `go run github.com/nsgo-dev/game/packages/game/cmd/gameproject check` 校验。
 - 卡牌图案是 `render.go` 中的 `drawCard` 和 `drawSuit`。
 

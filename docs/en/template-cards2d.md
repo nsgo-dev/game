@@ -12,7 +12,7 @@ go tool nsgo dev
 
 ## What it shows
 
-- [`game/cards`](cards.md): a `Board` loaded from `board.yaml`, cards dragged with the mouse or a finger and dropped where the rules allow, the others flying back, and the board's `Accept` as the one rule every key, button, tap and drop goes through.
+- [`game/cards`](cards.md): a `Board` loaded from `board.yaml`, cards dragged with the mouse or a finger and dropped where the rules allow, the others flying back, and the board's `Accept` as the rule every drop and every play or throw of a hand card goes through, whether by key, button, tap or drag; drawing and turning the discard pile over go through `canDraw`.
 - [`game/random`](determinism.md): deal *n* is shuffled by a `random.Stream` seeded with *n*, so every player's deal *n* is the same game and the tests can name the deals they win and lose.
 - [`game/save`](save.md): the game in progress and the record of wins and losses kept in `core.Storage` after every move, checked on load so a damaged or impossible save deals a new game, and left alone when a newer version of the game wrote it.
 - [`game/project`](project.md) and [`game/input`](input.md): `game.yaml`'s input map binds keys and gamepad buttons to the actions `left`, `right`, `play`, `discard`, `draw` and `deal`, and `Project.BindInput` reads it into `input.Actions`.
@@ -48,7 +48,7 @@ Starting a new deal before a game is over counts as a loss.
 
 - The deck and the difficulty are in `rules.yaml`. `TestSomeDealsAreWon` fails when a careful player, as the tests play, wins fewer than a tenth or more than nine tenths of 200 deals, and `winDeal` and `loseDeal` in `table_test.go` are the deals the playthroughs win and lose; after changing the rules, pick them again.
 - The table's layout is in `board.yaml`, in the display's coordinates. `newTable` refuses a board that lacks a slot the rules need.
-- The moves are in `table.go`: `allows` says which card may go where, and `judge` when a game is won or lost.
+- The moves are in `table.go`: `allows` says which card may go where, `canDraw` when a card may be drawn or the discard pile turned over, and `judge` when a game is won or lost.
 - The controls are in `game.yaml`'s input map, which `go run github.com/nsgo-dev/game/packages/game/cmd/gameproject check` validates.
 - The card art is `drawCard` and `drawSuit` in `render.go`.
 

@@ -131,6 +131,30 @@ func TestGameResumesAfterARestart(t *testing.T) {
 	}
 }
 
+// TestDamagedRecordsNumberOnFromTheResumedDeal starts on a game in progress whose records slot is damaged and checks that the next deal follows the resumed one rather than starting again at deal 1.
+func TestDamagedRecordsNumberOnFromTheResumedDeal(t *testing.T) {
+	app, g := startGame(t, map[string]string{recordsKey: recordsJSON(t, records{NextDeal: 4})})
+	keys := keyControls{app: app, g: g}
+	m, _ := nextMove(g.table)
+	keys.make(m)
+	table, ok := app.Storage().GetItem(tableKey)
+	if !ok {
+		t.Fatal("nothing saved under " + tableKey)
+	}
+
+	again, g2 := startGame(t, map[string]string{recordsKey: `{"version":1,"data":`, tableKey: table})
+	if got := again.Find("id:deal").Text; got != "Deal 4" {
+		t.Fatalf("deal = %q, want Deal 4", got)
+	}
+	if g2.records.NextDeal != 5 {
+		t.Fatalf("next deal %d, want 5", g2.records.NextDeal)
+	}
+	again.Press("role:button New deal")
+	if got := again.Find("id:deal").Text; got != "Deal 5" {
+		t.Fatalf("after New deal, deal = %q, want Deal 5", got)
+	}
+}
+
 // TestDamagedTableSaveDealsAgain starts on a table slot that does not hold a game and checks that the next deal is dealt instead.
 func TestDamagedTableSaveDealsAgain(t *testing.T) {
 	app, _ := startGame(t, map[string]string{
