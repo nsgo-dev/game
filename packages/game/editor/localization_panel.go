@@ -695,6 +695,7 @@ func (e *Editor) SaveLocalizationsTo(dir string) error {
 	e.l10n.dir = dir
 	e.l10n.saved = encoded
 	e.filesRev++
+	e.invalidateProjectIndex()
 	e.Status = fmt.Sprintf("Saved %d locale file(s) to %s", len(e.l10n.locales), dir)
 	e.notify()
 	return nil

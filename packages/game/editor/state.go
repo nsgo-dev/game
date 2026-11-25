@@ -255,6 +255,8 @@ type Editor struct {
 	problems problemState
 	// exportPanel holds the Export & Release panel state, credits pre-flight report, and build output stream.
 	exportPanel exportPanelState
+	// search holds the cached project search index, active search results and Find References state.
+	search projectSearchState
 }
 
 // DefaultSceneDoc returns a valid starter SceneDoc suitable for a new editor session.
@@ -353,6 +355,7 @@ func (e *Editor) afterMutate() {
 	e.syncAudioMixer()
 	e.syncExportPanel()
 	e.Rebuild()
+	e.refreshOpenSceneSearch()
 	e.notify()
 }
 
@@ -535,6 +538,7 @@ func (e *Editor) SaveFile(path string) error {
 	}
 	e.FilePath = path
 	e.filesRev++
+	e.invalidateProjectIndex()
 	e.Status = "Saved " + path
 	e.notify()
 	e.CheckProblems()

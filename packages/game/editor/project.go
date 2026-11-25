@@ -50,6 +50,7 @@ func (e *Editor) OpenProject(path string) error {
 	e.projectSaved = saved
 	e.projectSavedOnce = false
 	e.selectFile("")
+	e.resetSearchForProject()
 	e.filesRev++
 	e.History.Clear()
 	e.dropStalePluginTool()
@@ -120,6 +121,7 @@ func (e *Editor) SaveProject() error {
 	}
 	e.projectSaved = data
 	e.projectSavedOnce = true
+	e.invalidateProjectIndex()
 	e.Status = "Saved project " + e.ProjectPath
 	e.notify()
 	e.CheckProblems()

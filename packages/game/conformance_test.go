@@ -22,6 +22,7 @@ const (
 // notFormats are the packages that decode YAML without defining a format of their own, each with the reason, so they need not run formattest.Run. Every other package that decodes YAML must.
 var notFormats = map[string]string{
 	"cmd/game":             "reads single settings out of game.yaml and nsgo.yaml, whose formats package project and NSGo define",
+	"editor":               "scans project YAML headers for file UIDs during project search without defining a format of its own",
 	"internal/formattest":  "the conformance checks themselves, which decode a document to edit it",
 	"internal/releaseplan": "reads single settings out of nsgo.yaml, whose format NSGo defines",
 	"loaderr":              "decodes a document only to find a field's line and column for an error",

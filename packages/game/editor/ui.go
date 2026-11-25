@@ -17,6 +17,7 @@ import (
 //   - The panels of the plugins that are on (Plugin), docked left or right of the viewport or below it
 //   - Animation panel below them while a clip is open (AnimationPanelView)
 //   - Project Settings panel below them while open (ProjectSettingsPanelView)
+//   - Search & References panel below them when toggled or showing references (SearchPanelView)
 //   - Problems panel below them while a project is open (ProblemsView)
 //   - Bottom status bar (including the live problem count while a project is open)
 func EditorView(cx *core.Scope, ed *Editor) core.Node {
@@ -66,6 +67,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 			AudioMixerPanelView(cx, ed, rev),
 			InputMapPanelView(cx, ed, rev),
 			LocalizationPanelView(cx, ed, rev),
+			SearchPanelView(cx, ed, rev),
 			ProblemsView(cx, ed, rev),
 			ExportPanelView(cx, ed, rev),
 			statusBarView(cx, ed, rev),
@@ -421,6 +423,7 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 									ed.notify()
 									return
 								}
+								ed.invalidateProjectIndex()
 								ed.CheckProblems()
 							} else if ed.FilePath != "" {
 								if err := ed.SaveFile(ed.FilePath); err != nil {
