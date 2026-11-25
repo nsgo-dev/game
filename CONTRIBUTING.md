@@ -54,12 +54,12 @@ From the repository root:
 ```sh
 bun install --frozen-lockfile
 bun run dev        # local dev server
-bun run typecheck  # astro check
-bun run test       # the site's own tests
-bun run build      # Astro build, then the API reference's anchor check
+bun run typecheck  # TypeScript check
+bun run test       # the build plugins' and the copy's tests
+bun run build      # Vite build, prerender, tsc --noEmit and the API reference's anchor check
 ```
 
-The site is [Astro](https://astro.build) with [nsgo-website](https://github.com/nsgo-dev/nsgo-website) in its demoscene look: `apps/website/site.config.ts` holds its settings, `src/components/Home.astro` its home page, and the docs are read from `docs/en` and `docs/zh` as they are. `bun run --cwd apps/website share-cards` redraws the share images in `public/share/` after the site's title changes; it needs Chrome.
+The site is [TanStack Start](https://tanstack.com/start) and React, every page prerendered: `apps/website/plugins/content.ts` and `plugins/site.ts` read the docs, the examples and the Go packages at build time, `src/pages/` holds the pages, `src/copy/` their words in ten languages and `src/styles.css` the look. `bun run playground` builds the playground's examples for the web, which a build in CI requires.
 
 ## Coding conventions
 
