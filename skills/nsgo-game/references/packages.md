@@ -35,6 +35,7 @@ Every non-internal package under `github.com/nsgo-dev/game/packages` (shown rela
 | `game/pixelfx/moves` | Experimental | pixelfx character moves acted out by the rig (ground pound so far) |
 | `game/pixelfx/pickups` | Experimental | pixelfx pickups and loot effects (coin, chest, health, mana, keys, orbs, buffs, drops) |
 | `game/pixelfx/projectiles` | Experimental | pixelfx projectile and muzzle-flash effects (arrow, laser, rocket, missile, tracer, cannonball, disc, flare, plasma, muzzles) |
+| `game/pixelfx/spawn` | Experimental | pixelfx spawn and death effects (coin drop, disintegrate, dissolve burn, egg hatch, poof, respawn beam, shatter death, soul rise, spawn portal, summon rise) |
 | `game/lights2d` | Experimental | 2D ambient darkness, point/cone lights, visibility-polygon shadows, normal-mapped sprites |
 | `game/effects` | Experimental | Chained Kage shader post-processing passes over the game frame |
 | `game/skeletal` | Experimental | 2D bone rigs, IK, skins and YAML rig definitions |
