@@ -92,6 +92,7 @@ func (e *Editor) PlayIn(cx *core.Scope) error {
 	e.CancelPluginDrag2D()
 	e.ClearPluginHover2D()
 	e.cancelParticleCurveDrag()
+	e.CancelImagePivotDrag()
 	snap, err := sceneformat.Encode(e.Doc)
 	if err != nil {
 		return fmt.Errorf("editor: snapshot scene: %w", err)

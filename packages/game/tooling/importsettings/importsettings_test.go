@@ -382,3 +382,33 @@ func TestSliceCells(t *testing.T) {
 		t.Fatalf("rects = %v, want %v", rects, want)
 	}
 }
+
+func TestSliceCellsOverflowAndCapGuards(t *testing.T) {
+	// Spacing near math.MaxInt must not overflow cell+spacing into a negative divisor.
+	hugeSpacing := importsettings.Slice{Width: 16, Height: 16, Spacing: math.MaxInt}
+	rects, cols, rows, err := hugeSpacing.Cells(image.Rect(0, 0, 64, 64))
+	if err != nil {
+		t.Fatalf("Cells(MaxInt spacing): %v", err)
+	}
+	if cols != 1 || rows != 1 || len(rects) != 1 || rects[0] != image.Rect(0, 0, 16, 16) {
+		t.Fatalf("Cells(MaxInt spacing) = (%v, %dx%d), want 1 cell (0,0)-(16,16)", rects, cols, rows)
+	}
+
+	// 1024x1024 with 1x1 cells: GridCounts reports 1,048,576 with zero allocations, while Cells refuses above MaxSliceCells.
+	fine := importsettings.Slice{Width: 1, Height: 1}
+	n, cols, rows, err := fine.GridCounts(image.Rect(0, 0, 1024, 1024))
+	if err != nil || n != 1024*1024 || cols != 1024 || rows != 1024 {
+		t.Fatalf("GridCounts(1024x1024, 1x1) = (%d, %dx%d, %v), want (1048576, 1024x1024, nil)", n, cols, rows, err)
+	}
+	if _, _, _, err := fine.Cells(image.Rect(0, 0, 1024, 1024)); err == nil || !strings.Contains(err.Error(), "exceeding maximum") {
+		t.Fatalf("Cells(1024x1024, 1x1) err = %v, want exceeding maximum error", err)
+	}
+	if r, ok := fine.CellRect(image.Rect(0, 0, 1024, 1024), cols, 1024*5+7); !ok || r != image.Rect(7, 5, 8, 6) {
+		t.Fatalf("CellRect(5*1024+7) = (%v, %v), want (7,5)-(8,6)", r, ok)
+	}
+
+	// Synthetic overflowing cols*rows must fail cleanly without panicking.
+	if _, _, _, err := fine.GridCounts(image.Rect(0, 0, 3_037_000_500, 3_037_000_500)); err == nil {
+		t.Fatal("GridCounts accepted overflowing cols*rows")
+	}
+}

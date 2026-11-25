@@ -228,41 +228,109 @@ type Slice struct {
 	Count int `yaml:"count,omitempty" schema:"minimum=0"`
 }
 
-// Cells returns the pixel rectangles of every cell s cuts from an image with bounds, row by row from the top left, along with the grid's column and row counts. It fails when s is invalid, when no cell fits, or when Count exceeds the cells that fit.
-func (s Slice) Cells(bounds image.Rectangle) (rects []image.Rectangle, cols, rows int, err error) {
+// MaxSliceCells is the maximum number of cell rectangles [Slice.Cells] will
+// materialize for one sprite sheet to prevent excessive memory allocation.
+const MaxSliceCells = 65536
+
+// GridCounts validates s against bounds and returns the resulting cell count,
+// column count, and row count without allocating cell rectangles. It fails when
+// s is invalid, when no cell fits, when the grid cell count overflows int, or
+// when Count exceeds the cells that fit.
+func (s Slice) GridCounts(bounds image.Rectangle) (count, cols, rows int, err error) {
 	if s.Width <= 0 || s.Height <= 0 {
-		return nil, 0, 0, fmt.Errorf("slice: width %d and height %d must be positive", s.Width, s.Height)
+		return 0, 0, 0, fmt.Errorf("slice: width %d and height %d must be positive", s.Width, s.Height)
 	}
 	if s.Margin < 0 || s.Spacing < 0 || s.Count < 0 {
-		return nil, 0, 0, fmt.Errorf("slice: margin %d, spacing %d and count %d must not be negative", s.Margin, s.Spacing, s.Count)
+		return 0, 0, 0, fmt.Errorf("slice: margin %d, spacing %d and count %d must not be negative", s.Margin, s.Spacing, s.Count)
 	}
 	cols = cellsAlong(bounds.Dx(), s.Width, s.Margin, s.Spacing)
 	rows = cellsAlong(bounds.Dy(), s.Height, s.Margin, s.Spacing)
-	n := cols * rows
-	if n == 0 {
-		return nil, 0, 0, fmt.Errorf("no %dx%d cell fits the %dx%d image after a margin of %d", s.Width, s.Height, bounds.Dx(), bounds.Dy(), s.Margin)
+	if cols == 0 || rows == 0 {
+		return 0, 0, 0, fmt.Errorf("no %dx%d cell fits the %dx%d image after a margin of %d", s.Width, s.Height, bounds.Dx(), bounds.Dy(), s.Margin)
 	}
+	if int64(cols) > int64(math.MaxInt)/int64(rows) {
+		if s.Count > 0 {
+			return s.Count, cols, rows, nil
+		}
+		return 0, cols, rows, fmt.Errorf("slice grid %dx%d exceeds supported cell count", cols, rows)
+	}
+	n := cols * rows
 	if s.Count > n {
-		return nil, cols, rows, fmt.Errorf("slice count %d is more than the %d cells that fit the %dx%d image", s.Count, n, bounds.Dx(), bounds.Dy())
+		return 0, cols, rows, fmt.Errorf("slice count %d is more than the %d cells that fit the %dx%d image", s.Count, n, bounds.Dx(), bounds.Dy())
 	}
 	if s.Count > 0 {
 		n = s.Count
 	}
+	return n, cols, rows, nil
+}
+
+// CellRect computes the pixel rectangle for 0-based cell in a grid with cols
+// columns across bounds without allocating a full slice of rectangles.
+func (s Slice) CellRect(bounds image.Rectangle, cols, cell int) (image.Rectangle, bool) {
+	if cols <= 0 || cell < 0 || s.Width <= 0 || s.Height <= 0 || s.Margin < 0 || s.Spacing < 0 {
+		return image.Rectangle{}, false
+	}
+	col := cell % cols
+	row := cell / cols
+	var dx, dy int
+	if col > 0 {
+		if s.Spacing > math.MaxInt-s.Width {
+			return image.Rectangle{}, false
+		}
+		strideX := s.Width + s.Spacing
+		if int64(col) > int64(math.MaxInt)/int64(strideX) {
+			return image.Rectangle{}, false
+		}
+		dx = col * strideX
+	}
+	if row > 0 {
+		if s.Spacing > math.MaxInt-s.Height {
+			return image.Rectangle{}, false
+		}
+		strideY := s.Height + s.Spacing
+		if int64(row) > int64(math.MaxInt)/int64(strideY) {
+			return image.Rectangle{}, false
+		}
+		dy = row * strideY
+	}
+	x := bounds.Min.X + s.Margin + dx
+	y := bounds.Min.Y + s.Margin + dy
+	return image.Rect(x, y, x+s.Width, y+s.Height), true
+}
+
+// Cells returns the pixel rectangles of every cell s cuts from an image with bounds, row by row from the top left, along with the grid's column and row counts. It fails when s is invalid, when no cell fits, when Count exceeds the cells that fit, or when the resulting cell count exceeds [MaxSliceCells].
+func (s Slice) Cells(bounds image.Rectangle) (rects []image.Rectangle, cols, rows int, err error) {
+	n, cols, rows, err := s.GridCounts(bounds)
+	if err != nil {
+		return nil, cols, rows, err
+	}
+	if n > MaxSliceCells {
+		return nil, cols, rows, fmt.Errorf("slice produces %d cells, exceeding maximum %d", n, MaxSliceCells)
+	}
 	rects = make([]image.Rectangle, n)
 	for i := range n {
-		x := bounds.Min.X + s.Margin + (i%cols)*(s.Width+s.Spacing)
-		y := bounds.Min.Y + s.Margin + (i/cols)*(s.Height+s.Spacing)
-		rects[i] = image.Rect(x, y, x+s.Width, y+s.Height)
+		r, ok := s.CellRect(bounds, cols, i)
+		if !ok {
+			return nil, cols, rows, fmt.Errorf("slice cell %d coordinates overflow", i)
+		}
+		rects[i] = r
 	}
 	return rects, cols, rows, nil
 }
 
 // cellsAlong returns how many cells of size cell, spaced spacing apart, fit along size after margin, as Tiled counts a tileset image's columns.
 func cellsAlong(size, cell, margin, spacing int) int {
-	if size-margin < cell {
+	if size <= 0 || cell <= 0 || margin < 0 || spacing < 0 || margin >= size {
 		return 0
 	}
-	return (size-margin-cell)/(cell+spacing) + 1
+	rem := size - margin
+	if rem < cell {
+		return 0
+	}
+	if spacing > math.MaxInt-cell {
+		return 1
+	}
+	return (rem-cell)/(cell+spacing) + 1
 }
 
 // Audio holds how a sound is converted by an audio target. Each field left out keeps the target's setting in game.yaml.

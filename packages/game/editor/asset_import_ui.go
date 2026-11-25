@@ -239,28 +239,38 @@ func imageImportFields(
 		ed.report(ed.SetImageImportSlice(relPath, s))
 	}
 
-	sliceGridInfo := func(info AssetImportInfo) (cellCount, cols, rows int, errMsg string) {
+	type sliceGridSnapshot struct {
+		cellCount int
+		cols      int
+		rows      int
+		errMsg    string
+	}
+	gridMemo := core.NewMemo(cx, func() sliceGridSnapshot {
+		info := readInfo()
 		s, ok := info.EffectiveImageSlice()
 		if !ok || s == nil || info.ImageWidth <= 0 || info.ImageHeight <= 0 {
-			return 0, 0, 0, ""
+			return sliceGridSnapshot{}
 		}
-		rects, c, r, err := s.Cells(image.Rect(0, 0, info.ImageWidth, info.ImageHeight))
+		n, c, r, err := s.GridCounts(image.Rect(0, 0, info.ImageWidth, info.ImageHeight))
 		if err != nil {
-			return 0, c, r, err.Error()
+			return sliceGridSnapshot{cols: c, rows: r, errMsg: err.Error()}
 		}
-		return len(rects), c, r, ""
+		return sliceGridSnapshot{cellCount: n, cols: c, rows: r}
+	})
+	readGrid := func() sliceGridSnapshot {
+		return gridMemo.Get()
 	}
 
-	activeCell := func(info AssetImportInfo) (int, int) {
-		n, _, _, errMsg := sliceGridInfo(info)
-		if n <= 0 || errMsg != "" {
+	activeCell := func() (int, int) {
+		g := readGrid()
+		if g.cellCount <= 0 || g.errMsg != "" {
 			return 0, 0
 		}
 		sel := ed.SelectedImportSliceCell()
-		if sel < 0 || sel >= n {
+		if sel < 0 || sel >= g.cellCount {
 			sel = 0
 		}
-		return sel, n
+		return sel, g.cellCount
 	}
 
 	formatPivotNum := func(v float64) string {
@@ -272,13 +282,16 @@ func imageImportFields(
 	var hasPress, panActive, mouseDragging bool
 
 	cellSelectKey := core.NewMemo(cx, func() string {
-		info := readInfo()
-		n, _, _, errMsg := sliceGridInfo(info)
-		if n <= 0 || errMsg != "" {
+		g := readGrid()
+		if g.cellCount <= 0 || g.errMsg != "" {
 			return ""
 		}
+		if g.cellCount > maxImportPreviewCells {
+			return fmt.Sprintf("num:%d", g.cellCount)
+		}
+		info := readInfo()
 		var b strings.Builder
-		fmt.Fprintf(&b, "%d:", n)
+		fmt.Fprintf(&b, "%d:", g.cellCount)
 		if pv, ok := info.EffectiveImagePivot(); ok && pv != nil {
 			for _, c := range pv.Cells {
 				fmt.Fprintf(&b, "%d,", c.Cell)
@@ -327,12 +340,22 @@ func imageImportFields(
 				},
 				OnPan: func(ev core.PanEvent) {
 					if disabled() {
+						if panActive {
+							ed.CancelImagePivotDrag()
+							panActive = false
+						}
+						mouseDragging = false
 						return
 					}
 					switch ev.Phase {
 					case core.GestureBegan:
-						if hasPress && ed.BeginImagePivotDrag(relPath, float32(pressPos.X), float32(pressPos.Y), previewW, previewH) {
+						if mouseDragging && ed.ImagePivotDragging() {
+							// Adopt the drag already started by OnPressDown without overwriting origPivot.
 							panActive = true
+							mouseDragging = false
+						} else if hasPress && ed.BeginImagePivotDrag(relPath, float32(pressPos.X), float32(pressPos.Y), previewW, previewH) {
+							panActive = true
+							mouseDragging = false
 						}
 					case core.GestureChanged:
 						if panActive {
@@ -346,17 +369,21 @@ func imageImportFields(
 							ed.report(ed.EndImagePivotDrag())
 							panActive = false
 						}
+						mouseDragging = false
 					case core.GestureCancelled:
 						if panActive {
 							ed.CancelImagePivotDrag()
 							panActive = false
 						}
+						mouseDragging = false
 					}
 				},
 				OnPressDown: func(ev core.PressEvent) {
 					if disabled() || ev.Keyboard || panActive {
 						return
 					}
+					pressPos = ev.Position
+					hasPress = true
 					if ed.BeginImagePivotDrag(relPath, float32(ev.Position.X), float32(ev.Position.Y), previewW, previewH) {
 						mouseDragging = true
 					}
@@ -365,14 +392,27 @@ func imageImportFields(
 					if !mouseDragging || panActive {
 						return
 					}
+					if !ed.ImagePivotDragging() {
+						mouseDragging = false
+						return
+					}
+					if ev.PressedButton == core.MouseButtonNone {
+						// The button was released outside the preview box; finish the drag cleanly.
+						mouseDragging = false
+						ed.report(ed.EndImagePivotDrag())
+						return
+					}
 					ed.UpdateImagePivotDrag(float32(ev.Position.X), float32(ev.Position.Y))
 				},
 				OnPressUp: func(ev core.PressEvent) {
-					if !mouseDragging || panActive {
+					hasPress = false
+					if !mouseDragging {
 						return
 					}
 					mouseDragging = false
-					ed.report(ed.EndImagePivotDrag())
+					if !panActive {
+						ed.report(ed.EndImagePivotDrag())
+					}
 				},
 				Children: []core.Node{
 					core.Canvas{
@@ -403,11 +443,14 @@ func imageImportFields(
 						return "Preview unavailable"
 					}
 					if _, hasSlice := info.EffectiveImageSlice(); hasSlice {
-						n, cols, rows, errMsg := sliceGridInfo(info)
-						if errMsg != "" {
+						g := readGrid()
+						if g.errMsg != "" {
 							return fmt.Sprintf("%dx%d px · invalid slice", info.ImageWidth, info.ImageHeight)
 						}
-						return fmt.Sprintf("%dx%d px · %dx%d grid (%d cells) · drag pivots", info.ImageWidth, info.ImageHeight, cols, rows, n)
+						if g.cellCount > maxImportPreviewCells {
+							return fmt.Sprintf("%dx%d px · %dx%d grid (%d cells; showing selected cell)", info.ImageWidth, info.ImageHeight, g.cols, g.rows, g.cellCount)
+						}
+						return fmt.Sprintf("%dx%d px · %dx%d grid (%d cells) · drag pivots", info.ImageWidth, info.ImageHeight, g.cols, g.rows, g.cellCount)
 					}
 					return fmt.Sprintf("%dx%d px · unsliced · drag pivot", info.ImageWidth, info.ImageHeight)
 				},
@@ -415,15 +458,13 @@ func imageImportFields(
 			},
 			core.Show{
 				When: func() bool {
-					_, _, _, errMsg := sliceGridInfo(readInfo())
-					return errMsg != ""
+					return readGrid().errMsg != ""
 				},
 				Then: func(cx *core.Scope) core.Node {
 					return core.Text{
 						TestID: "import-image-slice-error",
 						ContentFunc: func() string {
-							_, _, _, errMsg := sliceGridInfo(readInfo())
-							return errMsg
+							return readGrid().errMsg
 						},
 						Style: core.Style{FontSize: 11, Color: colors.Danger()},
 					}
@@ -550,8 +591,8 @@ func imageImportFields(
 		),
 		core.Show{
 			When: func() bool {
-				n, _, _, errMsg := sliceGridInfo(readInfo())
-				return n > 0 && errMsg == ""
+				g := readGrid()
+				return g.cellCount > 0 && g.errMsg == ""
 			},
 			Then: func(cx *core.Scope) core.Node {
 				return core.View{
@@ -559,11 +600,34 @@ func imageImportFields(
 					Children: []core.Node{
 						fieldRow("Cell", func() string { return "Selected slice cell for per-cell pivot override" },
 							core.Dynamic(func(cx *core.Scope) core.Node {
-								if cellSelectKey.Get() == "" {
+								key := cellSelectKey.Get()
+								if key == "" {
 									return nil
 								}
+								g := core.Untracked(cx, readGrid)
+								n := g.cellCount
+								if n > maxImportPreviewCells {
+									return ui.NumberInput{
+										TestID:   "import-image-pivot-cell-select",
+										Label:    "Pivot Cell",
+										Min:      0,
+										Max:      float64(n - 1),
+										Step:     1,
+										Disabled: disabled,
+										Value: func() float64 {
+											sel, _ := activeCell()
+											return float64(sel)
+										},
+										OnChange: func(v float64) {
+											idx := roundInt(v, 0)
+											if idx >= n {
+												idx = n - 1
+											}
+											ed.SelectImportSliceCell(idx)
+										},
+									}
+								}
 								info := core.Untracked(cx, readInfo)
-								n, _, _, _ := sliceGridInfo(info)
 								overridden := map[int]bool{}
 								if pv, ok := info.EffectiveImagePivot(); ok && pv != nil {
 									for _, c := range pv.Cells {
@@ -585,7 +649,7 @@ func imageImportFields(
 									Disabled: disabled,
 									Style:    core.Style{Width: core.Pct(100)},
 									Value: func() int {
-										sel, _ := activeCell(readInfo())
+										sel, _ := activeCell()
 										return sel
 									},
 									OnChange: func(v int) {
@@ -595,14 +659,14 @@ func imageImportFields(
 							}),
 							resetBtn("import-image-pivot-cell-reset", "Reset selected cell pivot to default", func() bool {
 								info := readInfo()
-								sel, n := activeCell(info)
+								sel, n := activeCell()
 								if n == 0 {
 									return false
 								}
 								_, over, _ := info.EffectiveCellImagePivot(sel)
 								return over
 							}, func() {
-								sel, n := activeCell(readInfo())
+								sel, n := activeCell()
 								if n > 0 {
 									ed.report(ed.SetImageImportCellPivot(relPath, sel, nil))
 								}
@@ -625,7 +689,7 @@ func imageImportFields(
 												Disabled: disabled,
 												Value: func() float64 {
 													info := readInfo()
-													sel, _ := activeCell(info)
+													sel, _ := activeCell()
 													pt, _, _ := info.EffectiveCellImagePivot(sel)
 													return pt[0]
 												},
@@ -634,7 +698,7 @@ func imageImportFields(
 														return
 													}
 													info := readInfo()
-													sel, n := activeCell(info)
+													sel, n := activeCell()
 													if n == 0 {
 														return
 													}
@@ -656,7 +720,7 @@ func imageImportFields(
 												Disabled: disabled,
 												Value: func() float64 {
 													info := readInfo()
-													sel, _ := activeCell(info)
+													sel, _ := activeCell()
 													pt, _, _ := info.EffectiveCellImagePivot(sel)
 													return pt[1]
 												},
@@ -665,7 +729,7 @@ func imageImportFields(
 														return
 													}
 													info := readInfo()
-													sel, n := activeCell(info)
+													sel, n := activeCell()
 													if n == 0 {
 														return
 													}
