@@ -902,6 +902,8 @@ func (e *Editor) buildClipPreview() (*sceneformat.BuiltScene, *animclip.Player, 
 	if err != nil {
 		return nil, nil, err
 	}
+	// The preview is drawn through the same pannable 2D view as the edit scene, so it draws every tile too.
+	built.DrawAllTiles = true
 	player, err := animclip.NewPlayer(cloneClip(e.clip), e.components, animclip.BindScene(built, e.clipMeta.target))
 	if err != nil {
 		return nil, nil, err

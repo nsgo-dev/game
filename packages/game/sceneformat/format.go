@@ -182,7 +182,7 @@ type TilemapDoc struct {
 	Ref string `yaml:"ref,omitempty"`
 	// Source is the slash-separated path from the project root of an external map: a Tiled map (.tmj or .tmx) or an LDtk project (.ldtk). Build loads it itself when its resolver implements FileResolver, as FSAssets does, or through a TilemapResolver.
 	Source string `yaml:"source,omitempty"`
-	// Level names the level of an LDtk Source to build; empty builds the project's first level. It requires a .ldtk Source. Version 2.
+	// Level names the level of an LDtk Source to build; empty builds the project's first level. It requires a .ldtk Source. Build reads a source with a Level through a FileResolver even when the resolver implements TilemapResolver. Version 2.
 	Level string `yaml:"level,omitempty"`
 	// TileWidth and TileHeight are each tile's size in points for an inline grid.
 	TileWidth  int `yaml:"tileWidth,omitempty" schema:"minimum=0"`

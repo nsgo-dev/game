@@ -89,7 +89,7 @@ go tool game editor scenes/level1.yaml
 go tool game editor .
 ```
 
-在窗口中用 NSGo 场景编辑器打开指定的场景文件，未指定时打开一个小型演示房间。指定目录或 `game.yaml` 时打开游戏的[项目文件](project.md)及其主场景。打开项目后，编辑器可以从文件浏览器打开项目中的其他场景、新建场景、把场景另存到其他路径，并在退出或打开另一个场景会丢失未保存的修改时先询问（[场景文件与未保存的修改](editor.md#场景文件与未保存的修改)）。`-library` 会添加一个面板，把该[库](library.md)中的包安装到打开的项目中。它没有内置任何[编辑器插件](editor.md)：有自己插件的游戏要构建自己的编辑器命令，如 [Field Medic](https://github.com/nsgo-dev/game/tree/main/examples/fieldmedic) 所示。场景格式见[编辑器与场景格式](editor.md)。编辑器会在本地端点上把打开的项目提供给智能体，`mcp` 通过它连接。
+在窗口中用 NSGo 场景编辑器打开指定的场景文件，未指定时打开一个小型演示房间。指定目录或 `game.yaml` 时打开游戏的[项目文件](project.md)及其主场景。编辑器从项目根目录读取项目文件，即 `game.yaml` 所在的目录（打开场景文件时是它上方最近一个含有 `game.yaml` 的目录，没有时是场景文件自己的目录），因此分层瓦片地图的 YAML 图块集以及 Tiled 和 LDtk 源都能构建，并填充瓦片调色板。打开项目后，编辑器可以从文件浏览器打开项目中的其他场景、新建场景、把场景另存到其他路径，并在退出或打开另一个场景会丢失未保存的修改时先询问（[场景文件与未保存的修改](editor.md#场景文件与未保存的修改)）。`-library` 会添加一个面板，把该[库](library.md)中的包安装到打开的项目中。它没有内置任何[编辑器插件](editor.md)：有自己插件的游戏要构建自己的编辑器命令，如 [Field Medic](https://github.com/nsgo-dev/game/tree/main/examples/fieldmedic) 所示。场景格式见[编辑器与场景格式](editor.md)。编辑器会在本地端点上把打开的项目提供给智能体，`mcp` 通过它连接。
 
 ### mcp
 
@@ -210,8 +210,8 @@ game check: 1 problem
 
 | 文件 | 检查内容 |
 | --- | --- |
-| 场景（`*.scene.yaml`、`*.scene.yml`） | 按[场景格式](editor.md)解析并校验通过，没有未知字段；瓦片地图的 `source` 是存在的 Tiled 地图（`.tmj` 须检查通过，或 `.tmx`）或 LDtk 项目（`.ldtk`，须检查通过且含有 `level` 指定的关卡）；分层瓦片地图的 `tilesetFile` 是存在且检查通过的 YAML 图块集，并含有单元格放置的每个瓦片；每个精灵的 `atlas` 存在且含有它的 `frame`；内联瓦片地图的 `tileset` 图集含有它用到的每个瓦片 ID 的帧；`material` 文件存在、是有效的材质，且它的 `texture` 存在；`model` 是存在的 `.gltf` 或 `.glb` 文件，能用 `gltf.LoadFS` 加载，并含有 `modelNode` 指定的节点或 `modelMesh` 指定的网格，`mesh` 是内置基本形体（[scenemodel](scenemodel.md)）；在实例化或继承其他场景的场景中，每个连接的 `from` 和 `to` 都指向解析后场景中的对象（[检查连接](editor.md#检查连接)） |
-| Tiled 地图（`.tmj`）和图块集（`.tsj`） | 外部图块集是存在的 JSON 图块集（`.tsj`，或旧版 Tiled 使用的 `.json`；不是 `.tsx`）；图块集图片和图像图层的图片存在，组图层里的也算；地图能用 `tilemap.LoadTiled` 加载 |
+| 场景（`*.scene.yaml`、`*.scene.yml`） | 按[场景格式](editor.md)解析并校验通过，没有未知字段；瓦片地图的 `source` 是存在的 Tiled 地图（`.tmj` 或 `.tmx`，须检查通过）或 LDtk 项目（`.ldtk`，须检查通过且含有 `level` 指定的关卡）；分层瓦片地图的 `tilesetFile` 是存在且检查通过的 YAML 图块集，并含有单元格放置的每个瓦片；每个精灵的 `atlas` 存在且含有它的 `frame`；内联瓦片地图的 `tileset` 图集含有它用到的每个瓦片 ID 的帧；`material` 文件存在、是有效的材质，且它的 `texture` 存在；`model` 是存在的 `.gltf` 或 `.glb` 文件，能用 `gltf.LoadFS` 加载，并含有 `modelNode` 指定的节点或 `modelMesh` 指定的网格，`mesh` 是内置基本形体（[scenemodel](scenemodel.md)）；在实例化或继承其他场景的场景中，每个连接的 `from` 和 `to` 都指向解析后场景中的对象（[检查连接](editor.md#检查连接)） |
+| Tiled 地图（`.tmj`）和图块集（`.tsj`） | 外部图块集是存在的 JSON 图块集（`.tsj`，或旧版 Tiled 使用的 `.json`；不是 `.tsx`）；图块集图片和图像图层的图片存在，组图层里的也算；地图能用 `tilemap.LoadTiled` 加载。场景引用的 Tiled XML 地图（`.tmx`）连同其外部图块集（`.tsx` 或 `.tsj`）能用 `tilemap.LoadTiled` 加载，且它绘制的每张图块集图片和图像图层图片都存在 |
 | YAML 图块集（`*.tileset.yaml`、`*.tileset.yml`） | 按[图块集格式](tilemap.md#yaml-图块集)解析并校验通过；网格图块集的 `image` 存在，且大小足以容纳它的 `columns`、`tileCount`、`spacing` 和 `margin`；图集图块集的 `atlas` 存在，且含有它的每个 `frames` |
 | LDtk 项目（`.ldtk`） | 图块集图片和关卡背景存在；没有关卡保存在单独的 `.ldtkl` 文件中，因为 `tilemap.LoadLDtkAll` 不读取这些文件（在 LDtk 中关闭“Save levels to separate files”）；项目能用 `tilemap.LoadLDtkAll` 加载 |
 | 精灵图集（顶层有 `frames` 和 `meta` 的 JSON，即 TexturePacker 和 Aseprite 导出的格式） | `meta.image` 存在；每一帧都落在图片之内；图集能用 `sprite.LoadAtlas` 加载 |

@@ -23,7 +23,7 @@ type AssetResolver interface {
 	Atlas(name string) (*sprite.Atlas, error)
 }
 
-// TilemapResolver may optionally be implemented by an AssetResolver to load external tilemap sources into an inline TilemapDoc. Build uses it, when the resolver implements it, for every TilemapDoc.Source, ahead of reading the source itself through a FileResolver.
+// TilemapResolver may optionally be implemented by an AssetResolver to load external tilemap sources into an inline TilemapDoc. Build uses it, when the resolver implements it, for every TilemapDoc.Source that names no Level, ahead of reading the source itself through a FileResolver. A source with a Level (an LDtk level) is always read through a FileResolver, since Tilemap has no way to receive the level.
 type TilemapResolver interface {
 	Tilemap(source string) (*TilemapDoc, error)
 }
@@ -352,7 +352,8 @@ func (b *tilemapBuilder) build(bl *BuiltLayer, tm *TilemapDoc) error {
 	}
 	if resolved.IsExternal() {
 		where := fmt.Sprintf("layer %q tilemap source %q", bl.Name, resolved.Source)
-		if tr, ok := b.resolver.(TilemapResolver); ok {
+		// Tilemap(source) cannot receive a level, so a source that names one is always built by the loader here.
+		if tr, ok := b.resolver.(TilemapResolver); ok && resolved.Level == "" {
 			loaded, err := tr.Tilemap(resolved.Source)
 			if err != nil {
 				return fmt.Errorf("sceneformat: %s: %w", where, err)

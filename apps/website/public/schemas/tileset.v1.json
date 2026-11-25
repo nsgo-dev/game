@@ -178,7 +178,7 @@
           "type": "string"
         },
         "neighbors": {
-          "description": "Neighbors lists the directions in which a cell of the same terrain lies next to a cell this tile fills: north, east, south and west, and for a blob terrain also northeast, southeast, southwest and northwest. No two tiles of one terrain list the same set, and the tile that lists none is the terrain's default. It requires Terrain.",
+          "description": "Neighbors lists the directions in which a cell of the same terrain lies next to a cell this tile fills: north, east, south and west, and for a blob terrain also northeast, southeast, southwest and northwest, each only with both edges beside it (northeast with north and east), since a corner matches only when they do. No two tiles of one terrain list the same set, and the tile that lists none is the terrain's default. It requires Terrain.",
           "type": "array",
           "items": {
             "type": "string"
@@ -195,20 +195,18 @@
       "type": "object",
       "properties": {
         "tile": {
-          "description": "Tile is the local ID of the tile the frame shows.",
+          "description": "Tile is the local ID of the tile the frame shows. It is required, so a frame never shows tile 0 by omission.",
           "type": "integer",
           "minimum": 0,
           "maximum": 9223372036854776000
         },
         "duration": {
           "description": "Duration is how long the frame shows, positive, written as a Go duration such as 150ms.",
-          "type": [
-            "string",
-            "integer"
-          ]
+          "type": "string"
         }
       },
       "required": [
+        "tile",
         "duration"
       ],
       "additionalProperties": false

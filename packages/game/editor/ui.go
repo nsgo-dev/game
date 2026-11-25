@@ -568,8 +568,10 @@ func statusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 							}
 							status := fmt.Sprintf("Mode: %s | View: 2D %.0f%% | Tool: %s | Layer: %s", mode, ed.View2D().Zoom*100, ed.toolLabel(), ed.activeLayerReadout())
 							// Erase writes no tile, and a layer without tiles to pick keeps an ID the palette does not list, so only a tile Paint or Fill would write is shown.
-							if (ed.Tool == ToolPaintTile || ed.Tool == ToolFillTile) && ed.TilePalette().Has(ed.ActiveTileID) {
-								status += fmt.Sprintf(" | Tile: %d", ed.ActiveTileID)
+							if ed.Tool == ToolPaintTile || ed.Tool == ToolFillTile {
+								if tile, ok := ed.TilePalette().Tile(ed.ActiveTileID); ok {
+									status += fmt.Sprintf(" | Tile: %d", tile.Number)
+								}
 							}
 							return status
 						},

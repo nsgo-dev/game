@@ -151,3 +151,69 @@ func TestOpenArgsOpensASavedSceneAndAnExistingClip(t *testing.T) {
 		t.Fatalf("editor scene clip launched %+v, want the clip %s open", opened, clip)
 	}
 }
+
+const layeredProjectYAML = `version: 1
+name: Cave
+id: dev.example.cave
+appVersion: 1.0.0
+window:
+  width: 320
+  height: 180
+autoload:
+  mainScene: cave
+  scenes:
+    - name: cave
+      path: scenes/cave.scene.yaml
+`
+
+const layeredCaveScene = `version: 2
+name: Cave
+layers:
+  - name: ground
+    tilemap:
+      tileWidth: 16
+      tileHeight: 16
+      width: 2
+      height: 1
+      tilesetFile: tilesets/cave.tileset.yaml
+      tileLayers:
+        - name: floor
+          rows:
+            - 0 1
+`
+
+func TestEditorReadsTheOpenProjectsFiles(t *testing.T) {
+	dir := t.TempDir()
+	for name, data := range map[string]string{
+		"game.yaml":                  layeredProjectYAML,
+		"scenes/cave.scene.yaml":     layeredCaveScene,
+		"tilesets/cave.tileset.yaml": "version: 1\ntileWidth: 16\ntileHeight: 16\nimage: tiles/cave.png\ncolumns: 2\ntileCount: 2\n",
+	} {
+		p := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(data), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The project directory and a scene file inside it both read the tileset the scene names from the project root.
+	for _, arg := range []string{dir, filepath.Join(dir, "scenes", "cave.scene.yaml")} {
+		a, _, stderr := newTestApp(t)
+		var opened *editor.Editor
+		a.launch = func(ed *editor.Editor) { opened = ed }
+		if code := run([]string{"editor", arg}, a); code != 0 {
+			t.Fatalf("%s: exit %d (stderr: %s)", arg, code, stderr)
+		}
+		if opened.BuildErr != nil {
+			t.Fatalf("%s: build: %v", arg, opened.BuildErr)
+		}
+		if m := opened.Built.Layer("ground").Map; m == nil || m.TileAt(0, 1, 0) != 2 {
+			t.Fatalf("%s: ground map = %+v", arg, m)
+		}
+		opened.SetActiveLayer("ground")
+		if p := opened.TilePalette(); len(p.Tiles) != 2 || p.Message != "" {
+			t.Fatalf("%s: palette = %+v", arg, p)
+		}
+	}
+}

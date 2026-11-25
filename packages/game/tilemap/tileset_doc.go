@@ -92,7 +92,7 @@ type TileDoc struct {
 	Animation []TileFrameDoc `yaml:"animation,omitempty"`
 	// Terrain names the entry of TilesetDoc.Terrains the tile belongs to.
 	Terrain string `yaml:"terrain,omitempty"`
-	// Neighbors lists the directions in which a cell of the same terrain lies next to a cell this tile fills: north, east, south and west, and for a blob terrain also northeast, southeast, southwest and northwest. No two tiles of one terrain list the same set, and the tile that lists none is the terrain's default. It requires Terrain.
+	// Neighbors lists the directions in which a cell of the same terrain lies next to a cell this tile fills: north, east, south and west, and for a blob terrain also northeast, southeast, southwest and northwest, each only with both edges beside it (northeast with north and east), since a corner matches only when they do. No two tiles of one terrain list the same set, and the tile that lists none is the terrain's default. It requires Terrain.
 	Neighbors []string `yaml:"neighbors,omitempty,flow"`
 }
 
@@ -116,8 +116,8 @@ type TileShapeDoc struct {
 
 // TileFrameDoc is one frame of a tile's animation.
 type TileFrameDoc struct {
-	// Tile is the local ID of the tile the frame shows.
-	Tile int `yaml:"tile" schema:"minimum=0"`
+	// Tile is the local ID of the tile the frame shows. It is required, so a frame never shows tile 0 by omission.
+	Tile int `yaml:"tile" schema:"required,minimum=0"`
 	// Duration is how long the frame shows, positive, written as a Go duration such as 150ms.
 	Duration time.Duration `yaml:"duration" schema:"required"`
 }
@@ -231,10 +231,34 @@ func parseTileset(data []byte) (*TilesetDoc, error) {
 		}
 		return nil, fmt.Errorf("tilemap: tileset: decode yaml: %w", err)
 	}
+	if err := requireFrameTiles(data); err != nil {
+		return nil, err
+	}
 	if err := ValidateTileset(&doc); err != nil {
 		return nil, err
 	}
 	return &doc, nil
+}
+
+// requireFrameTiles refuses an animation frame of the tileset in data, which has already decoded, that leaves out its tile: decoding would make it tile 0 unnoticed, and saving would then add the field.
+func requireFrameTiles(data []byte) error {
+	var frames struct {
+		Tiles []struct {
+			ID        int              `yaml:"id"`
+			Animation []map[string]any `yaml:"animation"`
+		} `yaml:"tiles"`
+	}
+	if err := yaml.Unmarshal(data, &frames); err != nil {
+		return fmt.Errorf("tilemap: tileset: decode yaml: %w", err)
+	}
+	for i, tile := range frames.Tiles {
+		for j, f := range tile.Animation {
+			if _, ok := f["tile"]; !ok {
+				return loaderr.Errorf(loaderr.Join(loaderr.Path("tiles", i), "animation", j, "tile"), "name the tile the frame shows, such as tile: 0", "tilemap: tileset: tile %d animation frame %d has no tile", tile.ID, j)
+			}
+		}
+	}
+	return nil
 }
 
 // EncodeTileset validates doc and writes it as deterministic 2-space YAML, starting with TilesetSchemaComment. Keys come in a fixed order and maps in sorted key order, so the same tileset always gives the same bytes, and a file in that form parses and encodes back unchanged.
@@ -388,6 +412,12 @@ func ValidateTileset(doc *TilesetDoc) error {
 			}
 			mask |= bit
 		}
+		// ComputeMask8 sets a corner bit only when both edges beside it match, so a blob tile listing a corner without them could never be chosen.
+		for j, n := range tile.Neighbors {
+			if edges := cornerEdges[terrainNeighbors[n]]; edges != 0 && mask&edges != edges {
+				return loaderr.Errorf(loaderr.Join(tp, "neighbors", j), "list both edges beside the corner as well, or remove the corner", "tilemap: tileset: tile %d lists corner %q without both edges beside it, so autotiling never chooses it", tile.ID, n)
+			}
+		}
 		byMask := masks[tile.Terrain]
 		if byMask == nil {
 			byMask = make(map[uint8]int)
@@ -399,6 +429,14 @@ func ValidateTileset(doc *TilesetDoc) error {
 		byMask[mask] = tile.ID
 	}
 	return nil
+}
+
+// cornerEdges maps each corner neighbour bit to the two edge bits that must match for ComputeMask8 to set it.
+var cornerEdges = map[uint8]uint8{
+	MaskNorthEast: MaskNorth | MaskEast,
+	MaskSouthEast: MaskSouth | MaskEast,
+	MaskSouthWest: MaskSouth | MaskWest,
+	MaskNorthWest: MaskNorth | MaskWest,
 }
 
 func validateShapeDoc(path string, s *TileShapeDoc) error {

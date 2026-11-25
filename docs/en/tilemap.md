@@ -183,7 +183,7 @@ tiles:
 | `properties` | Custom properties, each a bool, an integer, a number or a string, as `TileProperties` returns them; the tileset has its own `properties` too |
 | `shapes` | Collision shapes in the tile's coordinates: `rect` and `ellipse` by `x`, `y`, `width` and `height`, `polygon` (3 points or more) and `polyline` (2 or more) by `points`, each with optional `name`, `type` and `properties`; they load into `Tileset.Shapes` as Tiled's collision editor's do, for [tileshape](tileshape.md) |
 | `animation` | Frames of `tile` and positive `duration` (such as `150ms`) that `Update` cycles through |
-| `terrain`, `neighbors` | The terrain set from `terrains` the tile belongs to, and the directions (`north`, `east`, `south`, `west`, and for a `blob` terrain also `northeast`, `southeast`, `southwest`, `northwest`) in which a cell of the same terrain lies next to it |
+| `terrain`, `neighbors` | The terrain set from `terrains` the tile belongs to, and the directions (`north`, `east`, `south`, `west`, and for a `blob` terrain also `northeast`, `southeast`, `southwest`, `northwest`) in which a cell of the same terrain lies next to it; a corner is listed only with both edges beside it (`northeast` with `north` and `east`), since it matches only when they do |
 
 A terrain's `mode` is `cardinal`, which matches the four edge neighbours (16 tiles, `Autotile4`), or `blob`, which also matches a corner when both edges beside it match (47 tiles, `Autotile8`). No two tiles of a terrain may list the same neighbours, and the one that lists none is its default.
 

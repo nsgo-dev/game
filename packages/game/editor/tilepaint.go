@@ -248,8 +248,7 @@ func (e *Editor) EraseTile(layer string, col, row int) error {
 	return nil
 }
 
-// FloodFillTile runs a 4-connected BFS flood fill starting at (col, row), replacing all contiguous
-// matching tiles with tileID in a single undoable command. On a layered grid it fills the tile layer ActiveTileLayer names, where tiles match when their IDs and flips both do, and paints tileID as PaintTile does.
+// FloodFillTile runs a 4-connected BFS flood fill starting at (col, row), replacing all contiguous matching tiles with tileID in a single undoable command. On a layered grid it fills the tile layer ActiveTileLayer names, where tiles match when their IDs and flips both do, and paints tileID as PaintTile does.
 func (e *Editor) FloodFillTile(layer string, col, row, tileID int) error {
 	if e.playing {
 		return ErrPlaying

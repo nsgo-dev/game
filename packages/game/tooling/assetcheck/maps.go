@@ -73,6 +73,37 @@ func (c *checker) checkTiledMap(p string) {
 	}
 }
 
+// checkTMXMap checks the Tiled XML map at p once: that tilemap.LoadTiled loads it with the external tilesets it names, and that every tileset and image-layer image it draws exists and decodes. Its problems carry no line, since tilemap.LoadTiled's errors already say where in the XML they are.
+func (c *checker) checkTMXMap(p string) {
+	if c.checked[p] {
+		return
+	}
+	c.checked[p] = true
+	c.report.Maps++
+	data, ok := c.readFile(p)
+	if !ok {
+		return
+	}
+	dir := path.Dir(p)
+	_, err := tilemap.LoadTiled(data, tilemap.TilesetLoader{
+		LoadTileset: func(source string) ([]byte, error) {
+			tsPath, err := resolve(dir, source)
+			if err != nil {
+				return nil, err
+			}
+			data, err := fs.ReadFile(c.fsys, tsPath)
+			return data, unwrapPathError(err)
+		},
+		LoadImage: func(imagePath string) (core.ImageSource, error) {
+			c.imageRef(p, 0, dir, imagePath, "image")
+			return core.ImageSource{URI: imagePath}, nil
+		},
+	})
+	if err != nil {
+		c.problem(p, 0, "%v", err)
+	}
+}
+
 // checkTiledLayers checks the images of a Tiled map's image layers, descending into group layers.
 func (c *checker) checkTiledLayers(p, dir string, layers []*jsonValue) {
 	for _, l := range layers {
