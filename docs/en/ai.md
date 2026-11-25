@@ -1,6 +1,6 @@
 # ai
 
-`game/ai` provides deterministic game AI building blocks stepped cleanly on `game.Loop`: grid `AStar` pathfinding, 2D `NavMesh` navigation with funnel smoothing, steering behaviors, behavior trees, utility AI scoring, goal-oriented action planning (GOAP), attack token pools, concentric engagement slot assignment, and squad coordination.
+`game/ai` provides deterministic game AI building blocks stepped cleanly on `game.Loop`: grid `AStar` pathfinding, 2D `NavMesh` navigation with funnel smoothing, steering behaviors, behavior trees, utility AI scoring, goal-oriented action planning (GOAP), attack tokens and squads, and spatial influence maps.
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/ai"
@@ -491,3 +491,73 @@ flankBranch := ai.Sequence(
 - **`AssignRoles`** solves maximum-weight bipartite matching over `SquadRoleSpec`s, maximizing the number of filled eligible roles first and total score second. Return `NaN` or `±Inf` from `Score` to mark a member ineligible for a role.
 - **`SquadOrder.Revision`** increments on every `SetOrder` and `ClearOrder` call so behavior trees can detect newly issued directives even when `Kind` is unchanged.
 - **`SquadState`** provides typed helpers (`Bool`, `Int`, `Float`, `String`, `Point`, `ID`), generic `SquadStateGet[T]`, and deterministic sorted `Keys`.
+
+## Influence maps
+
+`InfluenceLayer` stores a 2D scalar influence grid matching an `ai.Grid` (and using the same `Origin` / `CellSize` world mapping as `rts.FlowField`) so strategy and tactics AI can reason about threat, control, tension, and safe positioning:
+
+```go
+friendly := ai.NewInfluenceLayerForGrid(grid, math2d.Zero(), 16)
+enemy := ai.NewInfluenceLayerForGrid(grid, math2d.Zero(), 16)
+control := ai.NewInfluenceLayerForGrid(grid, math2d.Zero(), 16)
+tension := ai.NewInfluenceLayerForGrid(grid, math2d.Zero(), 16)
+
+squadID := friendly.AddSource(ai.InfluenceSource{
+	Cell:     ai.Cell{Col: 2, Row: 3},
+	Strength: 10,
+	Radius:   5,
+	Falloff:  ai.FalloffLinear,
+})
+enemy.AddSource(ai.InfluenceSource{
+	Cell:        ai.Cell{Col: 12, Row: 3},
+	Strength:    12,
+	Radius:      6,
+	Falloff:     ai.FalloffExponential,
+	FalloffRate: 0.45,
+})
+
+// Incremental update (0 allocs/step after warm-up; matches Rebuild bit-for-bit):
+friendly.MoveSource(squadID, ai.Cell{Col: 3, Row: 3})
+friendly.Update(grid)
+enemy.Spread(grid, ai.SpreadOptions{Decay: 0.2, Momentum: 0.5, Iterations: 2, Diagonal: true})
+
+// Combine into tactical layers:
+control.Subtract(friendly, enemy) // positive = friendly control, negative = enemy control
+tension.Add(friendly, enemy)      // total presence from both sides
+control.Normalize()               // signed [-1, 1] preserving 0 as neutral
+
+// Find the least threatened reachable cell within 4 cells of a unit:
+safeCell, threatVal, ok := enemy.LowestInRadius(ai.Cell{Col: 5, Row: 3}, 4, ai.InfluenceQuery{
+	Grid:      grid,
+	Reachable: true,
+})
+// Sample bilinearly or follow the downhill/uphill gradient in world coordinates:
+val, inBounds := enemy.Sample(unitPos)
+grad := enemy.Gradient(unitPos)
+_, _, _, _, _ = safeCell, threatVal, ok, val, inBounds
+_ = grad
+```
+
+### Sources, falloffs, and obstacle-aware spreading
+
+- **Falloffs**: each `InfluenceSource` stamps cells within Euclidean cell `Radius` using `FalloffLinear` (`max(0, 1 - dist/Radius)`), `FalloffExponential` (`exp(-FalloffRate * dist)`), or `FalloffCustom` (`CustomFalloff(dist, radius)`). Blocked cells (`!grid.Walkable(col, row)`) always stay `0`.
+- **Incremental updates**: register moving units with `AddSource` and update them via `MoveSource`, `SetSource`, `RemoveSource`, `MarkDirtyCell`, or `MarkDirtyRect`. `Update(grid)` recomputes only dirty footprints in fixed source-slot order so results are deterministic, match `Rebuild(grid)` bit-for-bit, and perform zero heap allocations per step after warm-up. For one-off static stamps, call `Stamp(grid, src)`.
+- **Propagation with decay and momentum**: `Spread(grid, opts)` propagates influence around blocked cells (4-way or 8-way with no corner-cutting around walls, using `(1 - Decay)` on cardinal steps and `(1 - Decay)^sqrt(2)` on diagonals) and blends against previous values with `Momentum` (`next = prev*Momentum + target*(1 - Momentum)`). When tracked sources are present, `Spread` syncs dirty source changes incrementally before propagating so moving or removed sources decay smoothly.
+
+### Layer combinations and spatial queries
+
+- **Combining layers**: `Add`, `Subtract`, `Multiply`, `Combine(terms...)`, `AddScaled`, `Scale`, `Abs`, `Clamp`, `Normalize`, and `CopyFrom` operate in place without allocating on pre-sized destination layers and support self-aliasing.
+- **Queries**: `HighestInRadius` and `LowestInRadius` find extrema within a cell radius, optionally filtering by walkability and BFS reachability (`InfluenceQuery{Grid: grid, Reachable: true, Diagonal: ...}`) with deterministic tie-breaking (closer cell, then smaller row, then smaller column). `Highest(grid)` and `Lowest(grid)` scan the full layer; `Sample(worldPos)` returns bilinearly interpolated values; `Gradient(worldPos)` and `GradientAtCell(col, row)` return uphill `math2d.Vec2` gradients in influence per world unit.
+
+### Debug heatmap
+
+Draw any layer over a `tilemap.Camera` for debugging:
+
+```go
+d.Save()
+cam.Apply(d)
+control.DrawHeatmap(d, cam, ai.HeatmapOptions{DrawGrid: true})
+d.Restore()
+```
+
+`DrawHeatmap` culls cells outside `cam.VisibleBounds()`, tints positive values with `PositiveColor` (default green) and negative values with `NegativeColor` (default red), and scales opacity by `|value| / MaxAbs`. Under `-tags release`, `DrawHeatmap` compiles to a no-op stub and `InfluenceHeatmapEnabled()` returns `false`.
