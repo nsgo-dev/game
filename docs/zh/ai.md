@@ -264,8 +264,58 @@ tree.Tick(dt)
 可用节点类型：
 
 - **组合节点**：`Sequence`、`Selector`（当高优先级分支成功或运行时会自动重置被抢占的低优先级运行中分支）、`Parallel(policy, ...)`（`RequireAll` 或 `RequireOne`）、`RandomSelector(stream, ...)`、`RandomSequence(stream, ...)`、`WeightedSelector(stream, options...)`（配合 `WeightedNode{Node, Weight}`）、`UtilitySelector(reasoner, ctx, rng, subtrees)`。
-- **修饰节点**：`Guard(cond, child)`、`Cooldown(d, child)`、`TimeLimit(d, child)`、`Retry(n, child)`、`Service(interval, fn, child)`、`WithAttackToken(pool, agentID, priority, child)`、`Inverter`、`Succeeder`、`Failer`、`Repeater(count, child)`、`UntilFail`。
+- **修饰节点**：`Guard(cond, child)`、`BlackboardCondition(bb, key, op, value, abort, child)`、`Cooldown(d, child)`、`TimeLimit(d, child)`、`Retry(n, child)`、`Service(interval, fn, child)`、`WithAttackToken(pool, agentID, priority, child)`、`Inverter`、`Succeeder`、`Failer`、`Repeater(count, child)`、`UntilFail`。
 - **叶节点**：`Action(fn)`、`Condition(fn)`、`Wait(d)`、`HasAttackToken(pool, agentID)`、`SquadHasOrder(squad, kind)`、`SquadHasRole(squad, agentID, role)`、`SquadStateBool(squad, key)`、`SquadOrderAction(squad, fn)`。
+
+### 黑板与观察者中断（Observer Aborts）
+
+`Blackboard` 为每个智能体提供强类型键值存储（`bool`、`int`、`float64`、`string`、2D 向量 `math2d.Vec2`/`core.Point`、3D 向量 `ai.Vec3` 与 `uint64` 实体 ID），可通过 `NewChildBlackboard(parent)` 挂载小队或阵营共享父黑板。读取优先查本地并回退到父黑板；`Set*` 写入本地，`SetShared*` 写入父黑板。`KeyRevision(key)` 与 `Revision()` 提供零分配的单调修订号，`Watch(key, fn)` 在键值变化时同步触发回调（未被本地遮蔽的父黑板变更也会传播），并返回取消订阅函数。
+
+`BlackboardCondition(bb, key, op, value, abort, child)` 使用 `BBOpEq`、`BBOpNe`、`BBOpLt`、`BBOpLte`、`BBOpGt`、`BBOpGte`、`BBOpSet` 或 `BBOpUnset` 比较 `key`（省略 `child` 时作为条件叶节点）。`AbortMode` 控制键变化时如何中断运行中的分支：
+
+- `AbortNone`（`none`）：仅在进入节点时求值。
+- `AbortSelf`（`self`）：当监听键变化导致条件变为假时，在下一 tick 重置自身运行中的子节点（作叶节点时重置外层 `Sequence` 中后续运行中的子节点）。
+- `AbortLower`（`lower`）：当监听键变化导致条件变为真时，在下一 tick 中断外层 `Selector` 中正在运行的低优先级兄弟分支。
+- `AbortBoth`（`both`）：同时启用 `AbortSelf` 与 `AbortLower`。
+
+```go
+squadBB := ai.NewBlackboard()
+agentBB := ai.NewChildBlackboard(squadBB)
+agentBB.SetBool("enemy_seen", false)
+
+tree := ai.Selector(
+	ai.BlackboardCondition(agentBB, "enemy_seen", ai.BBOpEq, ai.BBBool(true), ai.AbortBoth,
+		ai.Action(chaseTarget),
+	),
+	ai.Action(patrol),
+)
+```
+
+### YAML 行为树
+
+可使用带版本号的 `*.bt.yaml` 文件（`version: 1`，JSON Schema `https://game.nsgo.dev/schemas/bt.v1.json`）编写行为树，并通过 `ParseBehaviorTree` / `ParseBehaviorTreeWith`、`LoadBehaviorTreeFS`、`EncodeBehaviorTree`、`BuildBehaviorTree` 与 `BuildBehaviorTreeFS` 解析、编码与构建：
+
+```go
+doc, err := ai.LoadBehaviorTreeFS(assetsFS, "ai/guard.bt.yaml")
+if err != nil {
+	return err
+}
+tree, err := ai.BuildBehaviorTree(doc, ai.BTBindings{
+	Blackboard: agentBB,
+	Stream:     rng,
+	FS:         assetsFS,
+	Actions: map[string]func(ai.BTNodeContext) (ai.Node, error){
+		"attack": func(ctx ai.BTNodeContext) (ai.Node, error) {
+			dmg, _ := ctx.Params.Int("damage")
+			return ai.Action(func(dt time.Duration) ai.Status { return doAttack(dmg) }), nil
+		},
+	},
+})
+```
+
+- 支持所有内置组合节点与修饰节点（`sequence`、`selector`、`parallel`、`random_selector`、`random_sequence`、`weighted_selector`、`guard`、`cooldown`、`time_limit`、`retry`、`service`、`inverter`、`succeeder`、`failer`、`repeater`、`until_fail`、`blackboard_condition`）、`wait`、游戏注册的带类型参数 `action` / `condition` 叶节点，以及按 `path` 引用并支持 `${param}` 参数替换与 `keys` 黑板键映射的 `subtree`。
+- `ParseBehaviorTreeWith`、`LoadBehaviorTreeFS` 与 `BuildBehaviorTree` 会拒绝未知字段、未知节点类型、非法运算符或中断模式、尾随 YAML 文档以及子树循环引用，并通过 `*loaderr.Error` 报告文件、行号、列号、字段路径与修复提示。
+- `EncodeBehaviorTree` 以固定键顺序写出带 `BTSchemaComment` 前缀的规范 2 空格 YAML，确保加载再保存不产生任何字节差异。
 
 ### 超时、重试、确定性随机选择与服务节点
 

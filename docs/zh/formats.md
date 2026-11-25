@@ -1071,6 +1071,60 @@ goals:
           value: true
 ```
 
+<!-- format: ai#bt -->
+### 行为树
+
+| 文件 | 版本 | 读写函数 | 字段 |
+| --- | --- | --- | --- |
+| `*.bt.yaml`，如 `guard.bt.yaml` | `version: 1` | `ai.ParseBehaviorTree`、`ai.EncodeBehaviorTree`、`ai.LoadBehaviorTreeFS`、`ai.BuildBehaviorTree` | [ai](ai.md#yaml-行为树) · [schema](schemas.md) |
+
+```yaml
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/bt.v1.json
+version: 1
+name: guard
+blackboard:
+  - key: enemy_seen
+    type: bool
+    default: false
+  - key: enemy_distance
+    type: float
+    default: 999
+root:
+  type: selector
+  children:
+    - type: blackboard_condition
+      key: enemy_seen
+      op: eq
+      value: true
+      abort: both
+      child:
+        type: selector
+        children:
+          - type: blackboard_condition
+            key: enemy_distance
+            op: lte
+            value: 32
+            abort: both
+            child:
+              type: cooldown
+              duration: 500ms
+              child:
+                type: action
+                action: attack
+                params:
+                  damage: 15
+          - type: action
+            action: chase
+            params:
+              speed: 120
+    - type: subtree
+      path: patrol.bt.yaml
+      params:
+        wait: 200ms
+      keys:
+        home: home_pos
+```
+
 <!-- format: procgen -->
 ### 图块规则
 

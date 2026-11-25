@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nsgo-dev/game/packages/game/ai"
 	"github.com/nsgo-dev/game/packages/game/l10n"
 	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
@@ -125,6 +126,13 @@ var formats = []format{
 		pkg:     "project",
 		version: project.CurrentVersion,
 	},
+	{
+		url:     ai.BTSchemaURL,
+		title:   "NSGo game behavior tree (version 1)",
+		typ:     reflect.TypeFor[ai.BehaviorTreeDoc](),
+		pkg:     "ai",
+		version: ai.BTFormatVersion,
+	},
 }
 
 // durationSchema allows a time.Duration written as a Go duration string such as "250ms" or as an integer of nanoseconds.
@@ -167,6 +175,31 @@ func generate(root string) ([]schemaFile, error) {
 			}
 			// Args is a map[string]any, which Reflect allows any value in, but sceneformat.Validate takes only scalars, so an editor flags the rest as the loader does.
 			args.AdditionalProperties = &jsonschema.Schema{Types: []jsonschema.Type{jsonschema.TypeBoolean, jsonschema.TypeNumber, jsonschema.TypeString}}
+		}
+		if f.url == ai.BTSchemaURL {
+			btValSchema := func(desc string) *jsonschema.Schema {
+				return &jsonschema.Schema{
+					Description: desc,
+					Types:       []jsonschema.Type{jsonschema.TypeBoolean, jsonschema.TypeNumber, jsonschema.TypeString, jsonschema.TypeArray},
+					Items:       &jsonschema.Schema{Types: []jsonschema.Type{jsonschema.TypeNumber}},
+				}
+			}
+			if params := s.Property("params"); params != nil {
+				params.AdditionalProperties = btValSchema("")
+			}
+			if keyDef := s.Definitions["BTBlackboardKeyDoc"]; keyDef != nil {
+				if def := keyDef.Property("default"); def != nil {
+					*def = *btValSchema(def.Description)
+				}
+			}
+			if nodeDef := s.Definitions["BTNodeDoc"]; nodeDef != nil {
+				if val := nodeDef.Property("value"); val != nil {
+					*val = *btValSchema(val.Description)
+				}
+				if params := nodeDef.Property("params"); params != nil {
+					params.AdditionalProperties = btValSchema("")
+				}
+			}
 		}
 		data, err := s.Marshal()
 		if err != nil {

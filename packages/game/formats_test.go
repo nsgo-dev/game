@@ -107,6 +107,7 @@ var formatVersions = map[string]string{
 	"accounts/sqlstore.SchemaVersion":       "",
 	"accounts/token.KeySetVersion":          "accounts/token",
 	"achievements.CurrentVersion":           "achievements",
+	"ai.BTFormatVersion":                    "ai#bt",
 	"ai.GOAPVersion":                        "ai#goap",
 	"ai.UtilityVersion":                     "ai",
 	"bullets.FormatVersion":                 "bullets",
