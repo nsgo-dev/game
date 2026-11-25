@@ -799,18 +799,18 @@ func TestRagdollSkeletonKinematicDynamicAndBlended(t *testing.T) {
 	if len(rd.Joints) != len(skeleton)-1 {
 		t.Fatalf("ragdoll joints = %d, want %d", len(rd.Joints), len(skeleton)-1)
 	}
-	// Verify both BallJoint and HingeJoint were generated (elbowL & kneeL => HingeJoint).
-	var ballCount, hingeCount int
+	// Verify both SwingTwistJoint and HingeJoint were generated (elbowL & kneeL => HingeJoint).
+	var swingTwistCount, hingeCount int
 	for _, j := range rd.Joints {
 		switch j.(type) {
-		case *physics3d.BallJoint:
-			ballCount++
+		case *physics3d.SwingTwistJoint:
+			swingTwistCount++
 		case *physics3d.HingeJoint:
 			hingeCount++
 		}
 	}
-	if ballCount != 4 || hingeCount != 2 {
-		t.Fatalf("ragdoll joint types: ball=%d hinge=%d, want 4 ball & 2 hinge", ballCount, hingeCount)
+	if swingTwistCount != 4 || hingeCount != 2 {
+		t.Fatalf("ragdoll joint types: swingTwist=%d hinge=%d, want 4 swing-twist & 2 hinge", swingTwistCount, hingeCount)
 	}
 
 	// Capture initial animated rest pose.

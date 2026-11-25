@@ -231,17 +231,21 @@ type World struct {
 	// OnTrigger is invoked deterministically for trigger ContactEvents
 	// (ContactEnter, ContactStay, ContactExit).
 	OnTrigger func(ContactEvent)
+	// OnJointBreak is invoked deterministically for each joint broken during
+	// World.Step in joint insertion order.
+	OnJointBreak func(JointBreakEvent)
 
-	bodies         []*Body
-	nextID         int
-	nextColliderID int
-	cache          map[pairKey]cachedImpulse
-	activeContacts map[pairKey]activeContactRecord
-	contactEvents  []ContactEvent
-	triMeshes      []*TriMeshCollider
-	heightfields   []*HeightfieldCollider
-	joints         []Joint3D
-	ignoredPairs   map[pairKey]struct{}
+	bodies           []*Body
+	nextID           int
+	nextColliderID   int
+	cache            map[pairKey]cachedImpulse
+	activeContacts   map[pairKey]activeContactRecord
+	contactEvents    []ContactEvent
+	jointBreakEvents []JointBreakEvent
+	triMeshes        []*TriMeshCollider
+	heightfields     []*HeightfieldCollider
+	joints           []Joint3D
+	ignoredPairs     map[pairKey]struct{}
 }
 
 // NewWorld returns a World with standard Y-up gravity (0, -9.81, 0) and 8
@@ -410,6 +414,7 @@ func (w *World) Step(dt time.Duration) {
 	if dt <= 0 {
 		return
 	}
+	w.jointBreakEvents = w.jointBreakEvents[:0]
 	if len(w.bodies) == 0 {
 		if len(w.activeContacts) > 0 {
 			w.reconcileContactEvents(make(map[pairKey]activeContactRecord))
@@ -752,6 +757,10 @@ func (w *World) Step(dt time.Duration) {
 		}
 	}
 
+	// 4a. Check breakable joints against their accumulated step reaction force/torque
+	// and remove broken joints before positional correction.
+	w.evaluateBreakableJoints()
+
 	// 4b. Shock propagation, velocity half: sequential impulses converge slowly when a heavy body rests on a light one, and the leftover approach velocity makes stacks bob instead of settling. One bottom-up pass stops each upper body against the one below it, already final (#546).
 	up, haveUp := gravityUp(w.Gravity)
 	var shock []int
@@ -848,8 +857,41 @@ func (w *World) Step(dt time.Duration) {
 		b.lastPos, b.lastRot, b.havePose = b.Pos, b.Rot, true
 	}
 
-	// 8. Reconcile active contacts and emit deterministic Enter/Stay/Exit events.
+	// 8. Reconcile active contacts and emit deterministic Enter/Stay/Exit and joint-break events.
 	w.reconcileContactEvents(currentPairs)
+	if w.OnJointBreak != nil {
+		for _, ev := range w.jointBreakEvents {
+			w.OnJointBreak(ev)
+		}
+	}
+}
+
+// JointBreakEvents returns the deterministic slice of JointBreakEvents produced
+// by the most recent World.Step, in joint insertion order.
+func (w *World) JointBreakEvents() []JointBreakEvent {
+	return w.jointBreakEvents
+}
+
+func (w *World) evaluateBreakableJoints() {
+	if len(w.joints) == 0 {
+		return
+	}
+	dst := w.joints[:0]
+	brokeAny := false
+	for _, j := range w.joints {
+		if bj, ok := j.(breakableJoint); ok {
+			if ev, broken := bj.checkBreak(); broken {
+				w.jointBreakEvents = append(w.jointBreakEvents, ev)
+				brokeAny = true
+				continue
+			}
+		}
+		dst = append(dst, j)
+	}
+	w.joints = dst
+	if brokeAny {
+		w.wakeAllDynamic()
+	}
 }
 
 // gravityUp returns the unit direction opposite gravity, and false when gravity is zero or not finite, which leaves "up" undefined and turns shock propagation off.

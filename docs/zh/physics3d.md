@@ -72,7 +72,16 @@ loop := &game.Loop{
 
 单步位移超过自身最小尺寸一半的动态刚体，会以子步对静态、运动学和休眠刚体以及三角网格、高度场做扫掠，在第一次出现新的重叠处停下，因此高速刚体不会穿过薄的几何体。本步开始时已经存在的接触（例如高速滑行或滚动的刚体身下的地面）不会让它停下，除非刚体陷入其中明显更深。高速动态刚体之间不做扫掠。
 
-`HingeJoint.Angle` 会跨步累计，持续转动的铰链会报告超过 ±π 的角度，`MinAngle`/`MaxAngle` 也可以跨越一圈以上。`DistanceJoint` 在距离位于 `[MinDistance, MaxDistance]` 之内时是松弛的；`Stiffness` 和 `Damping` 只让上下限变软，若要静止长度为 `L` 的弹簧，把两个上下限都设为 `L`。
+## 关节与布娃娃
+
+`World.AddJoint` 按确定的插入顺序求解 `DistanceJoint`、`BallJoint`、`SwingTwistJoint`、`HingeJoint`、`SliderJoint`、`FixedJoint` 和 `SixDOFJoint`：
+
+- `HingeJoint.Angle` 会跨步累计，持续转动的铰链会报告超过 ±π 的角度，`MinAngle`/`MaxAngle` 也可以跨越一圈以上。除速度马达（`MotorTargetVel`、`MotorMaxTorque`）外，还支持可选的弹簧与位置驱动（`DriveTargetAngle`、`DriveStiffness`、`DriveDamping`、`DriveMaxTorque`），可将门或主动关节平滑拉回目标角度。
+- `SliderJoint` 除限位与速度马达外，同样支持沿滑轨轴的弹簧与位置驱动（`DriveTargetPos`、`DriveStiffness`、`DriveDamping`、`DriveMaxForce`）。
+- `DistanceJoint` 在距离位于 `[MinDistance, MaxDistance]` 之内时是松弛的；`Stiffness` 和 `Damping` 只让上下限变软，若要静止长度为 `L` 的弹簧，把两个上下限都设为 `L`。
+- `SwingTwistJoint` 为球窝关节提供四象限非对称椭圆摆动锥（`SwingMin1`、`SwingMax1`、`SwingMin2`、`SwingMax2`）与独立的扭转范围（`MinTwist`、`MaxTwist`），并可通过 `SwingAngles()` 和 `TwistAngle()` 读取当前角度。`BuildRagdoll` 对非铰链关节（肩、髋、躯干、头部等）使用 `SwingTwistJoint`，对肘、膝及显式指定 `HingeAxis` 的骨骼使用 `HingeJoint`；`SkeletonJoint` 支持可选的非对称摆动限位以及 `TwistLimit` / `MinTwist` / `MaxTwist`（仅设置 `SwingLimit > 0` 时默认启用 ±π/4 扭转限制，防止四肢绕自身轴自由旋转）。
+- `SixDOFJoint` 通过 `AxisConfig` 独立配置 3 个线性轴（`Linear[0..2]`）和 3 个旋转轴（`Angular[0..2]`）：支持 `Mode`（`AxisFree`、`AxisLocked`、带 `Min`/`Max` 的 `AxisLimited`）、弹簧刚度与阻尼（`Stiffness`/`Damping`），以及按 `MaxForce` 限幅的 `Drive`（`DriveNone`、`DrivePosition`、`DriveVelocity`，目标为 `TargetPos`/`TargetVel`）。
+- 每个内置关节都可通过 `ReactionForce()`（牛顿）和 `ReactionTorque()`（牛·米）读取上一步施加在 `BodyB` 上的世界空间反作用力与反作用力矩，并支持可选的 `BreakForce` 和 `BreakTorque` 断裂阈值。当关节在 `World.Step` 中超过任一阈值时，会被标记为 `Broken()`，在位置修正前从世界中移除并唤醒动态刚体，同时按确定顺序通过 `World.JointBreakEvents()` 和 `World.OnJointBreak` 上报。
 
 ## 角色控制器
 
