@@ -3,6 +3,7 @@ package physics
 import (
 	"math"
 
+	"github.com/nsgo-dev/game/packages/game/internal/detmath"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -22,7 +23,7 @@ func (r *rayPiece) keep(t, nx, ny float64) {
 func rayHitAt(fx, fy, dx, dy float64, p rayPiece) RaycastHit {
 	return RaycastHit{
 		T:       float32(p.t),
-		Point:   core.Point{X: core.Points(fx + dx*p.t), Y: core.Points(fy + dy*p.t)},
+		Point:   core.Point{X: core.Points(fx + float64(dx*p.t)), Y: core.Points(fy + float64(dy*p.t))},
 		NormalX: float32(p.nx),
 		NormalY: float32(p.ny),
 	}
@@ -35,19 +36,19 @@ func rayStartHit(fx, fy float64) RaycastHit {
 // raycastLine intersects the ray with segment ab from either side, returning the normal facing the ray's origin. A ray parallel to the segment misses it, as in Box2D.
 func raycastLine(fx, fy, dx, dy float64, a, b vec2) (rayPiece, bool) {
 	ex, ey := b.x-a.x, b.y-a.y
-	den := dx*ey - dy*ex
+	den := float64(dx*ey) - float64(dy*ex)
 	if den == 0 {
 		return rayPiece{}, false
 	}
 	wx, wy := a.x-fx, a.y-fy
-	t := (wx*ey - wy*ex) / den
-	u := (wx*dy - wy*dx) / den
+	t := (float64(wx*ey) - float64(wy*ex)) / den
+	u := (float64(wx*dy) - float64(wy*dx)) / den
 	if t < 0 || t > 1 || u < 0 || u > 1 {
 		return rayPiece{}, false
 	}
-	l := math.Hypot(ex, ey)
+	l := detmath.Hypot(ex, ey)
 	nx, ny := ey/l, -ex/l
-	if nx*dx+ny*dy > 0 {
+	if float64(nx*dx)+float64(ny*dy) > 0 {
 		nx, ny = -nx, -ny
 	}
 	return rayPiece{t: t, nx: nx, ny: ny, ok: true}, true
@@ -56,15 +57,15 @@ func raycastLine(fx, fy, dx, dy float64, a, b vec2) (rayPiece, bool) {
 // raycastDisk returns where the ray enters the disk at c with radius r, for a ray starting outside it.
 func raycastDisk(fx, fy, dx, dy float64, c vec2, r float64) (rayPiece, bool) {
 	ox, oy := fx-c.x, fy-c.y
-	a := dx*dx + dy*dy
+	a := float64(dx*dx) + float64(dy*dy)
 	if a == 0 {
 		return rayPiece{}, false
 	}
-	b := ox*dx + oy*dy
+	b := float64(ox*dx) + float64(oy*dy)
 	if b >= 0 {
 		return rayPiece{}, false
 	}
-	disc := b*b - a*(ox*ox+oy*oy-r*r)
+	disc := float64(b*b) - float64(a*(float64(ox*ox)+float64(oy*oy)-float64(r*r)))
 	if disc < 0 {
 		return rayPiece{}, false
 	}
@@ -72,7 +73,7 @@ func raycastDisk(fx, fy, dx, dy float64, c vec2, r float64) (rayPiece, bool) {
 	if t < 0 || t > 1 {
 		return rayPiece{}, false
 	}
-	nx, ny := (ox+dx*t)/r, (oy+dy*t)/r
+	nx, ny := (ox+float64(dx*t))/r, (oy+float64(dy*t))/r
 	return rayPiece{t: t, nx: nx, ny: ny, ok: true}, true
 }
 
@@ -100,12 +101,12 @@ func raycastHull(fx, fy, dx, dy float64, h *hull) (RaycastHit, bool) {
 		}
 		for i := range h.edgeCount() {
 			n := h.n[i]
-			if n.x*dx+n.y*dy >= 0 {
+			if float64(n.x*dx)+float64(n.y*dy) >= 0 {
 				continue
 			}
 			a, b := h.edge(i)
-			oa := vec2{a.x + n.x*h.r, a.y + n.y*h.r}
-			ob := vec2{b.x + n.x*h.r, b.y + n.y*h.r}
+			oa := vec2{a.x + float64(n.x*h.r), a.y + float64(n.y*h.r)}
+			ob := vec2{b.x + float64(n.x*h.r), b.y + float64(n.y*h.r)}
 			if p, ok := raycastLine(fx, fy, dx, dy, oa, ob); ok {
 				best.keep(p.t, n.x, n.y)
 			}
@@ -124,7 +125,7 @@ func raycastCorePolygon(fx, fy, dx, dy float64, h *hull) (RaycastHit, bool) {
 	for i := range h.count {
 		n := h.n[i]
 		num := dot2(n, vec2{h.v[i].x - fx, h.v[i].y - fy})
-		den := n.x*dx + n.y*dy
+		den := float64(n.x*dx) + float64(n.y*dy)
 		if den == 0 {
 			if num < 0 {
 				return RaycastHit{}, false

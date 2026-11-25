@@ -94,6 +94,15 @@ type RigidBodySnapshot struct {
 	ForceX          float64   `json:"forceX,omitempty"`
 	ForceY          float64   `json:"forceY,omitempty"`
 	Torque          float64   `json:"torque,omitempty"`
+	// Local is the body's Polygon, Capsule, Segment or Chain shape relative to (X, Y) at Angle 0, which the solver rotates each step; nil for a Box or Circle.
+	Local *Shape `json:"local,omitempty"`
+	// Synced reports that Shape is the world shape last derived from Local at pose (SyncX, SyncY, SyncAngle), so it is not re-derived on the next step.
+	Synced    bool    `json:"synced,omitempty"`
+	SyncX     float32 `json:"syncX,omitempty"`
+	SyncY     float32 `json:"syncY,omitempty"`
+	SyncAngle float32 `json:"syncAngle,omitempty"`
+	// DerivedInertia is the Inertia the body last derived from its shape.
+	DerivedInertia float32 `json:"derivedInertia,omitempty"`
 }
 
 // RigidJointSnapshot captures the complete public and private solver state of one RigidWorld Joint.
@@ -145,7 +154,7 @@ func snapshotBody(b *Body) BodySnapshot {
 	return BodySnapshot{
 		ID:          b.ID,
 		Tag:         b.Tag,
-		Shape:       b.Shape,
+		Shape:       cloneShape(b.Shape),
 		VX:          b.VX,
 		VY:          b.VY,
 		Layer:       b.Layer,
@@ -163,7 +172,7 @@ func applyBodySnapshot(dst *Body, src BodySnapshot) {
 	*dst = Body{
 		ID:          src.ID,
 		Tag:         src.Tag,
-		Shape:       src.Shape,
+		Shape:       cloneShape(src.Shape),
 		VX:          src.VX,
 		VY:          src.VY,
 		Layer:       src.Layer,
@@ -181,7 +190,7 @@ func snapshotTrigger(tr *Trigger) TriggerSnapshot {
 	return TriggerSnapshot{
 		ID:    tr.ID,
 		Tag:   tr.Tag,
-		Shape: tr.Shape,
+		Shape: cloneShape(tr.Shape),
 		Layer: tr.Layer,
 		Mask:  tr.Mask,
 		Area:  tr.Area,
@@ -193,7 +202,7 @@ func applyTriggerSnapshot(dst *Trigger, src TriggerSnapshot) {
 	*dst = Trigger{
 		ID:       src.ID,
 		Tag:      src.Tag,
-		Shape:    src.Shape,
+		Shape:    cloneShape(src.Shape),
 		Layer:    src.Layer,
 		Mask:     src.Mask,
 		OnEnter:  onEnter,
@@ -479,10 +488,10 @@ func (w *World) Checksum() uint64 {
 }
 
 func snapshotRigidBody(b *RigidBody) RigidBodySnapshot {
-	return RigidBodySnapshot{
+	s := RigidBodySnapshot{
 		ID:              b.ID,
 		Tag:             b.Tag,
-		Shape:           b.Shape,
+		Shape:           cloneShape(b.Shape),
 		X:               b.X,
 		Y:               b.Y,
 		VX:              b.VX,
@@ -505,7 +514,17 @@ func snapshotRigidBody(b *RigidBody) RigidBodySnapshot {
 		ForceX:          b.forceX,
 		ForceY:          b.forceY,
 		Torque:          b.torque,
+		DerivedInertia:  b.derivedInertia,
 	}
+	if b.hasLocal {
+		local := cloneShape(b.local)
+		s.Local = &local
+		if b.Shape == b.synced {
+			s.Synced = true
+			s.SyncX, s.SyncY, s.SyncAngle = b.syncX, b.syncY, b.syncAngle
+		}
+	}
+	return s
 }
 
 func applyRigidBodySnapshot(dst *RigidBody, src RigidBodySnapshot) {
@@ -513,7 +532,7 @@ func applyRigidBodySnapshot(dst *RigidBody, src RigidBodySnapshot) {
 	*dst = RigidBody{
 		ID:              src.ID,
 		Tag:             src.Tag,
-		Shape:           src.Shape,
+		Shape:           cloneShape(src.Shape),
 		X:               src.X,
 		Y:               src.Y,
 		VX:              src.VX,
@@ -537,7 +556,27 @@ func applyRigidBodySnapshot(dst *RigidBody, src RigidBodySnapshot) {
 		forceX:          src.ForceX,
 		forceY:          src.ForceY,
 		torque:          src.Torque,
+		derivedInertia:  src.DerivedInertia,
 	}
+	if src.Local != nil && hasFreeShape(src.Local.Kind) {
+		dst.local = cloneShape(*src.Local)
+		dst.hasLocal = true
+		if src.Synced {
+			dst.synced = dst.Shape
+			dst.syncBounds = dst.Shape.Bounds()
+			dst.syncX, dst.syncY, dst.syncAngle = src.SyncX, src.SyncY, src.SyncAngle
+		}
+	}
+}
+
+// cloneShape returns s with its Chain copied, so a snapshot and the live world never share chain points.
+func cloneShape(s Shape) Shape {
+	if s.Chain != nil {
+		c := *s.Chain
+		c.Points = append([]core.Point(nil), s.Chain.Points...)
+		s.Chain = &c
+	}
+	return s
 }
 
 // Save captures a deep, deterministic, JSON-serializable snapshot of w.
@@ -972,6 +1011,36 @@ func hashShape(h *detmath.Hasher, s Shape) {
 		h.WriteFloat32(s.Circle.X)
 		h.WriteFloat32(s.Circle.Y)
 		h.WriteFloat32(s.Circle.R)
+	case ShapePolygon:
+		h.WriteInt(s.Polygon.Count)
+		for _, v := range s.Polygon.Vertices {
+			h.WriteFloat32(float32(v.X))
+			h.WriteFloat32(float32(v.Y))
+		}
+		h.WriteFloat32(s.Polygon.Radius)
+	case ShapeCapsule:
+		h.WriteFloat32(s.Capsule.X1)
+		h.WriteFloat32(s.Capsule.Y1)
+		h.WriteFloat32(s.Capsule.X2)
+		h.WriteFloat32(s.Capsule.Y2)
+		h.WriteFloat32(s.Capsule.R)
+	case ShapeSegment:
+		h.WriteFloat32(s.Segment.X1)
+		h.WriteFloat32(s.Segment.Y1)
+		h.WriteFloat32(s.Segment.X2)
+		h.WriteFloat32(s.Segment.Y2)
+	case ShapeChain:
+		if s.Chain == nil {
+			h.WriteBool(false)
+			return
+		}
+		h.WriteBool(true)
+		h.WriteBool(s.Chain.Loop)
+		h.WriteInt(len(s.Chain.Points))
+		for _, p := range s.Chain.Points {
+			h.WriteFloat32(float32(p.X))
+			h.WriteFloat32(float32(p.Y))
+		}
 	}
 }
 
@@ -1047,4 +1116,21 @@ func hashRigidBody(h *detmath.Hasher, b *RigidBody) {
 	h.WriteFloat64(b.forceX)
 	h.WriteFloat64(b.forceY)
 	h.WriteFloat64(b.torque)
+	// Shape-derived state is hashed only when it carries information beyond the fields above, so Box and Circle bodies with derived inertia keep the digest they had before free shapes existed.
+	if !b.hasLocal && b.derivedInertia == b.Inertia {
+		return
+	}
+	h.WriteBool(true)
+	h.WriteFloat32(b.derivedInertia)
+	h.WriteBool(b.hasLocal)
+	if b.hasLocal {
+		hashShape(h, b.local)
+		synced := b.Shape == b.synced
+		h.WriteBool(synced)
+		if synced {
+			h.WriteFloat32(b.syncX)
+			h.WriteFloat32(b.syncY)
+			h.WriteFloat32(b.syncAngle)
+		}
+	}
 }

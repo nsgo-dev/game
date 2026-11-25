@@ -1,6 +1,10 @@
 package physics
 
-import "math"
+import (
+	"math"
+
+	"github.com/nsgo-dev/game/packages/game/internal/detmath"
+)
 
 // The narrowphase for polygons, capsules, segments and chains treats every convex shape as a rounded hull: a core of 1 to MaxPolygonVertices points (a point for a circle, a segment for a capsule or segment, a polygon for a box or polygon) grown by a radius. Overlap is the separating axis test on the cores plus the radii, and the contact manifold comes from clipping the incident edge against the reference face, as in Box2D's b2CollidePolygons.
 
@@ -45,7 +49,7 @@ func (h *hull) finish() {
 	for i := range h.edgeCount() {
 		a, b := h.edge(i)
 		ex, ey := b.x-a.x, b.y-a.y
-		if l := math.Hypot(ex, ey); l > 0 {
+		if l := detmath.Hypot(ex, ey); l > 0 {
 			h.n[i] = vec2{ey / l, -ex / l}
 		} else {
 			h.n[i] = vec2{}
@@ -77,11 +81,11 @@ func boxHull(b Box) hull {
 
 // orientedBoxHull returns the hull of a box with half extents (hw, hh) centered at (cx, cy) and rotated by angle.
 func orientedBoxHull(cx, cy, hw, hh, angle float64) hull {
-	s, c := math.Sincos(angle)
+	s, c := detmath.Sincos(angle)
 	local := [4]vec2{{-hw, -hh}, {hw, -hh}, {hw, hh}, {-hw, hh}}
 	h := hull{count: 4}
 	for i, l := range local {
-		h.v[i] = vec2{cx + l.x*c - l.y*s, cy + l.x*s + l.y*c}
+		h.v[i] = vec2{cx + float64(l.x*c) - float64(l.y*s), cy + float64(l.x*s) + float64(l.y*c)}
 	}
 	h.finish()
 	return h
@@ -172,7 +176,7 @@ func (h *hull) coreDistance(p vec2) float64 {
 		return 0
 	}
 	if h.count == 1 {
-		return math.Hypot(p.x-h.v[0].x, p.y-h.v[0].y)
+		return detmath.Hypot(p.x-h.v[0].x, p.y-h.v[0].y)
 	}
 	best := math.Inf(1)
 	edges := h.count
@@ -182,7 +186,7 @@ func (h *hull) coreDistance(p vec2) float64 {
 	for i := range edges {
 		a, b := h.edge(i)
 		q := closestOnSegment(a, b, p)
-		best = min(best, math.Hypot(p.x-q.x, p.y-q.y))
+		best = min(best, detmath.Hypot(p.x-q.x, p.y-q.y))
 	}
 	return best
 }
@@ -198,12 +202,12 @@ func (h *hull) contains(p vec2) bool {
 // closestOnSegment returns the point of segment ab closest to p.
 func closestOnSegment(a, b, p vec2) vec2 {
 	ex, ey := b.x-a.x, b.y-a.y
-	ll := ex*ex + ey*ey
+	ll := float64(ex*ex) + float64(ey*ey)
 	if ll == 0 {
 		return a
 	}
-	t := min(max(((p.x-a.x)*ex+(p.y-a.y)*ey)/ll, 0), 1)
-	return vec2{a.x + ex*t, a.y + ey*t}
+	t := min(max((float64((p.x-a.x)*ex)+float64((p.y-a.y)*ey))/ll, 0), 1)
+	return vec2{a.x + float64(ex*t), a.y + float64(ey*t)}
 }
 
 // closestSegmentPoints returns the closest points of segments p1q1 and p2q2 and the squared distance between them (Ericson, Real-Time Collision Detection 5.1.9).
@@ -228,11 +232,11 @@ func closestSegmentPoints(p1, q1, p2, q2 vec2) (c1, c2 vec2, distSq float64) {
 			s = min(max(-c/a, 0), 1)
 		} else {
 			b := dot2(d1, d2)
-			denom := a*e - b*b
+			denom := float64(a*e) - float64(b*b)
 			if denom != 0 {
-				s = min(max((b*f-c*e)/denom, 0), 1)
+				s = min(max((float64(b*f)-float64(c*e))/denom, 0), 1)
 			}
-			t = (b*s + f) / e
+			t = (float64(b*s) + f) / e
 			if t < 0 {
 				t = 0
 				s = min(max(-c/a, 0), 1)
@@ -242,10 +246,10 @@ func closestSegmentPoints(p1, q1, p2, q2 vec2) (c1, c2 vec2, distSq float64) {
 			}
 		}
 	}
-	c1 = vec2{p1.x + d1.x*s, p1.y + d1.y*s}
-	c2 = vec2{p2.x + d2.x*t, p2.y + d2.y*t}
+	c1 = vec2{p1.x + float64(d1.x*s), p1.y + float64(d1.y*s)}
+	c2 = vec2{p2.x + float64(d2.x*t), p2.y + float64(d2.y*t)}
 	dx, dy := c1.x-c2.x, c1.y-c2.y
-	return c1, c2, dx*dx + dy*dy
+	return c1, c2, float64(dx*dx) + float64(dy*dy)
 }
 
 // coreSegments returns how many segments make up the boundary of h's core (one for a point or a segment).
@@ -301,7 +305,7 @@ func capSeparation(a, b *hull) float64 {
 		return math.Inf(-1)
 	}
 	d := vec2{a.v[1].x - a.v[0].x, a.v[1].y - a.v[0].y}
-	l := math.Hypot(d.x, d.y)
+	l := detmath.Hypot(d.x, d.y)
 	if l == 0 {
 		return math.Inf(-1)
 	}
@@ -342,7 +346,7 @@ func collideHulls(a, b *hull) hullManifold {
 	total := a.r + b.r
 	if a.count == 1 && b.count == 1 {
 		dx, dy := b.v[0].x-a.v[0].x, b.v[0].y-a.v[0].y
-		distSq := dx*dx + dy*dy
+		distSq := float64(dx*dx) + float64(dy*dy)
 		if distSq >= total*total {
 			return hullManifold{}
 		}
@@ -396,8 +400,8 @@ func singlePointManifold(a, b *hull, pa, pb vec2, dist float64) hullManifold {
 	m := hullManifold{nx: nx, ny: ny, count: 1}
 	// Midway between the surface of a (pa + n*ra) and the surface of b (pb - n*rb).
 	m.points[0] = manifoldPoint{
-		x:     0.5*(pa.x+pb.x) + 0.5*nx*(a.r-b.r),
-		y:     0.5*(pa.y+pb.y) + 0.5*ny*(a.r-b.r),
+		x:     float64(0.5*(pa.x+pb.x)) + float64(0.5*nx*(a.r-b.r)),
+		y:     float64(0.5*(pa.y+pb.y)) + float64(0.5*ny*(a.r-b.r)),
 		depth: depth,
 	}
 	return m
@@ -424,7 +428,7 @@ func clipHulls(ref *hull, edge int, inc *hull, flip bool) hullManifold {
 		}
 		w1, w2 := inc.edge(k)
 		t := vec2{v2.x - v1.x, v2.y - v1.y}
-		if l := math.Hypot(t.x, t.y); l > 0 {
+		if l := detmath.Hypot(t.x, t.y); l > 0 {
 			t = vec2{t.x / l, t.y / l}
 		}
 		clipped, n := clipSegmentToLine([2]vec2{w1, w2}, 2, vec2{-t.x, -t.y}, -dot2(t, v1))
@@ -463,7 +467,7 @@ func clipHulls(ref *hull, edge int, inc *hull, flip bool) hullManifold {
 		} else {
 			off = 0.5 * (rA - s - rB)
 		}
-		m.points[m.count] = manifoldPoint{x: p.x + m.nx*off, y: p.y + m.ny*off, depth: total - s}
+		m.points[m.count] = manifoldPoint{x: p.x + float64(m.nx*off), y: p.y + float64(m.ny*off), depth: total - s}
 		m.count++
 	}
 	return m
@@ -490,7 +494,7 @@ func chainSegmentManifold(c *Chain, i int, o *hull) (hullManifold, bool) {
 	}
 
 	dir := vec2{p1.x - p0.x, p1.y - p0.y}
-	length := math.Hypot(dir.x, dir.y)
+	length := detmath.Hypot(dir.x, dir.y)
 	dir = vec2{dir.x / length, dir.y / length}
 	nSeg := seg.n[0]
 	mn := vec2{m.nx, m.ny}
@@ -525,7 +529,7 @@ func chainSegmentManifold(c *Chain, i int, o *hull) (hullManifold, bool) {
 		return m, true
 	}
 	toGhost := vec2{ghost.x - vertex.x, ghost.y - vertex.y}
-	gl := math.Hypot(toGhost.x, toGhost.y)
+	gl := detmath.Hypot(toGhost.x, toGhost.y)
 	if gl > 0 && dot2(nF, toGhost) < -1e-9*gl {
 		// A convex vertex owns the normals between this face and the neighbour's; beyond them the neighbour's face owns the contact.
 		t := vec2{toGhost.x / gl, toGhost.y / gl}
