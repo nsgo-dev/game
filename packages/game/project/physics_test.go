@@ -305,4 +305,20 @@ physics:
 	if sm == nil || sm.TileFlagsAt(0, 1) != physics.TileSolid || sm.TileFlagsAt(1, 1) != physics.TileOneWay || sm.TileFlagsAt(2, 1) != physics.TileFlags(8) || sm.TileFlagsAt(3, 1) != 0 {
 		t.Fatalf("scene built LDtk map flags mismatch: %v", sm)
 	}
+
+	// Mutating maps returned by Resolver.LDtkOptions must not corrupt cached project rules.
+	opts1 := r.LDtkOptions()
+	opts1.IntGridFlags["Stone"] = 0
+	opts1.IntGridFlags["Injected"] = tilemap.TileSolid
+	opts1.IntGridValueFlags[3] = 0
+	opts2 := r.LDtkOptions()
+	if opts2.IntGridFlags["Stone"] != tilemap.TileSolid {
+		t.Fatalf("cached IntGridFlags[Stone] mutated to %v, want TileSolid", opts2.IntGridFlags["Stone"])
+	}
+	if _, leaked := opts2.IntGridFlags["Injected"]; leaked {
+		t.Fatal("injected key leaked into cached Resolver.LDtkOptions")
+	}
+	if opts2.IntGridValueFlags[3] != tilemap.TileFlags(8) {
+		t.Fatalf("cached IntGridValueFlags[3] mutated to %v, want 8", opts2.IntGridValueFlags[3])
+	}
 }

@@ -27,8 +27,13 @@ func EncodeTiled(m *Tilemap) ([]byte, error) {
 	if m.Width < 0 || m.Height < 0 {
 		return nil, fmt.Errorf("tilemap: EncodeTiled: map size %dx%d must be non-negative", m.Width, m.Height)
 	}
-	if m.TileWidth <= 0 || m.TileHeight <= 0 {
-		return nil, fmt.Errorf("tilemap: EncodeTiled: tile size %gx%g must be positive", m.TileWidth, m.TileHeight)
+	if !(m.TileWidth > 0) || !(m.TileHeight > 0) || math.IsInf(float64(m.TileWidth), 0) || math.IsInf(float64(m.TileHeight), 0) {
+		return nil, fmt.Errorf("tilemap: EncodeTiled: tile size %gx%g must be finite and positive", m.TileWidth, m.TileHeight)
+	}
+
+	layers, err := encodeTiledLayers(m)
+	if err != nil {
+		return nil, err
 	}
 
 	out := tmjMap{
@@ -40,7 +45,7 @@ func EncodeTiled(m *Tilemap) ([]byte, error) {
 		Infinite:      m.Infinite,
 		Properties:    encodeTiledProperties(m.Properties),
 		Tilesets:      make([]tmjTileset, 0, len(m.Tilesets)),
-		Layers:        encodeTiledLayers(m),
+		Layers:        layers,
 		Type:          "map",
 		RenderOrder:   "right-down",
 		TiledVersion:  "1.10",
@@ -242,7 +247,7 @@ func encodeTiledTileset(m *Tilemap, ts *Tileset) tmjTileset {
 				}
 				t.Animation = frames
 			}
-			if cg, ok := ts.TileCollisions[id]; ok && cg != nil {
+			if cg := ts.TileCollisions[id]; cg != nil {
 				layer := encodeTiledObjectLayer(*cg)
 				t.ObjectGroup = &layer
 			} else if shapes := ts.Shapes[id]; len(shapes) > 0 {
@@ -268,7 +273,7 @@ func encodeTilePropertiesWithFlags(m *Tilemap, ts *Tileset, localID uint32) []tm
 	base := ts.TileProperties[localID]
 	var combined Properties
 	if len(base) > 0 {
-		combined = make(Properties, len(base)+2)
+		combined = make(Properties, len(base)+3)
 		for k, v := range base {
 			combined[k] = v
 		}
@@ -280,15 +285,28 @@ func encodeTilePropertiesWithFlags(m *Tilemap, ts *Tileset, localID uint32) []tm
 			if combined == nil {
 				combined = make(Properties, 3)
 			}
-			missing := want &^ existing
-			if missing&TileSolid != 0 {
-				combined["solid"] = Property{Name: "solid", Type: "bool", Value: true}
+			if want&TileSolid != 0 {
+				if existing&TileSolid == 0 {
+					combined["solid"] = Property{Name: "solid", Type: "bool", Value: true}
+				}
+			} else {
+				delete(combined, "solid")
 			}
-			if missing&TileOneWay != 0 {
-				combined["one-way"] = Property{Name: "one-way", Type: "bool", Value: true}
+			if want&TileOneWay != 0 {
+				if existing&TileOneWay == 0 {
+					combined["one-way"] = Property{Name: "one-way", Type: "bool", Value: true}
+				}
+			} else {
+				for _, key := range []string{"oneWay", "one-way", "oneway", "one_way"} {
+					delete(combined, key)
+				}
 			}
-			if rest := missing &^ (TileSolid | TileOneWay); rest != 0 {
-				combined["flags"] = Property{Name: "flags", Type: "int", Value: int(want)}
+			customWant := want &^ (TileSolid | TileOneWay)
+			customExisting := existing &^ (TileSolid | TileOneWay)
+			if customWant == 0 {
+				delete(combined, "flags")
+			} else if customWant != customExisting || (existing&^want) != 0 {
+				combined["flags"] = Property{Name: "flags", Type: "int", Value: uint32(customWant)}
 			}
 		}
 	}
@@ -421,7 +439,7 @@ func encodeTiledWangSets(sets []WangSet) []tmjWangSet {
 	return out
 }
 
-func encodeTiledLayers(m *Tilemap) []tmjLayer {
+func encodeTiledLayers(m *Tilemap) ([]tmjLayer, error) {
 	seenTile := make([]bool, len(m.Layers))
 	seenImage := make([]bool, len(m.ImageLayers))
 	seenObject := make([]bool, len(m.Objects))
@@ -431,7 +449,11 @@ func encodeTiledLayers(m *Tilemap) []tmjLayer {
 		case layerKindTile:
 			if ref.index >= 0 && ref.index < len(m.Layers) && !seenTile[ref.index] {
 				seenTile[ref.index] = true
-				out = append(out, encodeTiledTileLayer(m, &m.Layers[ref.index]))
+				l, err := encodeTiledTileLayer(m, &m.Layers[ref.index])
+				if err != nil {
+					return nil, err
+				}
+				out = append(out, l)
 			}
 		case layerKindImage:
 			if ref.index >= 0 && ref.index < len(m.ImageLayers) && !seenImage[ref.index] {
@@ -447,7 +469,11 @@ func encodeTiledLayers(m *Tilemap) []tmjLayer {
 	}
 	for i := range m.Layers {
 		if !seenTile[i] {
-			out = append(out, encodeTiledTileLayer(m, &m.Layers[i]))
+			l, err := encodeTiledTileLayer(m, &m.Layers[i])
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, l)
 		}
 	}
 	for i := range m.ImageLayers {
@@ -460,10 +486,10 @@ func encodeTiledLayers(m *Tilemap) []tmjLayer {
 			out = append(out, encodeTiledObjectLayer(m.Objects[i]))
 		}
 	}
-	return out
+	return out, nil
 }
 
-func encodeTiledTileLayer(m *Tilemap, l *TileLayer) tmjLayer {
+func encodeTiledTileLayer(m *Tilemap, l *TileLayer) (tmjLayer, error) {
 	op := l.Opacity
 	vis := l.Visible
 	out := tmjLayer{
@@ -519,10 +545,13 @@ func encodeTiledTileLayer(m *Tilemap, l *TileLayer) tmjLayer {
 		if len(l.Data) > 0 {
 			out.Data = slices.Clone(l.Data)
 		} else if lw > 0 && lh > 0 {
+			if lw > math.MaxInt/lh || lw*lh > maxTiledLayerTiles {
+				return tmjLayer{}, fmt.Errorf("tilemap: EncodeTiled: layer %q size %dx%d exceeds limit", l.Name, lw, lh)
+			}
 			out.Data = make([]uint32, lw*lh)
 		}
 	}
-	return out
+	return out, nil
 }
 
 func encodeTiledImageLayer(l *ImageLayer) tmjLayer {

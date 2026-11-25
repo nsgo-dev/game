@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"maps"
 	"path"
 	"slices"
 	"strings"
@@ -216,7 +217,11 @@ func (r *Resolver) LDtkOptions() tilemap.LDtkOptions {
 			f.ldtkOpts = pf.LDtkOptions(nil)
 		}
 	}
-	return f.ldtkOpts
+	return tilemap.LDtkOptions{
+		ResolveImage:      f.ldtkOpts.ResolveImage,
+		IntGridFlags:      maps.Clone(f.ldtkOpts.IntGridFlags),
+		IntGridValueFlags: maps.Clone(f.ldtkOpts.IntGridValueFlags),
+	}
 }
 
 // list returns the project's atlas files, walking it on first use. f.mu is held.

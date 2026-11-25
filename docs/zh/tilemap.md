@@ -368,7 +368,7 @@ stream.Draw(d, cam)
 
 ## 碰撞形状、往返编码与变更跟踪
 
-在 Tiled 碰撞编辑器（`.tmj`、`.tsj`、`.tmx` 或 `.tsx`）中为每个瓦片编写的碰撞对象组会原样保留在 `Tileset.TileCollisions`（`map[uint32]ObjectLayer`，以本地瓦片 ID 为键，可通过 `m.TileCollisionGroup(gid)` 查询）中，其中的矩形、多边形、椭圆和折线同时会读入 `Tileset.Shapes` 作为位于瓦片自身坐标系中的 `TileShape`：椭圆近似为 `EllipseShapeSegments` 个点，对象的旋转会被应用。`m.TileShapes(gid)` 返回放置后的瓦片按其 GID 翻转位翻转、旋转后的形状，与 `DrawLayer` 绘制该瓦片的变换相同；`m.TileBox(gid)` 返回形状所在瓦片的尺寸。`EncodeTiled(m)` 写出确定性的 Tiled JSON（`.tmj`）文档，经 `LoadTiled` 往返加载与保存后完整保留图块集、图层、属性、动画与逐瓦片碰撞对象组。
+在 Tiled 碰撞编辑器（`.tmj`、`.tsj`、`.tmx` 或 `.tsx`）中为每个瓦片编写的碰撞对象组会原样保留在 `Tileset.TileCollisions`（`map[uint32]*ObjectLayer`，以本地瓦片 ID 为键，可通过 `m.TileCollisionGroup(gid)` 查询）中，其中的矩形、多边形、椭圆和折线同时会读入 `Tileset.Shapes` 作为位于瓦片自身坐标系中的 `TileShape`：椭圆近似为 `EllipseShapeSegments` 个点，对象的旋转会被应用。`m.TileShapes(gid)` 返回放置后的瓦片按其 GID 翻转位翻转、旋转后的形状，与 `DrawLayer` 绘制该瓦片的变换相同；`m.TileBox(gid)` 返回形状所在瓦片的尺寸。`EncodeTiled(m)` 写出确定性的 Tiled JSON（`.tmj`）文档，经 `LoadTiled` 往返加载与保存后完整保留图块集、图层、属性、动画与逐瓦片碰撞对象组。
 
 `*Tilemap` 直接满足 `physics.TileGrid` 与 `physics.TileGridOrigin`（`TileSize`、`GridSize`、`GridOrigin`、`TileFlagsAt`），因此无需适配器即可直接传给 `physics.MoveAndSlide(body, m, dt)`、`physics.World{Tiles: m}` 和 `physics.RigidWorld{Tiles: m}`。
 
