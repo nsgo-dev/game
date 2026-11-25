@@ -1,0 +1,380 @@
+package editor_test
+
+import (
+	"bytes"
+	"math"
+	"net/url"
+	"os"
+	"path/filepath"
+	"slices"
+	"testing"
+
+	"github.com/nsgo-dev/game/packages/game/editor"
+	"github.com/nsgo-dev/game/packages/game/project"
+	"github.com/nsgo-dev/game/packages/game/sceneformat"
+	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/nsgotest"
+)
+
+const placeW, placeH = 640, 360
+
+var (
+	crateModel = editor.ModelEntry{Path: "models/crate.glb"}
+	boxModel   = editor.ModelEntry{Mesh: "box"}
+)
+
+// pixelOf returns where world point p falls on a viewport placeW by placeH.
+func pixelOf(t *testing.T, ed *editor.Editor, p [3]float32) (float32, float32) {
+	t.Helper()
+	sx, sy, _, ok := ed.Camera3D.Project(p, placeW, placeH)
+	if !ok {
+		t.Fatalf("%v is not in view", p)
+	}
+	return sx, sy
+}
+
+// objectsWith returns the IDs of the scene's top-level objects that draw m, in document order.
+func objectsWith(ed *editor.Editor, m editor.ModelEntry) []string {
+	var ids []string
+	for _, l := range ed.Doc.Layers {
+		for _, o := range l.Objects {
+			if o.Mesh == m.Mesh && o.Model == m.Path {
+				ids = append(ids, o.ID)
+			}
+		}
+	}
+	return ids
+}
+
+func fileURL(p string) string {
+	return (&url.URL{Scheme: "file", Path: filepath.ToSlash(p)}).String()
+}
+
+// The Place tool with a model selected adds it where the press's ray meets the floor, resting on it, as one step that Undo takes back byte for byte and Redo makes again.
+func TestPlaceModelOnTheFloorUndoRedo(t *testing.T) {
+	ed := editor.OpenCourtyard(t)
+	if err := ed.SelectModel(crateModel); err != nil {
+		t.Fatal(err)
+	}
+	ed.SetTool(editor.ToolPlace)
+	before := saveYAML(t, ed)
+	steps := ed.History.Len()
+
+	sx, sy := pixelOf(t, ed, [3]float32{2, 0, 0.3})
+	ed.HandleViewport3DPress(sx, sy, placeW, placeH)
+	ids := objectsWith(ed, crateModel)
+	if len(ids) != 3 {
+		t.Fatalf("crate objects after the press = %v, want the two of the level and a new one", ids)
+	}
+	id := ids[2]
+	obj, _, _ := ed.FindObject(id)
+	if ed.SelectedID != id || obj.Name != "crate" {
+		t.Fatalf("placed %+v, selected %q", obj, ed.SelectedID)
+	}
+	assertNear32(t, "x", obj.X, 2, 1e-3)
+	assertNear32(t, "z", obj.PosZ, 0.3, 1e-3)
+	lo, hi := ed.ObjectAABB3D(obj)
+	assertNear32(t, "bottom of the crate", lo[1], 0, 1e-3)
+	if hi[1] <= 0.5 {
+		t.Fatalf("crate box %v..%v, want it above the floor", lo, hi)
+	}
+	if ed.History.Len() != steps+1 {
+		t.Fatalf("history grew by %d steps, want 1", ed.History.Len()-steps)
+	}
+
+	if !ed.Undo() || !bytes.Equal(saveYAML(t, ed), before) {
+		t.Fatal("Undo did not put the scene back")
+	}
+	if !ed.Redo() {
+		t.Fatal("Redo failed")
+	}
+	if got := objectsWith(ed, crateModel); !slices.Equal(got, ids) {
+		t.Fatalf("crates after Redo = %v, want %v", got, ids)
+	}
+}
+
+// A model placed on another object's top rests on it, and on a turned surface with aligning on it turns its +Y axis to the surface's normal.
+func TestPlaceModelOnGeometry(t *testing.T) {
+	ed := editor.OpenCourtyard(t)
+	sx, sy := pixelOf(t, ed, [3]float32{-1, 1, 0})
+	p, ok := ed.PlacementAt3D(sx, sy, placeW, placeH)
+	if !ok || !p.OnSurface {
+		t.Fatalf("placement on the crate = %+v, %v, want one on its surface", p, ok)
+	}
+	if p.Point[1] < 0.9 {
+		t.Fatalf("placement on the crate %v is not on its top", p.Point)
+	}
+	assertNear32(t, "normal y", p.Normal[1], 1, 1e-3)
+	id, err := ed.PlaceModel3D(boxModel, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	obj, _, _ := ed.FindObject(id)
+	lo, _ := ed.ObjectAABB3D(obj)
+	assertNear32(t, "bottom of the box on the crate", lo[1], p.Point[1], 1e-3)
+
+	// A big box turned about Z: its faces are tilted, and an aligned model follows the face it lands on.
+	ed = newTest3DEditor(t, sceneformat.ObjectDoc{ID: "slab", Mesh: "box", RotZ: 0.5, ScaleX: sceneformat.Float32(200), ScaleY: sceneformat.Float32(40), ScaleZ: sceneformat.Float32(200)})
+	p, ok = ed.PlacementAt3D(placeW/2, placeH/2, placeW, placeH)
+	if !ok || !p.OnSurface {
+		t.Fatalf("placement on the slab = %+v, %v", p, ok)
+	}
+	if p.Normal[1] > 0.95 {
+		t.Fatalf("normal %v is not tilted", p.Normal)
+	}
+	ed.PlaceAlign3D = true
+	// A primitive needs no project to load from.
+	id, err = ed.PlaceModel3D(editor.ModelEntry{Mesh: "sphere"}, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	obj, _, _ = ed.FindObject(id)
+	// Rz * Rx turns +Y to (-sin z cos x, cos z cos x, sin x).
+	up := [3]float64{-math.Sin(float64(obj.RotZ)) * math.Cos(float64(obj.RotX)), math.Cos(float64(obj.RotZ)) * math.Cos(float64(obj.RotX)), math.Sin(float64(obj.RotX))}
+	for i := range 3 {
+		assertNear32(t, "aligned up", float32(up[i]), p.Normal[i], 1e-4)
+	}
+	// The sphere's center sits half its size off the surface, along the normal.
+	for i := range 3 {
+		assertNear32(t, "sphere center", []float32{obj.X, obj.Y, obj.PosZ}[i], p.Point[i]+p.Normal[i]*0.5, 1e-3)
+	}
+}
+
+// Where the ray hits no geometry the model lands on the ground plane at PlaceHeight3D, snapped to the grid with PlaceSnap3D; a ray that never meets the plane places nothing.
+func TestPlaceModelOnTheGroundPlane(t *testing.T) {
+	ed := newTest3DEditor(t)
+	if err := ed.SetPlaceOptions3D(2, false, false); err != nil {
+		t.Fatal(err)
+	}
+	p, ok := ed.PlacementAt3D(placeW/2, placeH/2, placeW, placeH)
+	if !ok || p.OnSurface || p.Point[1] != 2 || p.Normal != [3]float32{0, 1, 0} {
+		t.Fatalf("placement = %+v, %v, want one on the ground plane at 2", p, ok)
+	}
+	id, err := ed.PlaceModelAt3D(boxModel, placeW/2, placeH/2, placeW, placeH)
+	if err != nil {
+		t.Fatal(err)
+	}
+	obj, _, _ := ed.FindObject(id)
+	assertNear32(t, "box center", obj.Y, 2.5, 1e-4)
+
+	if err := ed.SetPlaceOptions3D(0, true, false); err != nil {
+		t.Fatal(err)
+	}
+	p, ok = ed.PlacementAt3D(placeW/2+37, placeH/2+23, placeW, placeH)
+	if !ok {
+		t.Fatal("no placement off the center")
+	}
+	for _, v := range []float32{p.Point[0], p.Point[2]} {
+		if r := math.Mod(float64(v), 16); r != 0 {
+			t.Fatalf("snapped point %v is not on the 16-unit grid", p.Point)
+		}
+	}
+	if err := ed.SetPlaceOptions3D(float32(math.Inf(1)), false, false); err == nil {
+		t.Fatal("an infinite ground height was accepted")
+	}
+
+	ed.SetView3D(editor.View3DFront)
+	steps := ed.History.Len()
+	if _, err := ed.PlaceModelAt3D(boxModel, placeW/2, placeH/2, placeW, placeH); err == nil || ed.History.Len() != steps {
+		t.Fatalf("a level view placed on the horizon: err %v", err)
+	}
+}
+
+// Placing refuses a locked or screen-space active layer, a model that does not load and an entry that names nothing, and changes nothing.
+func TestPlaceModelRefusals(t *testing.T) {
+	ed := newTest3DEditor(t)
+	ed.Doc.Layers = append(ed.Doc.Layers, sceneformat.LayerDoc{Name: "hud", Space: sceneformat.SpaceScreen, Order: 1})
+	ed.Rebuild()
+	p := editor.Placement3D{Normal: [3]float32{0, 1, 0}}
+	ed.SetActiveLayer("hud")
+	if _, err := ed.PlaceModel3D(boxModel, p); err == nil {
+		t.Fatal("placed a model on a screen-space layer")
+	}
+	ed.SetActiveLayer("world")
+	if err := ed.SetLayerLocked("world", true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ed.PlaceModel3D(boxModel, p); err == nil {
+		t.Fatal("placed a model on a locked layer")
+	}
+	if err := ed.SetLayerLocked("world", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ed.PlaceModel3D(crateModel, p); err == nil {
+		t.Fatal("placed a model with no project to load it from")
+	}
+	if _, err := ed.PlaceModel3D(editor.ModelEntry{Mesh: "cube"}, p); err == nil {
+		t.Fatal("placed a mesh that is not a built-in primitive")
+	}
+	if err := ed.SelectModel(editor.ModelEntry{Path: "models/crate.png"}); err == nil {
+		t.Fatal("selected a file that is not a glTF model")
+	}
+	if ed.History.Len() != 0 {
+		t.Fatalf("refusals left %d steps in the history", ed.History.Len())
+	}
+}
+
+// Models lists the primitives, then the project's glTF files and the outputs of its model targets, which ProjectModels lists for the inspector.
+func TestModelsListsPrimitivesFilesAndTargets(t *testing.T) {
+	ed := editor.OpenCourtyard(t)
+	if err := ed.EditProject("Add a model target", func(f *project.File) {
+		f.Assets = &project.Assets{Models: []project.ModelTarget{{In: "art/tree.gltf", Out: "models/tree.glb"}}}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := ed.ProjectModels(), []string{"models/crate.glb", "models/tree.glb"}; !slices.Equal(got, want) {
+		t.Fatalf("ProjectModels = %v, want %v", got, want)
+	}
+	var want []editor.ModelEntry
+	for _, m := range sceneformat.MeshPrimitives() {
+		want = append(want, editor.ModelEntry{Mesh: m})
+	}
+	want = append(want, crateModel, editor.ModelEntry{Path: "models/tree.glb", Output: true})
+	if got := ed.Models(); !slices.Equal(got, want) {
+		t.Fatalf("Models = %+v, want %+v", got, want)
+	}
+	if crateModel.Name() != "crate" || crateModel.Key() != "models/crate.glb" || boxModel.Key() != "mesh:box" {
+		t.Fatal("entry names")
+	}
+}
+
+// SetObjectModel names a project model undoably, clearing the node of the model it drew, and refuses an object that draws a primitive and a model that does not load.
+func TestSetObjectModelUndoRedo(t *testing.T) {
+	ed := editor.OpenCourtyard(t)
+	before := saveYAML(t, ed)
+	if err := ed.SetObjectModel("lid", ""); err != nil {
+		t.Fatal(err)
+	}
+	lid, _, _ := ed.FindObject("lid")
+	if lid.Model != "" || lid.ModelNode != "" {
+		t.Fatalf("lid after clearing its model = %+v", lid)
+	}
+	if !ed.Undo() || !bytes.Equal(saveYAML(t, ed), before) {
+		t.Fatal("Undo did not put the lid's model and node back")
+	}
+	if !ed.Redo() || lid.Model != "" {
+		t.Fatal("Redo did not clear the model again")
+	}
+	ed.Undo()
+	if err := ed.SetObjectModel("ball", crateModel.Path); err == nil {
+		t.Fatal("named a model on an object that draws a primitive")
+	}
+	if err := ed.SetObjectModel("lid", "models/missing.glb"); err == nil {
+		t.Fatal("named a model that does not load")
+	}
+	if err := ed.SetObjectModel("lid", "models/crate.txt"); err == nil {
+		t.Fatal("named a file that is not a glTF model")
+	}
+}
+
+// A glTF file dropped from another app lands where the view points when it lies in the project, all of them as one step; a file outside the project or of another kind is refused.
+func TestDropModelFiles(t *testing.T) {
+	ed := editor.OpenCourtyard(t)
+	root := filepath.Dir(ed.ProjectPath)
+	crate := fileURL(filepath.Join(root, "models", "crate.glb"))
+	steps := ed.History.Len()
+	ids, err := ed.DropModelFiles([]string{crate, crate}, placeW/2, placeH/2, placeW, placeH)
+	if err != nil || len(ids) != 2 {
+		t.Fatalf("DropModelFiles = %v, %v", ids, err)
+	}
+	if ed.History.Len() != steps+1 {
+		t.Fatalf("two dropped files took %d steps, want 1", ed.History.Len()-steps)
+	}
+	ed.Undo()
+	if len(objectsWith(ed, crateModel)) != 2 {
+		t.Fatal("Undo did not take both dropped models back")
+	}
+
+	outside := filepath.Join(t.TempDir(), "rock.glb")
+	data, err := os.ReadFile(filepath.Join(root, "models", "crate.glb"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(outside, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	material := fileURL(filepath.Join(root, "materials", "stone.material.yaml"))
+	for _, uris := range [][]string{{fileURL(outside)}, {material}, {crate, material}, {"blob:x#crate.glb"}} {
+		if _, err := ed.DropModelFiles(uris, placeW/2, placeH/2, placeW, placeH); err == nil {
+			t.Errorf("DropModelFiles(%v) placed them", uris)
+		}
+	}
+	if len(objectsWith(ed, crateModel)) != 2 || !ed.History.CanRedo() {
+		t.Fatal("a refused drop changed the scene")
+	}
+}
+
+// In the editor's window: pressing a model in the asset browser picks it for the Place tool, a press on the 3D viewport places it, the toolbar's Undo and Redo take it back and make it again; dragging a primitive from the browser onto the viewport places it there, a file dropped from another app lands too, and the inspector's Model field picks one of the project's models.
+func TestPlaceModelsInTheEditorWindow(t *testing.T) {
+	ed := editor.OpenCourtyard(t)
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node { return editor.EditorView(cx, ed) }, nsgotest.Size(1200, 900), nsgotest.NoGPU())
+	app.Press("id:model-models-crate-glb")
+	if ed.SelectedModel == nil || *ed.SelectedModel != crateModel || ed.Tool != editor.ToolPlace {
+		t.Fatalf("after pressing the crate: model %+v, tool %v", ed.SelectedModel, ed.Tool)
+	}
+	if !app.Find("id:tool3d-place").Props.Pressed {
+		t.Fatal("the 3D toolbar's Place is off with the Place tool on")
+	}
+
+	vw, vh := ed.CanvasSize()
+	sx, sy, _, vis := ed.Camera3D.Project([3]float32{2, 0, 0.3}, vw, vh)
+	if !vis {
+		t.Fatal("the floor point is not in view")
+	}
+	app.PressAt("id:editor-viewport", pt(sx, sy))
+	crates := objectsWith(ed, crateModel)
+	if len(crates) != 3 {
+		t.Fatalf("crates after the press = %v", crates)
+	}
+	app.Press("id:toolbar-undo")
+	if len(objectsWith(ed, crateModel)) != 2 {
+		t.Fatal("Undo did not take the placed crate back")
+	}
+	app.Press("id:toolbar-redo")
+	if got := objectsWith(ed, crateModel); !slices.Equal(got, crates) {
+		t.Fatalf("crates after Redo = %v, want %v", got, crates)
+	}
+
+	app.Press("id:tool3d-select")
+	// The drop lands on the frame's middle, where the view points.
+	want, ok := ed.PlacementAt3D(vw/2, vh/2, vw, vh)
+	if !ok {
+		t.Fatal("no placement at the viewport's middle")
+	}
+	app.DragTo("id:model-mesh-box", viewportFrame)
+	boxes := objectsWith(ed, boxModel)
+	if len(boxes) != 1 || ed.SelectedModel == nil || *ed.SelectedModel != boxModel {
+		t.Fatalf("after dragging the box: boxes %v, selected model %+v", boxes, ed.SelectedModel)
+	}
+	box, _, _ := ed.FindObject(boxes[0])
+	assertNear32(t, "dragged box x", box.X, want.Point[0], 1e-3)
+	assertNear32(t, "dragged box z", box.PosZ, want.Point[2], 1e-3)
+
+	app.DropFiles(viewportFrame, fileURL(filepath.Join(filepath.Dir(ed.ProjectPath), "models", "crate.glb")))
+	if len(objectsWith(ed, crateModel)) != 4 {
+		t.Fatal("a dropped crate file was not placed")
+	}
+
+	// The Model field picks a project model for an object that draws nothing yet, as one undoable step.
+	app.Post(func() {
+		if _, err := ed.PlaceObject("level", sceneformat.ObjectDoc{ID: "marker", X: 2}); err != nil {
+			t.Error(err)
+		}
+	})
+	app.Settle()
+	app.Press("id:inspector-model")
+	app.Press("role:option models/crate.glb")
+	marker, _, _ := ed.FindObject("marker")
+	if marker.Model != crateModel.Path {
+		t.Fatalf("marker after picking the crate = %+v", marker)
+	}
+	app.Press("id:toolbar-undo")
+	if marker, _, _ = ed.FindObject("marker"); marker.Model != "" {
+		t.Fatalf("Undo left the marker's model %q", marker.Model)
+	}
+	ed.SelectObject("ball")
+	app.Settle()
+	if app.Enabled("id:inspector-model") {
+		t.Fatal("the Model field is enabled on an object that draws a primitive")
+	}
+}

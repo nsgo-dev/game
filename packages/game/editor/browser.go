@@ -127,9 +127,7 @@ func (e *Editor) DropAtlasFrame(atlasName, frameName string, x, y float32) (stri
 	})
 }
 
-// AssetBrowserView renders the left-side Asset Browser panel listing all available atlases,
-// their frames with canvas thumbnails, and click-to-select / quick-place actions.
-// It updates reactively whenever atlases or frames change (for example after ReloadAssets).
+// AssetBrowserView renders the left-side Asset Browser panel listing all available atlases, their frames with canvas thumbnails, and click-to-select / quick-place actions, then the models to place in 3D (Models), the built-in primitives and the project's glTF files, with thumbnails rendered offscreen (ModelThumbnail). Pressing a model selects it for the Place tool (SelectModel) and turns the tool on; dragging it onto the 3D viewport places it where it is dropped (PlaceModelAt3D). It updates reactively whenever atlases, frames or models change (for example after ReloadAssets).
 func AssetBrowserView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	colors := ui.ColorsOf(cx)
 	assets := core.NewMemoFunc(cx, func() []AssetEntry {
@@ -283,7 +281,7 @@ func AssetBrowserView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 				ContentStyle: core.Style{
 					Gap: 6,
 				},
-				Children: []core.Node{list},
+				Children: []core.Node{list, ownDragArea(cx, modelListView(cx, ed, rev))},
 			},
 		},
 	}

@@ -206,8 +206,16 @@ type Editor struct {
 	// ActiveTileFlip holds the flip bits (tilemap.FlipHorizontal, FlipVertical and FlipDiagonal) that the Paint and Fill tools place tiles of a layered grid with.
 	ActiveTileFlip uint32
 	SelectedAsset  *AssetEntry
-	Status         string
-	FilePath       string
+	// SelectedModel is the model the Place tool adds in the 3D viewport (SelectModel), chosen in the asset browser's Models list; nil places nothing in 3D, where a press then selects.
+	SelectedModel *ModelEntry
+	// PlaceHeight3D is the height of the ground plane, the horizontal plane the Place tool puts a model on in 3D where the pointer's ray hits no geometry (PlacementAt3D).
+	PlaceHeight3D float32
+	// PlaceSnap3D snaps where the Place tool puts a model in 3D to the 3D grid's spacing along X and Z.
+	PlaceSnap3D bool
+	// PlaceAlign3D turns a model the Place tool puts on the scene's geometry in 3D so that its +Y axis follows the surface's normal.
+	PlaceAlign3D bool
+	Status       string
+	FilePath     string
 	// Shading3D is how the 3D viewport shades the scene's geometry on the GPU (SetShading3D).
 	Shading3D Shading3D
 	// Lights3D are the lights the 3D viewport draws the scene's geometry with, such as the rig the game lights the scene with, over the scene's background color; nil draws it with DefaultLights3D under a gradient sky. Scene files do not hold lights, so an editor built on this package that knows its game's lights sets them with SetLights3D, which redraws the viewport; assigning the field directly does not.
@@ -369,6 +377,9 @@ type Editor struct {
 	connPick *connPickState
 	// s3d is the open scene built in 3D, which the 3D viewport draws and picks by (Scene3D).
 	s3d scene3DState
+	// modelFiles caches the project's model files ProjectModels lists, and thumbs the asset browser's model thumbnails (ModelThumbnail).
+	modelFiles modelFileCache
+	thumbs     modelThumbs
 	// gpu3D says the 3D viewport's GPU view drew the scene's geometry the last frame (Viewport3DOnGPU), and gpu3DErr why it could not, when it could not.
 	gpu3D    bool
 	gpu3DErr error

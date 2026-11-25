@@ -884,10 +884,11 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 					}
 				},
 			},
-			core.View{
-				TestID: "editor-viewport-frame",
-				Ref:    &frame,
-				Style:  core.Style{FlexGrow: 1},
+			modelDropTarget(cx, ed, core.View{
+				TestID:     "editor-viewport-frame",
+				Ref:        &frame,
+				Style:      core.Style{FlexGrow: 1},
+				OnFileDrop: func(uris []string) { ed.dropModelFiles(uris) },
 				OnWheel: func(ev core.WheelEvent) {
 					if ed.ViewMode == ViewMode3D {
 						g3.wheel(ed, ev)
@@ -1041,7 +1042,7 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 						Else: func(cx *core.Scope) core.Node { return canvas },
 					},
 				},
-			},
+			}),
 		},
 	}
 }

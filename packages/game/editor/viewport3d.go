@@ -927,7 +927,7 @@ func (e *Editor) CancelGizmoDrag3D() {
 	e.notify()
 }
 
-// HandleViewport3DPress handles a click/tap in the 3D viewport: picks the closest 3D object or clears selection.
+// HandleViewport3DPress handles a click/tap in the 3D viewport: with the Place tool and a model selected in the asset browser (SelectedModel) it places the model where the press lands (PlaceModelAt3D), reporting in the status bar why it could not; otherwise it picks the closest 3D object or clears selection.
 func (e *Editor) HandleViewport3DPress(sx, sy, w, h float32) {
 	if e == nil || e.playing {
 		return
@@ -936,6 +936,11 @@ func (e *Editor) HandleViewport3DPress(sx, sy, w, h float32) {
 		if hit, ok := e.Pick3DObject(sx, sy, w, h); ok && hit != "" {
 			e.finishConnectionPick(hit)
 		}
+		return
+	}
+	if e.Tool == ToolPlace && e.SelectedModel != nil {
+		_, err := e.PlaceModelAt3D(*e.SelectedModel, sx, sy, w, h)
+		e.report(err)
 		return
 	}
 	if e.PickGizmo3D(sx, sy, w, h) != Axis3DNone {

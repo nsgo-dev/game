@@ -321,12 +321,12 @@ func (e *Editor) initBuiltinCommands() {
 		{
 			ID:          CmdToolPlace,
 			Label:       "Tool: Place",
-			Description: "Switch to the Place object viewport tool",
+			Description: "Switch to the Place viewport tool: an object in 2D, the selected model in 3D",
 			Category:    "Tools",
-			Keywords:    []string{"place", "spawn", "add", "object", "2d"},
+			Keywords:    []string{"place", "spawn", "add", "object", "model", "2d", "3d"},
 			Shortcut:    "p",
 			Enabled:     notPlaying,
-			Checked:     func() bool { return e.ViewMode == ViewMode2D && e.Tool == ToolPlace },
+			Checked:     func() bool { return e.Tool == ToolPlace },
 			Run: func() error {
 				e.SetTool(ToolPlace)
 				return nil
