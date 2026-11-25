@@ -540,6 +540,44 @@ gpuMesh.Draw(pass)
 - **What `MaterialWGSL` does not draw**: the shader lights every material and samples every texture with the mesh's `TEXCOORD_0` and no transform. Unlit materials, texture transforms and other UV sets are recorded but not applied, so such assets draw wrong unless you handle them. `GLTFMaterialInfo.Unsupported()` lists these cases for a material and `GLTFTextureSlot.NeedsUVBake()` reports a slot that needs its UVs baked into the mesh (for example with `Document.TransformTexCoords`) or a custom shader.
 - **Khronos reference verification**: `render3d`'s tests render the Khronos `DamagedHelmet` sample and check it against the asset's own base color image: a probe texture reads back the UV of every pixel, and the render must match the decoded JPEG under glTF's UV origin, sRGB color and channel order far better than under a flipped V, a linear upload or swapped channels. The tests also compare the render with `render3d/testdata/damagedhelmet/reference.png` to catch regressions and verify `gpu.View` parity across both the full and `nsgotest.NoGPUCompute` (WebGL 2 / GLES 3.0) profiles as well as `Retained` device-loss restoration. The model is licensed CC-BY-NC-4.0, so its directory is a separate module that is left out of the published `packages/game` module, and these tests skip when it is absent.
 
+### Extended PBR materials: emissive strength, clearcoat, and transmission (`GPUExtendedMaterial`, `TransmissionBackground`)
+
+`Material` also carries fields for `KHR_materials_clearcoat` (`ClearcoatFactor`, `ClearcoatRoughnessFactor`, `ClearcoatTexture`, `ClearcoatSampler`, `ClearcoatRoughnessTexture`, `ClearcoatRoughnessSampler`, `ClearcoatNormalTexture`, `ClearcoatNormalSampler`, `ClearcoatNormalScale`), `KHR_materials_transmission` (`TransmissionFactor`, `TransmissionTexture`, `TransmissionSampler`), and dielectric index of refraction (`IOR`, defaulting to `DefaultMaterialIOR = 1.5`), while `KHR_materials_emissive_strength` folds directly into HDR `EmissiveFactor` values (`> 1.0`, rendered cleanly into an `HDRTarget` with `LinearOutput: true`, `BloomPass`, and `ToneMapPass`).
+
+Plain `GPUMaterial` and `MaterialDefaults` keep their lean 11-binding layout unchanged for ordinary metallic-roughness assets. For surfaces that use clearcoat, transmission, or custom IOR, use `ExtendedMaterialDefaults`, `GPUExtendedMaterial` (or `UploadGLTFExtendedMaterials`), and `NewExtendedMaterialPipeline`:
+
+```go
+extDefs, err := render3d.NewExtendedMaterialDefaults(cx, dev, render3d.MaterialDefaultsOptions{Retained: true})
+transBG, err := render3d.NewTransmissionBackground(cx, dev, render3d.TransmissionBackgroundOptions{
+	Retained: true,
+	SRGB:     true, // true when sampling an sRGB-encoded RGBA8Unorm opaque pass; false for HDRTarget
+})
+pipe, err := render3d.NewExtendedMaterialPipeline(cx, dev, camBuf.Layout(), extDefs.Layout(), render3d.ExtendedMaterialPipelineOptions{
+	DepthFormat:        gpu.FormatDepth24Plus,
+	LightLayout:        lightBuf.Layout(), // optional LightRig at ExtendedLightGroup (2)
+	TransmissionLayout: transBG.Layout(),  // optional per-frame background at TransmissionBackgroundGroup (3)
+})
+
+// Upload glTF materials (base PBR + clearcoat + transmission + emissiveStrength + IOR):
+matSet, err := render3d.UploadGLTFExtendedMaterials(cx, dev, extDefs, doc, render3d.GLTFMaterialUpload{
+	Label:    "Sunglasses",
+	Retained: true,
+})
+
+// Each frame: render opaque scene to opaqueRT, update the single per-frame TransmissionBackground, then draw transmissive draws:
+_ = transBG.SetTexture(dev, opaqueRT.Color, true) // or transBG.SetDynamicResolution(dev, dynTarget, nil, 0, 0, true)
+pass.SetPipeline(pipe)
+pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
+pass.SetBindGroup(render3d.ExtendedLightGroup, lightBuf.BindGroup())
+transBG.Bind(pass) // @group(3) TransmissionBackgroundGroup (or BindAt(..., MaterialTransmissionBackgroundGroup) without LightLayout)
+matSet.ExtendedMaterial(prim.Material).Bind(pass) // @group(1) MaterialGroup
+mesh.Draw(pass)
+```
+
+- **UV-aligned clearcoat normal mapping**: `ExtendedMaterialBindingsWGSL` reuses the same Cramer's-rule `dpdx`/`dpdy` cotangent-frame normal perturbation helper (with deterministic orthonormal fallback) on the geometric normal for `ClearcoatNormalTexture` independently of the base `NormalTexture`, honoring positive and negative `ClearcoatNormalScale`.
+- **Per-frame transmission background and dynamic resolution**: `TransmissionBackground` keeps the opaque scene color texture out of per-material bind groups so resizing the swapchain or scaling a `DynamicResolutionTarget` updates only one pass-level bind group. Screen UVs are derived from `frag_pos.xy / vec2<f32>(textureDimensions(transmission_bg_tex))`, scaled and half-texel clamped by `SetViewport` / `SetDynamicResolution` so unused padding texels never bleed.
+- **CPU parity and Khronos golden tests**: `EvaluateMaterial`, `EvaluatePBR`, `ShadePoint`, and `ShadePointWithBackground` evaluate clearcoat, transmission, and IOR on the CPU to match the GPU shaders. Tests verify GPU-vs-CPU parity, `DynamicResolutionTarget` resizes across 0.5×–1.0× scales, `gpu.View` execution on both full and `nsgotest.NoGPUCompute` (WebGL 2 / GLES 3.0) profiles, `Retained` device-loss restoration, and golden renders of the Khronos `EmissiveStrengthTest` (`khronos_emissive_strength.png`), `TextureTransformMultiTest` clearcoat panels (`khronos_clearcoat.png`), and `SunglassesKhronos` (`khronos_transmission.png`).
+
 ## Unlit materials and vertex colors (`UnlitMaterial`, `ColoredMesh`)
 
 `ColoredMesh` and `GPUColoredMesh` extend `MeshVertexLayout` (locations 0–2) with a linear RGBA vertex color attribute at `@location(3)` (`ColoredVertexLayout`, stride 48 bytes) for glTF `COLOR_0`. When `Colors` is empty, `AppendVertexData` writes linear opaque white `(1, 1, 1, 1)` per vertex so colored and uncolored meshes share one pipeline. `ColoredMeshFromGLTF` extracts triangle primitives from a `gltf.Document` including `COLOR_0` (expanding VEC3 RGB to alpha `1.0`) and `KHR_texture_transform` UVs on `baseColorTexture`.

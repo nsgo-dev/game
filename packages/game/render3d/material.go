@@ -36,6 +36,9 @@ const (
 // minPBRRoughness clamps effective glTF metallic-roughness values away from zero so GGX microfacet specular evaluation remains finite and numerically stable even on mirror surfaces.
 const minPBRRoughness float32 = 0.045
 
+// DefaultMaterialIOR is the glTF 2.0 default dielectric index of refraction (1.5, corresponding to F0 = 0.04).
+const DefaultMaterialIOR float32 = 1.5
+
 // ErrInvalidMaterial is wrapped by every error [Material.Validate], [NewGPUMaterial], [GPUMaterial.Update], and [NewMaterialPipeline] return for malformed material parameters or invalid texture/sampler handles.
 var ErrInvalidMaterial = errors.New("render3d: invalid material")
 
@@ -113,6 +116,21 @@ type Material struct {
 	EmissiveTexture *GPUTexture
 	EmissiveSampler *GPUSampler
 
+	ClearcoatFactor           float32
+	ClearcoatRoughnessFactor  float32
+	ClearcoatTexture          *GPUTexture
+	ClearcoatSampler          *GPUSampler
+	ClearcoatRoughnessTexture *GPUTexture
+	ClearcoatRoughnessSampler *GPUSampler
+	ClearcoatNormalTexture    *GPUTexture
+	ClearcoatNormalSampler    *GPUSampler
+	ClearcoatNormalScale      float32
+
+	TransmissionFactor  float32
+	TransmissionTexture *GPUTexture
+	TransmissionSampler *GPUSampler
+	IOR                 float32
+
 	AlphaMode   AlphaMode
 	AlphaCutoff float32
 	DoubleSided bool
@@ -121,17 +139,46 @@ type Material struct {
 // MetallicRoughnessMaterial is an explicit alias for [Material] naming the glTF 2.0 metallic-roughness workflow.
 type MetallicRoughnessMaterial = Material
 
-// DefaultMaterial returns a [Material] populated with glTF 2.0 default factors: linear white base color [1, 1, 1, 1], metallic 1.0, roughness 1.0, normal scale 1.0, occlusion strength 1.0, emissive [0, 0, 0], [AlphaOpaque], and alpha cutoff 0.5.
+// DefaultMaterial returns a [Material] populated with glTF 2.0 default factors: linear white base color [1, 1, 1, 1], metallic 1.0, roughness 1.0, normal scale 1.0, occlusion strength 1.0, emissive [0, 0, 0], clearcoat normal scale 1.0, IOR 1.5, [AlphaOpaque], and alpha cutoff 0.5.
 func DefaultMaterial() Material {
 	return Material{
-		BaseColorFactor:   [4]float32{1, 1, 1, 1},
-		MetallicFactor:    1,
-		RoughnessFactor:   1,
-		NormalScale:       1,
-		OcclusionStrength: 1,
-		AlphaMode:         AlphaOpaque,
-		AlphaCutoff:       0.5,
+		BaseColorFactor:      [4]float32{1, 1, 1, 1},
+		MetallicFactor:       1,
+		RoughnessFactor:      1,
+		NormalScale:          1,
+		OcclusionStrength:    1,
+		ClearcoatNormalScale: 1,
+		IOR:                  DefaultMaterialIOR,
+		AlphaMode:            AlphaOpaque,
+		AlphaCutoff:          0.5,
 	}
+}
+
+// EffectiveIOR returns m.IOR, defaulting to [DefaultMaterialIOR] (1.5) when m.IOR is zero.
+func (m Material) EffectiveIOR() float32 {
+	if m.IOR == 0 {
+		return DefaultMaterialIOR
+	}
+	return m.IOR
+}
+
+// UsesExtensions reports whether m sets any KHR_materials_clearcoat, KHR_materials_transmission, or non-default IOR parameters that require [GPUExtendedMaterial] / [NewExtendedMaterialPipeline].
+func (m Material) UsesExtensions() bool {
+	return m.ClearcoatFactor > 0 ||
+		m.ClearcoatTexture != nil ||
+		m.ClearcoatRoughnessTexture != nil ||
+		m.ClearcoatNormalTexture != nil ||
+		m.TransmissionFactor > 0 ||
+		m.TransmissionTexture != nil ||
+		(m.IOR != 0 && m.IOR != DefaultMaterialIOR)
+}
+
+func dielectricF0FromIOR(ior float32) float32 {
+	if ior <= 0 {
+		return dielectricF0
+	}
+	r := (ior - 1) / (ior + 1)
+	return r * r
 }
 
 // Validate checks that every numeric factor is finite and within its valid glTF 2.0 range, that AlphaMode is recognized, and that every non-nil GPU texture or sampler handle is currently [GPUTexture.Valid] / [GPUSampler.Valid]. Every error wraps [ErrInvalidMaterial].
@@ -193,6 +240,45 @@ func (m Material) Validate() error {
 	}
 	if m.EmissiveSampler != nil && !m.EmissiveSampler.Valid() {
 		return fmt.Errorf("%w: EmissiveSampler is not valid", ErrInvalidMaterial)
+	}
+	if !finite(m.ClearcoatFactor) || m.ClearcoatFactor < 0 || m.ClearcoatFactor > 1 {
+		return fmt.Errorf("%w: ClearcoatFactor = %v must be finite in [0, 1]", ErrInvalidMaterial, m.ClearcoatFactor)
+	}
+	if !finite(m.ClearcoatRoughnessFactor) || m.ClearcoatRoughnessFactor < 0 || m.ClearcoatRoughnessFactor > 1 {
+		return fmt.Errorf("%w: ClearcoatRoughnessFactor = %v must be finite in [0, 1]", ErrInvalidMaterial, m.ClearcoatRoughnessFactor)
+	}
+	if !finite(m.ClearcoatNormalScale) {
+		return fmt.Errorf("%w: ClearcoatNormalScale = %v must be finite", ErrInvalidMaterial, m.ClearcoatNormalScale)
+	}
+	if !finite(m.TransmissionFactor) || m.TransmissionFactor < 0 || m.TransmissionFactor > 1 {
+		return fmt.Errorf("%w: TransmissionFactor = %v must be finite in [0, 1]", ErrInvalidMaterial, m.TransmissionFactor)
+	}
+	if !finite(m.IOR) || (m.IOR != 0 && m.IOR < 1) {
+		return fmt.Errorf("%w: IOR = %v must be 0 (default 1.5) or finite >= 1.0", ErrInvalidMaterial, m.IOR)
+	}
+	if m.ClearcoatTexture != nil && !m.ClearcoatTexture.Valid() {
+		return fmt.Errorf("%w: ClearcoatTexture is not valid", ErrInvalidMaterial)
+	}
+	if m.ClearcoatSampler != nil && !m.ClearcoatSampler.Valid() {
+		return fmt.Errorf("%w: ClearcoatSampler is not valid", ErrInvalidMaterial)
+	}
+	if m.ClearcoatRoughnessTexture != nil && !m.ClearcoatRoughnessTexture.Valid() {
+		return fmt.Errorf("%w: ClearcoatRoughnessTexture is not valid", ErrInvalidMaterial)
+	}
+	if m.ClearcoatRoughnessSampler != nil && !m.ClearcoatRoughnessSampler.Valid() {
+		return fmt.Errorf("%w: ClearcoatRoughnessSampler is not valid", ErrInvalidMaterial)
+	}
+	if m.ClearcoatNormalTexture != nil && !m.ClearcoatNormalTexture.Valid() {
+		return fmt.Errorf("%w: ClearcoatNormalTexture is not valid", ErrInvalidMaterial)
+	}
+	if m.ClearcoatNormalSampler != nil && !m.ClearcoatNormalSampler.Valid() {
+		return fmt.Errorf("%w: ClearcoatNormalSampler is not valid", ErrInvalidMaterial)
+	}
+	if m.TransmissionTexture != nil && !m.TransmissionTexture.Valid() {
+		return fmt.Errorf("%w: TransmissionTexture is not valid", ErrInvalidMaterial)
+	}
+	if m.TransmissionSampler != nil && !m.TransmissionSampler.Valid() {
+		return fmt.Errorf("%w: TransmissionSampler is not valid", ErrInvalidMaterial)
 	}
 	return nil
 }
@@ -1136,19 +1222,28 @@ func DefaultMaterialLight() MaterialLight {
 type MaterialEvalInput struct {
 	Material Material
 
-	BaseColorSample            [4]float32
-	HasBaseColorSample         bool
-	VertexColor                [4]float32 // linear RGBA vertex color (glTF COLOR_0); defaults to [1, 1, 1, 1] when HasVertexColor is false
-	HasVertexColor             bool
-	MetallicSample             float32 // glTF metallic-roughness texture B channel
-	RoughnessSample            float32 // glTF metallic-roughness texture G channel
-	HasMetallicRoughnessSample bool
-	NormalSample               [3]float32 // UNORM [0, 1] tangent-space normal sample
-	HasNormalSample            bool
-	OcclusionSample            float32 // glTF occlusion texture R channel
-	HasOcclusionSample         bool
-	EmissiveSample             [3]float32 // linear RGB emissive texture sample
-	HasEmissiveSample          bool
+	BaseColorSample             [4]float32
+	HasBaseColorSample          bool
+	VertexColor                 [4]float32 // linear RGBA vertex color (glTF COLOR_0); defaults to [1, 1, 1, 1] when HasVertexColor is false
+	HasVertexColor              bool
+	MetallicSample              float32 // glTF metallic-roughness texture B channel
+	RoughnessSample             float32 // glTF metallic-roughness texture G channel
+	HasMetallicRoughnessSample  bool
+	NormalSample                [3]float32 // UNORM [0, 1] tangent-space normal sample
+	HasNormalSample             bool
+	OcclusionSample             float32 // glTF occlusion texture R channel
+	HasOcclusionSample          bool
+	EmissiveSample              [3]float32 // linear RGB emissive texture sample
+	HasEmissiveSample           bool
+	ClearcoatSample             float32 // glTF clearcoatTexture R channel
+	HasClearcoatSample          bool
+	ClearcoatRoughnessSample    float32 // glTF clearcoatRoughnessTexture G channel
+	HasClearcoatRoughnessSample bool
+	ClearcoatNormalSample       [3]float32 // UNORM [0, 1] tangent-space clearcoat normal sample
+	HasClearcoatNormalSample    bool
+	TransmissionSample          float32 // glTF transmissionTexture R channel
+	HasTransmissionSample       bool
+	BackgroundColor             [3]float32 // linear RGB opaque scene background sampled behind a transmissive surface
 
 	Normal      math3d.Vec3   // geometric world-space normal
 	Tangent     math3d.Vec3   // optional world-space tangent (+U); derived from Normal when zero
@@ -1239,9 +1334,69 @@ func EvaluateMaterial(in MaterialEvalInput) MaterialEvalResult {
 	lDir := light.Direction.Norm()
 	vDir := in.ViewDir.Norm()
 
-	direct := evalPBRDirect(n, vDir, lDir, light.Color, baseColor, metallic, roughness)
-	ambient := evalPBRAmbient(n, vDir, light.SkyColor, light.GroundColor, baseColor, metallic, roughness, occlusion)
+	f0Dielectric := dielectricF0FromIOR(m.EffectiveIOR())
+
+	ccSample := float32(1)
+	if in.HasClearcoatSample {
+		ccSample = in.ClearcoatSample
+	}
+	clearcoat := clampF32(m.ClearcoatFactor*ccSample, 0, 1)
+
+	ccRoughSample := float32(1)
+	if in.HasClearcoatRoughnessSample {
+		ccRoughSample = in.ClearcoatRoughnessSample
+	}
+	clearcoatRoughness := clampF32(m.ClearcoatRoughnessFactor*ccRoughSample, minPBRRoughness, 1)
+
+	nc := geomN
+	if in.HasClearcoatNormalSample || m.ClearcoatNormalTexture != nil {
+		ccNormSample := [3]float32{0.5, 0.5, 1}
+		if in.HasClearcoatNormalSample {
+			ccNormSample = in.ClearcoatNormalSample
+		}
+		tVec, bVec := resolveTangentBasis(geomN, in.Tangent, in.Bitangent)
+		scale := m.ClearcoatNormalScale
+		nx := (ccNormSample[0]*2 - 1) * scale
+		ny := (ccNormSample[1]*2 - 1) * scale
+		nz := ccNormSample[2]*2 - 1
+		nTS := math3d.Vec3{X: nx, Y: ny, Z: nz}.Norm()
+		nc = tVec.Scale(nTS.X).Add(bVec.Scale(nTS.Y)).Add(geomN.Scale(nTS.Z)).Norm()
+	}
+
+	trSample := float32(1)
+	if in.HasTransmissionSample {
+		trSample = in.TransmissionSample
+	}
+	transmission := clampF32(m.TransmissionFactor*trSample, 0, 1)
+
+	direct := evalPBRDirectExt(n, vDir, lDir, light.Color, baseColor, metallic, roughness, f0Dielectric, transmission)
+	ambient := evalPBRAmbientExt(n, vDir, light.SkyColor, light.GroundColor, baseColor, metallic, roughness, occlusion, f0Dielectric, transmission)
 	linearRGB := direct.Add(ambient).Add(emissive)
+
+	if transmission > 0 {
+		ndv := max(n.Dot(vDir), 1e-4)
+		f0 := mixVec3(math3d.Vec3{X: f0Dielectric, Y: f0Dielectric, Z: f0Dielectric}, baseColor, metallic)
+		p5 := pow5F32(1 - ndv)
+		fView := math3d.Vec3{
+			X: f0.X + (1-f0.X)*p5,
+			Y: f0.Y + (1-f0.Y)*p5,
+			Z: f0.Z + (1-f0.Z)*p5,
+		}
+		trWeight := (1 - metallic) * transmission
+		linearRGB.X += (1 - fView.X) * trWeight * baseColor.X * in.BackgroundColor[0]
+		linearRGB.Y += (1 - fView.Y) * trWeight * baseColor.Y * in.BackgroundColor[1]
+		linearRGB.Z += (1 - fView.Z) * trWeight * baseColor.Z * in.BackgroundColor[2]
+	}
+
+	if clearcoat > 0 {
+		ncdv := max(nc.Dot(vDir), 1e-4)
+		fCCView := float32(0.04) + (1-0.04)*pow5F32(1-ncdv)
+		ccDirect := evalClearcoatDirect(nc, vDir, lDir, light.Color, clearcoatRoughness)
+		ccAmbient := evalClearcoatAmbient(nc, vDir, light.SkyColor, light.GroundColor, clearcoatRoughness, occlusion)
+		atten := 1 - clearcoat*fCCView
+		linearRGB = linearRGB.Scale(atten).Add(ccDirect.Add(ccAmbient).Scale(clearcoat))
+	}
+
 	srgbRGB := evalTonemapSRGB(linearRGB)
 
 	outAlpha := float32(1)
@@ -1285,6 +1440,10 @@ func resolveTangentBasis(geomN, tangent, bitangent math3d.Vec3) (t, b math3d.Vec
 }
 
 func evalPBRDirect(n, v, l, lightColor, baseColor math3d.Vec3, metallic, roughness float32) math3d.Vec3 {
+	return evalPBRDirectExt(n, v, l, lightColor, baseColor, metallic, roughness, 0.04, 0)
+}
+
+func evalPBRDirectExt(n, v, l, lightColor, baseColor math3d.Vec3, metallic, roughness, f0Dielectric, transmission float32) math3d.Vec3 {
 	ndl := max(n.Dot(l), 0)
 	if ndl <= 0 {
 		return math3d.Vec3{}
@@ -1296,7 +1455,7 @@ func evalPBRDirect(n, v, l, lightColor, baseColor math3d.Vec3, metallic, roughne
 
 	alpha := roughness * roughness
 	alpha2 := alpha * alpha
-	f0 := mixVec3(math3d.Vec3{X: 0.04, Y: 0.04, Z: 0.04}, baseColor, metallic)
+	f0 := mixVec3(math3d.Vec3{X: f0Dielectric, Y: f0Dielectric, Z: f0Dielectric}, baseColor, metallic)
 
 	denom := ndh*ndh*(alpha2-1) + 1
 	dTerm := alpha2 / max(float32(math.Pi)*denom*denom, 1e-7)
@@ -1313,10 +1472,11 @@ func evalPBRDirect(n, v, l, lightColor, baseColor math3d.Vec3, metallic, roughne
 	}
 	spec := fTerm.Scale(dTerm * vis)
 	invPi := float32(1.0 / math.Pi)
+	diffScale := (1 - metallic) * (1 - transmission) * invPi
 	diff := math3d.Vec3{
-		X: (1 - fTerm.X) * (1 - metallic) * baseColor.X * invPi,
-		Y: (1 - fTerm.Y) * (1 - metallic) * baseColor.Y * invPi,
-		Z: (1 - fTerm.Z) * (1 - metallic) * baseColor.Z * invPi,
+		X: (1 - fTerm.X) * baseColor.X * diffScale,
+		Y: (1 - fTerm.Y) * baseColor.Y * diffScale,
+		Z: (1 - fTerm.Z) * baseColor.Z * diffScale,
 	}
 	sum := diff.Add(spec)
 	return math3d.Vec3{
@@ -1327,8 +1487,12 @@ func evalPBRDirect(n, v, l, lightColor, baseColor math3d.Vec3, metallic, roughne
 }
 
 func evalPBRAmbient(n, v, skyColor, groundColor, baseColor math3d.Vec3, metallic, roughness, occlusion float32) math3d.Vec3 {
+	return evalPBRAmbientExt(n, v, skyColor, groundColor, baseColor, metallic, roughness, occlusion, 0.04, 0)
+}
+
+func evalPBRAmbientExt(n, v, skyColor, groundColor, baseColor math3d.Vec3, metallic, roughness, occlusion, f0Dielectric, transmission float32) math3d.Vec3 {
 	ndv := max(n.Dot(v), 1e-4)
-	f0 := mixVec3(math3d.Vec3{X: 0.04, Y: 0.04, Z: 0.04}, baseColor, metallic)
+	f0 := mixVec3(math3d.Vec3{X: f0Dielectric, Y: f0Dielectric, Z: f0Dielectric}, baseColor, metallic)
 	fMax := math3d.Vec3{
 		X: max(1-roughness, f0.X),
 		Y: max(1-roughness, f0.Y),
@@ -1343,10 +1507,11 @@ func evalPBRAmbient(n, v, skyColor, groundColor, baseColor math3d.Vec3, metallic
 
 	skyT := clampF32(n.Y*0.5+0.5, 0, 1)
 	ambEnv := mixVec3(groundColor, skyColor, skyT)
+	diffScale := (1 - metallic) * (1 - transmission)
 	ambDiff := math3d.Vec3{
-		X: (1 - fAmb.X) * (1 - metallic) * baseColor.X * ambEnv.X,
-		Y: (1 - fAmb.Y) * (1 - metallic) * baseColor.Y * ambEnv.Y,
-		Z: (1 - fAmb.Z) * (1 - metallic) * baseColor.Z * ambEnv.Z,
+		X: (1 - fAmb.X) * diffScale * baseColor.X * ambEnv.X,
+		Y: (1 - fAmb.Y) * diffScale * baseColor.Y * ambEnv.Y,
+		Z: (1 - fAmb.Z) * diffScale * baseColor.Z * ambEnv.Z,
 	}
 
 	// reflect(-v, n) = -v - 2*dot(-v, n)*n = 2*dot(v, n)*n - v
@@ -1361,6 +1526,44 @@ func evalPBRAmbient(n, v, skyColor, groundColor, baseColor math3d.Vec3, metallic
 		Z: reflEnv.Z * fAmb.Z * specScale,
 	}
 	return ambDiff.Add(ambSpec).Scale(occlusion)
+}
+
+func evalClearcoatDirect(nc, v, l, lightColor math3d.Vec3, clearcoatRoughness float32) math3d.Vec3 {
+	ndl := max(nc.Dot(l), 0)
+	if ndl <= 0 {
+		return math3d.Vec3{}
+	}
+	ndv := max(nc.Dot(v), 1e-4)
+	h := v.Add(l).Norm()
+	ndh := max(nc.Dot(h), 0)
+	vdh := max(v.Dot(h), 0)
+
+	alpha := clearcoatRoughness * clearcoatRoughness
+	alpha2 := alpha * alpha
+	denom := ndh*ndh*(alpha2-1) + 1
+	dTerm := alpha2 / max(float32(math.Pi)*denom*denom, 1e-7)
+
+	ggxV := ndl * float32(math.Sqrt(float64(ndv*ndv*(1-alpha2)+alpha2)))
+	ggxL := ndv * float32(math.Sqrt(float64(ndl*ndl*(1-alpha2)+alpha2)))
+	vis := 0.5 / max(ggxV+ggxL, 1e-5)
+
+	fTerm := float32(0.04) + (1-0.04)*pow5F32(1-vdh)
+	s := fTerm * dTerm * vis * ndl
+	return lightColor.Scale(s)
+}
+
+func evalClearcoatAmbient(nc, v, skyColor, groundColor math3d.Vec3, clearcoatRoughness, occlusion float32) math3d.Vec3 {
+	ndv := max(nc.Dot(v), 1e-4)
+	f0 := float32(0.04)
+	fMax := max(1-clearcoatRoughness, f0)
+	fAmb := f0 + (fMax-f0)*pow5F32(1-ndv)
+
+	refl := nc.Scale(2 * nc.Dot(v)).Sub(v)
+	reflT := clampF32(refl.Y*0.5+0.5, 0, 1)
+	reflMix := reflT*(1-clearcoatRoughness*clearcoatRoughness) + 0.5*(clearcoatRoughness*clearcoatRoughness)
+	reflEnv := mixVec3(groundColor, skyColor, reflMix)
+	specScale := 1 - 0.5*clearcoatRoughness
+	return reflEnv.Scale(fAmb * specScale * occlusion)
 }
 
 func evalTonemapSRGB(c math3d.Vec3) math3d.Vec3 {

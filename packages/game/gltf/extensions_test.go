@@ -171,9 +171,11 @@ func TestTextureTransformMultiKhronosSample(t *testing.T) {
 	// occlusion, and unlit materials on both TEXCOORD_0 and TEXCOORD_1.
 	doc := loadKhronos(t, "TextureTransformMultiTest", "glTF", nil)
 
-	meshByName := make(map[string]gltf.Mesh, len(doc.Meshes))
-	for _, m := range doc.Meshes {
-		meshByName[m.Name] = m
+	meshByName := make(map[string]gltf.Mesh, len(doc.Nodes))
+	for _, n := range doc.Nodes {
+		if n.Mesh >= 0 && n.Mesh < len(doc.Meshes) {
+			meshByName[n.Name] = doc.Meshes[n.Mesh]
+		}
 	}
 
 	slots := []struct {
@@ -186,6 +188,24 @@ func TestTextureTransformMultiKhronosSample(t *testing.T) {
 		{"MetalRough", func(m gltf.Material) *gltf.TextureRef { return m.MetallicRoughnessTexture }},
 		{"Occlusion", func(m gltf.Material) *gltf.TextureRef { return m.OcclusionTexture }},
 		{"Unlit", func(m gltf.Material) *gltf.TextureRef { return m.BaseColorTexture }},
+		{"Clearcoat", func(m gltf.Material) *gltf.TextureRef {
+			if m.Clearcoat == nil {
+				return nil
+			}
+			return m.Clearcoat.Texture
+		}},
+		{"ClearcoatRough", func(m gltf.Material) *gltf.TextureRef {
+			if m.Clearcoat == nil {
+				return nil
+			}
+			return m.Clearcoat.RoughnessTexture
+		}},
+		{"ClearcoatNormal", func(m gltf.Material) *gltf.TextureRef {
+			if m.Clearcoat == nil {
+				return nil
+			}
+			return m.Clearcoat.NormalTexture
+		}},
 	}
 
 	for _, slot := range slots {
@@ -793,6 +813,212 @@ func TestMaterialEmissiveStrength(t *testing.T) {
 			}
 			if got, err := m.EmissiveStrength(); err == nil {
 				t.Fatalf("EmissiveStrength() = (%v, nil), want error", got)
+			}
+		})
+	}
+}
+
+func TestClearcoatAndTransmissionKhronosSamples(t *testing.T) {
+	// TextureTransformMultiTest contains nine KHR_materials_clearcoat materials
+	// exercising clearcoatFactor, clearcoatRoughnessFactor, clearcoatTexture,
+	// clearcoatRoughnessTexture, clearcoatNormalTexture, texCoord, and KHR_texture_transform.
+	ccDoc := loadKhronos(t, "TextureTransformMultiTest", "glTF", nil)
+	matByName := make(map[string]gltf.Material, len(ccDoc.Materials))
+	for _, m := range ccDoc.Materials {
+		matByName[m.Name] = m
+	}
+
+	ccTest1 := matByName["ClearcoatTest1Mat"]
+	if ccTest1.Clearcoat == nil {
+		t.Fatal("ClearcoatTest1Mat: Clearcoat is nil")
+	}
+	if !math3d.ApproxEqual(ccTest1.Clearcoat.Factor, 1, 1e-5) {
+		t.Errorf("ClearcoatTest1Mat.Clearcoat.Factor = %v, want 1", ccTest1.Clearcoat.Factor)
+	}
+	if !math3d.ApproxEqual(ccTest1.Clearcoat.RoughnessFactor, 0.03, 1e-4) {
+		t.Errorf("ClearcoatTest1Mat.Clearcoat.RoughnessFactor = %v, want 0.03", ccTest1.Clearcoat.RoughnessFactor)
+	}
+	if ccTest1.Clearcoat.Texture == nil || ccTest1.Clearcoat.Texture.TexCoord != 1 || ccTest1.Clearcoat.Texture.Transform == nil {
+		t.Fatalf("ClearcoatTest1Mat.Clearcoat.Texture = %+v, want texCoord=1 and KHR_texture_transform", ccTest1.Clearcoat.Texture)
+	}
+
+	ccRough := matByName["ClearcoatRoughSampleMat"]
+	if ccRough.Clearcoat == nil || ccRough.Clearcoat.RoughnessTexture == nil {
+		t.Fatalf("ClearcoatRoughSampleMat: missing Clearcoat.RoughnessTexture")
+	}
+	if !math3d.ApproxEqual(ccRough.Clearcoat.RoughnessFactor, 1, 1e-5) {
+		t.Errorf("ClearcoatRoughSampleMat.Clearcoat.RoughnessFactor = %v, want 1", ccRough.Clearcoat.RoughnessFactor)
+	}
+
+	ccNorm := matByName["ClearcoatNormalSampleMat"]
+	if ccNorm.Clearcoat == nil || ccNorm.Clearcoat.NormalTexture == nil {
+		t.Fatalf("ClearcoatNormalSampleMat: missing Clearcoat.NormalTexture")
+	}
+	if !math3d.ApproxEqual(ccNorm.Clearcoat.NormalTexture.Scale, 1, 1e-5) {
+		t.Errorf("ClearcoatNormalSampleMat.Clearcoat.NormalTexture.Scale = %v, want 1", ccNorm.Clearcoat.NormalTexture.Scale)
+	}
+
+	// SunglassesKhronos defines KHR_materials_transmission on nose_pads, lens_interior, and lens_exterior.
+	trDoc := loadKhronos(t, "SunglassesKhronos", "glTF", nil)
+	trByName := make(map[string]gltf.Material, len(trDoc.Materials))
+	for _, m := range trDoc.Materials {
+		trByName[m.Name] = m
+	}
+	for _, name := range []string{"nose_pads", "lens_interior", "lens_exterior"} {
+		m, ok := trByName[name]
+		if !ok {
+			t.Fatalf("SunglassesKhronos: missing material %q", name)
+		}
+		if m.Transmission == nil {
+			t.Fatalf("SunglassesKhronos material %q: Transmission is nil", name)
+		}
+		if !math3d.ApproxEqual(m.Transmission.Factor, 1, 1e-5) {
+			t.Errorf("SunglassesKhronos material %q: Transmission.Factor = %v, want 1", name, m.Transmission.Factor)
+		}
+	}
+	if trByName["temples"].Transmission != nil {
+		t.Errorf("SunglassesKhronos temples unexpectedly has Transmission = %+v", trByName["temples"].Transmission)
+	}
+
+	// EmissiveStrengthTest defines KHR_materials_emissive_strength across Emit1..Emit16.
+	emDoc := loadKhronos(t, "EmissiveStrengthTest", "glTF", nil)
+	wantStrengths := map[string]float32{
+		"Emit1":  1,
+		"Emit2":  2,
+		"Emit4":  4,
+		"Emit8":  8,
+		"Emit16": 16,
+	}
+	seen := 0
+	for _, m := range emDoc.Materials {
+		want, ok := wantStrengths[m.Name]
+		if !ok {
+			continue
+		}
+		seen++
+		got, err := m.EmissiveStrength()
+		if err != nil || !math3d.ApproxEqual(got, want, 1e-5) {
+			t.Errorf("EmissiveStrengthTest %s: EmissiveStrength() = (%v, %v), want (%v, nil)", m.Name, got, err, want)
+		}
+	}
+	if seen != len(wantStrengths) {
+		t.Fatalf("EmissiveStrengthTest: checked %d emissive materials, want %d", seen, len(wantStrengths))
+	}
+}
+
+func TestClearcoatAndTransmissionParsingAndValidation(t *testing.T) {
+	// extensionsRequired accepts both KHR_materials_clearcoat and KHR_materials_transmission,
+	// preserves texCoord, scale, and KHR_texture_transform on every extension texture ref,
+	// and applies spec defaults when optional fields are omitted.
+	validJSON := `{
+		"asset": {"version": "2.0"},
+		"extensionsUsed": ["KHR_materials_clearcoat", "KHR_materials_transmission", "KHR_texture_transform"],
+		"extensionsRequired": ["KHR_materials_clearcoat", "KHR_materials_transmission", "KHR_texture_transform"],
+		"textures": [{}, {}, {}, {}],
+		"materials": [
+			{
+				"name": "Defaults",
+				"extensions": {
+					"KHR_materials_clearcoat": {},
+					"KHR_materials_transmission": {}
+				}
+			},
+			{
+				"name": "Full",
+				"extensions": {
+					"KHR_materials_clearcoat": {
+						"clearcoatFactor": 0.85,
+						"clearcoatRoughnessFactor": 0.12,
+						"clearcoatTexture": {
+							"index": 0,
+							"texCoord": 1,
+							"extensions": {"KHR_texture_transform": {"offset": [0.25, 0.5], "scale": [2, 2]}}
+						},
+						"clearcoatRoughnessTexture": {
+							"index": 1,
+							"extensions": {"KHR_texture_transform": {"texCoord": 2, "rotation": 0.5}}
+						},
+						"clearcoatNormalTexture": {
+							"index": 2,
+							"texCoord": 1,
+							"scale": -0.75,
+							"extensions": {"KHR_texture_transform": {"offset": [0.1, 0.2]}}
+						}
+					},
+					"KHR_materials_transmission": {
+						"transmissionFactor": 0.9,
+						"transmissionTexture": {
+							"index": 3,
+							"texCoord": 1,
+							"extensions": {"KHR_texture_transform": {"scale": [0.5, 0.5], "texCoord": 3}}
+						}
+					}
+				}
+			}
+		]
+	}`
+	doc, err := gltf.Load([]byte(validJSON), nil)
+	if err != nil {
+		t.Fatalf("Load valid clearcoat+transmission: %v", err)
+	}
+	def := doc.Materials[0]
+	if def.Clearcoat == nil || def.Clearcoat.Factor != 0 || def.Clearcoat.RoughnessFactor != 0 ||
+		def.Clearcoat.Texture != nil || def.Clearcoat.RoughnessTexture != nil || def.Clearcoat.NormalTexture != nil {
+		t.Fatalf("Defaults.Clearcoat = %+v, want zero defaults", def.Clearcoat)
+	}
+	if def.Transmission == nil || def.Transmission.Factor != 0 || def.Transmission.Texture != nil {
+		t.Fatalf("Defaults.Transmission = %+v, want zero defaults", def.Transmission)
+	}
+
+	full := doc.Materials[1]
+	if full.Clearcoat == nil || !math3d.ApproxEqual(full.Clearcoat.Factor, 0.85, 1e-6) || !math3d.ApproxEqual(full.Clearcoat.RoughnessFactor, 0.12, 1e-6) {
+		t.Fatalf("Full.Clearcoat scalars = %+v", full.Clearcoat)
+	}
+	if full.Clearcoat.Texture == nil || full.Clearcoat.Texture.TextureIndex != 0 || full.Clearcoat.Texture.EffectiveTexCoord() != 1 || full.Clearcoat.Texture.Transform == nil {
+		t.Fatalf("Full.Clearcoat.Texture = %+v", full.Clearcoat.Texture)
+	}
+	if full.Clearcoat.RoughnessTexture == nil || full.Clearcoat.RoughnessTexture.TextureIndex != 1 || full.Clearcoat.RoughnessTexture.EffectiveTexCoord() != 2 || full.Clearcoat.RoughnessTexture.Transform == nil {
+		t.Fatalf("Full.Clearcoat.RoughnessTexture = %+v", full.Clearcoat.RoughnessTexture)
+	}
+	if full.Clearcoat.NormalTexture == nil || full.Clearcoat.NormalTexture.TextureIndex != 2 || full.Clearcoat.NormalTexture.TexCoord != 1 || !math3d.ApproxEqual(full.Clearcoat.NormalTexture.Scale, -0.75, 1e-6) || full.Clearcoat.NormalTexture.Transform == nil {
+		t.Fatalf("Full.Clearcoat.NormalTexture = %+v", full.Clearcoat.NormalTexture)
+	}
+	if full.Transmission == nil || !math3d.ApproxEqual(full.Transmission.Factor, 0.9, 1e-6) {
+		t.Fatalf("Full.Transmission = %+v", full.Transmission)
+	}
+	if full.Transmission.Texture == nil || full.Transmission.Texture.TextureIndex != 3 || full.Transmission.Texture.EffectiveTexCoord() != 3 || full.Transmission.Texture.Transform == nil {
+		t.Fatalf("Full.Transmission.Texture = %+v", full.Transmission.Texture)
+	}
+
+	badCases := []struct {
+		name string
+		ext  string
+	}{
+		{"clearcoat non-object", `"KHR_materials_clearcoat": []`},
+		{"clearcoatFactor null", `"KHR_materials_clearcoat": {"clearcoatFactor": null}`},
+		{"clearcoatFactor negative", `"KHR_materials_clearcoat": {"clearcoatFactor": -0.1}`},
+		{"clearcoatFactor > 1", `"KHR_materials_clearcoat": {"clearcoatFactor": 1.1}`},
+		{"clearcoatRoughnessFactor < 0", `"KHR_materials_clearcoat": {"clearcoatRoughnessFactor": -0.01}`},
+		{"clearcoatRoughnessFactor > 1", `"KHR_materials_clearcoat": {"clearcoatRoughnessFactor": 1.5}`},
+		{"clearcoatTexture non-object", `"KHR_materials_clearcoat": {"clearcoatTexture": 0}`},
+		{"clearcoatTexture bad index", `"KHR_materials_clearcoat": {"clearcoatTexture": {"index": 9}}`},
+		{"clearcoatTexture negative texCoord", `"KHR_materials_clearcoat": {"clearcoatTexture": {"index": 0, "texCoord": -1}}`},
+		{"clearcoatTexture bad transform", `"KHR_materials_clearcoat": {"clearcoatTexture": {"index": 0, "extensions": {"KHR_texture_transform": {"scale": [1]}}}}`},
+		{"clearcoatRoughnessTexture bad index", `"KHR_materials_clearcoat": {"clearcoatRoughnessTexture": {"index": 5}}`},
+		{"clearcoatNormalTexture bad index", `"KHR_materials_clearcoat": {"clearcoatNormalTexture": {"index": 5}}`},
+		{"transmission non-object", `"KHR_materials_transmission": "glass"`},
+		{"transmissionFactor null", `"KHR_materials_transmission": {"transmissionFactor": null}`},
+		{"transmissionFactor negative", `"KHR_materials_transmission": {"transmissionFactor": -0.2}`},
+		{"transmissionFactor > 1", `"KHR_materials_transmission": {"transmissionFactor": 1.01}`},
+		{"transmissionTexture non-object", `"KHR_materials_transmission": {"transmissionTexture": []}`},
+		{"transmissionTexture bad index", `"KHR_materials_transmission": {"transmissionTexture": {"index": 4}}`},
+		{"transmissionTexture bad transform", `"KHR_materials_transmission": {"transmissionTexture": {"index": 0, "extensions": {"KHR_texture_transform": {"offset": "bad"}}}}`},
+	}
+	for _, tc := range badCases {
+		t.Run(tc.name, func(t *testing.T) {
+			raw := `{"asset":{"version":"2.0"},"textures":[{}],"materials":[{"extensions":{` + tc.ext + `}}]}`
+			if _, err := gltf.Load([]byte(raw), nil); err == nil {
+				t.Fatalf("expected error for %s, got nil", tc.name)
 			}
 		})
 	}

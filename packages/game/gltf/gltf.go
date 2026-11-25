@@ -304,7 +304,8 @@ func load(data []byte, resolver BufferResolver) (*Document, []byte, error) {
 	}
 	for i, ext := range doc.ExtensionsRequired {
 		switch ext {
-		case "KHR_materials_unlit", "KHR_materials_emissive_strength", extTextureTransform, extMaterialsVariants, "KHR_mesh_quantization",
+		case "KHR_materials_unlit", "KHR_materials_emissive_strength", extMaterialsClearcoat, extMaterialsTransmission,
+			extTextureTransform, extMaterialsVariants, "KHR_mesh_quantization",
 			extDraco, extMeshoptEXT, extMeshoptKHR, ExtMOZLightmap, ExtLightmap:
 		default:
 			// Loading without it would silently substitute zeros or defaults for the data the extension supplies (basisu, other compression…).
@@ -867,6 +868,9 @@ func (d *Document) loadMaterials(raws []rawMaterial) (err error) {
 		}
 		if _, ok := rm.Extensions["KHR_materials_unlit"]; ok {
 			mat.Unlit = true
+		}
+		if err := d.parseMaterialExtensions(&mat, i, rm.Extensions); err != nil {
+			return err
 		}
 		d.Materials[i] = mat
 	}

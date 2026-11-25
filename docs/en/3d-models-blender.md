@@ -222,7 +222,7 @@ Both decoders charge their output and working memory to the same per-load budget
 
 `game/gltf` supports both `KHR_texture_transform` and `KHR_materials_variants` (whether listed in `extensionsUsed` or `extensionsRequired`):
 
-- **`KHR_texture_transform`**: parsed on every PBR texture slot (`BaseColorTexture`, `MetallicRoughnessTexture`, `NormalTexture`, `OcclusionTexture`, `EmissiveTexture`) into `TextureRef.Transform` (`*TextureTransform`).
+- **`KHR_texture_transform`**: parsed on every PBR and material-extension texture slot (`BaseColorTexture`, `MetallicRoughnessTexture`, `NormalTexture`, `OcclusionTexture`, `EmissiveTexture`, `Clearcoat.Texture`, `Clearcoat.RoughnessTexture`, `Clearcoat.NormalTexture`, `Transmission.Texture`) into `TextureRef.Transform` (`*TextureTransform`).
   - Defaults match the Khronos specification (`offset: [0, 0]`, `rotation: 0`, `scale: [1, 1]`), and transforms apply in exact `T * R * S` order in glTF UV space (`+U` right, `+V` down, positive rotation counter-clockwise) via `TextureTransform.Apply`, `TextureTransform.ApplyUV`, `TextureTransform.Matrix`, or `TextureRef.ApplyUV`.
   - When `KHR_texture_transform.texCoord` is present, `TextureRef.EffectiveTexCoord()` returns the overridden UV set instead of `TextureRef.TexCoord`.
   - `Document.PrimitiveTexCoords(prim, set)` returns `TEXCOORD_0`/`TEXCOORD_1` directly and decodes higher sets (`TEXCOORD_2`, …) on demand; `Document.TransformTexCoords(prim, ref, out)` evaluates the final transformed UVs for a primitive and texture slot into a reusable slice.
@@ -233,10 +233,12 @@ Both decoders charge their output and working memory to the same per-load budget
 
 ## Material extensions
 
-`game/gltf` also accepts two material extensions in `extensionsUsed` and `extensionsRequired`:
+`game/gltf` accepts four material extensions in `extensionsUsed` and `extensionsRequired`:
 
 - **`KHR_materials_unlit`**: sets `Material.Unlit`.
 - **`KHR_materials_emissive_strength`**: `Material.EmissiveStrength()` returns the multiplier for `EmissiveFactor`, 1 when the extension or its `emissiveStrength` is omitted, and an error when the payload is not an object or the value is not a finite number >= 0.
+- **`KHR_materials_clearcoat`**: populates `Material.Clearcoat` (`*Clearcoat`) with `Factor`, `RoughnessFactor`, `Texture`, `RoughnessTexture`, and `NormalTexture` (including `Scale`, `TexCoord`, and `KHR_texture_transform`), rejecting out-of-range factors or invalid texture references at load time.
+- **`KHR_materials_transmission`**: populates `Material.Transmission` (`*Transmission`) with `Factor` and `Texture` (including `TexCoord` and `KHR_texture_transform`), rejecting out-of-range factors or invalid texture references at load time.
 
 ## Baked lightmaps
 
