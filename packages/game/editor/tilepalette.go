@@ -314,7 +314,7 @@ func tilePalettePanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 				},
 			},
 			core.Dynamic(func(cx *core.Scope) core.Node {
-				return tileLayerControls(ed, palette.Get())
+				return tileLayerControls(ed, rev, palette.Get())
 			}),
 			ui.ScrollView{
 				Style:    core.Style{FlexGrow: 1},
@@ -325,7 +325,7 @@ func tilePalettePanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 }
 
 // tileLayerControls returns the controls a layered grid's palette shows above its tiles: a toggle per tile layer that picks the one tile tools change, and the flips Paint and Fill place tiles with. A single grid has neither, and gets an empty view.
-func tileLayerControls(ed *Editor, p TilePalette) core.Node {
+func tileLayerControls(ed *Editor, rev *core.Signal[uint64], p TilePalette) core.Node {
 	if len(p.TileLayers) == 0 {
 		return core.View{}
 	}
@@ -357,7 +357,10 @@ func tileLayerControls(ed *Editor, p TilePalette) core.Node {
 			TestID: "tile-flip-" + strings.ToLower(f.text),
 			Text:   f.text,
 			Label:  f.label,
-			On:     func() bool { return ed.ActiveTileFlip&f.bit != 0 },
+			On: func() bool {
+				_ = rev.Get()
+				return ed.ActiveTileFlip&f.bit != 0
+			},
 			OnChange: func(on bool) {
 				if on {
 					ed.SetActiveTileFlip(ed.ActiveTileFlip | f.bit)

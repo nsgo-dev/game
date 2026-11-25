@@ -156,9 +156,20 @@ func TestTilePaletteShowsALayeredGridsTileset(t *testing.T) {
 	if ed.ActiveTileLayer != "deco" {
 		t.Fatalf("ActiveTileLayer = %q after pressing deco", ed.ActiveTileLayer)
 	}
+	if app.Find("id:tile-flip-v").Props.Pressed {
+		t.Fatal("V flip button is pressed before clicking it")
+	}
 	app.Press("id:tile-flip-v")
-	if ed.ActiveTileFlip != tilemap.FlipVertical {
-		t.Fatalf("ActiveTileFlip = %#x after pressing V", ed.ActiveTileFlip)
+	if ed.ActiveTileFlip != tilemap.FlipVertical || !app.Find("id:tile-flip-v").Props.Pressed {
+		t.Fatalf("after pressing V: ActiveTileFlip = %#x, pressed = %v", ed.ActiveTileFlip, app.Find("id:tile-flip-v").Props.Pressed)
+	}
+	app.Press("id:tile-flip-v")
+	if ed.ActiveTileFlip != 0 || app.Find("id:tile-flip-v").Props.Pressed {
+		t.Fatalf("after pressing V again: ActiveTileFlip = %#x, pressed = %v", ed.ActiveTileFlip, app.Find("id:tile-flip-v").Props.Pressed)
+	}
+	app.Press("id:tile-flip-v")
+	if ed.ActiveTileFlip != tilemap.FlipVertical || !app.Find("id:tile-flip-v").Props.Pressed {
+		t.Fatalf("after re-enabling V: ActiveTileFlip = %#x, pressed = %v", ed.ActiveTileFlip, app.Find("id:tile-flip-v").Props.Pressed)
 	}
 	app.Press("id:tile-palette-2")
 	if ed.ActiveTileID != 2 {

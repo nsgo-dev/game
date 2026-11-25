@@ -1130,7 +1130,7 @@ func validateInlineTilemap(path []string, where string, tm *TilemapDoc) error {
 	if tm.Tileset == "" {
 		return fieldErr(at(path, "tileset"), "sceneformat: %s requires a tileset name", where)
 	}
-	if int64(tm.Width)*int64(tm.Height) > maxTilesPerTilemap {
+	if tm.Width > maxTilesPerTilemap || tm.Height > maxTilesPerTilemap || int64(tm.Width)*int64(tm.Height) > maxTilesPerTilemap {
 		return fieldErr(at(path, "width"), "sceneformat: %s is %dx%d, more than %d tiles", where, tm.Width, tm.Height, maxTilesPerTilemap)
 	}
 	want := tm.Width * tm.Height
@@ -1161,7 +1161,7 @@ func validateLayeredTilemap(path []string, where string, tm *TilemapDoc) error {
 	case len(tm.TileLayers) > MaxTileLayers:
 		return fieldErr(at(path, "tileLayers"), "sceneformat: %s has %d tile layers, more than %d", where, len(tm.TileLayers), MaxTileLayers)
 	}
-	if int64(tm.Width)*int64(tm.Height)*int64(len(tm.TileLayers)) > maxTilesPerTilemap {
+	if tm.Width > maxTilesPerTilemap || tm.Height > maxTilesPerTilemap || int64(tm.Width)*int64(tm.Height)*int64(len(tm.TileLayers)) > maxTilesPerTilemap {
 		return fieldErr(at(path, "width"), "sceneformat: %s is %d layers of %dx%d, more than %d tiles", where, len(tm.TileLayers), tm.Width, tm.Height, maxTilesPerTilemap)
 	}
 	names := make(map[string]struct{}, len(tm.TileLayers))

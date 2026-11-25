@@ -187,7 +187,7 @@ func (e *Editor) paintValue(g tileGrid, tileID int) (int64, error) {
 	if g.layer == nil || tileID == 0 {
 		return int64(tileID), nil
 	}
-	if uint64(tileID) > uint64(tilemap.TileIDMask) {
+	if tileID > int(tilemap.TileIDMask) {
 		return 0, fmt.Errorf("editor: tileID %d is above %d", tileID, tilemap.TileIDMask)
 	}
 	return int64(uint32(tileID) | e.ActiveTileFlip&tilemap.FlipMask), nil
