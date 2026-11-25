@@ -975,6 +975,7 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 		TestID: "editor-viewport-container",
 		Style: core.Style{
 			FlexGrow:   1,
+			Position:   core.Relative,
 			Background: colors.Surface(),
 			Overflow:   core.Hidden,
 		},
@@ -1204,6 +1205,7 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 					},
 				},
 			}),
+			viewport3DRenderStatsOverlay(cx, ed, rev),
 		},
 	}
 }

@@ -97,3 +97,62 @@ func TestOverrideSwapsPrimitiveForModel(t *testing.T) {
 		t.Fatalf("Resolve of an override that keeps the primitive = %v, want it refused", err)
 	}
 }
+
+func TestOccluderFieldsAreValidatedAndRoundTrip(t *testing.T) {
+	valid := `version: 2
+layers:
+  - name: world
+    objects:
+      - id: wall_mesh
+        mesh: box
+        occluder:
+          mode: model
+          doubleSided: true
+      - id: wall_box
+        occluder:
+          mode: box
+          center: [0, 1.5, 0]
+          size: [6, 3, 0.5]
+      - id: unit_box
+        occluder:
+          mode: box
+`
+	doc, err := sceneformat.Parse([]byte(valid))
+	if err != nil {
+		t.Fatalf("Parse valid occluders: %v", err)
+	}
+	enc, err := sceneformat.Encode(doc)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	if want := sceneformat.SchemaCommentV2 + "\n" + valid; string(enc) != want {
+		t.Fatalf("Encode mismatch:\n--- got ---\n%s\n--- want ---\n%s", enc, want)
+	}
+	lo, hi := doc.Layers[0].Objects[1].Occluder.LocalBounds()
+	if lo != ([3]float32{-3, 0, -0.25}) || hi != ([3]float32{3, 3, 0.25}) {
+		t.Fatalf("LocalBounds = (%v, %v), want ([-3 0 -0.25], [3 3 0.25])", lo, hi)
+	}
+	if sz := doc.Layers[0].Objects[2].Occluder.EffectiveSize(); sz != ([3]float32{1, 1, 1}) {
+		t.Fatalf("default EffectiveSize = %v, want [1 1 1]", sz)
+	}
+
+	cases := []struct {
+		name, yaml, msg string
+	}{
+		{"v1_occluder", objectScene("1", "mesh: box", "occluder: {mode: box}"), "needs version 2"},
+		{"bad_mode", objectScene("2", "occluder: {mode: sphere}"), `must be "model" or "box"`},
+		{"model_without_geom", objectScene("2", "occluder: {mode: model}"), `requires mesh or model`},
+		{"model_with_size", objectScene("2", "mesh: box", "occluder: {mode: model, size: [1, 1, 1]}"), `size requires mode "box"`},
+		{"model_with_center", objectScene("2", "mesh: box", "occluder: {mode: model, center: [0, 1, 0]}"), `center requires mode "box"`},
+		{"box_partial_zero_size", objectScene("2", "occluder: {mode: box, size: [4, 0, 1]}"), "all positive axes or all zero"},
+		{"box_negative_size", objectScene("2", "occluder: {mode: box, size: [4, -1, 1]}"), "all positive axes or all zero"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := sceneformat.Parse([]byte(tc.yaml))
+			if err == nil || !strings.Contains(err.Error(), tc.msg) {
+				t.Fatalf("Parse error = %v, want %q", err, tc.msg)
+			}
+		})
+	}
+}

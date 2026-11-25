@@ -219,7 +219,7 @@
       "additionalProperties": false
     },
     "Model": {
-      "description": "Model holds how a model target packs a glTF model into one GLB file. Each field left out keeps the target's setting in game.yaml.",
+      "description": "Model holds how a model target packs a glTF model into one GLB file and how scenemodel builds its levels of detail. Each field left out keeps the target's setting in game.yaml.",
       "type": "object",
       "properties": {
         "scale": {
@@ -230,6 +230,50 @@
         "animations": {
           "description": "Animations keeps the model's animations when true and leaves them out of the GLB when false.",
           "type": "boolean"
+        },
+        "lods": {
+          "description": "LODs declares the model's levels of detail from finest (index 0) to coarsest, with screen-ratio (and optional distance) thresholds. When omitted, scenemodel.Build pairs glTF nodes following the _LOD1, _LOD2 naming convention with default screen-ratio thresholds.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ModelLOD"
+          }
+        },
+        "lodHysteresis": {
+          "description": "LODHysteresis is the optional relative deadband in [0, 0.5] used by render3d.Queue to prevent LOD popping near thresholds.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 0.5
+        }
+      },
+      "additionalProperties": false
+    },
+    "ModelLOD": {
+      "description": "ModelLOD describes one level of detail of a glTF model (Model.LODs), ordered from finest (LOD 0) to coarsest.",
+      "type": "object",
+      "properties": {
+        "model": {
+          "description": "Model optionally names a separate glTF or GLB model file (slash-separated path from the project root) providing this level's geometry; empty uses this model file.",
+          "type": "string"
+        },
+        "node": {
+          "description": "Node optionally names a node inside the model (this file, or Model when set) providing this level's geometry; cannot be combined with Mesh.",
+          "type": "string"
+        },
+        "mesh": {
+          "description": "Mesh optionally names a mesh inside the model (this file, or Model when set) providing this level's geometry; cannot be combined with Node.",
+          "type": "string"
+        },
+        "minScreenRatio": {
+          "description": "MinScreenRatio is the minimum projected viewport-height fraction in [0, 1] at which this level is drawn (render3d.LODLevel.MinScreenRatio). Levels must strictly decrease in MinScreenRatio; 0 marks an unbounded coarsest fallback.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "maxDistance": {
+          "description": "MaxDistance is an optional maximum camera distance in world units at which this level is drawn (render3d.LODLevel.MaxDistance); 0 disables distance-based switching for this level.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3.4028234663852886e+38
         }
       },
       "additionalProperties": false

@@ -1048,12 +1048,15 @@ func (e *Editor) DrawViewport3D(d *core.Drawing, size core.Size) {
 	// 3. World origin axes (X red, Y green, Z blue).
 	e.drawOriginAxes3D(d, w, h)
 
-	// 4. Projected 3D wireframe bounding boxes for the visible scene objects.
+	// 4. Evaluate 3D LODs and occlusion buffer, then draw projected 3D wireframe bounding boxes for the visible scene objects.
+	e.ensureViewport3DPlan(w, h)
 	e.drawSceneObjects3D(d, w, h, overlay)
 
 	// 4a. Active 3D GridMap floor, occupied cells, and hover/box-fill preview.
 	e.drawGridMap3D(d, w, h)
 
+	// 4b. Projected 3D occluder volumes (box and model occluders).
+	e.drawOccluders3D(d, w, h)
 	// 4b. Projected 3D physics collider and trigger debug wireframes.
 	e.drawPhysicsDebug3D(d, w, h)
 
@@ -1258,12 +1261,23 @@ func (e *Editor) drawSceneObjects3D(d *core.Drawing, w, h float32, overlay bool)
 		corners := e.objectCorners3DUnder(item.obj, item.parent)
 		color := core.RGBA(0xCBD5E1, 0.8)
 		lineWidth := float32(1.25)
+		occluded := e.vp3d.occludedObjects[item.obj.ID]
+		lod, hasLOD := e.vp3d.lodByObject[item.obj.ID]
+		if occluded {
+			color = core.RGBA(0x94A3B8, 0.35)
+		} else if e.ShowLODOverlay && hasLOD {
+			color = lodColor3D(lod)
+		}
 		if item.selected {
 			color = core.RGBA(0x38BDF8, 1)
 			lineWidth = 2.0
 		}
 
-		d.Save().SetStrokeColor(color).SetLineWidth(lineWidth).BeginPath()
+		d.Save().SetStrokeColor(color).SetLineWidth(lineWidth)
+		if occluded {
+			d.SetLineDash(4, 4)
+		}
+		d.BeginPath()
 		hasEdge := false
 		for _, edge := range boxEdges3D {
 			x0, y0, x1, y1, vis := e.Camera3D.projectSegment(corners[edge[0]], corners[edge[1]], w, h)
@@ -1277,6 +1291,10 @@ func (e *Editor) drawSceneObjects3D(d *core.Drawing, w, h float32, overlay bool)
 			d.Stroke()
 		}
 		d.Restore()
+
+		if e.ShowLODOverlay && hasLOD && !occluded {
+			e.drawObjectLODBadge3D(d, item.obj, lod, w, h)
+		}
 
 		if item.selected {
 			if cx, cy, _, vis := e.Camera3D.Project(e.worldPosition3D(item.obj), w, h); vis {

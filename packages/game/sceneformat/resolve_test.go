@@ -619,7 +619,13 @@ func TestObjectOverrideCoversEveryObjectField(t *testing.T) {
 				case reflect.Bool:
 					e.SetBool(true)
 				case reflect.Struct:
-					e.Set(reflect.ValueOf(sceneformat.SpriteRef{Atlas: "a", Frame: "f"}))
+					switch e.Type() {
+					case reflect.TypeFor[sceneformat.SpriteRef]():
+						e.Set(reflect.ValueOf(sceneformat.SpriteRef{Atlas: "a", Frame: "f"}))
+					case reflect.TypeFor[sceneformat.OccluderDoc]():
+						sz := [3]float32{2, 2, 2}
+						e.Set(reflect.ValueOf(sceneformat.OccluderDoc{Mode: sceneformat.OccluderBox, Size: &sz}))
+					}
 				}
 				f.Set(p)
 			case reflect.Map:

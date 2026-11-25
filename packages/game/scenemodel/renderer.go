@@ -106,6 +106,12 @@ type RendererOptions struct {
 	DepthFormat gpu.TextureFormat
 	// Retained keeps CPU copies of the buffers and textures so NSGo recreates them after a device loss (gpu.BufferDesc.Retained).
 	Retained bool
+	// DisableOcclusion disables CPU software occlusion culling even when Built holds occluders.
+	DisableOcclusion bool
+	// OcclusionWidth and OcclusionHeight configure the software render3d.OcclusionBuffer resolution; non-positive values use render3d's defaults (128x72).
+	OcclusionWidth, OcclusionHeight int
+	// LODHysteresis overrides the relative deadband [0, 0.5] used by render3d.Queue for LOD selection; 0 uses Built.LODHysteresis.
+	LODHysteresis float32
 }
 
 // Shading says how Renderer shades the parts it draws (Renderer.SetShading).
@@ -129,7 +135,7 @@ func (s Shading) String() string {
 	return fmt.Sprintf("Shading(%d)", uint8(s))
 }
 
-// Renderer draws a Built scene's drawables on a gpu.Device: every part's mesh lit by a render3d.LightRig and textured with its base color, culled and ordered by a render3d.Queue (opaque surfaces front to back by pipeline, material and mesh, blended ones back to front). Each frame, call Prepare with the camera and lights before the render pass, then Draw inside it. Its GPU resources belong to the scope given to NewRenderer, or are released by Close. Use it from the engine goroutine, like the device.
+// Renderer draws a Built scene's drawables on a gpu.Device: every part's mesh lit by a render3d.LightRig and textured with its base color, culled and ordered by a render3d.Queue (frustum culling, software occlusion culling when Built has occluders, LOD selection with hysteresis, opaque surfaces front to back by pipeline, material and mesh, blended ones back to front). Each frame, call Prepare with the camera and lights before the render pass, then Draw inside it. Its GPU resources belong to the scope given to NewRenderer, or are released by Close. Use it from the engine goroutine, like the device.
 type Renderer struct {
 	built *Built
 	dev   *gpu.Device
@@ -155,9 +161,11 @@ type Renderer struct {
 	// draws holds the per-draw uniform buffer of each part, by drawable and part.
 	draws [][]*render3d.PBRDrawBuffer
 
-	queue render3d.Queue
-	items []render3d.DrawItem
-	plan  render3d.RenderPlan
+	queue     render3d.Queue
+	occ       *render3d.OcclusionBuffer
+	occluders []render3d.Occluder
+	items     []render3d.DrawItem
+	plan      render3d.RenderPlan
 }
 
 // NewRenderer uploads every mesh, texture and material of b to dev, scoped to cx, and creates the buffers and pipelines that draw them. b's drawables are fixed from here on; their nodes may move, hide and show.
@@ -216,6 +224,14 @@ func (r *Renderer) setup(cx *core.Scope, opts RendererOptions) error {
 			}
 			r.draws[di][pi] = buf
 		}
+	}
+	if opts.LODHysteresis > 0 {
+		r.queue.LODHysteresis = opts.LODHysteresis
+	} else {
+		r.queue.LODHysteresis = r.built.LODHysteresis
+	}
+	if !opts.DisableOcclusion && len(r.built.Occluders) > 0 {
+		r.occ = render3d.NewOcclusionBuffer(opts.OcclusionWidth, opts.OcclusionHeight)
 	}
 	return r.createPipelines(ShadingLit)
 }
@@ -285,23 +301,34 @@ func (r *Renderer) uploadMaterials(cx *core.Scope, label string, retained bool) 
 	return nil
 }
 
-// uploadMeshes uploads every mesh the parts use, once each.
+// uploadMeshes uploads every mesh the parts and their LOD levels use, once each.
 func (r *Renderer) uploadMeshes(cx *core.Scope, label string, retained bool) error {
 	r.meshes = make([]*render3d.GPUMesh, r.built.Meshes)
+	upload := func(obj string, id uint32, mesh render3d.Mesh) error {
+		if int(id) >= len(r.meshes) {
+			return fmt.Errorf("scenemodel: object %q mesh ID %d is out of range for %d meshes", obj, id, len(r.meshes))
+		}
+		if r.meshes[id] != nil {
+			return nil
+		}
+		m, err := render3d.UploadMesh(cx, r.dev, mesh, render3d.MeshUpload{Label: fmt.Sprintf("%s.mesh.%d", label, id), Retained: retained})
+		if err != nil {
+			return fmt.Errorf("scenemodel: object %q mesh: %w", obj, err)
+		}
+		r.meshes[id] = m
+		return nil
+	}
 	for _, d := range r.built.Drawables {
 		for pi := range d.Parts {
 			p := &d.Parts[pi]
-			if int(p.MeshID) >= len(r.meshes) {
-				return fmt.Errorf("scenemodel: object %q mesh ID %d is out of range for %d meshes", d.Object, p.MeshID, len(r.meshes))
+			if err := upload(d.Object, p.MeshID, p.Mesh); err != nil {
+				return err
 			}
-			if r.meshes[p.MeshID] != nil {
-				continue
+			for li := range p.LODs {
+				if err := upload(d.Object, p.LODs[li].MeshID, p.LODs[li].Mesh); err != nil {
+					return err
+				}
 			}
-			m, err := render3d.UploadMesh(cx, r.dev, p.Mesh, render3d.MeshUpload{Label: fmt.Sprintf("%s.mesh.%d", label, p.MeshID), Retained: retained})
-			if err != nil {
-				return fmt.Errorf("scenemodel: object %q mesh: %w", d.Object, err)
-			}
-			r.meshes[p.MeshID] = m
 		}
 	}
 	return nil
@@ -431,8 +458,27 @@ func (r *Renderer) Prepare(cam *scene3d.Camera, lights render3d.LightRig) (rende
 		d, p, _ := r.built.Part(id)
 		r.draws[int(id>>32)][int(uint32(id))].Write(r.dev, drawUniform(d, p))
 	}
-	r.plan = r.queue.Build(cam.ViewProj(), cam.Pos, r.items)
+	viewProj := cam.ViewProj()
+	var occ *render3d.OcclusionBuffer
+	if r.occ != nil {
+		r.occluders = r.built.AppendOccluders(r.occluders[:0])
+		r.occ.Clear()
+		if len(r.occluders) > 0 {
+			r.occ.Rasterize(viewProj, r.occluders...)
+			r.occ.BuildPyramid()
+			occ = r.occ
+		}
+	}
+	r.plan = r.queue.BuildWithOcclusion(viewProj, cam.Pos, r.items, occ)
 	return r.plan.Stats, nil
+}
+
+// Plan returns the render3d.RenderPlan from the most recent Prepare call, allowing callers to inspect selected LOD indices and culling statistics.
+func (r *Renderer) Plan() render3d.RenderPlan {
+	if r == nil {
+		return render3d.RenderPlan{}
+	}
+	return r.plan
 }
 
 // Draw records the parts Prepare planned into pass: the opaque and cutout ones first, then the blended ones back to front. pass must have a color attachment of RendererOptions.ColorFormat and a depth attachment of its DepthFormat. It records nothing once the renderer is closed.

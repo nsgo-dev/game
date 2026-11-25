@@ -20,7 +20,7 @@ func TestImportSchemaAcceptsWhatEncodeWrites(t *testing.T) {
 		{Version: 1, Audio: &importsettings.Audio{Format: "wav", Rate: 22050, Channels: 2, PeakDB: &peak, Bitrate: 128, Loop: &importsettings.Loop{Start: 10, End: 20}}},
 		{Version: 1, Credit: &importsettings.Credit{Author: "Kenney", License: "CC0-1.0"}},
 		{Version: 1, Font: &importsettings.Font{Size: 24, Chars: " 0123456789", Padding: &zero}},
-		{Version: 1, Model: &importsettings.Model{Scale: 0.01, Animations: &no}},
+		{Version: 1, Model: &importsettings.Model{Scale: 0.01, Animations: &no, LODHysteresis: 0.05, LODs: []importsettings.ModelLOD{{Node: "Tree_LOD0", MinScreenRatio: 0.3}, {Node: "Tree_LOD1", MinScreenRatio: 0}}}},
 		{Version: 1, Image: &importsettings.Image{Filter: "nearest"}, Credit: &importsettings.Credit{Author: "Ana", License: "CC-BY-4.0", Source: "https://example.com", Notice: "Hero by Ana\nCC BY 4.0"}},
 	} {
 		data, err := importsettings.Encode(f)

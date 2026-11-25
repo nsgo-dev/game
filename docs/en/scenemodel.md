@@ -44,8 +44,17 @@ layers:
 | `modelMesh` | Version 2, with `model`, not with `modelNode`. The first mesh of the model with this name, drawn at the object's origin. |
 | `gridMap` | Version 2. A modular 3D [`*.gridmap.yaml` file](world3d.md#modular-3d-gridmap), named by its slash-separated path from the project root. `Build` loads the grid map and its glTF `meshLibrary`, calls `world3d.GridMap.BuildInstances`, creates child nodes for each tile instance sharing `MeshID` and `MaterialID`, and sets the object node's `LocalBounds` from `GridMap.Bounds()`. Cannot be combined with `mesh` or `model`. |
 | `material` | A [material file](resources.md). On a primitive it is the surface, white, non-metallic and fully rough without one; on a model or grid map it replaces every material of the model or tile library. Its base color and emissive colors are sRGB and are converted to linear light, its opacity multiplies the base color's alpha and blends the surface when below 1, and its `metallic`, `roughness`, `doubleSided` and `texture` are used as written. Its 2D blend mode and `unlit` do not apply in 3D. |
+| `occluder` | Version 2. Marks the object as a 3D occluder for `render3d.OcclusionBuffer`: `{ mode: model }` uses the object's `mesh` or `model` geometry (at its coarsest LOD when available), and `{ mode: box, center: [x, y, z], size: [w, h, d] }` uses an explicit box in the object's local space (defaulting to centered `[1, 1, 1]`). Optional `doubleSided: true` rasterizes both faces. |
 
 An override (`overrides`) can replace each of these fields on an object of an instanced or inherited scene. The merged object must still follow the rules above, so an override that turns a primitive into a model or grid map writes `mesh: ""` beside its `model` or `gridMap`, and one that keeps a `modelNode` or `modelMesh` while it changes `model` needs that part in the new model. `scene.v2.json` describes them for editors and AI tools ([schemas](schemas.md)).
+
+## LOD levels and occluders (#904)
+
+`scenemodel.Build` populates `DrawItem.LODs` and extracts occluder geometry so a level authored in YAML gets both level-of-detail switching and software occlusion culling without Go glue code:
+
+- **Naming convention**: sibling glTF nodes or meshes sharing a base name with `_LOD1`, `_LOD2`, … suffixes (parsed by `gltf.ParseLODNodeName`, case-insensitive and ignoring Blender `.001` suffixes) are paired with the base (`_LOD0` or unsuffixed) mesh automatically. Unconfigured thresholds default to `scenemodel.DefaultLODScreenRatio` (`0.25`, `0.10`, `0.04`, `0.015`, with the coarsest level at `0`).
+- **Import sidecar (`*.import.yaml`)**: when the resolver implements `ImportSettingsResolver` (as `scenemodel.Assets` does), `Build` reads `<model>.import.yaml` (`importsettings.Model.LODs` and `LODHysteresis`). Each LOD entry sets `minScreenRatio` (projected bounding-sphere diameter / viewport height) and/or `maxDistance`, and may either override thresholds for discovered `_LODn` siblings or point explicitly at a `node`, `mesh`, or separate `.gltf`/`.glb` `model` file.
+- **Occluders**: objects with `occluder` become `Built.Occluders`. Call `Built.AppendOccluders(dst)` or `Built.RasterizeOccluders(buf, viewProj)` to feed a `render3d.OcclusionBuffer` directly; `scenemodel.Renderer` automatically rasterizes `Built.Occluders` into an internal `render3d.OcclusionBuffer` in `Prepare` (unless `RendererOptions.DisableOcclusion` is set) and exposes the resulting `render3d.RenderPlan` (including `Stats.Occluded`) via `Renderer.Plan()`.
 
 ## Building
 

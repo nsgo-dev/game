@@ -454,6 +454,8 @@ type ObjectDoc struct {
 	ModelMesh string `yaml:"modelMesh,omitempty"`
 	// GridMap optionally names a 3D grid map file (*.gridmap.yaml or *.gridmap.yml) by its slash-separated path from the project root, such as "levels/dungeon.gridmap.yaml". Package scenemodel loads it and instances its tiles with world3d.GridMap.BuildInstances. It cannot be combined with Mesh or Model. Version 2.
 	GridMap string `yaml:"gridMap,omitempty"`
+	// Occluder optionally marks this 3D object as an occluder for render3d.OcclusionBuffer, using either its own 3D geometry (mode "model") or an explicit local-space box (mode "box"). Version 2.
+	Occluder *OccluderDoc `yaml:"occluder,omitempty"`
 	// FlipX and FlipY mirror the sprite inside its untrimmed frame box.
 	FlipX bool `yaml:"flipX,omitempty"`
 	FlipY bool `yaml:"flipY,omitempty"`
@@ -519,6 +521,8 @@ type ObjectOverride struct {
 	ModelMesh *string `yaml:"modelMesh,omitempty"`
 	// GridMap replaces the 3D grid map file the object draws, a slash-separated path from the project root; "" removes it.
 	GridMap *string `yaml:"gridMap,omitempty"`
+	// Occluder replaces the object's 3D occluder definition.
+	Occluder *OccluderDoc `yaml:"occluder,omitempty"`
 	// FlipX replaces whether the sprite is mirrored horizontally.
 	FlipX *bool `yaml:"flipX,omitempty"`
 	// FlipY replaces whether the sprite is mirrored vertically.
@@ -583,6 +587,55 @@ type SpriteRef struct {
 	Atlas string `yaml:"atlas" schema:"required,minLength=1"`
 	// Frame names the frame inside the atlas.
 	Frame string `yaml:"frame" schema:"required,minLength=1"`
+}
+
+// OccluderMode selects the geometry a 3D object contributes to a render3d.OcclusionBuffer (OccluderDoc.Mode).
+type OccluderMode string
+
+const (
+	// OccluderModel uses the object's own 3D geometry (Mesh primitive or glTF Model) as an occluder.
+	OccluderModel OccluderMode = "model"
+	// OccluderBox uses an explicit local-space solid box (Center, Size) transformed by the object's world matrix as an occluder.
+	OccluderBox OccluderMode = "box"
+)
+
+// OccluderDoc marks a 3D object as an occluder that hides objects behind it in render3d.OcclusionBuffer (ObjectDoc.Occluder). Version 2.
+type OccluderDoc struct {
+	// Mode selects the occluder geometry: "model" (the object's own Mesh or Model) or "box" (an explicit local-space solid box).
+	Mode OccluderMode `yaml:"mode" schema:"required,enum=model|box"`
+	// Center is the optional local-space center [x, y, z] of a "box" occluder; nil centers it at the object's origin. Only valid when Mode is "box".
+	Center *[3]float32 `yaml:"center,omitempty,flow"`
+	// Size is the optional local-space dimensions [width, height, depth] of a "box" occluder; nil defaults to [1, 1, 1], scaled by the object's transform. When set, every axis must be positive. Only valid when Mode is "box".
+	Size *[3]float32 `yaml:"size,omitempty,flow"`
+	// DoubleSided rasterizes both front and back faces of a "model" occluder when true.
+	DoubleSided bool `yaml:"doubleSided,omitempty"`
+}
+
+// EffectiveCenter returns Center, defaulting to [0, 0, 0] when nil.
+func (o *OccluderDoc) EffectiveCenter() [3]float32 {
+	if o == nil || o.Center == nil {
+		return [3]float32{}
+	}
+	return *o.Center
+}
+
+// EffectiveSize returns Size, defaulting to [1, 1, 1] when nil or all zero.
+func (o *OccluderDoc) EffectiveSize() [3]float32 {
+	if o == nil || o.Size == nil || *o.Size == ([3]float32{}) {
+		return [3]float32{1, 1, 1}
+	}
+	return *o.Size
+}
+
+// LocalBounds returns the local-space min and max corners of a "box" occluder.
+func (o *OccluderDoc) LocalBounds() (lo, hi [3]float32) {
+	if o == nil {
+		return lo, hi
+	}
+	sz := o.EffectiveSize()
+	hx, hy, hz := sz[0]*0.5, sz[1]*0.5, sz[2]*0.5
+	c := o.EffectiveCenter()
+	return [3]float32{c[0] - hx, c[1] - hy, c[2] - hz}, [3]float32{c[0] + hx, c[1] + hy, c[2] + hz}
 }
 
 // MaxObjectDepth is how many levels of objects a layer may nest: a top-level object is at depth 1, its children at depth 2, and so on. Validate refuses a deeper tree.
@@ -1046,6 +1099,9 @@ func validateObjects(version int, path []string, layer, parent string, parentWor
 				// validateModel's hint names model, which version 1 refuses.
 				return fieldErr(at(op, "mesh"), "sceneformat: %s mesh %q is not a built-in primitive (want one of %s); to draw a glTF file, move the scene to version 2 and name the file in model", where, o.Mesh, strings.Join(meshPrimitives, ", "))
 			}
+			if o.Occluder != nil {
+				return fieldErr(at(op, "occluder"), "sceneformat: %s: occluder needs version 2, not %d", where, version)
+			}
 		}
 		if err := validateObject(op, where, o); err != nil {
 			return err
@@ -1370,10 +1426,49 @@ func validateModel(p []string, where string, o *ObjectDoc) error {
 	if o.ModelNode != "" && o.ModelMesh != "" {
 		return fieldErr(at(p, "modelMesh"), "sceneformat: %s names both modelNode %q and modelMesh %q; keep one", where, o.ModelNode, o.ModelMesh)
 	}
+	if o.Occluder != nil {
+		if err := validateOccluder(at(p, "occluder"), where, o.Occluder); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
-// CheckObjectModel checks the fields of o that say what it draws in 3D, as Validate checks them in a version 2 scene: Mesh is "" or one of MeshPrimitives, Model is "" or a slash-separated path to a .gltf or .glb file, Mesh and Model are not both set, nor ModelNode and ModelMesh, and ModelNode and ModelMesh require Model. It does not check o's descendants, and lets a caller such as an editor refuse an object before it reaches a document.
+// validateOccluder checks the fields of occ at path p.
+func validateOccluder(p []string, where string, occ *OccluderDoc) error {
+	switch occ.Mode {
+	case OccluderModel:
+		if occ.Center != nil {
+			return fieldErr(at(p, "center"), "sceneformat: %s occluder center requires mode %q", where, OccluderBox)
+		}
+		if occ.Size != nil {
+			return fieldErr(at(p, "size"), "sceneformat: %s occluder size requires mode %q", where, OccluderBox)
+		}
+	case OccluderBox:
+		if occ.Center != nil {
+			for _, v := range *occ.Center {
+				if !isFinite(v) {
+					return fieldErr(at(p, "center"), "sceneformat: %s occluder center must be finite", where)
+				}
+			}
+		}
+		if occ.Size != nil {
+			for _, v := range *occ.Size {
+				if !isFinite(v) {
+					return fieldErr(at(p, "size"), "sceneformat: %s occluder size must be finite", where)
+				}
+			}
+			if *occ.Size != ([3]float32{}) && (occ.Size[0] <= 0 || occ.Size[1] <= 0 || occ.Size[2] <= 0) {
+				return fieldErr(at(p, "size"), "sceneformat: %s occluder size %v must have all positive axes or all zero", where, *occ.Size)
+			}
+		}
+	default:
+		return fieldErr(at(p, "mode"), "sceneformat: %s occluder mode %q must be %q or %q", where, occ.Mode, OccluderModel, OccluderBox)
+	}
+	return nil
+}
+
+// CheckObjectModel checks the fields of o that say what it draws in 3D and how it occludes, as Validate checks them in a version 2 scene: Mesh is "" or one of MeshPrimitives, Model is "" or a slash-separated path to a .gltf or .glb file, Mesh and Model are not both set, nor ModelNode and ModelMesh, ModelNode and ModelMesh require Model, and Occluder (when set) is valid with mode "model" requiring Mesh or Model. It does not check o's descendants, and lets a caller such as an editor refuse an object before it reaches a document.
 func CheckObjectModel(o *ObjectDoc) error {
 	where := fmt.Sprintf("object %q", o.ID)
 	if err := validateModel(nil, where, o); err != nil {
@@ -1382,16 +1477,18 @@ func CheckObjectModel(o *ObjectDoc) error {
 	return checkModelRefs(nil, where, o)
 }
 
-// checkModelRefs checks that o's ModelNode and ModelMesh name a part of a Model it has, which an override may set alone on an object of another file and so is only checked on a whole object.
+// checkModelRefs checks that o's ModelNode, ModelMesh and model-mode Occluder refer to geometry o has, which an override may set alone on an object of another file and so is only checked on a whole object.
 func checkModelRefs(p []string, where string, o *ObjectDoc) error {
-	if o.Model != "" {
-		return nil
+	if o.Model == "" {
+		switch {
+		case o.ModelNode != "":
+			return fieldErr(at(p, "modelNode"), "sceneformat: %s modelNode %q requires model", where, o.ModelNode)
+		case o.ModelMesh != "":
+			return fieldErr(at(p, "modelMesh"), "sceneformat: %s modelMesh %q requires model", where, o.ModelMesh)
+		}
 	}
-	switch {
-	case o.ModelNode != "":
-		return fieldErr(at(p, "modelNode"), "sceneformat: %s modelNode %q requires model", where, o.ModelNode)
-	case o.ModelMesh != "":
-		return fieldErr(at(p, "modelMesh"), "sceneformat: %s modelMesh %q requires model", where, o.ModelMesh)
+	if o.Occluder != nil && o.Occluder.Mode == OccluderModel && o.Mesh == "" && o.Model == "" {
+		return fieldErr(at(p, "occluder", "mode"), "sceneformat: %s occluder mode %q requires mesh or model", where, OccluderModel)
 	}
 	return nil
 }

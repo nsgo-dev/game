@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/nsgo-dev/game/packages/game/project"
@@ -303,6 +304,22 @@ func (info AssetImportInfo) EffectiveModelAnimations() (bool, bool) {
 		return *info.Sidecar.Model.Animations, true
 	}
 	return info.DefaultModelAnimations, false
+}
+
+// EffectiveModelLODs returns a copy of the sidecar's declared model LOD levels and whether any are set.
+func (info AssetImportInfo) EffectiveModelLODs() ([]importsettings.ModelLOD, bool) {
+	if info.Sidecar != nil && info.Sidecar.Model != nil && len(info.Sidecar.Model.LODs) > 0 {
+		return slices.Clone(info.Sidecar.Model.LODs), true
+	}
+	return nil, false
+}
+
+// EffectiveModelLODHysteresis returns the model LOD hysteresis deadband [0, 0.5] and whether the sidecar sets it.
+func (info AssetImportInfo) EffectiveModelLODHysteresis() (float32, bool) {
+	if info.Sidecar != nil && info.Sidecar.Model != nil && info.Sidecar.Model.LODHysteresis > 0 {
+		return info.Sidecar.Model.LODHysteresis, true
+	}
+	return 0, false
 }
 
 // EffectiveCredit returns a copy of the sidecar's credit section, or nil when unset.
@@ -821,6 +838,38 @@ func (e *Editor) SetModelImportAnimations(relPath string, animations *bool) erro
 	})
 }
 
+// SetModelImportLODs sets or clears (when empty) the model's declared LOD levels in relPath's sidecar.
+func (e *Editor) SetModelImportLODs(relPath string, lods []importsettings.ModelLOD) error {
+	if err := e.expectAssetKind(relPath, AssetImportModel); err != nil {
+		return err
+	}
+	return e.EditAssetImportSettings(relPath, "Set model LODs for "+relPath, func(f *importsettings.File) {
+		if len(lods) == 0 {
+			if f.Model != nil {
+				f.Model.LODs = nil
+			}
+			return
+		}
+		ensureImportModel(f).LODs = slices.Clone(lods)
+	})
+}
+
+// SetModelImportLODHysteresis sets or clears (when 0) the model's LOD hysteresis deadband in relPath's sidecar.
+func (e *Editor) SetModelImportLODHysteresis(relPath string, hysteresis float32) error {
+	if err := e.expectAssetKind(relPath, AssetImportModel); err != nil {
+		return err
+	}
+	return e.EditAssetImportSettings(relPath, "Set model LOD hysteresis for "+relPath, func(f *importsettings.File) {
+		if hysteresis == 0 {
+			if f.Model != nil {
+				f.Model.LODHysteresis = 0
+			}
+			return
+		}
+		ensureImportModel(f).LODHysteresis = hysteresis
+	})
+}
+
 // SetAssetImportCredit sets or clears (when nil) the credit section in relPath's sidecar.
 func (e *Editor) SetAssetImportCredit(relPath string, credit *importsettings.Credit) error {
 	if e == nil || e.Project == nil || e.ProjectPath == "" {
@@ -903,6 +952,10 @@ func (e *Editor) ResetAssetImportField(relPath, field string) error {
 			return e.SetModelImportScale(relPath, 0)
 		case "animations":
 			return e.SetModelImportAnimations(relPath, nil)
+		case "lods":
+			return e.SetModelImportLODs(relPath, nil)
+		case "lodHysteresis":
+			return e.SetModelImportLODHysteresis(relPath, 0)
 		}
 	}
 	return fmt.Errorf("editor: unknown %s import field %q", kind, field)
@@ -1036,6 +1089,7 @@ func cloneImportFile(src *importsettings.File) *importsettings.File {
 			v := *src.Model.Animations
 			m.Animations = &v
 		}
+		m.LODs = slices.Clone(src.Model.LODs)
 		out.Model = &m
 	}
 	if src.Credit != nil {
@@ -1072,7 +1126,9 @@ func pruneEmptyImportSections(f *importsettings.File) {
 	}
 	if f.Model != nil &&
 		f.Model.Scale == 0 &&
-		f.Model.Animations == nil {
+		f.Model.Animations == nil &&
+		len(f.Model.LODs) == 0 &&
+		f.Model.LODHysteresis == 0 {
 		f.Model = nil
 	}
 	if f.Credit != nil &&
@@ -1128,6 +1184,7 @@ func (c *importSettingsCmd) apply(exists bool, data []byte) error {
 	}
 	c.ed.importRev++
 	c.ed.filesRev++
+	c.ed.invalidate3DBuild()
 	c.ed.invalidateProjectIndex()
 	if c.ed.ExportPanelOpen() {
 		c.ed.CheckExportCredits()
