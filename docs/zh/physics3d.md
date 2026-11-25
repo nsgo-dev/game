@@ -105,7 +105,7 @@ if hit, ok := world.ShapeCastLayer(cameraProbe, pivot, physics3d.QuatIdentity(),
 
 ## 刚体动力学
 
-`World` 管理静态（`Static: true` 或零质量）和动态 `Body`，在 `Step(dt)` 中通过半隐式欧拉积分、确定性碰撞检测、带热启动和三维各向同性库仑摩擦的迭代冲量求解器、非线性高斯-赛德尔位置修正以及静止休眠机制推进模拟。
+`World` 管理静态（`Static: true` 或零质量）和动态 `Body`，在 `Step(dt)` 中通过速度优先的半隐式欧拉积分（含隐式中点陀螺力矩积分）、带多点接触流形的确定性碰撞检测、逐点热启动的迭代冲量求解器（含对称块 LCP 法向求解与三维库仑摩擦）、非线性高斯-赛德尔位置修正以及静止休眠机制推进模拟。
 
 ```go
 world := physics3d.NewWorld()
@@ -127,7 +127,27 @@ loop := &game.Loop{
 }
 ```
 
-接触冲量作用在接触点上，因此摩擦会让滑动的球滚起来，立在棱上的盒子会倒向一个面。`LockRotation` 可禁止动态刚体旋转。`AddBody` 会把非有限的输入（如 NaN 速度或质量）回退为默认值，没有质量的运动学刚体仍保持运动学。
+### 惯性张量、陀螺效应与逐刚体覆写
+
+每个动态 `Body` 都会根据自身 `Shape`、`Mass` 与 `CenterOfMass` 计算刚体局部空间下的逆惯性张量（`InvInertiaTensor SymMat3`）：轴对齐盒体、球体、胶囊与圆柱得到精确的对角主惯量，偏移、旋转、凸包与复合形状则包含平行轴移项的完整对称张量。每步模拟时，接触求解器、全部 7 种内置 `Joint3D` 关节以及 `game/vehicle` 都会将 `InvInertiaTensor` 旋转至世界空间（`Body.WorldInvInertiaTensor()`），自由旋转还会通过保能隐式中点法积分欧拉方程中的陀螺项（$I\dot{\omega} + \omega \times (I\omega) = 0$），使绕中间主轴旋转的非对称长板呈现真实的贾尼别科夫翻转（Dzhanibekov flip），而对称立方体保持稳定。
+
+需要时可按单个刚体覆写质量分布：
+
+- `Body.SetInertia(diag Vec3)` 直接设置局部空间的对角主惯量 $(I_x, I_y, I_z)$（某轴为 0 即锁定该轴旋转；`DiagSymMat3` 可构造对角 `SymMat3`）。
+- `Body.SetInertiaTensor(inertia SymMat3)` 设置完整的局部对称惯性张量并求逆存入 `InvInertiaTensor`。
+- `Body.SetCenterOfMass(localCOM Vec3)` 移动局部质心，并在未显式覆写惯量时围绕新质心重算 `InvInertiaTensor`。
+- `Body.RecomputeMassProperties()` 清除自定义惯量与质心覆写，恢复由形状推导的默认值。
+- `LockRotation` 可禁止动态刚体旋转。`AddBody` 会把非有限的输入（如 NaN 速度或质量）回退为默认值，没有质量的运动学刚体仍保持运动学。
+
+### 接触流形、逐点热启动与堆叠
+
+面与面的接触会生成持久的多点接触流形，而非单个接触点：
+
+- **盒体-盒体及凸包/圆柱面接触**：通过 Sutherland-Hodgman 面裁剪生成最多 4 个接触点，携带持久特征 ID 与逐点穿透深度，并按最大化支撑面积确定性约简。
+- **胶囊落于平面**：胶囊与盒体、凸包、圆柱端面或三角形接触时，将中心线段裁剪到参考面棱柱内，生成最多 2 个接触点（竖直立于端帽时退化为 1 个点）。
+- **逐点热启动与摩擦**：流形中的每个接触点跨帧独立缓存法向与切向累积冲量（优先按特征 ID 匹配，其次按局部坐标距离回退）。2–4 点流形的法向冲量采用带正则化的 float64 主动集 Cholesky 块 LCP 同步求解，使平面静置不会因角点遍历顺序产生倾覆力矩，随后施加逐点三维库仑摩擦与平面非线性高斯-赛德尔位置/姿态修正。
+
+接触冲量作用在各个接触点上，因此摩擦会让滑动的球滚起来，平放的盒子稳固不晃动，立在棱上的盒子会倒向一个面。
 
 ### 物理材质
 
@@ -135,7 +155,7 @@ loop := &game.Loop{
 
 静止的刚体会进入休眠。以下情况会唤醒休眠刚体：运动中的动态刚体或运动学刚体（通过速度运动，或直接设置 `Pos`/`Rot`）碰到它；与它相连的关节另一端在运动；它的某个接触结束（支撑物移开）；附近的 `VoxelCollider` 方块改变实体性或脚下支撑方块消失；以及调用 `Wake`、`WakeInBox`、`ApplyImpulse` 或移除刚体、网格、体素碰撞体、关节时。
 
-堆叠的刚体静止时不会互相陷入。迭代求解之后，每一步会自下而上对与竖直方向（以 `-Gravity` 为上）夹角约 45° 以内的接触再做一遍：把下方刚体当作不可移动，让上方刚体停止向下靠近，并把它推出到只剩约 1 mm 的重叠（冲击传播，shock propagation）。重物压在轻物上，或很高的一叠刚体，都会停在这个深度，而不是像只做迭代求解那样在大质量比下残留几厘米的穿透。仍陷入相邻刚体超过 5 mm 的刚体不会进入休眠，被压得深于 1 cm 的休眠刚体会被唤醒，因此休眠不会把穿透冻结下来。重力为零时没有"上"方向，这一遍会跳过。
+常规堆叠（例如 10 层等质量方块塔）仅凭多点接触流形与逐点热启动即可稳定静置且无残余漂移。冲击传播（shock propagation）仅限定作用于存在大质量比（上方质量超过下方动态刚体 `4` 倍，例如 100 kg 压在 1 kg 上）或堆叠层数超过 12 层的竖直支撑柱（接触法线与 `-Gravity` 夹角约 45° 以内），自下而上将下方刚体视为不可移动并把重叠维持在约 1 mm。仍陷入相邻刚体超过 5 mm 的刚体不会进入休眠，被压得深于 1 cm 的休眠刚体会被唤醒，因此休眠不会把穿透冻结下来。重力为零时没有"上"方向，冲击传播会自动跳过。
 
 落到高度场表面以下的形状会被向上推出，推出深度沿朝上的三角形法线测量，因此一次修正就能离开表面，而不是只推出到下方最近点的较浅距离。位于格子旁边的形状（例如站在台阶下、碰到台面边缘的形状）保留自身接触的深度，不会被抬到台面上。
 
@@ -303,7 +323,7 @@ sw.Step(dt)
 
 `World` 支持完整的世界状态快照、确定性 64 位 FNV-1a 校验和，以及跨 amd64 与 arm64 CPU 架构的比特级确定性：
 
-- **`Save() / Restore(snap) / Checksum()`**：`World.Save()` 将所有公开和私有求解器状态捕获到带版本号的 `WorldSnapshot`（`SnapshotVersion`）中，包括重力与求解器/休眠配置、刚体（含完整形状，包括 `ConvexHull` 的几何数据、`Cylinder` 与 `ShapeCompound` 子形状、`CenterOfMass`、`InvInertiaTensor`，以及私有休眠计时器、重力缩放标记、残余穿透深度、上一帧插值姿态及体素静置状态）、按子碰撞体索引排序的热启动接触冲量缓存、活跃接触/触发器对集合、上一帧接触与关节断裂事件（含复合子形状索引）、忽略碰撞对、全部 7 种内置 `Joint3D` 类型（`DistanceJoint`、`BallJoint`、`HingeJoint`、`SliderJoint`、`FixedJoint`、`SwingTwistJoint`、`SixDOFJoint`，含展开角度状态与最近反作用冲量），以及 `TriMeshCollider`、`HeightfieldCollider` 和 `VoxelGrid` 碰撞体绑定。
+- **`Save() / Restore(snap) / Checksum()`**：`World.Save()` 将所有公开和私有求解器状态捕获到带版本号的 `WorldSnapshot`（`SnapshotVersion`）中，包括重力与求解器/休眠配置、刚体（含完整形状，包括 `ConvexHull` 的几何数据、`Cylinder` 与 `ShapeCompound` 子形状、`CenterOfMass`、`InvInertiaTensor`、自定义质心/惯量覆写标记，以及私有休眠计时器、重力缩放标记、残余穿透深度、上一帧插值姿态及体素静置状态）、按子碰撞体索引排序的多点（最多 4 点，含特征 ID 与局部坐标偏移）热启动接触冲量缓存、活跃接触/触发器对集合、上一帧接触与关节断裂事件（含复合子形状索引）、忽略碰撞对、全部 7 种内置 `Joint3D` 类型（`DistanceJoint`、`BallJoint`、`HingeJoint`、`SliderJoint`、`FixedJoint`、`SwingTwistJoint`、`SixDOFJoint`，含展开角度状态与最近反作用冲量），以及 `TriMeshCollider`、`HeightfieldCollider` 和 `VoxelGrid` 碰撞体绑定。
 - **纯文本 JSON 序列化**：`WorldSnapshot` 支持直接使用 `encoding/json` 序列化与反序列化（不使用 `encoding/gob` 或自定义二进制布局）。
 - **原地保留指针与回调**：当数量和类型匹配时，`Restore` 原地更新现有的 `*Body`、`Joint3D` 和碰撞体实例，确定性地重建宽相树，并在回滚期间保持游戏实体指针、`UserData` 以及世界回调（`OnContact`、`OnTrigger`、`OnJointBreak`）有效。
 - **跨架构确定性**：所有步进 3D 积分、宽相、窄相碰撞（GJK/EPA/SAT、OBB、网格/高度场、体素）、顺序冲量求解器、关节、区域以及 `vehicle` 悬架/轮胎路径都避免了 arm64 FMA 收缩及含 FMA 的标准库超越函数，确保在 amd64 与 arm64 上产生比特完全一致的轨迹和 `Checksum()` 值。

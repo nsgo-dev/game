@@ -267,6 +267,7 @@ func (v *Vehicle) Step(world *physics3d.World, dt time.Duration) {
 		return
 	}
 
+	com := b.WorldCenterOfMass()
 	for i := range v.Wheels {
 		w := &v.Wheels[i]
 		wc := &v.cfg.Wheels[i]
@@ -275,7 +276,7 @@ func (v *Vehicle) Step(world *physics3d.World, dt time.Duration) {
 		}
 		anchor := b.Pos.Add(rot.RotateVec(vec(wc.Anchor)))
 		j := up.Scale(w.SuspensionForce * h)
-		applyAt(b, j, anchor.Sub(b.Pos))
+		applyAt(b, j, anchor.Sub(com))
 		pushGround(w.Ground, j.Neg(), w.ContactPoint)
 	}
 
@@ -310,7 +311,7 @@ func (v *Vehicle) Step(world *physics3d.World, dt time.Duration) {
 			continue
 		}
 		side := f.Cross(n)
-		r := w.ContactPoint.Sub(b.Pos)
+		r := w.ContactPoint.Sub(com)
 		vel := pointVel(b, w.ContactPoint).Sub(groundVel(w.Ground, w.ContactPoint))
 		vf := vel.Dot(f)
 		vs := vel.Dot(side)
@@ -417,7 +418,7 @@ func (v *Vehicle) castRay(world *physics3d.World, from, to physics3d.Vec3) (phys
 
 // pointVel returns the velocity of the point p fixed to body b.
 func pointVel(b *physics3d.Body, p physics3d.Vec3) physics3d.Vec3 {
-	return b.Vel.Add(b.AngVel.Cross(p.Sub(b.Pos)))
+	return b.Vel.Add(b.AngVel.Cross(p.Sub(b.WorldCenterOfMass())))
 }
 
 // groundVel returns the velocity of the ground at p, zero for static colliders.
@@ -428,18 +429,13 @@ func groundVel(g *physics3d.Body, p physics3d.Vec3) physics3d.Vec3 {
 	return pointVel(g, p)
 }
 
-// activeInv returns b's inverse mass and inertia as the solver sees them: zero while static, kinematic or asleep.
-func activeInv(b *physics3d.Body) (float32, float32) {
-	if b.Static || b.Kinematic || b.Sleeping {
-		return 0, 0
-	}
-	return b.InvMass, b.InvInertia
-}
-
 // effMass returns the effective mass of b along unit direction d at offset r from its center of mass.
 func effMass(b *physics3d.Body, r, d physics3d.Vec3) float32 {
-	invM, invI := activeInv(b)
-	k := invM + float32(invI*r.Cross(d).LenSq())
+	if b.Static || b.Kinematic || b.Sleeping {
+		return 0
+	}
+	invT := b.WorldInvInertiaTensor()
+	k := b.InvMass + invT.QuadForm(r.Cross(d))
 	if k <= 0 {
 		return 0
 	}
@@ -448,12 +444,14 @@ func effMass(b *physics3d.Body, r, d physics3d.Vec3) float32 {
 
 // applyAt adds impulse j at offset r from b's center of mass. It changes velocities directly instead of calling Body.ApplyImpulse so the suspension does not wake a settled car every step.
 func applyAt(b *physics3d.Body, j, r physics3d.Vec3) {
-	invM, invI := activeInv(b)
-	if invM > 0 {
-		b.Vel = b.Vel.Add(j.Scale(invM))
+	if b.Static || b.Kinematic || b.Sleeping {
+		return
 	}
-	if invI > 0 {
-		b.AngVel = b.AngVel.Add(r.Cross(j).Scale(invI))
+	if b.InvMass > 0 {
+		b.Vel = b.Vel.Add(j.Scale(b.InvMass))
+	}
+	if invT := b.WorldInvInertiaTensor(); !invT.IsZero() {
+		b.AngVel = b.AngVel.Add(invT.MulVec(r.Cross(j)))
 	}
 }
 
@@ -462,8 +460,7 @@ func pushGround(g *physics3d.Body, j, p physics3d.Vec3) {
 	if g == nil || g.Static || g.Kinematic {
 		return
 	}
-	g.ApplyImpulse(j)
-	g.ApplyAngularImpulse(p.Sub(g.Pos).Cross(j))
+	g.ApplyImpulseAtPoint(j, p)
 }
 
 // towardZero returns the impulse that moves toward stop without overshooting it, limited to magnitude limit.

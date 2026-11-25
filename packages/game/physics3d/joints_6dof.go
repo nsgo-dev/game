@@ -350,10 +350,9 @@ func (j *SwingTwistJoint) SolveVelocity(dt float32) {
 		return
 	}
 
-	_, _, _, angA, _, invIA := bodyKinematics(j.BodyA)
-	_, _, _, angB, _, invIB := bodyKinematics(j.BodyB)
-	invISum := invIA + invIB
-	if invISum <= 0 {
+	_, _, _, angA, _, invTA := bodyKinematics(j.BodyA)
+	_, _, _, angB, _, invTB := bodyKinematics(j.BodyB)
+	if invTA.IsZero() && invTB.IsZero() {
 		return
 	}
 
@@ -363,38 +362,44 @@ func (j *SwingTwistJoint) SolveVelocity(dt float32) {
 	if j.EnableSwingLimits {
 		violated, _, _, n1, n2, lock1, lock2 := j.evalSwingLimit(s1, s2)
 		if lock1 {
-			_, _, _, angA, _, _ = bodyKinematics(j.BodyA)
-			_, _, _, angB, _, _ = bodyKinematics(j.BodyB)
-			w1 := angB.Sub(angA).Dot(worldP1A)
-			imp := worldP1A.Scale(-w1 / invISum)
-			applyAngularImpulsePair(j.BodyA, j.BodyB, imp)
-			j.addAngularImpulse(imp)
+			if inv1 := invTA.QuadForm(worldP1A) + invTB.QuadForm(worldP1A); inv1 > 1e-12 {
+				_, _, _, angA, _, _ = bodyKinematics(j.BodyA)
+				_, _, _, angB, _, _ = bodyKinematics(j.BodyB)
+				w1 := angB.Sub(angA).Dot(worldP1A)
+				imp := worldP1A.Scale(-w1 / inv1)
+				applyAngularImpulsePair(j.BodyA, j.BodyB, imp)
+				j.addAngularImpulse(imp)
+			}
 		}
 		if lock2 {
-			_, _, _, angA, _, _ = bodyKinematics(j.BodyA)
-			_, _, _, angB, _, _ = bodyKinematics(j.BodyB)
-			w2 := angB.Sub(angA).Dot(worldP2A)
-			imp := worldP2A.Scale(-w2 / invISum)
-			applyAngularImpulsePair(j.BodyA, j.BodyB, imp)
-			j.addAngularImpulse(imp)
+			if inv2 := invTA.QuadForm(worldP2A) + invTB.QuadForm(worldP2A); inv2 > 1e-12 {
+				_, _, _, angA, _, _ = bodyKinematics(j.BodyA)
+				_, _, _, angB, _, _ = bodyKinematics(j.BodyB)
+				w2 := angB.Sub(angA).Dot(worldP2A)
+				imp := worldP2A.Scale(-w2 / inv2)
+				applyAngularImpulsePair(j.BodyA, j.BodyB, imp)
+				j.addAngularImpulse(imp)
+			}
 		}
 		if violated && (n1 != 0 || n2 != 0) {
 			nW := worldP1A.Scale(n1).Add(worldP2A.Scale(n2)).Norm()
 			if nW.LenSq() > 0 {
-				_, _, _, angA, _, _ = bodyKinematics(j.BodyA)
-				_, _, _, angB, _, _ = bodyKinematics(j.BodyB)
-				wRel := angB.Sub(angA).Dot(nW)
-				dLambda := -wRel / invISum
-				newAcc := j.swingImpulse + dLambda
-				if newAcc > 0 {
-					newAcc = 0
-				}
-				applied := newAcc - j.swingImpulse
-				j.swingImpulse = newAcc
-				if applied != 0 {
-					imp := nW.Scale(applied)
-					applyAngularImpulsePair(j.BodyA, j.BodyB, imp)
-					j.addAngularImpulse(imp)
+				if invW := invTA.QuadForm(nW) + invTB.QuadForm(nW); invW > 1e-12 {
+					_, _, _, angA, _, _ = bodyKinematics(j.BodyA)
+					_, _, _, angB, _, _ = bodyKinematics(j.BodyB)
+					wRel := angB.Sub(angA).Dot(nW)
+					dLambda := -wRel / invW
+					newAcc := j.swingImpulse + dLambda
+					if newAcc > 0 {
+						newAcc = 0
+					}
+					applied := newAcc - j.swingImpulse
+					j.swingImpulse = newAcc
+					if applied != 0 {
+						imp := nW.Scale(applied)
+						applyAngularImpulsePair(j.BodyA, j.BodyB, imp)
+						j.addAngularImpulse(imp)
+					}
 				}
 			}
 		}
@@ -402,31 +407,33 @@ func (j *SwingTwistJoint) SolveVelocity(dt float32) {
 
 	// 2. Twist limits around worldTB.
 	if j.twistLimitState != 0 {
-		_, _, _, angA, _, _ = bodyKinematics(j.BodyA)
-		_, _, _, angB, _, _ = bodyKinematics(j.BodyB)
-		wTwist := angB.Sub(angA).Dot(worldTB)
-		dLambda := -wTwist / invISum
-		if j.twistLimitState == 2 {
-			imp := worldTB.Scale(dLambda)
-			applyAngularImpulsePair(j.BodyA, j.BodyB, imp)
-			j.addAngularImpulse(imp)
-		} else {
-			newAcc := j.twistImpulse + dLambda
-			if j.twistLimitState < 0 {
-				if newAcc < 0 {
-					newAcc = 0
-				}
-			} else {
-				if newAcc > 0 {
-					newAcc = 0
-				}
-			}
-			applied := newAcc - j.twistImpulse
-			j.twistImpulse = newAcc
-			if applied != 0 {
-				imp := worldTB.Scale(applied)
+		if invTw := invTA.QuadForm(worldTB) + invTB.QuadForm(worldTB); invTw > 1e-12 {
+			_, _, _, angA, _, _ = bodyKinematics(j.BodyA)
+			_, _, _, angB, _, _ = bodyKinematics(j.BodyB)
+			wTwist := angB.Sub(angA).Dot(worldTB)
+			dLambda := -wTwist / invTw
+			if j.twistLimitState == 2 {
+				imp := worldTB.Scale(dLambda)
 				applyAngularImpulsePair(j.BodyA, j.BodyB, imp)
 				j.addAngularImpulse(imp)
+			} else {
+				newAcc := j.twistImpulse + dLambda
+				if j.twistLimitState < 0 {
+					if newAcc < 0 {
+						newAcc = 0
+					}
+				} else {
+					if newAcc > 0 {
+						newAcc = 0
+					}
+				}
+				applied := newAcc - j.twistImpulse
+				j.twistImpulse = newAcc
+				if applied != 0 {
+					imp := worldTB.Scale(applied)
+					applyAngularImpulsePair(j.BodyA, j.BodyB, imp)
+					j.addAngularImpulse(imp)
+				}
 			}
 		}
 	}
@@ -440,9 +447,9 @@ func (j *SwingTwistJoint) SolvePosition(dt float32) {
 	if !j.EnableSwingLimits && !j.EnableTwistLimits {
 		return
 	}
-	_, _, _, _, _, invIA := bodyKinematics(j.BodyA)
-	_, _, _, _, _, invIB := bodyKinematics(j.BodyB)
-	if invIA+invIB <= 0 {
+	_, _, _, _, _, invTA := bodyKinematics(j.BodyA)
+	_, _, _, _, _, invTB := bodyKinematics(j.BodyB)
+	if invTA.IsZero() && invTB.IsZero() {
 		return
 	}
 
@@ -851,15 +858,15 @@ func (j *SixDOFJoint) Prepare(dt float32) {
 
 // SolveVelocity solves all 6 linear and angular constraint, spring, drive, and limit rows.
 func (j *SixDOFJoint) SolveVelocity(dt float32) {
-	_, rotA, _, _, invMA, invIA := bodyKinematics(j.BodyA)
-	_, rotB, _, _, invMB, invIB := bodyKinematics(j.BodyB)
-	if invMA+invMB+invIA+invIB == 0 {
+	_, rotA, _, _, invMA, invTA := bodyKinematics(j.BodyA)
+	_, rotB, _, _, invMB, invTB := bodyKinematics(j.BodyB)
+	if invMA+invMB == 0 && invTA.IsZero() && invTB.IsZero() {
 		return
 	}
 
 	_, _, uA, _ := j.worldFrames()
-	rA := rotA.RotateVec(j.LocalAnchorA)
-	rB := rotB.RotateVec(j.LocalAnchorB)
+	rA := jointAnchorOffset(j.BodyA, rotA, j.LocalAnchorA)
+	rB := jointAnchorOffset(j.BodyB, rotB, j.LocalAnchorB)
 	invMSum := invMA + invMB
 
 	// 1. Linear 3 DOFs.
@@ -870,7 +877,7 @@ func (j *SixDOFJoint) SolveVelocity(dt float32) {
 			axis := uA[k]
 			rAxa := rA.Cross(axis)
 			rBxa := rB.Cross(axis)
-			w := float32(invMSum+float32(invIA*rAxa.LenSq())) + float32(invIB*rBxa.LenSq())
+			w := float32(invMSum+invTA.QuadForm(rAxa)) + invTB.QuadForm(rBxa)
 			if w <= 1e-12 {
 				continue
 			}
@@ -907,8 +914,7 @@ func (j *SixDOFJoint) SolveVelocity(dt float32) {
 	}
 
 	// 2. Angular 3 DOFs.
-	invISum := invIA + invIB
-	if invISum <= 0 {
+	if invTA.IsZero() && invTB.IsZero() {
 		return
 	}
 	if j.allAngularLocked() {
@@ -921,29 +927,27 @@ func (j *SixDOFJoint) SolveVelocity(dt float32) {
 		a1 := uA[idx]
 		p1 := uA[(idx+1)%3]
 		p2 := uA[(idx+2)%3]
-		_, _, _, angA, _, _ := bodyKinematics(j.BodyA)
-		_, _, _, angB, _, _ := bodyKinematics(j.BodyB)
-		wRel := angB.Sub(angA)
-		perpErr := p1.Scale(wRel.Dot(p1)).Add(p2.Scale(wRel.Dot(p2)))
-		perpImp := perpErr.Scale(-1 / invISum)
-		applyAngularImpulsePair(j.BodyA, j.BodyB, perpImp)
-		j.addAngularImpulse(perpImp)
+		j.addAngularImpulse(solvePerpAngularLockVelocity(j.BodyA, j.BodyB, p1, p2))
 
+		invAxis := invTA.QuadForm(a1) + invTB.QuadForm(a1)
+		if invAxis <= 1e-12 {
+			return
+		}
 		if j.angState[idx].driveMode != 0 {
-			_, _, _, angA, _, _ = bodyKinematics(j.BodyA)
-			_, _, _, angB, _, _ = bodyKinematics(j.BodyB)
+			_, _, _, angA, _, _ := bodyKinematics(j.BodyA)
+			_, _, _, angB, _, _ := bodyKinematics(j.BodyB)
 			wAxis := angB.Sub(angA).Dot(a1)
-			if applied := solveSixDOFDriveScalar(&j.angState[idx], j.Angular[idx], wAxis, invISum, dt); applied != 0 {
+			if applied := solveSixDOFDriveScalar(&j.angState[idx], j.Angular[idx], wAxis, invAxis, dt); applied != 0 {
 				imp := a1.Scale(applied)
 				applyAngularImpulsePair(j.BodyA, j.BodyB, imp)
 				j.addAngularImpulse(imp)
 			}
 		}
 		if j.angState[idx].limitState != 0 {
-			_, _, _, angA, _, _ = bodyKinematics(j.BodyA)
-			_, _, _, angB, _, _ = bodyKinematics(j.BodyB)
+			_, _, _, angA, _, _ := bodyKinematics(j.BodyA)
+			_, _, _, angB, _, _ := bodyKinematics(j.BodyB)
 			wAxis := angB.Sub(angA).Dot(a1)
-			if applied := solveSixDOFLimitScalar(&j.angState[idx], wAxis, invISum); applied != 0 {
+			if applied := solveSixDOFLimitScalar(&j.angState[idx], wAxis, invAxis); applied != 0 {
 				imp := a1.Scale(applied)
 				applyAngularImpulsePair(j.BodyA, j.BodyB, imp)
 				j.addAngularImpulse(imp)
@@ -954,11 +958,15 @@ func (j *SixDOFJoint) SolveVelocity(dt float32) {
 
 	for k := range 3 {
 		axis := uA[k]
+		invAxis := invTA.QuadForm(axis) + invTB.QuadForm(axis)
+		if invAxis <= 1e-12 {
+			continue
+		}
 		if j.angState[k].driveMode != 0 {
 			_, _, _, angA, _, _ := bodyKinematics(j.BodyA)
 			_, _, _, angB, _, _ := bodyKinematics(j.BodyB)
 			wAxis := angB.Sub(angA).Dot(axis)
-			if applied := solveSixDOFDriveScalar(&j.angState[k], j.Angular[k], wAxis, invISum, dt); applied != 0 {
+			if applied := solveSixDOFDriveScalar(&j.angState[k], j.Angular[k], wAxis, invAxis, dt); applied != 0 {
 				imp := axis.Scale(applied)
 				applyAngularImpulsePair(j.BodyA, j.BodyB, imp)
 				j.addAngularImpulse(imp)
@@ -968,14 +976,14 @@ func (j *SixDOFJoint) SolveVelocity(dt float32) {
 			_, _, _, angA, _, _ := bodyKinematics(j.BodyA)
 			_, _, _, angB, _, _ := bodyKinematics(j.BodyB)
 			wAxis := angB.Sub(angA).Dot(axis)
-			imp := axis.Scale(-wAxis / invISum)
+			imp := axis.Scale(-wAxis / invAxis)
 			applyAngularImpulsePair(j.BodyA, j.BodyB, imp)
 			j.addAngularImpulse(imp)
 		} else if j.angState[k].limitState != 0 {
 			_, _, _, angA, _, _ := bodyKinematics(j.BodyA)
 			_, _, _, angB, _, _ := bodyKinematics(j.BodyB)
 			wAxis := angB.Sub(angA).Dot(axis)
-			if applied := solveSixDOFLimitScalar(&j.angState[k], wAxis, invISum); applied != 0 {
+			if applied := solveSixDOFLimitScalar(&j.angState[k], wAxis, invAxis); applied != 0 {
 				imp := axis.Scale(applied)
 				applyAngularImpulsePair(j.BodyA, j.BodyB, imp)
 				j.addAngularImpulse(imp)
@@ -989,9 +997,9 @@ func (j *SixDOFJoint) SolvePosition(dt float32) {
 	_ = dt
 	j.initReference()
 
-	_, _, _, _, invMA, invIA := bodyKinematics(j.BodyA)
-	_, _, _, _, invMB, invIB := bodyKinematics(j.BodyB)
-	if invMA+invMB+invIA+invIB == 0 {
+	_, _, _, _, invMA, invTA := bodyKinematics(j.BodyA)
+	_, _, _, _, invMB, invTB := bodyKinematics(j.BodyB)
+	if invMA+invMB == 0 && invTA.IsZero() && invTB.IsZero() {
 		return
 	}
 
@@ -1005,13 +1013,13 @@ func (j *SixDOFJoint) SolvePosition(dt float32) {
 			if cfg.Mode == AxisFree {
 				continue
 			}
-			posA, rotA, _, _, _, _ := bodyKinematics(j.BodyA)
-			posB, rotB, _, _, _, _ := bodyKinematics(j.BodyB)
+			posA, rotA, _, _, _, curTA := bodyKinematics(j.BodyA)
+			posB, rotB, _, _, _, curTB := bodyKinematics(j.BodyB)
 			_, _, uA, _ := j.worldFrames()
 			axis := uA[k]
-			rA := rotA.RotateVec(j.LocalAnchorA)
-			rB := rotB.RotateVec(j.LocalAnchorB)
-			coord := posB.Add(rB).Sub(posA.Add(rA)).Dot(axis)
+			rA := jointAnchorOffset(j.BodyA, rotA, j.LocalAnchorA)
+			rB := jointAnchorOffset(j.BodyB, rotB, j.LocalAnchorB)
+			coord := posB.Add(rotB.RotateVec(j.LocalAnchorB)).Sub(posA.Add(rotA.RotateVec(j.LocalAnchorA))).Dot(axis)
 
 			var err float32
 			if cfg.Mode == AxisLocked {
@@ -1030,7 +1038,7 @@ func (j *SixDOFJoint) SolvePosition(dt float32) {
 			}
 			rAxa := rA.Cross(axis)
 			rBxa := rB.Cross(axis)
-			w := float32(invMSum+float32(invIA*rAxa.LenSq())) + float32(invIB*rBxa.LenSq())
+			w := float32(invMSum+curTA.QuadForm(rAxa)) + curTB.QuadForm(rBxa)
 			if w <= 1e-12 {
 				continue
 			}
@@ -1040,7 +1048,7 @@ func (j *SixDOFJoint) SolvePosition(dt float32) {
 	}
 
 	// 2. Angular positional correction.
-	if invIA+invIB <= 0 {
+	if invTA.IsZero() && invTB.IsZero() {
 		return
 	}
 	if j.allAngularLocked() {

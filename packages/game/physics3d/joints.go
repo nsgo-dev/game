@@ -198,52 +198,47 @@ func (w *World) buildJointIgnoredPairs() map[pairKey]struct{} {
 	return pairs
 }
 
-// symMat3 stores a symmetric 3x3 matrix:
-//
-//	[ a  d  e ]
-//	[ d  b  f ]
-//	[ e  f  c ]
-type symMat3 struct {
-	a, b, c float32
-	d, e, f float32
+func skewTensorContrib(invT SymMat3, r Vec3) SymMat3 {
+	c0 := Vec3{X: 0, Y: r.Z, Z: -r.Y}
+	c1 := Vec3{X: -r.Z, Y: 0, Z: r.X}
+	c2 := Vec3{X: r.Y, Y: -r.X, Z: 0}
+	ic0 := invT.MulVec(c0)
+	ic1 := invT.MulVec(c1)
+	ic2 := invT.MulVec(c2)
+	return SymMat3{
+		XX: c0.Dot(ic0),
+		YY: c1.Dot(ic1),
+		ZZ: c2.Dot(ic2),
+		XY: c0.Dot(ic1),
+		XZ: c0.Dot(ic2),
+		YZ: c1.Dot(ic2),
+	}
 }
 
-func pointConstraintMassMatrix(invMA, invIA float32, rA Vec3, invMB, invIB float32, rB Vec3) symMat3 {
+func pointConstraintMassMatrix(invMA float32, invTA SymMat3, rA Vec3, invMB float32, invTB SymMat3, rB Vec3) SymMat3 {
 	invM := invMA + invMB
-	return symMat3{
-		a: float32(invM+float32(invIA*(float32(rA.Y*rA.Y)+float32(rA.Z*rA.Z)))) + float32(invIB*(float32(rB.Y*rB.Y)+float32(rB.Z*rB.Z))),
-		b: float32(invM+float32(invIA*(float32(rA.X*rA.X)+float32(rA.Z*rA.Z)))) + float32(invIB*(float32(rB.X*rB.X)+float32(rB.Z*rB.Z))),
-		c: float32(invM+float32(invIA*(float32(rA.X*rA.X)+float32(rA.Y*rA.Y)))) + float32(invIB*(float32(rB.X*rB.X)+float32(rB.Y*rB.Y))),
-		d: float32(float32(-invIA*rA.X)*rA.Y) - float32(float32(invIB*rB.X)*rB.Y),
-		e: float32(float32(-invIA*rA.X)*rA.Z) - float32(float32(invIB*rB.X)*rB.Z),
-		f: float32(float32(-invIA*rA.Y)*rA.Z) - float32(float32(invIB*rB.Y)*rB.Z),
+	m := SymMat3{XX: invM, YY: invM, ZZ: invM}
+	if !invTA.IsZero() {
+		m = m.Add(skewTensorContrib(invTA, rA))
 	}
+	if !invTB.IsZero() {
+		m = m.Add(skewTensorContrib(invTB, rB))
+	}
+	return m
 }
 
-func (m symMat3) solve(rhs Vec3) Vec3 {
-	c00 := float32(m.b*m.c) - float32(m.f*m.f)
-	c01 := float32(m.e*m.f) - float32(m.d*m.c)
-	c02 := float32(m.d*m.f) - float32(m.e*m.b)
-	c11 := float32(m.a*m.c) - float32(m.e*m.e)
-	c12 := float32(m.d*m.e) - float32(m.a*m.f)
-	c22 := float32(m.a*m.b) - float32(m.d*m.d)
-	det := float32(float32(m.a*c00)+float32(m.d*c01)) + float32(m.e*c02)
-	if abs32(det) <= 1e-12 {
-		return Vec3{}
-	}
-	invDet := 1 / det
-	return Vec3{
-		X: (float32(float32(c00*rhs.X)+float32(c01*rhs.Y)) + float32(c02*rhs.Z)) * invDet,
-		Y: (float32(float32(c01*rhs.X)+float32(c11*rhs.Y)) + float32(c12*rhs.Z)) * invDet,
-		Z: (float32(float32(c02*rhs.X)+float32(c12*rhs.Y)) + float32(c22*rhs.Z)) * invDet,
-	}
-}
-
-func bodyKinematics(b *Body) (pos Vec3, rot Quat, vel, angVel Vec3, invM, invI float32) {
+func bodyKinematics(b *Body) (pos Vec3, rot Quat, vel, angVel Vec3, invM float32, invT SymMat3) {
 	if b == nil {
-		return Vec3{}, QuatIdentity(), Vec3{}, Vec3{}, 0, 0
+		return Vec3{}, QuatIdentity(), Vec3{}, Vec3{}, 0, SymMat3{}
 	}
-	return b.Pos, normalizedQuat(b.Rot), b.Vel, b.AngVel, activeInvMass(b), activeInvInertia(b)
+	return b.Pos, normalizedQuat(b.Rot), b.Vel, b.AngVel, activeInvMass(b), activeWorldInvInertiaMatrix(b)
+}
+
+func jointAnchorOffset(b *Body, rot Quat, localAnchor Vec3) Vec3 {
+	if b == nil || b.CenterOfMass == (Vec3{}) {
+		return rot.RotateVec(localAnchor)
+	}
+	return rot.RotateVec(localAnchor.Sub(b.CenterOfMass))
 }
 
 func wakeIfDynamic(b *Body) {
@@ -254,138 +249,152 @@ func wakeIfDynamic(b *Body) {
 
 func applyAnchorImpulse(a, b *Body, rA, rB, impulse Vec3) {
 	if a != nil {
-		invM := activeInvMass(a)
-		invI := activeInvInertia(a)
-		if invM > 0 {
+		if invM := activeInvMass(a); invM > 0 {
 			a.Vel = a.Vel.Sub(impulse.Scale(invM))
 		}
-		if invI > 0 {
-			a.AngVel = a.AngVel.Sub(rA.Cross(impulse).Scale(invI))
+		if invT := activeWorldInvInertiaMatrix(a); !invT.IsZero() {
+			a.AngVel = a.AngVel.Sub(invT.MulVec(rA.Cross(impulse)))
 		}
 	}
 	if b != nil {
-		invM := activeInvMass(b)
-		invI := activeInvInertia(b)
-		if invM > 0 {
+		if invM := activeInvMass(b); invM > 0 {
 			b.Vel = b.Vel.Add(impulse.Scale(invM))
 		}
-		if invI > 0 {
-			b.AngVel = b.AngVel.Add(rB.Cross(impulse).Scale(invI))
+		if invT := activeWorldInvInertiaMatrix(b); !invT.IsZero() {
+			b.AngVel = b.AngVel.Add(invT.MulVec(rB.Cross(impulse)))
 		}
 	}
 }
 
 func applyAngularImpulsePair(a, b *Body, impulse Vec3) {
 	if a != nil {
-		if invI := activeInvInertia(a); invI > 0 {
-			a.AngVel = a.AngVel.Sub(impulse.Scale(invI))
+		if invT := activeWorldInvInertiaMatrix(a); !invT.IsZero() {
+			a.AngVel = a.AngVel.Sub(invT.MulVec(impulse))
 		}
 	}
 	if b != nil {
-		if invI := activeInvInertia(b); invI > 0 {
-			b.AngVel = b.AngVel.Add(impulse.Scale(invI))
+		if invT := activeWorldInvInertiaMatrix(b); !invT.IsZero() {
+			b.AngVel = b.AngVel.Add(invT.MulVec(impulse))
 		}
 	}
 }
 
 func applyAnchorPositionCorrection(a, b *Body, rA, rB, corr Vec3) {
 	if a != nil {
-		invM := activeInvMass(a)
-		invI := activeInvInertia(a)
-		if invM > 0 {
-			a.Pos = a.Pos.Sub(corr.Scale(invM))
+		var lin, ang Vec3
+		if invM := activeInvMass(a); invM > 0 {
+			lin = corr.Scale(-invM)
 		}
-		if invI > 0 {
-			dTheta := rA.Cross(corr).Scale(-invI)
-			a.Rot = IntegrateQuat(a.Rot, dTheta, 1)
+		if invT := activeWorldInvInertiaMatrix(a); !invT.IsZero() {
+			ang = invT.MulVec(rA.Cross(corr)).Neg()
 		}
+		applyBodyPositionCorrection(a, lin, ang)
 	}
 	if b != nil {
-		invM := activeInvMass(b)
-		invI := activeInvInertia(b)
-		if invM > 0 {
-			b.Pos = b.Pos.Add(corr.Scale(invM))
+		var lin, ang Vec3
+		if invM := activeInvMass(b); invM > 0 {
+			lin = corr.Scale(invM)
 		}
-		if invI > 0 {
-			dTheta := rB.Cross(corr).Scale(invI)
-			b.Rot = IntegrateQuat(b.Rot, dTheta, 1)
+		if invT := activeWorldInvInertiaMatrix(b); !invT.IsZero() {
+			ang = invT.MulVec(rB.Cross(corr))
 		}
+		applyBodyPositionCorrection(b, lin, ang)
 	}
 }
 
 func applyAngularPositionCorrection(a, b *Body, axis Vec3, angle float32) {
-	invIA := float32(0)
-	invIB := float32(0)
-	if a != nil {
-		invIA = activeInvInertia(a)
-	}
-	if b != nil {
-		invIB = activeInvInertia(b)
-	}
-	invISum := invIA + invIB
-	if invISum <= 0 || abs32(angle) <= 1e-7 {
+	invTA := activeWorldInvInertiaMatrix(a)
+	invTB := activeWorldInvInertiaMatrix(b)
+	invISum := invTA.QuadForm(axis) + invTB.QuadForm(axis)
+	if invISum <= 1e-12 || abs32(angle) <= 1e-7 {
 		return
 	}
-	if invIA > 0 {
-		a.Rot = IntegrateQuat(a.Rot, axis.Scale(-angle*(invIA/invISum)), 1)
+	p := axis.Scale(angle / invISum)
+	if !invTA.IsZero() {
+		applyBodyPositionCorrection(a, Vec3{}, invTA.MulVec(p).Neg())
 	}
-	if invIB > 0 {
-		b.Rot = IntegrateQuat(b.Rot, axis.Scale(angle*(invIB/invISum)), 1)
+	if !invTB.IsZero() {
+		applyBodyPositionCorrection(b, Vec3{}, invTB.MulVec(p))
 	}
 }
 
 func solvePointAnchorVelocity(a, b *Body, localAnchorA, localAnchorB Vec3) Vec3 {
-	_, rotA, velA, angA, invMA, invIA := bodyKinematics(a)
-	_, rotB, velB, angB, invMB, invIB := bodyKinematics(b)
-	if invMA+invMB+invIA+invIB == 0 {
+	_, rotA, velA, angA, invMA, invTA := bodyKinematics(a)
+	_, rotB, velB, angB, invMB, invTB := bodyKinematics(b)
+	if invMA+invMB == 0 && invTA.IsZero() && invTB.IsZero() {
 		return Vec3{}
 	}
-	rA := rotA.RotateVec(localAnchorA)
-	rB := rotB.RotateVec(localAnchorB)
+	rA := jointAnchorOffset(a, rotA, localAnchorA)
+	rB := jointAnchorOffset(b, rotB, localAnchorB)
 	vA := velA.Add(angA.Cross(rA))
 	vB := velB.Add(angB.Cross(rB))
 	vRel := vB.Sub(vA)
-	k := pointConstraintMassMatrix(invMA, invIA, rA, invMB, invIB, rB)
-	j := k.solve(vRel.Neg())
+	k := pointConstraintMassMatrix(invMA, invTA, rA, invMB, invTB, rB)
+	j := k.Solve(vRel.Neg())
 	applyAnchorImpulse(a, b, rA, rB, j)
 	return j
 }
 
 func solvePointAnchorPosition(a, b *Body, localAnchorA, localAnchorB Vec3, stiffness float32) {
-	posA, rotA, _, _, invMA, invIA := bodyKinematics(a)
-	posB, rotB, _, _, invMB, invIB := bodyKinematics(b)
-	if invMA+invMB+invIA+invIB == 0 {
+	posA, rotA, _, _, invMA, invTA := bodyKinematics(a)
+	posB, rotB, _, _, invMB, invTB := bodyKinematics(b)
+	if invMA+invMB == 0 && invTA.IsZero() && invTB.IsZero() {
 		return
 	}
-	rA := rotA.RotateVec(localAnchorA)
-	rB := rotB.RotateVec(localAnchorB)
-	err := posB.Add(rB).Sub(posA.Add(rA))
+	rA := jointAnchorOffset(a, rotA, localAnchorA)
+	rB := jointAnchorOffset(b, rotB, localAnchorB)
+	err := posB.Add(rotB.RotateVec(localAnchorB)).Sub(posA.Add(rotA.RotateVec(localAnchorA)))
 	if err.LenSq() <= 1e-10 {
 		return
 	}
-	k := pointConstraintMassMatrix(invMA, invIA, rA, invMB, invIB, rB)
-	p := k.solve(err.Scale(-stiffness))
+	k := pointConstraintMassMatrix(invMA, invTA, rA, invMB, invTB, rB)
+	p := k.Solve(err.Scale(-stiffness))
 	applyAnchorPositionCorrection(a, b, rA, rB, p)
 }
 
-func solveFullOrientationVelocity(a, b *Body) Vec3 {
-	_, _, _, angA, _, invIA := bodyKinematics(a)
-	_, _, _, angB, _, invIB := bodyKinematics(b)
-	invISum := invIA + invIB
-	if invISum <= 0 {
+func solvePerpAngularLockVelocity(a, b *Body, t1, t2 Vec3) Vec3 {
+	_, _, _, angA, _, invTA := bodyKinematics(a)
+	_, _, _, angB, _, invTB := bodyKinematics(b)
+	invT := invTA.Add(invTB)
+	if invT.IsZero() {
 		return Vec3{}
 	}
 	wRel := angB.Sub(angA)
-	imp := wRel.Scale(-1 / invISum)
+	k11 := invT.QuadForm(t1)
+	k22 := invT.QuadForm(t2)
+	k12 := t1.Dot(invT.MulVec(t2))
+	det := float32(k11*k22) - float32(k12*k12)
+	if abs32(det) <= 1e-12 {
+		return Vec3{}
+	}
+	r1 := -wRel.Dot(t1)
+	r2 := -wRel.Dot(t2)
+	invDet := 1 / det
+	l1 := (float32(k22*r1) - float32(k12*r2)) * invDet
+	l2 := (float32(k11*r2) - float32(k12*r1)) * invDet
+	imp := t1.Scale(l1).Add(t2.Scale(l2))
+	applyAngularImpulsePair(a, b, imp)
+	return imp
+}
+
+func solveFullOrientationVelocity(a, b *Body) Vec3 {
+	_, _, _, angA, _, invTA := bodyKinematics(a)
+	_, _, _, angB, _, invTB := bodyKinematics(b)
+	invT := invTA.Add(invTB)
+	if invT.IsZero() {
+		return Vec3{}
+	}
+	wRel := angB.Sub(angA)
+	imp := invT.Solve(wRel.Neg())
 	applyAngularImpulsePair(a, b, imp)
 	return imp
 }
 
 func solveFullOrientationPosition(a, b *Body, refRelRot Quat, stiffness float32) {
-	_, rotA, _, _, _, invIA := bodyKinematics(a)
-	_, rotB, _, _, _, invIB := bodyKinematics(b)
-	invISum := invIA + invIB
-	if invISum <= 0 {
+	_, rotA, _, _, _, invTA := bodyKinematics(a)
+	_, rotB, _, _, _, invTB := bodyKinematics(b)
+	invT := invTA.Add(invTB)
+	if invT.IsZero() {
 		return
 	}
 	targetB := rotA.Mul(normalizedQuat(refRelRot)).Norm()
@@ -394,7 +403,13 @@ func solveFullOrientationPosition(a, b *Body, refRelRot Quat, stiffness float32)
 	if angle <= 1e-6 {
 		return
 	}
-	applyAngularPositionCorrection(a, b, axis, angle*stiffness)
+	p := invT.Solve(axis.Scale(angle * stiffness))
+	if !invTA.IsZero() {
+		applyBodyPositionCorrection(a, Vec3{}, invTA.MulVec(p).Neg())
+	}
+	if !invTB.IsZero() {
+		applyBodyPositionCorrection(b, Vec3{}, invTB.MulVec(p))
+	}
 }
 
 // DistanceJoint constrains the distance between anchor points on BodyA and BodyB within [MinDistance, MaxDistance] with optional spring stiffness and damping.
@@ -468,15 +483,13 @@ func (j *DistanceJoint) Prepare(dt float32) {
 	j.gamma = 0
 	j.bias = 0
 
-	posA, rotA, _, _, invMA, invIA := bodyKinematics(j.BodyA)
-	posB, rotB, _, _, invMB, invIB := bodyKinematics(j.BodyB)
-	if invMA+invMB+invIA+invIB == 0 {
+	posA, rotA, _, _, invMA, invTA := bodyKinematics(j.BodyA)
+	posB, rotB, _, _, invMB, invTB := bodyKinematics(j.BodyB)
+	if invMA+invMB == 0 && invTA.IsZero() && invTB.IsZero() {
 		return
 	}
 
-	rA := rotA.RotateVec(j.LocalAnchorA)
-	rB := rotB.RotateVec(j.LocalAnchorB)
-	dist := posB.Add(rB).Sub(posA.Add(rA)).Len()
+	dist := posB.Add(rotB.RotateVec(j.LocalAnchorB)).Sub(posA.Add(rotA.RotateVec(j.LocalAnchorA))).Len()
 	lo, hi := j.effectiveLimits()
 
 	if hi <= lo+1e-6 {
@@ -509,15 +522,15 @@ func (j *DistanceJoint) SolveVelocity(dt float32) {
 	if j.mode == 0 {
 		return
 	}
-	posA, rotA, velA, angA, invMA, invIA := bodyKinematics(j.BodyA)
-	posB, rotB, velB, angB, invMB, invIB := bodyKinematics(j.BodyB)
-	if invMA+invMB+invIA+invIB == 0 {
+	posA, rotA, velA, angA, invMA, invTA := bodyKinematics(j.BodyA)
+	posB, rotB, velB, angB, invMB, invTB := bodyKinematics(j.BodyB)
+	if invMA+invMB == 0 && invTA.IsZero() && invTB.IsZero() {
 		return
 	}
 
-	rA := rotA.RotateVec(j.LocalAnchorA)
-	rB := rotB.RotateVec(j.LocalAnchorB)
-	diff := posB.Add(rB).Sub(posA.Add(rA))
+	rA := jointAnchorOffset(j.BodyA, rotA, j.LocalAnchorA)
+	rB := jointAnchorOffset(j.BodyB, rotB, j.LocalAnchorB)
+	diff := posB.Add(rotB.RotateVec(j.LocalAnchorB)).Sub(posA.Add(rotA.RotateVec(j.LocalAnchorA)))
 	dist := diff.Len()
 	var n Vec3
 	if dist > 1e-6 {
@@ -528,7 +541,7 @@ func (j *DistanceJoint) SolveVelocity(dt float32) {
 
 	rAxn := rA.Cross(n)
 	rBxn := rB.Cross(n)
-	w := float32(float32(invMA+invMB)+float32(invIA*rAxn.LenSq())) + float32(invIB*rBxn.LenSq())
+	w := float32(float32(invMA+invMB)+invTA.QuadForm(rAxn)) + invTB.QuadForm(rBxn)
 	if w <= 1e-12 {
 		return
 	}
@@ -576,14 +589,14 @@ func (j *DistanceJoint) SolvePosition(dt float32) {
 	if j.Stiffness > 0 {
 		return
 	}
-	posA, rotA, _, _, invMA, invIA := bodyKinematics(j.BodyA)
-	posB, rotB, _, _, invMB, invIB := bodyKinematics(j.BodyB)
-	if invMA+invMB+invIA+invIB == 0 {
+	posA, rotA, _, _, invMA, invTA := bodyKinematics(j.BodyA)
+	posB, rotB, _, _, invMB, invTB := bodyKinematics(j.BodyB)
+	if invMA+invMB == 0 && invTA.IsZero() && invTB.IsZero() {
 		return
 	}
-	rA := rotA.RotateVec(j.LocalAnchorA)
-	rB := rotB.RotateVec(j.LocalAnchorB)
-	diff := posB.Add(rB).Sub(posA.Add(rA))
+	rA := jointAnchorOffset(j.BodyA, rotA, j.LocalAnchorA)
+	rB := jointAnchorOffset(j.BodyB, rotB, j.LocalAnchorB)
+	diff := posB.Add(rotB.RotateVec(j.LocalAnchorB)).Sub(posA.Add(rotA.RotateVec(j.LocalAnchorA)))
 	dist := diff.Len()
 	lo, hi := j.effectiveLimits()
 
@@ -609,7 +622,7 @@ func (j *DistanceJoint) SolvePosition(dt float32) {
 	}
 	rAxn := rA.Cross(n)
 	rBxn := rB.Cross(n)
-	w := float32(float32(invMA+invMB)+float32(invIA*rAxn.LenSq())) + float32(invIB*rBxn.LenSq())
+	w := float32(float32(invMA+invMB)+invTA.QuadForm(rAxn)) + invTB.QuadForm(rBxn)
 	if w <= 1e-12 {
 		return
 	}
@@ -681,10 +694,9 @@ func (j *BallJoint) SolveVelocity(dt float32) {
 	if j.ConeLimit <= 0 {
 		return
 	}
-	_, rotA, _, angA, _, invIA := bodyKinematics(j.BodyA)
-	_, rotB, _, angB, _, invIB := bodyKinematics(j.BodyB)
-	invISum := invIA + invIB
-	if invISum <= 0 {
+	_, rotA, _, angA, _, invTA := bodyKinematics(j.BodyA)
+	_, rotB, _, angB, _, invTB := bodyKinematics(j.BodyB)
+	if invTA.IsZero() && invTB.IsZero() {
 		return
 	}
 
@@ -700,6 +712,10 @@ func (j *BallJoint) SolveVelocity(dt float32) {
 	swingAxis := wA.Cross(wB).Norm()
 	if swingAxis.LenSq() == 0 {
 		swingAxis, _ = orthonormalBasis(wA)
+	}
+	invISum := invTA.QuadForm(swingAxis) + invTB.QuadForm(swingAxis)
+	if invISum <= 1e-12 {
+		return
 	}
 	// Positive relative angular velocity around swingAxis increases theta.
 	wRel := angB.Sub(angA).Dot(swingAxis)
@@ -725,9 +741,9 @@ func (j *BallJoint) SolvePosition(dt float32) {
 	if j.ConeLimit <= 0 {
 		return
 	}
-	_, rotA, _, _, _, invIA := bodyKinematics(j.BodyA)
-	_, rotB, _, _, _, invIB := bodyKinematics(j.BodyB)
-	if invIA+invIB <= 0 {
+	_, rotA, _, _, _, invTA := bodyKinematics(j.BodyA)
+	_, rotB, _, _, _, invTB := bodyKinematics(j.BodyB)
+	if invTA.IsZero() && invTB.IsZero() {
 		return
 	}
 	axA, axB := j.localAxes()
@@ -921,10 +937,9 @@ func (j *HingeJoint) Prepare(dt float32) {
 func (j *HingeJoint) SolveVelocity(dt float32) {
 	j.addLinearImpulse(solvePointAnchorVelocity(j.BodyA, j.BodyB, j.LocalAnchorA, j.LocalAnchorB))
 
-	_, rotA, _, angA, _, invIA := bodyKinematics(j.BodyA)
-	_, _, _, angB, _, invIB := bodyKinematics(j.BodyB)
-	invISum := invIA + invIB
-	if invISum <= 0 {
+	_, rotA, _, _, _, invTA := bodyKinematics(j.BodyA)
+	_, _, _, _, _, invTB := bodyKinematics(j.BodyB)
+	if invTA.IsZero() && invTB.IsZero() {
 		return
 	}
 
@@ -933,18 +948,19 @@ func (j *HingeJoint) SolveVelocity(dt float32) {
 	t1, t2 := orthonormalBasis(a1)
 
 	// 1. Lock the 2 rotational DOFs perpendicular to the hinge axis.
-	wRel := angB.Sub(angA)
-	perpErr := t1.Scale(wRel.Dot(t1)).Add(t2.Scale(wRel.Dot(t2)))
-	perpImp := perpErr.Scale(-1 / invISum)
-	applyAngularImpulsePair(j.BodyA, j.BodyB, perpImp)
-	j.addAngularImpulse(perpImp)
+	j.addAngularImpulse(solvePerpAngularLockVelocity(j.BodyA, j.BodyB, t1, t2))
+
+	invAxis := invTA.QuadForm(a1) + invTB.QuadForm(a1)
+	if invAxis <= 1e-12 {
+		return
+	}
 
 	// 2. Angular velocity motor around the hinge axis.
 	if j.MotorMaxTorque > 0 && dt > 0 {
-		_, _, _, angA, _, _ = bodyKinematics(j.BodyA)
-		_, _, _, angB, _, _ = bodyKinematics(j.BodyB)
+		_, _, _, angA, _, _ := bodyKinematics(j.BodyA)
+		_, _, _, angB, _, _ := bodyKinematics(j.BodyB)
 		wAxis := angB.Sub(angA).Dot(a1)
-		dLambda := (j.MotorTargetVel - wAxis) / invISum
+		dLambda := (j.MotorTargetVel - wAxis) / invAxis
 		maxImp := j.MotorMaxTorque * dt
 		newAcc := clamp32(j.motorImpulse+dLambda, -maxImp, maxImp)
 		applied := newAcc - j.motorImpulse
@@ -958,10 +974,10 @@ func (j *HingeJoint) SolveVelocity(dt float32) {
 
 	// 2b. Angular spring / position drive around the hinge axis.
 	if j.driveActive && dt > 0 {
-		_, _, _, angA, _, _ = bodyKinematics(j.BodyA)
-		_, _, _, angB, _, _ = bodyKinematics(j.BodyB)
+		_, _, _, angA, _, _ := bodyKinematics(j.BodyA)
+		_, _, _, angB, _, _ := bodyKinematics(j.BodyB)
 		wAxis := angB.Sub(angA).Dot(a1)
-		dLambda := -(float32(wAxis+j.driveBias) + float32(j.driveGamma*j.driveImpulse)) / (invISum + j.driveGamma)
+		dLambda := -(float32(wAxis+j.driveBias) + float32(j.driveGamma*j.driveImpulse)) / (invAxis + j.driveGamma)
 		newAcc := j.driveImpulse + dLambda
 		if j.DriveMaxTorque > 0 {
 			maxImp := j.DriveMaxTorque * dt
@@ -978,10 +994,10 @@ func (j *HingeJoint) SolveVelocity(dt float32) {
 
 	// 3. Angular limits (solved after motor and drive so limits always override them).
 	if j.limitState != 0 {
-		_, _, _, angA, _, _ = bodyKinematics(j.BodyA)
-		_, _, _, angB, _, _ = bodyKinematics(j.BodyB)
+		_, _, _, angA, _, _ := bodyKinematics(j.BodyA)
+		_, _, _, angB, _, _ := bodyKinematics(j.BodyB)
 		wAxis := angB.Sub(angA).Dot(a1)
-		dLambda := -wAxis / invISum
+		dLambda := -wAxis / invAxis
 		newAcc := j.limitImpulse + dLambda
 		if j.limitState < 0 {
 			// Below MinAngle: only allow positive impulse (pushing angle upward).
@@ -1009,9 +1025,9 @@ func (j *HingeJoint) SolvePosition(dt float32) {
 	_ = dt
 	solvePointAnchorPosition(j.BodyA, j.BodyB, j.LocalAnchorA, j.LocalAnchorB, 0.8)
 
-	_, rotA, _, _, _, invIA := bodyKinematics(j.BodyA)
-	_, rotB, _, _, _, invIB := bodyKinematics(j.BodyB)
-	if invIA+invIB <= 0 {
+	_, rotA, _, _, _, invTA := bodyKinematics(j.BodyA)
+	_, rotB, _, _, _, invTB := bodyKinematics(j.BodyB)
+	if invTA.IsZero() && invTB.IsZero() {
 		return
 	}
 
@@ -1171,24 +1187,24 @@ func (j *SliderJoint) Prepare(dt float32) {
 func (j *SliderJoint) SolveVelocity(dt float32) {
 	j.addAngularImpulse(solveFullOrientationVelocity(j.BodyA, j.BodyB))
 
-	_, rotA, velA, angA, invMA, invIA := bodyKinematics(j.BodyA)
-	_, rotB, velB, angB, invMB, invIB := bodyKinematics(j.BodyB)
+	_, rotA, velA, angA, invMA, invTA := bodyKinematics(j.BodyA)
+	_, rotB, velB, angB, invMB, invTB := bodyKinematics(j.BodyB)
 	invMSum := invMA + invMB
-	if invMSum+invIA+invIB == 0 {
+	if invMSum == 0 && invTA.IsZero() && invTB.IsZero() {
 		return
 	}
 
 	axis := rotA.RotateVec(j.localAxis())
 	t1, t2 := orthonormalBasis(axis)
-	rA := rotA.RotateVec(j.LocalAnchorA)
-	rB := rotB.RotateVec(j.LocalAnchorB)
+	rA := jointAnchorOffset(j.BodyA, rotA, j.LocalAnchorA)
+	rB := jointAnchorOffset(j.BodyB, rotB, j.LocalAnchorB)
 
 	solveDir := func(dir Vec3) {
 		_, _, velA, angA, _, _ = bodyKinematics(j.BodyA)
 		_, _, velB, angB, _, _ = bodyKinematics(j.BodyB)
 		rAxd := rA.Cross(dir)
 		rBxd := rB.Cross(dir)
-		w := float32(invMSum+float32(invIA*rAxd.LenSq())) + float32(invIB*rBxd.LenSq())
+		w := float32(invMSum+invTA.QuadForm(rAxd)) + invTB.QuadForm(rBxd)
 		if w <= 1e-12 {
 			return
 		}
@@ -1279,23 +1295,23 @@ func (j *SliderJoint) SolvePosition(dt float32) {
 	j.initReference()
 	solveFullOrientationPosition(j.BodyA, j.BodyB, j.refRelRot, 0.8)
 
-	posA, rotA, _, _, invMA, invIA := bodyKinematics(j.BodyA)
-	posB, rotB, _, _, invMB, invIB := bodyKinematics(j.BodyB)
+	posA, rotA, _, _, invMA, invTA := bodyKinematics(j.BodyA)
+	posB, rotB, _, _, invMB, invTB := bodyKinematics(j.BodyB)
 	invMSum := invMA + invMB
-	if invMSum+invIA+invIB == 0 {
+	if invMSum == 0 && invTA.IsZero() && invTB.IsZero() {
 		return
 	}
 
 	axis := rotA.RotateVec(j.localAxis())
-	rA := rotA.RotateVec(j.LocalAnchorA)
-	rB := rotB.RotateVec(j.LocalAnchorB)
-	diff := posB.Add(rB).Sub(posA.Add(rA))
+	rA := jointAnchorOffset(j.BodyA, rotA, j.LocalAnchorA)
+	rB := jointAnchorOffset(j.BodyB, rotB, j.LocalAnchorB)
+	diff := posB.Add(rotB.RotateVec(j.LocalAnchorB)).Sub(posA.Add(rotA.RotateVec(j.LocalAnchorA)))
 	along := diff.Dot(axis)
 	perp := diff.Sub(axis.Scale(along))
 
 	if perp.LenSq() > 1e-10 {
-		k := pointConstraintMassMatrix(invMA, invIA, rA, invMB, invIB, rB)
-		p := k.solve(perp.Scale(-0.8))
+		k := pointConstraintMassMatrix(invMA, invTA, rA, invMB, invTB, rB)
+		p := k.Solve(perp.Scale(-0.8))
 		// Keep correction perpendicular to axis so we don't fight slide translation.
 		p = p.Sub(axis.Scale(p.Dot(axis)))
 		applyAnchorPositionCorrection(j.BodyA, j.BodyB, rA, rB, p)

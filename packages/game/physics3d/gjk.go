@@ -2,7 +2,6 @@ package physics3d
 
 import (
 	"math"
-	"slices"
 
 	"github.com/nsgo-dev/game/packages/game/internal/detmath"
 )
@@ -849,67 +848,6 @@ func patchPoints(a, b *cvx, n dv, dst []dv) []dv {
 		dst = append(dst, p.add(refN.scale(t*0.5)))
 	}
 	return dst
-}
-
-// reduceManifold keeps at most four of pts, the furthest each way along two directions across n, in a fixed order without repeats, so a patch of any size becomes the few points a solver needs to hold a face flat.
-func reduceManifold(pts []dv, n dv) []dv {
-	if len(pts) <= 4 {
-		return pts
-	}
-	u, v := perpBasis(n.norm())
-	var pick [4]int
-	for k, d := range [4]dv{u, u.neg(), v, v.neg()} {
-		best := 0
-		for i := 1; i < len(pts); i++ {
-			if pts[i].dot(d) > pts[best].dot(d)+1e-12 {
-				best = i
-			}
-		}
-		pick[k] = best
-	}
-	out := make([]dv, 0, 4)
-	for k, i := range pick {
-		if !slices.Contains(pick[:k], i) {
-			out = append(out, pts[i])
-		}
-	}
-	return out
-}
-
-// shapeManifold returns the contact points the solver uses for a pair whose single contact c TestShapes(a, b) found: up to four points spread over the touching area, each with c's normal and depth, or c alone when the area is a point.
-func shapeManifold(a, b Shape, c Contact) []Contact {
-	ca, cb := toCvx(a), toCvx(b)
-	var buf [maxPatchPoints]dv
-	pts := patchPoints(&ca, &cb, toDV(c.Normal), buf[:0])
-	return manifoldContacts(c, pts)
-}
-
-// triangleManifold is shapeManifold for a convex shape against a triangle; heightfield applies the heightfield's upward correction to a shape below the surface, which then keeps its single contact.
-func triangleManifold(s Shape, tri Triangle, heightfield bool) []Contact {
-	var buf [maxPatchPoints]dv
-	c, pts := convexTriangle(toCvx(s), tri, buf[:0])
-	if !c.Hit {
-		return nil
-	}
-	if heightfield && c.Normal.Y < 0 {
-		if hc := testShapeHeightfieldTriangle(s, tri); hc.Hit {
-			return []Contact{hc}
-		}
-		return nil
-	}
-	return manifoldContacts(c, pts)
-}
-
-func manifoldContacts(c Contact, pts []dv) []Contact {
-	if len(pts) < 2 {
-		return []Contact{c}
-	}
-	pts = reduceManifold(pts, toDV(c.Normal))
-	out := make([]Contact, len(pts))
-	for i, p := range pts {
-		out[i] = Contact{Hit: true, Normal: c.Normal, Depth: c.Depth, Point: p.vec3()}
-	}
-	return out
 }
 
 // clipToPrism clips inc (a polygon, a segment or a point) to the infinite prism swept by the convex polygon ref along n, using bufA and bufB as scratch space, and returns what is left.
