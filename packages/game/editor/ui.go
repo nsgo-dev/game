@@ -11,7 +11,7 @@ import (
 
 // EditorView returns the root NSGo UI node for ed, composing:
 //   - Top toolbar (scene title, the open scene's path with a marker while edits are unsaved, New, Save As and Revert, tool selector, Undo/Redo, Run/Stop Game, Play/Stop, Save)
-//   - Scene tree panel listing the layers and their nested objects (SceneTreeView)
+//   - Scene tree panel listing the layers and their nested objects (SceneTreeView), over the layers panel that picks the active layer and adds, removes, renames, reorders, hides and locks layers (LayersView)
 //   - Left Asset Browser panel, with the file browser below it while a project is open (FilesView)
 //   - Center interactive Canvas viewport
 //   - Tile palette right of the viewport while a tile tool is active in 2D (TilePaletteView)
@@ -95,9 +95,13 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 	}
 }
 
-// mainRow is the editor's middle row: the scene tree, the asset browser over the file browser, the library panel when the editor has a library, the left plugin dock, the viewport, the inspector and the right plugin dock.
+// mainRow is the editor's middle row: the scene tree over the layers panel, the asset browser over the file browser, the library panel when the editor has a library, the left plugin dock, the viewport, the inspector and the right plugin dock.
 func mainRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []core.Node {
-	row := []core.Node{SceneTreeView(cx, ed, rev), core.View{
+	row := []core.Node{core.View{
+		TestID:   "editor-scene-column",
+		Style:    core.Style{Width: core.Pt(220)},
+		Children: []core.Node{SceneTreeView(cx, ed, rev), LayersView(cx, ed, rev)},
+	}, core.View{
 		TestID: "editor-left",
 		Style:  core.Style{Width: core.Pt(224)},
 		Children: []core.Node{
@@ -559,9 +563,9 @@ func statusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 								mode = "Play"
 							}
 							if ed.ViewMode == ViewMode3D {
-								return fmt.Sprintf("Mode: %s | View: 3D (%s) | Layer: %s", mode, ed.GizmoMode.String(), ed.ActiveLayer)
+								return fmt.Sprintf("Mode: %s | View: 3D (%s) | Layer: %s", mode, ed.GizmoMode.String(), ed.activeLayerReadout())
 							}
-							status := fmt.Sprintf("Mode: %s | View: 2D %.0f%% | Tool: %s | Layer: %s", mode, ed.View2D().Zoom*100, ed.toolLabel(), ed.ActiveLayer)
+							status := fmt.Sprintf("Mode: %s | View: 2D %.0f%% | Tool: %s | Layer: %s", mode, ed.View2D().Zoom*100, ed.toolLabel(), ed.activeLayerReadout())
 							// Erase writes no tile, and a layer without tiles to pick keeps an ID the palette does not list, so only a tile Paint or Fill would write is shown.
 							if (ed.Tool == ToolPaintTile || ed.Tool == ToolFillTile) && ed.TilePalette().Has(ed.ActiveTileID) {
 								status += fmt.Sprintf(" | Tile: %d", ed.ActiveTileID)

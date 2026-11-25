@@ -364,7 +364,7 @@ func aabbOfCorners3D(corners [8][3]float32) (boxMin, boxMax [3]float32) {
 }
 
 // Pick3D casts a perspective ray through viewport pixel (sx, sy) and intersects it against every
-// visible scene object's 3D AABB, nested children included, returning the flat index (Objects3D's) of the closest hit object. Objects hidden or locked in the editor (SetObjectHidden, SetObjectLocked), with their descendants, are passed over.
+// visible scene object's 3D AABB, nested children included, returning the flat index (Objects3D's) of the closest hit object. Objects hidden or locked in the editor (SetObjectHidden, SetObjectLocked), with their descendants, and the objects of hidden and locked layers (SetLayerVisible, SetLayerLocked) are passed over.
 func (e *Editor) Pick3D(sx, sy, w, h float32) (objectIndex int, ok bool) {
 	if e == nil || e.Doc == nil || w <= 0 || h <= 0 {
 		return -1, false
@@ -381,7 +381,7 @@ func (e *Editor) Pick3D(sx, sy, w, h float32) (objectIndex int, ok bool) {
 		// Screen-space layers hold HUD and menu objects at canvas coordinates,
 		// so they are neither drawn as 3D wireframes nor pickable in 3D; the
 		// flat index still advances for them to stay in step with Objects3D.
-		visible := layer.IsVisible() && layer.EffectiveSpace() != sceneformat.SpaceScreen
+		visible := layer.IsVisible() && layer.EffectiveSpace() != sceneformat.SpaceScreen && !e.layerLocked[layer.Name]
 		// Each level composes its parent's world transform once and hands it down, so picking stays linear in the number of objects.
 		var walk func(objs []sceneformat.ObjectDoc, parent aff3, skip bool)
 		walk = func(objs []sceneformat.ObjectDoc, parent aff3, skip bool) {

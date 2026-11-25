@@ -5,6 +5,7 @@
 //   - Scene document loading, saving, object placement, selection, transform editing,
 //     and deletion (Editor, PlaceObject, MoveObject, RotateObject, ScaleObject, DeleteObject).
 //   - Inline tilemap editing with paint, erase, and BFS flood fill (PaintTile, EraseTile, FloodFillTile).
+//   - A layers panel that picks the active layer and adds, removes, renames, reorders, hides and locks layers, each edit but the session's lock undoable (Layers, AddLayer, RemoveLayer, RenameLayer, MoveLayer, SetLayerVisible, SetLayerSpace, SetLayerLocked, LayersView).
 //   - Typed property and component inspection and editing (SetProperty, SetComponentField, InspectorView).
 //   - Play-in-editor preview powered by game.Loop with exact pre-play YAML snapshot restoration (Play, PlayIn, Stop).
 //   - An animation editor that keys any registered property on a timeline, previews the clip with animclip and saves it as an animation resource file (NewClip, KeyProperty, SeekClip, PlayClip, SaveClipFile, AnimationPanelView).

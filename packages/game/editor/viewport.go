@@ -161,7 +161,7 @@ func (e *Editor) CanvasToTile(layer string, canvasX, canvasY float32) (col, row 
 	return col, row, true
 }
 
-// HitTest returns the ID of the topmost visible object under the point (canvasX, canvasY) on the viewport's canvas, seen through the 2D view, nested children included, or "" if no object is hit. Objects hidden or locked in the editor (SetObjectHidden, SetObjectLocked), with their descendants, are passed over, so the press reaches what lies under them. An object that only an instanced scene adds is reported as the nearest of its ancestors that the open scene holds, the instance it belongs to.
+// HitTest returns the ID of the topmost visible object under the point (canvasX, canvasY) on the viewport's canvas, seen through the 2D view, nested children included, or "" if no object is hit. Objects hidden or locked in the editor (SetObjectHidden, SetObjectLocked), with their descendants, and the objects of hidden and locked layers (SetLayerVisible, SetLayerLocked) are passed over, so the press reaches what lies under them. An object that only an instanced scene adds is reported as the nearest of its ancestors that the open scene holds, the instance it belongs to.
 func (e *Editor) HitTest(canvasX, canvasY float32) string {
 	scene := e.ActiveScene()
 	if scene == nil {
@@ -170,7 +170,7 @@ func (e *Editor) HitTest(canvasX, canvasY float32) string {
 	// Walk layers from topmost (drawn last) to bottommost.
 	for i := len(scene.Layers) - 1; i >= 0; i-- {
 		layer := scene.Layers[i]
-		if !layer.Visible {
+		if !layer.Visible || e.layerLocked[layer.Name] {
 			continue
 		}
 		lx, ly := e.canvasToLayer(layer.Space, canvasX, canvasY)
@@ -228,7 +228,7 @@ func hitTestBuiltObject(bo *sceneformat.BuiltObject, lx, ly float32) bool {
 		dy >= -defaultMarkerHalfSize && dy <= defaultMarkerHalfSize
 }
 
-// HandleCanvasPress dispatches a click/tap at canvas coordinates (x, y) according to the active ViewMode and Tool.
+// HandleCanvasPress dispatches a click/tap at canvas coordinates (x, y) according to the active ViewMode and Tool. On a locked active layer (SetLayerLocked) the Place, Paint, Erase and Fill tools change nothing and the status bar says why.
 func (e *Editor) HandleCanvasPress(x, y float32) {
 	if e == nil || e.playing {
 		return
@@ -257,6 +257,22 @@ func (e *Editor) HandleCanvasPress(x, y float32) {
 				_ = e.MoveObject(e.SelectedID, float32(lx), float32(ly))
 			}
 		}
+	case ToolPlace, ToolPaintTile, ToolEraseTile, ToolFillTile:
+		if err := e.lockedLayerErr(); err != nil {
+			e.report(err)
+			return
+		}
+		e.pressActiveLayer(x, y)
+	case ToolPlugin:
+		if t := e.activePluginTool(); t != nil {
+			t.Press(e, x, y)
+		}
+	}
+}
+
+// pressActiveLayer runs the Place, Paint, Erase or Fill tool at canvas point (x, y) on the active layer.
+func (e *Editor) pressActiveLayer(x, y float32) {
+	switch e.Tool {
 	case ToolPlace:
 		wx, wy := e.layerCoordsForActive(x, y)
 		if e.SelectedAsset != nil {
@@ -275,10 +291,6 @@ func (e *Editor) HandleCanvasPress(x, y float32) {
 	case ToolFillTile:
 		if col, row, ok := e.CanvasToTile(e.ActiveLayer, x, y); ok {
 			_ = e.FloodFillTile(e.ActiveLayer, col, row, e.ActiveTileID)
-		}
-	case ToolPlugin:
-		if t := e.activePluginTool(); t != nil {
-			t.Press(e, x, y)
 		}
 	}
 }
