@@ -46,8 +46,8 @@ layers:
         x: 64
         y: 40
         components:
-          body:
-            speed: 48
+          body2d:
+            mass: 2
 `
 
 // mcpEndpoints points the editors' endpoints at a fresh directory short enough for a socket path on every platform, for the rest of the test.
@@ -196,7 +196,7 @@ func TestGameMCPEditsTheOpenEditor(t *testing.T) {
 	steps := ed.History.Index()
 
 	placed := callIn(t, app, cs, editormcp.ToolSceneEdit, map[string]any{"edits": []any{
-		map[string]any{"op": "add", "layer": "actors", "object": map[string]any{"id": "slime_1", "name": "Slime", "x": 200, "y": 100, "components": map[string]any{"body": map[string]any{"speed": 20}}}},
+		map[string]any{"op": "add", "layer": "actors", "object": map[string]any{"id": "slime_1", "name": "Slime", "x": 200, "y": 100, "components": map[string]any{"body2d": map[string]any{"mass": 3}}}},
 	}})
 	if placed.IsError {
 		t.Fatalf("scene_edit: %s", resultText(placed))
@@ -235,7 +235,7 @@ func TestGameMCPEditsTheOpenEditor(t *testing.T) {
 		t.Fatal(err)
 	}
 	refused := callIn(t, app, cs, editormcp.ToolSceneEdit, map[string]any{"edits": []any{
-		map[string]any{"op": "set", "id": "hero", "component": "body", "fields": map[string]any{"sped": 3}},
+		map[string]any{"op": "set", "id": "hero", "component": "body2d", "fields": map[string]any{"sped": 3}},
 	}})
 	if msg := resultText(refused); !refused.IsError || !strings.Contains(msg, `object "hero"`) || !strings.Contains(msg, `field "sped"`) || !strings.Contains(msg, "scenes/room.scene.yaml") {
 		t.Fatalf("refused edit: %s", msg)
