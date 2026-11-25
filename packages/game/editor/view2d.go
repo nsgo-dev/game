@@ -118,24 +118,32 @@ func (e *Editor) ZoomView2DAt(x, y, factor float32) bool {
 	return e.SetView2D(v)
 }
 
-// FrameSelection2D pans and zooms the 2D view to show the selected object whole, centered with a margin, keeping the view's rotation. It frames everything (FrameAll2D) when nothing is selected, and reports false when there is nothing to frame or the scene plays.
+// FrameSelection2D pans and zooms the 2D view to show the selected object(s) whole, centered with a margin, keeping the view's rotation. It frames everything (FrameAll2D) when nothing is selected, and reports false when there is nothing to frame or the scene plays.
 func (e *Editor) FrameSelection2D() bool {
 	if e == nil || e.playing {
 		return false
 	}
 	scene := e.ActiveScene()
-	if scene == nil || e.SelectedID == "" {
+	ids := e.SelectedIDs()
+	if scene == nil || len(ids) == 0 {
 		return e.FrameAll2D()
 	}
-	bo := scene.Object(e.SelectedID)
-	if bo == nil {
+	var pts []math2d.Vec2
+	for _, id := range ids {
+		bo := scene.Object(id)
+		if bo == nil {
+			continue
+		}
+		space := sceneformat.SpaceWorld
+		if layer := scene.Layer(bo.Layer); layer != nil {
+			space = layer.Space
+		}
+		pts = e.objectWorldCorners(bo, space, pts)
+	}
+	if len(pts) == 0 {
 		return e.FrameAll2D()
 	}
-	space := sceneformat.SpaceWorld
-	if layer := scene.Layer(bo.Layer); layer != nil {
-		space = layer.Space
-	}
-	return e.frameWorldPoints(e.objectWorldCorners(bo, space, nil))
+	return e.frameWorldPoints(pts)
 }
 
 // FrameAll2D pans and zooms the 2D view to show every object of the visible layers, their inline tilemaps and the scene camera's frame, centered with a margin, keeping the view's rotation. It reports false while the scene plays.

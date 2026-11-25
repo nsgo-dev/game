@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"fmt"
 	"math"
 
 	"github.com/nsgo-dev/game/packages/game/math2d"
@@ -223,6 +224,12 @@ func hitTestBuiltObject(bo *sceneformat.BuiltObject, lx, ly float32) bool {
 
 // HandleCanvasPress dispatches a click/tap at canvas coordinates (x, y) according to the active ViewMode and Tool. On a locked active layer (SetLayerLocked) the Place, Paint, Erase and Fill tools change nothing and the status bar says why. With the Pick tool, a press on a painted cell makes its tile the active tile and Paint the active tool.
 func (e *Editor) HandleCanvasPress(x, y float32) {
+	e.HandleCanvasPressWith(x, y, false, false)
+}
+
+// HandleCanvasPressWith dispatches a click/tap at canvas coordinates (x, y) with optional
+// Shift (add to selection) and Mod (toggle selection membership) modifiers.
+func (e *Editor) HandleCanvasPressWith(x, y float32, shift, mod bool) {
 	if e == nil || e.playing {
 		return
 	}
@@ -234,7 +241,7 @@ func (e *Editor) HandleCanvasPress(x, y float32) {
 			}
 			return
 		}
-		e.HandleViewport3DPress(x, y, cw, ch)
+		e.HandleViewport3DPressWith(x, y, cw, ch, shift, mod)
 		return
 	}
 	if e.connPick != nil {
@@ -248,32 +255,82 @@ func (e *Editor) HandleCanvasPress(x, y float32) {
 	}
 	switch e.Tool {
 	case ToolSelect:
-		if e.handleShapePress2D(x, y, false) {
+		if !shift && !mod && e.SelectionCount() <= 1 && e.handleShapePress2D(x, y, false) {
 			return
 		}
 		if hit := e.HitTest(x, y); hit != "" {
-			e.SelectObject(hit)
-		} else if rid := e.HitTestRoom(x, y); rid != "" {
-			e.SelectRoom(rid)
-		} else {
-			e.SelectObject("")
+			switch {
+			case mod:
+				e.ToggleSelection(hit)
+			case shift:
+				e.AddToSelection(hit)
+			default:
+				e.SelectObject(hit)
+			}
+		} else if !shift && !mod {
+			if rid := e.HitTestRoom(x, y); rid != "" {
+				e.SelectRoom(rid)
+			} else {
+				e.ClearSelection()
+			}
 		}
 	case ToolMove:
-		if e.handleShapePress2D(x, y, false) {
+		if !shift && !mod && e.SelectionCount() <= 1 && e.handleShapePress2D(x, y, false) {
 			return
 		}
 		hit := e.HitTest(x, y)
-		if hit != "" && hit != e.SelectedID {
-			e.SelectObject(hit)
+		if hit != "" {
+			switch {
+			case mod:
+				e.ToggleSelection(hit)
+				return
+			case shift:
+				e.AddToSelection(hit)
+				return
+			case !e.IsSelected(hit):
+				e.SelectObject(hit)
+				return
+			case e.SelectionCount() > 1:
+				return
+			}
+		}
+		if shift || mod {
 			return
 		}
-		if e.SelectedID != "" && !e.viewportFrozen(e.SelectedID) {
-			wx, wy := e.layerCoordsForSelected(x, y)
+		draggable := e.draggableSelectedIDs()
+		if len(draggable) == 1 {
+			id := draggable[0]
+			wx, wy := e.layerCoordsForObject(id, x, y)
 			// A nested child's position is in its parent's space.
-			path := objectPath(e.Doc, e.SelectedID)
+			path := objectPath(e.Doc, id)
 			if inv, ok := chain2(path[:max(len(path)-1, 0)]).invert(); ok {
 				lx, ly := inv.apply(float64(wx), float64(wy))
-				_ = e.MoveObject(e.SelectedID, float32(lx), float32(ly))
+				_ = e.MoveObject(id, float32(lx), float32(ly))
+			}
+		} else if len(draggable) > 1 {
+			if g, ok := e.gizmo2D(); ok {
+				_ = e.History.Group(fmt.Sprintf("Move %d objects", len(draggable)), func() error {
+					for _, id := range draggable {
+						obj, li, _ := e.FindObject(id)
+						if obj == nil {
+							continue
+						}
+						path := objectPath(e.Doc, id)
+						inv, ok := chain2(path[:max(len(path)-1, 0)]).invert()
+						if !ok {
+							continue
+						}
+						space, px, py := e.layerSpaceAndParallax(e.Doc.Layers[li].Name)
+						gx, gy := e.canvasToLayerFor(space, px, py, g.origin.X, g.origin.Y)
+						dx, dy := e.canvasToLayerFor(space, px, py, x, y)
+						gpx, gpy := inv.apply(float64(gx), float64(gy))
+						dpx, dpy := inv.apply(float64(dx), float64(dy))
+						if err := e.MoveObject(id, float32(float64(obj.X)+(dpx-gpx)), float32(float64(obj.Y)+(dpy-gpy))); err != nil {
+							return err
+						}
+					}
+					return nil
+				})
 			}
 		}
 	case ToolPlace, ToolPaintTile, ToolEraseTile, ToolFillTile, ToolTerrain, ToolRectTile, ToolLineTile, ToolStampTile, ToolRandomTile:
@@ -355,7 +412,11 @@ func (e *Editor) layerCoordsForActive(x, y float32) (float32, float32) {
 }
 
 func (e *Editor) layerCoordsForSelected(x, y float32) (float32, float32) {
-	if _, li, _ := e.FindObject(e.SelectedID); li >= 0 {
+	return e.layerCoordsForObject(e.SelectedID, x, y)
+}
+
+func (e *Editor) layerCoordsForObject(id string, x, y float32) (float32, float32) {
+	if _, li, _ := e.FindObject(id); li >= 0 {
 		space, px, py := e.layerSpaceAndParallax(e.Doc.Layers[li].Name)
 		return e.canvasToLayerFor(space, px, py, x, y)
 	}
@@ -407,6 +468,7 @@ func (e *Editor) DrawViewport(d *core.Drawing, size core.Size) {
 	e.drawComponentShapes2D(d, scene)
 	e.drawGizmo2D(d)
 	e.drawComponentShapeHandles2D(d)
+	e.drawMarqueeOverlay(d)
 	if t := e.activePluginTool(); t != nil && t.Draw != nil {
 		// Save and Restore keep a transform or style the tool leaves set from reaching the next frame's drawing.
 		d.Save()
@@ -692,6 +754,9 @@ func (e *Editor) drawSelectionOverlay(d *core.Drawing, scene *sceneformat.BuiltS
 	if len(ids) == 0 {
 		return
 	}
+	d.Save()
+	drawn := 0
+	var minX, maxX, minY, maxY float32
 	for _, id := range ids {
 		bo := scene.Object(id)
 		if bo == nil || bo.Doc == nil || viewFlagged(e.hidden, bo) {
@@ -700,6 +765,9 @@ func (e *Editor) drawSelectionOverlay(d *core.Drawing, scene *sceneformat.BuiltS
 		space := sceneformat.SpaceWorld
 		var px, py float32 = 1, 1
 		if layer := scene.Layer(bo.Layer); layer != nil {
+			if !layer.Visible {
+				continue
+			}
 			space = layer.Space
 			px, py = layer.ParallaxX, layer.ParallaxY
 		}
@@ -711,11 +779,23 @@ func (e *Editor) drawSelectionOverlay(d *core.Drawing, scene *sceneformat.BuiltS
 			m.TransformPoint(math2d.Vec2{X: rx + rw, Y: ry + rh}),
 			m.TransformPoint(math2d.Vec2{X: rx, Y: ry + rh}),
 		}
-		d.Save()
+		for _, c := range corners {
+			if drawn == 0 {
+				minX, maxX, minY, maxY = c.X, c.X, c.Y, c.Y
+			} else {
+				minX, maxX = min(minX, c.X), max(maxX, c.X)
+				minY, maxY = min(minY, c.Y), max(maxY, c.Y)
+			}
+		}
 		d.SetStrokeColor(core.RGBA(0x38BDF8, 1)).SetLineWidth(1.5)
 		strokePolygon(d, corners)
-		d.Restore()
+		drawn++
 	}
+	if drawn > 1 {
+		d.SetStrokeColor(core.RGBA(0x38BDF8, 0.55)).SetLineWidth(1).SetLineDash(4, 3)
+		d.StrokeRect(minX, minY, maxX-minX, maxY-minY)
+	}
+	d.Restore()
 }
 
 // wheelZoomPoints is how far a wheel moves the content, in points, to double or halve the 2D view's zoom: a notch of 40 points zooms by about 15%.
@@ -757,9 +837,15 @@ func (g *viewportGestures) wheel(ed *Editor, ev core.WheelEvent) {
 	}
 }
 
-// pan follows a one-finger or primary-button drag in 2D: with Space held, or during a middle-button drag, it pans the view; otherwise, with the Select or Move tool, a touch drag on the camera handle, camera bounds handles, or room handles moves or resizes them, and a drag that starts on the selection's gizmo or an object moves, turns or scales it (BeginDrag2D), ending as one undoable step, or as nothing when the gesture is cancelled.
-func (g *viewportGestures) pan(ed *Editor, ev core.PanEvent, spaceHeld, shiftHeld func() bool) {
+// pan follows a one-finger or primary-button drag in 2D: with Space held, or during a middle-button drag, it pans the view; otherwise, with the Select or Move tool, a touch drag on the camera handle, camera bounds handles, or room handles moves or resizes them, a drag that starts on the selection's gizmo or an object moves, turns or scales it (BeginDrag2D), ending as one undoable step, and a drag starting on empty canvas draws a marquee box selection (BeginMarquee2DWith).
+func (g *viewportGestures) pan(ed *Editor, ev core.PanEvent, spaceHeld, shiftHeld, modHeld, altHeld func() bool) {
 	at := func() (float32, float32) { return float32(ev.Position.X), float32(ev.Position.Y) }
+	marqueeMode := func() MarqueeMode {
+		if altHeld() {
+			return MarqueeTouch
+		}
+		return MarqueeEnclose
+	}
 	switch ev.Phase {
 	case core.GestureBegan:
 		g.spacePan = spaceHeld()
@@ -793,10 +879,12 @@ func (g *viewportGestures) pan(ed *Editor, ev core.PanEvent, spaceHeld, shiftHel
 			}
 			return
 		}
-		if _, ok := ed.BeginShapeDrag2D(downX, downY); ok {
-			x, y := at()
-			ed.UpdateShapeDrag2D(x, y)
-			return
+		if ed.SelectionCount() <= 1 {
+			if _, ok := ed.BeginShapeDrag2D(downX, downY); ok {
+				x, y := at()
+				ed.UpdateShapeDrag2D(x, y)
+				return
+			}
 		}
 		if ed.BeginDrag2D(downX, downY) != Handle2DNone {
 			x, y := at()
@@ -819,7 +907,13 @@ func (g *viewportGestures) pan(ed *Editor, ev core.PanEvent, spaceHeld, shiftHel
 			if ed.SelectedID == "" && ed.BeginRoomDrag(sx, sy) {
 				g.panRoomDrag = true
 				ed.UpdateRoomDrag(cx, cy)
+				return
 			}
+		}
+		if ed.BeginMarquee2DWith(downX, downY, shiftHeld(), modHeld(), marqueeMode()) {
+			x, y := at()
+			ed.UpdateMarquee2D(x, y, marqueeMode())
+			return
 		}
 	case core.GestureChanged:
 		if g.panCamDrag {
@@ -860,6 +954,9 @@ func (g *viewportGestures) pan(ed *Editor, ev core.PanEvent, spaceHeld, shiftHel
 		} else if ed.Dragging2D() != Handle2DNone {
 			x, y := at()
 			ed.UpdateDrag2D(x, y, shiftHeld())
+		} else if ed.MarqueeActive() {
+			x, y := at()
+			ed.UpdateMarquee2D(x, y, marqueeMode())
 		}
 		g.panLast = ev.Translation
 	case core.GestureEnded:
@@ -896,6 +993,11 @@ func (g *viewportGestures) pan(ed *Editor, ev core.PanEvent, spaceHeld, shiftHel
 			x, y := at()
 			ed.UpdateDrag2D(x, y, shiftHeld())
 			ed.EndDrag2D()
+		} else if !g.spacePan && ed.MarqueeActive() {
+			x, y := at()
+			ed.UpdateMarquee2D(x, y, marqueeMode())
+			ed.EndMarquee2D()
+			g.suppressPress = true
 		}
 		g.spacePan = false
 		g.panLast = core.Point{}
@@ -915,6 +1017,7 @@ func (g *viewportGestures) pan(ed *Editor, ev core.PanEvent, spaceHeld, shiftHel
 			ed.CancelRoomDrag()
 		}
 		ed.CancelDrag2D()
+		ed.CancelMarquee2D()
 		g.spacePan = false
 		g.panLast = core.Point{}
 	}
@@ -944,6 +1047,7 @@ func (g *viewportGestures) touch(ed *Editor, ev core.TouchEvent) {
 		ed.CancelPluginDrag2D()
 		ed.CancelShapeDrag2D()
 		ed.CancelDrag2D()
+		ed.CancelMarquee2D()
 		ed.CancelCameraDrag()
 		ed.CancelCameraBoundsDrag()
 		ed.CancelRoomDrag()
@@ -1017,8 +1121,9 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 	// The first read of the held keys asks the platform to report every key, so Space is known to be held when a drag begins.
 	spaceHeld := func() bool { return core.Untracked(cx, func() bool { return core.KeyHeld(cx, "space") }) }
 	spaceHeld()
-	// A pan event carries no modifiers, so Shift, which keeps the aspect ratio while scaling, is read from the held keys.
+	// A pan event carries no modifiers, so Shift, Mod and Alt are read from the held keys.
 	shiftHeld := func() bool { return core.Untracked(cx, func() bool { return core.KeyHeld(cx, "shift") }) }
+	modHeld := func() bool { return core.Untracked(cx, func() bool { return core.KeyHeld(cx, "mod") }) }
 	altHeld := func() bool { return core.Untracked(cx, func() bool { return core.KeyHeld(cx, "alt") }) }
 	in2D := func() bool { return ed.ViewMode == ViewMode2D && !ed.Playing() }
 	in3DGridMap := func() bool { return ed.ViewMode == ViewMode3D && ed.GridMapTool() != GridMapToolNone && !ed.Playing() }
@@ -1119,7 +1224,9 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 					return
 				}
 			}
-			ed.HandleCanvasPress(x, y)
+			shift := ev.Modifiers.Shift || shiftHeld()
+			mod := ev.Modifiers.Platform || ev.Modifiers.Control || modHeld()
+			ed.HandleCanvasPressWith(x, y, shift, mod)
 		},
 		Draw: func(d *core.Drawing, size core.Size) {
 			_ = rev.Get()
@@ -1199,51 +1306,62 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 			Overflow:   core.Hidden,
 		},
 		Children: []core.Node{
-			// Bind Escape only while a viewport drag, tile/GridMap/terrain stroke, or visible tile selection
-			// is active (and Command Palette is closed) so Escape still reaches Popover/ColorWell/Menu handlers at rest.
+			// Bind Escape while a viewport drag, marquee, tile/GridMap/terrain stroke, visible tile selection,
+			// or object selection is active (and Command Palette / connection pick are inactive), using
+			// KeyNotEditing so text inputs (such as Scene Tree rename or Inspector fields) keep Escape.
 			core.Show{
 				When: func() bool {
 					_ = rev.Get()
-					if ed.CommandPaletteOpen() {
+					if ed.CommandPaletteOpen() || ed.PickingConnectionTarget() {
 						return false
 					}
 					_, gmActive := ed.GridMapStrokeActive()
 					_, strokeActive := ed.TileStrokeActive()
 					selVisible := ed.ViewMode == ViewMode2D && isTileTool(ed.Tool) && ed.hasTileSel
 					navPreview := ed.Tool == ToolNavTestPath && (ed.nav2D.preview.HasStart || ed.nav2D.preview.HasEnd)
-					return ed.Dragging2D() != Handle2DNone || ed.DraggingShape2D() || ed.PluginDragging2D() || ed.DraggingGizmo3D() || ed.DraggingHandle3D() || ed.DraggingComponentGizmo3D() || ed.PluginDragging3D() || ed.cameraDrag.active || ed.cameraBoundsDrag.active || ed.roomDrag.active || gmActive || (ed.terrain != nil && ed.terrain.stroke != nil) || strokeActive || selVisible || navPreview
+					activeOp := ed.Dragging2D() != Handle2DNone || ed.MarqueeActive() || ed.DraggingGizmo3D() || ed.DraggingHandle3D() || ed.DraggingComponentGizmo3D() || ed.PluginDragging3D() || ed.DraggingShape2D() || ed.PluginDragging2D() || ed.cameraDrag.active || ed.cameraBoundsDrag.active || ed.roomDrag.active || gmActive || (ed.terrain != nil && ed.terrain.stroke != nil) || strokeActive || selVisible || navPreview
+					return activeOp || (!ed.Playing() && ed.SelectionCount() > 0)
 				},
 				Then: func(cx *core.Scope) core.Node {
-					cx.OnKey("escape", func() {
-						hadDrag := ed.Dragging2D() != Handle2DNone || ed.DraggingShape2D() || ed.PluginDragging2D() || ed.DraggingGizmo3D() || ed.DraggingHandle3D() || ed.DraggingComponentGizmo3D() || ed.PluginDragging3D() || ed.cameraDrag.active || ed.cameraBoundsDrag.active || ed.roomDrag.active
+					cx.OnKeyWith("escape", core.KeyOptions{When: core.KeyNotEditing}, func() {
 						_, gmActive := ed.GridMapStrokeActive()
-						_, tileActive := ed.TileStrokeActive()
-						terrainActive := ed.terrain != nil && ed.terrain.stroke != nil
-						ed.CancelPluginDrag2D()
-						ed.CancelShapeDrag2D()
-						ed.CancelPluginDrag3D()
-						ed.CancelComponentGizmoDrag3D()
-						ed.CancelGizmoDrag3D()
-						if tileActive {
-							ed.CancelTileStroke()
-							strokeTookPress = true
-						} else if ed.ViewMode == ViewMode2D && isTileTool(ed.Tool) && ed.hasTileSel {
-							ed.ClearTileSelection()
+						_, strokeActive := ed.TileStrokeActive()
+						selVisible := ed.ViewMode == ViewMode2D && isTileTool(ed.Tool) && ed.hasTileSel
+						navPreview := ed.Tool == ToolNavTestPath && (ed.nav2D.preview.HasStart || ed.nav2D.preview.HasEnd)
+						activeOp := ed.Dragging2D() != Handle2DNone || ed.MarqueeActive() || ed.DraggingGizmo3D() || ed.DraggingHandle3D() || ed.DraggingComponentGizmo3D() || ed.PluginDragging3D() || ed.DraggingShape2D() || ed.PluginDragging2D() || ed.cameraDrag.active || ed.cameraBoundsDrag.active || ed.roomDrag.active || gmActive || (ed.terrain != nil && ed.terrain.stroke != nil) || strokeActive || selVisible
+						if activeOp {
+							ed.CancelPluginDrag2D()
+							ed.CancelShapeDrag2D()
+							ed.CancelPluginDrag3D()
+							ed.CancelComponentGizmoDrag3D()
+							if strokeActive {
+								ed.CancelTileStroke()
+								strokeTookPress = true
+							} else if selVisible {
+								ed.ClearTileSelection()
+							}
+							ed.CancelDrag2D()
+							ed.CancelMarquee2D()
+							ed.CancelGizmoDrag3D()
+							ed.CancelCameraDrag()
+							ed.CancelGridMapStroke()
+							ed.CancelTerrainStroke()
+							ed.CancelCameraBoundsDrag()
+							ed.CancelRoomDrag()
+							g.cameraDrag = false
+							g.panCamDrag = false
+							g.boundsDrag = false
+							g.panBoundsDrag = false
+							g.roomDrag = false
+							g.panRoomDrag = false
+							return
 						}
-						ed.CancelDrag2D()
-						ed.CancelCameraDrag()
-						ed.CancelGridMapStroke()
-						ed.CancelTerrainStroke()
-						ed.CancelCameraBoundsDrag()
-						ed.CancelRoomDrag()
-						g.cameraDrag = false
-						g.panCamDrag = false
-						g.boundsDrag = false
-						g.panBoundsDrag = false
-						g.roomDrag = false
-						g.panRoomDrag = false
-						if !hadDrag && !gmActive && !tileActive && !terrainActive && ed.Tool == ToolNavTestPath {
+						if navPreview {
 							ed.ClearNavPathPreview2D()
+							return
+						}
+						if !ed.Playing() && ed.SelectionCount() > 0 {
+							ed.ClearSelection()
 						}
 					})
 					return core.View{
@@ -1494,7 +1612,7 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 				},
 				OnPan: func(ev core.PanEvent) {
 					if ed.ViewMode != ViewMode3D {
-						g.pan(ed, ev, spaceHeld, shiftHeld)
+						g.pan(ed, ev, spaceHeld, shiftHeld, modHeld, altHeld)
 						return
 					}
 					if _, active := ed.GridMapStrokeActive(); active {

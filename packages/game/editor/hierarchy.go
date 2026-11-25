@@ -757,14 +757,7 @@ func (c *objectIDCmd) apply(doc *sceneformat.SceneDoc, undo bool) {
 // rename moves the editor's own state that names the object from one ID to the other.
 func (c *objectIDCmd) rename(from, to string) {
 	e := c.ed
-	if e.SelectedID == from {
-		e.SelectedID = to
-	}
-	for i := range e.selectedIDs {
-		if e.selectedIDs[i] == from {
-			e.selectedIDs[i] = to
-		}
-	}
+	e.renameSelectionID(from, to)
 	if e.clipMeta.target == from {
 		e.clipMeta.target = to
 	}

@@ -323,6 +323,11 @@ func inspectorSchemaKey(ed *Editor) string {
 		return "asset:" + string(kind) + ":" + rel
 	}
 	tabPrefix := fmt.Sprintf("T%d:", ed.activeTabID())
+	if ids := ed.SelectedIDs(); len(ids) > 1 {
+		if k := multiInspectorSchemaKey(ed, ids); k != "" {
+			return tabPrefix + k
+		}
+	}
 	obj, layer := ed.SelectedObject()
 	if obj == nil {
 		if ed != nil && ed.SelectedRoomID() != "" {
@@ -540,6 +545,12 @@ func InspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 						}
 						if subKey == "scene" {
 							return sceneInspectorView(cx, ed, rev)
+						}
+						if strings.HasPrefix(subKey, "M:") {
+							if ids := ed.SelectedIDs(); len(ids) > 1 {
+								return multiInspectorFieldsView(cx, ed, rev, ids)
+							}
+							return nil
 						}
 						obj, layerName := ed.SelectedObject()
 						if obj == nil {

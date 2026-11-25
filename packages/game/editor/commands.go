@@ -1493,13 +1493,13 @@ func (e *Editor) TriggerShortcut(shortcut string) bool {
 	return false
 }
 
-// DeleteSelected deletes the currently selected object(s) as one undoable command.
+// DeleteSelected deletes the currently selected object(s) as one undoable step.
 // When nothing is selected, it returns nil without modifying history.
 func (e *Editor) DeleteSelected() error {
 	if e.playing {
 		return ErrPlaying
 	}
-	ids := e.SelectedIDs()
+	ids := e.topSelectedIDs()
 	if len(ids) == 0 {
 		return nil
 	}
@@ -1535,7 +1535,7 @@ func (e *Editor) DuplicateSelected() (string, error) {
 	if e.playing {
 		return "", ErrPlaying
 	}
-	ids := e.SelectedIDs()
+	ids := e.topSelectedIDs()
 	if len(ids) == 0 {
 		return "", nil
 	}
@@ -1596,10 +1596,25 @@ func (e *Editor) FrameSelection() bool {
 func (e *Editor) frameSelection3D() bool {
 	e.endFly3D()
 	e.scene3D()
-	if obj, _ := e.SelectedObject(); obj != nil {
-		bmin, bmax := e.objectAABB3D(obj)
+	if sel := e.SelectedObjects(); len(sel) > 0 {
+		bmin, bmax := e.objectAABB3D(sel[0])
+		for _, o := range sel[1:] {
+			mn, mx := e.objectAABB3D(o)
+			for axis := range 3 {
+				if mn[axis] < bmin[axis] {
+					bmin[axis] = mn[axis]
+				}
+				if mx[axis] > bmax[axis] {
+					bmax[axis] = mx[axis]
+				}
+			}
+		}
 		e.frameAABB3D(bmin, bmax)
-		e.Status = "Framed " + obj.ID
+		if len(sel) == 1 {
+			e.Status = "Framed " + sel[0].ID
+		} else {
+			e.Status = fmt.Sprintf("Framed %d objects", len(sel))
+		}
 		e.notify()
 		return true
 	}

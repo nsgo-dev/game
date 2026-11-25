@@ -125,13 +125,36 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 		return sceneTreeKey{}
 	}
 
-	// A press on a row selects its object in the editor, or makes its layer the active one.
+	// A press on a row selects its object(s) in the editor (supporting Shift/Mod multi-selection), or makes its layer the active one.
 	// While connection target pick mode is active, pressing an object row picks it as the target without changing SelectedID, and pressing a layer row is ignored so pick mode and SelectedID stay intact.
 	var ignorePickKey sceneTreeKey
+	syncTreeToEditor := func() {
+		ids := ed.SelectedIDs()
+		if len(ids) == 0 {
+			selection.Clear()
+			selection.SetCursor(nil)
+			return
+		}
+		keys := make([]any, 0, len(ids))
+		for _, id := range ids {
+			if k := keyOf(id); k.id != "" {
+				keys = append(keys, k)
+			}
+		}
+		if len(keys) == 0 {
+			selection.Clear()
+			selection.SetCursor(nil)
+			return
+		}
+		selection.Set(keys...)
+		if pk := keyOf(ed.SelectedID); pk.id != "" {
+			selection.SetCursor(pk)
+		}
+	}
 	cx.Effect(func() {
 		cur, _ := selection.Cursor().(sceneTreeKey)
+		keys := selection.Keys()
 		chosen := selection.Has(cur)
-		allKeys := selection.Keys()
 		cx.Untrack(func() {
 			if ed.PickingConnectionTarget() {
 				if cur == (sceneTreeKey{}) {
@@ -150,43 +173,40 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 						if ed.PickingConnectionTarget() {
 							ignorePickKey = k
 						}
-						selection.Set(k)
 					}
-				} else {
-					selection.Clear()
 				}
+				syncTreeToEditor()
 				return
 			}
 			ignorePickKey = sceneTreeKey{}
-			if cur.id == "" && cur.layer != "" && chosen {
-				// A layer's row is selected in place of an object's.
-				if selection.Len() > 1 {
+			if cur.layer != "" && cur.id == "" && chosen {
+				// A layer's row is selected in place of any object selection.
+				if selection.Len() != 1 {
 					selection.Set(cur)
 				}
-				ed.SelectObject("")
+				ed.ClearSelection()
 				ed.SetActiveLayer(cur.layer)
 				return
 			}
-			var objIDs []string
-			for _, raw := range allKeys {
-				if k, ok := raw.(sceneTreeKey); ok && k.id != "" && !slices.Contains(objIDs, k.id) {
-					objIDs = append(objIDs, k.id)
+			objIDs := make([]string, 0, len(keys))
+			for _, raw := range keys {
+				if tk, ok := raw.(sceneTreeKey); ok && tk.id != "" && !slices.Contains(objIDs, tk.id) {
+					objIDs = append(objIDs, tk.id)
 				}
 			}
 			if len(objIDs) > 0 {
-				if cur.id != "" {
-					if idx := slices.Index(objIDs, cur.id); idx >= 0 && idx != len(objIDs)-1 {
-						objIDs = append(slices.Delete(objIDs, idx, idx+1), cur.id)
-					}
+				primary := objIDs[len(objIDs)-1]
+				if cur.id != "" && chosen && slices.Contains(objIDs, cur.id) {
+					primary = cur.id
 				}
-				if !slices.Equal(ed.SelectedIDs(), objIDs) {
-					ed.SelectObjects(objIDs)
+				if ed.SelectedID != primary || !sameIDSet(ed.SelectedIDs(), objIDs) {
+					ed.SelectObjectsWithPrimary(objIDs, primary)
 				}
 				return
 			}
 		})
 	})
-	// Selecting an object elsewhere, such as in a viewport, selects its row and reveals it.
+	// Selecting objects elsewhere (viewport click, Shift/Mod click, marquee, undo/redo) selects their rows and reveals them.
 	lastTabID := ed.activeTabID()
 	cx.Effect(func() {
 		_ = rev.Get()
@@ -196,57 +216,53 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 				editing.Set(treeEdit{})
 			}
 			ids := ed.SelectedIDs()
-			cur, _ := selection.Cursor().(sceneTreeKey)
 			if len(ids) == 0 {
-				hasObj := cur.id != ""
-				if !hasObj {
-					for _, raw := range selection.Keys() {
-						if k, ok := raw.(sceneTreeKey); ok && k.id != "" {
-							hasObj = true
-							break
-						}
+				hasObj := false
+				for _, raw := range selection.Keys() {
+					if tk, ok := raw.(sceneTreeKey); ok && tk.id != "" {
+						hasObj = true
+						break
 					}
 				}
-				if hasObj {
+				if cur, _ := selection.Cursor().(sceneTreeKey); hasObj || cur.id != "" {
 					selection.Clear()
 					selection.SetCursor(nil)
 				}
 				return
 			}
+			curIDs := make([]string, 0, selection.Len())
+			for _, raw := range selection.Keys() {
+				if tk, ok := raw.(sceneTreeKey); ok && tk.id != "" {
+					curIDs = append(curIDs, tk.id)
+				}
+			}
+			pk := keyOf(ed.SelectedID)
+			cur, _ := selection.Cursor().(sceneTreeKey)
+			if sameIDSet(curIDs, ids) && cur == pk {
+				return
+			}
 			wantKeys := make([]any, 0, len(ids))
 			for _, id := range ids {
-				if k := keyOf(id); k.id != "" {
-					wantKeys = append(wantKeys, k)
+				k := keyOf(id)
+				if k.id == "" {
+					continue
+				}
+				wantKeys = append(wantKeys, k)
+				path := objectPath(ed.Doc, k.id)
+				setOpen(sceneTreeKey{layer: k.layer}, true)
+				for _, a := range path[:max(len(path)-1, 0)] {
+					setOpen(sceneTreeKey{layer: k.layer, id: a.ID}, true)
 				}
 			}
 			if len(wantKeys) == 0 {
 				return
 			}
-			primary := wantKeys[len(wantKeys)-1].(sceneTreeKey)
-			same := cur == primary && selection.Len() == len(wantKeys)
-			if same {
-				for _, wk := range wantKeys {
-					if !selection.Has(wk) {
-						same = false
-						break
-					}
-				}
-			}
-			if same {
-				return
-			}
-			for _, wk := range wantKeys {
-				k := wk.(sceneTreeKey)
-				path := objectPath(ed.Doc, k.id)
-				setOpen(sceneTreeKey{layer: k.layer}, true)
-				for _, a := range path[:len(path)-1] {
-					setOpen(sceneTreeKey{layer: k.layer, id: a.ID}, true)
-				}
-			}
 			selection.Set(wantKeys...)
-			selection.SetCursor(primary)
-			if row := shownRow(roots(), children, expanded, primary); row >= 0 {
-				listRef.ScrollToIndexAt(row, 0.5, 0, false)
+			if pk.id != "" {
+				selection.SetCursor(pk)
+				if row := shownRow(roots(), children, expanded, pk); row >= 0 {
+					listRef.ScrollToIndexAt(row, 0.5, 0, false)
+				}
 			}
 		})
 	})
@@ -343,39 +359,61 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 					return remoteSceneTreeView(cx, ed, rev)
 				},
 				Else: func(cx *core.Scope) core.Node {
-					return dragdrop.Area{Children: []core.Node{ui.Tree{
-						TestID:   "scene-tree",
-						Label:    ed.T("sceneTree.label"),
-						Roots:    roots,
-						Children: func(key any) []any { k, _ := key.(sceneTreeKey); return children(k) },
-						Expanded: func(key any) bool { k, _ := key.(sceneTreeKey); return expanded(k) },
-						OnExpand: func(key any, on bool) {
-							if k, ok := key.(sceneTreeKey); ok {
-								setOpen(k, on)
-							}
+					return core.View{
+						Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), Gap: 4},
+						Children: []core.Node{
+							dragdrop.Area{Children: []core.Node{ui.Tree{
+								TestID:   "scene-tree",
+								Label:    ed.T("sceneTree.label"),
+								Roots:    roots,
+								Children: func(key any) []any { k, _ := key.(sceneTreeKey); return children(k) },
+								Expanded: func(key any) bool { k, _ := key.(sceneTreeKey); return expanded(k) },
+								OnExpand: func(key any, on bool) {
+									if k, ok := key.(sceneTreeKey); ok {
+										setOpen(k, on)
+									}
+								},
+								OnActivate: func(key any) {
+									if k, ok := key.(sceneTreeKey); ok {
+										startEdit(k, editName)
+									}
+								},
+								RowLabel: func(key any) string {
+									k, _ := key.(sceneTreeKey)
+									if k.id == "" {
+										return ed.T("sceneTree.layerLabel", l10n.Param("name", k.layer))
+									}
+									return k.id
+								},
+								ToggleLabel: ed.T("sceneTree.expand"),
+								Selection:   selection,
+								Row:         row,
+								Ref:         listRef,
+								Style:       core.Style{FlexGrow: 1, FlexBasis: core.Pt(0)},
+							}}},
+							core.Text{
+								TestID:  "scene-tree-hint",
+								Content: ed.T("sceneTree.hint"),
+								Style:   core.Style{FontSize: 10, Color: colors.Muted()},
+							},
 						},
-						OnActivate: func(key any) {
-							if k, ok := key.(sceneTreeKey); ok {
-								startEdit(k, editName)
-							}
-						},
-						RowLabel: func(key any) string {
-							k, _ := key.(sceneTreeKey)
-							if k.id == "" {
-								return ed.T("sceneTree.layerLabel", l10n.Param("name", k.layer))
-							}
-							return k.id
-						},
-						ToggleLabel: ed.T("sceneTree.expand"),
-						Selection:   selection,
-						Row:         row,
-						Ref:         listRef,
-						Style:       core.Style{FlexGrow: 1, FlexBasis: core.Pt(0)},
-					}}}
+					}
 				},
 			},
 		},
 	}
+}
+
+func sameIDSet(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for _, id := range a {
+		if !slices.Contains(b, id) {
+			return false
+		}
+	}
+	return true
 }
 
 // shownRow returns the index of k among the rows the tree shows, the children of expanded rows included, or -1.
@@ -758,7 +796,13 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 		}, OnSelect: func() { ed.report(ed.SetObjectLocked(id, !locked())) }},
 		ui.MenuSeparator{},
 		ui.MenuItem{TestID: "scene-tree-delete-" + id, Text: ed.T("sceneTree.delete"), Variant: ui.MenuItemDanger, Disabled: editsOff,
-			OnSelect: func() { ed.report(ed.DeleteObject(id)) }},
+			OnSelect: func() {
+				if ed.IsSelected(id) && ed.SelectionCount() > 1 {
+					ed.report(ed.DeleteSelected())
+					return
+				}
+				ed.report(ed.DeleteObject(id))
+			}},
 	)
 
 	return ui.ContextMenu{

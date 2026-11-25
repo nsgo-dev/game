@@ -2,6 +2,7 @@ package editor
 
 import (
 	"cmp"
+	"fmt"
 	"math"
 	"slices"
 
@@ -525,15 +526,73 @@ func (e *Editor) Pick3DObject(sx, sy, w, h float32) (string, bool) {
 
 // Select3DAt picks the closest 3D object under (sx, sy) and selects it, or clears selection on empty space.
 func (e *Editor) Select3DAt(sx, sy, w, h float32) bool {
+	return e.Select3DAtWith(sx, sy, w, h, false, false)
+}
+
+// Select3DAtWith picks the closest 3D object under (sx, sy) and applies selection with
+// optional Shift (add) and Mod (toggle) modifiers.
+func (e *Editor) Select3DAtWith(sx, sy, w, h float32, shift, mod bool) bool {
 	if e == nil {
 		return false
 	}
 	if id, ok := e.Pick3DObject(sx, sy, w, h); ok {
-		e.SelectObject(id)
+		switch {
+		case mod:
+			e.ToggleSelection(id)
+		case shift:
+			e.AddToSelection(id)
+		default:
+			e.SelectObject(id)
+		}
 		return true
 	}
-	e.SelectObject("")
+	if !shift && !mod {
+		e.ClearSelection()
+	}
 	return false
+}
+
+// gizmo3DOrigin returns the world-space origin of the 3D gizmo: the selected object's position
+// for a single selection, or the bounding-box center of all draggable selected objects for a
+// multi-selection.
+func (e *Editor) gizmo3DOrigin() ([3]float32, bool) {
+	draggable := e.draggableSelectedIDs()
+	if len(draggable) == 0 {
+		return [3]float32{}, false
+	}
+	if len(draggable) == 1 {
+		obj, _, _ := e.FindObject(draggable[0])
+		if obj == nil {
+			return [3]float32{}, false
+		}
+		return e.worldPosition3D(obj), true
+	}
+	hasAny := false
+	var bmin, bmax [3]float32
+	for _, id := range draggable {
+		obj, _, _ := e.FindObject(id)
+		if obj == nil {
+			continue
+		}
+		p := e.worldPosition3D(obj)
+		if !hasAny {
+			bmin, bmax = p, p
+			hasAny = true
+		} else {
+			for a := range 3 {
+				bmin[a] = min(bmin[a], p[a])
+				bmax[a] = max(bmax[a], p[a])
+			}
+		}
+	}
+	if !hasAny {
+		return [3]float32{}, false
+	}
+	return [3]float32{
+		(bmin[0] + bmax[0]) * 0.5,
+		(bmin[1] + bmax[1]) * 0.5,
+		(bmin[2] + bmax[2]) * 0.5,
+	}, true
 }
 
 // GizmoLength3D returns the world-space arm length / ring radius for a 3D gizmo placed at pos.
@@ -557,23 +616,29 @@ func (e *Editor) gizmo3DBlocked() bool {
 	return e == nil || e.playing || e.gridMap.tool != GridMapToolNone || (e.TerrainOpen() && e.terrainBrush.Mode != TerrainBrushNone)
 }
 
-// PickGizmo3D hit-tests the active 3D gizmo handles on the currently selected object in screen space
+// PickGizmo3D hit-tests the active 3D gizmo handles on the currently selected object(s) in screen space
 // through the shared 3D gizmo handle picking engine.
 func (e *Editor) PickGizmo3D(sx, sy, w, h float32) GizmoAxis3D {
 	if e.gizmo3DBlocked() || w <= 0 || h <= 0 {
 		return Axis3DNone
 	}
-	obj, _ := e.SelectedObject()
-	if obj == nil || e.viewportFrozen(obj.ID) {
-		return Axis3DNone
-	}
 	if e.GizmoMode == Gizmo3DCollider {
+		if e.SelectionCount() != 1 {
+			return Axis3DNone
+		}
+		obj, _ := e.SelectedObject()
+		if obj == nil || e.viewportFrozen(obj.ID) {
+			return Axis3DNone
+		}
 		if hh, ok := e.pickColliderHandle3D(obj, sx, sy, w, h); ok {
 			return hh.Axis
 		}
 		return Axis3DNone
 	}
-	origin := e.worldPosition3D(obj)
+	origin, ok := e.gizmo3DOrigin()
+	if !ok {
+		return Axis3DNone
+	}
 	gizmoLen := e.GizmoLength3D(origin)
 	handles := transformGizmoHandles3D(e.GizmoMode, gizmoLen, true)
 	originMat := math3d.Mat4{
@@ -603,10 +668,18 @@ const (
 	drag3DTerrain
 )
 
+type drag3DTarget struct {
+	id             string
+	startTransform Transform3D
+	startPos       [3]float64
+	parentInv      aff3
+}
+
 type drag3DState struct {
 	kind           drag3DKind
 	handle         Handle3DKind
 	objectID       string
+	targets        []drag3DTarget // non-empty when dragging >1 selected objects
 	mode           GizmoMode3D
 	axis           GizmoAxis3D
 	startSX        float32
@@ -671,7 +744,7 @@ func (e *Editor) BeginGizmoDrag3D(sx, sy, w, h float32) GizmoAxis3D {
 		return Axis3DNone
 	}
 	if e.GizmoMode == Gizmo3DCollider {
-		if w <= 0 || h <= 0 {
+		if w <= 0 || h <= 0 || e.SelectionCount() != 1 {
 			return Axis3DNone
 		}
 		obj, _ := e.SelectedObject()
@@ -699,11 +772,14 @@ func (e *Editor) BeginGizmoDragAxis3D(axis GizmoAxis3D, sx, sy, w, h float32) bo
 	if e.gizmo3DBlocked() || axis == Axis3DNone || w <= 0 || h <= 0 {
 		return false
 	}
-	obj, _ := e.SelectedObject()
-	if obj == nil || e.viewportFrozen(obj.ID) {
-		return false
-	}
 	if e.GizmoMode == Gizmo3DCollider {
+		if e.SelectionCount() != 1 {
+			return false
+		}
+		obj, _ := e.SelectedObject()
+		if obj == nil || e.viewportFrozen(obj.ID) {
+			return false
+		}
 		for _, hh := range e.ColliderHandles3D(obj) {
 			if hh.Axis == axis && hh.Sign > 0 {
 				return e.beginColliderDrag3D(obj, hh, sx, sy, w, h)
@@ -711,28 +787,78 @@ func (e *Editor) BeginGizmoDragAxis3D(axis GizmoAxis3D, sx, sy, w, h float32) bo
 		}
 		return false
 	}
-	parentInv, ok := e.parentWorld3D(obj.ID).invert()
-	if !ok {
-		// A parent scaled to zero leaves no space to drag the object in.
+	draggable := e.draggableSelectedIDs()
+	if len(draggable) == 0 {
 		return false
 	}
-	pos := e.worldPosition3D(obj)
+	pos, ok := e.gizmo3DOrigin()
+	if !ok {
+		return false
+	}
 	gizmoLen := e.GizmoLength3D(pos)
-	st := drag3DState{
-		kind:           drag3DGizmo,
-		objectID:       obj.ID,
-		mode:           e.GizmoMode,
-		axis:           axis,
-		startSX:        sx,
-		startSY:        sy,
-		lastSX:         sx,
-		lastSY:         sy,
-		vpW:            w,
-		vpH:            h,
-		gizmoLen:       gizmoLen,
-		startTransform: captureTransform3D(obj),
-		startPos:       vec64(pos),
-		parentInv:      parentInv,
+	var st drag3DState
+	if len(draggable) == 1 {
+		obj, _, _ := e.FindObject(draggable[0])
+		if obj == nil || e.viewportFrozen(obj.ID) {
+			return false
+		}
+		parentInv, ok := e.parentWorld3D(obj.ID).invert()
+		if !ok {
+			// A parent scaled to zero leaves no space to drag the object in.
+			return false
+		}
+		st = drag3DState{
+			kind:           drag3DGizmo,
+			objectID:       obj.ID,
+			mode:           e.GizmoMode,
+			axis:           axis,
+			startSX:        sx,
+			startSY:        sy,
+			lastSX:         sx,
+			lastSY:         sy,
+			vpW:            w,
+			vpH:            h,
+			gizmoLen:       gizmoLen,
+			startTransform: captureTransform3D(obj),
+			startPos:       vec64(pos),
+			parentInv:      parentInv,
+		}
+	} else {
+		targets := make([]drag3DTarget, 0, len(draggable))
+		for _, id := range draggable {
+			obj, _, _ := e.FindObject(id)
+			if obj == nil || e.viewportFrozen(id) {
+				continue
+			}
+			parentInv, ok := e.parentWorld3D(id).invert()
+			if !ok {
+				continue
+			}
+			targets = append(targets, drag3DTarget{
+				id:             id,
+				startTransform: captureTransform3D(obj),
+				startPos:       vec64(e.worldPosition3D(obj)),
+				parentInv:      parentInv,
+			})
+		}
+		if len(targets) == 0 {
+			return false
+		}
+		st = drag3DState{
+			kind:     drag3DGizmo,
+			objectID: e.SelectedID,
+			targets:  targets,
+			mode:     e.GizmoMode,
+			axis:     axis,
+			startSX:  sx,
+			startSY:  sy,
+			lastSX:   sx,
+			lastSY:   sy,
+			vpW:      w,
+			vpH:      h,
+			gizmoLen: gizmoLen,
+			startPos: vec64(pos),
+		}
 	}
 
 	orig32, dir32 := e.Camera3D.ScreenRay(sx, sy, w, h)
@@ -762,9 +888,13 @@ func (e *Editor) BeginGizmoDragAxis3D(axis GizmoAxis3D, sx, sy, w, h float32) bo
 	return true
 }
 
-// UpdateGizmoDrag3D updates the selected object's 3D transform live during an active gizmo drag.
+// UpdateGizmoDrag3D updates the selected object's (or objects') 3D transform live during an active gizmo drag.
 func (e *Editor) UpdateGizmoDrag3D(sx, sy float32) {
 	if e == nil || e.playing || e.drag3D.kind != drag3DGizmo {
+		return
+	}
+	if len(e.drag3D.targets) > 1 {
+		e.updateMultiGizmoDrag3D(sx, sy)
 		return
 	}
 	obj, _, _ := e.FindObject(e.drag3D.objectID)
@@ -852,6 +982,110 @@ func (e *Editor) UpdateGizmoDrag3D(sx, sy float32) {
 	e.notify()
 }
 
+func (e *Editor) updateMultiGizmoDrag3D(sx, sy float32) {
+	st := &e.drag3D
+	w, h := st.vpW, st.vpH
+	startPos := st.startPos
+	axisDir := axisVector64(st.axis)
+	orig32, dir32 := e.Camera3D.ScreenRay(sx, sy, w, h)
+	orig := vec64(orig32)
+	dir := vec64(dir32)
+
+	objs := make([]*sceneformat.ObjectDoc, len(st.targets))
+	for i, t := range st.targets {
+		obj, _, _ := e.FindObject(t.id)
+		if obj == nil {
+			e.drag3D = drag3DState{}
+			return
+		}
+		objs[i] = obj
+	}
+
+	switch st.mode {
+	case Gizmo3DTranslate:
+		delta := e.computeAxisDelta(st, startPos, axisDir, orig, dir, sx, sy)
+		worldDelta := scale64(axisDir, delta)
+		for i, t := range st.targets {
+			local := t.parentInv.vector(worldDelta)
+			objs[i].X = t.startTransform.X + float32(local[0])
+			objs[i].Y = t.startTransform.Y + float32(local[1])
+			objs[i].PosZ = t.startTransform.PosZ + float32(local[2])
+		}
+	case Gizmo3DRotate:
+		angle := e.computeRotationAngle(st, startPos, axisDir, orig, dir, sx, sy)
+		cosA, sinA := math.Cos(angle), math.Sin(angle)
+		for i, t := range st.targets {
+			rel := sub64(t.startPos, startPos)
+			kDotR := dot64(axisDir, rel)
+			kCrossR := cross64(axisDir, rel)
+			rotRel := add64(
+				add64(scale64(rel, cosA), scale64(kCrossR, sinA)),
+				scale64(axisDir, kDotR*(1-cosA)),
+			)
+			worldDelta := sub64(rotRel, rel)
+			local := t.parentInv.vector(worldDelta)
+			objs[i].X = t.startTransform.X + float32(local[0])
+			objs[i].Y = t.startTransform.Y + float32(local[1])
+			objs[i].PosZ = t.startTransform.PosZ + float32(local[2])
+			objs[i].RotX = t.startTransform.RotX + float32(axisDir[0]*angle)
+			objs[i].RotY = t.startTransform.RotY + float32(axisDir[1]*angle)
+			objs[i].RotZ = t.startTransform.RotZ + float32(axisDir[2]*angle)
+		}
+	case Gizmo3DScale:
+		delta := e.computeAxisDelta(st, startPos, axisDir, orig, dir, sx, sy)
+		denom := float64(st.gizmoLen)
+		if denom <= 1e-4 {
+			denom = 1
+		}
+		factor := 1.0 + delta/denom
+		if !math.IsNaN(factor) && !math.IsInf(factor, 0) {
+			for i, t := range st.targets {
+				rel := sub64(t.startPos, startPos)
+				proj := dot64(rel, axisDir)
+				worldDelta := scale64(axisDir, proj*(factor-1))
+				local := t.parentInv.vector(worldDelta)
+				objs[i].X = t.startTransform.X + float32(local[0])
+				objs[i].Y = t.startTransform.Y + float32(local[1])
+				objs[i].PosZ = t.startTransform.PosZ + float32(local[2])
+				switch st.axis {
+				case Axis3DX:
+					base := 1.0
+					if t.startTransform.ScaleX != nil {
+						base = float64(*t.startTransform.ScaleX)
+					}
+					if base == 0 {
+						base = 1
+					}
+					objs[i].ScaleX = sceneformat.Float32(float32(base * factor))
+				case Axis3DY:
+					base := 1.0
+					if t.startTransform.ScaleY != nil {
+						base = float64(*t.startTransform.ScaleY)
+					}
+					if base == 0 {
+						base = 1
+					}
+					objs[i].ScaleY = sceneformat.Float32(float32(base * factor))
+				case Axis3DZ:
+					base := 1.0
+					if t.startTransform.ScaleZ != nil {
+						base = float64(*t.startTransform.ScaleZ)
+					}
+					if base == 0 {
+						base = 1
+					}
+					objs[i].ScaleZ = sceneformat.Float32(float32(base * factor))
+				}
+			}
+		}
+	}
+
+	st.lastSX = sx
+	st.lastSY = sy
+	e.Rebuild()
+	e.notify()
+}
+
 func (e *Editor) computeAxisDelta(st *drag3DState, startPos, axisDir, rayOrig, rayDir [3]float64, sx, sy float32) float64 {
 	if st.hasAxisT {
 		if tCur, ok := closestParamOnAxisLine64(startPos, axisDir, rayOrig, rayDir); ok {
@@ -905,6 +1139,53 @@ func (e *Editor) EndGizmoDrag3D() bool {
 	if st.mode == Gizmo3DCollider {
 		return e.endColliderDrag3D(st)
 	}
+	if len(st.targets) > 1 {
+		type pending struct {
+			id    string
+			obj   *sceneformat.ObjectDoc
+			start Transform3D
+			after Transform3D
+		}
+		var changed []pending
+		for _, t := range st.targets {
+			obj, _, _ := e.FindObject(t.id)
+			if obj == nil {
+				continue
+			}
+			after := captureTransform3D(obj)
+			if !equalTransform3D(t.startTransform, after) {
+				changed = append(changed, pending{id: t.id, obj: obj, start: t.startTransform, after: after})
+			}
+		}
+		if len(changed) == 0 {
+			e.notify()
+			return false
+		}
+		for _, p := range changed {
+			applyTransform3D(p.obj, p.start)
+		}
+		for _, p := range changed {
+			if e.checkTransformEdit(p.id, func(o *sceneformat.ObjectDoc) { applyTransform3D(o, p.after) }) != nil {
+				e.Rebuild()
+				e.notify()
+				return false
+			}
+		}
+		label := fmt.Sprintf("%s 3D %d objects (%s)", st.mode.String(), len(changed), st.axis.String())
+		_ = e.History.Group(label, func() error {
+			for _, p := range changed {
+				e.History.Execute(&transform3DCmd{
+					ed:     e,
+					id:     p.id,
+					label:  st.mode.String() + " 3D " + p.id + " (" + st.axis.String() + ")",
+					before: p.start,
+					after:  p.after,
+				})
+			}
+			return nil
+		})
+		return true
+	}
 
 	obj, _, _ := e.FindObject(st.objectID)
 	if obj == nil {
@@ -955,6 +1236,20 @@ func (e *Editor) CancelGizmoDrag3D() {
 		e.notify()
 		return
 	}
+	if len(st.targets) > 1 {
+		restored := false
+		for _, t := range st.targets {
+			if obj, _, _ := e.FindObject(t.id); obj != nil {
+				applyTransform3D(obj, t.startTransform)
+				restored = true
+			}
+		}
+		if restored {
+			e.Rebuild()
+		}
+		e.notify()
+		return
+	}
 	if obj, _, _ := e.FindObject(st.objectID); obj != nil {
 		applyTransform3D(obj, st.startTransform)
 		e.Rebuild()
@@ -964,6 +1259,12 @@ func (e *Editor) CancelGizmoDrag3D() {
 
 // HandleViewport3DPress handles a click/tap in the 3D viewport: with a terrain brush active it applies a dab, with an active 3D plugin tool it calls Press3D with the camera pick ray, with the Place tool and a model selected in the asset browser (SelectedModel) it places the model where the press lands (PlaceModelAt3D), otherwise it picks the closest 3D object or clears selection.
 func (e *Editor) HandleViewport3DPress(sx, sy, w, h float32) {
+	e.HandleViewport3DPressWith(sx, sy, w, h, false, false)
+}
+
+// HandleViewport3DPressWith handles a click/tap in the 3D viewport with optional Shift (add)
+// and Mod (toggle) modifiers.
+func (e *Editor) HandleViewport3DPressWith(sx, sy, w, h float32, shift, mod bool) {
 	if e == nil || e.playing {
 		return
 	}
@@ -992,16 +1293,18 @@ func (e *Editor) HandleViewport3DPress(sx, sy, w, h float32) {
 		e.report(err)
 		return
 	}
-	if e.PickHandle3D(sx, sy, w, h) != Handle3DNone {
-		return
+	if !shift && !mod {
+		if e.PickHandle3D(sx, sy, w, h) != Handle3DNone {
+			return
+		}
+		if _, hit := e.PickComponentGizmo3D(sx, sy, w, h); hit {
+			return
+		}
+		if e.PickGizmo3D(sx, sy, w, h) != Axis3DNone {
+			return
+		}
 	}
-	if _, hit := e.PickComponentGizmo3D(sx, sy, w, h); hit {
-		return
-	}
-	if e.PickGizmo3D(sx, sy, w, h) != Axis3DNone {
-		return
-	}
-	e.Select3DAt(sx, sy, w, h)
+	e.Select3DAtWith(sx, sy, w, h, shift, mod)
 }
 
 // BeginViewport3DDrag starts a terrain brush stroke (if a terrain brush is active and hits the terrain and !pan), an active 3D plugin tool drag (if OnDragBegin3D claims it and !pan), a light/camera handle drag, a 3D component gizmo handle drag, a 3D transform gizmo drag, or a camera orbit/pan drag. It does nothing while the camera flies (BeginFly3D).
@@ -1390,7 +1693,8 @@ func (e *Editor) drawSceneObjects3D(d *core.Drawing, w, h float32, overlay bool)
 				_, geometry := e.geometryBounds3D(o.ID)
 				occluded := e.vp3d.occludedObjects[o.ID]
 				_, hasLOD := e.vp3d.lodByObject[o.ID]
-				wireframe := !(overlay && geometry && o.ID != e.SelectedID) || occluded
+				selected := e.IsSelected(o.ID)
+				wireframe := !(overlay && geometry && !selected) || occluded
 				if !wireframe && !(e.ShowLODOverlay && hasLOD) {
 					walk(children, parent.mul(local3(o)))
 					continue
@@ -1401,7 +1705,7 @@ func (e *Editor) drawSceneObjects3D(d *core.Drawing, w, h float32, overlay bool)
 					obj:       o,
 					parent:    parent,
 					depth:     depth,
-					selected:  o.ID == e.SelectedID,
+					selected:  selected,
 					wireframe: wireframe,
 				})
 				walk(children, parent.mul(local3(o)))
@@ -1471,15 +1775,21 @@ func (e *Editor) drawSceneObjects3D(d *core.Drawing, w, h float32, overlay bool)
 }
 
 func (e *Editor) drawGizmo3D(d *core.Drawing, w, h float32) {
-	obj, _ := e.SelectedObject()
-	if obj == nil || e.viewportFrozen(obj.ID) {
-		return
-	}
 	if e.GizmoMode == Gizmo3DCollider {
+		if e.SelectionCount() != 1 {
+			return
+		}
+		obj, _ := e.SelectedObject()
+		if obj == nil || e.viewportFrozen(obj.ID) {
+			return
+		}
 		e.drawColliderGizmo3D(d, obj, w, h)
 		return
 	}
-	origin := e.worldPosition3D(obj)
+	origin, ok := e.gizmo3DOrigin()
+	if !ok {
+		return
+	}
 	gizmoLen := e.GizmoLength3D(origin)
 	handles := transformGizmoHandles3D(e.GizmoMode, gizmoLen, false)
 	originMat := math3d.Mat4{

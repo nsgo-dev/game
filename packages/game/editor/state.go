@@ -526,8 +526,12 @@ type Editor struct {
 	profiler profilerState
 	// gameRun tracks the live `go tool game dev` child process started by RunGame / RunGameWith.
 	gameRun gameRunState
+	// selectedIDs holds the ordered set of selected object IDs; SelectedID is the primary object within it.
+	selectedIDs []string
 	// drag2D is the 2D viewport's drag of an object or a gizmo handle in progress (BeginDrag2D).
 	drag2D drag2DState
+	// marquee is the 2D viewport's marquee box selection drag in progress (BeginMarquee2D).
+	marquee marqueeState
 	// shapeDrag is the 2D viewport's drag of a component shape handle in progress (BeginShapeDrag2D).
 	shapeDrag shapeDragState
 	// pluginDrag tracks a 2D viewport drag claimed by the active plugin tool (BeginPluginDrag2D).
@@ -801,28 +805,7 @@ func (e *Editor) notify() {
 
 func (e *Editor) afterMutate() {
 	// Ensure SelectedID and selectedIDs still point to existing objects.
-	if len(e.selectedIDs) > 0 {
-		var kept []string
-		for _, id := range e.selectedIDs {
-			if id != "" && locateObject(e.Doc, id).obj != nil && !slices.Contains(kept, id) {
-				kept = append(kept, id)
-			}
-		}
-		e.selectedIDs = kept
-	}
-	if e.SelectedID != "" {
-		if obj, _, _ := e.FindObject(e.SelectedID); obj == nil {
-			if len(e.selectedIDs) > 0 {
-				e.SelectedID = e.selectedIDs[len(e.selectedIDs)-1]
-			} else {
-				e.SelectedID = ""
-			}
-		} else if len(e.selectedIDs) == 0 {
-			e.selectedIDs = []string{e.SelectedID}
-		}
-	} else {
-		e.selectedIDs = nil
-	}
+	e.pruneSelection()
 	// Ensure SelectedRoomID still points to an existing room in the open room map.
 	if e.rooms != nil && e.rooms.selectedRoomID != "" {
 		if e.rooms.doc == nil || e.rooms.doc.Room(e.rooms.selectedRoomID) == nil {
@@ -904,6 +887,7 @@ func (e *Editor) SetTool(t Tool) {
 		return
 	}
 	e.CancelDrag2D()
+	e.CancelMarquee2D()
 	e.CancelShapeDrag2D()
 	e.CancelPluginDrag2D()
 	e.ClearPluginHover2D()
@@ -938,6 +922,7 @@ func (e *Editor) SetViewMode(mode ViewMode) {
 	e.EndViewport3DDrag()
 	e.endFly3D()
 	e.CancelDrag2D()
+	e.CancelMarquee2D()
 	e.CancelShapeDrag2D()
 	e.CancelPluginDrag2D()
 	e.ClearPluginHover2D()
@@ -1169,6 +1154,7 @@ func (e *Editor) openYAMLWithLayers(data []byte, file string, layers *sceneforma
 	// The scene being replaced keeps its view for when it opens again.
 	e.saveViewStateQuietly()
 	e.drag2D = drag2DState{}
+	e.marquee = marqueeState{}
 	e.shapeDrag = shapeDragState{}
 	e.CancelPluginDrag2D()
 	e.ClearPluginHover2D()
@@ -1190,8 +1176,7 @@ func (e *Editor) openYAMLWithLayers(data []byte, file string, layers *sceneforma
 	e.hasPaletteStampRect = false
 	e.Doc = doc
 	e.sceneSaved = saved
-	e.SelectedID = ""
-	e.selectedIDs = nil
+	e.clearSelectionFields()
 	e.pasteStreak = 0
 	e.inspectAssetFile = false
 	e.inspectLayer = false
@@ -1368,6 +1353,7 @@ func (e *Editor) Undo() bool {
 	}
 	// A drag in progress is put back first, so the step undone is the one before it and not the half-dragged object.
 	e.CancelDrag2D()
+	e.CancelMarquee2D()
 	e.CancelShapeDrag2D()
 	e.CancelPluginDrag2D()
 	e.CancelComponentGizmoDrag3D()
@@ -1402,6 +1388,7 @@ func (e *Editor) Redo() bool {
 		return true
 	}
 	e.CancelDrag2D()
+	e.CancelMarquee2D()
 	e.CancelShapeDrag2D()
 	e.CancelPluginDrag2D()
 	e.CancelComponentGizmoDrag3D()
@@ -1436,8 +1423,7 @@ func (e *Editor) SelectObject(id string) bool {
 		hadRoom := e.rooms != nil && e.rooms.selectedRoomID != ""
 		if e.SelectedID != "" || len(e.selectedIDs) > 0 || e.inspectAssetFile || e.inspectLayer || e.connPick != nil || hadRoom {
 			e.CancelRoomDrag()
-			e.SelectedID = ""
-			e.selectedIDs = nil
+			e.clearSelectionFields()
 			e.inspectAssetFile = false
 			e.inspectLayer = false
 			e.connPick = nil
@@ -1452,8 +1438,7 @@ func (e *Editor) SelectObject(id string) bool {
 		return false
 	} else if obj.GridMap != "" && e.gridMap.relPath != obj.GridMap && !e.GridMapDirty() {
 		// Selecting an object that names a GridMap loads it automatically when a project or GridMapFS is available.
-		e.SelectedID = id
-		e.selectedIDs = []string{id}
+		e.setSelectionQuiet([]string{id}, id)
 		e.Status = "Selected " + id
 		e.autoOpenSceneGridMap()
 		e.notify()
@@ -1464,8 +1449,7 @@ func (e *Editor) SelectObject(id string) bool {
 		e.CancelCameraDrag()
 		e.CancelCameraBoundsDrag()
 		e.CancelRoomDrag()
-		e.SelectedID = id
-		e.selectedIDs = []string{id}
+		e.setSelectionQuiet([]string{id}, id)
 		e.inspectAssetFile = false
 		e.inspectLayer = false
 		e.connPick = nil
@@ -1631,11 +1615,12 @@ func (e *Editor) PlaceObject(layerName string, obj sceneformat.ObjectDoc) (strin
 	}
 
 	cmd := &placeObjectCmd{
-		ed:           e,
-		layerName:    e.Doc.Layers[li].Name,
-		obj:          placed,
-		prevSelected: e.SelectedID,
-		prevVersion:  e.Doc.Version,
+		ed:              e,
+		layerName:       e.Doc.Layers[li].Name,
+		obj:             placed,
+		prevSelected:    e.SelectedID,
+		prevSelectedIDs: e.SelectedIDs(),
+		prevVersion:     e.Doc.Version,
 	}
 	e.History.Execute(cmd)
 	return placed.ID, nil
@@ -1727,6 +1712,7 @@ func (e *Editor) DeleteObject(id string) error {
 	}
 	// A drag in progress is put back first, so Undo of the delete restores the object as it was before the drag.
 	e.CancelDrag2D()
+	e.CancelMarquee2D()
 	e.CancelShapeDrag2D()
 	e.CancelPluginDrag2D()
 	e.CancelComponentGizmoDrag3D()
@@ -1739,12 +1725,13 @@ func (e *Editor) DeleteObject(id string) error {
 		return fmt.Errorf("editor: object %q not found", id)
 	}
 	cmd := &deleteObjectCmd{
-		ed:           e,
-		layerName:    e.Doc.Layers[loc.layer].Name,
-		index:        loc.index,
-		obj:          cloneObjectDoc(*loc.obj),
-		wasNilSlice:  false,
-		prevSelected: e.SelectedID,
+		ed:              e,
+		layerName:       e.Doc.Layers[loc.layer].Name,
+		index:           loc.index,
+		obj:             cloneObjectDoc(*loc.obj),
+		wasNilSlice:     false,
+		prevSelected:    e.SelectedID,
+		prevSelectedIDs: e.SelectedIDs(),
 	}
 	if loc.parent != nil {
 		cmd.parent = loc.parent.ID
@@ -2104,11 +2091,12 @@ func (e *Editor) SetObjectMesh(id, mesh string) error {
 // --- Commands (all look up target on e.Doc dynamically so Stop/snapshot restore never invalidates history) ---
 
 type placeObjectCmd struct {
-	ed           *Editor
-	layerName    string
-	obj          sceneformat.ObjectDoc
-	prevSelected string
-	wasNilSlice  bool
+	ed              *Editor
+	layerName       string
+	obj             sceneformat.ObjectDoc
+	prevSelected    string
+	prevSelectedIDs []string
+	wasNilSlice     bool
 	// prevVersion is the scene's version before the placement, which raises a version 1 scene to sceneformat.CurrentVersion when obj instances another scene or draws a glTF model.
 	prevVersion int
 }
@@ -2125,7 +2113,7 @@ func (c *placeObjectCmd) Do() {
 		c.ed.Doc.Version = sceneformat.CurrentVersion
 	}
 	c.ed.Doc.Layers[li].Objects = append(c.ed.Doc.Layers[li].Objects, cloneObjectDoc(c.obj))
-	c.ed.SelectedID = c.obj.ID
+	c.ed.setSelectionQuiet([]string{c.obj.ID}, c.obj.ID)
 	c.ed.Status = "Placed " + c.obj.ID
 }
 
@@ -2146,7 +2134,7 @@ func (c *placeObjectCmd) Undo() {
 	}
 	c.ed.Doc.Layers[li].Objects = objs
 	c.ed.Doc.Version = c.prevVersion
-	c.ed.SelectedID = c.prevSelected
+	c.ed.setSelectionQuiet(c.prevSelectedIDs, c.prevSelected)
 }
 
 // usesScene3DFeatures reports whether o or any of its descendants carries a 3D light or 3D camera, which needs a version 4 scene.
@@ -2193,11 +2181,12 @@ type deleteObjectCmd struct {
 	ed        *Editor
 	layerName string
 	// parent is the ID of the object whose child was deleted, or empty for a top-level object.
-	parent       string
-	index        int
-	obj          sceneformat.ObjectDoc
-	wasNilSlice  bool
-	prevSelected string
+	parent          string
+	index           int
+	obj             sceneformat.ObjectDoc
+	wasNilSlice     bool
+	prevSelected    string
+	prevSelectedIDs []string
 	// conns are the connections Do removed with the object, each with its index in the scene's connections before the removal, in ascending index order.
 	conns []removedConnection
 }
@@ -2266,9 +2255,21 @@ func (c *deleteObjectCmd) Do() {
 		kept = append(kept, conn)
 	}
 	c.ed.Doc.Connections = kept
-	if c.ed.SelectedID == c.obj.ID {
-		c.ed.SelectedID = ""
+	remaining := make([]string, 0, len(c.ed.selectedIDs))
+	for _, sid := range c.ed.SelectedIDs() {
+		if _, removed := ids[sid]; !removed {
+			remaining = append(remaining, sid)
+		}
 	}
+	primary := c.ed.SelectedID
+	if _, removed := ids[primary]; removed {
+		if len(remaining) > 0 {
+			primary = remaining[len(remaining)-1]
+		} else {
+			primary = ""
+		}
+	}
+	c.ed.setSelectionQuiet(remaining, primary)
 	c.ed.Status = "Deleted " + c.obj.ID
 }
 
@@ -2293,7 +2294,7 @@ func (c *deleteObjectCmd) Undo() {
 		at := min(rc.index, len(c.ed.Doc.Connections))
 		c.ed.Doc.Connections = slices.Insert(c.ed.Doc.Connections, at, rc.conn)
 	}
-	c.ed.SelectedID = c.prevSelected
+	c.ed.setSelectionQuiet(c.prevSelectedIDs, c.prevSelected)
 }
 
 type moveObjectCmd struct {
