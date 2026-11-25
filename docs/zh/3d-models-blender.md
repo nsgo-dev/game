@@ -222,7 +222,7 @@ blender --background --python tools/convert_to_glb.py -- art/character.fbx resou
 
 `game/gltf` 同时支持 `KHR_texture_transform` 和 `KHR_materials_variants`（无论出现在 `extensionsUsed` 还是 `extensionsRequired` 中）：
 
-- **`KHR_texture_transform`**：会在所有 PBR 贴图槽位（`BaseColorTexture`、`MetallicRoughnessTexture`、`NormalTexture`、`OcclusionTexture`、`EmissiveTexture`）上解析到 `TextureRef.Transform`（`*TextureTransform`）。
+- **`KHR_texture_transform`**：会在所有 PBR 与材质扩展贴图槽位（`BaseColorTexture`、`MetallicRoughnessTexture`、`NormalTexture`、`OcclusionTexture`、`EmissiveTexture`、`Clearcoat.Texture`、`Clearcoat.RoughnessTexture`、`Clearcoat.NormalTexture`、`Transmission.Texture`）上解析到 `TextureRef.Transform`（`*TextureTransform`）。
   - 默认值严格遵循 Khronos 规范（`offset: [0, 0]`、`rotation: 0`、`scale: [1, 1]`），并在 glTF UV 空间（`+U` 向右、`+V` 向下、正角度逆时针）中按精确的 `T * R * S` 顺序生效，可通过 `TextureTransform.Apply`、`TextureTransform.ApplyUV`、`TextureTransform.Matrix` 或 `TextureRef.ApplyUV` 计算。
   - 当 `KHR_texture_transform.texCoord` 存在时，`TextureRef.EffectiveTexCoord()` 会返回覆盖后的 UV 通道索引，而非 `TextureRef.TexCoord`。
   - `Document.PrimitiveTexCoords(prim, set)` 会直接返回 `TEXCOORD_0`/`TEXCOORD_1`，并按需解码更高的 UV 通道（`TEXCOORD_2` 等）；`Document.TransformTexCoords(prim, ref, out)` 可将图元对应贴图槽位变换后的 UV 写入可复用的切片中。
@@ -233,10 +233,12 @@ blender --background --python tools/convert_to_glb.py -- art/character.fbx resou
 
 ## 材质扩展
 
-`game/gltf` 还接受出现在 `extensionsUsed` 与 `extensionsRequired` 中的两个材质扩展：
+`game/gltf` 接受出现在 `extensionsUsed` 与 `extensionsRequired` 中的四个材质扩展：
 
 - **`KHR_materials_unlit`**：设置 `Material.Unlit`。
 - **`KHR_materials_emissive_strength`**：`Material.EmissiveStrength()` 返回 `EmissiveFactor` 的倍率；扩展或其 `emissiveStrength` 省略时为 1，载荷不是对象或数值不是 >= 0 的有限数时返回错误。
+- **`KHR_materials_clearcoat`**：解析到 `Material.Clearcoat`（`*Clearcoat`），包含 `Factor`、`RoughnessFactor`、`Texture`、`RoughnessTexture` 与 `NormalTexture`（完整支持 `Scale`、`TexCoord` 与 `KHR_texture_transform`），加载时拒绝越界因子或无效贴图引用。
+- **`KHR_materials_transmission`**：解析到 `Material.Transmission`（`*Transmission`），包含 `Factor` 与 `Texture`（完整支持 `TexCoord` 与 `KHR_texture_transform`），加载时拒绝越界因子或无效贴图引用。
 
 ## 烘焙光照贴图
 

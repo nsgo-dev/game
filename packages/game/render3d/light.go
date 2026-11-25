@@ -824,6 +824,14 @@ type PBRMaterial struct {
 	Roughness float32
 	// Emissive is optional linear RGB self-emission added after direct and ambient lighting.
 	Emissive math3d.Vec3
+	// Clearcoat is the KHR_materials_clearcoat coating intensity in [0, 1] (0 disables clearcoat).
+	Clearcoat float32
+	// ClearcoatRoughness is the perceptual roughness of the clearcoat layer in [0, 1].
+	ClearcoatRoughness float32
+	// Transmission is the KHR_materials_transmission optical transmission factor in [0, 1] (0 disables transmission).
+	Transmission float32
+	// IOR is the dielectric index of refraction (>= 1.0); zero defaults to 1.5 (F0 = 0.04).
+	IOR float32
 }
 
 // WithVertexColor returns a copy of m with BaseColor multiplied by c.XYZ and Alpha multiplied by
@@ -1214,21 +1222,29 @@ func EvaluatePBR(n, v, l math3d.Vec3, mat PBRMaterial) math3d.Vec3 {
 	a2 := a * a
 	const pi = float32(3.14159265)
 
+	f0d := dielectricF0FromIOR(mat.IOR)
 	f0 := math3d.Vec3{
-		X: dielectricF0 + (mat.BaseColor.X-dielectricF0)*m,
-		Y: dielectricF0 + (mat.BaseColor.Y-dielectricF0)*m,
-		Z: dielectricF0 + (mat.BaseColor.Z-dielectricF0)*m,
+		X: f0d + (mat.BaseColor.X-f0d)*m,
+		Y: f0d + (mat.BaseColor.Y-f0d)*m,
+		Z: f0d + (mat.BaseColor.Z-f0d)*m,
 	}
+	tr := clamp01(mat.Transmission)
+	cc := clamp01(mat.Clearcoat)
 
 	hRaw := v.Add(l)
 	hLen2 := hRaw.LenSq()
 	if hLen2 <= 1e-8 {
-		invPi := (1 - m) / pi
-		return math3d.Vec3{
+		invPi := (1 - m) * (1 - tr) / pi
+		base := math3d.Vec3{
 			X: (1 - f0.X) * mat.BaseColor.X * invPi,
 			Y: (1 - f0.Y) * mat.BaseColor.Y * invPi,
 			Z: (1 - f0.Z) * mat.BaseColor.Z * invPi,
 		}
+		if cc > 0 {
+			fCCView := float32(dielectricF0) + (1-dielectricF0)*pow5F32(1-ndotv)
+			base = base.Scale(1 - cc*fCCView)
+		}
+		return base
 	}
 	h := hRaw.Scale(float32(1.0 / math.Sqrt(float64(hLen2))))
 	ndoth := max(n.Dot(h), float32(0))
@@ -1251,12 +1267,32 @@ func EvaluatePBR(n, v, l math3d.Vec3, mat PBRMaterial) math3d.Vec3 {
 	}
 
 	dv := d * vis
-	invPi := (1 - m) / pi
-	return math3d.Vec3{
+	invPi := (1 - m) * (1 - tr) / pi
+	res := math3d.Vec3{
 		X: (1-f.X)*mat.BaseColor.X*invPi + dv*f.X,
 		Y: (1-f.Y)*mat.BaseColor.Y*invPi + dv*f.Y,
 		Z: (1-f.Z)*mat.BaseColor.Z*invPi + dv*f.Z,
 	}
+	if cc > 0 {
+		ccR := clampRange(mat.ClearcoatRoughness, minPerceptualRoughness, 1)
+		ccA := ccR * ccR
+		ccA2 := ccA * ccA
+		ccDenom := ndoth*ndoth*(ccA2-1) + 1
+		ccD := ccA2 / (pi * ccDenom * ccDenom)
+		ccGv := ndotl * float32(math.Sqrt(float64(ndotv*ndotv*(1-ccA2)+ccA2)))
+		ccGl := ndotv * float32(math.Sqrt(float64(ndotl*ndotl*(1-ccA2)+ccA2)))
+		ccVis := float32(0.5) / max(ccGv+ccGl, float32(1e-6))
+		ccF := float32(dielectricF0) + (1-dielectricF0)*t5
+		ccFView := float32(dielectricF0) + (1-dielectricF0)*pow5F32(1-ndotv)
+		ccSpec := cc * ccF * ccD * ccVis
+		atten := 1 - cc*ccFView
+		res = math3d.Vec3{
+			X: res.X*atten + ccSpec,
+			Y: res.Y*atten + ccSpec,
+			Z: res.Z*atten + ccSpec,
+		}
+	}
+	return res
 }
 
 // ShadePoint evaluates total outgoing linear RGB radiance at worldPos with surface normal and view direction viewDir (from surface toward the eye) under rig (ambient, directional, point, and spot lights) and mat, matching shade_pbr + emissive in [LitPBRWGSL].
@@ -1265,6 +1301,47 @@ func EvaluatePBR(n, v, l math3d.Vec3, mat PBRMaterial) math3d.Vec3 {
 // terms contribute. Call [LinearToSRGB] on the returned linear color to encode sRGB display output.
 func ShadePoint(worldPos, normal, viewDir math3d.Vec3, mat PBRMaterial, rig LightRig) math3d.Vec3 {
 	return ShadePointShadowed(worldPos, normal, viewDir, mat, rig, 1)
+}
+
+// ShadePointWithBackground evaluates [ShadePoint] and composites optical transmission from a linear RGB opaque scene background color behind the surface when mat.Transmission > 0, matching [ExtendedMaterialLitTransmissionWGSL] when clearcoat and base normals coincide.
+func ShadePointWithBackground(worldPos, normal, viewDir math3d.Vec3, mat PBRMaterial, rig LightRig, background math3d.Vec3) math3d.Vec3 {
+	lo := ShadePoint(worldPos, normal, viewDir, mat, rig)
+	tr := clamp01(mat.Transmission)
+	if tr <= 0 {
+		return lo
+	}
+	nLenSq := normal.LenSq()
+	vLenSq := viewDir.LenSq()
+	if nLenSq <= minLightDirLenSq || vLenSq <= minLightDirLenSq {
+		return lo
+	}
+	n := normal.Scale(float32(1.0 / math.Sqrt(float64(nLenSq))))
+	v := viewDir.Scale(float32(1.0 / math.Sqrt(float64(vLenSq))))
+	ndotv := max(n.Dot(v), float32(1e-4))
+	m := clamp01(mat.Metallic)
+	f0d := dielectricF0FromIOR(mat.IOR)
+	f0 := math3d.Vec3{
+		X: f0d + (mat.BaseColor.X-f0d)*m,
+		Y: f0d + (mat.BaseColor.Y-f0d)*m,
+		Z: f0d + (mat.BaseColor.Z-f0d)*m,
+	}
+	p5 := pow5F32(1 - ndotv)
+	fView := math3d.Vec3{
+		X: f0.X + (1-f0.X)*p5,
+		Y: f0.Y + (1-f0.Y)*p5,
+		Z: f0.Z + (1-f0.Z)*p5,
+	}
+	cc := clamp01(mat.Clearcoat)
+	ccAtten := float32(1)
+	if cc > 0 {
+		fCCView := float32(dielectricF0) + (1-dielectricF0)*p5
+		ccAtten = 1 - cc*fCCView
+	}
+	trWeight := (1 - m) * tr * ccAtten
+	lo.X += (1 - fView.X) * trWeight * mat.BaseColor.X * background.X
+	lo.Y += (1 - fView.Y) * trWeight * mat.BaseColor.Y * background.Y
+	lo.Z += (1 - fView.Z) * trWeight * mat.BaseColor.Z * background.Z
+	return lo
 }
 
 // ShadePointShadowed is [ShadePoint] with the first directional light (rig.Directional[0]) scaled by shadowVisibility, matching shade_pbr_shadowed in [LightWGSL] and the lighting of [LitPBRShadowWGSL]. Pass [EvaluateDirectionalShadow]'s result as shadowVisibility to reproduce a shadowed pixel on the CPU; 1 gives exactly [ShadePoint].
@@ -1282,18 +1359,32 @@ type LightVisibility struct {
 // ShadePointVisibility is [ShadePoint] with rig.Directional[0], rig.Point[0] and rig.Spot[0] scaled by the matching fields of vis, matching shade_pbr_visibility in [LightWGSL] and the lighting of [LitPBRShadowWGSL], [LitPBRSpotShadowWGSL] and [LitPBRPointShadowWGSL]. Pass [EvaluateSpotShadow] or [EvaluatePointShadow] results to reproduce a pixel those shaders draw.
 func ShadePointVisibility(worldPos, normal, viewDir math3d.Vec3, mat PBRMaterial, rig LightRig, vis LightVisibility) math3d.Vec3 {
 	amb := rig.Ambient.Color.Scale(rig.Ambient.Intensity)
-	lo := math3d.Vec3{
-		X: amb.X*mat.BaseColor.X + mat.Emissive.X,
-		Y: amb.Y*mat.BaseColor.Y + mat.Emissive.Y,
-		Z: amb.Z*mat.BaseColor.Z + mat.Emissive.Z,
-	}
+	tr := clamp01(mat.Transmission)
+	cc := clamp01(mat.Clearcoat)
+	ambScale := 1 - tr
 	nLenSq := normal.LenSq()
 	vLenSq := viewDir.LenSq()
 	if nLenSq <= minLightDirLenSq || vLenSq <= minLightDirLenSq {
-		return lo
+		return math3d.Vec3{
+			X: amb.X*mat.BaseColor.X*ambScale + mat.Emissive.X,
+			Y: amb.Y*mat.BaseColor.Y*ambScale + mat.Emissive.Y,
+			Z: amb.Z*mat.BaseColor.Z*ambScale + mat.Emissive.Z,
+		}
 	}
 	n := normal.Scale(float32(1.0 / math.Sqrt(float64(nLenSq))))
 	v := viewDir.Scale(float32(1.0 / math.Sqrt(float64(vLenSq))))
+	var ccAmb math3d.Vec3
+	if cc > 0 {
+		ndotv := max(n.Dot(v), float32(1e-4))
+		fCCView := float32(dielectricF0) + (1-dielectricF0)*pow5F32(1-ndotv)
+		ambScale *= 1 - cc*fCCView
+		ccAmb = amb.Scale(cc * fCCView)
+	}
+	lo := math3d.Vec3{
+		X: amb.X*mat.BaseColor.X*ambScale + ccAmb.X + mat.Emissive.X,
+		Y: amb.Y*mat.BaseColor.Y*ambScale + ccAmb.Y + mat.Emissive.Y,
+		Z: amb.Z*mat.BaseColor.Z*ambScale + ccAmb.Z + mat.Emissive.Z,
+	}
 
 	nDir := min(len(rig.Directional), MaxDirectionalLights)
 	for i := range nDir {

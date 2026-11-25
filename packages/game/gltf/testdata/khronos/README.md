@@ -9,6 +9,7 @@ Unmodified copies of models from [KhronosGroup/glTF-Sample-Assets](https://githu
 | Box | `glTF`, `glTF-Draco` | Cesium, 2017 | CC-BY-4.0 |
 | Cesium Man | `glTF` (texture `CesiumMan_img0.jpg` left out) | Cesium, 2017 | CC-BY-4.0 |
 | Cesium Milk Truck | `glTF`, `glTF-Draco` | Cesium, 2017 | CC-BY-4.0 |
+| Emissive Strength Test | `glTF` (`KHR_materials_emissive_strength`, with `PlainGrid.png`) | Ed Mackey, Analytical Graphics, Inc., 2022 | CC-BY-4.0 |
 | GlamVelvetSofa | `glTF` (`KHR_materials_variants`, `KHR_texture_transform`) | Eric Chadwick, Wayfair, LLC, 2021 | CC-BY-4.0 |
 | Meshopt Cube Test | `glTF` (optional extension with fallback buffer), `glTF-Meshopt` | Arseny Kapoulkine, 2025 | CC0-1.0 |
 | Morph-Primitives Test | `glTF`, `glTF-Draco` | ft-lab, 2018; Frank Galligan, 2020 | CC-BY-4.0 |

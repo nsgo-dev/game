@@ -540,6 +540,44 @@ gpuMesh.Draw(pass)
 - **`MaterialWGSL` 不会绘制的内容**：该着色器对所有材质都做光照，并且所有纹理都用网格的 `TEXCOORD_0` 采样、不做变换。无光照材质、纹理变换和其他 UV 通道只被记录而不会生效，若不另行处理，这类资产会绘制错误。`GLTFMaterialInfo.Unsupported()` 列出某个材质的这些情况，`GLTFTextureSlot.NeedsUVBake()` 报告需要把 UV 烘焙进网格（例如用 `Document.TransformTexCoords`）或改用自定义着色器的槽位。
 - **Khronos 参考验证**：`render3d` 的测试渲染 Khronos `DamagedHelmet` 样本，并以资产自身的基础色图像为准进行校验：用探测纹理读回每个像素的 UV，渲染结果必须在 glTF 的 UV 原点、sRGB 色彩与通道顺序下与解码后的 JPEG 吻合，且明显优于 V 翻转、按线性上传或通道交换的情形。测试还会与 `render3d/testdata/damagedhelmet/reference.png` 比对以捕捉回归，并在 `gpu.View` 上验证完整能力与 `nsgotest.NoGPUCompute`（WebGL 2 / GLES 3.0）配置的像素一致性，以及 `Retained` 设备丢失恢复。该模型采用 CC-BY-NC-4.0 许可，因此其目录是独立模块，不包含在发布的 `packages/game` 模块中；目录缺失时这些测试会跳过。
 
+### 扩展 PBR 材质：自发光强度、清漆层与透射（`GPUExtendedMaterial`、`TransmissionBackground`）
+
+`Material` 同时提供 `KHR_materials_clearcoat`（`ClearcoatFactor`、`ClearcoatRoughnessFactor`、`ClearcoatTexture`、`ClearcoatSampler`、`ClearcoatRoughnessTexture`、`ClearcoatRoughnessSampler`、`ClearcoatNormalTexture`、`ClearcoatNormalSampler`、`ClearcoatNormalScale`）、`KHR_materials_transmission`（`TransmissionFactor`、`TransmissionTexture`、`TransmissionSampler`）以及电介质折射率（`IOR`，默认 `DefaultMaterialIOR = 1.5`）字段；`KHR_materials_emissive_strength` 则直接折算进 HDR `EmissiveFactor`（`> 1.0`），配合 `LinearOutput: true`、`HDRTarget`、`BloomPass` 与 `ToneMapPass` 即可呈现真实的高动态泛光。
+
+普通金属度-粗糙度材质的 `GPUMaterial` 与 `MaterialDefaults` 保持精简的 11 项绑定布局不变。对于启用清漆层、透射或自定义折射率的表面，使用 `ExtendedMaterialDefaults`、`GPUExtendedMaterial`（或 `UploadGLTFExtendedMaterials`）与 `NewExtendedMaterialPipeline`：
+
+```go
+extDefs, err := render3d.NewExtendedMaterialDefaults(cx, dev, render3d.MaterialDefaultsOptions{Retained: true})
+transBG, err := render3d.NewTransmissionBackground(cx, dev, render3d.TransmissionBackgroundOptions{
+	Retained: true,
+	SRGB:     true, // 采样 sRGB 编码的 RGBA8Unorm 不透明通道时设为 true；HDRTarget 设为 false
+})
+pipe, err := render3d.NewExtendedMaterialPipeline(cx, dev, camBuf.Layout(), extDefs.Layout(), render3d.ExtendedMaterialPipelineOptions{
+	DepthFormat:        gpu.FormatDepth24Plus,
+	LightLayout:        lightBuf.Layout(), // 可选：在 ExtendedLightGroup (2) 绑定 LightRig
+	TransmissionLayout: transBG.Layout(),  // 可选：在 TransmissionBackgroundGroup (3) 绑定逐帧背景
+})
+
+// 上传 glTF 扩展材质（基础 PBR + 清漆层 + 透射 + 自发光强度 + IOR）：
+matSet, err := render3d.UploadGLTFExtendedMaterials(cx, dev, extDefs, doc, render3d.GLTFMaterialUpload{
+	Label:    "Sunglasses",
+	Retained: true,
+})
+
+// 每帧先将不透明场景渲染到 opaqueRT，再更新唯一一份逐帧 TransmissionBackground，随后绘制透射物体：
+_ = transBG.SetTexture(dev, opaqueRT.Color, true) // 动态分辨率下调用 transBG.SetDynamicResolution(dev, dynTarget, nil, 0, 0, true)
+pass.SetPipeline(pipe)
+pass.SetBindGroup(render3d.CameraGroup, camBuf.BindGroup())
+pass.SetBindGroup(render3d.ExtendedLightGroup, lightBuf.BindGroup())
+transBG.Bind(pass) // 绑定到 @group(3) TransmissionBackgroundGroup（无 LightLayout 时用 BindAt(..., MaterialTransmissionBackgroundGroup)）
+matSet.ExtendedMaterial(prim.Material).Bind(pass) // 绑定到 @group(1) MaterialGroup
+mesh.Draw(pass)
+```
+
+- **按 UV 对齐的清漆层法线贴图**：`ExtendedMaterialBindingsWGSL` 对 `ClearcoatNormalTexture` 复用与基础法线相同的克莱姆法则 `dpdx`/`dpdy` 切线空间标架（带确定性正交基回退），且独立作用于几何法线、不受基础 `NormalTexture` 干扰，支持正负 `ClearcoatNormalScale`。
+- **逐帧透射背景与动态分辨率适配**：`TransmissionBackground` 不把不透明场景纹理烘焙进单个材质的绑定组，因此在窗口缩放或 `DynamicResolutionTarget` 动态缩放时只需更新一次通道级绑定组。着色器通过 `frag_pos.xy / vec2<f32>(textureDimensions(transmission_bg_tex))` 计算屏幕 UV，并由 `SetViewport` / `SetDynamicResolution` 进行比例缩放与半纹素钳位，避免边缘填充纹素渗色。
+- **CPU 一致性与 Khronos 黄金图验证**：`EvaluateMaterial`、`EvaluatePBR`、`ShadePoint` 与 `ShadePointWithBackground` 均在 CPU 侧支持清漆层、透射与 IOR 求值以与 GPU 着色器对齐。测试验证了 GPU/CPU 像素一致性、0.5×–1.0× 动态分辨率缩放、`gpu.View` 在完整能力与 `nsgotest.NoGPUCompute`（WebGL 2 / GLES 3.0）下的渲染、`Retained` 设备丢失恢复，以及 Khronos `EmissiveStrengthTest`（`khronos_emissive_strength.png`）、`TextureTransformMultiTest` 清漆面板（`khronos_clearcoat.png`）与 `SunglassesKhronos`（`khronos_transmission.png`）的黄金参考图。
+
 ## 无光照材质与顶点色（`UnlitMaterial`、`ColoredMesh`）
 
 `ColoredMesh` 与 `GPUColoredMesh` 在 `MeshVertexLayout`（location 0–2）基础上于 `@location(3)` 扩展了线性 RGBA 顶点色属性（`ColoredVertexLayout`，步长 48 字节），用于 glTF `COLOR_0`。当 `Colors` 为空时，`AppendVertexData` 为每个顶点写入线性不透明白色 `(1, 1, 1, 1)`，使带顶点色与不带顶点色的网格共用同一管线。`ColoredMeshFromGLTF` 从 `gltf.Document` 提取三角形图元，包括 `COLOR_0`（将 VEC3 RGB 的 alpha 补为 `1.0`）以及 `baseColorTexture` 上的 `KHR_texture_transform` UV 变换。
