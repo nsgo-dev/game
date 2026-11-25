@@ -21,7 +21,7 @@ var Sunburst = &pixelfx.Effect{
 		FPS:      30,
 		BG:       "dark",
 		Options: []pixelfx.Option{
-			{Name: "palette", Default: pixelfx.Palette(Gold...)},
+			{Name: "palette", Default: goldPalette()},
 			{Name: "rays", Default: pixelfx.Num(8)},
 			{Name: "seed", Default: pixelfx.Num(3)},
 		},
@@ -78,7 +78,7 @@ func sunburstRay(p *pixelfx.Painter, C []uint32, a, L, w0, k float64) {
 }
 
 func newSunburst(o *pixelfx.Options) pixelfx.Instance {
-	C, rays, seed := pixelfx.Fit(o.Palette(), 8), o.Num("rays"), o.Seed()
+	C, rays, seed := pixelfx.Fit(o.Palette(), 8), bounded(o.Num("rays"), 1, 64), o.Seed()
 	return &pixelfx.Funcs{DrawFunc: func(p *pixelfx.Painter, t float64) {
 		T := float64(sunburstT)
 		N := rays * 2

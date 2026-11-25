@@ -24,7 +24,7 @@ var DivineShield = &pixelfx.Effect{
 		BG:       "ground",
 		Actor:    2,
 		Options: []pixelfx.Option{
-			{Name: "palette", Default: pixelfx.Palette(Gold...)},
+			{Name: "palette", Default: goldPalette()},
 			{Name: "radius", Default: pixelfx.Num(29)},
 			{Name: "seed", Default: pixelfx.Num(8)},
 		},
@@ -80,7 +80,7 @@ type shieldInst struct {
 }
 
 func newDivineShield(o *pixelfx.Options) pixelfx.Instance {
-	s := &shieldInst{C: pixelfx.Fit(o.Palette(), 8), r: o.Num("radius"), seed: o.Seed(), A: o.Actor, seen: map[float64]int{}}
+	s := &shieldInst{C: pixelfx.Fit(o.Palette(), 8), r: bounded(o.Num("radius"), 22, 256), seed: o.Seed(), A: o.Actor, seen: map[float64]int{}}
 	if s.A != nil {
 		s.S = shapeOf(s.A)
 	}

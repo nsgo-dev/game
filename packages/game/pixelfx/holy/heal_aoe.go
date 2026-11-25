@@ -21,7 +21,7 @@ var HealAoe = &pixelfx.Effect{
 		FPS:      30,
 		BG:       "ground",
 		Options: []pixelfx.Option{
-			{Name: "palette", Default: pixelfx.Palette(Green...)},
+			{Name: "palette", Default: greenPalette()},
 			{Name: "reach", Default: pixelfx.Num(104)},
 			{Name: "seed", Default: pixelfx.Num(6)},
 		},
@@ -43,7 +43,7 @@ type healSite struct {
 type healRider struct{ a, w float64 }
 
 func newHealAoe(o *pixelfx.Options) pixelfx.Instance {
-	C, REACH, R, W := pixelfx.Fit(o.Palette(), 8), o.Num("reach"), pixelfx.NewRng(o.Seed()), pixelfx.White
+	C, REACH, R, W := pixelfx.Fit(o.Palette(), 8), bounded(o.Num("reach"), 8, 1024), pixelfx.NewRng(o.Seed()), pixelfx.White
 	SY, SEED, ROLL := healAoeSY, healAoeSeed, healAoeRoll
 	ps := pixelfx.NewParticles(pixelfx.SimOpts{Rng: R, Ground: func(float64) float64 { return 0 }, Sparks: []uint32{W, C[6], C[5], C[4]}})
 	lights := &pixelfx.Lights{}

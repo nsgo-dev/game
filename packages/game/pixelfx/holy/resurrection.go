@@ -32,8 +32,8 @@ var Resurrection = &pixelfx.Effect{
 		BG:       "ground",
 		Actor:    2,
 		Options: []pixelfx.Option{
-			{Name: "palette", Default: pixelfx.Palette(Gold...)},
-			{Name: "ash", Default: pixelfx.Palette(Ash...)},
+			{Name: "palette", Default: goldPalette()},
+			{Name: "ash", Default: ashPalette()},
 			{Name: "seed", Default: pixelfx.Num(5)},
 		},
 	},
