@@ -288,11 +288,12 @@ func (e *Editor) objectBaseExtents3D(o *sceneformat.ObjectDoc) (w, h, d float32)
 	return w, h, d
 }
 
-// ObjectCorners3D returns the 8 world-space corners of object o's oriented 3D bounding box. A nested child's box is placed by the transforms of its ancestors too.
+// ObjectCorners3D returns the 8 world-space corners of object o's oriented 3D bounding box: the bounds of the geometry it draws when the scene's 3D build (Scene3D) gives it a mesh or model, and otherwise a box the size of its sprite frame, or of a marker without one, as deep as its depth. A nested child's box is placed by the transforms of its ancestors too.
 func (e *Editor) ObjectCorners3D(o *sceneformat.ObjectDoc) [8][3]float32 {
 	if o == nil {
 		return [8][3]float32{}
 	}
+	e.scene3D()
 	return e.objectCorners3DUnder(o, e.parentWorld3D(o.ID))
 }
 
@@ -308,9 +309,27 @@ var boxSigns3D = [8][3]float64{
 	{-1, +1, +1},
 }
 
-// objectCorners3DUnder is ObjectCorners3D for an object whose parent's local space maps to world space by parent, so a walk down the tree composes each parent once instead of looking up every object's ancestors.
+// objectCorners3DUnder is ObjectCorners3D for an object whose parent's local space maps to world space by parent, so a walk down the tree composes each parent once instead of looking up every object's ancestors. It reads the 3D build as it stands, which the caller brings up to date (scene3D).
 func (e *Editor) objectCorners3DUnder(o *sceneformat.ObjectDoc, parent aff3) [8][3]float32 {
 	var corners [8][3]float32
+	if b, ok := e.geometryBounds3D(o.ID); ok {
+		local := local3(o)
+		if parent != ident3 {
+			local = parent.mul(local)
+		}
+		lo, hi := [3]float32{b.Min.X, b.Min.Y, b.Min.Z}, [3]float32{b.Max.X, b.Max.Y, b.Max.Z}
+		for i, s := range boxSigns3D {
+			var p [3]float64
+			for axis := range 3 {
+				p[axis] = float64(lo[axis])
+				if s[axis] > 0 {
+					p[axis] = float64(hi[axis])
+				}
+			}
+			corners[i] = vec32(local.point(p))
+		}
+		return corners
+	}
 	bw, bh, bd := e.objectBaseExtents3D(o)
 	hx := float64(bw) * 0.5 * math.Abs(float64(o.EffectiveScaleX()))
 	hy := float64(bh) * 0.5 * math.Abs(float64(o.EffectiveScaleY()))
@@ -335,6 +354,11 @@ func (e *Editor) ObjectAABB3D(o *sceneformat.ObjectDoc) (boxMin, boxMax [3]float
 		return boxMin, boxMax
 	}
 	return aabbOfCorners3D(e.ObjectCorners3D(o))
+}
+
+// objectAABB3D is ObjectAABB3D reading the 3D build as it stands, which the caller brings up to date once (scene3D) before it measures many objects.
+func (e *Editor) objectAABB3D(o *sceneformat.ObjectDoc) (boxMin, boxMax [3]float32) {
+	return aabbOfCorners3D(e.objectCorners3DUnder(o, e.parentWorld3D(o.ID)))
 }
 
 // aabbOfCorners3D returns the axis-aligned box enclosing corners, with a minimal pickable thickness along degenerate axes.
@@ -363,7 +387,7 @@ func aabbOfCorners3D(corners [8][3]float32) (boxMin, boxMax [3]float32) {
 	return boxMin, boxMax
 }
 
-// Pick3D casts a perspective ray through viewport pixel (sx, sy) and intersects it against every visible scene object's 3D AABB, nested children included, returning the flat index (Objects3D's) of the closest hit object. Objects hidden or locked in the editor (SetObjectHidden, SetObjectLocked), with their descendants, and the objects of hidden and locked layers (SetLayerVisible, SetLayerLocked) are passed over.
+// Pick3D casts a perspective ray through viewport pixel (sx, sy) and returns the flat index (Objects3D's) of the closest visible scene object it hits, nested children included. An object that draws a mesh or model in the scene's 3D build (Scene3D) is hit on the triangles of its geometry, through the build's scene3d picking, and any other object on its world-space 3D AABB (ObjectAABB3D); an object an instanced scene adds is picked as its instance. Objects hidden or locked in the editor (SetObjectHidden, SetObjectLocked), with their descendants, and the objects of hidden and locked layers (SetLayerVisible, SetLayerLocked) are passed over.
 func (e *Editor) Pick3D(sx, sy, w, h float32) (objectIndex int, ok bool) {
 	if e == nil || e.Doc == nil || w <= 0 || h <= 0 {
 		return -1, false
@@ -371,6 +395,8 @@ func (e *Editor) Pick3D(sx, sy, w, h float32) (objectIndex int, ok bool) {
 	orig32, dir32 := e.Camera3D.ScreenRay(sx, sy, w, h)
 	orig := vec64(orig32)
 	dir := vec64(dir32)
+	s3 := e.scene3D()
+	meshID, meshT, meshHit := e.pickGeometry3D(s3, orig, dir)
 
 	bestIdx := -1
 	bestT := math.Inf(1)
@@ -389,7 +415,11 @@ func (e *Editor) Pick3D(sx, sy, w, h float32) (objectIndex int, ok bool) {
 				posed := e.posed3D(o)
 				// A hidden or locked object takes its descendants with it.
 				skipped := skip || e.hidden[o.ID] || e.locked[o.ID]
-				if visible && !skipped {
+				if meshHit && o.ID == meshID && meshT < bestT {
+					bestT = meshT
+					bestIdx = idx
+				}
+				if _, geometry := e.geometryBounds3D(o.ID); visible && !skipped && !geometry {
 					bmin, bmax := aabbOfCorners3D(e.objectCorners3DUnder(posed, parent))
 					if t, hit := intersectRayAABB64(orig, dir, vec64(bmin), vec64(bmax)); hit && t < bestT {
 						bestT = t
@@ -923,8 +953,7 @@ func (e *Editor) HandleViewport3DWheel(deltaY float32) {
 	e.notify()
 }
 
-// DrawViewport3D renders the 3D scene view onto d: background, XZ ground grid, world origin axes,
-// depth-sorted 3D wireframe bounding boxes for every visible scene object, and the active 3D gizmo.
+// DrawViewport3D renders the 3D scene view onto d. Without the GPU view (Viewport3DOnGPU) it draws the whole view: the scene's background, the XZ ground grid, the world origin axes, a depth-sorted wireframe box for every visible object (the bounds of its geometry when it draws a mesh or model, ObjectCorners3D) and the active 3D gizmo. While the GPU view draws the scene's geometry under it, d is an overlay: it leaves the background clear and draws the grid, the axes, a box for each object that draws no geometry, the selected object's box as its selection outline, the edges of the geometry's triangles in Shading3DWireframe, and the gizmo.
 func (e *Editor) DrawViewport3D(d *core.Drawing, size core.Size) {
 	if e == nil || d == nil {
 		return
@@ -933,15 +962,13 @@ func (e *Editor) DrawViewport3D(d *core.Drawing, size core.Size) {
 	if w <= 0 || h <= 0 {
 		w, h = e.ViewportSize()
 	}
+	s3 := e.scene3D()
+	overlay := e.gpu3D
 
-	// 1. Background fill.
-	bg := core.RGBA(0x141824, 1)
-	if e.Doc != nil && e.Doc.BackgroundColor != "" {
-		if parsed, err := core.ParseColor(e.Doc.BackgroundColor); err == nil {
-			bg = parsed
-		}
+	// 1. Background fill, which the GPU view draws when it draws the scene.
+	if !overlay {
+		d.Save().SetFillColor(e.background3D()).FillRect(0, 0, w, h).Restore()
 	}
-	d.Save().SetFillColor(bg).FillRect(0, 0, w, h).Restore()
 
 	// 2. 3D ground grid on XZ plane (Y = 0).
 	e.drawGrid3D(d, w, h)
@@ -949,16 +976,73 @@ func (e *Editor) DrawViewport3D(d *core.Drawing, size core.Size) {
 	// 3. World origin axes (X red, Y green, Z blue).
 	e.drawOriginAxes3D(d, w, h)
 
-	// 4. Projected 3D wireframe bounding boxes for all visible scene objects.
-	e.drawSceneObjects3D(d, w, h)
+	// 4. Projected 3D wireframe bounding boxes for the visible scene objects.
+	e.drawSceneObjects3D(d, w, h, overlay)
 
 	// 4b. Projected 3D physics collider and trigger debug wireframes.
 	e.drawPhysicsDebug3D(d, w, h)
 
-	// 5. Active 3D transform gizmo on the selected object.
+	// 5. The edges of the geometry the GPU view draws, in wireframe shading.
+	if overlay && e.Shading3D == Shading3DWireframe {
+		e.drawWireframe3D(d, s3, w, h)
+	}
+
+	// 6. Active 3D transform gizmo on the selected object.
 	if !e.playing {
 		e.drawGizmo3D(d, w, h)
 	}
+}
+
+// background3D returns the scene's background color, or the editor's dark default when it sets none or one that does not parse.
+func (e *Editor) background3D() core.Color {
+	bg := core.RGBA(0x141824, 1)
+	if e.Doc != nil && e.Doc.BackgroundColor != "" {
+		if parsed, err := core.ParseColor(e.Doc.BackgroundColor); err == nil {
+			bg = parsed
+		}
+	}
+	return bg
+}
+
+// maxWireframeEdges3D caps the triangle edges the wireframe overlay draws in one frame, so a dense model cannot stall the canvas.
+const maxWireframeEdges3D = 1 << 18
+
+// drawWireframe3D strokes the edges of the triangles of every visible part of the 3D build, at the posed nodes' transforms.
+func (e *Editor) drawWireframe3D(d *core.Drawing, s *scene3DState, w, h float32) {
+	if s.built == nil {
+		return
+	}
+	d.Save().SetStrokeColor(core.RGBA(0xE2E8F0, 0.55)).SetLineWidth(1).BeginPath()
+	drawn := 0
+	var world [][3]float32
+	for _, dr := range s.built.Drawables {
+		if !dr.Node.EffectiveVisible() {
+			continue
+		}
+		m := dr.Node.WorldMatrix()
+		for pi := range dr.Parts {
+			p := &dr.Parts[pi]
+			world = world[:0]
+			for _, v := range p.Mesh.Positions {
+				q := m.TransformPoint(v)
+				world = append(world, [3]float32{q.X, q.Y, q.Z})
+			}
+			for _, edge := range s.meshEdges3D(p.MeshID, p.Mesh) {
+				if drawn == maxWireframeEdges3D {
+					d.Stroke().Restore()
+					return
+				}
+				if x0, y0, x1, y1, vis := e.Camera3D.projectSegment(world[edge[0]], world[edge[1]], w, h); vis {
+					d.MoveTo(x0, y0).LineTo(x1, y1)
+					drawn++
+				}
+			}
+		}
+	}
+	if drawn > 0 {
+		d.Stroke()
+	}
+	d.Restore()
 }
 
 func (e *Editor) gridStep3D() (step float32, halfLines int) {
@@ -1031,7 +1115,8 @@ var boxEdges3D = [12][2]int{
 	{0, 4}, {1, 5}, {2, 6}, {3, 7}, // connecting edges
 }
 
-func (e *Editor) drawSceneObjects3D(d *core.Drawing, w, h float32) {
+// drawSceneObjects3D strokes the boxes of the visible scene objects, back to front with the selected one last; over the GPU view (overlay) it leaves out the boxes of the unselected objects whose geometry the GPU view draws.
+func (e *Editor) drawSceneObjects3D(d *core.Drawing, w, h float32, overlay bool) {
 	if e.Doc == nil {
 		return
 	}
@@ -1062,6 +1147,10 @@ func (e *Editor) drawSceneObjects3D(d *core.Drawing, w, h float32) {
 				children := o.Children
 				// While an animation clip is open, draw each object as the clip poses it at the playhead, as the 2D viewport does through ActiveScene.
 				o = e.posed3D(o)
+				if _, geometry := e.geometryBounds3D(o.ID); overlay && geometry && o.ID != e.SelectedID {
+					walk(children, parent.mul(local3(o)))
+					continue
+				}
 				rel := sub64(parent.point([3]float64{float64(o.X), float64(o.Y), float64(o.PosZ)}), eye)
 				depth := float32(dot64(rel, forward))
 				items = append(items, drawable3D{

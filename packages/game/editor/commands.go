@@ -31,6 +31,9 @@ const (
 	CmdGizmoScale      = "gizmo.scale"
 	CmdView2D          = "view.mode2d"
 	CmdView3D          = "view.mode3d"
+	CmdShadingLit      = "view.shading.lit"
+	CmdShadingUnlit    = "view.shading.unlit"
+	CmdShadingWire     = "view.shading.wireframe"
 	CmdFrameSelection  = "view.frame"
 	CmdCommandPalette  = "view.palette"
 	CmdPlayStop        = "project.play"
@@ -428,6 +431,42 @@ func (e *Editor) initBuiltinCommands() {
 			Checked:     func() bool { return e.ViewMode == ViewMode3D },
 			Run: func() error {
 				e.SetViewMode(ViewMode3D)
+				return nil
+			},
+		},
+		{
+			ID:          CmdShadingLit,
+			Label:       "3D Shading: Lit",
+			Description: "Light the 3D viewport's geometry with the scene's lights",
+			Category:    "View",
+			Keywords:    []string{"shading", "lit", "lights", "3d"},
+			Checked:     func() bool { return e.Shading3D == Shading3DLit },
+			Run: func() error {
+				e.SetShading3D(Shading3DLit)
+				return nil
+			},
+		},
+		{
+			ID:          CmdShadingUnlit,
+			Label:       "3D Shading: Unlit",
+			Description: "Draw the 3D viewport's geometry at its base colors, without lights",
+			Category:    "View",
+			Keywords:    []string{"shading", "unlit", "albedo", "flat", "3d"},
+			Checked:     func() bool { return e.Shading3D == Shading3DUnlit },
+			Run: func() error {
+				e.SetShading3D(Shading3DUnlit)
+				return nil
+			},
+		},
+		{
+			ID:          CmdShadingWire,
+			Label:       "3D Shading: Wireframe",
+			Description: "Light the 3D viewport's geometry and draw its triangle edges over it",
+			Category:    "View",
+			Keywords:    []string{"shading", "wireframe", "edges", "triangles", "3d"},
+			Checked:     func() bool { return e.Shading3D == Shading3DWireframe },
+			Run: func() error {
+				e.SetShading3D(Shading3DWireframe)
 				return nil
 			},
 		},
@@ -856,8 +895,9 @@ func (e *Editor) FrameSelection() bool {
 }
 
 func (e *Editor) frameSelection3D() bool {
+	e.scene3D()
 	if obj, _ := e.SelectedObject(); obj != nil {
-		bmin, bmax := e.ObjectAABB3D(obj)
+		bmin, bmax := e.objectAABB3D(obj)
 		e.frameAABB3D(bmin, bmax)
 		e.Status = "Framed " + obj.ID
 		e.notify()
@@ -870,9 +910,9 @@ func (e *Editor) frameSelection3D() bool {
 		e.notify()
 		return true
 	}
-	bmin, bmax := e.ObjectAABB3D(objs[0].Doc)
+	bmin, bmax := e.objectAABB3D(objs[0].Doc)
 	for _, ref := range objs[1:] {
-		mn, mx := e.ObjectAABB3D(ref.Doc)
+		mn, mx := e.objectAABB3D(ref.Doc)
 		for axis := 0; axis < 3; axis++ {
 			if mn[axis] < bmin[axis] {
 				bmin[axis] = mn[axis]

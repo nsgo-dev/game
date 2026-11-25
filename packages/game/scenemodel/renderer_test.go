@@ -41,6 +41,12 @@ func levelCamera() *scene3d.Camera {
 // renderLevel draws built with a Renderer on a software GPU and returns the image.
 func renderLevel(t *testing.T, built *scenemodel.Built) (*image.RGBA, render3d.RenderStats) {
 	t.Helper()
+	return renderLevelShaded(t, built, scenemodel.ShadingLit)
+}
+
+// renderLevelShaded is renderLevel with the renderer's shading set to shading.
+func renderLevelShaded(t *testing.T, built *scenemodel.Built, shading scenemodel.Shading) (*image.RGBA, render3d.RenderStats) {
+	t.Helper()
 	sr := gpu.NewSoftwareRenderer(renderWidth, renderHeight, gpu.FormatDepth24Plus)
 	t.Cleanup(sr.Close)
 	dev := sr.Device()
@@ -53,6 +59,12 @@ func renderLevel(t *testing.T, built *scenemodel.Built) (*image.RGBA, render3d.R
 			t.Errorf("Close: %v", err)
 		}
 	})
+	if err := r.SetShading(shading); err != nil {
+		t.Fatalf("SetShading(%v): %v", shading, err)
+	}
+	if r.Shading() != shading {
+		t.Fatalf("Shading() = %v after SetShading(%v)", r.Shading(), shading)
+	}
 	stats, err := r.Prepare(levelCamera(), levelLights)
 	if err != nil {
 		t.Fatalf("Prepare: %v", err)
@@ -145,6 +157,51 @@ func TestLevelRendersLitAndTextured(t *testing.T) {
 	}
 }
 
+// TestUnlitShadingIgnoresTheLights draws the level unlit: the sphere is one flat teal on its lit and shaded sides, its material's base color, and the crate still shows its texture.
+func TestUnlitShadingIgnoresTheLights(t *testing.T) {
+	_, built := buildLevel(t)
+	lit, _ := renderLevel(t, built)
+	img, stats := renderLevelShaded(t, built, scenemodel.ShadingUnlit)
+	if stats.VisibleItems != 6 {
+		t.Errorf("unlit stats visible %d, want 6", stats.VisibleItems)
+	}
+	cam := levelCamera()
+	ball := built.Objects["ball"].WorldTransform().Pos
+	lx, ly := projectPoint(cam, ball.Add(math3d.Vec3{X: 0.3, Y: 0.3, Z: 0.15}))
+	sx, sy := projectPoint(cam, ball.Add(math3d.Vec3{X: -0.3, Y: -0.3, Z: 0.15}))
+	a, b := img.RGBAAt(lx, ly), img.RGBAAt(sx, sy)
+	if absDiff(a.R, b.R) > 2 || absDiff(a.G, b.G) > 2 || absDiff(a.B, b.B) > 2 {
+		t.Errorf("unlit ball sides %v and %v differ, want one flat color", a, b)
+	}
+	if a.G <= a.R || a.B <= a.R {
+		t.Errorf("unlit ball %v should be teal", a)
+	}
+	if lit.RGBAAt(sx, sy) == b {
+		t.Error("the ball's shaded side looks the same lit and unlit")
+	}
+
+	crate := built.Objects["crate"].Children()[0]
+	world := crate.WorldMatrix()
+	colors := map[[3]uint8]bool{}
+	for _, u := range []float32{-0.35, -0.15, 0.05, 0.25} {
+		for _, v := range []float32{-0.35, -0.15, 0.05, 0.25} {
+			x, y := projectPoint(cam, world.TransformPoint(math3d.Vec3{X: u, Y: v, Z: 0.5}))
+			c := img.RGBAAt(x, y)
+			colors[[3]uint8{c.R, c.G, c.B}] = true
+		}
+	}
+	if len(colors) < 2 {
+		t.Errorf("unlit crate face shows %d colors, want its checkerboard", len(colors))
+	}
+}
+
+func absDiff(a, b uint8) uint8 {
+	if a > b {
+		return a - b
+	}
+	return b - a
+}
+
 func TestRendererRejectsBadInput(t *testing.T) {
 	if _, err := scenemodel.NewRenderer(nil, nil, &scenemodel.Built{}, scenemodel.RendererOptions{}); err == nil {
 		t.Error("NewRenderer accepted a nil device")
@@ -169,12 +226,22 @@ func TestRendererRejectsBadInput(t *testing.T) {
 		t.Error("Prepare accepted a nil camera")
 	}
 
+	if err := r.SetShading(scenemodel.Shading(7)); err == nil || r.Shading() != scenemodel.ShadingLit {
+		t.Errorf("SetShading(7) = %v, shading %v, want an error and lit shading kept", err, r.Shading())
+	}
+	if got := scenemodel.Shading(7).String(); got != "Shading(7)" {
+		t.Errorf("Shading(7).String() = %q", got)
+	}
+
 	// A closed renderer refuses to prepare and records nothing, instead of reaching for released resources.
 	if err := r.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
 	if _, err := r.Prepare(levelCamera(), levelLights); err == nil || !strings.Contains(err.Error(), "closed") {
 		t.Errorf("Prepare after Close = %v, want an error", err)
+	}
+	if err := r.SetShading(scenemodel.ShadingUnlit); err == nil {
+		t.Error("SetShading after Close succeeded")
 	}
 	enc := sr.Device().BeginEncoder()
 	pass := enc.BeginRenderPass(gpu.RenderPassDesc{

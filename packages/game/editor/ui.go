@@ -183,6 +183,22 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 		}
 	}
 
+	shadingBtn := func(testID, label string, mode Shading3D) core.Node {
+		return ui.ToggleButton{
+			TestID: testID,
+			Text:   label,
+			On: func() bool {
+				_ = rev.Get()
+				return ed.Shading3D == mode
+			},
+			OnChange: func(on bool) {
+				if on {
+					ed.SetShading3D(mode)
+				}
+			},
+		}
+	}
+
 	// The edit tools and the 2D view group make the bar wider than a narrow window; it wraps, moving the file and play buttons to a second row rather than past the window's edge, where they cannot be pressed.
 	return core.View{
 		TestID: "editor-toolbar",
@@ -235,12 +251,25 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 							return ed.ViewMode == ViewMode3D
 						},
 						Then: func(cx *core.Scope) core.Node {
-							return ui.ToolbarGroup{
-								Label: "3D Gizmo",
+							return ui.HStack{
+								Gap: 6,
 								Children: []core.Node{
-									gizmoBtn("gizmo-translate", "Translate", Gizmo3DTranslate),
-									gizmoBtn("gizmo-rotate", "Rotate", Gizmo3DRotate),
-									gizmoBtn("gizmo-scale", "Scale", Gizmo3DScale),
+									ui.ToolbarGroup{
+										Label: "3D Gizmo",
+										Children: []core.Node{
+											gizmoBtn("gizmo-translate", "Translate", Gizmo3DTranslate),
+											gizmoBtn("gizmo-rotate", "Rotate", Gizmo3DRotate),
+											gizmoBtn("gizmo-scale", "Scale", Gizmo3DScale),
+										},
+									},
+									ui.ToolbarGroup{
+										Label: "3D Shading",
+										Children: []core.Node{
+											shadingBtn("shading-lit", "Lit", Shading3DLit),
+											shadingBtn("shading-unlit", "Unlit", Shading3DUnlit),
+											shadingBtn("shading-wireframe", "Wireframe", Shading3DWireframe),
+										},
+									},
 								},
 							}
 						},

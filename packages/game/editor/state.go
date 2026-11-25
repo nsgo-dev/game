@@ -17,6 +17,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/animclip"
 	"github.com/nsgo-dev/game/packages/game/loaderr"
 	"github.com/nsgo-dev/game/packages/game/project"
+	"github.com/nsgo-dev/game/packages/game/render3d"
 	"github.com/nsgo-dev/game/packages/game/resource"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/game/packages/game/tilemap"
@@ -111,6 +112,32 @@ func (m GizmoMode3D) String() string {
 	}
 }
 
+// Shading3D selects how the 3D viewport shades the scene's geometry when it draws it on the GPU (Viewport3DOnGPU).
+type Shading3D int
+
+const (
+	// Shading3DLit lights the geometry with Lights3D, or with DefaultLights3D under a gradient sky when Lights3D is nil.
+	Shading3DLit Shading3D = iota
+	// Shading3DUnlit draws the geometry at its textured base color plus its emissive color, ignoring the lights.
+	Shading3DUnlit
+	// Shading3DWireframe lights the geometry as Shading3DLit does and draws the edges of its triangles over it.
+	Shading3DWireframe
+)
+
+// String returns a human-readable label for the shading mode.
+func (s Shading3D) String() string {
+	switch s {
+	case Shading3DLit:
+		return "Lit"
+	case Shading3DUnlit:
+		return "Unlit"
+	case Shading3DWireframe:
+		return "Wireframe"
+	default:
+		return "Unknown"
+	}
+}
+
 // GizmoAxis3D identifies an axis handle on a 3D transform gizmo.
 type GizmoAxis3D int
 
@@ -181,6 +208,10 @@ type Editor struct {
 	SelectedAsset  *AssetEntry
 	Status         string
 	FilePath       string
+	// Shading3D is how the 3D viewport shades the scene's geometry on the GPU (SetShading3D).
+	Shading3D Shading3D
+	// Lights3D are the lights the 3D viewport draws the scene's geometry with, such as the rig the game lights the scene with, over the scene's background color; nil draws it with DefaultLights3D under a gradient sky. Scene files do not hold lights, so an editor built on this package that knows its game's lights sets them here.
+	Lights3D *render3d.LightRig
 	// Project is the game's project file (game.yaml) OpenProject opened, nil without one; EditProject changes it undoably and SaveProject writes it.
 	Project *project.File
 	// ProjectPath is the game.yaml path OpenProject opened Project from.
@@ -327,6 +358,11 @@ type Editor struct {
 	assetBuild assetBuildState
 	// connPick holds an active target-object pick callback for the connections panel (picking from viewport or scene tree without changing SelectedID).
 	connPick *connPickState
+	// s3d is the open scene built in 3D, which the 3D viewport draws and picks by (Scene3D).
+	s3d scene3DState
+	// gpu3D says the 3D viewport's GPU view drew the scene's geometry the last frame (Viewport3DOnGPU), and gpu3DErr why it could not, when it could not.
+	gpu3D    bool
+	gpu3DErr error
 }
 
 // DefaultSceneDoc returns a valid starter SceneDoc suitable for a new editor session.
@@ -447,9 +483,12 @@ func (e *Editor) afterMutate() {
 	e.notify()
 }
 
-// Rebuild resolves e.Doc against e.Resolver into e.Built.
+// Rebuild resolves e.Doc against e.Resolver into e.Built. The scene's 3D build (Scene3D) is brought up to date the next time the 3D viewport draws or picks; a 3D gizmo drag in progress changes only the dragged object's transform, which moves its built node in place.
 func (e *Editor) Rebuild() {
 	defer e.refreshClipPreview()
+	if e.drag3D.kind != drag3DGizmo {
+		e.s3d.stale = true
+	}
 	if e.Doc == nil {
 		e.Built = nil
 		e.BuildErr = nil
@@ -502,6 +541,16 @@ func (e *Editor) SetViewMode(mode ViewMode) {
 	e.CancelCameraDrag()
 	e.ViewMode = mode
 	e.Status = "View: " + mode.String()
+	e.notify()
+}
+
+// SetShading3D switches how the 3D viewport shades the scene's geometry on the GPU. It is a view setting, not an edit, so it is not undoable and is not saved with the scene; an unknown mode is ignored.
+func (e *Editor) SetShading3D(mode Shading3D) {
+	if e.Shading3D == mode || mode < Shading3DLit || mode > Shading3DWireframe {
+		return
+	}
+	e.Shading3D = mode
+	e.Status = "Shading: " + mode.String()
 	e.notify()
 }
 
