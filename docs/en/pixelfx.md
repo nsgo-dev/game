@@ -20,6 +20,7 @@ The port follows pixelfx at commit `5294518ce7c72e48b6100a744596e0acf57f2826` wi
 | `game/pixelfx/explosions` | Explosions: the small explosion so far |
 | `game/pixelfx/impacts` | Impacts: the ground slam so far |
 | `game/pixelfx/moves` | Moves acted out by a character: the ground pound so far |
+| `game/pixelfx/critters` | Critters: bat, bird, butterfly, eyeball, fish school, flying skull, frog, ghost, jellyfish, slime, snake and wisp |
 | `game/pixelfx/nature` | Nature: acid splash, boulder, earth spike, healing bloom, leaf storm, poison cloud, quake, root snare, spore burst, thorns, tornado, toxic puddle and vine whip |
 | `game/pixelfx/pickups` | Pickups: chest open, coin spin, collect burst, crystal shard, gem spin, heart pickup, key glint, loot beam, potion, power star and XP orb |
 | `game/pixelfx/projectiles` | Projectiles (13 effects): `arrow`, `bullet-tracer`, `cannonball`, `energy-disc`, `flare`, `homing-missile`, `laser-bolt`, `magic-missile`, `muzzle-pistol`, `muzzle-shotgun`, `muzzle-smg`, `plasma-shot`, `rocket` |
@@ -32,7 +33,7 @@ The port follows pixelfx at commit `5294518ce7c72e48b6100a744596e0acf57f2826` wi
 | `game/pixelfx/water` | Water: bubbles, drip, fountain, geyser, rain splash, ripples, splash, water jet, water orb, waterfall, wave crash and whirlpool |
 | `game/pixelfx/weather` | Weather loops: aurora, blizzard, cherry blossoms, clouds, falling leaves, fireflies, fog, god rays, rain, shooting stars, snow and storm |
 
-Effects live in one subpackage per category, which registers its effects as `"<category>/<name>"` when it is imported, so a game links only the categories it imports. The other categories of pixelfx (ice, lightning, melee, arcane, holy, critters) follow one change each, as [Porting a category](#porting-a-category) describes.
+Effects live in one subpackage per category, which registers its effects as `"<category>/<name>"` when it is imported, so a game links only the categories it imports. The other categories of pixelfx (ice, lightning, melee, arcane, holy) follow one change each, as [Porting a category](#porting-a-category) describes.
 
 ## Playing an effect
 

@@ -20,6 +20,7 @@ import (
 | `game/pixelfx/explosions` | 爆炸：目前有小爆炸 |
 | `game/pixelfx/impacts` | 冲击：目前有砸地 |
 | `game/pixelfx/moves` | 由角色表演的招式：目前有落地重击 |
+| `game/pixelfx/critters` | 小生物：蝙蝠、鸟、蝴蝶、眼球、鱼群、飞行骷髅、青蛙、幽灵、水母、史莱姆、蛇与鬼火 |
 | `game/pixelfx/nature` | 自然：酸液飞溅、巨石、地刺、治愈花开、落叶风暴、毒云、地震、根须缠绕、孢子爆裂、荆棘、龙卷风、剧毒泥潭与藤鞭 |
 | `game/pixelfx/pickups` | 拾取物：开宝箱、旋转金币、收集爆发、水晶碎片、旋转宝石、红心拾取、钥匙闪光、战利品光柱、药水、能量星和经验球 |
 | `game/pixelfx/projectiles` | 投射物（13 个特效）：`arrow`、`bullet-tracer`、`cannonball`、`energy-disc`、`flare`、`homing-missile`、`laser-bolt`、`magic-missile`、`muzzle-pistol`、`muzzle-shotgun`、`muzzle-smg`、`plasma-shot`、`rocket` |
@@ -32,7 +33,7 @@ import (
 | `game/pixelfx/water` | 水：气泡、水滴、喷泉、间歇泉、雨滴水花、涟漪、飞溅、水柱、水球、瀑布、海浪拍击和漩涡 |
 | `game/pixelfx/weather` | 天气循环：极光、暴风雪、樱花雨、云月、落叶、萤火虫、迷雾、丁达尔光束、雨、流星、雪与暴风雨 |
 
-特效按类别各放在一个子包里，子包被导入时把它的特效注册为 `"<类别>/<名字>"`，所以游戏只链接它导入的类别。pixelfx 的其余类别（ice、lightning、melee、arcane、holy、critters）各自在一次改动中跟进，做法见[移植一个类别](#移植一个类别)。
+特效按类别各放在一个子包里，子包被导入时把它的特效注册为 `"<类别>/<名字>"`，所以游戏只链接它导入的类别。pixelfx 的其余类别（ice、lightning、melee、arcane、holy）各自在一次改动中跟进，做法见[移植一个类别](#移植一个类别)。
 
 ## 播放特效
 

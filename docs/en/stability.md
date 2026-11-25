@@ -123,6 +123,7 @@ Paths are relative to `github.com/nsgo-dev/game/packages`. The table is checked 
 | `game/physics` | Stable | [physics](physics.md) |
 | `game/physics3d` | Experimental | [physics3d](physics3d.md) |
 | `game/pixelfx` | Experimental | [pixelfx](pixelfx.md) |
+| `game/pixelfx/critters` | Experimental | [pixelfx](pixelfx.md) |
 | `game/pixelfx/explosions` | Experimental | [pixelfx](pixelfx.md) |
 | `game/pixelfx/fire` | Experimental | [pixelfx](pixelfx.md) |
 | `game/pixelfx/impacts` | Experimental | [pixelfx](pixelfx.md) |
