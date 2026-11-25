@@ -62,35 +62,54 @@ func LoadTiled(data []byte, resolve TilesetLoader) (*Tilemap, error) {
 // fixTiled is the fix for a Tiled JSON map error that has no more specific one.
 const fixTiled = "correct the map in Tiled and export it again as JSON (.tmj)"
 
+//go:noinline
+func idxPath(prefix string, i int, suffix string) string {
+	s := prefix + "[" + strconv.Itoa(i) + "]"
+	if suffix != "" {
+		s += "." + suffix
+	}
+	return s
+}
+
+//go:noinline
+func idxPath2(p1 string, i1 int, p2 string, i2 int, suffix string) string {
+	return idxPath(idxPath(p1, i1, p2), i2, suffix)
+}
+
+//go:noinline
+func tiledErr(line, col int, field, problem, expected, fix string, err error) error {
+	return &loaderr.Error{Line: line, Column: col, Field: field, Problem: problem, Expected: expected, Fix: fix, Err: err}
+}
+
 func buildTiledMap(raw tiledMap, resolve TilesetLoader) (*Tilemap, error) {
 	orientation, err := parseTiledOrientation(raw.Orientation)
 	if err != nil {
-		return nil, &loaderr.Error{Line: raw.line, Column: raw.col, Field: "orientation", Problem: err.Error(), Expected: `"orthogonal", "isometric", "staggered" or "hexagonal"`, Fix: "set the map's orientation to one of those in Tiled's map properties", Err: err}
+		return nil, tiledErr(raw.line, raw.col, "orientation", err.Error(), `"orthogonal", "isometric", "staggered" or "hexagonal"`, "set the map's orientation to one of those in Tiled's map properties", err)
 	}
 	staggerAxis, err := parseTiledStaggerAxis(raw.StaggerAxis)
 	if err != nil {
-		return nil, &loaderr.Error{Line: raw.line, Column: raw.col, Field: "staggeraxis", Problem: err.Error(), Expected: `"x" or "y"`, Fix: "set the map's stagger axis to x or y in Tiled", Err: err}
+		return nil, tiledErr(raw.line, raw.col, "staggeraxis", err.Error(), `"x" or "y"`, "set the map's stagger axis to x or y in Tiled", err)
 	}
 	staggerIndex, err := parseTiledStaggerIndex(raw.StaggerIndex)
 	if err != nil {
-		return nil, &loaderr.Error{Line: raw.line, Column: raw.col, Field: "staggerindex", Problem: err.Error(), Expected: `"odd" or "even"`, Fix: "set the map's stagger index to odd or even in Tiled", Err: err}
+		return nil, tiledErr(raw.line, raw.col, "staggerindex", err.Error(), `"odd" or "even"`, "set the map's stagger index to odd or even in Tiled", err)
 	}
 	if raw.Width < 0 || raw.Height < 0 {
 		field := "width"
 		if raw.Width >= 0 {
 			field = "height"
 		}
-		return nil, &loaderr.Error{Line: raw.line, Column: raw.col, Field: field, Problem: fmt.Sprintf("map size %dx%d must be non-negative", raw.Width, raw.Height), Fix: "give the map a width and height of 0 or more tiles"}
+		return nil, tiledErr(raw.line, raw.col, field, fmt.Sprintf("map size %dx%d must be non-negative", raw.Width, raw.Height), "", "give the map a width and height of 0 or more tiles", nil)
 	}
 	if raw.Width > 0 && raw.Height > 0 && raw.Width > math.MaxInt/raw.Height {
-		return nil, &loaderr.Error{Line: raw.line, Column: raw.col, Field: "width", Problem: fmt.Sprintf("map size %dx%d overflows", raw.Width, raw.Height), Fix: "make the map smaller"}
+		return nil, tiledErr(raw.line, raw.col, "width", fmt.Sprintf("map size %dx%d overflows", raw.Width, raw.Height), "", "make the map smaller", nil)
 	}
 	if raw.TileWidth <= 0 || raw.TileHeight <= 0 {
 		field := "tilewidth"
 		if raw.TileWidth > 0 {
 			field = "tileheight"
 		}
-		return nil, &loaderr.Error{Line: raw.line, Column: raw.col, Field: field, Problem: fmt.Sprintf("tile size %gx%g must be positive", raw.TileWidth, raw.TileHeight), Fix: "give the map a tile size above 0 in Tiled's map properties"}
+		return nil, tiledErr(raw.line, raw.col, field, fmt.Sprintf("tile size %gx%g must be positive", raw.TileWidth, raw.TileHeight), "", "give the map a tile size above 0 in Tiled's map properties", nil)
 	}
 
 	props, err := parseProperties(raw.Properties)
@@ -114,16 +133,16 @@ func buildTiledMap(raw tiledMap, resolve TilesetLoader) (*Tilemap, error) {
 	loadExternal := resolve.loadTilesetFn()
 	for i, ref := range raw.Tilesets {
 		if ref.FirstGID == 0 {
-			return nil, &loaderr.Error{Line: ref.line, Column: ref.col, Field: loaderr.Path("tilesets", i, "firstgid"), Problem: fmt.Sprintf("tileset %d has firstgid 0", i), Fix: "save or export the map again from Tiled; a tileset's firstgid is 1 or more"}
+			return nil, tiledErr(ref.line, ref.col, idxPath("tilesets", i, "firstgid"), "tileset "+strconv.Itoa(i)+" has firstgid 0", "", "save or export the map again from Tiled; a tileset's firstgid is 1 or more", nil)
 		}
 		var tsRaw tiledTileset
 		if ref.Source != "" {
 			if loadExternal == nil {
-				return nil, &loaderr.Error{Line: ref.line, Column: ref.col, Field: loaderr.Path("tilesets", i, "source"), Problem: fmt.Sprintf("external tileset %q requires TilesetLoader.LoadTileset (or LoadJSON)", ref.Source), Fix: "set TilesetLoader.LoadTileset (or LoadJSON), or embed the tileset in the map in Tiled"}
+				return nil, tiledErr(ref.line, ref.col, idxPath("tilesets", i, "source"), "external tileset "+ref.Source+" requires TilesetLoader.LoadTileset (or LoadJSON)", "", "set TilesetLoader.LoadTileset (or LoadJSON), or embed the tileset in the map in Tiled", nil)
 			}
 			ext, err := loadExternal(ref.Source)
 			if err != nil {
-				return nil, &loaderr.Error{Line: ref.line, Column: ref.col, Field: loaderr.Path("tilesets", i, "source"), Problem: fmt.Sprintf("load tileset %q: %v", ref.Source, err), Fix: "check that the tileset file exists next to the map at this path", Err: err}
+				return nil, tiledErr(ref.line, ref.col, idxPath("tilesets", i, "source"), "load tileset "+ref.Source+": "+err.Error(), "", "check that the tileset file exists next to the map at this path", err)
 			}
 			var extLocData []byte
 			extFix := "correct the tileset in Tiled and export it again as JSON (.tsj)"
@@ -151,7 +170,7 @@ func buildTiledMap(raw tiledMap, resolve TilesetLoader) (*Tilemap, error) {
 
 		ts, err := buildTileset(m, ref.FirstGID, tsRaw, "", resolve)
 		if err != nil {
-			return nil, nest(err, loaderr.Path("tilesets", i))
+			return nil, nest(err, idxPath("tilesets", i, ""))
 		}
 		m.Tilesets = append(m.Tilesets, ts)
 	}
@@ -235,7 +254,7 @@ func buildTileset(m *Tilemap, firstGID uint32, raw tiledTileset, baseDir string,
 				if imgLine == 0 {
 					imgLine, imgCol = raw.line, raw.col
 				}
-				return nil, &loaderr.Error{Line: imgLine, Column: imgCol, Field: "image", Problem: fmt.Sprintf("load image %q: %v", imgPath, err), Fix: "check that the tileset image exists at this path, relative to the tileset", Err: err}
+				return nil, tiledErr(imgLine, imgCol, "image", "load image "+imgPath+": "+err.Error(), "", "check that the tileset image exists at this path, relative to the tileset", err)
 			}
 		} else {
 			img = core.ImageSource{URI: imgPath}
@@ -264,7 +283,7 @@ func buildTileset(m *Tilemap, firstGID uint32, raw tiledTileset, baseDir string,
 		if tile.Probability != nil {
 			p := *tile.Probability
 			if p < 0 || math.IsNaN(p) || math.IsInf(p, 0) {
-				return nil, loaderr.Errorf(loaderr.Path("tiles", ti, "probability"), "give the tile a probability of 0 or more in Tiled", "tile %d has invalid probability %v", tile.ID, p)
+				return nil, tiledErr(0, 0, idxPath("tiles", ti, "probability"), "invalid tile probability", "", "give the tile a probability of 0 or more in Tiled", nil)
 			}
 			if ts.TileProbabilities == nil {
 				ts.TileProbabilities = make(map[uint32]float64)
@@ -274,7 +293,7 @@ func buildTileset(m *Tilemap, firstGID uint32, raw tiledTileset, baseDir string,
 		if len(tile.Properties) > 0 {
 			tp, err := parseProperties(tile.Properties)
 			if err != nil {
-				return nil, nest(err, loaderr.Path("tiles", ti, "properties"))
+				return nil, nest(err, idxPath("tiles", ti, "properties"))
 			}
 			if ts.TileProperties == nil {
 				ts.TileProperties = make(map[uint32]Properties)
@@ -288,13 +307,7 @@ func buildTileset(m *Tilemap, firstGID uint32, raw tiledTileset, baseDir string,
 			frames := make([]TileAnimFrame, len(tile.Animation))
 			for j, f := range tile.Animation {
 				if f.Duration < 0 || int64(f.Duration) > math.MaxInt64/int64(time.Millisecond) {
-					return nil, &loaderr.Error{
-						Line:    f.line,
-						Column:  f.col,
-						Field:   loaderr.Path("tiles", ti, "animation", j, "duration"),
-						Problem: fmt.Sprintf("tile %d animation frame %d has invalid duration %d", tile.ID, j, f.Duration),
-						Fix:     "give the animation frame a duration of 0 or more milliseconds in Tiled",
-					}
+					return nil, tiledErr(f.line, f.col, idxPath2("tiles", ti, "animation", j, "duration"), "invalid animation frame duration", "", "give the animation frame a duration of 0 or more milliseconds in Tiled", nil)
 				}
 				frames[j] = TileAnimFrame{
 					TileID:   f.TileID,
@@ -309,7 +322,7 @@ func buildTileset(m *Tilemap, firstGID uint32, raw tiledTileset, baseDir string,
 		if tile.ObjectGroup != nil && len(tile.ObjectGroup.Objects) > 0 {
 			shapes, err := tiledTileShapes(tile.ObjectGroup.Objects)
 			if err != nil {
-				return nil, nest(err, loaderr.Path("tiles", ti))
+				return nil, nest(err, idxPath("tiles", ti, ""))
 			}
 			if len(shapes) > 0 {
 				if ts.Shapes == nil {
@@ -332,22 +345,23 @@ func buildTileset(m *Tilemap, firstGID uint32, raw tiledTileset, baseDir string,
 func parseTiledWangSets(raw []tiledWangSet, firstGID uint32, tileProbs map[uint32]float64) ([]WangSet, error) {
 	out := make([]WangSet, len(raw))
 	for wi, rws := range raw {
-		typ, err := parseTiledWangSetType(rws.Type)
-		if err != nil {
-			return nil, &loaderr.Error{
-				Field:    loaderr.Path("wangsets", wi, "type"),
-				Problem:  err.Error(),
-				Expected: `"corner", "edge" or "mixed"`,
-				Fix:      "set the Wang set type to corner, edge or mixed in Tiled",
-				Err:      err,
-			}
+		var typ WangSetType
+		switch rws.Type {
+		case "corner":
+			typ = WangCorner
+		case "edge":
+			typ = WangEdge
+		case "mixed":
+			typ = WangMixed
+		default:
+			return nil, tiledErr(0, 0, idxPath("wangsets", wi, "type"), "unsupported wang set type "+rws.Type, `"corner", "edge" or "mixed"`, "set the Wang set type to corner, edge or mixed in Tiled", nil)
 		}
 		if len(rws.Colors) > 255 {
-			return nil, loaderr.Errorf(loaderr.Path("wangsets", wi, "colors"), "keep a Wang set to at most 255 colors in Tiled", "wang set %q has %d colors (max 255)", rws.Name, len(rws.Colors))
+			return nil, tiledErr(0, 0, idxPath("wangsets", wi, "colors"), "wang set exceeds 255 colors", "", "keep a Wang set to at most 255 colors in Tiled", nil)
 		}
 		wsProps, err := parseProperties(rws.Properties)
 		if err != nil {
-			return nil, nest(err, loaderr.Path("wangsets", wi, "properties"))
+			return nil, nest(err, idxPath("wangsets", wi, "properties"))
 		}
 		wsTile := -1
 		if rws.Tile != nil {
@@ -359,12 +373,7 @@ func parseTiledWangSets(raw []tiledWangSet, firstGID uint32, tileProbs map[uint3
 			if rc.Color != "" {
 				parsed, ok := parseTiledColor(rc.Color)
 				if !ok {
-					return nil, &loaderr.Error{
-						Field:    loaderr.Path("wangsets", wi, "colors", ci, "color"),
-						Problem:  fmt.Sprintf("wang color %q has invalid color %q", rc.Name, rc.Color),
-						Expected: "#RRGGBB or #AARRGGBB",
-						Fix:      "set a valid hex color on the terrain in Tiled",
-					}
+					return nil, tiledErr(0, 0, idxPath2("wangsets", wi, "colors", ci, "color"), "invalid wang color "+rc.Color, "#RRGGBB or #AARRGGBB", "set a valid hex color on the terrain in Tiled", nil)
 				}
 				col = parsed
 			}
@@ -373,14 +382,14 @@ func parseTiledWangSets(raw []tiledWangSet, firstGID uint32, tileProbs map[uint3
 			if rc.Probability != nil {
 				p := *rc.Probability
 				if p < 0 || math.IsNaN(p) || math.IsInf(p, 0) {
-					return nil, loaderr.Errorf(loaderr.Path("wangsets", wi, "colors", ci, "probability"), "give the terrain a probability of 0 or more in Tiled", "wang color %q has invalid probability %v", rc.Name, p)
+					return nil, tiledErr(0, 0, idxPath2("wangsets", wi, "colors", ci, "probability"), "invalid wang color probability", "", "give the terrain a probability of 0 or more in Tiled", nil)
 				}
 				prob = p
 				zeroProb = p == 0
 			}
 			cProps, err := parseProperties(rc.Properties)
 			if err != nil {
-				return nil, nest(err, loaderr.Path("wangsets", wi, "colors", ci, "properties"))
+				return nil, nest(err, idxPath2("wangsets", wi, "colors", ci, "properties"))
 			}
 			cTile := -1
 			if rc.Tile != nil {
@@ -400,30 +409,23 @@ func parseTiledWangSets(raw []tiledWangSet, firstGID uint32, tileProbs map[uint3
 		wtiles := make([]WangTile, len(rws.WangTiles))
 		for wti, rwt := range rws.WangTiles {
 			if len(rwt.WangID) != 8 {
-				return nil, &loaderr.Error{
-					Field:    loaderr.Path("wangsets", wi, "wangtiles", wti, "wangid"),
-					Problem:  fmt.Sprintf("wang tile %d has %d wangid entries", rwt.TileID, len(rwt.WangID)),
-					Expected: "8 entries [Top, TopRight, Right, BottomRight, Bottom, BottomLeft, Left, TopLeft]",
-					Fix:      "export the tileset again from Tiled so each wangtile has an 8-element wangid",
-				}
+				return nil, tiledErr(0, 0, idxPath2("wangsets", wi, "wangtiles", wti, "wangid"), "wangid must have 8 entries", "8 entries [Top, TopRight, Right, BottomRight, Bottom, BottomLeft, Left, TopLeft]", "export the tileset again from Tiled so each wangtile has an 8-element wangid", nil)
 			}
 			var wid WangID
 			for si, v := range rwt.WangID {
 				if v < 0 || v > 255 {
-					return nil, loaderr.Errorf(loaderr.Path("wangsets", wi, "wangtiles", wti, "wangid"), "use terrain color indices between 0 and 255 in Tiled", "wang tile %d wangid[%d] = %d is out of range 0..255", rwt.TileID, si, v)
+					return nil, tiledErr(0, 0, idxPath2("wangsets", wi, "wangtiles", wti, "wangid"), "wangid index out of range 0..255", "", "use terrain color indices between 0 and 255 in Tiled", nil)
 				}
 				if len(colors) > 0 && v > len(colors) {
-					return nil, loaderr.Errorf(loaderr.Path("wangsets", wi, "wangtiles", wti, "wangid"), "keep every wangid index within the Wang set's colors list in Tiled", "wang tile %d wangid[%d] = %d exceeds %d colors", rwt.TileID, si, v, len(colors))
+					return nil, tiledErr(0, 0, idxPath2("wangsets", wi, "wangtiles", wti, "wangid"), "wangid index exceeds color count", "", "keep every wangid index within the Wang set's colors list in Tiled", nil)
 				}
 				wid[si] = uint8(v)
 			}
 			prob := 1.0
 			zeroProb := false
-			if tileProbs != nil {
-				if p, ok := tileProbs[rwt.TileID]; ok {
-					prob = p
-					zeroProb = p == 0
-				}
+			if p, ok := tileProbs[rwt.TileID]; ok {
+				prob = p
+				zeroProb = p == 0
 			}
 			wtiles[wti] = WangTile{
 				TileID:          rwt.TileID,
@@ -445,19 +447,6 @@ func parseTiledWangSets(raw []tiledWangSet, firstGID uint32, tileProbs map[uint3
 		}
 	}
 	return out, nil
-}
-
-func parseTiledWangSetType(s string) (WangSetType, error) {
-	switch s {
-	case "corner":
-		return WangCorner, nil
-	case "edge":
-		return WangEdge, nil
-	case "mixed":
-		return WangMixed, nil
-	default:
-		return 0, fmt.Errorf("tilemap: tiled: wang set type %q is not supported", s)
-	}
 }
 
 func flagsFromProperties(p Properties) TileFlags {
@@ -513,7 +502,7 @@ func loadTiledLayers(m *Tilemap, layers []tiledLayer, parentOX, parentOY, parent
 
 		props, err := parseProperties(raw.Properties)
 		if err != nil {
-			return nest(err, loaderr.Path(li, "properties"))
+			return nest(err, idxPath("", li, "properties"))
 		}
 
 		switch raw.Type {
@@ -540,11 +529,11 @@ func loadTiledLayers(m *Tilemap, layers []tiledLayer, parentOX, parentOY, parent
 
 			lw, lh := raw.Width, raw.Height
 			if lw < 0 || lh < 0 {
-				field := loaderr.Path(li, "width")
+				field := idxPath("", li, "width")
 				if lw >= 0 {
-					field = loaderr.Path(li, "height")
+					field = idxPath("", li, "height")
 				}
-				return &loaderr.Error{Line: raw.line, Column: raw.col, Field: field, Problem: fmt.Sprintf("layer %q size %dx%d must be non-negative", raw.Name, lw, lh), Fix: "give the layer a width and height of 0 or more tiles"}
+				return tiledErr(raw.line, raw.col, field, fmt.Sprintf("layer %q size %dx%d must be non-negative", raw.Name, lw, lh), "", "give the layer a width and height of 0 or more tiles", nil)
 			}
 			if lw == 0 {
 				lw = m.Width
@@ -553,7 +542,7 @@ func loadTiledLayers(m *Tilemap, layers []tiledLayer, parentOX, parentOY, parent
 				lh = m.Height
 			}
 			if lw > 0 && lh > 0 && lw > math.MaxInt/lh {
-				return &loaderr.Error{Line: raw.line, Column: raw.col, Field: loaderr.Path(li, "width"), Problem: fmt.Sprintf("layer %q size %dx%d overflows", raw.Name, lw, lh), Fix: "make the layer smaller"}
+				return tiledErr(raw.line, raw.col, idxPath("", li, "width"), fmt.Sprintf("layer %q size %dx%d overflows", raw.Name, lw, lh), "", "make the layer smaller", nil)
 			}
 
 			data, err := decodeFiniteLayerData(raw, li, lw, lh, budget)
@@ -587,7 +576,7 @@ func loadTiledLayers(m *Tilemap, layers []tiledLayer, parentOX, parentOY, parent
 						if imgLine == 0 {
 							imgLine, imgCol = raw.line, raw.col
 						}
-						return &loaderr.Error{Line: imgLine, Column: imgCol, Field: loaderr.Path(li, "image"), Problem: fmt.Sprintf("image layer %q load image %q: %v", raw.Name, raw.Image, err), Fix: "check that the layer's image exists at this path", Err: err}
+						return tiledErr(imgLine, imgCol, idxPath("", li, "image"), "image layer "+raw.Name+" load image "+raw.Image+": "+err.Error(), "", "check that the layer's image exists at this path", err)
 					}
 				} else {
 					img = core.ImageSource{URI: raw.Image}
@@ -614,7 +603,7 @@ func loadTiledLayers(m *Tilemap, layers []tiledLayer, parentOX, parentOY, parent
 			for i, ro := range raw.Objects {
 				op, err := parseProperties(ro.Properties)
 				if err != nil {
-					return nest(err, loaderr.Path(li, "objects", i, "properties"))
+					return nest(err, idxPath2("", li, "objects", i, "properties"))
 				}
 				objVisible := true
 				if ro.Visible != nil {
@@ -667,7 +656,7 @@ func loadTiledLayers(m *Tilemap, layers []tiledLayer, parentOX, parentOY, parent
 
 		case "group":
 			if err := loadTiledLayers(m, raw.Layers, ox, oy, px, py, opacity, visible, resolve, budget); err != nil {
-				return nest(err, loaderr.Path(li, "layers"))
+				return nest(err, idxPath("", li, "layers"))
 			}
 		}
 	}
@@ -679,22 +668,22 @@ func decodeFiniteLayerData(raw tiledLayer, li, lw, lh int, budget *int64) ([]uin
 		raw.Encoding, raw.Compression, raw.isXML, raw.hasXMLData,
 		raw.xmlDataText, raw.xmlTiles, raw.Data,
 		lw, lh, budget,
-		loaderr.Path(li, "data"),
-		fmt.Sprintf("layer %q", raw.Name),
+		idxPath("", li, "data"),
+		"layer "+raw.Name,
 		raw.dataLine, raw.dataCol, false,
 	)
 }
 
 func decodeChunkTileData(raw tiledLayer, rc tiledChunk, li, ci int, budget *int64) ([]uint32, error) {
-	label := fmt.Sprintf("layer %q chunk %d", raw.Name, ci)
+	label := "layer " + raw.Name + " chunk " + strconv.Itoa(ci)
 	if rc.Width > math.MaxInt/rc.Height {
-		return nil, &loaderr.Error{Line: rc.line, Column: rc.col, Field: loaderr.Path(li, "chunks", ci), Problem: fmt.Sprintf("%s size %dx%d overflows", label, rc.Width, rc.Height), Fix: "make the chunk smaller in Tiled"}
+		return nil, tiledErr(rc.line, rc.col, idxPath2("", li, "chunks", ci, ""), fmt.Sprintf("%s size %dx%d overflows", label, rc.Width, rc.Height), "", "make the chunk smaller in Tiled", nil)
 	}
 	return decodeTiledTileData(
 		raw.Encoding, raw.Compression, rc.isXML, true,
 		rc.xmlDataText, rc.xmlTiles, rc.Data,
 		rc.Width, rc.Height, budget,
-		loaderr.Path(li, "chunks", ci, "data"),
+		idxPath2("", li, "chunks", ci, "data"),
 		label, rc.line, rc.col, true,
 	)
 }
@@ -749,7 +738,7 @@ func decodeTiledTileData(encoding, compression string, isXML, hasXMLData bool, x
 		if isChunk {
 			fix = "export the map again from Tiled so each chunk's data has one GID per tile"
 		}
-		return nil, &loaderr.Error{Line: line, Column: col, Field: field, Problem: fmt.Sprintf("%s has %d tiles", label, len(data)), Expected: fmt.Sprintf("%d (%dx%d)", expected, w, h), Fix: fix}
+		return nil, tiledErr(line, col, field, fmt.Sprintf("%s has %d tiles", label, len(data)), fmt.Sprintf("%d (%dx%d)", expected, w, h), fix, nil)
 	}
 	return data, nil
 }
@@ -757,21 +746,6 @@ func decodeTiledTileData(encoding, compression string, isXML, hasXMLData bool, x
 // buildChunkedTileLayer loads an infinite Tiled map's tile layer raw directly into a sparse chunked TileLayer,
 // preserving true negative and positive chunk coordinates without flattening into a dense array.
 func buildChunkedTileLayer(raw tiledLayer, li int, ox, oy, px, py, opacity float32, visible bool, props Properties, budget *int64) (TileLayer, error) {
-	if len(raw.Chunks) == 0 {
-		layer := NewChunkedTileLayer(raw.Name, DefaultChunkSize)
-		layer.StartX = raw.StartX
-		layer.StartY = raw.StartY
-		layer.OffsetX = ox
-		layer.OffsetY = oy
-		layer.ParallaxX = px
-		layer.ParallaxY = py
-		layer.Opacity = opacity
-		layer.Visible = visible
-		layer.YSort = ySortFromProperties(props)
-		layer.Properties = props
-		return layer, nil
-	}
-
 	type parsedChunk struct {
 		x, y, w, h int
 		data       []uint32
@@ -779,11 +753,11 @@ func buildChunkedTileLayer(raw tiledLayer, li int, ox, oy, px, py, opacity float
 	chunks := make([]parsedChunk, len(raw.Chunks))
 	var minX, minY, maxX, maxY int64
 	uniformChunkSize := 0
-	uniform := true
+	uniform := len(raw.Chunks) > 0
 
 	for i, rc := range raw.Chunks {
 		if rc.Width <= 0 || rc.Height <= 0 {
-			return TileLayer{}, &loaderr.Error{Line: rc.line, Column: rc.col, Field: loaderr.Path(li, "chunks", i), Problem: fmt.Sprintf("layer %q chunk %d has non-positive size %dx%d", raw.Name, i, rc.Width, rc.Height), Fix: "save or export the map again from Tiled; a chunk's width and height are above 0"}
+			return TileLayer{}, tiledErr(rc.line, rc.col, idxPath2("", li, "chunks", i, ""), fmt.Sprintf("layer %q chunk %d has non-positive size %dx%d", raw.Name, i, rc.Width, rc.Height), "", "save or export the map again from Tiled; a chunk's width and height are above 0", nil)
 		}
 		cdata, err := decodeChunkTileData(raw, rc, li, i, budget)
 		if err != nil {
@@ -827,13 +801,17 @@ func buildChunkedTileLayer(raw tiledLayer, li int, ox, oy, px, py, opacity float
 	}
 
 	layer := NewChunkedTileLayer(raw.Name, chunkSize)
-	if minX >= math.MinInt32 && maxX <= math.MaxInt32 && maxX-minX <= math.MaxInt32 {
-		layer.Width = int(maxX - minX)
-		layer.StartX = int(minX)
-	}
-	if minY >= math.MinInt32 && maxY <= math.MaxInt32 && maxY-minY <= math.MaxInt32 {
-		layer.Height = int(maxY - minY)
-		layer.StartY = int(minY)
+	layer.StartX = raw.StartX
+	layer.StartY = raw.StartY
+	if len(chunks) > 0 {
+		if minX >= math.MinInt32 && maxX <= math.MaxInt32 && maxX-minX <= math.MaxInt32 {
+			layer.Width = int(maxX - minX)
+			layer.StartX = int(minX)
+		}
+		if minY >= math.MinInt32 && maxY <= math.MaxInt32 && maxY-minY <= math.MaxInt32 {
+			layer.Height = int(maxY - minY)
+			layer.StartY = int(minY)
+		}
 	}
 	layer.OffsetX = ox
 	layer.OffsetY = oy
@@ -876,9 +854,8 @@ func parseProperties(raw []tiledProperty) (Properties, error) {
 	props := make(Properties, len(raw))
 	for pi, rp := range raw {
 		bad := func(err error) error {
-			e := loaderr.Errorf(loaderr.Path(pi, "value"), fmt.Sprintf("give the property a value of its type, %s, in Tiled", typeName(rp.Type)), "property %q (%s): %w", rp.Name, typeName(rp.Type), err)
-			e.Line, e.Column = rp.line, rp.col
-			return e
+			tn := typeName(rp.Type)
+			return tiledErr(rp.line, rp.col, idxPath("", pi, "value"), "property "+rp.Name+" ("+tn+"): "+err.Error(), "", "give the property a value of its type, "+tn+", in Tiled", err)
 		}
 		typ := rp.Type
 		if typ == "" {

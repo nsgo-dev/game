@@ -133,9 +133,7 @@ func (ws *WangSet) WangIDForTile(localTileID uint32) (WangID, bool) {
 	if ws == nil || len(ws.WangTiles) == 0 {
 		return WangID{}, false
 	}
-	idx := ws.ensureIndex()
-	wid, ok := idx.tileToWang[localTileID]
-	return wid, ok
+	return ws.ensureIndex().lookupWangID(ws, localTileID)
 }
 
 // WangSet returns the first WangSet named name across all tilesets of m, or nil if none matches.
@@ -191,12 +189,30 @@ type wangIndex struct {
 	colorCount   int
 	activeSlots  [8]int
 	activeCount  int
-	tileToWang   map[uint32]WangID
 	sortedTiles  []int
 	dist         []int16
 	stride       int
 	maxColor     uint8
 	hasZeroColor bool
+}
+
+func (idx *wangIndex) lookupWangID(ws *WangSet, localTileID uint32) (WangID, bool) {
+	lo, hi := 0, len(idx.sortedTiles)
+	for lo < hi {
+		mid := lo + (hi-lo)/2
+		if ws.WangTiles[idx.sortedTiles[mid]].TileID < localTileID {
+			lo = mid + 1
+		} else {
+			hi = mid
+		}
+	}
+	if lo < len(idx.sortedTiles) {
+		wt := ws.WangTiles[idx.sortedTiles[lo]]
+		if wt.TileID == localTileID {
+			return wt.WangID, true
+		}
+	}
+	return WangID{}, false
 }
 
 func (ws *WangSet) ensureIndex() *wangIndex {
@@ -211,7 +227,6 @@ func (ws *WangSet) ensureIndex() *wangIndex {
 		typ:         ws.Type,
 		tileCount:   len(ws.WangTiles),
 		colorCount:  len(ws.Colors),
-		tileToWang:  make(map[uint32]WangID, len(ws.WangTiles)),
 		sortedTiles: make([]int, len(ws.WangTiles)),
 	}
 	switch ws.Type {
@@ -229,9 +244,6 @@ func (ws *WangSet) ensureIndex() *wangIndex {
 	maxC := uint8(min(len(ws.Colors), 255))
 	for i, wt := range ws.WangTiles {
 		idx.sortedTiles[i] = i
-		if _, exists := idx.tileToWang[wt.TileID]; !exists {
-			idx.tileToWang[wt.TileID] = wt.WangID
-		}
 		for s := range idx.activeCount {
 			c := wt.WangID[idx.activeSlots[s]]
 			if c == 0 {
@@ -529,7 +541,7 @@ func (m *Tilemap) SetTerrainRect(layerIndex, col, row, w, h int, set *WangSet, t
 			return gid, WangID{}, false
 		}
 		localID := rawID - firstGID
-		w0, ok := idx.tileToWang[localID]
+		w0, ok := idx.lookupWangID(set, localID)
 		if !ok {
 			return gid, WangID{}, false
 		}
