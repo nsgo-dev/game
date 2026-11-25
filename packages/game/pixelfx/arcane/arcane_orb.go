@@ -83,7 +83,8 @@ func orbRingDraw(p *pixelfx.Painter, C []uint32, s orbState, R *orbRing, near bo
 		p.Dot(x, y, pick(near, C[5], C[4]), pickF(near, 0.7, 0.4))
 	}
 	for b := range R.beads {
-		g := s.ph*tau*R.turn + (float64(b)*tau)/float64(R.beads)
+		// Force float64 rounding of the ring phase before adding the bead offset so arm64 FMA does not fuse it and flip the sign of sin(g) near 2π (frame 12, bead 2 of ring 0 with the defaults).
+		g := float64(s.ph*tau*R.turn) + (float64(b)*tau)/float64(R.beads)
 		for k := range 7 {
 			// a bead and its trail along the ring
 			fk := float64(k)
