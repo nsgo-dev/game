@@ -53,7 +53,7 @@ A `Geometry` holds world-space triangles, each on layers a `Settings.LayerMask` 
 | `AddTriangle`, `AddMesh` | Triangles, or an indexed triangle list at a world matrix; a mirroring matrix flips the winding back |
 | `AddGLTF` | Every mesh of a glTF document's default scene at its node's world transform; strips and fans are expanded, points and lines skipped |
 | `AddScene` | Every enabled `scene3d` node outside a disabled node's subtree whose `Layer` shares a bit with the mask, its triangles from a `NodeMesh` (`ColliderMesh` reads a `*scene3d.MeshCollider`) |
-| `AddSceneFile` | A [scene file](editor.md): it resolves instanced and inherited scenes, builds the 3D node tree and loads the glTF model each object's `mesh` names (`SceneMeshes`) |
+| `AddSceneFile` | A [scene file](editor.md): it resolves instanced and inherited scenes, builds the 3D node tree and loads the glTF model each object's `model` names (`SceneMeshes`) |
 | `AddHeightmap` | A `world3d.Heightmap`, triangulated as its `BuildMesh` does |
 | `AddGridMap` | The collider boxes of every occupied cell of a `world3d.GridMap` |
 | `AddPhysicsWorld` | The static bodies, triangle meshes, heightfields and voxel colliders of a `physics3d.World` whose layers share a bit with the mask; dynamic and kinematic bodies and triggers are left out, as is a voxel collider whose grid does not implement `physics3d.VoxelBoundsGrid`, since its solid voxels cannot be listed |

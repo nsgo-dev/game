@@ -254,7 +254,7 @@ func TestSceneFileWithGLTFMeshes(t *testing.T) {
 		t.Fatal("the floor under the pillar is walkable")
 	}
 	// A model that does not load is reported with the node.
-	bad := &sceneformat.SceneDoc{Version: 1, Layers: []sceneformat.LayerDoc{{Name: "l", Objects: []sceneformat.ObjectDoc{{ID: "x", Mesh: "missing.glb"}}}}}
+	bad := &sceneformat.SceneDoc{Version: 2, Layers: []sceneformat.LayerDoc{{Name: "l", Objects: []sceneformat.ObjectDoc{{ID: "x", Model: "missing.glb"}}}}}
 	if err := (&navbake3d.Geometry{}).AddSceneFile(bad, fsys); err == nil || !strings.Contains(err.Error(), "missing.glb") {
 		t.Fatalf("AddSceneFile with a missing model: %v", err)
 	}

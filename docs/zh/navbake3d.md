@@ -53,7 +53,7 @@ data, err := navbake3d.Encode(file) // 写入 levels/level1.navmesh.yaml
 | `AddTriangle`、`AddMesh` | 三角形，或按世界矩阵变换的带索引三角形列表；镜像矩阵会把绕序翻转回来 |
 | `AddGLTF` | glTF 文档默认场景中的每个网格，按其节点的世界变换放置；展开三角形带和三角扇，跳过点和线 |
 | `AddScene` | 每个不在已禁用节点子树中、`Layer` 与掩码有共同位的已启用 `scene3d` 节点，三角形来自一个 `NodeMesh`（`ColliderMesh` 读取 `*scene3d.MeshCollider`） |
-| `AddSceneFile` | 一个[场景文件](editor.md)：解析其实例化和继承的场景，构建 3D 节点树，并加载每个对象的 `mesh` 指定的 glTF 模型（`SceneMeshes`） |
+| `AddSceneFile` | 一个[场景文件](editor.md)：解析其实例化和继承的场景，构建 3D 节点树，并加载每个对象的 `model` 指定的 glTF 模型（`SceneMeshes`） |
 | `AddHeightmap` | 一个 `world3d.Heightmap`，按其 `BuildMesh` 的方式三角化 |
 | `AddGridMap` | `world3d.GridMap` 每个已占用格子的碰撞盒 |
 | `AddPhysicsWorld` | `physics3d.World` 中层与掩码有共同位的静态刚体、三角网格、高度场和体素碰撞体；动态刚体、运动学刚体和触发器不计入，网格未实现 `physics3d.VoxelBoundsGrid` 的体素碰撞体也不计入，因为无法列出其实心体素 |
