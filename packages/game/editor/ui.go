@@ -188,6 +188,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 														DataTablePanelView(cx, ed, rev),
 														ParticleEditorPanelView(cx, ed, rev),
 														AnimationPanelView(cx, ed, rev),
+														EnvironmentPanelView(cx, ed, rev),
 														StatesPanelView(cx, ed, rev),
 														NavMeshPanelView(cx, ed, rev),
 														ProjectSettingsPanelView(cx, ed, rev),

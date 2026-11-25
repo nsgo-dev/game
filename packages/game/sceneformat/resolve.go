@@ -125,6 +125,7 @@ func (r *sceneResolver) resolve(doc *SceneDoc, path string) (*SceneDoc, error) {
 		BackgroundColor: doc.BackgroundColor,
 		AmbientColor:    doc.AmbientColor,
 		Camera:          cloneCamera(doc.Camera),
+		Environment:     doc.Environment.Clone(),
 		Tilemaps:        cloneTilemaps(doc.Tilemaps),
 	}
 	if doc.Layers != nil {
@@ -191,6 +192,9 @@ func (r *sceneResolver) inherit(doc, own *SceneDoc) (*SceneDoc, error) {
 	}
 	if own.Camera != nil {
 		out.Camera = own.Camera
+	}
+	if own.Environment != nil {
+		out.Environment = own.Environment
 	}
 	if len(own.Tilemaps) > 0 {
 		if out.Tilemaps == nil {
@@ -375,7 +379,7 @@ func validateSceneRefs(doc *SceneDoc) error {
 			}
 		}
 	}
-	return validateOverrides([]string{"overrides"}, "overrides", doc.Overrides)
+	return validateOverrides(doc.Version, []string{"overrides"}, "overrides", doc.Overrides)
 }
 
 // validateInstance checks the instancing fields version 2 added to an object found at path in the document.
@@ -397,11 +401,11 @@ func validateInstance(version int, path []string, layer string, o *ObjectDoc) er
 	if !validFilePath(o.Scene) {
 		return fieldErr(at(path, "scene"), "sceneformat: %s scene %q must be a slash-separated path relative to the project root", where, o.Scene)
 	}
-	return validateOverrides(at(path, "overrides"), where+" overrides", o.Overrides)
+	return validateOverrides(version, at(path, "overrides"), where+" overrides", o.Overrides)
 }
 
 // validateOverrides checks every override's values; path leads to the map in the document and where names it in errors.
-func validateOverrides(path []string, where string, ovs map[string]ObjectOverride) error {
+func validateOverrides(version int, path []string, where string, ovs map[string]ObjectOverride) error {
 	for _, id := range slices.Sorted(maps.Keys(ovs)) {
 		if id == "" {
 			return fieldErr(path, "sceneformat: %s contains an empty object id", where)
@@ -409,7 +413,7 @@ func validateOverrides(path []string, where string, ovs map[string]ObjectOverrid
 		ov := ovs[id]
 		var probe ObjectDoc
 		ov.applyTo(&probe)
-		if err := validateObject(at(path, id), fmt.Sprintf("%s %q", where, id), &probe); err != nil {
+		if err := validateObject(version, at(path, id), fmt.Sprintf("%s %q", where, id), &probe); err != nil {
 			return err
 		}
 	}
@@ -448,6 +452,12 @@ func (ov *ObjectOverride) applyTo(o *ObjectDoc) {
 	setPointer(&o.Sprite, ov.Sprite)
 	setValue(&o.Material, ov.Material)
 	setPointer(&o.Particles, ov.Particles)
+	if ov.Light != nil {
+		o.Light = ov.Light.Clone()
+	}
+	if ov.Camera != nil {
+		o.Camera = ov.Camera.Clone()
+	}
 	o.Components = mergeAnyMap(o.Components, ov.Components)
 	o.Properties = mergeAnyMap(o.Properties, ov.Properties)
 }
@@ -566,6 +576,7 @@ func (doc *SceneDoc) Clone() *SceneDoc {
 	}
 	out := *doc
 	out.Camera = cloneCamera(doc.Camera)
+	out.Environment = doc.Environment.Clone()
 	out.Tilemaps = cloneTilemaps(doc.Tilemaps)
 	if doc.LayerOverrides != nil {
 		out.LayerOverrides = make(map[string]LayerOverride, len(doc.LayerOverrides))
@@ -623,6 +634,8 @@ func cloneObjectFields(o *ObjectDoc) ObjectDoc {
 	out.Sprite = clonePtr(o.Sprite)
 	out.Occluder = cloneOccluder(o.Occluder)
 	out.Particles = clonePtr(o.Particles)
+	out.Light = o.Light.Clone()
+	out.Camera = o.Camera.Clone()
 	out.Components = cloneAnyMap(o.Components)
 	out.Properties = cloneAnyMap(o.Properties)
 	out.Overrides = cloneOverrides(o.Overrides)
@@ -665,6 +678,8 @@ func cloneOverrides(ovs map[string]ObjectOverride) map[string]ObjectOverride {
 		c.Sprite = clonePtr(ov.Sprite)
 		c.Material = clonePtr(ov.Material)
 		c.Particles = clonePtr(ov.Particles)
+		c.Light = ov.Light.Clone()
+		c.Camera = ov.Camera.Clone()
 		c.Components = cloneAnyMap(ov.Components)
 		c.Properties = cloneAnyMap(ov.Properties)
 		out[k] = c

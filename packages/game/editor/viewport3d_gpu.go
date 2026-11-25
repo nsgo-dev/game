@@ -169,10 +169,13 @@ func (r *viewport3DRenderer) render(enc renderPassEncoder, w, h int) (bool, erro
 		}
 		r.scene, r.gen = scene, s.gen
 	}
-	cam := ed.Camera3D.SceneCamera(float32(w), float32(h))
-	lights, sky := DefaultLights3D(), true
+	cam := ed.EffectiveCamera3D(float32(w), float32(h))
+	useSceneLighting := ed.Lights3D == nil && s.built != nil && s.built.HasSceneLighting()
+	lights, defaultSky := DefaultLights3D(), true
 	if ed.Lights3D != nil {
-		lights, sky = *ed.Lights3D, false
+		lights, defaultSky = *ed.Lights3D, false
+	} else if useSceneLighting {
+		defaultSky = false
 	}
 	if r.scene != nil {
 		shading := scenemodel.ShadingLit
@@ -182,21 +185,34 @@ func (r *viewport3DRenderer) render(enc renderPassEncoder, w, h int) (bool, erro
 		if err := r.scene.SetShading(shading); err != nil {
 			return fail(err)
 		}
-		if _, err := r.scene.Prepare(cam, lights); err != nil {
-			return fail(err)
+		if useSceneLighting {
+			if _, err := r.scene.PrepareScene(cam); err != nil {
+				return fail(err)
+			}
+			r.scene.RecordShadows(enc)
+		} else {
+			if _, err := r.scene.Prepare(cam, lights); err != nil {
+				return fail(err)
+			}
 		}
 	}
-	if sky {
+	if defaultSky {
 		r.sky.WriteCamera(cam)
+	}
+	clearColor := ed.background3D()
+	if useSceneLighting && r.scene != nil {
+		clearColor = r.scene.ClearColor(clearColor)
 	}
 	pass := enc.BeginRenderPass(gpu.RenderPassDesc{
 		Label:            "editor.viewport3d",
-		ColorAttachments: []gpu.ColorAttachment{{LoadOp: gpu.LoadClear, StoreOp: gpu.StoreStore, ClearColor: ed.background3D()}},
+		ColorAttachments: []gpu.ColorAttachment{{LoadOp: gpu.LoadClear, StoreOp: gpu.StoreStore, ClearColor: clearColor}},
 		DepthStencil:     &gpu.DepthStencilAttachment{DepthLoadOp: gpu.LoadClear, DepthStoreOp: gpu.StoreDiscard, ClearDepth: 1},
 	})
 	// The sky goes first: it writes no depth, so the geometry drawn after it, blended surfaces included, covers it.
-	if sky {
+	if defaultSky {
 		r.sky.Draw(pass, r.skyGroup)
+	} else if useSceneLighting && r.scene != nil {
+		r.scene.DrawSky(pass)
 	}
 	r.scene.Draw(pass)
 	pass.End()

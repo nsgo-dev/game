@@ -69,6 +69,7 @@ const (
 	FieldStates           = "states"
 	FieldClip             = "clip"
 	FieldParticles        = "particles"
+	FieldSkyHDR           = "sky hdr"
 	FieldTilemapSource    = "tilemap source"
 	FieldTilesetFile      = "tileset file"
 	FieldTexture          = "texture"
@@ -625,6 +626,11 @@ func (p *Project) sceneRefs(f *File, doc *yaml.Node) {
 	// game navmesh writes the navigation mesh file, so it need not exist yet.
 	if r := p.ref(f, field(doc, "navMesh"), FieldNavMesh); r != nil {
 		r.Output = true
+	}
+	if env := field(doc, "environment"); env != nil {
+		if sky := field(env, "sky"); sky != nil {
+			p.ref(f, field(sky, "hdr"), FieldSkyHDR)
+		}
 	}
 	for _, kv := range pairs(field(doc, "tilemaps")) {
 		p.tilemapRefs(f, kv[1])

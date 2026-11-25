@@ -1,6 +1,7 @@
 package assetcheck
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -15,6 +16,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/loaderr"
 	"github.com/nsgo-dev/game/packages/game/particles"
 	"github.com/nsgo-dev/game/packages/game/refs"
+	"github.com/nsgo-dev/game/packages/game/render3d"
 	"github.com/nsgo-dev/game/packages/game/resource"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/game/packages/game/tilemap"
@@ -40,6 +42,9 @@ func (c *checker) checkScene(p string) {
 		return
 	}
 	s := &sceneCheck{checker: c, path: p, root: &root, lines: yamlLineCount(data), project: c.projectRoot(path.Dir(p))}
+	if doc.Environment != nil && doc.Environment.Sky != nil && doc.Environment.Sky.HDR != "" {
+		s.skyHDR(doc.Environment.Sky.HDR, "environment", "sky", "hdr")
+	}
 	for _, name := range slices.Sorted(maps.Keys(doc.Tilemaps)) {
 		s.tilemap(doc.Tilemaps[name], "tilemaps", name)
 	}
@@ -563,6 +568,23 @@ func (s *sceneCheck) sprite(ref *sceneformat.SpriteRef, steps ...string) {
 	}
 	if !atlas.frames[ref.Frame] {
 		s.problem(s.path, s.line(append(steps, "frame")...), "frame %q is not in atlas %q (%s)", ref.Frame, ref.Atlas, atlas.path)
+	}
+}
+
+// skyHDR checks that an HDR sky panorama exists in the project and decodes as a Radiance .hdr image, reporting a decode error against the HDR file itself.
+func (s *sceneCheck) skyHDR(ref string, steps ...string) {
+	line := s.line(steps...)
+	p, ok := s.fileRef(s.path, line, s.project, ref, "sky hdr")
+	if !ok || s.hdrs[p] {
+		return
+	}
+	s.hdrs[p] = true
+	data, ok := s.readFile(p)
+	if !ok {
+		return
+	}
+	if _, err := render3d.DecodeHDR(bytes.NewReader(data)); err != nil {
+		s.problem(p, 0, "%v", err)
 	}
 }
 

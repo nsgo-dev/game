@@ -457,7 +457,11 @@ func (e *Editor) Pick3D(sx, sy, w, h float32) (objectIndex int, ok bool) {
 	if e == nil || e.Doc == nil || w <= 0 || h <= 0 {
 		return -1, false
 	}
-	orig32, dir32 := e.Camera3D.ScreenRay(sx, sy, w, h)
+	if iconIdx, hit := e.pickIcon3D(sx, sy, w, h); hit {
+		return iconIdx, true
+	}
+	vc := e.activeView3DCam(w, h)
+	orig32, dir32 := vc.screenRay(sx, sy, w, h)
 	orig := vec64(orig32)
 	dir := vec64(dir32)
 	s3 := e.scene3D()
@@ -641,6 +645,7 @@ type drag3DKind int
 const (
 	drag3DNone drag3DKind = iota
 	drag3DGizmo
+	drag3DHandle
 	drag3DOrbit
 	drag3DPan
 	drag3DTerrain
@@ -648,6 +653,7 @@ const (
 
 type drag3DState struct {
 	kind           drag3DKind
+	handle         Handle3DKind
 	objectID       string
 	mode           GizmoMode3D
 	axis           GizmoAxis3D
@@ -659,14 +665,23 @@ type drag3DState struct {
 	vpH            float32
 	gizmoLen       float32
 	startTransform Transform3D
+	startLight     *sceneformat.LightDoc
+	startCamera    *sceneformat.Camera3DDoc
 	// startPos is where the object's origin sat in world space as the drag began, and parentInv maps world space to its parent's space, the identity for a top-level object.
-	startPos    [3]float64
-	parentInv   aff3
-	startAxisT  float64
-	hasAxisT    bool
-	prevRingVec [3]float64
-	hasRingVec  bool
-	accumAngle  float64
+	startPos      [3]float64
+	parentInv     aff3
+	startAxisT    float64
+	hasAxisT      bool
+	prevRingVec   [3]float64
+	hasRingVec    bool
+	accumAngle    float64
+	handleAxis    [3]float64
+	handleRight   [3]float64
+	handleUp      [3]float64
+	handleFwd     [3]float64
+	handlePlanePt [3]float64
+	handlePlaneN  [3]float64
+	handleBaseLen float64
 
 	// Collider size-handle drag state (active when mode == Gizmo3DCollider).
 	colliderComp         string
@@ -967,9 +982,16 @@ func (e *Editor) EndGizmoDrag3D() bool {
 	return true
 }
 
-// CancelGizmoDrag3D aborts any active 3D gizmo drag and restores the object's pre-drag transform.
+// CancelGizmoDrag3D aborts any active 3D gizmo or light/camera handle drag and restores the object's pre-drag state.
 func (e *Editor) CancelGizmoDrag3D() {
-	if e == nil || e.drag3D.kind != drag3DGizmo {
+	if e == nil {
+		return
+	}
+	if e.drag3D.kind == drag3DHandle {
+		e.CancelHandleDrag3D()
+		return
+	}
+	if e.drag3D.kind != drag3DGizmo {
 		return
 	}
 	st := e.drag3D
@@ -1010,13 +1032,13 @@ func (e *Editor) HandleViewport3DPress(sx, sy, w, h float32) {
 		e.report(err)
 		return
 	}
-	if e.PickGizmo3D(sx, sy, w, h) != Axis3DNone {
+	if e.PickHandle3D(sx, sy, w, h) != Handle3DNone || e.PickGizmo3D(sx, sy, w, h) != Axis3DNone {
 		return
 	}
 	e.Select3DAt(sx, sy, w, h)
 }
 
-// BeginViewport3DDrag starts a terrain brush stroke (if a terrain brush is active and hits the terrain and !pan), a 3D gizmo drag (if a handle is under the cursor and !pan), or a camera orbit/pan drag. It does nothing while the camera flies (BeginFly3D).
+// BeginViewport3DDrag starts a terrain brush stroke (if a terrain brush is active and hits the terrain and !pan), a light/camera handle drag, a 3D gizmo drag (if a handle is under the cursor and !pan), or a camera orbit/pan drag. It does nothing while the camera flies (BeginFly3D).
 func (e *Editor) BeginViewport3DDrag(sx, sy, w, h float32, pan bool) {
 	if e == nil || e.fly3D {
 		return
@@ -1036,9 +1058,15 @@ func (e *Editor) BeginViewport3DDrag(sx, sy, w, h float32, pan bool) {
 		}
 	}
 	if !pan && !e.playing {
+		if handle := e.BeginHandleDrag3D(sx, sy, w, h); handle != Handle3DNone {
+			return
+		}
 		if axis := e.BeginGizmoDrag3D(sx, sy, w, h); axis != Axis3DNone {
 			return
 		}
+	}
+	if e.lookThroughCamera3D {
+		e.lookThroughCamera3D = false
 	}
 	kind := drag3DOrbit
 	if pan {
@@ -1055,7 +1083,7 @@ func (e *Editor) BeginViewport3DDrag(sx, sy, w, h float32, pan bool) {
 	}
 }
 
-// UpdateViewport3DDrag advances the active terrain brush stroke, 3D gizmo drag, or camera orbit/pan drag.
+// UpdateViewport3DDrag advances the active terrain brush stroke, 3D handle drag, gizmo drag, or camera orbit/pan drag.
 func (e *Editor) UpdateViewport3DDrag(sx, sy float32) {
 	if e == nil {
 		return
@@ -1065,6 +1093,8 @@ func (e *Editor) UpdateViewport3DDrag(sx, sy float32) {
 		e.drag3D.lastSX = sx
 		e.drag3D.lastSY = sy
 		e.ContinueTerrainStrokeAt(sx, sy, e.drag3D.vpW, e.drag3D.vpH)
+	case drag3DHandle:
+		e.UpdateHandleDrag3D(sx, sy)
 	case drag3DGizmo:
 		e.UpdateGizmoDrag3D(sx, sy)
 	case drag3DOrbit:
@@ -1083,7 +1113,7 @@ func (e *Editor) UpdateViewport3DDrag(sx, sy float32) {
 	}
 }
 
-// EndViewport3DDrag finishes any active terrain brush stroke, 3D gizmo drag, or camera drag.
+// EndViewport3DDrag finishes any active terrain brush stroke, 3D handle, gizmo, or camera drag.
 func (e *Editor) EndViewport3DDrag() {
 	if e == nil {
 		return
@@ -1092,6 +1122,9 @@ func (e *Editor) EndViewport3DDrag() {
 	case drag3DTerrain:
 		e.drag3D = drag3DState{}
 		e.EndTerrainStroke()
+		return
+	case drag3DHandle:
+		e.EndHandleDrag3D()
 		return
 	case drag3DGizmo:
 		e.EndGizmoDrag3D()
@@ -1109,6 +1142,7 @@ func (e *Editor) HandleViewport3DWheel(deltaY float32) {
 		e.AdjustFlySpeed3D(deltaY)
 		return
 	}
+	e.lookThroughCamera3D = false
 	dist, _, _, _ := e.Camera3D.effectiveParams()
 	step := -deltaY * 0.002 * float32(dist)
 	e.Camera3D.Zoom(step)
@@ -1150,6 +1184,9 @@ func (e *Editor) DrawViewport3D(d *core.Drawing, size core.Size) {
 
 	// 4b. Projected 3D occluder volumes (box and model occluders).
 	e.drawOccluders3D(d, w, h)
+
+	// 4c. Light and 3D camera icons.
+	e.drawSceneLightAndCameraIcons3D(d, w, h)
 	// 4b. Projected 3D physics collider and trigger debug wireframes.
 	e.drawPhysicsDebug3D(d, w, h)
 
@@ -1161,8 +1198,9 @@ func (e *Editor) DrawViewport3D(d *core.Drawing, size core.Size) {
 		e.drawWireframe3D(d, s3, w, h)
 	}
 
-	// 6. Active 3D transform gizmo on the selected object (hidden while painting a GridMap or 3D Terrain brush).
+	// 6. Active 3D transform gizmo and light/camera interactive handles on the selected object (hidden while painting a GridMap or 3D Terrain brush).
 	if !e.gizmo3DBlocked() {
+		e.drawSceneHandles3D(d, w, h)
 		e.drawGizmo3D(d, w, h)
 	}
 }
@@ -1233,12 +1271,13 @@ func (e *Editor) gridStep3D() (step float32, halfLines int) {
 func (e *Editor) drawGrid3D(d *core.Drawing, w, h float32) {
 	step, half := e.gridStep3D()
 	extent := step * float32(half)
+	vc := e.activeView3DCam(w, h)
 
 	d.Save().SetStrokeColor(core.RGBA(0x94A3B8, 0.22)).SetLineWidth(1).BeginPath()
 	hasSegments := false
 	for i := -half; i <= half; i++ {
 		coord := float32(i) * step
-		if x0, y0, x1, y1, vis := e.Camera3D.projectSegment(
+		if x0, y0, x1, y1, vis := vc.projectSegment(
 			[3]float32{coord, 0, -extent},
 			[3]float32{coord, 0, extent},
 			w, h,
@@ -1246,7 +1285,7 @@ func (e *Editor) drawGrid3D(d *core.Drawing, w, h float32) {
 			d.MoveTo(x0, y0).LineTo(x1, y1)
 			hasSegments = true
 		}
-		if x0, y0, x1, y1, vis := e.Camera3D.projectSegment(
+		if x0, y0, x1, y1, vis := vc.projectSegment(
 			[3]float32{-extent, 0, coord},
 			[3]float32{extent, 0, coord},
 			w, h,
@@ -1265,6 +1304,7 @@ func (e *Editor) drawOriginAxes3D(d *core.Drawing, w, h float32) {
 	step, _ := e.gridStep3D()
 	axisLen := step * 3
 	origin := [3]float32{0, 0, 0}
+	vc := e.activeView3DCam(w, h)
 
 	axes := []struct {
 		end   [3]float32
@@ -1275,7 +1315,7 @@ func (e *Editor) drawOriginAxes3D(d *core.Drawing, w, h float32) {
 		{[3]float32{0, 0, axisLen}, core.RGBA(0x3B82F6, 0.9)},
 	}
 	for _, ax := range axes {
-		x0, y0, x1, y1, vis := e.Camera3D.projectSegment(origin, ax.end, w, h)
+		x0, y0, x1, y1, vis := vc.projectSegment(origin, ax.end, w, h)
 		if !vis {
 			continue
 		}
@@ -1301,8 +1341,9 @@ func (e *Editor) drawSceneObjects3D(d *core.Drawing, w, h float32, overlay bool)
 		selected  bool
 		wireframe bool
 	}
-	eye := e.Camera3D.eye64()
-	_, _, forward := e.Camera3D.basis64()
+	vc := e.activeView3DCam(w, h)
+	eye := vc.eye
+	forward := vc.forward
 
 	var items []drawable3D
 	for li := range e.Doc.Layers {
@@ -1322,6 +1363,10 @@ func (e *Editor) drawSceneObjects3D(d *core.Drawing, w, h float32, overlay bool)
 				children := o.Children
 				// While an animation clip is open, draw each object as the clip poses it at the playhead, as the 2D viewport does through ActiveScene.
 				o = e.posed3D(o)
+				if isLightOrCameraOnly3D(o) {
+					walk(children, parent.mul(local3(o)))
+					continue
+				}
 				_, geometry := e.geometryBounds3D(o.ID)
 				occluded := e.vp3d.occludedObjects[o.ID]
 				_, hasLOD := e.vp3d.lodByObject[o.ID]
@@ -1380,7 +1425,7 @@ func (e *Editor) drawSceneObjects3D(d *core.Drawing, w, h float32, overlay bool)
 			d.BeginPath()
 			hasEdge := false
 			for _, edge := range boxEdges3D {
-				x0, y0, x1, y1, vis := e.Camera3D.projectSegment(corners[edge[0]], corners[edge[1]], w, h)
+				x0, y0, x1, y1, vis := vc.projectSegment(corners[edge[0]], corners[edge[1]], w, h)
 				if !vis {
 					continue
 				}
@@ -1398,7 +1443,7 @@ func (e *Editor) drawSceneObjects3D(d *core.Drawing, w, h float32, overlay bool)
 		}
 
 		if item.selected {
-			if cx, cy, _, vis := e.Camera3D.Project(e.worldPosition3D(item.obj), w, h); vis {
+			if cx, cy, _, vis := vc.project(e.worldPosition3D(item.obj), w, h); vis {
 				d.Save().SetFillColor(core.RGBA(0x38BDF8, 1)).BeginPath().Arc(cx, cy, 3, 0, float32(2*math.Pi), false).Fill().Restore()
 			}
 		}

@@ -58,6 +58,7 @@ func sceneSchemas(t testing.TB) map[int]*jsonschema.Schema {
 		1: schemaAt(t, sceneformat.SchemaURL),
 		2: schemaAt(t, sceneformat.SchemaURLV2),
 		3: schemaAt(t, sceneformat.SchemaURLV3),
+		4: schemaAt(t, sceneformat.SchemaURLV4),
 	}
 }
 
@@ -185,8 +186,14 @@ func TestSceneSchemaV2Shape(t *testing.T) {
 
 func TestSceneSchemaV3Shape(t *testing.T) {
 	s := schemaAt(t, sceneformat.SchemaURLV3)
-	if version := s.Property("version"); version == nil || version.Const != int64(sceneformat.CurrentVersion) {
+	if version := s.Property("version"); version == nil || version.Const != int64(3) {
 		t.Fatalf("version property = %+v", version)
+	}
+	if s.Property("environment") != nil {
+		t.Error("version 3 schema has version 4 key environment")
+	}
+	if obj := s.Definitions["ObjectDoc"]; obj != nil && (obj.Property("light") != nil || obj.Property("camera") != nil) {
+		t.Error("version 3 ObjectDoc has version 4 light or camera key")
 	}
 	for _, name := range []string{"LayerDoc", "LayerOverride"} {
 		def := s.Definitions[name]
@@ -196,6 +203,38 @@ func TestSceneSchemaV3Shape(t *testing.T) {
 		for _, key := range []string{"parallaxX", "parallaxY", "repeatX", "repeatY", "repeatWidth", "repeatHeight"} {
 			if p := def.Property(key); p == nil || p.Description == "" {
 				t.Errorf("version 3 %s.%s = %+v, want one with a description", name, key, p)
+			}
+		}
+	}
+}
+
+func TestSceneSchemaV4Shape(t *testing.T) {
+	s := schemaAt(t, sceneformat.SchemaURLV4)
+	if version := s.Property("version"); version == nil || version.Const != int64(sceneformat.CurrentVersion) {
+		t.Fatalf("version property = %+v", version)
+	}
+	if p := s.Property("environment"); p == nil || p.Description == "" {
+		t.Errorf("version 4 environment = %+v, want one with a description", p)
+	}
+	for _, name := range []string{"ObjectDoc", "ObjectOverride"} {
+		def := s.Definitions[name]
+		if def == nil {
+			t.Fatalf("version 4 lacks %s", name)
+		}
+		for _, key := range []string{"light", "camera"} {
+			if p := def.Property(key); p == nil || p.Description == "" {
+				t.Errorf("version 4 %s.%s = %+v, want one with a description", name, key, p)
+			}
+		}
+	}
+	for _, name := range []string{"EnvironmentDoc", "SkyDoc", "FogDoc", "LightDoc", "Camera3DDoc"} {
+		def := s.Definitions[name]
+		if def == nil || def.Description == "" {
+			t.Fatalf("version 4 definition %s = %+v, want one with a description", name, def)
+		}
+		for _, p := range def.Properties {
+			if p.Schema.Description == "" {
+				t.Errorf("version 4 %s.%s has no description", name, p.Name)
 			}
 		}
 	}
@@ -249,7 +288,7 @@ func TestSceneSchemaRefusesWhatParseRefuses(t *testing.T) {
 		"unknown top-level key": {"version: 1\nnmae: x\n", `/nmae: unknown key "nmae"`},
 		"unknown object key":    {"version: 1\nlayers: [{name: a, objects: [{id: o, colour: red}]}]\n", `/layers/0/objects/0/colour: unknown key`},
 		"missing version":       {"name: x\n", `/: missing required key "version"`},
-		"future version":        {"version: 4\n", "/version: 4 is not the allowed value 1"},
+		"future version":        {"version: 5\n", "/version: 5 is not the allowed value 1"},
 		"inherits in version 1": {"version: 1\ninherits: base.scene.yaml\n", `/inherits: unknown key "inherits"`},
 		"layer without name":    {"version: 1\nlayers: [{order: 1}]\n", `/layers/0: missing required key "name"`},
 		"bad space":             {"version: 1\nlayers: [{name: a, space: sky}]\n", `/layers/0/space: "sky" is not one of "world", "screen"`},

@@ -65,17 +65,36 @@ var sceneV2Fields = map[string]bool{"Inherits": true, "LayerOverrides": true, "O
 // sceneV3Fields names the Go fields of the scene document types that scene format version 3 added; the version 1 and version 2 schemas leave them out, since Validate refuses them in older versions.
 var sceneV3Fields = map[string]bool{"ParallaxX": true, "ParallaxY": true, "RepeatX": true, "RepeatY": true, "RepeatWidth": true, "RepeatHeight": true, "OffsetX": true, "OffsetY": true}
 
-// sceneV1Field maps a scene document field as jsonschema.YAMLField does, skipping the fields versions 2 and 3 added.
+// sceneV4Fields names the Go fields of the scene document types that scene format version 4 added; older schemas leave them out, since Validate refuses them in versions 1-3.
+var sceneV4Fields = map[string]bool{"Environment": true, "Light": true}
+
+// isSceneV4Field reports whether f was added in scene format version 4, including ObjectDoc.Camera and ObjectOverride.Camera (distinct from SceneDoc.Camera, which is version 1).
+func isSceneV4Field(f reflect.StructField) bool {
+	if sceneV4Fields[f.Name] {
+		return true
+	}
+	return f.Name == "Camera" && f.Type == reflect.TypeFor[*sceneformat.Camera3DDoc]()
+}
+
+// sceneV1Field maps a scene document field as jsonschema.YAMLField does, skipping the fields versions 2, 3 and 4 added.
 func sceneV1Field(f reflect.StructField) jsonschema.Field {
-	if sceneV2Fields[f.Name] || sceneV3Fields[f.Name] {
+	if sceneV2Fields[f.Name] || sceneV3Fields[f.Name] || isSceneV4Field(f) {
 		return jsonschema.Field{Skip: true}
 	}
 	return jsonschema.YAMLField(f)
 }
 
-// sceneV2Field maps a scene document field as jsonschema.YAMLField does, skipping the fields version 3 added.
+// sceneV2Field maps a scene document field as jsonschema.YAMLField does, skipping the fields versions 3 and 4 added.
 func sceneV2Field(f reflect.StructField) jsonschema.Field {
-	if sceneV3Fields[f.Name] {
+	if sceneV3Fields[f.Name] || isSceneV4Field(f) {
+		return jsonschema.Field{Skip: true}
+	}
+	return jsonschema.YAMLField(f)
+}
+
+// sceneV3Field maps a scene document field as jsonschema.YAMLField does, skipping the fields version 4 added.
+func sceneV3Field(f reflect.StructField) jsonschema.Field {
+	if isSceneV4Field(f) {
 		return jsonschema.Field{Skip: true}
 	}
 	return jsonschema.YAMLField(f)
@@ -111,11 +130,19 @@ var formats = []format{
 		fieldName: sceneV2Field,
 	},
 	{
-		url:     sceneformat.SchemaURLV3,
-		title:   "NSGo game scene (version 3)",
+		url:       sceneformat.SchemaURLV3,
+		title:     "NSGo game scene (version 3)",
+		typ:       reflect.TypeFor[sceneformat.SceneDoc](),
+		pkg:       "sceneformat",
+		version:   3,
+		fieldName: sceneV3Field,
+	},
+	{
+		url:     sceneformat.SchemaURLV4,
+		title:   "NSGo game scene (version 4)",
 		typ:     reflect.TypeFor[sceneformat.SceneDoc](),
 		pkg:     "sceneformat",
-		version: 3,
+		version: 4,
 	},
 	{
 		url:     tilemap.TilesetSchemaURL,

@@ -352,6 +352,18 @@ func inspectorSchemaKey(ed *Editor) string {
 	b.WriteString(layer)
 	b.WriteByte(':')
 	b.WriteString(obj.ID)
+	if obj.Light != nil {
+		b.WriteString("|L:")
+		b.WriteString(string(obj.Light.Kind))
+	} else {
+		b.WriteString("|L:none")
+	}
+	if obj.Camera != nil {
+		b.WriteString("|C3:")
+		b.WriteString(string(obj.Camera.EffectiveProjection()))
+	} else {
+		b.WriteString("|C3:none")
+	}
 
 	if len(obj.Properties) > 0 {
 		keys := sortedMapKeys(obj.Properties)
@@ -1321,6 +1333,13 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 				},
 			},
 		)
+	}
+
+	if o, _, _ := ed.FindObject(objID); ed.ViewMode == ViewMode3D || (o != nil && (o.Light != nil || o.Camera != nil)) {
+		nodes = append(nodes, sectionHeader("LIGHT 3D"))
+		nodes = append(nodes, light3DInspectorFields(ed, rev, objID, disabled, fieldRow)...)
+		nodes = append(nodes, sectionHeader("CAMERA 3D"))
+		nodes = append(nodes, camera3DInspectorFields(ed, rev, objID, disabled, fieldRow)...)
 	}
 
 	nodes = append(nodes, sectionHeader(ed.T("inspector.section.sprite")))

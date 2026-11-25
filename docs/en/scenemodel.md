@@ -71,9 +71,9 @@ if err != nil {
 }
 ```
 
-`Build` builds the layers and objects as `sceneformat.BuildNodes3D` does and then gives each object its look. It loads models through a `ModelResolver`, as `sceneformat.Build` loads materials through a `MaterialResolver`; the resolver must also be a `GridMapResolver` when an object names a `gridMap` file, a `sceneformat.MaterialResolver` when an object names a material file, and an `ImageResolver` when that file names a texture. `Assets` implements all four over a project's files: models load with `gltf.LoadFS`, grid maps with `world3d.ParseGridMapWith`, material files through a `resource.Library`, and images decode as PNG or JPEG, each once. A scene that instances or inherits others must go through `sceneformat.Resolve` first. On any error, such as a model that does not load, a `modelNode` it does not have, or a grid map referencing an unknown tile, `Build` returns it with the layer and object and leaves the parent untouched.
+`Build` builds the layers and objects as `sceneformat.BuildNodes3D` does and then gives each object its look, lights, cameras and scene environment. It loads models through a `ModelResolver`, as `sceneformat.Build` loads materials through a `MaterialResolver`; the resolver must also be a `GridMapResolver` when an object names a `gridMap` file, a `sceneformat.MaterialResolver` when an object names a material file, an `ImageResolver` when that file names a texture, an `ImportSettingsResolver` for model LOD sidecars, and an `HDRResolver` when `environment.sky.kind` is `hdr`. `Assets` implements all six over a project's files: models load with `gltf.LoadFS`, grid maps with `world3d.ParseGridMapWith`, material files through a `resource.Library`, images decode as PNG or JPEG, sidecars parse with `importsettings.Parse`, and Radiance HDR skies decode with `render3d.DecodeHDR`, each once. A scene that instances or inherits others must go through `sceneformat.Resolve` first. On any error, such as a model that does not load, an HDR sky that fails to decode, a `modelNode` it does not have, or a grid map referencing an unknown tile, `Build` returns it with the layer and object and leaves the parent untouched.
 
-The result, a `Built`, holds the layer and object nodes (`Layers`, `Objects`), any built `*world3d.GridMap` instances keyed by object ID (`GridMaps`), and the `Drawables`: every node that draws, an object's node or a node made for a node of its model or an instanced tile of its grid map. Each drawable lists its `Parts`, one per glTF triangle primitive or one for a primitive shape, with the triangle `Mesh` in the node's space and its `Material`. Parts that draw the same geometry share a `MeshID` and parts with the same material a `MaterialID`, so a renderer uploads each once. Each drawing node's `LocalBounds` is set from its geometry, and its `*Drawable` is stored as the attachment `scenemodel.AttachmentKey`, so picking or an editor can find what a node draws.
+The result, a `Built`, holds the layer and object nodes (`Layers`, `Objects`), any built `*world3d.GridMap` instances keyed by object ID (`GridMaps`), any built `Occluders`, the `Drawables`, any 3D `Lights`, any 3D `Cameras`, and the built `Environment` (sky cubemap or clear color, prefiltered IBL and spherical harmonics, fog, exposure and tone mapping): every node that draws is an object's node, a node made for a node of its model, or an instanced tile of its grid map. `Built.ActiveCamera(aspect)` builds the `scene3d.Camera` for the active visible 3D camera (`current: true`, or the first visible 3D camera), `Built.LightRig()` collects the visible lights' current world positions and `-Z` directions into a `render3d.LightRig`, and `Built.HasSceneLighting()` reports whether the scene defines its own lights or environment. Each drawable lists its `Parts`, one per glTF triangle primitive or one for a primitive shape, with the triangle `Mesh` in the node's space and its `Material`. Parts that draw the same geometry share a `MeshID` and parts with the same material a `MaterialID`, so a renderer uploads each once. Each drawing node's `LocalBounds` is set from its geometry, and its `*Drawable` is stored as the attachment `scenemodel.AttachmentKey`, so picking or an editor can find what a node draws.
 
 A model draws in its bind pose with its meshes' default morph weights applied. Triangle strips and fans are unrolled into lists, a primitive without normals is flat-shaded as glTF says, and the base color texture's UV set and `KHR_texture_transform` are applied to the UVs. Skins, cameras, lights, animations, vertex colors, points and lines are not used.
 
@@ -81,7 +81,7 @@ A model draws in its bind pose with its meshes' default morph weights applied. T
 
 `Built.AppendDrawItems` appends a `render3d.DrawItem` for every part of every visible, enabled node, with the node's world matrix, the part's world bounds and its mesh, material and pipeline IDs, for a game's own `render3d.Queue`. `Built.Part` maps an item's ID back to its drawable and part.
 
-`Renderer` draws a `Built` on a `gpu.Device`: it uploads every mesh and texture once, then each frame `Prepare` writes the camera, a `render3d.LightRig` and the nodes' current transforms and plans the frame with a `render3d.Queue` (frustum culling, opaque parts front to back, blended ones back to front), and `Draw` records it into a render pass with a depth attachment.
+`Renderer` draws a `Built` on a `gpu.Device`: it uploads every mesh, texture, sky cubemap, IBL prefilter and shadow map once. Each frame, call `PrepareScene(cam)` to upload the camera, the scene's lights (`Built.LightRig`), shadows, fog, IBL and tonemapping (or `Prepare(cam, lights)` to override with a custom `render3d.LightRig`), call `RecordShadows(frame)` before the main render pass when any light casts shadows, clear with `ClearColor(fallback)`, and call `DrawSky(pass)` followed by `Draw(pass)` inside the render pass:
 
 ```go
 r, err := scenemodel.NewRenderer(cx, dev, built, scenemodel.RendererOptions{})
@@ -89,24 +89,28 @@ if err != nil {
 	return err
 }
 // Each frame:
-if _, err := r.Prepare(cam, lights); err != nil {
+cam, _ := built.ActiveCamera(aspect)
+if _, err := r.PrepareScene(cam); err != nil {
 	return err
 }
-pass := frame.BeginRenderPass(gpu.RenderPassDesc{})
-pass.ClearColor(core.RGB(0x10141c))
-pass.ClearDepth(1)
+r.RecordShadows(frame)
+pass := frame.BeginRenderPass(gpu.RenderPassDesc{
+	ColorAttachments: []gpu.ColorAttachment{{LoadOp: gpu.LoadClear, StoreOp: gpu.StoreStore, ClearColor: r.ClearColor(core.RGB(0x10141c))}},
+	DepthStencil:     &gpu.DepthStencilAttachment{DepthLoadOp: gpu.LoadClear, DepthStoreOp: gpu.StoreDiscard, ClearDepth: 1},
+})
+r.DrawSky(pass)
 r.Draw(pass)
 pass.End()
 ```
 
-Its shader (`ShaderWGSL`) is render3d's metallic-roughness lighting with a base color texture, alpha cutouts, double-sided surfaces lit from the side the viewer sees, and blending. Moving, hiding or showing a node changes what is drawn from the next `Prepare`; to change what an object looks like, edit the scene or material file and build again. A game that needs its own shader, such as one with fog, reads the parts and uploads them itself, as the Lantern 3D example does.
+Its shader (`ShaderWGSL`) combines render3d's metallic-roughness direct lighting, directional/spot/point shadow maps, image-based lighting (IBL), distance and height fog, and scene tone mapping and exposure (`none`, `reinhard`, `aces`, `neutral`, `agx`), with base color textures, alpha cutouts, double-sided surfaces lit from the side the viewer sees, and alpha blending. Moving, hiding or showing a node (including a light or camera node) takes effect on the next `PrepareScene` or `Prepare`. The editor's 3D viewport draws a scene's build with the same `Renderer` pipeline so lights, shadows, sky, fog, tonemapping and the active 3D camera match the game's first frame ([Editor](editor.md#3d-viewport-890)).
 
-`SetShading` switches how `Draw` shades the parts: `ShadingLit`, the default, or `ShadingUnlit`, which draws each surface at its textured base color plus its emissive color and ignores the lights, as an editor's unlit view does; its pipelines are created on the first switch to it. The editor's 3D viewport draws a scene's build with a `Renderer` ([Editor](editor.md#3d-viewport-890)).
+`SetShading` switches how `Draw` shades the parts: `ShadingLit`, the default, or `ShadingUnlit`, which draws each surface at its textured base color plus its emissive color and ignores the lights, as an editor's unlit view does; its pipelines are created on the first switch to it.
 
 ## Checking and moving
 
-- `game check` reports a model or grid map that is missing or does not load, and a `modelNode` or `modelMesh` the model does not have, at the scene file and line that names it, including what an override of an instanced or inherited scene changes, at the override; a model's load error, a buffer or image a `.gltf` file names that is missing, or an invalid `meshLibrary` / unknown tile in a `.gridmap.yaml` file is reported against that asset file ([CLI](cli.md)).
-- `game mv`, `game index` and the editor's `MoveFile` treat `model`, `gridMap` and a grid map's `meshLibrary` as references: moving a model or grid map rewrites every scene, override and `.gridmap.yaml` file that names it, and moving a `.gltf` file's buffer or image rewrites the `.gltf` file, percent-encoding the new name as glTF requires ([Project File](project.md)).
+- `game check` reports a model or grid map that is missing or does not load, a `modelNode` or `modelMesh` the model does not have, and a missing or undecodable `environment.sky.hdr` image, at the scene file and line that names it, including what an override of an instanced or inherited scene changes, at the override; a model's load error, a buffer or image a `.gltf` file names that is missing, or an invalid `meshLibrary` / unknown tile in a `.gridmap.yaml` file is reported against that asset file ([CLI](cli.md)).
+- `game mv`, `game index` and the editor's `MoveFile` treat `model`, `gridMap`, a grid map's `meshLibrary` and `environment.sky.hdr` as references: moving a model, grid map or HDR sky rewrites every scene, override and `.gridmap.yaml` file that names it, and moving a `.gltf` file's buffer or image rewrites the `.gltf` file, percent-encoding the new name as glTF requires ([Project File](project.md)).
 
 ## Example
 

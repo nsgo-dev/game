@@ -78,7 +78,7 @@ type Drawable struct {
 	Parts []Part
 }
 
-// Built is a scene's 3D node tree with the geometry each object draws, from Build.
+// Built is a scene's 3D node tree with the geometry, lights, cameras and environment each scene declares, from Build.
 type Built struct {
 	// Nodes3D holds the layer and object nodes, as sceneformat.BuildNodes3D builds them.
 	sceneformat.Nodes3D
@@ -90,6 +90,12 @@ type Built struct {
 	Occluders []Occluder
 	// LODHysteresis is the largest non-zero lodHysteresis declared by any model import sidecar in the built scene, or 0 when none sets one.
 	LODHysteresis float32
+	// Lights are the scene's 3D light objects in depth-first document order, linked to their scene3d nodes.
+	Lights []*Light
+	// Cameras are the scene's 3D camera objects in depth-first document order, linked to their scene3d nodes.
+	Cameras []*Camera
+	// Environment holds the resolved sky, ambient/IBL lighting, fog, tone mapping and exposure from SceneDoc.Environment.
+	Environment Environment
 	// Meshes and Materials count the distinct MeshID and MaterialID values the parts use.
 	Meshes, Materials int
 }
@@ -114,8 +120,12 @@ func Build(doc *sceneformat.SceneDoc, parent *scene3d.Node, models ModelResolver
 	if err != nil {
 		return nil, err
 	}
+	env, err := buildEnvironment(doc.Environment, models)
+	if err != nil {
+		return nil, err
+	}
 	b := &builder{
-		built:         &Built{Nodes3D: *nodes, GridMaps: make(map[string]*world3d.GridMap)},
+		built:         &Built{Nodes3D: *nodes, GridMaps: make(map[string]*world3d.GridMap), Environment: env},
 		models:        models,
 		docs:          make(map[string]*gltf.Document),
 		gridMaps:      make(map[string]*world3d.GridMapDoc),
@@ -200,9 +210,15 @@ type builder struct {
 	shapes map[string]render3d.Mesh
 }
 
-// object gives the object o, built at node n, its geometry and optional occluder.
+// object gives the object o, built at node n, its geometry, optional occluder, light and 3D camera.
 func (b *builder) object(o *sceneformat.ObjectDoc, n *scene3d.Node) error {
 	startDrawables := len(b.built.Drawables)
+	if o.Light != nil {
+		b.built.Lights = append(b.built.Lights, &Light{Node: n, Object: o.ID, Doc: *o.Light.Clone()})
+	}
+	if o.Camera != nil {
+		b.built.Cameras = append(b.built.Cameras, &Camera{Node: n, Object: o.ID, Doc: *o.Camera.Clone()})
+	}
 	switch {
 	case o.Mesh != "":
 		mesh, err := b.shape(o.Mesh)

@@ -1,64 +1,166 @@
 package scenemodel
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"image"
 	"image/color"
+	"math"
+	"strings"
 
+	"github.com/nsgo-dev/game/packages/game/math3d"
 	"github.com/nsgo-dev/game/packages/game/render3d"
 	"github.com/nsgo-dev/game/packages/game/scene3d"
+	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/gpu"
 )
 
-// BaseColorGroup is the bind group of the base color texture and sampler in ShaderWGSL, after render3d's camera (render3d.CameraGroup), lights (render3d.LightGroup) and per-draw uniform (render3d.PBRDrawGroup).
+// BaseColorGroup is the bind group of the base color texture and sampler in ShaderWGSL, after render3d's camera (render3d.CameraGroup), scene lights and environment (render3d.LightGroup) and per-draw uniform (render3d.PBRDrawGroup).
 const BaseColorGroup = render3d.PBRDrawGroup + 1
 
-// ShaderWGSL is the shader module Renderer draws with: render3d.LitPBRWGSL's lighting (render3d.LightWGSL's shade_pbr over the scene's render3d.LightRig) with a base color texture. Per draw it reads a render3d.PBRDrawUniform at render3d.PBRDrawGroup: the model and normal matrices, the linear base color factor, metallic in pbr_params.x, roughness in pbr_params.y, the alpha cutoff of a cutout surface in pbr_params.z (0 for none), 1 in pbr_params.w for a double-sided surface, whose back faces it lights with the normal flipped, the emissive color in emissive.rgb, and 1 in emissive.w for a blended surface, whose alpha it writes (1 otherwise). The texture at BaseColorGroup is sampled at the mesh's UVs and multiplies the base color factor.
-const ShaderWGSL = shaderPreludeWGSL + `
-@fragment
-fn fs_main(in: VertexOut, @builtin(front_facing) front_facing: bool) -> @location(0) vec4<f32> {
-	// Sample in uniform control flow, before the cutout's discard.
-	let texel = textureSample(base_tex, base_samp, in.uv);
-	let base = pbr_draw.base_color * texel;
-	if (pbr_draw.pbr_params.z > 0.0 && base.a < pbr_draw.pbr_params.z) {
-		discard;
+const (
+	sceneEnvUniformSize = 32
+	skyboxUniformSize   = 80
+)
+
+func rebindGroup1(src string, b0, b1, b2 int) string {
+	s := strings.Replace(src, "@group(1) @binding(0)", fmt.Sprintf("@group(1) @binding(%d)", b0), 1)
+	s = strings.Replace(s, "@group(1) @binding(1)", fmt.Sprintf("@group(1) @binding(%d)", b1), 1)
+	s = strings.Replace(s, "@group(1) @binding(2)", fmt.Sprintf("@group(1) @binding(%d)", b2), 1)
+	return s
+}
+
+// sceneTonemapWGSL provides portable exposure, tone mapping (None, Reinhard, ACES, Neutral, AgX) and sRGB encoding matching render3d.ApplyToneMap and render3d.ToneMapWGSL without exp or log2 builtins so NSGo's software GPU evaluates every operator identically to hardware backends.
+const sceneTonemapWGSL = `
+fn sm_tonemap_reinhard(c: vec3<f32>) -> vec3<f32> {
+	return c / (vec3<f32>(1.0, 1.0, 1.0) + c);
+}
+
+fn sm_tonemap_aces(c: vec3<f32>) -> vec3<f32> {
+	let num = c * (2.51 * c + vec3<f32>(0.03, 0.03, 0.03));
+	let den = c * (2.43 * c + vec3<f32>(0.59, 0.59, 0.59)) + vec3<f32>(0.14, 0.14, 0.14);
+	return clamp(num / den, vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(1.0, 1.0, 1.0));
+}
+
+fn sm_tonemap_neutral(color: vec3<f32>) -> vec3<f32> {
+	let start_compression = 0.76;
+	let desaturation = 0.15;
+	let x = min(color.x, min(color.y, color.z));
+	var offset: f32 = 0.04;
+	if (x < 0.08) {
+		offset = x - 6.25 * x * x;
 	}
-	var n = normalize(in.world_normal);
-	if (pbr_draw.pbr_params.w > 0.5 && !front_facing) {
-		n = -n;
+	var c = color - vec3<f32>(offset, offset, offset);
+	let peak = max(c.x, max(c.y, c.z));
+	if (peak < start_compression) {
+		return clamp(c, vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(1.0, 1.0, 1.0));
 	}
-	let view_dir = normalize(camera.eye.xyz - in.world_pos * camera.eye.w);
-	let lit = shade_pbr(in.world_pos, n, view_dir, base.rgb, pbr_draw.pbr_params.x, pbr_draw.pbr_params.y) + pbr_draw.emissive.rgb;
-	var alpha = 1.0;
-	if (pbr_draw.emissive.w > 0.5) {
-		alpha = base.a;
+	let d = 1.0 - start_compression;
+	let new_peak = 1.0 - (d * d) / (peak + d - start_compression);
+	c = c * (new_peak / peak);
+	let g = 1.0 - 1.0 / (desaturation * (peak - new_peak) + 1.0);
+	return clamp(mix(c, vec3<f32>(new_peak, new_peak, new_peak), vec3<f32>(g, g, g)), vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(1.0, 1.0, 1.0));
+}
+
+fn sm_fast_log2_agx(v: f32) -> f32 {
+	var m = clamp(v, 0.0001757761, 16.291573);
+	var e: f32 = 0.0;
+	if (m >= 16.0) { m = m * 0.0625; e = e + 4.0; }
+	if (m >= 4.0) { m = m * 0.25; e = e + 2.0; }
+	if (m >= 2.0) { m = m * 0.5; e = e + 1.0; }
+	if (m < 0.00390625) { m = m * 256.0; e = e - 8.0; }
+	if (m < 0.0625) { m = m * 16.0; e = e - 4.0; }
+	if (m < 0.25) { m = m * 4.0; e = e - 2.0; }
+	if (m < 0.5) { m = m * 2.0; e = e - 1.0; }
+	if (m < 1.0) { m = m * 2.0; e = e - 1.0; }
+	if (m >= 1.41421356) { m = m * 0.5; e = e + 1.0; }
+	let t = (m - 1.0) / (m + 1.0);
+	let t2 = t * t;
+	let poly = 1.0 + t2 * (0.33333334 + t2 * (0.2 + t2 * 0.14285715));
+	return e + 2.88539008 * t * poly;
+}
+
+fn sm_agx_curve(x: vec3<f32>) -> vec3<f32> {
+	let x2 = x * x;
+	let x4 = x2 * x2;
+	return 15.5 * x4 * x2
+		- 40.14 * x4 * x
+		+ 31.96 * x4
+		- 6.868 * x2 * x
+		+ 0.4298 * x2
+		+ 0.1191 * x
+		- vec3<f32>(0.00232, 0.00232, 0.00232);
+}
+
+fn sm_tonemap_agx(c: vec3<f32>) -> vec3<f32> {
+	let inset = vec3<f32>(
+		0.84247906 * c.x + 0.07843360 * c.y + 0.07922375 * c.z,
+		0.04232824 * c.x + 0.87846864 * c.y + 0.07916613 * c.z,
+		0.04237565 * c.x + 0.07843360 * c.y + 0.87914297 * c.z,
+	);
+	let min_ev = -12.47393;
+	let inv_range = 0.06060606;
+	let lx = clamp((sm_fast_log2_agx(inset.x) - min_ev) * inv_range, 0.0, 1.0);
+	let ly = clamp((sm_fast_log2_agx(inset.y) - min_ev) * inv_range, 0.0, 1.0);
+	let lz = clamp((sm_fast_log2_agx(inset.z) - min_ev) * inv_range, 0.0, 1.0);
+	let curved = sm_agx_curve(vec3<f32>(lx, ly, lz));
+	let outset = vec3<f32>(
+		1.19687901 * curved.x - 0.09802088 * curved.y - 0.09902974 * curved.z,
+		-0.05289685 * curved.x + 1.15190313 * curved.y - 0.09896118 * curved.z,
+		-0.05297163 * curved.x - 0.09804345 * curved.y + 1.15107368 * curved.z,
+	);
+	let clamped = clamp(outset, vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(1.0, 1.0, 1.0));
+	return vec3<f32>(
+		pow(clamped.x, 2.2),
+		pow(clamped.y, 2.2),
+		pow(clamped.z, 2.2),
+	);
+}
+
+fn scene_tonemap_srgb(rgb: vec3<f32>, exposure: f32, op: f32) -> vec3<f32> {
+	let exposed = clamp(max(rgb * exposure, vec3<f32>(0.0, 0.0, 0.0)), vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(65504.0, 65504.0, 65504.0));
+	var mapped = clamp(exposed, vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(1.0, 1.0, 1.0));
+	if (op >= 0.5 && op < 1.5) {
+		mapped = sm_tonemap_reinhard(exposed);
+	} else if (op >= 1.5 && op < 2.5) {
+		mapped = sm_tonemap_aces(exposed);
+	} else if (op >= 2.5 && op < 3.5) {
+		mapped = sm_tonemap_neutral(exposed);
+	} else if (op >= 3.5) {
+		mapped = sm_tonemap_agx(exposed);
 	}
-	return vec4<f32>(linear_to_srgb(lit), alpha);
+	return linear_to_srgb(mapped);
 }
 `
 
-// unlitShaderWGSL is ShaderWGSL with a fragment stage that writes the textured base color plus the emissive color and ignores the lights, which ShadingUnlit draws with. It is a module of its own because NSGo's software renderer runs a module's first fragment entry point whatever the pipeline names.
-const unlitShaderWGSL = shaderPreludeWGSL + `
-@fragment
-fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
-	// Sample in uniform control flow, before the cutout's discard.
-	let texel = textureSample(base_tex, base_samp, in.uv);
-	let base = pbr_draw.base_color * texel;
-	if (pbr_draw.pbr_params.z > 0.0 && base.a < pbr_draw.pbr_params.z) {
-		discard;
-	}
-	var alpha = 1.0;
-	if (pbr_draw.emissive.w > 0.5) {
-		alpha = base.a;
-	}
-	return vec4<f32>(linear_to_srgb(base.rgb + pbr_draw.emissive.rgb), alpha);
+const sceneEnvDeclWGSL = `
+struct SceneEnvUniform {
+	params: vec4<f32>, // x=exposure, y=tonemap_op, z=has_dir_shadow, w=has_point_shadow
+	extra: vec4<f32>,  // x=has_spot_shadow
 }
+
+@group(1) @binding(1) var<uniform> fog: Fog;
+@group(1) @binding(2) var<uniform> scene_env: SceneEnvUniform;
 `
 
-// shaderPreludeWGSL is what ShaderWGSL and unlitShaderWGSL share: the bindings, the vertex stage and render3d's camera and lights.
-const shaderPreludeWGSL = render3d.CameraWGSL + render3d.LightWGSL + `
+func buildShaderPreludeWGSL() string {
+	iblWGSL := rebindGroup1(render3d.IBLWGSLForGroup(render3d.LightGroup), 3, 4, 5)
+	dirShadowWGSL := rebindGroup1(render3d.ShadowWGSLForGroup(render3d.LightGroup), 6, 7, 8)
+	spotShadowWGSL := rebindGroup1(render3d.SpotShadowWGSLForGroup(render3d.LightGroup), 9, 10, 11)
+	pointShadowWGSL := rebindGroup1(render3d.PointShadowWGSLForGroup(render3d.LightGroup), 12, 13, 14)
+
+	return render3d.CameraWGSL +
+		render3d.LightWGSL + "\n" +
+		render3d.FogWGSL + "\n" +
+		render3d.FogCameraWGSL + "\n" +
+		sceneEnvDeclWGSL + "\n" +
+		iblWGSL + "\n" +
+		dirShadowWGSL + "\n" +
+		spotShadowWGSL + "\n" +
+		pointShadowWGSL + "\n" +
+		sceneTonemapWGSL + `
 struct PBRDrawUniform {
 	model: mat4x4<f32>,
 	normal_matrix: mat4x4<f32>,
@@ -95,6 +197,123 @@ fn vs_main(in: VertexIn) -> VertexOut {
 	return out;
 }
 `
+}
+
+// ShaderWGSL is the shader module Renderer draws with in ShadingLit: render3d metallic-roughness PBR lighting with directional/point/spot lights, optional directional/point/spot shadows, split-sum IBL, distance and height fog, exposure, tone mapping, and a base color texture.
+var ShaderWGSL = buildShaderPreludeWGSL() + `
+@fragment
+fn fs_main(in: VertexOut, @builtin(front_facing) front_facing: bool) -> @location(0) vec4<f32> {
+	// Sample in uniform control flow, before the cutout's discard.
+	let texel = textureSample(base_tex, base_samp, in.uv);
+	let base = pbr_draw.base_color * texel;
+	if (pbr_draw.pbr_params.z > 0.0 && base.a < pbr_draw.pbr_params.z) {
+		discard;
+	}
+	var n = normalize(in.world_normal);
+	if (pbr_draw.pbr_params.w > 0.5 && !front_facing) {
+		n = -n;
+	}
+	let view_dir = normalize(camera.eye.xyz - in.world_pos * camera.eye.w);
+	var dir_vis: f32 = 1.0;
+	if (scene_env.params.z > 0.5) {
+		dir_vis = sample_directional_shadow(in.world_pos, n);
+	}
+	var pt_vis: f32 = 1.0;
+	if (scene_env.params.w > 0.5) {
+		pt_vis = sample_point_shadow(in.world_pos, n);
+	}
+	var spot_vis: f32 = 1.0;
+	if (scene_env.extra.x > 0.5) {
+		spot_vis = sample_spot_shadow(in.world_pos, n);
+	}
+	var lit = shade_pbr_visibility(in.world_pos, n, view_dir, base.rgb, pbr_draw.pbr_params.x, pbr_draw.pbr_params.y, dir_vis, pt_vis, spot_vis) + pbr_draw.emissive.rgb;
+	if (ibl.intensity > 0.0) {
+		lit = lit + evaluate_ibl(n, view_dir, base.rgb, pbr_draw.pbr_params.x, pbr_draw.pbr_params.y, 1.0);
+	}
+	let fogged = apply_fog(lit, fog_camera_pos(in.world_pos), in.world_pos, fog);
+	let display = scene_tonemap_srgb(fogged, scene_env.params.x, scene_env.params.y);
+	var alpha = 1.0;
+	if (pbr_draw.emissive.w > 0.5) {
+		alpha = base.a;
+	}
+	return vec4<f32>(display, alpha);
+}
+`
+
+// unlitShaderWGSL is ShaderWGSL with a fragment stage that writes the textured base color plus the emissive color and ignores the lights, which ShadingUnlit draws with.
+var unlitShaderWGSL = buildShaderPreludeWGSL() + `
+@fragment
+fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
+	// Sample in uniform control flow, before the cutout's discard.
+	let texel = textureSample(base_tex, base_samp, in.uv);
+	let base = pbr_draw.base_color * texel;
+	if (pbr_draw.pbr_params.z > 0.0 && base.a < pbr_draw.pbr_params.z) {
+		discard;
+	}
+	var alpha = 1.0;
+	if (pbr_draw.emissive.w > 0.5) {
+		alpha = base.a;
+	}
+	return vec4<f32>(linear_to_srgb(base.rgb + pbr_draw.emissive.rgb), alpha);
+}
+`
+
+// sceneSkyboxWGSL draws the scene's HDR/gradient skybox cubemap through the exact same exposure and tone mapping curve as ShaderWGSL.
+const sceneSkyboxWGSL = `struct SkyboxParams {
+	inv_view_proj: mat4x4<f32>,
+	exposure: f32,
+	tonemap_op: f32,
+	_pad0: f32,
+	_pad1: f32,
+}
+
+@group(0) @binding(0) var<uniform> skybox: SkyboxParams;
+@group(0) @binding(1) var skybox_tex: texture_cube<f32>;
+@group(0) @binding(2) var skybox_sampler: sampler;
+
+fn linear_to_srgb_channel(c: f32) -> f32 {
+	let x = clamp(c, 0.0, 1.0);
+	if (x <= 0.0031308) {
+		return 12.92 * x;
+	}
+	return 1.055 * pow(x, 1.0 / 2.4) - 0.055;
+}
+
+fn linear_to_srgb(rgb: vec3<f32>) -> vec3<f32> {
+	return vec3<f32>(
+		linear_to_srgb_channel(rgb.x),
+		linear_to_srgb_channel(rgb.y),
+		linear_to_srgb_channel(rgb.z),
+	);
+}
+` + sceneTonemapWGSL + `
+struct SkyboxVertexOut {
+	@builtin(position) pos: vec4<f32>,
+	@location(0) dir: vec3<f32>,
+}
+
+@vertex
+fn vs_skybox(@builtin(vertex_index) vid: u32) -> SkyboxVertexOut {
+	var ndc = vec2<f32>(-1.0, -1.0);
+	if (vid == 1u) {
+		ndc = vec2<f32>(3.0, -1.0);
+	} else if (vid == 2u) {
+		ndc = vec2<f32>(-1.0, 3.0);
+	}
+	let world = skybox.inv_view_proj * vec4<f32>(ndc, 1.0, 1.0);
+	var out: SkyboxVertexOut;
+	out.pos = vec4<f32>(ndc, 0.99999994, 1.0);
+	out.dir = world.xyz;
+	return out;
+}
+
+@fragment
+fn fs_skybox(in: SkyboxVertexOut) -> @location(0) vec4<f32> {
+	let dir = normalize(in.dir);
+	let sampled = textureSampleLevel(skybox_tex, skybox_sampler, dir, 0.0);
+	return vec4<f32>(scene_tonemap_srgb(sampled.rgb, skybox.exposure, skybox.tonemap_op), 1.0);
+}
+`
 
 // RendererOptions configures NewRenderer.
 type RendererOptions struct {
@@ -118,7 +337,7 @@ type RendererOptions struct {
 type Shading uint8
 
 const (
-	// ShadingLit lights every part with the render3d.LightRig given to Prepare. It is a Renderer's shading until SetShading changes it.
+	// ShadingLit lights every part with the render3d.LightRig given to Prepare (or built.LightRig via PrepareScene), plus the scene's environment. It is a Renderer's shading until SetShading changes it.
 	ShadingLit Shading = iota
 	// ShadingUnlit draws every part at its textured base color plus its emissive color and ignores the lights, as an editor's unlit view shows a scene.
 	ShadingUnlit
@@ -135,13 +354,39 @@ func (s Shading) String() string {
 	return fmt.Sprintf("Shading(%d)", uint8(s))
 }
 
-// Renderer draws a Built scene's drawables on a gpu.Device: every part's mesh lit by a render3d.LightRig and textured with its base color, culled and ordered by a render3d.Queue (frustum culling, software occlusion culling when Built has occluders, LOD selection with hysteresis, opaque surfaces front to back by pipeline, material and mesh, blended ones back to front). Each frame, call Prepare with the camera and lights before the render pass, then Draw inside it. Its GPU resources belong to the scope given to NewRenderer, or are released by Close. Use it from the engine goroutine, like the device.
+// Renderer draws a Built scene's drawables, lights, shadows and environment on a gpu.Device, culled and ordered by a render3d.Queue (frustum culling, software occlusion culling when Built has occluders, LOD selection with hysteresis, opaque surfaces front to back by pipeline, material and mesh, blended ones back to front). Each frame, call PrepareScene (or Prepare with custom lights), call RecordShadows before the main render pass when any light casts shadows, and call DrawSky and Draw inside the render pass. Its GPU resources belong to the scope given to NewRenderer, or are released by Close. Use it from the engine goroutine, like the device.
 type Renderer struct {
 	built *Built
 	dev   *gpu.Device
 
-	cam        *render3d.CameraBuffer
-	lights     *render3d.GPULightBuffer
+	cam           *render3d.CameraBuffer
+	sceneLayout   *gpu.BindGroupLayout
+	sceneGroup    *gpu.BindGroup
+	lightsBuf     *gpu.Buffer
+	fogBuf        *gpu.Buffer
+	envBuf        *gpu.Buffer
+	iblBuf        *gpu.Buffer
+	dirShadowBuf  *gpu.Buffer
+	spotShadowBuf *gpu.Buffer
+	ptShadowBuf   *gpu.Buffer
+	dummyCube     *render3d.GPUCubemap
+	iblCube       *render3d.GPUCubemap
+	dummyDepth    *gpu.Texture
+	shadowSampler *gpu.Sampler
+
+	dirShadow        *render3d.DirectionalShadowMap
+	spotShadow       *render3d.SpotShadowMap
+	pointShadow      *render3d.PointShadowMap
+	dirShadowActive  bool
+	spotShadowActive bool
+	ptShadowActive   bool
+
+	skyPipe    *gpu.Pipeline
+	skyLayout  *gpu.BindGroupLayout
+	skyUniform *gpu.Buffer
+	skyCube    *render3d.GPUCubemap
+	skyGroup   *gpu.BindGroup
+
 	drawLayout *gpu.BindGroupLayout
 	texLayout  *gpu.BindGroupLayout
 	// pipes holds the pipeline of each DrawPipeline ID for each Shading, the unlit ones made on the first SetShading(ShadingUnlit).
@@ -166,9 +411,18 @@ type Renderer struct {
 	occluders []render3d.Occluder
 	items     []render3d.DrawItem
 	plan      render3d.RenderPlan
+
+	lightScratch      []byte
+	fogScratch        []byte
+	envScratch        [sceneEnvUniformSize]byte
+	iblScratch        [render3d.IBLUniformSize]byte
+	dirShadowScratch  []byte
+	spotShadowScratch [render3d.SpotShadowUniformSize]byte
+	ptShadowScratch   [render3d.PointShadowUniformSize]byte
+	skyScratch        [skyboxUniformSize]byte
 }
 
-// NewRenderer uploads every mesh, texture and material of b to dev, scoped to cx, and creates the buffers and pipelines that draw them. b's drawables are fixed from here on; their nodes may move, hide and show.
+// NewRenderer uploads every mesh, texture, material, sky cubemap, IBL prefilter and shadow map of b to dev, scoped to cx, and creates the buffers and pipelines that draw them. b's drawables are fixed from here on; their nodes may move, hide and show.
 func NewRenderer(cx *core.Scope, dev *gpu.Device, b *Built, opts RendererOptions) (*Renderer, error) {
 	if dev == nil {
 		return nil, gpu.Error{Code: gpu.ErrDeviceLost, Message: "scenemodel: nil device"}
@@ -196,8 +450,8 @@ func (r *Renderer) setup(cx *core.Scope, opts RendererOptions) error {
 	if r.cam, err = render3d.NewCameraBuffer(cx, dev); err != nil {
 		return fmt.Errorf("scenemodel: camera buffer: %w", err)
 	}
-	if r.lights, err = render3d.NewLightBuffer(cx, dev, render3d.LightRig{}, render3d.LightBufferOptions{Label: label + ".lights", Retained: opts.Retained}); err != nil {
-		return fmt.Errorf("scenemodel: light buffer: %w", err)
+	if err := r.setupSceneResources(cx, label, opts); err != nil {
+		return err
 	}
 	if r.drawLayout, err = dev.CreateBindGroupLayoutDesc(cx, gpu.BindGroupLayoutDesc{
 		Label:   label + ".draw",
@@ -233,7 +487,324 @@ func (r *Renderer) setup(cx *core.Scope, opts RendererOptions) error {
 	if !opts.DisableOcclusion && len(r.built.Occluders) > 0 {
 		r.occ = render3d.NewOcclusionBuffer(opts.OcclusionWidth, opts.OcclusionHeight)
 	}
+	if err := r.setupSkybox(cx, label, opts); err != nil {
+		return err
+	}
 	return r.createPipelines(ShadingLit)
+}
+
+func (r *Renderer) setupSceneResources(cx *core.Scope, label string, opts RendererOptions) error {
+	dev := r.dev
+	retained := opts.Retained
+	var err error
+
+	newBuf := func(name string, size uint64) (*gpu.Buffer, error) {
+		return dev.CreateBuffer(cx, gpu.BufferDesc{
+			Label:    label + "." + name,
+			Size:     size,
+			Usage:    gpu.UsageUniform | gpu.UsageCopyDst,
+			Retained: retained,
+		})
+	}
+	if r.lightsBuf, err = newBuf("lights", render3d.LightUniformSize); err != nil {
+		return fmt.Errorf("scenemodel: light buffer: %w", err)
+	}
+	if r.fogBuf, err = newBuf("fog", render3d.FogUniformSize); err != nil {
+		return fmt.Errorf("scenemodel: fog buffer: %w", err)
+	}
+	if r.envBuf, err = newBuf("env", sceneEnvUniformSize); err != nil {
+		return fmt.Errorf("scenemodel: env buffer: %w", err)
+	}
+	if r.iblBuf, err = newBuf("ibl", render3d.IBLUniformSize); err != nil {
+		return fmt.Errorf("scenemodel: ibl buffer: %w", err)
+	}
+	if r.dirShadowBuf, err = newBuf("dir_shadow", render3d.ShadowUniformSize); err != nil {
+		return fmt.Errorf("scenemodel: directional shadow buffer: %w", err)
+	}
+	if r.spotShadowBuf, err = newBuf("spot_shadow", render3d.SpotShadowUniformSize); err != nil {
+		return fmt.Errorf("scenemodel: spot shadow buffer: %w", err)
+	}
+	if r.ptShadowBuf, err = newBuf("point_shadow", render3d.PointShadowUniformSize); err != nil {
+		return fmt.Errorf("scenemodel: point shadow buffer: %w", err)
+	}
+
+	// IBL prefilter cubemap (or 1x1 black dummy cubemap when IBL is disabled).
+	if r.built.Environment.IBLPrefilter != nil && r.built.Environment.IBLIntensity > 0 {
+		if r.iblCube, err = render3d.UploadCubemapHDR(cx, dev, r.built.Environment.IBLPrefilter, render3d.CubemapUpload{Label: label + ".ibl", Retained: retained}); err != nil {
+			return fmt.Errorf("scenemodel: ibl cubemap: %w", err)
+		}
+	} else {
+		blackCube, err := solidHDRCubemap(math3d.Vec3Zero(), 1)
+		if err != nil {
+			return fmt.Errorf("scenemodel: dummy ibl cubemap: %w", err)
+		}
+		if r.dummyCube, err = render3d.UploadCubemapHDR(cx, dev, blackCube, render3d.CubemapUpload{Label: label + ".ibl.dummy", Retained: retained}); err != nil {
+			return fmt.Errorf("scenemodel: dummy ibl cubemap upload: %w", err)
+		}
+	}
+	iblCube := r.iblCube
+	if iblCube == nil {
+		iblCube = r.dummyCube
+	}
+
+	// Dummy 1x1 depth texture & comparison sampler for inactive shadow slots.
+	if r.dummyDepth, err = dev.CreateTexture(cx, gpu.TextureDesc{
+		Label:    label + ".shadow.dummy",
+		Width:    1,
+		Height:   1,
+		Format:   gpu.FormatDepth32Float,
+		Usage:    gpu.TextureRenderAttachment | gpu.TextureSampled,
+		Retained: retained,
+	}); err != nil {
+		return fmt.Errorf("scenemodel: dummy depth texture: %w", err)
+	}
+	if r.shadowSampler, err = dev.CreateSampler(cx, gpu.SamplerDesc{
+		Label:     label + ".shadow.sampler",
+		MinFilter: gpu.FilterLinear,
+		MagFilter: gpu.FilterLinear,
+		AddressU:  gpu.AddressClampToEdge,
+		AddressV:  gpu.AddressClampToEdge,
+		Compare:   gpu.CompareLessEqual,
+		Retained:  retained,
+	}); err != nil {
+		return fmt.Errorf("scenemodel: shadow comparison sampler: %w", err)
+	}
+
+	// Allocate shadow maps only for light kinds that have at least one shadow-casting light in the scene.
+	var wantDirShadow, wantSpotShadow, wantPtShadow bool
+	for _, l := range r.built.Lights {
+		if l == nil || !l.Doc.Shadows {
+			continue
+		}
+		switch l.Doc.Kind {
+		case sceneformat.LightDirectional:
+			wantDirShadow = true
+		case sceneformat.LightSpot:
+			wantSpotShadow = true
+		case sceneformat.LightPoint:
+			wantPtShadow = true
+		}
+	}
+	maxCasters := uint32(max(256, len(r.built.Drawables)*2))
+	if wantDirShadow {
+		smOpts := render3d.DefaultShadowMapOptions()
+		smOpts.Label = label + ".dir_shadow"
+		smOpts.Resolution = 512
+		smOpts.MaxCasters = maxCasters
+		smOpts.Retained = retained
+		if r.dirShadow, err = render3d.NewDirectionalShadowMap(cx, dev, smOpts); err != nil {
+			return fmt.Errorf("scenemodel: directional shadow map: %w", err)
+		}
+	}
+	if wantSpotShadow {
+		cfg := render3d.DefaultSpotShadowConfig()
+		cfg.Label = label + ".spot_shadow"
+		cfg.Resolution = 512
+		cfg.MaxCasters = maxCasters
+		cfg.Retained = retained
+		if r.spotShadow, err = render3d.NewSpotShadowMap(cx, dev, cfg); err != nil {
+			return fmt.Errorf("scenemodel: spot shadow map: %w", err)
+		}
+	}
+	if wantPtShadow {
+		cfg := render3d.DefaultPointShadowConfig()
+		cfg.Label = label + ".point_shadow"
+		cfg.FaceResolution = 256
+		cfg.MaxCasters = maxCasters
+		cfg.Retained = retained
+		if r.pointShadow, err = render3d.NewPointShadowMap(cx, dev, cfg); err != nil {
+			return fmt.Errorf("scenemodel: point shadow map: %w", err)
+		}
+	}
+
+	dirTex := r.dummyDepth
+	if r.dirShadow != nil {
+		dirTex = r.dirShadow.DepthTexture()
+	}
+	spotTex, spotSamp := r.dummyDepth, r.shadowSampler
+	if r.spotShadow != nil {
+		spotTex, spotSamp = r.spotShadow.DepthTexture(), r.spotShadow.Sampler()
+	}
+	ptTex, ptSamp := r.dummyDepth, r.shadowSampler
+	if r.pointShadow != nil {
+		ptTex, ptSamp = r.pointShadow.DepthTexture(), r.pointShadow.Sampler()
+	}
+
+	if r.sceneLayout, err = dev.CreateBindGroupLayoutDesc(cx, gpu.BindGroupLayoutDesc{
+		Label: label + ".scene",
+		Entries: []gpu.BindGroupLayoutEntry{
+			{Binding: 0, Visibility: gpu.StageFragment, Type: gpu.BindingUniform},
+			{Binding: 1, Visibility: gpu.StageFragment, Type: gpu.BindingUniform},
+			{Binding: 2, Visibility: gpu.StageFragment, Type: gpu.BindingUniform},
+			{Binding: 3, Visibility: gpu.StageFragment, Type: gpu.BindingUniform},
+			{Binding: 4, Visibility: gpu.StageFragment, Type: gpu.BindingTexture},
+			{Binding: 5, Visibility: gpu.StageFragment, Type: gpu.BindingSampler},
+			{Binding: 6, Visibility: gpu.StageFragment, Type: gpu.BindingUniform},
+			{Binding: 7, Visibility: gpu.StageFragment, Type: gpu.BindingTexture},
+			{Binding: 8, Visibility: gpu.StageFragment, Type: gpu.BindingComparisonSampler},
+			{Binding: 9, Visibility: gpu.StageFragment, Type: gpu.BindingUniform},
+			{Binding: 10, Visibility: gpu.StageFragment, Type: gpu.BindingTexture},
+			{Binding: 11, Visibility: gpu.StageFragment, Type: gpu.BindingComparisonSampler},
+			{Binding: 12, Visibility: gpu.StageFragment, Type: gpu.BindingUniform},
+			{Binding: 13, Visibility: gpu.StageFragment, Type: gpu.BindingTexture},
+			{Binding: 14, Visibility: gpu.StageFragment, Type: gpu.BindingComparisonSampler},
+		},
+	}); err != nil {
+		return fmt.Errorf("scenemodel: scene layout: %w", err)
+	}
+	if r.sceneGroup, err = dev.CreateBindGroupDesc(cx, gpu.BindGroupDesc{
+		Label:  label + ".scene",
+		Layout: r.sceneLayout,
+		Entries: []gpu.BindGroupEntry{
+			{Binding: 0, Buffer: r.lightsBuf, Size: render3d.LightUniformSize},
+			{Binding: 1, Buffer: r.fogBuf, Size: render3d.FogUniformSize},
+			{Binding: 2, Buffer: r.envBuf, Size: sceneEnvUniformSize},
+			{Binding: 3, Buffer: r.iblBuf, Size: render3d.IBLUniformSize},
+			{Binding: 4, Texture: iblCube.Texture()},
+			{Binding: 5, Sampler: iblCube.Sampler()},
+			{Binding: 6, Buffer: r.dirShadowBuf, Size: render3d.ShadowUniformSize},
+			{Binding: 7, Texture: dirTex},
+			{Binding: 8, Sampler: r.shadowSampler},
+			{Binding: 9, Buffer: r.spotShadowBuf, Size: render3d.SpotShadowUniformSize},
+			{Binding: 10, Texture: spotTex},
+			{Binding: 11, Sampler: spotSamp},
+			{Binding: 12, Buffer: r.ptShadowBuf, Size: render3d.PointShadowUniformSize},
+			{Binding: 13, Texture: ptTex},
+			{Binding: 14, Sampler: ptSamp},
+		},
+	}); err != nil {
+		return fmt.Errorf("scenemodel: scene bind group: %w", err)
+	}
+
+	// Upload initial IBL & fog uniforms.
+	iblUniform := render3d.NewIBLUniform(r.built.Environment.IBLIrradiance, r.iblCube, r.built.Environment.IBLIntensity)
+	if r.iblCube == nil {
+		iblUniform.Intensity = 0
+	}
+	dev.WriteBuffer(r.iblBuf, 0, iblUniform.Encode(r.iblScratch[:]))
+	r.fogScratch = render3d.AppendFogUniforms(r.fogScratch[:0], r.built.Environment.Fog.Uniforms())
+	dev.WriteBuffer(r.fogBuf, 0, r.fogScratch)
+	r.writeEnvUniform(false, false, false)
+	return nil
+}
+
+func (r *Renderer) setupSkybox(cx *core.Scope, label string, opts RendererOptions) error {
+	if r.built.Environment.SkyCubemap == nil {
+		return nil
+	}
+	dev := r.dev
+	var err error
+	if r.skyCube, err = render3d.UploadCubemapHDR(cx, dev, r.built.Environment.SkyCubemap, render3d.CubemapUpload{
+		Label:    label + ".sky",
+		Retained: opts.Retained,
+	}); err != nil {
+		return fmt.Errorf("scenemodel: sky cubemap: %w", err)
+	}
+	if r.skyUniform, err = dev.CreateBuffer(cx, gpu.BufferDesc{
+		Label:    label + ".sky.uniform",
+		Size:     skyboxUniformSize,
+		Usage:    gpu.UsageUniform | gpu.UsageCopyDst,
+		Retained: opts.Retained,
+	}); err != nil {
+		return fmt.Errorf("scenemodel: sky uniform: %w", err)
+	}
+	if r.skyLayout, err = dev.CreateBindGroupLayoutDesc(cx, gpu.BindGroupLayoutDesc{
+		Label: label + ".sky",
+		Entries: []gpu.BindGroupLayoutEntry{
+			{Binding: 0, Visibility: gpu.StageVertex | gpu.StageFragment, Type: gpu.BindingUniform},
+			{Binding: 1, Visibility: gpu.StageFragment, Type: gpu.BindingTexture},
+			{Binding: 2, Visibility: gpu.StageFragment, Type: gpu.BindingSampler},
+		},
+	}); err != nil {
+		return fmt.Errorf("scenemodel: sky layout: %w", err)
+	}
+	if r.skyGroup, err = dev.CreateBindGroupDesc(cx, gpu.BindGroupDesc{
+		Label:  label + ".sky",
+		Layout: r.skyLayout,
+		Entries: []gpu.BindGroupEntry{
+			{Binding: 0, Buffer: r.skyUniform, Size: skyboxUniformSize},
+			{Binding: 1, Texture: r.skyCube.Texture()},
+			{Binding: 2, Sampler: r.skyCube.Sampler()},
+		},
+	}); err != nil {
+		return fmt.Errorf("scenemodel: sky bind group: %w", err)
+	}
+	mod, err := gpu.CompileWGSL(sceneSkyboxWGSL)
+	if err != nil {
+		return fmt.Errorf("scenemodel: compile sky shader: %w", err)
+	}
+	colorFormat := opts.ColorFormat
+	if colorFormat == gpu.FormatUndefined {
+		colorFormat = dev.SurfaceFormat()
+	}
+	depthFormat := opts.DepthFormat
+	if depthFormat == gpu.FormatUndefined {
+		depthFormat = gpu.FormatDepth24Plus
+	}
+	if r.skyPipe, err = dev.CreatePipeline(cx, gpu.PipelineDesc{
+		Label:     label + ".sky.pipeline",
+		Layouts:   []*gpu.BindGroupLayout{r.skyLayout},
+		Vertex:    gpu.ShaderStage{Module: mod, EntryPoint: "vs_skybox"},
+		Fragment:  gpu.ShaderStage{Module: mod, EntryPoint: "fs_skybox"},
+		Primitive: gpu.PrimitiveState{Topology: gpu.TopologyTriangleList, FrontFace: gpu.FrontCCW, CullMode: gpu.CullNone},
+		DepthStencil: &gpu.DepthStencilState{
+			Format:       depthFormat,
+			DepthWrite:   false,
+			DepthCompare: gpu.CompareLessEqual,
+		},
+		Targets:  []gpu.ColorTargetState{{Format: colorFormat, WriteMask: gpu.ColorWriteAll}},
+		Retained: opts.Retained,
+	}); err != nil {
+		return fmt.Errorf("scenemodel: sky pipeline: %w", err)
+	}
+	return nil
+}
+
+func (r *Renderer) writeEnvUniform(dirShadow, ptShadow, spotShadow bool) {
+	tm := r.built.Environment.ToneMap.Normalized()
+	put := func(off int, v float32) {
+		binary.LittleEndian.PutUint32(r.envScratch[off:], math.Float32bits(v))
+	}
+	var ds, ps, ss float32
+	if dirShadow {
+		ds = 1
+	}
+	if ptShadow {
+		ps = 1
+	}
+	if spotShadow {
+		ss = 1
+	}
+	put(0, tm.Exposure)
+	put(4, float32(tm.Operator))
+	put(8, ds)
+	put(12, ps)
+	put(16, ss)
+	put(20, 0)
+	put(24, 0)
+	put(28, 0)
+	r.dev.WriteBuffer(r.envBuf, 0, r.envScratch[:])
+}
+
+func (r *Renderer) writeSkyUniform(cam *scene3d.Camera) {
+	if r.skyUniform == nil || cam == nil {
+		return
+	}
+	u := render3d.NewSkyboxUniform(cam)
+	tm := r.built.Environment.ToneMap.Normalized()
+	off := 0
+	put := func(v float32) {
+		binary.LittleEndian.PutUint32(r.skyScratch[off:], math.Float32bits(v))
+		off += 4
+	}
+	for _, f := range u.InvViewProj {
+		put(f)
+	}
+	put(tm.Exposure)
+	put(float32(tm.Operator))
+	put(0)
+	put(0)
+	r.dev.WriteBuffer(r.skyUniform, 0, r.skyScratch[:])
 }
 
 // uploadMaterials uploads every texture the parts use, once each, and a texture bind group per material.
@@ -355,7 +926,7 @@ func (r *Renderer) createPipelines(s Shading) error {
 	}
 	layouts := make([]*gpu.BindGroupLayout, BaseColorGroup+1)
 	layouts[render3d.CameraGroup] = r.cam.Layout()
-	layouts[render3d.LightGroup] = r.lights.Layout()
+	layouts[render3d.LightGroup] = r.sceneLayout
 	layouts[render3d.PBRDrawGroup] = r.drawLayout
 	layouts[BaseColorGroup] = r.texLayout
 	for id := range r.pipes[s] {
@@ -377,6 +948,7 @@ func (r *Renderer) createPipelines(s Shading) error {
 			Primitive:     gpu.PrimitiveState{Topology: gpu.TopologyTriangleList, FrontFace: gpu.FrontCCW, CullMode: cull},
 			DepthStencil:  &gpu.DepthStencilState{Format: depthFormat, DepthWrite: !blend, DepthCompare: gpu.CompareLess},
 			Targets:       []gpu.ColorTargetState{target},
+			Retained:      opts.Retained,
 		})
 		if err != nil {
 			return fmt.Errorf("scenemodel: %s pipeline %d: %w", s, id, err)
@@ -417,6 +989,19 @@ func (r *Renderer) Shading() Shading {
 	return r.shading
 }
 
+// HasSky reports whether the built scene has a gradient or HDR skybox cubemap that DrawSky draws.
+func (r *Renderer) HasSky() bool {
+	return r != nil && r.skyPipe != nil && r.skyGroup != nil
+}
+
+// ClearColor returns the scene environment's tone-mapped solid sky color when SkyKind is SkyColor, or fallback otherwise.
+func (r *Renderer) ClearColor(fallback core.Color) core.Color {
+	if r != nil && r.built != nil && r.built.Environment.SkyKind == sceneformat.SkyColor {
+		return r.built.Environment.SkyClearColor
+	}
+	return fallback
+}
+
 // drawUniform returns the per-draw uniform of part p of drawable d at its node's current world transform.
 func drawUniform(d *Drawable, p *Part) render3d.PBRDrawUniform {
 	m := &p.Material
@@ -442,16 +1027,71 @@ func drawUniform(d *Drawable, p *Part) render3d.PBRDrawUniform {
 
 // Prepare writes cam and lights to their buffers and each visible part's world transform to its draw buffer, and plans the frame with the renderer's render3d.Queue: frustum culling and draw order. Call it once a frame before the render pass that Draw records into. It returns the plan's statistics, and an error when lights fails render3d's validation or the renderer is closed.
 func (r *Renderer) Prepare(cam *scene3d.Camera, lights render3d.LightRig) (render3d.RenderStats, error) {
+	return r.prepare(cam, lights, false)
+}
+
+// PrepareScene prepares the frame using the built scene's own 3D lights (Built.LightRig), shadow-casting lights (Built.ShadowLights) and environment (sky, IBL, fog, tone mapping, exposure). Call RecordShadows before the main render pass when any light casts shadows, then DrawSky and Draw inside the pass.
+func (r *Renderer) PrepareScene(cam *scene3d.Camera) (render3d.RenderStats, error) {
+	if r == nil || r.built == nil {
+		return render3d.RenderStats{}, errors.New("scenemodel: PrepareScene on a nil renderer")
+	}
+	return r.prepare(cam, r.built.LightRig(), true)
+}
+
+func (r *Renderer) prepare(cam *scene3d.Camera, lights render3d.LightRig, useSceneShadows bool) (render3d.RenderStats, error) {
 	if r == nil || cam == nil {
 		return render3d.RenderStats{}, errors.New("scenemodel: Prepare needs a renderer and a camera")
 	}
 	if r.cam == nil {
 		return render3d.RenderStats{}, errors.New("scenemodel: Prepare on a closed renderer")
 	}
-	if err := r.lights.Update(r.dev, lights); err != nil {
+	if err := lights.Validate(); err != nil {
 		return render3d.RenderStats{}, fmt.Errorf("scenemodel: lights: %w", err)
 	}
+	r.lightScratch = lights.AppendUniformData(r.lightScratch[:0])
+	r.dev.WriteBuffer(r.lightsBuf, 0, r.lightScratch)
 	r.cam.WriteCamera(cam)
+	r.writeSkyUniform(cam)
+
+	r.dirShadowActive, r.ptShadowActive, r.spotShadowActive = false, false, false
+	if useSceneShadows && r.shading != ShadingUnlit {
+		dirL, ptL, spotL := r.built.ShadowLights()
+		if dirL != nil && r.dirShadow != nil {
+			if bounds, ok := r.built.WorldBounds(); ok {
+				cfg := render3d.DefaultDirectionalShadowConfig()
+				cfg.Resolution = r.dirShadow.Resolution()
+				cfg.Direction = dirL.Direction
+				if u, err := r.dirShadow.UpdateBounds(r.dev, cfg, bounds); err == nil {
+					r.dirShadowScratch = render3d.AppendShadowUniforms(r.dirShadowScratch[:0], u)
+					r.dev.WriteBuffer(r.dirShadowBuf, 0, r.dirShadowScratch)
+					r.dirShadowActive = true
+				}
+			}
+		}
+		if spotL != nil && r.spotShadow != nil {
+			sl := *spotL
+			if sl.OuterConeAngle > render3d.MaxSpotShadowConeAngle {
+				sl.OuterConeAngle = render3d.MaxSpotShadowConeAngle
+				if sl.InnerConeAngle >= sl.OuterConeAngle {
+					sl.InnerConeAngle = max(sl.OuterConeAngle-0.01, 0)
+				}
+			}
+			if err := r.spotShadow.Update(r.dev, sl); err == nil {
+				u := r.spotShadow.Uniforms()
+				r.dev.WriteBuffer(r.spotShadowBuf, 0, u.Encode(r.spotShadowScratch[:]))
+				r.spotShadowActive = true
+			}
+		}
+		if ptL != nil && r.pointShadow != nil {
+			if err := r.pointShadow.Update(r.dev, *ptL); err == nil {
+				u := r.pointShadow.Uniforms()
+				r.dev.WriteBuffer(r.ptShadowBuf, 0, u.Encode(r.ptShadowScratch[:]))
+				r.ptShadowActive = true
+			}
+		}
+	}
+	r.writeEnvUniform(r.dirShadowActive, r.ptShadowActive, r.spotShadowActive)
+
 	r.items = r.built.AppendDrawItems(r.items[:0])
 	for i := range r.items {
 		id := r.items[i].ID
@@ -481,13 +1121,64 @@ func (r *Renderer) Plan() render3d.RenderPlan {
 	return r.plan
 }
 
+// RecordShadows records the depth shadow passes for any active shadow-casting lights prepared by PrepareScene into target (a *gpu.Frame or *gpu.Encoder). Call it before BeginRenderPass for the main scene pass. It does nothing when no shadows are active or in ShadingUnlit.
+func (r *Renderer) RecordShadows(target render3d.ShadowPassTarget) {
+	if r == nil || target == nil || r.cam == nil || r.shading == ShadingUnlit {
+		return
+	}
+	if r.dirShadowActive && r.dirShadow != nil {
+		if pass := r.dirShadow.BeginShadowPass(r.dev, target); pass != nil {
+			for i := range r.items {
+				if r.items[i].Blend == render3d.BlendAlphaBlend {
+					continue
+				}
+				r.dirShadow.DrawCaster(pass, r.meshes[r.items[i].MeshID], r.items[i].Transform)
+			}
+			pass.End()
+		}
+	}
+	if r.spotShadowActive && r.spotShadow != nil {
+		if pass := r.spotShadow.BeginShadowPass(r.dev, target); pass != nil {
+			for i := range r.items {
+				if r.items[i].Blend == render3d.BlendAlphaBlend {
+					continue
+				}
+				r.spotShadow.DrawCaster(pass, r.meshes[r.items[i].MeshID], r.items[i].Transform)
+			}
+			pass.End()
+		}
+	}
+	if r.ptShadowActive && r.pointShadow != nil {
+		for face := range gpu.CubeFace(render3d.PointShadowFaceCount) {
+			if pass := r.pointShadow.BeginFacePass(r.dev, target, face); pass != nil {
+				for i := range r.items {
+					if r.items[i].Blend == render3d.BlendAlphaBlend {
+						continue
+					}
+					r.pointShadow.DrawCaster(pass, r.meshes[r.items[i].MeshID], r.items[i].Transform)
+				}
+				pass.End()
+			}
+		}
+	}
+}
+
+// DrawSky draws the scene's gradient or HDR skybox cubemap into pass using the scene's exposure and tone mapping operator. Call it before Draw inside the render pass; it does nothing when the scene has no cubemap sky.
+func (r *Renderer) DrawSky(pass *gpu.RenderPass) {
+	if r == nil || pass == nil || r.skyPipe == nil || r.skyGroup == nil {
+		return
+	}
+	pass.SetPipeline(r.skyPipe)
+	pass.SetBindGroup(0, r.skyGroup)
+	pass.Draw(3, 0)
+}
 // Draw records the parts Prepare planned into pass: the opaque and cutout ones first, then the blended ones back to front. pass must have a color attachment of RendererOptions.ColorFormat and a depth attachment of its DepthFormat. It records nothing once the renderer is closed.
 func (r *Renderer) Draw(pass *gpu.RenderPass) {
 	if r == nil || pass == nil || r.cam == nil {
 		return
 	}
 	pass.SetBindGroup(render3d.CameraGroup, r.cam.BindGroup())
-	r.lights.Bind(pass)
+	pass.SetBindGroup(render3d.LightGroup, r.sceneGroup)
 	current := -1
 	draw := func(rd render3d.ResolvedDraw) {
 		di, pi := int(rd.ID>>32), int(uint32(rd.ID))
@@ -541,13 +1232,45 @@ func (r *Renderer) Close() error {
 			}
 		}
 	}
-	for _, l := range []*gpu.BindGroupLayout{r.drawLayout, r.texLayout} {
+	for _, p := range []*gpu.Pipeline{r.skyPipe} {
+		if p != nil {
+			err = errors.Join(err, p.Close())
+		}
+	}
+	for _, bg := range []*gpu.BindGroup{r.skyGroup, r.sceneGroup} {
+		if bg != nil {
+			err = errors.Join(err, bg.Close())
+		}
+	}
+	for _, l := range []*gpu.BindGroupLayout{r.drawLayout, r.texLayout, r.sceneLayout, r.skyLayout} {
 		if l != nil {
 			err = errors.Join(err, l.Close())
 		}
 	}
-	if r.lights != nil {
-		err = errors.Join(err, r.lights.Close())
+	for _, b := range []*gpu.Buffer{r.lightsBuf, r.fogBuf, r.envBuf, r.iblBuf, r.dirShadowBuf, r.spotShadowBuf, r.ptShadowBuf, r.skyUniform} {
+		if b != nil {
+			err = errors.Join(err, b.Close())
+		}
+	}
+	for _, c := range []*render3d.GPUCubemap{r.skyCube, r.iblCube, r.dummyCube} {
+		if c != nil {
+			err = errors.Join(err, c.Close())
+		}
+	}
+	if r.dirShadow != nil {
+		err = errors.Join(err, r.dirShadow.Close())
+	}
+	if r.spotShadow != nil {
+		err = errors.Join(err, r.spotShadow.Close())
+	}
+	if r.pointShadow != nil {
+		err = errors.Join(err, r.pointShadow.Close())
+	}
+	if r.dummyDepth != nil {
+		err = errors.Join(err, r.dummyDepth.Close())
+	}
+	if r.shadowSampler != nil {
+		err = errors.Join(err, r.shadowSampler.Close())
 	}
 	if r.cam != nil {
 		err = errors.Join(err, r.cam.Close())

@@ -536,7 +536,7 @@ func TestValidateSceneReferences(t *testing.T) {
 		{"v1_scene", "version: 1\nlayers:\n  - name: a\n    objects:\n      - id: e\n        scene: e.yaml\n", "need version 2"},
 		{"v1_inherits", "version: 1\ninherits: e.yaml\n", "need version 2"},
 		{"v1_overrides", "version: 1\noverrides:\n  a: {x: 1}\n", "need version 2"},
-		{"future_version", "version: 4\n", "unsupported version 4"},
+		{"future_version", "version: 5\n", "unsupported version 5"},
 		{"absolute_scene", "version: 2\nlayers:\n  - name: a\n    objects:\n      - id: e\n        scene: /e.yaml\n", "must be a slash-separated path"},
 		{"dotdot_inherits", "version: 2\ninherits: ../e.yaml\n", "must be a slash-separated path"},
 		{"overrides_without_scene", "version: 2\nlayers:\n  - name: a\n    objects:\n      - id: e\n        overrides:\n          b: {x: 1}\n", "overrides require scene"},
@@ -627,6 +627,12 @@ func TestObjectOverrideCoversEveryObjectField(t *testing.T) {
 						e.Set(reflect.ValueOf(sceneformat.OccluderDoc{Mode: sceneformat.OccluderBox, Size: &sz}))
 					case reflect.TypeFor[sceneformat.ParticlesRef]():
 						e.Set(reflect.ValueOf(sceneformat.ParticlesRef{File: "fx/sparks.particles.yaml", Atlas: "fx"}))
+					case reflect.TypeFor[sceneformat.LightDoc]():
+						e.Set(reflect.ValueOf(sceneformat.LightDoc{Kind: sceneformat.LightPoint, Range: 5}))
+					case reflect.TypeFor[sceneformat.Camera3DDoc]():
+						e.Set(reflect.ValueOf(sceneformat.Camera3DDoc{Projection: sceneformat.ProjectionPerspective, FOV: sceneformat.Float32(60)}))
+					default:
+						t.Fatalf("unhandled struct override field type %v", e.Type())
 					}
 				}
 				f.Set(p)
@@ -635,10 +641,10 @@ func TestObjectOverrideCoversEveryObjectField(t *testing.T) {
 			}
 		}
 		doc, err := sceneformat.Resolve(&sceneformat.SceneDoc{
-			Version:   2,
+			Version:   sceneformat.CurrentVersion,
 			Inherits:  "base.yaml",
 			Overrides: map[string]sceneformat.ObjectOverride{"o": ov},
-		}, newMemScenes(map[string]string{"base.yaml": "version: 2\nlayers:\n  - name: a\n    objects:\n      - id: o\n"}))
+		}, newMemScenes(map[string]string{"base.yaml": "version: 4\nlayers:\n  - name: a\n    objects:\n      - id: o\n"}))
 		if err != nil {
 			t.Fatalf("Resolve with look %v: %v", look, err)
 		}

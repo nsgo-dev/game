@@ -27,7 +27,7 @@ NSGo 原生编辑器直接读写 `sceneformat.SceneDoc` 文件，聚焦于可视
 
 ---
 
-## 场景格式（`version: 3`）（#160）
+## 场景格式（`version: 4`）（#160）
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/sceneformat"
@@ -37,7 +37,7 @@ import "github.com/nsgo-dev/game/packages/game/sceneformat"
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| `version` | `int` | 必填的格式版本号：`3`（`CurrentVersion`），未使用版本 3 视差/重复字段的版本 2 场景为 `2`，未使用版本 2 和版本 3 新增字段的场景为 `1`。`Encode` 原样写回。 |
+| `version` | `int` | 必填的格式版本号：`4`（`CurrentVersion`），未使用版本 4 3D 光源/环境/相机的版本 3 视差/重复场景为 `3`，仅使用版本 2 字段的场景为 `2`，未使用版本 2–4 新增字段的场景为 `1`。`Encode` 原样写回。 |
 | `uid` | `string` | 可选的稳定 ID，文件改名或移动后保持不变，由 `nsgo game index` 写入（所有版本均可用，见[稳定引用](project.md#稳定引用)）。`Resolve` 保留场景自身的 uid，而不是基础场景的。 |
 | `inherits` | `string` | 可选，从项目根目录起、以斜杠分隔的基础场景路径，本场景继承该场景（版本 2 及以上，见下文“实例化与继承”）。 |
 | `name` | `string` | 可选的场景可读名称。 |
@@ -46,6 +46,7 @@ import "github.com/nsgo-dev/game/packages/game/sceneformat"
 | `backgroundColor` | `string` | 可选的 CSS 颜色字符串，由 `core.ParseColor` 解析（如 `"#141824"`）。在绘制各图层前填充 `(0, 0, virtualWidth, virtualHeight)`。 |
 | `ambientColor` | `string` | 可选的 CSS 颜色字符串，由 `core.ParseColor` 解析（如 `"rgba(12, 16, 30, 0.85)"`）。设置场景 2D 光照通道的环境暗场颜色（`lights2d.Scene.Ambient`，两个版本均可用）。 |
 | `camera` | 对象 | 可选的默认 2D 相机配置，作用于世界空间图层（`x`、`y`、`zoom`、`rotation`，以及可选的 `bounds`）。 |
+| `environment` | 对象 | 可选的 3D 场景环境（版本 4）：`sky`（`kind` 为 `color`、`gradient` 或 `hdr`，分别配合 `color`、`zenith`/`horizon`/`ground` 或 `hdr` 路径）、`ambientColor`、`ambientIntensity`、`iblIntensity`、`fog`（`mode` 为 `off`、`linear`、`exp`、`exp2`，含 `color`、`start`、`end`、`density`、`maxOpacity` 及高度雾 `heightEnabled`、`heightBase`、`heightFalloff`、`heightDensity`）、`tonemapping`（`none`、`reinhard`、`aces`、`neutral`、`agx`）与 `exposure`。 |
 | `tilemaps` | 映射 | 可选的命名瓦片地图定义，供图层通过 `tilemap.ref` 引用。 |
 | `layerOverrides` | 映射 | 按名称修改继承来的图层：`space`、`order`、`visible`、`tilemap`（版本 2 及以上），以及 `parallaxX`、`parallaxY`、`repeatX`、`repeatY`、`repeatWidth`、`repeatHeight`（版本 3，需要 `inherits`）。 |
 | `overrides` | 映射 | 按 ID 修改继承来的对象（版本 2 及以上，需要 `inherits`）。 |
@@ -125,6 +126,8 @@ layers:
 - `particles`：可选的 `{file, atlas}`（版本 2），在对象上放置一个 2D 粒子发射器 YAML 文件（`file` 为从项目根目录起以斜杠分隔的路径；可选 `atlas` 用于解析发射器的 `frameNames`）。`sceneformat.Build` 在解析器实现 `ParticlesResolver` 时由它加载 `file`，否则回退到 `FileResolver` + `particles.UnmarshalConfigYAML`（因此 `FSAssets` 开箱即用），创建 `BuiltObject.Emitter`（并汇总在 `BuiltLayer.Emitters` 中），按对象的复合世界变换定位（`BuiltObject.Sync` 会同步更新），在 `BuiltScene.Update(dt)` 中推进，并在 `BuiltScene.Draw(d)` 中按 Z 顺序与精灵交错绘制
 - `material`：可选，从项目根目录起、以斜杠分隔的共享材质文件路径，例如 `materials/stone.material.yaml`，在构建时通过 `MaterialResolver` 解析（见 [resource](resources.md)）
 - 3D 外观：`mesh` 是内置基本形体 `box`、`sphere`、`plane`、`capsule`、`cylinder` 之一；`model`（版本 2）是从项目根目录起、以斜杠分隔的 glTF 2.0 文件路径（`.gltf` 或 `.glb`），可以用 `modelNode` 缩小到其中一个节点，或用 `modelMesh` 缩小到其中一个网格；`gridMap`（版本 2）是从项目根目录起、以斜杠分隔的 `*.gridmap.yaml` / `*.gridmap.yml` 文件路径；对象的 `material` 会替换模型或网格地图的材质，或作为基本形体的表面；可选的 `occluder`（版本 2）将对象标记为 3D 遮挡体（`mode: model` 或 `mode: box`，可配 `center`、`size` 与 `doubleSided`）。`scenemodel.Build` 把它们变成几何体、LOD 与遮挡体（[scenemodel](scenemodel.md)）。`CheckObjectModel` 检查单个对象的这些字段，编辑器的 `PlaceObject` 会拒绝它拒绝的对象；检查器的 Mesh 和 GridMap 字段彼此互斥，且都与 `model` 互斥
+- 3D 光源（`light`，版本 4）：附着在对象变换上的可选 3D 光源（`kind`：`directional`、`point` 或 `spot`；CSS `color`、`intensity`、`range`、以角度表示的聚光 `innerCone` 和 `outerCone` 半角，以及 `shadows`）。方向光和聚光沿对象局部 `-Z` 轴照射。`CheckObjectLight` 校验单个对象的光源。
+- 3D 相机（`camera`，版本 4）：附着在对象变换上的可选 3D 相机（`projection`：`perspective` 或 `orthographic`、以角度表示的 `fov` 或 `orthoHeight`、`near`、`far` 以及 `current`）。同一场景中最多只能有一个 3D 相机设置 `current: true`。`CheckObjectCamera3D` 校验单个对象的相机。
 - `components`：可选的映射，键是组件类型名，值是它的字段；未提供组件注册表时内容不受约束（见[组件类型](#组件类型)）
 - `properties`：可选的 `map[string]any`，存放自定义元数据
 - `scene`：可选，从项目根目录起、以斜杠分隔的场景文件路径，本对象实例化该场景（版本 2，见下文“实例化与继承”）
@@ -344,11 +347,11 @@ built.Update(dt)
 built.Draw(d)
 ```
 
-`Parse` 会拒绝未知 YAML 字段、多余的 YAML 文档、不支持的版本号、旧版本场景中的新版本字段（版本 1 中的版本 2 字段、版本 1 和版本 2 中的版本 3 视差/重复字段）、不是从项目根目录起以斜杠分隔的场景引用路径、缺少所修改的 `scene` 或 `inherits` 的覆盖、重复的图层名或对象 ID（包括嵌套的子对象）、深度超过 `MaxObjectDepth` 的对象树、非法坐标系、错误颜色值以及非有限或越界的变换参数、视差系数或重复周期。`Encode` 会先校验再输出确定性的 2 空格缩进 YAML，通过 `Parse` 可无损往返还原。
+`Parse` 会拒绝未知 YAML 字段、多余的 YAML 文档、不支持的版本号、旧版本场景中的新版本字段（版本 1 中的版本 2 字段、版本 1 和版本 2 中的版本 3 视差/重复字段、版本 1–3 中的版本 4 `environment`/`light`/`camera` 字段）、多个 `current: true` 的 3D 相机、不是从项目根目录起以斜杠分隔的场景引用路径、缺少所修改的 `scene` 或 `inherits` 的覆盖、重复的图层名或对象 ID（包括嵌套的子对象）、深度超过 `MaxObjectDepth` 的对象树、非法坐标系、错误颜色值以及非有限或越界的变换参数、光源/相机/环境参数、视差系数或重复周期。`Encode` 会先校验再输出确定性的 2 空格缩进 YAML，通过 `Parse` 可无损往返还原。
 
 ### Schema
 
-场景格式的 JSON Schema 发布在 `https://game.nsgo.dev/schemas/scene.v1.json`（`sceneformat.SchemaURL`）、`https://game.nsgo.dev/schemas/scene.v2.json`（`sceneformat.SchemaURLV2`，用于实例化或继承其他场景文件、引用 glTF 模型、含分层网格或 LDtk 关卡的场景），以及支持视差和重复图层的版本 3 Schema `https://game.nsgo.dev/schemas/scene.v3.json`（`sceneformat.SchemaURLV3`）。`Encode` 在每个文件开头写入与其版本对应的 `# yaml-language-server: $schema=…` 这一行（`sceneformat.SchemaCommentFor`），VS Code 的 YAML 扩展以及其他带 YAML 语言服务器的编辑器可借此在编写场景时校验和补全。参见 [YAML 文件的 Schema](schemas.md)。
+场景格式的 JSON Schema 发布在 `https://game.nsgo.dev/schemas/scene.v1.json`（`sceneformat.SchemaURL`）、`https://game.nsgo.dev/schemas/scene.v2.json`（`sceneformat.SchemaURLV2`，用于实例化或继承其他场景文件、引用 glTF 模型、含分层网格或 LDtk 关卡的场景）、`https://game.nsgo.dev/schemas/scene.v3.json`（`sceneformat.SchemaURLV3`，用于支持视差和重复图层的版本 3 场景），以及支持 3D 光源、场景环境和 3D 相机的版本 4 Schema `https://game.nsgo.dev/schemas/scene.v4.json`（`sceneformat.SchemaURLV4`）。`Encode` 在每个文件开头写入与其版本对应的 `# yaml-language-server: $schema=…` 这一行（`sceneformat.SchemaCommentFor`），VS Code 的 YAML 扩展以及其他带 YAML 语言服务器的编辑器可借此在编写场景时校验和补全。参见 [YAML 文件的 Schema](schemas.md)。
 
 ### 在 Git 中合并场景文件（#1058）
 
@@ -616,7 +619,7 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 
 在 3D 模式下，视口按游戏绘制的样子显示场景：一个 `gpu.View` 填满面板，用 render3d 绘制场景的 3D 构建结果，叠在它上面的画布绘制地面网格、原点坐标轴、选中轮廓和变换控件。构建结果来自 `scenemodel.Build`（`Scene3D`）：每个对象的内置图元（`mesh`）或 glTF 模型（`model`、`modelNode`、`modelMesh`）及其材质和纹理，包括实例化场景加入的对象。编辑器的 `Resolver` 实现了 `scenemodel.ModelResolver`、`sceneformat.MaterialResolver` 或 `scenemodel.ImageResolver` 时，模型、材质文件和图片通过它加载，否则从打开的项目的文件中加载。场景无法构建时（例如它引用的模型加载失败），视口角落会有一行文字说明原因（`Viewport3DError`），每个对象仍然显示包围盒。
 
-- **光照与天空**：场景文件不包含光源，所以视口用 `DefaultLights3D`（一道偏冷的环境光和一道偏暖的主光）照亮几何体，背后是渐变天空。基于本包构建、知道自己游戏所用光源的编辑器可以用 `SetLights3D`（即 `Editor.Lights3D` 字段）设置它们并重绘视口，此时几何体由这些光源照亮，背景为场景的 `backgroundColor`。
+- **光照与天空**：当版本 4 场景定义了光源或 `environment` 时，视口通过 `scenemodel.Renderer`（`PrepareScene`、`RecordShadows`、`DrawSky`、`ClearColor`）直接渲染场景自身的光源、阴影、天空（纯色、渐变或经由 `scenemodel.HDRResolver` 加载的 HDR 立方体贴图）、环境光/IBL、雾效、色调映射与曝光，与游戏渲染路径逐像素一致。场景既无光源也无环境时，视口回退到渐变天空与 `DefaultLights3D`。基于本包构建的编辑器仍可用 `SetLights3D`（`Editor.Lights3D`）覆盖光照，此时背景为场景的 `backgroundColor`。
 - **着色**：工具栏的 3D Shading 组、`View > 3D Shading` 以及命令 `view.shading.lit`、`view.shading.unlit`、`view.shading.wireframe` 切换 `Shading3D`（`SetShading3D`）：Lit（受光）、Unlit（每个表面带纹理的基础色加自发光色，不受光照）和 Wireframe（受光，并在上面画出三角形的边）。着色是视图设置，不可撤销，也不会保存。
 - **拾取**：按下会选中其下方的几何体。绘制网格或模型的对象按其三角形命中，经由构建结果上的 `scene3d` 拾取，所以在球体旁边、但在其包围盒以内按下会穿过它；没有几何体的对象按其包围盒命中，包围盒大小取自精灵帧，且只在按下处没有命中任何几何体时才参与拾取，因为这种包围盒的大小不随场景尺度变化，可能把相机或整个关卡都包在里面。按在实例化场景加入的几何体上会选中该实例。隐藏和锁定的对象照旧被跳过。
 - **实时编辑**：只有场景的外观变化时（对象的外观、它在树中的位置、实例化的场景或覆盖项，或者项目文件）才会重新构建。变换控件拖动、撤销移动、打开的动画片段在播放头处的姿态，以及运行中游戏的改动，都直接移动已构建的节点，所以拖动时不会重新构建或上传任何网格。对象有几何体时，`ObjectCorners3D` 和 `ObjectAABB3D` 给出的包围盒是其几何体的边界，聚焦选中对象（`f`）也按这个边界取景，所以一米大小的模型会充满视图。
@@ -653,6 +656,22 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 - **吸附与对齐**：工具栏的 Snap 让地平面上的点的 X 和 Z 吸附到视口所绘网格的间距（`PlaceSnap3D`）；场景几何体上的点不吸附，因为网格间距可能比指针下的对象还宽；Align 让放在场景几何体上的模型转动，使其 +Y 轴与表面法线一致（`PlaceAlign3D`），地面高度字段设置 `PlaceHeight3D`。它们是视图设置，不是编辑（`SetPlaceOptions3D`）。
 - **拖放**：把模型从资源浏览器拖到 3D 视口上，会按放置工具的规则把它放在落下的位置，不论当前是哪个工具。从其他应用拖到视口上的 `.gltf` 或 `.glb` 文件，只要位于项目文件夹内、且不在资源浏览器略过的文件夹中（名称以 `.` 或 `_` 开头的文件夹，以及 `testdata`），就会被放置（`DropModelFiles`），多个文件算作一步；项目之外的文件、其他类型的文件以及来自网页、没有路径的文件会被拒绝，原因显示在状态栏中。文件拖放不带位置，所以拖入的文件落在视图中心所指的地方。
 - **一步操作**：每次放置都是一个可撤销的步骤，撤销会取回，重做会再次放置。播放时、当前图层被锁定或位于屏幕空间时，以及模型无法加载时，放置会被拒绝；在版本 1 的场景中放置模型会把场景提升到当前版本，与 `PlaceObject` 相同。
+
+### 3D 光源、环境与场景相机（#895）
+
+版本 4 场景自带 3D 光照、环境与 3D 相机对象，并可在 3D 视口和面板中直接编辑：
+
+- **图标与拾取**：可见的方向光、点光、聚光和 3D 相机在 3D 视口叠加层中绘制清晰、按光源着色的图标（不再显示通用占位方块）；点击图标即可选中对应对象（`Pick3D`）。
+- **可撤销的交互手柄**：选中光源或 3D 相机后会显示辅助线框与可拖拽手柄（`Handle3DKind`、`HandlePosition3D`、`PickHandle3D`、`BeginHandleDrag3D`、`UpdateHandleDrag3D`、`EndHandleDrag3D`、`CancelHandleDrag3D`）：
+  - 方向光：方向箭头与指向手柄（`Handle3DLightDirection`）。
+  - 点光：三个正交衰减球圆环与范围半径手柄（`Handle3DLightRange`）。
+  - 聚光：方向手柄（`Handle3DLightDirection`）、射程手柄（`Handle3DLightRange`）以及独立的外锥角（`Handle3DLightOuterCone`）与内锥角（`Handle3DLightInnerCone`）圆环手柄。
+  - 3D 相机：视锥线框、垂直视场角/正交高度手柄（`Handle3DCameraFOV`）与远裁剪面手柄（`Handle3DCameraFar`）。
+  拖拽期间就地更新 GPU 视口且不重建网格，松手时作为单个可撤销步骤提交到 `Editor.History`。
+- **场景环境面板（`EnvironmentPanelView`）**：通过 3D 视图栏的 **Env** 按钮、`View > Scene Environment` 或 `CmdEnvironmentPanel`（`EnvironmentPanelOpen` / `SetEnvironmentPanelOpen`）开关，以经过校验且可撤销的 `SetEnvironment` 编辑天空（`none`、`color`、`gradient`、`hdr`）、环境光颜色与强度、IBL 强度、距离雾与高度雾、色调映射（`none`、`reinhard`、`aces`、`neutral`、`agx`）及曝光（对低于版本 4 的场景会自动升级到版本 4，撤销时恢复原版本）。
+- **检查器与创建辅助**：在 3D 视图下（或选中任何带光源/3D 相机的对象时），检查器显示 `LIGHT 3D`（`SetObjectLight`）与 `CAMERA 3D`（`SetObjectCamera3D`，切换 `current` 时在同一步撤销中原子清除其他相机的 `current`）。在 Go 中，`AddLight3D(kind)` 与 `AddCamera3D(proj)` 在当前世界空间图层放置预配置的光源和 3D 相机，`ProjectHDRs()` 列出当前打开项目中的 `.hdr`/`.pic` 天空文件。
+- **透过场景相机观看**：按 `0`、点击 3D 视图栏的 **Camera** 按钮或执行 `CmdView3DCamera`（`SetLookThroughCamera3D` / `ToggleLookThroughCamera3D`）即可透过场景当前的 3D 相机（`ActiveSceneCamera3D`）观察 3D 视口，与游戏第一帧逐像素一致。环绕、平移、缩放、飞行或切换轴向视图会自动退出相机预览模式。
+
 ## 瓦片调色板（#874）
 
 在 2D 视图中启用 Paint、Erase、Fill、Pick 或 Terrain 工具时，视口右侧会显示瓦片调色板。它把当前图层瓦片集的瓦片按瓦片 ID 顺序排成网格，每个瓦片按瓦片地图的瓦片尺寸显示（比面板还宽的瓦片会缩小到面板宽度）。这些瓦片是瓦片集图集中名称为瓦片 ID（`"1"`、`"2"`……）的帧，与场景格式查找瓦片的方式一致；其他帧不会列出。点击一个瓦片，或用方向键在瓦片之间移动，即可把它设为 Paint 和 Fill 写入的瓦片（`SetActiveTileID`）；所有方向键都按 ID 顺序逐个移动，左键和上键移到上一个瓦片，右键和下键移到下一个，而不是按网格的行移动。选中的瓦片带有一圈高亮，使用 Paint 或 Fill 时状态栏显示它的 ID。选择瓦片不算编辑，不进入撤销历史；之后的绘制是一个可撤销的步骤。
@@ -887,7 +906,7 @@ func main() {
 - **跨平台快捷键与文本焦点保护**：快捷键使用 NSGo 的 `"mod"` 修饰键（macOS 为 Command，Windows/Linux 为 Ctrl，可通过 `FormatShortcut` 格式化显示），并全部使用 `core.KeyNotEditing` 和 `core.MenuNotEditing` 绑定，因此当任意文本输入框拥有焦点时（例如检查器的 Name 输入框或搜索框），输入字符或按下 Delete/Backspace/Undo/Save 绝不会误触编辑器快捷键：
   - 文件与编辑：`mod+s`（保存）、`mod+z`（撤销）、`mod+shift+z`（重做）、`mod+d`（复制选中对象）、`delete` / `backspace`（删除选中对象）、`mod+c`（复制瓦片区域）、`mod+x`（剪切瓦片区域）、`mod+v`（粘贴瓦片区域）。
   - 2D 工具：`v`（选择）、`m`（移动）、`p`（放置）、`b`（绘制瓦片）、`e`（擦除瓦片）、`g`（填充瓦片）、`t`（地形）、`u`（矩形瓦片）、`l`（直线瓦片）、`c`（图章瓦片）、`n`（随机瓦片）。
-  - 3D 变换控件与视图：`w`（平移）、`r`（旋转）、`s`（缩放）、`shift+c`（碰撞体手柄）、`alt+2`（2D 视图）、`alt+3`（3D 视图）、`View > 3D Shading` 下的 Lit、Unlit、Wireframe 三个 3D 着色命令（无快捷键）、`f`（聚焦选中对象：2D 下通过 `FrameSelection2D` 调整独立编辑器视图 `View2D` 而不改动保存的 `Doc.Camera`，3D 下调整 `Camera3D`）、`1`、`ctrl+1`、`3`、`ctrl+3`、`7` 和 `ctrl+7`（3D 前视、后视、右视、左视、顶视和底视）以及 `5`（3D 透视或正交），这些只在 3D 视图中生效、`mod+k`（命令面板）。
+  - 3D 变换控件与视图：`w`（平移）、`r`（旋转）、`s`（缩放）、`shift+c`（碰撞体手柄）、`alt+2`（2D 视图）、`alt+3`（3D 视图）、`View > 3D Shading` 下的 Lit、Unlit、Wireframe 三个 3D 着色命令（无快捷键）、`f`（聚焦选中对象：2D 下通过 `FrameSelection2D` 调整独立编辑器视图 `View2D` 而不改动保存的 `Doc.Camera`，3D 下调整 `Camera3D`）、`1`、`ctrl+1`、`3`、`ctrl+3`、`7` 和 `ctrl+7`（3D 前视、后视、右视、左视、顶视和底视）、`5`（3D 透视或正交）以及 `0`（透过场景相机观看），这些只在 3D 视图中生效、`View > Scene Environment`（开关场景环境面板）、`mod+k`（命令面板）。
   - 项目：`f5`（播放 / 停止）、`mod+r`（运行游戏：优先调用 `Editor.OnRunGame`，未配置且已挂载作用域时回退到编辑器内运行）、`mod+,`（项目设置）、`mod+shift+u`（HUD 与菜单布局）、`mod+shift+e`（导出与发布）、`mod+shift+m`（性能分析器）、`mod+shift+b`（检查问题）。
 - **桌面菜单栏**：`EditorView` 通过 `desktop.SetApplicationMenu`（`Editor.ApplicationMenu`）注册原生应用菜单栏（`File`、`Edit`、`View`、`Project`），以实时可用/勾选状态和对应平台的快捷键提示暴露同一套命令；已启用插件的工具列在 `View > Tools` 下，已启用插件的命令列在 `Project > Plugins` 下。
 - **命令面板（`ui.CommandDialog`）**：按 `mod+k`（或点击工具栏 **Commands** 按钮 / `View > Command Palette...`）即可打开 `CommandPaletteView`，支持按子串排序与模糊匹配搜索全部内置与自定义命令、已启用插件命令、已启用插件工具（通过 `SetPluginTool` 激活）、已启用插件面板（通过 `FocusPluginPanel` 聚焦）以及当前项目的场景和文件（通过 `OpenProjectFile` 打开场景或选中文件）。
