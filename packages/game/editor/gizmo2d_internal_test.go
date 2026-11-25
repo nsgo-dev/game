@@ -27,22 +27,22 @@ func TestViewportPanBeginsWhereThePointerWentDownAndCancels(t *testing.T) {
 	no := func() bool { return false }
 	bx, by := ed.WorldToCanvas(100, 50)
 	var g viewportGestures
-	g.pan(ed, core.PanEvent{Phase: core.GestureBegan, Translation: core.Point{X: 12}, Position: core.Point{X: core.Points(bx + 12), Y: core.Points(by)}}, no, no)
+	g.pan(ed, core.PanEvent{Phase: core.GestureBegan, Translation: core.Point{X: 12}, Position: core.Point{X: core.Points(bx + 12), Y: core.Points(by)}}, no, no, no, no)
 	if ed.Dragging2D() != Handle2DBody || ed.SelectedID != "box" {
 		t.Fatalf("a pan begun on the box holds %v with %q selected, want the box's body", ed.Dragging2D(), ed.SelectedID)
 	}
 	if o, _, _ := ed.FindObject("box"); o.X != 112 || o.Y != 50 {
 		t.Fatalf("the box is at (%v, %v) as the pan begins, want (112, 50)", o.X, o.Y)
 	}
-	g.pan(ed, core.PanEvent{Phase: core.GestureChanged, Translation: core.Point{X: 30}, Position: core.Point{X: core.Points(bx + 30), Y: core.Points(by)}}, no, no)
-	g.pan(ed, core.PanEvent{Phase: core.GestureCancelled}, no, no)
+	g.pan(ed, core.PanEvent{Phase: core.GestureChanged, Translation: core.Point{X: 30}, Position: core.Point{X: core.Points(bx + 30), Y: core.Points(by)}}, no, no, no, no)
+	g.pan(ed, core.PanEvent{Phase: core.GestureCancelled}, no, no, no, no)
 	if o, _, _ := ed.FindObject("box"); o.X != 100 || o.Y != 50 || ed.History.Len() != 0 || ed.Dragging2D() != Handle2DNone {
 		t.Fatalf("after a cancelled pan the box is at (%v, %v) with %d steps", o.X, o.Y, ed.History.Len())
 	}
 
 	// A second finger cancels it too.
 	g = viewportGestures{}
-	g.pan(ed, core.PanEvent{Phase: core.GestureBegan, Translation: core.Point{X: 12}, Position: core.Point{X: core.Points(bx + 12), Y: core.Points(by)}}, no, no)
+	g.pan(ed, core.PanEvent{Phase: core.GestureBegan, Translation: core.Point{X: 12}, Position: core.Point{X: core.Points(bx + 12), Y: core.Points(by)}}, no, no, no, no)
 	g.touch(ed, core.TouchEvent{Phase: core.TouchStart, Touches: []core.Touch{{ID: 1}, {ID: 2, Position: core.Point{X: 50}}}})
 	if o, _, _ := ed.FindObject("box"); o.X != 100 || ed.Dragging2D() != Handle2DNone {
 		t.Fatalf("a second finger left the box at %v, dragging %v", o.X, ed.Dragging2D())

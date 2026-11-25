@@ -745,6 +745,15 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 
 3D 视口会绘制并拾取所有对象，包括嵌套的子对象：`Objects3D` 按深度优先列出它们，并给出各自父对象的 ID；子对象的几何体和包围盒由其祖先的变换确定位置（[3D 视口](#3d-视口890)）。
 
+### 多对象选择与批量编辑（#867）
+
+编辑器维护有序的多对象选区集合，并保留 `Editor.SelectedID` 作为主选中对象（`SelectedIDs`、`SelectionCount`、`IsSelected`、`SelectedObjects`、`SelectObjects`、`SelectObjectsWithPrimary`、`AddToSelection`、`RemoveFromSelection`、`ToggleSelection`、`ClearSelection`）：
+
+- **视口选择与框选（Marquee）**：在 2D 和 3D 视口中，按住 `Shift` 点击将对象加入选区，按住 `Mod`（`Cmd`/`Ctrl`）点击切换对象选中状态（`HandleCanvasPressWith`、`HandleViewport3DPressWith`）。在 2D 的选择工具下，在空白画布上拖拽可绘制框选矩形（`BeginMarquee2DWith`、`UpdateMarquee2D`、`EndMarquee2D`、`CancelMarquee2D`、`SelectMarquee2D`），默认选中完全包含的对象，按住 `Alt` 改为选中相交的对象（`MarqueeEnclose`、`MarqueeTouch`）；`Shift` 追加、`Mod` 切换匹配对象。按 `Escape` 优先取消进行中的拖拽或框选，静止时清空选区。
+- **场景树同步**：`SceneTreeView` 跟随并驱动同一多选集合，支持 `Shift`+点击与 `Mod`+点击，并自动展开所选对象的祖先节点。
+- **公共中心变换、删除与复制**：2D 和 3D 变换操纵器以选中对象的组合包围盒中心为支点整体移动、旋转和缩放（自动排除祖先也已选中的子对象，避免重复变换），`DeleteSelected` 与 `DuplicateSelected` 作用于整个选区；每次操作通过 `History.Group` 记为**单个撤销步骤**。`FrameSelection` 会同时聚焦所有选中对象。
+- **共享字段检查器**：选中多个对象时，`InspectorView` 显示“已选中 N 项”，仅展示所有选中对象共同拥有的分组（变换、全部带精灵时的精灵、共有属性与共有组件）。取值不同的字段显示为“混合”（复选框显示半选态），修改任一字段均通过 `History.Group` 在**单个撤销步骤**内写入所有选中对象（`EditSelected`、`SetSelectedComponentField`、`SetSelectedProperty`、`SetSelectedX` 等），一次撤销即可将每个对象恢复到各自原有的值。
+
 ### 拷贝、粘贴、复制与编组对象（#868）
 
 场景树支持多选对象（`SelectObjects`、`SelectedIDs`、`ToggleSelectObject`、`IsObjectSelected`），对象剪贴板、创建副本与编组操作均可通过“编辑”菜单、场景树右键上下文菜单、命令面板和快捷键触发：
@@ -753,7 +762,6 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 - **粘贴（`mod+v`、`Paste`、`PasteWith`、`PasteYAML`、`PasteYAMLWith`）与粘贴为子级（`mod+shift+v`、`PasteInto`）**：从系统剪贴板读取场景格式 YAML（`core.Scope.ReadClipboard` / `Editor.ReadClipboard`），将对象放置到当前图层 `ActiveLayer`（或指定父对象 `ParentID` 下），优先落在视口悬停指针处（`SetViewportPointer2D` / `SetViewportPointer3D`），否则在目标场景已有同名 ID 时相对原位置偏移排列。目标场景未占用的原始 ID 会直接保留，已占用的 ID 会分配新的唯一 ID，同时将内部连接与场景覆盖（含实例化路径 `"enemy_1/body"`）改写为新 ID，并在目标场景已有主 3D 相机时自动清除副本的 `current` 标志。所有粘贴都经过 `PlaceObject` 的完整校验（`sceneformat.Validate`、`ValidateComponents`、`ValidateConnections`、`ValidatePhysicsLayers` 以及实例化场景的 `Resolve`）并作为**单个撤销步骤**提交；无法解析或校验失败的 YAML 会在状态栏报错拒绝，不修改场景与撤销历史。
 - **复制副本（`mod+d`、`DuplicateObject`、`DuplicateObjects`、`DuplicateSelected`、`DuplicateSelectedObjects`）**：在**单个撤销步骤**中将选中对象克隆到同一图层与父级下且紧邻原对象的位置，分配唯一 ID 并改写内部连接与覆盖，且不覆盖系统剪贴板。
 - **编组（`mod+g`、`GroupObjects`、`GroupSelected`）与取消编组（`mod+shift+g`、`UngroupObject`、`UngroupSelected`）**：编组在选中对象的 2D/3D 世界中心处新建空父对象并将它们归入其下，通过 `keepWorldTransform` 换算局部变换使屏幕位置与世界变换保持不变，记录为**单个撤销步骤**。取消编组在**单个撤销步骤**中将直接子级提升到父级所在层级并保持其世界变换；对于无可视化/组件内容且无连接的空分组容器会自动移除，非空父对象则保留自身。
-
 ## 3D 导航网格烘焙（#901）
 
 在 3D 视图模式下，编辑器可直接从当前打开场景的静态几何体烘焙 Recast 风格的 3D 导航网格（`navbake3d`），并在 3D 视口上实时预览：

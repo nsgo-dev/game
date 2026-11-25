@@ -312,7 +312,7 @@ func (e *Editor) NewRoomMap(filePath string) error {
 		selectedRoomID: "room_1",
 		snapToGrid:     true,
 	}
-	e.SelectedID = ""
+	e.clearSelectionFields()
 	e.inspectAssetFile = false
 	e.inspectLayer = false
 	e.connPick = nil
@@ -454,7 +454,7 @@ func (e *Editor) SelectRoom(id string) bool {
 		e.CancelCameraDrag()
 		e.CancelCameraBoundsDrag()
 		e.CancelRoomDrag()
-		e.SelectedID = ""
+		e.clearSelectionFields()
 		e.inspectAssetFile = false
 		e.inspectLayer = false
 		e.connPick = nil
@@ -1008,7 +1008,7 @@ func (e *Editor) BeginRoomDrag(canvasX, canvasY float32) bool {
 		return false
 	}
 	if e.rooms.selectedRoomID != roomID || e.SelectedID != "" || e.inspectLayer || e.inspectAssetFile {
-		e.SelectedID = ""
+		e.clearSelectionFields()
 		e.inspectLayer = false
 		e.inspectAssetFile = false
 		e.connPick = nil
@@ -1334,7 +1334,7 @@ func (c *roomMapEditCmd) Do() {
 	if c.selectRoom {
 		c.ed.rooms.selectedRoomID = c.afterSel
 		if c.afterSel != "" {
-			c.ed.SelectedID = ""
+			c.ed.clearSelectionFields()
 			c.ed.inspectLayer = false
 			c.ed.inspectAssetFile = false
 		}

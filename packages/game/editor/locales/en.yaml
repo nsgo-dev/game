@@ -180,6 +180,9 @@ strings:
   inspector.jumpTo: Jump to {id}
   inspector.material: Material
   inspector.mesh: Mesh
+  inspector.mixed: Mixed
+  inspector.multiNoteOnlyTransform: Only Transform is shared by these {count} objects. Editing a Mixed field sets it on all of them.
+  inspector.multiNoteShared: 'Shared by these {count} objects: {sections}. Editing a Mixed field sets it on all of them.'
   inspector.name: Name
   inspector.navRegionResetPolygon: Reset to Default Polygon
   inspector.newMaterial: New Material
@@ -216,6 +219,7 @@ strings:
   inspector.section.transform: TRANSFORM
   inspector.section.transform3d: TRANSFORM 3D
   inspector.selectAssetFirst: Select a frame in the asset browser first
+  inspector.selectedCount: '{count} selected'
   inspector.sprite: Sprite
   inspector.title: Inspector
   inspector.useAsset: Use {key}
@@ -376,6 +380,7 @@ strings:
   sceneTree.group: Group
   sceneTree.hide: Hide in Viewport
   sceneTree.hideNamed: Hide {id}
+  sceneTree.hint: ⇧ click adds to the selection · drag a row to reparent
   sceneTree.indent: Make Child of Previous
   sceneTree.label: Scene Tree
   sceneTree.layerLabel: Layer {name}

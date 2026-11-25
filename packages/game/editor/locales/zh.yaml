@@ -180,6 +180,9 @@ strings:
   inspector.jumpTo: 跳转至 {id}
   inspector.material: 材质
   inspector.mesh: 网格
+  inspector.mixed: 混合
+  inspector.multiNoteOnlyTransform: 这 {count} 个对象仅共享变换。编辑“混合”字段会同时应用到所有选中对象。
+  inspector.multiNoteShared: 这 {count} 个对象共享：{sections}。编辑“混合”字段会同时应用到所有选中对象。
   inspector.name: 名称
   inspector.navRegionResetPolygon: 重置为默认多边形
   inspector.newMaterial: 新建材质
@@ -216,6 +219,7 @@ strings:
   inspector.section.transform: 变换
   inspector.section.transform3d: 3D 变换
   inspector.selectAssetFirst: 请先在资源浏览器中选择一帧
+  inspector.selectedCount: 已选中 {count} 项
   inspector.sprite: 精灵
   inspector.title: 检查器
   inspector.useAsset: 使用 {key}
@@ -376,6 +380,7 @@ strings:
   sceneTree.group: 编组
   sceneTree.hide: 在视口中隐藏
   sceneTree.hideNamed: 隐藏 {id}
+  sceneTree.hint: ⇧ 点击加入选区 · 拖动行可更改父级
   sceneTree.indent: 设为上一项的子级
   sceneTree.label: 场景树
   sceneTree.layerLabel: 图层 {name}

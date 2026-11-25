@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"fmt"
 	"math"
 
 	"github.com/nsgo-dev/game/packages/game/math2d"
@@ -186,7 +187,19 @@ func equalTransform2D(a, b transform2D) bool {
 	return a.X == b.X && a.Y == b.Y && a.Rotation == b.Rotation && equalFloat32Ptr(a.ScaleX, b.ScaleX) && equalFloat32Ptr(a.ScaleY, b.ScaleY)
 }
 
-// drag2DState is a 2D viewport drag in progress on objectID, which the drag changes in place until EndDrag2D records it as one step or CancelDrag2D puts it back.
+// drag2DTarget snapshots one object in a multi-object 2D viewport drag.
+type drag2DTarget struct {
+	id                   string
+	space                sceneformat.Space
+	parallaxX, parallaxY float32
+	start                transform2D
+	toParent             aff2
+	startLayerPos        math2d.Vec2
+	detSign              float64
+}
+
+// drag2DState is a 2D viewport drag in progress on objectID (or targets for a multi-selection),
+// which the drag changes in place until EndDrag2D records it as one step or CancelDrag2D puts it back.
 type drag2DState struct {
 	handle               GizmoHandle2D
 	objectID             string
@@ -199,6 +212,12 @@ type drag2DState struct {
 	grab math2d.Vec2
 	// prevAngle is the pointer's angle about the origin at the last update, and angle how far it has turned in all, unwrapped, for the rotation ring.
 	prevAngle, angle float64
+	// Multi-selection drag state (populated when dragging >1 selected objects).
+	targets     []drag2DTarget
+	pivotCanvas math2d.Vec2
+	grabCanvas  math2d.Vec2
+	axisX       math2d.Vec2
+	axisY       math2d.Vec2
 	// Component-handle drag state (light2d radius/spot angle/direction and occluder2d rect/polygon handles).
 	compName    string
 	compBefore  map[string]any
@@ -222,22 +241,33 @@ func (g gizmo2D) scaleShown(h GizmoHandle2D) bool {
 	return h.IsScale() && g.scale[h-Handle2DScaleN]
 }
 
-// Gizmo2DShown reports whether the 2D viewport shows the transform gizmo: on the selected object, nested children included, in 2D, with the Select or Move tool, outside Play. An object hidden or locked in the editor (SetObjectHidden, SetObjectLocked), or under one that is, has no gizmo.
+// Gizmo2DShown reports whether the 2D viewport shows the transform gizmo: on the selected object(s), nested children included, in 2D, with the Select or Move tool, outside Play. Objects hidden or locked in the editor (SetObjectHidden, SetObjectLocked), or under one that is, have no gizmo.
 func (e *Editor) Gizmo2DShown() bool {
-	if e == nil || e.playing || e.ViewMode != ViewMode2D || (e.Tool != ToolSelect && e.Tool != ToolMove) || e.viewportFrozen(e.SelectedID) {
+	if e == nil || e.playing || e.ViewMode != ViewMode2D || (e.Tool != ToolSelect && e.Tool != ToolMove) {
+		return false
+	}
+	if len(e.draggableSelectedIDs()) == 0 {
 		return false
 	}
 	_, ok := e.gizmo2D()
 	return ok
 }
 
-// gizmo2D lays out the selected object's gizmo on the canvas from the scene as drawn.
+// gizmo2D lays out the selected object's (or multi-selection's) gizmo on the canvas from the scene as drawn.
 func (e *Editor) gizmo2D() (gizmo2D, bool) {
 	scene := e.ActiveScene()
 	if scene == nil || e.SelectedID == "" {
 		return gizmo2D{}, false
 	}
-	bo := scene.Object(e.SelectedID)
+	draggable := e.draggableSelectedIDs()
+	if len(draggable) > 1 {
+		return e.multiGizmo2D(scene, draggable)
+	}
+	targetID := e.SelectedID
+	if len(draggable) == 1 {
+		targetID = draggable[0]
+	}
+	bo := scene.Object(targetID)
 	if bo == nil || bo.Doc == nil {
 		return gizmo2D{}, false
 	}
@@ -276,6 +306,78 @@ func (e *Editor) gizmo2D() (gizmo2D, bool) {
 			lx, ly := scaleHandleLocal(h, rx, ry, rw, rh)
 			reachX := vecLen(m.TransformVector(math2d.Vec2{X: lx}))
 			reachY := vecLen(m.TransformVector(math2d.Vec2{Y: ly}))
+			sx, sy := h.scalesAxes()
+			g.scale[h-Handle2DScaleN] = (!sx || reachX >= gizmoScaleMinReach) && (!sy || reachY >= gizmoScaleMinReach)
+		}
+	}
+	if !isFiniteVec(g.origin) || !isFiniteFloat32(g.ring) {
+		return gizmo2D{}, false
+	}
+	return g, true
+}
+
+// multiGizmo2D lays out a shared gizmo centered on the combined canvas bounding box of ids.
+func (e *Editor) multiGizmo2D(scene *sceneformat.BuiltScene, ids []string) (gizmo2D, bool) {
+	va := e.viewAffine()
+	axisX := unitVec(va.TransformVector(math2d.Vec2{X: 1}))
+	axisY := unitVec(va.TransformVector(math2d.Vec2{Y: 1}))
+
+	hasAny := false
+	var minU, maxU, minV, maxV float32
+	for _, id := range ids {
+		bo := scene.Object(id)
+		if bo == nil || bo.Doc == nil {
+			continue
+		}
+		space := sceneformat.SpaceWorld
+		var px, py float32 = 1, 1
+		if layer := scene.Layer(bo.Layer); layer != nil {
+			if !layer.Visible {
+				continue
+			}
+			space = layer.Space
+			px, py = layer.ParallaxX, layer.ParallaxY
+		}
+		m := e.layerAffineFor(space, px, py).Mul(bo.World)
+		rx, ry, rw, rh := objectOutline(bo)
+		for _, c := range [4][2]float32{{rx, ry}, {rx + rw, ry}, {rx + rw, ry + rh}, {rx, ry + rh}} {
+			p := m.TransformPoint(math2d.Vec2{X: c[0], Y: c[1]})
+			u := p.X*axisX.X + p.Y*axisX.Y
+			v := p.X*axisY.X + p.Y*axisY.Y
+			if !hasAny {
+				minU, maxU, minV, maxV = u, u, v, v
+				hasAny = true
+			} else {
+				minU, maxU = min(minU, u), max(maxU, u)
+				minV, maxV = min(minV, v), max(maxV, v)
+			}
+		}
+	}
+	if !hasAny {
+		return gizmo2D{}, false
+	}
+	pt := func(u, v float32) math2d.Vec2 {
+		return axisX.Scale(u).Add(axisY.Scale(v))
+	}
+	var g gizmo2D
+	g.axisX = axisX
+	g.axisY = axisY
+	g.origin = pt((minU+maxU)/2, (minV+maxV)/2)
+	g.outline = [4]math2d.Vec2{
+		pt(minU, minV),
+		pt(maxU, minV),
+		pt(maxU, maxV),
+		pt(minU, maxV),
+	}
+	var far float32
+	for _, c := range g.outline {
+		far = max(far, vecLen(c.Sub(g.origin)))
+	}
+	g.ring = max(gizmoRingMin, far+gizmoRingGap)
+	w, hSide := maxU-minU, maxV-minV
+	if w >= gizmoScaleMinSide && hSide >= gizmoScaleMinSide {
+		reachX, reachY := w/2, hSide/2
+		for h := Handle2DScaleN; h <= Handle2DScaleNW; h++ {
 			sx, sy := h.scalesAxes()
 			g.scale[h-Handle2DScaleN] = (!sx || reachX >= gizmoScaleMinReach) && (!sy || reachY >= gizmoScaleMinReach)
 		}
@@ -385,8 +487,10 @@ func (e *Editor) pickGizmo2DWithIndex(x, y float32) (GizmoHandle2D, int) {
 	if abs32(p.X-g.origin.X) <= gizmoCenterHalf && abs32(p.Y-g.origin.Y) <= gizmoCenterHalf {
 		return Handle2DMove, -1
 	}
-	if lh, idx := e.pickLightingHandle2D(x, y); lh != Handle2DNone {
-		return lh, idx
+	if e.SelectionCount() == 1 {
+		if lh, idx := e.pickLightingHandle2D(x, y); lh != Handle2DNone {
+			return lh, idx
+		}
 	}
 	if nh, idx := e.pickNavRegionHandle2D(x, y); nh != Handle2DNone {
 		return nh, idx
@@ -394,7 +498,7 @@ func (e *Editor) pickGizmo2DWithIndex(x, y float32) (GizmoHandle2D, int) {
 	if h := g.pick(p); h != Handle2DNone {
 		return h, -1
 	}
-	if e.HitTest(x, y) == e.SelectedID {
+	if hit := e.HitTest(x, y); hit != "" && e.IsSelected(hit) {
 		return Handle2DBody, -1
 	}
 	return Handle2DNone, -1
@@ -428,15 +532,25 @@ func (e *Editor) BeginDrag2D(x, y float32) GizmoHandle2D {
 		if obj, _, _ := e.FindObject(hit); obj == nil || e.viewportFrozen(hit) {
 			return Handle2DNone
 		}
-		e.SelectObject(hit)
+		if !e.IsSelected(hit) {
+			e.SelectObject(hit)
+		}
 		h = Handle2DBody
 	}
-	obj, li, _ := e.FindObject(e.SelectedID)
-	if obj == nil || e.viewportFrozen(e.SelectedID) {
+	draggable := e.draggableSelectedIDs()
+	if len(draggable) > 1 {
+		return e.beginMultiDrag2D(h, draggable, x, y)
+	}
+	targetID := e.SelectedID
+	if len(draggable) == 1 {
+		targetID = draggable[0]
+	}
+	obj, li, _ := e.FindObject(targetID)
+	if obj == nil || e.viewportFrozen(targetID) {
 		return Handle2DNone
 	}
 	// A nested child's transform is in its parent's space, so the drag is worked out there.
-	path := objectPath(e.Doc, e.SelectedID)
+	path := objectPath(e.Doc, targetID)
 	toParent, ok := chain2(path[:max(len(path)-1, 0)]).invert()
 	if !ok {
 		return Handle2DNone
@@ -446,7 +560,7 @@ func (e *Editor) BeginDrag2D(x, y float32) GizmoHandle2D {
 	gx, gy := toParent.apply(float64(lx), float64(ly))
 	st := drag2DState{
 		handle:    h,
-		objectID:  e.SelectedID,
+		objectID:  targetID,
 		space:     space,
 		parallaxX: px,
 		parallaxY: py,
@@ -457,6 +571,59 @@ func (e *Editor) BeginDrag2D(x, y float32) GizmoHandle2D {
 	st.prevAngle = math.Atan2(gy-float64(obj.Y), gx-float64(obj.X))
 	e.drag2D = st
 	e.Status = h.String() + " " + st.objectID
+	e.notify()
+	return h
+}
+
+func (e *Editor) beginMultiDrag2D(h GizmoHandle2D, ids []string, x, y float32) GizmoHandle2D {
+	g, ok := e.gizmo2D()
+	if !ok {
+		return Handle2DNone
+	}
+	targets := make([]drag2DTarget, 0, len(ids))
+	for _, id := range ids {
+		obj, li, _ := e.FindObject(id)
+		if obj == nil || e.viewportFrozen(id) {
+			continue
+		}
+		path := objectPath(e.Doc, id)
+		parentChain := chain2(path[:max(len(path)-1, 0)])
+		toParent, ok := parentChain.invert()
+		if !ok {
+			continue
+		}
+		space, px, py := e.layerSpaceAndParallax(e.Doc.Layers[li].Name)
+		lx, ly := parentChain.apply(float64(obj.X), float64(obj.Y))
+		detSign := 1.0
+		if toParent.a*toParent.d-toParent.b*toParent.c < 0 {
+			detSign = -1.0
+		}
+		targets = append(targets, drag2DTarget{
+			id:            id,
+			space:         space,
+			parallaxX:     px,
+			parallaxY:     py,
+			start:         captureTransform2D(obj),
+			toParent:      toParent,
+			startLayerPos: math2d.Vec2{X: float32(lx), Y: float32(ly)},
+			detSign:       detSign,
+		})
+	}
+	if len(targets) == 0 {
+		return Handle2DNone
+	}
+	st := drag2DState{
+		handle:      h,
+		objectID:    e.SelectedID,
+		targets:     targets,
+		pivotCanvas: g.origin,
+		grabCanvas:  math2d.Vec2{X: x, Y: y},
+		axisX:       g.axisX,
+		axisY:       g.axisY,
+		prevAngle:   math.Atan2(float64(y-g.origin.Y), float64(x-g.origin.X)),
+	}
+	e.drag2D = st
+	e.Status = fmt.Sprintf("%s %d objects", h.String(), len(targets))
 	e.notify()
 	return h
 }
@@ -478,6 +645,10 @@ func (e *Editor) UpdateDrag2D(x, y float32, keepAspect bool) {
 	}
 	if e.drag2D.handle.IsComponentHandle() {
 		e.updateLightingDrag2D(x, y, keepAspect)
+		return
+	}
+	if len(e.drag2D.targets) > 1 {
+		e.updateMultiDrag2D(x, y, keepAspect)
 		return
 	}
 	st := &e.drag2D
@@ -538,6 +709,181 @@ func (e *Editor) UpdateDrag2D(x, y float32, keepAspect bool) {
 		return
 	}
 	applyTransform2D(obj, next)
+	e.Rebuild()
+	e.notify()
+}
+
+func (e *Editor) updateMultiDrag2D(x, y float32, keepAspect bool) {
+	if e.playing {
+		e.drag2D = drag2DState{}
+		e.notify()
+		return
+	}
+	st := &e.drag2D
+	nexts := make([]transform2D, len(st.targets))
+	objs := make([]*sceneformat.ObjectDoc, len(st.targets))
+	for i, t := range st.targets {
+		obj, _, _ := e.FindObject(t.id)
+		if obj == nil {
+			e.drag2D = drag2DState{}
+			e.notify()
+			return
+		}
+		objs[i] = obj
+		nexts[i] = t.start
+	}
+
+	cur := math2d.Vec2{X: x, Y: y}
+	switch h := st.handle; {
+	case h == Handle2DBody || h == Handle2DMove || h == Handle2DMoveX || h == Handle2DMoveY:
+		cd := cur.Sub(st.grabCanvas)
+		switch h {
+		case Handle2DMoveX:
+			along := cd.X*st.axisX.X + cd.Y*st.axisX.Y
+			cd = st.axisX.Scale(along)
+		case Handle2DMoveY:
+			along := cd.X*st.axisY.X + cd.Y*st.axisY.Y
+			cd = st.axisY.Scale(along)
+		}
+		dstCanvas := st.grabCanvas.Add(cd)
+		for i, t := range st.targets {
+			glx, gly := e.canvasToLayerFor(t.space, t.parallaxX, t.parallaxY, st.grabCanvas.X, st.grabCanvas.Y)
+			dlx, dly := e.canvasToLayerFor(t.space, t.parallaxX, t.parallaxY, dstCanvas.X, dstCanvas.Y)
+			gpx, gpy := t.toParent.apply(float64(glx), float64(gly))
+			dpx, dpy := t.toParent.apply(float64(dlx), float64(dly))
+			nexts[i].X = float32(float64(t.start.X) + (dpx - gpx))
+			nexts[i].Y = float32(float64(t.start.Y) + (dpy - gpy))
+		}
+	case h == Handle2DRotate:
+		ox, oy := float64(x-st.pivotCanvas.X), float64(y-st.pivotCanvas.Y)
+		if math.Hypot(ox, oy) < 1e-6 {
+			return
+		}
+		a := math.Atan2(oy, ox)
+		step := math.Remainder(a-st.prevAngle, 2*math.Pi)
+		st.angle += step
+		st.prevAngle = a
+		sin, cos := math.Sincos(st.angle)
+		for i, t := range st.targets {
+			plx, ply := e.canvasToLayerFor(t.space, t.parallaxX, t.parallaxY, st.pivotCanvas.X, st.pivotCanvas.Y)
+			rx := float64(t.startLayerPos.X) - float64(plx)
+			ry := float64(t.startLayerPos.Y) - float64(ply)
+			nlx := float64(plx) + rx*cos - ry*sin
+			nly := float64(ply) + rx*sin + ry*cos
+			npx, npy := t.toParent.apply(nlx, nly)
+			nexts[i].X = float32(npx)
+			nexts[i].Y = float32(npy)
+			nexts[i].Rotation = float32(float64(t.start.Rotation) + t.detSign*st.angle)
+			if !isFiniteFloat32(nexts[i].X) || !isFiniteFloat32(nexts[i].Y) || !isFiniteFloat32(nexts[i].Rotation) {
+				return
+			}
+			if err := e.checkTransformEdit(t.id, func(o *sceneformat.ObjectDoc) { o.Rotation = nexts[i].Rotation }); err != nil {
+				e.Status = "Rotate refused: " + err.Error()
+				e.notify()
+				return
+			}
+		}
+	case h.IsScale():
+		// Compute scale factors along the gizmo's X and Y axes about pivotCanvas.
+		proj := func(p math2d.Vec2) (float64, float64) {
+			d := p.Sub(st.pivotCanvas)
+			return float64(d.X*st.axisX.X + d.Y*st.axisX.Y), float64(d.X*st.axisY.X + d.Y*st.axisY.Y)
+		}
+		gx, gy := proj(st.grabCanvas)
+		qx, qy := proj(cur)
+		scaleX, scaleY := h.scalesAxes()
+		const tiny = 1e-6
+		fx, fy := 1.0, 1.0
+		switch {
+		case keepAspect && scaleX && scaleY:
+			d := gx*gx + gy*gy
+			if d < tiny {
+				e.Status = "Scale refused: the scale would be zero"
+				e.notify()
+				return
+			}
+			fx = (qx*gx + qy*gy) / d
+			fy = fx
+		case scaleX:
+			if math.Abs(gx) < tiny {
+				e.Status = "Scale refused: the scale would be zero"
+				e.notify()
+				return
+			}
+			fx = qx / gx
+			if scaleY {
+				if math.Abs(gy) < tiny {
+					e.Status = "Scale refused: the scale would be zero"
+					e.notify()
+					return
+				}
+				fy = qy / gy
+			} else if keepAspect {
+				fy = fx
+			}
+		case scaleY:
+			if math.Abs(gy) < tiny {
+				e.Status = "Scale refused: the scale would be zero"
+				e.notify()
+				return
+			}
+			fy = qy / gy
+			if keepAspect {
+				fx = fy
+			}
+		}
+		if math.IsNaN(fx) || math.IsInf(fx, 0) || math.IsNaN(fy) || math.IsInf(fy, 0) ||
+			(fx != 1 && math.Abs(fx) < minScale2D) || (fy != 1 && math.Abs(fy) < minScale2D) {
+			e.Status = "Scale refused: the scale would be zero"
+			e.notify()
+			return
+		}
+		scaledPtr := func(base *float32, f float64) (*float32, bool) {
+			if f == 1 {
+				return cloneFloat32Ptr(base), true
+			}
+			b := 1.0
+			if base != nil {
+				b = float64(*base)
+			}
+			v := float32(b * f)
+			if !isFiniteFloat32(v) || math.Abs(float64(v)) < minScale2D {
+				return nil, false
+			}
+			return &v, true
+		}
+		for i, t := range st.targets {
+			plx, ply := e.canvasToLayerFor(t.space, t.parallaxX, t.parallaxY, st.pivotCanvas.X, st.pivotCanvas.Y)
+			rx := float64(t.startLayerPos.X) - float64(plx)
+			ry := float64(t.startLayerPos.Y) - float64(ply)
+			nlx := float64(plx) + rx*fx
+			nly := float64(ply) + ry*fy
+			npx, npy := t.toParent.apply(nlx, nly)
+			nexts[i].X = float32(npx)
+			nexts[i].Y = float32(npy)
+			sxPtr, okX := scaledPtr(t.start.ScaleX, fx)
+			syPtr, okY := scaledPtr(t.start.ScaleY, fy)
+			if !okX || !okY {
+				e.Status = "Scale refused: the scale would be zero"
+				e.notify()
+				return
+			}
+			nexts[i].ScaleX, nexts[i].ScaleY = sxPtr, syPtr
+			if err := e.checkTransformEdit(t.id, func(o *sceneformat.ObjectDoc) { o.ScaleX, o.ScaleY = sxPtr, syPtr }); err != nil {
+				e.Status = "Scale refused: " + err.Error()
+				e.notify()
+				return
+			}
+		}
+	}
+	for i := range nexts {
+		if !isFiniteFloat32(nexts[i].X) || !isFiniteFloat32(nexts[i].Y) || !isFiniteFloat32(nexts[i].Rotation) {
+			return
+		}
+	}
+	for i, obj := range objs {
+		applyTransform2D(obj, nexts[i])
+	}
 	e.Rebuild()
 	e.notify()
 }
@@ -619,6 +965,50 @@ func (e *Editor) EndDrag2D() bool {
 	}
 	st := e.drag2D
 	e.drag2D = drag2DState{}
+	if len(st.targets) > 1 {
+		verb := "Move"
+		switch {
+		case st.handle == Handle2DRotate:
+			verb = "Rotate"
+		case st.handle.IsScale():
+			verb = "Scale"
+		}
+		type pending struct {
+			id    string
+			obj   *sceneformat.ObjectDoc
+			start transform2D
+			after transform2D
+		}
+		var changed []pending
+		for _, t := range st.targets {
+			obj, _, _ := e.FindObject(t.id)
+			if obj == nil {
+				continue
+			}
+			after := captureTransform2D(obj)
+			if !equalTransform2D(t.start, after) {
+				changed = append(changed, pending{id: t.id, obj: obj, start: t.start, after: after})
+			}
+		}
+		if len(changed) == 0 {
+			e.Status = fmt.Sprintf("Selected %d objects", len(st.targets))
+			e.notify()
+			return false
+		}
+		for _, p := range changed {
+			applyTransform2D(p.obj, p.start)
+		}
+		label := fmt.Sprintf("%s %d objects", verb, len(changed))
+		_ = e.History.Group(label, func() error {
+			for _, p := range changed {
+				e.History.Execute(&transform2DCmd{ed: e, id: p.id, label: verb + " " + p.id, before: p.start, after: p.after})
+			}
+			return nil
+		})
+		e.Status = label
+		e.notify()
+		return true
+	}
 	obj, _, _ := e.FindObject(st.objectID)
 	if obj == nil {
 		e.notify()
@@ -653,6 +1043,21 @@ func (e *Editor) CancelDrag2D() bool {
 	}
 	st := e.drag2D
 	e.drag2D = drag2DState{}
+	if len(st.targets) > 1 {
+		restored := false
+		for _, t := range st.targets {
+			if obj, _, _ := e.FindObject(t.id); obj != nil {
+				applyTransform2D(obj, t.start)
+				restored = true
+			}
+		}
+		if restored {
+			e.Rebuild()
+		}
+		e.Status = "Cancelled " + st.handle.String()
+		e.notify()
+		return true
+	}
 	if obj, _, _ := e.FindObject(st.objectID); obj != nil {
 		applyTransform2D(obj, st.start)
 		e.Rebuild()
@@ -740,8 +1145,10 @@ func (e *Editor) drawGizmo2D(d *core.Drawing) {
 		}
 	}
 	d.Restore()
-	e.drawSelectedLightingHandles2D(d)
-	e.drawSelectedNavRegionHandles2D(d)
+	if e.SelectionCount() == 1 {
+		e.drawSelectedLightingHandles2D(d)
+		e.drawSelectedNavRegionHandles2D(d)
+	}
 }
 
 func unitVec(v math2d.Vec2) math2d.Vec2 {
