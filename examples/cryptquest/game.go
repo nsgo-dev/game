@@ -11,6 +11,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/ai"
 	"github.com/nsgo-dev/game/packages/game/flow"
 	"github.com/nsgo-dev/game/packages/game/input"
+	"github.com/nsgo-dev/game/packages/game/navbake"
 	"github.com/nsgo-dev/game/packages/game/physics"
 	"github.com/nsgo-dev/game/packages/game/save"
 	"github.com/nsgo-dev/game/packages/game/screen"
@@ -206,6 +207,9 @@ type Game struct {
 	Dialogue  DialogueState
 	DrawAlpha float64
 	Elapsed   time.Duration
+
+	// ShowNavMesh draws World.NavMesh over the crypt; N toggles it.
+	ShowNavMesh bool
 
 	astar        *ai.AStar
 	store        *save.Store
@@ -427,6 +431,9 @@ func (g *Game) HandleKey(key string) bool {
 		if !g.Dialogue.Open {
 			g.Attack()
 		}
+		return true
+	case "n":
+		g.ShowNavMesh = !g.ShowNavMesh
 		return true
 	case "escape":
 		if g.Dialogue.Open {
@@ -1006,6 +1013,9 @@ func (g *Game) Draw(d *core.Drawing, window core.Size) {
 		d.Save()
 		g.Camera.Apply(d)
 		g.World.Map.Draw(d, &g.Camera)
+		if g.ShowNavMesh {
+			navbake.Draw(d, g.World.NavMesh, core.RGBA(0x74f4e0, 0.18), core.RGBA(0x74f4e0, 0.7), core.RGB(0xfada70), 0.75)
+		}
 		g.drawEnemyPaths(d)
 		g.drawEntities(d)
 		d.Restore()

@@ -46,6 +46,7 @@ The loop, input actions, sound and scene switching are shared by both stages, so
 | `rooms` | `github.com/nsgo-dev/game/packages/game/rooms` | [rooms](rooms.md) | Room maps with per-room camera bounds and cut, slide or fade transitions between them |
 | `ai` | `github.com/nsgo-dev/game/packages/game/ai` | [ai](ai.md) | Grid `AStar`, 2D `NavMesh`, steering behaviors, behavior trees and perception |
 | `ai/perception3d` | `github.com/nsgo-dev/game/packages/game/ai/perception3d` | [ai](ai.md#3d) | `ai` perception for 3D agents on `math3d.Vec3`, with `physics3d` line of sight |
+| `navbake` | `github.com/nsgo-dev/game/packages/game/navbake` | [navbake](navbake.md) | Bakes `ai.NavMesh` polygons from concave obstacles or a tilemap's solid cells for each agent radius, saved as versioned YAML, with a debug overlay |
 | `rts` | `github.com/nsgo-dev/game/packages/game/rts` | [rts](rts.md) | Flow fields, a `Crowd` of many units with separation, YAML formations, box/click selection and control groups |
 | `procgen` | `github.com/nsgo-dev/game/packages/game/procgen` | [procgen](procgen.md) | Seeded BSP rooms, cellular-automata caves and wave function collapse from YAML rules, with connectivity checks and tilemap painting |
 | `replay` | `github.com/nsgo-dev/game/packages/game/replay` | [replay](replay.md) | Input `Recorder`/`Player` with editable YAML recordings and deterministic test assertions |

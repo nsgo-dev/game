@@ -1125,6 +1125,25 @@ root:
         home: home_pos
 ```
 
+<!-- format: navbake -->
+### Navigation meshes
+
+| Files | Version | Read and written by | Fields |
+| --- | --- | --- | --- |
+| Any `.yaml` file the game loads, such as `crypt.navmesh.yaml`, usually one per level and agent type | `version: 1` | `navbake.Parse`, `navbake.Mesh.Encode` | [navbake](navbake.md) |
+
+```yaml
+version: 1
+agent: small
+radius: 2
+polygons:
+  - [[2.0078125, 2.0078125], [37.992188, 2.0078125], [37.992188, 17.992188], [19.601562, 17.992188]]
+  - [[2.0078125, 2.0078125], [19.601562, 17.992188], [18.863281, 18.296875]]
+  - [[2.0078125, 2.0078125], [18.863281, 18.296875], [18.296875, 18.863281]]
+  - [[2.0078125, 2.0078125], [18.296875, 18.863281], [17.992188, 19.601562]]
+  - [[2.0078125, 2.0078125], [17.992188, 19.601562], [17.992188, 37.992188], [2.0078125, 37.992188]]
+```
+
 <!-- format: procgen -->
 ### Tile rules
 

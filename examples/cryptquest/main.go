@@ -69,8 +69,8 @@ func RenderGame(cx *core.Scope, g *Game) core.Node {
 		}
 	})
 
-	// Fallback keymap bindings so WASD/Arrows/E/F/Escape work even after clicking a HUD button.
-	for _, key := range []string{"w", "a", "s", "d", "up", "down", "left", "right", "e", "f", "escape"} {
+	// Fallback keymap bindings so WASD/Arrows/E/F/N/Escape work even after clicking a HUD button.
+	for _, key := range []string{"w", "a", "s", "d", "up", "down", "left", "right", "e", "f", "n", "escape"} {
 		k := key
 		cx.OnKey(k, func() {
 			if g.HandleKey(k) {

@@ -10,6 +10,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/ai"
 	"github.com/nsgo-dev/game/packages/game/gametest"
 	"github.com/nsgo-dev/game/packages/game/save"
+	"github.com/nsgo-dev/game/packages/game/tilemap"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -346,5 +347,58 @@ func TestTouchDPadMovesPlayerThroughInputActions(t *testing.T) {
 	endPos := g.PlayerCenter()
 	if endPos.X <= startPos.X+10 {
 		t.Fatalf("expected holding touch D-pad right to move player right: start=%+v end=%+v", startPos, endPos)
+	}
+}
+
+func TestNavMeshOverlayFollowsTheDoor(t *testing.T) {
+	_, g := startTestGame(t)
+	w := g.World
+	check := func(doorOpen bool) {
+		t.Helper()
+		if w.NavMesh == nil {
+			t.Fatal("the crypt has no navigation mesh")
+		}
+		nav := w.NavMesh.NavMesh()
+		for row := range MapRows {
+			for col := range MapCols {
+				want := w.Map.FlagsAt(col, row)&tilemap.TileSolid == 0
+				if got := nav.Contains(cellCenter(ai.Cell{Col: col, Row: row})); got != want {
+					t.Fatalf("door open %v: cell (%d, %d) on the mesh = %v, want %v", doorOpen, col, row, got, want)
+				}
+			}
+		}
+		_, ok := nav.FindPath(w.PlayerSpawn, w.ExitPos)
+		if ok != doorOpen {
+			t.Fatalf("door open %v: path to the exit found = %v", doorOpen, ok)
+		}
+	}
+	check(false)
+	w.UnlockDoor()
+	check(true)
+	w.LockDoor()
+	check(false)
+
+	if !g.HandleKey("n") || !g.ShowNavMesh {
+		t.Fatal("N did not turn the navigation mesh overlay on")
+	}
+	var d core.Drawing
+	g.Draw(&d, core.Size{Width: 640, Height: 400})
+	fills := 0
+	for _, op := range d.Ops {
+		if op.Kind == core.DrawFill {
+			fills++
+		}
+	}
+	g.HandleKey("n")
+	var plain core.Drawing
+	g.Draw(&plain, core.Size{Width: 640, Height: 400})
+	plainFills := 0
+	for _, op := range plain.Ops {
+		if op.Kind == core.DrawFill {
+			plainFills++
+		}
+	}
+	if fills != plainFills+1 {
+		t.Fatalf("overlay drew %d fills, %d without it; want one more", fills, plainFills)
 	}
 }

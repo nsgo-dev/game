@@ -1,11 +1,13 @@
 package main
 
 import (
+	"fmt"
 	"image"
 	"image/color"
 	"time"
 
 	"github.com/nsgo-dev/game/packages/game/ai"
+	"github.com/nsgo-dev/game/packages/game/navbake"
 	"github.com/nsgo-dev/game/packages/game/physics"
 	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/game/packages/game/tilemap"
@@ -57,6 +59,9 @@ type World struct {
 	ExitCell    ai.Cell
 	ExitPos     core.Point
 	EnemySpawns []EnemySpawn
+
+	// NavMesh is the crypt baked for a skeleton's radius from the tilemap's solid cells, shown by the debug overlay; it is rebaked when the sanctum door opens or closes.
+	NavMesh *navbake.Mesh
 }
 
 // cryptLayout defines the 24x16 dungeon:
@@ -209,7 +214,24 @@ func NewWorld() *World {
 		}
 	}
 	tm.Layers = []tilemap.TileLayer{layer}
+	w.bakeNavMesh()
 	return w
+}
+
+// navAgent is the agent the crypt's navigation mesh is baked for: a skeleton, whose hitbox is enemyHitboxSize wide.
+var navAgent = navbake.Agent{Name: "skeleton", Radius: enemyHitboxSize / 2}
+
+// bakeNavMesh bakes NavMesh from the tilemap's current solid cells. The crypt's layout and its door states are fixed in code, so a failed bake is a programming error and panics.
+func (w *World) bakeNavMesh() {
+	src, err := navbake.FromTilemap(w.Map, tilemap.TileSolid)
+	if err != nil {
+		panic(fmt.Sprintf("cryptquest: navmesh source: %v", err))
+	}
+	mesh, err := navbake.Bake(src, navAgent, navbake.Options{})
+	if err != nil {
+		panic(fmt.Sprintf("cryptquest: bake navmesh: %v", err))
+	}
+	w.NavMesh = mesh
 }
 
 // UnlockDoor opens the sealed sanctum gate in tilemap, physics, and A* navgrid.
@@ -218,6 +240,7 @@ func (w *World) UnlockDoor() {
 	w.Map.SetTile(0, c.Col, c.Row, GIDDoorOpen)
 	w.Physics.Set(c.Col, c.Row, 0)
 	w.Nav.SetWalkable(c.Col, c.Row, true)
+	w.bakeNavMesh()
 }
 
 // LockDoor seals the sanctum gate again (used on reset or loading a pre-relic save).
@@ -226,6 +249,7 @@ func (w *World) LockDoor() {
 	w.Map.SetTile(0, c.Col, c.Row, GIDDoorLocked)
 	w.Physics.Set(c.Col, c.Row, physics.TileSolid)
 	w.Nav.SetWalkable(c.Col, c.Row, false)
+	w.bakeNavMesh()
 }
 
 // CellAt converts a world coordinate to a clamped grid cell.

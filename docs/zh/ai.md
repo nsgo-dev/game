@@ -148,6 +148,8 @@ _ = ok
 
 可通过 `Contains(p)`、`FindPolygon(p)`、`NearestPolygon(p)`、`Neighbors(index)`、`Polygon(index)`、`PolygonCount()` 和 `FindCorridor(start, goal)` 查询网格几何信息；通过 `AddOffMeshLink(NavOffMeshLink{...})` 添加离网连接，通过 `SetEdgeFlags(fromPoly, toPoly, flags)` 标记共享边。
 
+若要把关卡切分成这些多边形，并让路径与墙保持代理半径的距离，可用 [navbake](navbake.md) 从关卡的外轮廓与障碍物或从 tilemap 烘焙网格。
+
 ### 导航智能体与路径走廊（`NavAgent`、`NavAgentGroup`）
 
 `NavAgent` 在 `ai.NavMesh` 上维护当前有效的多边形走廊，直接从当前位置沿剩余走廊计算下一个漏斗拐角（`NextCorner`），平滑转向并在 `ArrivalRadius` 内减速直至停稳于 `StoppingDistance` 内，同时暴露明确的导航状态（`NavAgentIdle`、`NavAgentMoving`、`NavAgentArrived`、`NavAgentUnreachable`）：
