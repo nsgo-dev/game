@@ -35,6 +35,7 @@ Every non-internal package under `github.com/nsgo-dev/game/packages` (shown rela
 | `game/pixelfx/fire` | Experimental | pixelfx fire effects (torch so far) |
 | `game/pixelfx/ice` | Experimental | pixelfx ice effects (blizzard vortex, freeze, frost breath, frost nova, ice crystal, ice lance, ice shatter, ice spikes, icicle fall, snowflake burst) |
 | `game/pixelfx/impacts` | Experimental | pixelfx impacts (blunt hit, bullet impact, critical hit, ground slam, heavy landing, hit flash, hit spark, impact frame, parry, ricochet, shield block) |
+| `game/pixelfx/melee` | Experimental | pixelfx melee attacks acted out by the rig (claw swipe, dagger flurry, double slash, hammer smash, heavy cleave, scythe reap, spear sweep, spin slash, sword slash, thrust, uppercut, whip crack) |
 | `game/pixelfx/moves` | Experimental | pixelfx character moves acted out by the rig (ground pound so far) |
 | `game/pixelfx/nature` | Experimental | pixelfx nature effects (acid splash, boulder, earth spike, healing bloom, leaf storm, poison cloud, quake, root snare, spore burst, thorns, tornado, toxic puddle, vine whip) |
 | `game/pixelfx/pickups` | Experimental | pixelfx pickups and loot effects (coin, chest, health, mana, keys, orbs, buffs, drops) |
