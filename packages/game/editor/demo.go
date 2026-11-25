@@ -181,6 +181,7 @@ func (e *Editor) OpenDemo() error {
 	e.tableSaved = nil
 	e.rig = nil
 	e.l10n = nil
+	e.stopTileAnimLoop()
 	e.tileset = nil
 	e.ActiveTerrain = ""
 	e.particles = nil

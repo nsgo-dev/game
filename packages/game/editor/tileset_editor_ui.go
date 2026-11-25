@@ -31,6 +31,11 @@ func TilesetEditorPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 }
 
 func tilesetEditorPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+	tileAnimRev := core.NewSignal(cx, ed.TileAnimRevision())
+	unsubTileAnim := ed.SubscribeTileAnim(func() {
+		tileAnimRev.Set(ed.TileAnimRevision())
+	})
+	cx.Cleanup(unsubTileAnim)
 	disabled := func() bool {
 		_ = rev.Get()
 		return ed.Playing()
@@ -468,7 +473,7 @@ func tilesetEditorPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 			case TilesetTabCollision:
 				return tilesetCollisionTab(ed, disabled, flagsDraft)
 			case TilesetTabAnimation:
-				return tilesetAnimationTab(ed, disabled, animTileDraft, animDurDraft)
+				return tilesetAnimationTab(ed, disabled, tileAnimRev, animTileDraft, animDurDraft)
 			case TilesetTabData:
 				return tilesetDataTab(ed, disabled, nameDraft, weightDraft, propKeyDraft, propTypeDraft, propValDraft)
 			default:
@@ -986,11 +991,9 @@ func tilesetCollisionTab(ed *Editor, disabled func() bool, flagsDraft *core.Sign
 	}
 }
 
-func tilesetAnimationTab(ed *Editor, disabled func() bool, tileDraft, durDraft *core.Signal[string]) core.Node {
+func tilesetAnimationTab(ed *Editor, disabled func() bool, tileAnimRev *core.Signal[uint64], tileDraft, durDraft *core.Signal[string]) core.Node {
 	selTile := ed.TilesetSelectedTile()
 	info, _ := ed.TilesetTileInfo(selTile)
-	previewTile := ed.TilesetAnimPreviewTile()
-	img, frame, hasVis := ed.tilesetTileVisual(previewTile)
 	playing := ed.TilesetAnimPlaying()
 
 	playLabel := "Play"
@@ -1050,7 +1053,9 @@ func tilesetAnimationTab(ed *Editor, disabled func() bool, tileDraft, durDraft *
 						CornerRadius: 4,
 					},
 					Draw: func(d *core.Drawing, size core.Size) {
-						if hasVis {
+						_ = tileAnimRev.Get()
+						previewTile := ed.TilesetAnimPreviewTile()
+						if img, frame, ok := ed.tilesetTileVisual(previewTile); ok {
 							drawPaletteTile(d, PaletteTile{Image: img, Frame: frame}, float32(size.Width), float32(size.Height))
 						}
 					},
@@ -1059,9 +1064,12 @@ func tilesetAnimationTab(ed *Editor, disabled func() bool, tileDraft, durDraft *
 					Style: core.Style{FlexGrow: 1, Gap: 4},
 					Children: []core.Node{
 						core.Text{
-							TestID:  "tileset-anim-status",
-							Content: fmt.Sprintf("Showing tile %d (%d frames)", previewTile, len(info.Animation)),
-							Style:   core.Style{FontSize: 11, Color: specTextSecondary},
+							TestID: "tileset-anim-status",
+							ContentFunc: func() string {
+								_ = tileAnimRev.Get()
+								return fmt.Sprintf("Showing tile %d (%d frames)", ed.TilesetAnimPreviewTile(), len(info.Animation))
+							},
+							Style: core.Style{FontSize: 11, Color: specTextSecondary},
 						},
 						ui.Button{
 							TestID:   "tileset-anim-play-toggle",

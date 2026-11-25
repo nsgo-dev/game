@@ -64,12 +64,12 @@ func (e *Editor) DataTableDirty() bool {
 	return err != nil || !bytes.Equal(data, e.tableSaved)
 }
 
-// HasUnsavedChanges reports whether any open scene tab, the shared project, GridMap, terrain, room map, localization workspace, animation clip, cutscene, data table, skeletal rig, or material has edits that are not saved, which switching projects or quitting would lose.
+// HasUnsavedChanges reports whether any open scene tab, the shared project, GridMap, terrain, room map, tileset, localization workspace, animation clip, cutscene, data table, skeletal rig, or material has edits that are not saved, which switching projects or quitting would lose.
 func (e *Editor) HasUnsavedChanges() bool {
 	if e == nil {
 		return false
 	}
-	return e.AnySceneDirty() || e.ProjectDirty() || e.GridMapDirty() || e.TerrainDirty() || e.RoomsDirty() || e.LocalizationDirty() || e.ClipDirty() || e.CutsceneDirty() || e.DataTableDirty() || e.RigDirty() || e.MaterialDirty()
+	return e.AnySceneDirty() || e.ProjectDirty() || e.GridMapDirty() || e.TerrainDirty() || e.RoomsDirty() || e.TilesetDirty() || e.LocalizationDirty() || e.ClipDirty() || e.CutsceneDirty() || e.DataTableDirty() || e.RigDirty() || e.MaterialDirty()
 }
 
 // SaveAll persists all currently dirty editors (project, every dirty open scene tab, GridMap, terrain, room map, localizations, clip, cutscene, data table, skeletal rig, and material) that have a save destination configured.
@@ -97,6 +97,11 @@ func (e *Editor) SaveAll() error {
 	}
 	if e.RoomsDirty() {
 		if err := e.SaveRooms(); err != nil {
+			return err
+		}
+	}
+	if e.TilesetDirty() {
+		if err := e.SaveTileset(); err != nil {
 			return err
 		}
 	}

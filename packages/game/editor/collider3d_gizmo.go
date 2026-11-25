@@ -720,6 +720,7 @@ func (c *setComponentMapCmd) Undo() {
 // sceneformat.BuildPhysics and 3D collider debug wireframes can load models, terrains,
 // and physics materials consistently in both Play mode and edit mode.
 type physicsAssetResolver struct {
+	ed       *Editor
 	resolver sceneformat.AssetResolver
 	assets   scene3DAssets
 	fsys     fs.FS
@@ -734,12 +735,12 @@ func (e *Editor) physicsResolver() sceneformat.AssetResolver {
 		fsys = os.DirFS(filepath.Dir(e.ProjectPath))
 	}
 	assets := e.modelAssets3D()
-	resolver := e.liveResolver()
-	if resolver == nil && fsys == nil && assets.files == nil {
+	if e.Resolver == nil && fsys == nil && assets.files == nil && !e.TilesetOpen() {
 		return nil
 	}
 	return physicsAssetResolver{
-		resolver: resolver,
+		ed:       e,
+		resolver: e.Resolver,
 		assets:   assets,
 		fsys:     fsys,
 	}
@@ -797,6 +798,9 @@ func (r physicsAssetResolver) Terrain(path string) (*world3d.Heightmap, error) {
 }
 
 func (r physicsAssetResolver) ReadFile(path string) ([]byte, error) {
+	if data, ok, err := r.ed.liveTilesetYAML(path); ok {
+		return data, err
+	}
 	if fr, ok := r.resolver.(sceneformat.FileResolver); ok {
 		return fr.ReadFile(path)
 	}
