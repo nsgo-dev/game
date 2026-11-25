@@ -47,6 +47,7 @@ func (e *Editor) OpenProject(path string) error {
 	e.Project = f
 	e.ProjectPath = path
 	e.projectSaved = saved
+	e.projectSavedOnce = false
 	e.selectFile("")
 	e.filesRev++
 	e.History.Clear()
@@ -117,6 +118,7 @@ func (e *Editor) SaveProject() error {
 		}
 	}
 	e.projectSaved = data
+	e.projectSavedOnce = true
 	e.Status = "Saved project " + e.ProjectPath
 	e.notify()
 	e.CheckProblems()
