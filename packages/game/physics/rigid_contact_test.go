@@ -629,3 +629,162 @@ func BenchmarkRigidWorldTileLevel(b *testing.B) {
 		w.Step(step60)
 	}
 }
+
+// fastLandingWorld returns a world whose floor top is at y 2000, a static body or a row of 16 px tiles, with body dropped onto it.
+func fastLandingWorld(floorKind string, body *physics.RigidBody) *physics.RigidWorld {
+	w := &physics.RigidWorld{GravityY: 600}
+	if floorKind == "tiles" {
+		g := physics.NewGrid(40, 130, 16, 16)
+		g.FillRect(0, 125, 40, 1, physics.TileSolid) // y 2000 to 2016
+		w.Tiles = g
+	} else {
+		w.AddBody(physics.NewStaticRigidBox(320, 2008, 640, 16))
+	}
+	w.AddBody(body)
+	return w
+}
+
+func TestRigidFastLandingReportsItsImpactSpeedAndRests(t *testing.T) {
+	for _, floorKind := range []string{"body", "tiles"} {
+		for _, tc := range []struct {
+			name string
+			body func() *physics.RigidBody
+			half float32
+		}{
+			// Dropped 900 px, a box meets the floor at about sqrt(2*600*900) ≈ 1039 px/s and moves more than half its size in a step, so continuous collision stops it.
+			{"box", func() *physics.RigidBody { return physics.NewRigidBox(104, 2000-10-900, 20, 20, 1) }, 10},
+			{"small box", func() *physics.RigidBody { return physics.NewRigidBox(104, 2000-4-900, 8, 8, 1) }, 4},
+			{"bullet circle", func() *physics.RigidBody {
+				c := physics.NewRigidCircle(104, 2000-3-100, 3, 0.1)
+				c.VY = 1500
+				c.Bullet = true
+				return c
+			}, 3},
+		} {
+			t.Run(floorKind+"/"+tc.name, func(t *testing.T) {
+				body := tc.body()
+				w := fastLandingWorld(floorKind, body)
+				var begins, ends []physics.ContactEvent
+				var speed float32
+				w.OnContact = func(ev physics.ContactEvent) {
+					if ev.Kind == physics.ContactBegin {
+						begins = append(begins, ev)
+					} else {
+						ends = append(ends, ev)
+					}
+				}
+				for range 600 {
+					if body.VY > speed {
+						speed = body.VY
+					}
+					w.Step(step60)
+				}
+				if len(begins) != 1 || len(ends) != 0 {
+					t.Fatalf("begins %+v, ends %+v, want one begin and no end", begins, ends)
+				}
+				if speed < 1000 {
+					t.Fatalf("fastest fall %v px/s, want at least 1000 px/s so continuous collision runs", speed)
+				}
+				if got := begins[0].ApproachSpeed; math.Abs(float64(got-speed)) > 0.05*float64(speed) {
+					t.Fatalf("approach speed %v, want the impact speed of about %v px/s", got, speed)
+				}
+				if bottom := body.Y + tc.half; math.Abs(float64(bottom-2000)) > 0.5 {
+					t.Fatalf("bottom %v, want it resting on the floor at 2000", bottom)
+				}
+				if !body.Sleeping() || math.Abs(float64(body.Angle)) > 1e-3 {
+					t.Fatalf("sleeping %v, angle %v after 10 s, want it asleep and level", body.Sleeping(), body.Angle)
+				}
+			})
+		}
+	}
+}
+
+func TestRigidFastBoxLandingAcrossTileSeamStaysLevel(t *testing.T) {
+	for _, tc := range []struct {
+		x, size float32
+	}{{96, 20}, {100, 20}, {104, 30}, {120, 40}} {
+		body := physics.NewRigidBox(tc.x, 2000-tc.size/2-800, tc.size, tc.size, 1)
+		w := fastLandingWorld("tiles", body)
+		var events []physics.ContactEvent
+		w.OnContact = func(ev physics.ContactEvent) { events = append(events, ev) }
+		maxAngle := 0.0
+		for range 600 {
+			w.Step(step60)
+			maxAngle = max(maxAngle, math.Abs(float64(body.Angle)))
+		}
+		if maxAngle > 1e-3 {
+			t.Fatalf("%v px box at x %v turned by up to %v rad, want it to land flat across the seam", tc.size, tc.x, maxAngle)
+		}
+		if len(events) != 1 || events[0].Kind != physics.ContactBegin || events[0].ApproachSpeed < 900 {
+			t.Fatalf("%v px box at x %v: events %+v, want one begin at the impact speed", tc.size, tc.x, events)
+		}
+		if !body.Sleeping() || math.Abs(float64(body.X-tc.x)) > 0.01 {
+			t.Fatalf("%v px box: sleeping %v at x %v, want it asleep where it landed at x %v", tc.size, body.Sleeping(), body.X, tc.x)
+		}
+	}
+}
+
+func TestRigidContactEndsWhenRestingBodyBecomesKinematicOrStatic(t *testing.T) {
+	for _, floorKind := range []string{"body", "tiles"} {
+		for _, kind := range []string{"kinematic", "static"} {
+			t.Run(floorKind+"/"+kind, func(t *testing.T) {
+				w := &physics.RigidWorld{GravityY: 600}
+				if floorKind == "tiles" {
+					w.Tiles = tileFloor()
+				} else {
+					w.AddBody(physics.NewStaticRigidBox(320, 168, 640, 16))
+				}
+				crate := physics.NewRigidBox(100, 140, 20, 20, 1)
+				w.AddBody(crate)
+				var log []physics.ContactEventKind
+				w.OnContact = func(ev physics.ContactEvent) { log = append(log, ev.Kind) }
+				stepFor(w, 2*time.Second)
+				if len(log) != 1 || log[0] != physics.ContactBegin || !crate.Sleeping() {
+					t.Fatalf("events %v, sleeping %v, want the crate resting with one begin", log, crate.Sleeping())
+				}
+				if kind == "kinematic" {
+					crate.Kinematic = true // picked up
+					crate.VY = -300
+				} else {
+					crate.Static = true
+				}
+				stepFor(w, time.Second/2)
+				if len(log) != 2 || log[1] != physics.ContactEnd {
+					t.Fatalf("events %v after the crate became %s, want its contact to end", log, kind)
+				}
+			})
+		}
+	}
+}
+
+func TestRigidShapeCastsSeeTilesAndSensorsOnly(t *testing.T) {
+	w := &physics.RigidWorld{Tiles: tileFloor()}
+	sensor := physics.NewStaticRigidBox(100, 100, 20, 20)
+	sensor.Sensor = true
+	crate := physics.NewRigidBox(100, 130, 20, 20, 1)
+	w.AddBody(sensor, crate)
+	probe := physics.CircleShape(physics.Circle{X: 200, Y: 40, R: 4})
+
+	if hit, ok := w.ShapeCast(probe, 0, 200, 0); !ok || !hit.Tile || hit.Row != 10 || math.Abs(float64(hit.Point.Y-160)) > 0.01 {
+		t.Fatalf("ShapeCast down = %+v, %v, want the floor tile at y 160", hit, ok)
+	}
+	hits := w.ShapeCastAll(physics.CircleShape(physics.Circle{X: 100, Y: 40, R: 4}), 0, 200, 0)
+	if len(hits) < 2 || hits[0].RigidBody != crate {
+		t.Fatalf("ShapeCastAll down = %+v, want the crate, then floor tiles", hits)
+	}
+	for _, h := range hits[1:] {
+		if !h.Tile || h.Row != 10 {
+			t.Fatalf("ShapeCastAll down = %+v, want floor tiles after the crate", hits)
+		}
+	}
+	sensorsOnly := physics.ShapeCastOptions{QueryMask: physics.QuerySensors}
+	if hit, ok := w.ShapeCastWith(physics.CircleShape(physics.Circle{X: 100, Y: 40, R: 4}), 0, 200, sensorsOnly); !ok || hit.RigidBody != sensor {
+		t.Fatalf("ShapeCastWith(QuerySensors) = %+v, %v, want the sensor", hit, ok)
+	}
+	if hits := w.ShapeCastAllWith(physics.CircleShape(physics.Circle{X: 100, Y: 40, R: 4}), 0, 200, sensorsOnly); len(hits) != 1 || hits[0].RigidBody != sensor {
+		t.Fatalf("ShapeCastAllWith(QuerySensors) = %+v, want only the sensor", hits)
+	}
+	if _, ok := w.ShapeCastWith(probe, 0, 200, physics.ShapeCastOptions{QueryMask: physics.QueryBodies}); ok {
+		t.Fatal("ShapeCastWith(QueryBodies) hit something below an empty column, want the tiles left out")
+	}
+}

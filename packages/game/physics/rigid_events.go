@@ -8,7 +8,7 @@ type ContactEventKind uint8
 const (
 	// ContactBegin reports two bodies, or a body and Tiles, that touch after a Step and did not before it.
 	ContactBegin ContactEventKind = iota
-	// ContactEnd reports two bodies, or a body and Tiles, that touched before a Step and no longer do, or one of which left RigidWorld.Bodies.
+	// ContactEnd reports two bodies, or a body and Tiles, that touched before a Step and are now more than 0.25 px apart, or one of which left RigidWorld.Bodies, became a sensor or can no longer collide with the other.
 	ContactEnd
 )
 
@@ -23,7 +23,7 @@ func (k ContactEventKind) String() string {
 	return "unknown"
 }
 
-// ContactEvent reports a contact between two bodies of a RigidWorld, or between a body and its Tiles, that began or ended in the last Step.
+// ContactEvent reports a contact between two bodies of a RigidWorld, or between a body and its Tiles, that began or ended in the last Step. It is the 2D counterpart of physics3d.ContactEvent, which also reports contacts that stay and whose normal points the other way, from BodyB toward BodyA.
 //
 // BodyA and BodyB are in RigidWorld.Bodies order. A contact with Tiles has Tile set, BodyB nil and the body in BodyA, and the bodies touching any number of tiles count as one contact, so a crate sliding across a tiled floor begins touching it once. Col, Row and TileFlags name the tile the event's point is on.
 //
@@ -47,7 +47,7 @@ type SensorEvent struct {
 	Visitor *RigidBody
 }
 
-// ContactEvents returns the contacts that began or ended in the most recent Step, in deterministic order: the ContactBegin events in the order the step found the contacts (pairs of bodies in RigidWorld.Bodies order, then each body with Tiles), then the ContactEnd events in the order the previous Step listed those contacts. Contacts between bodies that are both asleep or not dynamic carry over unchanged. The slice is reused by the next Step.
+// ContactEvents returns the contacts that began or ended in the most recent Step, in deterministic order: the ContactBegin events in the order the step found the contacts (pairs of bodies in RigidWorld.Bodies order, then each body with Tiles), then the ContactEnd events in the order the previous Step listed those contacts, then, in RigidWorld.Bodies order, a ContactBegin for each fast body continuous collision stopped at a surface it was not touching, which carries the speed it struck at. A contact the step did not find carries over while its bodies may still collide and are both asleep or not dynamic, or are still within 0.25 px of each other; it ends once they are farther apart, a body leaves RigidWorld.Bodies or becomes a sensor, or both become static or kinematic. The slice is reused by the next Step.
 func (w *RigidWorld) ContactEvents() []ContactEvent {
 	if w == nil {
 		return nil
@@ -80,8 +80,8 @@ type rigidSense struct {
 	sensor, visitor *RigidBody
 }
 
-// updateContactEvents compares this step's manifolds, before solving, with the contacts of the last step and records the contacts that began and ended. A contact the step did not test, because neither body is awake and dynamic, carries over while both bodies stay in the world and neither became a sensor.
-func (w *RigidWorld) updateContactEvents(manifolds []rigidManifold) {
+// updateContactEvents compares this step's manifolds, before solving, with the contacts of the last step and records the contacts that began and ended. A contact this step's manifolds do not name lasts while touchLasts says it does. ignoredPairs are the pairs joints keep from colliding.
+func (w *RigidWorld) updateContactEvents(manifolds []rigidManifold, ignoredPairs map[[2]*RigidBody]struct{}) {
 	events := w.contactEvents[:0]
 	index := w.scratch.touchIndex
 	if index == nil {
@@ -146,7 +146,7 @@ func (w *RigidWorld) updateContactEvents(manifolds []rigidManifold) {
 		if matched[pi] {
 			continue
 		}
-		if w.inWorld(t.a) && w.inWorld(t.b) && !t.a.awakeDynamic() && !t.b.awakeDynamic() && !t.a.Sensor && !t.b.Sensor {
+		if w.touchLasts(&t, ignoredPairs) {
 			next = append(next, t)
 			continue
 		}
@@ -164,6 +164,89 @@ func (w *RigidWorld) updateContactEvents(manifolds []rigidManifold) {
 	w.scratch.touching = w.touching
 	w.touching = next
 	w.contactEvents = events
+}
+
+// touchLasts reports whether contact t, which this step's manifolds do not name, still holds: both bodies are in the world and may still collide (neither is a sensor, they are not both static or kinematic, their layers interact, no joint keeps them apart, and a body touching Tiles is dynamic), and either neither is awake and dynamic, so the step did not test them and a sleeping contact carries over, or they are still within contactEndGap of each other, so a contact the solver lets drift a hair apart, or one continuous collision began at a gap, does not end and begin again.
+func (w *RigidWorld) touchLasts(t *rigidTouch, ignoredPairs map[[2]*RigidBody]struct{}) bool {
+	a, b := t.a, t.b
+	if !w.inWorld(a) || !w.inWorld(b) || a.Sensor || b.Sensor || !rigidPairCandidate(a, b) || !CanCollideRigid(a, b) {
+		return false
+	}
+	if b == w.tileBody && (a.fixed() || !w.tilesActive()) {
+		return false
+	}
+	if ignoredPairs != nil {
+		if _, skip := ignoredPairs[[2]*RigidBody{a, b}]; skip {
+			return false
+		}
+	}
+	if !a.awakeDynamic() && !b.awakeDynamic() {
+		return true
+	}
+	return w.touchNear(a, b)
+}
+
+// contactEndGap is how far apart two bodies, or a body and Tiles, may drift without a manifold before their contact ends: a little more than the gap continuous collision leaves (ccdImpactGap), so a contact it began at that gap lasts until the regular contacts name it.
+const contactEndGap = 0.25
+
+// touchNear reports whether body a is within contactEndGap of body b, or of a solid tile or the top of a one-way tile when b stands for Tiles, without their cores overlapping.
+func (w *RigidWorld) touchNear(a, b *RigidBody) bool {
+	if a.Shape.Kind == ShapeChain {
+		a, b = b, a
+	}
+	ha, ok := a.rigidHull()
+	if !ok || !ha.finite() {
+		return false
+	}
+	near := func(h *hull) bool {
+		sep, _, _, _, ok := hullSeparation(&ha, h)
+		return ok && sep <= contactEndGap
+	}
+	switch {
+	case b == w.tileBody:
+		g := &w.tileGeom
+		minX, minY, maxX, maxY := ha.bounds()
+		minCol, minRow, maxCol, maxRow, ok := g.cellRange(minX-contactEndGap, minY-contactEndGap, maxX+contactEndGap, maxY+contactEndGap)
+		if !ok {
+			return false
+		}
+		for row := minRow; row <= maxRow; row++ {
+			for col := minCol; col <= maxCol; col++ {
+				flags := w.Tiles.TileFlagsAt(col, row)
+				if flags&TileSolid == 0 && flags&TileOneWay == 0 {
+					continue
+				}
+				th := g.cellHull(col, row)
+				sep, n, _, _, ok := hullSeparation(&ha, &th)
+				if !ok || sep > contactEndGap {
+					continue
+				}
+				// A one-way tile holds only a body above it, whose normal toward the tile points down.
+				if flags&TileSolid != 0 || n.y > 1-tileNormalTolerance {
+					return true
+				}
+			}
+		}
+		return false
+	case b.Shape.Kind == ShapeChain:
+		if !b.hasLocal {
+			return false
+		}
+		s, _ := b.poseShape()
+		c := s.Chain
+		if c.Empty() {
+			return false
+		}
+		for i := range c.SegmentCount() {
+			p0, p1 := c.Points[i], c.Points[(i+1)%len(c.Points)]
+			if seg := segmentHull(vec2{float64(p0.X), float64(p0.Y)}, vec2{float64(p1.X), float64(p1.Y)}, 0); seg.finite() && near(&seg) {
+				return true
+			}
+		}
+		return false
+	}
+	hb, ok := b.rigidHull()
+	return ok && hb.finite() && near(&hb)
 }
 
 // bodyB returns t's second body, or nil when it is the body that stands for Tiles.
