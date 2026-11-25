@@ -87,7 +87,7 @@ stops:
 
 ### animation
 
-由数值属性轨道组成的动画片段，关键帧时间从 `0` 到 `length` 秒。`target` 指定轨道驱动的对象，由 [animclip](animclip.md) 播放时即场景中对象的 ID（为空时即播放该片段的对象）；每个 target 与 property 的组合只有一条轨道。`events` 是按时间排列的具名提示点，每个位于 `0` 到 `length` 之间的 `time`，播放越过时由播放器报告。
+由属性轨道组成的动画片段，关键帧时间从 `0` 到 `length` 秒。`target` 指定轨道驱动的对象，由 [animclip](animclip.md) 播放时即场景中对象的 ID（为空时即播放该片段的对象）；每个 target 与 property 的组合只有一条轨道。每条轨道要么设置数值关键帧 `keys`（`time`、`value` 和可选 `interp`），要么设置离散精灵帧 `frames`（`time`、`frame`），不能同时设置；`frames` 按时间步进切换图集帧名且不做插值，用于 `sprite.frame` 逐帧动画轨道。`events` 是按时间排列的具名提示点，每个位于 `0` 到 `length` 之间的 `time`，播放越过时由播放器报告。
 
 ```yaml
 type: animation
@@ -106,12 +106,18 @@ tracks:
         interp: smooth
       - time: 1.5
         value: 1
+  - property: sprite.frame
+    frames:
+      - time: 0
+        frame: torch_0
+      - time: 0.75
+        frame: torch_1
 events:
   - time: 0.75
     name: flare
 ```
 
-`Animation.Sample(t, set)` 先把 `t` 循环或钳制到片段范围内（`ClipTime`），再以每条轨道的 target、property 和值调用 `set`。[animclip](animclip.md) 在场景对象上播放片段，并按已注册的组件类型检查其属性；[编辑器的动画面板](editor.md#动画编辑器)用于打关键帧和保存片段。
+`Animation.Sample(t, set)` 先把 `t` 循环或钳制到片段范围内（`ClipTime`），再以每条数值轨道的 target、property 和值调用 `set`；`Animation.SampleFrames(t, set)` 对离散帧轨道做同样处理（`Track.IsFrameTrack`、`Track.EvalFrame`）。[animclip](animclip.md) 在场景对象上播放片段，并按已注册的组件类型检查其属性；[编辑器的动画面板](editor.md#动画编辑器)用于打关键帧和保存片段。
 
 ### theme
 

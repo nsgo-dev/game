@@ -137,8 +137,16 @@ func TestConvertAndCheckValue(t *testing.T) {
 
 func TestGetAndSetEveryProperty(t *testing.T) {
 	reg := bodyRegistry(t)
-	o := &sceneformat.ObjectDoc{ID: "hero"}
+	o := &sceneformat.ObjectDoc{ID: "hero", Sprite: &sceneformat.SpriteRef{Atlas: "actors", Frame: "hero"}}
 	for _, p := range animclip.Properties(reg) {
+		if p.Kind == animclip.KindFrame {
+			p.SetFrame(o, "hero_1")
+			got, err := p.GetFrame(o)
+			if err != nil || got != "hero_1" {
+				t.Fatalf("%s: GetFrame after SetFrame = %q, %v", p.Name, got, err)
+			}
+			continue
+		}
 		want := 0.75
 		if p.Kind != animclip.KindFloat {
 			want = 1
@@ -479,12 +487,19 @@ func FuzzPlayerSeek(f *testing.F) {
 		}
 		for i := range clip.Tracks {
 			tr := &clip.Tracks[i]
+			prop, _ := animclip.Lookup(reg, tr.Property)
+			if prop.Kind == animclip.KindFrame {
+				v, ok := got[tr.Target+"/"+tr.Property]
+				if !ok || math.IsNaN(v) || v < 0 || v >= float64(len(tr.Frames)) {
+					t.Fatalf("frame track %d at %v = %v (written %t), outside [0, %d)", i, p.Time(), v, ok, len(tr.Frames))
+				}
+				continue
+			}
 			lo, hi := math.Inf(1), math.Inf(-1)
 			for _, k := range tr.Keys {
 				v := animclip.KeyValue(k.Value)
 				lo, hi = min(lo, v), max(hi, v)
 			}
-			prop, _ := animclip.Lookup(reg, tr.Property)
 			lo, hi = prop.Convert(lo), prop.Convert(hi)
 			tol := 1e-9 * (math.Abs(lo) + math.Abs(hi) + 1)
 			v, ok := got[tr.Target+"/"+tr.Property]

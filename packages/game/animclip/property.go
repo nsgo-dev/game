@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -11,7 +12,10 @@ import (
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 )
 
-// Kind is how a keyed number is written to its property.
+// PropertySpriteFrame is the discrete object property that steps a sprite's atlas frame name without interpolation.
+const PropertySpriteFrame = "sprite.frame"
+
+// Kind is how a keyed value is written to its property.
 type Kind uint8
 
 const (
@@ -21,9 +25,11 @@ const (
 	KindInt
 	// KindBool writes true from 0.5 up and false below it; its keys must be 0 or 1.
 	KindBool
+	// KindFrame writes a discrete atlas frame name onto the object's sprite without interpolation.
+	KindFrame
 )
 
-// String returns the kind's name: "float", "int" or "bool".
+// String returns the kind's name: "float", "int", "bool" or "frame".
 func (k Kind) String() string {
 	switch k {
 	case KindFloat:
@@ -32,6 +38,8 @@ func (k Kind) String() string {
 		return "int"
 	case KindBool:
 		return "bool"
+	case KindFrame:
+		return "frame"
 	default:
 		return "Kind(" + strconv.Itoa(int(k)) + ")"
 	}
@@ -39,20 +47,37 @@ func (k Kind) String() string {
 
 // Property is one property a clip track can key.
 type Property struct {
-	// Name is the property as a track writes it: an object field such as "x", or "component.field" for a registered component field.
+	// Name is the property as a track writes it: an object field such as "x" or "sprite.frame", or "component.field" for a registered component field.
 	Name string
 	// Component and Field name the registered component field the property is; both are empty for an object field.
 	Component, Field string
-	// Kind is how a keyed number is written to the property.
+	// Kind is how a keyed value is written to the property.
 	Kind Kind
 	// Min and Max are the property's optional inclusive bounds; nil leaves that side open.
 	Min, Max *float64
 	// Doc is a one-line description for tools such as the editor.
 	Doc string
+	// Frames lists the atlas frame names of a KindFrame track in key order while NewPlayer binds a clip, so a Binder can validate them up front and map each keyed index through Property.Frame. It is nil on properties returned by Lookup or Properties.
+	Frames []string
 }
 
 // IsComponent reports whether the property is a registered component field rather than an object field.
 func (p Property) IsComponent() bool { return p.Component != "" }
+
+// IsFrame reports whether the property keys discrete atlas frame names rather than numbers.
+func (p Property) IsFrame() bool { return p.Kind == KindFrame }
+
+// Frame maps a keyed index value from NewPlayer to its frame name in p.Frames, or "" when p is not a KindFrame track or v is out of range.
+func (p Property) Frame(v float64) string {
+	if p.Kind != KindFrame || len(p.Frames) == 0 || math.IsNaN(v) {
+		return ""
+	}
+	idx := int(p.Convert(v))
+	if idx < 0 || idx >= len(p.Frames) {
+		return ""
+	}
+	return p.Frames[idx]
+}
 
 // objectProperties are the ObjectDoc fields a clip can key, in the order tools list them. Z is left out: it orders the sprite batches Build groups, which playback does not regroup.
 var objectProperties = []Property{
@@ -66,6 +91,7 @@ var objectProperties = []Property{
 	{Name: "originY", Kind: KindFloat, Doc: "Pivot's vertical offset inside the sprite's frame."},
 	{Name: "flipX", Kind: KindBool, Doc: "Mirrors the sprite horizontally."},
 	{Name: "flipY", Kind: KindBool, Doc: "Mirrors the sprite vertically."},
+	{Name: PropertySpriteFrame, Kind: KindFrame, Doc: "Atlas frame name the object's sprite draws, stepping discretely without interpolation."},
 	{Name: "posZ", Kind: KindFloat, Doc: "3D depth position."},
 	{Name: "rotX", Kind: KindFloat, Doc: "3D rotation in radians about the X axis."},
 	{Name: "rotY", Kind: KindFloat, Doc: "3D rotation in radians about the Y axis."},
@@ -97,15 +123,15 @@ func Properties(reg *sceneformat.ComponentRegistry) []Property {
 	return out
 }
 
-// Lookup resolves the property name a track writes. A name without a dot is an object field; "component.field" is a field of a component registered in reg, split at the first dot. It fails for an unknown object field, a component property without a registry, an unregistered component or field, and a string field.
+// Lookup resolves the property name a track writes. Built-in object properties (including "sprite.frame") resolve without a registry; any other "component.field" is a field of a component registered in reg, split at the first dot. It fails for an unknown object field, a component property without a registry, an unregistered component or field, and a string component field.
 func Lookup(reg *sceneformat.ComponentRegistry, name string) (Property, error) {
+	for _, p := range objectProperties {
+		if p.Name == name {
+			return cloneProperty(p), nil
+		}
+	}
 	comp, field, isComp := strings.Cut(name, ".")
 	if !isComp {
-		for _, p := range objectProperties {
-			if p.Name == name {
-				return cloneProperty(p), nil
-			}
-		}
 		names := make([]string, len(objectProperties))
 		for i, p := range objectProperties {
 			names[i] = p.Name
@@ -159,10 +185,13 @@ func cloneProperty(p Property) Property {
 	if p.Max != nil {
 		p.Max = ptr(*p.Max)
 	}
+	if p.Frames != nil {
+		p.Frames = slices.Clone(p.Frames)
+	}
 	return p
 }
 
-// Convert returns v as the property takes it: rounded for KindInt, 0 or 1 for KindBool, and clamped to the range. NaN is returned unchanged.
+// Convert returns v as the property takes it: rounded for KindInt, 0 or 1 for KindBool, clamped index for KindFrame, and clamped to the range. NaN is returned unchanged.
 func (p Property) Convert(v float64) float64 {
 	if math.IsNaN(v) {
 		return v
@@ -175,6 +204,18 @@ func (p Property) Convert(v float64) float64 {
 			return 1
 		}
 		return 0
+	case KindFrame:
+		if len(p.Frames) == 0 {
+			return 0
+		}
+		v = math.Round(v)
+		if v < 0 {
+			return 0
+		}
+		if last := float64(len(p.Frames) - 1); v > last {
+			return last
+		}
+		return v
 	}
 	if p.Min != nil && v < *p.Min {
 		v = *p.Min
@@ -185,8 +226,11 @@ func (p Property) Convert(v float64) float64 {
 	return v
 }
 
-// CheckValue reports why v cannot be a key of the property: it is not finite, a bool key other than 0 or 1, a fractional int key or one a Go int cannot hold, or outside the range.
+// CheckValue reports why v cannot be a key of the property: it is not finite, a frame property keyed with a number, a bool key other than 0 or 1, a fractional int key or one a Go int cannot hold, or outside the range.
 func (p Property) CheckValue(v float64) error {
+	if p.Kind == KindFrame {
+		return fmt.Errorf("animclip: property %q takes frame names, not numbers", p.Name)
+	}
 	if math.IsNaN(v) || math.IsInf(v, 0) {
 		return fmt.Errorf("animclip: property %q key %v must be finite", p.Name, v)
 	}
@@ -213,10 +257,46 @@ func (p Property) CheckValue(v float64) error {
 	return nil
 }
 
+// CheckFrame reports why frame cannot be a key of a KindFrame property.
+func (p Property) CheckFrame(frame string) error {
+	if p.Kind != KindFrame {
+		return fmt.Errorf("animclip: property %q takes numbers, not frame names", p.Name)
+	}
+	if frame == "" {
+		return fmt.Errorf("animclip: property %q frame name must not be empty", p.Name)
+	}
+	return nil
+}
+
+// GetFrame returns the sprite frame name on o for a KindFrame property.
+func (p Property) GetFrame(o *sceneformat.ObjectDoc) (string, error) {
+	if o == nil {
+		return "", errors.New("animclip: nil object")
+	}
+	if p.Kind != KindFrame {
+		return "", fmt.Errorf("animclip: property %q is not a sprite frame property", p.Name)
+	}
+	if o.Sprite == nil {
+		return "", fmt.Errorf("animclip: object %q has no sprite", o.ID)
+	}
+	return o.Sprite.Frame, nil
+}
+
+// SetFrame writes frame onto o's sprite when p is a KindFrame property and o has a sprite.
+func (p Property) SetFrame(o *sceneformat.ObjectDoc, frame string) {
+	if o == nil || p.Kind != KindFrame || o.Sprite == nil || frame == "" {
+		return
+	}
+	o.Sprite.Frame = frame
+}
+
 // Get returns the property's value on o as a number: an object field's value (1 for an unset scale or alpha), or a component field's value with reg's default when o leaves it unset. A bool reads as 0 or 1.
 func (p Property) Get(o *sceneformat.ObjectDoc, reg *sceneformat.ComponentRegistry) (float64, error) {
 	if o == nil {
 		return 0, errors.New("animclip: nil object")
+	}
+	if p.Kind == KindFrame {
+		return 0, fmt.Errorf("animclip: property %q holds a frame name, not a number", p.Name)
 	}
 	if p.IsComponent() {
 		var data map[string]any
@@ -285,6 +365,10 @@ func (p Property) Set(o *sceneformat.ObjectDoc, v float64) {
 	if o == nil || math.IsNaN(v) {
 		return
 	}
+	if p.Kind == KindFrame {
+		p.SetFrame(o, p.Frame(v))
+		return
+	}
 	v = p.Convert(v)
 	if p.IsComponent() {
 		if o.Components == nil {
@@ -347,7 +431,7 @@ func boolNumber(b bool) float64 {
 	return 0
 }
 
-// Check checks clip against reg: every track's property must resolve with Lookup and every key must hold a value the property can take (CheckValue). The error names the track's target and property.
+// Check checks clip against reg: every track's property must resolve with Lookup, KindFrame tracks must hold valid frame keys, and numeric tracks must hold keys whose values their property can take (CheckValue). The error names the track's target and property.
 func Check(clip *resource.Animation, reg *sceneformat.ComponentRegistry) error {
 	if clip == nil {
 		return errors.New("animclip: nil clip")
@@ -360,6 +444,20 @@ func Check(clip *resource.Animation, reg *sceneformat.ComponentRegistry) error {
 		p, err := Lookup(reg, tr.Property)
 		if err != nil {
 			return fmt.Errorf("animclip: track %d (target %q): %s", i, tr.Target, strings.TrimPrefix(err.Error(), "animclip: "))
+		}
+		if p.Kind == KindFrame {
+			if len(tr.Frames) == 0 {
+				return fmt.Errorf("animclip: track %d (target %q): property %q requires frame keys, not numeric keys", i, tr.Target, tr.Property)
+			}
+			for j, fk := range tr.Frames {
+				if err := p.CheckFrame(fk.Frame); err != nil {
+					return fmt.Errorf("animclip: track %d (target %q) frame %d: %s", i, tr.Target, j, strings.TrimPrefix(err.Error(), "animclip: "))
+				}
+			}
+			continue
+		}
+		if len(tr.Frames) > 0 {
+			return fmt.Errorf("animclip: track %d (target %q): property %q requires numeric keys, not frame keys", i, tr.Target, tr.Property)
 		}
 		for j, k := range tr.Keys {
 			if err := p.CheckValue(KeyValue(k.Value)); err != nil {

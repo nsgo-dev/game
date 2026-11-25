@@ -10,12 +10,20 @@ import "github.com/nsgo-dev/game/packages/game/animclip"
 
 轨道的 `property` 按场景文件中的写法书写：
 
-- 对象字段：`x`、`y`、`rotation`、`scaleX`、`scaleY`、`alpha`（0 到 1）、`originX`、`originY`、`flipX`、`flipY`、`posZ`、`rotX`、`rotY`、`rotZ` 和 `scaleZ`（`ObjectProperties` 连同说明列出它们）；
-- 已注册的组件字段，写作 `component.field`，在第一个点处拆分，例如 `body.speed`。该字段必须在 `sceneformat.ComponentRegistry` 中注册（见[组件类型](editor.md#组件类型)），种类为 `FieldFloat`、`FieldInt` 或 `FieldBool`；字符串字段没有可打关键帧的数值。
+- 对象字段：`x`、`y`、`rotation`、`scaleX`、`scaleY`、`alpha`（0 到 1）、`originX`、`originY`、`flipX`、`flipY`、`sprite.frame`（`PropertySpriteFrame`，按图集帧名离散步进且不做插值）、`posZ`、`rotX`、`rotY`、`rotZ` 和 `scaleZ`（`ObjectProperties` 连同说明列出它们）；
+- 已注册的组件字段，写作 `component.field`，在第一个点处拆分，例如 `body.speed`。该字段必须在 `sceneformat.ComponentRegistry` 中注册（见[组件类型](editor.md#组件类型)），种类为 `FieldFloat`、`FieldInt` 或 `FieldBool`；字符串组件字段没有可打关键帧的数值。
 
-`Properties(reg)` 返回所有可打关键帧的属性，对象字段在前；`Lookup(reg, name)` 解析其中一个。属性的 `Kind` 决定关键帧数值如何写入：浮点数原样写入，整数四舍五入到最近的整数，布尔值在 0.5 及以上为 true。所有值都会被钳制到字段的范围内。
+`Properties(reg)` 返回所有可打关键帧的属性，对象字段在前；`Lookup(reg, name)` 解析其中一个。属性的 `Kind` 决定关键帧如何写入：浮点数原样写入，整数四舍五入到最近的整数，布尔值在 0.5 及以上为 true，`KindFrame`（`sprite.frame`）写入离散的图集帧名（`Property.GetFrame`、`Property.SetFrame`、`Property.CheckFrame`）。数值都会被钳制到字段的范围内。
 
-`Check(clip, reg)` 检查整个片段：每个属性都必须能解析，每个关键帧的值都必须是该属性能接受的值，布尔为 0 或 1，整数为整数值，并且在字段范围内。轨道的 `target` 是场景中另一个对象的 ID，为空时即播放该片段的对象。
+`Check(clip, reg)` 检查整个片段：每个属性都必须能解析，`sprite.frame` 轨道必须使用非空的 `frames` 关键帧，数值轨道必须使用 `keys` 且每个关键帧的值都是该属性能接受的值（布尔为 0 或 1，整数为整数值，并且在字段范围内）。轨道的 `target` 是场景中另一个对象的 ID，为空时即播放该片段的对象。
+
+## 逐帧动画片段
+
+有三个辅助函数可以直接从精灵图集构造 `sprite.frame` 片段：
+
+- `FromAsepriteTag(atlas, tag)` 将 `atlas.Animations` 中的 Aseprite 帧标签转换为动画片段，保留标签的帧顺序（含方向与重复次数）、精确毫秒时长和循环标记。
+- `FromSpriteAnimation(name, anim)` 对任意 `sprite.Animation` 执行相同转换，并将帧上的 `Event` 转为对应帧起始时间的片段事件。
+- `FromFrames(name, frames, fps, loop)` 按固定帧率 `fps` 从有序图集帧名列表生成逐帧片段。
 
 ## 播放片段
 
@@ -54,10 +62,10 @@ player.Update(dt)
 
 `Binder` 把每条轨道连接到它驱动的对象。它接收轨道的目标和解析后的 `Property`，返回写入值的函数，传入的值已按属性四舍五入并钳制；返回错误会让 `NewPlayer` 失败，因此引用了不存在对象的片段在播放前就会被拒绝。
 
-- `BindDoc(doc, self)` 写入 `sceneformat.SceneDoc` 中的对象。
-- `BindScene(built, self)` 写入 `sceneformat.BuiltScene` 中的对象，并同步每个被写入的对象（`BuiltObject.Sync`），因此下一次 `Draw` 会按新的世界变换和透明度显示该对象及其子对象，透明度与 `Build` 一样乘以材质的不透明度。轨道的目标可以是嵌套子对象的 ID。
+- `BindDoc(doc, self)` 写入 `sceneformat.SceneDoc` 中的对象，并对没有精灵的对象拒绝 `sprite.frame` 轨道。
+- `BindScene(built, self)` 写入 `sceneformat.BuiltScene` 中的对象，并同步每个被写入的对象（`BuiltObject.Sync`），因此下一次 `Draw` 会按新的世界变换、精灵帧和透明度显示该对象及其子对象，透明度与 `Build` 一样乘以材质的不透明度。对于 `sprite.frame` 轨道，绑定阶段会预先检查目标对象是否有精灵，以及其图集中是否包含每个关键帧指定的帧名。轨道的目标可以是嵌套子对象的 ID。
 
-组件字段以 `float64`、`int` 或 `bool` 写入对象的 `components` 映射，对象没有该组件的映射时会创建，因此用 `ComponentRegistry.Resolve` 读取它们的代码能看到动画后的值。自己维护状态的游戏可以用自己的 `Binder` 绑定：
+组件字段以 `float64`、`int` 或 `bool` 写入对象的 `components` 映射，对象没有该组件的映射时会创建，因此用 `ComponentRegistry.Resolve` 读取它们的代码能看到动画后的值。自定义 `Binder` 在绑定 `KindFrame` 轨道时会收到 `Property.Frames`，可用 `p.Frame(v)` 将索引还原为帧名：
 
 ```go
 bind := func(target string, p animclip.Property) (func(float64), error) {
@@ -68,6 +76,8 @@ bind := func(target string, p animclip.Property) (func(float64), error) {
 	switch p.Name {
 	case "x":
 		return func(v float64) { e.Pos.X = float32(v) }, nil
+	case animclip.PropertySpriteFrame:
+		return func(v float64) { e.Frame = p.Frame(v) }, nil
 	case "body.speed":
 		return func(v float64) { e.Speed = v }, nil
 	}

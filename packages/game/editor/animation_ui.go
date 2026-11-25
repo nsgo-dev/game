@@ -46,6 +46,9 @@ func durationOfSeconds(s float64) time.Duration {
 func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	colors := ui.ColorsOf(cx)
 	property := core.NewSignal(cx, "")
+	frameChoice := core.NewSignal(cx, "")
+	asepriteTag := core.NewSignal(cx, "")
+	runFPS := core.NewSignal(cx, 12.0)
 	eventName := core.NewSignal(cx, "")
 	selEvent := core.NewSignal(cx, -1)
 	disabled := func() bool {
@@ -57,15 +60,19 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 		_, _, ok := ed.SelectedClipKey()
 		return ok
 	}
-	// structure changes when tracks or keys are added or removed, or events change, so the lanes remount then and not on every key value edit.
+	// structure changes when tracks or keys are added or removed, frame thumbnails change, or events change, so the lanes remount then and not on every numeric key value edit.
 	structure := core.NewMemo(cx, func() string {
 		_ = rev.Get()
 		if ed.clip == nil {
 			return ""
 		}
 		var b strings.Builder
+		fmt.Fprintf(&b, "len=%v|", ed.clip.Length)
 		for _, tr := range ed.clip.Tracks {
-			fmt.Fprintf(&b, "%s/%s:%d|", tr.Target, tr.Property, len(tr.Keys))
+			fmt.Fprintf(&b, "%s/%s:k%d:f%d|", tr.Target, tr.Property, len(tr.Keys), len(tr.Frames))
+			for _, fk := range tr.Frames {
+				fmt.Fprintf(&b, "%v=%q|", fk.Time, fk.Frame)
+			}
 		}
 		// The event markers' labels and tooltips are fixed when they mount, so each event's time and name are part of the key.
 		for _, ev := range ed.clip.Events {
@@ -192,7 +199,7 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 	keyBar := ui.HStack{
 		Gap: 8,
 		Children: []core.Node{
-			core.View{Style: core.Style{Width: core.Pt(180)}, Children: []core.Node{ui.Select[string]{
+			core.View{Style: core.Style{Width: core.Pt(160)}, Children: []core.Node{ui.Select[string]{
 				TestID:      "anim-property",
 				Label:       "Property to key",
 				Placeholder: "Property",
@@ -210,6 +217,30 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 				Value:    property.Get,
 				OnChange: property.Set,
 			}}},
+			core.Show{
+				When: func() bool { return property.Get() == animclip.PropertySpriteFrame },
+				Then: func(cx *core.Scope) core.Node {
+					return core.View{Style: core.Style{Width: core.Pt(150)}, Children: []core.Node{ui.Select[string]{
+						TestID:      "anim-frame-picker",
+						Label:       "Sprite frame to key",
+						Placeholder: "Current frame",
+						Searchable:  true,
+						Disabled:    disabled,
+						OptionsFunc: func() []ui.Option[string] {
+							_ = rev.Get()
+							entries := ed.ClipTargetFrames(ed.keyTarget())
+							opts := make([]ui.Option[string], len(entries))
+							for i, ent := range entries {
+								opts[i] = ui.Option[string]{Value: ent.Frame, Label: ent.Frame}
+							}
+							return opts
+						},
+						Value:    frameChoice.Get,
+						OnChange: frameChoice.Set,
+						OnClear:  func() { frameChoice.Set("") },
+					}}}
+				},
+			},
 			ui.Button{
 				TestID:  "anim-key",
 				Text:    "Key",
@@ -220,6 +251,11 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 					return ed.Playing() || property.Get() == ""
 				},
 				OnPress: func() {
+					if property.Get() == animclip.PropertySpriteFrame && frameChoice.Get() != "" {
+						_, _, err := ed.KeySpriteFrame(ed.keyTarget(), frameChoice.Get(), ed.ClipTime())
+						ed.report(err)
+						return
+					}
 					_, _, err := ed.KeyProperty(ed.keyTarget(), property.Get(), ed.ClipTime())
 					ed.report(err)
 				},
@@ -228,6 +264,94 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 				When: keySelected,
 				Then: func(cx *core.Scope) core.Node { return keyEditor(cx, ed, rev, disabled) },
 			},
+		},
+	}
+
+	flipbookBar := core.Show{
+		When: func() bool {
+			_ = rev.Get()
+			return len(ed.ClipTargetFrames("")) > 0
+		},
+		Then: func(cx *core.Scope) core.Node {
+			return ui.HStack{
+				Gap: 8,
+				Children: []core.Node{
+					label("FLIPBOOK"),
+					core.Show{
+						When: func() bool {
+							_ = rev.Get()
+							return len(ed.ClipTargetAsepriteTags("")) > 0
+						},
+						Then: func(cx *core.Scope) core.Node {
+							return ui.HStack{
+								Gap: 6,
+								Children: []core.Node{
+									core.View{Style: core.Style{Width: core.Pt(140)}, Children: []core.Node{ui.Select[string]{
+										TestID:      "anim-aseprite-tag",
+										Label:       "Aseprite tag",
+										Placeholder: "Aseprite tag",
+										Searchable:  true,
+										Disabled:    disabled,
+										OptionsFunc: func() []ui.Option[string] {
+											_ = rev.Get()
+											tags := ed.ClipTargetAsepriteTags("")
+											opts := make([]ui.Option[string], len(tags))
+											for i, tag := range tags {
+												opts[i] = ui.Option[string]{Value: tag, Label: tag}
+											}
+											return opts
+										},
+										Value:    asepriteTag.Get,
+										OnChange: asepriteTag.Set,
+									}}},
+									ui.Button{
+										TestID:  "anim-from-tag",
+										Text:    "From Tag",
+										Size:    ui.SizeSmall,
+										Variant: ui.ButtonOutline,
+										Disabled: func() bool {
+											_ = rev.Get()
+											return ed.Playing() || asepriteTag.Get() == ""
+										},
+										OnPress: func() {
+											ed.report(ed.NewClipFromAsepriteTag(ed.ClipTarget(), asepriteTag.Get()))
+										},
+									},
+								},
+							}
+						},
+					},
+					label("FPS"),
+					core.View{Style: core.Style{Width: core.Pt(70)}, Children: []core.Node{ui.NumberInput{
+						TestID:   "anim-run-fps",
+						Label:    "Frame rate (FPS)",
+						Min:      1,
+						Step:     1,
+						Disabled: disabled,
+						Value:    runFPS.Get,
+						OnChange: runFPS.Set,
+					}}},
+					ui.Button{
+						TestID:   "anim-from-frames",
+						Text:     "From Frames",
+						Size:     ui.SizeSmall,
+						Variant:  ui.ButtonOutline,
+						Disabled: disabled,
+						OnPress: func() {
+							entries := ed.ClipTargetFrames("")
+							names := make([]string, len(entries))
+							for i, ent := range entries {
+								names[i] = ent.Frame
+							}
+							name := "Flipbook"
+							if ed.clip != nil && ed.clip.Name != "" {
+								name = ed.clip.Name
+							}
+							ed.report(ed.NewClipFromFrames(ed.ClipTarget(), name, names, runFPS.Get(), true))
+						},
+					},
+				},
+			}
 		},
 	}
 
@@ -250,7 +374,7 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 	return core.View{
 		TestID: "anim-panel",
 		Style: core.Style{
-			Height:      core.Pt(220),
+			Height:      core.Pt(260),
 			Padding:     core.Symmetric(6, 12),
 			Gap:         6,
 			Background:  colors.Inset(),
@@ -261,6 +385,7 @@ func animationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			header,
 			scrubber,
 			keyBar,
+			flipbookBar,
 			core.Show{
 				When: func() bool {
 					_ = rev.Get()
@@ -312,15 +437,34 @@ func (e *Editor) saveClipFromPanel() error {
 	return e.SaveClipFile(e.clipMeta.path)
 }
 
-// keyEditor edits the selected key's time, value and interpolation, and deletes it.
+// keyEditor edits the selected key's time, value/frame and interpolation (or frame duration for discrete sprite.frame keys), and deletes it.
 func keyEditor(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled func() bool) core.Node {
-	selected := func() (resource.Key, int, int, bool) {
+	colors := ui.ColorsOf(cx)
+	selectedTrack := func() (*resource.Track, int, int, bool) {
 		_ = rev.Get()
 		ti, ki, ok := ed.SelectedClipKey()
 		if !ok {
+			return nil, -1, -1, false
+		}
+		return &ed.clip.Tracks[ti], ti, ki, true
+	}
+	selectedIsFrame := func() bool {
+		tr, _, _, ok := selectedTrack()
+		return ok && tr.IsFrameTrack()
+	}
+	selectedNumeric := func() (resource.Key, int, int, bool) {
+		tr, ti, ki, ok := selectedTrack()
+		if !ok || tr.IsFrameTrack() || ki >= len(tr.Keys) {
 			return resource.Key{}, -1, -1, false
 		}
-		return ed.clip.Tracks[ti].Keys[ki], ti, ki, true
+		return tr.Keys[ki], ti, ki, true
+	}
+	selectedFrame := func() (resource.FrameKey, string, int, int, bool) {
+		tr, ti, ki, ok := selectedTrack()
+		if !ok || !tr.IsFrameTrack() || ki >= len(tr.Frames) {
+			return resource.FrameKey{}, "", -1, -1, false
+		}
+		return tr.Frames[ki], tr.Target, ti, ki, true
 	}
 	interpBtn := func(id, text string, interp resource.Interp) core.Node {
 		return ui.ToggleButton{
@@ -328,7 +472,7 @@ func keyEditor(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled fu
 			Text:     text,
 			Disabled: disabled,
 			On: func() bool {
-				k, _, _, ok := selected()
+				k, _, _, ok := selectedNumeric()
 				got := k.Interp
 				if got == "" {
 					got = resource.InterpLinear
@@ -336,7 +480,7 @@ func keyEditor(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled fu
 				return ok && got == interp
 			},
 			OnChange: func(on bool) {
-				if _, ti, ki, ok := selected(); ok && on {
+				if _, ti, ki, ok := selectedNumeric(); ok && on {
 					ed.report(ed.SetKeyInterp(ti, ki, interp))
 				}
 			},
@@ -352,37 +496,137 @@ func keyEditor(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled fu
 				Step:     1 / 60.0,
 				Disabled: disabled,
 				Value: func() float64 {
-					k, _, _, _ := selected()
-					return animclip.KeyValue(k.Time)
+					tr, _, ki, ok := selectedTrack()
+					if !ok {
+						return 0
+					}
+					return animclip.KeyValue(trackKeyTime(*tr, ki))
 				},
 				OnChange: func(v float64) {
-					if _, ti, ki, ok := selected(); ok {
+					if _, ti, ki, ok := selectedTrack(); ok {
 						_, err := ed.MoveKey(ti, ki, durationOfSeconds(v))
 						ed.report(err)
 					}
 				},
 			}}},
-			core.View{Style: core.Style{Width: core.Pt(90)}, Children: []core.Node{ui.NumberInput{
-				TestID:   "anim-key-value",
-				Label:    "Key Value",
-				Step:     0.1,
-				Disabled: disabled,
-				Value: func() float64 {
-					k, _, _, _ := selected()
-					return animclip.KeyValue(k.Value)
-				},
-				OnChange: func(v float64) {
-					if _, ti, ki, ok := selected(); ok {
-						ed.report(ed.SetKeyValue(ti, ki, v))
+			core.Show{
+				When: selectedIsFrame,
+				Then: func(cx *core.Scope) core.Node {
+					return ui.HStack{
+						Gap: 6,
+						Children: []core.Node{
+							core.View{Style: core.Style{Width: core.Pt(140)}, Children: []core.Node{ui.Select[string]{
+								TestID:     "anim-key-frame",
+								Label:      "Key Frame",
+								Searchable: true,
+								Disabled:   disabled,
+								OptionsFunc: func() []ui.Option[string] {
+									fk, target, _, _, ok := selectedFrame()
+									if !ok {
+										return nil
+									}
+									entries := ed.ClipTargetFrames(target)
+									opts := make([]ui.Option[string], 0, len(entries)+1)
+									listed := false
+									for _, ent := range entries {
+										listed = listed || ent.Frame == fk.Frame
+										opts = append(opts, ui.Option[string]{Value: ent.Frame, Label: ent.Frame})
+									}
+									if fk.Frame != "" && !listed {
+										opts = append([]ui.Option[string]{{Value: fk.Frame, Label: fk.Frame}}, opts...)
+									}
+									return opts
+								},
+								Value: func() string {
+									fk, _, _, _, _ := selectedFrame()
+									return fk.Frame
+								},
+								OnChange: func(frame string) {
+									if _, _, ti, ki, ok := selectedFrame(); ok {
+										ed.report(ed.SetKeyFrame(ti, ki, frame))
+									}
+								},
+							}}},
+							ui.Button{
+								TestID:   "anim-frame-shorter",
+								Text:     "-10ms",
+								Label:    "Shorter by 10 ms",
+								Size:     ui.SizeSmall,
+								Variant:  ui.ButtonOutline,
+								Disabled: disabled,
+								OnPress: func() {
+									if _, _, ti, ki, ok := selectedFrame(); ok {
+										if dur, ok := ed.FrameDuration(ti, ki); ok && dur > 10*time.Millisecond {
+											ed.report(ed.SetFrameDuration(ti, ki, dur-10*time.Millisecond))
+										}
+									}
+								},
+							},
+							core.Text{
+								TestID: "anim-frame-duration",
+								ContentFunc: func() string {
+									_, _, ti, ki, ok := selectedFrame()
+									if !ok {
+										return ""
+									}
+									dur, ok := ed.FrameDuration(ti, ki)
+									if !ok {
+										return ""
+									}
+									return fmt.Sprintf("%d ms", dur.Milliseconds())
+								},
+								Style: core.Style{FontSize: 11, Color: colors.Muted()},
+							},
+							ui.Button{
+								TestID:   "anim-frame-longer",
+								Text:     "+10ms",
+								Label:    "Longer by 10 ms",
+								Size:     ui.SizeSmall,
+								Variant:  ui.ButtonOutline,
+								Disabled: disabled,
+								OnPress: func() {
+									if _, _, ti, ki, ok := selectedFrame(); ok {
+										if dur, ok := ed.FrameDuration(ti, ki); ok {
+											ed.report(ed.SetFrameDuration(ti, ki, dur+10*time.Millisecond))
+										}
+									}
+								},
+							},
+						},
 					}
 				},
-			}}},
-			ui.ToolbarGroup{
-				Label: "Interpolation",
-				Children: []core.Node{
-					interpBtn("anim-interp-linear", "Linear", resource.InterpLinear),
-					interpBtn("anim-interp-smooth", "Smooth", resource.InterpSmooth),
-					interpBtn("anim-interp-step", "Step", resource.InterpStep),
+			},
+			core.Show{
+				When: func() bool { return !selectedIsFrame() },
+				Then: func(cx *core.Scope) core.Node {
+					return ui.HStack{
+						Gap: 6,
+						Children: []core.Node{
+							core.View{Style: core.Style{Width: core.Pt(90)}, Children: []core.Node{ui.NumberInput{
+								TestID:   "anim-key-value",
+								Label:    "Key Value",
+								Step:     0.1,
+								Disabled: disabled,
+								Value: func() float64 {
+									k, _, _, _ := selectedNumeric()
+									return animclip.KeyValue(k.Value)
+								},
+								OnChange: func(v float64) {
+									if _, ti, ki, ok := selectedNumeric(); ok {
+										ed.report(ed.SetKeyValue(ti, ki, v))
+									}
+								},
+							}}},
+							ui.ToolbarGroup{
+								Label: "Interpolation",
+								Children: []core.Node{
+									interpBtn("anim-interp-linear", "Linear", resource.InterpLinear),
+									interpBtn("anim-interp-smooth", "Smooth", resource.InterpSmooth),
+									interpBtn("anim-interp-step", "Step", resource.InterpStep),
+								},
+							},
+						},
+					}
 				},
 			},
 			ui.Button{
@@ -392,7 +636,7 @@ func keyEditor(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled fu
 				Variant:  ui.ButtonOutline,
 				Disabled: disabled,
 				OnPress: func() {
-					if _, ti, ki, ok := selected(); ok {
+					if _, ti, ki, ok := selectedTrack(); ok {
 						ed.report(ed.DeleteKey(ti, ki))
 					}
 				},
@@ -418,6 +662,9 @@ func trackLane(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], ti int, tr 
 	name := tr.Property
 	if tr.Target != "" {
 		name = tr.Target + " · " + tr.Property
+	}
+	if tr.IsFrameTrack() {
+		return frameTrackLane(cx, ed, rev, ti, tr, name, disabled)
 	}
 	markers := []core.Node{playheadLine(ed, rev, colors.Accent())}
 	for ki := range tr.Keys {
@@ -452,6 +699,115 @@ func trackLane(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], ti int, tr 
 			core.View{
 				Style:    core.Style{FlexGrow: 1, Height: core.Pt(18), Position: core.Relative, Background: colors.Raised(), CornerRadius: 3},
 				Children: markers,
+			},
+			ui.Button{
+				TestID:   fmt.Sprintf("anim-track-%d-remove", ti),
+				Text:     "Remove",
+				Label:    "Remove track " + name,
+				Size:     ui.SizeSmall,
+				Variant:  ui.ButtonGhost,
+				Disabled: disabled,
+				OnPress:  func() { ed.report(ed.RemoveClipTrack(ti)) },
+			},
+		},
+	}
+}
+
+func frameTrackLane(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], ti int, tr resource.Track, name string, disabled func() bool) core.Node {
+	colors := ui.ColorsOf(cx)
+	totalSec := ed.clipLengthSeconds()
+	if totalSec <= 0 {
+		totalSec = 1
+	}
+	cells := make([]core.Node, 0, len(tr.Frames)+1)
+	for ki, fk := range tr.Frames {
+		frameIdx := ki
+		frameKey := fk
+		startSec := animclip.KeyValue(frameKey.Time)
+		endSec := totalSec
+		if frameIdx+1 < len(tr.Frames) {
+			endSec = animclip.KeyValue(tr.Frames[frameIdx+1].Time)
+		}
+		spanPct := float32(min(max((endSec-startSec)/totalSec, 0), 1) * 100)
+		entry, hasEntry := ed.ClipFrameEntry(tr.Target, frameKey.Frame)
+		durMs := max(int64(animclip.Seconds(float32(endSec-startSec)).Milliseconds()), 0)
+		tip := fmt.Sprintf("%s (%d ms)", frameKey.Frame, durMs)
+		thumb := core.Canvas{
+			TestID: fmt.Sprintf("anim-frame-thumb-%d-%d", ti, frameIdx),
+			Style: core.Style{
+				Width:        core.Pt(30),
+				Height:       core.Pt(30),
+				Background:   colors.Inset(),
+				CornerRadius: 3,
+			},
+			Draw: func(d *core.Drawing, size core.Size) {
+				if !hasEntry {
+					return
+				}
+				f := entry.Rect
+				sw, sh := float32(size.Width), float32(size.Height)
+				if f.W <= 0 || f.H <= 0 || sw <= 0 || sh <= 0 {
+					return
+				}
+				scale := min(sw/f.W, sh/f.H)
+				dw, dh := f.W*scale, f.H*scale
+				dx, dy := (sw-dw)/2, (sh-dh)/2
+				d.DrawImageFrom(entry.Image, f.X, f.Y, f.W, f.H, dx, dy, dw, dh)
+			},
+		}
+		cells = append(cells, withTooltip(core.View{
+			TestID: fmt.Sprintf("anim-key-%d-%d", ti, frameIdx),
+			Role:   core.RoleButton,
+			Label:  fmt.Sprintf("%s frame %s", name, frameKey.Frame),
+			OnPress: func(core.PressEvent) {
+				ed.SelectClipKey(ti, frameIdx)
+				if ed.clip != nil && ti < len(ed.clip.Tracks) && frameIdx < len(ed.clip.Tracks[ti].Frames) {
+					ed.SeekClip(animclip.Seconds(ed.clip.Tracks[ti].Frames[frameIdx].Time))
+				}
+			},
+			StyleFunc: func() core.Style {
+				_ = rev.Get()
+				border := colors.Line()
+				bg := colors.Surface()
+				if t, k, ok := ed.SelectedClipKey(); ok && t == ti && k == frameIdx {
+					border = colors.Accent()
+					bg = colors.Raised()
+				}
+				return core.Style{
+					Position:     core.Absolute,
+					Top:          core.Pt(2),
+					Bottom:       core.Pt(2),
+					Left:         ed.laneLeft(startSec),
+					Width:        core.Pct(spanPct),
+					MinWidth:     core.Pt(36),
+					Direction:    core.Row,
+					AlignItems:   core.AlignCenter,
+					Gap:          4,
+					Padding:      core.Symmetric(2, 3),
+					Background:   bg,
+					BorderWidth:  1,
+					BorderColor:  border,
+					CornerRadius: 4,
+					Overflow:     core.Hidden,
+				}
+			},
+			Children: []core.Node{
+				thumb,
+				core.Text{
+					Content: frameKey.Frame,
+					Style:   core.Style{FontSize: 10, Color: colors.Text()},
+				},
+			},
+		}, tip))
+	}
+	cells = append(cells, playheadLine(ed, rev, colors.Accent()))
+	return ui.HStack{
+		Gap: 8,
+		Children: []core.Node{
+			core.Text{TestID: fmt.Sprintf("anim-track-%d-label", ti), Content: name, Style: core.Style{Width: core.Pt(150), FontSize: 12, Color: colors.Text()}},
+			core.View{
+				Style:    core.Style{FlexGrow: 1, Height: core.Pt(40), Position: core.Relative, Background: colors.Raised(), CornerRadius: 4, Overflow: core.Hidden},
+				Children: cells,
 			},
 			ui.Button{
 				TestID:   fmt.Sprintf("anim-track-%d-remove", ti),

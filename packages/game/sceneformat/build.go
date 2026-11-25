@@ -396,7 +396,7 @@ func (bo *BuiltObject) syncMaterial() {
 	bo.Sprite.Blend = bo.Material.BlendOp()
 }
 
-// Sync recomputes the object's World and WorldAlpha from its document and its parent's, copies its transform, origin, flip and alpha onto its sprite (times its material's opacity, as Build does), and does the same for its descendants, so an edit to the document fields of a built object, such as one an animation makes, shows on the next Draw. It reports false, and leaves the sprite's transform as it was, for a sprite whose composed transform is sheared, which a sprite cannot draw.
+// Sync recomputes the object's World and WorldAlpha from its document and its parent's, copies its transform, sprite frame (when found in Atlas), origin, flip and alpha onto its sprite (times its material's opacity, as Build does), and does the same for its descendants, so an edit to the document fields of a built object, such as one an animation makes, shows on the next Draw. It reports false, and leaves the sprite's transform as it was, for a sprite whose composed transform is sheared, which a sprite cannot draw.
 func (bo *BuiltObject) Sync() bool {
 	od := bo.Doc
 	bo.World = od.LocalTransform()
@@ -415,6 +415,11 @@ func (bo *BuiltObject) Sync() bool {
 			sp.X, sp.Y, sp.Rotation, sp.ScaleX, sp.ScaleY = x, y, rot, sx, sy
 		} else {
 			ok = false
+		}
+		if od.Sprite != nil && bo.Atlas != nil {
+			if frame, exists := bo.Atlas.Frames[od.Sprite.Frame]; exists {
+				sp.Frame = frame
+			}
 		}
 		sp.OriginX, sp.OriginY = od.OriginX, od.OriginY
 		sp.FlipX, sp.FlipY = od.FlipX, od.FlipY
