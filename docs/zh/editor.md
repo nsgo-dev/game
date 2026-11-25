@@ -961,6 +961,15 @@ func main() {
 - **预设与输出目录**：编辑 `export.output`（`SetExportOutput`），添加、删除和重排各平台预设（`AddExportPreset`、`RemoveExportPreset`、`MoveExportPreset`），并仅从各平台合法目标 `project.TargetsOf(platform)` 中选择构建目标（`SetExportPresetTargets`、`ToggleExportPresetTarget`）。所有修改都通过 `EditProject` 完成（经 `project.Validate` 校验并支持撤销/重做），在 `export` 为空时自动清理该小节，点击 **Save**（`SaveProject`）时写出规范 YAML 并同步 `nsgo.yaml`，与 `gameproject targets` 保持一致。
 - **鸣谢（Credits）预检**：面板打开、刷新（`CheckExportCredits`）或开始构建前，都会执行与 `game release` 相同的 `tooling/credits` 扫描。任何缺少鸣谢信息的资源都会连同其对应的 `*.import.yaml` 边车路径一并列出，并在补全前阻止发布构建；补全鸣谢后刷新即可清除告警，成功构建时会在输出目录写入 `CREDITS.md`。
 - **构建、演练与输出流**：支持构建全部预设或勾选指定目标（`ExportSelectedTargets`），并可配置分发渠道（`SetExportChannel`）、发布说明文件（`SetExportReleaseNotes`）以及 **Dry Run** 开关（`SetExportDryRun`）。`StartExportBuild` / `RunExportBuild` 与 `nsgo game release` 共用同一套发布命令规划器，因此演练构建会在 UI 协程之外将完全一致的 `nsgo build` 命令行流式输出到面板的 Output 区域，非演练构建成功后自动打开解析出的输出目录（`OpenOutputFolder` / `OpenExportOutputFolder`）。
+
+### 构建与发布界面（#1048）
+
+如需完整的发布前准备与对比，可通过 **Project > 构建与发布…**（`CmdBuildRelease`，快捷键 `mod+shift+r`，或调用 `OpenBuildReleaseScreen` / `CloseBuildReleaseScreen` / `BuildReleaseScreenOpen`）打开采用 Spec 设计令牌渲染的全窗口 `BuildReleaseScreenView`：
+
+- **顶部栏与构建前检查**：显示 `"Release · Version <版本> from <提交> on <分支> · last release <上一版本>"`，提供可编辑版本号（`SetReleaseVersion`）、Dry Run 开关（`SetReleaseDryRun`）以及 **Build** / **Stop** / **Resume** 控制（`StartReleaseBuild`、`StopReleaseBuild`、`ResumeReleaseBuild`）。**BEFORE EVERY BUILD** 汇总 `nsgo check`（问题数与耗时，`RefreshBuildPreflight`）、冒烟试玩摘要以及 `game.yaml` 中 `export.budgets` 声明的预算阈值（`qualityProfile`、`downloadSizeMB`、`frameTimeP95Ms`，默认 Low 档 / 80 MB / 16.7 ms）。
+- **导出预设、有序步骤与日志流**：列出每个平台的勾选复选框（`SetBuildPresetIncluded`）、平台摘要、实时状态（`Queued`、`Building`、`Notarizing`、`Done`、`Failed`、`Set up`）、产物大小及相对上一版本的增量（`SetLastReleaseBaseline`）。选中运行中的预设会展示 6 个按序执行的步骤（`Check project`、`Compile Go`、`Pack assets`、`Sign`、`Smoke playtest`、`Measure`）、与 `game release -dry-run` 一致的 `releaseplan` 命令以及持续跟随的日志（`build/<platform>.log`）。多个预设逐一串行构建；**Stop** 会保留已完成步骤，**Resume** 从中断步骤继续执行。
+- **失败隔离与代理预设修复**：当某个预设失败（例如在 `Sign` 步骤缺少签名密钥）时，界面会展示错误标题、失败步骤与耗时、失败命令以及 `"Other platforms keep building. Nothing was uploaded."`，同时继续完成其余已勾选预设的构建。代理提出的预设修复差异（`SetBuildPresetFixProposal`）支持一键应用并重新构建（`ApplyBuildPresetFixAndRebuild`）。
+- **构建结果与平台就绪检查**：构建完成后展示产物路径、体积与相对上一版本的增减量、`code` / `textures` / `audio` / `other` 分类占比与增长原因、下载体积与帧耗时 p95 的预算达标/超标徽章、冒烟试玩摘要、**Show in Finder**（`ShowBuildArtifactInFinder`）、**Edit preset** 以及 Web 构建的本地测试链接二维码卡片。尚未具备构建条件的平台（例如 iOS）会展示 **READINESS** 清单（`EvaluateBuildReadiness`：Bundle ID、应用图标、分发证书、描述文件、隐私清单、触控输入），明确区分代理可直接代办的事项（`RunBuildReadinessAction` / `RunBuildReadinessAgentSetup`，如生成 `PrivacyInfo.xcprivacy`）与需要开发者本人完成的步骤（如登录 Apple 账号）。
 ## 项目搜索与查找引用（#914）
 
 打开项目后，文件浏览器的 **Search** 按钮（`SearchOpen` / `SetSearchOpen`）会在视口下方切换显示搜索与引用面板（`SearchPanelView`），用于在项目内快速跳转或回答“哪些文件引用了当前文件”：
@@ -984,7 +993,7 @@ func main() {
   - 文件与编辑：`mod+s`（保存）、`mod+z`（撤销）、`mod+shift+z`（重做）、`mod+c`（拷贝对象或当前瓦片区域）、`mod+x`（剪切对象或当前瓦片区域）、`mod+v`（粘贴对象或瓦片区域）、`mod+shift+v`（粘贴为子级）、`mod+d`（复制选中对象）、`mod+g`（编组）、`mod+shift+g`（取消编组）、`delete` / `backspace`（删除选中对象）。
   - 2D 工具：`v`（选择）、`m`（移动）、`p`（放置）、`b`（绘制瓦片）、`e`（擦除瓦片）、`g`（填充瓦片）、`t`（地形）、`u`（矩形瓦片）、`l`（直线瓦片）、`c`（图章瓦片）、`n`（随机瓦片）。
   - 3D 变换控件与视图：`w`（平移）、`r`（旋转）、`s`（缩放）、`shift+c`（碰撞体手柄）、`alt+2`（2D 视图）、`alt+3`（3D 视图）、`View > 3D Shading` 下的 Lit、Unlit、Wireframe 三个 3D 着色命令（无快捷键）、`f`（聚焦选中对象：2D 下通过 `FrameSelection2D` 调整独立编辑器视图 `View2D` 而不改动保存的 `Doc.Camera`，3D 下调整 `Camera3D`）、`1`、`ctrl+1`、`3`、`ctrl+3`、`7` 和 `ctrl+7`（3D 前视、后视、右视、左视、顶视和底视）、`5`（3D 透视或正交）以及 `0`（透过场景相机观看），这些只在 3D 视图中生效、`View > Scene Environment`（开关场景环境面板）、`mod+k`（命令面板）。
-  - 项目：`f5`（播放 / 停止）、`mod+r`（运行游戏：优先调用 `Editor.OnRunGame`，未配置且已挂载作用域时回退到编辑器内运行）、`mod+,`（项目设置）、`mod+shift+u`（HUD 与菜单布局）、`mod+shift+e`（导出与发布）、`mod+shift+m`（性能分析器）、`mod+shift+b`（检查问题）。
+  - 项目：`f5`（播放 / 停止）、`mod+r`（运行游戏：优先调用 `Editor.OnRunGame`，未配置且已挂载作用域时回退到编辑器内运行）、`mod+,`（项目设置）、`mod+shift+u`（HUD 与菜单布局）、`mod+shift+e`（导出与发布面板）、`mod+shift+r`（构建与发布界面）、`mod+shift+m`（性能分析器）、`mod+shift+b`（检查问题）。
 - **桌面菜单栏**：`EditorView` 通过 `desktop.SetApplicationMenu`（`Editor.ApplicationMenu`）注册原生应用菜单栏（`File`、`Edit`、`View`、`Project`），以实时可用/勾选状态和对应平台的快捷键提示暴露同一套命令；已启用插件的工具列在 `View > Tools` 下，已启用插件的命令列在 `Project > Plugins` 下。
 - **命令面板（`ui.CommandDialog`）**：按 `mod+k`（或点击工具栏 **Commands** 按钮 / `View > Command Palette...`）即可打开 `CommandPaletteView`，支持按子串排序与模糊匹配搜索全部内置与自定义命令、已启用插件命令、已启用插件工具（通过 `SetPluginTool` 激活）、已启用插件面板（通过 `FocusPluginPanel` 聚焦）以及当前项目的场景和文件（通过 `OpenProjectFile` 打开场景或选中文件）。
 - **插件命令**：插件可通过 `Commands []PluginCommand` 声明带可选 `Shortcut` 的命令。`RegisterPlugin` 会规范化快捷键（`NormalizeShortcut`），并在改动编辑器状态之前拒绝任何在 macOS 或 Windows/Linux 上与内置命令、自定义命令或其他已注册插件冲突的快捷键。

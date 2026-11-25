@@ -328,12 +328,24 @@ type Entry struct {
 	Path string `yaml:"path" schema:"required"`
 }
 
-// Export holds the build output directory and one export preset per platform.
+// Export holds the build output directory, optional release budgets, and one export preset per platform.
 type Export struct {
 	// Output is the directory builds are written to; empty is NSGo's default (dist).
 	Output string `yaml:"output,omitempty"`
+	// Budgets are optional release thresholds checked before and after each build (download size and frame time p95 at a quality profile).
+	Budgets *Budgets `yaml:"budgets,omitempty"`
 	// Presets are the platforms the game exports to, in build order.
 	Presets []Preset `yaml:"presets,omitempty"`
+}
+
+// Budgets holds release size and performance thresholds checked against each built package.
+type Budgets struct {
+	// QualityProfile names the quality preset frameTimeP95Ms is measured at (for example "low", "medium", or "high"); empty defaults to "low".
+	QualityProfile string `yaml:"qualityProfile,omitempty"`
+	// DownloadSizeMB is the maximum acceptable release download size in megabytes; 0 leaves it unset.
+	DownloadSizeMB float64 `yaml:"downloadSizeMB,omitempty" schema:"minimum=0"`
+	// FrameTimeP95Ms is the maximum acceptable 95th-percentile frame time in milliseconds; 0 leaves it unset.
+	FrameTimeP95Ms float64 `yaml:"frameTimeP95Ms,omitempty" schema:"minimum=0"`
 }
 
 // Preset is the export preset of one platform.
@@ -580,7 +592,10 @@ func (f *File) Clone() *File {
 		}
 	}
 	if f.Export != nil {
-		e := Export{Output: f.Export.Output}
+		e := Export{
+			Output:  f.Export.Output,
+			Budgets: clonePtr(f.Export.Budgets),
+		}
 		if f.Export.Presets != nil {
 			e.Presets = make([]Preset, len(f.Export.Presets))
 			for i, p := range f.Export.Presets {
@@ -1084,6 +1099,19 @@ func validateEntries(kind string, entries []Entry) (map[string]struct{}, error) 
 func validateExport(e *Export) error {
 	if e.Output != "" && (e.Output == "." || !fs.ValidPath(e.Output) || strings.Contains(e.Output, `\`)) {
 		return fmt.Errorf("project: export output %q must be a slash-separated directory inside the project", e.Output)
+	}
+	if e.Budgets != nil {
+		if e.Budgets.QualityProfile != "" {
+			if err := validateName("export budgets qualityProfile", e.Budgets.QualityProfile); err != nil {
+				return err
+			}
+		}
+		if math.IsNaN(e.Budgets.DownloadSizeMB) || math.IsInf(e.Budgets.DownloadSizeMB, 0) || e.Budgets.DownloadSizeMB < 0 {
+			return fmt.Errorf("project: export budgets downloadSizeMB %v must be finite and >= 0", e.Budgets.DownloadSizeMB)
+		}
+		if math.IsNaN(e.Budgets.FrameTimeP95Ms) || math.IsInf(e.Budgets.FrameTimeP95Ms, 0) || e.Budgets.FrameTimeP95Ms < 0 {
+			return fmt.Errorf("project: export budgets frameTimeP95Ms %v must be finite and >= 0", e.Budgets.FrameTimeP95Ms)
+		}
 	}
 	platforms := make(map[string]struct{}, len(e.Presets))
 	for _, p := range e.Presets {
