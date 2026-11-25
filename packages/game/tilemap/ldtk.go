@@ -30,7 +30,7 @@ type LevelNeighbour struct {
 // Its errors are *loaderr.Error values that give the line and field of the problem and how to fix it; a caller that read data from a file names it with loaderr.WithFile.
 func LoadLDtk(data []byte, levelIdentifier string, resolveImage func(relPath string) core.ImageSource) (*Tilemap, error) {
 	m, err := loadLDtk(data, levelIdentifier, resolveImage)
-	return m, loaderr.Locate(err, "", data, fixLDtk)
+	return m, loaderr.LocateJSON(err, "", data, fixLDtk)
 }
 
 // fixLDtk is the fix for an LDtk project error that has no more specific one.
@@ -78,7 +78,7 @@ func loadLDtk(data []byte, levelIdentifier string, resolveImage func(relPath str
 // Its errors are *loaderr.Error values, as LoadLDtk's are.
 func LoadLDtkAll(data []byte, resolveImage func(relPath string) core.ImageSource) (map[string]*Tilemap, error) {
 	out, err := loadLDtkAll(data, resolveImage)
-	return out, loaderr.Locate(err, "", data, fixLDtk)
+	return out, loaderr.LocateJSON(err, "", data, fixLDtk)
 }
 
 func loadLDtkAll(data []byte, resolveImage func(relPath string) core.ImageSource) (map[string]*Tilemap, error) {
@@ -120,7 +120,7 @@ func loadLDtkAll(data []byte, resolveImage func(relPath string) core.ImageSource
 // Its errors are *loaderr.Error values, as LoadLDtk's are.
 func LoadLDtkWorld(data []byte, worldIdentifier string, resolveImage func(relPath string) core.ImageSource) (*LevelWorld, error) {
 	w, err := loadLDtkWorld(data, worldIdentifier, resolveImage)
-	return w, loaderr.Locate(err, "", data, fixLDtk)
+	return w, loaderr.LocateJSON(err, "", data, fixLDtk)
 }
 
 func loadLDtkWorld(data []byte, worldIdentifier string, resolveImage func(relPath string) core.ImageSource) (*LevelWorld, error) {
@@ -210,7 +210,7 @@ func loadLDtkWorld(data []byte, worldIdentifier string, resolveImage func(relPat
 			Neighbours: neighbours,
 			Load: func() (*Tilemap, error) {
 				m, err := buildLDtkLevel(&proj, levels, layout, levelsPath, idx, resolveImage)
-				return m, loaderr.Locate(err, "", rawCopy, fixLDtk)
+				return m, loaderr.LocateJSON(err, "", rawCopy, fixLDtk)
 			},
 		}
 	}

@@ -140,7 +140,7 @@ type TiledWorld struct {
 // a caller that read data from a file names it with loaderr.WithFile.
 func ParseTiledWorld(data []byte) (*TiledWorld, error) {
 	w, err := parseTiledWorld(data)
-	return w, loaderr.Locate(err, "", data, fixTiledWorld)
+	return w, loaderr.LocateJSON(err, "", data, fixTiledWorld)
 }
 
 func parseTiledWorld(data []byte) (*TiledWorld, error) {
@@ -347,19 +347,19 @@ func peekTiledMapBounds(data []byte, origin core.Point) (core.Bounds, error) {
 		HexSideLength float32 `json:"hexsidelength"`
 	}
 	if err := json.Unmarshal(data, &hdr); err != nil {
-		return core.Bounds{}, loaderr.Locate(err, "", data, fixTiled)
+		return core.Bounds{}, loaderr.LocateJSON(err, "", data, fixTiled)
 	}
 	orient, err := parseTiledOrientation(hdr.Orientation)
 	if err != nil {
-		return core.Bounds{}, loaderr.Locate(&loaderr.Error{Field: "orientation", Problem: err.Error(), Expected: `"orthogonal", "isometric", "staggered" or "hexagonal"`, Fix: "set the map's orientation to one of those in Tiled's map properties", Err: err}, "", data, fixTiled)
+		return core.Bounds{}, loaderr.LocateJSON(&loaderr.Error{Field: "orientation", Problem: err.Error(), Expected: `"orthogonal", "isometric", "staggered" or "hexagonal"`, Fix: "set the map's orientation to one of those in Tiled's map properties", Err: err}, "", data, fixTiled)
 	}
 	axis, err := parseTiledStaggerAxis(hdr.StaggerAxis)
 	if err != nil {
-		return core.Bounds{}, loaderr.Locate(&loaderr.Error{Field: "staggeraxis", Problem: err.Error(), Expected: `"x" or "y"`, Fix: "set the map's stagger axis to x or y in Tiled", Err: err}, "", data, fixTiled)
+		return core.Bounds{}, loaderr.LocateJSON(&loaderr.Error{Field: "staggeraxis", Problem: err.Error(), Expected: `"x" or "y"`, Fix: "set the map's stagger axis to x or y in Tiled", Err: err}, "", data, fixTiled)
 	}
 	idx, err := parseTiledStaggerIndex(hdr.StaggerIndex)
 	if err != nil {
-		return core.Bounds{}, loaderr.Locate(&loaderr.Error{Field: "staggerindex", Problem: err.Error(), Expected: `"odd" or "even"`, Fix: "set the map's stagger index to odd or even in Tiled", Err: err}, "", data, fixTiled)
+		return core.Bounds{}, loaderr.LocateJSON(&loaderr.Error{Field: "staggerindex", Problem: err.Error(), Expected: `"odd" or "even"`, Fix: "set the map's stagger index to odd or even in Tiled", Err: err}, "", data, fixTiled)
 	}
 	m := Tilemap{
 		Width:         hdr.Width,
