@@ -71,6 +71,8 @@ func (e *Editor) Save() error {
 	}
 	// A drag in progress is put back first, so the file holds the scene as it was before the drag and not a half-dragged object; a tile stroke under way is recorded first so the file and history agree.
 	e.CancelDrag2D()
+	e.CancelCameraDrag()
+	e.cancelBackgroundPreview()
 	e.endTileStrokeForChange()
 	projectSaved := false
 	if e.ProjectDirty() {
@@ -167,6 +169,8 @@ func (e *Editor) SaveSceneAs(rel string) (string, error) {
 	}
 	// A drag in progress is put back first, so the file holds the scene as it was before the drag; a tile stroke under way is recorded first so the file and history agree.
 	e.CancelDrag2D()
+	e.CancelCameraDrag()
+	e.cancelBackgroundPreview()
 	e.endTileStrokeForChange()
 	rel = withSceneExt(rel)
 	abs, err := e.sceneTarget(rel)
@@ -212,6 +216,8 @@ func (e *Editor) RevertScene() error {
 	}
 	// A drag or tile stroke in progress is put back first, so Undo of the revert brings back the scene as it was before it.
 	e.CancelDrag2D()
+	e.CancelCameraDrag()
+	e.cancelBackgroundPreview()
 	e.CancelTileStroke()
 	e.connPick = nil
 	e.sceneSaved = saved

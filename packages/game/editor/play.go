@@ -122,6 +122,8 @@ func (e *Editor) PlayIn(cx *core.Scope) error {
 	e.stopAudioAudition()
 	e.resetInputMapTransient()
 	e.connPick = nil
+	e.CancelCameraDrag()
+	e.cancelBackgroundPreview()
 	e.playSnapshot = snap
 	e.Doc = playDoc
 	e.Built = playBuilt

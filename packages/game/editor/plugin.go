@@ -331,6 +331,7 @@ func (e *Editor) SetPluginTool(plugin, id string) error {
 		return nil
 	}
 	e.CancelDrag2D()
+	e.CancelCameraDrag()
 	e.endTileStrokeForChange()
 	e.Tool = ToolPlugin
 	e.pluginTool = pluginToolRef{plugin, id}

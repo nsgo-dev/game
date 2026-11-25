@@ -290,6 +290,9 @@ func inspectorSchemaKey(ed *Editor) string {
 	}
 	obj, layer := ed.SelectedObject()
 	if obj == nil {
+		if ed != nil && ed.Doc != nil {
+			return "scene"
+		}
 		return ""
 	}
 	var b strings.Builder
@@ -362,7 +365,10 @@ func valueKindTag(v any) string {
 	}
 }
 
-// InspectorView renders the right-side Property Inspector panel for the selected object. A component that a plugin which is on has an Inspector for is drawn by that inspector instead of the generic fields.
+// InspectorView renders the right-side Property Inspector panel for the selected object,
+// or the Scene Settings inspector (name, virtual size, background color and camera) when
+// no object is selected. A component that a plugin which is on has an Inspector for is
+// drawn by that inspector instead of the generic fields.
 func InspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	colors := ui.ColorsOf(cx)
 	schema := core.NewMemo(cx, func() string {
@@ -414,6 +420,9 @@ func InspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 								return assetImportInspectorView(cx, ed, rev, rel, kind)
 							}
 							return nil
+						}
+						if key == "scene" {
+							return sceneInspectorView(cx, ed, rev)
 						}
 						obj, layerName := ed.SelectedObject()
 						if obj == nil {

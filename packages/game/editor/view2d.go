@@ -50,6 +50,9 @@ func (e *Editor) View2D() View2D {
 	if e == nil {
 		return View2D{Zoom: 1}
 	}
+	if e.cameraDrag.active && !e.playing {
+		return e.cameraDrag.startView
+	}
 	if e.view2DFree && !e.playing {
 		return e.view2D
 	}
