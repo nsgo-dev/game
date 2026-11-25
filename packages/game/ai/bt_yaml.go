@@ -1626,20 +1626,30 @@ func (b *btBuilder) buildNode(
 		}
 	}
 
+	wrap := func(built Node, err error) (Node, error) {
+		if err != nil {
+			return nil, err
+		}
+		if n.Name != "" {
+			return Named(n.Name, built), nil
+		}
+		return built, nil
+	}
+
 	switch n.Type {
 	case BTNodeSequence:
 		children, err := buildChildren()
 		if err != nil {
 			return nil, err
 		}
-		return Sequence(children...), nil
+		return wrap(Sequence(children...), nil)
 
 	case BTNodeSelector:
 		children, err := buildChildren()
 		if err != nil {
 			return nil, err
 		}
-		return Selector(children...), nil
+		return wrap(Selector(children...), nil)
 
 	case BTNodeParallel:
 		children, err := buildChildren()
@@ -1650,21 +1660,21 @@ func (b *btBuilder) buildNode(
 		if n.Policy == BTParallelRequireOne {
 			policy = RequireOne
 		}
-		return Parallel(policy, children...), nil
+		return wrap(Parallel(policy, children...), nil)
 
 	case BTNodeRandomSelector:
 		children, err := buildChildren()
 		if err != nil {
 			return nil, err
 		}
-		return RandomSelector(b.bind.Stream, children...), nil
+		return wrap(RandomSelector(b.bind.Stream, children...), nil)
 
 	case BTNodeRandomSequence:
 		children, err := buildChildren()
 		if err != nil {
 			return nil, err
 		}
-		return RandomSequence(b.bind.Stream, children...), nil
+		return wrap(RandomSequence(b.bind.Stream, children...), nil)
 
 	case BTNodeWeightedSelector:
 		opts := make([]WeightedNode, len(n.Children))
@@ -1675,49 +1685,49 @@ func (b *btBuilder) buildNode(
 			}
 			opts[i] = WeightedNode{Node: ch, Weight: n.Children[i].Weight}
 		}
-		return WeightedSelector(b.bind.Stream, opts...), nil
+		return wrap(WeightedSelector(b.bind.Stream, opts...), nil)
 
 	case BTNodeInverter:
 		ch, err := b.buildNode(doc, n.Child, loaderr.Join(field, "child"), activeParams, keyBindings, declaredKeys, stack)
 		if err != nil {
 			return nil, err
 		}
-		return Inverter(ch), nil
+		return wrap(Inverter(ch), nil)
 
 	case BTNodeSucceeder:
 		ch, err := b.buildNode(doc, n.Child, loaderr.Join(field, "child"), activeParams, keyBindings, declaredKeys, stack)
 		if err != nil {
 			return nil, err
 		}
-		return Succeeder(ch), nil
+		return wrap(Succeeder(ch), nil)
 
 	case BTNodeFailer:
 		ch, err := b.buildNode(doc, n.Child, loaderr.Join(field, "child"), activeParams, keyBindings, declaredKeys, stack)
 		if err != nil {
 			return nil, err
 		}
-		return Failer(ch), nil
+		return wrap(Failer(ch), nil)
 
 	case BTNodeUntilFail:
 		ch, err := b.buildNode(doc, n.Child, loaderr.Join(field, "child"), activeParams, keyBindings, declaredKeys, stack)
 		if err != nil {
 			return nil, err
 		}
-		return UntilFail(ch), nil
+		return wrap(UntilFail(ch), nil)
 
 	case BTNodeRepeater:
 		ch, err := b.buildNode(doc, n.Child, loaderr.Join(field, "child"), activeParams, keyBindings, declaredKeys, stack)
 		if err != nil {
 			return nil, err
 		}
-		return Repeater(n.Count, ch), nil
+		return wrap(Repeater(n.Count, ch), nil)
 
 	case BTNodeRetry:
 		ch, err := b.buildNode(doc, n.Child, loaderr.Join(field, "child"), activeParams, keyBindings, declaredKeys, stack)
 		if err != nil {
 			return nil, err
 		}
-		return Retry(n.Count, ch), nil
+		return wrap(Retry(n.Count, ch), nil)
 
 	case BTNodeCooldown:
 		d, err := b.resolveDuration(doc, n.Duration, loaderr.Join(field, "duration"), false, activeParams)
@@ -1728,7 +1738,7 @@ func (b *btBuilder) buildNode(
 		if err != nil {
 			return nil, err
 		}
-		return Cooldown(d, ch), nil
+		return wrap(Cooldown(d, ch), nil)
 
 	case BTNodeTimeLimit:
 		d, err := b.resolveDuration(doc, n.Duration, loaderr.Join(field, "duration"), true, activeParams)
@@ -1739,7 +1749,7 @@ func (b *btBuilder) buildNode(
 		if err != nil {
 			return nil, err
 		}
-		return TimeLimit(d, ch), nil
+		return wrap(TimeLimit(d, ch), nil)
 
 	case BTNodeGuard:
 		factory := b.bind.Conditions[n.Condition]
@@ -1773,7 +1783,7 @@ func (b *btBuilder) buildNode(
 		if err != nil {
 			return nil, err
 		}
-		return Guard(fn, ch), nil
+		return wrap(Guard(fn, ch), nil)
 
 	case BTNodeService:
 		factory := b.bind.Services[n.Service]
@@ -1811,7 +1821,7 @@ func (b *btBuilder) buildNode(
 		if err != nil {
 			return nil, err
 		}
-		return Service(interval, fn, ch), nil
+		return wrap(Service(interval, fn, ch), nil)
 
 	case BTNodeBlackboardCondition:
 		var bbVal BlackboardValue
@@ -1847,14 +1857,14 @@ func (b *btBuilder) buildNode(
 			}
 		}
 		resolvedKey := resolveKey(n.Key, keyBindings)
-		return BlackboardCondition(b.bb, resolvedKey, n.Op, bbVal, n.Abort, ch), nil
+		return wrap(BlackboardCondition(b.bb, resolvedKey, n.Op, bbVal, n.Abort, ch), nil)
 
 	case BTNodeWait:
 		d, err := b.resolveDuration(doc, n.Duration, loaderr.Join(field, "duration"), false, activeParams)
 		if err != nil {
 			return nil, err
 		}
-		return Wait(d), nil
+		return wrap(Wait(d), nil)
 
 	case BTNodeAction:
 		factory := b.bind.Actions[n.Action]
@@ -1884,7 +1894,7 @@ func (b *btBuilder) buildNode(
 				Fix:     "return a non-nil ai.Node from the action factory",
 			})
 		}
-		return node, nil
+		return wrap(node, nil)
 
 	case BTNodeCondition:
 		factory := b.bind.Conditions[n.Condition]
@@ -1914,7 +1924,7 @@ func (b *btBuilder) buildNode(
 				Fix:     "return a non-nil func() bool from the condition factory",
 			})
 		}
-		return Condition(fn), nil
+		return wrap(Condition(fn), nil)
 
 	case BTNodeSubtree:
 		var curFile string
@@ -1971,7 +1981,7 @@ func (b *btBuilder) buildNode(
 				subKeys[localKey] = resolveKey(callerKey, keyBindings)
 			}
 		}
-		return b.buildDoc(subDoc, subParams, subKeys, append(stack, target))
+		return wrap(b.buildDoc(subDoc, subParams, subKeys, append(stack, target)))
 
 	default:
 		return nil, b.locate(doc, &loaderr.Error{

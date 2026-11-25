@@ -580,6 +580,34 @@ if err := freshBT.Restore(loaded); err != nil {
 - **事务式结构校验**：`RestoreBehaviorTree` 在修改任何节点前先校验 `Version`、每个节点的结构路径与类型、`Parallel` 策略及各字段范围；树结构不一致时返回包装 `ErrInvalidBTSnapshot` 的错误，指明冲突路径与期望/实际节点类型，且不会部分修改目标树。
 - **自定义与共享节点**：自定义 `Node` 可实现可选接口 `SnapshotNode`（`SnapshotKind`、`SnapshotState`、`RestoreState`）参与快照，自定义组合或修饰节点可实现 `ChildNodes`（`Children() []Node`）暴露子节点。若树中使用了 `RandomSelector`、`RandomSequence` 或 `WeightedSelector`，同时保存并恢复对应的 `*random.Stream` 状态即可保证后续抽取完全一致。
 
+### 检查行为树状态
+
+可用 `Named(name, child)` 为任意节点附加可选名称（或在 `*.bt.yaml` 中填写 `name:`，`BuildBehaviorTree` 会自动保留），再通过可复用的 `BTInspector` 只读检查实时状态：
+
+```go
+tree := ai.Named("root", ai.Selector(
+	ai.Named("attack", ai.Sequence(
+		ai.Named("in_range", ai.Condition(playerInRange)),
+		ai.Named("swing", ai.Action(attackPlayer)),
+	)),
+	ai.Named("patrol", ai.Action(patrolStep)),
+))
+
+inspector := ai.NewBTInspector(tree)
+traceBuf := make([]ai.BTNodeTrace, 0, inspector.Len())
+pathBuf := make([]ai.BTNodeTrace, 0, inspector.Len())
+
+// 在 game.Loop.Update 中（预热后每步零堆分配）：
+tree.Tick(dt)
+traceBuf = inspector.WalkInto(traceBuf)
+pathBuf = ai.RunningPathInto(pathBuf, traceBuf)
+_ = pathBuf
+```
+
+- **只读前序快照**：`WalkInto(dst)`（或一次性调用 `Walk()` / `InspectBehaviorTree(root)`）写出每个节点的 `BTNodeTrace`（`Path`、`Depth`、`Name`、`Kind`、`LastStatus`、`Ticked`、`Active`、`StatusString()`），不改变执行状态，且在 `dst` 容量不小于 `inspector.Len()` 后每步零分配。
+- **当前运行路径**：处于运行中分支上的每个节点均标记 `Active == true`，可通过 `RunningPathInto(dst, nodes)` 或 `inspector.RunningPath()` 提取。
+- **用于 `statedump` 的确定性文本**：`inspector.Format()`（或 `FormatBTTrace(nodes)`）生成规范缩进文本并在运行路径节点前加 `* `，可直接写入 [`statedump`](statedump.md) 的 `Values`（`dump.SetValue("guard_bt", inspector.Format())`），便于在多次运行间对比 AI 决策差异。
+- **实时调试浮层与转向引导**：将 `debug.BehaviorTreeSnapshot("guard", inspector)` 交给 [`game/debug`](debug.md) 即可在浮层中高亮显示当前运行路径，并用 `overlay.DrawSteering` 绘制速度、期望速度、目标与路径（`-tags release` 下全部裁剪）。
 ## 效用 AI
 
 当角色需要根据连续态势（距离、生命值、弹药、威胁度等）而非固定布尔优先级做决策时，可使用基于 Dave Mark 无限轴效用模型（IAUS）的 `Reasoner[C]` 对候选 `UtilityAction` 评分：

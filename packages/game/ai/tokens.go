@@ -483,11 +483,12 @@ type attackTokenNode struct {
 	priority func() float64
 	child    Node
 	running  bool
+	trace    btTraceState
 }
 
 func (n *attackTokenNode) Tick(dt time.Duration) Status {
 	if n.pool == nil || n.child == nil {
-		return StatusFailure
+		return n.trace.record(StatusFailure)
 	}
 	var prio float64
 	if n.priority != nil {
@@ -499,16 +500,16 @@ func (n *attackTokenNode) Tick(dt time.Duration) Status {
 			n.child.Reset()
 			n.running = false
 		}
-		return StatusFailure
+		return n.trace.record(StatusFailure)
 	}
 	st := n.child.Tick(dt)
 	if st == StatusRunning {
 		n.running = true
-		return StatusRunning
+		return n.trace.record(StatusRunning)
 	}
 	n.running = false
 	n.pool.Release(n.agentID)
-	return st
+	return n.trace.record(st)
 }
 
 func (n *attackTokenNode) Reset() {
@@ -516,7 +517,21 @@ func (n *attackTokenNode) Reset() {
 		n.child.Reset()
 	}
 	n.running = false
+	n.trace.resetTrace()
 	if n.pool != nil {
 		n.pool.Remove(n.agentID)
 	}
+}
+
+func (n *attackTokenNode) btKind() string               { return "attack_token" }
+func (n *attackTokenNode) btLastStatus() (Status, bool) { return n.trace.status() }
+func (n *attackTokenNode) btChildCount() int {
+	if n.child == nil {
+		return 0
+	}
+	return 1
+}
+func (n *attackTokenNode) btChildAt(int) Node { return n.child }
+func (n *attackTokenNode) btChildActive(i int) bool {
+	return i == 0 && n.running && n.trace.ticked && n.trace.lastStatus == StatusRunning
 }

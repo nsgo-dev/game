@@ -66,8 +66,10 @@ fsm.Update(dt)
 ```
 
 - `Update(dt)` starts the machine on its first call (or call `fsm.Start()` explicitly), evaluates transitions in declaration order (taking at most one per step), advances `TimeInState()`, and runs the active state's `Update`.
-- Force an immediate switch with `fsm.SetState(to)`. Inspect `fsm.Current()`, `fsm.Previous()`, `fsm.TimeInState()`, and `fsm.Started()`.
+- Force an immediate switch with `fsm.SetState(to)`. Inspect `fsm.Current()`, `fsm.Previous()`, `fsm.TimeInState()`, `fsm.Started()`, and `fsm.Step()`.
 - **Save and restore**: `snap := fsm.Snapshot()` returns a plain `MachineSnapshot[S]` struct (`Version`, `Current`, `Previous`, `TimeInState`, `Started`) that marshals cleanly to YAML and JSON. `fsm.Restore(snap)` validates that `Current` (and any non-zero `Previous`) belongs to the machine before replacing its state, refuses unknown states or invalid timings with `ErrInvalidSnapshot` without mutating the machine, and never runs `Exit` or `Enter` hooks.
+- **Bounded transition history**: `Machine[S]` keeps the most recent `DefaultHistoryLimit` (32) transitions in a fixed ring buffer (`TransitionRecord[S]{From, To, Step, Transition}`), tunable with `SetHistoryLimit(n)` (`0` disables recording) and cleared with `ClearHistory()`. Label transitions with `AddNamedTransition` / `AddNamedAnyTransition` (unnamed transitions default to `"from->to"` / `"*->to"`, and `SetState` records `"SetState"`). Read history with `History()` or zero-allocation `HistoryInto(dst)`.
+- **Inspection and `statedump` formatting**: every `*Machine[S]` implements the type-erased `MachineInspector` interface (`Inspect() MachineInspection`, `FormatState() string`) so you can pass any machine to [`game/debug`](debug.md)'s AI panel or record `fsm.FormatState()` in [`statedump`](statedump.md) `Values` to diff transitions between runs.
 
 ## Hierarchical state machines (`HSM[S]`)
 

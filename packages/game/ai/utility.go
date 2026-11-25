@@ -501,11 +501,12 @@ type utilitySelectorNode[C any] struct {
 	subtrees []Node
 	active   int
 	running  int
+	trace    btTraceState
 }
 
 func (u *utilitySelectorNode[C]) Tick(dt time.Duration) Status {
 	if u.reasoner == nil || u.ctx == nil || len(u.subtrees) == 0 {
-		return StatusFailure
+		return u.trace.record(StatusFailure)
 	}
 	idx, _ := u.reasoner.ChooseWithCurrent(u.ctx(), u.active, u.rng)
 	if idx < 0 || idx >= len(u.subtrees) {
@@ -514,7 +515,7 @@ func (u *utilitySelectorNode[C]) Tick(dt time.Duration) Status {
 		}
 		u.running = -1
 		u.active = -1
-		return StatusFailure
+		return u.trace.record(StatusFailure)
 	}
 	if u.running >= 0 && u.running != idx {
 		if prev := u.subtrees[u.running]; prev != nil {
@@ -525,7 +526,7 @@ func (u *utilitySelectorNode[C]) Tick(dt time.Duration) Status {
 	ch := u.subtrees[idx]
 	if ch == nil {
 		u.active = -1
-		return StatusFailure
+		return u.trace.record(StatusFailure)
 	}
 	st := ch.Tick(dt)
 	switch st {
@@ -539,19 +540,19 @@ func (u *utilitySelectorNode[C]) Tick(dt time.Duration) Status {
 		u.active = -1
 		u.running = -1
 	}
-	return st
+	return u.trace.record(st)
 }
 
 func (u *utilitySelectorNode[C]) Reset() {
 	u.active = -1
 	u.running = -1
+	u.trace.resetTrace()
 	for _, ch := range u.subtrees {
 		if ch != nil {
 			ch.Reset()
 		}
 	}
 }
-
 func (u *utilitySelectorNode[C]) btUtilityChildren() []Node {
 	return u.subtrees
 }
@@ -563,4 +564,12 @@ func (u *utilitySelectorNode[C]) btUtilityState() (active, running int) {
 func (u *utilitySelectorNode[C]) btRestoreUtilityState(active, running int) {
 	u.active = active
 	u.running = running
+}
+
+func (u *utilitySelectorNode[C]) btKind() string               { return "utility_selector" }
+func (u *utilitySelectorNode[C]) btLastStatus() (Status, bool) { return u.trace.status() }
+func (u *utilitySelectorNode[C]) btChildCount() int            { return len(u.subtrees) }
+func (u *utilitySelectorNode[C]) btChildAt(i int) Node         { return u.subtrees[i] }
+func (u *utilitySelectorNode[C]) btChildActive(i int) bool {
+	return u.trace.ticked && u.trace.lastStatus == StatusRunning && i == u.running
 }

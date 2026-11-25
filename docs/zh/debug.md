@@ -103,6 +103,38 @@ overlay := debug.New(debug.Options{
 1. **拉取模式（`Options.Scenes`）**：若回调中读取了 NSGo signal，检查器会自动响应式刷新；否则随帧记录以及手动调用 `overlay.RefreshScenes()` 时刷新。
 2. **推送模式（`overlay.SetScenes(snapshots)`）**：当 `Options.Scenes` 为 nil 时，立即更新检查器列表。
 
+## AI 检查器与转向可视化
+
+在调试浮层中实时查看选定智能体的 [`game/ai`](ai.md) 行为树（高亮当前运行路径）或 [`game/flow`](flow.md) `Machine` 当前状态与有界转换历史：
+
+```go
+overlay := debug.New(debug.Options{
+	AI: func() debug.AISnapshot {
+		return debug.BehaviorTreeSnapshot("guard-1", guardInspector)
+	},
+})
+
+// 或按需推送快照（支持行为树、状态机或同时显示）：
+overlay.SetAI(debug.StateMachineSnapshot("boss", bossFSM))
+```
+
+- **拉取（`Options.AI`）或推送（`SetAI` / `ClearAI` / `RefreshAI`）**：与 `Scenes` 机制一致，随帧记录刷新，或当 `Options.AI` 读取 NSGo signal 时自动响应式刷新。
+- **转向调试绘制**：在 `core.Canvas.Draw` 保持相机变换生效时，调用 `overlay.DrawSteering`（或 `ShapeOverlay` 上的 `DrawSteering`、`DrawVector`、`DrawPath`、`DrawTarget`）绘制 2D 转向智能体的半径、当前速度、期望速度、目标准星与路点路径：
+
+```go
+overlay.DrawSteering(d, debug.SteeringDebug{
+	Agent:           agent,
+	DesiredVelocity: desiredVel,
+	Target:          targetPos,
+	HasTarget:       true,
+	Path:            waypoints,
+	WaypointIndex:   followState.Index,
+	VelocityScale:   0.5,
+})
+```
+
+在 `-tags release` 构建下，所有 AI 检查面板与转向绘制辅助函数都会编译为零开销空操作，不会链接进发布包。
+
 ## 在发布构建中彻底裁剪
 
 发布构建时传入 `-tags release`：

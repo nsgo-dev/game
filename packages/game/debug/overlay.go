@@ -27,6 +27,10 @@ type Overlay struct {
 	scenesTick   uint64
 	scenes       []SceneSnapshot
 	lastScenes   []SceneSnapshot
+	aiTick       uint64
+	aiSnap       AISnapshot
+	hasAI        bool
+	lastAI       AISnapshot
 	drawStats    DrawStats
 	hasDrawStats bool
 
@@ -34,6 +38,7 @@ type Overlay struct {
 	visSig    *core.Signal[bool]
 	frameSig  *core.Signal[uint64]
 	scenesSig *core.Signal[uint64]
+	aiSig     *core.Signal[uint64]
 }
 
 // New returns a configured debug overlay.
@@ -54,6 +59,7 @@ func (o *Overlay) Attach(cx *core.Scope) {
 	o.visSig = core.NewSignal(cx, o.visible)
 	o.frameSig = core.NewSignal(cx, o.frameTick)
 	o.scenesSig = core.NewSignal(cx, o.scenesTick)
+	o.aiSig = core.NewSignal(cx, o.aiTick)
 
 	key := strings.ToLower(strings.TrimSpace(o.opts.ToggleKey))
 	if key == "" {
@@ -66,6 +72,7 @@ func (o *Overlay) Attach(cx *core.Scope) {
 			o.visSig = nil
 			o.frameSig = nil
 			o.scenesSig = nil
+			o.aiSig = nil
 		}
 	})
 }
@@ -92,6 +99,9 @@ func (o *Overlay) SetVisible(v bool) {
 	}
 	if v && o.opts.Scenes != nil && o.scenesSig != nil {
 		o.lastScenes = cloneScenes(o.opts.Scenes())
+	}
+	if v && o.opts.AI != nil && o.aiSig != nil {
+		o.lastAI = cloneAISnapshot(o.opts.AI())
 	}
 }
 
@@ -126,6 +136,14 @@ func (o *Overlay) RecordFrame(total, update, draw time.Duration) {
 			o.lastScenes = cloneScenes(snap)
 			o.scenesTick++
 			o.scenesSig.Set(o.scenesTick)
+		}
+	}
+	if o.opts.AI != nil && o.aiSig != nil {
+		snap := o.opts.AI()
+		if !aiSnapshotsEqual(o.lastAI, snap) {
+			o.lastAI = cloneAISnapshot(snap)
+			o.aiTick++
+			o.aiSig.Set(o.aiTick)
 		}
 	}
 }
@@ -442,6 +460,7 @@ func (o *Overlay) View(cx *core.Scope) core.Node {
 			if o.opts.Memory != nil {
 				children = append(children, o.memorySummaryView())
 			}
+			children = append(children, o.aiInspectorView())
 			children = append(children, o.sceneInspectorView())
 
 			hud := core.View{

@@ -360,6 +360,10 @@ func walkBTTree(n Node, p string, depth int, ancestors map[uintptr]bool, out *[]
 		defer delete(ancestors, ptrKey)
 	}
 
+	if nn, ok := n.(*namedNode); ok {
+		return walkBTTree(nn.child, p, depth+1, ancestors, out)
+	}
+
 	kind, err := btNodeKind(n, p)
 	if err != nil {
 		return err
@@ -461,7 +465,7 @@ func walkBTTree(n Node, p string, depth int, ancestors map[uintptr]bool, out *[]
 		if !isNilNode(v.root) {
 			return walkBTTree(v.root, childPath(p, 0), depth+1, ancestors, out)
 		}
-	case actionNode, conditionNode, *waitNode:
+	case *actionNode, *conditionNode, *waitNode:
 		// Leaves have no children.
 	default:
 		if cn, ok := n.(ChildNodes); ok {
@@ -497,9 +501,9 @@ func btNodeKind(n Node, p string) (string, error) {
 		return string(BTNodeCooldown), nil
 	case *guardNode:
 		return string(BTNodeGuard), nil
-	case actionNode:
+	case *actionNode:
 		return string(BTNodeAction), nil
-	case conditionNode:
+	case *conditionNode:
 		return string(BTNodeCondition), nil
 	case *waitNode:
 		return string(BTNodeWait), nil
@@ -618,7 +622,7 @@ func captureBTNode(e btTreeEntry) (BTNodeSnapshot, error) {
 		if running >= 0 {
 			rec.RunningChild = intPtr(running)
 		}
-	case *inverterNode, *succeederNode, *failerNode, *untilFailNode, actionNode, conditionNode, *BehaviorTree:
+	case *inverterNode, *succeederNode, *failerNode, *untilFailNode, *actionNode, *conditionNode, *BehaviorTree:
 		// Stateless built-in nodes.
 	default:
 		if sn, ok := v.(SnapshotNode); ok {
@@ -956,7 +960,7 @@ func validateBTNodeRestore(e btTreeEntry, rec *BTNodeSnapshot) (func(), Snapshot
 		}
 		return func() { v.btRestoreUtilityState(active, running) }, nil, nil
 
-	case *inverterNode, *succeederNode, *failerNode, *untilFailNode, actionNode, conditionNode, *BehaviorTree:
+	case *inverterNode, *succeederNode, *failerNode, *untilFailNode, *actionNode, *conditionNode, *BehaviorTree:
 		return nil, nil, nil
 
 	default:
