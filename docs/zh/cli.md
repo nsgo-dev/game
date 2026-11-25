@@ -161,11 +161,12 @@ benchmarks:
 ```sh
 go run github.com/nsgo-dev/game/packages/game/cmd/game@latest new mygame
 go tool game new -name "Space Rocks" -module example.com/rocks rocks
+go tool game new -list
 ```
 
-把起手模板（即 `template/template` 中、`nsgo init -template github.com/nsgo-dev/game/template` 写出的那个项目）写入指定目录，目录不存在时会创建，并打印每个文件的路径。随后在该目录运行 `go get -tool github.com/nsgo-dev/game/packages/game/cmd/game@<version>` 和 `go mod tidy`，这两步需要访问 Go 模块代理。这样项目依赖该版本的游戏层，`game` 工具与 `nsgo` 工具并列，无需修改即可用 `go tool nsgo dev` 构建运行。
+用一个模板生成项目并写入指定目录，目录不存在时会创建，并打印每个文件的路径。随后在该目录运行 `go get -tool github.com/nsgo-dev/game/packages/game/cmd/game@<version>` 和 `go mod tidy`，这两步需要访问 Go 模块代理。这样项目依赖该版本的游戏层，`game` 工具与 `nsgo` 工具并列，无需修改即可用 `go tool nsgo dev` 构建运行。
 
-游戏名称默认取目录名，`-name` 可以另行指定（字母、数字、空格、`-` 和 `_`，以字母开头）。名称写入 `game.yaml` 和 `nsgo.yaml` 的 `name`，`id` 由它派生为 `dev.nsgo.<去掉空格和标点的小写名称>`。模块路径默认是小写名称、单词之间用 `-` 连接，`-module` 可以另行指定。与标准库包同名的模块路径（例如名为 Time 的游戏得到的 `time`）会被拒绝，因为这样的项目无法构建，此时需要用 `-module` 指定，例如 `-module example.com/time`。`-version` 是要依赖的游戏层版本，例如 `v0.4.0`、某个提交或 `latest`；默认是正在运行的命令自身的版本，所以 `go run …@v0.4.0 new` 创建的项目使用 `v0.4.0`，而从本仓库的检出构建的命令则使用 `latest`。`-template` 选择模板，目前只有 `starter`。
+游戏名称默认取目录名，`-name` 可以另行指定（字母、数字、空格、`-` 和 `_`，以字母开头）。名称写入 `game.yaml` 和 `nsgo.yaml` 的 `name`，`id` 由它派生为 `dev.nsgo.<去掉空格和标点的小写名称>`。模块路径默认是小写名称、单词之间用 `-` 连接，`-module` 可以另行指定。与标准库包同名的模块路径（例如名为 Time 的游戏得到的 `time`）会被拒绝，因为这样的项目无法构建，此时需要用 `-module` 指定，例如 `-module example.com/time`。`-version` 是要依赖的游戏层版本，例如 `v0.4.0`、某个提交或 `latest`；默认是正在运行的命令自身的版本，所以 `go run …@v0.4.0 new` 创建的项目使用 `v0.4.0`，而从本仓库的检出构建的命令则使用 `latest`。`-template` 选择模板，默认是 `starter`；未知的模板名会被拒绝，并列出现有的模板名。`-list` 打印每个模板的名称（标出默认模板）和一行说明，不创建任何文件。[项目模板](templates.md)列出了所有模板以及 `nsgo init -template` 对应的模块，并说明模板的目录结构和如何新增模板。
 
 只要目录中已经存在任何一个将要写入的文件，`new` 就什么也不写，并以 1 退出。`go get` 或 `go mod tidy` 失败时（例如没有网络），已写入的文件会保留，错误信息会列出还需在该目录运行的命令以完成项目：`go get` 失败时是 `go get -tool …` 和 `go mod tidy` 两条，`go mod tidy` 失败时只有它一条。
 

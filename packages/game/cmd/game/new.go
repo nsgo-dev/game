@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"embed"
 	"errors"
 	"flag"
 	"fmt"
@@ -22,14 +21,15 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-// newCommand creates a game project from a template.
+// newCommand creates a game project from a template, or lists the templates.
 var newCommand = &command{
 	name:    "new",
 	args:    "<dir>",
 	summary: "Create a game project in a directory from a template, with its go.mod requiring the game layer and the game and nsgo tools",
 	define:  defineNew,
 	complete: map[string]completion{
-		"": filePaths,
+		"template": oneOf(templateNames()...),
+		"":         filePaths,
 	},
 }
 
@@ -39,33 +39,6 @@ const (
 	// gameTool is this command's package, which a new project adds as a tool.
 	gameTool = gameModule + "/cmd/game"
 )
-
-// starterFS holds the starter project, a copy of template/template in this repository that TestStarterMatchesTemplateModule keeps identical.
-//
-//go:embed all:_templates/starter
-var starterFS embed.FS
-
-// projectTemplate is a project game new can start from.
-type projectTemplate struct {
-	// name is what -template takes.
-	name string
-	// files are the project's files: a file ending in .tmpl, nsgo.yaml and main.go are rendered with text/template and newData's fields, as nsgo init -template renders a template module's, and the rest are copied.
-	files fs.FS
-}
-
-// projectTemplates are the templates game new offers, the default first.
-var projectTemplates = []projectTemplate{
-	{name: "starter", files: mustSub(starterFS, "_templates/starter")},
-}
-
-// mustSub returns the subtree of fsys at dir, which is embedded and so always there.
-func mustSub(fsys fs.FS, dir string) fs.FS {
-	sub, err := fs.Sub(fsys, dir)
-	if err != nil {
-		panic(err)
-	}
-	return sub
-}
 
 // runGo runs the go command with args in dir, writing its output to stdout and stderr. A test replaces it to keep go from reaching the network.
 var runGo = func(dir string, stdout, stderr io.Writer, args ...string) error {
@@ -109,16 +82,20 @@ var (
 )
 
 func defineNew(a *app, fs *flag.FlagSet) func() error {
-	names := make([]string, len(projectTemplates))
-	for i, t := range projectTemplates {
-		names[i] = t.name
-	}
+	names := templateNames()
+	list := fs.Bool("list", false, "list the templates, each with a line describing it, instead of creating a project")
 	name := fs.String("name", "", "the game's display name in game.yaml and nsgo.yaml: letters, digits, spaces, - and _ (default: the directory's name)")
 	module := fs.String("module", "", "the module path in go.mod (default: the name in lower case with its words joined by -)")
-	tmpl := fs.String("template", projectTemplates[0].name, "the template to start from: "+strings.Join(names, ", "))
+	tmpl := fs.String("template", projectTemplates[0].name, "the template to start from: "+strings.Join(names, ", ")+"; -list describes each")
 	version := fs.String("version", "", "the version of "+gameModule+" to require, such as v0.4.0, a commit or latest (default: this command's own version, or latest for a development build)")
 
 	return func() error {
+		if *list {
+			if fs.NArg() > 0 {
+				return usagef("-list takes no directory")
+			}
+			return writeTemplateList(a.stdout)
+		}
 		if fs.NArg() == 0 {
 			return usagef("a directory is required")
 		}

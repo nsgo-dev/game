@@ -502,44 +502,7 @@ func TestWriteProjectCreatesDirectories(t *testing.T) {
 	}
 }
 
-// TestStarterMatchesTemplateModule keeps the starter game new embeds identical to template/template, the starter nsgo init -template github.com/nsgo-dev/game/template writes, when the repository is checked out around this module. After changing template/template, copy it over: rm -r _templates/starter && cp -R ../../../../template/template _templates/starter (from this directory).
-func TestStarterMatchesTemplateModule(t *testing.T) {
-	const moduleDir = "../../../../template/template"
-	if _, err := os.Stat(filepath.Join(moduleDir, "go.mod.tmpl")); err != nil {
-		t.Skipf("no template module checked out beside this one: %v", err)
-	}
-	want := os.DirFS(moduleDir)
-	got := projectTemplates[0].files
-	collect := func(fsys fs.FS) map[string][]byte {
-		files := map[string][]byte{}
-		err := fs.WalkDir(fsys, ".", func(name string, d fs.DirEntry, err error) error {
-			if err != nil || d.IsDir() {
-				return err
-			}
-			files[name], err = fs.ReadFile(fsys, name)
-			return err
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		return files
-	}
-	wantFiles, gotFiles := collect(want), collect(got)
-	for name, content := range wantFiles {
-		if g, ok := gotFiles[name]; !ok {
-			t.Errorf("_templates/starter has no %s", name)
-		} else if !bytes.Equal(g, content) {
-			t.Errorf("_templates/starter/%s differs from template/template's", name)
-		}
-	}
-	for name := range gotFiles {
-		if _, ok := wantFiles[name]; !ok {
-			t.Errorf("_templates/starter/%s is not in template/template", name)
-		}
-	}
-}
-
-// TestNewProjectBuildsAndPassesItsTests creates a project, points it at this checkout of the game module in place of the go get game new runs, which needs the network, then builds it, runs the game tool it adds and runs its tests with the nsgo tool it already has, all offline from the module cache.
+// TestNewProjectBuildsAndPassesItsTests creates a project from each template, points it at this checkout of the game module in place of the go get game new runs, which needs the network, then builds it, runs the game tool it adds and runs its tests with the nsgo tool it already has, all offline from the module cache.
 func TestNewProjectBuildsAndPassesItsTests(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds a project")
@@ -548,32 +511,36 @@ func TestNewProjectBuildsAndPassesItsTests(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stubGo(t, nil)
-	dir := filepath.Join(t.TempDir(), "mygame")
-	a, _, stderr := newTestApp(t)
-	if code := run([]string{"new", "-module", "example.com/mygame", dir}, a); code != 0 {
-		t.Fatalf("exit %d: %s", code, stderr)
-	}
+	for _, tmpl := range projectTemplates {
+		t.Run(tmpl.name, func(t *testing.T) {
+			stubGo(t, nil)
+			dir := filepath.Join(t.TempDir(), "mygame")
+			a, _, stderr := newTestApp(t)
+			if code := run([]string{"new", "-template", tmpl.name, "-module", "example.com/mygame", dir}, a); code != 0 {
+				t.Fatalf("exit %d: %s", code, stderr)
+			}
 
-	env := append(os.Environ(), "GOWORK=off", "GOPROXY=off", "GOSUMDB=off", "GOTOOLCHAIN=local", "GOFLAGS="+strings.TrimSpace(os.Getenv("GOFLAGS")+" -mod=mod"))
-	goCmd := func(args ...string) string {
-		t.Helper()
-		cmd := exec.Command("go", args...)
-		cmd.Dir, cmd.Env = dir, env
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("go %s: %v\n%s", strings.Join(args, " "), err, out)
-		}
-		return string(out)
+			env := append(os.Environ(), "GOWORK=off", "GOPROXY=off", "GOSUMDB=off", "GOTOOLCHAIN=local", "GOFLAGS="+strings.TrimSpace(os.Getenv("GOFLAGS")+" -mod=mod"))
+			goCmd := func(args ...string) string {
+				t.Helper()
+				cmd := exec.Command("go", args...)
+				cmd.Dir, cmd.Env = dir, env
+				out, err := cmd.CombinedOutput()
+				if err != nil {
+					t.Fatalf("go %s: %v\n%s", strings.Join(args, " "), err, out)
+				}
+				return string(out)
+			}
+			goCmd("mod", "edit", "-replace="+gameModule+"="+gameDir, "-tool="+gameTool)
+			exe := filepath.Join(t.TempDir(), "mygame")
+			if runtime.GOOS == "windows" {
+				exe += ".exe"
+			}
+			goCmd("build", "-o", exe, ".")
+			if out := goCmd("tool", "game", "help"); !strings.Contains(out, "\n  new ") {
+				t.Errorf("go tool game help:\n%s", out)
+			}
+			goCmd("tool", "nsgo", "test", "./...")
+		})
 	}
-	goCmd("mod", "edit", "-replace="+gameModule+"="+gameDir, "-tool="+gameTool)
-	exe := filepath.Join(t.TempDir(), "mygame")
-	if runtime.GOOS == "windows" {
-		exe += ".exe"
-	}
-	goCmd("build", "-o", exe, ".")
-	if out := goCmd("tool", "game", "help"); !strings.Contains(out, "\n  new ") {
-		t.Errorf("go tool game help:\n%s", out)
-	}
-	goCmd("tool", "nsgo", "test", ".")
 }

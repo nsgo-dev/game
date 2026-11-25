@@ -1,0 +1,79 @@
+# 项目模板
+
+新项目从一个模板开始：模板是一个小而完整的游戏，在你改动任何一行之前就能构建、运行并通过测试。`game new` 把模板写入一个新目录，NSGo 自带的 `nsgo init -template` 则从模板的 Go 模块写出同样的文件。
+
+## 现有模板
+
+| 模板 | 内容 | `nsgo init -template` 模块 |
+| --- | --- | --- |
+| `starter` | 一个点击得分的 2D 游戏：固定步长循环上的动画精灵、原生 HUD 和无头测试，是最小的起步项目。默认模板。 | `github.com/nsgo-dev/game/template` |
+
+`go tool game new -list` 由命令自身打印同样的列表，默认模板排在最前。
+
+## 用模板创建项目
+
+```sh
+go run github.com/nsgo-dev/game/packages/game/cmd/game@latest new -list
+go run github.com/nsgo-dev/game/packages/game/cmd/game@latest new -template starter mygame
+```
+
+不加 `-template` 时，`game new` 使用 `starter`。不在列表中的名称会被拒绝，并列出现有的模板名。`go tool game` 的 shell 补全（见[命令行](cli.md#completion)）会用同样的名称补全 `-template`。其他参数见[命令行](cli.md#new)。
+
+NSGo 自带的命令不需要 `game` 工具，也能从模板的模块写出项目，这需要支持 [Go 模块模板](https://nsgo.dev/zh/docs/getting-started/#来自-go-模块的模板)的 NSGo 命令，例如 `go install github.com/nsgo-dev/nsgo/cmd/nsgo@v0.3.0`：
+
+```sh
+nsgo init -template github.com/nsgo-dev/game/template -module example.com/mygame mygame
+```
+
+每个模板使用上表列出的模块，加上 `@<version>` 可以固定版本。这样写出的 `game.yaml` 和 `nsgo.yaml` 保留模板自己的游戏名称和标识符，需要你自己修改；而 `game new` 会按目录名或 `-name` 设置它们。
+
+## 模板的目录结构
+
+每个模板都是本仓库中一个独立的 Go 模块，因为 `nsgo init -template` 写出的是所给模块根目录下的 `template` 目录。`starter` 就是 `template/` 模块本身；其他每个模板都是 `template/<name>/` 中的模块 `github.com/nsgo-dev/game/template/<name>`：
+
+```text
+template/
+├─ go.mod                     module github.com/nsgo-dev/game/template
+├─ template/                  starter
+└─ <name>/
+   ├─ go.mod                  module github.com/nsgo-dev/game/template/<name>
+   └─ template/               <name> 模板
+      ├─ go.mod.tmpl
+      ├─ go.sum
+      ├─ game.yaml
+      ├─ nsgo.yaml
+      ├─ main.go
+      ├─ …_test.go
+      ├─ README.md
+      └─ .gitignore
+packages/game/cmd/game/
+├─ templates.go               注册表：每个模板一条
+└─ _templates/projects/
+   ├─ starter/                template/template 的副本
+   └─ <name>/                 template/<name>/template 的副本
+```
+
+`game new` 嵌入 `_templates/projects` 下的副本，所以它在模块缓存中、没有本仓库时也能工作。仓库的 `go.work` 使用每个模板模块，因此在检出的仓库中，`go tool nsgo dev ./template/<name>/template` 运行某个模板，`go tool nsgo test ./template/<name>/template` 用本地的游戏层测试它。
+
+## 新增模板
+
+新增一个模板用一个单独的 pull request：
+
+1. 创建模块：`template/<name>/go.mod` 声明 `module github.com/nsgo-dev/game/template/<name>`，`go` 行与 `template/go.mod` 相同，项目放在 `template/<name>/template/`。名称只能用小写字母、数字和 `-`，以字母开头，且不能是 `template`。
+2. 把 `./template/<name>` 加入 `go.work` 的 `use` 列表。
+3. 在 `packages/game/cmd/game` 中把项目复制进 `game` 命令：`cp -R ../../../../template/<name>/template _templates/projects/<name>`。
+4. 在 `packages/game/cmd/game/templates.go` 的 `projectTemplates` 中加一条：`newProjectTemplate("<name>", templateModuleRoot+"/<name>", "<一行英文，说明这是什么游戏>")`。
+5. 在 `.github/workflows/test.yml` 的 `templates` 任务的 `include` 列表中加一条：`template: <name>` 和 `dir: template/<name>/template`。
+6. 在 `docs/en/templates.md` 和 `docs/zh/templates.md` 上面的表格中为模板各加一行，并在 `changelog.d/` 下加一个片段。
+
+`template/<name>/template/` 中的项目遵循以下规则，测试会尽可能检查它们：
+
+- `go.mod.tmpl` 以 `module {{.Module}}` 开头，依赖一个已发布的、包含模板所用全部包的 `github.com/nsgo-dev/game/packages/game` 版本，并带有 `tool github.com/nsgo-dev/nsgo/cmd/nsgo`。它是唯一含模板动作的文件：`game new` 和 `nsgo init` 也会渲染 `nsgo.yaml` 和 `main.go`，但模板还必须在工作区中原样构建。名为 `go.mod` 的文件会让该目录成为独立模块，`go:embed` 和工作区都无法包含它。
+- `go.sum` 记录所固定模块的校验和。生成方法：在仓库外复制一份模板，把其中的 `go.mod.tmpl` 变成 `go.mod`，然后在那里运行 `GOWORK=off go mod tidy`。
+- `game.yaml` 是规范格式（`go run github.com/nsgo-dev/game/packages/game/cmd/gameproject check` 会检查），`nsgo.yaml` 与它一致；`game new` 会替换两者的 `name` 和 `id`。
+- 包含 `main.go`、`README.md`、`.gitignore` 和测试，并且在 `packages/game` 中运行 `go run ./cmd/game index ../../template` 无事可做。
+- 模板作者编写的每个文件都是文本，与本仓库中的任何项目一样。
+
+缺少上述任何一步时，`packages/game/cmd/game` 的测试都会失败：`_templates/projects` 下的副本与模块的 `template` 目录有任何一个字节不同；某个 `template/*/template` 目录没有注册；某条注册没有副本、模块或 `go.work` 条目；CI 矩阵没有按顺序列出已注册的模板；本页或其英文版中没有写明模板及其模块的那一行。测试还会用每个模板创建项目，用本地游戏层构建并运行它的测试。
+
+CI 的 `templates` 任务以开发者拿到项目的方式测试每个模板：把模板复制到工作区之外，为 `example.com/<name>game` 渲染 `go.mod`，并在 `GOWORK=off` 下运行 `go tool nsgo test ./...`，因此项目依赖的是 `go.mod.tmpl` 固定的游戏层版本，而不是当前检出的代码。如果模板需要尚未发布的包，等该包合入 `main` 后再提升这个固定版本。

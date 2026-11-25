@@ -12,7 +12,7 @@ go get -tool github.com/nsgo-dev/game/packages/game/cmd/game@latest
 
 | Command | Usage | Purpose |
 | --- | --- | --- |
-| `game new` | `game new [-name -module -template -version] <dir>` | Scaffold a game project (`go.mod`, `game.yaml`, `nsgo.yaml`, starter code and tests) |
+| `game new` | `game new [-list -name -module -template -version] <dir>` | Scaffold a game project (`go.mod`, `game.yaml`, `nsgo.yaml`, code and tests) from a template, `starter` by default; `-list` lists the templates |
 | `game dev` | `game dev [-assets -fps -target] [dir] [nsgo dev flags]` | Run `nsgo dev` with live asset hot reload (`hotreload.DevAssetsDir`) |
 | `game generate` | `game generate [-in -autoload -main] component\|system\|scene\|prefab <name>` | Generate Go code, tests, `.scene.yaml` files and registrations into a project |
 | `game editor` | `game editor [-library] [project-dir \| game.yaml \| scene.yaml] [clip.animation.yaml [object-id]]` | Open the scene and animation clip editor |
