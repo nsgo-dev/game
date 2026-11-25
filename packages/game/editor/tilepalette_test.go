@@ -249,8 +249,9 @@ func TestTilePaletteChoosesTheTilePaintSaves(t *testing.T) {
 		t.Fatalf("status = %q, want the selected tile 3", got)
 	}
 
-	// Tile (1, 1) is empty; canvas (24, 24) is inside it.
-	app.PressAt("id:editor-viewport", core.Point{X: 24, Y: 24})
+	// Tile (1, 1) is empty; world (24, 24) is inside it.
+	tx, ty := ed.WorldToCanvas(24, 24)
+	app.PressAt("id:editor-viewport", core.Point{X: core.Points(tx), Y: core.Points(ty)})
 	if got := ed.Doc.Layers[0].Tilemap.Data[1*4+1]; got != 3 {
 		t.Fatalf("painted tile (1,1) = %d, want 3", got)
 	}
