@@ -170,14 +170,15 @@ type PerceptionSystem struct {
 	eng    sense.Engine
 }
 
-// Add adds p to the system, after the agents already in it. Adding p again does nothing; adding a Perception that belongs to another system panics.
+// Add adds p to the system, after the agents already in it. Adding p again does nothing; adding a Perception that belongs to another system panics. A copy of a Perception that was added, such as a configured prototype, is a separate agent: Add gives it its own copy of the memories and no events.
 func (s *PerceptionSystem) Add(p *Perception) {
 	if s.eng.Register(&p.state, s) {
+		p.events = nil
 		s.agents = append(s.agents, p)
 	}
 }
 
-// Remove removes p from the system, keeping its memories, and reports whether it was there.
+// Remove removes p from the system and reports whether it was there. p keeps its memories, but none of them is visible any more and Events is empty, so Sees reports false until p is added and stepped again.
 func (s *PerceptionSystem) Remove(p *Perception) bool {
 	i := slices.Index(s.agents, p)
 	if i < 0 {
@@ -185,6 +186,7 @@ func (s *PerceptionSystem) Remove(p *Perception) bool {
 	}
 	s.agents = slices.Delete(s.agents, i, i+1)
 	p.state.Release()
+	p.events = p.events[:0]
 	return true
 }
 

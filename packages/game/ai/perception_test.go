@@ -438,6 +438,123 @@ func TestPerceptionSystemMembership(t *testing.T) {
 	}
 }
 
+func TestPerceptionBudgetChangingCandidates(t *testing.T) {
+	const budget = 5
+	rec := &losRecorder{clear: true}
+	sys := ai.PerceptionSystem{Budget: budget, LineOfSight: rec.check}
+	agent := func(x float32) *ai.Perception {
+		return &ai.Perception{Team: teamGuards, Pos: pt(x, 0), Sight: ai.SightConfig{Range: 1000, HalfAngle: math.Pi}}
+	}
+	a0, a1, a2 := agent(0), agent(1), agent(2)
+	sys.Add(a0)
+	sys.Add(a1)
+	sys.Add(a2)
+	targets := func(ids ...int) []ai.Target {
+		var ts []ai.Target
+		for _, j := range ids {
+			ts = append(ts, ai.Target{ID: ai.StimulusID(100 + j), Team: teamIntrude, Pos: pt(500, float32(j))})
+		}
+		return ts
+	}
+	run := func(name string, ts []ai.Target, want ...[2]int) {
+		t.Helper()
+		rec.calls = rec.calls[:0]
+		sys.Step(step, ts)
+		if !reflect.DeepEqual(rec.calls, want) {
+			t.Fatalf("%s: calls %v, want %v", name, rec.calls, want)
+		}
+		if st := sys.Stats(); st.Checks != len(want) || st.Deferred != st.Candidates-len(want) {
+			t.Fatalf("%s: stats %+v", name, st)
+		}
+	}
+
+	run("first round", targets(0, 1, 2, 3), [2]int{0, 0}, [2]int{0, 1}, [2]int{0, 2}, [2]int{0, 3}, [2]int{1, 0})
+
+	// The cursor's agent leaves: the round resumes at the first pair after the cursor, and wraps.
+	sys.Remove(a1)
+	run("cursor agent removed", targets(0, 1, 2, 3), [2]int{2, 0}, [2]int{2, 1}, [2]int{2, 2}, [2]int{2, 3}, [2]int{0, 0})
+
+	// The cursor's target despawns: the round resumes at the agent's next target.
+	run("cursor target gone", targets(1, 2, 3), [2]int{0, 1}, [2]int{0, 2}, [2]int{0, 3}, [2]int{2, 1}, [2]int{2, 2})
+
+	// A new agent and a re-added one join at the end, in the order they were added.
+	late := agent(5)
+	sys.Add(late)
+	sys.Add(a1)
+	run("agents joined", targets(1, 2, 3), [2]int{2, 3}, [2]int{5, 1}, [2]int{5, 2}, [2]int{5, 3}, [2]int{1, 1})
+
+	// With the set stable again, every pair is served within ceil(n/budget) steps.
+	served := map[[2]int]bool{}
+	for _, c := range rec.calls {
+		served[c] = true
+	}
+	const pairs = 4 * 3
+	for range (pairs+budget-1)/budget - 1 {
+		rec.calls = rec.calls[:0]
+		sys.Step(step, targets(1, 2, 3))
+		for _, c := range rec.calls {
+			served[c] = true
+		}
+	}
+	if len(served) != pairs {
+		t.Fatalf("served %d of %d pairs: %v", len(served), pairs, served)
+	}
+}
+
+func TestPerceptionCopyAndRemove(t *testing.T) {
+	var sys ai.PerceptionSystem
+	g1 := guard()
+	sys.Add(g1)
+	sys.Step(step, []ai.Target{{ID: 10, Team: teamIntrude, Pos: pt(50, 0)}})
+
+	// A copy of an added Perception is a separate agent with its own memories.
+	g2 := *g1
+	sys.Add(&g2)
+	if sys.Len() != 2 {
+		t.Fatalf("Len after adding a copy = %d", sys.Len())
+	}
+	if !g2.Sees(10) || !g2.Forget(10) || !g1.Sees(10) {
+		t.Fatal("the copy does not have its own memories")
+	}
+	if len(g2.Events()) != 0 {
+		t.Fatalf("copy events = %+v", g2.Events())
+	}
+	sys.Step(step, []ai.Target{{ID: 11, Team: teamIntrude, Pos: pt(60, 0)}})
+	ids := func(p *ai.Perception) []ai.StimulusID {
+		var out []ai.StimulusID
+		for _, m := range p.Memories() {
+			out = append(out, m.ID)
+		}
+		return out
+	}
+	if got := ids(g1); !reflect.DeepEqual(got, []ai.StimulusID{10, 11}) {
+		t.Fatalf("original remembers %v", got)
+	}
+	if got := ids(&g2); !reflect.DeepEqual(got, []ai.StimulusID{11}) {
+		t.Fatalf("copy remembers %v", got)
+	}
+	if len(g1.Events()) != 2 || len(g2.Events()) != 1 || g2.Events()[0].Kind != ai.EventGained {
+		t.Fatalf("events: original %+v, copy %+v", g1.Events(), g2.Events())
+	}
+
+	// A removed agent keeps its memories but sees nothing and reports no events.
+	if !sys.Remove(g1) {
+		t.Fatal("Remove")
+	}
+	m, ok := g1.Memory(11)
+	if !ok || m.Visible || g1.Sees(11) || len(g1.Events()) != 0 {
+		t.Fatalf("after Remove: memory %+v %v, sees %v, events %+v", m, ok, g1.Sees(11), g1.Events())
+	}
+	if !g2.Sees(11) {
+		t.Fatal("removing the original changed the copy")
+	}
+	sys.Add(g1)
+	sys.Step(step, []ai.Target{{ID: 11, Team: teamIntrude, Pos: pt(60, 0)}})
+	if !g1.Sees(11) || len(g1.Events()) != 1 || g1.Events()[0].Kind != ai.EventUpdated {
+		t.Fatalf("after re-adding: sees %v, events %+v", g1.Sees(11), g1.Events())
+	}
+}
+
 func TestPerceptionPhysicsLineOfSight(t *testing.T) {
 	const layerWalls physics.LayerMask = 1 << 1
 	wall := physics.NewBoxBody(30, -20, 10, 40)

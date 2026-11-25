@@ -791,7 +791,7 @@ for _, ev := range guard.Events() {
 
 ### 记忆与事件
 
-每个智能体按 `StimulusID` 为每个刺激保存一条 `Memory`，因此先被看见、后被听见的同一目标只刷新同一条记忆。记忆包含最后已知的 `Pos` 与 `Vel`（听到时速度为零）、最近一次刷新它的感官 `Sense`、自上次感知以来的 `Age`、当前是否 `Visible`，以及强度 `Strength`：看见时为 1，听见时至少提升到 `1 - 距离/可听范围`（可听范围为无穷大时为 1），并在 `ForgetAfter` 内线性衰减到 0。`Age` 达到 `ForgetAfter` 时记忆被遗忘。可用 `Memories`、`AppendMemories`、`Memory(id)` 与 `Sees(id)` 读取记忆，用 `Forget(id)` 与 `Clear` 删除记忆。
+每个智能体按 `StimulusID` 为每个刺激保存一条 `Memory`，因此先被看见、后被听见的同一目标只刷新同一条记忆。记忆包含最后已知的 `Pos` 与 `Vel`（听到时速度为零）、最近一次刷新它的感官 `Sense`、自上次感知以来的 `Age`、当前是否 `Visible`，以及强度 `Strength`：看见时为 1，听见时至少提升到 `1 - 距离/可听范围`（可听范围为无穷大时为 1），并在 `ForgetAfter` 内线性衰减到 0。`Age` 达到 `ForgetAfter` 时记忆被遗忘。可用 `Memories`、`AppendMemories`、`Memory(id)` 与 `Sees(id)` 读取记忆，用 `Forget(id)` 与 `Clear` 删除记忆。`Remove` 把智能体移出系统但保留其记忆，此时所有记忆都不再可见、也没有事件，因此在它被重新加入并步进之前 `Sees` 都返回 false。已加入系统的 `Perception` 的副本（例如配置好的原型）是独立的智能体：`Add` 会给它一份自己的记忆副本。
 
 每次 `Step` 之后，`Events` 列出发生的变化：
 
