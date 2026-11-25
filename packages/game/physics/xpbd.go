@@ -1483,7 +1483,7 @@ func collideParticleRigidBody2D(x, y, r float64, rb *RigidBody) (nx, ny, depth f
 			}
 			s, _ := rb.poseShape()
 			var buf [4]hullManifold
-			for _, cm := range chainManifolds(s.Chain, &p, buf[:0]) {
+			for _, cm := range chainManifolds(s.Chain, &p, buf[:0], 0) {
 				if cm.maxDepth() > m.maxDepth() {
 					m = cm
 				}

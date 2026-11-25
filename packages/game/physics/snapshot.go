@@ -104,6 +104,33 @@ type RigidBodySnapshot struct {
 	SyncAngle float32 `json:"syncAngle,omitempty"`
 	// DerivedInertia is the Inertia the body last derived from its shape.
 	DerivedInertia float32 `json:"derivedInertia,omitempty"`
+	Bullet         bool    `json:"bullet,omitempty"`
+	// Sleeping reports that the body rests in a sleeping island; SleepEnv is the gravity, damping and fluid it fell asleep in.
+	Sleeping bool        `json:"sleeping,omitempty"`
+	SleepEnv *AreaEffect `json:"sleepEnv,omitempty"`
+	// SleepTime is how long, in seconds, the body has moved slower than the sleep thresholds.
+	SleepTime float64 `json:"sleepTime,omitempty"`
+	// RestValid reports that (RestX, RestY, RestAngle) is the pose the body ended its last step with, which tells the next step whether it was moved by hand.
+	RestValid bool    `json:"restValid,omitempty"`
+	RestX     float32 `json:"restX,omitempty"`
+	RestY     float32 `json:"restY,omitempty"`
+	RestAngle float32 `json:"restAngle,omitempty"`
+}
+
+// RigidContactPointSnapshot captures the impulses one contact point ended a step with, which warm-start the next step.
+type RigidContactPointSnapshot struct {
+	// Feature names the pair of shape features in contact.
+	Feature        uint32  `json:"feature"`
+	NormalImpulse  float64 `json:"normalImpulse"`
+	TangentImpulse float64 `json:"tangentImpulse"`
+}
+
+// RigidContactSnapshot captures one cached contact manifold of a RigidWorld: the pair of bodies, as indices into RigidWorldSnapshot.Bodies, the manifold's index within the pair (the chain segment against a Chain, 0 otherwise) and its points.
+type RigidContactSnapshot struct {
+	BodyAIndex int                         `json:"bodyAIndex"`
+	BodyBIndex int                         `json:"bodyBIndex"`
+	Sub        int                         `json:"sub,omitempty"`
+	Points     []RigidContactPointSnapshot `json:"points,omitempty"`
 }
 
 // RigidJointSnapshot captures the complete public and private solver state of one RigidWorld Joint.
@@ -214,19 +241,23 @@ type RigidJointBreakEventSnapshot struct {
 	Torque     float32             `json:"torque"`
 }
 
-// RigidWorldSnapshot captures the complete deterministic state of a RigidWorld,
-// including all rigid bodies (and pending forces/torques), joints and their
-// private constraint state, joint-break events, area triggers, gravity, and
-// solver configuration. It marshals cleanly with encoding/json.
+// RigidWorldSnapshot captures the complete deterministic state of a RigidWorld, including all rigid bodies (and pending forces/torques, sleep state and timers), joints and their private constraint state, joint-break events, the warm-start contact cache, area triggers, gravity, and solver and sleep configuration. It marshals cleanly with encoding/json.
 type RigidWorldSnapshot struct {
-	Version          int                            `json:"version"`
-	GravityX         float32                        `json:"gravityX"`
-	GravityY         float32                        `json:"gravityY"`
-	SolverIterations int                            `json:"solverIterations"`
-	Bodies           []RigidBodySnapshot            `json:"bodies,omitempty"`
-	Joints           []RigidJointSnapshot           `json:"joints,omitempty"`
-	JointBreakEvents []RigidJointBreakEventSnapshot `json:"jointBreakEvents,omitempty"`
-	Triggers         []TriggerSnapshot              `json:"triggers,omitempty"`
+	Version               int                            `json:"version"`
+	GravityX              float32                        `json:"gravityX"`
+	GravityY              float32                        `json:"gravityY"`
+	SolverIterations      int                            `json:"solverIterations"`
+	DisableSleep          bool                           `json:"disableSleep,omitempty"`
+	SleepLinearThreshold  float32                        `json:"sleepLinearThreshold,omitempty"`
+	SleepAngularThreshold float32                        `json:"sleepAngularThreshold,omitempty"`
+	TimeToSleep           float32                        `json:"timeToSleep,omitempty"`
+	Bodies                []RigidBodySnapshot            `json:"bodies,omitempty"`
+	Joints                []RigidJointSnapshot           `json:"joints,omitempty"`
+	JointBreakEvents      []RigidJointBreakEventSnapshot `json:"jointBreakEvents,omitempty"`
+	Triggers              []TriggerSnapshot              `json:"triggers,omitempty"`
+	// Contacts is the warm-start cache between bodies of Bodies, and LastDt the length in seconds of the step that filled it.
+	Contacts []RigidContactSnapshot `json:"contacts,omitempty"`
+	LastDt   float64                `json:"lastDt,omitempty"`
 }
 
 func snapshotBody(b *Body) BodySnapshot {
@@ -596,6 +627,17 @@ func snapshotRigidBody(b *RigidBody) RigidBodySnapshot {
 		ForceY:          b.forceY,
 		Torque:          b.torque,
 		DerivedInertia:  b.derivedInertia,
+		Bullet:          b.Bullet,
+		Sleeping:        b.sleeping,
+		SleepTime:       b.sleepTime,
+		RestValid:       b.restValid,
+		RestX:           b.restX,
+		RestY:           b.restY,
+		RestAngle:       b.restAngle,
+	}
+	if b.sleeping {
+		env := b.sleepEnv
+		s.SleepEnv = &env
 	}
 	if b.hasLocal {
 		local := cloneShape(b.local)
@@ -638,6 +680,16 @@ func applyRigidBodySnapshot(dst *RigidBody, src RigidBodySnapshot) {
 		forceY:          src.ForceY,
 		torque:          src.Torque,
 		derivedInertia:  src.DerivedInertia,
+		Bullet:          src.Bullet,
+		sleeping:        src.Sleeping,
+		sleepTime:       src.SleepTime,
+		restValid:       src.RestValid,
+		restX:           src.RestX,
+		restY:           src.RestY,
+		restAngle:       src.RestAngle,
+	}
+	if src.SleepEnv != nil {
+		dst.sleepEnv = *src.SleepEnv
 	}
 	if src.Local != nil && hasFreeShape(src.Local.Kind) {
 		dst.local = cloneShape(*src.Local)
@@ -666,10 +718,15 @@ func (w *RigidWorld) Save() RigidWorldSnapshot {
 		return RigidWorldSnapshot{Version: SnapshotVersion}
 	}
 	snap := RigidWorldSnapshot{
-		Version:          SnapshotVersion,
-		GravityX:         w.GravityX,
-		GravityY:         w.GravityY,
-		SolverIterations: w.SolverIterations,
+		Version:               SnapshotVersion,
+		GravityX:              w.GravityX,
+		GravityY:              w.GravityY,
+		SolverIterations:      w.SolverIterations,
+		DisableSleep:          w.DisableSleep,
+		SleepLinearThreshold:  w.SleepLinearThreshold,
+		SleepAngularThreshold: w.SleepAngularThreshold,
+		TimeToSleep:           w.TimeToSleep,
+		LastDt:                w.lastDt,
 	}
 
 	bodyIdx := make(map[*RigidBody]int, len(w.Bodies))
@@ -729,6 +786,20 @@ func (w *RigidWorld) Save() RigidWorldSnapshot {
 		if tr != nil {
 			snap.Triggers = append(snap.Triggers, snapshotTrigger(tr))
 		}
+	}
+
+	// Cached contacts with a body that has left the world would be dropped by the next step, so they are not saved.
+	for _, c := range w.contacts {
+		ia, okA := bodyIdx[c.key.a]
+		ib, okB := bodyIdx[c.key.b]
+		if !okA || !okB {
+			continue
+		}
+		cs := RigidContactSnapshot{BodyAIndex: ia, BodyBIndex: ib, Sub: c.key.sub}
+		for _, p := range c.points[:c.count] {
+			cs.Points = append(cs.Points, RigidContactPointSnapshot{Feature: p.id, NormalImpulse: p.pn, TangentImpulse: p.pt})
+		}
+		snap.Contacts = append(snap.Contacts, cs)
 	}
 	return snap
 }
@@ -1344,6 +1415,14 @@ func (w *RigidWorld) Restore(snap RigidWorldSnapshot) error {
 			return fmt.Errorf("physics: jointBreakEvents[%d] has out-of-range bodyB index %d", i, ev.BodyBIndex)
 		}
 	}
+	for i, cs := range snap.Contacts {
+		if cs.BodyAIndex < 0 || cs.BodyAIndex >= len(snap.Bodies) || cs.BodyBIndex < 0 || cs.BodyBIndex >= len(snap.Bodies) || cs.BodyAIndex == cs.BodyBIndex {
+			return fmt.Errorf("physics: contacts[%d] has out-of-range bodies %d and %d", i, cs.BodyAIndex, cs.BodyBIndex)
+		}
+		if len(cs.Points) > 2 {
+			return fmt.Errorf("physics: contacts[%d] has %d points (at most 2)", i, len(cs.Points))
+		}
+	}
 
 	existingBodiesByID := make(map[int]*RigidBody, len(w.Bodies))
 	existingBodiesUsed := make(map[*RigidBody]bool, len(w.Bodies))
@@ -1443,13 +1522,31 @@ func (w *RigidWorld) Restore(snap RigidWorldSnapshot) error {
 		restoredTriggers[i] = dst
 	}
 
+	contacts := make([]rigidCachedManifold, 0, len(snap.Contacts))
+	for _, cs := range snap.Contacts {
+		c := rigidCachedManifold{
+			key:   rigidPairKey{a: restoredBodies[cs.BodyAIndex], b: restoredBodies[cs.BodyBIndex], sub: cs.Sub},
+			count: len(cs.Points),
+		}
+		for k, p := range cs.Points {
+			c.points[k] = rigidCachedPoint{id: p.Feature, pn: p.NormalImpulse, pt: p.TangentImpulse}
+		}
+		contacts = append(contacts, c)
+	}
+
 	w.GravityX = snap.GravityX
 	w.GravityY = snap.GravityY
 	w.SolverIterations = snap.SolverIterations
+	w.DisableSleep = snap.DisableSleep
+	w.SleepLinearThreshold = snap.SleepLinearThreshold
+	w.SleepAngularThreshold = snap.SleepAngularThreshold
+	w.TimeToSleep = snap.TimeToSleep
 	w.Bodies = restoredBodies
 	w.Joints = restoredJoints
 	w.jointBreakEvents = restoredBreakEvents
 	w.Triggers = restoredTriggers
+	w.contacts = contacts
+	w.lastDt = snap.LastDt
 	return nil
 }
 
@@ -1464,6 +1561,11 @@ func (w *RigidWorld) Checksum() uint64 {
 	h.WriteFloat32(w.GravityX)
 	h.WriteFloat32(w.GravityY)
 	h.WriteInt(w.SolverIterations)
+	h.WriteBool(w.DisableSleep)
+	h.WriteFloat32(w.SleepLinearThreshold)
+	h.WriteFloat32(w.SleepAngularThreshold)
+	h.WriteFloat32(w.TimeToSleep)
+	h.WriteFloat64(w.lastDt)
 
 	bodyIdx := make(map[*RigidBody]int, len(w.Bodies))
 	bodyCount := 0
@@ -1529,6 +1631,32 @@ func (w *RigidWorld) Checksum() uint64 {
 	for _, tr := range w.Triggers {
 		if tr != nil {
 			hashTrigger(&h, tr)
+		}
+	}
+	// The contact cache, in order, with the same rule as Save for contacts whose bodies left the world.
+	contactCount := 0
+	for _, c := range w.contacts {
+		if _, ok := bodyIdx[c.key.a]; ok {
+			if _, ok := bodyIdx[c.key.b]; ok {
+				contactCount++
+			}
+		}
+	}
+	h.WriteInt(contactCount)
+	for _, c := range w.contacts {
+		ia, okA := bodyIdx[c.key.a]
+		ib, okB := bodyIdx[c.key.b]
+		if !okA || !okB {
+			continue
+		}
+		h.WriteInt(ia)
+		h.WriteInt(ib)
+		h.WriteInt(c.key.sub)
+		h.WriteInt(c.count)
+		for _, p := range c.points[:c.count] {
+			h.WriteUint32(p.id)
+			h.WriteFloat64(p.pn)
+			h.WriteFloat64(p.pt)
 		}
 	}
 	return h.Sum64()
@@ -1897,6 +2025,18 @@ func hashRigidBody(h *detmath.Hasher, b *RigidBody) {
 	h.WriteFloat64(b.forceX)
 	h.WriteFloat64(b.forceY)
 	h.WriteFloat64(b.torque)
+	h.WriteBool(b.Bullet)
+	h.WriteBool(b.sleeping)
+	h.WriteFloat64(b.sleepTime)
+	if b.sleeping {
+		hashAreaEffect(h, b.sleepEnv)
+	}
+	h.WriteBool(b.restValid)
+	if b.restValid {
+		h.WriteFloat32(b.restX)
+		h.WriteFloat32(b.restY)
+		h.WriteFloat32(b.restAngle)
+	}
 	// Shape-derived state is hashed only when it carries information beyond the fields above, so Box and Circle bodies with derived inertia keep the digest they had before free shapes existed.
 	if !b.hasLocal && b.derivedInertia == b.Inertia {
 		return
@@ -1914,4 +2054,20 @@ func hashRigidBody(h *detmath.Hasher, b *RigidBody) {
 			h.WriteFloat32(b.syncAngle)
 		}
 	}
+}
+
+func hashAreaEffect(h *detmath.Hasher, e AreaEffect) {
+	h.WriteFloat32(e.GravityX)
+	h.WriteFloat32(e.GravityY)
+	h.WriteFloat32(e.LinearDamping)
+	h.WriteFloat32(e.AngularDamping)
+	h.WriteBool(e.HasLinearDamping)
+	h.WriteBool(e.HasAngularDamping)
+	h.WriteFloat32(e.SubmergedFraction)
+	h.WriteFloat32(e.BuoyancyAccelX)
+	h.WriteFloat32(e.BuoyancyAccelY)
+	h.WriteFloat32(e.FluidLinearDrag)
+	h.WriteFloat32(e.FluidAngularDrag)
+	h.WriteFloat32(e.FluidVelX)
+	h.WriteFloat32(e.FluidVelY)
 }

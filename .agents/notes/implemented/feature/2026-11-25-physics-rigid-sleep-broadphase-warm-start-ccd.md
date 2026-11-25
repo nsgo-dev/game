@@ -1,0 +1,53 @@
+# Agent Note: Sleeping, Broadphase, Warm Starting and Continuous Collision for 2D Rigid Bodies
+
+Status: implemented
+
+## Problem
+
+`RigidWorld` (#321) tested every pair of bodies in contact detection and again in each of the four positional iterations, restarted every contact impulse at zero each step, never let resting bodies stop costing time, and let a fast body pass through a thin wall in one step (#804). Stacks needed many iterations and still swayed: a 12-box tower collapsed with the default 10 iterations, a 20-box pyramid never came to rest, and a 500-body scene was quadratic. `physics3d` already sleeps, warm-starts and sweeps fast bodies, so the 2D solver was behind it.
+
+## Decision
+
+`Step` runs, in order: wake disturbed islands, integrate velocities of awake bodies, broadphase, wake sleeping bodies an awake one touches, detect and prepare manifolds, warm start, solve, store the impulse cache, integrate positions, sweep fast bodies, positional correction (a fresh broadphase per iteration), sync shapes, put resting islands to sleep, and record every body's pose.
+
+- **Broadphase (`rigid_island.go`, `broadphase`)**: sort and sweep along X, ties broken by body index so the order is total, then the pairs sorted as `i<<32 | j`. It must report exactly the pairs the old `i < j` double loop's bounding-box test kept, with the same `<=` comparisons, filters (empty shapes, static pairs, `CanCollideRigid`) and order, so manifolds stay bit-identical. A body whose box has a NaN coordinate cannot be sorted; it is tested against every other body with the double loop's box test, which may still cull it on its finite axis. No state persists between passes, so a restored world needs nothing for it.
+- **Feature ids (`narrow.go`, `rigid.go`)**: every contact point carries an id. Clipped points encode the reference face, the incident edge, whether the reference face is on shape B, and whether the point is an incident vertex kept by clipping, a point cut by a side plane, a lone incident point or the fallback deepest vertex (`clipFeatureID`). Single-point contacts use `pointFeatureID`, with the exit face for a circle inside a box. Chain manifolds carry their segment index as `sub`. OBB–OBB keeps the reference axis unless another separates by `tieEps` = 0.05 px more, as `b2CollidePolygons` does with 0.1 × linear slop; with 1e-5 the reference flipped between two stacked boxes every few steps, changing ids and dropping their impulses.
+- **Speculative points**: a manifold of two overlapping shapes also keeps clipped points up to `speculativeDistance` = 1 px apart, with a negative depth (`collideHullsWithin`, the OBB clipper). Overlap itself is unchanged: a pair with no touching point still has no manifold, so area overlap tests and `TestShapes` see the same hits, and `collideHulls` with margin 0 is the old function. The solver lets such a point close by `-depth / h` before pushing (`speculativeBias`), except when restitution applies. Without it a box resting a hair off level has one corner in contact, rocks onto the other, and warm starting amplifies the rocking; with it the pyramid sleeps in under a second.
+- **Warm starting**: `storeContacts` keeps each manifold's `(pn, pt)` per point, keyed by `(a, b, sub)` and the point id, in manifold order. `warmStart` looks the key up through a scratch map (lookups only, never iterated), scales by `h / lastDt` and applies the impulses before the iterations; restitution's bias is computed from the velocity before warm starting. Entries for pairs whose bodies are both asleep or static carry over unchanged, so a woken island resumes from its resting impulses and the cache doubles as the record of which bodies touch.
+- **Sleeping**: a dynamic body below `SleepLinearThreshold` (2 px/s) and `SleepAngularThreshold` (2°/s) accumulates `sleepTime`. Islands are a union-find over this step's manifolds and awake joints (static bodies never link islands, the smaller index is the root); an island whose shortest rest time reaches `TimeToSleep` (0.5 s) sleeps with zeroed velocities and records the area environment it rests in (`restEnvironment`: gravity times gravity scale, damping, buoyancy, fluid). At the start of the next step a sleeping body wakes when its pose differs from the one it ended the last step with, its velocity, force or torque is non-zero, its environment changed, a cached partner left `Bodies`, or a static partner moved; then union-find over the cache and the joints wakes the rest of each island. After the broadphase, a sleeping body in a candidate pair whose narrowphase touches an awake dynamic body wakes, repeated until nothing more wakes. Pairs and joints with no awake dynamic body are not detected, solved or corrected; a positional correction against a sleeping body wakes it. `Apply*` and `Wake` wake immediately. `DisableSleep` wakes everything and stops sleeping.
+- **Continuous collision (`rigid_ccd.go`)**: after position integration, an awake dynamic body is swept when it is a `Bullet` or when its translation plus its turn times its core's reach exceeds its half thickness (distance from center to nearest face plus radius). The sweep is conservative advancement on the rounded hulls against every static body whose box meets the swept box, chain segments one by one: advance by gap over (translation along the normal plus turn times reach), stop within `ccdTargetSeparation` + `ccdTolerance` of the surface, give up after 32 iterations at a safe time. A static body already within the target gap at the start never stops the sweep. A hit whose remaining motion would leave the body less than half its half thickness inside is left to the regular contacts unless the body is a `Bullet`. The earliest hit moves the body back and removes its approach velocity at the contact point with the solver's restitution rule.
+- **Snapshots**: `RigidBodySnapshot` gains `Bullet`, `Sleeping`, `SleepEnv`, `SleepTime` and the rest pose; `RigidWorldSnapshot` gains the sleep settings, `Contacts` (body indices, `Sub`, per-point `Feature` and impulses, contacts with bodies outside `Bodies` dropped) and `LastDt`. `SnapshotVersion` stays 1: every field is optional and an old snapshot restores with an empty cache. `Checksum` hashes all of it, so golden hashes changed (`TestGoldenTrajectory2D`, `TestRollbackPhysics2DSoak`); they match on amd64 and arm64. Every new multiply-add is wrapped in `float64(...)`.
+
+## Alternatives considered
+
+### A dynamic AABB tree
+
+Box2D's tree gives incremental updates and fast queries for scenes with many static bodies. It is rejected because its shape depends on insertion and removal history, so the pair order would need a sort anyway and a restored world would have to rebuild the same tree to stay bit-identical. Sort and sweep keeps no state, matches the brute-force order by construction, and its sort of 500 boxes is a small part of a step.
+
+### Match cached points by position instead of feature ids
+
+Matching the nearest cached point in a body's local frame needs no narrowphase changes. It is rejected because the tolerance is scale-dependent in a pixel-unit world, two points of a small box can fall within it, and the issue asks for caching per feature; ids name exactly the features Box2D's manifolds track.
+
+### Persistent island ids for sleeping bodies
+
+Storing an island id when an island sleeps would wake it without a union-find. It is rejected because the carried-over cache entries already record which sleeping bodies touch, and ids would need renumbering on `RemoveBody` and their own snapshot field.
+
+### Box2D v3's soft step and relax iterations instead of speculative points plus warm starting
+
+Soft constraints with relaxation are more robust for very tall stacks. They are rejected for this change because they rewrite the velocity and position solvers and every joint, while the issue scopes warm starting; speculative points plus warm starting meet the pyramid and tower targets with the existing solver.
+
+### Sweep with the speculative margin instead of time of impact
+
+Large speculative margins handle fast bodies without a separate sweep. They are rejected because a margin as large as a bullet's step creates contacts with geometry the body never reaches, which catch it on corners and ramps.
+
+### A timed 60 fps test
+
+A test that fails when a step takes longer than 16.7 ms states the acceptance directly. It is rejected because on a loaded machine (load above 200 while other sessions compiled) the same code took 22 ms a step against 5.5 ms on an idle one; the 500-body scenario is a benchmark, and a deterministic test checks the broadphase reports contacts, not body pairs.
+
+## Consequences
+
+- **Benefits**: a 20-box pyramid sleeps after about 0.6 s and a 12-box tower stands and sleeps with the default iterations, where both used to sway or collapse. A 6 px circle at 2000 to 20000 px/s stops at a 4 px box, a rotated polygon, a segment or a chain, and boxes, circles, polygons and capsules at 6000 px/s stop on a 2 px floor. The 500-body scenario steps in about 2 ms while falling and 5 to 6 ms packed (one desktop core), and a world without areas allocates nothing per step once its buffers have grown.
+- **Costs**: the trajectories of every rigid world change, so recorded replays and golden checksums made before this change no longer match. A large pile is one island and stays awake while any body in it jitters. Fast bodies are not swept against each other, and an impact ends the body's motion for that step. A sleeping body whose shape is edited does not wake. Speculative points make manifolds carry points with negative depth, which code reading `rigidContactPoint.depth` must ignore, as the positional pass does.
+- **Testing**: `TestBroadphaseMatchesBruteForce` and `FuzzBroadphaseMatchesBruteForce` compare manifolds bit for bit with the old double loop on random scenes of every shape, layers, nil and empty bodies, coincident boxes and a NaN body, before and after stepping; `TestBroadphaseScalesWithContactsNotBodyPairs` checks the pair count. `TestRigidPyramidSleepsWithinThreeSeconds`, `TestRigidSleepWakeTriggers` (13 wake causes and one non-cause), `TestRigidJointLinksSleepIsland`, `TestRigidSleepThresholds` and `TestRigidSleepSurvivesSaveRestore` cover sleeping; `TestWarmStartCarriesRestingImpulse` and `TestWarmStartHoldsTallTower` cover the cache; `rigid_ccd_test.go` covers sweeps, bounces, sliding, layers and `Bullet`.
+
+See [convex shapes](2026-11-25-physics-convex-capsule-segment-chain.md) for the narrowphase this builds on and [snapshots and determinism](2026-11-25-physics-save-determinism.md) for the FMA and snapshot contract it follows.
