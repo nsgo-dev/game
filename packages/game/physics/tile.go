@@ -25,11 +25,36 @@ type TileGrid interface {
 	TileFlagsAt(col, row int) TileFlags
 }
 
+// TileGridOrigin is an optional interface a TileGrid may implement to place cell (0, 0)
+// at a non-zero world-space origin (x, y) instead of (0, 0).
+//
+// When implemented, cell (col, row) occupies
+// [x + col*tileW, x + (col+1)*tileW) × [y + row*tileH, y + (row+1)*tileH),
+// and GridSize still gives the valid cell index span [0, cols) × [0, rows).
+type TileGridOrigin interface {
+	GridOrigin() (x, y float32)
+}
+
+func tileGridOrigin(grid TileGrid) (float64, float64) {
+	if og, ok := grid.(TileGridOrigin); ok {
+		x, y := og.GridOrigin()
+		return float64(x), float64(y)
+	}
+	return 0, 0
+}
+
 // Grid is a row-major TileGrid backed by a flat slice of TileFlags.
 type Grid struct {
 	Cols, Rows            int
 	TileWidth, TileHeight float32
-	Cells                 []TileFlags
+	// OriginX and OriginY place cell (0, 0)'s top-left corner in world coordinates.
+	OriginX, OriginY float32
+	Cells            []TileFlags
+}
+
+// GridOrigin returns the world-space origin of cell (0, 0).
+func (g *Grid) GridOrigin() (x, y float32) {
+	return g.OriginX, g.OriginY
 }
 
 // NewGrid returns a Grid with cols columns and rows rows of tiles sized tileWidth by tileHeight.
@@ -183,6 +208,7 @@ func MoveAndSlide(b *Body, grid TileGrid, dt time.Duration) MoveResult {
 	}
 
 	tw, th := float64(tileW), float64(tileH)
+	ox, oy := tileGridOrigin(grid)
 	box := b.Shape.Bounds()
 	x, y := float64(box.X), float64(box.Y)
 	w, h := float64(box.W), float64(box.H)
@@ -215,11 +241,11 @@ func MoveAndSlide(b *Body, grid TileGrid, dt time.Duration) MoveResult {
 		if stepDX != 0 {
 			x += stepDX
 			yEps := spanEpsilon(y, h)
-			minRow := max(0, int(math.Floor((y+yEps)/th)))
-			maxRow := min(rows-1, int(math.Ceil((y+h-yEps)/th))-1)
+			minRow := max(0, int(math.Floor((y-oy+yEps)/th)))
+			maxRow := min(rows-1, int(math.Ceil((y-oy+h-yEps)/th))-1)
 			xEps := spanEpsilon(x, w)
-			minCol := max(0, int(math.Floor((x+xEps)/tw)))
-			maxCol := min(cols-1, int(math.Ceil((x+w-xEps)/tw))-1)
+			minCol := max(0, int(math.Floor((x-ox+xEps)/tw)))
+			maxCol := min(cols-1, int(math.Ceil((x-ox+w-xEps)/tw))-1)
 
 			if minRow <= maxRow && minCol <= maxCol {
 				if stepDX > 0 {
@@ -232,7 +258,7 @@ func MoveAndSlide(b *Body, grid TileGrid, dt time.Duration) MoveResult {
 							}
 						}
 						if hitCol >= 0 {
-							x = float64(hitCol)*tw - w
+							x = ox + float64(hitCol)*tw - w
 							b.OnRightWall = true
 							b.VX = 0
 							stepDX = 0
@@ -249,7 +275,7 @@ func MoveAndSlide(b *Body, grid TileGrid, dt time.Duration) MoveResult {
 							}
 						}
 						if hitCol >= 0 {
-							x = float64(hitCol+1) * tw
+							x = ox + float64(hitCol+1)*tw
 							b.OnLeftWall = true
 							b.VX = 0
 							stepDX = 0
@@ -265,17 +291,17 @@ func MoveAndSlide(b *Body, grid TileGrid, dt time.Duration) MoveResult {
 			prevBottom := y + h
 			y += stepDY
 			xEps := spanEpsilon(x, w)
-			minCol := max(0, int(math.Floor((x+xEps)/tw)))
-			maxCol := min(cols-1, int(math.Ceil((x+w-xEps)/tw))-1)
+			minCol := max(0, int(math.Floor((x-ox+xEps)/tw)))
+			maxCol := min(cols-1, int(math.Ceil((x-ox+w-xEps)/tw))-1)
 			yEps := spanEpsilon(y, h)
-			minRow := max(0, int(math.Floor((y+yEps)/th)))
-			maxRow := min(rows-1, int(math.Ceil((y+h-yEps)/th))-1)
+			minRow := max(0, int(math.Floor((y-oy+yEps)/th)))
+			maxRow := min(rows-1, int(math.Ceil((y-oy+h-yEps)/th))-1)
 
 			if minCol <= maxCol && minRow <= maxRow {
 				if stepDY > 0 {
 					hitRow := -1
 					for row := minRow; row <= maxRow; row++ {
-						tileTop := float64(row) * th
+						tileTop := oy + float64(row)*th
 						oneWayEps := max(1e-4, 1e-5*math.Abs(tileTop))
 						for col := minCol; col <= maxCol; col++ {
 							flags := grid.TileFlagsAt(col, row)
@@ -287,7 +313,7 @@ func MoveAndSlide(b *Body, grid TileGrid, dt time.Duration) MoveResult {
 							}
 						}
 						if hitRow >= 0 {
-							y = float64(hitRow)*th - h
+							y = oy + float64(hitRow)*th - h
 							b.Grounded = true
 							b.VY = 0
 							stepDY = 0
@@ -304,7 +330,7 @@ func MoveAndSlide(b *Body, grid TileGrid, dt time.Duration) MoveResult {
 							}
 						}
 						if hitRow >= 0 {
-							y = float64(hitRow+1) * th
+							y = oy + float64(hitRow+1)*th
 							b.OnCeiling = true
 							b.VY = 0
 							stepDY = 0

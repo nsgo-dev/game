@@ -335,11 +335,13 @@ func DrawTileContacts(d *core.Drawing, grid TileGrid, contacts []TileContact, st
 	if tileW <= 0 || tileH <= 0 {
 		return
 	}
+	ox64, oy64 := tileGridOrigin(grid)
+	ox, oy := float32(ox64), float32(oy64)
 	st := resolveDebugStyle(d, style)
 	d.Save()
 	for _, tc := range contacts {
-		cx := (float32(tc.Col) + 0.5) * tileW
-		cy := (float32(tc.Row) + 0.5) * tileH
+		cx := ox + (float32(tc.Col)+0.5)*tileW
+		cy := oy + (float32(tc.Row)+0.5)*tileH
 		px := cx + tc.NormalX*(tileW*0.5)
 		py := cy + tc.NormalY*(tileH*0.5)
 		drawContactPoint(d, px, py, tc.NormalX, tc.NormalY, st.contactColor, st)
@@ -375,8 +377,9 @@ func visibleTileRange(grid TileGrid, visible core.Bounds) (minCol, maxCol, minRo
 		return 0, 0, 0, 0, 0, 0, false
 	}
 	tw, th := float64(tileW), float64(tileH)
-	visMinX := float64(visible.Origin.X)
-	visMinY := float64(visible.Origin.Y)
+	ox, oy := tileGridOrigin(grid)
+	visMinX := float64(visible.Origin.X) - ox
+	visMinY := float64(visible.Origin.Y) - oy
 	visMaxX := visMinX + float64(visible.Size.Width)
 	visMaxY := visMinY + float64(visible.Size.Height)
 
@@ -391,10 +394,12 @@ func visibleTileRange(grid TileGrid, visible core.Bounds) (minCol, maxCol, minRo
 }
 
 func drawTileGridRange(d *core.Drawing, grid TileGrid, minCol, maxCol, minRow, maxRow int, tileW, tileH float32, st resolvedStyle) {
+	ox64, oy64 := tileGridOrigin(grid)
+	ox, oy := float32(ox64), float32(oy64)
 	// Pass 1: solid tile boxes.
 	solidStarted := false
 	for row := minRow; row <= maxRow; row++ {
-		y := float32(row) * tileH
+		y := oy + float32(row)*tileH
 		for col := minCol; col <= maxCol; col++ {
 			if grid.TileFlagsAt(col, row)&TileSolid == 0 {
 				continue
@@ -405,7 +410,7 @@ func drawTileGridRange(d *core.Drawing, grid TileGrid, minCol, maxCol, minRow, m
 				d.BeginPath()
 				solidStarted = true
 			}
-			d.Rect(float32(col)*tileW, y, tileW, tileH)
+			d.Rect(ox+float32(col)*tileW, y, tileW, tileH)
 		}
 	}
 	if solidStarted {
@@ -419,7 +424,7 @@ func drawTileGridRange(d *core.Drawing, grid TileGrid, minCol, maxCol, minRow, m
 		tick = tileH * 0.25
 	}
 	for row := minRow; row <= maxRow; row++ {
-		y := float32(row) * tileH
+		y := oy + float32(row)*tileH
 		for col := minCol; col <= maxCol; col++ {
 			flags := grid.TileFlagsAt(col, row)
 			if flags&TileSolid != 0 || flags&TileOneWay == 0 {
@@ -431,7 +436,7 @@ func drawTileGridRange(d *core.Drawing, grid TileGrid, minCol, maxCol, minRow, m
 				d.BeginPath()
 				oneWayStarted = true
 			}
-			x := float32(col) * tileW
+			x := ox + float32(col)*tileW
 			d.MoveTo(x, y+tick)
 			d.LineTo(x, y)
 			d.LineTo(x+tileW, y)

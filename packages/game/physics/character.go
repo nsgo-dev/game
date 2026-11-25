@@ -197,7 +197,7 @@ func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingP
 	}
 
 	var hasGrid bool
-	var tw, th float64
+	var tw, th, ox, oy float64
 	var cols, rows int
 	if grid != nil {
 		tileW, tileH := grid.TileSize()
@@ -205,6 +205,7 @@ func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingP
 		if tileW > 0 && tileH > 0 && gc > 0 && gr > 0 {
 			hasGrid = true
 			tw, th = float64(tileW), float64(tileH)
+			ox, oy = tileGridOrigin(grid)
 			cols, rows = gc, gr
 		}
 	}
@@ -229,11 +230,11 @@ func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingP
 			return false
 		}
 		yEps := spanEpsilon(y, h)
-		minRow := max(0, int(math.Floor((y+yEps)/th)))
-		maxRow := min(rows-1, int(math.Ceil((y+h-yEps)/th))-1)
+		minRow := max(0, int(math.Floor((y-oy+yEps)/th)))
+		maxRow := min(rows-1, int(math.Ceil((y-oy+h-yEps)/th))-1)
 		xEps := spanEpsilon(x, w)
-		minCol := max(0, int(math.Floor((x+xEps)/tw)))
-		maxCol := min(cols-1, int(math.Ceil((x+w-xEps)/tw))-1)
+		minCol := max(0, int(math.Floor((x-ox+xEps)/tw)))
+		maxCol := min(cols-1, int(math.Ceil((x-ox+w-xEps)/tw))-1)
 		if minRow > maxRow || minCol > maxCol {
 			return false
 		}
@@ -247,7 +248,7 @@ func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingP
 					}
 				}
 				if hitCol >= 0 {
-					x = float64(hitCol)*tw - w
+					x = ox + float64(hitCol)*tw - w
 					b.OnRightWall = true
 					return true
 				}
@@ -262,7 +263,7 @@ func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingP
 					}
 				}
 				if hitCol >= 0 {
-					x = float64(hitCol+1) * tw
+					x = ox + float64(hitCol+1)*tw
 					b.OnLeftWall = true
 					return true
 				}
@@ -276,18 +277,18 @@ func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingP
 			return false, false
 		}
 		xEps := spanEpsilon(x, w)
-		minCol := max(0, int(math.Floor((x+xEps)/tw)))
-		maxCol := min(cols-1, int(math.Ceil((x+w-xEps)/tw))-1)
+		minCol := max(0, int(math.Floor((x-ox+xEps)/tw)))
+		maxCol := min(cols-1, int(math.Ceil((x-ox+w-xEps)/tw))-1)
 		yEps := spanEpsilon(y, h)
-		minRow := max(0, int(math.Floor((y+yEps)/th)))
-		maxRow := min(rows-1, int(math.Ceil((y+h-yEps)/th))-1)
+		minRow := max(0, int(math.Floor((y-oy+yEps)/th)))
+		maxRow := min(rows-1, int(math.Ceil((y-oy+h-yEps)/th))-1)
 		if minCol > maxCol || minRow > maxRow {
 			return false, false
 		}
 		if dy > 0 {
 			hitRow := -1
 			for row := minRow; row <= maxRow; row++ {
-				tileTop := float64(row) * th
+				tileTop := oy + float64(row)*th
 				oneWayEps := max(1e-4, 1e-5*math.Abs(tileTop))
 				for col := minCol; col <= maxCol; col++ {
 					flags := grid.TileFlagsAt(col, row)
@@ -299,7 +300,7 @@ func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingP
 					}
 				}
 				if hitRow >= 0 {
-					y = float64(hitRow)*th - h
+					y = oy + float64(hitRow)*th - h
 					return true, false
 				}
 			}
@@ -313,7 +314,7 @@ func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingP
 					}
 				}
 				if hitRow >= 0 {
-					y = float64(hitRow+1) * th
+					y = oy + float64(hitRow+1)*th
 					b.OnCeiling = true
 					return false, true
 				}
@@ -328,10 +329,10 @@ func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingP
 		}
 		xEps := spanEpsilon(tx, w)
 		yEps := spanEpsilon(ty, h)
-		minCol := max(0, int(math.Floor((tx+xEps)/tw)))
-		maxCol := min(cols-1, int(math.Ceil((tx+w-xEps)/tw))-1)
-		minRow := max(0, int(math.Floor((ty+yEps)/th)))
-		maxRow := min(rows-1, int(math.Ceil((ty+h-yEps)/th))-1)
+		minCol := max(0, int(math.Floor((tx-ox+xEps)/tw)))
+		maxCol := min(cols-1, int(math.Ceil((tx-ox+w-xEps)/tw))-1)
+		minRow := max(0, int(math.Floor((ty-oy+yEps)/th)))
+		maxRow := min(rows-1, int(math.Ceil((ty-oy+h-yEps)/th))-1)
 		for row := minRow; row <= maxRow; row++ {
 			for col := minCol; col <= maxCol; col++ {
 				if grid.TileFlagsAt(col, row)&TileSolid != 0 {
@@ -831,12 +832,12 @@ func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingP
 		// 3c. Check resting flush on solid or one-way tiles.
 		if !c.Grounded && hasGrid {
 			bottom := y + h
-			row := int(math.Floor((bottom + restEps) / th))
+			row := int(math.Floor((bottom - oy + restEps) / th))
 			if row >= 0 && row < rows {
-				tileTop := float64(row) * th
+				tileTop := oy + float64(row)*th
 				if math.Abs(bottom-tileTop) <= restEps {
-					minCol := max(0, int(math.Floor((x+xEps)/tw)))
-					maxCol := min(cols-1, int(math.Ceil((x+w-xEps)/tw))-1)
+					minCol := max(0, int(math.Floor((x-ox+xEps)/tw)))
+					maxCol := min(cols-1, int(math.Ceil((x-ox+w-xEps)/tw))-1)
 					for col := minCol; col <= maxCol; col++ {
 						flags := grid.TileFlagsAt(col, row)
 						if flags&TileSolid != 0 || (flags&TileOneWay != 0 && !b.OneWayDrop) {

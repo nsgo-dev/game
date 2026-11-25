@@ -122,10 +122,12 @@ func (w *World) QueryOverlapLayer(shape Shape, mask QueryMask, layerMask LayerMa
 		if tileW > 0 && tileH > 0 && cols > 0 && rows > 0 {
 			bounds := shape.Bounds()
 			tw, th := float64(tileW), float64(tileH)
-			minCol := max(0, int(math.Floor(float64(bounds.X)/tw)))
-			maxCol := min(cols-1, int(math.Ceil((float64(bounds.X)+float64(bounds.W))/tw))-1)
-			minRow := max(0, int(math.Floor(float64(bounds.Y)/th)))
-			maxRow := min(rows-1, int(math.Ceil((float64(bounds.Y)+float64(bounds.H))/th))-1)
+			ox, oy := tileGridOrigin(w.Tiles)
+			ox32, oy32 := float32(ox), float32(oy)
+			minCol := max(0, int(math.Floor((float64(bounds.X)-ox)/tw)))
+			maxCol := min(cols-1, int(math.Ceil((float64(bounds.X)-ox+float64(bounds.W))/tw))-1)
+			minRow := max(0, int(math.Floor((float64(bounds.Y)-oy)/th)))
+			maxRow := min(rows-1, int(math.Ceil((float64(bounds.Y)-oy+float64(bounds.H))/th))-1)
 
 			for row := minRow; row <= maxRow; row++ {
 				for col := minCol; col <= maxCol; col++ {
@@ -134,8 +136,8 @@ func (w *World) QueryOverlapLayer(shape Shape, mask QueryMask, layerMask LayerMa
 						continue
 					}
 					tileBox := Box{
-						X: float32(col) * tileW,
-						Y: float32(row) * tileH,
+						X: ox32 + float32(col)*tileW,
+						Y: oy32 + float32(row)*tileH,
 						W: tileW,
 						H: tileH,
 					}
@@ -441,6 +443,9 @@ func raycastTiles(fx, fy, dx, dy float64, grid TileGrid, mask QueryMask, maxT fl
 		return nil
 	}
 	tw, th := float64(tileW), float64(tileH)
+	ox, oy := tileGridOrigin(grid)
+	fx -= ox
+	fy -= oy
 	gridW, gridH := float64(cols)*tw, float64(rows)*th
 
 	// Clip the segment [0, maxT] to the grid bounds [0, gridW] x [0, gridH].
@@ -528,7 +533,7 @@ func raycastTiles(fx, fy, dx, dy float64, grid TileGrid, mask QueryMask, maxT fl
 		if flags&TileSolid != 0 && mask&QueryTiles != 0 {
 			return []RaycastHit{{
 				T:         0,
-				Point:     core.Point{X: core.Points(startX), Y: core.Points(startY)},
+				Point:     core.Point{X: core.Points(ox + startX), Y: core.Points(oy + startY)},
 				Tile:      true,
 				Col:       col,
 				Row:       row,
@@ -573,7 +578,7 @@ func raycastTiles(fx, fy, dx, dy float64, grid TileGrid, mask QueryMask, maxT fl
 	if flags := grid.TileFlagsAt(col, row); tileMatchesRay(flags, mask, ny) {
 		hits = append(hits, RaycastHit{
 			T:         float32(tStart),
-			Point:     core.Point{X: core.Points(startX), Y: core.Points(startY)},
+			Point:     core.Point{X: core.Points(ox + startX), Y: core.Points(oy + startY)},
 			NormalX:   nx,
 			NormalY:   ny,
 			Tile:      true,
@@ -652,7 +657,7 @@ func raycastTiles(fx, fy, dx, dy float64, grid TileGrid, mask QueryMask, maxT fl
 		if flags := grid.TileFlagsAt(col, row); tileMatchesRay(flags, mask, hny) {
 			hits = append(hits, RaycastHit{
 				T:         float32(tHit),
-				Point:     core.Point{X: core.Points(fx + dx*tHit), Y: core.Points(fy + dy*tHit)},
+				Point:     core.Point{X: core.Points(ox + fx + dx*tHit), Y: core.Points(oy + fy + dy*tHit)},
 				NormalX:   hnx,
 				NormalY:   hny,
 				Tile:      true,

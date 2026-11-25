@@ -1081,8 +1081,13 @@ func drawPhysicsTilesOverlay(dst *image.RGBA, clip image.Rectangle, worldM affin
 		return
 	}
 	tw, th := float64(tileW), float64(tileH)
-	visMinX := float64(visible.Origin.X)
-	visMinY := float64(visible.Origin.Y)
+	var ox, oy float64
+	if og, ok := grid.(physics.TileGridOrigin); ok {
+		gx, gy := og.GridOrigin()
+		ox, oy = float64(gx), float64(gy)
+	}
+	visMinX := float64(visible.Origin.X) - ox
+	visMinY := float64(visible.Origin.Y) - oy
 	visMaxX := visMinX + float64(visible.Size.Width)
 	visMaxY := visMinY + float64(visible.Size.Height)
 
@@ -1098,14 +1103,14 @@ func drawPhysicsTilesOverlay(dst *image.RGBA, clip image.Rectangle, worldM affin
 	tick := th * 0.25
 
 	for row := minRow; row <= maxRow; row++ {
-		y := float64(row) * th
+		y := oy + float64(row)*th
 		for col := minCol; col <= maxCol; col++ {
 			flags := grid.TileFlagsAt(col, row)
 			if flags&physics.TileSolid != 0 {
-				drawCrispRectOutline(dst, clip, worldM, float64(col)*tw, y, tw, th, style.SolidTileColor)
+				drawCrispRectOutline(dst, clip, worldM, ox+float64(col)*tw, y, tw, th, style.SolidTileColor)
 				drawn.PhysicsTiles++
 			} else if flags&physics.TileOneWay != 0 {
-				drawOneWayTileOverlay(dst, clip, worldM, float64(col)*tw, y, tw, tick, owR, owG, owB, owA)
+				drawOneWayTileOverlay(dst, clip, worldM, ox+float64(col)*tw, y, tw, tick, owR, owG, owB, owA)
 				drawn.PhysicsTiles++
 			}
 		}

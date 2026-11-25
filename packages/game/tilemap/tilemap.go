@@ -451,10 +451,13 @@ type cellKey struct {
 
 // Tilemap is a tiled world of tile layers, image layers, tilesets, object layers, custom properties and per-tile collision flags.
 type Tilemap struct {
-	Width         int
-	Height        int
-	TileWidth     float32
-	TileHeight    float32
+	Width      int
+	Height     int
+	TileWidth  float32
+	TileHeight float32
+	// Origin is the world-space position of the map's local (0, 0) point (typically the top-left corner of cell (0, 0)).
+	// Drawing, WorldBounds, TileOrigin, TileToWorld, WorldToTile, TilesInRect, Raycast, and AppendYSortTiles all honor Origin.
+	Origin        core.Point
 	Orientation   Orientation
 	StaggerAxis   StaggerAxis
 	StaggerIndex  StaggerIndex
@@ -465,6 +468,8 @@ type Tilemap struct {
 	Tilesets      []*Tileset
 	Objects       []ObjectLayer
 	Properties    Properties
+	// Neighbours lists adjacent or overlapping levels in a multi-level world (populated by LDtk loaders).
+	Neighbours []LevelNeighbour
 
 	tileFlags   map[uint32]TileFlags
 	cellFlags   map[cellKey]TileFlags
@@ -488,7 +493,7 @@ func New(width, height int, tileWidth, tileHeight float32, tilesets ...*Tileset)
 	}
 }
 
-// WorldBounds returns the world rectangle covering the whole map for its Orientation.
+// WorldBounds returns the world rectangle covering the whole map for its Orientation and Origin.
 // For unbounded chunked maps with non-positive Width/Height, it returns the bounding box of currently loaded chunks.
 func (m *Tilemap) WorldBounds() core.Bounds {
 	if (m.Width <= 0 || m.Height <= 0) && m.hasChunkedLayer() {
@@ -499,8 +504,8 @@ func (m *Tilemap) WorldBounds() core.Bounds {
 		if m.Orientation == OrientationOrthogonal {
 			return core.Bounds{
 				Origin: core.Point{
-					X: core.Points(float32(minCol) * m.TileWidth),
-					Y: core.Points(float32(minRow) * m.TileHeight),
+					X: m.Origin.X + core.Points(float32(minCol)*m.TileWidth),
+					Y: m.Origin.Y + core.Points(float32(minRow)*m.TileHeight),
 				},
 				Size: core.Size{
 					Width:  core.Points(float32(maxCol-minCol+1) * m.TileWidth),
@@ -508,12 +513,21 @@ func (m *Tilemap) WorldBounds() core.Bounds {
 				},
 			}
 		}
-		return m.projectedTileRangeBounds(minCol, minRow, maxCol, maxRow)
+		b := m.projectedTileRangeBounds(minCol, minRow, maxCol, maxRow)
+		b.Origin.X += m.Origin.X
+		b.Origin.Y += m.Origin.Y
+		return b
 	}
 	if m.Orientation != OrientationOrthogonal {
-		return m.projectedWorldBounds(m.Width, m.Height)
+		b := m.projectedWorldBounds(m.Width, m.Height)
+		if b.Size.Width > 0 || b.Size.Height > 0 {
+			b.Origin.X += m.Origin.X
+			b.Origin.Y += m.Origin.Y
+		}
+		return b
 	}
 	return core.Bounds{
+		Origin: m.Origin,
 		Size: core.Size{
 			Width:  core.Points(float32(m.Width) * m.TileWidth),
 			Height: core.Points(float32(m.Height) * m.TileHeight),
@@ -652,7 +666,7 @@ func (m *Tilemap) DrawImageLayer(d *core.Drawing, layer *ImageLayer, cam *Camera
 	if layer.Image.URI == "" && len(layer.Image.Data) == 0 && layer.Image.Pixels == nil {
 		return
 	}
-	ox, oy := effectiveLayerOffset(layer.OffsetX, layer.OffsetY, layer.ParallaxX, layer.ParallaxY, cam)
+	ox, oy := effectiveLayerOffset(float32(m.Origin.X)+layer.OffsetX, float32(m.Origin.Y)+layer.OffsetY, layer.ParallaxX, layer.ParallaxY, cam)
 
 	w := layer.Width
 	if w <= 0 {
@@ -780,7 +794,7 @@ func (m *Tilemap) DrawLayer(d *core.Drawing, layer *TileLayer, cam *Camera) {
 		return
 	}
 
-	offX, offY := effectiveLayerOffset(layer.OffsetX, layer.OffsetY, layer.ParallaxX, layer.ParallaxY, cam)
+	offX, offY := effectiveLayerOffset(float32(m.Origin.X)+layer.OffsetX, float32(m.Origin.Y)+layer.OffsetY, layer.ParallaxX, layer.ParallaxY, cam)
 
 	if cache := m.layerCacheFor(layer); cache != nil && !cache.Dirty && cache.Pixels != nil {
 		m.drawCachedLayer(d, layer, cache, cam, offX, offY)
@@ -859,7 +873,7 @@ func (m *Tilemap) drawChunkedLayer(d *core.Drawing, layer *TileLayer, cam *Camer
 	if layer.chunks == nil || len(layer.chunks.chunks) == 0 {
 		return
 	}
-	offX, offY := effectiveLayerOffset(layer.OffsetX, layer.OffsetY, layer.ParallaxX, layer.ParallaxY, cam)
+	offX, offY := effectiveLayerOffset(float32(m.Origin.X)+layer.OffsetX, float32(m.Origin.Y)+layer.OffsetY, layer.ParallaxX, layer.ParallaxY, cam)
 	if m.Orientation != OrientationOrthogonal {
 		m.drawProjectedLayer(d, layer, cam, offX, offY)
 		return

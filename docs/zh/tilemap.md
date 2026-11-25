@@ -207,3 +207,41 @@ defer stream.Close()
 // 在更新循环中推进流式加载：
 stream.Update(playerPos)
 ```
+
+## 多关卡世界（LDtk 与 Tiled `.world`）
+
+使用 `Tilemap.Origin`、LDtk 世界布局、Tiled `.world` 文件以及基于区域的 `WorldStream`，可以将多张瓦片地图直接安放在同一个世界坐标系中：
+
+- **世界原点（`Tilemap.Origin`）**：每个 `Tilemap` 都带有 `Origin core.Point`（零值 `(0, 0)` 保持零开销向后兼容）。`Draw`、`DrawLayer`、`DrawImageLayer`、`CacheStaticLayer`、`AppendYSortTiles`、`WorldBounds`、`TileOrigin`、`TileToWorld`、`WorldToTile`、`TilesInRect` 与 `Raycast` 均统一遵循 `Origin`；`fog.NewFromTilemap`（`fog.Fog.Origin`）以及实现可选接口 `physics.TileGridOrigin`（`GridOrigin() (x, y float32)`）的 `physics.TileGrid` 适配器同样自动遵循该世界原点。
+- **LDtk 多关卡世界**：在 `Free` 和 `GridVania` 布局下，`LoadLDtk` 与 `LoadLDtkAll` 会按关卡的 `(worldX, worldY)` 填充 `Origin`，并从 `__neighbours` 解析邻接列表 `Neighbours`（`[]LevelNeighbour`，包含 `Identifier`、`IID`、`UID` 以及方向 `n`/`s`/`e`/`w`/`ne`/`nw`/`se`/`sw`/`o`/`<`/`>`）。`LoadLDtkWorld(data, worldIdentifier, resolveImage)` 返回按需延迟加载的 `*LevelWorld`，同时支持单世界与多世界 `.ldtk` 项目（拒绝没有 2D 世界坐标的 `LinearHorizontal` 与 `LinearVertical` 布局）。
+- **Tiled `.world` 文件**：`ParseTiledWorld(data)` 解析 Tiled `.world` JSON 文件，同时支持显式 `maps` 列表（`fileName`、`x`、`y` 与可选 `width`/`height`）和正则 `patterns`（`regexp`、`multiplierX`、`multiplierY`、`offsetX`、`offsetY`、`mapWidth`、`mapHeight`），并在 JSON 或正则非法时返回带行号、字段与修复建议的 `*loaderr.Error`。`TiledWorld.Resolve(fileNames)` 以确定性顺序展开正则匹配并跳过显式已列出的地图；`LoadTiledWorld(data, loader)` 构建按需加载的 `*LevelWorld`，并将每张加载出的 `.tmj` 地图的 `Origin` 设为 `.world` 中的世界坐标。
+- **按区域流式加载关卡（`WorldStream`）**：只加载与相机或查询矩形（外扩 `LoadMargin`）重叠的关卡，并卸载超出 `UnloadMargin` 滞回范围的关卡，按确定性世界顺序触发 `OnEnter`/`OnLeave` 并返回 `[]WorldStreamEvent`。`WorldStream` 还提供无缝多关卡绘制 `Draw`、`UpdateAnimations`、`LevelAt`、`FlagsAtWorld`、`TilesInRect`、`Raycast` 以及统一网格访问器（`TileSize`、`GridSize`、`GridOrigin`、`GridFlagsAt`），使 `physics.Body` 或 `physics.CharacterBody` 可以无卡顿地跨关卡接缝行走。
+
+```go
+world, err := tilemap.LoadLDtkWorld(ldtkBytes, "", func(relPath string) core.ImageSource {
+	return core.Src("asset:" + relPath)
+})
+if err != nil {
+	return err
+}
+
+stream := tilemap.NewWorldStream(tilemap.WorldStreamConfig{
+	World:        world,
+	LoadMargin:   64,
+	UnloadMargin: 128,
+	OnEnter: func(lvl *tilemap.WorldLevel, m *tilemap.Tilemap) {
+		// 为 lvl.ID 生成实体或初始化战争迷雾...
+	},
+	OnLeave: func(lvl *tilemap.WorldLevel, m *tilemap.Tilemap) {
+		// 清理属于 lvl.ID 的实体...
+	},
+})
+defer stream.Close()
+
+// 在更新循环中：
+stream.UpdateCamera(cam)
+stream.UpdateAnimations(dt)
+
+// 在绘制循环中（cam.Apply(d) 之后）：
+stream.Draw(d, cam)
+```

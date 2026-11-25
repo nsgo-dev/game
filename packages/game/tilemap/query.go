@@ -269,9 +269,10 @@ func (m *Tilemap) TilesInRect(r core.Bounds, mask TileFlags) []TileHit {
 	}
 
 	tw, th := float64(m.TileWidth), float64(m.TileHeight)
-	minX := float64(r.Origin.X)
+	ox, oy := float64(m.Origin.X), float64(m.Origin.Y)
+	minX := float64(r.Origin.X) - ox
 	maxX := minX + float64(r.Size.Width)
-	minY := float64(r.Origin.Y)
+	minY := float64(r.Origin.Y) - oy
 	maxY := minY + float64(r.Size.Height)
 
 	minCol := max(boundMinCol, int(math.Floor(minX/tw)))
@@ -296,8 +297,8 @@ func (m *Tilemap) TilesInRect(r core.Bounds, mask TileFlags) []TileHit {
 				Flags:  flags,
 				Bounds: core.Bounds{
 					Origin: core.Point{
-						X: core.Points(float32(col) * m.TileWidth),
-						Y: core.Points(float32(row) * m.TileHeight),
+						X: m.Origin.X + core.Points(float32(col)*m.TileWidth),
+						Y: m.Origin.Y + core.Points(float32(row)*m.TileHeight),
 					},
 					Size: core.Size{
 						Width:  core.Points(m.TileWidth),
@@ -337,9 +338,10 @@ func (m *Tilemap) Raycast(from, to core.Point, mask TileFlags) (RaycastHit, bool
 	minY := float64(boundMinRow) * th
 	maxY := float64(boundMaxRow+1) * th
 
-	fromX, fromY := float64(from.X), float64(from.Y)
-	dx := float64(to.X) - fromX
-	dy := float64(to.Y) - fromY
+	ox, oy := float64(m.Origin.X), float64(m.Origin.Y)
+	fromX, fromY := float64(from.X)-ox, float64(from.Y)-oy
+	dx := float64(to.X) - float64(from.X)
+	dy := float64(to.Y) - float64(from.Y)
 
 	if dx == 0 && dy == 0 {
 		if fromX < minX || fromX >= maxX || fromY < minY || fromY >= maxY {
@@ -455,7 +457,7 @@ func (m *Tilemap) Raycast(from, to core.Point, mask TileFlags) (RaycastHit, bool
 		}
 		return RaycastHit{
 			Col: col, Row: row, TileID: id, Flags: flags,
-			Point:  core.Point{X: core.Points(px), Y: core.Points(py)},
+			Point:  core.Point{X: core.Points(ox + px), Y: core.Points(oy + py)},
 			Normal: core.Point{X: core.Points(nx), Y: core.Points(ny)},
 			T:      float32(tEnter),
 		}, true
@@ -492,8 +494,8 @@ func (m *Tilemap) Raycast(from, to core.Point, mask TileFlags) (RaycastHit, bool
 		}
 		tc := min(t, 1.0)
 		hitPt := core.Point{
-			X: core.Points(fromX + tc*dx),
-			Y: core.Points(fromY + tc*dy),
+			X: core.Points(ox + fromX + tc*dx),
+			Y: core.Points(oy + fromY + tc*dy),
 		}
 
 		if math.Abs(tMaxX-tMaxY) <= eps {

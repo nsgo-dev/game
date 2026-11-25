@@ -1375,20 +1375,22 @@ func (sw *SoftWorld) resolveParticleTileGrid2D(
 		return
 	}
 	tw, th := float64(tileW), float64(tileH)
-	minCol := max(0, int(math.Floor((px[i]-r)/tw)))
-	maxCol := min(cols-1, int(math.Ceil((px[i]+r)/tw))-1)
-	minRow := max(0, int(math.Floor((py[i]-r)/th)))
-	maxRow := min(rows-1, int(math.Ceil((py[i]+r)/th))-1)
+	ox, oy := tileGridOrigin(grid)
+	ox32, oy32 := float32(ox), float32(oy)
+	minCol := max(0, int(math.Floor((px[i]-ox-r)/tw)))
+	maxCol := min(cols-1, int(math.Ceil((px[i]-ox+r)/tw))-1)
+	minRow := max(0, int(math.Floor((py[i]-oy-r)/th)))
+	maxRow := min(rows-1, int(math.Ceil((py[i]-oy+r)/th))-1)
 
 	for row := minRow; row <= maxRow; row++ {
-		tileTop := float64(row) * th
+		tileTop := oy + float64(row)*th
 		for col := minCol; col <= maxCol; col++ {
 			flags := grid.TileFlagsAt(col, row)
 			if flags == 0 {
 				continue
 			}
 			if flags&TileSolid != 0 {
-				tileBox := Box{X: float32(col) * tileW, Y: float32(row) * tileH, W: tileW, H: tileH}
+				tileBox := Box{X: ox32 + float32(col)*tileW, Y: oy32 + float32(row)*tileH, W: tileW, H: tileH}
 				c := TestCircleBox(Circle{X: float32(px[i]), Y: float32(py[i]), R: float32(r)}, tileBox)
 				if c.Hit {
 					applySurface(float64(c.NormalX), float64(c.NormalY), float64(c.Depth), 0.5, 0)
@@ -1396,7 +1398,7 @@ func (sw *SoftWorld) resolveParticleTileGrid2D(
 			} else if flags&TileOneWay != 0 {
 				// One-way platform blocks downward crossings of the top edge only.
 				if prevY[i]+r <= tileTop+1e-3 && py[i]+r > tileTop {
-					tileLeft := float64(col) * tw
+					tileLeft := ox + float64(col)*tw
 					tileRight := tileLeft + tw
 					if px[i]+r > tileLeft && px[i]-r < tileRight {
 						applySurface(0, -1, py[i]+r-tileTop, 0.5, 0)

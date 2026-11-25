@@ -1809,12 +1809,19 @@ These are read as the tools that make them write them, never converted into a fo
 | --- | --- | --- |
 | Tiled JSON maps (`.tmj`) with embedded or external (`.tsj`) tilesets | `tilemap.LoadTiled`; `rooms.FromTiledLayer` makes rooms from an object layer | [tilemap](tilemap.md), [rooms](rooms.md) |
 
+<!-- format: tilemap#world -->
+### Tiled world
+
+| Files | Read by | Guide |
+| --- | --- | --- |
+| Tiled world files (`.world`), listing map placements and regex filename patterns with multipliers and offsets | `tilemap.ParseTiledWorld`, `tilemap.LoadTiledWorld` | [tilemap](tilemap.md) |
+
 <!-- format: tilemap#ldtk -->
 ### LDtk project
 
 | Files | Read by | Guide |
 | --- | --- | --- |
-| LDtk projects (`.ldtk`) | `tilemap.LoadLDtk`; `rooms.FromLDtk` makes rooms from a world's levels | [tilemap](tilemap.md), [rooms](rooms.md) |
+| LDtk projects (`.ldtk`) | `tilemap.LoadLDtk`, `tilemap.LoadLDtkAll`, `tilemap.LoadLDtkWorld`; `rooms.FromLDtk` makes rooms from a world's levels | [tilemap](tilemap.md), [rooms](rooms.md) |
 
 <!-- format: sprite -->
 ### Sprite atlas

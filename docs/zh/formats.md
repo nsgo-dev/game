@@ -1809,12 +1809,19 @@ runs:
 | --- | --- | --- |
 | Tiled JSON 地图（`.tmj`），图块集可内嵌或外置（`.tsj`） | `tilemap.LoadTiled`；`rooms.FromTiledLayer` 从对象层生成房间 | [tilemap](tilemap.md)、[rooms](rooms.md) |
 
+<!-- format: tilemap#world -->
+### Tiled 世界文件
+
+| 文件 | 读取函数 | 指南 |
+| --- | --- | --- |
+| Tiled 世界文件（`.world`），列出地图世界坐标或带倍率与偏移的正则文件名模式 | `tilemap.ParseTiledWorld`、`tilemap.LoadTiledWorld` | [tilemap](tilemap.md) |
+
 <!-- format: tilemap#ldtk -->
 ### LDtk 项目
 
 | 文件 | 读取函数 | 指南 |
 | --- | --- | --- |
-| LDtk 项目（`.ldtk`） | `tilemap.LoadLDtk`；`rooms.FromLDtk` 从一个世界的关卡生成房间 | [tilemap](tilemap.md)、[rooms](rooms.md) |
+| LDtk 项目（`.ldtk`） | `tilemap.LoadLDtk`、`tilemap.LoadLDtkAll`、`tilemap.LoadLDtkWorld`；`rooms.FromLDtk` 从一个世界的关卡生成房间 | [tilemap](tilemap.md)、[rooms](rooms.md) |
 
 <!-- format: sprite -->
 ### 精灵图集

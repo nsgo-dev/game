@@ -39,7 +39,8 @@ func (f *Fog) Draw(d *core.Drawing, team Team, cam *tilemap.Camera, style Style)
 			return
 		}
 		tw, th := float64(f.TileWidth), float64(f.TileHeight)
-		minX, minY := float64(vb.Origin.X), float64(vb.Origin.Y)
+		ox, oy := float64(f.Origin.X), float64(f.Origin.Y)
+		minX, minY := float64(vb.Origin.X)-ox, float64(vb.Origin.Y)-oy
 		maxX, maxY := minX+float64(vb.Size.Width), minY+float64(vb.Size.Height)
 		minCol = max(minCol, clampInt(math.Floor(minX/tw)))
 		maxCol = min(maxCol, clampInt(math.Ceil(maxX/tw))-1)
@@ -88,13 +89,17 @@ func (f *Fog) drawProjected(d *core.Drawing, team Team, cam *tilemap.Camera, sty
 		vbMinY = float64(vb.Origin.Y)
 		vbMaxX = vbMinX + float64(vb.Size.Width)
 		vbMaxY = vbMinY + float64(vb.Size.Height)
+		lxMin := vbMinX - float64(f.Origin.X)
+		lyMin := vbMinY - float64(f.Origin.Y)
+		lxMax := vbMaxX - float64(f.Origin.X)
+		lyMax := vbMaxY - float64(f.Origin.Y)
 
 		switch f.Orientation {
 		case tilemap.OrientationIsometric:
-			dMin := (vbMinX - tw) / (tw / 2)
-			dMax := vbMaxX / (tw / 2)
-			sMin := (vbMinY - th) / (th / 2)
-			sMax := vbMaxY / (th / 2)
+			dMin := (lxMin - tw) / (tw / 2)
+			dMax := lxMax / (tw / 2)
+			sMin := (lyMin - th) / (th / 2)
+			sMax := lyMax / (th / 2)
 			minCol = max(minCol, clampInt(math.Floor((sMin+dMin)/2)))
 			maxCol = min(maxCol, clampInt(math.Ceil((sMax+dMax)/2)))
 			minRow = max(minRow, clampInt(math.Floor((sMin-dMax)/2)))
@@ -120,15 +125,15 @@ func (f *Fog) drawProjected(d *core.Drawing, team Team, cam *tilemap.Camera, sty
 				return
 			}
 			if f.StaggerAxis == tilemap.StaggerX {
-				minCol = max(minCol, clampInt(math.Floor((vbMinX-tw)/stepX)))
-				maxCol = min(maxCol, clampInt(math.Ceil(vbMaxX/stepX)))
-				minRow = max(minRow, clampInt(math.Floor((vbMinY-th*1.5)/stepY)))
-				maxRow = min(maxRow, clampInt(math.Ceil(vbMaxY/stepY)))
+				minCol = max(minCol, clampInt(math.Floor((lxMin-tw)/stepX)))
+				maxCol = min(maxCol, clampInt(math.Ceil(lxMax/stepX)))
+				minRow = max(minRow, clampInt(math.Floor((lyMin-th*1.5)/stepY)))
+				maxRow = min(maxRow, clampInt(math.Ceil(lyMax/stepY)))
 			} else {
-				minCol = max(minCol, clampInt(math.Floor((vbMinX-tw*1.5)/stepX)))
-				maxCol = min(maxCol, clampInt(math.Ceil(vbMaxX/stepX)))
-				minRow = max(minRow, clampInt(math.Floor((vbMinY-th)/stepY)))
-				maxRow = min(maxRow, clampInt(math.Ceil(vbMaxY/stepY)))
+				minCol = max(minCol, clampInt(math.Floor((lxMin-tw*1.5)/stepX)))
+				maxCol = min(maxCol, clampInt(math.Ceil(lxMax/stepX)))
+				minRow = max(minRow, clampInt(math.Floor((lyMin-th)/stepY)))
+				maxRow = min(maxRow, clampInt(math.Ceil(lyMax/stepY)))
 			}
 		}
 		if minCol > maxCol || minRow > maxRow {
@@ -233,10 +238,11 @@ func stateOf(l *layer, i int) State {
 
 // fillRuns fills one path made of a rectangle per horizontal run of cells in state want, saving d's state before its first fill unless saved, and reports whether d's state is saved.
 func (f *Fog) fillRuns(d *core.Drawing, l *layer, want State, color core.Color, minCol, maxCol, minRow, maxRow int, saved bool) bool {
+	ox, oy := float32(f.Origin.X), float32(f.Origin.Y)
 	begun := false
 	for row := minRow; row <= maxRow; row++ {
 		base := row * f.width
-		y := float32(row) * f.TileHeight
+		y := oy + float32(row)*f.TileHeight
 		for col := minCol; col <= maxCol; {
 			if stateOf(l, base+col) != want {
 				col++
@@ -254,7 +260,7 @@ func (f *Fog) fillRuns(d *core.Drawing, l *layer, want State, color core.Color, 
 				d.SetFillColor(color).BeginPath()
 				begun = true
 			}
-			d.Rect(float32(col)*f.TileWidth, y, float32(end-col)*f.TileWidth, f.TileHeight)
+			d.Rect(ox+float32(col)*f.TileWidth, y, float32(end-col)*f.TileWidth, f.TileHeight)
 			col = end
 		}
 	}

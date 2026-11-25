@@ -61,7 +61,10 @@ func (m *Tilemap) hexSide() float64 {
 // TileOrigin returns the top-left corner of tile (col, row)'s bounding box in world coordinates.
 func (m *Tilemap) TileOrigin(col, row int) core.Point {
 	ox, oy := m.tileOrigin(col, row)
-	return core.Point{X: core.Points(ox), Y: core.Points(oy)}
+	return core.Point{
+		X: m.Origin.X + core.Points(ox),
+		Y: m.Origin.Y + core.Points(oy),
+	}
 }
 
 func (m *Tilemap) tileOrigin(col, row int) (float32, float32) {
@@ -112,24 +115,24 @@ func (m *Tilemap) tileOrigin(col, row int) (float32, float32) {
 	}
 }
 
-// TileToWorld returns the world-space center of tile (col, row) for the map's Orientation.
+// TileToWorld returns the world-space center of tile (col, row) for the map's Orientation and Origin.
 //
 // WorldToTile(TileToWorld(col, row)) round-trips back to (col, row) for orthogonal, isometric, staggered, and hexagonal maps.
 func (m *Tilemap) TileToWorld(col, row int) core.Point {
 	ox, oy := m.tileOrigin(col, row)
 	return core.Point{
-		X: core.Points(ox + m.TileWidth/2),
-		Y: core.Points(oy + m.TileHeight/2),
+		X: m.Origin.X + core.Points(ox+m.TileWidth/2),
+		Y: m.Origin.Y + core.Points(oy+m.TileHeight/2),
 	}
 }
 
-// WorldToTile converts a world-space point into the (col, row) tile coordinates containing it for the map's Orientation.
+// WorldToTile converts a world-space point into the (col, row) tile coordinates containing it for the map's Orientation and Origin.
 func (m *Tilemap) WorldToTile(p core.Point) (col, row int) {
 	tw, th := float64(m.TileWidth), float64(m.TileHeight)
 	if tw <= 0 || th <= 0 {
 		return 0, 0
 	}
-	px, py := float64(p.X), float64(p.Y)
+	px, py := float64(p.X-m.Origin.X), float64(p.Y-m.Origin.Y)
 
 	switch m.Orientation {
 	case OrientationIsometric:
