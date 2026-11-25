@@ -128,6 +128,7 @@
 | `game/pixelfx/pickups` | 实验性 | [pixelfx](pixelfx.md) |
 | `game/pixelfx/projectiles` | 实验性 | [pixelfx](pixelfx.md) |
 | `game/pixelfx/scifi` | 实验性 | [pixelfx](pixelfx.md) |
+| `game/pixelfx/shadow` | 实验性 | [pixelfx](pixelfx.md) |
 | `game/pixelfx/spawn` | 实验性 | [pixelfx](pixelfx.md) |
 | `game/placeholder` | 实验性 | [占位素材](placeholder.md) |
 | `game/platformer` | 实验性 | [platformer](platformer.md) |
