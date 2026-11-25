@@ -87,6 +87,9 @@ func (e *Editor) PlayIn(cx *core.Scope) error {
 
 	// A 2D drag in progress is put back, so Play and the scene Stop restores start from the scene as last recorded.
 	e.CancelDrag2D()
+	e.CancelShapeDrag2D()
+	e.CancelPluginDrag2D()
+	e.ClearPluginHover2D()
 	snap, err := sceneformat.Encode(e.Doc)
 	if err != nil {
 		return fmt.Errorf("editor: snapshot scene: %w", err)

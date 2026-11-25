@@ -129,7 +129,7 @@ func TestSceneSchemaShape(t *testing.T) {
 	if b, ok := s.AdditionalProperties.Boolean(); !ok || b {
 		t.Fatal("scene schema accepts unknown top-level keys")
 	}
-	for _, name := range []string{"CameraDoc", "BoundsDoc", "LayerDoc", "TilemapDoc", "ObjectDoc", "SpriteRef"} {
+	for _, name := range []string{"CameraDoc", "BoundsDoc", "LayerDoc", "TilemapDoc", "ObjectDoc", "SpriteRef", "Point", "Rect", "Circle"} {
 		def := s.Definitions[name]
 		if def == nil || def.Description == "" {
 			t.Fatalf("definition %s = %+v, want one with a description", name, def)
@@ -142,6 +142,9 @@ func TestSceneSchemaShape(t *testing.T) {
 				t.Errorf("%s.%s has no description", name, p.Name)
 			}
 		}
+	}
+	if poly := s.Definitions["Polygon"]; poly == nil || poly.Description == "" || poly.Items == nil || poly.Items.Ref != "#/definitions/Point" {
+		t.Fatalf("definition Polygon = %+v", poly)
 	}
 }
 

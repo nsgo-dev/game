@@ -775,6 +775,8 @@ func cloneAny(v any) any {
 		return slices.Clone(x)
 	case [][2]float64:
 		return slices.Clone(x)
+	case []Point:
+		return slices.Clone(x)
 	default:
 		return v
 	}

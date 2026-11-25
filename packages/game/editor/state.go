@@ -16,6 +16,7 @@ import (
 
 	"github.com/nsgo-dev/game/packages/game/animclip"
 	"github.com/nsgo-dev/game/packages/game/loaderr"
+	"github.com/nsgo-dev/game/packages/game/math2d"
 	"github.com/nsgo-dev/game/packages/game/navbake3d"
 	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/game/packages/game/render3d"
@@ -267,6 +268,12 @@ type Editor struct {
 	ShowOccluders bool
 	// ShowRenderStats controls whether the RenderStats HUD overlay shows in the 3D viewport. New initializes it to true.
 	ShowRenderStats bool
+	// ShowAllShapes controls whether the 2D viewport draws component shape fields of every visible object (true) or only the selected object (false).
+	ShowAllShapes bool
+	// SnapToGrid snaps 2D viewport component shape handle edits to GridSize increments when true.
+	SnapToGrid bool
+	// GridSize is the grid spacing in object-local units used when SnapToGrid is true. New initializes it to 8.
+	GridSize float32
 	// PlayRate is the fixed update rate in Hz during Play mode and clip playback (defaults to 60 when <= 0).
 	PlayRate int
 	// OnSaveClip is invoked by the animation panel's Save button with the encoded clip YAML; when nil the button writes to ClipPath.
@@ -414,6 +421,16 @@ type Editor struct {
 	gameRun gameRunState
 	// drag2D is the 2D viewport's drag of an object or a gizmo handle in progress (BeginDrag2D).
 	drag2D drag2DState
+	// shapeDrag is the 2D viewport's drag of a component shape handle in progress (BeginShapeDrag2D).
+	shapeDrag shapeDragState
+	// pluginDrag tracks a 2D viewport drag claimed by the active plugin tool (BeginPluginDrag2D).
+	pluginDrag        bool
+	pluginDragMoved   bool
+	pluginDragRef     pluginToolRef
+	pluginDragLast    math2d.Vec2
+	pluginHoverActive bool
+	pluginHoverRef    pluginToolRef
+	pluginHoverPos    math2d.Vec2
 	// stroke is the tile stroke under way (BeginTileStroke), or nil.
 	stroke *tileStroke
 	// hover is where the mouse rests over the viewport (SetTileHover).
@@ -494,6 +511,7 @@ func New(doc *sceneformat.SceneDoc, resolver sceneformat.AssetResolver) (*Editor
 		ShowLODOverlay:      true,
 		ShowOccluders:       true,
 		ShowRenderStats:     true,
+		GridSize:            defaultGridSize2D,
 		selKey:              clipKeyRef{-1, -1},
 		listeners:           make(map[uint64]func()),
 		output: outputPanelState{
@@ -625,6 +643,9 @@ func (e *Editor) SetTool(t Tool) {
 		return
 	}
 	e.CancelDrag2D()
+	e.CancelShapeDrag2D()
+	e.CancelPluginDrag2D()
+	e.ClearPluginHover2D()
 	e.CancelCameraDrag()
 	e.endTileStrokeForChange()
 	e.Tool = t
@@ -644,6 +665,9 @@ func (e *Editor) SetViewMode(mode ViewMode) {
 	e.EndViewport3DDrag()
 	e.endFly3D()
 	e.CancelDrag2D()
+	e.CancelShapeDrag2D()
+	e.CancelPluginDrag2D()
+	e.ClearPluginHover2D()
 	e.CancelCameraDrag()
 	e.ViewMode = mode
 	e.Status = "View: " + mode.String()
@@ -829,6 +853,9 @@ func (e *Editor) openYAMLWithLayers(data []byte, file string, layers *sceneforma
 	// The scene being replaced keeps its view for when it opens again.
 	e.saveViewStateQuietly()
 	e.drag2D = drag2DState{}
+	e.shapeDrag = shapeDragState{}
+	e.CancelPluginDrag2D()
+	e.ClearPluginHover2D()
 	e.cameraDrag = cameraDragState{}
 	e.bgPreview = bgPreviewState{}
 	// A stroke under way edits the scene being replaced, whose history goes with it.
@@ -898,6 +925,8 @@ func (e *Editor) openFileWithLayers(path string, layers *sceneformat.PhysicsLaye
 // SaveFile encodes the scene to YAML and writes it to path.
 func (e *Editor) SaveFile(path string) error {
 	if !e.playing {
+		e.CancelShapeDrag2D()
+		e.CancelPluginDrag2D()
 		e.CancelCameraDrag()
 		e.cancelBackgroundPreview()
 		e.endTileStrokeForChange()
@@ -957,6 +986,8 @@ func (e *Editor) Undo() bool {
 	}
 	// A drag in progress is put back first, so the step undone is the one before it and not the half-dragged object.
 	e.CancelDrag2D()
+	e.CancelShapeDrag2D()
+	e.CancelPluginDrag2D()
 	e.CancelCameraDrag()
 	e.cancelBackgroundPreview()
 	// A stroke under way is recorded first, so Undo takes it back as a whole.
@@ -979,6 +1010,8 @@ func (e *Editor) Redo() bool {
 		return false
 	}
 	e.CancelDrag2D()
+	e.CancelShapeDrag2D()
+	e.CancelPluginDrag2D()
 	e.CancelCameraDrag()
 	e.cancelBackgroundPreview()
 	e.endTileStrokeForChange()
@@ -1278,6 +1311,8 @@ func (e *Editor) DeleteObject(id string) error {
 	}
 	// A drag in progress is put back first, so Undo of the delete restores the object as it was before the drag.
 	e.CancelDrag2D()
+	e.CancelShapeDrag2D()
+	e.CancelPluginDrag2D()
 	e.CancelCameraDrag()
 	loc := locateObject(e.Doc, id)
 	if loc.obj == nil {
@@ -2169,6 +2204,8 @@ func cloneAny(v any) any {
 	case []string:
 		return slices.Clone(x)
 	case [][2]float64:
+		return slices.Clone(x)
+	case []sceneformat.Point:
 		return slices.Clone(x)
 	default:
 		return v

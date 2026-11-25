@@ -42,6 +42,8 @@ const (
 	CmdBakeNavMesh3D         = "project.bakeNavMesh3D"
 	CmdFrameSelection        = "view.frame"
 	CmdToggleLightingPreview = "view.lighting"
+	CmdToggleAllShapes       = "view.shapes"
+	CmdToggleSnapGrid        = "view.snap"
 	CmdCommandPalette        = "view.palette"
 	CmdPlayStop              = "project.play"
 	CmdRunGame               = "project.run"
@@ -604,6 +606,32 @@ func (e *Editor) initBuiltinCommands() {
 			},
 		},
 		{
+			ID:          CmdToggleAllShapes,
+			Label:       "Show All Component Shapes",
+			Description: "Toggle drawing component shape fields for all visible objects in the 2D viewport",
+			Category:    "View",
+			Keywords:    []string{"shapes", "collider", "trigger", "polygon", "handles", "2d"},
+			Enabled:     notPlaying,
+			Checked:     func() bool { return e.ShowAllShapes },
+			Run: func() error {
+				e.SetShowAllShapes(!e.ShowAllShapes)
+				return nil
+			},
+		},
+		{
+			ID:          CmdToggleSnapGrid,
+			Label:       "Snap to Grid",
+			Description: "Toggle grid snapping for 2D viewport shape handle edits",
+			Category:    "View",
+			Keywords:    []string{"snap", "grid", "shapes", "handles", "2d"},
+			Enabled:     notPlaying,
+			Checked:     func() bool { return e.SnapToGrid },
+			Run: func() error {
+				e.SetSnapToGrid(!e.SnapToGrid)
+				return nil
+			},
+		},
+		{
 			ID:          CmdCommandPalette,
 			Label:       "Command Palette",
 			Description: "Search and run editor commands, plugin tools, panels, and project files",
@@ -943,6 +971,8 @@ func (e *Editor) DuplicateObject(id string) (string, error) {
 	}
 	// A drag in progress is put back first, so the copy is of the object as it was before the drag.
 	e.CancelDrag2D()
+	e.CancelShapeDrag2D()
+	e.CancelPluginDrag2D()
 	e.CancelCameraDrag()
 	obj, li, _ := e.FindObject(id)
 	if obj == nil {
