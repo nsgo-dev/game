@@ -1,0 +1,35 @@
+version: 1
+slots:
+  - name: left
+    x: 0.27
+  - name: center
+    x: 0.5
+  - name: right
+    x: 0.73
+characters:
+  - id: mira
+    name: Mira
+    color: '#e8a25c'
+    slot: left
+    expressions:
+      - name: neutral
+        frame: mira_neutral
+      - name: smile
+        frame: mira_smile
+      - name: worry
+        frame: mira_worry
+      - name: stern
+        frame: mira_stern
+  - id: tobin
+    name: Tobin
+    color: '#5fb8a0'
+    slot: right
+    expressions:
+      - name: neutral
+        frame: tobin_neutral
+      - name: smile
+        frame: tobin_smile
+      - name: worry
+        frame: tobin_worry
+      - name: stern
+        frame: tobin_stern

@@ -51,6 +51,7 @@ var projectTemplates = []projectTemplate{
 	newProjectTemplate("rpg2d", templateModuleRoot+"/rpg2d", "A top-down RPG: a town and a meadow, people with branching dialogue, an inventory with equipment, one quest, turn-based battles and three save slots"),
 	newProjectTemplate("rts2d", templateModuleRoot+"/rts2d", "A 2D real-time strategy skirmish: gather crystals, build barracks, train three unit types and destroy a computer opponent's base, with fog of war, box selection and control groups"),
 	newProjectTemplate("towerdefense2d", templateModuleRoot+"/towerdefense2d", "A 2D tower defense game: towers with upgrades beside a road enemies follow, waves defined in YAML, money and lives, with keyboard, gamepad and touch controls"),
+	newProjectTemplate("visualnovel", templateModuleRoot+"/visualnovel", "A short branching visual novel: two characters, drawn backgrounds, choices that change the ending, a backlog, auto and skip modes, save slots and two languages"),
 }
 
 // repoDir returns the slash-separated directory of this repository that holds t's files, the template directory of its module.

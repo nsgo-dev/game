@@ -13,6 +13,7 @@ use (
 	./template/rpg2d
 	./template/rts2d
 	./template/towerdefense2d
+	./template/visualnovel
 	./examples/starburst
 	./examples/slidegem
 	./examples/cryptquest

@@ -17,6 +17,7 @@ A new project starts from a template: a small, complete game that builds, runs a
 | `rpg2d` | A top-down RPG: a town and a meadow to walk, people with branching dialogue, an inventory with equipment, one quest, turn-based battles and three save slots. [Guide](template-rpg2d.md). | `github.com/nsgo-dev/game/template/rpg2d` |
 | `rts2d` | A 2D real-time strategy skirmish: gather crystals, build barracks, train three unit types and destroy a computer opponent's headquarters, with fog of war, box selection, control groups and keyboard, gamepad and touch controls ([guide](template-rts2d.md)). | `github.com/nsgo-dev/game/template/rts2d` |
 | `towerdefense2d` | A 2D tower defense game: towers with upgrades beside a road enemies follow, waves defined in YAML, money and lives, played with keyboard, gamepad or touch; [Tower defense template](template-towerdefense2d.md) describes it. | `github.com/nsgo-dev/game/template/towerdefense2d` |
+| `visualnovel` | A short branching visual novel: two characters, drawn backgrounds, choices that change the ending, a backlog, auto and skip modes, save slots and two languages. | `github.com/nsgo-dev/game/template/visualnovel` |
 
 `go tool game new -list` prints the same list from the command itself, the default first.
 
@@ -24,6 +25,25 @@ A new project starts from a template: a small, complete game that builds, runs a
 
 A spark slides until a wall stops it and lights every lamp it passes; lighting all of a level's lamps within its moves wins the level, and a slide into a void or running out of moves loses it. The template shows how a puzzle game grows: the rules in `board.go`, where each move is an `undo.History` move that undoes and redoes exactly; the levels in `levels.yaml`, a versioned YAML file with unknown fields refused and a canonical form, which `levels.go` reads and writes; the input map in `game.yaml`, bound into `input.Actions` with swipes from `input.GestureRecognizer`; moves animated with `tween` on a fixed-step `game.Loop`; and the stars of each level kept with `save`. To change the game, add or edit levels in `levels.yaml`, whose tests check that every level can be won in its par; rebind the controls in `game.yaml`; add a tile in `board.go` and draw it in `draw.go`. The template's README lists the controls, the level format and every file.
 
+### visualnovel
+
+*Lantern Crossing*: a cartographer has to get her map across a foggy river before dawn, and the ferryman decides how far to trust her. Two choices earn or lose his trust and the third, at a fork in the river, reaches the harbor or the fog, so the story has a good ending and a lost one.
+
+It is built on [`vn`](vn.md), which presents the script: portraits with expressions, a text box with name plates and a typewriter, choices, the backlog, and auto and skip modes; [`flow`](flow.md), whose dialogue runner plays the [Yarn Spinner](https://www.yarnspinner.dev/) script and keeps its variables; [`save`](save.md), for three save slots and the player's settings; and [`l10n`](l10n.md), for English and Simplified Chinese string tables. The backgrounds and portraits are drawn in code, so it needs no image files. The keyboard, a controller and touch each play all of it, from the input map in `game.yaml`.
+
+| File | What it holds |
+| --- | --- |
+| `story/story.yarn` | The story. Speakers are cast ids, every line and option has a `#line:` id, `<<bg name>>` changes the background, `<<ending name>>` names the ending, and each node's `chapter:` header names what a save slot shows. |
+| `story/cast.yaml` | The characters: name plate colors, stage slots and expressions, in `vn`'s cast format. |
+| `strings/en.yaml`, `strings/zh-Hans.yaml` | The interface's strings and the names, chapters and endings in each language. English lines are the script's own text; another language translates each line as `line.<id>`. |
+| `story.go` | Loads the story files and shows lines and name plates in the player's language. |
+| `novel.go` | The game: the title screen, the story and its menus, input, save slots and settings. |
+| `ui.go`, `stage.go` | The buttons and menus over the stage, and the drawn backgrounds and portraits. |
+| `story_test.go`, `game_test.go` | Checks that the story files agree (every line translated, every background and ending known, every path ending in an ending), and plays both endings with the keyboard, a controller and touch, saving and loading on the way. |
+
+A save slot keeps the options chosen since the start and the id of the line shown, and loading replays that path, because the dialogue runner's saved state holds its variables and visited nodes but not where in a node it stopped. The lines read and the endings found are player settings, kept apart from the slots, so skip mode knows the lines read in every playthrough.
+
+To make the template your own, write a story in `story/story.yarn` and run its tests, which name every line without a translation and every background, ending or chapter the game does not know; add characters to `story/cast.yaml` with a look in `stage.go`, backgrounds to `backgrounds` in `stage.go`, endings to `endings` in `story.go`, and a language as a string table listed in `story.go`. The template's `README.md` lists the controls.
 ## Create a project from a template
 
 ```sh

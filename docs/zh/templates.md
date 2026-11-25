@@ -17,6 +17,7 @@
 | `rpg2d` | 一个俯视角 RPG：可以行走的小镇和草地、带分支对话的人物、带装备的物品栏、一个任务、回合制战斗和三个存档槽。[指南](template-rpg2d.md)。 | `github.com/nsgo-dev/game/template/rpg2d` |
 | `rts2d` | 一场 2D 即时战略遭遇战：采集水晶、建造兵营、训练三种单位并摧毁电脑对手的总部，带战争迷雾、框选、编队以及键盘、手柄和触屏操作（[指南](template-rts2d.md)）。 | `github.com/nsgo-dev/game/template/rts2d` |
 | `towerdefense2d` | 一个 2D 塔防游戏：在敌人沿着行进的道路旁建造可升级的防御塔，波次写在 YAML 里，有金钱和生命，可用键盘、手柄或触摸操作；[塔防模板](template-towerdefense2d.md)介绍了它。 | `github.com/nsgo-dev/game/template/towerdefense2d` |
+| `visualnovel` | 一部分支短篇视觉小说：两个角色、代码绘制的背景、改变结局的选项、对话记录、自动与快进模式、存档槽和两种语言。 | `github.com/nsgo-dev/game/template/visualnovel` |
 
 `go tool game new -list` 由命令自身打印同样的列表，默认模板排在最前。
 
@@ -24,6 +25,25 @@
 
 火花一直滑行到被墙挡住为止，并点亮途经的每一盏灯；在步数用完之前点亮一关的所有灯即过关，滑进虚空或步数用完时仍有灯未亮则失败。这个模板展示解谜游戏如何成长：规则在 `board.go` 中，每一步都是 `undo.History` 的一个操作，可以精确地撤销和重做；关卡在 `levels.yaml` 中，这是一个带版本号、拒绝未知字段并有规范形式的 YAML 文件，由 `levels.go` 读写；输入映射在 `game.yaml` 中，绑定到 `input.Actions`，滑动手势来自 `input.GestureRecognizer`；移动由固定步长 `game.Loop` 上的 `tween` 播放动画；每关的星级用 `save` 保存。要修改游戏，可以在 `levels.yaml` 中增改关卡，测试会检查每一关都能在标准步数内完成；在 `game.yaml` 中重新绑定操作；在 `board.go` 中添加新的格子类型并在 `draw.go` 中绘制它。模板的 README 列出了全部操作、关卡格式和每个文件。
 
+### visualnovel
+
+《提灯夜渡》（*Lantern Crossing*）：一位制图师要在天亮前把地图带过雾中的河，摆渡人决定对她信任到什么程度。前两个选择赢得或失去他的信任，第三个选择在河流分岔处决定是抵达港口还是迷失雾中，因此故事有一个好结局和一个迷失结局。
+
+它建立在以下包之上：[`vn`](vn.md) 负责呈现剧本——带表情的立绘、带名牌和打字机效果的文本框、选项、对话记录，以及自动与快进模式；[`flow`](flow.md) 的对话运行器播放 [Yarn Spinner](https://www.yarnspinner.dev/) 剧本并保存其变量；[`save`](save.md) 提供三个存档槽和玩家设置；[`l10n`](l10n.md) 提供英文和简体中文字符串表。背景和立绘都用代码绘制，因此不需要图片文件。键盘、手柄和触屏都能玩完整个游戏，按键来自 `game.yaml` 中的输入映射。
+
+| 文件 | 内容 |
+| --- | --- |
+| `story/story.yarn` | 故事本身。说话人写角色 id，每句台词和每个选项都有 `#line:` id，`<<bg name>>` 切换背景，`<<ending name>>` 指明结局，每个节点的 `chapter:` 头指明存档槽显示的章节。 |
+| `story/cast.yaml` | 角色：名牌颜色、站位和表情，采用 `vn` 的角色表格式。 |
+| `strings/en.yaml`、`strings/zh-Hans.yaml` | 各语言的界面字符串，以及角色名、章节名和结局。英文台词就是剧本自身的文字；其他语言以 `line.<id>` 翻译每一句。 |
+| `story.go` | 加载故事文件，并以玩家选择的语言显示台词和名牌。 |
+| `novel.go` | 游戏本身：标题画面、故事及其菜单、输入、存档槽和设置。 |
+| `ui.go`、`stage.go` | 舞台上方的按钮和菜单，以及代码绘制的背景和立绘。 |
+| `story_test.go`、`game_test.go` | 检查故事文件彼此一致（每句都有翻译、每个背景和结局都存在、每条路径都以结局收尾），并分别用键盘、手柄和触屏玩到两个结局，途中存档和读档。 |
+
+存档槽保存从开头起做出的选择和当前台词的 id，读档时重放这条路径，因为对话运行器保存的状态只有变量和访问过的节点，不包括停在节点中的哪个位置。已读台词和已发现的结局属于玩家设置，与存档槽分开保存，因此快进模式在每一轮游戏中都认得读过的台词。
+
+要把模板改成自己的游戏，在 `story/story.yarn` 中写故事并运行测试，测试会指出每一句缺少翻译的台词，以及游戏不认识的背景、结局或章节；在 `story/cast.yaml` 中添加角色并在 `stage.go` 中为其设定外观，在 `stage.go` 的 `backgrounds` 中添加背景，在 `story.go` 的 `endings` 中添加结局，并以一张字符串表加上 `story.go` 中的登记添加一种语言。模板的 `README.md` 列出了操作方式。
 ## 用模板创建项目
 
 ```sh
