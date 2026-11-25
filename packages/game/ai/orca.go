@@ -1,6 +1,7 @@
 package ai
 
 import (
+	"cmp"
 	"math"
 	"slices"
 	"time"
@@ -135,6 +136,7 @@ type ORCASolver struct {
 	cfg ORCAConfig
 
 	// Spatial hash for batch 2D Solve/Step.
+	cellSize    float64
 	invCellSize float64
 	mask        uint32
 	buckets     []int32
@@ -244,7 +246,7 @@ func effectiveObstacleLayer(layer uint32) uint32 {
 
 func orcaPriority(p float32) float64 {
 	f := float64(p)
-	if math.IsNaN(f) || f < 0 {
+	if !isFinite64(f) || f < 0 {
 		return 0
 	}
 	return f
@@ -257,12 +259,6 @@ func orcaResponsibility(pA, pB float32) float64 {
 	b := orcaPriority(pB)
 	if a == b {
 		return 0.5
-	}
-	if math.IsInf(a, 1) {
-		return 0
-	}
-	if math.IsInf(b, 1) {
-		return 1
 	}
 	sum := a + b
 	if sum <= 0 {
@@ -576,6 +572,7 @@ func (s *ORCASolver) initBuckets(minBuckets int) {
 }
 
 func (s *ORCASolver) rebuildGrid(agents []ORCAAgent, cellSize float64) {
+	s.cellSize = cellSize
 	s.invCellSize = 1.0 / cellSize
 	needBuckets := len(agents) * 2
 	if len(s.buckets) == 0 || needBuckets > len(s.buckets) {
@@ -614,7 +611,10 @@ func (s *ORCASolver) queryNeighbors(selfIdx int, pos vec2, mask uint32, radius f
 		return
 	}
 	rSq := radius * radius
-	cellSize := 1.0 / s.invCellSize
+	cellSize := s.cellSize
+	overflowCoords := math.Abs(pos.x)*s.invCellSize > 1e15 ||
+		math.Abs(pos.y)*s.invCellSize > 1e15 ||
+		radius*s.invCellSize > 1e15
 	minCX := int(math.Floor((pos.x - radius) * s.invCellSize))
 	maxCX := int(math.Floor((pos.x + radius) * s.invCellSize))
 	minCY := int(math.Floor((pos.y - radius) * s.invCellSize))
@@ -622,7 +622,7 @@ func (s *ORCASolver) queryNeighbors(selfIdx int, pos vec2, mask uint32, radius f
 
 	spanX := maxCX - minCX + 1
 	spanY := maxCY - minCY + 1
-	if spanX <= 0 || spanY <= 0 || spanX > len(agents) || spanY > len(agents) || spanX*spanY > len(agents) {
+	if overflowCoords || spanX <= 0 || spanY <= 0 || spanX > len(agents) || spanY > len(agents) || spanX*spanY > len(agents) {
 		for j := range agents {
 			if j == selfIdx {
 				continue
@@ -631,9 +631,7 @@ func (s *ORCASolver) queryNeighbors(selfIdx int, pos vec2, mask uint32, radius f
 			if mask&effectiveAgentLayer(o.Layer) == 0 {
 				continue
 			}
-			dx := float64(o.Pos.X) - pos.x
-			dy := float64(o.Pos.Y) - pos.y
-			dSq := dx*dx + dy*dy
+			dSq := distSq(pos, sanitizeVec2(o.Pos))
 			if dSq > rSq || math.IsNaN(dSq) {
 				continue
 			}
@@ -693,9 +691,7 @@ func (s *ORCASolver) queryNeighbors(selfIdx int, pos vec2, mask uint32, radius f
 				if mask&effectiveAgentLayer(o.Layer) == 0 {
 					continue
 				}
-				dx := float64(o.Pos.X) - pos.x
-				dy := float64(o.Pos.Y) - pos.y
-				dSq := dx*dx + dy*dy
+				dSq := distSq(pos, sanitizeVec2(o.Pos))
 				if dSq > rSq || math.IsNaN(dSq) {
 					continue
 				}
@@ -712,50 +708,50 @@ func (s *ORCASolver) queryNeighbors(selfIdx int, pos vec2, mask uint32, radius f
 // candidateLess defines a strict, input-order-independent ordering for neighbor candidates:
 // nearest distance first, breaking ties purely on intrinsic agent properties.
 func candidateLess(a, b orcaCandidate, agents []ORCAAgent) bool {
-	if a.distSq != b.distSq {
-		return a.distSq < b.distSq
+	if c := cmp.Compare(a.distSq, b.distSq); c != 0 {
+		return c < 0
 	}
 	return agentCanonicalLess(agents[a.idx], agents[b.idx])
 }
 
 func agentCanonicalLess(a, b ORCAAgent) bool {
-	if a.ID != b.ID {
-		return a.ID < b.ID
+	if c := cmp.Compare(a.ID, b.ID); c != 0 {
+		return c < 0
 	}
-	if a.Pos.X != b.Pos.X {
-		return a.Pos.X < b.Pos.X
+	if c := cmp.Compare(a.Pos.X, b.Pos.X); c != 0 {
+		return c < 0
 	}
-	if a.Pos.Y != b.Pos.Y {
-		return a.Pos.Y < b.Pos.Y
+	if c := cmp.Compare(a.Pos.Y, b.Pos.Y); c != 0 {
+		return c < 0
 	}
-	if a.Vel.X != b.Vel.X {
-		return a.Vel.X < b.Vel.X
+	if c := cmp.Compare(a.Vel.X, b.Vel.X); c != 0 {
+		return c < 0
 	}
-	if a.Vel.Y != b.Vel.Y {
-		return a.Vel.Y < b.Vel.Y
+	if c := cmp.Compare(a.Vel.Y, b.Vel.Y); c != 0 {
+		return c < 0
 	}
-	if a.Radius != b.Radius {
-		return a.Radius < b.Radius
+	if c := cmp.Compare(a.Radius, b.Radius); c != 0 {
+		return c < 0
 	}
-	if a.Priority != b.Priority {
-		return a.Priority < b.Priority
+	if c := cmp.Compare(a.Priority, b.Priority); c != 0 {
+		return c < 0
 	}
-	if a.MaxSpeed != b.MaxSpeed {
-		return a.MaxSpeed < b.MaxSpeed
+	if c := cmp.Compare(a.MaxSpeed, b.MaxSpeed); c != 0 {
+		return c < 0
 	}
-	if a.Layer != b.Layer {
-		return a.Layer < b.Layer
+	if c := cmp.Compare(a.Layer, b.Layer); c != 0 {
+		return c < 0
 	}
-	if a.Mask != b.Mask {
-		return a.Mask < b.Mask
+	if c := cmp.Compare(a.Mask, b.Mask); c != 0 {
+		return c < 0
 	}
 	if a.Stationary != b.Stationary {
 		return !a.Stationary && b.Stationary
 	}
-	if a.PrefVel.X != b.PrefVel.X {
-		return a.PrefVel.X < b.PrefVel.X
+	if c := cmp.Compare(a.PrefVel.X, b.PrefVel.X); c != 0 {
+		return c < 0
 	}
-	return a.PrefVel.Y < b.PrefVel.Y
+	return cmp.Compare(a.PrefVel.Y, b.PrefVel.Y) < 0
 }
 
 // pushCandidate maintains a bounded max-heap of the maxK smallest candidates under candidateLess,
@@ -1066,6 +1062,13 @@ func buildObstacleORCALine(p1, p2, agentVel vec2, radius, invTauObst, invTimeSte
 	rightCutoff := p2.scale(invTauObst)
 	cutoffVec := rightCutoff.sub(leftCutoff)
 	cutoffLenSq := cutoffVec.lenSq()
+	if cutoffLenSq <= 1e-30 {
+		near := p1
+		if d2Sq < d1Sq {
+			near = p2
+		}
+		return buildStaticDiskORCALine(near, agentVel, radius, invTauObst, invTimeStep), true
+	}
 	rCut := radius * invTauObst
 
 	vRef := agentVel
