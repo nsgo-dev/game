@@ -965,7 +965,7 @@ func (e *Editor) objectWorldMat3D(id string) (math3d.Mat4, bool) {
 }
 
 func (e *Editor) componentGizmosEnabled3D() bool {
-	if e.gizmo3DBlocked() || e.Doc == nil {
+	if e.gizmo3DBlocked() || e.Doc == nil || e.SelectionCount() != 1 {
 		return false
 	}
 	if e.Tool == ToolPlugin && e.activePluginToolSupports3D() {

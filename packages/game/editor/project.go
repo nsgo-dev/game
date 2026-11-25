@@ -162,7 +162,7 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 		e.FilePath = openedPath
 		e.ScenePath = ""
 		e.OnSave = nil
-		e.SelectedID = ""
+		e.clearSelectionFields()
 		e.view2DFree = false
 		e.Camera3D = DefaultOrbitCamera3D()
 		e.hidden, e.locked, e.layerLocked = nil, nil, nil
@@ -182,7 +182,7 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 		e.FilePath = ""
 		e.ScenePath = ""
 		e.OnSave = nil
-		e.SelectedID = ""
+		e.clearSelectionFields()
 		e.view2DFree = false
 		e.Camera3D = DefaultOrbitCamera3D()
 		e.hidden, e.locked, e.layerLocked = nil, nil, nil

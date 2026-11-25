@@ -342,7 +342,7 @@ func (e *Editor) availableHandles3D(obj *sceneformat.ObjectDoc) []Handle3DKind {
 
 // PickHandle3D hit-tests interactive light and 3D camera handles on the currently selected object.
 func (e *Editor) PickHandle3D(sx, sy, w, h float32) Handle3DKind {
-	if e == nil || e.playing || w <= 0 || h <= 0 {
+	if e == nil || e.playing || w <= 0 || h <= 0 || e.SelectionCount() != 1 {
 		return Handle3DNone
 	}
 	if e.gridMap.tool != GridMapToolNone || (e.TerrainOpen() && e.terrainBrush.Mode != TerrainBrushNone) {
@@ -796,7 +796,7 @@ func (e *Editor) drawSceneLightAndCameraIcons3D(d *core.Drawing, w, h float32) {
 				}
 				posed := e.posed3D(o)
 				world := parent.mul(local3(posed))
-				selected := o.ID == e.SelectedID
+				selected := e.IsSelected(o.ID)
 				if posed.Light != nil {
 					pos := vec32(world.point([3]float64{0, 0, 0}))
 					if px, py, _, vis := vc.project(pos, w, h); vis {
@@ -890,7 +890,7 @@ func drawCameraIcon2D(d *core.Drawing, x, y float32, c *sceneformat.Camera3DDoc,
 // drawSceneHandles3D draws the wireframe helpers (direction arrow, range sphere, spot cones,
 // camera frustum) and interactive draggable handles for the currently selected light or 3D camera.
 func (e *Editor) drawSceneHandles3D(d *core.Drawing, w, h float32) {
-	if e == nil || e.playing {
+	if e == nil || e.playing || e.SelectionCount() != 1 {
 		return
 	}
 	obj, _ := e.SelectedObject()

@@ -586,22 +586,26 @@ func multiNumberField(
 	commit func(float64),
 ) core.Node {
 	draft := core.NewSignal(cx, "")
-	focused := false
+	focused := core.NewSignal(cx, false)
 	dirty := false
 	format := func(v float64) string {
 		if isInt {
-			return strconv.Itoa(int(math.Round(v)))
+			r := math.Round(v)
+			if r >= math.MinInt32 && r <= math.MaxInt32 {
+				return strconv.Itoa(int(r))
+			}
+			return strconv.FormatFloat(r, 'f', 0, 64)
 		}
 		return strconv.FormatFloat(v, 'g', -1, 64)
 	}
-	apply := func(text string) {
+	apply := func(text string) bool {
 		trimmed := strings.TrimSpace(text)
 		if trimmed == "" {
-			return
+			return false
 		}
 		v, err := strconv.ParseFloat(trimmed, 64)
 		if err != nil || math.IsNaN(v) || math.IsInf(v, 0) {
-			return
+			return false
 		}
 		if minVal != nil && v < *minVal {
 			v = *minVal
@@ -611,8 +615,12 @@ func multiNumberField(
 		}
 		if isInt {
 			v = math.Round(v)
+			if v < math.MinInt32 || v > math.MaxInt32 {
+				return false
+			}
 		}
 		commit(v)
+		return true
 	}
 	return ui.Input{
 		TestID:       testID,
@@ -621,7 +629,7 @@ func multiNumberField(
 		Disabled:     disabled,
 		Value: func() string {
 			_ = rev.Get()
-			if focused {
+			if focused.Get() {
 				return draft.Get()
 			}
 			v, mixed := read()
@@ -638,7 +646,7 @@ func multiNumberField(
 			return ""
 		},
 		OnFocus: func() {
-			focused = true
+			focused.Set(true)
 			dirty = false
 			v, mixed := read()
 			if mixed {
@@ -648,21 +656,25 @@ func multiNumberField(
 			}
 		},
 		OnChange: func(text string) {
-			focused = true
+			focused.Set(true)
 			dirty = true
 			draft.Set(text)
 		},
 		OnSubmit: func(text string) {
 			dirty = false
-			focused = false
-			apply(text)
+			focused.Set(false)
+			if !apply(text) {
+				draft.Set("")
+			}
 		},
 		OnBlur: func() {
 			if dirty {
-				apply(draft.GetUntracked())
+				if !apply(draft.GetUntracked()) {
+					draft.Set("")
+				}
 			}
 			dirty = false
-			focused = false
+			focused.Set(false)
 		},
 	}
 }
@@ -677,7 +689,7 @@ func multiTextField(
 	commit func(string),
 ) core.Node {
 	draft := core.NewSignal(cx, "")
-	focused := false
+	focused := core.NewSignal(cx, false)
 	dirty := false
 	return ui.Input{
 		TestID:   testID,
@@ -685,7 +697,7 @@ func multiTextField(
 		Disabled: disabled,
 		Value: func() string {
 			_ = rev.Get()
-			if focused {
+			if focused.Get() {
 				return draft.Get()
 			}
 			v, mixed := read()
@@ -702,7 +714,7 @@ func multiTextField(
 			return ""
 		},
 		OnFocus: func() {
-			focused = true
+			focused.Set(true)
 			dirty = false
 			v, mixed := read()
 			if mixed {
@@ -712,13 +724,13 @@ func multiTextField(
 			}
 		},
 		OnChange: func(text string) {
-			focused = true
+			focused.Set(true)
 			dirty = true
 			draft.Set(text)
 		},
 		OnSubmit: func(text string) {
 			dirty = false
-			focused = false
+			focused.Set(false)
 			commit(text)
 		},
 		OnBlur: func() {
@@ -726,7 +738,7 @@ func multiTextField(
 				commit(draft.GetUntracked())
 			}
 			dirty = false
-			focused = false
+			focused.Set(false)
 		},
 	}
 }

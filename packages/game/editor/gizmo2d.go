@@ -491,9 +491,9 @@ func (e *Editor) pickGizmo2DWithIndex(x, y float32) (GizmoHandle2D, int) {
 		if lh, idx := e.pickLightingHandle2D(x, y); lh != Handle2DNone {
 			return lh, idx
 		}
-	}
-	if nh, idx := e.pickNavRegionHandle2D(x, y); nh != Handle2DNone {
-		return nh, idx
+		if nh, idx := e.pickNavRegionHandle2D(x, y); nh != Handle2DNone {
+			return nh, idx
+		}
 	}
 	if h := g.pick(p); h != Handle2DNone {
 		return h, -1
@@ -576,6 +576,9 @@ func (e *Editor) BeginDrag2D(x, y float32) GizmoHandle2D {
 }
 
 func (e *Editor) beginMultiDrag2D(h GizmoHandle2D, ids []string, x, y float32) GizmoHandle2D {
+	if !isFiniteFloat32(x) || !isFiniteFloat32(y) {
+		return Handle2DNone
+	}
 	g, ok := e.gizmo2D()
 	if !ok {
 		return Handle2DNone
@@ -647,7 +650,7 @@ func (e *Editor) UpdateDrag2D(x, y float32, keepAspect bool) {
 		e.updateLightingDrag2D(x, y, keepAspect)
 		return
 	}
-	if len(e.drag2D.targets) > 1 {
+	if len(e.drag2D.targets) > 0 {
 		e.updateMultiDrag2D(x, y, keepAspect)
 		return
 	}
@@ -714,6 +717,9 @@ func (e *Editor) UpdateDrag2D(x, y float32, keepAspect bool) {
 }
 
 func (e *Editor) updateMultiDrag2D(x, y float32, keepAspect bool) {
+	if !isFiniteFloat32(x) || !isFiniteFloat32(y) {
+		return
+	}
 	if e.playing {
 		e.drag2D = drag2DState{}
 		e.notify()
@@ -756,14 +762,17 @@ func (e *Editor) updateMultiDrag2D(x, y float32, keepAspect bool) {
 		}
 	case h == Handle2DRotate:
 		ox, oy := float64(x-st.pivotCanvas.X), float64(y-st.pivotCanvas.Y)
-		if math.Hypot(ox, oy) < 1e-6 {
+		dist := math.Hypot(ox, oy)
+		if math.IsNaN(dist) || math.IsInf(dist, 0) || dist < 1e-6 {
 			return
 		}
 		a := math.Atan2(oy, ox)
 		step := math.Remainder(a-st.prevAngle, 2*math.Pi)
-		st.angle += step
-		st.prevAngle = a
-		sin, cos := math.Sincos(st.angle)
+		if math.IsNaN(a) || math.IsInf(a, 0) || math.IsNaN(step) || math.IsInf(step, 0) {
+			return
+		}
+		nextAngle := st.angle + step
+		sin, cos := math.Sincos(nextAngle)
 		for i, t := range st.targets {
 			plx, ply := e.canvasToLayerFor(t.space, t.parallaxX, t.parallaxY, st.pivotCanvas.X, st.pivotCanvas.Y)
 			rx := float64(t.startLayerPos.X) - float64(plx)
@@ -773,7 +782,7 @@ func (e *Editor) updateMultiDrag2D(x, y float32, keepAspect bool) {
 			npx, npy := t.toParent.apply(nlx, nly)
 			nexts[i].X = float32(npx)
 			nexts[i].Y = float32(npy)
-			nexts[i].Rotation = float32(float64(t.start.Rotation) + t.detSign*st.angle)
+			nexts[i].Rotation = float32(float64(t.start.Rotation) + t.detSign*nextAngle)
 			if !isFiniteFloat32(nexts[i].X) || !isFiniteFloat32(nexts[i].Y) || !isFiniteFloat32(nexts[i].Rotation) {
 				return
 			}
@@ -783,6 +792,8 @@ func (e *Editor) updateMultiDrag2D(x, y float32, keepAspect bool) {
 				return
 			}
 		}
+		st.angle = nextAngle
+		st.prevAngle = a
 	case h.IsScale():
 		// Compute scale factors along the gizmo's X and Y axes about pivotCanvas.
 		proj := func(p math2d.Vec2) (float64, float64) {
@@ -965,7 +976,7 @@ func (e *Editor) EndDrag2D() bool {
 	}
 	st := e.drag2D
 	e.drag2D = drag2DState{}
-	if len(st.targets) > 1 {
+	if len(st.targets) > 0 {
 		verb := "Move"
 		switch {
 		case st.handle == Handle2DRotate:
@@ -1043,7 +1054,7 @@ func (e *Editor) CancelDrag2D() bool {
 	}
 	st := e.drag2D
 	e.drag2D = drag2DState{}
-	if len(st.targets) > 1 {
+	if len(st.targets) > 0 {
 		restored := false
 		for _, t := range st.targets {
 			if obj, _, _ := e.FindObject(t.id); obj != nil {

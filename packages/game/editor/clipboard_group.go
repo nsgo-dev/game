@@ -103,6 +103,7 @@ func (e *Editor) SelectObjects(ids []string) bool {
 	if same {
 		return true
 	}
+	e.CancelComponentGizmoDrag3D()
 	e.CancelCameraDrag()
 	e.CancelCameraBoundsDrag()
 	e.CancelRoomDrag()
@@ -175,6 +176,7 @@ func (e *Editor) ClearViewportPointer() {
 
 func (e *Editor) cancelActiveObjectDrags() {
 	e.CancelDrag2D()
+	e.CancelMarquee2D()
 	e.CancelShapeDrag2D()
 	e.CancelPluginDrag2D()
 	e.CancelComponentGizmoDrag3D()

@@ -3,6 +3,8 @@ package editor_test
 import (
 	"bytes"
 	"math"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -157,7 +159,7 @@ func TestMultiSelectInspectorSetsSharedComponentFieldAndOneUndoRestoresEach(t *t
 	if err := ed.SetComponentRegistry(reg); err != nil {
 		t.Fatalf("SetComponentRegistry: %v", err)
 	}
-	ed.SelectObjects([]string{"e1", "e2", "e3"}, "e1")
+	ed.SelectObjectsWithPrimary([]string{"e1", "e2", "e3"}, "e1")
 
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		return editor.EditorView(cx, ed)
@@ -324,7 +326,7 @@ func TestMultiSelectRotateScaleAndDeleteOneUndoStep(t *testing.T) {
 	if err != nil {
 		t.Fatalf("editor.New: %v", err)
 	}
-	ed.SelectObjects([]string{"left", "right"}, "left")
+	ed.SelectObjectsWithPrimary([]string{"left", "right"}, "left")
 	app := mountEditor(t, ed)
 
 	// 1. Rotate about common center (150, 100) by +90 degrees (quarter turn clockwise on screen).
@@ -403,7 +405,7 @@ func TestMultiSelectRotateScaleAndDeleteOneUndoStep(t *testing.T) {
 func TestMultiSelectParentAndChildDoesNotDoubleMoveOrFailDelete(t *testing.T) {
 	ed := newNestedEditor(t)
 	ed.SetCanvasSize(640, 360)
-	ed.SelectObjects([]string{"ship", "turret", "hero"}, "ship")
+	ed.SelectObjectsWithPrimary([]string{"ship", "turret", "hero"}, "ship")
 	before := saveYAML(t, ed)
 
 	// Drag ship (at 60, 40; selected along with its child turret at local 10, 0 and sibling hero at 40, 40).
@@ -479,7 +481,7 @@ func TestMultiSelectGizmo3DTranslateRotateScale(t *testing.T) {
 	}
 	ed.SetViewMode(editor.ViewMode3D)
 	ed.SetCanvasSize(640, 360)
-	ed.SelectObjects([]string{"a", "b"}, "a")
+	ed.SelectObjectsWithPrimary([]string{"a", "b"}, "a")
 
 	// 1. Translate along X in 3D as one undo step.
 	beforeT := saveYAML(t, ed)
@@ -563,12 +565,350 @@ func TestSceneTreeFollowsAndDrivesMultiSelection(t *testing.T) {
 	}
 
 	// Updating selection in the editor syncs back into the tree without fighting.
-	app.Post(func() { ed.SelectObjects([]string{"p2", "p4"}, "p2") })
+	app.Post(func() { ed.SelectObjectsWithPrimary([]string{"p2", "p4"}, "p2") })
 	app.Settle()
 	if got := ed.SelectedIDs(); !slices.Equal(got, []string{"p2", "p4"}) {
 		t.Fatalf("after editor SelectObjects: SelectedIDs=%v", got)
 	}
 	if got := app.Find("id:inspector-selection-count").Text; got != "2 selected" {
 		t.Fatalf("inspector header after editor SelectObjects = %q, want 2 selected", got)
+	}
+
+	// Mod+clicking the last remaining selected row in the Scene Tree clears the selection.
+	app.Post(func() { ed.SelectObject("p1") })
+	app.Settle()
+	if got := ed.SelectedIDs(); !slices.Equal(got, []string{"p1"}) {
+		t.Fatalf("after SelectObject(p1): SelectedIDs=%v", got)
+	}
+	app.PressWith("id:scene-tree-label-p1", core.Modifiers{Platform: true})
+	if got := ed.SelectionCount(); got != 0 {
+		t.Fatalf("after Mod+click on last selected row p1: SelectionCount=%d SelectedIDs=%v, want 0", got, ed.SelectedIDs())
+	}
+}
+
+func TestMultiSelectTabIsolationAndMarqueeCancel(t *testing.T) {
+	dir := t.TempDir()
+	sceneYAML := `version: 4
+name: Tab Scene
+virtualWidth: 640
+virtualHeight: 360
+layers:
+  - name: actors
+    space: world
+    order: 0
+    objects:
+      - id: p1
+        x: 60
+        y: 120
+      - id: p2
+        x: 100
+        y: 120
+      - id: p3
+        x: 140
+        y: 120
+`
+	fileA := filepath.Join(dir, "a.scene.yaml")
+	fileB := filepath.Join(dir, "b.scene.yaml")
+	if err := os.WriteFile(fileA, []byte(sceneYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fileB, []byte(sceneYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ed, err := editor.New(nil, nil)
+	if err != nil {
+		t.Fatalf("editor.New: %v", err)
+	}
+	if err := ed.OpenFile(fileA); err != nil {
+		t.Fatalf("OpenFile(a): %v", err)
+	}
+	if err := ed.OpenFile(fileB); err != nil {
+		t.Fatalf("OpenFile(b): %v", err)
+	}
+	if ed.TabCount() != 2 {
+		t.Fatalf("TabCount = %d, want 2", ed.TabCount())
+	}
+
+	// Select [p1, p2] in tab 0 and start a marquee drag, then switch to tab 1.
+	if err := ed.SelectTab(0); err != nil {
+		t.Fatalf("SelectTab(0): %v", err)
+	}
+	ed.SelectObjectsWithPrimary([]string{"p1", "p2"}, "p2")
+	ed.SetTool(editor.ToolSelect)
+	if !ed.BeginMarquee2D(10, 10) {
+		t.Fatal("BeginMarquee2D failed")
+	}
+	if err := ed.SelectTab(1); err != nil {
+		t.Fatalf("SelectTab(1): %v", err)
+	}
+	if ed.MarqueeActive() {
+		t.Fatal("SelectTab did not cancel active marquee drag")
+	}
+	if got := ed.SelectedIDs(); len(got) != 0 {
+		t.Fatalf("tab 1 selection leaked from tab 0: got %v, want empty", got)
+	}
+
+	// Select p3 in tab 1, then switch back to tab 0 and verify [p1, p2] (primary p2) is restored.
+	ed.SelectObject("p3")
+	if err := ed.SelectTab(0); err != nil {
+		t.Fatalf("SelectTab(0) return: %v", err)
+	}
+	if got := ed.SelectedIDs(); !slices.Equal(got, []string{"p1", "p2"}) || ed.SelectedID != "p2" {
+		t.Fatalf("tab 0 selection after return = %v (primary=%q), want [p1 p2] (primary=p2)", got, ed.SelectedID)
+	}
+}
+
+func TestMultiDragSingularParentDoesNotZeroTransform(t *testing.T) {
+	zero := sceneformat.Float32(0)
+	doc := &sceneformat.SceneDoc{
+		Version:         sceneformat.CurrentVersion,
+		Name:            "Singular Parent",
+		VirtualWidth:    640,
+		VirtualHeight:   360,
+		BackgroundColor: "#141824",
+		Camera:          &sceneformat.CameraDoc{X: 100, Y: 100},
+		Layers: []sceneformat.LayerDoc{
+			{
+				Name:  "actors",
+				Space: sceneformat.SpaceWorld,
+				Order: 0,
+				Objects: []sceneformat.ObjectDoc{
+					{ID: "good", X: 100, Y: 50, PosZ: 10, Mesh: "box"},
+					{
+						ID:     "zero_parent",
+						X:      10,
+						Y:      10,
+						ScaleX: zero,
+						ScaleY: zero,
+						ScaleZ: zero,
+						Children: []sceneformat.ObjectDoc{
+							{ID: "singular_child", X: 40, Y: 30, PosZ: 5, Mesh: "box"},
+						},
+					},
+				},
+			},
+		},
+	}
+	ed, err := editor.New(doc, nil)
+	if err != nil {
+		t.Fatalf("editor.New: %v", err)
+	}
+	ed.SetCanvasSize(640, 360)
+	ed.SetTool(editor.ToolSelect)
+	// Make singular_child the primary SelectedID so falling through to the single-object path would zero it out.
+	ed.SelectObjectsWithPrimary([]string{"good", "singular_child"}, "singular_child")
+
+	// 2D drag: only "good" survives parent inversion; dragging + canceling must not zero singular_child.
+	gx, gy := ed.WorldToCanvas(100, 50)
+	if h := ed.BeginDrag2D(gx, gy); h == editor.Handle2DNone {
+		t.Fatal("BeginDrag2D returned Handle2DNone")
+	}
+	ed.UpdateDrag2D(gx+25, gy+15, false)
+	if !ed.CancelDrag2D() {
+		t.Fatal("CancelDrag2D returned false")
+	}
+	sc, _, _ := ed.FindObject("singular_child")
+	good, _, _ := ed.FindObject("good")
+	if sc.X != 40 || sc.Y != 30 {
+		t.Fatalf("after 2D cancel, singular_child = (%v, %v), want (40, 30)", sc.X, sc.Y)
+	}
+	if good.X != 100 || good.Y != 50 {
+		t.Fatalf("after 2D cancel, good = (%v, %v), want (100, 50)", good.X, good.Y)
+	}
+
+	// Commit 2D drag and verify good moved while singular_child stayed untouched.
+	if h := ed.BeginDrag2D(gx, gy); h == editor.Handle2DNone {
+		t.Fatal("BeginDrag2D commit pass returned Handle2DNone")
+	}
+	ed.UpdateDrag2D(gx+20, gy+10, false)
+	if !ed.EndDrag2D() {
+		t.Fatal("EndDrag2D returned false")
+	}
+	sc, _, _ = ed.FindObject("singular_child")
+	good, _, _ = ed.FindObject("good")
+	if sc.X != 40 || sc.Y != 30 {
+		t.Fatalf("after 2D end, singular_child = (%v, %v), want (40, 30)", sc.X, sc.Y)
+	}
+	if !near(good.X, 120, 1e-2) || !near(good.Y, 60, 1e-2) {
+		t.Fatalf("after 2D end, good = (%v, %v), want (120, 60)", good.X, good.Y)
+	}
+	ed.Undo()
+
+	// 3D drag: same scenario — only "good" has an invertible parent transform.
+	ed.SetViewMode(editor.ViewMode3D)
+	ed.SetGizmoMode3D(editor.Gizmo3DTranslate)
+	ed.Camera3D = editor.OrbitCamera3D{Target: [3]float32{60, 40, 5}, Distance: 200, Yaw: 0, Pitch: 0.4}
+	sx0, sy0, _, _ := ed.Camera3D.Project([3]float32{60, 40, 5}, 640, 360)
+	sx1, sy1, _, _ := ed.Camera3D.Project([3]float32{80, 40, 5}, 640, 360)
+	if !ed.BeginGizmoDragAxis3D(editor.Axis3DX, sx0, sy0, 640, 360) {
+		t.Fatal("BeginGizmoDragAxis3D failed")
+	}
+	ed.UpdateGizmoDrag3D(sx1, sy1)
+	ed.CancelGizmoDrag3D()
+	sc, _, _ = ed.FindObject("singular_child")
+	good, _, _ = ed.FindObject("good")
+	if sc.X != 40 || sc.Y != 30 || sc.PosZ != 5 {
+		t.Fatalf("after 3D cancel, singular_child = (%v, %v, %v), want (40, 30, 5)", sc.X, sc.Y, sc.PosZ)
+	}
+	if !near(good.X, 100, 1e-2) || !near(good.Y, 50, 1e-2) || !near(good.PosZ, 10, 1e-2) {
+		t.Fatalf("after 3D cancel, good = (%v, %v, %v), want (100, 50, 10)", good.X, good.Y, good.PosZ)
+	}
+}
+
+func TestMultiSelectHardeningNaNInfPlayLayerDemoDuplicateAndNotify(t *testing.T) {
+	ed := newMultiSelectEditor(t)
+	ed.SetCanvasSize(640, 360)
+	ed.SetTool(editor.ToolSelect)
+
+	// 1. SelectMarquee2D rejects NaN/Inf without mutating selection.
+	ed.SelectObject("p1")
+	nan := float32(math.NaN())
+	inf := float32(math.Inf(1))
+	if res := ed.SelectMarquee2D(nan, 0, 100, 100, false, false, editor.MarqueeEnclose); res != nil {
+		t.Fatalf("SelectMarquee2D(NaN) = %v, want nil", res)
+	}
+	if res := ed.SelectMarquee2D(0, 0, inf, 100, false, false, editor.MarqueeEnclose); res != nil {
+		t.Fatalf("SelectMarquee2D(+Inf) = %v, want nil", res)
+	}
+	if got := ed.SelectedIDs(); !slices.Equal(got, []string{"p1"}) {
+		t.Fatalf("selection changed after non-finite SelectMarquee2D: %v", got)
+	}
+
+	// 2. EndMarquee2D triggers notify even when the selection set does not change.
+	x0, y0 := ed.WorldToCanvas(40, 100)
+	x1, y1 := ed.WorldToCanvas(80, 140)
+	if !ed.BeginMarquee2D(x0, y0) {
+		t.Fatal("BeginMarquee2D failed")
+	}
+	ed.UpdateMarquee2D(x1, y1, editor.MarqueeEnclose)
+	beforeEnd := ed.Revision()
+	ed.EndMarquee2D()
+	if ed.Revision() <= beforeEnd {
+		t.Fatalf("EndMarquee2D did not notify when selection remained unchanged (before=%d after=%d)", beforeEnd, ed.Revision())
+	}
+
+	// 3. NaN/Inf during 2D multi-rotate does not poison drag state.
+	ed.SelectObjectsWithPrimary([]string{"p1", "p2"}, "p1")
+	rx0, ry0 := ed.WorldToCanvas(80, 120)
+	if h := ed.BeginDrag2D(rx0, ry0); h == editor.Handle2DNone {
+		t.Fatal("BeginDrag2D failed")
+	}
+	ed.UpdateDrag2D(nan, inf, false)
+	ed.UpdateDrag2D(rx0+15, ry0+10, false)
+	if !ed.EndDrag2D() {
+		t.Fatal("EndDrag2D after NaN update returned false")
+	}
+	p1, _, _ := ed.FindObject("p1")
+	if math.IsNaN(float64(p1.X)) || math.IsNaN(float64(p1.Y)) || !near(p1.X, 75, 1e-2) {
+		t.Fatalf("after 2D drag with NaN interlude, p1 = (%v, %v), want (75, 130)", p1.X, p1.Y)
+	}
+	ed.Undo()
+
+	// 4. NaN/Inf in 3D multi-drag & zero-scale guard.
+	ed.SetViewMode(editor.ViewMode3D)
+	ed.SetGizmoMode3D(editor.Gizmo3DScale)
+	ed.Camera3D = editor.OrbitCamera3D{Target: [3]float32{80, 120, 0}, Distance: 200, Yaw: 0, Pitch: 0.3}
+	s0x, s0y, _, _ := ed.Camera3D.Project([3]float32{80, 120, 0}, 640, 360)
+	if !ed.BeginGizmoDragAxis3D(editor.Axis3DX, s0x, s0y, 640, 360) {
+		t.Fatal("BeginGizmoDragAxis3D failed")
+	}
+	ed.UpdateGizmoDrag3D(nan, inf)
+	ed.CancelGizmoDrag3D()
+	p1, _, _ = ed.FindObject("p1")
+	if math.IsNaN(float64(p1.X)) || math.IsNaN(float64(p1.EffectiveScaleX())) || p1.EffectiveScaleX() == 0 {
+		t.Fatalf("after 3D NaN drag, p1 invalid: X=%v ScaleX=%v", p1.X, p1.EffectiveScaleX())
+	}
+	ed.SetViewMode(editor.ViewMode2D)
+
+	// 5. RemoveLayer prunes removed objects from multi-selection and Undo restores full multi-selection.
+	if err := ed.AddLayer("extra", sceneformat.SpaceWorld); err != nil {
+		t.Fatalf("AddLayer: %v", err)
+	}
+	if _, err := ed.PlaceObject("extra", sceneformat.ObjectDoc{ID: "extra_obj", X: 20, Y: 20}); err != nil {
+		t.Fatalf("PlaceObject: %v", err)
+	}
+	ed.SelectObjectsWithPrimary([]string{"p1", "extra_obj"}, "extra_obj")
+	if err := ed.RemoveLayer("extra"); err != nil {
+		t.Fatalf("RemoveLayer: %v", err)
+	}
+	if got := ed.SelectedIDs(); !slices.Equal(got, []string{"p1"}) || ed.SelectedID != "p1" {
+		t.Fatalf("after RemoveLayer(extra): SelectedIDs=%v primary=%q, want [p1] primary=p1", got, ed.SelectedID)
+	}
+	if !ed.Undo() {
+		t.Fatal("Undo RemoveLayer returned false")
+	}
+	if got := ed.SelectedIDs(); !slices.Equal(got, []string{"p1", "extra_obj"}) || ed.SelectedID != "extra_obj" {
+		t.Fatalf("after Undo RemoveLayer: SelectedIDs=%v primary=%q, want [p1 extra_obj] primary=extra_obj", got, ed.SelectedID)
+	}
+
+	// 6. DuplicateSelected Redo restores all duplicated objects selected.
+	ed.SelectObjectsWithPrimary([]string{"p1", "p2"}, "p2")
+	if _, err := ed.DuplicateSelected(); err != nil {
+		t.Fatalf("DuplicateSelected: %v", err)
+	}
+	dupIDs := ed.SelectedIDs()
+	if len(dupIDs) != 2 {
+		t.Fatalf("after DuplicateSelected: SelectedIDs=%v, want 2", dupIDs)
+	}
+	if !ed.Undo() {
+		t.Fatal("Undo DuplicateSelected returned false")
+	}
+	if got := ed.SelectedIDs(); !slices.Equal(got, []string{"p1", "p2"}) {
+		t.Fatalf("after Undo DuplicateSelected: SelectedIDs=%v, want [p1 p2]", got)
+	}
+	if !ed.Redo() {
+		t.Fatal("Redo DuplicateSelected returned false")
+	}
+	if got := ed.SelectedIDs(); !slices.Equal(got, dupIDs) {
+		t.Fatalf("after Redo DuplicateSelected: SelectedIDs=%v, want %v", got, dupIDs)
+	}
+
+	// 7. Multi-inspector integer overflow guard & invalid input revert, plus StartPlay marquee cancel.
+	app := startEditorView(t, ed)
+	app.Post(func() {
+		if !ed.BeginMarquee2D(x0, y0) {
+			t.Errorf("BeginMarquee2D before Play failed")
+		}
+		if err := ed.Play(); err != nil {
+			t.Errorf("Play: %v", err)
+		}
+		if ed.MarqueeActive() {
+			t.Errorf("Play did not cancel active marquee")
+		}
+		if err := ed.Stop(); err != nil {
+			t.Errorf("Stop: %v", err)
+		}
+		ed.SelectObjectsWithPrimary([]string{"p1", "p2"}, "p1")
+	})
+	app.Settle()
+	app.Focus("id:inspector-z")
+	app.Type("id:inspector-z", "1e30")
+	app.Submit("id:inspector-z")
+	app.Settle()
+	p1, _, _ = ed.FindObject("p1")
+	p2, _, _ := ed.FindObject("p2")
+	if p1.Z != 0 || p2.Z != 0 {
+		t.Fatalf("overflow input 1e30 mutated Z: p1.Z=%d p2.Z=%d, want 0", p1.Z, p2.Z)
+	}
+	app.Focus("id:inspector-x")
+	app.Type("id:inspector-x", "not-a-number")
+	app.Submit("id:inspector-x")
+	app.Settle()
+	if got := app.Find("id:inspector-x").Text; got != "" {
+		t.Fatalf("invalid numeric submit did not revert draft: got %q, want empty mixed value", got)
+	}
+
+	// 9. OpenDemo clears stale selectedIDs and active marquee.
+	app.Post(func() {
+		ed.SelectObjectsWithPrimary([]string{"p1", "p2"}, "p1")
+		ed.BeginMarquee2D(10, 10)
+		if err := ed.OpenDemo(); err != nil {
+			t.Errorf("OpenDemo: %v", err)
+		}
+	})
+	app.Settle()
+	if got := ed.SelectedIDs(); !slices.Equal(got, []string{"hero"}) || ed.MarqueeActive() {
+		t.Fatalf("after OpenDemo: SelectedIDs=%v MarqueeActive=%v, want [hero] false", got, ed.MarqueeActive())
 	}
 }

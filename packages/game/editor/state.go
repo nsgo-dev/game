@@ -625,8 +625,6 @@ type Editor struct {
 	envPanelOpen bool
 	// merge holds the object-by-object Scene Merge Conflict resolution screen state.
 	merge mergeConflictState
-	// selectedIDs holds the multi-object selection in selection order; SelectedID is the primary selection.
-	selectedIDs []string
 	// clipboardText holds an in-memory copy of the last scene YAML copied when no UI scope or clipboard hook is attached.
 	clipboardText     string
 	lastClipboardKind clipboardKind

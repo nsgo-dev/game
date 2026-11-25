@@ -204,6 +204,9 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 				}
 				return
 			}
+			if cur.id != "" && !chosen && ed.SelectionCount() > 0 {
+				ed.ClearSelection()
+			}
 		})
 	})
 	// Selecting objects elsewhere (viewport click, Shift/Mod click, marquee, undo/redo) selects their rows and reveals them.
