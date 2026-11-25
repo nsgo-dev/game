@@ -775,7 +775,7 @@ for _, ev := range guard.Events() {
 
 ### 视觉
 
-目标位于眼睛 `Range` 范围内且与 `Facing` 的夹角不超过 `HalfAngle`（弧度），或位于较短的 `PeripheralRange` 范围内且夹角不超过 `PeripheralHalfAngle`（为零时覆盖四周）时，即处于视野中。眼睛位置为 `Pos + EyeOffset`（世界坐标），听觉也从这一点测量距离。处于视野中的目标，在系统的 `LineOfSight` 判定从眼睛到目标的线段畅通时才算被看见；`LineOfSight` 为 nil 时，视野中的目标都会被看见。三个适配器覆盖常见的遮挡来源：
+目标位于眼睛 `Range` 范围内且与 `Facing` 的夹角不超过 `HalfAngle`（弧度），或位于较短的 `PeripheralRange` 范围内且夹角不超过 `PeripheralHalfAngle`（为零时覆盖四周，为负时关闭周边视野）时，即处于视野中。眼睛位置为 `Pos + EyeOffset`（世界坐标），听觉也从这一点测量距离。处于视野中的目标，在系统的 `LineOfSight` 判定从眼睛到目标的线段畅通时才算被看见；`LineOfSight` 为 nil 时，视野中的目标都会被看见。三个适配器覆盖常见的遮挡来源：
 
 | 适配器 | 遮挡物 |
 | --- | --- |
@@ -791,7 +791,7 @@ for _, ev := range guard.Events() {
 
 ### 记忆与事件
 
-每个智能体按 `StimulusID` 为每个刺激保存一条 `Memory`，因此先被看见、后被听见的同一目标只刷新同一条记忆。记忆包含最后已知的 `Pos` 与 `Vel`（听到时速度为零）、最近一次刷新它的感官 `Sense`、自上次感知以来的 `Age`、当前是否 `Visible`，以及强度 `Strength`：看见时为 1，听见时为 `1 - 距离/可听范围`，并在 `ForgetAfter` 内线性衰减到 0。`Age` 达到 `ForgetAfter` 时记忆被遗忘。可用 `Memories`、`AppendMemories`、`Memory(id)` 与 `Sees(id)` 读取记忆，用 `Forget(id)` 与 `Clear` 删除记忆。
+每个智能体按 `StimulusID` 为每个刺激保存一条 `Memory`，因此先被看见、后被听见的同一目标只刷新同一条记忆。记忆包含最后已知的 `Pos` 与 `Vel`（听到时速度为零）、最近一次刷新它的感官 `Sense`、自上次感知以来的 `Age`、当前是否 `Visible`，以及强度 `Strength`：看见时为 1，听见时至少提升到 `1 - 距离/可听范围`（可听范围为无穷大时为 1），并在 `ForgetAfter` 内线性衰减到 0。`Age` 达到 `ForgetAfter` 时记忆被遗忘。可用 `Memories`、`AppendMemories`、`Memory(id)` 与 `Sees(id)` 读取记忆，用 `Forget(id)` 与 `Clear` 删除记忆。
 
 每次 `Step` 之后，`Events` 列出发生的变化：
 
@@ -808,7 +808,7 @@ for _, ev := range guard.Events() {
 
 ### 预算与确定性
 
-智能体多达数百个时，每步为每对智能体与目标都发射射线开销过大。`Budget` 限制一步内的视线检测次数：处于视野中的智能体—目标对先按智能体加入顺序、再按目标 ID 排序，每步从上次检测到的位置之后检测 `Budget` 对，下一步接着继续，因此每个智能体都按固定顺序轮到。尚未重新检测的对沿用上一次的结果。`Stats` 报告一步内的候选数、检测数与延后数。只要 `LineOfSight` 是确定性的，相同输入的每次运行都会得到相同的记忆与事件。
+智能体多达数百个时，每步为每对智能体与目标都发射射线开销过大。`Budget` 限制一步内的视线检测次数：处于视野中的智能体—目标对先按智能体加入顺序、再按目标 ID 排序，每步从上次检测到的位置之后检测 `Budget` 对，下一步接着继续，因此每个智能体都按固定顺序轮到。尚未重新检测的对沿用上一次的结果。`Stats` 报告一步内的候选数、检测数与延后数。`LineOfSight` 为 nil 时不发射射线，预算不生效，视野中的每一对都会立即被看见。只要 `LineOfSight` 是确定性的，相同输入的每次运行都会得到相同的记忆与事件。
 
 ### 3D
 

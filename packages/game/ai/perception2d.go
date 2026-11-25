@@ -51,7 +51,7 @@ type Memory struct {
 	Vel core.Point
 	// Age is the time since the stimulus was last sensed; zero while it is in sight.
 	Age time.Duration
-	// Strength is 1 when seen and 1 - distance/reach when heard, and falls linearly to 0 over ForgetAfter; it ranks memories by how fresh and certain they are.
+	// Strength is 1 when seen, and hearing raises it to at least 1 - distance/reach (1 for an infinite reach); it falls linearly to 0 over ForgetAfter; it ranks memories by how fresh and certain they are.
 	Strength float32
 	// Visible reports whether the stimulus is in sight now.
 	Visible bool
@@ -67,7 +67,7 @@ type Event struct {
 
 // Perception is one agent's senses and memory. Set its exported fields, add it to a PerceptionSystem, and step the system on game.Loop's fixed steps; the system reads the fields at the start of every Step, so a game moves and turns the agent by changing Pos and Facing.
 type Perception struct {
-	// Self is the agent's own StimulusID, so the agent never senses itself; zero means the agent is not a stimulus.
+	// Self is the agent's own StimulusID, so the agent never senses itself; zero means the agent is not a stimulus, so an agent that is one needs a non-zero ID.
 	Self StimulusID
 	// Team is the agent's team.
 	Team Team
@@ -163,7 +163,7 @@ type PerceptionSystem struct {
 	LineOfSight LineOfSight
 	// Attitude decides how agents regard targets and noises; nil means DefaultAttitude.
 	Attitude AttitudeFunc
-	// Budget caps the line-of-sight checks of one step; zero or less checks every pair in view. When the cap is reached, the remaining pairs are checked first on the next step, round-robin, and keep their previous result until then.
+	// Budget caps the LineOfSight calls of one step; zero or less checks every pair in view, and a nil LineOfSight makes no calls, so the budget does not apply and every pair in view is seen at once. When the cap is reached, the remaining pairs are checked first on the next step, round-robin, and keep their previous result until then.
 	Budget int
 
 	agents []*Perception
