@@ -1,0 +1,71 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://game.nsgo.dev/schemas/l10n.v1.json",
+  "title": "NSGo game localization string table (version 1)",
+  "description": "StringTable is a versioned YAML localization string table for one locale. A file looks like this:\n\n# yaml-language-server: $schema=https://game.nsgo.dev/schemas/l10n.v1.json version: 1 locale: en strings: hud.score: \"Score: {score}\" menu.play: Play plurals: coins: zero: No coins one: \"{count} coin\" other: \"{count} coins\"\n\nParseYAML decodes it strictly and EncodeYAML writes it back in canonical form with sorted keys, so a table EncodeYAML wrote survives a load and save byte for byte.",
+  "type": "object",
+  "properties": {
+    "version": {
+      "description": "Version is the schema version; it must equal StringTableVersion (1).",
+      "type": "integer",
+      "const": 1
+    },
+    "locale": {
+      "description": "Locale is the normalized BCP-47 locale tag this table translates (for example \"en\" or \"zh-Hans\").",
+      "type": "string",
+      "minLength": 1
+    },
+    "strings": {
+      "description": "Strings maps message keys (such as \"menu.play\" or \"hud.score\") to localized string templates.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "plurals": {
+      "description": "Plurals maps message keys to CLDR plural form templates (zero, one, two, few, many, other).",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/PluralForms"
+      }
+    }
+  },
+  "required": [
+    "version",
+    "locale"
+  ],
+  "additionalProperties": false,
+  "definitions": {
+    "PluralForms": {
+      "description": "PluralForms holds localized message templates keyed by CLDR plural category. Any unset category falls back to Other (or One if Other is empty).",
+      "type": "object",
+      "properties": {
+        "zero": {
+          "description": "Zero is the template used when count is 0 (if provided) or matches the CLDR zero category.",
+          "type": "string"
+        },
+        "one": {
+          "description": "One is the template used for the CLDR one plural category.",
+          "type": "string"
+        },
+        "two": {
+          "description": "Two is the template used for the CLDR two plural category.",
+          "type": "string"
+        },
+        "few": {
+          "description": "Few is the template used for the CLDR few plural category.",
+          "type": "string"
+        },
+        "many": {
+          "description": "Many is the template used for the CLDR many plural category.",
+          "type": "string"
+        },
+        "other": {
+          "description": "Other is the default fallback template for pluralization.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

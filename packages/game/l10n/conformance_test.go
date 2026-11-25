@@ -14,4 +14,10 @@ func TestFormatConformance(t *testing.T) {
 		Files:  []string{"testdata/assets.yaml"},
 		Doc:    "l10n",
 	})
+	formattest.Run(t, formattest.Format[*l10n.StringTable]{
+		Decode: l10n.ParseYAML,
+		Encode: l10n.EncodeYAML,
+		Files:  []string{"testdata/en.yaml"},
+		Doc:    "l10n#strings",
+	})
 }

@@ -1,0 +1,12 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/l10n.v1.json
+version: 1
+locale: en
+strings:
+  hud.score: 'Score: {score}'
+  menu.play: Play
+  menu.quit: Quit
+plurals:
+  coins:
+    zero: No coins
+    one: '{count} coin'
+    other: '{count} coins'

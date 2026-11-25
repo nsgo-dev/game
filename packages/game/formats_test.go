@@ -120,6 +120,7 @@ var formatVersions = map[string]string{
 	"internal/samplegltf.GLBVersion":        "",
 	"inventory.CurrentVersion":              "inventory",
 	"l10n.AssetManifestVersion":             "l10n",
+	"l10n.StringTableVersion":               "l10n#strings",
 	"leaderboard.CurrentVersion":            "leaderboard",
 	"leaderboard/selfhost.ConfigVersion":    "leaderboard/selfhost",
 	"liveops.CloudSaveVersion":              "liveops",
