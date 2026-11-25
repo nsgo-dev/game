@@ -1753,7 +1753,7 @@ entities:
 
 | Files | Version | Read and written by | Fields |
 | --- | --- | --- | --- |
-| `playtest.yaml`, read by `go tool game playtest` and `game_playtest` | `version: 1` | `playtest.ParseConfig`, `playtest.EncodeConfig` | [playtest](playtest.md) |
+| `playtest.yaml`, read by `nsgo game playtest` and `game_playtest` | `version: 1` | `playtest.ParseConfig`, `playtest.EncodeConfig` | [playtest](playtest.md) |
 
 ```yaml
 # yaml-language-server: $schema=https://game.nsgo.dev/schemas/playtest.v1.json
@@ -1797,7 +1797,7 @@ metrics:
 
 | Files | Version | Read and written by | Fields |
 | --- | --- | --- | --- |
-| `playtest.report.yaml`, written by `go tool game playtest` and `playtest.SaveReportFile` | `version: 1` | `playtest.ParseReport`, `playtest.EncodeReport` | [playtest](playtest.md) |
+| `playtest.report.yaml`, written by `nsgo game playtest` and `playtest.SaveReportFile` | `version: 1` | `playtest.ParseReport`, `playtest.EncodeReport` | [playtest](playtest.md) |
 
 ```yaml
 version: 1

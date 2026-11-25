@@ -126,7 +126,7 @@ metrics.Finish() // 或 metrics.Fail("out of lives")
 
 ## 无头运行与回放
 
-直接调用 `playtest.Run(cfg, makeSim, opts)`，或在测试中调用 `playtest.RunTest` 供 `go tool game playtest` 驱动：
+直接调用 `playtest.Run(cfg, makeSim, opts)`，或在测试中调用 `playtest.RunTest` 供 `nsgo game playtest` 驱动：
 
 ```go
 func TestLevel1Playtest(t *testing.T) {
@@ -137,16 +137,16 @@ func TestLevel1Playtest(t *testing.T) {
 随后在项目目录运行：
 
 ```sh
-go tool game playtest
-go tool game playtest -config playtest.yaml -out playtest.report.yaml -recordings playtest-recordings
-go tool game playtest -check
+nsgo game playtest
+nsgo game playtest -config playtest.yaml -out playtest.report.yaml -recordings playtest-recordings
+nsgo game playtest -check
 ```
 
 每个种子的运行都会通过 `replay.Recorder` 记录输入并写出 `<recordings>/run_NNN_seed_<seed>.replay.yaml`，因此任意一次运行都可以用 `replay.NewPlayer` 确定性回放或转为 `game replay` 回归测试。输出的 YAML 报告（`playtest.report.yaml`，`version: 1`）包含每次运行的结果、各项指标值、目标达成状态（`met`、`missed`、`info`）、热力图坐标以及录制文件路径。
 
 ## 编辑器 MCP 工具
 
-编辑器的 MCP 服务器（`game/editor/editormcp`，通过 `go tool game mcp` 接入）提供两个试玩工具：
+编辑器的 MCP 服务器（`game/editor/editormcp`，通过 `nsgo game mcp` 接入）提供两个试玩工具：
 
 - `game_playtest`（`run`）：校验 `playtest.yaml`，无头运行机器人并录制回放，写出 YAML 报告，返回结构化报告和汇总文本。
 - `playtest_define`（`edit`）：校验提议的新指标，生成规范化的 `playtest.yaml` 差异并作为待审查提案排队（`Server.PlaytestReviews`、`Server.ApplyPlaytestReview`、`Server.DismissPlaytestReview`），在用户确认前不会改写磁盘上的 `playtest.yaml`。

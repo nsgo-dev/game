@@ -190,11 +190,14 @@ func (r Runs) EffectiveMaxDuration() time.Duration {
 
 // MaxSteps returns the number of fixed steps corresponding to EffectiveMaxDuration at EffectiveRate.
 func (r Runs) MaxSteps() int {
-	steps := int(math.Ceil(r.EffectiveMaxDuration().Seconds() * float64(r.EffectiveRate())))
-	if steps < 1 {
+	raw := math.Ceil(r.EffectiveMaxDuration().Seconds() * float64(r.EffectiveRate()))
+	if math.IsNaN(raw) || raw < 1 {
 		return 1
 	}
-	return steps
+	if raw >= math.MaxInt32 {
+		return math.MaxInt32
+	}
+	return int(raw)
 }
 
 // ResolveSeeds returns the deterministic list of per-run seeds configured by r.
@@ -251,6 +254,9 @@ func (m Measure) EffectiveAggregate() string {
 func (g *Goal) Evaluate(value float64) string {
 	if g == nil {
 		return StatusInfo
+	}
+	if !isFinite(value) {
+		return StatusMissed
 	}
 	const eps = 1e-9
 	if g.Equal != nil {
