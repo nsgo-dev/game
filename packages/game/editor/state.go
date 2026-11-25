@@ -210,7 +210,7 @@ type Editor struct {
 	FilePath       string
 	// Shading3D is how the 3D viewport shades the scene's geometry on the GPU (SetShading3D).
 	Shading3D Shading3D
-	// Lights3D are the lights the 3D viewport draws the scene's geometry with, such as the rig the game lights the scene with, over the scene's background color; nil draws it with DefaultLights3D under a gradient sky. Scene files do not hold lights, so an editor built on this package that knows its game's lights sets them here.
+	// Lights3D are the lights the 3D viewport draws the scene's geometry with, such as the rig the game lights the scene with, over the scene's background color; nil draws it with DefaultLights3D under a gradient sky. Scene files do not hold lights, so an editor built on this package that knows its game's lights sets them with SetLights3D, which redraws the viewport; assigning the field directly does not.
 	Lights3D *render3d.LightRig
 	// Project is the game's project file (game.yaml) OpenProject opened, nil without one; EditProject changes it undoably and SaveProject writes it.
 	Project *project.File
@@ -319,6 +319,8 @@ type Editor struct {
 	objIndex objectIndex
 	// filesRev counts the changes the editor made to which files the open project holds, by opening it, moving files, saving a scene or clip, which may make a new file, and installing or removing packs; the file browser lists the files again when it changes.
 	filesRev uint64
+	// assetsRev counts the changes the editor made that may change the content of the project's models, material files and images, by opening a project, moving files, installing or removing packs, reloading built assets (ReloadAssets), and rescanning the project from disk (RefreshSearch); the 3D build loads its assets again when it changes. Saving a scene, clip, data table or localization table writes none of them, so it leaves the 3D build's assets alone.
+	assetsRev uint64
 	// audioMixer holds the Audio Bus Mixer panel state and its live audition sound.Mixer.
 	audioMixer audioMixerState
 	// projectSettings holds the Project Settings panel visibility and active section.
@@ -549,6 +551,15 @@ func (e *Editor) SetShading3D(mode Shading3D) {
 	}
 	e.Shading3D = mode
 	e.Status = "Shading: " + mode.String()
+	e.notify()
+}
+
+// SetLights3D sets the lights the 3D viewport draws the scene's geometry with (Lights3D) and redraws it; nil goes back to DefaultLights3D under a gradient sky. Like Shading3D, the lights are a view setting: setting them is not undoable and changes nothing in the scene file.
+func (e *Editor) SetLights3D(lights *render3d.LightRig) {
+	if e == nil {
+		return
+	}
+	e.Lights3D = lights
 	e.notify()
 }
 

@@ -56,6 +56,7 @@ func (e *Editor) OpenProject(path string) error {
 	e.syncScenePath()
 	e.snapshotAssetOutputs()
 	e.filesRev++
+	e.assetsRev++
 	e.History.Clear()
 	e.dropStalePluginTool()
 	e.dropStaleFocusedPluginPanel()

@@ -215,6 +215,7 @@ func (e *Editor) followMove(root, from, to string, written []refs.Write) {
 	moveFile(&e.clipMeta.path)
 	e.followDataTableMove(moveFile)
 	e.filesRev++
+	e.assetsRev++
 	e.followSearchMove(forth)
 	e.Status = "Moved " + from + " to " + to
 	e.CheckProblems()

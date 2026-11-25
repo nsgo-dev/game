@@ -406,6 +406,7 @@ func (e *Editor) ReloadAssets() (ReloadAssetsResult, error) {
 	var res ReloadAssetsResult
 	if e.Project.Assets == nil {
 		e.filesRev++
+		e.assetsRev++
 		e.invalidateProjectIndex()
 		e.Rebuild()
 		e.notify()
@@ -512,6 +513,7 @@ func (e *Editor) ReloadAssets() (ReloadAssetsResult, error) {
 	}
 
 	e.filesRev++
+	e.assetsRev++
 	e.invalidateProjectIndex()
 	e.keepTileInPalette()
 	e.Rebuild()

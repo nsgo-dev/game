@@ -101,6 +101,9 @@ type viewport3DRenderer struct {
 	// drawn is what the last recorded frame showed.
 	drawn    viewport3DFrame
 	hasDrawn bool
+	// failed is the last frame that could not be recorded and failErr why, nil when the last try did not fail. A frame that would fail the same way is not tried again, uploading the whole build on every display frame, until the editor, the size or the build changes.
+	failed  viewport3DFrame
+	failErr error
 }
 
 // viewport3DFrame is what decides a frame's pixels: the editor's revision, the surface's size and the build's generation.
@@ -131,13 +134,21 @@ func newViewport3DRenderer(ed *Editor, dev *gpu.Device) (*viewport3DRenderer, er
 	return r, nil
 }
 
-// render records the 3D viewport, w by h pixels, into enc and reports whether it recorded anything: nothing when the frame would show what the last one did. On an error it records nothing and the next call tries again.
+// render records the 3D viewport, w by h pixels, into enc and reports whether it recorded anything: nothing when the frame would show what the last one did. On an error it records nothing, and it returns the same error without trying again until the editor's revision, the size or the build changes.
 func (r *viewport3DRenderer) render(enc renderPassEncoder, w, h int) (bool, error) {
 	ed := r.ed
 	s := ed.scene3D()
 	frame := viewport3DFrame{rev: ed.revision, w: w, h: h, gen: s.gen}
+	if r.failErr != nil && frame == r.failed {
+		return false, r.failErr
+	}
+	r.failErr = nil
 	if r.hasDrawn && frame == r.drawn {
 		return false, nil
+	}
+	fail := func(err error) (bool, error) {
+		r.failed, r.failErr = frame, fmt.Errorf("editor: 3D viewport: %w", err)
+		return false, r.failErr
 	}
 	if r.scene != nil && r.gen != s.gen {
 		_ = r.scene.Close()
@@ -146,7 +157,7 @@ func (r *viewport3DRenderer) render(enc renderPassEncoder, w, h int) (bool, erro
 	if r.scene == nil && s.built != nil {
 		scene, err := scenemodel.NewRenderer(nil, r.dev, s.built, scenemodel.RendererOptions{Label: "editor.viewport3d", DepthFormat: viewport3DDepthFormat})
 		if err != nil {
-			return false, fmt.Errorf("editor: 3D viewport: %w", err)
+			return fail(err)
 		}
 		r.scene, r.gen = scene, s.gen
 	}
@@ -161,10 +172,10 @@ func (r *viewport3DRenderer) render(enc renderPassEncoder, w, h int) (bool, erro
 			shading = scenemodel.ShadingUnlit
 		}
 		if err := r.scene.SetShading(shading); err != nil {
-			return false, fmt.Errorf("editor: 3D viewport: %w", err)
+			return fail(err)
 		}
 		if _, err := r.scene.Prepare(cam, lights); err != nil {
-			return false, fmt.Errorf("editor: 3D viewport: %w", err)
+			return fail(err)
 		}
 	}
 	if sky {
@@ -207,7 +218,7 @@ func (r *viewport3DRenderer) close() error {
 		err = errors.Join(err, r.sky.Close())
 		r.sky = nil
 	}
-	r.hasDrawn = false
+	r.hasDrawn, r.failErr = false, nil
 	return err
 }
 
@@ -240,7 +251,12 @@ func viewport3DView(cx *core.Scope, ed *Editor, overlay core.Node) core.Node {
 			w, h := f.Size()
 			drew, err := r.render(f, w, h)
 			if err != nil {
+				before := ed.revision
 				ed.setViewport3DGPU(false, err)
+				if ed.revision == before+1 {
+					// Reporting the error changes nothing the failed frame would draw, so it does not count as a change to try the frame again for.
+					r.failed.rev = ed.revision
+				}
 				return
 			}
 			if drew {
