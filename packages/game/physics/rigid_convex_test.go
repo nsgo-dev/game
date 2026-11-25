@@ -252,6 +252,38 @@ func TestRigidPolygonShapeFollowsRotation(t *testing.T) {
 	}
 }
 
+func TestRigidPolygonLiteralTurnsAboutCentroid(t *testing.T) {
+	// A struct literal leaves (X, Y) at the origin, away from the square at (100..120, 100..120): the body still turns in place about the square's center.
+	sq := physics.PolygonShape(physics.NewBoxPolygon(110, 110, 20, 20, 0))
+	b := &physics.RigidBody{Shape: sq, Mass: 1, AngularVel: 1}
+	w := &physics.RigidWorld{}
+	w.AddBody(b)
+	w.Step(step)
+	if !near(b.X, 110, 1e-4) || !near(b.Y, 110, 1e-4) {
+		t.Fatalf("body at (%v, %v), want the centroid (110, 110)", b.X, b.Y)
+	}
+	if cx, cy := b.Shape.Centroid(); !near(cx, 110, 1e-3) || !near(cy, 110, 1e-3) {
+		t.Fatalf("square drifted to centroid (%v, %v)", cx, cy)
+	}
+	if want := sq.MomentOfInertia(1); !near(b.Inertia, want, 1e-4) {
+		t.Fatalf("inertia %v, want %v", b.Inertia, want)
+	}
+
+	// A new shape with another size replaces the inertia the body derived, but not one the caller set.
+	long := physics.PolygonShape(physics.NewBoxPolygon(b.X, b.Y, 60, 10, b.Angle))
+	b.Shape = long
+	w.Step(step)
+	if want := long.MomentOfInertia(1); !near(b.Inertia, want, 1e-3) {
+		t.Fatalf("inertia after reassignment %v, want %v", b.Inertia, want)
+	}
+	b.Inertia, b.InvInertia = 5, 0.2
+	b.Shape = physics.PolygonShape(physics.NewBoxPolygon(b.X, b.Y, 10, 10, b.Angle))
+	w.Step(step)
+	if b.Inertia != 5 {
+		t.Fatalf("caller's inertia replaced by %v", b.Inertia)
+	}
+}
+
 func TestRigidChainLoopContainsBall(t *testing.T) {
 	room := physics.NewStaticRigidBody(physics.ChainShape(pts(0, 0, 200, 0, 200, 200, 0, 200), true))
 	ball := physics.NewRigidCircle(100, 100, 10, 1)

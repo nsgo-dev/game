@@ -172,13 +172,9 @@ type MoveResult struct {
 	OnRightWall bool
 }
 
-// MoveAndSlide advances b by (VX*dt, VY*dt) and resolves axis-aligned collisions against grid,
-// resolving X before Y. It zeroes velocity along blocked axes, updates b's Grounded, OnCeiling,
-// OnLeftWall and OnRightWall flags, and subdivides large displacements so fast bodies do not
-// tunnel through single-tile walls or platforms.
+// MoveAndSlide advances b by (VX*dt, VY*dt) and resolves axis-aligned collisions against grid, resolving X before Y. It zeroes velocity along blocked axes, updates b's Grounded, OnCeiling, OnLeftWall and OnRightWall flags, and subdivides large displacements so fast bodies do not tunnel through single-tile walls or platforms.
 //
-// Tiles are resolved against the bounding box of b's shape, so a Polygon or Capsule body moves
-// as its bounds do and keeps its shape; the whole shape is translated by the resolved movement.
+// Tiles are resolved against the bounding box of b's shape, so a Polygon or Capsule body moves as its bounds do and keeps its shape; the whole shape is translated by the resolved movement.
 func MoveAndSlide(b *Body, grid TileGrid, dt time.Duration) MoveResult {
 	if b == nil {
 		return MoveResult{}

@@ -96,8 +96,29 @@ func polygonHull(p Polygon) hull {
 	return h
 }
 
-// shapeHull returns the rounded hull of every shape but a chain.
+// finite reports whether every core point and the radius of h are finite numbers; a NaN or infinite coordinate would otherwise give a contact with a zero normal.
+func (h *hull) finite() bool {
+	if math.IsNaN(h.r) || math.IsInf(h.r, 0) {
+		return false
+	}
+	for _, v := range h.v[:h.count] {
+		if math.IsNaN(v.x) || math.IsNaN(v.y) || math.IsInf(v.x, 0) || math.IsInf(v.y, 0) {
+			return false
+		}
+	}
+	return true
+}
+
+// shapeHull returns the rounded hull of every shape but a chain, or false when s is empty or has a coordinate that is not finite.
 func shapeHull(s Shape) (hull, bool) {
+	h, ok := rawShapeHull(s)
+	if !ok || !h.finite() {
+		return hull{}, false
+	}
+	return h, true
+}
+
+func rawShapeHull(s Shape) (hull, bool) {
 	if s.Empty() {
 		return hull{}, false
 	}
@@ -454,7 +475,7 @@ func chainSegmentManifold(c *Chain, i int, o *hull) (hullManifold, bool) {
 	p0 := vec2{float64(c.Points[i].X), float64(c.Points[i].Y)}
 	p1 := vec2{float64(c.Points[(i+1)%n].X), float64(c.Points[(i+1)%n].Y)}
 	seg := segmentHull(p0, p1, 0)
-	if seg.count != 2 {
+	if seg.count != 2 || !seg.finite() || !o.finite() {
 		return hullManifold{}, false
 	}
 	// Cheap rejection on bounds before the full test.
@@ -522,17 +543,54 @@ func chainSegmentManifold(c *Chain, i int, o *hull) (hullManifold, bool) {
 	return forced, forced.count > 0
 }
 
-// chainManifolds appends to out the manifold of every segment of chain c touching hull o, with normals pointing from the chain toward o.
+// chainManifolds appends to out the manifold of every segment of chain c touching hull o, with normals pointing from the chain toward o. Two segments that share a vertex both report a contact at that vertex when o rests on a peak or a flat seam; a point already reported by an earlier segment with the same normal is dropped, so a solver that applies every manifold pushes o out of the vertex once, not twice.
 func chainManifolds(c *Chain, o *hull, out []hullManifold) []hullManifold {
 	if c.Empty() || !o.hasArea() {
 		return out
 	}
+	start := len(out)
 	for i := range c.SegmentCount() {
-		if m, ok := chainSegmentManifold(c, i, o); ok {
+		m, ok := chainSegmentManifold(c, i, o)
+		if !ok {
+			continue
+		}
+		m = withoutReportedPoints(m, out[start:])
+		if m.count > 0 {
 			out = append(out, m)
 		}
 	}
 	return out
+}
+
+// chainDuplicateTolerance is how close two contact points and normals from neighbouring chain segments must be to count as the same contact.
+const chainDuplicateTolerance = 1e-6
+
+// withoutReportedPoints returns m without the points that a manifold in kept already reports with the same normal.
+func withoutReportedPoints(m hullManifold, kept []hullManifold) hullManifold {
+	for _, k := range kept {
+		if math.Abs(k.nx-m.nx) > chainDuplicateTolerance || math.Abs(k.ny-m.ny) > chainDuplicateTolerance {
+			continue
+		}
+		n := 0
+		for _, p := range m.points[:m.count] {
+			dup := false
+			for _, q := range k.points[:k.count] {
+				if math.Abs(p.x-q.x) <= chainDuplicateTolerance && math.Abs(p.y-q.y) <= chainDuplicateTolerance {
+					dup = true
+					break
+				}
+			}
+			if !dup {
+				m.points[n] = p
+				n++
+			}
+		}
+		m.count = n
+		if n == 0 {
+			break
+		}
+	}
+	return m
 }
 
 // contactFromManifold turns a manifold whose normal points from A toward B into a Contact whose normal points from B toward A, at the deepest depth and the mean of the points.

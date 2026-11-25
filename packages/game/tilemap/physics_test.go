@@ -33,6 +33,8 @@ func TestObjectPhysicsShape(t *testing.T) {
 		{"convex polygon", tilemap.Object{Shape: tilemap.ObjectPolygon, X: 100, Y: 50, Points: points(0, 0, 40, 30, 0, 30)}, true, physics.ShapePolygon, physics.Box{X: 100, Y: 50, W: 40, H: 30}},
 		{"concave polygon", tilemap.Object{Shape: tilemap.ObjectPolygon, X: 0, Y: 0, Points: points(0, 0, 20, 10, 40, 0, 40, 30, 0, 30)}, true, physics.ShapeChain, physics.Box{X: 0, Y: 0, W: 40, H: 30}},
 		{"polygon with nine vertices", tilemap.Object{Shape: tilemap.ObjectPolygon, Points: ninegon()}, true, physics.ShapeChain, physics.Box{X: -9.848078, Y: -9.396926, W: 19.696156, H: 19.396927}},
+		{"pentagram", tilemap.Object{Shape: tilemap.ObjectPolygon, Points: pentagram()}, true, physics.ShapeChain, physics.Box{X: -9.510565, Y: -8.090170, W: 19.021130, H: 18.090170}},
+		{"collinear polygon", tilemap.Object{Shape: tilemap.ObjectPolygon, Points: points(0, 0, 10, 0, 20, 0)}, false, 0, physics.Box{}},
 		{"polyline pair", tilemap.Object{Shape: tilemap.ObjectPolyline, X: 5, Y: 5, Points: points(0, 0, 10, 5)}, true, physics.ShapeSegment, physics.Box{X: 5, Y: 5, W: 10, H: 5}},
 		{"polyline", tilemap.Object{Shape: tilemap.ObjectPolyline, X: 0, Y: 100, Points: points(0, 0, 50, -20, 100, 0)}, true, physics.ShapeChain, physics.Box{X: 0, Y: 80, W: 100, H: 20}},
 		{"polyline repeated point", tilemap.Object{Shape: tilemap.ObjectPolyline, Points: points(3, 3, 3, 3)}, false, 0, physics.Box{}},
@@ -57,6 +59,16 @@ func TestObjectPhysicsShape(t *testing.T) {
 			}
 		})
 	}
+}
+
+// pentagram returns the self-intersecting star {5/2}, which turns the same way at every vertex but twice around in total.
+func pentagram() []core.Point {
+	out := make([]core.Point, 5)
+	for i := range out {
+		a := 2*math.Pi*float64(2*i)/5 + math.Pi/2
+		out[i] = core.Point{X: core.Points(10 * math.Cos(a)), Y: core.Points(10 * math.Sin(a))}
+	}
+	return out
 }
 
 func ninegon() []core.Point {
@@ -94,5 +106,10 @@ func TestObjectLayerPhysicsBodies(t *testing.T) {
 	// The original layer is untouched.
 	if layer.Objects[0].X != 0 || layer.Objects[0].Points[1].X != 100 {
 		t.Fatal("PhysicsBodies changed the layer's objects")
+	}
+	// A missing layer, as Tilemap.ObjectLayer returns it, has no bodies instead of panicking.
+	var missing *tilemap.ObjectLayer
+	if got := missing.PhysicsBodies(); got != nil {
+		t.Fatalf("nil layer bodies = %v", got)
 	}
 }

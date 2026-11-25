@@ -27,12 +27,13 @@ Implement a lightweight, pure-Go, deterministic 2D rigid-body and constraint sol
 ## Trade-offs & Scope
 
 - **Supported shapes**: oriented `Box` and `Circle`, convex `Polygon` (up to 8 vertices, optionally rounded) and `Capsule` for dynamic bodies, and `Segment` and `Chain` for static ones. Concave terrain is a `Chain` (or several convex polygons); concave dynamic bodies and swept continuous collision detection (CCD) are intentionally out of scope for the built-in solver, so a body whose center crosses a segment or chain within one step passes through it.
+- **Scale**: Designed for tens to low hundreds of active rigid bodies per scene; games requiring large-scale multi-thousand-body simulations can integrate a dedicated physics engine alongside `packages/game`.
 
 ## Bodies from any shape
 
 `NewRigidBody(shape, mass)` places the body's center of mass at `shape.Centroid()` and takes its inertia from `shape.MomentOfInertia(mass)`; `NewStaticRigidBody(shape)` makes level geometry. A `Box` or `Circle` gives the same body as `NewRigidBox` or `NewRigidCircle`. Segments and chains have no area, so their bodies are always static.
 
-A polygon, capsule, segment or chain body keeps its shape in local coordinates and writes `Shape` back rotated by `Angle` after each step, so `World` queries, triggers and `DrawShape` see it at its true pose. Assigning a new `Shape` between steps re-anchors it to the body's current pose.
+A polygon, capsule, segment or chain body keeps its shape in local coordinates and writes `Shape` back rotated by `Angle` after each step, so `World` queries, triggers and `DrawShape` see it at its true pose. A polygon or capsule assigned to `Shape`, in a struct literal or between steps, stays where it is drawn: the next step moves `X` and `Y` to its centroid, so the body turns about its center of mass, and recomputes an `Inertia` the body derived itself (an `Inertia` you set to another value is kept). A segment or chain is anchored at the current `X` and `Y`.
 
 ```go
 ramp, _ := physics.NewPolygon([]core.Point{{X: 0, Y: 50}, {X: 0, Y: 200}, {X: 300, Y: 200}}, 0)
@@ -40,7 +41,6 @@ rw.AddBody(physics.NewStaticRigidBody(physics.PolygonShape(ramp)))
 crate := physics.NewRigidBody(physics.PolygonShape(physics.NewBoxPolygon(64.5, 70.6, 20, 20, 0.4636)), 1)
 rw.AddBody(crate) // slides down the ramp
 ```
-- **Scale**: Designed for tens to low hundreds of active rigid bodies per scene; games requiring large-scale multi-thousand-body simulations can integrate a dedicated physics engine alongside `packages/game`.
 
 ## Example
 
