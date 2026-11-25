@@ -74,11 +74,11 @@ func (c OrbitCamera3D) halfHeight64() float64 {
 	return dist * math.Tan(fov*0.5)
 }
 
-// eyeDistance64 returns how far the eye sits from Target: Distance in perspective, and in orthographic at least halfway through the clip range, so the scene in front of Target is not clipped.
+// eyeDistance64 returns how far the eye sits from Target: Distance in perspective, and in orthographic halfway between the near and far planes whatever Distance is, so Target stays inside the clip range however far the view zooms out; in orthographic Distance only sets how much the view shows (OrthoHeight).
 func (c OrbitCamera3D) eyeDistance64() float64 {
 	dist, _, near, far := c.effectiveParams()
 	if c.Orthographic {
-		return max(dist, (far-near)*0.5)
+		return (near + far) * 0.5
 	}
 	return dist
 }
@@ -537,7 +537,7 @@ func (e *Editor) GizmoLength3D(pos [3]float32) float32 {
 		return 32
 	}
 	// In orthographic a gizmo's size on screen does not change with its distance from the eye, so it is sized by the view's zoom instead, as large as a perspective view shows it at Target.
-	dist := float64(e.Camera3D.Distance)
+	dist, _, _, _ := e.Camera3D.effectiveParams()
 	if !e.Camera3D.Orthographic {
 		dist = len64(sub64(vec64(pos), e.Camera3D.eye64()))
 	}
@@ -944,8 +944,7 @@ func (e *Editor) HandleViewport3DPress(sx, sy, w, h float32) {
 	e.Select3DAt(sx, sy, w, h)
 }
 
-// BeginViewport3DDrag starts either a 3D gizmo drag (if a handle is under the cursor and !pan)
-// or a camera orbit/pan drag. It does nothing while the camera flies (BeginFly3D).
+// BeginViewport3DDrag starts either a 3D gizmo drag (if a handle is under the cursor and !pan) or a camera orbit/pan drag. It does nothing while the camera flies (BeginFly3D).
 func (e *Editor) BeginViewport3DDrag(sx, sy, w, h float32, pan bool) {
 	if e == nil || e.fly3D {
 		return

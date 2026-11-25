@@ -101,9 +101,9 @@ func (c OrbitCamera3D) AxisView() (View3D, bool) {
 	return 0, false
 }
 
-// Look turns the camera about its eye, as a first-person camera turns its head: dyaw turns it left (positive) or right and dpitch tilts it down (positive) or up, in radians. Target moves to stay Distance in front of the eye, and the tilt stops short of straight up or down, as Orbit's does.
+// Look turns the camera about its eye, as a first-person camera turns its head: dyaw turns it left (positive) or right and dpitch tilts it down (positive) or up, in radians; a turn that is not finite changes nothing. Target moves to stay Distance in front of the eye, and the tilt stops short of straight up or down, as Orbit's does.
 func (c *OrbitCamera3D) Look(dyaw, dpitch float32) {
-	if c == nil {
+	if c == nil || !isFiniteFloat32(dyaw) || !isFiniteFloat32(dpitch) {
 		return
 	}
 	eye := c.eye64()
@@ -114,9 +114,9 @@ func (c *OrbitCamera3D) Look(dyaw, dpitch float32) {
 	c.Target = vec32(add64(eye, scale64(forward, c.eyeDistance64())))
 }
 
-// Fly moves the camera, eye and Target together, by right along the view's right direction, up along the world's up axis and forward along the direction the view looks.
+// Fly moves the camera, eye and Target together, by right along the view's right direction, up along the world's up axis and forward along the direction the view looks. A move that is not finite changes nothing.
 func (c *OrbitCamera3D) Fly(right, up, forward float32) {
-	if c == nil {
+	if c == nil || !isFiniteFloat32(right) || !isFiniteFloat32(up) || !isFiniteFloat32(forward) {
 		return
 	}
 	r, _, f := c.basis64()
@@ -136,7 +136,7 @@ const (
 	flyBoost3D float32 = 4
 )
 
-// SetView3D turns the 3D viewport's camera to the axis view v, as the axis widget, the number-key shortcuts and the View commands do, keeping what it looks at and how far away. It does not change the projection; with Orthographic3D the view is then a true elevation or plan. The camera jumps there without animating.
+// SetView3D turns the 3D viewport's camera to the axis view v, as the axis widget, the number-key shortcuts and the View commands do, keeping what it looks at and how far away. It ends a flight and cancels a gizmo or camera drag, whose rays came from the old camera. It does not change the projection; with Orthographic3D the view is then a true elevation or plan. The camera jumps there without animating.
 func (e *Editor) SetView3D(v View3D) {
 	if e == nil {
 		return
@@ -144,18 +144,25 @@ func (e *Editor) SetView3D(v View3D) {
 	if _, _, ok := v.angles(); !ok {
 		return
 	}
-	e.endFly3D()
+	e.endCameraGestures3D()
 	e.Camera3D.SetView(v)
 	e.Status = "View: " + e.ViewName3D()
 	e.notify()
 }
 
-// SetOrthographic3D switches the 3D viewport's camera between perspective and orthographic (OrbitCamera3D.Orthographic), keeping what lies at its Target the same size.
+// SetOrthographic3D switches the 3D viewport's camera between perspective and orthographic (OrbitCamera3D.Orthographic), keeping what lies at its Target the same size. It ends a flight and cancels a gizmo or camera drag.
 func (e *Editor) SetOrthographic3D(on bool) {
-	if e == nil || e.Camera3D.Orthographic == on {
+	if e == nil {
 		return
 	}
-	e.endFly3D()
+	if e.fly3D && !on {
+		// A flight already looks in perspective; asking for it keeps it after the flight ends.
+		e.fly3DOrtho = false
+	}
+	if e.Camera3D.Orthographic == on {
+		return
+	}
+	e.endCameraGestures3D()
 	e.Camera3D.Orthographic = on
 	e.Status = "View: " + e.ViewName3D()
 	e.notify()
@@ -166,21 +173,21 @@ func (e *Editor) Orthographic3D() bool {
 	return e != nil && e.Camera3D.Orthographic
 }
 
-// OrbitView3D orbits the 3D viewport's camera about its Target by dyaw and dpitch radians, as a drag does; the viewport's Orbit buttons turn it 15 degrees left or right. Looking straight down or up from an axis view, a tilt first brings the view back within Orbit's range.
+// OrbitView3D orbits the 3D viewport's camera about its Target by dyaw and dpitch radians, as a drag does; the viewport's Orbit buttons turn it 15 degrees left or right. Looking straight down or up from an axis view, a tilt first brings the view back within Orbit's range. A turn that is not finite changes nothing.
 func (e *Editor) OrbitView3D(dyaw, dpitch float32) {
-	if e == nil || (dyaw == 0 && dpitch == 0) {
+	if e == nil || !isFiniteFloat32(dyaw) || !isFiniteFloat32(dpitch) || (dyaw == 0 && dpitch == 0) {
 		return
 	}
 	e.Camera3D.Orbit(dyaw, dpitch)
 	e.notify()
 }
 
-// ResetView3D puts the 3D viewport's camera back to DefaultOrbitCamera3D, looking at the world origin, keeping the projection.
+// ResetView3D puts the 3D viewport's camera back to DefaultOrbitCamera3D, looking at the world origin, keeping the projection. It ends a flight and cancels a gizmo or camera drag.
 func (e *Editor) ResetView3D() {
 	if e == nil {
 		return
 	}
-	e.endFly3D()
+	e.endCameraGestures3D()
 	ortho := e.Camera3D.Orthographic
 	e.Camera3D = DefaultOrbitCamera3D()
 	e.Camera3D.Orthographic = ortho
@@ -188,9 +195,9 @@ func (e *Editor) ResetView3D() {
 	e.notify()
 }
 
-// PanView3D moves the 3D viewport's camera parallel to the view so the scene follows the pointer: dx and dy are how far it moved, in points, right and down, on a viewport h points high. What lies at Target moves by exactly that much, in perspective and in orthographic.
+// PanView3D moves the 3D viewport's camera parallel to the view so the scene follows the pointer: dx and dy are how far it moved, in points, right and down, on a viewport h points high. What lies at Target moves by exactly that much, in perspective and in orthographic. A move that is not finite changes nothing.
 func (e *Editor) PanView3D(dx, dy, h float32) {
-	if e == nil || (dx == 0 && dy == 0) {
+	if e == nil || !isFiniteFloat32(dx) || !isFiniteFloat32(dy) || (dx == 0 && dy == 0) {
 		return
 	}
 	per := float32(e.Camera3D.worldPerPixel(h))
@@ -241,7 +248,7 @@ func (e *Editor) viewStatus3D() string {
 	return fmt.Sprintf("%s · yaw %d° · pitch %d°", e.ViewName3D(), yaw, pitch)
 }
 
-// BeginFly3D starts flying the 3D viewport's camera, as holding the right mouse button does: FlyLook3D then turns it about its eye and FlyMove3D moves it, until EndFly3D. Flying looks in perspective, so an orthographic camera switches to perspective, and the first flight without a FlySpeed3D sets it to the camera's Distance a second. It reports whether it started: not while playing, and not during a gizmo or camera drag.
+// BeginFly3D starts flying the 3D viewport's camera, as holding the right mouse button does: FlyLook3D then turns it about its eye and FlyMove3D moves it, until EndFly3D. Flying looks in perspective, so an orthographic camera switches to perspective, and back when the flight ends without having turned or moved it; and the first flight without a FlySpeed3D sets it to the camera's Distance a second. It reports whether it started: not while playing, and not during a gizmo or camera drag.
 func (e *Editor) BeginFly3D() bool {
 	if e == nil || e.playing || e.drag3D.kind != drag3DNone {
 		return false
@@ -250,6 +257,7 @@ func (e *Editor) BeginFly3D() bool {
 		return true
 	}
 	e.fly3D = true
+	e.fly3DOrtho, e.fly3DMoved = e.Camera3D.Orthographic, false
 	e.Camera3D.Orthographic = false
 	if e.FlySpeed3D <= 0 {
 		e.FlySpeed3D = clampFlySpeed3D(max(e.Camera3D.Distance, 1))
@@ -263,18 +271,19 @@ func (e *Editor) Flying3D() bool {
 	return e != nil && e.fly3D
 }
 
-// FlyLook3D turns the flying camera about its eye by a pointer's movement of dx and dy points right and down (OrbitCamera3D.Look). It does nothing unless flying.
+// FlyLook3D turns the flying camera about its eye by a pointer's movement of dx and dy points right and down (OrbitCamera3D.Look). It does nothing unless flying, or for a movement that is not finite.
 func (e *Editor) FlyLook3D(dx, dy float32) {
-	if e == nil || !e.fly3D || (dx == 0 && dy == 0) {
+	if e == nil || !e.fly3D || !isFiniteFloat32(dx) || !isFiniteFloat32(dy) || (dx == 0 && dy == 0) {
 		return
 	}
+	e.fly3DMoved = true
 	e.Camera3D.Look(-dx*lookPerPixel3D, dy*lookPerPixel3D)
 	e.notify()
 }
 
-// FlyMove3D moves the flying camera for dt at FlySpeed3D, flyBoost3D times as fast when fast is set: right, up and forward are each -1, 0 or 1, as the held D and A, E and Q, and W and S keys say, and a diagonal moves no faster than a straight line. It does nothing unless flying.
+// FlyMove3D moves the flying camera for dt at FlySpeed3D, flyBoost3D times as fast when fast is set: right, up and forward are each -1, 0 or 1, as the held D and A, E and Q, and W and S keys say, and a diagonal moves no faster than a straight line. It does nothing unless flying, or for a direction that is not finite.
 func (e *Editor) FlyMove3D(right, up, forward float32, fast bool, dt time.Duration) {
-	if e == nil || !e.fly3D || dt <= 0 {
+	if e == nil || !e.fly3D || dt <= 0 || !isFiniteFloat32(right) || !isFiniteFloat32(up) || !isFiniteFloat32(forward) {
 		return
 	}
 	n := float32(math.Sqrt(float64(right*right + up*up + forward*forward)))
@@ -285,13 +294,14 @@ func (e *Editor) FlyMove3D(right, up, forward float32, fast bool, dt time.Durati
 	if fast {
 		step *= flyBoost3D
 	}
+	e.fly3DMoved = true
 	e.Camera3D.Fly(right*step, up*step, forward*step)
 	e.notify()
 }
 
 // AdjustFlySpeed3D changes the fly speed by a wheel's turn while flying: each 200 points of deltaY, down, halves it and, up, doubles it, within 0.1 to 100000 world units a second.
 func (e *Editor) AdjustFlySpeed3D(deltaY float32) {
-	if e == nil || deltaY == 0 {
+	if e == nil || deltaY == 0 || !isFiniteFloat32(deltaY) {
 		return
 	}
 	speed := e.FlySpeed3D
@@ -303,20 +313,32 @@ func (e *Editor) AdjustFlySpeed3D(deltaY float32) {
 	e.notify()
 }
 
-// EndFly3D stops flying (BeginFly3D); the camera stays where it flew to.
+// EndFly3D stops flying (BeginFly3D); the camera stays where it flew to. A flight that neither turned nor moved the camera, such as a plain right-click, puts back the orthographic projection it started from.
 func (e *Editor) EndFly3D() {
 	if e == nil || !e.fly3D {
 		return
 	}
-	e.fly3D = false
+	e.endFly3D()
 	e.notify()
 }
 
-// endFly3D stops a flight without telling the listeners, for a change that tells them itself.
+// endFly3D stops a flight as EndFly3D does without telling the listeners, for a change that tells them itself.
 func (e *Editor) endFly3D() {
-	if e != nil {
-		e.fly3D = false
+	if e == nil || !e.fly3D {
+		return
 	}
+	e.fly3D = false
+	if e.fly3DOrtho && !e.fly3DMoved {
+		e.Camera3D.Orthographic = true
+	}
+	e.fly3DOrtho, e.fly3DMoved = false, false
+}
+
+// endCameraGestures3D ends a flight and cancels a gizmo or camera drag before the camera jumps to another view, so no gesture mixes rays from two cameras.
+func (e *Editor) endCameraGestures3D() {
+	e.endFly3D()
+	e.CancelGizmoDrag3D()
+	e.drag3D = drag3DState{}
 }
 
 func clampFlySpeed3D(v float32) float32 {

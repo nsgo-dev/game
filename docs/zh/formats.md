@@ -1651,9 +1651,9 @@ boards:
 
 | 文件 | 版本 | 读写函数 | 字段 |
 | --- | --- | --- | --- |
-| `.game/editor.yaml`（`editor.ViewStateFile`） | `version: 1` | 编辑器（`Editor.SaveViewState`，以及打开场景时） | [编辑器](editor.md#3d-视口890) |
+| `.game/editor.yaml`（`editor.ViewStateFile`） | `version: 1` | 编辑器（`Editor.SaveViewState`，以及打开场景时） | [编辑器](editor.md#在-3d-视图中导航891) |
 
-`scenes` 列出编辑器显示过的每个场景，按 `path` 排序，`path` 是场景文件相对项目根目录、以斜杠分隔的路径。`camera3D` 是该场景上次被切走、保存或关闭时 3D 视口的相机：注视点 `target`、以弧度表示的 `yaw` 与 `pitch`、到注视点的距离 `distance`、以弧度表示的垂直视场角 `fov`、近裁剪面 `near` 与远裁剪面 `far`，以及设置时的 `orthographic`。同一场景列出两次、项目外的路径和非有限的数值都会被拒绝；无法解析的文件会被重新写出。
+`scenes` 列出编辑器显示过的每个场景，按 `path` 排序，`path` 是场景文件相对项目根目录、以斜杠分隔的路径。`camera3D` 是该场景上次被切走、保存或关闭时 3D 视口的相机：注视点 `target`、以弧度表示的 `yaw` 与 `pitch`、到注视点的距离 `distance`、以弧度表示的垂直视场角 `fov`、近裁剪面 `near` 与远裁剪面 `far`，以及设置时的 `orthographic`。同一场景列出两次、项目外的路径和非有限的数值都会被拒绝；无法解析的文件会被重新写出，而 `version` 更高的文件保持原样。含有非有限数值的相机会以默认相机保存。
 
 ```yaml
 version: 1

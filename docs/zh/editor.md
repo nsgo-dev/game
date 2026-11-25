@@ -594,9 +594,9 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 
 - **视图栏与状态栏**显示视图的名称：轴向视图的名称（Front、Top 等）或 Perspective，正交时附加“ · ortho”，不沿任何轴的正交视图为“User · ortho”（`ViewName3D`）。状态栏还会以度为单位显示偏航角和俯仰角。
 - **正交**（`SetOrthographic3D`、`OrbitCamera3D.Orthographic`）以平行投影显示。视图高度为 `OrthoHeight`，即透视视图在注视点处显示的高度，因此切换时位于注视点的物体大小不变，缩放会改变这个高度。`Project`、`ScreenRay`、`SceneCamera`、拾取和变换控件在两种投影下行为一致：正交时每个像素的射线都沿视线方向，因此按下会选中其下方的物体，拖动变换控件时对象沿轴移动的距离等于指针沿该轴移动的距离。正交下的轴向视图就是真正的平面图或立面图。
-- **飞行**（`BeginFly3D`、`FlyLook3D`、`FlyMove3D`、`EndFly3D`）让相机绕视点转动，并让视点和注视点一起移动。飞行期间 W、S 和 E 移动相机而不是切换变换控件模式；平台支持时指针会锁定在视口内。飞行以透视方式观察，所以正交视图会切换为透视。飞行速度 `FlySpeed3D` 以世界单位每秒计，初始为相机到注视点的距离，滚轮每次将其加倍或减半（`AdjustFlySpeed3D`）。
+- **飞行**（`BeginFly3D`、`FlyLook3D`、`FlyMove3D`、`EndFly3D`）让相机绕视点转动，并让视点和注视点一起移动。飞行期间 W、A、S、D、Q、E（无论是否按住 Shift）移动相机，而不执行它们平时的快捷键（变换控件的 W 和 S、擦除瓦片的 E）；平台支持时指针会锁定在视口内。飞行以透视方式观察，所以正交视图会切换为透视；既没有转动也没有移动相机的一次右键点击会保持正交。飞行速度 `FlySpeed3D` 以世界单位每秒计，初始为相机到注视点的距离，滚轮每次将其加倍或减半（`AdjustFlySpeed3D`）。
 - **轴向视图**（`SetView3D`，命令 `view.3d.front`、`view.3d.back`、`view.3d.right`、`view.3d.left`、`view.3d.top`、`view.3d.bottom`，以及切换投影的 `view.3d.orthographic`）保持注视点和距离不变。前视沿 -Z 方向看，右视沿 -X 方向看，顶视垂直向下看，视图上方为 -Z。
-- **按场景保存**：项目中的每个场景都会以上次离开时的相机打开。编辑器在打开另一个场景、保存场景和关闭窗口时把视图写入项目中的 `.game/editor.yaml`（`ViewStateFile`，见[文件格式](formats.md)）；以其他方式结束编辑器的应用需先调用 `SaveViewState`。没有保存过视图的场景以 `DefaultOrbitCamera3D` 打开。编辑器创建 `.game` 文件夹时会在其中写入一个忽略整个文件夹的 `.gitignore`，使视图不进入版本控制。
+- **按场景保存**：项目中的每个场景都会以上次离开时的相机打开。编辑器在打开另一个场景、保存场景和关闭窗口时把视图写入项目中的 `.game/editor.yaml`（`ViewStateFile`，见[文件格式](formats.md)）；以其他方式结束编辑器的应用需先调用 `SaveViewState`。没有保存过视图的场景以 `DefaultOrbitCamera3D` 打开。编辑器创建 `.game` 文件夹时会在其中写入一个忽略整个文件夹的 `.gitignore`，使视图不进入版本控制。较新版本编辑器写出的文件（`version` 更高）既不会被读取，也不会被覆盖。
 
 ## 瓦片调色板（#874）
 

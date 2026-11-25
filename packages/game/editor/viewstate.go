@@ -20,6 +20,9 @@ const ViewStateFile = ".game/editor.yaml"
 // viewStateVersion is the schema version of ViewStateFile.
 const viewStateVersion = 1
 
+// errViewStateNewer marks a ViewStateFile written by a newer editor, with a version above viewStateVersion: this editor neither reads it nor writes over it, so it never downgrades the views a newer editor kept.
+var errViewStateNewer = errors.New("written by a newer editor")
+
 // viewState is ViewStateFile's document: the view of each scene the editor has shown, sorted by path.
 type viewState struct {
 	Version int              `yaml:"version"`
@@ -50,12 +53,29 @@ func camera3DStateOf(c OrbitCamera3D) camera3DState {
 	return camera3DState{Target: c.Target, Yaw: c.Yaw, Pitch: c.Pitch, Distance: c.Distance, FOV: c.FOV, Near: c.Near, Far: c.Far, Orthographic: c.Orthographic}
 }
 
+// finite reports whether every number of the camera is finite, as parseViewState requires.
+func (s camera3DState) finite() bool {
+	for _, f := range []float32{s.Target[0], s.Target[1], s.Target[2], s.Yaw, s.Pitch, s.Distance, s.FOV, s.Near, s.Far} {
+		if !isFiniteFloat32(f) {
+			return false
+		}
+	}
+	return true
+}
+
 func (s camera3DState) camera() OrbitCamera3D {
 	return OrbitCamera3D{Target: s.Target, Yaw: s.Yaw, Pitch: s.Pitch, Distance: s.Distance, FOV: s.FOV, Near: s.Near, Far: s.Far, Orthographic: s.Orthographic}
 }
 
-// parseViewState decodes ViewStateFile, refusing unknown fields, trailing documents, a version other than viewStateVersion, a scene without a path or listed twice, and a camera value that is not finite.
+// parseViewState decodes ViewStateFile, refusing unknown fields, trailing documents, a version other than viewStateVersion (with errViewStateNewer for a newer one, whatever fields it holds), a scene without a path or listed twice, and a camera value that is not finite.
 func parseViewState(data []byte) (*viewState, error) {
+	// The version is read first and leniently, so a newer file's new fields do not hide that it is newer.
+	var probe struct {
+		Version int `yaml:"version"`
+	}
+	if yaml.Unmarshal(data, &probe) == nil && probe.Version > viewStateVersion {
+		return nil, fmt.Errorf("editor: view state: version %d is %w (this editor writes %d)", probe.Version, errViewStateNewer, viewStateVersion)
+	}
 	var v viewState
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
@@ -81,11 +101,8 @@ func parseViewState(data []byte) (*viewState, error) {
 			return nil, fmt.Errorf("editor: view state: scenes[%d].path %q is listed twice", i, sc.Path)
 		}
 		seen[sc.Path] = true
-		c := sc.Camera3D
-		for _, f := range []float32{c.Target[0], c.Target[1], c.Target[2], c.Yaw, c.Pitch, c.Distance, c.FOV, c.Near, c.Far} {
-			if !isFiniteFloat32(f) {
-				return nil, fmt.Errorf("editor: view state: scenes[%d].camera3D holds a value that is not finite", i)
-			}
+		if !sc.Camera3D.finite() {
+			return nil, fmt.Errorf("editor: view state: scenes[%d].camera3D holds a value that is not finite", i)
 		}
 	}
 	return &v, nil
@@ -116,7 +133,7 @@ func (e *Editor) viewStatePath() (string, bool) {
 	return filepath.Join(filepath.Dir(e.ProjectPath), filepath.FromSlash(ViewStateFile)), true
 }
 
-// loadViewState reads the open project's ViewStateFile. A missing file is an empty state; one that does not read or parse is an empty state too, with the error, so the camera falls back to its default and the next save writes the file afresh.
+// loadViewState reads the open project's ViewStateFile. A missing file is an empty state; one that does not read or parse is an empty state too, with the error (the *fs.PathError of a failed read, errViewStateNewer for a newer file), so the camera falls back to its default; SaveViewState writes afresh only a file that does not parse.
 func (e *Editor) loadViewState() (*viewState, error) {
 	empty := &viewState{Version: viewStateVersion}
 	p, ok := e.viewStatePath()
@@ -137,7 +154,7 @@ func (e *Editor) loadViewState() (*viewState, error) {
 	return v, nil
 }
 
-// SaveViewState records the open scene's view, the 3D viewport's camera, in the open project's ViewStateFile, so opening the scene again shows it as it is now. The editor saves it itself as another scene opens, as the scene is saved and as the window closes; an app that ends the editor another way calls it first. It writes nothing without a project or for a scene outside it, and leaves the file as it is when it already holds this view. Creating the .game folder, it writes a .gitignore there that ignores everything in it, unless one is there already. Scenes the file lists whose files are gone are dropped from it, and a file that does not parse is written afresh.
+// SaveViewState records the open scene's view, the 3D viewport's camera, in the open project's ViewStateFile, so opening the scene again shows it as it is now. The editor saves it itself as another scene opens, as the scene is saved and as the window closes; an app that ends the editor another way calls it first. It writes nothing without a project or for a scene outside it, and leaves the file as it is when it already holds this view. Creating the .game folder, it writes a .gitignore there that ignores everything in it, unless one is there already. Scenes the file lists whose files are gone are dropped from it, and a file that does not parse is written afresh; a file that does not read, or that a newer editor wrote, is left as it is and reported. A camera holding a value that is not finite is saved as DefaultOrbitCamera3D, so the file always loads.
 func (e *Editor) SaveViewState() error {
 	if e == nil || e.ScenePath == "" {
 		return nil
@@ -146,10 +163,17 @@ func (e *Editor) SaveViewState() error {
 	if !ok {
 		return nil
 	}
-	// A damaged file is replaced, as a lost one would be: it holds only views.
-	v, _ := e.loadViewState()
+	// A damaged file is replaced, as a lost one would be: it holds only views. One that could not be read, or that a newer editor wrote, is not this editor's to replace.
+	v, err := e.loadViewState()
+	var pathErr *fs.PathError
+	if errors.Is(err, errViewStateNewer) || errors.As(err, &pathErr) {
+		return err
+	}
 	root := filepath.Dir(e.ProjectPath)
 	cam := camera3DStateOf(e.Camera3D)
+	if !cam.finite() {
+		cam = camera3DStateOf(DefaultOrbitCamera3D())
+	}
 	found := false
 	kept := v.Scenes[:0]
 	for _, sc := range v.Scenes {

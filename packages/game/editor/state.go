@@ -300,7 +300,10 @@ type Editor struct {
 	paletteOpen        bool
 	drag3D             drag3DState
 	// fly3D says the 3D viewport's camera is flying (BeginFly3D).
-	fly3D        bool
+	fly3D bool
+	// fly3DOrtho says the camera was orthographic when the flight began, and fly3DMoved that the flight has turned or moved it, so a flight that did neither puts the projection back.
+	fly3DOrtho   bool
+	fly3DMoved   bool
 	cameraDrag   cameraDragState
 	bgPreview    bgPreviewState
 	scope        *core.Scope

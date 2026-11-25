@@ -1,6 +1,7 @@
 package editor_test
 
 import (
+	"bytes"
 	"math"
 	"os"
 	"path/filepath"
@@ -477,4 +478,276 @@ func TestClosingTheWindowSavesTheView(t *testing.T) {
 	if again.Camera3D != want {
 		t.Fatalf("the scene opened at %+v after the window closed, want %+v", again.Camera3D, want)
 	}
+}
+
+// A right-click that neither turns nor moves the camera leaves an orthographic view orthographic; a flight that moves it stays in perspective.
+func TestViewport3DRightClickKeepsOrthographic(t *testing.T) {
+	ed := newTest3DEditor(t, sceneformat.ObjectDoc{ID: "cube", Depth: 16})
+	ed.SetView3D(editor.View3DTop)
+	ed.SetOrthographic3D(true)
+	app := start3DViewport(t, ed, nsgotest.Environment(core.Environment{CanLockPointer: true}))
+	vw, vh := ed.CanvasSize()
+	at := pt(vw/2, vh/2)
+	before := ed.Camera3D
+
+	app.MouseDownAt(viewportFrame, at, core.MouseButtonRight)
+	app.MouseUpAt(viewportFrame, at, core.MouseButtonRight)
+	if ed.Flying3D() || ed.Camera3D != before {
+		t.Fatalf("a right-click left flying %v and the camera %+v, want %+v", ed.Flying3D(), ed.Camera3D, before)
+	}
+
+	app.MouseDownAt(viewportFrame, at, core.MouseButtonRight)
+	app.PointerDelta(40, 0)
+	app.MouseUpAt(viewportFrame, at, core.MouseButtonRight)
+	if ed.Camera3D.Orthographic {
+		t.Fatal("a flight that turned the camera went back to orthographic")
+	}
+
+	// Asking for perspective during an unmoved flight keeps it after the flight.
+	ed.SetOrthographic3D(true)
+	if !ed.BeginFly3D() {
+		t.Fatal("the flight did not start")
+	}
+	ed.SetOrthographic3D(false)
+	ed.EndFly3D()
+	if ed.Camera3D.Orthographic {
+		t.Fatal("Persp during a flight was undone when the flight ended")
+	}
+}
+
+// Jumping to another view or projection, or resetting it, during a gizmo drag cancels the drag and puts the object back, so no drag mixes rays from two cameras.
+func TestViewport3DViewChangesCancelAGizmoDrag(t *testing.T) {
+	const w, h float32 = 640, 360
+	for name, change := range map[string]func(*editor.Editor){
+		"axis view":    func(ed *editor.Editor) { ed.SetView3D(editor.View3DFront) },
+		"orthographic": func(ed *editor.Editor) { ed.SetOrthographic3D(true) },
+		"reset":        func(ed *editor.Editor) { ed.ResetView3D() },
+	} {
+		t.Run(name, func(t *testing.T) {
+			ed := newTest3DEditor(t, sceneformat.ObjectDoc{ID: "cube", Depth: 16})
+			ed.Camera3D = editor.OrbitCamera3D{Yaw: 0.65, Pitch: 0.55, Distance: 200, FOV: float32(math.Pi / 3), Near: 0.5, Far: 5000}
+			ed.SelectObject("cube")
+			ed.SetGizmoMode3D(editor.Gizmo3DTranslate)
+			gLen := ed.GizmoLength3D([3]float32{})
+			sx, sy, _, _ := ed.Camera3D.Project([3]float32{gLen * 0.6, 0, 0}, w, h)
+			if axis := ed.BeginGizmoDrag3D(sx, sy, w, h); axis != editor.Axis3DX {
+				t.Fatalf("picked %v, want X", axis)
+			}
+			ed.UpdateGizmoDrag3D(sx+40, sy)
+			change(ed)
+			ed.UpdateGizmoDrag3D(sx+80, sy)
+			if ed.EndGizmoDrag3D() {
+				t.Fatal("the drag carried on after the view changed")
+			}
+			obj, _, _ := ed.FindObject("cube")
+			if obj.X != 0 || obj.Y != 0 || obj.PosZ != 0 || ed.History.Len() != 0 {
+				t.Fatalf("the cube is at (%v, %v, %v) with %d edits after the cancelled drag", obj.X, obj.Y, obj.PosZ, ed.History.Len())
+			}
+		})
+	}
+}
+
+// A pan or turn that is not finite changes nothing, and a camera that holds a value that is not finite is saved as the default camera, so the view state always loads again.
+func TestViewport3DRefusesNonFiniteNavigation(t *testing.T) {
+	nan := float32(math.NaN())
+	ed := newTest3DEditor(t)
+	before := ed.Camera3D
+	ed.PanView3D(nan, 0, 360)
+	ed.PanView3D(0, float32(math.Inf(-1)), 360)
+	ed.OrbitView3D(nan, 0)
+	if !ed.BeginFly3D() {
+		t.Fatal("the flight did not start")
+	}
+	ed.FlyLook3D(nan, 0)
+	ed.FlyMove3D(nan, 0, 0, false, time.Second)
+	ed.AdjustFlySpeed3D(nan)
+	ed.EndFly3D()
+	if ed.Camera3D != before || math.IsNaN(float64(ed.FlySpeed3D)) {
+		t.Fatalf("non-finite navigation left the camera %+v and fly speed %v, want %+v", ed.Camera3D, ed.FlySpeed3D, before)
+	}
+
+	ed, dir := openTestProject(t)
+	ed.Camera3D.Target[0] = nan
+	if err := ed.SaveViewState(); err != nil {
+		t.Fatal(err)
+	}
+	again, err := editor.New(nil, testResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(again.WaitForProblems)
+	if err := again.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+	if again.Camera3D != editor.DefaultOrbitCamera3D() || strings.Contains(again.Status, "Could not restore") {
+		t.Fatalf("a saved NaN camera reopened at %+v with status %q", again.Camera3D, again.Status)
+	}
+}
+
+// A view state a newer editor wrote is neither read nor written over, so an older editor never drops the views it keeps.
+func TestViewStateFromANewerEditorIsLeftAlone(t *testing.T) {
+	ed, dir := openTestProject(t)
+	state := filepath.Join(dir, filepath.FromSlash(editor.ViewStateFile))
+	if err := os.MkdirAll(filepath.Dir(state), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	newer := []byte("version: 2\nscenes:\n  - path: scenes/room.yaml\n    layout: {split: 0.5}\n")
+	if err := os.WriteFile(state, newer, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ed.Camera3D.Yaw = 1
+	if err := ed.SaveViewState(); err == nil || !strings.Contains(err.Error(), "newer editor") {
+		t.Fatalf("SaveViewState over a newer file = %v, want an error naming the newer editor", err)
+	}
+	again, err := editor.New(nil, testResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(again.WaitForProblems)
+	if err := again.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+	if again.Camera3D != editor.DefaultOrbitCamera3D() {
+		t.Fatalf("a newer view state opened the scene at %+v, want the default camera", again.Camera3D)
+	}
+	if data, err := os.ReadFile(state); err != nil || !bytes.Equal(data, newer) {
+		t.Fatalf("the newer view state is now %q, %v", data, err)
+	}
+}
+
+// Opening a project without a main scene keeps the open scene open, so its view is saved in the project it was shown in first.
+func TestOpeningAProjectWithoutAMainSceneSavesTheViewInTheFirst(t *testing.T) {
+	ed, first := openTestProject(t)
+	cam := editor.DefaultOrbitCamera3D()
+	cam.SetView(editor.View3DRight)
+	cam.Orthographic = true
+	ed.Camera3D = cam
+
+	second := writeEditorProject(t)
+	data, err := os.ReadFile(filepath.Join(second, "game.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(second, "game.yaml"), []byte(strings.Split(string(data), "autoload:")[0]), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenProject(second); err != nil {
+		t.Fatal(err)
+	}
+	if ed.Camera3D != cam {
+		t.Fatalf("the scene kept open under the second project moved to %+v", ed.Camera3D)
+	}
+	if _, err := os.Stat(filepath.Join(second, filepath.FromSlash(editor.ViewStateFile))); err == nil {
+		t.Fatal("opening the second project wrote a view state there")
+	}
+	again, err := editor.New(nil, testResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(again.WaitForProblems)
+	if err := again.OpenProject(first); err != nil {
+		t.Fatal(err)
+	}
+	if again.Camera3D != cam {
+		t.Fatalf("the first project's scene reopened at %+v, want %+v", again.Camera3D, cam)
+	}
+}
+
+// With a camera Distance of zero, as a view state or an app may set it, the orthographic gizmo is sized from the distance the view is drawn at.
+func TestOrthographicGizmoLengthUsesTheDrawnDistance(t *testing.T) {
+	ed := newTest3DEditor(t)
+	ed.Camera3D.Orthographic = true
+	ed.Camera3D.Distance = 240
+	want := ed.GizmoLength3D([3]float32{})
+	ed.Camera3D.Distance = 0
+	if got := ed.GizmoLength3D([3]float32{}); got != want {
+		t.Fatalf("GizmoLength3D at distance 0 = %v, want %v as at the drawn 240", got, want)
+	}
+}
+
+// Rotate and scale drags work in an orthographic plan, translate drags in an orthographic elevation, and the arm pointing at the eye neither moves nor makes the object jump.
+func TestOrthographicGizmoRotateScaleAndElevations(t *testing.T) {
+	const w, h float32 = 640, 360
+	newEd := func(t *testing.T, view editor.View3D, mode editor.GizmoMode3D) *editor.Editor {
+		t.Helper()
+		ed := newTest3DEditor(t, sceneformat.ObjectDoc{ID: "cube", Depth: 16})
+		ed.Camera3D = editor.OrbitCamera3D{Distance: 200, FOV: float32(math.Pi / 3), Near: 0.5, Far: 5000, Orthographic: true}
+		ed.Camera3D.SetView(view)
+		ed.SelectObject("cube")
+		ed.SetGizmoMode3D(mode)
+		return ed
+	}
+	drag := func(t *testing.T, ed *editor.Editor, want editor.GizmoAxis3D, pts ...[3]float32) {
+		t.Helper()
+		x0, y0, _, vis := ed.Camera3D.Project(pts[0], w, h)
+		if !vis {
+			t.Fatalf("%v is not visible", pts[0])
+		}
+		if axis := ed.BeginGizmoDrag3D(x0, y0, w, h); axis != want {
+			t.Fatalf("picked %v, want %v", axis, want)
+		}
+		for _, p := range pts[1:] {
+			x, y, _, _ := ed.Camera3D.Project(p, w, h)
+			ed.UpdateGizmoDrag3D(x, y)
+		}
+		if !ed.EndGizmoDrag3D() {
+			t.Fatal("the drag did not commit")
+		}
+	}
+
+	t.Run("rotate Y in Top", func(t *testing.T) {
+		ed := newEd(t, editor.View3DTop, editor.Gizmo3DRotate)
+		r := float64(ed.GizmoLength3D([3]float32{}))
+		ring := func(a float64) [3]float32 { return [3]float32{float32(math.Cos(a) * r), 0, float32(-math.Sin(a) * r)} }
+		drag(t, ed, editor.Axis3DY, ring(0.7), ring(0.7+math.Pi/8), ring(0.7+math.Pi/4))
+		obj, _, _ := ed.FindObject("cube")
+		assertNear32(t, "RotY", obj.RotY, float32(math.Pi/4), 0.02)
+		assertNear32(t, "RotX", obj.RotX, 0, 0.02)
+		assertNear32(t, "RotZ", obj.RotZ, 0, 0.02)
+	})
+
+	t.Run("scale X in Top", func(t *testing.T) {
+		ed := newEd(t, editor.View3DTop, editor.Gizmo3DScale)
+		l := ed.GizmoLength3D([3]float32{})
+		drag(t, ed, editor.Axis3DX, [3]float32{l, 0, 0}, [3]float32{l * 1.5, 0, 0})
+		obj, _, _ := ed.FindObject("cube")
+		assertNear32(t, "ScaleX", obj.EffectiveScaleX(), 1.5, 0.02)
+		assertNear32(t, "ScaleY", obj.EffectiveScaleY(), 1, 0.02)
+		assertNear32(t, "ScaleZ", obj.EffectiveScaleZ(), 1, 0.02)
+	})
+
+	t.Run("translate X and Y in Front", func(t *testing.T) {
+		for _, tc := range []struct {
+			axis editor.GizmoAxis3D
+			dir  [3]float32
+		}{
+			{editor.Axis3DX, [3]float32{1, 0, 0}},
+			{editor.Axis3DY, [3]float32{0, 1, 0}},
+		} {
+			ed := newEd(t, editor.View3DFront, editor.Gizmo3DTranslate)
+			l := ed.GizmoLength3D([3]float32{}) * 0.6
+			from := [3]float32{tc.dir[0] * l, tc.dir[1] * l, 0}
+			drag(t, ed, tc.axis, from, [3]float32{from[0] + tc.dir[0]*25, from[1] + tc.dir[1]*25, 0})
+			obj, _, _ := ed.FindObject("cube")
+			if got, want := [3]float32{obj.X, obj.Y, obj.PosZ}, [3]float32{tc.dir[0] * 25, tc.dir[1] * 25, 0}; !near3(got, want, 0.5) {
+				t.Fatalf("a %v drag of 25 in Front moved the cube to %v, want %v", tc.axis, got, want)
+			}
+		}
+	})
+
+	t.Run("Y arm in Top", func(t *testing.T) {
+		// From the top the Y arm points at the eye and shows as a dot at the gizmo's center; dragging it has no direction on screen to follow, so it moves nothing.
+		ed := newEd(t, editor.View3DTop, editor.Gizmo3DTranslate)
+		cx, cy, _, _ := ed.Camera3D.Project([3]float32{}, w, h)
+		if axis := ed.BeginGizmoDrag3D(cx, cy, w, h); axis != editor.Axis3DY {
+			t.Fatalf("a press at the gizmo's center from the top picked %v, want Y", axis)
+		}
+		ed.UpdateGizmoDrag3D(cx+30, cy+20)
+		ed.UpdateGizmoDrag3D(cx+60, cy+40)
+		ed.EndGizmoDrag3D()
+		obj, _, _ := ed.FindObject("cube")
+		if obj.X != 0 || obj.Y != 0 || obj.PosZ != 0 {
+			t.Fatalf("a drag on the Y arm, edge on from the top, moved the cube to (%v, %v, %v)", obj.X, obj.Y, obj.PosZ)
+		}
+	})
 }
