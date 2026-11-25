@@ -107,3 +107,36 @@ style := physics3d.DefaultDebugStyle()
 style.DepthZO = true // viewProj comes from math3d.Perspective or math3d.Ortho
 physics3d.DrawWorld(d, physics3d.Mat4(viewProj), viewport, world, style)
 ```
+
+## Ropes, Cloth, and Soft Bodies (XPBD)
+
+`SoftWorld` simulates 3D ropes, cloth meshes, and tetrahedral soft bodies using deterministic Extended Position-Based Dynamics (XPBD):
+
+- **Particles & constraints**: `Particle` (`Pos`, `Vel`, `InvMass`, `Radius`, `Friction`, `Restitution`, `Pinned`, `Layer`/`Mask`), bilateral & unilateral `DistanceConstraint` (`AddDistance`, `AddTether`), singularity-free dihedral `BendingConstraint` (`AddBending`), and tetrahedral `VolumeConstraint` (`AddVolume`).
+- **Two-way rigid-body attachments**: `AttachBody` couples particles to dynamic or kinematic `*Body` instances at local anchors (`Compliance == 0` for rigid pins, `> 0` for elastic tethers), returning linear and angular reaction impulses to the attached body and waking sleeping bodies automatically.
+- **Collisions & layer filtering**: setting `SoftWorld.World` collides particles against non-trigger `Body` shapes (oriented boxes, spheres, capsules), `TriMeshCollider`, and `HeightfieldCollider`, respecting `Layer`/`Mask` filtering.
+- **Builders & debug drawing**: `AddRope(RopeConfig)` builds inextensible 3D ropes with unilateral long-range tethers; `AddCloth(ClothConfig)` builds a triangulated cloth grid with structural, shear, and dihedral bending constraints (`ClothGrid.Index(col, row)`); `AddSoftBox(SoftBoxConfig)` builds an 8-vertex, 5-tetrahedron deformable cube; `Edges()` returns structural wireframe segments, and `DrawSoftWorld(d, viewProj, viewport, sw, style)` renders them (no-op in `-tags release` builds).
+
+```go
+world := physics3d.NewWorld()
+world.AddBody(physics3d.NewStaticBody(
+	physics3d.SphereShape(physics3d.Sphere{Radius: 1.0}),
+	physics3d.Vec3{Y: 1.0},
+))
+
+sw := physics3d.NewSoftWorld()
+sw.World = world
+sw.AddCloth(physics3d.ClothConfig{
+	Origin:      physics3d.Vec3{X: -1.1, Y: 2.25, Z: -1.1},
+	Width:       2.2,
+	Height:      2.2,
+	Cols:        10,
+	Rows:        10,
+	PinTopLeft:  true,
+	PinTopRight: true,
+})
+
+// Inside game.Loop.Update:
+world.Step(dt)
+sw.Step(dt)
+```
