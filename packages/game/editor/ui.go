@@ -140,71 +140,82 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 						return core.Show{
 							When: func() bool {
 								_ = rev.Get()
-								return ed.HUDLayoutOpen()
+								return ed.MergeConflictOpen()
 							},
 							Then: func(cx *core.Scope) core.Node {
-								return HUDLayoutView(cx, ed, rev)
+								return MergeConflictView(cx, ed, rev)
 							},
 							Else: func(cx *core.Scope) core.Node {
-								return core.View{
-									Style: core.Style{
-										Width:  core.Pct(100),
-										Height: core.Pct(100),
+								return core.Show{
+									When: func() bool {
+										_ = rev.Get()
+										return ed.HUDLayoutOpen()
 									},
-									Children: []core.Node{
-										toolbarView(cx, ed, rev, sceneFileButtons(cx, ed, rev, dirty, pathMode, pathTarget)),
-										remotePlayBarView(cx, ed, rev),
-										core.Show{
-											When: func() bool {
-												_ = rev.Get()
-												return ed.CutsceneOpen() && !ed.Playing()
+									Then: func(cx *core.Scope) core.Node {
+										return HUDLayoutView(cx, ed, rev)
+									},
+									Else: func(cx *core.Scope) core.Node {
+										return core.View{
+											Style: core.Style{
+												Width:  core.Pct(100),
+												Height: core.Pct(100),
 											},
-											Then: func(cx *core.Scope) core.Node {
-												return CutscenePanelView(cx, ed, rev)
-											},
-											Else: func(cx *core.Scope) core.Node {
-												return core.View{
-													Style: core.Style{
-														FlexGrow:  1,
-														FlexBasis: core.Pt(0),
-														Overflow:  core.Hidden,
+											Children: []core.Node{
+												toolbarView(cx, ed, rev, sceneFileButtons(cx, ed, rev, dirty, pathMode, pathTarget)),
+												remotePlayBarView(cx, ed, rev),
+												core.Show{
+													When: func() bool {
+														_ = rev.Get()
+														return ed.CutsceneOpen() && !ed.Playing()
 													},
-													Children: []core.Node{
-														core.View{
-															// A zero basis gives the row the height left after the toolbar, the animation panel and the status bar, rather than its content's.
+													Then: func(cx *core.Scope) core.Node {
+														return CutscenePanelView(cx, ed, rev)
+													},
+													Else: func(cx *core.Scope) core.Node {
+														return core.View{
 															Style: core.Style{
-																Direction: core.Row,
 																FlexGrow:  1,
 																FlexBasis: core.Pt(0),
 																Overflow:  core.Hidden,
 															},
-															// One drag area spans the row, so a model dragged from the asset browser drops on the viewport.
-															Children: []core.Node{dragdrop.Area{Children: mainRow(cx, ed, rev)}},
-														},
-														pluginDockView(cx, ed, rev, DockBottom),
-														TilesetEditorPanelView(cx, ed, rev),
-														TerrainPanelView(cx, ed, rev),
-														RigPanelView(cx, ed, rev),
-														DataTablePanelView(cx, ed, rev),
-														ParticleEditorPanelView(cx, ed, rev),
-														AnimationPanelView(cx, ed, rev),
-														EnvironmentPanelView(cx, ed, rev),
-														StatesPanelView(cx, ed, rev),
-														NavMeshPanelView(cx, ed, rev),
-														ProjectSettingsPanelView(cx, ed, rev),
-														AudioMixerPanelView(cx, ed, rev),
-														InputMapPanelView(cx, ed, rev),
-														LocalizationPanelView(cx, ed, rev),
-														SearchPanelView(cx, ed, rev),
-														ProblemsView(cx, ed, rev),
-														ExportPanelView(cx, ed, rev),
-														ProfilerPanelView(cx, ed, rev),
-														OutputPanelView(cx, ed, rev),
+															Children: []core.Node{
+																core.View{
+																	// A zero basis gives the row the height left after the toolbar, the animation panel and the status bar, rather than its content's.
+																	Style: core.Style{
+																		Direction: core.Row,
+																		FlexGrow:  1,
+																		FlexBasis: core.Pt(0),
+																		Overflow:  core.Hidden,
+																	},
+																	// One drag area spans the row, so a model dragged from the asset browser drops on the viewport.
+																	Children: []core.Node{dragdrop.Area{Children: mainRow(cx, ed, rev)}},
+																},
+																pluginDockView(cx, ed, rev, DockBottom),
+																TilesetEditorPanelView(cx, ed, rev),
+																TerrainPanelView(cx, ed, rev),
+																RigPanelView(cx, ed, rev),
+																DataTablePanelView(cx, ed, rev),
+																ParticleEditorPanelView(cx, ed, rev),
+																AnimationPanelView(cx, ed, rev),
+																EnvironmentPanelView(cx, ed, rev),
+																StatesPanelView(cx, ed, rev),
+																NavMeshPanelView(cx, ed, rev),
+																ProjectSettingsPanelView(cx, ed, rev),
+																AudioMixerPanelView(cx, ed, rev),
+																InputMapPanelView(cx, ed, rev),
+																LocalizationPanelView(cx, ed, rev),
+																SearchPanelView(cx, ed, rev),
+																ProblemsView(cx, ed, rev),
+																ExportPanelView(cx, ed, rev),
+																ProfilerPanelView(cx, ed, rev),
+																OutputPanelView(cx, ed, rev),
+															},
+														}
 													},
-												}
+												},
+												statusBarView(cx, ed, rev),
 											},
-										},
-										statusBarView(cx, ed, rev),
+										}
 									},
 								}
 							},
@@ -1118,6 +1129,45 @@ func statusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 						},
 					},
 					remoteStatusView(cx, ed, rev),
+					core.Show{
+						When: func() bool {
+							_ = rev.Get()
+							return len(ed.DetectedMergeConflicts()) > 0
+						},
+						Then: func(cx *core.Scope) core.Node {
+							return ui.Button{
+								TestID:  "status-merge-conflicts",
+								Icon:    lucide.GitMerge,
+								Variant: ui.ButtonGhost,
+								Size:    ui.SizeSmall,
+								TextFunc: func() string {
+									_ = rev.Get()
+									n := len(ed.DetectedMergeConflicts())
+									if n == 1 {
+										return "1 scene conflict"
+									}
+									return fmt.Sprintf("%d scene conflicts", n)
+								},
+								Color: func() core.Color { return specWarningFill },
+								Tint:  func() core.Color { return specWarning },
+								TextStyle: core.Style{
+									FontSize:   11,
+									FontWeight: 500,
+									Color:      specWarning,
+								},
+								Style: core.Style{
+									Height:       core.Pt(22),
+									CornerRadius: 6,
+									Padding:      core.Symmetric(0, 8),
+									BorderWidth:  1,
+									BorderColor:  specWarningEdge,
+								},
+								OnPress: func() {
+									ed.report(ed.OpenMergeConflict(""))
+								},
+							}
+						},
+					},
 				},
 			},
 			core.Text{

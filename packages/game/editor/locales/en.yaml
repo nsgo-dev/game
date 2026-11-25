@@ -39,6 +39,8 @@ strings:
   cmd.lightingPreview.label: Toggle 2D Lighting Preview
   cmd.localization.desc: Toggle the Localization string table panel
   cmd.localization.label: Localization Strings
+  cmd.mergeConflicts.desc: Open the object-by-object scene merge conflict resolver for an active Git merge
+  cmd.mergeConflicts.label: Resolve Scene Merge Conflicts
   cmd.navMesh2dOverlay.desc: Show or hide the built 2D navigation mesh polygons, portals, and region outlines in the 2D viewport
   cmd.navMesh2dOverlay.label: Toggle 2D NavMesh Overlay
   cmd.navMeshOverlay.desc: Toggle drawing the baked 3D navigation mesh over the 3D viewport
@@ -236,6 +238,7 @@ strings:
   menu.gizmo3d: 3D Gizmo
   menu.lightingPreview: 2D Lighting Preview
   menu.localization: Localization Strings
+  menu.mergeConflicts: Resolve Scene Merge Conflicts
   menu.move: Move
   menu.navMesh2dOverlay: 2D NavMesh Overlay
   menu.navMeshOverlay: Show 3D NavMesh

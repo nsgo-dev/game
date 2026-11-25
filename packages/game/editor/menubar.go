@@ -193,6 +193,7 @@ func (e *Editor) ApplicationMenu() []desktop.MenuItem {
 		cmdItem(CmdParticleEditor, e.T("menu.particleEditor"), false),
 		sep,
 		cmdItem(CmdCheckProblems, e.T("menu.checkProblems"), false),
+		cmdItem(CmdMergeConflicts, e.T("menu.mergeConflicts"), false),
 	}
 
 	// Expose active plugin commands under Project > Plugins when present.
@@ -224,10 +225,11 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 	sig := core.NewMemo(cx, func() string {
 		_ = rev.Get()
 		var b strings.Builder
-		fmt.Fprintf(&b, "%s|%v|%v|%v|%v|%v|%v|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%d|%d|%v|%v",
+		fmt.Fprintf(&b, "%s|%v|%v|%v|%v|%v|%v|%v|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%d|%d|%v|%v",
 			e.ResolvedLanguage(),
 			e.EditorSettingsOpen(),
 			e.StartScreenOpen(),
+			e.MergeConflictOpen(),
 			e.Playing(),
 			e.canUndo(),
 			e.canRedo(),
