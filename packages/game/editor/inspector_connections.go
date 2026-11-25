@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/nsgo-dev/game/packages/game/l10n"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -262,11 +263,11 @@ func connectionsSection(
 			Gap:            6,
 		},
 		Children: []core.Node{
-			sectionHeader("CONNECTIONS"),
+			sectionHeader(ed.T("inspector.section.connections")),
 			ui.Button{
 				TestID:   "inspector-conn-new",
-				Text:     "Connect",
-				Label:    "New connection",
+				Text:     ed.T("inspector.connect"),
+				Label:    ed.T("inspector.connect"),
 				Size:     ui.SizeSmall,
 				Variant:  ui.ButtonSecondary,
 				Disabled: disabled,
@@ -595,16 +596,16 @@ func connectionsSection(
 					Children: []core.Node{
 						ui.Button{
 							TestID:   "inspector-conn-cancel",
-							Text:     "Cancel",
+							Text:     ed.T("dialog.cancel"),
 							Size:     ui.SizeSmall,
 							Variant:  ui.ButtonOutline,
 							Disabled: disabled,
 							OnPress:  closeForm,
 						},
 						core.Dynamic(func(cx *core.Scope) core.Node {
-							text := "Connect"
+							text := ed.T("inspector.connect")
 							if mode.Get() == connFormEdit {
-								text = "Save"
+								text = ed.T("inspector.save")
 							}
 							return ui.Button{
 								TestID:   "inspector-conn-save",
@@ -659,7 +660,7 @@ func connectionsSection(
 				})
 			}
 			if en.Conn.Once {
-				meta = append(meta, ui.Badge{Text: "once", Variant: ui.BadgeNeutral})
+				meta = append(meta, ui.Badge{Text: ed.T("inspector.once"), Variant: ui.BadgeNeutral})
 			}
 			info = append(info, core.View{
 				Style:    core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, Wrap: core.Wrap},
@@ -673,7 +674,7 @@ func connectionsSection(
 				ui.IconButton{
 					TestID:   rowID + "-jump",
 					Icon:     lucide.ArrowUpRight,
-					Label:    "Jump to " + otherID,
+					Label:    ed.T("inspector.jumpTo", l10n.Param("id", otherID)),
 					Size:     20,
 					IconSize: 12,
 					OnPress: func() {
@@ -683,7 +684,7 @@ func connectionsSection(
 				ui.IconButton{
 					TestID:   rowID + "-edit",
 					Icon:     lucide.Pencil,
-					Label:    "Edit connection",
+					Label:    ed.T("inspector.editConnection"),
 					Size:     20,
 					IconSize: 12,
 					Disabled: disabled,
@@ -692,7 +693,7 @@ func connectionsSection(
 				ui.IconButton{
 					TestID:   rowID + "-remove",
 					Icon:     lucide.X,
-					Label:    "Remove connection",
+					Label:    ed.T("inspector.removeConnection"),
 					Size:     20,
 					IconSize: 12,
 					Disabled: disabled,
@@ -733,14 +734,14 @@ func connectionsSection(
 		if len(outgoing) == 0 && len(incoming) == 0 {
 			return core.Text{
 				TestID:  "inspector-conn-empty",
-				Content: "No connections",
+				Content: ed.T("inspector.noConnections"),
 				Style:   core.Style{FontSize: 11, Color: colors.Muted()},
 			}
 		}
 		var children []core.Node
 		if len(outgoing) > 0 {
 			children = append(children, core.Text{
-				Content: fmt.Sprintf("Outgoing (%d)", len(outgoing)),
+				Content: ed.T("inspector.outgoing", l10n.Param("count", len(outgoing))),
 				Style:   core.Style{FontSize: 11, FontWeight: 600, Color: colors.Muted()},
 			})
 			for _, en := range outgoing {
@@ -749,7 +750,7 @@ func connectionsSection(
 		}
 		if len(incoming) > 0 {
 			children = append(children, core.Text{
-				Content: fmt.Sprintf("Incoming (%d)", len(incoming)),
+				Content: ed.T("inspector.incoming", l10n.Param("count", len(incoming))),
 				Style:   core.Style{FontSize: 11, FontWeight: 600, Color: colors.Muted()},
 			})
 			for _, en := range incoming {

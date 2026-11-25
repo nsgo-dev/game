@@ -8,6 +8,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/nsgo-dev/game/packages/game/l10n"
 	"github.com/nsgo-dev/game/packages/game/math2d"
 	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/nsgo/core"
@@ -28,6 +29,12 @@ type Plugin struct {
 	Tools []PluginTool
 	// Commands are added to the editor's command registry, desktop menu bar, command palette, and keyboard shortcuts while the plugin is on.
 	Commands []PluginCommand
+	// Catalog optionally supplies localized strings for this plugin (for example English and Simplified Chinese) resolved in the editor's active language via Editor.PluginT, Editor.PluginPlural, and panel/tool/command TitleKey/LabelKey fields.
+	Catalog *l10n.Catalog
+	// LocaleYAML optionally supplies versioned l10n YAML string table documents (such as embedded locales/*.yaml files) merged into the plugin's localization catalog at RegisterPlugin time.
+	LocaleYAML [][]byte
+
+	catalog *l10n.Catalog
 }
 
 // Dock is where a plugin's Panel sits in the editor window.
@@ -62,6 +69,8 @@ type Panel struct {
 	ID string
 	// Title is shown above the panel.
 	Title string
+	// TitleKey is an optional localization key in the plugin's catalog used in place of Title when present.
+	TitleKey string
 	// Dock is where the panel sits.
 	Dock Dock
 	// View builds the panel's content once when the panel appears; the panel stays mounted, keeping its scope and state, while its plugin is on, whatever other panels come and go in its dock. It reads rev, which changes on every editor state change, inside reactive functions to follow the editor's state, as the editor's own panels do.
@@ -82,6 +91,8 @@ type PluginTool struct {
 	ID string
 	// Label is the tool's button text and its name in the status bar.
 	Label string
+	// LabelKey is an optional localization key in the plugin's catalog used in place of Label when present.
+	LabelKey string
 	// Press, when set, handles a press at canvas coordinates (x, y), which go through the editor's 2D view (View2D) rather than the scene camera: Editor.CanvasToWorld converts them to world coordinates for a world-space layer, and Editor.CanvasToScreen to the scene's screen coordinates for a screen-space layer. It is not called while playing. At least one of Press or OnDragBegin must be set.
 	Press func(ed *Editor, x, y float32)
 	// Draw, when set, draws over the scene in canvas coordinates while the tool is active and the editor is not playing. Canvas coordinates follow the 2D view: Editor.WorldToCanvas places a world point and Editor.ScreenToCanvas a screen-space layer's point.
@@ -105,10 +116,16 @@ type PluginCommand struct {
 	ID string
 	// Label is the display name shown in the command palette and menu bar.
 	Label string
+	// LabelKey is an optional localization key in the plugin's catalog used in place of Label when present.
+	LabelKey string
 	// Description is optional explanatory text shown in the command palette.
 	Description string
+	// DescriptionKey is an optional localization key in the plugin's catalog used in place of Description when present.
+	DescriptionKey string
 	// Category groups the command in the command palette (defaults to the plugin's name when empty).
 	Category string
+	// CategoryKey is an optional localization key in the plugin's catalog used in place of Category when present.
+	CategoryKey string
 	// Keywords are extra search terms matched by the command palette.
 	Keywords []string
 	// Shortcut is an optional NSGo key shortcut (such as "mod+shift+h" or "alt+h"). Clashing with any built-in, custom, or other registered plugin shortcut is refused at RegisterPlugin time.
@@ -156,12 +173,43 @@ func (e *Editor) RegisterPlugin(p Plugin) error {
 	p.Inspectors = slices.Clone(p.Inspectors)
 	p.Tools = slices.Clone(p.Tools)
 	p.Commands = clonedCmds
+	cat, err := buildPluginCatalog(&p)
+	if err != nil {
+		return err
+	}
+	p.catalog = cat
 	e.plugins = append(e.plugins, &p)
 	if e.Project != nil && e.Project.Editor != nil && slices.Contains(e.Project.Editor.Plugins, p.Name) {
 		e.Status = "Plugin " + p.Name + " is on"
 	}
 	e.notify()
 	return nil
+}
+
+func buildPluginCatalog(p *Plugin) (*l10n.Catalog, error) {
+	if p.Catalog == nil && len(p.LocaleYAML) == 0 {
+		return nil, nil
+	}
+	fallback := "en"
+	if p.Catalog != nil && p.Catalog.FallbackLocale() != "" {
+		fallback = p.Catalog.FallbackLocale()
+	}
+	cat := l10n.NewCatalog(fallback)
+	if p.Catalog != nil {
+		for _, loc := range p.Catalog.Locales() {
+			if tbl, ok := p.Catalog.StringTable(loc); ok {
+				if err := cat.ApplyStringTable(tbl); err != nil {
+					return nil, fmt.Errorf("editor: plugin %s: catalog locale %q: %w", p.Name, loc, err)
+				}
+			}
+		}
+	}
+	for i, data := range p.LocaleYAML {
+		if err := cat.LoadYAML(data); err != nil {
+			return nil, fmt.Errorf("editor: plugin %s: locale YAML %d: %w", p.Name, i, err)
+		}
+	}
+	return cat, nil
 }
 
 func validatePlugin(p *Plugin) error {
@@ -176,7 +224,7 @@ func validatePlugin(p *Plugin) error {
 			return fmt.Errorf("%s: panel %d has no ID", where, i)
 		case hasControl(pn.ID):
 			return fmt.Errorf("%s: panel ID %q has control characters", where, pn.ID)
-		case pn.Title == "":
+		case pn.Title == "" && pn.TitleKey == "":
 			return fmt.Errorf("%s: panel %q has no title", where, pn.ID)
 		case pn.View == nil:
 			return fmt.Errorf("%s: panel %q has no View", where, pn.ID)
@@ -210,7 +258,7 @@ func validatePlugin(p *Plugin) error {
 			return fmt.Errorf("%s: tool %d has no ID", where, i)
 		case hasControl(t.ID):
 			return fmt.Errorf("%s: tool ID %q has control characters", where, t.ID)
-		case t.Label == "":
+		case t.Label == "" && t.LabelKey == "":
 			return fmt.Errorf("%s: tool %q has no label", where, t.ID)
 		case t.Press == nil && t.OnDragBegin == nil:
 			return fmt.Errorf("%s: tool %q has no Press or OnDragBegin", where, t.ID)
@@ -227,7 +275,7 @@ func validatePlugin(p *Plugin) error {
 			return fmt.Errorf("%s: command %d has no ID", where, i)
 		case strings.IndexFunc(c.ID, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0:
 			return fmt.Errorf("%s: command ID %q must have no spaces or control characters", where, c.ID)
-		case strings.TrimSpace(c.Label) == "":
+		case strings.TrimSpace(c.Label) == "" && strings.TrimSpace(c.LabelKey) == "":
 			return fmt.Errorf("%s: command %q has no label", where, c.ID)
 		case c.Run == nil:
 			return fmt.Errorf("%s: command %q has no Run", where, c.ID)
@@ -591,14 +639,15 @@ func (e *Editor) pluginInspector(component string) (*Inspector, string) {
 // toolLabel names the active tool for the status bar.
 func (e *Editor) toolLabel() string {
 	if t := e.activePluginTool(); t != nil {
-		return t.Label
+		return e.translatePluginText(e.activePlugin(e.pluginTool.plugin), t.LabelKey, t.Label)
 	}
-	return e.Tool.String()
+	return e.localizedToolName(e.Tool)
 }
 
 // dockedPanel is a plugin's panel with the plugin's name.
 type dockedPanel struct {
 	plugin string
+	owner  *Plugin
 	panel  *Panel
 }
 
@@ -608,7 +657,7 @@ func (e *Editor) dockedPanels(dock Dock) []dockedPanel {
 	for _, p := range e.activePlugins() {
 		for i := range p.Panels {
 			if p.Panels[i].Dock == dock {
-				out = append(out, dockedPanel{p.Name, &p.Panels[i]})
+				out = append(out, dockedPanel{p.Name, p, &p.Panels[i]})
 			}
 		}
 	}
@@ -684,7 +733,10 @@ func pluginPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dp do
 		},
 		Children: []core.Node{
 			core.Text{
-				Content: dp.panel.Title,
+				ContentFunc: func() string {
+					_ = rev.Get()
+					return ed.translatePluginText(dp.owner, dp.panel.TitleKey, dp.panel.Title)
+				},
 				Style: core.Style{
 					FontSize:   13,
 					FontWeight: 700,
@@ -726,7 +778,7 @@ func pluginToolsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disab
 				ref := pluginToolRef{p.Name, t.ID}
 				buttons = append(buttons, ui.ToggleButton{
 					TestID:   "tool-" + ref.plugin + "-" + ref.id,
-					Text:     t.Label,
+					Text:     ed.translatePluginText(p, t.LabelKey, t.Label),
 					Disabled: disabled,
 					On: func() bool {
 						_ = rev.Get()
@@ -740,6 +792,6 @@ func pluginToolsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disab
 				})
 			}
 		}
-		return ui.ToolbarGroup{Label: "Plugin Tools", Children: buttons}
+		return ui.ToolbarGroup{Label: ed.T("toolbar.group.pluginTools"), Children: buttons}
 	})
 }

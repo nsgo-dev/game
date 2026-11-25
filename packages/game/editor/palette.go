@@ -5,6 +5,7 @@ import (
 	"path"
 	"strings"
 
+	"github.com/nsgo-dev/game/packages/game/l10n"
 	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
@@ -160,14 +161,14 @@ func (e *Editor) buildPaletteItems(files []ProjectFile) []base.CommandItem {
 		label := cmd.Label
 		if cmd.ID == CmdPlayStop {
 			if e.Playing() {
-				label = "Stop"
+				label = e.T("toolbar.stop")
 			} else {
-				label = "Play"
+				label = e.T("toolbar.play")
 			}
 		}
 		group := cmd.Category
 		if group == "" {
-			group = "Commands"
+			group = e.T("palette.group.commands")
 		}
 		items = append(items, base.CommandItem{
 			ID:          palettePrefixCommand + cmd.ID,
@@ -185,10 +186,10 @@ func (e *Editor) buildPaletteItems(files []ProjectFile) []base.CommandItem {
 		for _, t := range p.Tools {
 			items = append(items, base.CommandItem{
 				ID:          palettePrefixPluginTool + p.Name + "\x00" + t.ID,
-				Label:       t.Label,
-				Description: "Plugin tool (" + p.Name + ")",
+				Label:       e.translatePluginText(p, t.LabelKey, t.Label),
+				Description: e.T("palette.pluginToolDesc", l10n.Param("plugin", p.Name)),
 				Keywords:    []string{p.Name, t.ID, "tool", "plugin"},
-				Group:       "Plugin Tools",
+				Group:       e.T("palette.group.pluginTools"),
 				Disabled:    e.Playing(),
 				Checked:     e.Tool == ToolPlugin && e.pluginTool == (pluginToolRef{p.Name, t.ID}),
 			})
@@ -199,10 +200,10 @@ func (e *Editor) buildPaletteItems(files []ProjectFile) []base.CommandItem {
 		for _, pn := range p.Panels {
 			items = append(items, base.CommandItem{
 				ID:          palettePrefixPluginPanel + p.Name + "\x00" + pn.ID,
-				Label:       pn.Title,
-				Description: "Plugin panel (" + p.Name + ", " + pn.Dock.String() + ")",
+				Label:       e.translatePluginText(p, pn.TitleKey, pn.Title),
+				Description: e.T("palette.pluginPanelDesc", l10n.Param("plugin", p.Name), l10n.Param("dock", pn.Dock.String())),
 				Keywords:    []string{p.Name, pn.ID, pn.Dock.String(), "panel", "plugin"},
-				Group:       "Plugin Panels",
+				Group:       e.T("palette.group.pluginPanels"),
 				Checked:     e.focusedPluginPanel == (panelRef{p.Name, pn.ID}),
 			})
 		}
@@ -212,12 +213,12 @@ func (e *Editor) buildPaletteItems(files []ProjectFile) []base.CommandItem {
 		if f.Dir {
 			continue
 		}
-		group := "Files"
-		desc := "Project file"
+		group := e.T("palette.group.files")
+		desc := e.T("palette.projectFile")
 		keywords := []string{path.Base(f.Path), "file", "open"}
 		if isProjectScene(e.Project, f.Path) {
-			group = "Scenes"
-			desc = "Open scene"
+			group = e.T("palette.group.scenes")
+			desc = e.T("palette.openScene")
 			keywords = append(keywords, "scene")
 		}
 		items = append(items, base.CommandItem{
@@ -385,10 +386,10 @@ func CommandPaletteView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 		},
 		Command: ui.Command{
 			TestID:      "editor-command-palette-list",
-			Label:       "Command Palette",
-			SearchLabel: "Search commands",
-			Placeholder: "Type a command, tool, panel, or file...",
-			Empty:       "No matching commands or files",
+			Label:       ed.T("palette.label"),
+			SearchLabel: ed.T("palette.searchLabel"),
+			Placeholder: ed.T("palette.placeholder"),
+			Empty:       ed.T("palette.empty"),
 			Query: func() *string {
 				q := query.Get()
 				return &q

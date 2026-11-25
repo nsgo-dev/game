@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/nsgo-dev/game/packages/game/l10n"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/nsgo/base/dragdrop"
 	"github.com/nsgo-dev/nsgo/core"
@@ -111,12 +112,13 @@ func LayersView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node 
 				Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 2},
 				Children: []core.Node{
 					core.Text{
-						Content: "Layers",
+						TestID:  "layers-title",
+						Content: ed.T("layers.title"),
 						Style:   core.Style{FontSize: 13, FontWeight: 700, Color: colors.Text(), FlexGrow: 1},
 					},
 					ui.IconButton{
 						TestID:   "layers-add",
-						Label:    "Add Layer",
+						Label:    ed.T("layers.add"),
 						Icon:     lucide.Plus,
 						Size:     22,
 						IconSize: 14,
@@ -125,7 +127,7 @@ func LayersView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node 
 					},
 					ui.IconButton{
 						TestID:   "layers-remove",
-						Label:    "Remove Layer",
+						Label:    ed.T("layers.remove"),
 						Icon:     lucide.Trash,
 						Size:     22,
 						IconSize: 14,
@@ -136,19 +138,19 @@ func LayersView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node 
 			},
 			dragdrop.Area{Children: []core.Node{ui.Tree{
 				TestID:     "layers-list",
-				Label:      "Layers",
+				Label:      ed.T("layers.title"),
 				Roots:      roots,
 				Children:   func(any) []any { return nil },
 				Expanded:   func(any) bool { return false },
 				OnActivate: func(key any) { name, _ := key.(string); startEdit(name) },
 				RowLabel: func(key any) string {
 					name, _ := key.(string)
-					return "Layer " + name
+					return ed.T("layers.rowLabel", l10n.Param("name", name))
 				},
 				Selection: selection,
 				Row:       row,
 				Empty: core.Text{
-					Content: "No layers",
+					Content: ed.T("layers.empty"),
 					Style:   core.Style{FontSize: 12, Color: colors.Muted(), Padding: core.All(4)},
 				},
 				Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0)},
@@ -196,7 +198,7 @@ func layerPanelRow(cx *core.Scope, ed *Editor, layers func() []LayerInfo, name s
 			})
 			return ui.Input{
 				TestID:       "layers-rename-" + name,
-				Label:        "Layer Name",
+				Label:        ed.T("layers.nameLabel"),
 				DefaultValue: text,
 				AutoFocus:    true,
 				OnChange:     func(s string) { text = s },
@@ -287,8 +289,8 @@ func layerPanelRow(cx *core.Scope, ed *Editor, layers func() []LayerInfo, name s
 		},
 		Children: []core.Node{
 			label,
-			toggle("layers-eye-"+name, hidden, setHidden, lucide.EyeOff, lucide.Eye, "Show layer "+name, "Hide layer "+name, baseOwned),
-			toggle("layers-lock-"+name, locked, setLocked, lucide.Lock, lucide.LockOpen, "Unlock layer "+name, "Lock layer "+name, never),
+			toggle("layers-eye-"+name, hidden, setHidden, lucide.EyeOff, lucide.Eye, ed.T("layers.showNamed", l10n.Param("name", name)), ed.T("layers.hideNamed", l10n.Param("name", name)), baseOwned),
+			toggle("layers-lock-"+name, locked, setLocked, lucide.Lock, lucide.LockOpen, ed.T("layers.unlockNamed", l10n.Param("name", name)), ed.T("layers.lockNamed", l10n.Param("name", name)), never),
 		},
 	}
 
@@ -306,32 +308,32 @@ func layerPanelRow(cx *core.Scope, ed *Editor, layers func() []LayerInfo, name s
 		}
 	}
 	items := []core.Node{
-		ui.MenuItem{TestID: "layers-rename-item-" + name, Text: "Rename", Disabled: baseOwned, OnSelect: func() { startEdit(name) }},
+		ui.MenuItem{TestID: "layers-rename-item-" + name, Text: ed.T("layers.rename"), Disabled: baseOwned, OnSelect: func() { startEdit(name) }},
 		ui.MenuSeparator{},
-		ui.MenuItem{TestID: "layers-up-" + name, Text: "Move Layer Up",
+		ui.MenuItem{TestID: "layers-up-" + name, Text: ed.T("layers.moveUp"),
 			Disabled: func() bool { pos, _ := layerPosition(layers(), name); return baseOwned() || pos <= 0 },
 			OnSelect: func() { move(-1) }},
-		ui.MenuItem{TestID: "layers-down-" + name, Text: "Move Layer Down",
+		ui.MenuItem{TestID: "layers-down-" + name, Text: ed.T("layers.moveDown"),
 			Disabled: func() bool { pos, n := layerPosition(layers(), name); return baseOwned() || pos < 0 || pos >= n-1 },
 			OnSelect: func() { move(1) }},
 		ui.MenuSeparator{},
-		spaceItem(sceneformat.SpaceWorld, "World Space"),
-		spaceItem(sceneformat.SpaceScreen, "Screen Space"),
+		spaceItem(sceneformat.SpaceWorld, ed.T("layers.worldSpace")),
+		spaceItem(sceneformat.SpaceScreen, ed.T("layers.screenSpace")),
 		ui.MenuSeparator{},
 		ui.MenuItem{TestID: "layers-hide-" + name, TextFunc: func() string {
 			if hidden() {
-				return "Show Layer"
+				return ed.T("layers.show")
 			}
-			return "Hide Layer"
+			return ed.T("layers.hide")
 		}, Disabled: baseOwned, OnSelect: func() { ed.report(setHidden(!hidden())) }},
 		ui.MenuItem{TestID: "layers-lock-item-" + name, TextFunc: func() string {
 			if locked() {
-				return "Unlock Layer"
+				return ed.T("layers.unlock")
 			}
-			return "Lock Layer"
+			return ed.T("layers.lock")
 		}, OnSelect: func() { ed.report(setLocked(!locked())) }},
 		ui.MenuSeparator{},
-		ui.MenuItem{TestID: "layers-remove-" + name, Text: "Remove Layer", Variant: ui.MenuItemDanger, Disabled: editsOff,
+		ui.MenuItem{TestID: "layers-remove-" + name, Text: ed.T("layers.remove"), Variant: ui.MenuItemDanger, Disabled: editsOff,
 			OnSelect: func() { ed.report(ed.RemoveLayer(name)) }},
 	}
 

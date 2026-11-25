@@ -40,6 +40,20 @@ autoload:
       path: scenes/title.scene.yaml
 ```
 
+<!-- format: editor#settings -->
+### 编辑器设置
+
+| 文件 | 版本 | 读写函数 | 字段 |
+| --- | --- | --- | --- |
+| 位于项目之外的用户配置目录中的 `editor.yaml`（`editor.DefaultSettingsPath`） | `version: 1` | `editor.ParseEditorSettings`、`editor.EncodeEditorSettings` | [编辑器](editor.md#语言与外观设置921)；Schema 为 `https://game.nsgo.dev/schemas/editor-settings.v1.json` |
+
+```yaml
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/editor-settings.v1.json
+version: 1
+language: system
+appearance: system
+```
+
 <!-- format: tooling/importsettings -->
 ### 导入设置旁注文件
 

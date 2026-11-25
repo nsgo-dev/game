@@ -122,6 +122,7 @@ var formatVersions = map[string]string{
 	"cutscene.CurrentVersion":               "cutscene",
 	"cutscene.MinVersion":                   "cutscene",
 	"editor.RecentProjectsVersion":          "editor",
+	"editor.SettingsVersion":                "editor",
 	"flow.MachineSnapshotVersion":           "",
 	"fog.FormatVersion":                     "fog",
 	"fighting.FormatVersion":                "fighting",

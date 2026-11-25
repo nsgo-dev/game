@@ -40,6 +40,20 @@ autoload:
       path: scenes/title.scene.yaml
 ```
 
+<!-- format: editor#settings -->
+### Editor settings
+
+| Files | Version | Read and written by | Fields |
+| --- | --- | --- | --- |
+| Per-user `editor.yaml` under the user config directory (`editor.DefaultSettingsPath`), outside any project | `version: 1` | `editor.ParseEditorSettings`, `editor.EncodeEditorSettings` | [Editor](editor.md#language-and-appearance-settings-921); schema `https://game.nsgo.dev/schemas/editor-settings.v1.json` |
+
+```yaml
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/editor-settings.v1.json
+version: 1
+language: system
+appearance: system
+```
+
 <!-- format: tooling/importsettings -->
 ### Import settings sidecar
 

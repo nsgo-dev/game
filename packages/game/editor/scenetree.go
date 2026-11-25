@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"github.com/nsgo-dev/game/packages/game/l10n"
 	"github.com/nsgo-dev/nsgo/base/dragdrop"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -237,7 +238,7 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 				Children: []core.Node{
 					ui.ToggleButton{
 						TestID: "scene-tree-tab-local",
-						Text:   "Scene",
+						Text:   ed.T("sceneTree.title"),
 						On: func() bool {
 							_ = rev.Get()
 							return ed.SceneTreeTab() == SceneTreeLocal
@@ -250,7 +251,7 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 					},
 					ui.ToggleButton{
 						TestID: "scene-tree-tab-remote",
-						Text:   "Remote",
+						Text:   ed.T("sceneTree.remote"),
 						On: func() bool {
 							_ = rev.Get()
 							return ed.SceneTreeTab() == SceneTreeRemote
@@ -291,7 +292,7 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 				Else: func(cx *core.Scope) core.Node {
 					return dragdrop.Area{Children: []core.Node{ui.Tree{
 						TestID:   "scene-tree",
-						Label:    "Scene Tree",
+						Label:    ed.T("sceneTree.label"),
 						Roots:    roots,
 						Children: func(key any) []any { k, _ := key.(sceneTreeKey); return children(k) },
 						Expanded: func(key any) bool { k, _ := key.(sceneTreeKey); return expanded(k) },
@@ -308,11 +309,11 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 						RowLabel: func(key any) string {
 							k, _ := key.(sceneTreeKey)
 							if k.id == "" {
-								return "Layer " + k.layer
+								return ed.T("sceneTree.layerLabel", l10n.Param("name", k.layer))
 							}
 							return k.id
 						},
-						ToggleLabel: "Expand",
+						ToggleLabel: ed.T("sceneTree.expand"),
 						Selection:   selection,
 						Row:         row,
 						Ref:         listRef,
@@ -383,7 +384,7 @@ func layerRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTreeK
 					ContentFunc: func() string {
 						_ = rev.Get()
 						if ed.ActiveLayer == k.layer {
-							return "active"
+							return ed.T("sceneTree.active")
 						}
 						return ""
 					},
@@ -459,9 +460,9 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 					editing.Set(treeEdit{})
 				}
 			})
-			testID, labelText := "scene-tree-name-"+id, "Object Name"
+			testID, labelText := "scene-tree-name-"+id, ed.T("sceneTree.objectName")
 			if edit.field == editID {
-				testID, labelText = "scene-tree-id-"+id, "Object ID"
+				testID, labelText = "scene-tree-id-"+id, ed.T("sceneTree.objectID")
 			}
 			return ui.Input{
 				TestID:       testID,
@@ -543,8 +544,8 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 		StyleFunc: func() core.Style { return dropStyle(cx, hint, k) },
 		Children: []core.Node{
 			label,
-			toggle("scene-tree-eye-"+id, hidden, func(on bool) error { return ed.SetObjectHidden(id, on) }, lucide.EyeOff, lucide.Eye, "Show "+id, "Hide "+id),
-			toggle("scene-tree-lock-"+id, locked, func(on bool) error { return ed.SetObjectLocked(id, on) }, lucide.Lock, lucide.LockOpen, "Unlock "+id, "Lock "+id),
+			toggle("scene-tree-eye-"+id, hidden, func(on bool) error { return ed.SetObjectHidden(id, on) }, lucide.EyeOff, lucide.Eye, ed.T("sceneTree.showNamed", l10n.Param("id", id)), ed.T("sceneTree.hideNamed", l10n.Param("id", id))),
+			toggle("scene-tree-lock-"+id, locked, func(on bool) error { return ed.SetObjectLocked(id, on) }, lucide.Lock, lucide.LockOpen, ed.T("sceneTree.unlockNamed", l10n.Param("id", id)), ed.T("sceneTree.lockNamed", l10n.Param("id", id))),
 		},
 	}
 
@@ -565,24 +566,24 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 		return loc.index, len(objs), prev, parent
 	}
 	items := []core.Node{
-		ui.MenuItem{TestID: "scene-tree-rename-" + id, Text: "Rename", Shortcut: "F2", Disabled: editsOff, OnSelect: func() { startEdit(k, editName) }},
-		ui.MenuItem{TestID: "scene-tree-change-id-" + id, Text: "Change ID", Disabled: editsOff, OnSelect: func() { startEdit(k, editID) }},
+		ui.MenuItem{TestID: "scene-tree-rename-" + id, Text: ed.T("sceneTree.rename"), Shortcut: "F2", Disabled: editsOff, OnSelect: func() { startEdit(k, editName) }},
+		ui.MenuItem{TestID: "scene-tree-change-id-" + id, Text: ed.T("sceneTree.changeID"), Disabled: editsOff, OnSelect: func() { startEdit(k, editID) }},
 		ui.MenuSeparator{},
-		ui.MenuItem{TestID: "scene-tree-up-" + id, Text: "Move Up",
+		ui.MenuItem{TestID: "scene-tree-up-" + id, Text: ed.T("sceneTree.moveUp"),
 			Disabled: func() bool { i, _, _, _ := siblings(); return editsOff() || i <= 0 },
 			OnSelect: func() {
 				if i, _, _, _ := siblings(); i > 0 {
 					ed.report(ed.ReorderObject(id, i-1))
 				}
 			}},
-		ui.MenuItem{TestID: "scene-tree-down-" + id, Text: "Move Down",
+		ui.MenuItem{TestID: "scene-tree-down-" + id, Text: ed.T("sceneTree.moveDown"),
 			Disabled: func() bool { i, n, _, _ := siblings(); return editsOff() || i < 0 || i >= n-1 },
 			OnSelect: func() {
 				if i, n, _, _ := siblings(); i >= 0 && i < n-1 {
 					ed.report(ed.ReorderObject(id, i+1))
 				}
 			}},
-		ui.MenuItem{TestID: "scene-tree-indent-" + id, Text: "Make Child of Previous",
+		ui.MenuItem{TestID: "scene-tree-indent-" + id, Text: ed.T("sceneTree.indent"),
 			Disabled: func() bool { _, _, prev, _ := siblings(); return editsOff() || prev == "" },
 			OnSelect: func() {
 				if _, _, prev, _ := siblings(); prev != "" {
@@ -593,7 +594,7 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 					setOpen(sceneTreeKey{layer: k.layer, id: prev}, true)
 				}
 			}},
-		ui.MenuItem{TestID: "scene-tree-outdent-" + id, Text: "Move Out of Parent",
+		ui.MenuItem{TestID: "scene-tree-outdent-" + id, Text: ed.T("sceneTree.outdent"),
 			Disabled: func() bool { _, _, _, parent := siblings(); return editsOff() || parent == "" },
 			OnSelect: func() {
 				_, _, _, parent := siblings()
@@ -612,7 +613,7 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 		items = append(items, ui.MenuSeparator{})
 		for i := range ed.Doc.Layers {
 			name := ed.Doc.Layers[i].Name
-			items = append(items, ui.MenuItem{TestID: "scene-tree-to-layer-" + id + "-" + name, Text: "Move to Layer " + name,
+			items = append(items, ui.MenuItem{TestID: "scene-tree-to-layer-" + id + "-" + name, Text: ed.T("sceneTree.moveToLayer", l10n.Param("name", name)),
 				Disabled: func() bool {
 					loc := ed.lookupObject(id).loc
 					return editsOff() || loc.obj == nil || ed.Doc.Layers[loc.layer].Name == name && loc.parent == nil
@@ -625,19 +626,19 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 		ui.MenuItem{TestID: "scene-tree-hide-" + id, TextFunc: func() string {
 			_ = rev.Get()
 			if hidden() {
-				return "Show in Viewport"
+				return ed.T("sceneTree.show")
 			}
-			return "Hide in Viewport"
+			return ed.T("sceneTree.hide")
 		}, OnSelect: func() { ed.report(ed.SetObjectHidden(id, !hidden())) }},
 		ui.MenuItem{TestID: "scene-tree-lock-item-" + id, TextFunc: func() string {
 			_ = rev.Get()
 			if locked() {
-				return "Unlock"
+				return ed.T("sceneTree.unlock")
 			}
-			return "Lock"
+			return ed.T("sceneTree.lock")
 		}, OnSelect: func() { ed.report(ed.SetObjectLocked(id, !locked())) }},
 		ui.MenuSeparator{},
-		ui.MenuItem{TestID: "scene-tree-delete-" + id, Text: "Delete", Variant: ui.MenuItemDanger, Disabled: editsOff,
+		ui.MenuItem{TestID: "scene-tree-delete-" + id, Text: ed.T("sceneTree.delete"), Variant: ui.MenuItemDanger, Disabled: editsOff,
 			OnSelect: func() { ed.report(ed.DeleteObject(id)) }},
 	)
 

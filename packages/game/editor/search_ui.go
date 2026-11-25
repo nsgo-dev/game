@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/nsgo-dev/game/packages/game/l10n"
 	"github.com/nsgo-dev/game/packages/game/refs"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -87,7 +88,7 @@ func SearchPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 						Children: []core.Node{
 							ui.ToggleButton{
 								TestID: "search-tab-search",
-								Text:   "Search",
+								Text:   ed.T("search.search"),
 								On: func() bool {
 									return snap.Get().tab == SearchTabSearch
 								},
@@ -99,7 +100,7 @@ func SearchPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 							},
 							ui.ToggleButton{
 								TestID: "search-tab-refs",
-								Text:   "References",
+								Text:   ed.T("search.references"),
 								Disabled: func() bool {
 									return snap.Get().refsTarget == ""
 								},
@@ -116,8 +117,8 @@ func SearchPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 								Style: core.Style{FlexGrow: 1},
 								Children: []core.Node{ui.Input{
 									TestID:      "project-search-input",
-									Label:       "Search project files, UIDs, objects, components, prefabs and scene references",
-									Placeholder: "Search files, UIDs, objects, components, prefabs...",
+									Label:       ed.T("search.inputLabel"),
+									Placeholder: ed.T("search.placeholder"),
 									Value: func() string {
 										_ = rev.Get()
 										return ed.SearchQuery()
@@ -140,14 +141,14 @@ func SearchPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 									if strings.TrimSpace(s.query) == "" {
 										return ""
 									}
-									return fmt.Sprintf("%d match(es)", len(s.results))
+									return ed.T("search.matchCount", l10n.Param("count", len(s.results)))
 								},
 								Style: core.Style{FontSize: 11, Color: colors.Muted()},
 							},
 							ui.Button{
 								TestID:  "search-refresh",
-								Text:    "Refresh",
-								Label:   "Rescan the project index and references",
+								Text:    ed.T("search.refresh"),
+								Label:   ed.T("search.refreshLabel"),
 								Size:    ui.SizeSmall,
 								Variant: ui.ButtonSecondary,
 								OnPress: func() {
@@ -156,8 +157,8 @@ func SearchPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 							},
 							ui.Button{
 								TestID:  "search-close",
-								Text:    "Close",
-								Label:   "Close the search panel",
+								Text:    ed.T("search.close"),
+								Label:   ed.T("search.closeLabel"),
 								Size:    ui.SizeSmall,
 								Variant: ui.ButtonGhost,
 								OnPress: func() {
@@ -181,14 +182,14 @@ func searchResultsList(cx *core.Scope, ed *Editor, query string, results []Searc
 	if strings.TrimSpace(query) == "" {
 		return core.Text{
 			TestID:  "search-empty",
-			Content: "Type to search project files, UIDs, scene objects, components, prefabs, and scene references",
+			Content: ed.T("search.emptyPrompt"),
 			Style:   core.Style{FontSize: 11, Color: colors.Muted()},
 		}
 	}
 	if len(results) == 0 {
 		return core.Text{
 			TestID:  "search-empty",
-			Content: "No matches",
+			Content: ed.T("search.noMatches"),
 			Style:   core.Style{FontSize: 11, Color: colors.Muted()},
 		}
 	}
@@ -236,14 +237,14 @@ func searchRefsList(cx *core.Scope, ed *Editor, target string, found []refs.Ref)
 	if target == "" {
 		return core.Text{
 			TestID:  "refs-empty",
-			Content: "Select a file in the file browser and press Find Refs",
+			Content: ed.T("search.refsPrompt"),
 			Style:   core.Style{FontSize: 11, Color: colors.Muted()},
 		}
 	}
 	if len(found) == 0 {
 		return core.Text{
 			TestID:  "refs-empty",
-			Content: "No references to " + target,
+			Content: ed.T("search.noRefs", l10n.Param("target", target)),
 			Style:   core.Style{FontSize: 11, Color: colors.Muted()},
 		}
 	}

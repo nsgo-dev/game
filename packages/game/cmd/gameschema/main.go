@@ -20,6 +20,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/ai"
 	"github.com/nsgo-dev/game/packages/game/animclip"
 	"github.com/nsgo-dev/game/packages/game/cutscene"
+	"github.com/nsgo-dev/game/packages/game/editor"
 	"github.com/nsgo-dev/game/packages/game/gameui"
 	"github.com/nsgo-dev/game/packages/game/l10n"
 	"github.com/nsgo-dev/game/packages/game/navbake3d"
@@ -231,6 +232,13 @@ var formats = []format{
 		pkg:     "particles",
 		version: particles.FormatVersion,
 		types:   durationStringTypes,
+	},
+	{
+		url:     editor.SettingsSchemaURL,
+		title:   "NSGo game editor settings (version 1)",
+		typ:     reflect.TypeFor[editor.EditorSettings](),
+		pkg:     "editor",
+		version: editor.SettingsVersion,
 	},
 }
 

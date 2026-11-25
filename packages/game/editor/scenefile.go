@@ -124,14 +124,11 @@ func (e *Editor) SceneLabel() string {
 	case e.FilePath != "":
 		return e.FilePath
 	default:
-		return "Untitled"
+		return e.T("scene.untitled")
 	}
 }
 
-// defaultAppName is the editor's name in the window title while AppName is empty.
-const defaultAppName = "NSGo Scene Editor"
-
-// WindowTitle is the title EditorView gives the window: SceneLabel, followed by "*" while HasUnsavedChanges, then the editor's name (AppName, or "NSGo Scene Editor" while it is empty), as in "scenes/level.scene.yaml* - NSGo Scene Editor".
+// WindowTitle is the title EditorView gives the window: SceneLabel, followed by "*" while HasUnsavedChanges, then the editor's name (AppName, or the localized default app name while it is empty), as in "scenes/level.scene.yaml* - NSGo Scene Editor".
 func (e *Editor) WindowTitle() string {
 	return e.windowTitle(e.HasUnsavedChanges())
 }
@@ -144,7 +141,7 @@ func (e *Editor) windowTitle(unsaved bool) string {
 	}
 	name := e.AppName
 	if name == "" {
-		name = defaultAppName
+		name = e.T("app.defaultName")
 	}
 	return label + " - " + name
 }

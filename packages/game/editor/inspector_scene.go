@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/nsgo-dev/game/packages/game/l10n"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
@@ -103,7 +104,7 @@ func sceneInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 
 	bgColorWell := ui.ColorWell{
 		TestID: "inspector-scene-bg-picker",
-		Label:  "Background Color Picker",
+		Label:  ed.T("inspector.backgroundColorPicker"),
 		Value: func() core.Color {
 			_ = rev.Get()
 			if ed.Doc != nil && ed.Doc.BackgroundColor != "" {
@@ -142,7 +143,7 @@ func sceneInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 
 	bgInput := ui.Input{
 		TestID:      "inspector-scene-bg",
-		Label:       "Background Color",
+		Label:       ed.T("inspector.backgroundColor"),
 		Placeholder: "#141824",
 		Disabled:    disabled,
 		Value: func() string {
@@ -175,7 +176,7 @@ func sceneInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 		},
 	}
 
-	bgClear := removeButton("inspector-scene-bg-clear", "Clear background color", func() bool {
+	bgClear := removeButton("inspector-scene-bg-clear", ed.T("inspector.clearBackground"), func() bool {
 		if disabled() {
 			return true
 		}
@@ -327,7 +328,7 @@ func sceneInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 								if ed.Doc != nil && ed.Doc.Name != "" {
 									return ed.Doc.Name
 								}
-								return "Untitled Scene"
+								return ed.T("scene.untitledScene")
 							},
 							MaxLines: 1,
 							Style: core.Style{
@@ -340,7 +341,7 @@ func sceneInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 							TestID: "inspector-scene-path",
 							ContentFunc: func() string {
 								_ = rev.Get()
-								return "Scene · " + ed.SceneLabel()
+								return ed.T("inspector.scenePrefix", l10n.Param("label", ed.SceneLabel()))
 							},
 							MaxLines: 1,
 							Style: core.Style{
@@ -353,10 +354,10 @@ func sceneInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 			},
 		},
 
-		sectionHeader("SCENE"),
-		fieldRow("Name", ui.Input{
+		sectionHeader(ed.T("inspector.section.scene")),
+		fieldRow(ed.T("inspector.name"), ui.Input{
 			TestID:   "inspector-scene-name",
-			Label:    "Scene Name",
+			Label:    ed.T("inspector.sceneName"),
 			Disabled: disabled,
 			Value: func() string {
 				_ = rev.Get()
@@ -369,9 +370,9 @@ func sceneInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 				ed.report(ed.SetSceneName(text))
 			},
 		}),
-		fieldRow("Width", ui.NumberInput{
+		fieldRow(ed.T("inspector.width"), ui.NumberInput{
 			TestID:      "inspector-scene-width",
-			Label:       "Virtual Width",
+			Label:       ed.T("inspector.virtualWidth"),
 			LeadingText: "W",
 			Step:        1,
 			Format:      floatFormat,
@@ -394,9 +395,9 @@ func sceneInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 				ed.report(ed.SetVirtualSize(float32(v), h))
 			},
 		}),
-		fieldRow("Height", ui.NumberInput{
+		fieldRow(ed.T("inspector.height"), ui.NumberInput{
 			TestID:      "inspector-scene-height",
-			Label:       "Virtual Height",
+			Label:       ed.T("inspector.virtualHeight"),
 			LeadingText: "H",
 			Step:        1,
 			Format:      floatFormat,
@@ -419,7 +420,7 @@ func sceneInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 				ed.report(ed.SetVirtualSize(w, float32(v)))
 			},
 		}),
-		fieldRow("Background", bgControl),
+		fieldRow(ed.T("inspector.background"), bgControl),
 		fieldRow("NavMesh", ui.Input{
 			TestID:      "inspector-scene-navmesh",
 			Label:       "Scene NavMesh Path",
@@ -440,10 +441,10 @@ func sceneInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 		sectionHeader("SCENE LIGHTING"),
 		fieldRow("Ambient", ambientControl),
 
-		sectionHeader("CAMERA"),
+		sectionHeader(ed.T("inspector.section.camera")),
 		fieldRow("X", ui.NumberInput{
 			TestID:   "inspector-camera-x",
-			Label:    "Camera X",
+			Label:    ed.T("inspector.cameraX"),
 			Step:     1,
 			Format:   floatFormat,
 			Disabled: disabled,
@@ -462,7 +463,7 @@ func sceneInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 		}),
 		fieldRow("Y", ui.NumberInput{
 			TestID:   "inspector-camera-y",
-			Label:    "Camera Y",
+			Label:    ed.T("inspector.cameraY"),
 			Step:     1,
 			Format:   floatFormat,
 			Disabled: disabled,
@@ -479,9 +480,9 @@ func sceneInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 				ed.report(ed.SetCameraPosition(cam.X, fv))
 			},
 		}),
-		fieldRow("Zoom", ui.NumberInput{
+		fieldRow(ed.T("inspector.zoom"), ui.NumberInput{
 			TestID:   "inspector-camera-zoom",
-			Label:    "Camera Zoom",
+			Label:    ed.T("inspector.cameraZoom"),
 			Step:     0.1,
 			Format:   floatFormat,
 			Disabled: disabled,
@@ -499,9 +500,9 @@ func sceneInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 				ed.report(ed.SetCameraZoom(fv))
 			},
 		}),
-		fieldRow("Rotation", ui.NumberInput{
+		fieldRow(ed.T("inspector.rotation"), ui.NumberInput{
 			TestID:   "inspector-camera-rotation",
-			Label:    "Camera Rotation",
+			Label:    ed.T("inspector.cameraRotation"),
 			Step:     0.05,
 			Format:   floatFormat,
 			Disabled: disabled,
@@ -517,9 +518,9 @@ func sceneInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 				ed.report(ed.SetCameraRotation(fv))
 			},
 		}),
-		fieldRow("Bounds", ui.Switch{
+		fieldRow(ed.T("inspector.bounds"), ui.Switch{
 			TestID:   "inspector-camera-bounds-enabled",
-			Label:    "Camera Bounds",
+			Label:    ed.T("inspector.cameraBounds"),
 			Disabled: disabled,
 			Checked:  boundsEnabled,
 			OnChange: func(on bool) {
@@ -543,9 +544,9 @@ func sceneInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 					TestID: "inspector-camera-bounds-fields",
 					Style:  core.Style{Gap: 8},
 					Children: []core.Node{
-						fieldRow("Bounds X", ui.NumberInput{
+						fieldRow(ed.T("inspector.boundsX"), ui.NumberInput{
 							TestID:   "inspector-camera-bounds-x",
-							Label:    "Camera Bounds X",
+							Label:    ed.T("inspector.cameraBoundsX"),
 							Step:     1,
 							Format:   floatFormat,
 							Disabled: disabled,
@@ -560,9 +561,9 @@ func sceneInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 								updateBounds(func(b *sceneformat.BoundsDoc) { b.X = float32(v) })
 							},
 						}),
-						fieldRow("Bounds Y", ui.NumberInput{
+						fieldRow(ed.T("inspector.boundsY"), ui.NumberInput{
 							TestID:   "inspector-camera-bounds-y",
-							Label:    "Camera Bounds Y",
+							Label:    ed.T("inspector.cameraBoundsY"),
 							Step:     1,
 							Format:   floatFormat,
 							Disabled: disabled,
@@ -577,9 +578,9 @@ func sceneInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 								updateBounds(func(b *sceneformat.BoundsDoc) { b.Y = float32(v) })
 							},
 						}),
-						fieldRow("Bounds W", ui.NumberInput{
+						fieldRow(ed.T("inspector.boundsW"), ui.NumberInput{
 							TestID:   "inspector-camera-bounds-width",
-							Label:    "Camera Bounds Width",
+							Label:    ed.T("inspector.cameraBoundsWidth"),
 							Step:     1,
 							Format:   floatFormat,
 							Disabled: disabled,
@@ -594,9 +595,9 @@ func sceneInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 								updateBounds(func(b *sceneformat.BoundsDoc) { b.Width = float32(v) })
 							},
 						}),
-						fieldRow("Bounds H", ui.NumberInput{
+						fieldRow(ed.T("inspector.boundsH"), ui.NumberInput{
 							TestID:   "inspector-camera-bounds-height",
-							Label:    "Camera Bounds Height",
+							Label:    ed.T("inspector.cameraBoundsHeight"),
 							Step:     1,
 							Format:   floatFormat,
 							Disabled: disabled,

@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strconv"
 
+	"github.com/nsgo-dev/game/packages/game/l10n"
 	"github.com/nsgo-dev/game/packages/game/tooling/assetcheck"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -51,9 +52,9 @@ func ProblemsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 			}
 		}
 		if len(s.problems) == 0 {
-			msg := "No problems"
+			msg := ed.T("problems.empty")
 			if s.checking {
-				msg = "Checking project…"
+				msg = ed.T("problems.checking")
 			}
 			return core.Text{
 				TestID:  "problems-empty",
@@ -130,16 +131,16 @@ func ProblemsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 								ContentFunc: func() string {
 									s := state.Get()
 									if s.checking && len(s.problems) == 0 {
-										return "Problems (checking…)"
+										return ed.T("problems.titleChecking")
 									}
-									return fmt.Sprintf("Problems (%d)", len(s.problems))
+									return ed.T("problems.title", l10n.Param("count", len(s.problems)))
 								},
 								Style: core.Style{FontSize: 12, FontWeight: 700, Color: colors.Text(), FlexGrow: 1},
 							},
 							ui.Button{
 								TestID:  "problems-refresh",
-								Text:    "Check",
-								Label:   "Re-run project and asset checks",
+								Text:    ed.T("problems.check"),
+								Label:   ed.T("problems.checkLabel"),
 								Size:    ui.SizeSmall,
 								Variant: ui.ButtonSecondary,
 								Disabled: func() bool {

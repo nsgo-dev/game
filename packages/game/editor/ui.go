@@ -1,9 +1,10 @@
 package editor
 
 import (
-	"fmt"
+	"math"
 	"time"
 
+	"github.com/nsgo-dev/game/packages/game/l10n"
 	"github.com/nsgo-dev/nsgo/base/dragdrop"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -85,74 +86,114 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 	})
 
 	colors := ui.ColorsOf(cx)
+	appearanceMemo := core.NewMemo(cx, func() core.Appearance {
+		_ = rev.Get()
+		return ed.Appearance().CoreAppearance()
+	})
+	cx.Effect(func() {
+		cx.SetAppearance(appearanceMemo.Get())
+	})
 	ed.bindShortcuts(cx, rev)
 	ed.bindApplicationMenu(cx, rev)
 	dirty := unsavedMemo(cx, ed, rev)
+	prompt := core.NewSignal[*unsavedPrompt](cx, nil)
 	pathMode := core.NewSignal(cx, pathNone)
 	pathTarget := core.NewSignal(cx, "")
-	files := sceneFileView(cx, ed, rev, dirty, pathMode, pathTarget)
+	bindSceneFileHooks(cx, ed, rev, dirty, prompt)
 	dragAreaKey.Provide(cx, true)
+
+	type chromeState struct {
+		lang string
+		dark bool
+	}
+	chromeKey := core.NewMemo(cx, func() chromeState {
+		_ = rev.Get()
+		return chromeState{
+			lang: ed.ResolvedLanguage(),
+			dark: cx.Env().Dark(),
+		}
+	})
+
+	workspace := core.Dynamic(func(cx *core.Scope) core.Node {
+		_ = chromeKey.Get()
+		files := sceneFileDialogs(ed, rev, prompt, pathMode, pathTarget)
+		return core.View{
+			Style: core.Style{
+				FlexGrow:  1,
+				FlexBasis: core.Pt(0),
+				Width:     core.Pct(100),
+				Height:    core.Pct(100),
+			},
+			Children: append([]core.Node{
+				core.Show{
+					When: func() bool {
+						_ = rev.Get()
+						return ed.StartScreenOpen()
+					},
+					Then: func(cx *core.Scope) core.Node {
+						return StartScreenView(cx, ed, rev)
+					},
+					Else: func(cx *core.Scope) core.Node {
+						return core.View{
+							Style: core.Style{
+								Width:  core.Pct(100),
+								Height: core.Pct(100),
+							},
+							Children: []core.Node{
+								toolbarView(cx, ed, rev, sceneFileButtons(cx, ed, rev, dirty, pathMode, pathTarget)),
+								remotePlayBarView(cx, ed, rev),
+								core.View{
+									// A zero basis gives the row the height left after the toolbar, the animation panel and the status bar, rather than its content's.
+									Style: core.Style{
+										Direction: core.Row,
+										FlexGrow:  1,
+										FlexBasis: core.Pt(0),
+										Overflow:  core.Hidden,
+									},
+									// One drag area spans the row, so a model dragged from the asset browser drops on the viewport.
+									Children: []core.Node{dragdrop.Area{Children: mainRow(cx, ed, rev)}},
+								},
+								pluginDockView(cx, ed, rev, DockBottom),
+								TilesetEditorPanelView(cx, ed, rev),
+								TerrainPanelView(cx, ed, rev),
+								DataTablePanelView(cx, ed, rev),
+								ParticleEditorPanelView(cx, ed, rev),
+								AnimationPanelView(cx, ed, rev),
+								StatesPanelView(cx, ed, rev),
+								NavMeshPanelView(cx, ed, rev),
+								ProjectSettingsPanelView(cx, ed, rev),
+								AudioMixerPanelView(cx, ed, rev),
+								InputMapPanelView(cx, ed, rev),
+								LocalizationPanelView(cx, ed, rev),
+								SearchPanelView(cx, ed, rev),
+								ProblemsView(cx, ed, rev),
+								ExportPanelView(cx, ed, rev),
+								ProfilerPanelView(cx, ed, rev),
+								OutputPanelView(cx, ed, rev),
+								statusBarView(cx, ed, rev),
+							},
+						}
+					},
+				},
+				CommandPaletteView(cx, ed, rev),
+			}, files...),
+		}
+	})
 
 	return core.View{
 		TestID: "scene-editor",
 		Style: core.Style{
-			Width:      core.Pct(100),
-			Height:     core.Pct(100),
-			Background: colors.Surface(),
+			Width:  core.Pct(100),
+			Height: core.Pct(100),
 		},
-		Children: append([]core.Node{
-			core.Show{
-				When: func() bool {
-					_ = rev.Get()
-					return ed.StartScreenOpen()
-				},
-				Then: func(cx *core.Scope) core.Node {
-					return StartScreenView(cx, ed, rev)
-				},
-				Else: func(cx *core.Scope) core.Node {
-					return core.View{
-						Style: core.Style{
-							Width:  core.Pct(100),
-							Height: core.Pct(100),
-						},
-						Children: []core.Node{
-							toolbarView(cx, ed, rev, sceneFileButtons(cx, ed, rev, dirty, pathMode, pathTarget)),
-							remotePlayBarView(cx, ed, rev),
-							core.View{
-								// A zero basis gives the row the height left after the toolbar, the animation panel and the status bar, rather than its content's.
-								Style: core.Style{
-									Direction: core.Row,
-									FlexGrow:  1,
-									FlexBasis: core.Pt(0),
-									Overflow:  core.Hidden,
-								},
-								// One drag area spans the row, so a model dragged from the asset browser drops on the viewport.
-								Children: []core.Node{dragdrop.Area{Children: mainRow(cx, ed, rev)}},
-							},
-							pluginDockView(cx, ed, rev, DockBottom),
-							TilesetEditorPanelView(cx, ed, rev),
-							TerrainPanelView(cx, ed, rev),
-							DataTablePanelView(cx, ed, rev),
-							ParticleEditorPanelView(cx, ed, rev),
-							AnimationPanelView(cx, ed, rev),
-							StatesPanelView(cx, ed, rev),
-							NavMeshPanelView(cx, ed, rev),
-							ProjectSettingsPanelView(cx, ed, rev),
-							AudioMixerPanelView(cx, ed, rev),
-							InputMapPanelView(cx, ed, rev),
-							LocalizationPanelView(cx, ed, rev),
-							SearchPanelView(cx, ed, rev),
-							ProblemsView(cx, ed, rev),
-							ExportPanelView(cx, ed, rev),
-							ProfilerPanelView(cx, ed, rev),
-							OutputPanelView(cx, ed, rev),
-							statusBarView(cx, ed, rev),
-						},
-					}
-				},
-			},
-			CommandPaletteView(cx, ed, rev),
-		}, files...),
+		StyleFunc: func() core.Style {
+			_ = chromeKey.Get()
+			return core.Style{Background: colors.Surface()}
+		},
+		Children: []core.Node{
+			workspace,
+			EditorSettingsDialogView(cx, ed, rev),
+		},
 	}
 }
 
@@ -314,7 +355,7 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 							if ed.Doc != nil && ed.Doc.Name != "" {
 								return ed.Doc.Name
 							}
-							return "Untitled Scene"
+							return ed.T("scene.untitledScene")
 						},
 						Style: core.Style{
 							FontSize:   14,
@@ -323,13 +364,23 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 						},
 					},
 					ui.HStack{Gap: 6, Children: fileButtons},
+					ui.Button{
+						TestID:  "toolbar-editor-settings",
+						Icon:    lucide.Settings,
+						Label:   ed.T("toolbar.editorSettingsLabel"),
+						Size:    ui.SizeSmall,
+						Variant: ui.ButtonGhost,
+						OnPress: func() {
+							ed.ToggleEditorSettings()
+						},
+					},
 				},
 			},
 			ui.Toolbar{
-				Label: "Editor Tools",
+				Label: ed.T("toolbar.label"),
 				Children: []core.Node{
 					ui.ToolbarGroup{
-						Label: "View Mode",
+						Label: ed.T("toolbar.group.viewMode"),
 						Children: []core.Node{
 							viewModeBtn("view-mode-2d", "2D", ViewMode2D),
 							viewModeBtn("view-mode-3d", "3D", ViewMode3D),
@@ -346,19 +397,19 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 								Children: []core.Node{
 									place3DToolsView(rev, ed, notPlaying),
 									ui.ToolbarGroup{
-										Label: "3D Gizmo",
+										Label: ed.T("toolbar.group.gizmo3d"),
 										Children: []core.Node{
-											gizmoBtn("gizmo-translate", "Translate", Gizmo3DTranslate),
-											gizmoBtn("gizmo-rotate", "Rotate", Gizmo3DRotate),
-											gizmoBtn("gizmo-scale", "Scale", Gizmo3DScale),
+											gizmoBtn("gizmo-translate", ed.T("toolbar.translate"), Gizmo3DTranslate),
+											gizmoBtn("gizmo-rotate", ed.T("toolbar.rotate"), Gizmo3DRotate),
+											gizmoBtn("gizmo-scale", ed.T("toolbar.scale"), Gizmo3DScale),
 										},
 									},
 									ui.ToolbarGroup{
-										Label: "3D Shading",
+										Label: ed.T("toolbar.group.shading3d"),
 										Children: []core.Node{
-											shadingBtn("shading-lit", "Lit", Shading3DLit),
-											shadingBtn("shading-unlit", "Unlit", Shading3DUnlit),
-											shadingBtn("shading-wireframe", "Wireframe", Shading3DWireframe),
+											shadingBtn("shading-lit", ed.T("toolbar.shadingLit"), Shading3DLit),
+											shadingBtn("shading-unlit", ed.T("toolbar.shadingUnlit"), Shading3DUnlit),
+											shadingBtn("shading-wireframe", ed.T("toolbar.shadingWireframe"), Shading3DWireframe),
 										},
 									},
 									ui.ToolbarGroup{
@@ -417,16 +468,16 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 						},
 						Else: func(cx *core.Scope) core.Node {
 							return ui.ToolbarGroup{
-								Label: "Tools",
+								Label: ed.T("toolbar.group.tools"),
 								Children: []core.Node{
-									toolBtn("tool-select", "Select", ToolSelect),
-									toolBtn("tool-move", "Move", ToolMove),
-									toolBtn("tool-place", "Place", ToolPlace),
-									toolBtn("tool-paint", "Paint", ToolPaintTile),
-									toolBtn("tool-erase", "Erase", ToolEraseTile),
-									toolBtn("tool-fill", "Fill", ToolFillTile),
-									toolBtn("tool-pick", "Pick", ToolPickTile),
-									toolBtn("tool-terrain", "Terrain", ToolTerrain),
+									toolBtn("tool-select", ed.T("toolbar.select"), ToolSelect),
+									toolBtn("tool-move", ed.T("toolbar.move"), ToolMove),
+									toolBtn("tool-place", ed.T("toolbar.place"), ToolPlace),
+									toolBtn("tool-paint", ed.T("toolbar.paint"), ToolPaintTile),
+									toolBtn("tool-erase", ed.T("toolbar.erase"), ToolEraseTile),
+									toolBtn("tool-fill", ed.T("toolbar.fill"), ToolFillTile),
+									toolBtn("tool-pick", ed.T("toolbar.pick"), ToolPickTile),
+									toolBtn("tool-terrain", ed.T("toolbar.terrain"), ToolTerrain),
 								},
 							}
 						},
@@ -522,7 +573,7 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 				Children: []core.Node{
 					ui.Button{
 						TestID:  "toolbar-undo",
-						Text:    "Undo",
+						Text:    ed.T("toolbar.undo"),
 						Size:    ui.SizeSmall,
 						Variant: ui.ButtonSecondary,
 						Disabled: func() bool {
@@ -535,7 +586,7 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 					},
 					ui.Button{
 						TestID:  "toolbar-redo",
-						Text:    "Redo",
+						Text:    ed.T("toolbar.redo"),
 						Size:    ui.SizeSmall,
 						Variant: ui.ButtonSecondary,
 						Disabled: func() bool {
@@ -548,7 +599,7 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 					},
 					ui.Button{
 						TestID:   "toolbar-save",
-						Text:     "Save",
+						Text:     ed.T("toolbar.save"),
 						Size:     ui.SizeSmall,
 						Variant:  ui.ButtonOutline,
 						Disabled: notPlaying,
@@ -562,7 +613,7 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 						Then: func(cx *core.Scope) core.Node {
 							return ui.Button{
 								TestID:  "toolbar-play",
-								Text:    "Stop",
+								Text:    ed.T("toolbar.stop"),
 								Size:    ui.SizeSmall,
 								Variant: ui.ButtonPrimary,
 								OnPress: func() {
@@ -573,7 +624,7 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 						Else: func(cx *core.Scope) core.Node {
 							return ui.Button{
 								TestID:  "toolbar-play",
-								Text:    "Play",
+								Text:    ed.T("toolbar.play"),
 								Size:    ui.SizeSmall,
 								Variant: ui.ButtonPrimary,
 								OnPress: func() {
@@ -590,8 +641,8 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 						Then: func(cx *core.Scope) core.Node {
 							return ui.Button{
 								TestID:  "toolbar-stop-game",
-								Text:    "Stop Game (Running)",
-								Label:   "Stop the running game (Shift+F5)",
+								Text:    ed.T("toolbar.stopGame"),
+								Label:   ed.T("toolbar.stopGameLabel"),
 								Size:    ui.SizeSmall,
 								Variant: ui.ButtonDanger,
 								OnPress: func() {
@@ -602,8 +653,8 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 						Else: func(cx *core.Scope) core.Node {
 							return ui.Button{
 								TestID:  "toolbar-run",
-								Text:    "Run",
-								Label:   "Run the game with go tool game dev (F5)",
+								Text:    ed.T("toolbar.run"),
+								Label:   ed.T("toolbar.runLabel"),
 								Size:    ui.SizeSmall,
 								Variant: ui.ButtonPrimary,
 								Disabled: func() bool {
@@ -618,8 +669,8 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 					},
 					ui.Button{
 						TestID:  "toolbar-palette",
-						Text:    "Commands",
-						Label:   "Open the Command Palette",
+						Text:    ed.T("toolbar.commands"),
+						Label:   ed.T("toolbar.commandsLabel"),
 						Size:    ui.SizeSmall,
 						Variant: ui.ButtonSecondary,
 						OnPress: func() {
@@ -628,8 +679,8 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 					},
 					ui.Button{
 						TestID:  "toolbar-animate",
-						Text:    "Animate",
-						Label:   "Animate the selected object in a new clip",
+						Text:    ed.T("toolbar.animate"),
+						Label:   ed.T("toolbar.animateLabel"),
 						Size:    ui.SizeSmall,
 						Variant: ui.ButtonSecondary,
 						Disabled: func() bool {
@@ -659,8 +710,8 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 					},
 					ui.ToggleButton{
 						TestID: "toolbar-project-settings",
-						Text:   "Settings",
-						Label:  "Toggle the Project Settings panel",
+						Text:   ed.T("toolbar.projectSettings"),
+						Label:  ed.T("toolbar.projectSettingsLabel"),
 						Disabled: func() bool {
 							_ = rev.Get()
 							return ed.Project == nil
@@ -675,8 +726,8 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 					},
 					ui.ToggleButton{
 						TestID: "toolbar-audio-mixer",
-						Text:   "Mixer",
-						Label:  "Toggle the Audio Bus Mixer panel",
+						Text:   ed.T("toolbar.mixer"),
+						Label:  ed.T("toolbar.mixerLabel"),
 						Disabled: func() bool {
 							_ = rev.Get()
 							return ed.Project == nil
@@ -691,8 +742,8 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 					},
 					ui.ToggleButton{
 						TestID: "toolbar-input-map",
-						Text:   "Input",
-						Label:  "Toggle the Input Map panel",
+						Text:   ed.T("toolbar.input"),
+						Label:  ed.T("toolbar.inputLabel"),
 						Disabled: func() bool {
 							_ = rev.Get()
 							return ed.Project == nil
@@ -707,7 +758,7 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 					},
 					ui.ToggleButton{
 						TestID:   "toolbar-l10n",
-						Text:     "Strings",
+						Text:     ed.T("toolbar.strings"),
 						Disabled: notPlaying,
 						On: func() bool {
 							_ = rev.Get()
@@ -723,8 +774,8 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 					},
 					ui.Button{
 						TestID:  "toolbar-build-assets",
-						Text:    "Build Assets",
-						Label:   "Run go tool game assets for the open project and reload changed atlases and textures",
+						Text:    ed.T("toolbar.buildAssets"),
+						Label:   ed.T("toolbar.buildAssetsLabel"),
 						Size:    ui.SizeSmall,
 						Variant: ui.ButtonSecondary,
 						Disabled: func() bool {
@@ -737,8 +788,8 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 					},
 					ui.ToggleButton{
 						TestID: "toolbar-export",
-						Text:   "Export",
-						Label:  "Toggle the Export & Release Build panel",
+						Text:   ed.T("toolbar.export"),
+						Label:  ed.T("toolbar.exportLabel"),
 						Disabled: func() bool {
 							_ = rev.Get()
 							return ed.Project == nil
@@ -765,8 +816,8 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 					},
 					ui.ToggleButton{
 						TestID: "toolbar-output",
-						Text:   "Output",
-						Label:  "Toggle the Output log panel",
+						Text:   ed.T("toolbar.output"),
+						Label:  ed.T("toolbar.outputLabel"),
 						On: func() bool {
 							_ = rev.Get()
 							return ed.OutputPanelOpen()
@@ -777,8 +828,8 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 					},
 					ui.ToggleButton{
 						TestID: "toolbar-run-open-scene",
-						Text:   "Current Scene",
-						Label:  "Start game at the currently open scene",
+						Text:   ed.T("toolbar.currentScene"),
+						Label:  ed.T("toolbar.currentSceneLabel"),
 						Disabled: func() bool {
 							_ = rev.Get()
 							return ed.Project == nil || ed.GameRunning()
@@ -811,15 +862,15 @@ func view2DToolsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], playi
 		}
 	}
 	return ui.ToolbarGroup{
-		Label: "2D View",
+		Label: ed.T("toolbar.group.view2d"),
 		Children: []core.Node{
-			btn("view-frame-selection", lucide.Focus, "Frame Selection ("+cx.KeyLabel("f")+")", func() { ed.FrameSelection2D() }),
-			btn("view-frame-all", lucide.Maximize, "Frame All ("+cx.KeyLabel("home")+")", func() { ed.FrameAll2D() }),
-			btn("view-reset", lucide.Video, "Scene Camera View ("+cx.KeyLabel("mod+0")+")", func() { ed.ResetView2D() }),
+			btn("view-frame-selection", lucide.Focus, ed.T("toolbar.frameSelection", l10n.Param("key", cx.KeyLabel("f"))), func() { ed.FrameSelection2D() }),
+			btn("view-frame-all", lucide.Maximize, ed.T("toolbar.frameAll", l10n.Param("key", cx.KeyLabel("home"))), func() { ed.FrameAll2D() }),
+			btn("view-reset", lucide.Video, ed.T("toolbar.sceneCameraView", l10n.Param("key", cx.KeyLabel("mod+0"))), func() { ed.ResetView2D() }),
 			ui.ToggleButton{
 				TestID:   "view-lighting-preview",
 				Icon:     lucide.Lightbulb,
-				Label:    "Toggle 2D lighting preview",
+				Label:    ed.T("toolbar.lightingPreviewLabel"),
 				Disabled: playing,
 				On: func() bool {
 					_ = rev.Get()
@@ -880,25 +931,43 @@ func statusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 						TestID: "editor-status-mode",
 						ContentFunc: func() string {
 							_ = rev.Get()
-							mode := "Edit"
+							mode := ed.T("status.modeEdit")
 							if ed.Playing() {
-								mode = "Play"
+								mode = ed.T("status.modePlay")
 							}
 							if ed.ViewMode == ViewMode3D {
 								if gt := ed.GridMapTool(); gt != GridMapToolNone {
-									return fmt.Sprintf("Mode: %s | View: 3D %s (GridMap %s, Y=%d, Orient=%d/24) | Layer: %s", mode, ed.viewStatus3D(), gt.String(), ed.GridMapFloor(), ed.GridMapOrientation(), ed.activeLayerReadout())
+									return ed.T("status.mode3dGridMap",
+										l10n.Param("mode", mode),
+										l10n.Param("view", ed.viewStatus3D()),
+										l10n.Param("tool", gt.String()),
+										l10n.Param("floor", ed.GridMapFloor()),
+										l10n.Param("orient", ed.GridMapOrientation()),
+										l10n.Param("layer", ed.activeLayerReadout()),
+									)
 								}
-								return fmt.Sprintf("Mode: %s | View: 3D %s | Gizmo: %s | Layer: %s", mode, ed.viewStatus3D(), ed.GizmoMode.String(), ed.activeLayerReadout())
+								return ed.T("status.mode3d",
+									l10n.Param("mode", mode),
+									l10n.Param("view", ed.viewStatus3D()),
+									l10n.Param("gizmo", ed.localizedGizmoName(ed.GizmoMode)),
+									l10n.Param("layer", ed.activeLayerReadout()),
+								)
 							}
-							status := fmt.Sprintf("Mode: %s | View: 2D %.0f%% | Tool: %s | Layer: %s", mode, ed.View2D().Zoom*100, ed.toolLabel(), ed.activeLayerReadout())
+							zoom := int(math.Round(float64(ed.View2D().Zoom * 100)))
+							status := ed.T("status.mode2d",
+								l10n.Param("mode", mode),
+								l10n.Param("zoom", zoom),
+								l10n.Param("tool", ed.toolLabel()),
+								l10n.Param("layer", ed.activeLayerReadout()),
+							)
 							// Erase writes no tile, and a layer without tiles to pick keeps an ID the palette does not list, so only a tile Paint or Fill would write is shown.
 							if ed.Tool == ToolPaintTile || ed.Tool == ToolFillTile {
 								if tile, ok := ed.TilePalette().Tile(ed.ActiveTileID); ok {
-									status += fmt.Sprintf(" | Tile: %d", tile.Number)
+									status += ed.T("status.tileSuffix", l10n.Param("tile", tile.Number))
 								}
 							} else if ed.Tool == ToolTerrain {
 								if p := ed.TilePalette(); p.ActiveTerrain != "" {
-									status += fmt.Sprintf(" | Terrain: %s", p.ActiveTerrain)
+									status += ed.T("status.terrainSuffix", l10n.Param("terrain", p.ActiveTerrain))
 								}
 							}
 							return status
@@ -931,10 +1000,14 @@ func statusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 				},
 			},
 			core.Text{
+				TestID: "editor-status-message",
 				ContentFunc: func() string {
 					_ = rev.Get()
 					if ed.BuildErr != nil {
-						return "Build error: " + ed.BuildErr.Error()
+						return ed.T("status.buildError", l10n.Param("error", ed.BuildErr.Error()))
+					}
+					if ed.Status == "Ready" {
+						return ed.T("status.ready")
 					}
 					return ed.Status
 				},

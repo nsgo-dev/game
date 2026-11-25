@@ -635,3 +635,30 @@ func TestEditorRunsOnTheEditorsGoroutine(t *testing.T) {
 		t.Fatal("a cancelled call ran")
 	}
 }
+
+// #921: selection_get reports the editor's active language so connected agents answer in the same language.
+func TestSelectionGetReportsEditorLanguage(t *testing.T) {
+	f := openFixture(t)
+	s := editormcp.New(f.ed, editormcp.Options{})
+	t.Cleanup(func() { _ = s.Close() })
+	cs := connect(t, s, nil)
+
+	res := call(t, cs, editormcp.ToolSelectionGet, nil)
+	mustOK(t, res)
+	var sel editormcp.Selection
+	structured(t, res, &sel)
+	if sel.Language != "en" {
+		t.Fatalf("default selection language = %q, want en", sel.Language)
+	}
+
+	if err := f.ed.SetLanguage(editor.LanguageChinese); err != nil {
+		t.Fatal(err)
+	}
+	res = call(t, cs, editormcp.ToolSelectionGet, nil)
+	mustOK(t, res)
+	sel = editormcp.Selection{}
+	structured(t, res, &sel)
+	if sel.Language != "zh" {
+		t.Fatalf("Chinese selection language = %q, want zh", sel.Language)
+	}
+}

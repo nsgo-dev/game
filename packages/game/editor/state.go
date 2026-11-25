@@ -17,6 +17,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/nsgo-dev/game/packages/game/animclip"
+	"github.com/nsgo-dev/game/packages/game/l10n"
 	"github.com/nsgo-dev/game/packages/game/loaderr"
 	"github.com/nsgo-dev/game/packages/game/math2d"
 	"github.com/nsgo-dev/game/packages/game/navbake3d"
@@ -248,6 +249,8 @@ type Editor struct {
 	ProjectAssets bool
 	// AppName is the editor's name, which the window title EditorView sets ends with (WindowTitle); empty means "NSGo Scene Editor". An editor built on this package, such as a game's own, sets it to its own name, since EditorView owns the window title.
 	AppName string
+	// SettingsPath is the per-user editor settings YAML file path outside the project (set by LoadSettings or LoadUserSettings). When non-empty, SetLanguage and SetAppearance persist changes to it.
+	SettingsPath string
 
 	// OnSave is invoked by the UI Save button with the encoded YAML bytes.
 	OnSave func(data []byte) error
@@ -494,6 +497,10 @@ type Editor struct {
 	// terrain holds the open 3D terrain editing session (heightmap, layer weights, foliage density maps) and active brush state.
 	terrain      *terrainState
 	terrainBrush TerrainBrush
+	// settings holds the per-user editor language and appearance preferences.
+	settings           EditorSettings
+	editorSettingsOpen bool
+	catalog            *l10n.Catalog
 }
 
 // DefaultSceneDoc returns a valid starter SceneDoc suitable for a new editor session.
@@ -548,6 +555,8 @@ func New(doc *sceneformat.SceneDoc, resolver sceneformat.AssetResolver) (*Editor
 			open:       false,
 			lastStatus: "Ready",
 		},
+		settings: DefaultEditorSettings(),
+		catalog:  defaultEditorCatalog,
 	}
 	if len(doc.Layers) > 0 {
 		ed.ActiveLayer = doc.Layers[0].Name
@@ -601,6 +610,7 @@ func (e *Editor) AttachScope(cx *core.Scope) {
 	if cx != nil {
 		e.startParticlePreviewLoop()
 		e.syncSceneEmitterLoop()
+		cx.SetAppearance(e.Appearance().CoreAppearance())
 	} else {
 		e.stopParticlePreviewLoop()
 		e.stopSceneEmitterLoop()

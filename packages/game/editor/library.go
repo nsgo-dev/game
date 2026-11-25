@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/nsgo-dev/game/packages/game/l10n"
 	"github.com/nsgo-dev/game/packages/game/tooling/library"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -207,7 +208,7 @@ func LibraryView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 					ContentFunc: func() string {
 						line := e.Kind + " " + e.PackVersion
 						if v, _ := installed(e.Name); v != "" {
-							line += " · installed " + v
+							line += " · " + ed.T("library.installedMeta", l10n.Param("version", v))
 						}
 						return line
 					},
@@ -227,11 +228,11 @@ func LibraryView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 							TextFunc: func() string {
 								switch v, digest := installed(e.Name); {
 								case digest == e.SHA256:
-									return "Installed"
+									return ed.T("library.installed")
 								case v != "":
-									return "Update"
+									return ed.T("library.update")
 								default:
-									return "Install"
+									return ed.T("library.install")
 								}
 							},
 							Busy: func() bool {
@@ -246,7 +247,7 @@ func LibraryView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 						},
 						ui.Button{
 							TestID:  "library-remove-" + e.Name,
-							Text:    "Remove",
+							Text:    ed.T("library.remove"),
 							Size:    ui.SizeSmall,
 							Variant: ui.ButtonSecondary,
 							Disabled: func() bool {
@@ -262,7 +263,7 @@ func LibraryView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 	}
 	if len(rows) == 0 {
 		rows = append(rows, core.Text{
-			Content: "The library has no packs",
+			Content: ed.T("library.empty"),
 			Style:   core.Style{FontSize: 12, Color: colors.Muted()},
 		})
 	}
@@ -279,7 +280,8 @@ func LibraryView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 		},
 		Children: []core.Node{
 			core.Text{
-				Content: "Library",
+				TestID:  "library-title",
+				Content: ed.T("library.title"),
 				Style:   core.Style{FontSize: 13, FontWeight: 700, Color: colors.Text()},
 			},
 			ui.ScrollView{

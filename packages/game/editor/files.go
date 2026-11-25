@@ -128,13 +128,14 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 						Gap: 6,
 						Children: []core.Node{
 							core.Text{
-								Content: "Files",
+								TestID:  "files-title",
+								Content: ed.T("files.title"),
 								Style:   core.Style{FontSize: 13, FontWeight: 700, Color: colors.Text(), FlexGrow: 1},
 							},
 							ui.Button{
 								TestID:  "files-open",
-								Text:    "Open",
-								Label:   "Open the selected scene, state machine, or particle emitter",
+								Text:    ed.T("files.open"),
+								Label:   ed.T("files.openLabel"),
 								Size:    ui.SizeSmall,
 								Variant: ui.ButtonSecondary,
 								Disabled: func() bool {
@@ -162,7 +163,7 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 							},
 							ui.Button{
 								TestID:  "files-refresh",
-								Text:    "Refresh",
+								Text:    ed.T("files.refresh"),
 								Size:    ui.SizeSmall,
 								Variant: ui.ButtonSecondary,
 								OnPress: func() {
@@ -178,7 +179,7 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 					},
 					ui.Input{
 						TestID:   "files-path",
-						Label:    "New path of the selected file",
+						Label:    ed.T("files.newPathLabel"),
 						Disabled: func() bool { return current.Get() == "" },
 						Value: func() string {
 							if current.Get() == "" {
@@ -195,8 +196,8 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 						Children: []core.Node{
 							ui.Button{
 								TestID:  "files-move",
-								Text:    "Move",
-								Label:   "Rename or move the selected file and update every reference to it",
+								Text:    ed.T("files.move"),
+								Label:   ed.T("files.moveLabel"),
 								Size:    ui.SizeSmall,
 								Variant: ui.ButtonSecondary,
 								Disabled: func() bool {
@@ -218,8 +219,8 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 							},
 							ui.Button{
 								TestID:  "files-open-table",
-								Text:    "Open Table",
-								Label:   "Open the selected YAML file in the Data Table editor",
+								Text:    ed.T("files.openTable"),
+								Label:   ed.T("files.openTableLabel"),
 								Size:    ui.SizeSmall,
 								Variant: ui.ButtonSecondary,
 								Disabled: func() bool {
@@ -325,8 +326,8 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 						Children: []core.Node{
 							ui.ToggleButton{
 								TestID: "files-search",
-								Text:   "Search",
-								Label:  "Toggle the Project Search and References panel",
+								Text:   ed.T("files.search"),
+								Label:  ed.T("files.searchLabel"),
 								On: func() bool {
 									_ = rev.Get()
 									return ed.SearchOpen()
@@ -337,8 +338,8 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 							},
 							ui.Button{
 								TestID:  "files-find-refs",
-								Text:    "Find Refs",
-								Label:   "Find every reference to the selected file across the project",
+								Text:    ed.T("files.findRefs"),
+								Label:   ed.T("files.findRefsLabel"),
 								Size:    ui.SizeSmall,
 								Variant: ui.ButtonSecondary,
 								Disabled: func() bool {

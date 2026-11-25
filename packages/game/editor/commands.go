@@ -55,6 +55,7 @@ const (
 	CmdExport                = "project.export"
 	CmdProfiler              = "project.profiler"
 	CmdCheckProblems         = "project.check"
+	CmdEditorSettings        = "editor.settings"
 	// The 3D viewport's axis views and projection: each axis view looks at the camera's Target along a world axis (SetView3D), and the orthographic command switches between perspective and orthographic (SetOrthographic3D).
 	CmdView3DFront        = "view.3d.front"
 	CmdView3DBack         = "view.3d.back"
@@ -776,6 +777,19 @@ func (e *Editor) initBuiltinCommands() {
 				return nil
 			},
 		},
+		{
+			ID:          CmdEditorSettings,
+			Label:       "Editor Settings",
+			Description: "Configure editor language and appearance",
+			Category:    "File",
+			Keywords:    []string{"preferences", "language", "chinese", "english", "appearance", "theme", "dark", "light"},
+			Shortcut:    "mod+shift+,",
+			Checked:     func() bool { return e.EditorSettingsOpen() },
+			Run: func() error {
+				e.ToggleEditorSettings()
+				return nil
+			},
+		},
 	}
 }
 
@@ -881,16 +895,65 @@ func pluginCommandID(pluginName, cmdID string) string {
 	return "plugin." + pluginName + "." + cmdID
 }
 
+// builtinCommandKeys maps built-in command IDs to their localization keys for label, description and category.
+var builtinCommandKeys = map[string][3]string{
+	CmdNewProject:            {"cmd.newProject.label", "cmd.newProject.desc", "cmd.category.file"},
+	CmdOpenProject:           {"cmd.openProject.label", "cmd.openProject.desc", "cmd.category.file"},
+	CmdStartScreen:           {"cmd.startScreen.label", "cmd.startScreen.desc", "cmd.category.file"},
+	CmdSave:                  {"cmd.save.label", "cmd.save.desc", "cmd.category.file"},
+	CmdUndo:                  {"cmd.undo.label", "cmd.undo.desc", "cmd.category.edit"},
+	CmdRedo:                  {"cmd.redo.label", "cmd.redo.desc", "cmd.category.edit"},
+	CmdDelete:                {"cmd.delete.label", "cmd.delete.desc", "cmd.category.edit"},
+	CmdDuplicate:             {"cmd.duplicate.label", "cmd.duplicate.desc", "cmd.category.edit"},
+	CmdToolSelect:            {"cmd.toolSelect.label", "cmd.toolSelect.desc", "cmd.category.tools"},
+	CmdToolMove:              {"cmd.toolMove.label", "cmd.toolMove.desc", "cmd.category.tools"},
+	CmdToolPlace:             {"cmd.toolPlace.label", "cmd.toolPlace.desc", "cmd.category.tools"},
+	CmdToolPaintTile:         {"cmd.toolPaintTile.label", "cmd.toolPaintTile.desc", "cmd.category.tools"},
+	CmdToolEraseTile:         {"cmd.toolEraseTile.label", "cmd.toolEraseTile.desc", "cmd.category.tools"},
+	CmdToolFillTile:          {"cmd.toolFillTile.label", "cmd.toolFillTile.desc", "cmd.category.tools"},
+	CmdGizmoTranslate:        {"cmd.gizmoTranslate.label", "cmd.gizmoTranslate.desc", "cmd.category.gizmo3d"},
+	CmdGizmoRotate:           {"cmd.gizmoRotate.label", "cmd.gizmoRotate.desc", "cmd.category.gizmo3d"},
+	CmdGizmoScale:            {"cmd.gizmoScale.label", "cmd.gizmoScale.desc", "cmd.category.gizmo3d"},
+	CmdView2D:                {"cmd.view2d.label", "cmd.view2d.desc", "cmd.category.view"},
+	CmdView3D:                {"cmd.view3d.label", "cmd.view3d.desc", "cmd.category.view"},
+	CmdShadingLit:            {"cmd.shadingLit.label", "cmd.shadingLit.desc", "cmd.category.view"},
+	CmdShadingUnlit:          {"cmd.shadingUnlit.label", "cmd.shadingUnlit.desc", "cmd.category.view"},
+	CmdShadingWire:           {"cmd.shadingWire.label", "cmd.shadingWire.desc", "cmd.category.view"},
+	CmdNavMeshPanel:          {"cmd.navMeshPanel.label", "cmd.navMeshPanel.desc", "cmd.category.view"},
+	CmdNavMeshOverlay:        {"cmd.navMeshOverlay.label", "cmd.navMeshOverlay.desc", "cmd.category.view"},
+	CmdBakeNavMesh3D:         {"cmd.bakeNavMesh3d.label", "cmd.bakeNavMesh3d.desc", "cmd.category.project"},
+	CmdFrameSelection:        {"cmd.frameSelection.label", "cmd.frameSelection.desc", "cmd.category.view"},
+	CmdView3DOrthographic:    {"cmd.view3dOrtho.label", "cmd.view3dOrtho.desc", "cmd.category.view"},
+	CmdToggleLightingPreview: {"cmd.lightingPreview.label", "cmd.lightingPreview.desc", "cmd.category.view"},
+	CmdCommandPalette:        {"cmd.commandPalette.label", "cmd.commandPalette.desc", "cmd.category.view"},
+	CmdPlayStop:              {"cmd.playStop.label", "cmd.playStop.desc", "cmd.category.project"},
+	CmdRunGame:               {"cmd.runGame.label", "cmd.runGame.desc", "cmd.category.project"},
+	CmdProjectSettings:       {"cmd.projectSettings.label", "cmd.projectSettings.desc", "cmd.category.project"},
+	CmdAudioMixer:            {"cmd.audioMixer.label", "cmd.audioMixer.desc", "cmd.category.project"},
+	CmdLocalization:          {"cmd.localization.label", "cmd.localization.desc", "cmd.category.project"},
+	CmdExport:                {"cmd.export.label", "cmd.export.desc", "cmd.category.project"},
+	CmdProfiler:              {"cmd.profiler.label", "cmd.profiler.desc", "cmd.category.project"},
+	CmdCheckProblems:         {"cmd.checkProblems.label", "cmd.checkProblems.desc", "cmd.category.project"},
+	CmdEditorSettings:        {"cmd.editorSettings.label", "cmd.editorSettings.desc", "cmd.category.file"},
+}
+
 // Commands returns all currently active commands in deterministic order:
 // built-in and custom commands followed by the commands of active plugins.
 func (e *Editor) Commands() []EditorCommand {
 	e.initBuiltinCommands()
 	out := make([]EditorCommand, 0, len(e.commands))
-	out = append(out, e.commands...)
+	for _, c := range e.commands {
+		if keys, ok := builtinCommandKeys[c.ID]; ok {
+			c.Label = e.T(keys[0])
+			c.Description = e.T(keys[1])
+			c.Category = e.T(keys[2])
+		}
+		out = append(out, c)
+	}
 	for _, p := range e.activePlugins() {
 		for _, pc := range p.Commands {
 			cmd := pc
-			cat := cmd.Category
+			cat := e.translatePluginText(p, cmd.CategoryKey, cmd.Category)
 			if cat == "" {
 				cat = p.Name
 			}
@@ -903,8 +966,8 @@ func (e *Editor) Commands() []EditorCommand {
 			keywords := append([]string{p.Name, cmd.ID}, cmd.Keywords...)
 			out = append(out, EditorCommand{
 				ID:          pluginCommandID(p.Name, cmd.ID),
-				Label:       cmd.Label,
-				Description: cmd.Description,
+				Label:       e.translatePluginText(p, cmd.LabelKey, cmd.Label),
+				Description: e.translatePluginText(p, cmd.DescriptionKey, cmd.Description),
 				Category:    cat,
 				Keywords:    keywords,
 				Shortcut:    cmd.Shortcut,

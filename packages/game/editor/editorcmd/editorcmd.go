@@ -203,6 +203,11 @@ func Show(ed *editor.Editor) {
 
 // show is Show in a window width by height points.
 func show(ed *editor.Editor, width, height core.Points) {
+	if ed != nil && ed.SettingsPath == "" {
+		if err := ed.LoadUserSettings(); err != nil {
+			fmt.Fprintf(os.Stderr, "editor settings: %v\n", err)
+		}
+	}
 	nsgo.Run(func(cx *core.Scope) core.Node {
 		Serve(cx, ed, os.Stderr)
 		// EditorView titles the window after the open scene.
