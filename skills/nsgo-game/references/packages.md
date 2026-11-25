@@ -32,7 +32,7 @@ Every non-internal package under `github.com/nsgo-dev/game/packages` (shown rela
 | `game/pixelfx/arcane` | Experimental | pixelfx arcane effects (arcane beam, arcane missiles, arcane orb, blink in/out, magic circle cast, mana burst, portal, rune circle, spell charge, star fall, time stop) |
 | `game/pixelfx/critters` | Experimental | pixelfx critters loops (bat, bird, butterfly, eyeball, fish school, flying skull, frog, ghost, jellyfish, slime, snake, wisp) |
 | `game/pixelfx/explosions` | Experimental | pixelfx explosions (barrel, big, cartoon POW, dirt, firework burst, firework rocket, grenade, implosion, nuke, plasma, small, smoke bomb) |
-| `game/pixelfx/fire` | Experimental | pixelfx fire effects (torch so far) |
+| `game/pixelfx/fire` | Experimental | pixelfx fire effects (brazier, campfire, candle, fire breath, fire ring, fire tornado, fireball, flame pillar, flamethrower, meteor, spirit flame, torch) |
 | `game/pixelfx/ice` | Experimental | pixelfx ice effects (blizzard vortex, freeze, frost breath, frost nova, ice crystal, ice lance, ice shatter, ice spikes, icicle fall, snowflake burst) |
 | `game/pixelfx/impacts` | Experimental | pixelfx impacts (blunt hit, bullet impact, critical hit, ground slam, heavy landing, hit flash, hit spark, impact frame, parry, ricochet, shield block) |
 | `game/pixelfx/lightning` | Experimental | pixelfx lightning effects (ball lightning, chain lightning, charge up, electrified, lightning strike, plasma ball, spark arc, storm cloud, tesla coil, thunderclap, zap hit) |

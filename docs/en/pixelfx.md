@@ -17,7 +17,7 @@ The port follows pixelfx at commit `5294518ce7c72e48b6100a744596e0acf57f2826` wi
 | --- | --- |
 | `game/pixelfx` | The core: frames and compositing, the painter, randomness and noise, particles, the simulation, colors and palettes, the two pixel fonts, the acting system (rig, poses, acts, chains), the effect registry, sprite sheet export and the view helper |
 | `game/pixelfx/arcane` | Arcane magic: arcane beam, arcane missiles, arcane orb, blink in, blink out, magic circle cast, mana burst, portal, rune circle, spell charge, star fall and time stop |
-| `game/pixelfx/fire` | Fire: the torch so far |
+| `game/pixelfx/fire` | Fire: brazier, campfire, candle, fire breath, fire ring, fire tornado, fireball, flame pillar, flamethrower, meteor, spirit flame and torch |
 | `game/pixelfx/explosions` | Explosions: barrel explosion, big explosion, cartoon POW, dirt explosion, firework burst, firework rocket, grenade, implosion, nuke, plasma explosion, small explosion and smoke bomb |
 | `game/pixelfx/impacts` | Impacts: blunt hit, bullet impact, critical hit, ground slam, heavy landing, hit flash, hit spark, impact frame, parry, ricochet and shield block |
 | `game/pixelfx/lightning` | Lightning: ball lightning, chain lightning, charge up, electrified, lightning strike, plasma ball, spark arc, storm cloud, tesla coil, thunderclap and zap hit |
