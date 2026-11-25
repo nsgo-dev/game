@@ -87,7 +87,36 @@ if path, ok := nav.FindPath(startPos, goalPos); ok {
 }
 ```
 
-`nav.FindPolygon(p)` 会在 `VerticalTolerance` 垂直容差内定位最近的可行走多边形，天然支持上下叠层与立交桥。
+`nav.FindPolygon(p)` 会在 `VerticalTolerance` 垂直容差内定位最近的可行走多边形，天然支持上下叠层与立交桥；也可用 `Contains(p)` 与 `NearestPolygon(p)` 检查点是否在网格上或寻找最近表面点。
+
+### 多边形区域代价、运行时标志与查询过滤器
+
+使用 `BuildNavMeshWithAreas` 和 `NavPolygonInput{Vertices, Area, Flags}` 在构建时为 3D 多边形设置区域与通行标志。`world3d.NavArea`、`world3d.NavFlags` 和 `world3d.NavFilter` 直接作为 [ai](ai.md) 中对应类型的别名，因此同一套区域常量、标志位和过滤器可在 2D 与 3D 导航网格间无缝复用：
+
+```go
+nav := world3d.BuildNavMeshWithAreas([]world3d.NavPolygonInput{
+	{Vertices: grassQuad, Area: world3d.NavAreaGrass},
+	{Vertices: roadQuad, Area: world3d.NavAreaRoad},
+	{Vertices: waterQuad, Area: world3d.NavAreaWater, Flags: world3d.NavFlagSwim},
+	{Vertices: gateQuad, Area: world3d.NavAreaDoor, Flags: world3d.NavFlagWalk | world3d.NavFlagDoor},
+}, math3d.DegToRad(45))
+
+filter := world3d.DefaultNavFilter()
+filter.SetAreaCost(world3d.NavAreaRoad, 0.5)
+filter.ExcludeFlags |= world3d.NavFlagSwim
+
+path, ok := nav.FindPathWithFilter(startPos, goalPos, filter)
+
+// 运行时 O(1) 开关门或吊桥多边形，无需重建导航网格：
+nav.AddPolygonFlags(gatePolyIndex, world3d.NavFlagDisabled)
+detour, ok := nav.FindPathWithFilter(startPos, goalPos, filter)
+nav.ClearPolygonFlags(gatePolyIndex, world3d.NavFlagDisabled)
+_, _, _ = path, detour, ok
+```
+
+- **默认兼容**：`BuildNavMesh` 为每个可行走 `NavPoly` 分配 `NavAreaDefault` 与 `NavFlagWalk`，`FindPath` 使用 `DefaultNavFilter()` 调用 `FindPathWithFilter`。
+- **可采纳 3D 加权门户 A\***：每个多边形内的移动距离按 `filter.AreaCost(poly.Area)` 加权，并以网格内允许区域的最小代价缩放 3D 距离启发值，随后沿斜坡与多层桥梁执行精确的 3D 漏斗平滑。
+- **运行时修改与过滤查询**：通过 `PolygonCount`、`PolygonArea`、`SetPolygonArea`、`PolygonFlags`、`SetPolygonFlags`、`AddPolygonFlags` 和 `ClearPolygonFlags` 以 O(1) 读写多边形区域与标志；通过 `FindPolygonWithFilter`、`ContainsWithFilter` 和 `NearestPolygonWithFilter` 执行过滤空间查询。
 
 面对不可达目标或需要按帧预算分摊多智能体寻路时，可向 `nav.FindPathWithOptions(startPos, goalPos, opts)` 传入 `ai.PathOptions{MaxExpansions, AllowPartial}`（返回包含 `Partial`、`Exhausted` 与 `Expansions` 的 `NavPathResult`），或通过 `nav.StartSearch(startPos, goalPos, opts)` 创建可跨帧步进的 `*world3d.NavMeshSearch`：
 

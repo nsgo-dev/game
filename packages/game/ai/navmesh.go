@@ -52,6 +52,8 @@ type navPoly struct {
 	verts                  []vec2
 	minX, minY, maxX, maxY float64
 	outPortals             []int
+	area                   NavArea
+	flags                  NavFlags
 }
 
 // navPortal is a directed shared-edge crossing from fromPoly to toPoly.
@@ -71,10 +73,26 @@ type NavMesh struct {
 
 // BuildNavMesh constructs a NavMesh from convex 2D polygons, normalizing winding order and automatically connecting adjacent polygons along shared edges (including partial collinear overlaps).
 //
-// Degenerate polygons with fewer than three vertices or near-zero area are skipped.
+// Each polygon is assigned NavAreaDefault and NavFlagWalk. Degenerate polygons with fewer than three vertices or near-zero area are skipped.
 func BuildNavMesh(polys [][]core.Point) *NavMesh {
+	inputs := make([]NavPolygonInput, len(polys))
+	for i, raw := range polys {
+		inputs[i] = NavPolygonInput{
+			Vertices: raw,
+			Area:     NavAreaDefault,
+			Flags:    NavFlagWalk,
+		}
+	}
+	return BuildNavMeshWithAreas(inputs)
+}
+
+// BuildNavMeshWithAreas constructs a NavMesh from convex 2D polygons carrying per-polygon area IDs and runtime traversal flags, normalizing winding order and automatically connecting adjacent polygons along shared edges (including partial collinear overlaps).
+//
+// Polygons with zero Flags default to NavFlagWalk. Degenerate polygons with fewer than three vertices or near-zero area are skipped.
+func BuildNavMeshWithAreas(polys []NavPolygonInput) *NavMesh {
 	m := &NavMesh{}
-	for _, raw := range polys {
+	for _, in := range polys {
+		raw := in.Vertices
 		if len(raw) < 3 {
 			continue
 		}
@@ -98,12 +116,18 @@ func BuildNavMesh(polys [][]core.Point) *NavMesh {
 			maxX = max(maxX, v.x)
 			maxY = max(maxY, v.y)
 		}
+		flags := in.Flags
+		if flags == 0 {
+			flags = NavFlagWalk
+		}
 		m.polys = append(m.polys, navPoly{
 			verts: verts,
 			minX:  minX,
 			minY:  minY,
 			maxX:  maxX,
 			maxY:  maxY,
+			area:  in.Area,
+			flags: flags,
 		})
 	}
 
@@ -227,6 +251,58 @@ func (m *NavMesh) Neighbors(index int) []int {
 	return out
 }
 
+// PolygonArea returns the area ID of polygon index, or NavAreaDefault if index is out of range.
+func (m *NavMesh) PolygonArea(index int) NavArea {
+	if m == nil || index < 0 || index >= len(m.polys) {
+		return NavAreaDefault
+	}
+	return m.polys[index].area
+}
+
+// SetPolygonArea updates the area ID of polygon index at runtime without rebuilding the mesh.
+// Out-of-range indices are ignored.
+func (m *NavMesh) SetPolygonArea(index int, area NavArea) {
+	if m == nil || index < 0 || index >= len(m.polys) {
+		return
+	}
+	m.polys[index].area = area
+}
+
+// PolygonFlags returns the runtime traversal flags of polygon index, or 0 if index is out of range.
+func (m *NavMesh) PolygonFlags(index int) NavFlags {
+	if m == nil || index < 0 || index >= len(m.polys) {
+		return 0
+	}
+	return m.polys[index].flags
+}
+
+// SetPolygonFlags replaces the runtime traversal flags of polygon index without rebuilding the mesh.
+// Out-of-range indices are ignored.
+func (m *NavMesh) SetPolygonFlags(index int, flags NavFlags) {
+	if m == nil || index < 0 || index >= len(m.polys) {
+		return
+	}
+	m.polys[index].flags = flags
+}
+
+// AddPolygonFlags sets the bits in flags on polygon index at runtime without rebuilding the mesh.
+// Out-of-range indices are ignored.
+func (m *NavMesh) AddPolygonFlags(index int, flags NavFlags) {
+	if m == nil || index < 0 || index >= len(m.polys) {
+		return
+	}
+	m.polys[index].flags |= flags
+}
+
+// ClearPolygonFlags clears the bits in flags on polygon index at runtime without rebuilding the mesh.
+// Out-of-range indices are ignored.
+func (m *NavMesh) ClearPolygonFlags(index int, flags NavFlags) {
+	if m == nil || index < 0 || index >= len(m.polys) {
+		return
+	}
+	m.polys[index].flags &^= flags
+}
+
 // FindPolygon returns the lowest index of a polygon containing p (including its edges and vertices), or -1 if p lies outside the mesh.
 func (m *NavMesh) FindPolygon(p core.Point) int {
 	if m == nil {
@@ -241,18 +317,46 @@ func (m *NavMesh) FindPolygon(p core.Point) int {
 	return -1
 }
 
+// FindPolygonWithFilter returns the lowest index of a polygon passing filter that contains p (including its edges and vertices), or -1 if none match.
+func (m *NavMesh) FindPolygonWithFilter(p core.Point, filter NavFilter) int {
+	if m == nil {
+		return -1
+	}
+	v := toVec2(p)
+	for i := range m.polys {
+		if !filter.Allows(m.polys[i].area, m.polys[i].flags) {
+			continue
+		}
+		if polyContains(&m.polys[i], v) {
+			return i
+		}
+	}
+	return -1
+}
+
 // Contains reports whether p lies inside or on the boundary of any polygon in the mesh.
 func (m *NavMesh) Contains(p core.Point) bool {
 	return m.FindPolygon(p) >= 0
 }
 
+// ContainsWithFilter reports whether p lies inside or on the boundary of any polygon passing filter.
+func (m *NavMesh) ContainsWithFilter(p core.Point, filter NavFilter) bool {
+	return m.FindPolygonWithFilter(p, filter) >= 0
+}
+
 // NearestPolygon returns the polygon closest to p and the closest point on or inside that polygon.
 // When p lies inside a polygon, NearestPolygon returns that polygon and p itself.
 func (m *NavMesh) NearestPolygon(p core.Point) (index int, point core.Point, ok bool) {
+	return m.NearestPolygonWithFilter(p, NavFilter{})
+}
+
+// NearestPolygonWithFilter returns the polygon passing filter closest to p and the closest point on or inside that polygon.
+// When p lies inside a matching polygon, NearestPolygonWithFilter returns that polygon and p itself.
+func (m *NavMesh) NearestPolygonWithFilter(p core.Point, filter NavFilter) (index int, point core.Point, ok bool) {
 	if m == nil || len(m.polys) == 0 {
 		return -1, core.Point{}, false
 	}
-	if idx := m.FindPolygon(p); idx >= 0 {
+	if idx := m.FindPolygonWithFilter(p, filter); idx >= 0 {
 		return idx, p, true
 	}
 	v := toVec2(p)
@@ -260,6 +364,9 @@ func (m *NavMesh) NearestPolygon(p core.Point) (index int, point core.Point, ok 
 	bestDistSq := math.Inf(1)
 	var bestPt vec2
 	for i := range m.polys {
+		if !filter.Allows(m.polys[i].area, m.polys[i].flags) {
+			continue
+		}
 		vs := m.polys[i].verts
 		n := len(vs)
 		for k := range n {
@@ -306,35 +413,53 @@ type NavPathResult struct {
 	Expansions int  // total number of portal nodes expanded during the search
 }
 
-// FindPath finds the shortest path inside the navigation mesh from start to goal using portal-graph A* followed by Simple Stupid Funnel Algorithm string-pulling.
+// FindPath finds the shortest path inside the navigation mesh from start to goal using DefaultNavFilter, portal-graph A*, and Simple Stupid Funnel Algorithm string-pulling.
 //
-// It returns (nil, false) if start or goal lies outside the mesh or in disconnected regions.
+// It returns (nil, false) if start or goal lies outside traversable polygons or in disconnected regions.
 func (m *NavMesh) FindPath(start, goal core.Point) ([]core.Point, bool) {
-	res := m.FindPathWithOptions(start, goal, PathOptions{})
+	return m.FindPathWithFilter(start, goal, DefaultNavFilter())
+}
+
+// FindPathWithFilter finds the minimum-cost path inside the navigation mesh from start to goal restricted to polygons allowed by filter, weighting traversal through each polygon by filter.AreaCost(area) and using an admissible distance heuristic scaled by the minimum allowed area cost.
+//
+// It returns (nil, false) if start or goal lies outside traversable polygons or in disconnected regions.
+func (m *NavMesh) FindPathWithFilter(start, goal core.Point, filter NavFilter) ([]core.Point, bool) {
+	res := m.FindPathWithFilterAndOptions(start, goal, filter, PathOptions{})
 	if !res.Found || res.Partial {
 		return nil, false
 	}
 	return res.Path, true
 }
 
-// FindPathWithOptions finds a path inside the navigation mesh under opts, supporting
-// an expansion budget and optional partial paths to the closest reachable point when
+// FindPathWithOptions finds a path inside the navigation mesh under DefaultNavFilter and opts,
+// supporting an expansion budget and optional partial paths to the closest reachable point when
 // goal is outside the mesh, in a disconnected region, or beyond MaxExpansions.
 func (m *NavMesh) FindPathWithOptions(start, goal core.Point, opts PathOptions) NavPathResult {
-	s := NewNavMeshSearch(m, start, goal, opts)
+	return m.FindPathWithFilterAndOptions(start, goal, DefaultNavFilter(), opts)
+}
+
+// FindPathWithFilterAndOptions finds a minimum-cost path inside the navigation mesh restricted to
+// polygons allowed by filter under opts, supporting an expansion budget and optional partial paths.
+func (m *NavMesh) FindPathWithFilterAndOptions(start, goal core.Point, filter NavFilter, opts PathOptions) NavPathResult {
+	s := NewNavMeshSearchWithFilter(m, start, goal, filter, opts)
 	s.step(-1)
 	return s.Result()
 }
 
-// StartSearch begins an incremental 2D NavMesh path search from start to goal under opts.
+// StartSearch begins an incremental 2D NavMesh path search from start to goal under DefaultNavFilter and opts.
 func (m *NavMesh) StartSearch(start, goal core.Point, opts PathOptions) *NavMeshSearch {
-	return NewNavMeshSearch(m, start, goal, opts)
+	return NewNavMeshSearchWithFilter(m, start, goal, DefaultNavFilter(), opts)
+}
+
+// StartSearchWithFilter begins an incremental 2D NavMesh path search from start to goal under filter and opts.
+func (m *NavMesh) StartSearchWithFilter(start, goal core.Point, filter NavFilter, opts PathOptions) *NavMeshSearch {
+	return NewNavMeshSearchWithFilter(m, start, goal, filter, opts)
 }
 
 // NavMeshSearch runs a deterministic 2D NavMesh portal A* search incrementally across bounded Step calls.
 //
 // Stepping a search with any positive per-step expansion budget produces the exact same path,
-// partial flag, and expansion count as NavMesh.FindPathWithOptions.
+// partial flag, and expansion count as NavMesh.FindPathWithOptions / FindPathWithFilterAndOptions.
 // *NavMeshSearch implements IncrementalSearch.
 type NavMeshSearch struct {
 	m          *NavMesh
@@ -343,6 +468,9 @@ type NavMeshSearch struct {
 	sVec       vec2
 	gVec       vec2
 	opts       PathOptions
+	allowed    []bool
+	polyCost   []float64
+	minCost    float64
 	isGoalPoly []bool
 	goalNode   int
 
@@ -364,8 +492,13 @@ type NavMeshSearch struct {
 	bestG        float64
 }
 
-// NewNavMeshSearch initializes an incremental 2D NavMesh search from start to goal under opts.
+// NewNavMeshSearch initializes an incremental 2D NavMesh search from start to goal under DefaultNavFilter and opts.
 func NewNavMeshSearch(m *NavMesh, start, goal core.Point, opts PathOptions) *NavMeshSearch {
+	return NewNavMeshSearchWithFilter(m, start, goal, DefaultNavFilter(), opts)
+}
+
+// NewNavMeshSearchWithFilter initializes an incremental 2D NavMesh search from start to goal under filter and opts.
+func NewNavMeshSearchWithFilter(m *NavMesh, start, goal core.Point, filter NavFilter, opts PathOptions) *NavMeshSearch {
 	s := &NavMeshSearch{
 		m:            m,
 		start:        start,
@@ -380,16 +513,44 @@ func NewNavMeshSearch(m *NavMesh, start, goal core.Point, opts PathOptions) *Nav
 		return s
 	}
 
+	allowed := make([]bool, len(m.polys))
+	polyCost := make([]float64, len(m.polys))
+	minCost := math.Inf(1)
+
 	var startPolys []int
 	isGoalPoly := make([]bool, len(m.polys))
 	hasGoal := false
+	directPossible := false
+	directCost := math.Inf(1)
+
 	for i := range m.polys {
-		inStart := polyContains(&m.polys[i], s.sVec)
-		inGoal := polyContains(&m.polys[i], s.gVec)
+		p := &m.polys[i]
+		if !filter.Allows(p.area, p.flags) {
+			continue
+		}
+		c := filter.AreaCost(p.area)
+		if c <= 0 || math.IsNaN(c) || math.IsInf(c, 0) {
+			continue
+		}
+		allowed[i] = true
+		polyCost[i] = c
+		if c < minCost {
+			minCost = c
+		}
+
+		inStart := polyContains(p, s.sVec)
+		inGoal := polyContains(p, s.gVec)
 		if inStart && inGoal {
-			s.samePoly = true
-			s.status = SearchComplete
-			return s
+			if vequal(s.sVec, s.gVec) {
+				s.samePoly = true
+				s.status = SearchComplete
+				return s
+			}
+			dc := dist(s.sVec, s.gVec) * c
+			if dc < directCost {
+				directCost = dc
+				directPossible = true
+			}
 		}
 		if inStart {
 			startPolys = append(startPolys, i)
@@ -405,12 +566,17 @@ func NewNavMeshSearch(m *NavMesh, start, goal core.Point, opts PathOptions) *Nav
 	if !hasGoal && !opts.AllowPartial {
 		return s
 	}
+	if directPossible && directCost <= minCost*dist(s.sVec, s.gVec)+1e-9 {
+		s.samePoly = true
+		s.status = SearchComplete
+		return s
+	}
 
 	if opts.AllowPartial {
 		for _, sp := range startPolys {
 			cp := closestPointInPoly(&m.polys[sp], s.gVec)
 			h := dist(cp, s.gVec)
-			g := dist(s.sVec, cp)
+			g := dist(s.sVec, cp) * polyCost[sp]
 			if !s.hasBest || h < s.bestH || (h == s.bestH && g < s.bestG) {
 				s.hasBest = true
 				s.bestPortalID = -1
@@ -425,6 +591,9 @@ func NewNavMeshSearch(m *NavMesh, start, goal core.Point, opts PathOptions) *Nav
 	goalNode := len(m.portals)
 	nodeCount := goalNode + 1
 
+	s.allowed = allowed
+	s.polyCost = polyCost
+	s.minCost = minCost
 	s.isGoalPoly = isGoalPoly
 	s.goalNode = goalNode
 	s.gScore = make([]float64, nodeCount)
@@ -443,16 +612,26 @@ func NewNavMeshSearch(m *NavMesh, start, goal core.Point, opts PathOptions) *Nav
 	}
 	s.open = make([]astarNode, 0, min(nodeCount, 64))
 
+	if directPossible {
+		s.gScore[goalNode] = directCost
+		s.parent[goalNode] = -1
+		s.pushOrUpdate(goalNode, directCost, 0)
+	}
+
 	for _, sp := range startPolys {
+		spCost := polyCost[sp]
 		for _, pid := range m.polys[sp].outPortals {
 			p := m.portals[pid]
+			if !allowed[p.toPoly] {
+				continue
+			}
 			pt := bestPortalPoint(s.sVec, s.gVec, p.left, p.right)
-			g := dist(s.sVec, pt)
+			g := dist(s.sVec, pt) * spCost
 			if g < s.gScore[pid] {
 				s.gScore[pid] = g
 				s.entryPt[pid] = pt
 				s.parent[pid] = -1
-				h := dist(pt, s.gVec)
+				h := dist(pt, s.gVec) * minCost
 				s.pushOrUpdate(pid, g+h, h)
 			}
 		}
@@ -530,11 +709,12 @@ func (s *NavMeshSearch) step(stepLimit int) (SearchStatus, int) {
 		portal := m.portals[cur.id]
 		curG := s.gScore[cur.id]
 		curPt := s.entryPt[cur.id]
+		toCost := s.polyCost[portal.toPoly]
 
 		if s.opts.AllowPartial {
 			cp := closestPointInPoly(&m.polys[portal.toPoly], s.gVec)
 			h := dist(cp, s.gVec)
-			g := curG + dist(curPt, cp)
+			g := curG + dist(curPt, cp)*toCost
 			if !s.hasBest || h < s.bestH || (h == s.bestH && (g < s.bestG || (g == s.bestG && cur.id < s.bestPortalID))) {
 				s.hasBest = true
 				s.bestPortalID = cur.id
@@ -545,7 +725,7 @@ func (s *NavMeshSearch) step(stepLimit int) (SearchStatus, int) {
 		}
 
 		if s.isGoalPoly[portal.toPoly] {
-			ng := curG + dist(curPt, s.gVec)
+			ng := curG + dist(curPt, s.gVec)*toCost
 			if ng < s.gScore[s.goalNode] {
 				s.gScore[s.goalNode] = ng
 				s.parent[s.goalNode] = cur.id
@@ -558,16 +738,16 @@ func (s *NavMeshSearch) step(stepLimit int) (SearchStatus, int) {
 				continue
 			}
 			np := m.portals[npid]
-			if np.toPoly == portal.fromPoly {
+			if np.toPoly == portal.fromPoly || !s.allowed[np.toPoly] {
 				continue
 			}
 			pt := bestPortalPoint(curPt, s.gVec, np.left, np.right)
-			ng := curG + dist(curPt, pt)
+			ng := curG + dist(curPt, pt)*toCost
 			if ng < s.gScore[npid] {
 				s.gScore[npid] = ng
 				s.entryPt[npid] = pt
 				s.parent[npid] = cur.id
-				h := dist(pt, s.gVec)
+				h := dist(pt, s.gVec) * s.minCost
 				s.pushOrUpdate(npid, ng+h, h)
 			}
 		}
@@ -624,7 +804,7 @@ func (s *NavMeshSearch) Result() NavPathResult {
 	switch s.status {
 	case SearchComplete:
 		res.Found = true
-		if s.samePoly {
+		if s.samePoly || s.parent[s.goalNode] == -1 {
 			if vequal(s.sVec, s.gVec) {
 				res.Path = []core.Point{s.start}
 			} else {

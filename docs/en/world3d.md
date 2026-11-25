@@ -87,7 +87,36 @@ if path, ok := nav.FindPath(startPos, goalPos); ok {
 }
 ```
 
-Use `nav.FindPolygon(p)` to locate the closest walkable polygon vertically within `VerticalTolerance` (supporting stacked floors and overpasses).
+Use `nav.FindPolygon(p)` to locate the closest walkable polygon vertically within `VerticalTolerance` (supporting stacked floors and overpasses), or `Contains(p)` and `NearestPolygon(p)` for membership and closest-surface queries.
+
+### Polygon areas, runtime flags, and query filters
+
+Tag 3D polygons at build time with `BuildNavMeshWithAreas` using `NavPolygonInput{Vertices, Area, Flags}`. `world3d.NavArea`, `world3d.NavFlags`, and `world3d.NavFilter` alias the types in [ai](ai.md), so the same filter and area/flag constants work seamlessly across 2D and 3D navigation meshes:
+
+```go
+nav := world3d.BuildNavMeshWithAreas([]world3d.NavPolygonInput{
+	{Vertices: grassQuad, Area: world3d.NavAreaGrass},
+	{Vertices: roadQuad, Area: world3d.NavAreaRoad},
+	{Vertices: waterQuad, Area: world3d.NavAreaWater, Flags: world3d.NavFlagSwim},
+	{Vertices: gateQuad, Area: world3d.NavAreaDoor, Flags: world3d.NavFlagWalk | world3d.NavFlagDoor},
+}, math3d.DegToRad(45))
+
+filter := world3d.DefaultNavFilter()
+filter.SetAreaCost(world3d.NavAreaRoad, 0.5)
+filter.ExcludeFlags |= world3d.NavFlagSwim
+
+path, ok := nav.FindPathWithFilter(startPos, goalPos, filter)
+
+// Toggle a gate or drawbridge polygon at runtime without rebuilding:
+nav.AddPolygonFlags(gatePolyIndex, world3d.NavFlagDisabled)
+detour, ok := nav.FindPathWithFilter(startPos, goalPos, filter)
+nav.ClearPolygonFlags(gatePolyIndex, world3d.NavFlagDisabled)
+_, _, _ = path, detour, ok
+```
+
+- **Default compatibility**: `BuildNavMesh` assigns `NavAreaDefault` and `NavFlagWalk` to every walkable `NavPoly`, and `FindPath` delegates to `FindPathWithFilter` with `DefaultNavFilter()`.
+- **Admissible 3D weighted portal A\***: traversal inside each polygon is weighted by `filter.AreaCost(poly.Area)` with an admissible 3D heuristic scaled by the minimum allowed area cost across the mesh, followed by exact 3D funnel smoothing across ramps and stacked levels.
+- **Runtime mutation & filtered queries**: inspect or update polygons in O(1) via `PolygonCount`, `PolygonArea`, `SetPolygonArea`, `PolygonFlags`, `SetPolygonFlags`, `AddPolygonFlags`, and `ClearPolygonFlags`, and run filtered lookups with `FindPolygonWithFilter`, `ContainsWithFilter`, and `NearestPolygonWithFilter`.
 
 For unreachable targets or frame-budgeted multi-agent queries, pass `ai.PathOptions{MaxExpansions, AllowPartial}` to `nav.FindPathWithOptions(startPos, goalPos, opts)` (returning a `NavPathResult` with `Partial`, `Exhausted`, and `Expansions`), or create a deterministic multi-frame `*world3d.NavMeshSearch` via `nav.StartSearch(startPos, goalPos, opts)`:
 

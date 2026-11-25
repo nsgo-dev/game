@@ -107,6 +107,36 @@ _ = ok
 
 可通过 `Contains(p)`、`FindPolygon(p)`、`NearestPolygon(p)`、`Neighbors(index)`、`Polygon(index)` 和 `PolygonCount()` 查询网格几何信息。
 
+### 多边形区域代价、运行时标志与查询过滤器
+
+构建导航网格时可通过 `BuildNavMeshWithAreas` 与 `NavPolygonInput{Vertices, Area, Flags}` 为每个凸多边形指定区域 ID（`NavAreaDefault`、`NavAreaRoad`、`NavAreaGrass`、`NavAreaMud`、`NavAreaWater`、`NavAreaDoor`、`NavAreaHazard` 或任意自定义 `uint8` `NavArea`）与运行时通行标志（`NavFlagWalk`、`NavFlagSwim`、`NavFlagDoor`、`NavFlagJump`、`NavFlagDisabled`、`NavFlagAll`；`Flags` 为 0 时默认赋值 `NavFlagWalk`）：
+
+```go
+mesh := ai.BuildNavMeshWithAreas([]ai.NavPolygonInput{
+	{Vertices: grassPoly, Area: ai.NavAreaGrass},
+	{Vertices: roadPoly, Area: ai.NavAreaRoad},
+	{Vertices: waterPoly, Area: ai.NavAreaWater, Flags: ai.NavFlagSwim},
+	{Vertices: doorPoly, Area: ai.NavAreaDoor, Flags: ai.NavFlagWalk | ai.NavFlagDoor},
+})
+
+filter := ai.DefaultNavFilter()
+filter.SetAreaCost(ai.NavAreaRoad, 0.5)   // 道路每单位距离代价减半
+filter.SetAreaCost(ai.NavAreaMud, 2.5)
+filter.ExcludeFlags |= ai.NavFlagSwim     // 陆地单位绕开水域
+
+path, ok := mesh.FindPathWithFilter(start, goal, filter)
+
+// 在运行时以 O(1) 开关门多边形，无需重建导航网格：
+mesh.AddPolygonFlags(doorIndex, ai.NavFlagDisabled)
+detour, ok := mesh.FindPathWithFilter(start, goal, filter)
+mesh.ClearPolygonFlags(doorIndex, ai.NavFlagDisabled)
+_, _, _ = path, detour, ok
+```
+
+- **默认兼容**：`BuildNavMesh` 为所有多边形设置 `NavAreaDefault` 与 `NavFlagWalk`，`FindPath` 使用 `DefaultNavFilter()`（`IncludeFlags: NavFlagAll`、`ExcludeFlags: NavFlagDisabled`、各区域默认代价 `1.0`），与既有行为完全一致。
+- **可采纳加权 A\***：`FindPathWithFilter` 按 `filter.AreaCost(area)` 对每个多边形内的移动距离加权，并以网格内可通行区域的最小代价缩放 A\* 距离启发值，确保道路代价低于 `1.0` 时仍能求得最优走廊；非正值、`NaN` 或无穷大代价视为禁止通行。
+- **运行时零重建修改**：通过 `PolygonArea`、`SetPolygonArea`、`PolygonFlags`、`SetPolygonFlags`、`AddPolygonFlags` 和 `ClearPolygonFlags` 以 O(1) 修改多边形区域或标志；空间查询 `FindPolygonWithFilter`、`ContainsWithFilter`、`NearestPolygonWithFilter` 以及带过滤的有界/增量搜索 `FindPathWithFilterAndOptions`、`StartSearchWithFilter` 同样遵循 `NavFilter`。
+
 ## 有界、部分路径与增量寻路
 
 点击不可达目标时单位应尽量走近目标，同时大量并发长寻路也不应拖垮单帧预算。`AStar`、2D `NavMesh` 以及 [world3d](world3d.md) 的 3D `NavMesh` 共享 `PathOptions{MaxExpansions, AllowPartial}` 与 `IncrementalSearch` 接口：
@@ -155,7 +185,6 @@ _ = reqID
 ```
 
 高优先级请求优先执行，同优先级内按确定性 FIFO 或轮转顺序推进，取消后的请求不会继续步进也不会触发回调。
-
 ## 转向行为（Steering）
 
 `Agent` 封装位置、速度、最大速度、最大转向力与半径，在固定步长中通过 `Agent.Step(force, dt)` 积分移动：
