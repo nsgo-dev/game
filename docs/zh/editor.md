@@ -819,7 +819,6 @@ func main() {
 - **桌面菜单栏**：`EditorView` 通过 `desktop.SetApplicationMenu`（`Editor.ApplicationMenu`）注册原生应用菜单栏（`File`、`Edit`、`View`、`Project`），以实时可用/勾选状态和对应平台的快捷键提示暴露同一套命令；已启用插件的工具列在 `View > Tools` 下，已启用插件的命令列在 `Project > Plugins` 下。
 - **命令面板（`ui.CommandDialog`）**：按 `mod+k`（或点击工具栏 **Commands** 按钮 / `View > Command Palette...`）即可打开 `CommandPaletteView`，支持按子串排序与模糊匹配搜索全部内置与自定义命令、已启用插件命令、已启用插件工具（通过 `SetPluginTool` 激活）、已启用插件面板（通过 `FocusPluginPanel` 聚焦）以及当前项目的场景和文件（通过 `OpenProjectFile` 打开场景或选中文件）。
 - **插件命令**：插件可通过 `Commands []PluginCommand` 声明带可选 `Shortcut` 的命令。`RegisterPlugin` 会规范化快捷键（`NormalizeShortcut`），并在改动编辑器状态之前拒绝任何在 macOS 或 Windows/Linux 上与内置命令、自定义命令或其他已注册插件冲突的快捷键。
-
 ## 资源导入设置与重建（#915）
 
 在文件浏览器中选中图片（`.png`、`.jpg`、`.jpeg`、`.webp`）、音频（`.wav`、`.ogg`、`.mp3`、`.flac`）、字体（`.ttf`、`.otf`）或 3D 模型（`.gltf`、`.glb`）文件时（`SelectedFile`，自动排除构建产物和 `*.import.yaml` 边车文件），检查器（`InspectorView`）会显示该资源的导入设置与鸣谢信息：
@@ -827,7 +826,6 @@ func main() {
 - **边车与目标默认值**：`InspectAssetImport` 会读取资源旁的 `*.import.yaml` 边车，并与 `game.yaml` 的 `assets` 小节中匹配目标的默认配置合并展示（图片支持 `filter`、`format`、`mipmaps`、`srgb` 与精灵表 `slice`；音频支持 `format`、`rate`、`channels`、`bitrate`、`peakDB`/`rmsDB` 响度归一化与 `loop`；字体支持 `size`、`padding` 与 `chars`；模型支持 `scale` 与 `animations`），同时展示通用的 `credit` 鸣谢小节（`author`、SPDX `license`、`source` 与 `notice`）。
 - **校验写入、撤销与单字段重置**：每次编辑都通过 `importsettings.Encode` 严格校验并原子写入边车文件，作为单个可撤销步骤进入 `Editor.History`（`EditAssetImportSettings`、`SetImageImport*` / `SetAudioImport*` / `SetFontImport*` / `SetModelImport*` 以及 `SetAssetImportCredit`）。**撤销（Undo）** 会逐字节恢复编辑前的边车内容（若此前无边车则删除新建文件）；**重置（Reset）**（`ResetAssetImportField`）将单个覆盖项恢复为 `game.yaml` 目标默认值，当不再有任何覆盖项或鸣谢时自动删除空边车文件。
 - **Reimport、Build Assets 与热重载**：检查器中的 **Reimport** 按钮（`ReimportAsset`）与工具栏中的 **Build Assets** 按钮（`BuildAssets` / `BuildAssetsWith`）会在 UI 协程之外运行 `nsgo game assets`，并将标准输出和标准错误实时流式写入停靠的 **Output** 面板（`OutputPanelView`）。构建完成后，`ReloadAssets` 会从磁盘重新加载发生变化的图集与纹理到 `Editor.Resolver`（就地更新 `sceneformat.AtlasMap` 或已有 `*sprite.Atlas`，并在实现或配置了 `AssetReloader` / `OnReloadAssets` 时回调通知），无需重启编辑器即可在资源浏览器和视口中立即生效，并自动重新运行问题检查。自定义工具与测试可注入 `Editor.AssetsCommandRunner`。
-
 ## 性能分析器面板与帧耗时条（#912）
 
 在编辑器内运行游戏或通过 MCP 连接正在运行的游戏（`game_perf_readout`、`game_perf_zones`、`game_perf_reset`）时，编辑器会在游戏视口下方显示实时帧耗时条，并可展开严格遵循编辑器设计规范令牌（`docs/design/editor/PlayMode.dc.html` 与 `Spec.dc.html`）的完整性能分析器面板：
@@ -836,3 +834,13 @@ func main() {
 - **连接运行中的游戏**：可通过 `ConnectProfilerMCP`（基于官方 MCP Go SDK 的任意 `mcp.Transport`）、`ConnectProfilerCommand`（启动 `go tool nsgo mcp`）、`ConnectProfilerScope`（已挂载 `mcp.Bridge` 的进程内 `*core.Scope`）或 `NewBridgeProfilerClient` 创建客户端并传给 `Editor.ConnectProfiler`。挂载作用域后，编辑器会按 `Editor.ProfilerPollInterval`（默认 `250 ms`）轮询 `game_perf_readout` 和 `game_perf_zones`，也可通过 `Editor.PollProfiler` 按需轮询。未连接外部客户端时，内置 Play 模式（`Play` / `PlayIn`）也会自动使用 `debug.Overlay`、`debug.Profiler` 和 `debug.GCMonitor` 采集帧耗时与区间数据。
 - **完整性能分析器面板（`ProfilerPanelView`）**：可通过耗时条、工具栏 **Profiler** 按钮、`Project > Profiler`、命令面板或 `mod+shift+m`（`CmdProfiler` / `SetProfilerOpen`）开关。面板提供实时指标卡片与可切换的时间序列图表（`SetProfilerMetric`），涵盖 **Frame**（叠加 Update、Draw、总耗时与 GC 卡顿标记及 8.3 ms / 16.7 ms 参考线）、**FPS**、**Allocs & GC**（每帧分配次数、实时堆内存与 GC 卡顿）与 **Memory**（受跟踪资源内存与预算对比及分组统计），右侧列出按耗时排序的 `game_perf_zones` 命名计时区间表。
 - **重置与 Chrome/Perfetto Trace 导出**：点击 **Reset**（`Editor.ResetProfiler`）会向已连接的游戏调用 `game_perf_reset` 并清空编辑器已记录的历史帧与区间表。点击 **Export Trace**（或调用 `Editor.ExportProfilerTrace` / `Editor.ExportProfilerTraceFile`，或通过 `Editor.OnExportProfilerTrace` 接管输出）会通过 `debug.Profiler.WriteChromeTrace` 将已记录的帧与区间导出为合法的 Chrome/Perfetto Trace Event Format JSON。
+
+## 开始界面（#922）
+
+不带参数运行 `go tool game editor` 时会打开开始界面（`StartScreenView`，可通过 `SetStartScreenOpen` 切换），视觉与交互遵循 `docs/design/editor/Start.dc.html`、`FirstRun.dc.html` 第 1 步以及 `Spec.dc.html` 设计 Token：
+
+- **最近项目（`RecentProjects`、`ParseRecentProjects`、`EncodeRecentProjects`）**：打开项目时会把名称、目录路径和 UTC RFC3339 `lastOpened` 时间戳写入位于所有项目之外的每用户严格版本化 YAML 文件（默认通过 `DefaultRecentProjectsPath` 存在 `<UserConfigDir>/nsgo-game/recent-projects.yaml`，或由 `Editor.RecentProjectsPath` 指定）。左侧栏的 **RECENT** 列表仅在存在最近项目后出现，显示相对时间，并对磁盘上已不存在目录或 `game.yaml` 的条目（`Missing`）打上缺失标记并提供移除按钮（`RemoveRecentProject`），重启编辑器后仍然保留。
+- **打开目录（`BrowseAndOpenProject`）**：通过 NSGo 原生目录选择器（`core.Scope.PickDirectories`）或可注入的 `Editor.PickProjectFolder` 钩子选择项目目录并打开。
+- **从模板新建项目（`ProjectTemplates`、`StartCreateProject`）**：模板卡片与 `All` / `2D` / `3D` 筛选标签直接从 `game new` 的模板注册表动态填充，因此新增模板无需修改编辑器代码即可自动出现。项目名称、父目录（默认 `~/games`）和可选模块路径会在输入时实时校验（`ValidateNewProjectInputs`）：检查是否仅含 `a–z`、`0–9` 和 `-`、检查父目录写入权限，以及目标目录是否已存在（已存在时提供 **Open it** 和如 `dungeon-run-2` 的可用名称建议）。点击 **Create** 会在 UI 协程之外运行 `game new`（含 `go get` 和 `go mod tidy`），将标准输出与错误实时展示在界面中，成功后自动打开生成的 `game.yaml`。
+- **打开演示（`OpenDemo`、`NewDemo`）**：无需在磁盘上创建或打开项目，直接进入内置的演示房间场景。
+- **干净切换项目与未保存修改提示**：从开始界面，或稍后通过 `File > Open Project...`（`mod+o`）、`File > New Project...`（`mod+n`）和 `File > Start Screen` 打开另一个项目时，会干净地替换当前项目、场景、动画片段、数据表、本地化工作区和撤销历史。只要当前会话存在未保存修改（`HasUnsavedChanges`），编辑器统一的未保存修改确认框就会先弹出，由用户选择 **Save**（`ConfirmSaveAndSwitch`）、**Discard**（`ConfirmDiscardAndSwitch`）或 **Cancel**（`CancelPendingSwitch`）。

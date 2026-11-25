@@ -1,0 +1,8 @@
+version: 1
+projects:
+  - name: Dungeon Run
+    path: /Users/alex/games/dungeon-run
+    lastOpened: "2026-11-25T05:00:00Z"
+  - name: Kart Test
+    path: /Users/alex/games/kart-test
+    lastOpened: "2026-11-24T12:30:00Z"

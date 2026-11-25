@@ -29,6 +29,8 @@ type app struct {
 	nsgoEnv func(env []string, args []string, stdout, stderr io.Writer) error
 	// goRun runs the go command with args in dir, for the editor subcommand to run a project's own editor command.
 	goRun func(dir string, args []string, stdout, stderr io.Writer) error
+	// recentProjectsPath overrides the per-user recent projects YAML file path used by `game editor` (tests set it inside t.TempDir()).
+	recentProjectsPath string
 }
 
 // command is one subcommand of game.

@@ -120,6 +120,7 @@ var formatVersions = map[string]string{
 	"cloudsave/sqlstore.SchemaVersion":      "",
 	"cutscene.CurrentVersion":               "cutscene",
 	"cutscene.MinVersion":                   "cutscene",
+	"editor.RecentProjectsVersion":          "editor",
 	"flow.MachineSnapshotVersion":           "",
 	"fog.FormatVersion":                     "fog",
 	"fighting.FormatVersion":                "fighting",

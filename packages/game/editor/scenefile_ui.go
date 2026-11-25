@@ -2,6 +2,7 @@ package editor
 
 import (
 	"errors"
+	"fmt"
 	"path"
 	"strings"
 
@@ -94,11 +95,21 @@ func (e *Editor) saveFromUI() bool {
 	return true
 }
 
-// unsavedState is what has unsaved edits, the scene (SceneDirty) and the project (ProjectDirty), as EditorView works it out once per revision for the toolbar's marker, its Revert item and the window title.
-type unsavedState struct{ scene, project bool }
+// saveAllFromUI saves every dirty editor (project, scene, localizations, clip, data table), putting an error in the status bar, and reports whether it saved.
+func (e *Editor) saveAllFromUI() bool {
+	if err := e.SaveAll(); err != nil {
+		e.Status = "Save error: " + err.Error()
+		e.notify()
+		return false
+	}
+	return true
+}
 
-// either reports whether the scene or the project has unsaved edits (HasUnsavedChanges).
-func (s unsavedState) either() bool { return s.scene || s.project }
+// unsavedState is what has unsaved edits, the scene (SceneDirty), the project (ProjectDirty), and auxiliary editors (clip, data table, localizations), as EditorView works it out once per revision for the toolbar's marker, its Revert item and the window title.
+type unsavedState struct{ scene, project, other bool }
+
+// either reports whether anything in the session has unsaved edits (HasUnsavedChanges).
+func (s unsavedState) either() bool { return s.scene || s.project || s.other }
 
 // unsavedMemo works out unsavedState once per revision of ed. Both checks encode a whole file, so while Play runs, which makes a revision every frame, it keeps what it worked out at the first revision of Play: what is compared then is the scene as it was before Play, and the project cannot be edited.
 func unsavedMemo(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) *core.Memo[unsavedState] {
@@ -108,7 +119,11 @@ func unsavedMemo(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) *core.Mem
 		_ = rev.Get()
 		playing := ed.Playing()
 		if !computed || !playing || !lastPlaying {
-			last = unsavedState{scene: ed.SceneDirty(), project: ed.ProjectDirty()}
+			last = unsavedState{
+				scene:   ed.SceneDirty(),
+				project: ed.ProjectDirty(),
+				other:   ed.LocalizationDirty() || ed.ClipDirty() || ed.DataTableDirty(),
+			}
 			computed = true
 		}
 		lastPlaying = playing
@@ -116,11 +131,14 @@ func unsavedMemo(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) *core.Mem
 	})
 }
 
-// sceneFileView binds EditorView's scene file handling (Mod+S is the Save command's shortcut, CmdSave): a user's request to quit or to close the window asks first while edits are unsaved, the window title follows the open scene and its unsaved marker, and it returns the unsaved-changes prompt and the path dialog of New Scene and Save As.
+// sceneFileView binds EditorView's scene file handling (Mod+S is the Save command's shortcut, CmdSave): a user's request to quit or to close the window asks first while edits are unsaved, the window title follows the open scene and its unsaved marker, and it returns the unified unsaved-changes prompt (covering scene switches, quit/close, and project switches) and the path dialog of New Scene and Save As.
 func sceneFileView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirty *core.Memo[unsavedState], mode *core.Signal[pathMode], target *core.Signal[string]) []core.Node {
 	prompt := core.NewSignal[*unsavedPrompt](cx, nil)
 	ed.askUnsaved = func(proceed, cancel func()) {
 		// A question still open is answered Cancel before the new one replaces it.
+		if ed.UnsavedPromptOpen() {
+			ed.CancelPendingSwitch()
+		}
 		if p := prompt.Get(); p != nil {
 			p.cancel()
 		}
@@ -185,28 +203,89 @@ func sceneFileView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirty *
 	return []core.Node{
 		ui.AlertDialog{
 			TestID: "unsaved-dialog",
-			Open:   func() bool { return prompt.Get() != nil },
-			Title:  "Save changes?",
+			Open: func() bool {
+				_ = rev.Get()
+				return prompt.Get() != nil || ed.UnsavedPromptOpen()
+			},
+			OnOpenChange: func(open bool, _ base.Reason) {
+				if open {
+					return
+				}
+				if ed.UnsavedPromptOpen() {
+					ed.CancelPendingSwitch()
+				}
+				if p := prompt.Get(); p != nil {
+					prompt.Set(nil)
+					p.cancel()
+				}
+			},
+			Title: "Save changes?",
 			DescriptionFunc: func() string {
 				_ = rev.Get()
+				if pending, ok := ed.PendingProjectAction(); ok && pending.Summary != "" {
+					return fmt.Sprintf("You have unsaved edits. Save them before proceeding (%s)?", pending.Summary)
+				}
 				return "The scene " + ed.SceneLabel() + " or the project has unsaved changes."
 			},
 			Actions: []ui.AlertAction{
-				{TestID: "unsaved-cancel", Text: "Cancel", Variant: ui.ButtonSecondary, Role: core.AlertCancel, OnPress: answer(func(p *unsavedPrompt) { p.cancel() })},
-				{TestID: "unsaved-discard", Text: "Discard", Variant: ui.ButtonSecondary, Role: core.AlertDestructive, OnPress: answer(func(p *unsavedPrompt) { p.proceed() })},
-				{TestID: "unsaved-save", Text: "Save", Variant: ui.ButtonPrimary, Default: true, OnPress: answer(func(p *unsavedPrompt) {
-					// Save refuses while playing, and what has unsaved edits is the scene as it was before Play, which Stop puts back, so a quit asked during Play stops it to save.
-					if err := ed.Stop(); err != nil {
-						ed.report(err)
-						p.cancel()
-						return
-					}
-					if ed.saveFromUI() {
-						p.proceed()
-					} else {
-						p.cancel()
-					}
-				})},
+				{
+					TestID:  "unsaved-cancel",
+					Text:    "Cancel",
+					Variant: ui.ButtonSecondary,
+					Role:    core.AlertCancel,
+					OnPress: func() {
+						if ed.UnsavedPromptOpen() {
+							ed.CancelPendingSwitch()
+							return
+						}
+						answer(func(p *unsavedPrompt) { p.cancel() })()
+					},
+				},
+				{
+					TestID:  "unsaved-discard",
+					Text:    "Discard",
+					Variant: ui.ButtonSecondary,
+					Role:    core.AlertDestructive,
+					OnPress: func() {
+						if ed.UnsavedPromptOpen() {
+							ed.report(ed.ConfirmDiscardAndSwitch())
+							return
+						}
+						answer(func(p *unsavedPrompt) { p.proceed() })()
+					},
+				},
+				{
+					TestID:  "unsaved-save",
+					Text:    "Save",
+					Variant: ui.ButtonPrimary,
+					Default: true,
+					OnPress: func() {
+						if ed.UnsavedPromptOpen() {
+							if ed.Playing() {
+								if err := ed.Stop(); err != nil {
+									ed.report(err)
+									ed.CancelPendingSwitch()
+									return
+								}
+							}
+							ed.report(ed.ConfirmSaveAndSwitch())
+							return
+						}
+						answer(func(p *unsavedPrompt) {
+							// Save refuses while playing, and what has unsaved edits is the scene as it was before Play, which Stop puts back, so a quit asked during Play stops it to save.
+							if err := ed.Stop(); err != nil {
+								ed.report(err)
+								p.cancel()
+								return
+							}
+							if ed.saveAllFromUI() {
+								p.proceed()
+							} else {
+								p.cancel()
+							}
+						})()
+					},
+				},
 			},
 		},
 		ui.Dialog{

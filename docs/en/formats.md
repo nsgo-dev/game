@@ -40,6 +40,24 @@ autoload:
       path: scenes/title.scene.yaml
 ```
 
+<!-- format: editor -->
+### Editor recent projects
+
+| Files | Version | Read and written by | Fields |
+| --- | --- | --- | --- |
+| `recent-projects.yaml` in the user config directory (`<UserConfigDir>/nsgo-game/recent-projects.yaml`, outside any project) | `version: 1` | `editor.ParseRecentProjects`, `editor.EncodeRecentProjects` | [Editor & Scene Format](editor.md#start-screen-922) |
+
+```yaml
+version: 1
+projects:
+  - name: Dungeon Run
+    path: /Users/alex/games/dungeon-run
+    lastOpened: "2026-11-25T05:00:00Z"
+  - name: Kart Test
+    path: /Users/alex/games/kart-test
+    lastOpened: "2026-11-24T12:30:00Z"
+```
+
 <!-- format: tooling/importsettings -->
 ### Import settings sidecar
 

@@ -102,53 +102,78 @@ func defineNew(a *app, fs *flag.FlagSet) func() error {
 		if fs.NArg() > 1 {
 			return usagef("unexpected arguments %q", fs.Args()[1:])
 		}
-		dir := fs.Arg(0)
-		i := slices.IndexFunc(projectTemplates, func(t projectTemplate) bool { return t.name == *tmpl })
-		if i < 0 {
-			return usagef("no template %q; use %s", *tmpl, strings.Join(names, ", "))
-		}
-		data, err := projectData(dir, *name, *module)
-		if err != nil {
-			return err
-		}
-		v := *version
-		if v == "" {
-			v = toolVersion()
-		} else if strings.ContainsFunc(v, func(r rune) bool { return r <= ' ' || r == '@' }) || strings.HasPrefix(v, "-") {
-			return usagef("-version %q is not a module version", v)
-		}
-
-		files, err := renderProject(projectTemplates[i].files, data)
-		if err != nil {
-			return fmt.Errorf("template %s: %w", *tmpl, err)
-		}
-		if err := writeProject(dir, files); err != nil {
-			return err
-		}
-		for _, f := range files {
-			if !f.dir {
-				fmt.Fprintln(a.stdout, filepath.Join(dir, f.name))
-			}
-		}
-		steps := [][]string{{"get", "-tool", gameTool + "@" + v}, {"mod", "tidy"}}
-		for i, args := range steps {
-			if err := runGo(dir, a.stdout, a.stderr, args...); err != nil {
-				rest := make([]string, len(steps)-i)
-				for j, r := range steps[i:] {
-					rest[j] = "go " + strings.Join(r, " ")
-				}
-				return fmt.Errorf("go %s in %s: %w; the project's files are written, so run %s there once it can succeed", strings.Join(args, " "), dir, err, strings.Join(rest, " && "))
-			}
-		}
-		// If the project directory is already a Git repository, register the scene merge driver in its local config.
-		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
-			if err := configureGitMergeDriver(dir); err != nil {
-				fmt.Fprintf(a.stderr, "game new: warning: could not configure git scene merge driver: %v\n", err)
-			}
-		}
-		fmt.Fprintf(a.stdout, "\ncd %s && go tool nsgo dev\n", shellWord(dir, runtime.GOOS))
-		return nil
+		return createProject(createProjectOptions{
+			dir:      fs.Arg(0),
+			name:     *name,
+			module:   *module,
+			template: *tmpl,
+			version:  *version,
+		}, a.stdout, a.stderr)
 	}
+}
+
+type createProjectOptions struct {
+	dir      string
+	name     string
+	module   string
+	template string
+	version  string
+}
+
+// createProject scaffolds a game project from `game new`'s template registry into opts.dir,
+// runs `go get -tool` and `go mod tidy`, and writes progress and command output to stdout and stderr.
+// Shared by `game new` and the scene editor's Start Screen.
+func createProject(opts createProjectOptions, stdout, stderr io.Writer) error {
+	names := templateNames()
+	tmplName := opts.template
+	if tmplName == "" {
+		tmplName = projectTemplates[0].name
+	}
+	i := slices.IndexFunc(projectTemplates, func(t projectTemplate) bool { return t.name == tmplName })
+	if i < 0 {
+		return usagef("no template %q; use %s", tmplName, strings.Join(names, ", "))
+	}
+	data, err := projectData(opts.dir, opts.name, opts.module)
+	if err != nil {
+		return err
+	}
+	v := opts.version
+	if v == "" {
+		v = toolVersion()
+	} else if strings.ContainsFunc(v, func(r rune) bool { return r <= ' ' || r == '@' }) || strings.HasPrefix(v, "-") {
+		return usagef("-version %q is not a module version", v)
+	}
+
+	files, err := renderProject(projectTemplates[i].files, data)
+	if err != nil {
+		return fmt.Errorf("template %s: %w", tmplName, err)
+	}
+	if err := writeProject(opts.dir, files); err != nil {
+		return err
+	}
+	for _, f := range files {
+		if !f.dir {
+			fmt.Fprintln(stdout, filepath.Join(opts.dir, f.name))
+		}
+	}
+	steps := [][]string{{"get", "-tool", gameTool + "@" + v}, {"mod", "tidy"}}
+	for i, args := range steps {
+		if err := runGo(opts.dir, stdout, stderr, args...); err != nil {
+			rest := make([]string, len(steps)-i)
+			for j, r := range steps[i:] {
+				rest[j] = "go " + strings.Join(r, " ")
+			}
+			return fmt.Errorf("go %s in %s: %w; the project's files are written, so run %s there once it can succeed", strings.Join(args, " "), opts.dir, err, strings.Join(rest, " && "))
+		}
+	}
+	// If the project directory is already a Git repository, register the scene merge driver in its local config.
+	if _, err := os.Stat(filepath.Join(opts.dir, ".git")); err == nil {
+		if err := configureGitMergeDriver(opts.dir); err != nil {
+			fmt.Fprintf(stderr, "game new: warning: could not configure git scene merge driver: %v\n", err)
+		}
+	}
+	fmt.Fprintf(stdout, "\ncd %s && go tool nsgo dev\n", shellWord(opts.dir, runtime.GOOS))
+	return nil
 }
 
 // shellWord returns s as one word for a shell on goos: as it is when it holds only characters a shell takes literally, and otherwise in single quotes for a POSIX shell or in double quotes on Windows, where cmd and PowerShell both take them and \ separates paths.

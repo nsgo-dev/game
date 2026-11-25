@@ -65,23 +65,62 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 					return fmt.Errorf("editor: main scene %q: %w", s.Name, err)
 				}
 				opened = true
+				break
 			}
 		}
 	}
+	resetDoc := false
 	if !opened {
 		// The scene stays open under the new project, so its view is kept in the project it was shown in.
 		e.saveViewStateQuietly()
+		if e.ProjectPath != "" || e.StartScreenOpen() {
+			if e.playing {
+				_ = e.Stop()
+			}
+			e.drag2D = drag2DState{}
+			e.stroke = nil
+			e.Doc = DefaultSceneDoc()
+			e.FilePath = ""
+			e.ScenePath = ""
+			e.OnSave = nil
+			e.SelectedID = ""
+			e.view2DFree = false
+			e.hidden, e.locked, e.layerLocked = nil, nil, nil
+			if len(e.Doc.Layers) > 0 {
+				e.ActiveLayer = e.Doc.Layers[0].Name
+			} else {
+				e.ActiveLayer = ""
+			}
+			e.keepTileInPalette()
+			resetDoc = true
+		}
 	}
+	if e.playing {
+		_ = e.Stop()
+	}
+	e.drag2D = drag2DState{}
+	e.stroke = nil
+	e.stopClipLoop()
 	e.stopFetch()
 	e.stopAudioAudition()
 	e.stopExportBuild()
 	e.stopAssetsBuild()
 	e.resetInputMapTransient()
 	_ = e.StopGame()
+	e.clip = nil
+	e.clipMeta = clipMeta{}
+	e.clipScene = nil
+	e.clipPlayer = nil
+	e.clipErr = nil
+	e.clipSaved = nil
+	e.table = nil
+	e.tableSaved = nil
+	e.l10n = nil
 	e.Project = f
 	e.ProjectPath = path
 	e.projectSaved = saved
 	e.projectSavedOnce = false
+	e.setStartScreenEntered()
 	e.selectFile("")
 	e.resetSearchForProject()
 	e.syncScenePath()
@@ -89,8 +128,8 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 		// The scene opened under the project closing, so its view is looked up in the project opening.
 		e.restoreViewState()
 	}
-	if e.ProjectAssets && !opened {
-		// The scene left open now resolves against the new project's files, so Built and BuildErr show what it builds to there at once, not after its next edit.
+	if (e.ProjectAssets || resetDoc) && !opened {
+		// The scene left open (or reset to DefaultSceneDoc) now resolves against the new project's files, so Built and BuildErr show what it builds to there at once, not after its next edit.
 		e.Rebuild()
 	}
 	e.snapshotAssetOutputs()
@@ -101,10 +140,12 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 		e.assetsResolverRev = e.assetsRev
 	}
 	e.History.Clear()
+	e.markSceneSaved()
 	e.dropStalePluginTool()
 	e.dropStaleFocusedPluginPanel()
 	e.syncAudioMixer()
 	e.resetExportPanelForProject()
+	_ = e.RecordRecentProject(f.Name, filepath.Dir(path))
 	e.Status = "Opened project " + path
 	if missing := e.MissingPlugins(); len(missing) > 0 {
 		e.Status += "; plugins not built into this editor: " + strings.Join(missing, ", ")

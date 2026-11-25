@@ -40,6 +40,24 @@ autoload:
       path: scenes/title.scene.yaml
 ```
 
+<!-- format: editor -->
+### 编辑器最近打开的项目
+
+| 文件 | 版本 | 读写函数 | 字段 |
+| --- | --- | --- | --- |
+| 用户配置目录中的 `recent-projects.yaml`（`<UserConfigDir>/nsgo-game/recent-projects.yaml`，位于任何项目之外） | `version: 1` | `editor.ParseRecentProjects`、`editor.EncodeRecentProjects` | [编辑器与场景格式](editor.md#开始界面922) |
+
+```yaml
+version: 1
+projects:
+  - name: Dungeon Run
+    path: /Users/alex/games/dungeon-run
+    lastOpened: "2026-11-25T05:00:00Z"
+  - name: Kart Test
+    path: /Users/alex/games/kart-test
+    lastOpened: "2026-11-24T12:30:00Z"
+```
+
 <!-- format: tooling/importsettings -->
 ### 导入设置旁注文件
 

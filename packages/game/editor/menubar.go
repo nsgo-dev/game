@@ -61,6 +61,10 @@ func (e *Editor) ApplicationMenu() []desktop.MenuItem {
 	fileMenu := desktop.MenuItem{
 		Label: "File",
 		Items: []desktop.MenuItem{
+			cmdItem(CmdNewProject, "New Project...", false),
+			cmdItem(CmdOpenProject, "Open Project...", false),
+			cmdItem(CmdStartScreen, "Start Screen", false),
+			sep,
 			cmdItem(CmdSave, "Save", false),
 			sep,
 			cmdItem(CmdExport, "Export & Release...", false),
@@ -190,7 +194,8 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 	sig := core.NewMemo(cx, func() string {
 		_ = rev.Get()
 		var b strings.Builder
-		fmt.Fprintf(&b, "%v|%v|%v|%v|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v",
+		fmt.Fprintf(&b, "%v|%v|%v|%v|%v|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v",
+			e.StartScreenOpen(),
 			e.Playing(),
 			e.History.CanUndo(),
 			e.History.CanRedo(),

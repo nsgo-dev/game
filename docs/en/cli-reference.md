@@ -80,7 +80,7 @@ nsgo game tex [flags] [input.png|input.jpg]
 
 ## game editor
 
-Open the scene editor on a project or a YAML scene, and an animation clip on one of its objects, with the project's own editor command when it has one, or on a demo scene when none is named.
+Open the scene editor on a project or a YAML scene, and an animation clip on one of its objects, with the project's own editor command when it has one, or on the start screen when none is named.
 
 ```sh
 nsgo game editor [flags] [project-dir | game.yaml | scene.yaml] [clip.animation.yaml [object-id]]

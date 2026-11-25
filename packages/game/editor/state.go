@@ -274,6 +274,16 @@ type Editor struct {
 	OnExportProfilerTrace func(data []byte) error
 	// ProfilerPollInterval configures how often the editor polls game_perf_readout and game_perf_zones while connected to a running game (defaults to 250ms when <= 0).
 	ProfilerPollInterval time.Duration
+	// RecentProjectsPath is the per-user YAML file where recently opened projects are stored outside any project directory. When empty, recent projects stay in memory without writing to disk.
+	RecentProjectsPath string
+	// Now returns the current time for recent-project timestamps and relative-time labels; when nil, time.Now is used.
+	Now func() time.Time
+	// PickProjectFolder prompts the user to choose a project folder (for Open Project and New Project's parent folder). When nil and a UI scope is attached, the editor invokes cx.PickDirectories.
+	PickProjectFolder func(title, startDir string, done func(dir string, ok bool, err error))
+	// CreateProject runs project creation from a template (such as `game new`), streaming its output to stdout and stderr. When nil on desktop, the editor invokes `go tool game new`.
+	CreateProject func(ctx context.Context, req CreateProjectRequest, stdout, stderr io.Writer) error
+	// OnOpenDemo overrides the Start Screen's Open Demo action when non-nil; when nil, OpenDemo loads the built-in Demo Room.
+	OnOpenDemo func() error
 
 	playing           bool
 	playSnapshot      []byte
@@ -291,6 +301,10 @@ type Editor struct {
 	projectSavedOnce bool
 	// sceneSaved is Doc's encoding when it was opened or last saved, which SceneDirty compares against.
 	sceneSaved []byte
+	// clipSaved is the open clip's encoding when it was opened or last saved, which ClipDirty compares against.
+	clipSaved []byte
+	// tableSaved is the open data table's encoding when it was opened or last saved, which DataTableDirty compares against.
+	tableSaved []byte
 
 	// The animation editor: the open clip, its file and target, the playhead, the selected key, and the preview scene posed by the clip.
 	clip        *resource.Animation
@@ -308,8 +322,9 @@ type Editor struct {
 	tableTypes *datatable.Registry
 
 	// l10n holds the open localization string tables edited by the Localization panel, or nil when closed.
-	l10n       *localizationState
-	components *sceneformat.ComponentRegistry
+	l10n           *localizationState
+	components     *sceneformat.ComponentRegistry
+	demoComponents bool
 	// plugins are the registered plugins in registration order, and pluginTool the plugin tool chosen while Tool is ToolPlugin.
 	plugins            []*Plugin
 	pluginTool         pluginToolRef
@@ -400,6 +415,12 @@ type Editor struct {
 	gpu3DErr error
 	// gridMap holds the active 3D GridMap editing session, tool, floor height, orientation, stroke and hover state.
 	gridMap gridMapState
+	// recentProjects holds recently opened projects in most-recently-opened order.
+	recentProjects []RecentProject
+	// startScreen holds the Start Screen UI, template list, new-project form, and creation output state.
+	startScreen startScreenState
+	// unsavedPrompt tracks a pending project switch waiting for user confirmation of unsaved edits.
+	unsavedPrompt unsavedPromptState
 }
 
 // DefaultSceneDoc returns a valid starter SceneDoc suitable for a new editor session.
@@ -494,6 +515,7 @@ func (e *Editor) AttachScope(cx *core.Scope) {
 	} else if cx == nil {
 		e.stopProfilerPoller()
 	}
+	e.startScreen.setScope(cx)
 }
 
 func (e *Editor) notify() {
@@ -684,6 +706,7 @@ func (e *Editor) SetComponentRegistry(reg *sceneformat.ComponentRegistry) error 
 		return nil
 	}
 	e.components = reg
+	e.demoComponents = false
 	// Clear triggers onChange -> afterMutate -> Rebuild + notify.
 	e.History.Clear()
 	if e.Project != nil && e.ProjectPath != "" {
@@ -849,7 +872,7 @@ func (e *Editor) SaveFile(path string) error {
 		return err
 	}
 	e.FilePath = path
-	e.sceneSaved = data
+	e.sceneSaved = append([]byte(nil), data...)
 	e.syncScenePath()
 	e.saveViewStateQuietly()
 	e.filesRev++

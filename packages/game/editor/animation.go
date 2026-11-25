@@ -58,6 +58,7 @@ func (e *Editor) NewClip(target, name string, length time.Duration) error {
 		return err
 	}
 	e.swapClip("New clip", clip, clipMeta{target: target})
+	e.clipSaved = nil
 	return nil
 }
 
@@ -258,6 +259,9 @@ func (e *Editor) openClip(data []byte, path, target string) error {
 		label += " " + path
 	}
 	e.swapClip(label, clip, clipMeta{path: path, target: target})
+	if saved, err := resource.Encode(clip); err == nil {
+		e.clipSaved = saved
+	}
 	return nil
 }
 
@@ -291,6 +295,7 @@ func (e *Editor) SaveClipFile(path string) error {
 		return err
 	}
 	e.clipMeta.path = path
+	e.clipSaved = append([]byte(nil), data...)
 	e.filesRev++
 	e.invalidateProjectIndex()
 	e.Status = "Saved clip " + path
