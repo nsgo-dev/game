@@ -1014,3 +1014,352 @@ layers:
 		t.Fatalf("changedPaths = %v, should not report nonexistent build/atlases/multipage.json", changed)
 	}
 }
+
+// #880 Acceptance: selecting an image opens the import panel with an interactive slice-grid preview and draggable per-cell pivot markers;
+// slicing a sheet, setting default + per-cell pivots (including via drag with Undo/Redo) and credit writes a deterministic sidecar
+// that round-trips byte-for-byte unchanged, and after `game assets` (Reimport) the packed atlas frames carry those exact pivots in `sprite.LoadAtlas`.
+func TestSpriteSheetSliceAndPivotPanelRoundTripAndAtlasBuild(t *testing.T) {
+	dir := t.TempDir()
+	gameYAML := `version: 1
+name: PivotFixture
+id: dev.example.pivotfixture
+appVersion: 1.0.0
+window:
+  width: 640
+  height: 360
+autoload:
+  mainScene: room
+  scenes:
+    - name: room
+      path: scenes/room.scene.yaml
+assets:
+  atlases:
+    - name: actors
+      in: art/sprites
+      out: assets/atlases
+`
+	roomScene := `version: 2
+name: Room
+layers:
+  - name: actors
+`
+	// 74x20 sheet with margin=2, spacing=2 and 16x16 cells holds 4x1 cells; count=3 keeps frames 0, 1, 2.
+	writeFixtureFiles(t, dir, map[string]string{
+		project.FileName:         gameYAML,
+		project.NSGoFileName:     fixtureNSGoYAML,
+		"scenes/room.scene.yaml": roomScene,
+	}, map[string][]byte{
+		"art/sprites/hero.png": encodeTestPNG(t, 74, 20),
+	})
+
+	atlases := sceneformat.AtlasMap{
+		"actors": &sprite.Atlas{},
+	}
+	ed, err := editor.New(nil, atlases)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ed.AssetsCommandRunner = runAssetBuildInTest
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+	ed.WaitForProblems()
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1400, 900))
+
+	// Select the sprite sheet in the file browser.
+	app.Press("id:files-row-art/sprites/hero.png")
+	app.Settle()
+
+	if !app.Exists("id:import-image-preview") || !app.Exists("id:import-image-preview-canvas") {
+		t.Fatal("expected image import preview canvas when an image is selected")
+	}
+	if got := allText(app.Find("id:import-image-preview-info")); !strings.Contains(got, "74x20 px") || !strings.Contains(got, "unsliced") {
+		t.Fatalf("preview info before slice = %q, want 74x20 px unsliced", got)
+	}
+
+	// Enable slicing in the panel and configure width, height, margin, spacing, count.
+	app.Press("id:import-image-slice-enabled")
+	app.Settle()
+	if err := ed.SetImageImportSlice("art/sprites/hero.png", &importsettings.Slice{
+		Width:   16,
+		Height:  16,
+		Margin:  2,
+		Spacing: 2,
+		Count:   3,
+	}); err != nil {
+		t.Fatalf("SetImageImportSlice: %v", err)
+	}
+	app.Settle()
+
+	if got := allText(app.Find("id:import-image-preview-info")); !strings.Contains(got, "4x1 grid (3 cells)") {
+		t.Fatalf("preview info after slice = %q, want 4x1 grid (3 cells)", got)
+	}
+
+	// Preview canvas should draw the image and pivot marker arcs for all 3 cells.
+	previewOps := app.Find("id:import-image-preview-canvas").Ops
+	var drawImgCount, drawArcCount int
+	for _, op := range previewOps {
+		switch op.Kind {
+		case core.DrawImage:
+			drawImgCount++
+		case core.DrawArc:
+			drawArcCount++
+		}
+	}
+	if drawImgCount == 0 {
+		t.Fatal("expected preview canvas to draw the source image")
+	}
+	if drawArcCount < 6 { // 2 arcs (fill + stroke) per marker x 3 cells
+		t.Fatalf("expected pivot markers for all 3 cells (>=6 DrawArc ops), got %d", drawArcCount)
+	}
+
+	// Set default pivot to bottom-center [0.5, 1] using the panel's Bottom preset button.
+	app.Press("id:import-image-pivot-preset-bottom")
+	app.Settle()
+	info, err := ed.InspectAssetImport("art/sprites/hero.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pt, over := info.EffectiveDefaultImagePivot(); !over || pt != (importsettings.PivotPoint{0.5, 1}) {
+		t.Fatalf("default pivot after Bottom preset = (%v, %v), want ([0.5, 1], true)", pt, over)
+	}
+
+	// Drag cell 1's pivot marker interactively from [0.5, 1] to [0.25, 0.75] on the preview canvas.
+	const canvasW, canvasH float32 = 240, 180
+	startX, startY, ok := ed.ImageImportPreviewCellPoint("art/sprites/hero.png", 1, importsettings.PivotPoint{0.5, 1}, canvasW, canvasH)
+	if !ok {
+		t.Fatal("ImageImportPreviewCellPoint start failed")
+	}
+	targetX, targetY, ok := ed.ImageImportPreviewCellPoint("art/sprites/hero.png", 1, importsettings.PivotPoint{0.25, 0.75}, canvasW, canvasH)
+	if !ok {
+		t.Fatal("ImageImportPreviewCellPoint target failed")
+	}
+	sidecarPath := filepath.Join(dir, "art", "sprites", "hero.png.import.yaml")
+	beforeDragBytes, err := os.ReadFile(sidecarPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !ed.BeginImagePivotDrag("art/sprites/hero.png", startX, startY, canvasW, canvasH) {
+		t.Fatal("BeginImagePivotDrag did not hit cell 1's pivot marker")
+	}
+	if !ed.ImagePivotDragging() || ed.SelectedImportSliceCell() != 1 {
+		t.Fatalf("dragging=%v selectedCell=%d, want true and 1", ed.ImagePivotDragging(), ed.SelectedImportSliceCell())
+	}
+	ed.UpdateImagePivotDrag(targetX, targetY)
+	// Mid-drag must not write to disk yet.
+	midDragBytes, err := os.ReadFile(sidecarPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(midDragBytes, beforeDragBytes) {
+		t.Fatal("UpdateImagePivotDrag wrote sidecar before EndImagePivotDrag")
+	}
+	if err := ed.EndImagePivotDrag(); err != nil {
+		t.Fatalf("EndImagePivotDrag: %v", err)
+	}
+	app.Settle()
+
+	info, err = ed.InspectAssetImport("art/sprites/hero.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pt, over, _ := info.EffectiveCellImagePivot(1); !over || pt != (importsettings.PivotPoint{0.25, 0.75}) {
+		t.Fatalf("cell 1 pivot after drag = (%v, %v), want ([0.25, 0.75], true)", pt, over)
+	}
+
+	// Undo restores the exact sidecar before the drag; Redo restores cell 1's dragged pivot.
+	if !ed.Undo() {
+		t.Fatal("Undo after pivot drag failed")
+	}
+	afterUndo, err := os.ReadFile(sidecarPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(afterUndo, beforeDragBytes) {
+		t.Fatalf("Undo did not restore pre-drag sidecar:\ngot:\n%s\nwant:\n%s", afterUndo, beforeDragBytes)
+	}
+	if !ed.Redo() {
+		t.Fatal("Redo after pivot drag failed")
+	}
+
+	// Fill in credit section through the panel UI.
+	app.Type("id:import-credit-author", "Kenney")
+	app.Type("id:import-credit-license", "CC0-1.0")
+	app.Submit("id:import-credit-license")
+	app.Settle()
+
+	// Verify the written sidecar parses and round-trips byte-for-byte unchanged.
+	writtenBytes, err := os.ReadFile(sidecarPath)
+	if err != nil {
+		t.Fatalf("read sidecar: %v", err)
+	}
+	parsed, err := importsettings.Parse(writtenBytes)
+	if err != nil {
+		t.Fatalf("importsettings.Parse failed: %v\n%s", err, writtenBytes)
+	}
+	reencoded, err := importsettings.Encode(parsed)
+	if err != nil {
+		t.Fatalf("importsettings.Encode failed: %v", err)
+	}
+	if !bytes.Equal(writtenBytes, reencoded) {
+		t.Fatalf("sidecar did not round-trip unchanged:\ngot:\n%s\nwant:\n%s", writtenBytes, reencoded)
+	}
+
+	// Trigger Reimport from the panel to run `game assets` and reload the packed atlas.
+	app.Press("id:import-reimport")
+	deadline := time.Now().Add(5 * time.Second)
+	for ed.AssetsBuilding() && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+		app.Settle()
+	}
+	app.Settle()
+	if ed.AssetsBuilding() {
+		t.Fatal("Reimport did not finish in time")
+	}
+
+	// Load the built atlas JSON directly via sprite.LoadAtlas and verify every frame's exact pivot.
+	atlasJSON, err := os.ReadFile(filepath.Join(dir, "assets", "atlases", "actors.json"))
+	if err != nil {
+		t.Fatalf("read built atlas json: %v", err)
+	}
+	builtAtlas, err := sprite.LoadAtlas(core.ImageSource{URI: "asset:assets/atlases/actors.png"}, atlasJSON)
+	if err != nil {
+		t.Fatalf("sprite.LoadAtlas: %v\n%s", err, atlasJSON)
+	}
+	if len(builtAtlas.Frames) != 3 {
+		t.Fatalf("packed %d frames, want 3: %+v", len(builtAtlas.Frames), builtAtlas.Frames)
+	}
+	wantPivots := map[string][2]float32{
+		"hero_0.png": {8, 16}, // default [0.5, 1] on 16x16
+		"hero_1.png": {4, 12}, // cell 1 override [0.25, 0.75] on 16x16
+		"hero_2.png": {8, 16}, // default [0.5, 1] on 16x16
+	}
+	for name, want := range wantPivots {
+		fr, ok := builtAtlas.Frames[name]
+		if !ok {
+			t.Fatalf("missing packed frame %q", name)
+		}
+		if fr.PivotX != want[0] || fr.PivotY != want[1] {
+			t.Fatalf("builtAtlas[%q] pivot = (%v, %v), want (%v, %v)", name, fr.PivotX, fr.PivotY, want[0], want[1])
+		}
+		// Verify live-reloaded atlas in Editor.Resolver matches too.
+		reloadedFr, ok := atlases["actors"].Frames[name]
+		if !ok || reloadedFr.PivotX != want[0] || reloadedFr.PivotY != want[1] {
+			t.Fatalf("reloaded atlas[%q] pivot = (%v, %v), want (%v, %v)", name, reloadedFr.PivotX, reloadedFr.PivotY, want[0], want[1])
+		}
+	}
+}
+
+func TestImagePivotUnslicedDragCancelAndSlicePruning(t *testing.T) {
+	dir := t.TempDir()
+	gameYAML := `version: 1
+name: UnslicedPivotFixture
+id: dev.example.unslicedpivot
+appVersion: 1.0.0
+window:
+  width: 640
+  height: 360
+autoload:
+  mainScene: room
+  scenes:
+    - name: room
+      path: scenes/room.scene.yaml
+assets:
+  atlases:
+    - name: ui
+      in: art/ui
+      out: assets/atlases
+`
+	roomScene := `version: 2
+name: Room
+layers:
+  - name: actors
+`
+	writeFixtureFiles(t, dir, map[string]string{
+		project.FileName:         gameYAML,
+		project.NSGoFileName:     fixtureNSGoYAML,
+		"scenes/room.scene.yaml": roomScene,
+	}, map[string][]byte{
+		"art/ui/icon.png": encodeTestPNG(t, 32, 16),
+	})
+
+	ed, err := editor.New(nil, testResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+	ed.WaitForProblems()
+
+	const canvasW, canvasH float32 = 240, 180
+	// Cancel a drag on an unsliced image: must leave no sidecar on disk.
+	cx, cy, ok := ed.ImageImportPreviewCellPoint("art/ui/icon.png", -1, importsettings.PivotPoint{0.5, 0.5}, canvasW, canvasH)
+	if !ok {
+		t.Fatal("ImageImportPreviewCellPoint failed")
+	}
+	if !ed.BeginImagePivotDrag("art/ui/icon.png", cx, cy, canvasW, canvasH) {
+		t.Fatal("BeginImagePivotDrag on unsliced image failed")
+	}
+	ed.CancelImagePivotDrag()
+	if ed.ImagePivotDragging() {
+		t.Fatal("CancelImagePivotDrag left drag active")
+	}
+	sidecarPath := filepath.Join(dir, "art", "ui", "icon.png.import.yaml")
+	if _, err := os.Stat(sidecarPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected no sidecar after cancelled drag, stat err = %v", err)
+	}
+
+	// Complete drag to center [0.5, 0.5] on the unsliced image.
+	if !ed.BeginImagePivotDrag("art/ui/icon.png", cx, cy, canvasW, canvasH) {
+		t.Fatal("BeginImagePivotDrag failed")
+	}
+	if err := ed.EndImagePivotDrag(); err != nil {
+		t.Fatalf("EndImagePivotDrag: %v", err)
+	}
+	info, err := ed.InspectAssetImport("art/ui/icon.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pt, over := info.EffectiveDefaultImagePivot(); !over || pt != (importsettings.PivotPoint{0.5, 0.5}) {
+		t.Fatalf("unsliced pivot = (%v, %v), want ([0.5, 0.5], true)", pt, over)
+	}
+
+	// Enable slicing with 2 cells, add a cell 1 override, shrink count to 1 (prunes cell 1), then disable slice (keeps default pivot).
+	if err := ed.SetImageImportSlice("art/ui/icon.png", &importsettings.Slice{Width: 16, Height: 16, Count: 2}); err != nil {
+		t.Fatal(err)
+	}
+	cell1 := importsettings.PivotPoint{0.25, 0.75}
+	if err := ed.SetImageImportCellPivot("art/ui/icon.png", 1, &cell1); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.SetImageImportSlice("art/ui/icon.png", &importsettings.Slice{Width: 16, Height: 16, Count: 1}); err != nil {
+		t.Fatalf("shrinking count should prune out-of-range cell pivot: %v", err)
+	}
+	info, _ = ed.InspectAssetImport("art/ui/icon.png")
+	if pv, ok := info.EffectiveImagePivot(); !ok || len(pv.Cells) != 0 {
+		t.Fatalf("expected cell 1 pruned when count=1, got %+v", pv)
+	}
+
+	cell0 := importsettings.PivotPoint{0.1, 0.2}
+	if err := ed.SetImageImportCellPivot("art/ui/icon.png", 0, &cell0); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.SetImageImportSlice("art/ui/icon.png", nil); err != nil {
+		t.Fatalf("clearing slice should clear pivot.cells while keeping pivot.default: %v", err)
+	}
+	info, _ = ed.InspectAssetImport("art/ui/icon.png")
+	if pt, over := info.EffectiveDefaultImagePivot(); !over || pt != (importsettings.PivotPoint{0.5, 0.5}) {
+		t.Fatalf("default pivot after clearing slice = (%v, %v), want ([0.5, 0.5], true)", pt, over)
+	}
+	if err := ed.ResetAssetImportField("art/ui/icon.png", "pivot"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(sidecarPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected sidecar removed after resetting pivot, stat err = %v", err)
+	}
+}

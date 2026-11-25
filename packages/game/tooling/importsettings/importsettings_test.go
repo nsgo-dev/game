@@ -2,6 +2,7 @@ package importsettings_test
 
 import (
 	"bytes"
+	"image"
 	"math"
 	"reflect"
 	"strings"
@@ -16,6 +17,9 @@ func TestParseEncodeRoundTrip(t *testing.T) {
 	for _, f := range []*importsettings.File{
 		{Version: 1, Image: &importsettings.Image{}},
 		{Version: 1, Image: &importsettings.Image{Filter: "nearest", Format: "bc1", Mipmaps: ptr(false), SRGB: ptr(true), Slice: &importsettings.Slice{Width: 16, Height: 8, Margin: 1, Spacing: 2, Count: 5}}},
+		{Version: 1, Image: &importsettings.Image{Pivot: &importsettings.Pivot{Default: ptr(importsettings.PivotPoint{0.5, 1})}}},
+		{Version: 1, Image: &importsettings.Image{Slice: &importsettings.Slice{Width: 16, Height: 16, Count: 4}, Pivot: &importsettings.Pivot{Default: ptr(importsettings.PivotPoint{0.5, 0.5}), Cells: []importsettings.CellPivot{{Cell: 0, Pivot: importsettings.PivotPoint{0, 0}}, {Cell: 2, Pivot: importsettings.PivotPoint{0.25, 0.75}}}}}},
+		{Version: 1, Image: &importsettings.Image{Slice: &importsettings.Slice{Width: 8, Height: 8}, Pivot: &importsettings.Pivot{Cells: []importsettings.CellPivot{{Cell: 1, Pivot: importsettings.PivotPoint{1, 0.5}}}}}},
 		{Version: 1, Audio: &importsettings.Audio{}},
 		{Version: 1, Audio: &importsettings.Audio{Format: "wav", Rate: 22050, Channels: 1, RMSDB: ptr(-14.5), Bitrate: 96, Loop: &importsettings.Loop{Start: 0, End: 4410}}},
 		{Version: 1, Audio: &importsettings.Audio{Format: "mp3", PeakDB: ptr(-1.0)}},
@@ -57,7 +61,17 @@ func TestParseEncodeRoundTrip(t *testing.T) {
 }
 
 func TestEncodeKeyOrder(t *testing.T) {
-	data, err := importsettings.Encode(&importsettings.File{Version: 1, Image: &importsettings.Image{Filter: "nearest", Format: "etc2", Mipmaps: ptr(true), SRGB: ptr(false), Slice: &importsettings.Slice{Width: 4, Height: 4}}})
+	data, err := importsettings.Encode(&importsettings.File{Version: 1, Image: &importsettings.Image{
+		Filter:  "nearest",
+		Format:  "etc2",
+		Mipmaps: ptr(true),
+		SRGB:    ptr(false),
+		Slice:   &importsettings.Slice{Width: 4, Height: 4},
+		Pivot: &importsettings.Pivot{
+			Default: ptr(importsettings.PivotPoint{0.5, 1}),
+			Cells:   []importsettings.CellPivot{{Cell: 1, Pivot: importsettings.PivotPoint{0.25, 0.75}}},
+		},
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,6 +85,11 @@ image:
   slice:
     width: 4
     height: 4
+  pivot:
+    default: [0.5, 1]
+    cells:
+      - cell: 1
+        pivot: [0.25, 0.75]
 `
 	if string(data) != want {
 		t.Fatalf("Encode =\n%s\nwant\n%s", data, want)
@@ -110,6 +129,18 @@ func TestParseRefuses(t *testing.T) {
 		{"slice size", "version: 1\nimage: {slice: {width: 0, height: 4}}\n", "width 0"},
 		{"slice margin", "version: 1\nimage: {slice: {width: 4, height: 4, margin: -1}}\n", "margin -1"},
 		{"slice count", "version: 1\nimage: {slice: {width: 4, height: 4, count: -2}}\n", "count -2"},
+		{"pivot empty", "version: 1\nimage: {pivot: {}}\n", "must set default or at least one cell"},
+		{"pivot default wrong len", "version: 1\nimage: {pivot: {default: [0.5]}}\n", "sequence of 2 numbers"},
+		{"pivot default 3 items", "version: 1\nimage: {pivot: {default: [0.5, 0.5, 0]}}\n", "sequence of 2 numbers"},
+		{"pivot default string", "version: 1\nimage: {pivot: {default: [\"a\", 0.5]}}\n", "must be a number"},
+		{"pivot default null", "version: 1\nimage: {pivot: {default: [null, 0.5]}}\n", "must be a number"},
+		{"pivot default nan", "version: 1\nimage: {pivot: {default: [.nan, 0.5]}}\n", "finite"},
+		{"pivot cells without slice", "version: 1\nimage: {pivot: {cells: [{cell: 0, pivot: [0.5, 0.5]}]}}\n", "cells require image.slice"},
+		{"pivot cell negative", "version: 1\nimage: {slice: {width: 8, height: 8}, pivot: {cells: [{cell: -1, pivot: [0.5, 0.5]}]}}\n", "cell -1"},
+		{"pivot cell duplicate", "version: 1\nimage: {slice: {width: 8, height: 8}, pivot: {cells: [{cell: 1, pivot: [0.5, 0.5]}, {cell: 1, pivot: [0, 0]}]}}\n", "duplicate cell 1"},
+		{"pivot cell unsorted", "version: 1\nimage: {slice: {width: 8, height: 8}, pivot: {cells: [{cell: 2, pivot: [0.5, 0.5]}, {cell: 0, pivot: [0, 0]}]}}\n", "ascending cell order"},
+		{"pivot cell out of slice count", "version: 1\nimage: {slice: {width: 8, height: 8, count: 2}, pivot: {cells: [{cell: 2, pivot: [0.5, 0.5]}]}}\n", "out of range for slice count 2"},
+		{"pivot unknown field", "version: 1\nimage: {pivot: {center: [0.5, 0.5]}}\n", "center"},
 		{"audio format", "version: 1\naudio: {format: ogg}\n", `format "ogg"`},
 		{"rate", "version: 1\naudio: {rate: -1}\n", "rate -1"},
 		{"channels", "version: 1\naudio: {channels: 3}\n", "channels 3"},
@@ -293,5 +324,61 @@ func TestValidateLicense(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("ValidateLicense(%q) = %v, want it to mention %q", tc.expr, err, tc.want)
 		}
+	}
+}
+
+func TestPivotNegativeZeroAndLookup(t *testing.T) {
+	negZero := math.Copysign(0, -1)
+	f := &importsettings.File{
+		Version: 1,
+		Image: &importsettings.Image{
+			Slice: &importsettings.Slice{Width: 16, Height: 16, Count: 4},
+			Pivot: &importsettings.Pivot{
+				Default: ptr(importsettings.PivotPoint{negZero, 0.5}),
+				Cells:   []importsettings.CellPivot{{Cell: 2, Pivot: importsettings.PivotPoint{0.25, negZero}}},
+			},
+		},
+	}
+	data, err := importsettings.Encode(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(data, []byte("-0")) {
+		t.Fatalf("Encode wrote negative zero:\n%s", data)
+	}
+	if !math.Signbit(f.Image.Pivot.Default[0]) {
+		t.Fatal("Encode mutated caller's Default pivot")
+	}
+	back, err := importsettings.Parse(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pt, ok := back.Image.Pivot.ForCell(0); !ok || pt != (importsettings.PivotPoint{0, 0.5}) {
+		t.Fatalf("ForCell(0) = (%v, %v), want ([0, 0.5], true)", pt, ok)
+	}
+	if pt, ok := back.Image.Pivot.ForCell(2); !ok || pt != (importsettings.PivotPoint{0.25, 0}) {
+		t.Fatalf("ForCell(2) = (%v, %v), want ([0.25, 0], true)", pt, ok)
+	}
+	if pt, ok := back.Image.Pivot.ForImage(); !ok || pt != (importsettings.PivotPoint{0, 0.5}) {
+		t.Fatalf("ForImage() = (%v, %v), want ([0, 0.5], true)", pt, ok)
+	}
+}
+
+func TestSliceCells(t *testing.T) {
+	s := importsettings.Slice{Width: 16, Height: 8, Margin: 1, Spacing: 2, Count: 3}
+	rects, cols, rows, err := s.Cells(image.Rect(0, 0, 36, 20))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cols != 2 || rows != 2 || len(rects) != 3 {
+		t.Fatalf("Cells = (%d rects, %dx%d), want (3 rects, 2x2)", len(rects), cols, rows)
+	}
+	want := []image.Rectangle{
+		image.Rect(1, 1, 17, 9),
+		image.Rect(19, 1, 35, 9),
+		image.Rect(1, 11, 17, 19),
+	}
+	if !reflect.DeepEqual(rects, want) {
+		t.Fatalf("rects = %v, want %v", rects, want)
 	}
 }

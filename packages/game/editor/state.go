@@ -424,6 +424,8 @@ type Editor struct {
 	inspectLayer bool
 	// importRev bumps whenever an asset's *.import.yaml sidecar is written, removed, undone, or redone so InspectorView resyncs text drafts.
 	importRev uint64
+	// importPreview caches the selected image asset for the slice-grid & pivot preview canvas and tracks any active pivot drag.
+	importPreview imageImportPreviewState
 	// assetBuild tracks asynchronous `go tool game assets` builds and last-loaded output hashes for live atlas/texture reloading.
 	assetBuild assetBuildState
 	// connPick holds an active target-object pick callback for the connections panel (picking from viewport or scene tree without changing SelectedID).

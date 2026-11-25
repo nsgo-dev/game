@@ -10,6 +10,7 @@ import (
 	"image/color"
 	"image/png"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -54,12 +55,20 @@ func DefaultOptions() Options {
 	}
 }
 
+// Pivot is a frame's normalized pivot as fractions of its untrimmed source size: (0, 0) is top-left, (0.5, 0.5) is center, and (0.5, 1) is bottom-center.
+type Pivot struct {
+	X float64
+	Y float64
+}
+
 // Input is one named image to pack into an atlas.
 type Input struct {
 	// Name is the frame name written to the atlas JSON, such as "hero.png" or "enemies/slime.png".
 	Name string
 	// Image is the source picture.
 	Image image.Image
+	// Pivot is the optional normalized pivot written into the frame's TexturePacker JSON pivot field; nil omits it so sprite.LoadAtlas uses (0, 0).
+	Pivot *Pivot
 }
 
 // Frame describes where one input image landed in a packed atlas page.
@@ -76,6 +85,8 @@ type Frame struct {
 	Trimmed bool
 	// Page is the zero-based page index holding this frame.
 	Page int
+	// Pivot is the normalized frame pivot when set on the input, or nil when omitted.
+	Pivot *Pivot
 }
 
 // Page is one packed atlas image and its TexturePacker JSON-hash metadata.
@@ -213,11 +224,27 @@ func PackImages(inputs []Input, opts Options) (*Result, error) {
 			return nil, fmt.Errorf("pack: input %q has empty bounds %v", in.Name, b)
 		}
 
+		var pivot *Pivot
+		if in.Pivot != nil {
+			if math.IsNaN(in.Pivot.X) || math.IsInf(in.Pivot.X, 0) || math.IsNaN(in.Pivot.Y) || math.IsInf(in.Pivot.Y, 0) {
+				return nil, fmt.Errorf("pack: input %q has non-finite pivot (%v, %v)", in.Name, in.Pivot.X, in.Pivot.Y)
+			}
+			px, py := in.Pivot.X, in.Pivot.Y
+			if px == 0 {
+				px = 0
+			}
+			if py == 0 {
+				py = 0
+			}
+			pivot = &Pivot{X: px, Y: py}
+		}
+
 		item := preparedInput{
 			name:    in.Name,
 			img:     in.Image,
 			srcSize: srcSize,
 			trim:    image.Rect(0, 0, srcSize.X, srcSize.Y),
+			pivot:   pivot,
 		}
 		if cfg.Trim {
 			trimRect, hasPixels := trimBounds(in.Image)
@@ -334,6 +361,7 @@ func PackImages(inputs []Input, opts Options) (*Result, error) {
 				SourceSize:       pl.item.srcSize,
 				Trimmed:          pl.item.trimmed,
 				Page:             i,
+				Pivot:            pl.item.pivot,
 			})
 		}
 		slices.SortFunc(frames, func(a, b Frame) int { return cmp.Compare(a.Name, b.Name) })
@@ -368,6 +396,7 @@ type preparedInput struct {
 	trim    image.Rectangle
 	trimmed bool
 	empty   bool
+	pivot   *Pivot
 }
 
 type placedItem struct {
@@ -519,11 +548,17 @@ type jsonAtlas struct {
 }
 
 type jsonFrame struct {
-	Frame            jsonRect `json:"frame"`
-	Rotated          bool     `json:"rotated"`
-	Trimmed          bool     `json:"trimmed"`
-	SpriteSourceSize jsonRect `json:"spriteSourceSize"`
-	SourceSize       jsonSize `json:"sourceSize"`
+	Frame            jsonRect   `json:"frame"`
+	Rotated          bool       `json:"rotated"`
+	Trimmed          bool       `json:"trimmed"`
+	SpriteSourceSize jsonRect   `json:"spriteSourceSize"`
+	SourceSize       jsonSize   `json:"sourceSize"`
+	Pivot            *jsonPivot `json:"pivot,omitempty"`
+}
+
+type jsonPivot struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
 }
 
 type jsonRect struct {
@@ -560,6 +595,10 @@ func encodeAtlasJSON(imageName string, size image.Point, scale int, frames []Fra
 		},
 	}
 	for _, f := range frames {
+		var jp *jsonPivot
+		if f.Pivot != nil {
+			jp = &jsonPivot{X: f.Pivot.X, Y: f.Pivot.Y}
+		}
 		doc.Frames[f.Name] = jsonFrame{
 			Frame: jsonRect{
 				X: f.Frame.Min.X,
@@ -579,6 +618,7 @@ func encodeAtlasJSON(imageName string, size image.Point, scale int, frames []Fra
 				W: f.SourceSize.X,
 				H: f.SourceSize.Y,
 			},
+			Pivot: jp,
 		}
 	}
 	data, err := json.MarshalIndent(doc, "", "  ")

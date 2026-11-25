@@ -106,6 +106,31 @@
       },
       "additionalProperties": false
     },
+    "CellPivot": {
+      "description": "CellPivot overrides the normalized pivot for one 0-based cell of a sliced sprite sheet.",
+      "type": "object",
+      "properties": {
+        "cell": {
+          "description": "Cell is the 0-based cell index (row by row from the top left), matching the frame suffix _<cell>.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854776000
+        },
+        "pivot": {
+          "description": "Pivot is the normalized [x, y] pivot for this cell.",
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": "number"
+          }
+        }
+      },
+      "required": [
+        "cell",
+        "pivot"
+      ],
+      "additionalProperties": false
+    },
     "Credit": {
       "description": "Credit records where an asset comes from, for the credits file a release ships with.",
       "type": "object",
@@ -159,7 +184,7 @@
       "additionalProperties": false
     },
     "Image": {
-      "description": "Image holds how an image is imported. A texture target reads Filter, Format, Mipmaps and SRGB; an atlas target reads Slice. Each field left out keeps the target's setting in game.yaml.",
+      "description": "Image holds how an image is imported. A texture target reads Filter, Format, Mipmaps and SRGB; an atlas target reads Slice and Pivot. Each field left out keeps the target's setting in game.yaml.",
       "type": "object",
       "properties": {
         "filter": {
@@ -193,6 +218,14 @@
           "allOf": [
             {
               "$ref": "#/definitions/Slice"
+            }
+          ]
+        },
+        "pivot": {
+          "description": "Pivot sets the normalized pivot point(s) written to TexturePacker JSON when an atlas packs the image, as a default for every frame and optional per-cell overrides for a sliced sheet.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Pivot"
             }
           ]
         }
@@ -274,6 +307,28 @@
           "type": "number",
           "minimum": 0,
           "maximum": 3.4028234663852886e+38
+        }
+      },
+      "additionalProperties": false
+    },
+    "Pivot": {
+      "description": "Pivot sets the normalized pivot points written into a packed atlas's TexturePacker frame metadata. Default applies to an unsliced image and to every cell of a sliced sheet without an entry in Cells.",
+      "type": "object",
+      "properties": {
+        "default": {
+          "description": "Default is the normalized [x, y] pivot applied to an unsliced image and to every cell of a sliced sheet not listed in Cells.",
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": "number"
+          }
+        },
+        "cells": {
+          "description": "Cells overrides the normalized [x, y] pivot for individual 0-based cells of a sliced sprite sheet, in ascending cell index order.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/CellPivot"
+          }
         }
       },
       "additionalProperties": false
