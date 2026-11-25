@@ -1,6 +1,6 @@
 # ai
 
-`game/ai` 提供可直接运行在 `game.Loop` 固定步长上的确定性游戏 AI 组件：网格 `AStar` 寻路、带漏斗平滑的 2D 导航网格 `NavMesh`、转向行为（steering）、行为树、效用 AI（Utility AI）评分以及目标导向行动规划（GOAP）。
+`game/ai` 提供可直接运行在 `game.Loop` 固定步长上的确定性游戏 AI 组件：网格 `AStar` 寻路、带漏斗平滑的 2D 导航网格 `NavMesh`、转向行为（steering）、行为树、效用 AI（Utility AI）评分、目标导向行动规划（GOAP）、攻击令牌池、同心交战槽位分配以及小队协作。
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/ai"
@@ -110,8 +110,8 @@ tree.Tick(dt)
 可用节点类型：
 
 - **组合节点**：`Sequence`、`Selector`（当高优先级分支成功或运行时会自动重置被抢占的低优先级运行中分支）、`Parallel(policy, ...)`（`RequireAll` 或 `RequireOne`）、`UtilitySelector(reasoner, ctx, rng, subtrees)`。
-- **修饰节点**：`Guard(cond, child)`、`Cooldown(d, child)`、`Inverter`、`Succeeder`、`Failer`、`Repeater(count, child)`、`UntilFail`。
-- **叶节点**：`Action(fn)`、`Condition(fn)`、`Wait(d)`。
+- **修饰节点**：`Guard(cond, child)`、`Cooldown(d, child)`、`WithAttackToken(pool, agentID, priority, child)`、`Inverter`、`Succeeder`、`Failer`、`Repeater(count, child)`、`UntilFail`。
+- **叶节点**：`Action(fn)`、`Condition(fn)`、`Wait(d)`、`HasAttackToken(pool, agentID)`、`SquadHasOrder(squad, kind)`、`SquadHasRole(squad, agentID, role)`、`SquadStateBool(squad, key)`、`SquadOrderAction(squad, fn)`。
 
 ## 效用 AI
 
@@ -324,3 +324,86 @@ set, err := ai.BuildGOAP(cfg, ai.GOAPBindings{
 ```
 
 解析器会拒绝未知字段、不支持的版本号、未声明事实引用、无效运算符以及多余的 YAML 文档，规范格式文件读取再写回后字节完全一致（详见 [文件格式](formats.md#goap-动作集)）。
+
+## 攻击令牌、交战槽位与小队
+
+在动作、格斗和射击游戏中协调敌人群体：限制同时进攻的敌人数量，让包围移动目标的敌人分散站位且路径不交叉，并通过小队共享状态、战术角色与指令。
+
+### 攻击令牌池
+
+`TokenPool` 为单个目标仲裁固定数量的攻击令牌，`TokenManager` 按目标 ID 维护多个 `TokenPool`。智能体在步长内通过 `Request(agentID, priority)` 提交或刷新请求，`Step(dt)` 推进冷却与持有超时，并按确定性顺序结算待处理请求（优先级高者优先，同分按 `AgentID` 升序打破平局，与提交顺序无关）：
+
+```go
+tokens := ai.NewTokenPool(ai.TokenPoolConfig{
+	Capacity:        2,                      // 最多 2 个敌人同时进攻
+	Cooldown:        400 * time.Millisecond, // 归还令牌后的冷却时间
+	PreemptMargin:   1.5,                    // 从低优先级持有者抢占令牌所需的优势差
+	MaxHoldDuration: 3 * time.Second,        // 进攻卡住时自动归还令牌
+})
+
+// 每个敌人的行为树申请令牌，未获得时回退到绕圈待命：
+enemyTree := ai.Selector(
+	ai.WithAttackToken(tokens, enemyID, enemyPriority, attackSequence),
+	circleTargetNode,
+)
+
+// 固定步长中：先驱动行为树，再统一结算令牌授予与抢占：
+enemyTree.Tick(dt)
+tokens.Step(dt)
+
+// 敌人死亡或脱离战斗时：
+tokens.Remove(enemyID)
+```
+
+- **优先级抢占**：无空闲令牌时，若等待请求的优先级高出最弱持有者至少 `PreemptMargin`（`PreemptMargin <= 0` 时严格高于即可），则直接接管其令牌且不进入冷却。`WithAttackToken` 在下一帧发现失去令牌时会自动重置运行中的子节点并返回 `StatusFailure`，使上层 `Selector` 平滑切回绕圈或待命分支。
+- **多目标管理**：敌人面向多个目标时使用 `NewTokenManager(defaultCfg)`；可通过 `ConfigureTarget(targetID, cfg)` 为特定目标设置独立配额，敌人死亡时调用 `RemoveAgent(agentID)` 一次性清理所有目标的持有与等待，`Step(dt)` 按目标 ID 升序确定性推进。
+
+### 交战槽位
+
+`SlotAssigner` 使用最小代价二分匹配（匈牙利算法）将智能体分配到目标周围的同心 `EngagementRing` 槽位上：
+
+```go
+assigner := ai.NewSlotAssigner(
+	ai.EngagementRing{Radius: 45, Slots: 4}, // 内圈近战槽位优先填满
+	ai.EngagementRing{Radius: 90, Slots: 6}, // 外圈绕行槽位
+)
+assigner.StayBias = 10 // 世界单位迟滞偏置，抑制边界抖动换位
+
+var slots []ai.SlotAssignment
+// 在 game.Loop.Update 中随 targetPos 移动持续更新：
+slots = assigner.Assign(slots, targetPos, []ai.SlotAgent{
+	{ID: 1, Pos: enemy1.Pos},
+	{ID: 2, Pos: enemy2.Pos},
+})
+```
+
+- **路径不交叉与内圈优先**：内圈槽位完全填满后才使用外圈，最小化总欧氏距离从几何上避免智能体到槽位的直线路径交叉。智能体数量超过总槽位时，最优子集获得分配，多余智能体返回 `Assigned: false`（`Ring: -1`、`Slot: -1`）。
+- **稳定性与确定性**：设置 `StayBias > 0` 为智能体保留上一帧槽位提供代价优惠，使移动目标周围的站位更稳定。内部按 `ID` 升序规范化输入，分配结果与切片传入顺序无关，跨运行完全一致，且复用内部缓冲区实现预热后零堆分配。
+
+### 小队协作
+
+`Squad` 以确定性升序维护成员名单，提供共享键值状态 `SquadState`、基于评分的战术角色分配 `AssignRoles` 以及可供行为树读取的小队级指令 `SquadOrder`：
+
+```go
+squad := ai.NewSquad(1, 10, 20, 30)
+squad.State().SetBool("player_spotted", true)
+squad.State().SetPoint("last_known_pos", playerPos)
+
+squad.AssignRoles(
+	ai.SquadRoleSpec{Name: "flanker", Count: 1, Score: flankScore},
+	ai.SquadRoleSpec{Name: "suppressor", Count: 2, Score: suppressScore},
+)
+squad.SetOrder(ai.SquadOrder{Kind: "pinch", TargetID: playerID, Position: playerPos})
+
+// 在小队成员的行为树中读取状态、指令与角色：
+flankBranch := ai.Sequence(
+	ai.SquadStateBool(squad, "player_spotted"),
+	ai.SquadHasOrder(squad, "pinch"),
+	ai.SquadHasRole(squad, memberID, "flanker"),
+	ai.SquadOrderAction(squad, moveToFlank),
+)
+```
+
+- **`AssignRoles`**：基于 `SquadRoleSpec` 执行最大权二分匹配，优先最大化可填满的合法角色数量，其次最大化总得分；`Score` 返回 `NaN` 或 `±Inf` 表示该成员不具备此角色资格。
+- **`SquadOrder.Revision`**：每次 `SetOrder` 与 `ClearOrder` 都会递增修订号，便于行为树在指令 `Kind` 相同时仍能识别新下达的指令。
+- **`SquadState`**：提供强类型存取方法（`Bool`、`Int`、`Float`、`String`、`Point`、`ID`）、泛型 `SquadStateGet[T]` 以及按字典序排序的 `Keys`。
