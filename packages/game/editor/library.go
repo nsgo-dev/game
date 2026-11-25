@@ -79,6 +79,7 @@ func (e *Editor) applyPackChange(dir string, c *library.Change, done string) err
 	}
 	e.History.Clear()
 	e.filesRev++
+	e.assetsRev++
 	e.invalidateProjectIndex()
 	e.dropStalePluginTool()
 	e.Status = done

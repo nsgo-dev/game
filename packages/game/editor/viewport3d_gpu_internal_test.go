@@ -10,6 +10,7 @@ import (
 
 	"github.com/nsgo-dev/game/packages/game/gametest"
 	"github.com/nsgo-dev/game/packages/game/math3d"
+	"github.com/nsgo-dev/game/packages/game/render3d"
 	"github.com/nsgo-dev/game/packages/game/resource"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/game/packages/game/scenemodel"
@@ -187,8 +188,7 @@ func TestViewport3DRendersTheSceneWithRender3D(t *testing.T) {
 	// With the editor's own lights the scene's background replaces the sky.
 	ed.SetShading3D(Shading3DLit)
 	lights := DefaultLights3D()
-	ed.Lights3D = &lights
-	ed.notify()
+	ed.SetLights3D(&lights)
 	_, own := v.frame()
 	bg := ed.background3D()
 	r, g, b, _ := bg.Components()
@@ -310,4 +310,124 @@ func assertViewportReference(t *testing.T, path string, got *image.RGBA) {
 		_ = gametest.WritePNG(filepath.Join(dir, name+".diff.png"), diff)
 		t.Fatalf("%s: %d pixels differ from the reference (limit %d); got and diff written to %s", name, far, limit, dir)
 	}
+}
+
+// TestPick3DPrefersGeometryToAMarkerAroundTheCamera adds an empty object at the courtyard's origin, whose 16-unit marker box holds the camera and the whole level: a press on the sphere still selects the sphere, and a press on empty sky falls back to the marker.
+func TestPick3DPrefersGeometryToAMarkerAroundTheCamera(t *testing.T) {
+	ed := openCourtyard(t)
+	ed.Doc.Layers[0].Objects = append(ed.Doc.Layers[0].Objects, sceneformat.ObjectDoc{ID: "spawn"})
+	ed.Rebuild()
+	if _, err := ed.Scene3D(); err != nil {
+		t.Fatalf("Scene3D: %v", err)
+	}
+	spawn, _, _ := ed.FindObject("spawn")
+	lo, hi := ed.ObjectAABB3D(spawn)
+	eye := ed.Camera3D.Eye()
+	for i := range 3 {
+		if eye[i] < lo[i] || eye[i] > hi[i] {
+			t.Fatalf("the camera at %v is outside the marker box %v..%v, so the test proves nothing", eye, lo, hi)
+		}
+	}
+	x, y := projectPixel(ed, math3d.Vec3{X: 0.9, Y: 0.5, Z: 0.6})
+	if id, ok := ed.Pick3DObject(float32(x), float32(y), gpuViewWidth, gpuViewHeight); !ok || id != "ball" {
+		t.Fatalf("a press on the sphere picked %q, %v, want the sphere", id, ok)
+	}
+	if id, ok := ed.Pick3DObject(1, 1, gpuViewWidth, gpuViewHeight); !ok || id != "spawn" {
+		t.Fatalf("a press on the sky picked %q, %v, want the marker the camera is in", id, ok)
+	}
+}
+
+// TestScene3DGenerationOnlyGrows closes the scene between two builds: the second build's generation is still newer than the first's, so a renderer holding the first build's upload uploads the second.
+func TestScene3DGenerationOnlyGrows(t *testing.T) {
+	ed := openCourtyard(t)
+	if _, err := ed.Scene3D(); err != nil {
+		t.Fatalf("Scene3D: %v", err)
+	}
+	gen, doc := ed.s3d.gen, ed.Doc
+	ed.Doc = nil
+	if built, _ := ed.Scene3D(); built != nil {
+		t.Fatal("without a scene Scene3D returned a build")
+	}
+	ed.Doc = doc
+	if _, err := ed.Scene3D(); err != nil {
+		t.Fatalf("Scene3D: %v", err)
+	}
+	if ed.s3d.gen <= gen {
+		t.Fatalf("the build after closing the scene has generation %d, want more than %d", ed.s3d.gen, gen)
+	}
+}
+
+// TestScene3DKeepsItsAssetsWhenTheSceneIsSaved saves the open scene, which writes no model, material file or image, and checks the 3D build is kept; rescanning the project from disk builds it again.
+func TestScene3DKeepsItsAssetsWhenTheSceneIsSaved(t *testing.T) {
+	ed := openCourtyard(t)
+	if _, err := ed.Scene3D(); err != nil {
+		t.Fatalf("Scene3D: %v", err)
+	}
+	gen := ed.s3d.gen
+	if ed.FilePath == "" {
+		t.Fatal("the courtyard opened without a scene file")
+	}
+	if err := ed.SaveFile(ed.FilePath); err != nil {
+		t.Fatalf("SaveFile: %v", err)
+	}
+	if _, err := ed.Scene3D(); err != nil || ed.s3d.gen != gen {
+		t.Fatalf("saving the scene built it again (generation %d, was %d; %v)", ed.s3d.gen, gen, err)
+	}
+	if err := ed.RefreshSearch(); err != nil {
+		t.Fatalf("RefreshSearch: %v", err)
+	}
+	if _, err := ed.Scene3D(); err != nil || ed.s3d.gen == gen {
+		t.Fatalf("rescanning the project did not build the scene again (generation %d; %v)", ed.s3d.gen, err)
+	}
+}
+
+// TestViewport3DDoesNotRetryAFailedFrame sets lights the renderer refuses: the frame fails, the same frame is not tried again, and valid lights draw again.
+func TestViewport3DDoesNotRetryAFailedFrame(t *testing.T) {
+	ed := openCourtyard(t)
+	v := newSoftwareViewport(t, ed)
+	v.frame()
+	bad := DefaultLights3D()
+	bad.Directional = make([]render3d.DirectionalLight, render3d.MaxDirectionalLights+1)
+	ed.SetLights3D(&bad)
+	enc := v.sr.Device().BeginEncoder()
+	drew, err := v.r.render(enc, gpuViewWidth, gpuViewHeight)
+	if drew || err == nil {
+		t.Fatalf("too many lights drew %v with error %v, want an error", drew, err)
+	}
+	drew, again := v.r.render(enc, gpuViewWidth, gpuViewHeight)
+	if drew || again != err {
+		t.Fatalf("the same failed frame was tried again: drew %v, error %v (was %v)", drew, again, err)
+	}
+	v.sr.Device().Submit(enc.Finish())
+	v.sr.WaitIdle()
+	ed.SetLights3D(nil)
+	if drew, _ := v.frame(); !drew {
+		t.Fatal("after valid lights the viewport drew nothing")
+	}
+}
+
+// TestMeshEdges3DJoinsSplitVertices takes the box primitive, which splits each corner into one vertex per face: its wireframe has each of the 12 sides and 6 face diagonals once.
+func TestMeshEdges3DJoinsSplitVertices(t *testing.T) {
+	ed := openCourtyard(t)
+	if err := ed.SetObjectMesh("ball", "box"); err != nil {
+		t.Fatalf("SetObjectMesh: %v", err)
+	}
+	built, err := ed.Scene3D()
+	if err != nil {
+		t.Fatalf("Scene3D: %v", err)
+	}
+	for _, d := range built.Drawables {
+		if d.Object != "ball" {
+			continue
+		}
+		p := &d.Parts[0]
+		if len(p.Mesh.Positions) <= 8 {
+			t.Fatalf("the box has %d vertices, want its corners split per face", len(p.Mesh.Positions))
+		}
+		if edges := ed.s3d.meshEdges3D(p.MeshID, p.Mesh); len(edges) != 18 {
+			t.Fatalf("the box has %d wireframe edges, want 18", len(edges))
+		}
+		return
+	}
+	t.Fatal("the box draws nothing")
 }

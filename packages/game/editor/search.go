@@ -169,6 +169,7 @@ func (e *Editor) RefreshSearch() error {
 		return ErrNoProject
 	}
 	e.filesRev++
+	e.assetsRev++
 	ix, err := e.ensureProjectIndex(true)
 	e.search.lastErr = err
 	if err != nil {

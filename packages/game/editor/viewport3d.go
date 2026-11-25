@@ -387,7 +387,7 @@ func aabbOfCorners3D(corners [8][3]float32) (boxMin, boxMax [3]float32) {
 	return boxMin, boxMax
 }
 
-// Pick3D casts a perspective ray through viewport pixel (sx, sy) and returns the flat index (Objects3D's) of the closest visible scene object it hits, nested children included. An object that draws a mesh or model in the scene's 3D build (Scene3D) is hit on the triangles of its geometry, through the build's scene3d picking, and any other object on its world-space 3D AABB (ObjectAABB3D); an object an instanced scene adds is picked as its instance. Objects hidden or locked in the editor (SetObjectHidden, SetObjectLocked), with their descendants, and the objects of hidden and locked layers (SetLayerVisible, SetLayerLocked) are passed over.
+// Pick3D casts a perspective ray through viewport pixel (sx, sy) and returns the flat index (Objects3D's) of the closest visible scene object it hits, nested children included. An object that draws a mesh or model in the scene's 3D build (Scene3D) is hit on the triangles of its geometry, through the build's scene3d picking, and any other object on its world-space 3D AABB (ObjectAABB3D); an object an instanced scene adds is picked as its instance. A press that hits geometry picks the geometry's object even when the box of an object without geometry is nearer, since such boxes are a fixed size whatever the scene's scale and may enclose the camera or the whole level; the boxes are picked only where no geometry is hit. Objects hidden or locked in the editor (SetObjectHidden, SetObjectLocked), with their descendants, and the objects of hidden and locked layers (SetLayerVisible, SetLayerLocked) are passed over.
 func (e *Editor) Pick3D(sx, sy, w, h float32) (objectIndex int, ok bool) {
 	if e == nil || e.Doc == nil || w <= 0 || h <= 0 {
 		return -1, false
@@ -396,10 +396,10 @@ func (e *Editor) Pick3D(sx, sy, w, h float32) (objectIndex int, ok bool) {
 	orig := vec64(orig32)
 	dir := vec64(dir32)
 	s3 := e.scene3D()
-	meshID, meshT, meshHit := e.pickGeometry3D(s3, orig, dir)
+	meshID, meshHit := e.pickGeometry3D(s3, orig, dir)
 
-	bestIdx := -1
-	bestT := math.Inf(1)
+	meshIdx, boxIdx := -1, -1
+	boxT := math.Inf(1)
 	idx := 0
 	for li := range e.Doc.Layers {
 		layer := &e.Doc.Layers[li]
@@ -415,15 +415,14 @@ func (e *Editor) Pick3D(sx, sy, w, h float32) (objectIndex int, ok bool) {
 				posed := e.posed3D(o)
 				// A hidden or locked object takes its descendants with it.
 				skipped := skip || e.hidden[o.ID] || e.locked[o.ID]
-				if meshHit && o.ID == meshID && meshT < bestT {
-					bestT = meshT
-					bestIdx = idx
+				if meshHit && o.ID == meshID {
+					meshIdx = idx
 				}
-				if _, geometry := e.geometryBounds3D(o.ID); visible && !skipped && !geometry {
+				if _, geometry := e.geometryBounds3D(o.ID); !meshHit && visible && !skipped && !geometry {
 					bmin, bmax := aabbOfCorners3D(e.objectCorners3DUnder(posed, parent))
-					if t, hit := intersectRayAABB64(orig, dir, vec64(bmin), vec64(bmax)); hit && t < bestT {
-						bestT = t
-						bestIdx = idx
+					if t, hit := intersectRayAABB64(orig, dir, vec64(bmin), vec64(bmax)); hit && t < boxT {
+						boxT = t
+						boxIdx = idx
 					}
 				}
 				idx++
@@ -432,10 +431,13 @@ func (e *Editor) Pick3D(sx, sy, w, h float32) (objectIndex int, ok bool) {
 		}
 		walk(layer.Objects, ident3, false)
 	}
-	if bestIdx < 0 {
+	if meshIdx >= 0 {
+		return meshIdx, true
+	}
+	if boxIdx < 0 {
 		return -1, false
 	}
-	return bestIdx, true
+	return boxIdx, true
 }
 
 // Pick3DObject returns the ID of the closest visible 3D object hit at viewport pixel (sx, sy).

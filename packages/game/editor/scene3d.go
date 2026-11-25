@@ -28,11 +28,11 @@ type scene3DState struct {
 	err   error
 	// gen counts the builds, so the GPU renderer knows when to upload the geometry again.
 	gen uint64
-	// stale says the scene may have changed its look since the last build (Rebuild sets it); doc, key, filesRev and projectPath are what the last build was made from.
+	// stale says the scene may have changed its look since the last build (Rebuild sets it); doc, key, assetsRev and projectPath are what the last build was made from.
 	stale       bool
 	doc         *sceneformat.SceneDoc
 	key         uint64
-	filesRev    uint64
+	assetsRev   uint64
 	projectPath string
 	// files loads models, material files and images from the open project's files.
 	files *scenemodel.Assets
@@ -99,11 +99,12 @@ func (e *Editor) Scene3D() (*scenemodel.Built, error) {
 func (e *Editor) scene3D() *scene3DState {
 	s := &e.s3d
 	if e.Doc == nil {
-		*s = scene3DState{files: s.files, projectPath: s.projectPath, filesRev: s.filesRev}
+		// gen only grows, so a renderer still holding the last build's upload never takes the next build for it.
+		*s = scene3DState{gen: s.gen, files: s.files, projectPath: s.projectPath, assetsRev: s.assetsRev}
 		return s
 	}
-	if e.ProjectPath != s.projectPath || e.filesRev != s.filesRev {
-		// Files the editor moved, installed or saved may be what the cached models and materials came from.
+	if e.ProjectPath != s.projectPath || e.assetsRev != s.assetsRev {
+		// Files the editor moved, installed or rescanned may be what the cached models and materials came from.
 		s.files = nil
 		s.stale = true
 	}
@@ -112,11 +113,11 @@ func (e *Editor) scene3D() *scene3DState {
 	}
 	if s.stale || s.doc != e.Doc {
 		key, comparable := lookKey3D(e.Doc)
-		if !comparable || s.world == nil || s.err != nil || key != s.key || e.ProjectPath != s.projectPath || e.filesRev != s.filesRev {
+		if !comparable || s.world == nil || s.err != nil || key != s.key || e.ProjectPath != s.projectPath || e.assetsRev != s.assetsRev {
 			e.build3D(s)
 		}
 		s.doc, s.key, s.stale = e.Doc, key, false
-		s.projectPath, s.filesRev = e.ProjectPath, e.filesRev
+		s.projectPath, s.assetsRev = e.ProjectPath, e.assetsRev
 	}
 	if s.built != nil {
 		e.sync3D(s)
@@ -223,10 +224,10 @@ func (e *Editor) geometryBounds3D(id string) (math3d.AABB, bool) {
 	return b, ok && !b.Empty()
 }
 
-// pickGeometry3D returns the object of the open scene whose geometry the ray from orig along dir hits first, at the ray parameter t, passing over geometry that belongs to an object hidden or locked in the editor or under one. An object that only an instanced scene adds is reported as the nearest of its ancestors that the open scene holds.
-func (e *Editor) pickGeometry3D(s *scene3DState, orig, dir [3]float64) (id string, t float64, ok bool) {
+// pickGeometry3D returns the object of the open scene whose geometry the ray from orig along dir hits first, passing over geometry that belongs to an object hidden or locked in the editor or under one. An object that only an instanced scene adds is reported as the nearest of its ancestors that the open scene holds.
+func (e *Editor) pickGeometry3D(s *scene3DState, orig, dir [3]float64) (id string, ok bool) {
 	if s.world == nil {
-		return "", 0, false
+		return "", false
 	}
 	ray := math3d.Ray{Origin: math3d.Vec3{X: float32(orig[0]), Y: float32(orig[1]), Z: float32(orig[2])}, Dir: math3d.Vec3{X: float32(dir[0]), Y: float32(dir[1]), Z: float32(dir[2])}}
 	for _, hit := range s.world.Raycast(ray, math.MaxUint32) {
@@ -238,9 +239,9 @@ func (e *Editor) pickGeometry3D(s *scene3DState, orig, dir [3]float64) (id strin
 		if owner == "" || e.pickBlocked3D(owner) {
 			continue
 		}
-		return owner, float64(hit.T), true
+		return owner, true
 	}
-	return "", 0, false
+	return "", false
 }
 
 // docObjectFor returns id when the open scene holds an object with it, and otherwise the nearest ancestor the scene holds of the instanced object id names ("enemy_1/body" belongs to "enemy_1"), or "" for none.
@@ -286,7 +287,7 @@ func (s *scene3DState) meshEdges3D(id uint32, m render3d.Mesh) [][2]uint32 {
 	if count == 0 {
 		count = len(m.Positions)
 	}
-	seen := make(map[[2]uint32]bool)
+	seen := make(map[[2]math3d.Vec3]bool)
 	var edges [][2]uint32
 	for t := 0; t+2 < count; t += 3 {
 		tri := [3]uint32{index(t), index(t + 1), index(t + 2)}
@@ -297,15 +298,15 @@ func (s *scene3DState) meshEdges3D(id uint32, m render3d.Mesh) [][2]uint32 {
 			if pa == pb {
 				continue
 			}
-			key := [2]uint32{a, b}
-			if b < a {
-				key = [2]uint32{b, a}
+			if lessVec3(pb, pa) {
+				pa, pb = pb, pa
 			}
+			key := [2]math3d.Vec3{pa, pb}
 			if seen[key] {
 				continue
 			}
 			seen[key] = true
-			edges = append(edges, key)
+			edges = append(edges, [2]uint32{a, b})
 		}
 	}
 	if s.edges == nil {
@@ -313,6 +314,17 @@ func (s *scene3DState) meshEdges3D(id uint32, m render3d.Mesh) [][2]uint32 {
 	}
 	s.edges[id] = edges
 	return edges
+}
+
+// lessVec3 orders positions by X, then Y, then Z, so an edge's two ends make one key whichever way a triangle walks it.
+func lessVec3(a, b math3d.Vec3) bool {
+	if a.X != b.X {
+		return a.X < b.X
+	}
+	if a.Y != b.Y {
+		return a.Y < b.Y
+	}
+	return a.Z < b.Z
 }
 
 // lookKey3D returns a hash of everything in doc that decides what its 3D build draws, leaving out the transforms that sync3D applies in place: the scene it inherits and its overrides, its layers, and each object's place in the tree, look (mesh, model, modelNode, modelMesh, material), instanced scene and overrides. comparable is false when an override holds a value JSON cannot encode, so the key cannot tell whether it changed.
