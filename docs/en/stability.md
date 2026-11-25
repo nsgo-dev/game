@@ -129,6 +129,7 @@ Paths are relative to `github.com/nsgo-dev/game/packages`. The table is checked 
 | `game/pixelfx/critters` | Experimental | [pixelfx](pixelfx.md) |
 | `game/pixelfx/explosions` | Experimental | [pixelfx](pixelfx.md) |
 | `game/pixelfx/fire` | Experimental | [pixelfx](pixelfx.md) |
+| `game/pixelfx/holy` | Experimental | [pixelfx](pixelfx.md) |
 | `game/pixelfx/ice` | Experimental | [pixelfx](pixelfx.md) |
 | `game/pixelfx/impacts` | Experimental | [pixelfx](pixelfx.md) |
 | `game/pixelfx/lightning` | Experimental | [pixelfx](pixelfx.md) |

@@ -19,6 +19,7 @@ The port follows pixelfx at commit `5294518ce7c72e48b6100a744596e0acf57f2826` wi
 | `game/pixelfx/arcane` | Arcane magic: arcane beam, arcane missiles, arcane orb, blink in, blink out, magic circle cast, mana burst, portal, rune circle, spell charge, star fall and time stop |
 | `game/pixelfx/fire` | Fire: brazier, campfire, candle, fire breath, fire ring, fire tornado, fireball, flame pillar, flamethrower, meteor, spirit flame and torch |
 | `game/pixelfx/explosions` | Explosions: barrel explosion, big explosion, cartoon POW, dirt explosion, firework burst, firework rocket, grenade, implosion, nuke, plasma explosion, small explosion and smoke bomb |
+| `game/pixelfx/holy` | Holy: blessing, divine shield, feather burst, halo, heal, healing ring, holy pillar, resurrection, smite and sunburst |
 | `game/pixelfx/impacts` | Impacts: blunt hit, bullet impact, critical hit, ground slam, heavy landing, hit flash, hit spark, impact frame, parry, ricochet and shield block |
 | `game/pixelfx/lightning` | Lightning: ball lightning, chain lightning, charge up, electrified, lightning strike, plasma ball, spark arc, storm cloud, tesla coil, thunderclap and zap hit |
 | `game/pixelfx/melee` | Melee attacks, each acted out by the stock character with its weapon: claw swipe, dagger flurry, double slash, hammer smash, heavy cleave, scythe reap, spear sweep, spin slash, sword slash, thrust, uppercut and whip crack. Their size options (`radius`, `reach`, `length`) are kept between 1 and 416 px |
@@ -37,7 +38,7 @@ The port follows pixelfx at commit `5294518ce7c72e48b6100a744596e0acf57f2826` wi
 | `game/pixelfx/water` | Water: bubbles, drip, fountain, geyser, rain splash, ripples, splash, water jet, water orb, waterfall, wave crash and whirlpool |
 | `game/pixelfx/weather` | Weather loops: aurora, blizzard, cherry blossoms, clouds, falling leaves, fireflies, fog, god rays, rain, shooting stars, snow and storm |
 
-Effects live in one subpackage per category, which registers its effects as `"<category>/<name>"` when it is imported, so a game links only the categories it imports. The other category of pixelfx (holy) follows next, as [Porting a category](#porting-a-category) describes.
+Effects live in one subpackage per category, which registers its effects as `"<category>/<name>"` when it is imported, so a game links only the categories it imports. See [Porting a category](#porting-a-category) for how each category is structured.
 
 ## Playing an effect
 
