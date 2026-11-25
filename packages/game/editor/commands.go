@@ -59,6 +59,7 @@ const (
 	CmdAudioMixer            = "project.mixer"
 	CmdLocalization          = "project.l10n"
 	CmdParticleEditor        = "project.particles"
+	CmdHUDLayout             = "project.hud"
 	CmdExport                = "project.export"
 	CmdProfiler              = "project.profiler"
 	CmdCheckProblems         = "project.check"
@@ -854,6 +855,20 @@ func (e *Editor) initBuiltinCommands() {
 					return e.CloseParticleEmitter()
 				}
 				return e.NewParticleEmitter()
+			},
+		},
+		{
+			ID:          CmdHUDLayout,
+			Label:       "HUD & Menu Layout",
+			Description: "Toggle the multi-size, multi-language HUD and menu layout screen",
+			Category:    "Project",
+			Keywords:    []string{"hud", "menu", "ui", "screen", "layout", "safe area", "anchors", "locale", "overflow"},
+			Shortcut:    "mod+shift+u",
+			Enabled:     notPlaying,
+			Checked:     func() bool { return e.HUDLayoutOpen() },
+			Run: func() error {
+				e.SetHUDLayoutOpen(!e.HUDLayoutOpen())
+				return nil
 			},
 		},
 		{

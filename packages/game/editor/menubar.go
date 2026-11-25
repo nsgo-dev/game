@@ -179,6 +179,7 @@ func (e *Editor) ApplicationMenu() []desktop.MenuItem {
 		cmdItem(CmdProjectSettings, e.T("menu.projectSettings"), false),
 		cmdItem(CmdAudioMixer, e.T("menu.audioMixer"), false),
 		cmdItem(CmdLocalization, e.T("menu.localization"), false),
+		cmdItem(CmdHUDLayout, "HUD & Menu Layout", false),
 		cmdItem(CmdProfiler, e.T("menu.profiler"), false),
 		cmdItem(CmdParticleEditor, e.T("menu.particleEditor"), false),
 		sep,
@@ -214,7 +215,7 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 	sig := core.NewMemo(cx, func() string {
 		_ = rev.Get()
 		var b strings.Builder
-		fmt.Fprintf(&b, "%s|%v|%v|%v|%v|%v|%v|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v",
+		fmt.Fprintf(&b, "%s|%v|%v|%v|%v|%v|%v|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v",
 			e.ResolvedLanguage(),
 			e.EditorSettingsOpen(),
 			e.StartScreenOpen(),
@@ -233,6 +234,7 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 			e.AudioMixerOpen(),
 			e.LocalizationOpen(),
 			e.ParticleEmitterOpen(),
+			e.HUDLayoutOpen(),
 			e.ExportPanelOpen(),
 			e.ProfilerOpen(),
 			e.ShowLightingPreview,

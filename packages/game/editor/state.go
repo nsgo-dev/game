@@ -351,6 +351,10 @@ type Editor struct {
 	CreateProject func(ctx context.Context, req CreateProjectRequest, stdout, stderr io.Writer) error
 	// OnOpenDemo overrides the Start Screen's Open Demo action when non-nil; when nil, OpenDemo loads the built-in Demo Room.
 	OnOpenDemo func() error
+	// OnSaveScreen, when set, is called with the screen path and canonical *.screen.yaml bytes whenever a HUD layout edit writes or reverts a screen.
+	OnSaveScreen func(path string, data []byte) error
+	// OnHUDPrompt, when set, is called when the author submits a prompt from the HUD layout screen's composer or "Ask the agent to fix N" button.
+	OnHUDPrompt func(HUDPromptRequest)
 
 	playing           bool
 	playSnapshot      []byte
@@ -543,6 +547,8 @@ type Editor struct {
 	settings           EditorSettings
 	editorSettingsOpen bool
 	catalog            *l10n.Catalog
+	// hud holds the HUD and menu multi-size layout screen state, active *.screen.yaml document, locale tables, overlays, and touch drag session.
+	hud hudLayoutState
 }
 
 // DefaultSceneDoc returns a valid starter SceneDoc suitable for a new editor session.
@@ -600,6 +606,9 @@ func New(doc *sceneformat.SceneDoc, resolver sceneformat.AssetResolver) (*Editor
 		},
 		settings: DefaultEditorSettings(),
 		catalog:  defaultEditorCatalog,
+		hud: hudLayoutState{
+			overlays: DefaultHUDOverlays(),
+		},
 	}
 	if len(doc.Layers) > 0 {
 		ed.ActiveLayer = doc.Layers[0].Name
@@ -691,6 +700,7 @@ func (e *Editor) afterMutate() {
 	e.dropStaleFocusedPluginPanel()
 	e.syncAudioMixer()
 	e.syncExportPanel()
+	e.syncHUDAfterMutate()
 	e.Rebuild()
 	e.refreshOpenSceneSearch()
 	e.notify()

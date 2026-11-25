@@ -106,6 +106,10 @@ func (e *Editor) OpenProjectFile(relPath string) error {
 	if relPath == "" {
 		return nil
 	}
+	if isScreenFile(relPath) {
+		e.selectFile(relPath)
+		return e.OpenHUDScreen(relPath)
+	}
 	if isProjectScene(e.Project, relPath) {
 		if err := e.OpenScene(relPath); err != nil {
 			e.selectFile(relPath)

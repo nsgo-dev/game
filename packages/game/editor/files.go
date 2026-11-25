@@ -99,6 +99,8 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 							ed.report(ed.OpenRoomsProjectFile(p))
 						case isRigFile(p):
 							ed.report(ed.OpenRigProjectFile(p, ""))
+						case isScreenFile(p):
+							ed.report(ed.OpenHUDScreen(p))
 						case isProjectScene(ed.Project, p) && p != ed.ScenePath:
 							ed.openSceneAsked(p)
 						}
@@ -148,7 +150,7 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 									if ed.Playing() || p == "" || slices.ContainsFunc(files.Get().files, func(f ProjectFile) bool { return f.Path == p && f.Dir }) {
 										return true
 									}
-									if isStatesFile(p) || isParticleFilePath(p) || isRoomsFile(p) {
+									if isStatesFile(p) || isParticleFilePath(p) || isRoomsFile(p) || isScreenFile(p) {
 										return false
 									}
 									return p == ed.ScenePath || !isProjectScene(ed.Project, p)
@@ -161,6 +163,8 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 											ed.report(ed.OpenParticleEmitterProjectFile(p))
 										} else if isRoomsFile(p) {
 											ed.report(ed.OpenRoomsProjectFile(p))
+										} else if isScreenFile(p) {
+											ed.report(ed.OpenHUDScreen(p))
 										} else {
 											ed.openSceneAsked(p)
 										}
