@@ -1,6 +1,6 @@
 # ai
 
-`game/ai` 提供可直接运行在 `game.Loop` 固定步长上的确定性游戏 AI 组件：网格 `AStar` 寻路、带漏斗平滑的 2D 导航网格 `NavMesh`、转向行为（steering）、行为树、效用 AI（Utility AI）评分、目标导向行动规划（GOAP）、攻击令牌池、同心交战槽位分配以及小队协作。
+`game/ai` 提供可直接运行在 `game.Loop` 固定步长上的确定性游戏 AI 组件：网格 `AStar` 寻路、带漏斗平滑的 2D 导航网格 `NavMesh`、转向行为（steering）、行为树、效用 AI（Utility AI）评分、目标导向行动规划（GOAP）、攻击令牌与小队协作以及空间影响图（Influence Maps）。
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/ai"
@@ -491,3 +491,73 @@ flankBranch := ai.Sequence(
 - **`AssignRoles`**：基于 `SquadRoleSpec` 执行最大权二分匹配，优先最大化可填满的合法角色数量，其次最大化总得分；`Score` 返回 `NaN` 或 `±Inf` 表示该成员不具备此角色资格。
 - **`SquadOrder.Revision`**：每次 `SetOrder` 与 `ClearOrder` 都会递增修订号，便于行为树在指令 `Kind` 相同时仍能识别新下达的指令。
 - **`SquadState`**：提供强类型存取方法（`Bool`、`Int`、`Float`、`String`、`Point`、`ID`）、泛型 `SquadStateGet[T]` 以及按字典序排序的 `Keys`。
+
+## 影响图（Influence Maps）
+
+`InfluenceLayer` 维护一张与 `ai.Grid` 同尺寸的二维标量影响网格（采用与 `rts.FlowField` 相同的 `Origin` / `CellSize` 世界坐标映射），用于战略与战术 AI 判断威胁、控制权、交战张力与安全走位：
+
+```go
+friendly := ai.NewInfluenceLayerForGrid(grid, math2d.Zero(), 16)
+enemy := ai.NewInfluenceLayerForGrid(grid, math2d.Zero(), 16)
+control := ai.NewInfluenceLayerForGrid(grid, math2d.Zero(), 16)
+tension := ai.NewInfluenceLayerForGrid(grid, math2d.Zero(), 16)
+
+squadID := friendly.AddSource(ai.InfluenceSource{
+	Cell:     ai.Cell{Col: 2, Row: 3},
+	Strength: 10,
+	Radius:   5,
+	Falloff:  ai.FalloffLinear,
+})
+enemy.AddSource(ai.InfluenceSource{
+	Cell:        ai.Cell{Col: 12, Row: 3},
+	Strength:    12,
+	Radius:      6,
+	Falloff:     ai.FalloffExponential,
+	FalloffRate: 0.45,
+})
+
+// 增量更新（预热后每步零堆分配，结果与 Rebuild 按位一致）：
+friendly.MoveSource(squadID, ai.Cell{Col: 3, Row: 3})
+friendly.Update(grid)
+enemy.Spread(grid, ai.SpreadOptions{Decay: 0.2, Momentum: 0.5, Iterations: 2, Diagonal: true})
+
+// 组合为战术图层：
+control.Subtract(friendly, enemy) // 正值为己方控制，负值为敌方控制
+tension.Add(friendly, enemy)      // 双方总势力（交战热度）
+control.Normalize()               // 归一化至 [-1, 1]，保留 0 为中立
+
+// 在单位周围半径 4 格内查找威胁最低且可达的格子：
+safeCell, threatVal, ok := enemy.LowestInRadius(ai.Cell{Col: 5, Row: 3}, 4, ai.InfluenceQuery{
+	Grid:      grid,
+	Reachable: true,
+})
+// 在世界坐标下双线性采样或获取上坡/下坡梯度：
+val, inBounds := enemy.Sample(unitPos)
+grad := enemy.Gradient(unitPos)
+_, _, _, _, _ = safeCell, threatVal, ok, val, inBounds
+_ = grad
+```
+
+### 影响源、衰减曲线与绕障扩散
+
+- **衰减曲线**：每个 `InfluenceSource` 在欧氏格子半径 `Radius` 内按 `FalloffLinear`（`max(0, 1 - dist/Radius)`）、`FalloffExponential`（`exp(-FalloffRate * dist)`）或 `FalloffCustom`（`CustomFalloff(dist, radius)`）写入影响值；不可通行格（`!grid.Walkable(col, row)`）始终保持 `0`。
+- **增量更新**：使用 `AddSource` 注册动态单位，并通过 `MoveSource`、`SetSource`、`RemoveSource`、`MarkDirtyCell` 或 `MarkDirtyRect` 标记变更。`Update(grid)` 仅重算脏区域并按固定槽位顺序叠加，确保结果完全确定、与 `Rebuild(grid)` 按位一致，且预热后每步零堆分配。若只需一次性静态写入，可直接调用 `Stamp(grid, src)`。
+- **带衰减与动量的绕障扩散**：`Spread(grid, opts)` 沿可通行格绕开障碍物传播影响（支持四向或禁止斜向穿角的八向扩散，正交步保留 `1 - Decay`，对角步保留 `(1 - Decay)^sqrt(2)`），并按 `Momentum` 与上一帧混合（`next = prev*Momentum + target*(1 - Momentum)`）。当图层存在跟踪源时，`Spread` 会先增量同步变更源，使移动或移除后的残余影响按动量平滑消退。
+
+### 图层组合与空间查询
+
+- **图层组合**：`Add`、`Subtract`、`Multiply`、`Combine(terms...)`、`AddScaled`、`Scale`、`Abs`、`Clamp`、`Normalize` 与 `CopyFrom` 均在预分配目标图层上零分配原地执行，并安全支持目标与输入别名相同。
+- **空间查询**：`HighestInRadius` 与 `LowestInRadius` 在指定半径内查找极值格，可通过 `InfluenceQuery{Grid: grid, Reachable: true, Diagonal: ...}` 过滤可通行性与 BFS 可达性，并以确定性顺序打破平局（距离中心更近优先，其次行号更小，再次列号更小）。`Highest(grid)` 与 `Lowest(grid)` 查询全图极值；`Sample(worldPos)` 执行双线性插值采样；`Gradient(worldPos)` 与 `GradientAtCell(col, row)` 返回指向高影响方向的世界空间梯度向量（`math2d.Vec2`）。
+
+### 调试热力图
+
+可直接叠加在 `tilemap.Camera` 上绘制任意影响图以供调试：
+
+```go
+d.Save()
+cam.Apply(d)
+control.DrawHeatmap(d, cam, ai.HeatmapOptions{DrawGrid: true})
+d.Restore()
+```
+
+`DrawHeatmap` 会按 `cam.VisibleBounds()` 裁剪视野外格子，正值使用 `PositiveColor`（默认绿色）、负值使用 `NegativeColor`（默认红色），透明度随 `|value| / MaxAbs` 线性变化。在 `-tags release` 构建下，`DrawHeatmap` 编译为空操作桩函数，`InfluenceHeatmapEnabled()` 返回 `false`。
