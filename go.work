@@ -5,6 +5,7 @@ use (
 	./template
 	./template/cards2d
 	./template/fighting2d
+	./template/platformer2d
 	./template/puzzle2d
 	./template/racing3d
 	./template/rpg2d
