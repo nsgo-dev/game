@@ -2,6 +2,7 @@ package physics3d
 
 import (
 	"cmp"
+	"math"
 	"slices"
 	"time"
 )
@@ -9,8 +10,12 @@ import (
 const (
 	defaultSolverIterations = 8
 	restitutionVelThreshold = 1.0
-	positionSlop            = 0.0002
+	positionSlop            = 0.001
 	positionPercent         = 0.8
+	manifoldPositionPercent = 0.2
+	maxPositionCorrection   = 0.2
+	warmStartMatchTolSq     = 0.04 * 0.04
+	maxManifoldPoints       = 4
 	sleepVelThreshold       = 0.05
 	sleepAngVelThreshold    = 0.05
 	sleepTimeThreshold      = 0.4
@@ -22,6 +27,10 @@ const (
 	shockMinCos = 0.7
 	// shockKeepDepth is the overlap the shock pass leaves in a vertical contact. Resolving it fully would let the next step's integration separate a resting pair by a hair, dropping the contact and its warm-start impulse and making the stack bob; 1 mm keeps the contact alive across steps.
 	shockKeepDepth = 0.001
+	// shockMassRatio activates shock propagation on any vertical support column containing an upper body heavier than shockMassRatio times the dynamic body beneath it (#810).
+	shockMassRatio = 4.0
+	// shockStackThreshold activates shock propagation on vertical support columns taller than shockStackThreshold stacked bodies; normal stacks up to 10+ bodies settle via multi-point manifolds and warm starting alone without shock intervention (#810).
+	shockStackThreshold = 12
 )
 
 // Body is a rigid body, kinematic body, static collider, or trigger volume in a World.
@@ -46,19 +55,20 @@ type Body struct {
 	Mass float32
 	// InvMass is 1/Mass for dynamic bodies and 0 for static bodies.
 	InvMass float32
-	// InvInertia is the body's inverse rotational inertia. When <= 0 on a
-	// dynamic body, AddBody computes an isotropic approximation from Shape and
-	// Mass unless LockRotation is set.
+	// InvInertia is the body's scalar inverse rotational inertia fallback.
+	// AddBody computes both InvInertiaTensor and InvInertia from Shape and Mass
+	// unless LockRotation is set or an explicit inertia override is provided.
 	InvInertia float32
 	// CenterOfMass is the body's center of mass in local coordinates relative to Pos.
 	// For dynamic compound bodies, AddBody computes it from all solid children
-	// unless already set.
+	// unless already set or overridden with SetCenterOfMass.
 	CenterOfMass Vec3
-	// InvInertiaTensor is the optional 3x3 symmetric inverse inertia tensor in
-	// local space about CenterOfMass. For dynamic compound bodies, AddBody
-	// computes it via the parallel-axis theorem unless LockRotation is set or an
-	// explicit InvInertiaTensor or InvInertia was provided. When zero, the solver
-	// uses scalar InvInertia.
+	// InvInertiaTensor is the 3x3 symmetric inverse inertia tensor in local
+	// body space about CenterOfMass. AddBody computes it from Shape and Mass
+	// (diagonal for axis-aligned boxes, spheres, and axis-aligned capsules or
+	// cylinders; full symmetric for rotated, offset, convex-hull, and compound
+	// shapes) unless LockRotation is set or an explicit override is provided via
+	// InvInertiaTensor, SetInertia, SetInertiaTensor, or scalar InvInertia.
 	InvInertiaTensor SymMat3
 	// LockRotation keeps a dynamic body from rotating: InvInertia becomes 0
 	// and angular impulses are ignored, which InvInertia == 0 alone could not
@@ -100,8 +110,10 @@ type Body struct {
 	// applied to overlapping dynamic bodies when IsTrigger is true.
 	Area AreaSettings
 
-	gravityScaleSet bool
-	sleepTimer      float32
+	gravityScaleSet    bool
+	customCenterOfMass bool
+	customInertia      bool
+	sleepTimer         float32
 	// residualDepth is the deepest contact b was left in by the last Step's final position pass.
 	residualDepth float32
 	// lastPos and lastRot are the pose at the end of the previous Step, so a kinematic body moved by setting Pos or Rot directly still wakes what it touches.
@@ -174,6 +186,8 @@ func (b *Body) RecomputeMassProperties() {
 	if b == nil || b.Static || b.Kinematic {
 		return
 	}
+	b.customCenterOfMass = false
+	b.customInertia = false
 	if b.Shape.Kind == ShapeCompound {
 		props := ComputeCompoundMassProperties(b.Shape.Children, b.Mass)
 		if props.Mass <= 0 {
@@ -201,6 +215,7 @@ func (b *Body) RecomputeMassProperties() {
 			b.AngVel = Vec3{}
 		} else {
 			b.InvInertia = computeDefaultInvInertia(b.Shape, b.Mass)
+			b.InvInertiaTensor = computeShapeInvInertiaTensor(b.Shape, b.Mass, b.CenterOfMass)
 		}
 	}
 }
@@ -307,20 +322,37 @@ type pairKey struct {
 	a, b int
 }
 
-type cachedImpulse struct {
-	normal         Vec3
+type cachedPoint struct {
+	localA         Vec3
+	localB         Vec3
+	featureID      uint32
 	normalImpulse  float32
 	tangentImpulse Vec3
+}
+
+type cachedManifold struct {
+	normal Vec3
+	count  int
+	points [maxManifoldPoints]cachedPoint
 }
 
 type solverContact struct {
 	a, b           *Body
 	childA, childB int
+	pairPoint      Vec3
 	normal         Vec3
 	depth          float32
 	point          Vec3
 	// rA and rB are the contact point relative to each body's center of mass, so impulses also apply torque (#546).
 	rA, rB         Vec3
+	localA, localB Vec3
+	featureID      uint32
+	hasPlane       bool
+	refIsA         bool
+	localRefPoint  Vec3
+	localRefNormal Vec3
+	localIncPoint  Vec3
+	incRadius      float32
 	restitution    float32
 	friction       float32
 	bias           float32
@@ -359,7 +391,7 @@ type World struct {
 	bodies             []*Body
 	nextID             int
 	nextColliderID     int
-	cache              map[contactKey]cachedImpulse
+	cache              map[contactKey]cachedManifold
 	activeContacts     map[contactKey]activeContactRecord
 	nextActiveContacts map[contactKey]activeContactRecord
 	contactEvents      []ContactEvent
@@ -369,9 +401,11 @@ type World struct {
 	voxels             []*VoxelCollider
 	joints             []Joint3D
 	ignoredPairs       map[pairKey]struct{}
+	disableShock       bool
 
 	bp              broadphase3D
 	contactsBuf     []solverContact
+	manifoldBuf     []manifoldPoint
 	shockOrderBuf   []int
 	shockHeightsBuf []float32
 	curKeysBuf      []contactKey
@@ -384,7 +418,7 @@ func NewWorld() *World {
 	return &World{
 		Gravity:          Vec3{Y: -9.81},
 		SolverIterations: defaultSolverIterations,
-		cache:            make(map[contactKey]cachedImpulse),
+		cache:            make(map[contactKey]cachedManifold),
 		activeContacts:   make(map[contactKey]activeContactRecord),
 	}
 }
@@ -463,18 +497,28 @@ func (w *World) AddBody(b Body) *Body {
 		} else if b.Shape.Kind == ShapeCompound {
 			props := ComputeCompoundMassProperties(b.Shape.Children, b.Mass)
 			if props.Mass > 0 {
-				if b.CenterOfMass == (Vec3{}) {
+				if !b.customCenterOfMass && b.CenterOfMass == (Vec3{}) {
 					b.CenterOfMass = props.CenterOfMass
 				}
-				if b.InvInertiaTensor.IsZero() && b.InvInertia <= 0 {
-					b.InvInertiaTensor = props.InvInertia
-					b.InvInertia = props.ScalarInvI
+				if !b.customInertia && b.InvInertiaTensor.IsZero() && b.InvInertia <= 0 {
+					if b.CenterOfMass == props.CenterOfMass {
+						b.InvInertiaTensor = props.InvInertia
+						b.InvInertia = props.ScalarInvI
+					} else {
+						b.InvInertiaTensor = invertShiftedInertia(props.Inertia, float64(props.Mass), props.CenterOfMass.Sub(b.CenterOfMass))
+						b.InvInertia = scalarInvInertiaFromTensor(b.InvInertiaTensor)
+					}
+				} else if !b.InvInertiaTensor.IsZero() && b.InvInertia <= 0 {
+					b.InvInertia = scalarInvInertiaFromTensor(b.InvInertiaTensor)
 				}
-			} else if b.InvInertia <= 0 {
+			} else if !b.customInertia && b.InvInertiaTensor.IsZero() && b.InvInertia <= 0 {
 				b.InvInertia = computeDefaultInvInertia(b.Shape, b.Mass)
 			}
-		} else if b.InvInertia <= 0 {
+		} else if !b.customInertia && b.InvInertiaTensor.IsZero() && b.InvInertia <= 0 {
+			b.InvInertiaTensor = computeShapeInvInertiaTensor(b.Shape, b.Mass, b.CenterOfMass)
 			b.InvInertia = computeDefaultInvInertia(b.Shape, b.Mass)
+		} else if !b.InvInertiaTensor.IsZero() && b.InvInertia <= 0 {
+			b.InvInertia = scalarInvInertiaFromTensor(b.InvInertiaTensor)
 		}
 	}
 
@@ -615,7 +659,7 @@ func (w *World) Step(dt time.Duration) {
 		iters = defaultSolverIterations
 	}
 	if w.cache == nil {
-		w.cache = make(map[contactKey]cachedImpulse)
+		w.cache = make(map[contactKey]cachedManifold)
 	}
 
 	// Reconcile any external pose/shape/static/trigger mutations once per step.
@@ -641,7 +685,9 @@ func (w *World) Step(dt time.Duration) {
 	prevPos := w.bp.dynPrevPos
 	areaTriggers := w.collectActiveAreaTriggers()
 
-	// 1. Symplectic Euler integration: update velocities, then tentative poses.
+	// 1. Integrate velocities (gravity, areas, damping, gyroscopic Euler torque).
+	// Positions are integrated after the velocity solver so resting stacks cancel
+	// gravity before moving, eliminating per-step floor penetration waves (#810).
 	for di, pid := range w.bp.dynamicList {
 		b := w.bp.proxies[pid].body
 		prevPos[di] = b.Pos
@@ -654,23 +700,11 @@ func (w *World) Step(dt time.Duration) {
 			if linDamp := b.effectiveLinearDamping(); linDamp > 0 {
 				b.Vel = b.Vel.Scale(1 / (1 + float32(linDamp*dtSec)))
 			}
-			if b.CenterOfMass == (Vec3{}) {
-				b.Pos = b.Pos.Add(b.Vel.Scale(dtSec))
-				if b.AngVel.LenSq() > 0 {
-					if angDamp := b.effectiveAngularDamping(); angDamp > 0 {
-						b.AngVel = b.AngVel.Scale(1 / (1 + float32(angDamp*dtSec)))
-					}
-					b.Rot = IntegrateQuat(b.Rot, b.AngVel, dtSec)
+			if b.AngVel.LenSq() > 0 {
+				if angDamp := b.effectiveAngularDamping(); angDamp > 0 {
+					b.AngVel = b.AngVel.Scale(1 / (1 + float32(angDamp*dtSec)))
 				}
-			} else {
-				comWorld := b.WorldCenterOfMass().Add(b.Vel.Scale(dtSec))
-				if b.AngVel.LenSq() > 0 {
-					if angDamp := b.effectiveAngularDamping(); angDamp > 0 {
-						b.AngVel = b.AngVel.Scale(1 / (1 + float32(angDamp*dtSec)))
-					}
-					b.Rot = IntegrateQuat(b.Rot, b.AngVel, dtSec)
-				}
-				b.Pos = comWorld.Sub(normalizedQuat(b.Rot).RotateVec(b.CenterOfMass))
+				integrateGyroscopic(b, dtSec)
 			}
 			continue
 		}
@@ -686,42 +720,19 @@ func (w *World) Step(dt time.Duration) {
 		if eff.LinearDamping > 0 {
 			b.Vel = b.Vel.Scale(1 / (1 + float32(eff.LinearDamping*dtSec)))
 		}
-		if b.CenterOfMass == (Vec3{}) {
-			b.Pos = b.Pos.Add(b.Vel.Scale(dtSec))
-			if b.AngVel.LenSq() > 0 {
-				angDamp := eff.AngularDamping + eff.FluidAngularDrag
-				if angDamp > 0 {
-					b.AngVel = b.AngVel.Scale(1 / (1 + float32(angDamp*dtSec)))
-				}
-				b.Rot = IntegrateQuat(b.Rot, b.AngVel, dtSec)
+		if b.AngVel.LenSq() > 0 {
+			angDamp := eff.AngularDamping + eff.FluidAngularDrag
+			if angDamp > 0 {
+				b.AngVel = b.AngVel.Scale(1 / (1 + float32(angDamp*dtSec)))
 			}
-		} else {
-			comWorld := b.WorldCenterOfMass().Add(b.Vel.Scale(dtSec))
-			if b.AngVel.LenSq() > 0 {
-				angDamp := eff.AngularDamping + eff.FluidAngularDrag
-				if angDamp > 0 {
-					b.AngVel = b.AngVel.Scale(1 / (1 + float32(angDamp*dtSec)))
-				}
-				b.Rot = IntegrateQuat(b.Rot, b.AngVel, dtSec)
-			}
-			b.Pos = comWorld.Sub(normalizedQuat(b.Rot).RotateVec(b.CenterOfMass))
+			integrateGyroscopic(b, dtSec)
 		}
 	}
 
 	jointIgnored := w.buildJointIgnoredPairs()
 
-	// 1b. Sweep fast bodies so they cannot tunnel through thin static geometry.
-	for di, pid := range w.bp.dynamicList {
-		b := w.bp.proxies[pid].body
-		if b.Static || b.Kinematic || b.Sleeping || b.IsTrigger {
-			continue
-		}
-		w.sweepFastBody(b, prevPos[di], jointIgnored)
-	}
-
-	// 2. Deterministic broadphase + narrowphase pair detection.
-	w.bp.syncDynamicBodies(w, prevPos)
-
+	// 2. Deterministic broadphase + narrowphase pair detection with up to 4-point
+	// contact manifolds and per-point warm-start lookup.
 	if w.nextActiveContacts == nil {
 		w.nextActiveContacts = make(map[contactKey]activeContactRecord)
 	} else {
@@ -731,7 +742,6 @@ func (w *World) Step(dt time.Duration) {
 
 	contacts := w.contactsBuf[:0]
 	pairs := w.bp.findBodyPairs()
-	var singleContact [1]Contact
 	recordContact := func(a, b *Body, ci, cj int, shapeA, shapeB Shape, c Contact, isTrig bool) {
 		key, swapped := canonicalContactKey(a.ID, ci, b.ID, cj)
 		evA, evB, evChildA, evChildB, evNorm := a, b, ci, cj, c.Normal
@@ -770,25 +780,23 @@ func (w *World) Step(dt time.Duration) {
 			return
 		}
 
-		// A pair with a convex hull or a cylinder gets up to four points spread over the touching area, so a face or a cap resting on another body stays flat instead of rocking about the single point TestShapes reports (#808).
-		var points []Contact
-		if isConvexKind(shapeA) || isConvexKind(shapeB) {
-			points = shapeManifold(shapeA, shapeB, c)
-		} else {
-			singleContact[0] = c
-			points = singleContact[:]
-		}
+		w.manifoldBuf = buildShapeManifold(shapeA, shapeB, c, w.manifoldBuf[:0])
 		restitution := max(a.effectiveRestitution(), b.effectiveRestitution())
 		friction := sqrt32(a.effectiveFriction() * b.effectiveFriction())
 		cacheKey := contactKey{a: a.ID, b: b.ID, childA: ci, childB: cj}
 		cached, warm := w.cache[cacheKey]
-		warm = warm && cached.normal.Dot(c.Normal) > 0.95
+		warm = warm && cached.count > 0 && cached.normal.Dot(c.Normal) > 0.95
+		var used [maxManifoldPoints]bool
+
 		comA, comB := a.WorldCenterOfMass(), b.WorldCenterOfMass()
-		for _, pc := range points {
-			// Compute restitution bias once from the pre-solver closing velocity at the contact point.
-			rA, rB := pc.Point.Sub(comA), pc.Point.Sub(comB)
+		invRotA := normalizedQuat(a.Rot).Conjugate()
+		invRotB := normalizedQuat(b.Rot).Conjugate()
+		for _, mp := range w.manifoldBuf {
+			rA, rB := mp.point.Sub(comA), mp.point.Sub(comB)
+			localA := invRotA.RotateVec(mp.point.Sub(a.Pos))
+			localB := invRotB.RotateVec(mp.point.Sub(b.Pos))
 			rv := pointVel(a, rA).Sub(pointVel(b, rB))
-			vn := rv.Dot(pc.Normal)
+			vn := rv.Dot(c.Normal)
 			var bias float32
 			if vn < -restitutionVelThreshold {
 				bias = -restitution * vn
@@ -798,20 +806,41 @@ func (w *World) Step(dt time.Duration) {
 				b:           b,
 				childA:      ci,
 				childB:      cj,
-				normal:      pc.Normal,
-				depth:       pc.Depth,
-				point:       pc.Point,
+				pairPoint:   c.Point,
+				normal:      c.Normal,
+				depth:       mp.depth,
+				point:       mp.point,
 				rA:          rA,
 				rB:          rB,
+				localA:      localA,
+				localB:      localB,
+				featureID:   mp.featureID,
+				hasPlane:    mp.hasPlane,
+				refIsA:      mp.refIsA,
+				incRadius:   mp.incRadius,
 				restitution: restitution,
 				friction:    friction,
 				bias:        bias,
 			}
-			// Warm-start from the previous step's accumulated impulse, shared among the pair's points, when the contact normal remains aligned.
+			if mp.hasPlane {
+				if mp.refIsA {
+					sc.localRefPoint = invRotA.RotateVec(mp.refPoint.Sub(a.Pos))
+					sc.localRefNormal = invRotA.RotateVec(mp.refNormal).Norm()
+					sc.localIncPoint = invRotB.RotateVec(mp.incPoint.Sub(b.Pos))
+				} else {
+					sc.localRefPoint = invRotB.RotateVec(mp.refPoint.Sub(b.Pos))
+					sc.localRefNormal = invRotB.RotateVec(mp.refNormal).Norm()
+					sc.localIncPoint = invRotA.RotateVec(mp.incPoint.Sub(a.Pos))
+				}
+			}
 			if warm {
-				share := 1 / float32(len(points))
-				sc.normalImpulse = cached.normalImpulse * share
-				sc.tangentImpulse = cached.tangentImpulse.Sub(c.Normal.Scale(cached.tangentImpulse.Dot(c.Normal))).Scale(share)
+				matchIdx := matchCachedPoint(&cached, &used, mp.featureID, localA, localB)
+				if matchIdx >= 0 {
+					used[matchIdx] = true
+					cp := &cached.points[matchIdx]
+					sc.normalImpulse = cp.normalImpulse
+					sc.tangentImpulse = cp.tangentImpulse.Sub(c.Normal.Scale(cp.tangentImpulse.Dot(c.Normal)))
+				}
 			}
 			contacts = append(contacts, sc)
 		}
@@ -925,29 +954,47 @@ func (w *World) Step(dt time.Duration) {
 						if !aabbOverlap(childBounds, tri.Bounds()) {
 							return
 						}
-						for _, c := range shapeTriangleContacts(childShape, tri, false) {
-							rA := c.Point.Sub(comA)
+						c := testShapeTriangleSolid(childShape, tri)
+						if !c.Hit {
+							return
+						}
+						invRotA := normalizedQuat(a.Rot).Conjugate()
+						w.manifoldBuf = buildTriangleManifold(childShape, tri, c, false, w.manifoldBuf[:0])
+						restitution := max(a.effectiveRestitution(), tm.Restitution)
+						friction := sqrt32(a.effectiveFriction() * tm.Friction)
+						for _, mp := range w.manifoldBuf {
+							rA := mp.point.Sub(comA)
 							vn := pointVel(a, rA).Dot(c.Normal)
-							restitution := max(a.effectiveRestitution(), tm.Restitution)
 							var bias float32
 							if vn < -restitutionVelThreshold {
 								bias = -restitution * vn
 							}
-							contacts = append(contacts, solverContact{
+							sc := solverContact{
 								a:           a,
 								childA:      ci,
 								childB:      -1,
+								pairPoint:   c.Point,
 								normal:      c.Normal,
-								depth:       c.Depth,
-								point:       c.Point,
+								depth:       mp.depth,
+								point:       mp.point,
 								rA:          rA,
+								featureID:   mp.featureID,
+								hasPlane:    mp.hasPlane,
+								refIsA:      false,
+								incRadius:   mp.incRadius,
 								restitution: restitution,
-								friction:    sqrt32(a.effectiveFriction() * tm.Friction),
+								friction:    friction,
 								bias:        bias,
 								isStaticTri: true,
 								tri:         tri,
 								staticID:    tm.ID,
-							})
+							}
+							if mp.hasPlane {
+								sc.localRefPoint = mp.refPoint
+								sc.localRefNormal = mp.refNormal
+								sc.localIncPoint = invRotA.RotateVec(mp.incPoint.Sub(a.Pos))
+							}
+							contacts = append(contacts, sc)
 						}
 					})
 				}
@@ -962,30 +1009,50 @@ func (w *World) Step(dt time.Duration) {
 						if !aabbOverlap(childBounds, tri.Bounds()) {
 							return
 						}
-						for _, c := range shapeTriangleContacts(childShape, tri, true) {
-							rA := c.Point.Sub(comA)
+						rawC := testShapeTriangleSolid(childShape, tri)
+						c := testShapeHeightfieldTriangleSolid(childShape, tri)
+						if !c.Hit {
+							return
+						}
+						flipped := rawC.Hit && rawC.Normal.Y < 0
+						invRotA := normalizedQuat(a.Rot).Conjugate()
+						w.manifoldBuf = buildTriangleManifold(childShape, tri, c, flipped, w.manifoldBuf[:0])
+						restitution := max(a.effectiveRestitution(), hf.Restitution)
+						friction := sqrt32(a.effectiveFriction() * hf.Friction)
+						for _, mp := range w.manifoldBuf {
+							rA := mp.point.Sub(comA)
 							vn := pointVel(a, rA).Dot(c.Normal)
-							restitution := max(a.effectiveRestitution(), hf.Restitution)
 							var bias float32
 							if vn < -restitutionVelThreshold {
 								bias = -restitution * vn
 							}
-							contacts = append(contacts, solverContact{
+							sc := solverContact{
 								a:             a,
 								childA:        ci,
 								childB:        -1,
+								pairPoint:     c.Point,
 								normal:        c.Normal,
-								depth:         c.Depth,
-								point:         c.Point,
+								depth:         mp.depth,
+								point:         mp.point,
 								rA:            rA,
+								featureID:     mp.featureID,
+								hasPlane:      mp.hasPlane,
+								refIsA:        false,
+								incRadius:     mp.incRadius,
 								restitution:   restitution,
-								friction:      sqrt32(a.effectiveFriction() * hf.Friction),
+								friction:      friction,
 								bias:          bias,
 								isStaticTri:   true,
 								isHeightfield: true,
 								tri:           tri,
 								staticID:      hf.ID,
-							})
+							}
+							if mp.hasPlane {
+								sc.localRefPoint = mp.refPoint
+								sc.localRefNormal = mp.refNormal
+								sc.localIncPoint = invRotA.RotateVec(mp.incPoint.Sub(a.Pos))
+							}
+							contacts = append(contacts, sc)
 						}
 					})
 				}
@@ -1006,6 +1073,7 @@ func (w *World) Step(dt time.Duration) {
 							a:           a,
 							childA:      ci,
 							childB:      -1,
+							pairPoint:   c.Point,
 							normal:      c.Normal,
 							depth:       c.Depth,
 							point:       c.Point,
@@ -1039,10 +1107,10 @@ func (w *World) Step(dt time.Duration) {
 		}
 	}
 
-	// Sort contacts bottom-up (ascending Y, then body IDs, then child indices)
-	// for fast, deterministic convergence on vertical stacks and compound bodies.
+	// Sort contacts bottom-up by pair height (keeping all manifold points of a
+	// pair contiguous) for fast, deterministic convergence on vertical stacks.
 	slices.SortStableFunc(contacts, func(x, y solverContact) int {
-		if c := cmp.Compare(x.point.Y, y.point.Y); c != 0 {
+		if c := cmp.Compare(x.pairPoint.Y, y.pairPoint.Y); c != 0 {
 			return c
 		}
 		if c := cmp.Compare(x.a.ID, y.a.ID); c != 0 {
@@ -1085,71 +1153,121 @@ func (w *World) Step(dt time.Duration) {
 	}
 
 	// 4. Iterative sequential-impulse velocity solver (contacts + 3D joints).
-	for iter := 0; iter < iters; iter++ {
-		for i := range contacts {
-			c := &contacts[i]
-			invA, invIA := activeInvMass(c.a), activeInvInertia(c.a)
-			var invB, invIB float32
-			if c.b != nil {
-				invB, invIB = activeInvMass(c.b), activeInvInertia(c.b)
-			}
-			_, hasTA := activeWorldInvInertia(c.a)
-			_, hasTB := activeWorldInvInertia(c.b)
-			if invA+invB+invIA+invIB == 0 && !hasTA && !hasTB {
-				continue
-			}
-
-			// Normal impulse with accumulated clamping >= 0, using the effective mass at the contact point.
-			var kn float32
-			if hasTA || hasTB {
-				kn = contactEffectiveMassBodies(c.a, c.rA, c.b, c.rB, c.normal)
-			} else {
-				kn = contactEffectiveMass(invA, invIA, c.rA, invB, invIB, c.rB, c.normal)
-			}
-			if kn <= 0 {
-				continue
-			}
-			rv := pointVel(c.a, c.rA).Sub(pointVel(c.b, c.rB))
-			vn := rv.Dot(c.normal)
-			dj := -(vn - c.bias) / kn
-			newJ := c.normalImpulse + dj
-			if newJ < 0 {
-				newJ = 0
-			}
-			appliedJ := newJ - c.normalImpulse
-			c.normalImpulse = newJ
-
+	// Multi-point manifolds attempt a regularized m x m (m <= 4) Cholesky block
+	// normal solve first so flat resting faces distribute load symmetrically with
+	// zero corner-order tipping torque, falling back to clamped per-point PGS
+	// whenever any point would separate (lambda < 0). Friction runs after the
+	// manifold's normal impulses so balanced faces never trigger spurious lateral
+	// friction impulses.
+	solveSingleNormal := func(c *solverContact) {
+		invA, invIA := activeInvMass(c.a), activeInvInertia(c.a)
+		var invB, invIB float32
+		if c.b != nil {
+			invB, invIB = activeInvMass(c.b), activeInvInertia(c.b)
+		}
+		_, hasTA := activeWorldInvInertia(c.a)
+		_, hasTB := activeWorldInvInertia(c.b)
+		if invA+invB+invIA+invIB == 0 && !hasTA && !hasTB {
+			return
+		}
+		var kn float32
+		if hasTA || hasTB {
+			kn = contactEffectiveMassBodies(c.a, c.rA, c.b, c.rB, c.normal)
+		} else {
+			kn = contactEffectiveMass(invA, invIA, c.rA, invB, invIB, c.rB, c.normal)
+		}
+		if kn <= 0 {
+			return
+		}
+		rv := pointVel(c.a, c.rA).Sub(pointVel(c.b, c.rB))
+		vn := rv.Dot(c.normal)
+		dj := -(vn - c.bias) / kn
+		newJ := c.normalImpulse + dj
+		if newJ < 0 {
+			newJ = 0
+		}
+		appliedJ := newJ - c.normalImpulse
+		c.normalImpulse = newJ
+		if appliedJ != 0 {
 			impN := c.normal.Scale(appliedJ)
 			applyContactImpulse(c.a, c.rA, impN)
 			applyContactImpulse(c.b, c.rB, impN.Neg())
+		}
+	}
 
-			// Isotropic 3D Coulomb friction impulse clamped to friction * normalImpulse. Applied at the contact point, it makes spheres roll and boxes tip.
-			if c.friction > 0 && c.normalImpulse > 0 {
-				rv = pointVel(c.a, c.rA).Sub(pointVel(c.b, c.rB))
-				vt := rv.Sub(c.normal.Scale(rv.Dot(c.normal)))
-				vtLen := vt.Len()
-				if vtLen > 1e-9 {
-					tdir := vt.Scale(1 / vtLen)
-					var kt float32
-					if hasTA || hasTB {
-						kt = contactEffectiveMassBodies(c.a, c.rA, c.b, c.rB, tdir)
-					} else {
-						kt = contactEffectiveMass(invA, invIA, c.rA, invB, invIB, c.rB, tdir)
+	solveSingleFriction := func(c *solverContact) {
+		if c.friction <= 0 || c.normalImpulse <= 0 {
+			return
+		}
+		invA, invIA := activeInvMass(c.a), activeInvInertia(c.a)
+		var invB, invIB float32
+		if c.b != nil {
+			invB, invIB = activeInvMass(c.b), activeInvInertia(c.b)
+		}
+		_, hasTA := activeWorldInvInertia(c.a)
+		_, hasTB := activeWorldInvInertia(c.b)
+		if invA+invB+invIA+invIB == 0 && !hasTA && !hasTB {
+			return
+		}
+		rv := pointVel(c.a, c.rA).Sub(pointVel(c.b, c.rB))
+		vt := rv.Sub(c.normal.Scale(rv.Dot(c.normal)))
+		vtLen := vt.Len()
+		if vtLen <= 1e-9 {
+			return
+		}
+		tdir := vt.Scale(1 / vtLen)
+		var kt float32
+		if hasTA || hasTB {
+			kt = contactEffectiveMassBodies(c.a, c.rA, c.b, c.rB, tdir)
+		} else {
+			kt = contactEffectiveMass(invA, invIA, c.rA, invB, invIB, c.rB, tdir)
+		}
+		if kt <= 0 {
+			return
+		}
+		newT := c.tangentImpulse.Add(tdir.Scale(-vtLen / kt))
+		newT = newT.Sub(c.normal.Scale(newT.Dot(c.normal)))
+		maxF := c.friction * c.normalImpulse
+		if tLen := newT.Len(); tLen > maxF && tLen > 0 {
+			newT = newT.Scale(maxF / tLen)
+		}
+		appliedT := newT.Sub(c.tangentImpulse)
+		c.tangentImpulse = newT
+		applyContactImpulse(c.a, c.rA, appliedT)
+		applyContactImpulse(c.b, c.rB, appliedT.Neg())
+	}
+
+	for iter := 0; iter < iters; iter++ {
+		for start := 0; start < len(contacts); {
+			end := manifoldGroupEnd(contacts, start)
+			count := end - start
+			if count >= 2 && count <= maxManifoldPoints && solveManifoldBlockNormal(contacts[start:end]) {
+				// Block normal succeeded; solve friction across the manifold.
+				if iter%2 == 0 {
+					for i := start; i < end; i++ {
+						solveSingleFriction(&contacts[i])
 					}
-					if kt > 0 {
-						newT := c.tangentImpulse.Add(tdir.Scale(-vtLen / kt))
-						newT = newT.Sub(c.normal.Scale(newT.Dot(c.normal)))
-						maxF := c.friction * c.normalImpulse
-						if tLen := newT.Len(); tLen > maxF && tLen > 0 {
-							newT = newT.Scale(maxF / tLen)
-						}
-						appliedT := newT.Sub(c.tangentImpulse)
-						c.tangentImpulse = newT
-						applyContactImpulse(c.a, c.rA, appliedT)
-						applyContactImpulse(c.b, c.rB, appliedT.Neg())
+				} else {
+					for i := end - 1; i >= start; i-- {
+						solveSingleFriction(&contacts[i])
 					}
 				}
+			} else if iter%2 == 0 {
+				for i := start; i < end; i++ {
+					solveSingleNormal(&contacts[i])
+				}
+				for i := start; i < end; i++ {
+					solveSingleFriction(&contacts[i])
+				}
+			} else {
+				for i := end - 1; i >= start; i-- {
+					solveSingleNormal(&contacts[i])
+				}
+				for i := end - 1; i >= start; i-- {
+					solveSingleFriction(&contacts[i])
+				}
 			}
+			start = end
 		}
 
 		for _, j := range w.joints {
@@ -1161,60 +1279,199 @@ func (w *World) Step(dt time.Duration) {
 	// and remove broken joints before positional correction.
 	w.evaluateBreakableJoints()
 
-	// 4b. Shock propagation, velocity half: sequential impulses converge slowly when a heavy body rests on a light one, and the leftover approach velocity makes stacks bob instead of settling. One bottom-up pass stops each upper body against the one below it, already final (#546).
+	// 4b. Scoped shock propagation, velocity half: only intervenes on vertical
+	// columns with large upper-to-lower mass ratios (> shockMassRatio) or tall
+	// stacks (> shockStackThreshold bodies) where iterative PGS alone converges
+	// slowly; normal stacks up to 10+ bodies settle via multi-point manifolds
+	// and warm starting without shock intervention (#810).
 	up, haveUp := gravityUp(w.Gravity)
 	var shock []int
-	if haveUp {
+	var shockMask []bool
+	if haveUp && !w.disableShock {
 		shock = w.shockOrder(contacts, up)
-		propagateShockVelocity(contacts, shock, up)
+		shockMask = computeShockMask(contacts, shock, up)
+		if shockMask != nil {
+			propagateShockVelocity(contacts, shock, shockMask, up)
+		}
 	}
 
-	// Refresh warm-start cache with active body-body contacts only.
+	// Refresh per-point warm-start cache with active body-body contacts only.
 	clear(w.cache)
 	for i := range contacts {
 		c := &contacts[i]
 		if c.isStaticTri || c.isVoxel || c.b == nil {
 			continue
 		}
-		// A pair with several manifold points caches their total, which the next step shares out again.
 		k := contactKey{a: c.a.ID, b: c.b.ID, childA: c.childA, childB: c.childB}
-		if prev, ok := w.cache[k]; ok {
-			prev.normalImpulse += c.normalImpulse
-			prev.tangentImpulse = prev.tangentImpulse.Add(c.tangentImpulse)
-			w.cache[k] = prev
-			continue
+		cm := w.cache[k]
+		if cm.count == 0 {
+			cm.normal = c.normal
 		}
-		w.cache[k] = cachedImpulse{
-			normal:         c.normal,
-			normalImpulse:  c.normalImpulse,
-			tangentImpulse: c.tangentImpulse,
+		if cm.count < maxManifoldPoints {
+			cm.points[cm.count] = cachedPoint{
+				localA:         c.localA,
+				localB:         c.localB,
+				featureID:      c.featureID,
+				normalImpulse:  c.normalImpulse,
+				tangentImpulse: c.tangentImpulse,
+			}
+			cm.count++
+			w.cache[k] = cm
 		}
 	}
 
+	// 4c. Integrate positions and orientations using post-solver velocities.
+	for _, pid := range w.bp.dynamicList {
+		b := w.bp.proxies[pid].body
+		if b.Static || b.Kinematic || b.Sleeping {
+			continue
+		}
+		if b.CenterOfMass == (Vec3{}) {
+			b.Pos = b.Pos.Add(b.Vel.Scale(dtSec))
+			if b.AngVel.LenSq() > 0 {
+				b.Rot = IntegrateQuat(b.Rot, b.AngVel, dtSec)
+			}
+		} else {
+			comWorld := b.WorldCenterOfMass().Add(b.Vel.Scale(dtSec))
+			if b.AngVel.LenSq() > 0 {
+				b.Rot = IntegrateQuat(b.Rot, b.AngVel, dtSec)
+			}
+			b.Pos = comWorld.Sub(normalizedQuat(b.Rot).RotateVec(b.CenterOfMass))
+		}
+	}
+
+	// 4d. Sweep fast bodies so they cannot tunnel through thin static geometry.
+	for di, pid := range w.bp.dynamicList {
+		b := w.bp.proxies[pid].body
+		if b.Static || b.Kinematic || b.Sleeping || b.IsTrigger {
+			continue
+		}
+		w.sweepFastBody(b, prevPos[di], jointIgnored)
+	}
+
 	// 5. Non-linear Gauss-Seidel positional/angular correction (zero velocity injection).
+	// Multi-point planar manifolds are accumulated Jacobi-style across the pair's
+	// active points before updating poses so flat faces produce zero symmetry-breaking
+	// torque while tilted faces still receive full angular correction.
 	for iter := 0; iter < iters; iter++ {
-		for i := range contacts {
-			c := &contacts[i]
-			invA := activeInvMass(c.a)
+		for start := 0; start < len(contacts); {
+			end := manifoldGroupEnd(contacts, start)
+			first := &contacts[start]
+			invA := activeInvMass(first.a)
+			invTA := activeWorldInvInertiaMatrix(first.a)
 			invB := float32(0)
-			if c.b != nil {
-				invB = activeInvMass(c.b)
+			var invTB SymMat3
+			if first.b != nil {
+				invB = activeInvMass(first.b)
+				invTB = activeWorldInvInertiaMatrix(first.b)
 			}
+			if invA+invB == 0 && invTA.IsZero() && invTB.IsZero() {
+				start = end
+				continue
+			}
+
+			if first.hasPlane {
+				var activeIdx [maxManifoldPoints]int
+				var activeN [maxManifoldPoints]Vec3
+				var activeRA, activeRB [maxManifoldPoints]Vec3
+				var activeRHS [maxManifoldPoints]float64
+				active := 0
+				comA := first.a.WorldCenterOfMass()
+				var comB Vec3
+				if first.b != nil {
+					comB = first.b.WorldCenterOfMass()
+				}
+				for i := start; i < end && active < maxManifoldPoints; i++ {
+					c := &contacts[i]
+					if !c.hasPlane {
+						continue
+					}
+					n, depth, pt := c.currentPlane()
+					if depth <= positionSlop {
+						continue
+					}
+					activeIdx[active] = i
+					activeN[active] = n
+					activeRA[active] = pt.Sub(comA)
+					if c.b != nil {
+						activeRB[active] = pt.Sub(comB)
+					}
+					activeRHS[active] = float64(min(float32((depth-positionSlop)*manifoldPositionPercent), maxPositionCorrection))
+					active++
+				}
+				if active > 0 {
+					var lam [maxManifoldPoints]float64
+					solved := false
+					if active == 1 {
+						k := float64(invA) + float64(invB) + float64(invTA.QuadForm(activeRA[0].Cross(activeN[0]))) + float64(invTB.QuadForm(activeRB[0].Cross(activeN[0])))
+						if k > 1e-12 {
+							lam[0] = activeRHS[0] / k
+							solved = true
+						}
+					} else {
+						solved = solveBlockLCP(active, invA, invTA, invB, invTB, activeN[:active], activeRA[:active], activeRB[:active], activeRHS[:active], nil, lam[:active])
+					}
+					var linA, angA, linB, angB Vec3
+					if solved {
+						for k := range active {
+							imp := activeN[k].Scale(float32(lam[k]))
+							linA = linA.Add(imp.Scale(invA))
+							if !invTA.IsZero() {
+								angA = angA.Add(invTA.MulVec(activeRA[k].Cross(imp)))
+							}
+							if first.b != nil {
+								linB = linB.Sub(imp.Scale(invB))
+								if !invTB.IsZero() {
+									angB = angB.Sub(invTB.MulVec(activeRB[k].Cross(imp)))
+								}
+							}
+						}
+					} else {
+						scale := 1 / float32(active)
+						for k := range active {
+							effK := float32(float32(invA+invB)+invTA.QuadForm(activeRA[k].Cross(activeN[k]))) + invTB.QuadForm(activeRB[k].Cross(activeN[k]))
+							if effK <= 1e-12 {
+								continue
+							}
+							imp := activeN[k].Scale(float32(activeRHS[k]) * scale / effK)
+							linA = linA.Add(imp.Scale(invA))
+							if !invTA.IsZero() {
+								angA = angA.Add(invTA.MulVec(activeRA[k].Cross(imp)))
+							}
+							if first.b != nil {
+								linB = linB.Sub(imp.Scale(invB))
+								if !invTB.IsZero() {
+									angB = angB.Sub(invTB.MulVec(activeRB[k].Cross(imp)))
+								}
+							}
+						}
+					}
+					if invA > 0 || !invTA.IsZero() {
+						applyBodyPositionCorrection(first.a, linA, angA)
+					}
+					if first.b != nil && (invB > 0 || !invTB.IsZero()) {
+						applyBodyPositionCorrection(first.b, linB, angB)
+					}
+				}
+				_ = activeIdx
+				start = end
+				continue
+			}
+
 			invSum := invA + invB
-			if invSum == 0 {
-				continue
+			if invSum > 0 {
+				cur := first.current()
+				if cur.Hit && cur.Depth > positionSlop {
+					corr := (cur.Depth - positionSlop) * positionPercent / invSum
+					if invA > 0 {
+						first.a.Pos = first.a.Pos.Add(cur.Normal.Scale(corr * invA))
+					}
+					if invB > 0 {
+						first.b.Pos = first.b.Pos.Sub(cur.Normal.Scale(corr * invB))
+					}
+				}
 			}
-			cur := c.current()
-			if !cur.Hit || cur.Depth <= positionSlop {
-				continue
-			}
-			corr := (cur.Depth - positionSlop) * positionPercent / invSum
-			if invA > 0 {
-				c.a.Pos = c.a.Pos.Add(cur.Normal.Scale(corr * invA))
-			}
-			if invB > 0 {
-				c.b.Pos = c.b.Pos.Sub(cur.Normal.Scale(corr * invB))
-			}
+			start = end
 		}
 
 		for _, j := range w.joints {
@@ -1222,14 +1479,14 @@ func (w *World) Step(dt time.Duration) {
 		}
 	}
 
-	// 5b. Shock propagation, position half: one bottom-up pass that resolves each vertical contact by moving only its upper body, so a tall stack or a heavy body on a light one does not keep the penetration that Gauss-Seidel leaves under large mass ratios (#546).
-	w.resolveResidualPenetration(contacts, shock, up)
+	// 5b. Residual penetration check and scoped shock propagation (position half).
+	w.resolveResidualPenetration(contacts, shock, shockMask, up)
 	clear(contacts)
 	w.contactsBuf = contacts[:0]
 
 	// Refresh dynamic broadphase proxies with final post-solver poses so
 	// post-Step raycasts, overlaps, and character queries see exact positions.
-	w.bp.syncDynamicBodies(w, nil)
+	w.bp.syncDynamicBodies(w, prevPos)
 
 	// 6. Put settled bodies to sleep so resting stacks have zero drift.
 	const (
@@ -1357,7 +1614,7 @@ func (w *World) shockOrder(contacts []solverContact, up Vec3) []int {
 	heights := w.shockHeightsBuf
 	for i := range contacts {
 		order[i] = i
-		heights[i] = contacts[i].point.Dot(up)
+		heights[i] = contacts[i].pairPoint.Dot(up)
 	}
 	slices.SortStableFunc(order, func(x, y int) int { return cmp.Compare(heights[x], heights[y]) })
 	return order
@@ -1375,55 +1632,518 @@ func shockUpper(c *solverContact, n, up Vec3) int {
 	}
 }
 
-// propagateShockVelocity visits contacts in order (bottom up) and, for each vertical one whose bodies still approach, applies an impulse to the upper body alone that stops the approach, treating the lower body as immovable. Contacts that already separate, as after a bounce, are left alone.
-func propagateShockVelocity(contacts []solverContact, order []int, up Vec3) {
-	for _, i := range order {
-		c := &contacts[i]
-		upper, lower, rU, rL, n := c.a, c.b, c.rA, c.rB, c.normal
-		switch shockUpper(c, c.normal, up) {
+// choleskySolveSub solves the subset activeIdx of symmetric matrix a for bSub
+// into xSub in FMA-free float64.
+func choleskySolveSub(a *[maxManifoldPoints][maxManifoldPoints]float64, b *[maxManifoldPoints]float64, activeIdx []int, xSub []float64) bool {
+	k := len(activeIdx)
+	if k == 0 {
+		return true
+	}
+	var l [maxManifoldPoints][maxManifoldPoints]float64
+	for i := range k {
+		ai := activeIdx[i]
+		for j := 0; j <= i; j++ {
+			aj := activeIdx[j]
+			s := a[ai][aj]
+			for p := 0; p < j; p++ {
+				s = s - float64(l[i][p]*l[j][p])
+			}
+			if i == j {
+				if s <= 1e-18 || math.IsNaN(s) {
+					return false
+				}
+				l[i][j] = math.Sqrt(s)
+			} else {
+				l[i][j] = s / l[j][j]
+			}
+		}
+	}
+	var y [maxManifoldPoints]float64
+	for i := range k {
+		s := b[activeIdx[i]]
+		for p := 0; p < i; p++ {
+			s = s - float64(l[i][p]*y[p])
+		}
+		y[i] = s / l[i][i]
+	}
+	for i := k - 1; i >= 0; i-- {
+		s := y[i]
+		for p := i + 1; p < k; p++ {
+			s = s - float64(l[p][i]*xSub[p])
+		}
+		xSub[i] = s / l[i][i]
+		if math.IsNaN(xSub[i]) || math.IsInf(xSub[i], 0) {
+			return false
+		}
+	}
+	return true
+}
+
+// solveBlockLCP solves the regularized m x m (2 <= m <= 4) complementarity
+// problem A*(x - oldX) >= rhs, x >= 0, x · (A*(x - oldX) - rhs) = 0 in
+// FMA-free float64 using a symmetric active-set Cholesky solver. When oldX is
+// nil it is treated as zero. Because all violated constraints are deactivated
+// or activated symmetrically, coplanar manifolds never incur corner-order
+// tipping torque even when separating or partially lifting off.
+func solveBlockLCP(
+	m int,
+	invA float32, invTA SymMat3,
+	invB float32, invTB SymMat3,
+	normals, rA, rB []Vec3,
+	rhs, oldX, out []float64,
+) bool {
+	invM := float64(invA) + float64(invB)
+	if invM == 0 && invTA.IsZero() && invTB.IsZero() {
+		for i := range m {
+			if oldX != nil {
+				out[i] = oldX[i]
+			} else {
+				out[i] = 0
+			}
+		}
+		return true
+	}
+	var rAxN, rBxN [maxManifoldPoints]Vec3
+	var iArAxN, iBrBxN [maxManifoldPoints]Vec3
+	for i := range m {
+		rAxN[i] = rA[i].Cross(normals[i])
+		iArAxN[i] = invTA.MulVec(rAxN[i])
+		if invB > 0 || !invTB.IsZero() {
+			rBxN[i] = rB[i].Cross(normals[i])
+			iBrBxN[i] = invTB.MulVec(rBxN[i])
+		}
+	}
+	var a [maxManifoldPoints][maxManifoldPoints]float64
+	var diagSum float64
+	for i := range m {
+		for j := i; j < m; j++ {
+			linTerm := float64(invM * float64(normals[i].Dot(normals[j])))
+			v := linTerm + float64(rAxN[i].Dot(iArAxN[j])) + float64(rBxN[i].Dot(iBrBxN[j]))
+			a[i][j] = v
+			a[j][i] = v
+		}
+		diagSum += a[i][i]
+	}
+	if diagSum <= 1e-18 {
+		for i := range m {
+			if oldX != nil {
+				out[i] = oldX[i]
+			} else {
+				out[i] = 0
+			}
+		}
+		return true
+	}
+	reg := float64(1e-4 * (diagSum / float64(m)))
+	for i := range m {
+		a[i][i] = a[i][i] + reg
+	}
+
+	// Reformulate A*(x - oldX) = rhs as A*x = b with x >= 0.
+	var b [maxManifoldPoints]float64
+	for i := range m {
+		s := rhs[i]
+		if oldX != nil {
+			for j := range m {
+				s = s + float64(a[i][j]*oldX[j])
+			}
+		}
+		b[i] = s
+	}
+
+	var active [maxManifoldPoints]bool
+	for i := range m {
+		active[i] = true
+	}
+	var x [maxManifoldPoints]float64
+	for iter := 0; iter < 8; iter++ {
+		var idxBuf [maxManifoldPoints]int
+		idx := idxBuf[:0]
+		for i := range m {
+			if active[i] {
+				idx = append(idx, i)
+			}
+		}
+		for i := range m {
+			x[i] = 0
+		}
+		if len(idx) > 0 {
+			var xSub [maxManifoldPoints]float64
+			if !choleskySolveSub(&a, &b, idx, xSub[:len(idx)]) {
+				return false
+			}
+			removed := false
+			for p, i := range idx {
+				if xSub[p] < 0 {
+					active[i] = false
+					removed = true
+				} else {
+					x[i] = xSub[p]
+				}
+			}
+			if removed {
+				continue
+			}
+		}
+		// Check complementarity of inactive points: w_i = (A*x)_i - b_i >= 0.
+		minW := -1e-9
+		var viol [maxManifoldPoints]float64
+		for i := range m {
+			if active[i] {
+				continue
+			}
+			ax := 0.0
+			for j := range m {
+				if active[j] {
+					ax = ax + float64(a[i][j]*x[j])
+				}
+			}
+			w := ax - b[i]
+			viol[i] = w
+			if w < minW {
+				minW = w
+			}
+		}
+		added := false
+		if minW < -1e-9 {
+			tol := minW * 0.999999
+			for i := range m {
+				if !active[i] && viol[i] <= tol {
+					active[i] = true
+					added = true
+				}
+			}
+		}
+		if !added {
+			for i := range m {
+				out[i] = x[i]
+			}
+			return true
+		}
+	}
+	return false
+}
+
+// solveManifoldBlockNormal solves the m x m (2 <= m <= 4) normal impulse LCP
+// across all points of a single manifold simultaneously in FMA-free float64 so
+// flat resting, separating, and partially lifting faces distribute load
+// symmetrically without corner-order tipping torque.
+func solveManifoldBlockNormal(group []solverContact) bool {
+	m := len(group)
+	first := &group[0]
+	invA := activeInvMass(first.a)
+	invTA := activeWorldInvInertiaMatrix(first.a)
+	var invB float32
+	var invTB SymMat3
+	if first.b != nil {
+		invB = activeInvMass(first.b)
+		invTB = activeWorldInvInertiaMatrix(first.b)
+	}
+	if invA+invB == 0 && invTA.IsZero() && invTB.IsZero() {
+		return true
+	}
+
+	var normals, rA, rB [maxManifoldPoints]Vec3
+	var rhs, oldJ, newJD [maxManifoldPoints]float64
+	for i := range m {
+		c := &group[i]
+		normals[i] = c.normal
+		rA[i] = c.rA
+		rB[i] = c.rB
+		rv := pointVel(c.a, c.rA).Sub(pointVel(c.b, c.rB))
+		vn := rv.Dot(c.normal)
+		rhs[i] = -float64(vn - c.bias)
+		oldJ[i] = float64(c.normalImpulse)
+	}
+	if !solveBlockLCP(m, invA, invTA, invB, invTB, normals[:m], rA[:m], rB[:m], rhs[:m], oldJ[:m], newJD[:m]) {
+		return false
+	}
+
+	var newJ [maxManifoldPoints]float32
+	for i := range m {
+		nj := float32(newJD[i])
+		if !isFinite32(nj) || nj < 0 {
+			return false
+		}
+		newJ[i] = nj
+	}
+
+	// Apply all m normal impulse deltas simultaneously.
+	var totalLin Vec3
+	var totalAngA, totalAngB Vec3
+	for i := range m {
+		c := &group[i]
+		applied := newJ[i] - c.normalImpulse
+		c.normalImpulse = newJ[i]
+		if applied == 0 {
+			continue
+		}
+		imp := c.normal.Scale(applied)
+		totalLin = totalLin.Add(imp)
+		totalAngA = totalAngA.Add(c.rA.Cross(imp))
+		if c.b != nil {
+			totalAngB = totalAngB.Add(c.rB.Cross(imp))
+		}
+	}
+	if invA > 0 {
+		first.a.Vel = first.a.Vel.Add(totalLin.Scale(invA))
+	}
+	if !invTA.IsZero() {
+		first.a.AngVel = first.a.AngVel.Add(invTA.MulVec(totalAngA))
+	}
+	if first.b != nil {
+		if invB > 0 {
+			first.b.Vel = first.b.Vel.Sub(totalLin.Scale(invB))
+		}
+		if !invTB.IsZero() {
+			first.b.AngVel = first.b.AngVel.Sub(invTB.MulVec(totalAngB))
+		}
+	}
+	return true
+}
+
+// manifoldGroupEnd returns the exclusive end index of the contiguous contact
+// manifold starting at start (matching body pair, child indices, and static collider).
+func manifoldGroupEnd(contacts []solverContact, start int) int {
+	a := &contacts[start]
+	end := start + 1
+	for end < len(contacts) {
+		b := &contacts[end]
+		if b.a != a.a || b.b != a.b || b.childA != a.childA || b.childB != a.childB ||
+			b.staticID != a.staticID || b.isStaticTri != a.isStaticTri || b.isVoxel != a.isVoxel {
+			break
+		}
+		if a.isStaticTri && b.tri != a.tri {
+			break
+		}
+		if a.isVoxel && (b.voxelX != a.voxelX || b.voxelY != a.voxelY || b.voxelZ != a.voxelZ) {
+			break
+		}
+		end++
+	}
+	return end
+}
+
+// computeShockMask identifies which contacts belong to vertical support columns
+// that still benefit from shock propagation: columns containing a high mass
+// ratio (upper.Mass > shockMassRatio * lower.Mass) or taller than
+// shockStackThreshold stacked bodies. It returns nil when no contact qualifies,
+// so ordinary stacks (including 10-box uniform towers) bypass shock propagation
+// completely with zero overhead and zero hysteresis.
+func computeShockMask(contacts []solverContact, order []int, up Vec3) []bool {
+	if len(order) == 0 {
+		return nil
+	}
+	var stackAbove map[int]int
+	var colShock map[int]bool
+	anyShock := false
+
+	// Pass 1 (top-down): accumulate stack depth above each dynamic body and
+	// propagate high-mass-ratio / tall-column flags downward to the base.
+	for endIdx := len(order); endIdx > 0; {
+		iLast := order[endIdx-1]
+		c0 := &contacts[iLast]
+		startIdx := endIdx - 1
+		for startIdx > 0 {
+			cp := &contacts[order[startIdx-1]]
+			if cp.a != c0.a || cp.b != c0.b || cp.childA != c0.childA || cp.childB != c0.childB || cp.staticID != c0.staticID {
+				break
+			}
+			startIdx--
+		}
+		upper, lower := c0.a, c0.b
+		side := shockUpper(c0, c0.normal, up)
+		if side == -1 {
+			upper, lower = c0.b, c0.a
+		}
+		if side != 0 && upper != nil && !upper.Static && !upper.Kinematic {
+			chain := 1
+			if stackAbove != nil {
+				chain = stackAbove[upper.ID] + 1
+			}
+			heavyOnLight := lower != nil && !lower.Static && !lower.Kinematic && lower.Mass > 0 && upper.Mass > shockMassRatio*lower.Mass
+			need := heavyOnLight || chain > shockStackThreshold || (colShock != nil && colShock[upper.ID])
+			if need {
+				if colShock == nil {
+					colShock = make(map[int]bool)
+				}
+				colShock[upper.ID] = true
+				anyShock = true
+			}
+			if lower != nil && !lower.Static && !lower.Kinematic {
+				if stackAbove == nil {
+					stackAbove = make(map[int]int)
+				}
+				if chain > stackAbove[lower.ID] {
+					stackAbove[lower.ID] = chain
+				}
+				if need {
+					colShock[lower.ID] = true
+				}
+			}
+		}
+		endIdx = startIdx
+	}
+	if !anyShock {
+		return nil
+	}
+
+	// Pass 2 (bottom-up): propagate column flag upward so every pair in a
+	// qualifying tall/heavy column receives consistent bottom-up shock help.
+	mask := make([]bool, len(contacts))
+	for idx := 0; idx < len(order); {
+		i0 := order[idx]
+		c0 := &contacts[i0]
+		endIdx := idx + 1
+		for endIdx < len(order) {
+			cj := &contacts[order[endIdx]]
+			if cj.a != c0.a || cj.b != c0.b || cj.childA != c0.childA || cj.childB != c0.childB || cj.staticID != c0.staticID {
+				break
+			}
+			endIdx++
+		}
+		upper, lower := c0.a, c0.b
+		side := shockUpper(c0, c0.normal, up)
+		if side == -1 {
+			upper, lower = c0.b, c0.a
+		}
+		if side != 0 && upper != nil && !upper.Static && !upper.Kinematic {
+			inCol := colShock[upper.ID] || (lower != nil && colShock[lower.ID])
+			if inCol {
+				colShock[upper.ID] = true
+				for k := idx; k < endIdx; k++ {
+					mask[order[k]] = true
+				}
+			}
+		}
+		idx = endIdx
+	}
+	return mask
+}
+
+// propagateShockVelocity visits qualifying vertical contacts in order (bottom
+// up) and, for each manifold that still approaches its support, applies a
+// symmetric block LCP impulse to the upper body alone that stops the approach,
+// treating the lower body as immovable.
+func propagateShockVelocity(contacts []solverContact, order []int, mask []bool, up Vec3) {
+	for idx := 0; idx < len(order); {
+		i0 := order[idx]
+		c0 := &contacts[i0]
+		endIdx := idx + 1
+		for endIdx < len(order) {
+			cj := &contacts[order[endIdx]]
+			if cj.a != c0.a || cj.b != c0.b || cj.childA != c0.childA || cj.childB != c0.childB || cj.staticID != c0.staticID {
+				break
+			}
+			endIdx++
+		}
+		if !mask[i0] {
+			idx = endIdx
+			continue
+		}
+		upper, lower, n := c0.a, c0.b, c0.normal
+		side := shockUpper(c0, c0.normal, up)
+		switch side {
 		case 1:
 		case -1:
-			upper, lower, rU, rL, n = c.b, c.a, c.rB, c.rA, c.normal.Neg()
+			upper, lower, n = c0.b, c0.a, c0.normal.Neg()
 		default:
+			idx = endIdx
 			continue
 		}
-		invM, invI := activeInvMass(upper), activeInvInertia(upper)
-		_, hasT := activeWorldInvInertia(upper)
-		if invM+invI == 0 && !hasT {
+		var normals, rUs, zeroRs [maxManifoldPoints]Vec3
+		var rhs, dj [maxManifoldPoints]float64
+		count := 0
+		approaching := false
+		for k := idx; k < endIdx && count < maxManifoldPoints; k++ {
+			c := &contacts[order[k]]
+			rU, rL := c.rA, c.rB
+			if side == -1 {
+				rU, rL = c.rB, c.rA
+			}
+			vUpper := pointVel(upper, rU).Dot(n)
+			// Clamp lower's support velocity at <= 0 along up so shock
+			// propagation stops downward approach without launching a heavy
+			// upper body upward off a rebounding lighter support.
+			vLower := min(pointVel(lower, rL).Dot(n), 0)
+			vn := vUpper - vLower
+			if vn < 0 {
+				approaching = true
+			}
+			normals[count] = n
+			rUs[count] = rU
+			rhs[count] = -float64(vn)
+			count++
+		}
+		if !approaching {
+			idx = endIdx
 			continue
 		}
-		vn := pointVel(upper, rU).Sub(pointVel(lower, rL)).Dot(n)
-		if vn >= 0 {
+		invM := activeInvMass(upper)
+		invT := activeWorldInvInertiaMatrix(upper)
+		if invM == 0 && invT.IsZero() {
+			idx = endIdx
 			continue
 		}
-		var k float32
-		if hasT {
-			k = contactEffectiveMassBodies(upper, rU, nil, Vec3{}, n)
+		solved := false
+		if count == 1 {
+			effK := invM + invT.QuadForm(rUs[0].Cross(n))
+			if effK > 0 && rhs[0] > 0 {
+				dj[0] = rhs[0] / float64(effK)
+				solved = true
+			}
 		} else {
-			k = contactEffectiveMass(invM, invI, rU, 0, 0, Vec3{}, n)
+			solved = solveBlockLCP(count, invM, invT, 0, SymMat3{}, normals[:count], rUs[:count], zeroRs[:count], rhs[:count], nil, dj[:count])
 		}
-		if k > 0 {
-			applyContactImpulse(upper, rU, n.Scale(-vn/k))
+		if solved {
+			var totalLin, totalAng Vec3
+			for k := range count {
+				if dj[k] <= 0 {
+					continue
+				}
+				imp := n.Scale(float32(dj[k]))
+				totalLin = totalLin.Add(imp)
+				totalAng = totalAng.Add(rUs[k].Cross(imp))
+			}
+			if invM > 0 {
+				upper.Vel = upper.Vel.Add(totalLin.Scale(invM))
+			}
+			if !invT.IsZero() {
+				upper.AngVel = upper.AngVel.Add(invT.MulVec(totalAng))
+			}
+		} else {
+			for k := range count {
+				if rhs[k] <= 0 {
+					continue
+				}
+				effK := invM + invT.QuadForm(rUs[k].Cross(n))
+				if effK <= 0 {
+					continue
+				}
+				applyContactImpulse(upper, rUs[k], n.Scale(float32(rhs[k])/effK))
+			}
 		}
+		idx = endIdx
 	}
 }
 
-// resolveResidualPenetration runs after the Gauss-Seidel position iterations. It visits contacts in order (bottom up along up) and moves only the upper body of each vertical contact deeper than shockKeepDepth back to that depth, so the correction below is final by the time the body above is placed. Side contacts, contacts whose upper body cannot move, and every contact when order is nil (no gravity) keep the Gauss-Seidel result. It records on each body the deepest contact left afterwards, which gates sleeping, and wakes a sleeping body left deeper than sleepWakeDepth.
-func (w *World) resolveResidualPenetration(contacts []solverContact, order []int, up Vec3) {
+// resolveResidualPenetration runs after the Gauss-Seidel position iterations. It visits contacts in order (bottom up along up) and, for contacts in shock-enabled columns (high mass ratios or tall stacks) that remain deeper than shockKeepDepth, moves only the upper body back to shockKeepDepth. Normal stacks resolved by multi-point manifolds and warm starting have mask == nil and bypass the shock push. It records on each body the deepest contact left afterwards, which gates sleeping, and wakes a sleeping body left deeper than sleepWakeDepth.
+func (w *World) resolveResidualPenetration(contacts []solverContact, order []int, mask []bool, up Vec3) {
 	for _, b := range w.bodies {
 		if b.residualDepth != 0 {
 			b.residualDepth = 0
 		}
 	}
-	visit := func(c *solverContact) {
+	visit := func(i int, c *solverContact) {
 		cur := c.current()
 		if !cur.Hit || cur.Depth <= positionSlop {
 			return
 		}
 		depth := cur.Depth
-		if order != nil && cur.Depth > shockKeepDepth {
+		if mask != nil && mask[i] && cur.Depth > shockKeepDepth {
+			side := shockUpper(c, cur.Normal, up)
 			corr := cur.Depth - shockKeepDepth
-			switch shockUpper(c, cur.Normal, up) {
+			switch side {
 			case 1:
 				if activeInvMass(c.a) > 0 {
 					c.a.Pos = c.a.Pos.Add(cur.Normal.Scale(corr))
@@ -1443,11 +2163,11 @@ func (w *World) resolveResidualPenetration(contacts []solverContact, order []int
 	}
 	if order != nil {
 		for _, i := range order {
-			visit(&contacts[i])
+			visit(i, &contacts[i])
 		}
 	} else {
 		for i := range contacts {
-			visit(&contacts[i])
+			visit(i, &contacts[i])
 		}
 	}
 	for _, pid := range w.bp.dynamicList {
@@ -1458,21 +2178,64 @@ func (w *World) resolveResidualPenetration(contacts []solverContact, order []int
 	}
 }
 
-// shapeTriangleContacts returns the contacts a body's world shape s makes with a static triangle: the manifold for a convex hull or cylinder, and the single contact of testShapeTriangleSolid (with the heightfield correction when heightfield is set) otherwise.
-func shapeTriangleContacts(s Shape, tri Triangle, heightfield bool) []Contact {
-	if isConvexKind(s) {
-		return triangleManifold(s, tri, heightfield)
+// matchCachedPoint finds the best unused slot in cached matching a new contact
+// point by feature ID first, then by combined local-space proximity.
+func matchCachedPoint(cached *cachedManifold, used *[maxManifoldPoints]bool, featureID uint32, localA, localB Vec3) int {
+	if featureID != 0 {
+		for k := 0; k < cached.count; k++ {
+			if !used[k] && cached.points[k].featureID == featureID {
+				return k
+			}
+		}
 	}
-	var c Contact
-	if heightfield {
-		c = testShapeHeightfieldTriangleSolid(s, tri)
-	} else {
-		c = testShapeTriangleSolid(s, tri)
+	best := -1
+	bestDistSq := float32(warmStartMatchTolSq)
+	for k := 0; k < cached.count; k++ {
+		if used[k] {
+			continue
+		}
+		cp := &cached.points[k]
+		if cp.localA == (Vec3{}) && cp.localB == (Vec3{}) && cp.featureID == 0 && cached.count == 1 {
+			return k
+		}
+		dSq := localA.DistSq(cp.localA) + localB.DistSq(cp.localB)
+		if dSq <= bestDistSq {
+			bestDistSq = dSq
+			best = k
+		}
 	}
-	if !c.Hit {
-		return nil
+	return best
+}
+
+// currentPlane recomputes the world push normal (from B toward A), penetration
+// depth, and contact midpoint for a planar manifold point at the bodies'
+// current poses.
+func (c *solverContact) currentPlane() (normal Vec3, depth float32, point Vec3) {
+	rotA := normalizedQuat(c.a.Rot)
+	if c.b == nil {
+		// Static triangle reference plane stored in world space.
+		wRefN := c.localRefNormal
+		wRefPt := c.localRefPoint
+		wIncPt := c.a.Pos.Add(rotA.RotateVec(c.localIncPoint))
+		depth = wRefPt.Sub(wIncPt).Dot(wRefN) + c.incRadius
+		point = wIncPt.Sub(wRefN.Scale(c.incRadius - float32(depth*0.5)))
+		return wRefN, depth, point
 	}
-	return []Contact{c}
+	rotB := normalizedQuat(c.b.Rot)
+	if c.refIsA {
+		wRefN := rotA.RotateVec(c.localRefNormal)
+		wRefPt := c.a.Pos.Add(rotA.RotateVec(c.localRefPoint))
+		wIncPt := c.b.Pos.Add(rotB.RotateVec(c.localIncPoint))
+		depth = wRefPt.Sub(wIncPt).Dot(wRefN) + c.incRadius
+		point = wIncPt.Sub(wRefN.Scale(c.incRadius - float32(depth*0.5)))
+		return wRefN.Neg(), depth, point
+	}
+	wRefN := rotB.RotateVec(c.localRefNormal)
+	wRefPt := c.b.Pos.Add(rotB.RotateVec(c.localRefPoint))
+	wIncPt := c.a.Pos.Add(rotA.RotateVec(c.localIncPoint))
+	depth = wRefPt.Sub(wIncPt).Dot(wRefN) + c.incRadius
+	point = wIncPt.Sub(wRefN.Scale(c.incRadius - float32(depth*0.5)))
+	return wRefN, depth, point
 }
 
 // current re-tests c's pair at the bodies' present poses.

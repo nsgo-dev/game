@@ -361,7 +361,7 @@ func (s *physics3DSim) Checksum() uint64 {
 
 func TestRollbackPhysics3DSoak(t *testing.T) {
 	// Cross-architecture golden checksum after 400 rollback ticks (must match on amd64 and arm64).
-	const wantGolden uint64 = 0x28ef2526659fc21c
+	const wantGolden uint64 = 0xb2a75b907dc8fc28
 
 	hub := gamenet.NewLoopbackHub(gamenet.LoopbackConfig{
 		Latency: 40 * time.Millisecond,

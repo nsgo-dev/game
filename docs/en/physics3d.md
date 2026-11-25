@@ -105,7 +105,7 @@ if hit, ok := world.ShapeCastLayer(cameraProbe, pivot, physics3d.QuatIdentity(),
 
 ## Rigid Bodies
 
-A `World` holds static (`Static: true` or zero mass) and dynamic `Body` values and advances them in `Step(dt)` using symplectic Euler integration, deterministic collision detection, warm-started iterative impulse solving with isotropic 3D Coulomb friction, non-linear Gauss-Seidel positional correction, and automatic sleeping for settled bodies.
+A `World` holds static (`Static: true` or zero mass) and dynamic `Body` values and advances them in `Step(dt)` using velocity-first symplectic Euler integration (with implicit midpoint gyroscopic Euler torque), deterministic collision detection with multi-point contact manifolds, per-point warm-started iterative impulse solving with symmetric block LCP normals and 3D Coulomb friction, non-linear Gauss-Seidel positional correction, and automatic sleeping for settled bodies.
 
 ```go
 world := physics3d.NewWorld()
@@ -127,7 +127,27 @@ loop := &game.Loop{
 }
 ```
 
-Contact impulses act at the contact point, so friction makes a sliding sphere roll and a box standing on an edge tips over onto a face. `LockRotation` keeps a dynamic body from rotating. Inputs that are not finite (a NaN velocity or mass) fall back to defaults in `AddBody`, and a kinematic body without mass stays kinematic.
+### Inertia tensors, gyroscopic motion, and per-body overrides
+
+Every dynamic `Body` computes a body-space inverse inertia tensor (`InvInertiaTensor SymMat3`) from its `Shape`, `Mass`, and `CenterOfMass`: exact diagonal principal moments for axis-aligned boxes, spheres, capsules, and cylinders, and full symmetric tensors (including the parallel-axis shift) for offset, rotated, convex-hull, and compound shapes. At each step the solver, all seven built-in `Joint3D` types, and `game/vehicle` rotate `InvInertiaTensor` into world space (`Body.WorldInvInertiaTensor()`), and free angular motion integrates Euler's gyroscopic torque term ($I\dot{\omega} + \omega \times (I\omega) = 0$) via an energy-conserving implicit midpoint update so asymmetric spinning bodies (such as a plank spun near its intermediate principal axis) exhibit realistic Dzhanibekov flips while symmetric cubes remain stable.
+
+Override mass distribution per body when needed:
+
+- `Body.SetInertia(diag Vec3)` sets diagonal body-space principal moments $(I_x, I_y, I_z)$ directly (zero axes lock rotation about that axis; `DiagSymMat3` constructs a diagonal `SymMat3`).
+- `Body.SetInertiaTensor(inertia SymMat3)` sets a full symmetric body-space inertia tensor and inverts it into `InvInertiaTensor`.
+- `Body.SetCenterOfMass(localCOM Vec3)` shifts the local center of mass and recomputes `InvInertiaTensor` about the new pivot unless inertia was explicitly overridden.
+- `Body.RecomputeMassProperties()` clears custom inertia and center-of-mass overrides and restores the shape-derived defaults.
+- `LockRotation` keeps a dynamic body from rotating. Inputs that are not finite (a NaN velocity or mass) fall back to defaults in `AddBody`, and a kinematic body without mass stays kinematic.
+
+### Contact manifolds, warm starting, and stacking
+
+Face-to-face collisions generate persistent multi-point contact manifolds rather than a single contact point:
+
+- **Box-box and convex hull / cylinder faces**: Sutherland-Hodgman face clipping produces up to 4 contact points with persistent feature IDs and per-point penetration depths, reduced deterministically to maximize support area.
+- **Capsule on face**: capsules resting on boxes, convex hulls, cylinder caps, or triangles clip the centerline segment against the reference face prism to produce up to 2 contact points (collapsing to 1 when standing upright on an end cap).
+- **Per-point warm starting and friction**: each manifold point tracks its own accumulated normal and tangent impulses across steps (matched by feature ID first, then local-space proximity). Normal impulses for 2–4 point manifolds are solved simultaneously with a regularized float64 active-set Cholesky LCP so flat faces never incur corner-order tipping torque, followed by per-point 3D Coulomb friction and planar non-linear Gauss-Seidel positional/angular correction.
+
+Contact impulses act at each contact point, so friction makes a sliding sphere roll, a flat box rests without rocking, and a box standing on an edge tips over onto a face.
 
 ### Physics materials
 
@@ -135,7 +155,7 @@ Attach a shared `*PhysicsMaterial` (`Friction`, `Restitution`, `LinearDamping`, 
 
 Settled bodies sleep. A sleeping body wakes when a moving dynamic body or a kinematic body (moving by velocity or by setting `Pos`/`Rot` directly) touches it, when a body jointed to it moves, when one of its contacts ends (its support moved away), when a `VoxelCollider` block near it changes solidity or disappears under it, and on `Wake`, `WakeInBox`, `ApplyImpulse`, and the removal of bodies, meshes, voxel colliders, or joints.
 
-Stacks rest without sinking into each other. After the iterative solver, each step makes one bottom-up pass over the contacts within about 45° of vertical (relative to `-Gravity`) that stops each upper body against the one below and pushes it out until about 1 mm of overlap is left, treating the lower body as immovable (shock propagation). A heavy body on a light one, or a tall stack, settles at that depth instead of the several centimeters iterative solving alone leaves under large mass ratios. A body still sunk more than 5 mm into a neighbor does not fall asleep, and a sleeping body pushed deeper than 1 cm wakes, so sleeping never freezes an overlap in place. With zero gravity there is no "up" and the pass is skipped.
+Ordinary stacks (such as a 10-box uniform tower) settle cleanly and stand without residual drift from multi-point manifolds and per-point warm starting alone. Scoped shock propagation stays active only for vertical support columns (within about 45° of `-Gravity`) that contain a large upper-to-lower mass ratio (`> 4:1`, such as a 100 kg box on 1 kg boxes) or more than 12 stacked dynamic bodies, making one bottom-up pass that treats the lower body as immovable and keeps overlap near 1 mm. A body still sunk more than 5 mm into a neighbor does not fall asleep, and a sleeping body pushed deeper than 1 cm wakes, so sleeping never freezes an overlap in place. With zero gravity there is no "up" and the shock pass is skipped.
 
 A shape that ends up below a heightfield's surface is pushed out upward, by the depth measured along the upward triangle normal, so it clears the surface in one correction rather than by the shallower distance to the nearest point underneath. A shape beside a cell, such as one at the foot of a step touching the plateau's edge, keeps the depth of its own contact, so it is not lifted onto the plateau.
 
@@ -303,7 +323,7 @@ sw.Step(dt)
 
 `World` supports full state snapshots, deterministic FNV-1a 64-bit checksums, and cross-architecture determinism across amd64 and arm64:
 
-- **`Save() / Restore(snap) / Checksum()`**: `World.Save()` captures all public and private solver state into a versioned `WorldSnapshot` (`SnapshotVersion`), including gravity and solver/sleep settings, bodies (with their full shape, including a `ConvexHull`'s geometry, `Cylinder`, and `ShapeCompound` children, `CenterOfMass`, `InvInertiaTensor`, private sleep timers, gravity-scale flags, residual depth, previous interpolation poses, and voxel resting state), sorted per-child warm-start contact impulse cache, active contact/trigger pair sets, last-step contact and joint-break events (including compound child indices), ignored body pairs, all 7 built-in `Joint3D` types (`DistanceJoint`, `BallJoint`, `HingeJoint`, `SliderJoint`, `FixedJoint`, `SwingTwistJoint`, `SixDOFJoint`, including unwrapped angle state and last reaction impulses), plus `TriMeshCollider`, `HeightfieldCollider`, and `VoxelGrid` collider bindings.
+- **`Save() / Restore(snap) / Checksum()`**: `World.Save()` captures all public and private solver state into a versioned `WorldSnapshot` (`SnapshotVersion`), including gravity and solver/sleep settings, bodies (with their full shape, including a `ConvexHull`'s geometry, `Cylinder`, and `ShapeCompound` children, `CenterOfMass`, `InvInertiaTensor`, custom center-of-mass/inertia override flags, private sleep timers, gravity-scale flags, residual depth, previous interpolation poses, and voxel resting state), sorted per-child multi-point (up to 4 points with feature IDs and local offsets) warm-start contact impulse cache, active contact/trigger pair sets, last-step contact and joint-break events (including compound child indices), ignored body pairs, all 7 built-in `Joint3D` types (`DistanceJoint`, `BallJoint`, `HingeJoint`, `SliderJoint`, `FixedJoint`, `SwingTwistJoint`, `SixDOFJoint`, including unwrapped angle state and last reaction impulses), plus `TriMeshCollider`, `HeightfieldCollider`, and `VoxelGrid` collider bindings.
 - **JSON-serializable plain text**: `WorldSnapshot` marshals cleanly with `encoding/json` (no `encoding/gob` or custom binary layout).
 - **In-place pointer & callback preservation**: `Restore` updates existing `*Body`, `Joint3D`, and collider instances in place when counts/kinds match, rebuilds the broadphase trees deterministically, and preserves gameplay pointers, `UserData`, and world callbacks (`OnContact`, `OnTrigger`, `OnJointBreak`).
 - **Cross-architecture determinism**: all stepped 3D integration, broadphase, narrowphase (GJK/EPA/SAT, OBB, mesh/heightfield, voxel), sequential impulse solver, joint, area, and `vehicle` suspension/tire paths avoid arm64 FMA contraction and FMA-using standard library transcendentals, ensuring bit-identical trajectories and `Checksum()` values on amd64 and arm64.

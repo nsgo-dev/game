@@ -368,7 +368,7 @@ func TestWorldSnapshotValidation(t *testing.T) {
 
 func TestGoldenTrajectory3D(t *testing.T) {
 	// Cross-architecture golden trajectory hash (must match identically on amd64 and arm64).
-	const wantGolden uint64 = 0xc4f17a20b03f1e68
+	const wantGolden uint64 = 0x004cc28715ce8d0e
 
 	w, _, kin, _ := buildTestWorld3D()
 	for step := 0; step < 200; step++ {

@@ -437,6 +437,91 @@ func TestVehicleInGameLoop(t *testing.T) {
 	}
 }
 
+func TestVehicleBrakingPitchMatchesMassDistribution(t *testing.T) {
+	// 1. Verify the chassis body inherits the exact diagonal/shifted inertia
+	// tensor implied by Config's Mass, ChassisHalfExtents, and ChassisOffset.
+	cfg := vehicle.ReferenceConfig()
+	w, car := flatWorld(t)
+	he := cfg.ChassisHalfExtents
+	off := cfg.ChassisOffset
+	m := float64(cfg.Mass)
+	// Solid box about its own center plus parallel-axis shift by ChassisOffset
+	// relative to Body.CenterOfMass (0, 0, 0).
+	ixx := m/3*(float64(he[1])*float64(he[1])+float64(he[2])*float64(he[2])) + m*(float64(off[1])*float64(off[1])+float64(off[2])*float64(off[2]))
+	iyy := m/3*(float64(he[0])*float64(he[0])+float64(he[2])*float64(he[2])) + m*(float64(off[0])*float64(off[0])+float64(off[2])*float64(off[2]))
+	izz := m/3*(float64(he[0])*float64(he[0])+float64(he[1])*float64(he[1])) + m*(float64(off[0])*float64(off[0])+float64(off[1])*float64(off[1]))
+	invT := car.Body.WorldInvInertiaTensor()
+	if !approx(invT.XX, float32(1/ixx), 1e-6) || !approx(invT.YY, float32(1/iyy), 1e-6) || !approx(invT.ZZ, float32(1/izz), 1e-6) {
+		t.Fatalf("chassis WorldInvInertiaTensor = %+v, want diag(%v, %v, %v)", invT, float32(1/ixx), float32(1/iyy), float32(1/izz))
+	}
+	_ = w
+
+	// 2. Compare braking pitch response across two cars with identical Mass,
+	// wheel layout, and brake force, differing only in ChassisHalfExtents[2]
+	// (pitch moment of inertia Ixx). Under hard braking while moving forward
+	// (-Z), the car pitches nose-down (forward.Y < 0, AngVel.X < 0); initial
+	// angular acceleration (alpha = tau / Ixx) and early nose-dive angle before
+	// suspension rebound are inversely proportional to Ixx.
+	measureBrakePitch := func(halfLenZ float32, comY float32) (earlyPitchRad, peakPitchRad, firstStepAngVelX float32) {
+		c := vehicle.ReferenceConfig()
+		c.ChassisHalfExtents[2] = halfLenZ
+		world := physics3d.NewWorld()
+		world.AddBody(physics3d.NewStaticBody(box(2000, 1, 2000), physics3d.Vec3{Y: -1}))
+		v, err := vehicle.New(world, c, physics3d.Vec3{Y: 0.65}, physics3d.QuatIdentity())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if comY != 0 {
+			v.Body.SetCenterOfMass(physics3d.Vec3{Y: comY})
+		}
+		// Let suspension settle cleanly, then impart identical cruising speed (-Z forward).
+		drive(world, v, vehicle.Input{}, rate)
+		v.Body.Vel = physics3d.Vec3{Z: -20}
+		v.Body.AngVel = physics3d.Vec3{}
+		for step := range rate / 2 {
+			v.SetInput(vehicle.Input{Brake: 1})
+			v.Step(world, dt)
+			world.Step(dt)
+			if step == 0 {
+				firstStepAngVelX = v.Body.AngVel.X
+			}
+			dip := -v.Forward().Y
+			if step == 3 {
+				earlyPitchRad = dip
+			}
+			if dip > peakPitchRad {
+				peakPitchRad = dip
+			}
+		}
+		return earlyPitchRad, peakPitchRad, firstStepAngVelX
+	}
+
+	shortEarly, shortPeak, shortWx := measureBrakePitch(1.2, 0)
+	longEarly, longPeak, longWx := measureBrakePitch(3.5, 0)
+	if shortWx >= -0.01 || longWx >= -0.01 {
+		t.Fatalf("expected nose-down braking angular velocity (AngVel.X < 0), got short=%v long=%v", shortWx, longWx)
+	}
+	if shortPeak <= 0.01 || longPeak <= 0.01 {
+		t.Fatalf("expected measurable nose-down pitch under hard braking, got short=%v long=%v", shortPeak, longPeak)
+	}
+	// Longer chassis has much larger Ixx (proportional to hz^2), so initial
+	// braking pitch rate and early nose-dive angle are strictly smaller.
+	if -shortWx <= -longWx*2.5 {
+		t.Fatalf("braking pitch rate did not reflect pitch inertia distribution: shortWx=%v longWx=%v", shortWx, longWx)
+	}
+	if shortEarly <= longEarly*2.0 {
+		t.Fatalf("early braking pitch did not reflect pitch inertia distribution: short=%v long=%v", shortEarly, longEarly)
+	}
+
+	// 3. Raising the chassis center of mass increases the braking torque lever
+	// arm above the tire contact patch, increasing peak nose-dive pitch.
+	_, basePeak, _ := measureBrakePitch(cfg.ChassisHalfExtents[2], 0)
+	_, highCGPeak, _ := measureBrakePitch(cfg.ChassisHalfExtents[2], 0.35)
+	if highCGPeak <= basePeak*1.2 {
+		t.Fatalf("higher center of mass did not increase braking nose dive: base=%v highCG=%v", basePeak, highCGPeak)
+	}
+}
+
 func BenchmarkVehicleStep(b *testing.B) {
 	w, car := flatWorld(b)
 	car.SetInput(vehicle.Input{Throttle: 0.5, Steer: 0.3})
