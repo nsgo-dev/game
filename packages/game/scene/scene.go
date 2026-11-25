@@ -48,14 +48,16 @@ func NewDrawable(draw func(d *core.Drawing)) *Drawable {
 	return &Drawable{Draw: draw, Visible: true}
 }
 
-// Item is one entry in a Layer: a sprite batch, a tilemap, or a custom Drawable.
+// Item is one entry in a Layer: a sprite batch, a tilemap (or single tile layer), or a custom Drawable.
 //
 // Z orders items within their layer (lowest first, ties keeping slice order). For a Drawable, a zero Item.Z falls back to Drawable.Z so changing Drawable.Z takes effect immediately.
+// When Tilemap and TileLayer are both set, only TileLayer is drawn instead of the entire Tilemap.
 type Item struct {
-	Batch    *sprite.Batch
-	Tilemap  *tilemap.Tilemap
-	Drawable *Drawable
-	Z        int
+	Batch     *sprite.Batch
+	Tilemap   *tilemap.Tilemap
+	TileLayer *tilemap.TileLayer
+	Drawable  *Drawable
+	Z         int
 }
 
 func (it Item) z() int {
@@ -102,6 +104,8 @@ type Layer struct {
 	parallaxSet  bool
 	order        []Item
 	entries      []drawEntry
+	ysortTiles   []tilemap.YSortTile
+	ysortDrawer  tilemap.YSortDrawer
 	scratchBatch sprite.Batch
 	scratchOne   [1]*sprite.Sprite
 }
@@ -135,6 +139,15 @@ func (l *Layer) AddTilemap(m *tilemap.Tilemap) {
 	l.Items = append(l.Items, Item{Tilemap: m})
 }
 
+// AddTileLayer appends a single TileLayer of m to the layer.
+// When layer.YSort is true and the scene Layer uses SortY, its visible tiles join the layer's Y-sorted draw list.
+func (l *Layer) AddTileLayer(m *tilemap.Tilemap, layer *tilemap.TileLayer) {
+	if m == nil || layer == nil {
+		return
+	}
+	l.Items = append(l.Items, Item{Tilemap: m, TileLayer: layer})
+}
+
 // AddDrawable appends a custom Drawable to the layer.
 func (l *Layer) AddDrawable(d *Drawable) {
 	if d == nil {
@@ -160,9 +173,7 @@ func (l *Layer) draw(d *core.Drawing, cam *tilemap.Camera) {
 	if l == nil || !l.Visible || len(l.Items) == 0 {
 		return
 	}
-	l.entries = l.buildDrawEntries(l.entries)
-	defer clear(l.entries)
-	l.drawWithParallax(d, cam, l.entries)
+	l.drawWithParallax(d, cam)
 }
 
 func (l *Layer) update(dt time.Duration) {
@@ -171,9 +182,18 @@ func (l *Layer) update(dt time.Duration) {
 	}
 	items := l.sortedItems()
 	defer clear(l.order)
-	for _, it := range items {
+	for i, it := range items {
 		if it.Tilemap != nil {
-			it.Tilemap.Update(dt)
+			dup := false
+			for j := range i {
+				if items[j].Tilemap == it.Tilemap {
+					dup = true
+					break
+				}
+			}
+			if !dup {
+				it.Tilemap.Update(dt)
+			}
 		}
 		if it.Drawable != nil && it.Drawable.Update != nil {
 			it.Drawable.Update(dt)

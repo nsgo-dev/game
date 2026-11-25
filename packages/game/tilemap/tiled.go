@@ -273,6 +273,18 @@ func flagsFromProperties(p Properties) TileFlags {
 	return flags
 }
 
+func ySortFromProperties(p Properties) bool {
+	if len(p) == 0 {
+		return false
+	}
+	for _, key := range []string{"y_sort", "ysort", "ySort", "y-sort"} {
+		if v, ok := p.Bool(key); ok {
+			return v
+		}
+	}
+	return false
+}
+
 // loadTiledLayers adds layers to m. The fields its errors name are relative to the array of layers, as in "[2].data".
 func loadTiledLayers(m *Tilemap, layers []tiledLayer, parentOX, parentOY, parentPX, parentPY, parentOpacity float32, parentVisible bool, resolve TilesetLoader) error {
 	for li, raw := range layers {
@@ -358,6 +370,7 @@ func loadTiledLayers(m *Tilemap, layers []tiledLayer, parentOX, parentOY, parent
 				ParallaxY:  py,
 				Opacity:    opacity,
 				Visible:    visible,
+				YSort:      ySortFromProperties(props),
 				Properties: props,
 			})
 
@@ -527,6 +540,7 @@ func buildChunkedTileLayer(m *Tilemap, raw tiledLayer, li int, ox, oy, px, py, o
 		ParallaxY:  py,
 		Opacity:    opacity,
 		Visible:    visible,
+		YSort:      ySortFromProperties(props),
 		Properties: props,
 	}, nil
 }

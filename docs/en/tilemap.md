@@ -105,6 +105,28 @@ m.Update(dt)
 
 You can also attach a `TileAnimation` manually to a tileset by setting `ts.Animations[localID] = &tilemap.TileAnimation{Frames: ...}`.
 
+## Y-sorting tiles with sprites
+
+Enable per-layer Y-sorting on any `TileLayer` (`layer.YSort = true` or `m.SetLayerYSort(index, true)`, or via a boolean Tiled layer custom property named `y_sort`, `ysort`, `ySort`, or `y-sort`) so tall tiles such as trees, walls, and pillars interleave with scene sprites and custom drawables by depth:
+
+```go
+m.Layer("trees").YSort = true
+
+// Optional: shift a tree tile's sort line upward from its bottom edge to its trunk base.
+// Equivalent to setting a float/int tile custom property "sort_origin_y" = -8 in Tiled.
+m.SetTileSortOriginY(treeGID, -8)
+
+world := sc.AddLayer(scene.NewLayer("world", scene.SpaceWorld, 0))
+world.DepthSort = scene.SortY
+world.AddTilemap(m)
+world.AddBatch(actorsBatch)
+```
+
+- **Default sort line**: each visible tile sorts by its world-space bottom edge (`offY + tileOriginY + TileHeight`), which works across orthogonal, isometric, staggered, and hexagonal orientations and matches bottom-pivoted character sprites (`OriginY = height`).
+- **Per-tile sort origin**: attach the custom tile property `sort_origin_y` (`tilemap.PropSortOriginY`, aliases `y_sort_origin` and `ysort_origin`) in Tiled or call `m.SetTileSortOriginY(gid, offsetY)` to offset a tile's sort line vertically (negative moves it up into a tree trunk or isometric diamond center; positive moves it down). Inspect it with `m.TileSortOriginY(gid)`.
+- **Layer ordering & culling**: inside a `scene.SortY` layer, non-Y-sorted layers before the first Y-sorted layer draw behind sprites (keeping any `CacheStaticLayer` fast path), Y-sorted layers interleave individual visible tiles with sprites and drawables, and trailing non-Y-sorted layers (such as roofs or canopies) draw above them. Camera frustum culling (including tall tiles and atlas frames), animated tiles, flip flags, and layer opacity are all respected.
+- **Custom draw loops**: use `m.AppendYSortTiles(dst[:0], layer, cam)`, `tilemap.SortYSortTiles(tiles)`, and `tilemap.YSortDrawer` (or `YSortTile.Draw(d)`) to collect, sort, and draw Y-sorted tiles with reusable scratch buffers and zero allocations in `tilemap` once warmed up.
+
 ## Tile flags, overlap queries, and raycasts
 
 Associate collision or gameplay `TileFlags` (`TileSolid`, `TileOneWay`, or custom bitflags) with global tile IDs or individual map cells:

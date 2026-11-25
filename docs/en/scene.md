@@ -25,7 +25,8 @@ hud.AddDrawable(scene.NewDrawable(func(d *core.Drawing) {
 }))
 ```
 
-- **Items**: a layer accepts `AddTilemap`, `AddBatch`, `AddDrawable`, or an explicit `AddItem(scene.Item{...})`. Items inside a layer draw in stable ascending `Z`.
+- **Items**: a layer accepts `AddTilemap`, `AddTileLayer`, `AddBatch`, `AddDrawable`, or an explicit `AddItem(scene.Item{...})`. Items inside a layer draw in stable ascending `Z`.
+- **Y-sorting (`DepthSort = scene.SortY`)**: sorts sprites, custom `Drawable`s, and tiles from any `tilemap.TileLayer` with `YSort: true` in one stable painter's-order list by ascending Y (with optional `SortKey` / `SpriteSortKey` overrides and per-tile `sort_origin_y` offsets). Non-Y-sorted tilemap layers before Y-sorted layers draw behind sprites, and trailing non-Y-sorted layers (such as roofs) draw above them; use `AddTileLayer(m, layer)` to bind a single tile layer to a specific scene layer.
 - **`Drawable`**: wraps custom `Draw`, `Update`, `Hit`, `OnPress`, and `OnTouch` hooks with its own `Z` and `Visible` flag. Its zero value has `Visible: false`; start with `scene.NewDrawable(fn)`.
 - **`Scene.Update(dt)`** advances `Camera`, tilemaps, and custom drawables in layer order; **`Scene.Draw(d)`** draws every visible layer while preserving `d`'s transform and paint state.
 

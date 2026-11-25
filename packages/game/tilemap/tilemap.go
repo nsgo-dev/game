@@ -318,18 +318,22 @@ func (ts *Tileset) tileSource(localID uint32) (img core.ImageSource, sx, sy, sw,
 //
 // Its zero value is hidden and transparent; NewTileLayer returns a visible layer at full opacity.
 type TileLayer struct {
-	Name       string
-	Width      int
-	Height     int
-	StartX     int
-	StartY     int
-	Data       []uint32
-	OffsetX    float32
-	OffsetY    float32
-	ParallaxX  float32
-	ParallaxY  float32
-	Opacity    float32
-	Visible    bool
+	Name      string
+	Width     int
+	Height    int
+	StartX    int
+	StartY    int
+	Data      []uint32
+	OffsetX   float32
+	OffsetY   float32
+	ParallaxX float32
+	ParallaxY float32
+	Opacity   float32
+	Visible   bool
+	// YSort enables per-tile Y-sorting for this layer. When true, visible tiles sort by
+	// their bottom edge (plus any per-tile PropSortOriginY property offset) and join a
+	// Y-sorted scene.Layer's draw list alongside sprites and drawables.
+	YSort      bool
 	Properties Properties
 }
 
@@ -458,11 +462,15 @@ type Tilemap struct {
 	Objects       []ObjectLayer
 	Properties    Properties
 
-	tileFlags  map[uint32]TileFlags
-	cellFlags  map[cellKey]TileFlags
-	layerOrder []layerRef
-	caches     map[int]*LayerCache
-	edits      *tileEditLog
+	tileFlags   map[uint32]TileFlags
+	cellFlags   map[cellKey]TileFlags
+	layerOrder  []layerRef
+	caches      map[int]*LayerCache
+	edits       *tileEditLog
+	ysortBuf    []YSortTile
+	ysortDrawer YSortDrawer
+	drawnTile   []bool
+	drawnImage  []bool
 }
 
 // New constructs an empty Tilemap of width by height tiles sized tileWidth by tileHeight points.
@@ -588,47 +596,13 @@ func (m *Tilemap) Update(dt time.Duration) {
 //
 // Draw draws in world coordinates: call cam.Apply(d) before Draw (and any world-space sprites) to position the view.
 func (m *Tilemap) Draw(d *core.Drawing, cam *Camera) {
-	if len(m.layerOrder) == 0 {
-		for i := range m.ImageLayers {
-			m.DrawImageLayer(d, &m.ImageLayers[i], cam)
+	m.VisitLayers(func(tl *TileLayer, il *ImageLayer) {
+		if tl != nil {
+			m.DrawLayer(d, tl, cam)
+		} else if il != nil {
+			m.DrawImageLayer(d, il, cam)
 		}
-		for i := range m.Layers {
-			m.DrawLayer(d, &m.Layers[i], cam)
-		}
-		return
-	}
-	var drawnTile []bool
-	var drawnImage []bool
-	if len(m.Layers) > 0 {
-		drawnTile = make([]bool, len(m.Layers))
-	}
-	if len(m.ImageLayers) > 0 {
-		drawnImage = make([]bool, len(m.ImageLayers))
-	}
-	for _, ref := range m.layerOrder {
-		switch ref.kind {
-		case layerKindTile:
-			if ref.index >= 0 && ref.index < len(m.Layers) && !drawnTile[ref.index] {
-				drawnTile[ref.index] = true
-				m.DrawLayer(d, &m.Layers[ref.index], cam)
-			}
-		case layerKindImage:
-			if ref.index >= 0 && ref.index < len(m.ImageLayers) && !drawnImage[ref.index] {
-				drawnImage[ref.index] = true
-				m.DrawImageLayer(d, &m.ImageLayers[ref.index], cam)
-			}
-		}
-	}
-	for i := range m.ImageLayers {
-		if !drawnImage[i] {
-			m.DrawImageLayer(d, &m.ImageLayers[i], cam)
-		}
-	}
-	for i := range m.Layers {
-		if !drawnTile[i] {
-			m.DrawLayer(d, &m.Layers[i], cam)
-		}
-	}
+	})
 }
 
 func effectiveLayerOffset(ox, oy, px, py float32, cam *Camera) (float32, float32) {
@@ -731,15 +705,43 @@ func (m *Tilemap) maxExtraTileSize() (extraW, extraH float64) {
 		if eh := float64(ts.TileHeight - m.TileHeight); eh > extraH {
 			extraH = eh
 		}
+		for i := range ts.Frames {
+			f := ts.Frames[i]
+			fw := f.Width
+			if fw <= 0 {
+				fw = f.W
+			}
+			fh := f.Height
+			if fh <= 0 {
+				fh = f.H
+			}
+			if ew := float64(fw - m.TileWidth); ew > extraW {
+				extraW = ew
+			}
+			if eh := float64(fh - m.TileHeight); eh > extraH {
+				extraH = eh
+			}
+		}
 	}
 	return extraW, extraH
 }
 
 // DrawLayer draws one tile layer into d, visiting only the visible tiles overlapping cam.VisibleBounds() when cam is non-nil.
 //
-// When the layer has a clean static cache created via CacheStaticLayer, DrawLayer draws it in a single DrawImageFrom operation.
+// When layer.YSort is true, visible tiles are sorted in stable ascending SortY order (respecting per-tile PropSortOriginY offsets) and drawn individually without using any static layer cache.
+// Otherwise, when the layer has a clean static cache created via CacheStaticLayer, DrawLayer draws it in a single DrawImageFrom operation.
 func (m *Tilemap) DrawLayer(d *core.Drawing, layer *TileLayer, cam *Camera) {
 	if layer == nil || !layer.Visible || layer.Opacity <= 0 {
+		return
+	}
+	if layer.YSort {
+		m.ysortBuf = m.AppendYSortTiles(m.ysortBuf[:0], layer, cam)
+		SortYSortTiles(m.ysortBuf)
+		for i := range m.ysortBuf {
+			m.ysortDrawer.Push(d, &m.ysortBuf[i])
+		}
+		m.ysortDrawer.Flush(d)
+		clear(m.ysortBuf)
 		return
 	}
 	lw, lh := m.layerSize(layer)

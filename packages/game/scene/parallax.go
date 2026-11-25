@@ -93,7 +93,7 @@ func (l *Layer) repeatRanges(vb core.Bounds) (minCol, maxCol, minRow, maxRow int
 	return minCol, maxCol, minRow, maxRow, repeatX, repeatY
 }
 
-func (l *Layer) drawWithParallax(d *core.Drawing, cam *tilemap.Camera, entries []drawEntry) {
+func (l *Layer) drawWithParallax(d *core.Drawing, cam *tilemap.Camera) {
 	if l.Space == SpaceWorld && cam != nil {
 		pcam := l.parallaxCamera(cam)
 		d.Save()
@@ -101,7 +101,10 @@ func (l *Layer) drawWithParallax(d *core.Drawing, cam *tilemap.Camera, entries [
 
 		minCol, maxCol, minRow, maxRow, rx, ry := l.repeatRanges(pcam.VisibleBounds())
 		if !rx && !ry {
-			l.drawEntries(d, entries, &pcam)
+			l.entries = l.buildDrawEntries(l.entries, &pcam, true)
+			l.drawEntries(d, l.entries, &pcam)
+			clear(l.entries)
+			clear(l.ysortTiles)
 		} else {
 			for row := minRow; row <= maxRow; row++ {
 				var ty float32
@@ -120,7 +123,10 @@ func (l *Layer) drawWithParallax(d *core.Drawing, cam *tilemap.Camera, entries [
 						d.Save()
 						d.Translate(tx, ty)
 					}
-					l.drawEntries(d, entries, &tileCam)
+					l.entries = l.buildDrawEntries(l.entries, &tileCam, true)
+					l.drawEntries(d, l.entries, &tileCam)
+					clear(l.entries)
+					clear(l.ysortTiles)
 					if tx != 0 || ty != 0 {
 						d.Restore()
 					}
@@ -137,7 +143,10 @@ func (l *Layer) drawWithParallax(d *core.Drawing, cam *tilemap.Camera, entries [
 		d.Save()
 		d.Translate(l.OffsetX, l.OffsetY)
 	}
-	l.drawEntries(d, entries, nil)
+	l.entries = l.buildDrawEntries(l.entries, nil, true)
+	l.drawEntries(d, l.entries, nil)
+	clear(l.entries)
+	clear(l.ysortTiles)
 	if hasOffset {
 		d.Restore()
 	}

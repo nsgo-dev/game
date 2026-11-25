@@ -263,7 +263,7 @@ func (s *Scene) walkHits(p core.Point, yield func(HitResult) bool) {
 		if l == nil || !l.Visible || len(l.Items) == 0 {
 			continue
 		}
-		entries := l.buildDrawEntries(nil)
+		entries := l.buildDrawEntries(nil, nil, false)
 		if len(entries) == 0 {
 			continue
 		}

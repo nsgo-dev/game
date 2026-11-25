@@ -105,6 +105,28 @@ m.Update(dt)
 
 也可以手动给图块集配置 `ts.Animations[localID] = &tilemap.TileAnimation{Frames: ...}`。
 
+## 瓦片与精灵的 Y 轴排序
+
+在任意 `TileLayer` 上开启逐层 Y 轴排序（设置 `layer.YSort = true`、调用 `m.SetLayerYSort(index, true)`，或在 Tiled 图层自定义属性中设置布尔属性 `y_sort`、`ysort`、`ySort`、`y-sort`），即可让树木、墙体、石柱等高大瓦片按纵深与场景精灵和自定义绘制项穿插绘制：
+
+```go
+m.Layer("trees").YSort = true
+
+// 可选：将树瓦片的排序基线从底边上移到树干底部。
+// 等价于在 Tiled 中为该瓦片设置浮点/整数自定义属性 "sort_origin_y" = -8。
+m.SetTileSortOriginY(treeGID, -8)
+
+world := sc.AddLayer(scene.NewLayer("world", scene.SpaceWorld, 0))
+world.DepthSort = scene.SortY
+world.AddTilemap(m)
+world.AddBatch(actorsBatch)
+```
+
+- **默认排序基线**：每个可见瓦片默认按其世界坐标底边（`offY + tileOriginY + TileHeight`）参与排序，统一支持正交、等距（isometric）、交错（staggered）和六边形地图，并与脚底锚点的角色精灵（`OriginY = height`）自然对齐。
+- **逐瓦片排序原点**：在 Tiled 中为瓦片添加自定义属性 `sort_origin_y`（常量 `tilemap.PropSortOriginY`，同时兼容别名 `y_sort_origin` 与 `ysort_origin`），或在代码中调用 `m.SetTileSortOriginY(gid, offsetY)`，即可垂直偏移该瓦片的排序线（负值向上移至树干或等距菱形中心，正值向下移）。可通过 `m.TileSortOriginY(gid)` 读取。
+- **图层顺序与裁剪**：在 `scene.SortY` 图层中，首个 Y 排序图层之前的普通图层绘制在精灵后方（仍享受 `CacheStaticLayer` 静态缓存），Y 排序图层中的可见瓦片逐个与精灵、自定义 `Drawable` 穿插排序，位于其后的普通图层（如屋顶、高空树冠）则绘制在前方。完整支持相机视锥裁剪（含高大瓦片与图集帧）、动画瓦片、翻转位及图层不透明度。
+- **自定义绘制循环**：如需脱离 `scene` 自行穿插绘制，可使用 `m.AppendYSortTiles(dst[:0], layer, cam)`、`tilemap.SortYSortTiles(tiles)` 与 `tilemap.YSortDrawer`（或 `YSortTile.Draw(d)`），复用缓冲切片在预热后实现 `tilemap` 侧每帧零堆分配。
+
 ## 瓦片标志、区域查询与射线检测
 
 为全局瓦片 ID 或单个地图格子设置碰撞与玩法 `TileFlags`（`TileSolid`、`TileOneWay` 或自定义位标志）：
