@@ -80,6 +80,7 @@ func Run(cfg *Config, makeSim SimFactory, opts RunOptions) (*RunResult, error) {
 	}
 
 	runs := make([]RunReport, 0, len(seeds))
+	collectors := make([]*Collector, 0, len(seeds))
 	recordings := make([]*replay.Recording, 0, len(seeds))
 
 	for i, seed := range seeds {
@@ -198,9 +199,12 @@ func Run(cfg *Config, makeSim SimFactory, opts RunOptions) (*RunResult, error) {
 			rr.Timers = maps.Clone(metrics.timers)
 		}
 		runs = append(runs, rr)
+		collectors = append(collectors, metrics)
 	}
 
 	metricReports, heatMaps, passed := evaluateMetrics(cfg.Metrics, runs)
+	seriesCharts := aggregateSeries(collectors)
+	matrixCharts := aggregateMatrices(collectors)
 	rep := &Report{
 		Version:   ReportVersion,
 		Scope:     cfg.Scope,
@@ -211,6 +215,8 @@ func Run(cfg *Config, makeSim SimFactory, opts RunOptions) (*RunResult, error) {
 		Passed:    passed,
 		Metrics:   metricReports,
 		HeatMaps:  heatMaps,
+		Series:    seriesCharts,
+		Matrices:  matrixCharts,
 		Runs:      runs,
 	}
 	normalizeReport(rep)
@@ -393,4 +399,195 @@ func percentileFloat(sorted []float64, pct int) float64 {
 		idx = n - 1
 	}
 	return sorted[idx]
+}
+
+func aggregateSeries(collectors []*Collector) []SeriesChart {
+	var names []string
+	seen := make(map[string]struct{})
+	for _, c := range collectors {
+		if c == nil {
+			continue
+		}
+		for _, name := range c.seriesOrder {
+			if _, ok := seen[name]; !ok {
+				seen[name] = struct{}{}
+				names = append(names, name)
+			}
+		}
+	}
+	if len(names) == 0 {
+		return nil
+	}
+	out := make([]SeriesChart, 0, len(names))
+	for _, name := range names {
+		var (
+			label, unit, agg string
+			targetMax        *float64
+			buckets          []string
+			seenBuckets      = make(map[string]struct{})
+			flags            = make(map[string]string)
+			notes            = make(map[string]string)
+		)
+		for _, c := range collectors {
+			if c == nil || c.series == nil {
+				continue
+			}
+			s, ok := c.series[name]
+			if !ok {
+				continue
+			}
+			if label == "" && s.label != "" {
+				label = s.label
+			}
+			if unit == "" && s.unit != "" {
+				unit = s.unit
+			}
+			if agg == "" && s.aggregate != "" {
+				agg = s.aggregate
+			}
+			if targetMax == nil && s.targetMax != nil {
+				v := *s.targetMax
+				targetMax = &v
+			}
+			for _, b := range s.order {
+				if _, ok := seenBuckets[b]; !ok {
+					seenBuckets[b] = struct{}{}
+					buckets = append(buckets, b)
+				}
+				if fl := s.flags[b]; fl != "" {
+					if flags[b] != FlagProblem {
+						flags[b] = fl
+					}
+				}
+				if nt := s.notes[b]; nt != "" && notes[b] == "" {
+					notes[b] = nt
+				}
+			}
+		}
+		if agg == "" {
+			agg = AggMedian
+		}
+		entries := make([]SeriesEntry, 0, len(buckets))
+		for _, b := range buckets {
+			vals := make([]float64, 0, len(collectors))
+			for _, c := range collectors {
+				if c != nil && c.series != nil {
+					if s, ok := c.series[name]; ok {
+						vals = append(vals, s.values[b])
+						continue
+					}
+				}
+				vals = append(vals, 0)
+			}
+			val, _, _ := aggregateValues(agg, vals, len(collectors))
+			fl := flags[b]
+			if targetMax != nil && fl == "" && val > *targetMax+1e-9 {
+				fl = FlagProblem
+			}
+			entries = append(entries, SeriesEntry{
+				Label: b,
+				Value: cleanZero(val),
+				Flag:  fl,
+				Note:  notes[b],
+			})
+		}
+		out = append(out, SeriesChart{
+			Name:      name,
+			Label:     label,
+			Unit:      unit,
+			Aggregate: agg,
+			TargetMax: targetMax,
+			Entries:   entries,
+		})
+	}
+	return out
+}
+
+func aggregateMatrices(collectors []*Collector) []MatrixChart {
+	var names []string
+	seen := make(map[string]struct{})
+	for _, c := range collectors {
+		if c == nil {
+			continue
+		}
+		for _, name := range c.matrixOrder {
+			if _, ok := seen[name]; !ok {
+				seen[name] = struct{}{}
+				names = append(names, name)
+			}
+		}
+	}
+	if len(names) == 0 {
+		return nil
+	}
+	out := make([]MatrixChart, 0, len(names))
+	for _, name := range names {
+		var (
+			label, unit string
+			flagAbove   *float64
+			labels      []string
+			tallies     = make(map[matchupPair]matchupTally)
+		)
+		for _, c := range collectors {
+			if c == nil || c.matrices == nil {
+				continue
+			}
+			m, ok := c.matrices[name]
+			if !ok {
+				continue
+			}
+			if label == "" && m.label != "" {
+				label = m.label
+			}
+			if unit == "" && m.unit != "" {
+				unit = m.unit
+			}
+			if flagAbove == nil && m.flagAbove != nil {
+				v := *m.flagAbove
+				flagAbove = &v
+			}
+			for _, l := range m.labels {
+				if !slices.Contains(labels, l) {
+					labels = append(labels, l)
+				}
+			}
+			for pair, t := range m.tallies {
+				acc := tallies[pair]
+				acc.wins += t.wins
+				acc.total += t.total
+				tallies[pair] = acc
+			}
+		}
+		if len(labels) == 0 {
+			continue
+		}
+		if unit == "" {
+			unit = "%"
+		}
+		scale := 1.0
+		if unit == "%" {
+			scale = 100.0
+		}
+		cells := make([][]*float64, len(labels))
+		for rIdx, rowLbl := range labels {
+			cells[rIdx] = make([]*float64, len(labels))
+			for cIdx, colLbl := range labels {
+				t, ok := tallies[matchupPair{row: rowLbl, col: colLbl}]
+				if !ok || t.total <= 0 {
+					continue
+				}
+				v := cleanZero(scale * (t.wins / t.total))
+				cells[rIdx][cIdx] = &v
+			}
+		}
+		out = append(out, MatrixChart{
+			Name:      name,
+			Label:     label,
+			Unit:      unit,
+			FlagAbove: flagAbove,
+			Labels:    labels,
+			Cells:     cells,
+		})
+	}
+	return out
 }

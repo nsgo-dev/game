@@ -110,7 +110,7 @@ type Runs struct {
 
 // BotConfig configures the bot profile and parameters driving input during playtest runs.
 type BotConfig struct {
-	// Profile names the bot profile, such as "platformer-runner".
+	// Profile names the bot profile, such as "platformer-runner", "topdown-explorer", "shooter", "puzzle-solver" or "card-ai".
 	Profile string `yaml:"profile" schema:"required,minLength=1"`
 	// Strategy is an optional one-line summary of the bot's behavior for reports.
 	Strategy string `yaml:"strategy,omitempty"`

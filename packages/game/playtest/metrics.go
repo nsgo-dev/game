@@ -52,7 +52,43 @@ type PerfSummary struct {
 	AllocsPerFrame float64 `yaml:"allocsPerFrame,omitempty"`
 }
 
-// Collector is the small Go API a game calls during a playtest run to report positioned events, counters, timers, outcome and perf readouts.
+// Series entry flag values reported in SeriesEntry.Flag.
+const (
+	FlagProblem = "problem"
+	FlagWarning = "warning"
+)
+
+type collectorSeries struct {
+	name      string
+	label     string
+	unit      string
+	aggregate string
+	targetMax *float64
+	order     []string
+	values    map[string]float64
+	flags     map[string]string
+	notes     map[string]string
+}
+
+type matchupPair struct {
+	row, col string
+}
+
+type matchupTally struct {
+	wins  float64
+	total float64
+}
+
+type collectorMatrix struct {
+	name      string
+	label     string
+	unit      string
+	flagAbove *float64
+	labels    []string
+	tallies   map[matchupPair]matchupTally
+}
+
+// Collector is the small Go API a game calls during a playtest run to report positioned events, counters, timers, series, matchup matrices, outcome and perf readouts.
 //
 // Every method on Collector is safe to call on a nil receiver, so game code can call it unconditionally in both playtest runs and live play without guarding every call site.
 type Collector struct {
@@ -64,6 +100,10 @@ type Collector struct {
 	counters     map[string]float64
 	activeTimers map[string]int
 	timers       map[string]float64
+	seriesOrder  []string
+	series       map[string]*collectorSeries
+	matrixOrder  []string
+	matrices     map[string]*collectorMatrix
 	perf         *PerfSummary
 }
 
@@ -268,6 +308,146 @@ func (c *Collector) Events() []Event {
 		return nil
 	}
 	return slices.Clone(c.events)
+}
+
+func (c *Collector) ensureSeries(name string) *collectorSeries {
+	if c.series == nil {
+		c.series = make(map[string]*collectorSeries)
+	}
+	s, ok := c.series[name]
+	if !ok {
+		s = &collectorSeries{
+			name:   name,
+			values: make(map[string]float64),
+			flags:  make(map[string]string),
+			notes:  make(map[string]string),
+		}
+		c.series[name] = s
+		c.seriesOrder = append(c.seriesOrder, name)
+	}
+	return s
+}
+
+func (s *collectorSeries) ensureBucket(bucket string) {
+	if _, ok := s.values[bucket]; !ok {
+		s.values[bucket] = 0
+		s.order = append(s.order, bucket)
+	}
+}
+
+// ConfigureSeries sets display metadata and aggregation rules for a named bar/level series (such as "hits_per_wave" or "shortest_solution").
+func (c *Collector) ConfigureSeries(name, label, unit, aggregate string, targetMax *float64) {
+	if c == nil || name == "" {
+		return
+	}
+	s := c.ensureSeries(name)
+	if label != "" {
+		s.label = label
+	}
+	if unit != "" {
+		s.unit = unit
+	}
+	if aggregate != "" {
+		s.aggregate = aggregate
+	}
+	if targetMax != nil && isFinite(*targetMax) {
+		v := cleanZero(*targetMax)
+		s.targetMax = &v
+	}
+}
+
+// AddSeries adds delta to bucket in the named series for this run, creating the bucket in deterministic insertion order if needed.
+func (c *Collector) AddSeries(name, bucket string, delta float64) {
+	if c == nil || name == "" || bucket == "" || !isFinite(delta) {
+		return
+	}
+	s := c.ensureSeries(name)
+	s.ensureBucket(bucket)
+	s.values[bucket] = cleanZero(s.values[bucket] + delta)
+}
+
+// SetSeries sets bucket in the named series to value for this run, creating the bucket in deterministic insertion order if needed.
+func (c *Collector) SetSeries(name, bucket string, value float64) {
+	if c == nil || name == "" || bucket == "" || !isFinite(value) {
+		return
+	}
+	s := c.ensureSeries(name)
+	s.ensureBucket(bucket)
+	s.values[bucket] = cleanZero(value)
+}
+
+// FlagSeries annotates a series bucket with an optional flag (FlagProblem or FlagWarning) and note.
+func (c *Collector) FlagSeries(name, bucket, flag, note string) {
+	if c == nil || name == "" || bucket == "" {
+		return
+	}
+	s := c.ensureSeries(name)
+	s.ensureBucket(bucket)
+	if flag == FlagProblem || flag == FlagWarning {
+		s.flags[bucket] = flag
+	}
+	if note != "" {
+		s.notes[bucket] = note
+	}
+}
+
+func (c *Collector) ensureMatrix(name string) *collectorMatrix {
+	if c.matrices == nil {
+		c.matrices = make(map[string]*collectorMatrix)
+	}
+	m, ok := c.matrices[name]
+	if !ok {
+		m = &collectorMatrix{
+			name:    name,
+			tallies: make(map[matchupPair]matchupTally),
+		}
+		c.matrices[name] = m
+		c.matrixOrder = append(c.matrixOrder, name)
+	}
+	return m
+}
+
+func (m *collectorMatrix) addLabel(label string) {
+	if label == "" || slices.Contains(m.labels, label) {
+		return
+	}
+	m.labels = append(m.labels, label)
+}
+
+// ConfigureMatrix sets display metadata, flagging threshold and ordered row/column labels for a named win-rate matrix.
+func (c *Collector) ConfigureMatrix(name, label, unit string, flagAbove *float64, labels []string) {
+	if c == nil || name == "" {
+		return
+	}
+	m := c.ensureMatrix(name)
+	if label != "" {
+		m.label = label
+	}
+	if unit != "" {
+		m.unit = unit
+	}
+	if flagAbove != nil && isFinite(*flagAbove) {
+		v := cleanZero(*flagAbove)
+		m.flagAbove = &v
+	}
+	for _, l := range labels {
+		m.addLabel(l)
+	}
+}
+
+// RecordMatchup adds wins out of total matches for row vs col in the named matrix.
+func (c *Collector) RecordMatchup(name, row, col string, wins, total float64) {
+	if c == nil || name == "" || row == "" || col == "" || !isFinite(wins) || !isFinite(total) || total <= 0 {
+		return
+	}
+	m := c.ensureMatrix(name)
+	m.addLabel(row)
+	m.addLabel(col)
+	key := matchupPair{row: row, col: col}
+	t := m.tallies[key]
+	t.wins = cleanZero(t.wins + wins)
+	t.total = cleanZero(t.total + total)
+	m.tallies[key] = t
 }
 
 // RecordPerf captures frame timing and allocation telemetry from debug.FrameStats and debug.GCMonitor, matching the calculations of game_perf_readout.

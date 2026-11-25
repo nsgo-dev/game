@@ -89,7 +89,7 @@ metrics:
 
 - **`scope`**：项目名 `project`、必填的场景名 `scene`，以及可选的模板名 `template`。
 - **`runs`**：运行次数 `count`、可选显式种子列表 `seeds`、顺序种子起点 `seedStart`（默认为 `1`）、固定步频 `rate`（默认 `60`）、倍速元数据 `speed`（默认 `1`），以及单次运行的模拟时长上限 `maxDuration`（默认 `60s`）。
-- **`bot`**：机器人配置名 `profile`（例如 `platformer-runner`）、可选的策略描述 `strategy`、人类反应抖动区间 `reactionMin` / `reactionMax`，以及可选的标量参数 `params`。
+- **`bot`**：机器人配置名 `profile`（例如 `platformer-runner`、`topdown-explorer`、`shooter`、`puzzle-solver` 或 `card-ai`）、可选的策略描述 `strategy`、人类反应抖动区间 `reactionMin` / `reactionMax`，以及可选的标量参数 `params`。
 - **`metrics`**：每项指标有唯一的 `name`、可选的显示名称 `label` 与单位 `unit`、测量方式 `measure` 及可选目标 `goal`：
   - `measure.kind` 可选 `event`、`counter`、`timer`、`outcome`、`ratio`（需提供 `denomKey`）或 `perf`（`frame_ms`、`update_ms`、`draw_ms`、`p50_frame_ms`、`p95_frame_ms`、`p99_frame_ms`、`max_frame_ms`、`allocs_per_frame`）。
   - `measure.aggregate` 可选 `count`、`sum`、`mean`、`median`、`min`、`max`、`p95`、`p99` 或 `rate`。
@@ -118,11 +118,19 @@ metrics.Finish() // 或 metrics.Fail("out of lives")
 
 帧耗时来自性能读数：在 `playtest.Sim` 上传入 `FrameStats: stats` 和 `GC: gcMon`（或调用 `metrics.RecordPerf(stats, gcMon)`），其均值和分位计算方式与 `game/mcp` 的 `game_perf_readout` 一致。
 
-## 内置机器人：`platformer-runner`
+要在 `playtest.report.yaml` 中输出柱状序列图与对局矩阵，可调用 `metrics.ConfigureSeries` / `metrics.AddSeries` / `metrics.SetSeries` / `metrics.FlagSeries`（写入 `report.Series`，如各波受击次数或每关最短步数）以及 `metrics.ConfigureMatrix` / `metrics.RecordMatchup`（写入 `report.Matrices`，如卡组对阵胜率矩阵）。
 
-`platformer-runner`（`playtest.ProfilePlatformerRunner`）沿水平方向贪心奔向 `PlatformerObservation.ExitX`，在遇到台阶、坑洞和危险时，以每个种子独立的 `random.Stream` 在 `[reactionMin, reactionMax]` 内采样的确定性反应抖动起跳。使用 `playtest.ObservePlatformerGrid` 可以从 `physics.TileGrid` 和危险碰撞箱构造 `PlatformerObservation`。
+## 内置机器人配置
 
-可以用 `playtest.RegisterBot(name, factory)` 注册更多机器人配置。
+所有内置机器人对同一随机种子均完全确定，并通过 `playtest.RegisterBot` 注册：
+
+- **`platformer-runner`**（`playtest.ProfilePlatformerRunner`，对应 `platformer2d` 模板）：沿水平方向贪心奔向 `PlatformerObservation.ExitX`，在遇到台阶、坑洞和危险时，以每个种子独立的 `random.Stream` 在 `[reactionMin, reactionMax]` 内采样的确定性反应抖动起跳。使用 `playtest.ObservePlatformerGrid` 可以从 `physics.TileGrid` 和危险碰撞箱构造 `PlatformerObservation`。
+- **`topdown-explorer`**（`playtest.ProfileTopDownExplorer`，对应 `rpg2d` 模板）：通过 BFS 走向最近的未探索格子、与每个 NPC 对话一次、打开每个宝箱，并在达成目标或超过 `runs.maxDuration` 时停止（在 `rpg2d` 的 `playtest.yaml` 中配置为 8 倍速）。传入 `ExplorerObservation` 并记录 `goal_time`、`tiles_seen`/`tiles_total` 及开启 `heatMap: true` 的 `tile_visit` 事件即可生成每格停留时间热力图。
+- **`shooter`**（`playtest.ProfileShooter`，对应 `shmup2d` 模板）：持续开火、拾取 `powerUpRange`（默认 `80` 像素）内的强化道具，并通过带固定反应延迟的感知缓冲躲避来袭弹幕（`reactionMin == reactionMax == 180ms` 时为精确 180ms 反应时间）。使用 `RecordShooterWave`、`RecordShooterHit` 和 `RecordShooterPowerUp` 可上报每波受击数（`hits_per_wave` 序列）与道具拾取率。
+- **`puzzle-solver`**（`playtest.ProfilePuzzleSolver`，对应 `puzzle2d` 模板）：结合 `SolvePuzzleBFS`（带 `stateLimit` 状态数上限、默认 200 万状态的广度优先最短解搜索）和连续走错 `undoAfterBadMoves`（默认 `3`）步后撤回的拟人玩家。使用 `EvaluatePuzzlePack` 或 `NewPuzzlePackSim` 可上报可解关卡数、超出标准步数、难度曲线倒挂次数以及短于预期解法的关卡。
+- **`card-ai`**（`playtest.ProfileCardAI`，对应 `cards2d` 模板）：两名向前看一回合的贪心 AI（`CardAI.ChooseAction`）对每对卡组交替先手对战 `matchesPerPair` 局。使用 `RunCardTournament` 或 `NewCardTournamentSim` 可上报先手胜率、对局回合数中位数、最悬殊卡组对阵胜率、确定性思考耗时以及 `deck_win_rates` 胜率矩阵。
+
+可以用 `playtest.RegisterBot(name, factory)` 注册自定义机器人配置。`rpg2d`、`shmup2d`、`puzzle2d` 和 `cards2d` 模板均内置了对应机器人的规范 `playtest.yaml`。
 
 ## 无头运行与回放
 
