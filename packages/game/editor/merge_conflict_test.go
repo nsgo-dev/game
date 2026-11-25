@@ -220,6 +220,8 @@ func setupConflictedGitProject(t *testing.T) (repoDir, mineHeadSHA, theirsHeadSH
 
 	dir := t.TempDir()
 	runTestGit(t, dir, "init", "-b", "main")
+	runTestGit(t, dir, "config", "user.name", "you")
+	runTestGit(t, dir, "config", "user.email", "you@example.com")
 
 	gameYAML := "version: 1\nname: dungeon-run\nid: dev.example.dungeonrun\nappVersion: 0.1.0\nwindow:\n  width: 640\n  height: 360\nautoload:\n  mainScene: level_01\n  scenes:\n    - name: level_01\n      path: scenes/level_01.scene.yaml\n"
 	if err := os.WriteFile(filepath.Join(dir, project.FileName), []byte(gameYAML), 0o644); err != nil {
@@ -257,10 +259,17 @@ func setupConflictedGitProject(t *testing.T) (repoDir, mineHeadSHA, theirsHeadSH
 	runTestGit(t, dir, "checkout", "feat/slime-patrol")
 	mergeCmd := exec.Command("git", "merge", "main")
 	mergeCmd.Dir = dir
-	mergeCmd.Env = append(os.Environ(), "LC_ALL=C")
+	mergeCmd.Env = append(os.Environ(),
+		"LC_ALL=C",
+		"GIT_AUTHOR_NAME=you",
+		"GIT_AUTHOR_EMAIL=you@example.com",
+		"GIT_COMMITTER_NAME=you",
+		"GIT_COMMITTER_EMAIL=you@example.com",
+	)
 	if out, err := mergeCmd.CombinedOutput(); err == nil {
 		t.Fatalf("expected git merge main to conflict, but it succeeded:\n%s", out)
 	}
+	runTestGit(t, dir, "rev-parse", "--verify", "MERGE_HEAD")
 
 	// Write a ConflictDoc YAML into the working tree file, simulating the #1058 merge driver output.
 	baseDoc, err := sceneformat.Parse([]byte(mergeFixtureBaseScene))
