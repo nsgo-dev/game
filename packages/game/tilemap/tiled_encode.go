@@ -242,8 +242,8 @@ func encodeTiledTileset(m *Tilemap, ts *Tileset) tmjTileset {
 				}
 				t.Animation = frames
 			}
-			if cg, ok := ts.TileCollisions[id]; ok {
-				layer := encodeTiledObjectLayer(cg)
+			if cg, ok := ts.TileCollisions[id]; ok && cg != nil {
+				layer := encodeTiledObjectLayer(*cg)
 				t.ObjectGroup = &layer
 			} else if shapes := ts.Shapes[id]; len(shapes) > 0 {
 				layer := encodeTileShapesAsObjectGroup(shapes)
