@@ -84,6 +84,7 @@ func (e *Editor) PlayIn(cx *core.Scope) error {
 	}
 	e.endTileStrokeForChange()
 	e.endGridMapStrokeForChange()
+	e.endTerrainStrokeForChange()
 
 	// A 2D drag in progress is put back, so Play and the scene Stop restores start from the scene as last recorded.
 	e.CancelDrag2D()

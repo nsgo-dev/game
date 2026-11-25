@@ -306,12 +306,15 @@ func ValidateFoliage(doc *FoliageDoc) error {
 			Fix:      "add one or more foliage layers under layers",
 		}
 	}
+	return validateFoliageLayers(doc.Layers, "layers")
+}
 
-	seenName := make(map[string]int, len(doc.Layers))
-	for i, l := range doc.Layers {
+func validateFoliageLayers(layers []FoliageLayerDoc, fieldPrefix string) error {
+	seenName := make(map[string]int, len(layers))
+	for i, l := range layers {
 		if l.Name == "" {
 			return &loaderr.Error{
-				Field:    loaderr.Path("layers", i, "name"),
+				Field:    loaderr.Path(fieldPrefix, i, "name"),
 				Problem:  "world3d: foliage layer name must not be empty",
 				Expected: "non-empty unique string",
 				Fix:      "give each foliage layer a unique name such as \"grass\" or \"pine_tree\"",
@@ -319,15 +322,15 @@ func ValidateFoliage(doc *FoliageDoc) error {
 		}
 		if prev, dup := seenName[l.Name]; dup {
 			return &loaderr.Error{
-				Field:   loaderr.Path("layers", i, "name"),
-				Problem: fmt.Sprintf("world3d: duplicate foliage layer name %q (first defined at layers[%d])", l.Name, prev),
+				Field:   loaderr.Path(fieldPrefix, i, "name"),
+				Problem: fmt.Sprintf("world3d: duplicate foliage layer name %q (first defined at %s[%d])", l.Name, fieldPrefix, prev),
 				Fix:     "give every foliage layer a distinct name",
 			}
 		}
 		seenName[l.Name] = i
 		if l.Mesh == "" {
 			return &loaderr.Error{
-				Field:    loaderr.Path("layers", i, "mesh"),
+				Field:    loaderr.Path(fieldPrefix, i, "mesh"),
 				Problem:  fmt.Sprintf("world3d: foliage layer %q mesh path must not be empty", l.Name),
 				Expected: "non-empty asset path",
 				Fix:      "set mesh to the asset path of a 3D mesh such as a .gltf or .glb file",
@@ -335,7 +338,7 @@ func ValidateFoliage(doc *FoliageDoc) error {
 		}
 		if !terrainFinite(l.Density) || l.Density < 0 {
 			return &loaderr.Error{
-				Field:    loaderr.Path("layers", i, "density"),
+				Field:    loaderr.Path(fieldPrefix, i, "density"),
 				Problem:  fmt.Sprintf("world3d: foliage layer %q invalid density %v", l.Name, l.Density),
 				Expected: "a finite positive number",
 				Fix:      "set density to a positive number of instances per square meter",
@@ -343,7 +346,7 @@ func ValidateFoliage(doc *FoliageDoc) error {
 		}
 		if !terrainFinite(l.Spacing) || l.Spacing < 0 {
 			return &loaderr.Error{
-				Field:    loaderr.Path("layers", i, "spacing"),
+				Field:    loaderr.Path(fieldPrefix, i, "spacing"),
 				Problem:  fmt.Sprintf("world3d: foliage layer %q invalid spacing %v", l.Name, l.Spacing),
 				Expected: "a finite positive number",
 				Fix:      "set spacing to a positive world-space distance between instances",
@@ -351,14 +354,14 @@ func ValidateFoliage(doc *FoliageDoc) error {
 		}
 		if l.Density > 0 && l.Spacing > 0 {
 			return &loaderr.Error{
-				Field:   loaderr.Path("layers", i, "spacing"),
+				Field:   loaderr.Path(fieldPrefix, i, "spacing"),
 				Problem: fmt.Sprintf("world3d: foliage layer %q sets both density (%v) and spacing (%v)", l.Name, l.Density, l.Spacing),
 				Fix:     "set either density or spacing, not both",
 			}
 		}
 		if l.Density == 0 && l.Spacing == 0 {
 			return &loaderr.Error{
-				Field:    loaderr.Path("layers", i),
+				Field:    loaderr.Path(fieldPrefix, i),
 				Problem:  fmt.Sprintf("world3d: foliage layer %q must set either density or spacing", l.Name),
 				Expected: "positive density or positive spacing",
 				Fix:      "set density (instances per square meter) or spacing (average distance in meters)",
@@ -366,7 +369,7 @@ func ValidateFoliage(doc *FoliageDoc) error {
 		}
 		if l.MinScale != 0 && (!terrainFinite(l.MinScale) || l.MinScale <= 0) {
 			return &loaderr.Error{
-				Field:    loaderr.Path("layers", i, "minScale"),
+				Field:    loaderr.Path(fieldPrefix, i, "minScale"),
 				Problem:  fmt.Sprintf("world3d: foliage layer %q invalid minScale %v", l.Name, l.MinScale),
 				Expected: "a finite positive number",
 				Fix:      "set minScale to a positive number or omit it to use 1",
@@ -374,7 +377,7 @@ func ValidateFoliage(doc *FoliageDoc) error {
 		}
 		if l.MaxScale != 0 && (!terrainFinite(l.MaxScale) || l.MaxScale <= 0) {
 			return &loaderr.Error{
-				Field:    loaderr.Path("layers", i, "maxScale"),
+				Field:    loaderr.Path(fieldPrefix, i, "maxScale"),
 				Problem:  fmt.Sprintf("world3d: foliage layer %q invalid maxScale %v", l.Name, l.MaxScale),
 				Expected: "a finite positive number",
 				Fix:      "set maxScale to a positive number or omit it to use 1",
@@ -382,7 +385,7 @@ func ValidateFoliage(doc *FoliageDoc) error {
 		}
 		if l.MinScale > 0 && l.MaxScale > 0 && l.MinScale > l.MaxScale {
 			return &loaderr.Error{
-				Field:    loaderr.Path("layers", i, "maxScale"),
+				Field:    loaderr.Path(fieldPrefix, i, "maxScale"),
 				Problem:  fmt.Sprintf("world3d: foliage layer %q maxScale (%v) < minScale (%v)", l.Name, l.MaxScale, l.MinScale),
 				Expected: fmt.Sprintf("number >= %v", l.MinScale),
 				Fix:      "set maxScale >= minScale",
@@ -390,7 +393,7 @@ func ValidateFoliage(doc *FoliageDoc) error {
 		}
 		if !terrainFinite(l.AlignToNormal) || l.AlignToNormal < 0 || l.AlignToNormal > 1 {
 			return &loaderr.Error{
-				Field:    loaderr.Path("layers", i, "alignToNormal"),
+				Field:    loaderr.Path(fieldPrefix, i, "alignToNormal"),
 				Problem:  fmt.Sprintf("world3d: foliage layer %q alignToNormal %v out of range", l.Name, l.AlignToNormal),
 				Expected: "a finite number in [0, 1]",
 				Fix:      "set alignToNormal between 0 (upright) and 1 (terrain normal)",
@@ -398,7 +401,7 @@ func ValidateFoliage(doc *FoliageDoc) error {
 		}
 		if !terrainFinite(l.MinSlopeDeg) || l.MinSlopeDeg < 0 || l.MinSlopeDeg > 90 {
 			return &loaderr.Error{
-				Field:    loaderr.Path("layers", i, "minSlopeDeg"),
+				Field:    loaderr.Path(fieldPrefix, i, "minSlopeDeg"),
 				Problem:  fmt.Sprintf("world3d: foliage layer %q minSlopeDeg %v out of range", l.Name, l.MinSlopeDeg),
 				Expected: "a finite number in [0, 90]",
 				Fix:      "set minSlopeDeg between 0 and 90 degrees",
@@ -406,7 +409,7 @@ func ValidateFoliage(doc *FoliageDoc) error {
 		}
 		if !terrainFinite(l.MaxSlopeDeg) || l.MaxSlopeDeg < 0 || l.MaxSlopeDeg > 90 {
 			return &loaderr.Error{
-				Field:    loaderr.Path("layers", i, "maxSlopeDeg"),
+				Field:    loaderr.Path(fieldPrefix, i, "maxSlopeDeg"),
 				Problem:  fmt.Sprintf("world3d: foliage layer %q maxSlopeDeg %v out of range", l.Name, l.MaxSlopeDeg),
 				Expected: "a finite number in [0, 90]",
 				Fix:      "set maxSlopeDeg between 0 and 90 degrees",
@@ -414,7 +417,7 @@ func ValidateFoliage(doc *FoliageDoc) error {
 		}
 		if l.MinSlopeDeg > 0 && l.MaxSlopeDeg > 0 && l.MinSlopeDeg > l.MaxSlopeDeg {
 			return &loaderr.Error{
-				Field:    loaderr.Path("layers", i, "maxSlopeDeg"),
+				Field:    loaderr.Path(fieldPrefix, i, "maxSlopeDeg"),
 				Problem:  fmt.Sprintf("world3d: foliage layer %q maxSlopeDeg (%v) < minSlopeDeg (%v)", l.Name, l.MaxSlopeDeg, l.MinSlopeDeg),
 				Expected: fmt.Sprintf("number >= %v", l.MinSlopeDeg),
 				Fix:      "set maxSlopeDeg >= minSlopeDeg",
@@ -422,7 +425,7 @@ func ValidateFoliage(doc *FoliageDoc) error {
 		}
 		if l.MinHeight != nil && !terrainFinite(*l.MinHeight) {
 			return &loaderr.Error{
-				Field:    loaderr.Path("layers", i, "minHeight"),
+				Field:    loaderr.Path(fieldPrefix, i, "minHeight"),
 				Problem:  fmt.Sprintf("world3d: foliage layer %q non-finite minHeight %v", l.Name, *l.MinHeight),
 				Expected: "a finite number",
 				Fix:      "set minHeight to a finite world Y elevation",
@@ -430,7 +433,7 @@ func ValidateFoliage(doc *FoliageDoc) error {
 		}
 		if l.MaxHeight != nil && !terrainFinite(*l.MaxHeight) {
 			return &loaderr.Error{
-				Field:    loaderr.Path("layers", i, "maxHeight"),
+				Field:    loaderr.Path(fieldPrefix, i, "maxHeight"),
 				Problem:  fmt.Sprintf("world3d: foliage layer %q non-finite maxHeight %v", l.Name, *l.MaxHeight),
 				Expected: "a finite number",
 				Fix:      "set maxHeight to a finite world Y elevation",
@@ -438,7 +441,7 @@ func ValidateFoliage(doc *FoliageDoc) error {
 		}
 		if l.MinHeight != nil && l.MaxHeight != nil && *l.MinHeight > *l.MaxHeight {
 			return &loaderr.Error{
-				Field:    loaderr.Path("layers", i, "maxHeight"),
+				Field:    loaderr.Path(fieldPrefix, i, "maxHeight"),
 				Problem:  fmt.Sprintf("world3d: foliage layer %q maxHeight (%v) < minHeight (%v)", l.Name, *l.MaxHeight, *l.MinHeight),
 				Expected: fmt.Sprintf("number >= %v", *l.MinHeight),
 				Fix:      "set maxHeight >= minHeight",
@@ -446,7 +449,7 @@ func ValidateFoliage(doc *FoliageDoc) error {
 		}
 		if !terrainFinite(l.BaseMaxDistance) || l.BaseMaxDistance < 0 {
 			return &loaderr.Error{
-				Field:    loaderr.Path("layers", i, "baseMaxDistance"),
+				Field:    loaderr.Path(fieldPrefix, i, "baseMaxDistance"),
 				Problem:  fmt.Sprintf("world3d: foliage layer %q invalid baseMaxDistance %v", l.Name, l.BaseMaxDistance),
 				Expected: "a finite non-negative number",
 				Fix:      "set baseMaxDistance >= 0",
@@ -454,7 +457,7 @@ func ValidateFoliage(doc *FoliageDoc) error {
 		}
 		if !terrainFinite(l.BoundingRadius) || l.BoundingRadius < 0 {
 			return &loaderr.Error{
-				Field:    loaderr.Path("layers", i, "boundingRadius"),
+				Field:    loaderr.Path(fieldPrefix, i, "boundingRadius"),
 				Problem:  fmt.Sprintf("world3d: foliage layer %q invalid boundingRadius %v", l.Name, l.BoundingRadius),
 				Expected: "a finite non-negative number",
 				Fix:      "set boundingRadius >= 0",

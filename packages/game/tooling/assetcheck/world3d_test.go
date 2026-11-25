@@ -197,6 +197,41 @@ func TestWorld3DBrokenFilesReportFileAndLine(t *testing.T) {
 			substr: "terrain layer albedo",
 		},
 		{
+			name: "terrain size mismatch with heightmap",
+			change: func(fsys fstest.MapFS) {
+				fsys["terrain/alpine.terrain.yaml"].Data = []byte(strings.Replace(sampleTerrainYAML, "heightmap: terrain/height.png", "size: [16, 16]\nheightmap: terrain/height.png", 1))
+			},
+			file:   "terrain/alpine.terrain.yaml",
+			marker: "heightmap:",
+			substr: "does not match size [16, 16]",
+		},
+		{
+			name: "terrain missing layer weightMap and material",
+			change: func(fsys fstest.MapFS) {
+				fsys["terrain/alpine.terrain.yaml"].Data = []byte(`version: 1
+name: Meadow
+size: [8, 8]
+heightmap: terrain/height.png
+layers:
+  - name: grass
+    material: materials/missing.material.yaml
+    weightMap: terrain/height.png
+`)
+			},
+			file:   "terrain/alpine.terrain.yaml",
+			marker: "material:",
+			substr: "terrain layer material",
+		},
+		{
+			name: "terrain missing embedded foliage densityMap",
+			change: func(fsys fstest.MapFS) {
+				fsys["terrain/alpine.terrain.yaml"].Data = []byte(sampleTerrainYAML + "foliage:\n  - name: fern\n    mesh: models/grass.glb\n    densityMap: terrain/missing_density.png\n    density: 1\n")
+			},
+			file:   "terrain/alpine.terrain.yaml",
+			marker: "densityMap:",
+			substr: "terrain foliage densityMap",
+		},
+		{
 			name: "foliage unknown field",
 			change: func(fsys fstest.MapFS) {
 				fsys["terrain/meadow.foliage.yaml"].Data = []byte(sampleFoliageYAML + "unknownOpt: true\n")

@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://game.nsgo.dev/schemas/terrain.v1.json",
   "title": "NSGo game terrain definition (version 1)",
-  "description": "TerrainDoc is the root of a versioned YAML terrain definition specifying heightmap dimensions, splat (weight) map asset paths, height-blending and triplanar settings, and up to 8 PBR material layers.",
+  "description": "TerrainDoc is the root of a versioned YAML terrain definition specifying heightmap dimensions, splat or per-layer weight-map asset paths, height-blending and triplanar settings, up to 8 PBR material layers, and optional procedural foliage scatter layers with density maps.",
   "type": "object",
   "properties": {
     "version": {
@@ -14,8 +14,17 @@
       "description": "Name is an optional human-readable name for the terrain.",
       "type": "string"
     },
+    "size": {
+      "description": "Size is the optional [cols, rows] heightmap grid dimensions (each >= 2). When set alongside heightmap, the decoded heightmap image must match these dimensions; when heightmap is omitted, a flat heightmap of this size is created.",
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": -9223372036854776000,
+        "maximum": 9223372036854776000
+      }
+    },
     "heightmap": {
-      "description": "Heightmap is the asset path to the grayscale heightmap image.",
+      "description": "Heightmap is the asset path to the 16-bit (or 8-bit) grayscale PNG heightmap image.",
       "type": "string"
     },
     "cellSize": {
@@ -47,7 +56,7 @@
       "maximum": 9223372036854776000
     },
     "splatMaps": {
-      "description": "SplatMaps lists 1 or 2 RGBA weight-map asset paths: map 0 drives layers 0..3 (R,G,B,A) and map 1 drives layers 4..7 (R,G,B,A).",
+      "description": "SplatMaps lists 1 or 2 RGBA weight-map asset paths: map 0 drives layers 0..3 (R,G,B,A) and map 1 drives layers 4..7 (R,G,B,A). Mutually exclusive with per-layer weightMap paths.",
       "type": "array",
       "items": {
         "type": "string"
@@ -68,11 +77,18 @@
       ]
     },
     "layers": {
-      "description": "Layers lists 1 to 8 PBR terrain material layers in splat-channel order (0..3 from splatMaps[0] RGBA, 4..7 from splatMaps[1] RGBA).",
+      "description": "Layers lists 1 to 8 PBR terrain material layers in channel order (0..3 from splatMaps[0] RGBA and 4..7 from splatMaps[1] RGBA, or each driven by its own weightMap PNG).",
       "type": "array",
       "minItems": 1,
       "items": {
         "$ref": "#/definitions/TerrainLayerDoc"
+      }
+    },
+    "foliage": {
+      "description": "Foliage lists optional procedural foliage scatter layers attached to this terrain, each with an optional grayscale density map PNG.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/FoliageLayerDoc"
       }
     }
   },
@@ -82,6 +98,111 @@
   ],
   "additionalProperties": false,
   "definitions": {
+    "FoliageLayerDoc": {
+      "description": "FoliageLayerDoc describes one procedural foliage scatter layer in a [FoliageDoc].",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Name is the unique identifier for this foliage layer (such as \"grass\", \"pine_tree\", \"boulder\").",
+          "type": "string",
+          "minLength": 1
+        },
+        "mesh": {
+          "description": "Mesh is the asset path to the foliage mesh (such as a .gltf or .glb model).",
+          "type": "string",
+          "minLength": 1
+        },
+        "material": {
+          "description": "Material is an optional asset path to a material override for the foliage mesh.",
+          "type": "string"
+        },
+        "densityMap": {
+          "description": "DensityMap is an optional asset path to a grayscale density mask image covering the terrain bounds.",
+          "type": "string"
+        },
+        "density": {
+          "description": "Density is the target candidate instances per square meter; set either density or spacing (not both).",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "exclusiveMinimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "spacing": {
+          "description": "Spacing is the target average world-space spacing between instances in meters (equivalent to density = 1 / spacing^2); set either spacing or density (not both).",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "exclusiveMinimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "minScale": {
+          "description": "MinScale is the minimum uniform instance scale; omitted defaults to 1 (or maxScale when only maxScale is set).",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "exclusiveMinimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "maxScale": {
+          "description": "MaxScale is the maximum uniform instance scale; omitted defaults to 1 (or minScale when only minScale is set).",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "exclusiveMinimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "alignToNormal": {
+          "description": "AlignToNormal blends instance up-axis alignment from upright (0) to terrain surface normal (1).",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "minSlopeDeg": {
+          "description": "MinSlopeDeg is the minimum terrain slope in degrees [0, 90] where instances may spawn.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 90
+        },
+        "maxSlopeDeg": {
+          "description": "MaxSlopeDeg is the maximum terrain slope in degrees [0, 90] where instances may spawn; 0 with minSlopeDeg 0 allows all slopes.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 90
+        },
+        "minHeight": {
+          "description": "MinHeight is the minimum world-space Y elevation where instances may spawn.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "maxHeight": {
+          "description": "MaxHeight is the maximum world-space Y elevation where instances may spawn.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "baseMaxDistance": {
+          "description": "BaseMaxDistance is the default maximum draw distance in world units; 0 means uncapped unless limited by QualityProfile.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "boundingRadius": {
+          "description": "BoundingRadius is the bounding sphere radius at scale 1 around the mesh pivot for frustum culling and distance fade; 0 defaults to 1 around the pivot.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "seed": {
+          "description": "Seed is the deterministic PRNG seed for repeatable scattering.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709552000
+        }
+      },
+      "required": [
+        "name",
+        "mesh"
+      ],
+      "additionalProperties": false
+    },
     "TerrainLayerDoc": {
       "description": "TerrainLayerDoc describes one PBR terrain material layer in a [TerrainDoc].",
       "type": "object",
@@ -90,6 +211,14 @@
           "description": "Name is the unique gameplay and authoring identifier for this layer (such as \"grass\", \"dirt\", \"rock\", \"snow\").",
           "type": "string",
           "minLength": 1
+        },
+        "material": {
+          "description": "Material is an optional asset path to a material resource file (such as materials/grass.material.yaml) supplying default base color, texture, roughness, and metallic values.",
+          "type": "string"
+        },
+        "weightMap": {
+          "description": "WeightMap is an optional asset path to a per-layer grayscale weight-map PNG covering the terrain footprint; mutually exclusive with top-level splatMaps.",
+          "type": "string"
         },
         "albedo": {
           "description": "Albedo is the asset path to the sRGB base-color texture.",

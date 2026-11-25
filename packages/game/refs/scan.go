@@ -41,6 +41,8 @@ const (
 	KindLDtk FileKind = "ldtk"
 	// KindTileset is a YAML tileset (*.tileset.yaml, tilemap.TilesetDoc).
 	KindTileset FileKind = "tileset"
+	// KindTerrain is a YAML 3D terrain definition (*.terrain.yaml, world3d.TerrainDoc).
+	KindTerrain FileKind = "terrain"
 	// KindAtlas is a sprite atlas: a JSON file with top-level frames and meta objects, as TexturePacker and Aseprite write it.
 	KindAtlas FileKind = "atlas"
 	// KindGLTF is a glTF 2.0 model in JSON form (.gltf), whose buffers and images may be separate files.
@@ -87,7 +89,13 @@ const (
 	// FieldStringKey is a localization string entry key in a YAML string table.
 	FieldStringKey = "string key"
 	// FieldPluralKey is a localization plural entry key in a YAML string table.
-	FieldPluralKey = "plural key"
+	FieldPluralKey        = "plural key"
+	FieldTerrainHeightmap = "terrain heightmap"
+	FieldTerrainSplatMap  = "terrain splat map"
+	FieldTerrainWeightMap = "terrain weight map"
+	FieldTerrainTexture   = "terrain texture"
+	FieldTerrainMesh      = "terrain foliage mesh"
+	FieldTerrainDensity   = "terrain density map"
 )
 
 // TextKeyRef is one occurrence of a localization text key in a project file: either a screen node's textKey reference or a string table's key definition.
@@ -461,6 +469,11 @@ func (p *Project) readYAML(name string, asScene bool) bool {
 		p.add(f)
 		p.ref(f, field(doc, "meshLibrary"), FieldMeshLibrary)
 		return true
+	case isTerrainName(name):
+		f.Kind = KindTerrain
+		p.add(f)
+		p.terrainRefs(f, doc)
+		return true
 	}
 	return false
 }
@@ -638,6 +651,33 @@ func (p *Project) tilemapRefs(f *File, tm *yaml.Node) {
 func isTilesetName(name string) bool {
 	lower := strings.ToLower(name)
 	return strings.HasSuffix(lower, ".tileset.yaml") || strings.HasSuffix(lower, ".tileset.yml")
+}
+
+// isTerrainName reports whether name is a YAML 3D terrain definition by its name, *.terrain.yaml or *.terrain.yml.
+func isTerrainName(name string) bool {
+	lower := strings.ToLower(name)
+	return strings.HasSuffix(lower, ".terrain.yaml") || strings.HasSuffix(lower, ".terrain.yml")
+}
+
+// terrainRefs records the asset references of a *.terrain.yaml document: its heightmap, splat maps, per-layer materials/weight maps/textures, and foliage meshes/materials/density maps.
+func (p *Project) terrainRefs(f *File, doc *yaml.Node) {
+	p.ref(f, field(doc, "heightmap"), FieldTerrainHeightmap)
+	for _, sm := range items(field(doc, "splatMaps")) {
+		p.ref(f, sm, FieldTerrainSplatMap)
+	}
+	for _, l := range items(field(doc, "layers")) {
+		p.ref(f, field(l, "material"), FieldMaterial)
+		p.ref(f, field(l, "weightMap"), FieldTerrainWeightMap)
+		p.ref(f, field(l, "albedo"), FieldTerrainTexture)
+		p.ref(f, field(l, "normal"), FieldTerrainTexture)
+		p.ref(f, field(l, "metallicRoughness"), FieldTerrainTexture)
+		p.ref(f, field(l, "height"), FieldTerrainTexture)
+	}
+	for _, fl := range items(field(doc, "foliage")) {
+		p.ref(f, field(fl, "mesh"), FieldTerrainMesh)
+		p.ref(f, field(fl, "material"), FieldMaterial)
+		p.ref(f, field(fl, "densityMap"), FieldTerrainDensity)
+	}
 }
 
 // maxDepth bounds how deep objectRefs follows children, well past sceneformat.MaxObjectDepth, so a hostile file cannot exhaust the stack.

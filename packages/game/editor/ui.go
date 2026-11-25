@@ -129,6 +129,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 							},
 							pluginDockView(cx, ed, rev, DockBottom),
 							TilesetEditorPanelView(cx, ed, rev),
+							TerrainPanelView(cx, ed, rev),
 							DataTablePanelView(cx, ed, rev),
 							AnimationPanelView(cx, ed, rev),
 							StatesPanelView(cx, ed, rev),
@@ -390,6 +391,22 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 												},
 												OnChange: ed.SetShowRenderStats,
 											},
+										},
+									},
+									ui.ToggleButton{
+										TestID:   "toolbar-terrain",
+										Text:     "Terrain",
+										Disabled: notPlaying,
+										On: func() bool {
+											_ = rev.Get()
+											return ed.TerrainOpen()
+										},
+										OnChange: func(on bool) {
+											if on && !ed.TerrainOpen() {
+												ed.report(ed.NewTerrain(NewTerrainOptions{}))
+											} else if !on && ed.TerrainOpen() {
+												ed.CloseTerrain()
+											}
 										},
 									},
 								},

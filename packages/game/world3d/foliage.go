@@ -1,8 +1,12 @@
 package world3d
 
 import (
+	"bytes"
+	"errors"
 	"image"
 	"image/color"
+	"image/png"
+	"io"
 	"math"
 
 	"github.com/nsgo-dev/game/packages/game/math3d"
@@ -65,6 +69,18 @@ type DensityMap struct {
 	Data   []float32
 }
 
+// NewDensityMap allocates a zero-initialized DensityMap of width x height samples.
+func NewDensityMap(width, height int) *DensityMap {
+	if width <= 0 || height <= 0 {
+		return &DensityMap{}
+	}
+	return &DensityMap{
+		Width:  width,
+		Height: height,
+		Data:   make([]float32, width*height),
+	}
+}
+
 // LoadDensityMapGray constructs a DensityMap from a grayscale (or color,
 // converted to 16-bit luminance) image with pixel intensities normalized to [0, 1].
 func LoadDensityMapGray(img image.Image) *DensityMap {
@@ -75,10 +91,35 @@ func LoadDensityMapGray(img image.Image) *DensityMap {
 	w := b.Dx()
 	h := b.Dy()
 	data := make([]float32, w*h)
-	for y := range h {
-		for x := range w {
-			g := color.Gray16Model.Convert(img.At(b.Min.X+x, b.Min.Y+y)).(color.Gray16)
-			data[y*w+x] = float32(g.Y) / 65535.0
+	switch g := img.(type) {
+	case *image.Gray16:
+		const inv65535 = float32(1.0 / 65535.0)
+		for y := range h {
+			off := g.PixOffset(b.Min.X, b.Min.Y+y)
+			rowBase := y * w
+			for x := range w {
+				p := off + x*2
+				v := uint16(g.Pix[p])<<8 | uint16(g.Pix[p+1])
+				data[rowBase+x] = float32(v) * inv65535
+			}
+		}
+	case *image.Gray:
+		const inv255 = float32(1.0 / 255.0)
+		for y := range h {
+			off := g.PixOffset(b.Min.X, b.Min.Y+y)
+			rowBase := y * w
+			for x := range w {
+				data[rowBase+x] = float32(g.Pix[off+x]) * inv255
+			}
+		}
+	default:
+		const inv65535 = float32(1.0 / 65535.0)
+		for y := range h {
+			rowBase := y * w
+			for x := range w {
+				c := color.Gray16Model.Convert(img.At(b.Min.X+x, b.Min.Y+y)).(color.Gray16)
+				data[rowBase+x] = float32(c.Y) * inv65535
+			}
 		}
 	}
 	return &DensityMap{
@@ -86,6 +127,109 @@ func LoadDensityMapGray(img image.Image) *DensityMap {
 		Height: h,
 		Data:   data,
 	}
+}
+
+// At returns the density sample at texel (x, y), or 0 if out of range.
+func (d *DensityMap) At(x, y int) float32 {
+	if d == nil || x < 0 || y < 0 || x >= d.Width || y >= d.Height || len(d.Data) < d.Width*d.Height {
+		return 0
+	}
+	return d.Data[y*d.Width+x]
+}
+
+// Set writes a clamped [0, 1] density value at texel (x, y); out-of-range coordinates are ignored.
+func (d *DensityMap) Set(x, y int, v float32) {
+	if d == nil || x < 0 || y < 0 || x >= d.Width || y >= d.Height || len(d.Data) < d.Width*d.Height {
+		return
+	}
+	if math.IsNaN(float64(v)) || math.IsInf(float64(v), 0) || v < 0 {
+		v = 0
+	} else if v > 1 {
+		v = 1
+	}
+	d.Data[y*d.Width+x] = v
+}
+
+// Clone returns a deep copy of d, or nil if d is nil.
+func (d *DensityMap) Clone() *DensityMap {
+	if d == nil {
+		return nil
+	}
+	cp := make([]float32, len(d.Data))
+	copy(cp, d.Data)
+	return &DensityMap{
+		Width:  d.Width,
+		Height: d.Height,
+		Data:   cp,
+	}
+}
+
+// ToGray converts d into an 8-bit grayscale image with values in [0, 255].
+func (d *DensityMap) ToGray() *image.Gray {
+	if d == nil || d.Width <= 0 || d.Height <= 0 || len(d.Data) < d.Width*d.Height {
+		return nil
+	}
+	img := image.NewGray(image.Rect(0, 0, d.Width, d.Height))
+	for y := range d.Height {
+		rowBase := y * d.Width
+		off := img.PixOffset(0, y)
+		for x := range d.Width {
+			v := d.Data[rowBase+x]
+			if math.IsNaN(float64(v)) || math.IsInf(float64(v), 0) || v < 0 {
+				v = 0
+			} else if v > 1 {
+				v = 1
+			}
+			img.Pix[off+x] = uint8(math.Round(float64(v) * 255.0))
+		}
+	}
+	return img
+}
+
+// ToGray16 converts d into a 16-bit grayscale image with values in [0, 65535].
+func (d *DensityMap) ToGray16() *image.Gray16 {
+	if d == nil || d.Width <= 0 || d.Height <= 0 || len(d.Data) < d.Width*d.Height {
+		return nil
+	}
+	img := image.NewGray16(image.Rect(0, 0, d.Width, d.Height))
+	for y := range d.Height {
+		rowBase := y * d.Width
+		off := img.PixOffset(0, y)
+		for x := range d.Width {
+			v := d.Data[rowBase+x]
+			if math.IsNaN(float64(v)) || math.IsInf(float64(v), 0) || v < 0 {
+				v = 0
+			} else if v > 1 {
+				v = 1
+			}
+			u := uint16(math.Round(float64(v) * 65535.0))
+			p := off + x*2
+			img.Pix[p] = uint8(u >> 8)
+			img.Pix[p+1] = uint8(u)
+		}
+	}
+	return img
+}
+
+// EncodePNG encodes d as an 8-bit grayscale PNG image into w.
+func (d *DensityMap) EncodePNG(w io.Writer) error {
+	if w == nil {
+		return errors.New("world3d: nil writer")
+	}
+	img := d.ToGray()
+	if img == nil {
+		return errors.New("world3d: invalid density map for PNG encoding")
+	}
+	return png.Encode(w, img)
+}
+
+// EncodeDensityMapPNG encodes d as an 8-bit grayscale PNG byte slice.
+func EncodeDensityMapPNG(d *DensityMap) ([]byte, error) {
+	var buf bytes.Buffer
+	if err := d.EncodePNG(&buf); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 // Sample returns the bilinearly interpolated density weight in [0, 1] at

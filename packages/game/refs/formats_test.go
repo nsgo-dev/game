@@ -295,3 +295,54 @@ func TestYAMLTilesetsAndLayeredTilemaps(t *testing.T) {
 		}
 	}
 }
+
+func TestTerrainYAMLReferences(t *testing.T) {
+	fsys := fstest.MapFS{
+		"game.yaml": {Data: []byte(gameHead)},
+		"terrain/hills.terrain.yaml": {Data: []byte(`version: 1
+name: Hills
+size: [8, 8]
+heightmap: terrain/hills_height.png
+layers:
+  - name: grass
+    material: materials/grass.material.yaml
+    weightMap: terrain/hills_weight_grass.png
+foliage:
+  - name: pine
+    mesh: models/pine.glb
+    densityMap: terrain/hills_foliage_pine.png
+    density: 0.5
+`)},
+		"terrain/hills_height.png":       {Data: []byte("h")},
+		"terrain/hills_weight_grass.png": {Data: []byte("w")},
+		"terrain/hills_foliage_pine.png": {Data: []byte("d")},
+		"materials/grass.material.yaml":  {Data: []byte("type: material\nversion: 1\nname: Grass\n")},
+		"models/pine.glb":                {Data: []byte("g")},
+	}
+	p := scan(t, fsys)
+	if got := checkList(p); len(got) != 0 {
+		t.Fatalf("unexpected problems: %v", got)
+	}
+	var foundTerrain bool
+	for _, f := range p.Files {
+		if f.Path == "terrain/hills.terrain.yaml" {
+			foundTerrain = true
+			if f.Kind != refs.KindTerrain {
+				t.Fatalf("terrain file kind = %q, want %q", f.Kind, refs.KindTerrain)
+			}
+		}
+	}
+	if !foundTerrain {
+		t.Fatalf("terrain/hills.terrain.yaml not in scanned Files")
+	}
+	want := []string{
+		`terrain/hills.terrain.yaml:4 terrain heightmap "terrain/hills_height.png" -> terrain/hills_height.png`,
+		`terrain/hills.terrain.yaml:7 material "materials/grass.material.yaml" -> materials/grass.material.yaml`,
+		`terrain/hills.terrain.yaml:8 terrain weight map "terrain/hills_weight_grass.png" -> terrain/hills_weight_grass.png`,
+		`terrain/hills.terrain.yaml:11 terrain foliage mesh "models/pine.glb" -> models/pine.glb`,
+		`terrain/hills.terrain.yaml:12 terrain density map "terrain/hills_foliage_pine.png" -> terrain/hills_foliage_pine.png`,
+	}
+	if got := refList(p); !slices.Equal(got, want) {
+		t.Fatalf("refs:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}

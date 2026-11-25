@@ -88,9 +88,12 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 				OnPress: func(ev core.PressEvent) {
 					ed.SelectFile(p)
 					if ev.Clicks == 2 && !f.Dir && !ed.Playing() {
-						if isStatesFile(p) {
+						switch {
+						case isStatesFile(p):
 							ed.report(ed.OpenStatesProjectFile(p))
-						} else if isProjectScene(ed.Project, p) && p != ed.ScenePath {
+						case isTerrainFile(p):
+							ed.report(ed.OpenTerrainProjectFile(p))
+						case isProjectScene(ed.Project, p) && p != ed.ScenePath:
 							ed.openSceneAsked(p)
 						}
 					}
@@ -256,6 +259,30 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 										return
 									}
 									if err := ed.OpenTilesetProjectFile(from); err != nil {
+										ed.report(err)
+									}
+								},
+							},
+							ui.Button{
+								TestID:  "files-open-terrain",
+								Text:    "Terrain",
+								Label:   "Open the selected *.terrain.yaml file in the 3D terrain editor",
+								Size:    ui.SizeSmall,
+								Variant: ui.ButtonSecondary,
+								Disabled: func() bool {
+									_ = rev.Get()
+									if ed.Playing() {
+										return true
+									}
+									from := current.Get()
+									return from == "" || !isTerrainFile(from)
+								},
+								OnPress: func() {
+									from := current.Get()
+									if from == "" {
+										return
+									}
+									if err := ed.OpenTerrainProjectFile(from); err != nil {
 										ed.report(err)
 									}
 								},

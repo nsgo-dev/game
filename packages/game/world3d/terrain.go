@@ -1,8 +1,13 @@
 package world3d
 
 import (
+	"bytes"
+	"errors"
+	"fmt"
 	"image"
 	"image/color"
+	"image/png"
+	"io"
 	"math"
 
 	"github.com/nsgo-dev/game/packages/game/math3d"
@@ -27,6 +32,8 @@ type Heightmap struct {
 	Heights     []float32
 	// Splat optionally attaches splat-map material layers for gameplay queries via [Heightmap.LayerAt].
 	Splat *TerrainSplatMap
+	// FoliageDensity optionally attaches per-layer foliage scatter density maps keyed by foliage layer name, queried via [Heightmap.FoliageDensityAt].
+	FoliageDensity map[string]*DensityMap
 }
 
 // TerrainHit describes the closest intersection between a ray and a Heightmap.
@@ -47,9 +54,25 @@ type TerrainMesh struct {
 	Indices   []uint32
 }
 
+// NewHeightmap allocates a flat (zero-elevation) Heightmap of cols x rows
+// samples with the given cellSize and heightScale.
+func NewHeightmap(cols, rows int, cellSize, heightScale float32) *Heightmap {
+	if cols <= 0 || rows <= 0 {
+		return &Heightmap{CellSize: cellSize, HeightScale: heightScale}
+	}
+	return &Heightmap{
+		Cols:        cols,
+		Rows:        rows,
+		CellSize:    cellSize,
+		HeightScale: heightScale,
+		Heights:     make([]float32, cols*rows),
+	}
+}
+
 // LoadHeightmapGray constructs a Heightmap from a grayscale (or color, converted
-// to 16-bit luminance) image. Pixel intensities are normalized to [0, 1] and
-// scaled by heightScale during height evaluation.
+// to 16-bit luminance) image. Pixel intensities are normalized to [0, 1] with
+// full 16-bit precision for [*image.Gray16] inputs and scaled by heightScale
+// during height evaluation.
 func LoadHeightmapGray(img image.Image, cellSize, heightScale float32) *Heightmap {
 	if img == nil {
 		return &Heightmap{CellSize: cellSize, HeightScale: heightScale}
@@ -58,10 +81,24 @@ func LoadHeightmapGray(img image.Image, cellSize, heightScale float32) *Heightma
 	cols := b.Dx()
 	rows := b.Dy()
 	heights := make([]float32, cols*rows)
-	for r := range rows {
-		for c := range cols {
-			g := color.Gray16Model.Convert(img.At(b.Min.X+c, b.Min.Y+r)).(color.Gray16)
-			heights[r*cols+c] = float32(g.Y) / 65535.0
+	const inv65535 = float32(1.0 / 65535.0)
+	if g16, ok := img.(*image.Gray16); ok {
+		for r := range rows {
+			off := g16.PixOffset(b.Min.X, b.Min.Y+r)
+			rowBase := r * cols
+			for c := range cols {
+				p := off + c*2
+				y := uint16(g16.Pix[p])<<8 | uint16(g16.Pix[p+1])
+				heights[rowBase+c] = float32(y) * inv65535
+			}
+		}
+	} else {
+		for r := range rows {
+			rowBase := r * cols
+			for c := range cols {
+				g := color.Gray16Model.Convert(img.At(b.Min.X+c, b.Min.Y+r)).(color.Gray16)
+				heights[rowBase+c] = float32(g.Y) * inv65535
+			}
 		}
 	}
 	return &Heightmap{
@@ -71,6 +108,93 @@ func LoadHeightmapGray(img image.Image, cellSize, heightScale float32) *Heightma
 		HeightScale: heightScale,
 		Heights:     heights,
 	}
+}
+
+// ToGray16 converts h's normalized [0, 1] heights into a 16-bit grayscale image
+// suitable for lossless 16-bit PNG encoding without 8-bit banding. Values outside
+// [0, 1] are clamped. Returns nil if h has non-positive dimensions or insufficient samples.
+func (h *Heightmap) ToGray16() *image.Gray16 {
+	if h == nil || h.Cols <= 0 || h.Rows <= 0 || len(h.Heights) < h.Cols*h.Rows {
+		return nil
+	}
+	img := image.NewGray16(image.Rect(0, 0, h.Cols, h.Rows))
+	for r := range h.Rows {
+		rowBase := r * h.Cols
+		off := img.PixOffset(0, r)
+		for c := range h.Cols {
+			v := h.Heights[rowBase+c]
+			if math.IsNaN(float64(v)) || math.IsInf(float64(v), 0) || v < 0 {
+				v = 0
+			} else if v > 1 {
+				v = 1
+			}
+			y := uint16(math.Round(float64(v) * 65535.0))
+			p := off + c*2
+			img.Pix[p] = uint8(y >> 8)
+			img.Pix[p+1] = uint8(y)
+		}
+	}
+	return img
+}
+
+// EncodePNG encodes h as a 16-bit grayscale PNG image into w.
+func (h *Heightmap) EncodePNG(w io.Writer) error {
+	if w == nil {
+		return errors.New("world3d: nil writer")
+	}
+	img := h.ToGray16()
+	if img == nil {
+		return errors.New("world3d: invalid heightmap for PNG encoding")
+	}
+	return png.Encode(w, img)
+}
+
+// EncodeHeightmapPNG encodes h as a 16-bit grayscale PNG byte slice.
+func EncodeHeightmapPNG(h *Heightmap) ([]byte, error) {
+	var buf bytes.Buffer
+	if err := h.EncodePNG(&buf); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// DecodeHeightmapPNG decodes a PNG image (preserving full 16-bit precision for
+// 16-bit grayscale PNGs) from r and returns a [*Heightmap] with cellSize and heightScale.
+func DecodeHeightmapPNG(r io.Reader, cellSize, heightScale float32) (*Heightmap, error) {
+	if r == nil {
+		return nil, errors.New("world3d: nil reader")
+	}
+	img, err := png.Decode(r)
+	if err != nil {
+		return nil, fmt.Errorf("world3d: decode heightmap PNG: %w", err)
+	}
+	b := img.Bounds()
+	if b.Dx() < 2 || b.Dy() < 2 {
+		return nil, fmt.Errorf("world3d: heightmap PNG is %dx%d, need at least 2x2", b.Dx(), b.Dy())
+	}
+	return LoadHeightmapGray(img, cellSize, heightScale), nil
+}
+
+// FoliageDensityAt samples the attached foliage density map for layer at world
+// coordinates (x, z). The boolean reports whether (x, z) lies inside the
+// heightmap's XZ footprint. Returns (0, false) when h is invalid or has no
+// density map for layer.
+func (h *Heightmap) FoliageDensityAt(layer string, x, z float32) (float32, bool) {
+	if !h.valid() || len(h.FoliageDensity) == 0 {
+		return 0, false
+	}
+	dm := h.FoliageDensity[layer]
+	if dm == nil || dm.Width <= 0 || dm.Height <= 0 || len(dm.Data) < dm.Width*dm.Height {
+		return 0, false
+	}
+	spanX := float32(h.Cols-1) * h.CellSize
+	spanZ := float32(h.Rows-1) * h.CellSize
+	u := (x - h.Origin.X) / spanX
+	v := (z - h.Origin.Z) / spanZ
+	inBounds := !math.IsNaN(float64(u)) && !math.IsNaN(float64(v)) &&
+		!math.IsInf(float64(u), 0) && !math.IsInf(float64(v), 0) &&
+		u >= 0 && u <= 1 && v >= 0 && v <= 1
+	return dm.Sample(u, v), inBounds
 }
 
 func (h *Heightmap) valid() bool {

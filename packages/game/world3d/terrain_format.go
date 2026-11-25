@@ -34,14 +34,17 @@ const fixTerrainDoc = "correct the terrain document to match its version 1 schem
 const DefaultTerrainLayerRoughness float32 = 0.85
 
 // TerrainDoc is the root of a versioned YAML terrain definition specifying
-// heightmap dimensions, splat (weight) map asset paths, height-blending and
-// triplanar settings, and up to 8 PBR material layers.
+// heightmap dimensions, splat or per-layer weight-map asset paths,
+// height-blending and triplanar settings, up to 8 PBR material layers, and
+// optional procedural foliage scatter layers with density maps.
 type TerrainDoc struct {
 	// Version is the schema version; must be 1.
 	Version int `yaml:"version" schema:"required"`
 	// Name is an optional human-readable name for the terrain.
 	Name string `yaml:"name,omitempty"`
-	// Heightmap is the asset path to the grayscale heightmap image.
+	// Size is the optional [cols, rows] heightmap grid dimensions (each >= 2). When set alongside heightmap, the decoded heightmap image must match these dimensions; when heightmap is omitted, a flat heightmap of this size is created.
+	Size *[2]int `yaml:"size,omitempty"`
+	// Heightmap is the asset path to the 16-bit (or 8-bit) grayscale PNG heightmap image.
 	Heightmap string `yaml:"heightmap,omitempty"`
 	// CellSize is the world-space XZ spacing between adjacent heightmap samples; omitted or 0 defaults to 1.
 	CellSize float32 `yaml:"cellSize,omitempty" schema:"exclusiveMinimum=0"`
@@ -51,14 +54,16 @@ type TerrainDoc struct {
 	Origin *[3]float32 `yaml:"origin,omitempty"`
 	// ChunkSize is the number of heightmap grid cells along each terrain LOD chunk edge; omitted or 0 defaults to 64.
 	ChunkSize int `yaml:"chunkSize,omitempty" schema:"minimum=1"`
-	// SplatMaps lists 1 or 2 RGBA weight-map asset paths: map 0 drives layers 0..3 (R,G,B,A) and map 1 drives layers 4..7 (R,G,B,A).
+	// SplatMaps lists 1 or 2 RGBA weight-map asset paths: map 0 drives layers 0..3 (R,G,B,A) and map 1 drives layers 4..7 (R,G,B,A). Mutually exclusive with per-layer weightMap paths.
 	SplatMaps []string `yaml:"splatMaps,omitempty"`
 	// HeightBlendContrast enables height-based layer blending when > 0 in [0, 1]; higher values sharpen layer transitions using per-layer height maps, and 0 uses linear splat blending.
 	HeightBlendContrast float32 `yaml:"heightBlendContrast,omitempty" schema:"minimum=0,maximum=1"`
 	// Triplanar configures slope-driven triplanar texture projection on steep terrain faces.
 	Triplanar *TerrainTriplanarDoc `yaml:"triplanar,omitempty"`
-	// Layers lists 1 to 8 PBR terrain material layers in splat-channel order (0..3 from splatMaps[0] RGBA, 4..7 from splatMaps[1] RGBA).
+	// Layers lists 1 to 8 PBR terrain material layers in channel order (0..3 from splatMaps[0] RGBA and 4..7 from splatMaps[1] RGBA, or each driven by its own weightMap PNG).
 	Layers []TerrainLayerDoc `yaml:"layers" schema:"required,minItems=1"`
+	// Foliage lists optional procedural foliage scatter layers attached to this terrain, each with an optional grayscale density map PNG.
+	Foliage []FoliageLayerDoc `yaml:"foliage,omitempty"`
 }
 
 // TerrainTriplanarDoc configures slope-driven triplanar projection in a [TerrainDoc].
@@ -79,6 +84,10 @@ type TerrainTriplanarDoc struct {
 type TerrainLayerDoc struct {
 	// Name is the unique gameplay and authoring identifier for this layer (such as "grass", "dirt", "rock", "snow").
 	Name string `yaml:"name" schema:"required,minLength=1"`
+	// Material is an optional asset path to a material resource file (such as materials/grass.material.yaml) supplying default base color, texture, roughness, and metallic values.
+	Material string `yaml:"material,omitempty"`
+	// WeightMap is an optional asset path to a per-layer grayscale weight-map PNG covering the terrain footprint; mutually exclusive with top-level splatMaps.
+	WeightMap string `yaml:"weightMap,omitempty"`
 	// Albedo is the asset path to the sRGB base-color texture.
 	Albedo string `yaml:"albedo,omitempty"`
 	// Normal is the asset path to the linear tangent-space normal map.
@@ -99,6 +108,19 @@ type TerrainLayerDoc struct {
 	UVScale *[2]float32 `yaml:"uvScale,omitempty"`
 	// HeightBias biases this layer's height map during height-based blending in [-1, 1].
 	HeightBias float32 `yaml:"heightBias,omitempty" schema:"minimum=-1,maximum=1"`
+}
+
+// HasLayerWeightMaps reports whether any layer in d specifies a per-layer WeightMap path.
+func (d *TerrainDoc) HasLayerWeightMaps() bool {
+	if d == nil {
+		return false
+	}
+	for _, l := range d.Layers {
+		if l.WeightMap != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // EffectiveCellSize returns d.CellSize, defaulting to 1 when zero.
@@ -135,56 +157,102 @@ func (d *TerrainDoc) LODConfig() TerrainLODConfig {
 // TerrainImages holds decoded images supplied to [TerrainDoc.BuildHeightmap]
 // when constructing a runtime [*Heightmap] without reading from an [fs.FS].
 type TerrainImages struct {
-	// Heightmap is the grayscale heightmap image (required, at least 2x2 pixels).
+	// Heightmap is the grayscale heightmap image (required when TerrainDoc.Size is nil; at least 2x2 pixels).
 	Heightmap image.Image
 	// SplatMaps holds 0, 1, or 2 RGBA weight-map images matching TerrainDoc.SplatMaps.
 	SplatMaps []image.Image
+	// LayerWeights optionally maps a layer's Name to its decoded grayscale weight-map PNG when per-layer weightMap paths are used instead of SplatMaps.
+	LayerWeights map[string]image.Image
 	// LayerHeights optionally maps a layer's Name to its decoded grayscale height map for height-based blending.
 	LayerHeights map[string]image.Image
+	// FoliageDensityMaps optionally maps a foliage layer's Name to its decoded grayscale density map PNG.
+	FoliageDensityMaps map[string]image.Image
 }
 
 // BuildHeightmap validates d and constructs a [*Heightmap] configured with d's
-// CellSize, HeightScale, Origin, and (when imgs.SplatMaps is non-empty) an
-// attached [*TerrainSplatMap] with HeightBlendContrast and per-layer height maps.
+// CellSize, HeightScale, Origin, optional attached [*TerrainSplatMap] (from
+// imgs.SplatMaps or imgs.LayerWeights, with HeightBlendContrast and per-layer
+// height maps), and optional attached foliage density maps.
 func (d *TerrainDoc) BuildHeightmap(imgs TerrainImages) (*Heightmap, error) {
 	if err := ValidateTerrain(d); err != nil {
 		return nil, err
 	}
+	var hm *Heightmap
 	if imgs.Heightmap == nil {
-		return nil, &loaderr.Error{
-			Field:    "heightmap",
-			Problem:  "world3d: heightmap image is required",
-			Expected: "non-nil grayscale image of at least 2x2 samples",
-			Fix:      "supply a decoded heightmap image in TerrainImages.Heightmap",
-		}
-	}
-	b := imgs.Heightmap.Bounds()
-	if b.Dx() < 2 || b.Dy() < 2 {
-		return nil, &loaderr.Error{
-			Field:    "heightmap",
-			Problem:  fmt.Sprintf("world3d: heightmap image is %dx%d, need at least 2x2", b.Dx(), b.Dy()),
-			Expected: "image of at least 2x2 samples",
-			Fix:      "use a heightmap image at least 2 pixels wide and 2 pixels tall",
-		}
-	}
-	hm := LoadHeightmapGray(imgs.Heightmap, d.EffectiveCellSize(), d.HeightScale)
-	hm.Origin = d.EffectiveOrigin()
-
-	if len(imgs.SplatMaps) > 0 {
-		infos := d.LayerInfos()
-		if len(imgs.LayerHeights) > 0 {
-			for i := range infos {
-				if hImg := imgs.LayerHeights[infos[i].Name]; hImg != nil {
-					infos[i].HeightMap = LoadTerrainHeightLayer(hImg)
-				}
+		if d.Size == nil {
+			return nil, &loaderr.Error{
+				Field:    "heightmap",
+				Problem:  "world3d: heightmap image is required",
+				Expected: "non-nil grayscale image of at least 2x2 samples",
+				Fix:      "supply a decoded heightmap image in TerrainImages.Heightmap or set size in the terrain document",
 			}
 		}
+		hm = NewHeightmap(d.Size[0], d.Size[1], d.EffectiveCellSize(), d.HeightScale)
+	} else {
+		b := imgs.Heightmap.Bounds()
+		if b.Dx() < 2 || b.Dy() < 2 {
+			return nil, &loaderr.Error{
+				Field:    "heightmap",
+				Problem:  fmt.Sprintf("world3d: heightmap image is %dx%d, need at least 2x2", b.Dx(), b.Dy()),
+				Expected: "image of at least 2x2 samples",
+				Fix:      "use a heightmap image at least 2 pixels wide and 2 pixels tall",
+			}
+		}
+		if d.Size != nil && (b.Dx() != d.Size[0] || b.Dy() != d.Size[1]) {
+			return nil, &loaderr.Error{
+				Field:    "heightmap",
+				Problem:  fmt.Sprintf("world3d: heightmap image is %dx%d, does not match size [%d, %d]", b.Dx(), b.Dy(), d.Size[0], d.Size[1]),
+				Expected: fmt.Sprintf("%dx%d grayscale image", d.Size[0], d.Size[1]),
+				Fix:      "match size to the heightmap image dimensions or re-export the heightmap at the declared size",
+			}
+		}
+		hm = LoadHeightmapGray(imgs.Heightmap, d.EffectiveCellSize(), d.HeightScale)
+	}
+	hm.Origin = d.EffectiveOrigin()
+
+	attachLayerHeights := func(infos []TerrainLayerInfo) {
+		if len(imgs.LayerHeights) == 0 {
+			return
+		}
+		for i := range infos {
+			if hImg := imgs.LayerHeights[infos[i].Name]; hImg != nil {
+				infos[i].HeightMap = LoadTerrainHeightLayer(hImg)
+			}
+		}
+	}
+
+	switch {
+	case len(imgs.SplatMaps) > 0:
+		infos := d.LayerInfos()
+		attachLayerHeights(infos)
 		splat, err := LoadTerrainSplatMap(infos, imgs.SplatMaps...)
 		if err != nil {
 			return nil, err
 		}
 		splat.HeightBlendContrast = d.HeightBlendContrast
 		hm.Splat = splat
+	case len(imgs.LayerWeights) > 0:
+		infos := d.LayerInfos()
+		attachLayerHeights(infos)
+		weights := make([]image.Image, len(d.Layers))
+		for i, l := range d.Layers {
+			weights[i] = imgs.LayerWeights[l.Name]
+		}
+		splat, err := LoadTerrainSplatMapFromWeights(infos, weights)
+		if err != nil {
+			return nil, err
+		}
+		splat.HeightBlendContrast = d.HeightBlendContrast
+		hm.Splat = splat
+	}
+
+	if len(imgs.FoliageDensityMaps) > 0 {
+		hm.FoliageDensity = make(map[string]*DensityMap, len(imgs.FoliageDensityMaps))
+		for name, img := range imgs.FoliageDensityMaps {
+			if img != nil {
+				hm.FoliageDensity[name] = LoadDensityMapGray(img)
+			}
+		}
 	}
 	return hm, nil
 }
@@ -194,8 +262,61 @@ func (d *TerrainDoc) BuildLOD(hm *Heightmap) *TerrainLOD {
 	return NewTerrainLOD(hm, d.LODConfig())
 }
 
-// LoadHeightmap decodes the heightmap, optional splat maps, and optional per-layer
-// height maps referenced by d from fsys, then builds a runtime [*Heightmap].
+// BuildFoliageLayers validates d and converts every entry in d.Foliage into a
+// runtime [FoliageLayer] using opts. Returns nil, nil when d.Foliage is empty.
+func (d *TerrainDoc) BuildFoliageLayers(opts FoliageBuildOptions) ([]FoliageLayer, error) {
+	if err := ValidateTerrain(d); err != nil {
+		return nil, err
+	}
+	if len(d.Foliage) == 0 {
+		return nil, nil
+	}
+	layers := make([]FoliageLayer, len(d.Foliage))
+	for i, ld := range d.Foliage {
+		layer, err := ld.ToLayer(opts)
+		if err != nil {
+			return nil, err
+		}
+		layers[i] = layer
+	}
+	return layers, nil
+}
+
+// ScatterFoliage builds every foliage layer declared in d.Foliage and scatters
+// it across hm within region (or the full heightmap bounds when region is
+// empty/zero). When a layer's density map is already loaded on hm.FoliageDensity
+// and opts.LoadDensityMap is nil, the attached density map is reused directly.
+func (d *TerrainDoc) ScatterFoliage(hm *Heightmap, region math3d.AABB, opts FoliageBuildOptions) ([]*FoliageField, error) {
+	if err := ValidateTerrain(d); err != nil {
+		return nil, err
+	}
+	if len(d.Foliage) == 0 {
+		return nil, nil
+	}
+	fields := make([]*FoliageField, len(d.Foliage))
+	for i, ld := range d.Foliage {
+		layerOpts := opts
+		if layerOpts.LoadDensityMap == nil && hm != nil && hm.FoliageDensity != nil {
+			if attached := hm.FoliageDensity[ld.Name]; attached != nil {
+				dm := attached
+				layerOpts.LoadDensityMap = func(string) (*DensityMap, error) { return dm, nil }
+			}
+		}
+		layer, err := ld.ToLayer(layerOpts)
+		if err != nil {
+			return nil, err
+		}
+		if layer.DensityMap == nil && hm != nil && hm.FoliageDensity != nil {
+			layer.DensityMap = hm.FoliageDensity[ld.Name]
+		}
+		fields[i] = Scatter(hm, layer, region)
+	}
+	return fields, nil
+}
+
+// LoadHeightmap decodes the heightmap, optional splat or per-layer weight maps,
+// optional per-layer height maps, and optional foliage density maps referenced
+// by d from fsys, then builds a runtime [*Heightmap].
 func (d *TerrainDoc) LoadHeightmap(fsys fs.FS) (*Heightmap, error) {
 	if err := ValidateTerrain(d); err != nil {
 		return nil, err
@@ -203,25 +324,30 @@ func (d *TerrainDoc) LoadHeightmap(fsys fs.FS) (*Heightmap, error) {
 	if fsys == nil {
 		return nil, fmt.Errorf("world3d: nil filesystem")
 	}
-	if d.Heightmap == "" {
+	var imgs TerrainImages
+	if d.Heightmap != "" {
+		hmImg, err := decodeFSImage(fsys, d.Heightmap)
+		if err != nil {
+			return nil, &loaderr.Error{
+				Field:   "heightmap",
+				Problem: fmt.Sprintf("world3d: load heightmap %q", d.Heightmap),
+				Err:     err,
+				Fix:     "ensure the heightmap path exists in the project and decodes as an image",
+			}
+		}
+		imgs.Heightmap = hmImg
+	} else if d.Size == nil {
 		return nil, &loaderr.Error{
 			Field:    "heightmap",
 			Problem:  "world3d: terrain document has no heightmap path",
 			Expected: "path to a grayscale heightmap image",
-			Fix:      "set heightmap to the path of a PNG, JPEG, or GIF image",
+			Fix:      "set heightmap to the path of a 16-bit PNG image, or specify size for a flat terrain",
 		}
 	}
-	hmImg, err := decodeFSImage(fsys, d.Heightmap)
-	if err != nil {
-		return nil, &loaderr.Error{
-			Field:   "heightmap",
-			Problem: fmt.Sprintf("world3d: load heightmap %q", d.Heightmap),
-			Err:     err,
-			Fix:     "ensure the heightmap path exists in the project and decodes as an image",
-		}
-	}
-	imgs := TerrainImages{Heightmap: hmImg}
+
+	hasWeights := false
 	if len(d.SplatMaps) > 0 {
+		hasWeights = true
 		imgs.SplatMaps = make([]image.Image, len(d.SplatMaps))
 		for i, sp := range d.SplatMaps {
 			img, err := decodeFSImage(fsys, sp)
@@ -235,6 +361,27 @@ func (d *TerrainDoc) LoadHeightmap(fsys fs.FS) (*Heightmap, error) {
 			}
 			imgs.SplatMaps[i] = img
 		}
+	} else if d.HasLayerWeightMaps() {
+		hasWeights = true
+		imgs.LayerWeights = make(map[string]image.Image, len(d.Layers))
+		for i, l := range d.Layers {
+			if l.WeightMap == "" {
+				continue
+			}
+			img, err := decodeFSImage(fsys, l.WeightMap)
+			if err != nil {
+				return nil, &loaderr.Error{
+					Field:   loaderr.Path("layers", i, "weightMap"),
+					Problem: fmt.Sprintf("world3d: load layer %q weightMap %q", l.Name, l.WeightMap),
+					Err:     err,
+					Fix:     "ensure the layer weightMap path exists and decodes as an image",
+				}
+			}
+			imgs.LayerWeights[l.Name] = img
+		}
+	}
+
+	if hasWeights {
 		for i, l := range d.Layers {
 			if l.Height == "" {
 				continue
@@ -254,6 +401,26 @@ func (d *TerrainDoc) LoadHeightmap(fsys fs.FS) (*Heightmap, error) {
 			imgs.LayerHeights[l.Name] = img
 		}
 	}
+
+	for i, fl := range d.Foliage {
+		if fl.DensityMap == "" {
+			continue
+		}
+		img, err := decodeFSImage(fsys, fl.DensityMap)
+		if err != nil {
+			return nil, &loaderr.Error{
+				Field:   loaderr.Path("foliage", i, "densityMap"),
+				Problem: fmt.Sprintf("world3d: load foliage layer %q densityMap %q", fl.Name, fl.DensityMap),
+				Err:     err,
+				Fix:     "ensure the foliage densityMap path exists and decodes as an image",
+			}
+		}
+		if imgs.FoliageDensityMaps == nil {
+			imgs.FoliageDensityMaps = make(map[string]image.Image)
+		}
+		imgs.FoliageDensityMaps[fl.Name] = img
+	}
+
 	return d.BuildHeightmap(imgs)
 }
 
@@ -454,6 +621,16 @@ func ValidateTerrain(doc *TerrainDoc) error {
 			Fix:      fmt.Sprintf("set version to %d", TerrainFormatVersion),
 		}
 	}
+	if doc.Size != nil {
+		if doc.Size[0] < 2 || doc.Size[1] < 2 {
+			return &loaderr.Error{
+				Field:    "size",
+				Problem:  fmt.Sprintf("world3d: invalid terrain size [%d, %d]", doc.Size[0], doc.Size[1]),
+				Expected: "two integers >= 2 ([cols, rows])",
+				Fix:      "set size to [cols, rows] where both dimensions are at least 2",
+			}
+		}
+	}
 	if doc.CellSize != 0 && (!terrainFinite(doc.CellSize) || doc.CellSize <= 0) {
 		return &loaderr.Error{
 			Field:    "cellSize",
@@ -568,6 +745,14 @@ func ValidateTerrain(doc *TerrainDoc) error {
 			Fix:      "add a second RGBA splat map path to splatMaps for layers 4..7",
 		}
 	}
+	if len(doc.SplatMaps) > 0 && doc.HasLayerWeightMaps() {
+		return &loaderr.Error{
+			Field:    "splatMaps",
+			Problem:  "world3d: terrain cannot specify both splatMaps and per-layer weightMap paths",
+			Expected: "either top-level splatMaps or per-layer weightMap paths, not both",
+			Fix:      "remove splatMaps to use per-layer weightMap PNGs, or remove layer weightMap fields to use packed RGBA splatMaps",
+		}
+	}
 
 	seenName := make(map[string]int, len(doc.Layers))
 	for i, l := range doc.Layers {
@@ -642,6 +827,11 @@ func ValidateTerrain(doc *TerrainDoc) error {
 				Expected: "a finite number in [-1, 1]",
 				Fix:      "set heightBias between -1 and 1",
 			}
+		}
+	}
+	if len(doc.Foliage) > 0 {
+		if err := validateFoliageLayers(doc.Foliage, "foliage"); err != nil {
+			return err
 		}
 	}
 	return nil

@@ -203,8 +203,16 @@ func (g *viewport3DGestures) pan(ed *Editor, ev core.PanEvent, shiftHeld func() 
 			return
 		}
 		g.began = g.hasPress && !ed.PickingConnectionTarget()
+		if !g.began && !ed.PickingConnectionTarget() && ed.TerrainOpen() && ed.TerrainBrush().Mode != TerrainBrushNone {
+			g.pressPos = core.Point{
+				X: ev.Position.X - ev.Translation.X,
+				Y: ev.Position.Y - ev.Translation.Y,
+			}
+			g.hasPress = true
+			g.began = true
+		}
 		if g.began {
-			// A press that turns into a pan first picks a gizmo handle under the press point, and orbits otherwise, or pans with Shift held.
+			// A press that turns into a pan first picks a terrain brush hit or gizmo handle under the press point, and orbits otherwise, or pans with Shift held.
 			ed.BeginViewport3DDrag(float32(g.pressPos.X), float32(g.pressPos.Y), cw, ch, shiftHeld())
 		}
 	case core.GestureChanged:
