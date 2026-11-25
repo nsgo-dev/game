@@ -334,3 +334,22 @@ func (m *Mesh) NavMesh() *world3d.NavMesh {
 	}
 	return nm
 }
+
+// TiledNavMesh builds a world3d.TiledNavMesh partitioned into fixed square XZ tiles of size tileSize
+// from m's detail triangles, ready for runtime tile replacement, dynamic obstacle carving, and chunk streaming.
+func (m *Mesh) TiledNavMesh(tileSize float32) *world3d.TiledNavMesh {
+	if m == nil {
+		return world3d.BuildTiledNavMesh(nil, math.Pi/2, tileSize)
+	}
+	var polys [][]math3d.Vec3
+	for pi := range m.Polygons {
+		p := &m.Polygons[pi]
+		for _, t := range p.Triangles {
+			v := m.TriangleVertices(p, t)
+			polys = append(polys, v[:])
+		}
+	}
+	tm := world3d.BuildTiledNavMesh(polys, math.Pi/2, tileSize)
+	tm.VerticalTolerance = max(m.Agent.Height, m.Agent.MaxClimb)
+	return tm
+}

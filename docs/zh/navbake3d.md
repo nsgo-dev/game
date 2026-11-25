@@ -131,7 +131,7 @@ nav := mesh.NavMesh()
 path, ok := nav.FindPath(start, goal)
 ```
 
-`Mesh.NavMesh` 把每个细节三角形变成 `NavMesh` 的一个可行走多边形，并通过共享边与相邻多边形相连，因此 `FindPath` 会按烘焙出的高度沿坡道、台阶和地形前进，并让叠放的楼层保持分离。其 `VerticalTolerance` 取代理身高与可攀爬高度中的较大者，所以 `FindPolygon` 会把一个点吸附到其上方或下方该距离以内的表面上。
+`Mesh.NavMesh` 把每个细节三角形变成 `NavMesh` 的一个可行走多边形，并通过共享边与相邻多边形相连，因此 `FindPath` 会按烘焙出的高度沿坡道、台阶和地形前进，并让叠放的楼层保持分离。其 `VerticalTolerance` 取代理身高与可攀爬高度中的较大者，所以 `FindPolygon` 会把一个点吸附到其上方或下方该距离以内的表面上。如需运行时动态障碍物与区块流式加载，可调用 `Mesh.TiledNavMesh(tileSize)` 构建 `*world3d.TiledNavMesh`，或调用 `navbake3d.BakeTile(g, settings, agent, coord, tileSize, origin)` 按 `world3d.ChunkCoord` 带边界外扩地独立体素烘焙单个 `*world3d.NavTile`。
 
 ## 调试绘制
 

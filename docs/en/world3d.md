@@ -235,6 +235,41 @@ group.Step(dt)
 - **Throttled & staggered replanning**: `NavAgentGroup.Step(dt)` strictly bounds full A* replans to `MaxReplansPerStep` per fixed step in deterministic round-robin order (optionally staggered by `StaggerStride`), and automatically detects mesh changes (including runtime area/flag updates and off-mesh links) via `NavMesh.Revision()`.
 - **Deterministic fixed-step replay**: replaying the same inputs produces bit-identical 3D positions every step.
 
+### Tiled 3D NavMesh, dynamic obstacles, and chunk streaming (`TiledNavMesh`, `NavTileStreamer`)
+
+For open worlds, doors, placed buildings, and destructible cover, `world3d.TiledNavMesh` partitions 3D walkable polygons into fixed-size XZ tiles aligned 1:1 with `ChunkCoord`, linking polygons in full 3D across tile borders (preserving ramps and stacked levels), rebuilding only touched tiles when dynamic obstacles change, and invalidating paths that crossed modified or unloaded tiles:
+
+```go
+tm := world3d.NewTiledNavMesh(world3d.TiledNavMeshConfig{TileSize: 64})
+
+// Follow world3d chunk streaming: bake tiles on background workers and load/unload with chunks:
+streamer, err := world3d.NewNavTileStreamer(world3d.NavTileStreamerConfig{
+	Mesh:         tm,
+	LoadRadius:   2,
+	UnloadRadius: 3,
+	Workers:      2,
+	Bake: func(ctx context.Context, coord world3d.ChunkCoord, bounds math3d.AABB) (*world3d.NavTile, error) {
+		return bakeChunkNavTile(ctx, coord, bounds) // e.g. world3d.BakeNavTile or navbake3d.BakeTile
+	},
+})
+if err != nil {
+	return err
+}
+defer streamer.Close()
+
+streamer.Update(world3d.WorldPos64{X: float64(player.X), Z: float64(player.Z)})
+
+// Drop a 3D box, cylinder, or extruded polygon obstacle (rebuilds ONLY touched tiles):
+obsID, _ := tm.AddObstacle(world3d.NavBoxObstacle(minPos, maxPos))
+detour, _ := tm.FindPath(startPos, goalPos) // detours around box; vertical Y bounds keep bridges above unaffected
+tm.RemoveObstacle(obsID)                    // restores original geometry and path
+_, _ = detour, obsID
+```
+
+- **Independent tile lifecycle**: bake standalone tiles off-thread with `world3d.BakeNavTile` (or voxel-bake directly from `navbake3d.Geometry` via `navbake3d.BakeTile`), then call `AddTile`, `ReplaceTile`, `SetTile`, `RemoveTile`, or `RebuildTile`; `BuildTiledNavMesh` / `BuildTiledNavMeshWithAreas` and `navbake3d.Mesh.TiledNavMesh(tileSize)` build a tiled mesh from existing polygons or baked meshes.
+- **3D dynamic obstacles**: `NavBoxObstacle`, `NavOrientedBoxObstacle`, `NavCylinderObstacle`, and `NavPolygonObstacle` check vertical Y overlap so obstacles on a ground floor never carve bridges overhead. Both `NavObstacleCarve` (exact planar subtraction) and `NavObstacleMark` (splitting and setting `NavFlagDisabled` or custom `Area`/`Flags`) are supported; group multi-obstacle edits inside `tm.Batch(func() { ... })`.
+- **Two-level 3D spatial index & path invalidation**: `FindPolygon`, `NearestPoint`, `NearestPolygon`, and `Raycast` use O(1) XZ tile lookup + per-tile 3D flat BVHs (plus a coarse 3D tile BVH for unbounded nearest lookups). Track path validity with `tm.IsPathValid(res)` (`TiledNavPathResult.Tiles`), register per-tile invalidation callbacks with `tm.WatchPath(res.TileCoords(), fn)`, or observe all tile changes via `tm.AddTileListener`.
+
 ## Modular 3D `GridMap`
 
 Place reusable 3D mesh tiles on an integer `GridCoord{X, Y, Z}` lattice with 24 axis-aligned cube orientations (`GridOrientationMat4`, `RotateGridOrientation`, `FindGridOrientation`), fast collision box extraction, chunk-culled raycasting (chunks are sorted along the ray and the occupied cells of each are tested), cell enumeration (`EachCell`), sorted library inspection (`MeshLibrary.Items`), and frustum-culled instanced batches. `LoadMeshLibraryFromGLTF` reads both `.gltf` JSON and binary `.glb` mesh libraries:

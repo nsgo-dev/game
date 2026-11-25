@@ -6,6 +6,7 @@ import (
 	"math"
 
 	"github.com/nsgo-dev/game/packages/game/math3d"
+	"github.com/nsgo-dev/game/packages/game/world3d"
 )
 
 // ErrNoGeometry is returned by Bake and BakeMesh when no triangle of the geometry is on a layer the settings select.
@@ -47,6 +48,94 @@ func BakeMesh(g *Geometry, settings Settings, agent AgentType) (*Mesh, error) {
 	return bakeMesh(g, settings, agent)
 }
 
+// BakeTile bakes one independent world3d.NavTile for chunk coordinate coord from g's triangles
+// overlapping that tile (expanded by an erosion border so wall clearance near tile edges matches
+// a full-level bake). Resulting walkable triangles are clipped cleanly to the tile's exact XZ
+// bounds so neighboring tiles link seamlessly when installed in a world3d.TiledNavMesh.
+//
+// When no selected geometry overlaps the tile, BakeTile returns an empty *world3d.NavTile and a nil error.
+func BakeTile(g *Geometry, settings Settings, agent AgentType, coord world3d.ChunkCoord, tileSize float32, origin math3d.Vec3) (*world3d.NavTile, error) {
+	settings = settings.withDefaults()
+	if err := settings.validate("settings"); err != nil {
+		return nil, err
+	}
+	agent = agent.withDefaults()
+	if err := agent.validate("agent"); err != nil {
+		return nil, err
+	}
+	if !positive(tileSize) {
+		return nil, fmt.Errorf("navbake3d: tileSize %v must be a finite positive number", tileSize)
+	}
+	if !finiteVec(origin) {
+		return nil, fmt.Errorf("navbake3d: tile origin %v must be finite", origin)
+	}
+	if g == nil || len(g.layers) == 0 {
+		return world3d.BakeNavTile(coord, tileSize, origin, nil, math.Pi/2), nil
+	}
+
+	cs, ch := settings.CellSize, settings.CellHeight
+	walkRadius := int32(math.Ceil(float64(agent.Radius / cs)))
+	border := float64(walkRadius+3) * float64(cs)
+
+	ts := float64(tileSize)
+	tileMinX := float64(origin.X) + float64(coord.X)*ts
+	tileMaxX := float64(origin.X) + float64(coord.X+1)*ts
+	tileMinZ := float64(origin.Z) + float64(coord.Z)*ts
+	tileMaxZ := float64(origin.Z) + float64(coord.Z+1)*ts
+
+	// Align the padded voxel grid origin to global cs steps so adjacent tiles share identical voxel columns across borders.
+	cs64 := float64(cs)
+	padMinX := float32(math.Floor((tileMinX-border)/cs64) * cs64)
+	padMaxX := float32(math.Ceil((tileMaxX+border)/cs64) * cs64)
+	padMinZ := float32(math.Floor((tileMinZ-border)/cs64) * cs64)
+	padMaxZ := float32(math.Ceil((tileMaxZ+border)/cs64) * cs64)
+
+	minY, maxY := float32(math.Inf(1)), float32(math.Inf(-1))
+	hits := 0
+	for t, l := range g.layers {
+		if l&settings.LayerMask == 0 {
+			continue
+		}
+		v0, v1, v2 := g.verts[t*3], g.verts[t*3+1], g.verts[t*3+2]
+		tMin := v0.Min(v1).Min(v2)
+		tMax := v0.Max(v1).Max(v2)
+		if tMax.X < padMinX || tMin.X > padMaxX || tMax.Z < padMinZ || tMin.Z > padMaxZ {
+			continue
+		}
+		minY = min(minY, tMin.Y)
+		maxY = max(maxY, tMax.Y)
+		hits++
+	}
+	if hits == 0 {
+		return world3d.BakeNavTile(coord, tileSize, origin, nil, math.Pi/2), nil
+	}
+	if maxY-minY < ch {
+		maxY = minY + ch
+	}
+
+	b := math3d.AABB{
+		Min: math3d.Vec3{X: padMinX, Y: minY, Z: padMinZ},
+		Max: math3d.Vec3{X: padMaxX, Y: maxY, Z: padMaxZ},
+	}
+	m, err := bakeMeshInBounds(g, settings, agent, b)
+	if err != nil {
+		return nil, err
+	}
+	var inputs []world3d.NavPolygonInput
+	for pi := range m.Polygons {
+		p := &m.Polygons[pi]
+		for _, tri := range p.Triangles {
+			v := m.TriangleVertices(p, tri)
+			inputs = append(inputs, world3d.NavPolygonInput{
+				Vertices: []math3d.Vec3{v[0], v[1], v[2]},
+				Area:     world3d.NavAreaDefault,
+				Flags:    world3d.NavFlagWalk,
+			})
+		}
+	}
+	return world3d.BakeNavTile(coord, tileSize, origin, inputs, math.Pi/2), nil
+}
+
 // bakeMesh runs the pipeline for one agent with validated, defaulted settings.
 func bakeMesh(g *Geometry, s Settings, a AgentType) (*Mesh, error) {
 	if g == nil {
@@ -56,6 +145,10 @@ func bakeMesh(g *Geometry, s Settings, a AgentType) (*Mesh, error) {
 	if n == 0 {
 		return nil, ErrNoGeometry
 	}
+	return bakeMeshInBounds(g, s, a, b)
+}
+
+func bakeMeshInBounds(g *Geometry, s Settings, a AgentType, b math3d.AABB) (*Mesh, error) {
 	cs, ch := s.CellSize, s.CellHeight
 	// Sizes in cells are checked while they are still floats, since converting a float too large for an int gives a different, meaningless value on each architecture.
 	cells := func(size, cell float32) float64 { return math.Ceil(float64(size / cell)) }

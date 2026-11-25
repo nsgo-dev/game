@@ -146,6 +146,19 @@ func (m *Mesh) NavMesh() *ai.NavMesh {
 	return nav
 }
 
+// TiledNavMesh builds an ai.TiledNavMesh partitioned into fixed square tiles of size tileSize
+// from m's baked polygons, ready for runtime tile replacement and dynamic obstacle carving.
+func (m *Mesh) TiledNavMesh(tileSize float32) *ai.TiledNavMesh {
+	if m == nil {
+		return ai.BuildTiledNavMesh(nil, tileSize)
+	}
+	polys := make([][]core.Point, len(m.Polygons))
+	for i, p := range m.Polygons {
+		polys[i] = p
+	}
+	return ai.BuildTiledNavMesh(polys, tileSize)
+}
+
 // Parse decodes and validates a baked mesh file. Unknown fields, a second YAML document and any value Validate refuses are errors.
 func Parse(data []byte) (*Mesh, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
