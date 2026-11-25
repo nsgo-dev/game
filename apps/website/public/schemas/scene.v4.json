@@ -42,6 +42,10 @@
       "description": "BackgroundColor is an optional CSS color string parsed with core.ParseColor.",
       "type": "string"
     },
+    "ambientColor": {
+      "description": "AmbientColor is an optional CSS color string parsed with core.ParseColor (for example \"rgba(12, 16, 30, 0.85)\" or \"#0c101ed8\") that sets the 2D lighting ambient darkness tint (lights2d.Scene.Ambient). Both versions accept it.",
+      "type": "string"
+    },
     "camera": {
       "description": "Camera holds the default camera transform for world-space layers. Nil leaves world space untransformed.",
       "allOf": [
@@ -709,6 +713,18 @@
           "description": "ModelMesh optionally names one mesh of Model, the first with that name in the file, which the object draws at its origin in place of the whole model. It requires Model and cannot be combined with ModelNode. Version 2.",
           "type": "string"
         },
+        "gridMap": {
+          "description": "GridMap optionally names a 3D grid map file (*.gridmap.yaml or *.gridmap.yml) by its slash-separated path from the project root, such as \"levels/dungeon.gridmap.yaml\". Package scenemodel loads it and instances its tiles with world3d.GridMap.BuildInstances. It cannot be combined with Mesh or Model. Version 2.",
+          "type": "string"
+        },
+        "occluder": {
+          "description": "Occluder optionally marks this 3D object as an occluder for render3d.OcclusionBuffer, using either its own 3D geometry (mode \"model\") or an explicit local-space box (mode \"box\"). Version 2.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/OccluderDoc"
+            }
+          ]
+        },
         "flipX": {
           "description": "FlipX and FlipY mirror the sprite inside its untrimmed frame box.",
           "type": "boolean"
@@ -740,6 +756,14 @@
         "material": {
           "description": "Material optionally names a shared material resource file by its slash-separated path from the project root, such as \"materials/stone.material.yaml\". Build resolves it through a MaterialResolver; the sprite draws with the material's opacity and blend mode, so every scene that uses the file changes when it is edited. In 3D it replaces every material of the object's Model, or gives its Mesh primitive its surface (package scenemodel).",
           "type": "string"
+        },
+        "particles": {
+          "description": "Particles optionally binds the object to a 2D particle emitter YAML file (particles.Config) and optional sprite atlas, so Build constructs a live particles.Emitter that BuiltScene.Update steps and BuiltScene.Draw renders at the object's world transform. Version 2.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ParticlesRef"
+            }
+          ]
         },
         "light": {
           "description": "Light optionally attaches a directional, point or spot 3D light to this object, placed and aimed by its 3D transform (local -Z). Version 4.",
@@ -905,6 +929,18 @@
           "description": "ModelMesh replaces the mesh of the model the object draws.",
           "type": "string"
         },
+        "gridMap": {
+          "description": "GridMap replaces the 3D grid map file the object draws, a slash-separated path from the project root; \"\" removes it.",
+          "type": "string"
+        },
+        "occluder": {
+          "description": "Occluder replaces the object's 3D occluder definition.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/OccluderDoc"
+            }
+          ]
+        },
         "flipX": {
           "description": "FlipX replaces whether the sprite is mirrored horizontally.",
           "type": "boolean"
@@ -937,6 +973,14 @@
           "description": "Material replaces the material resource file the object names, a slash-separated path from the project root.",
           "type": "string"
         },
+        "particles": {
+          "description": "Particles replaces the particle emitter file and optional atlas the object runs.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ParticlesRef"
+            }
+          ]
+        },
         "light": {
           "description": "Light replaces the 3D light attached to the object. Version 4.",
           "allOf": [
@@ -964,6 +1008,65 @@
           "additionalProperties": {}
         }
       },
+      "additionalProperties": false
+    },
+    "OccluderDoc": {
+      "description": "OccluderDoc marks a 3D object as an occluder that hides objects behind it in render3d.OcclusionBuffer (ObjectDoc.Occluder). Version 2.",
+      "type": "object",
+      "properties": {
+        "mode": {
+          "description": "Mode selects the occluder geometry: \"model\" (the object's own Mesh or Model) or \"box\" (an explicit local-space solid box).",
+          "type": "string",
+          "enum": [
+            "model",
+            "box"
+          ]
+        },
+        "center": {
+          "description": "Center is the optional local-space center [x, y, z] of a \"box\" occluder; nil centers it at the object's origin. Only valid when Mode is \"box\".",
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": -3.4028234663852886e+38,
+            "maximum": 3.4028234663852886e+38
+          }
+        },
+        "size": {
+          "description": "Size is the optional local-space dimensions [width, height, depth] of a \"box\" occluder; nil defaults to [1, 1, 1], scaled by the object's transform. When set, every axis must be positive. Only valid when Mode is \"box\".",
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": -3.4028234663852886e+38,
+            "maximum": 3.4028234663852886e+38
+          }
+        },
+        "doubleSided": {
+          "description": "DoubleSided rasterizes both front and back faces of a \"model\" occluder when true.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "mode"
+      ],
+      "additionalProperties": false
+    },
+    "ParticlesRef": {
+      "description": "ParticlesRef binds an object to a versioned 2D particle emitter YAML file (particles.Config) and an optional sprite atlas for its frameNames.",
+      "type": "object",
+      "properties": {
+        "file": {
+          "description": "File is the slash-separated path from the project root to a particle emitter YAML file, such as \"fx/fire.particles.yaml\".",
+          "type": "string",
+          "minLength": 1
+        },
+        "atlas": {
+          "description": "Atlas optionally names the sprite.Atlas an AssetResolver looks up to resolve the emitter's frameNames.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "file"
+      ],
       "additionalProperties": false
     },
     "SkyDoc": {
@@ -1073,6 +1176,18 @@
         "level": {
           "description": "Level names the level of an LDtk Source to build; empty builds the project's first level. It requires a .ldtk Source. Build reads a source with a Level through a FileResolver even when the resolver implements TilemapResolver. Version 2.",
           "type": "string"
+        },
+        "offsetX": {
+          "description": "OffsetX and OffsetY shift the tilemap's top-left corner (cell 0, 0) in its layer's coordinate space in points. Version 3.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "offsetY": {
+          "description": "OffsetX and OffsetY shift the tilemap's top-left corner (cell 0, 0) in its layer's coordinate space in points. Version 3.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
         },
         "tileWidth": {
           "description": "TileWidth and TileHeight are each tile's size in points for an inline grid.",

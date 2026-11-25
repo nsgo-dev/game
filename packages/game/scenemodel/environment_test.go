@@ -128,17 +128,17 @@ func TestBuildAndRenderLightsSkyFogTonemapAndCamera(t *testing.T) {
 					Mesh:   sceneformat.MeshPlane,
 				},
 				{
-					ID:     "near_box",
-					Y:      0.5,
-					PosZ:   0,
-					Mesh:   sceneformat.MeshBox,
+					ID:   "near_box",
+					Y:    0.5,
+					PosZ: 0,
+					Mesh: sceneformat.MeshBox,
 				},
 				{
-					ID:     "far_box",
-					X:      2.2,
-					Y:      0.5,
-					PosZ:   -7,
-					Mesh:   sceneformat.MeshBox,
+					ID:   "far_box",
+					X:    2.2,
+					Y:    0.5,
+					PosZ: -7,
+					Mesh: sceneformat.MeshBox,
 				},
 				{
 					ID:   "cam_ortho",
@@ -257,5 +257,36 @@ func TestBuildAndRenderHDRSkyAndIBL(t *testing.T) {
 	center := img.RGBAAt(32, 24)
 	if center.R == 0 && center.G == 0 && center.B == 0 {
 		t.Errorf("sphere center is black %v, expected HDR IBL illumination", center)
+	}
+}
+
+func TestActiveCameraObjectSkipsHiddenAndDisabled(t *testing.T) {
+	doc := &sceneformat.SceneDoc{
+		Version: sceneformat.CurrentVersion,
+		Layers: []sceneformat.LayerDoc{{
+			Name: "world",
+			Objects: []sceneformat.ObjectDoc{
+				{ID: "cam1", PosZ: 5, Camera: &sceneformat.Camera3DDoc{Current: true}},
+				{ID: "cam2", PosZ: 10, Camera: &sceneformat.Camera3DDoc{}},
+			},
+		}},
+	}
+	world := scene3d.NewScene()
+	built, err := scenemodel.Build(doc, world.Root(), nil)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	c, ok := built.ActiveCameraObject()
+	if !ok || c.Object != "cam1" {
+		t.Fatalf("initial ActiveCameraObject = (%v, %v), want cam1", c, ok)
+	}
+	built.Objects["cam1"].SetVisible(false)
+	c, ok = built.ActiveCameraObject()
+	if !ok || c.Object != "cam2" {
+		t.Fatalf("after hiding cam1, ActiveCameraObject = (%v, %v), want cam2", c, ok)
+	}
+	built.Objects["cam2"].SetEnabled(false)
+	if c, ok = built.ActiveCameraObject(); ok || c != nil {
+		t.Fatalf("after disabling cam2, ActiveCameraObject = (%v, %v), want (nil, false)", c, ok)
 	}
 }

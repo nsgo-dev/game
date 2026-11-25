@@ -138,6 +138,7 @@ func (a scene3DAssets) HDR(path string) (*render3d.HDRImage, error) {
 	}
 	return a.files.HDR(path)
 }
+
 // Scene3D returns the open scene built in 3D by scenemodel.Build, the geometry and materials the 3D viewport draws and picks by, with its nodes posed as the viewport shows them: by the open animation clip at the playhead, by the running game while playing, and with the objects hidden in the editor (SetObjectHidden) and screen-space layers invisible. It returns nil and the error when the scene does not build, such as when a model it names does not load.
 //
 // Models, material files and images load through the editor's Resolver when it implements scenemodel.ModelResolver, sceneformat.MaterialResolver or scenemodel.ImageResolver, and from the open project's files otherwise. A scene that instances or inherits other scene files is resolved first (sceneformat.Resolve), with the Resolver as its sceneformat.SceneResolver. The scene is built again only when what it looks like changes, not when an object moves, so the result stays the same between such edits and its nodes move in place.

@@ -183,6 +183,8 @@ func (e *Editor) OpenDemo() error {
 	e.tileset = nil
 	e.ActiveTerrain = ""
 	e.particles = nil
+	e.lookThroughCamera3D = false
+	e.envPanelOpen = false
 	e.selectFile("")
 	e.resetSearchForProject()
 	e.filesRev++

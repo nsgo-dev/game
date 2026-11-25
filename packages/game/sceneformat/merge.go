@@ -130,6 +130,7 @@ func (m *sceneMerger) run() *MergeResult {
 	out.BackgroundColor = mergeScalar(m, &sceneSide, conflictCtx{scope: "scene"}, "backgroundColor", m.base.BackgroundColor, m.ours.BackgroundColor, m.theirs.BackgroundColor)
 	out.AmbientColor = mergeScalar(m, &sceneSide, conflictCtx{scope: "scene"}, "ambientColor", m.base.AmbientColor, m.ours.AmbientColor, m.theirs.AmbientColor)
 	out.Camera = m.mergeCamera(&sceneSide, m.base.Camera, m.ours.Camera, m.theirs.Camera)
+	out.Environment = m.mergeEnvironment(&sceneSide, m.base.Environment, m.ours.Environment, m.theirs.Environment)
 	if side := sceneSide.side(); side != "" {
 		m.addMerged("scene", "", side, "changed")
 	}
@@ -378,6 +379,161 @@ func (m *sceneMerger) mergeBounds(st *sideTracker, base, ours, theirs *BoundsDoc
 		Y:      mergeScalar(m, st, ctx, "camera.bounds.y", b.Y, ours.Y, theirs.Y),
 		Width:  mergeScalar(m, st, ctx, "camera.bounds.width", b.Width, ours.Width, theirs.Width),
 		Height: mergeScalar(m, st, ctx, "camera.bounds.height", b.Height, ours.Height, theirs.Height),
+	}
+}
+
+func (m *sceneMerger) mergeEnvironment(st *sideTracker, base, ours, theirs *EnvironmentDoc) *EnvironmentDoc {
+	if environmentEqual(ours, theirs) {
+		if !environmentEqual(ours, base) {
+			st.mark(true, true)
+		}
+		return ours.Clone()
+	}
+	if environmentEqual(ours, base) {
+		st.mark(false, true)
+		return theirs.Clone()
+	}
+	if environmentEqual(theirs, base) {
+		st.mark(true, false)
+		return ours.Clone()
+	}
+	if base != nil && (ours == nil || theirs == nil) {
+		msg := "deleted on ours, modified on theirs"
+		if theirs == nil {
+			msg = "modified on ours, deleted on theirs"
+		}
+		m.addConflict(MergeConflict{
+			Kind:    ConflictDeleteModify,
+			Scope:   "scene",
+			Field:   "environment",
+			Message: msg,
+			Base:    toYAMLValue(base),
+			Ours:    toYAMLValue(ours),
+			Theirs:  toYAMLValue(theirs),
+		})
+		return ours.Clone()
+	}
+	b := base
+	if b == nil {
+		b = &EnvironmentDoc{}
+	}
+	ctx := conflictCtx{scope: "scene"}
+	return &EnvironmentDoc{
+		Sky:              m.mergeSky(st, b.Sky, ours.Sky, theirs.Sky),
+		AmbientColor:     mergeScalar(m, st, ctx, "environment.ambientColor", b.AmbientColor, ours.AmbientColor, theirs.AmbientColor),
+		AmbientIntensity: mergePtr(m, st, ctx, "environment.ambientIntensity", b.AmbientIntensity, ours.AmbientIntensity, theirs.AmbientIntensity),
+		IBLIntensity:     mergePtr(m, st, ctx, "environment.iblIntensity", b.IBLIntensity, ours.IBLIntensity, theirs.IBLIntensity),
+		Fog:              m.mergeFog(st, b.Fog, ours.Fog, theirs.Fog),
+		Tonemapping:      mergeScalar(m, st, ctx, "environment.tonemapping", b.Tonemapping, ours.Tonemapping, theirs.Tonemapping),
+		Exposure:         mergePtr(m, st, ctx, "environment.exposure", b.Exposure, ours.Exposure, theirs.Exposure),
+	}
+}
+
+func (m *sceneMerger) mergeSky(st *sideTracker, base, ours, theirs *SkyDoc) *SkyDoc {
+	if skyEqual(ours, theirs) {
+		if !skyEqual(ours, base) {
+			st.mark(true, true)
+		}
+		return ours.Clone()
+	}
+	if skyEqual(ours, base) {
+		st.mark(false, true)
+		return theirs.Clone()
+	}
+	if skyEqual(theirs, base) {
+		st.mark(true, false)
+		return ours.Clone()
+	}
+	if base != nil && (ours == nil || theirs == nil) {
+		msg := "deleted on ours, modified on theirs"
+		if theirs == nil {
+			msg = "modified on ours, deleted on theirs"
+		}
+		m.addConflict(MergeConflict{
+			Kind:    ConflictDeleteModify,
+			Scope:   "scene",
+			Field:   "environment.sky",
+			Message: msg,
+			Base:    toYAMLValue(base),
+			Ours:    toYAMLValue(ours),
+			Theirs:  toYAMLValue(theirs),
+		})
+		return ours.Clone()
+	}
+	if ours.Kind != theirs.Kind {
+		m.addConflict(MergeConflict{
+			Kind:    ConflictField,
+			Scope:   "scene",
+			Field:   "environment.sky",
+			Message: "both sides changed sky kind differently",
+			Base:    toYAMLValue(base),
+			Ours:    toYAMLValue(ours),
+			Theirs:  toYAMLValue(theirs),
+		})
+		return ours.Clone()
+	}
+	b := base
+	if b == nil || b.Kind != ours.Kind {
+		b = &SkyDoc{Kind: ours.Kind}
+	}
+	ctx := conflictCtx{scope: "scene"}
+	return &SkyDoc{
+		Kind:    ours.Kind,
+		Color:   mergeScalar(m, st, ctx, "environment.sky.color", b.Color, ours.Color, theirs.Color),
+		Zenith:  mergeScalar(m, st, ctx, "environment.sky.zenith", b.Zenith, ours.Zenith, theirs.Zenith),
+		Horizon: mergeScalar(m, st, ctx, "environment.sky.horizon", b.Horizon, ours.Horizon, theirs.Horizon),
+		Ground:  mergeScalar(m, st, ctx, "environment.sky.ground", b.Ground, ours.Ground, theirs.Ground),
+		HDR:     mergeScalar(m, st, ctx, "environment.sky.hdr", b.HDR, ours.HDR, theirs.HDR),
+	}
+}
+
+func (m *sceneMerger) mergeFog(st *sideTracker, base, ours, theirs *FogDoc) *FogDoc {
+	if fogEqual(ours, theirs) {
+		if !fogEqual(ours, base) {
+			st.mark(true, true)
+		}
+		return ours.Clone()
+	}
+	if fogEqual(ours, base) {
+		st.mark(false, true)
+		return theirs.Clone()
+	}
+	if fogEqual(theirs, base) {
+		st.mark(true, false)
+		return ours.Clone()
+	}
+	if base != nil && (ours == nil || theirs == nil) {
+		msg := "deleted on ours, modified on theirs"
+		if theirs == nil {
+			msg = "modified on ours, deleted on theirs"
+		}
+		m.addConflict(MergeConflict{
+			Kind:    ConflictDeleteModify,
+			Scope:   "scene",
+			Field:   "environment.fog",
+			Message: msg,
+			Base:    toYAMLValue(base),
+			Ours:    toYAMLValue(ours),
+			Theirs:  toYAMLValue(theirs),
+		})
+		return ours.Clone()
+	}
+	b := base
+	if b == nil {
+		b = &FogDoc{}
+	}
+	ctx := conflictCtx{scope: "scene"}
+	return &FogDoc{
+		Mode:          mergeScalar(m, st, ctx, "environment.fog.mode", b.Mode, ours.Mode, theirs.Mode),
+		Color:         mergeScalar(m, st, ctx, "environment.fog.color", b.Color, ours.Color, theirs.Color),
+		Start:         mergeScalar(m, st, ctx, "environment.fog.start", b.Start, ours.Start, theirs.Start),
+		End:           mergeScalar(m, st, ctx, "environment.fog.end", b.End, ours.End, theirs.End),
+		Density:       mergeScalar(m, st, ctx, "environment.fog.density", b.Density, ours.Density, theirs.Density),
+		MaxOpacity:    mergePtr(m, st, ctx, "environment.fog.maxOpacity", b.MaxOpacity, ours.MaxOpacity, theirs.MaxOpacity),
+		HeightEnabled: mergeScalar(m, st, ctx, "environment.fog.heightEnabled", b.HeightEnabled, ours.HeightEnabled, theirs.HeightEnabled),
+		HeightBase:    mergeScalar(m, st, ctx, "environment.fog.heightBase", b.HeightBase, ours.HeightBase, theirs.HeightBase),
+		HeightFalloff: mergeScalar(m, st, ctx, "environment.fog.heightFalloff", b.HeightFalloff, ours.HeightFalloff, theirs.HeightFalloff),
+		HeightDensity: mergeScalar(m, st, ctx, "environment.fog.heightDensity", b.HeightDensity, ours.HeightDensity, theirs.HeightDensity),
 	}
 }
 
@@ -818,6 +974,8 @@ func (m *sceneMerger) mergeObjectOverrideFields(st *sideTracker, ctx conflictCtx
 		Sprite:     m.mergeSprite(st, ctx, fn("sprite"), b.Sprite, o.Sprite, t.Sprite),
 		Material:   mergePtr(m, st, ctx, fn("material"), b.Material, o.Material, t.Material),
 		Particles:  m.mergeParticles(st, ctx, fn("particles"), b.Particles, o.Particles, t.Particles),
+		Light:      m.mergeLight(st, ctx, fn("light"), b.Light, o.Light, t.Light),
+		Camera:     m.mergeCamera3D(st, ctx, fn("camera"), b.Camera, o.Camera, t.Camera),
 		Components: m.mergeAnyMap(st, ctx, fn("components"), b.Components, o.Components, t.Components),
 		Properties: m.mergeAnyMap(st, ctx, fn("properties"), b.Properties, o.Properties, t.Properties),
 	}
@@ -969,6 +1127,133 @@ func (m *sceneMerger) mergeParticles(st *sideTracker, ctx conflictCtx, prefix st
 	return &ParticlesRef{
 		File:  mergeScalar(m, st, ctx, prefix+".file", b.File, ours.File, theirs.File),
 		Atlas: mergeScalar(m, st, ctx, prefix+".atlas", b.Atlas, ours.Atlas, theirs.Atlas),
+	}
+}
+
+func (m *sceneMerger) mergeLight(st *sideTracker, ctx conflictCtx, prefix string, base, ours, theirs *LightDoc) *LightDoc {
+	if lightEqual(ours, theirs) {
+		if !lightEqual(ours, base) {
+			st.mark(true, true)
+		}
+		return ours.Clone()
+	}
+	if lightEqual(ours, base) {
+		st.mark(false, true)
+		return theirs.Clone()
+	}
+	if lightEqual(theirs, base) {
+		st.mark(true, false)
+		return ours.Clone()
+	}
+	if base != nil && (ours == nil || theirs == nil) {
+		msg := "deleted on ours, modified on theirs"
+		if theirs == nil {
+			msg = "modified on ours, deleted on theirs"
+		}
+		m.addConflict(MergeConflict{
+			Kind:    ConflictDeleteModify,
+			Scope:   ctx.scope,
+			Layer:   ctx.layer,
+			Object:  ctx.object,
+			Target:  ctx.target,
+			Field:   prefix,
+			Message: msg,
+			Base:    toYAMLValue(base),
+			Ours:    toYAMLValue(ours),
+			Theirs:  toYAMLValue(theirs),
+		})
+		return ours.Clone()
+	}
+	if ours.Kind != theirs.Kind {
+		m.addConflict(MergeConflict{
+			Kind:    ConflictField,
+			Scope:   ctx.scope,
+			Layer:   ctx.layer,
+			Object:  ctx.object,
+			Target:  ctx.target,
+			Field:   prefix,
+			Message: "both sides changed light kind differently",
+			Base:    toYAMLValue(base),
+			Ours:    toYAMLValue(ours),
+			Theirs:  toYAMLValue(theirs),
+		})
+		return ours.Clone()
+	}
+	b := base
+	if b == nil || b.Kind != ours.Kind {
+		b = &LightDoc{Kind: ours.Kind}
+	}
+	return &LightDoc{
+		Kind:      ours.Kind,
+		Color:     mergeScalar(m, st, ctx, prefix+".color", b.Color, ours.Color, theirs.Color),
+		Intensity: mergePtr(m, st, ctx, prefix+".intensity", b.Intensity, ours.Intensity, theirs.Intensity),
+		Range:     mergeScalar(m, st, ctx, prefix+".range", b.Range, ours.Range, theirs.Range),
+		InnerCone: mergeScalar(m, st, ctx, prefix+".innerCone", b.InnerCone, ours.InnerCone, theirs.InnerCone),
+		OuterCone: mergePtr(m, st, ctx, prefix+".outerCone", b.OuterCone, ours.OuterCone, theirs.OuterCone),
+		Shadows:   mergeScalar(m, st, ctx, prefix+".shadows", b.Shadows, ours.Shadows, theirs.Shadows),
+	}
+}
+
+func (m *sceneMerger) mergeCamera3D(st *sideTracker, ctx conflictCtx, prefix string, base, ours, theirs *Camera3DDoc) *Camera3DDoc {
+	if camera3DEqual(ours, theirs) {
+		if !camera3DEqual(ours, base) {
+			st.mark(true, true)
+		}
+		return ours.Clone()
+	}
+	if camera3DEqual(ours, base) {
+		st.mark(false, true)
+		return theirs.Clone()
+	}
+	if camera3DEqual(theirs, base) {
+		st.mark(true, false)
+		return ours.Clone()
+	}
+	if base != nil && (ours == nil || theirs == nil) {
+		msg := "deleted on ours, modified on theirs"
+		if theirs == nil {
+			msg = "modified on ours, deleted on theirs"
+		}
+		m.addConflict(MergeConflict{
+			Kind:    ConflictDeleteModify,
+			Scope:   ctx.scope,
+			Layer:   ctx.layer,
+			Object:  ctx.object,
+			Target:  ctx.target,
+			Field:   prefix,
+			Message: msg,
+			Base:    toYAMLValue(base),
+			Ours:    toYAMLValue(ours),
+			Theirs:  toYAMLValue(theirs),
+		})
+		return ours.Clone()
+	}
+	if ours.EffectiveProjection() != theirs.EffectiveProjection() {
+		m.addConflict(MergeConflict{
+			Kind:    ConflictField,
+			Scope:   ctx.scope,
+			Layer:   ctx.layer,
+			Object:  ctx.object,
+			Target:  ctx.target,
+			Field:   prefix,
+			Message: "both sides changed 3D camera projection differently",
+			Base:    toYAMLValue(base),
+			Ours:    toYAMLValue(ours),
+			Theirs:  toYAMLValue(theirs),
+		})
+		return ours.Clone()
+	}
+	b := base
+	if b == nil || b.EffectiveProjection() != ours.EffectiveProjection() {
+		b = &Camera3DDoc{Projection: ours.Projection}
+	}
+	return &Camera3DDoc{
+		Projection:  mergeScalar(m, st, ctx, prefix+".projection", b.Projection, ours.Projection, theirs.Projection),
+		FOV:         mergePtr(m, st, ctx, prefix+".fov", b.FOV, ours.FOV, theirs.FOV),
+		OrthoHeight: mergePtr(m, st, ctx, prefix+".orthoHeight", b.OrthoHeight, ours.OrthoHeight, theirs.OrthoHeight),
+		Near:        mergePtr(m, st, ctx, prefix+".near", b.Near, ours.Near, theirs.Near),
+		Far:         mergePtr(m, st, ctx, prefix+".far", b.Far, ours.Far, theirs.Far),
+		Current:     mergeScalar(m, st, ctx, prefix+".current", b.Current, ours.Current, theirs.Current),
 	}
 }
 func (m *sceneMerger) mergeAnyMap(st *sideTracker, ctx conflictCtx, prefix string, base, ours, theirs map[string]any) map[string]any {
@@ -1569,6 +1854,8 @@ func (m *sceneMerger) mergeObjectFields(st *sideTracker, ctx conflictCtx, b, o, 
 		Sprite:     m.mergeSprite(st, ctx, "sprite", b.Sprite, o.Sprite, t.Sprite),
 		Material:   mergeScalar(m, st, ctx, "material", b.Material, o.Material, t.Material),
 		Particles:  m.mergeParticles(st, ctx, "particles", b.Particles, o.Particles, t.Particles),
+		Light:      m.mergeLight(st, ctx, "light", b.Light, o.Light, t.Light),
+		Camera:     m.mergeCamera3D(st, ctx, "camera", b.Camera, o.Camera, t.Camera),
 		Components: m.mergeAnyMap(st, ctx, "components", b.Components, o.Components, t.Components),
 		Properties: m.mergeAnyMap(st, ctx, "properties", b.Properties, o.Properties, t.Properties),
 		Scene:      mergeScalar(m, st, ctx, "scene", b.Scene, o.Scene, t.Scene),
@@ -1865,6 +2152,67 @@ func boundsEqual(a, b *BoundsDoc) bool {
 	return *a == *b
 }
 
+func environmentEqual(a, b *EnvironmentDoc) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return skyEqual(a.Sky, b.Sky) &&
+		a.AmbientColor == b.AmbientColor &&
+		ptrEqual(a.AmbientIntensity, b.AmbientIntensity) &&
+		ptrEqual(a.IBLIntensity, b.IBLIntensity) &&
+		fogEqual(a.Fog, b.Fog) &&
+		a.Tonemapping == b.Tonemapping &&
+		ptrEqual(a.Exposure, b.Exposure)
+}
+
+func skyEqual(a, b *SkyDoc) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
+func fogEqual(a, b *FogDoc) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.Mode == b.Mode &&
+		a.Color == b.Color &&
+		a.Start == b.Start &&
+		a.End == b.End &&
+		a.Density == b.Density &&
+		ptrEqual(a.MaxOpacity, b.MaxOpacity) &&
+		a.HeightEnabled == b.HeightEnabled &&
+		a.HeightBase == b.HeightBase &&
+		a.HeightFalloff == b.HeightFalloff &&
+		a.HeightDensity == b.HeightDensity
+}
+
+func lightEqual(a, b *LightDoc) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.Kind == b.Kind &&
+		a.Color == b.Color &&
+		ptrEqual(a.Intensity, b.Intensity) &&
+		a.Range == b.Range &&
+		a.InnerCone == b.InnerCone &&
+		ptrEqual(a.OuterCone, b.OuterCone) &&
+		a.Shadows == b.Shadows
+}
+
+func camera3DEqual(a, b *Camera3DDoc) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.Projection == b.Projection &&
+		ptrEqual(a.FOV, b.FOV) &&
+		ptrEqual(a.OrthoHeight, b.OrthoHeight) &&
+		ptrEqual(a.Near, b.Near) &&
+		ptrEqual(a.Far, b.Far) &&
+		a.Current == b.Current
+}
+
 func tilemapEqual(a, b *TilemapDoc) bool {
 	if a == nil || b == nil {
 		return a == b
@@ -1972,6 +2320,8 @@ func objectOverrideEqual(a, b ObjectOverride) bool {
 		spriteEqual(a.Sprite, b.Sprite) &&
 		ptrEqual(a.Material, b.Material) &&
 		particlesEqual(a.Particles, b.Particles) &&
+		lightEqual(a.Light, b.Light) &&
+		camera3DEqual(a.Camera, b.Camera) &&
 		anyMapEqual(a.Components, b.Components) &&
 		anyMapEqual(a.Properties, b.Properties)
 }
@@ -2009,6 +2359,8 @@ func objectOwnEqual(a, b *ObjectDoc) bool {
 		spriteEqual(a.Sprite, b.Sprite) &&
 		a.Material == b.Material &&
 		particlesEqual(a.Particles, b.Particles) &&
+		lightEqual(a.Light, b.Light) &&
+		camera3DEqual(a.Camera, b.Camera) &&
 		anyMapEqual(a.Components, b.Components) &&
 		anyMapEqual(a.Properties, b.Properties) &&
 		a.Scene == b.Scene &&
@@ -2135,6 +2487,8 @@ func cloneObjectOverride(o ObjectOverride) ObjectOverride {
 		Sprite:     cloneSprite(o.Sprite),
 		Material:   clonePtr(o.Material),
 		Particles:  cloneParticles(o.Particles),
+		Light:      o.Light.Clone(),
+		Camera:     o.Camera.Clone(),
 		Components: cloneAnyMap(o.Components),
 		Properties: cloneAnyMap(o.Properties),
 	}
@@ -2152,6 +2506,8 @@ func cloneObjectOwn(o *ObjectDoc) *ObjectDoc {
 	cp.Sprite = cloneSprite(o.Sprite)
 	cp.Occluder = cloneOccluder(o.Occluder)
 	cp.Particles = cloneParticles(o.Particles)
+	cp.Light = o.Light.Clone()
+	cp.Camera = o.Camera.Clone()
 	cp.Components = cloneAnyMap(o.Components)
 	cp.Properties = cloneAnyMap(o.Properties)
 	if len(o.Overrides) > 0 {
@@ -2187,6 +2543,16 @@ func toYAMLValue(v any) any {
 	case string, bool, int, int64, uint64, float64:
 		return x
 	case Space:
+		return string(x)
+	case LightKind:
+		return string(x)
+	case ProjectionKind:
+		return string(x)
+	case SkyKind:
+		return string(x)
+	case FogMode:
+		return string(x)
+	case TonemapMode:
 		return string(x)
 	case float32:
 		// Marshal via YAML so float32 formatting matches sceneformat.Encode (no float64 noise like 0.30000001192092896).

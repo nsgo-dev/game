@@ -203,6 +203,7 @@ func (a *Assets) HDR(path string) (*render3d.HDRImage, error) {
 	a.hdrs[path] = img
 	return img, nil
 }
+
 // check returns why a cannot read path, or nil.
 func (a *Assets) check(path string) error {
 	switch {

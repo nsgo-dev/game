@@ -1172,6 +1172,7 @@ func (r *Renderer) DrawSky(pass *gpu.RenderPass) {
 	pass.SetBindGroup(0, r.skyGroup)
 	pass.Draw(3, 0)
 }
+
 // Draw records the parts Prepare planned into pass: the opaque and cutout ones first, then the blended ones back to front. pass must have a color attachment of RendererOptions.ColorFormat and a depth attachment of its DepthFormat. It records nothing once the renderer is closed.
 func (r *Renderer) Draw(pass *gpu.RenderPass) {
 	if r == nil || pass == nil || r.cam == nil {

@@ -89,17 +89,27 @@ func (b *Built) HasSceneLighting() bool {
 	return b != nil && (len(b.Lights) > 0 || b.Environment.Present)
 }
 
-// ActiveCameraObject returns the scene's active 3D camera object: the one marked Current, or the first 3D camera in document order when none is marked.
+// ActiveCameraObject returns the scene's active visible, enabled 3D camera object: the one marked Current, or the first visible, enabled 3D camera in document order when none is marked.
 func (b *Built) ActiveCameraObject() (*Camera, bool) {
 	if b == nil || len(b.Cameras) == 0 {
 		return nil, false
 	}
+	var first *Camera
 	for _, c := range b.Cameras {
+		if c == nil || c.Node == nil || !c.Node.EffectiveVisible() || !c.Node.EffectiveEnabled() {
+			continue
+		}
 		if c.Doc.Current {
 			return c, true
 		}
+		if first == nil {
+			first = c
+		}
 	}
-	return b.Cameras[0], true
+	if first != nil {
+		return first, true
+	}
+	return nil, false
 }
 
 // ActiveCamera builds a *scene3d.Camera from the scene's active 3D camera object (ActiveCameraObject) for the given aspect ratio (width / height).
