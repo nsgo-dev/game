@@ -76,6 +76,9 @@ func (s *portalState) hot(th float64) float64 {
 // portalRift draws the rift itself: the dark well, the fibrous arms winding down into it, the lit rim.
 func portalRift(p *pixelfx.Painter, s *portalState) {
 	C, rx, ry, ph, CY := s.C, s.rx, s.ry, s.ph, s.CY
+	if !(rx > 0 && ry > 0) {
+		return
+	}
 	p.Shade(-rx-4, CY-ry-4, rx+4, CY+ry+4, func(x, y float64, out *pixelfx.Out) uint32 {
 		u, v := x/rx, (y-CY)/ry
 		r := pixelfx.Hypot(u, v)

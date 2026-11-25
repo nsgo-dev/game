@@ -1,6 +1,7 @@
 package arcane_test
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -78,6 +79,27 @@ func TestArcaneRegistersEveryEffect(t *testing.T) {
 	}
 	if !slices.Equal(refs, want) {
 		t.Errorf("references for %v, want %v", refs, want)
+	}
+}
+
+func TestPortalSurvivesEdgeOptions(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		opts pixelfx.Options
+	}{
+		{"width=0", pixelfx.Options{}.Set("width", pixelfx.Num(0))},
+		{"height=0", pixelfx.Options{}.Set("height", pixelfx.Num(0))},
+		{"width=NaN", pixelfx.Options{}.Set("width", pixelfx.Num(math.NaN()))},
+		{"height=NaN", pixelfx.Options{}.Set("height", pixelfx.Num(math.NaN()))},
+		{"width=-5", pixelfx.Options{}.Set("width", pixelfx.Num(-5))},
+		{"height=-5", pixelfx.Options{}.Set("height", pixelfx.Num(-5))},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if fr := pixelfx.Render(arcane.Portal, tc.opts, 0); len(fr.Pixels) == 0 {
+				t.Fatalf("rendered no frames")
+			}
+		})
 	}
 }
 
