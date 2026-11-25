@@ -121,6 +121,10 @@ func newCardGame(cx *core.Scope, storage core.Storage) (*cardGame, error) {
 	t.onMove = g.moved
 	if err != nil || t.restore(saved) != nil {
 		g.deal()
+	} else if saved.Deal >= g.records.NextDeal {
+		// The records slot may have been lost while the game in progress survived; numbering on from the restored deal keeps every deal played once.
+		g.records.NextDeal = saved.Deal + 1
+		g.saveRecords()
 	}
 	return g, nil
 }

@@ -314,9 +314,10 @@ func TestNewTableRefusesABoardWithoutTheRulesSlots(t *testing.T) {
 		"no hand": func(d *cards.BoardDoc) {
 			d.Slots = slices.DeleteFunc(d.Slots, func(s cards.SlotDoc) bool { return s.ID == handSlot })
 		},
-		"hand without room": func(d *cards.BoardDoc) { slotDoc(d, handSlot).Capacity = 0 },
-		"no ladder":         func(d *cards.BoardDoc) { slotDoc(d, ladderPrefix+"tide").ID = "tide" },
-		"ladder of two":     func(d *cards.BoardDoc) { slotDoc(d, ladderPrefix+"leaf").Accepts = []string{"leaf", "stone"} },
+		"hand without room":         func(d *cards.BoardDoc) { slotDoc(d, handSlot).Capacity = 0 },
+		"hand bigger than the deck": func(d *cards.BoardDoc) { slotDoc(d, handSlot).Capacity = rules.cardCount() + 1 },
+		"no ladder":                 func(d *cards.BoardDoc) { slotDoc(d, ladderPrefix+"tide").ID = "tide" },
+		"ladder of two":             func(d *cards.BoardDoc) { slotDoc(d, ladderPrefix+"leaf").Accepts = []string{"leaf", "stone"} },
 		"extra slot": func(d *cards.BoardDoc) {
 			d.Slots = append(d.Slots, cards.SlotDoc{ID: "spare", Rect: cards.RectDoc{W: 10, H: 10}, Layout: cards.LayoutDoc{Stack: &cards.StackDoc{}}})
 		},

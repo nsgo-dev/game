@@ -81,6 +81,9 @@ func newTable(rules *Rules, doc *cards.BoardDoc) (*table, error) {
 	if t.hand.Capacity <= 0 {
 		return nil, errors.New("board.yaml: the hand slot needs a capacity, the most cards a hand holds")
 	}
+	if t.hand.Capacity > rules.cardCount() {
+		return nil, fmt.Errorf("board.yaml: the hand holds %d cards but rules.yaml's deck has only %d", t.hand.Capacity, rules.cardCount())
+	}
 	for _, s := range rules.Suits {
 		l := b.Slot(ladderPrefix + s.Name)
 		if l == nil {
