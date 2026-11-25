@@ -625,7 +625,7 @@ animations:
 
 | 文件 | 版本 | 读写函数 | 字段 |
 | --- | --- | --- | --- |
-| 游戏加载的任意 `.yaml` 文件，如 `cutscenes/intro.yaml` | `version: 1` | `cutscene.Parse`、`cutscene.Encode` | [cutscene](cutscene.md) |
+| `*.cutscene.yaml`（或游戏加载的任意 `.yaml` 文件），如 `cutscenes/floor1_intro.cutscene.yaml` | `version: 1`（视频）、`version: 2`（视频或时间轴） | `cutscene.Parse`、`cutscene.Encode` | [cutscene](cutscene.md) |
 
 ```yaml
 version: 1
@@ -634,6 +634,83 @@ group: cutscenes
 skippable: true
 skipAfter: 1.5s
 fit: cover
+```
+
+```yaml
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/cutscene.v2.json
+version: 2
+kind: timeline
+scene: scenes/level_01.scene.yaml
+length: 12s
+skippable: true
+skipAfter: 1s
+tracks:
+  - id: camera
+    name: Camera
+    kind: camera
+    clips:
+      - id: cam1
+        start: 0s
+        duration: 1.6s
+        easing: hold
+        action: hold
+        target: door
+      - id: cam2
+        start: 1.6s
+        duration: 2.4s
+        easing: easeInOut
+        action: pan
+        target: knight
+      - id: cam3
+        start: 4s
+        duration: 8s
+        action: follow
+        target: knight
+  - id: knight
+    name: Knight
+    kind: actor
+    target: knight
+    clips:
+      - id: kn1
+        start: 1s
+        duration: 2.4s
+        easing: easeOut
+        action: walk
+        fromX: 60
+        toX: 220
+        state: run
+      - id: kn2
+        start: 3.4s
+        duration: 4.6s
+        action: state
+        state: idle
+  - id: dialogue
+    name: Dialogue
+    kind: dialogue
+    clips:
+      - id: dl1
+        start: 3.6s
+        duration: 2.4s
+        line: intro.knight.01
+  - id: sfx
+    name: Sound
+    kind: sound
+    group: sfx
+    clips:
+      - id: sx1
+        start: 200ms
+        duration: 600ms
+        source: audio/door_slam.wav
+  - id: music
+    name: Music
+    kind: music
+    group: music
+    clips:
+      - id: mu1
+        start: 2s
+        duration: 10s
+        source: audio/cellar_theme.ogg
+        fadeIn: 2s
 ```
 
 <!-- format: rooms -->

@@ -54,7 +54,7 @@ Every non-internal package under `github.com/nsgo-dev/game/packages` (shown rela
 | `game/tileshape` | Experimental | Tilemap collision geometry: a physics `TileGrid` view, slopes from Tiled per-tile shapes, merged outlines, static boxes and `lights2d` occluders |
 | `game/effects` | Experimental | Chained Kage shader post-processing passes over the game frame |
 | `game/skeletal` | Experimental | 2D bone rigs, IK, skins and YAML rig definitions |
-| `game/cutscene` | Experimental | Skippable video cutscenes over the game view from YAML |
+| `game/cutscene` | Experimental | Skippable video and YAML timeline cutscenes (camera, actor, dialogue, sound and music tracks) |
 | `game/placeholder` | Experimental | CC0 prototyping pack (sprites, tiles, pixel font, sounds, glTF models) with import sidecars |
 
 ## Input, 2D physics, audio and UI

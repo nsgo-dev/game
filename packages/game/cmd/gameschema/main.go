@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/packages/game/ai"
+	"github.com/nsgo-dev/game/packages/game/cutscene"
 	"github.com/nsgo-dev/game/packages/game/l10n"
 	"github.com/nsgo-dev/game/packages/game/navbake3d"
 	"github.com/nsgo-dev/game/packages/game/project"
@@ -59,6 +60,17 @@ var sceneV2Fields = map[string]bool{"Inherits": true, "LayerOverrides": true, "O
 // sceneV1Field maps a scene document field as jsonschema.YAMLField does, skipping the fields version 2 added.
 func sceneV1Field(f reflect.StructField) jsonschema.Field {
 	if sceneV2Fields[f.Name] {
+		return jsonschema.Field{Skip: true}
+	}
+	return jsonschema.YAMLField(f)
+}
+
+// cutsceneV2Fields names the Go fields of Cutscene that version 2 added; the version 1 schema leaves them out, since Validate refuses them in a version 1 document.
+var cutsceneV2Fields = map[string]bool{"Kind": true, "Scene": true, "Length": true, "Tracks": true}
+
+// cutsceneV1Field maps a Cutscene field as jsonschema.YAMLField does, skipping the timeline fields version 2 added.
+func cutsceneV1Field(f reflect.StructField) jsonschema.Field {
+	if cutsceneV2Fields[f.Name] {
 		return jsonschema.Field{Skip: true}
 	}
 	return jsonschema.YAMLField(f)
@@ -153,11 +165,27 @@ var formats = []format{
 		pkg:     "ai",
 		version: ai.BTFormatVersion,
 	},
+	{
+		url:       cutscene.SchemaURL,
+		title:     "NSGo game cutscene (version 1)",
+		typ:       reflect.TypeFor[cutscene.Cutscene](),
+		pkg:       "cutscene",
+		version:   cutscene.MinVersion,
+		fieldName: cutsceneV1Field,
+	},
+	{
+		url:     cutscene.SchemaURLV2,
+		title:   "NSGo game cutscene (version 2)",
+		typ:     reflect.TypeFor[cutscene.Cutscene](),
+		pkg:     "cutscene",
+		version: cutscene.CurrentVersion,
+	},
 }
 
-// durationSchema allows a time.Duration written as a Go duration string such as "250ms" or as an integer of nanoseconds.
+// durationTypes maps duration types to their YAML schema forms: time.Duration accepts a Go duration string or integer nanoseconds; cutscene.Duration accepts only Go duration strings such as "1.5s".
 var durationTypes = map[reflect.Type]*jsonschema.Schema{
-	reflect.TypeFor[time.Duration](): {Types: []jsonschema.Type{jsonschema.TypeString, jsonschema.TypeInteger}},
+	reflect.TypeFor[time.Duration]():     {Types: []jsonschema.Type{jsonschema.TypeString, jsonschema.TypeInteger}},
+	reflect.TypeFor[cutscene.Duration](): {Types: []jsonschema.Type{jsonschema.TypeString}},
 }
 
 // durationStringTypes allows a time.Duration written only as a Go duration string such as "250ms", for formats whose loader decodes it with no integer fallback.
@@ -221,6 +249,11 @@ func generate(root string) ([]schemaFile, error) {
 					return nil, fmt.Errorf("%s: a properties field is missing", f.url)
 				}
 				p.AdditionalProperties = scalar
+			}
+		}
+		if f.url == cutscene.SchemaURL {
+			if !slices.Contains(s.Required, "source") {
+				s.Required = append(s.Required, "source")
 			}
 		}
 		if f.url == ai.BTSchemaURL {

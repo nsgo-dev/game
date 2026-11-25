@@ -41,6 +41,8 @@ const (
 	KindAtlas FileKind = "atlas"
 	// KindGLTF is a glTF 2.0 model in JSON form (.gltf), whose buffers and images may be separate files.
 	KindGLTF FileKind = "gltf"
+	// KindCutscene is a cutscene file (*.cutscene.yaml or *.cutscene.yml).
+	KindCutscene FileKind = "cutscene"
 )
 
 // Fields name what a reference is, in Ref.Field and in messages. A reference in game.yaml has the Field project.PathRefs gives it, such as project.FieldAtlasIn; the two autoload ones are repeated here.
@@ -64,6 +66,8 @@ const (
 	FieldAtlasImage       = "atlas image"
 	FieldModelBuffer      = "model buffer"
 	FieldModelImage       = "model image"
+	FieldCutsceneSource   = "cutscene source"
+	FieldCutsceneAudio    = "cutscene audio"
 )
 
 // Ref is one reference from a file to another.
@@ -360,7 +364,7 @@ func (p *Project) readYAML(name string, asScene bool) bool {
 	}
 	var root yaml.Node
 	if err := yaml.Unmarshal(data, &root); err != nil || root.Kind != yaml.DocumentNode || len(root.Content) == 0 || root.Content[0].Kind != yaml.MappingNode {
-		if asScene || isSceneName(name) {
+		if asScene || isSceneName(name) || isCutsceneName(name) {
 			p.unread = append(p.unread, name)
 		}
 		return false
@@ -374,6 +378,11 @@ func (p *Project) readYAML(name string, asScene bool) bool {
 		if field(doc, "type").Value == string(resource.KindMaterial) {
 			p.ref(f, field(doc, "texture"), FieldTexture)
 		}
+		return true
+	case isCutsceneName(name):
+		f.Kind = KindCutscene
+		p.add(f)
+		p.cutsceneRefs(f, doc)
 		return true
 	case asScene || isSceneName(name):
 		f.Kind = KindScene
@@ -411,6 +420,31 @@ func (p *Project) readProject(name string, data []byte) {
 func isSceneName(name string) bool {
 	lower := strings.ToLower(name)
 	return strings.HasSuffix(lower, ".scene.yaml") || strings.HasSuffix(lower, ".scene.yml")
+}
+
+// isCutsceneName reports whether name is a cutscene file by its name, *.cutscene.yaml or *.cutscene.yml.
+func isCutsceneName(name string) bool {
+	lower := strings.ToLower(name)
+	return strings.HasSuffix(lower, ".cutscene.yaml") || strings.HasSuffix(lower, ".cutscene.yml")
+}
+
+// cutsceneRefs records the scene, video source and timeline audio references of a cutscene document. URI sources such as asset: or https: name no project-relative file and are skipped.
+func (p *Project) cutsceneRefs(f *File, doc *yaml.Node) {
+	p.ref(f, field(doc, "scene"), FieldScene)
+	if src := field(doc, "source"); src != nil && !hasScheme(src.Value) {
+		p.ref(f, src, FieldCutsceneSource)
+	}
+	for _, tr := range items(field(doc, "tracks")) {
+		kind := field(tr, "kind")
+		if kind == nil || (kind.Value != "sound" && kind.Value != "music") {
+			continue
+		}
+		for _, cl := range items(field(tr, "clips")) {
+			if src := field(cl, "source"); src != nil && !hasScheme(src.Value) {
+				p.ref(f, src, FieldCutsceneAudio)
+			}
+		}
+	}
 }
 
 // isResourceKind reports whether n is a scalar naming a resource type.

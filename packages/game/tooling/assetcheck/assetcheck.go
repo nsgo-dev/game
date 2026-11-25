@@ -4,6 +4,7 @@
 //
 //   - scenes, files named *.scene.yaml or *.scene.yml, parsed and validated by sceneformat, whose tilemap sources (Tiled .tmj and .tmx maps and LDtk .ldtk projects, with the level they name), YAML tilesets, sprite and tileset atlases and materials must exist and load, whose glTF models (.gltf or .glb) must exist and load with gltf.LoadFS and hold the node or mesh an object names, whose sprite frames and tile IDs must be in their atlases and tilesets, which must resolve with sceneformat.Resolve when they instance or inherit other scenes, and whose connections must name objects of the scene, counting the objects the scenes it instances and inherits bring, and, given the game's component types (Options.Components), events and handlers those objects' components declare;
 //   - YAML tilesets, files named *.tileset.yaml or *.tileset.yml, parsed and validated by tilemap.ParseTileset, whose grid image must exist and be large enough for their columns and tile count, or whose atlas must exist and hold their frames;
+//   - cutscenes, files named *.cutscene.yaml or *.cutscene.yml, parsed and validated by cutscene, whose video or timeline audio sources and scene file must exist, whose actor and camera target object IDs must exist in the referenced scene, and whose dialogue line IDs must exist in the project's localization YAML string tables;
 //   - 3D world files named *.gridmap.yaml/.yml, *.terrain.yaml/.yml and *.foliage.yaml/.yml, parsed and validated by world3d, whose referenced mesh libraries (and their tile names for .gltf libraries), heightmaps, splat maps, layer textures, terrain definitions, foliage meshes, materials and density maps must exist and decode;
 //   - Tiled maps (.tmj) and tilesets (.tsj), whose external tilesets must be JSON tilesets (.tsj or .json) that exist, whose tileset and image-layer images must exist, and which must load with tilemap.LoadTiled;
 //   - LDtk projects (.ldtk), whose tileset images and level backgrounds must exist, whose levels must not be saved in separate files, which tilemap.LoadLDtkAll does not read, and which must load with tilemap.LoadLDtkAll;
@@ -62,6 +63,8 @@ type Report struct {
 	Scenes, Maps, Tilesets, Atlases int
 	// GridMaps, Terrains and Foliage count the 3D world YAML files that were checked: *.gridmap.yaml, *.terrain.yaml and *.foliage.yaml.
 	GridMaps, Terrains, Foliage int
+	// Cutscenes counts the *.cutscene.yaml / *.cutscene.yml files that were checked.
+	Cutscenes int
 	// Problems are the problems found, sorted by file, then line, then message.
 	Problems []Problem
 }
@@ -94,8 +97,10 @@ func CheckWith(fsys fs.FS, opts Options) (*Report, error) {
 		models:      make(map[string]*gltf.Document),
 		tilesetDocs: make(map[string]*tilemap.TilesetDoc),
 		roots:       make(map[string]string),
+		sceneObjs:   make(map[string]map[string]bool),
+		l10nByRoot:  make(map[string]*l10nIndex),
 	}
-	var scenes, gridMaps, terrains, foliages, tiledMaps, tilesets, yamlTilesets, ldtks, jsons []string
+	var scenes, cutscenes, gridMaps, terrains, foliages, tiledMaps, tilesets, yamlTilesets, ldtks, jsons, otherYAMLs []string
 	err := fs.WalkDir(fsys, ".", func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			if p == "." {
@@ -116,6 +121,8 @@ func CheckWith(fsys fs.FS, opts Options) (*Report, error) {
 			scenes = append(scenes, p)
 		case strings.HasSuffix(name, ".tileset.yaml"), strings.HasSuffix(name, ".tileset.yml"):
 			yamlTilesets = append(yamlTilesets, p)
+		case strings.HasSuffix(name, ".cutscene.yaml"), strings.HasSuffix(name, ".cutscene.yml"):
+			cutscenes = append(cutscenes, p)
 		case strings.HasSuffix(name, ".gridmap.yaml"), strings.HasSuffix(name, ".gridmap.yml"):
 			gridMaps = append(gridMaps, p)
 		case strings.HasSuffix(name, ".terrain.yaml"), strings.HasSuffix(name, ".terrain.yml"):
@@ -130,6 +137,10 @@ func CheckWith(fsys fs.FS, opts Options) (*Report, error) {
 			ldtks = append(ldtks, p)
 		case strings.HasSuffix(name, ".json"):
 			jsons = append(jsons, p)
+		case strings.HasSuffix(name, ".yaml"), strings.HasSuffix(name, ".yml"):
+			if d.Name() != project.FileName && d.Name() != project.NSGoFileName && d.Name() != refs.IndexFileName {
+				otherYAMLs = append(otherYAMLs, p)
+			}
 		}
 		return nil
 	})
@@ -139,6 +150,7 @@ func CheckWith(fsys fs.FS, opts Options) (*Report, error) {
 	if c.refs, err = refs.Scan(fsys); err != nil {
 		return nil, fmt.Errorf("assetcheck: %w", err)
 	}
+	c.otherYAMLs = otherYAMLs
 
 	// Atlases first, so that scenes find their frames.
 	for _, p := range jsons {
@@ -161,6 +173,9 @@ func CheckWith(fsys fs.FS, opts Options) (*Report, error) {
 	}
 	for _, p := range scenes {
 		c.checkScene(p)
+	}
+	for _, p := range cutscenes {
+		c.checkCutscene(p)
 	}
 	for _, p := range gridMaps {
 		c.checkGridMap(p)
@@ -209,6 +224,12 @@ type checker struct {
 	refs *refs.Project
 	// components are Options.Components.
 	components *sceneformat.ComponentRegistry
+	// otherYAMLs are YAML files that may hold l10n string tables, lazily indexed per project root when cutscenes check dialogue line IDs.
+	otherYAMLs []string
+	// sceneObjs caches the resolved object IDs of scenes referenced by cutscenes.
+	sceneObjs map[string]map[string]bool
+	// l10nByRoot caches discovered l10n string table keys per project root.
+	l10nByRoot map[string]*l10nIndex
 }
 
 // problem records a problem in file at line (0 for none).
@@ -461,6 +482,9 @@ func (r *Report) Summary() string {
 	}
 	if r.Foliage > 0 {
 		counts += ", " + plural(r.Foliage, "foliage file", "foliage files")
+	}
+	if r.Cutscenes > 0 {
+		counts += ", " + plural(r.Cutscenes, "cutscene", "cutscenes")
 	}
 	if r.OK() {
 		return counts + ": no problems"

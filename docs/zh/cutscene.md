@@ -1,6 +1,6 @@
 # cutscene
 
-`game/cutscene` 在游戏里播放视频过场动画，可以放在场景之中，也可以放在两个场景之间。视频在 NSGo 自带的视频视图（`core.Video`）中播放，覆盖在游戏视图之上；播放期间游戏的 `Loop` 和 `Mixer` 会暂停，玩家可以跳过，结束时回调游戏。
+`game/cutscene` 在游戏里播放预渲染的视频过场动画与引擎内时间轴过场动画，既可以放在场景之中，也可以放在两个场景之间。视频过场动画在 NSGo 自带的视频视图（`core.Video`）中覆盖播放，播放期间暂停 `Loop` 和 `Mixer`。时间轴过场动画在 `game.Loop` 固定步长上针对 `sceneformat.BuiltScene` 或 `sceneformat.SceneDoc` 确定性地运行，驱动相机、角色、本地化对白、音效和音乐轨道。两种过场动画均可跳过，并在结束时回调游戏。
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/cutscene"
@@ -8,7 +8,9 @@ import "github.com/nsgo-dev/game/packages/game/cutscene"
 
 ## 过场动画文件
 
-一段过场动画就是一个 `Cutscene`，游戏作者把它写成 YAML 文件：
+一段过场动画是一个 `Cutscene`，以 YAML 文件编写，支持版本 1（仅视频，`cutscene.MinVersion`）和版本 2（视频或时间轴，`cutscene.CurrentVersion`）。已发布的 JSON Schema 位于 `https://game.nsgo.dev/schemas/cutscene.v1.json` 和 `https://game.nsgo.dev/schemas/cutscene.v2.json`。
+
+### 视频过场动画（版本 1 与版本 2）
 
 ```yaml
 version: 1
@@ -21,17 +23,174 @@ fit: cover
 
 | 键 | 含义 |
 | --- | --- |
-| `version` | 文件格式版本，`1`（`cutscene.CurrentVersion`）。 |
-| `source` | 视频：应用资源里的 `asset:` 路径、文件路径或 URL，与 `core.Video` 接受的一致。必填。 |
+| `version` | 文件格式版本，`1`（`cutscene.MinVersion`）或 `2`（`cutscene.CurrentVersion`）。 |
+| `kind` | 版本 2 可选：`video`（设置 `source` 时的默认值）或 `timeline`。版本 1 禁止使用。 |
+| `source` | 视频：应用资源里的 `asset:` 路径、项目相对路径或 URL，与 `core.Video` 接受的一致。视频过场动画必填。 |
 | `group` | 视频音量所跟随的混音器分组，实际音量为该分组音量乘以主音量。省略时只用主音量。 |
 | `skippable` | 玩家能否跳过。省略时为 `false`。 |
 | `skipAfter` | 可跳过的过场动画要播放到多少才允许跳过，按 Go 的时长写法书写（`500ms`、`2s`），避免玩家在动画开始前一刻为游戏按下的操作把它直接跳过。省略时从一开始就能跳过。 |
 | `fit` | 画面如何适配屏幕：`contain`（默认，留黑边）、`cover`（裁切）或 `stretch`（拉伸变形）。 |
 | `transparent` | 画面背后的屏幕保持透明而不是黑色，让游戏在黑边处显示出来；在平台保留 Alpha 通道时，带 Alpha 的视频也能透出游戏。 |
 
-`cutscene.Parse(data)` 读取文件，拒绝未知的键、第二个 YAML 文档、`1` 以外的版本、缺少的 source、未知的 fit，以及为负数或不是字符串的 `skipAfter`。`cutscene.Encode(c)` 按上表的固定顺序写出各键并省略零值，因此文件读入再写回不会有任何变化。在代码中构造的过场动画可以把 `Version` 留为 0，`Player.Play` 不检查它。
+### 时间轴过场动画（版本 2）
 
-## 播放过场动画
+版本 2 时间轴过场动画（`*.cutscene.yaml`）设置 `kind: timeline`、总时长 `length` 和按顺序排列的轨道 `tracks`，每个片段包含 `start`、`duration` 和可选的缓动曲线 `easing`（`linear`、`easeIn`、`easeOut`、`easeInOut`、`hold`）：
+
+```yaml
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/cutscene.v2.json
+version: 2
+kind: timeline
+scene: scenes/level_01.scene.yaml
+length: 12s
+skippable: true
+skipAfter: 1s
+tracks:
+  - id: camera
+    name: Camera
+    kind: camera
+    clips:
+      - id: cam1
+        start: 0s
+        duration: 1.6s
+        easing: hold
+        action: hold
+        target: door
+      - id: cam2
+        start: 1.6s
+        duration: 2.4s
+        easing: easeInOut
+        action: pan
+        target: knight
+      - id: cam3
+        start: 4s
+        duration: 8s
+        action: follow
+        target: knight
+  - id: knight
+    name: Knight
+    kind: actor
+    target: knight
+    clips:
+      - id: kn1
+        start: 1s
+        duration: 2.4s
+        easing: easeOut
+        action: walk
+        fromX: 60
+        toX: 220
+        state: run
+      - id: kn2
+        start: 3.4s
+        duration: 4.6s
+        action: state
+        state: idle
+  - id: slime
+    name: slime_01
+    kind: actor
+    target: slime_01
+    clips:
+      - id: sl1
+        start: 6s
+        duration: 800ms
+        easing: easeIn
+        action: drop
+        fromY: -40
+        toY: 276
+      - id: sl2
+        start: 6.8s
+        duration: 5.2s
+        action: patrol
+        fromX: 420
+        toX: 520
+        speed: 40
+  - id: dialogue
+    name: Dialogue
+    kind: dialogue
+    clips:
+      - id: dl1
+        start: 3.6s
+        duration: 2.4s
+        line: intro.knight.01
+  - id: sfx
+    name: Sound
+    kind: sound
+    group: sfx
+    clips:
+      - id: sx1
+        start: 200ms
+        duration: 600ms
+        source: audio/door_slam.wav
+  - id: music
+    name: Music
+    kind: music
+    group: music
+    clips:
+      - id: mu1
+        start: 2s
+        duration: 10s
+        source: audio/cellar_theme.ogg
+        fadeIn: 2s
+```
+
+| 轨道类型 | 轨道字段 | 片段动作与字段 |
+| --- | --- | --- |
+| `camera` | `id`、`name`、`kind`、`clips` | `action: hold`（`target` 或 `toX`/`toY`，可选 `offsetX`/`offsetY`、`zoom`）、`action: pan`（`target` 或 `toX`/`toY`，可选 `fromX`/`fromY`、`offsetX`/`offsetY`、`zoom`、`easing`）、`action: follow`（`target`，可选 `offsetX`/`offsetY`、`zoom`）。 |
+| `actor` | `id`、`name`、`kind`、`target`（场景对象 ID）、`clips` | `action: walk`（`toX`/`toY`，可选 `fromX`/`fromY`、`state`、`easing`）、`action: state`（`state`）、`action: drop`（`toY`，可选 `fromY`/`fromX`/`toX`、`state`、`easing`）、`action: patrol`（`toX`/`toY`，可选 `fromX`/`fromY`、`speed`、`state`、`easing`）。 |
+| `dialogue` | `id`、`name`、`kind`、`clips` | `line`（必填的本地化键——文本只存放在 l10n 表中，不内联），可选 `speaker`。 |
+| `sound` | `id`、`name`、`kind`，可选 `group`（默认 `sfx`）、`clips` | `source`（音频路径或 URI），可选 `group`、`volume`（`[0, 1]`）。 |
+| `music` | `id`、`name`、`kind`，可选 `group`（默认 `music`）、`clips` | `source`，可选 `group`、`volume`（`[0, 1]`）、`fadeIn`、`fadeOut`、`loop`。 |
+
+`cutscene.Parse(data)` 严格读取两个版本的文件，拒绝未知键、第二个 YAML 文档、不支持的版本、版本 1 中的时间轴字段、混用视频与时间轴字段、非音效轨道上重叠的片段、非有限数值以及为负数或非字符串的时长。`cutscene.Encode(c)` 输出规范的 2 空格 YAML（版本 2 文件首行写入 `SchemaCommentV2`，版本 1 输出保持不变），读入再写回逐字节一致。在代码中构造的过场动画可以把 `Version` 留为 0。
+
+## 播放时间轴过场动画
+
+`NewTimelinePlayer(c, target)` 在 `game.Loop` 的固定步长上针对 `*sceneformat.BuiltScene`（或 `*sceneformat.SceneDoc`）确定性地运行时间轴过场动画，通过 `*l10n.Catalog` 解析对白行 ID，并触发音效与音乐提示：
+
+```go
+tl, err := cutscene.NewTimelinePlayer(c, cutscene.TimelineTarget{
+	Scene:        builtScene,
+	Catalog:      catalog,
+	Locale:       "zh",
+	Mixer:        mixer,
+	OnActorState: func(actorID, state string) { setAnim(actorID, state) },
+	OnSound:      func(clip cutscene.Clip, group string, vol float32) { playSFX(clip.Source, group, vol) },
+	OnDone:       func(r cutscene.Result) { resumeGameplay() },
+})
+if err != nil {
+	return err
+}
+tl.Play()
+
+// 在 game.Loop.Update 中：
+tl.Update(dt)
+```
+
+`tl.Seek(at)` 可直接拖动到 `[0, Length]` 内任意时间点，纯粹计算角色、相机和对白状态而不触发音效、音乐或结束回调。`tl.Reset()` 回到 0 时刻并恢复角色与相机的初始位置。
+
+如需复用与视频过场动画一致的跳过键、点按跳过、返回拦截、`CanSkip()`、响应式 `Dialogue()` 与场景间切换（`TimelineScene`），通过 `Player` 播放：
+
+```go
+_, err := player.PlayTimeline(c, cutscene.TimelineTarget{Scene: builtScene, Catalog: catalog}, func(r cutscene.Result) {
+	resumeGameplay()
+})
+// 在 game.Loop.Update 中：
+player.Step(dt)
+```
+
+与视频过场动画不同，`PlayTimeline` 保持 `Options.Loop` 和 `Options.Mixer` 运行，使场景继续绘制并播放过场音频，同时由 `Player.View()` 接收跳过输入。
+
+## `game check` 与 `refs` 检查
+
+`game check`（`tooling/assetcheck` 包）会检查项目中的每个 `*.cutscene.yaml` / `*.cutscene.yml` 文件：
+
+- 解析并校验过场动画格式。
+- 校验 `scene`（如有）及每个项目相对路径的视频或音频 `source` 文件是否存在。
+- 校验每个角色轨道的 `target` 与相机片段的 `target` 是否存在于引用场景（含继承和实例化的场景）中。
+- 校验每个对白片段的 `line` ID 是否存在于项目的 YAML 本地化字符串表（`l10n.ParseYAML`）中，缺失时报告精确的文件与行号。
+
+`refs`（`game mv` 与 `game index`）会跟踪 `*.cutscene.yaml` 中的 `scene`、项目相对路径的视频 `source` 与时间轴音频 `source`，在移动场景或音频资源时原地重写过场动画中的路径引用。
+
+## 播放视频过场动画
 
 为游戏创建一个 `Player`，把它的 `View` 挂在游戏视图之上，作为承载画布的那个视图的最后一个子节点：
 
