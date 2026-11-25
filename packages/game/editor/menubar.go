@@ -59,44 +59,47 @@ func (e *Editor) ApplicationMenu() []desktop.MenuItem {
 
 	// File menu
 	fileMenu := desktop.MenuItem{
-		Label: "File",
+		Label: e.T("menu.file"),
 		Items: []desktop.MenuItem{
-			cmdItem(CmdNewProject, "New Project...", false),
-			cmdItem(CmdOpenProject, "Open Project...", false),
-			cmdItem(CmdStartScreen, "Start Screen", false),
+			cmdItem(CmdNewProject, e.T("menu.newProject"), false),
+			cmdItem(CmdOpenProject, e.T("menu.openProject"), false),
+			cmdItem(CmdStartScreen, e.T("menu.startScreen"), false),
 			sep,
-			cmdItem(CmdSave, "Save", false),
+			cmdItem(CmdSave, e.T("menu.save"), false),
 			sep,
-			cmdItem(CmdExport, "Export & Release...", false),
+			cmdItem(CmdEditorSettings, e.T("menu.editorSettings"), false),
+			sep,
+			cmdItem(CmdExport, e.T("menu.export"), false),
 		},
 	}
 
 	// Edit menu
 	editMenu := desktop.MenuItem{
-		Label: "Edit",
+		Label: e.T("menu.edit"),
 		Items: []desktop.MenuItem{
-			cmdItem(CmdUndo, "Undo", false),
-			cmdItem(CmdRedo, "Redo", false),
+			cmdItem(CmdUndo, e.T("menu.undo"), false),
+			cmdItem(CmdRedo, e.T("menu.redo"), false),
 			sep,
-			cmdItem(CmdDuplicate, "Duplicate", false),
-			cmdItem(CmdDelete, "Delete", false),
+			cmdItem(CmdDuplicate, e.T("menu.duplicate"), false),
+			cmdItem(CmdDelete, e.T("menu.delete"), false),
 		},
 	}
 
 	// View > Tools submenu (built-in 2D tools + active plugin tools)
 	toolItems := []desktop.MenuItem{
-		cmdItem(CmdToolSelect, "Select", true),
-		cmdItem(CmdToolMove, "Move", true),
-		cmdItem(CmdToolPlace, "Place", true),
-		cmdItem(CmdToolPaintTile, "Paint Tile", true),
-		cmdItem(CmdToolEraseTile, "Erase Tile", true),
-		cmdItem(CmdToolFillTile, "Fill Tile", true),
-		cmdItem(CmdToolTerrain, "Terrain", true),
+		cmdItem(CmdToolSelect, e.T("menu.select"), true),
+		cmdItem(CmdToolMove, e.T("menu.move"), true),
+		cmdItem(CmdToolPlace, e.T("menu.place"), true),
+		cmdItem(CmdToolPaintTile, e.T("menu.paintTile"), true),
+		cmdItem(CmdToolEraseTile, e.T("menu.eraseTile"), true),
+		cmdItem(CmdToolFillTile, e.T("menu.fillTile"), true),
+		cmdItem(CmdToolTerrain, e.T("menu.terrain"), true),
 	}
 	var pluginToolItems []desktop.MenuItem
 	for _, p := range e.activePlugins() {
 		for _, t := range p.Tools {
-			pName, tID, tLabel := p.Name, t.ID, t.Label
+			pName, tID := p.Name, t.ID
+			tLabel := e.translatePluginText(p, t.LabelKey, t.Label)
 			pluginToolItems = append(pluginToolItems, desktop.MenuItem{
 				Label:     tLabel,
 				Disabled:  e.Playing(),
@@ -121,57 +124,57 @@ func (e *Editor) ApplicationMenu() []desktop.MenuItem {
 
 	// View > 3D Gizmo submenu
 	gizmoItems := []desktop.MenuItem{
-		cmdItem(CmdGizmoTranslate, "Translate", true),
-		cmdItem(CmdGizmoRotate, "Rotate", true),
-		cmdItem(CmdGizmoScale, "Scale", true),
+		cmdItem(CmdGizmoTranslate, e.T("menu.translate"), true),
+		cmdItem(CmdGizmoRotate, e.T("menu.rotate"), true),
+		cmdItem(CmdGizmoScale, e.T("menu.scale"), true),
 	}
 
 	// View > 3D Shading submenu
 	shadingItems := []desktop.MenuItem{
-		cmdItem(CmdShadingLit, "Lit", true),
-		cmdItem(CmdShadingUnlit, "Unlit", true),
-		cmdItem(CmdShadingWire, "Wireframe", true),
+		cmdItem(CmdShadingLit, e.T("menu.shadingLit"), true),
+		cmdItem(CmdShadingUnlit, e.T("menu.shadingUnlit"), true),
+		cmdItem(CmdShadingWire, e.T("menu.shadingWireframe"), true),
 	}
 
 	// View menu
 	viewMenu := desktop.MenuItem{
-		Label: "View",
+		Label: e.T("menu.view"),
 		Items: []desktop.MenuItem{
-			cmdItem(CmdCommandPalette, "Command Palette...", false),
+			cmdItem(CmdCommandPalette, e.T("menu.commandPalette"), false),
 			sep,
-			cmdItem(CmdView2D, "2D View", true),
-			cmdItem(CmdView3D, "3D View", true),
-			cmdItem(CmdFrameSelection, "Frame Selection", false),
-			cmdItem(CmdToggleLightingPreview, "2D Lighting Preview", false),
+			cmdItem(CmdView2D, e.T("menu.view2d"), true),
+			cmdItem(CmdView3D, e.T("menu.view3d"), true),
+			cmdItem(CmdFrameSelection, e.T("menu.frameSelection"), false),
+			cmdItem(CmdToggleLightingPreview, e.T("menu.lightingPreview"), false),
 			sep,
-			cmdItem(CmdNavMeshOverlay, "Show 3D NavMesh", false),
-			cmdItem(CmdNavMeshPanel, "3D NavMesh Bake...", false),
+			cmdItem(CmdNavMeshOverlay, e.T("menu.navMeshOverlay"), false),
+			cmdItem(CmdNavMeshPanel, e.T("menu.navMeshPanel"), false),
 			sep,
-			cmdItem(CmdToggleAllShapes, "Show All Component Shapes", false),
-			cmdItem(CmdToggleSnapGrid, "Snap to Grid", false),
+			cmdItem(CmdToggleAllShapes, e.T("menu.toggleAllShapes"), false),
+			cmdItem(CmdToggleSnapGrid, e.T("menu.toggleSnapGrid"), false),
 			sep,
-			{Label: "Tools", Items: toolItems},
-			{Label: "3D Gizmo", Items: gizmoItems},
-			{Label: "3D Shading", Items: shadingItems},
+			{Label: e.T("menu.tools"), Items: toolItems},
+			{Label: e.T("menu.gizmo3d"), Items: gizmoItems},
+			{Label: e.T("menu.shading3d"), Items: shadingItems},
 		},
 	}
 
 	// Project menu
-	playLabel := "Play"
+	playLabel := e.T("menu.play")
 	if e.Playing() {
-		playLabel = "Stop"
+		playLabel = e.T("menu.stop")
 	}
 	projectItems := []desktop.MenuItem{
 		cmdItem(CmdPlayStop, playLabel, false),
-		cmdItem(CmdRunGame, "Run Game", false),
+		cmdItem(CmdRunGame, e.T("menu.runGame"), false),
 		sep,
-		cmdItem(CmdProjectSettings, "Project Settings", false),
-		cmdItem(CmdAudioMixer, "Audio Bus Mixer", false),
-		cmdItem(CmdLocalization, "Localization Strings", false),
-		cmdItem(CmdProfiler, "Profiler", false),
-		cmdItem(CmdParticleEditor, "Particle Emitter Editor", false),
+		cmdItem(CmdProjectSettings, e.T("menu.projectSettings"), false),
+		cmdItem(CmdAudioMixer, e.T("menu.audioMixer"), false),
+		cmdItem(CmdLocalization, e.T("menu.localization"), false),
+		cmdItem(CmdProfiler, e.T("menu.profiler"), false),
+		cmdItem(CmdParticleEditor, e.T("menu.particleEditor"), false),
 		sep,
-		cmdItem(CmdCheckProblems, "Check Problems", false),
+		cmdItem(CmdCheckProblems, e.T("menu.checkProblems"), false),
 	}
 
 	// Expose active plugin commands under Project > Plugins when present.
@@ -179,18 +182,18 @@ func (e *Editor) ApplicationMenu() []desktop.MenuItem {
 	for _, p := range e.activePlugins() {
 		for _, pc := range p.Commands {
 			id := pluginCommandID(p.Name, pc.ID)
-			pluginCmdItems = append(pluginCmdItems, cmdItem(id, pc.Label, false))
+			pluginCmdItems = append(pluginCmdItems, cmdItem(id, e.translatePluginText(p, pc.LabelKey, pc.Label), false))
 		}
 	}
 	if len(pluginCmdItems) > 0 {
 		projectItems = append(projectItems, sep, desktop.MenuItem{
-			Label: "Plugins",
+			Label: e.T("menu.plugins"),
 			Items: pluginCmdItems,
 		})
 	}
 
 	projectMenu := desktop.MenuItem{
-		Label: "Project",
+		Label: e.T("menu.project"),
 		Items: projectItems,
 	}
 
@@ -203,7 +206,9 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 	sig := core.NewMemo(cx, func() string {
 		_ = rev.Get()
 		var b strings.Builder
-		fmt.Fprintf(&b, "%v|%v|%v|%v|%v|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v",
+		fmt.Fprintf(&b, "%s|%v|%v|%v|%v|%v|%v|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v",
+			e.ResolvedLanguage(),
+			e.EditorSettingsOpen(),
 			e.StartScreenOpen(),
 			e.Playing(),
 			e.History.CanUndo(),

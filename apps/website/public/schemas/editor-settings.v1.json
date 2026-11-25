@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://game.nsgo.dev/schemas/editor-settings.v1.json",
+  "title": "NSGo game editor settings (version 1)",
+  "description": "EditorSettings holds per-user editor preferences saved outside any game project as versioned YAML. A file looks like this:\n\n# yaml-language-server: $schema=https://game.nsgo.dev/schemas/editor-settings.v1.json version: 1 language: system appearance: system\n\nParseEditorSettings decodes it strictly and EncodeEditorSettings writes it back in canonical form, so a file EncodeEditorSettings wrote survives a load and save byte for byte.",
+  "type": "object",
+  "properties": {
+    "version": {
+      "description": "Version is the schema version; it must equal SettingsVersion (1).",
+      "type": "integer",
+      "const": 1
+    },
+    "language": {
+      "description": "Language selects the editor UI language (\"system\", \"en\", or \"zh\").",
+      "type": "string",
+      "enum": [
+        "system",
+        "en",
+        "zh"
+      ]
+    },
+    "appearance": {
+      "description": "Appearance selects the editor color scheme (\"system\", \"light\", or \"dark\").",
+      "type": "string",
+      "enum": [
+        "system",
+        "light",
+        "dark"
+      ]
+    }
+  },
+  "required": [
+    "version",
+    "language",
+    "appearance"
+  ],
+  "additionalProperties": false
+}

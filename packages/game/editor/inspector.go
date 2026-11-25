@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/nsgo-dev/game/packages/game/l10n"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -446,12 +447,13 @@ func InspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 		},
 		Children: []core.Node{
 			core.Text{
+				TestID: "inspector-title",
 				ContentFunc: func() string {
 					_ = rev.Get()
 					if shouldShowRemoteInspector(ed) {
-						return "Remote Inspector"
+						return ed.T("inspector.remoteTitle")
 					}
-					return "Inspector"
+					return ed.T("inspector.title")
 				},
 				Style: core.Style{
 					FontSize:   13,
@@ -475,7 +477,7 @@ func InspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 						if key == "" {
 							return core.Text{
 								TestID:  "inspector-empty",
-								Content: "No object selected",
+								Content: ed.T("inspector.empty"),
 								Style: core.Style{
 									FontSize: 12,
 									Color:    colors.Muted(),
@@ -846,7 +848,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 				},
 				ui.Button{
 					TestID:   "inspector-delete",
-					Text:     "Delete",
+					Text:     ed.T("inspector.delete"),
 					Size:     ui.SizeSmall,
 					Variant:  ui.ButtonOutline,
 					Disabled: disabled,
@@ -857,9 +859,9 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 			},
 		},
 
-		fieldRow("Name", ui.Input{
+		fieldRow(ed.T("inspector.name"), ui.Input{
 			TestID:   "inspector-name",
-			Label:    "Object Name",
+			Label:    ed.T("inspector.objectName"),
 			Disabled: disabled,
 			Value: func() string {
 				_ = rev.Get()
@@ -873,7 +875,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 			},
 		}),
 
-		sectionHeader("TRANSFORM"),
+		sectionHeader(ed.T("inspector.section.transform")),
 		fieldRow("X", ui.NumberInput{
 			TestID:   "inspector-x",
 			Label:    "X",
@@ -910,9 +912,9 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 				}
 			},
 		}),
-		fieldRow("Rotation", ui.NumberInput{
+		fieldRow(ed.T("inspector.rotation"), ui.NumberInput{
 			TestID:   "inspector-rotation",
-			Label:    "Rotation",
+			Label:    ed.T("inspector.rotation"),
 			Step:     0.1,
 			Disabled: disabled,
 			Value: func() float64 {
@@ -926,9 +928,9 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 				_ = ed.RotateObject(objID, float32(v))
 			},
 		}),
-		fieldRow("Scale X", ui.NumberInput{
+		fieldRow(ed.T("inspector.scaleX"), ui.NumberInput{
 			TestID:   "inspector-scale-x",
-			Label:    "Scale X",
+			Label:    ed.T("inspector.scaleX"),
 			Step:     0.1,
 			Disabled: disabled,
 			Value: func() float64 {
@@ -944,9 +946,9 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 				}
 			},
 		}),
-		fieldRow("Scale Y", ui.NumberInput{
+		fieldRow(ed.T("inspector.scaleY"), ui.NumberInput{
 			TestID:   "inspector-scale-y",
-			Label:    "Scale Y",
+			Label:    ed.T("inspector.scaleY"),
 			Step:     0.1,
 			Disabled: disabled,
 			Value: func() float64 {
@@ -962,9 +964,9 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 				}
 			},
 		}),
-		fieldRow("Alpha", ui.NumberInput{
+		fieldRow(ed.T("inspector.alpha"), ui.NumberInput{
 			TestID:   "inspector-alpha",
-			Label:    "Alpha",
+			Label:    ed.T("inspector.alpha"),
 			Min:      0,
 			Max:      1,
 			Step:     0.05,
@@ -1000,10 +1002,10 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 
 	if ed.ViewMode == ViewMode3D {
 		nodes = append(nodes,
-			sectionHeader("TRANSFORM 3D"),
-			fieldRow("Pos Z", ui.NumberInput{
+			sectionHeader(ed.T("inspector.section.transform3d")),
+			fieldRow(ed.T("inspector.posZ"), ui.NumberInput{
 				TestID:   "inspector-pos-z",
-				Label:    "Pos Z",
+				Label:    ed.T("inspector.posZ"),
 				Step:     1,
 				Disabled: disabled,
 				Value: func() float64 {
@@ -1019,9 +1021,9 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 					}
 				},
 			}),
-			fieldRow("Rot X", ui.NumberInput{
+			fieldRow(ed.T("inspector.rotX"), ui.NumberInput{
 				TestID:   "inspector-rot-x",
-				Label:    "Rot X",
+				Label:    ed.T("inspector.rotX"),
 				Step:     0.1,
 				Disabled: disabled,
 				Value: func() float64 {
@@ -1037,9 +1039,9 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 					}
 				},
 			}),
-			fieldRow("Rot Y", ui.NumberInput{
+			fieldRow(ed.T("inspector.rotY"), ui.NumberInput{
 				TestID:   "inspector-rot-y",
-				Label:    "Rot Y",
+				Label:    ed.T("inspector.rotY"),
 				Step:     0.1,
 				Disabled: disabled,
 				Value: func() float64 {
@@ -1055,9 +1057,9 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 					}
 				},
 			}),
-			fieldRow("Rot Z", ui.NumberInput{
+			fieldRow(ed.T("inspector.rotZ"), ui.NumberInput{
 				TestID:   "inspector-rot-z",
-				Label:    "Rot Z",
+				Label:    ed.T("inspector.rotZ"),
 				Step:     0.1,
 				Disabled: disabled,
 				Value: func() float64 {
@@ -1073,9 +1075,9 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 					}
 				},
 			}),
-			fieldRow("Scale Z", ui.NumberInput{
+			fieldRow(ed.T("inspector.scaleZ"), ui.NumberInput{
 				TestID:   "inspector-scale-z",
-				Label:    "Scale Z",
+				Label:    ed.T("inspector.scaleZ"),
 				Step:     0.1,
 				Disabled: disabled,
 				Value: func() float64 {
@@ -1091,9 +1093,9 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 					}
 				},
 			}),
-			fieldRow("Depth", ui.NumberInput{
+			fieldRow(ed.T("inspector.depth"), ui.NumberInput{
 				TestID:   "inspector-depth",
-				Label:    "Depth",
+				Label:    ed.T("inspector.depth"),
 				Min:      0,
 				Step:     1,
 				Disabled: disabled,
@@ -1108,10 +1110,10 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 					_ = ed.SetObjectDepth(objID, float32(v))
 				},
 			}),
-			fieldRow("Mesh", ui.Select[string]{
+			fieldRow(ed.T("inspector.mesh"), ui.Select[string]{
 				TestID:      "inspector-mesh",
-				Label:       "Mesh",
-				Placeholder: "None",
+				Label:       ed.T("inspector.mesh"),
+				Placeholder: ed.T("inspector.none"),
 				// An object that draws a glTF model or GridMap cannot also draw a primitive, which SetObjectMesh refuses.
 				Disabled: func() bool {
 					if disabled() {
@@ -1120,7 +1122,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 					o, _, _ := ed.FindObject(objID)
 					return o != nil && (o.Model != "" || o.GridMap != "")
 				},
-				Options: meshOptions(),
+				Options: meshOptions(ed),
 				Value: func() string {
 					_ = rev.Get()
 					if o, _, _ := ed.FindObject(objID); o != nil {
@@ -1312,13 +1314,13 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 		)
 	}
 
-	nodes = append(nodes, sectionHeader("SPRITE"))
+	nodes = append(nodes, sectionHeader(ed.T("inspector.section.sprite")))
 	nodes = append(nodes, spriteFields(ed, rev, objID, disabled, fieldRow)...)
 	nodes = append(nodes, sectionHeader("PARTICLES"))
 	nodes = append(nodes, particlesFields(ed, rev, objID, disabled, fieldRow)...)
 
 	obj, _, _ := ed.FindObject(objID)
-	nodes = append(nodes, sectionHeader("PROPERTIES"))
+	nodes = append(nodes, sectionHeader(ed.T("inspector.section.properties")))
 	if obj != nil {
 		for _, k := range sortedMapKeys(obj.Properties) {
 			key := k
@@ -1339,7 +1341,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 					_ = ed.SetProperty(objID, key, val)
 				},
 			)
-			del := removeButton("inspector-prop-"+key+"-delete", "Delete property "+key, disabled, func() {
+			del := removeButton("inspector-prop-"+key+"-delete", ed.T("inspector.deleteProperty", l10n.Param("key", key)), disabled, func() {
 				ed.report(ed.DeleteProperty(objID, key))
 			})
 			nodes = append(nodes, fieldRow(key, withTrailing(ctrl, del)))
@@ -1347,7 +1349,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 	}
 	nodes = append(nodes, addPropertyRow(cx, ed, objID, disabled))
 
-	nodes = append(nodes, sectionHeader("COMPONENTS"))
+	nodes = append(nodes, sectionHeader(ed.T("inspector.section.components")))
 	if obj != nil {
 		for _, compName := range sortedMapKeys(obj.Components) {
 			cn := compName
@@ -1363,7 +1365,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 			if t, ok := ed.lookupComponentType(cn); ok {
 				compTitle = withTooltip(compTitle, t.Doc)
 			}
-			remove := removeButton("inspector-comp-"+cn+"-remove", "Remove component "+cn, disabled, func() {
+			remove := removeButton("inspector-comp-"+cn+"-remove", ed.T("inspector.removeComponent", l10n.Param("name", cn)), disabled, func() {
 				ed.report(ed.RemoveComponent(objID, cn))
 			})
 			header := withTrailing(compTitle, remove)
@@ -1958,8 +1960,8 @@ func registeredFieldControl(
 }
 
 // meshOptions are the choices of the inspector's Mesh field: none, then each built-in primitive sceneformat.ObjectDoc.Mesh accepts.
-func meshOptions() []ui.Option[string] {
-	opts := []ui.Option[string]{{Value: "", Label: "None"}}
+func meshOptions(ed *Editor) []ui.Option[string] {
+	opts := []ui.Option[string]{{Value: "", Label: ed.T("inspector.none")}}
 	for _, m := range sceneformat.MeshPrimitives() {
 		opts = append(opts, ui.Option[string]{Value: m, Label: m})
 	}

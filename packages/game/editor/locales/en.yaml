@@ -1,0 +1,436 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/l10n.v1.json
+version: 1
+locale: en
+strings:
+  app.defaultName: NSGo Scene Editor
+  assets.empty: No atlas assets loaded
+  assets.title: Assets
+  cmd.audioMixer.desc: Toggle the Audio Bus Mixer panel
+  cmd.audioMixer.label: Audio Bus Mixer
+  cmd.bakeNavMesh3d.desc: Bake a 3D navigation mesh from the open scene's static geometry
+  cmd.bakeNavMesh3d.label: Bake 3D NavMesh
+  cmd.category.edit: Edit
+  cmd.category.file: File
+  cmd.category.gizmo3d: 3D Gizmo
+  cmd.category.project: Project
+  cmd.category.tools: Tools
+  cmd.category.view: View
+  cmd.checkProblems.desc: Re-run asset and project validation checks
+  cmd.checkProblems.label: Check Problems
+  cmd.commandPalette.desc: Search and run editor commands, plugin tools, panels, and project files
+  cmd.commandPalette.label: Command Palette
+  cmd.delete.desc: Remove the currently selected object from the scene
+  cmd.delete.label: Delete Selected Object
+  cmd.duplicate.desc: Clone the currently selected object on the same layer
+  cmd.duplicate.label: Duplicate Selected Object
+  cmd.editorSettings.desc: Configure editor language and appearance
+  cmd.editorSettings.label: Editor Settings
+  cmd.export.desc: Toggle the Export & Release Build panel
+  cmd.export.label: Export & Release
+  cmd.frameSelection.desc: Center the viewport camera on the selected object or scene
+  cmd.frameSelection.label: Frame Selection
+  cmd.gizmoRotate.desc: Switch the 3D transform gizmo to Rotate mode
+  cmd.gizmoRotate.label: '3D Gizmo: Rotate'
+  cmd.gizmoScale.desc: Switch the 3D transform gizmo to Scale mode
+  cmd.gizmoScale.label: '3D Gizmo: Scale'
+  cmd.gizmoTranslate.desc: Switch the 3D transform gizmo to Translate mode
+  cmd.gizmoTranslate.label: '3D Gizmo: Translate'
+  cmd.lightingPreview.desc: Show or hide live 2D lights, occluder shadows, and ambient darkness in the 2D viewport
+  cmd.lightingPreview.label: Toggle 2D Lighting Preview
+  cmd.localization.desc: Toggle the Localization string table panel
+  cmd.localization.label: Localization Strings
+  cmd.navMeshOverlay.desc: Toggle drawing the baked 3D navigation mesh over the 3D viewport
+  cmd.navMeshOverlay.label: Show 3D NavMesh Overlay
+  cmd.navMeshPanel.desc: Toggle the 3D navigation mesh bake settings panel
+  cmd.navMeshPanel.label: 3D NavMesh Bake Panel
+  cmd.newProject.desc: Open the Start Screen to create a new project from a template
+  cmd.newProject.label: New Project...
+  cmd.openProject.desc: Choose a project folder to open in the editor
+  cmd.openProject.label: Open Project...
+  cmd.playStop.desc: Toggle play-in-editor simulation
+  cmd.playStop.label: Play / Stop
+  cmd.profiler.desc: Toggle the Profiler panel for the running game
+  cmd.profiler.label: Profiler
+  cmd.projectSettings.desc: Toggle the Project Settings panel
+  cmd.projectSettings.label: Project Settings
+  cmd.redo.desc: Re-apply the last undone edit
+  cmd.redo.label: Redo
+  cmd.runGame.desc: Launch the game using Editor.OnRunGame, go tool game dev, or play-in-editor
+  cmd.runGame.label: Run Game
+  cmd.save.desc: Save the open scene and project changes
+  cmd.save.label: Save
+  cmd.shadingLit.desc: Light the 3D viewport's geometry with the scene's lights
+  cmd.shadingLit.label: '3D Shading: Lit'
+  cmd.shadingUnlit.desc: Draw the 3D viewport's geometry at its base colors, without lights
+  cmd.shadingUnlit.label: '3D Shading: Unlit'
+  cmd.shadingWire.desc: Light the 3D viewport's geometry and draw its triangle edges over it
+  cmd.shadingWire.label: '3D Shading: Wireframe'
+  cmd.startScreen.desc: Show the Start Screen with recent projects, templates, and demo
+  cmd.startScreen.label: Start Screen
+  cmd.toolEraseTile.desc: Switch to the Erase Tile tool
+  cmd.toolEraseTile.label: 'Tool: Erase Tile'
+  cmd.toolFillTile.desc: Switch to the Flood Fill Tile tool
+  cmd.toolFillTile.label: 'Tool: Fill Tile'
+  cmd.toolMove.desc: Switch to the Move viewport tool
+  cmd.toolMove.label: 'Tool: Move'
+  cmd.toolPaintTile.desc: Switch to the Paint Tile brush
+  cmd.toolPaintTile.label: 'Tool: Paint Tile'
+  cmd.toolPlace.desc: Switch to the Place object viewport tool
+  cmd.toolPlace.label: 'Tool: Place'
+  cmd.toolSelect.desc: Switch to the Select viewport tool
+  cmd.toolSelect.label: 'Tool: Select'
+  cmd.undo.desc: Undo the last edit
+  cmd.undo.label: Undo
+  cmd.view2d.desc: Show the 2D scene viewport
+  cmd.view2d.label: Switch to 2D View
+  cmd.view3d.desc: Show the 3D orbit and gizmo viewport
+  cmd.view3d.label: Switch to 3D View
+  cmd.view3dOrtho.desc: Switch the 3D viewport between perspective and orthographic projection
+  cmd.view3dOrtho.label: '3D View: Orthographic'
+  dialog.cancel: Cancel
+  dialog.create: Create
+  dialog.discard: Discard
+  dialog.newScene: New Scene
+  dialog.save: Save
+  dialog.saveAs: Save Scene As
+  dialog.scenePathDesc: A path from the project's root. Without a .yaml extension, .scene.yaml is added.
+  dialog.scenePathLabel: Scene path
+  dialog.unsavedDesc: The scene {scene} or the project has unsaved changes.
+  dialog.unsavedTitle: Save changes?
+  files.findRefs: Find Refs
+  files.findRefsLabel: Find every reference to the selected file across the project
+  files.move: Move
+  files.moveLabel: Rename or move the selected file and update every reference to it
+  files.newPathLabel: New path of the selected file
+  files.open: Open
+  files.openLabel: Open the selected scene
+  files.openTable: Open Table
+  files.openTableLabel: Open the selected YAML file in the Data Table editor
+  files.refresh: Refresh
+  files.search: Search
+  files.searchLabel: Toggle the Project Search and References panel
+  files.title: Files
+  gizmo.rotate: Rotate
+  gizmo.scale: Scale
+  gizmo.translate: Translate
+  inspector.addComponent: Add component
+  inspector.addProperty: Add property
+  inspector.alpha: Alpha
+  inspector.background: Background
+  inspector.backgroundColor: Background Color
+  inspector.backgroundColorPicker: Background Color Picker
+  inspector.bounds: Bounds
+  inspector.boundsH: Bounds H
+  inspector.boundsW: Bounds W
+  inspector.boundsX: Bounds X
+  inspector.boundsY: Bounds Y
+  inspector.cameraBounds: Camera Bounds
+  inspector.cameraBoundsHeight: Camera Bounds Height
+  inspector.cameraBoundsWidth: Camera Bounds Width
+  inspector.cameraBoundsX: Camera Bounds X
+  inspector.cameraBoundsY: Camera Bounds Y
+  inspector.cameraRotation: Camera Rotation
+  inspector.cameraX: Camera X
+  inspector.cameraY: Camera Y
+  inspector.cameraZoom: Camera Zoom
+  inspector.clearBackground: Clear background color
+  inspector.connect: Connect
+  inspector.delete: Delete
+  inspector.deleteProperty: Delete property {key}
+  inspector.depth: Depth
+  inspector.editConnection: Edit connection
+  inspector.empty: No object selected
+  inspector.flip: Flip
+  inspector.height: Height
+  inspector.incoming: Incoming ({count})
+  inspector.jumpTo: Jump to {id}
+  inspector.material: Material
+  inspector.mesh: Mesh
+  inspector.name: Name
+  inspector.newProperty: New property
+  inspector.newPropertyKey: New property key
+  inspector.newPropertyKind: New property kind
+  inspector.noConnections: No connections
+  inspector.none: None
+  inspector.objectName: Object Name
+  inspector.once: once
+  inspector.originX: Origin X
+  inspector.originY: Origin Y
+  inspector.outgoing: Outgoing ({count})
+  inspector.posZ: Pos Z
+  inspector.remoteTitle: Remote Inspector
+  inspector.removeComponent: Remove component {name}
+  inspector.removeConnection: Remove connection
+  inspector.rotX: Rot X
+  inspector.rotY: Rot Y
+  inspector.rotZ: Rot Z
+  inspector.rotation: Rotation
+  inspector.save: Save
+  inspector.scaleX: Scale X
+  inspector.scaleY: Scale Y
+  inspector.scaleZ: Scale Z
+  inspector.sceneName: Scene Name
+  inspector.scenePrefix: Scene · {label}
+  inspector.section.camera: CAMERA
+  inspector.section.components: COMPONENTS
+  inspector.section.connections: CONNECTIONS
+  inspector.section.properties: PROPERTIES
+  inspector.section.scene: SCENE
+  inspector.section.sprite: SPRITE
+  inspector.section.transform: TRANSFORM
+  inspector.section.transform3d: TRANSFORM 3D
+  inspector.selectAssetFirst: Select a frame in the asset browser first
+  inspector.sprite: Sprite
+  inspector.title: Inspector
+  inspector.useAsset: Use {key}
+  inspector.useAssetLabel: Use the asset browser's selected frame
+  inspector.virtualHeight: Virtual Height
+  inspector.virtualWidth: Virtual Width
+  inspector.width: Width
+  inspector.zoom: Zoom
+  layers.add: Add Layer
+  layers.empty: No layers
+  layers.hide: Hide Layer
+  layers.hideNamed: Hide layer {name}
+  layers.lock: Lock Layer
+  layers.lockNamed: Lock layer {name}
+  layers.moveDown: Move Layer Down
+  layers.moveUp: Move Layer Up
+  layers.nameLabel: Layer Name
+  layers.remove: Remove Layer
+  layers.rename: Rename
+  layers.rowLabel: Layer {name}
+  layers.screenSpace: Screen Space
+  layers.show: Show Layer
+  layers.showNamed: Show layer {name}
+  layers.title: Layers
+  layers.unlock: Unlock Layer
+  layers.unlockNamed: Unlock layer {name}
+  layers.worldSpace: World Space
+  library.empty: The library has no packs
+  library.install: Install
+  library.installed: Installed
+  library.installedMeta: installed {version}
+  library.remove: Remove
+  library.title: Library
+  library.update: Update
+  menu.audioMixer: Audio Bus Mixer
+  menu.checkProblems: Check Problems
+  menu.commandPalette: Command Palette...
+  menu.delete: Delete
+  menu.duplicate: Duplicate
+  menu.edit: Edit
+  menu.editorSettings: Editor Settings...
+  menu.eraseTile: Erase Tile
+  menu.export: Export & Release...
+  menu.file: File
+  menu.fillTile: Fill Tile
+  menu.frameSelection: Frame Selection
+  menu.gizmo3d: 3D Gizmo
+  menu.lightingPreview: 2D Lighting Preview
+  menu.localization: Localization Strings
+  menu.move: Move
+  menu.navMeshOverlay: Show 3D NavMesh
+  menu.navMeshPanel: 3D NavMesh Bake...
+  menu.newProject: New Project...
+  menu.openProject: Open Project...
+  menu.paintTile: Paint Tile
+  menu.particleEditor: Particle Emitter Editor
+  menu.place: Place
+  menu.play: Play
+  menu.plugins: Plugins
+  menu.profiler: Profiler
+  menu.project: Project
+  menu.projectSettings: Project Settings
+  menu.redo: Redo
+  menu.rotate: Rotate
+  menu.runGame: Run Game
+  menu.save: Save
+  menu.scale: Scale
+  menu.select: Select
+  menu.shading3d: 3D Shading
+  menu.shadingLit: Lit
+  menu.shadingUnlit: Unlit
+  menu.shadingWireframe: Wireframe
+  menu.startScreen: Start Screen
+  menu.stop: Stop
+  menu.terrain: Terrain
+  menu.toggleAllShapes: Show All Component Shapes
+  menu.toggleSnapGrid: Snap to Grid
+  menu.tools: Tools
+  menu.translate: Translate
+  menu.undo: Undo
+  menu.view: View
+  menu.view2d: 2D View
+  menu.view3d: 3D View
+  output.clear: Clear
+  output.clearLabel: Clear all messages from the Output panel
+  output.empty: No output
+  output.emptyErrors: No errors
+  output.errors: Errors
+  output.errorsLabel: Show only errors in the Output panel
+  output.title: Output ({count})
+  output.titleBuilding: Output (Building Assets · {count})
+  output.titleRunning: Output (Running · {count})
+  palette.empty: No matching commands or files
+  palette.group.commands: Commands
+  palette.group.files: Files
+  palette.group.pluginPanels: Plugin Panels
+  palette.group.pluginTools: Plugin Tools
+  palette.group.scenes: Scenes
+  palette.label: Command Palette
+  palette.openScene: Open scene
+  palette.placeholder: Type a command, tool, panel, or file...
+  palette.pluginPanelDesc: Plugin panel ({plugin}, {dock})
+  palette.pluginToolDesc: Plugin tool ({plugin})
+  palette.projectFile: Project file
+  palette.searchLabel: Search commands
+  problems.check: Check
+  problems.checkLabel: Re-run project and asset checks
+  problems.checking: Checking project…
+  problems.empty: No problems
+  problems.statusChecking: 'Problems: checking…'
+  problems.statusCount: 'Problems: {count}'
+  problems.statusError: 'Problems: error'
+  problems.title: Problems ({count})
+  problems.titleChecking: Problems (checking…)
+  scene.untitled: Untitled
+  scene.untitledScene: Untitled Scene
+  sceneTree.active: active
+  sceneTree.changeID: Change ID
+  sceneTree.delete: Delete
+  sceneTree.expand: Expand
+  sceneTree.hide: Hide in Viewport
+  sceneTree.hideNamed: Hide {id}
+  sceneTree.indent: Make Child of Previous
+  sceneTree.label: Scene Tree
+  sceneTree.layerLabel: Layer {name}
+  sceneTree.lock: Lock
+  sceneTree.lockNamed: Lock {id}
+  sceneTree.moveDown: Move Down
+  sceneTree.moveToLayer: Move to Layer {name}
+  sceneTree.moveUp: Move Up
+  sceneTree.objectID: Object ID
+  sceneTree.objectName: Object Name
+  sceneTree.outdent: Move Out of Parent
+  sceneTree.remote: Remote
+  sceneTree.rename: Rename
+  sceneTree.show: Show in Viewport
+  sceneTree.showNamed: Show {id}
+  sceneTree.title: Scene
+  sceneTree.unlock: Unlock
+  sceneTree.unlockNamed: Unlock {id}
+  search.close: Close
+  search.closeLabel: Close the search panel
+  search.emptyPrompt: Type to search project files, UIDs, scene objects, components, prefabs, and scene references
+  search.inputLabel: Search project files, UIDs, objects, components, prefabs and scene references
+  search.matchCount: '{count} match(es)'
+  search.noMatches: No matches
+  search.noRefs: No references to {target}
+  search.placeholder: Search files, UIDs, objects, components, prefabs...
+  search.references: References
+  search.refresh: Refresh
+  search.refreshLabel: Rescan the project index and references
+  search.refsPrompt: Select a file in the file browser and press Find Refs
+  search.search: Search
+  settings.appearance: Appearance
+  settings.appearanceHelp: Dark, light, or follow the system.
+  settings.dark: Dark
+  settings.description: Language and appearance for this computer.
+  settings.done: Done
+  settings.langChinese: 简体中文
+  settings.langEnglish: English
+  settings.language: Language
+  settings.languageHelp: Editor text; the agent answers in it too.
+  settings.light: Light
+  settings.system: System
+  settings.title: Editor Settings
+  status.buildError: 'Build error: {error}'
+  status.mode2d: 'Mode: {mode} | View: 2D {zoom}% | Tool: {tool} | Layer: {layer}'
+  status.mode3d: 'Mode: {mode} | View: 3D {view} | Gizmo: {gizmo} | Layer: {layer}'
+  status.mode3dGridMap: 'Mode: {mode} | View: 3D {view} (GridMap {tool}, Y={floor}, Orient={orient}/24) | Layer: {layer}'
+  status.modeEdit: Edit
+  status.modePlay: Play
+  status.ready: Ready
+  status.terrainSuffix: ' | Terrain: {terrain}'
+  status.tileSuffix: ' | Tile: {tile}'
+  tilePalette.flipDiag: Flip diagonally
+  tilePalette.flipHoriz: Flip horizontally
+  tilePalette.flipVert: Flip vertically
+  tilePalette.gridLabel: Tiles of {tileset}
+  tilePalette.paintLayer: Paint tile layer {name}
+  tilePalette.tileLabel: Tile {number}
+  tilePalette.title: Tiles
+  tool.eraseTile: Erase Tile
+  tool.fillTile: Fill Tile
+  tool.move: Move
+  tool.paintTile: Paint Tile
+  tool.pickTile: Pick Tile
+  tool.place: Place
+  tool.plugin: Plugin
+  tool.select: Select
+  toolbar.animate: Animate
+  toolbar.animateLabel: Animate the selected object in a new clip
+  toolbar.buildAssets: Build Assets
+  toolbar.buildAssetsLabel: Run go tool game assets for the open project and reload changed atlases and textures
+  toolbar.commands: Commands
+  toolbar.commandsLabel: Open the Command Palette
+  toolbar.currentScene: Current Scene
+  toolbar.currentSceneLabel: Start game at the currently open scene
+  toolbar.editorSettings: Preferences
+  toolbar.editorSettingsLabel: Open Editor Settings (language and appearance)
+  toolbar.erase: Erase
+  toolbar.export: Export
+  toolbar.exportLabel: Toggle the Export & Release Build panel
+  toolbar.file: File
+  toolbar.fileMenuLabel: Scene file
+  toolbar.fill: Fill
+  toolbar.frameAll: Frame All ({key})
+  toolbar.frameSelection: Frame Selection ({key})
+  toolbar.group.gizmo3d: 3D Gizmo
+  toolbar.group.pluginTools: Plugin Tools
+  toolbar.group.shading3d: 3D Shading
+  toolbar.group.tools: Tools
+  toolbar.group.view2d: 2D View
+  toolbar.group.viewMode: View Mode
+  toolbar.input: Input
+  toolbar.inputLabel: Toggle the Input Map panel
+  toolbar.label: Editor Tools
+  toolbar.lightingPreviewLabel: Toggle 2D lighting preview
+  toolbar.mixer: Mixer
+  toolbar.mixerLabel: Toggle the Audio Bus Mixer panel
+  toolbar.move: Move
+  toolbar.newScene: New Scene…
+  toolbar.output: Output
+  toolbar.outputLabel: Toggle the Output log panel
+  toolbar.paint: Paint
+  toolbar.pick: Pick
+  toolbar.place: Place
+  toolbar.play: Play
+  toolbar.projectSettings: Settings
+  toolbar.projectSettingsLabel: Toggle the Project Settings panel
+  toolbar.redo: Redo
+  toolbar.revert: Revert
+  toolbar.rotate: Rotate
+  toolbar.run: Run
+  toolbar.runLabel: Run the game with go tool game dev (F5)
+  toolbar.save: Save
+  toolbar.saveAs: Save As…
+  toolbar.scale: Scale
+  toolbar.sceneCameraView: Scene Camera View ({key})
+  toolbar.select: Select
+  toolbar.shadingLit: Lit
+  toolbar.shadingUnlit: Unlit
+  toolbar.shadingWireframe: Wireframe
+  toolbar.stop: Stop
+  toolbar.stopGame: Stop Game (Running)
+  toolbar.stopGameLabel: Stop the running game (Shift+F5)
+  toolbar.strings: Strings
+  toolbar.terrain: Terrain
+  toolbar.translate: Translate
+  toolbar.undo: Undo
+  toolbar.unsavedLabel: Unsaved changes
+plurals:
+  output.errorCount:
+    one: ' · {count} error'
+    other: ' · {count} errors'

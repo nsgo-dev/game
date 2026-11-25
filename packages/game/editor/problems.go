@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/nsgo-dev/game/packages/game/l10n"
 	"github.com/nsgo-dev/game/packages/game/loaderr"
 	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
@@ -227,12 +228,12 @@ func (e *Editor) problemsStatusText() string {
 	err := e.problems.checkErr
 	e.problems.mu.Unlock()
 	if err != nil {
-		return "Problems: error"
+		return e.T("problems.statusError")
 	}
 	if running && !hasRun {
-		return "Problems: checking…"
+		return e.T("problems.statusChecking")
 	}
-	return "Problems: " + strconv.Itoa(count)
+	return e.T("problems.statusCount", l10n.Param("count", count))
 }
 
 // isProjectScene reports whether relPath is a scene file of project f: either

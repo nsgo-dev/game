@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nsgo-dev/game/packages/game/l10n"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
@@ -538,9 +539,9 @@ func OutputPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 	list := core.Dynamic(func(cx *core.Scope) core.Node {
 		s := state.Get()
 		if len(s.entries) == 0 {
-			msg := "No output"
+			msg := ed.T("output.empty")
 			if s.errorsOnly {
-				msg = "No errors"
+				msg = ed.T("output.emptyErrors")
 			}
 			return core.Text{
 				TestID:  "output-empty",
@@ -612,18 +613,15 @@ func OutputPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 								TestID: "output-title",
 								ContentFunc: func() string {
 									s := state.Get()
-									title := fmt.Sprintf("Output (%d)", s.totalCount)
+									title := ed.T("output.title", l10n.Param("count", s.totalCount))
 									switch {
 									case s.running:
-										title = fmt.Sprintf("Output (Running · %d)", s.totalCount)
+										title = ed.T("output.titleRunning", l10n.Param("count", s.totalCount))
 									case s.assetsBuilding:
-										title = fmt.Sprintf("Output (Building Assets · %d)", s.totalCount)
+										title = ed.T("output.titleBuilding", l10n.Param("count", s.totalCount))
 									}
 									if s.errorCount > 0 {
-										title += fmt.Sprintf(" · %d error", s.errorCount)
-										if s.errorCount != 1 {
-											title += "s"
-										}
+										title += ed.Plural("output.errorCount", s.errorCount)
 									}
 									return title
 								},
@@ -631,8 +629,8 @@ func OutputPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 							},
 							ui.ToggleButton{
 								TestID: "output-filter-errors",
-								Text:   "Errors",
-								Label:  "Show only errors in the Output panel",
+								Text:   ed.T("output.errors"),
+								Label:  ed.T("output.errorsLabel"),
 								On: func() bool {
 									return state.Get().errorsOnly
 								},
@@ -642,8 +640,8 @@ func OutputPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 							},
 							ui.Button{
 								TestID:  "output-clear",
-								Text:    "Clear",
-								Label:   "Clear all messages from the Output panel",
+								Text:    ed.T("output.clear"),
+								Label:   ed.T("output.clearLabel"),
 								Size:    ui.SizeSmall,
 								Variant: ui.ButtonSecondary,
 								Disabled: func() bool {

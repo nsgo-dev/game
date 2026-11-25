@@ -1,0 +1,435 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/l10n.v1.json
+version: 1
+locale: zh
+strings:
+  app.defaultName: NSGo 场景编辑器
+  assets.empty: 未加载图集资源
+  assets.title: 资源
+  cmd.audioMixer.desc: 切换音频总线混音器面板
+  cmd.audioMixer.label: 音频总线混音器
+  cmd.bakeNavMesh3d.desc: 从当前场景的静态几何体烘焙 3D 导航网格
+  cmd.bakeNavMesh3d.label: 烘焙 3D 导航网格
+  cmd.category.edit: 编辑
+  cmd.category.file: 文件
+  cmd.category.gizmo3d: 3D 操纵杆
+  cmd.category.project: 项目
+  cmd.category.tools: 工具
+  cmd.category.view: 视图
+  cmd.checkProblems.desc: 重新运行资源与项目校验检查
+  cmd.checkProblems.label: 检查问题
+  cmd.commandPalette.desc: 搜索并运行编辑器命令、插件工具、面板与项目文件
+  cmd.commandPalette.label: 命令面板
+  cmd.delete.desc: 从场景中移除当前选中的对象
+  cmd.delete.label: 删除选中对象
+  cmd.duplicate.desc: 在同一图层克隆当前选中的对象
+  cmd.duplicate.label: 复制选中对象
+  cmd.editorSettings.desc: 配置编辑器语言与外观
+  cmd.editorSettings.label: 编辑器设置
+  cmd.export.desc: 切换导出与发布构建面板
+  cmd.export.label: 导出与发布
+  cmd.frameSelection.desc: 将视口相机居中到选中对象或整个场景
+  cmd.frameSelection.label: 聚焦选中
+  cmd.gizmoRotate.desc: 将 3D 变换操纵杆切换为旋转模式
+  cmd.gizmoRotate.label: 3D 操纵杆：旋转
+  cmd.gizmoScale.desc: 将 3D 变换操纵杆切换为缩放模式
+  cmd.gizmoScale.label: 3D 操纵杆：缩放
+  cmd.gizmoTranslate.desc: 将 3D 变换操纵杆切换为平移模式
+  cmd.gizmoTranslate.label: 3D 操纵杆：平移
+  cmd.lightingPreview.desc: 在 2D 视口中显示或隐藏实时 2D 灯光、遮挡阴影与环境暗度
+  cmd.lightingPreview.label: 切换 2D 光照预览
+  cmd.localization.desc: 切换本地化字符串表面板
+  cmd.localization.label: 本地化字符串
+  cmd.navMeshOverlay.desc: 切换在 3D 视口上绘制已烘焙的 3D 导航网格
+  cmd.navMeshOverlay.label: 显示 3D 导航网格叠加层
+  cmd.navMeshPanel.desc: 切换 3D 导航网格烘焙设置面板
+  cmd.navMeshPanel.label: 3D 导航网格烘焙面板
+  cmd.newProject.desc: 打开开始界面并从模板创建新项目
+  cmd.newProject.label: 新建项目…
+  cmd.openProject.desc: 选择要在编辑器中打开的项目目录
+  cmd.openProject.label: 打开项目…
+  cmd.playStop.desc: 切换编辑器内运行预览
+  cmd.playStop.label: 播放 / 停止
+  cmd.profiler.desc: 切换正在运行游戏的性能分析器面板
+  cmd.profiler.label: 性能分析器
+  cmd.projectSettings.desc: 切换项目设置面板
+  cmd.projectSettings.label: 项目设置
+  cmd.redo.desc: 重新应用上一次撤销的编辑
+  cmd.redo.label: 重做
+  cmd.runGame.desc: 使用 Editor.OnRunGame、go tool game dev 或编辑器内运行启动游戏
+  cmd.runGame.label: 运行游戏
+  cmd.save.desc: 保存当前打开的场景与项目更改
+  cmd.save.label: 保存
+  cmd.shadingLit.desc: 使用场景光源照亮 3D 视口中的几何体
+  cmd.shadingLit.label: 3D 着色：光照
+  cmd.shadingUnlit.desc: 按基础颜色绘制 3D 视口几何体，不计算光照
+  cmd.shadingUnlit.label: 3D 着色：无光照
+  cmd.shadingWire.desc: 照亮 3D 视口几何体并在其上方叠加三角形边线
+  cmd.shadingWire.label: 3D 着色：线框
+  cmd.startScreen.desc: 显示包含最近项目、模板与演示的开始界面
+  cmd.startScreen.label: 开始界面
+  cmd.toolEraseTile.desc: 切换为擦除瓦片工具
+  cmd.toolEraseTile.label: 工具：擦除瓦片
+  cmd.toolFillTile.desc: 切换为区域填充瓦片工具
+  cmd.toolFillTile.label: 工具：填充瓦片
+  cmd.toolMove.desc: 切换为移动视口工具
+  cmd.toolMove.label: 工具：移动
+  cmd.toolPaintTile.desc: 切换为绘制瓦片画笔
+  cmd.toolPaintTile.label: 工具：绘制瓦片
+  cmd.toolPlace.desc: 切换为放置对象视口工具
+  cmd.toolPlace.label: 工具：放置
+  cmd.toolSelect.desc: 切换为选择视口工具
+  cmd.toolSelect.label: 工具：选择
+  cmd.undo.desc: 撤销上一次编辑
+  cmd.undo.label: 撤销
+  cmd.view2d.desc: 显示 2D 场景视口
+  cmd.view2d.label: 切换至 2D 视图
+  cmd.view3d.desc: 显示 3D 轨道与操纵杆视口
+  cmd.view3d.label: 切换至 3D 视图
+  cmd.view3dOrtho.desc: 在透视投影与正交投影之间切换 3D 视口
+  cmd.view3dOrtho.label: 3D 视图：正交投影
+  dialog.cancel: 取消
+  dialog.create: 创建
+  dialog.discard: 放弃
+  dialog.newScene: 新建场景
+  dialog.save: 保存
+  dialog.saveAs: 场景另存为
+  dialog.scenePathDesc: 相对于项目根目录的路径。未带 .yaml 后缀时会自动补全为 .scene.yaml。
+  dialog.scenePathLabel: 场景路径
+  dialog.unsavedDesc: 场景 {scene} 或项目有未保存的更改。
+  dialog.unsavedTitle: 保存更改？
+  files.findRefs: 查找引用
+  files.findRefsLabel: 在整个项目中查找对选中文件的所有引用
+  files.move: 移动
+  files.moveLabel: 重命名或移动选中文件并更新所有引用
+  files.newPathLabel: 选中文件的新路径
+  files.open: 打开
+  files.openLabel: 打开选中的场景
+  files.openTable: 打开数据表
+  files.openTableLabel: 在数据表编辑器中打开选中的 YAML 文件
+  files.refresh: 刷新
+  files.search: 搜索
+  files.searchLabel: 切换项目搜索与引用面板
+  files.title: 文件
+  gizmo.rotate: 旋转
+  gizmo.scale: 缩放
+  gizmo.translate: 平移
+  inspector.addComponent: 添加组件
+  inspector.addProperty: 添加属性
+  inspector.alpha: 不透明度
+  inspector.background: 背景
+  inspector.backgroundColor: 背景颜色
+  inspector.backgroundColorPicker: 背景取色器
+  inspector.bounds: 边界
+  inspector.boundsH: 边界高
+  inspector.boundsW: 边界宽
+  inspector.boundsX: 边界 X
+  inspector.boundsY: 边界 Y
+  inspector.cameraBounds: 相机边界
+  inspector.cameraBoundsHeight: 相机边界高度
+  inspector.cameraBoundsWidth: 相机边界宽度
+  inspector.cameraBoundsX: 相机边界 X
+  inspector.cameraBoundsY: 相机边界 Y
+  inspector.cameraRotation: 相机旋转
+  inspector.cameraX: 相机 X
+  inspector.cameraY: 相机 Y
+  inspector.cameraZoom: 相机缩放
+  inspector.clearBackground: 清除背景颜色
+  inspector.connect: 连接
+  inspector.delete: 删除
+  inspector.deleteProperty: 删除属性 {key}
+  inspector.depth: 深度
+  inspector.editConnection: 编辑连接
+  inspector.empty: 未选中对象
+  inspector.flip: 翻转
+  inspector.height: 高度
+  inspector.incoming: 传入（{count}）
+  inspector.jumpTo: 跳转至 {id}
+  inspector.material: 材质
+  inspector.mesh: 网格
+  inspector.name: 名称
+  inspector.newProperty: 新属性
+  inspector.newPropertyKey: 新属性键名
+  inspector.newPropertyKind: 新属性类型
+  inspector.noConnections: 暂无连接
+  inspector.none: 无
+  inspector.objectName: 对象名称
+  inspector.once: 仅一次
+  inspector.originX: 原点 X
+  inspector.originY: 原点 Y
+  inspector.outgoing: 发出（{count}）
+  inspector.posZ: 位置 Z
+  inspector.remoteTitle: 远程检查器
+  inspector.removeComponent: 移除组件 {name}
+  inspector.removeConnection: 移除连接
+  inspector.rotX: 旋转 X
+  inspector.rotY: 旋转 Y
+  inspector.rotZ: 旋转 Z
+  inspector.rotation: 旋转
+  inspector.save: 保存
+  inspector.scaleX: 缩放 X
+  inspector.scaleY: 缩放 Y
+  inspector.scaleZ: 缩放 Z
+  inspector.sceneName: 场景名称
+  inspector.scenePrefix: 场景 · {label}
+  inspector.section.camera: 相机
+  inspector.section.components: 组件
+  inspector.section.connections: 连接
+  inspector.section.properties: 属性
+  inspector.section.scene: 场景
+  inspector.section.sprite: 精灵
+  inspector.section.transform: 变换
+  inspector.section.transform3d: 3D 变换
+  inspector.selectAssetFirst: 请先在资源浏览器中选择一帧
+  inspector.sprite: 精灵
+  inspector.title: 检查器
+  inspector.useAsset: 使用 {key}
+  inspector.useAssetLabel: 使用资源浏览器中选中的帧
+  inspector.virtualHeight: 虚拟高度
+  inspector.virtualWidth: 虚拟宽度
+  inspector.width: 宽度
+  inspector.zoom: 缩放
+  layers.add: 添加图层
+  layers.empty: 暂无图层
+  layers.hide: 隐藏图层
+  layers.hideNamed: 隐藏图层 {name}
+  layers.lock: 锁定图层
+  layers.lockNamed: 锁定图层 {name}
+  layers.moveDown: 下移图层
+  layers.moveUp: 上移图层
+  layers.nameLabel: 图层名称
+  layers.remove: 删除图层
+  layers.rename: 重命名
+  layers.rowLabel: 图层 {name}
+  layers.screenSpace: 屏幕空间
+  layers.show: 显示图层
+  layers.showNamed: 显示图层 {name}
+  layers.title: 图层
+  layers.unlock: 解锁图层
+  layers.unlockNamed: 解锁图层 {name}
+  layers.worldSpace: 世界空间
+  library.empty: 资源库中没有资源包
+  library.install: 安装
+  library.installed: 已安装
+  library.installedMeta: 已安装 {version}
+  library.remove: 移除
+  library.title: 资源库
+  library.update: 更新
+  menu.audioMixer: 音频总线混音器
+  menu.checkProblems: 检查问题
+  menu.commandPalette: 命令面板…
+  menu.delete: 删除
+  menu.duplicate: 复制
+  menu.edit: 编辑
+  menu.editorSettings: 编辑器设置…
+  menu.eraseTile: 擦除瓦片
+  menu.export: 导出与发布…
+  menu.file: 文件
+  menu.fillTile: 填充瓦片
+  menu.frameSelection: 聚焦选中
+  menu.gizmo3d: 3D 操纵杆
+  menu.lightingPreview: 2D 光照预览
+  menu.localization: 本地化字符串
+  menu.move: 移动
+  menu.navMeshOverlay: 显示 3D 导航网格
+  menu.navMeshPanel: 烘焙 3D 导航网格…
+  menu.newProject: 新建项目…
+  menu.openProject: 打开项目…
+  menu.paintTile: 绘制瓦片
+  menu.particleEditor: 粒子发射器编辑器
+  menu.place: 放置
+  menu.play: 播放
+  menu.plugins: 插件
+  menu.profiler: 性能分析器
+  menu.project: 项目
+  menu.projectSettings: 项目设置
+  menu.redo: 重做
+  menu.rotate: 旋转
+  menu.runGame: 运行游戏
+  menu.save: 保存
+  menu.scale: 缩放
+  menu.select: 选择
+  menu.shading3d: 3D 着色
+  menu.shadingLit: 光照
+  menu.shadingUnlit: 无光照
+  menu.shadingWireframe: 线框
+  menu.startScreen: 开始界面
+  menu.stop: 停止
+  menu.terrain: 地形
+  menu.toggleAllShapes: 显示全部组件形状
+  menu.toggleSnapGrid: 吸附到网格
+  menu.tools: 工具
+  menu.translate: 平移
+  menu.undo: 撤销
+  menu.view: 视图
+  menu.view2d: 2D 视图
+  menu.view3d: 3D 视图
+  output.clear: 清空
+  output.clearLabel: 清空输出面板中的所有消息
+  output.empty: 暂无输出
+  output.emptyErrors: 没有错误
+  output.errors: 错误
+  output.errorsLabel: 仅在输出面板中显示错误
+  output.title: 输出（{count}）
+  output.titleBuilding: 输出（正在构建资源 · {count}）
+  output.titleRunning: 输出（运行中 · {count}）
+  palette.empty: 没有匹配的命令或文件
+  palette.group.commands: 命令
+  palette.group.files: 文件
+  palette.group.pluginPanels: 插件面板
+  palette.group.pluginTools: 插件工具
+  palette.group.scenes: 场景
+  palette.label: 命令面板
+  palette.openScene: 打开场景
+  palette.placeholder: 输入命令、工具、面板或文件…
+  palette.pluginPanelDesc: 插件面板（{plugin}，{dock}）
+  palette.pluginToolDesc: 插件工具（{plugin}）
+  palette.projectFile: 项目文件
+  palette.searchLabel: 搜索命令
+  problems.check: 检查
+  problems.checkLabel: 重新运行项目与资源检查
+  problems.checking: 正在检查项目…
+  problems.empty: 没有问题
+  problems.statusChecking: 问题：检查中…
+  problems.statusCount: 问题：{count}
+  problems.statusError: 问题：错误
+  problems.title: 问题（{count}）
+  problems.titleChecking: 问题（检查中…）
+  scene.untitled: 未命名
+  scene.untitledScene: 未命名场景
+  sceneTree.active: 当前
+  sceneTree.changeID: 修改 ID
+  sceneTree.delete: 删除
+  sceneTree.expand: 展开
+  sceneTree.hide: 在视口中隐藏
+  sceneTree.hideNamed: 隐藏 {id}
+  sceneTree.indent: 设为上一项的子级
+  sceneTree.label: 场景树
+  sceneTree.layerLabel: 图层 {name}
+  sceneTree.lock: 锁定
+  sceneTree.lockNamed: 锁定 {id}
+  sceneTree.moveDown: 下移
+  sceneTree.moveToLayer: 移至图层 {name}
+  sceneTree.moveUp: 上移
+  sceneTree.objectID: 对象 ID
+  sceneTree.objectName: 对象名称
+  sceneTree.outdent: 移出父级
+  sceneTree.remote: 远程
+  sceneTree.rename: 重命名
+  sceneTree.show: 在视口中显示
+  sceneTree.showNamed: 显示 {id}
+  sceneTree.title: 场景
+  sceneTree.unlock: 解锁
+  sceneTree.unlockNamed: 解锁 {id}
+  search.close: 关闭
+  search.closeLabel: 关闭搜索面板
+  search.emptyPrompt: 输入以搜索项目文件、UID、场景对象、组件、预制体与场景引用
+  search.inputLabel: 搜索项目文件、UID、对象、组件、预制体与场景引用
+  search.matchCount: '{count} 条匹配'
+  search.noMatches: 没有匹配项
+  search.noRefs: 没有对 {target} 的引用
+  search.placeholder: 搜索文件、UID、对象、组件、预制体…
+  search.references: 引用
+  search.refresh: 刷新
+  search.refreshLabel: 重新扫描项目索引与引用
+  search.refsPrompt: 在文件浏览器中选择一个文件后点击“查找引用”
+  search.search: 搜索
+  settings.appearance: 外观
+  settings.appearanceHelp: 深色、浅色或跟随系统。
+  settings.dark: 深色
+  settings.description: 此计算机的语言与外观设置。
+  settings.done: 完成
+  settings.langChinese: 简体中文
+  settings.langEnglish: English
+  settings.language: 语言
+  settings.languageHelp: 编辑器界面语言；智能体也会使用该语言回复。
+  settings.light: 浅色
+  settings.system: 跟随系统
+  settings.title: 编辑器设置
+  status.buildError: 构建错误：{error}
+  status.mode2d: 模式：{mode} | 视图：2D {zoom}% | 工具：{tool} | 图层：{layer}
+  status.mode3d: 模式：{mode} | 视图：3D {view} | 操纵杆：{gizmo} | 图层：{layer}
+  status.mode3dGridMap: 模式：{mode} | 视图：3D {view}（GridMap {tool}，Y={floor}，朝向={orient}/24）| 图层：{layer}
+  status.modeEdit: 编辑
+  status.modePlay: 运行
+  status.ready: 就绪
+  status.terrainSuffix: ' | 地形：{terrain}'
+  status.tileSuffix: ' | 瓦片：{tile}'
+  tilePalette.flipDiag: 沿对角线翻转
+  tilePalette.flipHoriz: 水平翻转
+  tilePalette.flipVert: 垂直翻转
+  tilePalette.gridLabel: '{tileset} 的瓦片'
+  tilePalette.paintLayer: 绘制瓦片图层 {name}
+  tilePalette.tileLabel: 瓦片 {number}
+  tilePalette.title: 瓦片
+  tool.eraseTile: 擦除瓦片
+  tool.fillTile: 填充瓦片
+  tool.move: 移动
+  tool.paintTile: 绘制瓦片
+  tool.pickTile: 吸取瓦片
+  tool.place: 放置
+  tool.plugin: 插件
+  tool.select: 选择
+  toolbar.animate: 动画
+  toolbar.animateLabel: 在新动画片段中为选中对象制作动画
+  toolbar.buildAssets: 构建资源
+  toolbar.buildAssetsLabel: 对当前打开的项目运行 go tool game assets 并重新加载变更的图集与纹理
+  toolbar.commands: 命令
+  toolbar.commandsLabel: 打开命令面板
+  toolbar.currentScene: 当前场景
+  toolbar.currentSceneLabel: 从当前打开的场景启动游戏
+  toolbar.editorSettings: 偏好设置
+  toolbar.editorSettingsLabel: 打开编辑器设置（语言与外观）
+  toolbar.erase: 擦除
+  toolbar.export: 导出
+  toolbar.exportLabel: 切换导出与发布构建面板
+  toolbar.file: 文件
+  toolbar.fileMenuLabel: 场景文件
+  toolbar.fill: 填充
+  toolbar.frameAll: 显示全部（{key}）
+  toolbar.frameSelection: 聚焦选中（{key}）
+  toolbar.group.gizmo3d: 3D 操纵杆
+  toolbar.group.pluginTools: 插件工具
+  toolbar.group.shading3d: 3D 着色
+  toolbar.group.tools: 工具
+  toolbar.group.view2d: 2D 视图
+  toolbar.group.viewMode: 视图模式
+  toolbar.input: 输入
+  toolbar.inputLabel: 切换输入映射面板
+  toolbar.label: 编辑器工具
+  toolbar.lightingPreviewLabel: 切换 2D 光照预览
+  toolbar.mixer: 混音器
+  toolbar.mixerLabel: 切换音频总线混音器面板
+  toolbar.move: 移动
+  toolbar.newScene: 新建场景…
+  toolbar.output: 输出
+  toolbar.outputLabel: 切换输出日志面板
+  toolbar.paint: 绘制
+  toolbar.pick: 吸取
+  toolbar.place: 放置
+  toolbar.play: 播放
+  toolbar.projectSettings: 项目设置
+  toolbar.projectSettingsLabel: 切换项目设置面板
+  toolbar.redo: 重做
+  toolbar.revert: 还原
+  toolbar.rotate: 旋转
+  toolbar.run: 运行
+  toolbar.runLabel: 使用 go tool game dev 运行游戏（F5）
+  toolbar.save: 保存
+  toolbar.saveAs: 另存为…
+  toolbar.scale: 缩放
+  toolbar.sceneCameraView: 场景相机视图（{key}）
+  toolbar.select: 选择
+  toolbar.shadingLit: 光照
+  toolbar.shadingUnlit: 无光照
+  toolbar.shadingWireframe: 线框
+  toolbar.stop: 停止
+  toolbar.stopGame: 停止游戏（运行中）
+  toolbar.stopGameLabel: 停止正在运行的游戏（Shift+F5）
+  toolbar.strings: 多语言
+  toolbar.terrain: 地形
+  toolbar.translate: 平移
+  toolbar.undo: 撤销
+  toolbar.unsavedLabel: 未保存的更改
+plurals:
+  output.errorCount:
+    other: ' · {count} 个错误'

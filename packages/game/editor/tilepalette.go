@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/nsgo-dev/game/packages/game/l10n"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/game/packages/game/tilemap"
@@ -259,7 +260,7 @@ func tilePalettePanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 			tile := t
 			tiles = append(tiles, base.Radio{
 				TestID: fmt.Sprintf("tile-palette-%d", tile.ID),
-				Label:  fmt.Sprintf("Tile %d", tile.Number),
+				Label:  ed.T("tilePalette.tileLabel", l10n.Param("number", tile.Number)),
 				Checked: func() bool {
 					return active.Get() == tile.ID
 				},
@@ -296,7 +297,7 @@ func tilePalettePanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 		}
 		return base.RadioGroup{
 			TestID:   "tile-palette-grid",
-			Label:    fmt.Sprintf("Tiles of %s", p.Tileset),
+			Label:    ed.T("tilePalette.gridLabel", l10n.Param("tileset", p.Tileset)),
 			Style:    core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 2},
 			Children: tiles,
 		}
@@ -317,7 +318,8 @@ func tilePalettePanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 				Gap: 6,
 				Children: []core.Node{
 					core.Text{
-						Content: "Tiles",
+						TestID:  "tile-palette-title",
+						Content: ed.T("tilePalette.title"),
 						Style:   core.Style{FontSize: 13, FontWeight: 700, Color: colors.Text(), FlexGrow: 1},
 					},
 					core.Text{
@@ -350,7 +352,7 @@ func tileLayerControls(ed *Editor, rev *core.Signal[uint64], p TilePalette) core
 		layers = append(layers, ui.ToggleButton{
 			TestID: "tile-layer-" + name,
 			Text:   name,
-			Label:  "Paint tile layer " + name,
+			Label:  ed.T("tilePalette.paintLayer", l10n.Param("name", name)),
 			On:     func() bool { return p.TileLayer == name },
 			OnChange: func(on bool) {
 				if on {
@@ -363,9 +365,9 @@ func tileLayerControls(ed *Editor, rev *core.Signal[uint64], p TilePalette) core
 		text, label string
 		bit         uint32
 	}{
-		{"H", "Flip horizontally", tilemap.FlipHorizontal},
-		{"V", "Flip vertically", tilemap.FlipVertical},
-		{"D", "Flip diagonally", tilemap.FlipDiagonal},
+		{"H", ed.T("tilePalette.flipHoriz"), tilemap.FlipHorizontal},
+		{"V", ed.T("tilePalette.flipVert"), tilemap.FlipVertical},
+		{"D", ed.T("tilePalette.flipDiag"), tilemap.FlipDiagonal},
 	}
 	flipButtons := make([]core.Node, 0, len(flips))
 	for _, f := range flips {

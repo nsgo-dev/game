@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/nsgo-dev/game/packages/game/l10n"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -33,8 +34,8 @@ func spriteFields(ed *Editor, rev *core.Signal[uint64], objID string, disabled f
 	}
 	sprite := ui.Select[spriteChoice]{
 		TestID:      "inspector-sprite",
-		Label:       "Sprite",
-		Placeholder: "None",
+		Label:       ed.T("inspector.sprite"),
+		Placeholder: ed.T("inspector.none"),
 		Searchable:  true,
 		Disabled:    disabled,
 		Style:       core.Style{Width: core.Pct(100)},
@@ -60,13 +61,13 @@ func spriteFields(ed *Editor, rev *core.Signal[uint64], objID string, disabled f
 	fromBrowser := ui.IconButton{
 		TestID: "inspector-sprite-use-asset",
 		Icon:   lucide.Crosshair,
-		Label:  "Use the asset browser's selected frame",
+		Label:  ed.T("inspector.useAssetLabel"),
 		Tooltip: func() string {
 			_ = rev.Get()
 			if ed.SelectedAsset == nil {
-				return "Select a frame in the asset browser first"
+				return ed.T("inspector.selectAssetFirst")
 			}
-			return "Use " + ed.SelectedAsset.Key()
+			return ed.T("inspector.useAsset", l10n.Param("key", ed.SelectedAsset.Key()))
 		},
 		Disabled: func() bool {
 			_ = rev.Get()
@@ -143,8 +144,8 @@ func spriteFields(ed *Editor, rev *core.Signal[uint64], objID string, disabled f
 	}
 	material := ui.Select[string]{
 		TestID:      "inspector-material",
-		Label:       "Material",
-		Placeholder: "None",
+		Label:       ed.T("inspector.material"),
+		Placeholder: ed.T("inspector.none"),
 		Searchable:  true,
 		Disabled: func() bool {
 			return disabled() || (!ed.canLoadMaterials() && currentMaterial() == "")
@@ -176,14 +177,14 @@ func spriteFields(ed *Editor, rev *core.Signal[uint64], objID string, disabled f
 	}
 
 	return []core.Node{
-		fieldRow("Sprite", withTrailing(sprite, fromBrowser)),
-		fieldRow("Origin X", origin("inspector-origin-x", "Origin X", false)),
-		fieldRow("Origin Y", origin("inspector-origin-y", "Origin Y", true)),
-		fieldRow("Flip", ui.HStack{Gap: 12, Children: []core.Node{
+		fieldRow(ed.T("inspector.sprite"), withTrailing(sprite, fromBrowser)),
+		fieldRow(ed.T("inspector.originX"), origin("inspector-origin-x", ed.T("inspector.originX"), false)),
+		fieldRow(ed.T("inspector.originY"), origin("inspector-origin-y", ed.T("inspector.originY"), true)),
+		fieldRow(ed.T("inspector.flip"), ui.HStack{Gap: 12, Children: []core.Node{
 			flip("inspector-flip-x", "X", false),
 			flip("inspector-flip-y", "Y", true),
 		}}),
-		fieldRow("Material", material),
+		fieldRow(ed.T("inspector.material"), material),
 	}
 }
 
@@ -361,8 +362,8 @@ func addPropertyRow(cx *core.Scope, ed *Editor, objID string, disabled func() bo
 		Children: []core.Node{
 			core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)}, Children: []core.Node{ui.Input{
 				TestID:      "inspector-add-prop-key",
-				Label:       "New property key",
-				Placeholder: "New property",
+				Label:       ed.T("inspector.newPropertyKey"),
+				Placeholder: ed.T("inspector.newProperty"),
 				Disabled:    disabled,
 				Value:       key.Get,
 				OnChange:    key.Set,
@@ -370,7 +371,7 @@ func addPropertyRow(cx *core.Scope, ed *Editor, objID string, disabled func() bo
 			}}},
 			ui.Select[sceneformat.FieldKind]{
 				TestID:   "inspector-add-prop-kind",
-				Label:    "New property kind",
+				Label:    ed.T("inspector.newPropertyKind"),
 				Options:  kinds,
 				Disabled: disabled,
 				Style:    core.Style{Width: core.Pt(76)},
@@ -380,7 +381,7 @@ func addPropertyRow(cx *core.Scope, ed *Editor, objID string, disabled func() bo
 			ui.IconButton{
 				TestID:   "inspector-add-prop",
 				Icon:     lucide.Plus,
-				Label:    "Add property",
+				Label:    ed.T("inspector.addProperty"),
 				Disabled: disabled,
 				OnPress:  add,
 			},
@@ -412,8 +413,8 @@ func addComponentControl(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 		Children: []core.Node{
 			ui.Input{
 				TestID:      "inspector-add-component",
-				Label:       "Add component",
-				Placeholder: "Add component",
+				Label:       ed.T("inspector.addComponent"),
+				Placeholder: ed.T("inspector.addComponent"),
 				Disabled:    disabled,
 				Value:       query.Get,
 				OnChange:    query.Set,

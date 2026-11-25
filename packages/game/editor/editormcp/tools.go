@@ -393,6 +393,8 @@ type Selection struct {
 	ViewMode string `json:"viewMode"`
 	// Playing reports that the scene plays in the editor, when edits are refused.
 	Playing bool `json:"playing,omitempty"`
+	// Language is the editor's active UI language ("en" or "zh"), so connected agents can reply in the same language.
+	Language string `json:"language,omitempty"`
 }
 
 // SelectedObject is the selected object of a Selection.
@@ -423,6 +425,7 @@ func readSelection(ed *editor.Editor) Selection {
 		Tool:        ed.Tool.String(),
 		ViewMode:    ed.ViewMode.String(),
 		Playing:     ed.Playing(),
+		Language:    ed.ResolvedLanguage(),
 	}
 	obj, layer := ed.SelectedObject()
 	if obj == nil {

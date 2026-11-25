@@ -6,6 +6,7 @@ import (
 	"path"
 	"strings"
 
+	"github.com/nsgo-dev/game/packages/game/l10n"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/desktop"
@@ -131,9 +132,8 @@ func unsavedMemo(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) *core.Mem
 	})
 }
 
-// sceneFileView binds EditorView's scene file handling (Mod+S is the Save command's shortcut, CmdSave): a user's request to quit or to close the window asks first while edits are unsaved, the window title follows the open scene and its unsaved marker, and it returns the unified unsaved-changes prompt (covering scene switches, quit/close, and project switches) and the path dialog of New Scene and Save As.
-func sceneFileView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirty *core.Memo[unsavedState], mode *core.Signal[pathMode], target *core.Signal[string]) []core.Node {
-	prompt := core.NewSignal[*unsavedPrompt](cx, nil)
+// bindSceneFileHooks wires the editor's unsaved prompt callback, window title, window close guard, and quit request guard at the root EditorView scope.
+func bindSceneFileHooks(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirty *core.Memo[unsavedState], prompt *core.Signal[*unsavedPrompt]) {
 	ed.askUnsaved = func(proceed, cancel func()) {
 		// A question still open is answered Cancel before the new one replaces it.
 		if ed.UnsavedPromptOpen() {
@@ -173,7 +173,10 @@ func sceneFileView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirty *
 		answer := q.Defer()
 		ed.whenSaved(func() { answer(true) }, func() { answer(false) })
 	})
+}
 
+// sceneFileDialogs returns the localized unsaved-changes prompt and the path dialog of New Scene and Save As.
+func sceneFileDialogs(ed *Editor, rev *core.Signal[uint64], prompt *core.Signal[*unsavedPrompt], mode *core.Signal[pathMode], target *core.Signal[string]) []core.Node {
 	// answer takes the open question off the prompt and hands it to fn.
 	answer := func(fn func(p *unsavedPrompt)) func() {
 		return func() {
@@ -219,18 +222,18 @@ func sceneFileView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirty *
 					p.cancel()
 				}
 			},
-			Title: "Save changes?",
+			Title: ed.T("dialog.unsavedTitle"),
 			DescriptionFunc: func() string {
 				_ = rev.Get()
 				if pending, ok := ed.PendingProjectAction(); ok && pending.Summary != "" {
 					return fmt.Sprintf("You have unsaved edits. Save them before proceeding (%s)?", pending.Summary)
 				}
-				return "The scene " + ed.SceneLabel() + " or the project has unsaved changes."
+				return ed.T("dialog.unsavedDesc", l10n.Param("scene", ed.SceneLabel()))
 			},
 			Actions: []ui.AlertAction{
 				{
 					TestID:  "unsaved-cancel",
-					Text:    "Cancel",
+					Text:    ed.T("dialog.cancel"),
 					Variant: ui.ButtonSecondary,
 					Role:    core.AlertCancel,
 					OnPress: func() {
@@ -243,7 +246,7 @@ func sceneFileView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirty *
 				},
 				{
 					TestID:  "unsaved-discard",
-					Text:    "Discard",
+					Text:    ed.T("dialog.discard"),
 					Variant: ui.ButtonSecondary,
 					Role:    core.AlertDestructive,
 					OnPress: func() {
@@ -256,7 +259,7 @@ func sceneFileView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirty *
 				},
 				{
 					TestID:  "unsaved-save",
-					Text:    "Save",
+					Text:    ed.T("dialog.save"),
 					Variant: ui.ButtonPrimary,
 					Default: true,
 					OnPress: func() {
@@ -299,14 +302,14 @@ func sceneFileView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirty *
 			OnConfirm: confirm,
 			TitleFunc: func() string {
 				if mode.Get() == pathSaveAs {
-					return "Save Scene As"
+					return ed.T("dialog.saveAs")
 				}
-				return "New Scene"
+				return ed.T("dialog.newScene")
 			},
-			Description: "A path from the project's root. Without a .yaml extension, .scene.yaml is added.",
+			Description: ed.T("dialog.scenePathDesc"),
 			Children: []core.Node{ui.Input{
 				TestID:    "scene-path-input",
-				Label:     "Scene path",
+				Label:     ed.T("dialog.scenePathLabel"),
 				AutoFocus: true,
 				Value:     target.Get,
 				OnChange:  target.Set,
@@ -315,7 +318,7 @@ func sceneFileView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirty *
 			Footer: []core.Node{
 				ui.Button{
 					TestID:  "scene-path-cancel",
-					Text:    "Cancel",
+					Text:    ed.T("dialog.cancel"),
 					Variant: ui.ButtonSecondary,
 					OnPress: func() { mode.Set(pathNone) },
 				},
@@ -323,9 +326,9 @@ func sceneFileView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirty *
 					TestID: "scene-path-confirm",
 					TextFunc: func() string {
 						if mode.Get() == pathSaveAs {
-							return "Save"
+							return ed.T("dialog.save")
 						}
-						return "Create"
+						return ed.T("dialog.create")
 					},
 					Variant:  ui.ButtonPrimary,
 					Disabled: func() bool { return strings.TrimSpace(target.Get()) == "" },
@@ -365,19 +368,19 @@ func sceneFileButtons(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirt
 				return core.Text{
 					TestID:  "toolbar-unsaved",
 					Content: "*",
-					Label:   "Unsaved changes",
+					Label:   ed.T("toolbar.unsavedLabel"),
 					Style:   core.Style{FontSize: 14, FontWeight: 700, Color: colors.Accent()},
 				}
 			},
 		},
 		ui.Menu{
 			TestID:  "toolbar-file",
-			Label:   "Scene file",
-			Trigger: ui.Button{Text: "File", Size: ui.SizeSmall, Variant: ui.ButtonSecondary},
+			Label:   ed.T("toolbar.fileMenuLabel"),
+			Trigger: ui.Button{Text: ed.T("toolbar.file"), Size: ui.SizeSmall, Variant: ui.ButtonSecondary},
 			Children: []core.Node{
 				ui.MenuItem{
 					TestID:   "toolbar-new",
-					Text:     "New Scene…",
+					Text:     ed.T("toolbar.newScene"),
 					Disabled: noProject,
 					OnSelect: func() {
 						dir := "scenes"
@@ -390,7 +393,7 @@ func sceneFileButtons(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirt
 				},
 				ui.MenuItem{
 					TestID:   "toolbar-save-as",
-					Text:     "Save As…",
+					Text:     ed.T("toolbar.saveAs"),
 					Disabled: noProject,
 					OnSelect: func() {
 						p := ed.ScenePath
@@ -403,7 +406,7 @@ func sceneFileButtons(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirt
 				},
 				ui.MenuItem{
 					TestID: "toolbar-revert",
-					Text:   "Revert",
+					Text:   ed.T("toolbar.revert"),
 					Disabled: func() bool {
 						_ = rev.Get()
 						return ed.Playing() || ed.FilePath == "" || !dirty.Get().scene

@@ -143,7 +143,7 @@ func AssetBrowserView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 		entries := assets.Get()
 		if len(entries) == 0 {
 			return core.Text{
-				Content: "No atlas assets loaded",
+				Content: ed.T("assets.empty"),
 				Style: core.Style{
 					FontSize: 12,
 					Color:    colors.Muted(),
@@ -267,7 +267,8 @@ func AssetBrowserView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 		},
 		Children: []core.Node{
 			core.Text{
-				Content: "Assets",
+				TestID:  "assets-title",
+				Content: ed.T("assets.title"),
 				Style: core.Style{
 					FontSize:   13,
 					FontWeight: 700,

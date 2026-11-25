@@ -924,7 +924,6 @@ func main() {
 - **场景树旁的 Remote 标签页**：在 `SceneTreeView` 顶部可在 **Scene**（`SceneTreeLocal`）与 **Remote**（`SceneTreeRemote`）之间切换。Remote 标签页列出运行中的场景（`game_scenes_list`）、按绘制顺序排列的图层（`game_layers_list`）以及带父子层级的实时实体（`game_entities_list`），游戏未暂停时按 `Editor.RemoteRefreshInterval`（默认 250 ms）自动刷新，也可通过 `RefreshRemote` 手动刷新。不带场景 `ObjectRef` 的运行时生成实体归入 **SPAWNED AT RUNTIME** 分组；运行中被销毁的场景对象会变暗显示并标出消失时的步数。
 - **实时检查器与实时改动（Live Changes）**：在 Remote 标签页选中实时实体（`SelectRemoteEntity`）后，`InspectorView` 会通过 `game_entity_inspect` 展示其全部组件。派生的只读组件（`world_transform2d`、`object_ref`）以实时只读形式显示；可编辑组件渲染对应类型的控件，编辑后立即通过 `game_component_set` 写入运行中的游戏（`SetRemoteComponentField` / `SetRemoteComponentValue`），并在已修改字段旁标出 `"was X"`。每次实时修改都会记录在 **LIVE CHANGES** 列表（`RemoteLiveChanges`）中，断开连接或停止游戏后列表仍保留：可逐行撤回（`RevertRemoteLiveChange`）、全部丢弃（`DiscardRemoteLiveChanges`），或点击 **Keep in scene**（`KeepRemoteLiveChangesInScene`）将所有映射到当前场景对象的改动作为单个可撤销的 `History.Group` 步骤写回场景，一次撤销即可完整还原。
 - **实时控制栏、可调参数与控制台**：连接期间顶部会显示实时控制栏，提供 **Pause / Resume**（`mod+shift+p`、`RemotePause` / `RemoteResume`）、单步 **Step**（暂停时按 `.`）与 **Step N** 固定步进（`RemoteStep`）、时间倍率 **Time Scale**（`0.25×`、`0.5×`、`1×`、`2×`、`RemoteSetTimeScale`），并在状态栏显示实时帧数、模拟时间与实体数量。若游戏配置了 `debug.Console`，远程检查器还会展示实时 **Tunables**（`game_tunables_list` / `RemoteSetTunable`）与 **Console** 命令行（`RemoteExecConsole` / `game_console_exec`）。
-
 ## 3D 地形雕刻与绘制工具（#900）
 
 在 3D 视图（`ViewMode3D`）中，点击工具栏的 **Terrain** 按钮（或在文件浏览器中双击 / 点击 **Terrain** 打开 `*.terrain.yaml`，或在 Go 代码中调用 `NewTerrain`、`OpenTerrainFile`、`OpenTerrainProjectFile`、`OpenTerrain`），即可在 3D 视口中直接雕刻和绘制 `world3d` 地形，并在视口下方显示停靠的 `TerrainPanelView` 面板：
@@ -932,7 +931,6 @@ func main() {
 - **雕刻与绘制画笔**：支持 `TerrainBrushRaise`（抬高）、`TerrainBrushLower`（压低）、`TerrainBrushSmooth`（平滑）、`TerrainBrushFlatten`（整平至起笔处高度，或启用 `UseTargetHeight` 时整平至 `TargetHeight`）、`TerrainBrushSetHeight`（设定高度 `TargetHeight`）、`TerrainBrushPaintLayer`（绘制纹理材质层权重并自动保持各层权重之和归一化为 1）以及 `TerrainBrushPaintFoliage`（将选中植被层的密度向 `[0, 1]` 内的 `TargetDensity` 过渡，`0` 为擦除）。可通过 `SetTerrainBrush` 或面板控件配置半径 `Radius`、强度 `Strength` 和衰减曲线 `Falloff`（`TerrainFalloffSmooth`、`TerrainFalloffLinear`、`TerrainFalloffFlat`）。
 - **3D 射线笔触与单步撤销/重做**：在 3D 视口中点击或拖拽会对实时 `world3d.Heightmap` 执行射线检测（`RaycastTerrain3D`、`BeginTerrainStrokeAt` / `ContinueTerrainStrokeAt` / `EndTerrainStroke`，或直接传入世界坐标的 `BeginTerrainStroke` / `ContinueTerrainStroke`），在快速拖拽路径上自动插值平滑落笔，在地形表面投射贴地画笔半径环，并将一整次拖拽笔触作为 **单步撤销记录** 存入 `Editor.History`（按 `Escape` 或调用 `CancelTerrainStroke` 可中止当前笔触并还原）。撤销与重做会精确恢复高度图、材质权重和植被密度数据，并同步更新 `TerrainDirty()` / `HasUnsavedChanges()`。
 - **16 位无损保存**：点击 **Save Terrain**（`SaveTerrain`、`SaveTerrainTo` 或脏状态下的 `Save`）会原子写出 16 位灰度 PNG 高度图（`*image.Gray16`，消除 8 位斜坡阶梯伪影）、逐层灰度权重图 PNG（或打包 RGBA `splatMaps`）、植被密度图 PNG 以及确定性 `*.terrain.yaml`，使游戏侧通过 `world3d.LoadTerrainFS`、`TerrainDoc.ScatterFoliage` 与 `render3d.TerrainMaterialFromDoc` 加载并绘制出完全一致的地形。
-
 ## 粒子发射器编辑器（#883）
 
 粒子发射器编辑器（`ParticleEditorPanelView`）可通过工具栏的 **Particles** 按钮（`CmdParticleEditor`）、在文件浏览器中双击 `*.particles.yaml` / `*.emitter.yaml` 或点击 **Open Emitter**，或在检查器中点击带有 `particles` 对象的 **Edit Emitter** 按钮打开，支持带实时预览与完整撤销/重做地编辑 2D `particles.Config` 的全部字段：
@@ -941,3 +939,18 @@ func main() {
 - **全字段编辑与交互式曲线控件**：覆盖 `space`、位置、旋转、`z`、`seed`、`shape`（`point`、`circle`、`ring`、`rect`）、`rate`、`maxParticles`、定时爆发 `bursts`（增删改 `time`、`count`、`cycles`、`interval`）、`lifetimeMin`/`Max`、`speedMin`/`Max`、`angleMin`/`Max`、`gravityX`/`Y`、`initialRotationMin`/`Max`、`rotationSpeedMin`/`Max`、`collision`、`trail` 与递归 `subEmitters`（通过 `SetParticleTargetPath` / **Edit Child** 进入编辑子发射器配置）。曲线控件在交互画布上绘制 `sizeCurve`、`alphaCurve`、`rotationCurve`、`colorCurve`、`trail.widthCurve` 与 `trail.colorGradient`，支持拖拽控制点、点击新增控制点及数值微调；图集帧选择器可直接切换解析器图集中的 `frameNames`。
 - **撤销/重做与确定性保存**：所有编辑均记录在 `Editor.History` 中；点击 **Save Emitter**（`SaveParticleEmitterFile` / `SaveParticleEmitterYAML` / `OnSaveParticleEmitter`）以规范的版本化 YAML（`particles.MarshalConfigYAML`）写出，往返加载保持字节不变，并热重载当前打开场景中引用同一文件的发射器。
 - **场景放置**：可通过 `SetObjectParticles`、`PlaceParticles` 或检查器的 **PARTICLES** 区域（`file` 与 `atlas` 选择器）为场景对象绑定粒子发射器。放置的发射器在 2D 编辑视口中实时预览（`StepSceneEmitters`，隐藏对象时同步隐藏），在 Play 模式（`PlayIn`）与独立游戏（`sceneformat.Build`）中正常运行，纳入 `refs` 扫描（`MoveFile` 自动改写 `particles.file`），并由 `assetcheck` 校验文件及帧名。
+
+## 语言与外观设置（#921）
+
+编辑器界面通过内嵌的带版本号 `l10n` YAML 字符串表（`editor/locales/en.yaml`、`editor/locales/zh.yaml`）同时提供英文（`en`）与简体中文（`zh`）界面，并将每名用户的编辑器偏好设置作为确定性的带版本号 YAML 保存在项目之外：
+
+- **用户级设置文件（`EditorSettings`、`SettingsVersion = 1`）**：默认保存在 `DefaultSettingsPath()`（`os.UserConfigDir()` 下的 `nsgo-game/editor.yaml`，位于所有游戏项目之外），通过 `ParseEditorSettings`、`EncodeEditorSettings`、`LoadEditorSettings`、`SaveEditorSettings`、`Editor.LoadSettings`、`Editor.LoadUserSettings` 和 `Editor.SaveSettings` 读写。未知字段、YAML 锚点/别名/合并键、多余文档和非法枚举值都会被拒绝并返回 `*loaderr.Error`。已发布的 JSON Schema 为 `https://game.nsgo.dev/schemas/editor-settings.v1.json`（`SettingsSchemaURL`）。
+  ```yaml
+  # yaml-language-server: $schema=https://game.nsgo.dev/schemas/editor-settings.v1.json
+  version: 1
+  language: system
+  appearance: system
+  ```
+- **实时语言切换**：`Language` 支持 `LanguageSystem`（`"system"`）、`LanguageEnglish`（`"en"`）和 `LanguageChinese`（`"zh"`）。调用 `Editor.SetLanguage` 或在**编辑器设置**对话框（`EditorSettingsDialogView`，可通过工具栏的**偏好设置**按钮、`文件 > 编辑器设置…` 或 `mod+shift+,` 打开）中切换语言后，工具栏、桌面菜单栏、文件浏览器、资源浏览器、场景树、图层面板、检查器、底部面板、对话框、命令面板与状态栏都会立即切换，无需重启。`Editor.ResolvedLanguage()` 返回当前生效的语言（`"en"` 或 `"zh"`），并通过 `selection_get` 传递给连接的 MCP 智能体。
+- **外观（`core.Scope.SetAppearance`）**：`Appearance` 支持 `AppearanceSystem`（`"system"`）、`AppearanceLight`（`"light"`）和 `AppearanceDark`（`"dark"`）。`Editor.SetAppearance` 会立即通过 NSGo 的 `core.Scope.SetAppearance` 生效（即使系统为浅色也可保持深色，反之亦然），并在设置了 `Editor.SettingsPath` 时自动持久化，重启后保持不变。
+- **插件本地化**：插件可提供 `Catalog *l10n.Catalog` 或带版本号的 `LocaleYAML [][]byte` 字符串表（`RegisterPlugin` 会严格校验），并在面板、工具和命令上设置可选的 `TitleKey` / `LabelKey` / `DescriptionKey` / `CategoryKey`。在 `Panel.View` 和 `Inspector.View` 中，插件可调用 `Editor.PluginT(pluginName, key, args...)` 与 `Editor.PluginPlural(...)`，使插件界面实时跟随编辑器当前语言。

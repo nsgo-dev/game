@@ -1,0 +1,4 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/editor-settings.v1.json
+version: 1
+language: system
+appearance: system
