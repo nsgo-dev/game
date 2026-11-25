@@ -83,6 +83,14 @@ if err := datatable.SaveYAML("data/enemies.yaml", enemies); err != nil {
 }
 ```
 
+## Untyped editing and row-type validation
+
+Tools and editors that work on YAML data tables without importing every game's Go row struct can open a file as an untyped `*datatable.Document` with `ParseDocument` or `LoadDocument`:
+
+- Each `Row` stores an ordered slice of `Cell{Key, Value}` entries so per-row key order is preserved, `Columns()` returns the union of row keys in first-appearance order, and `ColumnKind(col)` infers `KindString`, `KindNumber`, `KindBool`, `KindDuration`, or `KindList`.
+- `Marshal` and `Save` return the exact input bytes when no edits were made, patch only the edited line when a single scalar or inline-list cell changes, and encode deterministically from the preserved YAML AST after structural edits (`AddRow`, `DeleteRow`, `MoveRow`).
+- `RowTypeFor[T]()` and `Registry` (`RegisterRowType[T](reg, pattern)`) validate untyped cells, rows, and documents against Go struct types with `LoadYAML`'s exact rules (`ValidateCell`, `ValidateRow`, `ValidateDocument`, `ParseCellText`), refusing unknown fields, duplicate fields, and type-conversion failures with `*datatable.CellError`.
+
 ## Hot reload
 
 `NewTable[T](path)` loads the file and holds its rows. `Watch` registers it with a `hotreload.Watcher` (from `game/tooling/hotreload`) and calls back on the engine goroutine with the new rows after each valid save:

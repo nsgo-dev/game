@@ -446,7 +446,22 @@ A fault that a scene brings unchanged from a scene it instances or inherits is r
 
 The editor also opens a game's [project file](project.md): `OpenProject` reads `game.yaml` and opens its main scene, `EditProject` changes it as an undoable step, and `SaveProject` writes it with the `nsgo.yaml` beside it in step. `go tool game editor <dir>` opens a project directory. `MoveFile(from, to)` moves a file or directory of the project and rewrites every reference to it, on disk and in the open scene and project, as `go tool game mv` does ([Stable references](project.md#stable-references)), as one step that Undo takes back and Redo makes again. Undo puts each file the move rewrote back byte for byte, unless it changed since, in which case only its references are rewritten back.
 
-While a project is open, the file browser below the asset browser (`FilesView`) lists its files and directories (`ProjectFiles`), leaving out the directories that `game index` and `game mv` skip too: those whose names start with `.` or `_` and those named `testdata`. Pressing one selects it and puts its path in the field below the list; edit the path and press Move to rename or move it through `MoveFile`. Refresh lists the files again after something outside the editor changed them.
+While a project is open, the file browser below the asset browser (`FilesView`) lists its files and directories (`ProjectFiles`), leaving out the directories that `game index` and `game mv` skip too: those whose names start with `.` or `_` and those named `testdata`. Pressing one selects it and puts its path in the field below the list; edit the path and press Move to rename or move it through `MoveFile`, or press Open Table on a `.yaml`/`.yml` file to open it in the Data Table editor (`OpenDataTableProjectFile`). Refresh lists the files again after something outside the editor changed them.
+
+## Data Table editor (#918)
+
+The Data Table panel (`DataTablePanelView`) opens versioned YAML data tables ([`tooling/datatable`](datatable.md)) from the file browser as a spreadsheet-style grid below the viewport:
+
+- **Columns and kinds**: columns are the union of every row's keys in deterministic first-appearance order (plus any fields declared by a registered Go row type that no row currently sets). Each column's value kind (`string`, `number`, `bool`, `duration`, or `list`) is inferred from its cell values or taken from the registered Go row type; boolean cells render as toggle buttons and scalar/list cells commit on Enter or blur.
+- **Row operations and view controls**: add (`AddDataTableRow`), delete (`DeleteDataTableRow`), and reorder (`MoveDataTableRow`) rows, sort by clicking any column header (`SetDataTableSort`), and filter visible rows by case-insensitive substring match (`SetDataTableFilter`). Sorting and filtering affect only the view and never reorder or modify the underlying YAML document.
+- **Undo and lossless round-trip**: opening, closing, adding, deleting, reordering, and editing cells all go through the editor's shared `History`. Opening and saving a table without edits leaves the file byte-for-byte identical, and editing a single cell changes only that line while preserving comments, formatting, and each row's key order.
+- **Go row-type validation**: a game's own editor command can bind Go struct row types to slash-separated path or filename patterns with `editor.RegisterDataTableType[T](ed, pattern)` (or `Editor.RegisterDataTableRowType`). Matching tables are checked on open and on every cell or row edit with the exact same rules `datatable.LoadYAML` applies, refusing unknown columns, duplicate fields, and invalid cell values in the grid and showing the `*datatable.CellError` in the panel and status bar.
+
+```go
+if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err != nil {
+	log.Fatal(err)
+}
+```
 
 ## Animation editor
 

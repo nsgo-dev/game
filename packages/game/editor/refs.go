@@ -204,6 +204,7 @@ func (e *Editor) followMove(root, from, to string) {
 	moveFile(&e.FilePath)
 	movePath(&e.ScenePath)
 	moveFile(&e.clipMeta.path)
+	e.followDataTableMove(moveFile)
 	e.filesRev++
 	e.Status = "Moved " + from + " to " + to
 }

@@ -133,28 +133,61 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 						},
 						OnChange: target.Set,
 					},
-					ui.Button{
-						TestID:  "files-move",
-						Text:    "Move",
-						Label:   "Rename or move the selected file and update every reference to it",
-						Size:    ui.SizeSmall,
-						Variant: ui.ButtonSecondary,
-						Disabled: func() bool {
-							_ = rev.Get()
-							from, to := current.Get(), strings.TrimSpace(target.Get())
-							return ed.Playing() || from == "" || to == "" || to == from
-						},
-						OnPress: func() {
-							from, to := current.Get(), strings.TrimSpace(target.Get())
-							if from == "" {
-								return
-							}
-							if err := ed.MoveFile(from, to); err != nil {
-								ed.report(err)
-								return
-							}
-							selected.Set(to)
-							target.Set(to)
+					ui.HStack{
+						Gap: 6,
+						Children: []core.Node{
+							ui.Button{
+								TestID:  "files-move",
+								Text:    "Move",
+								Label:   "Rename or move the selected file and update every reference to it",
+								Size:    ui.SizeSmall,
+								Variant: ui.ButtonSecondary,
+								Disabled: func() bool {
+									_ = rev.Get()
+									from, to := current.Get(), strings.TrimSpace(target.Get())
+									return ed.Playing() || from == "" || to == "" || to == from
+								},
+								OnPress: func() {
+									from, to := current.Get(), strings.TrimSpace(target.Get())
+									if from == "" {
+										return
+									}
+									if err := ed.MoveFile(from, to); err != nil {
+										ed.report(err)
+										return
+									}
+									selected.Set(to)
+									target.Set(to)
+								},
+							},
+							ui.Button{
+								TestID:  "files-open-table",
+								Text:    "Open Table",
+								Label:   "Open the selected YAML file in the Data Table editor",
+								Size:    ui.SizeSmall,
+								Variant: ui.ButtonSecondary,
+								Disabled: func() bool {
+									_ = rev.Get()
+									if ed.Playing() {
+										return true
+									}
+									from := current.Get()
+									if from == "" {
+										return true
+									}
+									ext := strings.ToLower(path.Ext(from))
+									return ext != ".yaml" && ext != ".yml"
+								},
+								OnPress: func() {
+									from := current.Get()
+									if from == "" {
+										return
+									}
+									if err := ed.OpenDataTableProjectFile(from); err != nil {
+										ed.report(err)
+									}
+								},
+							},
 						},
 					},
 				},
