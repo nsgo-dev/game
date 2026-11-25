@@ -185,6 +185,9 @@ type Editor struct {
 
 	// OnSave is invoked by the UI Save button with the encoded YAML bytes.
 	OnSave func(data []byte) error
+	// OnRunGame is invoked by the Run Game command (shortcut, menu bar, or command palette).
+	// When nil, RunGame starts play-in-editor if a UI scope is attached.
+	OnRunGame func() error
 	// OnPlayUpdate runs on every fixed simulation step while Play mode is active.
 	OnPlayUpdate func(scene *sceneformat.BuiltScene, dt time.Duration)
 	// OnPlayDraw runs on every render frame while Play mode is active.
@@ -233,14 +236,17 @@ type Editor struct {
 	l10n       *localizationState
 	components *sceneformat.ComponentRegistry
 	// plugins are the registered plugins in registration order, and pluginTool the plugin tool chosen while Tool is ToolPlugin.
-	plugins      []*Plugin
-	pluginTool   pluginToolRef
-	drag3D       drag3DState
-	scope        *core.Scope
-	revision     uint64
-	nextID       int
-	nextListener uint64
-	listeners    map[uint64]func()
+	plugins            []*Plugin
+	pluginTool         pluginToolRef
+	focusedPluginPanel panelRef
+	commands           []EditorCommand
+	paletteOpen        bool
+	drag3D             drag3DState
+	scope              *core.Scope
+	revision           uint64
+	nextID             int
+	nextListener       uint64
+	listeners          map[uint64]func()
 	// fetch is the library panel's fetch of a pack from a remote library under way, or nil.
 	fetch *packFetch
 	// hidden and locked are the objects the scene tree hides in the viewports or locks against picking (SetObjectHidden, SetObjectLocked); they belong to the session, not the scene file.
@@ -326,6 +332,7 @@ func New(doc *sceneformat.SceneDoc, resolver sceneformat.AssetResolver) (*Editor
 	ed.History.onChange = func() {
 		ed.afterMutate()
 	}
+	ed.initBuiltinCommands()
 	ed.Rebuild()
 	return ed, nil
 }
@@ -375,6 +382,7 @@ func (e *Editor) afterMutate() {
 	}
 	// An undone or redone project edit may have turned off the plugin whose tool is active.
 	e.dropStalePluginTool()
+	e.dropStaleFocusedPluginPanel()
 	e.syncAudioMixer()
 	e.syncExportPanel()
 	e.Rebuild()
