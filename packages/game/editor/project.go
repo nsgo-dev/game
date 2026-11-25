@@ -121,6 +121,7 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 	e.stopAudioAudition()
 	e.stopParticlePreviewLoop()
 	e.stopSceneEmitterLoop()
+	e.closeModelPreview()
 	e.stopExportBuild()
 	e.stopAssetsBuild()
 	e.resetInputMapTransient()

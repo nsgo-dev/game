@@ -514,6 +514,7 @@ func (e *Editor) ReloadAssets() (ReloadAssetsResult, error) {
 
 	e.filesRev++
 	e.assetsRev++
+	e.invalidate3DBuild()
 	e.invalidateProjectIndex()
 	e.keepTileInPalette()
 	e.Rebuild()

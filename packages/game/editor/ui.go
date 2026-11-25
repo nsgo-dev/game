@@ -73,6 +73,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 		ed.stopSceneEmitterLoop()
 		ed.stopRigLoop()
 		ed.stopCutsceneLoop()
+		ed.closeModelPreview()
 		ed.cleanupAudioMixerScope(cx)
 		ed.stopExportBuild()
 		ed.stopAssetsBuild()

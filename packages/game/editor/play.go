@@ -137,6 +137,7 @@ func (e *Editor) PlayIn(cx *core.Scope) error {
 	e.stopSceneEmitterLoop()
 	e.stopRigLoop()
 	e.CancelRigDrag()
+	e.stopModelPreviewLoop()
 	e.stopAudioAudition()
 	e.resetInputMapTransient()
 	e.connPick = nil

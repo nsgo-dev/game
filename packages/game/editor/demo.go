@@ -161,6 +161,7 @@ func (e *Editor) OpenDemo() error {
 	e.stopAudioAudition()
 	e.stopParticlePreviewLoop()
 	e.stopSceneEmitterLoop()
+	e.closeModelPreview()
 	e.stopExportBuild()
 	e.stopAssetsBuild()
 	e.resetInputMapTransient()

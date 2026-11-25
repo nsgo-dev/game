@@ -170,6 +170,7 @@ func (e *Editor) SelectFile(relPath string) {
 func (e *Editor) selectFile(relPath string) {
 	if e.SelectedFile != relPath {
 		e.importPreview.resetInteraction()
+		e.stopModelPreviewLoop()
 	}
 	e.SelectedFile = relPath
 	e.selectedFileRev++
