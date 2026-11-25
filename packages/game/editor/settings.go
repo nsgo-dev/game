@@ -392,13 +392,13 @@ func (e *Editor) Appearance() Appearance {
 	return e.Settings().Appearance
 }
 
-// Dark reports whether the editor is currently shown in dark appearance: when a UI scope is attached it reflects cx.Env().Dark() (combining SetAppearance with the system appearance); otherwise it reports Appearance() == AppearanceDark.
+// Dark reports whether the editor is currently shown in dark appearance: when a UI scope is attached it reflects cx.Dark() (combining SetAppearance, SetSubtreeAppearance, and the system appearance); otherwise it reports Appearance() == AppearanceDark.
 func (e *Editor) Dark() bool {
 	if e == nil {
 		return false
 	}
 	if e.scope != nil {
-		return e.scope.Env().Dark()
+		return e.scope.Dark()
 	}
 	return e.Appearance() == AppearanceDark
 }
