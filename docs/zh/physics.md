@@ -87,3 +87,32 @@ if hit, ok := world.RaycastFirst(gunPos, targetPos, physics.QueryAll); ok {
 | `QueryAll` | `QueryBodies \| QueryTiles \| QueryOneWay`。 |
 
 `World.Raycast` 按归一化距离 `T`（`[0, 1]`）升序返回线段上的所有命中（同距离时物体排在瓦片之前）；`RaycastFirst` 只返回最近的一个命中。使用 `world.Remove(b)` 可移除物体。
+
+## 绳索与软体（XPBD）
+
+`SoftWorld` 提供纯 Go、确定性的 2D 扩展基于位置动力学（XPBD）粒子与约束求解器，适用于绳索、悬挂链条和可变形软体：
+
+- **粒子与约束**：`Particle`（位置、速度、`InvMass`、`Radius`、`Friction`、`Restitution`、`Pinned`、`Layer`/`Mask`）、双向与单向距离约束 `DistanceConstraint`（`AddDistance`、`AddTether`）、三粒子弯曲约束 `BendingConstraint`（`AddBending`）、带气压的多边形面积约束 `AreaConstraint`（`AddArea`），以及 2D 刚性形状匹配约束 `ShapeMatchConstraint`（`AddShapeMatch`）。
+- **刚体双向耦合**：`AttachRigidBody` 可在局部锚点处将粒子附着到 `*RigidBody`（`Compliance == 0` 为刚性挂点，`> 0` 为弹性连接），在子步内平滑插值附着刚体的位姿，并将线性与角向反作用冲量反馈回刚体。
+- **世界与瓦片碰撞**：设置 `SoftWorld.World`、`SoftWorld.RigidWorld` 和/或 `SoftWorld.Tiles` 后，粒子可与 `Box`、`Circle`、带朝向的 `RigidBody`、`TileSolid` 及 `TileOneWay` 瓦片碰撞，并支持 `LayerMask` 层级过滤（`TileLayer`/`TileMask`）。
+- **构建器与调试绘制**：`AddRope(RopeConfig)` 构建不可拉伸绳索并自动添加长距离拉绳约束，保证挂载重型刚体摆动时不超限拉伸；`AddSoftBody(SoftBodyConfig)` 构建气压或形状匹配软体；`DrawSoftWorld(d, sw, style)` 绘制调试线框与固定点（`release` 构建下编译为空操作）。
+
+```go
+rw := &physics.RigidWorld{GravityY: 600}
+crate := physics.NewRigidBox(120, 12, 24, 24, 10)
+rw.AddBody(crate)
+
+sw := physics.NewSoftWorld()
+sw.RigidWorld = rw
+sw.GravityY = 600
+
+rope := sw.AddRope(physics.RopeConfig{
+	StartX: 0, StartY: 0, EndX: 120, EndY: 0,
+	Segments: 12, TotalMass: 0.5, PinStart: true,
+})
+sw.AttachRigidBody(rope[len(rope)-1], crate, core.Point{Y: -12}, 0)
+
+// 在 game.Loop.Update 中：
+rw.Step(dt)
+sw.Step(dt)
+```

@@ -87,3 +87,32 @@ if hit, ok := world.RaycastFirst(gunPos, targetPos, physics.QueryAll); ok {
 | `QueryAll` | `QueryBodies \| QueryTiles \| QueryOneWay`. |
 
 `World.Raycast` returns all hits along the segment sorted by ascending normalized distance `T` in `[0, 1]` (bodies before tiles on ties), while `RaycastFirst` returns the closest hit. Remove bodies cleanly with `world.Remove(b)`.
+
+## Ropes and Soft Bodies (XPBD)
+
+`SoftWorld` provides a deterministic, pure-Go Extended Position-Based Dynamics (XPBD) particle and constraint solver for 2D ropes, hanging chains, and deformable soft bodies:
+
+- **Particles & constraints**: `Particle` (position, velocity, `InvMass`, `Radius`, `Friction`, `Restitution`, `Pinned`, `Layer`/`Mask`), bilateral & unilateral `DistanceConstraint` (`AddDistance`, `AddTether`), 3-particle angular `BendingConstraint` (`AddBending`), pressurized polygon `AreaConstraint` (`AddArea`), and 2D rigid `ShapeMatchConstraint` (`AddShapeMatch`).
+- **Two-way rigid-body coupling**: `AttachRigidBody` couples any particle to a `*RigidBody` at a local anchor (`Compliance == 0` for rigid pins, `> 0` for elastic attachments), smoothly substepping attached poses and feeding linear and angular reaction impulses back into the `RigidBody`.
+- **World & tile collisions**: set `SoftWorld.World`, `SoftWorld.RigidWorld`, and/or `SoftWorld.Tiles` to collide particles against `Box`, `Circle`, oriented `RigidBody` shapes, `TileSolid`, and `TileOneWay` tiles with `LayerMask` filtering (`TileLayer`/`TileMask`).
+- **Builders & debug drawing**: `AddRope(RopeConfig)` builds inextensible ropes with automatic long-range tethers so heavy attached crates swing without over-stretching; `AddSoftBody(SoftBodyConfig)` builds pressurized or shape-matched soft rings; `DrawSoftWorld(d, sw, style)` renders debug overlays (compiled to a no-op under `-tags release`).
+
+```go
+rw := &physics.RigidWorld{GravityY: 600}
+crate := physics.NewRigidBox(120, 12, 24, 24, 10)
+rw.AddBody(crate)
+
+sw := physics.NewSoftWorld()
+sw.RigidWorld = rw
+sw.GravityY = 600
+
+rope := sw.AddRope(physics.RopeConfig{
+	StartX: 0, StartY: 0, EndX: 120, EndY: 0,
+	Segments: 12, TotalMass: 0.5, PinStart: true,
+})
+sw.AttachRigidBody(rope[len(rope)-1], crate, core.Point{Y: -12}, 0)
+
+// Inside game.Loop.Update:
+rw.Step(dt)
+sw.Step(dt)
+```

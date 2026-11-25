@@ -116,3 +116,36 @@ style := physics3d.DefaultDebugStyle()
 style.DepthZO = true // viewProj 来自 math3d.Perspective 或 math3d.Ortho
 physics3d.DrawWorld(d, physics3d.Mat4(viewProj), viewport, world, style)
 ```
+
+## 绳索、布料与软体（XPBD）
+
+`SoftWorld` 使用纯 Go、确定性的扩展基于位置动力学（XPBD）求解器模拟 3D 绳索、布料网格与四面体软体：
+
+- **粒子与约束**：`Particle`（`Pos`、`Vel`、`InvMass`、`Radius`、`Friction`、`Restitution`、`Pinned`、`Layer`/`Mask`）、双向与单向距离约束 `DistanceConstraint`（`AddDistance`、`AddTether`）、无奇异点的二面角弯曲约束 `BendingConstraint`（`AddBending`），以及四面体体积约束 `VolumeConstraint`（`AddVolume`）。
+- **刚体双向附着**：`AttachBody` 在局部锚点处将粒子耦合到动态或运动学 `*Body`（`Compliance == 0` 为刚性挂点，`> 0` 为弹性连接），将线性与角向反作用冲量反馈回刚体并自动唤醒休眠刚体。
+- **碰撞与层级过滤**：配置 `SoftWorld.World` 后，粒子可与非触发器 `Body`（带朝向盒体、球体、胶囊体）、`TriMeshCollider` 以及 `HeightfieldCollider` 碰撞，并遵循 `Layer`/`Mask` 过滤规则。
+- **构建器与调试绘制**：`AddRope(RopeConfig)` 构建带单向长距离拉绳约束的 3D 不可拉伸绳索；`AddCloth(ClothConfig)` 构建含结构、剪切与二面角弯曲约束的三角化布料网格（`ClothGrid.Index(col, row)`）；`AddSoftBox(SoftBoxConfig)` 构建 8 顶点 5 四面体可变形立方体；`Edges()` 返回结构线框线段，`DrawSoftWorld(d, viewProj, viewport, sw, style)` 绘制调试覆盖层（`release` 构建下为空操作）。
+
+```go
+world := physics3d.NewWorld()
+world.AddBody(physics3d.NewStaticBody(
+	physics3d.SphereShape(physics3d.Sphere{Radius: 1.0}),
+	physics3d.Vec3{Y: 1.0},
+))
+
+sw := physics3d.NewSoftWorld()
+sw.World = world
+sw.AddCloth(physics3d.ClothConfig{
+	Origin:      physics3d.Vec3{X: -1.1, Y: 2.25, Z: -1.1},
+	Width:       2.2,
+	Height:      2.2,
+	Cols:        10,
+	Rows:        10,
+	PinTopLeft:  true,
+	PinTopRight: true,
+})
+
+// 在 game.Loop.Update 中：
+world.Step(dt)
+sw.Step(dt)
+```
