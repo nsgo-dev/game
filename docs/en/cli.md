@@ -4,16 +4,16 @@
 
 ## Install
 
-Run the command as `nsgo game`, a command of NSGo's own `nsgo` (nsgo-dev/nsgo#2366), which needs `nsgo` from main until the release after 0.3.0. In a project, `nsgo game` runs the `game` tool the module's `go.mod` declares:
+Run the command as `nsgo game`, a command of NSGo's own `nsgo` since v0.3.3 (nsgo-dev/nsgo#2366). Install `nsgo` once, with Homebrew (`brew install nsgo-dev/tap/nsgo`), with the install script on macOS and Linux (`curl -fsSL https://nsgo.dev/install.sh | sh`) or with Go on any system (`go install github.com/nsgo-dev/nsgo/cmd/nsgo@latest`), as [NSGo's setup](https://nsgo.dev/docs/getting-started/#install-nsgo) describes. In a project, `nsgo game` runs the `game` tool the module's `go.mod` declares:
 
 ```sh
 go get -tool github.com/nsgo-dev/game/packages/game/cmd/game
 nsgo game help
 ```
 
-The `tool` line in `go.mod` pins the command to the module's version of the game layer, so everyone working on the game runs the same one. A project created with [`game new`](#new) has it already. An `nsgo` of another version than the one the project's `go.mod` pins runs the project's own instead, so the project's `nsgo` tool needs #2366 too: `go get -tool github.com/nsgo-dev/nsgo/cmd/nsgo@main`. Outside a project, such as to create one, `nsgo game` runs the game layer's release made for that `nsgo` with `go run`, with nothing else to install.
+The `tool` line in `go.mod` pins the command to the module's version of the game layer, so everyone working on the game runs the same one. A project created with [`game new`](#new) has it already. An `nsgo` of another version than the one the project's `go.mod` pins runs the project's own instead, so the project's `nsgo` tool needs v0.3.3 or later too; every template's `go.mod` and the game layer itself require v0.3.4, the first release whose software renderer and surface depth buffer draw 3D scenes right. Outside a project, such as to create one, `nsgo game` runs the game layer's release made for that `nsgo` with `go run`, with nothing else to install.
 
-`go tool game` runs the same command in a project without `nsgo`, and `go run github.com/nsgo-dev/game/packages/game/cmd/game@latest` does anywhere.
+`go tool game` runs the same command in a project without an installed `nsgo`, and `go run github.com/nsgo-dev/game/packages/game/cmd/game@latest` does anywhere.
 
 ## Commands
 

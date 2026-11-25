@@ -75,7 +75,7 @@ export const koPages: PagesCopy = {
       "이 컴퓨터에서 실행, 저장하면 핫 리로드",
       "다른 타깃으로 전환"
     ],
-    "requirements": "Go 1.27+와 NSGo v0.3.0+가 필요합니다. iOS 빌드에는 macOS와 Xcode가 필요합니다.",
+    "requirements": "Go 1.27+와 NSGo v0.3.4+가 필요합니다. iOS 빌드에는 macOS와 Xcode가 필요합니다.",
     "migrate": "다른 엔진에서 옮겨오기:",
     "finalTitle": "아직 초기지만, 게임 한 편을 끝까지 만들 수 있습니다.",
     "finalLead": "아직 출시 전입니다. API 안정성 정책에서 어떤 패키지가 안정적이고 어떤 패키지가 바뀔 수 있는지 확인하세요.",

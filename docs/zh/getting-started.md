@@ -5,7 +5,7 @@
 ## 环境要求
 
 - **Go 1.27** 或更高版本。
-- **NSGo `v0.3.0`** 或更新版本，新项目依赖它，并把它作为 `nsgo` 工具运行。
+- **NSGo `v0.3.4`** 或更新版本，新项目依赖它，并把它作为 `nsgo` 工具运行；另需安装 `nsgo` 命令来运行 `nsgo game`（[命令行](cli.md#安装)）。
 - 构建 iOS 目标：需要 macOS 和 Xcode。
 - 在 Android 真机或模拟器上运行：需要 `adb`（Android SDK Platform-Tools）。仅构建 `android_arm64` 的 APK 只需要 Go。
 
@@ -13,7 +13,7 @@
 
 ## 创建项目
 
-用 `game` 命令的 `new` 子命令创建项目，以 `nsgo game` 运行，在 0.3.0 之后的下一个版本发布前需要 main 上的 `nsgo`（见[命令行](cli.md#安装)）。它把起手模板写入一个新目录，再让 Go 把游戏层和 `game` 工具加入它的 `go.mod`，与模板自带的 `nsgo` 工具并列：
+用 `game` 命令的 `new` 子命令创建项目，以 `nsgo game` 运行（见[命令行](cli.md#安装)）。它把起手模板写入一个新目录，再让 Go 把游戏层和 `game` 工具加入它的 `go.mod`，与模板自带的 `nsgo` 工具并列：
 
 ```sh
 nsgo game new mygame
@@ -25,7 +25,7 @@ go tool nsgo dev
 
 起手模板包含精灵动画、点击得分和测试。它的设置都在[项目文件](project.md) `game.yaml` 中，`nsgo.yaml` 与之保持一致。`new` 用目录名作为这两个文件里的 `name` 和 `id`，以及模块路径；`-name` 和 `-module` 可以另行指定，例如 `-module example.com/mygame`。所有参数见[命令行](cli.md#new)；`-template` 可以从其他[项目模板](templates.md)开始，`new -list` 会列出它们。发布游戏之前，把应用标识改成你自己的：在 `game.yaml` 中修改游戏名称和应用标识，然后运行 `go run github.com/nsgo-dev/game/packages/game/cmd/gameproject sync` 把它们写入 `nsgo.yaml`。
 
-NSGo 自带的命令也能从模板模块写出同一个起手模板，但不包含 `game` 工具：`nsgo init -template github.com/nsgo-dev/game/template -module example.com/mygame mygame`。这需要支持 [Go 模块模板](https://nsgo.dev/zh/docs/getting-started/#来自-go-模块的模板)的 NSGo 命令，例如 `go install github.com/nsgo-dev/nsgo/cmd/nsgo@v0.3.0`。它写出的 `game.yaml` 和 `nsgo.yaml` 把游戏命名为 `Starter Game`，需要你自己修改。
+NSGo 自带的命令也能从模板模块写出同一个起手模板，但不包含 `game` 工具：`nsgo init -template github.com/nsgo-dev/game/template -module example.com/mygame mygame`。这需要支持 [Go 模块模板](https://nsgo.dev/zh/docs/getting-started/#来自-go-模块的模板)的 NSGo 命令，例如安装好的 v0.3.4 或更新版本的 `nsgo`。它写出的 `game.yaml` 和 `nsgo.yaml` 把游戏命名为 `Starter Game`，需要你自己修改。
 
 如果你已经检出了本仓库，`go run ./packages/game/cmd/game new ../mygame` 会用 `template/template/` 中的起手模板创建项目；从检出的仓库构建的命令没有自己的版本号，所以除非用 `-version` 指定，项目会依赖最新发布的游戏层。也可以在仓库根目录运行 `go tool nsgo dev ./template/template`，直接启动模板游戏。
 

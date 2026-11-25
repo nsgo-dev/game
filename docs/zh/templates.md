@@ -76,7 +76,7 @@ nsgo game new -template starter mygame
 
 不加 `-template` 时，`game new` 使用 `starter`。不在列表中的名称会被拒绝，并列出现有的模板名。`game` 的 shell 补全（见[命令行](cli.md#completion)）会用同样的名称补全 `-template`。其他参数见[命令行](cli.md#new)。
 
-NSGo 自带的命令不需要 `game` 工具，也能从模板的模块写出项目，这需要支持 [Go 模块模板](https://nsgo.dev/zh/docs/getting-started/#来自-go-模块的模板)的 NSGo 命令，例如 `go install github.com/nsgo-dev/nsgo/cmd/nsgo@v0.3.0`：
+NSGo 自带的命令不需要 `game` 工具，也能从模板的模块写出项目，这需要支持 [Go 模块模板](https://nsgo.dev/zh/docs/getting-started/#来自-go-模块的模板)的 NSGo 命令，例如安装好的 v0.3.4 或更新版本的 `nsgo`（[命令行](cli.md#安装)）：
 
 ```sh
 nsgo init -template github.com/nsgo-dev/game/template -module example.com/mygame mygame

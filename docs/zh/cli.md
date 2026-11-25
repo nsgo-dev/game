@@ -4,14 +4,14 @@
 
 ## 安装
 
-以 `nsgo game` 运行这个命令，它是 NSGo 自带的 `nsgo` 的命令（nsgo-dev/nsgo#2366），在 0.3.0 之后的下一个版本发布前需要 main 上的 `nsgo`。在项目中，`nsgo game` 运行模块的 `go.mod` 所声明的 `game` 工具：
+以 `nsgo game` 运行这个命令，它是 NSGo 自带的 `nsgo` 从 v0.3.3 起提供的命令（nsgo-dev/nsgo#2366）。`nsgo` 只需安装一次：用 Homebrew（`brew install nsgo-dev/tap/nsgo`），在 macOS 和 Linux 上用安装脚本（`curl -fsSL https://nsgo.dev/install.sh | sh`），或在任何系统上用 Go（`go install github.com/nsgo-dev/nsgo/cmd/nsgo@latest`），见 [NSGo 的安装说明](https://nsgo.dev/zh/docs/getting-started/#安装-nsgo)。在项目中，`nsgo game` 运行模块的 `go.mod` 所声明的 `game` 工具：
 
 ```sh
 go get -tool github.com/nsgo-dev/game/packages/game/cmd/game
 nsgo game help
 ```
 
-`go.mod` 里的 `tool` 一行把命令固定在模块所用的游戏层版本上，参与这个游戏的每个人运行的都是同一个命令。用 [`game new`](#new) 创建的项目已经包含这一行。版本与项目 `go.mod` 所固定版本不同的 `nsgo` 会改为运行项目自己的 `nsgo`，所以项目的 `nsgo` 工具也需要包含 #2366：`go get -tool github.com/nsgo-dev/nsgo/cmd/nsgo@main`。在项目之外，例如创建项目时，`nsgo game` 用 `go run` 运行为这个 `nsgo` 发布的游戏层版本，无需另外安装任何东西。
+`go.mod` 里的 `tool` 一行把命令固定在模块所用的游戏层版本上，参与这个游戏的每个人运行的都是同一个命令。用 [`game new`](#new) 创建的项目已经包含这一行。版本与项目 `go.mod` 所固定版本不同的 `nsgo` 会改为运行项目自己的 `nsgo`，所以项目的 `nsgo` 工具也需要 v0.3.3 或更新版本；每个模板的 `go.mod` 和游戏层本身都要求 v0.3.4，这是第一个软件渲染器和窗口深度缓冲都能正确绘制 3D 场景的版本。在项目之外，例如创建项目时，`nsgo game` 用 `go run` 运行为这个 `nsgo` 发布的游戏层版本，无需另外安装任何东西。
 
 在项目中，`go tool game` 不经 `nsgo` 运行同一个命令；在任何地方，`go run github.com/nsgo-dev/game/packages/game/cmd/game@latest` 也可以。
 

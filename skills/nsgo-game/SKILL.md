@@ -31,7 +31,7 @@ Published English docs for agents live at <https://game.nsgo.dev/llms.txt> (inde
 
 ## Quick-start workflow
 
-1. **Scaffold a project:** `nsgo game` is NSGo's command for the game layer (nsgo-dev/nsgo#2366; `nsgo` from main until the release after 0.3.0): in a module it runs the module's `game` tool, elsewhere `go run` of the matching release. `go tool game` runs the same command in a module.
+1. **Scaffold a project:** `nsgo game` is NSGo's command for the game layer (nsgo-dev/nsgo#2366, NSGo v0.3.3 or later; install it with `brew install nsgo-dev/tap/nsgo`, `curl -fsSL https://nsgo.dev/install.sh | sh` or `go install github.com/nsgo-dev/nsgo/cmd/nsgo@latest`; the game layer and its templates require NSGo v0.3.4): in a module it runs the module's `game` tool, elsewhere `go run` of the matching release. `go tool game` runs the same command in a module.
 
    ```sh
    nsgo game new my-game

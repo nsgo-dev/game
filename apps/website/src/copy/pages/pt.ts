@@ -75,7 +75,7 @@ export const ptPages: PagesCopy = {
       "Rode aqui, hot reload ao salvar",
       "Troque de plataforma"
     ],
-    "requirements": "Requer Go 1.27+ e NSGo v0.3.0+. Builds para iOS exigem macOS e Xcode.",
+    "requirements": "Requer Go 1.27+ e NSGo v0.3.4+. Builds para iOS exigem macOS e Xcode.",
     "migrate": "Vindo de outra engine:",
     "finalTitle": "Ainda no começo, e já dá para lançar um jogo inteiro.",
     "finalLead": "Nada foi lançado ainda. A política de estabilidade da API mostra quais pacotes são estáveis e quais ainda podem mudar.",

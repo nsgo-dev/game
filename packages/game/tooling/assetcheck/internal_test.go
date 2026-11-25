@@ -39,7 +39,8 @@ func TestParseJSONErrors(t *testing.T) {
 	}{
 		{"", 0, "empty file"},
 		{"{\n  \"a\": 1,\n  \"b\": ,\n}", 3, "invalid JSON"},
-		{"{\n  \"a\": [1,\n", 2, "unexpected end of JSON input"},
+		// encoding/json v1 reports a truncated value as a syntax error ("unexpected end of JSON input") and v2, which nsgo build selects and nsgo test does too since NSGo v0.3.3, as io.ErrUnexpectedEOF ("unexpected end of file"); either is reported on the last line.
+		{"{\n  \"a\": [1,\n", 2, "unexpected end of"},
 		{"{}\n{}", 2, "unexpected data after"},
 		{"{\"a\": 1}}", 1, "invalid JSON"},
 		{strings.Repeat("[", maxJSONDepth+1), 1, "nests deeper"},

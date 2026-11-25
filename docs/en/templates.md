@@ -76,7 +76,7 @@ Outside a project, `nsgo game` runs the game layer's release made for that `nsgo
 
 Without `-template`, `game new` uses `starter`. A name that is not in the list is refused with the names that are. Shell completion for `game` ([Command Line](cli.md#completion)) completes `-template` with the same names. [Command Line](cli.md#new) describes the other flags.
 
-NSGo's own command writes a template from its module without the `game` tool, with an NSGo command that supports [Go module templates](https://nsgo.dev/docs/getting-started/#templates-from-go-modules), such as `go install github.com/nsgo-dev/nsgo/cmd/nsgo@v0.3.0`:
+NSGo's own command writes a template from its module without the `game` tool, with an NSGo command that supports [Go module templates](https://nsgo.dev/docs/getting-started/#templates-from-go-modules), such as the installed `nsgo` of v0.3.4 or later ([Command Line](cli.md#install)):
 
 ```sh
 nsgo init -template github.com/nsgo-dev/game/template -module example.com/mygame mygame

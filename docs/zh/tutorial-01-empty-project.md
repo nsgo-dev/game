@@ -12,7 +12,7 @@
 mkdir starcatcher && cd starcatcher
 go mod init example.com/starcatcher
 go get github.com/nsgo-dev/game/packages/game
-go get -tool github.com/nsgo-dev/nsgo/cmd/nsgo@v0.3.0
+go get -tool github.com/nsgo-dev/nsgo/cmd/nsgo@v0.3.4
 ```
 
 之后 `go tool nsgo` 会运行模块锁定版本的 `nsgo` 命令，所以每个构建这个游戏的人用的都是同一个版本。

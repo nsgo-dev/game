@@ -101,7 +101,7 @@ Each guide maps that engine's scenes, nodes, resources, signals, input maps, phy
 
 ## Install
 
-The module needs Go 1.27 and NSGo `v0.3.0` or later:
+The module needs Go 1.27 and NSGo `v0.3.4` or later:
 
 ```sh
 go get github.com/nsgo-dev/game/packages/game
