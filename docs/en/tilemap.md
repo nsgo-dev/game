@@ -113,6 +113,8 @@ for _, ground := range m.ObjectLayer("collision").PhysicsBodies() {
 }
 ```
 
+A missing layer returns no bodies. Like the objects themselves, the bodies are in the map's local coordinates; for a map placed by `Origin`, move each shape with `ground.Shape.Translated(float32(m.Origin.X), float32(m.Origin.Y))`.
+
 ## Animated tiles
 
 Tiled tile animations load into `Tileset.Animations`, keyed by 0-based local tile ID. Call `m.Update(dt)` on every `game.Loop.Update` step to advance all animated tiles cleanly across cycles:

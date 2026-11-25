@@ -136,7 +136,7 @@ func flatOutline(pts []core.Point) bool {
 	return true
 }
 
-// PhysicsBodies returns a physics.Body for every object of l that has a PhysicsShape, in object order, moved by the layer's offset, for a physics.World's static level geometry. Each body's ID is the object's ID, its Tag the object's Type and its UserData the Object. Hidden objects are included, since collision layers are often hidden in Tiled. Use physics.NewStaticRigidBody(body.Shape) to collide them with a physics.RigidWorld. A nil layer, which Tilemap.ObjectLayer returns for a name the map does not have, has no bodies.
+// PhysicsBodies returns a physics.Body for every object of l that has a PhysicsShape, in object order, moved by the layer's offset, for a physics.World's static level geometry. Each body's ID is the object's ID, its Tag the object's Type and its UserData the Object. Hidden objects are included, since collision layers are often hidden in Tiled. Use physics.NewStaticRigidBody(body.Shape) to collide them with a physics.RigidWorld. A nil layer, which Tilemap.ObjectLayer returns for a name the map does not have, has no bodies. Like the objects, the bodies are in the map's local coordinates and ignore Tilemap.Origin; translate their shapes by it for a map placed in a world.
 func (l *ObjectLayer) PhysicsBodies() []*physics.Body {
 	if l == nil {
 		return nil

@@ -113,6 +113,8 @@ for _, ground := range m.ObjectLayer("collision").PhysicsBodies() {
 }
 ```
 
+不存在的图层不返回任何物体。与对象本身一样，这些物体位于地图的局部坐标中；对于用 `Origin` 放置的地图，用 `ground.Shape.Translated(float32(m.Origin.X), float32(m.Origin.Y))` 移动每个形状。
+
 ## 动画瓦片
 
 Tiled 瓦片动画会加载到 `Tileset.Animations`（以 0 起始的本地瓦片 ID 为键）。在每个 `game.Loop.Update` 步长调用 `m.Update(dt)` 即可推进全部动画瓦片：
