@@ -108,6 +108,7 @@ func FuzzLoadTiled(f *testing.F) {
 	f.Add([]byte(`{}`), []byte{})
 	f.Add([]byte(`<map width="2" height="1" tilewidth="16" tileheight="16"><layer name="a"><data encoding="base64" compression="zlib">`+fuzzEncodeGIDs([]uint32{1, 2}, "zlib")+`</data></layer></map>`), sampleTSX)
 	f.Add([]byte(`<map width="2" height="1" tilewidth="16" tileheight="16"><layer name="a"><data encoding="base64" compression="gzip">`+fuzzEncodeGIDs([]uint32{1, 2}, "gzip")+`</data></layer></map>`), []byte{})
+	f.Add([]byte(`{"width":2,"height":1,"tilewidth":16,"tileheight":16,"orientation":"orthogonal","layers":[{"type":"tilelayer","data":[1,2147483650]}],"tilesets":[{"firstgid":1,"tiles":[{"id":0,"objectgroup":{"objects":[{"x":0,"y":8,"width":16,"height":8},{"x":0,"y":0,"width":8,"height":8,"ellipse":true,"rotation":45},{"polygon":[{"x":0,"y":16},{"x":16,"y":0},{"x":16,"y":16}]},{"polyline":[{"x":0,"y":0},{"x":16,"y":0}]},{"point":true}]}}]}]}`), []byte{})
 
 	f.Fuzz(func(t *testing.T, mapData, extTilesetData []byte) {
 		m, err := tilemap.LoadTiled(mapData, tilemap.TilesetLoader{

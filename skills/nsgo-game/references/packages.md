@@ -20,7 +20,7 @@ Every non-internal package under `github.com/nsgo-dev/game/packages` (shown rela
 | Package | Status | Purpose |
 | --- | --- | --- |
 | `game/sprite` | Stable | Atlases (TexturePacker/Aseprite), frames, animations, sprites, effects and `Batch` drawing |
-| `game/tilemap` | Stable | 2D `Camera`, culled tilemaps, Tiled `.tmj` and LDtk loaders, animated tiles, raycasts |
+| `game/tilemap` | Stable | 2D `Camera`, culled tilemaps, Tiled `.tmj` and LDtk loaders, per-tile collision shapes, animated tiles, raycasts |
 | `game/scene` | Stable | World/screen layers, parallax, hit testing, `DispatchPress`, scene stacks and transitions |
 | `game/sceneformat` | Experimental | Plain-text YAML `.scene.yaml` documents, validation, prefab resolution and `SpawnEntities` |
 | `game/entities` | Experimental | Generational ECS `World`, typed component stores, `Transform2D`/`Hierarchy2D`, `Prefab`, codecs |
@@ -45,6 +45,7 @@ Every non-internal package under `github.com/nsgo-dev/game/packages` (shown rela
 | `game/pixelfx/water` | Experimental | pixelfx water effects (bubbles, drip, fountain, geyser, rain splash, ripples, splash, water jet, water orb, waterfall, wave crash, whirlpool) |
 | `game/pixelfx/weather` | Experimental | pixelfx weather loops (aurora, blizzard, cherry blossoms, clouds, falling leaves, fireflies, fog, god rays, rain, shooting stars, snow, storm) |
 | `game/lights2d` | Experimental | 2D ambient darkness, point/cone lights, visibility-polygon shadows, normal-mapped sprites |
+| `game/tileshape` | Experimental | Tilemap collision geometry: a physics `TileGrid` view, slopes from Tiled per-tile shapes, merged outlines, static boxes and `lights2d` occluders |
 | `game/effects` | Experimental | Chained Kage shader post-processing passes over the game frame |
 | `game/skeletal` | Experimental | 2D bone rigs, IK, skins and YAML rig definitions |
 | `game/cutscene` | Experimental | Skippable video cutscenes over the game view from YAML |

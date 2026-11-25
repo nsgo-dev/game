@@ -49,7 +49,9 @@ if res.Grounded && actions.JustPressed("jump") {
 
 - **接触标志**：`MoveAndSlide` 同时更新返回值 `MoveResult` 和物体自身的 `Grounded`、`OnCeiling`、`OnLeftWall`、`OnRightWall` 标志，并列出每次瓦片接触 `Contacts`（含 `Col`、`Row`、`Flags`、`NormalX`、`NormalY`）。
 - **单向平台**：标记为 `TileOneWay` 的瓦片只在物体起点位于瓦片顶边之上且向下移动时阻挡；将 `Body.OneWayDrop` 设为 `true` 可向下穿过。
-- **自定义 `TileGrid`**：只需实现 `TileSize() (float32, float32)`、`GridSize() (int, int)` 和 `TileFlagsAt(col, row int) TileFlags`，即可将 [`tilemap.Tilemap`](tilemap.md) 或任意地图直接接入 `MoveAndSlide` 与 `World`。
+- **瓦片地图**：[`tilemap.Tilemap`](tilemap.md) 的 [`tileshape.View`](tileshape.md) 就是一个 `TileGrid`，可以连同它从逐瓦片碰撞形状推导出的 `Slope` 线段一起直接传给 `MoveAndSlide`、`CharacterBody.Move` 与 `World`。
+- **自定义 `TileGrid`**：只需实现 `TileSize() (float32, float32)`、`GridSize() (int, int)` 和 `TileFlagsAt(col, row int) TileFlags`，即可将其他任意地图接入 `MoveAndSlide` 与 `World`。
+- **斜坡与瓦片配合**：`CharacterBody.Move` 会先把角色抬到可行走的斜坡上，再检测瓦片墙，因此斜坡顶端与实心瓦片顶面相接时角色会走上瓦片；角色走出斜坡下端时，会贴合到 `SnapDist` 以内的瓦片顶面。
 
 ## World 空间查询与射线检测
 

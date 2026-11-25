@@ -19,6 +19,7 @@ func TestLoadTiledErrorsNameFileLineAndFix(t *testing.T) {
 		{"negative size", `{"tilewidth": 16, "tileheight": 16, "width": -1, "height": 1}`, "width"},
 		{"firstgid", `{` + base + `, "tilesets": [{"name": "t"}]}`, "tilesets[0].firstgid"},
 		{"property", `{` + base + `, "properties": [{"name": "n", "type": "int", "value": "x"}]}`, "properties[0].value"},
+		{"tile shape property", `{` + base + `, "tilesets": [{"firstgid": 1, "tiles": [{"id": 0, "objectgroup": {"objects": [{"id": 1, "width": 4, "height": 4, "properties": [{"name": "n", "type": "int", "value": "x"}]}]}}]}]}`, "tilesets[0].tiles[0].objectgroup.objects[0].properties[0].value"},
 		{"tile animation", `{` + base + `, "tilesets": [{"firstgid": 1, "tiles": [{"id": 0, "animation": [{"tileid": 0, "duration": -5}]}]}]}`, "tilesets[0].tiles[0].animation[0].duration"},
 		{"layer data length", `{` + base + `, "layers": [{"type": "tilelayer", "name": "g", "data": [1]}]}`, "layers[0].data"},
 		{"zstd layer", `{` + base + `, "layers": [{"type": "tilelayer", "name": "g", "encoding": "base64", "compression": "zstd", "data": "AAAA"}]}`, "layers[0].compression"},

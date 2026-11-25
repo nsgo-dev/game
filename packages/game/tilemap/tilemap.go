@@ -222,6 +222,8 @@ type Tileset struct {
 	TileProperties map[uint32]Properties
 	// Animations holds tile animations keyed by 0-based local tile ID.
 	Animations map[uint32]*TileAnimation
+	// Shapes holds the collision shapes of tiles keyed by 0-based local tile ID, such as the ones Tiled's collision editor draws; an animated tile keeps the shapes of its own ID whichever frame shows.
+	Shapes map[uint32][]TileShape
 }
 
 // NewAtlasTileset builds a Tileset from atlas whose local tile IDs (0, 1, ...) correspond to frameNames in order.

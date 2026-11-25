@@ -167,6 +167,7 @@
 | `game/stats` | 实验性 | [stats](stats.md) |
 | `game/text` | 实验性 | [text](text.md) |
 | `game/tilemap` | 稳定 | [tilemap](tilemap.md) |
+| `game/tileshape` | 实验性 | [tileshape](tileshape.md) |
 | `game/tooling/apiref` | 实验性 | |
 | `game/tooling/assetbuild` | 实验性 | [命令行](cli.md) |
 | `game/tooling/assetcheck` | 实验性 | [命令行](cli.md) |

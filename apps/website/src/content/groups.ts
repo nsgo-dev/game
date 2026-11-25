@@ -22,7 +22,7 @@ const SIDEBAR_GROUPS: readonly { key: Exclude<GroupKey, 'other'>; slugs: readonl
   { key: 'comingFrom', slugs: ['from-godot', 'from-ebitengine', 'from-unity'] },
   {
     key: 'core2d',
-    slugs: ['loop', 'sprite', 'sound', 'input', 'tilemap', 'scene', 'physics', 'screen', 'assets', 'resources', 'text', 'particles', 'save', 'debug', 'mcp', 'flow', 'tween', 'animclip', 'ai', 'procgen', 'replay', 'cutscene', 'undo'],
+    slugs: ['loop', 'sprite', 'sound', 'input', 'tilemap', 'tileshape', 'scene', 'physics', 'screen', 'assets', 'resources', 'text', 'particles', 'save', 'debug', 'mcp', 'flow', 'tween', 'animclip', 'ai', 'procgen', 'replay', 'cutscene', 'undo'],
   },
   { key: 'extended2d', slugs: ['math2d', 'gameui', 'lights2d', 'quality', 'effects', 'worldmap', 'fog', 'a11y', 'l10n', 'perf'] },
   { key: 'multiplayerModding', slugs: ['net', 'modding'] },

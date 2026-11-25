@@ -46,6 +46,8 @@ lighting.Occluders = []lights2d.Occluder{
 }
 ```
 
+对于瓦片地图，[`tileshape.View`](tileshape.md) 会把实心格子与逐瓦片碰撞形状合并为遮挡体，投下相同的阴影而线段少得多：设置 `lighting.Occluders = view.Occluders()`，地图改变后再设置一次。
+
 设置 `Scene.DisableShadows` 可以让所有光源都跳过遮挡计算，而不必逐个修改光源的 `CastShadows`，关闭阴影的画质预设就是这样做的（`lights.DisableShadows = !preset.Shadows`，见 [quality](quality.md)）。`Draw`、`EvaluateAt`、`ShadeNormalMap` 与 `NormalSprite` 都会遵循这个设置，切换它也会让 `NormalSprite` 重新着色。
 
 当 `light.CastShadows` 为 `true` 时，`Scene.Draw` 会用 `VisibilityPolygon(origin, radius, occluders)` 裁剪该光源。你也可以直接调用几何辅助函数实现潜行视野、视线判断或战争迷雾：

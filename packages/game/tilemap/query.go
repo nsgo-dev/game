@@ -41,14 +41,18 @@ func (m *Tilemap) SetFlags(tileID uint32, flags TileFlags) {
 	if id == 0 {
 		return
 	}
-	if flags == 0 {
-		delete(m.tileFlags, id)
+	if m.tileFlags[id] == flags {
 		return
 	}
-	if m.tileFlags == nil {
-		m.tileFlags = make(map[uint32]TileFlags)
+	if flags == 0 {
+		delete(m.tileFlags, id)
+	} else {
+		if m.tileFlags == nil {
+			m.tileFlags = make(map[uint32]TileFlags)
+		}
+		m.tileFlags[id] = flags
 	}
-	m.tileFlags[id] = flags
+	m.recordBulkTileEdit()
 }
 
 // SetCellFlags overrides the flags at a single map cell (col, row), taking precedence over per-tile flags.
@@ -57,15 +61,23 @@ func (m *Tilemap) SetCellFlags(col, row int, flags TileFlags) {
 	if !m.hasChunkedLayer() && (col < 0 || row < 0 || col >= m.Width || row >= m.Height) {
 		return
 	}
+	if old, ok := m.cellFlags[cellKey{col, row}]; ok && old == flags {
+		return
+	}
 	if m.cellFlags == nil {
 		m.cellFlags = make(map[cellKey]TileFlags)
 	}
 	m.cellFlags[cellKey{col, row}] = flags
+	m.recordTileEdit(col, row)
 }
 
 // ClearCellFlags removes any per-cell flag override at (col, row), restoring its tile-ID flags.
 func (m *Tilemap) ClearCellFlags(col, row int) {
+	if _, ok := m.cellFlags[cellKey{col, row}]; !ok {
+		return
+	}
 	delete(m.cellFlags, cellKey{col, row})
+	m.recordTileEdit(col, row)
 }
 
 // FlagsAt returns the combined TileFlags at (col, row) across all tile layers, or 0 if out of bounds.

@@ -39,7 +39,7 @@ func (l TilesetLoader) loadTilesetFn() func(string) ([]byte, error) {
 
 // LoadTiled parses a Tiled map — either JSON (.tmj) or XML (.tmx) — into a Tilemap, loading any external .tsx or .tsj tilesets and resolving tileset and image-layer images through resolve.
 //
-// Orthogonal, isometric, staggered, and hexagonal maps, infinite chunked maps, CSV, XML, and base64 tile data (uncompressed, zlib, and gzip), image layers, nested group layers, embedded and external tilesets (including cross-format TMX/TSJ and TMJ/TSX references), GID flip flags, object layers, custom properties and tile animations are supported. zstd compression is refused with an actionable fix hint.
+// Orthogonal, isometric, staggered, and hexagonal maps, infinite chunked maps, CSV, XML, and base64 tile data (uncompressed, zlib, and gzip), image layers, nested group layers, embedded and external tilesets (including cross-format TMX/TSJ and TMJ/TSX references), GID flip flags, object layers, custom properties, tile animations and the collision shapes Tiled's collision editor draws on tiles (into Tileset.Shapes) are supported. zstd compression is refused with an actionable fix hint.
 //
 // Its errors are *loaderr.Error values that give the line and field of the problem and how to fix it. An error in an external tileset names that tileset's source; for one in the map itself, a caller that read data from a file names it with loaderr.WithFile.
 func LoadTiled(data []byte, resolve TilesetLoader) (*Tilemap, error) {
@@ -295,6 +295,18 @@ func buildTileset(m *Tilemap, firstGID uint32, raw tiledTileset, baseDir string,
 				ts.Animations = make(map[uint32]*TileAnimation)
 			}
 			ts.Animations[tile.ID] = &TileAnimation{Frames: frames}
+		}
+		if tile.ObjectGroup != nil && len(tile.ObjectGroup.Objects) > 0 {
+			shapes, err := tiledTileShapes(tile.ObjectGroup.Objects)
+			if err != nil {
+				return nil, nest(err, loaderr.Path("tiles", ti))
+			}
+			if len(shapes) > 0 {
+				if ts.Shapes == nil {
+					ts.Shapes = make(map[uint32][]TileShape)
+				}
+				ts.Shapes[tile.ID] = shapes
+			}
 		}
 	}
 	return ts, nil
@@ -918,6 +930,8 @@ type tiledTile struct {
 	Animation  []tiledAnimFrameJSON `json:"animation"`
 	line       int
 	col        int
+	// ObjectGroup is the tile's collision shapes from Tiled's collision editor.
+	ObjectGroup *tiledLayer `json:"objectgroup"`
 }
 
 type tiledAnimFrameJSON struct {

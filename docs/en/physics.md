@@ -49,7 +49,9 @@ if res.Grounded && actions.JustPressed("jump") {
 
 - **Contact flags**: `MoveAndSlide` updates both the returned `MoveResult` and the body's `Grounded`, `OnCeiling`, `OnLeftWall`, and `OnRightWall` flags, plus per-tile `Contacts` (`Col`, `Row`, `Flags`, `NormalX`, `NormalY`).
 - **One-way platforms**: tiles marked `TileOneWay` block downward motion only when the body starts at or above the tile's top edge, unless `Body.OneWayDrop` is `true`.
-- **Custom `TileGrid`**: implement `TileSize() (float32, float32)`, `GridSize() (int, int)`, and `TileFlagsAt(col, row int) TileFlags` to plug a [`tilemap.Tilemap`](tilemap.md) or any custom map directly into `MoveAndSlide` and `World`.
+- **Tilemaps**: a [`tileshape.View`](tileshape.md) of a [`tilemap.Tilemap`](tilemap.md) is a `TileGrid`, so pass it to `MoveAndSlide`, `CharacterBody.Move` and `World` directly, together with the `Slope` segments it derives from per-tile collision shapes.
+- **Custom `TileGrid`**: implement `TileSize() (float32, float32)`, `GridSize() (int, int)`, and `TileFlagsAt(col, row int) TileFlags` to plug any other map into `MoveAndSlide` and `World`.
+- **Slopes and tiles together**: `CharacterBody.Move` lifts a character onto a walkable slope before testing tile walls, so the top of a slope that meets a solid tile's top walks onto the tile, and when the character walks off the lower end of a slope it snaps down onto a tile top within `SnapDist`.
 
 ## World queries and raycasts
 
