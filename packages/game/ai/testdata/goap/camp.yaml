@@ -1,0 +1,82 @@
+version: 1
+nodeBudget: 512
+facts:
+  bools:
+    - has_axe
+    - has_fire
+    - cooked_meal
+  ints:
+    - wood
+    - raw_meat
+actions:
+  - name: fetch_axe
+    cost: 1
+    check: axe_available
+    effects:
+      bools:
+        - fact: has_axe
+          value: true
+  - name: chop_wood
+    cost: 1
+    preconditions:
+      bools:
+        - fact: has_axe
+          value: true
+    effects:
+      ints:
+        - fact: wood
+          op: add
+          value: 1
+  - name: gather_sticks
+    cost: 3
+    effects:
+      ints:
+        - fact: wood
+          op: add
+          value: 1
+  - name: build_fire
+    cost: 1
+    preconditions:
+      ints:
+        - fact: wood
+          op: gte
+          value: 2
+    effects:
+      bools:
+        - fact: has_fire
+          value: true
+      ints:
+        - fact: wood
+          op: add
+          value: -2
+  - name: cook_meat
+    cost: 1
+    preconditions:
+      bools:
+        - fact: has_fire
+          value: true
+      ints:
+        - fact: raw_meat
+          op: gte
+          value: 1
+    effects:
+      bools:
+        - fact: cooked_meal
+          value: true
+      ints:
+        - fact: raw_meat
+          op: add
+          value: -1
+goals:
+  - name: light_campfire
+    priority: 10
+    target:
+      bools:
+        - fact: has_fire
+          value: true
+  - name: prepare_meal
+    priority: 5
+    target:
+      bools:
+        - fact: cooked_meal
+          value: true
