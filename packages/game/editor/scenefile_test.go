@@ -857,3 +857,32 @@ func TestCommandPaletteOpensAnotherSceneInATab(t *testing.T) {
 		t.Fatalf("after palette open: scene %q (%q), tabs %d, tab0 dirty %v, active dirty %v, OnSave kept %v", ed.ScenePath, ed.Doc.Name, ed.TabCount(), ed.TabDirty(0), ed.SceneDirty(), ed.OnSave != nil)
 	}
 }
+
+// TestToolbarHeightStableWhenSceneBecomesDirty ensures showing or hiding the dirty "*" marker never changes the toolbar's height or shifts the viewport canvas vertically.
+func TestToolbarHeightStableWhenSceneBecomesDirty(t *testing.T) {
+	ed, _ := openTestProject(t)
+	app := startEditorApp(t, ed)
+
+	tbClean := app.Find("id:editor-toolbar").Bounds()
+	vpClean := app.Find("id:editor-viewport").Bounds()
+	if app.Exists("id:toolbar-unsaved") {
+		t.Fatal("clean scene should not show toolbar-unsaved")
+	}
+
+	app.Post(func() {
+		if err := ed.MoveObject("hero", 75, 80); err != nil {
+			t.Error(err)
+		}
+	})
+	app.Settle()
+
+	if !app.Exists("id:toolbar-unsaved") {
+		t.Fatal("dirty scene should show toolbar-unsaved")
+	}
+	tbDirty := app.Find("id:editor-toolbar").Bounds()
+	vpDirty := app.Find("id:editor-viewport").Bounds()
+	if tbDirty.Size.Height != tbClean.Size.Height || vpDirty.Origin.Y != vpClean.Origin.Y || vpDirty.Size.Height != vpClean.Size.Height {
+		t.Fatalf("toolbar/viewport shifted when scene became dirty: toolbar height %v -> %v, viewport Y %v -> %v, viewport height %v -> %v",
+			tbClean.Size.Height, tbDirty.Size.Height, vpClean.Origin.Y, vpDirty.Origin.Y, vpClean.Size.Height, vpDirty.Size.Height)
+	}
+}
