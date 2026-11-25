@@ -140,6 +140,7 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 	e.tileset = nil
 	e.ActiveTerrain = ""
 	e.particles = nil
+	e.material = nil
 	e.lookThroughCamera3D = false
 	e.envPanelOpen = false
 	if e.ProjectAssets {

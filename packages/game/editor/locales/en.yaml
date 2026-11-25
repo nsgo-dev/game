@@ -39,6 +39,8 @@ strings:
   cmd.lightingPreview.label: Toggle 2D Lighting Preview
   cmd.localization.desc: Toggle the Localization string table panel
   cmd.localization.label: Localization Strings
+  cmd.materialEditor.desc: Toggle the Material Editor panel with live 3D and 2D preview
+  cmd.materialEditor.label: Material Editor
   cmd.mergeConflicts.desc: Open the object-by-object scene merge conflict resolver for an active Git merge
   cmd.mergeConflicts.label: Resolve Scene Merge Conflicts
   cmd.navMesh2dOverlay.desc: Show or hide the built 2D navigation mesh polygons, portals, and region outlines in the 2D viewport
@@ -103,6 +105,8 @@ strings:
   dialog.scenePathLabel: Scene path
   dialog.unsavedDesc: The scene {scene} or the project has unsaved changes.
   dialog.unsavedTitle: Save changes?
+  files.editMaterial: Edit Material
+  files.editMaterialLabel: Open the selected material file in the Material Editor
   files.findRefs: Find Refs
   files.findRefsLabel: Find every reference to the selected file across the project
   files.move: Move
@@ -145,6 +149,7 @@ strings:
   inspector.deleteProperty: Delete property {key}
   inspector.depth: Depth
   inspector.editConnection: Edit connection
+  inspector.editMaterial: Edit Material
   inspector.empty: No object selected
   inspector.flip: Flip
   inspector.height: Height
@@ -154,6 +159,7 @@ strings:
   inspector.mesh: Mesh
   inspector.name: Name
   inspector.navRegionResetPolygon: Reset to Default Polygon
+  inspector.newMaterial: New Material
   inspector.newProperty: New property
   inspector.newPropertyKey: New property key
   inspector.newPropertyKind: New property kind
@@ -222,6 +228,26 @@ strings:
   library.remove: Remove
   library.title: Library
   library.update: Update
+  material.close: Close
+  material.field.baseColor: Base Color
+  material.field.blend: Blend
+  material.field.doubleSided: Double-sided
+  material.field.emissive: Emissive
+  material.field.emissiveLabel: Emissive Color
+  material.field.flags: Flags
+  material.field.metallic: Metallic
+  material.field.name: Name
+  material.field.nameLabel: Material Name
+  material.field.namePlaceholder: Optional display name
+  material.field.opacity: Opacity
+  material.field.roughness: Roughness
+  material.field.texture: Texture
+  material.field.unlit: Unlit
+  material.save: Save Material
+  material.shape.cube: Cube
+  material.shape.sphere: Sphere
+  material.shape.sprite: Sprite
+  material.title: Material Editor
   menu.audioMixer: Audio Bus Mixer
   menu.checkProblems: Check Problems
   menu.closeTab: Close Scene Tab
@@ -238,6 +264,7 @@ strings:
   menu.gizmo3d: 3D Gizmo
   menu.lightingPreview: 2D Lighting Preview
   menu.localization: Localization Strings
+  menu.materialEditor: Material Editor
   menu.mergeConflicts: Resolve Scene Merge Conflicts
   menu.move: Move
   menu.navMesh2dOverlay: 2D NavMesh Overlay

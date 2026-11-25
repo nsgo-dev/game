@@ -193,6 +193,14 @@ func (r *Resolver) PhysicsMaterial(p string) (*resource.PhysicsMaterial, error) 
 	return r.files.library().PhysicsMaterial(p)
 }
 
+// Library returns the resource.Library that loads the project's materials and physics materials, so callers such as the scene editor can reload edited material files in place (resource.Library.Reload) until Refresh replaces it.
+func (r *Resolver) Library() *resource.Library {
+	if r == nil || r.files == nil {
+		return nil
+	}
+	return r.files.library()
+}
+
 // library returns the resource.Library that loads the project's materials, which Refresh replaces.
 func (f *projectFiles) library() *resource.Library {
 	f.mu.Lock()

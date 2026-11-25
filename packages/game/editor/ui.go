@@ -197,6 +197,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 																RigPanelView(cx, ed, rev),
 																DataTablePanelView(cx, ed, rev),
 																ParticleEditorPanelView(cx, ed, rev),
+																MaterialEditorPanelView(cx, ed, rev),
 																AnimationPanelView(cx, ed, rev),
 																EnvironmentPanelView(cx, ed, rev),
 																StatesPanelView(cx, ed, rev),

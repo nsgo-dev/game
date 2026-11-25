@@ -123,6 +123,14 @@ func (e *Editor) OpenProjectFile(relPath string) error {
 		return nil
 	}
 	e.selectFile(relPath)
+	if isMaterialFile(relPath) {
+		if err := e.OpenMaterialProjectFile(relPath); err != nil {
+			return err
+		}
+		e.Status = "Opened " + relPath
+		e.notify()
+		return nil
+	}
 	if isStatesFile(relPath) {
 		if err := e.OpenStatesProjectFile(relPath); err != nil {
 			return err

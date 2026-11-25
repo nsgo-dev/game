@@ -191,6 +191,7 @@ func (e *Editor) ApplicationMenu() []desktop.MenuItem {
 		cmdItem(CmdHUDLayout, "HUD & Menu Layout", false),
 		cmdItem(CmdProfiler, e.T("menu.profiler"), false),
 		cmdItem(CmdParticleEditor, e.T("menu.particleEditor"), false),
+		cmdItem(CmdMaterialEditor, e.T("menu.materialEditor"), false),
 		sep,
 		cmdItem(CmdCheckProblems, e.T("menu.checkProblems"), false),
 		cmdItem(CmdMergeConflicts, e.T("menu.mergeConflicts"), false),
@@ -225,7 +226,7 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 	sig := core.NewMemo(cx, func() string {
 		_ = rev.Get()
 		var b strings.Builder
-		fmt.Fprintf(&b, "%s|%v|%v|%v|%v|%v|%v|%v|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%d|%d|%v|%v",
+		fmt.Fprintf(&b, "%s|%v|%v|%v|%v|%v|%v|%v|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%d|%d|%v|%v",
 			e.ResolvedLanguage(),
 			e.EditorSettingsOpen(),
 			e.StartScreenOpen(),
@@ -246,6 +247,7 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 			e.LocalizationOpen(),
 			e.ParticleEmitterOpen(),
 			e.HUDLayoutOpen(),
+			e.MaterialOpen(),
 			e.ExportPanelOpen(),
 			e.ProfilerOpen(),
 			e.ShowLightingPreview,

@@ -184,6 +184,7 @@ func (e *Editor) OpenDemo() error {
 	e.tileset = nil
 	e.ActiveTerrain = ""
 	e.particles = nil
+	e.material = nil
 	e.lookThroughCamera3D = false
 	e.envPanelOpen = false
 	e.merge = mergeConflictState{}

@@ -225,6 +225,7 @@ func (e *Editor) followMove(root, from, to string, written []refs.Write) {
 	e.followGridMapMove(moveFile, movePath)
 	e.followParticlesMove(moveFile)
 	e.followRigMove(moveFile)
+	e.followMaterialMove(moveFile, movePath)
 	e.filesRev++
 	e.assetsRev++
 	e.followSearchMove(forth)
