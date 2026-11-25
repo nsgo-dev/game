@@ -31,6 +31,7 @@ go get -tool github.com/nsgo-dev/game/packages/game/cmd/game@latest
 | `game tex` | `game tex [-format bc1\|bc3\|etc2\|rgba8 -mipmaps -srgb -o] <input.png\|jpg>` | Encode textures into KTX2 containers |
 | `game manifest` | `game manifest [-in assets -out -pkg -prefix -embed -embed-dir -check]` | Generate a typed Go asset manifest so missing assets fail compilation |
 | `game credits` | `game credits [-in game.yaml -out file]` | Generate the asset author/license credits file from `.import.yaml` sidecars |
+| `game pixelfx` | `game pixelfx [-out -name -fps -act -flip -set name=value -list] <category/name>` | Render a pixelfx effect (or it acted out) to a PNG sprite sheet + Aseprite JSON for `sprite.LoadAtlas` |
 
 ### Testing, performance, shipping and shell support
 

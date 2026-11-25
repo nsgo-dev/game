@@ -1,6 +1,6 @@
 # 命令行
 
-`game` 是游戏层的命令行工具：一个命令，由子命令打包精灵图集、转换音频、生成资源清单、编码纹理、打开场景编辑器、构建发布包、无界面回放输入录像、对照存储的基线检查基准测试、创建项目、运行游戏并热重载资源、检查游戏的场景、地图和图集，从 `game.yaml` 构建游戏全部资源并只重建有改动的部分，向项目中写入新的组件、系统、场景和预制体，移动文件并保持指向它们的引用有效，维护记录稳定文件 ID 的项目索引，以及生成 shell 补全脚本。子命令的调用方式一致：参数标志写在位置参数之前，读取的内容用 `-in`，写出的内容用 `-out`，帮助也一样。
+`game` 是游戏层的命令行工具：一个命令，由子命令打包精灵图集、转换音频、生成资源清单、编码纹理、打开场景编辑器、构建发布包、无界面回放输入录像、对照存储的基线检查基准测试、创建项目、运行游戏并热重载资源、检查游戏的场景、地图和图集，从 `game.yaml` 构建游戏全部资源并只重建有改动的部分，向项目中写入新的组件、系统、场景和预制体，移动文件并保持指向它们的引用有效，维护记录稳定文件 ID 的项目索引，把 pixelfx 特效渲染为精灵表，以及生成 shell 补全脚本。子命令的调用方式一致：参数标志写在位置参数之前，读取的内容用 `-in`，写出的内容用 `-out`，帮助也一样。
 
 ## 安装
 
@@ -34,6 +34,7 @@ go tool game help
 | `index` | 给每个场景文件和资源文件分配 uid，把引用指向未经工具移动的文件的新位置，并写出项目索引 |
 | `library` | 在库中查找资源、编辑器插件和模板包并安装到项目中，更新或移除它们，或打印包的摘要 |
 | `credits` | 写出 `release` 随发布附带的署名文件：每个资源的作者和许可证，取自它旁边的导入设置附属文件，有资源缺少署名时失败 |
+| `pixelfx` | 把 pixelfx 特效或其表演版本渲染为 PNG 精灵表和供 `sprite.LoadAtlas` 读取的 Aseprite JSON |
 | `completion` | 为 zsh、bash 或 fish 生成补全脚本 |
 | `help` | 列出所有命令，或显示某个命令的参数 |
 
@@ -448,6 +449,17 @@ Licensed under the SIL Open Font License, Version 1.1.
 
 资源按路径排序。许可证表统计每个许可证表达式下的资源数，并把单个 SPDX 标识符链接到它在 SPDX 许可证列表中的页面；随后逐字列出每段声明。`github.com/nsgo-dev/game/packages/game/tooling/credits` 包负责收集署名并写出文件，游戏若想在自己的界面里展示署名也可以使用它。
 
+### pixelfx
+
+```sh
+go tool game pixelfx -out assets/fx fire/torch
+go tool game pixelfx -set seed=4 -set palette=#102,#215,#43a,#8cf,#fff -flip -name frost-torch -out assets/fx fire/torch
+go tool game pixelfx -act -fps 30 -out assets/fx moves/ground-pound
+go tool game pixelfx -list
+```
+
+把命令内置的某个 [pixelfx](pixelfx.md) 特效渲染为 PNG 精灵表及其 Aseprite JSON，即 `-out` 下的 `<name>.png` 和 `<name>.json`，可供 `sprite.LoadAtlas` 读取：每一帧按特效自身的帧率（或 `-fps`）渲染并排成网格，带有每帧的时长和位于特效原点的轴心，以及一个动画标签（循环特效循环播放，一次性特效只播放一次）。名字默认取特效名（`torch`），可用 `-name` 指定。`-set name=value` 设置特效的一个选项，值可以是数字、`true` 或 `false`、颜色（如 `#4a3f69`）、用逗号分隔的一串颜色（调色板）或文本；`-flip` 镜像特效。`-act` 改为渲染表演版本：内置角色带着稻草靶表演该特效，除非用 `-fps` 指定，否则帧率为 60，JSON 中带有表演的时间信息，供有自己角色的游戏使用。`-list` 列出所有特效及其尺寸、时长和选项。命令不认识的特效、选项或取值以 2 退出。它能渲染的类别是目前已移植的类别，每个类别移植时会把自己加进来。
+
 ### completion
 
 ```sh
@@ -455,7 +467,7 @@ mkdir -p ~/.zfunc
 go tool game completion zsh > ~/.zfunc/_game
 ```
 
-把 `zsh`、`bash` 或 `fish` 的补全脚本写到标准输出。脚本补全子命令（附带其简介）、每个子命令的参数（附带其说明）、`-format` 和 `release` 的 `-channel` 可取的值、`generate` 能生成的种类（由于命令的参数在每个位置的补全方式相同，补全名称时也会提供这些种类），以及 `-in`、`-out` 和其他命令接受的文件与目录路径。脚本由命令定义生成，因此升级游戏层后重新生成一次，就能补全升级新增的子命令和参数。
+把 `zsh`、`bash` 或 `fish` 的补全脚本写到标准输出。脚本补全子命令（附带其简介）、每个子命令的参数（附带其说明）、`-format` 和 `release` 的 `-channel` 可取的值、`generate` 能生成的种类（由于命令的参数在每个位置的补全方式相同，补全名称时也会提供这些种类）、`pixelfx` 能渲染的特效，以及 `-in`、`-out` 和其他命令接受的文件与目录路径。脚本由命令定义生成，因此升级游戏层后重新生成一次，就能补全升级新增的子命令和参数。
 
 脚本补全的是名为 `game` 的命令。输入 `go tool game` 时，shell 补全的是 `go`，所以要么用 `go install github.com/nsgo-dev/game/packages/game/cmd/game@latest` 安装命令，要么把 `game` 定义为运行 `go tool game` 的 shell 函数：它在游戏的模块内可用，并沿用 `go.mod` 固定的版本。`go tool game` 只能在模块内运行，所以把脚本保存为文件一次即可，不要在每次启动 shell 时生成。
 

@@ -120,6 +120,11 @@
 | `game/perf` | 实验性 | [perf](perf.md) |
 | `game/physics` | 稳定 | [physics](physics.md) |
 | `game/physics3d` | 实验性 | [physics3d](physics3d.md) |
+| `game/pixelfx` | 实验性 | [pixelfx](pixelfx.md) |
+| `game/pixelfx/explosions` | 实验性 | [pixelfx](pixelfx.md) |
+| `game/pixelfx/fire` | 实验性 | [pixelfx](pixelfx.md) |
+| `game/pixelfx/impacts` | 实验性 | [pixelfx](pixelfx.md) |
+| `game/pixelfx/moves` | 实验性 | [pixelfx](pixelfx.md) |
 | `game/placeholder` | 实验性 | [占位素材](placeholder.md) |
 | `game/platformer` | 实验性 | [platformer](platformer.md) |
 | `game/presence` | 实验性 | [presence](presence.md) |

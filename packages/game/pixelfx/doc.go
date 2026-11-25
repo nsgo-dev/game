@@ -1,0 +1,8 @@
+// Package pixelfx is a Go port of pixelfx (https://github.com/patch-gg/pixelfx), a library of pixel art effects and animations, each a small procedural program: fire, explosions, magic, weather, UI, pickups, transitions, critters, and character moves acted out with wind-up, hit-stop and recovery. A game built on NSGo can play, recolor and mirror them at run time and export them as sprite sheets, with no JavaScript.
+//
+// This package is pixelfx's core: the Frame an effect draws into (opaque color plus additive light, put together by Composite), the Painter it draws with (dots, lines, discs, rings, glows, sprites, pixel text, placed, mirrored and rotated for it), seeded randomness and noise (Rng, Hash, Noise), closed-form particles for loops (Cycle, Stream) and simulated ones (Particles, Bits, Lights, Blazes), and the acting system: a 3D skeleton drawn to pixels (Rig, Pose), its acts (Act, Perform) and chains of effects played as one move (Chain).
+//
+// Effects live in one subpackage per category, such as pixelfx/fire, which registers its effects as "<category>/<name>" when imported, so a game links only the categories it imports. Play one with NewPlayer, draw it each frame into a Frame, and show the frame with Image and View, or render it to a sprite sheet with Render and Frames.Sheet, which sprite.LoadAtlas reads; the game pixelfx command does that from the command line.
+//
+// The port follows pixelfx at commit 5294518ce7c72e48b6100a744596e0acf57f2826 with the same math in float64, in the same order, so it draws the same pixels: every category's tests compare its effects with pixelfx's own frames. The code is under pixelfx's MIT license (LICENSE, NOTICE.md).
+package pixelfx

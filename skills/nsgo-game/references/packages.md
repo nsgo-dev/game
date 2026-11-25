@@ -28,6 +28,11 @@ Every non-internal package under `github.com/nsgo-dev/game/packages` (shown rela
 | `game/resource` | Experimental | Shared YAML resources (materials, curves, gradients, clips, UI themes, physics materials) and `Library` |
 | `game/text` | Experimental | AngelCode BMFont bitmap fonts, 2D/3D MSDF/SDF fonts and `DrawPlatform` |
 | `game/particles` | Experimental | Seeded deterministic 2D `Emitter`, spawn shapes, bursts and YAML definitions |
+| `game/pixelfx` | Experimental | Go port of pixelfx: painter, frames and light, simulation, rig and acts, effect registry, sprite sheet export, `View` |
+| `game/pixelfx/explosions` | Experimental | pixelfx explosions (small explosion so far) |
+| `game/pixelfx/fire` | Experimental | pixelfx fire effects (torch so far) |
+| `game/pixelfx/impacts` | Experimental | pixelfx impacts (ground slam so far) |
+| `game/pixelfx/moves` | Experimental | pixelfx character moves acted out by the rig (ground pound so far) |
 | `game/lights2d` | Experimental | 2D ambient darkness, point/cone lights, visibility-polygon shadows, normal-mapped sprites |
 | `game/effects` | Experimental | Chained Kage shader post-processing passes over the game frame |
 | `game/skeletal` | Experimental | 2D bone rigs, IK, skins and YAML rig definitions |
