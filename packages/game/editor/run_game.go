@@ -324,6 +324,8 @@ func (e *Editor) Close() error {
 	e.stopCutsceneLoop()
 	e.closeModelPreview()
 	e.stopAudioAudition()
+	e.stopChangedAudioPlayback()
+	e.cancelChangesOps()
 	e.stopExportBuild()
 	e.stopAssetsBuild()
 	e.stopDiskWatcher()

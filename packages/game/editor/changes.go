@@ -16,13 +16,26 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/game/packages/game/refs"
+	"github.com/nsgo-dev/game/packages/game/resource"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/game/packages/game/sound"
 	"github.com/nsgo-dev/nsgo/audio"
+	"github.com/nsgo-dev/nsgo/core"
 	"go.yaml.in/yaml/v3"
+)
+
+const (
+	maxChangesDiffReadBytes     int64 = 2 << 20  // 2 MiB cap for untracked file reads and git diff output
+	maxChangesDiffLines               = 600      // max diff lines kept per file for UI rendering
+	maxChangesSceneBytes        int64 = 4 << 20  // 4 MiB cap for scene YAML parsing
+	maxChangesAudioInspectBytes int64 = 8 << 20  // 8 MiB cap for eager WAV decoding/waveform extraction
+	maxChangesAuditionBytes     int64 = 32 << 20 // 32 MiB cap for audio audition playback
+	defaultChangesChecksTimeout       = 5 * time.Minute
 )
 
 // ChangesCategory groups changed working-tree files in the Changes panel.
@@ -120,12 +133,14 @@ type AudioChangeInfo struct {
 // ChangedFile represents one modified, added, deleted, renamed, or untracked file compared with HEAD.
 type ChangedFile struct {
 	Path        string            `json:"path"`
+	OldPath     string            `json:"oldPath,omitempty"`
 	ProjectPath string            `json:"projectPath,omitempty"`
 	DisplayName string            `json:"displayName"`
 	Category    ChangesCategory   `json:"category"`
 	Status      ChangesFileStatus `json:"status"`
 	StatusCode  string            `json:"statusCode"`
 	Included    bool              `json:"included"`
+	Binary      bool              `json:"binary,omitempty"`
 	Detail      string            `json:"detail,omitempty"`
 	PlusLines   int               `json:"plusLines,omitempty"`
 	MinusLines  int               `json:"minusLines,omitempty"`
@@ -191,10 +206,11 @@ const (
 
 // ChangesSession holds the live state of the Changes & Commit screen.
 type ChangesSession struct {
-	RepoDir     string
-	ProjectDir  string
-	ProjectName string
-	SceneName   string
+	RepoDir       string
+	ProjectDir    string
+	ProjectPrefix string
+	ProjectName   string
+	SceneName     string
 
 	Branch     string
 	Branches   []string
@@ -223,33 +239,149 @@ type ChangesSession struct {
 	LastCommit *CommitMilestone
 	Milestones []CommitMilestone
 
+	GHAvailable       bool
 	LastPRDescription string
 	LastPRURL         string
 	LastErr           string
 	LastNotice        string
-	BranchMenuOpen    bool
 }
 
 type changesState struct {
-	open         bool
-	session      *ChangesSession
-	count        int
-	hasRepo      bool
-	milestones   []CommitMilestone
-	auditionPath string
-	audioMixer   *sound.Mixer
-	audioMusic   *sound.Music
-	rev          uint64
+	open            bool
+	session         *ChangesSession
+	count           int
+	hasRepo         bool
+	milestones      []CommitMilestone
+	auditionPath    string
+	audioMixer      *sound.Mixer
+	audioMixerScope *core.Scope
+	audioMusic      *sound.Music
+	rev             uint64
+	draftRev        uint64
+
+	opMu      sync.Mutex
+	opGen     uint64
+	opCancel  context.CancelFunc
+	opDone    chan struct{}
+	busy      bool
+	busyLabel string
 }
 
-// ErrNoChangesSession is returned when a Changes action runs while the Changes panel has no active session.
-var ErrNoChangesSession = errors.New("editor: changes panel is not open")
+var (
+	// ErrNoChangesSession is returned when a Changes action runs while the Changes panel has no active session.
+	ErrNoChangesSession = errors.New("editor: changes panel is not open")
+	// ErrMergeConflictInProgress is returned when a Changes action is blocked by an unresolved Git merge conflict.
+	ErrMergeConflictInProgress = errors.New("editor: resolve the active Git merge conflict before using Changes")
+	// ErrUnsavedChanges is returned when switching branches or pulling while open editor files have unsaved changes.
+	ErrUnsavedChanges = errors.New("editor: save or discard unsaved changes before switching branches or pulling")
+	// ErrChangesBusy is returned when an asynchronous Changes operation is already running.
+	ErrChangesBusy = errors.New("editor: a Git or check operation is already in progress")
+)
 
 func (e *Editor) changesStateRev() uint64 {
 	if e == nil {
 		return 0
 	}
 	return e.changes.rev
+}
+
+func (e *Editor) changesDraftRev() uint64 {
+	if e == nil {
+		return 0
+	}
+	return e.changes.draftRev
+}
+
+// ChangesBusy reports whether an asynchronous Changes operation (checks, pull, push, or PR creation) is running.
+func (e *Editor) ChangesBusy() bool {
+	if e == nil {
+		return false
+	}
+	e.changes.opMu.Lock()
+	busy := e.changes.busy
+	e.changes.opMu.Unlock()
+	return busy
+}
+
+// ChangesBusyLabel returns a short status label for the currently running asynchronous Changes operation, or empty when idle.
+func (e *Editor) ChangesBusyLabel() string {
+	if e == nil {
+		return ""
+	}
+	e.changes.opMu.Lock()
+	label := e.changes.busyLabel
+	e.changes.opMu.Unlock()
+	return label
+}
+
+// WaitChangesOp blocks until any in-flight asynchronous Changes operation completes (primarily for tests).
+func (e *Editor) WaitChangesOp() {
+	if e == nil {
+		return
+	}
+	e.changes.opMu.Lock()
+	done := e.changes.opDone
+	e.changes.opMu.Unlock()
+	if done != nil {
+		<-done
+	}
+}
+
+func (e *Editor) beginChangesOp(label string, timeout time.Duration) (ctx context.Context, gen uint64, done chan struct{}, cancel context.CancelFunc, err error) {
+	e.changes.opMu.Lock()
+	if e.changes.busy {
+		e.changes.opMu.Unlock()
+		return nil, 0, nil, nil, ErrChangesBusy
+	}
+	e.changes.opGen++
+	gen = e.changes.opGen
+	if timeout > 0 {
+		ctx, cancel = context.WithTimeout(context.Background(), timeout)
+	} else {
+		ctx, cancel = context.WithCancel(context.Background())
+	}
+	done = make(chan struct{})
+	e.changes.opCancel = cancel
+	e.changes.opDone = done
+	e.changes.busy = true
+	e.changes.busyLabel = label
+	e.changes.opMu.Unlock()
+	e.changes.rev++
+	e.notify()
+	return ctx, gen, done, cancel, nil
+}
+
+func (e *Editor) finishChangesOp(gen uint64, cancel context.CancelFunc) bool {
+	if cancel != nil {
+		cancel()
+	}
+	e.changes.opMu.Lock()
+	stale := e.changes.opGen != gen
+	if !stale {
+		e.changes.opCancel = nil
+		e.changes.opDone = nil
+		e.changes.busy = false
+		e.changes.busyLabel = ""
+	}
+	e.changes.opMu.Unlock()
+	return !stale
+}
+
+func (e *Editor) cancelChangesOps() {
+	if e == nil {
+		return
+	}
+	e.changes.opMu.Lock()
+	e.changes.opGen++
+	cancel := e.changes.opCancel
+	e.changes.opCancel = nil
+	e.changes.opDone = nil
+	e.changes.busy = false
+	e.changes.busyLabel = ""
+	e.changes.opMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
 }
 
 // ChangesOpen reports whether the Changes & Commit screen is currently active.
@@ -270,7 +402,7 @@ func (e *Editor) ChangesCount() int {
 	if e == nil {
 		return 0
 	}
-	if e.changes.session != nil {
+	if e.changes.open && e.changes.session != nil {
 		return len(e.changes.session.Files)
 	}
 	return e.changes.count
@@ -289,12 +421,13 @@ func (e *Editor) CommitMilestones() []CommitMilestone {
 	if e == nil {
 		return nil
 	}
-	if e.History != nil {
-		if ms := e.History.Milestones(); len(ms) > 0 {
-			return ms
-		}
+	if len(e.changes.milestones) > 0 {
+		return slices.Clone(e.changes.milestones)
 	}
-	return slices.Clone(e.changes.milestones)
+	if e.History != nil {
+		return e.History.Milestones()
+	}
+	return nil
 }
 
 // CloseChangesPanel closes the Changes & Commit screen and stops any audio audition started from it.
@@ -303,12 +436,97 @@ func (e *Editor) CloseChangesPanel() {
 		return
 	}
 	e.stopChangedAudioPlayback()
-	e.changes.open = false
 	if e.changes.session != nil {
-		e.changes.session.BranchMenuOpen = false
+		e.changes.count = len(e.changes.session.Files)
 	}
+	e.changes.open = false
 	e.changes.rev++
 	e.notify()
+}
+
+// resolveChangesRepoScope resolves symlinks on repoRoot and projectDir and reports whether projectDir
+// is a strict subdirectory of repoRoot (e.g. a project nested inside a monorepo/parent repository).
+func resolveChangesRepoScope(repoRoot, projectDir string) (realRoot, projectPrefix string, scoped bool) {
+	absRoot, err := filepath.Abs(repoRoot)
+	if err != nil {
+		absRoot = filepath.Clean(repoRoot)
+	}
+	if eval, err := filepath.EvalSymlinks(absRoot); err == nil {
+		realRoot = eval
+	} else {
+		realRoot = absRoot
+	}
+	if projectDir == "" {
+		return realRoot, "", false
+	}
+	absProj, err := filepath.Abs(projectDir)
+	if err != nil {
+		absProj = filepath.Clean(projectDir)
+	}
+	realProj := absProj
+	if eval, err := filepath.EvalSymlinks(absProj); err == nil {
+		realProj = eval
+	}
+	rel, err := filepath.Rel(realRoot, realProj)
+	if err != nil || rel == "" || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return realRoot, "", false
+	}
+	return realRoot, filepath.ToSlash(rel) + "/", true
+}
+
+// resolveRepoFilePath verifies that relPath stays inside repoRoot (and inside projectPrefix when scoped)
+// and that no symlink escapes the allowed root, returning the resolved absolute path.
+func resolveRepoFilePath(repoRoot, projectPrefix, relPath string) (string, error) {
+	if repoRoot == "" {
+		return "", errors.New("editor: empty repository directory")
+	}
+	if relPath == "" || strings.ContainsRune(relPath, 0) || filepath.IsAbs(relPath) || filepath.VolumeName(relPath) != "" || strings.Contains(relPath, `\`) {
+		return "", fmt.Errorf("editor: invalid repository path %q", relPath)
+	}
+	cleaned := path.Clean(relPath)
+	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") || strings.HasPrefix(cleaned, "/") {
+		return "", fmt.Errorf("editor: path %q escapes repository root", relPath)
+	}
+	if projectPrefix != "" && !strings.HasPrefix(cleaned, projectPrefix) {
+		return "", fmt.Errorf("editor: path %q is outside project scope %q", relPath, projectPrefix)
+	}
+	absRoot, err := filepath.Abs(repoRoot)
+	if err != nil {
+		return "", err
+	}
+	realRoot := absRoot
+	if eval, err := filepath.EvalSymlinks(absRoot); err == nil {
+		realRoot = eval
+	}
+	boundary := realRoot
+	if projectPrefix != "" {
+		projBoundary := filepath.Join(realRoot, filepath.FromSlash(strings.TrimSuffix(projectPrefix, "/")))
+		if eval, err := filepath.EvalSymlinks(projBoundary); err == nil {
+			boundary = eval
+		} else {
+			boundary = projBoundary
+		}
+	}
+	candidate := filepath.Join(realRoot, filepath.FromSlash(cleaned))
+	_, abs, err := resolvePathWithinRoot(boundary, candidate)
+	if err != nil {
+		return "", fmt.Errorf("editor: %s resolves outside allowed root", relPath)
+	}
+	return abs, nil
+}
+
+func (e *Editor) hasGitMergeInProgress(repoRoot string) bool {
+	if e == nil {
+		return false
+	}
+	if e.MergeConflictOpen() || len(e.merge.detectedScenes) > 0 {
+		return true
+	}
+	if repoRoot == "" {
+		return false
+	}
+	_, err := e.runGit(repoRoot, "rev-parse", "--verify", "--quiet", "MERGE_HEAD")
+	return err == nil
 }
 
 // RefreshChangesCount updates the lightweight working-tree changed-file count displayed in the status bar.
@@ -318,24 +536,40 @@ func (e *Editor) RefreshChangesCount() {
 	}
 	dir := e.gitProjectDir()
 	if dir == "" {
+		changed := e.changes.count != 0 || e.changes.hasRepo
 		e.changes.count = 0
 		e.changes.hasRepo = false
+		if changed {
+			e.changes.rev++
+			e.notify()
+		}
 		return
 	}
 	repoRoot, err := e.runGit(dir, "rev-parse", "--show-toplevel")
 	if err != nil || repoRoot == "" {
+		changed := e.changes.count != 0 || e.changes.hasRepo
 		e.changes.count = 0
 		e.changes.hasRepo = false
+		if changed {
+			e.changes.rev++
+			e.notify()
+		}
 		return
 	}
 	e.changes.hasRepo = true
-	raw, err := e.runGitRaw(repoRoot, "-c", "core.quotepath=false", "status", "--porcelain=v1", "-uall")
+	_, projectPrefix, scoped := resolveChangesRepoScope(repoRoot, e.resolveChangesProjectDir(repoRoot))
+	statusArgs := []string{"-c", "core.quotepath=false", "status", "--porcelain=v1", "-z", "-uall"}
+	if scoped {
+		statusArgs = append(statusArgs, "--", strings.TrimSuffix(projectPrefix, "/"))
+	}
+	raw, err := e.runGitRaw(repoRoot, statusArgs...)
 	if err != nil {
 		return
 	}
-	entries := parseGitPorcelain(string(raw))
+	entries := filterPorcelainByScope(parseGitPorcelain(string(raw)), projectPrefix)
 	e.changes.count = len(entries)
 	e.changes.rev++
+	e.notify()
 }
 
 // OpenChangesPanel opens the Changes & Commit screen for the open project's Git repository and refreshes its working-tree diff against HEAD.
@@ -345,6 +579,9 @@ func (e *Editor) OpenChangesPanel() error {
 	}
 	if e.Playing() {
 		return ErrPlaying
+	}
+	if e.MergeConflictOpen() {
+		return ErrMergeConflictInProgress
 	}
 	dir := e.gitProjectDir()
 	if dir == "" && e.changes.session != nil {
@@ -364,6 +601,9 @@ func (e *Editor) OpenChangesPanelIn(dir string) error {
 	if e.Playing() {
 		return ErrPlaying
 	}
+	if e.MergeConflictOpen() {
+		return ErrMergeConflictInProgress
+	}
 	if strings.TrimSpace(dir) == "" {
 		return errors.New("editor: empty directory")
 	}
@@ -371,16 +611,23 @@ func (e *Editor) OpenChangesPanelIn(dir string) error {
 	if err != nil || repoRoot == "" {
 		return fmt.Errorf("editor: %s is not inside a Git repository", dir)
 	}
-	if e.changes.session == nil || filepath.Clean(e.changes.session.RepoDir) != filepath.Clean(repoRoot) {
+	if e.hasGitMergeInProgress(repoRoot) {
+		return ErrMergeConflictInProgress
+	}
+	projDir := e.resolveChangesProjectDir(repoRoot)
+	_, projectPrefix, _ := resolveChangesRepoScope(repoRoot, projDir)
+	if e.changes.session == nil || filepath.Clean(e.changes.session.RepoDir) != filepath.Clean(repoRoot) || e.changes.session.ProjectPrefix != projectPrefix {
 		e.changes.session = &ChangesSession{
-			RepoDir:    repoRoot,
-			ProjectDir: e.resolveChangesProjectDir(repoRoot),
-			SceneView:  ChangesSceneViewSideBySide,
-			Milestones: slices.Clone(e.changes.milestones),
+			RepoDir:       repoRoot,
+			ProjectDir:    projDir,
+			ProjectPrefix: projectPrefix,
+			SceneView:     ChangesSceneViewSideBySide,
+			Milestones:    slices.Clone(e.changes.milestones),
 		}
 	} else {
 		e.changes.session.RepoDir = repoRoot
-		e.changes.session.ProjectDir = e.resolveChangesProjectDir(repoRoot)
+		e.changes.session.ProjectDir = projDir
+		e.changes.session.ProjectPrefix = projectPrefix
 		if e.changes.session.SceneView == "" {
 			e.changes.session.SceneView = ChangesSceneViewSideBySide
 		}
@@ -476,7 +723,7 @@ func (e *Editor) refreshChangesSession(keepCommitted bool) error {
 	sess.Behind = 0
 	if up, err := e.runGit(repoRoot, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"); err == nil && up != "" {
 		sess.Upstream = up
-		if counts, cerr := e.runGit(repoRoot, "rev-list", "--left-right", "--count", up+"...HEAD"); cerr == nil {
+		if counts, cerr := e.runGit(repoRoot, "rev-list", "--left-right", "--count", "@{u}...HEAD"); cerr == nil {
 			fields := strings.Fields(counts)
 			if len(fields) == 2 {
 				sess.Behind, _ = strconv.Atoi(fields[0])
@@ -485,22 +732,38 @@ func (e *Editor) refreshChangesSession(keepCommitted bool) error {
 		}
 	}
 	sess.BaseBranch = detectBaseBranch(sess.Branches, sess.Upstream, sess.Branch)
+	sess.GHAvailable = e.detectGHAvailable()
 
-	// Working-tree status against HEAD.
-	rawStatus, err := e.runGitRaw(repoRoot, "-c", "core.quotepath=false", "status", "--porcelain=v1", "-uall")
+	// Working-tree status against HEAD, scoped strictly to ProjectPrefix when nested inside a parent repository.
+	_, projectPrefix, scoped := resolveChangesRepoScope(repoRoot, sess.ProjectDir)
+	sess.ProjectPrefix = projectPrefix
+	statusArgs := []string{"-c", "core.quotepath=false", "status", "--porcelain=v1", "-z", "-uall"}
+	if scoped {
+		statusArgs = append(statusArgs, "--", strings.TrimSuffix(projectPrefix, "/"))
+	}
+	rawStatus, err := e.runGitRaw(repoRoot, statusArgs...)
 	if err != nil {
 		sess.LastErr = err.Error()
 		e.changes.rev++
 		e.notify()
 		return fmt.Errorf("editor: git status: %w", err)
 	}
-	porcelain := parseGitPorcelain(string(rawStatus))
+	porcelain := filterPorcelainByScope(parseGitPorcelain(string(rawStatus)), projectPrefix)
 
-	projectPrefix := ""
-	if sess.ProjectDir != "" {
-		if rel, rerr := filepath.Rel(repoRoot, sess.ProjectDir); rerr == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			projectPrefix = filepath.ToSlash(rel) + "/"
+	// Collect audio targets once so incoming references are scanned in a single pass per refresh.
+	audioTargets := make(map[string]bool)
+	for _, entry := range porcelain {
+		projRel := entry.Path
+		if projectPrefix != "" {
+			projRel = strings.TrimPrefix(projRel, projectPrefix)
 		}
+		if e.classifyChangedFile(entry.Path, projRel) == ChangesCategoryAssets && isAudioPath(entry.Path) {
+			audioTargets[projRel] = true
+		}
+	}
+	var audioRefs map[string][]string
+	if len(audioTargets) > 0 {
+		audioRefs = e.scanAudioIncomingReferences(sess.ProjectDir, audioTargets)
 	}
 
 	files := make([]ChangedFile, 0, len(porcelain))
@@ -513,6 +776,7 @@ func (e *Editor) refreshChangesSession(keepCommitted bool) error {
 		cat := e.classifyChangedFile(entry.Path, projRel)
 		cf := ChangedFile{
 			Path:        entry.Path,
+			OldPath:     entry.OldPath,
 			ProjectPath: projRel,
 			DisplayName: display,
 			Category:    cat,
@@ -520,7 +784,7 @@ func (e *Editor) refreshChangesSession(keepCommitted bool) error {
 			StatusCode:  entry.Code,
 			Included:    !prevExcluded[entry.Path],
 		}
-		e.populateChangedFileDetails(repoRoot, sess.ProjectDir, sess.HasHead, &cf)
+		e.populateChangedFileDetails(repoRoot, projectPrefix, sess.HasHead, audioRefs, &cf)
 		files = append(files, cf)
 	}
 
@@ -573,17 +837,38 @@ func (e *Editor) refreshChangesSession(keepCommitted bool) error {
 	}
 
 	e.changes.rev++
+	e.changes.draftRev++
 	e.notify()
 	return nil
 }
 
 type porcelainEntry struct {
-	Path   string
-	Status ChangesFileStatus
-	Code   string
+	Path    string
+	OldPath string
+	Status  ChangesFileStatus
+	Code    string
+}
+
+func filterPorcelainByScope(entries []porcelainEntry, projectPrefix string) []porcelainEntry {
+	if projectPrefix == "" || len(entries) == 0 {
+		return entries
+	}
+	out := make([]porcelainEntry, 0, len(entries))
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Path, projectPrefix) {
+			if entry.OldPath != "" && !strings.HasPrefix(entry.OldPath, projectPrefix) {
+				entry.OldPath = ""
+			}
+			out = append(out, entry)
+		}
+	}
+	return out
 }
 
 func parseGitPorcelain(raw string) []porcelainEntry {
+	if strings.ContainsRune(raw, 0) {
+		return parseGitPorcelainZ(raw)
+	}
 	var out []porcelainEntry
 	for _, line := range strings.Split(raw, "\n") {
 		line = strings.TrimRight(line, "\r")
@@ -595,30 +880,70 @@ func parseGitPorcelain(raw string) []porcelainEntry {
 		if rest == "" {
 			continue
 		}
+		oldPath := ""
 		// Renamed or copied: "old -> new"
 		if strings.Contains(xy, "R") || strings.Contains(xy, "C") {
-			if _, after, ok := strings.Cut(rest, " -> "); ok {
+			if before, after, ok := strings.Cut(rest, " -> "); ok {
+				oldPath = unquoteGitPath(before)
 				rest = after
 			}
 		}
-		// Unquote if git quoted the path.
-		if len(rest) >= 2 && rest[0] == '"' && rest[len(rest)-1] == '"' {
-			if uq, err := strconv.Unquote(rest); err == nil {
-				rest = uq
+		p := filepath.ToSlash(unquoteGitPath(rest))
+		if p == "" || strings.HasSuffix(p, "/") {
+			continue
+		}
+		oldPath = filepath.ToSlash(oldPath)
+		status, code := porcelainStatus(xy)
+		out = append(out, porcelainEntry{
+			Path:    p,
+			OldPath: oldPath,
+			Status:  status,
+			Code:    code,
+		})
+	}
+	return out
+}
+
+// parseGitPorcelainZ parses NUL-delimited `git status --porcelain=v1 -z` output,
+// preserving both new Path and OldPath on renames/copies without quoting ambiguity.
+func parseGitPorcelainZ(raw string) []porcelainEntry {
+	var out []porcelainEntry
+	records := strings.Split(raw, "\x00")
+	for i := 0; i < len(records); i++ {
+		rec := records[i]
+		if len(rec) < 4 {
+			continue
+		}
+		xy := rec[:2]
+		p := filepath.ToSlash(rec[3:])
+		oldPath := ""
+		if xy[0] == 'R' || xy[1] == 'R' || xy[0] == 'C' || xy[1] == 'C' {
+			if i+1 < len(records) {
+				i++
+				oldPath = filepath.ToSlash(records[i])
 			}
 		}
-		p := filepath.ToSlash(rest)
 		if p == "" || strings.HasSuffix(p, "/") {
 			continue
 		}
 		status, code := porcelainStatus(xy)
 		out = append(out, porcelainEntry{
-			Path:   p,
-			Status: status,
-			Code:   code,
+			Path:    p,
+			OldPath: oldPath,
+			Status:  status,
+			Code:    code,
 		})
 	}
 	return out
+}
+
+func unquoteGitPath(s string) string {
+	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
+		if uq, err := strconv.Unquote(s); err == nil {
+			return uq
+		}
+	}
+	return s
 }
 
 func porcelainStatus(xy string) (ChangesFileStatus, string) {
@@ -681,59 +1006,128 @@ func isAudioPath(p string) bool {
 	}
 }
 
-func (e *Editor) populateChangedFileDetails(repoRoot, projectDir string, hasHead bool, cf *ChangedFile) {
-	absPath := filepath.Join(repoRoot, filepath.FromSlash(cf.Path))
+func (e *Editor) populateChangedFileDetails(repoRoot, projectPrefix string, hasHead bool, audioRefs map[string][]string, cf *ChangedFile) {
+	absPath, pathErr := resolveRepoFilePath(repoRoot, projectPrefix, cf.Path)
 
 	// Populate unified diff & line counts for non-binary files (Scenes, Data, Code).
 	if cf.Category != ChangesCategoryAssets {
-		diffLines, plus, minus := e.computeFileDiff(repoRoot, cf.Path, cf.Status, hasHead)
+		diffLines, plus, minus, binary := e.computeFileDiff(repoRoot, projectPrefix, cf.Path, cf.OldPath, cf.Status, hasHead)
 		cf.Diff = diffLines
 		cf.PlusLines = plus
 		cf.MinusLines = minus
+		cf.Binary = binary
 	}
 
 	switch cf.Category {
 	case ChangesCategoryScenes:
-		sc := e.compareSceneWithHEAD(repoRoot, cf.Path, cf.Status, hasHead)
+		sc := e.compareSceneWithHEAD(repoRoot, projectPrefix, cf.Path, cf.OldPath, cf.Status, hasHead)
 		cf.Scene = sc
 		cf.Detail = formatSceneChangeDetail(sc, cf.Status, cf.PlusLines, cf.MinusLines)
 	case ChangesCategoryAssets:
 		if isAudioPath(cf.Path) {
-			info := e.inspectAudioChange(absPath, projectDir, cf.ProjectPath)
+			info := e.inspectAudioChange(absPath, pathErr, audioRefs[cf.ProjectPath])
 			cf.Audio = info
 			cf.Detail = formatAudioChangeDetail(info, cf.Status)
 		} else {
 			var sz int64
-			if st, err := os.Stat(absPath); err == nil {
-				sz = st.Size()
+			if pathErr == nil {
+				if st, err := os.Stat(absPath); err == nil {
+					sz = st.Size()
+				}
 			}
 			cf.Detail = formatAssetChangeDetail(sz, cf.Status)
 		}
 	default:
-		cf.Detail = formatTextChangeDetail(cf.Status, cf.PlusLines, cf.MinusLines, cf.Diff)
+		if cf.Binary {
+			var sz int64
+			if pathErr == nil {
+				if st, err := os.Stat(absPath); err == nil {
+					sz = st.Size()
+				}
+			}
+			cf.Detail = formatBinaryChangeDetail(sz, cf.Status)
+		} else {
+			cf.Detail = formatTextChangeDetail(cf.Status, cf.PlusLines, cf.MinusLines, cf.Diff)
+		}
 	}
 }
 
-func (e *Editor) computeFileDiff(repoRoot, relPath string, status ChangesFileStatus, hasHead bool) ([]DiffLine, int, int) {
-	if status == ChangesStatusUntracked || !hasHead {
-		absPath := filepath.Join(repoRoot, filepath.FromSlash(relPath))
-		data, err := os.ReadFile(absPath)
-		if err != nil {
-			return nil, 0, 0
+func isBinaryData(data []byte) bool {
+	n := min(len(data), 8192)
+	return bytes.IndexByte(data[:n], 0) >= 0
+}
+
+func isGitBinaryDiff(raw []byte) bool {
+	for _, line := range strings.Split(string(raw), "\n") {
+		if strings.HasPrefix(line, "Binary files ") && strings.HasSuffix(strings.TrimRight(line, "\r"), " differ") {
+			return true
 		}
-		return buildAddedFileDiff(string(data))
+		if strings.TrimRight(line, "\r") == "GIT binary patch" {
+			return true
+		}
+		if strings.HasPrefix(line, "@@ ") {
+			return false
+		}
 	}
-	raw, err := e.runGitRaw(repoRoot, "diff", "--no-color", "-U3", "HEAD", "--", relPath)
+	return false
+}
+
+func (e *Editor) computeFileDiff(repoRoot, projectPrefix, relPath, oldPath string, status ChangesFileStatus, hasHead bool) ([]DiffLine, int, int, bool) {
+	readUntracked := func() ([]DiffLine, int, int, bool) {
+		absPath, err := resolveRepoFilePath(repoRoot, projectPrefix, relPath)
+		if err != nil {
+			return []DiffLine{{Text: err.Error(), Kind: DiffLineMeta}}, 0, 0, false
+		}
+		data, truncated, size, err := readFileBounded(absPath, maxChangesDiffReadBytes)
+		if err != nil {
+			return nil, 0, 0, false
+		}
+		if isBinaryData(data) {
+			return []DiffLine{{
+				Text: fmt.Sprintf("Binary file (%s) — preview not shown", formatHumanBytes(size)),
+				Kind: DiffLineMeta,
+			}}, 0, 0, true
+		}
+		lines, plus, minus := buildAddedFileDiff(string(data))
+		if truncated {
+			lines = append(lines, DiffLine{
+				Text: fmt.Sprintf("... file truncated at %s (total %s)", formatHumanBytes(maxChangesDiffReadBytes), formatHumanBytes(size)),
+				Kind: DiffLineMeta,
+			})
+		}
+		return lines, plus, minus, false
+	}
+
+	if status == ChangesStatusUntracked || !hasHead {
+		return readUntracked()
+	}
+
+	diffArgs := []string{"diff", "--no-color", "-M", "-U3", "HEAD", "--"}
+	if status == ChangesStatusRenamed && oldPath != "" {
+		diffArgs = append(diffArgs, oldPath, relPath)
+	} else {
+		diffArgs = append(diffArgs, relPath)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), defaultGitTimeout)
+	defer cancel()
+	raw, truncated, err := e.runGitRawBoundedCtx(ctx, repoRoot, maxChangesDiffReadBytes, diffArgs...)
 	if err != nil || len(raw) == 0 {
 		if status == ChangesStatusAdded {
-			absPath := filepath.Join(repoRoot, filepath.FromSlash(relPath))
-			if data, rerr := os.ReadFile(absPath); rerr == nil {
-				return buildAddedFileDiff(string(data))
-			}
+			return readUntracked()
 		}
-		return nil, 0, 0
+		return nil, 0, 0, false
 	}
-	return parseUnifiedDiff(string(raw))
+	if isGitBinaryDiff(raw) || isBinaryData(raw) {
+		return []DiffLine{{Text: "Binary file changed — diff not shown", Kind: DiffLineMeta}}, 0, 0, true
+	}
+	lines, plus, minus := parseUnifiedDiff(string(raw))
+	if truncated {
+		lines = append(lines, DiffLine{
+			Text: fmt.Sprintf("... diff truncated at %s", formatHumanBytes(maxChangesDiffReadBytes)),
+			Kind: DiffLineMeta,
+		})
+	}
+	return lines, plus, minus, false
 }
 
 func buildAddedFileDiff(content string) ([]DiffLine, int, int) {
@@ -742,7 +1136,7 @@ func buildAddedFileDiff(content string) ([]DiffLine, int, int) {
 	}
 	rawLines := strings.Split(strings.TrimSuffix(content, "\n"), "\n")
 	plus := len(rawLines)
-	limit := min(plus, 400)
+	limit := min(plus, maxChangesDiffLines)
 	lines := make([]DiffLine, 0, limit+1)
 	for i := range limit {
 		lines = append(lines, DiffLine{
@@ -754,7 +1148,7 @@ func buildAddedFileDiff(content string) ([]DiffLine, int, int) {
 	}
 	if plus > limit {
 		lines = append(lines, DiffLine{
-			Text: fmt.Sprintf("... %d more lines", plus-limit),
+			Text: fmt.Sprintf("... %d more lines (truncated at %d lines)", plus-limit, limit),
 			Kind: DiffLineMeta,
 		})
 	}
@@ -766,6 +1160,15 @@ func parseUnifiedDiff(raw string) ([]DiffLine, int, int) {
 	oldNo, newNo := 0, 0
 	plus, minus := 0, 0
 	inHunk := false
+	omitted := 0
+
+	appendLine := func(dl DiffLine) {
+		if len(lines) < maxChangesDiffLines {
+			lines = append(lines, dl)
+		} else {
+			omitted++
+		}
+	}
 
 	for _, rawLine := range strings.Split(strings.TrimSuffix(raw, "\n"), "\n") {
 		line := strings.TrimRight(rawLine, "\r")
@@ -773,18 +1176,18 @@ func parseUnifiedDiff(raw string) ([]DiffLine, int, int) {
 			inHunk = true
 			o, n := parseHunkStart(line)
 			oldNo, newNo = o, n
-			lines = append(lines, DiffLine{Text: line, Kind: DiffLineHunk})
+			appendLine(DiffLine{Text: line, Kind: DiffLineHunk})
 			continue
 		}
 		if !inHunk {
 			continue
 		}
 		if strings.HasPrefix(line, `\ No newline`) {
-			lines = append(lines, DiffLine{Text: line, Kind: DiffLineMeta})
+			appendLine(DiffLine{Text: line, Kind: DiffLineMeta})
 			continue
 		}
 		if len(line) == 0 {
-			lines = append(lines, DiffLine{OldLine: oldNo, NewLine: newNo, Text: "", Kind: DiffLineContext})
+			appendLine(DiffLine{OldLine: oldNo, NewLine: newNo, Text: "", Kind: DiffLineContext})
 			oldNo++
 			newNo++
 			continue
@@ -792,19 +1195,25 @@ func parseUnifiedDiff(raw string) ([]DiffLine, int, int) {
 		switch line[0] {
 		case '+':
 			plus++
-			lines = append(lines, DiffLine{NewLine: newNo, Sign: "+", Text: line[1:], Kind: DiffLineAdd})
+			appendLine(DiffLine{NewLine: newNo, Sign: "+", Text: line[1:], Kind: DiffLineAdd})
 			newNo++
 		case '-':
 			minus++
-			lines = append(lines, DiffLine{OldLine: oldNo, Sign: "-", Text: line[1:], Kind: DiffLineDel})
+			appendLine(DiffLine{OldLine: oldNo, Sign: "-", Text: line[1:], Kind: DiffLineDel})
 			oldNo++
 		case ' ':
-			lines = append(lines, DiffLine{OldLine: oldNo, NewLine: newNo, Sign: "", Text: line[1:], Kind: DiffLineContext})
+			appendLine(DiffLine{OldLine: oldNo, NewLine: newNo, Sign: "", Text: line[1:], Kind: DiffLineContext})
 			oldNo++
 			newNo++
 		default:
-			lines = append(lines, DiffLine{Text: line, Kind: DiffLineMeta})
+			appendLine(DiffLine{Text: line, Kind: DiffLineMeta})
 		}
+	}
+	if omitted > 0 {
+		lines = append(lines, DiffLine{
+			Text: fmt.Sprintf("... %d more diff lines omitted (truncated at %d lines)", omitted, maxChangesDiffLines),
+			Kind: DiffLineMeta,
+		})
 	}
 	return lines, plus, minus
 }
@@ -828,33 +1237,50 @@ func parseHunkStart(hunk string) (oldLine, newLine int) {
 	return oldLine, newLine
 }
 
-func (e *Editor) compareSceneWithHEAD(repoRoot, relPath string, status ChangesFileStatus, hasHead bool) *SceneComparison {
+func (e *Editor) compareSceneWithHEAD(repoRoot, projectPrefix, relPath, oldPath string, status ChangesFileStatus, hasHead bool) *SceneComparison {
 	comp := &SceneComparison{}
 
 	if hasHead && status != ChangesStatusUntracked && status != ChangesStatusAdded {
-		if headBytes, err := e.runGitRaw(repoRoot, "show", "HEAD:"+relPath); err == nil && len(bytes.TrimSpace(headBytes)) > 0 {
-			doc, perr := sceneformat.ParseWith(headBytes, sceneformat.ParseOptions{File: relPath + " (HEAD)", Components: e.components})
-			if perr != nil {
-				comp.HeadErr = perr.Error()
+		headPath := relPath
+		if status == ChangesStatusRenamed && oldPath != "" {
+			headPath = oldPath
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), defaultGitTimeout)
+		headBytes, truncated, err := e.runGitRawBoundedCtx(ctx, repoRoot, maxChangesSceneBytes, "show", "HEAD:"+headPath)
+		cancel()
+		if err == nil && len(bytes.TrimSpace(headBytes)) > 0 {
+			if truncated {
+				comp.HeadErr = fmt.Sprintf("HEAD scene exceeds %s limit", formatHumanBytes(maxChangesSceneBytes))
 			} else {
-				comp.HeadDoc = doc
-				if built, berr := sceneformat.Build(doc, e.Resolver); berr == nil {
-					comp.HeadBuilt = built
+				doc, perr := sceneformat.ParseWith(headBytes, sceneformat.ParseOptions{File: headPath + " (HEAD)", Components: e.components})
+				if perr != nil {
+					comp.HeadErr = perr.Error()
+				} else {
+					comp.HeadDoc = doc
+					if built, berr := sceneformat.Build(doc, e.Resolver); berr == nil {
+						comp.HeadBuilt = built
+					}
 				}
 			}
 		}
 	}
 
 	if status != ChangesStatusDeleted {
-		absPath := filepath.Join(repoRoot, filepath.FromSlash(relPath))
-		if nowBytes, err := os.ReadFile(absPath); err == nil && len(bytes.TrimSpace(nowBytes)) > 0 {
-			doc, perr := sceneformat.ParseWith(nowBytes, sceneformat.ParseOptions{File: relPath, Components: e.components})
-			if perr != nil {
-				comp.NowErr = perr.Error()
+		absPath, pathErr := resolveRepoFilePath(repoRoot, projectPrefix, relPath)
+		if pathErr != nil {
+			comp.NowErr = pathErr.Error()
+		} else if nowBytes, truncated, _, err := readFileBounded(absPath, maxChangesSceneBytes); err == nil && len(bytes.TrimSpace(nowBytes)) > 0 {
+			if truncated {
+				comp.NowErr = fmt.Sprintf("scene exceeds %s limit", formatHumanBytes(maxChangesSceneBytes))
 			} else {
-				comp.NowDoc = doc
-				if built, berr := sceneformat.Build(doc, e.Resolver); berr == nil {
-					comp.NowBuilt = built
+				doc, perr := sceneformat.ParseWith(nowBytes, sceneformat.ParseOptions{File: relPath, Components: e.components})
+				if perr != nil {
+					comp.NowErr = perr.Error()
+				} else {
+					comp.NowDoc = doc
+					if built, berr := sceneformat.Build(doc, e.Resolver); berr == nil {
+						comp.NowBuilt = built
+					}
 				}
 			}
 		}
@@ -1088,6 +1514,17 @@ func formatAudioChangeDetail(info *AudioChangeInfo, status ChangesFileStatus) st
 	return strings.Join(parts, " · ")
 }
 
+func formatBinaryChangeDetail(size int64, status ChangesFileStatus) string {
+	prefix := "binary"
+	if status == ChangesStatusDeleted {
+		return "deleted · binary"
+	}
+	if size > 0 {
+		return prefix + " · " + formatHumanBytes(size)
+	}
+	return prefix
+}
+
 func formatAssetChangeDetail(size int64, status ChangesFileStatus) string {
 	prefix := string(status)
 	if status == ChangesStatusUntracked || status == ChangesStatusAdded {
@@ -1110,29 +1547,37 @@ func formatHumanBytes(n int64) string {
 	}
 }
 
-func (e *Editor) inspectAudioChange(absPath, projectDir, projRel string) *AudioChangeInfo {
+func (e *Editor) inspectAudioChange(absPath string, pathErr error, usedBy []string) *AudioChangeInfo {
 	info := &AudioChangeInfo{
 		Format: strings.ToUpper(strings.TrimPrefix(path.Ext(absPath), ".")),
+		UsedBy: slices.Clone(usedBy),
 	}
-	if data, err := os.ReadFile(absPath); err == nil {
-		info.SizeBytes = int64(len(data))
+	if pathErr != nil {
+		return info
+	}
+	if data, truncated, size, err := readFileBounded(absPath, maxChangesAudioInspectBytes); err == nil {
+		info.SizeBytes = size
 		ext := strings.ToLower(path.Ext(absPath))
 		switch ext {
 		case ".wav":
 			info.Format = "WAV"
-			if samples, sr, ch, derr := sound.DecodeWAV(data); derr == nil && sr > 0 && ch > 0 {
-				info.SampleRate = sr
-				info.Channels = ch
-				frames := len(samples) / ch
-				info.Duration = time.Duration(float64(frames) / float64(sr) * float64(time.Second))
-				info.Waveform = computeWaveformBars(samples, 60)
+			if !truncated {
+				if samples, sr, ch, derr := sound.DecodeWAV(data); derr == nil && sr > 0 && ch > 0 {
+					info.SampleRate = sr
+					info.Channels = ch
+					frames := len(samples) / ch
+					info.Duration = time.Duration(float64(frames) / float64(sr) * float64(time.Second))
+					info.Waveform = computeWaveformBars(samples, 60)
+				}
 			}
 		case ".ogg":
 			info.Format = "Vorbis"
 			sr, ch, dur := probeOggVorbis(data)
 			info.SampleRate = sr
 			info.Channels = ch
-			info.Duration = dur
+			if !truncated {
+				info.Duration = dur
+			}
 		case ".mp3":
 			info.Format = "MP3"
 		case ".flac":
@@ -1142,7 +1587,6 @@ func (e *Editor) inspectAudioChange(absPath, projectDir, projRel string) *AudioC
 			info.Waveform = syntheticWaveformBars(data, 60)
 		}
 	}
-	info.UsedBy = e.findAudioIncomingReferences(projectDir, projRel)
 	return info
 }
 
@@ -1225,41 +1669,61 @@ func probeOggVorbis(data []byte) (sampleRate, channels int, duration time.Durati
 	return sampleRate, channels, duration
 }
 
-func (e *Editor) findAudioIncomingReferences(projectDir, projRel string) []string {
-	if projRel == "" {
+// scanAudioIncomingReferences scans the project once for all changed audio target paths,
+// enforcing symlink containment and bounded scene reads.
+func (e *Editor) scanAudioIncomingReferences(projectDir string, targets map[string]bool) map[string][]string {
+	if len(targets) == 0 {
 		return nil
 	}
-	var results []string
-	seen := make(map[string]bool)
-	add := func(s string) {
-		if s != "" && !seen[s] {
-			seen[s] = true
-			results = append(results, s)
+	out := make(map[string][]string, len(targets))
+	seen := make(map[string]map[string]bool, len(targets))
+	add := func(target, label string) {
+		if target == "" || label == "" || !targets[target] {
+			return
+		}
+		if seen[target] == nil {
+			seen[target] = make(map[string]bool)
+		}
+		if !seen[target][label] {
+			seen[target][label] = true
+			out[target] = append(out[target], label)
 		}
 	}
 
-	// 1. Query the project's refs index when available.
+	// 1. Query the project's refs index once.
 	if e.Project != nil && e.ProjectPath != "" {
-		if found, err := e.FindReferences(projRel); err == nil {
-			for _, r := range found {
-				add(formatIncomingRef(r))
+		for target := range targets {
+			if found, err := e.FindReferences(target); err == nil {
+				for _, r := range found {
+					add(target, formatIncomingRef(r))
+				}
 			}
 		}
 	} else if projectDir != "" {
 		if scan, err := refs.Scan(os.DirFS(projectDir)); err == nil {
 			for _, r := range scan.Refs {
-				if r.Target == projRel {
-					add(formatIncomingRef(r))
+				if targets[r.Target] {
+					add(r.Target, formatIncomingRef(r))
 				}
 			}
 		}
 	}
 
-	// 2. Also inspect scene objects' properties & components (e.g., open_sfx: audio/door_creak.ogg)
-	// so custom gameplay audio fields show human-readable "Used by <Object> in <scene> as <field>".
-	scanDir := projectDir
-	if scanDir != "" {
-		_ = fs.WalkDir(os.DirFS(scanDir), ".", func(p string, d fs.DirEntry, err error) error {
+	// 2. Walk scene YAML files once to pick up custom gameplay audio fields in properties/components.
+	if projectDir != "" {
+		absProj, err := filepath.Abs(projectDir)
+		if err != nil {
+			absProj = filepath.Clean(projectDir)
+		}
+		realProj := absProj
+		if eval, err := filepath.EvalSymlinks(absProj); err == nil {
+			realProj = eval
+		}
+		targetList := make([]string, 0, len(targets))
+		for t := range targets {
+			targetList = append(targetList, t)
+		}
+		_ = fs.WalkDir(os.DirFS(realProj), ".", func(p string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return nil
 			}
@@ -1273,8 +1737,22 @@ func (e *Editor) findAudioIncomingReferences(projectDir, projRel string) []strin
 			if !strings.HasSuffix(lower, ".scene.yaml") && !strings.HasSuffix(lower, ".scene.yml") {
 				return nil
 			}
-			raw, rerr := os.ReadFile(filepath.Join(scanDir, filepath.FromSlash(p)))
-			if rerr != nil || !bytes.Contains(raw, []byte(projRel)) {
+			_, fullPath, rerr := resolvePathWithinRoot(realProj, filepath.Join(realProj, filepath.FromSlash(p)))
+			if rerr != nil {
+				return nil
+			}
+			raw, truncated, _, ferr := readFileBounded(fullPath, maxChangesSceneBytes)
+			if ferr != nil || truncated {
+				return nil
+			}
+			matched := false
+			for _, t := range targetList {
+				if bytes.Contains(raw, []byte(t)) {
+					matched = true
+					break
+				}
+			}
+			if !matched {
 				return nil
 			}
 			doc, perr := sceneformat.ParseWith(raw, sceneformat.ParseOptions{File: p, Components: e.components})
@@ -1286,15 +1764,21 @@ func (e *Editor) findAudioIncomingReferences(projectDir, projRel string) []strin
 				sceneformat.WalkObjects(doc.Layers[i].Objects, func(o, _ *sceneformat.ObjectDoc) bool {
 					objLabel := nonEmpty(o.Name, o.ID)
 					for k, v := range o.Properties {
-						if s, ok := v.(string); ok && filepath.ToSlash(s) == projRel {
-							add(fmt.Sprintf("Used by %s in %s as %s", objLabel, sceneLabel, k))
+						if s, ok := v.(string); ok {
+							sl := filepath.ToSlash(s)
+							if targets[sl] {
+								add(sl, fmt.Sprintf("Used by %s in %s as %s", objLabel, sceneLabel, k))
+							}
 						}
 					}
 					for cname, cv := range o.Components {
 						if cm, ok := cv.(map[string]any); ok {
 							for k, v := range cm {
-								if s, ok := v.(string); ok && filepath.ToSlash(s) == projRel {
-									add(fmt.Sprintf("Used by %s in %s as %s.%s", objLabel, sceneLabel, cname, k))
+								if s, ok := v.(string); ok {
+									sl := filepath.ToSlash(s)
+									if targets[sl] {
+										add(sl, fmt.Sprintf("Used by %s in %s as %s.%s", objLabel, sceneLabel, cname, k))
+									}
 								}
 							}
 						}
@@ -1306,8 +1790,10 @@ func (e *Editor) findAudioIncomingReferences(projectDir, projRel string) []strin
 		})
 	}
 
-	slices.Sort(results)
-	return results
+	for target := range out {
+		slices.Sort(out[target])
+	}
+	return out
 }
 
 func formatIncomingRef(r refs.Ref) string {
@@ -1382,6 +1868,7 @@ func (e *Editor) SetChangeIncluded(filePath string, included bool) error {
 				e.applyCommitDraft(sess)
 			}
 			e.changes.rev++
+			e.changes.draftRev++
 			e.notify()
 			return nil
 		}
@@ -1421,7 +1908,7 @@ func (e *Editor) SetChangesSceneView(mode ChangesSceneViewMode) {
 	e.notify()
 }
 
-// SetCommitSummary updates the editable commit summary field in the Changes panel.
+// SetCommitSummary updates the editable commit summary field in the Changes panel without rebuilding the input widgets.
 func (e *Editor) SetCommitSummary(summary string) {
 	if !e.ChangesOpen() {
 		return
@@ -1429,12 +1916,16 @@ func (e *Editor) SetCommitSummary(summary string) {
 	sess := e.changes.session
 	sess.DraftSummary = summary
 	sess.draftEdited = true
+	hadErr := sess.LastErr != ""
 	sess.LastErr = ""
-	e.changes.rev++
+	e.changes.draftRev++
+	if hadErr {
+		e.changes.rev++
+	}
 	e.notify()
 }
 
-// SetCommitDescription updates the editable commit description field in the Changes panel.
+// SetCommitDescription updates the editable commit description field in the Changes panel without rebuilding the input widgets.
 func (e *Editor) SetCommitDescription(description string) {
 	if !e.ChangesOpen() {
 		return
@@ -1442,8 +1933,12 @@ func (e *Editor) SetCommitDescription(description string) {
 	sess := e.changes.session
 	sess.DraftDescription = description
 	sess.draftEdited = true
+	hadErr := sess.LastErr != ""
 	sess.LastErr = ""
-	e.changes.rev++
+	e.changes.draftRev++
+	if hadErr {
+		e.changes.rev++
+	}
 	e.notify()
 }
 
@@ -1460,6 +1955,7 @@ func (e *Editor) SetChangesContext(reviews int, playtestSummary string, agentReq
 		e.applyCommitDraft(sess)
 	}
 	e.changes.rev++
+	e.changes.draftRev++
 	e.notify()
 }
 
@@ -1479,6 +1975,7 @@ func (e *Editor) RedraftCommitMessage() error {
 		return err
 	}
 	e.changes.rev++
+	e.changes.draftRev++
 	e.notify()
 	return nil
 }
@@ -1676,18 +2173,72 @@ func (e *Editor) RunChangesChecks() error {
 	}
 	sess := e.changes.session
 	dir := nonEmpty(sess.ProjectDir, sess.RepoDir)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultChangesChecksTimeout)
+	defer cancel()
 
-	var res ChangesCheckStatus
-	var err error
-	if e.ChangesCheckRunner != nil {
-		res, err = e.ChangesCheckRunner(dir)
+	res, err := executeChangesChecks(ctx, dir, e.ChangesCheckRunner, e.Now)
+	return e.applyChangesChecksResult(res, err)
+}
+
+// RunChangesChecksAsync runs nsgo check and nsgo test off the UI thread and posts the result back to the editor scope.
+func (e *Editor) RunChangesChecksAsync(cx *core.Scope) error {
+	if !e.ChangesOpen() {
+		return ErrNoChangesSession
+	}
+	scope := e.scope
+	if scope == nil {
+		scope = cx
+	}
+	if scope == nil {
+		return e.RunChangesChecks()
+	}
+	sess := e.changes.session
+	dir := nonEmpty(sess.ProjectDir, sess.RepoDir)
+	runner := e.ChangesCheckRunner
+	nowFn := e.Now
+	ctx, gen, done, cancel, err := e.beginChangesOp("Running checks...", defaultChangesChecksTimeout)
+	if err != nil {
+		return err
+	}
+	go func() {
+		defer close(done)
+		res, runErr := executeChangesChecks(ctx, dir, runner, nowFn)
+		if runErr == nil && ctx.Err() != nil {
+			runErr = ctx.Err()
+		}
+		scope.Post(func() {
+			if !e.finishChangesOp(gen, cancel) {
+				return
+			}
+			e.report(e.applyChangesChecksResult(res, runErr))
+		})
+	}()
+	return nil
+}
+
+func executeChangesChecks(ctx context.Context, dir string, runner func(string) (ChangesCheckStatus, error), nowFn func() time.Time) (ChangesCheckStatus, error) {
+	now := func() time.Time {
+		if nowFn != nil {
+			return nowFn()
+		}
+		return time.Now()
+	}
+	if runner != nil {
+		res, err := runner(dir)
 		if res.RanAt.IsZero() {
-			res.RanAt = e.now()
+			res.RanAt = now()
 		}
 		res.Ran = true
-	} else {
-		res = e.runDefaultChangesChecks(dir)
+		return res, err
 	}
+	return runDefaultChangesChecksCtx(ctx, dir, now()), nil
+}
+
+func (e *Editor) applyChangesChecksResult(res ChangesCheckStatus, err error) error {
+	if !e.ChangesOpen() {
+		return nil
+	}
+	sess := e.changes.session
 	if err != nil {
 		sess.LastErr = err.Error()
 		e.changes.rev++
@@ -1700,18 +2251,20 @@ func (e *Editor) RunChangesChecks() error {
 		_ = e.applyCommitDraft(sess)
 	}
 	e.changes.rev++
+	e.changes.draftRev++
 	e.notify()
 	return nil
 }
 
-func (e *Editor) runDefaultChangesChecks(dir string) ChangesCheckStatus {
-	now := e.now()
+func runDefaultChangesChecksCtx(ctx context.Context, dir string, now time.Time) ChangesCheckStatus {
 	status := ChangesCheckStatus{
 		Ran:   true,
 		RanAt: now,
 	}
-	checkCmd := exec.Command("go", "tool", "nsgo", "check", "./...")
+	checkCmd := exec.CommandContext(ctx, "go", "tool", "nsgo", "check", "./...")
 	checkCmd.Dir = dir
+	checkCmd.Env = gitBaseEnv(nil)
+	checkCmd.Stdin = nil
 	checkOut, checkErr := checkCmd.CombinedOutput()
 	status.CheckOutput = strings.TrimSpace(string(checkOut))
 	if checkErr == nil {
@@ -1722,8 +2275,10 @@ func (e *Editor) runDefaultChangesChecks(dir string) ChangesCheckStatus {
 		status.CheckSummary = "nsgo check failed"
 	}
 
-	testCmd := exec.Command("go", "tool", "nsgo", "test", "./...")
+	testCmd := exec.CommandContext(ctx, "go", "tool", "nsgo", "test", "./...")
 	testCmd.Dir = dir
+	testCmd.Env = gitBaseEnv(nil)
+	testCmd.Stdin = nil
 	testOut, testErr := testCmd.CombinedOutput()
 	status.TestOutput = strings.TrimSpace(string(testOut))
 	passed := countGoTestPasses(status.TestOutput)
@@ -1742,17 +2297,73 @@ func (e *Editor) runDefaultChangesChecks(dir string) ChangesCheckStatus {
 	return status
 }
 
+// countGoTestPasses parses test pass counts from either `go tool nsgo test` output
+// (`✓ TestName`, `N passed, 0 failed`, `PASS  1 package, N passed`) or `go test -v` (`--- PASS:`).
 func countGoTestPasses(out string) int {
-	n := 0
-	for _, line := range strings.Split(out, "\n") {
-		if strings.HasPrefix(strings.TrimSpace(line), "--- PASS:") {
-			n++
+	summaryPassed := 0
+	goVPassed := 0
+	checkMarkPassed := 0
+	for _, rawLine := range strings.Split(out, "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "--- PASS:") {
+			goVPassed++
+			continue
+		}
+		if strings.HasPrefix(line, "✓ ") || strings.HasPrefix(line, "PASS: ") {
+			checkMarkPassed++
+			continue
+		}
+		if n, ok := parseNSGoPassedSummary(line); ok {
+			summaryPassed = n
 		}
 	}
-	return n
+	if summaryPassed > 0 {
+		return summaryPassed
+	}
+	if goVPassed > 0 {
+		return goVPassed
+	}
+	return checkMarkPassed
 }
 
-// GitSwitchBranch checks out branch in the active Changes repository and refreshes the working-tree status.
+func parseNSGoPassedSummary(line string) (int, bool) {
+	// Examples:
+	//   "570 passed, 0 failed, 0 skipped"
+	//   "PASS  1 package, 61 passed (0 skipped)  55.87s"
+	fields := strings.Fields(line)
+	for i := 1; i < len(fields); i++ {
+		tok := strings.TrimRight(fields[i], ",;:")
+		if tok != "passed" {
+			continue
+		}
+		prev := strings.TrimRight(fields[i-1], ",")
+		if n, err := strconv.Atoi(prev); err == nil && n > 0 {
+			return n, true
+		}
+	}
+	return 0, false
+}
+
+func validateGitBranchName(branch string) error {
+	if branch == "" {
+		return errors.New("editor: empty branch name")
+	}
+	if branch == "HEAD" {
+		return errors.New("editor: cannot use detached HEAD as a branch name")
+	}
+	if strings.HasPrefix(branch, "-") {
+		return fmt.Errorf("editor: invalid branch name %q (must not start with '-')", branch)
+	}
+	if strings.ContainsAny(branch, " \t\r\n\x00~^:?*[\\") || strings.Contains(branch, "..") || strings.Contains(branch, "@{") || strings.HasSuffix(branch, ".lock") || strings.HasPrefix(branch, "/") || strings.HasSuffix(branch, "/") {
+		return fmt.Errorf("editor: invalid branch name %q", branch)
+	}
+	return nil
+}
+
+// GitSwitchBranch checks out branch in the active Changes repository and reloads open scenes and project state.
 func (e *Editor) GitSwitchBranch(branch string) error {
 	if !e.ChangesOpen() {
 		return ErrNoChangesSession
@@ -1760,31 +2371,55 @@ func (e *Editor) GitSwitchBranch(branch string) error {
 	if e.Playing() {
 		return ErrPlaying
 	}
-	branch = strings.TrimSpace(branch)
-	if branch == "" {
-		return errors.New("editor: empty branch name")
-	}
 	sess := e.changes.session
-	sess.BranchMenuOpen = false
+	if e.hasGitMergeInProgress(sess.RepoDir) {
+		sess.LastErr = ErrMergeConflictInProgress.Error()
+		e.changes.rev++
+		e.notify()
+		return ErrMergeConflictInProgress
+	}
+	branch = strings.TrimSpace(branch)
+	if err := validateGitBranchName(branch); err != nil {
+		sess.LastErr = err.Error()
+		e.changes.rev++
+		e.notify()
+		return err
+	}
 	if branch == sess.Branch {
 		e.changes.rev++
 		e.notify()
 		return nil
 	}
-	if out, err := e.runGit(sess.RepoDir, "checkout", branch); err != nil {
+	if e.HasUnsavedChanges() {
+		sess.LastErr = ErrUnsavedChanges.Error()
+		e.changes.rev++
+		e.notify()
+		return ErrUnsavedChanges
+	}
+	// Verify the target is a genuine local branch ref before switching to prevent flag or pathspec injection.
+	if _, err := e.runGit(sess.RepoDir, "show-ref", "--verify", "--quiet", "--", "refs/heads/"+branch); err != nil {
+		err = fmt.Errorf("editor: local branch %q does not exist", branch)
+		sess.LastErr = err.Error()
+		e.changes.rev++
+		e.notify()
+		return err
+	}
+	if out, err := e.runGit(sess.RepoDir, "switch", "--", branch); err != nil {
 		msg := nonEmpty(out, err.Error())
 		sess.LastErr = "Switch branch failed: " + msg
 		e.changes.rev++
 		e.notify()
-		return fmt.Errorf("editor: git checkout %s: %w (%s)", branch, err, out)
+		return fmt.Errorf("editor: git switch %s: %w (%s)", branch, err, out)
 	}
+	e.reloadOpenStateAfterGitWorktreeChange()
 	sess.LastNotice = "Switched to " + branch
 	e.Status = "Switched branch to " + branch
 	e.refreshDetectedMergeConflicts()
 	return e.refreshChangesSession(false)
 }
 
-// GitPull pulls from the upstream branch using fast-forward only (never creating an unintended merge commit) and refreshes Changes.
+// GitPull pulls from the upstream branch using fast-forward only (never creating an unintended merge commit),
+// reloads open scenes/project state from disk, and refreshes Changes.
 func (e *Editor) GitPull() error {
 	if !e.ChangesOpen() {
 		return ErrNoChangesSession
@@ -1793,7 +2428,85 @@ func (e *Editor) GitPull() error {
 		return ErrPlaying
 	}
 	sess := e.changes.session
-	out, err := e.runGit(sess.RepoDir, "pull", "--ff-only")
+	if e.hasGitMergeInProgress(sess.RepoDir) {
+		sess.LastErr = ErrMergeConflictInProgress.Error()
+		e.changes.rev++
+		e.notify()
+		return ErrMergeConflictInProgress
+	}
+	if e.HasUnsavedChanges() {
+		sess.LastErr = ErrUnsavedChanges.Error()
+		e.changes.rev++
+		e.notify()
+		return ErrUnsavedChanges
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), defaultGitNetworkTimeout)
+	defer cancel()
+	out, err := e.runGitCtx(ctx, sess.RepoDir, "pull", "--ff-only")
+	return e.applyGitPullResult(out, err)
+}
+
+// GitPullAsync runs `git pull --ff-only` off the UI thread and posts the result back to the editor scope.
+func (e *Editor) GitPullAsync(cx *core.Scope) error {
+	if !e.ChangesOpen() {
+		return ErrNoChangesSession
+	}
+	scope := e.scope
+	if scope == nil {
+		scope = cx
+	}
+	if scope == nil {
+		return e.GitPull()
+	}
+	if e.Playing() {
+		return ErrPlaying
+	}
+	sess := e.changes.session
+	if e.hasGitMergeInProgress(sess.RepoDir) {
+		sess.LastErr = ErrMergeConflictInProgress.Error()
+		e.changes.rev++
+		e.notify()
+		return ErrMergeConflictInProgress
+	}
+	if e.HasUnsavedChanges() {
+		sess.LastErr = ErrUnsavedChanges.Error()
+		e.changes.rev++
+		e.notify()
+		return ErrUnsavedChanges
+	}
+	repoDir := sess.RepoDir
+	runner := e.GitRunner
+	ctx, gen, done, cancel, err := e.beginChangesOp("Pulling...", defaultGitNetworkTimeout)
+	if err != nil {
+		return err
+	}
+	go func() {
+		defer close(done)
+		var out string
+		var runErr error
+		if runner != nil {
+			out, runErr = runner(repoDir, "pull", "--ff-only")
+		} else {
+			out, runErr = runGitExecCtx(ctx, repoDir, nil, nil, "pull", "--ff-only")
+		}
+		if runErr == nil && ctx.Err() != nil {
+			runErr = ctx.Err()
+		}
+		scope.Post(func() {
+			if !e.finishChangesOp(gen, cancel) {
+				return
+			}
+			e.report(e.applyGitPullResult(out, runErr))
+		})
+	}()
+	return nil
+}
+
+func (e *Editor) applyGitPullResult(out string, err error) error {
+	if !e.ChangesOpen() {
+		return nil
+	}
+	sess := e.changes.session
 	if err != nil {
 		msg := nonEmpty(out, err.Error())
 		sess.LastErr = "Pull failed: " + msg
@@ -1802,10 +2515,88 @@ func (e *Editor) GitPull() error {
 		e.notify()
 		return fmt.Errorf("editor: git pull: %w (%s)", err, out)
 	}
+	e.reloadOpenStateAfterGitWorktreeChange()
 	sess.LastNotice = nonEmpty(firstLine(out), "Pulled latest changes")
 	e.Status = sess.LastNotice
 	e.refreshDetectedMergeConflicts()
 	return e.refreshChangesSession(false)
+}
+
+// reloadOpenStateAfterGitWorktreeChange reloads open project, open scene tabs (#1162), and animation clips
+// from disk after a branch switch or pull, and synchronizes #1171 disk watch snapshots.
+func (e *Editor) reloadOpenStateAfterGitWorktreeChange() {
+	if e == nil {
+		return
+	}
+	// Reload game.yaml when present.
+	if e.Project != nil && e.ProjectPath != "" {
+		if data, err := os.ReadFile(e.ProjectPath); err == nil {
+			if f, perr := project.Parse(data); perr == nil {
+				if saved, eerr := project.Encode(f); eerr == nil {
+					e.Project = f
+					e.projectSaved = saved
+					e.recordProjectDiskSnapshot(e.ProjectPath, data)
+				}
+			}
+		}
+	}
+
+	// Reload every open scene tab from disk so stale pre-switch documents cannot overwrite the new branch.
+	e.syncActiveTab()
+	for i, t := range e.tabs {
+		if t.filePath == "" {
+			continue
+		}
+		data, err := os.ReadFile(t.filePath)
+		if err != nil {
+			continue
+		}
+		doc, perr := sceneformat.ParseWith(data, sceneformat.ParseOptions{
+			File:          t.filePath,
+			Components:    e.components,
+			PhysicsLayers: e.PhysicsLayers(),
+		})
+		if perr != nil {
+			continue
+		}
+		saved, eerr := sceneformat.Encode(doc)
+		if eerr != nil {
+			continue
+		}
+		t.doc = doc
+		t.built, t.buildErr = sceneformat.Build(doc, e.Resolver)
+		t.sceneSaved = saved
+		t.sceneDisk = makeDiskSnapshot(t.filePath, data)
+		if i == e.activeTab {
+			e.Doc = t.doc
+			e.Built = t.built
+			e.BuildErr = t.buildErr
+			e.sceneSaved = saved
+			e.recordSceneDiskSnapshot(t.filePath, data)
+		}
+	}
+
+	// Reload open animation clip when present.
+	if e.clip != nil && e.clipMeta.path != "" {
+		if data, err := os.ReadFile(e.clipMeta.path); err == nil {
+			if clip, perr := resource.ParseAs[*resource.Animation](data); perr == nil {
+				if saved, eerr := resource.Encode(clip); eerr == nil {
+					e.clip = clip
+					e.clipSaved = saved
+					e.recordClipDiskSnapshot(e.clipMeta.path, data)
+				}
+			}
+		}
+	}
+
+	e.disk.conflicts = nil
+	e.disk.saveConflict = nil
+	e.disk.saveConflictTabID = 0
+	e.snapshotGitHead()
+	e.snapshotProjectTree()
+	e.syncDiskWatchTargets()
+	e.filesRev++
+	e.scenesRev++
 }
 
 // CommitSelectedChanges stages ONLY the checked/included files and commits ONLY those paths,
@@ -1818,6 +2609,12 @@ func (e *Editor) CommitSelectedChanges() (CommitMilestone, error) {
 		return CommitMilestone{}, ErrPlaying
 	}
 	sess := e.changes.session
+	if e.hasGitMergeInProgress(sess.RepoDir) {
+		sess.LastErr = ErrMergeConflictInProgress.Error()
+		e.changes.rev++
+		e.notify()
+		return CommitMilestone{}, ErrMergeConflictInProgress
+	}
 	summary := strings.TrimSpace(sess.DraftSummary)
 	if summary == "" {
 		err := errors.New("editor: commit summary cannot be empty")
@@ -1827,13 +2624,62 @@ func (e *Editor) CommitSelectedChanges() (CommitMilestone, error) {
 		return CommitMilestone{}, err
 	}
 
-	var includedPaths []string
-	for _, f := range sess.Files {
-		if f.Included {
-			includedPaths = append(includedPaths, f.Path)
+	var displayIncluded []string
+	var stagePaths []string
+	var commitPaths []string
+	seenStage := make(map[string]bool)
+	seenCommit := make(map[string]bool)
+	addCommitPath := func(p string) error {
+		if p == "" || seenCommit[p] {
+			return nil
 		}
+		if _, err := resolveRepoFilePath(sess.RepoDir, sess.ProjectPrefix, p); err != nil {
+			return err
+		}
+		seenCommit[p] = true
+		commitPaths = append(commitPaths, p)
+		return nil
 	}
-	if len(includedPaths) == 0 {
+	addStagePath := func(p string) {
+		if p == "" || seenStage[p] {
+			return
+		}
+		seenStage[p] = true
+		stagePaths = append(stagePaths, p)
+	}
+
+	for _, f := range sess.Files {
+		if !f.Included {
+			continue
+		}
+		if err := addCommitPath(f.Path); err != nil {
+			sess.LastErr = err.Error()
+			e.changes.rev++
+			e.notify()
+			return CommitMilestone{}, err
+		}
+		// Only stage f.Path if it exists on disk or is tracked in the index (skip already-staged deletions).
+		if f.Status != ChangesStatusDeleted {
+			addStagePath(f.Path)
+		} else if _, err := e.runGit(sess.RepoDir, "ls-files", "--error-unmatch", "--", f.Path); err == nil {
+			addStagePath(f.Path)
+		}
+		// Include the old path on renames in commitPaths so git commits the rename atomically;
+		// stage OldPath only if it is still present in the index (not already removed by `git mv`).
+		if f.OldPath != "" {
+			if err := addCommitPath(f.OldPath); err != nil {
+				sess.LastErr = err.Error()
+				e.changes.rev++
+				e.notify()
+				return CommitMilestone{}, err
+			}
+			if _, err := e.runGit(sess.RepoDir, "ls-files", "--error-unmatch", "--", f.OldPath); err == nil {
+				addStagePath(f.OldPath)
+			}
+		}
+		displayIncluded = append(displayIncluded, f.Path)
+	}
+	if len(commitPaths) == 0 {
 		err := errors.New("editor: select at least one file to commit")
 		sess.LastErr = err.Error()
 		e.changes.rev++
@@ -1854,29 +2700,88 @@ func (e *Editor) CommitSelectedChanges() (CommitMilestone, error) {
 		}
 	}
 
-	// Stage ONLY the included paths (handling modified, untracked, and deleted files cleanly).
-	addArgs := append([]string{"add", "-A", "--"}, includedPaths...)
-	if out, err := e.runGit(repoRoot, addArgs...); err != nil {
-		msg := nonEmpty(out, err.Error())
-		sess.LastErr = "Stage failed: " + msg
-		e.changes.rev++
-		e.notify()
-		return CommitMilestone{}, fmt.Errorf("editor: git add: %w (%s)", err, out)
-	}
+	ctx, cancel := context.WithTimeout(context.Background(), defaultGitTimeout)
+	defer cancel()
 
-	// Commit ONLY the included paths using --only when HEAD exists so any previously staged unchecked files stay uncommitted.
-	var commitArgs []string
 	if hasHead {
-		commitArgs = append([]string{"commit", "--only", "-m", message, "--"}, includedPaths...)
+		// Stage ONLY the included paths that need staging (handling modified, untracked, renamed, and deleted files cleanly).
+		if len(stagePaths) > 0 {
+			addArgs := append([]string{"add", "-A", "--"}, stagePaths...)
+			if out, err := e.runGitCtx(ctx, repoRoot, addArgs...); err != nil {
+				msg := nonEmpty(out, err.Error())
+				sess.LastErr = "Stage failed: " + msg
+				e.changes.rev++
+				e.notify()
+				return CommitMilestone{}, fmt.Errorf("editor: git add: %w (%s)", err, out)
+			}
+		}
+
+		// Commit ONLY the included paths using --only so any previously staged unchecked files stay uncommitted.
+		// Pass the message via stdin (-F -) when running real git to avoid OS argv limits and flag parsing edge cases.
+		var out string
+		var err error
+		if e.GitRunner != nil {
+			commitArgs := append([]string{"commit", "--only", "-m", message, "--"}, commitPaths...)
+			out, err = e.runGitCtx(ctx, repoRoot, commitArgs...)
+		} else {
+			commitArgs := append([]string{"commit", "--only", "-F", "-", "--"}, commitPaths...)
+			out, err = e.runGitEnvCtx(ctx, repoRoot, nil, []byte(message), commitArgs...)
+		}
+		if err != nil {
+			msg := nonEmpty(out, err.Error())
+			sess.LastErr = "Commit failed: " + msg
+			e.changes.rev++
+			e.notify()
+			return CommitMilestone{}, fmt.Errorf("editor: git commit: %w (%s)", err, out)
+		}
 	} else {
-		commitArgs = []string{"commit", "-m", message}
-	}
-	if out, err := e.runGit(repoRoot, commitArgs...); err != nil {
-		msg := nonEmpty(out, err.Error())
-		sess.LastErr = "Commit failed: " + msg
-		e.changes.rev++
-		e.notify()
-		return CommitMilestone{}, fmt.Errorf("editor: git commit: %w (%s)", err, out)
+		// Unborn HEAD: commit through a temporary GIT_INDEX_FILE containing ONLY commitPaths so any
+		// previously staged unchecked files in the real index remain completely untouched and uncommitted.
+		if e.GitRunner != nil {
+			addArgs := append([]string{"add", "-A", "--"}, commitPaths...)
+			if out, err := e.runGitCtx(ctx, repoRoot, addArgs...); err != nil {
+				msg := nonEmpty(out, err.Error())
+				sess.LastErr = "Stage failed: " + msg
+				e.changes.rev++
+				e.notify()
+				return CommitMilestone{}, fmt.Errorf("editor: git add: %w (%s)", err, out)
+			}
+			if out, err := e.runGitCtx(ctx, repoRoot, "commit", "-m", message); err != nil {
+				msg := nonEmpty(out, err.Error())
+				sess.LastErr = "Commit failed: " + msg
+				e.changes.rev++
+				e.notify()
+				return CommitMilestone{}, fmt.Errorf("editor: git commit: %w (%s)", err, out)
+			}
+		} else {
+			tmpDir, derr := os.MkdirTemp("", "nsgo-git-idx-*")
+			if derr != nil {
+				sess.LastErr = "Stage failed: " + derr.Error()
+				e.changes.rev++
+				e.notify()
+				return CommitMilestone{}, fmt.Errorf("editor: temp git index: %w", derr)
+			}
+			defer os.RemoveAll(tmpDir)
+			tmpIdxEnv := []string{"GIT_INDEX_FILE=" + filepath.Join(tmpDir, "index")}
+			addArgs := append([]string{"add", "-A", "--"}, commitPaths...)
+			if out, err := e.runGitEnvCtx(ctx, repoRoot, tmpIdxEnv, nil, addArgs...); err != nil {
+				msg := nonEmpty(out, err.Error())
+				sess.LastErr = "Stage failed: " + msg
+				e.changes.rev++
+				e.notify()
+				return CommitMilestone{}, fmt.Errorf("editor: git add: %w (%s)", err, out)
+			}
+			if out, err := e.runGitEnvCtx(ctx, repoRoot, tmpIdxEnv, []byte(message), "commit", "-F", "-"); err != nil {
+				msg := nonEmpty(out, err.Error())
+				sess.LastErr = "Commit failed: " + msg
+				e.changes.rev++
+				e.notify()
+				return CommitMilestone{}, fmt.Errorf("editor: git commit: %w (%s)", err, out)
+			}
+			// Synchronize ONLY the committed paths into the real index so they match the new HEAD
+			// while unchecked staged files remain untouched in the real index.
+			_, _ = e.runGitCtx(ctx, repoRoot, addArgs...)
+		}
 	}
 
 	sha, err := e.runGit(repoRoot, "rev-parse", "--short", "HEAD")
@@ -1889,16 +2794,14 @@ func (e *Editor) CommitSelectedChanges() (CommitMilestone, error) {
 		Summary:         summary,
 		Description:     strings.TrimSpace(sess.DraftDescription),
 		Branch:          sess.Branch,
-		Files:           slices.Clone(includedPaths),
+		Files:           slices.Clone(displayIncluded),
 		Timestamp:       e.now(),
 		Pushed:          false,
 		AgentRequests:   sess.AgentRequestCount,
 		PlaytestSummary: sess.PlaytestSummary,
 	}
 	e.changes.milestones = append([]CommitMilestone{milestone}, e.changes.milestones...)
-	if e.History != nil {
-		e.History.RecordMilestone(milestone)
-	}
+	e.recordMilestoneAcrossTabs(milestone)
 
 	sess.LastCommit = &milestone
 	sess.Milestones = slices.Clone(e.changes.milestones)
@@ -1907,11 +2810,51 @@ func (e *Editor) CommitSelectedChanges() (CommitMilestone, error) {
 	sess.LastErr = ""
 	sess.LastNotice = fmt.Sprintf("Committed as %s", sha)
 	e.Status = sess.LastNotice
+	e.snapshotGitHead()
 
 	if err := e.refreshChangesSession(true); err != nil {
 		return milestone, err
 	}
 	return milestone, nil
+}
+
+func (e *Editor) recordMilestoneAcrossTabs(m CommitMilestone) {
+	if e == nil {
+		return
+	}
+	recorded := make(map[*History]bool)
+	if e.History != nil {
+		e.History.RecordMilestone(m)
+		recorded[e.History] = true
+	}
+	for _, t := range e.tabs {
+		if t.history != nil && !recorded[t.history] {
+			t.history.RecordMilestone(m)
+			recorded[t.history] = true
+		}
+	}
+}
+
+func (e *Editor) markMilestonesPushed(branch string) {
+	if e == nil {
+		return
+	}
+	for i := range e.changes.milestones {
+		if e.changes.milestones[i].Branch == branch {
+			e.changes.milestones[i].Pushed = true
+		}
+	}
+	seen := make(map[*History]bool)
+	if e.History != nil {
+		e.History.MarkBranchPushed(branch)
+		seen[e.History] = true
+	}
+	for _, t := range e.tabs {
+		if t.history != nil && !seen[t.history] {
+			t.history.MarkBranchPushed(branch)
+			seen[t.history] = true
+		}
+	}
 }
 
 // CommitAndPushSelectedChanges commits the currently included files and immediately pushes the branch.
@@ -1927,6 +2870,24 @@ func (e *Editor) CommitAndPushSelectedChanges() (CommitMilestone, error) {
 	return m, nil
 }
 
+// CommitAndPushSelectedChangesAsync commits locally and pushes the branch off the UI thread.
+func (e *Editor) CommitAndPushSelectedChangesAsync(cx *core.Scope) error {
+	if _, err := e.CommitSelectedChanges(); err != nil {
+		return err
+	}
+	return e.PushCommitsAsync(cx)
+}
+
+func (e *Editor) buildPushArgs(sess *ChangesSession) ([]string, error) {
+	if sess.Upstream != "" {
+		return []string{"push"}, nil
+	}
+	if err := validateGitBranchName(sess.Branch); err != nil {
+		return nil, err
+	}
+	return []string{"push", "-u", "--", "origin", "refs/heads/" + sess.Branch}, nil
+}
+
 // PushCommits pushes local commits on the current branch to its upstream (or sets upstream on origin when none is configured).
 func (e *Editor) PushCommits() error {
 	if !e.ChangesOpen() {
@@ -1936,13 +2897,89 @@ func (e *Editor) PushCommits() error {
 		return ErrPlaying
 	}
 	sess := e.changes.session
-	var args []string
-	if sess.Upstream != "" {
-		args = []string{"push"}
-	} else {
-		args = []string{"push", "-u", "origin", sess.Branch}
+	if e.hasGitMergeInProgress(sess.RepoDir) {
+		sess.LastErr = ErrMergeConflictInProgress.Error()
+		e.changes.rev++
+		e.notify()
+		return ErrMergeConflictInProgress
 	}
-	if out, err := e.runGit(sess.RepoDir, args...); err != nil {
+	args, err := e.buildPushArgs(sess)
+	if err != nil {
+		sess.LastErr = "Push failed: " + err.Error()
+		e.changes.rev++
+		e.notify()
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), defaultGitNetworkTimeout)
+	defer cancel()
+	out, err := e.runGitCtx(ctx, sess.RepoDir, args...)
+	return e.applyPushResult(sess.Branch, out, err)
+}
+
+// PushCommitsAsync pushes commits off the UI thread and posts the result back to the editor scope.
+func (e *Editor) PushCommitsAsync(cx *core.Scope) error {
+	if !e.ChangesOpen() {
+		return ErrNoChangesSession
+	}
+	scope := e.scope
+	if scope == nil {
+		scope = cx
+	}
+	if scope == nil {
+		return e.PushCommits()
+	}
+	if e.Playing() {
+		return ErrPlaying
+	}
+	sess := e.changes.session
+	if e.hasGitMergeInProgress(sess.RepoDir) {
+		sess.LastErr = ErrMergeConflictInProgress.Error()
+		e.changes.rev++
+		e.notify()
+		return ErrMergeConflictInProgress
+	}
+	args, err := e.buildPushArgs(sess)
+	if err != nil {
+		sess.LastErr = "Push failed: " + err.Error()
+		e.changes.rev++
+		e.notify()
+		return err
+	}
+	repoDir := sess.RepoDir
+	branch := sess.Branch
+	runner := e.GitRunner
+	ctx, gen, done, cancel, err := e.beginChangesOp("Pushing...", defaultGitNetworkTimeout)
+	if err != nil {
+		return err
+	}
+	go func() {
+		defer close(done)
+		var out string
+		var runErr error
+		if runner != nil {
+			out, runErr = runner(repoDir, args...)
+		} else {
+			out, runErr = runGitExecCtx(ctx, repoDir, nil, nil, args...)
+		}
+		if runErr == nil && ctx.Err() != nil {
+			runErr = ctx.Err()
+		}
+		scope.Post(func() {
+			if !e.finishChangesOp(gen, cancel) {
+				return
+			}
+			e.report(e.applyPushResult(branch, out, runErr))
+		})
+	}()
+	return nil
+}
+
+func (e *Editor) applyPushResult(branch, out string, err error) error {
+	if !e.ChangesOpen() {
+		return nil
+	}
+	sess := e.changes.session
+	if err != nil {
 		msg := nonEmpty(out, err.Error())
 		sess.LastErr = "Push failed: " + msg
 		e.changes.rev++
@@ -1950,18 +2987,14 @@ func (e *Editor) PushCommits() error {
 		return fmt.Errorf("editor: git push: %w (%s)", err, out)
 	}
 
-	for i := range e.changes.milestones {
-		if e.changes.milestones[i].Branch == sess.Branch {
-			e.changes.milestones[i].Pushed = true
-		}
-	}
+	e.markMilestonesPushed(branch)
 	if sess.LastCommit != nil {
 		sess.LastCommit.Pushed = true
 	}
 	sess.Milestones = slices.Clone(e.changes.milestones)
 	sess.Ahead = 0
 	sess.LastErr = ""
-	sess.LastNotice = "Pushed " + sess.Branch
+	sess.LastNotice = "Pushed " + branch
 	e.Status = sess.LastNotice
 	return e.refreshChangesSession(sess.Committed)
 }
@@ -1978,6 +3011,7 @@ func (e *Editor) BackToCommitDraft() {
 		_ = e.applyCommitDraft(sess)
 	}
 	e.changes.rev++
+	e.changes.draftRev++
 	e.notify()
 }
 
@@ -2069,7 +3103,7 @@ func (e *Editor) BuildPRDescription() string {
 	return strings.TrimSpace(b.String())
 }
 
-// CopyPRDescription builds the structured PR description and places it on the clipboard (or Editor.ChangesClipboard when set).
+// CopyPRDescription builds the structured PR description and places it on the clipboard (or Editor.ChangesClipboard / WriteClipboard when set).
 func (e *Editor) CopyPRDescription() (string, error) {
 	if !e.ChangesOpen() {
 		return "", ErrNoChangesSession
@@ -2083,6 +3117,8 @@ func (e *Editor) CopyPRDescription() (string, error) {
 	switch {
 	case e.ChangesClipboard != nil:
 		e.ChangesClipboard(desc)
+	case e.WriteClipboard != nil:
+		e.WriteClipboard(desc)
 	case e.scope != nil:
 		e.scope.SetClipboard(desc)
 	}
@@ -2094,8 +3130,7 @@ func (e *Editor) CopyPRDescription() (string, error) {
 	return desc, nil
 }
 
-// ChangesGHAvailable reports whether the GitHub CLI (`gh`) is available (or Editor.GHRunner is injected).
-func (e *Editor) ChangesGHAvailable() bool {
+func (e *Editor) detectGHAvailable() bool {
 	if e != nil && e.GHRunner != nil {
 		return true
 	}
@@ -2103,41 +3138,78 @@ func (e *Editor) ChangesGHAvailable() bool {
 	return err == nil
 }
 
-// OpenPullRequest creates a pull request with `gh pr create` (or Editor.GHRunner) using the drafted title and PR description.
-func (e *Editor) OpenPullRequest() (string, error) {
+// ChangesGHAvailable reports whether the GitHub CLI (`gh`) is available (or Editor.GHRunner is injected),
+// using the cached value from the active session when open.
+func (e *Editor) ChangesGHAvailable() bool {
+	if e != nil && e.GHRunner != nil {
+		return true
+	}
+	if e != nil && e.changes.session != nil {
+		return e.changes.session.GHAvailable
+	}
+	_, err := exec.LookPath("gh")
+	return err == nil
+}
+
+func (e *Editor) prepareOpenPullRequest() (repoDir, title, body, base string, err error) {
 	if !e.ChangesOpen() {
-		return "", ErrNoChangesSession
+		return "", "", "", "", ErrNoChangesSession
+	}
+	if e.Playing() {
+		return "", "", "", "", ErrPlaying
+	}
+	sess := e.changes.session
+	if e.hasGitMergeInProgress(sess.RepoDir) {
+		sess.LastErr = ErrMergeConflictInProgress.Error()
+		e.changes.rev++
+		e.notify()
+		return "", "", "", "", ErrMergeConflictInProgress
 	}
 	if !e.ChangesGHAvailable() {
 		err := errors.New("editor: GitHub CLI (gh) is not installed on PATH")
-		e.changes.session.LastErr = err.Error()
+		sess.LastErr = err.Error()
 		e.changes.rev++
 		e.notify()
-		return "", err
+		return "", "", "", "", err
 	}
-	sess := e.changes.session
-	title := strings.TrimSpace(sess.DraftSummary)
+	title = strings.TrimSpace(sess.DraftSummary)
 	if sess.LastCommit != nil && (sess.Committed || title == "") {
 		title = sess.LastCommit.Summary
 	}
 	if title == "" {
 		title = "Changes on " + sess.Branch
 	}
-	body := e.BuildPRDescription()
-	base := nonEmpty(sess.BaseBranch, "main")
-
-	args := []string{"pr", "create", "--title", title, "--body", body, "--base", base}
-	var out string
-	var err error
-	if e.GHRunner != nil {
-		out, err = e.GHRunner(sess.RepoDir, args...)
-	} else {
-		cmd := exec.Command("gh", args...)
-		cmd.Dir = sess.RepoDir
-		raw, cerr := cmd.CombinedOutput()
-		out = strings.TrimSpace(string(raw))
-		err = cerr
+	body = e.BuildPRDescription()
+	base = strings.TrimSpace(nonEmpty(sess.BaseBranch, "main"))
+	if err := validateGitBranchName(base); err != nil {
+		sess.LastErr = "Open PR failed: " + err.Error()
+		e.changes.rev++
+		e.notify()
+		return "", "", "", "", err
 	}
+	return sess.RepoDir, title, body, base, nil
+}
+
+func runGHCreatePRCtx(ctx context.Context, repoDir, title, body, base string, runner func(string, ...string) (string, error)) (string, error) {
+	if runner != nil {
+		args := []string{"pr", "create", "--title", title, "--body", body, "--base", base}
+		return runner(repoDir, args...)
+	}
+	// Pass PR body via stdin (--body-file -) so long descriptions never exceed OS argv limits or trigger flag parsing edge cases.
+	args := []string{"pr", "create", "--title", title, "--body-file", "-", "--base", base}
+	cmd := exec.CommandContext(ctx, "gh", args...)
+	cmd.Dir = repoDir
+	cmd.Env = gitBaseEnv(nil)
+	cmd.Stdin = strings.NewReader(body)
+	raw, cerr := cmd.CombinedOutput()
+	return strings.TrimSpace(string(raw)), cerr
+}
+
+func (e *Editor) applyOpenPullRequestResult(base, out string, err error) (string, error) {
+	if !e.ChangesOpen() {
+		return "", nil
+	}
+	sess := e.changes.session
 	if err != nil {
 		msg := nonEmpty(out, err.Error())
 		sess.LastErr = "Open PR failed: " + msg
@@ -2152,6 +3224,54 @@ func (e *Editor) OpenPullRequest() (string, error) {
 	e.changes.rev++
 	e.notify()
 	return sess.LastPRURL, nil
+}
+
+// OpenPullRequest creates a pull request with `gh pr create` (or Editor.GHRunner) using the drafted title and PR description.
+func (e *Editor) OpenPullRequest() (string, error) {
+	repoDir, title, body, base, err := e.prepareOpenPullRequest()
+	if err != nil {
+		return "", err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), defaultGitNetworkTimeout)
+	defer cancel()
+	out, runErr := runGHCreatePRCtx(ctx, repoDir, title, body, base, e.GHRunner)
+	return e.applyOpenPullRequestResult(base, out, runErr)
+}
+
+// OpenPullRequestAsync runs `gh pr create` off the UI thread and posts the result back to the editor scope.
+func (e *Editor) OpenPullRequestAsync(cx *core.Scope) error {
+	scope := e.scope
+	if scope == nil {
+		scope = cx
+	}
+	if scope == nil {
+		_, err := e.OpenPullRequest()
+		return err
+	}
+	repoDir, title, body, base, err := e.prepareOpenPullRequest()
+	if err != nil {
+		return err
+	}
+	runner := e.GHRunner
+	ctx, gen, done, cancel, err := e.beginChangesOp("Opening PR...", defaultGitNetworkTimeout)
+	if err != nil {
+		return err
+	}
+	go func() {
+		defer close(done)
+		out, runErr := runGHCreatePRCtx(ctx, repoDir, title, body, base, runner)
+		if runErr == nil && ctx.Err() != nil {
+			runErr = ctx.Err()
+		}
+		scope.Post(func() {
+			if !e.finishChangesOp(gen, cancel) {
+				return
+			}
+			_, applyErr := e.applyOpenPullRequestResult(base, out, runErr)
+			e.report(applyErr)
+		})
+	}()
+	return nil
 }
 
 // AuditionChangedAudio plays the selected sound asset from the Changes panel (reusing sound.Mixer when a UI scope is attached).
@@ -2180,10 +3300,16 @@ func (e *Editor) AuditionChangedAudio(filePath string) error {
 		e.StopChangedAudio()
 		return nil
 	}
-	absPath := filepath.Join(sess.RepoDir, filepath.FromSlash(target.Path))
-	raw, err := os.ReadFile(absPath)
+	absPath, err := resolveRepoFilePath(sess.RepoDir, sess.ProjectPrefix, target.Path)
+	if err != nil {
+		return err
+	}
+	raw, truncated, _, err := readFileBounded(absPath, maxChangesAuditionBytes)
 	if err != nil {
 		return fmt.Errorf("editor: read audio %q: %w", target.Path, err)
+	}
+	if truncated {
+		return fmt.Errorf("editor: audio %q exceeds %s audition limit", target.Path, formatHumanBytes(maxChangesAuditionBytes))
 	}
 
 	e.stopChangedAudioPlayback()
@@ -2197,14 +3323,22 @@ func (e *Editor) AuditionChangedAudio(filePath string) error {
 				return nil
 			}
 		}
-		if e.changes.audioMixer == nil {
-			e.changes.audioMixer = sound.NewMixer(e.scope, "editor.changesAudio")
+		if e.changes.audioMixer == nil || e.changes.audioMixerScope != e.scope {
+			var m *sound.Mixer
+			e.scope.Run(func() {
+				m = sound.NewMixer(e.scope, "editor.changesAudio")
+			})
+			e.changes.audioMixer = m
+			e.changes.audioMixerScope = e.scope
+			e.changes.audioMusic = nil
 		}
-		if e.changes.audioMusic == nil {
+		if e.changes.audioMusic == nil && e.changes.audioMixer != nil {
 			e.changes.audioMusic = e.changes.audioMixer.Music("sfx")
 		}
-		e.changes.audioMusic.Loop = false
-		e.changes.audioMusic.Play(audio.Source{Data: raw}, 0)
+		if e.changes.audioMusic != nil {
+			e.changes.audioMusic.Loop = false
+			e.changes.audioMusic.Play(audio.Source{Data: raw}, 0)
+		}
 	}
 	e.changes.auditionPath = filePath
 	e.Status = "Playing " + target.DisplayName
@@ -2236,6 +3370,18 @@ func (e *Editor) stopChangedAudioPlayback() {
 	e.changes.auditionPath = ""
 }
 
+func (e *Editor) cleanupChangedAudioScope(cx *core.Scope) {
+	if e == nil {
+		return
+	}
+	e.stopChangedAudioPlayback()
+	if e.changes.audioMixerScope == cx {
+		e.changes.audioMixer = nil
+		e.changes.audioMixerScope = nil
+		e.changes.audioMusic = nil
+	}
+}
+
 // OpenChangedFileInEditor closes the Changes panel and opens the changed project file in the editor when supported.
 func (e *Editor) OpenChangedFileInEditor(filePath string) error {
 	if !e.ChangesOpen() {
@@ -2244,12 +3390,15 @@ func (e *Editor) OpenChangedFileInEditor(filePath string) error {
 	sess := e.changes.session
 	for _, f := range sess.Files {
 		if f.Path == filePath {
+			absPath, err := resolveRepoFilePath(sess.RepoDir, sess.ProjectPrefix, f.Path)
+			if err != nil {
+				return err
+			}
 			projPath := nonEmpty(f.ProjectPath, f.Path)
 			e.CloseChangesPanel()
 			if e.Project != nil && e.ProjectPath != "" {
 				return e.OpenProjectFile(projPath)
 			}
-			absPath := filepath.Join(sess.RepoDir, filepath.FromSlash(f.Path))
 			if f.Category == ChangesCategoryScenes {
 				return e.OpenFile(absPath)
 			}
@@ -2265,6 +3414,7 @@ func (e *Editor) resetChangesState() {
 	if e == nil {
 		return
 	}
+	e.cancelChangesOps()
 	e.stopChangedAudioPlayback()
 	e.changes.open = false
 	e.changes.session = nil
@@ -2272,6 +3422,7 @@ func (e *Editor) resetChangesState() {
 	e.changes.hasRepo = false
 	e.changes.milestones = nil
 	e.changes.rev++
+	e.changes.draftRev++
 }
 
 func firstLine(s string) string {

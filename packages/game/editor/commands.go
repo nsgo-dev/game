@@ -1376,8 +1376,10 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Compare modified scenes, data, code, and assets against HEAD and commit with a drafted message",
 			Category:    "Project",
 			Keywords:    []string{"changes", "git", "diff", "commit", "push", "pull", "branch", "pr"},
-			Enabled:     func() bool { return !e.Playing() && (e.ChangesOpen() || e.Project != nil || e.FilePath != "") },
-			Checked:     func() bool { return e.ChangesOpen() },
+			Enabled: func() bool {
+				return !e.StartScreenOpen() && !e.MergeConflictOpen() && !e.Playing() && (e.ChangesOpen() || e.Project != nil || e.FilePath != "")
+			},
+			Checked: func() bool { return e.ChangesOpen() },
 			Run: func() error {
 				if e.ChangesOpen() {
 					e.CloseChangesPanel()

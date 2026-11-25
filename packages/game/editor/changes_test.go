@@ -3,10 +3,12 @@ package editor_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -687,5 +689,491 @@ func TestChangesPanelUIAndScreenshot(t *testing.T) {
 	porcelain := runTestGit(t, repoDir, "status", "--porcelain")
 	if !strings.Contains(porcelain, "scripts/slime.go") {
 		t.Fatalf("scripts/slime.go was unexpectedly committed:\n%s", porcelain)
+	}
+}
+
+func TestChangesPanelRefusesGitArgInjection(t *testing.T) {
+	repoDir, _ := initChangesFixtureRepo(t)
+	ed, err := editor.New(editor.DefaultSceneDoc(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenProject(filepath.Join(repoDir, "game.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenChangesPanel(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Leading '-' flags, detached HEAD, and nonexistent branches must all be refused.
+	for _, bad := range []string{"-f", "--force", "--orphan=evil", "HEAD", "does-not-exist", "foo..bar"} {
+		if err := ed.GitSwitchBranch(bad); err == nil {
+			t.Fatalf("GitSwitchBranch(%q) unexpectedly succeeded", bad)
+		}
+	}
+
+	// Base branch starting with '-' must be refused by OpenPullRequest.
+	ed.GHRunner = func(dir string, args ...string) (string, error) {
+		t.Fatalf("GHRunner should not be invoked for invalid base branch, got args %v", args)
+		return "", nil
+	}
+	ed.ChangesSession().BaseBranch = "--web"
+	if _, err := ed.OpenPullRequest(); err == nil {
+		t.Fatal("OpenPullRequest accepted base branch starting with '-'")
+	}
+
+	// Detached HEAD must refuse PushCommits when no upstream is configured.
+	runTestGit(t, repoDir, "checkout", "--detach", "HEAD")
+	if err := ed.RefreshChanges(); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.PushCommits(); err == nil {
+		t.Fatal("PushCommits succeeded on detached HEAD")
+	}
+}
+
+func TestChangesPanelMonorepoBoundaryScoping(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not available")
+	}
+	monoRoot := filepath.Join(t.TempDir(), "monorepo")
+	projDir := filepath.Join(monoRoot, "games", "mygame")
+	if err := os.MkdirAll(filepath.Join(projDir, "scenes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runTestGit(t, monoRoot, "init", "-b", "main")
+	runTestGit(t, monoRoot, "config", "user.name", "you")
+	runTestGit(t, monoRoot, "config", "user.email", "you@example.com")
+
+	mustWriteFile(t, filepath.Join(monoRoot, "unrelated.txt"), "root-v1\n")
+	mustWriteFile(t, filepath.Join(projDir, "game.yaml"), changesFixtureGameYAML)
+	mustWriteFile(t, filepath.Join(projDir, "scenes", "level_01.scene.yaml"), changesFixtureSceneHead)
+	mustWriteFile(t, filepath.Join(projDir, "data", "pickups.data.yaml"), changesFixturePickupsHead)
+	runTestGit(t, monoRoot, "add", ".")
+	runTestGit(t, monoRoot, "commit", "-m", "Initial monorepo")
+
+	// Modify both an unrelated parent-repo file and a project file.
+	mustWriteFile(t, filepath.Join(monoRoot, "unrelated.txt"), "root-v2\n")
+	mustWriteFile(t, filepath.Join(monoRoot, "other_untracked.txt"), "secret\n")
+	mustWriteFile(t, filepath.Join(projDir, "data", "pickups.data.yaml"), changesFixturePickupsNow)
+
+	ed, err := editor.New(editor.DefaultSceneDoc(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenProject(filepath.Join(projDir, "game.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	if got := ed.ChangesCount(); got != 1 {
+		t.Fatalf("ChangesCount in nested monorepo project = %d, want 1 (must exclude parent-repo files)", got)
+	}
+	if err := ed.OpenChangesPanel(); err != nil {
+		t.Fatal(err)
+	}
+	sess := ed.ChangesSession()
+	if len(sess.Files) != 1 || sess.Files[0].Path != "games/mygame/data/pickups.data.yaml" {
+		t.Fatalf("sess.Files = %+v, want only games/mygame/data/pickups.data.yaml", sess.Files)
+	}
+	ed.SetCommitSummary("Update pickups inside nested project")
+	if _, err := ed.CommitSelectedChanges(); err != nil {
+		t.Fatalf("CommitSelectedChanges: %v", err)
+	}
+
+	committed := runTestGit(t, monoRoot, "show", "--name-only", "--format=", "HEAD")
+	if strings.Contains(committed, "unrelated.txt") || strings.Contains(committed, "other_untracked.txt") {
+		t.Fatalf("monorepo files outside project were committed:\n%s", committed)
+	}
+	if !strings.Contains(committed, "games/mygame/data/pickups.data.yaml") {
+		t.Fatalf("expected project file in HEAD commit:\n%s", committed)
+	}
+	status := runTestGit(t, monoRoot, "status", "--porcelain")
+	if !strings.Contains(status, "unrelated.txt") || !strings.Contains(status, "other_untracked.txt") {
+		t.Fatalf("parent-repo files should remain untouched in status:\n%s", status)
+	}
+}
+
+func TestChangesPanelRefusesSymlinkEscape(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks may require elevated privileges on Windows")
+	}
+	repoDir, _ := initChangesFixtureRepo(t)
+	outsideDir := t.TempDir()
+	secretFile := filepath.Join(outsideDir, "secret.txt")
+	mustWriteFile(t, secretFile, "TOP_SECRET_OUTSIDE_REPO\n")
+	outsideAudio := filepath.Join(outsideDir, "secret.wav")
+	writeChangesFixtureWAV(t, outsideAudio)
+
+	if err := os.Symlink(secretFile, filepath.Join(repoDir, "data", "escape.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outsideAudio, filepath.Join(repoDir, "audio", "escape.wav")); err != nil {
+		t.Fatal(err)
+	}
+
+	ed, err := editor.New(editor.DefaultSceneDoc(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenProject(filepath.Join(repoDir, "game.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenChangesPanel(); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range ed.ChangesSession().Files {
+		if f.Path == "data/escape.yaml" {
+			for _, l := range f.Diff {
+				if strings.Contains(l.Text, "TOP_SECRET_OUTSIDE_REPO") {
+					t.Fatal("symlink outside repo leaked file contents into diff")
+				}
+			}
+		}
+	}
+	if err := ed.AuditionChangedAudio("audio/escape.wav"); err == nil {
+		t.Fatal("AuditionChangedAudio followed symlink escaping repository root")
+	}
+	if err := ed.OpenChangedFileInEditor("data/escape.yaml"); err == nil {
+		t.Fatal("OpenChangedFileInEditor followed symlink escaping repository root")
+	}
+}
+
+func TestChangesPanelRenamedFileAndUnbornHeadPartialCommit(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not available")
+	}
+	repoDir := filepath.Join(t.TempDir(), "unborn-game")
+	if err := os.MkdirAll(filepath.Join(repoDir, "scenes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runTestGit(t, repoDir, "init", "-b", "main")
+	runTestGit(t, repoDir, "config", "user.name", "you")
+	runTestGit(t, repoDir, "config", "user.email", "you@example.com")
+
+	mustWriteFile(t, filepath.Join(repoDir, "game.yaml"), changesFixtureGameYAML)
+	mustWriteFile(t, filepath.Join(repoDir, "scenes", "level_01.scene.yaml"), changesFixtureSceneHead)
+	mustWriteFile(t, filepath.Join(repoDir, "data", "a.yaml"), "a: 1\n")
+	mustWriteFile(t, filepath.Join(repoDir, "data", "b.yaml"), "b: 2\n")
+	// Stage ALL files before initial commit, then uncheck data/b.yaml in Changes!
+	runTestGit(t, repoDir, "add", ".")
+
+	ed, err := editor.New(editor.DefaultSceneDoc(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenProject(filepath.Join(repoDir, "game.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenChangesPanel(); err != nil {
+		t.Fatal(err)
+	}
+	if ed.ChangesSession().HasHead {
+		t.Fatal("expected unborn HEAD")
+	}
+	if err := ed.SetChangeIncluded("data/b.yaml", false); err != nil {
+		t.Fatalf("SetChangeIncluded(data/b.yaml, false): %v", err)
+	}
+	ed.SetCommitSummary("Initial commit without b.yaml")
+	if _, err := ed.CommitSelectedChanges(); err != nil {
+		t.Fatalf("CommitSelectedChanges on unborn HEAD: %v", err)
+	}
+
+	committed := runTestGit(t, repoDir, "show", "--name-only", "--format=", "HEAD")
+	if strings.Contains(committed, "data/b.yaml") {
+		t.Fatalf("unchecked staged file data/b.yaml was committed on unborn HEAD:\n%s", committed)
+	}
+	if !strings.Contains(committed, "data/a.yaml") {
+		t.Fatalf("checked file data/a.yaml missing from initial commit:\n%s", committed)
+	}
+	status := runTestGit(t, repoDir, "status", "--porcelain")
+	if !strings.Contains(status, "data/b.yaml") {
+		t.Fatalf("data/b.yaml should remain uncommitted in status:\n%s", status)
+	}
+
+	// Commit remaining data/b.yaml so working tree is clean, then test scene rename with edit.
+	runTestGit(t, repoDir, "commit", "-m", "Add b.yaml")
+	runTestGit(t, repoDir, "mv", "scenes/level_01.scene.yaml", "scenes/level_02.scene.yaml")
+	mustWriteFile(t, filepath.Join(repoDir, "scenes", "level_02.scene.yaml"), changesFixtureSceneNow)
+
+	if err := ed.RefreshChanges(); err != nil {
+		t.Fatal(err)
+	}
+	var renamed *editor.ChangedFile
+	for i := range ed.ChangesSession().Files {
+		f := &ed.ChangesSession().Files[i]
+		if f.Path == "scenes/level_02.scene.yaml" {
+			renamed = f
+			break
+		}
+	}
+	if renamed == nil {
+		t.Fatalf("renamed scene not found in %+v", ed.ChangesSession().Files)
+	}
+	if renamed.OldPath != "scenes/level_01.scene.yaml" {
+		t.Fatalf("OldPath = %q, want scenes/level_01.scene.yaml", renamed.OldPath)
+	}
+	if renamed.Scene == nil || renamed.Scene.HeadDoc == nil || len(renamed.Scene.Added) != 4 {
+		t.Fatalf("renamed scene did not diff against HEAD:OldPath: %+v", renamed.Scene)
+	}
+
+	ed.SetCommitSummary("Rename level_01 to level_02")
+	if _, err := ed.CommitSelectedChanges(); err != nil {
+		t.Fatalf("CommitSelectedChanges rename: %v", err)
+	}
+	if after := strings.TrimSpace(runTestGit(t, repoDir, "status", "--porcelain")); after != "" {
+		t.Fatalf("working tree not clean after committing rename:\n%s", after)
+	}
+}
+
+func TestChangesPanelMultiTabUnsavedGuardReloadAndMilestones(t *testing.T) {
+	repoDir, _ := initChangesFixtureRepo(t)
+	// Add a second scene on main and feat/slime-patrol, then commit cleanly on feat/slime-patrol.
+	mustWriteFile(t, filepath.Join(repoDir, "scenes", "level_02.scene.yaml"), changesFixtureSceneNow)
+	runTestGit(t, repoDir, "add", ".")
+	runTestGit(t, repoDir, "commit", "-m", "Feature changes with level_02")
+
+	ed, err := editor.New(editor.DefaultSceneDoc(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenProject(filepath.Join(repoDir, "game.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenScene("scenes/level_02.scene.yaml"); err != nil {
+		t.Fatalf("OpenScene level_02: %v", err)
+	}
+	if ed.TabCount() != 2 {
+		t.Fatalf("TabCount = %d, want 2", ed.TabCount())
+	}
+
+	// Make tab 2 dirty (unsaved) and verify GitSwitchBranch & GitPull refuse with ErrUnsavedChanges.
+	if err := ed.OpenChangesPanel(); err != nil {
+		t.Fatal(err)
+	}
+	ed.CloseChangesPanel()
+	if err := ed.MoveObject("door", 500, 260); err != nil {
+		t.Fatalf("MoveObject: %v", err)
+	}
+	if !ed.HasUnsavedChanges() {
+		t.Fatal("expected HasUnsavedChanges = true")
+	}
+	if err := ed.OpenChangesPanel(); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.GitSwitchBranch("main"); !errors.Is(err, editor.ErrUnsavedChanges) {
+		t.Fatalf("GitSwitchBranch with unsaved tab = %v, want ErrUnsavedChanges", err)
+	}
+	if err := ed.GitPull(); !errors.Is(err, editor.ErrUnsavedChanges) {
+		t.Fatalf("GitPull with unsaved tab = %v, want ErrUnsavedChanges", err)
+	}
+
+	// Save tab 2, commit it, push it, and verify milestones sync across tabs + ChangesCount updates after close.
+	ed.CloseChangesPanel()
+	if err := ed.SaveAll(); err != nil {
+		t.Fatalf("SaveAll: %v", err)
+	}
+	if got := ed.ChangesCount(); got != 1 {
+		t.Fatalf("ChangesCount after CloseChangesPanel + SaveAll = %d, want 1", got)
+	}
+	if err := ed.OpenChangesPanel(); err != nil {
+		t.Fatal(err)
+	}
+	ed.SetCommitSummary("Move door in level_02")
+	if _, err := ed.CommitSelectedChanges(); err != nil {
+		t.Fatalf("CommitSelectedChanges: %v", err)
+	}
+	if err := ed.PushCommits(); err != nil {
+		t.Fatalf("PushCommits: %v", err)
+	}
+	if ms := ed.CommitMilestones(); len(ms) != 1 || !ms[0].Pushed {
+		t.Fatalf("CommitMilestones after push = %+v, want Pushed=true", ms)
+	}
+	if ms := ed.History.Milestones(); len(ms) != 1 || !ms[0].Pushed {
+		t.Fatalf("History.Milestones after push = %+v, want Pushed=true", ms)
+	}
+
+	// Switch to main: tab 1 (level_01) must reload from main (door x=584, not feature's x=560).
+	if err := ed.GitSwitchBranch("main"); err != nil {
+		t.Fatalf("GitSwitchBranch(main): %v", err)
+	}
+	ed.CloseChangesPanel()
+	if err := ed.SelectTab(0); err != nil {
+		t.Fatal(err)
+	}
+	door, _, _ := ed.FindObject("door")
+	if door == nil || door.X != 584 {
+		t.Fatalf("tab 0 door after GitSwitchBranch(main) = %+v, want X=584 reloaded from main", door)
+	}
+	if ed.HasUnsavedChanges() {
+		t.Fatal("expected clean tabs after reloading on branch switch")
+	}
+	// Verify milestone stayed synced on tab 0 as well.
+	if ms := ed.History.Milestones(); len(ms) != 1 || !ms[0].Pushed {
+		t.Fatalf("tab 0 History.Milestones = %+v, want Pushed=true", ms)
+	}
+
+	// Simulate an active MERGE_HEAD and verify Changes refuses to open.
+	gitDir := runTestGit(t, repoDir, "rev-parse", "--git-dir")
+	if !filepath.IsAbs(gitDir) {
+		gitDir = filepath.Join(repoDir, gitDir)
+	}
+	headSHA := runTestGit(t, repoDir, "rev-parse", "HEAD")
+	mustWriteFile(t, filepath.Join(gitDir, "MERGE_HEAD"), headSHA+"\n")
+	if err := ed.OpenChangesPanel(); !errors.Is(err, editor.ErrMergeConflictInProgress) {
+		t.Fatalf("OpenChangesPanel during MERGE_HEAD = %v, want ErrMergeConflictInProgress", err)
+	}
+}
+
+func TestChangesPanelBinaryAndLargeDiffCaps(t *testing.T) {
+	repoDir, _ := initChangesFixtureRepo(t)
+
+	// 1. Untracked binary file with unknown extension (classified as DATA) containing NUL bytes.
+	binPath := filepath.Join(repoDir, "data", "blob.pak")
+	if err := os.WriteFile(binPath, []byte{0x89, 0x50, 0x4e, 0x47, 0x00, 0x01, 0x02, 0x03}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 2. Large modified text file with 1,200 added lines to verify diff truncation cap.
+	var big strings.Builder
+	big.WriteString(changesFixtureSlimeHead)
+	for i := range 1200 {
+		fmt.Fprintf(&big, "// extra line %d\n", i)
+	}
+	mustWriteFile(t, filepath.Join(repoDir, "scripts", "slime.go"), big.String())
+
+	ed, err := editor.New(editor.DefaultSceneDoc(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenProject(filepath.Join(repoDir, "game.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenChangesPanel(); err != nil {
+		t.Fatal(err)
+	}
+
+	var binFile, bigFile *editor.ChangedFile
+	for i := range ed.ChangesSession().Files {
+		f := &ed.ChangesSession().Files[i]
+		switch f.Path {
+		case "data/blob.pak":
+			binFile = f
+		case "scripts/slime.go":
+			bigFile = f
+		}
+	}
+	if binFile == nil || !binFile.Binary || !strings.Contains(binFile.Detail, "binary") {
+		t.Fatalf("binary file not detected cleanly: %+v", binFile)
+	}
+	for _, l := range binFile.Diff {
+		if strings.ContainsRune(l.Text, 0) {
+			t.Fatal("raw NUL byte leaked into binary file diff")
+		}
+	}
+	if bigFile == nil {
+		t.Fatal("scripts/slime.go missing")
+	}
+	if bigFile.PlusLines < 1200 {
+		t.Fatalf("PlusLines = %d, want >= 1200", bigFile.PlusLines)
+	}
+	if len(bigFile.Diff) > 602 {
+		t.Fatalf("len(bigFile.Diff) = %d, want capped <= 602", len(bigFile.Diff))
+	}
+	lastLine := bigFile.Diff[len(bigFile.Diff)-1]
+	if lastLine.Kind != editor.DiffLineMeta || !strings.Contains(lastLine.Text, "truncated") {
+		t.Fatalf("expected truncation meta line at end of large diff, got %+v", lastLine)
+	}
+}
+
+func TestChangesPanelAsyncOpsAndCancelUnderRace(t *testing.T) {
+	repoDir, _ := initChangesFixtureRepo(t)
+	ed, err := editor.New(editor.DefaultSceneDoc(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ed.Close()
+
+	// Verify CopyPRDescription falls back to Editor.WriteClipboard when ChangesClipboard is nil.
+	var fallbackClip string
+	ed.WriteClipboard = func(text string) { fallbackClip = text }
+
+	started := make(chan struct{}, 1)
+	release := make(chan struct{})
+	ed.ChangesCheckRunner = func(dir string) (editor.ChangesCheckStatus, error) {
+		started <- struct{}{}
+		<-release
+		return editor.ChangesCheckStatus{
+			Ran:          true,
+			CheckPassed:  true,
+			CheckSummary: "nsgo check",
+			TestPassed:   true,
+			TestCount:    77,
+			TestSummary:  "nsgo test · 77 passed",
+		}, nil
+	}
+
+	if err := ed.OpenProject(filepath.Join(repoDir, "game.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenChangesPanel(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ed.CopyPRDescription(); err != nil {
+		t.Fatal(err)
+	}
+	if fallbackClip == "" {
+		t.Fatal("CopyPRDescription did not fall back to Editor.WriteClipboard")
+	}
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1440, 900))
+
+	// Select Go code file (index 2: scripts/slime.go) and click Run checks asynchronously.
+	app.Press("id:changes-pick-2")
+	app.Press("id:changes-run-checks")
+
+	select {
+	case <-started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("async ChangesCheckRunner did not start")
+	}
+	if !ed.ChangesBusy() {
+		t.Fatal("expected ChangesBusy() = true while async check is running")
+	}
+	close(release)
+	ed.WaitChangesOp()
+	app.Settle()
+
+	if ed.ChangesBusy() {
+		t.Fatal("expected ChangesBusy() = false after async check completed")
+	}
+	if !ed.ChangesSession().Checks.Ran || ed.ChangesSession().Checks.TestCount != 77 {
+		t.Fatalf("async check result not applied: %+v", ed.ChangesSession().Checks)
+	}
+
+	// Start a second async op and close Editor while it is in flight to verify race-free cancellation.
+	started2 := make(chan struct{}, 1)
+	release2 := make(chan struct{})
+	finished2 := make(chan struct{})
+	ed.ChangesCheckRunner = func(dir string) (editor.ChangesCheckStatus, error) {
+		defer close(finished2)
+		started2 <- struct{}{}
+		<-release2
+		return editor.ChangesCheckStatus{Ran: true, TestCount: 999}, nil
+	}
+	app.Press("id:changes-run-checks")
+	select {
+	case <-started2:
+	case <-time.After(3 * time.Second):
+		t.Fatal("second async check did not start")
+	}
+	if err := ed.Close(); err != nil {
+		t.Fatalf("Editor.Close during in-flight async op: %v", err)
+	}
+	close(release2)
+	<-finished2
+	app.Settle()
+	if ed.ChangesSession() != nil && ed.ChangesSession().Checks.TestCount == 999 {
+		t.Fatal("stale cancelled async check overwrote editor state after Close")
 	}
 }

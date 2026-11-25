@@ -2,8 +2,10 @@ package editor
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -11,40 +13,147 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 )
 
+const (
+	defaultGitTimeout        = 30 * time.Second
+	defaultGitNetworkTimeout = 90 * time.Second
+)
+
+type limitedBuffer struct {
+	buf       bytes.Buffer
+	limit     int64
+	truncated bool
+}
+
+func (b *limitedBuffer) Write(p []byte) (int, error) {
+	if b.limit <= 0 {
+		return b.buf.Write(p)
+	}
+	rem := b.limit - int64(b.buf.Len())
+	if rem <= 0 {
+		b.truncated = true
+		return len(p), nil
+	}
+	if int64(len(p)) > rem {
+		_, _ = b.buf.Write(p[:rem])
+		b.truncated = true
+		return len(p), nil
+	}
+	return b.buf.Write(p)
+}
+
+func gitBaseEnv(extra []string) []string {
+	env := make([]string, 0, len(os.Environ())+2+len(extra))
+	env = append(env, os.Environ()...)
+	env = append(env, "LC_ALL=C", "GIT_TERMINAL_PROMPT=0")
+	env = append(env, extra...)
+	return env
+}
+
 func (e *Editor) runGit(dir string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultGitTimeout)
+	defer cancel()
+	return e.runGitEnvCtx(ctx, dir, nil, nil, args...)
+}
+
+func (e *Editor) runGitCtx(ctx context.Context, dir string, args ...string) (string, error) {
+	return e.runGitEnvCtx(ctx, dir, nil, nil, args...)
+}
+
+func (e *Editor) runGitEnvCtx(ctx context.Context, dir string, extraEnv []string, stdin []byte, args ...string) (string, error) {
 	if e != nil && e.GitRunner != nil {
 		return e.GitRunner(dir, args...)
 	}
-	cmd := exec.Command("git", args...)
+	return runGitExecCtx(ctx, dir, extraEnv, stdin, args...)
+}
+
+func runGitExecCtx(ctx context.Context, dir string, extraEnv []string, stdin []byte, args ...string) (string, error) {
+	if ctx == nil {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(context.Background(), defaultGitTimeout)
+		defer cancel()
+	}
+	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "LC_ALL=C")
+	cmd.Env = gitBaseEnv(extraEnv)
+	if stdin != nil {
+		cmd.Stdin = bytes.NewReader(stdin)
+	} else {
+		cmd.Stdin = nil
+	}
 	out, err := cmd.CombinedOutput()
 	return strings.TrimSpace(string(out)), err
 }
 
 func (e *Editor) runGitRaw(dir string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultGitTimeout)
+	defer cancel()
+	data, _, err := e.runGitRawBoundedCtx(ctx, dir, 0, args...)
+	return data, err
+}
+
+func (e *Editor) runGitRawBoundedCtx(ctx context.Context, dir string, maxBytes int64, args ...string) ([]byte, bool, error) {
 	if e != nil && e.GitRunner != nil {
 		out, err := e.GitRunner(dir, args...)
-		return []byte(out), err
-	}
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "LC_ALL=C")
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		msg := strings.TrimSpace(stderr.String())
-		if msg == "" {
-			return nil, err
+		raw := []byte(out)
+		if maxBytes > 0 && int64(len(raw)) > maxBytes {
+			return raw[:maxBytes], true, err
 		}
-		return nil, fmt.Errorf("%w: %s", err, msg)
+		return raw, false, err
 	}
-	return stdout.Bytes(), nil
+	if ctx == nil {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(context.Background(), defaultGitTimeout)
+		defer cancel()
+	}
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = dir
+	cmd.Env = gitBaseEnv(nil)
+	cmd.Stdin = nil
+	stdout := &limitedBuffer{limit: maxBytes}
+	stderr := &limitedBuffer{limit: 64 << 10}
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	if err := cmd.Run(); err != nil {
+		msg := strings.TrimSpace(stderr.buf.String())
+		if msg == "" {
+			return nil, false, err
+		}
+		return nil, false, fmt.Errorf("%w: %s", err, msg)
+	}
+	return stdout.buf.Bytes(), stdout.truncated, nil
+}
+
+// readFileBounded reads up to maxBytes from absPath, returning the bytes read, whether the file
+// exceeded maxBytes, and the total file size in bytes.
+func readFileBounded(absPath string, maxBytes int64) (data []byte, truncated bool, size int64, err error) {
+	f, err := os.Open(absPath)
+	if err != nil {
+		return nil, false, 0, err
+	}
+	defer f.Close()
+	if st, serr := f.Stat(); serr == nil {
+		size = st.Size()
+	}
+	if maxBytes <= 0 {
+		raw, rerr := io.ReadAll(f)
+		return raw, false, int64(len(raw)), rerr
+	}
+	raw, rerr := io.ReadAll(io.LimitReader(f, maxBytes+1))
+	if rerr != nil {
+		return nil, false, size, rerr
+	}
+	if int64(len(raw)) > maxBytes {
+		return raw[:maxBytes], true, max(size, int64(len(raw))), nil
+	}
+	if size == 0 {
+		size = int64(len(raw))
+	}
+	return raw, false, size, nil
 }
 
 // DetectSceneMergeConflicts checks the open project's Git repository (or dir when given)
