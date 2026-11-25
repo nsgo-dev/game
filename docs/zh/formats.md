@@ -466,6 +466,48 @@ nodes:
         touchHitSize: 64
 ```
 
+<!-- format: sceneformat#conflict -->
+### 场景合并冲突报告
+
+| 文件 | 版本 | 读写函数 | 字段 |
+| --- | --- | --- | --- |
+| 三路场景合并存在冲突时由 `game merge` 写出（覆盖未合并的 `*.scene.yaml` 或写入 `-conflict-out`） | `version: 1` | `sceneformat.ParseConflict`、`sceneformat.EncodeConflict` | [编辑器与场景格式](editor.md#在-git-中合并场景文件1058)、[命令行](cli.md#merge) |
+
+```yaml
+version: 1
+path: scenes/level_01.scene.yaml
+merged:
+  - scope: object
+    target: slime_03
+    side: ours
+    action: added
+conflicts:
+  - kind: field
+    scope: object
+    layer: actors
+    object: door
+    field: x
+    base: 584
+    ours: 560
+    theirs: 600
+  - kind: delete-modify
+    scope: object
+    layer: actors
+    object: slime_02
+    message: modified on ours, deleted on theirs
+    base:
+      id: slime_02
+      x: 240
+      "y": 280
+    ours:
+      components:
+        patrol:
+          speed: 30
+      id: slime_02
+      x: 240
+      "y": 280
+    theirs: null
+```
 <!-- format: navbake3d -->
 ### 3D 导航网格
 

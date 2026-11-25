@@ -466,6 +466,48 @@ nodes:
         touchHitSize: 64
 ```
 
+<!-- format: sceneformat#conflict -->
+### Scene merge conflict report
+
+| Files | Version | Read and written by | Fields |
+| --- | --- | --- | --- |
+| Written by `game merge` (overwriting the unmerged `*.scene.yaml` or `-conflict-out`) when a three-way scene merge has conflicts | `version: 1` | `sceneformat.ParseConflict`, `sceneformat.EncodeConflict` | [Editor & Scene Format](editor.md#merging-scene-files-in-git-1058), [Command Line](cli.md#merge) |
+
+```yaml
+version: 1
+path: scenes/level_01.scene.yaml
+merged:
+  - scope: object
+    target: slime_03
+    side: ours
+    action: added
+conflicts:
+  - kind: field
+    scope: object
+    layer: actors
+    object: door
+    field: x
+    base: 584
+    ours: 560
+    theirs: 600
+  - kind: delete-modify
+    scope: object
+    layer: actors
+    object: slime_02
+    message: modified on ours, deleted on theirs
+    base:
+      id: slime_02
+      x: 240
+      "y": 280
+    ours:
+      components:
+        patrol:
+          speed: 30
+      id: slime_02
+      x: 240
+      "y": 280
+    theirs: null
+```
 <!-- format: navbake3d -->
 ### 3D navigation meshes
 

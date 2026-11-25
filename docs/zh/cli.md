@@ -39,6 +39,7 @@ nsgo game help
 | `credits` | 写出 `release` 随发布附带的署名文件：每个资源的作者和许可证，取自它旁边的导入设置附属文件，有资源缺少署名时失败 |
 | `pixelfx` | 把 pixelfx 特效或其表演版本渲染为 PNG 精灵表和供 `sprite.LoadAtlas` 读取的 Aseprite JSON |
 | `navmesh` | 把场景的 glTF 关卡几何体为 `game.yaml` 声明的每种代理类型烘焙成导航网格，写入场景的 `navMesh` 指定的文件 |
+| `merge` | 为 Git 按对象合并场景 YAML 文件，或在项目中配置 `nsgo-scene` Git 合并驱动 |
 | `completion` | 为 zsh、bash 或 fish 生成补全脚本 |
 | `help` | 列出所有命令，或显示某个命令的参数 |
 
@@ -191,7 +192,7 @@ nsgo game new -list
 
 游戏名称默认取目录名，`-name` 可以另行指定（字母、数字、空格、`-` 和 `_`，以字母开头）。名称写入 `game.yaml` 和 `nsgo.yaml` 的 `name`，`id` 由它派生为 `dev.nsgo.<去掉空格和标点的小写名称>`。模块路径默认是小写名称、单词之间用 `-` 连接，`-module` 可以另行指定。与标准库包同名的模块路径（例如名为 Time 的游戏得到的 `time`）会被拒绝，因为这样的项目无法构建，此时需要用 `-module` 指定，例如 `-module example.com/time`。`-version` 是要依赖的游戏层版本，例如 `v0.4.0`、某个提交或 `latest`；默认是正在运行的命令自身的版本，所以 `go run …@v0.4.0 new`，或在项目之外设置 `NSGO_GAME_VERSION=v0.4.0` 运行的 `nsgo game new`，创建的项目使用 `v0.4.0`，而从本仓库的检出构建的命令则使用 `latest`。`-template` 选择模板，默认是 `starter`；未知的模板名会被拒绝，并列出现有的模板名。`-list` 打印每个模板的名称（标出默认模板）和一行说明，不创建任何文件。[项目模板](templates.md)列出了所有模板以及 `nsgo init -template` 对应的模块，并说明模板的目录结构和如何新增模板。
 
-只要目录中已经存在任何一个将要写入的文件，`new` 就什么也不写，并以 1 退出。`go get` 或 `go mod tidy` 失败时（例如没有网络），已写入的文件会保留，错误信息会列出还需在该目录运行的命令以完成项目：`go get` 失败时是 `go get -tool …` 和 `go mod tidy` 两条，`go mod tidy` 失败时只有它一条。
+只要目录中已经存在任何一个将要写入的文件，`new` 就什么也不写，并以 1 退出。每个模板都包含把 `*.scene.yaml` 和 `*.scene.yml` 注册给 `nsgo-scene` 合并驱动的 `.gitattributes`，若目标目录中已存在 `.git` 仓库，`new` 还会自动写入本地 Git 配置（否则在 `git init` 后运行一次 `go tool game merge -setup`）。`go get` 或 `go mod tidy` 失败时（例如没有网络），已写入的文件会保留，错误信息会列出还需在该目录运行的命令以完成项目：`go get` 失败时是 `go get -tool …` 和 `go mod tidy` 两条，`go mod tidy` 失败时只有它一条。
 
 ### dev
 
@@ -497,6 +498,20 @@ nsgo game navmesh -out build/level1.navmesh.yaml scenes/level1.scene.yaml
 ```
 
 烘焙一个 3D 场景的[导航网格](navbake3d.md)：它解析该场景实例化和继承的场景，从项目根目录加载每个对象的 `mesh` 指定的 glTF 模型（`.gltf` 或 `.glb`），放在对象的 3D 变换处，再按[项目文件](project.md)中 `navigation` 部分的设置，为其中的每种代理类型各烘焙一次；没有该部分时，用默认设置烘焙一种名为 `default` 的代理类型。它把[导航网格文件](formats.md#3d-导航网格)写到 `-out`，或写到场景的 `navMesh` 从项目根目录指定的文件，并输出该文件以及每种代理类型的多边形数。项目目录为 `-in`，或工作目录及其上级目录中最近一个含有 `game.yaml`、`nsgo.yaml` 或 `go.mod` 的目录，场景必须位于其中。同样的场景和设置总是写出同样的字节，因此该文件应与场景一起纳入版本控制，未改变任何东西的烘焙不会产生差异。场景没有 `navMesh` 且未给出 `-out` 时退出码为 2，没有可烘焙的几何体时退出码为 1。
+
+### merge
+
+```sh
+go tool game merge -setup
+go tool game merge %O %A %B %P
+go tool game merge -out merged.scene.yaml base.scene.yaml ours.scene.yaml theirs.scene.yaml scenes/level1.scene.yaml
+```
+
+面向 YAML 场景文件（`*.scene.yaml`、`*.scene.yml`）的三路 Git 合并驱动。它不按行合并场景，而是按身份匹配：图层按 `name`，对象在整个场景树中按 `id`（包括跨父节点和跨图层移动），瓦片地图与覆盖按主键，连接按 `(from, event, to, handler)`；字段逐一合并，使两个分支对不同对象或同一对象不同字段的修改无冲突地组合，并以规范的 `sceneformat.Encode` 字节写出。
+
+Git 用 `<base> <ours> <theirs> [path]` 调用驱动时，无冲突合并会用规范的场景 YAML 覆盖 `<ours>`（或写入 `-out`）并以 0 退出。空的 `<base>` 文件（Git 的双侧新增冲突）会以空祖先为基准合并 `<ours>` 与 `<theirs>`。当双方把同一字段改为不同值、一方删除而另一方修改、双方以相同 ID 新增不同对象、重设父节点冲突或形成环，或合并结果无法通过 `sceneformat.Validate` 时，驱动会写出带版本号、确定性的[场景合并冲突报告](formats.md#场景合并冲突报告)（`version: 1` YAML，列出每个冲突的对象、字段以及 `base`、`ours` 和 `theirs` 三个值）到 `<ours>`（或 `-conflict-out` / `-out`），并以 1 退出，让 Git 将该路径标记为未合并。
+
+`-setup [dir]` 在仓库的本地 Git 配置中注册 `merge.nsgo-scene.name` 和 `merge.nsgo-scene.driver`（`go tool game merge %O %A %B %P`），并确保 `.gitattributes` 将 `*.scene.yaml` 和 `*.scene.yml` 指向 `merge=nsgo-scene`。用 `game new` 创建的新项目已包含 `.gitattributes`，在已有的 Git 仓库中创建时还会自动完成本地驱动配置。
 
 ### completion
 

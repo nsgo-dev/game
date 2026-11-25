@@ -118,7 +118,7 @@ type completionCase struct {
 
 // gameCompletionCases run in a directory holding a.png, scene.yaml and the directory sub.
 var gameCompletionCases = []completionCase{
-	{"game ", []string{"assets", "audio", "bench", "check", "completion", "credits", "dev", "editor", "generate", "help", "index", "library", "manifest", "mcp", "mv", "navmesh", "new", "pack", "pixelfx", "playtest", "release", "replay", "tex"}},
+	{"game ", []string{"assets", "audio", "bench", "check", "completion", "credits", "dev", "editor", "generate", "help", "index", "library", "manifest", "mcp", "merge", "mv", "navmesh", "new", "pack", "pixelfx", "playtest", "release", "replay", "tex"}},
 	{"game pa", []string{"pack"}},
 	{"game pack -", []string{"-extrude", "-in", "-max-height", "-max-width", "-name", "-out", "-padding", "-scale", "-trim"}},
 	{"game pack -m", []string{"-max-height", "-max-width"}},
@@ -146,6 +146,7 @@ var gameCompletionCases = []completionCase{
 	{"game library -project ", []string{"a.png", "scene.yaml", "sub/"}},
 	{"game pixelfx explosions/sm", []string{"explosions/small-explosion", "explosions/smoke-bomb"}},
 	{"game pixelfx -f", []string{"-flip", "-fps"}},
+	{"game merge -", []string{"-conflict-out", "-out", "-setup"}},
 	{"game help t", []string{"tex"}},
 	{"game new -", []string{"-list", "-module", "-name", "-template", "-version"}},
 }

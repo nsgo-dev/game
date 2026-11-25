@@ -348,6 +348,12 @@ built.Draw(d)
 
 场景格式的 JSON Schema 发布在 `https://game.nsgo.dev/schemas/scene.v1.json`（`sceneformat.SchemaURL`）、`https://game.nsgo.dev/schemas/scene.v2.json`（`sceneformat.SchemaURLV2`，用于实例化或继承其他场景文件、引用 glTF 模型、含分层网格或 LDtk 关卡的场景），以及支持视差和重复图层的版本 3 Schema `https://game.nsgo.dev/schemas/scene.v3.json`（`sceneformat.SchemaURLV3`）。`Encode` 在每个文件开头写入与其版本对应的 `# yaml-language-server: $schema=…` 这一行（`sceneformat.SchemaCommentFor`），VS Code 的 YAML 扩展以及其他带 YAML 语言服务器的编辑器可借此在编写场景时校验和补全。参见 [YAML 文件的 Schema](schemas.md)。
 
+### 在 Git 中合并场景文件（#1058）
+
+`sceneformat.Merge(base, ours, theirs)` 对场景文档执行基于身份的三路合并：图层按 `name` 匹配，对象在整个场景树中按 `id` 匹配（包括跨父节点和跨图层移动），瓦片地图与覆盖按主键匹配，连接按 `(from, event, to, handler)` 匹配。各个字段（包括嵌套的 `components`、`properties`、`overrides`、`camera` 和 `args` 映射）逐一合并；无冲突的结果会经过 `Validate` 校验并通过 `Encode` 以规范格式写出。
+
+当双方把同一字段改成不同值、一方删除而另一方修改、双方以相同 ID 新增不同对象、重设父节点冲突或形成环，或合并结果无法通过 `Validate` 时，`MergeResult.ConflictDoc(path)` 会生成带版本号、确定性的 YAML 冲突文档 `ConflictDoc`（`version: 1`，由 `ParseConflict` / `EncodeConflict` 读写），记录每个冲突的对象、字段与 `base`/`ours`/`theirs` 三个值，以及已自动合并的条目。项目通过 `.gitattributes`（`*.scene.yaml merge=nsgo-scene`）和 `go tool game merge -setup` 将其接入 Git（参见 [`game merge`](cli.md#merge) 与[场景合并冲突报告](formats.md#场景合并冲突报告)）。
+
 ### 组件类型
 
 `ComponentRegistry` 用 Go 代码显式声明场景文件可以使用的组件类型，运行时不依赖反射：每个类型的名称和说明，以及每个字段的名称、种类（`FieldBool`、`FieldInt`、`FieldFloat`、`FieldString` 或 `FieldStringList`）、可选的允许取值 `Enum`（仅用于 `FieldString` 字段）、默认值、可选的闭区间范围、供检查器使用的可选 `Step` 和说明。`Register` 会拒绝空名称或重复名称、非数值字段上的范围或步长、非 `FieldString` 字段上的 `Enum`、最小值大于最大值、`FieldInt` 上的小数范围或步长、负步长，以及种类不符或超出范围的默认值。

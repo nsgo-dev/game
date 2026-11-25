@@ -17,3 +17,14 @@ func TestFormatConformance(t *testing.T) {
 		MaxVersion: 3,
 	})
 }
+
+// TestConflictFormatConformance checks the scene merge conflict YAML format against the shared format conformance rules and docs/<lang>/formats.md examples.
+func TestConflictFormatConformance(t *testing.T) {
+	formattest.Run(t, formattest.Format[*sceneformat.ConflictDoc]{
+		Decode:     sceneformat.ParseConflict,
+		Encode:     sceneformat.EncodeConflict,
+		Files:      []string{"testdata/canonical/*.conflict.yaml"},
+		Doc:        "sceneformat#conflict",
+		MaxVersion: sceneformat.ConflictVersion,
+	})
+}

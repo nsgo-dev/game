@@ -90,7 +90,7 @@ func TestNewCreatesStarter(t *testing.T) {
 	}
 
 	names := starterNames(t)
-	for _, want := range []string{".gitignore", "go.mod", "go.sum", "game.yaml", "nsgo.yaml", "main.go", "game.go", "game_test.go", "README.md"} {
+	for _, want := range []string{".gitattributes", ".gitignore", "go.mod", "go.sum", "game.yaml", "nsgo.yaml", "main.go", "game.go", "game_test.go", "README.md"} {
 		if !slices.Contains(names, want) {
 			t.Errorf("starter has no %s: %q", want, names)
 		}
