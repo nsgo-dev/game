@@ -1,9 +1,9 @@
 package world3d
 
 import (
-	"container/heap"
 	"math"
 
+	"github.com/nsgo-dev/game/packages/game/ai"
 	"github.com/nsgo-dev/game/packages/game/math3d"
 )
 
@@ -255,6 +255,15 @@ func (nm *NavMesh) FindPolygon(p math3d.Vec3) (int, bool) {
 	return bestIdx, true
 }
 
+// NavPathResult is the outcome of a bounded or incremental 3D NavMesh search.
+type NavPathResult struct {
+	Path       []math3d.Vec3
+	Found      bool // true when a complete or partial path was produced
+	Partial    bool // true when Path ends at the closest reachable 3D point rather than goal
+	Exhausted  bool // true when the search stopped because MaxExpansions was reached
+	Expansions int  // total number of polygon nodes expanded during the search
+}
+
 // FindPath computes a shortest 3D path from start to goal across the NavMesh
 // using 3D portal-graph A* followed by XZ-projected funnel smoothing with exact
 // 3D height interpolation across sloped ramps and multi-level bridges.
@@ -262,106 +271,412 @@ func (nm *NavMesh) FindPolygon(p math3d.Vec3) (int, bool) {
 // Returns (nil, false) if either endpoint is off the NavMesh or no connected
 // corridor exists between them.
 func (nm *NavMesh) FindPath(start, goal math3d.Vec3) ([]math3d.Vec3, bool) {
-	if nm == nil || len(nm.Polys) == 0 {
+	res := nm.FindPathWithOptions(start, goal, ai.PathOptions{})
+	if !res.Found || res.Partial {
 		return nil, false
 	}
+	return res.Path, true
+}
+
+// FindPathWithOptions computes a 3D path from start to goal under opts, supporting
+// an expansion budget and optional partial paths ending at the closest reachable 3D point
+// on the NavMesh when goal is off-mesh, disconnected, or beyond MaxExpansions.
+func (nm *NavMesh) FindPathWithOptions(start, goal math3d.Vec3, opts ai.PathOptions) NavPathResult {
+	s := NewNavMeshSearch(nm, start, goal, opts)
+	s.step(-1)
+	return s.Result()
+}
+
+// StartSearch begins an incremental 3D NavMesh search from start to goal under opts.
+func (nm *NavMesh) StartSearch(start, goal math3d.Vec3, opts ai.PathOptions) *NavMeshSearch {
+	return NewNavMeshSearch(nm, start, goal, opts)
+}
+
+var _ ai.IncrementalSearch = (*NavMeshSearch)(nil)
+
+// NavMeshSearch runs a deterministic 3D NavMesh A* search incrementally across bounded Step calls.
+//
+// Stepping a search with any positive per-step expansion budget produces the exact same path,
+// partial flag, and expansion count as NavMesh.FindPathWithOptions.
+// *NavMeshSearch implements ai.IncrementalSearch so it can be scheduled directly on ai.PathQueue.
+type NavMeshSearch struct {
+	nm        *NavMesh
+	start     math3d.Vec3
+	goal      math3d.Vec3
+	startPoly int
+	goalPoly  int
+	opts      ai.PathOptions
+
+	gScore     []float32
+	parent     []int
+	parentLink []NavLink
+	entryPos   []math3d.Vec3
+	closed     []bool
+	heapPos    []int
+	open       []astarNode
+
+	status     ai.SearchStatus
+	exhausted  bool
+	expansions int
+	samePoly   bool
+	hasBest    bool
+	bestPoly   int
+	bestPt     math3d.Vec3
+	bestH      float32
+	bestG      float32
+}
+
+// NewNavMeshSearch initializes an incremental 3D NavMesh search from start to goal under opts.
+func NewNavMeshSearch(nm *NavMesh, start, goal math3d.Vec3, opts ai.PathOptions) *NavMeshSearch {
+	s := &NavMeshSearch{
+		nm:        nm,
+		start:     start,
+		goal:      goal,
+		startPoly: -1,
+		goalPoly:  -1,
+		opts:      opts,
+		status:    ai.SearchFailed,
+		bestPoly:  -1,
+	}
+	if nm == nil || len(nm.Polys) == 0 {
+		return s
+	}
+
 	startPoly, ok := nm.FindPolygon(start)
 	if !ok {
-		return nil, false
+		return s
 	}
-	goalPoly, ok := nm.FindPolygon(goal)
-	if !ok {
-		return nil, false
-	}
-
 	start.Y = nm.Polys[startPoly].HeightAt(start.X, start.Z)
-	goal.Y = nm.Polys[goalPoly].HeightAt(goal.X, goal.Z)
+	s.start = start
+	s.startPoly = startPoly
 
-	if startPoly == goalPoly {
-		if start.ApproxEqual(goal, 1e-5) {
-			return []math3d.Vec3{start}, true
+	goalPoly, goalOK := nm.FindPolygon(goal)
+	if goalOK {
+		goal.Y = nm.Polys[goalPoly].HeightAt(goal.X, goal.Z)
+		s.goal = goal
+		s.goalPoly = goalPoly
+		if startPoly == goalPoly {
+			s.samePoly = true
+			s.status = ai.SearchComplete
+			return s
 		}
-		return []math3d.Vec3{start, goal}, true
+	} else if !opts.AllowPartial {
+		return s
 	}
 
-	corridor, portals, found := nm.astarCorridor(startPoly, goalPoly, start, goal)
-	if !found {
-		return nil, false
+	n := len(nm.Polys)
+	inf := float32(math.Inf(1))
+	s.gScore = make([]float32, n)
+	s.parent = make([]int, n)
+	s.parentLink = make([]NavLink, n)
+	s.entryPos = make([]math3d.Vec3, n)
+	s.closed = make([]bool, n)
+	s.heapPos = make([]int, n)
+	for i := range n {
+		s.gScore[i] = inf
+		s.parent[i] = -1
+		s.heapPos[i] = -1
 	}
 
-	return nm.smoothCorridor(corridor, portals, start, goal), true
+	s.gScore[startPoly] = 0
+	s.entryPos[startPoly] = start
+	if opts.AllowPartial {
+		cp0 := closestPointOnPoly3D(&nm.Polys[startPoly], s.goal)
+		s.hasBest = true
+		s.bestPoly = startPoly
+		s.bestPt = cp0
+		s.bestH = cp0.Dist(s.goal)
+		s.bestG = start.Dist(cp0)
+	}
+
+	h0 := start.Dist(s.goal)
+	s.open = make([]astarNode, 0, min(n, 64))
+	s.pushOrUpdate(startPoly, h0, h0)
+	s.status = ai.SearchInProgress
+	return s
+}
+
+// Step advances the search by at most maxExpansions polygon expansions and returns
+// the updated status and exact number of expansions performed.
+// When maxExpansions <= 0 or the search is already finished, Step performs 0 expansions.
+func (s *NavMeshSearch) Step(maxExpansions int) (status ai.SearchStatus, expansions int) {
+	if s == nil {
+		return ai.SearchFailed, 0
+	}
+	if maxExpansions <= 0 || s.status.Done() {
+		return s.status, 0
+	}
+	return s.step(maxExpansions)
+}
+
+func (s *NavMeshSearch) step(stepLimit int) (ai.SearchStatus, int) {
+	if s.status.Done() {
+		return s.status, 0
+	}
+
+	budget := stepLimit
+	if s.opts.MaxExpansions > 0 {
+		rem := s.opts.MaxExpansions - s.expansions
+		if rem <= 0 {
+			s.finishExhausted()
+			return s.status, 0
+		}
+		if budget < 0 || rem < budget {
+			budget = rem
+		}
+	}
+
+	nm := s.nm
+	goal := s.goal
+	done := 0
+
+	for len(s.open) > 0 && (budget < 0 || done < budget) {
+		curr := s.heapPop()
+		done++
+		s.expansions++
+		u := curr.poly
+
+		if s.goalPoly >= 0 && u == s.goalPoly {
+			s.status = ai.SearchComplete
+			return s.status, done
+		}
+		s.closed[u] = true
+
+		uPos := s.entryPos[u]
+		if s.opts.AllowPartial {
+			cp := closestPointOnPoly3D(&nm.Polys[u], goal)
+			h := cp.Dist(goal)
+			g := s.gScore[u] + uPos.Dist(cp)
+			if !s.hasBest || h < s.bestH || (h == s.bestH && (g < s.bestG || (g == s.bestG && u < s.bestPoly))) {
+				s.hasBest = true
+				s.bestPoly = u
+				s.bestPt = cp
+				s.bestH = h
+				s.bestG = g
+			}
+		}
+
+		for _, link := range nm.Polys[u].Links {
+			v := link.Neighbor
+			if s.closed[v] {
+				continue
+			}
+			mid := link.Left.Lerp(link.Right, 0.5)
+			tentativeG := s.gScore[u] + uPos.Dist(mid)
+			if tentativeG < s.gScore[v] {
+				s.gScore[v] = tentativeG
+				s.parent[v] = u
+				s.parentLink[v] = link
+				s.entryPos[v] = mid
+				h := mid.Dist(goal)
+				s.pushOrUpdate(v, tentativeG+h, h)
+			}
+		}
+	}
+
+	if len(s.open) == 0 {
+		s.exhausted = false
+		if s.opts.AllowPartial && s.hasBest {
+			s.status = ai.SearchPartial
+		} else {
+			s.status = ai.SearchFailed
+		}
+	} else if s.opts.MaxExpansions > 0 && s.expansions >= s.opts.MaxExpansions {
+		s.finishExhausted()
+	}
+
+	return s.status, done
+}
+
+func (s *NavMeshSearch) finishExhausted() {
+	s.exhausted = true
+	if s.opts.AllowPartial && s.hasBest {
+		s.status = ai.SearchPartial
+	} else {
+		s.status = ai.SearchFailed
+	}
+}
+
+// Status returns the search's current status.
+func (s *NavMeshSearch) Status() ai.SearchStatus {
+	if s == nil {
+		return ai.SearchFailed
+	}
+	return s.status
+}
+
+// Expansions returns the cumulative number of polygon nodes expanded so far.
+func (s *NavMeshSearch) Expansions() int {
+	if s == nil {
+		return 0
+	}
+	return s.expansions
+}
+
+// Result returns the search outcome once finished (or a result with Found == false while still in progress).
+func (s *NavMeshSearch) Result() NavPathResult {
+	if s == nil {
+		return NavPathResult{}
+	}
+	res := NavPathResult{
+		Exhausted:  s.exhausted,
+		Expansions: s.expansions,
+	}
+	switch s.status {
+	case ai.SearchComplete:
+		res.Found = true
+		if s.samePoly {
+			if s.start.ApproxEqual(s.goal, 1e-5) {
+				res.Path = []math3d.Vec3{s.start}
+			} else {
+				res.Path = []math3d.Vec3{s.start, s.goal}
+			}
+			return res
+		}
+		corridor, portals, ok := reconstructCorridor(s.startPoly, s.goalPoly, s.parent, s.parentLink)
+		if !ok {
+			res.Found = false
+			return res
+		}
+		res.Path = s.nm.smoothCorridor(corridor, portals, s.start, s.goal)
+		return res
+
+	case ai.SearchPartial:
+		res.Found = true
+		res.Partial = true
+		if s.bestPoly == s.startPoly {
+			if s.start.ApproxEqual(s.bestPt, 1e-5) {
+				res.Path = []math3d.Vec3{s.start}
+			} else {
+				res.Path = []math3d.Vec3{s.start, s.bestPt}
+			}
+			return res
+		}
+		corridor, portals, ok := reconstructCorridor(s.startPoly, s.bestPoly, s.parent, s.parentLink)
+		if !ok {
+			res.Found = false
+			res.Partial = false
+			return res
+		}
+		res.Path = s.nm.smoothCorridor(corridor, portals, s.start, s.bestPt)
+		return res
+
+	default:
+		return res
+	}
 }
 
 type astarNode struct {
 	poly int
 	f    float32
+	h    float32
 }
 
-type astarHeap []astarNode
-
-func (h astarHeap) Len() int           { return len(h) }
-func (h astarHeap) Less(i, j int) bool { return h[i].f < h[j].f }
-func (h astarHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
-func (h *astarHeap) Push(x any)        { *h = append(*h, x.(astarNode)) }
-func (h *astarHeap) Pop() any {
-	old := *h
-	n := len(old)
-	item := old[n-1]
-	*h = old[:n-1]
-	return item
+// navNodeLess defines a strict total order for deterministic tie-breaking: lowest f, then lowest h, then lowest polygon index.
+func navNodeLess(a, b astarNode) bool {
+	if a.f != b.f {
+		return a.f < b.f
+	}
+	if a.h != b.h {
+		return a.h < b.h
+	}
+	return a.poly < b.poly
 }
 
-func (nm *NavMesh) astarCorridor(startPoly, goalPoly int, start, goal math3d.Vec3) ([]int, []NavLink, bool) {
-	n := len(nm.Polys)
-	inf := float32(math.Inf(1))
-
-	gScore := make([]float32, n)
-	parent := make([]int, n)
-	parentLink := make([]NavLink, n)
-	entryPos := make([]math3d.Vec3, n)
-	closed := make([]bool, n)
-
-	for i := range n {
-		gScore[i] = inf
-		parent[i] = -1
+func (s *NavMeshSearch) pushOrUpdate(poly int, f, h float32) {
+	if pos := s.heapPos[poly]; pos >= 0 {
+		s.open[pos].f = f
+		s.open[pos].h = h
+		s.siftUp(pos)
+		return
 	}
+	pos := len(s.open)
+	s.open = append(s.open, astarNode{poly: poly, f: f, h: h})
+	s.heapPos[poly] = pos
+	s.siftUp(pos)
+}
 
-	gScore[startPoly] = 0
-	entryPos[startPoly] = start
+func (s *NavMeshSearch) heapPop() astarNode {
+	top := s.open[0]
+	s.heapPos[top.poly] = -1
+	last := len(s.open) - 1
+	if last == 0 {
+		s.open = s.open[:0]
+		return top
+	}
+	s.open[0] = s.open[last]
+	s.heapPos[s.open[0].poly] = 0
+	s.open = s.open[:last]
+	s.siftDown(0)
+	return top
+}
 
-	open := &astarHeap{{poly: startPoly, f: start.Dist(goal)}}
-	heap.Init(open)
-
-	for open.Len() > 0 {
-		curr := heap.Pop(open).(astarNode)
-		u := curr.poly
-		if closed[u] {
-			continue
+func (s *NavMeshSearch) siftUp(i int) {
+	for i > 0 {
+		p := (i - 1) / 2
+		if !navNodeLess(s.open[i], s.open[p]) {
+			break
 		}
-		if u == goalPoly {
-			return reconstructCorridor(startPoly, goalPoly, parent, parentLink)
-		}
-		closed[u] = true
+		s.open[i], s.open[p] = s.open[p], s.open[i]
+		s.heapPos[s.open[i].poly] = i
+		s.heapPos[s.open[p].poly] = p
+		i = p
+	}
+}
 
-		uPos := entryPos[u]
-		for _, link := range nm.Polys[u].Links {
-			v := link.Neighbor
-			if closed[v] {
-				continue
-			}
-			mid := link.Left.Lerp(link.Right, 0.5)
-			tentativeG := gScore[u] + uPos.Dist(mid)
-			if tentativeG < gScore[v] {
-				gScore[v] = tentativeG
-				parent[v] = u
-				parentLink[v] = link
-				entryPos[v] = mid
-				heap.Push(open, astarNode{poly: v, f: tentativeG + mid.Dist(goal)})
-			}
+func (s *NavMeshSearch) siftDown(i int) {
+	n := len(s.open)
+	for {
+		l := 2*i + 1
+		if l >= n {
+			break
+		}
+		best := l
+		if r := l + 1; r < n && navNodeLess(s.open[r], s.open[l]) {
+			best = r
+		}
+		if !navNodeLess(s.open[best], s.open[i]) {
+			break
+		}
+		s.open[i], s.open[best] = s.open[best], s.open[i]
+		s.heapPos[s.open[i].poly] = i
+		s.heapPos[s.open[best].poly] = best
+		i = best
+	}
+}
+
+func closestPointOnPoly3D(poly *NavPoly, p math3d.Vec3) math3d.Vec3 {
+	// Orthogonal projection of p onto the polygon's supporting plane.
+	signedDist := poly.Normal.Dot(p) + poly.PlaneD
+	proj := p.Sub(poly.Normal.Scale(signedDist))
+	if poly.ContainsXZ(proj.X, proj.Z) {
+		proj.Y = poly.HeightAt(proj.X, proj.Z)
+		return proj
+	}
+	vs := poly.Vertices
+	n := len(vs)
+	bestDistSq := float32(math.Inf(1))
+	var bestPt math3d.Vec3
+	for k := range n {
+		cp := closestPointOnSegment3D(p, vs[k], vs[(k+1)%n])
+		d2 := p.Sub(cp).LenSq()
+		if d2 < bestDistSq {
+			bestDistSq = d2
+			bestPt = cp
 		}
 	}
+	return bestPt
+}
 
-	return nil, nil, false
+func closestPointOnSegment3D(p, a, b math3d.Vec3) math3d.Vec3 {
+	ab := b.Sub(a)
+	l2 := ab.LenSq()
+	if l2 <= 1e-12 {
+		return a
+	}
+	t := p.Sub(a).Dot(ab) / l2
+	t = math3d.Clamp(t, 0, 1)
+	return a.Add(ab.Scale(t))
 }
 
 func reconstructCorridor(startPoly, goalPoly int, parent []int, parentLink []NavLink) ([]int, []NavLink, bool) {

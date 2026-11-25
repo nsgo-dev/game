@@ -89,6 +89,24 @@ if path, ok := nav.FindPath(startPos, goalPos); ok {
 
 `nav.FindPolygon(p)` 会在 `VerticalTolerance` 垂直容差内定位最近的可行走多边形，天然支持上下叠层与立交桥。
 
+面对不可达目标或需要按帧预算分摊多智能体寻路时，可向 `nav.FindPathWithOptions(startPos, goalPos, opts)` 传入 `ai.PathOptions{MaxExpansions, AllowPartial}`（返回包含 `Partial`、`Exhausted` 与 `Expansions` 的 `NavPathResult`），或通过 `nav.StartSearch(startPos, goalPos, opts)` 创建可跨帧步进的 `*world3d.NavMeshSearch`：
+
+```go
+search := nav.StartSearch(startPos, goalPos, ai.PathOptions{
+	MaxExpansions: 128,
+	AllowPartial:  true,
+})
+// 可直接手动 Step，也可与 2D 寻路一起提交到 ai.PathQueue 统一限额调度：
+queue.Submit(search, 0, func(_ ai.PathRequestID, _ ai.SearchStatus) {
+	res := search.Result()
+	if res.Found {
+		follow3DWaypoints(res.Path) // 目标不可达或预算耗尽时 res.Partial 为 true
+	}
+})
+```
+
+按任意正数步长分帧推进 `NavMeshSearch` 都会得到与 `FindPathWithOptions` 完全一致的 3D 贴地路径，部分路径会终止于已探索多边形上离目标最近的 3D 点。
+
 ## 模块化 3D `GridMap`
 
 在整数格点 `GridCoord{X, Y, Z}` 上摆放可复用的 3D 网格瓦片，支持 24 种立方体正交朝向（`GridOrientationMat4`）、碰撞盒提取、按区块裁剪的射线检测（沿射线对区块排序，再逐个测试区块中被占用的格子）以及带视锥裁剪的实例化合批：
