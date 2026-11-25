@@ -106,7 +106,7 @@ type speedLine struct{ x, y, l, v, t float64 }
 func newThrust(o *pixelfx.Options) pixelfx.Instance {
 	C := pixelfx.Fit(o.Palette(), 7)
 	Rg, ps, lights := newSim(o.Seed(), o.Ramp("sparks"))
-	reach := o.Num("reach")
+	reach := sizeOf(o, "reach")
 	HX, HY := 9.0, -20.0
 	TX, TY := HX+reach, HY
 	// the bundle: streaks fanned at the hand, meeting at the point; the middle one hottest

@@ -72,7 +72,7 @@ type tipAt struct {
 func newWhipCrack(o *pixelfx.Options) pixelfx.Instance {
 	C := pixelfx.Fit(o.Palette(), 7)
 	Rg, ps, lights := newSim(o.Seed(), o.Ramp("sparks"))
-	L, HX, HY := o.Num("length"), 11.0, -21.0
+	L, HX, HY := sizeOf(o, "length"), 11.0, -21.0
 	TX, TY := HX+L, HY-1
 	// how far down the whip the loop has run: it starts a third of the way out, cocked, and accelerates
 	lam := func(t float64) float64 {
