@@ -27,6 +27,22 @@ dir, ok := field.Sample(unitPos) // unit vector, blended from the four cells aro
 
 `FieldCache` keeps the most recently used fields over one grid, keyed by their goal set, so units ordered to the same goals share a field. Its `Rebuild` integrates every cached field again in place and drops any field none of whose goals is walkable any more. A `Crowd` keeps its own cache: after changing the grid (a wall built, a bridge destroyed), call the crowd's `Rebuild`, which also rebuilds the fields its units still follow after the cache dropped them to make room, so every unit sees the change on its next step. Units whose order led only to cells that are now blocked stop where they stand. `Builds` counts the searches, which tells a test or a profiler whether fields are being shared.
 
+### Sector-limited flow fields (`SectorFlowField`)
+
+On very large maps (such as 1024×1024), integrating a whole-grid `FlowField` scans every tile even when a squad only crosses a narrow corridor. `SectorFlowField` restricts Dijkstra integration and direction computation to an active subset of fixed-size square sectors—typically the cluster corridor returned by `ai.HPA.FindClusters`:
+
+```go
+hpa := ai.NewHPA(grid, ai.HPAOptions{ClusterSize: 32, Diagonal: true})
+sf := rts.NewSectorFlowField(math2d.Vec2{}, 16)
+sf.BuildAlongHPA(hpa, startCell, goalCell, 1) // padding=1 adds a 1-cluster border around the corridor
+
+dir, ok := sf.Sample(unitPos) // same Cost, Reachable, Direction, Sample API as FlowField
+```
+
+- Use `BuildSectors(grid, sectorSize, sectors, goals...)` to supply an explicit set of `ai.ClusterID` sectors and multiple goals.
+- Cells outside active sectors report `Unreachable`, and `Sample` ignores inactive sectors so units are never steered out of the corridor.
+- Internal buffers are reused across builds with zero allocations once grown.
+
 ## Crowds and move orders
 
 A `Crowd` moves units over a grid. Add units with `Add`, order them with `Move`, and call `Step` from the loop's `Update`:

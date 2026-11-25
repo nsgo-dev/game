@@ -1,6 +1,6 @@
 # ai
 
-`game/ai` 提供可直接运行在 `game.Loop` 固定步长上的确定性游戏 AI 组件：网格 `AStar` 寻路、带漏斗平滑的 2D 导航网格 `NavMesh`、转向行为（steering）、行为树、效用 AI（Utility AI）评分、目标导向行动规划（GOAP）、攻击令牌与小队协作、空间影响图（Influence Maps）、EQS 风格的战术位置查询、掩体点与占位预订系统，以及带视觉、听觉与记忆的感知。
+`game/ai` 提供可直接运行在 `game.Loop` 固定步长上的确定性游戏 AI 组件：网格 `AStar` 寻路、分层寻路 `HPA`、跳点搜索 `JPS`、带漏斗平滑的 2D 导航网格 `NavMesh`、转向行为（steering）、行为树、效用 AI（Utility AI）评分、目标导向行动规划（GOAP）、攻击令牌与小队协作、空间影响图（Influence Maps）、EQS 风格的战术位置查询、掩体点与占位预订系统，以及带视觉、听觉与记忆的感知。
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/ai"
@@ -89,6 +89,47 @@ for _, rc := range reachable {
 
 - 返回结果顺序完全确定：按 `Cost` 升序排列，同代价按行主序索引打破平局。
 - 使用 `astar.MovementRangeInto(dst, grid, start, budget)` 可复用切片实现零堆分配；使用 `astar.MovementRangeWithCost(dst, grid, start, budget, edgeCost)` 或便捷函数 `ai.ReachableCells(grid, topo, start, budget, edgeCost)` 可传入自定义 `func(from, to ai.Cell) float64` 边代价回调（支持小于 1 的道路减耗及负值禁行边）。
+
+## 分层寻路（HPA*）与跳点搜索（JPS）
+
+在 1024×1024 等大型策略或开放世界瓦片地图上，逐格 `AStar` 开销较高。`game/ai` 提供两种互补的高速网格寻路器，二者在预热后通过 `FindInto` 均可实现零堆分配：
+
+### 分层寻路 HPA*（`HPA`）
+
+`HPA` 将任意 `Grid`、`CostGrid` 或 `EdgeCostGrid` 划分为固定大小的方形簇（`ClusterSize`，默认 `16`），在相邻簇的共享边界上建立入口节点，并预计算簇内入口间的最短路径：
+
+```go
+hpa := ai.NewHPA(grid, ai.HPAOptions{
+	ClusterSize: 32,
+	Diagonal:    true, // AllowCornerCutting 默认为 false，防止斜向穿角
+})
+
+path, cost, ok := hpa.Find(ai.Cell{Col: 2, Row: 2}, ai.Cell{Col: 1021, Row: 1021})
+_, _, _ = path, cost, ok
+
+// 障碍或地形代价变更时，仅标记受影响的格子或矩形区域：
+grid.SetWalkable(400, 320, false)
+hpa.UpdateCell(400, 320) // 或 hpa.UpdateRect(minC, minR, maxC, maxR)
+hpa.RebuildDirty()       // 可选：下次 Find 也会自动增量重建脏簇
+```
+
+- **性能与最优性界**：在 1024×1024 多房间基准图上（`BenchmarkHPA1024` 对比 `BenchmarkAStar1024`），`HPA.FindInto` 比 `AStar.FindInto` 快两个数量级以上（约 150×，抽象搜索 `FindAbstractInto` 约 780×），且路径代价稳定控制在最优 A* 代价的 1.15× 以内。
+- **增量更新**：`UpdateCell` 与 `UpdateRect` 仅将受影响的簇（以及位于共享边界时紧邻的簇）标脏；`RebuildDirty` 仅重建脏边界与脏簇，绝不整图重建；可通过 `Stats()` 检查簇重建计数。
+- **抽象与走廊查询**：使用 `FindAbstract` / `FindAbstractInto` 可跳过逐格细化、直接返回入口航点；使用 `FindClusters` / `FindClustersInto` 可获取经过的 `[]ClusterID` 簇走廊（可直接交给 `rts.SectorFlowField.BuildAlongHPA` 构建分区域流场）。
+
+### 跳点搜索 JPS（`JPS`）
+
+`JPS` 是面向等代价方形网格（`Grid`）的高速 8 方向寻路器，通过跳过开阔空间中的对称节点大幅减少优先队列操作，并保证返回与 `AStar`（`Diagonal: true`）完全一致的精确最优八方向路径代价：
+
+```go
+jps := ai.NewJPS() // NoCornerCutting 默认为 true
+path, cost, ok := jps.Find(grid, start, goal)
+waypoints, _, _ := jps.FindJumpPoints(grid, start, goal) // 仅返回拐点跳点
+_, _, _ = path, cost, waypoints
+```
+
+- 使用 `jps.FindInto(dst, grid, start, goal)` 或 `jps.FindJumpPointsInto(dst, grid, start, goal)` 可复用调用方缓冲区实现零堆分配。
+- `JPS` 假设所有可通行格子步长代价均为 `1`；带权重的 `CostGrid` / `EdgeCostGrid` 请使用 `AStar` 或 `HPA`。
 
 ## 带漏斗平滑的 2D NavMesh
 

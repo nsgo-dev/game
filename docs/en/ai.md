@@ -1,6 +1,6 @@
 # ai
 
-`game/ai` provides deterministic game AI building blocks stepped cleanly on `game.Loop`: grid `AStar` pathfinding, 2D `NavMesh` navigation with funnel smoothing, steering behaviors, behavior trees, utility AI scoring, goal-oriented action planning (GOAP), attack tokens and squads, spatial influence maps, EQS-style tactical position queries with cover points and reservations, and perception with sight, hearing and memory.
+`game/ai` provides deterministic game AI building blocks stepped cleanly on `game.Loop`: grid `AStar` pathfinding, `HPA` hierarchical pathfinding, `JPS` Jump Point Search, 2D `NavMesh` navigation with funnel smoothing, steering behaviors, behavior trees, utility AI scoring, goal-oriented action planning (GOAP), attack tokens and squads, spatial influence maps, EQS-style tactical position queries with cover points and reservations, and perception with sight, hearing and memory.
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/ai"
@@ -89,6 +89,47 @@ for _, rc := range reachable {
 
 - Results are returned in deterministic order: ascending `Cost`, then row-major cell index.
 - Use `astar.MovementRangeInto(dst, grid, start, budget)` for zero-allocation buffer reuse, or `astar.MovementRangeWithCost(dst, grid, start, budget, edgeCost)` / `ai.ReachableCells(grid, topo, start, budget, edgeCost)` to supply a custom `func(from, to ai.Cell) float64` callback (supporting sub-unit road costs as well as negative blocked edges).
+
+## Hierarchical pathfinding (HPA*) and Jump Point Search (JPS)
+
+For large strategy and open-world tile maps (such as 1024×1024), per-cell `AStar` becomes expensive. `game/ai` provides two complementary fast grid searchers that reuse all internal buffers with zero allocations on `FindInto`:
+
+### HPA* (`HPA`)
+
+`HPA` divides any `Grid`, `CostGrid`, or `EdgeCostGrid` into fixed-size square clusters (`ClusterSize`, default `16`), places entrance nodes along shared cluster borders, and precomputes intra-cluster shortest paths between entrances:
+
+```go
+hpa := ai.NewHPA(grid, ai.HPAOptions{
+	ClusterSize: 32,
+	Diagonal:    true, // AllowCornerCutting is false by default
+})
+
+path, cost, ok := hpa.Find(ai.Cell{Col: 2, Row: 2}, ai.Cell{Col: 1021, Row: 1021})
+_, _, _ = path, cost, ok
+
+// When obstacles or terrain costs change, mark only the modified cells or region:
+grid.SetWalkable(400, 320, false)
+hpa.UpdateCell(400, 320) // or hpa.UpdateRect(minC, minR, maxC, maxR)
+hpa.RebuildDirty()       // optional: Find also flushes pending dirty clusters automatically
+```
+
+- **Performance & path quality**: on the 1024×1024 multi-room benchmark map (`BenchmarkHPA1024` vs `BenchmarkAStar1024`), `HPA.FindInto` is over two orders of magnitude faster than `AStar.FindInto` (~150× faster, ~780× faster for `FindAbstractInto`) while staying well within 1.15× of optimal A* cost.
+- **Incremental updates**: `UpdateCell` and `UpdateRect` mark only the affected cluster (and adjacent cluster(s) when a cell lies on a shared cluster border) dirty. `RebuildDirty` rebuilds only those dirty borders and clusters instead of the whole map; inspect rebuild counts with `Stats()`.
+- **Abstract & corridor queries**: use `FindAbstract` / `FindAbstractInto` for coarse entrance waypoints without cell-by-cell refinement, or `FindClusters` / `FindClustersInto` to obtain the traversed `[]ClusterID` corridor (used directly by `rts.SectorFlowField.BuildAlongHPA`).
+
+### Jump Point Search (`JPS`)
+
+`JPS` is a fast 8-way solver for uniform-cost square grids (`Grid`) that skips symmetric open-space cells while guaranteeing exact optimal octile path costs identical to `AStar` (`Diagonal: true`):
+
+```go
+jps := ai.NewJPS() // NoCornerCutting is true by default
+path, cost, ok := jps.Find(grid, start, goal)
+waypoints, _, _ := jps.FindJumpPoints(grid, start, goal) // turning points only
+_, _, _ = path, cost, waypoints
+```
+
+- Use `jps.FindInto(dst, grid, start, goal)` or `jps.FindJumpPointsInto(dst, grid, start, goal)` for zero-allocation buffer reuse.
+- `JPS` assumes uniform traversal cost `1` per walkable cell; use `AStar` or `HPA` for weighted `CostGrid` / `EdgeCostGrid` maps.
 
 ## 2D NavMesh with funnel smoothing
 
