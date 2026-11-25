@@ -449,6 +449,31 @@ func TestTilemapResolverStillWins(t *testing.T) {
 	}
 }
 
+func TestTilemapResolverLeavesLDtkLevelsToBuild(t *testing.T) {
+	// Tilemap(source) has no level parameter, so a source naming an LDtk level is read through the FileResolver.
+	res := resolverOf{
+		ext: externalResolver{AtlasMap: caveResolver, maps: map[string]*sceneformat.TilemapDoc{
+			"maps/caves.ldtk": {TileWidth: 16, TileHeight: 16, Width: 1, Height: 1, Tileset: "cave_tiles", Data: []int{1}},
+		}},
+		fs: sceneformat.FSAssets{FS: fstest.MapFS{"maps/caves.ldtk": {Data: []byte(caveLDtk)}}},
+	}
+	doc, err := sceneformat.Parse([]byte("version: 2\nlayers:\n  - name: world\n    tilemap:\n      source: maps/caves.ldtk\n      level: Level_1\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	built, err := sceneformat.Build(doc, res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := built.Layer("world")
+	if l.Map == nil || l.Tilemap != nil {
+		t.Fatalf("world = %+v, want the LDtk level built from the file", l)
+	}
+	if l.Map.FlagsAt(1, 0) != tilemap.TileSolid || l.Map.FlagsAt(0, 0) != 0 {
+		t.Fatalf("flags %v %v, want Level_1", l.Map.FlagsAt(0, 0), l.Map.FlagsAt(1, 0))
+	}
+}
+
 // resolverOf is an AssetResolver that resolves atlases and tilemaps through externalResolver and reads files through FSAssets.
 type resolverOf struct {
 	ext externalResolver

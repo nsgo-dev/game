@@ -100,7 +100,7 @@ layers:
 
 `Build` 把图集帧组成的单一网格变成精灵批次（`BuiltLayer.Tilemap`），把分层网格或外部地图变成 `tilemap.Tilemap`（`BuiltLayer.Map`）。这个地图带有图块集的标志、属性、形状、动画和地形，因此在图层坐标中可以回答 `FlagsAt`、`TileProperties`、`TilesInRect` 和 `Raycast`，也可以交给 `tileshape.New` 生成斜坡与遮挡体。`BuiltScene.Draw` 只绘制虚拟视口内的地图瓦片（世界坐标图层按相机看到的范围），除非场景没有虚拟尺寸或设置了 `DrawAllTiles`，编辑器的编辑视图就会设置它；`BuiltScene.Update(dt)` 推进动画瓦片。
 
-`Build` 通过解析器的 `FileResolver`（`ReadFile`）读取 YAML 图块集、Tiled 地图及其外部图块集和 LDtk 项目，Tiled 或 LDtk 文件中的路径相对于该文件所在目录；图片在解析器实现了 `ImageResolver`（`Image`）时由它加载，否则按路径命名（`core.ImageSource{URI: path}`）。`FSAssets` 从 `fs.FS` 读取项目文件，因此引用 `.tmj`、`.ldtk` 或 `.tileset.yaml` 的场景无需游戏自己编写解析器即可构建。实现了 `TilemapResolver` 的解析器仍会像以前一样自行把每个 `source` 加载为 `TilemapDoc`。
+`Build` 通过解析器的 `FileResolver`（`ReadFile`）读取 YAML 图块集、Tiled 地图及其外部图块集和 LDtk 项目，Tiled 或 LDtk 文件中的路径相对于该文件所在目录；图片在解析器实现了 `ImageResolver`（`Image`）时由它加载，否则按路径命名（`core.ImageSource{URI: path}`）。`FSAssets` 从 `fs.FS` 读取项目文件，因此引用 `.tmj`、`.ldtk` 或 `.tileset.yaml` 的场景无需游戏自己编写解析器即可构建。实现了 `TilemapResolver` 的解析器仍会像以前一样自行把每个 `source` 加载为 `TilemapDoc`，但指定了 LDtk `level` 的 source 除外：`Tilemap(source)` 无法接收关卡名，因此 `Build` 通过 `FileResolver` 读取它。
 
 ### 图层与对象
 
@@ -566,7 +566,7 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 
 调色板跟随当前图层：图层改变时，调色板显示新图层的瓦片集；如果该瓦片集没有所选 ID 的瓦片，就选中它的第一个瓦片。没有内联瓦片地图的图层（没有瓦片地图，或使用外部 Tiled 或 LDtk 地图）、解析器无法解析的瓦片集、没有瓦片帧的瓦片集，都会显示一条说明原因的消息，而不是空网格。在 Go 中，`TilePalette()` 返回调色板为当前图层显示的内容：瓦片集、瓦片尺寸和瓦片，或那条消息。
 
-对分层网格，调色板显示它的 YAML 图块集中的瓦片，图块集通过解析器的 `sceneformat.FileResolver`（例如 `FSAssets`）读取，瓦片按 `PaintTile` 接受的方式从 1 开始编号：瓦片 ID `n` 绘制图块集的局部瓦片 `n - 1`。瓦片上方每个瓦片图层有一个切换按钮，用来选择 Paint、Erase 和 Fill 修改的图层（`SetActiveTileLayer`、`ActiveTileLayer`，默认为第一个），H、V、D 切换按钮设置 Paint 和 Fill 放置瓦片时的翻转（`SetActiveTileFlip`、`ActiveTileFlip`）。这些编辑按 `Encode` 保存的形式写入图层的行，每次都是一个可撤销的步骤；Fill 只连通瓦片和翻转都相同的单元格。
+对分层网格，调色板显示它的 YAML 图块集中的瓦片，图块集通过解析器的 `sceneformat.FileResolver`（例如 `FSAssets`）读取，瓦片 ID 按 `PaintTile` 接受的方式从 1 开始：瓦片 ID `n` 绘制图块集的局部瓦片 `n - 1`。调色板的标签和状态栏用局部 ID 称呼每个瓦片，也就是行和图块集的 `tiles[].id` 写的数字（`PaletteTile.Number`）。瓦片上方每个瓦片图层有一个切换按钮，用来选择 Paint、Erase 和 Fill 修改的图层（`SetActiveTileLayer`、`ActiveTileLayer`，默认为第一个），H、V、D 切换按钮设置 Paint 和 Fill 放置瓦片时的翻转（`SetActiveTileFlip`、`ActiveTileFlip`）。这些编辑按 `Encode` 保存的形式写入图层的行，每次都是一个可撤销的步骤；Fill 只连通瓦片和翻转都相同的单元格。
 
 ## 绘制、擦除与拾取瓦片（#875）
 

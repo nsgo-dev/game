@@ -183,7 +183,7 @@ tiles:
 | `properties` | 自定义属性，每个值为布尔、整数、数字或字符串，即 `TileProperties` 返回的内容；图块集本身也有 `properties` |
 | `shapes` | 瓦片坐标中的碰撞形状：`rect` 和 `ellipse` 由 `x`、`y`、`width`、`height` 给出，`polygon`（至少 3 个点）和 `polyline`（至少 2 个点）由 `points` 给出，均可带 `name`、`type` 和 `properties`；它们与 Tiled 碰撞编辑器画出的形状一样载入 `Tileset.Shapes`，供 [tileshape](tileshape.md) 使用 |
 | `animation` | 由 `tile` 和正的 `duration`（如 `150ms`）组成的帧，`Update` 循环播放 |
-| `terrain`、`neighbors` | 瓦片所属的 `terrains` 中的地形集，以及同一地形的单元格与它相邻的方向（`north`、`east`、`south`、`west`，`blob` 地形还可以有 `northeast`、`southeast`、`southwest`、`northwest`） |
+| `terrain`、`neighbors` | 瓦片所属的 `terrains` 中的地形集，以及同一地形的单元格与它相邻的方向（`north`、`east`、`south`、`west`，`blob` 地形还可以有 `northeast`、`southeast`、`southwest`、`northwest`）；角方向只有在它两侧的边方向都列出时才能列出（`northeast` 需要 `north` 和 `east`），因为只有两侧的边都匹配时角才会匹配 |
 
 地形的 `mode` 为 `cardinal` 时匹配四条边上的邻居（16 个瓦片，`Autotile4`），为 `blob` 时在角两侧的边都匹配时也匹配该角（47 个瓦片，`Autotile8`）。同一地形的两个瓦片不能列出相同的邻居，不列任何邻居的那个是它的默认瓦片。
 

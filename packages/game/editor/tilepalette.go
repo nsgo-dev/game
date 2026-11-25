@@ -35,6 +35,8 @@ type TilePalette struct {
 type PaletteTile struct {
 	// ID is the tile ID painting writes: the value in a single grid's data, or a layered grid's tile's local ID plus 1, as PaintTile takes it.
 	ID int
+	// Number is the tile's number as the scene file writes it, which the palette and the status bar show: ID for a single grid, and the local ID (ID less 1) for a layered grid.
+	Number int
 	// Image is the image the tile is drawn from: the tileset atlas's image, or a YAML tileset's grid image.
 	Image core.ImageSource
 	// Frame is the tile's frame in Image.
@@ -47,6 +49,15 @@ const maxPaletteTiles = 1 << 14
 // Has reports whether p holds a tile with the given ID.
 func (p TilePalette) Has(id int) bool {
 	return slices.ContainsFunc(p.Tiles, func(t PaletteTile) bool { return t.ID == id })
+}
+
+// Tile returns the tile of p with the given ID, and whether p holds one.
+func (p TilePalette) Tile(id int) (PaletteTile, bool) {
+	i := slices.IndexFunc(p.Tiles, func(t PaletteTile) bool { return t.ID == id })
+	if i < 0 {
+		return PaletteTile{}, false
+	}
+	return p.Tiles[i], true
 }
 
 // TilePalette returns the palette of the active layer: the frames of its inline tilemap's tileset atlas whose names are tile IDs, or for a layered grid the tiles of its YAML tileset (up to the first 16384), in ID order, at the tilemap's tile size. A layer with no inline tilemap (none, or an external Tiled or LDtk map, which the editor does not paint), a tileset the Resolver cannot resolve and a tileset with no tile frames give a palette with no tiles and a Message saying so. A layered grid's tileset is read through the Resolver's sceneformat.FileResolver, and its image through its sceneformat.ImageResolver when it has one.
@@ -84,7 +95,7 @@ func (e *Editor) TilePalette() TilePalette {
 		if err != nil || id <= 0 || strconv.Itoa(id) != name {
 			continue
 		}
-		p.Tiles = append(p.Tiles, PaletteTile{ID: id, Image: atlas.Image, Frame: f})
+		p.Tiles = append(p.Tiles, PaletteTile{ID: id, Number: id, Image: atlas.Image, Frame: f})
 	}
 	slices.SortFunc(p.Tiles, func(a, b PaletteTile) int { return a.ID - b.ID })
 	if len(p.Tiles) == 0 {
@@ -133,7 +144,7 @@ func (e *Editor) layeredPalette(p TilePalette, tm *sceneformat.TilemapDoc) TileP
 	}
 	for id := range min(doc.Count(), maxPaletteTiles) {
 		if f, ok := tilemap.TilesetFrame(doc, atlas, id); ok {
-			p.Tiles = append(p.Tiles, PaletteTile{ID: id + 1, Image: img, Frame: f})
+			p.Tiles = append(p.Tiles, PaletteTile{ID: id + 1, Number: id, Image: img, Frame: f})
 		}
 	}
 	if len(p.Tiles) == 0 {
@@ -232,7 +243,7 @@ func tilePalettePanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 			tile := t
 			tiles = append(tiles, base.Radio{
 				TestID: fmt.Sprintf("tile-palette-%d", tile.ID),
-				Label:  fmt.Sprintf("Tile %d", tile.ID),
+				Label:  fmt.Sprintf("Tile %d", tile.Number),
 				Checked: func() bool {
 					return active.Get() == tile.ID
 				},

@@ -62,12 +62,48 @@ func runEditor(ed *editor.Editor) {
 	}, nsgo.WindowSize(1120, 680))
 }
 
-// open opens path in ed: a project, as a directory or its game.yaml, or else a scene file.
+// open opens path in ed: a project, as a directory or its game.yaml, or else a scene file. It first points ed's resolver at the project's files, so layered tilemaps, YAML tilesets and Tiled and LDtk sources build and the tile palette lists their tiles.
 func open(ed *editor.Editor, path string) error {
 	if info, err := os.Stat(path); err == nil && info.IsDir() || filepath.Base(path) == project.FileName {
+		root := path
+		if err != nil || !info.IsDir() {
+			root = filepath.Dir(path)
+		}
+		ed.Resolver = projectAssets(ed.Resolver, root)
 		return ed.OpenProject(path)
 	}
+	ed.Resolver = projectAssets(ed.Resolver, sceneProjectRoot(path))
 	return ed.OpenFile(path)
+}
+
+// projectAssets returns a resolver that reads the project files under root and keeps the sprite atlases of resolver, the demo atlases the editor starts with.
+func projectAssets(resolver sceneformat.AssetResolver, root string) sceneformat.FSAssets {
+	var atlases sceneformat.AtlasMap
+	switch r := resolver.(type) {
+	case sceneformat.AtlasMap:
+		atlases = r
+	case sceneformat.FSAssets:
+		atlases = r.Atlases
+	}
+	return sceneformat.FSAssets{FS: os.DirFS(root), Atlases: atlases}
+}
+
+// sceneProjectRoot returns the root of the project the scene file at path belongs to: the nearest directory above it that holds game.yaml, or the scene's own directory when none does. Scenes name the files they use by their paths from that root.
+func sceneProjectRoot(path string) string {
+	start := filepath.Dir(path)
+	if abs, err := filepath.Abs(start); err == nil {
+		start = abs
+	}
+	for dir := start; ; {
+		if _, err := os.Stat(filepath.Join(dir, project.FileName)); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return start
+		}
+		dir = parent
+	}
 }
 
 // openArgs opens what the command line names: the project or scene args[0], then the animation clip file args[1] on the object args[2], or on the scene's first object when args[2] is absent. That object is selected, so when the clip file does not exist yet the toolbar's Animate button starts a clip on it, and the panel's Save Clip button writes the clip to args[1].

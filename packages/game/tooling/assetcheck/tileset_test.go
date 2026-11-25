@@ -109,3 +109,58 @@ func TestYAMLTilesetsAndLayeredTilemaps(t *testing.T) {
 		})
 	}
 }
+
+const (
+	caveTMX = `<?xml version="1.0" encoding="UTF-8"?>
+<map version="1.10" orientation="orthogonal" renderorder="right-down" width="2" height="1" tilewidth="16" tileheight="16" infinite="0">
+ <tileset firstgid="1" source="tilesets/cave.tsx"/>
+ <layer id="1" name="ground" width="2" height="1">
+  <data encoding="csv">1,2</data>
+ </layer>
+</map>
+`
+	caveTSX = `<?xml version="1.0" encoding="UTF-8"?>
+<tileset version="1.10" name="cave" tilewidth="16" tileheight="16" tilecount="2" columns="2">
+ <image source="../art/cave.png" width="32" height="16"/>
+</tileset>
+`
+)
+
+func TestTMXTilemapSources(t *testing.T) {
+	tmxProject := func() fstest.MapFS {
+		fsys := project(t)
+		fsys["maps/cave.tmx"] = &fstest.MapFile{Data: []byte(caveTMX)}
+		fsys["maps/tilesets/cave.tsx"] = &fstest.MapFile{Data: []byte(caveTSX)}
+		fsys["maps/art/cave.png"] = &fstest.MapFile{Data: pngBytes(t, 32, 16)}
+		fsys["scenes/cave.scene.yaml"] = &fstest.MapFile{Data: []byte("version: 1\nlayers:\n  - name: ground\n    tilemap:\n      source: maps/cave.tmx\n")}
+		return fsys
+	}
+	r := mustCheck(t, tmxProject())
+	if !r.OK() {
+		t.Fatalf("problems in a clean project:\n%s", problems(r))
+	}
+	if r.Maps != 3 {
+		t.Fatalf("counted %d maps, want 3", r.Maps)
+	}
+
+	for _, tc := range []struct {
+		name, file, old, new, msg string
+	}{
+		{"missing external tileset", "maps/cave.tmx", "tilesets/cave.tsx", "tilesets/rock.tsx", "rock.tsx"},
+		{"missing tileset image", "maps/tilesets/cave.tsx", "../art/cave.png", "../art/rock.png", `image "art/rock.png": not found`},
+		{"not a map", "maps/cave.tmx", "<map ", "<mop ", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fsys := tmxProject()
+			text := string(fsys[tc.file].Data)
+			if !strings.Contains(text, tc.old) {
+				t.Fatalf("%s does not contain %q", tc.file, tc.old)
+			}
+			fsys[tc.file] = &fstest.MapFile{Data: []byte(strings.Replace(text, tc.old, tc.new, 1))}
+			r := mustCheck(t, fsys)
+			if len(r.Problems) != 1 || r.Problems[0].File != "maps/cave.tmx" || !strings.Contains(r.Problems[0].Message, tc.msg) {
+				t.Fatalf("want one problem in maps/cave.tmx with %q:\n%s", tc.msg, problems(r))
+			}
+		})
+	}
+}

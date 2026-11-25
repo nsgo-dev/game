@@ -435,6 +435,8 @@ func (s *sceneCheck) tilemap(tm *sceneformat.TilemapDoc, steps ...string) {
 		switch ext {
 		case ".tmj":
 			s.checkTiledMap(p)
+		case ".tmx":
+			s.checkTMXMap(p)
 		case ".ldtk":
 			s.checkLDtk(p)
 			if tm.Level != "" && !s.broken[p] {

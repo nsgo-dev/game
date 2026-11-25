@@ -49,6 +49,8 @@ type format struct {
 	version int
 	// fieldName maps a struct field to its key, or skips it; nil uses jsonschema.YAMLField.
 	fieldName func(reflect.StructField) jsonschema.Field
+	// types overrides the schemas of Go types; nil uses durationTypes.
+	types map[reflect.Type]*jsonschema.Schema
 }
 
 // sceneV2Fields names the Go fields of the scene document types that scene format version 2 added; the version 1 schema leaves them out, since Validate refuses them in a version 1 document.
@@ -85,6 +87,8 @@ var formats = []format{
 		typ:     reflect.TypeFor[tilemap.TilesetDoc](),
 		pkg:     "tilemap",
 		version: tilemap.TilesetFormatVersion,
+		// ParseTileset decodes durations straight into time.Duration, which go.yaml.in/yaml/v3 reads only from a string.
+		types: durationStringTypes,
 	},
 	{
 		url:     importsettings.SchemaURL,
@@ -156,6 +160,11 @@ var durationTypes = map[reflect.Type]*jsonschema.Schema{
 	reflect.TypeFor[time.Duration](): {Types: []jsonschema.Type{jsonschema.TypeString, jsonschema.TypeInteger}},
 }
 
+// durationStringTypes allows a time.Duration written only as a Go duration string such as "250ms", for formats whose loader decodes it with no integer fallback.
+var durationStringTypes = map[reflect.Type]*jsonschema.Schema{
+	reflect.TypeFor[time.Duration](): {Types: []jsonschema.Type{jsonschema.TypeString}},
+}
+
 // schemaFile is one generated schema and the file name it is written under.
 type schemaFile struct {
 	name   string
@@ -171,7 +180,11 @@ func generate(root string) ([]schemaFile, error) {
 		if err != nil {
 			return nil, err
 		}
-		s, err := jsonschema.Reflect(f.typ, jsonschema.Options{ID: f.url, Title: f.title, Docs: docs, FieldName: f.fieldName, Types: durationTypes})
+		types := f.types
+		if types == nil {
+			types = durationTypes
+		}
+		s, err := jsonschema.Reflect(f.typ, jsonschema.Options{ID: f.url, Title: f.title, Docs: docs, FieldName: f.fieldName, Types: types})
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", f.url, err)
 		}

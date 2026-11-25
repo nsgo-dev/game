@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/nsgo-dev/game/packages/game/editor"
 	"github.com/nsgo-dev/game/packages/game/gametest"
@@ -163,6 +164,13 @@ func TestTilePaletteShowsALayeredGridsTileset(t *testing.T) {
 	if ed.ActiveTileID != 2 {
 		t.Fatalf("ActiveTileID = %d", ed.ActiveTileID)
 	}
+	// The palette and the status bar name a tile by the local ID the rows write, not the paint value.
+	if !app.Exists("label:Tile 0") || app.Exists("label:Tile 3") {
+		t.Fatal("palette labels are not the tileset's local IDs 0 to 2")
+	}
+	if got := app.Find("id:editor-status-mode").Text; !strings.HasSuffix(got, "| Tile: 1") {
+		t.Fatalf("status = %q, want local tile 1", got)
+	}
 	draws := gametest.ImageDraws(app.Find("id:tile-palette-thumb-2").Ops)
 	if len(draws) != 1 || draws[0].Image.URI != "tiles/ground.png" || draws[0].SX != 17 {
 		t.Fatalf("tile 2 thumbnail draws %+v", draws)
@@ -173,5 +181,66 @@ func TestTilePaletteShowsALayeredGridsTileset(t *testing.T) {
 	app.PressAt("id:editor-viewport", core.Point{X: core.Points(tx), Y: core.Points(ty)})
 	if got := ed.Doc.Layers[0].Tilemap.TileLayer("deco").Rows[0]; got != ". . 1v" {
 		t.Fatalf("deco row 0 after painting (2, 0) = %q", got)
+	}
+}
+
+func TestClipPreviewDrawsEveryTileOfALayeredGrid(t *testing.T) {
+	// The scene camera shows one 16x16 cell of the 3x2 grid, but the 2D view pans past it, so both the edit scene and an open clip's preview draw all six tiles.
+	doc, err := sceneformat.Parse([]byte(`version: 2
+virtualWidth: 16
+virtualHeight: 16
+layers:
+  - name: ground
+    tilemap:
+      tileWidth: 16
+      tileHeight: 16
+      width: 3
+      height: 2
+      tilesetFile: tilesets/ground.tileset.yaml
+      tileLayers:
+        - name: floor
+          rows:
+            - 0 0 0
+            - 0 0 0
+    objects:
+      - id: hero
+        x: 8
+        y: 8
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ed, err := editor.New(doc, sceneformat.FSAssets{FS: fstest.MapFS{"tilesets/ground.tileset.yaml": {Data: []byte(layeredTileset)}}})
+	if err != nil {
+		t.Fatalf("editor.New: %v", err)
+	}
+	if ed.BuildErr != nil {
+		t.Fatalf("build: %v", ed.BuildErr)
+	}
+	tileDraws := func(s *sceneformat.BuiltScene) int {
+		var d core.Drawing
+		s.Draw(&d)
+		var probe core.Drawing
+		probe.DrawImageFrom(core.ImageSource{URI: "x"}, 0, 0, 1, 1, 0, 0, 1, 1)
+		n := 0
+		for _, op := range d.Ops {
+			if op.Kind == probe.Ops[0].Kind {
+				n++
+			}
+		}
+		return n
+	}
+	if got := tileDraws(ed.ActiveScene()); got != 6 {
+		t.Fatalf("edit scene drew %d tiles, want 6", got)
+	}
+	if err := ed.NewClip("hero", "Bob", time.Second); err != nil {
+		t.Fatalf("NewClip: %v", err)
+	}
+	preview := ed.ActiveScene()
+	if preview == ed.Built || ed.ClipError() != nil {
+		t.Fatalf("no clip preview (error %v)", ed.ClipError())
+	}
+	if got := tileDraws(preview); got != 6 {
+		t.Fatalf("clip preview drew %d tiles, want 6", got)
 	}
 }
