@@ -47,7 +47,7 @@ func (d *mouseKeys) apply(in intent) {
 	if in.turn != 0 || in.tilt != 0 {
 		d.app.PointerDelta(-float64(in.turn)/sens, -float64(in.tilt)/sens)
 	}
-	// Holding the left button is a press held down on the arena, which input.MouseButton follows.
+	// Holding the left button is a press held down on the arena, which input.MouseButton follows. nsgotest.App.MouseDown only reaches views with OnMouseDown, not the press events a real left click also sends, so the playthrough holds the button with PressDown and PressUp.
 	d.hold("fire", in.fire, func() { d.app.PressDown("arena") }, func() { d.app.PressUp("arena") })
 	d.key("KeyR", in.reload)
 	d.key("KeyD", in.moveX > 0.3)

@@ -284,3 +284,62 @@ func aimAt(m *match, e *enemy) (turn, tilt float32) {
 func wallBodies(m *match) int {
 	return len(newMatch(m.arena).world.Bodies())
 }
+
+func TestALeadOnACrateStillMovesTheHunterAndExpires(t *testing.T) {
+	m := quietMatch()
+	// A blind drone never sees the player, so only the lead on top of the crate at (8, 3), a cell the grid cannot reach, drives it.
+	blind := *m.arena.enemy("drone")
+	blind.SightRange = 0.01
+	start := m.cellCenter(gridCell{1, 11})
+	e := newEnemy(m, &blind, start)
+	m.enemies = append(m.enemies, e)
+	crate := m.cellCenter(gridCell{8, 3})
+	crate.Y = m.arena.CrateHeight
+	e.alert(crate)
+	closest := horizontalDist(start, crate)
+	for i := 0; e.hasLead && i < 60*60; i++ {
+		m.step(controls{}, step)
+		closest = min(closest, horizontalDist(e.ctrl.Pos, crate))
+	}
+	if e.hasLead {
+		t.Fatalf("after a minute the drone at %+v still hunts the lead on the crate", e.ctrl.Pos)
+	}
+	if closest > 2*m.arena.CellSize {
+		t.Fatalf("the drone came no closer than %v m to the lead on the crate, want it to walk up to the crate", closest)
+	}
+	m.step(controls{}, step)
+	if e.state != statePatrol {
+		t.Fatalf("after giving the lead up the drone is in state %d, want patrol", e.state)
+	}
+}
+
+// boltAtChest returns an enemy bolt that hits the player's chest in the next step.
+func boltAtChest(m *match, damage int) shot {
+	return shot{pos: m.chest().Add(physics3d.Vec3{X: 1}), vel: physics3d.Vec3{X: -60}, left: 10, damage: damage, fromEnemy: true}
+}
+
+func TestABoltInFlightCannotUndoAWin(t *testing.T) {
+	m := newMatch(arena)
+	m.phase, m.wave, m.timer = phaseFight, len(m.arena.Waves)-1, 0
+	m.player.health = 5
+	m.shots = append(m.shots, boltAtChest(m, 20))
+	m.step(controls{}, step)
+	if m.phase != phaseWon || m.player.health != 5 {
+		t.Fatalf("clearing the last wave with a bolt in flight left phase %d and %d health, want a win at 5", m.phase, m.player.health)
+	}
+}
+
+func TestAPickupCannotUndoALethalHit(t *testing.T) {
+	m := quietMatch()
+	for _, pk := range m.pickups {
+		if pk.kind.Effect == EffectHealth {
+			m.player.ctrl.Pos = pk.pos
+		}
+	}
+	m.player.health = 5
+	m.shots = append(m.shots, boltAtChest(m, 8))
+	m.step(controls{}, step)
+	if m.phase != phaseLost || m.player.health != 0 {
+		t.Fatalf("a lethal bolt on a health pickup left phase %d and %d health, want a loss at 0", m.phase, m.player.health)
+	}
+}

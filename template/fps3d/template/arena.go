@@ -272,6 +272,7 @@ func (a *Arena) Validate() error {
 		if len(w.Groups) == 0 {
 			return fmt.Errorf("arena: wave %d has no groups", i+1)
 		}
+		total := 0
 		for _, g := range w.Groups {
 			if a.enemy(g.Enemy) == nil {
 				return fmt.Errorf("arena: wave %d sends unknown enemy %q", i+1, g.Enemy)
@@ -279,17 +280,20 @@ func (a *Arena) Validate() error {
 			if g.Count < 1 || g.Count > maxWaveEnemies {
 				return fmt.Errorf("arena: wave %d sends %d of %q, want 1 to %d", i+1, g.Count, g.Enemy, maxWaveEnemies)
 			}
+			if total += g.Count; total > maxWaveEnemies {
+				return fmt.Errorf("arena: wave %d sends more than %d enemies", i+1, maxWaveEnemies)
+			}
 		}
 	}
 	return a.validateLayout()
 }
 
-// maxWaveEnemies bounds one group so a malformed file cannot ask the renderer for unbounded draws.
+// maxWaveEnemies bounds the enemies in one wave, across all its groups, so a malformed file cannot ask the renderer for unbounded draws.
 const maxWaveEnemies = 16
 
 func (p PlayerConfig) validate() error {
-	if p.Health < 1 {
-		return errors.New("arena: player health must be at least 1")
+	if !count(p.Health, 1) {
+		return fmt.Errorf("arena: player health must be 1 to %d", maxQuantity)
 	}
 	for _, v := range []float32{p.Radius, p.Height, p.EyeHeight, p.Speed, p.JumpSpeed, p.TurnSpeed, p.MouseSensitivity} {
 		if !positive(v) {
@@ -318,8 +322,8 @@ func (w Weapon) validate() error {
 	default:
 		return fmt.Errorf("kind %q, want %s or %s", w.Kind, WeaponHitscan, WeaponProjectile)
 	}
-	if w.Damage < 1 || w.Magazine < 1 || w.Reserve < 0 || w.MaxReserve < w.Reserve {
-		return errors.New("damage and magazine must be at least 1 and reserve between 0 and maxReserve")
+	if !count(w.Damage, 1) || !count(w.Magazine, 1) || !count(w.MaxReserve, 0) || w.Reserve < 0 || w.Reserve > w.MaxReserve {
+		return fmt.Errorf("damage and magazine must be 1 to %d, maxReserve 0 to %d and reserve between 0 and maxReserve", maxQuantity, maxQuantity)
 	}
 	if !positive(w.FireInterval) || !positive(w.ReloadTime) || !positive(w.Range) {
 		return errors.New("fireInterval, reloadTime and range must be positive")
@@ -331,8 +335,8 @@ func (e EnemyKind) validate() error {
 	if e.Name == "" {
 		return errors.New("name is empty")
 	}
-	if e.Health < 1 || e.BoltDamage < 1 {
-		return errors.New("health and boltDamage must be at least 1")
+	if !count(e.Health, 1) || !count(e.BoltDamage, 1) {
+		return fmt.Errorf("health and boltDamage must be 1 to %d", maxQuantity)
 	}
 	for _, v := range []float32{e.Radius, e.Height, e.Speed, e.SightRange, e.FieldOfView, e.AttackRange, e.FireInterval, e.BoltSpeed} {
 		if !positive(v) {
@@ -357,8 +361,8 @@ func (p PickupKind) validate() error {
 	if p.Effect != EffectHealth && p.Effect != EffectAmmo {
 		return fmt.Errorf("effect %q, want %s or %s", p.Effect, EffectHealth, EffectAmmo)
 	}
-	if p.Amount < 1 || !positive(p.Respawn) {
-		return errors.New("amount must be at least 1 and respawn positive")
+	if !count(p.Amount, 1) || !positive(p.Respawn) {
+		return fmt.Errorf("amount must be 1 to %d and respawn positive", maxQuantity)
 	}
 	return nil
 }
@@ -488,8 +492,11 @@ func (a *Arena) pickup(symbol byte) *PickupKind {
 	return nil
 }
 
-// maxQuantity bounds every length, speed and time in an arena file, so a malformed file cannot overflow the physics.
+// maxQuantity bounds every number in an arena file, lengths, speeds and times as well as health, damage, ammunition and pickup amounts, so a malformed file cannot overflow the physics or the player's health and ammunition.
 const maxQuantity = 10000
 
 func positive(v float32) bool    { return v > 0 && v <= maxQuantity }
 func nonNegative(v float32) bool { return v >= 0 && v <= maxQuantity }
+
+// wholeQuantity reports whether v is a whole quantity from lo to maxQuantity.
+func count(v, lo int) bool { return v >= lo && v <= maxQuantity }
