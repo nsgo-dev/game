@@ -228,11 +228,16 @@ func (w *RigidWorld) wakeDisturbed(areas []activeAreaEntry) {
 	w.wakeIslands()
 }
 
-// wakeIslands wakes every body a MouseJoint holds and every sleeping body linked to an awake dynamic body through last step's contacts or a joint. Those links are the islands the bodies fell asleep in, so waking one body wakes its whole island.
+// wakeIslands wakes the bodies of every joint that drives them (drivenJoint) and every sleeping body linked to an awake dynamic body through last step's contacts or a joint. Those links are the islands the bodies fell asleep in, so waking one body wakes its whole island.
 func (w *RigidWorld) wakeIslands() {
 	for _, j := range w.Joints {
-		if b := mouseHeld(j); b != nil {
-			b.wakeIfSleeping()
+		if drivenJoint(j) {
+			a, b := jointPair(j)
+			for _, d := range [2]*RigidBody{a, b} {
+				if d != nil {
+					d.wakeIfSleeping()
+				}
+			}
 		}
 	}
 	parent := w.unionFind()
@@ -300,13 +305,19 @@ func jointPair(j Joint) (a, b *RigidBody) {
 	return nil, nil
 }
 
-// mouseHeld returns the dynamic body j pulls when j is a MouseJoint that applies force, and nil otherwise.
-func mouseHeld(j Joint) *RigidBody {
-	mj, ok := j.(*MouseJoint)
-	if !ok || mj.Body == nil || mj.Body.Static || !(mj.MaxForce > 0) {
-		return nil
+// drivenJoint reports whether j drives its bodies however still they are: a MouseJoint that pulls with force, or a RevoluteJoint, PrismaticJoint or WheelJoint whose motor is on. Their targets are fields a game may change on any step without telling the world, so the bodies they drive stay awake while the drive is on.
+func drivenJoint(j Joint) bool {
+	switch j := j.(type) {
+	case *MouseJoint:
+		return j != nil && j.MaxForce > 0
+	case *RevoluteJoint:
+		return j != nil && j.EnableMotor && j.MaxMotorTorque > 0
+	case *PrismaticJoint:
+		return j != nil && j.EnableMotor && j.MaxMotorForce > 0
+	case *WheelJoint:
+		return j != nil && j.EnableMotor && j.MaxMotorTorque > 0
 	}
-	return mj.Body
+	return false
 }
 
 // awakeJoints returns the joints with at least one awake dynamic body, the ones Step solves.
@@ -422,10 +433,15 @@ func (w *RigidWorld) updateSleep(manifolds []rigidManifold, joints []Joint, area
 			candidate = true
 		}
 	}
-	// A body a MouseJoint holds never counts as resting: the target can move at any time.
+	// A body a joint drives never counts as resting: the drive's target can change at any time.
 	for _, j := range joints {
-		if b := mouseHeld(j); b != nil {
-			b.sleepTime = 0
+		if drivenJoint(j) {
+			a, b := jointPair(j)
+			for _, d := range [2]*RigidBody{a, b} {
+				if d.awakeDynamic() {
+					d.sleepTime = 0
+				}
+			}
 		}
 	}
 	if !candidate {

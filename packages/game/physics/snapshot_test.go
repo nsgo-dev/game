@@ -366,7 +366,7 @@ func TestGoldenTrajectory2D(t *testing.T) {
 	// Cross-architecture golden trajectory hashes (must match identically on amd64 and arm64).
 	const (
 		wantWorldGolden uint64 = 0x1798e96d103baf55
-		wantRigidGolden uint64 = 0xd0f7c21e369885a3
+		wantRigidGolden uint64 = 0xd187e49bf1576008
 	)
 
 	w, _, _ := buildTestWorld2D()

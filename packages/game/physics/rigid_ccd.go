@@ -98,8 +98,8 @@ type ccdSupport struct {
 	d float64
 }
 
-// sweepFastBodies sweeps every awake dynamic body that needs it from its pose in starts to its integrated pose against the static bodies, and stops it at the first impact. manifolds are this step's contacts, which name the static surfaces each body rests on.
-func (w *RigidWorld) sweepFastBodies(starts []rigidPose, manifolds []rigidManifold, restitutionThresh float64) {
+// sweepFastBodies sweeps every awake dynamic body that needs it from its pose in starts to its integrated pose against the static bodies, and stops it at the first impact. manifolds are this step's contacts, which name the static surfaces each body rests on, and a body is not swept against a static body a joint in ignoredPairs keeps it from colliding with.
+func (w *RigidWorld) sweepFastBodies(starts []rigidPose, manifolds []rigidManifold, restitutionThresh float64, ignoredPairs map[[2]*RigidBody]struct{}) {
 	statics := w.scratch.statics[:0]
 	for i, b := range w.Bodies {
 		if b != nil && b.Static && !b.Shape.Empty() {
@@ -154,6 +154,11 @@ func (w *RigidWorld) sweepFastBodies(starts []rigidPose, manifolds []rigidManifo
 			st := w.Bodies[si]
 			if !CanCollideRigid(b, st) {
 				continue
+			}
+			if ignoredPairs != nil {
+				if _, skip := ignoredPairs[[2]*RigidBody{b, st}]; skip {
+					continue
+				}
 			}
 			sMinX, sMinY, sMaxX, sMaxY := st.worldAABB()
 			if sMaxX < minX || maxX < sMinX || sMaxY < minY || maxY < sMinY {

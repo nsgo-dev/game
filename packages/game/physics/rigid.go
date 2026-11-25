@@ -669,7 +669,7 @@ func (w *RigidWorld) Step(dt time.Duration) {
 		b.Angle = float32(float64(b.Angle) + float64(float64(b.AngularVel)*h))
 	}
 	w.scratch.starts = starts
-	w.sweepFastBodies(starts, manifolds, restitutionThresh)
+	w.sweepFastBodies(starts, manifolds, restitutionThresh, ignoredPairs)
 
 	// 7. Positional slop correction (projection without injecting artificial bounce velocity).
 	const (
