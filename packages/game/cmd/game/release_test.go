@@ -318,7 +318,7 @@ func TestParseReleaseSettingsFollowsAliases(t *testing.T) {
 }
 
 func TestParseReleaseSettingsAcceptsEveryProjectSection(t *testing.T) {
-	settings, err := parseReleaseSettings([]byte(assetsProjectHead + "editor:\n  plugins: [health]\nexport:\n  presets: [{platform: web}]\nassets:\n  manifest: {in: assets, out: gen/assets.go}\n"))
+	settings, err := parseReleaseSettings([]byte(assetsProjectHead + "physics:\n  gravity2D: {\"y\": 980}\neditor:\n  plugins: [health]\nexport:\n  presets: [{platform: web}]\nassets:\n  manifest: {in: assets, out: gen/assets.go}\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -335,7 +335,7 @@ func TestParseReleaseSettingsAcceptsEveryProjectSection(t *testing.T) {
 	if settings, err := parseReleaseSettings([]byte("version: 1\nname: Demo\nassets: null\n")); err != nil || settings.Assets != nil {
 		t.Fatalf("a null assets section: %+v, %v", settings, err)
 	}
-	want := []string{"version", "name", "id", "appVersion", "window", "display", "input", "audio", "autoload", "export", "editor", "assets", "navigation", "packs"}
+	want := []string{"version", "name", "id", "appVersion", "window", "display", "input", "audio", "physics", "autoload", "export", "editor", "assets", "navigation", "packs"}
 	if !reflect.DeepEqual(gameFileKeys, want) {
 		t.Fatalf("gameFileKeys = %q, want %q", gameFileKeys, want)
 	}

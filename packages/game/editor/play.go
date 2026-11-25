@@ -23,6 +23,24 @@ func (e *Editor) PlayScene() *sceneformat.BuiltScene {
 	return e.playScene
 }
 
+// PlayPhysics returns the active runtime PhysicsScene constructed from built-in physics components while playing, or nil when stopped.
+func (e *Editor) PlayPhysics() *sceneformat.PhysicsScene {
+	if e == nil || !e.playing {
+		return nil
+	}
+	return e.playPhysics
+}
+
+// PlayTriggerEvents returns a copy of all built-in physics trigger events recorded during the current or last Play session.
+func (e *Editor) PlayTriggerEvents() []sceneformat.PhysicsTriggerEvent {
+	if e == nil || len(e.playTriggerEvents) == 0 {
+		return nil
+	}
+	out := make([]sceneformat.PhysicsTriggerEvent, len(e.playTriggerEvents))
+	copy(out, e.playTriggerEvents)
+	return out
+}
+
 // PlaySteps returns the number of fixed simulation updates executed in the current or last Play session.
 func (e *Editor) PlaySteps() int {
 	if e == nil {
@@ -81,6 +99,21 @@ func (e *Editor) PlayIn(cx *core.Scope) error {
 	if err != nil {
 		return fmt.Errorf("editor: build play scene: %w", err)
 	}
+	playPhys, err := sceneformat.BuildPhysics(playBuilt, e.physicsSettings(), e.Resolver)
+	if err != nil {
+		return fmt.Errorf("editor: build play physics: %w", err)
+	}
+	playPhys.OnTrigger = func(ev sceneformat.PhysicsTriggerEvent) {
+		e.playTriggerEvents = append(e.playTriggerEvents, ev)
+		if e.OnPlayTrigger != nil {
+			e.OnPlayTrigger(ev)
+		}
+	}
+	if e.components != nil && len(playDoc.Connections) > 0 {
+		if sigs, err := sceneformat.Connect(playDoc, e.components, playBuilt); err == nil {
+			playPhys.Signals = sigs
+		}
+	}
 
 	e.stopClipLoop()
 	e.stopAudioAudition()
@@ -89,6 +122,8 @@ func (e *Editor) PlayIn(cx *core.Scope) error {
 	e.Doc = playDoc
 	e.Built = playBuilt
 	e.playScene = playBuilt
+	e.playPhysics = playPhys
+	e.playTriggerEvents = nil
 	e.playSteps = 0
 	e.playFrames = 0
 	e.playing = true
@@ -102,6 +137,9 @@ func (e *Editor) PlayIn(cx *core.Scope) error {
 				return
 			}
 			e.playSteps++
+			if e.playPhysics != nil && e.playPhysics.HasPhysics() {
+				e.playPhysics.Step(dt)
+			}
 			if e.OnPlayUpdate != nil {
 				e.OnPlayUpdate(e.playScene, dt)
 			}
@@ -137,6 +175,7 @@ func (e *Editor) Stop() error {
 	}
 	e.playing = false
 	e.playScene = nil
+	e.playPhysics = nil
 
 	snap := e.playSnapshot
 	e.playSnapshot = nil

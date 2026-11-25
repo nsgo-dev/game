@@ -440,8 +440,8 @@ func areaGravityVector3D(e activeAreaEntry, p Vec3) (float64, float64, float64) 
 }
 
 func (w *World) evaluateBodyAreas(b *Body, entries []activeAreaEntry) AreaEffect {
-	baseLin := max(0, sanitize32f64(b.LinearDamping))
-	baseAng := max(0, sanitize32f64(b.AngularDamping))
+	baseLin := max(0, sanitize32f64(b.effectiveLinearDamping()))
+	baseAng := max(0, sanitize32f64(b.effectiveAngularDamping()))
 	if len(entries) == 0 {
 		return AreaEffect{
 			Gravity:        w.Gravity,

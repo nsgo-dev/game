@@ -270,6 +270,16 @@ func (c *setComponentFieldCmd) Undo() {
 	m[c.field] = cloneAny(c.oldVal)
 }
 
+var builtinPhysicsComponents = sceneformat.PhysicsComponentRegistry()
+
+// lookupComponentType returns the schema of cn from e.components when set, or from the built-in physics component registry when e.components is nil.
+func (e *Editor) lookupComponentType(cn string) (sceneformat.ComponentType, bool) {
+	if e != nil && e.components != nil {
+		return e.components.Lookup(cn)
+	}
+	return builtinPhysicsComponents.Lookup(cn)
+}
+
 // inspectorSchemaKey computes a stable signature of the selected object ID and its
 // property/component field names + kinds so InspectorView only remounts controls when
 // selection or field layout changes (preserving input focus during value edits).
@@ -306,7 +316,7 @@ func inspectorSchemaKey(ed *Editor) string {
 				b.WriteString("plugin\x00")
 				b.WriteString(plugin)
 				b.WriteByte(0)
-			} else if t, ok := ed.components.Lookup(cn); ok {
+			} else if t, ok := ed.lookupComponentType(cn); ok {
 				// A registered component always shows every field, so setting an unset one must not remount its controls.
 				b.WriteString("registered:")
 				b.WriteString(strings.Join(t.FieldNames(), ","))
@@ -341,6 +351,8 @@ func valueKindTag(v any) string {
 		return "int"
 	case float64, float32:
 		return "float"
+	case []string, []any:
+		return "stringlist"
 	default:
 		return "string"
 	}
@@ -818,7 +830,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 					Color:      colors.Text(),
 				},
 			}
-			if t, ok := ed.components.Lookup(cn); ok {
+			if t, ok := ed.lookupComponentType(cn); ok {
 				compTitle = withTooltip(compTitle, t.Doc)
 			}
 			remove := removeButton("inspector-comp-"+cn+"-remove", "Remove component "+cn, disabled, func() {
@@ -834,7 +846,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 				continue
 			}
 			nodes = append(nodes, header)
-			if t, ok := ed.components.Lookup(cn); ok {
+			if t, ok := ed.lookupComponentType(cn); ok {
 				for _, f := range t.Fields {
 					field := f
 					get := func() any {
@@ -1012,7 +1024,40 @@ func formatFieldValue(v any) string {
 	if s, ok := v.(string); ok {
 		return fmt.Sprintf("%q", s)
 	}
+	if ss, ok := v.([]string); ok {
+		return "[" + strings.Join(ss, ", ") + "]"
+	}
 	return fmt.Sprint(v)
+}
+
+func stringSliceFromAny(v any) []string {
+	switch xs := v.(type) {
+	case []string:
+		return xs
+	case []any:
+		out := make([]string, 0, len(xs))
+		for _, elem := range xs {
+			if s, ok := elem.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func parseStringListInput(text string) []string {
+	if strings.TrimSpace(text) == "" {
+		return nil
+	}
+	var out []string
+	for part := range strings.SplitSeq(text, ",") {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
 }
 
 // registeredFieldControl builds the inspector control for a registered component field from its kind, bounding numeric inputs by its range.
@@ -1081,7 +1126,36 @@ func registeredFieldControl(
 			Value:    number,
 			OnChange: func(v float64) { set(clamp(v)) },
 		}
+	case sceneformat.FieldStringList:
+		return ui.Input{
+			TestID:      testID,
+			Label:       label,
+			Placeholder: "layer1, layer2",
+			Disabled:    disabled,
+			Value: func() string {
+				return strings.Join(stringSliceFromAny(get()), ", ")
+			},
+			OnChange: func(text string) { set(parseStringListInput(text)) },
+		}
 	default:
+		if len(f.Enum) > 0 {
+			opts := make([]ui.Option[string], len(f.Enum))
+			for i, v := range f.Enum {
+				opts[i] = ui.Option[string]{Value: v, Label: v}
+			}
+			return ui.Select[string]{
+				TestID:   testID,
+				Label:    label,
+				Options:  opts,
+				Disabled: disabled,
+				Style:    core.Style{Width: core.Pct(100)},
+				Value: func() string {
+					s, _ := get().(string)
+					return s
+				},
+				OnChange: func(v string) { set(v) },
+			}
+		}
 		return ui.Input{
 			TestID:   testID,
 			Label:    label,

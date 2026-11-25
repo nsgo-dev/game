@@ -76,6 +76,20 @@ audio:
     - name: sfx
       effects:
         - delay: {time: 250ms, feedback: 0.3, wet: 0.2}
+physics:
+  gravity2D:
+    "y": 980
+  gravity3D:
+    "y": -9.81
+  solverIterations2D: 8
+  solverIterations3D: 8
+  layers:
+    - name: player
+      bit: 0
+    - name: walls
+      bit: 1
+    - name: coins
+      bit: 2
 autoload:
   mainScene: title
   scenes:
@@ -121,6 +135,7 @@ assets:
 | `display` | `screen.Viewport` 映射到窗口上的虚拟分辨率：`width`、`height`、`mode`（省略时为 `fit`，也可为 `fill`、`stretch` 或 `expand`）、`integerScale`、`pixelSnap`，以及黑边的 CSS 颜色 `barColor`。省略时游戏按窗口尺寸绘制。 |
 | `input` | 具名的 `actions`，每个动作带有 `bindings`，类型为 `touchRegion`（需要 `region`）、`mouseButton`（需要鼠标 `button`）、`mouseRegion`（两者都要）、`key`（跟随键盘布局的键名 `key`，如 `space`、`left`）、`keyCode`（物理键位 `code`，如 `KeyW`、`ArrowLeft`）或 `gamepadButton`（W3C 标准手柄按键 `button`：`south`、`east`、`west`、`north`、`leftShoulder`、`rightShoulder`、`leftTrigger`、`rightTrigger`、`back`、`start`、`leftStick`、`rightStick`、`dpadUp`、`dpadDown`、`dpadLeft`、`dpadRight` 或 `home`）。鼠标 `button` 取 `left`、`right`、`middle`、`back` 或 `forward`，区域使用虚拟坐标。`axes` 在 `negative` 动作按下时读数为 -1，在 `positive` 动作按下时为 +1；`motionAxes` 读取 `tiltX`、`tiltY`、`tiltZ`、`gyroX`、`gyroY` 或 `gyroZ`，选项与 `input.MotionAxisOptions` 的字段相同；`gamepadAxes` 读取手柄摇杆（`leftX`、`leftY`、`rightX` 或 `rightY`），选项与 `input.GamepadAxisOptions` 的字段相同（`deadZone`、`axial`、`sensitivity`、`invert`）。运动轴或手柄摇杆轴都可以与某个动作轴同名，`Actions.Axis` 会把它们相加并限制在 `[-1, 1]` 内。没有绑定的动作只做声明，供代码绑定或供轴读取。 |
 | `audio` | 默认的 `master` 音量与各条 `buses`。每条总线是 `sound.Mixer` 的一个分组，带默认 `volume` 和按顺序应用的 DSP `effects`：`lowPass` 与 `highPass`（`cutoffHz`、`q`）、`delay`（`time`、`feedback`、`wet`）、`reverb`（`roomSize`、`damping`、`wet`）、`gain`（`factor`）和 `bitcrush`（`bits`、`downsample`）。 |
+| `physics` | 项目级 2D 与 3D 物理默认设置：`gravity2D`（`x`、`y`）、`gravity3D`（`x`、`y`、`z`）、`solverIterations2D`、`solverIterations3D`，以及具名碰撞层 `layers`（将人类可读的 `name` 如 `player`、`walls`、`coins` 映射到唯一的位索引 `0..31` / `LayerMask`）。场景物理组件直接引用这些层名称，而无需书写原始位掩码。 |
 | `autoload` | 启动时加载的 `scenes`（场景格式的 YAML 文件）和其他 `resources`，每项都有唯一的 `name` 和项目内以斜杠分隔的 `path`；`mainScene` 指定游戏启动时进入的场景。 |
 | `export` | 构建输出目录 `output`，以及每个平台一个预设（`macos`、`windows`、`linux`、`ios`、`tvos`、`watchos`、`android`、`harmonyos`、`web`、`miniprogram`），每个预设列出该平台要构建的 NSGo `targets`；不列目标的预设直接构建平台名，由 NSGo 展开为它的默认目标。 |
 | `editor` | 场景编辑器的设置：`plugins` 列出它为本项目启用的[编辑器插件](editor.md#编辑器插件492)，顺序即插件面板和工具出现的顺序。插件是编译进编辑器程序的 Go 代码，这个列表只负责启用它们。 |
@@ -161,7 +176,8 @@ func Root(cx *core.Scope) core.Node {
 - `Viewport()` 返回 `display` 对应的 `screen.Viewport`，没有 `display` 时返回 false。
 - `BindInput(actions)` 把输入映射绑定到 `input.Actions`，替换同名动作的绑定，保留其他绑定，例如随代码计算出的布局而定的绑定。`Region(action)` 返回绑定到某个动作的第一个区域，游戏在那里绘制屏幕上的控件。
 - `ConfigureMixer(mixer)` 为 `sound.Mixer` 设置默认主音量、各总线的默认音量（`SetDefaultMaster`、`SetDefaultVolume`）和 DSP 链。玩家设置过并由混音器保存在存储中的音量优先于默认值。没有效果的总线保留游戏在代码中设置的效果链，就像没有绑定的动作保留其绑定一样。
-- `LoadAutoloads(fsys)` 从以项目根目录为根的 `fs.FS`（例如 `embed.FS`）读取每个自动加载的场景和资源，场景会按场景文档解析并校验；遇到第一个缺失或无效的文件即返回错误。`Loaded.Main()` 是主场景。
+- `ConfigurePhysicsWorld(world)`、`ConfigureRigidWorld(world)` 与 `ConfigurePhysics3DWorld(world)` 将 `physics.gravity2D`、`physics.gravity3D` 和求解器迭代次数应用到 `physics.World`、`physics.RigidWorld` 与 `physics3d.World`。`PhysicsLayerTable()` 和 `PhysicsSettings()` 将 `physics:` 转换为 `sceneformat.ParseWith` 与 `sceneformat.BuildPhysics` 使用的类型，`LayerBit(name)`、`LayerMask2D(names...)`、`LayerMask3D(names...)` 则便于在 Go 代码中解析具名碰撞层。
+- `LoadAutoloads(fsys)` 从以项目根目录为根的 `fs.FS`（例如 `embed.FS`）读取每个自动加载的场景和资源，场景会按场景文档解析并校验（包括对照 `physics.layers` 校验具名物理层）；遇到第一个缺失或无效的文件即返回错误。`Loaded.Main()` 是主场景。
 
 ## game.yaml 与 nsgo.yaml
 

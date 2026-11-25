@@ -336,7 +336,10 @@ func (f *File) LoadAutoloads(fsys fs.FS) (*Loaded, error) {
 		if err != nil {
 			return nil, fmt.Errorf("project: autoload scene %q: %w", s.Name, err)
 		}
-		doc, err := sceneformat.Parse(data)
+		doc, err := sceneformat.ParseWith(data, sceneformat.ParseOptions{
+			File:          s.Path,
+			PhysicsLayers: f.PhysicsLayerTable(),
+		})
 		if err != nil {
 			return nil, fmt.Errorf("project: autoload scene %q (%s): %w", s.Name, s.Path, err)
 		}

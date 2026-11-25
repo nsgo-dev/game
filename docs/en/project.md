@@ -76,6 +76,20 @@ audio:
     - name: sfx
       effects:
         - delay: {time: 250ms, feedback: 0.3, wet: 0.2}
+physics:
+  gravity2D:
+    "y": 980
+  gravity3D:
+    "y": -9.81
+  solverIterations2D: 8
+  solverIterations3D: 8
+  layers:
+    - name: player
+      bit: 0
+    - name: walls
+      bit: 1
+    - name: coins
+      bit: 2
 autoload:
   mainScene: title
   scenes:
@@ -121,6 +135,7 @@ assets:
 | `display` | The virtual resolution a `screen.Viewport` maps onto the window: `width`, `height`, `mode` (`fit` when left out, `fill`, `stretch` or `expand`), `integerScale`, `pixelSnap` and the CSS `barColor` of letterbox bars. Left out, the game draws at the window's size. |
 | `input` | Named `actions`, each with `bindings` of kind `touchRegion` (a `region`), `mouseButton` (a mouse `button`), `mouseRegion` (both), `key` (a layout key name `key`, such as `space` or `left`), `keyCode` (a physical key position `code`, such as `KeyW` or `ArrowLeft`), or `gamepadButton` (a W3C Standard Gamepad `button`: `south`, `east`, `west`, `north`, `leftShoulder`, `rightShoulder`, `leftTrigger`, `rightTrigger`, `back`, `start`, `leftStick`, `rightStick`, `dpadUp`, `dpadDown`, `dpadLeft`, `dpadRight` or `home`). Mouse `button` is `left`, `right`, `middle`, `back` or `forward` and regions are in virtual coordinates. `axes` read -1 for their `negative` action and +1 for their `positive` one; `motionAxes` read `tiltX`, `tiltY`, `tiltZ`, `gyroX`, `gyroY` or `gyroZ` with `input.MotionAxisOptions`' fields; `gamepadAxes` read controller sticks (`leftX`, `leftY`, `rightX` or `rightY`) with `input.GamepadAxisOptions`' fields (`deadZone`, `axial`, `sensitivity`, `invert`). A motion axis or gamepad axis may share its name with an axis, and `Actions.Axis` sums all of them and clamps to `[-1, 1]`. An action without bindings is declared for code to bind or an axis to read. |
 | `audio` | The default `master` volume and the `buses`, each a `sound.Mixer` group with a default `volume` and its DSP `effects` in order: `lowPass` and `highPass` (`cutoffHz`, `q`), `delay` (`time`, `feedback`, `wet`), `reverb` (`roomSize`, `damping`, `wet`), `gain` (`factor`) and `bitcrush` (`bits`, `downsample`). |
+| `physics` | Project-wide 2D and 3D physics defaults: `gravity2D` (`x`, `y`), `gravity3D` (`x`, `y`, `z`), `solverIterations2D`, `solverIterations3D`, and named collision `layers` mapping human-readable `name`s (such as `player`, `walls`, `coins`) to unique bit indices `0..31` (`LayerMask`). Scene physics components reference these layer names instead of raw bitmasks. |
 | `autoload` | The `scenes` (scene format YAML files) and other `resources` loaded at startup, each with a unique `name` and a slash-separated `path` inside the project, and the `mainScene` the game starts in. |
 | `export` | The build `output` directory and one preset per platform (`macos`, `windows`, `linux`, `ios`, `tvos`, `watchos`, `android`, `harmonyos`, `web`, `miniprogram`), each with the NSGo build `targets` of that platform to build; a preset without targets builds the platform name, which NSGo expands to its default targets. |
 | `editor` | The scene editor's settings: `plugins`, the [editor plugins](editor.md#editor-plugins-492) it turns on for this project, in the order their panels and tools appear. A plugin is Go code built into the editor binary; this list only turns it on. |
@@ -161,7 +176,8 @@ The rest of the file applies to the game's own objects:
 - `Viewport()` returns the `screen.Viewport` of `display`, and false without one.
 - `BindInput(actions)` binds the input map into an `input.Actions`, replacing bindings of the same names and keeping others, such as ones that follow a layout computed in code. `Region(action)` returns the first region bound to an action, where the game draws its on-screen control.
 - `ConfigureMixer(mixer)` gives a `sound.Mixer` the default master volume and each bus's default volume (`SetDefaultMaster`, `SetDefaultVolume`) and DSP chain. A volume the player set and the mixer kept in storage wins over the default. A bus without effects leaves the chain the game set in code, as an action without bindings leaves its bindings.
-- `LoadAutoloads(fsys)` reads every autoloaded scene, parsing and validating it as a scene document, and every resource from an `fs.FS` rooted at the project, such as an `embed.FS`, and fails on the first file that is missing or invalid. `Loaded.Main()` is the main scene.
+- `ConfigurePhysicsWorld(world)`, `ConfigureRigidWorld(world)`, and `ConfigurePhysics3DWorld(world)` apply `physics.gravity2D`, `physics.gravity3D`, and solver iterations to `physics.World`, `physics.RigidWorld`, and `physics3d.World`. `PhysicsLayerTable()` and `PhysicsSettings()` convert `physics:` for `sceneformat.ParseWith` and `sceneformat.BuildPhysics`, while `LayerBit(name)`, `LayerMask2D(names...)`, and `LayerMask3D(names...)` resolve named collision layers in Go.
+- `LoadAutoloads(fsys)` reads every autoloaded scene, parsing and validating it as a scene document (including named physics layers against `physics.layers`), and every resource from an `fs.FS` rooted at the project, such as an `embed.FS`, and fails on the first file that is missing or invalid. `Loaded.Main()` is the main scene.
 
 ## game.yaml and nsgo.yaml
 

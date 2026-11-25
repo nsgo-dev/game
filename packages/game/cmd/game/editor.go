@@ -175,9 +175,18 @@ func newDemoEditor() (*editor.Editor, error) {
 						Z:       5,
 						Sprite:  &sceneformat.SpriteRef{Atlas: "actors", Frame: "hero"},
 						Components: map[string]any{
-							"body": map[string]any{
-								"solid": true,
-								"speed": 48.0,
+							sceneformat.Body2DComponentName: map[string]any{
+								"version":      sceneformat.PhysicsComponentVersion,
+								"kind":         "dynamic",
+								"mass":         1.0,
+								"gravityScale": 0.0,
+								"vx":           24.0,
+							},
+							sceneformat.Collider2DComponentName: map[string]any{
+								"version": sceneformat.PhysicsComponentVersion,
+								"shape":   "box",
+								"width":   16.0,
+								"height":  16.0,
 							},
 						},
 						Properties: map[string]any{
@@ -213,18 +222,7 @@ func newDemoEditor() (*editor.Editor, error) {
 	return ed, nil
 }
 
-// demoComponents registers the component types the demo scene and opened files may use, so a misspelled field fails to open with its file and line and the inspector lists every field.
+// demoComponents registers the built-in 2D and 3D physics component types the demo scene and opened files may use, so a misspelled field fails to open with its file and line and the inspector lists every field.
 func demoComponents() *sceneformat.ComponentRegistry {
-	reg := sceneformat.NewComponentRegistry()
-	reg.MustRegister(sceneformat.ComponentType{
-		Name: "body",
-		Doc:  "A moving body that collides with the level.",
-		Fields: []sceneformat.Field{
-			{Name: "solid", Kind: sceneformat.FieldBool, Default: true, Doc: "Blocks other solid bodies."},
-			{Name: "speed", Kind: sceneformat.FieldFloat, Default: 32.0, Min: sceneformat.Float64(0), Max: sceneformat.Float64(500), Doc: "Top speed in points per second."},
-			{Name: "friction", Kind: sceneformat.FieldFloat, Default: 0.5, Min: sceneformat.Float64(0), Max: sceneformat.Float64(1), Doc: "Fraction of speed lost per second on the ground."},
-			{Name: "layer", Kind: sceneformat.FieldInt, Default: 1, Min: sceneformat.Float64(0), Max: sceneformat.Float64(31), Doc: "Collision layer."},
-		},
-	})
-	return reg
+	return sceneformat.PhysicsComponentRegistry()
 }

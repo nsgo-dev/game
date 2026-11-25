@@ -308,7 +308,7 @@ built.Draw(d)
 
 ### 组件类型
 
-`ComponentRegistry` 用 Go 代码显式声明场景文件可以使用的组件类型，运行时不依赖反射：每个类型的名称和说明，以及每个字段的名称、种类（`FieldBool`、`FieldInt`、`FieldFloat` 或 `FieldString`）、默认值、可选的闭区间范围、供检查器使用的可选 `Step` 和说明。`Register` 会拒绝空名称或重复名称、非数值字段上的范围或步长、最小值大于最大值、`FieldInt` 上的小数范围或步长、负步长，以及种类不符或超出范围的默认值。
+`ComponentRegistry` 用 Go 代码显式声明场景文件可以使用的组件类型，运行时不依赖反射：每个类型的名称和说明，以及每个字段的名称、种类（`FieldBool`、`FieldInt`、`FieldFloat`、`FieldString` 或 `FieldStringList`）、可选的允许取值 `Enum`（用于字符串或字符串列表字段）、默认值、可选的闭区间范围、供检查器使用的可选 `Step` 和说明。`Register` 会拒绝空名称或重复名称、非数值字段上的范围或步长、最小值大于最大值、`FieldInt` 上的小数范围或步长、负步长，以及种类不符或超出范围的默认值。
 
 ```go
 reg := sceneformat.NewComponentRegistry()
@@ -333,7 +333,24 @@ scenes/room.scene.yaml:11:13: sceneformat: object "hero" component "body" field 
 
 默认值不会写回文档，因此加载后再保存场景不会改变任何内容；`reg.Resolve("body", fields)` 返回补齐默认值后的全部字段。`ValidateComponents` 用于检查在 Go 中构建的文档（没有位置信息），`CheckField` 检查单个值并把它规范化为 `bool`、`int`、`float64` 或 `string`。不带注册表的 `Parse` 仍不限制 `components` 的内容。
 
-在编辑器中，`Editor.SetComponentRegistry(reg)` 会先检查当前打开场景的组件，并像 `OpenFile` 一样检查其连接，之后 `OpenFile` 报告组件错误时会带上文件和行号，`SetComponentField` 与 `PlaceObject` 会拒绝注册表不允许的字段。更换注册表会清空撤销/重做历史，因此新注册表不允许的已撤销编辑无法再重做。检查器按声明顺序列出组件的每个已注册字段，场景中未设置的字段显示其默认值；字段标签的提示信息给出说明、种类、范围和默认值，数值输入框受范围限制，并按字段的 `Step` 步进（未设置时整数为 1、浮点数为 0.1）。浮点数按完整精度显示，注册表拒绝的编辑会显示在状态栏中。没有注册类型的组件，或者没有设置注册表时的所有组件，仍按文件中的值显示。
+在编辑器中，`Editor.SetComponentRegistry(reg)` 会先检查当前打开场景的组件，并像 `OpenFile` 一样检查其连接，之后 `OpenFile` 报告组件错误时会带上文件和行号，`SetComponentField` 与 `PlaceObject` 会拒绝注册表不允许的字段。更换注册表会清空撤销/重做历史，因此新注册表不允许的已撤销编辑无法再重做。检查器按声明顺序列出组件的每个已注册字段，场景中未设置的字段显示其默认值；字段标签的提示信息给出说明、种类、范围和默认值，枚举字段显示下拉选择框，字符串列表字段按逗号分隔编辑，数值输入框受范围限制，并按字段的 `Step` 步进（未设置时整数为 1、浮点数为 0.1）。浮点数按完整精度显示，注册表拒绝的编辑会显示在状态栏中。没有注册类型的组件，或者没有设置注册表时的所有组件，仍按文件中的值显示（内置物理组件的结构定义会在检查器中自动可用）。
+
+### 内置物理组件（#817）
+
+`sceneformat` 内置六个带版本号的物理组件（`PhysicsComponentVersion = 1`），可通过 `RegisterPhysicsComponents(reg)` 或 `PhysicsComponentRegistry()` 一起注册：
+
+| 组件 | 维度 | 主要字段 |
+| --- | --- | --- |
+| `body2d` | 2D | `mode`（`static`、`kinematic`、`dynamic`）、`mass`、`gravityScale`、`lockRotation`、`vx`、`vy`、`material`、`friction`、`restitution`、`linearDamping`、`angularDamping` |
+| `collider2d` | 2D | `shape`（`box`、`circle`）、`width`、`height`、`radius`、`offsetX`、`offsetY`、`layer`、`mask`（`[]string`）、`material`、`friction`、`restitution` |
+| `trigger2d` | 2D | `shape`（`box`、`circle`）、`width`、`height`、`radius`、`offsetX`、`offsetY`、`layer`、`mask`（`[]string`）；声明事件 `entered`、`stayed`、`exited` |
+| `body3d` | 3D | `mode`（`static`、`kinematic`、`dynamic`）、`mass`、`gravityScale`、`lockRotation`、`vx`、`vy`、`vz`、`material`、`friction`、`restitution`、`linearDamping`、`angularDamping` |
+| `collider3d` | 3D | `shape`（`box`、`sphere`、`capsule`）、`width`、`height`、`depth`、`radius`、`offsetX`、`offsetY`、`offsetZ`、`layer`、`mask`（`[]string`）、`material`、`friction`、`restitution` |
+| `trigger3d` | 3D | `shape`（`box`、`sphere`、`capsule`）、`width`、`height`、`depth`、`radius`、`offsetX`、`offsetY`、`offsetZ`、`layer`、`mask`（`[]string`）；声明事件 `entered`、`stayed`、`exited` |
+
+- **具名碰撞层**：`layer` 与 `mask` 直接引用 [`game.yaml`](project.md) 中 `physics.layers` 声明的易读层名，而非原始位掩码。向 `sceneformat.ParseWith` 传入 `ParseOptions{File: ..., PhysicsLayers: proj.PhysicsLayerTable()}`（`project.File.LoadAutoloads` 与 `Editor.OpenProject` 会自动传入）：任何拼错或未知的层名都会加载失败，并返回带有精确文件路径、从 1 开始的行号、列号、字段路径及合法层列表的 `*loaderr.Error`。
+- **构建与步进（`BuildPhysics`）**：`ps, err := sceneformat.BuildPhysics(built, proj.PhysicsSettings(), lib)` 会构造匹配的 `physics.World`、`physics.RigidWorld` 和 `physics3d.World`（应用项目重力、求解器迭代次数、具名 `Layer`/`Mask` 位掩码以及通过 `PhysicsMaterialResolver` 解析的 `*.physicsMaterial.yaml` 资源）。调用 `ps.Step(dt)` 会推进 2D 运动学与刚体、2D 触发器以及 3D 刚体与触发器，将更新后的世界位姿写回 `BuiltObject.Doc`，并把 `PhysicsTriggerEvent`（`TriggerEnter`、`TriggerStay`、`TriggerExit`）派发到 `ps.OnTrigger` 及已连接的 `ps.Signals`（`entered` / `stayed` / `exited`）。
+- **编辑器内运行与视口调试线框**：`Editor.PlayIn` 会自动构建并步进 `PhysicsScene`（`Editor.PlayPhysics`、`Editor.PlayTriggerEvents`、`Editor.OnPlayTrigger`），因此包含玩家刚体、墙壁碰撞体与金币触发器的场景无需编写碰撞 Go 代码即可直接在编辑器中运行并触发碰撞与触发事件。`Editor.ShowPhysicsDebug` 开启时（默认开启，可用 `SetShowPhysicsDebug` 切换），2D 与 3D 视口均会绘制每个 `collider2d`、`trigger2d`、`collider3d` 和 `trigger3d` 的线框轮廓。
 
 ### 连接（#490）
 
@@ -596,6 +613,7 @@ func main() {
 - **窗口（Window）**：编辑 `window.title`、`width`/`height`、`minWidth`/`minHeight`/`maxWidth`/`maxHeight` 尺寸限制、`resizable` 和 `appearance`（`SetProjectWindowTitle`、`SetProjectWindowSize`、`SetProjectWindowLimits`、`SetProjectWindowResizable`、`SetProjectWindowAppearance`）。
 - **显示（Display）**：开关可选的 `display` 小节（`SetProjectDisplayEnabled`），并编辑虚拟分辨率 `width`/`height`、`mode`（`fit`、`fill`、`stretch`、`expand`）、`integerScale`、`pixelSnap` 与 `barColor`（`SetProjectDisplaySize`、`SetProjectDisplayMode`、`SetProjectDisplayIntegerScale`、`SetProjectDisplayPixelSnap`、`SetProjectDisplayBarColor`）。
 - **自动加载（Autoload）**：选择 `autoload.mainScene`（`SetProjectMainScene`），并增改删 `autoload.scenes` 与 `autoload.resources` 条目（`AddProjectAutoloadScene`、`UpdateProjectAutoloadScene`、`RemoveProjectAutoloadScene`、`AddProjectAutoloadResource`、`UpdateProjectAutoloadResource`、`RemoveProjectAutoloadResource`），文件路径可从当前项目文件列表中搜索选择（`ProjectSceneFiles`、`ProjectResourceFiles`）。
+- **物理（Physics）**：编辑 `physics.gravity2D`、`physics.gravity3D`、`physics.solverIterations2D` / `solverIterations3D` 以及具名碰撞层 `physics.layers`（`SetProjectPhysicsGravity2D`、`SetProjectPhysicsGravity3D`、`SetProjectPhysicsSolverIterations`、`AddProjectPhysicsLayer`、`RemoveProjectPhysicsLayer`）。
 - **编辑器插件（Plugins）**：为每个已注册插件（`RegisteredPlugins`）提供调用 `SetPluginEnabled` 的开关，同时列出 `game.yaml` 中声明但当前编辑器程序未内置的插件（`MissingPlugins`）并支持移除。
 
 输入、音频与导出设置各自拥有独立面板，此处不重复提供。任何被 `project.Validate` 拒绝的值都会在对应字段旁显示校验错误，且不会改动项目或撤销历史。在打开项目首次保存之前（`ProjectCanonicalSavePending`），面板顶部会显示明确提示，说明保存将以规范 YAML 形式写出 `game.yaml`，不会保留注释。

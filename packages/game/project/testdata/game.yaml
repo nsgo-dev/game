@@ -61,6 +61,18 @@ audio:
         - gain: {factor: 0.9}
         - bitcrush: {bits: 8, downsample: 2}
     - name: ui
+physics:
+  gravity2D: {"y": 980}
+  gravity3D: {"y": -9.81}
+  solverIterations2D: 10
+  solverIterations3D: 8
+  layers:
+    - name: player
+      bit: 0
+    - name: walls
+      bit: 1
+    - name: coins
+      bit: 2
 autoload:
   mainScene: title
   scenes:

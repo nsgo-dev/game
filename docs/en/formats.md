@@ -394,7 +394,7 @@ layers:
 
 | Files | Version | Read and written by | Fields |
 | --- | --- | --- | --- |
-| `*.scene.yaml`, such as `scenes/cave_room.scene.yaml` | `version: 1`, or `version: 2` for a scene that instances or inherits other scene files | `sceneformat.Parse`, `sceneformat.Encode` | [Editor & Scene Format](editor.md); schemas `https://game.nsgo.dev/schemas/scene.v1.json` and `scene.v2.json` |
+| `*.scene.yaml`, such as `scenes/cave_room.scene.yaml` | `version: 1`, or `version: 2` for a scene that instances or inherits other scene files; built-in physics components `version: 1` | `sceneformat.Parse`, `sceneformat.Encode` | [Editor & Scene Format](editor.md); schemas `https://game.nsgo.dev/schemas/scene.v1.json` and `scene.v2.json` |
 
 ```yaml
 # yaml-language-server: $schema=https://game.nsgo.dev/schemas/scene.v1.json

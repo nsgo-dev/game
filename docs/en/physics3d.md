@@ -89,6 +89,10 @@ loop := &game.Loop{
 
 Contact impulses act at the contact point, so friction makes a sliding sphere roll and a box standing on an edge tips over onto a face. `LockRotation` keeps a dynamic body from rotating. Inputs that are not finite (a NaN velocity or mass) fall back to defaults in `AddBody`, and a kinematic body without mass stays kinematic.
 
+### Physics materials
+
+Attach a shared `*PhysicsMaterial` (`Friction`, `Restitution`, `LinearDamping`, `AngularDamping`) to `Body.Material`, or copy its values onto a body with `Body.ApplyMaterial(mat)`. When `Body.Material` is non-nil, contact resolution and velocity damping read the material's clamped surface properties directly (`Friction >= 0`, `Restitution` in `[0, 1]`, non-negative damping), so editing a shared material takes effect across every body referencing it. Shared `*.physicsMaterial.yaml` files from [`game/resource`](resources.md#physicsmaterial) apply to 3D bodies with `mat.ApplyTo3D(body)`.
+
 Settled bodies sleep. A sleeping body wakes when a moving dynamic body or a kinematic body (moving by velocity or by setting `Pos`/`Rot` directly) touches it, when a body jointed to it moves, when one of its contacts ends (its support moved away), when a `VoxelCollider` block near it changes solidity or disappears under it, and on `Wake`, `WakeInBox`, `ApplyImpulse`, and the removal of bodies, meshes, voxel colliders, or joints.
 
 Stacks rest without sinking into each other. After the iterative solver, each step makes one bottom-up pass over the contacts within about 45° of vertical (relative to `-Gravity`) that stops each upper body against the one below and pushes it out until about 1 mm of overlap is left, treating the lower body as immovable (shock propagation). A heavy body on a light one, or a tall stack, settles at that depth instead of the several centimeters iterative solving alone leaves under large mass ratios. A body still sunk more than 5 mm into a neighbor does not fall asleep, and a sleeping body pushed deeper than 1 cm wakes, so sleeping never freezes an overlap in place. With zero gravity there is no "up" and the pass is skipped.
@@ -242,7 +246,6 @@ sw.AddCloth(physics3d.ClothConfig{
 world.Step(dt)
 sw.Step(dt)
 ```
-
 ## Snapshots, Rollback, and Cross-Architecture Determinism
 
 `World` supports full state snapshots, deterministic FNV-1a 64-bit checksums, and cross-architecture determinism across amd64 and arm64:
@@ -266,3 +269,7 @@ if err := world.Restore(restored); err != nil {
 }
 _ = hash
 ```
+
+## Authoring in scene files
+
+3D physics bodies, colliders, and triggers can be authored directly in `*.scene.yaml` files with the built-in `body3d`, `collider3d`, and `trigger3d` components from [`sceneformat`](editor.md#built-in-physics-components-817), using 3D gravity, solver iterations, and named collision layers defined under `physics:` in [`game.yaml`](project.md). `sceneformat.BuildPhysics(built, gameProject.PhysicsSettings(), lib)` populates a `physics3d.World` (boxes, spheres, and capsules), resolves named `layer` and `mask` lists, applies `*.physicsMaterial.yaml` files, and keeps body poses synchronized with `BuiltScene` and the editor's Play mode.

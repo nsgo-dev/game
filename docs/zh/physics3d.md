@@ -89,6 +89,10 @@ loop := &game.Loop{
 
 接触冲量作用在接触点上，因此摩擦会让滑动的球滚起来，立在棱上的盒子会倒向一个面。`LockRotation` 可禁止动态刚体旋转。`AddBody` 会把非有限的输入（如 NaN 速度或质量）回退为默认值，没有质量的运动学刚体仍保持运动学。
 
+### 物理材质
+
+可以将共享的 `*PhysicsMaterial`（`Friction`、`Restitution`、`LinearDamping`、`AngularDamping`）挂到 `Body.Material` 上，或调用 `Body.ApplyMaterial(mat)` 将其数值复制到刚体上。当 `Body.Material` 非空时，接触求解与速度阻尼直接读取材质经限幅后的表面属性（`Friction >= 0`、`Restitution` 在 `[0, 1]` 内、阻尼非负），因此修改共享材质会立即作用于所有引用它的刚体。来自 [`game/resource`](resources.md#physicsmaterial) 的共享 `*.physicsMaterial.yaml` 文件可通过 `mat.ApplyTo3D(body)` 应用到 3D 刚体。
+
 静止的刚体会进入休眠。以下情况会唤醒休眠刚体：运动中的动态刚体或运动学刚体（通过速度运动，或直接设置 `Pos`/`Rot`）碰到它；与它相连的关节另一端在运动；它的某个接触结束（支撑物移开）；附近的 `VoxelCollider` 方块改变实体性或脚下支撑方块消失；以及调用 `Wake`、`WakeInBox`、`ApplyImpulse` 或移除刚体、网格、体素碰撞体、关节时。
 
 堆叠的刚体静止时不会互相陷入。迭代求解之后，每一步会自下而上对与竖直方向（以 `-Gravity` 为上）夹角约 45° 以内的接触再做一遍：把下方刚体当作不可移动，让上方刚体停止向下靠近，并把它推出到只剩约 1 mm 的重叠（冲击传播，shock propagation）。重物压在轻物上，或很高的一叠刚体，都会停在这个深度，而不是像只做迭代求解那样在大质量比下残留几厘米的穿透。仍陷入相邻刚体超过 5 mm 的刚体不会进入休眠，被压得深于 1 cm 的休眠刚体会被唤醒，因此休眠不会把穿透冻结下来。重力为零时没有"上"方向，这一遍会跳过。
@@ -242,7 +246,6 @@ sw.AddCloth(physics3d.ClothConfig{
 world.Step(dt)
 sw.Step(dt)
 ```
-
 ## 快照、回滚与跨架构确定性
 
 `World` 支持完整的世界状态快照、确定性 64 位 FNV-1a 校验和，以及跨 amd64 与 arm64 CPU 架构的比特级确定性：
@@ -266,3 +269,7 @@ if err := world.Restore(restored); err != nil {
 }
 _ = hash
 ```
+
+## 在场景文件中编写物理
+
+3D 物理刚体、碰撞体与触发器可以直接在 `*.scene.yaml` 场景文件中使用 [`sceneformat`](editor.md#内置物理组件817) 内置的 `body3d`、`collider3d` 和 `trigger3d` 组件编写，并复用 [`game.yaml`](project.md) `physics:` 小节中定义的 3D 重力、求解器迭代次数和具名碰撞层。`sceneformat.BuildPhysics(built, gameProject.PhysicsSettings(), lib)` 会填充 `physics3d.World`（支持盒体、球体与胶囊体）、解析具名 `layer`/`mask` 列表、应用 `*.physicsMaterial.yaml` 文件，并在运行时和编辑器运行模式中将刚体位姿同步回 `BuiltScene`。

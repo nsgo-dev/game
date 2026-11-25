@@ -54,14 +54,17 @@ type Body struct {
 	// and angular impulses are ignored, which InvInertia == 0 alone could not
 	// express while 0 also meant "compute a default" (#546).
 	LockRotation bool
-	// Restitution is the bounciness in [0, 1].
+	// Restitution is the bounciness in [0, 1]. Overridden when Material is non-nil.
 	Restitution float32
-	// Friction is the Coulomb friction coefficient (>= 0).
+	// Friction is the Coulomb friction coefficient (>= 0). Overridden when Material is non-nil.
 	Friction float32
-	// LinearDamping reduces velocity smoothly over time (1 / (1 + LinearDamping*dt)).
+	// LinearDamping reduces velocity smoothly over time (1 / (1 + LinearDamping*dt)). Overridden when Material is non-nil.
 	LinearDamping float32
-	// AngularDamping reduces angular velocity smoothly over time (1 / (1 + AngularDamping*dt)).
+	// AngularDamping reduces angular velocity smoothly over time (1 / (1 + AngularDamping*dt)). Overridden when Material is non-nil.
 	AngularDamping float32
+	// Material optionally overrides Friction, Restitution, LinearDamping, and
+	// AngularDamping with a shared PhysicsMaterial.
+	Material *PhysicsMaterial
 	// GravityScale multiplies the effective gravity applied to this body during
 	// World.Step. NewDynamicBody initializes it to 1; on a zero-initialized Body
 	// literal it defaults to 1 unless SetGravityScale(0) is called or GravityScale
@@ -496,14 +499,14 @@ func (w *World) Step(dt time.Duration) {
 		gScale := b.EffectiveGravityScale()
 		if len(areaTriggers) == 0 {
 			b.Vel = b.Vel.Add(w.Gravity.Scale(gScale * dtSec))
-			if b.LinearDamping > 0 {
-				b.Vel = b.Vel.Scale(1 / (1 + float32(b.LinearDamping*dtSec)))
+			if linDamp := b.effectiveLinearDamping(); linDamp > 0 {
+				b.Vel = b.Vel.Scale(1 / (1 + float32(linDamp*dtSec)))
 			}
 			b.Pos = b.Pos.Add(b.Vel.Scale(dtSec))
 
 			if b.AngVel.LenSq() > 0 {
-				if b.AngularDamping > 0 {
-					b.AngVel = b.AngVel.Scale(1 / (1 + float32(b.AngularDamping*dtSec)))
+				if angDamp := b.effectiveAngularDamping(); angDamp > 0 {
+					b.AngVel = b.AngVel.Scale(1 / (1 + float32(angDamp*dtSec)))
 				}
 				b.Rot = IntegrateQuat(b.Rot, b.AngVel, dtSec)
 			}
@@ -618,8 +621,8 @@ func (w *World) Step(dt time.Duration) {
 			if isConvexKind(shapes[i]) || isConvexKind(shapes[j]) {
 				points = shapeManifold(shapes[i], shapes[j], c)
 			}
-			restitution := max(a.Restitution, b.Restitution)
-			friction := sqrt32(a.Friction * b.Friction)
+			restitution := max(a.effectiveRestitution(), b.effectiveRestitution())
+			friction := sqrt32(a.effectiveFriction() * b.effectiveFriction())
 			cacheKey := pairKey{a: a.ID, b: b.ID}
 			cached, warm := w.cache[cacheKey]
 			warm = warm && cached.normal.Dot(c.Normal) > 0.95
@@ -676,7 +679,7 @@ func (w *World) Step(dt time.Duration) {
 					for _, c := range shapeTriangleContacts(shapes[i], tri, false) {
 						rA := c.Point.Sub(a.Pos)
 						vn := pointVel(a, rA).Dot(c.Normal)
-						restitution := max(a.Restitution, tm.Restitution)
+						restitution := max(a.effectiveRestitution(), tm.Restitution)
 						var bias float32
 						if vn < -restitutionVelThreshold {
 							bias = -restitution * vn
@@ -688,7 +691,7 @@ func (w *World) Step(dt time.Duration) {
 							point:       c.Point,
 							rA:          rA,
 							restitution: restitution,
-							friction:    sqrt32(a.Friction * tm.Friction),
+							friction:    sqrt32(a.effectiveFriction() * tm.Friction),
 							bias:        bias,
 							isStaticTri: true,
 							tri:         tri,
@@ -711,7 +714,7 @@ func (w *World) Step(dt time.Duration) {
 					for _, c := range shapeTriangleContacts(shapes[i], tri, true) {
 						rA := c.Point.Sub(a.Pos)
 						vn := pointVel(a, rA).Dot(c.Normal)
-						restitution := max(a.Restitution, hf.Restitution)
+						restitution := max(a.effectiveRestitution(), hf.Restitution)
 						var bias float32
 						if vn < -restitutionVelThreshold {
 							bias = -restitution * vn
@@ -723,7 +726,7 @@ func (w *World) Step(dt time.Duration) {
 							point:         c.Point,
 							rA:            rA,
 							restitution:   restitution,
-							friction:      sqrt32(a.Friction * hf.Friction),
+							friction:      sqrt32(a.effectiveFriction() * hf.Friction),
 							bias:          bias,
 							isStaticTri:   true,
 							isHeightfield: true,
@@ -741,7 +744,7 @@ func (w *World) Step(dt time.Duration) {
 					a.restingOnVoxel = true
 					rA := c.Point.Sub(a.Pos)
 					vn := pointVel(a, rA).Dot(c.Normal)
-					restitution := max(a.Restitution, vc.Restitution)
+					restitution := max(a.effectiveRestitution(), vc.Restitution)
 					var bias float32
 					if vn < -restitutionVelThreshold {
 						bias = -restitution * vn
@@ -753,7 +756,7 @@ func (w *World) Step(dt time.Duration) {
 						point:       c.Point,
 						rA:          rA,
 						restitution: restitution,
-						friction:    sqrt32(a.Friction * vc.Friction),
+						friction:    sqrt32(a.effectiveFriction() * vc.Friction),
 						bias:        bias,
 						isVoxel:     true,
 						voxel:       vc,

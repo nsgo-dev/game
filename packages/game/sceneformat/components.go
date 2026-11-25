@@ -23,9 +23,11 @@ const (
 	FieldFloat
 	// FieldString holds text and decodes to a Go string.
 	FieldString
+	// FieldStringList holds a list of strings (such as named collision masks) and decodes to a Go []string.
+	FieldStringList
 )
 
-// String returns the kind's name as written in error messages: "bool", "int", "float" or "string".
+// String returns the kind's name as written in error messages: "bool", "int", "float", "string" or "[]string".
 func (k FieldKind) String() string {
 	switch k {
 	case FieldBool:
@@ -36,6 +38,8 @@ func (k FieldKind) String() string {
 		return "float"
 	case FieldString:
 		return "string"
+	case FieldStringList:
+		return "[]string"
 	default:
 		return "FieldKind(" + strconv.Itoa(int(k)) + ")"
 	}
@@ -56,6 +60,8 @@ type Field struct {
 	Min, Max *float64
 	// Step is the increment tools such as the editor's inspector use for a FieldInt or FieldFloat value, and the precision a typed value is rounded to from Min; 0 means 1 for a FieldInt and 0.1 for a FieldFloat. It is refused when negative or not finite, on other kinds, and on a FieldInt when it is not a whole number.
 	Step float64
+	// Enum optionally restricts a FieldString value to one of the listed strings. Refused on other kinds.
+	Enum []string
 	// Doc is a one-line description shown by tools such as the editor's inspector.
 	Doc string
 }
@@ -181,8 +187,11 @@ func normalizeFields(owner, noun string, fields []Field) ([]Field, error) {
 		}
 		seen[f.Name] = struct{}{}
 		where := fmt.Sprintf("%s %s %q", owner, noun, f.Name)
-		if f.Kind < FieldBool || f.Kind > FieldString {
+		if f.Kind < FieldBool || f.Kind > FieldStringList {
 			return nil, fmt.Errorf("sceneformat: %s has unknown kind %v", where, f.Kind)
+		}
+		if len(f.Enum) > 0 && f.Kind != FieldString {
+			return nil, fmt.Errorf("sceneformat: %s is %v and cannot have an enum", where, f.Kind)
 		}
 		if f.Min != nil || f.Max != nil {
 			if !f.Kind.IsNumeric() {
@@ -215,6 +224,9 @@ func normalizeFields(owner, noun string, fields []Field) ([]Field, error) {
 		}
 		if f.Max != nil {
 			nf.Max = Float64(*f.Max)
+		}
+		if len(f.Enum) > 0 {
+			nf.Enum = slices.Clone(f.Enum)
 		}
 		def := f.Default
 		if def == nil {
@@ -461,6 +473,12 @@ func cloneFields(fields []Field) []Field {
 		if f.Max != nil {
 			out[i].Max = Float64(*f.Max)
 		}
+		if len(f.Enum) > 0 {
+			out[i].Enum = slices.Clone(f.Enum)
+		}
+		if ss, ok := f.Default.([]string); ok {
+			out[i].Default = slices.Clone(ss)
+		}
 	}
 	return out
 }
@@ -473,6 +491,8 @@ func zeroValue(k FieldKind) any {
 		return 0
 	case FieldFloat:
 		return 0.0
+	case FieldStringList:
+		return []string(nil)
 	default:
 		return ""
 	}
@@ -492,7 +512,30 @@ func (f Field) check(v any) (any, string) {
 		if !ok {
 			return nil, "want string, got " + describeValue(v)
 		}
+		if len(f.Enum) > 0 && !slices.Contains(f.Enum, s) {
+			return nil, fmt.Sprintf("must be one of %s, got %q", strings.Join(f.Enum, ", "), s)
+		}
 		return s, ""
+	case FieldStringList:
+		if v == nil {
+			return []string(nil), ""
+		}
+		switch xs := v.(type) {
+		case []string:
+			return slices.Clone(xs), ""
+		case []any:
+			out := make([]string, len(xs))
+			for i, elem := range xs {
+				s, ok := elem.(string)
+				if !ok {
+					return nil, fmt.Sprintf("element %d: want string, got %s", i, describeValue(elem))
+				}
+				out[i] = s
+			}
+			return out, ""
+		default:
+			return nil, "want list of strings, got " + describeValue(v)
+		}
 	case FieldInt:
 		n, ok := toInt(v)
 		if !ok {

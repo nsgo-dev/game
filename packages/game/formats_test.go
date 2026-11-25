@@ -154,6 +154,7 @@ var formatVersions = map[string]string{
 	"rts.FormationsVersion":                 "rts",
 	"sceneformat.CurrentVersion":            "sceneformat",
 	"sceneformat.MinVersion":                "sceneformat",
+	"sceneformat.PhysicsComponentVersion":   "sceneformat",
 	"skeletal.FormatVersion":                "skeletal",
 	"statedump.FormatVersion":               "statedump",
 	"stats.CurrentVersion":                  "stats",

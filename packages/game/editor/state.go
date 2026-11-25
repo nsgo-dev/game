@@ -194,6 +194,10 @@ type Editor struct {
 	OnPlayUpdate func(scene *sceneformat.BuiltScene, dt time.Duration)
 	// OnPlayDraw runs on every render frame while Play mode is active.
 	OnPlayDraw func(scene *sceneformat.BuiltScene, alpha float64)
+	// OnPlayTrigger runs whenever a built-in 2D or 3D physics trigger fires enter, stay, or exit during Play mode.
+	OnPlayTrigger func(ev sceneformat.PhysicsTriggerEvent)
+	// ShowPhysicsDebug controls whether 2D and 3D physics collider and trigger outlines draw in the viewport. New initializes it to true.
+	ShowPhysicsDebug bool
 	// PlayRate is the fixed update rate in Hz during Play mode and clip playback (defaults to 60 when <= 0).
 	PlayRate int
 	// OnSaveClip is invoked by the animation panel's Save button with the encoded clip YAML; when nil the button writes to ClipPath.
@@ -207,12 +211,15 @@ type Editor struct {
 	// RunGameCommand starts the child game process for RunGame / RunGameWith, streaming output to stdout and stderr; when nil the editor launches `go tool game dev` in the open project directory in its own process group on desktop.
 	RunGameCommand func(spec RunGameSpec, stdout, stderr io.Writer) (GameProcess, error)
 
-	playing      bool
-	playSnapshot []byte
-	playStop     func()
-	playScene    *sceneformat.BuiltScene
-	playSteps    int
-	playFrames   int
+	playing           bool
+	playSnapshot      []byte
+	playStop          func()
+	playScene         *sceneformat.BuiltScene
+	playPhysics       *sceneformat.PhysicsScene
+	playTriggerEvents []sceneformat.PhysicsTriggerEvent
+	playSteps         int
+	playFrames        int
+	physicsLayers     *sceneformat.PhysicsLayerTable
 
 	// projectSaved is Project's encoding when it was opened or last saved, which ProjectDirty compares against.
 	projectSaved []byte
@@ -314,18 +321,19 @@ func New(doc *sceneformat.SceneDoc, resolver sceneformat.AssetResolver) (*Editor
 		return nil, err
 	}
 	ed := &Editor{
-		Doc:          doc,
-		History:      NewHistory(),
-		Resolver:     resolver,
-		Prefabs:      make(map[string]Prefab),
-		Tool:         ToolSelect,
-		ViewMode:     ViewMode2D,
-		GizmoMode:    Gizmo3DTranslate,
-		Camera3D:     DefaultOrbitCamera3D(),
-		ActiveTileID: 1,
-		Status:       "Ready",
-		selKey:       clipKeyRef{-1, -1},
-		listeners:    make(map[uint64]func()),
+		Doc:              doc,
+		History:          NewHistory(),
+		Resolver:         resolver,
+		Prefabs:          make(map[string]Prefab),
+		Tool:             ToolSelect,
+		ViewMode:         ViewMode2D,
+		GizmoMode:        Gizmo3DTranslate,
+		Camera3D:         DefaultOrbitCamera3D(),
+		ActiveTileID:     1,
+		Status:           "Ready",
+		ShowPhysicsDebug: true,
+		selKey:           clipKeyRef{-1, -1},
+		listeners:        make(map[uint64]func()),
 		output: outputPanelState{
 			open:       false,
 			lastStatus: "Ready",
@@ -507,19 +515,69 @@ func (e *Editor) ComponentRegistry() *sceneformat.ComponentRegistry {
 	return e.components
 }
 
+// SetPhysicsLayers configures the named collision layer table used when validating and playing scenes without an open project. When a project with physics settings is open, the project's physics.layers take precedence.
+func (e *Editor) SetPhysicsLayers(layers *sceneformat.PhysicsLayerTable) {
+	if e == nil {
+		return
+	}
+	e.physicsLayers = layers
+	e.notify()
+}
+
+// PhysicsLayers returns the active named collision layer table: the open project's physics.layers when present, otherwise the table set by SetPhysicsLayers, or nil.
+func (e *Editor) PhysicsLayers() *sceneformat.PhysicsLayerTable {
+	if e == nil {
+		return nil
+	}
+	if e.Project != nil && e.Project.Physics != nil {
+		return e.Project.PhysicsLayerTable()
+	}
+	return e.physicsLayers
+}
+
+// SetShowPhysicsDebug toggles collider and trigger debug drawing in the 2D and 3D viewports.
+func (e *Editor) SetShowPhysicsDebug(show bool) {
+	if e == nil || e.ShowPhysicsDebug == show {
+		return
+	}
+	e.ShowPhysicsDebug = show
+	e.notify()
+}
+
+func (e *Editor) physicsSettings() *sceneformat.PhysicsSettings {
+	if e == nil {
+		return nil
+	}
+	if e.Project != nil && e.Project.Physics != nil {
+		return e.Project.PhysicsSettings()
+	}
+	if e.physicsLayers != nil {
+		return &sceneformat.PhysicsSettings{Layers: e.physicsLayers}
+	}
+	return nil
+}
+
 // OpenYAML parses data as a sceneformat.SceneDoc, replaces the active document,
 // clears undo/redo history, and rebuilds the scene.
 func (e *Editor) OpenYAML(data []byte) error {
-	return e.openYAML(data, "")
+	return e.openYAMLWithLayers(data, "", e.PhysicsLayers())
 }
 
 func (e *Editor) openYAML(data []byte, file string) error {
+	return e.openYAMLWithLayers(data, file, e.PhysicsLayers())
+}
+
+func (e *Editor) openYAMLWithLayers(data []byte, file string, layers *sceneformat.PhysicsLayerTable) error {
 	if e.playing {
 		if err := e.Stop(); err != nil {
 			return err
 		}
 	}
-	doc, err := sceneformat.ParseWith(data, sceneformat.ParseOptions{File: file, Components: e.components})
+	doc, err := sceneformat.ParseWith(data, sceneformat.ParseOptions{
+		File:          file,
+		Components:    e.components,
+		PhysicsLayers: layers,
+	})
 	if err != nil {
 		return err
 	}
@@ -563,11 +621,15 @@ func (e *Editor) SaveYAML() ([]byte, error) {
 
 // OpenFile reads a YAML scene file from path and loads it into the editor. A scene that does not parse returns sceneformat.Parse's *loaderr.Error, naming path.
 func (e *Editor) OpenFile(path string) error {
+	return e.openFileWithLayers(path, e.PhysicsLayers())
+}
+
+func (e *Editor) openFileWithLayers(path string, layers *sceneformat.PhysicsLayerTable) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return loaderr.Locate(err, path, nil, "check that the scene exists at this path and can be read")
 	}
-	if err := e.openYAML(data, path); err != nil {
+	if err := e.openYAMLWithLayers(data, path, layers); err != nil {
 		return loaderr.WithFile(err, path)
 	}
 	e.FilePath = path
@@ -1806,6 +1868,8 @@ func cloneAny(v any) any {
 			out[i] = cloneAny(x[i])
 		}
 		return out
+	case []string:
+		return slices.Clone(x)
 	default:
 		return v
 	}

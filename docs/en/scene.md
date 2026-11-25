@@ -229,3 +229,7 @@ return mgr.View(scene.HostOptions{
 - **2D overlays & invalidation**: pushing a `Transparent: true` 2D controller over a 3D scene keeps the 3D view visible underneath while pausing its `Update` and setting `PointerEventsNone` on the paused layer. When `HostOptions.Viewport` is set, transparent pushed 2D overlays treat a zero `BarColor` as `core.Transparent` so margins do not obscure the 3D scene. Call `mgr.Invalidate()` to redraw mounted 2D canvases on demand without remounting 3D views.
 
 For a complete runnable game that switches between a 2D courtyard overworld (`scene.Scene` + `sprite.Batch`) and a 3D glTF shrine (`gpu.View`), pushes a transparent 2D pause overlay over the 3D view, and shares one `*input.Actions` and `*sound.Mixer` across transitions, see [`examples/lantern3d`](https://github.com/nsgo-dev/game/tree/main/examples/lantern3d).
+
+## Physics in scene files
+
+Scenes authored in YAML with [`game/sceneformat`](editor.md#built-in-physics-components-817) can declare 2D (`body2d`, `collider2d`, `trigger2d`) and 3D (`body3d`, `collider3d`, `trigger3d`) physics components directly on objects, using named collision layers from [`game.yaml`](project.md). Pass a built scene to `sceneformat.BuildPhysics` to instantiate its `physics.World`, `physics.RigidWorld`, and `physics3d.World` and step them each fixed tick alongside your scene.

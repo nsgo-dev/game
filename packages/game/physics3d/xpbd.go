@@ -1438,7 +1438,7 @@ func (sw *SoftWorld) resolveParticleCollisions3D(
 			continue
 		}
 		if c := TestShapes(pShape, bodyShapes[bi]); c.Hit {
-			applySurface(toVec3d(c.Normal), float64(c.Depth), float64(b.Friction), float64(b.Restitution))
+			applySurface(toVec3d(c.Normal), float64(c.Depth), float64(b.effectiveFriction()), float64(b.effectiveRestitution()))
 			pShape, pBounds = makeParticleShape()
 		}
 	}

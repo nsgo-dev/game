@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/nsgo-dev/game/packages/game/physics"
+	"github.com/nsgo-dev/game/packages/game/physics3d"
 )
 
 // PhysicsMaterial holds the surface properties of rigid bodies: friction, bounce and damping. A field left out keeps the body's own value when applied.
@@ -56,6 +57,25 @@ func (p *PhysicsMaterial) Validate() error {
 
 // ApplyTo sets the fields the material holds on body, leaving the others as they are.
 func (p *PhysicsMaterial) ApplyTo(body *physics.RigidBody) {
+	if p == nil || body == nil {
+		return
+	}
+	if p.Friction != nil {
+		body.Friction = *p.Friction
+	}
+	if p.Restitution != nil {
+		body.Restitution = *p.Restitution
+	}
+	if p.LinearDamping != nil {
+		body.LinearDamping = *p.LinearDamping
+	}
+	if p.AngularDamping != nil {
+		body.AngularDamping = *p.AngularDamping
+	}
+}
+
+// ApplyTo3D sets the fields the material holds on a 3D physics body, leaving the others as they are.
+func (p *PhysicsMaterial) ApplyTo3D(body *physics3d.Body) {
 	if p == nil || body == nil {
 		return
 	}

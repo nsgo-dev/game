@@ -155,7 +155,7 @@ buses:
 
 ### physicsMaterial
 
-Surface properties of rigid bodies: `friction`, `restitution` (from `0` to `1`), `linearDamping` and `angularDamping`. `PhysicsMaterial.ApplyTo(body)` sets the fields the file holds on a `physics.RigidBody` and leaves the others.
+Surface properties of 2D and 3D rigid bodies: `friction`, `restitution` (from `0` to `1`), `linearDamping` and `angularDamping`. `PhysicsMaterial.ApplyTo(body)` sets the fields the file holds on a `physics.RigidBody` and `PhysicsMaterial.ApplyTo3D(body)` sets them on a `physics3d.Body`, leaving unset fields unchanged. `Library.PhysicsMaterial(path)` loads and shares one `*PhysicsMaterial` per path and implements `sceneformat.PhysicsMaterialResolver` for scene physics components.
 
 ```yaml
 type: physicsMaterial
