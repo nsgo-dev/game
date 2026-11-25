@@ -911,6 +911,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 		}
 	}
 	nodes = append(nodes, addComponentControl(cx, ed, rev, objID, disabled))
+	nodes = append(nodes, connectionsSection(cx, ed, rev, objID, disabled, sectionHeader, describedRow))
 
 	return core.View{
 		Style:    core.Style{Gap: 8},

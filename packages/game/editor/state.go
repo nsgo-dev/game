@@ -321,6 +321,8 @@ type Editor struct {
 	importRev uint64
 	// assetBuild tracks asynchronous `go tool game assets` builds and last-loaded output hashes for live atlas/texture reloading.
 	assetBuild assetBuildState
+	// connPick holds an active target-object pick callback for the connections panel (picking from viewport or scene tree without changing SelectedID).
+	connPick *connPickState
 }
 
 // DefaultSceneDoc returns a valid starter SceneDoc suitable for a new editor session.
@@ -428,6 +430,9 @@ func (e *Editor) afterMutate() {
 	}
 	// Undoing a layer's addition, or redoing its removal, may take the active layer away.
 	e.keepActiveLayer()
+	if e.connPick != nil && e.SelectedID != e.connPick.sourceID {
+		e.connPick = nil
+	}
 	// An undone or redone project edit may have turned off the plugin whose tool is active.
 	e.dropStalePluginTool()
 	e.dropStaleFocusedPluginPanel()
@@ -653,6 +658,7 @@ func (e *Editor) openYAMLWithLayers(data []byte, file string, layers *sceneforma
 	e.sceneSaved = saved
 	e.SelectedID = ""
 	e.inspectAssetFile = false
+	e.connPick = nil
 	// Another scene opens at its own camera's view.
 	e.view2DFree = false
 	e.hidden, e.locked, e.layerLocked = nil, nil, nil
@@ -797,9 +803,10 @@ func (e *Editor) Redo() bool {
 // Returns true if selection succeeded (or cleared).
 func (e *Editor) SelectObject(id string) bool {
 	if id == "" {
-		if e.SelectedID != "" || e.inspectAssetFile {
+		if e.SelectedID != "" || e.inspectAssetFile || e.connPick != nil {
 			e.SelectedID = ""
 			e.inspectAssetFile = false
+			e.connPick = nil
 			e.notify()
 		}
 		return true
@@ -807,9 +814,10 @@ func (e *Editor) SelectObject(id string) bool {
 	if obj, _, _ := e.FindObject(id); obj == nil {
 		return false
 	}
-	if e.SelectedID != id || e.inspectAssetFile {
+	if e.SelectedID != id || e.inspectAssetFile || e.connPick != nil {
 		e.SelectedID = id
 		e.inspectAssetFile = false
+		e.connPick = nil
 		e.Status = "Selected " + id
 		e.notify()
 	}
