@@ -13,4 +13,8 @@
 // # Drawing
 //
 // DrawMinimap draws the discovered rooms of the current room's area around the player at a fixed scale, clipped to a rectangle. DrawWorldMap fits a whole area into a rectangle and draws its discovered rooms. Rooms that are neither visited nor revealed, and the markers in them, are never drawn. Both views take a Style and use a Projection, which also converts a point on the drawn map back to world coordinates (to place a marker where the player taps).
+//
+// # Tile Minimap
+//
+// TileMinimap renders a tilemap.Tilemap's layers into a compact cached RGBA image with one color per tile (from a tile custom property, or else the average color of its tileset image), updating only cells changed via Tilemap.SetTile. It overlays a team's fog.Fog cached by fog.Revision so unchanged frames skip recompositing, draws unit and point-of-interest markers and a tilemap.Camera's visible rectangle, supports both orthogonal maps and diamond isometric maps, and converts clicks back to world coordinates with MinimapToWorld and PanCamera.
 package worldmap
