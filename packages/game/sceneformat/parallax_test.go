@@ -442,3 +442,82 @@ func TestExistingV1AndV2ScenesRoundTripUnchanged(t *testing.T) {
 		}
 	}
 }
+
+func TestRepeatTileRangesOverflowAndCapGuards(t *testing.T) {
+	// Nil layer safely returns false.
+	var nilLayer *sceneformat.BuiltLayer
+	if _, _, _, _, rx, ry := nilLayer.RepeatTileRanges(0, 0, 320, 180, 1, 0); rx || ry {
+		t.Fatalf("nil layer RepeatTileRanges returned rx=%v ry=%v, want false, false", rx, ry)
+	}
+
+	// Huge camera coordinate beyond safe float32/int index bounds refuses repeat instead of overflowing int.
+	hugeCamLayer := &sceneformat.BuiltLayer{RepeatX: true, RepeatY: true, RepeatWidth: 1, RepeatHeight: 1}
+	if _, _, _, _, rx, ry := hugeCamLayer.RepeatTileRanges(1e20, -1e20, 320, 180, 1, 0); rx || ry {
+		t.Fatalf("huge camera RepeatTileRanges returned rx=%v ry=%v, want false, false", rx, ry)
+	}
+
+	// Non-finite camera/zoom/rotation inputs safely disable repeat.
+	nan := float32(math.NaN())
+	inf := float32(math.Inf(1))
+	for _, tc := range []struct {
+		name              string
+		cx, cy, vw, vh, r float32
+	}{
+		{"nan_camX", nan, 0, 320, 180, 0},
+		{"inf_camY", 0, inf, 320, 180, 0},
+		{"nan_rot", 0, 0, 320, 180, nan},
+		{"inf_vw", 0, 0, inf, 180, 0},
+	} {
+		if _, _, _, _, rx, ry := hugeCamLayer.RepeatTileRanges(tc.cx, tc.cy, tc.vw, tc.vh, 1, tc.r); rx || ry {
+			t.Fatalf("%s: RepeatTileRanges returned rx=%v ry=%v, want false, false", tc.name, rx, ry)
+		}
+	}
+
+	// Tiny 1D repeat period is capped cleanly instead of looping hundreds of thousands of times.
+	tiny1D := &sceneformat.BuiltLayer{RepeatX: true, RepeatWidth: 0.001}
+	minC, maxC, _, _, rx, ry := tiny1D.RepeatTileRanges(0, 0, 320, 180, 1, 0)
+	if !rx || ry {
+		t.Fatalf("tiny 1D RepeatTileRanges rx=%v ry=%v, want true, false", rx, ry)
+	}
+	if cols := maxC - minC + 1; cols <= 0 || cols > 256 {
+		t.Fatalf("tiny 1D cols = %d, want in (0, 256]", cols)
+	}
+
+	// Tiny 2D repeat period is capped at <= 4096 total tiles and BuiltScene.Draw completes quickly.
+	doc := &sceneformat.SceneDoc{
+		Version:       sceneformat.CurrentVersion,
+		VirtualWidth:  320,
+		VirtualHeight: 180,
+		Camera:        &sceneformat.CameraDoc{X: 0, Y: 0, Zoom: sceneformat.Float32(0.01)},
+		Layers: []sceneformat.LayerDoc{
+			{
+				Name:         "tiny_grid",
+				Space:        sceneformat.SpaceWorld,
+				RepeatX:      true,
+				RepeatY:      true,
+				RepeatWidth:  0.001,
+				RepeatHeight: 0.001,
+				Objects: []sceneformat.ObjectDoc{
+					{ID: "dot", X: 0, Y: 0, Sprite: &sceneformat.SpriteRef{Atlas: "ui", Frame: "heart"}},
+				},
+			},
+		},
+	}
+	built, err := sceneformat.Build(doc, caveResolver)
+	if err != nil {
+		t.Fatalf("Build tiny 2D repeat: %v", err)
+	}
+	minC, maxC, minR, maxR, rx, ry := built.Layer("tiny_grid").RepeatTileRanges(0, 0, 320, 180, 0.01, 0)
+	if !rx || !ry {
+		t.Fatalf("tiny 2D RepeatTileRanges rx=%v ry=%v, want true, true", rx, ry)
+	}
+	total := (maxC - minC + 1) * (maxR - minR + 1)
+	if total <= 0 || total > 4096 {
+		t.Fatalf("tiny 2D total tiles = %d, want in (0, 4096]", total)
+	}
+	d := &core.Drawing{}
+	built.Draw(d)
+	if draws := len(gametest.ImageDraws(d.Ops)); draws != total {
+		t.Fatalf("tiny 2D BuiltScene.Draw emitted %d image draws, want %d", draws, total)
+	}
+}

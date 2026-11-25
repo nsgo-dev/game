@@ -7,7 +7,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 )
 
-// SetLayerParallax sets the horizontal and vertical parallax scroll factors of layerName (or ActiveLayer when empty) as an undoable command. Both factors must be finite. Setting a non-default parallax factor on a version 1 or version 2 scene raises the scene to sceneformat.CurrentVersion, which Undo restores.
+// SetLayerParallax sets the horizontal and vertical parallax scroll factors of layerName (or ActiveLayer when empty) as an undoable command. Both factors must be finite. Setting a non-default parallax factor on a version 1 or version 2 scene raises the scene to sceneformat.CurrentVersion, which Undo restores. In a scene that inherits another it refuses a layer that extends one of the base's, whose parallax the base and the scene's layer overrides own.
 func (e *Editor) SetLayerParallax(layerName string, parallaxX, parallaxY float32) error {
 	if e.playing {
 		return ErrPlaying
@@ -20,6 +20,9 @@ func (e *Editor) SetLayerParallax(layerName string, parallaxX, parallaxY float32
 		return err
 	}
 	l := &e.Doc.Layers[li]
+	if e.inheritedLayers()[l.Name] {
+		return e.inheritedErr(l.Name, "parallax")
+	}
 	var newPX, newPY *float32
 	if l.ParallaxX != nil || parallaxX != 1 {
 		newPX = sceneformat.Float32(parallaxX)
@@ -30,6 +33,7 @@ func (e *Editor) SetLayerParallax(layerName string, parallaxX, parallaxY float32
 	if equalFloat32Ptr(l.ParallaxX, newPX) && equalFloat32Ptr(l.ParallaxY, newPY) {
 		return nil
 	}
+	e.endTileStrokeForChange()
 	e.History.Execute(&layerParallaxCmd{
 		ed:          e,
 		layerName:   l.Name,
@@ -42,7 +46,7 @@ func (e *Editor) SetLayerParallax(layerName string, parallaxX, parallaxY float32
 	return nil
 }
 
-// SetLayerRepeat sets the repeat flags and periods of layerName (or ActiveLayer when empty) as an undoable command. RepeatWidth and RepeatHeight must be finite and non-negative (0 uses the layer's tilemap pixel size or the scene's virtual size). Enabling repeat or setting a positive period on a version 1 or version 2 scene raises the scene to sceneformat.CurrentVersion, which Undo restores.
+// SetLayerRepeat sets the repeat flags and periods of layerName (or ActiveLayer when empty) as an undoable command. RepeatWidth and RepeatHeight must be finite and non-negative (0 uses the layer's tilemap pixel size or the scene's virtual size). Enabling repeat or setting a positive period on a version 1 or version 2 scene raises the scene to sceneformat.CurrentVersion, which Undo restores. In a scene that inherits another it refuses a layer that extends one of the base's, whose repeat the base and the scene's layer overrides own.
 func (e *Editor) SetLayerRepeat(layerName string, repeatX, repeatY bool, repeatWidth, repeatHeight float32) error {
 	if e.playing {
 		return ErrPlaying
@@ -58,9 +62,13 @@ func (e *Editor) SetLayerRepeat(layerName string, repeatX, repeatY bool, repeatW
 		return err
 	}
 	l := &e.Doc.Layers[li]
+	if e.inheritedLayers()[l.Name] {
+		return e.inheritedErr(l.Name, "repeat")
+	}
 	if l.RepeatX == repeatX && l.RepeatY == repeatY && l.RepeatWidth == repeatWidth && l.RepeatHeight == repeatHeight {
 		return nil
 	}
+	e.endTileStrokeForChange()
 	e.History.Execute(&layerRepeatCmd{
 		ed:          e,
 		layerName:   l.Name,

@@ -124,10 +124,11 @@ func equalTransform2D(a, b transform2D) bool {
 
 // drag2DState is a 2D viewport drag in progress on objectID, which the drag changes in place until EndDrag2D records it as one step or CancelDrag2D puts it back.
 type drag2DState struct {
-	handle   GizmoHandle2D
-	objectID string
-	space    sceneformat.Space
-	start    transform2D
+	handle               GizmoHandle2D
+	objectID             string
+	space                sceneformat.Space
+	parallaxX, parallaxY float32
+	start                transform2D
 	// toParent maps the object's layer space to its parent's space, where its X, Y, rotation and scale are written: the identity for a top-level object.
 	toParent aff2
 	// grab is where the drag started, in the object's parent's space.
@@ -172,13 +173,15 @@ func (e *Editor) gizmo2D() (gizmo2D, bool) {
 		return gizmo2D{}, false
 	}
 	space := sceneformat.SpaceWorld
+	var px, py float32 = 1, 1
 	if layer := scene.Layer(bo.Layer); layer != nil {
 		if !layer.Visible {
 			return gizmo2D{}, false
 		}
 		space = layer.Space
+		px, py = layer.ParallaxX, layer.ParallaxY
 	}
-	toCanvas := e.layerAffine(space)
+	toCanvas := e.layerAffineFor(space, px, py)
 	m := toCanvas.Mul(bo.World)
 	var g gizmo2D
 	g.origin = m.TransformPoint(math2d.Vec2{})
@@ -348,16 +351,18 @@ func (e *Editor) BeginDrag2D(x, y float32) GizmoHandle2D {
 	if !ok {
 		return Handle2DNone
 	}
-	space := e.Doc.Layers[li].EffectiveSpace()
-	lx, ly := e.canvasToLayer(space, x, y)
+	space, px, py := e.layerSpaceAndParallax(e.Doc.Layers[li].Name)
+	lx, ly := e.canvasToLayerFor(space, px, py, x, y)
 	gx, gy := toParent.apply(float64(lx), float64(ly))
 	st := drag2DState{
-		handle:   h,
-		objectID: e.SelectedID,
-		space:    space,
-		start:    captureTransform2D(obj),
-		toParent: toParent,
-		grab:     math2d.Vec2{X: float32(gx), Y: float32(gy)},
+		handle:    h,
+		objectID:  e.SelectedID,
+		space:     space,
+		parallaxX: px,
+		parallaxY: py,
+		start:     captureTransform2D(obj),
+		toParent:  toParent,
+		grab:      math2d.Vec2{X: float32(gx), Y: float32(gy)},
 	}
 	st.prevAngle = math.Atan2(gy-float64(obj.Y), gx-float64(obj.X))
 	e.drag2D = st
@@ -384,7 +389,7 @@ func (e *Editor) UpdateDrag2D(x, y float32, keepAspect bool) {
 		e.notify()
 		return
 	}
-	lx, ly := e.canvasToLayer(st.space, x, y)
+	lx, ly := e.canvasToLayerFor(st.space, st.parallaxX, st.parallaxY, x, y)
 	px, py := st.toParent.apply(float64(lx), float64(ly))
 	s := st.start
 	dx, dy := px-float64(st.grab.X), py-float64(st.grab.Y)

@@ -165,9 +165,7 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 			case cur.layer != "":
 				// A layer's row is selected in place of an object's.
 				ed.SelectObject("")
-				if ed.ActiveLayer != cur.layer {
-					ed.SetActiveLayer(cur.layer)
-				}
+				ed.SetActiveLayer(cur.layer)
 			}
 		})
 	})

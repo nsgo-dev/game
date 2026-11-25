@@ -5,7 +5,7 @@
 //   - Scene document loading, saving, object placement, selection, transform editing,
 //     and deletion (Editor, PlaceObject, MoveObject, RotateObject, ScaleObject, DeleteObject).
 //   - Inline tilemap editing with paint, erase, and BFS flood fill (PaintTile, EraseTile, FloodFillTile).
-//   - A layers panel that picks the active layer and adds, removes, renames, reorders, hides and locks layers, each edit but the session's lock undoable (Layers, AddLayer, RemoveLayer, RenameLayer, MoveLayer, SetLayerVisible, SetLayerSpace, SetLayerLocked, LayersView).
+//   - A layers panel that picks the active layer and adds, removes, renames, reorders, hides and locks layers, each edit but the session's lock undoable (Layers, AddLayer, RemoveLayer, RenameLayer, MoveLayer, SetLayerVisible, SetLayerSpace, SetLayerLocked, LayersView), paired with undoable layer parallax and repeat editing in the inspector (SetLayerParallax, SetLayerRepeat) and live parallax/repeat preview in the 2D viewport.
 //   - Typed property, component, and scene settings inspection and editing (SetProperty, SetComponentField, SetSceneName, SetVirtualSize, SetBackground, SetCamera, SetCameraPosition, SetCameraZoom, SetCameraRotation, SetCameraBounds, ClearCameraBounds, InspectorView), including a draggable 2D camera position handle when scene settings are active.
 //   - Play-in-editor preview powered by game.Loop with exact pre-play YAML snapshot restoration (Play, PlayIn, Stop).
 //   - An animation editor that keys any registered property on a timeline, previews the clip with animclip and saves it as an animation resource file (NewClip, KeyProperty, SeekClip, PlayClip, SaveClipFile, AnimationPanelView).
