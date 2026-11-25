@@ -17,7 +17,7 @@ go tool nsgo dev
 - Towers and enemies keep their numbers on [stats](stats.md) sheets: an upgrade is a permanent stat effect, and a frost tower's slow is a timed modifier on the enemy's speed.
 - Towers fire [bullets](bullets.md) patterns at the enemy furthest along the road, leading it by the projectile's flight time; a mortar's hit splashes, a frost bolt slows.
 - A fixed-step [loop](loop.md) runs the world at 60 steps a second, up to three steps an update at the fastest speed, and a [screen](screen.md) viewport fits the 480 by 320 map to any window under a native HUD.
-- The [input](input.md) map in `game.yaml` binds every action to keys and gamepad buttons, and the cursor to the arrow keys, the d-pad and the left stick; a tap on the battlefield moves the cursor and a second tap builds.
+- The [input](input.md) map in `game.yaml` binds every action to a key and all but the number-key tower shortcuts and a mid-game restart to a gamepad button too, and the cursor to the arrow keys, the d-pad and the left stick; a tap on the battlefield moves the cursor and a second tap builds.
 - Headless `nsgotest` playthroughs play one plan to a win and another to a loss with the keyboard, a gamepad and touches.
 
 ## How it is organised
@@ -56,7 +56,7 @@ A tower needs `damage`, `range` (game points) and `cooldown` (seconds) stats; `s
 
 ## Where to change it
 
-- Draw a new map, add enemies or waves, or retune the economy in `data/level.yaml`.
+- Draw a new map, add enemies or waves, or retune the economy in `data/level.yaml`. The map's size in game points, `tileSize` times its columns by `tileSize` times its rows, must equal `width` and `height` under `display` in `game.yaml`, so change both together; `LoadData` refuses a map that does not match.
 - Add a tower kind or an upgrade in `data/towers.yaml`, with its projectile in `data/projectiles.yaml`; the HUD offers every kind, and the number keys choose the first three.
 - Give a tower a new behavior by reading a new stat in `World.fire` or `World.hit` in `world.go`.
 - Replace the painted art in `art.go` with `sprite.LoadAtlas` and image files.

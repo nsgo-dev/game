@@ -316,6 +316,17 @@ func TestStickMovesTheCursorAndRepeats(t *testing.T) {
 func TestPauseStopsTheWorld(t *testing.T) {
 	app, g := startGame(t)
 	k := keyboardControls{app, g}
+	// While paused, the toolbar refuses the wave, as the keys do.
+	k.key("p")
+	app.Find("text:Paused")
+	if app.Enabled("next-wave") {
+		t.Fatal("next wave is enabled while the game is paused")
+	}
+	g.CallWave()
+	if g.World.Wave != 0 {
+		t.Fatal("a wave was called while the game was paused")
+	}
+	k.key("p")
 	k.callWave()
 	app.Advance(time.Second)
 	if len(g.World.Enemies) == 0 {

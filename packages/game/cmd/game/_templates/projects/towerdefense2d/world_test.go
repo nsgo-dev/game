@@ -156,8 +156,8 @@ func TestFrostSlowsAndMortarSplashes(t *testing.T) {
 	}
 	// Two enemies side by side, both inside the shell's splash.
 	sprout, _ := w.Data.Level.Enemy("sprout")
-	w.addEnemy(sprout)
-	w.addEnemy(sprout)
+	w.addEnemy(sprout, 0)
+	w.addEnemy(sprout, 0)
 	w.Enemies[0].Progress, w.Enemies[1].Progress = 150, 156
 	for range 3 * StepRate {
 		w.Step()
@@ -167,6 +167,59 @@ func TestFrostSlowsAndMortarSplashes(t *testing.T) {
 	}
 	if len(w.Enemies) != 2 || w.Enemies[1].Health >= w.Enemies[1].Stats.Value(statHealth) {
 		t.Fatalf("the mortar's first hit did not splash both enemies (tower aims %v)", tower.Aim)
+	}
+}
+
+func TestWaveBonusIsPaidWhenThatWaveIsCleared(t *testing.T) {
+	w := newTestWorld(t)
+	if !w.CallWave() {
+		t.Fatal("could not call the first wave")
+	}
+	for steps := 0; w.Spawning(); steps++ {
+		if steps > maxGameSteps {
+			t.Fatal("the first wave never finished spawning")
+		}
+		w.Step()
+	}
+	if len(w.Enemies) == 0 {
+		t.Fatal("the first wave left no enemy on the road to call the second over")
+	}
+	if !w.CallWave() {
+		t.Fatal("could not call the second wave while the first is on the road")
+	}
+	// Let the second wave send its first enemies, then take the first wave's enemies off the road.
+	hasWave := func(i int) bool {
+		for _, e := range w.Enemies {
+			if e.Wave == i {
+				return true
+			}
+		}
+		return false
+	}
+	for steps := 0; !hasWave(1); steps++ {
+		if steps > maxGameSteps {
+			t.Fatal("the second wave never sent an enemy")
+		}
+		w.Step()
+	}
+	if !hasWave(0) || w.paid[0] {
+		t.Fatal("the first wave was gone before the second sent an enemy")
+	}
+	n := 0
+	for _, e := range w.Enemies {
+		if e.Wave != 0 {
+			w.Enemies[n] = e
+			n++
+		}
+	}
+	w.Enemies = w.Enemies[:n]
+	money := w.Money
+	w.Step()
+	if want := money + w.Data.Level.Waves[0].Bonus; w.Money != want {
+		t.Fatalf("money is %d after the first wave was cleared with the second on the road, want %d", w.Money, want)
+	}
+	if w.paid[1] {
+		t.Fatal("the second wave's bonus was paid while it is still on the road")
 	}
 }
 

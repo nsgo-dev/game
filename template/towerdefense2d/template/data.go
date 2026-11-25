@@ -36,6 +36,9 @@ const LevelVersion = 1
 // TowersVersion is the version of the tower file schema (data/towers.yaml) this game reads and writes.
 const TowersVersion = 1
 
+// MaxTileSize is the largest tileSize a level may have, in game points; the art is painted at the tile size when the game starts, so a typo such as 32000 would otherwise allocate gigabytes.
+const MaxTileSize = 256
+
 // Map legend: each character of a level's map row is one tile.
 const (
 	// TileGrass is open ground a tower can be built on.
@@ -58,7 +61,7 @@ type Level struct {
 	Version int `yaml:"version"`
 	// Name is the level's name, shown in the HUD.
 	Name string `yaml:"name"`
-	// TileSize is the edge of one map tile in game points.
+	// TileSize is the edge of one map tile in game points, at most MaxTileSize. The map's size in game points, tileSize times its columns by tileSize times its rows, must equal the display width and height in game.yaml.
 	TileSize float32 `yaml:"tileSize"`
 	// Money is what the player starts with.
 	Money int `yaml:"money"`
@@ -256,6 +259,9 @@ func (l *Level) Validate() error {
 	if !(l.TileSize > 0) || !finite32(l.TileSize) {
 		return fmt.Errorf("level: tileSize %v must be positive", l.TileSize)
 	}
+	if l.TileSize > MaxTileSize {
+		return fmt.Errorf("level: tileSize %v must be at most %d", l.TileSize, MaxTileSize)
+	}
 	if l.Money < 0 {
 		return fmt.Errorf("level: money %d must not be negative", l.Money)
 	}
@@ -431,9 +437,21 @@ func (t *Towers) Validate() error {
 		if err := validateSheet(d.Stats, d.Upgrades, statDamage, statRange, statCooldown); err != nil {
 			return fmt.Errorf("towers: tower %q: %w", d.Name, err)
 		}
+		// Check the range and cooldown before any upgrade and after each one, as World.Upgrade applies them in turn: a cooldown of 0 would fire every step and a range of 0 never.
 		sheet, _ := stats.NewSheet(d.Stats...)
-		if !(sheet.Value(statRange) > 0) || !(sheet.Value(statCooldown) > 0) {
-			return fmt.Errorf("towers: tower %q range and cooldown must be positive", d.Name)
+		for j := 0; ; j++ {
+			if !(sheet.Value(statRange) > 0) || !(sheet.Value(statCooldown) > 0) {
+				if j == 0 {
+					return fmt.Errorf("towers: tower %q range and cooldown must be positive", d.Name)
+				}
+				return fmt.Errorf("towers: tower %q range and cooldown must stay positive after upgrade %d", d.Name, j)
+			}
+			if j == len(d.Upgrades) {
+				break
+			}
+			name := fmt.Sprintf("upgrade-%d", j+1)
+			// validateSheet checked every upgrade's modifiers against the tower's stats.
+			_, _ = sheet.Apply(name, d.Upgrades[j].Effect(name))
 		}
 	}
 	return nil
@@ -491,6 +509,13 @@ func LoadData(fsys fs.FS) (*Data, error) {
 	d := &Data{}
 	if d.Level, err = ParseLevel(loaded.Resources[resourceLevel]); err != nil {
 		return nil, err
+	}
+	// The viewport clips drawing and taps to the display's size, so a map of another size would be cut off or draw into the bars.
+	if vp, ok := Project.Viewport(); ok {
+		cols, rows := d.Level.Size()
+		if w, h := d.Level.TileSize*float32(cols), d.Level.TileSize*float32(rows); w != vp.Width || h != vp.Height {
+			return nil, fmt.Errorf("level: the map is %v by %v game points (tileSize %v times %d by %d tiles), but game.yaml's display is %v by %v; make them match", w, h, d.Level.TileSize, cols, rows, vp.Width, vp.Height)
+		}
 	}
 	if d.Towers, err = ParseTowers(loaded.Resources[resourceTowers]); err != nil {
 		return nil, err

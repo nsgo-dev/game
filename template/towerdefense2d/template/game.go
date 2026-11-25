@@ -294,8 +294,11 @@ func (g *Game) SelectKind(i int) {
 // KindDef returns the chosen tower kind.
 func (g *Game) KindDef() *TowerDef { return &g.World.Data.Towers.Towers[g.Kind] }
 
-// Build builds the chosen tower kind on the cursor.
+// Build builds the chosen tower kind on the cursor. It does nothing while the game is paused.
 func (g *Game) Build() {
+	if g.Paused {
+		return
+	}
 	if t, ok := g.World.TowerAt(g.Cursor); ok {
 		g.say(fmt.Sprintf("%s already stands here", t.Def.Label))
 		return
@@ -307,8 +310,11 @@ func (g *Game) Build() {
 	g.say("")
 }
 
-// Upgrade buys the next upgrade of the tower on the cursor.
+// Upgrade buys the next upgrade of the tower on the cursor. It does nothing while the game is paused.
 func (g *Game) Upgrade() {
+	if g.Paused {
+		return
+	}
 	t, ok := g.World.TowerAt(g.Cursor)
 	if !ok {
 		g.say("No tower here")
@@ -321,8 +327,11 @@ func (g *Game) Upgrade() {
 	g.say("")
 }
 
-// Sell sells the tower on the cursor.
+// Sell sells the tower on the cursor. It does nothing while the game is paused.
 func (g *Game) Sell() {
+	if g.Paused {
+		return
+	}
 	t, ok := g.World.TowerAt(g.Cursor)
 	if !ok {
 		g.say("No tower here")
@@ -333,8 +342,11 @@ func (g *Game) Sell() {
 	}
 }
 
-// CallWave sends the next wave.
+// CallWave sends the next wave. It does nothing while the game is paused.
 func (g *Game) CallWave() {
+	if g.Paused {
+		return
+	}
 	if g.World.CallWave() {
 		g.say(fmt.Sprintf("Wave %d", g.World.Wave))
 		return

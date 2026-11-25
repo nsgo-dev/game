@@ -42,7 +42,7 @@ go tool nsgo build -target macos_arm64,windows_x64,linux_x64,web
 | Call the next wave | N | Start | Next wave |
 | Speed 1x, 2x, 3x | F | Right trigger | Speed |
 | Pause | P or Escape | Back | Pause |
-| Restart | R | Start or A on the end screen | Play again |
+| Restart | R | Start or A on the end screen only | Play again |
 
 The bindings are the `input` section of `game.yaml`: add a key or a button to an action there.
 
@@ -63,7 +63,7 @@ The bindings are the `input` section of `game.yaml`: add a key or a button to an
 
 ## Where to change it
 
-- **The map**: edit `map` in `data/level.yaml`. Each character is a tile: `.` grass you can build on, `=` road, `S` the spawn, `G` the gate, `^` rock and `~` water. Every row has the same length, there is exactly one `S` and one `G`, and road must join them; enemies take the shortest road.
+- **The map**: edit `map` in `data/level.yaml`. Each character is a tile: `.` grass you can build on, `=` road, `S` the spawn, `G` the gate, `^` rock and `~` water. Every row has the same length, there is exactly one `S` and one `G`, and road must join them; enemies take the shortest road. The map's size in game points, `tileSize` (at most 256) times its columns by `tileSize` times its rows, must equal `width` and `height` under `display` in `game.yaml`, so change both together; `LoadData` refuses a map that does not match.
 - **Waves and enemies**: each wave in `data/level.yaml` is groups that spawn side by side, each a `count` of one enemy every `interval` after a `delay`, and a `bonus` paid when the wave is cleared. Enemies have `health`, `speed` and an optional `armor` stat, a `reward` and how many lives a `leak` costs.
 - **Towers**: in `data/towers.yaml`, a tower needs `damage`, `range` and `cooldown` stats; `splash` makes its hits damage everything around the target, and `slow` with `chill` slows what it hits. Each upgrade is a cost and stat modifiers (`add`, `mul` or `override`). Its projectile is the `pattern` it names in `data/projectiles.yaml`, which fires one shot.
 - **Art**: `art.go` paints every tile and projectile. Replace `makeAtlas` with `sprite.LoadAtlas` and an atlas of your own to use image files.

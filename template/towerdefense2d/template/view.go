@@ -113,7 +113,7 @@ func (g *Game) toolbar() core.Node {
 				return "Upgrade"
 			},
 			press:    g.act(g.Upgrade),
-			disabled: func() bool { h := hud(); return !h.HasTower || h.UpgradeCost == 0 || h.Outcome != Playing },
+			disabled: func() bool { h := hud(); return !h.HasTower || h.UpgradeCost == 0 || h.Outcome != Playing || h.Paused },
 		}),
 		button(buttonSpec{
 			id: "sell",
@@ -124,13 +124,13 @@ func (g *Game) toolbar() core.Node {
 				return "Sell"
 			},
 			press:    g.act(g.Sell),
-			disabled: func() bool { h := hud(); return !h.HasTower || h.Outcome != Playing },
+			disabled: func() bool { h := hud(); return !h.HasTower || h.Outcome != Playing || h.Paused },
 		}),
 		button(buttonSpec{
 			id:       "next-wave",
 			label:    func() string { return "Next wave" },
 			press:    g.act(g.CallWave),
-			disabled: func() bool { return !hud().CanCallWave },
+			disabled: func() bool { h := hud(); return !h.CanCallWave || h.Paused },
 			primary:  true,
 		}),
 		button(buttonSpec{
