@@ -14,48 +14,6 @@ import (
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
-// worldPhysicsGrid adapts *tilemap.WorldStream to physics.TileGrid + physics.TileGridOrigin.
-type worldPhysicsGrid struct {
-	stream *tilemap.WorldStream
-}
-
-func (g worldPhysicsGrid) TileSize() (float32, float32)   { return g.stream.TileSize() }
-func (g worldPhysicsGrid) GridSize() (int, int)           { return g.stream.GridSize() }
-func (g worldPhysicsGrid) GridOrigin() (float32, float32) { return g.stream.GridOrigin() }
-func (g worldPhysicsGrid) TileFlagsAt(col, row int) physics.TileFlags {
-	tf := g.stream.GridFlagsAt(col, row)
-	var out physics.TileFlags
-	if tf&tilemap.TileSolid != 0 {
-		out |= physics.TileSolid
-	}
-	if tf&tilemap.TileOneWay != 0 {
-		out |= physics.TileOneWay
-	}
-	return out
-}
-
-// mapPhysicsGrid adapts a single *tilemap.Tilemap (with Origin) to physics.TileGrid + physics.TileGridOrigin.
-type mapPhysicsGrid struct {
-	m *tilemap.Tilemap
-}
-
-func (g mapPhysicsGrid) TileSize() (float32, float32) { return g.m.TileWidth, g.m.TileHeight }
-func (g mapPhysicsGrid) GridSize() (int, int)         { return g.m.Width, g.m.Height }
-func (g mapPhysicsGrid) GridOrigin() (float32, float32) {
-	return float32(g.m.Origin.X), float32(g.m.Origin.Y)
-}
-func (g mapPhysicsGrid) TileFlagsAt(col, row int) physics.TileFlags {
-	tf := g.m.FlagsAt(col, row)
-	var out physics.TileFlags
-	if tf&tilemap.TileSolid != 0 {
-		out |= physics.TileSolid
-	}
-	if tf&tilemap.TileOneWay != 0 {
-		out |= physics.TileOneWay
-	}
-	return out
-}
-
 func TestTilemapOriginDrawQueryAndProjections(t *testing.T) {
 	pxImg := image.NewRGBA(image.Rect(0, 0, 32, 16))
 	for y := range 16 {
@@ -202,10 +160,10 @@ func TestTilemapOriginDrawQueryAndProjections(t *testing.T) {
 		}
 	}
 
-	// Single offset Tilemap works with physics.MoveAndSlide via TileGridOrigin.
+	// Single offset Tilemap works directly with physics.MoveAndSlide via TileGrid + TileGridOrigin.
 	body := physics.NewBoxBody(102, -48, 12, 12)
 	body.VY = 200
-	res := physics.MoveAndSlide(body, mapPhysicsGrid{m: m}, 200*time.Millisecond)
+	res := physics.MoveAndSlide(body, m, 200*time.Millisecond)
 	if !res.Grounded || body.Bounds().Y != -44 {
 		t.Fatalf("offset MoveAndSlide = (y=%v grounded=%v), want y=-44 grounded=true", body.Bounds().Y, res.Grounded)
 	}
@@ -440,7 +398,6 @@ func TestLDtkAdjacentLevelsDrawSeamlesslyAndWalkAcrossSeam(t *testing.T) {
 			}
 
 			// 5. Walk a physics.Body from Room_West across the seam x=x1 into Room_East until hitting Room_East's right wall.
-			grid := worldPhysicsGrid{stream: stream}
 			body := physics.NewBoxBody(float32(tc.x0+24), float32(tc.y0+16), 12, 16)
 			dt := time.Second / 60
 			hitWall := false
@@ -448,7 +405,7 @@ func TestLDtkAdjacentLevelsDrawSeamlesslyAndWalkAcrossSeam(t *testing.T) {
 			for step := range 120 {
 				body.VX = 120
 				body.VY = 120 // gravity pressing into floor across the seam
-				res := physics.MoveAndSlide(body, grid, dt)
+				res := physics.MoveAndSlide(body, stream, dt)
 				if !res.Grounded {
 					t.Fatalf("step %d: body lost ground at x=%v y=%v (seam=%v)", step, body.Bounds().X, body.Bounds().Y, seamX)
 				}

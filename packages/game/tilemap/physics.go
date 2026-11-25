@@ -7,6 +7,59 @@ import (
 	"github.com/nsgo-dev/nsgo/core"
 )
 
+// Compile-time checks that *Tilemap and *WorldStream satisfy physics.TileGrid and physics.TileGridOrigin directly.
+var (
+	_ physics.TileGrid       = (*Tilemap)(nil)
+	_ physics.TileGridOrigin = (*Tilemap)(nil)
+	_ physics.TileGrid       = (*WorldStream)(nil)
+	_ physics.TileGridOrigin = (*WorldStream)(nil)
+)
+
+// PhysicsFlags maps tilemap TileFlags to physics.TileFlags.
+// TileSolid (bit 0) and TileOneWay (bit 1) map directly to physics.TileSolid and physics.TileOneWay,
+// and game-defined bits 2..31 are preserved verbatim.
+func (f TileFlags) PhysicsFlags() physics.TileFlags {
+	return physics.TileFlags(f)
+}
+
+// TileSize returns the width and height of one tile in world coordinates, satisfying physics.TileGrid.
+func (m *Tilemap) TileSize() (width, height float32) {
+	if m == nil {
+		return 0, 0
+	}
+	return m.TileWidth, m.TileHeight
+}
+
+// GridSize returns the map's width and height in tile columns and rows, satisfying physics.TileGrid.
+func (m *Tilemap) GridSize() (cols, rows int) {
+	if m == nil {
+		return 0, 0
+	}
+	return m.Width, m.Height
+}
+
+// GridOrigin returns the world-space origin of cell (0, 0), satisfying physics.TileGridOrigin.
+func (m *Tilemap) GridOrigin() (x, y float32) {
+	if m == nil {
+		return 0, 0
+	}
+	return float32(m.Origin.X), float32(m.Origin.Y)
+}
+
+// TileFlagsAt returns the collision flags at (col, row) mapped to physics.TileFlags, satisfying physics.TileGrid.
+func (m *Tilemap) TileFlagsAt(col, row int) physics.TileFlags {
+	if m == nil {
+		return 0
+	}
+	return m.FlagsAt(col, row).PhysicsFlags()
+}
+
+// TileFlagsAt returns the combined collision flags at uniform grid cell (col, row) relative to GridOrigin
+// mapped to physics.TileFlags, satisfying physics.TileGrid.
+func (s *WorldStream) TileFlagsAt(col, row int) physics.TileFlags {
+	return s.GridFlagsAt(col, row).PhysicsFlags()
+}
+
 // ellipseSides is how many vertices approximate an ellipse object that is not a circle.
 const ellipseSides = physics.MaxPolygonVertices
 

@@ -576,16 +576,28 @@ func buildTileset(m *Tilemap, firstGID uint32, raw tiledTileset, baseDir string,
 			}
 			ts.Animations[tile.ID] = &TileAnimation{Frames: frames}
 		}
-		if tile.ObjectGroup != nil && len(tile.ObjectGroup.Objects) > 0 {
-			shapes, err := tiledTileShapes(tile.ObjectGroup.Objects)
+		if tile.ObjectGroup != nil {
+			group, err := parseTileCollisionGroup(tile.ObjectGroup)
 			if err != nil {
-				return nil, nest(err, idxPath("tiles", ti, ""))
+				return nil, nest(err, idxPath("tiles", ti, "objectgroup"))
 			}
-			if len(shapes) > 0 {
-				if ts.Shapes == nil {
-					ts.Shapes = make(map[uint32][]TileShape)
+			if len(group.Objects) > 0 || group.Name != "" || len(group.Properties) > 0 {
+				if ts.TileCollisions == nil {
+					ts.TileCollisions = make(map[uint32]ObjectLayer)
 				}
-				ts.Shapes[tile.ID] = shapes
+				ts.TileCollisions[tile.ID] = group
+			}
+			if len(tile.ObjectGroup.Objects) > 0 {
+				shapes, err := tiledTileShapes(tile.ObjectGroup.Objects)
+				if err != nil {
+					return nil, nest(err, idxPath("tiles", ti, ""))
+				}
+				if len(shapes) > 0 {
+					if ts.Shapes == nil {
+						ts.Shapes = make(map[uint32][]TileShape)
+					}
+					ts.Shapes[tile.ID] = shapes
+				}
 			}
 		}
 	}
@@ -597,6 +609,110 @@ func buildTileset(m *Tilemap, firstGID uint32, raw tiledTileset, baseDir string,
 		ts.WangSets = wsets
 	}
 	return ts, nil
+}
+
+// parseTileCollisionGroup converts a tileset tile's Tiled objectgroup into an ObjectLayer,
+// preserving object IDs, names, types, transforms, shapes, visibility, and custom properties.
+func parseTileCollisionGroup(raw *tiledLayer) (ObjectLayer, error) {
+	props, err := parseProperties(raw.Properties)
+	if err != nil {
+		return ObjectLayer{}, nest(err, "properties")
+	}
+	opacity := float32(1)
+	if raw.Opacity != nil {
+		opacity = *raw.Opacity
+	}
+	visible := true
+	if raw.Visible != nil {
+		visible = *raw.Visible
+	}
+	px := float32(1)
+	if raw.ParallaxX != nil {
+		px = *raw.ParallaxX
+	}
+	py := float32(1)
+	if raw.ParallaxY != nil {
+		py = *raw.ParallaxY
+	}
+	var tint core.Color
+	tinted := false
+	if raw.TintColor != "" {
+		c, ok := parseTiledColor(raw.TintColor)
+		if !ok {
+			line, col := raw.pos()
+			return ObjectLayer{}, tiledErr(line, col, "tintcolor", "invalid tintcolor "+strconv.Quote(raw.TintColor), `"#RRGGBB" or "#AARRGGBB"`, "set a valid hex tintcolor on the tile collision group in Tiled", nil)
+		}
+		tint = c
+		tinted = true
+	}
+	var objs []Object
+	if len(raw.Objects) > 0 {
+		objs = make([]Object, len(raw.Objects))
+		for i, ro := range raw.Objects {
+			op, err := parseProperties(ro.Properties)
+			if err != nil {
+				return ObjectLayer{}, nest(err, idxPath("objects", i, "properties"))
+			}
+			objVisible := true
+			if ro.Visible != nil {
+				objVisible = *ro.Visible
+			}
+			typ := ro.Type
+			if typ == "" {
+				typ = ro.Class
+			}
+			obj := Object{
+				ID:         ro.ID,
+				Name:       ro.Name,
+				Type:       typ,
+				X:          ro.X,
+				Y:          ro.Y,
+				Width:      float32Val(ro.Width),
+				Height:     float32Val(ro.Height),
+				Rotation:   float32Val(ro.Rotation),
+				GID:        ro.GID,
+				Visible:    objVisible,
+				Properties: op,
+			}
+			switch {
+			case ro.GID != 0:
+				obj.Shape = ObjectTile
+			case ro.Text != nil:
+				txt, err := parseTiledText(ro.Text)
+				if err != nil {
+					return ObjectLayer{}, nest(err, idxPath("objects", i, "text"))
+				}
+				obj.Shape = ObjectText
+				obj.Text = txt
+			case ro.Point:
+				obj.Shape = ObjectPoint
+			case ro.Ellipse:
+				obj.Shape = ObjectEllipse
+			case len(ro.Polygon) > 0:
+				obj.Shape = ObjectPolygon
+				obj.Points = convertPoints(ro.Polygon)
+			case len(ro.Polyline) > 0:
+				obj.Shape = ObjectPolyline
+				obj.Points = convertPoints(ro.Polyline)
+			default:
+				obj.Shape = ObjectRect
+			}
+			objs[i] = obj
+		}
+	}
+	return ObjectLayer{
+		Name:       raw.Name,
+		OffsetX:    raw.OffsetX,
+		OffsetY:    raw.OffsetY,
+		ParallaxX:  px,
+		ParallaxY:  py,
+		Opacity:    opacity,
+		TintColor:  tint,
+		Tinted:     tinted,
+		Visible:    visible,
+		Objects:    objs,
+		Properties: props,
+	}, nil
 }
 
 func parseTiledWangSets(raw []tiledWangSet, firstGID uint32, tileProbs map[uint32]float64) ([]WangSet, error) {

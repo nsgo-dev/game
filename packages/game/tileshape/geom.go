@@ -75,6 +75,7 @@ type chunk struct {
 	slopes     []physics.Slope
 	boxes      []physics.Box
 	shapeBoxes []physics.Box
+	shapePolys []poly
 }
 
 // cellChunk returns the chunk holding (col, row) with its cells built; the caller has checked the bounds.
@@ -139,7 +140,7 @@ func (v *View) buildCells(ch *chunk, cx, cy int) {
 func (v *View) cell(col, row int, dst []placed) (physics.TileFlags, bool, []placed) {
 	m := v.m
 	if f, ok := m.CellFlags(col, row); ok {
-		return physics.TileFlags(f), f&tilemap.TileSolid != 0, dst
+		return f.PhysicsFlags(), f&tilemap.TileSolid != 0, dst
 	}
 	mark := len(dst)
 	var flags, shaped tilemap.TileFlags
@@ -186,7 +187,7 @@ func (v *View) cell(col, row int, dst []placed) (physics.TileFlags, bool, []plac
 	if v.shapedSolid {
 		flags |= shaped
 	}
-	return physics.TileFlags(flags), solid, dst
+	return flags.PhysicsFlags(), solid, dst
 }
 
 // tileGeom returns the cached geometry of gid's collision shapes, or nil when it has none.
@@ -359,6 +360,7 @@ func (v *View) buildGeom(ch *chunk, cx, cy int) {
 	ch.slopes = ch.slopes[:0]
 	ch.boxes = ch.boxes[:0]
 	ch.shapeBoxes = ch.shapeBoxes[:0]
+	ch.shapePolys = ch.shapePolys[:0]
 	eps := 1e-4 * max(v.tw, v.th)
 	raw := v.rawBuf[:0]
 
@@ -419,8 +421,16 @@ func (v *View) buildGeom(ch *chunk, cx, cy int) {
 						b := p.pts[(k+1)%len(p.pts)]
 						cut(vec{pl.ox + a.x, pl.oy + a.y}, vec{pl.ox + b.x, pl.oy + b.y}, sourceShape, pl.cls)
 					}
-					if p.rect && pl.cls == classSolid {
-						ch.shapeBoxes = append(ch.shapeBoxes, rectBox(p.pts, pl.ox, pl.oy))
+					if pl.cls == classSolid {
+						if p.rect {
+							ch.shapeBoxes = append(ch.shapeBoxes, rectBox(p.pts, pl.ox, pl.oy))
+						} else {
+							worldPts := make([]vec, len(p.pts))
+							for k, pt := range p.pts {
+								worldPts[k] = vec{pl.ox + pt.x, pl.oy + pt.y}
+							}
+							ch.shapePolys = append(ch.shapePolys, poly{pts: worldPts})
+						}
 					}
 				}
 				for _, l := range pl.g.lines {
@@ -457,6 +467,9 @@ func (v *View) buildGeom(ch *chunk, cx, cy int) {
 		ch.slopes = append(ch.slopes, physics.Slope{A: s.A, B: s.B})
 	}
 	ch.boxes = v.mergeBoxes(ch.boxes, ch, cx, cy)
+	if len(ch.shapeBoxes) > 1 {
+		ch.shapeBoxes = mergeRects(ch.shapeBoxes, eps)
+	}
 	ch.geomOK = true
 	v.aggOK = 0
 }
@@ -613,4 +626,239 @@ func (v *View) mergeBoxes(dst []physics.Box, ch *chunk, cx, cy int) []physics.Bo
 		}
 	}
 	return dst
+}
+
+// mergeRects merges touching axis-aligned rectangles that share a full horizontal or vertical edge within eps,
+// repeating horizontal and vertical passes until no further merges apply, and returns them in deterministic (Y, X, W, H) order.
+func mergeRects(in []physics.Box, eps float64) []physics.Box {
+	if len(in) <= 1 {
+		return in
+	}
+	rects := slices.Clone(in)
+	for {
+		merged := false
+
+		// Horizontal pass: equal (Y, H), touching X+W == next.X.
+		slices.SortFunc(rects, func(a, b physics.Box) int {
+			return cmp.Or(
+				cmp.Compare(a.Y, b.Y),
+				cmp.Compare(a.H, b.H),
+				cmp.Compare(a.X, b.X),
+				cmp.Compare(a.W, b.W),
+			)
+		})
+		out := rects[:0]
+		for _, r := range rects {
+			if n := len(out); n > 0 {
+				prev := &out[n-1]
+				if math.Abs(float64(prev.Y)-float64(r.Y)) <= eps &&
+					math.Abs(float64(prev.H)-float64(r.H)) <= eps &&
+					math.Abs((float64(prev.X)+float64(prev.W))-float64(r.X)) <= eps {
+					prev.W = float32((float64(r.X) + float64(r.W)) - float64(prev.X))
+					merged = true
+					continue
+				}
+			}
+			out = append(out, r)
+		}
+		rects = out
+
+		// Vertical pass: equal (X, W), touching Y+H == next.Y.
+		slices.SortFunc(rects, func(a, b physics.Box) int {
+			return cmp.Or(
+				cmp.Compare(a.X, b.X),
+				cmp.Compare(a.W, b.W),
+				cmp.Compare(a.Y, b.Y),
+				cmp.Compare(a.H, b.H),
+			)
+		})
+		out = rects[:0]
+		for _, r := range rects {
+			if n := len(out); n > 0 {
+				prev := &out[n-1]
+				if math.Abs(float64(prev.X)-float64(r.X)) <= eps &&
+					math.Abs(float64(prev.W)-float64(r.W)) <= eps &&
+					math.Abs((float64(prev.Y)+float64(prev.H))-float64(r.Y)) <= eps {
+					prev.H = float32((float64(r.Y) + float64(r.H)) - float64(prev.Y))
+					merged = true
+					continue
+				}
+			}
+			out = append(out, r)
+		}
+		rects = out
+
+		if !merged {
+			break
+		}
+	}
+	slices.SortFunc(rects, func(a, b physics.Box) int {
+		return cmp.Or(
+			cmp.Compare(a.Y, b.Y),
+			cmp.Compare(a.X, b.X),
+			cmp.Compare(a.W, b.W),
+			cmp.Compare(a.H, b.H),
+		)
+	})
+	return rects
+}
+
+func nearVec(a, b vec, eps float64) bool {
+	return math.Abs(a.x-b.x) <= eps && math.Abs(a.y-b.y) <= eps
+}
+
+// isConvexPoly reports whether pts (wound clockwise on screen, positive signed area) form a simple convex polygon.
+func isConvexPoly(pts []vec, eps float64) bool {
+	n := len(pts)
+	if n < 3 {
+		return false
+	}
+	turning := 0.0
+	for i := range n {
+		a, b, c := pts[i], pts[(i+1)%n], pts[(i+2)%n]
+		ux, uy := b.x-a.x, b.y-a.y
+		vx, vy := c.x-b.x, c.y-b.y
+		ul, vl := math.Hypot(ux, uy), math.Hypot(vx, vy)
+		if ul <= eps || vl <= eps {
+			return false
+		}
+		cross := ux*vy - uy*vx
+		if cross < -eps*(ul+vl) {
+			return false
+		}
+		turning += math.Atan2(cross, ux*vx+uy*vy)
+	}
+	return math.Abs(turning-2*math.Pi) < 1e-4
+}
+
+// simplifyCollinear removes duplicate and collinear vertices from a closed polygon ring.
+func simplifyCollinear(pts []vec, eps float64) []vec {
+	cur := make([]vec, 0, len(pts))
+	for _, p := range pts {
+		if len(cur) > 0 && nearVec(cur[len(cur)-1], p, eps) {
+			continue
+		}
+		cur = append(cur, p)
+	}
+	if len(cur) > 1 && nearVec(cur[0], cur[len(cur)-1], eps) {
+		cur = cur[:len(cur)-1]
+	}
+	for len(cur) >= 3 {
+		changed := false
+		next := make([]vec, 0, len(cur))
+		n := len(cur)
+		for i := range n {
+			a, b, c := cur[(i-1+n)%n], cur[i], cur[(i+1)%n]
+			ux, uy := b.x-a.x, b.y-a.y
+			vx, vy := c.x-b.x, c.y-b.y
+			ul, vl := math.Hypot(ux, uy), math.Hypot(vx, vy)
+			if ul <= eps || vl <= eps {
+				changed = true
+				continue
+			}
+			cross := ux*vy - uy*vx
+			dot := ux*vx + uy*vy
+			if math.Abs(cross) <= eps*(ul+vl) && dot >= 0 {
+				changed = true
+				continue
+			}
+			next = append(next, b)
+		}
+		cur = next
+		if !changed {
+			break
+		}
+	}
+	return cur
+}
+
+// tryMergeConvexPolys attempts to merge two clockwise convex polygons sharing an exact opposite edge
+// into a single convex polygon with at most physics.MaxPolygonVertices vertices.
+func tryMergeConvexPolys(a, b []vec, eps float64) ([]vec, bool) {
+	na, nb := len(a), len(b)
+	for i := range na {
+		a0, a1 := a[i], a[(i+1)%na]
+		for j := range nb {
+			b0, b1 := b[j], b[(j+1)%nb]
+			if !nearVec(a0, b1, eps) || !nearVec(a1, b0, eps) {
+				continue
+			}
+			merged := make([]vec, 0, na+nb-2)
+			for k := 1; k <= na; k++ {
+				merged = append(merged, a[(i+k)%na])
+			}
+			for k := 2; k < nb; k++ {
+				merged = append(merged, b[(j+k)%nb])
+			}
+			merged = simplifyCollinear(merged, eps)
+			if len(merged) < 3 || len(merged) > physics.MaxPolygonVertices {
+				continue
+			}
+			if signedArea(merged) <= eps*eps || !isConvexPoly(merged, eps) {
+				continue
+			}
+			return merged, true
+		}
+	}
+	return nil, false
+}
+
+// mergeConvexPolys greedily merges adjacent convex polygons that share an edge whenever their union
+// remains convex with at most physics.MaxPolygonVertices vertices.
+func mergeConvexPolys(in []poly, eps float64) []poly {
+	if len(in) <= 1 {
+		return in
+	}
+	out := make([]poly, len(in))
+	convex := make([]bool, len(in))
+	for i, p := range in {
+		out[i] = p
+		convex[i] = len(p.pts) <= physics.MaxPolygonVertices && isConvexPoly(p.pts, eps)
+	}
+	for {
+		merged := false
+		for i := 0; i < len(out); i++ {
+			if !convex[i] {
+				continue
+			}
+			for j := i + 1; j < len(out); j++ {
+				if !convex[j] {
+					continue
+				}
+				if m, ok := tryMergeConvexPolys(out[i].pts, out[j].pts, eps); ok {
+					out[i] = poly{pts: m}
+					out = slices.Delete(out, j, j+1)
+					convex = slices.Delete(convex, j, j+1)
+					merged = true
+					break
+				}
+			}
+			if merged {
+				break
+			}
+		}
+		if !merged {
+			break
+		}
+	}
+	return out
+}
+
+// polyToPhysicsShape converts a clockwise world-space polygon into a convex physics.Polygon
+// when convex with at most physics.MaxPolygonVertices vertices, or a closed physics.Chain otherwise.
+func polyToPhysicsShape(p poly, eps float64) (physics.Shape, bool) {
+	if len(p.pts) < 3 {
+		return physics.Shape{}, false
+	}
+	pts := make([]core.Point, len(p.pts))
+	for i, v := range p.pts {
+		pts[i] = core.Point{X: core.Points(v.x), Y: core.Points(v.y)}
+	}
+	if len(pts) <= physics.MaxPolygonVertices && isConvexPoly(p.pts, eps) {
+		if hp, ok := physics.NewPolygon(pts, 0); ok {
+			return physics.PolygonShape(hp), true
+		}
+	}
+	s := physics.ChainShape(pts, true)
+	return s, !s.Empty()
 }

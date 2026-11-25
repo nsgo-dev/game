@@ -12,6 +12,9 @@ import (
 	"github.com/nsgo-dev/game/packages/game/physics"
 	"github.com/nsgo-dev/game/packages/game/physics3d"
 	"github.com/nsgo-dev/game/packages/game/project"
+	"github.com/nsgo-dev/game/packages/game/sceneformat"
+	"github.com/nsgo-dev/game/packages/game/tilemap"
+	"time"
 )
 
 func TestPhysicsRoundTripAndRuntimeConfiguration(t *testing.T) {
@@ -113,6 +116,12 @@ func TestPhysicsValidationRejectsInvalidSettings(t *testing.T) {
 		{"negative 3d iters", &project.Physics{SolverIterations3D: -2}, "must not be negative"},
 		{"nan gravity 2d", &project.Physics{Gravity2D: &project.Vec2{Y: float32(math.NaN())}}, "must be finite"},
 		{"inf gravity 3d", &project.Physics{Gravity3D: &project.Vec3{Y: float32(math.Inf(1))}}, "must be finite"},
+		{"ldtk rule both name and value", &project.Physics{LDtkIntGrid: []project.LDtkIntGridRule{{Name: "Stone", Value: 1, Solid: true}}}, "cannot set both"},
+		{"ldtk rule empty", &project.Physics{LDtkIntGrid: []project.LDtkIntGridRule{{Solid: true}}}, "must set name or a positive value"},
+		{"ldtk rule negative value", &project.Physics{LDtkIntGrid: []project.LDtkIntGridRule{{Value: -1, Solid: true}}}, "must be positive"},
+		{"ldtk rule whitespace name", &project.Physics{LDtkIntGrid: []project.LDtkIntGridRule{{Name: " Stone ", Solid: true}}}, "leading/trailing whitespace"},
+		{"ldtk rule duplicate name", &project.Physics{LDtkIntGrid: []project.LDtkIntGridRule{{Name: "Stone", Solid: true}, {Name: "stone", OneWay: true}}}, "duplicate physics ldtkIntGrid name"},
+		{"ldtk rule duplicate value", &project.Physics{LDtkIntGrid: []project.LDtkIntGridRule{{Value: 2, Solid: true}, {Value: 2, OneWay: true}}}, "duplicate physics ldtkIntGrid value"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -172,5 +181,128 @@ layers:
 	var le *loaderr.Error
 	if !errors.As(err, &le) || le.File != "scenes/level.scene.yaml" || le.Line != 12 {
 		t.Fatalf("LoadAutoloads err = %v (loaderr=%+v), want scenes/level.scene.yaml line 12", err, le)
+	}
+}
+
+func TestPhysicsLDtkIntGridProjectSettingsAndSceneResolver(t *testing.T) {
+	const gameYAML = `version: 1
+name: LDtk Demo
+id: dev.nsgo.ldtkdemo
+appVersion: 0.1.0
+window:
+  width: 640
+  height: 360
+physics:
+  ldtkIntGrid:
+    - name: Stone
+      solid: true
+    - name: Bridge
+      oneWay: true
+    - value: 3
+      flags: 8
+    - name: Foliage
+`
+	f, err := project.Parse([]byte(gameYAML))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	encoded, err := project.Encode(f)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	if !bytes.Equal(encoded, []byte(gameYAML)) {
+		t.Fatalf("round-trip mismatch:\ngot:\n%s\nwant:\n%s", encoded, gameYAML)
+	}
+	cloned := f.Clone()
+	cloned.Physics.LDtkIntGrid[0].Name = "Mutated"
+	if f.Physics.LDtkIntGrid[0].Name != "Stone" {
+		t.Fatal("Clone mutated original LDtkIntGrid slice")
+	}
+
+	const ldtkJSON = `{
+		"defaultGridSize": 16,
+		"defs": {
+			"layers": [
+				{
+					"uid": 10,
+					"identifier": "Terrain",
+					"type": "IntGrid",
+					"gridSize": 16,
+					"intGridValues": [
+						{"value": 1, "identifier": "Stone", "color": "#FFFFFF"},
+						{"value": 2, "identifier": "Bridge", "color": "#00FF00"},
+						{"value": 3, "identifier": "Hazard", "color": "#FF0000"},
+						{"value": 4, "identifier": "Foliage", "color": "#008800"}
+					]
+				}
+			]
+		},
+		"levels": [
+			{
+				"identifier": "L0",
+				"uid": 0,
+				"pxWid": 64,
+				"pxHei": 32,
+				"layerInstances": [
+					{
+						"__identifier": "Terrain",
+						"__type": "IntGrid",
+						"__cWid": 4,
+						"__cHei": 2,
+						"__gridSize": 16,
+						"layerDefUid": 10,
+						"intGridCsv": [
+							0, 0, 0, 0,
+							1, 2, 3, 4
+						]
+					}
+				]
+			}
+		]
+	}`
+
+	tm, err := tilemap.LoadLDtkWith([]byte(ldtkJSON), "L0", f.LDtkOptions(nil))
+	if err != nil {
+		t.Fatalf("LoadLDtkWith: %v", err)
+	}
+	if tm.TileFlagsAt(0, 1) != physics.TileSolid {
+		t.Fatalf("Stone flags = %v, want TileSolid", tm.TileFlagsAt(0, 1))
+	}
+	if tm.TileFlagsAt(1, 1) != physics.TileOneWay {
+		t.Fatalf("Bridge flags = %v, want TileOneWay", tm.TileFlagsAt(1, 1))
+	}
+	if tm.TileFlagsAt(2, 1) != physics.TileFlags(8) {
+		t.Fatalf("value 3 flags = %v, want 8", tm.TileFlagsAt(2, 1))
+	}
+	if tm.TileFlagsAt(3, 1) != 0 {
+		t.Fatalf("Foliage flags = %v, want 0", tm.TileFlagsAt(3, 1))
+	}
+
+	// Direct physics.MoveAndSlide on the loaded LDtk *tilemap.Tilemap.
+	body := physics.NewBoxBody(2, 0, 10, 10)
+	body.VY = 200
+	res := physics.MoveAndSlide(body, tm, 200*time.Millisecond)
+	if !res.Grounded || body.Bounds().Bottom() != 16 {
+		t.Fatalf("MoveAndSlide on LDtk map = grounded:%v bottom:%v, want grounded:true bottom:16", res.Grounded, body.Bounds().Bottom())
+	}
+
+	// project.Resolver supplies game.yaml's LDtkOptions automatically to sceneformat.Build.
+	fsys := fstest.MapFS{
+		"game.yaml":              &fstest.MapFile{Data: []byte(gameYAML)},
+		"maps/world.ldtk":        &fstest.MapFile{Data: []byte(ldtkJSON)},
+		"scenes/main.scene.yaml": &fstest.MapFile{Data: []byte("version: 2\nlayers:\n  - name: world\n    tilemap:\n      source: maps/world.ldtk\n      level: L0\n")},
+	}
+	r := project.NewResolver(fsys)
+	doc, err := r.Scene("scenes/main.scene.yaml")
+	if err != nil {
+		t.Fatalf("Scene: %v", err)
+	}
+	built, err := sceneformat.Build(doc, r)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	sm := built.Layers[0].Map
+	if sm == nil || sm.TileFlagsAt(0, 1) != physics.TileSolid || sm.TileFlagsAt(1, 1) != physics.TileOneWay || sm.TileFlagsAt(2, 1) != physics.TileFlags(8) || sm.TileFlagsAt(3, 1) != 0 {
+		t.Fatalf("scene built LDtk map flags mismatch: %v", sm)
 	}
 }

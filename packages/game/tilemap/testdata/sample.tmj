@@ -34,7 +34,16 @@
           "properties": [
             {"name": "solid", "type": "bool", "value": true},
             {"name": "friction", "type": "float", "value": 0.75}
-          ]
+          ],
+          "objectgroup": {
+            "type": "objectgroup",
+            "name": "",
+            "opacity": 1,
+            "visible": true,
+            "objects": [
+              {"id": 1, "name": "bounds", "type": "solid", "x": 0, "y": 0, "width": 16, "height": 16, "visible": true}
+            ]
+          }
         },
         {
           "id": 1,
@@ -49,6 +58,30 @@
             {"tileid": 3, "duration": 200},
             {"tileid": 4, "duration": 150}
           ]
+        },
+        {
+          "id": 5,
+          "objectgroup": {
+            "type": "objectgroup",
+            "name": "",
+            "opacity": 1,
+            "visible": true,
+            "objects": [
+              {
+                "id": 1,
+                "name": "slope",
+                "type": "ramp",
+                "x": 0,
+                "y": 0,
+                "visible": true,
+                "polygon": [
+                  {"x": 0, "y": 16},
+                  {"x": 16, "y": 0},
+                  {"x": 16, "y": 16}
+                ]
+              }
+            ]
+          }
         }
       ]
     },

@@ -2,7 +2,10 @@ package tilemap_test
 
 import (
 	"math"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/nsgo-dev/game/packages/game/physics"
 	"github.com/nsgo-dev/game/packages/game/tilemap"
@@ -111,5 +114,79 @@ func TestObjectLayerPhysicsBodies(t *testing.T) {
 	var missing *tilemap.ObjectLayer
 	if got := missing.PhysicsBodies(); got != nil {
 		t.Fatalf("nil layer bodies = %v", got)
+	}
+}
+
+func TestTilemapSatisfiesPhysicsTileGridDirectly(t *testing.T) {
+	if uint32(tilemap.TileSolid) != uint32(physics.TileSolid) || uint32(tilemap.TileOneWay) != uint32(physics.TileOneWay) {
+		t.Fatalf("flag bits diverged: solid %d vs %d, oneWay %d vs %d",
+			tilemap.TileSolid, physics.TileSolid, tilemap.TileOneWay, physics.TileOneWay)
+	}
+	if got := (tilemap.TileSolid | tilemap.TileFlags(1<<5)).PhysicsFlags(); got != (physics.TileSolid | physics.TileFlags(1<<5)) {
+		t.Fatalf("PhysicsFlags = %v, want Solid|(1<<5)", got)
+	}
+
+	// Nil receiver returns zero values safely.
+	var nilMap *tilemap.Tilemap
+	if w, h := nilMap.TileSize(); w != 0 || h != 0 {
+		t.Fatalf("nil TileSize = %v, %v", w, h)
+	}
+	if c, r := nilMap.GridSize(); c != 0 || r != 0 {
+		t.Fatalf("nil GridSize = %v, %v", c, r)
+	}
+	if x, y := nilMap.GridOrigin(); x != 0 || y != 0 {
+		t.Fatalf("nil GridOrigin = %v, %v", x, y)
+	}
+	if f := nilMap.TileFlagsAt(0, 0); f != 0 {
+		t.Fatalf("nil TileFlagsAt = %v", f)
+	}
+
+	// Loaded Tiled .tmj works directly with physics.MoveAndSlide and physics.World.
+	raw, err := os.ReadFile(filepath.Join("testdata", "sample.tmj"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tm, err := tilemap.LoadTiled(raw, tilemap.TilesetLoader{
+		LoadTileset: func(source string) ([]byte, error) {
+			return os.ReadFile(filepath.Join("testdata", filepath.FromSlash(source)))
+		},
+	})
+	if err != nil {
+		t.Fatalf("LoadTiled(sample.tmj): %v", err)
+	}
+
+	var grid physics.TileGrid = tm
+	var origin physics.TileGridOrigin = tm
+	if w, h := grid.TileSize(); w != 16 || h != 16 {
+		t.Fatalf("TileSize = %v, %v", w, h)
+	}
+	if c, r := grid.GridSize(); c != 4 || r != 3 {
+		t.Fatalf("GridSize = %v, %v", c, r)
+	}
+	if x, y := origin.GridOrigin(); x != 0 || y != 0 {
+		t.Fatalf("GridOrigin = %v, %v", x, y)
+	}
+	if got := grid.TileFlagsAt(0, 0); got != physics.TileSolid {
+		t.Fatalf("TileFlagsAt(0,0) = %v, want TileSolid", got)
+	}
+	if got := grid.TileFlagsAt(0, 2); got != physics.TileOneWay {
+		t.Fatalf("TileFlagsAt(0,2) = %v, want TileOneWay", got)
+	}
+	if got := grid.TileFlagsAt(3, 2); got != physics.TileFlags(4) {
+		t.Fatalf("TileFlagsAt(3,2) = %v, want custom flag 4", got)
+	}
+
+	// Drop a body onto row 0 (solid tiles at y=0..16) from above (y=-20) with physics.MoveAndSlide(body, tm, dt).
+	body := physics.NewBoxBody(2, -20, 12, 12)
+	body.VY = 240
+	res := physics.MoveAndSlide(body, tm, 200*time.Millisecond)
+	if !res.Grounded || body.Bounds().Bottom() != 0 {
+		t.Fatalf("MoveAndSlide(body, tm, dt) = grounded:%v bottom:%v, want grounded:true bottom:0", res.Grounded, body.Bounds().Bottom())
+	}
+
+	// Works directly with physics.World queries too.
+	w := &physics.World{Tiles: tm}
+	if hit, ok := w.RaycastFirst(core.Point{X: 8, Y: -10}, core.Point{X: 8, Y: 10}, physics.QueryTiles); !ok || hit.Point.Y != 0 {
+		t.Fatalf("World.RaycastFirst on *Tilemap = (%+v, %v), want y=0", hit, ok)
 	}
 }

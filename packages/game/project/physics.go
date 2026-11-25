@@ -2,14 +2,17 @@ package project
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/nsgo-dev/game/packages/game/math2d"
 	"github.com/nsgo-dev/game/packages/game/physics"
 	"github.com/nsgo-dev/game/packages/game/physics3d"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
+	"github.com/nsgo-dev/game/packages/game/tilemap"
+	"github.com/nsgo-dev/nsgo/core"
 )
 
-// Physics holds the project's default 2D and 3D gravity, solver iterations, and named collision layers shared by scenes.
+// Physics holds the project's default 2D and 3D gravity, solver iterations, named collision layers, and LDtk IntGrid collision flag mappings shared by scenes.
 type Physics struct {
 	// Gravity2D is the 2D gravity acceleration in points per second squared (for example {y: 980} in +Y-down screen space); nil leaves 2D gravity at (0, 0).
 	Gravity2D *Vec2 `yaml:"gravity2D,omitempty,flow"`
@@ -21,6 +24,36 @@ type Physics struct {
 	SolverIterations3D int `yaml:"solverIterations3D,omitempty" schema:"minimum=0"`
 	// Layers maps human-readable collision layer names (such as "player", "walls", and "coins") to bit indices in [0, 31], in declaration order.
 	Layers []PhysicsLayer `yaml:"layers,omitempty"`
+	// LDtkIntGrid maps LDtk IntGrid value identifiers, group identifiers, or numeric values to tilemap.TileFlags when loading .ldtk projects.
+	LDtkIntGrid []LDtkIntGridRule `yaml:"ldtkIntGrid,omitempty"`
+}
+
+// LDtkIntGridRule maps one LDtk IntGrid value (by identifier/group name or positive numeric value) to tile collision flags.
+// Exactly one of Name or Value must be set; leaving Solid, OneWay, and Flags all unset explicitly maps matching cells to 0 (non-colliding).
+type LDtkIntGridRule struct {
+	// Name matches an LDtk IntGrid value identifier or IntGrid value group identifier (case-insensitive).
+	Name string `yaml:"name,omitempty"`
+	// Value matches a positive numeric LDtk IntGrid value (1, 2, ...).
+	Value int `yaml:"value,omitempty" schema:"minimum=0"`
+	// Solid sets tilemap.TileSolid on matching IntGrid cells.
+	Solid bool `yaml:"solid,omitempty"`
+	// OneWay sets tilemap.TileOneWay on matching IntGrid cells.
+	OneWay bool `yaml:"oneWay,omitempty"`
+	// Flags sets additional game-defined tilemap.TileFlags bits on matching IntGrid cells alongside Solid and OneWay.
+	Flags uint32 `yaml:"flags,omitempty"`
+}
+
+// TileFlags returns the combined tilemap.TileFlags produced by r.
+func (r LDtkIntGridRule) TileFlags() tilemap.TileFlags {
+	var f tilemap.TileFlags
+	if r.Solid {
+		f |= tilemap.TileSolid
+	}
+	if r.OneWay {
+		f |= tilemap.TileOneWay
+	}
+	f |= tilemap.TileFlags(r.Flags)
+	return f
 }
 
 // Vec2 is a two-dimensional vector in game.yaml, such as 2D gravity.
@@ -62,6 +95,9 @@ func clonePhysics(p *Physics) *Physics {
 	if p.Layers != nil {
 		out.Layers = append([]PhysicsLayer(nil), p.Layers...)
 	}
+	if p.LDtkIntGrid != nil {
+		out.LDtkIntGrid = append([]LDtkIntGridRule(nil), p.LDtkIntGrid...)
+	}
 	return out
 }
 
@@ -99,6 +135,38 @@ func validatePhysics(p *Physics) error {
 		}
 		names[l.Name] = struct{}{}
 		bits[l.Bit] = l.Name
+	}
+	intGridNames := make(map[string]struct{}, len(p.LDtkIntGrid))
+	intGridValues := make(map[int]struct{}, len(p.LDtkIntGrid))
+	for i, r := range p.LDtkIntGrid {
+		hasName := r.Name != ""
+		hasValue := r.Value != 0
+		if hasName && hasValue {
+			return fmt.Errorf("project: physics ldtkIntGrid[%d] cannot set both name %q and value %d", i, r.Name, r.Value)
+		}
+		if !hasName && !hasValue {
+			return fmt.Errorf("project: physics ldtkIntGrid[%d] must set name or a positive value", i)
+		}
+		if r.Value < 0 {
+			return fmt.Errorf("project: physics ldtkIntGrid[%d] value %d must be positive", i, r.Value)
+		}
+		if hasName {
+			trimmed := strings.TrimSpace(r.Name)
+			if trimmed == "" || trimmed != r.Name {
+				return fmt.Errorf("project: physics ldtkIntGrid[%d] name %q must not be empty or have leading/trailing whitespace", i, r.Name)
+			}
+			key := strings.ToLower(trimmed)
+			if _, dup := intGridNames[key]; dup {
+				return fmt.Errorf("project: duplicate physics ldtkIntGrid name %q", r.Name)
+			}
+			intGridNames[key] = struct{}{}
+		}
+		if hasValue {
+			if _, dup := intGridValues[r.Value]; dup {
+				return fmt.Errorf("project: duplicate physics ldtkIntGrid value %d", r.Value)
+			}
+			intGridValues[r.Value] = struct{}{}
+		}
 	}
 	return nil
 }
@@ -196,6 +264,37 @@ func (f *File) ConfigureRigidWorld(w *physics.RigidWorld) {
 	if f.Physics.SolverIterations2D > 0 {
 		w.SolverIterations = f.Physics.SolverIterations2D
 	}
+}
+
+// LDtkOptions builds a tilemap.LDtkOptions using p's LDtkIntGrid rules and resolveImage.
+func (p *Physics) LDtkOptions(resolveImage func(relPath string) core.ImageSource) tilemap.LDtkOptions {
+	opts := tilemap.LDtkOptions{ResolveImage: resolveImage}
+	if p == nil || len(p.LDtkIntGrid) == 0 {
+		return opts
+	}
+	for _, r := range p.LDtkIntGrid {
+		flags := r.TileFlags()
+		if r.Name != "" {
+			if opts.IntGridFlags == nil {
+				opts.IntGridFlags = make(map[string]tilemap.TileFlags)
+			}
+			opts.IntGridFlags[r.Name] = flags
+		} else if r.Value > 0 {
+			if opts.IntGridValueFlags == nil {
+				opts.IntGridValueFlags = make(map[int]tilemap.TileFlags)
+			}
+			opts.IntGridValueFlags[r.Value] = flags
+		}
+	}
+	return opts
+}
+
+// LDtkOptions builds a tilemap.LDtkOptions using f's physics.ldtkIntGrid rules and resolveImage.
+func (f *File) LDtkOptions(resolveImage func(relPath string) core.ImageSource) tilemap.LDtkOptions {
+	if f == nil || f.Physics == nil {
+		return tilemap.LDtkOptions{ResolveImage: resolveImage}
+	}
+	return f.Physics.LDtkOptions(resolveImage)
 }
 
 // ConfigurePhysics3DWorld applies the project's 3D gravity and solver iterations to w.

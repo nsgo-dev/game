@@ -1,7 +1,10 @@
 package tilemap_test
 
 import (
+	"bytes"
 	"math"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"testing"
@@ -199,3 +202,90 @@ func TestFlagEditsAreTileChanges(t *testing.T) {
 }
 
 func pt(x, y float32) core.Point { return core.Point{X: core.Points(x), Y: core.Points(y)} }
+
+func TestLoadTiledPreservesTileCollisionObjectGroupsAndRoundTripsSampleTMJ(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("testdata", "sample.tmj"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	loader := tilemap.TilesetLoader{
+		LoadTileset: func(source string) ([]byte, error) {
+			return os.ReadFile(filepath.Join("testdata", filepath.FromSlash(source)))
+		},
+	}
+	m1, err := tilemap.LoadTiled(raw, loader)
+	if err != nil {
+		t.Fatalf("LoadTiled(sample.tmj): %v", err)
+	}
+
+	// Embedded tileset preserves per-tile collision object groups on tiles 0 and 5.
+	g0, ok := m1.TileCollisionGroup(1)
+	if !ok || len(g0.Objects) != 1 || g0.Objects[0].Name != "bounds" || g0.Objects[0].Width != 16 || g0.Objects[0].Height != 16 {
+		t.Fatalf("tile 0 collision group = (%+v, %v)", g0, ok)
+	}
+	g5, ok := m1.TileCollisionGroup(6)
+	if !ok || len(g5.Objects) != 1 || g5.Objects[0].Name != "slope" || g5.Objects[0].Shape != tilemap.ObjectPolygon || len(g5.Objects[0].Points) != 3 {
+		t.Fatalf("tile 5 collision group = (%+v, %v)", g5, ok)
+	}
+	// External .tsj tileset preserves per-tile collision object group on tile 0 (GID 9).
+	gProp, ok := m1.TileCollisionGroup(9)
+	if !ok || len(gProp.Objects) != 1 || gProp.Objects[0].Name != "chest" || gProp.Objects[0].X != 2 || gProp.Objects[0].Width != 12 {
+		t.Fatalf("external props tile 0 collision group = (%+v, %v)", gProp, ok)
+	}
+
+	// Round-trip through EncodeTiled -> LoadTiled -> EncodeTiled.
+	enc1, err := tilemap.EncodeTiled(m1)
+	if err != nil {
+		t.Fatalf("EncodeTiled(m1): %v", err)
+	}
+	m2, err := tilemap.LoadTiled(enc1, tilemap.TilesetLoader{})
+	if err != nil {
+		t.Fatalf("LoadTiled(encoded): %v", err)
+	}
+	if !reflect.DeepEqual(m2.Tilesets[0].TileCollisions, m1.Tilesets[0].TileCollisions) {
+		t.Fatalf("terrain TileCollisions changed on round-trip:\ngot:  %+v\nwant: %+v", m2.Tilesets[0].TileCollisions, m1.Tilesets[0].TileCollisions)
+	}
+	if !reflect.DeepEqual(m2.Tilesets[0].Shapes, m1.Tilesets[0].Shapes) {
+		t.Fatalf("terrain Shapes changed on round-trip:\ngot:  %+v\nwant: %+v", m2.Tilesets[0].Shapes, m1.Tilesets[0].Shapes)
+	}
+	if !reflect.DeepEqual(m2.Tilesets[1].TileCollisions, m1.Tilesets[1].TileCollisions) {
+		t.Fatalf("props TileCollisions changed on round-trip:\ngot:  %+v\nwant: %+v", m2.Tilesets[1].TileCollisions, m1.Tilesets[1].TileCollisions)
+	}
+	if !reflect.DeepEqual(m2.Tilesets[1].Shapes, m1.Tilesets[1].Shapes) {
+		t.Fatalf("props Shapes changed on round-trip:\ngot:  %+v\nwant: %+v", m2.Tilesets[1].Shapes, m1.Tilesets[1].Shapes)
+	}
+	if !reflect.DeepEqual(m2.Objects, m1.Objects) {
+		t.Fatalf("Objects changed on round-trip:\ngot:  %+v\nwant: %+v", m2.Objects, m1.Objects)
+	}
+	if m2.FlagsAt(0, 0) != tilemap.TileSolid || m2.FlagsAt(0, 2) != tilemap.TileOneWay || m2.FlagsAt(3, 2) != tilemap.TileFlags(4) {
+		t.Fatalf("flags changed on round-trip: (0,0)=%v (0,2)=%v (3,2)=%v", m2.FlagsAt(0, 0), m2.FlagsAt(0, 2), m2.FlagsAt(3, 2))
+	}
+
+	enc2, err := tilemap.EncodeTiled(m2)
+	if err != nil {
+		t.Fatalf("EncodeTiled(m2): %v", err)
+	}
+	if !bytes.Equal(enc1, enc2) {
+		t.Fatalf("EncodeTiled is not idempotent:\n--- first ---\n%s\n--- second ---\n%s", enc1, enc2)
+	}
+
+	// Programmatic Shapes (without TileCollisions) also survive EncodeTiled -> LoadTiled.
+	progTS := tilemap.NewGridTileset(1, core.ImageSource{URI: "tiles.png"}, 16, 16, 2, 2)
+	progTS.Shapes = map[uint32][]tilemap.TileShape{
+		0: {{Shape: tilemap.ObjectPolygon, Name: "ramp", Points: []core.Point{pt(0, 16), pt(16, 0), pt(16, 16)}}},
+		1: {{Shape: tilemap.ObjectRect, Name: "half", Points: []core.Point{pt(0, 8), pt(16, 8), pt(16, 16), pt(0, 16)}}},
+	}
+	prog := tilemap.New(2, 1, 16, 16, progTS)
+	prog.Layers = append(prog.Layers, tilemap.NewTileLayer("g", 2, 1, []uint32{1, 2}))
+	progRaw, err := tilemap.EncodeTiled(prog)
+	if err != nil {
+		t.Fatalf("EncodeTiled(prog): %v", err)
+	}
+	progBack, err := tilemap.LoadTiled(progRaw, tilemap.TilesetLoader{})
+	if err != nil {
+		t.Fatalf("LoadTiled(progRaw): %v", err)
+	}
+	if !reflect.DeepEqual(progBack.Tilesets[0].Shapes, prog.Tilesets[0].Shapes) {
+		t.Fatalf("programmatic Shapes round-trip = %+v, want %+v", progBack.Tilesets[0].Shapes, prog.Tilesets[0].Shapes)
+	}
+}

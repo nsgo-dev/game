@@ -45,31 +45,6 @@ const (
 	outcomeGameOver
 )
 
-// tileGridAdapter adapts *tilemap.Tilemap to physics.TileGrid for MoveAndSlide.
-type tileGridAdapter struct {
-	tm *tilemap.Tilemap
-}
-
-func (g tileGridAdapter) TileSize() (float32, float32) {
-	return g.tm.TileWidth, g.tm.TileHeight
-}
-
-func (g tileGridAdapter) GridSize() (int, int) {
-	return g.tm.Width, g.tm.Height
-}
-
-func (g tileGridAdapter) TileFlagsAt(col, row int) physics.TileFlags {
-	tf := g.tm.FlagsAt(col, row)
-	var out physics.TileFlags
-	if tf&tilemap.TileSolid != 0 {
-		out |= physics.TileSolid
-	}
-	if tf&tilemap.TileOneWay != 0 {
-		out |= physics.TileOneWay
-	}
-	return out
-}
-
 type stepInput struct {
 	moveAxis     float32 // [-1, 1]
 	jumpPressed  bool    // edge: just pressed this step
@@ -120,7 +95,6 @@ type floatingPopup struct {
 type levelState struct {
 	assets     *gameAssets
 	tm         *tilemap.Tilemap
-	grid       tileGridAdapter
 	terrain    *tilemap.TileLayer
 	cam        tilemap.Camera
 	shakeScale float32
@@ -178,7 +152,6 @@ func newLevelState(assets *gameAssets, cb levelCallbacks) (*levelState, error) {
 	l := &levelState{
 		assets:     assets,
 		tm:         tm,
-		grid:       tileGridAdapter{tm: tm},
 		terrain:    tm.Layer("terrain"),
 		shakeScale: 1,
 		hearts:     maxHearts,
@@ -486,7 +459,7 @@ func (l *levelState) update(dt time.Duration, in stepInput) {
 	}
 
 	wasAirborne := !l.wasGrounded
-	res := physics.MoveAndSlide(l.playerBody, l.grid, dt)
+	res := physics.MoveAndSlide(l.playerBody, l.tm, dt)
 	l.wasGrounded = res.Grounded
 	pb = l.playerBody.Bounds()
 
@@ -628,7 +601,7 @@ func (l *levelState) hasSafeFooting(pb physics.Box) bool {
 	row := int(math.Floor(float64((pb.Bottom() + 1) / l.tm.TileHeight)))
 	leftCol := int(math.Floor(float64((pb.X + 1) / l.tm.TileWidth)))
 	rightCol := int(math.Floor(float64((pb.Right() - 1) / l.tm.TileWidth)))
-	return l.grid.TileFlagsAt(leftCol, row) != 0 && l.grid.TileFlagsAt(rightCol, row) != 0
+	return l.tm.TileFlagsAt(leftCol, row) != 0 && l.tm.TileFlagsAt(rightCol, row) != 0
 }
 
 func (l *levelState) overlapsHazard(pb physics.Box) bool {

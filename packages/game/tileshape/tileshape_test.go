@@ -785,3 +785,81 @@ func TestViewHonoursTheMapOrigin(t *testing.T) {
 		t.Fatalf("MoveAndSlide: grounded %v, bottom %v, want on the floor at %v", b.Grounded, b.Bounds().Bottom(), 96+dy)
 	}
 }
+
+func TestStaticShapesMergesPartialBoxesAndConvexSlopesAcrossNeighbors(t *testing.T) {
+	// 1. Adjacent half-tiles merge into a single Box in both Boxes() and StaticShapes().
+	ts := tilemap.NewGridTileset(1, core.ImageSource{}, 16, 16, 3, 3)
+	ts.Shapes = map[uint32][]tilemap.TileShape{
+		0: {{Shape: tilemap.ObjectRect, Points: []core.Point{pt(0, 8), pt(16, 8), pt(16, 16), pt(0, 16)}}},
+		1: {{Shape: tilemap.ObjectEllipse, Points: ellipsePoints(8, 8, 8, 8)}},
+	}
+	m := tilemap.New(5, 1, 16, 16, ts)
+	m.Layers = append(m.Layers, tilemap.NewTileLayer("ground", 5, 1, []uint32{1, 1, 1, 0, 2}))
+	v := tileshape.New(m, tileshape.Options{})
+
+	if got := v.Boxes(); !slices.Equal(got, []physics.Box{{X: 0, Y: 8, W: 48, H: 8}}) {
+		t.Fatalf("merged half-tile Boxes = %v, want single 48x8 box", got)
+	}
+	shapes := v.StaticShapes()
+	if len(shapes) != 2 {
+		t.Fatalf("StaticShapes len = %d, want 2 (1 merged box + 1 ellipse chain): %+v", len(shapes), shapes)
+	}
+	if shapes[0].Kind != physics.ShapeBox || shapes[0].Box != (physics.Box{X: 0, Y: 8, W: 48, H: 8}) {
+		t.Fatalf("StaticShapes[0] = %+v, want merged 48x8 box", shapes[0])
+	}
+	if shapes[1].Kind != physics.ShapeChain || !shapes[1].Chain.Loop {
+		t.Fatalf("StaticShapes[1] = %+v, want closed chain for 16-vertex ellipse", shapes[1])
+	}
+
+	// 2. On slopes.tmj, the two adjacent mirrored 2:1 slope tiles at cols 8-9 merge into one 3-vertex right triangle Polygon.
+	sm := loadSlopes(t)
+	sv := tileshape.New(sm, tileshape.Options{})
+	slopeShapes := sv.StaticShapes()
+	polyCount := 0
+	foundMergedRamp := false
+	for _, s := range slopeShapes {
+		if s.Kind == physics.ShapePolygon {
+			polyCount++
+			b := s.Bounds()
+			if b.X == 128 && b.Y == 64 && b.W == 32 && b.H == 16 && s.Polygon.Count == 3 {
+				foundMergedRamp = true
+			}
+		}
+	}
+	if !foundMergedRamp {
+		t.Fatalf("expected mirrored 2:1 slope tiles at x=128..160 to merge into one 3-vertex polygon; got %d polygons in %+v", polyCount, slopeShapes)
+	}
+	// Total non-rect partial shapes in slopes.tmj: 6 tiles, 2 merged -> 5 polygons!
+	if polyCount != 5 {
+		t.Fatalf("slopes.tmj polygon count = %d, want 5 (two adjacent 2:1 slopes merged into one)", polyCount)
+	}
+
+	// 3. StaticShapes collide directly in a physics.RigidWorld (a dynamic box lands on the 45-degree slope).
+	rw := &physics.RigidWorld{GravityY: 400}
+	for _, s := range slopeShapes {
+		rw.AddBody(physics.NewStaticRigidBody(s))
+	}
+	crate := physics.NewRigidBox(38, 60, 8, 8, 1)
+	rw.AddBody(crate)
+	for range 60 {
+		rw.Step(step)
+	}
+	if crate.Y >= 96 {
+		t.Fatalf("crate fell through StaticShapes slope: y=%v", crate.Y)
+	}
+
+	// 4. AppendStaticShapesIn returns localized shapes covering the queried region.
+	near := sv.AppendStaticShapesIn(nil, core.Bounds{Origin: core.Point{X: 128, Y: 64}, Size: core.Size{Width: 32, Height: 16}})
+	if len(near) == 0 {
+		t.Fatal("AppendStaticShapesIn returned no shapes around mirrored ramp")
+	}
+}
+
+func ellipsePoints(cx, cy, rx, ry float64) []core.Point {
+	pts := make([]core.Point, tilemap.EllipseShapeSegments)
+	for i := range pts {
+		a := 2 * math.Pi * float64(i) / tilemap.EllipseShapeSegments
+		pts[i] = core.Point{X: core.Points(cx + rx*math.Cos(a)), Y: core.Points(cy + ry*math.Sin(a))}
+	}
+	return pts
+}

@@ -43,7 +43,9 @@ ctl.Step(in, v, slopes, platforms, dt)
 | `Slopes()` | 实心形状朝上和竖直的边、单向形状朝上的边以及所有折线，作为 `physics.Slope` 线段 |
 | `AppendSlopesIn(dst, r)` | `r` 附近区块的斜坡，在大地图上只把附近的斜坡传给 `CharacterBody.Move` |
 | `Outline()` | 所有实心格子与实心形状的边界：去掉共享边、合并共线边，实心一侧在右 |
-| `Boxes()` | 合并成矩形的实心格子，其后是半格瓦片等矩形实心形状，可交给 `physics.NewStaticRigidBox` |
+| `Boxes()` | 实心格子以及半格瓦片等轴对齐矩形实心形状跨邻居合并后的最大矩形，可交给 `physics.NewStaticRigidBox` |
+| `StaticShapes()` | 全部实心几何跨邻居合并后的静态 `physics.Shape`：实心格子与矩形非整格瓦片合并为 `Box`，相邻凸多边形非整格瓦片（如多格斜坡）合并为凸 `Polygon`，凹多边形或超过 8 顶点的形状（如椭圆）转为闭合 `Chain`，可直接交给 `physics.NewStaticRigidBody` 或 `physics.World` |
+| `AppendStaticShapesIn(dst, r)` | `r` 附近区块跨块合并后的静态形状 |
 | `Occluders()` | 以 `lights2d` 遮挡体形式给出的 `Outline`，每个区块一个 |
 
 有了这些斜坡，`CharacterBody` 可以走过 45 度、2:1（约 26.6 度，即瓦片集常说的 22.5 度瓦片）、真正 22.5 度以及半高瓦片，从斜坡顶端走上实心瓦片，并在走出斜坡下端时贴合到地面瓦片上，无需手工放置线段。`CharacterBody` 没有天花板线段，所以非整格形状的下表面挡不住跳跃；需要天花板的地方请使用整格瓦片或 `ShapedSolid`。
