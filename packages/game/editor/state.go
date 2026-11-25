@@ -548,6 +548,8 @@ type Editor struct {
 	importRev uint64
 	// importPreview caches the selected image asset for the slice-grid & pivot preview canvas and tracks any active pivot drag.
 	importPreview imageImportPreviewState
+	// modelPreview caches the selected glTF/GLB model, its orbit camera, animation playback state, and software GPU preview renderer.
+	modelPreview modelPreviewState
 	// assetBuild tracks asynchronous `go tool game assets` builds and last-loaded output hashes for live atlas/texture reloading.
 	assetBuild assetBuildState
 	// connPick holds an active target-object pick callback for the connections panel (picking from viewport or scene tree without changing SelectedID).
@@ -709,6 +711,7 @@ func (e *Editor) AttachScope(cx *core.Scope) {
 	} else {
 		e.stopParticlePreviewLoop()
 		e.stopSceneEmitterLoop()
+		e.stopModelPreviewLoop()
 	}
 }
 

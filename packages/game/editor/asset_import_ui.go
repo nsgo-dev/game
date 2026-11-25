@@ -1342,7 +1342,8 @@ func modelImportFields(
 	fieldRow func(string, func() string, core.Node, core.Node) core.Node,
 	resetBtn func(string, string, func() bool, func()) core.Node,
 ) []core.Node {
-	return []core.Node{
+	nodes := modelImportPreviewSection(cx, ed, rev, relPath, disabled)
+	return append(nodes,
 		fieldRow("Scale", func() string {
 			return fmt.Sprintf("Model scale multiplier (target default: %g)", readInfo().DefaultModelScale)
 		},
@@ -1441,7 +1442,7 @@ func modelImportFields(
 				ed.report(ed.ResetAssetImportField(relPath, "lods"))
 			}),
 		),
-	}
+	)
 }
 
 func creditImportSection(
