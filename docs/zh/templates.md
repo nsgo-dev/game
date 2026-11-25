@@ -11,6 +11,7 @@
 | `cards2d` | [Suit Ladders](template-cards2d.md)，一个单人纸牌游戏：在抽牌堆、手牌、弃牌堆和四座梯子之间拖放卡牌，规则写在代码里，牌组和牌桌写在 YAML 里，带编号的发牌和存档。 | `github.com/nsgo-dev/game/template/cards2d` |
 | `fighting2d` | 一对一的 2D 格斗游戏：两名原创角色，有搓招触发的必杀技、连段、上下段防御、回合和计时，可对战电脑或第二名玩家，用键盘、手柄或触屏操作。详见[格斗游戏模板](template-fighting2d.md)。 | `github.com/nsgo-dev/game/template/fighting2d` |
 | `fps3d` | 一个 3D 第一人称射击竞技场：即时命中和弹体两种武器，用 `ai` 和 `physics3d` 实现会巡逻、搜寻和射击的敌人，生命和弹药拾取物，以及三波要清除的敌人，可用键盘鼠标、游戏手柄或触屏游玩。详见 [fps3d 模板](template-fps3d.md)。 | `github.com/nsgo-dev/game/template/fps3d` |
+| `idle` | 一个放置游戏：生产器、升级、大数、回来时结算离线进度和转生，有胜有负；详见[放置游戏模板](template-idle.md)。 | `github.com/nsgo-dev/game/template/idle` |
 | `platformer2d` | 一个横版平台跳跃游戏（[说明](template-platformer2d.md)）：带土狼时间和跳跃缓冲的控制器、三个各有相机边界的房间、尖刺、深坑、可收集的火花、一个检查点和一个终点，可用键盘、手柄或触屏操作。 | `github.com/nsgo-dev/game/template/platformer2d` |
 | `puzzle2d` | Spark Slide，一个 2D 网格解谜游戏：让火花在棋盘上滑行、点亮每一盏灯，关卡用 YAML 定义，支持撤销和重做、步数上限、每关星级，以及保存进度的选关界面；键盘、手柄、触屏和鼠标都能玩。 | `github.com/nsgo-dev/game/template/puzzle2d` |
 | `racing3d` | 一个 3D 赛车游戏：在封闭赛道上与沿赛车线行驶的对手比赛两圈，包含射线车辆、检查点、倒计时、最佳圈幽灵车和结算画面，可用键盘、手柄或触屏操作。[3D 赛车模板](template-racing3d.md) | `github.com/nsgo-dev/game/template/racing3d` |
