@@ -591,6 +591,241 @@ func navSiftUp(s []astarNode, heapPos []int, i int) {
 	}
 }
 
+// navMeshScratch holds reusable buffers for zero-allocation NavMesh path-length queries.
+type navMeshScratch struct {
+	startPolys    []int
+	isGoalPoly    []bool
+	gScore        []float64
+	parent        []int
+	entryPt       []vec2
+	closed        []bool
+	heapPos       []int
+	open          []astarNode
+	portalIDs     []int
+	funnelPortals [][2]vec2
+	rawPath       []vec2
+}
+
+// findPathLength computes the shortest path length inside m from start to goal using
+// reusable scratch buffers so repeated queries perform zero heap allocations after warm-up.
+func (m *NavMesh) findPathLength(s *navMeshScratch, start, goal vec2) (float64, bool) {
+	if m == nil || len(m.polys) == 0 {
+		return 0, false
+	}
+	nPolys := len(m.polys)
+	s.startPolys = s.startPolys[:0]
+	if cap(s.isGoalPoly) < nPolys {
+		s.isGoalPoly = make([]bool, nPolys)
+	} else {
+		s.isGoalPoly = s.isGoalPoly[:nPolys]
+		clear(s.isGoalPoly)
+	}
+	hasGoal := false
+	for i := range m.polys {
+		inStart := polyContains(&m.polys[i], start)
+		inGoal := polyContains(&m.polys[i], goal)
+		if inStart && inGoal {
+			if vequal(start, goal) {
+				return 0, true
+			}
+			return dist(start, goal), true
+		}
+		if inStart {
+			s.startPolys = append(s.startPolys, i)
+		}
+		if inGoal {
+			s.isGoalPoly[i] = true
+			hasGoal = true
+		}
+	}
+	if len(s.startPolys) == 0 || !hasGoal {
+		return 0, false
+	}
+
+	goalNode := len(m.portals)
+	nodeCount := goalNode + 1
+
+	if cap(s.gScore) < nodeCount {
+		s.gScore = make([]float64, nodeCount)
+	} else {
+		s.gScore = s.gScore[:nodeCount]
+	}
+	if cap(s.parent) < nodeCount {
+		s.parent = make([]int, nodeCount)
+	} else {
+		s.parent = s.parent[:nodeCount]
+	}
+	if cap(s.entryPt) < nodeCount {
+		s.entryPt = make([]vec2, nodeCount)
+	} else {
+		s.entryPt = s.entryPt[:nodeCount]
+	}
+	if cap(s.closed) < nodeCount {
+		s.closed = make([]bool, nodeCount)
+	} else {
+		s.closed = s.closed[:nodeCount]
+	}
+	if cap(s.heapPos) < nodeCount {
+		s.heapPos = make([]int, nodeCount)
+	} else {
+		s.heapPos = s.heapPos[:nodeCount]
+	}
+	for i := range nodeCount {
+		s.gScore[i] = math.Inf(1)
+		s.parent[i] = -1
+		s.closed[i] = false
+		s.heapPos[i] = -1
+	}
+	s.open = s.open[:0]
+
+	pushOrUpdate := func(id int, f, h float64) {
+		if pos := s.heapPos[id]; pos >= 0 {
+			s.open[pos].f = f
+			s.open[pos].h = h
+			navSiftUp(s.open, s.heapPos, pos)
+			return
+		}
+		pos := len(s.open)
+		s.open = append(s.open, astarNode{id: id, f: f, h: h})
+		s.heapPos[id] = pos
+		navSiftUp(s.open, s.heapPos, pos)
+	}
+
+	for _, sp := range s.startPolys {
+		for _, pid := range m.polys[sp].outPortals {
+			p := m.portals[pid]
+			pt := bestPortalPoint(start, goal, p.left, p.right)
+			g := dist(start, pt)
+			if g < s.gScore[pid] {
+				s.gScore[pid] = g
+				s.entryPt[pid] = pt
+				s.parent[pid] = -1
+				h := dist(pt, goal)
+				pushOrUpdate(pid, g+h, h)
+			}
+		}
+	}
+
+	found := false
+	for len(s.open) > 0 {
+		cur := navHeapPop(&s.open, s.heapPos)
+		if cur.id == goalNode {
+			found = true
+			break
+		}
+		s.closed[cur.id] = true
+
+		portal := m.portals[cur.id]
+		curG := s.gScore[cur.id]
+		curPt := s.entryPt[cur.id]
+
+		if s.isGoalPoly[portal.toPoly] {
+			ng := curG + dist(curPt, goal)
+			if ng < s.gScore[goalNode] {
+				s.gScore[goalNode] = ng
+				s.parent[goalNode] = cur.id
+				pushOrUpdate(goalNode, ng, 0)
+			}
+		}
+
+		for _, npid := range m.polys[portal.toPoly].outPortals {
+			if s.closed[npid] {
+				continue
+			}
+			np := m.portals[npid]
+			if np.toPoly == portal.fromPoly {
+				continue
+			}
+			pt := bestPortalPoint(curPt, goal, np.left, np.right)
+			ng := curG + dist(curPt, pt)
+			if ng < s.gScore[npid] {
+				s.gScore[npid] = ng
+				s.entryPt[npid] = pt
+				s.parent[npid] = cur.id
+				h := dist(pt, goal)
+				pushOrUpdate(npid, ng+h, h)
+			}
+		}
+	}
+
+	if !found {
+		return 0, false
+	}
+
+	s.portalIDs = s.portalIDs[:0]
+	for id := s.parent[goalNode]; id != -1; id = s.parent[id] {
+		s.portalIDs = append(s.portalIDs, id)
+	}
+	slices.Reverse(s.portalIDs)
+
+	s.funnelPortals = append(s.funnelPortals[:0], [2]vec2{start, start})
+	for _, pid := range s.portalIDs {
+		p := m.portals[pid]
+		s.funnelPortals = append(s.funnelPortals, [2]vec2{p.left, p.right})
+	}
+	s.funnelPortals = append(s.funnelPortals, [2]vec2{goal, goal})
+
+	s.rawPath = append(s.rawPath[:0], start)
+	portalApex := start
+	portalLeft := start
+	portalRight := start
+	apexIndex := 0
+	leftIndex := 0
+	rightIndex := 0
+
+	for i := 1; i < len(s.funnelPortals); i++ {
+		left := s.funnelPortals[i][0]
+		right := s.funnelPortals[i][1]
+
+		if triArea2(portalApex, portalRight, right) >= 0 {
+			if vequal(portalApex, portalRight) || vequal(portalApex, portalLeft) || triArea2(portalApex, portalLeft, right) < 0 {
+				portalRight = right
+				rightIndex = i
+			} else {
+				if !vequal(s.rawPath[len(s.rawPath)-1], portalLeft) {
+					s.rawPath = append(s.rawPath, portalLeft)
+				}
+				portalApex = portalLeft
+				apexIndex = leftIndex
+				portalLeft = portalApex
+				portalRight = portalApex
+				leftIndex = apexIndex
+				rightIndex = apexIndex
+				i = apexIndex
+				continue
+			}
+		}
+
+		if triArea2(portalApex, portalLeft, left) <= 0 {
+			if vequal(portalApex, portalLeft) || vequal(portalApex, portalRight) || triArea2(portalApex, portalRight, left) > 0 {
+				portalLeft = left
+				leftIndex = i
+			} else {
+				if !vequal(s.rawPath[len(s.rawPath)-1], portalRight) {
+					s.rawPath = append(s.rawPath, portalRight)
+				}
+				portalApex = portalRight
+				apexIndex = rightIndex
+				portalLeft = portalApex
+				portalRight = portalApex
+				leftIndex = apexIndex
+				rightIndex = apexIndex
+				i = apexIndex
+				continue
+			}
+		}
+	}
+	if !vequal(s.rawPath[len(s.rawPath)-1], goal) {
+		s.rawPath = append(s.rawPath, goal)
+	}
+
+	var total float64
+	for i := 1; i < len(s.rawPath); i++ {
+		total += dist(s.rawPath[i-1], s.rawPath[i])
+	}
+	return total, true
+}
+
 func navSiftDown(s []astarNode, heapPos []int, i int) {
 	n := len(s)
 	for {

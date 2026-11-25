@@ -1,6 +1,6 @@
 # ai
 
-`game/ai` provides deterministic game AI building blocks stepped cleanly on `game.Loop`: grid `AStar` pathfinding, 2D `NavMesh` navigation with funnel smoothing, steering behaviors, behavior trees, utility AI scoring, goal-oriented action planning (GOAP), attack tokens and squads, and spatial influence maps.
+`game/ai` provides deterministic game AI building blocks stepped cleanly on `game.Loop`: grid `AStar` pathfinding, 2D `NavMesh` navigation with funnel smoothing, steering behaviors, behavior trees, utility AI scoring, goal-oriented action planning (GOAP), attack tokens and squads, spatial influence maps, and EQS-style tactical position queries with cover points and reservations.
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/ai"
@@ -600,3 +600,78 @@ d.Restore()
 ```
 
 `DrawHeatmap` culls cells outside `cam.VisibleBounds()`, tints positive values with `PositiveColor` (default green) and negative values with `NegativeColor` (default red), and scales opacity by `|value| / MaxAbs`. Under `-tags release`, `DrawHeatmap` compiles to a no-op stub and `InfluenceHeatmapEnabled()` returns `false`.
+
+## Tactical position queries and cover points
+
+Cover shooters, stealth games, and tactics games use `CoverPoint`, `TacticalQuery`, `PointReservations`, and `QueryBudget` to answer "where should I stand" (behind cover from a threat, at a flanking angle with clear line of fire, or in a low-threat reachable cell) with deterministic ordering and zero heap allocations after warm-up:
+
+```go
+// Generate cover points from a tilemap's solid edges (or physics 2D/3D colliders, or scene YAML):
+covers := ai.GenerateCoverFromTilemap(levelMap, ai.TileCoverOptions{
+	DefaultHeight: ai.CoverFull,
+})
+
+reservations := ai.NewPointReservations(ai.ReservationConfig{
+	DefaultTimeout: 3 * time.Second,
+})
+budget := ai.NewQueryBudget(16, 8) // at most 16 LOS raycasts and 8 path queries per step
+
+query := ai.NewTacticalQuery(
+	[]ai.CandidateGenerator{
+		&ai.CoverPointGenerator{Points: covers, MaxRadius: 240},
+	},
+	&ai.AngleTest{
+		Mode:   ai.AngleCoverToTarget,
+		Filter: ai.AtMost(math.Pi / 3), // cover faces within 60 degrees of the threat
+		Weight: 2.0,
+		Invert: true,
+	},
+	&ai.CoverHeightTest{Prefer: ai.CoverFull, Weight: 1.0},
+	&ai.InfluenceTest{Layer: threatLayer, Weight: 1.5, Invert: true},
+	&ai.LOSTest{LOS: hasLineOfSight, WantClear: false, Weight: 2.0}, // hidden from threat
+	&ai.PathDistanceTest{Grid: navGrid, CellSize: 16, Weight: 2.0, Invert: true},
+)
+
+// Inside game.Loop.Update:
+budget.Reset()
+reservations.Step(dt)
+
+spot, ok := query.RunAndReserve(ai.TacticalContext{
+	QuerierID:    agentID,
+	QuerierPos:   agentPos,
+	TargetPos:    threatPos,
+	Reservations: reservations,
+	Budget:       budget,
+}, 0)
+_, _ = spot, ok
+
+// When an agent dies or leaves cover:
+reservations.Release(agentID)
+```
+
+### Cover points and generators
+
+Each `CoverPoint` records a world standing position (`Pos`), a unit `Facing` vector pointing from `Pos` into the cover obstacle (the incoming threat direction the cover blocks; the obstacle's outward normal is `Facing.Neg()`), a `CoverHeight` (`CoverHalf` or `CoverFull`), optional 3D `Elevation`, `ID`, and `Tags`.
+
+- **Tilemap and grid generation**: `GenerateCoverFromTilemap(m, opts)` merges contiguous exposed solid tile edges (reading optional `HalfCoverMask`, `HeightFunc`, or a tile's `"cover": "half"|"full"` property) and verifies generated positions lie in open tiles. `GenerateCoverFromGrid(g, origin, cellW, cellH, opts)` generates cover directly from any `ai.Grid`.
+- **2D and 3D collider generation**: `GenerateCoverFromBoxes`, `GenerateCoverFromWorld` (supporting `physics.Box`, `physics.Circle` pillars, and `World.Tiles`), and `GenerateCoverFromSegments` generate 2D cover points while pruning candidates embedded inside neighboring colliders. For 3D scenes, `physics3d.World.GenerateCoverPoints(opts)` projects vertical side faces of axis-aligned boxes, oriented boxes, spheres, and capsules onto the XZ plane, classifying `CoverHalf` vs `CoverFull` from collider height and preserving floor `Elevation`.
+- **Scene YAML authoring**: register the built-in `"cover_point"` component on a `sceneformat.ComponentRegistry` via `sceneformat.RegisterCoverPoint(reg)` (`height`, `facingX`, `facingY`, `tags`), then extract world-transformed `[]ai.CoverPoint` values with `sceneformat.ExtractCoverPoints(doc)` or `sceneformat.ExtractBuiltCoverPoints(built)`.
+
+### Candidate generators and ordered tests
+
+`TacticalQuery` runs one or more `CandidateGenerator`s, excludes points reserved by other agents, evaluates `TacticalTest`s in declaration order, and returns surviving `TacticalCandidate`s sorted deterministically by descending `Score` (breaking ties by `CoverID`, `Pos.Y`, `Pos.X`, `Facing`, and generation index):
+
+- **Generators**: `CoverPointGenerator` (with optional `MaxRadius`, `MinHeight`, `RequiredTag`), `RingGenerator` (concentric rings or arcs around a target or querier with optional `FaceCenter`), `GridGenerator` (world-space grid or walkable `ai.Grid` cells), and `NavMeshGenerator` (polygon centroids or spaced samples contained in an `*ai.NavMesh`).
+- **Tests**: each test sets `Purpose` (`TestFilterAndScore`, `TestFilterOnly`, or `TestScoreOnly`), optional `Filter` (`AtLeast`, `AtMost`, `Between`), `Weight`, `Invert`, and optional fixed `NormMin`/`NormMax` (defaulting to dynamic normalization across surviving candidates):
+  - `DistanceTest`: Euclidean distance to `OriginQuerier`, `OriginTarget`, or `OriginCustom`.
+  - `AngleTest`: angle in radians (`AngleCoverToTarget`, `AngleFlank`, `AngleToDirection`, `AngleFromTargetToDir`).
+  - `InfluenceTest`: bilinearly sampled value from an `*ai.InfluenceLayer`.
+  - `CoverHeightTest`: filters by `MinHeight` and scores preferred `CoverHalf`/`CoverFull`.
+  - `LOSTest`: line of sight to or from a target via a game-supplied `LOSFunc` (`WantClear: true` for firing lines, `false` for hidden cover).
+  - `PathDistanceTest`: travel distance via a `PathCost` callback, zero-allocation grid `AStar`, or zero-allocation 2D `NavMesh` funnel path length.
+  - `CustomTest`: caller-supplied `Eval(ctx, candidate)` callback.
+
+### Reservations and per-step budgets
+
+- **`PointReservations`**: guarantees two agents never reserve the same `CoverID` or non-cover positions closer than `MinSeparation`. `RunAndReserve` selects and reserves the best unreserved candidate while atomically replacing that agent's prior reservation; `Release(agentID)` frees a spot on death, `ReleaseCover(coverID)` frees destroyed cover, `Refresh` extends a timeout, and `Step(dt)` expires timed reservations deterministically.
+- **`QueryBudget`**: caps `MaxRaycasts` (for `LOSTest`) and `MaxPathQueries` (for `PathDistanceTest`) per simulation step across all agents sharing the budget. Before running a budgeted test, surviving candidates are ordered deterministically by preliminary score so the highest-ranked spots consume the step budget first. Call `Reset()` once per step, and use `Best`, `RunInto(dst, ctx)`, or `RunAndReserve` for zero heap allocations after warm-up.
