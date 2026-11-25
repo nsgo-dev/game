@@ -79,7 +79,7 @@ func (e *Editor) SetComponentField(objectID, componentName, field string, value 
 	}
 	reg := e.components
 	if _, builtin := builtinEditorComponents.Lookup(componentName); reg == nil && builtin {
-		// Without a registry components are free-form, but the built-in components (physics + animator + 2D lighting) keep their schema, as the inspector shows it (lookupComponentType).
+		// Without a registry components are free-form, but the built-in components (physics + animator + 2D lighting + skeletal) keep their schema, as the inspector shows it (lookupComponentType).
 		reg = builtinEditorComponents
 	}
 	if reg != nil {
@@ -291,10 +291,13 @@ var builtinEditorComponents = func() *sceneformat.ComponentRegistry {
 	if err := sceneformat.RegisterLights2DComponents(reg); err != nil {
 		panic(err)
 	}
+	if err := sceneformat.RegisterSkeletalComponent(reg); err != nil {
+		panic(err)
+	}
 	return reg
 }()
 
-// lookupComponentType returns the schema of cn from e.components when set, or from the built-in component registry (physics + animator + 2D lighting).
+// lookupComponentType returns the schema of cn from e.components when set, or from the built-in component registry (physics + animator + 2D lighting + skeletal).
 func (e *Editor) lookupComponentType(cn string) (sceneformat.ComponentType, bool) {
 	if e != nil && e.components != nil {
 		if ct, ok := e.components.Lookup(cn); ok {

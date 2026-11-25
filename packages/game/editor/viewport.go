@@ -547,8 +547,9 @@ func (e *Editor) drawTileGridOverlay(d *core.Drawing) {
 func (e *Editor) drawEditScene(d *core.Drawing, scene *sceneformat.BuiltScene, size core.Size) {
 	scene.SyncMaterials()
 	type faded struct {
-		bo    *sceneformat.BuiltObject
-		alpha float32
+		bo     *sceneformat.BuiltObject
+		alpha  float32
+		isSkel bool
 	}
 	type hiddenEmitter struct {
 		bo *sceneformat.BuiltObject
@@ -563,12 +564,16 @@ func (e *Editor) drawEditScene(d *core.Drawing, scene *sceneformat.BuiltScene, s
 				for _, bo := range objs {
 					h := hidden || e.hidden[bo.ID]
 					if h && bo.Sprite != nil {
-						restore = append(restore, faded{bo, bo.Sprite.Alpha})
+						restore = append(restore, faded{bo: bo, alpha: bo.Sprite.Alpha})
 						bo.Sprite.Alpha = 0
 					}
 					if h && bo.Emitter != nil {
 						restoreEmitters = append(restoreEmitters, hiddenEmitter{bo, bo.Emitter})
 						bo.Emitter = nil
+					}
+					if h && bo.Skeleton != nil {
+						restore = append(restore, faded{bo: bo, alpha: bo.Skeleton.Alpha, isSkel: true})
+						bo.Skeleton.Alpha = 0
 					}
 					walk(bo.Children, h)
 				}
@@ -608,7 +613,7 @@ func (e *Editor) drawEditScene(d *core.Drawing, scene *sceneformat.BuiltScene, s
 		if !layer.Visible {
 			continue
 		}
-		if layer.Tilemap != nil || layer.Map != nil || len(layer.Batches) > 0 || len(layer.Emitters) > 0 {
+		if layer.Tilemap != nil || layer.Map != nil || len(layer.Batches) > 0 || len(layer.Emitters) > 0 || len(layer.Skeletons) > 0 {
 			m := e.layerAffineFor(layer.Space, layer.ParallaxX, layer.ParallaxY)
 			d.Save()
 			applyAffine(d, m)
@@ -651,7 +656,11 @@ func (e *Editor) drawEditScene(d *core.Drawing, scene *sceneformat.BuiltScene, s
 	}
 	drawLights()
 	for _, f := range restore {
-		f.bo.Sprite.Alpha = f.alpha
+		if f.isSkel {
+			f.bo.Skeleton.Alpha = f.alpha
+		} else {
+			f.bo.Sprite.Alpha = f.alpha
+		}
 	}
 	for _, he := range restoreEmitters {
 		he.bo.Emitter = he.em

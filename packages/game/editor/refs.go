@@ -217,6 +217,7 @@ func (e *Editor) followMove(root, from, to string, written []refs.Write) {
 	e.followDataTableMove(moveFile)
 	e.followGridMapMove(moveFile, movePath)
 	e.followParticlesMove(moveFile)
+	e.followRigMove(moveFile)
 	e.filesRev++
 	e.assetsRev++
 	e.followSearchMove(forth)
@@ -302,13 +303,26 @@ func moveScenePaths(doc *sceneformat.SceneDoc, move func(*string)) {
 			if o.Particles != nil {
 				move(&o.Particles.File)
 			}
+			moveSkeletalComponentPath(o.Components, move)
 			moveOverrides(o.Overrides, move)
 			return true
 		})
 	}
 }
 
-// moveOverrides applies move to the material, model, and gridMap paths of every override in ovs.
+func moveSkeletalComponentPath(comps map[string]any, move func(*string)) {
+	if comps == nil {
+		return
+	}
+	if m, ok := comps[sceneformat.SkeletalComponentName].(map[string]any); ok {
+		if rig, ok := m["rig"].(string); ok && rig != "" {
+			move(&rig)
+			m["rig"] = rig
+		}
+	}
+}
+
+// moveOverrides applies move to the material, model, gridMap, and skeletal rig paths of every override in ovs.
 func moveOverrides(ovs map[string]sceneformat.ObjectOverride, move func(*string)) {
 	for id, ov := range ovs {
 		for _, p := range []**string{&ov.Material, &ov.Model, &ov.GridMap} {
@@ -323,6 +337,7 @@ func moveOverrides(ovs map[string]sceneformat.ObjectOverride, move func(*string)
 			move(&cp.File)
 			ov.Particles = &cp
 		}
+		moveSkeletalComponentPath(ov.Components, move)
 		ovs[id] = ov
 	}
 }

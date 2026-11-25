@@ -907,7 +907,7 @@ func main() {
 - **打开目录（`BrowseAndOpenProject`）**：通过 NSGo 原生目录选择器（`core.Scope.PickDirectories`）或可注入的 `Editor.PickProjectFolder` 钩子选择项目目录并打开。
 - **从模板新建项目（`ProjectTemplates`、`StartCreateProject`）**：模板卡片与 `All` / `2D` / `3D` 筛选标签直接从 `game new` 的模板注册表动态填充，因此新增模板无需修改编辑器代码即可自动出现。项目名称、父目录（默认 `~/games`）和可选模块路径会在输入时实时校验（`ValidateNewProjectInputs`）：检查是否仅含 `a–z`、`0–9` 和 `-`、检查父目录写入权限，以及目标目录是否已存在（已存在时提供 **Open it** 和如 `dungeon-run-2` 的可用名称建议）。点击 **Create** 会在 UI 协程之外运行 `game new`（含 `go get` 和 `go mod tidy`），将标准输出与错误实时展示在界面中，成功后自动打开生成的 `game.yaml`。
 - **打开演示（`OpenDemo`、`NewDemo`）**：无需在磁盘上创建或打开项目，直接进入内置的演示房间场景。
-- **干净切换项目与未保存修改提示**：从开始界面，或稍后通过 `File > Open Project...`（`mod+o`）、`File > New Project...`（`mod+n`）和 `File > Start Screen` 打开另一个项目时，会干净地替换当前项目、场景、动画片段、数据表、本地化工作区和撤销历史。只要当前会话存在未保存修改（`HasUnsavedChanges`），编辑器统一的未保存修改确认框就会先弹出，由用户选择 **Save**（`ConfirmSaveAndSwitch`）、**Discard**（`ConfirmDiscardAndSwitch`）或 **Cancel**（`CancelPendingSwitch`）。
+- **干净切换项目与未保存修改提示**：从开始界面，或稍后通过 `File > Open Project...`（`mod+o`）、`File > New Project...`（`mod+n`）和 `File > Start Screen` 打开另一个项目时，会干净地替换当前项目、场景、动画片段、数据表、本地化工作区、骨骼绑定和撤销历史。只要当前会话存在未保存修改（`HasUnsavedChanges`），编辑器统一的未保存修改确认框就会先弹出，由用户选择 **Save**（`ConfirmSaveAndSwitch`）、**Discard**（`ConfirmDiscardAndSwitch`）或 **Cancel**（`CancelPendingSwitch`）。
 ## 3D LOD 与遮挡体可视化（#904）
 
 在 3D 视图（`View3D`）中，视口会运行与游戏运行时一致的 `scenemodel.Build` + `render3d.OcclusionBuffer` + `render3d.Queue` 评估流程（打开项目时自动使用 `scenemodel.NewAssets`，也可注入 `Editor.ModelResolver`）：
@@ -954,3 +954,18 @@ func main() {
 - **实时语言切换**：`Language` 支持 `LanguageSystem`（`"system"`）、`LanguageEnglish`（`"en"`）和 `LanguageChinese`（`"zh"`）。调用 `Editor.SetLanguage` 或在**编辑器设置**对话框（`EditorSettingsDialogView`，可通过工具栏的**偏好设置**按钮、`文件 > 编辑器设置…` 或 `mod+shift+,` 打开）中切换语言后，工具栏、桌面菜单栏、文件浏览器、资源浏览器、场景树、图层面板、检查器、底部面板、对话框、命令面板与状态栏都会立即切换，无需重启。`Editor.ResolvedLanguage()` 返回当前生效的语言（`"en"` 或 `"zh"`），并通过 `selection_get` 传递给连接的 MCP 智能体。
 - **外观（`core.Scope.SetAppearance`）**：`Appearance` 支持 `AppearanceSystem`（`"system"`）、`AppearanceLight`（`"light"`）和 `AppearanceDark`（`"dark"`）。`Editor.SetAppearance` 会立即通过 NSGo 的 `core.Scope.SetAppearance` 生效（即使系统为浅色也可保持深色，反之亦然），并在设置了 `Editor.SettingsPath` 时自动持久化，重启后保持不变。
 - **插件本地化**：插件可提供 `Catalog *l10n.Catalog` 或带版本号的 `LocaleYAML [][]byte` 字符串表（`RegisterPlugin` 会严格校验），并在面板、工具和命令上设置可选的 `TitleKey` / `LabelKey` / `DescriptionKey` / `CategoryKey`。在 `Panel.View` 和 `Inspector.View` 中，插件可调用 `Editor.PluginT(pluginName, key, args...)` 与 `Editor.PluginPlural(...)`，使插件界面实时跟随编辑器当前语言。
+
+## 2D 骨骼绑定编辑器（#886）
+
+编辑器通过视口下方的 `RigPanelView` 直接打开、编辑、预览、保存并在场景中放置版本 1 的 `.skel.yaml` 2D 骨骼文件（`game/skeletal`）：
+
+- **打开与无损往返**：在文件浏览器（`FilesView`）中选中 `*.skel.yaml` 或 `*.skel.yml` 文件后双击或点击 **Open Rig**（`OpenRigProjectFile`、`OpenRigFile`、`OpenRigYAML`），或通过 `NewRig` 创建新骨骼。打开已有骨骼后未做改动（或将所有编辑撤销回打开时的状态）直接保存会原封不动地写出原始字节（`SaveRigYAML`、`SaveRigFile`、`Editor.OnSaveRig`）；经过编辑的骨骼则通过 `skeletal.Encode` 以确定性规范 YAML 保存。
+- **交互式骨骼画布与手柄**：`DrawRigViewport` 通过运行时 `skeletal.Skeleton.Draw` 绘制附件，并在其上叠加骨骼层级和交互手柄：
+  - **骨骼平移手柄（`RigHandleBoneMove`）**：拖拽骨骼关节圆点，在绑定姿势下修改父骨骼局部坐标，或在选中动画时在当前播放头打下 `translate` 关键帧。
+  - **骨骼旋转手柄（`RigHandleBoneRotate`）**：拖拽骨骼周围的旋转环调整旋转角度（绑定姿势或当前动画的 `rotate` 关键帧）。
+  - **骨骼长度手柄（`RigHandleBoneLength`）**：拖拽骨骼末端的菱形手柄设置 `BoneData.Length`。
+  - **附件原点手柄（`RigHandleAttachmentOrigin`）**：拖拽选中插槽当前皮肤附件上的枢轴十字手柄，调整 `OriginX` 和 `OriginY`。
+  - 每次手柄拖拽（`BeginRigDrag`、`BeginRigHandleDrag`、`UpdateRigDrag`、`EndRigDrag`）作为单个可撤销步骤记入 `Editor.History`，`CancelRigDrag`（或在拖拽时按 `Escape`）会恢复拖拽前状态且不写历史。
+- **骨骼、插槽、皮肤与附件**：支持增删与重命名骨骼（`AddRigBone`、`RenameRigBone`、`DeleteRigBone`）、编辑变换与长度（`MoveRigBone`、`RotateRigBone`、`ScaleRigBone`、`SetRigBoneLength`）以及更改父骨骼（`ReparentRigBone`，支持保持绑定姿势世界变换并拒绝环路）；增删、重新绑定、设置透明度与重排绘制顺序插槽（`AddRigSlot`、`DeleteRigSlot`、`SetRigSlotBone`、`SetRigSlotAlpha`、`MoveRigSlotOrder`）；管理皮肤（`AddRigSkin`、`DeleteRigSkin`、`SelectRigSkin`）并将图集帧与枢轴原点挂接到插槽（`AttachRigFrame`、`SetRigAttachment`、`SetRigAttachmentOrigin`、`SetRigAttachmentTransform`、`RemoveRigAttachment`）。
+- **时间轴、播放与交叉淡入预览**：创建与编辑动画（`AddRigAnimation`、`DeleteRigAnimation`、`SelectRigAnimation`、`SetRigAnimationDuration`、`SetRigAnimationLoop`），在时间轴上为骨骼的 `translate`、`rotate`、`scale` 以及插槽的 `attachment`、`alpha` 打关键帧（`KeyRigBoneTranslate`、`KeyRigBoneRotate`、`KeyRigBoneScale`、`KeyRigSlotAttachment`、`KeyRigSlotAlpha`、`DeleteRigBoneKeyframe`、`DeleteRigSlotKeyframe`），并直接经由运行时 `skeletal.Skeleton`（`RigSkeleton`）进行拖动预览（`SeekRig`）、播放（`PlayRig`、`PauseRig`、`StopRig`、`StepRig`）与交叉淡入混合预览（`CrossfadeRig`、`RigBlending`）。
+- **在场景中放置骨骼**：点击 **Place in Scene**（`PlaceOpenRig`、`PlaceRig`）可将骨骼作为带有内置 `"skeletal"` 组件（`sceneformat.SkeletalComponent`，包含 `version: 1`、`rig`、`atlas`、`skin`、`animation`、`loop`）的对象放入场景。`sceneformat.Build` 通过 `SkeletonResolver` 或 `FileResolver`（`FSAssets`）加载骨骼文件并构建带有指定皮肤和动画的实时 `BuiltObject.Skeleton`，在 `BuiltScene.Draw` 与 2D 编辑器视口中按精确 Z 顺序绘制，并在 `BuiltScene.Update(dt)` 中推进动画播放。`refs.Scan` 会追踪 `components.skeletal.rig`（`refs.FieldSkeletalRig`），使 `MoveFile` 重命名骨骼文件时自动更新所有场景引用。
