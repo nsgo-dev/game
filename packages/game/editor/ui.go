@@ -11,6 +11,7 @@ import (
 
 // EditorView returns the root NSGo UI node for ed, composing:
 //   - Top toolbar (scene title, tool selector, Undo/Redo, Run/Stop Game, Play/Stop, Save)
+//   - Scene tree panel listing the layers and their nested objects (SceneTreeView)
 //   - Left Asset Browser panel, with the file browser below it while a project is open (FilesView)
 //   - Center interactive Canvas viewport
 //   - Tile palette right of the viewport while a tile tool is active in 2D (TilePaletteView)
@@ -90,9 +91,9 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 	}
 }
 
-// mainRow is the editor's middle row: the asset browser over the file browser, the library panel when the editor has a library, the left plugin dock, the viewport, the inspector and the right plugin dock.
+// mainRow is the editor's middle row: the scene tree, the asset browser over the file browser, the library panel when the editor has a library, the left plugin dock, the viewport, the inspector and the right plugin dock.
 func mainRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []core.Node {
-	row := []core.Node{core.View{
+	row := []core.Node{SceneTreeView(cx, ed, rev), core.View{
 		TestID: "editor-left",
 		Style:  core.Style{Width: core.Pt(224)},
 		Children: []core.Node{

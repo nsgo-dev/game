@@ -243,6 +243,9 @@ type Editor struct {
 	listeners    map[uint64]func()
 	// fetch is the library panel's fetch of a pack from a remote library under way, or nil.
 	fetch *packFetch
+	// hidden and locked are the objects the scene tree hides in the viewports or locks against picking (SetObjectHidden, SetObjectLocked); they belong to the session, not the scene file.
+	hidden map[string]bool
+	locked map[string]bool
 	// filesRev counts the changes the editor made to which files the open project holds, by opening it, moving files, saving a scene or clip, which may make a new file, and installing or removing packs; the file browser lists the files again when it changes.
 	filesRev uint64
 	// audioMixer holds the Audio Bus Mixer panel state and its live audition sound.Mixer.
@@ -506,6 +509,7 @@ func (e *Editor) openYAML(data []byte, file string) error {
 	e.SelectedID = ""
 	// Another scene opens at its own camera's view.
 	e.view2DFree = false
+	e.hidden, e.locked = nil, nil
 	// The loaded scene did not come from the current path, so a later Save must
 	// not overwrite the previously opened file with unrelated content.
 	e.FilePath = ""
@@ -660,23 +664,13 @@ func (e *Editor) SelectedObject() (*sceneformat.ObjectDoc, string) {
 	return obj, e.Doc.Layers[li].Name
 }
 
-// FindObject locates a top-level object by ID across all layers, returning it with its layer index and its index in that layer's Objects. A nested child is not found; it moves, duplicates and deletes with its top-level ancestor.
+// FindObject locates the object with ID id anywhere in the scene, nested children included, returning it with its layer index and its index among its siblings (the children of its parent, or its layer's top-level objects). It returns nil, -1, -1 when the open scene does not hold id, as for an object only an instanced or inherited scene adds.
 func (e *Editor) FindObject(id string) (*sceneformat.ObjectDoc, int, int) {
-	if e.Doc == nil || id == "" {
-		return nil, -1, -1
-	}
-	for li := range e.Doc.Layers {
-		layer := &e.Doc.Layers[li]
-		for oi := range layer.Objects {
-			if layer.Objects[oi].ID == id {
-				return &layer.Objects[oi], li, oi
-			}
-		}
-	}
-	return nil, -1, -1
+	loc := locateObject(e.Doc, id)
+	return loc.obj, loc.layer, loc.index
 }
 
-// objectIDInUse reports whether any object in the scene, nested children included, has ID id. FindObject sees only top-level objects, so ID allocation and duplicate checks go through this instead. A scene that instances or inherits other scene files also holds the IDs they add, which only its resolved copy in e.Built shows, so that copy is searched too.
+// objectIDInUse reports whether any object in the scene, nested children included, has ID id. A scene that instances or inherits other scene files also holds the IDs they add, which only its resolved copy in e.Built shows, so that copy is searched too.
 func (e *Editor) objectIDInUse(id string) bool {
 	if e.Doc == nil {
 		return false
@@ -900,22 +894,25 @@ func (e *Editor) PlacePrefab(layerName, prefabName string, x, y float32) (string
 	})
 }
 
-// DeleteObject removes the object with ID id from the scene as an undoable command, together with the scene's connections from or to it, its descendants or the objects of scenes they instance; undoing it puts them back where they were.
+// DeleteObject removes the object with ID id, a top-level object or a nested child, from the scene as an undoable command, together with the scene's connections from or to it, its descendants or the objects of scenes they instance; undoing it puts them back where they were.
 func (e *Editor) DeleteObject(id string) error {
 	if e.playing {
 		return ErrPlaying
 	}
-	obj, li, oi := e.FindObject(id)
-	if obj == nil {
+	loc := locateObject(e.Doc, id)
+	if loc.obj == nil {
 		return fmt.Errorf("editor: object %q not found", id)
 	}
 	cmd := &deleteObjectCmd{
 		ed:           e,
-		layerName:    e.Doc.Layers[li].Name,
-		index:        oi,
-		obj:          cloneObjectDoc(*obj),
+		layerName:    e.Doc.Layers[loc.layer].Name,
+		index:        loc.index,
+		obj:          cloneObjectDoc(*loc.obj),
 		wasNilSlice:  false,
 		prevSelected: e.SelectedID,
+	}
+	if loc.parent != nil {
+		cmd.parent = loc.parent.ID
 	}
 	e.History.Execute(cmd)
 	return nil
@@ -1317,8 +1314,10 @@ func instancesScene(o *sceneformat.ObjectDoc) bool {
 }
 
 type deleteObjectCmd struct {
-	ed           *Editor
-	layerName    string
+	ed        *Editor
+	layerName string
+	// parent is the ID of the object whose child was deleted, or empty for a top-level object.
+	parent       string
 	index        int
 	obj          sceneformat.ObjectDoc
 	wasNilSlice  bool
@@ -1353,11 +1352,11 @@ func namesSubtree(id string, ids, instancing map[string]struct{}) bool {
 func (c *deleteObjectCmd) Label() string { return "Delete object " + c.obj.ID }
 
 func (c *deleteObjectCmd) Do() {
-	li := c.ed.layerIndex(c.layerName)
-	if li < 0 {
+	slot := siblingsAt(c.ed.Doc, c.layerName, c.parent)
+	if slot == nil {
 		return
 	}
-	objs := c.ed.Doc.Layers[li].Objects
+	objs := *slot
 	if c.index >= 0 && c.index < len(objs) && objs[c.index].ID == c.obj.ID {
 		objs = append(objs[:c.index], objs[c.index+1:]...)
 	} else {
@@ -1368,7 +1367,10 @@ func (c *deleteObjectCmd) Do() {
 			}
 		}
 	}
-	c.ed.Doc.Layers[li].Objects = objs
+	if len(objs) == 0 && c.parent != "" {
+		objs = nil
+	}
+	*slot = objs
 	ids := make(map[string]struct{})
 	instancing := make(map[string]struct{})
 	sceneformat.WalkObjects([]sceneformat.ObjectDoc{c.obj}, func(o, _ *sceneformat.ObjectDoc) bool {
@@ -1395,11 +1397,11 @@ func (c *deleteObjectCmd) Do() {
 }
 
 func (c *deleteObjectCmd) Undo() {
-	li := c.ed.layerIndex(c.layerName)
-	if li < 0 {
+	slot := siblingsAt(c.ed.Doc, c.layerName, c.parent)
+	if slot == nil {
 		return
 	}
-	objs := c.ed.Doc.Layers[li].Objects
+	objs := *slot
 	idx := c.index
 	if idx < 0 {
 		idx = 0
@@ -1410,7 +1412,7 @@ func (c *deleteObjectCmd) Undo() {
 	objs = append(objs, sceneformat.ObjectDoc{})
 	copy(objs[idx+1:], objs[idx:])
 	objs[idx] = cloneObjectDoc(c.obj)
-	c.ed.Doc.Layers[li].Objects = objs
+	*slot = objs
 	for _, rc := range c.conns {
 		at := min(rc.index, len(c.ed.Doc.Connections))
 		c.ed.Doc.Connections = slices.Insert(c.ed.Doc.Connections, at, rc.conn)

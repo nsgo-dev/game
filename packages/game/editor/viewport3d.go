@@ -200,35 +200,65 @@ func (c OrbitCamera3D) ScreenRay(sx, sy, w, h float32) (origin, dir [3]float32) 
 
 // Object3DRef identifies a scene object by its flat 3D index, layer/object indices, and ID.
 type Object3DRef struct {
-	Index       int
-	LayerIndex  int
+	Index      int
+	LayerIndex int
+	// ObjectIndex is the object's index among its siblings: the children of its parent, or its layer's top-level objects.
 	ObjectIndex int
 	ID          string
-	Doc         *sceneformat.ObjectDoc
+	// ParentID is the ID of the object's parent, or empty for a top-level object.
+	ParentID string
+	Doc      *sceneformat.ObjectDoc
 }
 
-// Objects3D returns the top-level objects of every layer in document order with sequential flat indices. Nested children are not listed: the 3D viewport neither draws nor picks them, though they move, delete and undo with their top-level object.
+// Objects3D returns the objects of every layer, nested children included, depth first in document order with each parent before its children, with sequential flat indices (Pick3D's).
 func (e *Editor) Objects3D() []Object3DRef {
 	if e == nil || e.Doc == nil {
 		return nil
 	}
 	var out []Object3DRef
-	idx := 0
 	for li := range e.Doc.Layers {
-		layer := &e.Doc.Layers[li]
-		for oi := range layer.Objects {
-			o := &layer.Objects[oi]
-			out = append(out, Object3DRef{
-				Index:       idx,
-				LayerIndex:  li,
-				ObjectIndex: oi,
-				ID:          o.ID,
-				Doc:         o,
-			})
-			idx++
+		var walk func(objs []sceneformat.ObjectDoc, parent string)
+		walk = func(objs []sceneformat.ObjectDoc, parent string) {
+			for oi := range objs {
+				o := &objs[oi]
+				out = append(out, Object3DRef{
+					Index:       len(out),
+					LayerIndex:  li,
+					ObjectIndex: oi,
+					ID:          o.ID,
+					ParentID:    parent,
+					Doc:         o,
+				})
+				walk(o.Children, o.ID)
+			}
 		}
+		walk(e.Doc.Layers[li].Objects, "")
 	}
 	return out
+}
+
+// parentWorld3D returns the 3D transform from the local space of the parent of the object id to world space, composed through its ancestors: the identity for a top-level object. While an animation clip is open the ancestors are posed as the clip poses them at the playhead, as the viewport draws them.
+func (e *Editor) parentWorld3D(id string) aff3 {
+	if e.clipScene != nil {
+		if bo := e.clipScene.Object(id); bo != nil {
+			var path []*sceneformat.ObjectDoc
+			for p := bo.Parent; p != nil; p = p.Parent {
+				path = append(path, p.Doc)
+			}
+			slices.Reverse(path)
+			return chain3(path)
+		}
+	}
+	path := objectPath(e.Doc, id)
+	if len(path) < 2 {
+		return ident3
+	}
+	return chain3(path[:len(path)-1])
+}
+
+// worldPosition3D returns where the origin of o, an object of the scene, sits in world space.
+func (e *Editor) worldPosition3D(o *sceneformat.ObjectDoc) [3]float32 {
+	return vec32(e.parentWorld3D(o.ID).point([3]float64{float64(o.X), float64(o.Y), float64(o.PosZ)}))
 }
 
 func (e *Editor) objectBaseExtents3D(o *sceneformat.ObjectDoc) (w, h, d float32) {
@@ -248,7 +278,7 @@ func (e *Editor) objectBaseExtents3D(o *sceneformat.ObjectDoc) (w, h, d float32)
 	return w, h, d
 }
 
-// ObjectCorners3D returns the 8 world-space corners of object o's oriented 3D bounding box.
+// ObjectCorners3D returns the 8 world-space corners of object o's oriented 3D bounding box. A nested child's box is placed by the transforms of its ancestors too.
 func (e *Editor) ObjectCorners3D(o *sceneformat.ObjectDoc) [8][3]float32 {
 	var corners [8][3]float32
 	if o == nil {
@@ -271,10 +301,14 @@ func (e *Editor) ObjectCorners3D(o *sceneformat.ObjectDoc) [8][3]float32 {
 	}
 	pos := [3]float64{float64(o.X), float64(o.Y), float64(o.PosZ)}
 	rx, ry, rz := float64(o.RotX), float64(o.RotY), float64(o.RotZ)
+	parent := e.parentWorld3D(o.ID)
 	for i, s := range signs {
 		local := [3]float64{s[0] * hx, s[1] * hy, s[2] * hz}
 		rot := rotateEulerXYZ64(local, rx, ry, rz)
 		wpt := add64(pos, rot)
+		if parent != ident3 {
+			wpt = parent.point(wpt)
+		}
 		corners[i] = vec32(wpt)
 	}
 	return corners
@@ -311,7 +345,7 @@ func (e *Editor) ObjectAABB3D(o *sceneformat.ObjectDoc) (boxMin, boxMax [3]float
 }
 
 // Pick3D casts a perspective ray through viewport pixel (sx, sy) and intersects it against every
-// visible scene object's 3D AABB, returning the flat index of the closest hit object.
+// visible scene object's 3D AABB, nested children included, returning the flat index (Objects3D's) of the closest hit object. Objects hidden or locked in the editor (SetObjectHidden, SetObjectLocked), with their descendants, are passed over.
 func (e *Editor) Pick3D(sx, sy, w, h float32) (objectIndex int, ok bool) {
 	if e == nil || e.Doc == nil || w <= 0 || h <= 0 {
 		return -1, false
@@ -329,16 +363,24 @@ func (e *Editor) Pick3D(sx, sy, w, h float32) (objectIndex int, ok bool) {
 		// so they are neither drawn as 3D wireframes nor pickable in 3D; the
 		// flat index still advances for them to stay in step with Objects3D.
 		visible := layer.IsVisible() && layer.EffectiveSpace() != sceneformat.SpaceScreen
-		for oi := range layer.Objects {
-			if visible {
-				bmin, bmax := e.ObjectAABB3D(&layer.Objects[oi])
-				if t, hit := intersectRayAABB64(orig, dir, vec64(bmin), vec64(bmax)); hit && t < bestT {
-					bestT = t
-					bestIdx = idx
+		var walk func(objs []sceneformat.ObjectDoc, skip bool)
+		walk = func(objs []sceneformat.ObjectDoc, skip bool) {
+			for oi := range objs {
+				o := &objs[oi]
+				// A hidden or locked object takes its descendants with it.
+				skipped := skip || e.hidden[o.ID] || e.locked[o.ID]
+				if visible && !skipped {
+					bmin, bmax := e.ObjectAABB3D(o)
+					if t, hit := intersectRayAABB64(orig, dir, vec64(bmin), vec64(bmax)); hit && t < bestT {
+						bestT = t
+						bestIdx = idx
+					}
 				}
+				idx++
+				walk(o.Children, skipped)
 			}
-			idx++
 		}
+		walk(layer.Objects, false)
 	}
 	if bestIdx < 0 {
 		return -1, false
@@ -394,7 +436,7 @@ func (e *Editor) PickGizmo3D(sx, sy, w, h float32) GizmoAxis3D {
 	if obj == nil {
 		return Axis3DNone
 	}
-	origin := [3]float32{obj.X, obj.Y, obj.PosZ}
+	origin := e.worldPosition3D(obj)
 	gizmoLen := e.GizmoLength3D(origin)
 	axes := [3]GizmoAxis3D{Axis3DX, Axis3DY, Axis3DZ}
 
@@ -486,11 +528,14 @@ type drag3DState struct {
 	vpH            float32
 	gizmoLen       float32
 	startTransform Transform3D
-	startAxisT     float64
-	hasAxisT       bool
-	prevRingVec    [3]float64
-	hasRingVec     bool
-	accumAngle     float64
+	// startPos is where the object's origin sat in world space as the drag began, and parentInv maps world space to its parent's space, the identity for a top-level object.
+	startPos    [3]float64
+	parentInv   aff3
+	startAxisT  float64
+	hasAxisT    bool
+	prevRingVec [3]float64
+	hasRingVec  bool
+	accumAngle  float64
 }
 
 // ActiveGizmoAxis3D returns the currently dragged 3D gizmo axis, or Axis3DNone.
@@ -531,7 +576,12 @@ func (e *Editor) BeginGizmoDragAxis3D(axis GizmoAxis3D, sx, sy, w, h float32) bo
 	if obj == nil {
 		return false
 	}
-	pos := [3]float32{obj.X, obj.Y, obj.PosZ}
+	parentInv, ok := e.parentWorld3D(obj.ID).invert()
+	if !ok {
+		// A parent scaled to zero leaves no space to drag the object in.
+		return false
+	}
+	pos := e.worldPosition3D(obj)
 	gizmoLen := e.GizmoLength3D(pos)
 	st := drag3DState{
 		kind:           drag3DGizmo,
@@ -546,6 +596,8 @@ func (e *Editor) BeginGizmoDragAxis3D(axis GizmoAxis3D, sx, sy, w, h float32) bo
 		vpH:            h,
 		gizmoLen:       gizmoLen,
 		startTransform: captureTransform3D(obj),
+		startPos:       vec64(pos),
+		parentInv:      parentInv,
 	}
 
 	orig32, dir32 := e.Camera3D.ScreenRay(sx, sy, w, h)
@@ -588,7 +640,7 @@ func (e *Editor) UpdateGizmoDrag3D(sx, sy float32) {
 
 	st := &e.drag3D
 	w, h := st.vpW, st.vpH
-	startPos := [3]float64{float64(st.startTransform.X), float64(st.startTransform.Y), float64(st.startTransform.PosZ)}
+	startPos := st.startPos
 	axisDir := axisVector64(st.axis)
 	orig32, dir32 := e.Camera3D.ScreenRay(sx, sy, w, h)
 	orig := vec64(orig32)
@@ -597,9 +649,11 @@ func (e *Editor) UpdateGizmoDrag3D(sx, sy float32) {
 	switch st.mode {
 	case Gizmo3DTranslate:
 		delta := e.computeAxisDelta(st, startPos, axisDir, orig, dir, sx, sy)
-		obj.X = st.startTransform.X + float32(axisDir[0]*delta)
-		obj.Y = st.startTransform.Y + float32(axisDir[1]*delta)
-		obj.PosZ = st.startTransform.PosZ + float32(axisDir[2]*delta)
+		// The drag runs along a world axis; a nested child's position is in its parent's space.
+		local := st.parentInv.vector(scale64(axisDir, delta))
+		obj.X = st.startTransform.X + float32(local[0])
+		obj.Y = st.startTransform.Y + float32(local[1])
+		obj.PosZ = st.startTransform.PosZ + float32(local[2])
 
 	case Gizmo3DRotate:
 		angle := e.computeRotationAngle(st, startPos, axisDir, orig, dir, sx, sy)
@@ -968,22 +1022,32 @@ func (e *Editor) drawSceneObjects3D(d *core.Drawing, w, h float32) {
 		if !layer.IsVisible() || layer.EffectiveSpace() == sceneformat.SpaceScreen {
 			continue
 		}
-		for oi := range layer.Objects {
-			o := &layer.Objects[oi]
-			// While an animation clip is open, draw each object as the clip poses it at the playhead, as the 2D viewport does through ActiveScene.
-			if e.clipScene != nil {
-				if bo := e.clipScene.Object(o.ID); bo != nil && bo.Doc != nil {
-					o = bo.Doc
+		var walk func(objs []sceneformat.ObjectDoc)
+		walk = func(objs []sceneformat.ObjectDoc) {
+			for oi := range objs {
+				o := &objs[oi]
+				// A hidden object is not drawn, nor are its descendants.
+				if e.hidden[o.ID] {
+					continue
 				}
+				children := o.Children
+				// While an animation clip is open, draw each object as the clip poses it at the playhead, as the 2D viewport does through ActiveScene.
+				if e.clipScene != nil {
+					if bo := e.clipScene.Object(o.ID); bo != nil && bo.Doc != nil {
+						o = bo.Doc
+					}
+				}
+				rel := sub64(vec64(e.worldPosition3D(o)), eye)
+				depth := float32(dot64(rel, forward))
+				items = append(items, drawable3D{
+					obj:      o,
+					depth:    depth,
+					selected: o.ID == e.SelectedID,
+				})
+				walk(children)
 			}
-			rel := sub64([3]float64{float64(o.X), float64(o.Y), float64(o.PosZ)}, eye)
-			depth := float32(dot64(rel, forward))
-			items = append(items, drawable3D{
-				obj:      o,
-				depth:    depth,
-				selected: o.ID == e.SelectedID,
-			})
 		}
+		walk(layer.Objects)
 	}
 
 	// Sort back-to-front so nearer objects and the selected object draw last.
@@ -1022,7 +1086,7 @@ func (e *Editor) drawSceneObjects3D(d *core.Drawing, w, h float32) {
 		d.Restore()
 
 		if item.selected {
-			if cx, cy, _, vis := e.Camera3D.Project([3]float32{item.obj.X, item.obj.Y, item.obj.PosZ}, w, h); vis {
+			if cx, cy, _, vis := e.Camera3D.Project(e.worldPosition3D(item.obj), w, h); vis {
 				d.Save().SetFillColor(core.RGBA(0x38BDF8, 1)).BeginPath().Arc(cx, cy, 3, 0, float32(2*math.Pi), false).Fill().Restore()
 			}
 		}
@@ -1031,10 +1095,10 @@ func (e *Editor) drawSceneObjects3D(d *core.Drawing, w, h float32) {
 
 func (e *Editor) drawGizmo3D(d *core.Drawing, w, h float32) {
 	obj, _ := e.SelectedObject()
-	if obj == nil {
+	if obj == nil || pathFlagged(e.hidden, objectPath(e.Doc, obj.ID)) {
 		return
 	}
-	origin := [3]float32{obj.X, obj.Y, obj.PosZ}
+	origin := e.worldPosition3D(obj)
 	gizmoLen := e.GizmoLength3D(origin)
 	activeAxis := e.ActiveGizmoAxis3D()
 
