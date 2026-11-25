@@ -37,6 +37,38 @@ _ = ok
 
 使用 `astar.FindInto(dst, grid, start, goal)` 可把结果写入调用方提供的 `[]ai.Cell` 切片，实现每次寻路零堆分配。若项目尚未接入瓦片地图，可直接使用扁平切片网格 `NewBoolGrid` 或 `NewCostMap`。
 
+### 六边形与交错等距拓扑
+
+通过 `ai.TopologyFromTilemap(m)` 自动匹配任意 `tilemap.Tilemap` 的网格拓扑，或手动指定 `astar.Topology`（`TopologySquare`、`TopologySquare4`、`TopologySquare8`、`TopologyHexPointyOdd`、`TopologyHexPointyEven`、`TopologyHexFlatOdd`、`TopologyHexFlatEven`、`TopologyStaggeredYOdd`、`TopologyStaggeredYEven`、`TopologyStaggeredXOdd`、`TopologyStaggeredXEven`）：
+
+```go
+astar := ai.NewAStar()
+astar.Topology = ai.TopologyFromTilemap(hexMap)
+
+path, cost, ok := astar.Find(grid, ai.Cell{Col: 1, Row: 1}, ai.Cell{Col: 6, Row: 4})
+_, _, _ = path, cost, ok
+```
+
+- 六边形拓扑使用 6 邻接轴坐标与精确立方距离启发式，与 `tilemap.Tilemap.HexNeighbors` 和 `HexDistance` 完全一致。
+- 交错等距拓扑将偏移坐标映射回底层菱形晶格（默认 4 向沿边移动；将 `Diagonal` 设为 `true` 时开放受 `NoCornerCutting` 约束的 8 向顶点对角移动）。
+- 当移动代价同时取决于起点与终点（例如高度差、渡河或控制区惩罚）时，可实现 `EdgeCostGrid`（`EdgeCost(fromCol, fromRow, toCol, toRow) float64`）；返回负值、`NaN` 或无穷大表示禁止该边通行。
+- 可通过 `topo.Neighbors(c)`、`topo.NeighborsInto(dst, c)` 和 `topo.Distance(a, b)` 直接查询邻格与开阔地步距。
+
+### 移动范围查询
+
+战棋与战术游戏可用 Dijkstra 搜索计算从 `start` 在行动点预算内可到达的所有格子及其最小代价：
+
+```go
+reachable := astar.MovementRange(costMap, ai.Cell{Col: 2, Row: 2}, 4)
+for _, rc := range reachable {
+	// rc.Cell 可达，且最小移动代价 rc.Cost <= 4
+	_ = rc
+}
+```
+
+- 返回结果顺序完全确定：按 `Cost` 升序排列，同代价按行主序索引打破平局。
+- 使用 `astar.MovementRangeInto(dst, grid, start, budget)` 可复用切片实现零堆分配；使用 `astar.MovementRangeWithCost(dst, grid, start, budget, edgeCost)` 或便捷函数 `ai.ReachableCells(grid, topo, start, budget, edgeCost)` 可传入自定义 `func(from, to ai.Cell) float64` 边代价回调（支持小于 1 的道路减耗及负值禁行边）。
+
 ## 带漏斗平滑的 2D NavMesh
 
 对于开放式竞技场或非网格地形，可用凸多边形构建 `NavMesh`。`BuildNavMesh` 会自动统一绕序、沿共享边（含部分共线重叠）连接相邻多边形；`FindPath` 通过门户图 A* 加上 Simple Stupid Funnel Algorithm 拉直路径：

@@ -37,6 +37,38 @@ _ = ok
 
 Use `astar.FindInto(dst, grid, start, goal)` to reuse a caller-owned `[]ai.Cell` buffer with zero allocations per search. `NewBoolGrid` and `NewCostMap` provide flat-slice grids when you do not already have a tilemap.
 
+### Hexagonal and staggered topologies
+
+Set `astar.Topology` to match any `tilemap.Tilemap` orientation via `ai.TopologyFromTilemap(m)` or pick a topology explicitly (`TopologySquare`, `TopologySquare4`, `TopologySquare8`, `TopologyHexPointyOdd`, `TopologyHexPointyEven`, `TopologyHexFlatOdd`, `TopologyHexFlatEven`, `TopologyStaggeredYOdd`, `TopologyStaggeredYEven`, `TopologyStaggeredXOdd`, `TopologyStaggeredXEven`):
+
+```go
+astar := ai.NewAStar()
+astar.Topology = ai.TopologyFromTilemap(hexMap)
+
+path, cost, ok := astar.Find(grid, ai.Cell{Col: 1, Row: 1}, ai.Cell{Col: 6, Row: 4})
+_, _, _ = path, cost, ok
+```
+
+- Hexagonal topologies use 6-way axial adjacency and exact cube-distance heuristics matching `tilemap.Tilemap.HexNeighbors` and `HexDistance`.
+- Staggered isometric topologies map offset coordinates onto the underlying diamond lattice (`4-way` edge moves by default; set `Diagonal = true` for `8-way` vertex-diagonal moves with `NoCornerCutting`).
+- Implement `EdgeCostGrid` (`EdgeCost(fromCol, fromRow, toCol, toRow) float64`) when transition costs depend on both source and destination cells (elevation steps, rivers, or zone of control); negative, `NaN`, or infinite values forbid an edge.
+- Inspect a topology directly with `topo.Neighbors(c)`, `topo.NeighborsInto(dst, c)`, and `topo.Distance(a, b)`.
+
+### Movement-range queries
+
+For tactics games, compute every cell reachable from `start` within a movement-point budget using Dijkstra search under `astar.Topology`:
+
+```go
+reachable := astar.MovementRange(costMap, ai.Cell{Col: 2, Row: 2}, 4)
+for _, rc := range reachable {
+	// rc.Cell is reachable at minimum cost rc.Cost <= 4
+	_ = rc
+}
+```
+
+- Results are returned in deterministic order: ascending `Cost`, then row-major cell index.
+- Use `astar.MovementRangeInto(dst, grid, start, budget)` for zero-allocation buffer reuse, or `astar.MovementRangeWithCost(dst, grid, start, budget, edgeCost)` / `ai.ReachableCells(grid, topo, start, budget, edgeCost)` to supply a custom `func(from, to ai.Cell) float64` callback (supporting sub-unit road costs as well as negative blocked edges).
+
 ## 2D NavMesh with funnel smoothing
 
 For open arenas or non-grid worlds, build a `NavMesh` from convex 2D polygons. `BuildNavMesh` normalizes polygon winding, automatically connects adjacent polygons along shared edges (including partial collinear overlaps), and `FindPath` runs portal-graph A* followed by Simple Stupid Funnel Algorithm string-pulling:

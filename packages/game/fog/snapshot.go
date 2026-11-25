@@ -6,7 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"strings"
+
+	"github.com/nsgo-dev/game/packages/game/tilemap"
 )
 
 // FormatVersion is the snapshot schema version MarshalJSON writes and the newest UnmarshalJSON reads.
@@ -26,15 +29,19 @@ const (
 
 // snapshot is the JSON text form of a Fog. Grids are rows of '.' and '#', one string per grid row, so a person reading a save sees each team's explored map.
 type snapshot struct {
-	Version    int          `json:"version"`
-	Width      int          `json:"width"`
-	Height     int          `json:"height"`
-	TileWidth  float32      `json:"tileWidth"`
-	TileHeight float32      `json:"tileHeight"`
-	Opaque     []string     `json:"opaque,omitempty"`
-	NextSource SourceID     `json:"nextSource"`
-	Sources    []sourceJSON `json:"sources,omitempty"`
-	Teams      []teamJSON   `json:"teams,omitempty"`
+	Version       int          `json:"version"`
+	Width         int          `json:"width"`
+	Height        int          `json:"height"`
+	TileWidth     float32      `json:"tileWidth"`
+	TileHeight    float32      `json:"tileHeight"`
+	Orientation   string       `json:"orientation,omitempty"`
+	StaggerAxis   string       `json:"staggerAxis,omitempty"`
+	StaggerIndex  string       `json:"staggerIndex,omitempty"`
+	HexSideLength float32      `json:"hexSideLength,omitempty"`
+	Opaque        []string     `json:"opaque,omitempty"`
+	NextSource    SourceID     `json:"nextSource"`
+	Sources       []sourceJSON `json:"sources,omitempty"`
+	Teams         []teamJSON   `json:"teams,omitempty"`
 }
 
 type sourceJSON struct {
@@ -63,6 +70,21 @@ func (f Fog) MarshalJSON() ([]byte, error) {
 		TileWidth:  f.TileWidth,
 		TileHeight: f.TileHeight,
 		NextSource: f.nextID,
+	}
+	switch f.Orientation {
+	case tilemap.OrientationIsometric:
+		s.Orientation = "isometric"
+	case tilemap.OrientationStaggered:
+		s.Orientation = "staggered"
+		s.StaggerAxis = staggerAxisString(f.StaggerAxis)
+		s.StaggerIndex = staggerIndexString(f.StaggerIndex)
+	case tilemap.OrientationHexagonal:
+		s.Orientation = "hexagonal"
+		s.StaggerAxis = staggerAxisString(f.StaggerAxis)
+		s.StaggerIndex = staggerIndexString(f.StaggerIndex)
+		if f.HexSideLength > 0 {
+			s.HexSideLength = f.HexSideLength
+		}
 	}
 	if f.opaqueCount > 0 {
 		s.Opaque = f.rows(f.opaque)
@@ -142,7 +164,26 @@ func (f *Fog) UnmarshalJSON(data []byte) error {
 	if !validSize(s.Width, s.Height) {
 		return fmt.Errorf("%w: grid size %dx%d", ErrInvalidSnapshot, s.Width, s.Height)
 	}
+	orient, err := parseOrientation(s.Orientation)
+	if err != nil {
+		return err
+	}
+	axis, err := parseStaggerAxis(s.StaggerAxis)
+	if err != nil {
+		return err
+	}
+	index, err := parseStaggerIndex(s.StaggerIndex)
+	if err != nil {
+		return err
+	}
+	if s.HexSideLength < 0 || math.IsNaN(float64(s.HexSideLength)) || math.IsInf(float64(s.HexSideLength), 0) {
+		return fmt.Errorf("%w: invalid hexSideLength %v", ErrInvalidSnapshot, s.HexSideLength)
+	}
 	n := New(s.Width, s.Height, s.TileWidth, s.TileHeight)
+	n.Orientation = orient
+	n.StaggerAxis = axis
+	n.StaggerIndex = index
+	n.HexSideLength = s.HexSideLength
 	if s.Opaque != nil {
 		count, err := n.parseRows(s.Opaque, n.opaque, "opaque")
 		if err != nil {
@@ -179,4 +220,55 @@ func (f *Fog) UnmarshalJSON(data []byte) error {
 	}
 	*f = *n
 	return nil
+}
+
+func staggerAxisString(a tilemap.StaggerAxis) string {
+	if a == tilemap.StaggerX {
+		return "x"
+	}
+	return "y"
+}
+
+func staggerIndexString(i tilemap.StaggerIndex) string {
+	if i == tilemap.StaggerEven {
+		return "even"
+	}
+	return "odd"
+}
+
+func parseOrientation(s string) (tilemap.Orientation, error) {
+	switch s {
+	case "", "orthogonal":
+		return tilemap.OrientationOrthogonal, nil
+	case "isometric":
+		return tilemap.OrientationIsometric, nil
+	case "staggered":
+		return tilemap.OrientationStaggered, nil
+	case "hexagonal":
+		return tilemap.OrientationHexagonal, nil
+	default:
+		return 0, fmt.Errorf("%w: unknown orientation %q", ErrInvalidSnapshot, s)
+	}
+}
+
+func parseStaggerAxis(s string) (tilemap.StaggerAxis, error) {
+	switch s {
+	case "", "y":
+		return tilemap.StaggerY, nil
+	case "x":
+		return tilemap.StaggerX, nil
+	default:
+		return 0, fmt.Errorf("%w: unknown staggerAxis %q", ErrInvalidSnapshot, s)
+	}
+}
+
+func parseStaggerIndex(s string) (tilemap.StaggerIndex, error) {
+	switch s {
+	case "", "odd":
+		return tilemap.StaggerOdd, nil
+	case "even":
+		return tilemap.StaggerEven, nil
+	default:
+		return 0, fmt.Errorf("%w: unknown staggerIndex %q", ErrInvalidSnapshot, s)
+	}
 }

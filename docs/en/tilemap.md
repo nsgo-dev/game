@@ -131,3 +131,12 @@ if hit, ok := m.Raycast(enemyEye, playerPos, tilemap.TileSolid); ok {
 	_ = hit
 }
 ```
+
+## Isometric, staggered, and hexagonal maps
+
+Set `Orientation` (`OrientationOrthogonal`, `OrientationIsometric`, `OrientationStaggered`, or `OrientationHexagonal`) together with `StaggerAxis` (`StaggerY` / `StaggerX`), `StaggerIndex` (`StaggerOdd` / `StaggerEven`), and `HexSideLength` to project and draw diamond isometric, staggered isometric, and pointy-top or flat-top hexagonal maps:
+
+- `TileOrigin(col, row)` and `TileToWorld(col, row)` return each cell's bounding-box origin and center in world coordinates, and `WorldToTile(p)` round-trips any interior world point back to `(col, row)`.
+- `HexNeighbors(col, row)` and `HexDistance(c1, r1, c2, r2)` compute exact 6-neighbor adjacency and cube distance for both stagger axes and indices.
+- For pathfinding and tactics movement ranges on these projections, pass `ai.TopologyFromTilemap(m)` to [`game/ai`](ai.md#hexagonal-and-staggered-topologies) (`AStar.Topology`, `AStar.MovementRange`, `ReachableCells`).
+- For line-of-sight visibility and tile-aligned fog rendering over isometric, staggered, and hex maps, build a [`game/fog`](fog.md) with `fog.NewFromTilemap(m, tilemap.TileSolid)`.
