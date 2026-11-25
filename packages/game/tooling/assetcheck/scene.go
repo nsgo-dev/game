@@ -472,7 +472,7 @@ func (s *sceneCheck) tilemap(tm *sceneformat.TilemapDoc, steps ...string) {
 				}
 			}
 		}
-	case tm.IsLayered():
+	case tm.HasTilesetFile() || tm.IsLayered():
 		p, ok := s.fileRef(s.path, s.line(append(steps, "tilesetFile")...), s.project, tm.TilesetFile, "tileset file")
 		if !ok {
 			return
@@ -482,18 +482,29 @@ func (s *sceneCheck) tilemap(tm *sceneformat.TilemapDoc, steps ...string) {
 			return
 		}
 		count := uint32(doc.Count())
-		for i := range tm.TileLayers {
-			l := &tm.TileLayers[i]
-			for r, row := range l.Rows {
-				// The scene validates, so every row parses.
-				cells, _ := sceneformat.ParseTileRow(row)
-				for col, cell := range cells {
-					if id := cell & tilemap.TileIDMask; id > count {
-						s.problem(s.path, s.line(append(steps, "tileLayers", strconv.Itoa(i), "rows", strconv.Itoa(r))...), "tile layer %q row %d column %d places tile %d, but tileset %q (%s) has %d tiles", l.Name, r, col, id-1, tm.TilesetFile, p, count)
-						break
+		if len(tm.TileLayers) > 0 {
+			for i := range tm.TileLayers {
+				l := &tm.TileLayers[i]
+				for r, row := range l.Rows {
+					// The scene validates, so every row parses.
+					cells, _ := sceneformat.ParseTileRow(row)
+					for col, cell := range cells {
+						if id := cell & tilemap.TileIDMask; id > count {
+							s.problem(s.path, s.line(append(steps, "tileLayers", strconv.Itoa(i), "rows", strconv.Itoa(r))...), "tile layer %q row %d column %d places tile %d, but tileset %q (%s) has %d tiles", l.Name, r, col, id-1, tm.TilesetFile, p, count)
+							break
+						}
 					}
 				}
 			}
+			return
+		}
+		reported := make(map[int]bool)
+		for i, gid := range tm.Data {
+			if gid <= 0 || uint32(gid) <= count || reported[gid] {
+				continue
+			}
+			reported[gid] = true
+			s.problem(s.path, s.line(append(steps, "data", strconv.Itoa(i))...), "tile %d is outside tileset %q (%s), which has %d tiles", gid, tm.TilesetFile, p, count)
 		}
 	case tm.IsInline():
 		atlas := s.findAtlas(s.path, s.line(append(steps, "tileset")...), s.project, tm.Tileset, "tileset atlas")

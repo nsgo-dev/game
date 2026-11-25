@@ -583,6 +583,14 @@ func (b *tilemapBuilder) build(bl *BuiltLayer, tm *TilemapDoc) (float32, float32
 		bl.Map = m
 		return float32(m.Width) * m.TileWidth, float32(m.Height) * m.TileHeight, nil
 	}
+	if resolved.HasTilesetFile() {
+		m, err := b.singleTileset(bl.Name, resolved)
+		if err != nil {
+			return 0, 0, err
+		}
+		bl.Map = m
+		return float32(m.Width) * m.TileWidth, float32(m.Height) * m.TileHeight, nil
+	}
 	batch, w, h, err := buildTilemapBatch(bl.Name, resolved, b.getAtlas)
 	if err != nil {
 		return 0, 0, err
@@ -711,6 +719,33 @@ func (b *tilemapBuilder) layered(layerName string, tm *TilemapDoc) (*tilemap.Til
 		tl.Opacity = l.EffectiveOpacity()
 		m.Layers = append(m.Layers, tl)
 	}
+	return m, nil
+}
+
+// singleTileset builds a single inline grid (Data) that names a YAML tileset (TilesetFile) in place of a sprite atlas into a tilemap.Tilemap with one layer named layerName.
+func (b *tilemapBuilder) singleTileset(layerName string, tm *TilemapDoc) (*tilemap.Tilemap, error) {
+	where := fmt.Sprintf("layer %q tilemap", layerName)
+	doc, err := b.tileset(where, tm.TilesetFile)
+	if err != nil {
+		return nil, err
+	}
+	m := tilemap.New(tm.Width, tm.Height, float32(tm.TileWidth), float32(tm.TileHeight))
+	assets := tilemap.TilesetAssets{Image: b.image, Atlas: b.getAtlas}
+	if _, err := m.AddTilesetDoc(doc, 1, assets); err != nil {
+		return nil, fmt.Errorf("sceneformat: %s tileset %q: %w", where, tm.TilesetFile, err)
+	}
+	count := doc.Count()
+	cells := make([]uint32, len(tm.Data))
+	for i, gid := range tm.Data {
+		if gid == 0 {
+			continue
+		}
+		if gid > count {
+			return nil, fmt.Errorf("sceneformat: %s row %d column %d places tile %d, but tileset %q has %d tiles", where, i/tm.Width, i%tm.Width, gid-1, tm.TilesetFile, count)
+		}
+		cells[i] = uint32(gid)
+	}
+	m.Layers = append(m.Layers, tilemap.NewTileLayer(layerName, tm.Width, tm.Height, cells))
 	return m, nil
 }
 

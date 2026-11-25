@@ -95,6 +95,8 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 							ed.report(ed.OpenStatesProjectFile(p))
 						case isCutsceneFile(p):
 							ed.report(ed.OpenCutsceneProjectFile(p))
+						case isTilesetFile(p):
+							ed.report(ed.OpenTilesetProjectFile(p))
 						case isTerrainFile(p):
 							ed.report(ed.OpenTerrainProjectFile(p))
 						case isParticleFilePath(p):
@@ -154,26 +156,29 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 									if ed.Playing() || p == "" || slices.ContainsFunc(files.Get().files, func(f ProjectFile) bool { return f.Path == p && f.Dir }) {
 										return true
 									}
-									if isMaterialFile(p) || isStatesFile(p) || isCutsceneFile(p) || isParticleFilePath(p) || isRoomsFile(p) || isScreenFile(p) {
+									if isMaterialFile(p) || isStatesFile(p) || isCutsceneFile(p) || isTilesetFile(p) || isParticleFilePath(p) || isRoomsFile(p) || isScreenFile(p) {
 										return false
 									}
 									return p == ed.ScenePath || !isProjectScene(ed.Project, p)
 								},
 								OnPress: func() {
 									if p := current.Get(); p != "" {
-										if isMaterialFile(p) {
+										switch {
+										case isMaterialFile(p):
 											ed.report(ed.OpenMaterialProjectFile(p))
-										} else if isStatesFile(p) {
+										case isStatesFile(p):
 											ed.report(ed.OpenStatesProjectFile(p))
-										} else if isCutsceneFile(p) {
+										case isCutsceneFile(p):
 											ed.report(ed.OpenCutsceneProjectFile(p))
-										} else if isParticleFilePath(p) {
+										case isTilesetFile(p):
+											ed.report(ed.OpenTilesetProjectFile(p))
+										case isParticleFilePath(p):
 											ed.report(ed.OpenParticleEmitterProjectFile(p))
-										} else if isRoomsFile(p) {
+										case isRoomsFile(p):
 											ed.report(ed.OpenRoomsProjectFile(p))
-										} else if isScreenFile(p) {
+										case isScreenFile(p):
 											ed.report(ed.OpenHUDScreen(p))
-										} else {
+										default:
 											ed.report(ed.OpenScene(p))
 										}
 									}

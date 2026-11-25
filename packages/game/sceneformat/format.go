@@ -408,12 +408,17 @@ func (t *TilemapDoc) IsExternal() bool { return t != nil && t.Source != "" }
 
 // IsInline reports whether t carries an inline tile grid, single or layered.
 func (t *TilemapDoc) IsInline() bool {
-	return t != nil && (t.TileWidth != 0 || t.TileHeight != 0 || t.Width != 0 || t.Height != 0 || t.Tileset != "" || len(t.Data) > 0 || t.IsLayered())
+	return t != nil && (t.TileWidth != 0 || t.TileHeight != 0 || t.Width != 0 || t.Height != 0 || t.Tileset != "" || len(t.Data) > 0 || t.HasTilesetFile() || t.IsLayered())
 }
 
-// IsLayered reports whether t is a layered grid, one that names a YAML tileset (TilesetFile) or holds tile layers (TileLayers).
+// HasTilesetFile reports whether t names a YAML tileset file (TilesetFile), either in a layered grid (TileLayers) or in place of a sprite atlas on a single inline grid (Data).
+func (t *TilemapDoc) HasTilesetFile() bool {
+	return t != nil && t.TilesetFile != ""
+}
+
+// IsLayered reports whether t is a layered grid, one that holds tile layers (TileLayers) or names a YAML tileset (TilesetFile) without flat Data.
 func (t *TilemapDoc) IsLayered() bool {
-	return t != nil && (t.TilesetFile != "" || len(t.TileLayers) > 0)
+	return t != nil && (len(t.TileLayers) > 0 || (t.TilesetFile != "" && len(t.Data) == 0))
 }
 
 // TileLayer returns the tile layer of a layered grid named name, or nil.
@@ -1316,7 +1321,14 @@ func validateInlineTilemap(path []string, where string, tm *TilemapDoc) error {
 	if tm.IsLayered() {
 		return validateLayeredTilemap(path, where, tm)
 	}
-	if tm.Tileset == "" {
+	if tm.TilesetFile != "" {
+		if tm.Tileset != "" {
+			return fieldErr(at(path, "tileset"), "sceneformat: %s cannot combine tileset and tilesetFile", where)
+		}
+		if !validFilePath(tm.TilesetFile) {
+			return fieldErr(at(path, "tilesetFile"), "sceneformat: %s tilesetFile %q must be a slash-separated path relative to the project root", where, tm.TilesetFile)
+		}
+	} else if tm.Tileset == "" {
 		return fieldErr(at(path, "tileset"), "sceneformat: %s requires a tileset name", where)
 	}
 	if tm.Width > maxTilesPerTilemap || tm.Height > maxTilesPerTilemap || int64(tm.Width)*int64(tm.Height) > maxTilesPerTilemap {

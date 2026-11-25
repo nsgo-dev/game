@@ -140,6 +140,10 @@
           "minimum": 0,
           "maximum": 9223372036854776000
         },
+        "name": {
+          "description": "Name is an optional human-readable name for the tile, such as \"stone\" or \"moss\".",
+          "type": "string"
+        },
         "solid": {
           "description": "Solid sets TileSolid on the tile, so collision queries and tileshape treat its cells as blocked.",
           "type": "boolean"
@@ -153,6 +157,11 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 4294967295
+        },
+        "weight": {
+          "description": "Weight is the tile's optional relative selection weight for random and variant brushes (>= 0; omitted defaults to 1).",
+          "type": "number",
+          "minimum": 0
         },
         "properties": {
           "description": "Properties are the tile's custom properties, each a bool, an integer, a number or a string, as Tilemap.TileProperties returns them.",

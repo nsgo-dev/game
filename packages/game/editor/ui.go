@@ -74,6 +74,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 		ed.stopRigLoop()
 		ed.stopCutsceneLoop()
 		ed.closeModelPreview()
+		ed.stopTileAnimLoop()
 		ed.cleanupAudioMixerScope(cx)
 		ed.stopExportBuild()
 		ed.stopAssetsBuild()
@@ -313,6 +314,24 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 		}
 	}
 
+	toolIconBtn := func(testID string, icon func() *core.SVG, label string, tool Tool) core.Node {
+		return ui.ToggleButton{
+			TestID:   testID,
+			Icon:     icon,
+			Label:    label,
+			Disabled: notPlaying,
+			On: func() bool {
+				_ = rev.Get()
+				return ed.Tool == tool
+			},
+			OnChange: func(on bool) {
+				if on {
+					ed.SetTool(tool)
+				}
+			},
+		}
+	}
+
 	viewModeBtn := func(testID, label string, mode ViewMode) core.Node {
 		return ui.ToggleButton{
 			TestID: testID,
@@ -457,8 +476,8 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 									toolBtn("tool-place", ed.T("toolbar.place"), ToolPlace),
 									toolBtn("tool-paint", ed.T("toolbar.paint"), ToolPaintTile),
 									toolBtn("tool-erase", ed.T("toolbar.erase"), ToolEraseTile),
-									toolBtn("tool-fill", ed.T("toolbar.fill"), ToolFillTile),
-									toolBtn("tool-pick", ed.T("toolbar.pick"), ToolPickTile),
+									toolIconBtn("tool-fill", lucide.PaintBucket, ed.T("toolbar.fill"), ToolFillTile),
+									toolIconBtn("tool-pick", lucide.Pipette, ed.T("toolbar.pick"), ToolPickTile),
 									toolBtn("tool-terrain", ed.T("toolbar.terrain"), ToolTerrain),
 								},
 							}
@@ -951,6 +970,7 @@ func view2DToolsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], playi
 			Icon:     icon,
 			Label:    label,
 			Size:     ui.SizeSmall,
+			Side:     28,
 			Variant:  ui.ButtonGhost,
 			Disabled: playing,
 			OnPress:  fn,

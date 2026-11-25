@@ -734,11 +734,12 @@ func (e *Editor) physicsResolver() sceneformat.AssetResolver {
 		fsys = os.DirFS(filepath.Dir(e.ProjectPath))
 	}
 	assets := e.modelAssets3D()
-	if e.Resolver == nil && fsys == nil && assets.files == nil {
+	resolver := e.liveResolver()
+	if resolver == nil && fsys == nil && assets.files == nil {
 		return nil
 	}
 	return physicsAssetResolver{
-		resolver: e.Resolver,
+		resolver: resolver,
 		assets:   assets,
 		fsys:     fsys,
 	}
