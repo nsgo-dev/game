@@ -1,9 +1,0 @@
----
-import Home from '../../components/Home.astro';
-import { NON_DEFAULT_LANGS } from '../../locales.ts';
-
-export const getStaticPaths = () => NON_DEFAULT_LANGS.map((lang) => ({ params: { lang } }));
-const { lang } = Astro.params as { lang: (typeof NON_DEFAULT_LANGS)[number] };
----
-
-<Home lang={lang} />
