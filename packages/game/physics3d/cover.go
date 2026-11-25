@@ -95,7 +95,30 @@ func GenerateCoverPointsFromBodies(bodies []*Body, opts CoverOptions) []ai.Cover
 		shape Shape
 	}
 	active := make([]worldBody, 0, len(bodies))
+	var appendShape func(b *Body, s Shape)
+	appendShape = func(b *Body, s Shape) {
+		if s.Kind == ShapeCompound {
+			for _, child := range s.Children {
+				if child.Trigger || (child.EffectiveLayer(b.Layer)&layerMask) == 0 {
+					continue
+				}
+				appendShape(b, child.LocalShape())
+			}
+			return
+		}
+		active = append(active, worldBody{body: b, shape: s})
+	}
 	for _, b := range bodies {
+		if b == nil || b.IsTrigger {
+			continue
+		}
+		if !opts.IncludeDynamic && !b.Static {
+			continue
+		}
+		if b.Shape.Kind == ShapeCompound {
+			appendShape(b, b.WorldShape())
+			continue
+		}
 		if bodyMatches(b) {
 			active = append(active, worldBody{body: b, shape: b.WorldShape()})
 		}

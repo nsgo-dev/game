@@ -62,22 +62,32 @@ const (
 // BodyA and BodyB (canonicalized so BodyA.ID <= BodyB.ID).
 //
 // Normal points from BodyB toward BodyA (matching TestShapes(BodyA, BodyB)).
+// ChildIndexA and ChildIndexB report the zero-based compound child indices on
+// BodyA and BodyB, or -1 for non-compound bodies.
 type ContactEvent struct {
-	Kind      ContactEventKind
-	BodyA     *Body
-	BodyB     *Body
-	Point     Vec3
-	Normal    Vec3
-	Depth     float32
-	IsTrigger bool
+	Kind        ContactEventKind
+	BodyA       *Body
+	BodyB       *Body
+	ChildIndexA int
+	ChildIndexB int
+	Point       Vec3
+	Normal      Vec3
+	Depth       float32
+	IsTrigger   bool
 }
 
 type activeContactRecord struct {
-	a, b      *Body
-	point     Vec3
-	normal    Vec3
-	depth     float32
-	isTrigger bool
+	a, b           *Body
+	childA, childB int
+	point          Vec3
+	normal         Vec3
+	depth          float32
+	isTrigger      bool
+}
+
+type contactKey struct {
+	a, b           int
+	childA, childB int
 }
 
 func canonicalPairKey(idA, idB int) (pairKey, bool) {
@@ -87,11 +97,31 @@ func canonicalPairKey(idA, idB int) (pairKey, bool) {
 	return pairKey{a: idB, b: idA}, true
 }
 
+func canonicalContactKey(idA, childA, idB, childB int) (contactKey, bool) {
+	if idA < idB || (idA == idB && childA <= childB) {
+		return contactKey{a: idA, b: idB, childA: childA, childB: childB}, false
+	}
+	return contactKey{a: idB, b: idA, childA: childB, childB: childA}, true
+}
+
 func comparePairKeys(x, y pairKey) int {
 	if c := cmp.Compare(x.a, y.a); c != 0 {
 		return c
 	}
 	return cmp.Compare(x.b, y.b)
+}
+
+func compareContactKeys(x, y contactKey) int {
+	if c := cmp.Compare(x.a, y.a); c != 0 {
+		return c
+	}
+	if c := cmp.Compare(x.b, y.b); c != 0 {
+		return c
+	}
+	if c := cmp.Compare(x.childA, y.childA); c != 0 {
+		return c
+	}
+	return cmp.Compare(x.childB, y.childB)
 }
 
 func hitTieOrder(h RaycastHit) (int, int) {
@@ -119,12 +149,17 @@ func compareRaycastHits(a, b RaycastHit) int {
 	if c := cmp.Compare(ak, bk); c != 0 {
 		return c
 	}
-	return cmp.Compare(aid, bid)
+	if c := cmp.Compare(aid, bid); c != 0 {
+		return c
+	}
+	return cmp.Compare(a.ChildIndex, b.ChildIndex)
 }
 
 // RaycastLayer casts a segment from from to to against all bodies, triangle
 // meshes, heightfields, and voxel colliders whose Layer matches mask, returning
 // hits sorted by ascending T in [0, 1] with deterministic tie-breaking.
+// For compound bodies, every child matching mask is tested and reported with
+// its zero-based ChildIndex.
 func (w *World) RaycastLayer(from, to Vec3, mask LayerMask) []RaycastHit {
 	delta := to.Sub(from)
 	maxDist := delta.Len()
@@ -144,11 +179,26 @@ func (w *World) RaycastLayer(from, to Vec3, mask LayerMask) []RaycastHit {
 		switch p.kind {
 		case bpKindBody:
 			b := p.body
+			if b.Shape.Kind == ShapeCompound {
+				ws := p.worldShape
+				for ci, c := range ws.Children {
+					if (c.EffectiveLayer(b.Layer) & mask) == 0 {
+						continue
+					}
+					if h, hit := RaycastShape(ray, c.LocalShape()); hit {
+						h.Body = b
+						h.ChildIndex = ci
+						hits = append(hits, h)
+					}
+				}
+				return curMax, true
+			}
 			if (effectiveLayer(b.Layer) & mask) == 0 {
 				return curMax, true
 			}
 			if h, hit := RaycastShape(ray, p.worldShape); hit {
 				h.Body = b
+				h.ChildIndex = -1
 				hits = append(hits, h)
 			}
 		case bpKindTriMesh:
@@ -158,6 +208,7 @@ func (w *World) RaycastLayer(from, to Vec3, mask LayerMask) []RaycastHit {
 			}
 			if h, hit := tm.Raycast(ray); hit {
 				h.TriMesh = tm
+				h.ChildIndex = -1
 				hits = append(hits, h)
 			}
 		case bpKindHeightfield:
@@ -167,6 +218,7 @@ func (w *World) RaycastLayer(from, to Vec3, mask LayerMask) []RaycastHit {
 			}
 			if h, hit := hf.Raycast(ray); hit {
 				h.Heightfield = hf
+				h.ChildIndex = -1
 				hits = append(hits, h)
 			}
 		}
@@ -178,6 +230,7 @@ func (w *World) RaycastLayer(from, to Vec3, mask LayerMask) []RaycastHit {
 		}
 		if h, hit := vc.Raycast(ray); hit {
 			h.Voxel = vc
+			h.ChildIndex = -1
 			hits = append(hits, h)
 		}
 	}
@@ -187,7 +240,7 @@ func (w *World) RaycastLayer(from, to Vec3, mask LayerMask) []RaycastHit {
 
 // RaycastFirstLayer casts a segment from from to to against all bodies, triangle
 // meshes, heightfields, and voxel colliders whose Layer matches mask, returning
-// the closest hit.
+// the closest hit. For compound bodies, ChildIndex reports the struck child.
 func (w *World) RaycastFirstLayer(from, to Vec3, mask LayerMask) (RaycastHit, bool) {
 	delta := to.Sub(from)
 	maxDist := delta.Len()
@@ -215,11 +268,30 @@ func (w *World) RaycastFirstLayer(from, to Vec3, mask LayerMask) (RaycastHit, bo
 		switch p.kind {
 		case bpKindBody:
 			b := p.body
+			if b.Shape.Kind == ShapeCompound {
+				ws := p.worldShape
+				for ci, c := range ws.Children {
+					if (c.EffectiveLayer(b.Layer) & mask) == 0 {
+						continue
+					}
+					if h, hit := RaycastShape(ray, c.LocalShape()); hit {
+						h.Body = b
+						h.ChildIndex = ci
+						consider(h)
+						next := best.Distance + max(float32(1e-5), float32(best.Distance*1e-6))
+						if next < curMax {
+							curMax = next
+						}
+					}
+				}
+				return curMax, true
+			}
 			if (effectiveLayer(b.Layer) & mask) == 0 {
 				return curMax, true
 			}
 			if h, hit := RaycastShape(ray, p.worldShape); hit {
 				h.Body = b
+				h.ChildIndex = -1
 				consider(h)
 				next := best.Distance + max(float32(1e-5), float32(best.Distance*1e-6))
 				if next < curMax {
@@ -233,6 +305,7 @@ func (w *World) RaycastFirstLayer(from, to Vec3, mask LayerMask) (RaycastHit, bo
 			}
 			if h, hit := tm.Raycast(ray); hit {
 				h.TriMesh = tm
+				h.ChildIndex = -1
 				consider(h)
 				next := best.Distance + max(float32(1e-5), float32(best.Distance*1e-6))
 				if next < curMax {
@@ -246,6 +319,7 @@ func (w *World) RaycastFirstLayer(from, to Vec3, mask LayerMask) (RaycastHit, bo
 			}
 			if h, hit := hf.Raycast(ray); hit {
 				h.Heightfield = hf
+				h.ChildIndex = -1
 				consider(h)
 				next := best.Distance + max(float32(1e-5), float32(best.Distance*1e-6))
 				if next < curMax {
@@ -255,13 +329,13 @@ func (w *World) RaycastFirstLayer(from, to Vec3, mask LayerMask) (RaycastHit, bo
 		}
 		return curMax, true
 	})
-
 	for _, vc := range w.voxels {
 		if (effectiveLayer(vc.Layer) & mask) == 0 {
 			continue
 		}
 		if h, hit := vc.Raycast(ray); hit {
 			h.Voxel = vc
+			h.ChildIndex = -1
 			consider(h)
 		}
 	}
@@ -271,6 +345,8 @@ func (w *World) RaycastFirstLayer(from, to Vec3, mask LayerMask) (RaycastHit, bo
 // OverlapLayer returns every body, triangle mesh, heightfield, and voxel
 // collider in w whose Layer matches mask and overlaps shape, in deterministic
 // insertion order. Each hit's Contact.Normal points from the collider toward shape.
+// For compound bodies, every overlapping child matching mask is reported in
+// ascending child-index order with its zero-based ChildIndex.
 func (w *World) OverlapLayer(shape Shape, mask LayerMask) []OverlapHit {
 	if mask == 0 {
 		return nil
@@ -280,6 +356,7 @@ func (w *World) OverlapLayer(shape Shape, mask LayerMask) []OverlapHit {
 	type orderedHit struct {
 		kind  bpKind
 		order int32
+		child int
 		hit   OverlapHit
 	}
 	var ordered []orderedHit
@@ -287,17 +364,39 @@ func (w *World) OverlapLayer(shape Shape, mask LayerMask) []OverlapHit {
 		switch p.kind {
 		case bpKindBody:
 			b := p.body
-			if (effectiveLayer(b.Layer) & mask) == 0 {
+			if !aabbOverlap(queryBounds, p.worldBounds) {
 				return true
 			}
-			if !aabbOverlap(queryBounds, p.worldBounds) {
+			if b.Shape.Kind == ShapeCompound {
+				ws := p.worldShape
+				for ci, c := range ws.Children {
+					if (c.EffectiveLayer(b.Layer) & mask) == 0 {
+						continue
+					}
+					cs := c.LocalShape()
+					if !aabbOverlap(queryBounds, cs.Bounds()) {
+						continue
+					}
+					if ct := TestShapes(shape, cs); ct.Hit {
+						ordered = append(ordered, orderedHit{
+							kind:  bpKindBody,
+							order: p.order,
+							child: ci,
+							hit:   OverlapHit{Body: b, ChildIndex: ci, Contact: ct},
+						})
+					}
+				}
+				return true
+			}
+			if (effectiveLayer(b.Layer) & mask) == 0 {
 				return true
 			}
 			if c := TestShapes(shape, p.worldShape); c.Hit {
 				ordered = append(ordered, orderedHit{
 					kind:  bpKindBody,
 					order: p.order,
-					hit:   OverlapHit{Body: b, Contact: c},
+					child: -1,
+					hit:   OverlapHit{Body: b, ChildIndex: -1, Contact: c},
 				})
 			}
 		case bpKindTriMesh:
@@ -312,7 +411,8 @@ func (w *World) OverlapLayer(shape Shape, mask LayerMask) []OverlapHit {
 				ordered = append(ordered, orderedHit{
 					kind:  bpKindTriMesh,
 					order: p.order,
-					hit:   OverlapHit{TriMesh: tm, Contact: c},
+					child: -1,
+					hit:   OverlapHit{TriMesh: tm, ChildIndex: -1, Contact: c},
 				})
 			}
 		case bpKindHeightfield:
@@ -327,7 +427,8 @@ func (w *World) OverlapLayer(shape Shape, mask LayerMask) []OverlapHit {
 				ordered = append(ordered, orderedHit{
 					kind:  bpKindHeightfield,
 					order: p.order,
-					hit:   OverlapHit{Heightfield: hf, Contact: c},
+					child: -1,
+					hit:   OverlapHit{Heightfield: hf, ChildIndex: -1, Contact: c},
 				})
 			}
 		}
@@ -338,7 +439,10 @@ func (w *World) OverlapLayer(shape Shape, mask LayerMask) []OverlapHit {
 			if a.kind != b.kind {
 				return cmp.Compare(a.kind, b.kind)
 			}
-			return cmp.Compare(a.order, b.order)
+			if a.order != b.order {
+				return cmp.Compare(a.order, b.order)
+			}
+			return cmp.Compare(a.child, b.child)
 		})
 	}
 	var hits []OverlapHit
@@ -353,7 +457,7 @@ func (w *World) OverlapLayer(shape Shape, mask LayerMask) []OverlapHit {
 			continue
 		}
 		if c := vc.TestShape(shape); c.Hit {
-			hits = append(hits, OverlapHit{Voxel: vc, Contact: c})
+			hits = append(hits, OverlapHit{Voxel: vc, ChildIndex: -1, Contact: c})
 		}
 	}
 	return hits
@@ -408,16 +512,16 @@ func (w *World) emitContactEvent(ev ContactEvent) {
 	}
 }
 
-func (w *World) reconcileContactEvents(current map[pairKey]activeContactRecord) {
+func (w *World) reconcileContactEvents(current map[contactKey]activeContactRecord) {
 	if w.activeContacts == nil {
-		w.activeContacts = make(map[pairKey]activeContactRecord)
+		w.activeContacts = make(map[contactKey]activeContactRecord)
 	}
 
 	curKeys := w.curKeysBuf[:0]
 	for k := range current {
 		curKeys = append(curKeys, k)
 	}
-	slices.SortFunc(curKeys, comparePairKeys)
+	slices.SortFunc(curKeys, compareContactKeys)
 	w.curKeysBuf = curKeys
 
 	exitKeys := w.exitKeysBuf[:0]
@@ -426,7 +530,7 @@ func (w *World) reconcileContactEvents(current map[pairKey]activeContactRecord) 
 			exitKeys = append(exitKeys, k)
 		}
 	}
-	slices.SortFunc(exitKeys, comparePairKeys)
+	slices.SortFunc(exitKeys, compareContactKeys)
 	w.exitKeysBuf = exitKeys
 
 	clear(w.contactEvents)
@@ -436,43 +540,51 @@ func (w *World) reconcileContactEvents(current map[pairKey]activeContactRecord) 
 		if prev, existed := w.activeContacts[k]; existed {
 			if prev.isTrigger != cur.isTrigger {
 				events = append(events, ContactEvent{
-					Kind:      ContactExit,
-					BodyA:     prev.a,
-					BodyB:     prev.b,
-					Point:     prev.point,
-					Normal:    prev.normal,
-					Depth:     0,
-					IsTrigger: prev.isTrigger,
+					Kind:        ContactExit,
+					BodyA:       prev.a,
+					BodyB:       prev.b,
+					ChildIndexA: prev.childA,
+					ChildIndexB: prev.childB,
+					Point:       prev.point,
+					Normal:      prev.normal,
+					Depth:       0,
+					IsTrigger:   prev.isTrigger,
 				})
 				events = append(events, ContactEvent{
-					Kind:      ContactEnter,
-					BodyA:     cur.a,
-					BodyB:     cur.b,
-					Point:     cur.point,
-					Normal:    cur.normal,
-					Depth:     cur.depth,
-					IsTrigger: cur.isTrigger,
+					Kind:        ContactEnter,
+					BodyA:       cur.a,
+					BodyB:       cur.b,
+					ChildIndexA: cur.childA,
+					ChildIndexB: cur.childB,
+					Point:       cur.point,
+					Normal:      cur.normal,
+					Depth:       cur.depth,
+					IsTrigger:   cur.isTrigger,
 				})
 			} else {
 				events = append(events, ContactEvent{
-					Kind:      ContactStay,
-					BodyA:     cur.a,
-					BodyB:     cur.b,
-					Point:     cur.point,
-					Normal:    cur.normal,
-					Depth:     cur.depth,
-					IsTrigger: cur.isTrigger,
+					Kind:        ContactStay,
+					BodyA:       cur.a,
+					BodyB:       cur.b,
+					ChildIndexA: cur.childA,
+					ChildIndexB: cur.childB,
+					Point:       cur.point,
+					Normal:      cur.normal,
+					Depth:       cur.depth,
+					IsTrigger:   cur.isTrigger,
 				})
 			}
 		} else {
 			events = append(events, ContactEvent{
-				Kind:      ContactEnter,
-				BodyA:     cur.a,
-				BodyB:     cur.b,
-				Point:     cur.point,
-				Normal:    cur.normal,
-				Depth:     cur.depth,
-				IsTrigger: cur.isTrigger,
+				Kind:        ContactEnter,
+				BodyA:       cur.a,
+				BodyB:       cur.b,
+				ChildIndexA: cur.childA,
+				ChildIndexB: cur.childB,
+				Point:       cur.point,
+				Normal:      cur.normal,
+				Depth:       cur.depth,
+				IsTrigger:   cur.isTrigger,
 			})
 		}
 	}
@@ -480,13 +592,15 @@ func (w *World) reconcileContactEvents(current map[pairKey]activeContactRecord) 
 	for _, k := range exitKeys {
 		prev := w.activeContacts[k]
 		events = append(events, ContactEvent{
-			Kind:      ContactExit,
-			BodyA:     prev.a,
-			BodyB:     prev.b,
-			Point:     prev.point,
-			Normal:    prev.normal,
-			Depth:     0,
-			IsTrigger: prev.isTrigger,
+			Kind:        ContactExit,
+			BodyA:       prev.a,
+			BodyB:       prev.b,
+			ChildIndexA: prev.childA,
+			ChildIndexB: prev.childB,
+			Point:       prev.point,
+			Normal:      prev.normal,
+			Depth:       0,
+			IsTrigger:   prev.isTrigger,
 		})
 	}
 
@@ -509,7 +623,7 @@ func (w *World) emitRemovedBodyExits(removedID int) {
 	if len(w.activeContacts) == 0 {
 		return
 	}
-	var exitKeys []pairKey
+	var exitKeys []contactKey
 	for k := range w.activeContacts {
 		if k.a == removedID || k.b == removedID {
 			exitKeys = append(exitKeys, k)
@@ -518,20 +632,22 @@ func (w *World) emitRemovedBodyExits(removedID int) {
 	if len(exitKeys) == 0 {
 		return
 	}
-	slices.SortFunc(exitKeys, comparePairKeys)
+	slices.SortFunc(exitKeys, compareContactKeys)
 
 	exits := make([]ContactEvent, 0, len(exitKeys))
 	for _, k := range exitKeys {
 		prev := w.activeContacts[k]
 		delete(w.activeContacts, k)
 		exits = append(exits, ContactEvent{
-			Kind:      ContactExit,
-			BodyA:     prev.a,
-			BodyB:     prev.b,
-			Point:     prev.point,
-			Normal:    prev.normal,
-			Depth:     0,
-			IsTrigger: prev.isTrigger,
+			Kind:        ContactExit,
+			BodyA:       prev.a,
+			BodyB:       prev.b,
+			ChildIndexA: prev.childA,
+			ChildIndexB: prev.childB,
+			Point:       prev.point,
+			Normal:      prev.normal,
+			Depth:       0,
+			IsTrigger:   prev.isTrigger,
 		})
 	}
 	w.contactEvents = append(w.contactEvents, exits...)

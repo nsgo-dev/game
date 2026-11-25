@@ -30,7 +30,8 @@ func (w *World) ShapeCast(shape Shape, origin Vec3, rot Quat, delta Vec3) (Rayca
 
 // ShapeCastAll sweeps shape placed at (origin, rot) along displacement delta against all bodies,
 // triangle meshes, heightfields, and voxel colliders in w, returning all hits (at most one
-// earliest hit per body or collider) sorted by ascending T with deterministic tie-breaking.
+// earliest hit per body or collider, or per matching child of a compound body with its
+// zero-based ChildIndex) sorted by ascending T with deterministic tie-breaking.
 func (w *World) ShapeCastAll(shape Shape, origin Vec3, rot Quat, delta Vec3) []RaycastHit {
 	return w.ShapeCastAllLayer(shape, origin, rot, delta, LayerAll, nil)
 }
@@ -93,6 +94,20 @@ func shapeValid(s Shape) bool {
 			isFiniteQuat(s.Rot)
 	case ShapeCapsule:
 		return isFiniteVec(s.Capsule.A) && isFiniteVec(s.Capsule.B) && isFinite32(s.Capsule.Radius) && s.Capsule.Radius > 0
+	case ShapeCompound:
+		if len(s.Children) == 0 {
+			return false
+		}
+		hasValid := false
+		for _, c := range s.Children {
+			if !isFiniteVec(c.Offset) || !isFiniteQuat(c.Rot) {
+				return false
+			}
+			if shapeValid(c.Shape) {
+				hasValid = true
+			}
+		}
+		return hasValid
 	default:
 		return false
 	}
@@ -125,15 +140,39 @@ func (w *World) shapeCastFirst(shape Shape, origin Vec3, rot Quat, delta Vec3, m
 		if ignoreTriggers && b.IsTrigger {
 			continue
 		}
+		target := b.WorldShape()
+		if b.Shape.Kind == ShapeCompound {
+			if !shapeValid(target) || !aabbOverlap(sweptBounds, target.Bounds()) {
+				continue
+			}
+			for ci, child := range target.Children {
+				if ignoreTriggers && child.Trigger {
+					continue
+				}
+				if (child.EffectiveLayer(b.Layer) & mask) == 0 {
+					continue
+				}
+				cs := child.LocalShape()
+				if !shapeValid(cs) || !aabbOverlap(sweptBounds, cs.Bounds()) {
+					continue
+				}
+				if h, ok := sweepShapeVsShapeOpt(ws, delta, cs, ignoreTriggers); ok {
+					h.Body = b
+					h.ChildIndex = ci
+					consider(h)
+				}
+			}
+			continue
+		}
 		if (effectiveLayer(b.Layer) & mask) == 0 {
 			continue
 		}
-		target := b.WorldShape()
 		if !shapeValid(target) || !aabbOverlap(sweptBounds, target.Bounds()) {
 			continue
 		}
 		if h, ok := sweepShapeVsShape3D(ws, delta, target); ok {
 			h.Body = b
+			h.ChildIndex = -1
 			consider(h)
 		}
 	}
@@ -147,6 +186,7 @@ func (w *World) shapeCastFirst(shape Shape, origin Vec3, rot Quat, delta Vec3, m
 		}
 		if h, ok := tm.ShapeCast(ws, delta); ok {
 			h.TriMesh = tm
+			h.ChildIndex = -1
 			consider(h)
 		}
 	}
@@ -160,6 +200,7 @@ func (w *World) shapeCastFirst(shape Shape, origin Vec3, rot Quat, delta Vec3, m
 		}
 		if h, ok := hf.ShapeCast(ws, delta); ok {
 			h.Heightfield = hf
+			h.ChildIndex = -1
 			consider(h)
 		}
 	}
@@ -169,6 +210,7 @@ func (w *World) shapeCastFirst(shape Shape, origin Vec3, rot Quat, delta Vec3, m
 			continue
 		}
 		if h, ok := vc.shapeCastHit(ws, delta); ok {
+			h.ChildIndex = -1
 			consider(h)
 		}
 	}
@@ -195,15 +237,39 @@ func (w *World) shapeCastAll(shape Shape, origin Vec3, rot Quat, delta Vec3, mas
 		if ignoreTriggers && b.IsTrigger {
 			continue
 		}
+		target := b.WorldShape()
+		if b.Shape.Kind == ShapeCompound {
+			if !shapeValid(target) || !aabbOverlap(sweptBounds, target.Bounds()) {
+				continue
+			}
+			for ci, child := range target.Children {
+				if ignoreTriggers && child.Trigger {
+					continue
+				}
+				if (child.EffectiveLayer(b.Layer) & mask) == 0 {
+					continue
+				}
+				cs := child.LocalShape()
+				if !shapeValid(cs) || !aabbOverlap(sweptBounds, cs.Bounds()) {
+					continue
+				}
+				if h, ok := sweepShapeVsShapeOpt(ws, delta, cs, ignoreTriggers); ok {
+					h.Body = b
+					h.ChildIndex = ci
+					hits = append(hits, h)
+				}
+			}
+			continue
+		}
 		if (effectiveLayer(b.Layer) & mask) == 0 {
 			continue
 		}
-		target := b.WorldShape()
 		if !shapeValid(target) || !aabbOverlap(sweptBounds, target.Bounds()) {
 			continue
 		}
 		if h, ok := sweepShapeVsShape3D(ws, delta, target); ok {
 			h.Body = b
+			h.ChildIndex = -1
 			hits = append(hits, h)
 		}
 	}
@@ -217,6 +283,7 @@ func (w *World) shapeCastAll(shape Shape, origin Vec3, rot Quat, delta Vec3, mas
 		}
 		if h, ok := tm.ShapeCast(ws, delta); ok {
 			h.TriMesh = tm
+			h.ChildIndex = -1
 			hits = append(hits, h)
 		}
 	}
@@ -230,6 +297,7 @@ func (w *World) shapeCastAll(shape Shape, origin Vec3, rot Quat, delta Vec3, mas
 		}
 		if h, ok := hf.ShapeCast(ws, delta); ok {
 			h.Heightfield = hf
+			h.ChildIndex = -1
 			hits = append(hits, h)
 		}
 	}
@@ -239,6 +307,7 @@ func (w *World) shapeCastAll(shape Shape, origin Vec3, rot Quat, delta Vec3, mas
 			continue
 		}
 		if h, ok := vc.shapeCastHit(ws, delta); ok {
+			h.ChildIndex = -1
 			hits = append(hits, h)
 		}
 	}
@@ -251,14 +320,35 @@ func (vc *VoxelCollider) shapeCastHit(shape Shape, delta Vec3) (RaycastHit, bool
 	if !vc.valid() || !shapeValid(shape) || !isFiniteVec(delta) {
 		return RaycastHit{}, false
 	}
+	if shape.Kind == ShapeCompound {
+		var best RaycastHit
+		found := false
+		for _, c := range shape.Children {
+			cs := c.LocalShape()
+			if !shapeValid(cs) {
+				continue
+			}
+			if h, ok := vc.shapeCastHit(cs, delta); ok {
+				if !found || h.T < best.T {
+					best = h
+					found = true
+				}
+			}
+		}
+		if found {
+			best.ChildIndex = -1
+		}
+		return best, found
+	}
 	// Report any strict initial penetration at T == 0 (consistent with body/mesh casts).
 	if c := vc.TestShape(shape); c.Hit {
 		return RaycastHit{
-			Voxel:    vc,
-			T:        0,
-			Distance: 0,
-			Point:    c.Point,
-			Normal:   c.Normal,
+			Voxel:      vc,
+			ChildIndex: -1,
+			T:          0,
+			Distance:   0,
+			Point:      c.Point,
+			Normal:     c.Normal,
 		}, true
 	}
 	if delta.LenSq() <= 1e-14 {
@@ -269,11 +359,12 @@ func (vc *VoxelCollider) shapeCastHit(shape Shape, delta Vec3) (RaycastHit, bool
 		return RaycastHit{}, false
 	}
 	return RaycastHit{
-		Voxel:    vc,
-		T:        sh.T,
-		Distance: sh.Distance,
-		Point:    sh.Point,
-		Normal:   sh.Normal,
+		Voxel:      vc,
+		ChildIndex: -1,
+		T:          sh.T,
+		Distance:   sh.Distance,
+		Point:      sh.Point,
+		Normal:     sh.Normal,
 	}, true
 }
 
@@ -282,6 +373,26 @@ func (vc *VoxelCollider) shapeCastHit(shape Shape, delta Vec3) (RaycastHit, bool
 func (tm *TriMeshCollider) ShapeCast(shape Shape, delta Vec3) (RaycastHit, bool) {
 	if tm == nil || len(tm.nodes) == 0 || !shapeValid(shape) || !isFiniteVec(delta) {
 		return RaycastHit{}, false
+	}
+	if shape.Kind == ShapeCompound {
+		var best RaycastHit
+		found := false
+		for _, c := range shape.Children {
+			cs := c.LocalShape()
+			if !shapeValid(cs) {
+				continue
+			}
+			if h, ok := tm.ShapeCast(cs, delta); ok {
+				if !found || h.T < best.T {
+					best = h
+					found = true
+				}
+			}
+		}
+		if found {
+			best.ChildIndex = -1
+		}
+		return best, found
 	}
 	b0 := shape.Bounds()
 	swept := unionBounds(b0, b0.Translated(delta))
@@ -354,6 +465,9 @@ func (tm *TriMeshCollider) ShapeCast(shape Shape, delta Vec3) (RaycastHit, bool)
 		}
 	}
 
+	if found {
+		best.ChildIndex = -1
+	}
 	return best, found
 }
 
@@ -361,6 +475,26 @@ func (tm *TriMeshCollider) ShapeCast(shape Shape, delta Vec3) (RaycastHit, bool)
 func (hf *HeightfieldCollider) ShapeCast(shape Shape, delta Vec3) (RaycastHit, bool) {
 	if !hf.valid() || !shapeValid(shape) || !isFiniteVec(delta) {
 		return RaycastHit{}, false
+	}
+	if shape.Kind == ShapeCompound {
+		var best RaycastHit
+		found := false
+		for _, c := range shape.Children {
+			cs := c.LocalShape()
+			if !shapeValid(cs) {
+				continue
+			}
+			if h, ok := hf.ShapeCast(cs, delta); ok {
+				if !found || h.T < best.T {
+					best = h
+					found = true
+				}
+			}
+		}
+		if found {
+			best.ChildIndex = -1
+		}
+		return best, found
 	}
 	b0 := shape.Bounds()
 	swept := unionBounds(b0, b0.Translated(delta))
@@ -383,6 +517,9 @@ func (hf *HeightfieldCollider) ShapeCast(shape Shape, delta Vec3) (RaycastHit, b
 		}
 	})
 
+	if found {
+		best.ChildIndex = -1
+	}
 	return best, found
 }
 
@@ -398,6 +535,58 @@ func (v vec3d) norm() vec3d {
 }
 
 func sweepShapeVsShape3D(moving Shape, delta Vec3, target Shape) (RaycastHit, bool) {
+	return sweepShapeVsShapeOpt(moving, delta, target, false)
+}
+
+func sweepShapeVsShapeOpt(moving Shape, delta Vec3, target Shape, ignoreTargetTriggers bool) (RaycastHit, bool) {
+	if moving.Kind == ShapeCompound {
+		var best RaycastHit
+		found := false
+		for _, c := range moving.Children {
+			cs := c.LocalShape()
+			if !shapeValid(cs) {
+				continue
+			}
+			if h, ok := sweepShapeVsShapeOpt(cs, delta, target, ignoreTargetTriggers); ok {
+				if !found || h.T < best.T || (h.T == best.T && h.ChildIndex < best.ChildIndex) {
+					best = h
+					found = true
+				}
+			}
+		}
+		return best, found
+	}
+	if target.Kind == ShapeCompound {
+		b0 := moving.Bounds()
+		swept := unionBounds(b0, b0.Translated(delta))
+		var best RaycastHit
+		found := false
+		for i, c := range target.Children {
+			if ignoreTargetTriggers && c.Trigger {
+				continue
+			}
+			cs := c.LocalShape()
+			if !shapeValid(cs) || !aabbOverlap(swept, cs.Bounds()) {
+				continue
+			}
+			if h, ok := sweepShapeVsShapeOpt(moving, delta, cs, ignoreTargetTriggers); ok {
+				h.ChildIndex = i
+				if !found || h.T < best.T {
+					best = h
+					found = true
+				}
+			}
+		}
+		return best, found
+	}
+	h, ok := sweepPrimitiveVsPrimitive3D(moving, delta, target)
+	if ok {
+		h.ChildIndex = -1
+	}
+	return h, ok
+}
+
+func sweepPrimitiveVsPrimitive3D(moving Shape, delta Vec3, target Shape) (RaycastHit, bool) {
 	// Initial overlap check at T == 0.
 	if c := TestShapes(moving, target); c.Hit {
 		return RaycastHit{

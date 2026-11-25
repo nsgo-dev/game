@@ -16,7 +16,7 @@ import "github.com/nsgo-dev/game/packages/game/physics3d"
 - **零 FFI 开销**：重叠查询、射线检测、刚体步进和角色移动直接在 Go 值上运行，没有 cgo 调用边界成本。
 - **按位一致的确定性**：配合 `game.Loop` 的固定步长推进 `World`，宽相、窄相、冲量求解和位置修正都按固定的刚体与接触顺序执行，不依赖 map 遍历顺序或墙钟时间，相同的初始状态在多次运行中产生完全一致的轨迹。
 
-包的能力范围保持克制和清晰：盒体（轴对齐或带朝向的 Box）、球体（Sphere）、胶囊体（Capsule）、凸包（ConvexHull）和圆柱体（Cylinder），可以与物体和角色控制器碰撞的静态三角网格（`TriMeshCollider`，用 `World.AddTriMesh` 加入）、高度场（`HeightfieldCollider`，用 `World.AddHeightfield` 加入）与体素网格（`VoxelCollider`，用 `World.AddVoxelCollider` 加入），精确的重叠、射线与体素扫掠查询，带线性与角动力学的刚体、关节、布娃娃，以及胶囊角色控制器。刚体使用标量（各向同性）惯量而非完整的惯性张量。盒体、球体与胶囊体之间每对刚体的接触只用一个代表点；涉及凸包或圆柱体的一对刚体最多得到四个分布在接触区域上的点。
+包的能力范围保持克制和清晰：盒体（轴对齐或带朝向的 Box）、球体（Sphere）、胶囊体（Capsule）、凸包（ConvexHull）、圆柱体（Cylinder）以及由多个子碰撞体组装而成的复合形状（CompoundShape），可以与物体和角色控制器碰撞的静态三角网格（`TriMeshCollider`，用 `World.AddTriMesh` 加入）、高度场（`HeightfieldCollider`，用 `World.AddHeightfield` 加入）与体素网格（`VoxelCollider`，用 `World.AddVoxelCollider` 加入），精确的重叠、射线与体素扫掠查询，带线性与角动力学的刚体、关节、布娃娃，以及胶囊角色控制器。单一基本形状的刚体使用标量（各向同性）惯量，而复合刚体会按平行轴定理从所有实体子形状计算合并的 `CenterOfMass` 与 3×3 对称 `InvInertiaTensor`（`SymMat3`）。盒体、球体与胶囊体之间每对碰撞体的接触只用一个代表点；涉及凸包或圆柱体的一对碰撞体最多得到四个分布在接触区域上的点。
 
 ## 坐标系约定
 
@@ -24,13 +24,14 @@ import "github.com/nsgo-dev/game/packages/game/physics3d"
 
 ## 形状、重叠查询与射线检测
 
-五种基本形状通过带标签的 `Shape` 封装（`BoxShape`、`SphereShape`、`CapsuleShape`、`ConvexHullShape`、`CylinderShape`）：
+五种基本形状和复合形状通过带标签的 `Shape` 封装（`BoxShape`、`SphereShape`、`CapsuleShape`、`ConvexHullShape`、`CylinderShape`、`CompoundShape`）：
 
 - `Box`：由 `Center` 和 `HalfExtents` 定义的盒体（也可用 `BoxFromMinMax(min, max)` 构造）。默认轴对齐；外层 `Shape` 设置 `Rot` 后，盒体绕自身 `Center` 旋转。`Shape.Transformed(pos, rot)` 与 `Body.WorldShape()` 会保留旋转刚体的盒体朝向，重叠检测、射线检测和调试绘制都按真实的角点计算；`Shape.Bounds()` 返回用于宽相的外接轴对齐包围盒。
 - `Sphere`：由 `Center` 和 `Radius` 定义的球体。
 - `Capsule`：由线段 `A` 到 `B` 沿半径 `Radius` 扫略而成的胶囊体（也可用 `VerticalCapsule(center, radius, height)` 构造竖直胶囊）。
 - `ConvexHull`：凸多面体，用于岩石、碎块、家具、楔形块和低多边形载具外壳等道具，由 `NewConvexHull(points, maxVertices)` 构建一次，之后被所有使用它的形状和刚体只读共享。顶点相对于 `Center`，外层 `Shape` 的 `Rot` 让它像盒体一样绕 `Center` 旋转。
 - `Cylinder`：两端为平面端盖的实心圆柱体，轴线从 `A` 到 `B`，半径为 `Radius`（也可用 `VerticalCylinder(center, radius, height)` 构造），用于木桶、车轮和柱子。`A` 与 `B` 重合或 `Radius` 不为正的圆柱体没有体积，碰撞、射线检测和区域都会忽略它。
+- `ShapeCompound`：挂在单个刚体上的多个 `CompoundChild` 子碰撞体（支持 `Box`、`Sphere`、`Capsule`、`ConvexHull`、`Cylinder` 以及嵌套 `ShapeCompound`），每个子形状有独立的局部 `Offset` 与 `Rot`、可选 `Mass` 或 `Density`，以及可选的子级 `Trigger`、`Layer` 与 `Mask`。
 
 ### 凸包
 
@@ -54,6 +55,28 @@ rock := world.AddBody(physics3d.NewDynamicBody(physics3d.ConvexHullShape(hull), 
 
 凸包可以给出 `Vertices`、`Faces`（从外侧看逆时针排列的顶点索引）、`FaceNormals`、`Edges`、`Volume`、`Centroid`，以及均匀密度下的 `InertiaTensor(mass)`。刚体的惯量取自凸包的精确惯性张量（取其主惯量的平均值，即上文的标量惯量），圆柱体的惯量取自实心圆柱公式。
 
+### 复合形状
+
+`CompoundShape(children...)` 将多个 `CompoundChild` 子碰撞体组合到单个刚体上，使家具、载具或带独立命中盒的角色作为整体运动和旋转，无需用固定关节拼凑：
+
+```go
+leg := physics3d.BoxShape(physics3d.Box{HalfExtents: physics3d.Vec3{X: 0.06, Y: 0.4, Z: 0.06}})
+top := physics3d.BoxShape(physics3d.Box{HalfExtents: physics3d.Vec3{X: 0.75, Y: 0.05, Z: 0.35}})
+tableShape := physics3d.CompoundShape(
+	physics3d.CompoundChild{Shape: top, Offset: physics3d.Vec3{Y: 0.85}, Mass: 3},
+	physics3d.CompoundChild{Shape: leg, Offset: physics3d.Vec3{X: -0.69, Y: 0.4, Z: -0.29}, Mass: 1.5},
+	physics3d.CompoundChild{Shape: leg, Offset: physics3d.Vec3{X: 0.69, Y: 0.4, Z: -0.29}, Mass: 1.5},
+	physics3d.CompoundChild{Shape: leg, Offset: physics3d.Vec3{X: -0.69, Y: 0.4, Z: 0.29}, Mass: 1.5},
+	physics3d.CompoundChild{Shape: leg, Offset: physics3d.Vec3{X: 0.69, Y: 0.4, Z: 0.29}, Mass: 1.5},
+)
+// 传入质量 0 时，总质量、CenterOfMass 与 InvInertiaTensor 自动由子形状推导。
+table := world.AddBody(physics3d.NewDynamicBody(tableShape, physics3d.Vec3{}, 0))
+```
+
+- **合并质量、质心与惯量**：`ComputeCompoundMassProperties`（由 `AddBody` 与 `Body.RecomputeMassProperties` 自动调用）通过平行轴定理从所有非触发器子形状计算合并 `Mass`、局部 `CenterOfMass` 和 3×3 对称 `InvInertiaTensor`（`SymMat3`）。子形状可指定显式 `Mass` 或 `Density`；向 `NewDynamicBody` 传入正质量时会按体积分配或等比缩放子质量。`Body.WorldCenterOfMass()` 返回世界空间质心，`Body.ApplyImpulseAtPoint(impulse, worldPoint)` 围绕该质心施加线性与角向冲量。
+- **包围盒与查询**：`Shape.Bounds()` 覆盖全部子形状。接触事件（`ContactEvent.ChildIndexA`/`ChildIndexB`）、射线检测（`RaycastHit.ChildIndex`）和重叠查询（`OverlapHit.ChildIndex`）逐一测试每个子形状并报告其从 0 开始的子索引（非复合刚体与静态碰撞体为 `-1`）。
+- **子级触发器与碰撞层**：将 `CompoundChild.Trigger` 设为 `true` 可把该子形状变为传感器体积（例如实体角色刚体上的头部受击盒），只触发 `OnTrigger` 事件而不施加碰撞冲量、不阻挡角色控制器或 CCD 扫掠，也不参与质量与惯量计算。子级 `Layer` 和 `Mask` 非零时覆盖父刚体的 `Body.Layer` 和 `Body.Mask`。
+
 重叠检测返回 `Contact`，其中单位法线 `Normal` 从 `B` 指向 `A`（将 `A` 沿 `Normal` 移动 `Depth` 即可分离两者）：
 
 - `TestBoxBox`、`TestOrientedBoxBox`（在 15 条面轴与边轴上做分离轴测试）、`TestSphereSphere`、`TestCapsuleCapsule`、`TestBoxSphere`、`TestBoxCapsule`、`TestSphereCapsule`，以及能处理带朝向盒体的 `TestShapes(a, b)`。
@@ -65,9 +88,9 @@ rock := world.AddBody(physics3d.NewDynamicBody(physics3d.ConvexHullShape(hull), 
 
 ### 形状投射（Shape Cast）
 
-将任意 `Shape`（`Box`、`Sphere` 或 `Capsule`）以朝向 `rot` 置于 `origin` 并沿位移 `delta` 扫掠，检测与刚体、三角网格（`TriMeshCollider`）、高度场（`HeightfieldCollider`）以及体素碰撞体（`VoxelCollider`）的首次碰撞：
+将任意 `Shape`（`Box`、`Sphere`、`Capsule` 或由它们组成的 `ShapeCompound`）以朝向 `rot` 置于 `origin` 并沿位移 `delta` 扫掠，检测与刚体、三角网格（`TriMeshCollider`）、高度场（`HeightfieldCollider`）以及体素碰撞体（`VoxelCollider`）的首次碰撞：
 
-- `world.ShapeCast(shape, origin, rot, delta)` 返回最早命中的 `RaycastHit`（包含 `Body`/`TriMesh`/`Heightfield`/`Voxel`、`T`、`Distance`、`Point`、`Normal`）；`world.ShapeCastAll(...)` 按 `T` 升序返回全部命中，采用与 `Raycast` 相同的确定性决胜顺序（`Body` < `TriMesh` < `Heightfield` < `Voxel`，再按 ID 升序）。
+- `world.ShapeCast(shape, origin, rot, delta)` 返回最早命中的 `RaycastHit`（包含 `Body`/`TriMesh`/`Heightfield`/`Voxel`、`ChildIndex`、`T`、`Distance`、`Point`、`Normal`）；`world.ShapeCastAll(...)` 按 `T` 升序返回全部命中，采用与 `Raycast` 相同的确定性决胜顺序（`Body` < `TriMesh` < `Heightfield` < `Voxel`，再按 ID 与 `ChildIndex` 升序）。复合刚体按子形状逐一检测，并遵循子形状的 `Layer` 与 `Trigger` 过滤。
 - 使用 `world.ShapeCastLayer(shape, origin, rot, delta, mask, ignore)` 与 `ShapeCastAllLayer` 按 `LayerMask` 过滤并忽略指定 `*Body`，或使用 `ShapeCastWith` / `ShapeCastAllWith`（`ShapeCastOptions`）额外支持 `IgnoreBodyID` 与 `IgnoreTriggers`。
 - 独立辅助函数 `ShapeCastShape(moving, delta, target)`、`TriMeshCollider.ShapeCast(shape, delta)` 与 `HeightfieldCollider.ShapeCast(shape, delta)` 可直接测试单个碰撞体。球体、盒体/OBB 与盒体-三角形对采用精确解析扫掠（闵可夫斯基和与运动 SAT）；胶囊-盒体、胶囊-胶囊与胶囊-三角形对采用精确距离保守推进（误差 `<= 1e-4`）。初始重叠在 `T == 0`、`Distance == 0` 处返回 `TestShapes` 分离法线。
 
@@ -234,7 +257,7 @@ loop := &game.Loop{
 
 ## 调试绘制
 
-`DrawWorld`、`DrawBody`、`DrawShape`、`DrawCharacter`、`DrawContact` 和 `DrawRaycast` 通过视图投影矩阵把碰撞体线框、接触和射线画到 `core.Drawing` 上，样式由 `DebugStyle` 决定；`DrawLine3D` 绘制单条线段。凸包以 `HullColor` 绘制每一条棱，圆柱体以 `CylinderColor` 绘制两端端盖的圆环和四条侧边线；`ConvexHullEdges` 和 `CylinderEdges` 返回这些线段，供其他渲染器使用。release 构建中它们编译为空操作。
+`DrawWorld`、`DrawBody`、`DrawShape`、`DrawCharacter`、`DrawContact` 和 `DrawRaycast` 通过视图投影矩阵把碰撞体线框、接触和射线画到 `core.Drawing` 上，样式由 `DebugStyle` 决定；`DrawLine3D` 绘制单条线段。凸包以 `HullColor` 绘制每一条棱，圆柱体以 `CylinderColor` 绘制两端端盖的圆环和四条侧边线，复合形状则按各自基本形状的颜色绘制每一个子碰撞体（`DrawWorld` 也会为每对碰撞中的子形状绘制接触标记）；`ConvexHullEdges` 和 `CylinderEdges` 返回这些线段，供其他渲染器使用。release 构建中它们编译为空操作。
 
 线段在投影前先按相机视锥裁剪。默认的近平面是裁剪空间 `z >= -w`，与本包的 `Mat4Perspective` 和 `Mat4Ortho`（`[-1, 1]` 深度）一致。对于 `[0, 1]` 深度的投影，例如 `math3d.Perspective`、`math3d.Ortho` 或 `render3d` 的相机，请设置 `DebugStyle.DepthZO`（单条线段用 `DrawLine3DZO`）：它在 `z >= 0` 处裁剪，与 `render3d.ProjectSegment` 相同。不设置时，`w` 处处为 1 的 `[0, 1]` 正交相机会画出相机背后的碰撞体。
 
@@ -280,7 +303,7 @@ sw.Step(dt)
 
 `World` 支持完整的世界状态快照、确定性 64 位 FNV-1a 校验和，以及跨 amd64 与 arm64 CPU 架构的比特级确定性：
 
-- **`Save() / Restore(snap) / Checksum()`**：`World.Save()` 将所有公开和私有求解器状态捕获到带版本号的 `WorldSnapshot`（`SnapshotVersion`）中，包括重力与求解器/休眠配置、刚体（含完整形状，包括 `ConvexHull` 的几何数据和 `Cylinder`，以及私有休眠计时器、重力缩放标记、残余穿透深度、上一帧插值姿态及体素静置状态）、有序热启动接触冲量缓存、活跃接触/触发器对集合、上一帧接触与关节断裂事件、忽略碰撞对、全部 7 种内置 `Joint3D` 类型（`DistanceJoint`、`BallJoint`、`HingeJoint`、`SliderJoint`、`FixedJoint`、`SwingTwistJoint`、`SixDOFJoint`，含展开角度状态与最近反作用冲量），以及 `TriMeshCollider`、`HeightfieldCollider` 和 `VoxelGrid` 碰撞体绑定。
+- **`Save() / Restore(snap) / Checksum()`**：`World.Save()` 将所有公开和私有求解器状态捕获到带版本号的 `WorldSnapshot`（`SnapshotVersion`）中，包括重力与求解器/休眠配置、刚体（含完整形状，包括 `ConvexHull` 的几何数据、`Cylinder` 与 `ShapeCompound` 子形状、`CenterOfMass`、`InvInertiaTensor`，以及私有休眠计时器、重力缩放标记、残余穿透深度、上一帧插值姿态及体素静置状态）、按子碰撞体索引排序的热启动接触冲量缓存、活跃接触/触发器对集合、上一帧接触与关节断裂事件（含复合子形状索引）、忽略碰撞对、全部 7 种内置 `Joint3D` 类型（`DistanceJoint`、`BallJoint`、`HingeJoint`、`SliderJoint`、`FixedJoint`、`SwingTwistJoint`、`SixDOFJoint`，含展开角度状态与最近反作用冲量），以及 `TriMeshCollider`、`HeightfieldCollider` 和 `VoxelGrid` 碰撞体绑定。
 - **纯文本 JSON 序列化**：`WorldSnapshot` 支持直接使用 `encoding/json` 序列化与反序列化（不使用 `encoding/gob` 或自定义二进制布局）。
 - **原地保留指针与回调**：当数量和类型匹配时，`Restore` 原地更新现有的 `*Body`、`Joint3D` 和碰撞体实例，确定性地重建宽相树，并在回滚期间保持游戏实体指针、`UserData` 以及世界回调（`OnContact`、`OnTrigger`、`OnJointBreak`）有效。
 - **跨架构确定性**：所有步进 3D 积分、宽相、窄相碰撞（GJK/EPA/SAT、OBB、网格/高度场、体素）、顺序冲量求解器、关节、区域以及 `vehicle` 悬架/轮胎路径都避免了 arm64 FMA 收缩及含 FMA 的标准库超越函数，确保在 amd64 与 arm64 上产生比特完全一致的轨迹和 `Checksum()` 值。

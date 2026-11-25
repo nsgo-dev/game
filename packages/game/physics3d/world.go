@@ -50,6 +50,16 @@ type Body struct {
 	// dynamic body, AddBody computes an isotropic approximation from Shape and
 	// Mass unless LockRotation is set.
 	InvInertia float32
+	// CenterOfMass is the body's center of mass in local coordinates relative to Pos.
+	// For dynamic compound bodies, AddBody computes it from all solid children
+	// unless already set.
+	CenterOfMass Vec3
+	// InvInertiaTensor is the optional 3x3 symmetric inverse inertia tensor in
+	// local space about CenterOfMass. For dynamic compound bodies, AddBody
+	// computes it via the parallel-axis theorem unless LockRotation is set or an
+	// explicit InvInertiaTensor or InvInertia was provided. When zero, the solver
+	// uses scalar InvInertia.
+	InvInertiaTensor SymMat3
 	// LockRotation keeps a dynamic body from rotating: InvInertia becomes 0
 	// and angular impulses are ignored, which InvInertia == 0 alone could not
 	// express while 0 also meant "compute a default" (#546).
@@ -114,8 +124,14 @@ func NewStaticBody(shape Shape, pos Vec3) Body {
 
 // NewDynamicBody returns a dynamic Body placed at pos with the given mass and
 // default friction (0.5), linear damping (0.01), and angular damping (0.05).
-// If mass <= 0, the returned body is static.
+// For a ShapeCompound with mass <= 0, if solid children specify Mass or Density,
+// their combined mass is used. Otherwise mass <= 0 returns a static body.
 func NewDynamicBody(shape Shape, pos Vec3, mass float32) Body {
+	if mass <= 0 && shape.Kind == ShapeCompound {
+		if props := ComputeCompoundMassProperties(shape.Children, 0); props.Mass > 0 {
+			mass = props.Mass
+		}
+	}
 	if mass <= 0 {
 		return NewStaticBody(shape, pos)
 	}
@@ -138,6 +154,57 @@ func (b *Body) WorldShape() Shape {
 	return b.Shape.Transformed(b.Pos, b.Rot)
 }
 
+// WorldCenterOfMass returns b's center of mass in world coordinates.
+// For bodies with zero local CenterOfMass, this equals b.Pos.
+func (b *Body) WorldCenterOfMass() Vec3 {
+	if b == nil {
+		return Vec3{}
+	}
+	if b.CenterOfMass == (Vec3{}) {
+		return b.Pos
+	}
+	return b.Pos.Add(normalizedQuat(b.Rot).RotateVec(b.CenterOfMass))
+}
+
+// RecomputeMassProperties recomputes Mass, InvMass, CenterOfMass, InvInertia,
+// and InvInertiaTensor from b.Shape for a dynamic body. For compound bodies,
+// solid children determine the combined center of mass and parallel-axis inertia
+// tensor; trigger children are ignored.
+func (b *Body) RecomputeMassProperties() {
+	if b == nil || b.Static || b.Kinematic {
+		return
+	}
+	if b.Shape.Kind == ShapeCompound {
+		props := ComputeCompoundMassProperties(b.Shape.Children, b.Mass)
+		if props.Mass <= 0 {
+			return
+		}
+		b.Mass = props.Mass
+		b.InvMass = 1 / props.Mass
+		b.CenterOfMass = props.CenterOfMass
+		if b.LockRotation {
+			b.InvInertia = 0
+			b.InvInertiaTensor = SymMat3{}
+			b.AngVel = Vec3{}
+		} else {
+			b.InvInertia = props.ScalarInvI
+			b.InvInertiaTensor = props.InvInertia
+		}
+		return
+	}
+	b.CenterOfMass = Vec3{}
+	b.InvInertiaTensor = SymMat3{}
+	if b.Mass > 0 {
+		b.InvMass = 1 / b.Mass
+		if b.LockRotation {
+			b.InvInertia = 0
+			b.AngVel = Vec3{}
+		} else {
+			b.InvInertia = computeDefaultInvInertia(b.Shape, b.Mass)
+		}
+	}
+}
+
 // Wake clears b's sleeping state so it participates in subsequent steps.
 func (b *Body) Wake() {
 	b.Sleeping = false
@@ -153,14 +220,27 @@ func (b *Body) ApplyImpulse(impulse Vec3) {
 	b.Vel = b.Vel.Add(impulse.Scale(b.InvMass))
 }
 
-// ApplyAngularImpulse adds impulse * InvInertia to a dynamic body's angular
-// velocity and wakes it.
+// ApplyAngularImpulse adds the angular velocity delta produced by impulse to a
+// dynamic body (using InvInertiaTensor when set, otherwise scalar InvInertia)
+// and wakes it.
 func (b *Body) ApplyAngularImpulse(impulse Vec3) {
-	if b.Static || b.Kinematic || b.InvInertia == 0 {
+	if b.Static || b.Kinematic || b.LockRotation || (b.InvInertia == 0 && b.InvInertiaTensor.IsZero()) {
 		return
 	}
 	b.Wake()
-	b.AngVel = b.AngVel.Add(impulse.Scale(b.InvInertia))
+	b.applyAngularImpulseWorld(impulse)
+}
+
+// ApplyImpulseAtPoint applies linear impulse at worldPoint, imparting both
+// linear velocity and torque about WorldCenterOfMass, and wakes b.
+func (b *Body) ApplyImpulseAtPoint(impulse, worldPoint Vec3) {
+	if b.Static || b.Kinematic || b.InvMass == 0 {
+		return
+	}
+	b.Wake()
+	b.Vel = b.Vel.Add(impulse.Scale(b.InvMass))
+	r := worldPoint.Sub(b.WorldCenterOfMass())
+	b.applyAngularImpulseWorld(r.Cross(impulse))
 }
 
 func computeDefaultInvInertia(shape Shape, mass float32) float32 {
@@ -199,6 +279,10 @@ func computeDefaultInvInertia(shape Shape, mass float32) float32 {
 		h := shape.Cylinder.Height()
 		inertia = mass * (float32(6*r*r) + float32(h*h)) / 18
 		center = shape.Cylinder.Center()
+	case ShapeCompound:
+		if props := ComputeCompoundMassProperties(shape.Children, mass); props.ScalarInvI > 0 {
+			return props.ScalarInvI
+		}
 	}
 	inertia = float32(inertia) + float32(mass*center.LenSq())
 	minI := 1e-4 * mass
@@ -212,6 +296,7 @@ func computeDefaultInvInertia(shape Shape, mass float32) float32 {
 // or World.OverlapLayer. Contact.Normal points from the collider toward the query shape.
 type OverlapHit struct {
 	Body        *Body
+	ChildIndex  int
 	TriMesh     *TriMeshCollider
 	Heightfield *HeightfieldCollider
 	Voxel       *VoxelCollider
@@ -229,11 +314,12 @@ type cachedImpulse struct {
 }
 
 type solverContact struct {
-	a, b   *Body
-	normal Vec3
-	depth  float32
-	point  Vec3
-	// rA and rB are the contact point relative to each body's center, so impulses also apply torque (#546).
+	a, b           *Body
+	childA, childB int
+	normal         Vec3
+	depth          float32
+	point          Vec3
+	// rA and rB are the contact point relative to each body's center of mass, so impulses also apply torque (#546).
 	rA, rB         Vec3
 	restitution    float32
 	friction       float32
@@ -273,9 +359,9 @@ type World struct {
 	bodies             []*Body
 	nextID             int
 	nextColliderID     int
-	cache              map[pairKey]cachedImpulse
-	activeContacts     map[pairKey]activeContactRecord
-	nextActiveContacts map[pairKey]activeContactRecord
+	cache              map[contactKey]cachedImpulse
+	activeContacts     map[contactKey]activeContactRecord
+	nextActiveContacts map[contactKey]activeContactRecord
 	contactEvents      []ContactEvent
 	jointBreakEvents   []JointBreakEvent
 	triMeshes          []*TriMeshCollider
@@ -288,8 +374,8 @@ type World struct {
 	contactsBuf     []solverContact
 	shockOrderBuf   []int
 	shockHeightsBuf []float32
-	curKeysBuf      []pairKey
-	exitKeysBuf     []pairKey
+	curKeysBuf      []contactKey
+	exitKeysBuf     []contactKey
 }
 
 // NewWorld returns a World with standard Y-up gravity (0, -9.81, 0) and 8
@@ -298,8 +384,8 @@ func NewWorld() *World {
 	return &World{
 		Gravity:          Vec3{Y: -9.81},
 		SolverIterations: defaultSolverIterations,
-		cache:            make(map[pairKey]cachedImpulse),
-		activeContacts:   make(map[pairKey]activeContactRecord),
+		cache:            make(map[contactKey]cachedImpulse),
+		activeContacts:   make(map[contactKey]activeContactRecord),
 	}
 }
 
@@ -316,6 +402,7 @@ func (w *World) AddBody(b Body) *Body {
 		w.nextID = b.ID
 	}
 
+	b.Shape = sanitizeShape(b.Shape)
 	b.Rot = normalizedQuat(b.Rot)
 	if !isFiniteQuat(b.Rot) {
 		b.Rot = QuatIdentity()
@@ -327,6 +414,9 @@ func (w *World) AddBody(b Body) *Body {
 	if !isFiniteVec(b.AngVel) {
 		b.AngVel = Vec3{}
 	}
+	if !isFiniteVec(b.CenterOfMass) {
+		b.CenterOfMass = Vec3{}
+	}
 	if !isFinite32(b.Mass) {
 		b.Mass = 0
 	}
@@ -336,15 +426,27 @@ func (w *World) AddBody(b Body) *Body {
 	if !isFinite32(b.InvInertia) {
 		b.InvInertia = 0
 	}
+	if !isFiniteSymMat3(b.InvInertiaTensor) {
+		b.InvInertiaTensor = SymMat3{}
+	}
+
+	if b.Shape.Kind == ShapeCompound && !b.Static && !b.Kinematic && b.Mass <= 0 && b.InvMass <= 0 {
+		if props := ComputeCompoundMassProperties(b.Shape.Children, 0); props.Mass > 0 {
+			b.Mass = props.Mass
+			b.InvMass = 1 / props.Mass
+		}
+	}
 
 	if b.Kinematic && !b.Static && b.Mass <= 0 && b.InvMass <= 0 {
 		// A kinematic body without mass stays kinematic (it used to become static and stop pushing things); it has infinite mass to the solver either way.
 		b.Mass, b.InvMass, b.InvInertia = 0, 0, 0
+		b.InvInertiaTensor = SymMat3{}
 	} else if b.Static || (b.Mass <= 0 && b.InvMass <= 0) {
 		b.Static = true
 		b.Mass = 0
 		b.InvMass = 0
 		b.InvInertia = 0
+		b.InvInertiaTensor = SymMat3{}
 		b.Vel = Vec3{}
 		b.AngVel = Vec3{}
 		b.Sleeping = false
@@ -356,7 +458,21 @@ func (w *World) AddBody(b Body) *Body {
 		}
 		if b.LockRotation {
 			b.InvInertia = 0
+			b.InvInertiaTensor = SymMat3{}
 			b.AngVel = Vec3{}
+		} else if b.Shape.Kind == ShapeCompound {
+			props := ComputeCompoundMassProperties(b.Shape.Children, b.Mass)
+			if props.Mass > 0 {
+				if b.CenterOfMass == (Vec3{}) {
+					b.CenterOfMass = props.CenterOfMass
+				}
+				if b.InvInertiaTensor.IsZero() && b.InvInertia <= 0 {
+					b.InvInertiaTensor = props.InvInertia
+					b.InvInertia = props.ScalarInvI
+				}
+			} else if b.InvInertia <= 0 {
+				b.InvInertia = computeDefaultInvInertia(b.Shape, b.Mass)
+			}
 		} else if b.InvInertia <= 0 {
 			b.InvInertia = computeDefaultInvInertia(b.Shape, b.Mass)
 		}
@@ -483,7 +599,7 @@ func (w *World) Step(dt time.Duration) {
 	if len(w.bodies) == 0 {
 		if len(w.activeContacts) > 0 {
 			if w.nextActiveContacts == nil {
-				w.nextActiveContacts = make(map[pairKey]activeContactRecord)
+				w.nextActiveContacts = make(map[contactKey]activeContactRecord)
 			} else {
 				clear(w.nextActiveContacts)
 			}
@@ -499,7 +615,7 @@ func (w *World) Step(dt time.Duration) {
 		iters = defaultSolverIterations
 	}
 	if w.cache == nil {
-		w.cache = make(map[pairKey]cachedImpulse)
+		w.cache = make(map[contactKey]cachedImpulse)
 	}
 
 	// Reconcile any external pose/shape/static/trigger mutations once per step.
@@ -538,13 +654,23 @@ func (w *World) Step(dt time.Duration) {
 			if linDamp := b.effectiveLinearDamping(); linDamp > 0 {
 				b.Vel = b.Vel.Scale(1 / (1 + float32(linDamp*dtSec)))
 			}
-			b.Pos = b.Pos.Add(b.Vel.Scale(dtSec))
-
-			if b.AngVel.LenSq() > 0 {
-				if angDamp := b.effectiveAngularDamping(); angDamp > 0 {
-					b.AngVel = b.AngVel.Scale(1 / (1 + float32(angDamp*dtSec)))
+			if b.CenterOfMass == (Vec3{}) {
+				b.Pos = b.Pos.Add(b.Vel.Scale(dtSec))
+				if b.AngVel.LenSq() > 0 {
+					if angDamp := b.effectiveAngularDamping(); angDamp > 0 {
+						b.AngVel = b.AngVel.Scale(1 / (1 + float32(angDamp*dtSec)))
+					}
+					b.Rot = IntegrateQuat(b.Rot, b.AngVel, dtSec)
 				}
-				b.Rot = IntegrateQuat(b.Rot, b.AngVel, dtSec)
+			} else {
+				comWorld := b.WorldCenterOfMass().Add(b.Vel.Scale(dtSec))
+				if b.AngVel.LenSq() > 0 {
+					if angDamp := b.effectiveAngularDamping(); angDamp > 0 {
+						b.AngVel = b.AngVel.Scale(1 / (1 + float32(angDamp*dtSec)))
+					}
+					b.Rot = IntegrateQuat(b.Rot, b.AngVel, dtSec)
+				}
+				b.Pos = comWorld.Sub(normalizedQuat(b.Rot).RotateVec(b.CenterOfMass))
 			}
 			continue
 		}
@@ -560,14 +686,25 @@ func (w *World) Step(dt time.Duration) {
 		if eff.LinearDamping > 0 {
 			b.Vel = b.Vel.Scale(1 / (1 + float32(eff.LinearDamping*dtSec)))
 		}
-		b.Pos = b.Pos.Add(b.Vel.Scale(dtSec))
-
-		if b.AngVel.LenSq() > 0 {
-			angDamp := eff.AngularDamping + eff.FluidAngularDrag
-			if angDamp > 0 {
-				b.AngVel = b.AngVel.Scale(1 / (1 + float32(angDamp*dtSec)))
+		if b.CenterOfMass == (Vec3{}) {
+			b.Pos = b.Pos.Add(b.Vel.Scale(dtSec))
+			if b.AngVel.LenSq() > 0 {
+				angDamp := eff.AngularDamping + eff.FluidAngularDrag
+				if angDamp > 0 {
+					b.AngVel = b.AngVel.Scale(1 / (1 + float32(angDamp*dtSec)))
+				}
+				b.Rot = IntegrateQuat(b.Rot, b.AngVel, dtSec)
 			}
-			b.Rot = IntegrateQuat(b.Rot, b.AngVel, dtSec)
+		} else {
+			comWorld := b.WorldCenterOfMass().Add(b.Vel.Scale(dtSec))
+			if b.AngVel.LenSq() > 0 {
+				angDamp := eff.AngularDamping + eff.FluidAngularDrag
+				if angDamp > 0 {
+					b.AngVel = b.AngVel.Scale(1 / (1 + float32(angDamp*dtSec)))
+				}
+				b.Rot = IntegrateQuat(b.Rot, b.AngVel, dtSec)
+			}
+			b.Pos = comWorld.Sub(normalizedQuat(b.Rot).RotateVec(b.CenterOfMass))
 		}
 	}
 
@@ -586,7 +723,7 @@ func (w *World) Step(dt time.Duration) {
 	w.bp.syncDynamicBodies(w, prevPos)
 
 	if w.nextActiveContacts == nil {
-		w.nextActiveContacts = make(map[pairKey]activeContactRecord)
+		w.nextActiveContacts = make(map[contactKey]activeContactRecord)
 	} else {
 		clear(w.nextActiveContacts)
 	}
@@ -595,40 +732,17 @@ func (w *World) Step(dt time.Duration) {
 	contacts := w.contactsBuf[:0]
 	pairs := w.bp.findBodyPairs()
 	var singleContact [1]Contact
-	for _, pair := range pairs {
-		pA := &w.bp.proxies[w.bp.bodyProxies[pair.i]]
-		pB := &w.bp.proxies[w.bp.bodyProxies[pair.j]]
-		a := pA.body
-		b := pB.body
-		isTrig := a.IsTrigger || b.IsTrigger
-		if a.Static && b.Static && !isTrig {
-			continue
-		}
-		if !CanCollide(a, b) {
-			continue
-		}
-		if w.isPairIgnored(a.ID, b.ID) {
-			continue
-		}
-		key, swapped := canonicalPairKey(a.ID, b.ID)
-		if _, ok := jointIgnored[key]; ok {
-			continue
-		}
-		if !aabbOverlap(pA.worldBounds, pB.worldBounds) {
-			continue
-		}
-		c := TestShapes(pA.worldShape, pB.worldShape)
-		if !c.Hit {
-			continue
-		}
-
-		evA, evB, evNorm := a, b, c.Normal
+	recordContact := func(a, b *Body, ci, cj int, shapeA, shapeB Shape, c Contact, isTrig bool) {
+		key, swapped := canonicalContactKey(a.ID, ci, b.ID, cj)
+		evA, evB, evChildA, evChildB, evNorm := a, b, ci, cj, c.Normal
 		if swapped {
-			evA, evB, evNorm = b, a, c.Normal.Neg()
+			evA, evB, evChildA, evChildB, evNorm = b, a, cj, ci, c.Normal.Neg()
 		}
 		currentPairs[key] = activeContactRecord{
 			a:         evA,
 			b:         evB,
+			childA:    evChildA,
+			childB:    evChildB,
 			point:     c.Point,
 			normal:    evNorm,
 			depth:     c.Depth,
@@ -642,7 +756,7 @@ func (w *World) Step(dt time.Duration) {
 			if b.IsTrigger && b.Area.Active() && a.Sleeping && isMoving(b) {
 				a.Wake()
 			}
-			continue
+			return
 		}
 
 		// Wake a sleeping dynamic body struck by a moving dynamic or kinematic body. This runs before the inactive-pair skip, which would otherwise let a kinematic body pass through sleeping ones.
@@ -653,25 +767,26 @@ func (w *World) Step(dt time.Duration) {
 			b.Wake()
 		}
 		if (a.Static || a.Kinematic || a.Sleeping) && (b.Static || b.Kinematic || b.Sleeping) {
-			continue
+			return
 		}
 
 		// A pair with a convex hull or a cylinder gets up to four points spread over the touching area, so a face or a cap resting on another body stays flat instead of rocking about the single point TestShapes reports (#808).
 		var points []Contact
-		if isConvexKind(pA.worldShape) || isConvexKind(pB.worldShape) {
-			points = shapeManifold(pA.worldShape, pB.worldShape, c)
+		if isConvexKind(shapeA) || isConvexKind(shapeB) {
+			points = shapeManifold(shapeA, shapeB, c)
 		} else {
 			singleContact[0] = c
 			points = singleContact[:]
 		}
 		restitution := max(a.effectiveRestitution(), b.effectiveRestitution())
 		friction := sqrt32(a.effectiveFriction() * b.effectiveFriction())
-		cacheKey := pairKey{a: a.ID, b: b.ID}
+		cacheKey := contactKey{a: a.ID, b: b.ID, childA: ci, childB: cj}
 		cached, warm := w.cache[cacheKey]
 		warm = warm && cached.normal.Dot(c.Normal) > 0.95
+		comA, comB := a.WorldCenterOfMass(), b.WorldCenterOfMass()
 		for _, pc := range points {
 			// Compute restitution bias once from the pre-solver closing velocity at the contact point.
-			rA, rB := pc.Point.Sub(a.Pos), pc.Point.Sub(b.Pos)
+			rA, rB := pc.Point.Sub(comA), pc.Point.Sub(comB)
 			rv := pointVel(a, rA).Sub(pointVel(b, rB))
 			vn := rv.Dot(pc.Normal)
 			var bias float32
@@ -681,6 +796,8 @@ func (w *World) Step(dt time.Duration) {
 			sc := solverContact{
 				a:           a,
 				b:           b,
+				childA:      ci,
+				childB:      cj,
 				normal:      pc.Normal,
 				depth:       pc.Depth,
 				point:       pc.Point,
@@ -700,6 +817,86 @@ func (w *World) Step(dt time.Duration) {
 		}
 	}
 
+	for _, pair := range pairs {
+		pA := &w.bp.proxies[w.bp.bodyProxies[pair.i]]
+		pB := &w.bp.proxies[w.bp.bodyProxies[pair.j]]
+		a := pA.body
+		b := pB.body
+		if w.isPairIgnored(a.ID, b.ID) {
+			continue
+		}
+		pairK, _ := canonicalPairKey(a.ID, b.ID)
+		if _, ok := jointIgnored[pairK]; ok {
+			continue
+		}
+		if a.Shape.Kind != ShapeCompound && b.Shape.Kind != ShapeCompound {
+			isTrig := a.IsTrigger || b.IsTrigger
+			if a.Static && b.Static && !isTrig {
+				continue
+			}
+			if !CanCollide(a, b) {
+				continue
+			}
+			if !aabbOverlap(pA.worldBounds, pB.worldBounds) {
+				continue
+			}
+			c := TestShapes(pA.worldShape, pB.worldShape)
+			if !c.Hit {
+				continue
+			}
+			recordContact(a, b, -1, -1, pA.worldShape, pB.worldShape, c, isTrig)
+			continue
+		}
+
+		if !aabbOverlap(pA.worldBounds, pB.worldBounds) {
+			continue
+		}
+		countA := a.childCount()
+		countB := b.childCount()
+		if countA == 0 || countB == 0 {
+			continue
+		}
+		for ia := 0; ia < countA; ia++ {
+			ci := -1
+			shapeA := pA.worldShape
+			if a.Shape.Kind == ShapeCompound {
+				ci = ia
+				shapeA = pA.worldShape.Children[ia].LocalShape()
+			}
+			layerA, maskA, trigA := a.childEffective(ci)
+			boundsA := shapeA.Bounds()
+			for ib := 0; ib < countB; ib++ {
+				cj := -1
+				shapeB := pB.worldShape
+				if b.Shape.Kind == ShapeCompound {
+					cj = ib
+					shapeB = pB.worldShape.Children[ib].LocalShape()
+				}
+				layerB, maskB, trigB := b.childEffective(cj)
+				isTrig := trigA || trigB
+				if a.Static && b.Static && !isTrig {
+					continue
+				}
+				if !canCollideMasks(layerA, maskA, layerB, maskB) {
+					continue
+				}
+				if !aabbOverlap(boundsA, shapeB.Bounds()) {
+					continue
+				}
+				var c Contact
+				if isTrig {
+					c = TestShapes(shapeA, shapeB)
+				} else {
+					c = testShapesSolid(shapeA, shapeB)
+				}
+				if !c.Hit {
+					continue
+				}
+				recordContact(a, b, ci, cj, shapeA, shapeB, c, isTrig)
+			}
+		}
+	}
+
 	// 2b. Narrowphase against static triangle-mesh, heightfield, and voxel colliders.
 	if len(w.triMeshes) > 0 || len(w.heightfields) > 0 || len(w.voxels) > 0 {
 		hasStaticMeshesOrHF := len(w.triMeshes) > 0 || len(w.heightfields) > 0
@@ -710,21 +907,26 @@ func (w *World) Step(dt time.Duration) {
 				continue
 			}
 			a.restingOnVoxel = false
+			comA := a.WorldCenterOfMass()
+			var tms []*TriMeshCollider
+			var hfs []*HeightfieldCollider
 			if hasStaticMeshesOrHF {
-				tms, hfs := w.bp.queryStaticMeshesAndHeightfields(p.worldBounds)
+				tms, hfs = w.bp.queryStaticMeshesAndHeightfields(p.worldBounds)
+			}
+			testStaticForChild := func(ci int, childShape Shape, childBounds Box, layerA, maskA LayerMask) {
 				for _, tm := range tms {
-					if !canCollideMasks(a.Layer, a.Mask, tm.Layer, tm.Mask) {
+					if !canCollideMasks(layerA, maskA, tm.Layer, tm.Mask) {
 						continue
 					}
-					if !aabbOverlap(p.worldBounds, tm.Bounds) {
+					if !aabbOverlap(childBounds, tm.Bounds) {
 						continue
 					}
-					tm.QueryTriangles(p.worldBounds, func(tri Triangle) {
-						if !aabbOverlap(p.worldBounds, tri.Bounds()) {
+					tm.QueryTriangles(childBounds, func(tri Triangle) {
+						if !aabbOverlap(childBounds, tri.Bounds()) {
 							return
 						}
-						for _, c := range shapeTriangleContacts(p.worldShape, tri, false) {
-							rA := c.Point.Sub(a.Pos)
+						for _, c := range shapeTriangleContacts(childShape, tri, false) {
+							rA := c.Point.Sub(comA)
 							vn := pointVel(a, rA).Dot(c.Normal)
 							restitution := max(a.effectiveRestitution(), tm.Restitution)
 							var bias float32
@@ -733,6 +935,8 @@ func (w *World) Step(dt time.Duration) {
 							}
 							contacts = append(contacts, solverContact{
 								a:           a,
+								childA:      ci,
+								childB:      -1,
 								normal:      c.Normal,
 								depth:       c.Depth,
 								point:       c.Point,
@@ -748,18 +952,18 @@ func (w *World) Step(dt time.Duration) {
 					})
 				}
 				for _, hf := range hfs {
-					if !canCollideMasks(a.Layer, a.Mask, hf.Layer, hf.Mask) {
+					if !canCollideMasks(layerA, maskA, hf.Layer, hf.Mask) {
 						continue
 					}
-					if !aabbOverlap(p.worldBounds, hf.Bounds) {
+					if !aabbOverlap(childBounds, hf.Bounds) {
 						continue
 					}
-					hf.QueryTriangles(p.worldBounds, func(tri Triangle) {
-						if !aabbOverlap(p.worldBounds, tri.Bounds()) {
+					hf.QueryTriangles(childBounds, func(tri Triangle) {
+						if !aabbOverlap(childBounds, tri.Bounds()) {
 							return
 						}
-						for _, c := range shapeTriangleContacts(p.worldShape, tri, true) {
-							rA := c.Point.Sub(a.Pos)
+						for _, c := range shapeTriangleContacts(childShape, tri, true) {
+							rA := c.Point.Sub(comA)
 							vn := pointVel(a, rA).Dot(c.Normal)
 							restitution := max(a.effectiveRestitution(), hf.Restitution)
 							var bias float32
@@ -768,6 +972,8 @@ func (w *World) Step(dt time.Duration) {
 							}
 							contacts = append(contacts, solverContact{
 								a:             a,
+								childA:        ci,
+								childB:        -1,
 								normal:        c.Normal,
 								depth:         c.Depth,
 								point:         c.Point,
@@ -783,43 +989,58 @@ func (w *World) Step(dt time.Duration) {
 						}
 					})
 				}
-			}
-			for _, vc := range w.voxels {
-				if !canCollideMasks(a.Layer, a.Mask, vc.Layer, vc.Mask) {
-					continue
-				}
-				vc.forEachContact(p.worldShape, func(vx, vy, vz int, c Contact) {
-					a.restingOnVoxel = true
-					rA := c.Point.Sub(a.Pos)
-					vn := pointVel(a, rA).Dot(c.Normal)
-					restitution := max(a.effectiveRestitution(), vc.Restitution)
-					var bias float32
-					if vn < -restitutionVelThreshold {
-						bias = -restitution * vn
+				for _, vc := range w.voxels {
+					if !canCollideMasks(layerA, maskA, vc.Layer, vc.Mask) {
+						continue
 					}
-					contacts = append(contacts, solverContact{
-						a:           a,
-						normal:      c.Normal,
-						depth:       c.Depth,
-						point:       c.Point,
-						rA:          rA,
-						restitution: restitution,
-						friction:    sqrt32(a.effectiveFriction() * vc.Friction),
-						bias:        bias,
-						isVoxel:     true,
-						voxel:       vc,
-						voxelX:      vx,
-						voxelY:      vy,
-						voxelZ:      vz,
-						staticID:    vc.ID,
+					vc.forEachContact(childShape, func(vx, vy, vz int, c Contact) {
+						a.restingOnVoxel = true
+						rA := c.Point.Sub(comA)
+						vn := pointVel(a, rA).Dot(c.Normal)
+						restitution := max(a.effectiveRestitution(), vc.Restitution)
+						var bias float32
+						if vn < -restitutionVelThreshold {
+							bias = -restitution * vn
+						}
+						contacts = append(contacts, solverContact{
+							a:           a,
+							childA:      ci,
+							childB:      -1,
+							normal:      c.Normal,
+							depth:       c.Depth,
+							point:       c.Point,
+							rA:          rA,
+							restitution: restitution,
+							friction:    sqrt32(a.effectiveFriction() * vc.Friction),
+							bias:        bias,
+							isVoxel:     true,
+							voxel:       vc,
+							voxelX:      vx,
+							voxelY:      vy,
+							voxelZ:      vz,
+							staticID:    vc.ID,
+						})
 					})
-				})
+				}
+			}
+
+			if a.Shape.Kind != ShapeCompound {
+				testStaticForChild(-1, p.worldShape, p.worldBounds, a.Layer, a.Mask)
+			} else {
+				for ci, child := range p.worldShape.Children {
+					if child.Trigger {
+						continue
+					}
+					cs := child.LocalShape()
+					layerA, maskA, _ := a.childEffective(ci)
+					testStaticForChild(ci, cs, cs.Bounds(), layerA, maskA)
+				}
 			}
 		}
 	}
 
-	// Sort contacts bottom-up (ascending Y, then body IDs) for fast, deterministic
-	// convergence on vertical stacks.
+	// Sort contacts bottom-up (ascending Y, then body IDs, then child indices)
+	// for fast, deterministic convergence on vertical stacks and compound bodies.
 	slices.SortStableFunc(contacts, func(x, y solverContact) int {
 		if c := cmp.Compare(x.point.Y, y.point.Y); c != 0 {
 			return c
@@ -838,7 +1059,13 @@ func (w *World) Step(dt time.Duration) {
 		} else {
 			ybID = -y.staticID
 		}
-		return cmp.Compare(xbID, ybID)
+		if c := cmp.Compare(xbID, ybID); c != 0 {
+			return c
+		}
+		if c := cmp.Compare(x.childA, y.childA); c != 0 {
+			return c
+		}
+		return cmp.Compare(x.childB, y.childB)
 	})
 
 	// 3. Apply warm-start impulses.
@@ -866,12 +1093,19 @@ func (w *World) Step(dt time.Duration) {
 			if c.b != nil {
 				invB, invIB = activeInvMass(c.b), activeInvInertia(c.b)
 			}
-			if invA+invB+invIA+invIB == 0 {
+			_, hasTA := activeWorldInvInertia(c.a)
+			_, hasTB := activeWorldInvInertia(c.b)
+			if invA+invB+invIA+invIB == 0 && !hasTA && !hasTB {
 				continue
 			}
 
 			// Normal impulse with accumulated clamping >= 0, using the effective mass at the contact point.
-			kn := contactEffectiveMass(invA, invIA, c.rA, invB, invIB, c.rB, c.normal)
+			var kn float32
+			if hasTA || hasTB {
+				kn = contactEffectiveMassBodies(c.a, c.rA, c.b, c.rB, c.normal)
+			} else {
+				kn = contactEffectiveMass(invA, invIA, c.rA, invB, invIB, c.rB, c.normal)
+			}
 			if kn <= 0 {
 				continue
 			}
@@ -896,7 +1130,12 @@ func (w *World) Step(dt time.Duration) {
 				vtLen := vt.Len()
 				if vtLen > 1e-9 {
 					tdir := vt.Scale(1 / vtLen)
-					kt := contactEffectiveMass(invA, invIA, c.rA, invB, invIB, c.rB, tdir)
+					var kt float32
+					if hasTA || hasTB {
+						kt = contactEffectiveMassBodies(c.a, c.rA, c.b, c.rB, tdir)
+					} else {
+						kt = contactEffectiveMass(invA, invIA, c.rA, invB, invIB, c.rB, tdir)
+					}
 					if kt > 0 {
 						newT := c.tangentImpulse.Add(tdir.Scale(-vtLen / kt))
 						newT = newT.Sub(c.normal.Scale(newT.Dot(c.normal)))
@@ -938,7 +1177,7 @@ func (w *World) Step(dt time.Duration) {
 			continue
 		}
 		// A pair with several manifold points caches their total, which the next step shares out again.
-		k := pairKey{a: c.a.ID, b: c.b.ID}
+		k := contactKey{a: c.a.ID, b: c.b.ID, childA: c.childA, childB: c.childB}
 		if prev, ok := w.cache[k]; ok {
 			prev.normalImpulse += c.normalImpulse
 			prev.tangentImpulse = prev.tangentImpulse.Add(c.tangentImpulse)
@@ -1018,6 +1257,8 @@ func (w *World) Step(dt time.Duration) {
 	}
 
 	// 7. A sleeping body whose solid contact (or active area trigger overlap) ended this step lost a support or force zone, so it wakes instead of hanging in place.
+	// For compound bodies with multiple child contacts against the same neighbor, only wake when the body pair has no remaining solid contact on any child, so a slightly recessed child lifting clear on the first sleeping step does not cause a sleep/wake loop.
+	var currentSolidPairs map[pairKey]struct{}
 	for k, rec := range w.activeContacts {
 		if _, still := currentPairs[k]; still {
 			continue
@@ -1026,6 +1267,18 @@ func (w *World) Step(dt time.Duration) {
 			activeArea := (rec.a != nil && rec.a.IsTrigger && rec.a.Area.Active()) ||
 				(rec.b != nil && rec.b.IsTrigger && rec.b.Area.Active())
 			if !activeArea {
+				continue
+			}
+		} else if k.childA >= 0 || k.childB >= 0 {
+			if currentSolidPairs == nil {
+				currentSolidPairs = make(map[pairKey]struct{}, len(currentPairs))
+				for ck, crec := range currentPairs {
+					if !crec.isTrigger {
+						currentSolidPairs[pairKey{a: ck.a, b: ck.b}] = struct{}{}
+					}
+				}
+			}
+			if _, stillTouching := currentSolidPairs[pairKey{a: k.a, b: k.b}]; stillTouching {
 				continue
 			}
 		}
@@ -1135,14 +1388,21 @@ func propagateShockVelocity(contacts []solverContact, order []int, up Vec3) {
 			continue
 		}
 		invM, invI := activeInvMass(upper), activeInvInertia(upper)
-		if invM+invI == 0 {
+		_, hasT := activeWorldInvInertia(upper)
+		if invM+invI == 0 && !hasT {
 			continue
 		}
 		vn := pointVel(upper, rU).Sub(pointVel(lower, rL)).Dot(n)
 		if vn >= 0 {
 			continue
 		}
-		if k := contactEffectiveMass(invM, invI, rU, 0, 0, Vec3{}, n); k > 0 {
+		var k float32
+		if hasT {
+			k = contactEffectiveMassBodies(upper, rU, nil, Vec3{}, n)
+		} else {
+			k = contactEffectiveMass(invM, invI, rU, 0, 0, Vec3{}, n)
+		}
+		if k > 0 {
 			applyContactImpulse(upper, rU, n.Scale(-vn/k))
 		}
 	}
@@ -1198,16 +1458,16 @@ func (w *World) resolveResidualPenetration(contacts []solverContact, order []int
 	}
 }
 
-// shapeTriangleContacts returns the contacts a body's world shape s makes with a static triangle: the manifold for a convex hull or cylinder, and the single contact of TestShapeTriangle (with the heightfield correction when heightfield is set) otherwise.
+// shapeTriangleContacts returns the contacts a body's world shape s makes with a static triangle: the manifold for a convex hull or cylinder, and the single contact of testShapeTriangleSolid (with the heightfield correction when heightfield is set) otherwise.
 func shapeTriangleContacts(s Shape, tri Triangle, heightfield bool) []Contact {
 	if isConvexKind(s) {
 		return triangleManifold(s, tri, heightfield)
 	}
 	var c Contact
 	if heightfield {
-		c = testShapeHeightfieldTriangle(s, tri)
+		c = testShapeHeightfieldTriangleSolid(s, tri)
 	} else {
-		c = TestShapeTriangle(s, tri)
+		c = testShapeTriangleSolid(s, tri)
 	}
 	if !c.Hit {
 		return nil
@@ -1219,13 +1479,13 @@ func shapeTriangleContacts(s Shape, tri Triangle, heightfield bool) []Contact {
 func (c *solverContact) current() Contact {
 	switch {
 	case c.isVoxel:
-		return c.voxel.testVoxel(c.a.WorldShape(), c.voxelX, c.voxelY, c.voxelZ)
+		return c.voxel.testVoxel(c.a.worldChildShape(c.childA), c.voxelX, c.voxelY, c.voxelZ)
 	case c.isHeightfield:
-		return testShapeHeightfieldTriangle(c.a.WorldShape(), c.tri)
+		return testShapeHeightfieldTriangleSolid(c.a.worldChildShape(c.childA), c.tri)
 	case c.isStaticTri:
-		return TestShapeTriangle(c.a.WorldShape(), c.tri)
+		return testShapeTriangleSolid(c.a.worldChildShape(c.childA), c.tri)
 	default:
-		return TestShapes(c.a.WorldShape(), c.b.WorldShape())
+		return testShapesSolid(c.a.worldChildShape(c.childA), c.b.worldChildShape(c.childB))
 	}
 }
 
@@ -1287,13 +1547,17 @@ func pointVel(b *Body, r Vec3) Vec3 {
 	return b.Vel.Add(b.AngVel.Cross(r))
 }
 
-// applyContactImpulse applies impulse p at offset r from b's center to its linear and angular velocity.
+// applyContactImpulse applies impulse p at offset r from b's center of mass to its linear and angular velocity.
 func applyContactImpulse(b *Body, r, p Vec3) {
 	if b == nil {
 		return
 	}
 	if invM := activeInvMass(b); invM > 0 {
 		b.Vel = b.Vel.Add(p.Scale(invM))
+	}
+	if invT, ok := activeWorldInvInertia(b); ok {
+		b.AngVel = b.AngVel.Add(invT.MulVec(r.Cross(p)))
+		return
 	}
 	if invI := activeInvInertia(b); invI > 0 {
 		b.AngVel = b.AngVel.Add(r.Cross(p).Scale(invI))

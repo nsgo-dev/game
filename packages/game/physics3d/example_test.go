@@ -130,3 +130,27 @@ func ExampleNewConvexHull() {
 	// centroid offset (-0.167, -0.167, 0.000)
 	// ramp at y=0.33, barrel at y=0.45
 }
+
+// CompoundShape attaches several child colliders at local offsets and rotations onto one rigid body; raycasts report which child was struck.
+func ExampleCompoundShape() {
+	w := physics3d.NewWorld()
+	w.AddBody(ground())
+
+	bodyShape := physics3d.CompoundShape(
+		physics3d.CompoundChild{
+			Shape:  physics3d.BoxShape(physics3d.Box{HalfExtents: physics3d.Vec3{X: 0.4, Y: 0.5, Z: 0.4}}),
+			Offset: physics3d.Vec3{Y: 0.5},
+			Mass:   4,
+		},
+		physics3d.CompoundChild{
+			Shape:   physics3d.SphereShape(physics3d.Sphere{Radius: 0.3}),
+			Offset:  physics3d.Vec3{Y: 1.4},
+			Trigger: true,
+		},
+	)
+	target := w.AddBody(physics3d.NewDynamicBody(bodyShape, physics3d.Vec3{}, 0))
+	hit, ok := w.RaycastFirst(physics3d.Vec3{Y: 1.4, Z: 5}, physics3d.Vec3{Y: 1.4, Z: -5})
+	fmt.Printf("mass=%.0f hit=%v child=%d\n", target.Mass, ok, hit.ChildIndex)
+	// Output:
+	// mass=4 hit=true child=1
+}

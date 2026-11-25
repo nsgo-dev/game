@@ -14,6 +14,10 @@ type RaycastHit struct {
 	// Body is the hit body for World raycasts, or nil for standalone shape,
 	// triangle-mesh, or heightfield hits.
 	Body *Body
+	// ChildIndex is the zero-based index of the struck child when Body or the
+	// tested Shape is a ShapeCompound, or -1 for non-compound shapes and static
+	// colliders.
+	ChildIndex int
 	// TriMesh is the hit triangle-mesh collider when the ray struck a static mesh.
 	TriMesh *TriMeshCollider
 	// Heightfield is the hit heightfield collider when the ray struck terrain.
@@ -54,6 +58,8 @@ func RaycastShape(ray Ray, s Shape) (RaycastHit, bool) {
 		return RaycastConvexHull(ray, s.Hull, s.Rot)
 	case ShapeCylinder:
 		return RaycastCylinder(ray, s.Cylinder)
+	case ShapeCompound:
+		return raycastCompound(ray, s.Children)
 	default:
 		return RaycastHit{}, false
 	}
@@ -110,10 +116,11 @@ func RaycastBox(ray Ray, b Box) (RaycastHit, bool) {
 	}
 
 	return RaycastHit{
-		T:        clamp32(tMin/ray.MaxDist, 0, 1),
-		Distance: tMin,
-		Point:    ray.Origin.Add(dir.Scale(tMin)),
-		Normal:   hitNormal,
+		ChildIndex: -1,
+		T:          clamp32(tMin/ray.MaxDist, 0, 1),
+		Distance:   tMin,
+		Point:      ray.Origin.Add(dir.Scale(tMin)),
+		Normal:     hitNormal,
 	}, true
 }
 
@@ -133,10 +140,11 @@ func RaycastSphere(ray Ray, s Sphere) (RaycastHit, bool) {
 	if c <= 0 {
 		// Origin is inside or on the sphere surface: report it like RaycastBox does, facing the ray (#546).
 		return RaycastHit{
-			T:        0,
-			Distance: 0,
-			Point:    ray.Origin,
-			Normal:   dir.Neg(),
+			ChildIndex: -1,
+			T:          0,
+			Distance:   0,
+			Point:      ray.Origin,
+			Normal:     dir.Neg(),
 		}, true
 	}
 	if b > 0 {
@@ -159,10 +167,11 @@ func RaycastSphere(ray Ray, s Sphere) (RaycastHit, bool) {
 		normal = dir.Neg()
 	}
 	return RaycastHit{
-		T:        clamp32(dist/ray.MaxDist, 0, 1),
-		Distance: dist,
-		Point:    point,
-		Normal:   normal,
+		ChildIndex: -1,
+		T:          clamp32(dist/ray.MaxDist, 0, 1),
+		Distance:   dist,
+		Point:      point,
+		Normal:     normal,
 	}, true
 }
 
@@ -188,10 +197,11 @@ func RaycastCapsule(ray Ray, c Capsule) (RaycastHit, bool) {
 	if toOrigin.LenSq() <= c.Radius*c.Radius {
 		// Inside: report like RaycastBox and RaycastSphere, facing the ray (#546).
 		return RaycastHit{
-			T:        0,
-			Distance: 0,
-			Point:    ray.Origin,
-			Normal:   dir.Neg(),
+			ChildIndex: -1,
+			T:          0,
+			Distance:   0,
+			Point:      ray.Origin,
+			Normal:     dir.Neg(),
 		}, true
 	}
 
@@ -220,10 +230,11 @@ func RaycastCapsule(ray Ray, c Capsule) (RaycastHit, bool) {
 					axisPt := c.A.Add(abNorm.Scale(h))
 					normal := point.Sub(axisPt).Norm()
 					best = RaycastHit{
-						T:        clamp32(dist/ray.MaxDist, 0, 1),
-						Distance: dist,
-						Point:    point,
-						Normal:   normal,
+						ChildIndex: -1,
+						T:          clamp32(dist/ray.MaxDist, 0, 1),
+						Distance:   dist,
+						Point:      point,
+						Normal:     normal,
 					}
 					bestDist = dist
 					hit = true

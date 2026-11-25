@@ -80,9 +80,12 @@ const (
 	ShapeConvexHull
 	// ShapeCylinder selects Shape.Cylinder.
 	ShapeCylinder
+	// ShapeCompound selects Shape.Children.
+	ShapeCompound
 )
 
-// Shape is a tagged wrapper holding one 3D collision primitive.
+// Shape is a tagged wrapper holding one 3D collision primitive or a compound
+// assembly of child shapes.
 type Shape struct {
 	Kind    ShapeKind
 	Box     Box
@@ -94,6 +97,8 @@ type Shape struct {
 	Cylinder Cylinder
 	// Rot orients a Box or a ConvexHull about its Center, making the box an oriented box. The zero value and identity leave them unrotated; spheres, capsules and cylinders ignore it.
 	Rot Quat
+	// Children holds the child colliders when Kind == ShapeCompound.
+	Children []CompoundChild `json:"Children,omitempty"`
 }
 
 // BoxShape wraps b in a Shape.
@@ -134,6 +139,18 @@ func (s Shape) Translated(offset Vec3) Shape {
 		return Shape{Kind: ShapeConvexHull, Hull: s.Hull.Translated(offset), Rot: s.Rot}
 	case ShapeCylinder:
 		return CylinderShape(s.Cylinder.Translated(offset))
+	case ShapeCompound:
+		if len(s.Children) == 0 {
+			return Shape{Kind: ShapeCompound}
+		}
+		children := make([]CompoundChild, len(s.Children))
+		for i, c := range s.Children {
+			c.Shape = c.WorldShape(offset, Quat{})
+			c.Offset = Vec3{}
+			c.Rot = Quat{}
+			children[i] = c
+		}
+		return Shape{Kind: ShapeCompound, Children: children}
 	default:
 		return s
 	}
@@ -181,6 +198,18 @@ func (s Shape) Transformed(pos Vec3, rot Quat) Shape {
 			B:      rot.RotateVec(s.Cylinder.B).Add(pos),
 			Radius: s.Cylinder.Radius,
 		})
+	case ShapeCompound:
+		if len(s.Children) == 0 {
+			return Shape{Kind: ShapeCompound}
+		}
+		children := make([]CompoundChild, len(s.Children))
+		for i, c := range s.Children {
+			c.Shape = c.WorldShape(pos, rot)
+			c.Offset = Vec3{}
+			c.Rot = Quat{}
+			children[i] = c
+		}
+		return Shape{Kind: ShapeCompound, Children: children}
 	default:
 		return s
 	}
@@ -216,6 +245,8 @@ func (s Shape) Bounds() Box {
 		return s.Hull.geom.bounds(s.Hull.Center, s.Rot)
 	case ShapeCylinder:
 		return s.Cylinder.bounds()
+	case ShapeCompound:
+		return compoundBounds(s.Children)
 	default:
 		return Box{}
 	}
@@ -249,6 +280,9 @@ func (c Contact) flipped() Contact {
 
 // TestShapes tests two shapes for overlap. The returned Contact normal points from b toward a. Boxes oriented by Shape.Rot are tested exactly: two boxes with the separating axis theorem, and a box against a sphere or capsule in the box's own frame. Any pair with a convex hull or a cylinder is tested with GJK and EPA, and its Point is the middle of the area where the two shapes touch.
 func TestShapes(a, b Shape) Contact {
+	if a.Kind == ShapeCompound || b.Kind == ShapeCompound {
+		return testCompoundShapes(a, b)
+	}
 	if isConvexKind(a) || isConvexKind(b) {
 		return testConvex(toCvx(a), toCvx(b))
 	}

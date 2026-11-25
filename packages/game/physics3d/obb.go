@@ -41,6 +41,18 @@ func (f boxFrame) localShape(s Shape) Shape {
 		return Shape{Kind: ShapeConvexHull, Hull: h, Rot: f.inv.Mul(normalizedQuat(s.Rot)).Norm()}
 	case ShapeCylinder:
 		return CylinderShape(Cylinder{A: f.toLocal(s.Cylinder.A), B: f.toLocal(s.Cylinder.B), Radius: s.Cylinder.Radius})
+	case ShapeCompound:
+		if len(s.Children) == 0 {
+			return Shape{Kind: ShapeCompound}
+		}
+		children := make([]CompoundChild, len(s.Children))
+		for i, c := range s.Children {
+			c.Shape = f.localShape(c.LocalShape())
+			c.Offset = Vec3{}
+			c.Rot = Quat{}
+			children[i] = c
+		}
+		return Shape{Kind: ShapeCompound, Children: children}
 	default:
 		return s
 	}

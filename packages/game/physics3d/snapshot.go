@@ -1,6 +1,8 @@
 package physics3d
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -13,31 +15,33 @@ const SnapshotVersion = 1
 
 // BodySnapshot captures the complete public and private simulation state of a physics3d.Body.
 type BodySnapshot struct {
-	ID              int              `json:"id"`
-	Tag             string           `json:"tag,omitempty"`
-	Shape           Shape            `json:"shape"`
-	Pos             Vec3             `json:"pos"`
-	Vel             Vec3             `json:"vel"`
-	Rot             Quat             `json:"rot"`
-	AngVel          Vec3             `json:"angVel"`
-	Mass            float32          `json:"mass"`
-	InvMass         float32          `json:"invMass"`
-	InvInertia      float32          `json:"invInertia"`
-	LockRotation    bool             `json:"lockRotation,omitempty"`
-	Restitution     float32          `json:"restitution"`
-	Friction        float32          `json:"friction"`
-	LinearDamping   float32          `json:"linearDamping"`
-	AngularDamping  float32          `json:"angularDamping"`
-	Material        *PhysicsMaterial `json:"material,omitempty"`
-	GravityScale    float32          `json:"gravityScale"`
-	GravityScaleSet bool             `json:"gravityScaleSet,omitempty"`
-	Static          bool             `json:"static,omitempty"`
-	Kinematic       bool             `json:"kinematic,omitempty"`
-	Sleeping        bool             `json:"sleeping,omitempty"`
-	Layer           LayerMask        `json:"layer"`
-	Mask            LayerMask        `json:"mask"`
-	IsTrigger       bool             `json:"isTrigger,omitempty"`
-	Area            AreaSettings     `json:"area"`
+	ID               int              `json:"id"`
+	Tag              string           `json:"tag,omitempty"`
+	Shape            Shape            `json:"shape"`
+	Pos              Vec3             `json:"pos"`
+	Vel              Vec3             `json:"vel"`
+	Rot              Quat             `json:"rot"`
+	AngVel           Vec3             `json:"angVel"`
+	Mass             float32          `json:"mass"`
+	InvMass          float32          `json:"invMass"`
+	InvInertia       float32          `json:"invInertia"`
+	CenterOfMass     Vec3             `json:"centerOfMass"`
+	InvInertiaTensor SymMat3          `json:"invInertiaTensor"`
+	LockRotation     bool             `json:"lockRotation,omitempty"`
+	Restitution      float32          `json:"restitution"`
+	Friction         float32          `json:"friction"`
+	LinearDamping    float32          `json:"linearDamping"`
+	AngularDamping   float32          `json:"angularDamping"`
+	Material         *PhysicsMaterial `json:"material,omitempty"`
+	GravityScale     float32          `json:"gravityScale"`
+	GravityScaleSet  bool             `json:"gravityScaleSet,omitempty"`
+	Static           bool             `json:"static,omitempty"`
+	Kinematic        bool             `json:"kinematic,omitempty"`
+	Sleeping         bool             `json:"sleeping,omitempty"`
+	Layer            LayerMask        `json:"layer"`
+	Mask             LayerMask        `json:"mask"`
+	IsTrigger        bool             `json:"isTrigger,omitempty"`
+	Area             AreaSettings     `json:"area"`
 
 	SleepTimer     float32 `json:"sleepTimer,omitempty"`
 	ResidualDepth  float32 `json:"residualDepth,omitempty"`
@@ -57,32 +61,88 @@ type PairKeySnapshot struct {
 type CachedImpulseSnapshot struct {
 	BodyAID        int     `json:"bodyAID"`
 	BodyBID        int     `json:"bodyBID"`
+	ChildA         int     `json:"childA"`
+	ChildB         int     `json:"childB"`
 	Normal         Vec3    `json:"normal"`
 	NormalImpulse  float32 `json:"normalImpulse"`
 	TangentImpulse Vec3    `json:"tangentImpulse"`
 }
 
+// UnmarshalJSON defaults ChildA and ChildB to -1 when omitted in pre-compound v1 snapshots.
+func (c *CachedImpulseSnapshot) UnmarshalJSON(data []byte) error {
+	if bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
+		return nil
+	}
+	type alias CachedImpulseSnapshot
+	aux := alias{ChildA: -1, ChildB: -1}
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&aux); err != nil {
+		return err
+	}
+	*c = CachedImpulseSnapshot(aux)
+	return nil
+}
+
 // ActiveContactSnapshot captures one active contact or trigger overlap record.
 type ActiveContactSnapshot struct {
-	KeyA      int     `json:"keyA"`
-	KeyB      int     `json:"keyB"`
-	BodyAID   int     `json:"bodyAID"`
-	BodyBID   int     `json:"bodyBID"`
-	Point     Vec3    `json:"point"`
-	Normal    Vec3    `json:"normal"`
-	Depth     float32 `json:"depth"`
-	IsTrigger bool    `json:"isTrigger,omitempty"`
+	KeyA        int     `json:"keyA"`
+	KeyB        int     `json:"keyB"`
+	KeyChildA   int     `json:"keyChildA"`
+	KeyChildB   int     `json:"keyChildB"`
+	BodyAID     int     `json:"bodyAID"`
+	BodyBID     int     `json:"bodyBID"`
+	ChildIndexA int     `json:"childIndexA"`
+	ChildIndexB int     `json:"childIndexB"`
+	Point       Vec3    `json:"point"`
+	Normal      Vec3    `json:"normal"`
+	Depth       float32 `json:"depth"`
+	IsTrigger   bool    `json:"isTrigger,omitempty"`
+}
+
+// UnmarshalJSON defaults child indices to -1 when omitted in pre-compound v1 snapshots.
+func (a *ActiveContactSnapshot) UnmarshalJSON(data []byte) error {
+	if bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
+		return nil
+	}
+	type alias ActiveContactSnapshot
+	aux := alias{KeyChildA: -1, KeyChildB: -1, ChildIndexA: -1, ChildIndexB: -1}
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&aux); err != nil {
+		return err
+	}
+	*a = ActiveContactSnapshot(aux)
+	return nil
 }
 
 // ContactEventSnapshot captures one ContactEvent produced by the last Step.
 type ContactEventSnapshot struct {
-	Kind      ContactEventKind `json:"kind"`
-	BodyAID   int              `json:"bodyAID"`
-	BodyBID   int              `json:"bodyBID"`
-	Point     Vec3             `json:"point"`
-	Normal    Vec3             `json:"normal"`
-	Depth     float32          `json:"depth"`
-	IsTrigger bool             `json:"isTrigger,omitempty"`
+	Kind        ContactEventKind `json:"kind"`
+	BodyAID     int              `json:"bodyAID"`
+	BodyBID     int              `json:"bodyBID"`
+	ChildIndexA int              `json:"childIndexA"`
+	ChildIndexB int              `json:"childIndexB"`
+	Point       Vec3             `json:"point"`
+	Normal      Vec3             `json:"normal"`
+	Depth       float32          `json:"depth"`
+	IsTrigger   bool             `json:"isTrigger,omitempty"`
+}
+
+// UnmarshalJSON defaults ChildIndexA and ChildIndexB to -1 when omitted in pre-compound v1 snapshots.
+func (e *ContactEventSnapshot) UnmarshalJSON(data []byte) error {
+	if bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
+		return nil
+	}
+	type alias ContactEventSnapshot
+	aux := alias{ChildIndexA: -1, ChildIndexB: -1}
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&aux); err != nil {
+		return err
+	}
+	*e = ContactEventSnapshot(aux)
+	return nil
 }
 
 // JointReactionSnapshot captures the per-step reaction accumulator shared by built-in joints.
@@ -271,37 +331,39 @@ func snapshotBody3D(b *Body) BodySnapshot {
 		mat = &m
 	}
 	return BodySnapshot{
-		ID:              b.ID,
-		Tag:             b.Tag,
-		Shape:           b.Shape,
-		Pos:             b.Pos,
-		Vel:             b.Vel,
-		Rot:             b.Rot,
-		AngVel:          b.AngVel,
-		Mass:            b.Mass,
-		InvMass:         b.InvMass,
-		InvInertia:      b.InvInertia,
-		LockRotation:    b.LockRotation,
-		Restitution:     b.Restitution,
-		Friction:        b.Friction,
-		LinearDamping:   b.LinearDamping,
-		AngularDamping:  b.AngularDamping,
-		Material:        mat,
-		GravityScale:    b.GravityScale,
-		GravityScaleSet: b.gravityScaleSet,
-		Static:          b.Static,
-		Kinematic:       b.Kinematic,
-		Sleeping:        b.Sleeping,
-		Layer:           b.Layer,
-		Mask:            b.Mask,
-		IsTrigger:       b.IsTrigger,
-		Area:            b.Area,
-		SleepTimer:      b.sleepTimer,
-		ResidualDepth:   b.residualDepth,
-		LastPos:         b.lastPos,
-		LastRot:         b.lastRot,
-		HavePose:        b.havePose,
-		RestingOnVoxel:  b.restingOnVoxel,
+		ID:               b.ID,
+		Tag:              b.Tag,
+		Shape:            cloneShape(b.Shape),
+		Pos:              b.Pos,
+		Vel:              b.Vel,
+		Rot:              b.Rot,
+		AngVel:           b.AngVel,
+		Mass:             b.Mass,
+		InvMass:          b.InvMass,
+		InvInertia:       b.InvInertia,
+		CenterOfMass:     b.CenterOfMass,
+		InvInertiaTensor: b.InvInertiaTensor,
+		LockRotation:     b.LockRotation,
+		Restitution:      b.Restitution,
+		Friction:         b.Friction,
+		LinearDamping:    b.LinearDamping,
+		AngularDamping:   b.AngularDamping,
+		Material:         mat,
+		GravityScale:     b.GravityScale,
+		GravityScaleSet:  b.gravityScaleSet,
+		Static:           b.Static,
+		Kinematic:        b.Kinematic,
+		Sleeping:         b.Sleeping,
+		Layer:            b.Layer,
+		Mask:             b.Mask,
+		IsTrigger:        b.IsTrigger,
+		Area:             b.Area,
+		SleepTimer:       b.sleepTimer,
+		ResidualDepth:    b.residualDepth,
+		LastPos:          b.lastPos,
+		LastRot:          b.lastRot,
+		HavePose:         b.havePose,
+		RestingOnVoxel:   b.restingOnVoxel,
 	}
 }
 
@@ -312,37 +374,39 @@ func applyBody3DSnapshot(dst *Body, src BodySnapshot) {
 		mat = &m
 	}
 	*dst = Body{
-		ID:              src.ID,
-		Tag:             src.Tag,
-		Shape:           src.Shape,
-		Pos:             src.Pos,
-		Vel:             src.Vel,
-		Rot:             src.Rot,
-		AngVel:          src.AngVel,
-		Mass:            src.Mass,
-		InvMass:         src.InvMass,
-		InvInertia:      src.InvInertia,
-		LockRotation:    src.LockRotation,
-		Restitution:     src.Restitution,
-		Friction:        src.Friction,
-		LinearDamping:   src.LinearDamping,
-		AngularDamping:  src.AngularDamping,
-		Material:        mat,
-		GravityScale:    src.GravityScale,
-		Static:          src.Static,
-		Kinematic:       src.Kinematic,
-		Sleeping:        src.Sleeping,
-		Layer:           src.Layer,
-		Mask:            src.Mask,
-		IsTrigger:       src.IsTrigger,
-		Area:            src.Area,
-		gravityScaleSet: src.GravityScaleSet,
-		sleepTimer:      src.SleepTimer,
-		residualDepth:   src.ResidualDepth,
-		lastPos:         src.LastPos,
-		lastRot:         src.LastRot,
-		havePose:        src.HavePose,
-		restingOnVoxel:  src.RestingOnVoxel,
+		ID:               src.ID,
+		Tag:              src.Tag,
+		Shape:            cloneShape(src.Shape),
+		Pos:              src.Pos,
+		Vel:              src.Vel,
+		Rot:              src.Rot,
+		AngVel:           src.AngVel,
+		Mass:             src.Mass,
+		InvMass:          src.InvMass,
+		InvInertia:       src.InvInertia,
+		CenterOfMass:     src.CenterOfMass,
+		InvInertiaTensor: src.InvInertiaTensor,
+		LockRotation:     src.LockRotation,
+		Restitution:      src.Restitution,
+		Friction:         src.Friction,
+		LinearDamping:    src.LinearDamping,
+		AngularDamping:   src.AngularDamping,
+		Material:         mat,
+		GravityScale:     src.GravityScale,
+		Static:           src.Static,
+		Kinematic:        src.Kinematic,
+		Sleeping:         src.Sleeping,
+		Layer:            src.Layer,
+		Mask:             src.Mask,
+		IsTrigger:        src.IsTrigger,
+		Area:             src.Area,
+		gravityScaleSet:  src.GravityScaleSet,
+		sleepTimer:       src.SleepTimer,
+		residualDepth:    src.ResidualDepth,
+		lastPos:          src.LastPos,
+		lastRot:          src.LastRot,
+		havePose:         src.HavePose,
+		restingOnVoxel:   src.RestingOnVoxel,
 	}
 }
 
@@ -820,17 +884,19 @@ func (w *World) Save() WorldSnapshot {
 	}
 
 	if len(w.cache) > 0 {
-		keys := make([]pairKey, 0, len(w.cache))
+		keys := make([]contactKey, 0, len(w.cache))
 		for k := range w.cache {
 			keys = append(keys, k)
 		}
-		slices.SortFunc(keys, comparePairKeys)
+		slices.SortFunc(keys, compareContactKeys)
 		snap.WarmStartCache = make([]CachedImpulseSnapshot, len(keys))
 		for i, k := range keys {
 			c := w.cache[k]
 			snap.WarmStartCache[i] = CachedImpulseSnapshot{
 				BodyAID:        k.a,
 				BodyBID:        k.b,
+				ChildA:         k.childA,
+				ChildB:         k.childB,
 				Normal:         c.normal,
 				NormalImpulse:  c.normalImpulse,
 				TangentImpulse: c.tangentImpulse,
@@ -839,23 +905,27 @@ func (w *World) Save() WorldSnapshot {
 	}
 
 	if len(w.activeContacts) > 0 {
-		keys := make([]pairKey, 0, len(w.activeContacts))
+		keys := make([]contactKey, 0, len(w.activeContacts))
 		for k := range w.activeContacts {
 			keys = append(keys, k)
 		}
-		slices.SortFunc(keys, comparePairKeys)
+		slices.SortFunc(keys, compareContactKeys)
 		snap.ActiveContacts = make([]ActiveContactSnapshot, len(keys))
 		for i, k := range keys {
 			rec := w.activeContacts[k]
 			snap.ActiveContacts[i] = ActiveContactSnapshot{
-				KeyA:      k.a,
-				KeyB:      k.b,
-				BodyAID:   bodyIDOrZero(rec.a),
-				BodyBID:   bodyIDOrZero(rec.b),
-				Point:     rec.point,
-				Normal:    rec.normal,
-				Depth:     rec.depth,
-				IsTrigger: rec.isTrigger,
+				KeyA:        k.a,
+				KeyB:        k.b,
+				KeyChildA:   k.childA,
+				KeyChildB:   k.childB,
+				BodyAID:     bodyIDOrZero(rec.a),
+				BodyBID:     bodyIDOrZero(rec.b),
+				ChildIndexA: rec.childA,
+				ChildIndexB: rec.childB,
+				Point:       rec.point,
+				Normal:      rec.normal,
+				Depth:       rec.depth,
+				IsTrigger:   rec.isTrigger,
 			}
 		}
 	}
@@ -864,13 +934,15 @@ func (w *World) Save() WorldSnapshot {
 		snap.ContactEvents = make([]ContactEventSnapshot, len(w.contactEvents))
 		for i, ev := range w.contactEvents {
 			snap.ContactEvents[i] = ContactEventSnapshot{
-				Kind:      ev.Kind,
-				BodyAID:   bodyIDOrZero(ev.BodyA),
-				BodyBID:   bodyIDOrZero(ev.BodyB),
-				Point:     ev.Point,
-				Normal:    ev.Normal,
-				Depth:     ev.Depth,
-				IsTrigger: ev.IsTrigger,
+				Kind:        ev.Kind,
+				BodyAID:     bodyIDOrZero(ev.BodyA),
+				BodyBID:     bodyIDOrZero(ev.BodyB),
+				ChildIndexA: ev.ChildIndexA,
+				ChildIndexB: ev.ChildIndexB,
+				Point:       ev.Point,
+				Normal:      ev.Normal,
+				Depth:       ev.Depth,
+				IsTrigger:   ev.IsTrigger,
 			}
 		}
 	}
@@ -1032,20 +1104,22 @@ func (w *World) Restore(snap WorldSnapshot) error {
 		return bodyByID[id]
 	}
 
-	restoredCache := make(map[pairKey]cachedImpulse, len(snap.WarmStartCache))
+	restoredCache := make(map[contactKey]cachedImpulse, len(snap.WarmStartCache))
 	for _, c := range snap.WarmStartCache {
-		restoredCache[pairKey{a: c.BodyAID, b: c.BodyBID}] = cachedImpulse{
+		restoredCache[contactKey{a: c.BodyAID, b: c.BodyBID, childA: c.ChildA, childB: c.ChildB}] = cachedImpulse{
 			normal:         c.Normal,
 			normalImpulse:  c.NormalImpulse,
 			tangentImpulse: c.TangentImpulse,
 		}
 	}
 
-	restoredActive := make(map[pairKey]activeContactRecord, len(snap.ActiveContacts))
+	restoredActive := make(map[contactKey]activeContactRecord, len(snap.ActiveContacts))
 	for _, ac := range snap.ActiveContacts {
-		restoredActive[pairKey{a: ac.KeyA, b: ac.KeyB}] = activeContactRecord{
+		restoredActive[contactKey{a: ac.KeyA, b: ac.KeyB, childA: ac.KeyChildA, childB: ac.KeyChildB}] = activeContactRecord{
 			a:         lookupBody(ac.BodyAID),
 			b:         lookupBody(ac.BodyBID),
+			childA:    ac.ChildIndexA,
+			childB:    ac.ChildIndexB,
 			point:     ac.Point,
 			normal:    ac.Normal,
 			depth:     ac.Depth,
@@ -1058,13 +1132,15 @@ func (w *World) Restore(snap WorldSnapshot) error {
 		restoredContactEvents = make([]ContactEvent, len(snap.ContactEvents))
 		for i, ev := range snap.ContactEvents {
 			restoredContactEvents[i] = ContactEvent{
-				Kind:      ev.Kind,
-				BodyA:     lookupBody(ev.BodyAID),
-				BodyB:     lookupBody(ev.BodyBID),
-				Point:     ev.Point,
-				Normal:    ev.Normal,
-				Depth:     ev.Depth,
-				IsTrigger: ev.IsTrigger,
+				Kind:        ev.Kind,
+				BodyA:       lookupBody(ev.BodyAID),
+				BodyB:       lookupBody(ev.BodyBID),
+				ChildIndexA: ev.ChildIndexA,
+				ChildIndexB: ev.ChildIndexB,
+				Point:       ev.Point,
+				Normal:      ev.Normal,
+				Depth:       ev.Depth,
+				IsTrigger:   ev.IsTrigger,
 			}
 		}
 	}
@@ -1259,16 +1335,20 @@ func (w *World) Checksum() uint64 {
 	}
 
 	if len(w.cache) > 0 {
-		keys := make([]pairKey, 0, len(w.cache))
+		keys := make([]contactKey, 0, len(w.cache))
 		for k := range w.cache {
 			keys = append(keys, k)
 		}
-		slices.SortFunc(keys, comparePairKeys)
+		slices.SortFunc(keys, compareContactKeys)
 		h.WriteInt(len(keys))
 		for _, k := range keys {
 			c := w.cache[k]
 			h.WriteInt(k.a)
 			h.WriteInt(k.b)
+			if k.childA >= 0 || k.childB >= 0 {
+				h.WriteInt(k.childA)
+				h.WriteInt(k.childB)
+			}
 			hashVec3(&h, c.normal)
 			h.WriteFloat32(c.normalImpulse)
 			hashVec3(&h, c.tangentImpulse)
@@ -1278,18 +1358,26 @@ func (w *World) Checksum() uint64 {
 	}
 
 	if len(w.activeContacts) > 0 {
-		keys := make([]pairKey, 0, len(w.activeContacts))
+		keys := make([]contactKey, 0, len(w.activeContacts))
 		for k := range w.activeContacts {
 			keys = append(keys, k)
 		}
-		slices.SortFunc(keys, comparePairKeys)
+		slices.SortFunc(keys, compareContactKeys)
 		h.WriteInt(len(keys))
 		for _, k := range keys {
 			rec := w.activeContacts[k]
 			h.WriteInt(k.a)
 			h.WriteInt(k.b)
+			if k.childA >= 0 || k.childB >= 0 {
+				h.WriteInt(k.childA)
+				h.WriteInt(k.childB)
+			}
 			h.WriteInt(bodyIDOrZero(rec.a))
 			h.WriteInt(bodyIDOrZero(rec.b))
+			if rec.childA >= 0 || rec.childB >= 0 {
+				h.WriteInt(rec.childA)
+				h.WriteInt(rec.childB)
+			}
 			hashVec3(&h, rec.point)
 			hashVec3(&h, rec.normal)
 			h.WriteFloat32(rec.depth)
@@ -1304,6 +1392,10 @@ func (w *World) Checksum() uint64 {
 		h.WriteInt(int(ev.Kind))
 		h.WriteInt(bodyIDOrZero(ev.BodyA))
 		h.WriteInt(bodyIDOrZero(ev.BodyB))
+		if ev.ChildIndexA >= 0 || ev.ChildIndexB >= 0 {
+			h.WriteInt(ev.ChildIndexA)
+			h.WriteInt(ev.ChildIndexB)
+		}
 		hashVec3(&h, ev.Point)
 		hashVec3(&h, ev.Normal)
 		h.WriteFloat32(ev.Depth)
@@ -1465,6 +1557,18 @@ func hashShape3D(h *detmath.Hasher, s Shape) {
 		hashVec3(h, s.Cylinder.A)
 		hashVec3(h, s.Cylinder.B)
 		h.WriteFloat32(s.Cylinder.Radius)
+	case ShapeCompound:
+		h.WriteInt(len(s.Children))
+		for _, c := range s.Children {
+			hashShape3D(h, c.Shape)
+			hashVec3(h, c.Offset)
+			hashQuat(h, c.Rot)
+			h.WriteFloat32(c.Mass)
+			h.WriteFloat32(c.Density)
+			h.WriteBool(c.Trigger)
+			h.WriteUint32(uint32(c.Layer))
+			h.WriteUint32(uint32(c.Mask))
+		}
 	}
 }
 
@@ -1525,6 +1629,19 @@ func hashBody3D(h *detmath.Hasher, b *Body) {
 	hashQuat(h, b.lastRot)
 	h.WriteBool(b.havePose)
 	h.WriteBool(b.restingOnVoxel)
+	if b.CenterOfMass != (Vec3{}) {
+		h.WriteUint8(1)
+		hashVec3(h, b.CenterOfMass)
+	}
+	if !b.InvInertiaTensor.IsZero() {
+		h.WriteUint8(2)
+		h.WriteFloat32(b.InvInertiaTensor.XX)
+		h.WriteFloat32(b.InvInertiaTensor.YY)
+		h.WriteFloat32(b.InvInertiaTensor.ZZ)
+		h.WriteFloat32(b.InvInertiaTensor.XY)
+		h.WriteFloat32(b.InvInertiaTensor.XZ)
+		h.WriteFloat32(b.InvInertiaTensor.YZ)
+	}
 }
 
 func hashAxisConfig(h *detmath.Hasher, c AxisConfig) {

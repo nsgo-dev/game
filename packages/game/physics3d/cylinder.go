@@ -117,13 +117,14 @@ func RaycastCylinder(ray Ray, c Cylinder) (RaycastHit, bool) {
 		return RaycastHit{}, false
 	}
 	if !entered {
-		return RaycastHit{Point: ray.Origin, Normal: dir.Neg()}, true
+		return RaycastHit{ChildIndex: -1, Point: ray.Origin, Normal: dir.Neg()}, true
 	}
 	return RaycastHit{
-		T:        clamp32(float32(tEnter)/ray.MaxDist, 0, 1),
-		Distance: float32(tEnter),
-		Point:    ray.Origin.Add(dir.Scale(float32(tEnter))),
-		Normal:   n.vec3().Norm(),
+		ChildIndex: -1,
+		T:          clamp32(float32(tEnter)/ray.MaxDist, 0, 1),
+		Distance:   float32(tEnter),
+		Point:      ray.Origin.Add(dir.Scale(float32(tEnter))),
+		Normal:     n.vec3().Norm(),
 	}, true
 }
 
@@ -144,14 +145,15 @@ func RaycastConvexHull(ray Ray, h ConvexHull, rot Quat) (RaycastHit, bool) {
 		return RaycastHit{}, false
 	}
 	if !entered {
-		return RaycastHit{Point: ray.Origin, Normal: dir.Neg()}, true
+		return RaycastHit{ChildIndex: -1, Point: ray.Origin, Normal: dir.Neg()}, true
 	}
 	wn := f.axes[0].scale(n.x).add(f.axes[1].scale(n.y)).add(f.axes[2].scale(n.z))
 	return RaycastHit{
-		T:        clamp32(float32(t)/ray.MaxDist, 0, 1),
-		Distance: float32(t),
-		Point:    ray.Origin.Add(dir.Scale(float32(t))),
-		Normal:   wn.vec3().Norm(),
+		ChildIndex: -1,
+		T:          clamp32(float32(t)/ray.MaxDist, 0, 1),
+		Distance:   float32(t),
+		Point:      ray.Origin.Add(dir.Scale(float32(t))),
+		Normal:     wn.vec3().Norm(),
 	}, true
 }
 

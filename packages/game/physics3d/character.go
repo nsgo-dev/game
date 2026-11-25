@@ -706,12 +706,14 @@ func (c *CharacterController) raycastFirst(world *World, from, to Vec3) (Raycast
 	var best RaycastHit
 	var bestKind bpKind
 	var bestOrder int32
+	bestChild := -1
 	found := false
-	consider := func(h RaycastHit, kind bpKind, order int32) {
-		if !found || h.T < best.T || (h.T == best.T && (kind < bestKind || (kind == bestKind && order < bestOrder))) {
+	consider := func(h RaycastHit, kind bpKind, order int32, child int) {
+		if !found || h.T < best.T || (h.T == best.T && (kind < bestKind || (kind == bestKind && (order < bestOrder || (order == bestOrder && child < bestChild))))) {
 			best = h
 			bestKind = kind
 			bestOrder = order
+			bestChild = child
 			found = true
 		}
 	}
@@ -724,12 +726,31 @@ func (c *CharacterController) raycastFirst(world *World, from, to Vec3) (Raycast
 			if b.ID == c.IgnoreBodyID || b.IsTrigger {
 				return curMax, true
 			}
+			if b.Shape.Kind == ShapeCompound {
+				ws := p.worldShape
+				for ci, child := range ws.Children {
+					if child.Trigger || (child.EffectiveLayer(b.Layer)&mask) == 0 {
+						continue
+					}
+					if h, hit := RaycastShape(ray, child.LocalShape()); hit {
+						h.Body = b
+						h.ChildIndex = ci
+						consider(h, bpKindBody, p.order, ci)
+						next := best.Distance + max(float32(1e-5), float32(best.Distance*1e-6))
+						if next < curMax {
+							curMax = next
+						}
+					}
+				}
+				return curMax, true
+			}
 			if (effectiveLayer(b.Layer) & mask) == 0 {
 				return curMax, true
 			}
 			if h, hit := RaycastShape(ray, p.worldShape); hit {
 				h.Body = b
-				consider(h, bpKindBody, p.order)
+				h.ChildIndex = -1
+				consider(h, bpKindBody, p.order, -1)
 				next := best.Distance + max(float32(1e-5), float32(best.Distance*1e-6))
 				if next < curMax {
 					curMax = next
@@ -742,7 +763,8 @@ func (c *CharacterController) raycastFirst(world *World, from, to Vec3) (Raycast
 			}
 			if h, hit := tm.Raycast(ray); hit {
 				h.TriMesh = tm
-				consider(h, bpKindTriMesh, p.order)
+				h.ChildIndex = -1
+				consider(h, bpKindTriMesh, p.order, -1)
 				next := best.Distance + max(float32(1e-5), float32(best.Distance*1e-6))
 				if next < curMax {
 					curMax = next
@@ -755,7 +777,8 @@ func (c *CharacterController) raycastFirst(world *World, from, to Vec3) (Raycast
 			}
 			if h, hit := hf.Raycast(ray); hit {
 				h.Heightfield = hf
-				consider(h, bpKindHeightfield, p.order)
+				h.ChildIndex = -1
+				consider(h, bpKindHeightfield, p.order, -1)
 				next := best.Distance + max(float32(1e-5), float32(best.Distance*1e-6))
 				if next < curMax {
 					curMax = next
@@ -772,7 +795,8 @@ func (c *CharacterController) raycastFirst(world *World, from, to Vec3) (Raycast
 		}
 		if h, hit := vc.Raycast(ray); hit {
 			h.Voxel = vc
-			consider(h, voxelKind, int32(i))
+			h.ChildIndex = -1
+			consider(h, voxelKind, int32(i), -1)
 		}
 	}
 	return best, found
@@ -891,7 +915,7 @@ func (c *CharacterController) sweepCapsuleHit(world *World, startPos, delta Vec3
 			if b == ignoreBody || b.ID == c.IgnoreBodyID || b.IsTrigger {
 				return true
 			}
-			if (effectiveLayer(b.Layer) & mask) == 0 {
+			if b.Shape.Kind != ShapeCompound && (effectiveLayer(b.Layer)&mask) == 0 {
 				return true
 			}
 			if aabbOverlap(sweptBounds, p.worldBounds) {
@@ -926,7 +950,21 @@ func (c *CharacterController) sweepCapsuleHit(world *World, startPos, delta Vec3
 	for _, rc := range rawCands {
 		switch rc.kind {
 		case bpKindBody:
-			candidates = append(candidates, bodyShapeCandidate{body: rc.proxy.body, shape: rc.proxy.worldShape})
+			b := rc.proxy.body
+			if b.Shape.Kind == ShapeCompound {
+				ws := rc.proxy.worldShape
+				for _, child := range ws.Children {
+					if child.Trigger || (child.EffectiveLayer(b.Layer)&mask) == 0 {
+						continue
+					}
+					cs := child.LocalShape()
+					if aabbOverlap(sweptBounds, cs.Bounds()) {
+						candidates = append(candidates, bodyShapeCandidate{body: b, shape: cs})
+					}
+				}
+				continue
+			}
+			candidates = append(candidates, bodyShapeCandidate{body: b, shape: rc.proxy.worldShape})
 		case bpKindTriMesh:
 			rc.proxy.triMesh.QueryTriangles(sweptBounds, func(tri Triangle) {
 				if aabbOverlap(sweptBounds, tri.Bounds()) {
@@ -973,7 +1011,7 @@ func (c *CharacterController) sweepCapsuleHit(world *World, startPos, delta Vec3
 			}
 		}
 		for _, cand := range candidates {
-			consider(TestShapes(capShape, cand.shape), cand.body)
+			consider(testShapesSolid(capShape, cand.shape), cand.body)
 		}
 		for _, tri := range meshTris {
 			consider(TestCapsuleTriangle(cap, tri), nil)
@@ -1044,13 +1082,15 @@ func (c *CharacterController) deepestOverlapBodyIgnoring(world *World, pos Vec3,
 	var bestBody *Body
 	var bestKind bpKind
 	var bestOrder int32
+	bestChild := -1
 	found := false
-	consider := func(ct Contact, body *Body, kind bpKind, order int32) {
-		if !found || ct.Depth > best.Depth || (ct.Depth == best.Depth && (kind < bestKind || (kind == bestKind && order < bestOrder))) {
+	consider := func(ct Contact, body *Body, kind bpKind, order int32, child int) {
+		if !found || ct.Depth > best.Depth || (ct.Depth == best.Depth && (kind < bestKind || (kind == bestKind && (order < bestOrder || (order == bestOrder && child < bestChild))))) {
 			best = ct
 			bestBody = body
 			bestKind = kind
 			bestOrder = order
+			bestChild = child
 			found = true
 		}
 	}
@@ -1062,14 +1102,30 @@ func (c *CharacterController) deepestOverlapBodyIgnoring(world *World, pos Vec3,
 			if b == ignoreBody || b.ID == c.IgnoreBodyID || b.IsTrigger {
 				return true
 			}
-			if (effectiveLayer(b.Layer) & mask) == 0 {
-				return true
-			}
 			if !aabbOverlap(capBounds, p.worldBounds) {
 				return true
 			}
+			if b.Shape.Kind == ShapeCompound {
+				ws := p.worldShape
+				for ci, child := range ws.Children {
+					if child.Trigger || (child.EffectiveLayer(b.Layer)&mask) == 0 {
+						continue
+					}
+					cs := child.LocalShape()
+					if !aabbOverlap(capBounds, cs.Bounds()) {
+						continue
+					}
+					if ct := testShapesSolid(capShape, cs); ct.Hit {
+						consider(ct, b, bpKindBody, p.order, ci)
+					}
+				}
+				return true
+			}
+			if (effectiveLayer(b.Layer) & mask) == 0 {
+				return true
+			}
 			if ct := TestShapes(capShape, p.worldShape); ct.Hit {
-				consider(ct, b, bpKindBody, p.order)
+				consider(ct, b, bpKindBody, p.order, -1)
 			}
 		case bpKindTriMesh:
 			tm := p.triMesh
@@ -1080,7 +1136,7 @@ func (c *CharacterController) deepestOverlapBodyIgnoring(world *World, pos Vec3,
 				return true
 			}
 			if ct := tm.TestShape(capShape); ct.Hit {
-				consider(ct, nil, bpKindTriMesh, p.order)
+				consider(ct, nil, bpKindTriMesh, p.order, -1)
 			}
 		case bpKindHeightfield:
 			hf := p.heightfield
@@ -1091,7 +1147,7 @@ func (c *CharacterController) deepestOverlapBodyIgnoring(world *World, pos Vec3,
 				return true
 			}
 			if ct := hf.TestShape(capShape); ct.Hit {
-				consider(ct, nil, bpKindHeightfield, p.order)
+				consider(ct, nil, bpKindHeightfield, p.order, -1)
 			}
 		}
 		return true
@@ -1103,7 +1159,7 @@ func (c *CharacterController) deepestOverlapBodyIgnoring(world *World, pos Vec3,
 			continue
 		}
 		if ct := vc.TestShape(capShape); ct.Hit {
-			consider(ct, nil, voxelKind, int32(i))
+			consider(ct, nil, voxelKind, int32(i), -1)
 		}
 	}
 	return best, bestBody, found
@@ -1121,6 +1177,28 @@ func (c *CharacterController) collectOverlaps(world *World, pos Vec3, skipWalkab
 	var out []overlapContact
 	for _, b := range world.bodies {
 		if b.ID == c.IgnoreBodyID || b.IsTrigger {
+			continue
+		}
+		if b.Shape.Kind == ShapeCompound {
+			ws := b.WorldShape()
+			if len(ws.Children) == 0 || !aabbOverlap(capBounds, ws.Bounds()) {
+				continue
+			}
+			for _, child := range ws.Children {
+				if child.Trigger || (child.EffectiveLayer(b.Layer)&mask) == 0 {
+					continue
+				}
+				cs := child.LocalShape()
+				if !aabbOverlap(capBounds, cs.Bounds()) {
+					continue
+				}
+				if ct := testShapesSolid(capShape, cs); ct.Hit {
+					if b == skipWalkableBody && ct.Normal.Y >= minGroundY {
+						continue
+					}
+					out = append(out, overlapContact{contact: ct, body: b})
+				}
+			}
 			continue
 		}
 		if (effectiveLayer(b.Layer) & mask) == 0 {
@@ -1458,7 +1536,7 @@ func (c *CharacterController) resolveKinematicIntrusions(world *World, skipBody 
 		if !b.Kinematic || b == skipBody || b.ID == c.IgnoreBodyID || b.IsTrigger {
 			continue
 		}
-		if (effectiveLayer(b.Layer) & mask) == 0 {
+		if b.Shape.Kind != ShapeCompound && (effectiveLayer(b.Layer)&mask) == 0 {
 			continue
 		}
 		prev, ok := c.kinematicPoses[b.ID]
@@ -1499,7 +1577,20 @@ func (c *CharacterController) resolveKinematicIntrusions(world *World, skipBody 
 			rotT := prev.rot.Slerp(curRot, t)
 			shapeT := b.Shape.Transformed(posT, rotT)
 
-			ct := TestShapes(CapsuleShape(c.capsuleAt(c.Pos)), shapeT)
+			capShape := CapsuleShape(c.capsuleAt(c.Pos))
+			var ct Contact
+			if b.Shape.Kind == ShapeCompound {
+				for _, child := range shapeT.Children {
+					if child.Trigger || (child.EffectiveLayer(b.Layer)&mask) == 0 {
+						continue
+					}
+					if cHit := testShapesSolid(capShape, child.LocalShape()); cHit.Hit && (!ct.Hit || cHit.Depth > ct.Depth) {
+						ct = cHit
+					}
+				}
+			} else {
+				ct = TestShapes(capShape, shapeT)
+			}
 			if !ct.Hit || ct.Depth <= 1e-6 {
 				continue
 			}
@@ -1603,6 +1694,9 @@ func maxShapeExtent(s Shape) float32 {
 		return s.Sphere.Center.Len() + s.Sphere.Radius
 	case ShapeCapsule:
 		return max(s.Capsule.A.Len(), s.Capsule.B.Len()) + s.Capsule.Radius
+	case ShapeConvexHull, ShapeCylinder, ShapeCompound:
+		b := s.Bounds()
+		return b.Center.Len() + b.HalfExtents.Len()
 	default:
 		return 0
 	}
