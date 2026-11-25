@@ -25,8 +25,9 @@ import (
 | `game/pixelfx/scifi` | 科幻：`emp-blast`、`energy-core`、`force-field`、`glitch`、`hologram`、`jetpack`、`laser-grid`、`scanner`、`teleporter-pad`、`tractor-beam`、`warp-in`、`warp-out` |
 | `game/pixelfx/shadow` | 暗影：黑洞、诅咒、暗黑爆炸、日蚀、幽暗之手、六芒法阵、生命窃取、亡灵骷髅、暗影之火、暗影触须、灵魂吸取、虚空法球 |
 | `game/pixelfx/spawn` | 出生与死亡：金币掉落、分解消散、灼烧溶解、破壳孵化、噗烟消散、重生光束、冰碎死亡、灵魂升空、召唤传送门和召唤升起 |
+| `game/pixelfx/status` | 角色身上的状态特效：流血、燃烧、魅惑、混乱、诅咒、冰冻、加速、石化、中毒、狂暴、睡眠、减速和眩晕 |
 
-特效按类别各放在一个子包里，子包被导入时把它的特效注册为 `"<类别>/<名字>"`，所以游戏只链接它导入的类别。pixelfx 的其余类别（water、ice、lightning、melee、arcane、holy、status、nature、weather、ui、transitions、critters）各自在一次改动中跟进，做法见[移植一个类别](#移植一个类别)。
+特效按类别各放在一个子包里，子包被导入时把它的特效注册为 `"<类别>/<名字>"`，所以游戏只链接它导入的类别。pixelfx 的其余类别（water、ice、lightning、melee、arcane、holy、nature、weather、ui、transitions、critters）各自在一次改动中跟进，做法见[移植一个类别](#移植一个类别)。
 
 ## 播放特效
 
