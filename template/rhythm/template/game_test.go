@@ -350,3 +350,150 @@ func TestVideoCalibrationMeasuresTheFlashes(t *testing.T) {
 		t.Fatal("Back did not leave the calibration")
 	}
 }
+
+// pressButton presses and releases a controller button, a step each, on controller 1.
+func pressButton(app *nsgotest.App, b gamepad.Button) {
+	app.SetGamepadButton(1, b, 1)
+	app.Advance(stepTime)
+	app.SetGamepadButton(1, b, 0)
+	app.Advance(stepTime)
+}
+
+// TestGamepadCalibratesWithTheLaneButtons runs the video calibration tapping East and South, which are lane buttons as well as back and confirm: the taps only tap, the tap that finishes the calibration does not save it, South then saves it, and the Back button leaves a calibration.
+func TestGamepadCalibratesWithTheLaneButtons(t *testing.T) {
+	const late = 30 * time.Millisecond
+	app, g := startGame(t)
+	app.ConnectGamepad(1, "Xbox Wireless Controller")
+	app.Advance(stepTime)
+	for range 3 {
+		pressButton(app, gamepad.ButtonDPadDown)
+	}
+	pressButton(app, gamepad.ButtonSouth)
+	if g.screen.Get() != screenCalibrate {
+		t.Fatal("South did not start the video calibration")
+	}
+	cal := g.calScreen.Calibration()
+	taps := [2]gamepad.Button{gamepad.ButtonEast, gamepad.ButtonSouth}
+	for k := 0; !cal.Done(); k++ {
+		advanceTo(app, cal.Cue(k))
+		// The controller is read once a step, so the button goes down a step before the tap is due.
+		advanceTo(app, cal.Cue(k).Add(late-stepTime))
+		pressButton(app, taps[k%2])
+		if g.screen.Get() != screenCalibrate {
+			t.Fatalf("tap %d with %v left the calibration", k, taps[k%2])
+		}
+		if k > 40 {
+			t.Fatal("the calibration did not finish")
+		}
+	}
+	r, done := cal.Result()
+	if !done || !r.Steady() {
+		t.Fatalf("result %+v, done %v", r, done)
+	}
+	if g.offsets.Video != 0 {
+		t.Fatal("the tap that finished the calibration saved it")
+	}
+	pressButton(app, gamepad.ButtonSouth)
+	if g.screen.Get() != screenMenu || g.offsets.Video != r.Offset {
+		t.Fatalf("South did not save the result: screen %v, offsets %+v", g.screen.Get(), g.offsets)
+	}
+
+	pressButton(app, gamepad.ButtonSouth)
+	if g.screen.Get() != screenCalibrate {
+		t.Fatal("South did not start the video calibration again")
+	}
+	pressButton(app, gamepad.ButtonEast)
+	if g.screen.Get() != screenCalibrate {
+		t.Fatal("East, a lane, left the calibration")
+	}
+	pressButton(app, gamepad.ButtonBack)
+	if g.screen.Get() != screenMenu {
+		t.Fatal("Back did not leave the calibration")
+	}
+}
+
+// TestResultIgnoresLaneTapsAsItShows fails the hard chart without hitting a note and checks a South or East tap as the result shows, each a lane as well as confirm or back, neither retries nor leaves it, while South after resultGuard retries.
+func TestResultIgnoresLaneTapsAsItShows(t *testing.T) {
+	app, g := startGame(t)
+	app.ConnectGamepad(1, "Xbox Wireless Controller")
+	app.Advance(stepTime)
+	pressButton(app, gamepad.ButtonDPadDown)
+	pressButton(app, gamepad.ButtonSouth)
+	if g.screen.Get() != screenPlay {
+		t.Fatal("the controller did not start the hard chart")
+	}
+	for i := 0; g.screen.Get() == screenPlay; i++ {
+		app.Advance(stepTime)
+		if i > 60*stepRate {
+			t.Fatal("the chart did not end")
+		}
+	}
+	expectText(t, app, "result-title", "Failed")
+	pressButton(app, gamepad.ButtonSouth)
+	pressButton(app, gamepad.ButtonEast)
+	if g.screen.Get() != screenResult {
+		t.Fatal("a lane tap as the result showed left it")
+	}
+	app.Advance(resultGuard)
+	pressButton(app, gamepad.ButtonSouth)
+	if g.screen.Get() != screenPlay {
+		t.Fatal("South after the guard did not retry")
+	}
+}
+
+// TestZeroHeightPlayfieldDraws plays a chart in a window with width but no height, where the playfield has no hit line, and checks drawing it returns.
+func TestZeroHeightPlayfieldDraws(t *testing.T) {
+	app, g := startGame(t, nsgotest.Size(480, 0))
+	g.startChart(0, 0)
+	app.Advance(time.Second)
+	if g.screen.Get() != screenPlay {
+		t.Fatal("the chart did not play")
+	}
+}
+
+// TestPauseAfterTheMusicLoopsKeepsTheClock plays the easy chart with the music past its first loop, pauses between two notes, waits, resumes, and checks the clock goes on from where it paused, in step with the looping music, and the next note is still judged Perfect.
+func TestPauseAfterTheMusicLoopsKeepsTheClock(t *testing.T) {
+	app, g := startGame(t, playsAudio(t)...)
+	app.Key("enter")
+	app.Advance(stepTime)
+	notes := g.run.Chart().Notes
+	loopLength := 6400 * time.Millisecond
+	next := 0
+	for ; g.run.NoteTime(next) < loopLength+time.Second; next++ {
+		advanceTo(app, noteAt(g, next))
+		app.Key(laneKeys[notes[next].Lane])
+		app.Advance(stepTime)
+	}
+	// Pause just after the last hit, so the next note is still to come a moment after resuming.
+	app.Advance(100 * time.Millisecond)
+	if g.clock.Track(app.Clock.Now()) <= loopLength {
+		t.Fatal("the music has not looped")
+	}
+	app.Key("escape")
+	app.Advance(stepTime)
+	if !g.paused.Get() {
+		t.Fatal("Escape did not pause")
+	}
+	paused := g.clock.Track(app.Clock.Now())
+	app.Advance(3 * time.Second)
+	if got := g.clock.Track(app.Clock.Now()); got != paused {
+		t.Fatalf("the clock moved from %v to %v while paused", paused, got)
+	}
+	app.Key("enter")
+	app.Advance(stepTime)
+	if g.paused.Get() {
+		t.Fatal("Enter on Resume did not resume")
+	}
+	resumed := app.Clock.Now()
+	app.Advance(300 * time.Millisecond)
+	if got, want := g.clock.Track(app.Clock.Now()), paused+app.Clock.Now().Sub(resumed); got < want-20*time.Millisecond || got > want+20*time.Millisecond+stepTime {
+		t.Fatalf("after resuming the clock reads %v, want about %v", got, want)
+	}
+	advanceTo(app, noteAt(g, next))
+	app.Key(laneKeys[notes[next].Lane])
+	app.Advance(stepTime)
+	expectText(t, app, "judgement", "Perfect")
+	if g.silent || !app.Players[len(app.Players)-1].Playing {
+		t.Fatal("the music is not playing")
+	}
+}

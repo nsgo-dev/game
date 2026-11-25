@@ -79,6 +79,8 @@ input:
           key: backspace
         - kind: gamepadButton
           button: east
+        - kind: gamepadButton
+          button: back
     - name: pause
       bindings:
         - kind: key
