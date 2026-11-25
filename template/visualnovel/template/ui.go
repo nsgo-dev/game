@@ -52,6 +52,12 @@ func (n *novel) menuItems() []menuItem {
 			item := menuItem{id: slotName(i), label: label, enabled: used, run: func() { n.loadFrom(i) }}
 			if pn == panelSave {
 				item.enabled, item.run = true, func() { n.saveTo(i) }
+				// A used slot asks first: the first press shows the question, and a second press on it overwrites the save.
+				if used && n.overwrite.Get() != i {
+					item.run = func() { n.overwrite.Set(i) }
+				} else if used {
+					item.label = n.t("slot.overwrite", l10n.Param("slot", i))
+				}
 			}
 			items = append(items, item)
 		}
@@ -140,6 +146,10 @@ func (n *novel) view() core.Node {
 				Then: func(*core.Scope) core.Node { return n.hud() },
 			},
 			core.Show{
+				When: func() bool { return n.phase.Get() == phasePlaying && n.panel.Get() == panelLog },
+				Then: func(*core.Scope) core.Node { return n.logBar() },
+			},
+			core.Show{
 				When: n.menuOpen,
 				Then: func(*core.Scope) core.Node { return core.Dynamic(func(*core.Scope) core.Node { return n.menu() }) },
 			},
@@ -185,6 +195,47 @@ func (n *novel) hud() core.Node {
 			toggle("log", "hud.log", nil, func() { n.openPanel(panelLog) }),
 			toggle("menu", "hud.menu", nil, func() { n.openPanel(panelPause) }),
 		},
+	}
+}
+
+// logBar is the row of buttons over the backlog, which scroll it for touch and the mouse and close it. The keyboard and controllers scroll it with the up and down actions.
+func (n *novel) logBar() core.Node {
+	return core.View{
+		PointerEvents: core.PointerEventsBoxNone,
+		Style: core.Style{
+			Position: core.Absolute, Top: core.Pt(0), Right: core.Pt(0),
+			Direction: core.Row, Gap: 8, Padding: core.All(12),
+			PaddingEnv: core.EnvAll(core.EnvSafeArea),
+		},
+		Children: []core.Node{
+			n.logButton("log-older", "log.older", func() bool { return n.logScroll.Get() >= n.logScrollMax() }, func() { n.scrollLog(1) }),
+			n.logButton("log-newer", "log.newer", func() bool { return n.logScroll.Get() == 0 }, func() { n.scrollLog(-1) }),
+			n.logButton("log-close", "log.close", func() bool { return false }, func() { n.openPanel(panelNone) }),
+		},
+	}
+}
+
+// logButton is a button of the backlog's row, dimmed and inert while disabled reports true.
+func (n *novel) logButton(id, key string, disabled func() bool, press func()) core.Node {
+	label := func() string { return n.t(key) }
+	return core.View{
+		TestID:    id,
+		Role:      core.RoleButton,
+		LabelFunc: label,
+		NoFocus:   true,
+		Disabled:  disabled,
+		OnPress:   func(core.PressEvent) { press() },
+		Style:     core.Style{Background: colorButton, CornerRadius: 8, Padding: core.Symmetric(6, 12)},
+		Children: []core.Node{core.Text{
+			ContentFunc: label,
+			StyleFunc: func() core.Style {
+				color := colorText
+				if disabled() {
+					color = colorMuted
+				}
+				return core.Style{Color: color, FontSize: 14, FontWeight: core.FontWeightBold}
+			},
+		}},
 	}
 }
 
@@ -314,7 +365,11 @@ func (n *novel) draw(d *core.Drawing, size core.Size) {
 	}
 	st := n.styleFor(size)
 	if n.panel.GetUntracked() == panelLog {
-		r.p.DrawBacklog(d, size, st, n.logScroll)
+		// The backlog starts below the band its buttons stand in.
+		top := logBarHeight + float32(n.insets().Top)
+		d.Save().SetFillColor(core.RGBA(0x0b1020, 0.94)).FillRect(0, 0, w, top).Translate(0, top)
+		r.p.DrawBacklog(d, core.Size{Width: size.Width, Height: core.Points(max(h-top, 0))}, st, n.logScroll.GetUntracked())
+		d.Restore()
 		return
 	}
 	r.p.Draw(d, size, st)

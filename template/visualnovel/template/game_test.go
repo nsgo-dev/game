@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nsgo-dev/game/packages/game/flow"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/gamepad"
 	"github.com/nsgo-dev/nsgo/nsgotest"
@@ -202,10 +203,11 @@ func TestTouchPlaysWithTheButtons(t *testing.T) {
 	}
 	app.Press("auto")
 
-	// Log shows the lines read so far; a tap closes it.
+	// Log shows the lines read so far, the newest at the bottom; a tap closes it.
+	backlog := n.run.p.Backlog()
 	app.Press("log")
 	app.Advance(frame)
-	if n.panel.Get() != panelLog || !canvasTexts(app)["The last ferry leaves the east dock at midnight."] {
+	if n.panel.Get() != panelLog || !canvasTexts(app)[backlog[len(backlog)-1].Text] {
 		t.Fatal("Log did not draw the backlog")
 	}
 	tap(app, middle)
@@ -407,4 +409,274 @@ func canvasTexts(app *nsgotest.App) map[string]bool {
 		}
 	}
 	return texts
+}
+
+// TestGamepadSavesLoadsAndReachesTheDawnEnding saves and loads with a controller alone: Start opens the pause menu, the D-pad and South pick Save and a slot, and after losing, the title screen's Load brings back the trust the choices earned, so the marsh reaches the good ending.
+func TestGamepadSavesLoadsAndReachesTheDawnEnding(t *testing.T) {
+	app, n := startNovel(t)
+	app.ConnectGamepad(1, "Xbox Wireless Controller")
+	app.Advance(frame)
+	south, down := pad(app, gamepad.ButtonSouth), pad(app, gamepad.ButtonDPadDown)
+	south()
+	for range 2 {
+		playUntilChoices(t, app, n, south)
+		south()
+	}
+	playUntilChoices(t, app, n, south)
+
+	pad(app, gamepad.ButtonStart)()
+	down()
+	south()
+	if n.panel.Get() != panelSave {
+		t.Fatalf("panel %v after Start, down and South; want the save panel", n.panel.Get())
+	}
+	south()
+	if !n.saves.Exists(slotName(1)) || n.panel.Get() != panelNone {
+		t.Fatal("South on slot 1 did not save to it")
+	}
+
+	// Back at the choices the highlight is on the first, following the light, which loses the story.
+	south()
+	playUntilChoices(t, app, n, south)
+	wantEnding(t, app, n, "lost", "Lost in the Fog")
+	south()
+	down()
+	south()
+	if n.panel.Get() != panelLoad {
+		t.Fatalf("panel %v after down and South on the title screen; want the load panel", n.panel.Get())
+	}
+	south()
+	if n.phase.Get() != phasePlaying {
+		t.Fatal("South on slot 1 did not load it")
+	}
+	playUntilChoices(t, app, n, south)
+	down()
+	south()
+	playUntilChoices(t, app, n, south)
+	wantEnding(t, app, n, "dawn", "Dawn Harbor")
+}
+
+// TestTouchSavesLoadsAndReachesTheDawnEnding saves and loads by tapping the buttons of the pause menu, the save panel and the title screen, and reaches the good ending after a load.
+func TestTouchSavesLoadsAndReachesTheDawnEnding(t *testing.T) {
+	app, n := startNovel(t)
+	press := func(id string) {
+		t.Helper()
+		app.Press(id)
+		app.Advance(frame)
+	}
+	middle := core.Point{X: 480, Y: 270}
+	press("menu-new")
+	for range 2 {
+		playUntilChoices(t, app, n, func() { tap(app, middle) })
+		tap(app, choicePoint(n, 0))
+	}
+	playUntilChoices(t, app, n, func() { tap(app, middle) })
+
+	press("menu")
+	press("menu-save")
+	press("menu-slot1")
+	if app.Find("status").Text != "Saved to slot 1" {
+		t.Fatal("tapping slot 1 did not save to it")
+	}
+	tap(app, choicePoint(n, 0))
+	playUntilChoices(t, app, n, func() { tap(app, middle) })
+	wantEnding(t, app, n, "lost", "Lost in the Fog")
+
+	press("menu-title")
+	press("menu-load")
+	press("menu-slot1")
+	if n.phase.Get() != phasePlaying {
+		t.Fatal("tapping slot 1 did not load it")
+	}
+	playUntilChoices(t, app, n, func() { tap(app, middle) })
+	tap(app, choicePoint(n, 1))
+	playUntilChoices(t, app, n, func() { tap(app, middle) })
+	wantEnding(t, app, n, "dawn", "Dawn Harbor")
+}
+
+// TestTouchScrollsTheBacklog opens the backlog after more lines than fit on the stage: Older scrolls back to the first line, where it stops, Newer comes forward again, and Close goes back to the story.
+func TestTouchScrollsTheBacklog(t *testing.T) {
+	app, n := startNovel(t)
+	app.Press("menu-new")
+	app.Advance(frame)
+	middle := core.Point{X: 480, Y: 270}
+	for range 2 {
+		playUntilChoices(t, app, n, func() { tap(app, middle) })
+		tap(app, choicePoint(n, 0))
+	}
+	playUntilChoices(t, app, n, func() { tap(app, middle) })
+
+	const first = "The last ferry leaves the east dock at midnight."
+	app.Press("log")
+	app.Advance(frame)
+	if n.panel.Get() != panelLog || canvasTexts(app)[first] {
+		t.Fatal("the backlog's first page already shows the first line: play on further before scrolling")
+	}
+	if !app.Find("log-newer").Props.Disabled {
+		t.Fatal("Newer is enabled at the newest line")
+	}
+	for i := 0; !canvasTexts(app)[first]; i++ {
+		if i > len(n.run.p.Backlog()) {
+			t.Fatal("Older did not scroll back to the first line")
+		}
+		app.Press("log-older")
+		app.Advance(frame)
+	}
+	for !app.Find("log-older").Props.Disabled {
+		app.Press("log-older")
+		app.Advance(frame)
+	}
+	if got, want := n.logScroll.Get(), len(n.run.p.Backlog())-1; got != want {
+		t.Fatalf("Older stopped at %d, want %d", got, want)
+	}
+	app.Press("log-newer")
+	app.Advance(frame)
+	if n.logScroll.Get() != len(n.run.p.Backlog())-2 || app.Find("log-older").Props.Disabled {
+		t.Fatal("Newer did not scroll forward")
+	}
+	app.Press("log-close")
+	app.Advance(frame)
+	if n.panel.Get() != panelNone || len(n.run.p.Choices()) == 0 {
+		t.Fatal("Close did not go back to the choices")
+	}
+}
+
+// TestSavingOverAUsedSlotAsksFirst saves twice to slot 1: the second time, the first Return only asks, and a second Return overwrites the slot.
+func TestSavingOverAUsedSlotAsksFirst(t *testing.T) {
+	app, n := startNovel(t)
+	key(app, "enter")()
+	saveSlot1 := func() {
+		key(app, "escape")()
+		key(app, "down")()
+		key(app, "enter")()
+		key(app, "enter")()
+	}
+	saveSlot1()
+	var data saveData
+	if err := n.saves.Load(slotName(1), &data); err != nil || data.Line != "dock_01" {
+		t.Fatalf("slot 1 = %+v, %v; want dock_01", data, err)
+	}
+	for lineID(n) == "dock_01" {
+		key(app, "space")()
+	}
+	saveSlot1()
+	if n.panel.Get() != panelSave || app.Find("menu-slot1").Props.Label != "Overwrite slot 1?" {
+		t.Fatalf("panel %v, slot 1 %q; want the save panel asking to overwrite", n.panel.Get(), app.Find("menu-slot1").Props.Label)
+	}
+	if err := n.saves.Load(slotName(1), &data); err != nil || data.Line != "dock_01" {
+		t.Fatalf("slot 1 changed before the second Return: %+v, %v", data, err)
+	}
+	key(app, "enter")()
+	if err := n.saves.Load(slotName(1), &data); err != nil || data.Line != "dock_02" || n.panel.Get() != panelNone {
+		t.Fatalf("slot 1 = %+v, %v after overwriting; want dock_02", data, err)
+	}
+}
+
+// TestEscapeClosesTheTitleScreensLoadPanel opens Load on the title screen: Escape closes it as it does during the story.
+func TestEscapeClosesTheTitleScreensLoadPanel(t *testing.T) {
+	app, n := startNovel(t)
+	if err := n.saves.Save(slotName(1), saveData{Node: "Start", Line: "dock_01", Choices: []int{}}); err != nil {
+		t.Fatal(err)
+	}
+	n.slots.Set(1)
+	app.Advance(frame)
+	app.Press("menu-load")
+	app.Advance(frame)
+	key(app, "escape")()
+	if n.panel.Get() != panelNone || n.phase.Get() != phaseTitle || !app.Exists("menu-new") {
+		t.Fatalf("panel %v, phase %v after Escape on the title screen's load panel", n.panel.Get(), n.phase.Get())
+	}
+}
+
+// TestLinesReadOutlastALoadAndTheBackground reads lines after the last save and choice and then loads an earlier slot, which keeps them as read, and then moves the app to the background, which saves them, so they outlast the app.
+func TestLinesReadOutlastALoadAndTheBackground(t *testing.T) {
+	app, n := startNovel(t)
+	space := key(app, "space")
+	key(app, "enter")()
+	playUntilChoices(t, app, n, space)
+	key(app, "enter")()
+	key(app, "escape")()
+	key(app, "down")()
+	key(app, "enter")()
+	key(app, "enter")()
+	for lineID(n) != "river_02" {
+		space()
+	}
+	app.Press("menu")
+	app.Advance(frame)
+	app.Press("menu-load")
+	app.Advance(frame)
+	app.Press("menu-slot1")
+	app.Advance(frame)
+	if lineID(n) != "dock_05" || !slices.Contains(n.run.p.ReadKeys(), "river_02") {
+		t.Fatalf("after loading at %s, the lines read are %v; want river_02 among them", lineID(n), n.run.p.ReadKeys())
+	}
+
+	app.SetEnvironment(core.Environment{Lifecycle: core.LifecycleBackground})
+	_, n = restart(t, app)
+	if !slices.Contains(n.read, "river_02") {
+		t.Fatalf("after the background and a restart, the lines read are %v; want river_02 among them", n.read)
+	}
+}
+
+// TestLoadFindsALineShownTwice saves on the second showing of a line a jump shows again with no choice between: loading comes back to the second showing, with the variable the first one's pass set.
+func TestLoadFindsALineShownTwice(t *testing.T) {
+	app, n := startNovel(t)
+	script, err := flow.ParseYarn(`title: Start
+chapter: dock
+---
+<<declare $n = 0>>
+<<bg dock>>
+First. #line:t_first
+<<jump Again>>
+===
+title: Again
+chapter: river
+---
+Again. #line:t_again
+<<if $n < 1>>
+<<set $n += 1>>
+<<jump Again>>
+<<endif>>
+Done. #line:t_done
+===
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n.story.script = script
+	space := key(app, "space")
+	key(app, "enter")()
+	for i := 0; occurrence(n.run.p, "t_again") < 2; i++ {
+		if i > 10 {
+			t.Fatalf("t_again was not shown twice, at %s", lineID(n))
+		}
+		space()
+	}
+	if lineID(n) != "t_again" || occurrence(n.run.p, "t_again") != 2 {
+		t.Fatalf("at %s, shown %d times; want t_again shown twice", lineID(n), occurrence(n.run.p, "t_again"))
+	}
+	n.saveTo(1)
+	n.toTitle()
+	n.loadFrom(1)
+	app.Advance(frame)
+	if n.phase.Get() != phasePlaying || lineID(n) != "t_again" || occurrence(n.run.p, "t_again") != 2 {
+		t.Fatalf("loaded at %s, shown %d times; want the second t_again", lineID(n), occurrence(n.run.p, "t_again"))
+	}
+	for lineID(n) == "t_again" {
+		space()
+	}
+	if lineID(n) != "t_done" {
+		t.Fatalf("after the loaded line came %s, want t_done", lineID(n))
+	}
+}
+
+// TestTextBoxKeepsClearOfTheSafeArea plays on a phone held sideways, whose notch and home indicator take the stage's sides and bottom: the text box stays inside them.
+func TestTextBoxKeepsClearOfTheSafeArea(t *testing.T) {
+	app, n := startNovel(t, nsgotest.Environment(core.Environment{SafeArea: core.Edges{Left: 47, Right: 47, Bottom: 21}}))
+	key(app, "enter")()
+	box := n.styleFor(n.size).Layout(n.size, 0).Box
+	if box.Origin.X < 47 || box.Origin.X+box.Size.Width > n.size.Width-47 || box.Origin.Y+box.Size.Height > n.size.Height-21 {
+		t.Fatalf("text box %+v on a %+v stage reaches into the safe area", box, n.size)
+	}
 }

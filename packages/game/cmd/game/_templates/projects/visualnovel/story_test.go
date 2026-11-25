@@ -51,10 +51,23 @@ func TestEveryLineIsTranslated(t *testing.T) {
 		}
 		seen[id] = true
 	}
-	// Every line and option of the script carries an id, which translates it and lets a save slot point at it.
+	// Every line and option of the script carries an id, which translates it and lets a save slot point at it. A node's headers, such as title:, chapter:, tags: and position:, come before its --- and are no lines.
+	inHeader := true
 	for i, line := range strings.Split(storyYarn, "\n") {
 		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "<<") || trimmed == "---" || trimmed == "===" || isHeader(trimmed) {
+		switch {
+		case trimmed == "---":
+			inHeader = false
+			continue
+		case trimmed == "===":
+			inHeader = true
+			continue
+		case trimmed == "" || strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "<<"):
+			continue
+		case inHeader:
+			if !headerPattern.MatchString(trimmed) {
+				t.Errorf("story/story.yarn:%d is not a node header, and no node's --- comes before it: %s", i+1, trimmed)
+			}
 			continue
 		}
 		if !lineIDPattern.MatchString(trimmed) {
@@ -98,11 +111,11 @@ func TestEveryLineIsTranslated(t *testing.T) {
 	}
 }
 
-// headerPattern matches the node headers story.yarn uses.
-var headerPattern = regexp.MustCompile(`^(title|chapter): [A-Za-z]+$`)
+// headerPattern matches a node header of a Yarn script, such as "title: Start" or "position: 120,40".
+var headerPattern = regexp.MustCompile(`^\w+:`)
 
-// isHeader reports whether a trimmed line of a Yarn script is a node header such as "title: Start" rather than a line of dialogue.
-func isHeader(line string) bool { return headerPattern.MatchString(line) }
+// commandPattern finds the script's <<bg>> and <<ending>> commands and what they name.
+var commandPattern = regexp.MustCompile(`(?m)^[ \t]*<<(bg|ending)\b[ \t]*([^>]*)>>`)
 
 func hasString(st *l10n.StringTable, key string) bool {
 	_, ok := st.Strings[key]
@@ -115,14 +128,17 @@ func TestStoryNamesWhatTheGameDraws(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, m := range regexp.MustCompile(`(?m)^[ \t]*<<bg ([a-z]+)>>`).FindAllStringSubmatch(storyYarn, -1) {
-		if backgrounds[m[1]] == nil {
-			t.Errorf("<<bg %s>> names no background of stage.go", m[1])
-		}
-	}
 	var named []string
-	for _, m := range regexp.MustCompile(`(?m)^[ \t]*<<ending ([a-z]+)>>`).FindAllStringSubmatch(storyYarn, -1) {
-		named = append(named, m[1])
+	for _, m := range commandPattern.FindAllStringSubmatch(storyYarn, -1) {
+		args := strings.Fields(m[2])
+		switch {
+		case len(args) != 1:
+			t.Errorf("<<%s %s>> takes one name", m[1], m[2])
+		case m[1] == commandBackground && backgrounds[args[0]] == nil:
+			t.Errorf("<<bg %s>> names no background of stage.go", args[0])
+		case m[1] == commandEnding:
+			named = append(named, args[0])
+		}
 	}
 	slices.Sort(named)
 	if want := slices.Sorted(slices.Values(endings)); !slices.Equal(slices.Compact(named), want) {
@@ -158,7 +174,7 @@ func TestStoryNamesWhatTheGameDraws(t *testing.T) {
 	}
 }
 
-// TestEveryPathEndsInAnEnding plays every path through the story, taking each option at each choice, and checks that each one ends in an ending, that every ending is reached, and that every speaker is in the cast.
+// TestEveryPathEndsInAnEnding plays every path through the story, taking each option at each choice, and checks that each one ends in an ending, that every ending is reached, that every speaker is in the cast, and that every command run names a background or an ending the game knows.
 func TestEveryPathEndsInAnEnding(t *testing.T) {
 	s, err := loadStory()
 	if err != nil {
@@ -169,8 +185,12 @@ func TestEveryPathEndsInAnEnding(t *testing.T) {
 	walk = func(path []int) {
 		ending := ""
 		p := vn.New(s.script, s.cast, vn.Options{Dialogue: flow.DialogueOptions{OnCommand: func(ev flow.DialogueEvent) {
-			if ev.Command == commandEnding && len(ev.Args) == 1 {
+			switch {
+			case ev.Command == commandEnding && len(ev.Args) == 1 && slices.Contains(endings, ev.Args[0]):
 				ending = ev.Args[0]
+			case ev.Command == commandBackground && len(ev.Args) == 1 && backgrounds[ev.Args[0]] != nil:
+			default:
+				t.Errorf("path %v: %s: <<%s %v>> is no command the game knows", path, ev.Node, ev.Command, ev.Args)
 			}
 		}}, CharsPerSecond: -1})
 		if err := p.Start(startNode); err != nil {

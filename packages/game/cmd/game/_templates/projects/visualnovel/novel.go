@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -29,6 +30,8 @@ const (
 	fadeDuration = 600 * time.Millisecond
 	// statusDuration is how long a status message, such as a save's, stays.
 	statusDuration = 2 * time.Second
+	// logBarHeight is the band at the top of the backlog that its buttons stand in, so no entry is drawn under them.
+	logBarHeight = 56
 	// maxReplaySteps bounds the lines and choices a load replays, so a save that no longer matches the story fails instead of running on.
 	maxReplaySteps = 10000
 )
@@ -87,6 +90,8 @@ type saveData struct {
 	Node string `json:"node"`
 	// Line is the #line: id of the line shown.
 	Line string `json:"line"`
+	// Occurrence counts the times Line had been shown since the last option chosen, the line shown included, as a line reached by two jumps shows twice; 0, from a slot written before the field, counts as 1.
+	Occurrence int `json:"occurrence"`
 	// Choices are the Index of each option chosen, in order.
 	Choices []int `json:"choices"`
 }
@@ -95,6 +100,9 @@ type saveData struct {
 func (s *saveData) check() error {
 	if s.Line == "" || s.Node == "" {
 		return errors.New("save slot names no line")
+	}
+	if s.Occurrence < 0 {
+		return fmt.Errorf("save slot has occurrence %d", s.Occurrence)
 	}
 	for _, c := range s.Choices {
 		if c < 0 {
@@ -136,8 +144,9 @@ type novel struct {
 
 	clock      time.Duration
 	statusLeft time.Duration
-	logScroll  int
 	size       core.Size
+	// insets are what the stage keeps its text clear of, such as a phone's notch and home indicator.
+	insets func() core.Edges
 
 	phase    *core.Signal[phase]
 	panel    *core.Signal[panel]
@@ -146,6 +155,10 @@ type novel struct {
 	auto     *core.Signal[bool]
 	skip     *core.Signal[bool]
 	status   *core.Signal[string]
+	// logScroll is how many of the newest backlog entries the backlog skips, scrolled back.
+	logScroll *core.Signal[int]
+	// overwrite is the used save slot, from 1, that a press on the save panel asked to overwrite and a second press overwrites; 0 for none.
+	overwrite *core.Signal[int]
 	// slots changes after each save, so the slot list reads the slots again.
 	slots *core.Signal[int]
 	frame *core.Signal[uint64]
@@ -178,16 +191,19 @@ func newNovel(cx *core.Scope) *novel {
 			InactiveAlpha:  0.6,
 			NamePlateColor: core.RGB(0x3b4b6b),
 		},
-		found:    map[string]bool{},
-		phase:    core.NewSignal(cx, phaseTitle),
-		panel:    core.NewSignal(cx, panelNone),
-		selected: core.NewSignal(cx, 0),
-		locale:   core.NewSignal(cx, baseLocale),
-		auto:     core.NewSignal(cx, false),
-		skip:     core.NewSignal(cx, false),
-		status:   core.NewSignal(cx, ""),
-		slots:    core.NewSignal(cx, 0),
-		frame:    core.NewSignal(cx, uint64(0)),
+		found:     map[string]bool{},
+		phase:     core.NewSignal(cx, phaseTitle),
+		panel:     core.NewSignal(cx, panelNone),
+		selected:  core.NewSignal(cx, 0),
+		locale:    core.NewSignal(cx, baseLocale),
+		auto:      core.NewSignal(cx, false),
+		skip:      core.NewSignal(cx, false),
+		status:    core.NewSignal(cx, ""),
+		logScroll: core.NewSignal(cx, 0),
+		overwrite: core.NewSignal(cx, 0),
+		slots:     core.NewSignal(cx, 0),
+		frame:     core.NewSignal(cx, uint64(0)),
+		insets:    core.InsetsFunc(cx),
 	}
 	n.loadSettings(cx.Env().Locale())
 
@@ -202,6 +218,14 @@ func newNovel(cx *core.Scope) *novel {
 		Draw:   func(float64) { n.frame.Update(func(f uint64) uint64 { return f + 1 }) },
 	}
 	loop.Run(cx)
+
+	// The lines read since the last choice reach the settings only when they are saved: save them when the app leaves the front, where a phone may stop it without warning, and when it quits.
+	cx.Effect(func() {
+		if cx.Env().Lifecycle() != core.LifecycleActive {
+			n.saveSettings()
+		}
+	})
+	cx.OnQuit(func(context.Context) { n.saveSettings() })
 	return n
 }
 
@@ -296,9 +320,8 @@ func (n *novel) newGame() {
 		return
 	}
 	n.waiting = false
-	n.logScroll = 0
 	n.phase.Set(phasePlaying)
-	n.panel.Set(panelNone)
+	n.openPanel(panelNone)
 }
 
 // toTitle leaves the story for the title screen.
@@ -398,7 +421,7 @@ func (n *novel) handleActions() {
 			n.selected.Set(step(n.menuItems(), n.selected.GetUntracked(), 1))
 		case a.JustPressed(actionAdvance):
 			n.activate(n.selected.GetUntracked())
-		case a.JustPressed(actionBack), a.JustPressed(actionMenu) && n.phase.GetUntracked() == phasePlaying:
+		case a.JustPressed(actionBack), a.JustPressed(actionMenu) && n.panel.GetUntracked() != panelNone:
 			n.back()
 		}
 	case n.phase.GetUntracked() == phasePlaying:
@@ -434,12 +457,25 @@ func (n *novel) handleLog() {
 	a := n.actions
 	switch {
 	case a.JustPressed(actionUp):
-		n.logScroll = min(n.logScroll+1, max(len(n.run.p.Backlog())-1, 0))
+		n.scrollLog(1)
 	case a.JustPressed(actionDown):
-		n.logScroll = max(n.logScroll-1, 0)
+		n.scrollLog(-1)
 	case a.JustPressed(actionAdvance), a.JustPressed(actionBack), a.JustPressed(actionLog), a.JustPressed(actionMenu):
 		n.openPanel(panelNone)
 	}
+}
+
+// scrollLog scrolls the backlog back by dir entries, or forward for a negative dir, staying between the newest entry and the oldest.
+func (n *novel) scrollLog(dir int) {
+	n.logScroll.Set(min(max(n.logScroll.GetUntracked()+dir, 0), n.logScrollMax()))
+}
+
+// logScrollMax is the furthest the backlog scrolls back, which shows the oldest entry at its bottom.
+func (n *novel) logScrollMax() int {
+	if n.run.p == nil {
+		return 0
+	}
+	return max(len(n.run.p.Backlog())-1, 0)
 }
 
 // advance goes on to the rest of the line or the next one.
@@ -488,7 +524,8 @@ func (n *novel) press(at core.Point) {
 // openPanel shows panel over the stage and highlights its first item.
 func (n *novel) openPanel(pn panel) {
 	n.panel.Set(pn)
-	n.logScroll = 0
+	n.logScroll.Set(0)
+	n.overwrite.Set(0)
 	n.waiting = false
 	if n.menuOpen() {
 		n.selected.Set(step(n.menuItems(), -1, 1))
@@ -523,7 +560,7 @@ func (n *novel) saveTo(i int) {
 		n.say(n.t("status.saveFailed", l10n.Param("slot", i)))
 		return
 	}
-	data := saveData{Node: p.Runner().CurrentNode(), Line: line.LineID, Choices: slices.Clone(n.run.choices)}
+	data := saveData{Node: p.Runner().CurrentNode(), Line: line.LineID, Occurrence: occurrence(p, line.LineID), Choices: slices.Clone(n.run.choices)}
 	if data.Choices == nil {
 		data.Choices = []int{}
 	}
@@ -557,6 +594,10 @@ func (n *novel) loadFrom(i int) {
 // replay plays a new run from the start along data's choices to its line, at once: commands run, the backlog fills and the lines count as read, as they did when the player first saw them.
 func (n *novel) replay(data saveData) error {
 	before, beforeWaiting := n.run, n.waiting
+	// The new presenter starts from n.read: take in the lines the run it replaces read since the settings were last saved.
+	if n.run.p != nil {
+		n.read = n.run.p.ReadKeys()
+	}
 	n.run = run{p: n.newPresenter()}
 	n.replaying = true
 	defer func() { n.replaying = false }()
@@ -570,17 +611,19 @@ func (n *novel) replay(data saveData) error {
 	return nil
 }
 
+// replayTo starts the run's presenter and plays it along data's choices until it shows data's line for the data.Occurrence-th time since the last choice.
 func (n *novel) replayTo(data saveData) error {
 	p := n.run.p
 	if err := p.Start(startNode); err != nil {
 		return err
 	}
+	want := max(data.Occurrence, 1)
 	k := 0
 	for range maxReplaySteps {
 		if p.Ended() {
 			return errSaveMismatch
 		}
-		if line, ok := p.Line(); ok && k == len(data.Choices) && line.LineID == data.Line {
+		if line, ok := p.Line(); ok && k == len(data.Choices) && line.LineID == data.Line && occurrence(p, data.Line) == want {
 			return nil
 		}
 		if len(p.Choices()) > 0 {
@@ -604,10 +647,24 @@ func (n *novel) replayTo(data saveData) error {
 	return errSaveMismatch
 }
 
-// styleFor returns the style the stage draws in at size: portraits stand most of its height.
+// occurrence counts the backlog entries since the last option chosen that show the line with id, the times a save slot's line had been shown when it was saved. Replaying the same path builds the same backlog, so a load counts the same way.
+func occurrence(p *vn.Presenter, id string) int {
+	count := 0
+	backlog := p.Backlog()
+	for i := len(backlog) - 1; i >= 0 && !backlog[i].Choice; i-- {
+		if backlog[i].LineID == id {
+			count++
+		}
+	}
+	return count
+}
+
+// styleFor returns the style the stage draws in at size: portraits stand most of its height, and the text box keeps clear of the insets on its sides and below it.
 func (n *novel) styleFor(size core.Size) vn.Style {
 	st := n.style
 	st.PortraitHeight = float32(size.Height) * 0.72
+	in := n.insets()
+	st.Margin = max(16, float32(in.Left), float32(in.Right), float32(in.Bottom))
 	return st
 }
 

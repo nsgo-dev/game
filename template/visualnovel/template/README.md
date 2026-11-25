@@ -6,10 +6,10 @@ It shows:
 
 - A [Yarn Spinner](https://www.yarnspinner.dev/) script played by `vn.Presenter` on `flow`'s dialogue runner: portraits with expressions in stage slots, a text box with name plates and a typewriter, choices, variables that change the ending, a backlog, and auto and skip modes that skip only the lines already read.
 - Backgrounds and portraits drawn in code, so the project needs no image files.
-- Three save slots that keep the path to the line shown and replay it on load, and player settings (language, lines read, endings found) kept apart from them with `save`.
+- Three save slots that keep the path to the line shown and replay it on load, and player settings (language, lines read, endings found) kept apart from them with `save` and saved again when the app leaves the front or quits.
 - English and Simplified Chinese through YAML string tables (`l10n`): the lines, the options, the name plates and the menus.
 - Keyboard, controller and touch input from the input map in `game.yaml`, with every menu reachable by each of them.
-- Headless tests that play the story to both endings with each kind of input, and check that the story files agree with each other.
+- Headless tests that play the story to both endings with each kind of input, saving and loading through the menus on the way, and check that the story files agree with each other.
 
 ## Running and testing
 
@@ -31,11 +31,11 @@ Build release artifacts into `dist/` with `go tool nsgo build -target macos_arm6
 | Move between options and menu items | Up, Down | D-pad | |
 | Auto mode | A | X (West) | Auto |
 | Skip mode | S | Right shoulder | Skip |
-| Backlog | L, then Up and Down to scroll | Left shoulder | Log |
+| Backlog | L, then Up and Down to scroll | Left shoulder, then the D-pad to scroll | Log, then Older and Newer to scroll |
 | Menu: save, load, title screen | Escape | Start | Menu |
 | Back | Backspace | B (East) | Back |
 
-The keys and buttons are the input map in `game.yaml`; change them there.
+The keys and buttons are the input map in `game.yaml`; change them there. Saving to a used slot asks first: pick it again to overwrite it.
 
 ## Layout
 
