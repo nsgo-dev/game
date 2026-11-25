@@ -1,0 +1,21 @@
+//go:build gameeditor
+
+package {{.Package}}
+
+import (
+	"github.com/nsgo-dev/game/packages/game/editor"
+	"github.com/nsgo-dev/game/packages/game/editor/editorcmd"
+)
+
+// editorPlugins are the editor plugins the game's editor is built with, each of which game.yaml turns on under editor.plugins. Add a plugin's editor.Plugin here, and keep the code only the editor uses in files built with the gameeditor tag, as this one is, or in packages only they import, so it stays out of the game.
+var editorPlugins []editor.Plugin
+
+// main is the game's scene editor in place of the game: built with the gameeditor tag, which leaves the game's own main function out, it checks the scenes' components against Components and builds in editorPlugins. go tool game editor runs it on the project, as go run -tags gameeditor . [project-dir | game.yaml | scene.yaml] [clip.animation.yaml [object-id]] does.
+func main() {
+	editorcmd.Main(editorOptions())
+}
+
+// editorOptions are what the game's editor is built with: the game's component types and its editor plugins.
+func editorOptions() editorcmd.Options {
+	return editorcmd.Options{Components: Components, Plugins: editorPlugins}
+}

@@ -1,0 +1,9 @@
+version: 2
+name: Crate
+layers:
+  - name: main
+    objects:
+      - id: box
+        sprite:
+          atlas: actors
+          frame: crate

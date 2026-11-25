@@ -23,6 +23,10 @@ func newTestApp(t *testing.T) (*app, *bytes.Buffer, *bytes.Buffer) {
 			t.Errorf("go tool nsgo %v ran", args)
 			return nil
 		},
+		goRun: func(dir string, args []string, _, _ io.Writer) error {
+			t.Errorf("go %v ran in %s", args, dir)
+			return nil
+		},
 	}, &stdout, &stderr
 }
 

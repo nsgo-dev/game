@@ -10,6 +10,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/nsgo-dev/game/packages/game/editor"
+	"github.com/nsgo-dev/game/packages/game/editor/editorcmd"
 	"github.com/nsgo-dev/game/packages/game/tooling/audioconv"
 )
 
@@ -26,6 +27,8 @@ type app struct {
 	nsgo func(args []string, stdout, stderr io.Writer) error
 	// nsgoEnv runs `go tool nsgo` with extra KEY=VALUE environment entries, for the playtest subcommand.
 	nsgoEnv func(env []string, args []string, stdout, stderr io.Writer) error
+	// goRun runs the go command with args in dir, for the editor subcommand to run a project's own editor command.
+	goRun func(dir string, args []string, stdout, stderr io.Writer) error
 }
 
 // command is one subcommand of game.
@@ -64,9 +67,10 @@ func main() {
 		stdout:  os.Stdout,
 		stderr:  os.Stderr,
 		audio:   &audioconv.Encoder{},
-		launch:  runEditor,
+		launch:  editorcmd.Show,
 		nsgo:    runGoToolNSGo,
 		nsgoEnv: runGoToolNSGoEnv,
+		goRun:   runGoIn,
 	}))
 }
 

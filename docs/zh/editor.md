@@ -520,7 +520,7 @@ scenes/level.scene.yaml:12: sceneformat: connection 0 ("lever" held -> "west/doo
 
 ### 项目
 
-编辑器也能打开游戏的[项目文件](project.md)：`OpenProject` 读取 `game.yaml` 并打开其中的主场景，`EditProject` 以可撤销的步骤修改它，`SaveProject` 写入它并同步旁边的 `nsgo.yaml`。运行 `nsgo game editor <dir>` 即可打开一个项目目录。`MoveFile(from, to)` 移动项目中的文件或目录，并像 `nsgo game mv` 一样改写所有指向它的引用，包括磁盘上的文件和当前打开的场景与项目（见[稳定引用](project.md#稳定引用)）；这是一个步骤，可以撤销，也可以重做。撤销会把移动改写过的每个文件逐字节恢复原样；如果某个文件在移动之后又被改过，则只把其中的引用改写回去。
+编辑器也能打开游戏的[项目文件](project.md)：`OpenProject` 读取 `game.yaml` 并打开其中的主场景，`EditProject` 以可撤销的步骤修改它，`SaveProject` 写入它并同步旁边的 `nsgo.yaml`。运行 `nsgo game editor <dir>` 即可打开一个项目目录。设置了 `ProjectAssets`（`editorcmd` 包的编辑器命令会设置它）时，打开项目会把 `Resolver` 换成项目目录上的 `project.Resolver`：场景用项目自己的精灵图集绘制，图集按名称从离当前场景最近处查找，方式与 `game check` 相同；资源浏览器列出这些图集，`PlaceScene` 实例化项目的场景文件，材质、物理材质、YAML 图块集以及 Tiled 和 LDtk 地图也从项目中加载，其中图块集和地图像 `FSAssets` 一样通过它的 `ReadFile` 读取。编辑器每次改动项目的文件（例如保存场景或安装包）后都会重新列出图集。`OpenProjectScene(path, scene)` 打开项目时用场景文件 `scene` 代替主场景，`nsgo game editor` 打开位于项目目录中的场景文件时就是这样做的，因此 `ScenePath` 会指向它，在它自身中放置它的实例会作为循环被拒绝。`MoveFile(from, to)` 移动项目中的文件或目录，并像 `nsgo game mv` 一样改写所有指向它的引用，包括磁盘上的文件和当前打开的场景与项目（见[稳定引用](project.md#稳定引用)）；这是一个步骤，可以撤销，也可以重做。撤销会把移动改写过的每个文件逐字节恢复原样；如果某个文件在移动之后又被改过，则只把其中的引用改写回去。
 
 打开项目后，资源浏览器下方的文件浏览器（`FilesView`）列出项目中的文件和目录（`ProjectFiles`），不列出 `game index` 和 `game mv` 同样跳过的目录：名称以 `.` 或 `_` 开头的目录和名为 `testdata` 的目录。点击一项即可选中它，并把它的路径填入列表下方的输入框；改好路径后点击“Move”，就会通过 `MoveFile` 重命名或移动它；选中 `.yaml`/`.yml` 文件时也可以点击“Open Table”，在数据表编辑器中打开它（`OpenDataTableProjectFile`）；点击“Find Refs”则列出整个项目中指向该文件的所有引用（`ShowReferences`）。编辑器之外的操作改动了文件后，点击“Refresh”会重新列出文件并重新扫描项目搜索与引用索引（`RefreshSearch`）。
 
@@ -639,7 +639,7 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 
 ## 场景文件与未保存的修改（#866）
 
-编辑器一次编辑一个场景，无需重启即可在项目的场景之间切换。在文件浏览器中选中一个场景（`*.scene.yaml` 或 `*.scene.yml` 文件，或 `autoload.scenes` 中列出的场景）后点击“Open”，或者连按两下，即可打开它（`OpenScene`）。无论从文件浏览器、Problems 面板、搜索与引用面板、命令面板还是通过 `OpenScene` 打开场景，都会清除 `OnSave`，因为它负责保存的是之前打开的场景。`OpenFile`、`SaveFile` 和 `OpenProject` 会在场景文件位于打开的项目中时设置 `ScenePath`，否则将其清空。工具栏的“File”菜单中有：“New Scene”，把一个最小的有效场景（以文件名命名，大小与项目的 display 或窗口相同，带一个 world 图层）写到作者给出的、从项目根目录算起的路径（`NewScene`）；“Save As”，把场景另存到另一个路径，并让该文件成为场景的文件（`SaveSceneAs`）；“Revert”，把场景恢复为其文件中保存的样子（`RevertScene`）。没有 `.yaml` 或 `.yml` 扩展名的路径会加上 `.scene.yaml`（以 `.scene` 结尾的路径加上 `.yaml`），`game check` 和 `game index` 就是按这个名称识别场景的。New Scene 和 Save As 都不会覆盖其他文件，也不会把场景写到项目自身文件的名称 `game.yaml` 和 `nsgo.yaml` 下。Revert 是一个可撤销的步骤，撤销即可找回被恢复掉的修改。
+编辑器一次编辑一个场景，无需重启即可在项目的场景之间切换。在文件浏览器中选中一个场景（`*.scene.yaml` 或 `*.scene.yml` 文件，或 `autoload.scenes` 中列出的场景）后点击“Open”，或者连按两下，即可打开它（`OpenScene`）。无论从文件浏览器、Problems 面板、搜索与引用面板、命令面板还是通过 `OpenScene` 打开场景，都会清除 `OnSave`，因为它负责保存的是之前打开的场景。`OpenFile`、`SaveFile`、`OpenProject` 和 `OpenProjectScene` 会在场景文件位于打开的项目中时设置 `ScenePath`，否则将其清空。工具栏的“File”菜单中有：“New Scene”，把一个最小的有效场景（以文件名命名，大小与项目的 display 或窗口相同，带一个 world 图层）写到作者给出的、从项目根目录算起的路径（`NewScene`）；“Save As”，把场景另存到另一个路径，并让该文件成为场景的文件（`SaveSceneAs`）；“Revert”，把场景恢复为其文件中保存的样子（`RevertScene`）。没有 `.yaml` 或 `.yml` 扩展名的路径会加上 `.scene.yaml`（以 `.scene` 结尾的路径加上 `.yaml`），`game check` 和 `game index` 就是按这个名称识别场景的。New Scene 和 Save As 都不会覆盖其他文件，也不会把场景写到项目自身文件的名称 `game.yaml` 和 `nsgo.yaml` 下。Revert 是一个可撤销的步骤，撤销即可找回被恢复掉的修改。
 
 `SceneDirty` 报告场景是否与打开时或上次保存时的内容不同，它像 `ProjectDirty` 对 `game.yaml` 那样比较编码结果，所以撤销回到已保存的状态后，场景又会变为未修改。若 `MoveFile` 改写了打开的场景的文件，场景保持原来的已修改或未修改状态；若它只改写了打开的场景中的引用而没有改写其文件（例如 `game mv` 不读取的场景：名称不是 `.scene.yaml`，也没有任何文件引用它），场景会变为已修改，保存后即可保留新的路径。工具栏显示打开的场景的路径（`SceneLabel`），场景或项目有未保存的修改（`HasUnsavedChanges`）时还会显示一个 `*`，窗口标题也随之变化（`WindowTitle`）。窗口标题由 `EditorView` 设置，因此基于本包构建的编辑器（例如游戏自己的编辑器）应通过 `Editor.AppName` 给出自己的名称，而不是自行设置标题；标题以该名称结尾（为空时为“NSGo Scene Editor”）。“Save”按钮、菜单栏的 File > Save、命令面板中的 Save 和 Mod+S（`Save`，即 `CmdSave` 命令）只保存修改过的内容：项目、场景或两者；未修改的文件保持原样，注释也会保留。有未保存的修改时，打开另一个场景（从文件浏览器、Problems 面板、搜索与引用结果或命令面板）、New Scene、退出编辑器和关闭其窗口都会先询问：“Save”保存修改后继续，“Discard”丢弃修改（项目的修改也一并丢弃）后继续，“Cancel”保留修改并停留在当前场景。丢弃项目的修改时，由项目决定的状态也会像撤销这些修改时一样恢复，例如通过这些修改新增的音频总线进行的试听会停止。强制退出（如注销时）无法等待回答，不会询问。
 
@@ -678,29 +678,19 @@ editor:
   plugins: [health]
 ```
 
-已注册但未被当前项目列出的插件保持关闭；`editor.plugins` 的顺序就是插件面板和工具出现的顺序。`OpenProject` 会在状态栏中列出项目要求、但本程序编译时没有包含的插件（`MissingPlugins`）。`nsgo game editor` 不注册任何插件，因此有自己插件的游戏要构建自己的编辑器命令：
+已注册但未被当前项目列出的插件保持关闭；`editor.plugins` 的顺序就是插件面板和工具出现的顺序。`OpenProject` 会在状态栏中列出项目要求、但本程序编译时没有包含的插件（`MissingPlugins`）。`nsgo game editor` 不注册任何插件，也不注册任何组件类型，因此有自己插件的游戏要构建自己的编辑器命令。`nsgo game generate editor` 会在游戏的 `main` 包中写出一个这样的命令，它带 `gameeditor` 标签构建、代替游戏本身，用游戏的 `Components` 和插件调用 `editorcmd.Main`，`nsgo game editor` 会在项目上运行它（[命令行](cli.md#generate)）。`editorcmd` 包是两者共用的命令行：`New(Options)` 用给定的组件类型、插件、名称和库构建编辑器并设置 `ProjectAssets`，`Open(ed, args)` 像 `nsgo game editor` 一样打开项目、场景或剪辑，`Main` 和 `Run` 解析命令行，没有参数时打开工作目录中的项目，并显示窗口。手写的编辑器命令也以同样的方式调用 `editorcmd.Main`：
 
 ```go
 // cmd/editor/main.go：游戏自己的编辑器命令。
 package main
 
 func main() {
-	ed, err := editor.New(nil, atlases) // 游戏的精灵图集，作为 sceneformat.AssetResolver
-	if err != nil {
-		log.Fatal(err)
-	}
-	if err := ed.SetComponentRegistry(health.Components()); err != nil {
-		log.Fatal(err)
-	}
-	if err := ed.RegisterPlugin(healthplugin.Plugin()); err != nil {
-		log.Fatal(err)
-	}
-	if err := ed.OpenProject("."); err != nil {
-		log.Fatal(err)
-	}
-	nsgo.Run(func(cx *core.Scope) core.Node {
-		return editor.EditorView(cx, ed)
-	}, nsgo.WindowSize(1280, 800))
+	editorcmd.Main(editorcmd.Options{
+		Components:     health.Components(),
+		Plugins:        []editor.Plugin{healthplugin.Plugin()},
+		AppName:        "Field Medic Editor",
+		RequirePlugins: true, // 项目列出本命令没有的插件时拒绝打开
+	})
 }
 ```
 
@@ -725,7 +715,7 @@ func main() {
 | 游戏（`main`） | 组件包 | 用 `sceneformat.ParseWith` 和注册表加载场景 |
 | `cmd/editor` | `editor`、组件包和插件包 | 注册组件类型和插件，然后打开项目 |
 
-`game.yaml` 在 `editor.plugins` 下列出插件，因此游戏的编辑器打开项目时插件总是启用的。不应在缺少插件时启动的编辑器命令，在 `OpenProject` 之后检查 `MissingPlugins`，不为空就失败退出；而用 `nsgo game editor` 打开同一个项目仍然可以打开，它会在状态栏中列出缺少的插件，并显示通用字段。
+`game.yaml` 在 `editor.plugins` 下列出插件，因此游戏的编辑器打开项目时插件总是启用的。不应在缺少插件时启动的编辑器命令，设置 `editorcmd.Options.RequirePlugins`，或在 `OpenProject` 之后检查 `MissingPlugins`，不为空就失败退出。项目有 `cmd/editor` main 包时，`nsgo game editor` 会用 `go run ./cmd/editor` 运行该命令，就像运行 `game generate editor` 写出的命令一样，并把同样的命令行（`-library` 以及项目、场景文件、剪辑和对象 ID）传给它，所以 `cmd/editor` 应当用 `editorcmd.Main` 或 `editorcmd.Run` 解析命令行。
 
 [Field Medic](https://github.com/nsgo-dev/game/tree/main/examples/fieldmedic)（`examples/fieldmedic`）就是按这种方式组织的可运行游戏。它的病人带有 `health` 组件（`health` 包），它的 `cmd/editor` 注册了 `health` 插件（`healthplugin` 包）：一个停靠在检查器右侧的 Ward 面板，列出每个病人的生命值，其中的 Heal All 按钮在 `Editor.History` 上执行一个可撤销步骤，一次治好所有病人；一个 `health` 组件的检查器，带生命值和上限两个字段以及剩余生命值的条形图；以及一个 Admit 工具，在视口按下处放置一个病人，并在工具启用时为每个病人画出轮廓。它的测试在编辑器中打开游戏自己的项目，操作面板、检查器和工具。编辑器自身的测试中也有一个更小的 `health` 插件（`packages/game/editor/plugin_test.go`）。
 

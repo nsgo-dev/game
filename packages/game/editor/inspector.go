@@ -68,7 +68,7 @@ func (e *Editor) DeleteProperty(objectID, key string) error {
 	return nil
 }
 
-// SetComponentField sets a typed field inside objectID.Components[componentName][field] through History. With a component registry set, the field must be registered and value of its kind and within its range; it is stored normalized to bool, int, float64 or string.
+// SetComponentField sets a typed field inside objectID.Components[componentName][field] through History. With a component registry set, or for a built-in physics component (sceneformat.PhysicsComponentRegistry) without one, the field must be registered and value of its kind and within its range; it is stored normalized to bool, int, float64 or string.
 func (e *Editor) SetComponentField(objectID, componentName, field string, value any) error {
 	if e.playing {
 		return ErrPlaying
@@ -76,8 +76,13 @@ func (e *Editor) SetComponentField(objectID, componentName, field string, value 
 	if componentName == "" || field == "" {
 		return fmt.Errorf("editor: component name and field must not be empty")
 	}
-	if e.components != nil {
-		norm, err := e.components.CheckField(componentName, field, value)
+	reg := e.components
+	if _, builtin := builtinPhysicsComponents.Lookup(componentName); reg == nil && builtin {
+		// Without a registry components are free-form, but the built-in physics components keep their schema, as the inspector shows it (lookupComponentType).
+		reg = builtinPhysicsComponents
+	}
+	if reg != nil {
+		norm, err := reg.CheckField(componentName, field, value)
 		if err != nil {
 			var ce *sceneformat.ComponentError
 			if errors.As(err, &ce) {

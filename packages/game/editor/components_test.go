@@ -77,6 +77,25 @@ func TestInspectorListsRegisteredComponentFields(t *testing.T) {
 	}
 }
 
+func TestSetComponentFieldWithoutARegistryChecksTheBuiltInPhysicsComponents(t *testing.T) {
+	ed := newTestEditor(t)
+	if ed.ComponentRegistry() != nil {
+		t.Fatal("the test editor has a component registry")
+	}
+	err := ed.SetComponentField("hero", "body2d", "sped", 3.0)
+	var ce *sceneformat.ComponentError
+	if !errors.As(err, &ce) || ce.Object != "hero" || ce.Component != "body2d" || ce.Field != "sped" {
+		t.Fatalf("misspelled body2d field: err = %v", err)
+	}
+	if err := ed.SetComponentField("hero", "body2d", "mass", 2); err != nil {
+		t.Fatalf("SetComponentField body2d mass: %v", err)
+	}
+	// A game's own component stays free-form.
+	if err := ed.SetComponentField("hero", "health", "hp", 3); err != nil {
+		t.Fatalf("SetComponentField health hp: %v", err)
+	}
+}
+
 func TestSetComponentFieldChecksTheRegistry(t *testing.T) {
 	ed := newTestEditor(t)
 	if err := ed.SetComponentRegistry(physicsComponents(t)); err != nil {

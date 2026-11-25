@@ -92,6 +92,7 @@ Paths are relative to `github.com/nsgo-dev/game/packages`. The table is checked 
 | `game/cutscene` | Experimental | [cutscene](cutscene.md) |
 | `game/debug` | Experimental | [debug](debug.md) |
 | `game/editor` | Experimental | [editor](editor.md) |
+| `game/editor/editorcmd` | Experimental | [editor](editor.md) |
 | `game/editor/editormcp` | Experimental | [mcp](mcp.md) |
 | `game/effects` | Experimental | [effects](effects.md) |
 | `game/entities` | Experimental | [entities](entities.md) |
