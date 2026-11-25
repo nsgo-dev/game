@@ -237,6 +237,29 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 									}
 								},
 							},
+							ui.Button{
+								TestID:  "files-open-tileset",
+								Text:    "Edit Tileset",
+								Label:   "Open the selected tileset file in the Tileset Editor",
+								Size:    ui.SizeSmall,
+								Variant: ui.ButtonSecondary,
+								Disabled: func() bool {
+									_ = rev.Get()
+									if ed.Playing() {
+										return true
+									}
+									return !isTilesetFile(current.Get())
+								},
+								OnPress: func() {
+									from := current.Get()
+									if from == "" {
+										return
+									}
+									if err := ed.OpenTilesetProjectFile(from); err != nil {
+										ed.report(err)
+									}
+								},
+							},
 						},
 					},
 					ui.HStack{

@@ -313,6 +313,157 @@ func (e *Editor) FloodFillTile(layer string, col, row, tileID int) error {
 	return nil
 }
 
+// resolveTerrainForLayer resolves the layered grid and runtime *tilemap.Terrain for terrainName
+// (or ActiveTerrain / the tileset's first terrain when empty) on layer.
+func (e *Editor) resolveTerrainForLayer(layer, terrainName string) (layerName, tileLayer string, g tileGrid, resolvedName string, terrain *tilemap.Terrain, err error) {
+	layerName, tm, err := e.resolveInlineTilemap(layer)
+	if err != nil {
+		return "", "", tileGrid{}, "", nil, err
+	}
+	if !tm.IsLayered() {
+		return "", "", tileGrid{}, "", nil, fmt.Errorf("editor: layer %q has no layered tilemap with a YAML tileset", layerName)
+	}
+	tileLayer = e.tileLayerName(tm)
+	g, err = gridOf(tm, tileLayer)
+	if err != nil {
+		return "", "", tileGrid{}, "", nil, err
+	}
+	doc, err := e.loadTilesetDoc(tm.TilesetFile)
+	if err != nil {
+		return "", "", tileGrid{}, "", nil, fmt.Errorf("editor: tileset %q: %w", tm.TilesetFile, err)
+	}
+	name := terrainName
+	if name == "" {
+		name = e.ActiveTerrain
+	}
+	if name == "" && len(doc.Terrains) > 0 {
+		name = doc.Terrains[0].Name
+	}
+	if name == "" {
+		return "", "", tileGrid{}, "", nil, fmt.Errorf("editor: tileset %q defines no terrain sets", tm.TilesetFile)
+	}
+	t := doc.Terrain(name, 1)
+	if t == nil {
+		return "", "", tileGrid{}, "", nil, fmt.Errorf("editor: tileset %q has no terrain %q", tm.TilesetFile, name)
+	}
+	if t.Autotile.Default == 0 && len(t.Autotile.Tiles) == 0 {
+		return "", "", tileGrid{}, "", nil, fmt.Errorf("editor: terrain %q has no tiles mapped", name)
+	}
+	return layerName, tileLayer, g, name, t, nil
+}
+
+// applyTerrainCell places (placed=true) or removes (placed=false) terrain t at (col, row) in values (w x h)
+// and updates that cell and its 8 surrounding terrain neighbors using the exact same rules as tilemap.Tilemap.SetAutotile.
+// It updates values in place and returns only the cells whose tile value changed.
+func applyTerrainCell(values []int64, w, h, col, row int, placed bool, t *tilemap.Terrain) []tileChange {
+	if t == nil || col < 0 || row < 0 || col >= w || row >= h || len(values) != w*h {
+		return nil
+	}
+	inBounds := func(c, r int) bool {
+		return c >= 0 && r >= 0 && c < w && r < h
+	}
+
+	// Snapshot the 5x5 neighborhood around (col, row) so the target and its 8 neighbors all evaluate against consistent post-edit membership.
+	var grid [5][5]bool
+	for dy := -2; dy <= 2; dy++ {
+		for dx := -2; dx <= 2; dx++ {
+			nc, nr := col+dx, row+dy
+			if dx == 0 && dy == 0 {
+				grid[dy+2][dx+2] = placed
+				continue
+			}
+			if inBounds(nc, nr) {
+				grid[dy+2][dx+2] = t.Contains(uint32(values[nr*w+nc]))
+			}
+		}
+	}
+
+	match := func(c, r int) bool {
+		dx, dy := c-col, r-row
+		if dx >= -2 && dx <= 2 && dy >= -2 && dy <= 2 {
+			return grid[dy+2][dx+2]
+		}
+		if !inBounds(c, r) {
+			return false
+		}
+		return t.Contains(uint32(values[r*w+c]))
+	}
+
+	var changes []tileChange
+	setCell := func(c, r int, newGID int64) {
+		idx := r*w + c
+		oldGID := values[idx]
+		if oldGID == newGID {
+			return
+		}
+		values[idx] = newGID
+		changes = append(changes, tileChange{index: idx, oldGID: oldGID, newGID: newGID})
+	}
+
+	if !placed {
+		setCell(col, row, 0)
+	} else {
+		mask := t.Autotile.ComputeMask(match, col, row)
+		setCell(col, row, int64(t.Autotile.Tile(mask)))
+	}
+
+	for dy := -1; dy <= 1; dy++ {
+		for dx := -1; dx <= 1; dx++ {
+			if dx == 0 && dy == 0 {
+				continue
+			}
+			nc, nr := col+dx, row+dy
+			if !inBounds(nc, nr) || !grid[dy+2][dx+2] {
+				continue
+			}
+			mask := t.Autotile.ComputeMask(match, nc, nr)
+			setCell(nc, nr, int64(t.Autotile.Tile(mask)))
+		}
+	}
+	return changes
+}
+
+// PaintTerrain places a cell of terrainName (or ActiveTerrain / the tileset's first terrain when empty) at (col, row)
+// on layer's layered tilemap and updates the cell and its neighbors through the same autotile rules as tilemap.Tilemap.SetAutotile, as one undoable command.
+func (e *Editor) PaintTerrain(layer string, col, row int, terrainName string) error {
+	return e.editTerrainCell(layer, col, row, terrainName, true)
+}
+
+// EraseTerrain removes terrain at (col, row) on layer's layered tilemap and updates its neighbors through the same autotile rules as tilemap.Tilemap.SetAutotile, as one undoable command.
+func (e *Editor) EraseTerrain(layer string, col, row int, terrainName string) error {
+	return e.editTerrainCell(layer, col, row, terrainName, false)
+}
+
+func (e *Editor) editTerrainCell(layer string, col, row int, terrainName string, placed bool) error {
+	if e.playing {
+		return ErrPlaying
+	}
+	layerName, tileLayer, g, name, t, err := e.resolveTerrainForLayer(layer, terrainName)
+	if err != nil {
+		return err
+	}
+	if col < 0 || col >= g.tm.Width || row < 0 || row >= g.tm.Height {
+		return fmt.Errorf("editor: tile (%d, %d) out of bounds (%dx%d)", col, row, g.tm.Width, g.tm.Height)
+	}
+	values := g.values()
+	changes := applyTerrainCell(values, g.tm.Width, g.tm.Height, col, row, placed, t)
+	if len(changes) == 0 {
+		return nil
+	}
+	verb := "Paint"
+	if !placed {
+		verb = "Erase"
+	}
+	e.History.Execute(&tileEditCmd{
+		ed:        e,
+		layerName: layerName,
+		tileLayer: tileLayer,
+		label:     fmt.Sprintf("%s terrain %q (%d,%d)", verb, name, col, row),
+		changes:   changes,
+	})
+	return nil
+}
+
 type tileEditCmd struct {
 	ed        *Editor
 	layerName string

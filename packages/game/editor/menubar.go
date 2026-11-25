@@ -91,6 +91,7 @@ func (e *Editor) ApplicationMenu() []desktop.MenuItem {
 		cmdItem(CmdToolPaintTile, "Paint Tile", true),
 		cmdItem(CmdToolEraseTile, "Erase Tile", true),
 		cmdItem(CmdToolFillTile, "Fill Tile", true),
+		cmdItem(CmdToolTerrain, "Terrain", true),
 	}
 	var pluginToolItems []desktop.MenuItem
 	for _, p := range e.activePlugins() {

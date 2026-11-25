@@ -275,7 +275,7 @@ func (e *Editor) HandleCanvasPress(x, y float32) {
 				_ = e.MoveObject(e.SelectedID, float32(lx), float32(ly))
 			}
 		}
-	case ToolPlace, ToolPaintTile, ToolEraseTile, ToolFillTile:
+	case ToolPlace, ToolPaintTile, ToolEraseTile, ToolFillTile, ToolTerrain:
 		if err := e.lockedLayerErr(); err != nil {
 			e.report(err)
 			return
@@ -313,6 +313,12 @@ func (e *Editor) pressActiveLayer(x, y float32) {
 	case ToolFillTile:
 		if col, row, ok := e.CanvasToTile(e.ActiveLayer, x, y); ok {
 			_ = e.FloodFillTile(e.ActiveLayer, col, row, e.ActiveTileID)
+		}
+	case ToolTerrain:
+		if col, row, ok := e.CanvasToTile(e.ActiveLayer, x, y); ok {
+			if err := e.PaintTerrain(e.ActiveLayer, col, row, e.ActiveTerrain); err != nil {
+				e.report(err)
+			}
 		}
 	}
 }

@@ -1,5 +1,7 @@
 package tilemap
 
+import "fmt"
+
 // Bitmask constants for 4-bit cardinal and 8-bit corner-gated autotiling.
 const (
 	MaskNorth     uint8 = 1 << 0
@@ -100,11 +102,121 @@ func ComputeMask8(match func(col, row int) bool, col, row int) uint8 {
 	return mask
 }
 
-func (s AutotileSet) computeMask(match func(col, row int) bool, col, row int) uint8 {
+// ComputeMask computes the neighbor bitmask at (col, row) using s.Mode (ComputeMask4 for Autotile4, ComputeMask8 for Autotile8).
+func (s AutotileSet) ComputeMask(match func(col, row int) bool, col, row int) uint8 {
 	if s.Mode == Autotile8 {
 		return ComputeMask8(match, col, row)
 	}
 	return ComputeMask4(match, col, row)
+}
+
+func (s AutotileSet) computeMask(match func(col, row int) bool, col, row int) uint8 {
+	return s.ComputeMask(match, col, row)
+}
+
+// ValidTerrainMask reports whether mask is a valid neighbor bitmask for mode:
+// for Autotile4 only the four cardinal bits (N, E, S, W) may be set;
+// for Autotile8 each diagonal corner bit may only be set when both adjacent cardinal bits are also set.
+func ValidTerrainMask(mode AutotileMode, mask uint8) bool {
+	if mode == Autotile4 {
+		return mask&^(MaskNorth|MaskEast|MaskSouth|MaskWest) == 0
+	}
+	for _, c := range []struct{ corner, edges uint8 }{
+		{MaskNorthEast, MaskNorth | MaskEast},
+		{MaskSouthEast, MaskSouth | MaskEast},
+		{MaskSouthWest, MaskSouth | MaskWest},
+		{MaskNorthWest, MaskNorth | MaskWest},
+	} {
+		if mask&c.corner != 0 && mask&c.edges != c.edges {
+			return false
+		}
+	}
+	return true
+}
+
+// ToggleTerrainMask toggles bit in mask while keeping the result valid for mode.
+// In Autotile4 diagonal bits are ignored and stripped.
+// In Autotile8 enabling a corner bit also enables its two adjacent cardinal edges,
+// and disabling an edge bit clears any corner bits that depend on it.
+func ToggleTerrainMask(mode AutotileMode, mask, bit uint8) uint8 {
+	const cardinal = MaskNorth | MaskEast | MaskSouth | MaskWest
+	if mode == Autotile4 {
+		mask &= cardinal
+		if bit&cardinal == 0 {
+			return mask
+		}
+		return mask ^ (bit & cardinal)
+	}
+	if bit == 0 {
+		return mask
+	}
+	if mask&bit != 0 {
+		mask &^= bit
+		// Clear any corner bit whose adjacent edges are no longer both set.
+		for _, c := range []struct{ corner, edges uint8 }{
+			{MaskNorthEast, MaskNorth | MaskEast},
+			{MaskSouthEast, MaskSouth | MaskEast},
+			{MaskSouthWest, MaskSouth | MaskWest},
+			{MaskNorthWest, MaskNorth | MaskWest},
+		} {
+			if mask&c.corner != 0 && mask&c.edges != c.edges {
+				mask &^= c.corner
+			}
+		}
+		return mask
+	}
+	mask |= bit
+	if edges := cornerEdgeMask(bit); edges != 0 {
+		mask |= edges
+	}
+	return mask
+}
+
+// terrainNeighborOrder is the canonical order in which neighbor directions are written to YAML.
+var terrainNeighborOrder = []struct {
+	bit  uint8
+	name string
+}{
+	{MaskNorth, "north"},
+	{MaskEast, "east"},
+	{MaskSouth, "south"},
+	{MaskWest, "west"},
+	{MaskNorthEast, "northeast"},
+	{MaskSouthEast, "southeast"},
+	{MaskSouthWest, "southwest"},
+	{MaskNorthWest, "northwest"},
+}
+
+// TerrainMaskNeighbors returns the canonical list of neighbor direction names for mask,
+// or nil when mask is 0.
+func TerrainMaskNeighbors(mask uint8) []string {
+	if mask == 0 {
+		return nil
+	}
+	var out []string
+	for _, entry := range terrainNeighborOrder {
+		if mask&entry.bit != 0 {
+			out = append(out, entry.name)
+		}
+	}
+	return out
+}
+
+// TerrainNeighborsMask converts a list of neighbor direction names to a bitmask,
+// returning an error on unknown or duplicate directions.
+func TerrainNeighborsMask(neighbors []string) (uint8, error) {
+	var mask uint8
+	for _, n := range neighbors {
+		bit, ok := terrainNeighborBit(n)
+		if !ok {
+			return 0, fmt.Errorf("tilemap: unknown terrain neighbor %q", n)
+		}
+		if mask&bit != 0 {
+			return 0, fmt.Errorf("tilemap: duplicate terrain neighbor %q", n)
+		}
+		mask |= bit
+	}
+	return mask, nil
 }
 
 // ApplyAutotile updates every terrain cell in layerIndex using set's bitmask-to-GID mapping.

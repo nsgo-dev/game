@@ -72,6 +72,8 @@ type TerrainDoc struct {
 	Name string `yaml:"name" schema:"required,minLength=1"`
 	// Mode is "cardinal", which matches the four edge neighbours (Autotile4, 16 tiles), or "blob", which also matches a corner neighbour when both edges beside it match (Autotile8, 47 tiles).
 	Mode string `yaml:"mode" schema:"required,enum=cardinal|blob"`
+	// Default is the optional local tile ID used when a cell's neighbour mask has no tile mapped to it. When omitted, the tile of the terrain that lists no neighbours (mask 0) is the default.
+	Default *int `yaml:"default,omitempty" schema:"minimum=0"`
 }
 
 // TileDoc describes one tile of a TilesetDoc.
@@ -165,6 +167,143 @@ func (m *Tilemap) Terrain(name string) *Terrain {
 			if t != nil && t.Name == name {
 				return t
 			}
+		}
+	}
+	return nil
+}
+
+// ApplyTerrain updates every cell belonging to the named terrain in layerIndex using its autotile rules, returning false when the terrain is not defined on any tileset of m or layerIndex is out of range.
+func (m *Tilemap) ApplyTerrain(layerIndex int, terrainName string) bool {
+	if m == nil || layerIndex < 0 || layerIndex >= len(m.Layers) {
+		return false
+	}
+	t := m.Terrain(terrainName)
+	if t == nil {
+		return false
+	}
+	m.ApplyAutotile(layerIndex, t.Autotile, t.Contains)
+	return true
+}
+
+// SetTerrainTile places (placed=true) or removes (placed=false) a tile of the named terrain at (col, row) in layerIndex and updates that cell and its neighbors using SetAutotile, returning false when the terrain is not defined on any tileset of m or layerIndex is out of range.
+func (m *Tilemap) SetTerrainTile(layerIndex, col, row int, terrainName string, placed bool) bool {
+	if m == nil || layerIndex < 0 || layerIndex >= len(m.Layers) {
+		return false
+	}
+	t := m.Terrain(terrainName)
+	if t == nil {
+		return false
+	}
+	m.SetAutotile(layerIndex, col, row, placed, t.Autotile, t.Contains)
+	return true
+}
+
+// Clone returns a deep copy of doc, or nil when doc is nil.
+func (doc *TilesetDoc) Clone() *TilesetDoc {
+	if doc == nil {
+		return nil
+	}
+	cp := *doc
+	if doc.Frames != nil {
+		cp.Frames = slices.Clone(doc.Frames)
+	}
+	if doc.Properties != nil {
+		cp.Properties = maps.Clone(doc.Properties)
+	}
+	if doc.Terrains != nil {
+		cp.Terrains = make([]TerrainDoc, len(doc.Terrains))
+		for i, td := range doc.Terrains {
+			if td.Default != nil {
+				v := *td.Default
+				td.Default = &v
+			}
+			cp.Terrains[i] = td
+		}
+	}
+	if doc.Tiles != nil {
+		cp.Tiles = make([]TileDoc, len(doc.Tiles))
+		for i, tile := range doc.Tiles {
+			if tile.Properties != nil {
+				tile.Properties = maps.Clone(tile.Properties)
+			}
+			if tile.Shapes != nil {
+				shapes := make([]TileShapeDoc, len(tile.Shapes))
+				for j, s := range tile.Shapes {
+					if s.Points != nil {
+						pts := make([][]float32, len(s.Points))
+						for k, pt := range s.Points {
+							pts[k] = slices.Clone(pt)
+						}
+						s.Points = pts
+					}
+					if s.Properties != nil {
+						s.Properties = maps.Clone(s.Properties)
+					}
+					shapes[j] = s
+				}
+				tile.Shapes = shapes
+			}
+			if tile.Animation != nil {
+				tile.Animation = slices.Clone(tile.Animation)
+			}
+			if tile.Neighbors != nil {
+				tile.Neighbors = slices.Clone(tile.Neighbors)
+			}
+			cp.Tiles[i] = tile
+		}
+	}
+	return &cp
+}
+
+// buildDocTerrains constructs runtime Terrain values from doc using firstGID (defaulting to 1 when 0).
+func buildDocTerrains(doc *TilesetDoc, firstGID uint32) []*Terrain {
+	if doc == nil || len(doc.Terrains) == 0 {
+		return nil
+	}
+	if firstGID == 0 {
+		firstGID = 1
+	}
+	terrains := make(map[string]*Terrain, len(doc.Terrains))
+	hasExplicitDefault := make(map[string]bool, len(doc.Terrains))
+	out := make([]*Terrain, 0, len(doc.Terrains))
+	for _, td := range doc.Terrains {
+		t := &Terrain{Name: td.Name, Autotile: AutotileSet{Mode: Autotile4, Tiles: make(map[uint8]uint32)}}
+		if td.Mode == "blob" {
+			t.Autotile.Mode = Autotile8
+		}
+		if td.Default != nil {
+			t.Autotile.Default = firstGID + uint32(*td.Default)
+			hasExplicitDefault[td.Name] = true
+		}
+		terrains[td.Name] = t
+		out = append(out, t)
+	}
+	for _, tile := range doc.Tiles {
+		t := terrains[tile.Terrain]
+		if t == nil {
+			continue
+		}
+		gid := firstGID + uint32(tile.ID)
+		var mask uint8
+		for _, n := range tile.Neighbors {
+			bit, ok := terrainNeighborBit(n)
+			if ok {
+				mask |= bit
+			}
+		}
+		t.Autotile.Tiles[mask] = gid
+		if mask == 0 && !hasExplicitDefault[tile.Terrain] {
+			t.Autotile.Default = gid
+		}
+	}
+	return out
+}
+
+// Terrain builds and returns the named terrain set from doc with global tile IDs starting at firstGID (1 when 0), or nil if doc defines no terrain with that name.
+func (doc *TilesetDoc) Terrain(name string, firstGID uint32) *Terrain {
+	for _, t := range buildDocTerrains(doc, firstGID) {
+		if t.Name == name {
+			return t
 		}
 	}
 	return nil
@@ -355,6 +494,7 @@ func ValidateTileset(doc *TilesetDoc) error {
 	if err := validateProps("properties", doc.Properties); err != nil {
 		return err
 	}
+	count := doc.Count()
 	terrains := make(map[string]string, len(doc.Terrains))
 	for i, t := range doc.Terrains {
 		if t.Name == "" {
@@ -366,9 +506,11 @@ func ValidateTileset(doc *TilesetDoc) error {
 		if t.Mode != "cardinal" && t.Mode != "blob" {
 			return &loaderr.Error{Field: loaderr.Path("terrains", i, "mode"), Problem: fmt.Sprintf("tilemap: tileset: terrain %q has mode %q", t.Name, t.Mode), Expected: `"cardinal" or "blob"`, Fix: "set mode to cardinal (16 tiles) or blob (47 tiles)"}
 		}
+		if t.Default != nil && (*t.Default < 0 || *t.Default >= count) {
+			return loaderr.Errorf(loaderr.Path("terrains", i, "default"), "use a tile ID from 0 to the tile count less 1", "tilemap: tileset: terrain %q default tile %d is outside the tileset's %d tiles", t.Name, *t.Default, count)
+		}
 		terrains[t.Name] = t.Mode
 	}
-	count := doc.Count()
 	masks := make(map[string]map[uint8]int)
 	prev := -1
 	for i := range doc.Tiles {
@@ -590,18 +732,9 @@ func (m *Tilemap) AddTilesetDoc(doc *TilesetDoc, firstGID uint32, assets Tileset
 	ts.TileWidth, ts.TileHeight = float32(doc.TileWidth), float32(doc.TileHeight)
 	ts.Properties = docProperties(doc.Properties)
 
-	terrains := make(map[string]*Terrain, len(doc.Terrains))
-	for _, td := range doc.Terrains {
-		t := &Terrain{Name: td.Name, Autotile: AutotileSet{Mode: Autotile4, Tiles: make(map[uint8]uint32)}}
-		if td.Mode == "blob" {
-			t.Autotile.Mode = Autotile8
-		}
-		terrains[td.Name] = t
-		ts.Terrains = append(ts.Terrains, t)
-	}
+	ts.Terrains = buildDocTerrains(doc, firstGID)
 	for _, tile := range doc.Tiles {
 		local := uint32(tile.ID)
-		gid := firstGID + local
 		if len(tile.Properties) > 0 {
 			if ts.TileProperties == nil {
 				ts.TileProperties = make(map[uint32]Properties)
@@ -627,17 +760,6 @@ func (m *Tilemap) AddTilesetDoc(doc *TilesetDoc, firstGID uint32, assets Tileset
 				frames[i] = TileAnimFrame{TileID: uint32(f.Tile), Duration: f.Duration}
 			}
 			ts.Animations[local] = &TileAnimation{Frames: frames}
-		}
-		if t := terrains[tile.Terrain]; t != nil {
-			var mask uint8
-			for _, n := range tile.Neighbors {
-				bit, _ := terrainNeighborBit(n)
-				mask |= bit
-			}
-			t.Autotile.Tiles[mask] = gid
-			if mask == 0 {
-				t.Autotile.Default = gid
-			}
 		}
 	}
 

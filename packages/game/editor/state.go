@@ -48,6 +48,8 @@ const (
 	ToolPlugin
 	// ToolPickTile takes the tile under the pointer as the active tile (Editor.PickTile), then hands over to ToolPaintTile.
 	ToolPickTile
+	// ToolTerrain paints or erases autotiled terrain sets from a layered grid's YAML tileset, updating each cell and its neighbors through the same rules as tilemap.Tilemap.SetAutotile.
+	ToolTerrain
 )
 
 // String returns a human-readable label for the tool.
@@ -69,6 +71,8 @@ func (t Tool) String() string {
 		return "Plugin"
 	case ToolPickTile:
 		return "Pick Tile"
+	case ToolTerrain:
+		return "Terrain"
 	default:
 		return "Unknown"
 	}
@@ -211,7 +215,9 @@ type Editor struct {
 	ActiveTileLayer string
 	// ActiveTileFlip holds the flip bits (tilemap.FlipHorizontal, FlipVertical and FlipDiagonal) that the Paint and Fill tools place tiles of a layered grid with.
 	ActiveTileFlip uint32
-	SelectedAsset  *AssetEntry
+	// ActiveTerrain names the terrain set of a layered grid's YAML tileset that ToolTerrain paints and erases, empty for its first.
+	ActiveTerrain string
+	SelectedAsset *AssetEntry
 	// SelectedModel is the model the Place tool adds in the 3D viewport (SelectModel), chosen in the asset browser's Models list; nil places nothing in 3D, where a press then selects.
 	SelectedModel *ModelEntry
 	// PlaceHeight3D is the height of the ground plane, the horizontal plane the Place tool puts a model on in 3D where the pointer's ray hits no geometry (PlacementAt3D).
@@ -290,6 +296,8 @@ type Editor struct {
 	OnSaveGridMap func(data []byte) error
 	// GridMapFS optionally provides a filesystem for loading GridMap files and their glTF mesh libraries when no project is open on disk.
 	GridMapFS fs.FS
+	// OnSaveTileset is invoked by the Tileset Editor panel's Save button with the encoded tileset YAML; when nil the button writes to TilesetPath.
+	OnSaveTileset func(data []byte) error
 	// ExportCommandRunner runs `go` with args for the Export panel's release builds, streaming output to stdout and stderr; when nil the editor invokes `go` via os/exec.
 	ExportCommandRunner func(ctx context.Context, args []string, stdout, stderr io.Writer) error
 	// OpenOutputFolder opens the release output directory in the OS file manager after a successful non-dry-run build; when nil the editor uses the host platform's default opener.
@@ -357,6 +365,9 @@ type Editor struct {
 	// The data table editor: the open table state and registered Go row types per file pattern.
 	table      *dataTableState
 	tableTypes *datatable.Registry
+
+	// The tileset editor: the open *.tileset.yaml document, selected terrain/tile and mask builder state.
+	tileset *tilesetEditorState
 
 	// l10n holds the open localization string tables edited by the Localization panel, or nil when closed.
 	l10n       *localizationState
@@ -759,6 +770,16 @@ func (e *Editor) SetActiveTileID(id int) {
 		return
 	}
 	e.ActiveTileID = id
+	e.notify()
+}
+
+// SetActiveTerrain sets the terrain set name used by ToolTerrain, PaintTerrain and EraseTerrain; choosing a terrain is view state and does not enter undo history.
+func (e *Editor) SetActiveTerrain(name string) {
+	if e == nil || e.ActiveTerrain == name {
+		return
+	}
+	e.endTileStrokeForChange()
+	e.ActiveTerrain = name
 	e.notify()
 }
 

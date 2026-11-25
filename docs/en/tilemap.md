@@ -195,7 +195,7 @@ tiles:
 | `animation` | Frames of `tile` and positive `duration` (such as `150ms`) that `Update` cycles through |
 | `terrain`, `neighbors` | The terrain set from `terrains` the tile belongs to, and the directions (`north`, `east`, `south`, `west`, and for a `blob` terrain also `northeast`, `southeast`, `southwest`, `northwest`) in which a cell of the same terrain lies next to it; a corner is listed only with both edges beside it (`northeast` with `north` and `east`), since it matches only when they do |
 
-A terrain's `mode` is `cardinal`, which matches the four edge neighbours (16 tiles, `Autotile4`), or `blob`, which also matches a corner when both edges beside it match (47 tiles, `Autotile8`). No two tiles of a terrain may list the same neighbours, and the one that lists none is its default.
+A terrain's `mode` is `cardinal`, which matches the four edge neighbours (16 tiles, `Autotile4`), or `blob`, which also matches a corner when both edges beside it match (47 tiles, `Autotile8`). Optional `default` names the local tile ID used when a cell's neighbour mask has no mapped tile; when omitted, the tile of the terrain that lists no neighbours (mask `0`) is the default. No two tiles of a terrain may list the same neighbours.
 
 `ParseTileset` refuses unknown keys and every rule above with a `*loaderr.Error` at the line at fault, and `EncodeTileset` writes the canonical form, so loading and saving a tileset changes no byte; `LoadTilesetFS` reads one from an `fs.FS`. `m.AddTilesetDoc(doc, firstGID, assets)` builds it into a `Tileset` of `m` whose GIDs start at `firstGID`, resolving its image through `TilesetAssets.Image` (a `core.ImageSource{URI: path}` when nil) or its atlas through `TilesetAssets.Atlas`, and sets its tiles' flags on the map:
 
@@ -208,12 +208,12 @@ m := tilemap.New(40, 23, 16, 16)
 if _, err := m.AddTilesetDoc(doc, 1, tilemap.TilesetAssets{}); err != nil {
 	return err
 }
-// Autotile a layer with the rock terrain.
-rock := m.Terrain("rock")
-m.ApplyAutotile(0, rock.Autotile, rock.Contains)
+// Autotile a layer with the rock terrain, or paint a single terrain cell with neighbor updates.
+m.ApplyTerrain(0, "rock")
+m.SetTerrainTile(0, 4, 3, "rock", true)
 ```
 
-Each terrain becomes a `Terrain` in `Tileset.Terrains`, whose `Autotile` maps neighbour masks to GIDs for `ApplyAutotile` and `SetAutotile` and whose `Contains` tells its tiles apart. `TilesetFrame(doc, atlas, id)` gives where a tile lies in its image, as an editor's palette shows it.
+Each terrain becomes a `Terrain` in `Tileset.Terrains` (also buildable directly from a `TilesetDoc` via `doc.Terrain(name, firstGID)`), whose `Autotile` maps neighbour masks to GIDs for `ApplyAutotile` and `SetAutotile` and whose `Contains` tells its tiles apart. `ApplyTerrain` and `SetTerrainTile` look up the named terrain on the map and run `ApplyAutotile` / `SetAutotile` directly. `ValidTerrainMask`, `ToggleTerrainMask`, `TerrainMaskNeighbors` and `TerrainNeighborsMask` convert and edit neighbour bitmasks while preserving 4-bit and 8-bit corner-gating rules. `TilesetFrame(doc, atlas, id)` gives where a tile lies in its image, as an editor's palette shows it.
 
 ## Animated tiles
 

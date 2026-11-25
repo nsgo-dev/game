@@ -246,6 +246,8 @@ func TestParseTilesetErrors(t *testing.T) {
 		{"neighbors_without_terrain", head + "tiles:\n  - id: 0\n    neighbors: [north]\n", "tiles[0].neighbors", "without a terrain"},
 		{"unknown_terrain", head + "tiles:\n  - id: 0\n    terrain: sand\n", "tiles[0].terrain", `unknown terrain "sand"`},
 		{"bad_terrain_mode", head + "terrains:\n  - name: rock\n    mode: wang\n", "terrains[0].mode", `mode "wang"`},
+		{"terrain_default_out_of_range", head + "terrains:\n  - name: rock\n    mode: cardinal\n    default: 4\n", "terrains[0].default", "outside the tileset's 4 tiles"},
+		{"terrain_default_negative", head + "terrains:\n  - name: rock\n    mode: cardinal\n    default: -1\n", "terrains[0].default", "outside the tileset's 4 tiles"},
 		{"duplicate_terrain", head + "terrains:\n  - name: rock\n    mode: blob\n  - name: rock\n    mode: blob\n", "terrains[1].name", "duplicate terrain"},
 		{"unknown_neighbor", head + "terrains:\n  - name: rock\n    mode: blob\ntiles:\n  - id: 0\n    terrain: rock\n    neighbors: [up]\n", "tiles[0].neighbors[0]", `unknown neighbor "up"`},
 		{"corner_in_cardinal", head + "terrains:\n  - name: rock\n    mode: cardinal\ntiles:\n  - id: 0\n    terrain: rock\n    neighbors: [northeast]\n", "tiles[0].neighbors[0]", "corner"},
@@ -284,6 +286,98 @@ func TestLoadTilesetFSNamesTheFile(t *testing.T) {
 	}
 	if _, err := tilemap.LoadTilesetFS(os.DirFS("testdata"), "sample.tmj"); err == nil || !strings.HasPrefix(err.Error(), "sample.tmj:") {
 		t.Fatalf("error does not name the file: %v", err)
+	}
+}
+
+func TestTerrainDocDefaultAndRuntimeHelpers(t *testing.T) {
+	doc := loadTilesetDoc(t, "terrain_blob.tileset.yaml")
+	// Explicit default overrides mask-0 fallback when set to another tile.
+	def := 5
+	custom := doc.Clone()
+	custom.Terrains[0].Default = &def
+	if *doc.Terrains[0].Default != 0 {
+		t.Fatal("Clone shared TerrainDoc.Default pointer")
+	}
+
+	tset := custom.Terrain("grass", 1)
+	if tset == nil || tset.Autotile.Mode != tilemap.Autotile8 || tset.Autotile.Default != 6 {
+		t.Fatalf("custom.Terrain = %+v, want Autotile8 with Default 6", tset)
+	}
+	if !tset.Contains(6) || !tset.Contains(1) || tset.Contains(15) {
+		t.Fatalf("Contains check failed for custom terrain")
+	}
+
+	m := tilemap.New(3, 3, 16, 16)
+	if _, err := m.AddTilesetDoc(doc, 1, tilemap.TilesetAssets{}); err != nil {
+		t.Fatalf("AddTilesetDoc: %v", err)
+	}
+	m.Layers = append(m.Layers, tilemap.NewTileLayer("ground", 3, 3, make([]uint32, 9)))
+
+	// Place a 3x3 blob via SetTerrainTile and compare against ApplyTerrain on a fresh map.
+	for r := range 3 {
+		for c := range 3 {
+			if !m.SetTerrainTile(0, c, r, "grass", true) {
+				t.Fatalf("SetTerrainTile(%d,%d) returned false", c, r)
+			}
+		}
+	}
+	ref := tilemap.New(3, 3, 16, 16)
+	if _, err := ref.AddTilesetDoc(doc, 1, tilemap.TilesetAssets{}); err != nil {
+		t.Fatalf("AddTilesetDoc ref: %v", err)
+	}
+	ref.Layers = append(ref.Layers, tilemap.NewTileLayer("ground", 3, 3, []uint32{1, 1, 1, 1, 1, 1, 1, 1, 1}))
+	if !ref.ApplyTerrain(0, "grass") {
+		t.Fatal("ApplyTerrain returned false")
+	}
+	if !reflect.DeepEqual(m.Layers[0].Data, ref.Layers[0].Data) {
+		t.Fatalf("SetTerrainTile 3x3 = %v, want ApplyTerrain %v", m.Layers[0].Data, ref.Layers[0].Data)
+	}
+	// Center cell (1,1) should be local tile 5 -> GID 6.
+	if got := m.TileAt(0, 1, 1); got != 6 {
+		t.Fatalf("center GID = %d, want 6", got)
+	}
+	if m.ApplyTerrain(0, "unknown") || m.SetTerrainTile(0, 0, 0, "unknown", true) {
+		t.Fatal("unknown terrain should return false")
+	}
+}
+
+func TestTerrainMaskHelpers(t *testing.T) {
+	// Autotile4 allows 16 masks; Autotile8 allows 47 corner-gated masks.
+	c4, c8 := 0, 0
+	for m := range 256 {
+		if tilemap.ValidTerrainMask(tilemap.Autotile4, uint8(m)) {
+			c4++
+		}
+		if tilemap.ValidTerrainMask(tilemap.Autotile8, uint8(m)) {
+			c8++
+		}
+	}
+	if c4 != 16 || c8 != 47 {
+		t.Fatalf("valid mask counts = (%d, %d), want (16, 47)", c4, c8)
+	}
+
+	// Enabling a corner in blob mode auto-enables its adjacent edges; disabling an edge clears dependent corners.
+	mask := tilemap.ToggleTerrainMask(tilemap.Autotile8, 0, tilemap.MaskNorthEast)
+	want := tilemap.MaskNorth | tilemap.MaskEast | tilemap.MaskNorthEast
+	if mask != want {
+		t.Fatalf("Toggle(0, NE) = %#x, want %#x", mask, want)
+	}
+	names := tilemap.TerrainMaskNeighbors(mask)
+	if !reflect.DeepEqual(names, []string{"north", "east", "northeast"}) {
+		t.Fatalf("TerrainMaskNeighbors = %v", names)
+	}
+	parsed, err := tilemap.TerrainNeighborsMask(names)
+	if err != nil || parsed != mask {
+		t.Fatalf("TerrainNeighborsMask = %#x, %v", parsed, err)
+	}
+	// Disabling north must clear northeast as well, leaving only east.
+	mask = tilemap.ToggleTerrainMask(tilemap.Autotile8, mask, tilemap.MaskNorth)
+	if mask != tilemap.MaskEast {
+		t.Fatalf("Toggle(N|E|NE, N) = %#x, want %#x", mask, tilemap.MaskEast)
+	}
+	// In cardinal mode, diagonal bits are ignored.
+	if got := tilemap.ToggleTerrainMask(tilemap.Autotile4, tilemap.MaskNorth, tilemap.MaskNorthEast); got != tilemap.MaskNorth {
+		t.Fatalf("cardinal Toggle(N, NE) = %#x, want %#x", got, tilemap.MaskNorth)
 	}
 }
 
