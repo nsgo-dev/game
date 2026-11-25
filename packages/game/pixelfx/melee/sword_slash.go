@@ -151,7 +151,7 @@ func (s *swordArc) tip() travelAt {
 func newSwordSlash(o *pixelfx.Options) pixelfx.Instance {
 	C := pixelfx.Fit(o.Palette(), 7)
 	Rg, ps, _ := newSim(o.Seed(), o.Ramp("sparks"))
-	R0, a0, a1 := o.Num("radius"), -2.55, 0.95
+	R0, a0, a1 := sizeOf(o, "radius"), -2.55, 0.95
 	// the main smear, and a thinner echo just inside it a beat behind
 	A := swordArc{cx: 6, cy: -26, R: R0, sy: 0.6, rot: -0.38, a0: a0, a1: a1, W: 12, t0: 0, sweep: 0.06, hold: 0.06, trail: 0.24, ramp: C}
 	E := A

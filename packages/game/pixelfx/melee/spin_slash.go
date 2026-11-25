@@ -73,7 +73,7 @@ func spinPassedAt(f float64) float64 { return spinSW * (1 - math.Pow(1-pixelfx.C
 
 func newSpinSlash(o *pixelfx.Options) pixelfx.Instance {
 	C := pixelfx.Fit(o.Palette(), 7)
-	n, R0 := len(C), o.Num("radius")
+	n, R0 := len(C), sizeOf(o, "radius")
 	Rg, ps, lights := newSim(o.Seed(), o.Ramp("sparks"))
 	tau := pixelfx.Tau
 	// the spin starts front-right, goes up the right side, behind the body, down the left and back across the front
