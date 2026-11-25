@@ -1,0 +1,67 @@
+// The people of Hollowbrook. Talking to someone starts the node their entry in world.yaml names.
+//
+// The game sets these variables before each conversation: $coins and $potions (how many the bag holds), $quest (the state of the glowcaps quest: inactive, active or completed), $ready (the glowcaps are gathered and Thornhide is beaten), $hasSword (the iron sword is in the bag or equipped) and $hurt (HP is below its maximum).
+//
+// Commands change the game: <<give item count>> and <<take item count>> add and remove items, <<start quest>> starts a quest, <<talked person>> counts toward a quest's talk objective, and <<heal>> restores every HP.
+
+title: Mira
+---
+<<if $quest == "completed">>
+    Mira: The shrine hasn't burned this bright in years. Hollowbrook owes you. #expr:smile
+    <<stop>>
+<<endif>>
+<<if $quest == "active" and $ready>>
+    Mira: Three glowcaps, and Thornhide gone from the meadow! Let me light the lamp. #expr:smile
+    <<take glowcap 3>>
+    <<talked mira>>
+    Mira: Take this charm. It keeps a little of the flame.
+    <<stop>>
+<<endif>>
+<<if $quest == "active">>
+    Mira: Three glowcaps from Whisper Meadow, east through the gate. Mind Thornhide.
+<<else>>
+    Mira: The shrine lamp went out last night. Only glowcaps from the meadow will light it again.
+    Mira: But Thornhide, the old bramble boar, has the gatherers too scared to go. Will you fetch three?
+    -> I'll bring them.
+        <<start glowcaps>>
+        Mira: Thank you! Bram sells better steel than that stick, if you can pay for it. #expr:smile
+    -> Not yet.
+        Mira: The lamp can wait a little longer. Come back when you're ready.
+<<endif>>
+-> Could you tend my wounds? <<if $hurt>>
+    <<heal>>
+    Mira: There. Rest is half of courage. #expr:smile
+-> Goodbye.
+===
+
+title: Bram
+---
+<<if $hasSword>>
+    Bram: That blade will hold its edge. Open your pack to wear it. #expr:smile
+    <<stop>>
+<<endif>>
+Bram: An iron sword, fresh from the anvil. Twenty coins.
+-> Buy it for 20 coins. <<if $coins >= 20>>
+    <<take coin 20>>
+    <<give iron-sword 1>>
+    Bram: A fair trade. Equip it from your pack before you go hunting. #expr:smile
+-> I can't afford it. <<if $coins < 20>>
+    Bram: The moss slimes in the meadow carry coins, if you're quick with that stick.
+-> Just looking.
+    Bram: Looking is free.
+===
+
+title: Pell
+---
+<<if not visited("PellGift")>>
+    <<jump PellGift>>
+<<endif>>
+Pell: Walk into a foe to fight it. You can flee from a slime, but Thornhide won't let you go.
+===
+
+title: PellGift
+---
+Pell: Heading into the meadow? Take this. Nobody needs a potion standing at a gate. #expr:smile
+<<give potion 1>>
+Pell: Walk into a foe to fight it. You can flee from a slime, but Thornhide won't let you go.
+===

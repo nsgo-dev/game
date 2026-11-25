@@ -1,0 +1,30 @@
+version: 1
+items:
+  - id: coin
+    name: Coin
+    maxStack: 999
+    tags: [currency]
+  - id: potion
+    name: Potion
+    description: Restores 12 HP.
+    maxStack: 9
+    tags: [consumable]
+    stats:
+      heal: 12
+  - id: glowcap
+    name: Glowcap
+    description: A meadow mushroom that glows like a coal.
+    maxStack: 9
+    tags: [quest]
+  - id: wooden-sword
+    name: Wooden Sword
+    equip: weapon
+  - id: iron-sword
+    name: Iron Sword
+    equip: weapon
+  - id: leather-vest
+    name: Leather Vest
+    equip: armor
+  - id: shrine-charm
+    name: Shrine Charm
+    equip: charm

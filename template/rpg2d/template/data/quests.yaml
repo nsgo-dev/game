@@ -1,0 +1,25 @@
+version: 1
+quests:
+  - id: glowcaps
+    title: Light the Shrine
+    description: Mira needs three glowcaps from Whisper Meadow to relight the shrine lamp, and Thornhide keeps the gatherers away.
+    objectives:
+      - id: gather
+        kind: collect
+        target: glowcap
+        count: 3
+        text: Gather glowcaps
+      - id: thornhide
+        kind: defeat
+        target: thornhide
+        text: Drive off Thornhide
+      - id: report
+        kind: talk
+        target: mira
+        text: Bring the glowcaps to Mira
+    rewards:
+      - kind: item
+        id: coin
+        amount: 30
+      - kind: item
+        id: shrine-charm
