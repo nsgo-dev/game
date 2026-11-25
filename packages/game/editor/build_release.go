@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"image/png"
+	"io"
 	"io/fs"
 	"math"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -338,6 +340,8 @@ type buildReleaseState struct {
 	planCommandLine     string
 	dryRunOutput        string
 	lastErr             error
+	pendingStatus       string
+	hasPendingStatus    bool
 	run                 *releaseBuildRun
 }
 
@@ -365,6 +369,15 @@ func (e *Editor) OpenBuildReleaseScreen() error {
 	if e.playing {
 		return ErrPlaying
 	}
+	e.hud.open = false
+	e.playtest.open = false
+	if e.usages.open {
+		e.usages.open = false
+		e.usages.rev++
+	}
+	if e.changes.open {
+		e.CloseChangesPanel()
+	}
 	e.buildRelease.mu.Lock()
 	e.buildRelease.open = true
 	e.buildRelease.followLog = true
@@ -389,16 +402,58 @@ func (e *Editor) CloseBuildReleaseScreen() {
 	if e == nil {
 		return
 	}
+	if !e.closeBuildReleaseScreenSilent() {
+		return
+	}
+	e.notify()
+}
+
+func (e *Editor) closeBuildReleaseScreenSilent() bool {
+	if e == nil {
+		return false
+	}
 	e.buildRelease.mu.Lock()
 	if !e.buildRelease.open {
 		e.buildRelease.mu.Unlock()
-		return
+		return false
 	}
 	e.buildRelease.open = false
 	e.buildRelease.editingPreset = false
 	e.buildRelease.rev++
 	e.buildRelease.mu.Unlock()
-	e.notify()
+	return true
+}
+
+func (e *Editor) flushBuildReleaseStatus() bool {
+	if e == nil {
+		return false
+	}
+	e.buildRelease.mu.Lock()
+	has := e.buildRelease.hasPendingStatus
+	msg := e.buildRelease.pendingStatus
+	e.buildRelease.hasPendingStatus = false
+	e.buildRelease.pendingStatus = ""
+	e.buildRelease.mu.Unlock()
+	if has {
+		e.Status = msg
+	}
+	return has
+}
+
+func (e *Editor) notifyBuildReleaseUI(scope *core.Scope, run *releaseBuildRun) {
+	if scope == nil {
+		return
+	}
+	scope.Post(func() {
+		e.buildRelease.mu.Lock()
+		active := e.buildRelease.run == run || e.buildRelease.hasPendingStatus
+		e.buildRelease.mu.Unlock()
+		if !active {
+			return
+		}
+		e.flushBuildReleaseStatus()
+		e.notify()
+	})
 }
 
 func (e *Editor) buildReleaseRev() uint64 {
@@ -795,6 +850,14 @@ func (e *Editor) ApplyBuildPresetFixAndRebuild(platform string) error {
 		}
 	}
 
+	if !isSafeBuildPlatformSegment(platform) {
+		return fmt.Errorf("editor: invalid build preset platform %q", platform)
+	}
+
+	var persistPath string
+	var persistCfg presetYAMLConfig
+	hasPersist := false
+
 	e.buildRelease.mu.Lock()
 	for i := range e.buildRelease.presets {
 		if e.buildRelease.presets[i].Platform == platform {
@@ -815,18 +878,13 @@ func (e *Editor) ApplyBuildPresetFixAndRebuild(platform string) error {
 				}
 				e.buildRelease.signingOverrides[platform] = fixed
 			}
-			// Persist signing update to export/<platform>.export.yaml if that file already exists on disk.
 			if e.ProjectPath != "" {
-				presetPath := filepath.Join(filepath.Dir(e.ProjectPath), "export", platform+".export.yaml")
-				if _, statErr := os.Stat(presetPath); statErr == nil {
-					cfg := presetYAMLConfig{
-						Summary: e.buildRelease.presets[i].Summary,
-						Signing: e.buildRelease.presets[i].Signing,
-					}
-					if data, merr := yaml.Marshal(&cfg); merr == nil {
-						_ = os.WriteFile(presetPath, data, 0o644)
-					}
+				persistPath = filepath.ToSlash(filepath.Join("export", platform+".export.yaml"))
+				persistCfg = presetYAMLConfig{
+					Summary: e.buildRelease.presets[i].Summary,
+					Signing: e.buildRelease.presets[i].Signing,
 				}
+				hasPersist = true
 			}
 			e.buildRelease.presets[i].Included = true
 			e.buildRelease.presets[i].Failure = nil
@@ -847,6 +905,24 @@ func (e *Editor) ApplyBuildPresetFixAndRebuild(platform string) error {
 	e.buildRelease.showWholeLog = false
 	e.buildRelease.rev++
 	e.buildRelease.mu.Unlock()
+
+	// Persist signing update to export/<platform>.export.yaml if that file already exists on disk.
+	if hasPersist && e.ProjectPath != "" {
+		baseDir := filepath.Dir(e.ProjectPath)
+		resolvedPath, rerr := resolveBuildReleasePath(baseDir, persistPath, true)
+		if rerr != nil {
+			return rerr
+		}
+		if _, statErr := os.Stat(resolvedPath); statErr == nil {
+			data, merr := yaml.Marshal(&persistCfg)
+			if merr != nil {
+				return merr
+			}
+			if werr := writeFileAtomic(resolvedPath, data); werr != nil {
+				return werr
+			}
+		}
+	}
 	e.notify()
 
 	return e.startReleaseBuildInternal([]string{platform}, BuildReleaseOptions{
@@ -1021,7 +1097,7 @@ func (e *Editor) evaluateReadinessFor(platform, dir string, f *project.File) []B
 		items = append(items, BuildReadinessItem{
 			ID:             "distribution_cert",
 			Label:          "Apple Distribution certificate",
-			Detail:         "sign in to Xcode or configure a distribution certificate in the login keychain",
+			Detail:         "using login keychain if configured; sign in to Xcode to install one",
 			Status:         BuildReadinessOK,
 			RequiresPerson: true,
 		})
@@ -1099,6 +1175,12 @@ func (e *Editor) RunBuildReadinessAction(platform, itemID string) error {
 	if e == nil || e.Project == nil {
 		return ErrNoProject
 	}
+	if e.playing {
+		return ErrPlaying
+	}
+	if e.ReleaseBuildRunning() {
+		return ErrReleaseBuildRunning
+	}
 	dir := ""
 	if e.ProjectPath != "" {
 		dir = filepath.Dir(e.ProjectPath)
@@ -1130,8 +1212,11 @@ func (e *Editor) RunBuildReadinessAction(platform, itemID string) error {
 			if dir == "" {
 				return ErrNoProject
 			}
-			target := filepath.Join(dir, "PrivacyInfo.xcprivacy")
-			if err := os.WriteFile(target, []byte(defaultPrivacyManifestXML), 0o644); err != nil {
+			target, err := resolveBuildReleasePath(dir, "PrivacyInfo.xcprivacy", true)
+			if err != nil {
+				return err
+			}
+			if err := writeFileAtomic(target, []byte(defaultPrivacyManifestXML)); err != nil {
 				return err
 			}
 			e.filesRev++
@@ -1176,6 +1261,12 @@ func (e *Editor) RunBuildReadinessAction(platform, itemID string) error {
 func (e *Editor) RunBuildReadinessAgentSetup(platform string) error {
 	if e == nil || e.Project == nil {
 		return ErrNoProject
+	}
+	if e.playing {
+		return ErrPlaying
+	}
+	if e.ReleaseBuildRunning() {
+		return ErrReleaseBuildRunning
 	}
 	snap := e.BuildReleaseSnapshot()
 	var items []BuildReadinessItem
@@ -1389,6 +1480,9 @@ func (e *Editor) WaitReleaseBuild() error {
 	if run != nil {
 		<-run.done
 	}
+	if e.flushBuildReleaseStatus() {
+		e.notify()
+	}
 	e.buildRelease.mu.Lock()
 	err := e.buildRelease.lastErr
 	e.buildRelease.mu.Unlock()
@@ -1400,6 +1494,7 @@ func (e *Editor) ShowBuildArtifactInFinder(platform string) error {
 	if e == nil || e.Project == nil || e.ProjectPath == "" {
 		return ErrNoProject
 	}
+	baseDir := filepath.Dir(e.ProjectPath)
 	e.buildRelease.mu.Lock()
 	artifactDir := ""
 	for _, p := range e.buildRelease.presets {
@@ -1410,11 +1505,15 @@ func (e *Editor) ShowBuildArtifactInFinder(platform string) error {
 	}
 	e.buildRelease.mu.Unlock()
 	if artifactDir != "" {
+		resolvedDir, err := resolveBuildReleasePath(baseDir, artifactDir, false)
+		if err != nil {
+			return err
+		}
 		opener := e.OpenOutputFolder
 		if opener == nil {
 			opener = defaultOpenOutputFolder
 		}
-		return opener(artifactDir)
+		return opener(resolvedDir)
 	}
 	return e.OpenExportOutputFolder()
 }
@@ -1554,18 +1653,55 @@ func (e *Editor) startReleaseBuildInternal(platforms []string, opt BuildReleaseO
 	scope := e.scope
 	projectClone := e.Project.Clone()
 
+	// Capture runner hooks and component registry on the caller goroutine so the background
+	// worker never reads unsynchronized Editor fields.
+	comps := e.components
+	checkRunner := e.ReleaseCheckRunner
+	if checkRunner == nil {
+		checkRunner = func(_ context.Context, d string) ([]assetcheck.Problem, time.Duration, error) {
+			cs := time.Now()
+			probs, err := runProjectCheck(d, comps)
+			return probs, time.Since(cs), err
+		}
+	}
+	cmdRunner := e.ExportCommandRunner
+	if cmdRunner == nil {
+		cmdRunner = defaultExportCommandRunner
+	}
+	runners := releaseBuildRunners{
+		step:     e.ReleaseStepRunner,
+		check:    checkRunner,
+		cmd:      cmdRunner,
+		playtest: e.ReleasePlaytestRunner,
+		measure:  e.ReleaseMeasureRunner,
+	}
+
+	remaining := make(map[string]bool, len(platforms))
+	for _, plat := range platforms {
+		remaining[plat] = true
+	}
+
 	go func() {
+		// Close run.done strictly after cancellation, diskLog close, and final state update.
+		defer run.finish()
 		defer cancel()
 		var firstFailure error
 		wasStopped := false
 
-		for _, plat := range platforms {
+		for len(remaining) > 0 {
 			if ctx.Err() != nil {
 				wasStopped = true
 				break
 			}
+			// Pick the next queued preset in the live presets order so PrioritizeBuildPreset
+			// ("Build next") takes effect immediately for subsequent presets.
+			plat := e.nextBuildPlatform(remaining, platforms)
+			if plat == "" {
+				break
+			}
+			delete(remaining, plat)
 			plan := plans[plat]
-			if stopped, failErr := e.executePresetBuild(ctx, scope, run, dir, projectClone, plat, plan, opt.DryRun); stopped {
+			if stopped, failErr := e.executePresetBuild(ctx, scope, run, dir, projectClone, plat, plan, opt.DryRun, runners); stopped {
 				wasStopped = true
 				break
 			} else if failErr != nil && firstFailure == nil {
@@ -1573,48 +1709,71 @@ func (e *Editor) startReleaseBuildInternal(platforms []string, opt BuildReleaseO
 			}
 		}
 
-		e.postExportUI(scope, func() {
-			e.buildRelease.mu.Lock()
-			active := e.buildRelease.run == run
-			if active {
-				e.buildRelease.run = nil
-				e.buildRelease.activePlatform = ""
-				if wasStopped {
-					e.buildRelease.stopped = true
-					for i := range e.buildRelease.presets {
-						p := &e.buildRelease.presets[i]
-						if slices.Contains(platforms, p.Platform) && (p.Status == BuildPresetQueued || p.Status == BuildPresetBuilding || p.Status == BuildPresetNotarizing) {
-							p.Status = BuildPresetQueued
-							p.StatusText = "Stopped"
-							p.DeltaText = ""
-							p.StoppedAt = true
-						}
+		e.buildRelease.mu.Lock()
+		active := e.buildRelease.run == run
+		if active {
+			e.buildRelease.run = nil
+			e.buildRelease.activePlatform = ""
+			if wasStopped {
+				e.buildRelease.stopped = true
+				for i := range e.buildRelease.presets {
+					p := &e.buildRelease.presets[i]
+					if slices.Contains(platforms, p.Platform) && (p.Status == BuildPresetQueued || p.Status == BuildPresetBuilding || p.Status == BuildPresetNotarizing) {
+						p.Status = BuildPresetQueued
+						p.StatusText = "Stopped"
+						p.DeltaText = ""
+						p.StoppedAt = true
 					}
-				} else {
-					e.buildRelease.stopped = false
-					e.buildRelease.lastErr = firstFailure
 				}
-				e.buildRelease.rev++
+			} else {
+				e.buildRelease.stopped = false
+				e.buildRelease.lastErr = firstFailure
 			}
-			e.buildRelease.mu.Unlock()
-			if active {
-				switch {
-				case wasStopped:
-					e.Status = "Release build stopped (completed steps kept)"
-				case firstFailure != nil:
-					e.Status = "Release finished with errors: " + firstFailure.Error()
-				case opt.DryRun:
-					e.Status = "Dry-run release complete"
-				default:
-					e.Status = "Release build complete"
-				}
-				e.notify()
+			switch {
+			case wasStopped:
+				e.buildRelease.pendingStatus = "Release build stopped (completed steps kept)"
+			case firstFailure != nil:
+				e.buildRelease.pendingStatus = "Release finished with errors: " + firstFailure.Error()
+			case opt.DryRun:
+				e.buildRelease.pendingStatus = "Dry-run release complete"
+			default:
+				e.buildRelease.pendingStatus = "Release build complete"
 			}
-			run.finish()
-		})
+			e.buildRelease.hasPendingStatus = true
+			e.buildRelease.rev++
+		}
+		e.buildRelease.mu.Unlock()
+		if active {
+			e.notifyBuildReleaseUI(scope, run)
+		}
 	}()
 
 	return nil
+}
+
+type releaseBuildRunners struct {
+	step     func(ctx context.Context, req ReleaseStepRequest, stdout, stderr io.Writer) error
+	check    func(ctx context.Context, dir string) ([]assetcheck.Problem, time.Duration, error)
+	cmd      func(ctx context.Context, args []string, stdout, stderr io.Writer) error
+	playtest func(ctx context.Context, platform string, dir string) (BuildSmokePlaytestResult, error)
+	measure  func(ctx context.Context, platform string, plan *releaseplan.Plan) (BuildArtifactResult, error)
+}
+
+func (e *Editor) nextBuildPlatform(remaining map[string]bool, fallbackOrder []string) string {
+	e.buildRelease.mu.Lock()
+	for _, p := range e.buildRelease.presets {
+		if remaining[p.Platform] {
+			e.buildRelease.mu.Unlock()
+			return p.Platform
+		}
+	}
+	e.buildRelease.mu.Unlock()
+	for _, plat := range fallbackOrder {
+		if remaining[plat] {
+			return plat
+		}
+	}
+	return ""
 }
 
 func (e *Editor) executePresetBuild(
@@ -1626,6 +1785,7 @@ func (e *Editor) executePresetBuild(
 	platform string,
 	plan *releaseplan.Plan,
 	dryRun bool,
+	runners releaseBuildRunners,
 ) (stopped bool, failErr error) {
 	e.buildRelease.mu.Lock()
 	var preset BuildPresetEntry
@@ -1645,33 +1805,32 @@ func (e *Editor) executePresetBuild(
 	}
 
 	appendLog := func(line string) {
-		e.postExportUI(scope, func() {
-			e.buildRelease.mu.Lock()
-			active := e.buildRelease.run == run
-			if active {
-				if idx := e.findBuildPresetLocked(platform); idx >= 0 {
-					e.buildRelease.presets[idx].LogLines = append(e.buildRelease.presets[idx].LogLines, line)
-					e.buildRelease.rev++
-				}
+		e.buildRelease.mu.Lock()
+		active := e.buildRelease.run == run
+		if active {
+			if idx := e.findBuildPresetLocked(platform); idx >= 0 {
+				e.buildRelease.presets[idx].LogLines = append(e.buildRelease.presets[idx].LogLines, line)
+				e.buildRelease.rev++
 			}
-			e.buildRelease.mu.Unlock()
-			if active {
-				e.notify()
-			}
-		})
+		}
+		e.buildRelease.mu.Unlock()
+		if active {
+			e.notifyBuildReleaseUI(scope, run)
+		}
 	}
 
 	var diskLog *os.File
-	if !dryRun && dir != "" {
-		logAbs := filepath.Join(dir, filepath.FromSlash(preset.LogFile))
-		if err := os.MkdirAll(filepath.Dir(logAbs), 0o755); err == nil {
-			flags := os.O_CREATE | os.O_WRONLY | os.O_TRUNC
-			if startIdx > 0 {
-				flags = os.O_CREATE | os.O_WRONLY | os.O_APPEND
-			}
-			if f, err := os.OpenFile(logAbs, flags, 0o644); err == nil {
-				diskLog = f
-				defer diskLog.Close()
+	if !dryRun && dir != "" && preset.LogFile != "" {
+		if logAbs, rerr := resolveBuildReleasePath(dir, preset.LogFile, true); rerr == nil {
+			if err := os.MkdirAll(filepath.Dir(logAbs), 0o755); err == nil {
+				flags := os.O_CREATE | os.O_WRONLY | os.O_TRUNC
+				if startIdx > 0 {
+					flags = os.O_CREATE | os.O_WRONLY | os.O_APPEND
+				}
+				if f, err := os.OpenFile(logAbs, flags, 0o644); err == nil {
+					diskLog = f
+					defer diskLog.Close()
+				}
 			}
 		}
 	}
@@ -1687,22 +1846,23 @@ func (e *Editor) executePresetBuild(
 
 	for stepIdx := startIdx; stepIdx < len(preset.Steps); stepIdx++ {
 		if ctx.Err() != nil {
-			e.postExportUI(scope, func() {
-				e.buildRelease.mu.Lock()
-				if e.buildRelease.run == run {
-					if idx := e.findBuildPresetLocked(platform); idx >= 0 {
-						p := &e.buildRelease.presets[idx]
-						p.NextStepIdx = stepIdx
-						p.Status = BuildPresetQueued
-						p.StatusText = "Stopped"
-						p.StoppedAt = true
-						p.Steps[stepIdx].Status = BuildStepPending
-						e.buildRelease.rev++
-					}
+			e.buildRelease.mu.Lock()
+			active := e.buildRelease.run == run
+			if active {
+				if idx := e.findBuildPresetLocked(platform); idx >= 0 {
+					p := &e.buildRelease.presets[idx]
+					p.NextStepIdx = stepIdx
+					p.Status = BuildPresetQueued
+					p.StatusText = "Stopped"
+					p.StoppedAt = true
+					p.Steps[stepIdx].Status = BuildStepPending
+					e.buildRelease.rev++
 				}
-				e.buildRelease.mu.Unlock()
-				e.notify()
-			})
+			}
+			e.buildRelease.mu.Unlock()
+			if active {
+				e.notifyBuildReleaseUI(scope, run)
+			}
 			return true, nil
 		}
 
@@ -1714,23 +1874,24 @@ func (e *Editor) executePresetBuild(
 			presetStatusText = "Notarizing"
 		}
 
-		e.postExportUI(scope, func() {
-			e.buildRelease.mu.Lock()
-			if e.buildRelease.run == run {
-				e.buildRelease.activePlatform = platform
-				if idx := e.findBuildPresetLocked(platform); idx >= 0 {
-					p := &e.buildRelease.presets[idx]
-					p.Status = presetStatus
-					p.StatusText = presetStatusText
-					p.DeltaText = fmt.Sprintf("step %d of %d", stepIdx+1, len(p.Steps))
-					p.NextStepIdx = stepIdx
-					p.Steps[stepIdx].Status = BuildStepRunning
-					e.buildRelease.rev++
-				}
+		e.buildRelease.mu.Lock()
+		active := e.buildRelease.run == run
+		if active {
+			e.buildRelease.activePlatform = platform
+			if idx := e.findBuildPresetLocked(platform); idx >= 0 {
+				p := &e.buildRelease.presets[idx]
+				p.Status = presetStatus
+				p.StatusText = presetStatusText
+				p.DeltaText = fmt.Sprintf("step %d of %d", stepIdx+1, len(p.Steps))
+				p.NextStepIdx = stepIdx
+				p.Steps[stepIdx].Status = BuildStepRunning
+				e.buildRelease.rev++
 			}
-			e.buildRelease.mu.Unlock()
-			e.notify()
-		})
+		}
+		e.buildRelease.mu.Unlock()
+		if active {
+			e.notifyBuildReleaseUI(scope, run)
+		}
 
 		stepStart := time.Now()
 		var stepCommands []string
@@ -1751,34 +1912,27 @@ func (e *Editor) executePresetBuild(
 			Signing:  preset.Signing,
 		}
 
-		if e.ReleaseStepRunner != nil {
+		if runners.step != nil {
 			if step.ID == BuildStepCompile {
 				stepCommands = append(stepCommands, plan.CommandLine)
 			}
 			if step.ID == BuildStepPack && plan.CreditsPath != "" {
 				stepCommands = append(stepCommands, fmt.Sprintf("# then writes the credits of %d assets to %s", len(plan.Credits), plan.CreditsPath))
 			}
-			stepErr = e.ReleaseStepRunner(ctx, req, stream, stream)
+			stepErr = runners.step(ctx, req, stream, stream)
 			stream.Flush()
 		} else {
 			switch step.ID {
 			case BuildStepCheck:
 				stepCommands = []string{"nsgo check ./..."}
-				var probs []assetcheck.Problem
-				var checkElapsed time.Duration
-				if e.ReleaseCheckRunner != nil {
-					probs, checkElapsed, stepErr = e.ReleaseCheckRunner(ctx, dir)
-				} else {
-					cs := time.Now()
-					probs, stepErr = runProjectCheck(dir, e.components)
-					checkElapsed = time.Since(cs)
-				}
+				probs, checkElapsed, cErr := runners.check(ctx, dir)
+				stepErr = cErr
 				if checkElapsed == 0 {
 					checkElapsed = time.Since(stepStart)
 				}
 				// Update preflight check card with live result.
-				e.postExportUI(scope, func() {
-					e.buildRelease.mu.Lock()
+				e.buildRelease.mu.Lock()
+				if e.buildRelease.run == run {
 					e.buildRelease.preflight.CheckRan = true
 					e.buildRelease.preflight.CheckProblems = len(probs)
 					e.buildRelease.preflight.CheckElapsed = checkElapsed
@@ -1788,8 +1942,8 @@ func (e *Editor) executePresetBuild(
 						e.buildRelease.preflight.CheckErr = ""
 					}
 					e.buildRelease.rev++
-					e.buildRelease.mu.Unlock()
-				})
+				}
+				e.buildRelease.mu.Unlock()
 				if stepErr == nil && len(probs) > 0 && !dryRun {
 					stepErr = fmt.Errorf("%d project problem(s) found", len(probs))
 					failureHeadline = fmt.Sprintf("Project check failed: %d problem(s)", len(probs))
@@ -1806,11 +1960,7 @@ func (e *Editor) executePresetBuild(
 				stepCommands = []string{plan.CommandLine}
 				logLine(plan.CommandLine)
 				if !dryRun {
-					runner := e.ExportCommandRunner
-					if runner == nil {
-						runner = defaultExportCommandRunner
-					}
-					if err := runner(ctx, slices.Clone(plan.Args), stream, stream); err != nil {
+					if err := runners.cmd(ctx, slices.Clone(plan.Args), stream, stream); err != nil {
 						stepErr = fmt.Errorf("nsgo build: %w", err)
 						failureHeadline = "Compile failed"
 						failureErrorLine = "error: " + stepErr.Error()
@@ -1862,8 +2012,8 @@ func (e *Editor) executePresetBuild(
 				}
 
 			case BuildStepSmokePlaytest:
-				if e.ReleasePlaytestRunner != nil {
-					smokeRes, stepErr = e.ReleasePlaytestRunner(ctx, platform, dir)
+				if runners.playtest != nil {
+					smokeRes, stepErr = runners.playtest(ctx, platform, dir)
 				} else {
 					smokeRes = defaultSmokePlaytestResult(platform, preflight.QualityProfile)
 				}
@@ -1881,8 +2031,8 @@ func (e *Editor) executePresetBuild(
 
 			case BuildStepMeasure:
 				var measured BuildArtifactResult
-				if e.ReleaseMeasureRunner != nil {
-					measured, stepErr = e.ReleaseMeasureRunner(ctx, platform, plan)
+				if runners.measure != nil {
+					measured, stepErr = runners.measure(ctx, platform, plan)
 				} else {
 					measured = measurePresetArtifact(dir, proj, platform, plan, baseline, preflight, smokeRes)
 				}
@@ -1902,45 +2052,44 @@ func (e *Editor) executePresetBuild(
 
 					// Store finished result onto preset.
 					resCopy := measured
-					e.postExportUI(scope, func() {
-						e.buildRelease.mu.Lock()
-						if e.buildRelease.run == run {
-							if idx := e.findBuildPresetLocked(platform); idx >= 0 {
-								p := &e.buildRelease.presets[idx]
-								p.Result = &resCopy
-								p.SizeText = formatSizeMB(resCopy.SizeBytes)
-								if resCopy.HasLastRelease {
-									p.DeltaText = formatDeltaMB(resCopy.DeltaBytes)
-								} else {
-									p.DeltaText = "new"
-								}
-								e.buildRelease.rev++
+					e.buildRelease.mu.Lock()
+					if e.buildRelease.run == run {
+						if idx := e.findBuildPresetLocked(platform); idx >= 0 {
+							p := &e.buildRelease.presets[idx]
+							p.Result = &resCopy
+							p.SizeText = formatSizeMB(resCopy.SizeBytes)
+							if resCopy.HasLastRelease {
+								p.DeltaText = formatDeltaMB(resCopy.DeltaBytes)
+							} else {
+								p.DeltaText = "new"
 							}
+							e.buildRelease.rev++
 						}
-						e.buildRelease.mu.Unlock()
-					})
+					}
+					e.buildRelease.mu.Unlock()
 				}
 			}
 		}
 
 		// Re-check cancellation in case Stop was pressed during step execution.
 		if ctx.Err() != nil {
-			e.postExportUI(scope, func() {
-				e.buildRelease.mu.Lock()
-				if e.buildRelease.run == run {
-					if idx := e.findBuildPresetLocked(platform); idx >= 0 {
-						p := &e.buildRelease.presets[idx]
-						p.NextStepIdx = stepIdx
-						p.Status = BuildPresetQueued
-						p.StatusText = "Stopped"
-						p.StoppedAt = true
-						p.Steps[stepIdx].Status = BuildStepPending
-						e.buildRelease.rev++
-					}
+			e.buildRelease.mu.Lock()
+			active := e.buildRelease.run == run
+			if active {
+				if idx := e.findBuildPresetLocked(platform); idx >= 0 {
+					p := &e.buildRelease.presets[idx]
+					p.NextStepIdx = stepIdx
+					p.Status = BuildPresetQueued
+					p.StatusText = "Stopped"
+					p.StoppedAt = true
+					p.Steps[stepIdx].Status = BuildStepPending
+					e.buildRelease.rev++
 				}
-				e.buildRelease.mu.Unlock()
-				e.notify()
-			})
+			}
+			e.buildRelease.mu.Unlock()
+			if active {
+				e.notifyBuildReleaseUI(scope, run)
+			}
 			return true, nil
 		}
 
@@ -1971,67 +2120,70 @@ func (e *Editor) executePresetBuild(
 				Notice:     BuildFailureNotice,
 			}
 			shortTag := shortStepFailureTag(step.ID)
-			e.postExportUI(scope, func() {
-				e.buildRelease.mu.Lock()
-				if e.buildRelease.run == run {
-					if idx := e.findBuildPresetLocked(platform); idx >= 0 {
-						p := &e.buildRelease.presets[idx]
-						p.Steps[stepIdx].Status = BuildStepFailed
-						p.Steps[stepIdx].Elapsed = stepElapsed
-						p.Steps[stepIdx].Err = stepErr.Error()
-						if len(stepCommands) > 0 {
-							p.Steps[stepIdx].Commands = slices.Clone(stepCommands)
-						}
-						p.Status = BuildPresetFailed
-						p.StatusText = "Failed"
-						p.DeltaText = shortTag
-						p.Failure = failInfo
-						p.NextStepIdx = stepIdx
-						e.buildRelease.rev++
-					}
-				}
-				e.buildRelease.mu.Unlock()
-				e.notify()
-			})
-			return false, fmt.Errorf("%s (%s): %w", platform, step.Label, stepErr)
-		}
-
-		e.postExportUI(scope, func() {
 			e.buildRelease.mu.Lock()
-			if e.buildRelease.run == run {
+			active := e.buildRelease.run == run
+			if active {
 				if idx := e.findBuildPresetLocked(platform); idx >= 0 {
 					p := &e.buildRelease.presets[idx]
-					p.Steps[stepIdx].Status = BuildStepDone
+					p.Steps[stepIdx].Status = BuildStepFailed
 					p.Steps[stepIdx].Elapsed = stepElapsed
-					if stepDetail != "" {
-						p.Steps[stepIdx].Detail = stepDetail
-					}
+					p.Steps[stepIdx].Err = stepErr.Error()
 					if len(stepCommands) > 0 {
 						p.Steps[stepIdx].Commands = slices.Clone(stepCommands)
 					}
-					p.NextStepIdx = stepIdx + 1
+					p.Status = BuildPresetFailed
+					p.StatusText = "Failed"
+					p.DeltaText = shortTag
+					p.Failure = failInfo
+					p.NextStepIdx = stepIdx
 					e.buildRelease.rev++
 				}
 			}
 			e.buildRelease.mu.Unlock()
-			e.notify()
-		})
-	}
+			if active {
+				e.notifyBuildReleaseUI(scope, run)
+			}
+			return false, fmt.Errorf("%s (%s): %w", platform, step.Label, stepErr)
+		}
 
-	e.postExportUI(scope, func() {
 		e.buildRelease.mu.Lock()
-		if e.buildRelease.run == run {
+		active = e.buildRelease.run == run
+		if active {
 			if idx := e.findBuildPresetLocked(platform); idx >= 0 {
 				p := &e.buildRelease.presets[idx]
-				p.Status = BuildPresetDone
-				p.StatusText = "Done"
-				p.NextStepIdx = len(p.Steps)
+				p.Steps[stepIdx].Status = BuildStepDone
+				p.Steps[stepIdx].Elapsed = stepElapsed
+				if stepDetail != "" {
+					p.Steps[stepIdx].Detail = stepDetail
+				}
+				if len(stepCommands) > 0 {
+					p.Steps[stepIdx].Commands = slices.Clone(stepCommands)
+				}
+				p.NextStepIdx = stepIdx + 1
 				e.buildRelease.rev++
 			}
 		}
 		e.buildRelease.mu.Unlock()
-		e.notify()
-	})
+		if active {
+			e.notifyBuildReleaseUI(scope, run)
+		}
+	}
+
+	e.buildRelease.mu.Lock()
+	active := e.buildRelease.run == run
+	if active {
+		if idx := e.findBuildPresetLocked(platform); idx >= 0 {
+			p := &e.buildRelease.presets[idx]
+			p.Status = BuildPresetDone
+			p.StatusText = "Done"
+			p.NextStepIdx = len(p.Steps)
+			e.buildRelease.rev++
+		}
+	}
+	e.buildRelease.mu.Unlock()
+	if active {
+		e.notifyBuildReleaseUI(scope, run)
+	}
 	return false, nil
 }
 
@@ -2044,8 +2196,8 @@ func (e *Editor) stopReleaseBuild() {
 	e.buildRelease.run = nil
 	e.buildRelease.mu.Unlock()
 	if run != nil {
+		// Only cancel; the worker goroutine closes run.done via defer run.finish() once it exits.
 		run.cancel()
-		run.finish()
 	}
 }
 
@@ -2077,6 +2229,8 @@ func (e *Editor) resetBuildReleaseForProject() {
 	e.buildRelease.planCommandLine = ""
 	e.buildRelease.dryRunOutput = ""
 	e.buildRelease.lastErr = nil
+	e.buildRelease.pendingStatus = ""
+	e.buildRelease.hasPendingStatus = false
 	e.buildRelease.rev++
 	e.buildRelease.mu.Unlock()
 }
@@ -2368,8 +2522,12 @@ func (e *Editor) runBuildGit(dir string, args ...string) (string, error) {
 	if e != nil && e.GitRunner != nil {
 		return e.GitRunner(dir, args...)
 	}
-	cmd := exec.Command("git", args...)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
+	cmd.Stdin = nil
+	cmd.Env = append(os.Environ(), "LC_ALL=C", "GIT_TERMINAL_PROMPT=0")
 	out, err := cmd.Output()
 	return string(out), err
 }
@@ -2656,36 +2814,139 @@ func presetTargetsOrPlatform(p BuildPresetEntry) []string {
 	return []string{p.Platform}
 }
 
+func isSafeBuildPlatformSegment(platform string) bool {
+	if platform == "" || platform == "." || platform == ".." {
+		return false
+	}
+	return !strings.ContainsAny(platform, `/\`) && !strings.Contains(platform, "..")
+}
+
+func evalBuildReleaseSymlinks(target string) (string, error) {
+	clean := filepath.Clean(target)
+	if resolved, err := filepath.EvalSymlinks(clean); err == nil {
+		return resolved, nil
+	}
+	var tail []string
+	cur := clean
+	for {
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return clean, nil
+		}
+		tail = append(tail, filepath.Base(cur))
+		cur = parent
+		if resolved, err := filepath.EvalSymlinks(cur); err == nil {
+			parts := make([]string, 0, len(tail)+1)
+			parts = append(parts, resolved)
+			for i := len(tail) - 1; i >= 0; i-- {
+				parts = append(parts, tail[i])
+			}
+			return filepath.Join(parts...), nil
+		}
+	}
+}
+
+func isWithinBuildReleaseDir(base, target string) bool {
+	rel, err := filepath.Rel(base, target)
+	if err != nil || filepath.IsAbs(rel) {
+		return false
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return false
+	}
+	return true
+}
+
+func resolveBuildReleasePath(baseDir, p string, rejectSymlinkTarget bool) (string, error) {
+	if strings.TrimSpace(baseDir) == "" {
+		return "", ErrNoProject
+	}
+	resolvedBase, err := evalBuildReleaseSymlinks(baseDir)
+	if err != nil {
+		return "", fmt.Errorf("editor: resolve project dir %q: %w", baseDir, err)
+	}
+	var joined string
+	if filepath.IsAbs(p) {
+		joined = filepath.Clean(p)
+	} else {
+		slashed := path.Clean(strings.ReplaceAll(p, `\`, "/"))
+		if slashed == "." || slashed == ".." || strings.HasPrefix(slashed, "../") || strings.HasPrefix(slashed, "/") {
+			return "", fmt.Errorf("editor: path %q leaves the project directory", p)
+		}
+		joined = filepath.Join(baseDir, filepath.FromSlash(slashed))
+	}
+	if rejectSymlinkTarget {
+		if info, lerr := os.Lstat(joined); lerr == nil && info.Mode()&os.ModeSymlink != 0 {
+			return "", fmt.Errorf("editor: refusing to write through symlink %q", p)
+		}
+	}
+	resolvedTarget, err := evalBuildReleaseSymlinks(joined)
+	if err != nil {
+		return "", fmt.Errorf("editor: resolve path %q: %w", p, err)
+	}
+	if !isWithinBuildReleaseDir(resolvedBase, resolvedTarget) {
+		return "", fmt.Errorf("editor: path %q escapes the project directory", p)
+	}
+	return joined, nil
+}
+
+func decodeStrictYAML(data []byte, dst any) error {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	if err := dec.Decode(dst); err != nil {
+		return err
+	}
+	var extra any
+	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return errors.New("unexpected trailing YAML document")
+		}
+		return err
+	}
+	return nil
+}
+
 func loadPresetYAMLConfig(dir, platform string) presetYAMLConfig {
-	if dir == "" || platform == "" {
+	if dir == "" || !isSafeBuildPlatformSegment(platform) {
 		return presetYAMLConfig{}
 	}
-	data, err := os.ReadFile(filepath.Join(dir, "export", platform+".export.yaml"))
+	target, err := resolveBuildReleasePath(dir, filepath.ToSlash(filepath.Join("export", platform+".export.yaml")), false)
+	if err != nil {
+		return presetYAMLConfig{}
+	}
+	data, err := os.ReadFile(target)
 	if err != nil {
 		return presetYAMLConfig{}
 	}
 	var cfg presetYAMLConfig
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+	if err := decodeStrictYAML(data, &cfg); err != nil {
 		return presetYAMLConfig{}
 	}
 	return cfg
 }
 
 func loadLastReleaseBaseline(dir string, proj *project.File) (LastReleaseBaseline, bool) {
+	if dir == "" {
+		return LastReleaseBaseline{}, false
+	}
 	candidates := []string{
-		filepath.Join(dir, "build", "last-release.yaml"),
-		filepath.Join(dir, "dist", "last-release.yaml"),
+		"build/last-release.yaml",
+		"dist/last-release.yaml",
 	}
 	if proj != nil && proj.Export != nil && proj.Export.Output != "" {
-		candidates = append([]string{filepath.Join(dir, filepath.FromSlash(proj.Export.Output), "last-release.yaml")}, candidates...)
+		candidates = append([]string{path.Join(proj.Export.Output, "last-release.yaml")}, candidates...)
 	}
-	for _, p := range candidates {
-		data, err := os.ReadFile(p)
+	for _, rel := range candidates {
+		target, err := resolveBuildReleasePath(dir, rel, false)
+		if err != nil {
+			continue
+		}
+		data, err := os.ReadFile(target)
 		if err != nil {
 			continue
 		}
 		var b LastReleaseBaseline
-		if err := yaml.Unmarshal(data, &b); err == nil && (b.Version != "" || len(b.Artifacts) > 0) {
+		if err := decodeStrictYAML(data, &b); err == nil && (b.Version != "" || len(b.Artifacts) > 0) {
 			return b, true
 		}
 	}
@@ -2812,24 +3073,29 @@ func capitalizeProfile(p string) string {
 }
 
 func formatSizeMB(bytes int64) string {
+	if bytes <= 0 {
+		return "0.0 MB"
+	}
 	mb := float64(bytes) / (1024 * 1024)
-	if mb < 0.05 && bytes > 0 {
+	if mb < 0.05 {
 		return "0.1 MB"
 	}
 	return fmt.Sprintf("%.1f MB", mb)
 }
 
 func formatDeltaMB(delta int64) string {
-	sign := "+"
-	abs := delta
-	if delta < 0 {
-		sign = "-"
-		abs = -delta
-	}
-	mb := float64(abs) / (1024 * 1024)
-	if abs == 0 {
+	if delta == 0 {
 		return "0.0 MB"
 	}
+	sign := "+"
+	var abs uint64
+	if delta < 0 {
+		sign = "-"
+		abs = uint64(-(delta + 1)) + 1
+	} else {
+		abs = uint64(delta)
+	}
+	mb := float64(abs) / (1024 * 1024)
 	if mb < 0.05 {
 		return sign + "0.1 MB"
 	}

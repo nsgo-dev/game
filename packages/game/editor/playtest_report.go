@@ -351,6 +351,7 @@ func (e *Editor) SetPlaytestReportOpen(open bool) {
 		e.startScreen.open = false
 		e.merge.open = false
 		e.hud.open = false
+		e.closeBuildReleaseScreenSilent()
 	}
 	e.playtest.open = open
 	e.playtest.rev++

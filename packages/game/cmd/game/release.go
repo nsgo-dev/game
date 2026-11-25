@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
+	"unicode"
 
 	"go.yaml.in/yaml/v3"
 
@@ -97,9 +99,9 @@ type gameFileHead struct {
 
 // exportSection is game.yaml's export section, decoded once knownFields has refused unknown fields.
 type exportSection struct {
-	Output  string         `yaml:"output"`
-	Budgets yaml.Node      `yaml:"budgets"`
-	Presets []exportPreset `yaml:"presets"`
+	Output  string           `yaml:"output"`
+	Budgets *project.Budgets `yaml:"budgets"`
+	Presets []exportPreset   `yaml:"presets"`
 }
 
 // exportPreset is one export preset: a platform and the NSGo targets of it to build.
@@ -176,7 +178,11 @@ func parseExportSettings(data []byte) (releaseSettings, bool, error) {
 	if err := knownFields(&head.Export, "export", "output", "budgets", "presets"); err != nil {
 		return releaseSettings{}, false, err
 	}
-	if budgets := field(&head.Export, "budgets"); budgets != nil && budgets.Kind == yaml.MappingNode {
+	if budgets := field(&head.Export, "budgets"); budgets != nil && budgets.Tag != "!!null" {
+		budgets = resolveAlias(budgets)
+		if budgets.Kind != yaml.MappingNode {
+			return releaseSettings{}, false, fmt.Errorf("line %d: export budgets must be a mapping of fields", budgets.Line)
+		}
 		if err := knownFields(budgets, "export budgets", "qualityProfile", "downloadSizeMB", "frameTimeP95Ms"); err != nil {
 			return releaseSettings{}, false, err
 		}
@@ -198,6 +204,17 @@ func parseExportSettings(data []byte) (releaseSettings, bool, error) {
 	// A colon is refused as well as fs.ValidPath's rejects, since C:/builds is a valid slash path that Windows reads as a drive outside the project.
 	if o := export.Output; o != "" && (o == "." || !fs.ValidPath(o) || strings.ContainsAny(o, `\:`)) {
 		return releaseSettings{}, false, fmt.Errorf("export output %q must be a slash-separated directory inside the project", o)
+	}
+	if b := export.Budgets; b != nil {
+		if b.QualityProfile != "" && strings.IndexFunc(b.QualityProfile, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0 {
+			return releaseSettings{}, false, fmt.Errorf("export budgets qualityProfile %q must have no spaces or control characters", b.QualityProfile)
+		}
+		if math.IsNaN(b.DownloadSizeMB) || math.IsInf(b.DownloadSizeMB, 0) || b.DownloadSizeMB < 0 {
+			return releaseSettings{}, false, fmt.Errorf("export budgets downloadSizeMB %v must be finite and >= 0", b.DownloadSizeMB)
+		}
+		if math.IsNaN(b.FrameTimeP95Ms) || math.IsInf(b.FrameTimeP95Ms, 0) || b.FrameTimeP95Ms < 0 {
+			return releaseSettings{}, false, fmt.Errorf("export budgets frameTimeP95Ms %v must be finite and >= 0", b.FrameTimeP95Ms)
+		}
 	}
 	settings := releaseSettings{Output: export.Output}
 	seenPlatforms := make(map[string]bool, len(export.Presets))
