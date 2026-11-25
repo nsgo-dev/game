@@ -93,6 +93,24 @@ func TestNewBoxPolygon(t *testing.T) {
 	if !near(b.W, float32(2*math.Sqrt2), 1e-5) || !near(b.H, float32(2*math.Sqrt2), 1e-5) {
 		t.Fatalf("rotated bounds = %+v", b)
 	}
+	nan := float32(math.NaN())
+	inf := float32(math.Inf(1))
+	for _, args := range [][5]float32{
+		{0, 0, 0, 10, 0},
+		{0, 0, 10, 0, 0},
+		{0, 0, -10, 10, 0},
+		{0, 0, 10, -10, 0},
+		{nan, 0, 10, 10, 0},
+		{0, inf, 10, 10, 0},
+		{0, 0, nan, 10, 0},
+		{0, 0, 10, inf, 0},
+		{0, 0, 10, 10, nan},
+	} {
+		p := physics.NewBoxPolygon(args[0], args[1], args[2], args[3], args[4])
+		if !p.Empty() || p.Contains(0, 0) || physics.PolygonShape(p).Area() != 0 {
+			t.Fatalf("NewBoxPolygon%v = %+v, want empty", args, p)
+		}
+	}
 }
 
 func TestConvexShapeBasics(t *testing.T) {
@@ -267,6 +285,7 @@ func TestConvexShapePairs(t *testing.T) {
 		// Polygon and box.
 		{name: "box/polygon overlap", a: box(-3, 2, 4, 4), b: square, hit: true, nx: -1, ny: 0, depth: 1},
 		{name: "box/polygon touching", a: box(-4, 2, 4, 4), b: square},
+		{name: "box/polygon contained", a: box(2, 3, 2, 6), b: square, hit: true, nx: -1, ny: 0, depth: 4},
 		// Polygon and circle.
 		{name: "circle/polygon face", a: circle(13, 5, 4), b: square, hit: true, nx: 1, ny: 0, depth: 1},
 		{name: "circle/polygon touching", a: circle(14, 5, 4), b: square},
@@ -278,6 +297,7 @@ func TestConvexShapePairs(t *testing.T) {
 		{name: "circle/rounded polygon corner miss", a: circle(11.5, 11.5, 1), b: roundedSquare},
 		{name: "circle/rounded polygon corner", a: circle(11, 11, 1), b: roundedSquare, hit: true, nx: s2, ny: s2, depth: float32(2 - math.Sqrt2)},
 		{name: "box/rounded polygon", a: box(10.5, 0, 5, 5), b: roundedSquare, hit: true, nx: 1, ny: 0, depth: 0.5},
+		{name: "box/rounded polygon touching", a: box(11, 0, 5, 5), b: roundedSquare},
 		{name: "rounded/rounded polygon", a: physics.PolygonShape(mustPolygon(t, 1, 11, 0, 21, 0, 21, 10, 11, 10)), b: roundedSquare, hit: true, nx: 1, ny: 0, depth: 1},
 		// Capsule.
 		{name: "circle/capsule side", a: circle(5, 5, 4), b: baseCapsule, hit: true, nx: 0, ny: 1, depth: 1},
@@ -285,11 +305,17 @@ func TestConvexShapePairs(t *testing.T) {
 		{name: "circle/capsule touching", a: circle(5, 6, 4), b: baseCapsule},
 		{name: "circle/capsule contained", a: circle(5, 0.5, 0.5), b: baseCapsule, hit: true, nx: 0, ny: 1, depth: 2},
 		{name: "box/capsule", a: box(3, 1, 4, 4), b: baseCapsule, hit: true, nx: 0, ny: 1, depth: 1},
+		{name: "box/capsule touching", a: box(3, 2, 4, 4), b: baseCapsule},
+		{name: "box/capsule contained", a: box(4, -0.2, 2, 1), b: baseCapsule, hit: true, nx: 0, ny: 1, depth: 2.2},
 		{name: "polygon/capsule", a: poly(3, 1, 7, 5), b: baseCapsule, hit: true, nx: 0, ny: 1, depth: 1},
+		{name: "polygon/capsule touching", a: poly(3, 2, 7, 6), b: baseCapsule},
+		{name: "polygon/capsule contained", a: poly(4, -0.2, 6, 0.8), b: baseCapsule, hit: true, nx: 0, ny: 1, depth: 2.2},
 		{name: "capsule/capsule parallel", a: capsule(0, 3, 10, 3, 2), b: baseCapsule, hit: true, nx: 0, ny: 1, depth: 1},
 		{name: "capsule/capsule crossing", a: capsule(4, -5, 4, 5, 1), b: baseCapsule, hit: true, nx: -1, ny: 0, depth: 7},
 		{name: "capsule/capsule end to end", a: capsule(13, 0, 20, 0, 2), b: baseCapsule, hit: true, nx: 1, ny: 0, depth: 1},
 		{name: "capsule/capsule separated", a: capsule(0, 5, 10, 5, 1), b: baseCapsule},
+		{name: "capsule/capsule contained", a: capsule(4, 0.2, 6, 0.2, 0.5), b: baseCapsule, hit: true, nx: 0, ny: 1, depth: 2.3},
+		{name: "capsule NaN", a: capsule(float32(math.NaN()), 0, 10, 0, 2), b: square},
 		// Segment.
 		{name: "circle/segment above", a: circle(5, 1, 2), b: baseSegment, hit: true, nx: 0, ny: 1, depth: 1},
 		{name: "circle/segment below", a: circle(5, -1, 2), b: baseSegment, hit: true, nx: 0, ny: -1, depth: 1},
@@ -298,7 +324,12 @@ func TestConvexShapePairs(t *testing.T) {
 		{name: "box/segment straddling", a: box(2, -1, 4, 3), b: baseSegment, hit: true, nx: 0, ny: 1, depth: 1},
 		{name: "box/segment contained", a: box(-5, -4, 20, 10), b: baseSegment, hit: true, nx: 0, ny: 1, depth: 4},
 		{name: "polygon/segment", a: poly(2, -3, 6, 1), b: baseSegment, hit: true, nx: 0, ny: -1, depth: 1},
+		{name: "polygon/segment touching", a: poly(2, 0, 6, 4), b: baseSegment},
+		{name: "polygon/segment contained", a: poly(-2, -3, 12, 4), b: baseSegment, hit: true, nx: 0, ny: 1, depth: 3},
 		{name: "capsule/segment", a: capsule(2, 1, 8, 1, 2), b: baseSegment, hit: true, nx: 0, ny: 1, depth: 1},
+		{name: "capsule/segment touching", a: capsule(2, 2, 8, 2, 2), b: baseSegment},
+		{name: "capsule/segment contained", a: capsule(-1, 0.5, 11, 0.5, 3), b: baseSegment, hit: true, nx: 0, ny: 1, depth: 2.5},
+		{name: "segment NaN", a: circle(5, 0, 2), b: segment(0, float32(math.NaN()), 10, 0)},
 		{name: "segment/segment crossing", a: segment(5, -5, 5, 5), b: baseSegment},
 		{name: "segment/segment collinear", a: segment(5, 0, 15, 0), b: baseSegment},
 		// Chain.
@@ -307,8 +338,15 @@ func TestConvexShapePairs(t *testing.T) {
 		{name: "circle/chain open end", a: circle(21, 0, 2), b: flatChain, hit: true, nx: 1, ny: 0, depth: 1},
 		{name: "circle/chain convex vertex", a: circle(11, -1, 2), b: ledge, hit: true, nx: s2, ny: -s2, depth: float32(2 - math.Sqrt2)},
 		{name: "box/chain seam", a: box(8, -1.5, 4, 2), b: flatChain, hit: true, nx: 0, ny: -1, depth: 0.5},
+		{name: "box/chain touching", a: box(8, -2, 4, 2), b: flatChain},
+		{name: "box/chain contained", a: box(-5, -3, 30, 7), b: flatChain, hit: true, nx: 0, ny: 1, depth: 3},
 		{name: "capsule/chain seam", a: capsule(6, -1.5, 14, -1.5, 2), b: flatChain, hit: true, nx: 0, ny: -1, depth: 0.5},
+		{name: "capsule/chain touching", a: capsule(6, -2, 14, -2, 2), b: flatChain},
+		{name: "capsule/chain contained", a: capsule(-1, 0.5, 21, 0.5, 3), b: flatChain, hit: true, nx: 0, ny: 1, depth: 2.5},
 		{name: "polygon/chain", a: poly(12, -1, 16, 3), b: flatChain, hit: true, nx: 0, ny: 1, depth: 1},
+		{name: "polygon/chain touching", a: poly(12, 0, 16, 4), b: flatChain},
+		{name: "polygon/chain contained", a: poly(-5, -3, 25, 4), b: flatChain, hit: true, nx: 0, ny: 1, depth: 3},
+		{name: "chain NaN", a: circle(5, 0, 2), b: physics.ChainShape(pts(0, 0, float32(math.NaN()), 0, 20, 0), false)},
 		{name: "circle/chain loop wall", a: circle(5, 1, 2), b: room, hit: true, nx: 0, ny: 1, depth: 1},
 		{name: "circle/chain loop hollow", a: circle(5, 5, 1), b: room},
 		{name: "chain/chain", a: flatChain, b: room},

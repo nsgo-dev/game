@@ -13,13 +13,9 @@ const DefaultSolverIterations = 10
 
 // RigidBody is a 2D dynamic or static rigid body simulated by RigidWorld.
 //
-// (X, Y) is the world-space center of mass and Angle is the rotation in radians
-// (increasing clockwise in NSGo's +X right, +Y down screen space).
-// Shape holds the body's geometry in world space and is synchronized with (X, Y)
-// after each simulation step. A Box keeps its axis-aligned extents centered on (X, Y)
-// and a Circle its center, with Angle applied by the solver; a Polygon, Capsule, Segment
-// or Chain is stored rotated by Angle, so World queries and debug drawing see its true pose.
-// Assigning a new Shape between steps re-anchors it to the body's current pose.
+// (X, Y) is the world-space center of mass and Angle is the rotation in radians (increasing clockwise in NSGo's +X right, +Y down screen space). Shape holds the body's geometry in world space and is synchronized with (X, Y) after each simulation step. A Box keeps its axis-aligned extents centered on (X, Y) and a Circle its center, with Angle applied by the solver; a Polygon, Capsule, Segment or Chain is stored rotated by Angle, so World queries and debug drawing see its true pose.
+//
+// A Polygon or Capsule assigned to Shape, in a struct literal or between steps, keeps its world position: the next Step moves (X, Y) to its Centroid, so the body turns about its center of mass, and replaces an Inertia the body derived itself (left zero, or computed by a constructor or an earlier Step) with the new shape's MomentOfInertia; an Inertia set to any other value is kept. A Segment or Chain is anchored at the current (X, Y).
 //
 // Segment and Chain shapes have no area, so a body holding one is always static.
 type RigidBody struct {
@@ -60,6 +56,8 @@ type RigidBody struct {
 	synced                  Shape
 	syncBounds              Box
 	syncX, syncY, syncAngle float32
+	// derivedInertia is the Inertia the body last derived from its shape; while Inertia still equals it, a new Shape recomputes it.
+	derivedInertia float32
 }
 
 // NewRigidBody returns a RigidBody holding s, a shape in world coordinates, with its center of mass at s's Centroid and its inertia computed from s for mass spread evenly over its area. If mass <= 0, or s is a Segment or Chain, the body is static. A Box or Circle gives the same body as NewRigidBox or NewRigidCircle.
@@ -83,6 +81,7 @@ func NewRigidBody(s Shape, mass float32) *RigidBody {
 	if inertia := s.MomentOfInertia(mass); inertia > 0 {
 		b.Inertia = inertia
 		b.InvInertia = 1 / inertia
+		b.derivedInertia = b.Inertia
 	}
 	return b
 }
@@ -105,6 +104,13 @@ func (b *RigidBody) ensureLocal() {
 	}
 	if b.hasLocal && b.Shape == b.synced {
 		return
+	}
+	if (b.Shape.Kind == ShapePolygon || b.Shape.Kind == ShapeCapsule) && !b.Shape.Empty() {
+		// The solver rotates the body about (X, Y) with an inertia taken about the shape's centroid, so the two must coincide.
+		b.X, b.Y = b.Shape.Centroid()
+		if b.Inertia == b.derivedInertia {
+			b.Inertia, b.InvInertia = 0, 0
+		}
 	}
 	b.local = b.Shape.toLocal(float64(b.X), float64(b.Y), float64(b.Angle))
 	b.hasLocal = true
@@ -170,6 +176,7 @@ func NewRigidBox(x, y, w, h, mass float32) *RigidBody {
 	if inertia > 0 {
 		b.Inertia = float32(inertia)
 		b.InvInertia = float32(1.0 / inertia)
+		b.derivedInertia = b.Inertia
 	}
 	return b
 }
@@ -200,6 +207,7 @@ func NewRigidCircle(x, y, r, mass float32) *RigidBody {
 	if inertia > 0 {
 		b.Inertia = float32(inertia)
 		b.InvInertia = float32(1.0 / inertia)
+		b.derivedInertia = b.Inertia
 	}
 	return b
 }
@@ -317,6 +325,7 @@ func (b *RigidBody) prepareMass() {
 			if inertia > 0 {
 				b.Inertia = float32(inertia)
 				b.InvInertia = float32(1.0 / inertia)
+				b.derivedInertia = b.Inertia
 			}
 		}
 	}
@@ -788,11 +797,8 @@ func collideRigidPair(a, b *RigidBody, out []rigidManifold) []rigidManifold {
 		if s.Chain.Empty() {
 			return out
 		}
-		for i := range s.Chain.SegmentCount() {
-			m, ok := chainSegmentManifold(s.Chain, i, &h)
-			if !ok {
-				continue
-			}
+		var buf [8]hullManifold
+		for _, m := range chainManifolds(s.Chain, &h, buf[:0]) {
 			if flip {
 				m.nx, m.ny = -m.nx, -m.ny
 			}

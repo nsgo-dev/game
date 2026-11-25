@@ -27,12 +27,13 @@
 ## 取舍与适用范围
 
 - **支持的形状**：动态刚体可用旋转 `Box` 与 `Circle`、凸 `Polygon`（最多 8 个顶点，可带圆角）和 `Capsule`；静态刚体还可用 `Segment` 与 `Chain`。凹地形用 `Chain`（或多个凸多边形）表示；凹形动态刚体与扫掠连续碰撞检测（CCD）不在内置求解器范围内，因此在一步之内中心越过线段或链的物体会穿过它。
+- **规模**：面向单场景数十至数百个活跃刚体；若游戏需要数千刚体的大规模物理模拟，可在 `packages/game` 之外按需集成专用引擎。
 
 ## 用任意形状创建刚体
 
 `NewRigidBody(shape, mass)` 把刚体的质心放在 `shape.Centroid()`，转动惯量取自 `shape.MomentOfInertia(mass)`；`NewStaticRigidBody(shape)` 用于关卡几何。`Box` 或 `Circle` 得到的刚体与 `NewRigidBox`、`NewRigidCircle` 相同。线段和链没有面积，因此它们的刚体总是静态的。
 
-多边形、胶囊体、线段或链刚体在局部坐标中保存形状，每步结束后把按 `Angle` 旋转后的结果写回 `Shape`，因此 `World` 查询、触发器与 `DrawShape` 看到的都是它的真实位姿。在两步之间给 `Shape` 赋新值，会以刚体当前位姿重新锚定。
+多边形、胶囊体、线段或链刚体在局部坐标中保存形状，每步结束后把按 `Angle` 旋转后的结果写回 `Shape`，因此 `World` 查询、触发器与 `DrawShape` 看到的都是它的真实位姿。在结构体字面量中或两步之间赋给 `Shape` 的多边形或胶囊体保持在原处：下一步把 `X`、`Y` 移到它的质心，使刚体绕质心转动，并重新计算刚体自己推导出的 `Inertia`（你设成其他值的 `Inertia` 会保留）。线段或链以当前的 `X`、`Y` 为锚点。
 
 ```go
 ramp, _ := physics.NewPolygon([]core.Point{{X: 0, Y: 50}, {X: 0, Y: 200}, {X: 300, Y: 200}}, 0)
@@ -40,7 +41,6 @@ rw.AddBody(physics.NewStaticRigidBody(physics.PolygonShape(ramp)))
 crate := physics.NewRigidBody(physics.PolygonShape(physics.NewBoxPolygon(64.5, 70.6, 20, 20, 0.4636)), 1)
 rw.AddBody(crate) // 沿斜坡滑下
 ```
-- **规模**：面向单场景数十至数百个活跃刚体；若游戏需要数千刚体的大规模物理模拟，可在 `packages/game` 之外按需集成专用引擎。
 
 ## 示例
 

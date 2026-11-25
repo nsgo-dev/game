@@ -17,7 +17,7 @@ const ellipseSides = physics.MaxPolygonVertices
 //   - a polygon becomes a physics.Polygon when it is convex with at most physics.MaxPolygonVertices vertices, and a closed physics.Chain along its outline otherwise, which keeps concave terrain exact;
 //   - a polyline becomes a physics.Segment when it has two points and an open physics.Chain when it has more.
 //
-// Rotation turns the object clockwise about (X, Y), as Tiled does. Points, tile objects and objects too small to collide (a rectangle without area, a polyline with fewer than two distinct points) report false. The shape ignores the object layer's offset; ObjectLayer.PhysicsBodies applies it.
+// Rotation turns the object clockwise about (X, Y), as Tiled does. Points, tile objects and objects too small to collide (a rectangle without area, a polygon whose points all lie on one line, a polyline with fewer than two distinct points) report false. The shape ignores the object layer's offset; ObjectLayer.PhysicsBodies applies it.
 func (o Object) PhysicsShape() (physics.Shape, bool) {
 	rot := float64(o.Rotation) * math.Pi / 180
 	sin, cos := math.Sincos(rot)
@@ -56,7 +56,7 @@ func (o Object) PhysicsShape() (physics.Shape, bool) {
 		return physics.PolygonShape(poly), ok
 	case ObjectPolygon:
 		pts := o.placedPoints(place)
-		if len(pts) < 3 {
+		if len(pts) < 3 || flatOutline(pts) {
 			return physics.Shape{}, false
 		}
 		if convexOutline(pts) {
@@ -95,13 +95,16 @@ func (o Object) placedPoints(place func(lx, ly float64) core.Point) []core.Point
 	return out
 }
 
-// convexOutline reports whether the closed outline through pts turns the same way at every vertex, ignoring straight runs.
+// convexOutline reports whether the closed outline through pts is a simple convex polygon: it turns the same way at every vertex, ignoring straight runs, and turns once around in total, which rules out a self-intersecting star such as a pentagram, whose every turn has the same sign too.
 func convexOutline(pts []core.Point) bool {
 	sign := 0
+	turning := 0.0
 	n := len(pts)
 	for i := range n {
 		a, b, c := pts[i], pts[(i+1)%n], pts[(i+2)%n]
-		cross := (float64(b.X)-float64(a.X))*(float64(c.Y)-float64(b.Y)) - (float64(b.Y)-float64(a.Y))*(float64(c.X)-float64(b.X))
+		ux, uy := float64(b.X)-float64(a.X), float64(b.Y)-float64(a.Y)
+		vx, vy := float64(c.X)-float64(b.X), float64(c.Y)-float64(b.Y)
+		cross := ux*vy - uy*vx
 		switch {
 		case cross > 0:
 			if sign < 0 {
@@ -114,12 +117,30 @@ func convexOutline(pts []core.Point) bool {
 			}
 			sign = -1
 		}
+		turning += math.Atan2(cross, ux*vx+uy*vy)
 	}
-	return sign != 0
+	return sign != 0 && math.Abs(math.Abs(turning)-2*math.Pi) < 1e-6
 }
 
-// PhysicsBodies returns a physics.Body for every object of l that has a PhysicsShape, in object order, moved by the layer's offset, for a physics.World's static level geometry. Each body's ID is the object's ID, its Tag the object's Type and its UserData the Object. Hidden objects are included, since collision layers are often hidden in Tiled. Use physics.NewStaticRigidBody(body.Shape) to collide them with a physics.RigidWorld.
-func (l ObjectLayer) PhysicsBodies() []*physics.Body {
+// flatOutline reports whether every point of pts lies on one line, so the outline encloses no area.
+func flatOutline(pts []core.Point) bool {
+	a := pts[0]
+	for i := 1; i+1 < len(pts); i++ {
+		b, c := pts[i], pts[i+1]
+		ux, uy := float64(b.X)-float64(a.X), float64(b.Y)-float64(a.Y)
+		vx, vy := float64(c.X)-float64(a.X), float64(c.Y)-float64(a.Y)
+		if math.Abs(ux*vy-uy*vx) > 1e-9*(math.Hypot(ux, uy)*math.Hypot(vx, vy)) {
+			return false
+		}
+	}
+	return true
+}
+
+// PhysicsBodies returns a physics.Body for every object of l that has a PhysicsShape, in object order, moved by the layer's offset, for a physics.World's static level geometry. Each body's ID is the object's ID, its Tag the object's Type and its UserData the Object. Hidden objects are included, since collision layers are often hidden in Tiled. Use physics.NewStaticRigidBody(body.Shape) to collide them with a physics.RigidWorld. A nil layer, which Tilemap.ObjectLayer returns for a name the map does not have, has no bodies.
+func (l *ObjectLayer) PhysicsBodies() []*physics.Body {
+	if l == nil {
+		return nil
+	}
 	var out []*physics.Body
 	for _, o := range l.Objects {
 		s, ok := o.PhysicsShape()

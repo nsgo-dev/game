@@ -223,11 +223,7 @@ func drawingZoom(d *core.Drawing) float32 {
 	return float32(scale)
 }
 
-// DrawShape draws s as a wireframe outline in d using style: a rectangle for ShapeBox, a
-// circle with a +X orientation radius tick for ShapeCircle, the outline of a polygon (with
-// rounded corners when it has a Radius) for ShapePolygon, the stadium outline and core segment
-// of a capsule for ShapeCapsule, a line for ShapeSegment and a polyline for ShapeChain.
-// It preserves d's drawing state.
+// DrawShape draws s as a wireframe outline in d using style: a rectangle for ShapeBox, a circle with a +X orientation radius tick for ShapeCircle, the outline of a polygon (with rounded corners when it has a Radius) for ShapePolygon, the stadium outline and core segment of a capsule for ShapeCapsule, a line for ShapeSegment and a polyline for ShapeChain. It preserves d's drawing state.
 func DrawShape(d *core.Drawing, s Shape, style DebugStyle) {
 	if d == nil || s.Empty() {
 		return

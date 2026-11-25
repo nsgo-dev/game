@@ -47,8 +47,16 @@ func NewPolygon(points []core.Point, radius float32) (Polygon, bool) {
 	return poly, true
 }
 
-// NewBoxPolygon returns a w by h rectangle centered at (cx, cy) and rotated by angle radians (clockwise on screen), as a Polygon for ramps, wedges and rotated props.
+// NewBoxPolygon returns a w by h rectangle centered at (cx, cy) and rotated by angle radians (clockwise on screen), as a Polygon for ramps, wedges and rotated props. Like a Box, a rectangle whose w or h is not positive is empty: NewBoxPolygon then returns the zero Polygon, which reports Empty, as it does when an argument is not finite.
 func NewBoxPolygon(cx, cy, w, h, angle float32) Polygon {
+	if !(w > 0) || !(h > 0) {
+		return Polygon{}
+	}
+	for _, v := range [...]float32{cx, cy, w, h, angle} {
+		if math.IsNaN(float64(v)) || math.IsInf(float64(v), 0) {
+			return Polygon{}
+		}
+	}
 	hw, hh := float64(w)*0.5, float64(h)*0.5
 	s, c := math.Sincos(float64(angle))
 	local := [4]vec2{{-hw, -hh}, {hw, -hh}, {hw, hh}, {-hw, hh}}
