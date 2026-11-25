@@ -162,3 +162,48 @@ Set `Orientation` (`OrientationOrthogonal`, `OrientationIsometric`, `Orientation
 - `HexNeighbors(col, row)` and `HexDistance(c1, r1, c2, r2)` compute exact 6-neighbor adjacency and cube distance for both stagger axes and indices.
 - For pathfinding and tactics movement ranges on these projections, pass `ai.TopologyFromTilemap(m)` to [`game/ai`](ai.md#hexagonal-and-staggered-topologies) (`AStar.Topology`, `AStar.MovementRange`, `ReachableCells`).
 - For line-of-sight visibility and tile-aligned fog rendering over isometric, staggered, and hex maps, build a [`game/fog`](fog.md) with `fog.NewFromTilemap(m, tilemap.TileSolid)`.
+
+## Sparse chunked layers and streaming
+
+For unbounded 2D sandbox or open-world maps (negative and arbitrarily large coordinates), use a sparse chunked `TileLayer` created with `NewChunkedTileLayer(name, chunkSize)` inside `NewInfinite(tileWidth, tileHeight, tilesets...)`. Chunk sizes are fixed powers of two in `[MinChunkSize, MaxChunkSize]` (default `DefaultChunkSize = 16`), allowing branch-free shift/mask coordinate lookup (`TileToChunk`) across negative and positive coordinates:
+
+```go
+m := tilemap.NewInfinite(16, 16, ts)
+m.Layers = []tilemap.TileLayer{
+	tilemap.NewChunkedTileLayer("world", tilemap.DefaultChunkSize),
+}
+m.SetFlags(1, tilemap.TileSolid)
+
+// Arbitrary negative and positive coordinates work through the exact same APIs:
+m.SetTile(0, -17, -16, 1)
+gid := m.TileAt(0, -17, -16)
+hits := m.TilesInRect(rect, tilemap.TileSolid)
+rayHit, ok := m.Raycast(from, to, tilemap.TileSolid)
+```
+
+- **Infinite Tiled maps**: `LoadTiled` loads infinite `.tmj` layers (`"infinite": true` or layers carrying `"chunks"`) directly into sparse chunked `TileLayer`s, preserving negative chunk coordinates instead of flattening into a giant dense array.
+- **Per-chunk static caches and dirty tracking**: editing a tile with `SetTile` or `FillRect` marks only the affected chunk `Dirty` and `Modified` without invalidating other chunks. Bake static chunks with `m.CacheStaticChunk(layerIndex, coord, images)` or rebake only dirty chunks with `m.CacheDirtyChunks(layerIndex, images)`; inspect and invalidate individual chunks via `ChunkCache`, `InvalidateChunkCache`, `ClearChunkCache`, `layer.DirtyChunks()`, and `layer.ModifiedChunks()`.
+- **Deterministic plain-text chunk persistence**: `Chunk.ToDoc()` / `ChunkFromDoc` and `EncodeChunkYAML` / `DecodeChunkYAML` (or `EncodeChunkJSON` / `DecodeChunkJSON`) encode chunks as versioned (`ChunkFormatVersion = 1`) run-length encoded YAML or JSON that preserves all 32-bit GIDs including flip flags and round-trips byte for byte. Built-in stores include `NewMemoryChunkStore()` and `NewDirChunkStore(dir, format)` (writing `chunk_<x>_<y>.yaml` or `.json`).
+- **Bounded streaming**:
+  - Use `tilemap.NewChunkStream(tilemap.ChunkStreamConfig{...})` for synchronous 2D streaming with a `Generator`, `LoadRadius`/`UnloadRadius` hysteresis, `MaxLoadsPerUpdate`, and automatic save/restore of modified chunks through a `ChunkStore`.
+  - For multi-threaded background chunk loading on top of `world3d.ChunkStreamer`, use `world3d.NewTilemapStreamer(world3d.TilemapStreamerConfig{...})` (in `game/world3d`), which streams `*tilemap.Chunk` values with background workers, cancellation, per-frame integration budgets, and modified-chunk YAML/JSON persistence.
+
+```go
+store := tilemap.NewDirChunkStore(saveDir, tilemap.ChunkFormatYAML)
+stream := tilemap.NewChunkStream(tilemap.ChunkStreamConfig{
+	Map:          m,
+	LayerIndex:   0,
+	LoadRadius:   2,
+	UnloadRadius: 3,
+	Format:       tilemap.ChunkFormatYAML,
+	Store:        store,
+	Generator: func(coord tilemap.ChunkCoord, ch *tilemap.Chunk) error {
+		// Populate procedural terrain for coord...
+		return nil
+	},
+})
+defer stream.Close()
+
+// Inside your update loop:
+stream.Update(playerPos)
+```

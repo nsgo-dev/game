@@ -162,3 +162,48 @@ if hit, ok := m.Raycast(enemyEye, playerPos, tilemap.TileSolid); ok {
 - `HexNeighbors(col, row)` 与 `HexDistance(c1, r1, c2, r2)` 针对两种交错轴与奇偶偏移计算精确的 6 邻格与立方距离。
 - 需要在这类投影地图上做寻路或战术移动范围查询时，可将 `ai.TopologyFromTilemap(m)` 传入 [`game/ai`](ai.md#六边形与交错等距拓扑)（`AStar.Topology`、`AStar.MovementRange`、`ReachableCells`）。
 - 需要在等距、交错等距与六边形地图上做视线计算与对齐瓦片轮廓的战争迷雾绘制时，可用 `fog.NewFromTilemap(m, tilemap.TileSolid)` 构建 [`game/fog`](fog.md)。
+
+## 稀疏分块图层与流式加载
+
+对于无边界的 2D 沙盒或开放世界地图（支持负坐标与任意大坐标），可在 `NewInfinite(tileWidth, tileHeight, tilesets...)` 中使用 `NewChunkedTileLayer(name, chunkSize)` 创建稀疏分块 `TileLayer`。分块尺寸为 `[MinChunkSize, MaxChunkSize]` 内的 2 的幂（默认 `DefaultChunkSize = 16`），通过无分支位运算（`TileToChunk`）统一映射正负坐标：
+
+```go
+m := tilemap.NewInfinite(16, 16, ts)
+m.Layers = []tilemap.TileLayer{
+	tilemap.NewChunkedTileLayer("world", tilemap.DefaultChunkSize),
+}
+m.SetFlags(1, tilemap.TileSolid)
+
+// 任意正负坐标均沿用完全一致的读写、查询与绘制 API：
+m.SetTile(0, -17, -16, 1)
+gid := m.TileAt(0, -17, -16)
+hits := m.TilesInRect(rect, tilemap.TileSolid)
+rayHit, ok := m.Raycast(from, to, tilemap.TileSolid)
+```
+
+- **无限 Tiled 地图**：`LoadTiled` 会将无限 `.tmj` 图层（`"infinite": true` 或包含 `"chunks"`）直接加载为稀疏分块 `TileLayer`，保留原始负分块坐标，不再平铺为巨型稠密数组。
+- **逐分块静态缓存与脏标记**：通过 `SetTile` 或 `FillRect` 修改瓦片时，仅将受影响的分块标记为 `Dirty` 和 `Modified`，不会使其他分块缓存失效。使用 `m.CacheStaticChunk(layerIndex, coord, images)` 烘焙单个静态分块，或使用 `m.CacheDirtyChunks(layerIndex, images)` 仅重烘脏分块；通过 `ChunkCache`、`InvalidateChunkCache`、`ClearChunkCache`、`layer.DirtyChunks()` 与 `layer.ModifiedChunks()` 检查或失效单个分块。
+- **确定性纯文本分块持久化**：`Chunk.ToDoc()` / `ChunkFromDoc` 以及 `EncodeChunkYAML` / `DecodeChunkYAML`（或 `EncodeChunkJSON` / `DecodeChunkJSON`）以带版本号（`ChunkFormatVersion = 1`）的游程编码 YAML 或 JSON 读写分块，完整保留含翻转位在内的 32 位 GID，且加载与保存按字节完全一致。内置存储提供 `NewMemoryChunkStore()` 与 `NewDirChunkStore(dir, format)`（写出 `chunk_<x>_<y>.yaml` 或 `.json`）。
+- **有界流式加载**：
+  - 使用 `tilemap.NewChunkStream(tilemap.ChunkStreamConfig{...})` 进行同步 2D 流式加载，支持 `Generator` 生成回调、`LoadRadius`/`UnloadRadius` 滞回卸载、`MaxLoadsPerUpdate` 每帧预算，以及通过 `ChunkStore` 自动保存和恢复已修改分块。
+  - 如需基于 `world3d.ChunkStreamer` 的多线程后台分块加载，可使用 `game/world3d` 中的 `world3d.NewTilemapStreamer(world3d.TilemapStreamerConfig{...})`，获得后台工作协程、过时任务取消、每帧集成预算及修改分块的 YAML/JSON 持久化能力。
+
+```go
+store := tilemap.NewDirChunkStore(saveDir, tilemap.ChunkFormatYAML)
+stream := tilemap.NewChunkStream(tilemap.ChunkStreamConfig{
+	Map:          m,
+	LayerIndex:   0,
+	LoadRadius:   2,
+	UnloadRadius: 3,
+	Format:       tilemap.ChunkFormatYAML,
+	Store:        store,
+	Generator: func(coord tilemap.ChunkCoord, ch *tilemap.Chunk) error {
+		// 按 coord 生成程序化地形...
+		return nil
+	},
+})
+defer stream.Close()
+
+// 在更新循环中推进流式加载：
+stream.Update(playerPos)
+```

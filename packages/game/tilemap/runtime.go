@@ -58,12 +58,16 @@ func (m *Tilemap) TileChangesSince(rev uint64, fn func(col, row int)) (current u
 	return log.rev, true
 }
 
-// TileAt returns the raw GID (including flip flags) at (col, row) in layerIndex, or 0 if out of bounds.
+// TileAt returns the raw GID (including flip flags) at (col, row) in layerIndex, or 0 if out of bounds or unloaded.
+// For sparse chunked layers, negative and arbitrary positive coordinates are supported.
 func (m *Tilemap) TileAt(layerIndex, col, row int) uint32 {
 	if layerIndex < 0 || layerIndex >= len(m.Layers) {
 		return 0
 	}
 	l := &m.Layers[layerIndex]
+	if l.IsChunked() {
+		return l.tileAtChunked(col, row)
+	}
 	lw, lh := m.layerSize(l)
 	if col < 0 || row < 0 || col >= lw || row >= lh {
 		return 0
@@ -75,14 +79,23 @@ func (m *Tilemap) TileAt(layerIndex, col, row int) uint32 {
 	return l.Data[idx]
 }
 
-// SetTile writes a raw GID at (col, row) in layerIndex; out-of-bounds calls are ignored.
+// SetTile writes a raw GID at (col, row) in layerIndex; out-of-bounds calls on dense layers are ignored.
 //
-// Any cached static image for layerIndex is marked dirty so subsequent draws reflect the change immediately, and collision queries (FlagsAt, TilesInRect, Raycast) observe the updated tile at once.
+// On sparse chunked layers, arbitrary negative and positive coordinates are supported, allocating a chunk on demand when gid != 0,
+// and marking only that chunk Dirty and Modified (leaving all other chunks and their static caches clean).
+// On dense layers, any cached static image for layerIndex is marked dirty so subsequent draws reflect the change immediately,
+// and collision queries (FlagsAt, TilesInRect, Raycast) observe the updated tile at once.
 func (m *Tilemap) SetTile(layerIndex, col, row int, gid uint32) {
 	if layerIndex < 0 || layerIndex >= len(m.Layers) {
 		return
 	}
 	l := &m.Layers[layerIndex]
+	if l.IsChunked() {
+		if l.setTileChunked(col, row, gid, true) {
+			m.recordTileEdit(col, row)
+		}
+		return
+	}
 	lw, lh := m.layerSize(l)
 	if col < 0 || row < 0 || col >= lw || row >= lh {
 		return
@@ -102,14 +115,79 @@ func (m *Tilemap) SetTile(layerIndex, col, row int, gid uint32) {
 	m.recordTileEdit(col, row)
 }
 
-// FillRect writes gid across the clamped rectangle [col, col+w) x [row, row+h) in layerIndex.
+// FillRect writes gid across [col, col+w) x [row, row+h) in layerIndex.
 //
-// Out-of-bounds portions are clipped, non-positive sizes are ignored, and any static cache for layerIndex is invalidated when at least one cell changes.
+// On dense layers, out-of-bounds portions are clipped; on sparse chunked layers, arbitrary negative and positive rectangles are supported
+// and only chunks whose tiles actually change are marked Dirty and Modified. Non-positive sizes are ignored.
 func (m *Tilemap) FillRect(layerIndex, col, row, w, h int, gid uint32) {
 	if layerIndex < 0 || layerIndex >= len(m.Layers) || w <= 0 || h <= 0 {
 		return
 	}
 	l := &m.Layers[layerIndex]
+	if l.IsChunked() {
+		g := l.ensureChunks()
+		x0, y0 := col, row
+		x1, y1 := col+w, row+h
+		trackCells := w*h <= tileEditRingCap
+		changed := false
+
+		minCX := x0 >> g.shift
+		maxCX := (x1 - 1) >> g.shift
+		minCY := y0 >> g.shift
+		maxCY := (y1 - 1) >> g.shift
+		for cy := minCY; cy <= maxCY; cy++ {
+			baseRow := cy << g.shift
+			r0 := max(0, y0-baseRow)
+			r1 := min(g.size, y1-baseRow)
+			for cx := minCX; cx <= maxCX; cx++ {
+				coord := ChunkCoord{X: cx, Y: cy}
+				ch := g.chunks[coord]
+				if ch == nil {
+					if gid == 0 {
+						continue
+					}
+					ch = NewChunk(coord, g.size)
+					ch.Modified = true
+					g.chunks[coord] = ch
+				}
+				baseCol := cx << g.shift
+				c0 := max(0, x0-baseCol)
+				c1 := min(g.size, x1-baseCol)
+				chunkChanged := false
+				for lr := r0; lr < r1; lr++ {
+					rowOff := lr * g.size
+					for lc := c0; lc < c1; lc++ {
+						idx := rowOff + lc
+						prev := ch.Tiles[idx]
+						if prev != gid {
+							ch.Tiles[idx] = gid
+							if prev == 0 && gid != 0 {
+								ch.nonEmpty++
+							} else if prev != 0 && gid == 0 && ch.nonEmpty > 0 {
+								ch.nonEmpty--
+							}
+							chunkChanged = true
+							changed = true
+							if trackCells {
+								m.recordTileEdit(baseCol+lc, baseRow+lr)
+							}
+						}
+					}
+				}
+				if chunkChanged {
+					ch.Dirty = true
+					ch.Modified = true
+					if ch.cache != nil {
+						ch.cache.Dirty = true
+					}
+				}
+			}
+		}
+		if changed && !trackCells {
+			m.recordBulkTileEdit()
+		}
+		return
+	}
 	lw, lh := m.layerSize(l)
 	if lw <= 0 || lh <= 0 {
 		return

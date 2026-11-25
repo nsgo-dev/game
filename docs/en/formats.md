@@ -1348,6 +1348,26 @@ entities:
           y: 12
 ```
 
+<!-- format: tilemap#chunk -->
+### Tilemap chunk
+
+| Files | Version | Read and written by | Fields |
+| --- | --- | --- | --- |
+| `chunk_<x>_<y>.yaml` (or `.json`), written by `tilemap.DirChunkStore` and `tilemap.EncodeChunkYAML` / `EncodeChunkJSON` | `version: 1` | `tilemap.DecodeChunkYAML`, `tilemap.EncodeChunkYAML`, `tilemap.DecodeChunkJSON`, `tilemap.EncodeChunkJSON` | [tilemap](tilemap.md#sparse-chunked-layers-and-streaming) |
+
+```yaml
+version: 1
+x: -2
+"y": 1
+size: 4
+runs:
+  - 0*5
+  - "1"
+  - "2147483650"
+  - 3*4
+  - 0*5
+```
+
 ## JSON files
 
 These formats are JSON: a program writes most of them for itself, and the rest are what other services and tools exchange. Each guide shows their fields.

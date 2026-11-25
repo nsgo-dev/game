@@ -30,7 +30,22 @@ func (m *Tilemap) LayerCache(layerIndex int) *LayerCache {
 }
 
 // InvalidateLayerCache marks any cached image for layerIndex dirty so subsequent Draw calls fall back to live tile drawing until recached.
+// For sparse chunked layers, all loaded chunks in layerIndex are marked dirty.
 func (m *Tilemap) InvalidateLayerCache(layerIndex int) {
+	if layerIndex >= 0 && layerIndex < len(m.Layers) && m.Layers[layerIndex].IsChunked() {
+		l := &m.Layers[layerIndex]
+		if l.chunks != nil {
+			for _, ch := range l.chunks.chunks {
+				if ch != nil {
+					ch.Dirty = true
+					if ch.cache != nil {
+						ch.cache.Dirty = true
+					}
+				}
+			}
+		}
+		return
+	}
 	if m.caches == nil {
 		return
 	}
@@ -39,12 +54,234 @@ func (m *Tilemap) InvalidateLayerCache(layerIndex int) {
 	}
 }
 
-// ClearLayerCache removes any cached image for layerIndex.
+// ClearLayerCache removes any cached image for layerIndex (or all per-chunk caches on a chunked layer).
 func (m *Tilemap) ClearLayerCache(layerIndex int) {
+	if layerIndex >= 0 && layerIndex < len(m.Layers) && m.Layers[layerIndex].IsChunked() {
+		l := &m.Layers[layerIndex]
+		if l.chunks != nil {
+			for _, ch := range l.chunks.chunks {
+				if ch != nil {
+					ch.cache = nil
+					ch.Dirty = true
+				}
+			}
+		}
+		return
+	}
 	if m.caches == nil {
 		return
 	}
 	delete(m.caches, layerIndex)
+}
+
+// ChunkCache returns the static cache entry for coord in the chunked layer at layerIndex, or nil if absent or uncached.
+func (m *Tilemap) ChunkCache(layerIndex int, coord ChunkCoord) *LayerCache {
+	ch := m.ChunkAt(layerIndex, coord)
+	if ch == nil {
+		return nil
+	}
+	return ch.cache
+}
+
+// InvalidateChunkCache marks only the chunk at coord in layerIndex dirty without disturbing other chunks.
+func (m *Tilemap) InvalidateChunkCache(layerIndex int, coord ChunkCoord) {
+	ch := m.ChunkAt(layerIndex, coord)
+	if ch == nil {
+		return
+	}
+	ch.Dirty = true
+	if ch.cache != nil {
+		ch.cache.Dirty = true
+	}
+}
+
+// ClearChunkCache removes the static cache for coord in layerIndex without affecting other chunks.
+func (m *Tilemap) ClearChunkCache(layerIndex int, coord ChunkCoord) {
+	ch := m.ChunkAt(layerIndex, coord)
+	if ch == nil {
+		return
+	}
+	ch.cache = nil
+	ch.Dirty = true
+}
+
+// CacheStaticChunk bakes one loaded chunk of a sparse chunked layer into a premultiplied *image.RGBA buffer
+// so Draw and DrawLayer draw that chunk in a single DrawImageFrom operation.
+//
+// If the chunk is empty (all GIDs are 0), any existing cache on that chunk is cleared and (nil, nil) is returned.
+// Editing a tile inside another chunk never invalidates this chunk's cache.
+func (m *Tilemap) CacheStaticChunk(layerIndex int, coord ChunkCoord, images map[string]image.Image) (*LayerCache, error) {
+	if layerIndex < 0 || layerIndex >= len(m.Layers) {
+		return nil, fmt.Errorf("tilemap: cache chunk: layer index %d out of range [0, %d)", layerIndex, len(m.Layers))
+	}
+	layer := &m.Layers[layerIndex]
+	if !layer.IsChunked() {
+		return nil, fmt.Errorf("tilemap: cache chunk: layer %d (%q) is not chunked", layerIndex, layer.Name)
+	}
+	if m.TileWidth <= 0 || m.TileHeight <= 0 {
+		return nil, fmt.Errorf("tilemap: cache chunk: non-positive tile dimensions %gx%g", m.TileWidth, m.TileHeight)
+	}
+	ch := layer.Chunk(coord)
+	if ch == nil {
+		return nil, fmt.Errorf("tilemap: cache chunk: chunk (%d,%d) is not loaded in layer %d (%q)", coord.X, coord.Y, layerIndex, layer.Name)
+	}
+
+	size := ch.Size
+	baseCol := coord.X * size
+	baseRow := coord.Y * size
+
+	type bakedTile struct {
+		src        image.Image
+		sx, sy     int
+		sw, sh     int
+		ox, oy     int
+		dstX, dstY float32
+		tw, th     float32
+		flags      uint32
+	}
+
+	var tiles []bakedTile
+	hasBounds := false
+	var minX, minY, maxX, maxY float64
+
+	visitLocal := func(lc, lr int) error {
+		idx := lr*size + lc
+		if idx < 0 || idx >= len(ch.Tiles) {
+			return nil
+		}
+		gid := ch.Tiles[idx]
+		if gid == 0 {
+			return nil
+		}
+		ts, localID := m.TilesetForGID(gid)
+		if ts == nil {
+			return nil
+		}
+		if ts.Animations != nil {
+			if anim, ok := ts.Animations[localID]; ok && anim != nil && len(anim.Frames) > 0 {
+				return fmt.Errorf("tilemap: cache chunk: layer %d (%q) chunk (%d,%d) contains animated tile %d", layerIndex, layer.Name, coord.X, coord.Y, gid&TileIDMask)
+			}
+		}
+		imgSrc, sx, sy, sw, sh, ox, oy, tw, th, ok := ts.tileSource(localID)
+		if !ok {
+			return nil
+		}
+		srcImg := resolveTilesetImage(ts, imgSrc, images)
+		if srcImg == nil {
+			return fmt.Errorf("tilemap: cache chunk: missing image for tileset %q (URI %q)", ts.Name, imgSrc.URI)
+		}
+		col, row := baseCol+lc, baseRow+lr
+		tx, ty := m.tileOrigin(col, row)
+		dstX := tx
+		dstY := ty + m.TileHeight - th
+
+		if !hasBounds {
+			minX, minY = float64(dstX), float64(dstY)
+			maxX, maxY = float64(dstX+tw), float64(dstY+th)
+			hasBounds = true
+		} else {
+			minX = min(minX, float64(dstX))
+			minY = min(minY, float64(dstY))
+			maxX = max(maxX, float64(dstX+tw))
+			maxY = max(maxY, float64(dstY+th))
+		}
+		tiles = append(tiles, bakedTile{
+			src:   srcImg,
+			sx:    int(math.Round(float64(sx))),
+			sy:    int(math.Round(float64(sy))),
+			sw:    int(math.Round(float64(sw))),
+			sh:    int(math.Round(float64(sh))),
+			ox:    int(math.Round(float64(ox))),
+			oy:    int(math.Round(float64(oy))),
+			dstX:  dstX,
+			dstY:  dstY,
+			tw:    tw,
+			th:    th,
+			flags: gid & FlipMask,
+		})
+		return nil
+	}
+
+	for lr := range size {
+		for lc := range size {
+			if err := visitLocal(lc, lr); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	if len(tiles) == 0 {
+		ch.cache = nil
+		ch.Dirty = false
+		return nil, nil
+	}
+
+	originX := math.Floor(minX)
+	originY := math.Floor(minY)
+	pixelW := max(1, int(math.Ceil(maxX-originX)))
+	pixelH := max(1, int(math.Ceil(maxY-originY)))
+
+	rgba := image.NewRGBA(image.Rect(0, 0, pixelW, pixelH))
+	for _, bt := range tiles {
+		dx := int(math.Round(float64(bt.dstX) - originX))
+		dy := int(math.Round(float64(bt.dstY) - originY))
+		tw := int(math.Round(float64(bt.tw)))
+		th := int(math.Round(float64(bt.th)))
+		blitTileRGBA(rgba, bt.src, bt.sx, bt.sy, bt.sw, bt.sh, bt.ox, bt.oy, dx, dy, tw, th, bt.flags)
+	}
+
+	var version uint64 = 1
+	if ch.cache != nil {
+		version = ch.cache.Version + 1
+	}
+	src := core.ImageSource{
+		Pixels:  rgba,
+		Version: version,
+		Size:    core.Size{Width: core.Points(pixelW), Height: core.Points(pixelH)},
+	}
+	lc := &LayerCache{
+		Pixels:  rgba,
+		Source:  src,
+		OriginX: float32(originX),
+		OriginY: float32(originY),
+		Width:   float32(pixelW),
+		Height:  float32(pixelH),
+		Dirty:   false,
+		Version: version,
+	}
+	ch.cache = lc
+	ch.Dirty = false
+	return lc, nil
+}
+
+// CacheDirtyChunks bakes every dirty or uncached loaded chunk in the chunked layer at layerIndex
+// (in deterministic (Y, X) order) and returns how many chunks were baked.
+func (m *Tilemap) CacheDirtyChunks(layerIndex int, images map[string]image.Image) (int, error) {
+	if layerIndex < 0 || layerIndex >= len(m.Layers) {
+		return 0, fmt.Errorf("tilemap: cache dirty chunks: layer index %d out of range [0, %d)", layerIndex, len(m.Layers))
+	}
+	layer := &m.Layers[layerIndex]
+	if !layer.IsChunked() {
+		return 0, fmt.Errorf("tilemap: cache dirty chunks: layer %d (%q) is not chunked", layerIndex, layer.Name)
+	}
+	baked := 0
+	for _, coord := range layer.ChunkCoords() {
+		ch := layer.Chunk(coord)
+		if ch == nil {
+			continue
+		}
+		if !ch.Dirty && ch.cache != nil && !ch.cache.Dirty {
+			continue
+		}
+		if ch.nonEmpty == 0 && !ch.Dirty {
+			continue
+		}
+		if _, err := m.CacheStaticChunk(layerIndex, coord, images); err != nil {
+			return baked, err
+		}
+		baked++
+	}
+	return baked, nil
 }
 
 func (m *Tilemap) layerCacheFor(layer *TileLayer) *LayerCache {
@@ -68,6 +305,9 @@ func (m *Tilemap) CacheStaticLayer(layerIndex int, images map[string]image.Image
 		return nil, core.ImageSource{}, fmt.Errorf("tilemap: cache: layer index %d out of range [0, %d)", layerIndex, len(m.Layers))
 	}
 	layer := &m.Layers[layerIndex]
+	if layer.IsChunked() {
+		return nil, core.ImageSource{}, fmt.Errorf("tilemap: cache: layer %d (%q) is chunked; use CacheStaticChunk or CacheDirtyChunks", layerIndex, layer.Name)
+	}
 	lw, lh := m.layerSize(layer)
 	if lw <= 0 || lh <= 0 || m.TileWidth <= 0 || m.TileHeight <= 0 {
 		return nil, core.ImageSource{}, fmt.Errorf("tilemap: cache: layer %d (%q) has non-positive dimensions", layerIndex, layer.Name)

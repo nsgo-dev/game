@@ -115,12 +115,46 @@ func (m *Tilemap) ApplyAutotile(layerIndex int, set AutotileSet, terrainID func(
 		return
 	}
 	l := &m.Layers[layerIndex]
+	if terrainID == nil {
+		terrainID = func(gid uint32) bool { return gid != 0 }
+	}
+	if l.IsChunked() {
+		if l.chunks == nil || len(l.chunks.chunks) == 0 {
+			return
+		}
+		member := make(map[cellKey]bool)
+		var cells []cellKey
+		for _, coord := range l.ChunkCoords() {
+			ch := l.Chunk(coord)
+			if ch == nil || ch.nonEmpty == 0 {
+				continue
+			}
+			baseCol := coord.X * ch.Size
+			baseRow := coord.Y * ch.Size
+			for lr := range ch.Size {
+				rowOff := lr * ch.Size
+				for lc := range ch.Size {
+					gid := ch.Tiles[rowOff+lc]
+					if terrainID(gid) {
+						k := cellKey{col: baseCol + lc, row: baseRow + lr}
+						member[k] = true
+						cells = append(cells, k)
+					}
+				}
+			}
+		}
+		match := func(c, r int) bool {
+			return member[cellKey{col: c, row: r}]
+		}
+		for _, k := range cells {
+			mask := set.computeMask(match, k.col, k.row)
+			m.SetTile(layerIndex, k.col, k.row, set.Tile(mask))
+		}
+		return
+	}
 	lw, lh := m.layerSize(l)
 	if lw <= 0 || lh <= 0 || len(l.Data) == 0 {
 		return
-	}
-	if terrainID == nil {
-		terrainID = func(gid uint32) bool { return gid != 0 }
 	}
 
 	// Snapshot terrain membership so writing tiles does not disturb neighbor evaluation.
@@ -161,12 +195,16 @@ func (m *Tilemap) SetAutotile(layerIndex, col, row int, placed bool, set Autotil
 		return
 	}
 	l := &m.Layers[layerIndex]
+	chunked := l.IsChunked()
 	lw, lh := m.layerSize(l)
-	if col < 0 || row < 0 || col >= lw || row >= lh {
+	if !chunked && (col < 0 || row < 0 || col >= lw || row >= lh) {
 		return
 	}
 	if terrainID == nil {
 		terrainID = func(gid uint32) bool { return gid != 0 }
+	}
+	inBounds := func(c, r int) bool {
+		return chunked || (c >= 0 && r >= 0 && c < lw && r < lh)
 	}
 
 	// Snapshot the 5x5 neighborhood around (col, row) so the target and its 8 neighbors all evaluate against consistent post-edit membership.
@@ -178,7 +216,7 @@ func (m *Tilemap) SetAutotile(layerIndex, col, row int, placed bool, set Autotil
 				grid[dy+2][dx+2] = placed
 				continue
 			}
-			if nc >= 0 && nr >= 0 && nc < lw && nr < lh {
+			if inBounds(nc, nr) {
 				grid[dy+2][dx+2] = terrainID(m.TileAt(layerIndex, nc, nr))
 			}
 		}
@@ -189,7 +227,7 @@ func (m *Tilemap) SetAutotile(layerIndex, col, row int, placed bool, set Autotil
 		if dx >= -2 && dx <= 2 && dy >= -2 && dy <= 2 {
 			return grid[dy+2][dx+2]
 		}
-		if c < 0 || r < 0 || c >= lw || r >= lh {
+		if !inBounds(c, r) {
 			return false
 		}
 		return terrainID(m.TileAt(layerIndex, c, r))
@@ -208,7 +246,7 @@ func (m *Tilemap) SetAutotile(layerIndex, col, row int, placed bool, set Autotil
 				continue
 			}
 			nc, nr := col+dx, row+dy
-			if nc < 0 || nr < 0 || nc >= lw || nr >= lh {
+			if !inBounds(nc, nr) {
 				continue
 			}
 			if !grid[dy+2][dx+2] {

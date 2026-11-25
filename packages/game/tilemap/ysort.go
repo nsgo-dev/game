@@ -310,12 +310,26 @@ func (m *Tilemap) layerIndexFor(layer *TileLayer) int {
 // any per-tile PropSortOriginY offset. Animated tiles resolve to their current frame at call time.
 // Reusing dst across frames performs zero heap allocations once its capacity is warmed up.
 func (m *Tilemap) AppendYSortTiles(dst []YSortTile, layer *TileLayer, cam *Camera) []YSortTile {
-	if m == nil || layer == nil || !layer.Visible || layer.Opacity <= 0 {
+	if m == nil || layer == nil || !layer.Visible || layer.Opacity <= 0 || m.TileWidth <= 0 || m.TileHeight <= 0 {
 		return dst
 	}
-	lw, lh := m.layerSize(layer)
-	if lw <= 0 || lh <= 0 || m.TileWidth <= 0 || m.TileHeight <= 0 || len(layer.Data) == 0 {
-		return dst
+	chunked := layer.IsChunked()
+	var boundMinCol, boundMinRow, boundMaxCol, boundMaxRow int
+	var lw int
+	if chunked {
+		var ok bool
+		boundMinCol, boundMinRow, boundMaxCol, boundMaxRow, ok = layer.ChunkTileBounds()
+		if !ok {
+			return dst
+		}
+	} else {
+		var lh int
+		lw, lh = m.layerSize(layer)
+		if lw <= 0 || lh <= 0 || len(layer.Data) == 0 {
+			return dst
+		}
+		boundMinCol, boundMinRow = 0, 0
+		boundMaxCol, boundMaxRow = lw-1, lh-1
 	}
 
 	offX, offY := effectiveLayerOffset(layer.OffsetX, layer.OffsetY, layer.ParallaxX, layer.ParallaxY, cam)
@@ -336,11 +350,16 @@ func (m *Tilemap) AppendYSortTiles(dst []YSortTile, layer *TileLayer, cam *Camer
 	}
 
 	appendCell := func(col, row int) {
-		idx := row*lw + col
-		if idx < 0 || idx >= len(layer.Data) {
-			return
+		var gid uint32
+		if chunked {
+			gid = layer.tileAtChunked(col, row)
+		} else {
+			idx := row*lw + col
+			if idx < 0 || idx >= len(layer.Data) {
+				return
+			}
+			gid = layer.Data[idx]
 		}
-		gid := layer.Data[idx]
 		if gid == 0 {
 			return
 		}
@@ -398,8 +417,8 @@ func (m *Tilemap) AppendYSortTiles(dst []YSortTile, layer *TileLayer, cam *Camer
 
 	switch m.Orientation {
 	case OrientationIsometric:
-		minCol, maxCol := 0, lw-1
-		minRow, maxRow := 0, lh-1
+		minCol, maxCol := boundMinCol, boundMaxCol
+		minRow, maxRow := boundMinRow, boundMaxRow
 		dMin, dMax := float64(minCol-maxRow), float64(maxCol-minRow)
 		sMin, sMax := float64(minCol+minRow), float64(maxCol+maxRow)
 		if hasCam {
@@ -411,10 +430,10 @@ func (m *Tilemap) AppendYSortTiles(dst []YSortTile, layer *TileLayer, cam *Camer
 			dMax = lx1 / (tw / 2)
 			sMin = (ly0 - th) / (th / 2)
 			sMax = (ly1 + extraH) / (th / 2)
-			minCol = max(0, int(math.Floor((sMin+dMin)/2)))
-			maxCol = min(lw-1, int(math.Ceil((sMax+dMax)/2)))
-			minRow = max(0, int(math.Floor((sMin-dMax)/2)))
-			maxRow = min(lh-1, int(math.Ceil((sMax-dMin)/2)))
+			minCol = max(boundMinCol, int(math.Floor((sMin+dMin)/2)))
+			maxCol = min(boundMaxCol, int(math.Ceil((sMax+dMax)/2)))
+			minRow = max(boundMinRow, int(math.Floor((sMin-dMax)/2)))
+			maxRow = min(boundMaxRow, int(math.Ceil((sMax-dMin)/2)))
 		}
 		if minCol <= maxCol && minRow <= maxRow {
 			startS := max(minCol+minRow, int(math.Floor(sMin)))
@@ -451,23 +470,23 @@ func (m *Tilemap) AppendYSortTiles(dst []YSortTile, layer *TileLayer, cam *Camer
 		if stepX <= 0 || stepY <= 0 {
 			return dst
 		}
-		minCol, maxCol := 0, lw-1
-		minRow, maxRow := 0, lh-1
+		minCol, maxCol := boundMinCol, boundMaxCol
+		minRow, maxRow := boundMinRow, boundMaxRow
 		if hasCam {
 			lx0 := vbMinX - float64(offX)
 			lx1 := vbMaxX - float64(offX)
 			ly0 := vbMinY - float64(offY)
 			ly1 := vbMaxY - float64(offY)
 			if m.StaggerAxis == StaggerX {
-				minCol = max(0, int(math.Floor((lx0-tw-extraW)/stepX)))
-				maxCol = min(lw-1, int(math.Ceil(lx1/stepX)))
-				minRow = max(0, int(math.Floor((ly0-th*1.5)/stepY)))
-				maxRow = min(lh-1, int(math.Ceil((ly1+extraH)/stepY)))
+				minCol = max(boundMinCol, int(math.Floor((lx0-tw-extraW)/stepX)))
+				maxCol = min(boundMaxCol, int(math.Ceil(lx1/stepX)))
+				minRow = max(boundMinRow, int(math.Floor((ly0-th*1.5)/stepY)))
+				maxRow = min(boundMaxRow, int(math.Ceil((ly1+extraH)/stepY)))
 			} else {
-				minCol = max(0, int(math.Floor((lx0-tw*1.5-extraW)/stepX)))
-				maxCol = min(lw-1, int(math.Ceil(lx1/stepX)))
-				minRow = max(0, int(math.Floor((ly0-th)/stepY)))
-				maxRow = min(lh-1, int(math.Ceil((ly1+extraH)/stepY)))
+				minCol = max(boundMinCol, int(math.Floor((lx0-tw*1.5-extraW)/stepX)))
+				maxCol = min(boundMaxCol, int(math.Ceil(lx1/stepX)))
+				minRow = max(boundMinRow, int(math.Floor((ly0-th)/stepY)))
+				maxRow = min(boundMaxRow, int(math.Ceil((ly1+extraH)/stepY)))
 			}
 		}
 		if minCol <= maxCol && minRow <= maxRow {
@@ -494,17 +513,17 @@ func (m *Tilemap) AppendYSortTiles(dst []YSortTile, layer *TileLayer, cam *Camer
 		}
 
 	default: // OrientationOrthogonal
-		minCol, maxCol := 0, lw-1
-		minRow, maxRow := 0, lh-1
+		minCol, maxCol := boundMinCol, boundMaxCol
+		minRow, maxRow := boundMinRow, boundMaxRow
 		if hasCam {
 			minX := vbMinX - float64(offX)
 			maxX := vbMaxX - float64(offX)
 			minY := vbMinY - float64(offY)
 			maxY := vbMaxY - float64(offY)
-			minCol = max(0, int(math.Floor((minX-extraW)/tw)))
-			maxCol = min(lw-1, int(math.Ceil(maxX/tw))-1)
-			minRow = max(0, int(math.Floor(minY/th)))
-			maxRow = min(lh-1, int(math.Ceil((maxY+extraH)/th))-1)
+			minCol = max(boundMinCol, int(math.Floor((minX-extraW)/tw)))
+			maxCol = min(boundMaxCol, int(math.Ceil(maxX/tw))-1)
+			minRow = max(boundMinRow, int(math.Floor(minY/th)))
+			maxRow = min(boundMaxRow, int(math.Ceil((maxY+extraH)/th))-1)
 		}
 		if minCol <= maxCol && minRow <= maxRow {
 			for row := minRow; row <= maxRow; row++ {
