@@ -199,6 +199,7 @@ func (e *Editor) OpenDemo() error {
 	e.resetExportPanelForProject()
 	e.resetHUDForProject()
 	e.hud.open = false
+	e.resetPlaytestForProject()
 
 	e.Doc = DemoSceneDoc()
 	e.Resolver = DemoAtlasMap()

@@ -1,6 +1,9 @@
 package editor_test
 
 import (
+	"errors"
+	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -574,5 +577,216 @@ func TestPlaytestReportInteractionsAndProposals(t *testing.T) {
 	}
 	if prompts[0].Kind != "tune" || prompts[1].Kind != "suggestion" {
 		t.Fatalf("prompt kinds = %q, %q", prompts[0].Kind, prompts[1].Kind)
+	}
+}
+
+func TestPlaytestReportPathContainmentAndPlayModeGuards(t *testing.T) {
+	ed, projDir := openTestProject(t)
+	outsideDir := t.TempDir()
+	outsideFile := filepath.Join(outsideDir, "outside.yaml")
+	if err := os.WriteFile(outsideFile, []byte("untouched\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Report whose run 7 points to an absolute path outside the project and ConfigPath points outside.
+	rep := fixturePlatformerReport(outsideFile)
+	if err := ed.OpenPlaytestReport(editor.PlaytestReportOpenConfig{
+		Report:     rep,
+		ReportPath: "playtest.report.yaml",
+		ConfigPath: outsideFile,
+		BaseDir:    projDir,
+		Proposals: []editor.PlaytestProposal{
+			{
+				ID:         "abs-escape",
+				File:       outsideFile,
+				MetricName: "evil",
+				After:      "overwritten\n",
+				Status:     "pending",
+			},
+			{
+				ID:         "dotdot-name",
+				File:       "..notes.yaml",
+				MetricName: "valid_dotdot",
+				After:      "ok: true\n",
+				Status:     "pending",
+			},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Absolute path outside BaseDir must be rejected for ApplyPlaytestProposal, WatchPlaytestRun, and OpenPlaytestConfigPreview.
+	if err := ed.ApplyPlaytestProposal("abs-escape"); err == nil {
+		t.Fatal("ApplyPlaytestProposal wrote to absolute path outside project")
+	}
+	if got, _ := os.ReadFile(outsideFile); string(got) != "untouched\n" {
+		t.Fatalf("outside file was modified: %q", string(got))
+	}
+	if err := ed.WatchPlaytestRun(7); err == nil {
+		t.Fatal("WatchPlaytestRun allowed absolute recording path outside project")
+	}
+	if err := ed.OpenPlaytestConfigPreview(); err != nil {
+		t.Fatalf("OpenPlaytestConfigPreview unexpected error: %v", err)
+	}
+	if sess := ed.PlaytestSession(); sess == nil || sess.ConfigPreviewErr == "" || sess.ConfigPreviewText != "" {
+		t.Fatalf("OpenPlaytestConfigPreview leaked outside file: err=%q text=%q", sess.ConfigPreviewErr, sess.ConfigPreviewText)
+	}
+
+	// 2. Non-existent target file under a symlinked directory escaping projDir must be rejected.
+	subLink := filepath.Join(projDir, "sublink")
+	if err := os.Symlink(outsideDir, subLink); err == nil {
+		propID := ed.AddPlaytestProposal(editor.PlaytestProposal{
+			ID:         "symlink-dir-escape",
+			File:       "sublink/new_escape.yaml",
+			MetricName: "sym",
+			After:      "escaped\n",
+			Status:     "pending",
+		})
+		if err := ed.ApplyPlaytestProposal(propID); err == nil {
+			t.Fatal("ApplyPlaytestProposal wrote through symlinked parent dir outside project")
+		}
+		if _, err := os.Stat(filepath.Join(outsideDir, "new_escape.yaml")); !os.IsNotExist(err) {
+			t.Fatalf("symlinked parent dir write created outside file: %v", err)
+		}
+	}
+
+	// 3. Valid filename starting with ".." inside the project must succeed and write atomically.
+	if err := ed.ApplyPlaytestProposal("dotdot-name"); err != nil {
+		t.Fatalf("ApplyPlaytestProposal rejected valid ..notes.yaml: %v", err)
+	}
+	if got, err := os.ReadFile(filepath.Join(projDir, "..notes.yaml")); err != nil || string(got) != "ok: true\n" {
+		t.Fatalf("..notes.yaml = %q, err=%v", string(got), err)
+	}
+
+	// 4. Play-mode guards on ApplyPlaytestProposal and DismissPlaytestProposal.
+	playPropID := ed.AddPlaytestProposal(editor.PlaytestProposal{
+		ID:         "play-guard",
+		File:       "playtest.yaml",
+		MetricName: "m",
+		After:      "ok: true\n",
+		Status:     "pending",
+	})
+	var rootScope *core.Scope
+	nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		rootScope = cx
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(800, 600))
+	if err := ed.PlayIn(rootScope); err != nil {
+		t.Fatalf("PlayIn: %v", err)
+	}
+	if err := ed.ApplyPlaytestProposal(playPropID); !errors.Is(err, editor.ErrPlaying) {
+		t.Fatalf("ApplyPlaytestProposal during Play = %v, want ErrPlaying", err)
+	}
+	if err := ed.DismissPlaytestProposal(playPropID); !errors.Is(err, editor.ErrPlaying) {
+		t.Fatalf("DismissPlaytestProposal during Play = %v, want ErrPlaying", err)
+	}
+	if err := ed.Stop(); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+}
+
+func TestPlaytestReportResetsOnProjectAndDemoSwitch(t *testing.T) {
+	ed, projDir := openTestProject(t)
+	if err := ed.OpenPlaytestReport(editor.PlaytestReportOpenConfig{
+		Report:  fixturePlatformerReport(""),
+		BaseDir: projDir,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !ed.PlaytestReportOpen() || ed.PlaytestSession() == nil {
+		t.Fatal("expected playtest report open")
+	}
+
+	// OpenProject must clear playtest screen and session.
+	if err := ed.OpenProject(projDir); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+	if ed.PlaytestReportOpen() || ed.PlaytestSession() != nil {
+		t.Fatalf("OpenProject leaked playtest state: open=%v sess=%v", ed.PlaytestReportOpen(), ed.PlaytestSession())
+	}
+
+	// Open another report, then switch to Demo via OpenDemo: must also clear playtest state.
+	if err := ed.OpenPlaytestReport(editor.PlaytestReportOpenConfig{
+		Report:  fixturePlatformerReport(""),
+		BaseDir: projDir,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenDemo(); err != nil {
+		t.Fatalf("OpenDemo: %v", err)
+	}
+	if ed.PlaytestReportOpen() || ed.PlaytestSession() != nil {
+		t.Fatalf("OpenDemo leaked playtest state: open=%v sess=%v", ed.PlaytestReportOpen(), ed.PlaytestSession())
+	}
+}
+
+func TestPlaytestReportChartsHandleNaNInfZeroMaxValAndNarrowBars(t *testing.T) {
+	nan := math.NaN()
+	inf := math.Inf(1)
+
+	// 1. HeatMap with NaN/Inf points.
+	hmRep := &playtest.Report{
+		Version:   playtest.ReportVersion,
+		SeedCount: 1,
+		HeatMaps: []playtest.HeatMap{
+			{
+				Metric: "deaths",
+				Event:  "death",
+				Points: []playtest.HeatPoint{
+					{X: nan, Y: 10},
+					{X: 100, Y: inf},
+					{X: 120, Y: 80, Tag: "pit"},
+				},
+			},
+		},
+	}
+	hmSpec := editor.SelectPlaytestChart(hmRep)
+	if hmSpec.HeatMap == nil || len(hmSpec.HeatMap.Points) != 1 {
+		t.Fatalf("expected non-finite heat points filtered, got %+v", hmSpec.HeatMap)
+	}
+
+	// 2. Narrow bar chart with n=30 bars + NaN/Inf values + direct MaxVal=0 call.
+	entries := make([]playtest.SeriesEntry, 30)
+	for i := range entries {
+		v := float64(i % 5)
+		if i == 0 {
+			v = nan
+		} else if i == 1 {
+			v = inf
+		}
+		entries[i] = playtest.SeriesEntry{Label: fmt.Sprintf("W%d", i+1), Value: v}
+	}
+	barSpec := editor.PlaytestChartSpec{
+		Kind: editor.PlaytestChartBars,
+		Bars: &editor.PlaytestSeriesChart{
+			Name:    "waves",
+			Entries: entries,
+			MaxVal:  0, // deliberately invalid MaxVal
+		},
+	}
+	lineSpec := editor.PlaytestChartSpec{
+		Kind: editor.PlaytestChartLine,
+		Line: &editor.PlaytestSeriesChart{
+			Name:    "levels",
+			Entries: entries[:5],
+			MaxVal:  nan,
+		},
+	}
+	matSpec := editor.PlaytestChartSpec{
+		Kind: editor.PlaytestChartMatrix,
+		Matrix: &editor.PlaytestMatrixChart{
+			Labels:    []string{"A", "B"},
+			FlagAbove: 60,
+			Unit:      "%",
+			Cells:     [][]*float64{{nil, &nan}, {&inf, nil}},
+		},
+	}
+
+	for _, spec := range []editor.PlaytestChartSpec{hmSpec, barSpec, lineSpec, matSpec} {
+		var d core.Drawing
+		editor.DrawPlaytestChart(&d, core.Size{Width: 360, Height: 220}, spec, nil)
+		if len(d.Ops) == 0 {
+			t.Fatalf("chart %s drew 0 ops", spec.Kind)
+		}
 	}
 }

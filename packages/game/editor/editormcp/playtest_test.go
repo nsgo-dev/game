@@ -288,4 +288,12 @@ func TestPlaytestReportToolAndEditorSync(t *testing.T) {
 	if reviews := s.PlaytestReviews(); len(reviews) != 1 || reviews[0].Status != "applied" {
 		t.Fatalf("MCP PlaytestReviews after editor apply = %+v", reviews)
 	}
+
+	// Negative watchRun must be rejected explicitly.
+	badWatch := call(t, cs, editormcp.ToolPlaytestReport, map[string]any{
+		"watchRun": -1,
+	})
+	if !badWatch.IsError {
+		t.Fatalf("expected negative watchRun to return error, got %+v", badWatch)
+	}
 }

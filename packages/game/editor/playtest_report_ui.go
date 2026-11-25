@@ -1204,14 +1204,22 @@ func drawPlaytestHeatMapChart(d *core.Drawing, w, h float32, chart *PlaytestHeat
 	}
 	d.Restore()
 
-	// World-to-canvas projection.
-	spanX := max(1.0, chart.MaxX-chart.MinX)
-	spanY := max(1.0, chart.MaxY-chart.MinY)
+	// World-to-canvas projection (guarding non-finite or inverted bounds).
+	minX, maxX := chart.MinX, chart.MaxX
+	minY, maxY := chart.MinY, chart.MaxY
+	if !isFinite64(minX) || !isFinite64(maxX) || maxX <= minX {
+		minX, maxX = 0, 640
+	}
+	if !isFinite64(minY) || !isFinite64(maxY) || maxY <= minY {
+		minY, maxY = 0, 360
+	}
+	spanX := max(1.0, maxX-minX)
+	spanY := max(1.0, maxY-minY)
 	toX := func(wx float64) float32 {
-		return plotX + float32((wx-chart.MinX)/spanX)*plotW
+		return plotX + float32((wx-minX)/spanX)*plotW
 	}
 	toY := func(wy float64) float32 {
-		return plotY + float32((wy-chart.MinY)/spanY)*plotH
+		return plotY + float32((wy-minY)/spanY)*plotH
 	}
 
 	// Ground / level structural backdrop so spatial clusters read over the level silhouette.
@@ -1245,9 +1253,16 @@ func drawPlaytestHeatMapChart(d *core.Drawing, w, h float32, chart *PlaytestHeat
 
 	// Draw layered concentric translucent radial heat blobs for each cluster.
 	for _, cl := range chart.Clusters {
+		if !isFinite64(cl.X) || !isFinite64(cl.Y) {
+			continue
+		}
+		share := cl.Share
+		if !isFinite64(share) || share < 0 {
+			share = 0
+		}
 		cx := toX(cl.X)
 		cy := toY(cl.Y)
-		baseR := float32(28) + float32(cl.Share)*46
+		baseR := float32(28) + float32(share)*46
 		if baseR > 84 {
 			baseR = 84
 		}
@@ -1262,6 +1277,9 @@ func drawPlaytestHeatMapChart(d *core.Drawing, w, h float32, chart *PlaytestHeat
 
 	// Individual event sample dots so single events remain visible.
 	for _, pt := range chart.Points {
+		if !isFinite64(pt.X) || !isFinite64(pt.Y) {
+			continue
+		}
 		px, py := toX(pt.X), toY(pt.Y)
 		d.SetFillColor(specTextStrong).BeginPath().Arc(px, py, 2.5, 0, float32(2*math.Pi), false).Fill()
 	}
@@ -1269,6 +1287,9 @@ func drawPlaytestHeatMapChart(d *core.Drawing, w, h float32, chart *PlaytestHeat
 	// Draw hotspot callout chips above each top cluster.
 	chipFont := core.Font{Size: 11, Weight: 500}
 	for i, chip := range chart.Chips {
+		if !isFinite64(chip.X) || !isFinite64(chip.Y) {
+			continue
+		}
 		px := toX(chip.X)
 		py := toY(chip.Y) - 24 - float32(i%2)*14
 		chipW := float32(len(chip.Text))*5.8 + 20
@@ -1326,9 +1347,14 @@ func drawPlaytestBarChart(d *core.Drawing, w, h float32, chart *PlaytestSeriesCh
 	d.SetStrokeColor(specLine).SetLineWidth(1).BeginPath().MoveTo(padL, baseY).LineTo(padL+plotW, baseY).Stroke()
 	d.SetStrokeColor(specPlaytestGridLine).SetLineWidth(1).BeginPath().MoveTo(padL, padT+plotH*0.5).LineTo(padL+plotW, padT+plotH*0.5).Stroke()
 
+	maxVal := chart.MaxVal
+	if !isFinite64(maxVal) || maxVal <= 0 {
+		maxVal = 1
+	}
+
 	// Dashed horizontal goal line when TargetMax is set.
-	if chart.TargetMax != nil && chart.MaxVal > 0 {
-		ratio := float32(*chart.TargetMax / chart.MaxVal)
+	if chart.TargetMax != nil && isFinite64(*chart.TargetMax) {
+		ratio := float32(*chart.TargetMax / maxVal)
 		if ratio > 1 {
 			ratio = 1
 		}
@@ -1352,17 +1378,28 @@ func drawPlaytestBarChart(d *core.Drawing, w, h float32, chart *PlaytestSeriesCh
 
 	n := len(chart.Entries)
 	gap := float32(14)
+	if n > 1 && gap*float32(n-1) > plotW*0.35 {
+		gap = max(float32(2), (plotW*0.35)/float32(n-1))
+	}
 	slotW := (plotW - gap*float32(max(0, n-1))) / float32(n)
-	barW := min(float32(64), max(float32(12), slotW*0.64))
+	if slotW < 4 {
+		gap = 0
+		slotW = max(float32(4), plotW/float32(n))
+	}
+	barW := min(float32(64), min(slotW, max(float32(3), slotW*0.64)))
 
 	valFont := core.Font{Family: core.FontMonospace, Size: 11.5}
 	lblFont := core.Font{Size: 11.5}
 
 	for i, e := range chart.Entries {
+		val := e.Value
+		if !isFinite64(val) {
+			val = 0
+		}
 		slotX := padL + float32(i)*(slotW+gap)
 		barX := slotX + (slotW-barW)/2
-		bh := float32((max(0.0, e.Value) / chart.MaxVal) * float64(plotH))
-		if bh < 3 && e.Value > 0 {
+		bh := float32((max(0.0, val) / maxVal) * float64(plotH))
+		if bh < 3 && val > 0 {
 			bh = 3
 		}
 		if bh > plotH {
@@ -1370,7 +1407,7 @@ func drawPlaytestBarChart(d *core.Drawing, w, h float32, chart *PlaytestSeriesCh
 		}
 		barY := baseY - bh
 
-		flaggedProblem := e.Flag == playtest.FlagProblem || (chart.TargetMax != nil && e.Value > *chart.TargetMax)
+		flaggedProblem := e.Flag == playtest.FlagProblem || (chart.TargetMax != nil && isFinite64(*chart.TargetMax) && val > *chart.TargetMax)
 		flaggedWarn := !flaggedProblem && e.Flag == playtest.FlagWarning
 
 		barCol := specBarNormal
@@ -1388,7 +1425,7 @@ func drawPlaytestBarChart(d *core.Drawing, w, h float32, chart *PlaytestSeriesCh
 
 		d.SetFillColor(barCol).BeginPath().RoundRect(barX, barY, barW, bh, 5).Fill()
 
-		valText := formatCleanNumber(e.Value, chart.Decimals)
+		valText := formatCleanNumber(val, chart.Decimals)
 		if flaggedProblem {
 			valText += " !"
 		}
@@ -1412,6 +1449,11 @@ func drawPlaytestLineChart(d *core.Drawing, w, h float32, chart *PlaytestSeriesC
 	plotH := max(float32(40), h-padT-padB)
 	baseY := padT + plotH
 
+	maxVal := chart.MaxVal
+	if !isFinite64(maxVal) || maxVal <= 0 {
+		maxVal = 1
+	}
+
 	// Horizontal reference grid lines with Y-axis labels.
 	axisFont := core.Font{Family: core.FontMonospace, Size: 10.5}
 	for step := 0; step <= 4; step++ {
@@ -1422,13 +1464,13 @@ func drawPlaytestLineChart(d *core.Drawing, w, h float32, chart *PlaytestSeriesC
 			col = specLine
 		}
 		d.SetStrokeColor(col).SetLineWidth(1).BeginPath().MoveTo(padL, y).LineTo(padL+plotW, y).Stroke()
-		val := chart.MaxVal * float64(frac)
+		val := maxVal * float64(frac)
 		d.SetFillColor(specTextMuted).FillText(formatCleanNumber(val, chart.Decimals), 8, y+4, axisFont)
 	}
 
 	// Optional dashed target line.
-	if chart.TargetMax != nil && chart.MaxVal > 0 {
-		ratio := float32(min(1.0, max(0.0, *chart.TargetMax/chart.MaxVal)))
+	if chart.TargetMax != nil && isFinite64(*chart.TargetMax) {
+		ratio := float32(min(1.0, max(0.0, *chart.TargetMax/maxVal)))
 		gy := baseY - ratio*plotH
 		d.Save()
 		d.SetStrokeColor(specTextMuted).SetLineWidth(1).SetLineDash(5, 4)
@@ -1449,7 +1491,11 @@ func drawPlaytestLineChart(d *core.Drawing, w, h float32, chart *PlaytestSeriesC
 		} else {
 			xs[i] = padL + plotW*float32(i)/float32(n-1)
 		}
-		ratio := float32(min(1.0, max(0.0, e.Value/chart.MaxVal)))
+		val := e.Value
+		if !isFinite64(val) {
+			val = 0
+		}
+		ratio := float32(min(1.0, max(0.0, val/maxVal)))
 		ys[i] = baseY - ratio*plotH
 	}
 
@@ -1498,7 +1544,11 @@ func drawPlaytestLineChart(d *core.Drawing, w, h float32, chart *PlaytestSeriesC
 		d.SetFillColor(dotCol).BeginPath().Arc(px, py, r, 0, float32(2*math.Pi), false).Fill()
 		d.SetStrokeColor(specBg).SetLineWidth(1.5).BeginPath().Arc(px, py, r, 0, float32(2*math.Pi), false).Stroke()
 
-		valText := formatCleanNumber(e.Value, chart.Decimals)
+		val := e.Value
+		if !isFinite64(val) {
+			val = 0
+		}
+		valText := formatCleanNumber(val, chart.Decimals)
 		if e.Flag == playtest.FlagProblem {
 			valText += " !"
 		}
@@ -1572,6 +1622,9 @@ func drawPlaytestMatrixChart(d *core.Drawing, w, h float32, chart *PlaytestMatri
 			noteText := "same deck"
 			noteCol := specTextMuted
 
+			if cell != nil && !isFinite64(*cell) {
+				cell = nil
+			}
 			if cell != nil {
 				v := *cell
 				valText = formatCleanNumber(v, 0) + chart.Unit

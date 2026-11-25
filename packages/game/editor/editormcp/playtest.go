@@ -712,6 +712,9 @@ func playtestReportTool(ctx context.Context, c *Call) (*Result, error) {
 		if args.Open != nil {
 			ed.SetPlaytestReportOpen(*args.Open)
 		}
+		if args.WatchRun < 0 {
+			return errors.New("watchRun must be >= 1")
+		}
 		if args.WatchRun > 0 {
 			if err := ed.WatchPlaytestRun(args.WatchRun); err != nil {
 				return err

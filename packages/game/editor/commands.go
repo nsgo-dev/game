@@ -1240,7 +1240,7 @@ func (e *Editor) initBuiltinCommands() {
 			Category:    "Project",
 			Keywords:    []string{"playtest", "report", "bot", "goals", "metrics", "chart", "heatmap", "replay"},
 			Shortcut:    "mod+shift+y",
-			Enabled:     func() bool { return !e.Playing() },
+			Enabled:     func() bool { return !e.StartScreenOpen() && !e.MergeConflictOpen() && !e.Playing() },
 			Checked:     func() bool { return e.PlaytestReportOpen() },
 			Run: func() error {
 				e.SetPlaytestReportOpen(!e.PlaytestReportOpen())
