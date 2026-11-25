@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"image"
 	"io"
 	"io/fs"
 	"math"
@@ -71,7 +72,7 @@ type Credit struct {
 	Notice string `yaml:"notice,omitempty"`
 }
 
-// Image holds how an image is imported. A texture target reads Filter, Format, Mipmaps and SRGB; an atlas target reads Slice. Each field left out keeps the target's setting in game.yaml.
+// Image holds how an image is imported. A texture target reads Filter, Format, Mipmaps and SRGB; an atlas target reads Slice and Pivot. Each field left out keeps the target's setting in game.yaml.
 type Image struct {
 	// Filter is the sampling filter written into the texture's KTX2 key/value data under FilterKey, which render3d.LoadKTX2 sets the sampler's filters from: "linear" or "nearest".
 	Filter string `yaml:"filter,omitempty" schema:"enum=linear|nearest"`
@@ -83,6 +84,135 @@ type Image struct {
 	SRGB *bool `yaml:"srgb,omitempty"`
 	// Slice cuts a sprite sheet into frames on a grid before an atlas packs them; nil packs the image as one frame.
 	Slice *Slice `yaml:"slice,omitempty"`
+	// Pivot sets the normalized pivot point(s) written to TexturePacker JSON when an atlas packs the image, as a default for every frame and optional per-cell overrides for a sliced sheet.
+	Pivot *Pivot `yaml:"pivot,omitempty"`
+}
+
+// PivotPoint is a normalized [x, y] pivot coordinate as fractions of the untrimmed frame's width and height: [0, 0] is the top-left corner, [0.5, 0.5] is the center, and [0.5, 1] is bottom-center.
+type PivotPoint [2]float64
+
+// UnmarshalYAML decodes a [x, y] sequence of two finite numbers into p.
+func (p *PivotPoint) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind != yaml.SequenceNode || len(value.Content) != 2 {
+		return fmt.Errorf("pivot must be a [x, y] sequence of 2 numbers")
+	}
+	for i, item := range value.Content {
+		if item.Kind != yaml.ScalarNode || (item.ShortTag() != "!!int" && item.ShortTag() != "!!float") {
+			return fmt.Errorf("pivot[%d] must be a number", i)
+		}
+		var v float64
+		if err := item.Decode(&v); err != nil {
+			return fmt.Errorf("pivot[%d]: %w", i, err)
+		}
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return fmt.Errorf("pivot[%d] must be a finite number", i)
+		}
+		if v == 0 {
+			v = 0
+		}
+		p[i] = v
+	}
+	return nil
+}
+
+// MarshalYAML encodes p as a deterministic YAML flow sequence [x, y].
+func (p PivotPoint) MarshalYAML() (any, error) {
+	node := &yaml.Node{Kind: yaml.SequenceNode, Style: yaml.FlowStyle}
+	for i, v := range p {
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return nil, fmt.Errorf("pivot[%d] must be a finite number", i)
+		}
+		if v == 0 {
+			v = 0
+		}
+		var elem yaml.Node
+		if err := elem.Encode(v); err != nil {
+			return nil, err
+		}
+		node.Content = append(node.Content, &elem)
+	}
+	return node, nil
+}
+
+// Pivot sets the normalized pivot points written into a packed atlas's TexturePacker frame metadata. Default applies to an unsliced image and to every cell of a sliced sheet without an entry in Cells.
+type Pivot struct {
+	// Default is the normalized [x, y] pivot applied to an unsliced image and to every cell of a sliced sheet not listed in Cells.
+	Default *PivotPoint `yaml:"default,omitempty" schema:"minItems=2"`
+	// Cells overrides the normalized [x, y] pivot for individual 0-based cells of a sliced sprite sheet, in ascending cell index order.
+	Cells []CellPivot `yaml:"cells,omitempty"`
+}
+
+// CellPivot overrides the normalized pivot for one 0-based cell of a sliced sprite sheet.
+type CellPivot struct {
+	// Cell is the 0-based cell index (row by row from the top left), matching the frame suffix _<cell>.
+	Cell int `yaml:"cell" schema:"required,minimum=0"`
+	// Pivot is the normalized [x, y] pivot for this cell.
+	Pivot PivotPoint `yaml:"pivot" schema:"required,minItems=2"`
+}
+
+// UnmarshalYAML decodes a CellPivot mapping, requiring both cell and pivot keys and refusing unknown or repeated keys.
+func (c *CellPivot) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind != yaml.MappingNode {
+		return errors.New("cell pivot must be a mapping with cell and pivot")
+	}
+	var hasCell, hasPivot bool
+	for i := 0; i+1 < len(value.Content); i += 2 {
+		k, v := value.Content[i], value.Content[i+1]
+		switch k.Value {
+		case "cell":
+			if hasCell {
+				return errors.New("duplicate field \"cell\" in cell pivot")
+			}
+			if v.Kind != yaml.ScalarNode || v.ShortTag() != "!!int" {
+				return errors.New("cell must be an integer")
+			}
+			if err := v.Decode(&c.Cell); err != nil {
+				return fmt.Errorf("cell: %w", err)
+			}
+			hasCell = true
+		case "pivot":
+			if hasPivot {
+				return errors.New("duplicate field \"pivot\" in cell pivot")
+			}
+			if err := v.Decode(&c.Pivot); err != nil {
+				return fmt.Errorf("pivot: %w", err)
+			}
+			hasPivot = true
+		default:
+			return fmt.Errorf("field %s not found in type importsettings.CellPivot", k.Value)
+		}
+	}
+	if !hasCell {
+		return errors.New("cell is required in cell pivot")
+	}
+	if !hasPivot {
+		return errors.New("pivot is required in cell pivot")
+	}
+	return nil
+}
+
+// ForImage returns the pivot for an unsliced image, or false when no default pivot is set.
+func (p *Pivot) ForImage() (PivotPoint, bool) {
+	if p == nil || p.Default == nil {
+		return PivotPoint{}, false
+	}
+	return *p.Default, true
+}
+
+// ForCell returns the effective pivot for the 0-based sliced cell, preferring an explicit override in Cells and falling back to Default, or false when neither is set.
+func (p *Pivot) ForCell(cell int) (PivotPoint, bool) {
+	if p == nil {
+		return PivotPoint{}, false
+	}
+	for _, c := range p.Cells {
+		if c.Cell == cell {
+			return c.Pivot, true
+		}
+	}
+	if p.Default != nil {
+		return *p.Default, true
+	}
+	return PivotPoint{}, false
 }
 
 // Slice is the grid a sprite sheet is cut into, in pixels. Its cells are taken row by row from the top left, and frame i of the image name.png is packed as name_i.png.
@@ -96,6 +226,43 @@ type Slice struct {
 	Spacing int `yaml:"spacing,omitempty" schema:"minimum=0"`
 	// Count is how many cells are frames, counted from the first; 0 takes every cell that fits.
 	Count int `yaml:"count,omitempty" schema:"minimum=0"`
+}
+
+// Cells returns the pixel rectangles of every cell s cuts from an image with bounds, row by row from the top left, along with the grid's column and row counts. It fails when s is invalid, when no cell fits, or when Count exceeds the cells that fit.
+func (s Slice) Cells(bounds image.Rectangle) (rects []image.Rectangle, cols, rows int, err error) {
+	if s.Width <= 0 || s.Height <= 0 {
+		return nil, 0, 0, fmt.Errorf("slice: width %d and height %d must be positive", s.Width, s.Height)
+	}
+	if s.Margin < 0 || s.Spacing < 0 || s.Count < 0 {
+		return nil, 0, 0, fmt.Errorf("slice: margin %d, spacing %d and count %d must not be negative", s.Margin, s.Spacing, s.Count)
+	}
+	cols = cellsAlong(bounds.Dx(), s.Width, s.Margin, s.Spacing)
+	rows = cellsAlong(bounds.Dy(), s.Height, s.Margin, s.Spacing)
+	n := cols * rows
+	if n == 0 {
+		return nil, 0, 0, fmt.Errorf("no %dx%d cell fits the %dx%d image after a margin of %d", s.Width, s.Height, bounds.Dx(), bounds.Dy(), s.Margin)
+	}
+	if s.Count > n {
+		return nil, cols, rows, fmt.Errorf("slice count %d is more than the %d cells that fit the %dx%d image", s.Count, n, bounds.Dx(), bounds.Dy())
+	}
+	if s.Count > 0 {
+		n = s.Count
+	}
+	rects = make([]image.Rectangle, n)
+	for i := range n {
+		x := bounds.Min.X + s.Margin + (i%cols)*(s.Width+s.Spacing)
+		y := bounds.Min.Y + s.Margin + (i/cols)*(s.Height+s.Spacing)
+		rects[i] = image.Rect(x, y, x+s.Width, y+s.Height)
+	}
+	return rects, cols, rows, nil
+}
+
+// cellsAlong returns how many cells of size cell, spaced spacing apart, fit along size after margin, as Tiled counts a tileset image's columns.
+func cellsAlong(size, cell, margin, spacing int) int {
+	if size-margin < cell {
+		return 0
+	}
+	return (size-margin-cell)/(cell+spacing) + 1
 }
 
 // Audio holds how a sound is converted by an audio target. Each field left out keeps the target's setting in game.yaml.
@@ -195,6 +362,9 @@ func Parse(data []byte) (*File, error) {
 	if err := f.Validate(); err != nil {
 		return nil, err
 	}
+	if f.Image != nil {
+		f.Image.normalize()
+	}
 	if f.Audio != nil {
 		f.Audio.normalize()
 	}
@@ -208,6 +378,21 @@ func Parse(data []byte) (*File, error) {
 func Encode(f *File) ([]byte, error) {
 	if err := f.Validate(); err != nil {
 		return nil, err
+	}
+	if f.Image != nil && f.Image.Pivot != nil {
+		c, im := *f, *f.Image
+		pv := *f.Image.Pivot
+		if pv.Default != nil {
+			d := *pv.Default
+			pv.Default = &d
+		}
+		if len(pv.Cells) > 0 {
+			pv.Cells = slices.Clone(pv.Cells)
+		}
+		im.Pivot = &pv
+		im.normalize()
+		c.Image = &im
+		f = &c
 	}
 	if f.Audio != nil {
 		c, au := *f, *f.Audio
@@ -296,7 +481,74 @@ func (im *Image) validate() error {
 			}
 		}
 	}
+	if p := im.Pivot; p != nil {
+		if p.Default == nil && len(p.Cells) == 0 {
+			return errors.New("pivot: must set default or at least one cell")
+		}
+		if p.Default != nil {
+			if err := validatePivotPoint("default", *p.Default); err != nil {
+				return err
+			}
+		}
+		if len(p.Cells) > 0 && im.Slice == nil {
+			return errors.New("pivot: cells require image.slice")
+		}
+		for i, c := range p.Cells {
+			if c.Cell < 0 {
+				return fmt.Errorf("pivot: cell %d must not be negative", c.Cell)
+			}
+			if i > 0 {
+				prev := p.Cells[i-1].Cell
+				if c.Cell == prev {
+					return fmt.Errorf("pivot: duplicate cell %d", c.Cell)
+				}
+				if c.Cell < prev {
+					return fmt.Errorf("pivot: cells must be in ascending cell order (%d before %d)", prev, c.Cell)
+				}
+			}
+			if im.Slice != nil && im.Slice.Count > 0 && c.Cell >= im.Slice.Count {
+				return fmt.Errorf("pivot: cell %d is out of range for slice count %d", c.Cell, im.Slice.Count)
+			}
+			if err := validatePivotPoint(fmt.Sprintf("cell %d", c.Cell), c.Pivot); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
+}
+
+func validatePivotPoint(label string, pt PivotPoint) error {
+	for i, v := range pt {
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return fmt.Errorf("pivot: %s[%d] must be a finite number", label, i)
+		}
+	}
+	return nil
+}
+
+// normalize replaces negative zero pivot coordinates with zero so Encode writes the same bytes Parse reads back.
+func (im *Image) normalize() {
+	if im.Pivot == nil {
+		return
+	}
+	if im.Pivot.Default != nil {
+		d := *im.Pivot.Default
+		if d[0] == 0 {
+			d[0] = 0
+		}
+		if d[1] == 0 {
+			d[1] = 0
+		}
+		im.Pivot.Default = &d
+	}
+	for i := range im.Pivot.Cells {
+		if im.Pivot.Cells[i].Pivot[0] == 0 {
+			im.Pivot.Cells[i].Pivot[0] = 0
+		}
+		if im.Pivot.Cells[i].Pivot[1] == 0 {
+			im.Pivot.Cells[i].Pivot[1] = 0
+		}
+	}
 }
 
 func (fo *Font) validate() error {

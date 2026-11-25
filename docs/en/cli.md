@@ -55,6 +55,8 @@ nsgo game pack -in art/ui -out assets -name ui -padding 2
 
 Writes `ui.png` and `ui.json` to `-out` (`ui-0.png`, `ui-0.json`, `ui-1.png` and so on when the frames need more than one page) and prints each path. `-padding` and `-extrude` set the transparent gap and the repeated edge pixels around each frame, `-max-width` and `-max-height` bound a page, `-scale` is written to `meta.scale`, and transparent borders are trimmed, each frame keeping its offset in its untrimmed size, unless `-trim=false`.
 
+When an [import settings sidecar](#import-settings-beside-each-asset) sits beside a PNG in `-in`, its `image.slice` and `image.pivot` settings apply as they do in `assets`, slicing sprite sheets into grid frames and writing each frame's normalized TexturePacker `pivot` into the atlas JSON for `sprite.LoadAtlas`.
+
 ### audio
 
 ```sh
@@ -83,7 +85,7 @@ nsgo game tex -format bc1 -mipmaps -srgb -out assets/albedo.ktx2 art/albedo.png
 
 Encodes the image named by the argument (or `-in`) into a KTX2 file at `-out` (`-o` for short), by default the input's path with a `.ktx2` extension. `-format` is `bc1`, `bc3`, `etc2` or `rgba8`, `-mipmaps` writes the whole chain down to 1x1, and `-srgb` marks the texture sRGB and filters its mipmaps in linear light.
 
-When an [import settings sidecar](#import-settings-beside-each-asset) sits beside the input, such as `art/albedo.png.import.yaml`, its `image` settings apply as they do for a texture target of `assets`: `format`, `mipmaps` and `srgb`, under the flags given, which win, and `filter`, which is written into the KTX2 file as `game.filter`. `slice` is an atlas's setting and is not read, since a texture holds the whole image, and a sidecar holding settings for another kind of asset is refused.
+When an [import settings sidecar](#import-settings-beside-each-asset) sits beside the input, such as `art/albedo.png.import.yaml`, its `image` settings apply as they do for a texture target of `assets`: `format`, `mipmaps` and `srgb`, under the flags given, which win, and `filter`, which is written into the KTX2 file as `game.filter`. `slice` and `pivot` are atlas settings and are not read, since a texture holds the whole image, and a sidecar holding settings for another kind of asset is refused.
 
 ### editor
 
@@ -334,6 +336,11 @@ image:
 version: 1
 image:
   slice: {width: 16, height: 16, margin: 1, spacing: 2, count: 6}
+  pivot:
+    default: [0.5, 1]
+    cells:
+      - cell: 2
+        pivot: [0.25, 0.75]
 ```
 
 ```yaml
@@ -381,14 +388,14 @@ credit:
     Licensed under the SIL Open Font License, Version 1.1.
 ```
 
-- A texture target reads `filter`, `format`, `mipmaps` and `srgb`. `filter` is stored under the key `game.filter` of the KTX2 file's key/value data, and [`render3d.LoadKTX2`](render3d.md) sets the sampler's filters from it when it loads the texture: `nearest` draws it sharp, as pixel art wants, and `linear` blends neighboring texels. `slice` is refused, since a texture holds the whole image, unless an atlas also reads the image.
-- An atlas target reads `slice` from the sidecar of each image in its folder: the image is cut into cells of `width` by `height` pixels, `margin` pixels from its top and left edges and `spacing` pixels apart, taken row by row, and cell `i` of `run.png` is packed as the frame `run_i.png`. `count` keeps the first cells; left out, every cell that fits is a frame. The texture settings, `filter` included, are refused there, since an atlas page is one texture for every image packed into it, unless a texture target also reads the image: an image read by both may hold both kinds of settings, and each target takes its own. A frame that takes the name of another image in the folder is refused.
+- A texture target reads `filter`, `format`, `mipmaps` and `srgb`. `filter` is stored under the key `game.filter` of the KTX2 file's key/value data, and [`render3d.LoadKTX2`](render3d.md) sets the sampler's filters from it when it loads the texture: `nearest` draws it sharp, as pixel art wants, and `linear` blends neighboring texels. `slice` and `pivot` are refused, since a texture holds the whole image, unless an atlas also reads the image.
+- An atlas target reads `slice` and `pivot` from the sidecar of each image in its folder: `slice` cuts the image into cells of `width` by `height` pixels, `margin` pixels from its top and left edges and `spacing` pixels apart, taken row by row, and cell `i` of `run.png` is packed as the frame `run_i.png`. `count` keeps the first cells; left out, every cell that fits is a frame. `pivot` sets normalized `[x, y]` pivot coordinates as fractions of the untrimmed frame size (from `[0, 0]` at top left to `[0.5, 1]` at bottom center), written into each packed frame's TexturePacker `pivot` field so `sprite.LoadAtlas` sets `Frame.PivotX` and `Frame.PivotY`: `default` applies to an unsliced image and every cell of a sliced sheet without an override, and `cells` lists per-cell `{cell, pivot}` overrides in ascending 0-based cell order (requiring `slice`). The texture settings, `filter` included, are refused there, since an atlas page is one texture for every image packed into it, unless a texture target also reads the image: an image read by both may hold both kinds of settings, and each target takes its own. A frame that takes the name of another image in the folder is refused.
 - A font target reads every `font` setting: `size`, `chars` and `padding`. Listing the same characters in another order changes nothing.
 - A model target reads every `model` setting: `scale` and `animations`.
 - `game release` and `game credits` read `credit`, which any asset's sidecar may hold, beside an `image`, `audio`, `font` or `model` section or on its own; `game assets` builds nothing from it. `author` and `license` are required. `license` is an [SPDX license expression](https://spdx.github.io/spdx-spec/v2.3/SPDX-license-expressions/): identifiers from the SPDX license list such as `CC0-1.0`, `CC-BY-4.0` or `OFL-1.1`, joined by `AND` and `OR` and grouped by parentheses, a `+` for "or any later version" and `WITH` for an exception, such as `MIT OR Apache-2.0`; a license with no identifier, such as a store's or a studio's own, is `LicenseRef-` followed by a name of its own, with its terms in `notice`. Its form is checked, not the identifier against the list, and `NONE` and `NOASSERTION` are refused. `source` is where the asset came from, usually a URL, and `notice` is text the license asks to be shipped with the asset, such as a copyright line, kept word for word and on several lines if need be.
 - An audio target reads every `audio` setting. `loop` is written into the WAV output's `smpl` chunk as a forward loop that repeats forever, scaled to the output rate; AAC and MP3 carry no loop points, so a sound with a loop must be converted to `wav`. A loop already in a source WAV's `smpl` chunk is kept the same way.
 
-A sidecar's settings are part of the key of every target that reads its asset, so adding, editing or deleting them rebuilds those targets and no others, and `-check` reports them as out of date until the next run. Its `credit` section, comments and layout are not, since they change no output: fixing an author's name rebuilds nothing. Sidecars are not assets: the manifest skips files named `*.import.yaml`, and an atlas packs only `.png` files. `game tex` and `game audio` read the sidecar beside their input too, under the flags given. A sidecar in a folder a target reads from (an atlas's folder and the folders below it, or the folder of a texture, audio, font or model input) whose asset no target reads is refused, so a mistyped name, a sidecar beside a JPEG in an atlas folder, or one named in another case than its asset, such as `Hero.PNG.import.yaml` beside `hero.png`, is an error rather than settings that silently do nothing. A sidecar that holds only a `credit` says nothing about the build, so it may sit beside any file in those folders, such as a JPEG or an image a model embeds, as long as the file is there under exactly its name.
+A sidecar's settings are part of the key of every target that reads its asset, so adding, editing or deleting them rebuilds those targets and no others, and `-check` reports them as out of date until the next run. Its `credit` section, comments and layout are not, since they change no output: fixing an author's name rebuilds nothing. Sidecars are not assets: the manifest skips files named `*.import.yaml`, and an atlas packs only `.png` files. `game pack`, `game tex` and `game audio` read the sidecar beside their input too, under the flags given. A sidecar in a folder a target reads from (an atlas's folder and the folders below it, or the folder of a texture, audio, font or model input) whose asset no target reads is refused, so a mistyped name, a sidecar beside a JPEG in an atlas folder, or one named in another case than its asset, such as `Hero.PNG.import.yaml` beside `hero.png`, is an error rather than settings that silently do nothing. A sidecar that holds only a `credit` says nothing about the build, so it may sit beside any file in those folders, such as a JPEG or an image a model embeds, as long as the file is there under exactly its name.
 
 ### generate
 

@@ -55,6 +55,8 @@ nsgo game pack -in art/ui -out assets -name ui -padding 2
 
 把 `ui.png` 和 `ui.json` 写到 `-out`（帧放不下一页时改为 `ui-0.png`、`ui-0.json`、`ui-1.png` 等），并逐行打印路径。`-padding` 和 `-extrude` 设置每帧四周的透明间隔和重复的边缘像素，`-max-width` 和 `-max-height` 限制单页尺寸，`-scale` 写入 `meta.scale`，默认裁掉透明边框并记录每帧在未裁剪尺寸中的偏移，`-trim=false` 时保留边框。
 
+`-in` 中的 PNG 旁边有[导入设置附属文件](#资源旁的导入设置)时，它的 `image.slice` 和 `image.pivot` 设置与在 `assets` 中一样生效：按网格切分精灵表，并把每帧的归一化 TexturePacker `pivot` 写入图集 JSON 供 `sprite.LoadAtlas` 读取。
+
 ### audio
 
 ```sh
@@ -83,7 +85,7 @@ nsgo game tex -format bc1 -mipmaps -srgb -out assets/albedo.ktx2 art/albedo.png
 
 把位置参数（或 `-in`）指定的图片编码为 `-out`（简写 `-o`）处的 KTX2 文件，默认路径是输入路径换成 `.ktx2` 扩展名。`-format` 可选 `bc1`、`bc3`、`etc2` 或 `rgba8`，`-mipmaps` 写出直到 1x1 的完整 mipmap 链，`-srgb` 把纹理标为 sRGB，并在线性光空间中过滤 mipmap。
 
-输入旁边有[导入设置附属文件](#资源旁的导入设置)时（例如 `art/albedo.png.import.yaml`），它的 `image` 设置与对 `assets` 的纹理目标一样生效：`format`、`mipmaps` 和 `srgb` 在命令行给出的参数之下生效（参数优先），`filter` 以 `game.filter` 写入 KTX2 文件。`slice` 是图集的设置，这里不读取，因为纹理包含整张图片；附属文件含有其他种类资源的设置时会被拒绝。
+输入旁边有[导入设置附属文件](#资源旁的导入设置)时（例如 `art/albedo.png.import.yaml`），它的 `image` 设置与对 `assets` 的纹理目标一样生效：`format`、`mipmaps` 和 `srgb` 在命令行给出的参数之下生效（参数优先），`filter` 以 `game.filter` 写入 KTX2 文件。`slice` 和 `pivot` 是图集的设置，这里不读取，因为纹理包含整张图片；附属文件含有其他种类资源的设置时会被拒绝。
 
 ### editor
 
@@ -334,6 +336,11 @@ image:
 version: 1
 image:
   slice: {width: 16, height: 16, margin: 1, spacing: 2, count: 6}
+  pivot:
+    default: [0.5, 1]
+    cells:
+      - cell: 2
+        pivot: [0.25, 0.75]
 ```
 
 ```yaml
@@ -381,14 +388,14 @@ credit:
     Licensed under the SIL Open Font License, Version 1.1.
 ```
 
-- 纹理目标读取 `filter`、`format`、`mipmaps` 和 `srgb`。`filter` 存放在 KTX2 文件键值数据的 `game.filter` 键下，[`render3d.LoadKTX2`](render3d.md) 加载纹理时据此设置采样器的过滤方式：`nearest` 让它绘制得清晰锐利，适合像素画；`linear` 混合相邻纹素。`slice` 会被拒绝，因为纹理包含整张图片，除非还有图集读取这张图片。
-- 图集目标从它文件夹里每张图片的附属文件中读取 `slice`：图片被切成 `width` × `height` 像素的格子，距上边和左边 `margin` 像素，格子之间相隔 `spacing` 像素，逐行取出，`run.png` 的第 `i` 个格子作为帧 `run_i.png` 打包。`count` 只保留前若干个格子；省略时每个放得下的格子都是一帧。纹理设置（包括 `filter`）在这里会被拒绝，因为图集页面是打包进去的所有图片共用的一张纹理，除非还有纹理目标读取这张图片：同时被两者读取的图片可以同时带两类设置，每个目标各取所需。与文件夹里另一张图片同名的帧会被拒绝。
+- 纹理目标读取 `filter`、`format`、`mipmaps` 和 `srgb`。`filter` 存放在 KTX2 文件键值数据的 `game.filter` 键下，[`render3d.LoadKTX2`](render3d.md) 加载纹理时据此设置采样器的过滤方式：`nearest` 让它绘制得清晰锐利，适合像素画；`linear` 混合相邻纹素。`slice` 和 `pivot` 会被拒绝，因为纹理包含整张图片，除非还有图集读取这张图片。
+- 图集目标从它文件夹里每张图片的附属文件中读取 `slice` 和 `pivot`：`slice` 把图片切成 `width` × `height` 像素的格子，距上边和左边 `margin` 像素，格子之间相隔 `spacing` 像素，逐行取出，`run.png` 的第 `i` 个格子作为帧 `run_i.png` 打包；`count` 只保留前若干个格子，省略时每个放得下的格子都是一帧。`pivot` 以未裁剪帧尺寸的比例设置归一化 `[x, y]` 枢轴坐标（`[0, 0]` 为左上角，`[0.5, 1]` 为底部中心），写入打包后每帧的 TexturePacker `pivot` 字段，由 `sprite.LoadAtlas` 读入 `Frame.PivotX` 和 `Frame.PivotY`：`default` 适用于未切分图片以及切分精灵表中未单独覆盖的每个格子，`cells` 按 0 起始格子序号升序列出单格 `{cell, pivot}` 覆盖（需同时设置 `slice`）。纹理设置（包括 `filter`）在这里会被拒绝，因为图集页面是打包进去的所有图片共用的一张纹理，除非还有纹理目标读取这张图片：同时被两者读取的图片可以同时带两类设置，每个目标各取所需。与文件夹里另一张图片同名的帧会被拒绝。
 - 字体目标读取全部 `font` 设置：`size`、`chars` 和 `padding`。以另一种顺序列出同样的字符不会改变任何东西。
 - 模型目标读取全部 `model` 设置：`scale` 和 `animations`。
 - `game release` 和 `game credits` 读取 `credit`。任何资源的附属文件都可以带它，可以与 `image`、`audio`、`font` 或 `model` 部分并存，也可以单独出现；`game assets` 不根据它构建任何东西。`author` 和 `license` 是必填项。`license` 是一个 [SPDX 许可证表达式](https://spdx.github.io/spdx-spec/v2.3/SPDX-license-expressions/)：SPDX 许可证列表中的标识符，例如 `CC0-1.0`、`CC-BY-4.0` 或 `OFL-1.1`，用 `AND` 和 `OR` 连接、用括号分组，`+` 表示“或任何更新版本”，`WITH` 表示例外条款，例如 `MIT OR Apache-2.0`；没有标识符的许可证（例如商店或工作室自己的许可证）写作 `LicenseRef-` 加上自己的名字，条款写在 `notice` 里。这里只检查表达式的形式，不对照列表检查标识符，并拒绝 `NONE` 和 `NOASSERTION`。`source` 是资源的来源，通常是一个 URL；`notice` 是许可证要求随资源附带的文字，例如版权声明，会逐字保留，需要时可以写成多行。
 - 音频目标读取全部 `audio` 设置。`loop` 以无限重复的正向循环写入 WAV 输出的 `smpl` 块，并按输出采样率缩放；AAC 和 MP3 不带循环点，所以带循环的声音必须转换为 `wav`。源 WAV 的 `smpl` 块里已有的循环也会照此保留。
 
-附属文件中的设置是读取其资源的每个目标的键的一部分，因此新增、编辑或删除这些设置只会重建这些目标，在下次运行之前 `-check` 会报告它们已过期。它的 `credit` 部分、注释和排版不属于键，因为它们不改变任何输出：修正作者的名字不会重建任何东西。附属文件不是资源：资源清单会跳过名为 `*.import.yaml` 的文件，图集也只打包 `.png` 文件。`game tex` 和 `game audio` 也读取输入旁的附属文件，命令行参数优先。目标读取的文件夹（图集的文件夹及其下的文件夹，或纹理、音频、字体、模型输入所在的文件夹）里，如果某个附属文件对应的资源没有任何目标读取，它会被拒绝；因此拼错的文件名、图集文件夹里 JPEG 旁边的附属文件、或者与资源大小写不同的名字（例如 `hero.png` 旁边的 `Hero.PNG.import.yaml`）都会报错，而不是让设置悄无声息地不起作用。只含 `credit` 的附属文件不影响构建，所以它可以放在这些文件夹里任何文件旁边，例如 JPEG 或模型嵌入的图片，只要该文件确实以完全相同的名字存在。
+附属文件中的设置是读取其资源的每个目标的键的一部分，因此新增、编辑或删除这些设置只会重建这些目标，在下次运行之前 `-check` 会报告它们已过期。它的 `credit` 部分、注释和排版不属于键，因为它们不改变任何输出：修正作者的名字不会重建任何东西。附属文件不是资源：资源清单会跳过名为 `*.import.yaml` 的文件，图集也只打包 `.png` 文件。`game pack`、`game tex` 和 `game audio` 也读取输入旁的附属文件，命令行参数优先。目标读取的文件夹（图集的文件夹及其下的文件夹，或纹理、音频、字体、模型输入所在的文件夹）里，如果某个附属文件对应的资源没有任何目标读取，它会被拒绝；因此拼错的文件名、图集文件夹里 JPEG 旁边的附属文件、或者与资源大小写不同的名字（例如 `hero.png` 旁边的 `Hero.PNG.import.yaml`）都会报错，而不是让设置悄无声息地不起作用。只含 `credit` 的附属文件不影响构建，所以它可以放在这些文件夹里任何文件旁边，例如 JPEG 或模型嵌入的图片，只要该文件确实以完全相同的名字存在。
 
 ### generate
 

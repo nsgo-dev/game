@@ -167,6 +167,9 @@ func (e *Editor) SelectFile(relPath string) {
 }
 
 func (e *Editor) selectFile(relPath string) {
+	if e.SelectedFile != relPath {
+		e.importPreview.resetInteraction()
+	}
 	e.SelectedFile = relPath
 	e.selectedFileRev++
 	e.inspectAssetFile = relPath != "" && e.AssetImportKind(relPath) != AssetImportNone

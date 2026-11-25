@@ -406,6 +406,7 @@ func (b *Builder) atlas(a project.AtlasTarget) (prepared, error) {
 	}
 	files := make([][]byte, len(names))
 	sheets := make([]*importsettings.Slice, len(names))
+	pivots := make([]*importsettings.Pivot, len(names))
 	for i, name := range names {
 		data, err := os.ReadFile(filepath.Join(inDir, filepath.FromSlash(name)))
 		if err != nil {
@@ -420,9 +421,10 @@ func (b *Builder) atlas(a project.AtlasTarget) (prepared, error) {
 		}
 		if im != nil {
 			if set := textureSettings(im); len(set) > 0 && b.readers[rel]&readByTexture == 0 {
-				return prepared{}, fmt.Errorf("%s: %s %s for a texture target, and none reads %s; an atlas packs it into its pages, so only slice applies", importsettings.Path(rel), strings.Join(set, ", "), are(len(set)), rel)
+				return prepared{}, fmt.Errorf("%s: %s %s for a texture target, and none reads %s; an atlas packs it into its pages, so only slice and pivot apply", importsettings.Path(rel), strings.Join(set, ", "), are(len(set)), rel)
 			}
 			sheets[i] = im.Slice
+			pivots[i] = im.Pivot
 		}
 		if sc != nil {
 			k.input(importsettings.Path(name), sc)
@@ -436,10 +438,14 @@ func (b *Builder) atlas(a project.AtlasTarget) (prepared, error) {
 				return nil, fmt.Errorf("decode %s: %w", path.Join(a.In, name), err)
 			}
 			if sheets[i] == nil {
-				inputs = append(inputs, pack.Input{Name: name, Image: img})
+				var pv *pack.Pivot
+				if pt, ok := pivots[i].ForImage(); ok {
+					pv = &pack.Pivot{X: pt[0], Y: pt[1]}
+				}
+				inputs = append(inputs, pack.Input{Name: name, Image: img, Pivot: pv})
 				continue
 			}
-			frames, err := sliceFrames(name, img, *sheets[i])
+			frames, err := sliceFrames(name, img, *sheets[i], pivots[i])
 			if err != nil {
 				return nil, fmt.Errorf("%s: %w", importsettings.Path(path.Join(a.In, name)), err)
 			}
@@ -468,8 +474,13 @@ func (b *Builder) texture(t project.TextureTarget) (prepared, error) {
 	}
 	var filter string
 	if im != nil {
-		if im.Slice != nil && b.readers[path.Clean(t.In)]&readByAtlas == 0 {
-			return prepared{}, fmt.Errorf("%s: slice cuts a sprite sheet into an atlas's frames, and no atlas reads %s; a texture target encodes the whole image", importsettings.Path(t.In), t.In)
+		if b.readers[path.Clean(t.In)]&readByAtlas == 0 {
+			if im.Slice != nil {
+				return prepared{}, fmt.Errorf("%s: slice cuts a sprite sheet into an atlas's frames, and no atlas reads %s; a texture target encodes the whole image", importsettings.Path(t.In), t.In)
+			}
+			if im.Pivot != nil {
+				return prepared{}, fmt.Errorf("%s: pivot sets an atlas frame's pivot, and no atlas reads %s; a texture target encodes the whole image", importsettings.Path(t.In), t.In)
+			}
 		}
 		if im.Format != "" {
 			t.Format = im.Format
@@ -833,8 +844,8 @@ func are(n int) string {
 	return "are"
 }
 
-// sliceFrames cuts img into the frames s describes, row by row from the top left, naming frame i of name.png name_i.png.
-func sliceFrames(name string, img image.Image, s importsettings.Slice) ([]pack.Input, error) {
+// sliceFrames cuts img into the frames s describes, row by row from the top left, naming frame i of name.png name_i.png and attaching any default or per-cell pivot from p.
+func sliceFrames(name string, img image.Image, s importsettings.Slice, p *importsettings.Pivot) ([]pack.Input, error) {
 	sub, ok := img.(interface {
 		SubImage(image.Rectangle) image.Image
 	})
@@ -842,35 +853,28 @@ func sliceFrames(name string, img image.Image, s importsettings.Slice) ([]pack.I
 		return nil, fmt.Errorf("cannot cut a %T image into frames", img)
 	}
 	bounds := img.Bounds()
-	cols := cellsAlong(bounds.Dx(), s.Width, s.Margin, s.Spacing)
-	rows := cellsAlong(bounds.Dy(), s.Height, s.Margin, s.Spacing)
-	n := cols * rows
-	if n == 0 {
-		return nil, fmt.Errorf("no %dx%d cell fits the %dx%d image after a margin of %d", s.Width, s.Height, bounds.Dx(), bounds.Dy(), s.Margin)
+	rects, _, _, err := s.Cells(bounds)
+	if err != nil {
+		return nil, err
 	}
-	if s.Count > n {
-		return nil, fmt.Errorf("slice count %d is more than the %d cells that fit the %dx%d image", s.Count, n, bounds.Dx(), bounds.Dy())
-	}
-	if s.Count > 0 {
-		n = s.Count
+	if p != nil {
+		for _, c := range p.Cells {
+			if c.Cell >= len(rects) {
+				return nil, fmt.Errorf("pivot: cell %d is out of range for the %d cells that fit the %dx%d image", c.Cell, len(rects), bounds.Dx(), bounds.Dy())
+			}
+		}
 	}
 	ext := path.Ext(name)
 	stem := strings.TrimSuffix(name, ext)
-	frames := make([]pack.Input, n)
-	for i := range n {
-		x := bounds.Min.X + s.Margin + (i%cols)*(s.Width+s.Spacing)
-		y := bounds.Min.Y + s.Margin + (i/cols)*(s.Height+s.Spacing)
-		frames[i] = pack.Input{Name: fmt.Sprintf("%s_%d%s", stem, i, ext), Image: sub.SubImage(image.Rect(x, y, x+s.Width, y+s.Height))}
+	frames := make([]pack.Input, len(rects))
+	for i, r := range rects {
+		var pv *pack.Pivot
+		if pt, ok := p.ForCell(i); ok {
+			pv = &pack.Pivot{X: pt[0], Y: pt[1]}
+		}
+		frames[i] = pack.Input{Name: fmt.Sprintf("%s_%d%s", stem, i, ext), Image: sub.SubImage(r), Pivot: pv}
 	}
 	return frames, nil
-}
-
-// cellsAlong returns how many cells of size cell, spaced spacing apart, fit along size after margin, as Tiled counts a tileset image's columns.
-func cellsAlong(size, cell, margin, spacing int) int {
-	if size-margin < cell {
-		return 0
-	}
-	return (size-margin-cell)/(cell+spacing) + 1
 }
 
 // manifest generates the manifest and writes it only when it differs from the file there; it has no cache entry, because generating it reads no file's content and costs less than hashing.

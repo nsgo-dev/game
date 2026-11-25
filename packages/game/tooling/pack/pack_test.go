@@ -519,6 +519,57 @@ func TestPackErrors(t *testing.T) {
 			t.Fatalf("err = %v, want decode error", err)
 		}
 	})
+
+	t.Run("non-finite pivot", func(t *testing.T) {
+		_, err := pack.PackImages([]pack.Input{{
+			Name:  "a.png",
+			Image: patternImage(8, 8, image.Rect(0, 0, 8, 8), 1, false),
+			Pivot: &pack.Pivot{X: math.NaN(), Y: 0.5},
+		}}, pack.DefaultOptions())
+		if err == nil || !strings.Contains(err.Error(), "non-finite pivot") {
+			t.Fatalf("err = %v, want non-finite pivot error", err)
+		}
+	})
+}
+
+func TestPackImagesWritesPivotForSpriteLoadAtlas(t *testing.T) {
+	inputs := []pack.Input{
+		{
+			Name:  "hero.png",
+			Image: patternImage(20, 16, image.Rect(4, 2, 16, 14), 1, false),
+			Pivot: &pack.Pivot{X: 0.5, Y: 1},
+		},
+		{
+			Name:  "sword.png",
+			Image: patternImage(16, 8, image.Rect(0, 0, 16, 8), 2, false),
+			Pivot: &pack.Pivot{X: 0.25, Y: 0.75},
+		},
+		{
+			Name:  "default.png",
+			Image: patternImage(10, 10, image.Rect(0, 0, 10, 10), 3, false),
+		},
+	}
+	opts := pack.DefaultOptions()
+	opts.Scale = 2
+	res, err := pack.PackImages(inputs, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	atlas, err := sprite.LoadAtlas(core.ImageSource{URI: "asset:atlas.png"}, res.Pages[0].JSON)
+	if err != nil {
+		t.Fatalf("sprite.LoadAtlas: %v\n%s", err, res.Pages[0].JSON)
+	}
+	// Untrimmed hero is 20x16 at scale 2 => 10x8 points; pivot (0.5, 1) => (5, 8).
+	if fr := atlas.Frames["hero.png"]; fr.PivotX != 5 || fr.PivotY != 8 {
+		t.Fatalf("hero.png pivot = (%v, %v), want (5, 8)", fr.PivotX, fr.PivotY)
+	}
+	// Untrimmed sword is 16x8 at scale 2 => 8x4 points; pivot (0.25, 0.75) => (2, 3).
+	if fr := atlas.Frames["sword.png"]; fr.PivotX != 2 || fr.PivotY != 3 {
+		t.Fatalf("sword.png pivot = (%v, %v), want (2, 3)", fr.PivotX, fr.PivotY)
+	}
+	if fr := atlas.Frames["default.png"]; fr.PivotX != 0 || fr.PivotY != 0 {
+		t.Fatalf("default.png pivot = (%v, %v), want (0, 0)", fr.PivotX, fr.PivotY)
+	}
 }
 
 // sameOps fails t unless got and want are identical draw operations within float rounding.

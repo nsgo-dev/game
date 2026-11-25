@@ -14,9 +14,11 @@ func TestImportSchemaAcceptsWhatEncodeWrites(t *testing.T) {
 	s := schemaAt(t, importsettings.SchemaURL)
 	no, yes := false, true
 	peak, zero := -1.0, 0
+	defaultPivot := importsettings.PivotPoint{0.5, 1}
 	for _, f := range []*importsettings.File{
 		{Version: 1, Image: &importsettings.Image{}},
-		{Version: 1, Image: &importsettings.Image{Filter: "nearest", Format: "etc2", Mipmaps: &yes, SRGB: &no, Slice: &importsettings.Slice{Width: 16, Height: 16, Margin: 1, Spacing: 2, Count: 3}}},
+		{Version: 1, Image: &importsettings.Image{Filter: "nearest", Format: "etc2", Mipmaps: &yes, SRGB: &no, Slice: &importsettings.Slice{Width: 16, Height: 16, Margin: 1, Spacing: 2, Count: 3}, Pivot: &importsettings.Pivot{Default: &defaultPivot, Cells: []importsettings.CellPivot{{Cell: 1, Pivot: importsettings.PivotPoint{0.25, 0.75}}}}}},
+		{Version: 1, Image: &importsettings.Image{Pivot: &importsettings.Pivot{Default: &defaultPivot}}},
 		{Version: 1, Audio: &importsettings.Audio{Format: "wav", Rate: 22050, Channels: 2, PeakDB: &peak, Bitrate: 128, Loop: &importsettings.Loop{Start: 10, End: 20}}},
 		{Version: 1, Credit: &importsettings.Credit{Author: "Kenney", License: "CC0-1.0"}},
 		{Version: 1, Font: &importsettings.Font{Size: 24, Chars: " 0123456789", Padding: &zero}},
@@ -49,6 +51,10 @@ func TestImportSchemaRefusesWhatParseRefuses(t *testing.T) {
 		"bad format":             {"version: 1\nimage: {format: astc}\n", `/image/format: "astc" is not one of`},
 		"zero cell":              {"version: 1\nimage: {slice: {width: 0, height: 4}}\n", "/image/slice/width: 0 is less than the minimum 1"},
 		"slice without size":     {"version: 1\nimage: {slice: {width: 4}}\n", `/image/slice: missing required key "height"`},
+		"pivot short default":    {"version: 1\nimage: {pivot: {default: [0.5]}}\n", "/image/pivot/default: array has 1 items, want at least 2"},
+		"pivot unknown key":      {"version: 1\nimage: {pivot: {center: [0.5, 0.5]}}\n", `/image/pivot/center: unknown key "center"`},
+		"pivot cell negative":    {"version: 1\nimage: {slice: {width: 8, height: 8}, pivot: {cells: [{cell: -1, pivot: [0.5, 0.5]}]}}\n", "/image/pivot/cells/0/cell: -1 is less than the minimum 0"},
+		"pivot cell missing key": {"version: 1\nimage: {slice: {width: 8, height: 8}, pivot: {cells: [{cell: 0}]}}\n", `/image/pivot/cells/0: missing required key "pivot"`},
 		"audio format":           {"version: 1\naudio: {format: ogg}\n", `/audio/format: "ogg" is not one of "wav", "aac", "mp3"`},
 		"three channels":         {"version: 1\naudio: {channels: 3}\n", "/audio/channels: 3 is greater than the maximum 2"},
 		"negative loop":          {"version: 1\naudio: {loop: {start: -1}}\n", "/audio/loop/start: -1 is less than the minimum 0"},

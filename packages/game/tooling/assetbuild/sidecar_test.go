@@ -10,10 +10,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/game/packages/game/tooling/assetbuild"
 	"github.com/nsgo-dev/game/packages/game/tooling/audioconv"
 	"github.com/nsgo-dev/game/packages/game/tooling/importsettings"
 	"github.com/nsgo-dev/game/packages/game/tooling/ktx2"
+	"github.com/nsgo-dev/nsgo/core"
 )
 
 // textureOf reads the KTX2 texture at rel under root: its format, level count and key/value data.
@@ -128,6 +130,50 @@ func TestSidecarSlicesASpriteSheet(t *testing.T) {
 	}
 }
 
+func TestSidecarPivotsLoadInSpriteAtlas(t *testing.T) {
+	root := newProject(t)
+	writePNG(t, filepath.Join(root, "art/hero/run.png"), 32, 16, color.NRGBA{R: 90, B: 90, A: 255})
+	writeFile(t, filepath.Join(root, "art/hero/idle.png.import.yaml"), []byte("version: 1\nimage:\n  pivot:\n    default: [0.5, 1]\n"))
+	writeFile(t, filepath.Join(root, "art/hero/run.png.import.yaml"), []byte("version: 1\nimage:\n  slice: {width: 16, height: 16}\n  pivot:\n    default: [0.5, 0.5]\n    cells:\n      - cell: 1\n        pivot: [0.25, 0.75]\n"))
+
+	build(t, root, assetbuild.Builder{})
+	data, err := os.ReadFile(filepath.Join(root, "assets/atlases/hero.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	atlas, err := sprite.LoadAtlas(core.ImageSource{URI: "asset:hero.png"}, data)
+	if err != nil {
+		t.Fatalf("sprite.LoadAtlas: %v", err)
+	}
+	// idle.png is 16x16 with default pivot [0.5, 1] => (8, 16).
+	if fr := atlas.Frames["idle.png"]; fr.PivotX != 8 || fr.PivotY != 16 {
+		t.Fatalf("idle.png pivot = (%v, %v), want (8, 16)", fr.PivotX, fr.PivotY)
+	}
+	// run_0.png is 16x16 using sheet default pivot [0.5, 0.5] => (8, 8).
+	if fr := atlas.Frames["run_0.png"]; fr.PivotX != 8 || fr.PivotY != 8 {
+		t.Fatalf("run_0.png pivot = (%v, %v), want (8, 8)", fr.PivotX, fr.PivotY)
+	}
+	// run_1.png is 16x16 using cell 1 override [0.25, 0.75] => (4, 12).
+	if fr := atlas.Frames["run_1.png"]; fr.PivotX != 4 || fr.PivotY != 12 {
+		t.Fatalf("run_1.png pivot = (%v, %v), want (4, 12)", fr.PivotX, fr.PivotY)
+	}
+
+	// Updating only the pivot rebuilds only the atlas target.
+	writeFile(t, filepath.Join(root, "art/hero/run.png.import.yaml"), []byte("version: 1\nimage:\n  slice: {width: 16, height: 16}\n  pivot:\n    default: [0.5, 1]\n"))
+	wantStatuses(t, build(t, root, assetbuild.Builder{}), only("atlas assets/atlases/hero", assetbuild.Built))
+	data, err = os.ReadFile(filepath.Join(root, "assets/atlases/hero.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	atlas, err = sprite.LoadAtlas(core.ImageSource{URI: "asset:hero.png"}, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fr := atlas.Frames["run_1.png"]; fr.PivotX != 8 || fr.PivotY != 16 {
+		t.Fatalf("run_1.png updated pivot = (%v, %v), want (8, 16)", fr.PivotX, fr.PivotY)
+	}
+}
+
 func TestSidecarSetsLoopAndRate(t *testing.T) {
 	root := newProject(t)
 	writeFile(t, filepath.Join(root, "sfx/jump.wav.import.yaml"), []byte("version: 1\naudio:\n  rate: 4000\n  loop: {start: 100, end: 1000}\n"))
@@ -159,6 +205,8 @@ func TestSidecarRefusals(t *testing.T) {
 		{"audio settings on an image", "art/albedo.png", "version: 1\naudio: {rate: 8000}\n", "holds audio settings"},
 		{"image settings on a sound", "sfx/jump.wav", "version: 1\nimage: {}\n", "holds image settings"},
 		{"slice on a texture", "art/albedo.png", "version: 1\nimage: {slice: {width: 4, height: 4}}\n", "a texture target encodes the whole image"},
+		{"pivot on a texture", "art/albedo.png", "version: 1\nimage: {pivot: {default: [0.5, 0.5]}}\n", "pivot sets an atlas frame's pivot"},
+		{"pivot cell beyond fitted cells", "art/ui/button.png", "version: 1\nimage: {slice: {width: 4, height: 6}, pivot: {cells: [{cell: 3, pivot: [0.5, 0.5]}]}}\n", "cell 3 is out of range for the 3 cells"},
 		{"texture settings in an atlas", "art/ui/button.png", "version: 1\nimage: {filter: nearest, mipmaps: true}\n", "filter, mipmaps are for a texture target"},
 		{"slice that does not fit", "art/ui/button.png", "version: 1\nimage: {slice: {width: 16, height: 4}}\n", "no 16x4 cell fits the 12x6 image"},
 		{"slice count", "art/ui/button.png", "version: 1\nimage: {slice: {width: 4, height: 6, count: 4}}\n", "count 4 is more than the 3 cells"},

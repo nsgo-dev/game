@@ -2,6 +2,7 @@ package editor
 
 import (
 	"fmt"
+	"image"
 	"math"
 	"strconv"
 	"strings"
@@ -227,6 +228,7 @@ func imageImportFields(
 	for i, f := range project.TextureFormats {
 		formatOpts[i] = ui.Option[string]{Value: f, Label: f}
 	}
+	colors := ui.ColorsOf(cx)
 
 	updateSlice := func(mutate func(s *importsettings.Slice)) {
 		s, ok := readInfo().EffectiveImageSlice()
@@ -237,7 +239,455 @@ func imageImportFields(
 		ed.report(ed.SetImageImportSlice(relPath, s))
 	}
 
-	return []core.Node{
+	sliceGridInfo := func(info AssetImportInfo) (cellCount, cols, rows int, errMsg string) {
+		s, ok := info.EffectiveImageSlice()
+		if !ok || s == nil || info.ImageWidth <= 0 || info.ImageHeight <= 0 {
+			return 0, 0, 0, ""
+		}
+		rects, c, r, err := s.Cells(image.Rect(0, 0, info.ImageWidth, info.ImageHeight))
+		if err != nil {
+			return 0, c, r, err.Error()
+		}
+		return len(rects), c, r, ""
+	}
+
+	activeCell := func(info AssetImportInfo) (int, int) {
+		n, _, _, errMsg := sliceGridInfo(info)
+		if n <= 0 || errMsg != "" {
+			return 0, 0
+		}
+		sel := ed.SelectedImportSliceCell()
+		if sel < 0 || sel >= n {
+			sel = 0
+		}
+		return sel, n
+	}
+
+	formatPivotNum := func(v float64) string {
+		return strconv.FormatFloat(v, 'g', -1, 64)
+	}
+
+	var previewW, previewH float32 = 240, 180
+	var pressPos core.Point
+	var hasPress, panActive, mouseDragging bool
+
+	cellSelectKey := core.NewMemo(cx, func() string {
+		info := readInfo()
+		n, _, _, errMsg := sliceGridInfo(info)
+		if n <= 0 || errMsg != "" {
+			return ""
+		}
+		var b strings.Builder
+		fmt.Fprintf(&b, "%d:", n)
+		if pv, ok := info.EffectiveImagePivot(); ok && pv != nil {
+			for _, c := range pv.Cells {
+				fmt.Fprintf(&b, "%d,", c.Cell)
+			}
+		}
+		return b.String()
+	})
+
+	previewSection := core.View{
+		Style: core.Style{Gap: 4},
+		Children: []core.Node{
+			core.View{
+				TestID: "import-image-preview",
+				Style: core.Style{
+					Width:        core.Pct(100),
+					Height:       core.Pt(180),
+					CornerRadius: 4,
+					BorderWidth:  1,
+					BorderColor:  colors.Border(),
+					Overflow:     core.Hidden,
+				},
+				OnLayout: func(b core.Bounds) {
+					if b.Size.Width > 0 {
+						previewW = float32(b.Size.Width)
+					}
+					if b.Size.Height > 0 {
+						previewH = float32(b.Size.Height)
+					}
+				},
+				OnTouch: func(ev core.TouchEvent) {
+					if disabled() {
+						return
+					}
+					switch ev.Phase {
+					case core.TouchStart:
+						for _, t := range ev.Touches {
+							if t.Changed {
+								pressPos = t.Position
+								hasPress = true
+								return
+							}
+						}
+					case core.TouchEnd, core.TouchCancel:
+						hasPress = false
+					}
+				},
+				OnPan: func(ev core.PanEvent) {
+					if disabled() {
+						return
+					}
+					switch ev.Phase {
+					case core.GestureBegan:
+						if hasPress && ed.BeginImagePivotDrag(relPath, float32(pressPos.X), float32(pressPos.Y), previewW, previewH) {
+							panActive = true
+						}
+					case core.GestureChanged:
+						if panActive {
+							ed.UpdateImagePivotDrag(
+								float32(pressPos.X)+float32(ev.Translation.X),
+								float32(pressPos.Y)+float32(ev.Translation.Y),
+							)
+						}
+					case core.GestureEnded:
+						if panActive {
+							ed.report(ed.EndImagePivotDrag())
+							panActive = false
+						}
+					case core.GestureCancelled:
+						if panActive {
+							ed.CancelImagePivotDrag()
+							panActive = false
+						}
+					}
+				},
+				OnPressDown: func(ev core.PressEvent) {
+					if disabled() || ev.Keyboard || panActive {
+						return
+					}
+					if ed.BeginImagePivotDrag(relPath, float32(ev.Position.X), float32(ev.Position.Y), previewW, previewH) {
+						mouseDragging = true
+					}
+				},
+				OnMouseMove: func(ev core.MouseEvent) {
+					if !mouseDragging || panActive {
+						return
+					}
+					ed.UpdateImagePivotDrag(float32(ev.Position.X), float32(ev.Position.Y))
+				},
+				OnPressUp: func(ev core.PressEvent) {
+					if !mouseDragging || panActive {
+						return
+					}
+					mouseDragging = false
+					ed.report(ed.EndImagePivotDrag())
+				},
+				Children: []core.Node{
+					core.Canvas{
+						TestID: "import-image-preview-canvas",
+						Label:  "Sprite Sheet Slice and Pivot Preview",
+						Style: core.Style{
+							Width:  core.Pct(100),
+							Height: core.Pct(100),
+						},
+						Draw: func(d *core.Drawing, size core.Size) {
+							_ = rev.Get()
+							if size.Width > 0 {
+								previewW = float32(size.Width)
+							}
+							if size.Height > 0 {
+								previewH = float32(size.Height)
+							}
+							ed.DrawImageImportPreview(d, size, relPath)
+						},
+					},
+				},
+			},
+			core.Text{
+				TestID: "import-image-preview-info",
+				ContentFunc: func() string {
+					info := readInfo()
+					if info.ImageWidth <= 0 || info.ImageHeight <= 0 {
+						return "Preview unavailable"
+					}
+					if _, hasSlice := info.EffectiveImageSlice(); hasSlice {
+						n, cols, rows, errMsg := sliceGridInfo(info)
+						if errMsg != "" {
+							return fmt.Sprintf("%dx%d px · invalid slice", info.ImageWidth, info.ImageHeight)
+						}
+						return fmt.Sprintf("%dx%d px · %dx%d grid (%d cells) · drag pivots", info.ImageWidth, info.ImageHeight, cols, rows, n)
+					}
+					return fmt.Sprintf("%dx%d px · unsliced · drag pivot", info.ImageWidth, info.ImageHeight)
+				},
+				Style: core.Style{FontSize: 10, Color: colors.Muted()},
+			},
+			core.Show{
+				When: func() bool {
+					_, _, _, errMsg := sliceGridInfo(readInfo())
+					return errMsg != ""
+				},
+				Then: func(cx *core.Scope) core.Node {
+					return core.Text{
+						TestID: "import-image-slice-error",
+						ContentFunc: func() string {
+							_, _, _, errMsg := sliceGridInfo(readInfo())
+							return errMsg
+						},
+						Style: core.Style{FontSize: 11, Color: colors.Danger()},
+					}
+				},
+			},
+		},
+	}
+
+	pivotSection := []core.Node{
+		core.Text{
+			Content: "PIVOT",
+			Style: core.Style{
+				FontSize:   11,
+				FontWeight: 700,
+				Color:      colors.Muted(),
+			},
+		},
+		fieldRow("Default", func() string {
+			return "Normalized [x, y] pivot fraction of untrimmed frame size (0,0 top-left; 0.5,1 bottom-center)"
+		},
+			ui.HStack{
+				Gap: 4,
+				Children: []core.Node{
+					core.View{
+						Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
+						Children: []core.Node{
+							ui.NumberInput{
+								TestID:   "import-image-pivot-default-x",
+								Label:    "Default Pivot X",
+								Step:     0.05,
+								Format:   formatPivotNum,
+								Disabled: disabled,
+								Value: func() float64 {
+									pt, _ := readInfo().EffectiveDefaultImagePivot()
+									return pt[0]
+								},
+								OnChange: func(v float64) {
+									if math.IsNaN(v) || math.IsInf(v, 0) {
+										return
+									}
+									pt, _ := readInfo().EffectiveDefaultImagePivot()
+									pt[0] = roundPivotCoord(v)
+									ed.report(ed.SetImageImportDefaultPivot(relPath, &pt))
+								},
+							},
+						},
+					},
+					core.View{
+						Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
+						Children: []core.Node{
+							ui.NumberInput{
+								TestID:   "import-image-pivot-default-y",
+								Label:    "Default Pivot Y",
+								Step:     0.05,
+								Format:   formatPivotNum,
+								Disabled: disabled,
+								Value: func() float64 {
+									pt, _ := readInfo().EffectiveDefaultImagePivot()
+									return pt[1]
+								},
+								OnChange: func(v float64) {
+									if math.IsNaN(v) || math.IsInf(v, 0) {
+										return
+									}
+									pt, _ := readInfo().EffectiveDefaultImagePivot()
+									pt[1] = roundPivotCoord(v)
+									ed.report(ed.SetImageImportDefaultPivot(relPath, &pt))
+								},
+							},
+						},
+					},
+				},
+			},
+			resetBtn("import-image-pivot-default-reset", "Reset default pivot", func() bool {
+				_, over := readInfo().EffectiveDefaultImagePivot()
+				return over
+			}, func() {
+				ed.report(ed.ResetAssetImportField(relPath, "pivot.default"))
+			}),
+		),
+		fieldRow("Preset", func() string { return "Quick default pivot presets" },
+			ui.HStack{
+				Gap: 4,
+				Children: []core.Node{
+					ui.Button{
+						TestID:   "import-image-pivot-preset-tl",
+						Text:     "TL",
+						Label:    "Set default pivot to top-left [0, 0]",
+						Size:     ui.SizeSmall,
+						Variant:  ui.ButtonSecondary,
+						Disabled: disabled,
+						OnPress: func() {
+							pt := importsettings.PivotPoint{0, 0}
+							ed.report(ed.SetImageImportDefaultPivot(relPath, &pt))
+						},
+					},
+					ui.Button{
+						TestID:   "import-image-pivot-preset-center",
+						Text:     "Center",
+						Label:    "Set default pivot to center [0.5, 0.5]",
+						Size:     ui.SizeSmall,
+						Variant:  ui.ButtonSecondary,
+						Disabled: disabled,
+						OnPress: func() {
+							pt := importsettings.PivotPoint{0.5, 0.5}
+							ed.report(ed.SetImageImportDefaultPivot(relPath, &pt))
+						},
+					},
+					ui.Button{
+						TestID:   "import-image-pivot-preset-bottom",
+						Text:     "Bottom",
+						Label:    "Set default pivot to bottom-center [0.5, 1]",
+						Size:     ui.SizeSmall,
+						Variant:  ui.ButtonSecondary,
+						Disabled: disabled,
+						OnPress: func() {
+							pt := importsettings.PivotPoint{0.5, 1}
+							ed.report(ed.SetImageImportDefaultPivot(relPath, &pt))
+						},
+					},
+				},
+			},
+			nil,
+		),
+		core.Show{
+			When: func() bool {
+				n, _, _, errMsg := sliceGridInfo(readInfo())
+				return n > 0 && errMsg == ""
+			},
+			Then: func(cx *core.Scope) core.Node {
+				return core.View{
+					Style: core.Style{Gap: 6},
+					Children: []core.Node{
+						fieldRow("Cell", func() string { return "Selected slice cell for per-cell pivot override" },
+							core.Dynamic(func(cx *core.Scope) core.Node {
+								if cellSelectKey.Get() == "" {
+									return nil
+								}
+								info := core.Untracked(cx, readInfo)
+								n, _, _, _ := sliceGridInfo(info)
+								overridden := map[int]bool{}
+								if pv, ok := info.EffectiveImagePivot(); ok && pv != nil {
+									for _, c := range pv.Cells {
+										overridden[c.Cell] = true
+									}
+								}
+								opts := make([]ui.Option[int], n)
+								for i := range n {
+									lbl := fmt.Sprintf("Cell %d", i)
+									if overridden[i] {
+										lbl += " *"
+									}
+									opts[i] = ui.Option[int]{Value: i, Label: lbl}
+								}
+								return ui.Select[int]{
+									TestID:   "import-image-pivot-cell-select",
+									Label:    "Pivot Cell",
+									Options:  opts,
+									Disabled: disabled,
+									Style:    core.Style{Width: core.Pct(100)},
+									Value: func() int {
+										sel, _ := activeCell(readInfo())
+										return sel
+									},
+									OnChange: func(v int) {
+										ed.SelectImportSliceCell(v)
+									},
+								}
+							}),
+							resetBtn("import-image-pivot-cell-reset", "Reset selected cell pivot to default", func() bool {
+								info := readInfo()
+								sel, n := activeCell(info)
+								if n == 0 {
+									return false
+								}
+								_, over, _ := info.EffectiveCellImagePivot(sel)
+								return over
+							}, func() {
+								sel, n := activeCell(readInfo())
+								if n > 0 {
+									ed.report(ed.SetImageImportCellPivot(relPath, sel, nil))
+								}
+							}),
+						),
+						fieldRow("Cell Pivot", func() string {
+							return "Normalized [x, y] pivot override for the selected cell"
+						},
+							ui.HStack{
+								Gap: 4,
+								Children: []core.Node{
+									core.View{
+										Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
+										Children: []core.Node{
+											ui.NumberInput{
+												TestID:   "import-image-pivot-cell-x",
+												Label:    "Cell Pivot X",
+												Step:     0.05,
+												Format:   formatPivotNum,
+												Disabled: disabled,
+												Value: func() float64 {
+													info := readInfo()
+													sel, _ := activeCell(info)
+													pt, _, _ := info.EffectiveCellImagePivot(sel)
+													return pt[0]
+												},
+												OnChange: func(v float64) {
+													if math.IsNaN(v) || math.IsInf(v, 0) {
+														return
+													}
+													info := readInfo()
+													sel, n := activeCell(info)
+													if n == 0 {
+														return
+													}
+													pt, _, _ := info.EffectiveCellImagePivot(sel)
+													pt[0] = roundPivotCoord(v)
+													ed.report(ed.SetImageImportCellPivot(relPath, sel, &pt))
+												},
+											},
+										},
+									},
+									core.View{
+										Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
+										Children: []core.Node{
+											ui.NumberInput{
+												TestID:   "import-image-pivot-cell-y",
+												Label:    "Cell Pivot Y",
+												Step:     0.05,
+												Format:   formatPivotNum,
+												Disabled: disabled,
+												Value: func() float64 {
+													info := readInfo()
+													sel, _ := activeCell(info)
+													pt, _, _ := info.EffectiveCellImagePivot(sel)
+													return pt[1]
+												},
+												OnChange: func(v float64) {
+													if math.IsNaN(v) || math.IsInf(v, 0) {
+														return
+													}
+													info := readInfo()
+													sel, n := activeCell(info)
+													if n == 0 {
+														return
+													}
+													pt, _, _ := info.EffectiveCellImagePivot(sel)
+													pt[1] = roundPivotCoord(v)
+													ed.report(ed.SetImageImportCellPivot(relPath, sel, &pt))
+												},
+											},
+										},
+									},
+								},
+							},
+							nil,
+						),
+					},
+				}
+			},
+		},
+	}
+
+	nodes := []core.Node{
+		previewSection,
 		fieldRow("Filter", func() string { return "Sampling filter (default: " + readInfo().DefaultImageFilter + ")" },
 			ui.Select[string]{
 				TestID:   "import-image-filter",
@@ -444,6 +894,7 @@ func imageImportFields(
 			},
 		},
 	}
+	return append(nodes, pivotSection...)
 }
 
 func audioImportFields(

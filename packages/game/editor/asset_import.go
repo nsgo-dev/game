@@ -122,6 +122,9 @@ type AssetImportInfo struct {
 	DefaultImageFormat  string
 	DefaultImageMipmaps bool
 	DefaultImageSRGB    bool
+	// ImageWidth and ImageHeight are the decoded source pixel dimensions when Kind is AssetImportImage (0 if unreadable).
+	ImageWidth  int
+	ImageHeight int
 
 	DefaultAudioFormat   string
 	DefaultAudioRate     int
@@ -201,6 +204,39 @@ func (info AssetImportInfo) EffectiveImageSlice() (*importsettings.Slice, bool) 
 		return &s, true
 	}
 	return nil, false
+}
+
+// EffectiveImagePivot returns a deep copy of the sidecar's pivot settings (nil when unset) and whether it is set.
+func (info AssetImportInfo) EffectiveImagePivot() (*importsettings.Pivot, bool) {
+	if info.Sidecar != nil && info.Sidecar.Image != nil && info.Sidecar.Image.Pivot != nil {
+		p := cloneImportPivot(info.Sidecar.Image.Pivot)
+		return p, true
+	}
+	return nil, false
+}
+
+// EffectiveDefaultImagePivot returns the effective default normalized pivot ([0, 0] when unset) and whether the sidecar explicitly sets it.
+func (info AssetImportInfo) EffectiveDefaultImagePivot() (importsettings.PivotPoint, bool) {
+	if info.Sidecar != nil && info.Sidecar.Image != nil && info.Sidecar.Image.Pivot != nil && info.Sidecar.Image.Pivot.Default != nil {
+		return *info.Sidecar.Image.Pivot.Default, true
+	}
+	return importsettings.PivotPoint{0, 0}, false
+}
+
+// EffectiveCellImagePivot returns the effective normalized pivot for 0-based cell, whether the cell has its own per-cell override in pivot.cells, and whether it inherits pivot.default.
+func (info AssetImportInfo) EffectiveCellImagePivot(cell int) (pt importsettings.PivotPoint, overridden bool, inherited bool) {
+	if info.Sidecar != nil && info.Sidecar.Image != nil && info.Sidecar.Image.Pivot != nil {
+		p := info.Sidecar.Image.Pivot
+		for _, c := range p.Cells {
+			if c.Cell == cell {
+				return c.Pivot, true, false
+			}
+		}
+		if p.Default != nil {
+			return *p.Default, false, true
+		}
+	}
+	return importsettings.PivotPoint{0, 0}, false, false
 }
 
 // EffectiveAudioFormat returns the effective audio format and whether the sidecar overrides it.
@@ -474,6 +510,12 @@ func (e *Editor) InspectAssetImport(relPath string) (AssetImportInfo, error) {
 	info.SidecarExists = exists
 	info.Sidecar = sidecar
 	info.SidecarErr = sidecarErr
+	if kind == AssetImportImage {
+		if _, w, h, err := e.loadImportPreviewImage(clean); err == nil {
+			info.ImageWidth = w
+			info.ImageHeight = h
+		}
+	}
 	return info, nil
 }
 
@@ -621,6 +663,7 @@ func (e *Editor) SetImageImportSRGB(relPath string, srgb *bool) error {
 }
 
 // SetImageImportSlice sets or clears (when nil) the image sprite-sheet slice grid in relPath's sidecar.
+// Clearing the slice also removes per-cell pivot overrides (which require image.slice), and setting a positive Count prunes per-cell pivot overrides at or above Count.
 func (e *Editor) SetImageImportSlice(relPath string, slice *importsettings.Slice) error {
 	if err := e.expectAssetKind(relPath, AssetImportImage); err != nil {
 		return err
@@ -629,11 +672,116 @@ func (e *Editor) SetImageImportSlice(relPath string, slice *importsettings.Slice
 		if slice == nil {
 			if f.Image != nil {
 				f.Image.Slice = nil
+				if f.Image.Pivot != nil {
+					f.Image.Pivot.Cells = nil
+				}
 			}
 			return
 		}
 		s := *slice
-		ensureImportImage(f).Slice = &s
+		im := ensureImportImage(f)
+		im.Slice = &s
+		if im.Pivot != nil && s.Count > 0 && len(im.Pivot.Cells) > 0 {
+			kept := im.Pivot.Cells[:0]
+			for _, c := range im.Pivot.Cells {
+				if c.Cell < s.Count {
+					kept = append(kept, c)
+				}
+			}
+			if len(kept) == 0 {
+				im.Pivot.Cells = nil
+			} else {
+				im.Pivot.Cells = kept
+			}
+		}
+	})
+}
+
+// SetImageImportPivot sets or clears (when nil) the image pivot block in relPath's sidecar, sorting per-cell overrides by ascending cell index.
+func (e *Editor) SetImageImportPivot(relPath string, pivot *importsettings.Pivot) error {
+	if err := e.expectAssetKind(relPath, AssetImportImage); err != nil {
+		return err
+	}
+	return e.EditAssetImportSettings(relPath, "Set image pivot for "+relPath, func(f *importsettings.File) {
+		if pivot == nil {
+			if f.Image != nil {
+				f.Image.Pivot = nil
+			}
+			return
+		}
+		p := cloneImportPivot(pivot)
+		slices.SortFunc(p.Cells, func(a, b importsettings.CellPivot) int {
+			return cmp.Compare(a.Cell, b.Cell)
+		})
+		ensureImportImage(f).Pivot = p
+	})
+}
+
+// SetImageImportDefaultPivot sets or clears (when nil) the default normalized pivot in relPath's sidecar without disturbing per-cell overrides.
+func (e *Editor) SetImageImportDefaultPivot(relPath string, pt *importsettings.PivotPoint) error {
+	if err := e.expectAssetKind(relPath, AssetImportImage); err != nil {
+		return err
+	}
+	return e.EditAssetImportSettings(relPath, "Set default pivot for "+relPath, func(f *importsettings.File) {
+		if pt == nil {
+			if f.Image != nil && f.Image.Pivot != nil {
+				f.Image.Pivot.Default = nil
+			}
+			return
+		}
+		v := *pt
+		im := ensureImportImage(f)
+		if im.Pivot == nil {
+			im.Pivot = &importsettings.Pivot{}
+		}
+		im.Pivot.Default = &v
+	})
+}
+
+// SetImageImportCellPivot sets or clears (when nil) the normalized pivot override for 0-based cell in relPath's sidecar, keeping cells in ascending order.
+func (e *Editor) SetImageImportCellPivot(relPath string, cell int, pt *importsettings.PivotPoint) error {
+	if err := e.expectAssetKind(relPath, AssetImportImage); err != nil {
+		return err
+	}
+	if cell < 0 {
+		return fmt.Errorf("editor: cell %d must not be negative", cell)
+	}
+	label := fmt.Sprintf("Set cell %d pivot for %s", cell, relPath)
+	if pt == nil {
+		label = fmt.Sprintf("Reset cell %d pivot for %s", cell, relPath)
+	}
+	return e.EditAssetImportSettings(relPath, label, func(f *importsettings.File) {
+		if pt == nil {
+			if f.Image == nil || f.Image.Pivot == nil || len(f.Image.Pivot.Cells) == 0 {
+				return
+			}
+			kept := f.Image.Pivot.Cells[:0]
+			for _, c := range f.Image.Pivot.Cells {
+				if c.Cell != cell {
+					kept = append(kept, c)
+				}
+			}
+			if len(kept) == 0 {
+				f.Image.Pivot.Cells = nil
+			} else {
+				f.Image.Pivot.Cells = kept
+			}
+			return
+		}
+		im := ensureImportImage(f)
+		if im.Pivot == nil {
+			im.Pivot = &importsettings.Pivot{}
+		}
+		for i := range im.Pivot.Cells {
+			if im.Pivot.Cells[i].Cell == cell {
+				im.Pivot.Cells[i].Pivot = *pt
+				return
+			}
+		}
+		im.Pivot.Cells = append(im.Pivot.Cells, importsettings.CellPivot{Cell: cell, Pivot: *pt})
+		slices.SortFunc(im.Pivot.Cells, func(a, b importsettings.CellPivot) int {
+			return cmp.Compare(a.Cell, b.Cell)
+		})
 	})
 }
 
@@ -916,6 +1064,16 @@ func (e *Editor) ResetAssetImportField(relPath, field string) error {
 			return e.SetImageImportSRGB(relPath, nil)
 		case "slice":
 			return e.SetImageImportSlice(relPath, nil)
+		case "pivot":
+			return e.SetImageImportPivot(relPath, nil)
+		case "pivot.default":
+			return e.SetImageImportDefaultPivot(relPath, nil)
+		case "pivot.cells":
+			return e.EditAssetImportSettings(relPath, "Reset per-cell pivots for "+relPath, func(f *importsettings.File) {
+				if f.Image != nil && f.Image.Pivot != nil {
+					f.Image.Pivot.Cells = nil
+				}
+			})
 		}
 	case AssetImportAudio:
 		switch field {
@@ -1057,6 +1215,9 @@ func cloneImportFile(src *importsettings.File) *importsettings.File {
 			s := *src.Image.Slice
 			im.Slice = &s
 		}
+		if src.Image.Pivot != nil {
+			im.Pivot = cloneImportPivot(src.Image.Pivot)
+		}
 		out.Image = &im
 	}
 	if src.Audio != nil {
@@ -1099,13 +1260,34 @@ func cloneImportFile(src *importsettings.File) *importsettings.File {
 	return out
 }
 
+func cloneImportPivot(src *importsettings.Pivot) *importsettings.Pivot {
+	if src == nil {
+		return nil
+	}
+	out := &importsettings.Pivot{}
+	if src.Default != nil {
+		d := *src.Default
+		out.Default = &d
+	}
+	if len(src.Cells) > 0 {
+		out.Cells = slices.Clone(src.Cells)
+	}
+	return out
+}
+
 func pruneEmptyImportSections(f *importsettings.File) {
+	if f.Image != nil && f.Image.Pivot != nil &&
+		f.Image.Pivot.Default == nil &&
+		len(f.Image.Pivot.Cells) == 0 {
+		f.Image.Pivot = nil
+	}
 	if f.Image != nil &&
 		f.Image.Filter == "" &&
 		f.Image.Format == "" &&
 		f.Image.Mipmaps == nil &&
 		f.Image.SRGB == nil &&
-		f.Image.Slice == nil {
+		f.Image.Slice == nil &&
+		f.Image.Pivot == nil {
 		f.Image = nil
 	}
 	if f.Audio != nil &&

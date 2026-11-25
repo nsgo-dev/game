@@ -56,6 +56,11 @@ image:
     width: 16
     height: 16
     count: 6
+  pivot:
+    default: [0.5, 1]
+    cells:
+      - cell: 2
+        pivot: [0.25, 0.75]
 credit:
   author: Kenney
   license: CC0-1.0
