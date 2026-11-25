@@ -276,6 +276,9 @@ func triggerOuterRadius(s Shape) float64 {
 		return float64(s.Circle.R)
 	case ShapeBox:
 		return 0.5 * detmath.Hypot(float64(s.Box.W), float64(s.Box.H))
+	case ShapePolygon, ShapeCapsule, ShapeSegment, ShapeChain:
+		b := s.Bounds()
+		return 0.5 * detmath.Hypot(float64(b.W), float64(b.H))
 	default:
 		return 1
 	}
@@ -363,7 +366,7 @@ func shapeArea2D(s Shape) float64 {
 		r := float64(s.Circle.R)
 		return math.Pi * r * r
 	default:
-		return 0
+		return float64(s.Area())
 	}
 }
 
