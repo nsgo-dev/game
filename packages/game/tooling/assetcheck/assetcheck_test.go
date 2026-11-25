@@ -233,7 +233,7 @@ func TestBrokenReferencesNameFileAndLine(t *testing.T) {
 		{"material unknown field", "materials/stone.material.yaml", "name: Stone", "name: Stone\nshine: 1", "materials/stone.material.yaml", "shine: 1", "field shine not found"},
 		{"missing material texture", "art/stone.png", "", "-", "materials/stone.material.yaml", "texture:", `texture "art/stone.png": not found`},
 		{"missing tilemap source", "maps/level.tmj", "", "-", "scenes/room.scene.yaml", "source: maps/level.tmj", `tilemap source "maps/level.tmj": not found`},
-		{"tilemap source not tmj", "scenes/room.scene.yaml", "source: maps/level.tmj", "source: maps/level.tmx", "scenes/room.scene.yaml", "source: maps/level.tmx", "is not a Tiled JSON map (.tmj)"},
+		{"tilemap source not a map", "scenes/room.scene.yaml", "source: maps/level.tmj", "source: maps/level.json", "scenes/room.scene.yaml", "source: maps/level.json", "is not a Tiled map (.tmj, .tmx) or LDtk project (.ldtk)"},
 		{"tilemap source outside", "scenes/room.scene.yaml", "source: maps/level.tmj", "source: ../level.tmj", "scenes/room.scene.yaml", "source: ../level.tmj", "leads outside the checked directory"},
 		{"scene validation", "scenes/room.scene.yaml", "  - name: actors", "  - name: actors\n    space: sky", "scenes/room.scene.yaml", "space: sky", `invalid space "sky"`},
 		{"scene unknown field", "scenes/room.scene.yaml", "        sprite:", "        sprit: 1\n        sprite:", "scenes/room.scene.yaml", "sprit: 1", "field sprit not found"},

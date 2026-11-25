@@ -1,0 +1,292 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://game.nsgo.dev/schemas/tileset.v1.json",
+  "title": "NSGo game tileset (version 1)",
+  "description": "TilesetDoc is a versioned YAML tileset (*.tileset.yaml), the text counterpart of Godot's TileSet resource: what each tile of one image or sprite atlas is, its custom properties, collision flags and shapes, animation and terrain, defined once so that maps only place tiles. Tilemap.AddTilesetDoc builds it into a Tileset.\n\nA tileset draws its tiles either from a grid image (Image, Columns and TileCount, with optional Spacing and Margin) or from frames of a sprite atlas (Atlas and Frames); exactly one of Image and Atlas is set. A tile's local ID is its index in the grid, row by row from the top left, or in Frames, starting at 0.",
+  "type": "object",
+  "properties": {
+    "version": {
+      "description": "Version is the schema version; it must be 1.",
+      "type": "integer",
+      "const": 1
+    },
+    "name": {
+      "description": "Name is the tileset's human-readable name.",
+      "type": "string"
+    },
+    "tileWidth": {
+      "description": "TileWidth and TileHeight are each tile's size in points; both must be positive.",
+      "type": "integer",
+      "minimum": -9223372036854776000,
+      "exclusiveMinimum": 0,
+      "maximum": 9223372036854776000
+    },
+    "tileHeight": {
+      "description": "TileWidth and TileHeight are each tile's size in points; both must be positive.",
+      "type": "integer",
+      "minimum": -9223372036854776000,
+      "exclusiveMinimum": 0,
+      "maximum": 9223372036854776000
+    },
+    "image": {
+      "description": "Image is the grid image the tiles are cut from, a slash-separated path from the project root such as \"tiles/cave.png\". It requires Columns and TileCount.",
+      "type": "string"
+    },
+    "columns": {
+      "description": "Columns is how many tiles one row of Image holds.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9223372036854776000
+    },
+    "tileCount": {
+      "description": "TileCount is how many tiles Image holds, at most MaxTilesetTiles.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9223372036854776000
+    },
+    "spacing": {
+      "description": "Spacing is the gap in points between neighbouring tiles of Image, and Margin the gap around its edge.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9223372036854776000
+    },
+    "margin": {
+      "description": "Spacing is the gap in points between neighbouring tiles of Image, and Margin the gap around its edge.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9223372036854776000
+    },
+    "atlas": {
+      "description": "Atlas names the sprite atlas the tiles are frames of, as a scene's sprites name atlases. It requires Frames.",
+      "type": "string"
+    },
+    "frames": {
+      "description": "Frames are the names of Atlas's frames that are the tiles, in local ID order, at most MaxTilesetTiles and each named once.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "properties": {
+      "description": "Properties are custom properties of the whole tileset, each a bool, an integer, a number or a string. EncodeTileset writes a whole-number float with a decimal point (2.0), so that it reads back as a float.",
+      "type": "object",
+      "additionalProperties": {
+        "type": [
+          "boolean",
+          "number",
+          "string"
+        ]
+      }
+    },
+    "terrains": {
+      "description": "Terrains are the terrain sets the tiles' Terrain fields name, each with a unique name.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/TerrainDoc"
+      }
+    },
+    "tiles": {
+      "description": "Tiles describe the tiles that carry anything beyond their picture, in ascending ID order with each ID at most once. A tile left out has no properties, flags, shapes, animation or terrain.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/TileDoc"
+      }
+    }
+  },
+  "required": [
+    "version",
+    "tileWidth",
+    "tileHeight"
+  ],
+  "additionalProperties": false,
+  "definitions": {
+    "TerrainDoc": {
+      "description": "TerrainDoc is one terrain set of a TilesetDoc: a family of tiles, such as the edges and corners of grass, from which autotiling picks a tile by which neighbouring cells hold the same terrain (Tilemap.ApplyAutotile).",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Name identifies the terrain within the tileset; tiles name it in TileDoc.Terrain.",
+          "type": "string",
+          "minLength": 1
+        },
+        "mode": {
+          "description": "Mode is \"cardinal\", which matches the four edge neighbours (Autotile4, 16 tiles), or \"blob\", which also matches a corner neighbour when both edges beside it match (Autotile8, 47 tiles).",
+          "type": "string",
+          "enum": [
+            "cardinal",
+            "blob"
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "mode"
+      ],
+      "additionalProperties": false
+    },
+    "TileDoc": {
+      "description": "TileDoc describes one tile of a TilesetDoc.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "ID is the tile's local ID, from 0 to the tileset's tile count less 1.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854776000
+        },
+        "solid": {
+          "description": "Solid sets TileSolid on the tile, so collision queries and tileshape treat its cells as blocked.",
+          "type": "boolean"
+        },
+        "oneWay": {
+          "description": "OneWay sets TileOneWay on the tile, a platform that blocks only from above.",
+          "type": "boolean"
+        },
+        "flags": {
+          "description": "Flags are further TileFlags bits the game defines, such as a water or ladder bit, set on the tile beside Solid and OneWay.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "properties": {
+          "description": "Properties are the tile's custom properties, each a bool, an integer, a number or a string, as Tilemap.TileProperties returns them.",
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "boolean",
+              "number",
+              "string"
+            ]
+          }
+        },
+        "shapes": {
+          "description": "Shapes are the tile's collision shapes in its own coordinates, (0, 0) at its top left, as Tileset.Shapes holds them.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TileShapeDoc"
+          }
+        },
+        "animation": {
+          "description": "Animation, when set, makes the tile cycle through these frames in a loop as Tilemap.Update advances time.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TileFrameDoc"
+          }
+        },
+        "terrain": {
+          "description": "Terrain names the entry of TilesetDoc.Terrains the tile belongs to.",
+          "type": "string"
+        },
+        "neighbors": {
+          "description": "Neighbors lists the directions in which a cell of the same terrain lies next to a cell this tile fills: north, east, south and west, and for a blob terrain also northeast, southeast, southwest and northwest. No two tiles of one terrain list the same set, and the tile that lists none is the terrain's default. It requires Terrain.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "TileFrameDoc": {
+      "description": "TileFrameDoc is one frame of a tile's animation.",
+      "type": "object",
+      "properties": {
+        "tile": {
+          "description": "Tile is the local ID of the tile the frame shows.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854776000
+        },
+        "duration": {
+          "description": "Duration is how long the frame shows, positive, written as a Go duration such as 150ms.",
+          "type": [
+            "string",
+            "integer"
+          ]
+        }
+      },
+      "required": [
+        "duration"
+      ],
+      "additionalProperties": false
+    },
+    "TileShapeDoc": {
+      "description": "TileShapeDoc is one collision shape of a tile, in the tile's coordinates.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "description": "Kind is \"rect\" or \"ellipse\", given by X, Y, Width and Height, or \"polygon\" or \"polyline\", given by Points. An ellipse becomes a polygon of EllipseShapeSegments edges.",
+          "type": "string",
+          "enum": [
+            "rect",
+            "ellipse",
+            "polygon",
+            "polyline"
+          ]
+        },
+        "name": {
+          "description": "Name and Type label the shape for game code, as a Tiled object's name and type do.",
+          "type": "string"
+        },
+        "type": {
+          "description": "Name and Type label the shape for game code, as a Tiled object's name and type do.",
+          "type": "string"
+        },
+        "x": {
+          "description": "X and Y are the top left of a rect or ellipse's box, and Width and Height its positive size.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "y": {
+          "description": "X and Y are the top left of a rect or ellipse's box, and Width and Height its positive size.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "width": {
+          "description": "X and Y are the top left of a rect or ellipse's box, and Width and Height its positive size.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "height": {
+          "description": "X and Y are the top left of a rect or ellipse's box, and Width and Height its positive size.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "points": {
+          "description": "Points are the [x, y] vertices of a polygon (at least 3) or polyline (at least 2).",
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "minimum": -3.4028234663852886e+38,
+              "maximum": 3.4028234663852886e+38
+            }
+          }
+        },
+        "properties": {
+          "description": "Properties are the shape's custom properties, each a bool, an integer, a number or a string.",
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "boolean",
+              "number",
+              "string"
+            ]
+          }
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

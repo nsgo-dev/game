@@ -1,6 +1,6 @@
 # tilemap
 
-`game/tilemap` 负责带视锥裁剪的正交、等距、交错与六边形瓦片地图绘制、Tiled `.tmx`/`.tmj` 地图（含内嵌或外部 `.tsx`/`.tsj` 图块集）与动画瓦片加载、瓦片碰撞标志与射线查询，以及支持平滑跟随、边界限制和屏幕震动的 2D 相机。
+`game/tilemap` 负责带视锥裁剪的正交、等距、交错与六边形瓦片地图绘制、Tiled `.tmx`/`.tmj` 地图（含内嵌或外部 `.tsx`/`.tsj` 图块集）、YAML 图块集（`*.tileset.yaml`）与动画瓦片加载、瓦片碰撞标志与射线查询，以及支持平滑跟随、边界限制和屏幕震动的 2D 相机。
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/tilemap"
@@ -136,6 +136,74 @@ m.SetTerrainRect(0, 6, 2, 3, 3, ws, water, rng)
 - **角点、边线与混合集合**：`WangCorner` 匹配四个角点，`WangEdge` 匹配四条边，`WangMixed` 同时匹配全部八个槽位。共享边或角发生变化的邻格会自动更新，并支持多跳过渡（例如在没有草地直连水域的图块集中向草地绘制水域时，自动生成一圈泥土岸线过渡）。
 - **确定性按概率选型**：当多个瓦片并列最佳匹配时，`SetTerrain` 与 `SetTerrainRect` 会通过 `*random.Stream`（或任意 `TerrainRand`）按瓦片概率加权抽取（相同种子始终选出完全一致的变体）；传入 `rng == nil` 时确定性地选择本地 `TileID` 最小的瓦片。
 - **代码定义的位掩码拼接**：`AutotileSet`、`ApplyAutotile` 与 `SetAutotile` 继续保留，用于代码中定义的 4 位（16 瓦片）与 8 位角点门控（47 瓦片）单地形自动拼接。
+
+## YAML 图块集
+
+YAML 图块集（`*.tileset.yaml`，`TilesetDoc`）是 Godot TileSet 资源的文本形式：它只说明一次每个瓦片是什么，使用它的地图只负责放置瓦片。场景文件在分层网格中放置它的瓦片（[编辑器与场景格式](editor.md#瓦片地图tilemaps)）。它的瓦片要么从网格图片中切出（`image`、`columns`、`tileCount`，以及可选的 `spacing` 和 `margin`），要么取自精灵图集的帧（`atlas`，以及按局部 ID 顺序排列的 `frames`）。瓦片的局部 ID 是它在网格中从左上角起逐行计数的序号，或在 `frames` 中的序号，从 0 开始。
+
+```yaml
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/tileset.v1.json
+version: 1
+name: cave
+tileWidth: 16
+tileHeight: 16
+image: tiles/cave.png
+columns: 4
+tileCount: 8
+terrains:
+  - name: rock
+    mode: cardinal
+tiles:
+  - id: 0
+    solid: true
+    terrain: rock
+  - id: 1
+    solid: true
+    properties:
+      friction: 0.5
+    terrain: rock
+    neighbors: [east]
+  - id: 2
+    shapes:
+      - kind: polygon
+        points: [[0, 16], [16, 0], [16, 16]]
+  - id: 4
+    animation:
+      - tile: 4
+        duration: 200ms
+      - tile: 5
+        duration: 200ms
+```
+
+`tiles` 按 ID 升序列出除图片外还带有其他信息的瓦片：
+
+| 字段 | 含义 |
+| --- | --- |
+| `solid`、`oneWay`、`flags` | `TileSolid`、`TileOneWay` 以及游戏自定义的其他 `TileFlags` 位，用 `SetFlags` 设置到该瓦片上 |
+| `properties` | 自定义属性，每个值为布尔、整数、数字或字符串，即 `TileProperties` 返回的内容；图块集本身也有 `properties` |
+| `shapes` | 瓦片坐标中的碰撞形状：`rect` 和 `ellipse` 由 `x`、`y`、`width`、`height` 给出，`polygon`（至少 3 个点）和 `polyline`（至少 2 个点）由 `points` 给出，均可带 `name`、`type` 和 `properties`；它们与 Tiled 碰撞编辑器画出的形状一样载入 `Tileset.Shapes`，供 [tileshape](tileshape.md) 使用 |
+| `animation` | 由 `tile` 和正的 `duration`（如 `150ms`）组成的帧，`Update` 循环播放 |
+| `terrain`、`neighbors` | 瓦片所属的 `terrains` 中的地形集，以及同一地形的单元格与它相邻的方向（`north`、`east`、`south`、`west`，`blob` 地形还可以有 `northeast`、`southeast`、`southwest`、`northwest`） |
+
+地形的 `mode` 为 `cardinal` 时匹配四条边上的邻居（16 个瓦片，`Autotile4`），为 `blob` 时在角两侧的边都匹配时也匹配该角（47 个瓦片，`Autotile8`）。同一地形的两个瓦片不能列出相同的邻居，不列任何邻居的那个是它的默认瓦片。
+
+`ParseTileset` 拒绝未知字段以及违反上述任何规则的文件，返回指向出错行的 `*loaderr.Error`；`EncodeTileset` 写出规范形式，因此加载再保存图块集不会改变任何字节；`LoadTilesetFS` 从 `fs.FS` 读取图块集。`m.AddTilesetDoc(doc, firstGID, assets)` 把它构建成 `m` 中 GID 从 `firstGID` 开始的 `Tileset`，通过 `TilesetAssets.Image`（为 nil 时为 `core.ImageSource{URI: path}`）解析图片或通过 `TilesetAssets.Atlas` 解析图集，并把瓦片的标志设置到地图上：
+
+```go
+doc, err := tilemap.LoadTilesetFS(os.DirFS(projectDir), "tilesets/cave.tileset.yaml")
+if err != nil {
+	return err
+}
+m := tilemap.New(40, 23, 16, 16)
+if _, err := m.AddTilesetDoc(doc, 1, tilemap.TilesetAssets{}); err != nil {
+	return err
+}
+// 用 rock 地形自动铺设一个图层。
+rock := m.Terrain("rock")
+m.ApplyAutotile(0, rock.Autotile, rock.Contains)
+```
+
+每个地形成为 `Tileset.Terrains` 中的一个 `Terrain`，它的 `Autotile` 把邻居掩码映射到 GID，供 `ApplyAutotile` 和 `SetAutotile` 使用，`Contains` 判断一个瓦片是否属于它。`TilesetFrame(doc, atlas, id)` 给出瓦片在图片中的位置，编辑器的调色板就用它显示瓦片。
 
 ## 动画瓦片
 

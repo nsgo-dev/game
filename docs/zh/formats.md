@@ -394,7 +394,7 @@ layers:
 
 | 文件 | 版本 | 读写函数 | 字段 |
 | --- | --- | --- | --- |
-| `*.scene.yaml`，如 `scenes/cave_room.scene.yaml` | `version: 1`；实例化或继承其他场景文件的场景为 `version: 2`；内置物理组件 `version: 1` | `sceneformat.Parse`、`sceneformat.Encode` | [编辑器与场景格式](editor.md)；Schema 为 `https://game.nsgo.dev/schemas/scene.v1.json` 和 `scene.v2.json` |
+| `*.scene.yaml`，如 `scenes/cave_room.scene.yaml` | `version: 1`；实例化或继承其他场景文件、含分层瓦片地图或 LDtk 关卡的场景为 `version: 2`；内置物理组件 `version: 1` | `sceneformat.Parse`、`sceneformat.Encode` | [编辑器与场景格式](editor.md)；Schema 为 `https://game.nsgo.dev/schemas/scene.v1.json` 和 `scene.v2.json` |
 
 ```yaml
 # yaml-language-server: $schema=https://game.nsgo.dev/schemas/scene.v1.json
@@ -461,6 +461,47 @@ meshes:
         triangles:
           - [0, 1, 2]
           - [0, 2, 3]
+```
+
+<!-- format: tilemap#tileset -->
+### 图块集
+
+| 文件 | 版本 | 读写函数 | 字段 |
+| --- | --- | --- | --- |
+| `*.tileset.yaml`，如 `tilesets/cave.tileset.yaml`，由场景的分层瓦片地图（`tilesetFile`）引用 | `version: 1` | `tilemap.ParseTileset`、`tilemap.EncodeTileset`、`tilemap.LoadTilesetFS`；由 `Tilemap.AddTilesetDoc` 构建 | [tilemap](tilemap.md#yaml-图块集)；Schema 为 `https://game.nsgo.dev/schemas/tileset.v1.json` |
+
+```yaml
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/tileset.v1.json
+version: 1
+name: cave
+tileWidth: 16
+tileHeight: 16
+image: tiles/cave.png
+columns: 4
+tileCount: 8
+terrains:
+  - name: rock
+    mode: cardinal
+tiles:
+  - id: 0
+    solid: true
+    terrain: rock
+  - id: 1
+    solid: true
+    properties:
+      friction: 0.5
+    terrain: rock
+    neighbors: [east]
+  - id: 2
+    shapes:
+      - kind: polygon
+        points: [[0, 16], [16, 0], [16, 16]]
+  - id: 4
+    animation:
+      - tile: 4
+        duration: 200ms
+      - tile: 5
+        duration: 200ms
 ```
 
 <!-- format: resource -->

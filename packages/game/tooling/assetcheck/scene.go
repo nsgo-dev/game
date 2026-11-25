@@ -16,6 +16,8 @@ import (
 	"github.com/nsgo-dev/game/packages/game/refs"
 	"github.com/nsgo-dev/game/packages/game/resource"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
+	"github.com/nsgo-dev/game/packages/game/tilemap"
+	"github.com/nsgo-dev/nsgo/core"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -416,17 +418,55 @@ type sceneCheck struct {
 // line returns the line of the field at steps in the scene.
 func (s *sceneCheck) line(steps ...string) int { return min(yamlLine(s.root, steps), s.lines) }
 
-// tilemap checks a tilemap definition at steps: an external source must be a Tiled map that checks, and an inline grid's tileset atlas must have a frame for every tile ID it uses.
+// tilemap checks a tilemap definition at steps: an external source must be a Tiled map or LDtk project that checks, with the level it names, an inline grid's tileset atlas must have a frame for every tile ID it uses, and a layered grid's YAML tileset must check and hold every tile its cells place.
 func (s *sceneCheck) tilemap(tm *sceneformat.TilemapDoc, steps ...string) {
 	switch {
 	case tm.IsExternal():
 		line := s.line(append(steps, "source")...)
-		if ext := strings.ToLower(path.Ext(tm.Source)); ext != ".tmj" {
-			s.problem(s.path, line, "tilemap source %q is not a Tiled JSON map (.tmj)", tm.Source)
+		ext := strings.ToLower(path.Ext(tm.Source))
+		if ext != ".tmj" && ext != ".tmx" && ext != ".ldtk" {
+			s.problem(s.path, line, "tilemap source %q is not a Tiled map (.tmj, .tmx) or LDtk project (.ldtk)", tm.Source)
 			return
 		}
-		if p, ok := s.fileRef(s.path, line, s.project, tm.Source, "tilemap source"); ok {
+		p, ok := s.fileRef(s.path, line, s.project, tm.Source, "tilemap source")
+		if !ok {
+			return
+		}
+		switch ext {
+		case ".tmj":
 			s.checkTiledMap(p)
+		case ".ldtk":
+			s.checkLDtk(p)
+			if tm.Level != "" && !s.broken[p] {
+				if data, ok := s.readFile(p); ok {
+					if _, err := tilemap.LoadLDtk(data, tm.Level, func(rel string) core.ImageSource { return core.ImageSource{URI: rel} }); err != nil {
+						s.problem(s.path, s.line(append(steps, "level")...), "tilemap level %q: %v", tm.Level, err)
+					}
+				}
+			}
+		}
+	case tm.IsLayered():
+		p, ok := s.fileRef(s.path, s.line(append(steps, "tilesetFile")...), s.project, tm.TilesetFile, "tileset file")
+		if !ok {
+			return
+		}
+		doc := s.checkYAMLTileset(p)
+		if doc == nil {
+			return
+		}
+		count := uint32(doc.Count())
+		for i := range tm.TileLayers {
+			l := &tm.TileLayers[i]
+			for r, row := range l.Rows {
+				// The scene validates, so every row parses.
+				cells, _ := sceneformat.ParseTileRow(row)
+				for col, cell := range cells {
+					if id := cell & tilemap.TileIDMask; id > count {
+						s.problem(s.path, s.line(append(steps, "tileLayers", strconv.Itoa(i), "rows", strconv.Itoa(r))...), "tile layer %q row %d column %d places tile %d, but tileset %q (%s) has %d tiles", l.Name, r, col, id-1, tm.TilesetFile, p, count)
+						break
+					}
+				}
+			}
 		}
 	case tm.IsInline():
 		atlas := s.findAtlas(s.path, s.line(append(steps, "tileset")...), s.project, tm.Tileset, "tileset atlas")
@@ -442,6 +482,55 @@ func (s *sceneCheck) tilemap(tm *sceneformat.TilemapDoc, steps ...string) {
 			s.problem(s.path, s.line(append(steps, "data", strconv.Itoa(i))...), "tile %d has no frame %q in tileset atlas %q (%s)", gid, strconv.Itoa(gid), tm.Tileset, atlas.path)
 		}
 	}
+}
+
+// checkYAMLTileset checks the YAML tileset at p once, as the package comment describes, and returns it, or nil when it does not parse.
+func (c *checker) checkYAMLTileset(p string) *tilemap.TilesetDoc {
+	if doc, ok := c.tilesetDocs[p]; ok {
+		return doc
+	}
+	c.tilesetDocs[p] = nil
+	c.report.Tilesets++
+	data, ok := c.readFile(p)
+	if !ok {
+		return nil
+	}
+	doc, err := tilemap.ParseTileset(data)
+	if err != nil {
+		c.yamlError(p, data, err)
+		return nil
+	}
+	c.tilesetDocs[p] = doc
+	var root yaml.Node
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		c.yamlError(p, data, err) // ParseTileset read it, so this does not happen.
+		return doc
+	}
+	lines := yamlLineCount(data)
+	line := func(steps ...string) int { return min(yamlLine(&root, steps), lines) }
+	proj := c.projectRoot(path.Dir(p))
+	if doc.Image != "" {
+		img := c.imageRef(p, line("image"), proj, doc.Image, "tileset image")
+		if img != nil && img.sized {
+			rows := (doc.TileCount + doc.Columns - 1) / doc.Columns
+			needW := 2*doc.Margin + doc.Columns*doc.TileWidth + (doc.Columns-1)*doc.Spacing
+			needH := 2*doc.Margin + rows*doc.TileHeight + (rows-1)*doc.Spacing
+			if img.width < needW || img.height < needH {
+				c.problem(p, line("image"), "tileset image %q is %dx%d, smaller than the %dx%d that %d columns of %d tiles of %dx%d need", doc.Image, img.width, img.height, needW, needH, doc.Columns, doc.TileCount, doc.TileWidth, doc.TileHeight)
+			}
+		}
+		return doc
+	}
+	atlas := c.findAtlas(p, line("atlas"), proj, doc.Atlas, "tileset atlas")
+	if atlas == nil || atlas.frames == nil {
+		return doc
+	}
+	for i, name := range doc.Frames {
+		if !atlas.frames[name] {
+			c.problem(p, line("frames", strconv.Itoa(i)), "frame %q is not in tileset atlas %q (%s)", name, doc.Atlas, atlas.path)
+		}
+	}
+	return doc
 }
 
 // sprite checks that a sprite's atlas exists and has its frame.

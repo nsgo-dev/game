@@ -47,7 +47,7 @@ go get -tool github.com/nsgo-dev/game/packages/game/cmd/game@latest
 
 ### Companion module tools
 
-- `go run github.com/nsgo-dev/game/packages/game/cmd/gameschema` — regenerate or `-check` the published JSON Schemas (`scene.v1.json`, `scene.v2.json`, `import.v1.json`, `voxel.v1.json`).
+- `go run github.com/nsgo-dev/game/packages/game/cmd/gameschema` — regenerate or `-check` the published JSON Schemas (`scene.v1.json`, `scene.v2.json`, `tileset.v1.json`, `import.v1.json`, `voxel.v1.json`).
 - `go run github.com/nsgo-dev/game/packages/game/cmd/gameproject` — format (`fmt`) and validate `game.yaml` against `nsgo.yaml`.
 - `go run github.com/nsgo-dev/game/packages/game/cmd/sizecheck` — check WebAssembly and mobile package size budgets.
 
@@ -58,7 +58,7 @@ Every file authored by a human or coding agent is plain-text YAML:
 1. **Top-level `version` integer** (or `manifestVersion` in `mod.yaml`). Missing `version`, `version: 0`, or an unsupported future version is rejected.
 2. **Strict schema validation.** Unknown keys, duplicate keys, and multi-document YAML streams are refused with `loaderr` errors naming file, line, field and fix.
 3. **Canonical deterministic round-trip.** Encoders write fixed key order, sort unordered collections, and omit timestamps or random IDs so load -> save produces identical bytes.
-4. **Editor & agent JSON Schemas.** Add `# yaml-language-server: $schema=...` headers (`https://game.nsgo.dev/schemas/scene.v1.json`, `scene.v2.json`, `import.v1.json` and `voxel.v1.json`) or validate programmatically via `tooling/jsonschema`.
+4. **Editor & agent JSON Schemas.** Add `# yaml-language-server: $schema=...` headers (`https://game.nsgo.dev/schemas/scene.v1.json`, `scene.v2.json`, `tileset.v1.json`, `import.v1.json` and `voxel.v1.json`) or validate programmatically via `tooling/jsonschema`.
 
 ### Common authored YAML formats
 
@@ -66,8 +66,9 @@ Every file authored by a human or coding agent is plain-text YAML:
 | --- | --- | --- |
 | `game.yaml` | `project` | Project name/ID, window, virtual resolution, input map, audio buses, autoloads, asset targets, export presets, navigation bake settings and agent types (`version: 1`) |
 | `<asset>.import.yaml` | `tooling/importsettings` | Per-asset texture filter, slicing, audio settings and license/author credits (`version: 1`) |
-| `*.scene.yaml` | `sceneformat` | Scenes and prefabs: camera, layers, hierarchical objects, components and prefab instances (`version: 1`, or `version: 2` for a scene that instances or inherits other scene files) |
+| `*.scene.yaml` | `sceneformat` | Scenes and prefabs: camera, layers, hierarchical objects, components and prefab instances (`version: 1`, or `version: 2` for a scene that instances or inherits other scene files or holds layered tilemaps or LDtk levels) |
 | `*.navmesh.yaml`, named by a scene's `navMesh` | `navbake3d` | Baked 3D navigation meshes, one per agent type, written by `game navmesh` (`version: 1`) |
+| `*.tileset.yaml` | `tilemap` | Tilesets: grid image or atlas frames, per-tile properties, collision flags and shapes, animations and terrains, placed by scenes' layered tilemaps (`version: 1`) |
 | `<name>.<type>.yaml`, such as `stone.material.yaml` | `resource` | Shared resources; `type` is `material`, `curve`, `gradient`, `animation`, `theme`, `busLayout` or `physicsMaterial` (`version: 1`) |
 | `*.replay.yaml` | `replay` | Editable deterministic input recordings (seed, step rate, per-step action/axis transitions; `version: 2`) |
 | Any `.yaml` or `.yml` file, such as `weapons.yaml` | `tooling/datatable` | Typed game data tables (`version: 1`); `.csv` and `.json` exports load too, without a version |
@@ -81,7 +82,7 @@ Every file authored by a human or coding agent is plain-text YAML:
 
 ### External tool exports read directly
 
-- **Tiled** `.tmj` maps and **LDtk** `.ldtk` projects (`tilemap`)
+- **Tiled** `.tmj` maps and **LDtk** `.ldtk` projects (`tilemap`), which scenes name as tilemap sources and `sceneformat.FSAssets` loads with no game code
 - **TexturePacker** and **Aseprite** JSON sprite atlases (`sprite`)
 - **AngelCode BMFont** and **MSDF** fonts (`text`)
 - **glTF 2.0** `.gltf` / `.glb` 3D models (`gltf`)

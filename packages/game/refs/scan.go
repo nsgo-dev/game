@@ -35,6 +35,8 @@ const (
 	KindTiled FileKind = "tiled"
 	// KindLDtk is an LDtk project (.ldtk).
 	KindLDtk FileKind = "ldtk"
+	// KindTileset is a YAML tileset (*.tileset.yaml, tilemap.TilesetDoc).
+	KindTileset FileKind = "tileset"
 	// KindAtlas is a sprite atlas: a JSON file with top-level frames and meta objects, as TexturePacker and Aseprite write it.
 	KindAtlas FileKind = "atlas"
 	// KindGLTF is a glTF 2.0 model in JSON form (.gltf), whose buffers and images may be separate files.
@@ -51,6 +53,7 @@ const (
 	FieldMaterial         = "material"
 	FieldModel            = "model"
 	FieldTilemapSource    = "tilemap source"
+	FieldTilesetFile      = "tileset file"
 	FieldTexture          = "texture"
 	FieldExternalTileset  = "external tileset"
 	FieldTilesetImage     = "tileset image"
@@ -377,6 +380,11 @@ func (p *Project) readYAML(name string, asScene bool) bool {
 		p.add(f)
 		p.sceneRefs(f, doc)
 		return true
+	case isTilesetName(name):
+		f.Kind = KindTileset
+		p.add(f)
+		p.ref(f, field(doc, "image"), FieldTilesetImage)
+		return true
 	}
 	return false
 }
@@ -436,19 +444,31 @@ func (p *Project) sceneRefs(f *File, doc *yaml.Node) {
 		r.Output = true
 	}
 	for _, kv := range pairs(field(doc, "tilemaps")) {
-		p.ref(f, field(kv[1], "source"), FieldTilemapSource)
+		p.tilemapRefs(f, kv[1])
 	}
 	for _, kv := range pairs(field(doc, "layerOverrides")) {
-		p.ref(f, field(field(kv[1], "tilemap"), "source"), FieldTilemapSource)
+		p.tilemapRefs(f, field(kv[1], "tilemap"))
 	}
 	for _, kv := range pairs(field(doc, "overrides")) {
 		p.ref(f, field(kv[1], "material"), FieldMaterial)
 		p.ref(f, field(kv[1], "model"), FieldModel)
 	}
 	for _, l := range items(field(doc, "layers")) {
-		p.ref(f, field(field(l, "tilemap"), "source"), FieldTilemapSource)
+		p.tilemapRefs(f, field(l, "tilemap"))
 		p.objectRefs(f, field(l, "objects"), 0)
 	}
+}
+
+// tilemapRefs records the references of the scene tilemap tm: its source and the YAML tileset a layered grid names.
+func (p *Project) tilemapRefs(f *File, tm *yaml.Node) {
+	p.ref(f, field(tm, "source"), FieldTilemapSource)
+	p.ref(f, field(tm, "tilesetFile"), FieldTilesetFile)
+}
+
+// isTilesetName reports whether name is a YAML tileset by its name, *.tileset.yaml or *.tileset.yml.
+func isTilesetName(name string) bool {
+	lower := strings.ToLower(name)
+	return strings.HasSuffix(lower, ".tileset.yaml") || strings.HasSuffix(lower, ".tileset.yml")
 }
 
 // maxDepth bounds how deep objectRefs follows children, well past sceneformat.MaxObjectDepth, so a hostile file cannot exhaust the stack.

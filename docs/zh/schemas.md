@@ -11,7 +11,8 @@ import "github.com/nsgo-dev/game/packages/game/tooling/jsonschema"
 | 格式 | Schema | 文件 |
 | --- | --- | --- |
 | 场景，版本 1 | `https://game.nsgo.dev/schemas/scene.v1.json` | `*.scene.yaml`，由 `sceneformat.Parse` 读取 |
-| 场景，版本 2 | `https://game.nsgo.dev/schemas/scene.v2.json` | 实例化或继承其他场景文件的 `*.scene.yaml`，由 `sceneformat.Parse` 读取 |
+| 场景，版本 2 | `https://game.nsgo.dev/schemas/scene.v2.json` | 实例化或继承其他场景文件、或含分层瓦片地图或 LDtk 关卡的 `*.scene.yaml`，由 `sceneformat.Parse` 读取 |
+| 图块集，版本 1 | `https://game.nsgo.dev/schemas/tileset.v1.json` | `*.tileset.yaml`，由 `tilemap.ParseTileset` 和 `tilemap.LoadTilesetFS` 读取 |
 | 导入设置，版本 1 | `https://game.nsgo.dev/schemas/import.v1.json` | 资源旁的 `*.import.yaml`，由 `importsettings.Parse` 和 `game assets` 读取，其中的署名由 `game release` 和 `game credits` 读取（见[命令行](cli.md#assets)） |
 | 体素世界，版本 1 | `https://game.nsgo.dev/schemas/voxel.v1.json` | `*.voxel.yaml`，由 `voxel.Parse` 和 `voxel.LoadYAML` 读取 |
 | 本地化字符串表，版本 1 | `https://game.nsgo.dev/schemas/l10n.v1.json` | 每种语言一个 `*.yaml` 文件（如 `locales/en.yaml`），由 `l10n.ParseYAML` 和 `l10n.Catalog.LoadYAML` 读取 |

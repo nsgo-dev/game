@@ -17,7 +17,7 @@ NSGo 采用**方案（b）并向（c）演进**：保持 Go 代码与 Tiled 的�
 NSGo 原生编辑器直接读写 `sceneformat.SceneDoc` 文件，聚焦于可视化操作比手写坐标更高效的环节：
 
 1. **对象摆放与变换**：在世界图层与屏幕图层中放置、拖拽、旋转、缩放、翻转和调整对象的 Z 顺序。
-2. **瓦片绘制**：直接绘制内联瓦片网格，或预览引用的 Tiled `.tmj` 瓦片地图。
+2. **瓦片绘制**：直接绘制内联瓦片网格，以及分层网格的各个瓦片图层（含翻转的瓦片），或预览引用的 Tiled `.tmj` 与 LDtk `.ldtk` 地图。
 3. **带类型的属性与组件编辑**：查看并编辑 `components` 与 `properties`，并按场景规范实时校验。
 4. **撤销 / 重做**：基于命令栈的场景文档编辑历史。
 5. **编辑器内运行（Play-in-Editor）**：不离开工具，直接在编辑器的 `Canvas` 中运行真实的 `game.Loop` 与 `BuiltScene`。
@@ -61,11 +61,46 @@ import "github.com/nsgo-dev/game/packages/game/sceneformat"
 
 ### 瓦片地图（Tilemaps）
 
-瓦片地图（位于顶层 `tilemaps` 或内联在图层上）只能使用以下三种模式之一：
+瓦片地图（位于顶层 `tilemaps` 或内联在图层上）只能使用以下模式之一：
 
 - **引用（`ref`，仅限图层）**：指向顶层 `tilemaps` 中的命名条目。
-- **外部 Tiled 地图（`source`）**：指向 `.tmj` 文件路径，构建时由 `TilemapResolver` 解析。
+- **外部地图（`source`）**：从项目根目录起以斜杠分隔的路径，指向 Tiled 地图（`.tmj` 或 `.tmx`）或 LDtk 项目（`.ldtk`）；对 LDtk，`level` 指定要构建的关卡（版本 2），不写则构建项目的第一个关卡。
 - **内联网格**：包含 `tileWidth`、`tileHeight`、`width`、`height`、`tileset`（帧名按从 1 开始的瓦片 ID `"1"`、`"2"`…… 索引的图集名），以及长度为 `width * height` 的行主序 `data`（`0` 表示空瓦片）。
+- **分层网格**（版本 2）：包含 `tileWidth`、`tileHeight`、`width`、`height`、`tilesetFile`（YAML 图块集 `*.tileset.yaml` 的路径，见 [YAML 图块集](tilemap.md#yaml-图块集)，单元格放置的就是它的瓦片），以及 `tileLayers`：最多 `MaxTileLayers` 个按顺序绘制的命名瓦片图层。
+
+分层网格的图块集只定义一次每个瓦片的标志、属性、碰撞形状、动画和地形，地图只负责放置瓦片，与 Godot 的 TileSet 之于 TileMapLayer 相同。每个瓦片图层有 `name`、可选的 `visible`（默认 `true`）和 `opacity`（默认 `1`），以及 `rows`：从上到下共 `height` 行，每行 `width` 个以空格分隔的单元格。单元格为空时写 `.`，否则写瓦片在图块集中的局部 ID（`0`、`1`……），后面可以跟 `h`、`v`、`d` 中的任意几个，分别表示水平、垂直和沿对角线翻转，与 Tiled 的翻转位相同，因此 `3hv` 是旋转了半圈的瓦片 3。一行可以用多余的空格对齐单元格，字母也可以任意顺序书写；`Encode` 统一写成单个空格、字母按 `h`、`v`、`d` 的顺序，于是每一行在 diff 中都是一行。
+
+```yaml
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/scene.v2.json
+version: 2
+name: Cave
+virtualWidth: 320
+virtualHeight: 180
+layers:
+  - name: ground
+    tilemap:
+      tileWidth: 16
+      tileHeight: 16
+      width: 4
+      height: 2
+      tilesetFile: tilesets/cave.tileset.yaml
+      tileLayers:
+        - name: floor
+          rows:
+            - 0 0 0 0
+            - . . 1h 3hvd
+        - name: deco
+          opacity: 0.5
+          rows:
+            - 2 . . .
+            - . . . .
+```
+
+`TileLayerDoc.Cell`、`SetCell` 和 `Cells` 以瓦片值读写图层的单元格，即构建后它们的 GID：空单元格为 `0`，否则为局部 ID 加 1，并带上 `tilemap.FlipHorizontal`、`FlipVertical` 和 `FlipDiagonal` 翻转位；`ParseTileRow` 和 `FormatTileRow` 对单独一行做同样的事。
+
+`Build` 把图集帧组成的单一网格变成精灵批次（`BuiltLayer.Tilemap`），把分层网格或外部地图变成 `tilemap.Tilemap`（`BuiltLayer.Map`）。这个地图带有图块集的标志、属性、形状、动画和地形，因此在图层坐标中可以回答 `FlagsAt`、`TileProperties`、`TilesInRect` 和 `Raycast`，也可以交给 `tileshape.New` 生成斜坡与遮挡体。`BuiltScene.Draw` 只绘制虚拟视口内的地图瓦片（世界坐标图层按相机看到的范围），除非场景没有虚拟尺寸或设置了 `DrawAllTiles`，编辑器的编辑视图就会设置它；`BuiltScene.Update(dt)` 推进动画瓦片。
+
+`Build` 通过解析器的 `FileResolver`（`ReadFile`）读取 YAML 图块集、Tiled 地图及其外部图块集和 LDtk 项目，Tiled 或 LDtk 文件中的路径相对于该文件所在目录；图片在解析器实现了 `ImageResolver`（`Image`）时由它加载，否则按路径命名（`core.ImageSource{URI: path}`）。`FSAssets` 从 `fs.FS` 读取项目文件，因此引用 `.tmj`、`.ldtk` 或 `.tileset.yaml` 的场景无需游戏自己编写解析器即可构建。实现了 `TilemapResolver` 的解析器仍会像以前一样自行把每个 `source` 加载为 `TilemapDoc`。
 
 ### 图层与对象
 
@@ -287,15 +322,20 @@ if err != nil {
 	return err
 }
 
-built, err := sceneformat.Build(doc, sceneformat.AtlasMap{
-	"cave_tiles": tilesAtlas,
-	"actors":     actorsAtlas,
-	"ui":         uiAtlas,
+built, err := sceneformat.Build(doc, sceneformat.FSAssets{
+	FS: os.DirFS(projectDir), // YAML 图块集、Tiled 与 LDtk 地图
+	Atlases: sceneformat.AtlasMap{
+		"cave_tiles": tilesAtlas,
+		"actors":     actorsAtlas,
+		"ui":         uiAtlas,
+	},
 })
 if err != nil {
 	return err
 }
 
+// 每个更新步骤中：
+built.Update(dt)
 // 在 core.Canvas 的 Draw 回调中：
 built.Draw(d)
 ```
@@ -304,7 +344,7 @@ built.Draw(d)
 
 ### Schema
 
-场景格式的 JSON Schema 发布在 `https://game.nsgo.dev/schemas/scene.v1.json`（`sceneformat.SchemaURL`），实例化或继承其他场景文件的版本 2 场景则用 `https://game.nsgo.dev/schemas/scene.v2.json`（`sceneformat.SchemaURLV2`）。`Encode` 在每个文件开头写入与其版本对应的 `# yaml-language-server: $schema=…` 这一行（`sceneformat.SchemaCommentFor`），VS Code 的 YAML 扩展以及其他带 YAML 语言服务器的编辑器可借此在编写场景时校验和补全。参见 [YAML 文件的 Schema](schemas.md)。
+场景格式的 JSON Schema 发布在 `https://game.nsgo.dev/schemas/scene.v1.json`（`sceneformat.SchemaURL`），实例化或继承其他场景文件、含分层网格或 LDtk 关卡的版本 2 场景则用 `https://game.nsgo.dev/schemas/scene.v2.json`（`sceneformat.SchemaURLV2`）。`Encode` 在每个文件开头写入与其版本对应的 `# yaml-language-server: $schema=…` 这一行（`sceneformat.SchemaCommentFor`），VS Code 的 YAML 扩展以及其他带 YAML 语言服务器的编辑器可借此在编写场景时校验和补全。参见 [YAML 文件的 Schema](schemas.md)。
 
 ### 组件类型
 
@@ -524,7 +564,9 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 
 在 2D 视图中启用 Paint、Erase、Fill 或 Pick 工具时，视口右侧会显示瓦片调色板。它把当前图层瓦片集的瓦片按瓦片 ID 顺序排成网格，每个瓦片按瓦片地图的瓦片尺寸显示（比面板还宽的瓦片会缩小到面板宽度）。这些瓦片是瓦片集图集中名称为瓦片 ID（`"1"`、`"2"`……）的帧，与场景格式查找瓦片的方式一致；其他帧不会列出。点击一个瓦片，或用方向键在瓦片之间移动，即可把它设为 Paint 和 Fill 写入的瓦片（`SetActiveTileID`）；所有方向键都按 ID 顺序逐个移动，左键和上键移到上一个瓦片，右键和下键移到下一个，而不是按网格的行移动。选中的瓦片带有一圈高亮，使用 Paint 或 Fill 时状态栏显示它的 ID。选择瓦片不算编辑，不进入撤销历史；之后的绘制是一个可撤销的步骤。
 
-调色板跟随当前图层：图层改变时，调色板显示新图层的瓦片集；如果该瓦片集没有所选 ID 的瓦片，就选中它的第一个瓦片。没有内联瓦片地图的图层（没有瓦片地图，或使用外部 Tiled 地图）、解析器无法解析的瓦片集、没有瓦片帧的瓦片集，都会显示一条说明原因的消息，而不是空网格。在 Go 中，`TilePalette()` 返回调色板为当前图层显示的内容：瓦片集、瓦片尺寸和瓦片，或那条消息。
+调色板跟随当前图层：图层改变时，调色板显示新图层的瓦片集；如果该瓦片集没有所选 ID 的瓦片，就选中它的第一个瓦片。没有内联瓦片地图的图层（没有瓦片地图，或使用外部 Tiled 或 LDtk 地图）、解析器无法解析的瓦片集、没有瓦片帧的瓦片集，都会显示一条说明原因的消息，而不是空网格。在 Go 中，`TilePalette()` 返回调色板为当前图层显示的内容：瓦片集、瓦片尺寸和瓦片，或那条消息。
+
+对分层网格，调色板显示它的 YAML 图块集中的瓦片，图块集通过解析器的 `sceneformat.FileResolver`（例如 `FSAssets`）读取，瓦片按 `PaintTile` 接受的方式从 1 开始编号：瓦片 ID `n` 绘制图块集的局部瓦片 `n - 1`。瓦片上方每个瓦片图层有一个切换按钮，用来选择 Paint、Erase 和 Fill 修改的图层（`SetActiveTileLayer`、`ActiveTileLayer`，默认为第一个），H、V、D 切换按钮设置 Paint 和 Fill 放置瓦片时的翻转（`SetActiveTileFlip`、`ActiveTileFlip`）。这些编辑按 `Encode` 保存的形式写入图层的行，每次都是一个可撤销的步骤；Fill 只连通瓦片和翻转都相同的单元格。
 
 ## 绘制、擦除与拾取瓦片（#875）
 

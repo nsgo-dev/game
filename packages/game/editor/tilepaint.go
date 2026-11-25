@@ -4,12 +4,81 @@ import (
 	"fmt"
 
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
+	"github.com/nsgo-dev/game/packages/game/tilemap"
 )
 
+// tileChange is one cell a tile command changes, at index row*width+col of its grid, with the tile value before and after: a single grid's tile ID, or a layered grid's cell as sceneformat.TileLayerDoc.Cell returns it.
 type tileChange struct {
 	index  int
-	oldGID int
-	newGID int
+	oldGID int64
+	newGID int64
+}
+
+// tileGrid is the grid of an inline tilemap that the tile tools change: a single grid's data, or one tile layer of a layered grid.
+type tileGrid struct {
+	tm *sceneformat.TilemapDoc
+	// layer is the layered grid's tile layer, nil for a single grid.
+	layer *sceneformat.TileLayerDoc
+}
+
+// get returns the tile value at index i of the grid.
+func (g tileGrid) get(i int) int64 {
+	if g.layer == nil {
+		return int64(g.tm.Data[i])
+	}
+	// The document validates, so every cell parses.
+	v, _ := g.layer.Cell(i%g.tm.Width, i/g.tm.Width)
+	return int64(v)
+}
+
+// values returns every tile value of the grid, row by row.
+func (g tileGrid) values() []int64 {
+	out := make([]int64, g.tm.Width*g.tm.Height)
+	if g.layer == nil {
+		for i, v := range g.tm.Data {
+			out[i] = int64(v)
+		}
+		return out
+	}
+	cells, _ := g.layer.Cells()
+	for i, v := range cells {
+		if i < len(out) {
+			out[i] = int64(v)
+		}
+	}
+	return out
+}
+
+// apply writes each change's new tile value, or its old one when undo is set, into the grid. A layered grid's rows are parsed and written once each, however many of their cells change.
+func (g tileGrid) apply(changes []tileChange, undo bool) {
+	n := g.tm.Width * g.tm.Height
+	var cells []uint32
+	var dirty map[int]bool
+	if g.layer != nil {
+		cells, _ = g.layer.Cells()
+		if len(cells) != n {
+			return
+		}
+		dirty = make(map[int]bool)
+	}
+	for _, ch := range changes {
+		if ch.index < 0 || ch.index >= n {
+			continue
+		}
+		v := ch.newGID
+		if undo {
+			v = ch.oldGID
+		}
+		if g.layer == nil {
+			g.tm.Data[ch.index] = int(v)
+			continue
+		}
+		cells[ch.index] = uint32(v)
+		dirty[ch.index/g.tm.Width] = true
+	}
+	for r := range dirty {
+		g.layer.Rows[r] = sceneformat.FormatTileRow(cells[r*g.tm.Width : (r+1)*g.tm.Width])
+	}
 }
 
 // resolveInlineTilemap finds the inline TilemapDoc for layerName (or ActiveLayer / first tilemap layer when empty).
@@ -61,17 +130,70 @@ func (e *Editor) inlineTilemapForLayer(l *sceneformat.LayerDoc) *sceneformat.Til
 	return tm
 }
 
-func validateTileCoords(tm *sceneformat.TilemapDoc, col, row int) error {
-	if col < 0 || col >= tm.Width || row < 0 || row >= tm.Height {
-		return fmt.Errorf("editor: tile (%d, %d) out of bounds (%dx%d)", col, row, tm.Width, tm.Height)
+// tileLayerName returns the name of the tile layer of the layered grid tm that the tile tools change: ActiveTileLayer when tm has it, otherwise its first.
+func (e *Editor) tileLayerName(tm *sceneformat.TilemapDoc) string {
+	if tm.TileLayer(e.ActiveTileLayer) != nil {
+		return e.ActiveTileLayer
 	}
-	if len(tm.Data) != tm.Width*tm.Height {
-		return fmt.Errorf("editor: tilemap data length %d does not match %dx%d", len(tm.Data), tm.Width, tm.Height)
+	if len(tm.TileLayers) > 0 {
+		return tm.TileLayers[0].Name
 	}
-	return nil
+	return ""
 }
 
-// PaintTile sets the tile at (col, row) on layer's inline tilemap to tileID as an undoable command.
+// gridOf returns the grid of tm that the tile layer named tileLayer is, or tm's data for a single grid, refusing a grid whose size does not match tm's.
+func gridOf(tm *sceneformat.TilemapDoc, tileLayer string) (tileGrid, error) {
+	if !tm.IsLayered() {
+		if len(tm.Data) != tm.Width*tm.Height {
+			return tileGrid{}, fmt.Errorf("editor: tilemap data length %d does not match %dx%d", len(tm.Data), tm.Width, tm.Height)
+		}
+		return tileGrid{tm: tm}, nil
+	}
+	l := tm.TileLayer(tileLayer)
+	if l == nil {
+		return tileGrid{}, fmt.Errorf("editor: tilemap has no tile layer %q", tileLayer)
+	}
+	if len(l.Rows) != tm.Height {
+		return tileGrid{}, fmt.Errorf("editor: tile layer %q has %d rows, not %d", tileLayer, len(l.Rows), tm.Height)
+	}
+	return tileGrid{tm: tm, layer: l}, nil
+}
+
+// tileTarget resolves the grid the tile tools change on layer (or the active one): the layer's name, the tile layer's name (empty for a single grid) and the grid, checking that (col, row) is inside it.
+func (e *Editor) tileTarget(layer string, col, row int) (string, string, tileGrid, error) {
+	layerName, tm, err := e.resolveInlineTilemap(layer)
+	if err != nil {
+		return "", "", tileGrid{}, err
+	}
+	if col < 0 || col >= tm.Width || row < 0 || row >= tm.Height {
+		return "", "", tileGrid{}, fmt.Errorf("editor: tile (%d, %d) out of bounds (%dx%d)", col, row, tm.Width, tm.Height)
+	}
+	tileLayer := ""
+	if tm.IsLayered() {
+		tileLayer = e.tileLayerName(tm)
+	}
+	g, err := gridOf(tm, tileLayer)
+	if err != nil {
+		return "", "", tileGrid{}, err
+	}
+	return layerName, tileLayer, g, nil
+}
+
+// paintValue returns the tile value painting tileID writes into g: the ID itself in a single grid, and in a layered grid the cell of tile tileID-1 with ActiveTileFlip, or an empty cell for 0. It refuses an ID that a layered grid's cells cannot hold.
+func (e *Editor) paintValue(g tileGrid, tileID int) (int64, error) {
+	if tileID < 0 {
+		return 0, fmt.Errorf("editor: tileID %d must be non-negative", tileID)
+	}
+	if g.layer == nil || tileID == 0 {
+		return int64(tileID), nil
+	}
+	if uint64(tileID) > uint64(tilemap.TileIDMask) {
+		return 0, fmt.Errorf("editor: tileID %d is above %d", tileID, tilemap.TileIDMask)
+	}
+	return int64(uint32(tileID) | e.ActiveTileFlip&tilemap.FlipMask), nil
+}
+
+// PaintTile sets the tile at (col, row) on layer's inline tilemap to tileID as an undoable command. On a layered grid it paints the tile layer ActiveTileLayer names, and tileID is the tile's local ID in the tileset plus 1, as the tile palette numbers tiles, placed with the flips ActiveTileFlip holds; 0 empties the cell.
 func (e *Editor) PaintTile(layer string, col, row, tileID int) error {
 	if e.playing {
 		return ErrPlaying
@@ -79,55 +201,55 @@ func (e *Editor) PaintTile(layer string, col, row, tileID int) error {
 	if tileID < 0 {
 		return fmt.Errorf("editor: tileID %d must be non-negative", tileID)
 	}
-	layerName, tm, err := e.resolveInlineTilemap(layer)
+	layerName, tileLayer, g, err := e.tileTarget(layer, col, row)
 	if err != nil {
 		return err
 	}
-	if err := validateTileCoords(tm, col, row); err != nil {
+	v, err := e.paintValue(g, tileID)
+	if err != nil {
 		return err
 	}
-	idx := row*tm.Width + col
-	oldGID := tm.Data[idx]
-	if oldGID == tileID {
+	idx := row*g.tm.Width + col
+	old := g.get(idx)
+	if old == v {
 		return nil
 	}
 	e.History.Execute(&tileEditCmd{
 		ed:        e,
 		layerName: layerName,
+		tileLayer: tileLayer,
 		label:     fmt.Sprintf("Paint tile (%d,%d)", col, row),
-		changes:   []tileChange{{index: idx, oldGID: oldGID, newGID: tileID}},
+		changes:   []tileChange{{index: idx, oldGID: old, newGID: v}},
 	})
 	return nil
 }
 
-// EraseTile clears the tile at (col, row) (setting its ID to 0) on layer's inline tilemap as an undoable command.
+// EraseTile clears the tile at (col, row) (setting its ID to 0) on layer's inline tilemap as an undoable command, on a layered grid in the tile layer ActiveTileLayer names.
 func (e *Editor) EraseTile(layer string, col, row int) error {
 	if e.playing {
 		return ErrPlaying
 	}
-	layerName, tm, err := e.resolveInlineTilemap(layer)
+	layerName, tileLayer, g, err := e.tileTarget(layer, col, row)
 	if err != nil {
 		return err
 	}
-	if err := validateTileCoords(tm, col, row); err != nil {
-		return err
-	}
-	idx := row*tm.Width + col
-	oldGID := tm.Data[idx]
-	if oldGID == 0 {
+	idx := row*g.tm.Width + col
+	old := g.get(idx)
+	if old == 0 {
 		return nil
 	}
 	e.History.Execute(&tileEditCmd{
 		ed:        e,
 		layerName: layerName,
+		tileLayer: tileLayer,
 		label:     fmt.Sprintf("Erase tile (%d,%d)", col, row),
-		changes:   []tileChange{{index: idx, oldGID: oldGID, newGID: 0}},
+		changes:   []tileChange{{index: idx, oldGID: old, newGID: 0}},
 	})
 	return nil
 }
 
 // FloodFillTile runs a 4-connected BFS flood fill starting at (col, row), replacing all contiguous
-// matching tiles with tileID in a single undoable command.
+// matching tiles with tileID in a single undoable command. On a layered grid it fills the tile layer ActiveTileLayer names, where tiles match when their IDs and flips both do, and paints tileID as PaintTile does.
 func (e *Editor) FloodFillTile(layer string, col, row, tileID int) error {
 	if e.playing {
 		return ErrPlaying
@@ -135,22 +257,25 @@ func (e *Editor) FloodFillTile(layer string, col, row, tileID int) error {
 	if tileID < 0 {
 		return fmt.Errorf("editor: tileID %d must be non-negative", tileID)
 	}
-	layerName, tm, err := e.resolveInlineTilemap(layer)
+	layerName, tileLayer, g, err := e.tileTarget(layer, col, row)
 	if err != nil {
 		return err
 	}
-	if err := validateTileCoords(tm, col, row); err != nil {
+	v, err := e.paintValue(g, tileID)
+	if err != nil {
 		return err
 	}
+	w, h := g.tm.Width, g.tm.Height
+	values := g.values()
 
-	startIdx := row*tm.Width + col
-	targetGID := tm.Data[startIdx]
-	if targetGID == tileID {
+	startIdx := row*w + col
+	target := values[startIdx]
+	if target == v {
 		return nil
 	}
 
 	type cell struct{ c, r int }
-	visited := make([]bool, len(tm.Data))
+	visited := make([]bool, len(values))
 	visited[startIdx] = true
 	queue := []cell{{col, row}}
 	var changes []tileChange
@@ -159,19 +284,19 @@ func (e *Editor) FloodFillTile(layer string, col, row, tileID int) error {
 	for len(queue) > 0 {
 		cur := queue[0]
 		queue = queue[1:]
-		idx := cur.r*tm.Width + cur.c
+		idx := cur.r*w + cur.c
 		changes = append(changes, tileChange{
 			index:  idx,
-			oldGID: targetGID,
-			newGID: tileID,
+			oldGID: target,
+			newGID: v,
 		})
 		for _, d := range dirs {
 			nc, nr := cur.c+d.c, cur.r+d.r
-			if nc < 0 || nc >= tm.Width || nr < 0 || nr >= tm.Height {
+			if nc < 0 || nc >= w || nr < 0 || nr >= h {
 				continue
 			}
-			nidx := nr*tm.Width + nc
-			if visited[nidx] || tm.Data[nidx] != targetGID {
+			nidx := nr*w + nc
+			if visited[nidx] || values[nidx] != target {
 				continue
 			}
 			visited[nidx] = true
@@ -182,6 +307,7 @@ func (e *Editor) FloodFillTile(layer string, col, row, tileID int) error {
 	e.History.Execute(&tileEditCmd{
 		ed:        e,
 		layerName: layerName,
+		tileLayer: tileLayer,
 		label:     fmt.Sprintf("Flood fill %d tiles", len(changes)),
 		changes:   changes,
 	})
@@ -191,41 +317,41 @@ func (e *Editor) FloodFillTile(layer string, col, row, tileID int) error {
 type tileEditCmd struct {
 	ed        *Editor
 	layerName string
+	// tileLayer names the layered grid's tile layer the command changes, empty for a single grid.
+	tileLayer string
 	label     string
 	changes   []tileChange
 }
 
 func (c *tileEditCmd) Label() string { return c.label }
 
-func (c *tileEditCmd) Do() {
+// grid returns the grid the command changes, or false when its layer or tile layer is gone.
+func (c *tileEditCmd) grid() (tileGrid, bool) {
 	li := c.ed.layerIndex(c.layerName)
 	if li < 0 {
-		return
+		return tileGrid{}, false
 	}
 	tm := c.ed.inlineTilemapForLayer(&c.ed.Doc.Layers[li])
-	if tm == nil {
+	if tm == nil || tm.IsLayered() != (c.tileLayer != "") {
+		return tileGrid{}, false
+	}
+	g, err := gridOf(tm, c.tileLayer)
+	return g, err == nil
+}
+
+func (c *tileEditCmd) Do() {
+	g, ok := c.grid()
+	if !ok {
 		return
 	}
-	for _, ch := range c.changes {
-		if ch.index >= 0 && ch.index < len(tm.Data) {
-			tm.Data[ch.index] = ch.newGID
-		}
-	}
+	g.apply(c.changes, false)
 	c.ed.Status = c.label
 }
 
 func (c *tileEditCmd) Undo() {
-	li := c.ed.layerIndex(c.layerName)
-	if li < 0 {
+	g, ok := c.grid()
+	if !ok {
 		return
 	}
-	tm := c.ed.inlineTilemapForLayer(&c.ed.Doc.Layers[li])
-	if tm == nil {
-		return
-	}
-	for _, ch := range c.changes {
-		if ch.index >= 0 && ch.index < len(tm.Data) {
-			tm.Data[ch.index] = ch.oldGID
-		}
-	}
+	g.apply(c.changes, true)
 }

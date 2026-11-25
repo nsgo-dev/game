@@ -11,7 +11,8 @@ import "github.com/nsgo-dev/game/packages/game/tooling/jsonschema"
 | Format | Schema | Files |
 | --- | --- | --- |
 | Scene, version 1 | `https://game.nsgo.dev/schemas/scene.v1.json` | `*.scene.yaml`, read by `sceneformat.Parse` |
-| Scene, version 2 | `https://game.nsgo.dev/schemas/scene.v2.json` | `*.scene.yaml` that instance or inherit other scene files, read by `sceneformat.Parse` |
+| Scene, version 2 | `https://game.nsgo.dev/schemas/scene.v2.json` | `*.scene.yaml` that instance or inherit other scene files or hold layered tilemaps or LDtk levels, read by `sceneformat.Parse` |
+| Tileset, version 1 | `https://game.nsgo.dev/schemas/tileset.v1.json` | `*.tileset.yaml`, read by `tilemap.ParseTileset` and `tilemap.LoadTilesetFS` |
 | Import settings, version 1 | `https://game.nsgo.dev/schemas/import.v1.json` | `*.import.yaml` beside an asset, read by `importsettings.Parse`, by `game assets` and, for its credit, by `game release` and `game credits` ([Command Line](cli.md#assets)) |
 | Voxel world, version 1 | `https://game.nsgo.dev/schemas/voxel.v1.json` | `*.voxel.yaml`, read by `voxel.Parse` and `voxel.LoadYAML` |
 | Localization string table, version 1 | `https://game.nsgo.dev/schemas/l10n.v1.json` | per-locale `*.yaml` files such as `locales/en.yaml`, read by `l10n.ParseYAML` and `l10n.Catalog.LoadYAML` |

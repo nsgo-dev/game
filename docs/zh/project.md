@@ -213,7 +213,7 @@ go run github.com/nsgo-dev/game/packages/game/cmd/gameproject targets [dir]
 
 ## 稳定引用
 
-文件之间通过路径互相引用：`game.yaml` 自动加载场景和资源，并从文件和文件夹构建资源，场景继承或实例化其他场景并引用材质、glTF 模型和 Tiled 地图，材质引用纹理，Tiled 和 LDtk 文件引用各自的图块集和图片（Tiled 图块集可以是 `.tsj` 或 `.json`），`.gltf` 模型引用它存放在单独文件中的缓冲区和图片（按 glTF 的写法做百分号编码），精灵图集在 `meta.image` 中引用它的页面图片。`game/refs` 包让这些引用在文件改名或移动后依然有效。它通过 `project` 包（`project.PathRefs`）读取 `game.yaml` 中的路径，因此无法通过校验的 `game.yaml` 会被报告，修好之前不会移动任何文件。
+文件之间通过路径互相引用：`game.yaml` 自动加载场景和资源，并从文件和文件夹构建资源，场景继承或实例化其他场景并引用材质、glTF 模型、Tiled 和 LDtk 地图以及 YAML 图块集，YAML 图块集引用它的图片，材质引用纹理，Tiled 和 LDtk 文件引用各自的图块集和图片（Tiled 图块集可以是 `.tsj` 或 `.json`），`.gltf` 模型引用它存放在单独文件中的缓冲区和图片（按 glTF 的写法做百分号编码），精灵图集在 `meta.image` 中引用它的页面图片。`game/refs` 包让这些引用在文件改名或移动后依然有效。它通过 `project` 包（`project.PathRefs`）读取 `game.yaml` 中的路径，因此无法通过校验的 `game.yaml` 会被报告，修好之前不会移动任何文件。
 
 每个场景文件和资源文件的文件头里都有一个稳定 ID，即 `uid`：只写入一次、此后不再改变，因此会跟着文件一起移动：
 

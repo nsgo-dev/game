@@ -17,7 +17,7 @@ NSGo takes **option (b) growing into (c)**: keep Go code and Tiled first-class, 
 The NSGo-native editor operates directly on `sceneformat.SceneDoc` files and focuses on the workflows where visual feedback beats hand-editing coordinates:
 
 1. **Object placement & transforms**: place, drag, rotate, scale, flip and Z-order objects across world and screen layers.
-2. **Tile painting**: paint inline tile grids or preview referenced Tiled `.tmj` tilemaps.
+2. **Tile painting**: paint inline tile grids, and the tile layers of layered grids with flipped tiles, or preview referenced Tiled `.tmj` and LDtk `.ldtk` maps.
 3. **Typed property & component editing**: inspect and edit `components` and `properties` with validation against the scene schema.
 4. **Undo / redo**: command-based editing history over scene documents.
 5. **Play-in-editor**: run the live `game.Loop` and `BuiltScene` directly inside the editor's `Canvas` without leaving the tool.
@@ -64,8 +64,43 @@ import "github.com/nsgo-dev/game/packages/game/sceneformat"
 A tilemap entry (in top-level `tilemaps` or inline on a layer) uses exactly one mode:
 
 - **Reference** (`ref`, layers only): names an entry in top-level `tilemaps`.
-- **External Tiled map** (`source`): path to a `.tmj` file resolved at build time through `TilemapResolver`.
+- **External map** (`source`): a slash-separated path from the project root to a Tiled map (`.tmj` or `.tmx`) or an LDtk project (`.ldtk`); for LDtk, `level` names the level to build (version 2), and without it the project's first level is built.
 - **Inline grid**: `tileWidth`, `tileHeight`, `width`, `height`, `tileset` (atlas name whose frames are keyed `"1"`, `"2"`, …), and row-major `data` of length `width * height` (`0` is an empty tile).
+- **Layered grid** (version 2): `tileWidth`, `tileHeight`, `width`, `height`, `tilesetFile`, the path of a YAML tileset (`*.tileset.yaml`, see [YAML tilesets](tilemap.md#yaml-tilesets)) whose tiles the cells place, and `tileLayers`, up to `MaxTileLayers` named layers drawn in order.
+
+The tileset of a layered grid defines each tile once, with its flags, properties, collision shapes, animation and terrain, so the map only places tiles, as a Godot TileSet does for its TileMapLayers. Each tile layer has a `name`, optional `visible` (default `true`) and `opacity` (default `1`), and `rows`: `height` rows from the top, each `width` cells separated by spaces. A cell is `.` when empty, or the tile's local ID in the tileset (`0`, `1`, …) followed by any of `h`, `v` and `d` to flip it horizontally, vertically or across its diagonal, as Tiled's flip bits do, so `3hv` is tile 3 turned half a turn. A row may align its cells with extra spaces and write the letters in any order; `Encode` writes single spaces and the order `h`, `v`, `d`, so each row is one line in a diff.
+
+```yaml
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/scene.v2.json
+version: 2
+name: Cave
+virtualWidth: 320
+virtualHeight: 180
+layers:
+  - name: ground
+    tilemap:
+      tileWidth: 16
+      tileHeight: 16
+      width: 4
+      height: 2
+      tilesetFile: tilesets/cave.tileset.yaml
+      tileLayers:
+        - name: floor
+          rows:
+            - 0 0 0 0
+            - . . 1h 3hvd
+        - name: deco
+          opacity: 0.5
+          rows:
+            - 2 . . .
+            - . . . .
+```
+
+`TileLayerDoc.Cell`, `SetCell` and `Cells` read and write a layer's cells as tile values, the GIDs they have once built: `0` for an empty cell, otherwise the local ID plus 1 with `tilemap.FlipHorizontal`, `FlipVertical` and `FlipDiagonal` set; `ParseTileRow` and `FormatTileRow` do the same for one row.
+
+`Build` turns a single grid of atlas frames into a sprite batch (`BuiltLayer.Tilemap`), and a layered grid or an external map into a `tilemap.Tilemap` (`BuiltLayer.Map`). The map carries the tileset's flags, properties, shapes, animations and terrains, so in the layer's coordinates it answers `FlagsAt`, `TileProperties`, `TilesInRect` and `Raycast` and serves `tileshape.New` for slopes and occluders. `BuiltScene.Draw` draws only the map tiles inside the virtual viewport, seen through the camera for a world-space layer, unless the scene has no virtual size or `DrawAllTiles` is set, as the editor sets it for its edit view; `BuiltScene.Update(dt)` advances animated tiles.
+
+`Build` reads YAML tilesets, Tiled maps with their external tilesets and LDtk projects through the resolver's `FileResolver` (`ReadFile`), with paths in a Tiled or LDtk file taken from that file's directory, and loads their images through an `ImageResolver` (`Image`) when the resolver has one, or names them by path (`core.ImageSource{URI: path}`) otherwise. `FSAssets` reads a project's files from an `fs.FS`, so a scene that names a `.tmj`, `.ldtk` or `.tileset.yaml` builds with no resolver of the game's own. A resolver that implements `TilemapResolver` still loads every `source` itself into a `TilemapDoc`, as before.
 
 ### Layers and Objects
 
@@ -287,15 +322,20 @@ if err != nil {
 	return err
 }
 
-built, err := sceneformat.Build(doc, sceneformat.AtlasMap{
-	"cave_tiles": tilesAtlas,
-	"actors":     actorsAtlas,
-	"ui":         uiAtlas,
+built, err := sceneformat.Build(doc, sceneformat.FSAssets{
+	FS: os.DirFS(projectDir), // YAML tilesets, Tiled and LDtk maps
+	Atlases: sceneformat.AtlasMap{
+		"cave_tiles": tilesAtlas,
+		"actors":     actorsAtlas,
+		"ui":         uiAtlas,
+	},
 })
 if err != nil {
 	return err
 }
 
+// Each update step:
+built.Update(dt)
 // In a core.Canvas's Draw callback:
 built.Draw(d)
 ```
@@ -304,7 +344,7 @@ built.Draw(d)
 
 ### Schema
 
-The scene format's JSON Schemas are published at `https://game.nsgo.dev/schemas/scene.v1.json` (`sceneformat.SchemaURL`) and, for version 2 scenes that instance or inherit other scene files, `https://game.nsgo.dev/schemas/scene.v2.json` (`sceneformat.SchemaURLV2`). `Encode` starts every file with the `# yaml-language-server: $schema=…` line for its version (`sceneformat.SchemaCommentFor`), so VS Code's YAML extension and other editors with a YAML language server validate and complete a scene as it is written. See [Schemas for YAML files](schemas.md).
+The scene format's JSON Schemas are published at `https://game.nsgo.dev/schemas/scene.v1.json` (`sceneformat.SchemaURL`) and, for version 2 scenes that instance or inherit other scene files or hold layered grids or LDtk levels, `https://game.nsgo.dev/schemas/scene.v2.json` (`sceneformat.SchemaURLV2`). `Encode` starts every file with the `# yaml-language-server: $schema=…` line for its version (`sceneformat.SchemaCommentFor`), so VS Code's YAML extension and other editors with a YAML language server validate and complete a scene as it is written. See [Schemas for YAML files](schemas.md).
 
 ### Component types
 
@@ -524,7 +564,9 @@ In Go, `BeginDrag2D(x, y)` starts a drag at a canvas point and returns the handl
 
 While the Paint, Erase, Fill or Pick tool is active in 2D, the tile palette shows right of the viewport. It shows the tiles of the active layer's tileset as a grid in tile ID order, each at the tilemap's tile size (a tile wider than the panel is scaled down to fit it). The tiles are the tileset atlas's frames whose names are tile IDs (`"1"`, `"2"`, …), as the scene format looks tiles up; other frames are left out. Pressing a tile, or moving between tiles with the arrow keys, makes it the tile Paint and Fill write (`SetActiveTileID`); every arrow key steps through the tiles in ID order, Left and Up to the previous tile and Right and Down to the next, not by rows of the grid. The selected tile is ringed, and with Paint or Fill the status bar shows its ID. Choosing a tile is not an edit and does not go into the undo history; the paint that follows is one undoable step.
 
-The palette follows the active layer: when it changes, the palette shows the new layer's tileset, and if that tileset has no tile with the selected ID, its first tile is selected. A layer with no inline tilemap (none, or an external Tiled map), a tileset the resolver cannot resolve and a tileset without tile frames each show a message saying so instead of an empty grid. In Go, `TilePalette()` returns what the palette shows for the active layer: its tileset, tile size and tiles, or the message.
+The palette follows the active layer: when it changes, the palette shows the new layer's tileset, and if that tileset has no tile with the selected ID, its first tile is selected. A layer with no inline tilemap (none, or an external Tiled or LDtk map), a tileset the resolver cannot resolve and a tileset without tile frames each show a message saying so instead of an empty grid. In Go, `TilePalette()` returns what the palette shows for the active layer: its tileset, tile size and tiles, or the message.
+
+For a layered grid the palette shows the tiles of its YAML tileset, read through the resolver's `sceneformat.FileResolver` (such as `FSAssets`), numbered from 1 as `PaintTile` takes them: tile ID `n` paints the tileset's local tile `n - 1`. Above the tiles, a toggle per tile layer picks the one Paint, Erase and Fill change (`SetActiveTileLayer`, `ActiveTileLayer`, the first by default), and the H, V and D toggles set the flips Paint and Fill place tiles with (`SetActiveTileFlip`, `ActiveTileFlip`). The edits write the layer's rows in the form `Encode` saves, one undoable step each, and Fill joins cells whose tile and flips both match.
 
 ## Painting, erasing and picking tiles (#875)
 

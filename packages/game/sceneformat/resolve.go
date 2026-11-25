@@ -363,7 +363,7 @@ func validateSceneRefs(doc *SceneDoc) error {
 			return fieldErr(at(lp, "space"), "sceneformat: layerOverrides %q has invalid space %q (want %q or %q)", name, lo.Space, SpaceWorld, SpaceScreen)
 		}
 		if lo.Tilemap != nil {
-			if err := validateTilemap(at(lp, "tilemap"), fmt.Sprintf("layerOverrides %q tilemap", name), lo.Tilemap, true, doc.Tilemaps, false); err != nil {
+			if err := validateTilemap(doc.Version, at(lp, "tilemap"), fmt.Sprintf("layerOverrides %q tilemap", name), lo.Tilemap, true, doc.Tilemaps, false); err != nil {
 				return err
 			}
 		}
@@ -648,6 +648,15 @@ func cloneTilemap(tm *TilemapDoc) *TilemapDoc {
 	}
 	out := *tm
 	out.Data = slices.Clone(tm.Data)
+	if tm.TileLayers != nil {
+		out.TileLayers = make([]TileLayerDoc, len(tm.TileLayers))
+		for i, l := range tm.TileLayers {
+			l.Visible = clonePtr(l.Visible)
+			l.Opacity = clonePtr(l.Opacity)
+			l.Rows = slices.Clone(l.Rows)
+			out.TileLayers[i] = l
+		}
+	}
 	return &out
 }
 

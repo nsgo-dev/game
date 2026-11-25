@@ -3,10 +3,12 @@ package sceneformat_test
 import (
 	"bytes"
 	"fmt"
+	"testing/fstest"
 
 	"github.com/nsgo-dev/game/packages/game/entities"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/game/packages/game/sprite"
+	"github.com/nsgo-dev/game/packages/game/tilemap"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -173,4 +175,43 @@ connections:
 	// button opens door (entity 1), press 1
 	// button opens door (entity 1), press 2
 	// <nil>
+}
+
+// A layered tilemap places the tiles of a YAML tileset in named tile layers. FSAssets reads the tileset from the project's files, and Build makes the layer a tilemap.Tilemap that answers collision queries.
+func ExampleFSAssets() {
+	project := fstest.MapFS{
+		"tilesets/cave.tileset.yaml": {Data: []byte("version: 1\ntileWidth: 16\ntileHeight: 16\nimage: tiles/cave.png\ncolumns: 2\ntileCount: 2\ntiles:\n  - id: 0\n    solid: true\n")},
+		"level.scene.yaml": {Data: []byte(`version: 2
+layers:
+  - name: ground
+    tilemap:
+      tileWidth: 16
+      tileHeight: 16
+      width: 3
+      height: 1
+      tilesetFile: tilesets/cave.tileset.yaml
+      tileLayers:
+        - name: floor
+          rows:
+            - 0 1h 0
+`)},
+	}
+	assets := sceneformat.FSAssets{FS: project}
+	doc, err := assets.Scene("level.scene.yaml")
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	built, err := sceneformat.Build(doc, assets)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	m := built.Layer("ground").Map
+	fmt.Println(m.Layers[0].Name, m.FlagsAt(0, 0) == tilemap.TileSolid, m.FlagsAt(1, 0))
+	hit, _ := m.Raycast(core.Point{X: 24, Y: 8}, core.Point{X: 60, Y: 8}, tilemap.TileSolid)
+	fmt.Println(hit.Col, hit.Point)
+	// Output:
+	// floor true 0
+	// 2 {32 8}
 }

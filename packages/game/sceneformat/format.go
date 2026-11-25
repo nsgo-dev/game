@@ -16,6 +16,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/loaderr"
 	"github.com/nsgo-dev/game/packages/game/math2d"
 	"github.com/nsgo-dev/game/packages/game/resource"
+	"github.com/nsgo-dev/game/packages/game/tilemap"
 	"github.com/nsgo-dev/nsgo/core"
 	"go.yaml.in/yaml/v3"
 )
@@ -175,22 +176,163 @@ func (l *LayerDoc) EffectiveSpace() Space {
 	return l.Space
 }
 
-// TilemapDoc describes either a reference to a named top-level tilemap (Ref), an external Tiled JSON map (Source), or an inline tile grid.
+// TilemapDoc describes a tilemap in one of three modes: a reference to a named top-level tilemap (Ref), an external Tiled or LDtk map (Source), or an inline grid. An inline grid is either a single grid of atlas frame numbers (Tileset and Data) or, in version 2, a layered grid that places the tiles of a YAML tileset (TilesetFile and TileLayers).
 type TilemapDoc struct {
 	// Ref names an entry in SceneDoc.Tilemaps. Only valid on a layer's Tilemap.
 	Ref string `yaml:"ref,omitempty"`
-	// Source is a path to an external Tiled .tmj file resolved by a TilemapResolver.
+	// Source is the slash-separated path from the project root of an external map: a Tiled map (.tmj or .tmx) or an LDtk project (.ldtk). Build loads it itself when its resolver implements FileResolver, as FSAssets does, or through a TilemapResolver.
 	Source string `yaml:"source,omitempty"`
+	// Level names the level of an LDtk Source to build; empty builds the project's first level. It requires a .ldtk Source. Version 2.
+	Level string `yaml:"level,omitempty"`
 	// TileWidth and TileHeight are each tile's size in points for an inline grid.
 	TileWidth  int `yaml:"tileWidth,omitempty" schema:"minimum=0"`
 	TileHeight int `yaml:"tileHeight,omitempty" schema:"minimum=0"`
 	// Width and Height are the inline grid dimensions in tiles.
 	Width  int `yaml:"width,omitempty" schema:"minimum=0"`
 	Height int `yaml:"height,omitempty" schema:"minimum=0"`
-	// Tileset is the atlas name providing frames keyed by 1-based tile ID ("1", "2", ...).
+	// Tileset is, for a single grid, the atlas name providing frames keyed by 1-based tile ID ("1", "2", ...).
 	Tileset string `yaml:"tileset,omitempty"`
-	// Data holds Width*Height row-major tile IDs; 0 is an empty cell.
+	// TilesetFile is, for a layered grid, the YAML tileset (*.tileset.yaml, tilemap.TilesetDoc) whose tiles the cells place, by its slash-separated path from the project root. Version 2.
+	TilesetFile string `yaml:"tilesetFile,omitempty"`
+	// Data holds a single grid's Width*Height row-major tile IDs; 0 is an empty cell.
 	Data []int `yaml:"data,omitempty,flow"`
+	// TileLayers are a layered grid's tile layers, drawn in order, each Width by Height cells, at most MaxTileLayers of them. Version 2.
+	TileLayers []TileLayerDoc `yaml:"tileLayers,omitempty"`
+}
+
+// MaxTileLayers is the most tile layers one layered grid may hold (TilemapDoc.TileLayers).
+const MaxTileLayers = 64
+
+// TileLayerDoc is one named layer of tiles of a layered grid (TilemapDoc.TileLayers), the text counterpart of one of Godot's TileMapLayer nodes.
+type TileLayerDoc struct {
+	// Name identifies the layer within its tilemap; tilemap.Tilemap.Layer finds it by this name once built.
+	Name string `yaml:"name" schema:"required,minLength=1"`
+	// Visible controls whether the layer draws; nil defaults to true.
+	Visible *bool `yaml:"visible,omitempty"`
+	// Opacity is the layer's opacity in [0, 1]; nil defaults to 1.
+	Opacity *float32 `yaml:"opacity,omitempty" schema:"minimum=0,maximum=1"`
+	// Rows are the layer's Height rows from the top, each Width cells separated by spaces. A cell is "." when empty, or the local ID of a tile of the tileset (0, 1, ...) followed by any of h, v and d to flip it horizontally, vertically or across its diagonal, as Tiled's flip bits do: "3", "3h" and "3hvd". Encode writes the cells separated by single spaces with the letters in the order h, v, d.
+	Rows []string `yaml:"rows,omitempty"`
+}
+
+// IsVisible reports whether the tile layer is visible, defaulting to true when Visible is nil.
+func (l *TileLayerDoc) IsVisible() bool { return l == nil || l.Visible == nil || *l.Visible }
+
+// EffectiveOpacity returns Opacity, defaulting to 1 when nil.
+func (l *TileLayerDoc) EffectiveOpacity() float32 {
+	if l == nil || l.Opacity == nil {
+		return 1
+	}
+	return *l.Opacity
+}
+
+// Cell returns the cell at (col, row) of the layer as a tile value: 0 for an empty cell, or the tile's local ID plus 1 with tilemap's flip bits (tilemap.FlipHorizontal, FlipVertical and FlipDiagonal) set, which is the GID the cell has in the tilemap.Tilemap Build makes, whose tileset starts at GID 1.
+func (l *TileLayerDoc) Cell(col, row int) (uint32, error) {
+	if row < 0 || row >= len(l.Rows) {
+		return 0, fmt.Errorf("sceneformat: tile layer %q has no row %d", l.Name, row)
+	}
+	cells, err := ParseTileRow(l.Rows[row])
+	if err != nil {
+		return 0, fmt.Errorf("sceneformat: tile layer %q row %d: %w", l.Name, row, err)
+	}
+	if col < 0 || col >= len(cells) {
+		return 0, fmt.Errorf("sceneformat: tile layer %q row %d has no column %d", l.Name, row, col)
+	}
+	return cells[col], nil
+}
+
+// SetCell sets the cell at (col, row) of the layer to the tile value cell, as Cell returns it, and writes that row in the form Encode does.
+func (l *TileLayerDoc) SetCell(col, row int, cell uint32) error {
+	if row < 0 || row >= len(l.Rows) {
+		return fmt.Errorf("sceneformat: tile layer %q has no row %d", l.Name, row)
+	}
+	cells, err := ParseTileRow(l.Rows[row])
+	if err != nil {
+		return fmt.Errorf("sceneformat: tile layer %q row %d: %w", l.Name, row, err)
+	}
+	if col < 0 || col >= len(cells) {
+		return fmt.Errorf("sceneformat: tile layer %q row %d has no column %d", l.Name, row, col)
+	}
+	if cell&tilemap.TileIDMask == 0 {
+		cell = 0
+	}
+	cells[col] = cell & (tilemap.TileIDMask | tilemap.FlipMask)
+	l.Rows[row] = FormatTileRow(cells)
+	return nil
+}
+
+// Cells returns the layer's cells row by row from the top, as Cell returns each.
+func (l *TileLayerDoc) Cells() ([]uint32, error) {
+	var out []uint32
+	for r, row := range l.Rows {
+		cells, err := ParseTileRow(row)
+		if err != nil {
+			return nil, fmt.Errorf("sceneformat: tile layer %q row %d: %w", l.Name, r, err)
+		}
+		out = append(out, cells...)
+	}
+	return out, nil
+}
+
+// ParseTileRow parses one row of a tile layer (TileLayerDoc.Rows) into its cells, as TileLayerDoc.Cell returns each. Cells are separated by spaces or tabs, and a cell's flip letters may come in any order, each at most once.
+func ParseTileRow(row string) ([]uint32, error) {
+	fields := strings.Fields(row)
+	cells := make([]uint32, len(fields))
+	for i, f := range fields {
+		if f == "." {
+			continue
+		}
+		digits := strings.TrimRight(f, "hvd")
+		if digits == "" || strings.TrimLeft(digits, "0123456789") != "" {
+			return nil, fmt.Errorf("cell %d %q is not \".\" or a tile ID followed by h, v or d", i, f)
+		}
+		id, err := strconv.ParseUint(digits, 10, 32)
+		if err != nil || id >= uint64(tilemap.TileIDMask) {
+			return nil, fmt.Errorf("cell %d %q has a tile ID above %d", i, f, tilemap.TileIDMask-1)
+		}
+		cell := uint32(id) + 1
+		for _, c := range f[len(digits):] {
+			bit := tilemap.FlipHorizontal
+			switch c {
+			case 'v':
+				bit = tilemap.FlipVertical
+			case 'd':
+				bit = tilemap.FlipDiagonal
+			}
+			if cell&bit != 0 {
+				return nil, fmt.Errorf("cell %d %q flips %c twice", i, f, c)
+			}
+			cell |= bit
+		}
+		cells[i] = cell
+	}
+	return cells, nil
+}
+
+// FormatTileRow writes cells, tile values as TileLayerDoc.Cell returns them, as one row of a tile layer in the form Encode writes: single spaces between cells, "." for an empty one and flip letters in the order h, v, d.
+func FormatTileRow(cells []uint32) string {
+	var b strings.Builder
+	for i, cell := range cells {
+		if i > 0 {
+			b.WriteByte(' ')
+		}
+		id := cell & tilemap.TileIDMask
+		if id == 0 {
+			b.WriteByte('.')
+			continue
+		}
+		b.WriteString(strconv.FormatUint(uint64(id-1), 10))
+		if cell&tilemap.FlipHorizontal != 0 {
+			b.WriteByte('h')
+		}
+		if cell&tilemap.FlipVertical != 0 {
+			b.WriteByte('v')
+		}
+		if cell&tilemap.FlipDiagonal != 0 {
+			b.WriteByte('d')
+		}
+	}
+	return b.String()
 }
 
 // IsRef reports whether t references a top-level tilemap by name.
@@ -199,9 +341,27 @@ func (t *TilemapDoc) IsRef() bool { return t != nil && t.Ref != "" }
 // IsExternal reports whether t references an external tilemap source file.
 func (t *TilemapDoc) IsExternal() bool { return t != nil && t.Source != "" }
 
-// IsInline reports whether t carries an inline tile grid.
+// IsInline reports whether t carries an inline tile grid, single or layered.
 func (t *TilemapDoc) IsInline() bool {
-	return t != nil && (t.TileWidth != 0 || t.TileHeight != 0 || t.Width != 0 || t.Height != 0 || t.Tileset != "" || len(t.Data) > 0)
+	return t != nil && (t.TileWidth != 0 || t.TileHeight != 0 || t.Width != 0 || t.Height != 0 || t.Tileset != "" || len(t.Data) > 0 || t.IsLayered())
+}
+
+// IsLayered reports whether t is a layered grid, one that names a YAML tileset (TilesetFile) or holds tile layers (TileLayers).
+func (t *TilemapDoc) IsLayered() bool {
+	return t != nil && (t.TilesetFile != "" || len(t.TileLayers) > 0)
+}
+
+// TileLayer returns the tile layer of a layered grid named name, or nil.
+func (t *TilemapDoc) TileLayer(name string) *TileLayerDoc {
+	if t == nil {
+		return nil
+	}
+	for i := range t.TileLayers {
+		if t.TileLayers[i].Name == name {
+			return &t.TileLayers[i]
+		}
+	}
+	return nil
 }
 
 // ObjectDoc is one entity or visual object placed on a layer.
@@ -621,7 +781,7 @@ func Encode(doc *SceneDoc) ([]byte, error) {
 	buf.WriteString(SchemaCommentFor(doc.Version) + "\n")
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
-	if err := enc.Encode(floatKinds(doc)); err != nil {
+	if err := enc.Encode(canonicalTilemaps(floatKinds(doc))); err != nil {
 		_ = enc.Close()
 		return nil, fmt.Errorf("sceneformat: encode: %w", err)
 	}
@@ -629,6 +789,52 @@ func Encode(doc *SceneDoc) ([]byte, error) {
 		return nil, fmt.Errorf("sceneformat: encode: %w", err)
 	}
 	return buf.Bytes(), nil
+}
+
+// canonicalTilemaps returns doc, which validates, for encoding with every row of its layered grids written as FormatTileRow writes it, so that a row a person aligned with extra spaces or wrote with its flip letters in another order is saved in one form. doc is not changed: the copy shares everything but the tilemaps and layers it rewrites.
+func canonicalTilemaps(doc *SceneDoc) *SceneDoc {
+	out := *doc
+	if doc.Tilemaps != nil {
+		out.Tilemaps = make(map[string]*TilemapDoc, len(doc.Tilemaps))
+		for name, tm := range doc.Tilemaps {
+			out.Tilemaps[name] = canonicalTilemap(tm)
+		}
+	}
+	if doc.LayerOverrides != nil {
+		out.LayerOverrides = make(map[string]LayerOverride, len(doc.LayerOverrides))
+		for name, lo := range doc.LayerOverrides {
+			lo.Tilemap = canonicalTilemap(lo.Tilemap)
+			out.LayerOverrides[name] = lo
+		}
+	}
+	if doc.Layers != nil {
+		out.Layers = make([]LayerDoc, len(doc.Layers))
+		for i, l := range doc.Layers {
+			l.Tilemap = canonicalTilemap(l.Tilemap)
+			out.Layers[i] = l
+		}
+	}
+	return &out
+}
+
+// canonicalTilemap returns tm with its tile layers' rows in canonical form, or tm itself when it has no tile layers.
+func canonicalTilemap(tm *TilemapDoc) *TilemapDoc {
+	if tm == nil || len(tm.TileLayers) == 0 {
+		return tm
+	}
+	out := *tm
+	out.TileLayers = make([]TileLayerDoc, len(tm.TileLayers))
+	for i, l := range tm.TileLayers {
+		rows := make([]string, len(l.Rows))
+		for r, row := range l.Rows {
+			// Validate has parsed every row, so this cannot fail.
+			cells, _ := ParseTileRow(row)
+			rows[r] = FormatTileRow(cells)
+		}
+		l.Rows = rows
+		out.TileLayers[i] = l
+	}
+	return &out
 }
 
 // FieldError is the error Validate returns: what is wrong with a scene document and which field it is about, so a tool such as `game check` can point at the line that holds it.
@@ -703,7 +909,7 @@ func Validate(doc *SceneDoc) error {
 		if name == "" {
 			return fieldErr([]string{"tilemaps"}, "sceneformat: tilemaps contains an empty key")
 		}
-		if err := validateTilemap([]string{"tilemaps", name}, fmt.Sprintf("tilemap %q", name), doc.Tilemaps[name], false, nil, false); err != nil {
+		if err := validateTilemap(doc.Version, []string{"tilemaps", name}, fmt.Sprintf("tilemap %q", name), doc.Tilemaps[name], false, nil, false); err != nil {
 			return err
 		}
 	}
@@ -728,7 +934,7 @@ func Validate(doc *SceneDoc) error {
 		}
 		if l.Tilemap != nil {
 			// A scene that inherits another may name the base's tilemaps, which Resolve checks once they are merged.
-			if err := validateTilemap(at(lp, "tilemap"), fmt.Sprintf("layer %q tilemap", l.Name), l.Tilemap, true, doc.Tilemaps, doc.Inherits == ""); err != nil {
+			if err := validateTilemap(doc.Version, at(lp, "tilemap"), fmt.Sprintf("layer %q tilemap", l.Name), l.Tilemap, true, doc.Tilemaps, doc.Inherits == ""); err != nil {
 				return err
 			}
 		}
@@ -829,10 +1035,24 @@ func validateCamera(c *CameraDoc) error {
 	return nil
 }
 
-// validateTilemap checks tm, found at path in the document and described in messages as where; checkRef reports whether a ref must name an entry of table.
-func validateTilemap(path []string, where string, tm *TilemapDoc, allowRef bool, table map[string]*TilemapDoc, checkRef bool) error {
+// validateTilemap checks tm, found at path in a document of the given version and described in messages as where; checkRef reports whether a ref must name an entry of table.
+func validateTilemap(version int, path []string, where string, tm *TilemapDoc, allowRef bool, table map[string]*TilemapDoc, checkRef bool) error {
 	if tm == nil {
 		return fieldErr(path, "sceneformat: %s is nil", where)
+	}
+	if version < 2 {
+		field := ""
+		switch {
+		case tm.Level != "":
+			field = "level"
+		case tm.TilesetFile != "":
+			field = "tilesetFile"
+		case len(tm.TileLayers) > 0:
+			field = "tileLayers"
+		}
+		if field != "" {
+			return fieldErr(at(path, field), "sceneformat: %s: level, tilesetFile and tileLayers need version 2, not %d", where, version)
+		}
 	}
 	isRef := tm.IsRef()
 	isExt := tm.IsExternal()
@@ -849,10 +1069,16 @@ func validateTilemap(path []string, where string, tm *TilemapDoc, allowRef bool,
 		modes++
 	}
 	if modes == 0 {
+		if tm.Level != "" {
+			return fieldErr(at(path, "level"), "sceneformat: %s level %q requires an LDtk source", where, tm.Level)
+		}
 		return fieldErr(path, "sceneformat: %s must specify ref, source or inline tile grid", where)
 	}
 	if modes > 1 {
 		return fieldErr(path, "sceneformat: %s cannot combine ref, source and inline tile grid", where)
+	}
+	if tm.Level != "" && (!isExt || !strings.EqualFold(pathExt(tm.Source), ".ldtk")) {
+		return fieldErr(at(path, "level"), "sceneformat: %s level %q requires an LDtk (.ldtk) source", where, tm.Level)
 	}
 	if isRef {
 		if !allowRef {
@@ -868,6 +1094,19 @@ func validateTilemap(path []string, where string, tm *TilemapDoc, allowRef bool,
 	}
 	return validateInlineTilemap(path, where, tm)
 }
+
+// pathExt returns the extension of the slash-separated path p, as path.Ext does.
+func pathExt(p string) string {
+	for i := len(p) - 1; i >= 0 && p[i] != '/'; i-- {
+		if p[i] == '.' {
+			return p[i:]
+		}
+	}
+	return ""
+}
+
+// maxTilesPerTilemap caps an inline grid's cells, over all its tile layers. Multiplying as int64 against it first stops a crafted width and height from overflowing to a small product, passing the length check and panicking the runtime builder on its tile index.
+const maxTilesPerTilemap = 1 << 24
 
 // validateInlineTilemap checks the inline grid tm, found at path in the document (nil when it was loaded from a source file) and described in messages as where.
 func validateInlineTilemap(path []string, where string, tm *TilemapDoc) error {
@@ -885,11 +1124,12 @@ func validateInlineTilemap(path []string, where string, tm *TilemapDoc) error {
 		}
 		return fieldErr(at(path, field), "sceneformat: %s width (%d) and height (%d) must be positive", where, tm.Width, tm.Height)
 	}
+	if tm.IsLayered() {
+		return validateLayeredTilemap(path, where, tm)
+	}
 	if tm.Tileset == "" {
 		return fieldErr(at(path, "tileset"), "sceneformat: %s requires a tileset name", where)
 	}
-	// Multiply as int64 and cap the grid before comparing lengths: a crafted width and height could otherwise overflow to a small product, pass the length check and panic the runtime builder on its tile index.
-	const maxTilesPerTilemap = 1 << 24
 	if int64(tm.Width)*int64(tm.Height) > maxTilesPerTilemap {
 		return fieldErr(at(path, "width"), "sceneformat: %s is %dx%d, more than %d tiles", where, tm.Width, tm.Height, maxTilesPerTilemap)
 	}
@@ -900,6 +1140,55 @@ func validateInlineTilemap(path []string, where string, tm *TilemapDoc) error {
 	for i, gid := range tm.Data {
 		if gid < 0 {
 			return fieldErr(at(path, "data", strconv.Itoa(i)), "sceneformat: %s tile at index %d has negative id %d", where, i, gid)
+		}
+	}
+	return nil
+}
+
+// validateLayeredTilemap checks the layered grid tm, whose tile and grid sizes are already checked, as validateInlineTilemap does.
+func validateLayeredTilemap(path []string, where string, tm *TilemapDoc) error {
+	switch {
+	case tm.Tileset != "":
+		return fieldErr(at(path, "tileset"), "sceneformat: %s cannot combine tileset and data with tilesetFile and tileLayers", where)
+	case len(tm.Data) > 0:
+		return fieldErr(at(path, "data"), "sceneformat: %s cannot combine tileset and data with tilesetFile and tileLayers", where)
+	case tm.TilesetFile == "":
+		return fieldErr(at(path, "tilesetFile"), "sceneformat: %s requires a tilesetFile", where)
+	case !validFilePath(tm.TilesetFile):
+		return fieldErr(at(path, "tilesetFile"), "sceneformat: %s tilesetFile %q must be a slash-separated path relative to the project root", where, tm.TilesetFile)
+	case len(tm.TileLayers) == 0:
+		return fieldErr(at(path, "tileLayers"), "sceneformat: %s requires at least one tile layer", where)
+	case len(tm.TileLayers) > MaxTileLayers:
+		return fieldErr(at(path, "tileLayers"), "sceneformat: %s has %d tile layers, more than %d", where, len(tm.TileLayers), MaxTileLayers)
+	}
+	if int64(tm.Width)*int64(tm.Height)*int64(len(tm.TileLayers)) > maxTilesPerTilemap {
+		return fieldErr(at(path, "width"), "sceneformat: %s is %d layers of %dx%d, more than %d tiles", where, len(tm.TileLayers), tm.Width, tm.Height, maxTilesPerTilemap)
+	}
+	names := make(map[string]struct{}, len(tm.TileLayers))
+	for i := range tm.TileLayers {
+		l := &tm.TileLayers[i]
+		lp := at(path, "tileLayers", strconv.Itoa(i))
+		if l.Name == "" {
+			return fieldErr(at(lp, "name"), "sceneformat: %s tile layer %d has an empty name", where, i)
+		}
+		if _, dup := names[l.Name]; dup {
+			return fieldErr(at(lp, "name"), "sceneformat: %s has two tile layers named %q", where, l.Name)
+		}
+		names[l.Name] = struct{}{}
+		if l.Opacity != nil && (!isFinite(*l.Opacity) || *l.Opacity < 0 || *l.Opacity > 1) {
+			return fieldErr(at(lp, "opacity"), "sceneformat: %s tile layer %q opacity %v must be in [0, 1]", where, l.Name, *l.Opacity)
+		}
+		if len(l.Rows) != tm.Height {
+			return fieldErr(at(lp, "rows"), "sceneformat: %s tile layer %q has %d rows, want %d", where, l.Name, len(l.Rows), tm.Height)
+		}
+		for r, row := range l.Rows {
+			cells, err := ParseTileRow(row)
+			if err != nil {
+				return fieldErr(at(lp, "rows", strconv.Itoa(r)), "sceneformat: %s tile layer %q row %d: %w", where, l.Name, r, err)
+			}
+			if len(cells) != tm.Width {
+				return fieldErr(at(lp, "rows", strconv.Itoa(r)), "sceneformat: %s tile layer %q row %d has %d cells, want %d", where, l.Name, r, len(cells), tm.Width)
+			}
 		}
 	}
 	return nil

@@ -394,7 +394,7 @@ layers:
 
 | Files | Version | Read and written by | Fields |
 | --- | --- | --- | --- |
-| `*.scene.yaml`, such as `scenes/cave_room.scene.yaml` | `version: 1`, or `version: 2` for a scene that instances or inherits other scene files; built-in physics components `version: 1` | `sceneformat.Parse`, `sceneformat.Encode` | [Editor & Scene Format](editor.md); schemas `https://game.nsgo.dev/schemas/scene.v1.json` and `scene.v2.json` |
+| `*.scene.yaml`, such as `scenes/cave_room.scene.yaml` | `version: 1`, or `version: 2` for a scene that instances or inherits other scene files or holds a layered tilemap or an LDtk level; built-in physics components `version: 1` | `sceneformat.Parse`, `sceneformat.Encode` | [Editor & Scene Format](editor.md); schemas `https://game.nsgo.dev/schemas/scene.v1.json` and `scene.v2.json` |
 
 ```yaml
 # yaml-language-server: $schema=https://game.nsgo.dev/schemas/scene.v1.json
@@ -461,6 +461,47 @@ meshes:
         triangles:
           - [0, 1, 2]
           - [0, 2, 3]
+```
+
+<!-- format: tilemap#tileset -->
+### Tileset
+
+| Files | Version | Read and written by | Fields |
+| --- | --- | --- | --- |
+| `*.tileset.yaml`, such as `tilesets/cave.tileset.yaml`, named by a scene's layered tilemap (`tilesetFile`) | `version: 1` | `tilemap.ParseTileset`, `tilemap.EncodeTileset`, `tilemap.LoadTilesetFS`; `Tilemap.AddTilesetDoc` builds it | [tilemap](tilemap.md#yaml-tilesets); schema `https://game.nsgo.dev/schemas/tileset.v1.json` |
+
+```yaml
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/tileset.v1.json
+version: 1
+name: cave
+tileWidth: 16
+tileHeight: 16
+image: tiles/cave.png
+columns: 4
+tileCount: 8
+terrains:
+  - name: rock
+    mode: cardinal
+tiles:
+  - id: 0
+    solid: true
+    terrain: rock
+  - id: 1
+    solid: true
+    properties:
+      friction: 0.5
+    terrain: rock
+    neighbors: [east]
+  - id: 2
+    shapes:
+      - kind: polygon
+        points: [[0, 16], [16, 0], [16, 16]]
+  - id: 4
+    animation:
+      - tile: 4
+        duration: 200ms
+      - tile: 5
+        duration: 200ms
 ```
 
 <!-- format: resource -->

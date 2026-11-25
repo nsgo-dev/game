@@ -1,0 +1,38 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/scene.v2.json
+version: 2
+name: Layered Cave
+virtualWidth: 32
+virtualHeight: 16
+camera:
+  x: 16
+  "y": 8
+tilemaps:
+  caves:
+    source: maps/caves.ldtk
+    level: Level_1
+layers:
+  - name: ground
+    tilemap:
+      tileWidth: 16
+      tileHeight: 16
+      width: 4
+      height: 2
+      tilesetFile: tilesets/cave.tileset.yaml
+      tileLayers:
+        - name: floor
+          rows:
+            - 0 0 0 0
+            - . . 1h 3hvd
+        - name: deco
+          opacity: 0.5
+          rows:
+            - 2 . . .
+            - . . . .
+        - name: hidden
+          visible: false
+          rows:
+            - . . . .
+            - . . . 0d
+  - name: world
+    tilemap:
+      ref: caves

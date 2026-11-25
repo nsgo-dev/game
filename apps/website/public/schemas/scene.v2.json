@@ -661,8 +661,40 @@
       ],
       "additionalProperties": false
     },
+    "TileLayerDoc": {
+      "description": "TileLayerDoc is one named layer of tiles of a layered grid (TilemapDoc.TileLayers), the text counterpart of one of Godot's TileMapLayer nodes.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Name identifies the layer within its tilemap; tilemap.Tilemap.Layer finds it by this name once built.",
+          "type": "string",
+          "minLength": 1
+        },
+        "visible": {
+          "description": "Visible controls whether the layer draws; nil defaults to true.",
+          "type": "boolean"
+        },
+        "opacity": {
+          "description": "Opacity is the layer's opacity in [0, 1]; nil defaults to 1.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "rows": {
+          "description": "Rows are the layer's Height rows from the top, each Width cells separated by spaces. A cell is \".\" when empty, or the local ID of a tile of the tileset (0, 1, ...) followed by any of h, v and d to flip it horizontally, vertically or across its diagonal, as Tiled's flip bits do: \"3\", \"3h\" and \"3hvd\". Encode writes the cells separated by single spaces with the letters in the order h, v, d.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
     "TilemapDoc": {
-      "description": "TilemapDoc describes either a reference to a named top-level tilemap (Ref), an external Tiled JSON map (Source), or an inline tile grid.",
+      "description": "TilemapDoc describes a tilemap in one of three modes: a reference to a named top-level tilemap (Ref), an external Tiled or LDtk map (Source), or an inline grid. An inline grid is either a single grid of atlas frame numbers (Tileset and Data) or, in version 2, a layered grid that places the tiles of a YAML tileset (TilesetFile and TileLayers).",
       "type": "object",
       "properties": {
         "ref": {
@@ -670,7 +702,11 @@
           "type": "string"
         },
         "source": {
-          "description": "Source is a path to an external Tiled .tmj file resolved by a TilemapResolver.",
+          "description": "Source is the slash-separated path from the project root of an external map: a Tiled map (.tmj or .tmx) or an LDtk project (.ldtk). Build loads it itself when its resolver implements FileResolver, as FSAssets does, or through a TilemapResolver.",
+          "type": "string"
+        },
+        "level": {
+          "description": "Level names the level of an LDtk Source to build; empty builds the project's first level. It requires a .ldtk Source. Version 2.",
           "type": "string"
         },
         "tileWidth": {
@@ -698,16 +734,27 @@
           "maximum": 9223372036854776000
         },
         "tileset": {
-          "description": "Tileset is the atlas name providing frames keyed by 1-based tile ID (\"1\", \"2\", ...).",
+          "description": "Tileset is, for a single grid, the atlas name providing frames keyed by 1-based tile ID (\"1\", \"2\", ...).",
+          "type": "string"
+        },
+        "tilesetFile": {
+          "description": "TilesetFile is, for a layered grid, the YAML tileset (*.tileset.yaml, tilemap.TilesetDoc) whose tiles the cells place, by its slash-separated path from the project root. Version 2.",
           "type": "string"
         },
         "data": {
-          "description": "Data holds Width*Height row-major tile IDs; 0 is an empty cell.",
+          "description": "Data holds a single grid's Width*Height row-major tile IDs; 0 is an empty cell.",
           "type": "array",
           "items": {
             "type": "integer",
             "minimum": -9223372036854776000,
             "maximum": 9223372036854776000
+          }
+        },
+        "tileLayers": {
+          "description": "TileLayers are a layered grid's tile layers, drawn in order, each Width by Height cells, at most MaxTileLayers of them. Version 2.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TileLayerDoc"
           }
         }
       },
