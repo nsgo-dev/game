@@ -622,9 +622,23 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 - **矩形（Rect）**：拖动 4 个角手柄或 4 个边中点手柄缩放尺寸（拖过对边时平滑翻转并保持 `width >= 0`、`height >= 0`）；当中心手柄不与对象原点移动方块重叠时，拖动中心手柄可整体平移矩形。
 - **圆（Circle）**：拖动 4 个正交圆周手柄调整 `radius`（限制 `>= 0`）；当圆心偏离对象原点时，拖动圆心手柄可平移圆。
 - **多边形（Polygon）**：拖动任意顶点手柄移动顶点；点击或拖动边中点手柄插入新顶点（`AddPolygonVertex`）；右键点击或 Alt+点击顶点手柄删除顶点（`RemovePolygonVertex`，至少保留 3 个顶点）。
-- **网格吸附**：切换 2D 视图工具栏中的 **Snap** 按钮（`SetSnapToGrid`、`CmdToggleSnapGrid`、`Editor.SnapToGrid`），可将手柄拖动与插入顶点吸附到 `GridSize` 网格步长（`SetGridSize`，默认 `8`，`SnapValue`）。
+- **网格吸附**：切换 2D 视图工具栏中的 **Snap** 按钮（`SetSnapToGrid`、`CmdToggleSnapGrid`、`Editor.SnapToGrid`）或在吸附设置弹出面板（`view-snap-settings`）中配置，可将手柄拖动与插入顶点吸附到 `EffectiveGridStep`（开启像素吸附时吸附到整点；拖动期间按住 `Ctrl` / `Cmd` 可临时反转吸附）。
 
 每次拖动、添加顶点和删除顶点均通过 `SetComponentField` 提交为一个可撤销步骤；按 Escape、手势取消、双指介入、撤销/重做、Play、保存或切换工具会取消进行中的拖动并无损恢复字段原值。在 Go 中，可通过 `VisibleShapes2D`、`ShapeHandles2D`、`PickShapeHandle2D`、`BeginShapeDrag2D`、`UpdateShapeDrag2D`、`EndShapeDrag2D`、`CancelShapeDrag2D`、`DraggingShape2D`、`ActiveShapeHandle2D`、`AddPolygonVertex`、`RemovePolygonVertex` 和 `HandleCanvasSecondaryPress` 驱动同一流程，检查器也为每种形状字段提供对应的可编辑控件。
+
+### 吸附与 2D 网格叠加层（#869）
+
+编辑器在对象放置、拖动、2D 手柄（变换控件、组件形状、2D 灯光/遮挡体与 2D 导航区域）以及 3D 操纵杆（平移、旋转与缩放）中提供统一的吸附支持：
+
+- **工具栏吸附设置**：可直接点击磁铁按钮（`view-snap-grid`、`SetSnapToGrid`、`CmdToggleSnapGrid`）切换网格吸附，或打开紧凑的吸附设置弹出面板（2D 中为 `view-snap-settings`，3D 中为 `view3d-snap-settings`）分别开关各项设置：
+  - **网格吸附**（`SnapToGrid`、`SetSnapToGrid`）：将位置吸附到 `EffectiveGridStep()`；当 `GridSize` 为 `0` 时默认跟随当前活动图层的瓦片地图瓦片尺寸（支持非正方形瓦片），图层无瓦片地图时回退为 `8`。设置显式步长（`SetGridSize`）会覆盖瓦片尺寸，点击 **自动**（`ResetGridSize`）可恢复自动跟随。
+  - **像素吸附**（`SnapToPixel`、`SetSnapToPixel`、`CmdToggleSnapPixel`）：关闭网格吸附时将位置吸附到整点（1 单位步长）。
+  - **旋转吸附**（`SnapRotation`、`SetSnapRotation`、`CmdToggleSnapRotation`）：将 2D 与 3D 旋转拖动吸附到 `RotationSnapDeg` 度对应的弧度倍数（`SetRotationSnapDeg`，默认 `15°`）。
+  - **缩放吸附**（`SnapScale`、`SetSnapScale`、`CmdToggleSnapScale`）：将 2D 与 3D 缩放拖动吸附到 `ScaleSnapStep` 的倍数（`SetScaleSnapStep`，默认 `0.25`），并防止缩放塌缩为零。
+  - **修饰键反转**：拖动或放置点击时按住 `Ctrl` 或 `Cmd` 可临时反转吸附——吸附开启时临时关闭以进行自由精调，吸附关闭时临时开启（`SetSnapInvert`）。
+- **可选 2D 网格叠加层**（`ShowGrid`、`SetShowGrid`、`CmdToggleShowGrid`）：即使在瓦片工具之外，也在可见 2D 画布上按当前吸附步长绘制细线网格，跟随 `View2D` 平移、缩放、旋转及当前图层的空间/视差；缩放到很小时会自动倍增绘制间距以免网格遮挡画面。
+- **多选对象整体移动吸附**：通过 `SelectObjects`、`ToggleSelectObject` 或在 2D `ToolSelect` 中按住 Shift 点击可选中多个对象（`SelectedIDs`）。拖动其中任一选中对象（或使用 Move 工具与 3D 平移操纵杆）时，主锚点按步长吸附，其余所有非子级选中对象按完全相同的已吸附位移同步平移，保持彼此相对偏移不变，并作为单个可撤销步骤提交（按 Escape 取消并全部恢复）。
+- **按项目保存的编辑器偏好**：吸附设置（`SnapSettings`、`SetSnapSettings`）属于编辑器偏好，按项目保存在 `.game/editor.yaml`（`ViewStateFile`）中，从不写入场景文件，也不会使场景变为未保存状态。在同一项目内切换场景会保持当前项目的吸附设置；切换项目时则分别保存与恢复各自项目的偏好。
 
 ## 3D 视口（#890）
 

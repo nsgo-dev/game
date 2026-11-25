@@ -31,6 +31,7 @@ type viewport3DGestures struct {
 	touchLast     core.Point
 	pinchLast     float32
 	suppressPress bool
+	snapInvert    func() bool
 }
 
 // wheel zooms the view by a mouse wheel's turn or a touchpad scroll with Control or Command held, pans it by a touchpad's scroll, and while flying changes the fly speed.
@@ -219,7 +220,10 @@ func (g *viewport3DGestures) pan(ed *Editor, ev core.PanEvent, shiftHeld func() 
 		}
 		if g.began {
 			// A press that turns into a pan first picks a terrain brush hit, 3D plugin tool drag, component gizmo handle, or transform gizmo handle under the press point, and orbits otherwise, or pans with Shift held.
-			ed.BeginViewport3DDrag(float32(g.pressPos.X), float32(g.pressPos.Y), cw, ch, shiftHeld())
+			invert := g.snapInvert != nil && g.snapInvert()
+			ed.withSnapInvert(invert, func() {
+				ed.BeginViewport3DDrag(float32(g.pressPos.X), float32(g.pressPos.Y), cw, ch, shiftHeld())
+			})
 		}
 	case core.GestureChanged:
 		if g.middle || g.fly || g.multi || ed.Flying3D() {
@@ -227,7 +231,10 @@ func (g *viewport3DGestures) pan(ed *Editor, ev core.PanEvent, shiftHeld func() 
 			return
 		}
 		if g.began && g.hasPress {
-			ed.UpdateViewport3DDrag(float32(g.pressPos.X)+float32(ev.Translation.X), float32(g.pressPos.Y)+float32(ev.Translation.Y))
+			invert := g.snapInvert != nil && g.snapInvert()
+			ed.withSnapInvert(invert, func() {
+				ed.UpdateViewport3DDrag(float32(g.pressPos.X)+float32(ev.Translation.X), float32(g.pressPos.Y)+float32(ev.Translation.Y))
+			})
 			return
 		}
 		if ed.PickingConnectionTarget() || g.began {
@@ -246,7 +253,10 @@ func (g *viewport3DGestures) pan(ed *Editor, ev core.PanEvent, shiftHeld func() 
 			if ed.PluginDragging3D() || ed.DraggingComponentGizmo3D() {
 				g.suppressPress = true
 			}
-			ed.EndViewport3DDrag()
+			invert := g.snapInvert != nil && g.snapInvert()
+			ed.withSnapInvert(invert, func() {
+				ed.EndViewport3DDrag()
+			})
 			g.began = false
 		}
 		g.lastPan = core.Point{}
@@ -471,6 +481,10 @@ func viewport3DOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []c
 						ed.SetEnvironmentPanelOpen(on)
 					},
 				},
+				snapSettingsPopover(cx, ed, rev, "view3d-snap-settings", func() bool {
+					_ = rev.Get()
+					return ed.Playing()
+				}),
 				iconBtn("view3d-reset", lucide.RefreshCcw, "Reset view", ed.ResetView3D),
 			},
 		},

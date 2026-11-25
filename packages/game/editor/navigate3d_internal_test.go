@@ -31,6 +31,9 @@ func TestViewStateRefusesWhatItCannotRestore(t *testing.T) {
 		"absolute":     "version: 1\nscenes:\n" + scene("/a.yaml", ""),
 		"not finite":   "version: 1\nscenes:\n" + strings.Replace(scene("a.yaml", ""), "yaw: 0", "yaw: .nan", 1),
 		"camera field": "version: 1\nscenes:\n" + scene("a.yaml", "      roll: 1\n"),
+		"neg gridSize": "version: 1\nsnap:\n  gridSize: -4\n",
+		"nan rotStep":  "version: 1\nsnap:\n  rotationStepDeg: .nan\n",
+		"unknown snap": "version: 1\nsnap:\n  bogus: true\n",
 	} {
 		if _, err := parseViewState([]byte(doc)); err == nil {
 			t.Errorf("%s: parseViewState accepted\n%s", name, doc)

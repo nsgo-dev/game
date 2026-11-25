@@ -190,9 +190,16 @@ func (e *Editor) PlacementAt3D(sx, sy, w, h float32) (Placement3D, bool) {
 		}
 		at := add64(orig, scale64(dir, t))
 		at[1] = height
-		if e.PlaceSnap3D {
+		if e.PlaceSnap3D && !e.snapInvert {
 			step, _ := e.gridStep3D()
 			at[0], at[2] = float64(snapTo(float32(at[0]), step)), float64(snapTo(float32(at[2]), step))
+		} else if !e.PlaceSnap3D {
+			if grid, pixel := e.positionSnapMode(); grid {
+				step := e.EffectiveGridSize()
+				at[0], at[2] = float64(snapTo(float32(at[0]), step)), float64(snapTo(float32(at[2]), step))
+			} else if pixel {
+				at[0], at[2] = snapStep64(at[0], 1), snapStep64(at[2], 1)
+			}
 		}
 		p = Placement3D{Point: vec32(at), Normal: [3]float32{0, 1, 0}}
 	}

@@ -842,17 +842,23 @@ func newPhysicsCollider3DGizmo(component string, alwaysTrigger bool) *ComponentG
 				return nil
 			}
 			delta := float64(delta32)
+			snapExtent := func(v float64) float64 {
+				if grid, pixel := ed.positionSnapMode(); grid || pixel {
+					return ed.SnapValue(v)
+				}
+				return v
+			}
 			switch drag.Handle.ID {
 			case "radius+x", "radius+y", "radius+z":
 				r := readFloat(ed, drag.ObjectID, "radius", 0.5)
-				next := max(minColliderExtent3D, r+delta)
+				next := max(minColliderExtent3D, snapExtent(r+delta))
 				return ed.SetComponentField(drag.ObjectID, component, "radius", next)
 			case "height+y", "height-y":
 				h := readFloat(ed, drag.ObjectID, "height", 1.0)
 				offY := readFloat(ed, drag.ObjectID, "offsetY", 0)
 				r := readFloat(ed, drag.ObjectID, "radius", 0.5)
 				minH := max(minColliderExtent3D, 2*r)
-				nextH := max(minH, h+delta)
+				nextH := max(minH, snapExtent(h+delta))
 				actual := nextH - h
 				sign := 1.0
 				if drag.Handle.ID == "height-y" {
@@ -882,7 +888,7 @@ func newPhysicsCollider3DGizmo(component string, alwaysTrigger bool) *ComponentG
 				}
 				cur := readFloat(ed, drag.ObjectID, field, 1.0)
 				off := readFloat(ed, drag.ObjectID, offField, 0)
-				next := max(minColliderExtent3D, cur+delta)
+				next := max(minColliderExtent3D, snapExtent(cur+delta))
 				actual := next - cur
 				if err := ed.SetComponentField(drag.ObjectID, component, field, next); err != nil {
 					return err

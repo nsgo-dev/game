@@ -330,7 +330,11 @@ strings:
   menu.stop: 停止
   menu.terrain: 地形
   menu.toggleAllShapes: 显示全部组件形状
+  menu.toggleShowGrid: 显示吸附网格
   menu.toggleSnapGrid: 吸附到网格
+  menu.toggleSnapPixel: 吸附到像素
+  menu.toggleSnapRotation: 旋转步进吸附
+  menu.toggleSnapScale: 缩放步进吸附
   menu.tools: 工具
   menu.translate: 平移
   menu.undo: 撤销
@@ -428,6 +432,18 @@ strings:
   settings.light: 浅色
   settings.system: 跟随系统
   settings.title: 编辑器设置
+  snap.auto: 自动
+  snap.autoLabel: 跟随当前图层的瓦片尺寸
+  snap.grid: 网格
+  snap.gridStep: 网格步长
+  snap.modifierHint: 拖拽时按住 Ctrl 或 Cmd 可临时反转吸附
+  snap.pixel: 像素吸附（1 点）
+  snap.rotation: 旋转（°）
+  snap.rotationStep: 旋转步进（度）
+  snap.scale: 缩放
+  snap.scaleStep: 缩放步进
+  snap.showGrid: 显示 2D 网格叠加层
+  snap.title: 吸附设置
   status.buildError: 构建错误：{error}
   status.mode2d: 模式：{mode} | 视图：2D {zoom}% | 工具：{tool} | 图层：{layer}
   status.mode3d: 模式：{mode} | 视图：3D {view} | 操纵杆：{gizmo} | 图层：{layer}
@@ -511,6 +527,8 @@ strings:
   toolbar.shadingLit: 光照
   toolbar.shadingUnlit: 无光照
   toolbar.shadingWireframe: 线框
+  toolbar.snapGridLabel: 吸附到网格
+  toolbar.snapSettingsLabel: 吸附设置
   toolbar.stop: 停止
   toolbar.stopGame: 停止游戏（运行中）
   toolbar.stopGameLabel: 停止正在运行的游戏（Shift+F5）

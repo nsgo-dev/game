@@ -682,6 +682,7 @@ func (e *Editor) applyPastePlacement(roots []sceneformat.ObjectDoc, targetLayer 
 						tx, ty, tz = p[0], p[1], p[2]
 					}
 				}
+				tx, ty, tz = e.SnapPosition3D(tx, ty, tz)
 				shift3D(tx-cx, ty-cy, tz-cz)
 				return
 			}
@@ -696,6 +697,7 @@ func (e *Editor) applyPastePlacement(roots []sceneformat.ObjectDoc, targetLayer 
 				tx, ty = inv.apply(tx, ty)
 			}
 		}
+		tx, ty = e.SnapPosition2D(tx, ty)
 		shift2D(tx-cx, ty-cy)
 		return
 	}

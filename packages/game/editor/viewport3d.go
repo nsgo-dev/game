@@ -926,20 +926,68 @@ func (e *Editor) UpdateGizmoDrag3D(sx, sy float32) {
 	switch st.mode {
 	case Gizmo3DTranslate:
 		delta := e.computeAxisDelta(st, startPos, axisDir, orig, dir, sx, sy)
+		if math.IsNaN(delta) || math.IsInf(delta, 0) {
+			return
+		}
+		if grid, pixel := e.positionSnapMode(); grid || pixel {
+			axisIdx := 0
+			switch st.axis {
+			case Axis3DY:
+				axisIdx = 1
+			case Axis3DZ:
+				axisIdx = 2
+			}
+			snappedCoord := e.SnapValue(startPos[axisIdx] + delta)
+			if !math.IsNaN(snappedCoord) && !math.IsInf(snappedCoord, 0) {
+				delta = snappedCoord - startPos[axisIdx]
+			}
+		}
+		worldDelta := scale64(axisDir, delta)
 		// The drag runs along a world axis; a nested child's position is in its parent's space.
-		local := st.parentInv.vector(scale64(axisDir, delta))
-		obj.X = st.startTransform.X + float32(local[0])
-		obj.Y = st.startTransform.Y + float32(local[1])
-		obj.PosZ = st.startTransform.PosZ + float32(local[2])
+		local := st.parentInv.vector(worldDelta)
+		nx, ny, nz := st.startTransform.X+float32(local[0]), st.startTransform.Y+float32(local[1]), st.startTransform.PosZ+float32(local[2])
+		if !isFiniteFloat32(nx) || !isFiniteFloat32(ny) || !isFiniteFloat32(nz) {
+			return
+		}
+		obj.X, obj.Y, obj.PosZ = nx, ny, nz
 
 	case Gizmo3DRotate:
 		angle := e.computeRotationAngle(st, startPos, axisDir, orig, dir, sx, sy)
-		obj.RotX = st.startTransform.RotX + float32(axisDir[0]*angle)
-		obj.RotY = st.startTransform.RotY + float32(axisDir[1]*angle)
-		obj.RotZ = st.startTransform.RotZ + float32(axisDir[2]*angle)
+		if math.IsNaN(angle) || math.IsInf(angle, 0) {
+			return
+		}
+		switch st.axis {
+		case Axis3DX:
+			rx := float32(e.SnapRotationRadians(float64(st.startTransform.RotX) + angle))
+			if !isFiniteFloat32(rx) {
+				return
+			}
+			obj.RotX = rx
+			obj.RotY = st.startTransform.RotY
+			obj.RotZ = st.startTransform.RotZ
+		case Axis3DY:
+			ry := float32(e.SnapRotationRadians(float64(st.startTransform.RotY) + angle))
+			if !isFiniteFloat32(ry) {
+				return
+			}
+			obj.RotX = st.startTransform.RotX
+			obj.RotY = ry
+			obj.RotZ = st.startTransform.RotZ
+		case Axis3DZ:
+			rz := float32(e.SnapRotationRadians(float64(st.startTransform.RotZ) + angle))
+			if !isFiniteFloat32(rz) {
+				return
+			}
+			obj.RotX = st.startTransform.RotX
+			obj.RotY = st.startTransform.RotY
+			obj.RotZ = rz
+		}
 
 	case Gizmo3DScale:
 		delta := e.computeAxisDelta(st, startPos, axisDir, orig, dir, sx, sy)
+		if math.IsNaN(delta) || math.IsInf(delta, 0) {
+			return
+		}
 		denom := float64(st.gizmoLen)
 		if denom <= 1e-4 {
 			denom = 1
@@ -957,7 +1005,9 @@ func (e *Editor) UpdateGizmoDrag3D(sx, sy float32) {
 					// so start the drag from a unit scale instead.
 					base = 1
 				}
-				obj.ScaleX = sceneformat.Float32(float32(base * factor))
+				if v := float32(e.SnapScaleFactor(base * factor)); isFiniteFloat32(v) {
+					obj.ScaleX = sceneformat.Float32(v)
+				}
 			case Axis3DY:
 				base := float64(1)
 				if st.startTransform.ScaleY != nil {
@@ -968,7 +1018,9 @@ func (e *Editor) UpdateGizmoDrag3D(sx, sy float32) {
 					// so start the drag from a unit scale instead.
 					base = 1
 				}
-				obj.ScaleY = sceneformat.Float32(float32(base * factor))
+				if v := float32(e.SnapScaleFactor(base * factor)); isFiniteFloat32(v) {
+					obj.ScaleY = sceneformat.Float32(v)
+				}
 			case Axis3DZ:
 				base := float64(1)
 				if st.startTransform.ScaleZ != nil {
@@ -979,7 +1031,9 @@ func (e *Editor) UpdateGizmoDrag3D(sx, sy float32) {
 					// so start the drag from a unit scale instead.
 					base = 1
 				}
-				obj.ScaleZ = sceneformat.Float32(float32(base * factor))
+				if v := float32(e.SnapScaleFactor(base * factor)); isFiniteFloat32(v) {
+					obj.ScaleZ = sceneformat.Float32(v)
+				}
 			}
 		}
 	}
@@ -1020,6 +1074,26 @@ func (e *Editor) updateMultiGizmoDrag3D(sx, sy float32) {
 		if math.IsNaN(delta) || math.IsInf(delta, 0) {
 			return
 		}
+		if grid, pixel := e.positionSnapMode(); grid || pixel {
+			axisIdx := 0
+			switch st.axis {
+			case Axis3DY:
+				axisIdx = 1
+			case Axis3DZ:
+				axisIdx = 2
+			}
+			anchorPos := st.targets[0].startPos
+			for _, t := range st.targets {
+				if t.id == st.objectID {
+					anchorPos = t.startPos
+					break
+				}
+			}
+			snappedCoord := e.SnapValue(anchorPos[axisIdx] + delta)
+			if !math.IsNaN(snappedCoord) && !math.IsInf(snappedCoord, 0) {
+				delta = snappedCoord - anchorPos[axisIdx]
+			}
+		}
 		worldDelta := scale64(axisDir, delta)
 		for i, t := range st.targets {
 			local := t.parentInv.vector(worldDelta)
@@ -1029,6 +1103,10 @@ func (e *Editor) updateMultiGizmoDrag3D(sx, sy float32) {
 		}
 	case Gizmo3DRotate:
 		angle := e.computeRotationAngle(st, startPos, axisDir, orig, dir, sx, sy)
+		if math.IsNaN(angle) || math.IsInf(angle, 0) {
+			return
+		}
+		angle = e.SnapRotationRadians(angle)
 		if math.IsNaN(angle) || math.IsInf(angle, 0) {
 			return
 		}
@@ -1060,6 +1138,9 @@ func (e *Editor) updateMultiGizmoDrag3D(sx, sy float32) {
 			denom = 1
 		}
 		factor := 1.0 + delta/denom
+		if e.scaleSnapActive() {
+			factor = e.SnapScaleFactor(factor)
+		}
 		if math.IsNaN(factor) || math.IsInf(factor, 0) || math.Abs(factor) < minScale2D {
 			return
 		}

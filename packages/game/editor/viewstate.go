@@ -23,10 +23,11 @@ const viewStateVersion = 1
 // errViewStateNewer marks a ViewStateFile written by a newer editor, with a version above viewStateVersion: this editor neither reads it nor writes over it, so it never downgrades the views a newer editor kept.
 var errViewStateNewer = errors.New("written by a newer editor")
 
-// viewState is ViewStateFile's document: the view of each scene the editor has shown, sorted by path.
+// viewState is ViewStateFile's document: the view of each scene the editor has shown, sorted by path, plus per-project editor preferences such as snapping.
 type viewState struct {
 	Version int              `yaml:"version"`
 	Scenes  []sceneViewState `yaml:"scenes,omitempty"`
+	Snap    *SnapSettings    `yaml:"snap,omitempty"`
 }
 
 // sceneViewState is one scene's view.
@@ -105,12 +106,22 @@ func parseViewState(data []byte) (*viewState, error) {
 			return nil, fmt.Errorf("editor: view state: scenes[%d].camera3D holds a value that is not finite", i)
 		}
 	}
+	if v.Snap != nil {
+		if err := v.Snap.valid(); err != nil {
+			return nil, fmt.Errorf("editor: view state: %w", err)
+		}
+	}
 	return &v, nil
 }
 
 // encodeViewState writes v as deterministic YAML, its scenes sorted by path.
 func encodeViewState(v *viewState) ([]byte, error) {
-	sorted := viewState{Version: v.Version, Scenes: slices.Clone(v.Scenes)}
+	var snapCopy *SnapSettings
+	if v.Snap != nil {
+		s := *v.Snap
+		snapCopy = &s
+	}
+	sorted := viewState{Version: v.Version, Scenes: slices.Clone(v.Scenes), Snap: snapCopy}
 	slices.SortFunc(sorted.Scenes, func(a, b sceneViewState) int { return strings.Compare(a.Path, b.Path) })
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
@@ -181,8 +192,11 @@ func (e *Editor) SaveViewState() error {
 		}
 		cams[t.scenePath] = cam
 	}
-	if len(cams) == 0 {
-		return nil
+	snap := e.SnapSettings().normalizedForViewState()
+	if len(cams) == 0 && snap == nil {
+		if _, err := os.Stat(p); errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
 	}
 	// A damaged file is replaced, as a lost one would be: it holds only views. One that could not be read, or that a newer editor wrote, is not this editor's to replace.
 	v, err := e.loadViewState()
@@ -207,6 +221,7 @@ func (e *Editor) SaveViewState() error {
 		}
 	}
 	v.Scenes = kept
+	v.Snap = snap
 	data, err := encodeViewState(v)
 	if err != nil {
 		return err
@@ -250,6 +265,20 @@ func (e *Editor) restoreViewState() {
 			return
 		}
 	}
+}
+
+// restoreProjectSnapState loads the open project's snap preferences from ViewStateFile,
+// resetting to DefaultSnapSettings when the file is missing, has no snap section, or cannot be parsed.
+func (e *Editor) restoreProjectSnapState() {
+	if _, ok := e.viewStatePath(); !ok {
+		return
+	}
+	v, err := e.loadViewState()
+	if err != nil {
+		e.applyViewStateSnap(nil)
+		return
+	}
+	e.applyViewStateSnap(v.Snap)
 }
 
 // saveViewStateQuietly is SaveViewState for the moments the editor saves the view by itself, which report a failure in the status bar rather than fail what triggered them.

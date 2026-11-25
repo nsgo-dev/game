@@ -108,12 +108,11 @@ type DrawnShape2D struct {
 }
 
 const (
-	defaultGridSize2D float32 = 8
-	shapeHandleHalf   float32 = 5
-	shapeHandlePick   float32 = 7
-	shapeMidHalf      float32 = 4
-	circleSegments            = 48
-	minPolygonVerts           = 3
+	shapeHandleHalf float32 = 5
+	shapeHandlePick float32 = 7
+	shapeMidHalf    float32 = 4
+	circleSegments          = 48
+	minPolygonVerts         = 3
 )
 
 type shapeDragState struct {
@@ -141,50 +140,6 @@ func (e *Editor) SetShowAllShapes(show bool) {
 	}
 	e.ShowAllShapes = show
 	e.notify()
-}
-
-// SetSnapToGrid toggles grid snapping for 2D viewport shape handle edits.
-func (e *Editor) SetSnapToGrid(on bool) {
-	if e == nil || e.SnapToGrid == on {
-		return
-	}
-	e.SnapToGrid = on
-	e.notify()
-}
-
-// SetGridSize sets the grid spacing in object-local units used when SnapToGrid is enabled. Non-positive or non-finite values are refused.
-func (e *Editor) SetGridSize(size float32) bool {
-	if e == nil || !isFiniteFloat32(size) || size <= 0 {
-		return false
-	}
-	if e.GridSize == size {
-		return true
-	}
-	e.GridSize = size
-	e.notify()
-	return true
-}
-
-// EffectiveGridSize returns the active grid snap step, defaulting to 8 when GridSize is unset or non-positive.
-func (e *Editor) EffectiveGridSize() float32 {
-	if e != nil && e.GridSize > 0 && isFiniteFloat32(e.GridSize) {
-		return e.GridSize
-	}
-	return defaultGridSize2D
-}
-
-// SnapValue snaps v to the editor's grid spacing when SnapToGrid is on, normalizing -0 to 0.
-func (e *Editor) SnapValue(v float64) float64 {
-	if e != nil && e.SnapToGrid {
-		step := float64(e.EffectiveGridSize())
-		if step > 0 {
-			v = math.Round(v/step) * step
-		}
-	}
-	if v == 0 {
-		return 0
-	}
-	return v
 }
 
 func (e *Editor) shapeFieldValue(obj *sceneformat.ObjectDoc, compName string, f sceneformat.Field) (any, bool) {
@@ -679,6 +634,8 @@ func (e *Editor) UpdateShapeDrag2D(x, y float32) {
 	}
 	dx := float64(cur.X) - float64(st.grabLocal.X)
 	dy := float64(cur.Y) - float64(st.grabLocal.Y)
+	snapX := func(v float64) float64 { return e.SnapAxis2D(v, 0) }
+	snapY := func(v float64) float64 { return e.SnapAxis2D(v, 1) }
 	snap := e.SnapValue
 
 	var next any
@@ -686,14 +643,14 @@ func (e *Editor) UpdateShapeDrag2D(x, y float32) {
 	case ShapeHandlePoint:
 		s := st.startShape.(sceneformat.Point)
 		next = sceneformat.Point{
-			X: snap(s.X + dx),
-			Y: snap(s.Y + dy),
+			X: snapX(s.X + dx),
+			Y: snapY(s.Y + dy),
 		}
 	case ShapeHandleRectCenter:
 		s := st.startShape.(sceneformat.Rect)
 		next = sceneformat.Rect{
-			X:      snap(s.X + dx),
-			Y:      snap(s.Y + dy),
+			X:      snapX(s.X + dx),
+			Y:      snapY(s.Y + dy),
 			Width:  s.Width,
 			Height: s.Height,
 		}
@@ -705,31 +662,31 @@ func (e *Editor) UpdateShapeDrag2D(x, y float32) {
 		nx0, ny0, nx1, ny1 := x0, y0, x1, y1
 		switch st.handle.Kind {
 		case ShapeHandleRectE:
-			tx := snap(x1 + dx)
+			tx := snapX(x1 + dx)
 			nx0, nx1 = min(x0, tx), max(x0, tx)
 		case ShapeHandleRectW:
-			tx := snap(x0 + dx)
+			tx := snapX(x0 + dx)
 			nx0, nx1 = min(tx, x1), max(tx, x1)
 		case ShapeHandleRectS:
-			ty := snap(y1 + dy)
+			ty := snapY(y1 + dy)
 			ny0, ny1 = min(y0, ty), max(y0, ty)
 		case ShapeHandleRectN:
-			ty := snap(y0 + dy)
+			ty := snapY(y0 + dy)
 			ny0, ny1 = min(ty, y1), max(ty, y1)
 		case ShapeHandleRectNE:
-			tx, ty := snap(x1+dx), snap(y0+dy)
+			tx, ty := snapX(x1+dx), snapY(y0+dy)
 			nx0, nx1 = min(x0, tx), max(x0, tx)
 			ny0, ny1 = min(ty, y1), max(ty, y1)
 		case ShapeHandleRectSE:
-			tx, ty := snap(x1+dx), snap(y1+dy)
+			tx, ty := snapX(x1+dx), snapY(y1+dy)
 			nx0, nx1 = min(x0, tx), max(x0, tx)
 			ny0, ny1 = min(y0, ty), max(y0, ty)
 		case ShapeHandleRectSW:
-			tx, ty := snap(x0+dx), snap(y1+dy)
+			tx, ty := snapX(x0+dx), snapY(y1+dy)
 			nx0, nx1 = min(tx, x1), max(tx, x1)
 			ny0, ny1 = min(y0, ty), max(y0, ty)
 		case ShapeHandleRectNW:
-			tx, ty := snap(x0+dx), snap(y0+dy)
+			tx, ty := snapX(x0+dx), snapY(y0+dy)
 			nx0, nx1 = min(tx, x1), max(tx, x1)
 			ny0, ny1 = min(ty, y1), max(ty, y1)
 		}
@@ -742,8 +699,8 @@ func (e *Editor) UpdateShapeDrag2D(x, y float32) {
 	case ShapeHandleCircleCenter:
 		s := st.startShape.(sceneformat.Circle)
 		next = sceneformat.Circle{
-			X:      snap(s.X + dx),
-			Y:      snap(s.Y + dy),
+			X:      snapX(s.X + dx),
+			Y:      snapY(s.Y + dy),
 			Radius: s.Radius,
 		}
 	case ShapeHandleCircleRadius:
@@ -765,8 +722,8 @@ func (e *Editor) UpdateShapeDrag2D(x, y float32) {
 			return
 		}
 		pts[st.handle.Index] = sceneformat.Point{
-			X: snap(pts[st.handle.Index].X + dx),
-			Y: snap(pts[st.handle.Index].Y + dy),
+			X: snapX(pts[st.handle.Index].X + dx),
+			Y: snapY(pts[st.handle.Index].Y + dy),
 		}
 		next = pts
 	default:

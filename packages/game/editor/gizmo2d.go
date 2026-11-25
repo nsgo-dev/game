@@ -524,6 +524,7 @@ func (e *Editor) BeginDrag2D(x, y float32) GizmoHandle2D {
 	if h.IsComponentHandle() {
 		return e.beginLightingDrag2D(h, idx, x, y)
 	}
+	anchorID := ""
 	if h == Handle2DNone {
 		hit := e.HitTest(x, y)
 		if hit == "" {
@@ -535,11 +536,12 @@ func (e *Editor) BeginDrag2D(x, y float32) GizmoHandle2D {
 		if !e.IsSelected(hit) {
 			e.SelectObject(hit)
 		}
+		anchorID = hit
 		h = Handle2DBody
 	}
 	draggable := e.draggableSelectedIDs()
 	if len(draggable) > 1 {
-		return e.beginMultiDrag2D(h, draggable, x, y)
+		return e.beginMultiDrag2D(h, draggable, anchorID, x, y)
 	}
 	targetID := e.SelectedID
 	if len(draggable) == 1 {
@@ -575,7 +577,7 @@ func (e *Editor) BeginDrag2D(x, y float32) GizmoHandle2D {
 	return h
 }
 
-func (e *Editor) beginMultiDrag2D(h GizmoHandle2D, ids []string, x, y float32) GizmoHandle2D {
+func (e *Editor) beginMultiDrag2D(h GizmoHandle2D, ids []string, anchorID string, x, y float32) GizmoHandle2D {
 	if !isFiniteFloat32(x) || !isFiniteFloat32(y) {
 		return Handle2DNone
 	}
@@ -615,9 +617,12 @@ func (e *Editor) beginMultiDrag2D(h GizmoHandle2D, ids []string, x, y float32) G
 	if len(targets) == 0 {
 		return Handle2DNone
 	}
+	if anchorID == "" {
+		anchorID = e.SelectedID
+	}
 	st := drag2DState{
 		handle:      h,
-		objectID:    e.SelectedID,
+		objectID:    anchorID,
 		targets:     targets,
 		pivotCanvas: g.origin,
 		grabCanvas:  math2d.Vec2{X: x, Y: y},
@@ -669,13 +674,26 @@ func (e *Editor) UpdateDrag2D(x, y float32, keepAspect bool) {
 	next := s
 	switch h := st.handle; {
 	case h == Handle2DBody || h == Handle2DMove:
-		next.X, next.Y = float32(float64(s.X)+dx), float32(float64(s.Y)+dy)
+		nx, ny := e.SnapPosition2D(float64(s.X)+dx, float64(s.Y)+dy)
+		next.X, next.Y = float32(nx), float32(ny)
 	case h == Handle2DMoveX:
 		along := dx*cos + dy*sin
-		next.X, next.Y = float32(float64(s.X)+along*cos), float32(float64(s.Y)+along*sin)
+		if s.Rotation == 0 {
+			next.X = float32(e.SnapAxis2D(float64(s.X)+along, 0))
+			next.Y = s.Y
+		} else {
+			along = e.SnapValue(along)
+			next.X, next.Y = float32(float64(s.X)+along*cos), float32(float64(s.Y)+along*sin)
+		}
 	case h == Handle2DMoveY:
 		along := -dx*sin + dy*cos
-		next.X, next.Y = float32(float64(s.X)-along*sin), float32(float64(s.Y)+along*cos)
+		if s.Rotation == 0 {
+			next.X = s.X
+			next.Y = float32(e.SnapAxis2D(float64(s.Y)+along, 1))
+		} else {
+			along = e.SnapValue(along)
+			next.X, next.Y = float32(float64(s.X)-along*sin), float32(float64(s.Y)+along*cos)
+		}
 	case h == Handle2DRotate:
 		ox, oy := px-float64(s.X), py-float64(s.Y)
 		if math.Hypot(ox, oy) < 1e-6 {
@@ -685,7 +703,7 @@ func (e *Editor) UpdateDrag2D(x, y float32, keepAspect bool) {
 		step := math.Remainder(a-st.prevAngle, 2*math.Pi)
 		st.angle += step
 		st.prevAngle = a
-		next.Rotation = float32(float64(s.Rotation) + st.angle)
+		next.Rotation = float32(e.SnapRotationRadians(float64(s.Rotation) + st.angle))
 		if !isFiniteFloat32(next.Rotation) {
 			return
 		}
@@ -695,7 +713,11 @@ func (e *Editor) UpdateDrag2D(x, y float32, keepAspect bool) {
 			return
 		}
 	case h.IsScale():
-		sx, sy, ok := scaleFromDrag(h, s, st.grab, px, py, keepAspect)
+		var snapScale func(float64) float64
+		if e.scaleSnapActive() {
+			snapScale = e.SnapScaleFactor
+		}
+		sx, sy, ok := scaleFromDragWithSnap(h, s, st.grab, px, py, keepAspect, snapScale)
 		if !ok {
 			e.Status = "Scale refused: the scale would be zero"
 			e.notify()
@@ -752,13 +774,45 @@ func (e *Editor) updateMultiDrag2D(x, y float32, keepAspect bool) {
 			cd = st.axisY.Scale(along)
 		}
 		dstCanvas := st.grabCanvas.Add(cd)
-		for i, t := range st.targets {
-			glx, gly := e.canvasToLayerFor(t.space, t.parallaxX, t.parallaxY, st.grabCanvas.X, st.grabCanvas.Y)
-			dlx, dly := e.canvasToLayerFor(t.space, t.parallaxX, t.parallaxY, dstCanvas.X, dstCanvas.Y)
-			gpx, gpy := t.toParent.apply(float64(glx), float64(gly))
-			dpx, dpy := t.toParent.apply(float64(dlx), float64(dly))
-			nexts[i].X = float32(float64(t.start.X) + (dpx - gpx))
-			nexts[i].Y = float32(float64(t.start.Y) + (dpy - gpy))
+		if grid, pixel := e.positionSnapMode(); grid || pixel {
+			anchor := st.targets[0]
+			for _, t := range st.targets {
+				if t.id == st.objectID {
+					anchor = t
+					break
+				}
+			}
+			glx, gly := e.canvasToLayerFor(anchor.space, anchor.parallaxX, anchor.parallaxY, st.grabCanvas.X, st.grabCanvas.Y)
+			dlx, dly := e.canvasToLayerFor(anchor.space, anchor.parallaxX, anchor.parallaxY, dstCanvas.X, dstCanvas.Y)
+			rawX := float64(anchor.startLayerPos.X) + float64(dlx-glx)
+			rawY := float64(anchor.startLayerPos.Y) + float64(dly-gly)
+			var snX, snY float64
+			switch h {
+			case Handle2DMoveX:
+				snX = e.SnapAxis2D(rawX, 0)
+				snY = rawY
+			case Handle2DMoveY:
+				snX = rawX
+				snY = e.SnapAxis2D(rawY, 1)
+			default:
+				snX, snY = e.SnapPosition2D(rawX, rawY)
+			}
+			ldx := snX - float64(anchor.startLayerPos.X)
+			ldy := snY - float64(anchor.startLayerPos.Y)
+			for i, t := range st.targets {
+				npx, npy := t.toParent.apply(float64(t.startLayerPos.X)+ldx, float64(t.startLayerPos.Y)+ldy)
+				nexts[i].X = float32(npx)
+				nexts[i].Y = float32(npy)
+			}
+		} else {
+			for i, t := range st.targets {
+				glx, gly := e.canvasToLayerFor(t.space, t.parallaxX, t.parallaxY, st.grabCanvas.X, st.grabCanvas.Y)
+				dlx, dly := e.canvasToLayerFor(t.space, t.parallaxX, t.parallaxY, dstCanvas.X, dstCanvas.Y)
+				gpx, gpy := t.toParent.apply(float64(glx), float64(gly))
+				dpx, dpy := t.toParent.apply(float64(dlx), float64(dly))
+				nexts[i].X = float32(float64(t.start.X) + (dpx - gpx))
+				nexts[i].Y = float32(float64(t.start.Y) + (dpy - gpy))
+			}
 		}
 	case h == Handle2DRotate:
 		ox, oy := float64(x-st.pivotCanvas.X), float64(y-st.pivotCanvas.Y)
@@ -772,7 +826,8 @@ func (e *Editor) updateMultiDrag2D(x, y float32, keepAspect bool) {
 			return
 		}
 		nextAngle := st.angle + step
-		sin, cos := math.Sincos(nextAngle)
+		appliedAngle := e.SnapRotationRadians(nextAngle)
+		sin, cos := math.Sincos(appliedAngle)
 		for i, t := range st.targets {
 			plx, ply := e.canvasToLayerFor(t.space, t.parallaxX, t.parallaxY, st.pivotCanvas.X, st.pivotCanvas.Y)
 			rx := float64(t.startLayerPos.X) - float64(plx)
@@ -782,7 +837,7 @@ func (e *Editor) updateMultiDrag2D(x, y float32, keepAspect bool) {
 			npx, npy := t.toParent.apply(nlx, nly)
 			nexts[i].X = float32(npx)
 			nexts[i].Y = float32(npy)
-			nexts[i].Rotation = float32(float64(t.start.Rotation) + t.detSign*nextAngle)
+			nexts[i].Rotation = float32(float64(t.start.Rotation) + t.detSign*appliedAngle)
 			if !isFiniteFloat32(nexts[i].X) || !isFiniteFloat32(nexts[i].Y) || !isFiniteFloat32(nexts[i].Rotation) {
 				return
 			}
@@ -843,6 +898,18 @@ func (e *Editor) updateMultiDrag2D(x, y float32, keepAspect bool) {
 				fx = fy
 			}
 		}
+		if e.scaleSnapActive() {
+			if scaleX || keepAspect {
+				fx = e.SnapScaleFactor(fx)
+			}
+			if scaleY || keepAspect {
+				if keepAspect && scaleX && scaleY {
+					fy = fx
+				} else {
+					fy = e.SnapScaleFactor(fy)
+				}
+			}
+		}
 		if math.IsNaN(fx) || math.IsInf(fx, 0) || math.IsNaN(fy) || math.IsInf(fy, 0) ||
 			(fx != 1 && math.Abs(fx) < minScale2D) || (fy != 1 && math.Abs(fy) < minScale2D) {
 			e.Status = "Scale refused: the scale would be zero"
@@ -901,6 +968,10 @@ func (e *Editor) updateMultiDrag2D(x, y float32, keepAspect bool) {
 
 // scaleFromDrag returns the scale a drag of the scale handle h to the point (px, py) of the object's parent's space gives an object whose transform was s when it was grabbed at grab: each axis the handle moves scales by how much farther from the origin, along the object's own axis, the pointer is than the grab point was. It reports false for a scale whose magnitude would be below minScale2D or that is not finite. An axis the handle does not move keeps its pointer, nil included.
 func scaleFromDrag(h GizmoHandle2D, s transform2D, grab math2d.Vec2, px, py float64, keepAspect bool) (sx, sy *float32, ok bool) {
+	return scaleFromDragWithSnap(h, s, grab, px, py, keepAspect, nil)
+}
+
+func scaleFromDragWithSnap(h GizmoHandle2D, s transform2D, grab math2d.Vec2, px, py float64, keepAspect bool, snapFn func(float64) float64) (sx, sy *float32, ok bool) {
 	sin, cos := math.Sincos(float64(s.Rotation))
 	local := func(x, y float64) (float64, float64) {
 		x, y = x-float64(s.X), y-float64(s.Y)
@@ -942,25 +1013,53 @@ func scaleFromDrag(h GizmoHandle2D, s transform2D, grab math2d.Vec2, px, py floa
 			fx = fy
 		}
 	}
+	// When keepAspect and scale snapping are both active, snap the primary axis's final scale and derive the shared factor from it so aspect ratio stays exact.
+	if snapFn != nil && keepAspect {
+		primaryBase := float64(1)
+		primaryF := fx
+		if !scaleX && scaleY {
+			if s.ScaleY != nil {
+				primaryBase = float64(*s.ScaleY)
+			}
+			primaryF = fy
+		} else if s.ScaleX != nil {
+			primaryBase = float64(*s.ScaleX)
+		}
+		if math.Abs(primaryBase) >= minScale2D {
+			snapped := snapFn(primaryBase * primaryF)
+			fx = snapped / primaryBase
+			fy = fx
+		}
+		snapFn = nil
+	}
 	// A factor of 1 keeps the axis's pointer, nil included, so an axis the drag leaves alone does not gain a scale field in the file.
-	scaled := func(base *float32, f float64) (*float32, bool) {
-		if f == 1 {
+	scaled := func(base *float32, f float64, moved bool) (*float32, bool) {
+		if !moved || (f == 1 && snapFn == nil) {
 			return cloneFloat32Ptr(base), true
 		}
 		b := float64(1)
 		if base != nil {
 			b = float64(*base)
 		}
-		v := float32(b * f)
+		val := b * f
+		if snapFn != nil {
+			val = snapFn(val)
+		}
+		v := float32(val)
 		if !isFiniteFloat32(v) || math.Abs(float64(v)) < minScale2D {
 			return nil, false
 		}
+		if base == nil && v == 1 {
+			return nil, true
+		}
 		return &v, true
 	}
-	if sx, ok = scaled(s.ScaleX, fx); !ok {
+	movedX := scaleX || keepAspect
+	movedY := scaleY || keepAspect
+	if sx, ok = scaled(s.ScaleX, fx, movedX); !ok {
 		return nil, nil, false
 	}
-	if sy, ok = scaled(s.ScaleY, fy); !ok {
+	if sy, ok = scaled(s.ScaleY, fy, movedY); !ok {
 		return nil, nil, false
 	}
 	return sx, sy, true

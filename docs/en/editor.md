@@ -622,9 +622,23 @@ With the Select or Move tool, interactive handles appear on the selected object'
 - **Rectangle**: drag any of the 4 corner or 4 edge handles to resize (dragging past the opposite edge flips smoothly while keeping `width >= 0` and `height >= 0`), or drag the center handle when it does not overlap the object's origin move square.
 - **Circle**: drag any of the 4 cardinal rim handles to change `radius` (clamped `>= 0`), or drag the center handle when offset from the object's origin.
 - **Polygon**: drag any vertex handle to move it; click or drag an edge midpoint handle to insert a new vertex (`AddPolygonVertex`); right-click or Alt+click a vertex handle to remove it (`RemovePolygonVertex`, keeping at least 3 vertices).
-- **Grid snapping**: toggle **Snap** in the 2D view toolbar (`SetSnapToGrid`, `CmdToggleSnapGrid`, `Editor.SnapToGrid`) to snap handle edits and inserted vertices to `GridSize` increments (`SetGridSize`, default `8`, `SnapValue`).
+- **Grid snapping**: toggle **Snap** in the 2D view toolbar (`SetSnapToGrid`, `CmdToggleSnapGrid`, `Editor.SnapToGrid`) or configure snapping in the Snap popover (`view-snap-settings`) to snap handle edits and inserted vertices to `EffectiveGridStep` (or whole points when pixel snapping is enabled; holding `Ctrl` / `Cmd` inverts snapping during a drag).
 
 Every drag, vertex addition, and vertex removal commits through `SetComponentField` as one undoable step, and Escape, a cancelled gesture, a second finger, Undo/Redo, Play, Save or switching tools cancels an in-progress drag and restores the pre-drag field unchanged. In Go, `VisibleShapes2D`, `ShapeHandles2D`, `PickShapeHandle2D`, `BeginShapeDrag2D`, `UpdateShapeDrag2D`, `EndShapeDrag2D`, `CancelShapeDrag2D`, `DraggingShape2D`, `ActiveShapeHandle2D`, `AddPolygonVertex`, `RemovePolygonVertex` and `HandleCanvasSecondaryPress` expose the same workflow, and the inspector displays editable controls for every shape field kind.
+
+### Snapping and 2D grid overlay (#869)
+
+The editor provides unified snapping across object placement, dragging, 2D handles (transform gizmo, component shapes, 2D lights/occluders, and 2D navigation regions), and 3D gizmos (translate, rotate, and scale):
+
+- **Snap settings in the toolbar**: toggle grid snapping directly with the magnet button (`view-snap-grid`, `SetSnapToGrid`, `CmdToggleSnapGrid`) or open the compact Snap Settings popover (`view-snap-settings` in 2D, `view3d-snap-settings` in 3D) to switch each mode independently:
+  - **Grid snap** (`SnapToGrid`, `SetSnapToGrid`): snaps positions to `EffectiveGridStep()`, which defaults to the active layer's tilemap tile size (supporting non-square tiles) when `GridSize` is `0`, falling back to `8` when the active layer has no tilemap. Setting an explicit step (`SetGridSize`) overrides the tile size until **Auto** (`ResetGridSize`) is pressed.
+  - **Pixel snap** (`SnapToPixel`, `SetSnapToPixel`, `CmdToggleSnapPixel`): snaps positions to whole points (1-unit increments) when grid snap is off.
+  - **Rotation snap** (`SnapRotation`, `SetSnapRotation`, `CmdToggleSnapRotation`): snaps 2D and 3D rotation drags to multiples of `RotationSnapDeg` degrees in radians (`SetRotationSnapDeg`, default `15°`).
+  - **Scale snap** (`SnapScale`, `SetSnapScale`, `CmdToggleSnapScale`): snaps 2D and 3D scale drags to multiples of `ScaleSnapStep` (`SetScaleSnapStep`, default `0.25`) without collapsing scales to zero.
+  - **Modifier inversion**: holding `Ctrl` or `Cmd` during a drag or placement press temporarily inverts snapping—disabling active snapping for free precision edits, or enabling snapping when it is off (`SetSnapInvert`).
+- **Optional 2D grid overlay** (`ShowGrid`, `SetShowGrid`, `CmdToggleShowGrid`): draws a hairline grid across the visible 2D canvas at the active snap step even outside tile tools, following `View2D` pan, zoom, rotation, and active-layer space/parallax, doubling drawn spacing automatically when zoomed far out so the grid never obscures the canvas.
+- **Multi-object selection moves as a whole**: select multiple objects with `SelectObjects`, `ToggleSelectObject`, or Shift-click in 2D `ToolSelect` (`SelectedIDs`). Dragging any selected object (or using the Move tool or 3D Translate gizmo) snaps the primary anchor and moves every other non-descendant selected object by the exact same snapped delta, preserving relative offsets and recording one undoable step (Escape cancels and restores all objects).
+- **Per-project preferences**: snap settings (`SnapSettings`, `SetSnapSettings`) are editor preferences saved per project in `.game/editor.yaml` (`ViewStateFile`), never written to scene files and never marking a scene dirty. Switching scenes within the same project keeps the project's snap settings; switching projects saves and restores each project's own preferences.
 
 ## 3D viewport (#890)
 

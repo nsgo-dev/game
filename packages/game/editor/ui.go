@@ -1026,7 +1026,7 @@ func view2DToolsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], playi
 			ui.ToggleButton{
 				TestID:   "view-snap-grid",
 				Icon:     lucide.Magnet,
-				Label:    "Snap shape handles to grid",
+				Label:    ed.T("toolbar.snapGridLabel"),
 				Disabled: playing,
 				On: func() bool {
 					_ = rev.Get()
@@ -1036,6 +1036,7 @@ func view2DToolsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], playi
 					ed.SetSnapToGrid(on)
 				},
 			},
+			snapSettingsPopover(cx, ed, rev, "view-snap-settings", playing),
 			ui.ToggleButton{
 				TestID:   "view-navmesh2d-overlay",
 				Icon:     lucide.Waypoints,
