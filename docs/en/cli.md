@@ -149,9 +149,9 @@ Each directory is a tree, as `nsgo test` reads it: with or without a trailing `/
 ### playtest
 
 ```sh
-go tool game playtest
-go tool game playtest -config playtest.yaml -out playtest.report.yaml -recordings playtest-recordings
-go tool game playtest -check
+nsgo game playtest
+nsgo game playtest -config playtest.yaml -out playtest.report.yaml -recordings playtest-recordings
+nsgo game playtest -check
 ```
 
 Validates `playtest.yaml` (or `-config`) and runs the configured bot headless for every seed through the game's tests matching `-run` (`Playtest` by default, which call `playtest.RunTest`). Each seeded run records its inputs into `<recordings>/run_NNN_seed_<seed>.replay.yaml` so any run can be watched or turned into a `game replay` test, and writes a deterministic YAML report to `-out` (`playtest.report.yaml` by default) containing per-run metrics, goal results (`met`, `missed` or `info`) and position data for heat maps. The command prints the report summary and exits 1 when any goal is missed or no matching test passed. Use `-count` or `-seeds` to override the runs in `playtest.yaml`, or `-check` to validate `playtest.yaml` without running tests. See [playtest](playtest.md).

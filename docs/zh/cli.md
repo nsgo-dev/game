@@ -149,9 +149,9 @@ nsgo game replay -run '^TestBossReplay$' ./levels
 ### playtest
 
 ```sh
-go tool game playtest
-go tool game playtest -config playtest.yaml -out playtest.report.yaml -recordings playtest-recordings
-go tool game playtest -check
+nsgo game playtest
+nsgo game playtest -config playtest.yaml -out playtest.report.yaml -recordings playtest-recordings
+nsgo game playtest -check
 ```
 
 校验 `playtest.yaml`（或 `-config` 指定的文件），并通过匹配 `-run`（默认 `Playtest`，在测试中调用 `playtest.RunTest`）的测试按每个种子无头运行配置的机器人。每次运行都会把输入录制到 `<recordings>/run_NNN_seed_<seed>.replay.yaml`，便于回放观看或转为 `game replay` 回归测试，并向 `-out`（默认 `playtest.report.yaml`）写出确定性的 YAML 报告，包含每次运行的指标、各目标的达成状态（`met`、`missed` 或 `info`）以及用于热力图的坐标数据。命令会打印报告汇总，若有任何目标未达成或未匹配到任何测试则以退出码 1 失败。可用 `-count` 或 `-seeds` 覆盖 `playtest.yaml` 中的运行次数或种子，用 `-check` 仅校验配置而不运行测试。见 [playtest](playtest.md)。

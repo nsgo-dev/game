@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -74,6 +75,10 @@ func definePlaytest(a *app, fs *flag.FlagSet) func() error {
 			return err
 		}
 		if err := os.MkdirAll(filepath.Dir(absOut), 0o755); err != nil {
+			return err
+		}
+		// Remove any pre-existing report so a passing test that does not call playtest.RunTest cannot silently reuse a stale report.
+		if err := os.Remove(absOut); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
 

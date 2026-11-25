@@ -293,9 +293,16 @@ func defaultRunPlaytest(ctx context.Context, req PlaytestRunRequest) (*playtest.
 	if err := os.MkdirAll(filepath.Dir(req.OutPath), 0o755); err != nil {
 		return nil, err
 	}
+	tmpDir, err := os.MkdirTemp(filepath.Dir(req.OutPath), ".playtest-report-*")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+	tmpOut := filepath.Join(tmpDir, "report.yaml")
+
 	env := append(os.Environ(),
 		playtest.EnvConfig+"="+req.ConfigPath,
-		playtest.EnvOut+"="+req.OutPath,
+		playtest.EnvOut+"="+tmpOut,
 		playtest.EnvNoFail+"=1",
 	)
 	if req.RecordingsPath != "" {
@@ -321,7 +328,7 @@ func defaultRunPlaytest(ctx context.Context, req PlaytestRunRequest) (*playtest.
 	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("go tool nsgo test -run %q failed: %w\n%s", req.Pattern, err, strings.TrimSpace(output.String()))
 	}
-	rep, err := playtest.LoadReportFile(req.OutPath)
+	rep, err := playtest.LoadReportFile(tmpOut)
 	if err != nil {
 		return nil, fmt.Errorf("playtest tests wrote no report to %s (make sure a test matching -run %q calls playtest.RunTest): %w", req.OutFile, req.Pattern, err)
 	}

@@ -163,4 +163,20 @@ func TestPlaytestFailsWhenGoalMissedOrNoTestMatched(t *testing.T) {
 	if !strings.Contains(stderr.String(), "no test") {
 		t.Fatalf("stderr = %q", stderr)
 	}
+
+	// A pre-existing report file must not be reused when a passing test writes no new report.
+	if err := playtest.SaveReportFile(outPath, missedReport); err != nil {
+		t.Fatal(err)
+	}
+	a, _, stderr = newTestApp(t)
+	a.nsgoEnv = func(_ []string, _ []string, _, errOut io.Writer) error {
+		_, _ = io.WriteString(errOut, passingTally)
+		return nil
+	}
+	if code := run([]string{"playtest", "-config", cfgPath, "-out", outPath}, a); code != 1 {
+		t.Fatalf("stale report exit = %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "wrote no valid report") {
+		t.Fatalf("stderr = %q, want missing-report error", stderr)
+	}
 }

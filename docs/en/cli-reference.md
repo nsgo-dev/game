@@ -136,7 +136,7 @@ nsgo game replay [flags] [directory ...]
 Validate playtest.yaml, run headless bot playtests with replays, write a YAML report and fail on missed goals.
 
 ```sh
-game playtest [flags] [directory ...]
+nsgo game playtest [flags] [directory ...]
 ```
 
 | Flag | Default | Description |

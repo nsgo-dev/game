@@ -636,6 +636,18 @@ func TestGoalEvaluateAndRunFailsIfSimIgnoresInput(t *testing.T) {
 	if rng.Evaluate(39.9) != playtest.StatusMissed || rng.Evaluate(40) != playtest.StatusMet || rng.Evaluate(60) != playtest.StatusMet || rng.Evaluate(60.1) != playtest.StatusMissed {
 		t.Fatal("Range goal evaluation wrong")
 	}
+	for _, nonFinite := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
+		if eq.Evaluate(nonFinite) != playtest.StatusMissed {
+			t.Fatalf("Equal goal evaluated %v as %s, want missed", nonFinite, eq.Evaluate(nonFinite))
+		}
+		if rng.Evaluate(nonFinite) != playtest.StatusMissed {
+			t.Fatalf("Range goal evaluated %v as %s, want missed", nonFinite, rng.Evaluate(nonFinite))
+		}
+	}
+	huge := playtest.Runs{Rate: 1_000_000, MaxDuration: 100_000 * time.Hour}
+	if got := huge.MaxSteps(); got != math.MaxInt32 {
+		t.Fatalf("MaxSteps overflow clamp = %d, want %d", got, math.MaxInt32)
+	}
 
 	cfg := &playtest.Config{
 		Version: playtest.CurrentVersion,
