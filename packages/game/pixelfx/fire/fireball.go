@@ -166,7 +166,7 @@ func newFireball(o *pixelfx.Options) pixelfx.Instance {
 			ox, oy := math.Cos(a)*R0*0.85, math.Sin(a)*R0*0.85
 			dx, dy := math.Cos(a)*0.55-1, math.Sin(a)*0.55
 			l := pixelfx.Hypot(dx, dy)
-			flameBlade(p, hx+ox, hy+oy, dx/l, dy/l, L, w, -sign(a)*1.5, N, n, H, layers, 0.5, 1.1)
+			flameBlade(p, hx+ox, hy+oy, dx/l, dy/l, L, w, -pixelfx.Sign(a)*1.5, N, n, H, layers, 0.5, 1.1)
 		}
 		fireballHead(p, H, t, R0, S, hx, hy)
 

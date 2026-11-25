@@ -626,17 +626,6 @@ func cmpDesc(a, b float64) int {
 // cmpAsc orders by a number, smallest first, as JavaScript's sort((a, b) => a - b) does.
 func cmpAsc(a, b float64) int { return cmpDesc(b, a) }
 
-// sign is JavaScript's Math.sign for numbers that are not NaN.
-func sign(x float64) float64 {
-	switch {
-	case x > 0:
-		return 1
-	case x < 0:
-		return -1
-	}
-	return x
-}
-
 // farHalf and nearHalf pick the far and near halves of a pixelfx.Band, so the far half can go behind a character and the near half in front.
 func farHalf(g float64) bool  { return math.Sin(g) < 0 }
 func nearHalf(g float64) bool { return math.Sin(g) >= 0 }

@@ -67,6 +67,9 @@ var ringSY, ringCharge, ringSpread = 0.2, 0.32, 0.75
 // emberLayers are the dying flames: deep orange and red, no white heart.
 var emberLayers = []layer{{1, 1, 7}, {0.7, 0.8, 6}, {0.4, 0.55, 5}}
 
+// ringMaxReach is the largest reach the fire ring draws, in pixels.
+const ringMaxReach = 256
+
 // ringSite is one flame of the ring: where it stands, whether it is on the far half, when the front lights it, how long it burns, its height and half-width and its noise seed.
 type ringSite struct {
 	x, y              float64
@@ -76,7 +79,8 @@ type ringSite struct {
 
 func newFireRing(o *pixelfx.Options) pixelfx.Instance {
 	F := pixelfx.Fit(o.Palette(), 9)
-	H, REACH, R, S := hotFirst(F), o.Num("reach"), pixelfx.NewRng(o.Seed()), o.Seed()*7
+	// A deliberate departure from pixelfx: reach is capped at ringMaxReach, since the flames and the scorched floor grow with its square and a huge reach would exhaust memory and time, while the ring is already off the 224 by 128 canvas well before the cap.
+	H, REACH, R, S := hotFirst(F), math.Min(o.Num("reach"), ringMaxReach), pixelfx.NewRng(o.Seed()), o.Seed()*7
 	D, SY, CHARGE, SPREAD := float64(ringDuration), ringSY, ringCharge, ringSpread
 	floor := func(float64) float64 { return 0 }
 	ps, lights := pixelfx.NewParticles(pixelfx.SimOpts{Rng: R, Ground: floor, Sparks: []uint32{H[1], H[2], H[4], H[5]}}), &pixelfx.Lights{}
@@ -218,6 +222,10 @@ func newFireRing(o *pixelfx.Options) pixelfx.Instance {
 			if t > CHARGE && t < CHARGE+SPREAD+1.2 {
 				for range 3 {
 					if !R.Chance(0.75 * dt * 60) {
+						continue
+					}
+					// A deliberate departure from pixelfx, which throws here when reach is under 10 and there are no flames: shed nothing instead. The check comes after the chance roll, so the draws at any other reach are unchanged.
+					if len(sites) == 0 {
 						continue
 					}
 					s := pixelfx.Pick(R, sites)
