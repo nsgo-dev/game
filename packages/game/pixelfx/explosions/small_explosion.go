@@ -52,8 +52,8 @@ func stoneOf(c uint32) stoneCols {
 	}
 }
 
-// scorch draws the floor under the blast: white-hot, cooling through the fire ramp to soot.
-func scorch(p *pixelfx.Painter, F []uint32, t, rx0, cool, fade float64) {
+// smallScorch draws the floor under the blast: white-hot, cooling through the fire ramp to soot.
+func smallScorch(p *pixelfx.Painter, F []uint32, t, rx0, cool, fade float64) {
 	if fade <= 0 {
 		return
 	}
@@ -89,8 +89,8 @@ func scorch(p *pixelfx.Painter, F []uint32, t, rx0, cool, fade float64) {
 	}
 }
 
-// rock draws a rock: a lit side, a shaded side, an outline, spinning.
-func rock(p *pixelfx.Painter, b *pixelfx.Bit, st stoneCols) {
+// smallRock draws a rock: a lit side, a shaded side, an outline, spinning.
+func smallRock(p *pixelfx.Painter, b *pixelfx.Bit, st stoneCols) {
 	r, fade := 0.6+b.S*0.75, math.Min(1, b.Life/0.5)
 	lx, ly := math.Cos(b.A)*r*0.4, math.Sin(b.A)*r*0.4
 	p.Shade(b.X-r-1, b.Y-r-1, b.X+r+1, b.Y+r+1, func(x, y float64, out *pixelfx.Out) uint32 {
@@ -243,7 +243,7 @@ func newSmallExplosion(o *pixelfx.Options) pixelfx.Instance {
 			lights.Update(dt)
 		},
 		DrawBackFunc: func(p *pixelfx.Painter, _ float64) {
-			scorch(p, F, t, 22*S, 1.2+RAD/14, 1-pixelfx.Smooth(D-1.2, D-0.2, t))
+			smallScorch(p, F, t, 22*S, 1.2+RAD/14, 1-pixelfx.Smooth(D-1.2, D-0.2, t))
 			ps.Draw(p, pixelfx.LayerBack)
 			blazes.DrawBack(p)
 			band(p, farHalf)
@@ -251,7 +251,7 @@ func newSmallExplosion(o *pixelfx.Options) pixelfx.Instance {
 		DrawFunc: func(p *pixelfx.Painter, _ float64) {
 			band(p, nearHalf)
 			for i := range rocks.List {
-				rock(p, &rocks.List[i], st)
+				smallRock(p, &rocks.List[i], st)
 			}
 			ps.Draw(p, pixelfx.LayerFront)
 			for _, f := range flashes {

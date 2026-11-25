@@ -20,3 +20,11 @@ func ExampleSmallExplosion() {
 	fmt.Printf("%s, %.1f s, done %v\n", e.ID, p.T(), p.Done())
 	// Output: explosions/small-explosion, 5.4 s, done true
 }
+
+// Importing the package registers its effects; render a cartoon hit that says BAM! instead of POW!.
+func ExampleCartoonPow() {
+	e, _ := pixelfx.Lookup("explosions/cartoon-pow")
+	frames := pixelfx.Render(e, pixelfx.Options{}.Set("text", pixelfx.Text("BAM!")), 0)
+	fmt.Println(e == explosions.CartoonPow, len(frames.Pixels), frames.W, frames.H)
+	// Output: true 33 184 144
+}

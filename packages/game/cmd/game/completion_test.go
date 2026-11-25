@@ -144,7 +144,7 @@ var completionCases = []completionCase{
 	{"game library ", []string{"digest", "install", "list", "remove"}},
 	{"game library -kind ", []string{"asset", "plugin", "template"}},
 	{"game library -project ", []string{"a.png", "scene.yaml", "sub/"}},
-	{"game pixelfx ex", []string{"explosions/small-explosion"}},
+	{"game pixelfx explosions/sm", []string{"explosions/small-explosion", "explosions/smoke-bomb"}},
 	{"game pixelfx -f", []string{"-flip", "-fps"}},
 	{"game help t", []string{"tex"}},
 }
