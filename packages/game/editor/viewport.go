@@ -252,9 +252,15 @@ func (e *Editor) HandleCanvasPress(x, y float32) {
 	}
 	switch e.Tool {
 	case ToolSelect:
+		if e.handleShapePress2D(x, y, false) {
+			return
+		}
 		hit := e.HitTest(x, y)
 		e.SelectObject(hit)
 	case ToolMove:
+		if e.handleShapePress2D(x, y, false) {
+			return
+		}
 		hit := e.HitTest(x, y)
 		if hit != "" && hit != e.SelectedID {
 			e.SelectObject(hit)
@@ -280,7 +286,7 @@ func (e *Editor) HandleCanvasPress(x, y float32) {
 			e.SetTool(ToolPaintTile)
 		}
 	case ToolPlugin:
-		if t := e.activePluginTool(); t != nil {
+		if t := e.activePluginTool(); t != nil && t.Press != nil {
 			t.Press(e, x, y)
 		}
 	}
@@ -366,7 +372,9 @@ func (e *Editor) DrawViewport(d *core.Drawing, size core.Size) {
 	e.drawTileGridOverlay(d)
 	e.drawTileHoverOverlay(d)
 	e.drawSelectionOverlay(d, scene)
+	e.drawComponentShapes2D(d, scene)
 	e.drawGizmo2D(d)
+	e.drawComponentShapeHandles2D(d)
 	if t := e.activePluginTool(); t != nil && t.Draw != nil {
 		// Save and Restore keep a transform or style the tool leaves set from reaching the next frame's drawing.
 		d.Save()
@@ -671,7 +679,20 @@ func (g *viewportGestures) pan(ed *Editor, ev core.PanEvent, spaceHeld, shiftHel
 			return
 		}
 		// The pan begins once the pointer passes the platform's slop, so the drag starts where it went down: its position less how far it has come.
-		if ed.BeginDrag2D(float32(ev.Position.X-ev.Translation.X), float32(ev.Position.Y-ev.Translation.Y)) != Handle2DNone {
+		downX, downY := float32(ev.Position.X-ev.Translation.X), float32(ev.Position.Y-ev.Translation.Y)
+		if ed.Tool == ToolPlugin {
+			if ed.BeginPluginDrag2D(downX, downY) {
+				x, y := at()
+				ed.UpdatePluginDrag2D(x, y)
+			}
+			return
+		}
+		if _, ok := ed.BeginShapeDrag2D(downX, downY); ok {
+			x, y := at()
+			ed.UpdateShapeDrag2D(x, y)
+			return
+		}
+		if ed.BeginDrag2D(downX, downY) != Handle2DNone {
 			x, y := at()
 			ed.UpdateDrag2D(x, y, shiftHeld())
 			return
@@ -695,6 +716,12 @@ func (g *viewportGestures) pan(ed *Editor, ev core.PanEvent, spaceHeld, shiftHel
 			}
 		} else if g.spacePan {
 			ed.PanView2D(float32(ev.Translation.X-g.panLast.X), float32(ev.Translation.Y-g.panLast.Y))
+		} else if ed.PluginDragging2D() {
+			x, y := at()
+			ed.UpdatePluginDrag2D(x, y)
+		} else if ed.DraggingShape2D() {
+			x, y := at()
+			ed.UpdateShapeDrag2D(x, y)
 		} else if ed.Dragging2D() != Handle2DNone {
 			x, y := at()
 			ed.UpdateDrag2D(x, y, shiftHeld())
@@ -704,6 +731,19 @@ func (g *viewportGestures) pan(ed *Editor, ev core.PanEvent, spaceHeld, shiftHel
 		if g.panCamDrag {
 			g.panCamDrag = false
 			if ed.EndCameraDrag() {
+				g.suppressPress = true
+			}
+		} else if !g.spacePan && ed.PluginDragging2D() {
+			x, y := at()
+			if (math2d.Vec2{X: x, Y: y}) != ed.pluginDragLast {
+				ed.UpdatePluginDrag2D(x, y)
+			}
+			ed.EndPluginDrag2D(x, y)
+			g.suppressPress = true
+		} else if !g.spacePan && ed.DraggingShape2D() {
+			x, y := at()
+			ed.UpdateShapeDrag2D(x, y)
+			if ed.EndShapeDrag2D() {
 				g.suppressPress = true
 			}
 		} else if !g.spacePan && ed.Dragging2D() != Handle2DNone {
@@ -718,6 +758,8 @@ func (g *viewportGestures) pan(ed *Editor, ev core.PanEvent, spaceHeld, shiftHel
 			g.panCamDrag = false
 			ed.CancelCameraDrag()
 		}
+		ed.CancelPluginDrag2D()
+		ed.CancelShapeDrag2D()
 		ed.CancelDrag2D()
 		g.spacePan = false
 		g.panLast = core.Point{}
@@ -746,6 +788,8 @@ func (g *viewportGestures) pinch(ed *Editor, ev core.GestureEvent) {
 func (g *viewportGestures) touch(ed *Editor, ev core.TouchEvent) {
 	if ev.Phase == core.TouchCancel {
 		// The system took the touches: a drag of an object or camera they made is put back, whether or not the pan reports its own cancel. nsgotest's Finger.Cancel (nsgo v0.3.0 nsgotest/pointer.go:259) reports only the touch cancel and no GestureCancelled to an active OnPan, so the touch cancel is the one this drag can rely on in tests.
+		ed.CancelPluginDrag2D()
+		ed.CancelShapeDrag2D()
 		ed.CancelDrag2D()
 		ed.CancelCameraDrag()
 		g.panCamDrag = false
@@ -756,6 +800,8 @@ func (g *viewportGestures) touch(ed *Editor, ev core.TouchEvent) {
 		return
 	}
 	// A second finger turns a one-finger drag of an object or camera into navigation, so the drag is put back.
+	ed.CancelPluginDrag2D()
+	ed.CancelShapeDrag2D()
 	ed.CancelDrag2D()
 	ed.CancelCameraDrag()
 	g.panCamDrag = false
@@ -883,6 +929,11 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 				}
 			}
 			x, y := float32(ev.Position.X), float32(ev.Position.Y)
+			if ev.Modifiers.Alt && ed.ViewMode == ViewMode2D && !ed.Playing() && !ed.PickingConnectionTarget() {
+				if ed.handleShapePress2D(x, y, true) {
+					return
+				}
+			}
 			// A press no pointer drew a stroke for, such as an accessibility action, makes the stroke of one cell unless picking a connection target.
 			if !ed.PickingConnectionTarget() {
 				if mode, ok := ed.toolStrokeMode(false, ev.Modifiers.Alt); ok && ed.ViewMode == ViewMode2D && ed.BeginTileStroke(mode, x, y) {
@@ -986,10 +1037,12 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 				When: func() bool {
 					_ = rev.Get()
 					_, gmActive := ed.GridMapStrokeActive()
-					return ed.Dragging2D() != Handle2DNone || ed.cameraDrag.active || gmActive
+					return ed.Dragging2D() != Handle2DNone || ed.DraggingShape2D() || ed.PluginDragging2D() || ed.cameraDrag.active || gmActive
 				},
 				Then: func(cx *core.Scope) core.Node {
 					cx.OnKey("escape", func() {
+						ed.CancelPluginDrag2D()
+						ed.CancelShapeDrag2D()
 						ed.CancelDrag2D()
 						ed.CancelCameraDrag()
 						ed.CancelGridMapStroke()
@@ -1057,6 +1110,9 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 						}
 						beginStroke(ev.Position, false, ev.Modifiers.Alt)
 					case core.MouseButtonRight:
+						if !spaceHeld() && !ed.PickingConnectionTarget() && ed.HandleCanvasSecondaryPress(float32(ev.Position.X), float32(ev.Position.Y)) {
+							return
+						}
 						beginStroke(ev.Position, true, ev.Modifiers.Alt)
 					}
 				},
@@ -1095,6 +1151,7 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 					}
 					if ed.ViewMode == ViewMode2D {
 						ed.SetTileHover(float32(ev.Position.X), float32(ev.Position.Y), ev.Modifiers.Alt)
+						ed.SetPluginHover2D(float32(ev.Position.X), float32(ev.Position.Y))
 					}
 					if _, ok := ed.TileStrokeActive(); ok {
 						if ev.PressedButton == core.MouseButtonNone {
@@ -1144,6 +1201,7 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 				OnMouseLeave: func(core.MouseEvent) {
 					ed.ClearTileHover()
 					ed.ClearGridMapHover()
+					ed.ClearPluginHover2D()
 				},
 				OnTouch: func(ev core.TouchEvent) {
 					if ed.ViewMode != ViewMode3D {

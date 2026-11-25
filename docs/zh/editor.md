@@ -357,7 +357,18 @@ built.Draw(d)
 
 ### 组件类型
 
-`ComponentRegistry` 用 Go 代码显式声明场景文件可以使用的组件类型，运行时不依赖反射：每个类型的名称和说明，以及每个字段的名称、种类（`FieldBool`、`FieldInt`、`FieldFloat`、`FieldString` 或 `FieldStringList`）、可选的允许取值 `Enum`（仅用于 `FieldString` 字段）、默认值、可选的闭区间范围、供检查器使用的可选 `Step` 和说明。`Register` 会拒绝空名称或重复名称、非数值字段上的范围或步长、非 `FieldString` 字段上的 `Enum`、最小值大于最大值、`FieldInt` 上的小数范围或步长、负步长，以及种类不符或超出范围的默认值。
+`ComponentRegistry` 用 Go 代码显式声明场景文件可以使用的组件类型，运行时不依赖反射：每个类型的名称和说明，以及每个字段的名称、种类（`FieldBool`、`FieldInt`、`FieldFloat`、`FieldString`、`FieldStringList`、`FieldPoint`、`FieldRect`、`FieldCircle` 或 `FieldPolygon`）、可选的允许取值 `Enum`（仅用于 `FieldString` 字段）、默认值、可选的闭区间范围、供检查器使用的可选 `Step` 和说明。`Register` 会拒绝空名称或重复名称、非数值字段上的范围或步长、非 `FieldString` 字段上的 `Enum`、最小值大于最大值、`FieldInt` 上的小数范围或步长、负步长，以及种类不符或超出范围的默认值。
+
+四种 2D 形状字段（`FieldKind.IsShape`）在对象局部坐标系下描述世界几何形状，并在 `scene.v1.json`、`scene.v2.json` 与 `scene.v3.json` 中以 `Point`、`Rect`、`Circle` 和 `Polygon` 定义发布：
+
+| 字段种类 | Go 类型 | YAML 形式 | 校验规则 |
+| --- | --- | --- | --- |
+| `FieldPoint` | `sceneformat.Point` | `{x, y}` | 有限数值 `x`、`y`；拒绝未知键 |
+| `FieldRect` | `sceneformat.Rect` | `{x, y, width, height}` | 有限数值，`width >= 0`、`height >= 0`；拒绝未知键 |
+| `FieldCircle` | `sceneformat.Circle` | `{x, y, radius}` | 有限数值，`radius >= 0`；拒绝未知键 |
+| `FieldPolygon` | `[]sceneformat.Point` | `[{x, y}, ...]` | 有效有限点列表 |
+
+`ParsePoint`、`ParseRect`、`ParseCircle` 和 `ParsePolygon` 将解码后的 YAML 值规范化为对应 Go 类型，`MarshalYAML` 按字母序输出键名，保证保存后的形状字段往返加载与保存完全不变。
 
 ```go
 reg := sceneformat.NewComponentRegistry()
@@ -585,6 +596,20 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 
 在 Go 中，`BeginDrag2D(x, y)` 在画布上的一点开始拖动并返回它取得的手柄（`GizmoHandle2D`），`UpdateDrag2D(x, y, keepAspect)` 跟随指针，`EndDrag2D` 或 `CancelDrag2D` 结束拖动；`PickGizmo2D` 给出画布上某点下的手柄，`Dragging2D` 给出正在拖动的手柄，`Gizmo2DShown` 表示是否绘制控件。
 
+### 2D 组件形状手柄（#882）
+
+在 2D 编辑模式下，视口会在对象的局部坐标系中绘制选中对象的每一个已注册形状字段（`FieldPoint`、`FieldRect`、`FieldCircle` 和 `FieldPolygon`，自动计入父对象变换、旋转、缩放、图层空间与视差）。切换 2D 视图工具栏中的 **Shapes** 按钮（`SetShowAllShapes`、`CmdToggleAllShapes`、`Editor.ShowAllShapes`）可同时绘制场景中所有可见对象的形状字段，并保持选中对象高亮显示在最上层。
+
+使用 Select 或 Move 工具时，选中对象的形状字段会显示可交互手柄：
+
+- **点（Point）**：拖动手柄移动 `(x, y)`。
+- **矩形（Rect）**：拖动 4 个角手柄或 4 个边中点手柄缩放尺寸（拖过对边时平滑翻转并保持 `width >= 0`、`height >= 0`）；当中心手柄不与对象原点移动方块重叠时，拖动中心手柄可整体平移矩形。
+- **圆（Circle）**：拖动 4 个正交圆周手柄调整 `radius`（限制 `>= 0`）；当圆心偏离对象原点时，拖动圆心手柄可平移圆。
+- **多边形（Polygon）**：拖动任意顶点手柄移动顶点；点击或拖动边中点手柄插入新顶点（`AddPolygonVertex`）；右键点击或 Alt+点击顶点手柄删除顶点（`RemovePolygonVertex`，至少保留 3 个顶点）。
+- **网格吸附**：切换 2D 视图工具栏中的 **Snap** 按钮（`SetSnapToGrid`、`CmdToggleSnapGrid`、`Editor.SnapToGrid`），可将手柄拖动与插入顶点吸附到 `GridSize` 网格步长（`SetGridSize`，默认 `8`，`SnapValue`）。
+
+每次拖动、添加顶点和删除顶点均通过 `SetComponentField` 提交为一个可撤销步骤；按 Escape、手势取消、双指介入、撤销/重做、Play、保存或切换工具会取消进行中的拖动并无损恢复字段原值。在 Go 中，可通过 `VisibleShapes2D`、`ShapeHandles2D`、`PickShapeHandle2D`、`BeginShapeDrag2D`、`UpdateShapeDrag2D`、`EndShapeDrag2D`、`CancelShapeDrag2D`、`DraggingShape2D`、`ActiveShapeHandle2D`、`AddPolygonVertex`、`RemovePolygonVertex` 和 `HandleCanvasSecondaryPress` 驱动同一流程，检查器也为每种形状字段提供对应的可编辑控件。
+
 ## 3D 视口（#890）
 
 在 3D 模式下，视口按游戏绘制的样子显示场景：一个 `gpu.View` 填满面板，用 render3d 绘制场景的 3D 构建结果，叠在它上面的画布绘制地面网格、原点坐标轴、选中轮廓和变换控件。构建结果来自 `scenemodel.Build`（`Scene3D`）：每个对象的内置图元（`mesh`）或 glTF 模型（`model`、`modelNode`、`modelMesh`）及其材质和纹理，包括实例化场景加入的对象。编辑器的 `Resolver` 实现了 `scenemodel.ModelResolver`、`sceneformat.MaterialResolver` 或 `scenemodel.ImageResolver` 时，模型、材质文件和图片通过它加载，否则从打开的项目的文件中加载。场景无法构建时（例如它引用的模型加载失败），视口角落会有一行文字说明原因（`Viewport3DError`），每个对象仍然显示包围盒。
@@ -626,7 +651,6 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 - **吸附与对齐**：工具栏的 Snap 让地平面上的点的 X 和 Z 吸附到视口所绘网格的间距（`PlaceSnap3D`）；场景几何体上的点不吸附，因为网格间距可能比指针下的对象还宽；Align 让放在场景几何体上的模型转动，使其 +Y 轴与表面法线一致（`PlaceAlign3D`），地面高度字段设置 `PlaceHeight3D`。它们是视图设置，不是编辑（`SetPlaceOptions3D`）。
 - **拖放**：把模型从资源浏览器拖到 3D 视口上，会按放置工具的规则把它放在落下的位置，不论当前是哪个工具。从其他应用拖到视口上的 `.gltf` 或 `.glb` 文件，只要位于项目文件夹内、且不在资源浏览器略过的文件夹中（名称以 `.` 或 `_` 开头的文件夹，以及 `testdata`），就会被放置（`DropModelFiles`），多个文件算作一步；项目之外的文件、其他类型的文件以及来自网页、没有路径的文件会被拒绝，原因显示在状态栏中。文件拖放不带位置，所以拖入的文件落在视图中心所指的地方。
 - **一步操作**：每次放置都是一个可撤销的步骤，撤销会取回，重做会再次放置。播放时、当前图层被锁定或位于屏幕空间时，以及模型无法加载时，放置会被拒绝；在版本 1 的场景中放置模型会把场景提升到当前版本，与 `PlaceObject` 相同。
-
 ## 瓦片调色板（#874）
 
 在 2D 视图中启用 Paint、Erase、Fill 或 Pick 工具时，视口右侧会显示瓦片调色板。它把当前图层瓦片集的瓦片按瓦片 ID 顺序排成网格，每个瓦片按瓦片地图的瓦片尺寸显示（比面板还宽的瓦片会缩小到面板宽度）。这些瓦片是瓦片集图集中名称为瓦片 ID（`"1"`、`"2"`……）的帧，与场景格式查找瓦片的方式一致；其他帧不会列出。点击一个瓦片，或用方向键在瓦片之间移动，即可把它设为 Paint 和 Fill 写入的瓦片（`SetActiveTileID`）；所有方向键都按 ID 顺序逐个移动，左键和上键移到上一个瓦片，右键和下键移到下一个，而不是按网格的行移动。选中的瓦片带有一圈高亮，使用 Paint 或 Fill 时状态栏显示它的 ID。选择瓦片不算编辑，不进入撤销历史；之后的绘制是一个可撤销的步骤。
@@ -743,7 +767,7 @@ func main() {
 
 - **面板**（`Panel`）：停靠在视口左侧（`DockLeft`，位于资源浏览器之后）、检查器右侧（`DockRight`）或视口下方（`DockBottom`）的视图，上方显示其 `Title`。`View(cx, ed, rev)` 在面板出现时构建一次，只要其插件处于启用状态，面板就保持挂载并保留其状态，不受其他面板增减的影响；与编辑器自带的面板一样，它在响应式函数中读取 `rev`，以跟随编辑器状态的每一次变化。没有面板的停靠区不占空间。
 - **检查器**（`Inspector`）：检查器用 `View(cx, ed, rev, objectID)` 在组件标题下方绘制 `Component` 指定的组件，取代该组件的通用字段。`Editor.ComponentField` 读取一个字段；场景未设置该字段时返回其注册的默认值，对象没有该组件时返回 false。与通用字段一样，检查器的控件应在 `Playing` 返回 true 时禁用，编辑器拒绝的编辑应通过 `Editor.Report` 显示在状态栏中。两个已启用的插件绘制同一个组件时，`editor.plugins` 中排在前面的插件生效。
-- **工具**（`PluginTool`）：工具栏中位于内置 2D 工具旁的一个按钮。当它是当前工具时（`SetPluginTool`，此时 `Tool` 为 `ToolPlugin`），在视口上按下会以画布坐标调用 `Press(ed, x, y)`（用 `CanvasToWorld` 转换为世界坐标，用 `CanvasToScreen` 转换为屏幕空间图层的坐标），设置了 `Draw` 时，它会在编辑模式下绘制在场景之上。选择其他工具或关闭插件都会结束该工具。
+- **工具**（`PluginTool`）：工具栏中位于内置 2D 工具旁的一个按钮。当它是当前工具时（`SetPluginTool`，此时 `Tool` 为 `ToolPlugin`），在视口上按下会以画布坐标调用 `Press(ed, x, y)`（用 `CanvasToWorld` 转换为世界坐标，用 `CanvasToScreen` 转换为屏幕空间图层的坐标），拖动会依次调用 `OnDragBegin(ed, x, y)`（返回 `true` 接管拖动）、`OnDragMove(ed, x, y)`、`OnDragEnd(ed, x, y)` 与 `OnDragCancel(ed)`（`BeginPluginDrag2D`、`UpdatePluginDrag2D`、`EndPluginDrag2D`、`CancelPluginDrag2D`、`PluginDragging2D`），指针移动会调用 `OnHover(ed, x, y, active)`（`SetPluginHover2D`、`ClearPluginHover2D`），设置了 `Draw` 时它会在编辑模式下绘制在场景之上。工具至少需要提供 `Press` 或 `OnDragBegin` 之一。选择其他工具或关闭插件都会结束该工具。
 
 插件只通过编辑器的方法修改场景，例如 `SetComponentField`、`PlaceObject` 和 `MoveObject`，或者在 `Editor.History` 上执行自己的 `Command`，因此它的每一次编辑都与其他编辑一起撤销和重做。`History.Group(label, fn)` 把 `fn` 做的编辑记录为一个步骤，按一次撤销即可撤回；`fn` 失败时撤销这些编辑且不记录任何步骤。编辑器的 MCP 服务器（[mcp](mcp.md#编辑器工具)）就这样应用智能体的每次请求。`RegisterPlugin` 会拒绝没有名称或名称已注册的插件、缺少 ID、标题、标签、组件或函数的面板、检查器或工具、含控制字符的 ID 或组件名、未知的停靠位置，以及 ID 或组件重复的面板、检查器或工具。测试 ID 用 `-` 连接插件名和 ID（`plugin-panel-<plugin>-<id>`、`tool-<plugin>-<id>`、`inspector-plugin-<plugin>-<component>`），因此一起使用的插件，其名称和 ID 不应连接成相同的字符串。
 

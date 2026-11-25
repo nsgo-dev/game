@@ -8,6 +8,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/nsgo-dev/game/packages/game/math2d"
 	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -75,16 +76,26 @@ type Inspector struct {
 	View func(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], objectID string) core.Node
 }
 
-// PluginTool is a 2D viewport tool a plugin adds. While it is the active tool (Editor.SetPluginTool), a press on the 2D viewport calls Press, and Draw draws over the scene in edit mode.
+// PluginTool is a 2D viewport tool a plugin adds. While it is the active tool (Editor.SetPluginTool), a press on the 2D viewport calls Press, pointer drags call OnDragBegin/OnDragMove/OnDragEnd/OnDragCancel, pointer motion calls OnHover, and Draw draws over the scene in edit mode.
 type PluginTool struct {
 	// ID identifies the tool within its plugin and has no control characters; its tool bar button has the test ID "tool-<plugin>-<id>", which can collide as Panel.ID's can.
 	ID string
 	// Label is the tool's button text and its name in the status bar.
 	Label string
-	// Press handles a press at canvas coordinates (x, y), which go through the editor's 2D view (View2D) rather than the scene camera: Editor.CanvasToWorld converts them to world coordinates for a world-space layer, and Editor.CanvasToScreen to the scene's screen coordinates for a screen-space layer. It is not called while playing.
+	// Press, when set, handles a press at canvas coordinates (x, y), which go through the editor's 2D view (View2D) rather than the scene camera: Editor.CanvasToWorld converts them to world coordinates for a world-space layer, and Editor.CanvasToScreen to the scene's screen coordinates for a screen-space layer. It is not called while playing. At least one of Press or OnDragBegin must be set.
 	Press func(ed *Editor, x, y float32)
 	// Draw, when set, draws over the scene in canvas coordinates while the tool is active and the editor is not playing. Canvas coordinates follow the 2D view: Editor.WorldToCanvas places a world point and Editor.ScreenToCanvas a screen-space layer's point.
 	Draw func(ed *Editor, d *core.Drawing)
+	// OnDragBegin, when set, is called when a primary drag begins at canvas coordinates (x, y) while the tool is active in 2D edit mode. Returning true claims the drag so subsequent motion calls OnDragMove and release calls OnDragEnd (or OnDragCancel if cancelled).
+	OnDragBegin func(ed *Editor, x, y float32) bool
+	// OnDragMove, when set, is called as a claimed drag moves to canvas coordinates (x, y).
+	OnDragMove func(ed *Editor, x, y float32)
+	// OnDragEnd, when set, is called when a claimed drag finishes at canvas coordinates (x, y).
+	OnDragEnd func(ed *Editor, x, y float32)
+	// OnDragCancel, when set, is called when a claimed drag is cancelled by Escape, a cancelled gesture, a second finger, Play, Undo/Redo, Save, or changing tools, view mode or scene.
+	OnDragCancel func(ed *Editor)
+	// OnHover, when set, is called as the pointer moves across the 2D viewport at canvas coordinates (x, y) while the tool is active in edit mode, and with active=false when the pointer leaves the viewport or the tool becomes inactive.
+	OnHover func(ed *Editor, x, y float32, active bool)
 }
 
 // PluginCommand is a command a plugin adds to the editor's command registry, command palette,
@@ -201,8 +212,8 @@ func validatePlugin(p *Plugin) error {
 			return fmt.Errorf("%s: tool ID %q has control characters", where, t.ID)
 		case t.Label == "":
 			return fmt.Errorf("%s: tool %q has no label", where, t.ID)
-		case t.Press == nil:
-			return fmt.Errorf("%s: tool %q has no Press", where, t.ID)
+		case t.Press == nil && t.OnDragBegin == nil:
+			return fmt.Errorf("%s: tool %q has no Press or OnDragBegin", where, t.ID)
 		}
 		if _, dup := tools[t.ID]; dup {
 			return fmt.Errorf("%s: two tools have ID %q", where, t.ID)
@@ -331,12 +342,134 @@ func (e *Editor) SetPluginTool(plugin, id string) error {
 		return nil
 	}
 	e.CancelDrag2D()
+	e.CancelShapeDrag2D()
+	e.CancelPluginDrag2D()
+	e.ClearPluginHover2D()
 	e.CancelCameraDrag()
 	e.endTileStrokeForChange()
 	e.Tool = ToolPlugin
 	e.pluginTool = pluginToolRef{plugin, id}
 	e.Status = "Tool: " + p.Tools[i].Label
 	e.notify()
+	return nil
+}
+
+// BeginPluginDrag2D starts a drag on the active plugin tool at canvas coordinates (x, y), returning true if the tool claimed the drag via OnDragBegin.
+func (e *Editor) BeginPluginDrag2D(x, y float32) bool {
+	if e == nil || e.playing || e.ViewMode != ViewMode2D || e.Tool != ToolPlugin || e.pluginDrag || !isFiniteFloat32(x) || !isFiniteFloat32(y) {
+		return false
+	}
+	t := e.activePluginTool()
+	if t == nil || t.OnDragBegin == nil {
+		return false
+	}
+	if !t.OnDragBegin(e, x, y) {
+		return false
+	}
+	e.pluginDrag = true
+	e.pluginDragMoved = false
+	e.pluginDragRef = e.pluginTool
+	e.pluginDragLast = math2d.Vec2{X: x, Y: y}
+	e.notify()
+	return true
+}
+
+// UpdatePluginDrag2D delivers drag movement at canvas coordinates (x, y) to the active plugin tool's OnDragMove callback.
+func (e *Editor) UpdatePluginDrag2D(x, y float32) {
+	if e == nil || !e.pluginDrag || !isFiniteFloat32(x) || !isFiniteFloat32(y) {
+		return
+	}
+	if e.playing || e.ViewMode != ViewMode2D || e.Tool != ToolPlugin || e.pluginTool != e.pluginDragRef {
+		e.CancelPluginDrag2D()
+		return
+	}
+	pos := math2d.Vec2{X: x, Y: y}
+	if e.pluginDragMoved && pos == e.pluginDragLast {
+		return
+	}
+	e.pluginDragMoved = true
+	e.pluginDragLast = pos
+	if t := e.activePluginTool(); t != nil && t.OnDragMove != nil {
+		t.OnDragMove(e, x, y)
+	}
+}
+
+// EndPluginDrag2D finishes an active plugin tool drag at canvas coordinates (x, y), calling OnDragEnd.
+func (e *Editor) EndPluginDrag2D(x, y float32) bool {
+	if e == nil || !e.pluginDrag {
+		return false
+	}
+	ref := e.pluginDragRef
+	e.pluginDrag = false
+	e.pluginDragMoved = false
+	e.pluginDragRef = pluginToolRef{}
+	if t := e.pluginToolByRef(ref); t != nil && t.OnDragEnd != nil {
+		t.OnDragEnd(e, x, y)
+	}
+	e.notify()
+	return true
+}
+
+// CancelPluginDrag2D aborts an active plugin tool drag, calling OnDragCancel when set.
+func (e *Editor) CancelPluginDrag2D() bool {
+	if e == nil || !e.pluginDrag {
+		return false
+	}
+	ref := e.pluginDragRef
+	e.pluginDrag = false
+	e.pluginDragMoved = false
+	e.pluginDragRef = pluginToolRef{}
+	if t := e.pluginToolByRef(ref); t != nil && t.OnDragCancel != nil {
+		t.OnDragCancel(e)
+	}
+	e.notify()
+	return true
+}
+
+// PluginDragging2D reports whether a plugin tool currently owns a 2D viewport drag.
+func (e *Editor) PluginDragging2D() bool {
+	return e != nil && e.pluginDrag
+}
+
+// SetPluginHover2D notifies the active plugin tool's OnHover callback of pointer motion at canvas coordinates (x, y) in 2D edit mode.
+func (e *Editor) SetPluginHover2D(x, y float32) {
+	if e == nil || e.playing || e.ViewMode != ViewMode2D || e.Tool != ToolPlugin || !isFiniteFloat32(x) || !isFiniteFloat32(y) {
+		return
+	}
+	t := e.activePluginTool()
+	if t == nil || t.OnHover == nil {
+		return
+	}
+	e.pluginHoverActive = true
+	e.pluginHoverRef = e.pluginTool
+	e.pluginHoverPos = math2d.Vec2{X: x, Y: y}
+	t.OnHover(e, x, y, true)
+}
+
+// ClearPluginHover2D notifies the hovered plugin tool's OnHover callback with active=false when the pointer leaves the viewport or the tool changes.
+func (e *Editor) ClearPluginHover2D() {
+	if e == nil || !e.pluginHoverActive {
+		return
+	}
+	ref := e.pluginHoverRef
+	pos := e.pluginHoverPos
+	e.pluginHoverActive = false
+	e.pluginHoverRef = pluginToolRef{}
+	if t := e.pluginToolByRef(ref); t != nil && t.OnHover != nil {
+		t.OnHover(e, pos.X, pos.Y, false)
+	}
+}
+
+func (e *Editor) pluginToolByRef(ref pluginToolRef) *PluginTool {
+	p := e.plugin(ref.plugin)
+	if p == nil {
+		return nil
+	}
+	for i := range p.Tools {
+		if p.Tools[i].ID == ref.id {
+			return &p.Tools[i]
+		}
+	}
 	return nil
 }
 
@@ -436,6 +569,8 @@ func (e *Editor) activePluginTool() *PluginTool {
 // dropStalePluginTool returns to ToolSelect when the active plugin tool's plugin is no longer on.
 func (e *Editor) dropStalePluginTool() {
 	if e.Tool == ToolPlugin && e.activePluginTool() == nil {
+		e.CancelPluginDrag2D()
+		e.ClearPluginHover2D()
 		e.Tool = ToolSelect
 		e.pluginTool = pluginToolRef{}
 	}

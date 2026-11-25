@@ -114,8 +114,15 @@ func (e *Editor) SetComponentField(objectID, componentName, field string, value 
 	fieldExisted := false
 	if compMap != nil {
 		oldVal, fieldExisted = compMap[field]
-		if fieldExisted && reflect.DeepEqual(oldVal, value) {
-			return nil
+		if fieldExisted {
+			if reflect.DeepEqual(oldVal, value) {
+				return nil
+			}
+			if e.components != nil {
+				if normOld, err := e.components.CheckField(componentName, field, oldVal); err == nil && reflect.DeepEqual(normOld, value) {
+					return nil
+				}
+			}
 		}
 	}
 
@@ -396,6 +403,14 @@ func valueKindTag(v any) string {
 		return "stringlist"
 	case [][2]float64:
 		return "pointlist"
+	case sceneformat.Point:
+		return "point"
+	case sceneformat.Rect:
+		return "rect"
+	case sceneformat.Circle:
+		return "circle"
+	case []sceneformat.Point:
+		return "polygon"
 	default:
 		return "string"
 	}
@@ -1535,16 +1550,24 @@ func fieldTooltip(f sceneformat.Field) string {
 }
 
 func formatFieldValue(v any) string {
-	if s, ok := v.(string); ok {
-		return fmt.Sprintf("%q", s)
+	switch x := v.(type) {
+	case string:
+		return fmt.Sprintf("%q", x)
+	case []string:
+		return "[" + strings.Join(x, ", ") + "]"
+	case sceneformat.Point:
+		return fmt.Sprintf("{x: %g, y: %g}", x.X, x.Y)
+	case sceneformat.Rect:
+		return fmt.Sprintf("{x: %g, y: %g, width: %g, height: %g}", x.X, x.Y, x.Width, x.Height)
+	case sceneformat.Circle:
+		return fmt.Sprintf("{x: %g, y: %g, radius: %g}", x.X, x.Y, x.Radius)
+	case []sceneformat.Point:
+		return fmt.Sprintf("%d points", len(x))
+	case [][2]float64:
+		return formatPointListInput(x)
+	default:
+		return fmt.Sprint(v)
 	}
-	if ss, ok := v.([]string); ok {
-		return "[" + strings.Join(ss, ", ") + "]"
-	}
-	if pts, ok := v.([][2]float64); ok {
-		return formatPointListInput(pts)
-	}
-	return fmt.Sprint(v)
 }
 
 func pointListFromAny(v any) [][2]float64 {
@@ -1742,6 +1765,141 @@ func registeredFieldControl(
 				if pts, ok := parsePointListInput(text); ok {
 					set(pts)
 				}
+			},
+		}
+	case sceneformat.FieldPoint:
+		numInput := func(suffix, fieldLabel string, read func(sceneformat.Point) float64, write func(sceneformat.Point, float64) sceneformat.Point) core.Node {
+			return ui.NumberInput{
+				TestID:   testID + "-" + suffix,
+				Label:    label + " " + fieldLabel,
+				Step:     1,
+				Format:   func(v float64) string { return strconv.FormatFloat(v, 'g', -1, 64) },
+				Disabled: disabled,
+				Value: func() float64 {
+					p, _ := sceneformat.ParsePoint(get())
+					return read(p)
+				},
+				OnChange: func(v float64) {
+					p, _ := sceneformat.ParsePoint(get())
+					set(write(p, v))
+				},
+			}
+		}
+		return ui.HStack{
+			Gap: 4,
+			Children: []core.Node{
+				numInput("x", "X", func(p sceneformat.Point) float64 { return p.X }, func(p sceneformat.Point, v float64) sceneformat.Point { p.X = v; return p }),
+				numInput("y", "Y", func(p sceneformat.Point) float64 { return p.Y }, func(p sceneformat.Point, v float64) sceneformat.Point { p.Y = v; return p }),
+			},
+		}
+	case sceneformat.FieldRect:
+		numInput := func(suffix, fieldLabel string, minVal float64, hasMin bool, read func(sceneformat.Rect) float64, write func(sceneformat.Rect, float64) sceneformat.Rect) core.Node {
+			n := ui.NumberInput{
+				TestID:   testID + "-" + suffix,
+				Label:    label + " " + fieldLabel,
+				Step:     1,
+				Format:   func(v float64) string { return strconv.FormatFloat(v, 'g', -1, 64) },
+				Disabled: disabled,
+				Value: func() float64 {
+					r, _ := sceneformat.ParseRect(get())
+					return read(r)
+				},
+				OnChange: func(v float64) {
+					if hasMin && v < minVal {
+						v = minVal
+					}
+					r, _ := sceneformat.ParseRect(get())
+					set(write(r, v))
+				},
+			}
+			if hasMin {
+				n.Min = minVal
+			}
+			return n
+		}
+		return core.View{
+			Style: core.Style{Gap: 4},
+			Children: []core.Node{
+				ui.HStack{
+					Gap: 4,
+					Children: []core.Node{
+						numInput("x", "X", 0, false, func(r sceneformat.Rect) float64 { return r.X }, func(r sceneformat.Rect, v float64) sceneformat.Rect { r.X = v; return r }),
+						numInput("y", "Y", 0, false, func(r sceneformat.Rect) float64 { return r.Y }, func(r sceneformat.Rect, v float64) sceneformat.Rect { r.Y = v; return r }),
+					},
+				},
+				ui.HStack{
+					Gap: 4,
+					Children: []core.Node{
+						numInput("width", "Width", 0, true, func(r sceneformat.Rect) float64 { return r.Width }, func(r sceneformat.Rect, v float64) sceneformat.Rect { r.Width = v; return r }),
+						numInput("height", "Height", 0, true, func(r sceneformat.Rect) float64 { return r.Height }, func(r sceneformat.Rect, v float64) sceneformat.Rect { r.Height = v; return r }),
+					},
+				},
+			},
+		}
+	case sceneformat.FieldCircle:
+		numInput := func(suffix, fieldLabel string, minVal float64, hasMin bool, read func(sceneformat.Circle) float64, write func(sceneformat.Circle, float64) sceneformat.Circle) core.Node {
+			n := ui.NumberInput{
+				TestID:   testID + "-" + suffix,
+				Label:    label + " " + fieldLabel,
+				Step:     1,
+				Format:   func(v float64) string { return strconv.FormatFloat(v, 'g', -1, 64) },
+				Disabled: disabled,
+				Value: func() float64 {
+					c, _ := sceneformat.ParseCircle(get())
+					return read(c)
+				},
+				OnChange: func(v float64) {
+					if hasMin && v < minVal {
+						v = minVal
+					}
+					c, _ := sceneformat.ParseCircle(get())
+					set(write(c, v))
+				},
+			}
+			if hasMin {
+				n.Min = minVal
+			}
+			return n
+		}
+		return ui.HStack{
+			Gap: 4,
+			Children: []core.Node{
+				numInput("x", "X", 0, false, func(c sceneformat.Circle) float64 { return c.X }, func(c sceneformat.Circle, v float64) sceneformat.Circle { c.X = v; return c }),
+				numInput("y", "Y", 0, false, func(c sceneformat.Circle) float64 { return c.Y }, func(c sceneformat.Circle, v float64) sceneformat.Circle { c.Y = v; return c }),
+				numInput("radius", "Radius", 0, true, func(c sceneformat.Circle) float64 { return c.Radius }, func(c sceneformat.Circle, v float64) sceneformat.Circle { c.Radius = v; return c }),
+			},
+		}
+	case sceneformat.FieldPolygon:
+		return ui.HStack{
+			Gap: 6,
+			Children: []core.Node{
+				core.Text{
+					TestID: testID,
+					ContentFunc: func() string {
+						pts, _ := sceneformat.ParsePolygon(get())
+						return fmt.Sprintf("%d vertices", len(pts))
+					},
+					Style: core.Style{FontSize: 12},
+				},
+				ui.Button{
+					TestID:   testID + "-add",
+					Text:     "+ Vertex",
+					Size:     ui.SizeSmall,
+					Variant:  ui.ButtonSecondary,
+					Disabled: disabled,
+					OnPress: func() {
+						pts, _ := sceneformat.ParsePolygon(get())
+						next := slices.Clone(pts)
+						var pt sceneformat.Point
+						if n := len(next); n >= 2 {
+							a, b := next[n-1], next[0]
+							pt = sceneformat.Point{X: (a.X + b.X) / 2, Y: (a.Y + b.Y) / 2}
+						} else if n == 1 {
+							pt = sceneformat.Point{X: next[0].X + 16, Y: next[0].Y}
+						}
+						set(append(next, pt))
+					},
+				},
 			},
 		}
 	default:

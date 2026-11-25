@@ -27,9 +27,17 @@ const (
 	FieldStringList
 	// FieldPointList holds a list of 2D [x, y] points (such as an occluder polygon's vertices) and decodes to a Go [][2]float64.
 	FieldPointList
+	// FieldPoint holds a 2D point {x, y} in object-local space and decodes to a Go Point.
+	FieldPoint
+	// FieldRect holds a 2D rectangle {x, y, width, height} in object-local space and decodes to a Go Rect.
+	FieldRect
+	// FieldCircle holds a 2D circle {x, y, radius} in object-local space and decodes to a Go Circle.
+	FieldCircle
+	// FieldPolygon holds a list of 2D points [{x, y}, ...] in object-local space and decodes to a Go []Point.
+	FieldPolygon
 )
 
-// String returns the kind's name as written in error messages: "bool", "int", "float", "string", "[]string" or "[][2]float64".
+// String returns the kind's name as written in error messages: "bool", "int", "float", "string", "[]string", "[][2]float64", "point", "rect", "circle" or "polygon".
 func (k FieldKind) String() string {
 	switch k {
 	case FieldBool:
@@ -44,6 +52,14 @@ func (k FieldKind) String() string {
 		return "[]string"
 	case FieldPointList:
 		return "[][2]float64"
+	case FieldPoint:
+		return "point"
+	case FieldRect:
+		return "rect"
+	case FieldCircle:
+		return "circle"
+	case FieldPolygon:
+		return "polygon"
 	default:
 		return "FieldKind(" + strconv.Itoa(int(k)) + ")"
 	}
@@ -51,6 +67,9 @@ func (k FieldKind) String() string {
 
 // IsNumeric reports whether the kind is FieldInt or FieldFloat, the kinds a Field's Min and Max apply to.
 func (k FieldKind) IsNumeric() bool { return k == FieldInt || k == FieldFloat }
+
+// IsShape reports whether the kind is one of the 2D geometry shape kinds: FieldPoint, FieldRect, FieldCircle or FieldPolygon.
+func (k FieldKind) IsShape() bool { return k >= FieldPoint && k <= FieldPolygon }
 
 // Field describes one field of a component type: its YAML key, value kind, default, optional inclusive range and documentation.
 type Field struct {
@@ -191,7 +210,7 @@ func normalizeFields(owner, noun string, fields []Field) ([]Field, error) {
 		}
 		seen[f.Name] = struct{}{}
 		where := fmt.Sprintf("%s %s %q", owner, noun, f.Name)
-		if f.Kind < FieldBool || f.Kind > FieldPointList {
+		if f.Kind < FieldBool || f.Kind > FieldPolygon {
 			return nil, fmt.Errorf("sceneformat: %s has unknown kind %v", where, f.Kind)
 		}
 		if len(f.Enum) > 0 && f.Kind != FieldString {
@@ -341,7 +360,7 @@ func (r *ComponentRegistry) Resolve(component string, data map[string]any) (map[
 			out[f.Name] = norm
 			continue
 		}
-		out[f.Name] = f.Default
+		out[f.Name] = cloneFieldDefault(f.Default)
 	}
 	return out, nil
 }
@@ -480,12 +499,7 @@ func cloneFields(fields []Field) []Field {
 		if len(f.Enum) > 0 {
 			out[i].Enum = slices.Clone(f.Enum)
 		}
-		if ss, ok := f.Default.([]string); ok {
-			out[i].Default = slices.Clone(ss)
-		}
-		if pts, ok := f.Default.([][2]float64); ok {
-			out[i].Default = slices.Clone(pts)
-		}
+		out[i].Default = cloneFieldDefault(f.Default)
 	}
 	return out
 }
@@ -502,6 +516,14 @@ func zeroValue(k FieldKind) any {
 		return []string(nil)
 	case FieldPointList:
 		return [][2]float64(nil)
+	case FieldPoint:
+		return Point{}
+	case FieldRect:
+		return Rect{}
+	case FieldCircle:
+		return Circle{}
+	case FieldPolygon:
+		return []Point(nil)
 	default:
 		return ""
 	}
@@ -572,6 +594,30 @@ func (f Field) check(v any) (any, string) {
 			return nil, msg
 		}
 		return x, ""
+	case FieldPoint:
+		p, msg := checkPoint(v)
+		if msg != "" {
+			return nil, msg
+		}
+		return p, ""
+	case FieldRect:
+		r, msg := checkRect(v)
+		if msg != "" {
+			return nil, msg
+		}
+		return r, ""
+	case FieldCircle:
+		c, msg := checkCircle(v)
+		if msg != "" {
+			return nil, msg
+		}
+		return c, ""
+	case FieldPolygon:
+		pts, msg := checkPolygon(v)
+		if msg != "" {
+			return nil, msg
+		}
+		return pts, ""
 	default:
 		return nil, fmt.Sprintf("unknown kind %v", f.Kind)
 	}

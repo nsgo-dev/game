@@ -724,7 +724,7 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 	}
 }
 
-// view2DToolsView is the tool bar's group of controls for the 2D view: framing, returning to the scene camera, and toggling live 2D lighting preview.
+// view2DToolsView is the tool bar's group of controls for the 2D view: framing, returning to the scene camera, lighting preview, show-all-shapes, and grid snap toggles.
 func view2DToolsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], playing func() bool) core.Node {
 	btn := func(testID string, icon func() *core.SVG, label string, fn func()) core.Node {
 		return ui.Button{
@@ -754,6 +754,32 @@ func view2DToolsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], playi
 				},
 				OnChange: func(on bool) {
 					ed.SetShowLightingPreview(on)
+				},
+			},
+			ui.ToggleButton{
+				TestID:   "view-show-all-shapes",
+				Icon:     lucide.Hexagon,
+				Label:    "Show all component shapes",
+				Disabled: playing,
+				On: func() bool {
+					_ = rev.Get()
+					return ed.ShowAllShapes
+				},
+				OnChange: func(on bool) {
+					ed.SetShowAllShapes(on)
+				},
+			},
+			ui.ToggleButton{
+				TestID:   "view-snap-grid",
+				Icon:     lucide.Magnet,
+				Label:    "Snap shape handles to grid",
+				Disabled: playing,
+				On: func() bool {
+					_ = rev.Get()
+					return ed.SnapToGrid
+				},
+				OnChange: func(on bool) {
+					ed.SetSnapToGrid(on)
 				},
 			},
 		},

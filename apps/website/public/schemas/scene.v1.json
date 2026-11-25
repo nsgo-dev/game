@@ -154,6 +154,26 @@
       },
       "additionalProperties": false
     },
+    "Circle": {
+      "description": "Circle is a 2D circle in an object's local coordinate space, used by FieldCircle component fields.",
+      "type": "object",
+      "properties": {
+        "x": {
+          "description": "X is the horizontal center coordinate in object-local space.",
+          "type": "number"
+        },
+        "y": {
+          "description": "Y is the vertical center coordinate in object-local space.",
+          "type": "number"
+        },
+        "radius": {
+          "description": "Radius is the circle's radius in object-local space (non-negative).",
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
     "ConnectionDoc": {
       "description": "ConnectionDoc connects an event that one object emits to a handler of another object, or of the same one (SceneDoc.Connections). Signals.Emit calls the handler each time the object emits the event.",
       "type": "object",
@@ -409,6 +429,53 @@
       "required": [
         "id"
       ],
+      "additionalProperties": false
+    },
+    "Point": {
+      "description": "Point is a 2D point in an object's local coordinate space, used by FieldPoint and FieldPolygon component fields.",
+      "type": "object",
+      "properties": {
+        "x": {
+          "description": "X is the horizontal coordinate in object-local space.",
+          "type": "number"
+        },
+        "y": {
+          "description": "Y is the vertical coordinate in object-local space.",
+          "type": "number"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Polygon": {
+      "description": "Polygon is a list of 2D points in an object's local coordinate space, used by FieldPolygon component fields.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Point"
+      }
+    },
+    "Rect": {
+      "description": "Rect is an axis-aligned 2D rectangle in an object's local coordinate space, used by FieldRect component fields.",
+      "type": "object",
+      "properties": {
+        "x": {
+          "description": "X is the left edge coordinate in object-local space.",
+          "type": "number"
+        },
+        "y": {
+          "description": "Y is the top edge coordinate in object-local space.",
+          "type": "number"
+        },
+        "width": {
+          "description": "Width is the horizontal extent in object-local space (non-negative).",
+          "type": "number",
+          "minimum": 0
+        },
+        "height": {
+          "description": "Height is the vertical extent in object-local space (non-negative).",
+          "type": "number",
+          "minimum": 0
+        }
+      },
       "additionalProperties": false
     },
     "SpriteRef": {

@@ -276,6 +276,32 @@ func generate(root string) ([]schemaFile, error) {
 			// Args is a map[string]any, which Reflect allows any value in, but sceneformat.Validate takes only scalars, so an editor flags the rest as the loader does.
 			args.AdditionalProperties = &jsonschema.Schema{Types: []jsonschema.Type{jsonschema.TypeBoolean, jsonschema.TypeNumber, jsonschema.TypeString}}
 		}
+		if f.url == sceneformat.SchemaURL || f.url == sceneformat.SchemaURLV2 {
+			// Publish reusable component shape field definitions (Point, Rect, Circle, Polygon) in scene schemas.
+			if s.Definitions == nil {
+				s.Definitions = make(map[string]*jsonschema.Schema)
+			}
+			for _, st := range []struct {
+				name string
+				typ  reflect.Type
+			}{
+				{"Point", reflect.TypeFor[sceneformat.Point]()},
+				{"Rect", reflect.TypeFor[sceneformat.Rect]()},
+				{"Circle", reflect.TypeFor[sceneformat.Circle]()},
+			} {
+				sub, err := jsonschema.Reflect(st.typ, jsonschema.Options{Docs: docs})
+				if err != nil {
+					return nil, fmt.Errorf("%s: %s: %w", f.url, st.name, err)
+				}
+				sub.Schema = ""
+				s.Definitions[st.name] = sub
+			}
+			s.Definitions["Polygon"] = &jsonschema.Schema{
+				Description: "Polygon is a list of 2D points in an object's local coordinate space, used by FieldPolygon component fields.",
+				Types:       []jsonschema.Type{jsonschema.TypeArray},
+				Items:       &jsonschema.Schema{Ref: "#/definitions/Point"},
+			}
+		}
 		if f.url == tilemap.TilesetSchemaURL {
 			// Properties are map[string]any, which Reflect allows any value in, but tilemap.ValidateTileset takes only scalars, so an editor flags the rest as the loader does.
 			scalar := &jsonschema.Schema{Types: []jsonschema.Type{jsonschema.TypeBoolean, jsonschema.TypeNumber, jsonschema.TypeString}}
