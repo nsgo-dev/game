@@ -26,6 +26,12 @@ input:
   actions:
     - name: left
       bindings:
+        - kind: key
+          key: left
+        - kind: keyCode
+          code: KeyA
+        - kind: gamepadButton
+          button: dpadLeft
         - kind: touchRegion
           region: {"y": 116, width: 72, height: 64}
         - kind: mouseRegion
@@ -33,12 +39,20 @@ input:
           region: {"y": 116, width: 72, height: 64}
     - name: right
       bindings:
+        - kind: key
+          key: right
+        - kind: keyCode
+          code: KeyD
+        - kind: gamepadButton
+          button: dpadRight
         - kind: touchRegion
           region: {x: 72, "y": 116, width: 72, height: 64}
     - name: fire
       bindings:
         - kind: mouseButton
           button: right
+        - kind: gamepadButton
+          button: south
   axes:
     - name: move
       negative: left
@@ -47,6 +61,10 @@ input:
     - name: steer
       axis: tiltX
       deadZone: 0.1
+  gamepadAxes:
+    - name: move
+      axis: leftX
+      deadZone: 0.15
 audio:
   master: 0.9
   buses:
@@ -101,7 +119,7 @@ assets:
 | `name`, `id`, `appVersion` | The game's display name, its reverse-DNS identifier and its release version. |
 | `window` | The main window's starting content size in points (`width`, `height`, both required), its resize limits (`minWidth`, `minHeight`, `maxWidth`, `maxHeight`; 0 is no limit), `resizable` (true when left out), an optional `title` and `appearance` (`light` or `dark`; left out, the app follows the system). |
 | `display` | The virtual resolution a `screen.Viewport` maps onto the window: `width`, `height`, `mode` (`fit` when left out, `fill`, `stretch` or `expand`), `integerScale`, `pixelSnap` and the CSS `barColor` of letterbox bars. Left out, the game draws at the window's size. |
-| `input` | Named `actions`, each with `bindings` of kind `touchRegion` (a `region`), `mouseButton` (a `button`) or `mouseRegion` (both), where `button` is `left`, `right`, `middle`, `back` or `forward` and regions are in virtual coordinates. `axes` read -1 for their `negative` action and +1 for their `positive` one; `motionAxes` read `tiltX`, `tiltY`, `tiltZ`, `gyroX`, `gyroY` or `gyroZ` with `input.MotionAxisOptions`' fields; a motion axis may share its name with an axis, and `Actions.Axis` sums both. An action without bindings is declared for code to bind or an axis to read. |
+| `input` | Named `actions`, each with `bindings` of kind `touchRegion` (a `region`), `mouseButton` (a mouse `button`), `mouseRegion` (both), `key` (a layout key name `key`, such as `space` or `left`), `keyCode` (a physical key position `code`, such as `KeyW` or `ArrowLeft`), or `gamepadButton` (a W3C Standard Gamepad `button`: `south`, `east`, `west`, `north`, `leftShoulder`, `rightShoulder`, `leftTrigger`, `rightTrigger`, `back`, `start`, `leftStick`, `rightStick`, `dpadUp`, `dpadDown`, `dpadLeft`, `dpadRight` or `home`). Mouse `button` is `left`, `right`, `middle`, `back` or `forward` and regions are in virtual coordinates. `axes` read -1 for their `negative` action and +1 for their `positive` one; `motionAxes` read `tiltX`, `tiltY`, `tiltZ`, `gyroX`, `gyroY` or `gyroZ` with `input.MotionAxisOptions`' fields; `gamepadAxes` read controller sticks (`leftX`, `leftY`, `rightX` or `rightY`) with `input.GamepadAxisOptions`' fields (`deadZone`, `axial`, `sensitivity`, `invert`). A motion axis or gamepad axis may share its name with an axis, and `Actions.Axis` sums all of them and clamps to `[-1, 1]`. An action without bindings is declared for code to bind or an axis to read. |
 | `audio` | The default `master` volume and the `buses`, each a `sound.Mixer` group with a default `volume` and its DSP `effects` in order: `lowPass` and `highPass` (`cutoffHz`, `q`), `delay` (`time`, `feedback`, `wet`), `reverb` (`roomSize`, `damping`, `wet`), `gain` (`factor`) and `bitcrush` (`bits`, `downsample`). |
 | `autoload` | The `scenes` (scene format YAML files) and other `resources` loaded at startup, each with a unique `name` and a slash-separated `path` inside the project, and the `mainScene` the game starts in. |
 | `export` | The build `output` directory and one preset per platform (`macos`, `windows`, `linux`, `ios`, `tvos`, `watchos`, `android`, `harmonyos`, `web`, `miniprogram`), each with the NSGo build `targets` of that platform to build; a preset without targets builds the platform name, which NSGo expands to its default targets. |

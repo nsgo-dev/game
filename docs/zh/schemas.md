@@ -18,6 +18,7 @@ import "github.com/nsgo-dev/game/packages/game/tooling/jsonschema"
 | 地形定义，版本 1 | `https://game.nsgo.dev/schemas/terrain.v1.json` | `*.terrain.yaml`，由 `world3d.ParseTerrain` 和 `world3d.LoadTerrainFS` 读取 |
 | 3D 网格地图，版本 1 | `https://game.nsgo.dev/schemas/gridmap.v1.json` | `*.gridmap.yaml`，由 `world3d.ParseGridMap` 和 `world3d.LoadGridMapFS` 读取 |
 | 3D 植被层，版本 1 | `https://game.nsgo.dev/schemas/foliage.v1.json` | `*.foliage.yaml`，由 `world3d.ParseFoliage` 和 `world3d.LoadFoliageFS` 读取 |
+| 项目文件，版本 1 | `https://game.nsgo.dev/schemas/game.v1.json` | 项目根目录的 `game.yaml`，由 `project.Parse` 读取 |
 | 数据表 | 用 `datatable.Schema[T]` 按行类型生成 | `*.yaml`，由 `datatable.LoadYAML` 读取 |
 
 其余格式在各自的 YAML 加载器落地时补上 Schema：模组清单（#474）、项目文件（#488）、共享资源（#485）、粒子（#477）、骨骼绑定（#475）和本地化表（#473）。

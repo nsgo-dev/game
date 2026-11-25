@@ -15,8 +15,10 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/nsgo-dev/game/packages/game/l10n"
+	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/game/packages/game/tooling/importsettings"
 	"github.com/nsgo-dev/game/packages/game/tooling/jsonschema"
@@ -116,6 +118,18 @@ var formats = []format{
 		pkg:     "world3d",
 		version: world3d.FoliageFormatVersion,
 	},
+	{
+		url:     project.SchemaURL,
+		title:   "NSGo game project (version 1)",
+		typ:     reflect.TypeFor[project.File](),
+		pkg:     "project",
+		version: project.CurrentVersion,
+	},
+}
+
+// durationSchema allows a time.Duration written as a Go duration string such as "250ms" or as an integer of nanoseconds.
+var durationTypes = map[reflect.Type]*jsonschema.Schema{
+	reflect.TypeFor[time.Duration](): {Types: []jsonschema.Type{jsonschema.TypeString, jsonschema.TypeInteger}},
 }
 
 // schemaFile is one generated schema and the file name it is written under.
@@ -133,7 +147,7 @@ func generate(root string) ([]schemaFile, error) {
 		if err != nil {
 			return nil, err
 		}
-		s, err := jsonschema.Reflect(f.typ, jsonschema.Options{ID: f.url, Title: f.title, Docs: docs, FieldName: f.fieldName})
+		s, err := jsonschema.Reflect(f.typ, jsonschema.Options{ID: f.url, Title: f.title, Docs: docs, FieldName: f.fieldName, Types: durationTypes})
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", f.url, err)
 		}

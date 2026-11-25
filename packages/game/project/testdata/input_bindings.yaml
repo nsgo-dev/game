@@ -1,0 +1,60 @@
+version: 1
+name: Input Sample
+id: dev.nsgo.inputsample
+appVersion: 0.1.0
+window:
+  width: 640
+  height: 360
+display:
+  width: 320
+  height: 180
+input:
+  actions:
+    - name: left
+      bindings:
+        - kind: key
+          key: left
+        - kind: keyCode
+          code: KeyA
+        - kind: gamepadButton
+          button: dpadLeft
+        - kind: touchRegion
+          region: {"y": 116, width: 72, height: 64}
+    - name: right
+      bindings:
+        - kind: key
+          key: right
+        - kind: keyCode
+          code: KeyD
+        - kind: gamepadButton
+          button: dpadRight
+    - name: jump
+      bindings:
+        - kind: key
+          key: space
+        - kind: gamepadButton
+          button: south
+    - name: fire
+      bindings:
+        - kind: mouseButton
+          button: left
+        - kind: gamepadButton
+          button: rightTrigger
+  axes:
+    - name: move
+      negative: left
+      positive: right
+  motionAxes:
+    - name: steer
+      axis: tiltX
+      deadZone: 0.1
+  gamepadAxes:
+    - name: move
+      axis: leftX
+      deadZone: 0.15
+    - name: aimY
+      axis: rightY
+      deadZone: 0.2
+      axial: true
+      sensitivity: 1.5
+      invert: true

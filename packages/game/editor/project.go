@@ -44,6 +44,7 @@ func (e *Editor) OpenProject(path string) error {
 	e.stopFetch()
 	e.stopAudioAudition()
 	e.stopExportBuild()
+	e.resetInputMapTransient()
 	e.Project = f
 	e.ProjectPath = path
 	e.projectSaved = saved

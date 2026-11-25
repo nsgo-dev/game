@@ -64,6 +64,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 			AnimationPanelView(cx, ed, rev),
 			ProjectSettingsPanelView(cx, ed, rev),
 			AudioMixerPanelView(cx, ed, rev),
+			InputMapPanelView(cx, ed, rev),
 			LocalizationPanelView(cx, ed, rev),
 			ProblemsView(cx, ed, rev),
 			ExportPanelView(cx, ed, rev),
@@ -169,7 +170,7 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 		},
 		Children: []core.Node{
 			ui.HStack{
-				Gap: 8,
+				Gap: 6,
 				Children: []core.Node{
 					core.Text{
 						TestID: "toolbar-scene-name",
@@ -239,7 +240,7 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 				},
 			},
 			ui.HStack{
-				Gap: 6,
+				Gap: 4,
 				Children: []core.Node{
 					ui.Button{
 						TestID:  "toolbar-undo",
@@ -311,6 +312,22 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 						},
 						OnChange: func(on bool) {
 							ed.SetAudioMixerOpen(on)
+						},
+					},
+					ui.ToggleButton{
+						TestID: "toolbar-input-map",
+						Text:   "Input",
+						Label:  "Toggle the Input Map panel",
+						Disabled: func() bool {
+							_ = rev.Get()
+							return ed.Project == nil
+						},
+						On: func() bool {
+							_ = rev.Get()
+							return ed.InputMapOpen()
+						},
+						OnChange: func(on bool) {
+							ed.SetInputMapOpen(on)
 						},
 					},
 					ui.ToggleButton{

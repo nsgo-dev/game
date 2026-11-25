@@ -26,6 +26,12 @@ input:
   actions:
     - name: left
       bindings:
+        - kind: key
+          key: left
+        - kind: keyCode
+          code: KeyA
+        - kind: gamepadButton
+          button: dpadLeft
         - kind: touchRegion
           region: {"y": 116, width: 72, height: 64}
         - kind: mouseRegion
@@ -33,12 +39,20 @@ input:
           region: {"y": 116, width: 72, height: 64}
     - name: right
       bindings:
+        - kind: key
+          key: right
+        - kind: keyCode
+          code: KeyD
+        - kind: gamepadButton
+          button: dpadRight
         - kind: touchRegion
           region: {x: 72, "y": 116, width: 72, height: 64}
     - name: fire
       bindings:
         - kind: mouseButton
           button: right
+        - kind: gamepadButton
+          button: south
   axes:
     - name: move
       negative: left
@@ -47,6 +61,10 @@ input:
     - name: steer
       axis: tiltX
       deadZone: 0.1
+  gamepadAxes:
+    - name: move
+      axis: leftX
+      deadZone: 0.15
 audio:
   master: 0.9
   buses:
@@ -101,7 +119,7 @@ assets:
 | `name`、`id`、`appVersion` | 游戏的显示名称、反向域名形式的应用标识和发布版本。 |
 | `window` | 主窗口内容区的初始尺寸（`width`、`height`，单位为点，必填），可调整的尺寸范围（`minWidth`、`minHeight`、`maxWidth`、`maxHeight`，0 表示不限制），`resizable`（省略时为 true），可选的 `title`，以及 `appearance`（`light` 或 `dark`，省略时跟随系统）。 |
 | `display` | `screen.Viewport` 映射到窗口上的虚拟分辨率：`width`、`height`、`mode`（省略时为 `fit`，也可为 `fill`、`stretch` 或 `expand`）、`integerScale`、`pixelSnap`，以及黑边的 CSS 颜色 `barColor`。省略时游戏按窗口尺寸绘制。 |
-| `input` | 具名的 `actions`，每个动作带有 `bindings`，类型为 `touchRegion`（需要 `region`）、`mouseButton`（需要 `button`）或 `mouseRegion`（两者都要）；`button` 取 `left`、`right`、`middle`、`back` 或 `forward`，区域使用虚拟坐标。`axes` 在 `negative` 动作按下时读数为 -1，在 `positive` 动作按下时为 +1；`motionAxes` 读取 `tiltX`、`tiltY`、`tiltZ`、`gyroX`、`gyroY` 或 `gyroZ`，选项与 `input.MotionAxisOptions` 的字段相同；运动轴可以与某个轴同名，`Actions.Axis` 会把两者相加。没有绑定的动作只做声明，供代码绑定或供轴读取。 |
+| `input` | 具名的 `actions`，每个动作带有 `bindings`，类型为 `touchRegion`（需要 `region`）、`mouseButton`（需要鼠标 `button`）、`mouseRegion`（两者都要）、`key`（跟随键盘布局的键名 `key`，如 `space`、`left`）、`keyCode`（物理键位 `code`，如 `KeyW`、`ArrowLeft`）或 `gamepadButton`（W3C 标准手柄按键 `button`：`south`、`east`、`west`、`north`、`leftShoulder`、`rightShoulder`、`leftTrigger`、`rightTrigger`、`back`、`start`、`leftStick`、`rightStick`、`dpadUp`、`dpadDown`、`dpadLeft`、`dpadRight` 或 `home`）。鼠标 `button` 取 `left`、`right`、`middle`、`back` 或 `forward`，区域使用虚拟坐标。`axes` 在 `negative` 动作按下时读数为 -1，在 `positive` 动作按下时为 +1；`motionAxes` 读取 `tiltX`、`tiltY`、`tiltZ`、`gyroX`、`gyroY` 或 `gyroZ`，选项与 `input.MotionAxisOptions` 的字段相同；`gamepadAxes` 读取手柄摇杆（`leftX`、`leftY`、`rightX` 或 `rightY`），选项与 `input.GamepadAxisOptions` 的字段相同（`deadZone`、`axial`、`sensitivity`、`invert`）。运动轴或手柄摇杆轴都可以与某个动作轴同名，`Actions.Axis` 会把它们相加并限制在 `[-1, 1]` 内。没有绑定的动作只做声明，供代码绑定或供轴读取。 |
 | `audio` | 默认的 `master` 音量与各条 `buses`。每条总线是 `sound.Mixer` 的一个分组，带默认 `volume` 和按顺序应用的 DSP `effects`：`lowPass` 与 `highPass`（`cutoffHz`、`q`）、`delay`（`time`、`feedback`、`wet`）、`reverb`（`roomSize`、`damping`、`wet`）、`gain`（`factor`）和 `bitcrush`（`bits`、`downsample`）。 |
 | `autoload` | 启动时加载的 `scenes`（场景格式的 YAML 文件）和其他 `resources`，每项都有唯一的 `name` 和项目内以斜杠分隔的 `path`；`mainScene` 指定游戏启动时进入的场景。 |
 | `export` | 构建输出目录 `output`，以及每个平台一个预设（`macos`、`windows`、`linux`、`ios`、`tvos`、`watchos`、`android`、`harmonyos`、`web`、`miniprogram`），每个预设列出该平台要构建的 NSGo `targets`；不列目标的预设直接构建平台名，由 NSGo 展开为它的默认目标。 |

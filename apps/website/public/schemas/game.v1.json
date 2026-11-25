@@ -1,0 +1,1125 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://game.nsgo.dev/schemas/game.v1.json",
+  "title": "NSGo game project (version 1)",
+  "description": "File is the root of a versioned game.yaml project file.",
+  "type": "object",
+  "properties": {
+    "version": {
+      "description": "Version is the schema version; it must equal CurrentVersion (1).",
+      "type": "integer",
+      "const": 1
+    },
+    "name": {
+      "description": "Name is the game's display name, which nsgo.yaml's name follows.",
+      "type": "string"
+    },
+    "id": {
+      "description": "ID is the game's reverse-DNS application identifier, such as dev.nsgo.caverun, which nsgo.yaml's id follows.",
+      "type": "string"
+    },
+    "appVersion": {
+      "description": "AppVersion is the game's release version, such as 0.1.0, which nsgo.yaml's version follows.",
+      "type": "string"
+    },
+    "window": {
+      "description": "Window is the main window's size, limits, title and appearance.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Window"
+        }
+      ]
+    },
+    "display": {
+      "description": "Display is the virtual resolution the game draws at; nil draws at the window's own size.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Display"
+        }
+      ]
+    },
+    "input": {
+      "description": "Input is the input map bound into an input.Actions; nil binds nothing.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Input"
+        }
+      ]
+    },
+    "audio": {
+      "description": "Audio holds the master volume and the audio buses a sound.Mixer is configured with; nil configures nothing.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Audio"
+        }
+      ]
+    },
+    "autoload": {
+      "description": "Autoload lists the scenes and resources loaded at startup; nil loads nothing.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Autoload"
+        }
+      ]
+    },
+    "export": {
+      "description": "Export holds the build output directory and the export presets per platform, which nsgo.yaml's build section follows; nil leaves nsgo.yaml without them.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Export"
+        }
+      ]
+    },
+    "editor": {
+      "description": "Editor holds the scene editor's settings for this project; nil uses its defaults.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Editor"
+        }
+      ]
+    },
+    "assets": {
+      "description": "Assets declares the atlases, textures, audio, fonts, models and asset manifest game assets builds; nil declares none.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Assets"
+        }
+      ]
+    },
+    "packs": {
+      "description": "Packs records the library packs installed into the project, in the order they were first installed: the files each wrote and the autoload entries and editor plugins each added, so that a later install of the pack can update it and a removal can undo it (see the tooling/library package). nil records none.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Pack"
+      }
+    }
+  },
+  "required": [
+    "version",
+    "name",
+    "id",
+    "appVersion",
+    "window"
+  ],
+  "additionalProperties": false,
+  "definitions": {
+    "Action": {
+      "description": "Action is one named action and the physical inputs that trigger it.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Name uniquely identifies the action.",
+          "type": "string"
+        },
+        "bindings": {
+          "description": "Bindings are the inputs that press the action; an action without any is declared for code to bind, such as one an axis reads.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Binding"
+          }
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "Assets": {
+      "description": "Assets declares the targets game assets builds: the sprite atlases to pack, the textures to encode, the audio to convert, the fonts to bake, the models to pack and the asset manifest to generate. Paths in it are slash-separated and relative to the project root, and may not leave it.",
+      "type": "object",
+      "properties": {
+        "cache": {
+          "description": "Cache is the build cache's path; empty is DefaultAssetsCache.",
+          "type": "string"
+        },
+        "atlases": {
+          "description": "Atlases are the sprite atlases to pack, each from one folder of PNG images.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AtlasTarget"
+          }
+        },
+        "textures": {
+          "description": "Textures are the images to encode into KTX2 containers.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TextureTarget"
+          }
+        },
+        "audio": {
+          "description": "Audio are the WAV files to normalize, resample and convert.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AudioTarget"
+          }
+        },
+        "fonts": {
+          "description": "Fonts are the TrueType and OpenType fonts to bake into bitmap fonts.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/FontTarget"
+          }
+        },
+        "models": {
+          "description": "Models are the glTF models to pack into single GLB files.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ModelTarget"
+          }
+        },
+        "manifest": {
+          "description": "Manifest, when set, is the typed Go asset manifest generated after every other target is built.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ManifestTarget"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "AtlasTarget": {
+      "description": "AtlasTarget is one sprite atlas packed from a folder of PNG images, as game pack packs it.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Name is the base name of the atlas's page files, such as \"ui\" for ui.png and ui.json.",
+          "type": "string"
+        },
+        "in": {
+          "description": "In is the folder of PNG images, searched recursively.",
+          "type": "string"
+        },
+        "out": {
+          "description": "Out is the folder the pages are written to.",
+          "type": "string"
+        },
+        "padding": {
+          "description": "Padding is the transparent gap between frames in pixels; nil is 1.",
+          "type": "integer",
+          "minimum": -9223372036854776000,
+          "maximum": 9223372036854776000
+        },
+        "extrude": {
+          "description": "Extrude is how many edge pixels are repeated around each frame.",
+          "type": "integer",
+          "minimum": -9223372036854776000,
+          "maximum": 9223372036854776000
+        },
+        "maxWidth": {
+          "description": "MaxWidth bounds a page's width in pixels; 0 is 2048.",
+          "type": "integer",
+          "minimum": -9223372036854776000,
+          "maximum": 9223372036854776000
+        },
+        "maxHeight": {
+          "description": "MaxHeight bounds a page's height in pixels; 0 is 2048.",
+          "type": "integer",
+          "minimum": -9223372036854776000,
+          "maximum": 9223372036854776000
+        },
+        "scale": {
+          "description": "Scale is written to the pages' meta.scale; 0 is 1.",
+          "type": "integer",
+          "minimum": -9223372036854776000,
+          "maximum": 9223372036854776000
+        },
+        "trim": {
+          "description": "Trim removes transparent borders around each image; nil is true.",
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Audio": {
+      "description": "Audio is the master volume and the buses (sound.Mixer groups) a game plays through.",
+      "type": "object",
+      "properties": {
+        "master": {
+          "description": "Master is the default master volume in [0, 1]; nil leaves it at 1.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "buses": {
+          "description": "Buses are the mixer groups in declaration order.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Bus"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "AudioTarget": {
+      "description": "AudioTarget is one WAV file normalized, resampled and converted, as game audio converts it.",
+      "type": "object",
+      "properties": {
+        "in": {
+          "description": "In is the source WAV file.",
+          "type": "string"
+        },
+        "out": {
+          "description": "Out is the file written.",
+          "type": "string"
+        },
+        "format": {
+          "description": "Format is one of AudioFormats; empty is wav. aac and mp3 need an external encoder, as game audio describes.",
+          "type": "string"
+        },
+        "rate": {
+          "description": "Rate is the sample rate in Hz; 0 keeps the input's.",
+          "type": "integer",
+          "minimum": -9223372036854776000,
+          "maximum": 9223372036854776000
+        },
+        "channels": {
+          "description": "Channels is 1 for mono or 2 for stereo; 0 keeps the input's.",
+          "type": "integer",
+          "minimum": -9223372036854776000,
+          "maximum": 9223372036854776000
+        },
+        "peakDB": {
+          "description": "PeakDB normalizes the peak to this level in dBFS; it may not be set with RMSDB.",
+          "type": "number"
+        },
+        "rmsDB": {
+          "description": "RMSDB normalizes the loudness to this level in dBFS with soft clipping; it may not be set with PeakDB.",
+          "type": "number"
+        },
+        "bitrate": {
+          "description": "Bitrate is the AAC or MP3 bitrate in kbps; 0 is 128.",
+          "type": "integer",
+          "minimum": -9223372036854776000,
+          "maximum": 9223372036854776000
+        }
+      },
+      "additionalProperties": false
+    },
+    "Autoload": {
+      "description": "Autoload lists the scenes and resources a game loads at startup.",
+      "type": "object",
+      "properties": {
+        "mainScene": {
+          "description": "MainScene names the scene in Scenes the game starts in; empty leaves the choice to the game.",
+          "type": "string"
+        },
+        "scenes": {
+          "description": "Scenes are sceneformat YAML documents, loaded and validated at startup.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Entry"
+          }
+        },
+        "resources": {
+          "description": "Resources are other files loaded as bytes at startup, such as data tables.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Entry"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "Axis": {
+      "description": "Axis is a named axis over two actions, as input.Actions.BindAxis binds it.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Name uniquely identifies the axis.",
+          "type": "string"
+        },
+        "negative": {
+          "description": "Negative names a declared action that drives the axis toward -1; at least one of Negative and Positive is required.",
+          "type": "string"
+        },
+        "positive": {
+          "description": "Positive names a declared action that drives the axis toward +1; at least one of Negative and Positive is required.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "Binding": {
+      "description": "Binding is one physical input bound to an action.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "description": "Kind is KindTouchRegion, KindMouseButton, KindMouseRegion, KindKey, KindKeyCode or KindGamepadButton.",
+          "type": "string",
+          "enum": [
+            "touchRegion",
+            "mouseButton",
+            "mouseRegion",
+            "key",
+            "keyCode",
+            "gamepadButton"
+          ]
+        },
+        "button": {
+          "description": "Button is a mouse button (\"left\", \"right\", \"middle\", \"back\" or \"forward\") for KindMouseButton and KindMouseRegion, or a standard gamepad button (one of GamepadButtons) for KindGamepadButton; refused by other kinds.",
+          "type": "string"
+        },
+        "key": {
+          "description": "Key is the keyboard key name (such as \"a\", \"space\", \"left\", \"enter\" or \"shift\") for KindKey, matched case-insensitively as input.Key does; refused by other kinds.",
+          "type": "string"
+        },
+        "code": {
+          "description": "Code is the physical keyboard position (such as \"KeyW\", \"ArrowLeft\", \"Space\" or \"ShiftLeft\") for KindKeyCode, as input.KeyCode reads it; refused by other kinds.",
+          "type": "string"
+        },
+        "region": {
+          "description": "Region is the rectangle in virtual coordinates (or view coordinates without a Display) that KindTouchRegion and KindMouseRegion test; refused by other kinds.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Rect"
+            }
+          ]
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "additionalProperties": false
+    },
+    "Bitcrush": {
+      "description": "Bitcrush is a lo-fi quantizer (sound.Bitcrush): Bits in [1, 15] and Downsample 0 or more, where 0 and 1 keep every frame.",
+      "type": "object",
+      "properties": {
+        "bits": {
+          "description": "Bits is the quantized bit depth in [1, 15].",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 15
+        },
+        "downsample": {
+          "description": "Downsample holds each sample for this many frames; 0 and 1 keep every frame.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854776000
+        }
+      },
+      "required": [
+        "bits"
+      ],
+      "additionalProperties": false
+    },
+    "Bus": {
+      "description": "Bus is one sound.Mixer group: its default volume and its DSP effect chain.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Name is the mixer group, such as \"music\" or \"sfx\".",
+          "type": "string"
+        },
+        "volume": {
+          "description": "Volume is the default volume in [0, 1] until the player sets one; nil leaves it at 1.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "effects": {
+          "description": "Effects is the bus's DSP chain, applied in order.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Effect"
+          }
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "Delay": {
+      "description": "Delay is a feedback delay line (sound.Delay).",
+      "type": "object",
+      "properties": {
+        "time": {
+          "description": "Time is the echo spacing, such as 250ms; it must be positive.",
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "feedback": {
+          "description": "Feedback is the feedback gain in [0, 0.99].",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 0.99
+        },
+        "wet": {
+          "description": "Wet is the wet mix level in [0, 1].",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      },
+      "required": [
+        "time"
+      ],
+      "additionalProperties": false
+    },
+    "Display": {
+      "description": "Display is the virtual resolution a screen.Viewport maps onto the window.",
+      "type": "object",
+      "properties": {
+        "width": {
+          "description": "Width is the virtual canvas width in game points; it must be positive.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "exclusiveMinimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "height": {
+          "description": "Height is the virtual canvas height in game points; it must be positive.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "exclusiveMinimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "mode": {
+          "description": "Mode is how the canvas fits a window of another aspect ratio: \"fit\" (the default when empty), \"fill\", \"stretch\" or \"expand\", as screen.Mode names them.",
+          "type": "string",
+          "enum": [
+            "fit",
+            "fill",
+            "stretch",
+            "expand"
+          ]
+        },
+        "integerScale": {
+          "description": "IntegerScale scales by whole multiples only, as screen.Viewport.IntegerScale does.",
+          "type": "boolean"
+        },
+        "pixelSnap": {
+          "description": "PixelSnap aligns the canvas to whole points, as screen.Viewport.PixelSnap does.",
+          "type": "boolean"
+        },
+        "barColor": {
+          "description": "BarColor is the CSS color of letterbox and pillarbox bars, parsed with core.ParseColor; empty is opaque black.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "width",
+        "height"
+      ],
+      "additionalProperties": false
+    },
+    "Editor": {
+      "description": "Editor is the scene editor's settings for one project.",
+      "type": "object",
+      "properties": {
+        "plugins": {
+          "description": "Plugins names the editor plugins the scene editor turns on for this project, in the order their panels and tools appear. A plugin is Go code built into the editor binary (editor.Plugin), so this list only turns plugins on; each name is unique and has no spaces or control characters.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "Effect": {
+      "description": "Effect is one DSP effect on a bus; exactly one field must be set.",
+      "type": "object",
+      "properties": {
+        "lowPass": {
+          "description": "LowPass is a biquad low-pass filter.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Filter"
+            }
+          ]
+        },
+        "highPass": {
+          "description": "HighPass is a biquad high-pass filter.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Filter"
+            }
+          ]
+        },
+        "delay": {
+          "description": "Delay is a feedback delay line.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Delay"
+            }
+          ]
+        },
+        "reverb": {
+          "description": "Reverb is a Freeverb-style reverb.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Reverb"
+            }
+          ]
+        },
+        "gain": {
+          "description": "Gain scales every sample by a non-negative factor.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Gain"
+            }
+          ]
+        },
+        "bitcrush": {
+          "description": "Bitcrush quantizes bit depth and sample rate.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Bitcrush"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "Entry": {
+      "description": "Entry is one autoloaded file.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Name uniquely identifies the entry within its list.",
+          "type": "string"
+        },
+        "path": {
+          "description": "Path is the file's slash-separated path relative to the project root, as fs.ValidPath accepts it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "path"
+      ],
+      "additionalProperties": false
+    },
+    "Export": {
+      "description": "Export holds the build output directory and one export preset per platform.",
+      "type": "object",
+      "properties": {
+        "output": {
+          "description": "Output is the directory builds are written to; empty is NSGo's default (dist).",
+          "type": "string"
+        },
+        "presets": {
+          "description": "Presets are the platforms the game exports to, in build order.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Preset"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "Filter": {
+      "description": "Filter is a biquad low-pass or high-pass filter (sound.LowPass, sound.HighPass).",
+      "type": "object",
+      "properties": {
+        "cutoffHz": {
+          "description": "CutoffHz is the cutoff frequency in hertz; it must be positive.",
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "q": {
+          "description": "Q is the filter's quality factor; 0 is Butterworth.",
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "cutoffHz"
+      ],
+      "additionalProperties": false
+    },
+    "FontTarget": {
+      "description": "FontTarget is one TrueType or OpenType font baked into an AngelCode BMFont, which text.LoadBMFont reads: a text .fnt file and the PNG pages its glyphs are packed on, named after it, such as hud.png beside hud.fnt, or hud-0.png, hud-1.png and so on when the glyphs need several pages.",
+      "type": "object",
+      "properties": {
+        "in": {
+          "description": "In is the .ttf or .otf font file.",
+          "type": "string"
+        },
+        "out": {
+          "description": "Out is the .fnt file written; the pages are written beside it.",
+          "type": "string"
+        },
+        "size": {
+          "description": "Size is the font size in pixels the glyphs are drawn at; 0 is DefaultFontSize.",
+          "type": "integer",
+          "minimum": -9223372036854776000,
+          "maximum": 9223372036854776000
+        },
+        "chars": {
+          "description": "Chars are the characters baked, each once, in any order; empty is DefaultFontChars. A character the font has no glyph for is left out.",
+          "type": "string"
+        },
+        "padding": {
+          "description": "Padding is the transparent gap around each glyph on the pages in pixels; nil is 1.",
+          "type": "integer",
+          "minimum": -9223372036854776000,
+          "maximum": 9223372036854776000
+        }
+      },
+      "additionalProperties": false
+    },
+    "Gain": {
+      "description": "Gain scales every sample by Factor (sound.Gain), which must be finite and non-negative.",
+      "type": "object",
+      "properties": {
+        "factor": {
+          "description": "Factor is the non-negative linear gain multiplier.",
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "factor"
+      ],
+      "additionalProperties": false
+    },
+    "GamepadAxis": {
+      "description": "GamepadAxis is a named axis read from a connected game controller's analog stick, as input.Actions.BindGamepadAxis binds it.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Name uniquely identifies the gamepad axis.",
+          "type": "string"
+        },
+        "axis": {
+          "description": "Axis is \"leftX\", \"leftY\", \"rightX\" or \"rightY\".",
+          "type": "string",
+          "enum": [
+            "leftX",
+            "leftY",
+            "rightX",
+            "rightY"
+          ]
+        },
+        "deadZone": {
+          "description": "DeadZone is the stick deflection below which the axis reads 0, strictly less than 1; 0 uses input.DefaultGamepadDeadZone and a negative value turns the dead zone off.",
+          "type": "number",
+          "exclusiveMaximum": 1
+        },
+        "axial": {
+          "description": "Axial applies DeadZone to this axis alone instead of radially over both axes of the stick.",
+          "type": "boolean"
+        },
+        "sensitivity": {
+          "description": "Sensitivity multiplies the dead-zoned reading before clamping to [-1, 1]; 0 uses 1.",
+          "type": "number",
+          "minimum": 0
+        },
+        "invert": {
+          "description": "Invert negates the resulting axis value.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "axis"
+      ],
+      "additionalProperties": false
+    },
+    "Input": {
+      "description": "Input is a game's input map: named actions with their physical bindings, axes over pairs of actions, device motion axes and game controller stick axes.",
+      "type": "object",
+      "properties": {
+        "actions": {
+          "description": "Actions are the named actions in the order they are declared.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Action"
+          }
+        },
+        "axes": {
+          "description": "Axes are the named axes, each reading -1 for its negative action and +1 for its positive one.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Axis"
+          }
+        },
+        "motionAxes": {
+          "description": "MotionAxes are the named axes read from the device's tilt and gyroscope.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/MotionAxis"
+          }
+        },
+        "gamepadAxes": {
+          "description": "GamepadAxes are the named axes read from a connected game controller's analog sticks.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/GamepadAxis"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "ManifestTarget": {
+      "description": "ManifestTarget is the typed Go asset manifest generated from a folder of assets, as game manifest generates it.",
+      "type": "object",
+      "properties": {
+        "in": {
+          "description": "In is the assets folder scanned.",
+          "type": "string"
+        },
+        "out": {
+          "description": "Out is the .go file written.",
+          "type": "string"
+        },
+        "package": {
+          "description": "Package is the generated file's package name; empty is \"assets\".",
+          "type": "string"
+        },
+        "prefix": {
+          "description": "Prefix is prepended to each asset's path to form its URI; empty is \"asset:\".",
+          "type": "string"
+        },
+        "embed": {
+          "description": "Embed emits //go:embed directives instead of URI references.",
+          "type": "boolean"
+        },
+        "embedDir": {
+          "description": "EmbedDir is prepended to the //go:embed patterns.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ModelTarget": {
+      "description": "ModelTarget is one glTF model packed into a single binary glTF (.glb) file: its buffers merged into the file's binary chunk and the images it references by file embedded, so the game loads one file.",
+      "type": "object",
+      "properties": {
+        "in": {
+          "description": "In is the .gltf or .glb file; the buffers and images it references by relative path are read beside it.",
+          "type": "string"
+        },
+        "out": {
+          "description": "Out is the .glb file written.",
+          "type": "string"
+        },
+        "scale": {
+          "description": "Scale multiplies the size of every scene of the model, such as 0.01 for a model exported in centimeters; 0 is 1.",
+          "type": "number"
+        },
+        "animations": {
+          "description": "Animations keeps the model's animations when true and leaves them out when false; nil is true.",
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "MotionAxis": {
+      "description": "MotionAxis is a named axis read from a device motion sensor, as input.Actions.BindMotionAxis binds it.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Name uniquely identifies the motion axis.",
+          "type": "string"
+        },
+        "axis": {
+          "description": "Axis is \"tiltX\", \"tiltY\", \"tiltZ\", \"gyroX\", \"gyroY\" or \"gyroZ\".",
+          "type": "string",
+          "enum": [
+            "tiltX",
+            "tiltY",
+            "tiltZ",
+            "gyroX",
+            "gyroY",
+            "gyroZ"
+          ]
+        },
+        "deadZone": {
+          "description": "DeadZone is the sensor dead zone in [0, 1); 0 takes input.MotionAxisOptions' default.",
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMaximum": 1
+        },
+        "sensitivity": {
+          "description": "Sensitivity scales the reading; 0 takes input.MotionAxisOptions' default.",
+          "type": "number",
+          "minimum": 0
+        },
+        "maxRange": {
+          "description": "MaxRange is the full-deflection sensor range; 0 takes input.MotionAxisOptions' default.",
+          "type": "number",
+          "minimum": 0
+        },
+        "smoothing": {
+          "description": "Smoothing is the low-pass smoothing factor in [0, 1); 0 disables smoothing.",
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMaximum": 1
+        },
+        "invert": {
+          "description": "Invert negates the resulting axis value.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "axis"
+      ],
+      "additionalProperties": false
+    },
+    "Pack": {
+      "description": "Pack is one library pack installed into the project. Its files are Dir joined with each of Files, and Scenes, Resources and Plugins name the autoload entries and editor plugins the install added, which must still be in the file; an entry or plugin the project held before the install is not the pack's and is not listed.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Name identifies the pack in its library: lower-case ASCII letters, digits and '-', starting with a letter or digit.",
+          "type": "string"
+        },
+        "kind": {
+          "description": "Kind is one of PackKinds.",
+          "type": "string",
+          "enum": [
+            "asset",
+            "plugin",
+            "template"
+          ]
+        },
+        "packVersion": {
+          "description": "PackVersion is the version of the pack that was installed, such as 1.2.0.",
+          "type": "string"
+        },
+        "sha256": {
+          "description": "SHA256 is the pack's digest, 64 lower-case hexadecimal digits, which tells one release of the pack from another whatever its version says.",
+          "type": "string"
+        },
+        "dir": {
+          "description": "Dir is the slash-separated directory inside the project the pack's files were written to.",
+          "type": "string"
+        },
+        "files": {
+          "description": "Files are the slash-separated paths of the pack's files relative to Dir, sorted and unique.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "scenes": {
+          "description": "Scenes names the autoload scenes the install added.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "resources": {
+          "description": "Resources names the autoload resources the install added.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "plugins": {
+          "description": "Plugins names the editor plugins the install turned on.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "name",
+        "kind",
+        "packVersion",
+        "sha256",
+        "dir"
+      ],
+      "additionalProperties": false
+    },
+    "Preset": {
+      "description": "Preset is the export preset of one platform.",
+      "type": "object",
+      "properties": {
+        "platform": {
+          "description": "Platform is one of Platforms, such as \"web\" or \"macos\".",
+          "type": "string",
+          "enum": [
+            "macos",
+            "windows",
+            "linux",
+            "ios",
+            "tvos",
+            "watchos",
+            "android",
+            "harmonyos",
+            "web",
+            "miniprogram"
+          ]
+        },
+        "targets": {
+          "description": "Targets are the NSGo build targets of the platform to build, such as macos_arm64; empty builds the platform name itself, which NSGo expands to its default targets.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "platform"
+      ],
+      "additionalProperties": false
+    },
+    "Rect": {
+      "description": "Rect is an axis-aligned rectangle with a positive size.",
+      "type": "object",
+      "properties": {
+        "x": {
+          "description": "X is the horizontal origin in virtual points.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "y": {
+          "description": "Y is the vertical origin in virtual points.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "width": {
+          "description": "Width is the rectangle's width in virtual points; it must be positive.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "exclusiveMinimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "height": {
+          "description": "Height is the rectangle's height in virtual points; it must be positive.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "exclusiveMinimum": 0,
+          "maximum": 3.4028234663852886e+38
+        }
+      },
+      "required": [
+        "width",
+        "height"
+      ],
+      "additionalProperties": false
+    },
+    "Reverb": {
+      "description": "Reverb is a Freeverb-style reverb (sound.Reverb); each field is in [0, 1].",
+      "type": "object",
+      "properties": {
+        "roomSize": {
+          "description": "RoomSize controls reverb decay size in [0, 1].",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "damping": {
+          "description": "Damping controls high-frequency attenuation in [0, 1].",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "wet": {
+          "description": "Wet is the wet mix level in [0, 1].",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "TextureTarget": {
+      "description": "TextureTarget is one PNG or JPEG image encoded into a KTX2 container, as game tex encodes it.",
+      "type": "object",
+      "properties": {
+        "in": {
+          "description": "In is the source image.",
+          "type": "string"
+        },
+        "out": {
+          "description": "Out is the .ktx2 file written.",
+          "type": "string"
+        },
+        "format": {
+          "description": "Format is one of TextureFormats; empty is rgba8.",
+          "type": "string"
+        },
+        "mipmaps": {
+          "description": "Mipmaps writes the whole mipmap chain down to 1x1.",
+          "type": "boolean"
+        },
+        "srgb": {
+          "description": "SRGB marks the texture sRGB and filters its mipmaps in linear light.",
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Window": {
+      "description": "Window is the main window's content size in points, its size limits, its title and its appearance.",
+      "type": "object",
+      "properties": {
+        "title": {
+          "description": "Title is the window's title; empty uses File.Name.",
+          "type": "string"
+        },
+        "width": {
+          "description": "Width is the window's starting content width in points; it must be positive.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "exclusiveMinimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "height": {
+          "description": "Height is the window's starting content height in points; it must be positive.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "exclusiveMinimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "minWidth": {
+          "description": "MinWidth is the smallest content width the user may resize the window to; 0 is no limit.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "minHeight": {
+          "description": "MinHeight is the smallest content height the user may resize the window to; 0 is no limit.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "maxWidth": {
+          "description": "MaxWidth is the largest content width the user may resize the window to; 0 is no limit.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "maxHeight": {
+          "description": "MaxHeight is the largest content height the user may resize the window to; 0 is no limit.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "resizable": {
+          "description": "Resizable says whether the user may resize the window; nil defaults to true.",
+          "type": "boolean"
+        },
+        "appearance": {
+          "description": "Appearance starts the app \"light\" or \"dark\" whatever the system's; empty follows the system. nsgo.yaml's appearance follows it.",
+          "type": "string",
+          "enum": [
+            "light",
+            "dark"
+          ]
+        }
+      },
+      "required": [
+        "width",
+        "height"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

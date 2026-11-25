@@ -2,6 +2,7 @@ package project_test
 
 import (
 	"bytes"
+	"math"
 	"os"
 	"reflect"
 	"strings"
@@ -9,11 +10,13 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/nsgo-dev/game/packages/game"
 	"github.com/nsgo-dev/game/packages/game/input"
 	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/game/packages/game/screen"
 	"github.com/nsgo-dev/game/packages/game/sound"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/gamepad"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
@@ -154,98 +157,120 @@ func TestValidateRefusesInvalidFiles(t *testing.T) {
 	const head = "version: 1\nname: Game\nid: dev.example.game\nappVersion: 1.0.0\nwindow: {width: 640, height: 360}\n"
 	const sum = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
 	cases := map[string]string{
-		"empty":                    "",
-		"version":                  strings.Replace(head, "version: 1", "version: 2", 1),
-		"unknown field":            head + "colour: red\n",
-		"unknown nested field":     head + "display: {width: 1, height: 1, zoom: 2}\n",
-		"trailing document":        head + "---\nversion: 1\n",
-		"no name":                  strings.Replace(head, "name: Game", "name: ''", 1),
-		"name spaces":              strings.Replace(head, "name: Game", "name: ' Game'", 1),
-		"bad id":                   strings.Replace(head, "dev.example.game", "game", 1),
-		"id digit":                 strings.Replace(head, "dev.example.game", "dev.1game", 1),
-		"id char":                  strings.Replace(head, "dev.example.game", "dev.ex ample", 1),
-		"no app version":           strings.Replace(head, "appVersion: 1.0.0", "appVersion: ''", 1),
-		"window size":              strings.Replace(head, "width: 640", "width: 0", 1),
-		"window below minimum":     strings.Replace(head, "height: 360}", "height: 360, minHeight: 400}", 1),
-		"window max below min":     strings.Replace(head, "height: 360}", "height: 360, minWidth: 100, maxWidth: 50}", 1),
-		"window appearance":        strings.Replace(head, "height: 360}", "height: 360, appearance: dim}", 1),
-		"window nan":               strings.Replace(head, "width: 640", "width: .nan", 1),
-		"display size":             head + "display: {width: 320, height: -1}\n",
-		"display mode":             head + "display: {width: 320, height: 180, mode: zoom}\n",
-		"display bar color":        head + "display: {width: 320, height: 180, barColor: 'not a color'}\n",
-		"action name":              head + "input: {actions: [{name: ''}]}\n",
-		"action spaces":            head + "input: {actions: [{name: 'go left'}]}\n",
-		"duplicate action":         head + "input: {actions: [{name: a}, {name: a}]}\n",
-		"binding kind":             head + "input: {actions: [{name: a, bindings: [{kind: key}]}]}\n",
-		"touch without region":     head + "input: {actions: [{name: a, bindings: [{kind: touchRegion}]}]}\n",
-		"touch with button":        head + "input: {actions: [{name: a, bindings: [{kind: touchRegion, button: left, region: {width: 1, height: 1}}]}]}\n",
-		"mouse with region":        head + "input: {actions: [{name: a, bindings: [{kind: mouseButton, button: left, region: {width: 1, height: 1}}]}]}\n",
-		"mouse button":             head + "input: {actions: [{name: a, bindings: [{kind: mouseButton, button: thumb}]}]}\n",
-		"region size":              head + "input: {actions: [{name: a, bindings: [{kind: mouseRegion, button: left, region: {width: 0, height: 1}}]}]}\n",
-		"axis without actions":     head + "input: {axes: [{name: x}]}\n",
-		"axis undeclared action":   head + "input: {actions: [{name: a}], axes: [{name: x, negative: a, positive: b}]}\n",
-		"duplicate axis":           head + "input: {actions: [{name: a}], axes: [{name: x, negative: a}, {name: x, positive: a}]}\n",
-		"duplicate motion axis":    head + "input: {motionAxes: [{name: m, axis: tiltX}, {name: m, axis: tiltY}]}\n",
-		"motion axis":              head + "input: {motionAxes: [{name: m, axis: tilt}]}\n",
-		"motion dead zone":         head + "input: {motionAxes: [{name: m, axis: tiltX, deadZone: 1}]}\n",
-		"motion sensitivity":       head + "input: {motionAxes: [{name: m, axis: gyroZ, sensitivity: -1}]}\n",
-		"master":                   head + "audio: {master: 1.5}\n",
-		"bus name":                 head + "audio: {buses: [{name: ''}]}\n",
-		"duplicate bus":            head + "audio: {buses: [{name: music}, {name: music}]}\n",
-		"bus volume":               head + "audio: {buses: [{name: music, volume: -0.1}]}\n",
-		"no effect":                head + "audio: {buses: [{name: music, effects: [{}]}]}\n",
-		"two effects":              head + "audio: {buses: [{name: music, effects: [{gain: {factor: 1}, bitcrush: {bits: 4}}]}]}\n",
-		"cutoff":                   head + "audio: {buses: [{name: music, effects: [{lowPass: {cutoffHz: 0}}]}]}\n",
-		"q":                        head + "audio: {buses: [{name: music, effects: [{highPass: {cutoffHz: 10, q: -1}}]}]}\n",
-		"delay time":               head + "audio: {buses: [{name: music, effects: [{delay: {time: 0s}}]}]}\n",
-		"delay feedback":           head + "audio: {buses: [{name: music, effects: [{delay: {time: 1s, feedback: 1}}]}]}\n",
-		"reverb wet":               head + "audio: {buses: [{name: music, effects: [{reverb: {wet: 2}}]}]}\n",
-		"gain":                     head + "audio: {buses: [{name: music, effects: [{gain: {factor: -1}}]}]}\n",
-		"bits":                     head + "audio: {buses: [{name: music, effects: [{bitcrush: {bits: 16}}]}]}\n",
-		"downsample":               head + "audio: {buses: [{name: music, effects: [{bitcrush: {bits: 4, downsample: -1}}]}]}\n",
-		"scene name":               head + "autoload: {scenes: [{name: '', path: a.yaml}]}\n",
-		"duplicate scene":          head + "autoload: {scenes: [{name: a, path: a.yaml}, {name: a, path: b.yaml}]}\n",
-		"scene extension":          head + "autoload: {scenes: [{name: a, path: a.json}]}\n",
-		"absolute path":            head + "autoload: {resources: [{name: a, path: /etc/passwd}]}\n",
-		"escaping path":            head + "autoload: {resources: [{name: a, path: ../secret.txt}]}\n",
-		"backslash path":           head + "autoload: {resources: [{name: a, path: 'data\\a.csv'}]}\n",
-		"dot path":                 head + "autoload: {resources: [{name: a, path: .}]}\n",
-		"main scene":               head + "autoload: {mainScene: b, scenes: [{name: a, path: a.yaml}]}\n",
-		"output":                   head + "export: {output: ../dist}\n",
-		"platform":                 head + "export: {presets: [{platform: amiga}]}\n",
-		"duplicate platform":       head + "export: {presets: [{platform: web}, {platform: web}]}\n",
-		"foreign target":           head + "export: {presets: [{platform: macos, targets: [linux_x64]}]}\n",
-		"unknown target":           head + "export: {presets: [{platform: macos, targets: [macos_ppc]}]}\n",
-		"duplicate target":         head + "export: {presets: [{platform: macos, targets: [macos_arm64, macos_arm64]}]}\n",
-		"assets atlas name":        head + "assets: {atlases: [{name: a/b, in: art, out: assets}]}\n",
-		"assets atlas self scan":   head + "assets: {atlases: [{name: ui, in: art, out: art/pages}]}\n",
-		"assets atlas page clash":  head + "assets: {atlases: [{name: ui, in: a, out: assets}, {name: ui-1, in: b, out: assets}]}\n",
-		"assets texture format":    head + "assets: {textures: [{in: a.png, out: a.ktx2, format: dxt1}]}\n",
-		"assets audio both levels": head + "assets: {audio: [{in: a.wav, out: b.wav, peakDB: -1, rmsDB: -14}]}\n",
-		"assets shared output":     head + "assets: {textures: [{in: a.png, out: x}], audio: [{in: a.wav, out: x}]}\n",
-		"assets cache in manifest": head + "assets: {cache: assets/cache.yaml, manifest: {in: assets, out: gen/assets.go}}\n",
-		"assets manifest not go":   head + "assets: {manifest: {in: assets, out: gen/assets.txt}}\n",
-		"plugin name":              head + "editor: {plugins: ['']}\n",
-		"plugin spaces":            head + "editor: {plugins: ['level tools']}\n",
-		"duplicate plugin":         head + "editor: {plugins: [health, health]}\n",
-		"unknown editor field":     head + "editor: {plugins: [health], theme: dark}\n",
-		"pack name":                head + "packs: [{name: Tiles, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs/t}]\n",
-		"pack kind":                head + "packs: [{name: t, kind: music, packVersion: '1', sha256: " + sum + ", dir: packs/t}]\n",
-		"pack version":             head + "packs: [{name: t, kind: asset, packVersion: '1 0', sha256: " + sum + ", dir: packs/t}]\n",
-		"pack sha256":              head + "packs: [{name: t, kind: asset, packVersion: '1', sha256: ABC, dir: packs/t}]\n",
-		"pack dir":                 head + "packs: [{name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: ../t}]\n",
-		"pack root dir":            head + "packs: [{name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: .}]\n",
-		"pack file":                head + "packs: [{name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs/t, files: [../x]}]\n",
-		"pack files unsorted":      head + "packs: [{name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs/t, files: [b, a]}]\n",
-		"pack files twice":         head + "packs: [{name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs/t, files: [a, a]}]\n",
-		"duplicate pack":           head + "packs: [{name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs/t}, {name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs/u}]\n",
-		"shared pack file":         head + "packs: [{name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs, files: [t/a]}, {name: u, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs/t, files: [a]}]\n",
-		"pack missing resource":    head + "packs: [{name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs/t, resources: [tiles]}]\n",
-		"pack missing scene":       head + "autoload: {resources: [{name: room, path: a.yaml}]}\npacks: [{name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs/t, scenes: [room]}]\n",
-		"pack missing plugin":      head + "packs: [{name: t, kind: plugin, packVersion: '1', sha256: " + sum + ", dir: packs/t, plugins: [paths]}]\n",
-		"shared pack plugin":       head + "editor: {plugins: [paths]}\npacks: [{name: t, kind: plugin, packVersion: '1', sha256: " + sum + ", dir: packs/t, plugins: [paths]}, {name: u, kind: plugin, packVersion: '1', sha256: " + sum + ", dir: packs/u, plugins: [paths]}]\n",
-		"unknown pack field":       head + "packs: [{name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs/t, url: x}]\n",
-		"pack file case":           head + "packs: [{name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs, files: [t/A.png]}, {name: u, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs/t, files: [a.png]}]\n",
+		"empty":                        "",
+		"version":                      strings.Replace(head, "version: 1", "version: 2", 1),
+		"unknown field":                head + "colour: red\n",
+		"unknown nested field":         head + "display: {width: 1, height: 1, zoom: 2}\n",
+		"trailing document":            head + "---\nversion: 1\n",
+		"no name":                      strings.Replace(head, "name: Game", "name: ''", 1),
+		"name spaces":                  strings.Replace(head, "name: Game", "name: ' Game'", 1),
+		"bad id":                       strings.Replace(head, "dev.example.game", "game", 1),
+		"id digit":                     strings.Replace(head, "dev.example.game", "dev.1game", 1),
+		"id char":                      strings.Replace(head, "dev.example.game", "dev.ex ample", 1),
+		"no app version":               strings.Replace(head, "appVersion: 1.0.0", "appVersion: ''", 1),
+		"window size":                  strings.Replace(head, "width: 640", "width: 0", 1),
+		"window below minimum":         strings.Replace(head, "height: 360}", "height: 360, minHeight: 400}", 1),
+		"window max below min":         strings.Replace(head, "height: 360}", "height: 360, minWidth: 100, maxWidth: 50}", 1),
+		"window appearance":            strings.Replace(head, "height: 360}", "height: 360, appearance: dim}", 1),
+		"window nan":                   strings.Replace(head, "width: 640", "width: .nan", 1),
+		"display size":                 head + "display: {width: 320, height: -1}\n",
+		"display mode":                 head + "display: {width: 320, height: 180, mode: zoom}\n",
+		"display bar color":            head + "display: {width: 320, height: 180, barColor: 'not a color'}\n",
+		"action name":                  head + "input: {actions: [{name: ''}]}\n",
+		"action spaces":                head + "input: {actions: [{name: 'go left'}]}\n",
+		"duplicate action":             head + "input: {actions: [{name: a}, {name: a}]}\n",
+		"binding kind":                 head + "input: {actions: [{name: a, bindings: [{kind: voice}]}]}\n",
+		"key without key":              head + "input: {actions: [{name: a, bindings: [{kind: key}]}]}\n",
+		"key with spaces":              head + "input: {actions: [{name: a, bindings: [{kind: key, key: 'space bar'}]}]}\n",
+		"key with button":              head + "input: {actions: [{name: a, bindings: [{kind: key, key: a, button: left}]}]}\n",
+		"key with code":                head + "input: {actions: [{name: a, bindings: [{kind: key, key: a, code: KeyA}]}]}\n",
+		"key with region":              head + "input: {actions: [{name: a, bindings: [{kind: key, key: a, region: {width: 1, height: 1}}]}]}\n",
+		"keyCode without code":         head + "input: {actions: [{name: a, bindings: [{kind: keyCode}]}]}\n",
+		"keyCode with spaces":          head + "input: {actions: [{name: a, bindings: [{kind: keyCode, code: 'Key A'}]}]}\n",
+		"keyCode with key":             head + "input: {actions: [{name: a, bindings: [{kind: keyCode, code: KeyA, key: a}]}]}\n",
+		"keyCode with region":          head + "input: {actions: [{name: a, bindings: [{kind: keyCode, code: KeyA, region: {width: 1, height: 1}}]}]}\n",
+		"gamepadButton without button": head + "input: {actions: [{name: a, bindings: [{kind: gamepadButton}]}]}\n",
+		"gamepadButton unknown":        head + "input: {actions: [{name: a, bindings: [{kind: gamepadButton, button: turbo}]}]}\n",
+		"gamepadButton with key":       head + "input: {actions: [{name: a, bindings: [{kind: gamepadButton, button: south, key: a}]}]}\n",
+		"gamepadButton with region":    head + "input: {actions: [{name: a, bindings: [{kind: gamepadButton, button: south, region: {width: 1, height: 1}}]}]}\n",
+		"touch without region":         head + "input: {actions: [{name: a, bindings: [{kind: touchRegion}]}]}\n",
+		"touch with button":            head + "input: {actions: [{name: a, bindings: [{kind: touchRegion, button: left, region: {width: 1, height: 1}}]}]}\n",
+		"touch with key":               head + "input: {actions: [{name: a, bindings: [{kind: touchRegion, key: a, region: {width: 1, height: 1}}]}]}\n",
+		"mouse with region":            head + "input: {actions: [{name: a, bindings: [{kind: mouseButton, button: left, region: {width: 1, height: 1}}]}]}\n",
+		"mouse with code":              head + "input: {actions: [{name: a, bindings: [{kind: mouseButton, button: left, code: KeyA}]}]}\n",
+		"mouse button":                 head + "input: {actions: [{name: a, bindings: [{kind: mouseButton, button: thumb}]}]}\n",
+		"mouseRegion with key":         head + "input: {actions: [{name: a, bindings: [{kind: mouseRegion, button: left, key: a, region: {width: 1, height: 1}}]}]}\n",
+		"region size":                  head + "input: {actions: [{name: a, bindings: [{kind: mouseRegion, button: left, region: {width: 0, height: 1}}]}]}\n",
+		"axis without actions":         head + "input: {axes: [{name: x}]}\n",
+		"axis undeclared action":       head + "input: {actions: [{name: a}], axes: [{name: x, negative: a, positive: b}]}\n",
+		"duplicate axis":               head + "input: {actions: [{name: a}], axes: [{name: x, negative: a}, {name: x, positive: a}]}\n",
+		"duplicate motion axis":        head + "input: {motionAxes: [{name: m, axis: tiltX}, {name: m, axis: tiltY}]}\n",
+		"motion axis":                  head + "input: {motionAxes: [{name: m, axis: tilt}]}\n",
+		"motion dead zone":             head + "input: {motionAxes: [{name: m, axis: tiltX, deadZone: 1}]}\n",
+		"motion sensitivity":           head + "input: {motionAxes: [{name: m, axis: gyroZ, sensitivity: -1}]}\n",
+		"duplicate gamepad axis":       head + "input: {gamepadAxes: [{name: g, axis: leftX}, {name: g, axis: rightX}]}\n",
+		"gamepad axis unknown":         head + "input: {gamepadAxes: [{name: g, axis: triggerL}]}\n",
+		"gamepad axis deadZone 1":      head + "input: {gamepadAxes: [{name: g, axis: leftX, deadZone: 1}]}\n",
+		"gamepad axis deadZone nan":    head + "input: {gamepadAxes: [{name: g, axis: leftX, deadZone: .nan}]}\n",
+		"gamepad axis sensitivity neg": head + "input: {gamepadAxes: [{name: g, axis: leftX, sensitivity: -1}]}\n",
+		"unknown binding field":        head + "input: {actions: [{name: a, bindings: [{kind: key, key: a, extra: 1}]}]}\n",
+		"master":                       head + "audio: {master: 1.5}\n",
+		"bus name":                     head + "audio: {buses: [{name: ''}]}\n",
+		"duplicate bus":                head + "audio: {buses: [{name: music}, {name: music}]}\n",
+		"bus volume":                   head + "audio: {buses: [{name: music, volume: -0.1}]}\n",
+		"no effect":                    head + "audio: {buses: [{name: music, effects: [{}]}]}\n",
+		"two effects":                  head + "audio: {buses: [{name: music, effects: [{gain: {factor: 1}, bitcrush: {bits: 4}}]}]}\n",
+		"cutoff":                       head + "audio: {buses: [{name: music, effects: [{lowPass: {cutoffHz: 0}}]}]}\n",
+		"q":                            head + "audio: {buses: [{name: music, effects: [{highPass: {cutoffHz: 10, q: -1}}]}]}\n",
+		"delay time":                   head + "audio: {buses: [{name: music, effects: [{delay: {time: 0s}}]}]}\n",
+		"delay feedback":               head + "audio: {buses: [{name: music, effects: [{delay: {time: 1s, feedback: 1}}]}]}\n",
+		"reverb wet":                   head + "audio: {buses: [{name: music, effects: [{reverb: {wet: 2}}]}]}\n",
+		"gain":                         head + "audio: {buses: [{name: music, effects: [{gain: {factor: -1}}]}]}\n",
+		"bits":                         head + "audio: {buses: [{name: music, effects: [{bitcrush: {bits: 16}}]}]}\n",
+		"downsample":                   head + "audio: {buses: [{name: music, effects: [{bitcrush: {bits: 4, downsample: -1}}]}]}\n",
+		"scene name":                   head + "autoload: {scenes: [{name: '', path: a.yaml}]}\n",
+		"duplicate scene":              head + "autoload: {scenes: [{name: a, path: a.yaml}, {name: a, path: b.yaml}]}\n",
+		"scene extension":              head + "autoload: {scenes: [{name: a, path: a.json}]}\n",
+		"absolute path":                head + "autoload: {resources: [{name: a, path: /etc/passwd}]}\n",
+		"escaping path":                head + "autoload: {resources: [{name: a, path: ../secret.txt}]}\n",
+		"backslash path":               head + "autoload: {resources: [{name: a, path: 'data\\a.csv'}]}\n",
+		"dot path":                     head + "autoload: {resources: [{name: a, path: .}]}\n",
+		"main scene":                   head + "autoload: {mainScene: b, scenes: [{name: a, path: a.yaml}]}\n",
+		"output":                       head + "export: {output: ../dist}\n",
+		"platform":                     head + "export: {presets: [{platform: amiga}]}\n",
+		"duplicate platform":           head + "export: {presets: [{platform: web}, {platform: web}]}\n",
+		"foreign target":               head + "export: {presets: [{platform: macos, targets: [linux_x64]}]}\n",
+		"unknown target":               head + "export: {presets: [{platform: macos, targets: [macos_ppc]}]}\n",
+		"duplicate target":             head + "export: {presets: [{platform: macos, targets: [macos_arm64, macos_arm64]}]}\n",
+		"assets atlas name":            head + "assets: {atlases: [{name: a/b, in: art, out: assets}]}\n",
+		"assets atlas self scan":       head + "assets: {atlases: [{name: ui, in: art, out: art/pages}]}\n",
+		"assets atlas page clash":      head + "assets: {atlases: [{name: ui, in: a, out: assets}, {name: ui-1, in: b, out: assets}]}\n",
+		"assets texture format":        head + "assets: {textures: [{in: a.png, out: a.ktx2, format: dxt1}]}\n",
+		"assets audio both levels":     head + "assets: {audio: [{in: a.wav, out: b.wav, peakDB: -1, rmsDB: -14}]}\n",
+		"assets shared output":         head + "assets: {textures: [{in: a.png, out: x}], audio: [{in: a.wav, out: x}]}\n",
+		"assets cache in manifest":     head + "assets: {cache: assets/cache.yaml, manifest: {in: assets, out: gen/assets.go}}\n",
+		"assets manifest not go":       head + "assets: {manifest: {in: assets, out: gen/assets.txt}}\n",
+		"plugin name":                  head + "editor: {plugins: ['']}\n",
+		"plugin spaces":                head + "editor: {plugins: ['level tools']}\n",
+		"duplicate plugin":             head + "editor: {plugins: [health, health]}\n",
+		"unknown editor field":         head + "editor: {plugins: [health], theme: dark}\n",
+		"pack name":                    head + "packs: [{name: Tiles, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs/t}]\n",
+		"pack kind":                    head + "packs: [{name: t, kind: music, packVersion: '1', sha256: " + sum + ", dir: packs/t}]\n",
+		"pack version":                 head + "packs: [{name: t, kind: asset, packVersion: '1 0', sha256: " + sum + ", dir: packs/t}]\n",
+		"pack sha256":                  head + "packs: [{name: t, kind: asset, packVersion: '1', sha256: ABC, dir: packs/t}]\n",
+		"pack dir":                     head + "packs: [{name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: ../t}]\n",
+		"pack root dir":                head + "packs: [{name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: .}]\n",
+		"pack file":                    head + "packs: [{name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs/t, files: [../x]}]\n",
+		"pack files unsorted":          head + "packs: [{name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs/t, files: [b, a]}]\n",
+		"pack files twice":             head + "packs: [{name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs/t, files: [a, a]}]\n",
+		"duplicate pack":               head + "packs: [{name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs/t}, {name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs/u}]\n",
+		"shared pack file":             head + "packs: [{name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs, files: [t/a]}, {name: u, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs/t, files: [a]}]\n",
+		"pack missing resource":        head + "packs: [{name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs/t, resources: [tiles]}]\n",
+		"pack missing scene":           head + "autoload: {resources: [{name: room, path: a.yaml}]}\npacks: [{name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs/t, scenes: [room]}]\n",
+		"pack missing plugin":          head + "packs: [{name: t, kind: plugin, packVersion: '1', sha256: " + sum + ", dir: packs/t, plugins: [paths]}]\n",
+		"shared pack plugin":           head + "editor: {plugins: [paths]}\npacks: [{name: t, kind: plugin, packVersion: '1', sha256: " + sum + ", dir: packs/t, plugins: [paths]}, {name: u, kind: plugin, packVersion: '1', sha256: " + sum + ", dir: packs/u, plugins: [paths]}]\n",
+		"unknown pack field":           head + "packs: [{name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs/t, url: x}]\n",
+		"pack file case":               head + "packs: [{name: t, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs, files: [t/A.png]}, {name: u, kind: asset, packVersion: '1', sha256: " + sum + ", dir: packs/t, files: [a.png]}]\n",
 	}
 	for name, src := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -352,6 +377,164 @@ func TestBindInput(t *testing.T) {
 	}
 	if (project.Binding{Kind: "key"}).Input() != (input.Input{}) {
 		t.Fatal("an invalid binding is not the zero Input")
+	}
+	if (project.Binding{Kind: "keyCode"}).Input() != (input.Input{}) {
+		t.Fatal("a keyCode binding without code is not the zero Input")
+	}
+	if (project.Binding{Kind: "gamepadButton", Button: "nope"}).Input() != (input.Input{}) {
+		t.Fatal("a gamepadButton binding with unknown button is not the zero Input")
+	}
+}
+
+func TestKeyAndGamepadBindingsRoundTripAndFireInGame(t *testing.T) {
+	raw, err := os.ReadFile("testdata/input_bindings.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := project.Parse(raw)
+	if err != nil {
+		t.Fatalf("Parse(input_bindings.yaml): %v", err)
+	}
+	encoded, err := project.Encode(f)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	if !bytes.Equal(encoded, raw) {
+		t.Fatalf("round-trip differs:\n%s\nwant:\n%s", encoded, raw)
+	}
+
+	// Verify Clone deep-copies GamepadAxes.
+	cloned := f.Clone()
+	cloned.Input.GamepadAxes[0].Name = "changed"
+	if f.Input.GamepadAxes[0].Name != "move" {
+		t.Fatal("mutating cloned GamepadAxes mutated original")
+	}
+
+	// Verify every gamepad button name and stick axis maps cleanly through BindInput.
+	allButtons := make([]project.Binding, len(project.GamepadButtons))
+	for i, btn := range project.GamepadButtons {
+		allButtons[i] = project.Binding{Kind: project.KindGamepadButton, Button: btn}
+	}
+	allDoc := &project.File{
+		Version:    project.CurrentVersion,
+		Name:       "All",
+		ID:         "dev.nsgo.all",
+		AppVersion: "1.0.0",
+		Window:     project.Window{Width: 320, Height: 180},
+		Input: &project.Input{
+			Actions: []project.Action{{Name: "any", Bindings: allButtons}},
+			GamepadAxes: []project.GamepadAxis{
+				{Name: "lx", Axis: "leftX", DeadZone: -1},
+				{Name: "ly", Axis: "leftY"},
+				{Name: "rx", Axis: "rightX"},
+				{Name: "ry", Axis: "rightY"},
+			},
+		},
+	}
+	allYAML, err := project.Encode(allDoc)
+	if err != nil {
+		t.Fatalf("Encode all gamepad bindings: %v", err)
+	}
+	allParsed, err := project.Parse(allYAML)
+	if err != nil {
+		t.Fatalf("Parse all gamepad bindings: %v", err)
+	}
+	allActions := input.NewActions()
+	allParsed.BindInput(allActions)
+	if got := len(allActions.Bindings("any")); got != len(project.GamepadButtons) {
+		t.Fatalf("bound gamepad buttons = %d, want %d", got, len(project.GamepadButtons))
+	}
+	for i, in := range allActions.Bindings("any") {
+		if in.Kind != input.InputGamepadButton || in.PadButton != gamepad.Button(i) {
+			t.Fatalf("button %d = %+v, want Button(%d)", i, in, i)
+		}
+	}
+	if ax, opts, ok := allActions.GamepadAxisBinding("lx"); !ok || ax != gamepad.AxisLeftX || opts.DeadZone != -1 {
+		t.Fatalf("lx = %v, %+v, %v", ax, opts, ok)
+	}
+
+	// Live game test: bind game.yaml into input.Actions in a running game.Loop,
+	// press the bound key, keyCode, gamepad button and stick, and see the actions and axes fire.
+	actions := input.NewActions()
+	f.BindInput(actions)
+
+	var (
+		steps       int
+		jumpPressed bool
+		jumpJust    bool
+		leftPressed bool
+		firePressed bool
+		moveAxis    float64
+		aimYAxis    float64
+	)
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		actions.WatchKeys(cx)
+		actions.WatchGamepads(cx)
+		loop := &game.Loop{
+			Rate: 60,
+			Update: func(time.Duration) {
+				actions.Step()
+				steps++
+				jumpPressed = actions.Pressed("jump")
+				jumpJust = actions.JustPressed("jump")
+				leftPressed = actions.Pressed("left")
+				firePressed = actions.Pressed("fire")
+				moveAxis = actions.Axis("move")
+				aimYAxis = actions.Axis("aimY")
+			},
+		}
+		loop.Run(cx)
+		return core.View{}
+	}, nsgotest.Environment(core.Environment{OS: core.OSWindows, Idiom: core.IdiomDesktop, Gamepads: true}))
+
+	step := func() {
+		before := steps
+		for steps == before {
+			app.Advance(time.Second / 60)
+		}
+	}
+
+	step()
+	if jumpPressed || leftPressed || firePressed || moveAxis != 0 {
+		t.Fatalf("idle state unexpected: jump=%v left=%v fire=%v move=%v", jumpPressed, leftPressed, firePressed, moveAxis)
+	}
+
+	// Bound key ("space") fires "jump".
+	app.KeyDown("space")
+	step()
+	if !jumpPressed || !jumpJust {
+		t.Fatalf("after pressing space: jumpPressed=%v jumpJust=%v, want true, true", jumpPressed, jumpJust)
+	}
+	app.KeyUp("space")
+	step()
+	if jumpPressed {
+		t.Fatal("jump stayed pressed after releasing space")
+	}
+
+	// Bound keyCode ("KeyA") fires "left" and drives axis "move" to -1.
+	app.KeyCodeDown("KeyA")
+	step()
+	if !leftPressed || moveAxis != -1 {
+		t.Fatalf("after pressing KeyA: left=%v move=%v, want true, -1", leftPressed, moveAxis)
+	}
+	app.KeyCodeUp("KeyA")
+	step()
+
+	// Bound gamepad button and stick axes fire through WatchGamepads.
+	app.ConnectGamepad(1, "Standard Pad")
+	app.SetGamepadButton(1, gamepad.ButtonRT, 0.8)
+	app.SetGamepadAxis(1, gamepad.AxisLeftX, 0.575)
+	app.SetGamepadAxis(1, gamepad.AxisRightY, 0.6)
+	step()
+	if !firePressed {
+		t.Fatal("gamepad rightTrigger did not fire action fire")
+	}
+	if math.Abs(moveAxis-0.5) > 1e-3 {
+		t.Fatalf("gamepad leftX moveAxis = %v, want ~0.5", moveAxis)
+	}
+	// RightY: axial deadZone 0.2 -> (0.6 - 0.2) / 0.8 = 0.5, sensitivity 1.5 -> 0.75, invert -> -0.75.
+	if math.Abs(aimYAxis-(-0.75)) > 1e-3 {
+		t.Fatalf("gamepad rightY aimYAxis = %v, want ~-0.75", aimYAxis)
 	}
 }
 

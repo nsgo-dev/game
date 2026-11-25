@@ -18,7 +18,7 @@ The files a game's author writes are YAML, apart from those under JSON files and
 
 | Files | Version | Read and written by | Fields |
 | --- | --- | --- | --- |
-| `game.yaml` at the project's root | `version: 1` | `project.Parse`, `project.Encode` | [Project File](project.md) |
+| `game.yaml` at the project's root | `version: 1` | `project.Parse`, `project.Encode` | [Project File](project.md); schema `https://game.nsgo.dev/schemas/game.v1.json` |
 
 ```yaml
 version: 1

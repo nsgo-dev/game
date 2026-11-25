@@ -18,6 +18,7 @@ import "github.com/nsgo-dev/game/packages/game/tooling/jsonschema"
 | Terrain definition, version 1 | `https://game.nsgo.dev/schemas/terrain.v1.json` | `*.terrain.yaml`, read by `world3d.ParseTerrain` and `world3d.LoadTerrainFS` |
 | 3D grid map, version 1 | `https://game.nsgo.dev/schemas/gridmap.v1.json` | `*.gridmap.yaml`, read by `world3d.ParseGridMap` and `world3d.LoadGridMapFS` |
 | 3D foliage layers, version 1 | `https://game.nsgo.dev/schemas/foliage.v1.json` | `*.foliage.yaml`, read by `world3d.ParseFoliage` and `world3d.LoadFoliageFS` |
+| Project file, version 1 | `https://game.nsgo.dev/schemas/game.v1.json` | `game.yaml` at the project's root, read by `project.Parse` |
 | Data table | generated per row type with `datatable.Schema[T]` | `*.yaml`, read by `datatable.LoadYAML` |
 
 The other formats get their schemas as their YAML loaders land: mod manifests (#474), the project file (#488), shared resources (#485), particles (#477), skeletal rigs (#475) and localization tables (#473).

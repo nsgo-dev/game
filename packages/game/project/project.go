@@ -24,18 +24,21 @@ const FileName = "game.yaml"
 // CurrentVersion is the project file schema version this package reads and writes.
 const CurrentVersion = 1
 
+// SchemaURL is where the JSON Schema of version 1 project files (game.yaml) is published.
+const SchemaURL = "https://game.nsgo.dev/schemas/game.v1.json"
+
 // File is the root of a versioned game.yaml project file.
 type File struct {
 	// Version is the schema version; it must equal CurrentVersion (1).
-	Version int `yaml:"version"`
+	Version int `yaml:"version" schema:"required"`
 	// Name is the game's display name, which nsgo.yaml's name follows.
-	Name string `yaml:"name"`
+	Name string `yaml:"name" schema:"required"`
 	// ID is the game's reverse-DNS application identifier, such as dev.nsgo.caverun, which nsgo.yaml's id follows.
-	ID string `yaml:"id"`
+	ID string `yaml:"id" schema:"required"`
 	// AppVersion is the game's release version, such as 0.1.0, which nsgo.yaml's version follows.
-	AppVersion string `yaml:"appVersion"`
+	AppVersion string `yaml:"appVersion" schema:"required"`
 	// Window is the main window's size, limits, title and appearance.
-	Window Window `yaml:"window"`
+	Window Window `yaml:"window" schema:"required"`
 	// Display is the virtual resolution the game draws at; nil draws at the window's own size.
 	Display *Display `yaml:"display,omitempty"`
 	// Input is the input map bound into an input.Actions; nil binds nothing.
@@ -58,28 +61,32 @@ type File struct {
 type Window struct {
 	// Title is the window's title; empty uses File.Name.
 	Title string `yaml:"title,omitempty"`
-	// Width and Height are the window's starting content size in points; both must be positive.
-	Width  float32 `yaml:"width"`
-	Height float32 `yaml:"height"`
-	// MinWidth and MinHeight are the smallest content size the user may resize the window to; 0 is no limit.
-	MinWidth  float32 `yaml:"minWidth,omitempty"`
-	MinHeight float32 `yaml:"minHeight,omitempty"`
-	// MaxWidth and MaxHeight are the largest content size the user may resize the window to; 0 is no limit.
-	MaxWidth  float32 `yaml:"maxWidth,omitempty"`
-	MaxHeight float32 `yaml:"maxHeight,omitempty"`
+	// Width is the window's starting content width in points; it must be positive.
+	Width float32 `yaml:"width" schema:"required,exclusiveMinimum=0"`
+	// Height is the window's starting content height in points; it must be positive.
+	Height float32 `yaml:"height" schema:"required,exclusiveMinimum=0"`
+	// MinWidth is the smallest content width the user may resize the window to; 0 is no limit.
+	MinWidth float32 `yaml:"minWidth,omitempty" schema:"minimum=0"`
+	// MinHeight is the smallest content height the user may resize the window to; 0 is no limit.
+	MinHeight float32 `yaml:"minHeight,omitempty" schema:"minimum=0"`
+	// MaxWidth is the largest content width the user may resize the window to; 0 is no limit.
+	MaxWidth float32 `yaml:"maxWidth,omitempty" schema:"minimum=0"`
+	// MaxHeight is the largest content height the user may resize the window to; 0 is no limit.
+	MaxHeight float32 `yaml:"maxHeight,omitempty" schema:"minimum=0"`
 	// Resizable says whether the user may resize the window; nil defaults to true.
 	Resizable *bool `yaml:"resizable,omitempty"`
 	// Appearance starts the app "light" or "dark" whatever the system's; empty follows the system. nsgo.yaml's appearance follows it.
-	Appearance string `yaml:"appearance,omitempty"`
+	Appearance string `yaml:"appearance,omitempty" schema:"enum=light|dark"`
 }
 
 // Display is the virtual resolution a screen.Viewport maps onto the window.
 type Display struct {
-	// Width and Height are the virtual canvas size in game points; both must be positive.
-	Width  float32 `yaml:"width"`
-	Height float32 `yaml:"height"`
+	// Width is the virtual canvas width in game points; it must be positive.
+	Width float32 `yaml:"width" schema:"required,exclusiveMinimum=0"`
+	// Height is the virtual canvas height in game points; it must be positive.
+	Height float32 `yaml:"height" schema:"required,exclusiveMinimum=0"`
 	// Mode is how the canvas fits a window of another aspect ratio: "fit" (the default when empty), "fill", "stretch" or "expand", as screen.Mode names them.
-	Mode string `yaml:"mode,omitempty"`
+	Mode string `yaml:"mode,omitempty" schema:"enum=fit|fill|stretch|expand"`
 	// IntegerScale scales by whole multiples only, as screen.Viewport.IntegerScale does.
 	IntegerScale bool `yaml:"integerScale,omitempty"`
 	// PixelSnap aligns the canvas to whole points, as screen.Viewport.PixelSnap does.
@@ -88,7 +95,7 @@ type Display struct {
 	BarColor string `yaml:"barColor,omitempty"`
 }
 
-// Input is a game's input map: named actions with their physical bindings, axes over pairs of actions and device motion axes.
+// Input is a game's input map: named actions with their physical bindings, axes over pairs of actions, device motion axes and game controller stick axes.
 type Input struct {
 	// Actions are the named actions in the order they are declared.
 	Actions []Action `yaml:"actions,omitempty"`
@@ -96,12 +103,14 @@ type Input struct {
 	Axes []Axis `yaml:"axes,omitempty"`
 	// MotionAxes are the named axes read from the device's tilt and gyroscope.
 	MotionAxes []MotionAxis `yaml:"motionAxes,omitempty"`
+	// GamepadAxes are the named axes read from a connected game controller's analog sticks.
+	GamepadAxes []GamepadAxis `yaml:"gamepadAxes,omitempty"`
 }
 
 // Action is one named action and the physical inputs that trigger it.
 type Action struct {
 	// Name uniquely identifies the action.
-	Name string `yaml:"name"`
+	Name string `yaml:"name" schema:"required"`
 	// Bindings are the inputs that press the action; an action without any is declared for code to bind, such as one an axis reads.
 	Bindings []Binding `yaml:"bindings,omitempty"`
 }
@@ -114,24 +123,59 @@ const (
 	KindMouseButton = "mouseButton"
 	// KindMouseRegion is Button held inside Region (input.MouseRegion).
 	KindMouseRegion = "mouseRegion"
+	// KindKey is Key held on a keyboard, following the active keyboard layout (input.Key).
+	KindKey = "key"
+	// KindKeyCode is Code held at a physical keyboard position, independent of layout (input.KeyCode).
+	KindKeyCode = "keyCode"
+	// KindGamepadButton is Button held on a connected game controller (input.GamepadButton).
+	KindGamepadButton = "gamepadButton"
 )
+
+// BindingKinds lists every binding kind a game.yaml action may declare, in display order.
+var BindingKinds = []string{KindTouchRegion, KindMouseButton, KindMouseRegion, KindKey, KindKeyCode, KindGamepadButton}
+
+// MouseButtons lists the mouse button names accepted by KindMouseButton and KindMouseRegion.
+var MouseButtons = []string{"left", "right", "middle", "back", "forward"}
+
+// GamepadButtons lists the W3C Standard Gamepad button names accepted by KindGamepadButton.
+var GamepadButtons = []string{
+	"south", "east", "west", "north",
+	"leftShoulder", "rightShoulder", "leftTrigger", "rightTrigger",
+	"back", "start", "leftStick", "rightStick",
+	"dpadUp", "dpadDown", "dpadLeft", "dpadRight",
+	"home",
+}
+
+// MotionAxes lists the device motion sensor axis names accepted by MotionAxis.Axis.
+var MotionAxes = []string{"tiltX", "tiltY", "tiltZ", "gyroX", "gyroY", "gyroZ"}
+
+// GamepadAxes lists the W3C Standard Gamepad stick axis names accepted by GamepadAxis.Axis.
+var GamepadAxes = []string{"leftX", "leftY", "rightX", "rightY"}
 
 // Binding is one physical input bound to an action.
 type Binding struct {
-	// Kind is KindTouchRegion, KindMouseButton or KindMouseRegion.
-	Kind string `yaml:"kind"`
-	// Button is "left", "right", "middle", "back" or "forward"; required by the mouse kinds and refused by KindTouchRegion.
+	// Kind is KindTouchRegion, KindMouseButton, KindMouseRegion, KindKey, KindKeyCode or KindGamepadButton.
+	Kind string `yaml:"kind" schema:"required,enum=touchRegion|mouseButton|mouseRegion|key|keyCode|gamepadButton"`
+	// Button is a mouse button ("left", "right", "middle", "back" or "forward") for KindMouseButton and KindMouseRegion, or a standard gamepad button (one of GamepadButtons) for KindGamepadButton; refused by other kinds.
 	Button string `yaml:"button,omitempty"`
-	// Region is the rectangle in virtual coordinates (or view coordinates without a Display) that KindTouchRegion and KindMouseRegion test; refused by KindMouseButton.
+	// Key is the keyboard key name (such as "a", "space", "left", "enter" or "shift") for KindKey, matched case-insensitively as input.Key does; refused by other kinds.
+	Key string `yaml:"key,omitempty"`
+	// Code is the physical keyboard position (such as "KeyW", "ArrowLeft", "Space" or "ShiftLeft") for KindKeyCode, as input.KeyCode reads it; refused by other kinds.
+	Code string `yaml:"code,omitempty"`
+	// Region is the rectangle in virtual coordinates (or view coordinates without a Display) that KindTouchRegion and KindMouseRegion test; refused by other kinds.
 	Region *Rect `yaml:"region,omitempty,flow"`
 }
 
 // Rect is an axis-aligned rectangle with a positive size.
 type Rect struct {
-	X      float32 `yaml:"x,omitempty"`
-	Y      float32 `yaml:"y,omitempty"`
-	Width  float32 `yaml:"width"`
-	Height float32 `yaml:"height"`
+	// X is the horizontal origin in virtual points.
+	X float32 `yaml:"x,omitempty"`
+	// Y is the vertical origin in virtual points.
+	Y float32 `yaml:"y,omitempty"`
+	// Width is the rectangle's width in virtual points; it must be positive.
+	Width float32 `yaml:"width" schema:"required,exclusiveMinimum=0"`
+	// Height is the rectangle's height in virtual points; it must be positive.
+	Height float32 `yaml:"height" schema:"required,exclusiveMinimum=0"`
 }
 
 // Bounds returns r as core.Bounds.
@@ -145,30 +189,51 @@ func (r Rect) Bounds() core.Bounds {
 // Axis is a named axis over two actions, as input.Actions.BindAxis binds it.
 type Axis struct {
 	// Name uniquely identifies the axis.
-	Name string `yaml:"name"`
-	// Negative and Positive name declared actions; at least one is required.
+	Name string `yaml:"name" schema:"required"`
+	// Negative names a declared action that drives the axis toward -1; at least one of Negative and Positive is required.
 	Negative string `yaml:"negative,omitempty"`
+	// Positive names a declared action that drives the axis toward +1; at least one of Negative and Positive is required.
 	Positive string `yaml:"positive,omitempty"`
 }
 
 // MotionAxis is a named axis read from a device motion sensor, as input.Actions.BindMotionAxis binds it.
 type MotionAxis struct {
 	// Name uniquely identifies the motion axis.
-	Name string `yaml:"name"`
+	Name string `yaml:"name" schema:"required"`
 	// Axis is "tiltX", "tiltY", "tiltZ", "gyroX", "gyroY" or "gyroZ".
-	Axis string `yaml:"axis"`
-	// DeadZone, Sensitivity, MaxRange, Smoothing and Invert are input.MotionAxisOptions' fields; 0 takes their defaults.
-	DeadZone    float64 `yaml:"deadZone,omitempty"`
-	Sensitivity float64 `yaml:"sensitivity,omitempty"`
-	MaxRange    float64 `yaml:"maxRange,omitempty"`
-	Smoothing   float64 `yaml:"smoothing,omitempty"`
-	Invert      bool    `yaml:"invert,omitempty"`
+	Axis string `yaml:"axis" schema:"required,enum=tiltX|tiltY|tiltZ|gyroX|gyroY|gyroZ"`
+	// DeadZone is the sensor dead zone in [0, 1); 0 takes input.MotionAxisOptions' default.
+	DeadZone float64 `yaml:"deadZone,omitempty" schema:"minimum=0,exclusiveMaximum=1"`
+	// Sensitivity scales the reading; 0 takes input.MotionAxisOptions' default.
+	Sensitivity float64 `yaml:"sensitivity,omitempty" schema:"minimum=0"`
+	// MaxRange is the full-deflection sensor range; 0 takes input.MotionAxisOptions' default.
+	MaxRange float64 `yaml:"maxRange,omitempty" schema:"minimum=0"`
+	// Smoothing is the low-pass smoothing factor in [0, 1); 0 disables smoothing.
+	Smoothing float64 `yaml:"smoothing,omitempty" schema:"minimum=0,exclusiveMaximum=1"`
+	// Invert negates the resulting axis value.
+	Invert bool `yaml:"invert,omitempty"`
+}
+
+// GamepadAxis is a named axis read from a connected game controller's analog stick, as input.Actions.BindGamepadAxis binds it.
+type GamepadAxis struct {
+	// Name uniquely identifies the gamepad axis.
+	Name string `yaml:"name" schema:"required"`
+	// Axis is "leftX", "leftY", "rightX" or "rightY".
+	Axis string `yaml:"axis" schema:"required,enum=leftX|leftY|rightX|rightY"`
+	// DeadZone is the stick deflection below which the axis reads 0, strictly less than 1; 0 uses input.DefaultGamepadDeadZone and a negative value turns the dead zone off.
+	DeadZone float64 `yaml:"deadZone,omitempty" schema:"exclusiveMaximum=1"`
+	// Axial applies DeadZone to this axis alone instead of radially over both axes of the stick.
+	Axial bool `yaml:"axial,omitempty"`
+	// Sensitivity multiplies the dead-zoned reading before clamping to [-1, 1]; 0 uses 1.
+	Sensitivity float64 `yaml:"sensitivity,omitempty" schema:"minimum=0"`
+	// Invert negates the resulting axis value.
+	Invert bool `yaml:"invert,omitempty"`
 }
 
 // Audio is the master volume and the buses (sound.Mixer groups) a game plays through.
 type Audio struct {
 	// Master is the default master volume in [0, 1]; nil leaves it at 1.
-	Master *float32 `yaml:"master,omitempty"`
+	Master *float32 `yaml:"master,omitempty" schema:"minimum=0,maximum=1"`
 	// Buses are the mixer groups in declaration order.
 	Buses []Bus `yaml:"buses,omitempty"`
 }
@@ -176,56 +241,69 @@ type Audio struct {
 // Bus is one sound.Mixer group: its default volume and its DSP effect chain.
 type Bus struct {
 	// Name is the mixer group, such as "music" or "sfx".
-	Name string `yaml:"name"`
+	Name string `yaml:"name" schema:"required"`
 	// Volume is the default volume in [0, 1] until the player sets one; nil leaves it at 1.
-	Volume *float32 `yaml:"volume,omitempty"`
+	Volume *float32 `yaml:"volume,omitempty" schema:"minimum=0,maximum=1"`
 	// Effects is the bus's DSP chain, applied in order.
 	Effects []Effect `yaml:"effects,omitempty"`
 }
 
 // Effect is one DSP effect on a bus; exactly one field must be set.
 type Effect struct {
-	LowPass  *Filter   `yaml:"lowPass,omitempty,flow"`
-	HighPass *Filter   `yaml:"highPass,omitempty,flow"`
-	Delay    *Delay    `yaml:"delay,omitempty,flow"`
-	Reverb   *Reverb   `yaml:"reverb,omitempty,flow"`
-	Gain     *Gain     `yaml:"gain,omitempty,flow"`
+	// LowPass is a biquad low-pass filter.
+	LowPass *Filter `yaml:"lowPass,omitempty,flow"`
+	// HighPass is a biquad high-pass filter.
+	HighPass *Filter `yaml:"highPass,omitempty,flow"`
+	// Delay is a feedback delay line.
+	Delay *Delay `yaml:"delay,omitempty,flow"`
+	// Reverb is a Freeverb-style reverb.
+	Reverb *Reverb `yaml:"reverb,omitempty,flow"`
+	// Gain scales every sample by a non-negative factor.
+	Gain *Gain `yaml:"gain,omitempty,flow"`
+	// Bitcrush quantizes bit depth and sample rate.
 	Bitcrush *Bitcrush `yaml:"bitcrush,omitempty,flow"`
 }
 
 // Filter is a biquad low-pass or high-pass filter (sound.LowPass, sound.HighPass).
 type Filter struct {
 	// CutoffHz is the cutoff frequency in hertz; it must be positive.
-	CutoffHz float64 `yaml:"cutoffHz"`
+	CutoffHz float64 `yaml:"cutoffHz" schema:"required,exclusiveMinimum=0"`
 	// Q is the filter's quality factor; 0 is Butterworth.
-	Q float64 `yaml:"q,omitempty"`
+	Q float64 `yaml:"q,omitempty" schema:"minimum=0"`
 }
 
 // Delay is a feedback delay line (sound.Delay).
 type Delay struct {
 	// Time is the echo spacing, such as 250ms; it must be positive.
-	Time time.Duration `yaml:"time"`
-	// Feedback is in [0, 0.99] and Wet in [0, 1].
-	Feedback float64 `yaml:"feedback,omitempty"`
-	Wet      float64 `yaml:"wet,omitempty"`
+	Time time.Duration `yaml:"time" schema:"required"`
+	// Feedback is the feedback gain in [0, 0.99].
+	Feedback float64 `yaml:"feedback,omitempty" schema:"minimum=0,maximum=0.99"`
+	// Wet is the wet mix level in [0, 1].
+	Wet float64 `yaml:"wet,omitempty" schema:"minimum=0,maximum=1"`
 }
 
 // Reverb is a Freeverb-style reverb (sound.Reverb); each field is in [0, 1].
 type Reverb struct {
-	RoomSize float64 `yaml:"roomSize,omitempty"`
-	Damping  float64 `yaml:"damping,omitempty"`
-	Wet      float64 `yaml:"wet,omitempty"`
+	// RoomSize controls reverb decay size in [0, 1].
+	RoomSize float64 `yaml:"roomSize,omitempty" schema:"minimum=0,maximum=1"`
+	// Damping controls high-frequency attenuation in [0, 1].
+	Damping float64 `yaml:"damping,omitempty" schema:"minimum=0,maximum=1"`
+	// Wet is the wet mix level in [0, 1].
+	Wet float64 `yaml:"wet,omitempty" schema:"minimum=0,maximum=1"`
 }
 
 // Gain scales every sample by Factor (sound.Gain), which must be finite and non-negative.
 type Gain struct {
-	Factor float64 `yaml:"factor"`
+	// Factor is the non-negative linear gain multiplier.
+	Factor float64 `yaml:"factor" schema:"required,minimum=0"`
 }
 
 // Bitcrush is a lo-fi quantizer (sound.Bitcrush): Bits in [1, 15] and Downsample 0 or more, where 0 and 1 keep every frame.
 type Bitcrush struct {
-	Bits       int `yaml:"bits"`
-	Downsample int `yaml:"downsample,omitempty"`
+	// Bits is the quantized bit depth in [1, 15].
+	Bits int `yaml:"bits" schema:"required,minimum=1,maximum=15"`
+	// Downsample holds each sample for this many frames; 0 and 1 keep every frame.
+	Downsample int `yaml:"downsample,omitempty" schema:"minimum=0"`
 }
 
 // Autoload lists the scenes and resources a game loads at startup.
@@ -241,9 +319,9 @@ type Autoload struct {
 // Entry is one autoloaded file.
 type Entry struct {
 	// Name uniquely identifies the entry within its list.
-	Name string `yaml:"name"`
+	Name string `yaml:"name" schema:"required"`
 	// Path is the file's slash-separated path relative to the project root, as fs.ValidPath accepts it.
-	Path string `yaml:"path"`
+	Path string `yaml:"path" schema:"required"`
 }
 
 // Export holds the build output directory and one export preset per platform.
@@ -257,7 +335,7 @@ type Export struct {
 // Preset is the export preset of one platform.
 type Preset struct {
 	// Platform is one of Platforms, such as "web" or "macos".
-	Platform string `yaml:"platform"`
+	Platform string `yaml:"platform" schema:"required,enum=macos|windows|linux|ios|tvos|watchos|android|harmonyos|web|miniprogram"`
 	// Targets are the NSGo build targets of the platform to build, such as macos_arm64; empty builds the platform name itself, which NSGo expands to its default targets.
 	Targets []string `yaml:"targets,omitempty,flow"`
 }
@@ -284,15 +362,15 @@ var PackKinds = []string{PackAsset, PackPlugin, PackTemplate}
 // Pack is one library pack installed into the project. Its files are Dir joined with each of Files, and Scenes, Resources and Plugins name the autoload entries and editor plugins the install added, which must still be in the file; an entry or plugin the project held before the install is not the pack's and is not listed.
 type Pack struct {
 	// Name identifies the pack in its library: lower-case ASCII letters, digits and '-', starting with a letter or digit.
-	Name string `yaml:"name"`
+	Name string `yaml:"name" schema:"required"`
 	// Kind is one of PackKinds.
-	Kind string `yaml:"kind"`
+	Kind string `yaml:"kind" schema:"required,enum=asset|plugin|template"`
 	// PackVersion is the version of the pack that was installed, such as 1.2.0.
-	PackVersion string `yaml:"packVersion"`
+	PackVersion string `yaml:"packVersion" schema:"required"`
 	// SHA256 is the pack's digest, 64 lower-case hexadecimal digits, which tells one release of the pack from another whatever its version says.
-	SHA256 string `yaml:"sha256"`
+	SHA256 string `yaml:"sha256" schema:"required"`
 	// Dir is the slash-separated directory inside the project the pack's files were written to.
-	Dir string `yaml:"dir"`
+	Dir string `yaml:"dir" schema:"required"`
 	// Files are the slash-separated paths of the pack's files relative to Dir, sorted and unique.
 	Files []string `yaml:"files,omitempty"`
 	// Scenes names the autoload scenes the install added.
@@ -404,8 +482,9 @@ func (f *File) Clone() *File {
 	}
 	if f.Input != nil {
 		in := Input{
-			Axes:       append([]Axis(nil), f.Input.Axes...),
-			MotionAxes: append([]MotionAxis(nil), f.Input.MotionAxes...),
+			Axes:        append([]Axis(nil), f.Input.Axes...),
+			MotionAxes:  append([]MotionAxis(nil), f.Input.MotionAxes...),
+			GamepadAxes: append([]GamepadAxis(nil), f.Input.GamepadAxes...),
 		}
 		if f.Input.Actions != nil {
 			in.Actions = make([]Action, len(f.Input.Actions))
@@ -624,10 +703,6 @@ func validateDisplay(d *Display) error {
 	return nil
 }
 
-var mouseButtons = []string{"left", "right", "middle", "back", "forward"}
-
-var motionAxes = []string{"tiltX", "tiltY", "tiltZ", "gyroX", "gyroY", "gyroZ"}
-
 func validateInput(in *Input) error {
 	actions := make(map[string]struct{}, len(in.Actions))
 	for i, a := range in.Actions {
@@ -672,8 +747,8 @@ func validateInput(in *Input) error {
 			return fmt.Errorf("project: duplicate input motion axis %q", m.Name)
 		}
 		motion[m.Name] = struct{}{}
-		if !slices.Contains(motionAxes, m.Axis) {
-			return fmt.Errorf("project: input motion axis %q axis %q must be one of %s", m.Name, m.Axis, strings.Join(motionAxes, ", "))
+		if !slices.Contains(MotionAxes, m.Axis) {
+			return fmt.Errorf("project: input motion axis %q axis %q must be one of %s", m.Name, m.Axis, strings.Join(MotionAxes, ", "))
 		}
 		if !isFinite64(m.DeadZone) || m.DeadZone < 0 || m.DeadZone >= 1 {
 			return fmt.Errorf("project: input motion axis %q deadZone %v must be in [0, 1)", m.Name, m.DeadZone)
@@ -685,34 +760,89 @@ func validateInput(in *Input) error {
 			return fmt.Errorf("project: input motion axis %q sensitivity and maxRange must be finite and non-negative", m.Name)
 		}
 	}
+	// A gamepad axis may share its name with an axis or motion axis: input.Actions.Axis sums all of them and clamps to [-1, 1].
+	gpAxes := make(map[string]struct{}, len(in.GamepadAxes))
+	for i, g := range in.GamepadAxes {
+		if err := validateName(fmt.Sprintf("input gamepad axis %d", i), g.Name); err != nil {
+			return err
+		}
+		if _, dup := gpAxes[g.Name]; dup {
+			return fmt.Errorf("project: duplicate input gamepad axis %q", g.Name)
+		}
+		gpAxes[g.Name] = struct{}{}
+		if !slices.Contains(GamepadAxes, g.Axis) {
+			return fmt.Errorf("project: input gamepad axis %q axis %q must be one of %s", g.Name, g.Axis, strings.Join(GamepadAxes, ", "))
+		}
+		if !isFinite64(g.DeadZone) || g.DeadZone >= 1 {
+			return fmt.Errorf("project: input gamepad axis %q deadZone %v must be finite and less than 1", g.Name, g.DeadZone)
+		}
+		if !isFinite64(g.Sensitivity) || g.Sensitivity < 0 {
+			return fmt.Errorf("project: input gamepad axis %q sensitivity %v must be finite and non-negative", g.Name, g.Sensitivity)
+		}
+	}
 	return nil
 }
 
 func validateBinding(b Binding) error {
 	switch b.Kind {
 	case KindTouchRegion:
-		if b.Button != "" {
-			return errors.New("touchRegion takes no button")
+		if b.Button != "" || b.Key != "" || b.Code != "" {
+			return errors.New("touchRegion takes only region")
 		}
 		return validateRegion(b.Region)
 	case KindMouseButton:
-		if b.Region != nil {
-			return errors.New("mouseButton takes no region")
+		if b.Region != nil || b.Key != "" || b.Code != "" {
+			return errors.New("mouseButton takes only button")
 		}
 		return validateButton(b.Button)
 	case KindMouseRegion:
+		if b.Key != "" || b.Code != "" {
+			return errors.New("mouseRegion takes only button and region")
+		}
 		if err := validateButton(b.Button); err != nil {
 			return err
 		}
 		return validateRegion(b.Region)
+	case KindKey:
+		if b.Button != "" || b.Code != "" || b.Region != nil {
+			return errors.New("key takes only key")
+		}
+		return validateKeyToken("key", b.Key)
+	case KindKeyCode:
+		if b.Button != "" || b.Key != "" || b.Region != nil {
+			return errors.New("keyCode takes only code")
+		}
+		return validateKeyToken("code", b.Code)
+	case KindGamepadButton:
+		if b.Key != "" || b.Code != "" || b.Region != nil {
+			return errors.New("gamepadButton takes only button")
+		}
+		return validateGamepadButton(b.Button)
 	default:
-		return fmt.Errorf("kind %q must be %s, %s or %s", b.Kind, KindTouchRegion, KindMouseButton, KindMouseRegion)
+		return fmt.Errorf("kind %q must be one of %s", b.Kind, strings.Join(BindingKinds, ", "))
 	}
 }
 
 func validateButton(button string) error {
-	if !slices.Contains(mouseButtons, button) {
-		return fmt.Errorf("button %q must be one of %s", button, strings.Join(mouseButtons, ", "))
+	if !slices.Contains(MouseButtons, button) {
+		return fmt.Errorf("button %q must be one of %s", button, strings.Join(MouseButtons, ", "))
+	}
+	return nil
+}
+
+func validateGamepadButton(button string) error {
+	if !slices.Contains(GamepadButtons, button) {
+		return fmt.Errorf("button %q must be one of %s", button, strings.Join(GamepadButtons, ", "))
+	}
+	return nil
+}
+
+func validateKeyToken(field, value string) error {
+	if value == "" {
+		return fmt.Errorf("%s is required", field)
+	}
+	if strings.IndexFunc(value, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0 {
+		return fmt.Errorf("%s %q must have no spaces or control characters", field, value)
 	}
 	return nil
 }
