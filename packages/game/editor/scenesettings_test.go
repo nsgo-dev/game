@@ -459,6 +459,7 @@ func TestViewportCameraHandleDragUpdatesCameraAndIsUndoable(t *testing.T) {
 
 func TestCameraDragFromNilCameraAndCancel(t *testing.T) {
 	ed := newTestEditor(t)
+	ed.SelectObject("")
 	if ed.Doc.Camera != nil {
 		t.Fatalf("expected nil initial camera in testSceneDoc, got %+v", ed.Doc.Camera)
 	}
