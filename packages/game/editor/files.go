@@ -89,6 +89,8 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 					ed.SelectFile(p)
 					if ev.Clicks == 2 && !f.Dir && !ed.Playing() {
 						switch {
+						case isMaterialFile(p):
+							ed.report(ed.OpenMaterialProjectFile(p))
 						case isStatesFile(p):
 							ed.report(ed.OpenStatesProjectFile(p))
 						case isCutsceneFile(p):
@@ -152,14 +154,16 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 									if ed.Playing() || p == "" || slices.ContainsFunc(files.Get().files, func(f ProjectFile) bool { return f.Path == p && f.Dir }) {
 										return true
 									}
-									if isStatesFile(p) || isCutsceneFile(p) || isParticleFilePath(p) || isRoomsFile(p) || isScreenFile(p) {
+									if isMaterialFile(p) || isStatesFile(p) || isCutsceneFile(p) || isParticleFilePath(p) || isRoomsFile(p) || isScreenFile(p) {
 										return false
 									}
 									return p == ed.ScenePath || !isProjectScene(ed.Project, p)
 								},
 								OnPress: func() {
 									if p := current.Get(); p != "" {
-										if isStatesFile(p) {
+										if isMaterialFile(p) {
+											ed.report(ed.OpenMaterialProjectFile(p))
+										} else if isStatesFile(p) {
 											ed.report(ed.OpenStatesProjectFile(p))
 										} else if isCutsceneFile(p) {
 											ed.report(ed.OpenCutsceneProjectFile(p))
@@ -328,6 +332,31 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 									ed.report(ed.OpenRigProjectFile(from, ""))
 								},
 							},
+						},
+					},
+					core.Show{
+						When: func() bool {
+							_ = rev.Get()
+							from := current.Get()
+							return from != "" && isMaterialFile(from)
+						},
+						Then: func(cx *core.Scope) core.Node {
+							return ui.Button{
+								TestID:  "files-open-material",
+								Text:    ed.T("files.editMaterial"),
+								Label:   ed.T("files.editMaterialLabel"),
+								Size:    ui.SizeSmall,
+								Variant: ui.ButtonSecondary,
+								Disabled: func() bool {
+									_ = rev.Get()
+									return ed.Playing()
+								},
+								OnPress: func() {
+									if from := current.Get(); from != "" {
+										ed.report(ed.OpenMaterialProjectFile(from))
+									}
+								},
+							}
 						},
 					},
 					core.Show{

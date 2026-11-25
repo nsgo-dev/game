@@ -69,6 +69,7 @@ const (
 	CmdLocalization          = "project.l10n"
 	CmdParticleEditor        = "project.particles"
 	CmdHUDLayout             = "project.hud"
+	CmdMaterialEditor        = "project.material"
 	CmdExport                = "project.export"
 	CmdProfiler              = "project.profiler"
 	CmdCheckProblems         = "project.check"
@@ -1026,6 +1027,24 @@ func (e *Editor) initBuiltinCommands() {
 			},
 		},
 		{
+			ID:          CmdMaterialEditor,
+			Label:       "Material Editor",
+			Description: "Toggle the Material Editor panel with live 3D and 2D preview",
+			Category:    "Project",
+			Keywords:    []string{"material", "pbr", "roughness", "metallic", "color", "texture", "surface", "panel"},
+			Enabled:     notPlaying,
+			Checked:     func() bool { return e.MaterialOpen() },
+			Run: func() error {
+				if e.MaterialOpen() {
+					return e.CloseMaterial()
+				}
+				if obj, _ := e.SelectedObject(); obj != nil && obj.Material != "" {
+					return e.OpenMaterial(obj.Material)
+				}
+				return e.NewMaterial()
+			},
+		},
+		{
 			ID:          CmdExport,
 			Label:       "Export & Release",
 			Description: "Toggle the Export & Release Build panel",
@@ -1237,6 +1256,7 @@ var builtinCommandKeys = map[string][3]string{
 	CmdProjectSettings:       {"cmd.projectSettings.label", "cmd.projectSettings.desc", "cmd.category.project"},
 	CmdAudioMixer:            {"cmd.audioMixer.label", "cmd.audioMixer.desc", "cmd.category.project"},
 	CmdLocalization:          {"cmd.localization.label", "cmd.localization.desc", "cmd.category.project"},
+	CmdMaterialEditor:        {"cmd.materialEditor.label", "cmd.materialEditor.desc", "cmd.category.project"},
 	CmdExport:                {"cmd.export.label", "cmd.export.desc", "cmd.category.project"},
 	CmdProfiler:              {"cmd.profiler.label", "cmd.profiler.desc", "cmd.category.project"},
 	CmdCheckProblems:         {"cmd.checkProblems.label", "cmd.checkProblems.desc", "cmd.category.project"},

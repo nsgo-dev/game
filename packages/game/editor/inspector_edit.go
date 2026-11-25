@@ -176,6 +176,34 @@ func spriteFields(ed *Editor, rev *core.Signal[uint64], objID string, disabled f
 		OnClear:  func() { ed.report(ed.SetObjectMaterial(objID, "")) },
 	}
 
+	editMaterialBtn := ui.Button{
+		TestID:  "inspector-material-edit",
+		Text:    ed.T("inspector.editMaterial"),
+		Size:    ui.SizeSmall,
+		Variant: ui.ButtonSecondary,
+		Disabled: func() bool {
+			return disabled() || currentMaterial() == ""
+		},
+		OnPress: func() {
+			if m := currentMaterial(); m != "" {
+				ed.report(ed.OpenMaterial(m))
+			}
+		},
+	}
+	newMaterialBtn := ui.Button{
+		TestID:  "inspector-material-new",
+		Text:    ed.T("inspector.newMaterial"),
+		Size:    ui.SizeSmall,
+		Variant: ui.ButtonSecondary,
+		Disabled: func() bool {
+			return disabled() || ed.Project == nil || ed.ProjectPath == ""
+		},
+		OnPress: func() {
+			_, err := ed.CreateObjectMaterial(objID, "")
+			ed.report(err)
+		},
+	}
+
 	return []core.Node{
 		fieldRow(ed.T("inspector.sprite"), withTrailing(sprite, fromBrowser)),
 		fieldRow(ed.T("inspector.originX"), origin("inspector-origin-x", ed.T("inspector.originX"), false)),
@@ -185,6 +213,7 @@ func spriteFields(ed *Editor, rev *core.Signal[uint64], objID string, disabled f
 			flip("inspector-flip-y", "Y", true),
 		}}),
 		fieldRow(ed.T("inspector.material"), material),
+		ui.HStack{Gap: 6, Children: []core.Node{editMaterialBtn, newMaterialBtn}},
 	}
 }
 

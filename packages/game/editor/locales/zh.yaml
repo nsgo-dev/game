@@ -39,6 +39,8 @@ strings:
   cmd.lightingPreview.label: 切换 2D 光照预览
   cmd.localization.desc: 切换本地化字符串表面板
   cmd.localization.label: 本地化字符串
+  cmd.materialEditor.desc: 切换带 3D/2D 实时预览的材质编辑器面板
+  cmd.materialEditor.label: 材质编辑器
   cmd.mergeConflicts.desc: 为当前进行的 Git 合并打开逐对象场景合并冲突解决器
   cmd.mergeConflicts.label: 解决场景合并冲突
   cmd.navMesh2dOverlay.desc: 在 2D 视口中显示或隐藏已构建的 2D 导航网格多边形、门户与区域轮廓
@@ -103,6 +105,8 @@ strings:
   dialog.scenePathLabel: 场景路径
   dialog.unsavedDesc: 场景 {scene} 或项目有未保存的更改。
   dialog.unsavedTitle: 保存更改？
+  files.editMaterial: 编辑材质
+  files.editMaterialLabel: 在材质编辑器中打开所选材质文件
   files.findRefs: 查找引用
   files.findRefsLabel: 在整个项目中查找对选中文件的所有引用
   files.move: 移动
@@ -145,6 +149,7 @@ strings:
   inspector.deleteProperty: 删除属性 {key}
   inspector.depth: 深度
   inspector.editConnection: 编辑连接
+  inspector.editMaterial: 编辑材质
   inspector.empty: 未选中对象
   inspector.flip: 翻转
   inspector.height: 高度
@@ -154,6 +159,7 @@ strings:
   inspector.mesh: 网格
   inspector.name: 名称
   inspector.navRegionResetPolygon: 重置为默认多边形
+  inspector.newMaterial: 新建材质
   inspector.newProperty: 新属性
   inspector.newPropertyKey: 新属性键名
   inspector.newPropertyKind: 新属性类型
@@ -222,6 +228,26 @@ strings:
   library.remove: 移除
   library.title: 资源库
   library.update: 更新
+  material.close: 关闭
+  material.field.baseColor: 基础颜色
+  material.field.blend: 混合模式
+  material.field.doubleSided: 双面渲染
+  material.field.emissive: 自发光
+  material.field.emissiveLabel: 自发光颜色
+  material.field.flags: 标志
+  material.field.metallic: 金属度
+  material.field.name: 名称
+  material.field.nameLabel: 材质名称
+  material.field.namePlaceholder: 可选显示名称
+  material.field.opacity: 不透明度
+  material.field.roughness: 粗糙度
+  material.field.texture: 贴图
+  material.field.unlit: 无光照
+  material.save: 保存材质
+  material.shape.cube: 立方体
+  material.shape.sphere: 球体
+  material.shape.sprite: 精灵
+  material.title: 材质编辑器
   menu.audioMixer: 音频总线混音器
   menu.checkProblems: 检查问题
   menu.closeTab: 关闭场景标签页
@@ -238,6 +264,7 @@ strings:
   menu.gizmo3d: 3D 操纵杆
   menu.lightingPreview: 2D 光照预览
   menu.localization: 本地化字符串
+  menu.materialEditor: 材质编辑器
   menu.mergeConflicts: 解决场景合并冲突
   menu.move: 移动
   menu.navMesh2dOverlay: 2D 导航网格叠加层

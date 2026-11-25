@@ -334,6 +334,8 @@ type Editor struct {
 	OnSaveTileset func(data []byte) error
 	// OnSaveParticleEmitter is invoked by the Particle Emitter panel's Save button with the encoded emitter YAML; when nil the button writes to ParticleEmitterPath.
 	OnSaveParticleEmitter func(data []byte) error
+	// OnSaveMaterial is invoked by the Material Editor panel's Save button with the encoded material YAML (resource.Encode); when nil the button writes to MaterialPath.
+	OnSaveMaterial func(data []byte) error
 	// OnSaveRooms is invoked by SaveRooms / Save with the encoded *.rooms.yaml bytes; when nil SaveRooms writes to RoomsPath.
 	OnSaveRooms func(data []byte) error
 	// OnSaveRig is invoked by the Rig Editor panel's Save Rig button with the encoded .skel.yaml bytes; when nil the button writes to RigPath.
@@ -427,11 +429,14 @@ type Editor struct {
 	// The particle emitter editor: the open emitter config, live preview emitter, and edit-viewport scene emitter loop.
 	particles        *particleEditorState
 	sceneEmitterStop func()
-
 	// rig holds the open 2D skeletal rig edited by the Rig Editor panel, or nil when closed.
 	rig *rigState
 	// rigStepRev records the revision emitted by a pure StepRig playback tick so unsavedMemo skips full YAML re-encoding at 60 Hz.
 	rigStepRev uint64
+
+	// The material editor: the open *.material.yaml document, live preview state, and live reload revision.
+	material    *materialEditorState
+	materialRev uint64
 	// l10n holds the open localization string tables edited by the Localization panel, or nil when closed.
 	l10n       *localizationState
 	components *sceneformat.ComponentRegistry
@@ -1173,6 +1178,7 @@ func (e *Editor) SaveFile(path string) error {
 		e.CancelCameraBoundsDrag()
 		e.CancelRoomDrag()
 		e.cancelBackgroundPreview()
+		e.cancelMaterialColorPreview()
 		e.endTileStrokeForChange()
 		e.endGridMapStrokeForChange()
 	}
@@ -1253,6 +1259,7 @@ func (e *Editor) Undo() bool {
 	e.CancelCameraBoundsDrag()
 	e.CancelRoomDrag()
 	e.cancelBackgroundPreview()
+	e.cancelMaterialColorPreview()
 	// A stroke under way is recorded first, so Undo takes it back as a whole.
 	e.endTileStrokeForChange()
 	e.endGridMapStrokeForChange()
@@ -1284,6 +1291,7 @@ func (e *Editor) Redo() bool {
 	e.CancelCameraBoundsDrag()
 	e.CancelRoomDrag()
 	e.cancelBackgroundPreview()
+	e.cancelMaterialColorPreview()
 	e.endTileStrokeForChange()
 	e.endGridMapStrokeForChange()
 	e.endTerrainStrokeForChange()

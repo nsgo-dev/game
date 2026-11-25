@@ -147,6 +147,7 @@ func (e *Editor) PlayIn(cx *core.Scope) error {
 	e.CancelHUDTouchDrag()
 	e.hud.open = false
 	e.cancelBackgroundPreview()
+	e.cancelMaterialColorPreview()
 	e.playSnapshot = snap
 	e.Doc = playDoc
 	e.Built = playBuilt

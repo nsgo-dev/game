@@ -29,15 +29,17 @@ type scene3DState struct {
 	err   error
 	// gen counts the builds, so the GPU renderer knows when to upload the geometry again.
 	gen uint64
-	// stale says the scene may have changed its look since the last build (Rebuild sets it); doc, key, assetsRev, scenesRev, importRev, modelResolver and projectPath are what the last build was made from.
-	stale         bool
-	doc           *sceneformat.SceneDoc
-	key           uint64
-	assetsRev     uint64
-	scenesRev     uint64
-	importRev     uint64
-	modelResolver scenemodel.ModelResolver
-	projectPath   string
+	// stale says the scene may have changed its look since the last build (Rebuild sets it); doc, key, assetsRev, scenesRev, importRev, materialRev, materialLibRev, modelResolver and projectPath are what the last build was made from.
+	stale          bool
+	doc            *sceneformat.SceneDoc
+	key            uint64
+	assetsRev      uint64
+	scenesRev      uint64
+	importRev      uint64
+	materialRev    uint64
+	materialLibRev uint64
+	modelResolver  scenemodel.ModelResolver
+	projectPath    string
 	// files loads models, material files and images from the open project's files.
 	files *scenemodel.Assets
 	// bounds holds the bounds of each object's own geometry in its node's space, before its transform; an object without geometry has none.
@@ -156,7 +158,7 @@ func (e *Editor) scene3D() *scene3DState {
 	s := &e.s3d
 	if e.Doc == nil {
 		// gen only grows, so a renderer still holding the last build's upload never takes the next build for it.
-		*s = scene3DState{gen: s.gen, files: s.files, projectPath: s.projectPath, assetsRev: s.assetsRev, scenesRev: s.scenesRev, importRev: s.importRev, modelResolver: s.modelResolver}
+		*s = scene3DState{gen: s.gen, files: s.files, projectPath: s.projectPath, assetsRev: s.assetsRev, scenesRev: s.scenesRev, importRev: s.importRev, materialRev: s.materialRev, materialLibRev: s.materialLibRev, modelResolver: s.modelResolver}
 		return s
 	}
 	if e.ProjectPath != s.projectPath || e.assetsRev != s.assetsRev {
@@ -175,13 +177,18 @@ func (e *Editor) scene3D() *scene3DState {
 	if s.files == nil && e.ProjectPath != "" {
 		s.files = scenemodel.NewAssets(os.DirFS(filepath.Dir(e.ProjectPath)))
 	}
+	libRev := e.currentMaterialLibRev()
+	materialChanged := e.materialRev != s.materialRev || libRev != s.materialLibRev
+	if materialChanged {
+		s.stale = true
+	}
 	if s.stale || s.doc != e.Doc {
 		key, comparable := lookKey3D(e.Doc)
-		if !comparable || s.world == nil || s.err != nil || key != s.key || e.ProjectPath != s.projectPath || e.assetsRev != s.assetsRev || (e.scenesRev != s.scenesRev && e.Doc.RefersToScenes()) || e.importRev != s.importRev || e.ModelResolver != s.modelResolver {
+		if !comparable || s.world == nil || s.err != nil || key != s.key || e.ProjectPath != s.projectPath || e.assetsRev != s.assetsRev || (e.scenesRev != s.scenesRev && e.Doc.RefersToScenes()) || e.importRev != s.importRev || materialChanged || e.ModelResolver != s.modelResolver {
 			e.build3D(s)
 		}
 		s.doc, s.key, s.stale = e.Doc, key, false
-		s.projectPath, s.assetsRev, s.scenesRev, s.importRev, s.modelResolver = e.ProjectPath, e.assetsRev, e.scenesRev, e.importRev, e.ModelResolver
+		s.projectPath, s.assetsRev, s.scenesRev, s.importRev, s.materialRev, s.materialLibRev, s.modelResolver = e.ProjectPath, e.assetsRev, e.scenesRev, e.importRev, e.materialRev, e.currentMaterialLibRev(), e.ModelResolver
 	}
 	if s.built != nil {
 		e.sync3D(s)
