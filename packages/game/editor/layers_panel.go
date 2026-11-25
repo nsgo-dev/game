@@ -53,7 +53,7 @@ func LayersView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node 
 	cx.Effect(func() {
 		cur, _ := selection.Cursor().(string)
 		cx.Untrack(func() {
-			if cur != "" && ed.ActiveLayer != cur && ed.layerIndex(cur) >= 0 {
+			if cur != "" && ed.ActiveLayer != cur && (ed.layerIndex(cur) >= 0 || ed.inheritedLayers()[cur]) {
 				ed.SetActiveLayer(cur)
 			}
 		})
@@ -269,7 +269,8 @@ func layerPanelRow(cx *core.Scope, ed *Editor, layers func() []LayerInfo, name s
 	setHidden := func(on bool) error { return ed.SetLayerVisible(name, !on) }
 	setLocked := func(on bool) error { return ed.SetLayerLocked(name, on) }
 	never := func() bool { return false }
-	// A layer that extends one of the base scene's has its name, order, space and visibility owned by that scene (Editor.inheritedErr), so those controls are off on its row.
+	// A layer that extends one of the base scene's has its name and draw order owned by that scene,
+	// while visibility, space, parallax, and repeat can be overridden in layerOverrides.
 	baseOwned := func() bool { return editsOff() || info().Inherited }
 
 	content := core.View{
@@ -289,7 +290,7 @@ func layerPanelRow(cx *core.Scope, ed *Editor, layers func() []LayerInfo, name s
 		},
 		Children: []core.Node{
 			label,
-			toggle("layers-eye-"+name, hidden, setHidden, lucide.EyeOff, lucide.Eye, ed.T("layers.showNamed", l10n.Param("name", name)), ed.T("layers.hideNamed", l10n.Param("name", name)), baseOwned),
+			toggle("layers-eye-"+name, hidden, setHidden, lucide.EyeOff, lucide.Eye, ed.T("layers.showNamed", l10n.Param("name", name)), ed.T("layers.hideNamed", l10n.Param("name", name)), editsOff),
 			toggle("layers-lock-"+name, locked, setLocked, lucide.Lock, lucide.LockOpen, ed.T("layers.unlockNamed", l10n.Param("name", name)), ed.T("layers.lockNamed", l10n.Param("name", name)), never),
 		},
 	}
@@ -303,7 +304,7 @@ func layerPanelRow(cx *core.Scope, ed *Editor, layers func() []LayerInfo, name s
 		return ui.MenuItem{
 			TestID:   "layers-space-" + string(space) + "-" + name,
 			Text:     text,
-			Disabled: func() bool { return baseOwned() || info().Space == space },
+			Disabled: func() bool { return editsOff() || info().Space == space },
 			OnSelect: func() { ed.report(ed.SetLayerSpace(name, space)) },
 		}
 	}
@@ -329,7 +330,7 @@ func layerPanelRow(cx *core.Scope, ed *Editor, layers func() []LayerInfo, name s
 				return ed.T("layers.show")
 			}
 			return ed.T("layers.hide")
-		}, Disabled: baseOwned, OnSelect: func() { ed.report(setHidden(!hidden())) }},
+		}, Disabled: editsOff, OnSelect: func() { ed.report(setHidden(!hidden())) }},
 		ui.MenuItem{TestID: "layers-lock-item-" + name, TextFunc: func() string {
 			if locked() {
 				return ed.T("layers.unlock")
@@ -337,6 +338,9 @@ func layerPanelRow(cx *core.Scope, ed *Editor, layers func() []LayerInfo, name s
 			return ed.T("layers.lock")
 		}, OnSelect: func() { ed.report(setLocked(!locked())) }},
 		ui.MenuSeparator{},
+		ui.MenuItem{TestID: "layers-revert-overrides-" + name, Text: ed.T("overrides.revertAll"),
+			Disabled: func() bool { return editsOff() || !info().Inherited || len(ed.LayerOverrideFields(name)) == 0 },
+			OnSelect: func() { ed.report(ed.RevertLayerOverrides(name)) }},
 		ui.MenuItem{TestID: "layers-remove-" + name, Text: ed.T("layers.remove"), Variant: ui.MenuItemDanger, Disabled: editsOff,
 			OnSelect: func() { ed.report(ed.RemoveLayer(name)) }},
 	}

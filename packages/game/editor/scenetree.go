@@ -82,45 +82,48 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 	}
 	children := func(k sceneTreeKey) []any {
 		_ = rev.Get()
-		if ed.Doc == nil {
+		doc := ed.resolvedDoc()
+		if doc == nil {
 			return nil
 		}
 		if k.id == "" {
-			li := ed.layerIndex(k.layer)
-			if li < 0 {
-				return nil
+			for i := range doc.Layers {
+				if doc.Layers[i].Name == k.layer {
+					objs := doc.Layers[i].Objects
+					out := make([]any, len(objs))
+					for j := range objs {
+						out[j] = sceneTreeKey{layer: k.layer, id: objs[j].ID}
+					}
+					return out
+				}
 			}
-			objs := ed.Doc.Layers[li].Objects
-			out := make([]any, len(objs))
-			for i := range objs {
-				out[i] = sceneTreeKey{layer: k.layer, id: objs[i].ID}
-			}
-			return out
+			return nil
 		}
-		loc := ed.lookupObject(k.id).loc
+		loc := locateObject(doc, k.id)
 		if loc.obj == nil {
 			return nil
 		}
 		out := make([]any, len(loc.obj.Children))
 		for i := range loc.obj.Children {
-			out[i] = sceneTreeKey{layer: ed.Doc.Layers[loc.layer].Name, id: loc.obj.Children[i].ID}
+			out[i] = sceneTreeKey{layer: doc.Layers[loc.layer].Name, id: loc.obj.Children[i].ID}
 		}
 		return out
 	}
 	roots := func() []any {
 		_ = rev.Get()
-		if ed.Doc == nil {
+		doc := ed.resolvedDoc()
+		if doc == nil {
 			return nil
 		}
-		out := make([]any, len(ed.Doc.Layers))
-		for i := range ed.Doc.Layers {
-			out[i] = sceneTreeKey{layer: ed.Doc.Layers[i].Name}
+		out := make([]any, len(doc.Layers))
+		for i := range doc.Layers {
+			out[i] = sceneTreeKey{layer: doc.Layers[i].Name}
 		}
 		return out
 	}
 	keyOf := func(id string) sceneTreeKey {
-		if _, li, _ := ed.FindObject(id); li >= 0 {
-			return sceneTreeKey{layer: ed.Doc.Layers[li].Name, id: id}
+		if _, layerName := ed.FindResolvedObject(id); layerName != "" {
+			return sceneTreeKey{layer: layerName, id: id}
 		}
 		return sceneTreeKey{}
 	}
@@ -251,7 +254,7 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 					continue
 				}
 				wantKeys = append(wantKeys, k)
-				path := objectPath(ed.Doc, k.id)
+				path := ed.resolvedObjectPath(k.id)
 				setOpen(sceneTreeKey{layer: k.layer}, true)
 				for _, a := range path[:max(len(path)-1, 0)] {
 					setOpen(sceneTreeKey{layer: k.layer, id: a.ID}, true)
@@ -378,6 +381,10 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 								},
 								OnActivate: func(key any) {
 									if k, ok := key.(sceneTreeKey); ok {
+										if obj, _, _ := ed.FindObject(k.id); obj != nil && obj.Scene != "" && !ed.Playing() && ed.Project != nil && ed.ProjectPath != "" {
+											ed.report(ed.OpenInstancedScene(k.id))
+											return
+										}
 										startEdit(k, editName)
 									}
 								},
@@ -517,10 +524,14 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 	}
 	accept := func(data any) bool {
 		d, ok := data.(sceneTreeDrag)
-		return ok && d.id != id
+		return ok && d.id != id && ed.ObjectOrigin(id) == ObjectLocal
 	}
 	track := func(ev dragdrop.Event) {
 		hint.Set(treeHint{key: k, place: placeAt(ev), on: true})
+	}
+	isForeign := func() bool {
+		_ = rev.Get()
+		return ed.ObjectOrigin(id) != ObjectLocal
 	}
 
 	label := core.Show{
@@ -528,7 +539,7 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 		Then: func(cx *core.Scope) core.Node {
 			edit := editing.GetUntracked()
 			text := ""
-			if obj, _, _ := ed.FindObject(id); obj != nil {
+			if obj, _ := ed.FindResolvedObject(id); obj != nil {
 				text = obj.Name
 				if edit.field == editID {
 					text = obj.ID
@@ -573,11 +584,29 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 			return core.View{
 				Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, FlexGrow: 1, MinWidth: core.Pt(0)},
 				Children: []core.Node{
+					core.Show{
+						When: func() bool {
+							_ = rev.Get()
+							return ed.ObjectHasAnyOverride(id) || ed.InstanceOverrideCount(id) > 0
+						},
+						Then: func(cx *core.Scope) core.Node {
+							return core.View{
+								TestID: "scene-tree-override-dot-" + id,
+								Style: core.Style{
+									Width:        core.Pt(6),
+									Height:       core.Pt(6),
+									CornerRadius: 3,
+									Background:   colors.Warn(),
+									FlexShrink:   0,
+								},
+							}
+						},
+					},
 					core.Text{
 						TestID: "scene-tree-label-" + id,
 						ContentFunc: func() string {
 							_ = rev.Get()
-							if obj := ed.lookupObject(id).loc.obj; obj != nil && obj.Name != "" {
+							if obj, _ := ed.FindResolvedObject(id); obj != nil && obj.Name != "" {
 								return obj.Name
 							}
 							return id
@@ -585,16 +614,32 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 						Style: core.Style{FontSize: 12, Color: colors.Text(), FlexShrink: 1},
 						StyleFunc: func() core.Style {
 							_ = rev.Get()
-							if pathFlagged(ed.hidden, ed.lookupObject(id).path) {
+							if pathFlagged(ed.hidden, ed.resolvedObjectPath(id)) || ed.ObjectOrigin(id) != ObjectLocal {
 								return core.Style{Color: colors.Muted()}
 							}
 							return core.Style{}
 						},
 					},
+					core.Show{
+						When: isForeign,
+						Then: func(cx *core.Scope) core.Node {
+							return core.Text{
+								TestID: "scene-tree-inherited-" + id,
+								ContentFunc: func() string {
+									_ = rev.Get()
+									if ed.ObjectOrigin(id) == ObjectInstanced {
+										return ed.T("sceneTree.instancedTag")
+									}
+									return ed.T("sceneTree.inheritedTag")
+								},
+								Style: core.Style{FontSize: 9, Color: colors.Muted(), FlexShrink: 0},
+							}
+						},
+					},
 					core.Text{
 						ContentFunc: func() string {
 							_ = rev.Get()
-							if obj := ed.lookupObject(id).loc.obj; obj != nil && obj.Name != "" && obj.Name != id {
+							if obj, _ := ed.FindResolvedObject(id); obj != nil && obj.Name != "" && obj.Name != id {
 								return id
 							}
 							return ""
@@ -644,6 +689,7 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 	}
 
 	editsOff := func() bool { _ = rev.Get(); return ed.Playing() }
+	structOff := func() bool { return editsOff() || isForeign() }
 	siblings := func() (index, count int, prev, parent string) {
 		loc := ed.lookupObject(id).loc
 		if loc.obj == nil {
@@ -679,9 +725,29 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 			items = append(items,
 				ui.MenuItem{
 					TestID:   "scene-tree-open-scene-" + id,
-					Text:     "Open Instanced Scene",
+					Text:     ed.T("overrides.openInstancedScene"),
 					Disabled: func() bool { return editsOff() || ed.Project == nil || ed.ProjectPath == "" },
 					OnSelect: func() { ed.report(ed.OpenInstancedScene(id)) },
+				},
+				ui.MenuItem{
+					TestID:   "scene-tree-make-local-" + id,
+					Text:     ed.T("overrides.makeLocal"),
+					Disabled: editsOff,
+					OnSelect: func() { ed.report(ed.MakeInstanceLocal(id)) },
+				},
+				ui.MenuItem{
+					TestID: "scene-tree-apply-overrides-" + id,
+					Text:   ed.T("overrides.applyToSource"),
+					Disabled: func() bool {
+						return editsOff() || ed.Project == nil || ed.ProjectPath == "" || ed.InstanceOverrideCount(id) == 0
+					},
+					OnSelect: func() { ed.report(ed.ApplyOverridesToSource(id)) },
+				},
+				ui.MenuItem{
+					TestID:   "scene-tree-revert-overrides-" + id,
+					Text:     ed.T("overrides.revertAll"),
+					Disabled: func() bool { return editsOff() || ed.InstanceOverrideCount(id) == 0 },
+					OnSelect: func() { ed.report(ed.RevertObjectOverrides(id)) },
 				},
 			)
 		} else if obj.Prefab != "" && isPathLikePrefab(obj.Prefab) {
@@ -700,13 +766,31 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 						ed.report(ed.OpenUsagesScreen(targetPath))
 					},
 				},
-				ui.MenuSeparator{},
 			)
 		}
+		if len(items) > 0 {
+			items = append(items, ui.MenuSeparator{})
+		}
+	} else if ed.ObjectOrigin(id) != ObjectLocal {
+		items = append(items,
+			ui.MenuItem{
+				TestID:   "scene-tree-open-source-" + id,
+				Text:     ed.T("overrides.openSourceScene"),
+				Disabled: func() bool { return editsOff() || ed.Project == nil || ed.ProjectPath == "" },
+				OnSelect: func() { ed.report(ed.OpenSourceScene(id)) },
+			},
+			ui.MenuItem{
+				TestID:   "scene-tree-revert-overrides-" + id,
+				Text:     ed.T("overrides.revertAll"),
+				Disabled: func() bool { return editsOff() || !ed.ObjectHasAnyOverride(id) },
+				OnSelect: func() { ed.report(ed.RevertObjectOverrides(id)) },
+			},
+			ui.MenuSeparator{},
+		)
 	}
 	items = append(items,
 		ui.MenuItem{TestID: "scene-tree-rename-" + id, Text: ed.T("sceneTree.rename"), Shortcut: "F2", Disabled: editsOff, OnSelect: func() { startEdit(k, editName) }},
-		ui.MenuItem{TestID: "scene-tree-change-id-" + id, Text: ed.T("sceneTree.changeID"), Disabled: editsOff, OnSelect: func() { startEdit(k, editID) }},
+		ui.MenuItem{TestID: "scene-tree-change-id-" + id, Text: ed.T("sceneTree.changeID"), Disabled: structOff, OnSelect: func() { startEdit(k, editID) }},
 		ui.MenuSeparator{},
 		ui.MenuItem{TestID: "scene-tree-cut-" + id, Text: ed.T("sceneTree.cut"), Disabled: editsOff, OnSelect: func() {
 			_, err := ed.CutObjects(targetIDs()...)
@@ -751,21 +835,21 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 			}},
 		ui.MenuSeparator{},
 		ui.MenuItem{TestID: "scene-tree-up-" + id, Text: ed.T("sceneTree.moveUp"),
-			Disabled: func() bool { i, _, _, _ := siblings(); return editsOff() || i <= 0 },
+			Disabled: func() bool { i, _, _, _ := siblings(); return structOff() || i <= 0 },
 			OnSelect: func() {
 				if i, _, _, _ := siblings(); i > 0 {
 					ed.report(ed.ReorderObject(id, i-1))
 				}
 			}},
 		ui.MenuItem{TestID: "scene-tree-down-" + id, Text: ed.T("sceneTree.moveDown"),
-			Disabled: func() bool { i, n, _, _ := siblings(); return editsOff() || i < 0 || i >= n-1 },
+			Disabled: func() bool { i, n, _, _ := siblings(); return structOff() || i < 0 || i >= n-1 },
 			OnSelect: func() {
 				if i, n, _, _ := siblings(); i >= 0 && i < n-1 {
 					ed.report(ed.ReorderObject(id, i+1))
 				}
 			}},
 		ui.MenuItem{TestID: "scene-tree-indent-" + id, Text: ed.T("sceneTree.indent"),
-			Disabled: func() bool { _, _, prev, _ := siblings(); return editsOff() || prev == "" },
+			Disabled: func() bool { _, _, prev, _ := siblings(); return structOff() || prev == "" },
 			OnSelect: func() {
 				if _, _, prev, _ := siblings(); prev != "" {
 					if err := ed.ReparentObject(id, prev, -1); err != nil {
@@ -776,7 +860,7 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 				}
 			}},
 		ui.MenuItem{TestID: "scene-tree-outdent-" + id, Text: ed.T("sceneTree.outdent"),
-			Disabled: func() bool { _, _, _, parent := siblings(); return editsOff() || parent == "" },
+			Disabled: func() bool { _, _, _, parent := siblings(); return structOff() || parent == "" },
 			OnSelect: func() {
 				_, _, _, parent := siblings()
 				if parent == "" {
@@ -797,7 +881,7 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 			items = append(items, ui.MenuItem{TestID: "scene-tree-to-layer-" + id + "-" + name, Text: ed.T("sceneTree.moveToLayer", l10n.Param("name", name)),
 				Disabled: func() bool {
 					loc := ed.lookupObject(id).loc
-					return editsOff() || loc.obj == nil || ed.Doc.Layers[loc.layer].Name == name && loc.parent == nil
+					return structOff() || loc.obj == nil || ed.Doc.Layers[loc.layer].Name == name && loc.parent == nil
 				},
 				OnSelect: func() { ed.report(ed.MoveObjectToLayer(id, name, -1)) }})
 		}
@@ -819,7 +903,7 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 			return ed.T("sceneTree.lock")
 		}, OnSelect: func() { ed.report(ed.SetObjectLocked(id, !locked())) }},
 		ui.MenuSeparator{},
-		ui.MenuItem{TestID: "scene-tree-delete-" + id, Text: ed.T("sceneTree.delete"), Variant: ui.MenuItemDanger, Disabled: editsOff,
+		ui.MenuItem{TestID: "scene-tree-delete-" + id, Text: ed.T("sceneTree.delete"), Variant: ui.MenuItemDanger, Disabled: structOff,
 			OnSelect: func() {
 				if ed.IsSelected(id) && ed.SelectionCount() > 1 {
 					ed.report(ed.DeleteSelected())
@@ -842,7 +926,7 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 						Children: []core.Node{content},
 					},
 					Data: func() any {
-						if editsOff() || editing.GetUntracked().key == k {
+						if structOff() || editing.GetUntracked().key == k {
 							return nil
 						}
 						return sceneTreeDrag{id: id}

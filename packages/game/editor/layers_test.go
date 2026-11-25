@@ -380,16 +380,29 @@ layers:
 		t.Fatalf("hud = %+v", info)
 	}
 	for what, err := range map[string]error{
-		"rename ground":   ed.RenameLayer("ground", "floor"),
-		"rename to sky":   ed.RenameLayer("hud", "sky"),
-		"add sky":         ed.AddLayer("sky", sceneformat.SpaceWorld),
-		"hide ground":     ed.SetLayerVisible("ground", false),
-		"space of ground": ed.SetLayerSpace("ground", sceneformat.SpaceScreen),
-		"move ground":     ed.MoveLayer("ground", 1),
+		"rename ground": ed.RenameLayer("ground", "floor"),
+		"rename to sky": ed.RenameLayer("hud", "sky"),
+		"add sky":       ed.AddLayer("sky", sceneformat.SpaceWorld),
+		"move ground":   ed.MoveLayer("ground", 1),
 	} {
 		if err == nil {
 			t.Errorf("%s was accepted", what)
 		}
+	}
+	if err := ed.SetLayerVisible("ground", false); err != nil {
+		t.Fatalf("SetLayerVisible on inherited ground should write layerOverrides: %v", err)
+	}
+	if err := ed.SetLayerSpace("ground", sceneformat.SpaceScreen); err != nil {
+		t.Fatalf("SetLayerSpace on inherited ground should write layerOverrides: %v", err)
+	}
+	if lo, ok := ed.Doc.LayerOverrides["ground"]; !ok || lo.Visible == nil || *lo.Visible || lo.Space != sceneformat.SpaceScreen {
+		t.Fatalf("LayerOverrides[ground] = %+v, want visible=false space=screen", lo)
+	}
+	if err := ed.RevertLayerOverrides("ground"); err != nil {
+		t.Fatalf("RevertLayerOverrides: %v", err)
+	}
+	if _, hasGround := ed.Doc.LayerOverrides["ground"]; hasGround {
+		t.Fatalf("LayerOverrides after revert = %+v, want ground removed", ed.Doc.LayerOverrides)
 	}
 	if err := ed.RenameLayer("hud", "overlay"); err != nil {
 		t.Fatalf("RenameLayer of the scene's own layer: %v", err)
@@ -621,13 +634,18 @@ layers:
 	}
 	app := startEditorView(t, ed)
 
-	if app.Enabled("id:layers-eye-ground") || !app.Enabled("id:layers-eye-hud") {
-		t.Fatal("the eye button is on for the base's layer or off for the scene's own")
+	if !app.Enabled("id:layers-eye-ground") || !app.Enabled("id:layers-eye-hud") {
+		t.Fatal("the eye button should be enabled for both inherited (via layerOverrides) and own layers")
 	}
 	app.RightClick("id:layers-row-ground")
-	for _, id := range []string{"layers-rename-item-ground", "layers-hide-ground", "layers-space-screen-ground", "layers-down-ground"} {
+	for _, id := range []string{"layers-rename-item-ground", "layers-down-ground"} {
 		if app.Enabled("id:" + id) {
 			t.Errorf("%s is enabled on a layer the base owns", id)
+		}
+	}
+	for _, id := range []string{"layers-hide-ground", "layers-space-screen-ground"} {
+		if !app.Enabled("id:" + id) {
+			t.Errorf("%s should be enabled on an inherited layer via layerOverrides", id)
 		}
 	}
 	app.Key("escape")

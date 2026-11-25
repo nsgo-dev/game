@@ -662,7 +662,7 @@ func environmentPanelBody(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 
 // light3DInspectorFields returns the inspector rows for objID's 3D light component.
 func light3DInspectorFields(ed *Editor, rev *core.Signal[uint64], objID string, disabled func() bool, fieldRow func(string, core.Node) core.Node) []core.Node {
-	obj, _, _ := ed.FindObject(objID)
+	obj, _ := ed.FindResolvedObject(objID)
 	if obj == nil || obj.Light == nil {
 		return []core.Node{
 			ui.Button{
@@ -684,7 +684,7 @@ func light3DInspectorFields(ed *Editor, rev *core.Signal[uint64], objID string, 
 	}
 	formatFloat := func(v float64) string { return strconv.FormatFloat(v, 'g', -1, 64) }
 	mutate := func(fn func(l *sceneformat.LightDoc)) {
-		o, _, _ := ed.FindObject(objID)
+		o, _ := ed.FindResolvedObject(objID)
 		if o == nil || o.Light == nil {
 			return
 		}
@@ -705,7 +705,7 @@ func light3DInspectorFields(ed *Editor, rev *core.Signal[uint64], objID string, 
 			},
 			Value: func() string {
 				_ = rev.Get()
-				if o, _, _ := ed.FindObject(objID); o != nil && o.Light != nil {
+				if o, _ := ed.FindResolvedObject(objID); o != nil && o.Light != nil {
 					return string(o.Light.Kind)
 				}
 				return ""
@@ -745,7 +745,7 @@ func light3DInspectorFields(ed *Editor, rev *core.Signal[uint64], objID string, 
 			Disabled:    disabled,
 			Value: func() string {
 				_ = rev.Get()
-				if o, _, _ := ed.FindObject(objID); o != nil && o.Light != nil {
+				if o, _ := ed.FindResolvedObject(objID); o != nil && o.Light != nil {
 					return o.Light.Color
 				}
 				return ""
@@ -763,7 +763,7 @@ func light3DInspectorFields(ed *Editor, rev *core.Signal[uint64], objID string, 
 			Disabled: disabled,
 			Value: func() float64 {
 				_ = rev.Get()
-				if o, _, _ := ed.FindObject(objID); o != nil && o.Light != nil {
+				if o, _ := ed.FindResolvedObject(objID); o != nil && o.Light != nil {
 					return float64(o.Light.EffectiveIntensity())
 				}
 				return 1
@@ -786,7 +786,7 @@ func light3DInspectorFields(ed *Editor, rev *core.Signal[uint64], objID string, 
 			Disabled: disabled,
 			Value: func() float64 {
 				_ = rev.Get()
-				if o, _, _ := ed.FindObject(objID); o != nil && o.Light != nil {
+				if o, _ := ed.FindResolvedObject(objID); o != nil && o.Light != nil {
 					return float64(o.Light.Range)
 				}
 				return 0
@@ -811,7 +811,7 @@ func light3DInspectorFields(ed *Editor, rev *core.Signal[uint64], objID string, 
 				Disabled: disabled,
 				Value: func() float64 {
 					_ = rev.Get()
-					if o, _, _ := ed.FindObject(objID); o != nil && o.Light != nil {
+					if o, _ := ed.FindResolvedObject(objID); o != nil && o.Light != nil {
 						return float64(o.Light.InnerCone)
 					}
 					return 0
@@ -839,7 +839,7 @@ func light3DInspectorFields(ed *Editor, rev *core.Signal[uint64], objID string, 
 				Disabled: disabled,
 				Value: func() float64 {
 					_ = rev.Get()
-					if o, _, _ := ed.FindObject(objID); o != nil && o.Light != nil {
+					if o, _ := ed.FindResolvedObject(objID); o != nil && o.Light != nil {
 						return float64(o.Light.EffectiveOuterCone())
 					}
 					return 45
@@ -868,7 +868,7 @@ func light3DInspectorFields(ed *Editor, rev *core.Signal[uint64], objID string, 
 			Disabled: disabled,
 			Checked: func() bool {
 				_ = rev.Get()
-				o, _, _ := ed.FindObject(objID)
+				o, _ := ed.FindResolvedObject(objID)
 				return o != nil && o.Light != nil && o.Light.Shadows
 			},
 			OnChange: func(on bool) {
@@ -891,7 +891,7 @@ func light3DInspectorFields(ed *Editor, rev *core.Signal[uint64], objID string, 
 
 // camera3DInspectorFields returns the inspector rows for objID's 3D camera component.
 func camera3DInspectorFields(ed *Editor, rev *core.Signal[uint64], objID string, disabled func() bool, fieldRow func(string, core.Node) core.Node) []core.Node {
-	obj, _, _ := ed.FindObject(objID)
+	obj, _ := ed.FindResolvedObject(objID)
 	if obj == nil || obj.Camera == nil {
 		return []core.Node{
 			ui.Button{
@@ -914,7 +914,7 @@ func camera3DInspectorFields(ed *Editor, rev *core.Signal[uint64], objID string,
 	}
 	formatFloat := func(v float64) string { return strconv.FormatFloat(v, 'g', -1, 64) }
 	mutate := func(fn func(c *sceneformat.Camera3DDoc)) {
-		o, _, _ := ed.FindObject(objID)
+		o, _ := ed.FindResolvedObject(objID)
 		if o == nil || o.Camera == nil {
 			return
 		}
@@ -934,7 +934,7 @@ func camera3DInspectorFields(ed *Editor, rev *core.Signal[uint64], objID string,
 			},
 			Value: func() string {
 				_ = rev.Get()
-				if o, _, _ := ed.FindObject(objID); o != nil && o.Camera != nil {
+				if o, _ := ed.FindResolvedObject(objID); o != nil && o.Camera != nil {
 					return string(o.Camera.EffectiveProjection())
 				}
 				return string(sceneformat.ProjectionPerspective)
@@ -967,7 +967,7 @@ func camera3DInspectorFields(ed *Editor, rev *core.Signal[uint64], objID string,
 			Disabled: disabled,
 			Value: func() float64 {
 				_ = rev.Get()
-				if o, _, _ := ed.FindObject(objID); o != nil && o.Camera != nil {
+				if o, _ := ed.FindResolvedObject(objID); o != nil && o.Camera != nil {
 					return float64(o.Camera.EffectiveOrthoHeight())
 				}
 				return 10
@@ -990,7 +990,7 @@ func camera3DInspectorFields(ed *Editor, rev *core.Signal[uint64], objID string,
 			Disabled: disabled,
 			Value: func() float64 {
 				_ = rev.Get()
-				if o, _, _ := ed.FindObject(objID); o != nil && o.Camera != nil {
+				if o, _ := ed.FindResolvedObject(objID); o != nil && o.Camera != nil {
 					return float64(o.Camera.EffectiveFOV())
 				}
 				return 60
@@ -1017,7 +1017,7 @@ func camera3DInspectorFields(ed *Editor, rev *core.Signal[uint64], objID string,
 			Disabled: disabled,
 			Value: func() float64 {
 				_ = rev.Get()
-				if o, _, _ := ed.FindObject(objID); o != nil && o.Camera != nil {
+				if o, _ := ed.FindResolvedObject(objID); o != nil && o.Camera != nil {
 					return float64(o.Camera.EffectiveNear())
 				}
 				return 0.1
@@ -1043,7 +1043,7 @@ func camera3DInspectorFields(ed *Editor, rev *core.Signal[uint64], objID string,
 			Disabled: disabled,
 			Value: func() float64 {
 				_ = rev.Get()
-				if o, _, _ := ed.FindObject(objID); o != nil && o.Camera != nil {
+				if o, _ := ed.FindResolvedObject(objID); o != nil && o.Camera != nil {
 					return float64(o.Camera.EffectiveFar())
 				}
 				return 1000
@@ -1064,7 +1064,7 @@ func camera3DInspectorFields(ed *Editor, rev *core.Signal[uint64], objID string,
 			Disabled: disabled,
 			Checked: func() bool {
 				_ = rev.Get()
-				o, _, _ := ed.FindObject(objID)
+				o, _ := ed.FindResolvedObject(objID)
 				return o != nil && o.Camera != nil && o.Camera.Current
 			},
 			OnChange: func(on bool) {

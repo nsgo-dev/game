@@ -13,6 +13,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/l10n"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
@@ -27,6 +28,18 @@ func (e *Editor) SetProperty(objectID, key string, value any) error {
 	}
 	obj, _, _ := e.FindObject(objectID)
 	if obj == nil {
+		if info := e.ObjectOverrideInfo(objectID); info.Origin != ObjectLocal {
+			return e.editObjectOverride(objectID, "Set property "+key, 2, func(ov *sceneformat.ObjectOverride, resolved, _ *sceneformat.ObjectDoc) error {
+				if oldVal, existed := resolved.Properties[key]; existed && reflect.DeepEqual(oldVal, value) {
+					return nil
+				}
+				if ov.Properties == nil {
+					ov.Properties = make(map[string]any)
+				}
+				ov.Properties[key] = cloneAny(value)
+				return nil
+			})
+		}
 		return fmt.Errorf("editor: object %q not found", objectID)
 	}
 
@@ -54,6 +67,19 @@ func (e *Editor) DeleteProperty(objectID, key string) error {
 	}
 	obj, _, _ := e.FindObject(objectID)
 	if obj == nil {
+		if info := e.ObjectOverrideInfo(objectID); info.Origin != ObjectLocal {
+			return e.editObjectOverride(objectID, "Delete property "+key, 2, func(ov *sceneformat.ObjectOverride, _, base *sceneformat.ObjectDoc) error {
+				if base != nil && base.Properties != nil {
+					if _, onBase := base.Properties[key]; onBase {
+						return fmt.Errorf("editor: cannot delete inherited property %q on %q; revert its override or edit the source scene", key, objectID)
+					}
+				}
+				if ov.Properties != nil {
+					delete(ov.Properties, key)
+				}
+				return nil
+			})
+		}
 		return fmt.Errorf("editor: object %q not found", objectID)
 	}
 	oldVal, existed := obj.Properties[key]
@@ -95,6 +121,42 @@ func (e *Editor) SetComponentField(objectID, componentName, field string, value 
 	}
 	obj, _, _ := e.FindObject(objectID)
 	if obj == nil {
+		if info := e.ObjectOverrideInfo(objectID); info.Origin != ObjectLocal {
+			return e.editObjectOverride(objectID, "Set "+componentName+"."+field, 2, func(ov *sceneformat.ObjectOverride, resolved, _ *sceneformat.ObjectDoc) error {
+				var curMap map[string]any
+				if resolved.Components != nil {
+					if raw, ok := resolved.Components[componentName]; ok {
+						m, ok := raw.(map[string]any)
+						if !ok {
+							return fmt.Errorf("editor: component %q on %q is not a map", componentName, objectID)
+						}
+						curMap = m
+					}
+				}
+				if curMap != nil {
+					if oldVal, existed := curMap[field]; existed {
+						if reflect.DeepEqual(oldVal, value) {
+							return nil
+						}
+						if e.components != nil {
+							if normOld, err := e.components.CheckField(componentName, field, oldVal); err == nil && reflect.DeepEqual(normOld, value) {
+								return nil
+							}
+						}
+					}
+				}
+				nextMap := cloneMap(curMap)
+				if nextMap == nil {
+					nextMap = make(map[string]any)
+				}
+				nextMap[field] = cloneAny(value)
+				if ov.Components == nil {
+					ov.Components = make(map[string]any)
+				}
+				ov.Components[componentName] = nextMap
+				return nil
+			})
+		}
 		return fmt.Errorf("editor: object %q not found", objectID)
 	}
 
@@ -334,17 +396,28 @@ func inspectorSchemaKey(ed *Editor) string {
 			return "room"
 		}
 		if ed != nil && ed.inspectLayer {
-			if li := ed.layerIndex(ed.ActiveLayer); li >= 0 {
-				l := &ed.Doc.Layers[li]
-				space := l.EffectiveSpace()
-				inherited := ed.inheritedLayers()[l.Name]
+			li := ed.layerIndex(ed.ActiveLayer)
+			inherited := ed.inheritedLayers()[ed.ActiveLayer]
+			if li >= 0 || inherited {
+				var l *sceneformat.LayerDoc
+				if li >= 0 {
+					l = &ed.Doc.Layers[li]
+				}
+				space := sceneformat.SpaceWorld
+				if l != nil {
+					space = l.EffectiveSpace()
+				}
 				if inherited {
 					if eff := ed.effectiveLayers(); len(eff) > 0 {
-						if i := slices.IndexFunc(eff, func(el sceneformat.LayerDoc) bool { return el.Name == l.Name }); i >= 0 {
+						if i := slices.IndexFunc(eff, func(el sceneformat.LayerDoc) bool { return el.Name == ed.ActiveLayer }); i >= 0 {
 							space = eff[i].EffectiveSpace()
+							if l == nil {
+								c := eff[i]
+								l = &c
+							}
 						}
 					}
-					return tabPrefix + "L:" + l.Name + ":" + string(space) + ":inherited:" + layerTilemapSchemaTag(ed, l)
+					return tabPrefix + "L:" + ed.ActiveLayer + ":" + string(space) + ":inherited:" + layerTilemapSchemaTag(ed, l)
 				}
 				return tabPrefix + "L:" + l.Name + ":" + string(space) + ":" + layerTilemapSchemaTag(ed, l)
 			}
@@ -361,6 +434,8 @@ func inspectorSchemaKey(ed *Editor) string {
 	b.WriteString(tabPrefix)
 	b.WriteString("O:")
 	b.WriteString(ed.ViewMode.String())
+	b.WriteByte(':')
+	b.WriteString(ed.ObjectOrigin(obj.ID).String())
 	b.WriteByte(':')
 	b.WriteString(layer)
 	b.WriteByte(':')
@@ -539,8 +614,8 @@ func InspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 							}
 						}
 						if strings.HasPrefix(subKey, "L:") {
-							if li := ed.layerIndex(ed.ActiveLayer); li >= 0 {
-								return layerInspectorView(cx, ed, rev, ed.Doc.Layers[li].Name)
+							if ed.layerIndex(ed.ActiveLayer) >= 0 || ed.inheritedLayers()[ed.ActiveLayer] {
+								return layerInspectorView(cx, ed, rev, ed.ActiveLayer)
 							}
 							return nil
 						}
@@ -599,7 +674,7 @@ func layerInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], la
 	}
 	disabled := func() bool {
 		_ = rev.Get()
-		return ed.Playing() || isScreen() || isInherited()
+		return ed.Playing() || isScreen()
 	}
 	tilemapDisabled := func() bool {
 		_ = rev.Get()
@@ -616,28 +691,83 @@ func layerInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], la
 			},
 		}
 	}
-	fieldRow := func(label string, control core.Node) core.Node {
+	layerFieldRow := func(fieldKey, label string, control core.Node) core.Node {
+		var labelPrefix core.Node
+		var revertBtn core.Node
+		if fieldKey != "" {
+			hasOv := func() bool {
+				_ = rev.Get()
+				return ed.HasLayerOverride(layerName, fieldKey)
+			}
+			labelPrefix = core.Show{
+				When: hasOv,
+				Then: func(cx *core.Scope) core.Node {
+					tip := ed.T("overrides.overridesSource", l10n.Param("value", ed.LayerBaseValue(layerName, fieldKey)))
+					return withTooltip(core.View{
+						TestID: "inspector-layer-override-dot-" + fieldKey,
+						Style: core.Style{
+							Width:        core.Pt(6),
+							Height:       core.Pt(6),
+							CornerRadius: 3,
+							Background:   colors.Warn(),
+							FlexShrink:   0,
+						},
+					}, tip)
+				},
+			}
+			revertBtn = core.Show{
+				When: hasOv,
+				Then: func(cx *core.Scope) core.Node {
+					return ui.IconButton{
+						TestID:   "inspector-layer-revert-" + fieldKey,
+						Icon:     lucide.RotateCcw,
+						Size:     20,
+						IconSize: 12,
+						Label:    ed.T("overrides.revertField", l10n.Param("field", label)),
+						Disabled: func() bool { _ = rev.Get(); return ed.Playing() },
+						OnPress:  func() { ed.report(ed.RevertLayerOverrideField(layerName, fieldKey)) },
+					}
+				},
+			}
+		}
+		children := []core.Node{
+			core.View{
+				Style: core.Style{
+					Width:      core.Pt(76),
+					Direction:  core.Row,
+					AlignItems: core.AlignCenter,
+					Gap:        4,
+				},
+				Children: []core.Node{
+					labelPrefix,
+					core.Text{
+						Content: label,
+						Style: core.Style{
+							FontSize: 12,
+							Color:    colors.Text(),
+						},
+					},
+				},
+			},
+			core.View{
+				Style:    core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
+				Children: []core.Node{control},
+			},
+		}
+		if revertBtn != nil {
+			children = append(children, revertBtn)
+		}
 		return core.View{
 			Style: core.Style{
 				Direction:  core.Row,
 				AlignItems: core.AlignCenter,
-				Gap:        8,
+				Gap:        6,
 			},
-			Children: []core.Node{
-				core.Text{
-					Content: label,
-					Style: core.Style{
-						Width:    core.Pt(76),
-						FontSize: 12,
-						Color:    colors.Text(),
-					},
-				},
-				core.View{
-					Style:    core.Style{FlexGrow: 1},
-					Children: []core.Node{control},
-				},
-			},
+			Children: children,
 		}
+	}
+	fieldRow := func(label string, control core.Node) core.Node {
+		return layerFieldRow("", label, control)
 	}
 
 	inheritedNow := ed.inheritedLayers()[layerName]
@@ -682,9 +812,56 @@ func layerInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], la
 				},
 			},
 		},
-
+	}
+	if inheritedNow && ed.Doc != nil && ed.Doc.Inherits != "" {
+		nodes = append(nodes, core.View{
+			TestID: "inspector-layer-inherited-bar",
+			Style: core.Style{
+				Gap:          6,
+				Padding:      core.All(8),
+				CornerRadius: 6,
+				Background:   colors.Surface(),
+				BorderWidth:  1,
+				BorderColor:  colors.Line(),
+			},
+			Children: []core.Node{
+				core.Text{
+					Content:  ed.T("overrides.baseScene") + ": " + ed.Doc.Inherits,
+					MaxLines: 1,
+					Style:    core.Style{FontSize: 11, Color: colors.Muted()},
+				},
+				ui.Wrap{
+					Children: []core.Node{
+						ui.Button{
+							TestID:  "inspector-layer-open-base",
+							Text:    ed.T("overrides.openBaseScene"),
+							Size:    ui.SizeSmall,
+							Variant: ui.ButtonSecondary,
+							Disabled: func() bool {
+								_ = rev.Get()
+								return ed.Playing() || ed.Project == nil || ed.ProjectPath == ""
+							},
+							OnPress: func() { ed.report(ed.OpenBaseScene()) },
+						},
+						ui.Button{
+							TestID:  "inspector-layer-revert-all",
+							Text:    ed.T("overrides.revertAll"),
+							Size:    ui.SizeSmall,
+							Variant: ui.ButtonSecondary,
+							Disabled: func() bool {
+								_ = rev.Get()
+								return ed.Playing() || len(ed.LayerOverrideFields(layerName)) == 0
+							},
+							OnPress: func() { ed.report(ed.RevertLayerOverrides(layerName)) },
+						},
+					},
+				},
+			},
+		})
+	}
+	nodes = append(nodes,
 		sectionHeader("PARALLAX"),
-		fieldRow("Parallax X", ui.NumberInput{
+		layerFieldRow("parallaxX", "Parallax X", ui.NumberInput{
 			TestID:   "inspector-layer-parallax-x",
 			Label:    "Parallax X",
 			Step:     0.1,
@@ -697,13 +874,12 @@ func layerInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], la
 				return 1
 			},
 			OnChange: func(v float64) {
-				if li := ed.layerIndex(layerName); li >= 0 {
-					l := &ed.Doc.Layers[li]
+				if l := layer(); l != nil {
 					ed.report(ed.SetLayerParallax(layerName, float32(v), l.EffectiveParallaxY()))
 				}
 			},
 		}),
-		fieldRow("Parallax Y", ui.NumberInput{
+		layerFieldRow("parallaxY", "Parallax Y", ui.NumberInput{
 			TestID:   "inspector-layer-parallax-y",
 			Label:    "Parallax Y",
 			Step:     0.1,
@@ -716,15 +892,14 @@ func layerInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], la
 				return 1
 			},
 			OnChange: func(v float64) {
-				if li := ed.layerIndex(layerName); li >= 0 {
-					l := &ed.Doc.Layers[li]
+				if l := layer(); l != nil {
 					ed.report(ed.SetLayerParallax(layerName, l.EffectiveParallaxX(), float32(v)))
 				}
 			},
 		}),
 
 		sectionHeader("REPEAT"),
-		fieldRow("Repeat", ui.HStack{
+		layerFieldRow("repeatX", "Repeat", ui.HStack{
 			Gap: 12,
 			Children: []core.Node{
 				ui.Checkbox{
@@ -736,8 +911,7 @@ func layerInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], la
 						return l != nil && l.RepeatX
 					},
 					OnChange: func(on bool) {
-						if li := ed.layerIndex(layerName); li >= 0 {
-							l := &ed.Doc.Layers[li]
+						if l := layer(); l != nil {
 							ed.report(ed.SetLayerRepeat(layerName, on, l.RepeatY, l.RepeatWidth, l.RepeatHeight))
 						}
 					},
@@ -751,15 +925,14 @@ func layerInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], la
 						return l != nil && l.RepeatY
 					},
 					OnChange: func(on bool) {
-						if li := ed.layerIndex(layerName); li >= 0 {
-							l := &ed.Doc.Layers[li]
+						if l := layer(); l != nil {
 							ed.report(ed.SetLayerRepeat(layerName, l.RepeatX, on, l.RepeatWidth, l.RepeatHeight))
 						}
 					},
 				},
 			},
 		}),
-		fieldRow("Repeat W", ui.NumberInput{
+		layerFieldRow("repeatWidth", "Repeat W", ui.NumberInput{
 			TestID:   "inspector-layer-repeat-width",
 			Label:    "Repeat Width",
 			Min:      0,
@@ -776,13 +949,12 @@ func layerInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], la
 				if v < 0 {
 					v = 0
 				}
-				if li := ed.layerIndex(layerName); li >= 0 {
-					l := &ed.Doc.Layers[li]
+				if l := layer(); l != nil {
 					ed.report(ed.SetLayerRepeat(layerName, l.RepeatX, l.RepeatY, float32(v), l.RepeatHeight))
 				}
 			},
 		}),
-		fieldRow("Repeat H", ui.NumberInput{
+		layerFieldRow("repeatHeight", "Repeat H", ui.NumberInput{
 			TestID:   "inspector-layer-repeat-height",
 			Label:    "Repeat Height",
 			Min:      0,
@@ -799,13 +971,12 @@ func layerInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], la
 				if v < 0 {
 					v = 0
 				}
-				if li := ed.layerIndex(layerName); li >= 0 {
-					l := &ed.Doc.Layers[li]
+				if l := layer(); l != nil {
 					ed.report(ed.SetLayerRepeat(layerName, l.RepeatX, l.RepeatY, l.RepeatWidth, float32(v)))
 				}
 			},
 		}),
-	}
+	)
 
 	nodes = append(nodes, layerTilemapSection(cx, ed, rev, layerName, layer, tilemapDisabled, sectionHeader, fieldRow)...)
 
@@ -821,7 +992,7 @@ func layerInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], la
 	} else if inheritedNow {
 		nodes = append(nodes, core.Text{
 			TestID:  "inspector-layer-inherited-note",
-			Content: "Inherited from base scene; edit parallax and repeat there or under layerOverrides.",
+			Content: "Inherited from base scene; edits here are saved under layerOverrides.",
 			Style: core.Style{
 				FontSize: 11,
 				Color:    colors.Muted(),
@@ -837,6 +1008,8 @@ func layerInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], la
 
 func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], objID, layerName string) core.Node {
 	colors := ui.ColorsOf(cx)
+	info := ed.ObjectOverrideInfo(objID)
+	isLocal := info.Origin == ObjectLocal
 	disabled := func() bool {
 		_ = rev.Get()
 		return ed.Playing()
@@ -852,34 +1025,141 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 			},
 		}
 	}
-
-	// describedRow lays out a label, with tip as its tooltip when non-empty, beside its control.
-	describedRow := func(label, labelID, tip string, control core.Node) core.Node {
+	overrideSectionHeader := func(fieldKey, title string) core.Node {
+		if isLocal || fieldKey == "" {
+			return sectionHeader(title)
+		}
+		hasOv := func() bool {
+			_ = rev.Get()
+			return ed.HasObjectOverride(objID, fieldKey)
+		}
 		return core.View{
-			Style: core.Style{
-				Direction:  core.Row,
-				AlignItems: core.AlignCenter,
-				Gap:        8,
-			},
+			Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6},
 			Children: []core.Node{
-				withTooltip(core.Text{
-					TestID:  labelID,
-					Content: label,
-					Style: core.Style{
-						Width:    core.Pt(76),
-						FontSize: 12,
-						Color:    colors.Text(),
+				core.Show{
+					When: hasOv,
+					Then: func(cx *core.Scope) core.Node {
+						tip := ed.T("overrides.overridesSource", l10n.Param("value", ed.ObjectBaseValue(objID, fieldKey)))
+						return withTooltip(core.View{
+							TestID: "inspector-override-dot-" + fieldKey,
+							Style: core.Style{
+								Width:        core.Pt(6),
+								Height:       core.Pt(6),
+								CornerRadius: 3,
+								Background:   colors.Warn(),
+								FlexShrink:   0,
+							},
+						}, tip)
 					},
-				}, tip),
-				core.View{
-					Style:    core.Style{FlexGrow: 1},
-					Children: []core.Node{control},
+				},
+				core.View{Style: core.Style{FlexGrow: 1}, Children: []core.Node{sectionHeader(title)}},
+				core.Show{
+					When: hasOv,
+					Then: func(cx *core.Scope) core.Node {
+						return ui.IconButton{
+							TestID:   "inspector-revert-" + fieldKey,
+							Icon:     lucide.RotateCcw,
+							Size:     20,
+							IconSize: 12,
+							Label:    ed.T("overrides.revertField", l10n.Param("field", title)),
+							Disabled: disabled,
+							OnPress:  func() { ed.report(ed.RevertObjectOverrideField(objID, fieldKey)) },
+						}
+					},
 				},
 			},
 		}
 	}
+
+	// overrideDescribedRow lays out a label (with optional override indicator dot and tooltip) beside its control and an optional per-field Revert button.
+	overrideDescribedRow := func(fieldKey, label, labelID, tip string, control core.Node) core.Node {
+		labelText := withTooltip(core.Text{
+			TestID:  labelID,
+			Content: label,
+			Style: core.Style{
+				FontSize: 12,
+				Color:    colors.Text(),
+			},
+		}, tip)
+		var labelCell core.Node
+		var revertBtn core.Node
+		if !isLocal && fieldKey != "" {
+			hasOv := func() bool {
+				_ = rev.Get()
+				return ed.HasObjectOverride(objID, fieldKey)
+			}
+			dot := core.Show{
+				When: hasOv,
+				Then: func(cx *core.Scope) core.Node {
+					ovTip := ed.T("overrides.overridesSource", l10n.Param("value", ed.ObjectBaseValue(objID, fieldKey)))
+					return withTooltip(core.View{
+						TestID: "inspector-override-dot-" + fieldKey,
+						Style: core.Style{
+							Width:        core.Pt(6),
+							Height:       core.Pt(6),
+							CornerRadius: 3,
+							Background:   colors.Warn(),
+							FlexShrink:   0,
+						},
+					}, ovTip)
+				},
+			}
+			labelCell = core.View{
+				Style: core.Style{
+					Width:      core.Pt(76),
+					Direction:  core.Row,
+					AlignItems: core.AlignCenter,
+					Gap:        4,
+				},
+				Children: []core.Node{dot, labelText},
+			}
+			revertBtn = core.Show{
+				When: hasOv,
+				Then: func(cx *core.Scope) core.Node {
+					return ui.IconButton{
+						TestID:   "inspector-revert-" + fieldKey,
+						Icon:     lucide.RotateCcw,
+						Size:     20,
+						IconSize: 12,
+						Label:    ed.T("overrides.revertField", l10n.Param("field", label)),
+						Disabled: disabled,
+						OnPress:  func() { ed.report(ed.RevertObjectOverrideField(objID, fieldKey)) },
+					}
+				},
+			}
+		} else {
+			labelCell = core.View{
+				Style:    core.Style{Width: core.Pt(76)},
+				Children: []core.Node{labelText},
+			}
+		}
+		children := []core.Node{
+			labelCell,
+			core.View{
+				Style:    core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
+				Children: []core.Node{control},
+			},
+		}
+		if revertBtn != nil {
+			children = append(children, revertBtn)
+		}
+		return core.View{
+			Style: core.Style{
+				Direction:  core.Row,
+				AlignItems: core.AlignCenter,
+				Gap:        6,
+			},
+			Children: children,
+		}
+	}
+	describedRow := func(label, labelID, tip string, control core.Node) core.Node {
+		return overrideDescribedRow("", label, labelID, tip, control)
+	}
 	fieldRow := func(label string, control core.Node) core.Node {
-		return describedRow(label, "", "", control)
+		return overrideDescribedRow("", label, "", "", control)
+	}
+	overrideFieldRow := func(fieldKey, label string, control core.Node) core.Node {
+		return overrideDescribedRow(fieldKey, label, "", "", control)
 	}
 
 	nodes := []core.Node{
@@ -892,7 +1172,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 			},
 			Children: []core.Node{
 				core.View{
-					Style: core.Style{Gap: 2},
+					Style: core.Style{Gap: 2, FlexShrink: 1, MinWidth: core.Pt(0)},
 					Children: []core.Node{
 						core.Text{
 							TestID:  "inspector-object-id",
@@ -910,148 +1190,245 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 					},
 				},
 				ui.Button{
-					TestID:   "inspector-delete",
-					Text:     ed.T("inspector.delete"),
-					Size:     ui.SizeSmall,
-					Variant:  ui.ButtonOutline,
-					Disabled: disabled,
+					TestID:  "inspector-delete",
+					Text:    ed.T("inspector.delete"),
+					Size:    ui.SizeSmall,
+					Variant: ui.ButtonOutline,
+					Disabled: func() bool {
+						return disabled() || !isLocal
+					},
 					OnPress: func() {
-						_ = ed.DeleteObject(objID)
+						ed.report(ed.DeleteObject(objID))
 					},
 				},
 			},
 		},
 
-		fieldRow(ed.T("inspector.name"), ui.Input{
+		overrideFieldRow("name", ed.T("inspector.name"), ui.Input{
 			TestID:   "inspector-name",
 			Label:    ed.T("inspector.objectName"),
 			Disabled: disabled,
 			Value: func() string {
 				_ = rev.Get()
-				if o, _, _ := ed.FindObject(objID); o != nil {
+				if o, _ := ed.FindResolvedObject(objID); o != nil {
 					return o.Name
 				}
 				return ""
 			},
 			OnChange: func(text string) {
-				_ = ed.SetObjectName(objID, text)
+				ed.report(ed.SetObjectName(objID, text))
 			},
 		}),
 	}
-	if instObj, _, _ := ed.FindObject(objID); instObj != nil && instObj.Scene != "" {
-		nodes = append(nodes,
-			sectionHeader("INSTANCE"),
-			fieldRow("Scene", core.Text{
-				TestID:   "inspector-object-scene",
-				Content:  instObj.Scene,
-				MaxLines: 1,
-				Style:    core.Style{FontSize: 12, Color: colors.Muted()},
-			}),
+	if (isLocal && info.SourceScene != "") || !isLocal {
+		isInstanceRoot := isLocal && info.SourceScene != ""
+		isInstancedChild := info.Origin == ObjectInstanced
+		isInheritedObj := info.Origin == ObjectInherited
+		badgeLabel := ed.T("overrides.instance")
+		if isInstancedChild {
+			badgeLabel = ed.T("overrides.instanced")
+		} else if isInheritedObj {
+			badgeLabel = ed.T("overrides.inherited")
+		}
+		targetInstID := objID
+		if isInstancedChild {
+			targetInstID = info.InstanceID
+		}
+		openBtnID := "inspector-open-instanced-scene"
+		openBtnLabel := ed.T("overrides.openInstancedScene")
+		if isInheritedObj {
+			openBtnID = "inspector-open-base-scene"
+			openBtnLabel = ed.T("overrides.openBaseScene")
+		}
+		actionBtns := []core.Node{
 			ui.Button{
-				TestID:  "inspector-open-instanced-scene",
-				Text:    "Open Instanced Scene",
+				TestID:  openBtnID,
+				Text:    openBtnLabel,
 				Size:    ui.SizeSmall,
 				Variant: ui.ButtonSecondary,
 				Disabled: func() bool {
 					return disabled() || ed.Project == nil || ed.ProjectPath == ""
 				},
 				OnPress: func() {
-					ed.report(ed.OpenInstancedScene(objID))
+					ed.report(ed.OpenSourceScene(objID))
 				},
 			},
-		)
+			ui.Button{
+				TestID:  "inspector-revert-all",
+				Text:    ed.T("overrides.revertAll"),
+				Size:    ui.SizeSmall,
+				Variant: ui.ButtonSecondary,
+				Disabled: func() bool {
+					if disabled() {
+						return true
+					}
+					if isInstanceRoot {
+						return ed.InstanceOverrideCount(objID) == 0
+					}
+					return !ed.ObjectHasAnyOverride(objID)
+				},
+				OnPress: func() {
+					ed.report(ed.RevertObjectOverrides(objID))
+				},
+			},
+		}
+		if isInstanceRoot || isInstancedChild {
+			actionBtns = append(actionBtns,
+				ui.Button{
+					TestID:  "inspector-apply-to-source",
+					Text:    ed.T("overrides.applyToSource"),
+					Size:    ui.SizeSmall,
+					Variant: ui.ButtonSecondary,
+					Disabled: func() bool {
+						return disabled() || ed.Project == nil || ed.ProjectPath == "" || ed.InstanceOverrideCount(targetInstID) == 0
+					},
+					OnPress: func() {
+						ed.report(ed.ApplyOverridesToSource(targetInstID))
+					},
+				},
+				ui.Button{
+					TestID:   "inspector-make-local",
+					Text:     ed.T("overrides.makeLocal"),
+					Size:     ui.SizeSmall,
+					Variant:  ui.ButtonSecondary,
+					Disabled: disabled,
+					OnPress: func() {
+						ed.report(ed.MakeInstanceLocal(targetInstID))
+					},
+				},
+			)
+		}
+		nodes = append(nodes, core.View{
+			TestID: "inspector-instance-bar",
+			Style: core.Style{
+				Gap:          6,
+				Padding:      core.All(8),
+				CornerRadius: 6,
+				Background:   colors.Surface(),
+				BorderWidth:  1,
+				BorderColor:  colors.Line(),
+			},
+			Children: []core.Node{
+				core.View{
+					Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6},
+					Children: []core.Node{
+						ui.Badge{Text: badgeLabel, Variant: ui.BadgeNeutral},
+						core.Text{
+							TestID:   "inspector-object-scene",
+							Content:  info.SourceScene,
+							MaxLines: 1,
+							Style:    core.Style{FontSize: 11, Color: colors.Text(), FlexGrow: 1, FlexShrink: 1},
+						},
+					},
+				},
+				core.Text{
+					TestID: "inspector-override-count",
+					ContentFunc: func() string {
+						_ = rev.Get()
+						ovCount := ed.InstanceOverrideCount(objID)
+						if isInstanceRoot || isInstancedChild {
+							instCount, _ := ed.CountSceneInstances(info.SourceScene)
+							return ed.T("overrides.instanceCount", l10n.Param("count", instCount)) + " · " + ed.T("overrides.overrideCount", l10n.Param("count", ovCount))
+						}
+						return ed.T("overrides.overrideCount", l10n.Param("count", ovCount))
+					},
+					Style: core.Style{FontSize: 11, Color: colors.Muted()},
+				},
+				ui.Wrap{Children: actionBtns},
+			},
+		})
 	}
 	nodes = append(nodes,
 		sectionHeader(ed.T("inspector.section.transform")),
-		fieldRow("X", ui.NumberInput{
+		overrideFieldRow("x", "X", ui.NumberInput{
 			TestID:   "inspector-x",
 			Label:    "X",
 			Step:     1,
 			Disabled: disabled,
 			Value: func() float64 {
 				_ = rev.Get()
-				if o, _, _ := ed.FindObject(objID); o != nil {
+				if o, _ := ed.FindResolvedObject(objID); o != nil {
 					return float64(o.X)
 				}
 				return 0
 			},
 			OnChange: func(v float64) {
-				if o, _, _ := ed.FindObject(objID); o != nil {
-					_ = ed.MoveObject(objID, float32(v), o.Y)
+				if o, _ := ed.FindResolvedObject(objID); o != nil {
+					ed.report(ed.MoveObject(objID, float32(v), o.Y))
 				}
 			},
 		}),
-		fieldRow("Y", ui.NumberInput{
+		overrideFieldRow("y", "Y", ui.NumberInput{
 			TestID:   "inspector-y",
 			Label:    "Y",
 			Step:     1,
 			Disabled: disabled,
 			Value: func() float64 {
 				_ = rev.Get()
-				if o, _, _ := ed.FindObject(objID); o != nil {
+				if o, _ := ed.FindResolvedObject(objID); o != nil {
 					return float64(o.Y)
 				}
 				return 0
 			},
 			OnChange: func(v float64) {
-				if o, _, _ := ed.FindObject(objID); o != nil {
-					_ = ed.MoveObject(objID, o.X, float32(v))
+				if o, _ := ed.FindResolvedObject(objID); o != nil {
+					ed.report(ed.MoveObject(objID, o.X, float32(v)))
 				}
 			},
 		}),
-		fieldRow(ed.T("inspector.rotation"), ui.NumberInput{
+		overrideFieldRow("rotation", ed.T("inspector.rotation"), ui.NumberInput{
 			TestID:   "inspector-rotation",
 			Label:    ed.T("inspector.rotation"),
 			Step:     0.1,
 			Disabled: disabled,
 			Value: func() float64 {
 				_ = rev.Get()
-				if o, _, _ := ed.FindObject(objID); o != nil {
+				if o, _ := ed.FindResolvedObject(objID); o != nil {
 					return float64(o.Rotation)
 				}
 				return 0
 			},
 			OnChange: func(v float64) {
-				_ = ed.RotateObject(objID, float32(v))
+				ed.report(ed.RotateObject(objID, float32(v)))
 			},
 		}),
-		fieldRow(ed.T("inspector.scaleX"), ui.NumberInput{
+		overrideFieldRow("scaleX", ed.T("inspector.scaleX"), ui.NumberInput{
 			TestID:   "inspector-scale-x",
 			Label:    ed.T("inspector.scaleX"),
 			Step:     0.1,
 			Disabled: disabled,
 			Value: func() float64 {
 				_ = rev.Get()
-				if o, _, _ := ed.FindObject(objID); o != nil {
+				if o, _ := ed.FindResolvedObject(objID); o != nil {
 					return float64(o.EffectiveScaleX())
 				}
 				return 1
 			},
 			OnChange: func(v float64) {
-				if o, _, _ := ed.FindObject(objID); o != nil {
-					_ = ed.ScaleObject(objID, float32(v), o.EffectiveScaleY())
+				if o, _ := ed.FindResolvedObject(objID); o != nil {
+					ed.report(ed.ScaleObject(objID, float32(v), o.EffectiveScaleY()))
 				}
 			},
 		}),
-		fieldRow(ed.T("inspector.scaleY"), ui.NumberInput{
+		overrideFieldRow("scaleY", ed.T("inspector.scaleY"), ui.NumberInput{
 			TestID:   "inspector-scale-y",
 			Label:    ed.T("inspector.scaleY"),
 			Step:     0.1,
 			Disabled: disabled,
 			Value: func() float64 {
 				_ = rev.Get()
-				if o, _, _ := ed.FindObject(objID); o != nil {
+				if o, _ := ed.FindResolvedObject(objID); o != nil {
 					return float64(o.EffectiveScaleY())
 				}
 				return 1
 			},
 			OnChange: func(v float64) {
-				if o, _, _ := ed.FindObject(objID); o != nil {
-					_ = ed.ScaleObject(objID, o.EffectiveScaleX(), float32(v))
+				if o, _ := ed.FindResolvedObject(objID); o != nil {
+					ed.report(ed.ScaleObject(objID, o.EffectiveScaleX(), float32(v)))
 				}
 			},
 		}),
-		fieldRow(ed.T("inspector.alpha"), ui.NumberInput{
+		overrideFieldRow("alpha", ed.T("inspector.alpha"), ui.NumberInput{
 			TestID:   "inspector-alpha",
 			Label:    ed.T("inspector.alpha"),
 			Min:      0,
@@ -1060,29 +1437,29 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 			Disabled: disabled,
 			Value: func() float64 {
 				_ = rev.Get()
-				if o, _, _ := ed.FindObject(objID); o != nil {
+				if o, _ := ed.FindResolvedObject(objID); o != nil {
 					return float64(o.EffectiveAlpha())
 				}
 				return 1
 			},
 			OnChange: func(v float64) {
-				_ = ed.SetObjectAlpha(objID, float32(v))
+				ed.report(ed.SetObjectAlpha(objID, float32(v)))
 			},
 		}),
-		fieldRow("Z", ui.NumberInput{
+		overrideFieldRow("z", "Z", ui.NumberInput{
 			TestID:   "inspector-z",
 			Label:    "Z",
 			Step:     1,
 			Disabled: disabled,
 			Value: func() float64 {
 				_ = rev.Get()
-				if o, _, _ := ed.FindObject(objID); o != nil {
+				if o, _ := ed.FindResolvedObject(objID); o != nil {
 					return float64(o.Z)
 				}
 				return 0
 			},
 			OnChange: func(v float64) {
-				_ = ed.SetObjectZ(objID, int(math.Round(v)))
+				ed.report(ed.SetObjectZ(objID, int(math.Round(v))))
 			},
 		}),
 	)
@@ -1090,97 +1467,97 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 	if ed.ViewMode == ViewMode3D {
 		nodes = append(nodes,
 			sectionHeader(ed.T("inspector.section.transform3d")),
-			fieldRow(ed.T("inspector.posZ"), ui.NumberInput{
+			overrideFieldRow("posZ", ed.T("inspector.posZ"), ui.NumberInput{
 				TestID:   "inspector-pos-z",
 				Label:    ed.T("inspector.posZ"),
 				Step:     1,
 				Disabled: disabled,
 				Value: func() float64 {
 					_ = rev.Get()
-					if o, _, _ := ed.FindObject(objID); o != nil {
+					if o, _ := ed.FindResolvedObject(objID); o != nil {
 						return float64(o.PosZ)
 					}
 					return 0
 				},
 				OnChange: func(v float64) {
-					if o, _, _ := ed.FindObject(objID); o != nil {
-						_ = ed.MoveObject3D(objID, o.X, o.Y, float32(v))
+					if o, _ := ed.FindResolvedObject(objID); o != nil {
+						ed.report(ed.MoveObject3D(objID, o.X, o.Y, float32(v)))
 					}
 				},
 			}),
-			fieldRow(ed.T("inspector.rotX"), ui.NumberInput{
+			overrideFieldRow("rotX", ed.T("inspector.rotX"), ui.NumberInput{
 				TestID:   "inspector-rot-x",
 				Label:    ed.T("inspector.rotX"),
 				Step:     0.1,
 				Disabled: disabled,
 				Value: func() float64 {
 					_ = rev.Get()
-					if o, _, _ := ed.FindObject(objID); o != nil {
+					if o, _ := ed.FindResolvedObject(objID); o != nil {
 						return float64(o.RotX)
 					}
 					return 0
 				},
 				OnChange: func(v float64) {
-					if o, _, _ := ed.FindObject(objID); o != nil {
-						_ = ed.RotateObject3D(objID, float32(v), o.RotY, o.RotZ)
+					if o, _ := ed.FindResolvedObject(objID); o != nil {
+						ed.report(ed.RotateObject3D(objID, float32(v), o.RotY, o.RotZ))
 					}
 				},
 			}),
-			fieldRow(ed.T("inspector.rotY"), ui.NumberInput{
+			overrideFieldRow("rotY", ed.T("inspector.rotY"), ui.NumberInput{
 				TestID:   "inspector-rot-y",
 				Label:    ed.T("inspector.rotY"),
 				Step:     0.1,
 				Disabled: disabled,
 				Value: func() float64 {
 					_ = rev.Get()
-					if o, _, _ := ed.FindObject(objID); o != nil {
+					if o, _ := ed.FindResolvedObject(objID); o != nil {
 						return float64(o.RotY)
 					}
 					return 0
 				},
 				OnChange: func(v float64) {
-					if o, _, _ := ed.FindObject(objID); o != nil {
-						_ = ed.RotateObject3D(objID, o.RotX, float32(v), o.RotZ)
+					if o, _ := ed.FindResolvedObject(objID); o != nil {
+						ed.report(ed.RotateObject3D(objID, o.RotX, float32(v), o.RotZ))
 					}
 				},
 			}),
-			fieldRow(ed.T("inspector.rotZ"), ui.NumberInput{
+			overrideFieldRow("rotZ", ed.T("inspector.rotZ"), ui.NumberInput{
 				TestID:   "inspector-rot-z",
 				Label:    ed.T("inspector.rotZ"),
 				Step:     0.1,
 				Disabled: disabled,
 				Value: func() float64 {
 					_ = rev.Get()
-					if o, _, _ := ed.FindObject(objID); o != nil {
+					if o, _ := ed.FindResolvedObject(objID); o != nil {
 						return float64(o.RotZ)
 					}
 					return 0
 				},
 				OnChange: func(v float64) {
-					if o, _, _ := ed.FindObject(objID); o != nil {
-						_ = ed.RotateObject3D(objID, o.RotX, o.RotY, float32(v))
+					if o, _ := ed.FindResolvedObject(objID); o != nil {
+						ed.report(ed.RotateObject3D(objID, o.RotX, o.RotY, float32(v)))
 					}
 				},
 			}),
-			fieldRow(ed.T("inspector.scaleZ"), ui.NumberInput{
+			overrideFieldRow("scaleZ", ed.T("inspector.scaleZ"), ui.NumberInput{
 				TestID:   "inspector-scale-z",
 				Label:    ed.T("inspector.scaleZ"),
 				Step:     0.1,
 				Disabled: disabled,
 				Value: func() float64 {
 					_ = rev.Get()
-					if o, _, _ := ed.FindObject(objID); o != nil {
+					if o, _ := ed.FindResolvedObject(objID); o != nil {
 						return float64(o.EffectiveScaleZ())
 					}
 					return 1
 				},
 				OnChange: func(v float64) {
-					if o, _, _ := ed.FindObject(objID); o != nil {
-						_ = ed.ScaleObject3D(objID, o.EffectiveScaleX(), o.EffectiveScaleY(), float32(v))
+					if o, _ := ed.FindResolvedObject(objID); o != nil {
+						ed.report(ed.ScaleObject3D(objID, o.EffectiveScaleX(), o.EffectiveScaleY(), float32(v)))
 					}
 				},
 			}),
-			fieldRow(ed.T("inspector.depth"), ui.NumberInput{
+			overrideFieldRow("depth", ed.T("inspector.depth"), ui.NumberInput{
 				TestID:   "inspector-depth",
 				Label:    ed.T("inspector.depth"),
 				Min:      0,
@@ -1188,16 +1565,16 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 				Disabled: disabled,
 				Value: func() float64 {
 					_ = rev.Get()
-					if o, _, _ := ed.FindObject(objID); o != nil {
+					if o, _ := ed.FindResolvedObject(objID); o != nil {
 						return float64(o.Depth)
 					}
 					return 0
 				},
 				OnChange: func(v float64) {
-					_ = ed.SetObjectDepth(objID, float32(v))
+					ed.report(ed.SetObjectDepth(objID, float32(v)))
 				},
 			}),
-			fieldRow(ed.T("inspector.mesh"), ui.Select[string]{
+			overrideFieldRow("mesh", ed.T("inspector.mesh"), ui.Select[string]{
 				TestID:      "inspector-mesh",
 				Label:       ed.T("inspector.mesh"),
 				Placeholder: ed.T("inspector.none"),
@@ -1206,13 +1583,13 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 					if disabled() {
 						return true
 					}
-					o, _, _ := ed.FindObject(objID)
+					o, _ := ed.FindResolvedObject(objID)
 					return o != nil && (o.Model != "" || o.GridMap != "")
 				},
 				Options: meshOptions(ed),
 				Value: func() string {
 					_ = rev.Get()
-					if o, _, _ := ed.FindObject(objID); o != nil {
+					if o, _ := ed.FindResolvedObject(objID); o != nil {
 						return o.Mesh
 					}
 					return ""
@@ -1224,8 +1601,8 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 					}
 				},
 			}),
-			fieldRow("Model", modelField(ed, rev, objID, disabled)),
-			fieldRow("GridMap", ui.Select[string]{
+			overrideFieldRow("model", "Model", modelField(ed, rev, objID, disabled)),
+			overrideFieldRow("gridMap", "GridMap", ui.Select[string]{
 				TestID:      "inspector-gridmap",
 				Label:       "GridMap",
 				Placeholder: "None",
@@ -1234,13 +1611,13 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 					if disabled() {
 						return true
 					}
-					o, _, _ := ed.FindObject(objID)
+					o, _ := ed.FindResolvedObject(objID)
 					return o != nil && (o.Mesh != "" || o.Model != "")
 				},
 				OptionsFunc: func() []ui.Option[string] {
 					_ = rev.Get()
 					cur := ""
-					if o, _, _ := ed.FindObject(objID); o != nil {
+					if o, _ := ed.FindResolvedObject(objID); o != nil {
 						cur = o.GridMap
 					}
 					files := ed.projectGridMaps()
@@ -1257,7 +1634,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 				},
 				Value: func() string {
 					_ = rev.Get()
-					if o, _, _ := ed.FindObject(objID); o != nil {
+					if o, _ := ed.FindResolvedObject(objID); o != nil {
 						return o.GridMap
 					}
 					return ""
@@ -1299,7 +1676,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 					})
 				},
 			},
-			fieldRow("Occluder", ui.Select[string]{
+			overrideFieldRow("occluder", "Occluder", ui.Select[string]{
 				TestID:   "inspector-occluder-mode",
 				Label:    "Occluder Mode",
 				Disabled: disabled,
@@ -1310,7 +1687,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 				},
 				Value: func() string {
 					_ = rev.Get()
-					if o, _, _ := ed.FindObject(objID); o != nil && o.Occluder != nil {
+					if o, _ := ed.FindResolvedObject(objID); o != nil && o.Occluder != nil {
 						return string(o.Occluder.Mode)
 					}
 					return ""
@@ -1333,7 +1710,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 			core.Show{
 				When: func() bool {
 					_ = rev.Get()
-					o, _, _ := ed.FindObject(objID)
+					o, _ := ed.FindResolvedObject(objID)
 					return o != nil && o.Occluder != nil && o.Occluder.Mode == sceneformat.OccluderBox
 				},
 				Then: func(cx *core.Scope) core.Node {
@@ -1346,13 +1723,13 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 							Disabled: disabled,
 							Value: func() float64 {
 								_ = rev.Get()
-								if o, _, _ := ed.FindObject(objID); o != nil && o.Occluder != nil {
+								if o, _ := ed.FindResolvedObject(objID); o != nil && o.Occluder != nil {
 									return float64(o.Occluder.EffectiveSize()[axis])
 								}
 								return 1
 							},
 							OnChange: func(v float64) {
-								if o, _, _ := ed.FindObject(objID); o != nil && o.Occluder != nil {
+								if o, _ := ed.FindResolvedObject(objID); o != nil && o.Occluder != nil {
 									next := cloneOccluderDoc(o.Occluder)
 									sz := next.EffectiveSize()
 									sz[axis] = float32(v)
@@ -1375,7 +1752,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 			core.Show{
 				When: func() bool {
 					_ = rev.Get()
-					o, _, _ := ed.FindObject(objID)
+					o, _ := ed.FindResolvedObject(objID)
 					return o != nil && o.Occluder != nil && o.Occluder.Mode == sceneformat.OccluderModel
 				},
 				Then: func(cx *core.Scope) core.Node {
@@ -1385,11 +1762,11 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 						Disabled: disabled,
 						Checked: func() bool {
 							_ = rev.Get()
-							o, _, _ := ed.FindObject(objID)
+							o, _ := ed.FindResolvedObject(objID)
 							return o != nil && o.Occluder != nil && o.Occluder.DoubleSided
 						},
 						OnChange: func(on bool) {
-							if o, _, _ := ed.FindObject(objID); o != nil && o.Occluder != nil {
+							if o, _ := ed.FindResolvedObject(objID); o != nil && o.Occluder != nil {
 								next := cloneOccluderDoc(o.Occluder)
 								next.DoubleSided = on
 								ed.report(ed.SetObjectOccluder(objID, next))
@@ -1401,10 +1778,10 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 		)
 	}
 
-	if o, _, _ := ed.FindObject(objID); ed.ViewMode == ViewMode3D || (o != nil && (o.Light != nil || o.Camera != nil || o.ReflectionProbe != nil || o.LightProbeGrid != nil)) {
-		nodes = append(nodes, sectionHeader("LIGHT 3D"))
+	if o, _ := ed.FindResolvedObject(objID); ed.ViewMode == ViewMode3D || (o != nil && (o.Light != nil || o.Camera != nil || o.ReflectionProbe != nil || o.LightProbeGrid != nil)) {
+		nodes = append(nodes, overrideSectionHeader("light", "LIGHT 3D"))
 		nodes = append(nodes, light3DInspectorFields(ed, rev, objID, disabled, fieldRow)...)
-		nodes = append(nodes, sectionHeader("CAMERA 3D"))
+		nodes = append(nodes, overrideSectionHeader("camera", "CAMERA 3D"))
 		nodes = append(nodes, camera3DInspectorFields(ed, rev, objID, disabled, fieldRow)...)
 		nodes = append(nodes, sectionHeader("REFLECTION PROBE"))
 		nodes = append(nodes, reflectionProbeInspectorFields(ed, rev, objID, disabled, fieldRow)...)
@@ -1413,11 +1790,11 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 	}
 
 	nodes = append(nodes, sectionHeader(ed.T("inspector.section.sprite")))
-	nodes = append(nodes, spriteFields(ed, rev, objID, disabled, fieldRow)...)
+	nodes = append(nodes, spriteFields(ed, rev, objID, disabled, overrideFieldRow)...)
 	nodes = append(nodes, sectionHeader("PARTICLES"))
-	nodes = append(nodes, particlesFields(ed, rev, objID, disabled, fieldRow)...)
+	nodes = append(nodes, particlesFields(ed, rev, objID, disabled, overrideFieldRow)...)
 
-	obj, _, _ := ed.FindObject(objID)
+	obj, _ := ed.FindResolvedObject(objID)
 	nodes = append(nodes, sectionHeader(ed.T("inspector.section.properties")))
 	if obj != nil {
 		for _, k := range sortedMapKeys(obj.Properties) {
@@ -1430,19 +1807,19 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 				disabled,
 				func() any {
 					_ = rev.Get()
-					if o, _, _ := ed.FindObject(objID); o != nil {
+					if o, _ := ed.FindResolvedObject(objID); o != nil {
 						return o.Properties[key]
 					}
 					return nil
 				},
 				func(val any) {
-					_ = ed.SetProperty(objID, key, val)
+					ed.report(ed.SetProperty(objID, key, val))
 				},
 			)
 			del := removeButton("inspector-prop-"+key+"-delete", ed.T("inspector.deleteProperty", l10n.Param("key", key)), disabled, func() {
 				ed.report(ed.DeleteProperty(objID, key))
 			})
-			nodes = append(nodes, fieldRow(key, withTrailing(ctrl, del)))
+			nodes = append(nodes, overrideFieldRow("property:"+key, key, withTrailing(ctrl, del)))
 		}
 	}
 	nodes = append(nodes, addPropertyRow(cx, ed, objID, disabled))
@@ -1481,7 +1858,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 					field := f
 					get := func() any {
 						_ = rev.Get()
-						if o, _, _ := ed.FindObject(objID); o != nil {
+						if o, _ := ed.FindResolvedObject(objID); o != nil {
 							if cm, ok := o.Components[cn].(map[string]any); ok {
 								if v, ok := cm[field.Name]; ok {
 									return v
@@ -1505,7 +1882,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 							ed.notify()
 						}
 					})
-					nodes = append(nodes, describedRow(field.Name, "inspector-comp-"+cn+"-"+field.Name+"-label", fieldTooltip(field), ctrl))
+					nodes = append(nodes, overrideDescribedRow("component:"+cn+"."+field.Name, field.Name, "inspector-comp-"+cn+"-"+field.Name+"-label", fieldTooltip(field), ctrl))
 				}
 				if cn == sceneformat.Occluder2DComponentName {
 					nodes = append(nodes, ui.Button{
@@ -1529,7 +1906,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 							if disabled() {
 								return true
 							}
-							o, _, _ := ed.FindObject(objID)
+							o, _ := ed.FindResolvedObject(objID)
 							return o == nil || (o.Model == "" && o.Mesh == "")
 						},
 						OnPress: func() {
@@ -1565,7 +1942,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 					disabled,
 					func() any {
 						_ = rev.Get()
-						if o, _, _ := ed.FindObject(objID); o != nil && o.Components != nil {
+						if o, _ := ed.FindResolvedObject(objID); o != nil && o.Components != nil {
 							if cm, ok := o.Components[cn].(map[string]any); ok {
 								return cm[fk]
 							}
@@ -1573,10 +1950,10 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 						return nil
 					},
 					func(val any) {
-						_ = ed.SetComponentField(objID, cn, fk, val)
+						ed.report(ed.SetComponentField(objID, cn, fk, val))
 					},
 				)
-				nodes = append(nodes, fieldRow(fk, ctrl))
+				nodes = append(nodes, overrideFieldRow("component:"+cn+"."+fk, fk, ctrl))
 			}
 		}
 	}

@@ -7,7 +7,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 )
 
-// SetLayerParallax sets the horizontal and vertical parallax scroll factors of layerName (or ActiveLayer when empty) as an undoable command. Both factors must be finite. Setting a non-default parallax factor on a version 1 or version 2 scene raises the scene to sceneformat.CurrentVersion, which Undo restores. In a scene that inherits another it refuses a layer that extends one of the base's, whose parallax the base and the scene's layer overrides own.
+// SetLayerParallax sets the horizontal and vertical parallax scroll factors of layerName (or ActiveLayer when empty) as an undoable command. Both factors must be finite. Setting a non-default parallax factor on a version 1 or version 2 scene raises the scene to sceneformat.CurrentVersion, which Undo restores. In a scene that inherits another, editing an inherited layer records the change under SceneDoc.LayerOverrides.
 func (e *Editor) SetLayerParallax(layerName string, parallaxX, parallaxY float32) error {
 	if e.playing {
 		return ErrPlaying
@@ -15,14 +15,26 @@ func (e *Editor) SetLayerParallax(layerName string, parallaxX, parallaxY float32
 	if !isFiniteFloat32(parallaxX) || !isFiniteFloat32(parallaxY) {
 		return errors.New("editor: layer parallax must be finite")
 	}
+	if layerName == "" {
+		layerName = e.ActiveLayer
+	}
+	if e.inheritedLayers()[layerName] {
+		e.endTileStrokeForChange()
+		return e.editLayerOverride(layerName, "Set parallax of "+layerName, 3, func(lo *sceneformat.LayerOverride, eff, _ *sceneformat.LayerDoc) error {
+			if parallaxX != eff.EffectiveParallaxX() {
+				lo.ParallaxX = sceneformat.Float32(parallaxX)
+			}
+			if parallaxY != eff.EffectiveParallaxY() {
+				lo.ParallaxY = sceneformat.Float32(parallaxY)
+			}
+			return nil
+		})
+	}
 	li, err := e.resolveLayerIndex(layerName)
 	if err != nil {
 		return err
 	}
 	l := &e.Doc.Layers[li]
-	if e.inheritedLayers()[l.Name] {
-		return e.inheritedErr(l.Name, "parallax")
-	}
 	var newPX, newPY *float32
 	if l.ParallaxX != nil || parallaxX != 1 {
 		newPX = sceneformat.Float32(parallaxX)
@@ -46,7 +58,7 @@ func (e *Editor) SetLayerParallax(layerName string, parallaxX, parallaxY float32
 	return nil
 }
 
-// SetLayerRepeat sets the repeat flags and periods of layerName (or ActiveLayer when empty) as an undoable command. RepeatWidth and RepeatHeight must be finite and non-negative (0 uses the layer's tilemap pixel size or the scene's virtual size). Enabling repeat or setting a positive period on a version 1 or version 2 scene raises the scene to sceneformat.CurrentVersion, which Undo restores. In a scene that inherits another it refuses a layer that extends one of the base's, whose repeat the base and the scene's layer overrides own.
+// SetLayerRepeat sets the repeat flags and periods of layerName (or ActiveLayer when empty) as an undoable command. RepeatWidth and RepeatHeight must be finite and non-negative (0 uses the layer's tilemap pixel size or the scene's virtual size). Enabling repeat or setting a positive period on a version 1 or version 2 scene raises the scene to sceneformat.CurrentVersion, which Undo restores. In a scene that inherits another, editing an inherited layer records the change under SceneDoc.LayerOverrides.
 func (e *Editor) SetLayerRepeat(layerName string, repeatX, repeatY bool, repeatWidth, repeatHeight float32) error {
 	if e.playing {
 		return ErrPlaying
@@ -57,14 +69,32 @@ func (e *Editor) SetLayerRepeat(layerName string, repeatX, repeatY bool, repeatW
 	if !isFiniteFloat32(repeatHeight) || repeatHeight < 0 {
 		return fmt.Errorf("editor: repeatHeight %v must be finite and non-negative", repeatHeight)
 	}
+	if layerName == "" {
+		layerName = e.ActiveLayer
+	}
+	if e.inheritedLayers()[layerName] {
+		e.endTileStrokeForChange()
+		return e.editLayerOverride(layerName, "Set repeat of "+layerName, 3, func(lo *sceneformat.LayerOverride, eff, _ *sceneformat.LayerDoc) error {
+			if repeatX != eff.RepeatX {
+				lo.RepeatX = sceneformat.Bool(repeatX)
+			}
+			if repeatY != eff.RepeatY {
+				lo.RepeatY = sceneformat.Bool(repeatY)
+			}
+			if repeatWidth != eff.RepeatWidth {
+				lo.RepeatWidth = sceneformat.Float32(repeatWidth)
+			}
+			if repeatHeight != eff.RepeatHeight {
+				lo.RepeatHeight = sceneformat.Float32(repeatHeight)
+			}
+			return nil
+		})
+	}
 	li, err := e.resolveLayerIndex(layerName)
 	if err != nil {
 		return err
 	}
 	l := &e.Doc.Layers[li]
-	if e.inheritedLayers()[l.Name] {
-		return e.inheritedErr(l.Name, "repeat")
-	}
 	if l.RepeatX == repeatX && l.RepeatY == repeatY && l.RepeatWidth == repeatWidth && l.RepeatHeight == repeatHeight {
 		return nil
 	}

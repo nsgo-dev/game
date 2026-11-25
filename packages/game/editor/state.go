@@ -246,6 +246,8 @@ type Editor struct {
 	// ActiveTerrain names the terrain set of a layered grid's YAML tileset that ToolTerrain paints and erases, empty for its first.
 	ActiveTerrain string
 	SelectedAsset *AssetEntry
+	// SelectedPrefab names the registered prefab selected in the asset browser for the Place tool, or empty when none is selected.
+	SelectedPrefab string
 	// SelectedModel is the model the Place tool adds in the 3D viewport (SelectModel), chosen in the asset browser's Models list; nil places nothing in 3D, where a press then selects.
 	SelectedModel *ModelEntry
 	// PlaceHeight3D is the height of the ground plane, the horizontal plane the Place tool puts a model on in 3D where the pointer's ray hits no geometry (PlacementAt3D).
@@ -535,6 +537,8 @@ type Editor struct {
 	layerLocked map[string]bool
 	// baseLayers caches the names of the layers of the scene the open scene inherits (inheritedLayers).
 	baseLayers baseLayerCache
+	// baseScenes caches resolved source scenes for override inspection and editing.
+	baseScenes baseSceneCache
 	// assetsScene is the ScenePath the project.Resolver of ProjectAssets finds atlases nearest, and assetsResolverRev the assetsRev it last read the project's atlases and materials at (syncProjectAssets).
 	assetsScene       string
 	assetsResolverRev uint64
@@ -862,8 +866,6 @@ func (e *Editor) notify() {
 }
 
 func (e *Editor) afterMutate() {
-	// Ensure SelectedID and selectedIDs still point to existing objects.
-	e.pruneSelection()
 	// Ensure SelectedRoomID still points to an existing room in the open room map.
 	if e.rooms != nil && e.rooms.selectedRoomID != "" {
 		if e.rooms.doc == nil || e.rooms.doc.Room(e.rooms.selectedRoomID) == nil {
@@ -872,9 +874,6 @@ func (e *Editor) afterMutate() {
 	}
 	// Undoing a layer's addition, or redoing its removal, may take the active layer away.
 	e.keepActiveLayer()
-	if e.connPick != nil && e.SelectedID != e.connPick.sourceID {
-		e.connPick = nil
-	}
 	// An undone or redone project edit may have turned off the plugin whose tool is active.
 	e.dropStalePluginTool()
 	e.dropStaleFocusedPluginPanel()
@@ -882,6 +881,34 @@ func (e *Editor) afterMutate() {
 	e.syncExportPanel()
 	e.syncHUDAfterMutate()
 	e.Rebuild()
+	// Ensure SelectedID and selectedIDs still point to existing local, instanced, or inherited objects.
+	if len(e.selectedIDs) > 0 {
+		var kept []string
+		for _, id := range e.selectedIDs {
+			if id != "" && !slices.Contains(kept, id) {
+				if obj, _ := e.FindResolvedObject(id); obj != nil {
+					kept = append(kept, id)
+				}
+			}
+		}
+		e.selectedIDs = kept
+	}
+	if e.SelectedID != "" {
+		if obj, _ := e.FindResolvedObject(e.SelectedID); obj == nil {
+			if len(e.selectedIDs) > 0 {
+				e.SelectedID = e.selectedIDs[len(e.selectedIDs)-1]
+			} else {
+				e.SelectedID = ""
+			}
+		} else if len(e.selectedIDs) == 0 {
+			e.selectedIDs = []string{e.SelectedID}
+		}
+	} else {
+		e.selectedIDs = nil
+	}
+	if e.connPick != nil && e.SelectedID != e.connPick.sourceID {
+		e.connPick = nil
+	}
 	if e.activeTab >= 0 && e.activeTab < len(e.tabs) {
 		if e.History.Len() > 0 || e.SceneDirty() {
 			e.tabs[e.activeTab].placeholder = false
@@ -1029,7 +1056,7 @@ func (e *Editor) SetGizmoMode3D(mode GizmoMode3D) {
 
 // SetActiveLayer selects the layer targeted by object placement and tile painting. When the layer's tileset (TilePalette) has no tile with ActiveTileID, its first tile becomes the active tile.
 func (e *Editor) SetActiveLayer(name string) bool {
-	if e.layerIndex(name) < 0 {
+	if e.layerIndex(name) < 0 && !e.inheritedLayers()[name] {
 		return false
 	}
 	if name != e.ActiveLayer {
@@ -1493,7 +1520,7 @@ func (e *Editor) SelectObject(id string) bool {
 		}
 		return true
 	}
-	if obj, _, _ := e.FindObject(id); obj == nil {
+	if obj, _ := e.FindResolvedObject(id); obj == nil {
 		return false
 	} else if obj.GridMap != "" && e.gridMap.relPath != obj.GridMap && !e.GridMapDirty() {
 		// Selecting an object that names a GridMap loads it automatically when a project or GridMapFS is available.
@@ -1521,16 +1548,12 @@ func (e *Editor) SelectObject(id string) bool {
 	return true
 }
 
-// SelectedObject returns the currently selected ObjectDoc and its layer name, or nil, "".
+// SelectedObject returns the currently selected ObjectDoc (local, instanced, or inherited) and its layer name, or nil, "".
 func (e *Editor) SelectedObject() (*sceneformat.ObjectDoc, string) {
 	if e.SelectedID == "" || e.Doc == nil {
 		return nil, ""
 	}
-	obj, li, _ := e.FindObject(e.SelectedID)
-	if obj == nil {
-		return nil, ""
-	}
-	return obj, e.Doc.Layers[li].Name
+	return e.FindResolvedObject(e.SelectedID)
 }
 
 // FindObject locates the object with ID id anywhere in the scene, nested children included, returning it with its layer index and its index among its siblings (the children of its parent, or its layer's top-level objects). It returns nil, -1, -1 when the open scene does not hold id, as for an object only an instanced or inherited scene adds.
@@ -1800,6 +1823,7 @@ func (e *Editor) DeleteObject(id string) error {
 }
 
 // MoveObject sets object id's position to (x, y) as an undoable command.
+// When id names an instanced or inherited object, it records an override on its instance or inheriting scene.
 func (e *Editor) MoveObject(id string, x, y float32) error {
 	if e.playing {
 		return ErrPlaying
@@ -1809,6 +1833,17 @@ func (e *Editor) MoveObject(id string, x, y float32) error {
 	}
 	obj, _, _ := e.FindObject(id)
 	if obj == nil {
+		if info := e.ObjectOverrideInfo(id); info.Origin != ObjectLocal {
+			return e.editObjectOverride(id, "Move "+id, 2, func(ov *sceneformat.ObjectOverride, resolved, _ *sceneformat.ObjectDoc) error {
+				if x != resolved.X {
+					ov.X = sceneformat.Float32(x)
+				}
+				if y != resolved.Y {
+					ov.Y = sceneformat.Float32(y)
+				}
+				return nil
+			})
+		}
 		return fmt.Errorf("editor: object %q not found", id)
 	}
 	if obj.X == x && obj.Y == y {
@@ -1826,6 +1861,7 @@ func (e *Editor) MoveObject(id string, x, y float32) error {
 }
 
 // RotateObject sets object id's rotation (in radians) as an undoable command. It refuses a rotation under which the object's or a descendant's sprite would be sheared by a non-uniformly scaled ancestor (see sceneformat.CheckObjectTree).
+// When id names an instanced or inherited object, it records an override on its instance or inheriting scene.
 func (e *Editor) RotateObject(id string, radians float32) error {
 	if e.playing {
 		return ErrPlaying
@@ -1835,6 +1871,15 @@ func (e *Editor) RotateObject(id string, radians float32) error {
 	}
 	obj, _, _ := e.FindObject(id)
 	if obj == nil {
+		if info := e.ObjectOverrideInfo(id); info.Origin != ObjectLocal {
+			return e.editObjectOverride(id, "Rotate "+id, 2, func(ov *sceneformat.ObjectOverride, resolved, _ *sceneformat.ObjectDoc) error {
+				if resolved.Rotation == radians {
+					return nil
+				}
+				ov.Rotation = sceneformat.Float32(radians)
+				return nil
+			})
+		}
 		return fmt.Errorf("editor: object %q not found", id)
 	}
 	if obj.Rotation == radians {
@@ -1853,6 +1898,7 @@ func (e *Editor) RotateObject(id string, radians float32) error {
 }
 
 // ScaleObject sets object id's scale to (sx, sy) as an undoable command. It refuses a scale under which the object's or a descendant's sprite would be sheared, taking its ancestors' transforms into account (see sceneformat.CheckObjectTree).
+// When id names an instanced or inherited object, it records an override on its instance or inheriting scene.
 func (e *Editor) ScaleObject(id string, sx, sy float32) error {
 	if e.playing {
 		return ErrPlaying
@@ -1862,6 +1908,17 @@ func (e *Editor) ScaleObject(id string, sx, sy float32) error {
 	}
 	obj, _, _ := e.FindObject(id)
 	if obj == nil {
+		if info := e.ObjectOverrideInfo(id); info.Origin != ObjectLocal {
+			return e.editObjectOverride(id, "Scale "+id, 2, func(ov *sceneformat.ObjectOverride, resolved, _ *sceneformat.ObjectDoc) error {
+				if sx != resolved.EffectiveScaleX() {
+					ov.ScaleX = sceneformat.Float32(sx)
+				}
+				if sy != resolved.EffectiveScaleY() {
+					ov.ScaleY = sceneformat.Float32(sy)
+				}
+				return nil
+			})
+		}
 		return fmt.Errorf("editor: object %q not found", id)
 	}
 	if obj.ScaleX != nil && *obj.ScaleX == sx && obj.ScaleY != nil && *obj.ScaleY == sy {
@@ -1882,6 +1939,7 @@ func (e *Editor) ScaleObject(id string, sx, sy float32) error {
 }
 
 // SetObjectAlpha sets object id's opacity in [0, 1] as an undoable command.
+// When id names an instanced or inherited object, it records an override on its instance or inheriting scene.
 func (e *Editor) SetObjectAlpha(id string, alpha float32) error {
 	if e.playing {
 		return ErrPlaying
@@ -1891,6 +1949,15 @@ func (e *Editor) SetObjectAlpha(id string, alpha float32) error {
 	}
 	obj, _, _ := e.FindObject(id)
 	if obj == nil {
+		if info := e.ObjectOverrideInfo(id); info.Origin != ObjectLocal {
+			return e.editObjectOverride(id, "Set alpha "+id, 2, func(ov *sceneformat.ObjectOverride, resolved, _ *sceneformat.ObjectDoc) error {
+				if resolved.EffectiveAlpha() == alpha && ov.Alpha == nil {
+					return nil
+				}
+				ov.Alpha = sceneformat.Float32(alpha)
+				return nil
+			})
+		}
 		return fmt.Errorf("editor: object %q not found", id)
 	}
 	if obj.Alpha != nil && *obj.Alpha == alpha {
@@ -1906,12 +1973,22 @@ func (e *Editor) SetObjectAlpha(id string, alpha float32) error {
 }
 
 // SetObjectZ sets object id's within-layer draw order Z as an undoable command.
+// When id names an instanced or inherited object, it records an override on its instance or inheriting scene.
 func (e *Editor) SetObjectZ(id string, z int) error {
 	if e.playing {
 		return ErrPlaying
 	}
 	obj, _, _ := e.FindObject(id)
 	if obj == nil {
+		if info := e.ObjectOverrideInfo(id); info.Origin != ObjectLocal {
+			return e.editObjectOverride(id, "Set Z "+id, 2, func(ov *sceneformat.ObjectOverride, resolved, _ *sceneformat.ObjectDoc) error {
+				if resolved.Z == z {
+					return nil
+				}
+				ov.Z = sceneformat.Int(z)
+				return nil
+			})
+		}
 		return fmt.Errorf("editor: object %q not found", id)
 	}
 	if obj.Z == z {
@@ -1927,12 +2004,22 @@ func (e *Editor) SetObjectZ(id string, z int) error {
 }
 
 // SetObjectName sets object id's display name as an undoable command.
+// When id names an instanced or inherited object, it records an override on its instance or inheriting scene.
 func (e *Editor) SetObjectName(id, name string) error {
 	if e.playing {
 		return ErrPlaying
 	}
 	obj, _, _ := e.FindObject(id)
 	if obj == nil {
+		if info := e.ObjectOverrideInfo(id); info.Origin != ObjectLocal {
+			return e.editObjectOverride(id, "Rename "+id, 2, func(ov *sceneformat.ObjectOverride, resolved, _ *sceneformat.ObjectDoc) error {
+				if resolved.Name == name {
+					return nil
+				}
+				ov.Name = sceneformat.String(name)
+				return nil
+			})
+		}
 		return fmt.Errorf("editor: object %q not found", id)
 	}
 	if obj.Name == name {
@@ -2011,6 +2098,20 @@ func (e *Editor) MoveObject3D(id string, x, y, posZ float32) error {
 	}
 	obj, _, _ := e.FindObject(id)
 	if obj == nil {
+		if info := e.ObjectOverrideInfo(id); info.Origin != ObjectLocal {
+			return e.editObjectOverride(id, "Move 3D "+id, 2, func(ov *sceneformat.ObjectOverride, resolved, _ *sceneformat.ObjectDoc) error {
+				if x != resolved.X {
+					ov.X = sceneformat.Float32(x)
+				}
+				if y != resolved.Y {
+					ov.Y = sceneformat.Float32(y)
+				}
+				if posZ != resolved.PosZ {
+					ov.PosZ = sceneformat.Float32(posZ)
+				}
+				return nil
+			})
+		}
 		return fmt.Errorf("editor: object %q not found", id)
 	}
 	before := captureTransform3D(obj)
@@ -2039,6 +2140,20 @@ func (e *Editor) RotateObject3D(id string, rotX, rotY, rotZ float32) error {
 	}
 	obj, _, _ := e.FindObject(id)
 	if obj == nil {
+		if info := e.ObjectOverrideInfo(id); info.Origin != ObjectLocal {
+			return e.editObjectOverride(id, "Rotate 3D "+id, 2, func(ov *sceneformat.ObjectOverride, resolved, _ *sceneformat.ObjectDoc) error {
+				if rotX != resolved.RotX {
+					ov.RotX = sceneformat.Float32(rotX)
+				}
+				if rotY != resolved.RotY {
+					ov.RotY = sceneformat.Float32(rotY)
+				}
+				if rotZ != resolved.RotZ {
+					ov.RotZ = sceneformat.Float32(rotZ)
+				}
+				return nil
+			})
+		}
 		return fmt.Errorf("editor: object %q not found", id)
 	}
 	before := captureTransform3D(obj)
@@ -2067,6 +2182,20 @@ func (e *Editor) ScaleObject3D(id string, sx, sy, sz float32) error {
 	}
 	obj, _, _ := e.FindObject(id)
 	if obj == nil {
+		if info := e.ObjectOverrideInfo(id); info.Origin != ObjectLocal {
+			return e.editObjectOverride(id, "Scale 3D "+id, 2, func(ov *sceneformat.ObjectOverride, resolved, _ *sceneformat.ObjectDoc) error {
+				if sx != resolved.EffectiveScaleX() {
+					ov.ScaleX = sceneformat.Float32(sx)
+				}
+				if sy != resolved.EffectiveScaleY() {
+					ov.ScaleY = sceneformat.Float32(sy)
+				}
+				if sz != resolved.EffectiveScaleZ() {
+					ov.ScaleZ = sceneformat.Float32(sz)
+				}
+				return nil
+			})
+		}
 		return fmt.Errorf("editor: object %q not found", id)
 	}
 	before := captureTransform3D(obj)
@@ -2100,6 +2229,15 @@ func (e *Editor) SetObjectDepth(id string, depth float32) error {
 	}
 	obj, _, _ := e.FindObject(id)
 	if obj == nil {
+		if info := e.ObjectOverrideInfo(id); info.Origin != ObjectLocal {
+			return e.editObjectOverride(id, "Set depth "+id, 2, func(ov *sceneformat.ObjectOverride, resolved, _ *sceneformat.ObjectDoc) error {
+				if resolved.Depth == depth {
+					return nil
+				}
+				ov.Depth = sceneformat.Float32(depth)
+				return nil
+			})
+		}
 		return fmt.Errorf("editor: object %q not found", id)
 	}
 	if obj.Depth == depth {
@@ -2124,6 +2262,24 @@ func (e *Editor) SetObjectMesh(id, mesh string) error {
 	}
 	obj, _, _ := e.FindObject(id)
 	if obj == nil {
+		if info := e.ObjectOverrideInfo(id); info.Origin != ObjectLocal {
+			return e.editObjectOverride(id, "Set mesh "+id, 2, func(ov *sceneformat.ObjectOverride, resolved, _ *sceneformat.ObjectDoc) error {
+				if resolved.Mesh == mesh {
+					return nil
+				}
+				if mesh != "" && resolved.Model != "" {
+					return fmt.Errorf("editor: object %q draws model %q; it cannot also draw mesh %q", id, resolved.Model, mesh)
+				}
+				if mesh != "" && resolved.GridMap != "" {
+					return fmt.Errorf("editor: object %q draws gridMap %q; it cannot also draw mesh %q", id, resolved.GridMap, mesh)
+				}
+				if mesh == "" && resolved.Model == "" && resolved.Occluder != nil && resolved.Occluder.Mode == sceneformat.OccluderModel {
+					return fmt.Errorf("editor: object %q has a model occluder; clear or switch occluder to box before removing mesh", id)
+				}
+				ov.Mesh = sceneformat.String(mesh)
+				return nil
+			})
+		}
 		return fmt.Errorf("editor: object %q not found", id)
 	}
 	if obj.Mesh == mesh {

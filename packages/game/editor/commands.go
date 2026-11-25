@@ -14,81 +14,84 @@ import (
 
 // Built-in editor command IDs registered in the unified command registry.
 const (
-	CmdNewProject            = "file.newProject"
-	CmdOpenProject           = "file.openProject"
-	CmdStartScreen           = "file.startScreen"
-	CmdSave                  = "file.save"
-	CmdCloseTab              = "file.closeTab"
-	CmdNextTab               = "view.nextTab"
-	CmdPrevTab               = "view.prevTab"
-	CmdOpenInstancedScene    = "scene.openInstanced"
-	CmdOpenBaseScene         = "scene.openBase"
-	CmdUndo                  = "edit.undo"
-	CmdRedo                  = "edit.redo"
-	CmdCopy                  = "edit.copy"
-	CmdCut                   = "edit.cut"
-	CmdPaste                 = "edit.paste"
-	CmdPasteInto             = "edit.pasteInto"
-	CmdDelete                = "edit.delete"
-	CmdDuplicate             = "edit.duplicate"
-	CmdGroup                 = "edit.group"
-	CmdUngroup               = "edit.ungroup"
-	CmdToolSelect            = "tool.select"
-	CmdToolMove              = "tool.move"
-	CmdToolPlace             = "tool.place"
-	CmdToolPaintTile         = "tool.paint"
-	CmdToolEraseTile         = "tool.erase"
-	CmdToolFillTile          = "tool.fill"
-	CmdToolTerrain           = "tool.terrain"
-	CmdToolRectTile          = "tool.rect"
-	CmdToolLineTile          = "tool.line"
-	CmdToolStampTile         = "tool.stamp"
-	CmdToolRandomTile        = "tool.random"
-	CmdCopyTileRegion        = "tile.copy"
-	CmdCutTileRegion         = "tile.cut"
-	CmdPasteTileRegion       = "tile.paste"
-	CmdToolNavTestPath       = "tool.navTestPath"
-	CmdGizmoTranslate        = "gizmo.translate"
-	CmdGizmoRotate           = "gizmo.rotate"
-	CmdGizmoScale            = "gizmo.scale"
-	CmdGizmoCollider         = "gizmo.collider"
-	CmdFitCollider3D         = "edit.fitCollider3d"
-	CmdView2D                = "view.mode2d"
-	CmdView3D                = "view.mode3d"
-	CmdShadingLit            = "view.shading.lit"
-	CmdShadingUnlit          = "view.shading.unlit"
-	CmdShadingWire           = "view.shading.wireframe"
-	CmdNavMeshPanel          = "view.navmesh"
-	CmdNavMeshOverlay        = "view.navmesh.overlay"
-	CmdBakeNavMesh3D         = "project.bakeNavMesh3D"
-	CmdFrameSelection        = "view.frame"
-	CmdToggleLightingPreview = "view.lighting"
-	CmdToggleAllShapes       = "view.shapes"
-	CmdToggleSnapGrid        = "view.snap"
-	CmdToggleShowGrid        = "view.grid"
-	CmdToggleSnapPixel       = "view.snap.pixel"
-	CmdToggleSnapRotation    = "view.snap.rotation"
-	CmdToggleSnapScale       = "view.snap.scale"
-	CmdToggleNavMesh2D       = "view.navmesh2d"
-	CmdViewportOverlays      = "view.overlays"
-	CmdCommandPalette        = "view.palette"
-	CmdPlayStop              = "project.play"
-	CmdRunGame               = "project.run"
-	CmdProjectSettings       = "project.settings"
-	CmdAudioMixer            = "project.mixer"
-	CmdLocalization          = "project.l10n"
-	CmdParticleEditor        = "project.particles"
-	CmdHUDLayout             = "project.hud"
-	CmdMaterialEditor        = "project.material"
-	CmdExport                = "project.export"
-	CmdProfiler              = "project.profiler"
-	CmdCheckProblems         = "project.check"
-	CmdFindUsages            = "project.findUsages"
-	CmdEditorSettings        = "editor.settings"
-	CmdChanges               = "git.changes"
-	CmdMergeConflicts        = "git.mergeConflicts"
-	CmdPlaytestReport        = "project.playtestReport"
-	CmdToggleAssetsMode      = "view.assets"
+	CmdNewProject             = "file.newProject"
+	CmdOpenProject            = "file.openProject"
+	CmdStartScreen            = "file.startScreen"
+	CmdSave                   = "file.save"
+	CmdCloseTab               = "file.closeTab"
+	CmdNextTab                = "view.nextTab"
+	CmdPrevTab                = "view.prevTab"
+	CmdOpenInstancedScene     = "scene.openInstanced"
+	CmdOpenBaseScene          = "scene.openBase"
+	CmdUndo                   = "edit.undo"
+	CmdRedo                   = "edit.redo"
+	CmdCopy                   = "edit.copy"
+	CmdCut                    = "edit.cut"
+	CmdPaste                  = "edit.paste"
+	CmdPasteInto              = "edit.pasteInto"
+	CmdDelete                 = "edit.delete"
+	CmdDuplicate              = "edit.duplicate"
+	CmdGroup                  = "edit.group"
+	CmdUngroup                = "edit.ungroup"
+	CmdToolSelect             = "tool.select"
+	CmdToolMove               = "tool.move"
+	CmdToolPlace              = "tool.place"
+	CmdToolPaintTile          = "tool.paint"
+	CmdToolEraseTile          = "tool.erase"
+	CmdToolFillTile           = "tool.fill"
+	CmdToolTerrain            = "tool.terrain"
+	CmdToolRectTile           = "tool.rect"
+	CmdToolLineTile           = "tool.line"
+	CmdToolStampTile          = "tool.stamp"
+	CmdToolRandomTile         = "tool.random"
+	CmdCopyTileRegion         = "tile.copy"
+	CmdCutTileRegion          = "tile.cut"
+	CmdPasteTileRegion        = "tile.paste"
+	CmdToolNavTestPath        = "tool.navTestPath"
+	CmdGizmoTranslate         = "gizmo.translate"
+	CmdGizmoRotate            = "gizmo.rotate"
+	CmdGizmoScale             = "gizmo.scale"
+	CmdGizmoCollider          = "gizmo.collider"
+	CmdFitCollider3D          = "edit.fitCollider3d"
+	CmdView2D                 = "view.mode2d"
+	CmdView3D                 = "view.mode3d"
+	CmdShadingLit             = "view.shading.lit"
+	CmdShadingUnlit           = "view.shading.unlit"
+	CmdShadingWire            = "view.shading.wireframe"
+	CmdNavMeshPanel           = "view.navmesh"
+	CmdNavMeshOverlay         = "view.navmesh.overlay"
+	CmdBakeNavMesh3D          = "project.bakeNavMesh3D"
+	CmdFrameSelection         = "view.frame"
+	CmdToggleLightingPreview  = "view.lighting"
+	CmdToggleAllShapes        = "view.shapes"
+	CmdToggleSnapGrid         = "view.snap"
+	CmdToggleShowGrid         = "view.grid"
+	CmdToggleSnapPixel        = "view.snap.pixel"
+	CmdToggleSnapRotation     = "view.snap.rotation"
+	CmdToggleSnapScale        = "view.snap.scale"
+	CmdToggleNavMesh2D        = "view.navmesh2d"
+	CmdViewportOverlays       = "view.overlays"
+	CmdCommandPalette         = "view.palette"
+	CmdPlayStop               = "project.play"
+	CmdRunGame                = "project.run"
+	CmdProjectSettings        = "project.settings"
+	CmdAudioMixer             = "project.mixer"
+	CmdLocalization           = "project.l10n"
+	CmdParticleEditor         = "project.particles"
+	CmdHUDLayout              = "project.hud"
+	CmdMaterialEditor         = "project.material"
+	CmdExport                 = "project.export"
+	CmdProfiler               = "project.profiler"
+	CmdCheckProblems          = "project.check"
+	CmdFindUsages             = "project.findUsages"
+	CmdEditorSettings         = "editor.settings"
+	CmdChanges                = "git.changes"
+	CmdMergeConflicts         = "git.mergeConflicts"
+	CmdPlaytestReport         = "project.playtestReport"
+	CmdToggleAssetsMode       = "view.assets"
+	CmdMakeInstanceLocal      = "scene.makeLocal"
+	CmdApplyOverridesToSource = "scene.applyOverridesToSource"
+	CmdRevertOverrides        = "scene.revertOverrides"
 	// The 3D viewport's axis views and projection: each axis view looks at the camera's Target along a world axis (SetView3D), and the orthographic command switches between perspective and orthographic (SetOrthographic3D).
 	CmdView3DFront        = "view.3d.front"
 	CmdView3DBack         = "view.3d.back"
@@ -357,6 +360,47 @@ func (e *Editor) initBuiltinCommands() {
 			Keywords:    []string{"open", "base", "inherits", "parent", "scene", "tab"},
 			Enabled:     func() bool { return hasProject() && !e.Playing() && e.Doc != nil && e.Doc.Inherits != "" },
 			Run:         func() error { return e.OpenBaseScene() },
+		},
+		{
+			ID:          CmdMakeInstanceLocal,
+			Label:       "Make Instance Local",
+			Description: "Replace the selected scene instance with a local copy of its resolved objects",
+			Category:    "Edit",
+			Keywords:    []string{"instance", "prefab", "local", "unpack", "detach", "scene"},
+			Enabled:     func() bool { return notPlaying() && e.selectedObjectInstancesScene() },
+			Run:         func() error { return e.MakeInstanceLocal(e.SelectedID) },
+		},
+		{
+			ID:          CmdApplyOverridesToSource,
+			Label:       "Apply Overrides to Source",
+			Description: "Write the selected scene instance's overrides back to its source scene file",
+			Category:    "Edit",
+			Keywords:    []string{"instance", "prefab", "override", "apply", "source", "save"},
+			Enabled: func() bool {
+				if !hasProject() || !notPlaying() || e.SelectedID == "" {
+					return false
+				}
+				info := e.ObjectOverrideInfo(e.SelectedID)
+				if info.Origin == ObjectInstanced {
+					return e.InstanceOverrideCount(info.InstanceID) > 0
+				}
+				return e.selectedObjectInstancesScene() && e.InstanceOverrideCount(e.SelectedID) > 0
+			},
+			Run: func() error { return e.ApplyOverridesToSource(e.SelectedID) },
+		},
+		{
+			ID:          CmdRevertOverrides,
+			Label:       "Revert All Overrides",
+			Description: "Clear all overrides on the selected scene instance, instanced object, or inherited object",
+			Category:    "Edit",
+			Keywords:    []string{"override", "revert", "reset", "instance", "inherit", "prefab"},
+			Enabled: func() bool {
+				if !notPlaying() || e.SelectedID == "" {
+					return false
+				}
+				return e.ObjectHasAnyOverride(e.SelectedID) || e.InstanceOverrideCount(e.SelectedID) > 0
+			},
+			Run: func() error { return e.RevertObjectOverrides(e.SelectedID) },
 		},
 		{
 			ID:          CmdNextTab,

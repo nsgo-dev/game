@@ -314,6 +314,27 @@ func (e *Editor) SetObjectOccluder(id string, occ *sceneformat.OccluderDoc) erro
 	}
 	obj, _, _ := e.FindObject(id)
 	if obj == nil {
+		if info := e.ObjectOverrideInfo(id); info.Origin != ObjectLocal {
+			return e.editObjectOverride(id, "Set occluder of "+id, 2, func(ov *sceneformat.ObjectOverride, resolved, base *sceneformat.ObjectDoc) error {
+				if occluderEqual(resolved.Occluder, occ) {
+					return nil
+				}
+				if occ == nil {
+					if base != nil && base.Occluder != nil {
+						return fmt.Errorf("editor: cannot clear inherited occluder on %q; revert override or edit the source scene", id)
+					}
+					ov.Occluder = nil
+					return nil
+				}
+				probe := resolved.Clone()
+				probe.Occluder = cloneOccluderDoc(occ)
+				if err := sceneformat.CheckObjectModel(&probe); err != nil {
+					return err
+				}
+				ov.Occluder = cloneOccluderDoc(occ)
+				return nil
+			})
+		}
 		return fmt.Errorf("editor: object %q not found", id)
 	}
 	probe := obj.Clone()

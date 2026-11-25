@@ -3,6 +3,7 @@ package editor
 import (
 	"fmt"
 	"math"
+	"reflect"
 
 	"github.com/nsgo-dev/game/packages/game/math2d"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
@@ -223,6 +224,12 @@ type drag2DState struct {
 	compBefore  map[string]any
 	toLocal     aff2
 	vertexIndex int
+	// Override snapshot when dragging an instanced or inherited object.
+	overrideInfo    ObjectOverrideInfo
+	overrideOld     sceneformat.ObjectOverride
+	overrideHadOld  bool
+	overrideWasNil  bool
+	overridePrevVer int
 }
 
 // gizmo2D is the selected object's gizmo as drawn on the canvas.
@@ -530,7 +537,7 @@ func (e *Editor) BeginDrag2D(x, y float32) GizmoHandle2D {
 		if hit == "" {
 			return Handle2DNone
 		}
-		if obj, _, _ := e.FindObject(hit); obj == nil || e.viewportFrozen(hit) {
+		if obj, _ := e.FindResolvedObject(hit); obj == nil || e.viewportFrozen(hit) {
 			return Handle2DNone
 		}
 		if !e.IsSelected(hit) {
@@ -547,28 +554,52 @@ func (e *Editor) BeginDrag2D(x, y float32) GizmoHandle2D {
 	if len(draggable) == 1 {
 		targetID = draggable[0]
 	}
-	obj, li, _ := e.FindObject(targetID)
+	obj, layerName := e.FindResolvedObject(targetID)
 	if obj == nil || e.viewportFrozen(targetID) {
 		return Handle2DNone
 	}
+	info := e.ObjectOverrideInfo(targetID)
+	var (
+		oldOv     sceneformat.ObjectOverride
+		hadOld    bool
+		wasNilMap bool
+		prevVer   int
+	)
+	if info.Origin != ObjectLocal {
+		if e.BuildErr != nil {
+			e.report(e.BuildErr)
+			return Handle2DNone
+		}
+		var ok bool
+		oldOv, hadOld, wasNilMap, ok = e.currentOverrideFor(e.Doc, info)
+		if !ok {
+			return Handle2DNone
+		}
+		prevVer = e.Doc.Version
+	}
 	// A nested child's transform is in its parent's space, so the drag is worked out there.
-	path := objectPath(e.Doc, targetID)
+	path := e.resolvedObjectPath(targetID)
 	toParent, ok := chain2(path[:max(len(path)-1, 0)]).invert()
 	if !ok {
 		return Handle2DNone
 	}
-	space, px, py := e.layerSpaceAndParallax(e.Doc.Layers[li].Name)
+	space, px, py := e.layerSpaceAndParallax(layerName)
 	lx, ly := e.canvasToLayerFor(space, px, py, x, y)
 	gx, gy := toParent.apply(float64(lx), float64(ly))
 	st := drag2DState{
-		handle:    h,
-		objectID:  targetID,
-		space:     space,
-		parallaxX: px,
-		parallaxY: py,
-		start:     captureTransform2D(obj),
-		toParent:  toParent,
-		grab:      math2d.Vec2{X: float32(gx), Y: float32(gy)},
+		handle:          h,
+		objectID:        targetID,
+		space:           space,
+		parallaxX:       px,
+		parallaxY:       py,
+		start:           captureTransform2D(obj),
+		toParent:        toParent,
+		grab:            math2d.Vec2{X: float32(gx), Y: float32(gy)},
+		overrideInfo:    info,
+		overrideOld:     oldOv,
+		overrideHadOld:  hadOld,
+		overrideWasNil:  wasNilMap,
+		overridePrevVer: prevVer,
 	}
 	st.prevAngle = math.Atan2(gy-float64(obj.Y), gx-float64(obj.X))
 	e.drag2D = st
@@ -660,7 +691,7 @@ func (e *Editor) UpdateDrag2D(x, y float32, keepAspect bool) {
 		return
 	}
 	st := &e.drag2D
-	obj, _, _ := e.FindObject(st.objectID)
+	obj, _ := e.FindResolvedObject(st.objectID)
 	if obj == nil || e.playing {
 		e.drag2D = drag2DState{}
 		e.notify()
@@ -731,6 +762,31 @@ func (e *Editor) UpdateDrag2D(x, y float32, keepAspect bool) {
 		}
 	}
 	if !isFiniteFloat32(next.X) || !isFiniteFloat32(next.Y) || !isFiniteFloat32(next.Rotation) {
+		return
+	}
+	if st.overrideInfo.Origin != ObjectLocal {
+		nextOv := cloneObjectOverride(st.overrideOld)
+		switch h := st.handle; {
+		case h == Handle2DBody || h == Handle2DMove || h == Handle2DMoveX || h == Handle2DMoveY:
+			nextOv.X = sceneformat.Float32(next.X)
+			nextOv.Y = sceneformat.Float32(next.Y)
+		case h == Handle2DRotate:
+			nextOv.Rotation = sceneformat.Float32(next.Rotation)
+		case h.IsScale():
+			sxAxis, syAxis := h.scalesAxes()
+			if sxAxis || keepAspect {
+				nextOv.ScaleX = cloneFloat32Ptr(next.ScaleX)
+			}
+			if syAxis || keepAspect {
+				nextOv.ScaleY = cloneFloat32Ptr(next.ScaleY)
+			}
+		}
+		if e.Doc.Version < 2 {
+			e.Doc.Version = 2
+		}
+		setOverrideOnDoc(e.Doc, st.overrideInfo, nextOv, !isEmptyObjectOverride(nextOv), st.overrideWasNil)
+		e.Rebuild()
+		e.notify()
 		return
 	}
 	applyTransform2D(obj, next)
@@ -1119,6 +1175,42 @@ func (e *Editor) EndDrag2D() bool {
 		e.notify()
 		return true
 	}
+	if st.overrideInfo.Origin != ObjectLocal {
+		afterOv, hasAfter, _, ok := e.currentOverrideFor(e.Doc, st.overrideInfo)
+		// Restore pre-drag state before recording through History.
+		e.Doc.Version = st.overridePrevVer
+		setOverrideOnDoc(e.Doc, st.overrideInfo, st.overrideOld, st.overrideHadOld, st.overrideWasNil)
+		if !ok || (st.overrideHadOld == hasAfter && reflect.DeepEqual(st.overrideOld, afterOv)) {
+			e.Rebuild()
+			e.Status = "Selected " + st.objectID
+			e.notify()
+			return false
+		}
+		verb := "Move "
+		switch {
+		case st.handle == Handle2DRotate:
+			verb = "Rotate "
+		case st.handle.IsScale():
+			verb = "Scale "
+		}
+		nextVer := st.overridePrevVer
+		if hasAfter && nextVer < 2 {
+			nextVer = 2
+		}
+		e.History.Execute(&objectOverrideCmd{
+			ed:          e,
+			info:        st.overrideInfo,
+			label:       verb + st.objectID,
+			oldOv:       st.overrideOld,
+			hadOld:      st.overrideHadOld,
+			wasNilMap:   st.overrideWasNil,
+			newOv:       afterOv,
+			hasNew:      hasAfter,
+			prevVersion: st.overridePrevVer,
+			nextVersion: nextVer,
+		})
+		return true
+	}
 	obj, _, _ := e.FindObject(st.objectID)
 	if obj == nil {
 		e.notify()
@@ -1164,6 +1256,14 @@ func (e *Editor) CancelDrag2D() bool {
 		if restored {
 			e.Rebuild()
 		}
+		e.Status = "Cancelled " + st.handle.String()
+		e.notify()
+		return true
+	}
+	if st.overrideInfo.Origin != ObjectLocal {
+		e.Doc.Version = st.overridePrevVer
+		setOverrideOnDoc(e.Doc, st.overrideInfo, st.overrideOld, st.overrideHadOld, st.overrideWasNil)
+		e.Rebuild()
 		e.Status = "Cancelled " + st.handle.String()
 		e.notify()
 		return true

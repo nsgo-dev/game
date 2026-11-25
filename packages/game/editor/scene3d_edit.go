@@ -28,6 +28,28 @@ func (e *Editor) SetObjectLight(id string, light *sceneformat.LightDoc) error {
 	}
 	obj, _, _ := e.FindObject(id)
 	if obj == nil {
+		if info := e.ObjectOverrideInfo(id); info.Origin != ObjectLocal {
+			next := light.Clone()
+			return e.editObjectOverride(id, "Edit Light on "+id, sceneformat.CurrentVersion, func(ov *sceneformat.ObjectOverride, resolved, base *sceneformat.ObjectDoc) error {
+				if reflect.DeepEqual(resolved.Light, next) {
+					return nil
+				}
+				if next == nil {
+					if base != nil && base.Light != nil {
+						return fmt.Errorf("editor: cannot clear inherited light on %q; revert override or edit the source scene", id)
+					}
+					ov.Light = nil
+					return nil
+				}
+				probe := resolved.Clone()
+				probe.Light = next.Clone()
+				if err := sceneformat.CheckObjectLight(&probe); err != nil {
+					return err
+				}
+				ov.Light = next.Clone()
+				return nil
+			})
+		}
 		return fmt.Errorf("editor: object %q not found", id)
 	}
 	next := light.Clone()
@@ -104,6 +126,33 @@ func (e *Editor) SetObjectCamera3D(id string, cam *sceneformat.Camera3DDoc) erro
 	}
 	obj, _, _ := e.FindObject(id)
 	if obj == nil {
+		if info := e.ObjectOverrideInfo(id); info.Origin != ObjectLocal {
+			next := cam.Clone()
+			err := e.editObjectOverride(id, "Edit 3D Camera on "+id, sceneformat.CurrentVersion, func(ov *sceneformat.ObjectOverride, resolved, base *sceneformat.ObjectDoc) error {
+				if reflect.DeepEqual(resolved.Camera, next) {
+					return nil
+				}
+				if next == nil {
+					if base != nil && base.Camera != nil {
+						return fmt.Errorf("editor: cannot clear inherited camera on %q; revert override or edit the source scene", id)
+					}
+					ov.Camera = nil
+					return nil
+				}
+				probe := resolved.Clone()
+				probe.Camera = next.Clone()
+				if err := sceneformat.CheckObjectCamera3D(&probe); err != nil {
+					return err
+				}
+				ov.Camera = next.Clone()
+				return nil
+			})
+			if err == nil && !e.HasSceneCamera3D() && e.lookThroughCamera3D {
+				e.lookThroughCamera3D = false
+				e.notify()
+			}
+			return err
+		}
 		return fmt.Errorf("editor: object %q not found", id)
 	}
 	next := cam.Clone()

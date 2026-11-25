@@ -73,8 +73,8 @@ func TestPlaceSceneInstancesAFileAndSavesTheReference(t *testing.T) {
 	if ed.Built.Object(id+"/eye") == nil {
 		t.Fatal("instanced eye was not built")
 	}
-	if hit := ed.HitTest(100, 90); hit != id {
-		t.Fatalf("HitTest on the instance = %q, want its root %q", hit, id)
+	if hit := ed.HitTest(100, 90); !strings.HasPrefix(hit, id+"/") {
+		t.Fatalf("HitTest on the instance = %q, want an instanced child under %q/", hit, id)
 	}
 
 	saved, err := ed.SaveYAML()

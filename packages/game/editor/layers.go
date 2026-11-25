@@ -557,17 +557,29 @@ func (c *moveLayerCmd) Undo() {
 	}
 }
 
-// SetLayerVisible shows or hides the layer name as an undoable command, writing its visible field: hiding writes visible: false, and showing leaves the field unset, its default, so hiding and showing a layer whose field was unset gives back the same file. Unlike the session's lock (SetLayerLocked), this is the scene's own setting: the game does not draw a hidden layer either. In a scene that inherits another it refuses a layer that extends one of the base's, whose visibility the base and the scene's layer overrides own.
+// SetLayerVisible shows or hides the layer name as an undoable command, writing its visible field: hiding writes visible: false, and showing leaves the field unset, its default, so hiding and showing a layer whose field was unset gives back the same file. Unlike the session's lock (SetLayerLocked), this is the scene's own setting: the game does not draw a hidden layer either. In a scene that inherits another, changing an inherited layer records the change under SceneDoc.LayerOverrides.
 func (e *Editor) SetLayerVisible(name string, visible bool) error {
 	if e.playing {
 		return ErrPlaying
 	}
+	if e.inheritedLayers()[name] {
+		label := "Hide layer " + name
+		if visible {
+			label = "Show layer " + name
+		} else {
+			e.endTileStrokeForChange()
+		}
+		return e.editLayerOverride(name, label, 2, func(lo *sceneformat.LayerOverride, eff, _ *sceneformat.LayerDoc) error {
+			if eff.IsVisible() == visible {
+				return nil
+			}
+			lo.Visible = sceneformat.Bool(visible)
+			return nil
+		})
+	}
 	li := e.layerIndex(name)
 	if li < 0 {
 		return fmt.Errorf("editor: layer %q not found", name)
-	}
-	if e.inheritedLayers()[name] {
-		return e.inheritedErr(name, "visibility")
 	}
 	l := &e.Doc.Layers[li]
 	if l.IsVisible() == visible {
@@ -623,7 +635,7 @@ func clonePtr[T any](p *T) *T {
 	return &v
 }
 
-// SetLayerSpace sets the space the layer name draws and hit-tests in, SpaceWorld (under the scene's camera) or SpaceScreen (at virtual screen coordinates, as a HUD), as an undoable command; its objects keep their coordinates. It changes nothing when the layer already has that space, its field left unset included for SpaceWorld. In a scene that inherits another it refuses a layer that extends one of the base's, whose space the base and the scene's layer overrides own.
+// SetLayerSpace sets the space the layer name draws and hit-tests in, SpaceWorld (under the scene's camera) or SpaceScreen (at virtual screen coordinates, as a HUD), as an undoable command; its objects keep their coordinates. It changes nothing when the layer already has that space, its field left unset included for SpaceWorld. In a scene that inherits another, changing an inherited layer records the change under SceneDoc.LayerOverrides.
 func (e *Editor) SetLayerSpace(name string, space sceneformat.Space) error {
 	if e.playing {
 		return ErrPlaying
@@ -631,12 +643,18 @@ func (e *Editor) SetLayerSpace(name string, space sceneformat.Space) error {
 	if !validSpace(space) {
 		return fmt.Errorf("editor: layer space %q must be %q or %q", space, sceneformat.SpaceWorld, sceneformat.SpaceScreen)
 	}
+	if e.inheritedLayers()[name] {
+		return e.editLayerOverride(name, "Set layer "+name+" space to "+string(space), 2, func(lo *sceneformat.LayerOverride, eff, _ *sceneformat.LayerDoc) error {
+			if eff.EffectiveSpace() == space {
+				return nil
+			}
+			lo.Space = space
+			return nil
+		})
+	}
 	li := e.layerIndex(name)
 	if li < 0 {
 		return fmt.Errorf("editor: layer %q not found", name)
-	}
-	if e.inheritedLayers()[name] {
-		return e.inheritedErr(name, "space")
 	}
 	l := &e.Doc.Layers[li]
 	if l.EffectiveSpace() == space {
@@ -674,7 +692,7 @@ func (c *layerSpaceCmd) Undo() {
 
 // SetLayerLocked locks the layer name against the viewports, or unlocks it: a press in either viewport passes over its objects, so it picks what lies under them, its objects are not moved there (no gizmo, no Move-tool drag), and the Place, Paint, Erase and Fill tools do nothing while it is the active layer. Like SetObjectLocked, the lock belongs to the editing session: it is not an edit, is not undone, and is never written to the scene file; opening another scene clears it. The layers panel and the scene tree still select and edit the layer and its objects.
 func (e *Editor) SetLayerLocked(name string, locked bool) error {
-	if e.layerIndex(name) < 0 {
+	if e.layerIndex(name) < 0 && !e.inheritedLayers()[name] {
 		return fmt.Errorf("editor: layer %q not found", name)
 	}
 	if e.layerLocked[name] == locked {
@@ -704,7 +722,7 @@ func (e *Editor) LayerLocked(name string) bool { return e.layerLocked[name] }
 
 // keepActiveLayer makes the first layer the active one when ActiveLayer names no layer of the open scene, as after undoing the layer's addition, and clears it when the scene has none.
 func (e *Editor) keepActiveLayer() {
-	if e.Doc == nil || e.layerIndex(e.ActiveLayer) >= 0 {
+	if e.Doc == nil || e.layerIndex(e.ActiveLayer) >= 0 || e.inheritedLayers()[e.ActiveLayer] {
 		return
 	}
 	e.ActiveLayer = ""

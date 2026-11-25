@@ -153,7 +153,7 @@ func (e *Editor) CanvasToTile(layer string, canvasX, canvasY float32) (col, row 
 	return tileAt(tm, lx, ly)
 }
 
-// HitTest returns the ID of the topmost visible object under the point (canvasX, canvasY) on the viewport's canvas, seen through the 2D view, nested children included, or "" if no object is hit. Objects hidden or locked in the editor (SetObjectHidden, SetObjectLocked), with their descendants, and the objects of hidden and locked layers (SetLayerVisible, SetLayerLocked) are passed over, so the press reaches what lies under them. An object that only an instanced scene adds is reported as the nearest of its ancestors that the open scene holds, the instance it belongs to.
+// HitTest returns the ID of the topmost visible object under the point (canvasX, canvasY) on the viewport's canvas, seen through the 2D view, nested, instanced and inherited objects included, or "" if no object is hit. Objects hidden or locked in the editor (SetObjectHidden, SetObjectLocked), with their descendants, and the objects of hidden and locked layers (SetLayerVisible, SetLayerLocked) are passed over, so the press reaches what lies under them.
 func (e *Editor) HitTest(canvasX, canvasY float32) string {
 	scene := e.ActiveScene()
 	if scene == nil {
@@ -185,11 +185,6 @@ func (e *Editor) HitTest(canvasX, canvasY float32) string {
 		}
 		walk(layer.Objects)
 		if best != nil {
-			for bo := best; bo != nil; bo = bo.Parent {
-				if obj, _, _ := e.FindObject(bo.ID); obj != nil {
-					return bo.ID
-				}
-			}
 			return best.ID
 		}
 	}
@@ -303,7 +298,7 @@ func (e *Editor) HandleCanvasPressWith(x, y float32, shift, mod bool) {
 			id := draggable[0]
 			wx, wy := e.layerCoordsForObject(id, x, y)
 			// A nested child's position is in its parent's space.
-			path := objectPath(e.Doc, id)
+			path := e.resolvedObjectPath(id)
 			if inv, ok := chain2(path[:max(len(path)-1, 0)]).invert(); ok {
 				lx, ly := inv.apply(float64(wx), float64(wy))
 				sx, sy := e.SnapPosition2D(lx, ly)
@@ -388,7 +383,11 @@ func (e *Editor) pressActiveLayer(x, y float32) {
 		wx, wy := e.layerCoordsForActive(x, y)
 		sx, sy := e.SnapPosition2D(float64(wx), float64(wy))
 		px, py := float32(sx), float32(sy)
-		if e.SelectedAsset != nil {
+		if e.SelectedPrefab != "" {
+			if _, err := e.PlacePrefab(e.ActiveLayer, e.SelectedPrefab, px, py); err != nil {
+				e.report(err)
+			}
+		} else if e.SelectedAsset != nil {
 			_, _ = e.DropAtlasFrame(e.SelectedAsset.Atlas, e.SelectedAsset.Frame, px, py)
 		} else {
 			_, _ = e.PlaceObject(e.ActiveLayer, sceneformat.ObjectDoc{X: px, Y: py})
@@ -435,7 +434,7 @@ func (e *Editor) pressActiveLayer(x, y float32) {
 }
 
 func (e *Editor) layerCoordsForActive(x, y float32) (float32, float32) {
-	if e.layerIndex(e.ActiveLayer) >= 0 {
+	if e.layerIndex(e.ActiveLayer) >= 0 || e.inheritedLayers()[e.ActiveLayer] {
 		space, px, py := e.layerSpaceAndParallax(e.ActiveLayer)
 		return e.canvasToLayerFor(space, px, py, x, y)
 	}
@@ -447,8 +446,8 @@ func (e *Editor) layerCoordsForSelected(x, y float32) (float32, float32) {
 }
 
 func (e *Editor) layerCoordsForObject(id string, x, y float32) (float32, float32) {
-	if _, li, _ := e.FindObject(id); li >= 0 {
-		space, px, py := e.layerSpaceAndParallax(e.Doc.Layers[li].Name)
+	if _, layerName := e.FindResolvedObject(id); layerName != "" {
+		space, px, py := e.layerSpaceAndParallax(layerName)
 		return e.canvasToLayerFor(space, px, py, x, y)
 	}
 	return e.CanvasToWorld(x, y)

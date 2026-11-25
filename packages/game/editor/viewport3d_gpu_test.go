@@ -101,7 +101,7 @@ func TestPick3DHitsAMeshByItsGeometry(t *testing.T) {
 	}
 }
 
-// TestPick3DSelectsAnInstanceByItsGeometry picks a mesh that an instanced scene adds: the press selects the instance, the object the open scene holds.
+// TestPick3DSelectsAnInstanceByItsGeometry picks a mesh that an instanced scene adds: the press selects the instanced child directly so it can be edited through overrides.
 func TestPick3DSelectsAnInstanceByItsGeometry(t *testing.T) {
 	doc := &sceneformat.SceneDoc{Version: sceneformat.CurrentVersion, Layers: []sceneformat.LayerDoc{{Name: "world", Objects: []sceneformat.ObjectDoc{{ID: "rock", Scene: "scenes/rock.scene.yaml"}}}}}
 	ed, err := editor.New(doc, sceneFiles{AtlasMap: testResolver(), files: map[string]string{
@@ -113,8 +113,8 @@ func TestPick3DSelectsAnInstanceByItsGeometry(t *testing.T) {
 	ed.SetViewMode(editor.ViewMode3D)
 	const w, h = 640, 360
 	x, y, _, _ := ed.Camera3D.Project([3]float32{0, 0, 30}, w, h)
-	if id, ok := ed.Pick3DObject(x, y, w, h); !ok || id != "rock" {
-		t.Fatalf("a press on the instanced box picked %q, %v, want the instance", id, ok)
+	if id, ok := ed.Pick3DObject(x, y, w, h); !ok || id != "rock/body" {
+		t.Fatalf("a press on the instanced box picked %q, %v, want \"rock/body\"", id, ok)
 	}
 }
 

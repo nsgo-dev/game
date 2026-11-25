@@ -6,6 +6,7 @@ import (
 
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/game/packages/game/sprite"
+	"github.com/nsgo-dev/nsgo/base/dragdrop"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
@@ -91,6 +92,7 @@ func (e *Editor) SelectAsset(atlasName, frameName string) bool {
 		Rect:  frame,
 	}
 	e.SelectedAsset = &entry
+	e.SelectedPrefab = ""
 	e.Status = "Selected asset " + entry.Key()
 	e.notify()
 	return true
@@ -283,8 +285,128 @@ func AssetBrowserView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 				ContentStyle: core.Style{
 					Gap: 6,
 				},
-				Children: []core.Node{list, ownDragArea(cx, modelListView(cx, ed, rev))},
+				Children: []core.Node{
+					ownDragArea(cx, prefabListView(cx, ed, rev)),
+					list,
+					ownDragArea(cx, modelListView(cx, ed, rev)),
+				},
 			},
 		},
 	}
+}
+
+func prefabListView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+	colors := ui.ColorsOf(cx)
+	names := core.NewMemoFunc(cx, func() []string {
+		_ = rev.Get()
+		return ed.PrefabNames()
+	}, slices.Equal[[]string])
+
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		entries := names.Get()
+		if len(entries) == 0 {
+			return nil
+		}
+		rows := make([]core.Node, 0, len(entries))
+		for _, n := range entries {
+			name := n
+			detail := ed.T("assets.prefab")
+			if p, ok := ed.Prefabs[name]; ok && p.Sprite != nil && p.Sprite.Atlas != "" {
+				detail = p.Sprite.Atlas + "/" + p.Sprite.Frame
+			}
+			row := core.View{
+				TestID: "prefab-" + name,
+				Label:  name,
+				StyleFunc: func() core.Style {
+					_ = rev.Get()
+					bg, border := colors.Surface(), colors.Line()
+					if ed.SelectedPrefab == name {
+						bg, border = colors.Raised(), colors.Accent()
+					}
+					return core.Style{
+						Direction:    core.Row,
+						AlignItems:   core.AlignCenter,
+						Gap:          8,
+						Padding:      core.All(6),
+						CornerRadius: 6,
+						BorderWidth:  1,
+						BorderColor:  border,
+						Background:   bg,
+					}
+				},
+				Disabled: func() bool {
+					_ = rev.Get()
+					return ed.Playing()
+				},
+				OnPress: func(core.PressEvent) {
+					ed.SelectPrefab(name)
+					ed.SetTool(ToolPlace)
+				},
+				Children: []core.Node{
+					core.View{
+						Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 2},
+						Children: []core.Node{
+							core.Text{
+								Content: name,
+								Style:   core.Style{FontSize: 12, FontWeight: 600, Color: colors.Text()},
+							},
+							core.Text{
+								Content: detail,
+								Style:   core.Style{FontSize: 10, Color: colors.Muted()},
+							},
+						},
+					},
+					ui.Button{
+						TestID:  "prefab-place-" + name,
+						Text:    "+",
+						Label:   ed.T("assets.placePrefab"),
+						Size:    ui.SizeSmall,
+						Variant: ui.ButtonSecondary,
+						Disabled: func() bool {
+							_ = rev.Get()
+							return ed.Playing()
+						},
+						OnPress: func() {
+							cx, cy := ed.defaultPlacePos()
+							_, err := ed.PlacePrefab(ed.ActiveLayer, name, cx, cy)
+							ed.report(err)
+						},
+					},
+				},
+			}
+			rows = append(rows, dragdrop.Source{
+				View: row,
+				Data: func() any {
+					if ed.Playing() {
+						return nil
+					}
+					return prefabDrag{name: name}
+				},
+				Preview: func(any) core.Node {
+					return core.Text{
+						Content: name,
+						Style: core.Style{
+							FontSize:     12,
+							Padding:      core.Symmetric(4, 8),
+							CornerRadius: 4,
+							Color:        colors.Text(),
+							Background:   colors.Raised(),
+						},
+					}
+				},
+			})
+		}
+		return core.View{
+			TestID: "prefab-list",
+			Style:  core.Style{Gap: 6},
+			Children: []core.Node{
+				core.Text{
+					TestID:  "prefabs-title",
+					Content: ed.T("assets.prefabs"),
+					Style:   core.Style{FontSize: 13, FontWeight: 700, Color: colors.Text()},
+				},
+				core.View{Style: core.Style{Gap: 6}, Children: rows},
+			},
+		}
+	})
 }
