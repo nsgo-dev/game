@@ -330,3 +330,54 @@ func BenchmarkRigidWorldPolygonPile(b *testing.B) {
 		}
 	}
 }
+
+func TestSoftParticlesCollideWithConvexRigidBodies(t *testing.T) {
+	// Particles fall onto a static polygon slab, a capsule and a chain; none passes through.
+	cases := []struct {
+		name  string
+		shape physics.Shape
+		top   float32
+	}{
+		{"polygon", physics.PolygonShape(physics.NewBoxPolygon(0, 110, 200, 20, 0)), 100},
+		{"capsule", physics.CapsuleShape(physics.Capsule{X1: -100, Y1: 110, X2: 100, Y2: 110, R: 10}), 100},
+		{"chain", physics.ChainShape(pts(-100, 100, 0, 100, 100, 100), false), 100},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rw := &physics.RigidWorld{}
+			rw.AddBody(physics.NewStaticRigidBody(tc.shape))
+			sw := physics.NewSoftWorld()
+			sw.RigidWorld = rw
+			sw.GravityY = 500
+			var ids []int
+			for _, x := range []float32{-50, 0, 30} {
+				ids = append(ids, sw.AddParticle(physics.Particle{X: x, Y: 40, InvMass: 1, Radius: 2}))
+			}
+			for range 120 {
+				sw.Step(step)
+			}
+			for _, id := range ids {
+				if p := sw.Particles[id]; p.Y > tc.top-1.5 || p.Y < tc.top-3 {
+					t.Fatalf("particle %d at Y=%v, want resting on the surface at %v", id, p.Y, tc.top-2)
+				}
+			}
+		})
+	}
+}
+
+func TestPolygonCrateFloats(t *testing.T) {
+	// A polygon crate of half the water's density floats half submerged, as a box does.
+	w := &physics.RigidWorld{GravityY: 400}
+	w.AddTrigger(&physics.Trigger{
+		Shape: physics.BoxShape(physics.Box{X: -100, Y: 100, W: 300, H: 80}),
+		Area:  physics.AreaSettings{FluidDensity: 1, FluidLinearDrag: 6, FluidAngularDrag: 4},
+	})
+	crate := physics.NewRigidBody(physics.PolygonShape(physics.NewBoxPolygon(0, 90, 20, 20, 0)), 200)
+	w.AddBody(crate)
+	for range 360 {
+		w.Step(step)
+	}
+	if !near(crate.Y, 100, 0.5) {
+		t.Fatalf("crate Y=%v, want ~100", crate.Y)
+	}
+}

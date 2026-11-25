@@ -1409,7 +1409,7 @@ func (sw *SoftWorld) resolveParticleTileGrid2D(
 	}
 }
 
-// collideParticleRigidBody2D tests particle circle (x, y, r) against rb (oriented box or circle).
+// collideParticleRigidBody2D tests particle circle (x, y, r) against rb (oriented box, circle, or a Polygon, Capsule, Segment or Chain at its pose).
 // Returns normal pointing from rb toward particle and positive penetration depth.
 func collideParticleRigidBody2D(x, y, r float64, rb *RigidBody) (nx, ny, depth float64, hit bool) {
 	switch rb.Shape.Kind {
@@ -1474,6 +1474,31 @@ func collideParticleRigidBody2D(x, y, r float64, rb *RigidBody) (nx, ny, depth f
 		wnx := lnx*cosB - lny*sinB
 		wny := lnx*sinB + lny*cosB
 		return wnx, wny, depth, true
+	case ShapePolygon, ShapeCapsule, ShapeSegment, ShapeChain:
+		p := pointHull(x, y, r)
+		var m hullManifold
+		if rb.Shape.Kind == ShapeChain {
+			if !rb.hasLocal {
+				return 0, 0, 0, false
+			}
+			s, _ := rb.poseShape()
+			var buf [4]hullManifold
+			for _, cm := range chainManifolds(s.Chain, &p, buf[:0]) {
+				if cm.maxDepth() > m.maxDepth() {
+					m = cm
+				}
+			}
+		} else {
+			h, ok := rb.rigidHull()
+			if !ok {
+				return 0, 0, 0, false
+			}
+			m = collideHulls(&h, &p)
+		}
+		if d := m.maxDepth(); d > 0 {
+			return m.nx, m.ny, d, true
+		}
+		return 0, 0, 0, false
 	}
 	return 0, 0, 0, false
 }
