@@ -16,7 +16,7 @@ Why pure Go instead of wrapping a C/C++ physics engine (such as Jolt, Bullet, or
 - **No FFI overhead**: Queries, raycasts, rigid-body steps, and character moves operate directly on Go values with zero cgo boundary crossings.
 - **Bit-for-bit determinism**: Stepping a `World` with fixed durations from `game.Loop` runs broadphase, narrowphase, impulse solving, and positional correction in a fixed body and contact order with no map-order iteration or wall-clock input.
 
-The scope is intentionally focused: boxes (axis-aligned or oriented), spheres, and capsules, static triangle meshes (`TriMeshCollider`, added with `World.AddTriMesh`), heightfields (`HeightfieldCollider`, added with `World.AddHeightfield`), and voxel grids (`VoxelCollider`, added with `World.AddVoxelCollider`) that collide with bodies and the character controller, exact overlap, raycast, and voxel sweep queries, rigid bodies with linear and angular dynamics, joints, ragdolls, and a capsule character controller. Bodies use a scalar (isotropic) inertia rather than a full inertia tensor, and contacts use one representative point per body pair.
+The scope is intentionally focused: boxes (axis-aligned or oriented), spheres, capsules, convex hulls, and cylinders, static triangle meshes (`TriMeshCollider`, added with `World.AddTriMesh`), heightfields (`HeightfieldCollider`, added with `World.AddHeightfield`), and voxel grids (`VoxelCollider`, added with `World.AddVoxelCollider`) that collide with bodies and the character controller, exact overlap, raycast, and voxel sweep queries, rigid bodies with linear and angular dynamics, joints, ragdolls, and a capsule character controller. Bodies use a scalar (isotropic) inertia rather than a full inertia tensor. Contacts between boxes, spheres and capsules use one representative point per body pair; a pair that involves a convex hull or a cylinder gets up to four points spread over the touching area.
 
 ## Coordinate Convention
 
@@ -24,19 +24,44 @@ The scope is intentionally focused: boxes (axis-aligned or oriented), spheres, a
 
 ## Shapes, Overlaps, and Raycasts
 
-Three primitives are wrapped by the tagged `Shape` value (`BoxShape`, `SphereShape`, `CapsuleShape`):
+Five primitives are wrapped by the tagged `Shape` value (`BoxShape`, `SphereShape`, `CapsuleShape`, `ConvexHullShape`, `CylinderShape`):
 
 - `Box` — box defined by `Center` and `HalfExtents` (or constructed via `BoxFromMinMax(min, max)`). It is axis-aligned unless the wrapping `Shape` sets `Rot`, which orients it about its `Center`. `Shape.Transformed(pos, rot)` and `Body.WorldShape()` keep a rotated body's box oriented, so overlap tests, raycasts and debug drawing see its real corners; `Shape.Bounds()` returns the enclosing AABB for broad-phase use.
 - `Sphere` — `Center` and `Radius`.
 - `Capsule` — line segment from `A` to `B` swept by `Radius` (or `VerticalCapsule(center, radius, height)`).
+- `ConvexHull` — a convex polyhedron for props such as rocks, debris, furniture, wedges and low-poly vehicle hulls, built once by `NewConvexHull(points, maxVertices)` and then shared, read-only, by every shape and body that uses it. Its vertices are relative to `Center`, and the wrapping `Shape`'s `Rot` turns it about `Center` as it does a box.
+- `Cylinder` — a solid cylinder with flat caps whose axis runs from `A` to `B`, of the given `Radius` (or `VerticalCylinder(center, radius, height)`), for barrels, wheels and pillars. A cylinder whose `A` and `B` coincide or whose `Radius` is not positive has no volume, and collisions, raycasts and areas ignore it.
+
+### Convex hulls
+
+`NewConvexHull` builds the hull with quickhull: it starts from a tetrahedron of extreme points and adds the point furthest outside the hull until none is left or the hull has `maxVertices` vertices (`DefaultHullVertices`, 64, for a limit of 0 or less, at most `MaxHullVertices`, 256, and at least 4, the fewest vertices a hull with volume has, for a limit of 1 to 3). When the limit stops it early, the hull keeps the most prominent corners and lies inside the full hull. Points inside the hull or within a small tolerance of a face are dropped, and coplanar triangles are merged into polygon faces, so a cube gives 8 vertices and 6 square faces. The result depends only on the points and their order, so the same input always gives the same hull. Points that do not span a volume (fewer than four, all on a plane or a line, or not finite) return `ErrDegenerateHull`.
+
+`ConvexHullFromMesh(positions, indices, maxVertices)` builds a hull from a triangle mesh, using only the vertices the indices reference, so a glTF primitive's or a `render3d.Mesh`'s `Positions` and `Indices` go in as they are:
+
+```go
+doc, _ := gltf.LoadFS(assets, "rock.gltf")
+prim := doc.Meshes[0].Primitives[0]
+hull, err := physics3d.ConvexHullFromMesh(prim.Positions, prim.Indices, 32)
+if err != nil {
+	return err
+}
+// Move the hull's centroid to the body's origin, so the body rotates about its center of mass.
+hull = hull.Recentered()
+pos := hull.Center
+hull.Center = physics3d.Vec3{}
+rock := world.AddBody(physics3d.NewDynamicBody(physics3d.ConvexHullShape(hull), pos, 40))
+```
+
+A hull reports its `Vertices`, `Faces` (vertex indices counter-clockwise seen from outside), `FaceNormals`, `Edges`, `Volume`, `Centroid` and `InertiaTensor(mass)` for uniform density. A body's inertia comes from the hull's exact tensor (the mean of its principal moments, as the scalar inertia above), and a cylinder's from the solid-cylinder formula.
 
 Overlap tests return a `Contact` whose unit `Normal` points from `B` toward `A` (the direction to translate `A` by `Depth` to separate the shapes):
 
 - `TestBoxBox`, `TestOrientedBoxBox` (separating axis theorem over the 15 face and edge axes), `TestSphereSphere`, `TestCapsuleCapsule`, `TestBoxSphere`, `TestBoxCapsule`, `TestSphereCapsule`, and `TestShapes(a, b)`, which handles oriented boxes.
+- `TestShapes` tests every pair that involves a convex hull or a cylinder, against any other shape, with GJK for the distance and EPA for the penetration depth and normal, in float64 and a fixed iteration order, so the same shapes always give the same contact. `Point` is the center of the touching area (a face resting on a face reports the middle of the overlap, not a corner). The same test runs against each triangle of a `TriMeshCollider` and a `HeightfieldCollider`, and against voxel colliders.
 - When a capsule's segment passes through a box, `TestBoxCapsule` takes the axis of least penetration over the box faces and the edges crossed with the segment, so moving the box by `Normal*Depth` clears the whole capsule. Crossing capsules, and a sphere centered on a capsule's axis, get a normal perpendicular to the axes rather than an arbitrary one.
 - `world.QueryOverlap(shape)` returns all overlapping bodies in deterministic insertion order.
 
-Raycasts test a `Ray{Origin, Dir, MaxDist}` against standalone shapes (`RaycastBox`, `RaycastSphere`, `RaycastCapsule`, `RaycastShape`) or cast a segment through a world (`world.Raycast(from, to)` and `world.RaycastFirst(from, to)`), returning `RaycastHit` entries sorted by ascending `T` in `[0, 1]` with world-space `Point`, `Distance`, and outward unit `Normal`. A ray that starts inside a box, sphere or capsule hits it at `T` 0 with `Point` at the origin and `Normal` facing back along the ray (`-Dir`).
+Raycasts test a `Ray{Origin, Dir, MaxDist}` against standalone shapes (`RaycastBox`, `RaycastSphere`, `RaycastCapsule`, `RaycastConvexHull`, `RaycastCylinder`, `RaycastShape`) or cast a segment through a world (`world.Raycast(from, to)` and `world.RaycastFirst(from, to)`), returning `RaycastHit` entries sorted by ascending `T` in `[0, 1]` with world-space `Point`, `Distance`, and outward unit `Normal`. A ray that starts inside any shape hits it at `T` 0 with `Point` at the origin and `Normal` facing back along the ray (`-Dir`).
 
 ## Rigid Bodies
 
@@ -89,6 +114,7 @@ Any trigger body (`Body.IsTrigger = true`) can configure `Body.Area` (`AreaSetti
 - **Gravity modes & priority**: set `GravityMode` to `AreaOverrideCombine`, `AreaOverrideReplace`, or `AreaOverrideAdd` ordered by `Priority` (higher priority first, deterministic insertion-order tie-breaking). Supports both directional `Gravity` and radial `PointGravity` toward `GravityPoint` with `GravityStrength`, `GravityFalloff` (`GravityFalloffNone`, `GravityFalloffLinear`, `GravityFalloffInverse`, `GravityFalloffInverseSquare`), and `GravityUnitDistance`.
 - **Damping overrides**: `LinearDampingMode` / `LinearDamping` and `AngularDampingMode` / `AngularDamping` override body damping using the same priority and combine/replace/add rules.
 - **Buoyancy and fluid drag**: set `FluidDensity` (kg/m³) to apply Archimedes buoyancy from the submerged fraction of each body's bounds so a body with density `Mass / Volume` settles at submerged fraction `(Mass / Volume) / FluidDensity`, alongside `FluidLinearDrag`, `FluidAngularDrag`, and optional `FluidVelocity` current.
+- **Area shapes**: an area can be any shape. A point is inside a convex hull or a cylinder area by its exact shape, not its bounds, and a hull's or cylinder's buoyant volume is its own (`ConvexHull.Volume`, or πr²h).
 - **Queries & characters**: call `world.GravityAt(point)` or `world.AreaEffectAtShape(shape, layer, mask)` to inspect the resolved field. `CharacterController.Move` automatically applies overlapping area gravity (scaled by `CharacterController.GravityScale`), fluid drag, and linear damping, and `CharacterController.EffectiveGravity(world)` reports the active gravity vector.
 
 ```go
@@ -140,7 +166,7 @@ The controller is not a body in the `World`, so dynamic bodies do not collide wi
 
 ## Debug Drawing
 
-`DrawWorld`, `DrawBody`, `DrawShape`, `DrawCharacter`, `DrawContact` and `DrawRaycast` draw collider wireframes, contacts and rays onto a `core.Drawing` through a view-projection matrix, styled by `DebugStyle`; `DrawLine3D` draws one segment. Release builds compile them to no-ops.
+`DrawWorld`, `DrawBody`, `DrawShape`, `DrawCharacter`, `DrawContact` and `DrawRaycast` draw collider wireframes, contacts and rays onto a `core.Drawing` through a view-projection matrix, styled by `DebugStyle`; `DrawLine3D` draws one segment. Convex hulls draw every hull edge in `HullColor` and cylinders a ring around each cap and four side lines in `CylinderColor`; `ConvexHullEdges` and `CylinderEdges` return those segments for other renderers. Release builds compile them to no-ops.
 
 Segments are clipped to the camera frustum before projection. By default the near plane is clip `z >= -w`, which matches this package's `Mat4Perspective` and `Mat4Ortho` (`[-1, 1]` depth). For a `[0, 1]` depth projection, such as `math3d.Perspective`, `math3d.Ortho` or a `render3d` camera, set `DebugStyle.DepthZO` (and use `DrawLine3DZO` for single segments): it clips at `z >= 0`, as `render3d.ProjectSegment` does. Without it an orthographic `[0, 1]` camera, whose `w` is 1 everywhere, draws colliders behind the camera.
 

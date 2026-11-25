@@ -35,6 +35,12 @@ func (f boxFrame) localShape(s Shape) Shape {
 		return SphereShape(Sphere{Center: f.toLocal(s.Sphere.Center), Radius: s.Sphere.Radius})
 	case ShapeCapsule:
 		return CapsuleShape(Capsule{A: f.toLocal(s.Capsule.A), B: f.toLocal(s.Capsule.B), Radius: s.Capsule.Radius})
+	case ShapeConvexHull:
+		h := s.Hull
+		h.Center = f.toLocal(h.Center)
+		return Shape{Kind: ShapeConvexHull, Hull: h, Rot: f.inv.Mul(normalizedQuat(s.Rot)).Norm()}
+	case ShapeCylinder:
+		return CylinderShape(Cylinder{A: f.toLocal(s.Cylinder.A), B: f.toLocal(s.Cylinder.B), Radius: s.Cylinder.Radius})
 	default:
 		return s
 	}

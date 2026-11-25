@@ -46,6 +46,20 @@ func TestGenerateCoverPoints3D(t *testing.T) {
 	pillar.Tag = "pillar"
 	w.AddBody(pillar)
 
+	// Standing cylinder pillar (height = 2.0 -> CoverFull) and a barrel lying on its side, which is skipped.
+	column := physics3d.NewStaticBody(
+		physics3d.CylinderShape(physics3d.VerticalCylinder(physics3d.Vec3{}, 0.5, 2.0)),
+		physics3d.Vec3{X: 5, Y: 1.0, Z: 6},
+	)
+	column.Tag = "column"
+	w.AddBody(column)
+	lying := physics3d.NewStaticBody(
+		physics3d.CylinderShape(physics3d.Cylinder{A: physics3d.Vec3{X: -1}, B: physics3d.Vec3{X: 1}, Radius: 0.5}),
+		physics3d.Vec3{X: -6, Y: 0.5, Z: -6},
+	)
+	lying.Tag = "lying"
+	w.AddBody(lying)
+
 	// Dynamic crate skipped by default when IncludeDynamic is false.
 	dyn := physics3d.NewDynamicBody(
 		physics3d.BoxShape(physics3d.Box{HalfExtents: physics3d.Vec3{X: 0.6, Y: 0.5, Z: 0.6}}),
@@ -64,7 +78,7 @@ func TestGenerateCoverPoints3D(t *testing.T) {
 		t.Fatal("expected generated 3D cover points")
 	}
 
-	var sawCrateHalf, sawWallFull, sawPillarFull bool
+	var sawCrateHalf, sawWallFull, sawPillarFull, sawColumnFull bool
 	for _, cp := range pts {
 		if cp.HasTag("floor") {
 			t.Fatalf("flat floor slab should not generate cover: %+v", cp)
@@ -87,9 +101,18 @@ func TestGenerateCoverPoints3D(t *testing.T) {
 		if cp.HasTag("pillar") && cp.Height == ai.CoverFull {
 			sawPillarFull = true
 		}
+		if cp.HasTag("column") && cp.Height == ai.CoverFull {
+			sawColumnFull = true
+			if d := cp.Pos.Sub(math2d.V2(5, 6)).Len(); math.Abs(float64(d-1.1)) > 1e-3 {
+				t.Fatalf("column cover %+v is %v from the column's axis, want radius + standoff 1.1", cp, d)
+			}
+		}
+		if cp.HasTag("lying") {
+			t.Fatalf("a cylinder lying on its side should not generate cover: %+v", cp)
+		}
 	}
-	if !sawCrateHalf || !sawWallFull || !sawPillarFull {
-		t.Fatalf("missing cover types: crate=%v wall=%v pillar=%v", sawCrateHalf, sawWallFull, sawPillarFull)
+	if !sawCrateHalf || !sawWallFull || !sawPillarFull || !sawColumnFull {
+		t.Fatalf("missing cover types: crate=%v wall=%v pillar=%v column=%v", sawCrateHalf, sawWallFull, sawPillarFull, sawColumnFull)
 	}
 
 	// Determinism across repeated runs.

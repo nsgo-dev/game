@@ -76,6 +76,10 @@ const (
 	ShapeSphere
 	// ShapeCapsule selects Shape.Capsule.
 	ShapeCapsule
+	// ShapeConvexHull selects Shape.Hull.
+	ShapeConvexHull
+	// ShapeCylinder selects Shape.Cylinder.
+	ShapeCylinder
 )
 
 // Shape is a tagged wrapper holding one 3D collision primitive.
@@ -84,7 +88,11 @@ type Shape struct {
 	Box     Box
 	Sphere  Sphere
 	Capsule Capsule
-	// Rot orients a Box about its Center, making it an oriented box. The zero value and identity leave the box axis-aligned; spheres and capsules ignore it.
+	// Hull is the convex hull of a ShapeConvexHull shape.
+	Hull ConvexHull
+	// Cylinder is the cylinder of a ShapeCylinder shape.
+	Cylinder Cylinder
+	// Rot orients a Box or a ConvexHull about its Center, making the box an oriented box. The zero value and identity leave them unrotated; spheres, capsules and cylinders ignore it.
 	Rot Quat
 }
 
@@ -103,6 +111,16 @@ func CapsuleShape(c Capsule) Shape {
 	return Shape{Kind: ShapeCapsule, Capsule: c}
 }
 
+// ConvexHullShape wraps h in a Shape.
+func ConvexHullShape(h ConvexHull) Shape {
+	return Shape{Kind: ShapeConvexHull, Hull: h}
+}
+
+// CylinderShape wraps c in a Shape.
+func CylinderShape(c Cylinder) Shape {
+	return Shape{Kind: ShapeCylinder, Cylinder: c}
+}
+
 // Translated returns a copy of s shifted by offset.
 func (s Shape) Translated(offset Vec3) Shape {
 	switch s.Kind {
@@ -112,14 +130,16 @@ func (s Shape) Translated(offset Vec3) Shape {
 		return SphereShape(s.Sphere.Translated(offset))
 	case ShapeCapsule:
 		return CapsuleShape(s.Capsule.Translated(offset))
+	case ShapeConvexHull:
+		return Shape{Kind: ShapeConvexHull, Hull: s.Hull.Translated(offset), Rot: s.Rot}
+	case ShapeCylinder:
+		return CylinderShape(s.Cylinder.Translated(offset))
 	default:
 		return s
 	}
 }
 
-// Transformed returns a copy of s rotated by rot around the local origin and
-// translated by pos. For identity rotations, it is identical to Translated(pos).
-// A Box keeps its half-extents and gains the rotation in Shape.Rot, so the result is an exact oriented box rather than the AABB enclosing it; Bounds returns that AABB.
+// Transformed returns a copy of s rotated by rot around the local origin and translated by pos. For identity rotations, it is identical to Translated(pos). A Box or ConvexHull keeps its geometry and gains the rotation in Shape.Rot, so the result is exact rather than the AABB enclosing it; Bounds returns that AABB.
 func (s Shape) Transformed(pos Vec3, rot Quat) Shape {
 	if rot.IsIdentity() {
 		return s.Translated(pos)
@@ -146,6 +166,20 @@ func (s Shape) Transformed(pos Vec3, rot Quat) Shape {
 			A:      rot.RotateVec(s.Capsule.A).Add(pos),
 			B:      rot.RotateVec(s.Capsule.B).Add(pos),
 			Radius: s.Capsule.Radius,
+		})
+	case ShapeConvexHull:
+		combined := rot.Mul(normalizedQuat(s.Rot)).Norm()
+		if combined.IsIdentity() {
+			combined = Quat{}
+		}
+		h := s.Hull
+		h.Center = rot.RotateVec(h.Center).Add(pos)
+		return Shape{Kind: ShapeConvexHull, Hull: h, Rot: combined}
+	case ShapeCylinder:
+		return CylinderShape(Cylinder{
+			A:      rot.RotateVec(s.Cylinder.A).Add(pos),
+			B:      rot.RotateVec(s.Cylinder.B).Add(pos),
+			Radius: s.Cylinder.Radius,
 		})
 	default:
 		return s
@@ -175,9 +209,21 @@ func (s Shape) Bounds() Box {
 			Z: max(s.Capsule.A.Z, s.Capsule.B.Z) + s.Capsule.Radius,
 		}
 		return BoxFromMinMax(minV, maxV)
+	case ShapeConvexHull:
+		if s.Hull.geom == nil {
+			return Box{Center: s.Hull.Center}
+		}
+		return s.Hull.geom.bounds(s.Hull.Center, s.Rot)
+	case ShapeCylinder:
+		return s.Cylinder.bounds()
 	default:
 		return Box{}
 	}
+}
+
+// isConvexKind reports whether s goes through the GJK and EPA narrow phase.
+func isConvexKind(s Shape) bool {
+	return s.Kind == ShapeConvexHull || s.Kind == ShapeCylinder
 }
 
 // Contact describes an overlap between two shapes A and B.
@@ -201,9 +247,11 @@ func (c Contact) flipped() Contact {
 	return c
 }
 
-// TestShapes tests two shapes for overlap. The returned Contact normal points
-// from b toward a. Boxes oriented by Shape.Rot are tested exactly: two boxes with the separating axis theorem, and a box against a sphere or capsule in the box's own frame.
+// TestShapes tests two shapes for overlap. The returned Contact normal points from b toward a. Boxes oriented by Shape.Rot are tested exactly: two boxes with the separating axis theorem, and a box against a sphere or capsule in the box's own frame. Any pair with a convex hull or a cylinder is tested with GJK and EPA, and its Point is the middle of the area where the two shapes touch.
 func TestShapes(a, b Shape) Contact {
+	if isConvexKind(a) || isConvexKind(b) {
+		return testConvex(toCvx(a), toCvx(b))
+	}
 	rotA, orientedA := a.orientedBox()
 	rotB, orientedB := b.orientedBox()
 	if a.Kind == ShapeBox && b.Kind == ShapeBox && (orientedA || orientedB) {

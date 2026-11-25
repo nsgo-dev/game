@@ -12,9 +12,13 @@ const defaultSphereSegments = 24
 // physics3d debug drawing functions. Zero-valued fields fall back to
 // DefaultDebugStyle().
 type DebugStyle struct {
-	BoxColor       core.Color
-	SphereColor    core.Color
-	CapsuleColor   core.Color
+	BoxColor     core.Color
+	SphereColor  core.Color
+	CapsuleColor core.Color
+	// HullColor draws convex hulls.
+	HullColor core.Color
+	// CylinderColor draws cylinders.
+	CylinderColor  core.Color
 	ContactColor   core.Color
 	NormalColor    core.Color
 	RayColor       core.Color
@@ -32,6 +36,8 @@ func DefaultDebugStyle() DebugStyle {
 		BoxColor:       core.RGB(0x22C55E),
 		SphereColor:    core.RGB(0x38BDF8),
 		CapsuleColor:   core.RGB(0xFACC15),
+		HullColor:      core.RGB(0xA78BFA),
+		CylinderColor:  core.RGB(0x2DD4BF),
 		ContactColor:   core.RGB(0xEF4444),
 		NormalColor:    core.RGB(0xF97316),
 		RayColor:       core.RGB(0xE879F9),

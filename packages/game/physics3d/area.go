@@ -274,6 +274,33 @@ func shapeContainsPoint(s Shape, p Vec3) bool {
 		}
 		closest := closestPointOnSegment(s.Capsule.A, s.Capsule.B, p)
 		return p.Sub(closest).LenSq() <= r*r
+	case ShapeConvexHull:
+		g := s.Hull.geom
+		if g == nil {
+			return false
+		}
+		d := toDV(normalizedQuat(s.Rot).Conjugate().RotateVec(p.Sub(s.Hull.Center)))
+		for _, f := range g.faces {
+			if f.n.dot(d) > f.d {
+				return false
+			}
+		}
+		return true
+	case ShapeCylinder:
+		c := s.Cylinder
+		axis := toDV(c.B.Sub(c.A))
+		l := axis.length()
+		if c.Radius <= 0 || l <= 1e-12 {
+			return false
+		}
+		u := axis.scale(1 / l)
+		d := toDV(p.Sub(c.A))
+		t := d.dot(u)
+		if t < 0 || t > l {
+			return false
+		}
+		r := float64(c.Radius)
+		return d.sub(u.scale(t)).lenSq() <= r*r
 	default:
 		return false
 	}
@@ -289,6 +316,15 @@ func shapeOuterRadius3D(s Shape) float64 {
 	case ShapeCapsule:
 		segLen := float64(s.Capsule.B.Sub(s.Capsule.A).Len())
 		return float64(0.5*segLen) + float64(s.Capsule.Radius)
+	case ShapeConvexHull:
+		if s.Hull.geom == nil {
+			return 0
+		}
+		return s.Hull.geom.radius
+	case ShapeCylinder:
+		h := 0.5 * float64(s.Cylinder.Height())
+		r := float64(s.Cylinder.Radius)
+		return math.Sqrt(float64(h*h) + float64(r*r))
 	default:
 		return 1
 	}
@@ -315,6 +351,14 @@ func shapeVolume3D(s Shape) float64 {
 		}
 		segLen := float64(s.Capsule.B.Sub(s.Capsule.A).Len())
 		return float64(math.Pi*r*r*segLen) + float64((4.0/3.0)*math.Pi*r*r*r)
+	case ShapeConvexHull:
+		return float64(s.Hull.Volume())
+	case ShapeCylinder:
+		r := float64(s.Cylinder.Radius)
+		if r <= 0 {
+			return 0
+		}
+		return math.Pi * r * r * float64(s.Cylinder.Height())
 	default:
 		return 0
 	}

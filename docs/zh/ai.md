@@ -854,7 +854,7 @@ reservations.Release(agentID)
 每个 `CoverPoint` 记录世界空间站位 `Pos`、由 `Pos` 指向掩体障碍物的单位朝向向量 `Facing`（即该掩体所阻挡的来袭威胁方向，障碍物外法线为 `Facing.Neg()`）、高度类型 `CoverHeight`（`CoverHalf` 半身掩体或 `CoverFull` 全身掩体），以及可选的 3D 高度 `Elevation`、`ID` 和 `Tags`。
 
 - **瓦片地图与网格生成**：`GenerateCoverFromTilemap(m, opts)` 合并连续的实心瓦片外露边缘（支持 `HalfCoverMask`、`HeightFunc` 或瓦片属性 `"cover": "half"|"full"`），并校验生成点落在可通行格内；`GenerateCoverFromGrid(g, origin, cellW, cellH, opts)` 可直接基于任意 `ai.Grid` 生成掩体点。
-- **2D 与 3D 碰撞体生成**：`GenerateCoverFromBoxes`、`GenerateCoverFromWorld`（支持 `physics.Box`、`physics.Circle` 柱体与 `World.Tiles`）以及 `GenerateCoverFromSegments` 从 2D 碰撞边缘生成掩体点，并剔除嵌入相邻障碍物内部的候选点。在 3D 场景中，`physics3d.World.GenerateCoverPoints(opts)` 将轴对齐盒、定向盒（OBB）、球体与胶囊体的竖直侧面投影到 XZ 平面，按高度自动区分 `CoverHalf`/`CoverFull` 并保留地面 `Elevation`。
+- **2D 与 3D 碰撞体生成**：`GenerateCoverFromBoxes`、`GenerateCoverFromWorld`（支持 `physics.Box`、`physics.Circle` 柱体与 `World.Tiles`）以及 `GenerateCoverFromSegments` 从 2D 碰撞边缘生成掩体点，并剔除嵌入相邻障碍物内部的候选点。在 3D 场景中，`physics3d.World.GenerateCoverPoints(opts)` 将轴对齐盒、定向盒（OBB）、球体、胶囊体与竖立的圆柱体的竖直侧面投影到 XZ 平面（凸包与横躺的圆柱体不生成掩体），按高度自动区分 `CoverHalf`/`CoverFull` 并保留地面 `Elevation`。
 - **场景 YAML 编排**：通过 `sceneformat.RegisterCoverPoint(reg)` 注册内置 `"cover_point"` 组件（含 `height`、`facingX`、`facingY`、`tags` 字段），再用 `sceneformat.ExtractCoverPoints(doc)` 或 `sceneformat.ExtractBuiltCoverPoints(built)` 提取已应用父子变换的 `[]ai.CoverPoint`。
 
 ### 候选点生成器与有序测试

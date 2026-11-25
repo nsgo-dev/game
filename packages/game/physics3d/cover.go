@@ -42,8 +42,7 @@ func (w *World) GenerateCoverPoints(opts CoverOptions) []ai.CoverPoint {
 	return GenerateCoverPointsFromBodies(w.bodies, opts)
 }
 
-// GenerateCoverPointsFromBodies generates deterministic XZ-plane cover points from the given 3D bodies
-// (axis-aligned or oriented boxes, spheres, and vertical capsules).
+// GenerateCoverPointsFromBodies generates deterministic XZ-plane cover points from the given 3D bodies: axis-aligned or oriented boxes, spheres, vertical capsules, and cylinders standing on an end (their axis within about 25 degrees of vertical). Convex hulls and cylinders lying on their side generate no cover.
 func GenerateCoverPointsFromBodies(bodies []*Body, opts CoverOptions) []ai.CoverPoint {
 	if len(bodies) == 0 {
 		return nil
@@ -212,14 +211,23 @@ func GenerateCoverPointsFromBodies(bodies []*Body, opts CoverOptions) []ai.Cover
 					}
 				}
 			}
-		case ShapeSphere, ShapeCapsule:
+		case ShapeSphere, ShapeCapsule, ShapeCylinder:
 			var cx, cz, rad float32
-			if ws.Kind == ShapeSphere {
+			switch ws.Kind {
+			case ShapeSphere:
 				cx, cz, rad = ws.Sphere.Center.X, ws.Sphere.Center.Z, ws.Sphere.Radius
-			} else {
+			case ShapeCapsule:
 				cx = (ws.Capsule.A.X + ws.Capsule.B.X) * 0.5
 				cz = (ws.Capsule.A.Z + ws.Capsule.B.Z) * 0.5
 				rad = ws.Capsule.Radius
+			case ShapeCylinder:
+				// A pillar or a barrel standing on an end; one lying on its side is not round seen from above.
+				c := ws.Cylinder
+				if h := c.Height(); h <= 0 || abs32(c.B.Y-c.A.Y) < 0.9*h {
+					continue
+				}
+				center := c.Center()
+				cx, cz, rad = center.X, center.Z, c.Radius
 			}
 			perim := 2 * math.Pi * float64(rad)
 			if rad <= 0 || (opts.MinEdgeLength > 0 && perim < float64(opts.MinEdgeLength)) {
