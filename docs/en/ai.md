@@ -193,9 +193,27 @@ tree.Tick(dt)
 
 Available nodes:
 
-- **Composites**: `Sequence`, `Selector` (preempts and resets lower-priority running branches when a higher-priority branch succeeds or runs), `Parallel(policy, ...)` (`RequireAll` or `RequireOne`), `UtilitySelector(reasoner, ctx, rng, subtrees)`.
-- **Decorators**: `Guard(cond, child)`, `Cooldown(d, child)`, `WithAttackToken(pool, agentID, priority, child)`, `Inverter`, `Succeeder`, `Failer`, `Repeater(count, child)`, `UntilFail`.
+- **Composites**: `Sequence`, `Selector` (preempts and resets lower-priority running branches when a higher-priority branch succeeds or runs), `Parallel(policy, ...)` (`RequireAll` or `RequireOne`), `RandomSelector(stream, ...)`, `RandomSequence(stream, ...)`, `WeightedSelector(stream, options...)` (using `WeightedNode{Node, Weight}`), `UtilitySelector(reasoner, ctx, rng, subtrees)`.
+- **Decorators**: `Guard(cond, child)`, `Cooldown(d, child)`, `TimeLimit(d, child)`, `Retry(n, child)`, `Service(interval, fn, child)`, `WithAttackToken(pool, agentID, priority, child)`, `Inverter`, `Succeeder`, `Failer`, `Repeater(count, child)`, `UntilFail`.
 - **Leaves**: `Action(fn)`, `Condition(fn)`, `Wait(d)`, `HasAttackToken(pool, agentID)`, `SquadHasOrder(squad, kind)`, `SquadHasRole(squad, agentID, role)`, `SquadStateBool(squad, key)`, `SquadOrderAction(squad, fn)`.
+
+### Timeouts, retries, deterministic random choices, and services
+
+- **`TimeLimit(d, child)`** fails and calls `child.Reset()` if `child` is still `StatusRunning` once `d` of game time has elapsed.
+- **`Retry(n, child)`** reruns a failing child up to `n` additional times (`1+n` total attempts), returning `StatusRunning` between attempts and `StatusSuccess` as soon as `child` succeeds.
+- **`RandomSelector(stream, children...)`** and **`RandomSequence(stream, children...)`** shuffle child order at the start of each run using a caller-supplied `*random.Stream` and keep that order across `StatusRunning` ticks until completion or `Reset()`.
+- **`WeightedSelector(stream, options...)`** draws `WeightedNode` children without replacement proportional to `Weight` using `stream` (skipping non-positive, `NaN`, or infinite weights and `nil` nodes), keeping a running child across ticks and remaining deterministic for a given seed.
+- **`Service(interval, fn, child)`** invokes `fn` immediately on entry into `child` and then every `interval` of game time while `child` continues returning `StatusRunning`, stopping cleanly when `child` finishes or is reset.
+
+```go
+rng := random.New(42)
+combat := ai.Service(250*time.Millisecond, refreshTarget,
+	ai.WeightedSelector(rng,
+		ai.WeightedNode{Node: ai.TimeLimit(2*time.Second, chargeAttack), Weight: 2},
+		ai.WeightedNode{Node: ai.Retry(2, rangedShot), Weight: 3},
+	),
+)
+```
 
 ## Utility AI
 
