@@ -3,6 +3,8 @@ package physics3d
 import (
 	"math"
 	"slices"
+
+	"github.com/nsgo-dev/game/packages/game/internal/detmath"
 )
 
 // Convex narrow phase (#808). Pairs that involve a ConvexHull or a Cylinder are tested with GJK, which finds the distance between two convex shapes or reports that they overlap, and EPA, which measures how deep an overlap is and along which direction. Spheres and capsules take part as a point or a segment plus a radius (their margin), so GJK alone resolves every shallow contact against them and EPA only runs when the cores themselves overlap. A contact's point is the centre of the patch where the two shapes' supporting features overlap, found by clipping one feature against the other, so a hull resting on a face or a cylinder standing on its end gets a point under its middle rather than at one corner. Everything runs in float64 in a fixed order with index tie-breaks, so the same inputs always give the same contact.
@@ -14,14 +16,16 @@ func toDV(v Vec3) dv { return dv{float64(v.X), float64(v.Y), float64(v.Z)} }
 
 func (a dv) vec3() Vec3 { return Vec3{X: float32(a.x), Y: float32(a.y), Z: float32(a.z)} }
 
-func (a dv) add(b dv) dv             { return dv{a.x + b.x, a.y + b.y, a.z + b.z} }
-func (a dv) sub(b dv) dv             { return dv{a.x - b.x, a.y - b.y, a.z - b.z} }
-func (a dv) scale(s float64) dv      { return dv{a.x * s, a.y * s, a.z * s} }
-func (a dv) neg() dv                 { return dv{-a.x, -a.y, -a.z} }
-func (a dv) dot(b dv) float64        { return a.x*b.x + a.y*b.y + a.z*b.z }
-func (a dv) lenSq() float64          { return a.dot(a) }
-func (a dv) length() float64         { return math.Sqrt(a.dot(a)) }
-func (a dv) cross(b dv) dv           { return dv{a.y*b.z - a.z*b.y, a.z*b.x - a.x*b.z, a.x*b.y - a.y*b.x} }
+func (a dv) add(b dv) dv        { return dv{a.x + b.x, a.y + b.y, a.z + b.z} }
+func (a dv) sub(b dv) dv        { return dv{a.x - b.x, a.y - b.y, a.z - b.z} }
+func (a dv) scale(s float64) dv { return dv{float64(a.x * s), float64(a.y * s), float64(a.z * s)} }
+func (a dv) neg() dv            { return dv{-a.x, -a.y, -a.z} }
+func (a dv) dot(b dv) float64   { return float64(a.x*b.x) + float64(a.y*b.y) + float64(a.z*b.z) }
+func (a dv) lenSq() float64     { return a.dot(a) }
+func (a dv) length() float64    { return math.Sqrt(a.dot(a)) }
+func (a dv) cross(b dv) dv {
+	return dv{float64(a.y*b.z) - float64(a.z*b.y), float64(a.z*b.x) - float64(a.x*b.z), float64(a.x*b.y) - float64(a.y*b.x)}
+}
 func (a dv) lerp(b dv, t float64) dv { return a.add(b.sub(a).scale(t)) }
 
 func (a dv) norm() dv {
@@ -37,9 +41,9 @@ func rotAxes(q Quat) [3]dv {
 	q = normalizedQuat(q)
 	x, y, z, w := float64(q.X), float64(q.Y), float64(q.Z), float64(q.W)
 	return [3]dv{
-		{1 - 2*(y*y+z*z), 2 * (x*y + w*z), 2 * (x*z - w*y)},
-		{2 * (x*y - w*z), 1 - 2*(x*x+z*z), 2 * (y*z + w*x)},
-		{2 * (x*z + w*y), 2 * (y*z - w*x), 1 - 2*(x*x+y*y)},
+		{1 - 2*(float64(y*y)+float64(z*z)), 2 * (float64(x*y) + float64(w*z)), 2 * (float64(x*z) - float64(w*y))},
+		{2 * (float64(x*y) - float64(w*z)), 1 - 2*(float64(x*x)+float64(z*z)), 2 * (float64(y*z) + float64(w*x))},
+		{2 * (float64(x*z) + float64(w*y)), 2 * (float64(y*z) - float64(w*x)), 1 - 2*(float64(x*x)+float64(y*y))},
 	}
 }
 
@@ -249,7 +253,7 @@ func (c *cvx) feature(dst []dv, n dv) []dv {
 		capC := c.center.add(c.axis.scale(signNZ(du) * c.half))
 		u, v := perpBasis(c.axis)
 		for i := range cylinderDiscSides {
-			s, co := math.Sincos(2 * math.Pi * float64(i) / cylinderDiscSides)
+			s, co := detmath.Sincos(2 * math.Pi * float64(i) / cylinderDiscSides)
 			dst = append(dst, capC.add(u.scale(co*c.radius)).add(v.scale(s*c.radius)))
 		}
 		return dst
@@ -343,7 +347,7 @@ func (s *simplex) closestTriangle(i, j, k int) (dv, bool) {
 		s.bc[0] = 1
 		return b, true
 	}
-	vcc := d1*d4 - d3*d2
+	vcc := float64(d1*d4) - float64(d3*d2)
 	if vcc <= 0 && d1 >= 0 && d3 <= 0 {
 		t := d1 / (d1 - d3)
 		set(va, vb)
@@ -356,14 +360,14 @@ func (s *simplex) closestTriangle(i, j, k int) (dv, bool) {
 		s.bc[0] = 1
 		return c, true
 	}
-	vbb := d5*d2 - d1*d6
+	vbb := float64(d5*d2) - float64(d1*d6)
 	if vbb <= 0 && d2 >= 0 && d6 <= 0 {
 		t := d2 / (d2 - d6)
 		set(va, vc)
 		s.bc[0], s.bc[1] = 1-t, t
 		return a.add(ac.scale(t)), true
 	}
-	vaa := d3*d6 - d5*d4
+	vaa := float64(d3*d6) - float64(d5*d4)
 	if vaa <= 0 && (d4-d3) >= 0 && (d5-d6) >= 0 {
 		t := (d4 - d3) / ((d4 - d3) + (d5 - d6))
 		set(vb, vc)
@@ -441,7 +445,7 @@ func gjk(a, b *cvx, tol float64) (s simplex, pa, pb dv, overlap bool) {
 			return s, dv{}, dv{}, true
 		}
 		w := minkowski(a, b, v.neg())
-		if vv-v.dot(w.w) <= 1e-10*vv+tol*tol {
+		if vv-v.dot(w.w) <= float64(1e-10*vv)+float64(tol*tol) {
 			break
 		}
 		dup := false
@@ -610,12 +614,12 @@ func barycentric(p, a, b, c dv) (float64, float64, float64) {
 	v0, v1, v2 := b.sub(a), c.sub(a), p.sub(a)
 	d00, d01, d11 := v0.dot(v0), v0.dot(v1), v1.dot(v1)
 	d20, d21 := v2.dot(v0), v2.dot(v1)
-	den := d00*d11 - d01*d01
+	den := float64(d00*d11) - float64(d01*d01)
 	if den <= 1e-300 {
 		return 1, 0, 0
 	}
-	v := (d11*d20 - d01*d21) / den
-	w := (d00*d21 - d01*d20) / den
+	v := (float64(d11*d20) - float64(d01*d21)) / den
+	w := (float64(d00*d21) - float64(d01*d20)) / den
 	v, w = math.Max(v, 0), math.Max(w, 0)
 	if s := v + w; s > 1 {
 		v, w = v/s, w/s
@@ -787,7 +791,7 @@ func convexTriangle(s cvx, tri Triangle, pts []dv) (Contact, []dv) {
 		return c, pts
 	}
 	// The face normal stands in for an edge normal only where the triangle could be part of a larger surface the shape rests on: its depth must stay close to the GJK and EPA depth, or the shape's centroid must lie over the triangle. A shape that grazes a ledge's open edge from the side otherwise would be pushed down or lifted by the whole height of its face above or below the ledge.
-	if slop := faceNormalSlop * (1 + s.extent()); depth > float64(c.Depth)+slop && !insidePrism(s.centroid(), t.p[:], tn) {
+	if slop := faceNormalSlop * (1 + s.extent()); depth > float64(c.Depth)+float64(slop) && !insidePrism(s.centroid(), t.p[:], tn) {
 		return c, pts[:n0]
 	}
 	return Contact{Hit: true, Normal: tn.vec3().Norm(), Depth: float32(depth), Point: sum.scale(1 / float64(k)).vec3()}, pts
@@ -942,7 +946,7 @@ func polygonNormal(poly []dv) dv {
 	var n dv
 	for i := range poly {
 		a, b := poly[i], poly[(i+1)%len(poly)]
-		n = n.add(dv{(a.y - b.y) * (a.z + b.z), (a.z - b.z) * (a.x + b.x), (a.x - b.x) * (a.y + b.y)})
+		n = n.add(dv{float64((a.y - b.y) * (a.z + b.z)), float64((a.z - b.z) * (a.x + b.x)), float64((a.x - b.x) * (a.y + b.y))})
 	}
 	return n.norm()
 }

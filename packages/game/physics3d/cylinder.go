@@ -10,7 +10,7 @@ type Cylinder struct {
 
 // VerticalCylinder returns a Y-aligned cylinder centered at center with the given radius and total height, such as a barrel standing on its end.
 func VerticalCylinder(center Vec3, radius, height float32) Cylinder {
-	h := max(height, 0) * 0.5
+	h := float32(max(height, 0) * 0.5)
 	return Cylinder{
 		A:      Vec3{X: center.X, Y: center.Y - h, Z: center.Z},
 		B:      Vec3{X: center.X, Y: center.Y + h, Z: center.Z},
@@ -44,9 +44,9 @@ func (c Cylinder) bounds() Box {
 		u := d.Scale(1 / l)
 		r := c.Radius
 		e = Vec3{
-			X: r * sqrt32(max(0, 1-u.X*u.X)),
-			Y: r * sqrt32(max(0, 1-u.Y*u.Y)),
-			Z: r * sqrt32(max(0, 1-u.Z*u.Z)),
+			X: r * sqrt32(max(0, 1-float32(u.X*u.X))),
+			Y: r * sqrt32(max(0, 1-float32(u.Y*u.Y))),
+			Z: r * sqrt32(max(0, 1-float32(u.Z*u.Z))),
 		}
 	}
 	mn := Vec3{X: min(c.A.X, c.B.X) - e.X, Y: min(c.A.Y, c.B.Y) - e.Y, Z: min(c.A.Z, c.B.Z) - e.Z}
@@ -95,13 +95,13 @@ func RaycastCylinder(ray Ray, c Cylinder) (RaycastHit, bool) {
 	}
 	// Infinite cylinder around the axis.
 	op, dp := o.sub(u.scale(ou)), d.sub(u.scale(du))
-	qa, qb, qc := dp.lenSq(), op.dot(dp), op.lenSq()-r*r
+	qa, qb, qc := dp.lenSq(), op.dot(dp), op.lenSq()-float64(r*r)
 	if qa < 1e-15 {
 		if qc > 0 {
 			return RaycastHit{}, false
 		}
 	} else {
-		disc := qb*qb - qa*qc
+		disc := float64(qb*qb) - float64(qa*qc)
 		if disc < 0 {
 			return RaycastHit{}, false
 		}

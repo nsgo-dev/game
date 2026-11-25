@@ -379,3 +379,111 @@ func TestGoldenTrajectory3D(t *testing.T) {
 		t.Fatalf("physics3d.World golden checksum = %#016x, want %#016x", got, wantGolden)
 	}
 }
+
+// buildConvexWorld3D drops convex hulls, rotated hulls and cylinders onto a box floor (#808).
+func buildConvexWorld3D(t *testing.T) *physics3d.World {
+	t.Helper()
+	w := physics3d.NewWorld()
+	w.AddBody(physics3d.NewStaticBody(physics3d.BoxShape(physics3d.Box{HalfExtents: physics3d.Vec3{X: 10, Y: 0.5, Z: 10}}), physics3d.Vec3{Y: -0.5}))
+	for i := range 3 {
+		h, err := physics3d.NewConvexHull(rockPoints(uint64(40+i), 50, 0.5), 20)
+		if err != nil {
+			t.Fatalf("NewConvexHull: %v", err)
+		}
+		h = h.Recentered()
+		h.Center = physics3d.Vec3{}
+		s := physics3d.ConvexHullShape(h)
+		s.Rot = physics3d.QuatFromAxisAngle(physics3d.Vec3{X: 1, Z: 1}.Norm(), 0.3*float32(i+1))
+		b := w.AddBody(physics3d.NewDynamicBody(s, physics3d.Vec3{X: float32(i) * 0.4, Y: 0.8 + float32(i)*0.9}, 2))
+		b.AngVel = physics3d.Vec3{Y: 0.5}
+	}
+	w.AddBody(physics3d.NewDynamicBody(physics3d.CylinderShape(physics3d.VerticalCylinder(physics3d.Vec3{}, 0.3, 0.9)), physics3d.Vec3{X: 2, Y: 0.6}, 3))
+	lying := w.AddBody(physics3d.NewDynamicBody(physics3d.CylinderShape(physics3d.Cylinder{A: physics3d.Vec3{Z: -0.5}, B: physics3d.Vec3{Z: 0.5}, Radius: 0.25}), physics3d.Vec3{X: -2, Y: 0.5}, 2))
+	lying.Vel = physics3d.Vec3{X: 1}
+	return w
+}
+
+func TestWorldSaveRestoreConvexShapes(t *testing.T) {
+	const dt = time.Second / 60
+	w := buildConvexWorld3D(t)
+	for range 60 {
+		w.Step(dt)
+	}
+	raw, err := json.Marshal(w.Save())
+	if err != nil {
+		t.Fatalf("json.Marshal(WorldSnapshot): %v", err)
+	}
+	snapChecksum := w.Checksum()
+	for range 90 {
+		w.Step(dt)
+	}
+	want := w.Checksum()
+
+	for _, name := range []string{"in place", "fresh"} {
+		var decoded physics3d.WorldSnapshot
+		if err := json.Unmarshal(raw, &decoded); err != nil {
+			t.Fatalf("json.Unmarshal(WorldSnapshot): %v", err)
+		}
+		target := w
+		if name == "fresh" {
+			target = physics3d.NewWorld()
+		}
+		if err := target.Restore(decoded); err != nil {
+			t.Fatalf("%s Restore: %v", name, err)
+		}
+		if got := target.Checksum(); got != snapChecksum {
+			t.Fatalf("%s restored checksum = %#x, want %#x", name, got, snapChecksum)
+		}
+		for range 90 {
+			target.Step(dt)
+		}
+		if got := target.Checksum(); got != want {
+			t.Fatalf("%s checksum after re-stepping = %#x, want %#x", name, got, want)
+		}
+	}
+
+	again, err := json.Marshal(func() physics3d.WorldSnapshot {
+		var decoded physics3d.WorldSnapshot
+		if err := json.Unmarshal(raw, &decoded); err != nil {
+			t.Fatalf("json.Unmarshal(WorldSnapshot): %v", err)
+		}
+		return decoded
+	}())
+	if err != nil {
+		t.Fatalf("json.Marshal(decoded): %v", err)
+	}
+	if string(again) != string(raw) {
+		t.Fatal("WorldSnapshot with convex shapes does not round-trip through JSON unchanged")
+	}
+}
+
+func TestConvexHullJSONRejectsBadGeometry(t *testing.T) {
+	h, err := physics3d.NewConvexHull(rockPoints(7, 30, 1), 12)
+	if err != nil {
+		t.Fatalf("NewConvexHull: %v", err)
+	}
+	raw, err := json.Marshal(h)
+	if err != nil {
+		t.Fatalf("json.Marshal(ConvexHull): %v", err)
+	}
+	var back physics3d.ConvexHull
+	if err := json.Unmarshal(raw, &back); err != nil {
+		t.Fatalf("json.Unmarshal(ConvexHull): %v", err)
+	}
+	if back.NumVertices() != h.NumVertices() || back.Volume() != h.Volume() {
+		t.Fatalf("decoded hull has %d vertices and volume %v, want %d and %v", back.NumVertices(), back.Volume(), h.NumVertices(), h.Volume())
+	}
+	for _, bad := range []string{
+		`{"center":{"X":0,"Y":0,"Z":0},"extra":1}`,
+		`{"center":{"X":0,"Y":0,"Z":0},"geom":{"vertices":[[0,0,0]],"faces":[],"edges":[],"volume":1,"centroid":[0,0,0],"inertia":[[0,0,0],[0,0,0],[0,0,0]],"radius":1,"halfWidth":1}}`,
+	} {
+		var got physics3d.ConvexHull
+		if err := json.Unmarshal([]byte(bad), &got); err == nil {
+			t.Fatalf("json.Unmarshal(%s) accepted bad hull", bad)
+		}
+	}
+	var empty physics3d.ConvexHull
+	if err := json.Unmarshal([]byte(`{"center":{"X":1,"Y":2,"Z":3}}`), &empty); err != nil || !empty.IsEmpty() {
+		t.Fatalf("empty hull: err %v, IsEmpty %v", err, empty.IsEmpty())
+	}
+}
