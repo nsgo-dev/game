@@ -83,6 +83,7 @@ func (e *Editor) PlayIn(cx *core.Scope) error {
 	}
 
 	e.stopClipLoop()
+	e.stopAudioAudition()
 	e.playSnapshot = snap
 	e.Doc = playDoc
 	e.Built = playBuilt

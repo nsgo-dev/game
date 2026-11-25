@@ -26,6 +26,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 	cx.Cleanup(func() {
 		unsub()
 		ed.stopClipLoop()
+		ed.cleanupAudioMixerScope(cx)
 		if ed.Playing() {
 			_ = ed.Stop()
 		}
@@ -58,6 +59,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 			pluginDockView(cx, ed, rev, DockBottom),
 			DataTablePanelView(cx, ed, rev),
 			AnimationPanelView(cx, ed, rev),
+			AudioMixerPanelView(cx, ed, rev),
 			statusBarView(cx, ed, rev),
 		},
 	}
@@ -269,6 +271,22 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 						},
 						OnPress: func() {
 							ed.report(ed.NewClip("", "New clip", time.Second))
+						},
+					},
+					ui.ToggleButton{
+						TestID: "toolbar-audio-mixer",
+						Text:   "Mixer",
+						Label:  "Toggle the Audio Bus Mixer panel",
+						Disabled: func() bool {
+							_ = rev.Get()
+							return ed.Project == nil
+						},
+						On: func() bool {
+							_ = rev.Get()
+							return ed.AudioMixerOpen()
+						},
+						OnChange: func(on bool) {
+							ed.SetAudioMixerOpen(on)
 						},
 					},
 					core.Show{
