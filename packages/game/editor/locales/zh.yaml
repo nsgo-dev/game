@@ -307,6 +307,7 @@ strings:
   menu.openBaseScene: 打开基础场景
   menu.openInstancedScene: 打开实例化场景
   menu.openProject: 打开项目…
+  menu.overlays: 叠加层
   menu.paintTile: 绘制瓦片
   menu.particleEditor: 粒子发射器编辑器
   menu.paste: 粘贴
@@ -353,6 +354,22 @@ strings:
   output.title: 输出（{count}）
   output.titleBuilding: 输出（正在构建资源 · {count}）
   output.titleRunning: 输出（运行中 · {count}）
+  overlays.agentNote: 智能体的视口截图使用同一组设置
+  overlays.button: 叠加层
+  overlays.cameraBounds: 相机边界
+  overlays.collisionShapes: 碰撞形状
+  overlays.connections: 连接线
+  overlays.fit: 适应画面
+  overlays.fitLabel: 在 2D 视口中适应显示全部可见对象
+  overlays.labels: 标签
+  overlays.navigation: 导航区域
+  overlays.patrolPaths: 巡逻路径
+  overlays.popoverTitle: 在视口中显示
+  overlays.snap: 吸附
+  overlays.snapLabel: 将形状手柄吸附到网格
+  overlays.triggers: 触发器
+  overlays.zoomIn: 放大
+  overlays.zoomOut: 缩小
   palette.empty: 没有匹配的命令或文件
   palette.group.commands: 命令
   palette.group.files: 文件
@@ -542,3 +559,7 @@ strings:
 plurals:
   output.errorCount:
     other: ' · {count} 个错误'
+  overlays.count.regions:
+    other: '{count} 个区域'
+  overlays.count.shapes:
+    other: '{count} 个形状'

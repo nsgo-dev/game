@@ -1049,7 +1049,7 @@ func main() {
 
 编辑器界面通过内嵌的带版本号 `l10n` YAML 字符串表（`editor/locales/en.yaml`、`editor/locales/zh.yaml`）同时提供英文（`en`）与简体中文（`zh`）界面，并将每名用户的编辑器偏好设置作为确定性的带版本号 YAML 保存在项目之外：
 
-- **用户级设置文件（`EditorSettings`、`SettingsVersion = 1`）**：默认保存在 `DefaultSettingsPath()`（`os.UserConfigDir()` 下的 `nsgo-game/editor.yaml`，位于所有游戏项目之外），通过 `ParseEditorSettings`、`EncodeEditorSettings`、`LoadEditorSettings`、`SaveEditorSettings`、`Editor.LoadSettings`、`Editor.LoadUserSettings` 和 `Editor.SaveSettings` 读写。未知字段、YAML 锚点/别名/合并键、多余文档和非法枚举值都会被拒绝并返回 `*loaderr.Error`。已发布的 JSON Schema 为 `https://game.nsgo.dev/schemas/editor-settings.v1.json`（`SettingsSchemaURL`）。
+- **用户级设置文件（`EditorSettings`、`SettingsVersion = 1`）**：默认保存在 `DefaultSettingsPath()`（`os.UserConfigDir()` 下的 `nsgo-game/editor.yaml`，位于所有游戏项目之外），通过 `ParseEditorSettings`、`EncodeEditorSettings`、`LoadEditorSettings`、`SaveEditorSettings`、`Editor.LoadSettings`、`Editor.LoadUserSettings` 和 `Editor.SaveSettings` 读写。文件保存 `language`、`appearance` 以及可选的 `viewportOverlays`（按字典序排列的已启用 2D 视口叠加层 ID 列表；省略时使用默认组合，`[]` 表示全部关闭）。未知字段、YAML 锚点/别名/合并键、多余文档和非法枚举值都会被拒绝并返回 `*loaderr.Error`。已发布的 JSON Schema 为 `https://game.nsgo.dev/schemas/editor-settings.v1.json`（`SettingsSchemaURL`）。
   ```yaml
   # yaml-language-server: $schema=https://game.nsgo.dev/schemas/editor-settings.v1.json
   version: 1
@@ -1127,7 +1127,6 @@ func main() {
   4. **胜率矩阵**（`PlaytestChartMatrix`）：对超过阈值（默认 60%）的单元格以边框、标记点及 `"above 60%"` 文字标出。
 - **Agent 解读、可执行建议与脚注**：展示数句诊断结论（`DefaultPlaytestAgentRead` 或 `SetPlaytestAgentRead`）与可点击的调优建议卡片（`RequestPlaytestSuggestion`，点击后作为审查请求发送给代理），底部附注说明所有试玩均基于回放系统，指标与机器人均来自 `playtest.yaml`。
 - **MCP 集成（`editormcp`）**：`game_playtest` 会将生成的报告同步载入编辑器，`playtest_define` 会将待审查指标直接推送到试玩报告横幅并与 Apply/Dismiss 双向同步，新增的 `playtest_report` 工具支持代理打开、检查、写入解读与建议或回放指定轮次。
-
 ## 资源抽屉（#1052）
 
 在左侧栏顶部可在 **Scene**（`LeftRailScene`）与 **Assets**（`LeftRailAssets`，也可通过命令面板 `CmdToggleAssetsMode` 切换）之间切换，在视口下方统一浏览、筛选、预览并将各类项目资源直接拖入场景；界面严格使用 `docs/design/editor/Spec.dc.html` 设计 Token 并对应 `docs/design/editor/Assets.dc.html`（第 1 屏）布局：
@@ -1136,3 +1135,19 @@ func main() {
 - **视口下方的资源抽屉（`AssetDrawerView`）**：提供类型标签页（**All**、**Sprites**、**Tiles**、**Audio**、**Fonts**）、按名称或路径筛选输入框（`SetAssetDrawerQuery`）、默认按最近修改排序的排序切换（`SetAssetDrawerSort`）以及 **Import**（`TriggerAssetImport` / `ImportAssetFiles`）和 **Generate**（`TriggerAssetGenerate`）按钮。每张卡片显示透明棋盘格预览、状态徽章（`new`、`Missing`、`Generated`、`Not used`）、文件名和元信息行（如 `"6 frames · used 31×"`）。底栏显示 `"N assets · M shown"` 及缺失文件提示（如 `"1 problem · door_open.png missing"`）；空目录显示 `"audio/music is empty · Drop .ogg or .wav files here, or ask the agent."`，筛选无结果时显示 `"Clear a filter to see more assets."`。
 - **拖拽到视口（吸附放置或替换精灵）**：将精灵卡片拖到 2D 视口空白处时会显示网格吸附虚线预览与状态胶囊（`"coin.png new Sprite on Actors · snapped to 16 px"`），松手后在活动图层上以**单个撤销步骤**放置新精灵对象（`DropAssetAt`）；拖放到已有对象上则会以**单个撤销步骤**替换该对象的精灵，按一次 **Undo** 即可还原旧精灵。按 **Escape**（`CancelAssetDrag`）可干净取消拖拽，不改动场景。
 - **右侧选中资源面板（`AssetInspectorView`）**：在棋盘格预览框中展示尺寸与格式元信息，为多帧精灵提供逐帧可播放的片段预览控件（`SetAssetPreviewPlaying`、`SetAssetPreviewClip`、`SetAssetPreviewFrame`、`StepAssetPreviewFrame`），为音频提供波形图与可播放试听控件（`ToggleAssetAudioPreview`、`StopAssetAudioPreview`），下方展示来自 `InspectAssetImport` 的紧凑 **IMPORT** 摘要以及直接来自 `refs.Project.UsedBy` 的 **USED BY** 引用列表（点击引用条目可跳转打开对应场景或文件）。未被任何文件引用的资源会提示 `"Nothing references it. The agent can propose deleting it; deleting files always asks you."`，缺失资源则提供 **Replace with a file**（`TriggerReplaceMissingAsset` / `ReplaceMissingAsset`）与 **Ask the agent**（`AskAgentAboutAsset`）操作。
+
+## 视口叠加层菜单与智能体视口截图（#1040）
+
+在 2D 编辑模式（`ViewMode2D`）下，视口底部居中的悬浮栏（对应 `docs/design/editor/Inspector.dc.html`，严格采用 `Spec.dc.html` 令牌）将缩放（`−` / `%` / `+`）、**吸附（Snap）**、**适应画面（Fit）** 与显示当前已开启数量的 **叠加层 N（Overlays N）** 按钮组合在一起：
+
+- **`SHOW IN VIEWPORT` / `在视口中显示` 弹出层（`ui.Popover`）**：点击 **Overlays N** 在上方弹出（也可经由 `View > Overlays` 或 `CmdViewportOverlays` 访问），每项叠加层均显示图例色标、本地化名称、当前场景实时数量与 `ui.Switch` 开关，并在底部注明 *“智能体的视口截图使用同一组设置：`viewport_overlays`”*：
+  - **碰撞形状**（`collision_shapes`）：已注册的非触发器组件形状字段（#882）与非触发器 2D 物理碰撞体。
+  - **触发器**（`triggers`）：触发器/传感器/区域组件形状与 2D 物理触发区域（琥珀色虚线框）。
+  - **连接线**（`connections`）：从场景 `connections` 中发送事件的对象指向处理对象的弧形箭头，并标注 `"event → handler"`（如 `"pulled → open"`）。
+  - **巡逻路径**（`patrol_paths`）：敌人或角色的巡逻范围与路径点，通过与插件共享的 `ViewportOverlay` 注册机制实现。
+  - **导航区域**（`navigation`）：构建好的 2D 导航网格多边形、通道与 `navregion2d` 轮廓（#888），与 `ShowNavMesh2D` 保持同步。
+  - **相机边界**（`camera_bounds`）：场景相机边界框与 `"bounds W × H"` 尺寸标注（#884）。
+  - **标签**（`labels`）：可见对象下方的名称/ID 胶囊标签。
+- **插件自定义叠加层（`ViewportOverlay`）**：插件可通过 `Plugin.Overlays`（或直接在编辑器上调用 `Editor.RegisterViewportOverlay`）注册带 `ID`、`Name`/`NameKey`、可选 `Count` 计数回调与 `Draw func(*Editor, *core.Drawing, *sceneformat.BuiltScene)` 绘制函数的自定义叠加层。启用的插件叠加层会自动出现在弹出层、`View > Overlays` 菜单以及 `editormcp` 的 `viewport_image` 工具中。
+- **用户级持久化**：切换任意叠加层（`SetViewportOverlay`、`ToggleViewportOverlay`、`SetViewportOverlays`）都会把 `viewportOverlays` 写入项目之外的 `Editor.SettingsPath`（`EditorSettings` YAML），绝不改动任何项目或场景文件，重启后保持不变（全部关闭时显式写为 `[]`）。
+- **与 `editormcp` 的 `viewport_image` 共用**：`Editor.DrawViewportWithOverlays(d, size, overlayIDs)` 将完全一致的叠加层渲染进 `viewport_image`。省略 `viewport_overlays` 时默认使用编辑器当前已开启的叠加层；传入名称列表（或 `[]`）时仅覆盖本次截图而不修改编辑器设置。

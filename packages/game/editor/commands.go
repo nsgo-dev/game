@@ -70,6 +70,7 @@ const (
 	CmdToggleSnapRotation    = "view.snap.rotation"
 	CmdToggleSnapScale       = "view.snap.scale"
 	CmdToggleNavMesh2D       = "view.navmesh2d"
+	CmdViewportOverlays      = "view.overlays"
 	CmdCommandPalette        = "view.palette"
 	CmdPlayStop              = "project.play"
 	CmdRunGame               = "project.run"
@@ -1117,6 +1118,19 @@ func (e *Editor) initBuiltinCommands() {
 			Checked:     func() bool { return e.ShowNavMesh2D },
 			Run: func() error {
 				e.SetShowNavMesh2D(!e.ShowNavMesh2D)
+				return nil
+			},
+		},
+		{
+			ID:          CmdViewportOverlays,
+			Label:       "Viewport Overlays",
+			Description: "Open or close the 2D viewport Overlays popover (collision shapes, triggers, connections, patrol paths, navigation, camera bounds, labels)",
+			Category:    "View",
+			Keywords:    []string{"overlays", "collision", "triggers", "connections", "patrol", "navigation", "camera", "bounds", "labels", "2d"},
+			Enabled:     func() bool { return !e.Playing() && e.ViewMode == ViewMode2D },
+			Checked:     func() bool { return e.OverlaysPopoverOpen() },
+			Run: func() error {
+				e.ToggleOverlaysPopover()
 				return nil
 			},
 		},

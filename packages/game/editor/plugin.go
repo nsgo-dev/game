@@ -30,6 +30,8 @@ type Plugin struct {
 	Tools []PluginTool
 	// Gizmos3D register 3D viewport handles and drag editors per component type while the plugin is on.
 	Gizmos3D []ComponentGizmo3D
+	// Overlays are custom 2D viewport overlays added to the Overlays popover and editormcp's viewport_image tool while the plugin is on.
+	Overlays []ViewportOverlay
 	// Commands are added to the editor's command registry, desktop menu bar, command palette, and keyboard shortcuts while the plugin is on.
 	Commands []PluginCommand
 	// Catalog optionally supplies localized strings for this plugin (for example English and Simplified Chinese) resolved in the editor's active language via Editor.PluginT, Editor.PluginPlural, and panel/tool/command TitleKey/LabelKey fields.
@@ -202,6 +204,13 @@ func (e *Editor) RegisterPlugin(p Plugin) error {
 	p.Inspectors = slices.Clone(p.Inspectors)
 	p.Tools = slices.Clone(p.Tools)
 	p.Gizmos3D = slices.Clone(p.Gizmos3D)
+	e.initBuiltinOverlays()
+	for _, o := range p.Overlays {
+		if e.hasRegisteredOverlayID(o.ID) {
+			return fmt.Errorf("editor: plugin %s: overlay %q is already registered", p.Name, o.ID)
+		}
+	}
+	p.Overlays = slices.Clone(p.Overlays)
 	p.Commands = clonedCmds
 	cat, err := buildPluginCatalog(&p)
 	if err != nil {
@@ -312,6 +321,17 @@ func validatePlugin(p *Plugin) error {
 			return fmt.Errorf("%s: two 3D gizmos handle component %q", where, g.Component)
 		}
 		gizmos3D[g.Component] = struct{}{}
+	}
+	overlays := make(map[string]struct{}, len(p.Overlays))
+	for i := range p.Overlays {
+		o := &p.Overlays[i]
+		if err := validateViewportOverlay(o, where); err != nil {
+			return err
+		}
+		if _, dup := overlays[o.ID]; dup {
+			return fmt.Errorf("%s: two overlays have ID %q", where, o.ID)
+		}
+		overlays[o.ID] = struct{}{}
 	}
 	cmds := make(map[string]struct{}, len(p.Commands))
 	for i, c := range p.Commands {

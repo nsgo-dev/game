@@ -980,6 +980,9 @@ func fillAndStrokePolygon(d *core.Drawing, pts []math2d.Vec2, fill, stroke core.
 }
 
 func (e *Editor) drawComponentShapes2D(d *core.Drawing, scene *sceneformat.BuiltScene) {
+	if e.drawOverlayOverride != nil {
+		return
+	}
 	shapes := e.VisibleShapes2D()
 	if len(shapes) == 0 {
 		return

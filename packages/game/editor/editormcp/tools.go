@@ -79,8 +79,8 @@ func builtinTools() []Tool {
 		{
 			Name:        ToolViewportImage,
 			Title:       "Picture the viewport",
-			Description: "A PNG of the editor's viewport as it shows now, at the viewport's size in points times scale: the scene through the editor's own view, with the camera frame, the tile grid and the selection outline. Images that are not loaded in memory and text are left out, and the reply says how many.",
-			InputSchema: []byte(`{"type":"object","additionalProperties":false,"properties":{"scale":{"type":"number","minimum":0.25,"maximum":4,"description":"Pixels per point; 1 when absent"}}}`),
+			Description: "A PNG of the editor's viewport as it shows now, at the viewport's size in points times scale: the scene through the editor's own view, with the camera frame, the tile grid, the selection outline and viewport overlays. When viewport_overlays is omitted, the editor's active overlay set is used; pass overlay names (such as collision_shapes, triggers, connections, patrol_paths, navigation, camera_bounds, labels, or active plugin overlays) to override for this image, or [] to draw no overlays. Images that are not loaded in memory are left out, and the reply says how many.",
+			InputSchema: []byte(`{"type":"object","additionalProperties":false,"properties":{"scale":{"type":"number","minimum":0.25,"maximum":4,"description":"Pixels per point; 1 when absent"},"viewport_overlays":{"type":"array","items":{"type":"string"},"description":"Viewport overlay names to draw (for example collision_shapes, triggers, connections, patrol_paths, navigation, camera_bounds, labels, or active plugin overlays). Uses the editor's active overlay set when omitted; pass [] for none."}}}`),
 			Action:      ActionRead,
 			Handler:     viewportImage,
 		},
@@ -584,16 +584,19 @@ type ViewportImage struct {
 	View editor.View2D `json:"view"`
 	// ViewMode is "2D" or "3D".
 	ViewMode string `json:"viewMode"`
+	// ViewportOverlays lists the viewport overlay names drawn into this image.
+	ViewportOverlays []string `json:"viewportOverlays,omitempty"`
 	// SkippedImages counts the images left out because they are not loaded in memory.
 	SkippedImages int `json:"skippedImages,omitempty"`
-	// SkippedOps counts the drawing operations left out, such as text, by kind.
+	// SkippedOps counts the drawing operations left out by kind.
 	SkippedOps map[string]int `json:"skippedOps,omitempty"`
 }
 
 // viewportImage runs viewport_image.
 func viewportImage(ctx context.Context, c *Call) (*Result, error) {
 	var args struct {
-		Scale float64 `json:"scale"`
+		Scale            float64   `json:"scale"`
+		ViewportOverlays *[]string `json:"viewport_overlays"`
 	}
 	if err := c.Decode(&args); err != nil {
 		return nil, fmt.Errorf("viewport_image: %w", err)
@@ -614,7 +617,27 @@ func viewportImage(ctx context.Context, c *Call) (*Result, error) {
 		w, h = ed.CanvasSize()
 		var d core.Drawing
 		d.Scale(float32(scale), float32(scale))
-		ed.DrawViewport(&d, core.Size{Width: core.Points(w), Height: core.Points(h)})
+		size := core.Size{Width: core.Points(w), Height: core.Points(h)}
+		if args.ViewportOverlays == nil {
+			info.ViewportOverlays = ed.ActiveViewportOverlays()
+			ed.DrawViewport(&d, size)
+		} else {
+			req := *args.ViewportOverlays
+			if req == nil {
+				req = []string{}
+			}
+			if err := ed.DrawViewportWithOverlays(&d, size, req); err != nil {
+				return fmt.Errorf("viewport_image: %w", err)
+			}
+			seen := make(map[string]struct{}, len(req))
+			for _, id := range req {
+				if _, dup := seen[id]; !dup {
+					seen[id] = struct{}{}
+					info.ViewportOverlays = append(info.ViewportOverlays, id)
+				}
+			}
+			slices.Sort(info.ViewportOverlays)
+		}
 		ops = d.Ops
 		info.View = ed.View2D()
 		info.ViewMode = ed.ViewMode.String()
@@ -627,19 +650,33 @@ func viewportImage(ctx context.Context, c *Call) (*Result, error) {
 	if err != nil {
 		return nil, fmt.Errorf("viewport_image: %w", err)
 	}
-	info.Width, info.Height, info.SkippedImages, info.SkippedOps = r.Width, r.Height, r.SkippedImages, r.SkippedOps
+	pngBytes := r.PNG
+	skippedOps := r.SkippedOps
+	if skippedOps["DrawFillText"] > 0 {
+		if rendered, ok := renderOverlayTextPNG(pngBytes, ops); ok {
+			pngBytes = rendered
+			delete(skippedOps, "DrawFillText")
+			if len(skippedOps) == 0 {
+				skippedOps = nil
+			}
+		}
+	}
+	info.Width, info.Height, info.SkippedImages, info.SkippedOps = r.Width, r.Height, r.SkippedImages, skippedOps
 	text := fmt.Sprintf("The %s viewport, %d×%d pixels, view centered on (%g, %g) at zoom %g.", info.ViewMode, r.Width, r.Height, info.View.X, info.View.Y, info.View.Zoom)
+	if len(info.ViewportOverlays) > 0 {
+		text += fmt.Sprintf(" Overlays: %s.", strings.Join(info.ViewportOverlays, ", "))
+	}
 	if n := r.SkippedImages; n > 0 {
 		text += fmt.Sprintf(" %d images are not loaded in memory and are left out.", n)
 	}
 	skipped := 0
-	for _, n := range r.SkippedOps {
+	for _, n := range skippedOps {
 		skipped += n
 	}
 	if skipped > 0 {
-		text += fmt.Sprintf(" %d drawing operations it cannot draw, such as text, are left out.", skipped)
+		text += fmt.Sprintf(" %d drawing operations it cannot draw are left out.", skipped)
 	}
-	return &Result{Text: text, Structured: info, PNG: r.PNG}, nil
+	return &Result{Text: text, Structured: info, PNG: pngBytes}, nil
 }
 
 // Problem is one problem game_check reports, as a row of the Problems panel shows it.

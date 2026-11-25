@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -99,6 +100,9 @@ type EditorSettings struct {
 	Language Language `yaml:"language" schema:"required,enum=system|en|zh"`
 	// Appearance selects the editor color scheme ("system", "light", or "dark").
 	Appearance Appearance `yaml:"appearance" schema:"required,enum=system|light|dark"`
+	// ViewportOverlays lists the enabled 2D viewport overlay IDs in canonical sorted order.
+	// When omitted, the editor uses DefaultViewportOverlays(); an empty list disables all overlays.
+	ViewportOverlays *[]string `yaml:"viewportOverlays,omitempty"`
 }
 
 // DefaultEditorSettings returns the default per-user editor settings: version 1, following the system language and appearance.
@@ -226,6 +230,18 @@ func ValidateEditorSettings(s *EditorSettings) error {
 	if !s.Appearance.Valid() {
 		return loaderr.Errorf("appearance", fixSettingsAppear, "editor: invalid settings appearance %q (want system, light, or dark)", s.Appearance)
 	}
+	if s.ViewportOverlays != nil {
+		seen := make(map[string]struct{}, len(*s.ViewportOverlays))
+		for i, id := range *s.ViewportOverlays {
+			if err := validateOverlayID(id); err != nil {
+				return loaderr.Errorf(fmt.Sprintf("viewportOverlays[%d]", i), "use non-empty overlay IDs without spaces or control characters", "%v", err)
+			}
+			if _, dup := seen[id]; dup {
+				return loaderr.Errorf(fmt.Sprintf("viewportOverlays[%d]", i), "remove duplicate overlay IDs", "editor: duplicate viewport overlay %q", id)
+			}
+			seen[id] = struct{}{}
+		}
+	}
 	return nil
 }
 
@@ -238,6 +254,14 @@ func EncodeEditorSettings(s *EditorSettings) ([]byte, error) {
 		Version:    s.Version,
 		Language:   s.Language,
 		Appearance: s.Appearance,
+	}
+	if s.ViewportOverlays != nil {
+		sorted := slices.Clone(*s.ViewportOverlays)
+		if sorted == nil {
+			sorted = []string{}
+		}
+		slices.Sort(sorted)
+		out.ViewportOverlays = &sorted
 	}
 	var buf bytes.Buffer
 	buf.WriteString(SettingsSchemaComment + "\n")
@@ -304,6 +328,13 @@ func (e *Editor) Settings() EditorSettings {
 	}
 	if !s.Appearance.Valid() {
 		s.Appearance = AppearanceSystem
+	}
+	if s.ViewportOverlays != nil {
+		cp := slices.Clone(*s.ViewportOverlays)
+		if cp == nil {
+			cp = []string{}
+		}
+		s.ViewportOverlays = &cp
 	}
 	return s
 }
@@ -389,7 +420,16 @@ func (e *Editor) ApplySettings(s EditorSettings) error {
 	if err := ValidateEditorSettings(&s); err != nil {
 		return err
 	}
+	if s.ViewportOverlays != nil {
+		cp := slices.Clone(*s.ViewportOverlays)
+		if cp == nil {
+			cp = []string{}
+		}
+		slices.Sort(cp)
+		s.ViewportOverlays = &cp
+	}
 	e.settings = s
+	e.syncOverlaysFromSettings()
 	if e.scope != nil {
 		e.scope.SetAppearance(s.Appearance.CoreAppearance())
 	}
