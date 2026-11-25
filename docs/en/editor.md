@@ -473,6 +473,18 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 }
 ```
 
+### 2D viewport navigation (#864)
+
+The 2D viewport's canvas fills its panel and shows the scene through the editor's own view (`View2D`: the world point at the canvas's center, a zoom and a rotation), separate from the scene's `camera`, so a level larger than one screen can be seen and edited anywhere. The view is never saved to the scene nor recorded in the undo history.
+
+- A mouse wheel or a pinch zooms about the pointer, keeping the world point under it fixed (`ZoomView2DAt`), between `MinView2DZoom` and `MaxView2DZoom`.
+- A touchpad's two-finger scroll, a middle-button drag, a drag with Space held or a two-finger drag on a touch screen pans (`PanView2D`).
+- F, or the Frame Selection button, frames the selected object (`FrameSelection2D`, which frames everything when nothing is selected); Home, or Frame All, frames every object of the visible layers, their inline tilemaps and the camera's frame (`FrameAll2D`); Mod+0, or Scene Camera View, returns to the scene camera's view (`ResetView2D`).
+
+Until the author pans or zooms, and again after `ResetView2D` or opening another scene, the view is the scene camera's view: the virtual screen centered in the canvas at the camera's zoom and rotation, following the camera as the scene changes (`View2DFollowsCamera`). The canvas outlines the camera's frame, the virtual screen as the player sees it, and draws the camera's `bounds` dashed. Screen-space layers draw inside that frame. In Play mode only the frame shows, as in the game.
+
+Hit testing, placing, moving, tile painting, the selection outline and plugin tools all go through the view. `CanvasToWorld` and `WorldToCanvas` convert between canvas points and the world; `CanvasToScreen` and `ScreenToCanvas` between canvas points and the scene's virtual screen, where screen-space layers live; `ScreenToWorld` and `WorldToScreen` apply the scene's camera alone, as the game does. `CanvasSize` is the canvas's laid-out size, the scene's virtual size until the viewport lays out (`SetCanvasSize`); the 3D viewport fills the same canvas.
+
 ## Animation editor
 
 The editor's animation panel keys any registered property on a timeline and saves the clip as an [`animation` resource file](resources.md#animation), played in the game by [animclip](animclip.md) (an AnimationPlayer equivalent). The panel shows below the viewport while a clip is open.
@@ -525,7 +537,7 @@ An `editor.Plugin` has a `Name`, which follows the rule of other names in `game.
 
 - **Panels** (`Panel`): a view docked left of the viewport (`DockLeft`, after the asset browser), right of the inspector (`DockRight`) or below the viewport (`DockBottom`), under its `Title`. `View(cx, ed, rev)` builds it once when it appears, and the panel stays mounted, with its state, while its plugin is on, however other panels come and go; it reads `rev` inside reactive functions, as the editor's own panels do, to follow every change to the editor's state. A dock without panels takes no space.
 - **Inspectors** (`Inspector`): the inspector draws the component `Component` names with `View(cx, ed, rev, objectID)` below the component's title, in place of its generic fields. `Editor.ComponentField` reads a field, with its registered default when the scene leaves it unset, and reports false for an object without the component. Like the generic fields, the inspector's controls should be disabled while `Playing` reports true, and an edit the editor refuses should go to the status bar with `Editor.Report`. When two plugins that are on draw the same component, the one listed first in `editor.plugins` wins.
-- **Tools** (`PluginTool`): a button in the tool bar, beside the built-in 2D tools. While it is the active tool (`SetPluginTool`; `Tool` is then `ToolPlugin`), a press on the viewport calls `Press(ed, x, y)` with canvas coordinates (`CanvasToWorld` converts them), and `Draw`, when set, draws over the scene in edit mode. Choosing another tool, or turning the plugin off, ends it.
+- **Tools** (`PluginTool`): a button in the tool bar, beside the built-in 2D tools. While it is the active tool (`SetPluginTool`; `Tool` is then `ToolPlugin`), a press on the viewport calls `Press(ed, x, y)` with canvas coordinates (`CanvasToWorld` converts them to the world, `CanvasToScreen` to a screen-space layer), and `Draw`, when set, draws over the scene in edit mode. Choosing another tool, or turning the plugin off, ends it.
 
 A plugin changes the scene only through the editor's methods, such as `SetComponentField`, `PlaceObject` and `MoveObject`, or by executing its own `Command` on `Editor.History`, so every edit it makes is undone and redone with the rest. `RegisterPlugin` refuses a plugin without a name or with a name already registered, a panel, inspector or tool missing its ID, title, label, component or function, an ID or component name with control characters, an unknown dock and two panels, inspectors or tools with the same ID or component. Test IDs join the plugin name and the ID with `-` (`plugin-panel-<plugin>-<id>`, `tool-<plugin>-<id>`, `inspector-plugin-<plugin>-<component>`), so plugins used together should have names and IDs that do not join to the same string.
 

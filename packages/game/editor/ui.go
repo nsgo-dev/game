@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
@@ -237,6 +238,15 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 									return pluginToolsView(cx, ed, rev, notPlaying)
 								},
 							},
+							core.Show{
+								When: func() bool {
+									_ = rev.Get()
+									return ed.ViewMode == ViewMode2D
+								},
+								Then: func(cx *core.Scope) core.Node {
+									return view2DToolsView(ed, notPlaying)
+								},
+							},
 						},
 					},
 				},
@@ -446,6 +456,29 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 	}
 }
 
+// view2DToolsView is the tool bar's group of icon buttons that frame the 2D view on the selection or on everything, or return it to the scene camera's view.
+func view2DToolsView(ed *Editor, playing func() bool) core.Node {
+	btn := func(testID string, icon func() *core.SVG, label string, fn func()) core.Node {
+		return ui.Button{
+			TestID:   testID,
+			Icon:     icon,
+			Label:    label,
+			Size:     ui.SizeSmall,
+			Variant:  ui.ButtonGhost,
+			Disabled: playing,
+			OnPress:  fn,
+		}
+	}
+	return ui.ToolbarGroup{
+		Label: "2D View",
+		Children: []core.Node{
+			btn("view-frame-selection", lucide.Focus, "Frame Selection (F)", func() { ed.FrameSelection2D() }),
+			btn("view-frame-all", lucide.Maximize, "Frame All (Home)", func() { ed.FrameAll2D() }),
+			btn("view-reset", lucide.Video, "Scene Camera View", func() { ed.ResetView2D() }),
+		},
+	}
+}
+
 func statusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	colors := ui.ColorsOf(cx)
 	return core.View{
@@ -473,7 +506,7 @@ func statusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 							if ed.ViewMode == ViewMode3D {
 								return fmt.Sprintf("Mode: %s | View: 3D (%s) | Layer: %s", mode, ed.GizmoMode.String(), ed.ActiveLayer)
 							}
-							return fmt.Sprintf("Mode: %s | View: 2D | Tool: %s | Layer: %s", mode, ed.toolLabel(), ed.ActiveLayer)
+							return fmt.Sprintf("Mode: %s | View: 2D %.0f%% | Tool: %s | Layer: %s", mode, ed.View2D().Zoom*100, ed.toolLabel(), ed.ActiveLayer)
 						},
 						Style: core.Style{
 							FontSize: 11,

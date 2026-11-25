@@ -140,13 +140,13 @@ func worldLayer(layer *sceneformat.LayerDoc) bool {
 	return layer.EffectiveSpace() == sceneformat.SpaceWorld
 }
 
-// admit places a patient with AdmitHP hit points where the viewport is pressed, on the active layer: at the world point under the press on a world-space layer, and at the press itself on a screen-space one.
+// admit places a patient with AdmitHP hit points where the viewport is pressed, on the active layer: at the world point under the press on a world-space layer, and at the point of the scene's screen under it on a screen-space one.
 func admit(ed *editor.Editor, x, y float32) {
-	wx, wy := x, y
+	wx, wy := ed.CanvasToWorld(x, y)
 	if ed.Doc != nil {
 		for i := range ed.Doc.Layers {
-			if ed.Doc.Layers[i].Name == ed.ActiveLayer && worldLayer(&ed.Doc.Layers[i]) {
-				wx, wy = ed.CanvasToWorld(x, y)
+			if ed.Doc.Layers[i].Name == ed.ActiveLayer && !worldLayer(&ed.Doc.Layers[i]) {
+				wx, wy = ed.CanvasToScreen(x, y)
 			}
 		}
 	}
@@ -162,7 +162,7 @@ func admit(ed *editor.Editor, x, y float32) {
 // OutlineHalf is half the side of the square the Admit tool outlines each patient with, in world units.
 const OutlineHalf = 12
 
-// drawPatients outlines every patient while the Admit tool is active, red when it is at a quarter of its max or below. A tool draws in canvas coordinates, so each corner of a patient on a world-space layer goes through the scene's camera (Editor.WorldToCanvas), and the outline pans, zooms and turns with the patient.
+// drawPatients outlines every patient while the Admit tool is active, red when it is at a quarter of its max or below. A tool draws in canvas coordinates, so each corner of a patient goes through the editor's 2D view, from the world on a world-space layer (Editor.WorldToCanvas) and from the scene's screen on a screen-space one (Editor.ScreenToCanvas), and the outline pans, zooms and turns with the patient.
 func drawPatients(ed *editor.Editor, d *core.Drawing) {
 	if ed.Doc == nil {
 		return
@@ -186,6 +186,8 @@ func drawPatients(ed *editor.Editor, d *core.Drawing) {
 				x, y := o.X+c[0]*OutlineHalf, o.Y+c[1]*OutlineHalf
 				if world {
 					x, y = ed.WorldToCanvas(x, y)
+				} else {
+					x, y = ed.ScreenToCanvas(x, y)
 				}
 				if k == 0 {
 					d.MoveTo(x, y)

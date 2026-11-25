@@ -303,8 +303,14 @@ func TestInspectorFieldsHoldTypedValuesToTheComponentsBounds(t *testing.T) {
 	}
 }
 
-// outlines returns the closed four-corner paths in d, each as its corners in drawing order.
-func outlines(d *core.Drawing) [][4][2]float32 {
+// outlines returns the closed four-corner paths in d, each as its corners in drawing order, leaving out the outline the editor draws around the scene camera's frame.
+func outlines(ed *editor.Editor, d *core.Drawing) [][4][2]float32 {
+	vw, vh := ed.ViewportSize()
+	var frame [4][2]float32
+	for k, c := range [4][2]float32{{0, 0}, {vw, 0}, {vw, vh}, {0, vh}} {
+		x, y := ed.ScreenToCanvas(c[0], c[1])
+		frame[k] = [2]float32{x, y}
+	}
 	var out [][4][2]float32
 	for i := 0; i+5 < len(d.Ops); i++ {
 		ops := d.Ops[i : i+6]
@@ -315,7 +321,9 @@ func outlines(d *core.Drawing) [][4][2]float32 {
 		for k := range q {
 			q[k] = [2]float32{ops[k].X, ops[k].Y}
 		}
-		out = append(out, q)
+		if q != frame {
+			out = append(out, q)
+		}
 	}
 	return out
 }
@@ -328,7 +336,7 @@ func TestAdmitOutlinesPatientsWhereTheCameraShowsThem(t *testing.T) {
 
 	d := &core.Drawing{}
 	ed.DrawViewport(d, size)
-	if got := outlines(d); len(got) != 0 {
+	if got := outlines(ed, d); len(got) != 0 {
 		t.Fatalf("outlines drawn with the Admit tool inactive: %v", got)
 	}
 
@@ -337,7 +345,7 @@ func TestAdmitOutlinesPatientsWhereTheCameraShowsThem(t *testing.T) {
 	}
 	d = &core.Drawing{}
 	ed.DrawViewport(d, size)
-	got := outlines(d)
+	got := outlines(ed, d)
 	ids := health.Objects(ed.Doc)
 	if len(got) != len(ids) {
 		t.Fatalf("drew %d outlines for %d patients", len(got), len(ids))

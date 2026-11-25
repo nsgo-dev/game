@@ -204,3 +204,37 @@ func ExampleEditor_AddComponent() {
 	// map[] true
 	// 1 false
 }
+
+// The 2D view is the editor's own camera: panning and zooming it reaches any part of a level without touching the scene's camera, and zooming keeps the world point under the pointer fixed.
+func ExampleEditor_ZoomView2DAt() {
+	doc := &sceneformat.SceneDoc{
+		Version:       sceneformat.CurrentVersion,
+		VirtualWidth:  320,
+		VirtualHeight: 180,
+		Camera:        &sceneformat.CameraDoc{X: 160, Y: 90},
+		Layers:        []sceneformat.LayerDoc{{Name: "level", Space: sceneformat.SpaceWorld}},
+	}
+	ed, err := editor.New(doc, nil)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	ed.SetCanvasSize(640, 360)
+	fmt.Println(ed.View2D(), ed.View2DFollowsCamera())
+
+	ed.PanView2D(-2000, 0) // drag the world 2000 points to the left
+	fmt.Println(ed.CanvasToWorld(320, 180))
+
+	ed.ZoomView2DAt(100, 50, 2)
+	fmt.Println(ed.CanvasToWorld(100, 50))
+	fmt.Println(ed.View2D().Zoom, doc.Camera.X)
+
+	ed.ResetView2D()
+	fmt.Println(ed.View2D(), ed.View2DFollowsCamera())
+	// Output:
+	// {160 90 1 0} true
+	// 2160 90
+	// 1940 -40
+	// 2 160
+	// {160 90 1 0} true
+}
