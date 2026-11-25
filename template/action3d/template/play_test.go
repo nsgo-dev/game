@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nsgo-dev/game/packages/game/math3d"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/gamepad"
 	"github.com/nsgo-dev/nsgo/nsgotest"
@@ -133,6 +134,17 @@ func TestMouseDragTurnsTheCamera(t *testing.T) {
 	}
 }
 
+func TestReleasingTheMouseOutsideEndsTheDrag(t *testing.T) {
+	_, p := startPlay(t)
+	p.onMouseDown(core.MouseButtonEvent{Position: core.Point{X: 300, Y: 200}, Button: core.MouseButtonLeft})
+	// The button came up outside the window; the mouse comes back with no button held.
+	yaw := p.g.camYaw
+	p.onMouseMove(core.MouseEvent{Position: core.Point{X: 200, Y: 200}})
+	if p.dragging || p.g.camYaw != yaw {
+		t.Fatalf("hovering after the release still drags (%v) the camera from %v to %v", p.dragging, yaw, p.g.camYaw)
+	}
+}
+
 // TestTouchControlsMoveAndAttack drags the left stick forward and taps the attack button, and checks the controls appear once the screen is touched.
 func TestTouchControlsMoveAndAttack(t *testing.T) {
 	app, p := startPlay(t)
@@ -157,6 +169,84 @@ func TestTouchControlsMoveAndAttack(t *testing.T) {
 	tap.Lift()
 	if p.g.hero.anim.state() != stateAttack {
 		t.Fatalf("tapping Attack did not swing: state %q", p.g.hero.anim.state())
+	}
+}
+
+// TestTouchJumpsAndTurnsTheCamera taps Jump and drags the camera stick on the right half of the screen.
+func TestTouchJumpsAndTurnsTheCamera(t *testing.T) {
+	app, p := startPlay(t)
+	app.Advance(100 * time.Millisecond)
+	tap := app.Touch("id:game-view", p.buttons[1].Center)
+	app.Advance(150 * time.Millisecond)
+	tap.Lift()
+	if p.g.hero.pos.Y < 0.3 {
+		t.Fatalf("tapping Jump did not jump: hero at %v", p.g.hero.pos)
+	}
+	app.Advance(time.Second)
+
+	yaw := p.g.camYaw
+	finger := app.Touch("id:game-view", core.Point{X: testW * 3 / 4, Y: testH / 2})
+	finger.Move(core.Point{X: testW*3/4 + 50, Y: testH / 2})
+	finger.Hold(300 * time.Millisecond)
+	finger.Lift()
+	if p.g.camYaw >= yaw {
+		t.Fatalf("dragging the camera stick right did not turn the camera right: yaw %v, was %v", p.g.camYaw, yaw)
+	}
+}
+
+// TestGamepadTurnsTheCameraWithTheRightStickAndShoulders turns the camera with the right stick and the shoulder buttons.
+func TestGamepadTurnsTheCameraWithTheRightStickAndShoulders(t *testing.T) {
+	app, p := startPlay(t)
+	app.ConnectGamepad(1, "Xbox Wireless Controller")
+	app.Advance(step)
+
+	yaw := p.g.camYaw
+	app.SetGamepadAxis(1, gamepad.AxisRightX, 1)
+	app.Advance(300 * time.Millisecond)
+	app.SetGamepadAxis(1, gamepad.AxisRightX, 0)
+	if p.g.camYaw >= yaw {
+		t.Fatalf("the right stick did not turn the camera right: yaw %v, was %v", p.g.camYaw, yaw)
+	}
+
+	yaw = p.g.camYaw
+	app.SetGamepadButton(1, gamepad.ButtonLB, 1)
+	app.Advance(300 * time.Millisecond)
+	app.SetGamepadButton(1, gamepad.ButtonLB, 0)
+	if p.g.camYaw <= yaw {
+		t.Fatalf("the left shoulder did not turn the camera left: yaw %v, was %v", p.g.camYaw, yaw)
+	}
+
+	yaw = p.g.camYaw
+	app.SetGamepadButton(1, gamepad.ButtonRB, 1)
+	app.Advance(300 * time.Millisecond)
+	app.SetGamepadButton(1, gamepad.ButtonRB, 0)
+	if p.g.camYaw >= yaw {
+		t.Fatalf("the right shoulder did not turn the camera right: yaw %v, was %v", p.g.camYaw, yaw)
+	}
+}
+
+// TestArrowKeysMoveTheHero walks the hero with each arrow key, which game.yaml binds alongside WASD.
+func TestArrowKeysMoveTheHero(t *testing.T) {
+	app, p := startPlay(t)
+	walk := func(key string) (dx, dz float32) {
+		from := p.g.hero.pos
+		app.KeyDown(key)
+		app.Advance(300 * time.Millisecond)
+		app.KeyUp(key)
+		app.Advance(300 * time.Millisecond)
+		return p.g.hero.pos.X - from.X, p.g.hero.pos.Z - from.Z
+	}
+	// The camera starts behind the hero, so on screen up is the way the camera looks.
+	forward := math3d.Vec3{X: -sin(p.g.camYaw), Z: -cos(p.g.camYaw)}
+	right := math3d.Vec3{X: cos(p.g.camYaw), Z: -sin(p.g.camYaw)}
+	for _, tc := range []struct {
+		key  string
+		want math3d.Vec3
+	}{{"up", forward}, {"down", forward.Scale(-1)}, {"left", right.Scale(-1)}, {"right", right}} {
+		dx, dz := walk(tc.key)
+		if moved := dx*tc.want.X + dz*tc.want.Z; moved < 0.5 {
+			t.Errorf("the %s arrow moved the hero %v m that way (%v, %v)", tc.key, moved, dx, dz)
+		}
 	}
 }
 

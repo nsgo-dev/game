@@ -187,6 +187,56 @@ func TestAttackLandsOnItsHitEventAndStaggers(t *testing.T) {
 	}
 }
 
+func TestAFlinchCancelsTheSwingItInterrupts(t *testing.T) {
+	g := newTestGame(t)
+	e := g.enemies[0]
+	// Stand the hero just south of the enemy, inside its reach, and let the enemy wind up.
+	g.hero.body.Pos = p3(e.pos.Add(math3d.Vec3{Z: 1.2}))
+	g.hero.pos = m3(g.hero.body.Pos)
+	hit := seconds(g.rig.clips[clipAttack].Events[0].Time)
+	for e.anim.state() != stateAttack || e.anim.machine.CurrentTime() < hit-hit/4 {
+		if g.elapsed > 5*time.Second {
+			t.Fatalf("the enemy never reached the end of its windup (state %q)", e.anim.state())
+		}
+		g.step(controls{}, step)
+	}
+	if e.anim.machine.CurrentTime() >= hit || !e.strikes(g.hero) {
+		t.Fatalf("windup at %v (hit at %v), strikes %v: the setup no longer interrupts the swing before its hit", e.anim.machine.CurrentTime(), hit, e.strikes(g.hero))
+	}
+	// The hero's blow lands now, late in the windup.
+	health := g.hero.health
+	e.hurt(g.hero)
+	for range 20 {
+		g.step(controls{}, step)
+	}
+	if e.hits != 0 || g.hero.health != health {
+		t.Fatalf("the interrupted swing still hit: %d hits, hero health %d (was %d)", e.hits, g.hero.health, health)
+	}
+}
+
+func TestActorsPushApartOnlyWhenTheirCapsulesMeet(t *testing.T) {
+	g := newTestGame(t)
+	e := g.enemies[0]
+	place := func(a *actor, at math3d.Vec3) {
+		a.body.Pos = p3(at)
+		a.pos = at
+	}
+	// The hero hangs above the guard, clear of its head: neither moves.
+	above := e.pos.Add(math3d.Vec3{X: 0.2, Y: e.tune.Height + 0.05})
+	place(g.hero, above)
+	g.separate()
+	if g.hero.pos != above || e.pos != e.home {
+		t.Fatalf("capsules apart in height were pushed: hero %v (was %v), enemy %v (was %v)", g.hero.pos, above, e.pos, e.home)
+	}
+	// Level with the guard, the same gap pushes them apart.
+	beside := e.pos.Add(math3d.Vec3{X: 0.2})
+	place(g.hero, beside)
+	g.separate()
+	if gap := flat(g.hero.pos.Sub(e.pos)).Len(); gap < g.hero.tune.Radius+e.tune.Radius-1e-3 {
+		t.Fatalf("overlapping capsules left %v apart", gap)
+	}
+}
+
 func TestRigPosesEveryJointInEveryState(t *testing.T) {
 	g := newTestGame(t)
 	a := g.hero.anim

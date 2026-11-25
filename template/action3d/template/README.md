@@ -35,7 +35,7 @@ go tool nsgo check -target macos,windows,linux,android,web
 ## Layout
 
 - `game.yaml` — the project file: name, id, window, the input map (actions, axes and game controller sticks), the scene and data files to autoload, and export presets.
-- `scenes/keep.scene.yaml` — the level, a scene file the scene editor opens (`go run github.com/nsgo-dev/game/packages/game/cmd/game editor .`). Each object's `x`, `y` (up) and `posZ` place it in meters, its scale sizes a box, and its components say what it is: `block`, `spawn`, `enemy`, `key`, `door`, `goal` or `lamp`. The `connections` at the end wire the key's `collected` event to the door's `unlock` handler.
+- `scenes/keep.scene.yaml` — the level, a scene file the scene editor opens (`go run github.com/nsgo-dev/game/packages/game/cmd/game editor .`). Each object's `x`, `y` (up) and `posZ` place it in meters, its scale sizes a box, and its components say what it is: `block`, `spawn`, `enemy`, `key`, `door`, `goal` or `lamp`. Objects sit at the top of their layer, not inside one another, and only the spawn is rotated, by `rotY`. The `connections` at the end wire the key's `collected` event to the door's `unlock` handler.
 - `data/actors.yaml` — the hero's and the enemies' tuning (health, speed, jump, reach, damage, swing speed, knockback and colors), the rig of boxes both share, and the animation clips in degrees and seconds. `actors.go` defines and checks its format.
 - `level.go` — the level's component types and how a scene becomes boxes, spawns and lamps.
 - `game.go` — the simulation: the physics world, hero and enemy rules, the key, the door and winning and losing. It knows nothing of devices or the GPU.

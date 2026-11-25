@@ -196,13 +196,19 @@ func encodeActors(a *Actors) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// The ceilings on the file's gravity, in meters per second squared, and on a clip's length, in seconds.
+const (
+	maxGravity    = 1000
+	maxClipLength = 60
+)
+
 // validate reports the first way a breaks the actors schema.
 func (a *Actors) validate() error {
 	if a.Version != actorsVersion {
 		return fmt.Errorf("actors: unsupported version %d (want %d)", a.Version, actorsVersion)
 	}
-	if !positive(a.Gravity) {
-		return fmt.Errorf("actors: gravity %v is not a positive number", a.Gravity)
+	if !positive(a.Gravity) || a.Gravity > maxGravity {
+		return fmt.Errorf("actors: gravity %v is not above 0 and at most %v", a.Gravity, maxGravity)
 	}
 	if err := a.Hero.validate("hero", false); err != nil {
 		return err
@@ -257,32 +263,33 @@ func (f *Fighter) validate(who string, enemy bool) error {
 	if f.Health < 1 || f.Health > 99 {
 		return fmt.Errorf("actors: %s: health %d is outside 1 to 99", who, f.Health)
 	}
+	// Each value has a ceiling well past any playable tuning, so the game's arithmetic on it (a swing's length divided by attackSpeed, seconds turned into a time.Duration) cannot overflow.
 	for _, v := range []struct {
-		name  string
-		value float32
+		name          string
+		value, lo, hi float32
 	}{
-		{"radius", f.Radius}, {"height", f.Height}, {"speed", f.Speed}, {"turnSpeed", f.TurnSpeed},
-		{"reach", f.Reach}, {"arc", f.Arc}, {"attackSpeed", f.AttackSpeed}, {"grace", f.Grace}, {"knockback", f.Knockback},
+		{"radius", f.Radius, 0, 5}, {"height", f.Height, 0, 10}, {"speed", f.Speed, 0, 100}, {"turnSpeed", f.TurnSpeed, 0, 3600},
+		{"reach", f.Reach, 0, 20}, {"arc", f.Arc, 0, 360}, {"attackSpeed", f.AttackSpeed, 0.1, 10}, {"grace", f.Grace, 0, 10}, {"knockback", f.Knockback, 0, 100},
 	} {
-		if !positive(v.value) {
-			return fmt.Errorf("actors: %s: %s %v is not a positive number", who, v.name, v.value)
+		if !positive(v.value) || v.value < v.lo || v.value > v.hi {
+			if v.lo == 0 {
+				return fmt.Errorf("actors: %s: %s %v is not above 0 and at most %v", who, v.name, v.value, v.hi)
+			}
+			return fmt.Errorf("actors: %s: %s %v is not from %v to %v", who, v.name, v.value, v.lo, v.hi)
 		}
 	}
 	if f.Height < 2*f.Radius {
 		return fmt.Errorf("actors: %s: height %v is less than twice the radius %v", who, f.Height, f.Radius)
 	}
-	if f.Arc > 360 {
-		return fmt.Errorf("actors: %s: arc %v is over 360 degrees", who, f.Arc)
-	}
 	if f.Damage < 1 {
 		return fmt.Errorf("actors: %s: damage %d is less than 1", who, f.Damage)
 	}
 	for _, v := range []struct {
-		name  string
-		value float32
-	}{{"jumpSpeed", f.JumpSpeed}, {"sight", f.Sight}, {"leash", f.Leash}, {"cooldown", f.Cooldown}} {
-		if !finite(v.value) || v.value < 0 {
-			return fmt.Errorf("actors: %s: %s %v is negative or not a number", who, v.name, v.value)
+		name      string
+		value, hi float32
+	}{{"jumpSpeed", f.JumpSpeed, 100}, {"sight", f.Sight, 1000}, {"leash", f.Leash, 1000}, {"cooldown", f.Cooldown, 60}} {
+		if !finite(v.value) || v.value < 0 || v.value > v.hi {
+			return fmt.Errorf("actors: %s: %s %v is outside 0 to %v", who, v.name, v.value, v.hi)
 		}
 	}
 	if enemy && (f.Sight == 0 || f.Leash == 0) {
@@ -339,8 +346,8 @@ func (c *Clip) validate(joints map[string]int) error {
 	if c.Name == "" {
 		return errors.New("actors: a clip has no name")
 	}
-	if !positive(c.Length) {
-		return fmt.Errorf("actors: clip %q: length %v is not a positive number", c.Name, c.Length)
+	if !positive(c.Length) || c.Length > maxClipLength {
+		return fmt.Errorf("actors: clip %q: length %v is not above 0 and at most %v seconds", c.Name, c.Length, maxClipLength)
 	}
 	inClip := func(t float32) bool { return finite(t) && t >= 0 && t <= c.Length }
 	for _, e := range c.Events {

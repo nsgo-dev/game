@@ -11,7 +11,7 @@ import (
 	"github.com/nsgo-dev/nsgo/core"
 )
 
-// The component types a level scene's objects carry. A scene is a sceneformat scene file in which each object's position (x, y, posZ, with y up), rotation (rotY) and scale (scaleX, scaleY, scaleZ) place it in meters.
+// The component types a level scene's objects carry. A scene is a sceneformat scene file whose objects all sit at the top of their layer, each placed in meters by its position (x, y, posZ, with y up) and scale (scaleX, scaleY, scaleZ). Only the spawn is rotated, by rotY.
 const (
 	// compBlock is a solid box the size of the object's scale, centered on its position.
 	compBlock = "block"
@@ -120,8 +120,17 @@ func buildLevel(doc *sceneformat.SceneDoc, reg *sceneformat.ComponentRegistry) (
 	counts := map[string]int{}
 	var err error
 	for li := range doc.Layers {
-		sceneformat.WalkObjects(doc.Layers[li].Objects, func(o, _ *sceneformat.ObjectDoc) bool {
+		sceneformat.WalkObjects(doc.Layers[li].Objects, func(o, parent *sceneformat.ObjectDoc) bool {
+			// The level reads each object's position and scale as world values and its blocks as boxes aligned with the axes, so it refuses what would place them elsewhere: an object inside another, whose transform is local to its parent, and a rotation other than the spawn's heading.
+			if parent != nil {
+				err = fmt.Errorf("object %q: a level's objects sit at the top of their layer, not inside %q", o.ID, parent.ID)
+				return false
+			}
 			for _, name := range slices.Sorted(maps.Keys(o.Components)) {
+				if o.Rotation != 0 || o.RotX != 0 || o.RotZ != 0 || (o.RotY != 0 && name != compSpawn) {
+					err = fmt.Errorf("object %q: a %s is not rotated; only the spawn turns, by rotY", o.ID, name)
+					return false
+				}
 				fields, ferr := reg.Resolve(name, asMap(o.Components[name]))
 				if ferr != nil {
 					err = fmt.Errorf("object %q: %w", o.ID, ferr)

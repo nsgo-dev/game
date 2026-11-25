@@ -145,6 +145,10 @@ func (p *play) onMouseDown(ev core.MouseButtonEvent) {
 }
 
 func (p *play) onMouseMove(ev core.MouseEvent) {
+	// A button released outside the window sends this view no mouse up, so a move without the left button held ends the drag.
+	if p.dragging && ev.PressedButton != core.MouseButtonLeft {
+		p.dragging = false
+	}
 	if p.dragging {
 		p.g.orbit(-float32(ev.Position.X-p.lastMouse.X) * dragTurn)
 		p.lastMouse = ev.Position
@@ -175,7 +179,10 @@ func (p *play) view(cx *core.Scope) core.Node {
 				OnReady: func(dev *gpu.Device) {
 					if err := p.render.setup(cx, dev, p.g); err != nil {
 						p.gpuStatus.Set(fmt.Sprintf("The 3D view could not start: %v", err))
+						return
 					}
+					// A device that came back after a failure or a lost device draws again, so the panel saying it could not goes away.
+					p.gpuStatus.Set("")
 				},
 				OnFrame: func(frame *gpu.Frame) {
 					if err := p.render.draw(frame, p.g, p.alpha); err != nil {
