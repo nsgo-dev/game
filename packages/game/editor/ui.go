@@ -105,6 +105,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 		cx.SetAppearance(appearanceMemo.Get())
 	})
 	ed.bindShortcuts(cx, rev)
+	bindObjectContextMenuKeys(cx, ed)
 	ed.bindApplicationMenu(cx, rev)
 	dirty := unsavedMemo(cx, ed, rev)
 	prompt := core.NewSignal[*unsavedPrompt](cx, nil)

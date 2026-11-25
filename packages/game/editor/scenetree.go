@@ -279,6 +279,20 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 		}
 		editing.Set(treeEdit{key: k, field: f})
 	}
+	var lastRenameReq uint64
+	cx.Effect(func() {
+		_ = rev.Get()
+		cx.Untrack(func() {
+			seq, reqID := ed.contextMenu.renameReqSeq, ed.contextMenu.renameReqID
+			if seq != 0 && seq != lastRenameReq && reqID != "" {
+				lastRenameReq = seq
+				k := keyOf(reqID)
+				if k.id != "" {
+					startEdit(k, editName)
+				}
+			}
+		})
+	})
 	cx.OnKey("f2", func() {
 		if ed.SelectedID != "" {
 			startEdit(keyOf(ed.SelectedID), editName)
@@ -690,228 +704,6 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 
 	editsOff := func() bool { _ = rev.Get(); return ed.Playing() }
 	structOff := func() bool { return editsOff() || isForeign() }
-	siblings := func() (index, count int, prev, parent string) {
-		loc := ed.lookupObject(id).loc
-		if loc.obj == nil {
-			return -1, 0, "", ""
-		}
-		objs := ed.Doc.Layers[loc.layer].Objects
-		if loc.parent != nil {
-			objs = loc.parent.Children
-			parent = loc.parent.ID
-		}
-		if loc.index > 0 {
-			prev = objs[loc.index-1].ID
-		}
-		return loc.index, len(objs), prev, parent
-	}
-	targetIDs := func() []string {
-		if ed.IsObjectSelected(id) {
-			if sel := ed.SelectedIDs(); len(sel) > 0 {
-				return sel
-			}
-		}
-		return []string{id}
-	}
-	hasChildren := func() bool {
-		loc := ed.lookupObject(id).loc
-		return loc.obj != nil && len(loc.obj.Children) > 0
-	}
-	var items []core.Node
-	if obj := ed.lookupObject(id).loc.obj; obj != nil {
-		var usageTarget string
-		if obj.Scene != "" {
-			usageTarget = obj.Scene
-			items = append(items,
-				ui.MenuItem{
-					TestID:   "scene-tree-open-scene-" + id,
-					Text:     ed.T("overrides.openInstancedScene"),
-					Disabled: func() bool { return editsOff() || ed.Project == nil || ed.ProjectPath == "" },
-					OnSelect: func() { ed.report(ed.OpenInstancedScene(id)) },
-				},
-				ui.MenuItem{
-					TestID:   "scene-tree-make-local-" + id,
-					Text:     ed.T("overrides.makeLocal"),
-					Disabled: editsOff,
-					OnSelect: func() { ed.report(ed.MakeInstanceLocal(id)) },
-				},
-				ui.MenuItem{
-					TestID: "scene-tree-apply-overrides-" + id,
-					Text:   ed.T("overrides.applyToSource"),
-					Disabled: func() bool {
-						return editsOff() || ed.Project == nil || ed.ProjectPath == "" || ed.InstanceOverrideCount(id) == 0
-					},
-					OnSelect: func() { ed.report(ed.ApplyOverridesToSource(id)) },
-				},
-				ui.MenuItem{
-					TestID:   "scene-tree-revert-overrides-" + id,
-					Text:     ed.T("overrides.revertAll"),
-					Disabled: func() bool { return editsOff() || ed.InstanceOverrideCount(id) == 0 },
-					OnSelect: func() { ed.report(ed.RevertObjectOverrides(id)) },
-				},
-			)
-		} else if obj.Prefab != "" && isPathLikePrefab(obj.Prefab) {
-			usageTarget = obj.Prefab
-		}
-		if usageTarget != "" {
-			targetPath := usageTarget
-			items = append(items,
-				ui.MenuItem{
-					TestID:   "scene-tree-find-usages-" + id,
-					Text:     ed.T("sceneTree.findUsages"),
-					Shortcut: "⇧F12",
-					Disabled: func() bool { return editsOff() || ed.Project == nil || ed.ProjectPath == "" },
-					OnSelect: func() {
-						ed.SelectObject(id)
-						ed.report(ed.OpenUsagesScreen(targetPath))
-					},
-				},
-			)
-		}
-		if len(items) > 0 {
-			items = append(items, ui.MenuSeparator{})
-		}
-	} else if ed.ObjectOrigin(id) != ObjectLocal {
-		items = append(items,
-			ui.MenuItem{
-				TestID:   "scene-tree-open-source-" + id,
-				Text:     ed.T("overrides.openSourceScene"),
-				Disabled: func() bool { return editsOff() || ed.Project == nil || ed.ProjectPath == "" },
-				OnSelect: func() { ed.report(ed.OpenSourceScene(id)) },
-			},
-			ui.MenuItem{
-				TestID:   "scene-tree-revert-overrides-" + id,
-				Text:     ed.T("overrides.revertAll"),
-				Disabled: func() bool { return editsOff() || !ed.ObjectHasAnyOverride(id) },
-				OnSelect: func() { ed.report(ed.RevertObjectOverrides(id)) },
-			},
-			ui.MenuSeparator{},
-		)
-	}
-	items = append(items,
-		ui.MenuItem{TestID: "scene-tree-rename-" + id, Text: ed.T("sceneTree.rename"), Shortcut: "F2", Disabled: editsOff, OnSelect: func() { startEdit(k, editName) }},
-		ui.MenuItem{TestID: "scene-tree-change-id-" + id, Text: ed.T("sceneTree.changeID"), Disabled: structOff, OnSelect: func() { startEdit(k, editID) }},
-		ui.MenuSeparator{},
-		ui.MenuItem{TestID: "scene-tree-cut-" + id, Text: ed.T("sceneTree.cut"), Disabled: editsOff, OnSelect: func() {
-			_, err := ed.CutObjects(targetIDs()...)
-			ed.report(err)
-		}},
-		ui.MenuItem{TestID: "scene-tree-copy-" + id, Text: ed.T("sceneTree.copy"), Disabled: editsOff, OnSelect: func() {
-			_, err := ed.CopyObjects(targetIDs()...)
-			ed.report(err)
-		}},
-		ui.MenuItem{TestID: "scene-tree-paste-" + id, Text: ed.T("sceneTree.paste"), Disabled: editsOff, OnSelect: func() {
-			_, _ = ed.Paste()
-		}},
-		ui.MenuItem{TestID: "scene-tree-paste-into-" + id, Text: ed.T("sceneTree.pasteInto"), Disabled: editsOff, OnSelect: func() {
-			if ids, err := ed.PasteInto(id); err == nil && len(ids) > 0 {
-				setOpen(k, true)
-			}
-		}},
-		ui.MenuItem{TestID: "scene-tree-duplicate-" + id, Text: ed.T("sceneTree.duplicate"), Disabled: editsOff, OnSelect: func() {
-			_, err := ed.DuplicateObjects(targetIDs()...)
-			ed.report(err)
-		}},
-		ui.MenuSeparator{},
-		ui.MenuItem{TestID: "scene-tree-group-" + id, Text: ed.T("sceneTree.group"), Disabled: editsOff, OnSelect: func() {
-			gid, err := ed.GroupObjects(targetIDs()...)
-			if err != nil {
-				ed.report(err)
-				return
-			}
-			if gid != "" {
-				layer := k.layer
-				if gloc := ed.lookupObject(gid).loc; gloc.obj != nil && gloc.layer >= 0 {
-					layer = ed.Doc.Layers[gloc.layer].Name
-				}
-				setOpen(sceneTreeKey{layer: layer, id: gid}, true)
-			}
-		}},
-		ui.MenuItem{TestID: "scene-tree-ungroup-" + id, Text: ed.T("sceneTree.ungroup"),
-			Disabled: func() bool { return editsOff() || !hasChildren() },
-			OnSelect: func() {
-				_, err := ed.UngroupObject(id)
-				ed.report(err)
-			}},
-		ui.MenuSeparator{},
-		ui.MenuItem{TestID: "scene-tree-up-" + id, Text: ed.T("sceneTree.moveUp"),
-			Disabled: func() bool { i, _, _, _ := siblings(); return structOff() || i <= 0 },
-			OnSelect: func() {
-				if i, _, _, _ := siblings(); i > 0 {
-					ed.report(ed.ReorderObject(id, i-1))
-				}
-			}},
-		ui.MenuItem{TestID: "scene-tree-down-" + id, Text: ed.T("sceneTree.moveDown"),
-			Disabled: func() bool { i, n, _, _ := siblings(); return structOff() || i < 0 || i >= n-1 },
-			OnSelect: func() {
-				if i, n, _, _ := siblings(); i >= 0 && i < n-1 {
-					ed.report(ed.ReorderObject(id, i+1))
-				}
-			}},
-		ui.MenuItem{TestID: "scene-tree-indent-" + id, Text: ed.T("sceneTree.indent"),
-			Disabled: func() bool { _, _, prev, _ := siblings(); return structOff() || prev == "" },
-			OnSelect: func() {
-				if _, _, prev, _ := siblings(); prev != "" {
-					if err := ed.ReparentObject(id, prev, -1); err != nil {
-						ed.report(err)
-						return
-					}
-					setOpen(sceneTreeKey{layer: k.layer, id: prev}, true)
-				}
-			}},
-		ui.MenuItem{TestID: "scene-tree-outdent-" + id, Text: ed.T("sceneTree.outdent"),
-			Disabled: func() bool { _, _, _, parent := siblings(); return structOff() || parent == "" },
-			OnSelect: func() {
-				_, _, _, parent := siblings()
-				if parent == "" {
-					return
-				}
-				ploc := locateObject(ed.Doc, parent)
-				grand := ""
-				if ploc.parent != nil {
-					grand = ploc.parent.ID
-				}
-				ed.report(ed.ReparentObject(id, grand, ploc.index+1))
-			}},
-	)
-	if ed.Doc != nil && len(ed.Doc.Layers) > 1 {
-		items = append(items, ui.MenuSeparator{})
-		for i := range ed.Doc.Layers {
-			name := ed.Doc.Layers[i].Name
-			items = append(items, ui.MenuItem{TestID: "scene-tree-to-layer-" + id + "-" + name, Text: ed.T("sceneTree.moveToLayer", l10n.Param("name", name)),
-				Disabled: func() bool {
-					loc := ed.lookupObject(id).loc
-					return structOff() || loc.obj == nil || ed.Doc.Layers[loc.layer].Name == name && loc.parent == nil
-				},
-				OnSelect: func() { ed.report(ed.MoveObjectToLayer(id, name, -1)) }})
-		}
-	}
-	items = append(items,
-		ui.MenuSeparator{},
-		ui.MenuItem{TestID: "scene-tree-hide-" + id, TextFunc: func() string {
-			_ = rev.Get()
-			if hidden() {
-				return ed.T("sceneTree.show")
-			}
-			return ed.T("sceneTree.hide")
-		}, OnSelect: func() { ed.report(ed.SetObjectHidden(id, !hidden())) }},
-		ui.MenuItem{TestID: "scene-tree-lock-item-" + id, TextFunc: func() string {
-			_ = rev.Get()
-			if locked() {
-				return ed.T("sceneTree.unlock")
-			}
-			return ed.T("sceneTree.lock")
-		}, OnSelect: func() { ed.report(ed.SetObjectLocked(id, !locked())) }},
-		ui.MenuSeparator{},
-		ui.MenuItem{TestID: "scene-tree-delete-" + id, Text: ed.T("sceneTree.delete"), Variant: ui.MenuItemDanger, Disabled: structOff,
-			OnSelect: func() {
-				if ed.IsSelected(id) && ed.SelectionCount() > 1 {
-					ed.report(ed.DeleteSelected())
-					return
-				}
-				ed.report(ed.DeleteObject(id))
-			}},
-	)
 
 	return ui.ContextMenu{
 		TestID: "scene-tree-menu-" + id,
@@ -956,6 +748,19 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 				}
 			},
 		},
-		Children: items,
+		Children: []core.Node{
+			core.Dynamic(func(cx *core.Scope) core.Node {
+				_ = rev.Get()
+				return core.Group(objectContextMenuItems(cx, ed, rev, id, objectContextMenuOpts{
+					includeTreeActions: true,
+					treeKey:            k,
+					onRename:           func() { startEdit(k, editName) },
+					onChangeID:         func() { startEdit(k, editID) },
+					onReparented: func(layer, parentID string) {
+						setOpen(sceneTreeKey{layer: layer, id: parentID}, true)
+					},
+				}))
+			}),
+		},
 	}
 }

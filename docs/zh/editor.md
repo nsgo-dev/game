@@ -779,6 +779,17 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 
 3D 视口会绘制并拾取所有对象，包括嵌套的子对象：`Objects3D` 按深度优先列出它们，并给出各自父对象的 ID；子对象的几何体和包围盒由其祖先的变换确定位置（[3D 视口](#3d-视口890)）。
 
+### 对象上下文菜单（#1039）
+
+在 2D 视口、3D 视口或场景树行中对对象右键点击或 Control-点击，或者对当前选中对象按下 `Shift+F10` / 菜单键（`contextmenu`），都会打开统一的对象 `ui.ContextMenu`，顶部标题显示对象名称及其类型和所在图层（例如 `Sprite · 图层 actors`）。在 3D 视口按住右键拖拽仍会飞行相机，在 2D 瓦片工具下右键拖拽仍会擦除或框选瓦片区域，在多边形碰撞体顶点上右键仍会删除该顶点；对于当前对象或会话不适用的菜单项会直接省略，而不是显示禁用项。
+
+- **复制为 YAML（`mod+c`）与粘贴（`mod+v`）**：`CopyObjectYAML` / `CopySelectedYAML`（`ObjectYAML`）将对象编码为规范的 `sceneformat` YAML 文档写入剪贴板（通过 `core.Scope.SetClipboard` 或 `Editor.WriteClipboard`），`sceneformat.Parse` 可将其精确还原为同一个对象，并在视口上方显示浮动提示条（`Copied <name> as YAML · N lines`）。`Paste` / `PasteObjectYAML` 从剪贴板粘贴到当前图层，在单个可撤销步骤中分配新的唯一 ID。
+- **复制副本（`mod+d`）与编组（`mod+g`）**：`DuplicateObjects` 复制选中对象，`GroupObjects` / `GroupSelected` 在单个可撤销步骤中把选中的对象包装到一个新建父对象之下并保持世界变换。
+- **移至子级（Move under）**：子菜单（`MoveUnderCandidates`、`MoveObjectUnder`）列出所有合法的候选父对象——排除自身、后代以及会超出 `MaxObjectDepth` 的目标——并标注当前父对象、锁定状态、子对象数量或所在图层；重设父对象只占一个撤销步骤，一次撤销即可原样还原。
+- **选择相同预制体（Select same prefab）**：当对象设置了 `prefab` 或 `scene` 时，`SelectSamePrefab` 会选中场景中所有共享同一引用的对象（`SelectedIDs`、`SelectObjects`、`IsObjectSelected`）。
+- **隐藏/显示（`h`）、锁定/解锁（`l`）、查找用法（`shift+f12`）、重命名（`f2`）与向智能体询问此项（`mod+l`）**：切换会话可见性（`ToggleObjectHidden`）和锁定状态（`ToggleObjectLocked`），在打开的项目中搜索对该对象 ID、预制体或实例化场景的引用（`FindObjectUsages` / `ShowObjectUsages`，未打开项目时省略），在场景树中开启行内重命名（`RequestRenameObject`），或将 `AgentPromptRequest` 草稿发送给 `Editor.OnAskAgent`（`AskAgentAboutObject`）。场景树行的右键菜单同时保留树顺序、剪切、粘贴为子对象、取消编组、修改 ID、打开实例化场景、移动到图层与删除操作。
+- **MCP 对等能力（`packages/game/editor/editormcp`）**：每个上下文菜单操作都调用一个导出的 `Editor` 方法，并由编辑器 MCP 服务器同步暴露（`object_copy_yaml`、`object_paste_yaml`、`object_duplicate`、`object_group`、`object_move_under`、`object_select_same_prefab`、`object_visibility` 与 `object_find_usages`，配合既有的 `scene_edit` 以及 `selection_get` 的 `selectedIds`）。
+
 ### 多对象选择与批量编辑（#867）
 
 编辑器维护有序的多对象选区集合，并保留 `Editor.SelectedID` 作为主选中对象（`SelectedIDs`、`SelectionCount`、`IsSelected`、`SelectedObjects`、`SelectObjects`、`SelectObjectsWithPrimary`、`AddToSelection`、`RemoveFromSelection`、`ToggleSelection`、`ClearSelection`）：

@@ -9,6 +9,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/particles"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/game/packages/game/world3d"
+	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
@@ -1170,6 +1171,35 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 	in3DGridMap := func() bool { return ed.ViewMode == ViewMode3D && ed.GridMapTool() != GridMapToolNone && !ed.Playing() }
 	// strokeTookPress says the tile or GridMap stroke that a pointer drew has ended, so the press its button or finger completes, which may come after it, edits nothing more. Every pointer-down clears it, so a stroke that no press followed, such as a drag the frame's pan took or a right-button drag, cannot swallow the next click.
 	var strokeTookPress bool
+	// lastPointer and hasPointer track the most recent pointer coordinate inside the viewport frame so secondary-click and Control-click context menus hit-test at the exact pointer location, falling back to viewport center when dispatched without pointer motion (e.g. nsgotest RightClick).
+	var lastPointer core.Point
+	var lastPointerMode ViewMode
+	var hasPointer bool
+	var rightConsumed bool
+	hitViewportObject := func(x, y float32) string {
+		if ed.Playing() {
+			return ""
+		}
+		if ed.ViewMode == ViewMode3D {
+			cw, ch := ed.CanvasSize()
+			id, _ := ed.Pick3DObject(x, y, cw, ch)
+			return id
+		}
+		return ed.HitTest(x, y)
+	}
+	openViewportContextMenu := func(x, y float32) bool {
+		if ed.Playing() || ed.PickingConnectionTarget() {
+			return false
+		}
+		hit := hitViewportObject(x, y)
+		if hit == "" {
+			return false
+		}
+		if !ed.IsObjectSelected(hit) {
+			ed.SelectObject(hit)
+		}
+		return ed.OpenObjectContextMenu(hit)
+	}
 	beginStroke := func(at core.Point, secondary, alt bool) {
 		strokeTookPress = false
 		// A press with Space held navigates rather than edits, and connection target pick mode intercepts clicks instead of painting tiles.
@@ -1417,282 +1447,347 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 					}
 				},
 			},
-			modelDropTarget(cx, ed, core.View{
-				TestID:     "editor-viewport-frame",
-				Ref:        &frame,
-				Style:      core.Style{FlexGrow: 1},
-				OnFileDrop: func(uris []string) { ed.dropModelFiles(uris) },
-				OnWheel: func(ev core.WheelEvent) {
-					if ed.ViewMode == ViewMode3D {
-						g3.wheel(ed, ev)
+			ui.ContextMenu{
+				TestID: "object-context-menu",
+				Style:  core.Style{FlexGrow: 1},
+				Open: func() bool {
+					_ = rev.Get()
+					return ed.ObjectContextMenuOpen()
+				},
+				OnOpenChange: func(open bool, reason base.Reason) {
+					if !open {
+						ed.CloseObjectContextMenu()
 						return
 					}
-					g.wheel(ed, ev)
-				},
-				OnPinch: func(ev core.GestureEvent) {
-					switch ed.ViewMode {
-					case ViewMode2D:
-						g.pinch(ed, ev)
-					case ViewMode3D:
-						g3.pinch(ed, ev)
-					}
-				},
-				OnPointerDelta: func(dx, dy float64) { g3.pointerDelta(ed, dx, dy) },
-				OnMouseDown: func(ev core.MouseButtonEvent) {
-					if ed.ViewMode == ViewMode3D {
-						if in3DGridMap() && ev.Button == core.MouseButtonLeft && !spaceHeld() {
-							strokeTookPress = false
-							cw, ch := ed.CanvasSize()
-							x, y := float32(ev.Position.X), float32(ev.Position.Y)
-							tool := ed.GridMapTool()
-							if ev.Modifiers.Alt || altHeld() {
-								tool = GridMapToolPick
-							}
-							ed.BeginGridMapStroke(tool, x, y, cw, ch)
-							return
-						}
-						g3.mouseDown(cx, ed, &frame, ev)
+					if ed.Playing() || ed.PickingConnectionTarget() {
 						return
 					}
-					if ed.ViewMode != ViewMode2D {
+					if rightConsumed {
+						rightConsumed = false
 						return
 					}
-					switch ev.Button {
-					case core.MouseButtonMiddle:
-						g.middle, g.middleLast = true, ev.Position
-					case core.MouseButtonLeft:
-						g.suppressPress = false
-						px, py := float32(ev.Position.X), float32(ev.Position.Y)
-						if !spaceHeld() && !ed.PickingConnectionTarget() {
-							if ed.RoomCreateMode() && ed.BeginRoomDrag(px, py) {
-								g.roomDrag = true
-								return
-							}
-							if ed.BeginCameraDrag(px, py) {
-								g.cameraDrag = true
-								return
-							}
-							if ed.BeginCameraBoundsDrag(px, py) != RectHandleNone {
-								g.boundsDrag = true
-								return
-							}
-							if ed.SelectedRoomID() != "" && ed.BeginRoomDrag(px, py) {
-								g.roomDrag = true
-								return
-							}
-							if ed.SelectedID == "" && ed.HitTest(px, py) == "" && ed.BeginRoomDrag(px, py) {
-								g.roomDrag = true
-								return
-							}
-						}
-						beginStroke(ev.Position, false, ev.Modifiers.Alt)
-					case core.MouseButtonRight:
-						if !spaceHeld() && !ed.PickingConnectionTarget() && ed.HandleCanvasSecondaryPress(float32(ev.Position.X), float32(ev.Position.Y)) {
-							return
-						}
-						beginStroke(ev.Position, true, ev.Modifiers.Alt)
-					}
-				},
-				OnMouseMove: func(ev core.MouseEvent) {
-					if g.cameraDrag {
-						if !ed.cameraDrag.active {
-							g.cameraDrag = false
-						} else if ev.PressedButton != core.MouseButtonLeft || ed.ViewMode != ViewMode2D {
-							g.cameraDrag = false
-							if ed.EndCameraDrag() {
-								g.suppressPress = true
-							}
-							return
-						} else {
-							ed.UpdateCameraDrag(float32(ev.Position.X), float32(ev.Position.Y))
-							return
-						}
-					}
-					if g.boundsDrag {
-						if !ed.cameraBoundsDrag.active {
-							g.boundsDrag = false
-						} else if ev.PressedButton != core.MouseButtonLeft || ed.ViewMode != ViewMode2D {
-							g.boundsDrag = false
-							if ed.EndCameraBoundsDrag() {
-								g.suppressPress = true
-							}
-							return
-						} else {
-							ed.UpdateCameraBoundsDrag(float32(ev.Position.X), float32(ev.Position.Y))
-							return
-						}
-					}
-					if g.roomDrag {
-						if !ed.roomDrag.active {
-							g.roomDrag = false
-						} else if ev.PressedButton != core.MouseButtonLeft || ed.ViewMode != ViewMode2D {
-							g.roomDrag = false
-							wasCreating := ed.roomDrag.creating
-							if ed.EndRoomDrag() || wasCreating {
-								g.suppressPress = true
-							}
-							return
-						} else {
-							ed.UpdateRoomDrag(float32(ev.Position.X), float32(ev.Position.Y))
-							return
-						}
-					}
 					if ed.ViewMode == ViewMode3D {
+						if ed.fly3DMoved {
+							return
+						}
+						g3.endFly(ed)
+					}
+					var hx, hy float32
+					if hasPointer && lastPointerMode == ed.ViewMode {
+						hx, hy = float32(lastPointer.X), float32(lastPointer.Y)
+					} else {
 						cw, ch := ed.CanvasSize()
-						x, y := float32(ev.Position.X), float32(ev.Position.Y)
-						ed.SetViewportPointer3D(x, y)
-						if in3DGridMap() {
-							ed.SetGridMapHover(x, y, cw, ch, ev.Modifiers.Alt)
-						}
-						if _, ok := ed.GridMapStrokeActive(); ok {
-							if ev.PressedButton == core.MouseButtonNone {
-								ed.ContinueGridMapStroke(x, y)
-								ed.EndGridMapStroke()
-							} else {
-								ed.ContinueGridMapStroke(x, y)
-							}
-							return
-						}
-						if ed.TerrainOpen() {
-							ed.SetTerrainHoverAt(x, y, cw, ch)
-						}
-						ed.SetPluginHover3D(x, y, cw, ch)
-						g3.mouseMove(ed, ev)
-						return
+						hx, hy = cw/2, ch/2
 					}
-					if ed.ViewMode == ViewMode2D {
-						ed.SetViewportPointer2D(float32(ev.Position.X), float32(ev.Position.Y))
-						ed.SetTileHover(float32(ev.Position.X), float32(ev.Position.Y), ev.Modifiers.Alt)
-						ed.SetPluginHover2D(float32(ev.Position.X), float32(ev.Position.Y))
-					}
-					if _, ok := ed.TileStrokeActive(); ok {
-						if ev.PressedButton == core.MouseButtonNone {
-							// The button came up where the viewport did not hear it.
-							endStroke(ev.Position, false)
-						} else {
-							ed.ContinueTileStroke(float32(ev.Position.X), float32(ev.Position.Y))
-						}
-					}
-					if !g.middle {
-						return
-					}
-					if ev.PressedButton != core.MouseButtonMiddle || ed.ViewMode != ViewMode2D {
-						g.middle = false
-						return
-					}
-					ed.PanView2D(float32(ev.Position.X-g.middleLast.X), float32(ev.Position.Y-g.middleLast.Y))
-					g.middleLast = ev.Position
+					hasPointer = false
+					openViewportContextMenu(hx, hy)
 				},
-				OnMouseUp: func(ev core.MouseButtonEvent) {
-					// A pan or flight that began in 3D ends whatever the view is now.
-					g3.mouseUp(ed, ev)
-					if ed.ViewMode == ViewMode3D {
-						if _, ok := ed.GridMapStrokeActive(); ok {
-							ed.ContinueGridMapStroke(float32(ev.Position.X), float32(ev.Position.Y))
-							ed.EndGridMapStroke()
-							strokeTookPress = ev.Button == core.MouseButtonLeft
-						}
-						return
-					}
-					switch ev.Button {
-					case core.MouseButtonMiddle:
-						g.middle = false
-					case core.MouseButtonLeft:
-						if g.cameraDrag {
-							g.cameraDrag = false
-							if ed.EndCameraDrag() {
-								g.suppressPress = true
-							}
+				Trigger: modelDropTarget(cx, ed, core.View{
+					TestID:     "editor-viewport-frame",
+					Ref:        &frame,
+					Style:      core.Style{FlexGrow: 1},
+					OnFileDrop: func(uris []string) { ed.dropModelFiles(uris) },
+					OnWheel: func(ev core.WheelEvent) {
+						if ed.ViewMode == ViewMode3D {
+							g3.wheel(ed, ev)
 							return
+						}
+						g.wheel(ed, ev)
+					},
+					OnPinch: func(ev core.GestureEvent) {
+						switch ed.ViewMode {
+						case ViewMode2D:
+							g.pinch(ed, ev)
+						case ViewMode3D:
+							g3.pinch(ed, ev)
+						}
+					},
+					OnPointerDelta: func(dx, dy float64) { g3.pointerDelta(ed, dx, dy) },
+					OnMouseDown: func(ev core.MouseButtonEvent) {
+						lastPointer, lastPointerMode, hasPointer = ev.Position, ed.ViewMode, true
+						rightConsumed = false
+						if ev.Button == core.MouseButtonLeft && ev.Modifiers.Control && !spaceHeld() && !ed.PickingConnectionTarget() {
+							hasPointer = false
+							if openViewportContextMenu(float32(ev.Position.X), float32(ev.Position.Y)) {
+								g.suppressPress = true
+								g3.suppressPress = true
+								return
+							}
+						}
+						if ed.ViewMode == ViewMode3D {
+							if in3DGridMap() && ev.Button == core.MouseButtonLeft && !spaceHeld() {
+								strokeTookPress = false
+								cw, ch := ed.CanvasSize()
+								x, y := float32(ev.Position.X), float32(ev.Position.Y)
+								tool := ed.GridMapTool()
+								if ev.Modifiers.Alt || altHeld() {
+									tool = GridMapToolPick
+								}
+								ed.BeginGridMapStroke(tool, x, y, cw, ch)
+								return
+							}
+							g3.mouseDown(cx, ed, &frame, ev)
+							return
+						}
+						if ed.ViewMode != ViewMode2D {
+							return
+						}
+						switch ev.Button {
+						case core.MouseButtonMiddle:
+							g.middle, g.middleLast = true, ev.Position
+						case core.MouseButtonLeft:
+							g.suppressPress = false
+							px, py := float32(ev.Position.X), float32(ev.Position.Y)
+							if !spaceHeld() && !ed.PickingConnectionTarget() {
+								if ed.RoomCreateMode() && ed.BeginRoomDrag(px, py) {
+									g.roomDrag = true
+									return
+								}
+								if ed.BeginCameraDrag(px, py) {
+									g.cameraDrag = true
+									return
+								}
+								if ed.BeginCameraBoundsDrag(px, py) != RectHandleNone {
+									g.boundsDrag = true
+									return
+								}
+								if ed.SelectedRoomID() != "" && ed.BeginRoomDrag(px, py) {
+									g.roomDrag = true
+									return
+								}
+								if ed.SelectedID == "" && ed.HitTest(px, py) == "" && ed.BeginRoomDrag(px, py) {
+									g.roomDrag = true
+									return
+								}
+							}
+							beginStroke(ev.Position, false, ev.Modifiers.Alt)
+						case core.MouseButtonRight:
+							if !spaceHeld() && !ed.PickingConnectionTarget() && ed.HandleCanvasSecondaryPress(float32(ev.Position.X), float32(ev.Position.Y)) {
+								rightConsumed = true
+								return
+							}
+							if in2D() && !spaceHeld() && !ed.PickingConnectionTarget() {
+								if _, ok := ed.toolStrokeMode(true, ev.Modifiers.Alt || altHeld()); ok {
+									rightConsumed = true
+								}
+							}
+							beginStroke(ev.Position, true, ev.Modifiers.Alt)
+						}
+					},
+					OnMouseMove: func(ev core.MouseEvent) {
+						lastPointer, lastPointerMode, hasPointer = ev.Position, ed.ViewMode, true
+						if g.cameraDrag {
+							if !ed.cameraDrag.active {
+								g.cameraDrag = false
+							} else if ev.PressedButton != core.MouseButtonLeft || ed.ViewMode != ViewMode2D {
+								g.cameraDrag = false
+								if ed.EndCameraDrag() {
+									g.suppressPress = true
+								}
+								return
+							} else {
+								ed.UpdateCameraDrag(float32(ev.Position.X), float32(ev.Position.Y))
+								return
+							}
 						}
 						if g.boundsDrag {
-							g.boundsDrag = false
-							if ed.EndCameraBoundsDrag() {
-								g.suppressPress = true
+							if !ed.cameraBoundsDrag.active {
+								g.boundsDrag = false
+							} else if ev.PressedButton != core.MouseButtonLeft || ed.ViewMode != ViewMode2D {
+								g.boundsDrag = false
+								if ed.EndCameraBoundsDrag() {
+									g.suppressPress = true
+								}
+								return
+							} else {
+								ed.UpdateCameraBoundsDrag(float32(ev.Position.X), float32(ev.Position.Y))
+								return
 							}
-							return
 						}
 						if g.roomDrag {
-							g.roomDrag = false
-							wasCreating := ed.roomDrag.creating
-							if ed.EndRoomDrag() || wasCreating {
-								g.suppressPress = true
+							if !ed.roomDrag.active {
+								g.roomDrag = false
+							} else if ev.PressedButton != core.MouseButtonLeft || ed.ViewMode != ViewMode2D {
+								g.roomDrag = false
+								wasCreating := ed.roomDrag.creating
+								if ed.EndRoomDrag() || wasCreating {
+									g.suppressPress = true
+								}
+								return
+							} else {
+								ed.UpdateRoomDrag(float32(ev.Position.X), float32(ev.Position.Y))
+								return
+							}
+						}
+						if ed.ViewMode == ViewMode3D {
+							cw, ch := ed.CanvasSize()
+							x, y := float32(ev.Position.X), float32(ev.Position.Y)
+							ed.SetViewportPointer3D(x, y)
+							if in3DGridMap() {
+								ed.SetGridMapHover(x, y, cw, ch, ev.Modifiers.Alt)
+							}
+							if _, ok := ed.GridMapStrokeActive(); ok {
+								if ev.PressedButton == core.MouseButtonNone {
+									ed.ContinueGridMapStroke(x, y)
+									ed.EndGridMapStroke()
+								} else {
+									ed.ContinueGridMapStroke(x, y)
+								}
+								return
+							}
+							if ed.TerrainOpen() {
+								ed.SetTerrainHoverAt(x, y, cw, ch)
+							}
+							ed.SetPluginHover3D(x, y, cw, ch)
+							g3.mouseMove(ed, ev)
+							return
+						}
+						if ed.ViewMode == ViewMode2D {
+							ed.SetViewportPointer2D(float32(ev.Position.X), float32(ev.Position.Y))
+							ed.SetTileHover(float32(ev.Position.X), float32(ev.Position.Y), ev.Modifiers.Alt)
+							ed.SetPluginHover2D(float32(ev.Position.X), float32(ev.Position.Y))
+						}
+						if _, ok := ed.TileStrokeActive(); ok {
+							if ev.PressedButton == core.MouseButtonNone {
+								// The button came up where the viewport did not hear it.
+								endStroke(ev.Position, false)
+							} else {
+								ed.ContinueTileStroke(float32(ev.Position.X), float32(ev.Position.Y))
+							}
+						}
+						if !g.middle {
+							return
+						}
+						if ev.PressedButton != core.MouseButtonMiddle || ed.ViewMode != ViewMode2D {
+							g.middle = false
+							return
+						}
+						ed.PanView2D(float32(ev.Position.X-g.middleLast.X), float32(ev.Position.Y-g.middleLast.Y))
+						g.middleLast = ev.Position
+					},
+					OnMouseUp: func(ev core.MouseButtonEvent) {
+						// A pan or flight that began in 3D ends whatever the view is now.
+						g3.mouseUp(ed, ev)
+						if ed.ViewMode == ViewMode3D {
+							if _, ok := ed.GridMapStrokeActive(); ok {
+								ed.ContinueGridMapStroke(float32(ev.Position.X), float32(ev.Position.Y))
+								ed.EndGridMapStroke()
+								strokeTookPress = ev.Button == core.MouseButtonLeft
 							}
 							return
 						}
-						endStroke(ev.Position, true)
-					case core.MouseButtonRight:
-						endStroke(ev.Position, false)
-					}
-				},
-				OnMouseLeave: func(core.MouseEvent) {
-					ed.ClearViewportPointer()
-					ed.ClearTileHover()
-					ed.ClearGridMapHover()
-					ed.ClearPluginHover2D()
-					ed.ClearPluginHover3D()
-					ed.ClearTerrainHover()
-				},
-				OnTouch: func(ev core.TouchEvent) {
-					if ed.ViewMode != ViewMode3D {
-						g.touch(ed, ev)
-						switch ev.Phase {
-						case core.TouchStart:
-							if len(ev.Touches) == 1 {
-								g.suppressPress = false
-								g.touchCamPos = ev.Touches[0].Position
-								g.hasTouchCam = true
-							} else {
+						switch ev.Button {
+						case core.MouseButtonMiddle:
+							g.middle = false
+						case core.MouseButtonLeft:
+							if g.cameraDrag {
+								g.cameraDrag = false
+								if ed.EndCameraDrag() {
+									g.suppressPress = true
+								}
+								return
+							}
+							if g.boundsDrag {
+								g.boundsDrag = false
+								if ed.EndCameraBoundsDrag() {
+									g.suppressPress = true
+								}
+								return
+							}
+							if g.roomDrag {
+								g.roomDrag = false
+								wasCreating := ed.roomDrag.creating
+								if ed.EndRoomDrag() || wasCreating {
+									g.suppressPress = true
+								}
+								return
+							}
+							endStroke(ev.Position, true)
+						case core.MouseButtonRight:
+							endStroke(ev.Position, false)
+						}
+					},
+					OnMouseLeave: func(core.MouseEvent) {
+						hasPointer = false
+						ed.ClearViewportPointer()
+						ed.ClearTileHover()
+						ed.ClearGridMapHover()
+						ed.ClearPluginHover2D()
+						ed.ClearPluginHover3D()
+						ed.ClearTerrainHover()
+					},
+					OnTouch: func(ev core.TouchEvent) {
+						if ed.ViewMode != ViewMode3D {
+							g.touch(ed, ev)
+							switch ev.Phase {
+							case core.TouchStart:
+								if len(ev.Touches) == 1 {
+									g.suppressPress = false
+									g.touchCamPos = ev.Touches[0].Position
+									g.hasTouchCam = true
+								} else {
+									g.hasTouchCam = false
+								}
+							case core.TouchEnd, core.TouchCancel:
 								g.hasTouchCam = false
 							}
-						case core.TouchEnd, core.TouchCancel:
-							g.hasTouchCam = false
+							touchStroke(ev, beginStroke, func(at core.Point) { endStroke(at, true) }, ed)
+							return
 						}
-						touchStroke(ev, beginStroke, func(at core.Point) { endStroke(at, true) }, ed)
-						return
-					}
-					g3.touch(ed, ev)
-				},
-				OnPan: func(ev core.PanEvent) {
-					if ed.ViewMode != ViewMode3D {
-						g.pan(ed, ev, spaceHeld, shiftHeld, modHeld, altHeld)
-						return
-					}
-					if _, active := ed.GridMapStrokeActive(); active {
-						return
-					}
-					if in3DGridMap() && !spaceHeld() {
-						return
-					}
-					g3.pan(ed, ev, shiftHeld)
-				},
-				Children: []core.Node{
-					core.Show{
-						When: func() bool {
-							_ = rev.Get()
-							return ed.ViewMode == ViewMode3D
-						},
-						// In 3D the canvas draws its overlays over the GPU view that draws the scene's geometry, or the whole wireframe view where the target has no GPU.
-						Then: func(cx *core.Scope) core.Node {
-							return viewport3DView(cx, ed, core.View{
-								Style: core.Style{FlexGrow: 1},
-								Children: append([]core.Node{
-									canvas,
-									viewport3DErrorView(cx, ed, rev),
-									core.Show{
-										When: func() bool {
-											_ = rev.Get()
-											return ed.Flying3D()
-										},
-										Then: func(cx *core.Scope) core.Node { return flyView3D(cx, ed) },
-									},
-								}, viewport3DOverlay(cx, ed, rev)...),
-							})
-						},
-						Else: func(cx *core.Scope) core.Node { return canvas },
+						g3.touch(ed, ev)
 					},
+					OnPan: func(ev core.PanEvent) {
+						if ed.ViewMode != ViewMode3D {
+							g.pan(ed, ev, spaceHeld, shiftHeld, modHeld, altHeld)
+							return
+						}
+						if _, active := ed.GridMapStrokeActive(); active {
+							return
+						}
+						if in3DGridMap() && !spaceHeld() {
+							return
+						}
+						g3.pan(ed, ev, shiftHeld)
+					},
+					Children: []core.Node{
+						core.Show{
+							When: func() bool {
+								_ = rev.Get()
+								return ed.ViewMode == ViewMode3D
+							},
+							// In 3D the canvas draws its overlays over the GPU view that draws the scene's geometry, or the whole wireframe view where the target has no GPU.
+							Then: func(cx *core.Scope) core.Node {
+								return viewport3DView(cx, ed, core.View{
+									Style: core.Style{FlexGrow: 1},
+									Children: append([]core.Node{
+										canvas,
+										viewport3DErrorView(cx, ed, rev),
+										core.Show{
+											When: func() bool {
+												_ = rev.Get()
+												return ed.Flying3D()
+											},
+											Then: func(cx *core.Scope) core.Node { return flyView3D(cx, ed) },
+										},
+									}, viewport3DOverlay(cx, ed, rev)...),
+								})
+							},
+							Else: func(cx *core.Scope) core.Node { return canvas },
+						},
+					},
+				}),
+				Children: []core.Node{
+					core.Dynamic(func(cx *core.Scope) core.Node {
+						_ = rev.Get()
+						id := ed.ObjectContextMenuTarget()
+						if id == "" {
+							return core.Group{}
+						}
+						return core.Group(objectContextMenuItems(cx, ed, rev, id, objectContextMenuOpts{}))
+					}),
 				},
-			}),
+			},
+			viewportToastView(cx, ed, rev),
 			assetDragViewportOverlay(cx, ed, rev),
 			viewport3DRenderStatsOverlay(cx, ed, rev),
 			viewportOverlaysBarView(cx, ed, rev),

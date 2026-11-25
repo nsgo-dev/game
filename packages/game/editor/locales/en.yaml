@@ -122,6 +122,25 @@ strings:
   cmd.view3d.label: Switch to 3D View
   cmd.view3dOrtho.desc: Switch the 3D viewport between perspective and orthographic projection
   cmd.view3dOrtho.label: '3D View: Orthographic'
+  contextMenu.askAgent: Ask the agent about this
+  contextMenu.back: Back
+  contextMenu.copyYAML: Copy as YAML
+  contextMenu.currentParent: current
+  contextMenu.duplicate: Duplicate
+  contextMenu.findUsages: Find usages
+  contextMenu.group: Group
+  contextMenu.hide: Hide
+  contextMenu.layerNote: layer {layer}
+  contextMenu.lock: Lock
+  contextMenu.lockedNote: locked
+  contextMenu.moveUnder: Move under
+  contextMenu.paste: Paste
+  contextMenu.rename: Rename
+  contextMenu.selectSamePrefab: Select same prefab
+  contextMenu.show: Show
+  contextMenu.subtitle: '{kind} · layer {layer}'
+  contextMenu.topLevelNote: top level
+  contextMenu.unlock: Unlock
   dialog.cancel: Cancel
   dialog.create: Create
   dialog.discard: Discard

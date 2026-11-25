@@ -140,7 +140,7 @@ func builtinTools() []Tool {
 			Action:      ActionEdit,
 			Handler:     tilesetEdit,
 		},
-	}, append(append(append(append(playtestTools(), mergeTools()...), refsTools()...), tileTools()...), inspectorTools()...)...)
+	}, append(append(append(append(append(playtestTools(), mergeTools()...), refsTools()...), tileTools()...), inspectorTools()...), objectMenuTools()...)...)
 }
 
 // projectRoot returns the absolute, symlink-free root of ed's project, or "" without one.
@@ -423,6 +423,8 @@ type Selection struct {
 	ActiveLayer string `json:"activeLayer"`
 	// Object is the selected object, or nil when none is selected.
 	Object *SelectedObject `json:"object,omitempty"`
+	// SelectedIDs lists every currently selected object ID when one or more objects are selected.
+	SelectedIDs []string `json:"selectedIds,omitempty"`
 	// File is the file selected in the file browser, by its path from the project root, or empty.
 	File string `json:"file,omitempty"`
 	// Tool is the viewport's active tool, such as "Select".
@@ -459,6 +461,7 @@ func readSelection(ed *editor.Editor) Selection {
 	sel := Selection{
 		Scene:       sceneName(ed, root),
 		ActiveLayer: ed.ActiveLayer,
+		SelectedIDs: ed.SelectedIDs(),
 		File:        ed.SelectedFile,
 		Tool:        ed.Tool.String(),
 		ViewMode:    ed.ViewMode.String(),

@@ -469,6 +469,8 @@ type Editor struct {
 	GHRunner func(dir string, args ...string) (string, error)
 	// ChangesClipboard overrides clipboard writes from CopyPRDescription; when nil, falls back to WriteClipboard or core.Scope.SetClipboard.
 	ChangesClipboard func(text string)
+	// OnAskAgent, when set, is called when the author triggers "Ask the agent about this" (AskAgentAboutObject / mod+l) on an object.
+	OnAskAgent func(AgentPromptRequest)
 
 	playing            bool
 	playSnapshot       []byte
@@ -732,6 +734,8 @@ type Editor struct {
 	envPanelOpen bool
 	// merge holds the object-by-object Scene Merge Conflict resolution screen state.
 	merge mergeConflictState
+	// contextMenu holds the unified viewport/keyboard object context menu, inline rename request, toast, and last agent prompt draft.
+	contextMenu objectContextMenuState
 	// clipboardText holds an in-memory copy of the last scene YAML copied when no UI scope or clipboard hook is attached.
 	clipboardText     string
 	lastClipboardKind clipboardKind
@@ -954,6 +958,12 @@ func (e *Editor) afterMutate() {
 	e.Rebuild()
 	// Ensure SelectedID and selectedIDs still point to existing local, instanced, or inherited objects.
 	e.pruneSelection()
+	if e.contextMenu.open && e.contextMenu.targetID != "" {
+		if obj, _ := e.FindResolvedObject(e.contextMenu.targetID); obj == nil {
+			e.contextMenu.open = false
+			e.contextMenu.targetID = ""
+		}
+	}
 	if e.connPick != nil && e.SelectedID != e.connPick.sourceID {
 		e.connPick = nil
 	}
@@ -1326,6 +1336,8 @@ func (e *Editor) openYAMLWithLayers(data []byte, file string, layers *sceneforma
 	e.Doc = doc
 	e.sceneSaved = saved
 	e.clearSelectionFields()
+	e.contextMenu.open = false
+	e.contextMenu.targetID = ""
 	e.pasteStreak = 0
 	e.inspectAssetFile = false
 	e.inspectLayer = false
@@ -1591,6 +1603,8 @@ func (e *Editor) SelectObject(id string) bool {
 		if e.SelectedID != "" || len(e.selectedIDs) > 0 || e.inspectAssetFile || e.inspectLayer || e.connPick != nil || hadRoom {
 			e.CancelRoomDrag()
 			e.clearSelectionFields()
+			e.contextMenu.open = false
+			e.contextMenu.targetID = ""
 			e.inspectAssetFile = false
 			e.inspectLayer = false
 			e.connPick = nil
