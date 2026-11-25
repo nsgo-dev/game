@@ -17,6 +17,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/nsgo-dev/game/packages/game/editor"
+	"github.com/nsgo-dev/game/packages/game/playtest"
 )
 
 // ServerName is the name the editor's server gives clients when they connect.
@@ -94,19 +95,24 @@ type Result struct {
 type Options struct {
 	// Run hands fn to the editor's goroutine and returns at once, as core.Scope.Post does for an editor shown in a window; the server waits for fn to run. When nil, the server runs fn on the calling goroutine, one at a time, for an editor no UI drives, as in a test or a script.
 	Run func(fn func())
+	// RunPlaytest optionally overrides how game_playtest executes a playtest request, for tests or in-process runners. When nil, game_playtest runs `go tool nsgo test` in the project root.
+	RunPlaytest func(ctx context.Context, req PlaytestRunRequest) (*playtest.Report, error)
 }
 
 // Server is the editor's MCP server. It serves the project open in an Editor on the project's local endpoint (Open), or on any MCP transport (Connect), with a registry of tools that the editor's parts join (AddTool), and a stream of changes to the open scene and the selection as resource notifications.
 type Server struct {
-	ed  *editor.Editor
-	run func(func())
-	sdk *mcp.Server
+	ed          *editor.Editor
+	run         func(func())
+	runPlaytest func(ctx context.Context, req PlaytestRunRequest) (*playtest.Report, error)
+	sdk         *mcp.Server
 
 	// inline serializes the calls run inline when Options.Run is nil.
 	inline sync.Mutex
 
-	mu    sync.Mutex
-	tools map[string]Tool
+	mu              sync.Mutex
+	tools           map[string]Tool
+	nextReviewID    int
+	playtestReviews []storedPlaytestReview
 	// subs holds the resource URIs each session subscribes to. A session that ends without unsubscribing is dropped the next time changed looks (subscribed), so its subscriptions stop costing the editor anything.
 	subs map[*mcp.ServerSession]map[string]bool
 	// listener and root are the endpoint Open serves on and the project root it belongs to.
@@ -133,17 +139,18 @@ type Server struct {
 	wake      chan struct{}
 }
 
-// New returns a server for ed with the five built-in tools. Call it on the editor's goroutine, which is the one Options.Run hands functions to.
+// New returns a server for ed with the built-in tools. Call it on the editor's goroutine, which is the one Options.Run hands functions to.
 func New(ed *editor.Editor, opts Options) *Server {
 	s := &Server{
-		ed:      ed,
-		run:     opts.Run,
-		tools:   map[string]Tool{},
-		subs:    map[*mcp.ServerSession]map[string]bool{},
-		conns:   map[net.Conn]struct{}{},
-		done:    make(chan struct{}),
-		pending: map[string]mcp.Meta{},
-		wake:    make(chan struct{}, 1),
+		ed:          ed,
+		run:         opts.Run,
+		runPlaytest: opts.RunPlaytest,
+		tools:       map[string]Tool{},
+		subs:        map[*mcp.ServerSession]map[string]bool{},
+		conns:       map[net.Conn]struct{}{},
+		done:        make(chan struct{}),
+		pending:     map[string]mcp.Meta{},
+		wake:        make(chan struct{}, 1),
 	}
 	s.sdk = mcp.NewServer(&mcp.Implementation{Name: ServerName, Title: "NSGo Game Editor"}, &mcp.ServerOptions{
 		Instructions:       instructions,

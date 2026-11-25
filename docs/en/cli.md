@@ -99,7 +99,7 @@ Opens the NSGo Scene Editor in a window on the scene file named, or on a small d
 claude mcp add game-editor -- nsgo game mcp
 ```
 
-An MCP server on standard input and output, which an agent such as Claude Code or Codex starts in the project's directory, or in a directory inside it, or with `-project` naming it. It finds the editor that has the project open and forwards to it the editor's tools, `scene_read`, `scene_edit`, `selection_get`, `viewport_image` and `game_check`, and its change stream; while no editor has the project open, each call answers with how to open it. [mcp](mcp.md#editor-tools) describes the tools.
+An MCP server on standard input and output, which an agent such as Claude Code or Codex starts in the project's directory, or in a directory inside it, or with `-project` naming it. It finds the editor that has the project open and forwards to it the editor's tools, `scene_read`, `scene_edit`, `selection_get`, `viewport_image`, `game_check`, `game_playtest` and `playtest_define`, and its change stream; while no editor has the project open, each call answers with how to open it. [mcp](mcp.md#editor-tools) describes the tools.
 
 ### release
 
@@ -145,6 +145,16 @@ nsgo game replay -run '^TestBossReplay$' ./levels
 Plays a game's [input recordings](replay.md) headless, for CI. A recording needs the game's own simulation to play, so the command plays them through the game's tests: it first loads every `*.replay.yaml` file under each directory and fails, without running any test, when one cannot be played (an unknown key, a name missing from the header, a step out of order) or when a directory holds none, so a mistyped path cannot pass. It then runs the tests whose names match `-run`, by default every test with `Replay` in its name, headless with `go tool nsgo test`, and fails when one fails, which is what `replay.AssertEndState` does when a run ends in another state than the one the test expects. It also fails when no test in a directory passed, as when `-run` matches no test, so a misnamed test or a mistyped pattern cannot pass without playing a recording. Name the tests that play recordings accordingly, such as `TestLevel1ClearReplay`.
 
 Each directory is a tree, as `nsgo test` reads it: with or without a trailing `/...`, its subdirectories are searched and tested too, skipping directories whose names start with `.` or `_` and nested modules but not `testdata`. The default is `./...`. The command runs `go tool nsgo`, so the module needs NSGo's command as a tool, as an NSGo app has.
+
+### playtest
+
+```sh
+go tool game playtest
+go tool game playtest -config playtest.yaml -out playtest.report.yaml -recordings playtest-recordings
+go tool game playtest -check
+```
+
+Validates `playtest.yaml` (or `-config`) and runs the configured bot headless for every seed through the game's tests matching `-run` (`Playtest` by default, which call `playtest.RunTest`). Each seeded run records its inputs into `<recordings>/run_NNN_seed_<seed>.replay.yaml` so any run can be watched or turned into a `game replay` test, and writes a deterministic YAML report to `-out` (`playtest.report.yaml` by default) containing per-run metrics, goal results (`met`, `missed` or `info`) and position data for heat maps. The command prints the report summary and exits 1 when any goal is missed or no matching test passed. Use `-count` or `-seeds` to override the runs in `playtest.yaml`, or `-check` to validate `playtest.yaml` without running tests. See [playtest](playtest.md).
 
 ### bench
 

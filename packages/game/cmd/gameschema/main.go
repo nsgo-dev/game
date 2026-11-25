@@ -21,6 +21,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/cutscene"
 	"github.com/nsgo-dev/game/packages/game/l10n"
 	"github.com/nsgo-dev/game/packages/game/navbake3d"
+	"github.com/nsgo-dev/game/packages/game/playtest"
 	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/game/packages/game/tilemap"
@@ -199,6 +200,13 @@ var formats = []format{
 		pkg:     "cutscene",
 		version: cutscene.CurrentVersion,
 	},
+	{
+		url:     playtest.SchemaURL,
+		title:   "NSGo game playtest (version 1)",
+		typ:     reflect.TypeFor[playtest.Config](),
+		pkg:     "playtest",
+		version: playtest.CurrentVersion,
+	},
 }
 
 // durationTypes maps duration types to their YAML schema forms: time.Duration accepts a Go duration string or integer nanoseconds; cutscene.Duration accepts only Go duration strings such as "1.5s".
@@ -297,6 +305,13 @@ func generate(root string) ([]schemaFile, error) {
 				}
 				if params := nodeDef.Property("params"); params != nil {
 					params.AdditionalProperties = btValSchema("")
+				}
+			}
+		}
+		if f.url == playtest.SchemaURL {
+			if botDef := s.Definitions["BotConfig"]; botDef != nil {
+				if params := botDef.Property("params"); params != nil {
+					params.AdditionalProperties = &jsonschema.Schema{Types: []jsonschema.Type{jsonschema.TypeBoolean, jsonschema.TypeNumber, jsonschema.TypeString}}
 				}
 			}
 		}

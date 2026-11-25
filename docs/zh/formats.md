@@ -1748,6 +1748,106 @@ entities:
           y: 12
 ```
 
+<!-- format: playtest -->
+### 试玩配置
+
+| 文件 | 版本 | 读写函数 | 字段 |
+| --- | --- | --- | --- |
+| `playtest.yaml`，由 `go tool game playtest` 与 `game_playtest` 读取 | `version: 1` | `playtest.ParseConfig`、`playtest.EncodeConfig` | [playtest](playtest.md) |
+
+```yaml
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/playtest.v1.json
+version: 1
+scope:
+  project: dungeon-run
+  scene: level_01
+  template: platformer2d
+runs:
+  count: 20
+  seedStart: 1
+  rate: 60
+  speed: 1
+  maxDuration: 1m30s
+bot:
+  profile: platformer-runner
+  reactionMin: 120ms
+  reactionMax: 220ms
+metrics:
+  - name: finished
+    label: Finished
+    measure:
+      kind: outcome
+      key: finished
+      aggregate: count
+    goal:
+      summary: most first-timers clear floor 1
+      source: brief.yaml
+      min: 16
+  - name: deaths
+    label: Deaths
+    measure:
+      kind: event
+      key: death
+      aggregate: sum
+      heatMap: true
+```
+
+<!-- format: playtest#report -->
+### 试玩报告
+
+| 文件 | 版本 | 读写函数 | 字段 |
+| --- | --- | --- | --- |
+| `playtest.report.yaml`，由 `go tool game playtest` 与 `playtest.SaveReportFile` 写出 | `version: 1` | `playtest.ParseReport`、`playtest.EncodeReport` | [playtest](playtest.md) |
+
+```yaml
+version: 1
+scope:
+  project: dungeon-run
+  scene: level_01
+bot:
+  profile: platformer-runner
+  reactionMin: 120ms
+  reactionMax: 220ms
+rate: 60
+speed: 1
+seedCount: 1
+passed: false
+metrics:
+  - name: finished
+    label: Finished
+    aggregate: count
+    value: 0
+    goal:
+      summary: most first-timers clear floor 1
+      source: brief.yaml
+      min: 1
+    status: missed
+heatMaps:
+  - metric: deaths
+    event: death
+    points:
+      - seed: 1
+        step: 140
+        x: 300
+        "y": 144
+        tag: slime_pit
+runs:
+  - index: 1
+    seed: 1
+    outcome: failed
+    reason: out of lives
+    steps: 140
+    durationSeconds: 2.3333333333333335
+    recording: recordings/run_001_seed_1.replay.yaml
+    events:
+      - kind: death
+        step: 140
+        timeSeconds: 2.3333333333333335
+        x: 300
+        "y": 144
+        tag: slime_pit
+```
+
 <!-- format: tilemap#chunk -->
 ### 瓦片地图分块
 

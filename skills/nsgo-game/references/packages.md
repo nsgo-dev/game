@@ -147,11 +147,12 @@ Every non-internal package under `github.com/nsgo-dev/game/packages` (shown rela
 | `game/debug` | Experimental | Frame-time `Overlay`, `Profiler`, `GCMonitor`, `MemoryTracker`, `Console` tunables, wireframe debug draw (`-tags release` stripped) |
 | `game/mcp` | Experimental | `Bridge` registering game MCP tools with `nsgo/automation` for `nsgo mcp` and `nsgotest` |
 | `game/replay` | Experimental | `Recorder`/`Player`, editable YAML recordings and deterministic replay assertions |
+| `game/playtest` | Experimental | `playtest.yaml` parser/encoder, headless seeded bot runner with replays, metrics collector, `platformer-runner` profile and YAML report |
 | `game/statedump` | Experimental | Headless deterministic YAML state dumps and line diffs between runs |
 | `game/gametest` | Experimental | Testing helpers and fixtures for game-layer tests |
 | `game/perf` | Experimental | Zero-alloc `Pool`/`Arena`/`SlicePool`, `SpatialHash`, `Quadtree` and `CullBatch` |
 | `game/editor` | Experimental | Visual scene and animation clip editor embedded behind `nsgo game editor` |
-| `game/editor/editormcp` | Experimental | The editor's MCP server: `scene_read`, `scene_edit`, `selection_get`, `viewport_image` and `game_check` on the open project, served on a per-project local endpoint that `nsgo game mcp` forwards to |
+| `game/editor/editormcp` | Experimental | The editor's MCP server: `scene_read`, `scene_edit`, `selection_get`, `viewport_image`, `game_check`, `game_playtest` and `playtest_define` on the open project, served on a per-project local endpoint that `nsgo game mcp` forwards to |
 
 ## Project, CLI and asset tooling
 

@@ -1,0 +1,72 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/playtest.v1.json
+version: 1
+scope:
+  project: dungeon-run
+  scene: level_01
+  template: platformer2d
+runs:
+  count: 20
+  seedStart: 1
+  rate: 60
+  speed: 1
+  maxDuration: 1m30s
+bot:
+  profile: platformer-runner
+  strategy: Greedy route to the door, jumps at ledges and gaps, 120-220 ms reaction jitter
+  reactionMin: 120ms
+  reactionMax: 220ms
+  params:
+    jumpHoldMs: 220
+metrics:
+  - name: finished
+    label: Finished
+    measure:
+      kind: outcome
+      key: finished
+      aggregate: count
+    goal:
+      summary: most first-timers clear floor 1
+      source: brief.yaml
+      min: 16
+  - name: median_time
+    label: Median time
+    unit: s
+    measure:
+      kind: timer
+      key: clear_time
+      aggregate: median
+    goal:
+      summary: under a minute
+      source: brief.yaml
+      min: 40
+      max: 60
+  - name: frame_time
+    label: Frame time
+    unit: ms
+    measure:
+      kind: perf
+      key: frame_ms
+      aggregate: median
+    goal:
+      summary: 16.7 ms at 60 Hz
+      source: game.yaml
+      max: 16.7
+  - name: coins_taken
+    label: Coins taken
+    unit: '%'
+    measure:
+      kind: ratio
+      key: coins_taken
+      denomKey: coins_total
+      aggregate: mean
+    goal:
+      summary: every coin on a route
+      source: playtest.yaml
+      min: 100
+  - name: deaths
+    label: Deaths
+    measure:
+      kind: event
+      key: death
+      aggregate: sum
+      heatMap: true

@@ -131,6 +131,24 @@ nsgo game replay [flags] [directory ...]
 | --- | --- | --- |
 | `-run regexp` | `Replay` | run the tests matching this regexp, as go test's -run: the tests that play the recordings |
 
+## game playtest
+
+Validate playtest.yaml, run headless bot playtests with replays, write a YAML report and fail on missed goals.
+
+```sh
+game playtest [flags] [directory ...]
+```
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `-check` |  | validate playtest.yaml without running any tests |
+| `-config file` | `playtest.yaml` | the playtest configuration file to validate and run |
+| `-count int` |  | override runs.count in playtest.yaml when positive |
+| `-out file` | `playtest.report.yaml` | write the YAML playtest report to this file |
+| `-recordings directory` | `playtest-recordings` | write per-seed .replay.yaml recordings into this directory (empty skips writing files) |
+| `-run regexp` | `Playtest` | run the tests matching this regexp, as go test's -run: the tests that call playtest.RunTest |
+| `-seeds seeds` |  | override runs.seeds with a comma-separated list of uint64 seeds |
+
 ## game bench
 
 Run the benchmarks headless and fail when one regresses past its stored baseline, or update the baseline.

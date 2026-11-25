@@ -12,6 +12,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/cutscene"
 	"github.com/nsgo-dev/game/packages/game/l10n"
 	"github.com/nsgo-dev/game/packages/game/navbake3d"
+	"github.com/nsgo-dev/game/packages/game/playtest"
 	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/game/packages/game/tooling/jsonschema"
@@ -711,6 +712,57 @@ func TestCutsceneSchemasShapeAndValidation(t *testing.T) {
 	} {
 		if err := s2.ValidateYAML([]byte(bad)); err == nil {
 			t.Fatalf("v2 cutscene schema accepted invalid YAML:\n%s", bad)
+		}
+	}
+}
+
+func TestPlaytestSchemaShapeAndValidation(t *testing.T) {
+	s := schemaAt(t, playtest.SchemaURL)
+	if s.Schema != jsonschema.Draft07 || s.ID != playtest.SchemaURL {
+		t.Fatalf("$schema %q, $id %q", s.Schema, s.ID)
+	}
+	if version := s.Property("version"); version == nil || version.Const != int64(playtest.CurrentVersion) {
+		t.Fatalf("version property = %+v", version)
+	}
+	if b, ok := s.AdditionalProperties.Boolean(); !ok || b {
+		t.Fatal("playtest schema accepts unknown top-level keys")
+	}
+	for _, p := range s.Properties {
+		if p.Schema.Description == "" {
+			t.Errorf("Config.%s has no description", p.Name)
+		}
+	}
+	for _, defName := range []string{"Scope", "Runs", "BotConfig", "Metric", "Measure", "Goal"} {
+		def := s.Definitions[defName]
+		if def == nil || def.Description == "" {
+			t.Fatalf("definition %s = %+v, want one with a description", defName, def)
+		}
+		if b, ok := def.AdditionalProperties.Boolean(); !ok || b {
+			t.Fatalf("definition %s accepts unknown keys", defName)
+		}
+		for _, p := range def.Properties {
+			if p.Schema.Description == "" {
+				t.Errorf("%s.%s has no description", defName, p.Name)
+			}
+		}
+	}
+	data, err := os.ReadFile(filepath.Join(root, "playtest", "testdata", "platformer.playtest.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ValidateYAML(data); err != nil {
+		t.Fatalf("playtest schema refused platformer.playtest.yaml: %v", err)
+	}
+	badDocs := []string{
+		"version: 1\nunknownKey: true\nscope: {scene: level_01}\nruns: {count: 1}\nbot: {profile: platformer-runner}\n",
+		"version: 2\nscope: {scene: level_01}\nruns: {count: 1}\nbot: {profile: platformer-runner}\n",
+		"version: 1\nscope: {scene: level_01}\nruns: {count: -1}\nbot: {profile: platformer-runner}\n",
+		"version: 1\nscope: {scene: level_01}\nruns: {count: 1}\nbot: {profile: platformer-runner, params: {nested: {a: 1}}}\n",
+		"version: 1\nscope: {scene: level_01}\nruns: {count: 1}\nbot: {profile: platformer-runner}\nmetrics: [{name: m, measure: {kind: bogus, key: k}}]\n",
+	}
+	for _, bad := range badDocs {
+		if err := s.ValidateYAML([]byte(bad)); err == nil {
+			t.Fatalf("playtest schema accepted invalid YAML:\n%s", bad)
 		}
 	}
 }

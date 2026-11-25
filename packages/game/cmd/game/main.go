@@ -1,4 +1,4 @@
-// Command game is the game layer's command-line tool, run as `nsgo game` or `go tool game` from a module that adds it as a tool. Its subcommands pack sprite atlases (pack), convert audio (audio), generate asset manifests (manifest), encode KTX2 textures (tex), open the scene editor (editor), build release packages for every platform (release), play input recordings headless (replay), check benchmarks against a stored baseline (bench), create a game project from a template (new), run the game with asset hot reload (dev), check scenes, maps and atlases and the references between them (check), serve the editor's MCP tools to an agent (mcp), build all of a project's assets from game.yaml, rebuilding only what changed (assets), write a new component, system, scene or prefab into a project (generate), move a file and rewrite the references to it (mv), keep the project index of stable file IDs (index), install asset, editor plugin and template packs from a library into a project (library), list every asset's author and license as a credits file (credits), render pixelfx effects to sprite sheets (pixelfx), bake a scene's navigation meshes (navmesh) and write shell completion scripts (completion); `game help` lists them and `game help <command>` shows one command's flags.
+// Command game is the game layer's command-line tool, run as `nsgo game` or `go tool game` from a module that adds it as a tool. Its subcommands pack sprite atlases (pack), convert audio (audio), generate asset manifests (manifest), encode KTX2 textures (tex), open the scene editor (editor), build release packages for every platform (release), play input recordings headless (replay), run bot playtests headless with replays and YAML reports (playtest), check benchmarks against a stored baseline (bench), create a game project from a template (new), run the game with asset hot reload (dev), check scenes, maps and atlases and the references between them (check), serve the editor's MCP tools to an agent (mcp), build all of a project's assets from game.yaml, rebuilding only what changed (assets), write a new component, system, scene or prefab into a project (generate), move a file and rewrite the references to it (mv), keep the project index of stable file IDs (index), install asset, editor plugin and template packs from a library into a project (library), list every asset's author and license as a credits file (credits), render pixelfx effects to sprite sheets (pixelfx), bake a scene's navigation meshes (navmesh) and write shell completion scripts (completion); `game help` lists them and `game help <command>` shows one command's flags.
 package main
 
 import (
@@ -24,6 +24,8 @@ type app struct {
 	launch func(ed *editor.Editor)
 	// nsgo runs `go tool nsgo` with args, for the replay and bench subcommands.
 	nsgo func(args []string, stdout, stderr io.Writer) error
+	// nsgoEnv runs `go tool nsgo` with extra KEY=VALUE environment entries, for the playtest subcommand.
+	nsgoEnv func(env []string, args []string, stdout, stderr io.Writer) error
 }
 
 // command is one subcommand of game.
@@ -41,7 +43,7 @@ type command struct {
 }
 
 // commands are game's subcommands in the order game help lists them, help itself last.
-var commands = []*command{packCommand, audioCommand, manifestCommand, texCommand, editorCommand, mcpCommand, releaseCommand, replayCommand, benchCommand, newCommand, devCommand, checkCommand, assetsCommand, generateCommand, mvCommand, indexCommand, libraryCommand, creditsCommand, pixelfxCommand, navmeshCommand}
+var commands = []*command{packCommand, audioCommand, manifestCommand, texCommand, editorCommand, mcpCommand, releaseCommand, replayCommand, playtestCommand, benchCommand, newCommand, devCommand, checkCommand, assetsCommand, generateCommand, mvCommand, indexCommand, libraryCommand, creditsCommand, pixelfxCommand, navmeshCommand}
 
 // helpSummary is the help subcommand's line in the listing.
 const helpSummary = "Show the commands, or one command's flags"
@@ -58,12 +60,13 @@ func usagef(format string, args ...any) error {
 
 func main() {
 	os.Exit(run(os.Args[1:], &app{
-		stdin:  os.Stdin,
-		stdout: os.Stdout,
-		stderr: os.Stderr,
-		audio:  &audioconv.Encoder{},
-		launch: runEditor,
-		nsgo:   runGoToolNSGo,
+		stdin:   os.Stdin,
+		stdout:  os.Stdout,
+		stderr:  os.Stderr,
+		audio:   &audioconv.Encoder{},
+		launch:  runEditor,
+		nsgo:    runGoToolNSGo,
+		nsgoEnv: runGoToolNSGoEnv,
 	}))
 }
 

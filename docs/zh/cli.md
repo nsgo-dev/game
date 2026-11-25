@@ -99,7 +99,7 @@ nsgo game editor .
 claude mcp add game-editor -- nsgo game mcp
 ```
 
-一个基于标准输入输出的 MCP 服务器，由 Claude Code、Codex 等智能体在项目目录（或其中任一子目录）里启动，或用 `-project` 指定项目。它找到打开了该项目的编辑器，把编辑器的工具 `scene_read`、`scene_edit`、`selection_get`、`viewport_image` 和 `game_check` 以及变更流转发给智能体；没有编辑器打开该项目时，每次调用都会说明如何打开它。工具说明见 [mcp](mcp.md#编辑器工具)。
+一个基于标准输入输出的 MCP 服务器，由 Claude Code、Codex 等智能体在项目目录（或其中任一子目录）里启动，或用 `-project` 指定项目。它找到打开了该项目的编辑器，把编辑器的工具 `scene_read`、`scene_edit`、`selection_get`、`viewport_image`、`game_check`、`game_playtest` 和 `playtest_define` 以及变更流转发给智能体；没有编辑器打开该项目时，每次调用都会说明如何打开它。工具说明见 [mcp](mcp.md#编辑器工具)。
 
 ### release
 
@@ -145,6 +145,16 @@ nsgo game replay -run '^TestBossReplay$' ./levels
 无界面回放游戏的[输入录像](replay.md)，供 CI 使用。录像要靠游戏自己的模拟才能回放，所以命令通过游戏的测试来回放：它先加载各目录下的每个 `*.replay.yaml` 文件，只要有一个无法回放（未知的键、表头中没有的名字、乱序的步），或者某个目录里一个录像也没有，就直接失败而不运行任何测试，这样写错的路径不会蒙混通过。随后用 `go tool nsgo test` 无界面运行名字匹配 `-run` 的测试，默认是名字中含 `Replay` 的所有测试，有一个失败命令就失败；一次回放的结束状态与测试期望的不同时，`replay.AssertEndState` 正是让测试失败。某个目录里没有任何测试通过时命令也会失败，例如 `-run` 一个测试也没匹配到，这样命名不对的测试或写错的模式不会在一个录像也没回放的情况下蒙混通过。请据此给回放录像的测试命名，例如 `TestLevel1ClearReplay`。
 
 每个目录都按 `nsgo test` 的方式当作一棵树：无论末尾有没有 `/...`，其子目录都会被搜索和测试，跳过名字以 `.` 或 `_` 开头的目录和嵌套模块，但不跳过 `testdata`。默认是 `./...`。命令会运行 `go tool nsgo`，因此模块需要像 NSGo 应用那样把 NSGo 的命令加为工具。
+
+### playtest
+
+```sh
+go tool game playtest
+go tool game playtest -config playtest.yaml -out playtest.report.yaml -recordings playtest-recordings
+go tool game playtest -check
+```
+
+校验 `playtest.yaml`（或 `-config` 指定的文件），并通过匹配 `-run`（默认 `Playtest`，在测试中调用 `playtest.RunTest`）的测试按每个种子无头运行配置的机器人。每次运行都会把输入录制到 `<recordings>/run_NNN_seed_<seed>.replay.yaml`，便于回放观看或转为 `game replay` 回归测试，并向 `-out`（默认 `playtest.report.yaml`）写出确定性的 YAML 报告，包含每次运行的指标、各目标的达成状态（`met`、`missed` 或 `info`）以及用于热力图的坐标数据。命令会打印报告汇总，若有任何目标未达成或未匹配到任何测试则以退出码 1 失败。可用 `-count` 或 `-seeds` 覆盖 `playtest.yaml` 中的运行次数或种子，用 `-check` 仅校验配置而不运行测试。见 [playtest](playtest.md)。
 
 ### bench
 
