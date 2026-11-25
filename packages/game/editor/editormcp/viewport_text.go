@@ -10,6 +10,8 @@ import (
 	"github.com/nsgo-dev/nsgo/core"
 )
 
+const maxOverlayTextPixScale = 16
+
 // bitmapGlyph5x7 holds a compact 5×7 pixel font (rows top-to-bottom, 5 bits wide MSB-first)
 // used by viewport_image to render overlay text ops (such as connection labels "pulled → open"
 // and object labels) onto the software-rasterized PNG.
@@ -191,10 +193,18 @@ func renderOverlayTextPNG(pngBytes []byte, ops []core.DrawOp) ([]byte, bool) {
 			}
 			px, py := cur.m.apply(float64(op.X), float64(op.Y))
 			scale := math.Sqrt(math.Hypot(cur.m.a, cur.m.b) * math.Hypot(cur.m.c, cur.m.d))
-			if scale <= 0 {
-				scale = 1
+			if math.IsNaN(px) || math.IsInf(px, 0) || math.IsNaN(py) || math.IsInf(py, 0) || math.IsNaN(scale) || math.IsInf(scale, 0) {
+				continue
 			}
-			pixScale := max(1, int(math.Round(scale)))
+			if math.Abs(px) > 1e7 || math.Abs(py) > 1e7 {
+				continue
+			}
+			if scale < 1 {
+				scale = 1
+			} else if scale > maxOverlayTextPixScale {
+				scale = maxOverlayTextPixScale
+			}
+			pixScale := int(math.Round(scale))
 			// FillText uses (x, y) as baseline; lift by glyph height (~7*pixScale) so text sits cleanly inside pills.
 			ox := int(math.Round(px))
 			oy := int(math.Round(py)) - 7*pixScale

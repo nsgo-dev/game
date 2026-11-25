@@ -313,6 +313,12 @@ func (e *Editor) effectiveOverlaySet() map[string]bool {
 		return set
 	}
 	for _, o := range e.ViewportOverlays() {
+		if o.ID == OverlayNavigation {
+			if e.ShowNavMesh2D {
+				set[o.ID] = true
+			}
+			continue
+		}
 		if o.DefaultOn {
 			set[o.ID] = true
 		}
@@ -456,6 +462,10 @@ func (e *Editor) commitOverlaySet(set map[string]bool) error {
 
 func (e *Editor) syncOverlaysFromSettings() {
 	if e == nil {
+		return
+	}
+	if e.settings.ViewportOverlays == nil {
+		e.ShowNavMesh2D = true
 		return
 	}
 	set := e.effectiveOverlaySet()

@@ -152,4 +152,24 @@ func TestViewportImageOverlaysConnectionsArrowAndSharedSet(t *testing.T) {
 	if !resBad.IsError {
 		t.Fatal("expected unknown viewport_overlays name to return a tool error")
 	}
+
+	// 6. In 3D view mode, omitting viewport_overlays reports no 2D overlays, and explicit
+	// viewport_overlays returns a clear tool error instead of silently ignoring them.
+	ed.SetViewMode(editor.ViewMode3D)
+	res3D := call(t, cs, editormcp.ToolViewportImage, map[string]any{})
+	mustOK(t, res3D)
+	var info3D editormcp.ViewportImage
+	structured(t, res3D, &info3D)
+	if info3D.ViewMode != "3D" {
+		t.Fatalf("3D viewport_image ViewMode = %q, want 3D", info3D.ViewMode)
+	}
+	if len(info3D.ViewportOverlays) != 0 {
+		t.Fatalf("3D viewport_image reported 2D ViewportOverlays = %v, want empty", info3D.ViewportOverlays)
+	}
+	res3DOverride := call(t, cs, editormcp.ToolViewportImage, map[string]any{
+		"viewport_overlays": []string{editor.OverlayConnections},
+	})
+	if !res3DOverride.IsError {
+		t.Fatal("expected explicit viewport_overlays in 3D view mode to return a tool error")
+	}
 }

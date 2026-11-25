@@ -366,7 +366,7 @@ strings:
   overlays.patrolPaths: Patrol paths
   overlays.popoverTitle: SHOW IN VIEWPORT
   overlays.snap: Snap
-  overlays.snapLabel: Snap shape handles to grid
+  overlays.snapLabel: Snap objects and handles to grid
   overlays.triggers: Triggers
   overlays.zoomIn: Zoom in
   overlays.zoomOut: Zoom out

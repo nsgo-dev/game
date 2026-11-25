@@ -987,8 +987,32 @@ func (e *Editor) drawComponentShapes2D(d *core.Drawing, scene *sceneformat.Built
 	if len(shapes) == 0 {
 		return
 	}
-	d.Save()
+	showCollision := e.overlayActive(OverlayCollisionShapes)
+	showTriggers := e.overlayActive(OverlayTriggers)
+	showPatrol := e.overlayActive(OverlayPatrolPaths)
+	saved := false
 	for _, s := range shapes {
+		// Component shape fields are rendered by the Collision shapes, Triggers, and Patrol
+		// paths viewport overlays (covering both unselected and selected objects). Skip them
+		// here when their overlay is active to avoid double-drawing, and skip non-selected
+		// ShowAllShapes entries when their overlay is off so toggling the overlay off hides them
+		// in the live viewport just as viewport_image does.
+		var overlayOn bool
+		switch {
+		case isPatrolComponentName(s.Component):
+			overlayOn = showPatrol
+		case isTriggerComponentName(s.Component):
+			overlayOn = showTriggers
+		default:
+			overlayOn = showCollision
+		}
+		if overlayOn || !s.Selected {
+			continue
+		}
+		if !saved {
+			d.Save()
+			saved = true
+		}
 		rgb := shapeBaseRGB(s.Component)
 		strokeAlpha := float32(0.55)
 		fillAlpha := float32(0.07)
@@ -1021,7 +1045,9 @@ func (e *Editor) drawComponentShapes2D(d *core.Drawing, scene *sceneformat.Built
 			}
 		}
 	}
-	d.Restore()
+	if saved {
+		d.Restore()
+	}
 }
 
 func (e *Editor) drawComponentShapeHandles2D(d *core.Drawing) {

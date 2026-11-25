@@ -529,3 +529,103 @@ func TestViewportOverlaysPopoverUIAndScreenshot(t *testing.T) {
 	// Capture real nsgotest screenshot on macOS showing the open Overlays popover and drawn overlays.
 	app.Screenshot("viewport-overlays-popover")
 }
+
+func TestSetShowNavMesh2DPreservedWhenTogglingOtherOverlay(t *testing.T) {
+	ed := newOverlaysTestEditor(t)
+	if !ed.ShowNavMesh2D || !ed.ViewportOverlayEnabled(editor.OverlayNavigation) {
+		t.Fatal("expected Navigation overlay enabled by default")
+	}
+
+	// Turn off 2D NavMesh before any explicit overlay toggle or SettingsPath is set.
+	ed.SetShowNavMesh2D(false)
+	if ed.ShowNavMesh2D || ed.ViewportOverlayEnabled(editor.OverlayNavigation) {
+		t.Fatal("SetShowNavMesh2D(false) did not disable Navigation overlay")
+	}
+
+	// Toggling another overlay must NOT silently re-enable Navigation.
+	if err := ed.SetViewportOverlay(editor.OverlayLabels, true); err != nil {
+		t.Fatalf("SetViewportOverlay(labels, true): %v", err)
+	}
+	if ed.ShowNavMesh2D || ed.ViewportOverlayEnabled(editor.OverlayNavigation) {
+		t.Fatalf("toggling another overlay re-enabled Navigation: ShowNavMesh2D=%v active=%v", ed.ShowNavMesh2D, ed.ActiveViewportOverlays())
+	}
+	if !ed.ViewportOverlayEnabled(editor.OverlayLabels) {
+		t.Fatal("expected Labels overlay enabled")
+	}
+}
+
+func TestComponentShapesOverlayNoDoubleDrawAndMatchesViewportImage(t *testing.T) {
+	ed := newOverlaysTestEditor(t)
+	ed.SetShowAllShapes(true)
+	ed.SelectObject("knight")
+	size := core.Size{Width: 640, Height: 360}
+
+	countStrokes := func(ops []core.DrawOp) int {
+		n := 0
+		for _, op := range ops {
+			if op.Kind == core.DrawStroke {
+				n++
+			}
+		}
+		return n
+	}
+
+	// With collision_shapes + triggers ON and ShowAllShapes + selection active,
+	// live DrawViewport must not double-draw component shapes compared to DrawViewportWithOverlays.
+	if err := ed.SetViewportOverlays([]string{editor.OverlayCollisionShapes, editor.OverlayTriggers}); err != nil {
+		t.Fatalf("SetViewportOverlays: %v", err)
+	}
+	var liveOn, overrideOn core.Drawing
+	ed.DrawViewport(&liveOn, size)
+	if err := ed.DrawViewportWithOverlays(&overrideOn, size, []string{editor.OverlayCollisionShapes, editor.OverlayTriggers}); err != nil {
+		t.Fatalf("DrawViewportWithOverlays: %v", err)
+	}
+	if got, want := countStrokes(liveOn.Ops), countStrokes(overrideOn.Ops); got != want {
+		t.Fatalf("live DrawViewport strokes = %d, DrawViewportWithOverlays = %d (component shapes were double-drawn)", got, want)
+	}
+
+	// With all overlays OFF and no selection, ShowAllShapes must not leak component shapes in live DrawViewport.
+	ed.SelectObject("")
+	if err := ed.SetViewportOverlays([]string{}); err != nil {
+		t.Fatalf("SetViewportOverlays([]): %v", err)
+	}
+	var liveOffAll, liveOffSingle core.Drawing
+	ed.SetShowAllShapes(true)
+	ed.DrawViewport(&liveOffAll, size)
+	ed.SetShowAllShapes(false)
+	ed.DrawViewport(&liveOffSingle, size)
+	if got, want := countStrokes(liveOffAll.Ops), countStrokes(liveOffSingle.Ops); got != want {
+		t.Fatalf("live DrawViewport strokes with overlays off and ShowAllShapes=true = %d, ShowAllShapes=false = %d (ShowAllShapes leaked)", got, want)
+	}
+}
+
+func TestViewportOverlayBarLiveLanguageSwitchAndPopoverDismiss(t *testing.T) {
+	ed := newOverlaysTestEditor(t)
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1280, 720))
+	app.Settle()
+
+	if !app.Exists("Snap") || !app.Exists("Fit") {
+		t.Fatal("expected English Snap and Fit buttons in viewport bar")
+	}
+
+	// Open the Overlays popover, then switch language live to Simplified Chinese.
+	ed.SetOverlaysPopoverOpen(true)
+	app.Settle()
+	if err := ed.SetLanguage(editor.LanguageChinese); err != nil {
+		t.Fatalf("SetLanguage(zh): %v", err)
+	}
+	app.Settle()
+
+	if !app.Exists("吸附") || !app.Exists("适应画面") {
+		t.Fatal("viewport bar Snap/Fit buttons did not update live when switching to Chinese")
+	}
+
+	// Switching to 3D mode must close the 2D Overlays popover so it does not reopen stale on return.
+	ed.SetViewMode(editor.ViewMode3D)
+	app.Settle()
+	if ed.OverlaysPopoverOpen() {
+		t.Fatal("expected OverlaysPopoverOpen() to clear when switching to 3D mode")
+	}
+}

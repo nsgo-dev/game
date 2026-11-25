@@ -971,6 +971,7 @@ func (e *Editor) SetViewMode(mode ViewMode) {
 	e.CancelCameraDrag()
 	e.CancelCameraBoundsDrag()
 	e.CancelRoomDrag()
+	e.overlaysPopoverOpen = false
 	e.ViewMode = mode
 	e.Status = "View: " + mode.String()
 	e.notify()

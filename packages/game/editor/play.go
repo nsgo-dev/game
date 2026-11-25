@@ -168,6 +168,7 @@ func (e *Editor) PlayIn(cx *core.Scope) error {
 	e.ClearPluginHover3D()
 	e.cancelParticleCurveDrag()
 	e.CancelImagePivotDrag()
+	e.overlaysPopoverOpen = false
 	snap, err := sceneformat.Encode(e.Doc)
 	if err != nil {
 		return fmt.Errorf("editor: snapshot scene: %w", err)
