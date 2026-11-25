@@ -122,6 +122,25 @@ strings:
   cmd.view3d.label: 切换至 3D 视图
   cmd.view3dOrtho.desc: 在透视投影与正交投影之间切换 3D 视口
   cmd.view3dOrtho.label: 3D 视图：正交投影
+  contextMenu.askAgent: 向智能体询问此项
+  contextMenu.back: 返回
+  contextMenu.copyYAML: 复制为 YAML
+  contextMenu.currentParent: 当前
+  contextMenu.duplicate: 复制副本
+  contextMenu.findUsages: 查找用法
+  contextMenu.group: 编组
+  contextMenu.hide: 隐藏
+  contextMenu.layerNote: 图层 {layer}
+  contextMenu.lock: 锁定
+  contextMenu.lockedNote: 已锁定
+  contextMenu.moveUnder: 移至子级
+  contextMenu.paste: 粘贴
+  contextMenu.rename: 重命名
+  contextMenu.selectSamePrefab: 选择相同预制体
+  contextMenu.show: 显示
+  contextMenu.subtitle: '{kind} · 图层 {layer}'
+  contextMenu.topLevelNote: 顶层
+  contextMenu.unlock: 解锁
   dialog.cancel: 取消
   dialog.create: 创建
   dialog.discard: 放弃
