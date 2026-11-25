@@ -5,11 +5,17 @@ package debug_test
 import (
 	"bytes"
 	"context"
+	"os"
+	"os/exec"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/nsgo-dev/game/packages/game"
+	"github.com/nsgo-dev/game/packages/game/ai"
 	"github.com/nsgo-dev/game/packages/game/debug"
+	"github.com/nsgo-dev/game/packages/game/flow"
 	"github.com/nsgo-dev/game/packages/game/framedata"
 	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/nsgo/core"
@@ -31,6 +37,10 @@ func TestReleaseBuildIsDisabledZeroCostStub(t *testing.T) {
 		Scenes: func() []debug.SceneSnapshot {
 			t.Error("Options.Scenes called in release build")
 			return nil
+		},
+		AI: func() debug.AISnapshot {
+			t.Error("Options.AI called in release build")
+			return debug.AISnapshot{}
 		},
 	})
 
@@ -61,6 +71,16 @@ func TestReleaseBuildIsDisabledZeroCostStub(t *testing.T) {
 	}}}, Neutral: "idle"}
 	(&framedata.World{Fighters: []*framedata.Fighter{fighter}}).Step()
 
+	btIns := ai.NewBTInspector(ai.Named("root", ai.Action(func(time.Duration) ai.Status { return ai.StatusRunning })))
+	fsm := flow.NewMachine("idle")
+	steer := debug.SteeringDebug{
+		Agent:           ai.Agent{Pos: core.Point{X: 10, Y: 20}, Vel: core.Point{X: 5, Y: 0}, Radius: 8},
+		DesiredVelocity: core.Point{X: 10, Y: 0},
+		Target:          core.Point{X: 50, Y: 20},
+		HasTarget:       true,
+		Path:            []core.Point{{X: 10, Y: 20}, {X: 50, Y: 20}},
+	}
+
 	var viewNode core.Node
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		dbg.Attach(cx)
@@ -88,6 +108,14 @@ func TestReleaseBuildIsDisabledZeroCostStub(t *testing.T) {
 						shapes.DrawBatchBounds(d, batch, core.RGB(0xF59E0B))
 						dbg.DrawFighterBoxes(d, fighter, core.RGB(0x38BDF8), core.RGB(0xEF4444))
 						shapes.DrawFighterBoxes(d, fighter, core.RGB(0x38BDF8), core.RGB(0xEF4444))
+						dbg.DrawSteering(d, steer)
+						dbg.DrawVector(d, steer.Agent.Pos, steer.Agent.Vel, core.RGB(0x22C55E))
+						dbg.DrawPath(d, steer.Path, core.RGB(0xA78BFA))
+						dbg.DrawTarget(d, steer.Target, core.RGB(0xF59E0B))
+						shapes.DrawSteering(d, steer)
+						shapes.DrawVector(d, steer.Agent.Pos, steer.Agent.Vel, core.RGB(0x22C55E))
+						shapes.DrawPath(d, steer.Path, core.RGB(0xA78BFA))
+						shapes.DrawTarget(d, steer.Target, core.RGB(0xF59E0B))
 					},
 				},
 				viewNode,
@@ -120,6 +148,13 @@ func TestReleaseBuildIsDisabledZeroCostStub(t *testing.T) {
 	dbg.ResetStats()
 	dbg.SetScenes([]debug.SceneSnapshot{{Name: "world"}})
 	dbg.RefreshScenes()
+	dbg.SetAI(debug.BehaviorTreeSnapshot("guard", btIns))
+	dbg.SetAI(debug.StateMachineSnapshot("guard", fsm))
+	dbg.RefreshAI()
+	if got := dbg.AISnapshot(); got.Agent != "" || len(got.Tree) != 0 || got.Machine != nil {
+		t.Fatalf("AISnapshot() in release = %+v, want zero", got)
+	}
+	dbg.ClearAI()
 
 	stats := dbg.Stats()
 	stats.Record(16*time.Millisecond, 4*time.Millisecond, 3*time.Millisecond)
@@ -229,5 +264,32 @@ func TestReleaseBuildIsDisabledZeroCostStub(t *testing.T) {
 	// Overlay accessors in release build.
 	if dbg.Console() == nil || dbg.Profiler() == nil || dbg.Memory() == nil || dbg.GC() == nil {
 		t.Fatal("Overlay release accessors returned nil")
+	}
+}
+
+func TestReleaseBuildLinksNoOverlayCode(t *testing.T) {
+	if runtime.GOOS == "js" || runtime.GOOS == "wasip1" || runtime.GOOS == "android" || runtime.GOOS == "ios" {
+		t.Skip("symbol inspection requires a native desktop executable")
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatalf("os.Executable: %v", err)
+	}
+	out, err := exec.Command("go", "tool", "nm", exe).CombinedOutput()
+	if err != nil {
+		t.Skipf("go tool nm unavailable: %v", err)
+	}
+	syms := string(out)
+	for _, forbidden := range []string{
+		"packages/game/debug.(*Overlay).aiInspectorView",
+		"packages/game/debug.buildAITreeView",
+		"packages/game/debug.buildAIMachineView",
+		"packages/game/debug.resolveSteeringColors",
+		"packages/game/debug.overlayPanelStyle",
+		"packages/game/debug.(*Overlay).sceneInspectorView",
+	} {
+		if strings.Contains(syms, forbidden) {
+			t.Fatalf("release binary linked debug overlay symbol %q", forbidden)
+		}
 	}
 }

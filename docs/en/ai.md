@@ -518,6 +518,34 @@ if err := freshBT.Restore(loaded); err != nil {
 - **Transactional shape validation**: `RestoreBehaviorTree` checks `Version`, every node's structural path and kind, `Parallel` policies, and state bounds before applying any change. Mismatched trees return an error wrapping `ErrInvalidBTSnapshot` naming the exact path and expected vs got kind without mutating the target tree.
 - **Custom and shared nodes**: custom `Node` implementations can participate by implementing `SnapshotNode` (`SnapshotKind`, `SnapshotState`, `RestoreState`), and custom composites or decorators can expose their children via `ChildNodes` (`Children() []Node`). If a tree uses `RandomSelector`, `RandomSequence`, or `WeightedSelector`, also save and restore the associated `*random.Stream` state for identical subsequent draws.
 
+### Inspecting behavior trees
+
+Attach optional labels with `Named(name, child)` (or set `name:` on any node in `*.bt.yaml`, which `BuildBehaviorTree` preserves automatically) and inspect live execution with a reusable `BTInspector`:
+
+```go
+tree := ai.Named("root", ai.Selector(
+	ai.Named("attack", ai.Sequence(
+		ai.Named("in_range", ai.Condition(playerInRange)),
+		ai.Named("swing", ai.Action(attackPlayer)),
+	)),
+	ai.Named("patrol", ai.Action(patrolStep)),
+))
+
+inspector := ai.NewBTInspector(tree)
+traceBuf := make([]ai.BTNodeTrace, 0, inspector.Len())
+pathBuf := make([]ai.BTNodeTrace, 0, inspector.Len())
+
+// Inside game.Loop.Update (zero heap allocations once warmed up):
+tree.Tick(dt)
+traceBuf = inspector.WalkInto(traceBuf)
+pathBuf = ai.RunningPathInto(pathBuf, traceBuf)
+_ = pathBuf
+```
+
+- **Read-only pre-order snapshots**: `WalkInto(dst)` (or one-shot `Walk()` / `InspectBehaviorTree(root)`) fills `BTNodeTrace` records (`Path`, `Depth`, `Name`, `Kind`, `LastStatus`, `Ticked`, `Active`, `StatusString()`) without mutating execution state or allocating per tick once `dst` has capacity `inspector.Len()`.
+- **Running path**: `Active` is `true` for every node along the currently running branch; extract that path with `RunningPathInto(dst, nodes)` or `inspector.RunningPath()`.
+- **Deterministic text for `statedump`**: `inspector.Format()` (or `FormatBTTrace(nodes)`) renders a canonical indented tree prefixed with `* ` on active nodes so a game can store it in [`statedump`](statedump.md) `Values` (`dump.SetValue("guard_bt", inspector.Format())`) and diff AI decisions across runs.
+- **Live overlay & steering guides**: pass `debug.BehaviorTreeSnapshot("guard", inspector)` to [`game/debug`](debug.md) to show the tree with its running path highlighted, and call `overlay.DrawSteering` to draw velocity, desired velocity, target, and path guides (all stripped under `-tags release`).
 ## Utility AI
 
 When agents weigh continuous factors (distance, health, ammo, threat) instead of fixed boolean priorities, score candidate `UtilityAction`s with a `Reasoner[C]` using Dave Mark's Infinite Axis Utility System (IAUS):

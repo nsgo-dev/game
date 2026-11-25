@@ -1,6 +1,12 @@
 package debug
 
-import "time"
+import (
+	"time"
+
+	"github.com/nsgo-dev/game/packages/game/ai"
+	"github.com/nsgo-dev/game/packages/game/flow"
+	"github.com/nsgo-dev/nsgo/core"
+)
 
 // FrameHistory is the number of frames retained in a FrameStats ring buffer.
 const FrameHistory = 120
@@ -29,6 +35,9 @@ type Options struct {
 	GC *GCMonitor
 	// DrawStats, when set, supplies live per-frame draw statistics displayed in the overlay and exposed to MCP performance readouts.
 	DrawStats func() DrawStats
+	// AI, when set, supplies the chosen agent's behavior tree or state machine snapshot shown in the AI inspector panel.
+	// If it reads NSGo signals, the panel updates reactively; otherwise it refreshes on recorded frames and RefreshAI.
+	AI func() AISnapshot
 }
 
 // DrawStats captures per-frame draw submission counts for overlay display and MCP performance readouts.
@@ -211,4 +220,49 @@ type GCFrameSample struct {
 	AllocBytesDelta uint64
 	// Hitched reports whether a GC pause occurred during this frame.
 	Hitched bool
+}
+
+// AISnapshot describes a chosen agent's live AI state for the debug overlay panel.
+// Set Tree to inspect a behavior tree, Machine to inspect a flow.Machine, or both.
+type AISnapshot struct {
+	// Agent identifies the inspected agent (for example, "guard-1" or "boss").
+	Agent string
+	// Tree holds the behavior tree's pre-order node traces (for example, from ai.BTInspector.Walk or WalkInto).
+	Tree []ai.BTNodeTrace
+	// Machine holds a flow.Machine's current state and bounded transition history (for example, from m.Inspect()).
+	Machine *flow.MachineInspection
+}
+
+// SteeringColors customizes the colors used by DrawSteering. Zero fields take high-contrast defaults.
+type SteeringColors struct {
+	// Agent colors the agent's collision-radius wireframe (default: 0xE2E8F0).
+	Agent core.Color
+	// Velocity colors the current velocity vector arrow (default: 0x22C55E).
+	Velocity core.Color
+	// Desired colors the desired velocity vector arrow (default: 0x38BDF8).
+	Desired core.Color
+	// Target colors the target reticle and sightline (default: 0xF59E0B).
+	Target core.Color
+	// Path colors the waypoint polyline and waypoint markers (default: 0xA78BFA).
+	Path core.Color
+}
+
+// SteeringDebug holds the debug visualization inputs for one 2D steering agent.
+type SteeringDebug struct {
+	// Agent is the steering agent whose position, radius, and current velocity are drawn.
+	Agent ai.Agent
+	// DesiredVelocity is the agent's desired velocity vector (drawn when non-zero).
+	DesiredVelocity core.Point
+	// Target is the agent's current target position (drawn when HasTarget is true).
+	Target core.Point
+	// HasTarget reports whether Target should be drawn, allowing (0, 0) as a valid target.
+	HasTarget bool
+	// Path is an optional sequence of world-space waypoints being followed.
+	Path []core.Point
+	// WaypointIndex highlights Path[WaypointIndex] as the active waypoint when in [0, len(Path)); set negative to omit active highlighting.
+	WaypointIndex int
+	// VelocityScale scales Velocity and DesiredVelocity into world drawing units (1 when 0 or less).
+	VelocityScale float32
+	// Colors overrides default colors for any non-zero color field.
+	Colors SteeringColors
 }

@@ -99,6 +99,7 @@ type sequenceNode struct {
 	children    []Node
 	cur         int
 	hasObserver bool
+	trace       btTraceState
 }
 
 func (s *sequenceNode) Tick(dt time.Duration) Status {
@@ -109,7 +110,7 @@ func (s *sequenceNode) Tick(dt time.Duration) Status {
 					running.Reset()
 				}
 				s.cur = 0
-				return StatusFailure
+				return s.trace.record(StatusFailure)
 			}
 		}
 	}
@@ -117,29 +118,38 @@ func (s *sequenceNode) Tick(dt time.Duration) Status {
 		ch := s.children[s.cur]
 		if ch == nil {
 			s.cur = 0
-			return StatusFailure
+			return s.trace.record(StatusFailure)
 		}
 		switch ch.Tick(dt) {
 		case StatusRunning:
-			return StatusRunning
+			return s.trace.record(StatusRunning)
 		case StatusFailure:
 			s.cur = 0
-			return StatusFailure
+			return s.trace.record(StatusFailure)
 		case StatusSuccess:
 			s.cur++
 		}
 	}
 	s.cur = 0
-	return StatusSuccess
+	return s.trace.record(StatusSuccess)
 }
 
 func (s *sequenceNode) Reset() {
 	s.cur = 0
+	s.trace.resetTrace()
 	for _, ch := range s.children {
 		if ch != nil {
 			ch.Reset()
 		}
 	}
+}
+
+func (s *sequenceNode) btKind() string               { return string(BTNodeSequence) }
+func (s *sequenceNode) btLastStatus() (Status, bool) { return s.trace.status() }
+func (s *sequenceNode) btChildCount() int            { return len(s.children) }
+func (s *sequenceNode) btChildAt(i int) Node         { return s.children[i] }
+func (s *sequenceNode) btChildActive(i int) bool {
+	return s.trace.ticked && s.trace.lastStatus == StatusRunning && i == s.cur
 }
 
 // Selector tries children in priority order, returning on the first child that succeeds or runs.
@@ -162,6 +172,7 @@ type selectorNode struct {
 	children    []Node
 	running     int
 	hasObserver bool
+	trace       btTraceState
 }
 
 func (s *selectorNode) Tick(dt time.Duration) Status {
@@ -194,10 +205,10 @@ func (s *selectorNode) Tick(dt time.Duration) Status {
 			}
 			if st == StatusRunning {
 				s.running = i
-				return StatusRunning
+				return s.trace.record(StatusRunning)
 			}
 			s.running = -1
-			return StatusSuccess
+			return s.trace.record(StatusSuccess)
 		}
 		if !preempted {
 			start = s.running
@@ -222,22 +233,31 @@ func (s *selectorNode) Tick(dt time.Duration) Status {
 		}
 		if st == StatusRunning {
 			s.running = i
-			return StatusRunning
+			return s.trace.record(StatusRunning)
 		}
 		s.running = -1
-		return StatusSuccess
+		return s.trace.record(StatusSuccess)
 	}
 	s.running = -1
-	return StatusFailure
+	return s.trace.record(StatusFailure)
 }
 
 func (s *selectorNode) Reset() {
 	s.running = -1
+	s.trace.resetTrace()
 	for _, ch := range s.children {
 		if ch != nil {
 			ch.Reset()
 		}
 	}
+}
+
+func (s *selectorNode) btKind() string               { return string(BTNodeSelector) }
+func (s *selectorNode) btLastStatus() (Status, bool) { return s.trace.status() }
+func (s *selectorNode) btChildCount() int            { return len(s.children) }
+func (s *selectorNode) btChildAt(i int) Node         { return s.children[i] }
+func (s *selectorNode) btChildActive(i int) bool {
+	return s.trace.ticked && s.trace.lastStatus == StatusRunning && i == s.running
 }
 
 // Parallel ticks all still-running children each tick and finishes according to policy, resetting any remaining running children on completion.
@@ -255,14 +275,15 @@ type parallelNode struct {
 	children []Node
 	status   []Status
 	active   bool
+	trace    btTraceState
 }
 
 func (p *parallelNode) Tick(dt time.Duration) Status {
 	if len(p.children) == 0 {
 		if p.policy == RequireOne {
-			return StatusFailure
+			return p.trace.record(StatusFailure)
 		}
-		return StatusSuccess
+		return p.trace.record(StatusSuccess)
 	}
 	if !p.active {
 		p.active = true
@@ -293,24 +314,24 @@ func (p *parallelNode) Tick(dt time.Duration) Status {
 		if successes > 0 {
 			p.resetRunning()
 			p.active = false
-			return StatusSuccess
+			return p.trace.record(StatusSuccess)
 		}
 		if failures == len(p.children) {
 			p.active = false
-			return StatusFailure
+			return p.trace.record(StatusFailure)
 		}
 	default:
 		if failures > 0 {
 			p.resetRunning()
 			p.active = false
-			return StatusFailure
+			return p.trace.record(StatusFailure)
 		}
 		if successes == len(p.children) {
 			p.active = false
-			return StatusSuccess
+			return p.trace.record(StatusSuccess)
 		}
 	}
-	return StatusRunning
+	return p.trace.record(StatusRunning)
 }
 
 func (p *parallelNode) resetRunning() {
@@ -323,6 +344,7 @@ func (p *parallelNode) resetRunning() {
 
 func (p *parallelNode) Reset() {
 	p.active = false
+	p.trace.resetTrace()
 	for _, ch := range p.children {
 		if ch != nil {
 			ch.Reset()
@@ -330,71 +352,130 @@ func (p *parallelNode) Reset() {
 	}
 }
 
+func (p *parallelNode) btKind() string               { return string(BTNodeParallel) }
+func (p *parallelNode) btLastStatus() (Status, bool) { return p.trace.status() }
+func (p *parallelNode) btChildCount() int            { return len(p.children) }
+func (p *parallelNode) btChildAt(i int) Node         { return p.children[i] }
+func (p *parallelNode) btChildActive(i int) bool {
+	return p.trace.ticked && p.trace.lastStatus == StatusRunning && p.active && i >= 0 && i < len(p.status) && p.status[i] == StatusRunning
+}
+
 // Inverter flips StatusSuccess and StatusFailure from child while passing StatusRunning through unchanged.
 func Inverter(child Node) Node { return &inverterNode{child: child} }
 
-type inverterNode struct{ child Node }
+type inverterNode struct {
+	child Node
+	trace btTraceState
+}
 
 func (n *inverterNode) Tick(dt time.Duration) Status {
 	if n.child == nil {
-		return StatusFailure
+		return n.trace.record(StatusFailure)
 	}
 	switch n.child.Tick(dt) {
 	case StatusSuccess:
-		return StatusFailure
+		return n.trace.record(StatusFailure)
 	case StatusFailure:
-		return StatusSuccess
+		return n.trace.record(StatusSuccess)
 	default:
-		return StatusRunning
+		return n.trace.record(StatusRunning)
 	}
 }
 
 func (n *inverterNode) Reset() {
+	n.trace.resetTrace()
 	if n.child != nil {
 		n.child.Reset()
 	}
+}
+
+func (n *inverterNode) btKind() string               { return string(BTNodeInverter) }
+func (n *inverterNode) btLastStatus() (Status, bool) { return n.trace.status() }
+func (n *inverterNode) btChildCount() int {
+	if n.child == nil {
+		return 0
+	}
+	return 1
+}
+func (n *inverterNode) btChildAt(int) Node { return n.child }
+func (n *inverterNode) btChildActive(i int) bool {
+	return i == 0 && n.trace.ticked && n.trace.lastStatus == StatusRunning
 }
 
 // Succeeder turns both StatusSuccess and StatusFailure from child into StatusSuccess while passing StatusRunning through.
 func Succeeder(child Node) Node { return &succeederNode{child: child} }
 
-type succeederNode struct{ child Node }
+type succeederNode struct {
+	child Node
+	trace btTraceState
+}
 
 func (n *succeederNode) Tick(dt time.Duration) Status {
 	if n.child == nil {
-		return StatusSuccess
+		return n.trace.record(StatusSuccess)
 	}
 	if n.child.Tick(dt) == StatusRunning {
-		return StatusRunning
+		return n.trace.record(StatusRunning)
 	}
-	return StatusSuccess
+	return n.trace.record(StatusSuccess)
 }
 
 func (n *succeederNode) Reset() {
+	n.trace.resetTrace()
 	if n.child != nil {
 		n.child.Reset()
 	}
+}
+
+func (n *succeederNode) btKind() string               { return string(BTNodeSucceeder) }
+func (n *succeederNode) btLastStatus() (Status, bool) { return n.trace.status() }
+func (n *succeederNode) btChildCount() int {
+	if n.child == nil {
+		return 0
+	}
+	return 1
+}
+func (n *succeederNode) btChildAt(int) Node { return n.child }
+func (n *succeederNode) btChildActive(i int) bool {
+	return i == 0 && n.trace.ticked && n.trace.lastStatus == StatusRunning
 }
 
 // Failer turns both StatusSuccess and StatusFailure from child into StatusFailure while passing StatusRunning through.
 func Failer(child Node) Node { return &failerNode{child: child} }
 
-type failerNode struct{ child Node }
+type failerNode struct {
+	child Node
+	trace btTraceState
+}
 
 func (n *failerNode) Tick(dt time.Duration) Status {
 	if n.child == nil {
-		return StatusFailure
+		return n.trace.record(StatusFailure)
 	}
 	if n.child.Tick(dt) == StatusRunning {
-		return StatusRunning
+		return n.trace.record(StatusRunning)
 	}
-	return StatusFailure
+	return n.trace.record(StatusFailure)
 }
 
 func (n *failerNode) Reset() {
+	n.trace.resetTrace()
 	if n.child != nil {
 		n.child.Reset()
 	}
+}
+
+func (n *failerNode) btKind() string               { return string(BTNodeFailer) }
+func (n *failerNode) btLastStatus() (Status, bool) { return n.trace.status() }
+func (n *failerNode) btChildCount() int {
+	if n.child == nil {
+		return 0
+	}
+	return 1
+}
+func (n *failerNode) btChildAt(int) Node { return n.child }
+func (n *failerNode) btChildActive(i int) bool {
+	return i == 0 && n.trace.ticked && n.trace.lastStatus == StatusRunning
 }
 
 // Repeater runs child until it succeeds count times, returning StatusRunning between iterations and StatusFailure immediately if child fails.
@@ -408,56 +489,88 @@ type repeaterNode struct {
 	count int
 	done  int
 	child Node
+	trace btTraceState
 }
 
 func (r *repeaterNode) Tick(dt time.Duration) Status {
 	if r.child == nil {
-		return StatusFailure
+		return r.trace.record(StatusFailure)
 	}
 	switch r.child.Tick(dt) {
 	case StatusRunning:
-		return StatusRunning
+		return r.trace.record(StatusRunning)
 	case StatusFailure:
 		r.done = 0
-		return StatusFailure
+		return r.trace.record(StatusFailure)
 	default:
 		if r.count > 0 {
 			r.done++
 			if r.done >= r.count {
 				r.done = 0
-				return StatusSuccess
+				return r.trace.record(StatusSuccess)
 			}
 		}
-		return StatusRunning
+		return r.trace.record(StatusRunning)
 	}
 }
 
 func (r *repeaterNode) Reset() {
 	r.done = 0
+	r.trace.resetTrace()
 	if r.child != nil {
 		r.child.Reset()
 	}
 }
 
+func (r *repeaterNode) btKind() string               { return string(BTNodeRepeater) }
+func (r *repeaterNode) btLastStatus() (Status, bool) { return r.trace.status() }
+func (r *repeaterNode) btChildCount() int {
+	if r.child == nil {
+		return 0
+	}
+	return 1
+}
+func (r *repeaterNode) btChildAt(int) Node { return r.child }
+func (r *repeaterNode) btChildActive(i int) bool {
+	return i == 0 && r.trace.ticked && r.trace.lastStatus == StatusRunning
+}
+
 // UntilFail ticks child once per tick, returning StatusRunning until child returns StatusFailure, at which point UntilFail returns StatusSuccess.
 func UntilFail(child Node) Node { return &untilFailNode{child: child} }
 
-type untilFailNode struct{ child Node }
+type untilFailNode struct {
+	child Node
+	trace btTraceState
+}
 
 func (u *untilFailNode) Tick(dt time.Duration) Status {
 	if u.child == nil {
-		return StatusSuccess
+		return u.trace.record(StatusSuccess)
 	}
 	if u.child.Tick(dt) == StatusFailure {
-		return StatusSuccess
+		return u.trace.record(StatusSuccess)
 	}
-	return StatusRunning
+	return u.trace.record(StatusRunning)
 }
 
 func (u *untilFailNode) Reset() {
+	u.trace.resetTrace()
 	if u.child != nil {
 		u.child.Reset()
 	}
+}
+
+func (u *untilFailNode) btKind() string               { return string(BTNodeUntilFail) }
+func (u *untilFailNode) btLastStatus() (Status, bool) { return u.trace.status() }
+func (u *untilFailNode) btChildCount() int {
+	if u.child == nil {
+		return 0
+	}
+	return 1
+}
+func (u *untilFailNode) btChildAt(int) Node { return u.child }
+func (u *untilFailNode) btChildActive(i int) bool {
+	return i == 0 && u.trace.ticked && u.trace.lastStatus == StatusRunning
 }
 
 // Cooldown prevents child from starting again for duration d after it succeeds, returning StatusFailure while cooling down.
@@ -470,18 +583,19 @@ type cooldownNode struct {
 	remaining time.Duration
 	running   bool
 	child     Node
+	trace     btTraceState
 }
 
 func (c *cooldownNode) Tick(dt time.Duration) Status {
 	if c.child == nil {
-		return StatusFailure
+		return c.trace.record(StatusFailure)
 	}
 	if !c.running && c.remaining > 0 {
 		if dt > 0 {
 			c.remaining -= dt
 		}
 		if c.remaining > 0 {
-			return StatusFailure
+			return c.trace.record(StatusFailure)
 		}
 		c.remaining = 0
 	}
@@ -489,25 +603,39 @@ func (c *cooldownNode) Tick(dt time.Duration) Status {
 	switch st {
 	case StatusRunning:
 		c.running = true
-		return StatusRunning
+		return c.trace.record(StatusRunning)
 	case StatusSuccess:
 		c.running = false
 		if c.duration > 0 {
 			c.remaining = c.duration
 		}
-		return StatusSuccess
+		return c.trace.record(StatusSuccess)
 	default:
 		c.running = false
-		return StatusFailure
+		return c.trace.record(StatusFailure)
 	}
 }
 
 func (c *cooldownNode) Reset() {
 	c.remaining = 0
 	c.running = false
+	c.trace.resetTrace()
 	if c.child != nil {
 		c.child.Reset()
 	}
+}
+
+func (c *cooldownNode) btKind() string               { return string(BTNodeCooldown) }
+func (c *cooldownNode) btLastStatus() (Status, bool) { return c.trace.status() }
+func (c *cooldownNode) btChildCount() int {
+	if c.child == nil {
+		return 0
+	}
+	return 1
+}
+func (c *cooldownNode) btChildAt(int) Node { return c.child }
+func (c *cooldownNode) btChildActive(i int) bool {
+	return i == 0 && c.running && c.trace.ticked && c.trace.lastStatus == StatusRunning
 }
 
 // Guard ticks child only while cond returns true; if cond becomes false while child is running, Guard resets child and returns StatusFailure.
@@ -519,6 +647,7 @@ type guardNode struct {
 	cond    func() bool
 	child   Node
 	running bool
+	trace   btTraceState
 }
 
 func (g *guardNode) Tick(dt time.Duration) Status {
@@ -527,54 +656,82 @@ func (g *guardNode) Tick(dt time.Duration) Status {
 			g.child.Reset()
 		}
 		g.running = false
-		return StatusFailure
+		return g.trace.record(StatusFailure)
 	}
 	if g.child == nil {
-		return StatusFailure
+		return g.trace.record(StatusFailure)
 	}
 	st := g.child.Tick(dt)
 	g.running = st == StatusRunning
-	return st
+	return g.trace.record(st)
 }
 
 func (g *guardNode) Reset() {
 	g.running = false
+	g.trace.resetTrace()
 	if g.child != nil {
 		g.child.Reset()
 	}
 }
 
+func (g *guardNode) btKind() string               { return string(BTNodeGuard) }
+func (g *guardNode) btLastStatus() (Status, bool) { return g.trace.status() }
+func (g *guardNode) btChildCount() int {
+	if g.child == nil {
+		return 0
+	}
+	return 1
+}
+func (g *guardNode) btChildAt(int) Node { return g.child }
+func (g *guardNode) btChildActive(i int) bool {
+	return i == 0 && g.running && g.trace.ticked && g.trace.lastStatus == StatusRunning
+}
+
 // Action wraps fn as a leaf node.
-func Action(fn func(dt time.Duration) Status) Node { return actionNode{fn: fn} }
+func Action(fn func(dt time.Duration) Status) Node { return &actionNode{fn: fn} }
 
 type actionNode struct {
-	fn func(dt time.Duration) Status
+	fn    func(dt time.Duration) Status
+	trace btTraceState
 }
 
-func (a actionNode) Tick(dt time.Duration) Status {
+func (a *actionNode) Tick(dt time.Duration) Status {
 	if a.fn == nil {
-		return StatusFailure
+		return a.trace.record(StatusFailure)
 	}
-	return a.fn(dt)
+	return a.trace.record(a.fn(dt))
 }
 
-func (actionNode) Reset() {}
+func (a *actionNode) Reset() { a.trace.resetTrace() }
+
+func (a *actionNode) btKind() string               { return string(BTNodeAction) }
+func (a *actionNode) btLastStatus() (Status, bool) { return a.trace.status() }
+func (a *actionNode) btChildCount() int            { return 0 }
+func (a *actionNode) btChildAt(int) Node           { return nil }
+func (a *actionNode) btChildActive(int) bool       { return false }
 
 // Condition wraps predicate fn as a leaf node returning StatusSuccess when true and StatusFailure when false.
-func Condition(fn func() bool) Node { return conditionNode{fn: fn} }
+func Condition(fn func() bool) Node { return &conditionNode{fn: fn} }
 
 type conditionNode struct {
-	fn func() bool
+	fn    func() bool
+	trace btTraceState
 }
 
-func (c conditionNode) Tick(time.Duration) Status {
+func (c *conditionNode) Tick(time.Duration) Status {
 	if c.fn != nil && c.fn() {
-		return StatusSuccess
+		return c.trace.record(StatusSuccess)
 	}
-	return StatusFailure
+	return c.trace.record(StatusFailure)
 }
 
-func (conditionNode) Reset() {}
+func (c *conditionNode) Reset() { c.trace.resetTrace() }
+
+func (c *conditionNode) btKind() string               { return string(BTNodeCondition) }
+func (c *conditionNode) btLastStatus() (Status, bool) { return c.trace.status() }
+func (c *conditionNode) btChildCount() int            { return 0 }
+func (c *conditionNode) btChildAt(int) Node           { return nil }
+func (c *conditionNode) btChildActive(int) bool       { return false }
 
 // Wait returns StatusRunning until the accumulated dt reaches d, then resets and returns StatusSuccess.
 func Wait(d time.Duration) Node { return &waitNode{duration: d} }
@@ -582,22 +739,30 @@ func Wait(d time.Duration) Node { return &waitNode{duration: d} }
 type waitNode struct {
 	duration time.Duration
 	elapsed  time.Duration
+	trace    btTraceState
 }
 
 func (w *waitNode) Tick(dt time.Duration) Status {
 	if w.duration <= 0 {
-		return StatusSuccess
+		return w.trace.record(StatusSuccess)
 	}
 	if dt > 0 {
 		w.elapsed += dt
 	}
 	if w.elapsed >= w.duration {
 		w.elapsed = 0
-		return StatusSuccess
+		return w.trace.record(StatusSuccess)
 	}
-	return StatusRunning
+	return w.trace.record(StatusRunning)
 }
 
 func (w *waitNode) Reset() {
 	w.elapsed = 0
+	w.trace.resetTrace()
 }
+
+func (w *waitNode) btKind() string               { return string(BTNodeWait) }
+func (w *waitNode) btLastStatus() (Status, bool) { return w.trace.status() }
+func (w *waitNode) btChildCount() int            { return 0 }
+func (w *waitNode) btChildAt(int) Node           { return nil }
+func (w *waitNode) btChildActive(int) bool       { return false }

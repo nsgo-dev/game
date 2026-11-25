@@ -103,6 +103,38 @@ Supply live scene structure in either of two ways:
 1. **Pull via `Options.Scenes`**: if the callback reads NSGo signals, the inspector updates reactively; otherwise it refreshes on recorded frames and whenever you call `overlay.RefreshScenes()`.
 2. **Push via `overlay.SetScenes(snapshots)`**: updates the inspector immediately when `Options.Scenes` is nil.
 
+## AI inspector and steering guides
+
+Inspect a chosen agent's [`game/ai`](ai.md) behavior tree (with the running path highlighted) or [`game/flow`](flow.md) `Machine` state and bounded transition history inside the overlay panel:
+
+```go
+overlay := debug.New(debug.Options{
+	AI: func() debug.AISnapshot {
+		return debug.BehaviorTreeSnapshot("guard-1", guardInspector)
+	},
+})
+
+// Or push a snapshot on demand (behavior tree, state machine, or both):
+overlay.SetAI(debug.StateMachineSnapshot("boss", bossFSM))
+```
+
+- **Pull (`Options.AI`) or push (`SetAI` / `ClearAI` / `RefreshAI`)**: works just like `Scenes`, refreshing on recorded frames or reactively when `Options.AI` reads NSGo signals.
+- **Steering guides**: inside `core.Canvas.Draw` while your camera transform is active, draw a 2D steering agent's body radius, velocity, desired velocity, target reticle, and waypoint path with `overlay.DrawSteering` (or `ShapeOverlay.DrawSteering`, `DrawVector`, `DrawPath`, `DrawTarget`):
+
+```go
+overlay.DrawSteering(d, debug.SteeringDebug{
+	Agent:           agent,
+	DesiredVelocity: desiredVel,
+	Target:          targetPos,
+	HasTarget:       true,
+	Path:            waypoints,
+	WaypointIndex:   followState.Index,
+	VelocityScale:   0.5,
+})
+```
+
+All AI panel views and steering draw helpers compile to zero-cost no-ops under `-tags release`, so none of the inspection UI or drawing code is linked into release binaries.
+
 ## Stripping debug code in release builds
 
 Build release binaries with `-tags release`:

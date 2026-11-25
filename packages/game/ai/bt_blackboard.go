@@ -137,6 +137,7 @@ type blackboardConditionNode struct {
 	seenRev    bool
 	lastRev    uint64
 	lastResult bool
+	trace      btTraceState
 }
 
 func (n *blackboardConditionNode) keyRev() uint64 {
@@ -166,12 +167,12 @@ func (n *blackboardConditionNode) Tick(dt time.Duration) Status {
 			if !n.refresh() {
 				n.child.Reset()
 				n.running = false
-				return StatusFailure
+				return n.trace.record(StatusFailure)
 			}
 		}
 		st := n.child.Tick(dt)
 		n.running = st == StatusRunning
-		return st
+		return n.trace.record(st)
 	}
 
 	// Entry evaluation (or leaf evaluation when child == nil).
@@ -181,14 +182,14 @@ func (n *blackboardConditionNode) Tick(dt time.Duration) Status {
 	n.seenRev = true
 	n.lastResult = ok
 	if !ok {
-		return StatusFailure
+		return n.trace.record(StatusFailure)
 	}
 	if n.child == nil {
-		return StatusSuccess
+		return n.trace.record(StatusSuccess)
 	}
 	st := n.child.Tick(dt)
 	n.running = st == StatusRunning
-	return st
+	return n.trace.record(st)
 }
 
 func (n *blackboardConditionNode) Reset() {
@@ -196,9 +197,23 @@ func (n *blackboardConditionNode) Reset() {
 	n.seenRev = false
 	n.lastRev = 0
 	n.lastResult = false
+	n.trace.resetTrace()
 	if n.child != nil {
 		n.child.Reset()
 	}
+}
+
+func (n *blackboardConditionNode) btKind() string               { return string(BTNodeBlackboardCondition) }
+func (n *blackboardConditionNode) btLastStatus() (Status, bool) { return n.trace.status() }
+func (n *blackboardConditionNode) btChildCount() int {
+	if n.child == nil {
+		return 0
+	}
+	return 1
+}
+func (n *blackboardConditionNode) btChildAt(int) Node { return n.child }
+func (n *blackboardConditionNode) btChildActive(i int) bool {
+	return i == 0 && n.running && n.trace.ticked && n.trace.lastStatus == StatusRunning
 }
 
 func (n *blackboardConditionNode) hasBBObserver() bool { return true }
@@ -381,6 +396,16 @@ func cmpFloat(a, b float64) (int, bool) {
 // Observer forwarding on built-in composites and decorators so BlackboardCondition
 // decorators work seamlessly even when nested inside another composite or decorator.
 
+func unwrapNamed(n Node) Node {
+	for {
+		nn, ok := n.(*namedNode)
+		if !ok {
+			return n
+		}
+		n = nn.child
+	}
+}
+
 func (s *sequenceNode) hasBBObserver() bool { return s.hasObserver }
 
 func (s *sequenceNode) bbWantsPreempt() bool {
@@ -395,7 +420,7 @@ func (s *sequenceNode) bbWantsPreempt() bool {
 			if obs.bbWantsPreempt() {
 				return true
 			}
-			if bc, ok := ch.(*blackboardConditionNode); ok && !bc.eval() {
+			if bc, ok := unwrapNamed(ch).(*blackboardConditionNode); ok && !bc.eval() {
 				return false
 			}
 		}

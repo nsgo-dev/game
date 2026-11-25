@@ -83,8 +83,11 @@ func (m *Machine[S]) Restore(snap MachineSnapshot[S]) error {
 
 	m.current = snap.Current
 	m.previous = snap.Previous
+	m.hasPrevious = snap.Previous != zero
 	m.timeInState = snap.TimeInState
 	m.started = snap.Started
+	m.step = 0
+	m.ClearHistory()
 	return nil
 }
 
