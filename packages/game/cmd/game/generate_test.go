@@ -210,7 +210,7 @@ func TestGenerateScene(t *testing.T) {
 		t.Errorf("game.yaml changed:\n%s", got)
 	}
 	scene := readFile(t, dir, "scenes/level_one.scene.yaml")
-	want := sceneformat.SchemaCommentV2 + "\nversion: 2\nname: Level One\nvirtualWidth: 480\nvirtualHeight: 640\nlayers:\n  - name: main\n"
+	want := sceneformat.SchemaCommentV3 + "\nversion: 3\nname: Level One\nvirtualWidth: 480\nvirtualHeight: 640\nlayers:\n  - name: main\n"
 	if scene != want {
 		t.Errorf("scenes/level_one.scene.yaml =\n%s\nwant\n%s", scene, want)
 	}
@@ -243,7 +243,7 @@ func TestGenerateSceneWithoutProjectFile(t *testing.T) {
 	if code, _, stderr := runGenerate(t, dir, "scene", "title"); code != 0 {
 		t.Fatalf("exit %d: %s", code, stderr)
 	}
-	want := sceneformat.SchemaCommentV2 + "\nversion: 2\nname: Title\nlayers:\n  - name: main\n"
+	want := sceneformat.SchemaCommentV3 + "\nversion: 3\nname: Title\nlayers:\n  - name: main\n"
 	if scene := readFile(t, dir, "scenes/title.scene.yaml"); scene != want {
 		t.Errorf("scene =\n%s\nwant\n%s", scene, want)
 	}
@@ -294,7 +294,7 @@ func TestGeneratePrefab(t *testing.T) {
 		t.Fatalf("exit %d: %s", code, stderr)
 	}
 	scene := readFile(t, dir, "prefabs/enemy.scene.yaml")
-	want := sceneformat.SchemaCommentV2 + "\nversion: 2\nname: Enemy\nlayers:\n  - name: main\n    objects:\n      - id: enemy\n        prefab: enemy\n"
+	want := sceneformat.SchemaCommentV3 + "\nversion: 3\nname: Enemy\nlayers:\n  - name: main\n    objects:\n      - id: enemy\n        prefab: enemy\n"
 	if scene != want {
 		t.Errorf("prefabs/enemy.scene.yaml =\n%s\nwant\n%s", scene, want)
 	}

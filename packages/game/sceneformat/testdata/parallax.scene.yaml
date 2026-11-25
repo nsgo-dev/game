@@ -1,0 +1,57 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/scene.v3.json
+version: 3
+name: Parallax Valley
+virtualWidth: 320
+virtualHeight: 180
+backgroundColor: '#141824'
+camera:
+  x: 160
+  "y": 90
+  zoom: 1
+layers:
+  - name: sky
+    space: world
+    order: -20
+    parallaxX: 0
+    parallaxY: 0
+    objects:
+      - id: sun
+        x: 40
+        "y": 24
+        sprite:
+          atlas: actors
+          frame: torch
+  - name: hills
+    space: world
+    order: -10
+    parallaxX: 0.5
+    parallaxY: 0.25
+    repeatX: true
+    repeatWidth: 320
+    objects:
+      - id: ridge
+        x: 64
+        "y": 96
+        sprite:
+          atlas: actors
+          frame: hero
+  - name: actors
+    space: world
+    order: 10
+    objects:
+      - id: hero
+        x: 160
+        "y": 90
+        sprite:
+          atlas: actors
+          frame: hero
+  - name: hud
+    space: screen
+    order: 100
+    objects:
+      - id: heart
+        x: 8
+        "y": 8
+        sprite:
+          atlas: ui
+          frame: heart

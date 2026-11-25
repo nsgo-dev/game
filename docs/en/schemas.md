@@ -11,7 +11,8 @@ import "github.com/nsgo-dev/game/packages/game/tooling/jsonschema"
 | Format | Schema | Files |
 | --- | --- | --- |
 | Scene, version 1 | `https://game.nsgo.dev/schemas/scene.v1.json` | `*.scene.yaml`, read by `sceneformat.Parse` |
-| Scene, version 2 | `https://game.nsgo.dev/schemas/scene.v2.json` | `*.scene.yaml` that instance or inherit other scene files or hold layered tilemaps or LDtk levels, read by `sceneformat.Parse` |
+| Scene, version 2 | `https://game.nsgo.dev/schemas/scene.v2.json` | `*.scene.yaml` that instance or inherit other scene files, name glTF models, or hold layered tilemaps or LDtk levels, read by `sceneformat.Parse` |
+| Scene, version 3 | `https://game.nsgo.dev/schemas/scene.v3.json` | `*.scene.yaml` with parallax or repeating layers, read by `sceneformat.Parse` |
 | Tileset, version 1 | `https://game.nsgo.dev/schemas/tileset.v1.json` | `*.tileset.yaml`, read by `tilemap.ParseTileset` and `tilemap.LoadTilesetFS` |
 | Import settings, version 1 | `https://game.nsgo.dev/schemas/import.v1.json` | `*.import.yaml` beside an asset, read by `importsettings.Parse`, by `game assets` and, for its credit, by `game release` and `game credits` ([Command Line](cli.md#assets)) |
 | Voxel world, version 1 | `https://game.nsgo.dev/schemas/voxel.v1.json` | `*.voxel.yaml`, read by `voxel.Parse` and `voxel.LoadYAML` |
@@ -28,7 +29,7 @@ import "github.com/nsgo-dev/game/packages/game/tooling/jsonschema"
 
 The other formats get their schemas as their YAML loaders land: mod manifests (#474), the project file (#488), shared resources (#485), particles (#477), skeletal rigs (#475) and localization tables (#473).
 
-A schema's URL names its format's version. A file that says `version: 1` keeps validating against `scene.v1.json`, which refuses the keys version 2 added, now that `scene.v2.json` is published beside it; `Encode` names the schema of the document's own version.
+A schema's URL names its format's version. A file that says `version: 1` keeps validating against `scene.v1.json` (which refuses keys versions 2 and 3 added), and a `version: 2` file validates against `scene.v2.json` (which refuses keys version 3 added), now that `scene.v3.json` is published beside them; `Encode` names the schema of the document's own version.
 
 ## Pointing an editor at a schema
 

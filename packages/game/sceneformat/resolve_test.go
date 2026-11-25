@@ -536,7 +536,7 @@ func TestValidateSceneReferences(t *testing.T) {
 		{"v1_scene", "version: 1\nlayers:\n  - name: a\n    objects:\n      - id: e\n        scene: e.yaml\n", "need version 2"},
 		{"v1_inherits", "version: 1\ninherits: e.yaml\n", "need version 2"},
 		{"v1_overrides", "version: 1\noverrides:\n  a: {x: 1}\n", "need version 2"},
-		{"future_version", "version: 3\n", "unsupported version 3"},
+		{"future_version", "version: 4\n", "unsupported version 4"},
 		{"absolute_scene", "version: 2\nlayers:\n  - name: a\n    objects:\n      - id: e\n        scene: /e.yaml\n", "must be a slash-separated path"},
 		{"dotdot_inherits", "version: 2\ninherits: ../e.yaml\n", "must be a slash-separated path"},
 		{"overrides_without_scene", "version: 2\nlayers:\n  - name: a\n    objects:\n      - id: e\n        overrides:\n          b: {x: 1}\n", "overrides require scene"},

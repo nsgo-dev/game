@@ -21,10 +21,10 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-// CurrentVersion is the newest scene format schema version, the one new documents are written in. Version 2 adds scene instancing (ObjectDoc.Scene and ObjectDoc.Overrides) and inheritance (SceneDoc.Inherits, SceneDoc.Overrides and SceneDoc.LayerOverrides).
-const CurrentVersion = 2
+// CurrentVersion is the newest scene format schema version, the one new documents are written in. Version 2 adds scene instancing (ObjectDoc.Scene and ObjectDoc.Overrides), inheritance (SceneDoc.Inherits, SceneDoc.Overrides and SceneDoc.LayerOverrides) and glTF models (ObjectDoc.Model, ObjectDoc.ModelNode and ObjectDoc.ModelMesh). Version 3 adds parallax and repeating layers (LayerDoc.ParallaxX, LayerDoc.ParallaxY, LayerDoc.RepeatX, LayerDoc.RepeatY, LayerDoc.RepeatWidth and LayerDoc.RepeatHeight, and the matching fields on LayerOverride).
+const CurrentVersion = 3
 
-// MinVersion is the oldest scene format schema version this package still reads. A version 1 document is read and written unchanged, and may not use any field version 2 added.
+// MinVersion is the oldest scene format schema version this package still reads. A version 1 or version 2 document is read and written unchanged, and may not use any field added by a newer version.
 const MinVersion = 1
 
 // SchemaURL is where the JSON Schema of version 1 scene documents is published. Encode names it in a yaml-language-server comment on the first line of a version 1 document, so editors that run the YAML language server (such as VS Code's YAML extension) and AI tools validate and complete a scene file as it is written.
@@ -39,12 +39,22 @@ const SchemaURLV2 = "https://game.nsgo.dev/schemas/scene.v2.json"
 // SchemaCommentV2 is the first line Encode writes for a version 2 document, pointing a YAML language server at SchemaURLV2.
 const SchemaCommentV2 = "# yaml-language-server: $schema=" + SchemaURLV2
 
-// SchemaCommentFor returns the first line Encode writes for a document of the given version: SchemaComment for version 1 and SchemaCommentV2 for version 2.
+// SchemaURLV3 is where the JSON Schema of version 3 scene documents is published, named by SchemaCommentV3 as SchemaURL is by SchemaComment.
+const SchemaURLV3 = "https://game.nsgo.dev/schemas/scene.v3.json"
+
+// SchemaCommentV3 is the first line Encode writes for a version 3 document, pointing a YAML language server at SchemaURLV3.
+const SchemaCommentV3 = "# yaml-language-server: $schema=" + SchemaURLV3
+
+// SchemaCommentFor returns the first line Encode writes for a document of the given version: SchemaComment for version 1, SchemaCommentV2 for version 2, and SchemaCommentV3 for version 3.
 func SchemaCommentFor(version int) string {
-	if version >= 2 {
+	switch {
+	case version >= 3:
+		return SchemaCommentV3
+	case version == 2:
 		return SchemaCommentV2
+	default:
+		return SchemaComment
 	}
-	return SchemaComment
 }
 
 // Space is the coordinate space a layer draws in.
@@ -112,6 +122,18 @@ type LayerOverride struct {
 	Order *int `yaml:"order,omitempty"`
 	// Visible replaces the layer's visibility when set.
 	Visible *bool `yaml:"visible,omitempty"`
+	// ParallaxX replaces the layer's horizontal parallax scroll factor when set. Version 3.
+	ParallaxX *float32 `yaml:"parallaxX,omitempty"`
+	// ParallaxY replaces the layer's vertical parallax scroll factor when set. Version 3.
+	ParallaxY *float32 `yaml:"parallaxY,omitempty"`
+	// RepeatX replaces whether a world-space layer tiles horizontally across the camera's visible region when set. Version 3.
+	RepeatX *bool `yaml:"repeatX,omitempty"`
+	// RepeatY replaces whether a world-space layer tiles vertically across the camera's visible region when set. Version 3.
+	RepeatY *bool `yaml:"repeatY,omitempty"`
+	// RepeatWidth replaces the horizontal repeat period in layer points when set. Version 3.
+	RepeatWidth *float32 `yaml:"repeatWidth,omitempty" schema:"minimum=0"`
+	// RepeatHeight replaces the vertical repeat period in layer points when set. Version 3.
+	RepeatHeight *float32 `yaml:"repeatHeight,omitempty" schema:"minimum=0"`
 	// Tilemap replaces the layer's tilemap when set.
 	Tilemap *TilemapDoc `yaml:"tilemap,omitempty"`
 }
@@ -157,6 +179,18 @@ type LayerDoc struct {
 	Order int `yaml:"order,omitempty"`
 	// Visible controls whether the layer draws; nil defaults to true.
 	Visible *bool `yaml:"visible,omitempty"`
+	// ParallaxX scales how fast a world-space layer scrolls horizontally relative to the camera; nil defaults to 1. Zero pins the layer horizontally against camera translation, 0.5 scrolls at half speed, and values above 1 scroll faster for foreground layers. Version 3.
+	ParallaxX *float32 `yaml:"parallaxX,omitempty"`
+	// ParallaxY scales how fast a world-space layer scrolls vertically relative to the camera; nil defaults to 1. Zero pins the layer vertically against camera translation, 0.5 scrolls at half speed, and values above 1 scroll faster for foreground layers. Version 3.
+	ParallaxY *float32 `yaml:"parallaxY,omitempty"`
+	// RepeatX tiles a world-space layer horizontally across the camera's visible region using RepeatWidth (or, when RepeatWidth is 0, the layer's tilemap pixel width or the scene's virtualWidth). Version 3.
+	RepeatX bool `yaml:"repeatX,omitempty"`
+	// RepeatY tiles a world-space layer vertically across the camera's visible region using RepeatHeight (or, when RepeatHeight is 0, the layer's tilemap pixel height or the scene's virtualHeight). Version 3.
+	RepeatY bool `yaml:"repeatY,omitempty"`
+	// RepeatWidth is the horizontal repeat period in layer points when RepeatX is true; 0 uses the layer's tilemap pixel width or the scene's virtualWidth. Must be non-negative. Version 3.
+	RepeatWidth float32 `yaml:"repeatWidth,omitempty" schema:"minimum=0"`
+	// RepeatHeight is the vertical repeat period in layer points when RepeatY is true; 0 uses the layer's tilemap pixel height or the scene's virtualHeight. Must be non-negative. Version 3.
+	RepeatHeight float32 `yaml:"repeatHeight,omitempty" schema:"minimum=0"`
 	// Tilemap optionally attaches a tilemap (by Ref, external Source, or inline grid) drawn beneath Objects.
 	Tilemap *TilemapDoc `yaml:"tilemap,omitempty"`
 	// Objects are the placed objects in this layer.
@@ -174,6 +208,22 @@ func (l *LayerDoc) EffectiveSpace() Space {
 		return SpaceWorld
 	}
 	return l.Space
+}
+
+// EffectiveParallaxX returns ParallaxX, defaulting to 1 when nil.
+func (l *LayerDoc) EffectiveParallaxX() float32 {
+	if l == nil || l.ParallaxX == nil {
+		return 1
+	}
+	return *l.ParallaxX
+}
+
+// EffectiveParallaxY returns ParallaxY, defaulting to 1 when nil.
+func (l *LayerDoc) EffectiveParallaxY() float32 {
+	if l == nil || l.ParallaxY == nil {
+		return 1
+	}
+	return *l.ParallaxY
 }
 
 // TilemapDoc describes a tilemap in one of three modes: a reference to a named top-level tilemap (Ref), an external Tiled or LDtk map (Source), or an inline grid. An inline grid is either a single grid of atlas frame numbers (Tileset and Data) or, in version 2, a layered grid that places the tiles of a YAML tileset (TilesetFile and TileLayers).
@@ -932,6 +982,9 @@ func Validate(doc *SceneDoc) error {
 		default:
 			return fieldErr(at(lp, "space"), "sceneformat: layer %q has invalid space %q (want %q or %q)", l.Name, l.Space, SpaceWorld, SpaceScreen)
 		}
+		if err := validateLayerParallax(doc.Version, lp, fmt.Sprintf("layer %q", l.Name), l.ParallaxX, l.ParallaxY, l.RepeatX, l.RepeatY, l.RepeatWidth, l.RepeatHeight); err != nil {
+			return err
+		}
 		if l.Tilemap != nil {
 			// A scene that inherits another may name the base's tilemaps, which Resolve checks once they are merged.
 			if err := validateTilemap(doc.Version, at(lp, "tilemap"), fmt.Sprintf("layer %q tilemap", l.Name), l.Tilemap, true, doc.Tilemaps, doc.Inherits == ""); err != nil {
@@ -1312,6 +1365,44 @@ func checkModelRefs(p []string, where string, o *ObjectDoc) error {
 func isFinite(v float32) bool {
 	f := float64(v)
 	return !math.IsNaN(f) && !math.IsInf(f, 0)
+}
+
+// validateLayerParallax checks the parallax and repeat fields version 3 added on a layer or layerOverride at path.
+func validateLayerParallax(version int, path []string, where string, px, py *float32, repeatX, repeatY bool, repeatW, repeatH float32) error {
+	if version < 3 {
+		field := ""
+		switch {
+		case px != nil:
+			field = "parallaxX"
+		case py != nil:
+			field = "parallaxY"
+		case repeatX:
+			field = "repeatX"
+		case repeatY:
+			field = "repeatY"
+		case repeatW != 0:
+			field = "repeatWidth"
+		case repeatH != 0:
+			field = "repeatHeight"
+		}
+		if field != "" {
+			return fieldErr(at(path, field), "sceneformat: %s: parallaxX, parallaxY, repeatX, repeatY, repeatWidth and repeatHeight need version 3, not %d", where, version)
+		}
+		return nil
+	}
+	if px != nil && !isFinite(*px) {
+		return fieldErr(at(path, "parallaxX"), "sceneformat: %s has non-finite parallaxX", where)
+	}
+	if py != nil && !isFinite(*py) {
+		return fieldErr(at(path, "parallaxY"), "sceneformat: %s has non-finite parallaxY", where)
+	}
+	if !isFinite(repeatW) || repeatW < 0 {
+		return fieldErr(at(path, "repeatWidth"), "sceneformat: %s repeatWidth %v must be finite and non-negative", where, repeatW)
+	}
+	if !isFinite(repeatH) || repeatH < 0 {
+		return fieldErr(at(path, "repeatHeight"), "sceneformat: %s repeatHeight %v must be finite and non-negative", where, repeatH)
+	}
+	return nil
 }
 
 // validFilePath reports whether p is a slash-separated file path relative to the project root, the form material and scene references take.

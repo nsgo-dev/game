@@ -280,12 +280,25 @@ func (e *Editor) screenAffine() math2d.Affine {
 	return e.viewAffine().Mul(inv)
 }
 
-// layerAffine maps a layer's space to canvas space.
+// layerAffine maps a layer's space to canvas space with default (1, 1) parallax.
 func (e *Editor) layerAffine(space sceneformat.Space) math2d.Affine {
+	return e.layerAffineFor(space, 1, 1)
+}
+
+// layerAffineFor maps a layer's space to canvas space in edit mode, applying parallax factors (px, py) against the 2D view for world-space layers.
+func (e *Editor) layerAffineFor(space sceneformat.Space, px, py float32) math2d.Affine {
 	if space == sceneformat.SpaceScreen {
 		return e.screenAffine()
 	}
-	return e.viewAffine()
+	if px == 1 && py == 1 {
+		return e.viewAffine()
+	}
+	v := e.View2D()
+	cw, ch := e.CanvasSize()
+	return math2d.Translate(cw/2, ch/2).
+		Mul(math2d.Scale(v.Zoom, v.Zoom)).
+		Mul(math2d.Rotate(-v.Rotation)).
+		Mul(math2d.Translate(-v.X*px, -v.Y*py))
 }
 
 // layerToWorld converts a point in a layer's space to world space.
@@ -296,12 +309,76 @@ func (e *Editor) layerToWorld(space sceneformat.Space, x, y float32) (float32, f
 	return x, y
 }
 
-// canvasToLayer converts a canvas point to a layer's space.
+// canvasToLayer converts a canvas point to a layer's space with default (1, 1) parallax.
 func (e *Editor) canvasToLayer(space sceneformat.Space, x, y float32) (float32, float32) {
+	return e.canvasToLayerFor(space, 1, 1, x, y)
+}
+
+// canvasToLayerFor converts a canvas point to a layer's space, inverting the layer's parallax transform for world-space layers.
+func (e *Editor) canvasToLayerFor(space sceneformat.Space, px, py, x, y float32) (float32, float32) {
 	if space == sceneformat.SpaceScreen {
 		return e.CanvasToScreen(x, y)
 	}
-	return e.CanvasToWorld(x, y)
+	if px == 1 && py == 1 {
+		return e.CanvasToWorld(x, y)
+	}
+	if e == nil {
+		return x, y
+	}
+	v := e.View2D()
+	cw, ch := e.CanvasSize()
+	rx := (x - cw/2) / v.Zoom
+	ry := (y - ch/2) / v.Zoom
+	if v.Rotation == 0 {
+		return v.X*px + rx, v.Y*py + ry
+	}
+	sin, cos := math.Sincos(float64(v.Rotation))
+	lx := v.X*px + float32(float64(rx)*cos-float64(ry)*sin)
+	ly := v.Y*py + float32(float64(rx)*sin+float64(ry)*cos)
+	return lx, ly
+}
+
+// repeatRanges2D computes the horizontal and vertical repeat tile indices covering the 2D view's visible bounds for a parallax layer.
+func repeatRanges2D(camX, camY, cw, ch, zoom, rot float32, repeatX, repeatY bool, repeatW, repeatH float32) (minCol, maxCol, minRow, maxRow int, rx, ry bool) {
+	if (!repeatX || repeatW <= 0) && (!repeatY || repeatH <= 0) {
+		return 0, 0, 0, 0, false, false
+	}
+	if zoom <= 0 {
+		zoom = 1
+	}
+	z := float64(zoom)
+	hw := math.Max(0, float64(cw)/2)
+	hh := math.Max(0, float64(ch)/2)
+	halfW, halfH := hw/z, hh/z
+	if rot != 0 {
+		sin, cos := math.Sincos(float64(rot))
+		acos, asin := math.Abs(cos), math.Abs(sin)
+		halfW = (hw*acos + hh*asin) / z
+		halfH = (hw*asin + hh*acos) / z
+	}
+	if repeatX && repeatW > 0 && halfW > 0 {
+		w := float64(repeatW)
+		minX := float64(camX) - halfW
+		maxX := float64(camX) + halfW
+		minCol = int(math.Floor(minX / w))
+		maxCol = int(math.Ceil(maxX/w)) - 1
+		if maxCol < minCol {
+			maxCol = minCol
+		}
+		rx = true
+	}
+	if repeatY && repeatH > 0 && halfH > 0 {
+		h := float64(repeatH)
+		minY := float64(camY) - halfH
+		maxY := float64(camY) + halfH
+		minRow = int(math.Floor(minY / h))
+		maxRow = int(math.Ceil(maxY/h)) - 1
+		if maxRow < minRow {
+			maxRow = minRow
+		}
+		ry = true
+	}
+	return minCol, maxCol, minRow, maxRow, rx, ry
 }
 
 // strokeScale is how many canvas points one unit of m spans, which a hairline drawn under m divides its width by.

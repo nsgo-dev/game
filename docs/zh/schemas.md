@@ -11,7 +11,8 @@ import "github.com/nsgo-dev/game/packages/game/tooling/jsonschema"
 | 格式 | Schema | 文件 |
 | --- | --- | --- |
 | 场景，版本 1 | `https://game.nsgo.dev/schemas/scene.v1.json` | `*.scene.yaml`，由 `sceneformat.Parse` 读取 |
-| 场景，版本 2 | `https://game.nsgo.dev/schemas/scene.v2.json` | 实例化或继承其他场景文件、或含分层瓦片地图或 LDtk 关卡的 `*.scene.yaml`，由 `sceneformat.Parse` 读取 |
+| 场景，版本 2 | `https://game.nsgo.dev/schemas/scene.v2.json` | 实例化或继承其他场景文件、引用 glTF 模型、或含分层瓦片地图或 LDtk 关卡的 `*.scene.yaml`，由 `sceneformat.Parse` 读取 |
+| 场景，版本 3 | `https://game.nsgo.dev/schemas/scene.v3.json` | 使用视差或重复图层的 `*.scene.yaml`，由 `sceneformat.Parse` 读取 |
 | 图块集，版本 1 | `https://game.nsgo.dev/schemas/tileset.v1.json` | `*.tileset.yaml`，由 `tilemap.ParseTileset` 和 `tilemap.LoadTilesetFS` 读取 |
 | 导入设置，版本 1 | `https://game.nsgo.dev/schemas/import.v1.json` | 资源旁的 `*.import.yaml`，由 `importsettings.Parse` 和 `game assets` 读取，其中的署名由 `game release` 和 `game credits` 读取（见[命令行](cli.md#assets)） |
 | 体素世界，版本 1 | `https://game.nsgo.dev/schemas/voxel.v1.json` | `*.voxel.yaml`，由 `voxel.Parse` 和 `voxel.LoadYAML` 读取 |
@@ -28,7 +29,7 @@ import "github.com/nsgo-dev/game/packages/game/tooling/jsonschema"
 
 其余格式在各自的 YAML 加载器落地时补上 Schema：模组清单（#474）、项目文件（#488）、共享资源（#485）、粒子（#477）、骨骼绑定（#475）和本地化表（#473）。
 
-Schema 的 URL 带有格式版本号。`scene.v2.json` 已在 `scene.v1.json` 旁发布，写着 `version: 1` 的文件仍按 `scene.v1.json` 校验，它拒绝版本 2 新增的键；`Encode` 写入的是文档自身版本的 Schema。
+Schema 的 URL 带有格式版本号。`scene.v3.json` 已在 `scene.v1.json` 与 `scene.v2.json` 旁发布，写着 `version: 1` 的文件仍按 `scene.v1.json` 校验（拒绝版本 2 和版本 3 新增的键），写着 `version: 2` 的文件仍按 `scene.v2.json` 校验（拒绝版本 3 新增的键）；`Encode` 写入的是文档自身版本的 Schema。
 
 ## 让编辑器使用 Schema
 

@@ -144,12 +144,14 @@ func (e *Editor) CanvasToTile(layer string, canvasX, canvasY float32) (col, row 
 	if err != nil {
 		return 0, 0, false
 	}
-	li := e.layerIndex(layerName)
 	space := sceneformat.SpaceWorld
-	if li >= 0 {
-		space = e.Doc.Layers[li].EffectiveSpace()
+	var px, py float32 = 1, 1
+	if li := e.layerIndex(layerName); li >= 0 {
+		ld := &e.Doc.Layers[li]
+		space = ld.EffectiveSpace()
+		px, py = ld.EffectiveParallaxX(), ld.EffectiveParallaxY()
 	}
-	lx, ly := e.canvasToLayer(space, canvasX, canvasY)
+	lx, ly := e.canvasToLayerFor(space, px, py, canvasX, canvasY)
 	if lx < 0 || ly < 0 || tm.TileWidth <= 0 || tm.TileHeight <= 0 {
 		return 0, 0, false
 	}
@@ -173,7 +175,7 @@ func (e *Editor) HitTest(canvasX, canvasY float32) string {
 		if !layer.Visible || e.layerLocked[layer.Name] {
 			continue
 		}
-		lx, ly := e.canvasToLayer(layer.Space, canvasX, canvasY)
+		lx, ly := e.canvasToLayerFor(layer.Space, layer.ParallaxX, layer.ParallaxY, canvasX, canvasY)
 		// Find the topmost object in this layer: the highest Z, ties broken by the later in draw order, which is depth first with each parent before its children.
 		var best *sceneformat.BuiltObject
 		bestZ := math.MinInt
@@ -307,19 +309,21 @@ func (e *Editor) pressActiveLayer(x, y float32) {
 
 func (e *Editor) layerCoordsForActive(x, y float32) (float32, float32) {
 	if li := e.layerIndex(e.ActiveLayer); li >= 0 {
-		return e.canvasToLayer(e.Doc.Layers[li].EffectiveSpace(), x, y)
+		ld := &e.Doc.Layers[li]
+		return e.canvasToLayerFor(ld.EffectiveSpace(), ld.EffectiveParallaxX(), ld.EffectiveParallaxY(), x, y)
 	}
 	return e.CanvasToWorld(x, y)
 }
 
 func (e *Editor) layerCoordsForSelected(x, y float32) (float32, float32) {
 	if _, li, _ := e.FindObject(e.SelectedID); li >= 0 {
-		return e.canvasToLayer(e.Doc.Layers[li].EffectiveSpace(), x, y)
+		ld := &e.Doc.Layers[li]
+		return e.canvasToLayerFor(ld.EffectiveSpace(), ld.EffectiveParallaxX(), ld.EffectiveParallaxY(), x, y)
 	}
 	return e.CanvasToWorld(x, y)
 }
 
-// DrawViewport renders the active scene in 2D or 3D mode and, when in edit mode, the appropriate editor overlays (the scene camera's frame and bounds, tile grid, selection outline, the selection's transform gizmo and the active plugin tool's Draw in 2D; grid, axes, boxes and gizmo in 3D). In 2D the scene draws through the 2D view (View2D) over the whole canvas; in Play mode the player's frame, the scene's virtual screen, is all that shows. size is the canvas's size, which it records (SetCanvasSize).
+// DrawViewport renders the active scene in 2D or 3D mode and, when in edit mode, the appropriate editor overlays (the scene camera's frame and bounds, tile grid, selection outline, the selection's transform gizmo and the active plugin tool's Draw in 2D; grid, axes, boxes and gizmo in 3D). In 2D edit mode the scene draws through the 2D view (View2D) over the whole canvas, previewing each world-space layer's parallax offset and repeat tiling as the 2D view pans; in Play mode the player's frame, the scene's virtual screen, is all that shows. size is the canvas's size, which it records (SetCanvasSize).
 func (e *Editor) DrawViewport(d *core.Drawing, size core.Size) {
 	if e == nil || d == nil {
 		return
@@ -335,18 +339,16 @@ func (e *Editor) DrawViewport(d *core.Drawing, size core.Size) {
 			// The scene fills its background over the camera frame only; in edit mode the view can be panned or zoomed past that frame, so the whole canvas gets the scene's background and objects away from the camera are judged against the game's clear color.
 			d.Save().SetFillColor(scene.BackgroundColor).FillRect(0, 0, float32(size.Width), float32(size.Height)).Restore()
 		}
-		d.Save()
-		applyAffine(d, e.screenAffine())
 		if e.playing {
+			d.Save()
+			applyAffine(d, e.screenAffine())
 			vw, vh := e.ViewportSize()
 			d.BeginPath().Rect(0, 0, vw, vh).Clip()
-		}
-		if e.playing {
 			scene.Draw(d)
+			d.Restore()
 		} else {
-			e.drawWithoutHidden(d, scene)
+			e.drawEditScene(d, scene)
 		}
-		d.Restore()
 	}
 	if scene == nil {
 		return
@@ -455,10 +457,13 @@ func (e *Editor) drawTileGridOverlay(d *core.Drawing) {
 		return
 	}
 	space := sceneformat.SpaceWorld
+	var px, py float32 = 1, 1
 	if li := e.layerIndex(layerName); li >= 0 {
-		space = e.Doc.Layers[li].EffectiveSpace()
+		ld := &e.Doc.Layers[li]
+		space = ld.EffectiveSpace()
+		px, py = ld.EffectiveParallaxX(), ld.EffectiveParallaxY()
 	}
-	m := e.layerAffine(space)
+	m := e.layerAffineFor(space, px, py)
 	d.Save()
 	applyAffine(d, m)
 	// The grid is a hairline at any zoom.
@@ -477,34 +482,87 @@ func (e *Editor) drawTileGridOverlay(d *core.Drawing) {
 	d.Stroke().Restore()
 }
 
-// drawWithoutHidden draws scene with the sprites of the objects hidden in the editor (SetObjectHidden), and of their descendants, left out, putting their opacity back afterwards.
-func (e *Editor) drawWithoutHidden(d *core.Drawing, scene *sceneformat.BuiltScene) {
-	if len(e.hidden) == 0 {
-		scene.Draw(d)
-		return
-	}
+// drawEditScene renders scene into d in edit mode: materials are synced, editor-hidden objects are suppressed, and each visible layer draws through the 2D view with its parallax factors and repeat tiling applied.
+func (e *Editor) drawEditScene(d *core.Drawing, scene *sceneformat.BuiltScene) {
+	scene.SyncMaterials()
 	type faded struct {
 		bo    *sceneformat.BuiltObject
 		alpha float32
 	}
 	var restore []faded
-	for _, layer := range scene.Layers {
-		var walk func(objs []*sceneformat.BuiltObject, hidden bool)
-		walk = func(objs []*sceneformat.BuiltObject, hidden bool) {
-			for _, bo := range objs {
-				h := hidden || e.hidden[bo.ID]
-				if h && bo.Sprite != nil {
-					restore = append(restore, faded{bo, bo.Sprite.Alpha})
-					bo.Sprite.Alpha = 0
+	if len(e.hidden) > 0 {
+		for _, layer := range scene.Layers {
+			var walk func(objs []*sceneformat.BuiltObject, hidden bool)
+			walk = func(objs []*sceneformat.BuiltObject, hidden bool) {
+				for _, bo := range objs {
+					h := hidden || e.hidden[bo.ID]
+					if h && bo.Sprite != nil {
+						restore = append(restore, faded{bo, bo.Sprite.Alpha})
+						bo.Sprite.Alpha = 0
+					}
+					walk(bo.Children, h)
 				}
-				walk(bo.Children, h)
 			}
+			walk(layer.Objects, false)
 		}
-		walk(layer.Objects, false)
 	}
-	scene.Draw(d)
+	v := e.View2D()
+	cw, ch := e.CanvasSize()
+	for _, layer := range scene.Layers {
+		if !layer.Visible {
+			continue
+		}
+		if layer.Tilemap == nil && len(layer.Batches) == 0 {
+			continue
+		}
+		m := e.layerAffineFor(layer.Space, layer.ParallaxX, layer.ParallaxY)
+		d.Save()
+		applyAffine(d, m)
+		if layer.Space == sceneformat.SpaceWorld && (layer.RepeatX || layer.RepeatY) {
+			minCol, maxCol, minRow, maxRow, rx, ry := repeatRanges2D(
+				v.X*layer.ParallaxX, v.Y*layer.ParallaxY, cw, ch, v.Zoom, v.Rotation,
+				layer.RepeatX, layer.RepeatY, layer.RepeatWidth, layer.RepeatHeight,
+			)
+			if !rx && !ry {
+				drawBuiltLayer(d, layer)
+			} else {
+				for row := minRow; row <= maxRow; row++ {
+					var ty float32
+					if ry {
+						ty = float32(row) * layer.RepeatHeight
+					}
+					for col := minCol; col <= maxCol; col++ {
+						var tx float32
+						if rx {
+							tx = float32(col) * layer.RepeatWidth
+						}
+						if tx != 0 || ty != 0 {
+							d.Save()
+							d.Translate(tx, ty)
+						}
+						drawBuiltLayer(d, layer)
+						if tx != 0 || ty != 0 {
+							d.Restore()
+						}
+					}
+				}
+			}
+		} else {
+			drawBuiltLayer(d, layer)
+		}
+		d.Restore()
+	}
 	for _, f := range restore {
 		f.bo.Sprite.Alpha = f.alpha
+	}
+}
+
+func drawBuiltLayer(d *core.Drawing, layer *sceneformat.BuiltLayer) {
+	if layer.Tilemap != nil {
+		layer.Tilemap.Draw(d)
+	}
+	for _, b := range layer.Batches {
+		b.Draw(d)
 	}
 }
 
@@ -517,10 +575,12 @@ func (e *Editor) drawSelectionOverlay(d *core.Drawing, scene *sceneformat.BuiltS
 		return
 	}
 	space := sceneformat.SpaceWorld
+	var px, py float32 = 1, 1
 	if layer := scene.Layer(bo.Layer); layer != nil {
 		space = layer.Space
+		px, py = layer.ParallaxX, layer.ParallaxY
 	}
-	m := e.layerAffine(space).Mul(bo.World)
+	m := e.layerAffineFor(space, px, py).Mul(bo.World)
 	rx, ry, rw, rh := objectOutline(bo)
 	corners := []math2d.Vec2{
 		m.TransformPoint(math2d.Vec2{X: rx, Y: ry}),
