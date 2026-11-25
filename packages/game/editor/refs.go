@@ -212,6 +212,7 @@ func (e *Editor) followMove(root, from, to string, written []refs.Write) {
 		}
 	}
 	movePath(&e.ScenePath)
+	e.syncProjectAssets()
 	moveFile(&e.clipMeta.path)
 	e.followDataTableMove(moveFile)
 	e.filesRev++

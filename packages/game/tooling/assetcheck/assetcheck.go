@@ -112,7 +112,7 @@ func CheckWith(fsys fs.FS, opts Options) (*Report, error) {
 			return nil
 		}
 		if d.IsDir() {
-			if p != "." && skipDir(d.Name()) {
+			if p != "." && project.SkipDir(d.Name()) {
 				return fs.SkipDir
 			}
 			return nil
@@ -198,11 +198,6 @@ func CheckWith(fsys fs.FS, opts Options) (*Report, error) {
 	}
 	c.checkRefs()
 	return c.finish(), nil
-}
-
-// skipDir reports whether the walk skips a directory called name, as the go command skips it.
-func skipDir(name string) bool {
-	return strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") || name == "testdata"
 }
 
 // checker holds what one Check has read so far.

@@ -14,6 +14,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/nsgo-dev/game/packages/game/editor"
+	"github.com/nsgo-dev/game/packages/game/editor/editorcmd"
 	"github.com/nsgo-dev/game/packages/game/editor/editormcp"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
@@ -182,7 +183,7 @@ func TestGameMCPEditsTheOpenEditor(t *testing.T) {
 	}
 	t.Cleanup(ed.WaitForProblems)
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
-		serveEditor(cx, ed, io.Discard)
+		editorcmd.Serve(cx, ed, io.Discard)
 		return editor.EditorView(cx, ed)
 	}, nsgotest.Size(1400, 900))
 	app.WaitUntil(10*time.Second, func() bool { return !ed.CheckingProblems() })

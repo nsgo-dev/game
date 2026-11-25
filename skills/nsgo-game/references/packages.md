@@ -152,6 +152,7 @@ Every non-internal package under `github.com/nsgo-dev/game/packages` (shown rela
 | `game/gametest` | Experimental | Testing helpers and fixtures for game-layer tests |
 | `game/perf` | Experimental | Zero-alloc `Pool`/`Arena`/`SlicePool`, `SpatialHash`, `Quadtree` and `CullBatch` |
 | `game/editor` | Experimental | Visual scene and animation clip editor embedded behind `nsgo game editor` |
+| `game/editor/editorcmd` | Experimental | The scene editor's command line, shared by `nsgo game editor` and a game's own editor command from `game generate editor` |
 | `game/editor/editormcp` | Experimental | The editor's MCP server: `scene_read`, `scene_edit`, `selection_get`, `viewport_image`, `game_check`, `game_playtest` and `playtest_define` on the open project, served on a per-project local endpoint that `nsgo game mcp` forwards to |
 
 ## Project, CLI and asset tooling

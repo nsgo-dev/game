@@ -520,7 +520,7 @@ The inspector sets up an object without editing YAML. Every edit it makes is one
 
 ### Projects
 
-The editor also opens a game's [project file](project.md): `OpenProject` reads `game.yaml` and opens its main scene, `EditProject` changes it as an undoable step, and `SaveProject` writes it with the `nsgo.yaml` beside it in step. `nsgo game editor <dir>` opens a project directory. `MoveFile(from, to)` moves a file or directory of the project and rewrites every reference to it, on disk and in the open scene and project, as `nsgo game mv` does ([Stable references](project.md#stable-references)), as one step that Undo takes back and Redo makes again. Undo puts each file the move rewrote back byte for byte, unless it changed since, in which case only its references are rewritten back.
+The editor also opens a game's [project file](project.md): `OpenProject` reads `game.yaml` and opens its main scene, `EditProject` changes it as an undoable step, and `SaveProject` writes it with the `nsgo.yaml` beside it in step. `nsgo game editor <dir>` opens a project directory. With `ProjectAssets` set, as the editor commands of package `editorcmd` set it, opening a project makes `Resolver` a `project.Resolver` over the project's directory: the scene draws the project's own sprite atlases, found by name nearest the open scene as `game check` finds them, the asset browser lists them, `PlaceScene` instances the project's scene files, and materials, physics materials, YAML tilesets and Tiled and LDtk maps load from the project, the tilesets and maps through its `ReadFile` as `FSAssets` reads them. The editor lists the atlases again whenever it changes the project's files, such as by saving a scene or installing a pack. `OpenProjectScene(path, scene)` opens the project with the scene file `scene` in place of its main scene, which `nsgo game editor` does for a scene file inside a project's directory, so `ScenePath` names it and an instance of it in itself is refused as a cycle. `MoveFile(from, to)` moves a file or directory of the project and rewrites every reference to it, on disk and in the open scene and project, as `nsgo game mv` does ([Stable references](project.md#stable-references)), as one step that Undo takes back and Redo makes again. Undo puts each file the move rewrote back byte for byte, unless it changed since, in which case only its references are rewritten back.
 
 While a project is open, the file browser below the asset browser (`FilesView`) lists its files and directories (`ProjectFiles`), leaving out the directories that `game index` and `game mv` skip too: those whose names start with `.` or `_` and those named `testdata`. Pressing one selects it and puts its path in the field below the list; edit the path and press Move to rename or move it through `MoveFile`, press Open Table on a `.yaml`/`.yml` file to open it in the Data Table editor (`OpenDataTableProjectFile`), or press Find Refs to list every reference to it across the project (`ShowReferences`). Refresh lists the files again and rescans the project search and references index (`RefreshSearch`) after something outside the editor changed them.
 
@@ -639,7 +639,7 @@ The 3D viewport draws and picks every object, nested children included: `Objects
 
 ## Scene files and unsaved changes (#866)
 
-The editor works on one scene at a time and switches between the project's scenes without a restart. Select a scene in the file browser (a `*.scene.yaml` or `*.scene.yml` file, or one listed under `autoload.scenes`) and press Open, or press it twice, to open it (`OpenScene`). Opening a scene, from the file browser, the Problems panel, the Search and References panel, the Command Palette or `OpenScene`, clears `OnSave`, which persisted the scene open before. `OpenFile`, `SaveFile` and `OpenProject` set `ScenePath` when the scene's file lies in the open project and clear it otherwise. The toolbar's File menu holds New Scene, which writes a minimal valid scene (named after its file, as large as the project's display or window, with one world layer) to a path from the project's root that the author gives (`NewScene`), Save As, which saves the scene under another path and makes that file the scene's (`SaveSceneAs`), and Revert, which puts back the scene as its file holds it (`RevertScene`). A path without a `.yaml` or `.yml` extension gets `.scene.yaml` (one ending in `.scene` gets `.yaml`), the name `game check` and `game index` find scenes by. Neither New Scene nor Save As overwrites another file or writes a scene under the project's own file names, `game.yaml` and `nsgo.yaml`. Revert is one undoable step, so Undo brings the reverted edits back.
+The editor works on one scene at a time and switches between the project's scenes without a restart. Select a scene in the file browser (a `*.scene.yaml` or `*.scene.yml` file, or one listed under `autoload.scenes`) and press Open, or press it twice, to open it (`OpenScene`). Opening a scene, from the file browser, the Problems panel, the Search and References panel, the Command Palette or `OpenScene`, clears `OnSave`, which persisted the scene open before. `OpenFile`, `SaveFile`, `OpenProject` and `OpenProjectScene` set `ScenePath` when the scene's file lies in the open project and clear it otherwise. The toolbar's File menu holds New Scene, which writes a minimal valid scene (named after its file, as large as the project's display or window, with one world layer) to a path from the project's root that the author gives (`NewScene`), Save As, which saves the scene under another path and makes that file the scene's (`SaveSceneAs`), and Revert, which puts back the scene as its file holds it (`RevertScene`). A path without a `.yaml` or `.yml` extension gets `.scene.yaml` (one ending in `.scene` gets `.yaml`), the name `game check` and `game index` find scenes by. Neither New Scene nor Save As overwrites another file or writes a scene under the project's own file names, `game.yaml` and `nsgo.yaml`. Revert is one undoable step, so Undo brings the reverted edits back.
 
 `SceneDirty` reports whether the scene differs from what it was opened from or last saved to, comparing encodings as `ProjectDirty` does for `game.yaml`, so undoing back to the saved state makes the scene clean again. A `MoveFile` that rewrites the open scene's file leaves it as clean or dirty as it was; one that rewrites references in the open scene but not in its file, as for a scene `game mv` does not read (no `.scene.yaml` name and nothing names it), leaves the scene dirty so that saving it keeps the new paths. The toolbar shows the open scene's path (`SceneLabel`) and a `*` while the scene or project has unsaved edits (`HasUnsavedChanges`), and the window title follows (`WindowTitle`). `EditorView` owns the window title, so an editor built on the package, such as a game's own, names itself with `Editor.AppName` rather than setting the title, and the title ends with that name ("NSGo Scene Editor" while it is empty). The Save button, File > Save in the menu bar, the Command Palette's Save and Mod+S (`Save`, the `CmdSave` command) save what was edited, the project, the scene or both; an unedited file is left as written, comments included. Opening another scene (from the file browser, the Problems panel, a search or reference result or the Command Palette), New Scene, quitting the editor and closing its window ask first while edits are unsaved: Save saves them and goes on, Discard drops them, the project's too, and goes on, and Cancel keeps them and stays. Discarding the project's edits puts back what follows from the project, as undoing them does: an audition through an audio bus the edits added stops, for example. A forced quit, as at logout, cannot wait for an answer and does not ask.
 
@@ -678,29 +678,19 @@ editor:
   plugins: [health]
 ```
 
-A registered plugin the open project does not name stays off, and the order of `editor.plugins` is the order its panels and tools appear in. `OpenProject` names in the status bar the plugins the project lists that this binary was built without (`MissingPlugins`). `nsgo game editor` registers no plugins, so a game that has its own builds its own editor command:
+A registered plugin the open project does not name stays off, and the order of `editor.plugins` is the order its panels and tools appear in. `OpenProject` names in the status bar the plugins the project lists that this binary was built without (`MissingPlugins`). `nsgo game editor` registers no plugins and no component types, so a game that has its own builds its own editor command. `nsgo game generate editor` writes one into a game's `main` package, built with the `gameeditor` tag in place of the game, that calls `editorcmd.Main` with the game's `Components` and its plugins, and `nsgo game editor` runs it on the project ([Command Line](cli.md#generate)). Package `editorcmd` is the command line both share: `New(Options)` builds an editor with the component types, plugins, name and library given and `ProjectAssets` set, `Open(ed, args)` opens a project, a scene or a clip as `nsgo game editor` does, and `Main` and `Run` parse the command line, open the project in the working directory without arguments and show the window. An editor command written by hand calls `editorcmd.Main` the same way:
 
 ```go
 // cmd/editor/main.go: the game's own editor command.
 package main
 
 func main() {
-	ed, err := editor.New(nil, atlases) // the game's sprite atlases, as a sceneformat.AssetResolver
-	if err != nil {
-		log.Fatal(err)
-	}
-	if err := ed.SetComponentRegistry(health.Components()); err != nil {
-		log.Fatal(err)
-	}
-	if err := ed.RegisterPlugin(healthplugin.Plugin()); err != nil {
-		log.Fatal(err)
-	}
-	if err := ed.OpenProject("."); err != nil {
-		log.Fatal(err)
-	}
-	nsgo.Run(func(cx *core.Scope) core.Node {
-		return editor.EditorView(cx, ed)
-	}, nsgo.WindowSize(1280, 800))
+	editorcmd.Main(editorcmd.Options{
+		Components:     health.Components(),
+		Plugins:        []editor.Plugin{healthplugin.Plugin()},
+		AppName:        "Field Medic Editor",
+		RequirePlugins: true, // refuse a project that lists a plugin this command lacks
+	})
 }
 ```
 
@@ -725,7 +715,7 @@ A game ships its editor as one more command in its own module, beside the game, 
 | the game (`main`) | the component package | loads its scenes with `sceneformat.ParseWith` and the registry |
 | `cmd/editor` | `editor`, the component and plugin packages | registers the component types and the plugin, then opens the project |
 
-`game.yaml` names the plugin under `editor.plugins`, so the plugin is on whenever the game's editor opens the project. An editor command that should not start without its plugins checks `MissingPlugins` after `OpenProject` and fails when it is not empty; `nsgo game editor` on the same project still opens it, names the plugins it lacks in the status bar and shows the generic fields.
+`game.yaml` names the plugin under `editor.plugins`, so the plugin is on whenever the game's editor opens the project. An editor command that should not start without its plugins sets `editorcmd.Options.RequirePlugins`, or checks `MissingPlugins` after `OpenProject` and fails when it is not empty. `nsgo game editor` on a project with a `cmd/editor` main package runs that command with `go run ./cmd/editor`, as it runs the one `game generate editor` writes, and passes it the same command line, `-library` and a project, scene file, clip and object ID, so a `cmd/editor` should parse it with `editorcmd.Main` or `editorcmd.Run`.
 
 [Field Medic](https://github.com/nsgo-dev/game/tree/main/examples/fieldmedic) (`examples/fieldmedic`) is a runnable game laid out this way. Its patients carry a `health` component (package `health`), and its `cmd/editor` registers the `health` plugin (package `healthplugin`): a Ward panel docked right of the inspector that lists every patient's hit points, with a Heal All button that heals them all in one undoable step it executes on `Editor.History`; an inspector for the `health` component with hit point and max fields and a bar of what is left; and an Admit tool that places a patient where the viewport is pressed and outlines every patient while it is active. Its tests open the game's own project in the editor and drive the panel, the inspector and the tool. The editor's own tests hold a smaller `health` plugin as well (`packages/game/editor/plugin_test.go`).
 

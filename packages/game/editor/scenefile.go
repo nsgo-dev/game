@@ -288,9 +288,12 @@ func (e *Editor) projectRel(p string) (string, bool) {
 	return rel, true
 }
 
-// syncScenePath sets ScenePath to FilePath's path in the open project, or clears it when the file lies outside the project or there is none.
+// syncScenePath sets ScenePath to FilePath's path in the open project, or clears it when the file lies outside the project or there is none, and finds the project's atlases nearest it (syncProjectAssets).
 func (e *Editor) syncScenePath() {
 	e.ScenePath, _ = e.projectRel(e.FilePath)
+	if e.syncProjectAssets() {
+		e.Rebuild()
+	}
 }
 
 // withSceneExt adds ".scene.yaml" to a path without a YAML extension, or ".yaml" to one ending in ".scene", in any case. An empty path, or one naming a directory, stays as it is for projectFile to refuse.

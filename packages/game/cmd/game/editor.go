@@ -4,25 +4,32 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"go/ast"
+	"go/build"
+	"go/parser"
+	"go/token"
+	"io"
 	"math"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/nsgo-dev/game/packages/game/editor"
-	"github.com/nsgo-dev/game/packages/game/project"
+	"github.com/nsgo-dev/game/packages/game/editor/editorcmd"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/game/packages/game/tooling/library"
-	"github.com/nsgo-dev/nsgo"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
-// editorCommand opens the scene editor on a game's project, as its directory or its game.yaml, which opens the project and its main scene, or on a YAML scene file, or on a demo scene when nothing is named. With -library it shows the library panel, which installs packs from that library into the open project. A second argument is an animation clip file the animation panel opens on the object named by the third argument, or on the scene's first object.
+// editorCommand opens the scene editor on a game's project, as its directory or its game.yaml, which opens the project and its main scene, or on a YAML scene file, which inside a project opens that project too, or on a demo scene when nothing is named. A project's scenes draw its own atlases, which the asset browser lists, and its scene files place as instances. A project with an editor command of its own, which `game generate editor` writes, is opened by running that command with go run, so its component types are checked and its plugins built in. With -library it shows the library panel, which installs packs from that library into the open project. A second argument is an animation clip file the animation panel opens on the object named by the third argument, or on the scene's first object.
 var editorCommand = &command{
 	name:    "editor",
 	args:    "[project-dir | game.yaml | scene.yaml] [clip.animation.yaml [object-id]]",
-	summary: "Open the scene editor on a project or a YAML scene, and an animation clip on one of its objects, or on a demo scene when none is named",
+	summary: "Open the scene editor on a project or a YAML scene, and an animation clip on one of its objects, with the project's own editor command when it has one, or on a demo scene when none is named",
 	define:  defineEditor,
 	complete: map[string]completion{
 		"library": filePaths,
@@ -33,19 +40,49 @@ var editorCommand = &command{
 func defineEditor(a *app, fs *flag.FlagSet) func() error {
 	lib := fs.String("library", "", "show the library panel, which installs packs into the open project, for this library index: an https URL such as "+library.DefaultIndex+", an index file, or a directory holding index.yaml")
 	return func() error {
-		if fs.NArg() > 3 {
-			return usagef("expected at most a project or scene file, a clip file and an object ID, got %d arguments", fs.NArg())
+		args := fs.Args()
+		if len(args) > 3 {
+			return usagef("expected at most a project or scene file, a clip file and an object ID, got %d arguments", len(args))
 		}
-		ed, err := newDemoEditor()
-		if err != nil {
-			return err
+		var ed *editor.Editor
+		root, inProject := "", false
+		if len(args) > 0 {
+			root, inProject = editorcmd.ProjectRoot(args[0])
 		}
-		if *lib != "" {
-			if ed.Library, err = library.Open(context.Background(), *lib); err != nil {
+		switch {
+		case inProject:
+			run, ok, err := projectEditor(root)
+			if err != nil {
 				return err
 			}
+			if ok {
+				return runOwnEditor(a, root, run, *lib, args)
+			}
+			// Without an editor of its own, a project's components are free-form, since only the game's Go code registers their types.
+			if ed, err = editorcmd.New(editorcmd.Options{Library: *lib}); err != nil {
+				return err
+			}
+		default:
+			var err error
+			if ed, err = newDemoEditor(); err != nil {
+				return err
+			}
+			if len(args) > 0 {
+				// A scene outside any project names the files it uses, such as a layered tilemap's YAML tileset or a Tiled or LDtk source, by their paths from its own directory, and draws the demo's atlases.
+				root := filepath.Dir(args[0])
+				if info, err := os.Stat(args[0]); err == nil && info.IsDir() {
+					root = args[0]
+				}
+				atlases, _ := ed.Resolver.(sceneformat.AtlasMap)
+				ed.Resolver = sceneformat.FSAssets{FS: os.DirFS(root), Atlases: atlases}
+			}
+			if *lib != "" {
+				if ed.Library, err = library.Open(context.Background(), *lib); err != nil {
+					return err
+				}
+			}
 		}
-		if err := openArgs(ed, fs.Args()); err != nil {
+		if err := editorcmd.Open(ed, args); err != nil {
 			return err
 		}
 		a.launch(ed)
@@ -53,106 +90,90 @@ func defineEditor(a *app, fs *flag.FlagSet) func() error {
 	}
 }
 
-// runEditor shows ed in the NSGo Scene Editor window, serving its MCP server on the open project's endpoint for go tool game mcp, and returns once it closes.
-func runEditor(ed *editor.Editor) {
-	nsgo.Run(func(cx *core.Scope) core.Node {
-		serveEditor(cx, ed, os.Stderr)
-		// EditorView titles the window after the open scene.
-		return editor.EditorView(cx, ed)
-	}, nsgo.WindowSize(1120, 680))
-}
+// gameEditorTag is the build tag that builds a project's package as its editor command, as `game generate editor` writes it.
+const gameEditorTag = "gameeditor"
 
-// open opens path in ed: a project, as a directory or its game.yaml, or else a scene file. It first points ed's resolver at the project's files, so layered tilemaps, YAML tilesets and Tiled and LDtk sources build and the tile palette lists their tiles.
-func open(ed *editor.Editor, path string) error {
-	if info, err := os.Stat(path); err == nil && info.IsDir() || filepath.Base(path) == project.FileName {
-		root := path
-		if err != nil || !info.IsDir() {
-			root = filepath.Dir(path)
+// projectEditor returns the go command's arguments that run the editor command of the project in root, and false when it has none, and an error only when a Go file that would hold it does not parse: the main package in cmd/editor, as Field Medic's is, or the project's own main package built with the gameeditor tag, when that tag swaps its main function for one, as `game generate editor` writes it.
+func projectEditor(root string) ([]string, bool, error) {
+	if p, err := build.ImportDir(filepath.Join(root, "cmd", "editor"), 0); err == nil && p.Name == "main" {
+		return []string{"run", "./cmd/editor"}, true, nil
+	}
+	plain, err := build.ImportDir(root, 0)
+	if err != nil {
+		// Without a Go package of its own that the go command can build, the project has no editor command there, and game editor opens it itself.
+		return nil, false, nil
+	}
+	ctx := build.Default
+	ctx.BuildTags = append(slices.Clone(ctx.BuildTags), gameEditorTag)
+	tagged, err := ctx.ImportDir(root, 0)
+	if err != nil || tagged.Name != "main" {
+		return nil, false, nil
+	}
+	fset := token.NewFileSet()
+	for _, name := range tagged.GoFiles {
+		if slices.Contains(plain.GoFiles, name) {
+			continue
 		}
-		ed.Resolver = projectAssets(ed.Resolver, root)
-		return ed.OpenProject(path)
-	}
-	ed.Resolver = projectAssets(ed.Resolver, sceneProjectRoot(path))
-	return ed.OpenFile(path)
-}
-
-// projectAssets returns a resolver that reads the project files under root and keeps the sprite atlases of resolver, the demo atlases the editor starts with.
-func projectAssets(resolver sceneformat.AssetResolver, root string) sceneformat.FSAssets {
-	var atlases sceneformat.AtlasMap
-	switch r := resolver.(type) {
-	case sceneformat.AtlasMap:
-		atlases = r
-	case sceneformat.FSAssets:
-		atlases = r.Atlases
-	}
-	return sceneformat.FSAssets{FS: os.DirFS(root), Atlases: atlases}
-}
-
-// sceneProjectRoot returns the root of the project the scene file at path belongs to: the nearest directory above it that holds game.yaml, or the scene's own directory when none does. Scenes name the files they use by their paths from that root.
-func sceneProjectRoot(path string) string {
-	start := filepath.Dir(path)
-	if abs, err := filepath.Abs(start); err == nil {
-		start = abs
-	}
-	for dir := start; ; {
-		if _, err := os.Stat(filepath.Join(dir, project.FileName)); err == nil {
-			return dir
+		f, err := parser.ParseFile(fset, filepath.Join(root, name), nil, parser.SkipObjectResolution)
+		if err != nil {
+			return nil, false, err
 		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return start
-		}
-		dir = parent
-	}
-}
-
-// openArgs opens what the command line names: the project or scene args[0], then the animation clip file args[1] on the object args[2], or on the scene's first object when args[2] is absent. That object is selected, so when the clip file does not exist yet the toolbar's Animate button starts a clip on it, and the panel's Save Clip button writes the clip to args[1].
-func openArgs(ed *editor.Editor, args []string) error {
-	if len(args) == 0 {
-		return nil
-	}
-	if err := open(ed, args[0]); err != nil {
-		return fmt.Errorf("open %s: %w", args[0], err)
-	}
-	if len(args) < 2 {
-		return nil
-	}
-	clipPath := args[1]
-	target := firstObjectID(ed.Doc)
-	if len(args) > 2 {
-		target = args[2]
-	}
-	if target == "" {
-		return fmt.Errorf("open clip %s: %s has no object to play it on", clipPath, args[0])
-	}
-	if !ed.SelectObject(target) {
-		return fmt.Errorf("open clip %s: %s has no object %q", clipPath, args[0], target)
-	}
-	if _, err := os.Stat(clipPath); err == nil {
-		if err := ed.OpenClipFile(clipPath, target); err != nil {
-			return fmt.Errorf("open clip %s: %w", clipPath, err)
+		if declaresMain(f) {
+			return []string{"run", "-tags", gameEditorTag, "."}, true, nil
 		}
 	}
-	ed.OnSaveClip = func(data []byte) error { return os.WriteFile(clipPath, data, 0o644) }
+	return nil, false, nil
+}
+
+// declaresMain reports whether f declares a main function.
+func declaresMain(f *ast.File) bool {
+	for _, d := range f.Decls {
+		if fd, ok := d.(*ast.FuncDecl); ok && fd.Recv == nil && fd.Name.Name == "main" {
+			return true
+		}
+	}
+	return false
+}
+
+// runOwnEditor runs the project in root's own editor command, whose go command arguments run are, on args, the editor command's arguments, whose scene and clip paths are made absolute since the command runs in root, after -library lib when lib is set.
+func runOwnEditor(a *app, root string, run []string, lib string, args []string) error {
+	cmd := slices.Clone(run)
+	if lib != "" {
+		if !strings.Contains(lib, "://") {
+			abs, err := filepath.Abs(lib)
+			if err != nil {
+				return err
+			}
+			lib = abs
+		}
+		cmd = append(cmd, "-library", lib)
+	}
+	for i, arg := range args {
+		// The scene and clip are paths, made absolute; the object ID is not a path and passes through as it is.
+		if i < 2 {
+			abs, err := filepath.Abs(arg)
+			if err != nil {
+				return err
+			}
+			arg = abs
+		}
+		cmd = append(cmd, arg)
+	}
+	if err := a.goRun(root, cmd, a.stdout, a.stderr); err != nil {
+		return fmt.Errorf("the project's editor (go %s in %s): %w", strings.Join(run, " "), root, err)
+	}
 	return nil
 }
 
-// firstObjectID returns the ID of the first object in doc's layers, or "".
-func firstObjectID(doc *sceneformat.SceneDoc) string {
-	if doc == nil {
-		return ""
-	}
-	for _, layer := range doc.Layers {
-		for _, o := range layer.Objects {
-			if o.ID != "" {
-				return o.ID
-			}
-		}
-	}
-	return ""
+// runGoIn runs the go command with args in dir, with the terminal's standard input, for the editor command a project has of its own.
+func runGoIn(dir string, args []string, stdout, stderr io.Writer) error {
+	cmd := exec.Command("go", args...)
+	cmd.Dir = dir
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, stdout, stderr
+	return cmd.Run()
 }
 
-// newDemoEditor returns an editor on a small demo room, what the editor opens when no scene is named.
+// newDemoEditor returns an editor on a small demo room, what the editor opens when no scene is named, and what opens a scene outside any project, with the demo's two atlases and its body component.
 func newDemoEditor() (*editor.Editor, error) {
 	resolver := sceneformat.AtlasMap{
 		"tiles": {

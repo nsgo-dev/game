@@ -136,9 +136,9 @@ var completionCases = []completionCase{
 	{"game release -channel st", []string{"steam", "store"}},
 	{"game dev -assets ", []string{"a.png", "scene.yaml", "sub/"}},
 	{"game check ", []string{"a.png", "scene.yaml", "sub/"}},
-	{"game generate ", []string{"component", "prefab", "scene", "system"}},
+	{"game generate ", []string{"component", "editor", "prefab", "scene", "system"}},
 	// The kinds complete at the name too, since a command's arguments complete alike at every position.
-	{"game generate scene ", []string{"component", "prefab", "scene", "system"}},
+	{"game generate scene ", []string{"component", "editor", "prefab", "scene", "system"}},
 	{"game generate -in ", []string{"a.png", "scene.yaml", "sub/"}},
 	{"game generate -main s", []string{"scene", "system"}},
 	{"game library ", []string{"digest", "install", "list", "remove"}},

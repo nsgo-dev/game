@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nsgo-dev/game/packages/game/editor/editorcmd"
 	"github.com/nsgo-dev/game/packages/game/project"
 )
 
@@ -246,7 +247,7 @@ func TestOneGameYAMLServesReleaseEditorAndAssets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := open(ed, gameYAML); err != nil {
+	if err := editorcmd.Open(ed, []string{gameYAML}); err != nil {
 		t.Fatalf("editor: %v", err)
 	}
 	if ed.Project.Assets == nil || len(ed.Project.Assets.Atlases) != 1 || ed.Project.Export == nil {

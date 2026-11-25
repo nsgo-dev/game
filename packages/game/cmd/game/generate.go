@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"go/ast"
 	"go/build"
+	"go/build/constraint"
 	"go/format"
 	"go/parser"
 	"go/token"
@@ -26,11 +27,11 @@ import (
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 )
 
-// generateCommand writes the Go code and the YAML files of a new component, system, scene or prefab into a game project.
+// generateCommand writes the Go code and the YAML files of a new component, system, scene or prefab into a game project, or the project's own editor command, which `game editor` runs.
 var generateCommand = &command{
 	name:    "generate",
-	args:    "component|system|scene|prefab <name>",
-	summary: "Write a new component, system, scene or prefab into a game project: its Go code and a test, the scene file of a scene or prefab, and its registration",
+	args:    "component|system|scene|prefab <name> | editor",
+	summary: "Write a new component, system, scene or prefab into a game project: its Go code and a test, the scene file of a scene or prefab, and its registration; or the project's editor command, which checks the project's components and builds in its editor plugins",
 	define:  defineGenerate,
 	// The kinds complete at every argument, the name included, since the completion scripts complete a command's arguments alike whatever their position.
 	complete: map[string]completion{
@@ -39,7 +40,7 @@ var generateCommand = &command{
 }
 
 // generateKinds are the kinds game generate writes, in the order its usage names them.
-var generateKinds = []string{"component", "system", "scene", "prefab"}
+var generateKinds = []string{"component", "system", "scene", "prefab", "editor"}
 
 // generateFS holds the templates of the Go files game generate writes, rendered with text/template and generateData.
 //
@@ -99,6 +100,8 @@ type generateKind struct {
 	sceneDir string
 	// prefab reports whether its scene file is a prefab's: one object for other scenes to instance.
 	prefab bool
+	// editor reports whether it is the project's editor command: a main function built with the gameeditor tag in the project's main package, whose own main function the tag leaves out. It takes no name.
+	editor bool
 }
 
 // kinds are what each word game generate takes writes.
@@ -134,6 +137,14 @@ var kinds = map[string]generateKind{
 		sceneDir:   "prefabs",
 		prefab:     true,
 	},
+	"editor": {
+		files: []generatedFile{
+			{name: "editor.go", template: "editor.go.tmpl", declares: []string{"editorPlugins", "editorOptions"}},
+			{name: "editor_test.go", template: "editor_test.go.tmpl", declares: []string{"TestEditorOpensTheProject"}},
+		},
+		registries: []registry{componentsRegistry},
+		editor:     true,
+	},
 }
 
 // generateNamePattern is what game generate takes as a name: words of ASCII letters and digits, starting with a letter, written in camel case or joined by - or _.
@@ -145,20 +156,29 @@ func defineGenerate(a *app, fs *flag.FlagSet) func() error {
 	mainScene := fs.Bool("main", false, "for a scene, also add it to the scenes game.yaml autoloads and make it the main scene")
 
 	return func() error {
-		if fs.NArg() != 2 {
+		if fs.NArg() == 0 {
 			return usagef("expected a kind (%s) and a name", strings.Join(generateKinds, ", "))
 		}
-		kindName, name := fs.Arg(0), fs.Arg(1)
+		kindName := fs.Arg(0)
 		kind, ok := kinds[kindName]
 		if !ok {
 			return usagef("unknown kind %q; use %s", kindName, strings.Join(generateKinds, ", "))
 		}
+		switch {
+		case kind.editor && fs.NArg() != 1:
+			return usagef("editor takes no name: the project has one editor command")
+		case !kind.editor && fs.NArg() != 2:
+			return usagef("expected a kind (%s) and a name", strings.Join(generateKinds, ", "))
+		}
 		if (*autoload || *mainScene) && kindName != "scene" {
 			return usagef("-autoload and -main are for a scene")
 		}
-		data, err := generateNames(name)
-		if err != nil {
-			return err
+		var data generateData
+		if !kind.editor {
+			var err error
+			if data, err = generateNames(fs.Arg(1)); err != nil {
+				return err
+			}
 		}
 		dir := *dirArg
 		written, projectFile, err := generate(dir, kind, data, *autoload || *mainScene, *mainScene)
@@ -241,6 +261,12 @@ func generate(dir string, kind generateKind, data generateData, autoload, mainSc
 		return nil, false, err
 	}
 	data.Package = pkg
+	var mainFiles []projectFile
+	if kind.editor {
+		if mainFiles, err = excludeFromEditor(dir, pkg); err != nil {
+			return nil, false, err
+		}
+	}
 	if kind.sceneDir != "" {
 		data.Path = kind.sceneDir + "/" + data.Snake + ".scene.yaml"
 	}
@@ -330,15 +356,138 @@ func generate(dir string, kind generateKind, data generateData, autoload, mainSc
 			written = append(written, f.name)
 		}
 	}
+	// What generate rewrites rather than creates goes last, so a failure removes what it created and leaves the rest as it was.
+	var rewrites []projectFile
 	if gameYAML != nil {
-		if err := replaceProjectFile(filepath.Join(dir, project.FileName), gameYAML); err != nil {
+		rewrites = append(rewrites, projectFile{name: project.FileName, content: gameYAML})
+	}
+	rewrites = append(rewrites, mainFiles...)
+	// The rewritten files are put back as they were when a later rewrite fails, so they change all together or not at all.
+	var replaced []projectFile
+	for _, f := range rewrites {
+		p := filepath.Join(dir, filepath.FromSlash(f.name))
+		old, err := os.ReadFile(p)
+		if err == nil {
+			err = replaceProjectFile(p, f.content)
+		}
+		if err != nil {
+			for _, r := range slices.Backward(replaced) {
+				err = errors.Join(err, replaceFile(filepath.Join(dir, filepath.FromSlash(r.name)), r.content))
+			}
 			for _, name := range slices.Backward(append(created, written...)) {
 				err = errors.Join(err, os.Remove(filepath.Join(dir, filepath.FromSlash(name))))
 			}
 			return nil, false, err
 		}
+		replaced = append(replaced, projectFile{name: f.name, content: old})
+	}
+	for _, f := range mainFiles {
+		written = append(written, f.name)
 	}
 	return written, gameYAML != nil, nil
+}
+
+// excludeFromEditor returns the files of the package pkg in dir that declare its main function, each with a build constraint that leaves it out of the gameeditor build, in which the editor command game generate editor writes is the package's main function. It looks at the package's files for every platform, not only this one's, so a game with a main function per platform, such as main_windows.go and main_unix.go, has each one left out; a file whose constraint names the ignore tag never builds and is left alone. The package must be a main package with a main function, in files whose build constraints, if any, are //go:build lines.
+func excludeFromEditor(dir, pkg string) ([]projectFile, error) {
+	if pkg != "main" {
+		return nil, fmt.Errorf("package %s in %s is not a main package; game generate editor writes the editor command into a game's main package, such as the one game new writes, where it replaces the game's main function when built with the %s tag", pkg, dir, gameEditorTag)
+	}
+	bp, err := build.ImportDir(dir, 0)
+	if err != nil {
+		return nil, err
+	}
+	fset := token.NewFileSet()
+	var out []projectFile
+	// IgnoredGoFiles holds the package's files for other platforms and tags, which build.ImportDir leaves out for this one.
+	names := slices.Concat(bp.GoFiles, bp.IgnoredGoFiles)
+	slices.Sort(names)
+	for _, name := range names {
+		if strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		src, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			return nil, err
+		}
+		f, err := parser.ParseFile(fset, name, src, parser.SkipObjectResolution|parser.ParseComments)
+		if err != nil {
+			return nil, err
+		}
+		if f.Name.Name != pkg || !declaresMain(f) || neverBuilds(f) {
+			continue
+		}
+		content, err := withoutTag(src, f, fset, gameEditorTag)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", filepath.Join(dir, name), err)
+		}
+		out = append(out, projectFile{name: name, content: content})
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("package main in %s declares no main function for the editor command to stand in for", dir)
+	}
+	return out, nil
+}
+
+// neverBuilds reports whether f's //go:build constraint names the ignore tag, as a program go run runs by name, such as a go:generate tool, does, so that the file is no part of the package's build.
+func neverBuilds(f *ast.File) bool {
+	for _, group := range f.Comments {
+		if group.Pos() >= f.Package {
+			break
+		}
+		for _, c := range group.List {
+			if !constraint.IsGoBuild(c.Text) {
+				continue
+			}
+			if expr, err := constraint.Parse(c.Text); err == nil && mentionsTag(expr, "ignore") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// mentionsTag reports whether the build constraint expr names tag.
+func mentionsTag(expr constraint.Expr, tag string) bool {
+	switch e := expr.(type) {
+	case *constraint.TagExpr:
+		return e.Tag == tag
+	case *constraint.NotExpr:
+		return mentionsTag(e.X, tag)
+	case *constraint.AndExpr:
+		return mentionsTag(e.X, tag) || mentionsTag(e.Y, tag)
+	case *constraint.OrExpr:
+		return mentionsTag(e.X, tag) || mentionsTag(e.Y, tag)
+	}
+	return false
+}
+
+// withoutTag returns src, the Go file f parsed with fset, with a //go:build constraint that leaves it out of builds with tag: its own constraint and not tag, or not tag alone when it has none. A file with a legacy // +build line, or whose constraint names tag already, is refused.
+func withoutTag(src []byte, f *ast.File, fset *token.FileSet, tag string) ([]byte, error) {
+	not := &constraint.NotExpr{X: &constraint.TagExpr{Tag: tag}}
+	for _, group := range f.Comments {
+		if group.Pos() >= f.Package {
+			break
+		}
+		for _, c := range group.List {
+			if constraint.IsPlusBuild(c.Text) {
+				return nil, fmt.Errorf("it has a // +build line; run go fix to turn it into a //go:build line first")
+			}
+			if !constraint.IsGoBuild(c.Text) {
+				continue
+			}
+			expr, err := constraint.Parse(c.Text)
+			if err != nil {
+				return nil, err
+			}
+			if mentionsTag(expr, tag) {
+				return nil, fmt.Errorf("its build constraint already names the %s tag", tag)
+			}
+			start, end := fset.Position(c.Pos()).Offset, fset.Position(c.End()).Offset
+			line := "//go:build " + (&constraint.AndExpr{X: expr, Y: not}).String()
+			return slices.Concat(src[:start], []byte(line), src[end:]), nil
+		}
+	}
+	return slices.Concat([]byte("//go:build "+not.String()+"\n\n"), src), nil
 }
 
 // render executes text, a template, with data, failing on a missing key.

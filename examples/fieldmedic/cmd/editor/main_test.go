@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -8,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/nsgo-dev/game/packages/game/editor"
+	"github.com/nsgo-dev/game/packages/game/editor/editorcmd"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -69,5 +71,25 @@ func TestNewOpensAProjectByItsGameYAML(t *testing.T) {
 	}
 	if got := ed.ActivePlugins(); !reflect.DeepEqual(got, []string{"health"}) || ed.Doc == nil || ed.Doc.Name != "Ward" {
 		t.Fatalf("opened %+v with plugins %v", ed.Doc, got)
+	}
+}
+
+func TestTheCommandLineOpensAClipOnAPatient(t *testing.T) {
+	clip := filepath.Join(t.TempDir(), "pulse.animation.yaml")
+	for _, args := range [][]string{
+		{"../..", clip, "ada"},
+		{filepath.Join("..", "..", "scenes", "ward.scene.yaml"), clip, "ada"},
+	} {
+		var stderr bytes.Buffer
+		var shown *editor.Editor
+		if err := editorcmd.Run(args, options(), &stderr, func(ed *editor.Editor) { shown = ed }); err != nil {
+			t.Fatalf("Run(%q): %v (stderr %s)", args, err, &stderr)
+		}
+		if shown == nil || shown.Doc.Name != "Ward" || shown.AppName != "Field Medic Editor" || !reflect.DeepEqual(shown.ActivePlugins(), []string{"health"}) || shown.OnSaveClip == nil {
+			t.Fatalf("Run(%q) showed %+v", args, shown)
+		}
+		if got := shown.SelectedID; got != "ada" {
+			t.Fatalf("Run(%q) selected %q, want ada", args, got)
+		}
 	}
 }

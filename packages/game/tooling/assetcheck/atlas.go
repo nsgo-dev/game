@@ -5,6 +5,7 @@ import (
 	"path"
 	"strings"
 
+	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/nsgo/core"
 )
@@ -30,8 +31,8 @@ func (c *checker) sniffAtlas(p string) {
 		c.nonAtlases = append(c.nonAtlases, nonAtlas{path: p, err: err.(*jsonError)})
 		return
 	}
-	frames, meta := tree.field("frames"), tree.field("meta")
-	if frames == nil || (frames.kind != jsonObject && frames.kind != jsonArray) || meta == nil || meta.kind != jsonObject {
+	// The test is project.IsAtlasJSON, which project.Resolver tells atlases by too; the tree is kept for the lines problems point at.
+	if !project.IsAtlasJSON(data) {
 		c.nonAtlases = append(c.nonAtlases, nonAtlas{path: p})
 		return
 	}
@@ -102,45 +103,44 @@ func atlasFrames(tree *jsonValue) []namedFrame {
 	return out
 }
 
-// findAtlas returns the atlas a scene at scene, in project root, names name, or records a problem at line and returns nil. The name is the path without .json of an atlas file in the same project, from the project root or as its base name; among several matches the one nearest the scene, by the directories walked up from the scene and down to the atlas, wins.
+// findAtlas returns the atlas a scene at scene, in project root, names name, or records a problem at line and returns nil. The name is found as project.NearestAtlases finds it among the project's atlases, the rule project.Resolver shares: the path without .json of an atlas file in the same project, from the project root or as its base name, and among several matches the one nearest the scene, by the directories walked up from the scene and down to the atlas.
 func (c *checker) findAtlas(scene string, line int, root, name, what string) *atlasInfo {
-	var best []*atlasInfo
-	bestDist := -1
+	var inRoot []string
 	for _, p := range c.atlasPaths {
-		if !c.atlasNamed(p, root, name) {
-			continue
+		if c.projectRoot(path.Dir(p)) == root {
+			inRoot = append(inRoot, rootRel(root, p))
 		}
-		d := dirDistance(path.Dir(scene), path.Dir(p))
-		switch {
-		case bestDist < 0 || d < bestDist:
-			best, bestDist = []*atlasInfo{c.atlases[p]}, d
-		case d == bestDist:
-			best = append(best, c.atlases[p])
-		}
+	}
+	best := project.NearestAtlases(inRoot, path.Dir(rootRel(root, scene)), name)
+	for i, p := range best {
+		best[i] = path.Join(root, p)
 	}
 	switch len(best) {
 	case 0:
 		c.atlasNotFound(scene, line, root, name, what)
 		return nil
 	case 1:
-		return best[0]
+		return c.atlases[best[0]]
 	default:
-		paths := make([]string, len(best))
-		for i, a := range best {
-			paths[i] = a.path
-		}
-		c.problem(scene, line, "%s %q is ambiguous: %s all match; name it by its path", what, name, strings.Join(paths, ", "))
+		c.problem(scene, line, "%s %q is ambiguous: %s all match; name it by its path", what, name, strings.Join(best, ", "))
 		return nil
 	}
 }
 
-// atlasNamed reports whether the JSON file at p is in project root and is named name there, from the root or by its base name.
+// rootRel returns p, a path in the checked directory, as a path from root, a project root in it ("." for the checked directory itself) that holds p.
+func rootRel(root, p string) string {
+	if root == "." {
+		return p
+	}
+	return strings.TrimPrefix(p, root+"/")
+}
+
+// atlasNamed reports whether the JSON file at p is in project root and is named name there, as project.AtlasNamed matches it, the rule findAtlas finds atlases by through project.NearestAtlases.
 func (c *checker) atlasNamed(p, root, name string) bool {
 	if c.projectRoot(path.Dir(p)) != root {
 		return false // another project's file
 	}
-	stem := strings.TrimSuffix(p, path.Ext(p))
-	return stem == path.Join(root, name) || path.Base(stem) == name
+	return project.AtlasNamed(rootRel(root, p), name)
 }
 
 // atlasNotFound records that no atlas in project root is named name. When JSON files of that name exist but are not atlases, it says so and reports a file that does not parse against the file itself, so that a corrupt export is not mistaken for a missing one.
@@ -166,22 +166,4 @@ func (c *checker) atlasNotFound(scene string, line int, root, name, what string)
 		where = root
 	}
 	c.problem(scene, line, "%s %q not found: no atlas JSON named %s.json in %s", what, name, path.Base(name), where)
-}
-
-// dirDistance returns how many directories lie between a and b: the steps up from a to the directory they share, plus the steps down from it to b. "." is the root, with no components.
-func dirDistance(a, b string) int {
-	as, bs := dirParts(a), dirParts(b)
-	n := 0
-	for n < len(as) && n < len(bs) && as[n] == bs[n] {
-		n++
-	}
-	return len(as) - n + len(bs) - n
-}
-
-// dirParts splits a slash-separated directory into its components, with none for ".".
-func dirParts(dir string) []string {
-	if dir == "." {
-		return nil
-	}
-	return strings.Split(dir, "/")
 }

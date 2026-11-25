@@ -80,7 +80,7 @@ nsgo game tex [flags] [input.png|input.jpg]
 
 ## game editor
 
-Open the scene editor on a project or a YAML scene, and an animation clip on one of its objects, or on a demo scene when none is named.
+Open the scene editor on a project or a YAML scene, and an animation clip on one of its objects, with the project's own editor command when it has one, or on a demo scene when none is named.
 
 ```sh
 nsgo game editor [flags] [project-dir | game.yaml | scene.yaml] [clip.animation.yaml [object-id]]
@@ -225,10 +225,10 @@ nsgo game assets [flags]
 
 ## game generate
 
-Write a new component, system, scene or prefab into a game project: its Go code and a test, the scene file of a scene or prefab, and its registration.
+Write a new component, system, scene or prefab into a game project: its Go code and a test, the scene file of a scene or prefab, and its registration; or the project's editor command, which checks the project's components and builds in its editor plugins.
 
 ```sh
-nsgo game generate [flags] component|system|scene|prefab <name>
+nsgo game generate [flags] component|system|scene|prefab <name> | editor
 ```
 
 | 参数 | 默认值 | 说明 |

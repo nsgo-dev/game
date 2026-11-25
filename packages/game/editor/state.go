@@ -232,6 +232,8 @@ type Editor struct {
 	SelectedFile string
 	// Library is the pack library the library panel lists and installs from into the open project (InstallPack); nil hides the panel.
 	Library *library.Library
+	// ProjectAssets makes the editor load its assets from the open project: OpenProject and OpenProjectScene make Resolver a project.Resolver over the project's directory, so the scene draws the project's atlases, the asset browser lists them (Assets), PlaceScene instances its scene files and materials and Tiled maps load from it. Atlases are found nearest the open scene (ScenePath), as `game check` finds them, and listed again whenever the editor changes the project's files. Set it before opening a project; editorcmd sets it.
+	ProjectAssets bool
 	// AppName is the editor's name, which the window title EditorView sets ends with (WindowTitle); empty means "NSGo Scene Editor". An editor built on this package, such as a game's own, sets it to its own name, since EditorView owns the window title.
 	AppName string
 
@@ -330,6 +332,9 @@ type Editor struct {
 	layerLocked map[string]bool
 	// baseLayers caches the names of the layers of the scene the open scene inherits (inheritedLayers).
 	baseLayers baseLayerCache
+	// assetsScene is the ScenePath the project.Resolver of ProjectAssets finds atlases nearest, and assetsFilesRev the filesRev it last listed the project's atlases at (syncProjectAssets).
+	assetsScene    string
+	assetsFilesRev uint64
 	// objIndex is where every object of the open scene sits, rebuilt when the revision or the document changes (lookupObject).
 	objIndex objectIndex
 	// filesRev counts the changes the editor made to which files the open project holds, by opening it, moving files, saving a scene or clip, which may make a new file, and installing or removing packs; the file browser lists the files again when it changes.
@@ -514,6 +519,7 @@ func (e *Editor) Rebuild() {
 		e.BuildErr = nil
 		return
 	}
+	e.syncProjectAssets()
 	built, err := sceneformat.Build(e.Doc, e.Resolver)
 	if err != nil {
 		e.BuildErr = err

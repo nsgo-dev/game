@@ -91,7 +91,7 @@ nsgo game editor scenes/level1.yaml
 nsgo game editor .
 ```
 
-在窗口中用 NSGo 场景编辑器打开指定的场景文件，未指定时打开一个小型演示房间。指定目录或 `game.yaml` 时打开游戏的[项目文件](project.md)及其主场景。编辑器从项目根目录读取项目文件，即 `game.yaml` 所在的目录（打开场景文件时是它上方最近一个含有 `game.yaml` 的目录，没有时是场景文件自己的目录），因此分层瓦片地图的 YAML 图块集以及 Tiled 和 LDtk 源都能构建，并填充瓦片调色板。打开项目后，编辑器可以从文件浏览器打开项目中的其他场景、新建场景、把场景另存到其他路径，并在退出或打开另一个场景会丢失未保存的修改时先询问（[场景文件与未保存的修改](editor.md#场景文件与未保存的修改)）。`-library` 会添加一个面板，把该[库](library.md)中的包安装到打开的项目中。它没有内置任何[编辑器插件](editor.md)：有自己插件的游戏要构建自己的编辑器命令，如 [Field Medic](https://github.com/nsgo-dev/game/tree/main/examples/fieldmedic) 所示。场景格式见[编辑器与场景格式](editor.md)。编辑器会在本地端点上把打开的项目提供给智能体，`mcp` 通过它连接。
+在窗口中用 NSGo 场景编辑器打开指定的场景文件，未指定时打开一个小型演示房间。指定目录或 `game.yaml` 时打开游戏的[项目文件](project.md)及其主场景；位于某个项目目录中的场景文件会连同该项目一起打开。项目中的场景用项目自己的精灵图集绘制，图集按名称查找，方式与 [`game check`](#check) 相同，资源浏览器列出这些图集，项目的场景文件可以作为实例放置，材质、物理材质、分层瓦片地图的 YAML 图块集以及 Tiled 和 LDtk 源也从项目中加载，并填充瓦片调色板；组件是自由格式的，因为只有游戏的 Go 代码才会注册组件类型。不在任何项目中的场景文件从它自己的目录读取它引用的文件，并用演示房间的图集绘制。打开项目后，编辑器可以从文件浏览器打开项目中的其他场景、新建场景、把场景另存到其他路径，并在退出或打开另一个场景会丢失未保存的修改时先询问（[场景文件与未保存的修改](editor.md#场景文件与未保存的修改)）。`-library` 会添加一个面板，把该[库](library.md)中的包安装到打开的项目中。它没有内置任何[编辑器插件](editor.md)，也不知道游戏的任何组件类型。项目有自己的编辑器命令时，无论是 [`game generate editor`](#generate) 写出的，还是像 [Field Medic](https://github.com/nsgo-dev/game/tree/main/examples/fieldmedic) 那样的 `cmd/editor` main 包，都会在项目目录中用 `go run` 运行该命令来打开项目，并把同样的参数（其中场景和动画片段路径转换为绝对路径）和 `-library` 传给它；该命令按游戏的组件类型检查每个组件，并内置游戏的插件。场景格式见[编辑器与场景格式](editor.md)。编辑器，以及基于 `editorcmd` 的游戏自己的编辑器命令，会在本地端点上把打开的项目提供给智能体，`mcp` 通过它连接。
 
 ### mcp
 
@@ -392,9 +392,10 @@ nsgo game generate component player_health
 nsgo game generate system movement
 nsgo game generate -main scene level_one
 nsgo game generate prefab enemy
+nsgo game generate editor
 ```
 
-把一个新的组件、系统、场景或预制体的代码和文件写入 `-in`（默认为当前工作目录）中的游戏，布局与 [`game new`](#new) 创建的项目一致，并打印写出的每个文件的路径。Go 代码写进该目录中的包，使用该包的包名，每个 Go 文件旁边都附带一个测试。名称由 ASCII 字母和数字组成、以字母开头，可以用驼峰写法，也可以用 `-` 或 `_` 连接单词，并按用到它的每个地方写成相应的形式：`player_health`、`player-health` 和 `PlayerHealth` 都得到 Go 类型 `PlayerHealth`、键名 `playerHealth` 以及名为 `player_health_*` 的文件。
+把一个新的组件、系统、场景或预制体的代码和文件，或者游戏的编辑器命令，写入 `-in`（默认为当前工作目录）中的游戏，布局与 [`game new`](#new) 创建的项目一致，并打印写出的每个文件的路径。Go 代码写进该目录中的包，使用该包的包名，每个 Go 文件旁边都附带一个测试。名称由 ASCII 字母和数字组成、以字母开头，可以用驼峰写法，也可以用 `-` 或 `_` 连接单词，并按用到它的每个地方写成相应的形式：`player_health`、`player-health` 和 `PlayerHealth` 都得到 Go 类型 `PlayerHealth`、键名 `playerHealth` 以及名为 `player_health_*` 的文件。
 
 | 种类 | 写出 | 注册到 |
 | --- | --- | --- |
@@ -402,8 +403,11 @@ nsgo game generate prefab enemy
 | `system` | `<name>_system.go`：一个函数 `MovementSystem(w *entities.World, dt time.Duration)`，以 `movement` 为名加入调度器 | `Systems`，游戏每个固定步长推进一次的 `entities.Scheduler` |
 | `scene` | `scenes/<name>.scene.yaml`：采用场景格式当前版本的场景，含一个名为 `main` 的空图层，虚拟分辨率取自 `game.yaml`（没有时取其窗口大小）；以及 `<name>_scene.go`，它嵌入该文件，并用 `LoadLevelOneScene` 解析，按 `Components` 检查其组件 | 加 `-autoload` 时注册到 `game.yaml` 的 `autoload` 场景，加 `-main` 时同时设为其 `mainScene` |
 | `prefab` | `prefabs/<name>.scene.yaml`：只含一个对象的场景，该对象的 `prefab` 就是这个名称，供其他场景用 `scene: prefabs/enemy.scene.yaml` 实例化；以及 `<name>_prefab.go`，同名的 `entities.Prefab`（`EnemyPrefab`） | `Prefabs`，按名称索引的游戏预制体 |
+| `editor`（不带名称） | `editor.go`：游戏的场景编辑器，一个带 `gameeditor` 构建标签的 `main` 函数，它用 `Components` 和 `editorPlugins`（游戏的编辑器插件，声明时为空）运行 `editorcmd.Main`；以及 `editor_test.go`，用它打开项目 | 给声明游戏自身 `main` 的文件加上 `//go:build !gameeditor`，使带该标签构建时由编辑器取而代之 |
 
 这些注册表各只声明一次，分别在 `components.go`、`systems.go` 和 `prefabs.go` 中，由第一个需要它的组件、系统、场景或预制体写出。每个生成的文件在 `init` 函数中把自己加入注册表，因此 `generate` 从不修改已经存在的文件。游戏在加载场景和运行循环的地方使用它们：`sceneformat.ParseWith(data, sceneformat.ParseOptions{Components: Components})` 拒绝场景中设置了却没有任何组件描述的组件或字段，`game.Loop` 的 `Update` 中调用 `Systems.Step(world, dt)` 按顺序运行各个系统，顺序由加入每个系统时的 `entities.After` 和 `entities.Before` 决定。之后在生成的代码上继续填写：组件的字段以及场景可设置的每个字段对应的 `sceneformat.Field`、系统的查询、用 `entities.With` 给预制体添加的组件。
+
+编辑器命令就是带 `gameeditor` 标签构建的游戏自身的包，因为 `game new` 创建的游戏把代码放在 `main` 包中，而其他包无法导入 `main` 包：这样构建出的编辑器链接了游戏的组件类型，不带该标签构建的游戏则不链接编辑器。[`game editor`](#editor) 以 `go run -tags gameeditor .` 在项目上运行它，因此项目的场景打开时，其组件和字段都按 `Components` 检查，检查器也会列出这些字段。要添加插件，把插件的 `editor.Plugin` 追加到 `editorPlugins`，只有编辑器用到的代码放在带该标签构建的文件中，或放在只有这些文件导入的包中；`game.yaml` 在 `editor.plugins` 下启用它（[编辑器插件](editor.md#编辑器插件492)）。用 `go tool nsgo test . -tags gameeditor` 运行它的测试。以下情况 `generate editor` 会拒绝：包不是 `main` 包或没有 `main` 函数；声明 `main` 的文件的构建约束是旧式的 `// +build` 行，或者已经提到 `gameeditor`（再次运行 `generate editor` 时就是这种情况）；包已经声明了它要声明的标识符。改写该文件失败时，它会删除已经写出的文件。
 
 `generate` 写出的内容原样就能构建、通过 `go tool nsgo test` 运行的测试，并通过 `game check`。要写的文件已经存在，或者包中（包括测试和其他平台的文件）已经声明了它要声明的标识符时，它什么也不写，以 1 退出；这时换一个名称即可。包中把 `Components`、`Systems` 或 `Prefabs` 声明成变量以外的东西，或者声明了生成的文件导入包时使用的名称（例如 `entities` 或 `time`）时，它同样失败；名称 `components`、`systems` 和 `prefabs` 也会被拒绝，因为它们的 Go 名称就是注册表的名称。`-autoload` 和 `-main` 会按 `gameproject fmt` 的格式重写 `game.yaml`，因此对于不是这种格式的 `game.yaml`（例如带注释的，重写会丢掉注释），在 `gameproject fmt` 重写它之前一律拒绝；`game.yaml` 已经自动加载了同名场景时也会拒绝。起始模板的 `TestAutoloadsLoad` 会检查 `game.yaml` 自动加载的文件，因此自动加载的场景丢失时，游戏的测试会失败；它从项目目录读取这些文件，所以在手机、模拟器或 Web 上用 `nsgo test -target` 运行时会跳过，而生成的测试只读取其代码嵌入的场景文件。
 

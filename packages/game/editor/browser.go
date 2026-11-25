@@ -10,8 +10,7 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// AtlasLister may optionally be implemented by a sceneformat.AssetResolver to advertise
-// available atlas names to the Asset Browser. sceneformat.AtlasMap is supported automatically.
+// AtlasLister may optionally be implemented by a sceneformat.AssetResolver to advertise available atlas names to the Asset Browser, as project.Resolver does. sceneformat.AtlasMap is supported automatically.
 type AtlasLister interface {
 	AtlasNames() []string
 }
@@ -34,6 +33,7 @@ func (e *Editor) Assets() []AssetEntry {
 	if e == nil || e.Resolver == nil {
 		return nil
 	}
+	e.syncProjectAssets()
 	var atlasNames []string
 	switch r := e.Resolver.(type) {
 	case sceneformat.AtlasMap:

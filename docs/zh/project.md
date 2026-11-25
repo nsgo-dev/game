@@ -177,6 +177,7 @@ func Root(cx *core.Scope) core.Node {
 - `BindInput(actions)` 把输入映射绑定到 `input.Actions`，替换同名动作的绑定，保留其他绑定，例如随代码计算出的布局而定的绑定。`Region(action)` 返回绑定到某个动作的第一个区域，游戏在那里绘制屏幕上的控件。
 - `ConfigureMixer(mixer)` 为 `sound.Mixer` 设置默认主音量、各总线的默认音量（`SetDefaultMaster`、`SetDefaultVolume`）和 DSP 链。玩家设置过并由混音器保存在存储中的音量优先于默认值。没有效果的总线保留游戏在代码中设置的效果链，就像没有绑定的动作保留其绑定一样。
 - `ConfigurePhysicsWorld(world)`、`ConfigureRigidWorld(world)` 与 `ConfigurePhysics3DWorld(world)` 将 `physics.gravity2D`、`physics.gravity3D` 和求解器迭代次数应用到 `physics.World`、`physics.RigidWorld` 与 `physics3d.World`。`PhysicsLayerTable()` 和 `PhysicsSettings()` 将 `physics:` 转换为 `sceneformat.ParseWith` 与 `sceneformat.BuildPhysics` 使用的类型，`Physics.LayerBit(name)`、`Physics.LayerMask2D(names...)`、`Physics.LayerMask3D(names...)` 则便于在 Go 代码中解析具名碰撞层。
+- `NewResolver(fsys)` 返回以项目根目录为根的 `fs.FS` 上的 `Resolver`，它从项目自己的文件中加载场景引用的内容：精灵图集、场景文件、材质、物理材质，以及瓦片地图引用的 YAML 图块集和 Tiled、LDtk 地图。它就是 `sceneformat.Build` 和 `sceneformat.BuildPhysics` 接受的 `sceneformat.AssetResolver`、`SceneResolver`、`MaterialResolver`、`PhysicsMaterialResolver` 和 `FileResolver`（`ReadFile`），并为编辑器的资源浏览器列出项目的图集（`AtlasNames`）。场景按 `game check` 的方式指定图集（`NearestAtlases`）：图集 JSON 文件去掉 `.json` 后、从项目根目录算起的路径，或其基本名；有多个匹配时离场景最近的那个胜出（`ForScene` 返回针对某个场景的解析器），图像按其 `meta.image` 从项目中该文件旁边读取。图块集和地图通过 `ReadFile` 读取，与 `sceneformat.FSAssets` 的读取方式相同。图集只列出和加载一次，直到 `Refresh`；场景文件和 `ReadFile` 读取的文件每次请求都重新读取。`AtlasNamed`、`SkipDir` 和 `IsAtlasJSON` 是遍历和按名称查找与 `game check` 共用的规则：哪些名称指向某个图集文件、跳过哪些目录、哪些 JSON 文件是图集。
 - `LoadAutoloads(fsys)` 从以项目根目录为根的 `fs.FS`（例如 `embed.FS`）读取每个自动加载的场景和资源，场景会按场景文档解析并校验（包括对照 `physics.layers` 校验具名物理层）；遇到第一个缺失或无效的文件即返回错误。`Loaded.Main()` 是主场景。
 
 ## game.yaml 与 nsgo.yaml
@@ -209,7 +210,7 @@ go run github.com/nsgo-dev/game/packages/game/cmd/gameproject targets [dir]
 
 ## 在编辑器中
 
-`Editor.OpenProject(path)` 打开一个 `game.yaml` 或包含它的目录，并打开其中指定的主场景，同时清空撤销历史。`EditProject(label, edit)` 修改项目的副本，校验通过后才采用，并作为一个可撤销的步骤。`SaveProject()` 以规范形式写入项目，并同步旁边的 `nsgo.yaml`。工具栏的“Save”按钮在项目被编辑过时会先于场景保存项目，即使场景没有可保存到的文件；未编辑的 `game.yaml` 保持原样，注释也会保留。`SetPluginEnabled(name, on)` 以同样的可撤销步骤把插件加入 `editor.plugins` 或从中移除。在命令行中运行 `gameeditor <dir>` 即可打开一个项目。`MoveFile(from, to)` 移动项目中的文件并改写指向它的引用（见下文“稳定引用”）。
+`Editor.OpenProject(path)` 打开一个 `game.yaml` 或包含它的目录，并打开其中指定的主场景，同时清空撤销历史。`EditProject(label, edit)` 修改项目的副本，校验通过后才采用，并作为一个可撤销的步骤。`SaveProject()` 以规范形式写入项目，并同步旁边的 `nsgo.yaml`。工具栏的“Save”按钮在项目被编辑过时会先于场景保存项目，即使场景没有可保存到的文件；未编辑的 `game.yaml` 保持原样，注释也会保留。`SetPluginEnabled(name, on)` 以同样的可撤销步骤把插件加入 `editor.plugins` 或从中移除。设置了 `Editor.ProjectAssets` 时，打开项目会把编辑器的解析器换成项目目录上的 `project.Resolver`，使项目的场景用它自己的图集绘制；`OpenProjectScene(path, scene)` 打开项目时用它的另一个场景代替主场景。在命令行中运行 `nsgo game editor <dir>` 就是这样打开项目的，项目有自己的编辑器命令时则通过该命令打开（`game generate editor`，见[命令行](cli.md#generate)）。`MoveFile(from, to)` 移动项目中的文件并改写指向它的引用（见下文“稳定引用”）。
 
 ## 稳定引用
 

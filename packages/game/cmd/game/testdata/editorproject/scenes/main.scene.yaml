@@ -1,0 +1,16 @@
+version: 2
+name: Main
+virtualWidth: 320
+virtualHeight: 180
+layers:
+  - name: actors
+    objects:
+      - id: hero
+        x: 64
+        y: 40
+        sprite:
+          atlas: actors
+          frame: hero
+        components:
+          health:
+            hp: 3

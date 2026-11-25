@@ -1,12 +1,17 @@
 package main
 
 import (
+	"bytes"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/nsgo-dev/game/packages/game/editor"
+	"github.com/nsgo-dev/game/packages/game/editor/editorcmd"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 )
 
@@ -96,11 +101,11 @@ func TestOpenArgsOpensASavedSceneAndAnExistingClip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newDemoEditor: %v", err)
 	}
-	if err := openArgs(ed, []string{scene, clip}); err != nil {
-		t.Fatalf("openArgs(scene, clip): %v", err)
+	if err := editorcmd.Open(ed, []string{scene, clip}); err != nil {
+		t.Fatalf("editorcmd.Open(scene, clip): %v", err)
 	}
 	if ed.Clip() == nil || ed.ClipTarget() != "hero" || ed.SelectedID != "hero" || ed.ClipPath() != clip {
-		t.Fatalf("after openArgs: clip %v target %q selected %q path %q, want the clip on hero from %s", ed.Clip() != nil, ed.ClipTarget(), ed.SelectedID, ed.ClipPath(), clip)
+		t.Fatalf("after editorcmd.Open: clip %v target %q selected %q path %q, want the clip on hero from %s", ed.Clip() != nil, ed.ClipTarget(), ed.SelectedID, ed.ClipPath(), clip)
 	}
 	if ed.OnSaveClip == nil {
 		t.Fatal("OnSaveClip is not set")
@@ -115,18 +120,18 @@ func TestOpenArgsOpensASavedSceneAndAnExistingClip(t *testing.T) {
 
 	// Naming the object explicitly opens the clip on it.
 	ed, _ = newDemoEditor()
-	if err := openArgs(ed, []string{scene, clip, "hero"}); err != nil || ed.ClipTarget() != "hero" {
-		t.Fatalf("openArgs with target hero: %v, target %q", err, ed.ClipTarget())
+	if err := editorcmd.Open(ed, []string{scene, clip, "hero"}); err != nil || ed.ClipTarget() != "hero" {
+		t.Fatalf("editorcmd.Open with target hero: %v, target %q", err, ed.ClipTarget())
 	}
 
 	// A clip file that does not exist yet opens nothing but selects the object, so the Animate button starts a clip on it, and Save Clip writes the file.
 	fresh := filepath.Join(dir, "new.animation.yaml")
 	ed, _ = newDemoEditor()
-	if err := openArgs(ed, []string{scene, fresh}); err != nil {
-		t.Fatalf("openArgs with a new clip file: %v", err)
+	if err := editorcmd.Open(ed, []string{scene, fresh}); err != nil {
+		t.Fatalf("editorcmd.Open with a new clip file: %v", err)
 	}
 	if ed.Clip() != nil || ed.SelectedID != "hero" || ed.OnSaveClip == nil {
-		t.Fatalf("after openArgs with a new clip file: clip %v selected %q OnSaveClip %t", ed.Clip() != nil, ed.SelectedID, ed.OnSaveClip != nil)
+		t.Fatalf("after editorcmd.Open with a new clip file: clip %v selected %q OnSaveClip %t", ed.Clip() != nil, ed.SelectedID, ed.OnSaveClip != nil)
 	}
 	if err := ed.OnSaveClip([]byte(heroClip)); err != nil {
 		t.Fatalf("OnSaveClip: %v", err)
@@ -136,11 +141,11 @@ func TestOpenArgsOpensASavedSceneAndAnExistingClip(t *testing.T) {
 	}
 
 	ed, _ = newDemoEditor()
-	if err := openArgs(ed, []string{scene, clip, "ghost"}); err == nil || !strings.Contains(err.Error(), `no object "ghost"`) {
-		t.Fatalf("openArgs with a missing object: %v", err)
+	if err := editorcmd.Open(ed, []string{scene, clip, "ghost"}); err == nil || !strings.Contains(err.Error(), `no object "ghost"`) {
+		t.Fatalf("editorcmd.Open with a missing object: %v", err)
 	}
 
-	// The editor subcommand passes its arguments through openArgs.
+	// The editor subcommand passes its arguments through editorcmd.Open.
 	a, _, stderr := newTestApp(t)
 	var opened *editor.Editor
 	a.launch = func(ed *editor.Editor) { opened = ed }
@@ -215,5 +220,138 @@ func TestEditorReadsTheOpenProjectsFiles(t *testing.T) {
 		if p := opened.TilePalette(); len(p.Tiles) != 2 || p.Message != "" {
 			t.Fatalf("%s: palette = %+v", arg, p)
 		}
+	}
+}
+
+// editorFixture is a project with its own atlas and two scene files, whose main scene draws the atlas and sets a component no registry declares.
+const editorFixture = "testdata/editorproject"
+
+func TestEditorOpensAProjectWithItsOwnAtlasesAndScenes(t *testing.T) {
+	png, err := os.ReadFile(filepath.Join(editorFixture, "sprites", "actors.png"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, _, stderr := newTestApp(t)
+	var ed *editor.Editor
+	a.launch = func(opened *editor.Editor) { ed = opened }
+	if code := run([]string{"editor", editorFixture}, a); code != 0 {
+		t.Fatalf("exit %d (stderr: %s)", code, stderr)
+	}
+	if ed == nil || ed.Doc.Name != "Main" || ed.ScenePath != "scenes/main.scene.yaml" || ed.BuildErr != nil {
+		t.Fatalf("opened %+v", ed)
+	}
+	// The project has no editor of its own, so its components are free-form rather than the demo's.
+	if ed.ComponentRegistry() != nil {
+		t.Fatal("the project opened with a component registry")
+	}
+	hero := ed.Built.Object("hero")
+	if hero == nil || hero.Atlas == nil || !bytes.Equal(hero.Atlas.Image.Data, png) {
+		t.Fatalf("the hero does not draw the project's actors.png")
+	}
+	var keys []string
+	for _, entry := range ed.Assets() {
+		keys = append(keys, entry.Key())
+	}
+	if want := []string{"actors/crate", "actors/hero"}; !slices.Equal(keys, want) {
+		t.Fatalf("the asset browser lists %q, want %q", keys, want)
+	}
+
+	id, err := ed.PlaceScene("actors", "scenes/crate.scene.yaml", 120, 60)
+	if err != nil {
+		t.Fatalf("PlaceScene: %v", err)
+	}
+	if box := ed.Built.Object(id + "/box"); box == nil || box.Atlas == nil || !bytes.Equal(box.Atlas.Image.Data, png) {
+		t.Fatalf("the crate instance does not draw the project's actors.png")
+	}
+	if !ed.History.Undo() {
+		t.Fatal("nothing to undo")
+	}
+	if obj, _, _ := ed.FindObject(id); obj != nil {
+		t.Fatal("Undo left the crate instance")
+	}
+	if _, err := ed.PlaceScene("actors", "scenes/main.scene.yaml", 0, 0); err == nil || !strings.Contains(err.Error(), "cycle") {
+		t.Fatalf("placing the open scene in itself = %v, want a cycle", err)
+	}
+
+	// game check agrees with the editor on the fixture.
+	a, stdout, stderr := newTestApp(t)
+	if code := run([]string{"check", editorFixture}, a); code != 0 {
+		t.Fatalf("game check: exit %d: %s", code, stderr)
+	}
+	if got, want := stdout.String(), "2 scenes, 0 maps, 0 tilesets, 1 atlas: no problems\n"; got != want {
+		t.Errorf("game check: %q, want %q", got, want)
+	}
+}
+
+func TestEditorOpensASceneInsideAProjectWithTheProject(t *testing.T) {
+	a, _, stderr := newTestApp(t)
+	var ed *editor.Editor
+	a.launch = func(opened *editor.Editor) { ed = opened }
+	if code := run([]string{"editor", filepath.Join(editorFixture, "scenes", "crate.scene.yaml")}, a); code != 0 {
+		t.Fatalf("exit %d (stderr: %s)", code, stderr)
+	}
+	if ed == nil || ed.Project == nil || ed.Doc.Name != "Crate" || ed.ScenePath != "scenes/crate.scene.yaml" || ed.BuildErr != nil {
+		t.Fatalf("opened %+v", ed)
+	}
+	if _, err := ed.PlaceScene("main", "scenes/crate.scene.yaml", 0, 0); err == nil || !strings.Contains(err.Error(), "cycle") {
+		t.Fatalf("placing the open scene in itself = %v, want a cycle", err)
+	}
+}
+
+func TestEditorRunsTheProjectsOwnEditor(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		files map[string]string
+		run   []string
+	}{
+		{"gameeditor tag", map[string]string{
+			"main.go":   "//go:build !gameeditor\n\npackage main\n\nfunc main() {}\n",
+			"editor.go": "//go:build gameeditor\n\npackage main\n\nfunc main() {}\n",
+		}, []string{"run", "-tags", "gameeditor", "."}},
+		{"cmd/editor", map[string]string{
+			"main.go":            "package main\n\nfunc main() {}\n",
+			"cmd/editor/main.go": "package main\n\nfunc main() {}\n",
+		}, []string{"run", "./cmd/editor"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := generateProject(t, tc.files)
+			writeFiles(t, dir, map[string]string{"scenes/room.scene.yaml": "version: 2\nlayers: []\n"})
+			lib := t.TempDir()
+			a, _, stderr := newTestApp(t)
+			var gotDir string
+			var gotArgs []string
+			a.goRun = func(d string, args []string, _, _ io.Writer) error {
+				gotDir, gotArgs = d, args
+				return nil
+			}
+			scene := filepath.Join(dir, "scenes", "room.scene.yaml")
+			if code := run([]string{"editor", "-library", lib, scene, "hop.animation.yaml", "hero"}, a); code != 0 {
+				t.Fatalf("exit %d (stderr: %s)", code, stderr)
+			}
+			clip, err := filepath.Abs("hop.animation.yaml")
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := append(slices.Clone(tc.run), "-library", lib, scene, clip, "hero")
+			if gotDir != dir || !slices.Equal(gotArgs, want) {
+				t.Fatalf("ran go %q in %s, want go %q in %s", gotArgs, gotDir, want, dir)
+			}
+
+			a, _, stderr = newTestApp(t)
+			a.goRun = func(string, []string, io.Writer, io.Writer) error { return errors.New("exit status 1") }
+			if code := run([]string{"editor", dir}, a); code != 1 || !strings.Contains(stderr.String(), "the project's editor (go "+strings.Join(tc.run, " ")) {
+				t.Fatalf("a failing editor: exit %d: %s", code, stderr)
+			}
+		})
+	}
+
+	// A project without one opens in game editor itself.
+	dir := generateProject(t, nil)
+	writeFiles(t, dir, map[string]string{"scenes/room.scene.yaml": "version: 2\nname: Room\nlayers: []\n"})
+	a, _, stderr := newTestApp(t)
+	var ed *editor.Editor
+	a.launch = func(opened *editor.Editor) { ed = opened }
+	if code := run([]string{"editor", filepath.Join(dir, "scenes", "room.scene.yaml")}, a); code != 0 || ed == nil || ed.Doc.Name != "Room" {
+		t.Fatalf("exit %d (stderr: %s), opened %+v", code, stderr, ed)
 	}
 }

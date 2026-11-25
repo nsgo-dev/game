@@ -15,8 +15,18 @@ import (
 // ErrNoProject is returned by EditProject and SaveProject before OpenProject has opened a game.yaml.
 var ErrNoProject = errors.New("editor: no project open")
 
-// OpenProject opens the game's project file: path is a game.yaml or the directory holding one. When the project names a main scene (project.Autoload.MainScene), it opens that scene too, as OpenFile does, with the view the project's ViewStateFile keeps for it. It empties the undo history either way, so no step can bring back a project opened before. The registered plugins the project names under editor.plugins turn on, and the status bar names those it lists that this editor was built without (MissingPlugins). On an error it leaves the editor as it was.
+// OpenProject opens the game's project file: path is a game.yaml or the directory holding one. When the project names a main scene (project.Autoload.MainScene), it opens that scene too, as OpenFile does, with the view the project's ViewStateFile keeps for it. It empties the undo history either way, so no step can bring back a project opened before. The registered plugins the project names under editor.plugins turn on, and the status bar names those it lists that this editor was built without (MissingPlugins). With ProjectAssets set, Resolver becomes a project.Resolver over the project's directory before the scene opens, and a scene left open when the project names no main scene is built again against it. On an error it leaves the editor as it was.
 func (e *Editor) OpenProject(path string) error {
+	return e.openProject(path, "", false)
+}
+
+// OpenProjectScene opens the project file at path, a game.yaml or the directory holding one, as OpenProject does, and the scene file at scene, an OS path such as one inside the project's directory, in place of the project's main scene. A scene inside the project's directory gets its path from the project root as ScenePath, which Resolver names scene files by, so PlaceScene refuses an instance that leads back to it. On an error it leaves the editor as it was.
+func (e *Editor) OpenProjectScene(path, scene string) error {
+	return e.openProject(path, scene, true)
+}
+
+// openProject opens the project file at path and, when withScene is set, the scene file at scene, or else the project's main scene when it names one.
+func (e *Editor) openProject(path, scene string, withScene bool) error {
 	if info, err := os.Stat(path); err == nil && info.IsDir() {
 		path = filepath.Join(path, project.FileName)
 	}
@@ -32,11 +42,26 @@ func (e *Editor) OpenProject(path string) error {
 	if err != nil {
 		return err
 	}
+	prevResolver, prevScene, prevRev := e.Resolver, e.assetsScene, e.assetsFilesRev
+	if e.ProjectAssets {
+		// The scene opened next is read against the project's own assets; syncScenePath then finds them nearest it.
+		e.Resolver = project.NewResolver(os.DirFS(filepath.Dir(path)))
+		e.assetsScene, e.assetsFilesRev = "", e.filesRev
+	}
+	restore := func() { e.Resolver, e.assetsScene, e.assetsFilesRev = prevResolver, prevScene, prevRev }
 	opened := false
-	if a := f.Autoload; a != nil && a.MainScene != "" {
+	switch a := f.Autoload; {
+	case withScene:
+		if err := e.openFileWithLayers(scene, f.PhysicsLayerTable()); err != nil {
+			restore()
+			return err
+		}
+		opened = true
+	case a != nil && a.MainScene != "":
 		for _, s := range a.Scenes {
 			if s.Name == a.MainScene {
 				if err := e.openFileWithLayers(filepath.Join(filepath.Dir(path), filepath.FromSlash(s.Path)), f.PhysicsLayerTable()); err != nil {
+					restore()
 					return fmt.Errorf("editor: main scene %q: %w", s.Name, err)
 				}
 				opened = true
@@ -61,8 +86,12 @@ func (e *Editor) OpenProject(path string) error {
 	e.resetSearchForProject()
 	e.syncScenePath()
 	if opened {
-		// The main scene opened under the project closing, so its view is looked up in the project opening.
+		// The scene opened under the project closing, so its view is looked up in the project opening.
 		e.restoreViewState()
+	}
+	if e.ProjectAssets && !opened {
+		// The scene left open now resolves against the new project's files, so Built and BuildErr show what it builds to there at once, not after its next edit.
+		e.Rebuild()
 	}
 	e.snapshotAssetOutputs()
 	e.filesRev++
