@@ -1,11 +1,13 @@
 package navbake_test
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/nsgo-dev/game/packages/game/ai"
 	"github.com/nsgo-dev/game/packages/game/internal/formattest"
 	"github.com/nsgo-dev/game/packages/game/navbake"
 	"github.com/nsgo-dev/nsgo/core"
@@ -37,6 +39,10 @@ func TestParseRefuses(t *testing.T) {
 		{"no area", "version: 1\nradius: 0\npolygons:\n  - [[0, 0], [1, 1], [2, 2]]\n", "no area"},
 		{"not finite", "version: 1\nradius: 0\npolygons:\n  - [[0, 0], [.inf, 0], [1, 1]]\n", "not finite"},
 		{"second document", "version: 1\nradius: 0\npolygons: []\n---\nversion: 1\n", "trailing"},
+		{"link nan start", "version: 1\nradius: 0\npolygons: []\nlinks:\n  - start: [.nan, 0]\n    end: [1, 0]\n", "start is not finite"},
+		{"link inf end", "version: 1\nradius: 0\npolygons: []\nlinks:\n  - start: [0, 0]\n    end: [1, .inf]\n", "end is not finite"},
+		{"link negative radius", "version: 1\nradius: 0\npolygons: []\nlinks:\n  - start: [0, 0]\n    end: [1, 0]\n    radius: -1\n", "radius"},
+		{"link negative cost", "version: 1\nradius: 0\npolygons: []\nlinks:\n  - start: [0, 0]\n    end: [1, 0]\n    cost: -2\n", "cost"},
 	} {
 		_, err := navbake.Parse([]byte(c.data))
 		if err == nil || !strings.Contains(err.Error(), c.want) {
@@ -175,4 +181,55 @@ func countVertices(m *navbake.Mesh) int {
 		n += 2 * len(p)
 	}
 	return n
+}
+
+func TestOffMeshLinksBakeRoundTripAndNavMesh(t *testing.T) {
+	// Two disconnected islands baked together with a one-way jump link in Source.Links.
+	src := navbake.Source{
+		Outlines: [][]core.Point{
+			{{X: 0, Y: 0}, {X: 20, Y: 0}, {X: 20, Y: 20}, {X: 0, Y: 20}},
+			{{X: 40, Y: 0}, {X: 60, Y: 0}, {X: 60, Y: 20}, {X: 40, Y: 20}},
+		},
+		Links: []navbake.OffMeshLink{
+			{
+				ID:       7,
+				Start:    navbake.Point{18, 10},
+				End:      navbake.Point{42, 10},
+				Radius:   1,
+				Cost:     5,
+				Area:     ai.NavAreaJump,
+				Flags:    uint32(ai.NavFlagJump),
+				UserData: "jump",
+			},
+		},
+	}
+	mesh, err := navbake.Bake(src, navbake.Agent{Name: "hero", Radius: 1}, navbake.Options{})
+	if err != nil {
+		t.Fatalf("Bake: %v", err)
+	}
+	data1, err := mesh.Encode()
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	parsed, err := navbake.Parse(data1)
+	if err != nil {
+		t.Fatalf("Parse:\n%s\nerr: %v", data1, err)
+	}
+	data2, err := parsed.Encode()
+	if err != nil {
+		t.Fatalf("re-Encode: %v", err)
+	}
+	if !bytes.Equal(data1, data2) {
+		t.Fatalf("YAML round-trip changed:\n%s\n---\n%s", data1, data2)
+	}
+
+	nav := parsed.NavMesh()
+	res := nav.FindPathWithOptions(core.Point{X: 5, Y: 10}, core.Point{X: 55, Y: 10}, ai.PathOptions{})
+	if !res.Found || len(res.Links) != 1 || res.Links[0].LinkID != 7 || res.Links[0].UserData != "jump" {
+		t.Fatalf("expected path across YAML off-mesh link, got %+v", res)
+	}
+	// One-way link must not work in reverse.
+	if rev := nav.FindPathWithOptions(core.Point{X: 55, Y: 10}, core.Point{X: 5, Y: 10}, ai.PathOptions{}); rev.Found {
+		t.Fatalf("one-way YAML link worked in reverse: %+v", rev)
+	}
 }

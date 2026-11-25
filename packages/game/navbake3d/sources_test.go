@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nsgo-dev/game/packages/game/ai"
 	"github.com/nsgo-dev/game/packages/game/math3d"
 	"github.com/nsgo-dev/game/packages/game/navbake3d"
 	"github.com/nsgo-dev/game/packages/game/physics3d"
@@ -257,6 +258,90 @@ func TestSceneFileWithGLTFMeshes(t *testing.T) {
 	bad := &sceneformat.SceneDoc{Version: 2, Layers: []sceneformat.LayerDoc{{Name: "l", Objects: []sceneformat.ObjectDoc{{ID: "x", Model: "missing.glb"}}}}}
 	if err := (&navbake3d.Geometry{}).AddSceneFile(bad, fsys); err == nil || !strings.Contains(err.Error(), "missing.glb") {
 		t.Fatalf("AddSceneFile with a missing model: %v", err)
+	}
+}
+
+func TestSceneFileBakesOffMeshLinksIntoNavMeshYAML(t *testing.T) {
+	fsys := os.DirFS("testdata/level")
+	// Two separate elevated platforms (y=3 and y=0) built from box.gltf + a one-way drop nav_link placed in the scene.
+	doc := &sceneformat.SceneDoc{
+		Version: 2,
+		Layers: []sceneformat.LayerDoc{
+			{
+				Name: "level",
+				Objects: []sceneformat.ObjectDoc{
+					{
+						ID:     "ledge",
+						X:      2,
+						Y:      2.9,
+						PosZ:   2,
+						ScaleX: sceneformat.Float32(4),
+						ScaleY: sceneformat.Float32(0.2),
+						ScaleZ: sceneformat.Float32(4),
+						Model:  "box.gltf",
+					},
+					{
+						ID:     "floor",
+						X:      10,
+						Y:      -0.1,
+						PosZ:   2,
+						ScaleX: sceneformat.Float32(4),
+						ScaleY: sceneformat.Float32(0.2),
+						ScaleZ: sceneformat.Float32(4),
+						Model:  "box.gltf",
+					},
+					{
+						ID:   "ledge_drop",
+						X:    3.2,
+						Y:    3.0,
+						PosZ: 2.0,
+						Components: map[string]any{
+							sceneformat.NavLinkComponentName: map[string]any{
+								"endX":          5.6,
+								"endY":          -3.0,
+								"endZ":          0.0,
+								"radius":        0.5,
+								"bidirectional": false,
+								"area":          int(world3d.NavAreaJump),
+								"flags":         int(world3d.NavFlagJump),
+								"linkID":        44,
+								"userData":      "drop",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	g := &navbake3d.Geometry{}
+	if err := g.AddSceneFile(doc, fsys); err != nil {
+		t.Fatalf("AddSceneFile: %v", err)
+	}
+	if len(g.OffMeshLinks()) != 1 {
+		t.Fatalf("got %d links on geometry, want 1", len(g.OffMeshLinks()))
+	}
+
+	file, err := navbake3d.Bake(g, smallSettings, []navbake3d.AgentType{smallAgent})
+	if err != nil {
+		t.Fatalf("Bake: %v", err)
+	}
+	raw, err := navbake3d.Encode(file)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	parsed, err := navbake3d.Parse(raw)
+	if err != nil {
+		t.Fatalf("Parse:\n%s\nerr: %v", raw, err)
+	}
+
+	nm := parsed.Meshes[0].NavMesh()
+	down := nm.FindPathWithOptions(v3(1.5, 3, 2), v3(10.5, 0, 2), ai.PathOptions{})
+	if !down.Found || len(down.Links) != 1 || down.Links[0].LinkID != 44 || down.Links[0].UserData != "drop" {
+		t.Fatalf("expected path down scene-baked drop link, got %+v", down)
+	}
+	if up := nm.FindPathWithOptions(v3(10.5, 0, 2), v3(1.5, 3, 2), ai.PathOptions{}); up.Found {
+		t.Fatalf("one-way drop link baked from scene should not work in reverse: %+v", up)
 	}
 }
 

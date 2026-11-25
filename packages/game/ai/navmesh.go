@@ -65,19 +65,57 @@ type navPoly struct {
 // (such as a jump, drop-down, ladder, or teleport) rather than a shared polygon edge.
 const NavLinkOffMesh uint32 = 1 << 0
 
-// NavOffMeshLink describes a custom off-mesh connection between two points on a 2D NavMesh.
+// NavOffMeshLink describes a custom off-mesh connection between two points on a 2D NavMesh
+// (such as a jump, drop-down, ladder, door, or teleporter).
 type NavOffMeshLink struct {
-	// Start and End are the world-space endpoints on the mesh.
+	// Start and End are the world-space endpoints on (or within Radius of) the mesh.
 	Start core.Point
 	End   core.Point
+	// Radius is the optional endpoint snap and agent entry tolerance in world units.
+	// When positive, an endpoint outside a polygon snaps to the nearest polygon point within Radius,
+	// and NavAgent uses max(entryRadius, Radius) when entering the link.
+	// When zero, endpoints must lie on or inside a polygon. Negative or non-finite values are rejected.
+	Radius float32
 	// Bidirectional adds portals in both Start->End and End->Start directions when true.
 	Bidirectional bool
 	// Flags stores game-defined link flags; NavLinkOffMesh is always set automatically.
 	Flags uint32
-	// ID is an optional game-defined link identifier delivered in NavLinkEvent.LinkID.
+	// ID is an optional game-defined link identifier delivered in NavLinkEvent.LinkID and NavPathLink.LinkID.
 	ID int
 	// Cost overrides the A* traversal cost when positive; <= 0 uses Euclidean distance.
 	Cost float32
+	// Area assigns a NavArea to the link so NavFilter can exclude it or scale its traversal cost.
+	// Defaults to NavAreaDefault (0).
+	Area NavArea
+	// UserData holds optional game-defined metadata (such as "jump", "ladder", "teleport", or a custom value)
+	// carried through to NavPathLink and NavLinkEvent.
+	UserData any
+}
+
+// NavPathLink marks a segment in NavPathResult.Path that traverses an off-mesh link.
+// Path[StartIndex] is the link's entry point on the mesh and Path[EndIndex] is its exit point
+// (with EndIndex == StartIndex + 1).
+type NavPathLink struct {
+	// StartIndex is the index in NavPathResult.Path where the off-mesh link begins.
+	StartIndex int
+	// EndIndex is the index in NavPathResult.Path where the off-mesh link ends (StartIndex + 1).
+	EndIndex int
+	// FromPoly and ToPoly are the source and destination polygon indices connected by the link.
+	FromPoly int
+	ToPoly   int
+	// Start and End are the world-space entry and exit positions of the traversed link direction.
+	Start core.Point
+	End   core.Point
+	// Radius is the link's configured connection/entry radius.
+	Radius float32
+	// Area is the link's navigation area.
+	Area NavArea
+	// Flags are the link's flags (including NavLinkOffMesh).
+	Flags uint32
+	// LinkID is the link's configured identifier.
+	LinkID int
+	// UserData is the link's configured custom metadata.
+	UserData any
 }
 
 // navPortal is a directed crossing from fromPoly to toPoly.
@@ -85,25 +123,41 @@ type NavOffMeshLink struct {
 // left is on the counter-clockwise side and right is on the clockwise side so triArea2(apex, right, left) >= 0.
 // For off-mesh links, left and right both hold the entry point and endPos holds the exit point.
 type navPortal struct {
-	fromPoly int
-	toPoly   int
-	left     vec2
-	right    vec2
-	endPos   vec2
-	cost     float64
-	flags    uint32
-	linkID   int
-	offMesh  bool
+	fromPoly   int
+	toPoly     int
+	left       vec2
+	right      vec2
+	endPos     vec2
+	cost       float64
+	flags      uint32
+	offMeshIdx int32 // 1-based index into m.offMeshLinks (0 for shared-edge portals)
+	linkID     int
+	offMesh    bool
 }
 
-// NavMesh is a 2D navigation mesh built from convex polygons connected across shared edges.
+type navOffMeshEntry struct {
+	link        NavOffMeshLink
+	filterFlags NavFlags
+}
+
+func offMeshFilterFlags(raw uint32) NavFlags {
+	if raw == 0 {
+		return NavFlagWalk
+	}
+	return NavFlags(raw)
+}
+
+// NavMesh is a 2D navigation mesh built from convex polygons connected across shared edges
+// and optional point-to-point off-mesh links.
 type NavMesh struct {
-	polys        []navPoly
-	portals      []navPortal
-	bvhNodes     []navBVHNode2D
-	bvhOrder     []int
-	revision     uint64
-	defaultQuery NavMeshQuery
+	polys            []navPoly
+	portals          []navPortal
+	offMeshLinks     []navOffMeshEntry
+	offMeshPortalIDs []int
+	bvhNodes         []navBVHNode2D
+	bvhOrder         []int
+	revision         uint64
+	defaultQuery     NavMeshQuery
 }
 
 // BuildNavMesh constructs a NavMesh from convex 2D polygons, normalizing winding order and automatically connecting adjacent polygons along shared edges (including partial collinear overlaps).
@@ -453,11 +507,34 @@ func polyContains(poly *navPoly, p vec2) bool {
 
 // NavPathResult is the outcome of a bounded or incremental 2D NavMesh search.
 type NavPathResult struct {
-	Path       []core.Point
+	Path []core.Point
+	// Links lists each segment of Path that traverses an off-mesh link, in path order.
+	// For each link, Path[link.StartIndex] is the entry point and Path[link.EndIndex]
+	// (with EndIndex == StartIndex + 1) is the exit point.
+	Links      []NavPathLink
 	Found      bool // true when a complete or partial path was produced
 	Partial    bool // true when Path ends at the closest reachable point rather than goal
 	Exhausted  bool // true when the search stopped because MaxExpansions was reached
 	Expansions int  // total number of portal nodes expanded during the search
+}
+
+// HasLinks reports whether r traverses at least one off-mesh link.
+func (r NavPathResult) HasLinks() bool {
+	return len(r.Links) > 0
+}
+
+// LinkAt returns the off-mesh link traversed by path segment segmentIndex (from Path[segmentIndex]
+// to Path[segmentIndex+1]), or (zero, false) when that segment is ordinary walking movement.
+func (r NavPathResult) LinkAt(segmentIndex int) (NavPathLink, bool) {
+	for _, l := range r.Links {
+		if l.StartIndex == segmentIndex {
+			return l, true
+		}
+		if l.StartIndex > segmentIndex {
+			break
+		}
+	}
+	return NavPathLink{}, false
 }
 
 // Revision returns a monotonically increasing number bumped whenever the mesh topology, area costs/flags, or link flags change.
@@ -476,57 +553,145 @@ func (m *NavMesh) BumpRevision() {
 	m.revision++
 }
 
-// AddOffMeshLink connects the polygons containing link.Start and link.End with a directed
-// (or bidirectional) off-mesh portal and bumps the mesh revision.
-// Returns false if the mesh is nil or either endpoint lies outside the mesh.
+func (m *NavMesh) resolveLinkEndpoint(p core.Point, radius float32) (int, vec2, bool) {
+	v := toVec2(p)
+	if !isFiniteVec2(v) {
+		return -1, vec2{}, false
+	}
+	if idx := m.FindPolygon(p); idx >= 0 {
+		return idx, v, true
+	}
+	if radius <= 0 {
+		return -1, vec2{}, false
+	}
+	ext := core.Point{X: core.Points(radius), Y: core.Points(radius)}
+	snapped, idx, ok := m.NearestPointWithFilter(p, ext, NavFilter{})
+	if !ok {
+		return -1, vec2{}, false
+	}
+	sv := toVec2(snapped)
+	if dist(v, sv) > float64(radius)+portalEps {
+		return -1, vec2{}, false
+	}
+	return idx, sv, true
+}
+
+// AddOffMeshLink connects the polygons containing (or within link.Radius of) link.Start and link.End
+// with a directed (or bidirectional) off-mesh portal and bumps the mesh revision.
+// Returns false if the mesh is nil, link coordinates or Radius are invalid, either endpoint cannot
+// attach to the mesh, or both endpoints collapse to the same point on the same polygon.
 func (m *NavMesh) AddOffMeshLink(link NavOffMeshLink) bool {
 	if m == nil || len(m.polys) == 0 {
 		return false
 	}
-	fromPoly := m.FindPolygon(link.Start)
-	toPoly := m.FindPolygon(link.End)
-	if fromPoly < 0 || toPoly < 0 || fromPoly == toPoly {
+	if !isFinite32(link.Radius) || link.Radius < 0 {
 		return false
 	}
-	sVec := toVec2(link.Start)
-	eVec := toVec2(link.End)
+	fromPoly, sVec, okFrom := m.resolveLinkEndpoint(link.Start, link.Radius)
+	toPoly, eVec, okTo := m.resolveLinkEndpoint(link.End, link.Radius)
+	if !okFrom || !okTo {
+		return false
+	}
+	if fromPoly == toPoly && vequal(sVec, eVec) {
+		return false
+	}
 	cost := float64(link.Cost)
 	if !(cost > 0) || math.IsInf(cost, 0) {
 		cost = dist(sVec, eVec)
 	}
+	filterFlags := offMeshFilterFlags(link.Flags)
 	flags := link.Flags | NavLinkOffMesh
+	entryIdx := int32(len(m.offMeshLinks) + 1)
 
 	pid := len(m.portals)
 	m.portals = append(m.portals, navPortal{
-		fromPoly: fromPoly,
-		toPoly:   toPoly,
-		left:     sVec,
-		right:    sVec,
-		endPos:   eVec,
-		cost:     cost,
-		flags:    flags,
-		linkID:   link.ID,
-		offMesh:  true,
+		fromPoly:   fromPoly,
+		toPoly:     toPoly,
+		left:       sVec,
+		right:      sVec,
+		endPos:     eVec,
+		cost:       cost,
+		flags:      flags,
+		offMeshIdx: entryIdx,
+		linkID:     link.ID,
+		offMesh:    true,
 	})
 	m.polys[fromPoly].outPortals = append(m.polys[fromPoly].outPortals, pid)
+	m.offMeshPortalIDs = append(m.offMeshPortalIDs, pid)
 
 	if link.Bidirectional {
 		rpid := len(m.portals)
 		m.portals = append(m.portals, navPortal{
-			fromPoly: toPoly,
-			toPoly:   fromPoly,
-			left:     eVec,
-			right:    eVec,
-			endPos:   sVec,
-			cost:     cost,
-			flags:    flags,
-			linkID:   link.ID,
-			offMesh:  true,
+			fromPoly:   toPoly,
+			toPoly:     fromPoly,
+			left:       eVec,
+			right:      eVec,
+			endPos:     sVec,
+			cost:       cost,
+			flags:      flags,
+			offMeshIdx: entryIdx,
+			linkID:     link.ID,
+			offMesh:    true,
 		})
 		m.polys[toPoly].outPortals = append(m.polys[toPoly].outPortals, rpid)
+		m.offMeshPortalIDs = append(m.offMeshPortalIDs, rpid)
 	}
+
+	stored := link
+	stored.Start = toPoint(sVec)
+	stored.End = toPoint(eVec)
+	stored.Flags = flags
+	m.offMeshLinks = append(m.offMeshLinks, navOffMeshEntry{
+		link:        stored,
+		filterFlags: filterFlags,
+	})
 	m.revision++
 	return true
+}
+
+func (m *NavMesh) offMeshMeta(p navPortal) (radius float32, area NavArea, filterFlags NavFlags, userData any) {
+	if p.offMeshIdx > 0 && int(p.offMeshIdx) <= len(m.offMeshLinks) {
+		e := &m.offMeshLinks[p.offMeshIdx-1]
+		return e.link.Radius, e.link.Area, e.filterFlags, e.link.UserData
+	}
+	return 0, NavAreaDefault, offMeshFilterFlags(p.flags), nil
+}
+
+// OffMeshLinks returns a copy of all off-mesh links registered on m in insertion order.
+func (m *NavMesh) OffMeshLinks() []NavOffMeshLink {
+	if m == nil || len(m.offMeshLinks) == 0 {
+		return nil
+	}
+	out := make([]NavOffMeshLink, len(m.offMeshLinks))
+	for i := range m.offMeshLinks {
+		out[i] = m.offMeshLinks[i].link
+	}
+	return out
+}
+
+// ClearOffMeshLinks removes all off-mesh links from m and bumps the mesh revision when any were present.
+func (m *NavMesh) ClearOffMeshLinks() {
+	if m == nil || len(m.offMeshPortalIDs) == 0 {
+		return
+	}
+	origLen := len(m.portals)
+	kept := m.portals[:0]
+	for i := range m.polys {
+		m.polys[i].outPortals = m.polys[i].outPortals[:0]
+	}
+	for _, p := range m.portals {
+		if p.offMesh {
+			continue
+		}
+		pid := len(kept)
+		kept = append(kept, p)
+		m.polys[p.fromPoly].outPortals = append(m.polys[p.fromPoly].outPortals, pid)
+	}
+	clear(m.portals[len(kept):origLen])
+	m.portals = kept
+	m.offMeshLinks = nil
+	m.offMeshPortalIDs = nil
+	m.revision++
 }
 
 // SetEdgeFlags sets custom flags on the shared-edge portal from fromPoly to toPoly and bumps the mesh revision.
@@ -608,10 +773,109 @@ func (m *NavMesh) StartSearchWithFilter(start, goal core.Point, filter NavFilter
 	return NewNavMeshSearchWithFilter(m, start, goal, filter, opts)
 }
 
+type navShortcut2D struct {
+	start  vec2
+	end    vec2
+	cost   float64
+	toGoal float64
+}
+
+func (m *NavMesh) offMeshPortalCost2D(p navPortal, filter NavFilter) (float64, bool) {
+	_, area, filterFlags, _ := m.offMeshMeta(p)
+	if !filter.Allows(area, filterFlags) {
+		return 0, false
+	}
+	mult := filter.AreaCost(area)
+	if mult <= 0 || math.IsNaN(mult) || math.IsInf(mult, 0) {
+		return 0, false
+	}
+	c := p.cost * mult
+	if math.IsNaN(c) || math.IsInf(c, 0) {
+		return 0, false
+	}
+	return c, true
+}
+
+// buildNavShortcuts2D collects allowed off-mesh portals whose effective cost is strictly cheaper
+// than walking straight-line distance at minCost, and computes the exact lower bound from each
+// shortcut exit to goal so A* remains admissible and optimal even with teleporters.
+func buildNavShortcuts2D(m *NavMesh, gVec vec2, minCost float64, filter NavFilter, dst []navShortcut2D) ([]navShortcut2D, bool) {
+	dst = dst[:0]
+	if len(m.offMeshPortalIDs) == 0 {
+		return dst, false
+	}
+	for _, pid := range m.offMeshPortalIDs {
+		p := m.portals[pid]
+		tp := &m.polys[p.toPoly]
+		if !filter.Allows(tp.area, tp.flags) {
+			continue
+		}
+		tc := filter.AreaCost(tp.area)
+		if tc <= 0 || math.IsNaN(tc) || math.IsInf(tc, 0) {
+			continue
+		}
+		effCost, ok := m.offMeshPortalCost2D(p, filter)
+		if !ok {
+			continue
+		}
+		if effCost < float64(dist(p.left, p.endPos)*minCost)-1e-9 {
+			if len(dst) >= 64 {
+				return dst[:0], true
+			}
+			dst = append(dst, navShortcut2D{
+				start:  p.left,
+				end:    p.endPos,
+				cost:   effCost,
+				toGoal: float64(dist(p.endPos, gVec) * minCost),
+			})
+		}
+	}
+	k := len(dst)
+	if k <= 1 {
+		return dst, false
+	}
+	for pass := 0; pass < k-1; pass++ {
+		changed := false
+		for i := range k {
+			best := dst[i].toGoal
+			endI := dst[i].end
+			for j := range k {
+				if i == j {
+					continue
+				}
+				cand := float64(dist(endI, dst[j].start)*minCost) + dst[j].cost + dst[j].toGoal
+				if cand < best-1e-12 {
+					best = cand
+					changed = true
+				}
+			}
+			dst[i].toGoal = best
+		}
+		if !changed {
+			break
+		}
+	}
+	return dst, false
+}
+
+func heuristic2D(pt, goal vec2, minCost float64, shortcuts []navShortcut2D, zeroH bool) float64 {
+	if zeroH {
+		return 0
+	}
+	h := float64(dist(pt, goal) * minCost)
+	for i := range shortcuts {
+		cand := float64(dist(pt, shortcuts[i].start)*minCost) + shortcuts[i].cost + shortcuts[i].toGoal
+		if cand < h {
+			h = cand
+		}
+	}
+	return h
+}
+
 // NavMeshSearch runs a deterministic 2D NavMesh portal A* search incrementally across bounded Step calls.
 //
 // Stepping a search with any positive per-step expansion budget produces the exact same path,
-// partial flag, and expansion count as NavMesh.FindPathWithOptions / FindPathWithFilterAndOptions.
+// links, partial flag, and expansion count as NavMesh.FindPathWithOptions / FindPathWithFilterAndOptions.
 // *NavMeshSearch implements IncrementalSearch.
 type NavMeshSearch struct {
 	m          *NavMesh
@@ -619,10 +883,13 @@ type NavMeshSearch struct {
 	goal       core.Point
 	sVec       vec2
 	gVec       vec2
+	filter     NavFilter
 	opts       PathOptions
 	allowed    []bool
 	polyCost   []float64
 	minCost    float64
+	shortcuts  []navShortcut2D
+	zeroH      bool
 	isGoalPoly []bool
 	goalNode   int
 
@@ -658,6 +925,7 @@ func NewNavMeshSearchWithFilter(m *NavMesh, start, goal core.Point, filter NavFi
 		goal:         goal,
 		sVec:         toVec2(start),
 		gVec:         toVec2(goal),
+		filter:       filter,
 		opts:         opts,
 		status:       SearchFailed,
 		directPoly:   -1,
@@ -722,7 +990,9 @@ func NewNavMeshSearchWithFilter(m *NavMesh, start, goal core.Point, filter NavFi
 	if !hasGoal && !opts.AllowPartial {
 		return s
 	}
-	if directPossible && directCost <= minCost*dist(s.sVec, s.gVec)+1e-9 {
+
+	s.shortcuts, s.zeroH = buildNavShortcuts2D(m, s.gVec, minCost, filter, nil)
+	if directPossible && directCost <= heuristic2D(s.sVec, s.gVec, minCost, s.shortcuts, s.zeroH)+1e-9 {
 		s.samePoly = true
 		s.status = SearchComplete
 		return s
@@ -784,7 +1054,11 @@ func NewNavMeshSearchWithFilter(m *NavMesh, start, goal core.Point, filter NavFi
 			var g float64
 			var exitPt vec2
 			if p.offMesh {
-				g = dist(s.sVec, p.left)*spCost + p.cost
+				linkCost, ok := m.offMeshPortalCost2D(p, filter)
+				if !ok {
+					continue
+				}
+				g = float64(dist(s.sVec, p.left)*spCost) + linkCost
 				exitPt = p.endPos
 			} else {
 				exitPt = bestPortalPoint(s.sVec, s.gVec, p.left, p.right)
@@ -794,7 +1068,7 @@ func NewNavMeshSearchWithFilter(m *NavMesh, start, goal core.Point, filter NavFi
 				s.gScore[pid] = g
 				s.entryPt[pid] = exitPt
 				s.parent[pid] = -1
-				h := dist(exitPt, s.gVec) * minCost
+				h := heuristic2D(exitPt, s.gVec, minCost, s.shortcuts, s.zeroH)
 				s.pushOrUpdate(pid, g+h, h)
 			}
 		}
@@ -907,7 +1181,11 @@ func (s *NavMeshSearch) step(stepLimit int) (SearchStatus, int) {
 			var ng float64
 			var exitPt vec2
 			if np.offMesh {
-				ng = curG + dist(curPt, np.left)*toCost + np.cost
+				linkCost, ok := m.offMeshPortalCost2D(np, s.filter)
+				if !ok {
+					continue
+				}
+				ng = curG + float64(dist(curPt, np.left)*toCost) + linkCost
 				exitPt = np.endPos
 			} else {
 				exitPt = bestPortalPoint(curPt, s.gVec, np.left, np.right)
@@ -917,7 +1195,7 @@ func (s *NavMeshSearch) step(stepLimit int) (SearchStatus, int) {
 				s.gScore[npid] = ng
 				s.entryPt[npid] = exitPt
 				s.parent[npid] = cur.id
-				h := dist(exitPt, s.gVec) * s.minCost
+				h := heuristic2D(exitPt, s.gVec, s.minCost, s.shortcuts, s.zeroH)
 				s.pushOrUpdate(npid, ng+h, h)
 			}
 		}
@@ -987,7 +1265,7 @@ func (s *NavMeshSearch) Result() NavPathResult {
 			portalIDs = append(portalIDs, id)
 		}
 		slices.Reverse(portalIDs)
-		res.Path = s.m.finalizeCorridor(s.sVec, s.gVec, portalIDs)
+		res.Path, res.Links = s.m.finalizeCorridor(s.sVec, s.gVec, portalIDs)
 		return res
 
 	case SearchPartial:
@@ -1006,7 +1284,7 @@ func (s *NavMeshSearch) Result() NavPathResult {
 			portalIDs = append(portalIDs, id)
 		}
 		slices.Reverse(portalIDs)
-		res.Path = s.m.finalizeCorridor(s.sVec, s.bestPt, portalIDs)
+		res.Path, res.Links = s.m.finalizeCorridor(s.sVec, s.bestPt, portalIDs)
 		return res
 
 	default:
@@ -1043,14 +1321,73 @@ func (m *NavMesh) findCorridorWithFilter(sVec, gVec vec2, filter NavFilter) ([]i
 	return polys, portalIDs, true
 }
 
-func (m *NavMesh) finalizeCorridor(start, end vec2, portalIDs []int) []core.Point {
-	rawPath := m.stringPull(start, end, portalIDs)
-	clean := simplifyCollinear(rawPath)
-	out := make([]core.Point, len(clean))
-	for i, v := range clean {
+func (m *NavMesh) finalizeCorridor(start, end vec2, portalIDs []int) ([]core.Point, []NavPathLink) {
+	hasOffMesh := false
+	for _, pid := range portalIDs {
+		if m.portals[pid].offMesh {
+			hasOffMesh = true
+			break
+		}
+	}
+	if !hasOffMesh {
+		rawPath := m.stringPullSegment(start, end, portalIDs)
+		clean := simplifyCollinear(rawPath)
+		out := make([]core.Point, len(clean))
+		for i, v := range clean {
+			out[i] = toPoint(v)
+		}
+		return out, nil
+	}
+
+	var pts []vec2
+	var links []NavPathLink
+	segStart := start
+	segBegin := 0
+	for i, pid := range portalIDs {
+		p := m.portals[pid]
+		if !p.offMesh {
+			continue
+		}
+		seg := simplifyCollinear(m.stringPullSegment(segStart, p.left, portalIDs[segBegin:i]))
+		for _, pt := range seg {
+			if len(pts) == 0 || !vequal(pts[len(pts)-1], pt) {
+				pts = append(pts, pt)
+			}
+		}
+		if len(pts) == 0 {
+			pts = append(pts, p.left)
+		}
+		startIdx := len(pts) - 1
+		pts = append(pts, p.endPos)
+		endIdx := len(pts) - 1
+		radius, area, _, userData := m.offMeshMeta(p)
+		links = append(links, NavPathLink{
+			StartIndex: startIdx,
+			EndIndex:   endIdx,
+			FromPoly:   p.fromPoly,
+			ToPoly:     p.toPoly,
+			Start:      toPoint(p.left),
+			End:        toPoint(p.endPos),
+			Radius:     radius,
+			Area:       area,
+			Flags:      p.flags,
+			LinkID:     p.linkID,
+			UserData:   userData,
+		})
+		segStart = p.endPos
+		segBegin = i + 1
+	}
+	tail := simplifyCollinear(m.stringPullSegment(segStart, end, portalIDs[segBegin:]))
+	for _, pt := range tail {
+		if len(pts) == 0 || !vequal(pts[len(pts)-1], pt) {
+			pts = append(pts, pt)
+		}
+	}
+	out := make([]core.Point, len(pts))
+	for i, v := range pts {
 		out[i] = toPoint(v)
 	}
-	return out
+	return out, links
 }
 
 func (m *NavMesh) polyClosestPoint(polyIdx int, p vec2) vec2 {
@@ -1099,49 +1436,7 @@ func bestPortalPoint(from, goal, left, right vec2) vec2 {
 	return left.add(u.scale(s))
 }
 
-// stringPull runs the Simple Stupid Funnel Algorithm across portalIDs from start to goal,
-// splitting cleanly across any off-mesh links.
-func (m *NavMesh) stringPull(start, goal vec2, portalIDs []int) []vec2 {
-	hasOffMesh := false
-	for _, pid := range portalIDs {
-		if m.portals[pid].offMesh {
-			hasOffMesh = true
-			break
-		}
-	}
-	if !hasOffMesh {
-		return m.stringPullSegment(start, goal, portalIDs)
-	}
-
-	var out []vec2
-	segStart := start
-	segBegin := 0
-	for i, pid := range portalIDs {
-		p := m.portals[pid]
-		if !p.offMesh {
-			continue
-		}
-		seg := m.stringPullSegment(segStart, p.left, portalIDs[segBegin:i])
-		for _, pt := range seg {
-			if len(out) == 0 || !vequal(out[len(out)-1], pt) {
-				out = append(out, pt)
-			}
-		}
-		if len(out) == 0 || !vequal(out[len(out)-1], p.endPos) {
-			out = append(out, p.endPos)
-		}
-		segStart = p.endPos
-		segBegin = i + 1
-	}
-	tail := m.stringPullSegment(segStart, goal, portalIDs[segBegin:])
-	for _, pt := range tail {
-		if len(out) == 0 || !vequal(out[len(out)-1], pt) {
-			out = append(out, pt)
-		}
-	}
-	return out
-}
-
+// stringPullSegment runs the Simple Stupid Funnel Algorithm across shared-edge portalIDs from start to goal.
 func (m *NavMesh) stringPullSegment(start, goal vec2, portalIDs []int) []vec2 {
 	type funnelPortal struct {
 		left, right vec2
@@ -1462,8 +1757,15 @@ func (m *NavMesh) findPathLength(s *navMeshScratch, start, goal vec2) (float64, 
 	for _, sp := range s.startPolys {
 		for _, pid := range m.polys[sp].outPortals {
 			p := m.portals[pid]
-			pt := bestPortalPoint(start, goal, p.left, p.right)
-			g := dist(start, pt)
+			var pt vec2
+			var g float64
+			if p.offMesh {
+				pt = p.endPos
+				g = dist(start, p.left) + p.cost
+			} else {
+				pt = bestPortalPoint(start, goal, p.left, p.right)
+				g = dist(start, pt)
+			}
 			if g < s.gScore[pid] {
 				s.gScore[pid] = g
 				s.entryPt[pid] = pt
@@ -1501,11 +1803,18 @@ func (m *NavMesh) findPathLength(s *navMeshScratch, start, goal vec2) (float64, 
 				continue
 			}
 			np := m.portals[npid]
-			if np.toPoly == portal.fromPoly {
+			if !np.offMesh && np.toPoly == portal.fromPoly {
 				continue
 			}
-			pt := bestPortalPoint(curPt, goal, np.left, np.right)
-			ng := curG + dist(curPt, pt)
+			var pt vec2
+			var ng float64
+			if np.offMesh {
+				pt = np.endPos
+				ng = curG + dist(curPt, np.left) + np.cost
+			} else {
+				pt = bestPortalPoint(curPt, goal, np.left, np.right)
+				ng = curG + dist(curPt, pt)
+			}
 			if ng < s.gScore[npid] {
 				s.gScore[npid] = ng
 				s.entryPt[npid] = pt
@@ -1525,6 +1834,22 @@ func (m *NavMesh) findPathLength(s *navMeshScratch, start, goal vec2) (float64, 
 		s.portalIDs = append(s.portalIDs, id)
 	}
 	slices.Reverse(s.portalIDs)
+
+	hasOffMesh := false
+	for _, pid := range s.portalIDs {
+		if m.portals[pid].offMesh {
+			hasOffMesh = true
+			break
+		}
+	}
+	if hasOffMesh {
+		pts, _ := m.finalizeCorridor(start, goal, s.portalIDs)
+		var total float64
+		for i := 1; i < len(pts); i++ {
+			total += dist(toVec2(pts[i-1]), toVec2(pts[i]))
+		}
+		return total, true
+	}
 
 	s.funnelPortals = append(s.funnelPortals[:0], [2]vec2{start, start})
 	for _, pid := range s.portalIDs {

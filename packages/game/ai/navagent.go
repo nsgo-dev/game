@@ -44,8 +44,11 @@ type NavLinkEvent struct {
 	ToPoly   int
 	Start    core.Point
 	End      core.Point
+	Radius   float32
+	Area     NavArea
 	Flags    uint32
 	LinkID   int
+	UserData any
 	OffMesh  bool
 }
 
@@ -393,13 +396,8 @@ func (a *NavAgent) Path() []core.Point {
 		}
 		return []core.Point{toPoint(a.pos), toPoint(a.target)}
 	}
-	raw := a.mesh.stringPull(a.pos, a.target, a.portals)
-	clean := simplifyCollinear(raw)
-	out := make([]core.Point, len(clean))
-	for i, v := range clean {
-		out[i] = toPoint(v)
-	}
-	return out
+	path, _ := a.mesh.finalizeCorridor(a.pos, a.target, a.portals)
+	return path
 }
 
 // Step advances the agent by fixed duration dt: ticks replan cooldown, detects mesh changes,
@@ -541,15 +539,19 @@ func (a *NavAgent) stepMovement(dt time.Duration) {
 	// Enter off-mesh link when reaching its entry point.
 	if offMeshIdx == 0 && len(a.portals) > 0 {
 		p := a.mesh.portals[a.portals[0]]
-		entryRadius := max(float64(a.cfg.StoppingDistance), float64(a.cfg.MaxSpeed)*secs*0.5)
+		radius, area, _, userData := a.mesh.offMeshMeta(p)
+		entryRadius := max(float64(a.cfg.StoppingDistance), float64(a.cfg.MaxSpeed)*secs*0.5, float64(radius))
 		if dist(a.pos, p.left) <= entryRadius {
 			a.beginLinkTraversal(NavLinkEvent{
 				FromPoly: p.fromPoly,
 				ToPoly:   p.toPoly,
 				Start:    toPoint(p.left),
 				End:      toPoint(p.endPos),
+				Radius:   radius,
+				Area:     area,
 				Flags:    p.flags,
 				LinkID:   p.linkID,
+				UserData: userData,
 				OffMesh:  true,
 			})
 			a.stepLinkTraversal(dt)

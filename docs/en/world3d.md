@@ -89,7 +89,39 @@ if path, ok := nav.FindPath(startPos, goalPos); ok {
 }
 ```
 
-Use `nav.FindPolygon(p)` to locate the closest walkable polygon vertically within `VerticalTolerance` (supporting stacked floors and overpasses), `Contains(p)` and `NearestPolygon(p)` for membership and closest-surface queries, `FindCorridor(start, goal)` to query polygon corridors, `AddOffMeshLink(NavOffMeshLink{...})` for jumps/ladders/teleports, and `SetEdgeFlags(fromPoly, toPoly, flags)` for special portal edges.
+Use `nav.FindPolygon(p)` to locate the closest walkable polygon vertically within `VerticalTolerance` (supporting stacked floors and overpasses), `Contains(p)` and `NearestPolygon(p)` for membership and closest-surface queries, `FindCorridor(start, goal)` to query polygon corridors, `AddOffMeshLink(NavOffMeshLink{...})` / `OffMeshLinks()` / `ClearOffMeshLinks()` for jumps, ladders, and teleports, and `SetEdgeFlags(fromPoly, toPoly, flags)` for special portal edges.
+
+### Off-mesh links (jumps, ladders, and teleports)
+
+Connect vertically separated ledges, disconnected islands, ladders, or teleporters across a 3D `NavMesh` with `AddOffMeshLink`:
+
+```go
+nav.AddOffMeshLink(world3d.NavOffMeshLink{
+	Start:         math3d.Vec3{X: 9, Y: 4, Z: 5},
+	End:           math3d.Vec3{X: 13, Y: 0, Z: 5},
+	Radius:        0.5, // snaps off-edge endpoints within Radius while respecting stacked levels
+	Bidirectional: false,
+	Cost:          0, // <= 0 uses 3D Euclidean distance
+	Area:          world3d.NavAreaJump,
+	Flags:         uint32(world3d.NavFlagJump),
+	ID:            7,
+	UserData:      "drop",
+})
+
+res := nav.FindPathWithOptions(startPos, goalPos, ai.PathOptions{})
+if res.Found {
+	for i := 0; i+1 < len(res.Path); i++ {
+		if link, ok := res.LinkAt(i); ok {
+			// Segment Path[link.StartIndex] -> Path[link.EndIndex] traverses a 3D off-mesh link.
+			_ = link.UserData
+		}
+	}
+}
+```
+
+- **Path segment metadata**: `NavPathResult.Links` records every traversed 3D off-mesh link (`StartIndex`, `EndIndex == StartIndex + 1`, `FromPoly`, `ToPoly`, `Start`, `End`, `Radius`, `Area`, `Flags`, `LinkID`, `UserData`), with `HasLinks()` and `LinkAt(segmentIndex)`. `NavAgent` delivers the same `Radius`, `Area`, and `UserData` in `NavLinkEvent` and triggers link entry within `Radius`.
+- **Shortcut-aware 3D search & filtering**: A\* filters off-mesh links by `NavFilter` (`Area` and `Flags`), scales traversal cost by `filter.AreaCost(link.Area)`, and uses a shortcut-aware admissible 3D heuristic so cheap teleporters are chosen only when strictly cheaper than walking.
+- **YAML storage and scene placement**: place `"nav_link"` components on scene objects (`sceneformat.RegisterNavLink`, `sceneformat.ExtractNavLinks3D`, `sceneformat.ExtractBuiltNavLinks3D`); `navbake3d.Geometry.AddSceneFile` bakes them into `meshes[].links` in `*.navmesh.yaml`, and `navbake3d.Mesh.NavMesh` restores them automatically.
 
 ### Polygon areas, runtime flags, and query filters
 

@@ -35,13 +35,58 @@ type Mesh struct {
 	Radius float32 `yaml:"radius"`
 	// Polygons are the mesh's convex polygons.
 	Polygons []Polygon `yaml:"polygons"`
+	// Links are optional point-to-point off-mesh connections (jumps, drops, ladders, teleports) applied by NavMesh.
+	Links []OffMeshLink `yaml:"links,omitempty"`
+}
+
+// Point is a 2D position in world space, written as a flow [x, y] list.
+type Point [2]float32
+
+// CorePoint returns p as a core.Point.
+func (p Point) CorePoint() core.Point {
+	return core.Point{X: core.Points(p[0]), Y: core.Points(p[1])}
+}
+
+// MarshalYAML writes p as a flow [x, y] sequence, each coordinate in the shortest form that reads back as the same float32.
+func (p Point) MarshalYAML() (any, error) {
+	return &yaml.Node{
+		Kind:  yaml.SequenceNode,
+		Style: yaml.FlowStyle,
+		Content: []*yaml.Node{
+			{Kind: yaml.ScalarNode, Value: formatCoord(core.Points(p[0]))},
+			{Kind: yaml.ScalarNode, Value: formatCoord(core.Points(p[1]))},
+		},
+	}, nil
+}
+
+// OffMeshLink is a point-to-point off-mesh connection stored in a baked 2D navigation mesh,
+// such as a jump, drop-down, ladder, or teleporter.
+type OffMeshLink struct {
+	// ID is an optional game-defined link identifier.
+	ID int `yaml:"id,omitempty"`
+	// Start is the world-space [x, y] entry point of the link.
+	Start Point `yaml:"start"`
+	// End is the world-space [x, y] exit point of the link.
+	End Point `yaml:"end"`
+	// Radius is the optional endpoint snap and entry tolerance in world units (>= 0).
+	Radius float32 `yaml:"radius,omitempty"`
+	// Bidirectional allows traversal from End to Start as well as Start to End when true.
+	Bidirectional bool `yaml:"bidirectional,omitempty"`
+	// Cost overrides the A* traversal cost when positive; 0 uses 2D Euclidean distance.
+	Cost float32 `yaml:"cost,omitempty"`
+	// Area is the link's navigation area ID (0 for default).
+	Area ai.NavArea `yaml:"area,omitempty"`
+	// Flags holds optional custom link flag bits; ai.NavLinkOffMesh is always added on load.
+	Flags uint32 `yaml:"flags,omitempty"`
+	// UserData holds optional game-defined metadata (such as "jump", "ladder", or "teleport").
+	UserData string `yaml:"userData,omitempty"`
 }
 
 // Polygon is one convex polygon of a Mesh. In YAML it is a flow sequence of [x, y] pairs on one line.
 type Polygon []core.Point
 
-// newMesh converts baked polygons from grid steps to world units.
-func newMesh(a Agent, polys [][]ipt, step float64) *Mesh {
+// newMesh converts baked polygons from grid steps to world units and copies any off-mesh links.
+func newMesh(a Agent, polys [][]ipt, step float64, links []OffMeshLink) *Mesh {
 	m := &Mesh{Version: FormatVersion, Agent: a.Name, Radius: a.Radius, Polygons: make([]Polygon, len(polys))}
 	for i, poly := range polys {
 		out := make(Polygon, len(poly))
@@ -50,10 +95,28 @@ func newMesh(a Agent, polys [][]ipt, step float64) *Mesh {
 		}
 		m.Polygons[i] = out
 	}
+	if len(links) > 0 {
+		m.Links = make([]OffMeshLink, len(links))
+		for i, l := range links {
+			l.Start = Point{noNegZero32(l.Start[0]), noNegZero32(l.Start[1])}
+			l.End = Point{noNegZero32(l.End[0]), noNegZero32(l.End[1])}
+			l.Radius = noNegZero32(l.Radius)
+			l.Cost = noNegZero32(l.Cost)
+			m.Links[i] = l
+		}
+	}
 	return m
 }
 
-// NavMesh builds the ai.NavMesh of m, ready for FindPath; polygons that touch along an edge are connected there.
+func noNegZero32(f float32) float32 {
+	if f == 0 {
+		return 0
+	}
+	return f
+}
+
+// NavMesh builds the ai.NavMesh of m, ready for FindPath; polygons that touch along an edge are connected there,
+// and any OffMeshLinks stored in m.Links are registered via AddOffMeshLink.
 func (m *Mesh) NavMesh() *ai.NavMesh {
 	if m == nil {
 		return ai.BuildNavMesh(nil)
@@ -62,7 +125,25 @@ func (m *Mesh) NavMesh() *ai.NavMesh {
 	for i, p := range m.Polygons {
 		polys[i] = p
 	}
-	return ai.BuildNavMesh(polys)
+	nav := ai.BuildNavMesh(polys)
+	for _, l := range m.Links {
+		var ud any
+		if l.UserData != "" {
+			ud = l.UserData
+		}
+		nav.AddOffMeshLink(ai.NavOffMeshLink{
+			Start:         l.Start.CorePoint(),
+			End:           l.End.CorePoint(),
+			Radius:        l.Radius,
+			Bidirectional: l.Bidirectional,
+			Flags:         l.Flags,
+			ID:            l.ID,
+			Cost:          l.Cost,
+			Area:          l.Area,
+			UserData:      ud,
+		})
+	}
+	return nav
 }
 
 // Parse decodes and validates a baked mesh file. Unknown fields, a second YAML document and any value Validate refuses are errors.
@@ -122,6 +203,27 @@ func (m *Mesh) Validate() error {
 		if err := p.validate(); err != nil {
 			return fmt.Errorf("navbake: polygon %d: %w", i, err)
 		}
+	}
+	for i, l := range m.Links {
+		if err := l.validate(); err != nil {
+			return fmt.Errorf("navbake: link %d: %w", i, err)
+		}
+	}
+	return nil
+}
+
+func (l OffMeshLink) validate() error {
+	if !finite(core.Points(l.Start[0])) || !finite(core.Points(l.Start[1])) {
+		return errors.New("start is not finite")
+	}
+	if !finite(core.Points(l.End[0])) || !finite(core.Points(l.End[1])) {
+		return errors.New("end is not finite")
+	}
+	if !(l.Radius >= 0) || math.IsInf(float64(l.Radius), 0) {
+		return fmt.Errorf("radius %v is not a finite number of 0 or more", l.Radius)
+	}
+	if !(l.Cost >= 0) || math.IsInf(float64(l.Cost), 0) {
+		return fmt.Errorf("cost %v is not a finite number of 0 or more", l.Cost)
 	}
 	return nil
 }

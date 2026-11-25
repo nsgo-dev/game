@@ -199,9 +199,41 @@ _ = waypoints
 _ = ok
 ```
 
-Inspect mesh geometry with `Contains(p)`, `FindPolygon(p)`, `NearestPolygon(p)`, `Neighbors(index)`, `Polygon(index)`, `PolygonCount()`, and `FindCorridor(start, goal)`. Register off-mesh connections with `AddOffMeshLink(NavOffMeshLink{...})` and flag shared edges with `SetEdgeFlags(fromPoly, toPoly, flags)`.
+Inspect mesh geometry with `Contains(p)`, `FindPolygon(p)`, `NearestPolygon(p)`, `Neighbors(index)`, `Polygon(index)`, `PolygonCount()`, and `FindCorridor(start, goal)`. Register off-mesh connections with `AddOffMeshLink(NavOffMeshLink{...})`, inspect or clear them with `OffMeshLinks()` and `ClearOffMeshLinks()`, and flag shared edges with `SetEdgeFlags(fromPoly, toPoly, flags)`.
 
 To cut a level into these polygons, with paths kept an agent's radius away from the walls, bake the mesh from its outline and obstacles or from a tilemap with [navbake](navbake.md).
+
+### Off-mesh links (jumps, ladders, and teleports)
+
+Connect polygons that do not share an edge — such as one-way ledge drops, gap jumps, bidirectional ladders, doors, or teleporters — with `AddOffMeshLink`:
+
+```go
+mesh.AddOffMeshLink(ai.NavOffMeshLink{
+	Start:         core.Point{X: 90, Y: 40},
+	End:           core.Point{X: 140, Y: 40},
+	Radius:        4, // snap endpoints within 4 units of a polygon edge and trigger agent entry
+	Bidirectional: false,
+	Cost:          12, // <= 0 uses Euclidean distance
+	Area:          ai.NavAreaJump,
+	Flags:         uint32(ai.NavFlagJump),
+	ID:            1,
+	UserData:      "drop",
+})
+
+res := mesh.FindPathWithOptions(start, goal, ai.PathOptions{})
+if res.Found {
+	for i := 0; i+1 < len(res.Path); i++ {
+		if link, ok := res.LinkAt(i); ok {
+			// Segment Path[link.StartIndex] -> Path[link.EndIndex] traverses an off-mesh link.
+			_ = link.UserData
+		}
+	}
+}
+```
+
+- **Path segment metadata**: `NavPathResult.Links` lists every off-mesh link traversed in path order (`StartIndex`, `EndIndex == StartIndex + 1`, `FromPoly`, `ToPoly`, `Start`, `End`, `Radius`, `Area`, `Flags`, `LinkID`, `UserData`), with `HasLinks()` and `LinkAt(segmentIndex)` helpers. Collinear simplification never collapses link entry or exit points.
+- **Shortcut-aware optimal search & filtering**: A\* treats off-mesh links as directed edges (or two directed edges when `Bidirectional` is true), filters them by `NavFilter` (`Area` and `Flags`, including `NavAreaJump`, `NavAreaClimb`, `NavAreaTeleport`, `NavFlagJump`, `NavFlagClimb`, `NavFlagTeleport`), scales traversal cost by `filter.AreaCost(link.Area)`, and adjusts its heuristic when a link's effective cost is cheaper than straight-line distance so teleporters are used only when strictly cheaper than walking.
+- **YAML storage and scene placement**: store 2D off-mesh links in baked YAML files via `navbake.Source.Links` / `navbake.Mesh.Links` (applied automatically by `navbake.Mesh.NavMesh`), or place them on scene objects using the built-in `"nav_link"` component (`sceneformat.RegisterNavLink`, `sceneformat.ExtractNavLinks2D`, `sceneformat.ExtractBuiltNavLinks2D`).
 
 ### Navigation agents and path corridors (`NavAgent`, `NavAgentGroup`)
 

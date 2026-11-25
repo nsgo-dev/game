@@ -53,7 +53,8 @@ A `Geometry` holds world-space triangles, each on layers a `Settings.LayerMask` 
 | `AddTriangle`, `AddMesh` | Triangles, or an indexed triangle list at a world matrix; a mirroring matrix flips the winding back |
 | `AddGLTF` | Every mesh of a glTF document's default scene at its node's world transform; strips and fans are expanded, points and lines skipped |
 | `AddScene` | Every enabled `scene3d` node outside a disabled node's subtree whose `Layer` shares a bit with the mask, its triangles from a `NodeMesh` (`ColliderMesh` reads a `*scene3d.MeshCollider`) |
-| `AddSceneFile` | A [scene file](editor.md): it resolves instanced and inherited scenes, builds the 3D node tree and loads the glTF model each object's `model` names (`SceneMeshes`) |
+| `AddSceneFile` | A [scene file](editor.md): it resolves instanced and inherited scenes, builds the 3D node tree, loads the glTF model each object's `model` names (`SceneMeshes`), and extracts every authored `nav_link` off-mesh connection |
+| `AddOffMeshLink` | A point-to-point `OffMeshLink` (jump, drop, ladder, or teleport) carried into every baked `Mesh.Links` |
 | `AddHeightmap` | A `world3d.Heightmap`, triangulated as its `BuildMesh` does |
 | `AddGridMap` | The collider boxes of every occupied cell of a `world3d.GridMap` |
 | `AddPhysicsWorld` | The static bodies, triangle meshes, heightfields and voxel colliders of a `physics3d.World` whose layers share a bit with the mask; dynamic and kinematic bodies and triggers are left out, as is a voxel collider whose grid does not implement `physics3d.VoxelBoundsGrid`, since its solid voxels cannot be listed |
@@ -108,6 +109,7 @@ meshes:
 | `meshes[].polygons[].vertices` | Indices of the polygon's corners in `vertices`, 3 to `maxVertsPerPoly` of them, around the polygon |
 | `meshes[].polygons[].detail` | Extra vertices sampled on the polygon's edges and inside it where the ground is uneven |
 | `meshes[].polygons[].triangles` | The triangles covering the polygon, counter-clockwise seen from above; index `i` below the polygon's vertex count names its `i`th corner, and index `n + i` names `detail[i]` |
+| `meshes[].links` | Optional point-to-point off-mesh links (`id`, `start: [x, y, z]`, `end: [x, y, z]`, `radius`, `bidirectional`, `cost`, `area`, `flags`, `userData`) registered on the `world3d.NavMesh` by `Mesh.NavMesh` |
 
 `Parse` refuses unknown fields, a missing or unsupported version, non-finite coordinates and indices out of range, with the line, field and a fix; `Encode` writes the fixed key order above, and loading then saving a file changes nothing. [File Formats](formats.md#3d-navigation-meshes) lists it with the others.
 
