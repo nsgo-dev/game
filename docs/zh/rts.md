@@ -50,7 +50,7 @@ loop.Update = func(dt time.Duration) { crowd.Step(dt) }
 
 每个 `Unit` 报告自己的 `State`：下令前和 `Stop` 之后为 `Idle`，途中为 `Moving`，进入阵位 `ArriveRadius` 范围后为 `Arrived`。已到达的单位守住阵位，被推远的会走回去。`Units` 返回全部单位供绘制，`Unit(id)` 返回其中一个，`Remove` 删除一个。
 
-在 Apple M1 Max 上，`BenchmarkCrowdStep1000` 推进 1000 个挤过迷宫的单位一步约 0.4 毫秒，不到 60 fps 一帧的 3%。只有当某个单位自己的绕行路径超出它在之前搜索中保留的缓冲区时，一步才会分配内存，因此每个单位都规划过它最长的绕行路径后，分配就会停止。命令本身开销更大：在 `FieldCache` 为空时，`BenchmarkMove1000` 在同一迷宫上为 1000 个单位排布阵型、分配槽位并构建两个流场约需 6.5 毫秒，所以应在输入时下达命令，而不是每一步都下达。`TestCrowdThousandUnitsReachTargetWithinFrameBudget` 让 1000 个单位以方阵穿过 160×128 的迷宫，只要有单位未到达、停在墙里，或第 99 百分位的单步耗时超过 60 fps 的一帧，测试就失败。
+在 Apple M1 Max 上，`BenchmarkCrowdStep1000` 推进 1000 个挤过迷宫的单位一步约 0.4 毫秒，不到 60 fps 一帧的 3%。只有当某个单位自己的绕行路径超出它在之前搜索中保留的缓冲区时，一步才会分配内存，因此每个单位都规划过它最长的绕行路径后，分配就会停止。命令本身开销更大：在 `FieldCache` 为空时，`BenchmarkMove1000` 在同一迷宫上为 1000 个单位排布阵型、分配槽位并构建两个流场约需 6.5 毫秒，所以应在输入时下达命令，而不是每一步都下达。`TestCrowdThousandUnitsReachTarget` 以确定性方式让 1000 个单位以方阵穿过 160×128 的迷宫，只要有单位未到达、停在墙里或流场未共享，测试就失败；`BenchmarkCrowdThousandUnits` 测量完整穿行过程（报告平均与第 99 百分位单步耗时），并与 `BenchmarkCrowdStep1000` 一起由 `benchmarks/baseline.yaml` 中的 CI 性能基线跟踪。
 
 ## 阵型
 

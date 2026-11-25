@@ -1,5 +1,5 @@
 version: 1
-note: Performance baselines for packages/game benchmarks. Update with cd packages/game && go tool game bench -baseline ../../benchmarks/baseline.yaml -update ./sprite ./tilemap ./bullets
+note: Performance baselines for packages/game benchmarks. Update with cd packages/game && go tool game bench -baseline ../../benchmarks/baseline.yaml -update ./sprite ./tilemap ./bullets ./rts
 max_regression_pct: {ns_per_op: 25, bytes_per_op: 25, allocs_per_op: 25}
 benchmarks:
   BenchmarkBatchDraw1000: {ns_per_op: 155412, bytes_per_op: 72232, allocs_per_op: 754}
@@ -7,6 +7,10 @@ benchmarks:
   BenchmarkBatchRecord/atlas/n=5000: {ns_per_op: 327437, bytes_per_op: 180344, allocs_per_op: 3}
   BenchmarkBatchRecord/per-sprite/n=1000: {ns_per_op: 112396, bytes_per_op: 96003, allocs_per_op: 1000}
   BenchmarkBatchRecord/per-sprite/n=5000: {ns_per_op: 567923, bytes_per_op: 480000, allocs_per_op: 5000}
+  BenchmarkCrowdStep1000: {ns_per_op: 4000000, bytes_per_op: 0, allocs_per_op: 0}
+  BenchmarkCrowdThousandUnits/60,100: {ns_per_op: 9000000000, bytes_per_op: 3000000, allocs_per_op: 6900}
+  BenchmarkCrowdThousandUnits/100,20: {ns_per_op: 10000000000, bytes_per_op: 2000000, allocs_per_op: 4500}
+  BenchmarkCrowdThousandUnits/140,64: {ns_per_op: 14000000000, bytes_per_op: 3000000, allocs_per_op: 6600}
   BenchmarkFrame5000: {ns_per_op: 5000000, bytes_per_op: 200000, allocs_per_op: 3}
   BenchmarkLoadAtlas: {ns_per_op: 19128, bytes_per_op: 7854, allocs_per_op: 59}
   BenchmarkLoadTiled: {ns_per_op: 43464, bytes_per_op: 21896, allocs_per_op: 247}
