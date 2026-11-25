@@ -412,7 +412,7 @@ func TestSearchCoversFilesUIDsObjectsComponentsPrefabsAndSceneRefs(t *testing.T)
 		t.Fatalf("Search(ai_patrol) = %+v", compHits)
 	}
 
-	// Nested child component search: activating falls back to selecting top-level ancestor goblin_king.
+	// Nested child component search: activating selects the nested child crown_gem itself.
 	childCompHits, err := ed.Search("glint")
 	if err != nil {
 		t.Fatal(err)
@@ -423,7 +423,7 @@ func TestSearchCoversFilesUIDsObjectsComponentsPrefabsAndSceneRefs(t *testing.T)
 	if err := ed.OpenSearchResult(childCompHits[0]); err != nil {
 		t.Fatal(err)
 	}
-	if ed.ScenePath != "scenes/dungeon.scene.yaml" || ed.SelectedID != "goblin_king" {
+	if ed.ScenePath != "scenes/dungeon.scene.yaml" || ed.SelectedID != "crown_gem" {
 		t.Fatalf("after activating nested child hit: ScenePath=%q SelectedID=%q", ed.ScenePath, ed.SelectedID)
 	}
 
