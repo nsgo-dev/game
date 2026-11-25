@@ -1237,6 +1237,10 @@ func (sw *SoftWorld) solveShapeMatch2D(c *ShapeMatchConstraint, px, py []float64
 
 // shapeMatchGain returns 1 - (1-stiff)^(1/iters), the gain per solver iteration that compounds to stiff over iters iterations. It takes the root with Newton's method in plain IEEE-754 arithmetic rather than math.Pow, whose Exp has its own assembly on amd64 and on arm64 and whose Log is assembly on amd64 only, so the two architectures round it differently.
 func shapeMatchGain(stiff float64, iters int) float64 {
+	// A NaN stiffness gets past the callers' clamps; it gives no gain at any iteration count rather than poisoning every particle.
+	if stiff != stiff {
+		return 0
+	}
 	x := 1.0 - stiff
 	n := max(1, iters)
 	if x <= 0 {
