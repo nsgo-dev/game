@@ -1,6 +1,7 @@
 # Agent Note: The website on nsgo-website's demoscene look
 
 Status: implemented
+Archived: 2026-11-25
 
 ## Problem
 
