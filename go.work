@@ -3,6 +3,7 @@ go 1.27.3
 use (
 	./packages/game
 	./template
+	./template/fighting2d
 	./template/puzzle2d
 	./examples/starburst
 	./examples/slidegem

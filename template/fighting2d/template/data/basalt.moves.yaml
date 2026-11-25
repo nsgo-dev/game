@@ -1,0 +1,57 @@
+version: 1
+input:
+  up: up
+  down: down
+  left: left
+  right: right
+  axisX: move_x
+  axisY: move_y
+moves:
+  - name: light
+    press:
+      - light
+  - name: heavy
+    press:
+      - heavy
+  - name: backstep
+    motion:
+      - "4"
+      - "5"
+      - "4"
+    window: 12
+    priority: 5
+  - name: quake
+    motion:
+      - "2"
+      - "3"
+      - "6"
+    window: 12
+    press:
+      - light
+      - heavy
+    buffer: 8
+    priority: 20
+  - name: ram
+    motion:
+      - "6"
+    charge:
+      dirs: "147"
+      steps: 40
+      grace: 8
+    press:
+      - light
+      - heavy
+    buffer: 6
+    priority: 30
+combos:
+  - name: chain
+    sequence:
+      - light
+      - heavy
+    gap: 24
+  - name: landslide
+    sequence:
+      - light
+      - heavy
+      - ram
+    gap: 30
