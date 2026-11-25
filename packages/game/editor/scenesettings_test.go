@@ -462,6 +462,15 @@ func TestCameraDragFromNilCameraAndCancel(t *testing.T) {
 	if ed.Doc.Camera != nil {
 		t.Fatalf("expected nil initial camera in testSceneDoc, got %+v", ed.Doc.Camera)
 	}
+	// newTestEditor selects layer "actors" via SetActiveLayer; clear layer/object
+	// inspection to return to Scene Settings before dragging the camera handle.
+	if ed.ShowingSceneSettings() {
+		t.Fatal("expected ShowingSceneSettings false while a layer is selected for inspection")
+	}
+	ed.SelectObject("")
+	if !ed.ShowingSceneSettings() {
+		t.Fatal("expected ShowingSceneSettings true after SelectObject(\"\")")
+	}
 	ed.SetCanvasSize(400, 300)
 	hx, hy, ok := ed.CameraHandleCanvasPos()
 	if !ok {
