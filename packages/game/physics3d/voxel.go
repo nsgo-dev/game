@@ -95,9 +95,9 @@ func (vc *VoxelCollider) voxelBox(vx, vy, vz int) Box {
 	half := vs * 0.5
 	return Box{
 		Center: Vec3{
-			X: vc.Origin.X + (float32(vx)+0.5)*vs,
-			Y: vc.Origin.Y + (float32(vy)+0.5)*vs,
-			Z: vc.Origin.Z + (float32(vz)+0.5)*vs,
+			X: vc.Origin.X + float32((float32(vx)+0.5)*vs),
+			Y: vc.Origin.Y + float32((float32(vy)+0.5)*vs),
+			Z: vc.Origin.Z + float32((float32(vz)+0.5)*vs),
 		},
 		HalfExtents: Vec3{X: half, Y: half, Z: half},
 	}
@@ -174,12 +174,12 @@ func (vc *VoxelCollider) voxelRange(bounds Box) (x0, y0, z0, x1, y1, z1 int, ok 
 	// integer voxel plane (e.g. minY == 1.0) does not scan an extra air/solid
 	// layer needlessly while still catching any positive overlap.
 	const eps = 1e-6
-	x0 = int(math.Floor((float64(bMin.X-vc.Origin.X))*inv - eps))
-	y0 = int(math.Floor((float64(bMin.Y-vc.Origin.Y))*inv - eps))
-	z0 = int(math.Floor((float64(bMin.Z-vc.Origin.Z))*inv - eps))
-	x1 = int(math.Floor((float64(bMax.X-vc.Origin.X))*inv + eps))
-	y1 = int(math.Floor((float64(bMax.Y-vc.Origin.Y))*inv + eps))
-	z1 = int(math.Floor((float64(bMax.Z-vc.Origin.Z))*inv + eps))
+	x0 = int(math.Floor(float64(float64(bMin.X-vc.Origin.X)*inv) - eps))
+	y0 = int(math.Floor(float64(float64(bMin.Y-vc.Origin.Y)*inv) - eps))
+	z0 = int(math.Floor(float64(float64(bMin.Z-vc.Origin.Z)*inv) - eps))
+	x1 = int(math.Floor(float64(float64(bMax.X-vc.Origin.X)*inv) + eps))
+	y1 = int(math.Floor(float64(float64(bMax.Y-vc.Origin.Y)*inv) + eps))
+	z1 = int(math.Floor(float64(float64(bMax.Z-vc.Origin.Z)*inv) + eps))
 	if x0 > x1 || y0 > y1 || z0 > z1 {
 		return 0, 0, 0, 0, 0, 0, false
 	}
@@ -541,7 +541,7 @@ func (vc *VoxelCollider) Raycast(ray Ray) (RaycastHit, bool) {
 	dx := float64(ray.Dir.X)
 	dy := float64(ray.Dir.Y)
 	dz := float64(ray.Dir.Z)
-	dirLen := math.Sqrt(dx*dx + dy*dy + dz*dz)
+	dirLen := math.Sqrt(float64(float64(dx*dx)+float64(dy*dy)) + float64(dz*dz))
 	if dirLen < 1e-9 {
 		return RaycastHit{}, false
 	}
@@ -568,14 +568,14 @@ func (vc *VoxelCollider) Raycast(ray Ray) (RaycastHit, bool) {
 		// Back up by half a voxel before the bounds entry plane so the regular
 		// DDA loop steps across the entry face with the exact face normal.
 		if ts > 0 {
-			tStart = max(0.0, float64(ts)-0.5*vs)
+			tStart = max(0.0, float64(ts)-float64(0.5*vs))
 		}
-		tEnd = min(float64(ray.MaxDist), float64(te)+1e-4*vs)
+		tEnd = min(float64(ray.MaxDist), float64(te)+float64(1e-4*vs))
 	}
 
-	ox := (float64(ray.Origin.X-vc.Origin.X) + dx*tStart) * invVS
-	oy := (float64(ray.Origin.Y-vc.Origin.Y) + dy*tStart) * invVS
-	oz := (float64(ray.Origin.Z-vc.Origin.Z) + dz*tStart) * invVS
+	ox := (float64(ray.Origin.X-vc.Origin.X) + float64(dx*tStart)) * invVS
+	oy := (float64(ray.Origin.Y-vc.Origin.Y) + float64(dy*tStart)) * invVS
+	oz := (float64(ray.Origin.Z-vc.Origin.Z) + float64(dz*tStart)) * invVS
 	maxLocalT := (tEnd - tStart) * invVS
 
 	vx := int(math.Floor(ox))
@@ -628,7 +628,7 @@ func (vc *VoxelCollider) Raycast(ray Ray) (RaycastHit, bool) {
 		}
 
 		if g.IsSolid(vx, vy, vz) {
-			dist := float32(tStart + localT*vs)
+			dist := float32(tStart + float64(localT*vs))
 			if dist > ray.MaxDist {
 				return RaycastHit{}, false
 			}
@@ -768,7 +768,7 @@ func (vc *VoxelCollider) sweepAABB(box Box, delta Vec3, dist float32) (SweepHit,
 					}
 					if !found || t < bestLocalT {
 						bestLocalT = t
-						globalT := f0 + (f1-f0)*t
+						globalT := f0 + float32((f1-f0)*t)
 						atHit := box.Translated(delta.Scale(globalT))
 						aMin, aMax := atHit.Min(), atHit.Max()
 						bMin, bMax := vb.Min(), vb.Max()

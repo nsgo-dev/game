@@ -4,6 +4,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/nsgo-dev/game/packages/game/internal/detmath"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -34,7 +35,7 @@ func (s Slope) Angle() float32 {
 	if !ok {
 		return 0
 	}
-	return float32(math.Atan2(math.Abs(by-ay), bx-ax))
+	return float32(detmath.Atan2(math.Abs(by-ay), bx-ax))
 }
 
 // Normal returns the upward-facing unit surface normal of s (NormalY <= 0).
@@ -45,7 +46,7 @@ func (s Slope) Normal() core.Point {
 	}
 	dx := bx - ax
 	dy := by - ay
-	length := math.Hypot(dx, dy)
+	length := detmath.Hypot(dx, dy)
 	if length == 0 {
 		return core.Point{X: 0, Y: -1}
 	}
@@ -68,7 +69,7 @@ func slopeYAt(ax, ay, bx, by, x float64) float64 {
 	} else if t > 1 {
 		t = 1
 	}
-	return ay + t*(by-ay)
+	return ay + float64(t*(by-ay))
 }
 
 // MovingPlatform is a kinematic platform body with its per-step displacement (DeltaX, DeltaY).
@@ -170,16 +171,16 @@ func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingP
 	if c.World != nil && !math.IsNaN(secs) && !math.IsInf(secs, 0) && secs > 0 {
 		eff := c.World.AreaEffectAtShape(b.Shape, b.Layer, b.Mask)
 		gScale := float64(c.EffectiveGravityScale())
-		vx := float64(b.VX) + float64(eff.GravityX)*gScale*secs
-		vy := float64(b.VY) + float64(eff.GravityY)*gScale*secs
+		vx := float64(b.VX) + float64(float64(float64(eff.GravityX)*gScale)*secs)
+		vy := float64(b.VY) + float64(float64(float64(eff.GravityY)*gScale)*secs)
 		if eff.FluidLinearDrag > 0 {
 			fvx, fvy := float64(eff.FluidVelX), float64(eff.FluidVelY)
-			factor := 1.0 / (1.0 + float64(eff.FluidLinearDrag)*secs)
-			vx = fvx + (vx-fvx)*factor
-			vy = fvy + (vy-fvy)*factor
+			factor := 1.0 / (1.0 + float64(float64(eff.FluidLinearDrag)*secs))
+			vx = fvx + float64((vx-fvx)*factor)
+			vy = fvy + float64((vy-fvy)*factor)
 		}
 		if eff.HasLinearDamping && eff.LinearDamping > 0 {
-			factor := 1.0 / (1.0 + float64(eff.LinearDamping)*secs)
+			factor := 1.0 / (1.0 + float64(float64(eff.LinearDamping)*secs))
 			vx *= factor
 			vy *= factor
 		}
@@ -248,7 +249,7 @@ func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingP
 					}
 				}
 				if hitCol >= 0 {
-					x = ox + float64(hitCol)*tw - w
+					x = ox + float64(float64(hitCol)*tw) - w
 					b.OnRightWall = true
 					return true
 				}
@@ -288,8 +289,8 @@ func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingP
 		if dy > 0 {
 			hitRow := -1
 			for row := minRow; row <= maxRow; row++ {
-				tileTop := oy + float64(row)*th
-				oneWayEps := max(1e-4, 1e-5*math.Abs(tileTop))
+				tileTop := oy + float64(float64(row)*th)
+				oneWayEps := max(1e-4, float64(1e-5*math.Abs(tileTop)))
 				for col := minCol; col <= maxCol; col++ {
 					flags := grid.TileFlagsAt(col, row)
 					solid := flags&TileSolid != 0
@@ -300,7 +301,7 @@ func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingP
 					}
 				}
 				if hitRow >= 0 {
-					y = oy + float64(hitRow)*th - h
+					y = oy + float64(float64(hitRow)*th) - h
 					return true, false
 				}
 			}
@@ -504,7 +505,7 @@ func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingP
 					if !ok {
 						continue
 					}
-					angle := math.Atan2(math.Abs(by-ay), bx-ax)
+					angle := detmath.Atan2(math.Abs(by-ay), bx-ax)
 					if angle <= maxSlope+angleEps {
 						continue
 					}
@@ -538,7 +539,7 @@ func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingP
 					}
 					t := (bottom - ay) / (by - ay)
 					t = min(max(t, 0), 1)
-					xHit := ax + t*(bx-ax)
+					xHit := ax + float64(t*(bx-ax))
 					if by < ay && stepDX > 0 && prevX+w <= xHit+1e-2 && x+w > xHit {
 						x = xHit - w
 						b.OnRightWall = true
@@ -564,7 +565,7 @@ func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingP
 					if !ok || bx == ax {
 						continue
 					}
-					angle := math.Atan2(math.Abs(by-ay), bx-ax)
+					angle := detmath.Atan2(math.Abs(by-ay), bx-ax)
 					if angle > maxSlope+angleEps {
 						continue
 					}
@@ -589,7 +590,7 @@ func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingP
 						pOvR := min(prevX+w, bx)
 						refY = min(slopeYAt(ax, ay, bx, by, pOvL), slopeYAt(ax, ay, bx, by, pOvR))
 					}
-					climbTol := max(0.5, math.Abs(x-prevX)*math.Tan(maxSlope)+0.5)
+					climbTol := max(0.5, float64(math.Abs(x-prevX)*detmath.Tan(maxSlope))+0.5)
 					if prevBottom <= refY+climbTol && surfY < bestSurfY {
 						bestSurfY = surfY
 						bestNormal = s.Normal()
@@ -713,7 +714,7 @@ func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingP
 					yR := slopeYAt(ax, ay, bx, by, ovR)
 					surfY := min(yL, yR)
 					maxY := max(yL, yR)
-					angle := math.Atan2(math.Abs(by-ay), bx-ax)
+					angle := detmath.Atan2(math.Abs(by-ay), bx-ax)
 
 					if angle <= maxSlope+angleEps {
 						if prevBottom <= maxY+1e-2 && y+h >= surfY-1e-4 && surfY-h <= y+1e-4 {
@@ -728,7 +729,7 @@ func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingP
 						// Falling onto a steep slope: push horizontally downhill without grounding.
 						t := ((y + h) - ay) / (by - ay)
 						t = min(max(t, 0), 1)
-						xHit := ax + t*(bx-ax)
+						xHit := ax + float64(t*(bx-ax))
 						if by < ay {
 							x = min(x, xHit-w)
 						} else if by > ay {
@@ -834,14 +835,14 @@ func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingP
 			bottom := y + h
 			row := int(math.Floor((bottom - oy + restEps) / th))
 			if row >= 0 && row < rows {
-				tileTop := oy + float64(row)*th
+				tileTop := oy + float64(float64(row)*th)
 				if math.Abs(bottom-tileTop) <= restEps {
 					minCol := max(0, int(math.Floor((x-ox+xEps)/tw)))
 					maxCol := min(cols-1, int(math.Ceil((x-ox+w-xEps)/tw))-1)
 					for col := minCol; col <= maxCol; col++ {
 						flags := grid.TileFlagsAt(col, row)
 						if flags&TileSolid != 0 || (flags&TileOneWay != 0 && !b.OneWayDrop) {
-							y = tileTop - h
+							y = float64(tileTop) - h
 							c.Grounded = true
 							c.GroundNormal = core.Point{X: 0, Y: -1}
 							b.VY = 0

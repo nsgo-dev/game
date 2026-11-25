@@ -285,10 +285,10 @@ func shapeOuterRadius3D(s Shape) float64 {
 		return float64(s.Sphere.Radius)
 	case ShapeBox:
 		he := s.Box.HalfExtents
-		return math.Sqrt(float64(he.X)*float64(he.X) + float64(he.Y)*float64(he.Y) + float64(he.Z)*float64(he.Z))
+		return math.Sqrt(float64(float64(he.X)*float64(he.X)) + float64(float64(he.Y)*float64(he.Y)) + float64(float64(he.Z)*float64(he.Z)))
 	case ShapeCapsule:
 		segLen := float64(s.Capsule.B.Sub(s.Capsule.A).Len())
-		return 0.5*segLen + float64(s.Capsule.Radius)
+		return float64(0.5*segLen) + float64(s.Capsule.Radius)
 	default:
 		return 1
 	}
@@ -314,7 +314,7 @@ func shapeVolume3D(s Shape) float64 {
 			return 0
 		}
 		segLen := float64(s.Capsule.B.Sub(s.Capsule.A).Len())
-		return math.Pi*r*r*segLen + (4.0/3.0)*math.Pi*r*r*r
+		return float64(math.Pi*r*r*segLen) + float64((4.0/3.0)*math.Pi*r*r*r)
 	default:
 		return 0
 	}
@@ -355,7 +355,7 @@ func areaGravityVector3D(e activeAreaEntry, p Vec3) (float64, float64, float64) 
 	dx := sanitize32f64(a.GravityPoint.X) - float64(p.X)
 	dy := sanitize32f64(a.GravityPoint.Y) - float64(p.Y)
 	dz := sanitize32f64(a.GravityPoint.Z) - float64(p.Z)
-	dist := math.Sqrt(dx*dx + dy*dy + dz*dz)
+	dist := math.Sqrt(float64(float64(dx*dx)+float64(dy*dy)) + float64(dz*dz))
 	if dist <= 1e-6 {
 		return 0, 0, 0
 	}
@@ -616,18 +616,18 @@ doneGravity:
 		remFrac -= used
 		totalSubFrac += used
 		if fd > 0 && bodyVol > 0 {
-			buoyancyMass += fd * (used * bodyVol)
+			buoyancyMass += float64(fd * float64(used*bodyVol))
 		}
 		if flDrag > 0 {
-			wDrag := flDrag * used
+			wDrag := float64(flDrag * used)
 			totalLinDrag += wDrag
 			velWeightSum += wDrag
-			fluidVelXSum += sanitize32f64(a.FluidVelocity.X) * wDrag
-			fluidVelYSum += sanitize32f64(a.FluidVelocity.Y) * wDrag
-			fluidVelZSum += sanitize32f64(a.FluidVelocity.Z) * wDrag
+			fluidVelXSum += float64(sanitize32f64(a.FluidVelocity.X) * wDrag)
+			fluidVelYSum += float64(sanitize32f64(a.FluidVelocity.Y) * wDrag)
+			fluidVelZSum += float64(sanitize32f64(a.FluidVelocity.Z) * wDrag)
 		}
 		if faDrag > 0 {
-			totalAngDrag += faDrag * used
+			totalAngDrag += float64(faDrag * used)
 		}
 	}
 

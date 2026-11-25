@@ -320,7 +320,7 @@ func TestSphereSphere(a, b Sphere) Contact {
 	if dist > 1e-6 {
 		normal := d.Scale(1 / dist)
 		depth := rSum - dist
-		point := b.Center.Add(normal.Scale(b.Radius - depth*0.5))
+		point := b.Center.Add(normal.Scale(b.Radius - float32(depth*0.5)))
 		return Contact{
 			Hit:    true,
 			Normal: normal,
@@ -518,7 +518,7 @@ func TestBoxCapsule(a Box, b Capsule) Contact {
 		}
 		l = l.Scale(1 / sqrt32(ls))
 		bc := a.Center.Dot(l)
-		br := a.HalfExtents.X*abs32(l.X) + a.HalfExtents.Y*abs32(l.Y) + a.HalfExtents.Z*abs32(l.Z)
+		br := float32(float32(a.HalfExtents.X*abs32(l.X))+float32(a.HalfExtents.Y*abs32(l.Y))) + float32(a.HalfExtents.Z*abs32(l.Z))
 		pa, pb := b.A.Dot(l), b.B.Dot(l)
 		cMin, cMax := min(pa, pb)-b.Radius, max(pa, pb)+b.Radius
 		// Box moving along +l must clear the capsule's top; along -l its bottom.
@@ -529,7 +529,7 @@ func TestBoxCapsule(a Box, b Capsule) Contact {
 			depth, n = down, l.Neg()
 		}
 		if !face {
-			depth = depth*1.05 + 1e-5 // prefer face axes on near ties, as the box-box test does
+			depth = float32(depth*1.05) + 1e-5 // prefer face axes on near ties, as the box-box test does
 		}
 		if bestDepth < 0 || depth < bestDepth {
 			bestDepth, bestN = depth, n
@@ -591,9 +591,9 @@ func closestPointsSegments(p1, q1, p2, q2 Vec3) (Vec3, Vec3) {
 			s = clamp32(-c/a, 0, 1)
 		} else {
 			b := d1.Dot(d2)
-			denom := a*e - b*b
+			denom := float32(a*e) - float32(b*b)
 			if denom > eps {
-				s = clamp32((b*f-c*e)/denom, 0, 1)
+				s = clamp32((float32(b*f)-float32(c*e))/denom, 0, 1)
 			} else {
 				// Parallel segments: choose the midpoint of overlapping projections
 				// onto segment 1 so symmetric parallel capsules have a centered contact.
@@ -601,7 +601,7 @@ func closestPointsSegments(p1, q1, p2, q2 Vec3) (Vec3, Vec3) {
 				t1 := clamp32((b-c)/a, 0, 1)
 				s = (t0 + t1) * 0.5
 			}
-			t = (b*s + f) / e
+			t = (float32(b*s) + f) / e
 			if t < 0 {
 				t = 0
 				s = clamp32(-c/a, 0, 1)
@@ -688,25 +688,25 @@ func closestOrDeepestPointSegmentBox(segA, segB Vec3, box Box) Vec3 {
 
 		var qa, qb float32
 		if pm.X < bMin.X {
-			qa += d.X * d.X
-			qb += d.X * (segA.X - bMin.X)
+			qa += float32(d.X * d.X)
+			qb += float32(d.X * (segA.X - bMin.X))
 		} else if pm.X > bMax.X {
-			qa += d.X * d.X
-			qb += d.X * (segA.X - bMax.X)
+			qa += float32(d.X * d.X)
+			qb += float32(d.X * (segA.X - bMax.X))
 		}
 		if pm.Y < bMin.Y {
-			qa += d.Y * d.Y
-			qb += d.Y * (segA.Y - bMin.Y)
+			qa += float32(d.Y * d.Y)
+			qb += float32(d.Y * (segA.Y - bMin.Y))
 		} else if pm.Y > bMax.Y {
-			qa += d.Y * d.Y
-			qb += d.Y * (segA.Y - bMax.Y)
+			qa += float32(d.Y * d.Y)
+			qb += float32(d.Y * (segA.Y - bMax.Y))
 		}
 		if pm.Z < bMin.Z {
-			qa += d.Z * d.Z
-			qb += d.Z * (segA.Z - bMin.Z)
+			qa += float32(d.Z * d.Z)
+			qb += float32(d.Z * (segA.Z - bMin.Z))
 		} else if pm.Z > bMax.Z {
-			qa += d.Z * d.Z
-			qb += d.Z * (segA.Z - bMax.Z)
+			qa += float32(d.Z * d.Z)
+			qb += float32(d.Z * (segA.Z - bMax.Z))
 		}
 
 		if qa > 1e-12 {
@@ -756,9 +756,9 @@ func deepestPointInBox(segA, d, bMin, bMax Vec3, tEnter, tExit float32) Vec3 {
 	m := [6]float32{d.X, -d.X, d.Y, -d.Y, d.Z, -d.Z}
 
 	minFace := func(t float32) float32 {
-		v := c[0] + m[0]*t
+		v := c[0] + float32(m[0]*t)
 		for i := 1; i < 6; i++ {
-			if fi := c[i] + m[i]*t; fi < v {
+			if fi := c[i] + float32(m[i]*t); fi < v {
 				v = fi
 			}
 		}
@@ -809,24 +809,24 @@ func pointBoxDistSq(p, bMin, bMax Vec3) float32 {
 	var ds float32
 	if p.X < bMin.X {
 		dx := bMin.X - p.X
-		ds += dx * dx
+		ds += float32(dx * dx)
 	} else if p.X > bMax.X {
 		dx := p.X - bMax.X
-		ds += dx * dx
+		ds += float32(dx * dx)
 	}
 	if p.Y < bMin.Y {
 		dy := bMin.Y - p.Y
-		ds += dy * dy
+		ds += float32(dy * dy)
 	} else if p.Y > bMax.Y {
 		dy := p.Y - bMax.Y
-		ds += dy * dy
+		ds += float32(dy * dy)
 	}
 	if p.Z < bMin.Z {
 		dz := bMin.Z - p.Z
-		ds += dz * dz
+		ds += float32(dz * dz)
 	} else if p.Z > bMax.Z {
 		dz := p.Z - bMax.Z
-		ds += dz * dz
+		ds += float32(dz * dz)
 	}
 	return ds
 }

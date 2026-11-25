@@ -1,6 +1,10 @@
 package physics3d
 
-import "math"
+import (
+	"math"
+
+	"github.com/nsgo-dev/game/packages/game/internal/detmath"
+)
 
 // Vec3 is a 3D vector in a right-handed, Y-up coordinate system.
 type Vec3 struct {
@@ -9,17 +13,17 @@ type Vec3 struct {
 
 // Add returns v + b.
 func (v Vec3) Add(b Vec3) Vec3 {
-	return Vec3{X: v.X + b.X, Y: v.Y + b.Y, Z: v.Z + b.Z}
+	return Vec3{X: float32(v.X) + float32(b.X), Y: float32(v.Y) + float32(b.Y), Z: float32(v.Z) + float32(b.Z)}
 }
 
 // Sub returns v - b.
 func (v Vec3) Sub(b Vec3) Vec3 {
-	return Vec3{X: v.X - b.X, Y: v.Y - b.Y, Z: v.Z - b.Z}
+	return Vec3{X: float32(v.X) - float32(b.X), Y: float32(v.Y) - float32(b.Y), Z: float32(v.Z) - float32(b.Z)}
 }
 
 // Scale returns v multiplied by s.
 func (v Vec3) Scale(s float32) Vec3 {
-	return Vec3{X: v.X * s, Y: v.Y * s, Z: v.Z * s}
+	return Vec3{X: float32(v.X * s), Y: float32(v.Y * s), Z: float32(v.Z * s)}
 }
 
 // Neg returns -v.
@@ -29,21 +33,21 @@ func (v Vec3) Neg() Vec3 {
 
 // Dot returns the dot product of v and b.
 func (v Vec3) Dot(b Vec3) float32 {
-	return v.X*b.X + v.Y*b.Y + v.Z*b.Z
+	return float32(float32(v.X*b.X)+float32(v.Y*b.Y)) + float32(v.Z*b.Z)
 }
 
 // Cross returns the right-handed cross product v x b.
 func (v Vec3) Cross(b Vec3) Vec3 {
 	return Vec3{
-		X: v.Y*b.Z - v.Z*b.Y,
-		Y: v.Z*b.X - v.X*b.Z,
-		Z: v.X*b.Y - v.Y*b.X,
+		X: float32(v.Y*b.Z) - float32(v.Z*b.Y),
+		Y: float32(v.Z*b.X) - float32(v.X*b.Z),
+		Z: float32(v.X*b.Y) - float32(v.Y*b.X),
 	}
 }
 
 // LenSq returns the squared Euclidean length of v.
 func (v Vec3) LenSq() float32 {
-	return v.X*v.X + v.Y*v.Y + v.Z*v.Z
+	return float32(float32(v.X*v.X)+float32(v.Y*v.Y)) + float32(v.Z*v.Z)
 }
 
 // Len returns the Euclidean length of v.
@@ -98,9 +102,9 @@ func clamp32(x, lo, hi float32) float32 {
 
 func lerpVec3(a, b Vec3, t float32) Vec3 {
 	return Vec3{
-		X: a.X + (b.X-a.X)*t,
-		Y: a.Y + (b.Y-a.Y)*t,
-		Z: a.Z + (b.Z-a.Z)*t,
+		X: a.X + float32((b.X-a.X)*t),
+		Y: a.Y + float32((b.Y-a.Y)*t),
+		Z: a.Z + float32((b.Z-a.Z)*t),
 	}
 }
 
@@ -137,8 +141,9 @@ func QuatFromAxisAngle(axis Vec3, angle float32) Quat {
 		return QuatIdentity()
 	}
 	half := float64(angle) * 0.5
-	s := float32(math.Sin(half))
-	c := float32(math.Cos(half))
+	sd, cd := detmath.Sincos(half)
+	s := float32(sd)
+	c := float32(cd)
 	return Quat{X: n.X * s, Y: n.Y * s, Z: n.Z * s, W: c}.Norm()
 }
 
@@ -163,7 +168,7 @@ func QuatFromTo(from, to Vec3) Quat {
 
 // LenSq returns the squared quaternion norm.
 func (q Quat) LenSq() float32 {
-	return q.X*q.X + q.Y*q.Y + q.Z*q.Z + q.W*q.W
+	return float32(float32(float32(q.X*q.X)+float32(q.Y*q.Y))+float32(q.Z*q.Z)) + float32(q.W*q.W)
 }
 
 // IsIdentity reports whether q represents no rotation (including the zero Quat{}).
@@ -198,7 +203,7 @@ func (q Quat) Conjugate() Quat {
 
 // Dot returns the 4D dot product of q and b.
 func (q Quat) Dot(b Quat) float32 {
-	return q.X*b.X + q.Y*b.Y + q.Z*b.Z + q.W*b.W
+	return float32(float32(float32(q.X*b.X)+float32(q.Y*b.Y))+float32(q.Z*b.Z)) + float32(q.W*b.W)
 }
 
 // Mul returns the Hamilton product q * b (applying b then q).
@@ -210,10 +215,10 @@ func (q Quat) Mul(b Quat) Quat {
 		return normalizedQuat(q)
 	}
 	return Quat{
-		X: q.W*b.X + q.X*b.W + q.Y*b.Z - q.Z*b.Y,
-		Y: q.W*b.Y - q.X*b.Z + q.Y*b.W + q.Z*b.X,
-		Z: q.W*b.Z + q.X*b.Y - q.Y*b.X + q.Z*b.W,
-		W: q.W*b.W - q.X*b.X - q.Y*b.Y - q.Z*b.Z,
+		X: float32(float32(float32(q.W*b.X)+float32(q.X*b.W))+float32(q.Y*b.Z)) - float32(q.Z*b.Y),
+		Y: float32(float32(float32(q.W*b.Y)-float32(q.X*b.Z))+float32(q.Y*b.W)) + float32(q.Z*b.X),
+		Z: float32(float32(float32(q.W*b.Z)+float32(q.X*b.Y))-float32(q.Y*b.X)) + float32(q.Z*b.W),
+		W: float32(float32(float32(q.W*b.W)-float32(q.X*b.X))-float32(q.Y*b.Y)) - float32(q.Z*b.Z),
 	}
 }
 
@@ -240,21 +245,21 @@ func (q Quat) Slerp(b Quat, t float32) Quat {
 	}
 	if dot > 0.9995 {
 		return Quat{
-			X: qa.X + (qb.X-qa.X)*t,
-			Y: qa.Y + (qb.Y-qa.Y)*t,
-			Z: qa.Z + (qb.Z-qa.Z)*t,
-			W: qa.W + (qb.W-qa.W)*t,
+			X: qa.X + float32((qb.X-qa.X)*t),
+			Y: qa.Y + float32((qb.Y-qa.Y)*t),
+			Z: qa.Z + float32((qb.Z-qa.Z)*t),
+			W: qa.W + float32((qb.W-qa.W)*t),
 		}.Norm()
 	}
-	theta := math.Acos(float64(clamp32(dot, -1, 1)))
-	sinTheta := math.Sin(theta)
-	w0 := float32(math.Sin((1-float64(t))*theta) / sinTheta)
-	w1 := float32(math.Sin(float64(t)*theta) / sinTheta)
+	theta := detmath.Acos(float64(clamp32(dot, -1, 1)))
+	sinTheta := detmath.Sin(theta)
+	w0 := float32(detmath.Sin((1-float64(t))*theta) / sinTheta)
+	w1 := float32(detmath.Sin(float64(t)*theta) / sinTheta)
 	return Quat{
-		X: qa.X*w0 + qb.X*w1,
-		Y: qa.Y*w0 + qb.Y*w1,
-		Z: qa.Z*w0 + qb.Z*w1,
-		W: qa.W*w0 + qb.W*w1,
+		X: float32(qa.X*w0) + float32(qb.X*w1),
+		Y: float32(qa.Y*w0) + float32(qb.Y*w1),
+		Z: float32(qa.Z*w0) + float32(qb.Z*w1),
+		W: float32(qa.W*w0) + float32(qb.W*w1),
 	}.Norm()
 }
 
@@ -265,8 +270,8 @@ func (q Quat) ToAxisAngle() (Vec3, float32) {
 		u = Quat{X: -u.X, Y: -u.Y, Z: -u.Z, W: -u.W}
 	}
 	w := clamp32(u.W, -1, 1)
-	angle := float32(2 * math.Acos(float64(w)))
-	s := sqrt32(1 - w*w)
+	angle := float32(2 * detmath.Acos(float64(w)))
+	s := sqrt32(1 - float32(w*w))
 	if s < 1e-6 {
 		return Vec3{Y: 1}, 0
 	}
@@ -279,7 +284,7 @@ func (q Quat) AngleTo(b Quat) float32 {
 	qa := normalizedQuat(q)
 	qb := normalizedQuat(b)
 	dot := abs32(clamp32(qa.Dot(qb), -1, 1))
-	return float32(2 * math.Acos(float64(dot)))
+	return float32(2 * detmath.Acos(float64(dot)))
 }
 
 // IntegrateQuat integrates world-space angular velocity angVel over dt seconds

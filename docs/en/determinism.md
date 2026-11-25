@@ -65,15 +65,17 @@ Run all simulation mutations sequentially on the engine's goroutine inside `Loop
 - Do not make gameplay decisions from `select` over multiple ready channels, because Go chooses among ready cases pseudo-randomly.
 - If background work (such as pathfinding or procedural chunk generation) runs off-thread, deliver its result at a deterministic tick boundary and apply queued results sorted by a canonical key rather than arrival order.
 
-## 5. Keep floating-point evaluation order consistent
+## 5. Keep floating-point evaluation order consistent (and prevent arm64 FMA drift)
 
-IEEE-754 floating-point addition and multiplication are not associative: `(a + b) + c` can differ in the last bit from `a + (b + c)`. Over hundreds of ticks, a 1-ULP difference can cross a collision or branch threshold and cascade.
+IEEE-754 floating-point addition and multiplication are not associative: `(a + b) + c` can differ in the last bit from `a + (b + c)`. On arm64, Go's compiler is also allowed by the language specification to contract `a*b + c` into a single fused multiply-add instruction (`FMADD`/`FMSUB`) with only one rounding instead of two, whereas amd64 executes separate multiply and add instructions. Over hundreds of ticks, even a 1-ULP difference between arm64 and amd64 can cross a collision or branch threshold and cascade.
 
 - Accumulate forces, velocities and scores in a fixed, deterministic entity order.
+- In custom simulation code that must match bit-for-bit across amd64 and arm64, wrap multiply-add products in an explicit conversion (`float32(a*b) + c` or `float64(a*b) + c`), which the Go specification guarantees forbids FMA contraction, and avoid standard library transcendentals (`math.Sin`, `math.Cos`, `math.Atan2`, `math.Hypot`) whose arm64 implementations emit FMA.
+- `packages/game/physics`, `packages/game/physics3d`, and `packages/game/vehicle` already eliminate arm64 FMA instructions across their stepped simulation paths and verify cross-architecture golden trajectory hashes in CI on both Ubuntu amd64 and macOS arm64.
 - Avoid mixing `float32` and `float64` inconsistently across code paths.
 - Use integer ticks or fixed-point values for exact counters, timers, grids and resource totals.
 
-## 6. Save and restore PRNG state for saves and replays
+## 6. Save and restore PRNG and physics state for saves, replays, and rollback
 
 A `Stream`'s full state (its seed and 256-bit generator words) can be snapshotted with `State()` and restored with `SetState(state)`. `State` marshals cleanly with `encoding/json`, so a saved game resumes the exact same future random sequence after reload:
 
@@ -89,6 +91,24 @@ if err := json.Unmarshal(data, &saved); err == nil {
 ```
 
 For a single stream, use `s.State()` and `s.SetState(state)`. Call `s.Reset()` or `streams.Reset()` to rewind to the start of a seed for replays or level restarts.
+
+For physics worlds, `physics.World`, `physics.RigidWorld`, `physics3d.World`, and `vehicle.Vehicle` all provide `Save()`, `Restore(snap)`, and `Checksum()` capturing every piece of private solver state (warm-start impulse caches, sleep timers, previous poses, active contact/trigger pair sets, and joint state). Snapshots marshal cleanly to plain-text JSON and pair directly with `net.RollbackSession` (`net.SimState`):
+
+```go
+// Inside a net.SimState implementation:
+func (s *MatchSim) Save() []byte {
+	data, _ := json.Marshal(s.world.Save())
+	return data
+}
+func (s *MatchSim) Load(b []byte) error {
+	var snap physics3d.WorldSnapshot
+	if err := json.Unmarshal(b, &snap); err != nil {
+		return err
+	}
+	return s.world.Restore(snap)
+}
+func (s *MatchSim) Checksum() uint64 { return s.world.Checksum() }
+```
 
 ## 7. Verify determinism in tests under `nsgotest`
 

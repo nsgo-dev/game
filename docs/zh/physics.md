@@ -140,3 +140,28 @@ water := &physics.Trigger{
 }
 rigidWorld.AddTrigger(water)
 ```
+
+## 快照、回滚与跨架构确定性
+
+`World` 与 `RigidWorld` 支持完整的世界状态快照以及跨 CPU 架构（amd64 与 arm64）的比特级确定性：
+
+- **`Save() / Restore(snap) / Checksum()`**：`World.Save()` 返回带版本号的 `WorldSnapshot`（`SnapshotVersion`），完整记录重力、瓦片网格、刚体、触发器以及逐触发器的 enter/stay/exit 追踪状态。`RigidWorld.Save()` 返回 `RigidWorldSnapshot`，记录重力、求解器配置、刚体（含待结算的力/力矩累加器与重力缩放标记）、触发器/区域，以及所有内置关节（`DistanceJoint`、`SpringJoint`、`RevoluteJoint` 及其锚点偏移、柔度与刚度参数）。
+- **纯文本 JSON 序列化**：`WorldSnapshot` 和 `RigidWorldSnapshot` 可直接使用 `encoding/json` 序列化与反序列化，不使用 `encoding/gob` 或自定义二进制格式。
+- **原地保留指针与回调**：当数量和类型匹配时，`Restore` 会原地更新已有的 `*Body`、`*RigidBody`、`*Trigger` 和 `Joint` 实例，在回滚期间保持游戏实体引用、`UserData` 以及触发器回调（`OnEnter`/`OnStay`/`OnExit`）有效。
+- **跨架构确定性**：所有步进求解器、积分、关节、窄相碰撞与区域计算路径都避免了 arm64 融合乘加（`FMADD`/`FMSUB`）收缩及含 FMA 的标准库超越函数，因此在第 100 步保存、推进到第 200 步、恢复并再次推进到第 200 步时，在 amd64 与 arm64 上都会得到比特完全一致的位置、速度、接触、事件与 `Checksum()` 值。
+
+```go
+snap := rigidWorld.Save()
+hashAtSave := rigidWorld.Checksum()
+
+// 以纯文本 JSON 持久化或传输（或直接存入回滚环形缓冲）：
+raw, _ := json.Marshal(snap)
+
+// 稍后恢复并按比特完全一致地重新模拟：
+var restored physics.RigidWorldSnapshot
+_ = json.Unmarshal(raw, &restored)
+if err := rigidWorld.Restore(restored); err != nil {
+	return err
+}
+_ = hashAtSave
+```

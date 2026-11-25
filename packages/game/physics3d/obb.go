@@ -93,7 +93,7 @@ func TestOrientedBoxBox(a Box, rotA Quat, b Box, rotB Quat) Contact {
 	t := b.Center.Sub(a.Center)
 
 	project := func(axes [3]Vec3, e Vec3, l Vec3) float32 {
-		return e.X*abs32(axes[0].Dot(l)) + e.Y*abs32(axes[1].Dot(l)) + e.Z*abs32(axes[2].Dot(l))
+		return float32(float32(e.X*abs32(axes[0].Dot(l)))+float32(e.Y*abs32(axes[1].Dot(l)))) + float32(e.Z*abs32(axes[2].Dot(l)))
 	}
 
 	bestDepth := float32(-1)
@@ -110,7 +110,7 @@ func TestOrientedBoxBox(a Box, rotA Quat, b Box, rotB Quat) Contact {
 			return false
 		}
 		// Prefer face axes: an edge axis must be clearly shallower to win, which keeps resting contacts stable.
-		if bestDepth < 0 || (edge < 0 && overlap < bestDepth) || (edge >= 0 && overlap < bestDepth*0.95-1e-5) {
+		if bestDepth < 0 || (edge < 0 && overlap < bestDepth) || (edge >= 0 && overlap < float32(bestDepth*0.95)-1e-5) {
 			bestDepth, bestAxis, bestEdge = overlap, l, edge
 		}
 		return true
@@ -156,7 +156,7 @@ func TestOrientedBoxBox(a Box, rotA Quat, b Box, rotB Quat) Contact {
 
 // cornersInside averages the corners of each box that lie inside (or within a small tolerance of) the other one.
 func cornersInside(ca Vec3, ax [3]Vec3, ea Vec3, cb Vec3, bx [3]Vec3, eb Vec3) (Vec3, bool) {
-	tol := 1e-3 * (1 + max(ea.X, ea.Y, ea.Z, eb.X, eb.Y, eb.Z))
+	tol := float32(1e-3 * (1 + max(ea.X, ea.Y, ea.Z, eb.X, eb.Y, eb.Z)))
 	inside := func(p, c Vec3, axes [3]Vec3, e Vec3) bool {
 		d := p.Sub(c)
 		for k := range 3 {
@@ -208,9 +208,9 @@ func orientedBoxBounds(b Box, rot Quat) Box {
 	ax := boxAxes(rot)
 	e := b.HalfExtents
 	he := Vec3{
-		X: abs32(ax[0].X)*e.X + abs32(ax[1].X)*e.Y + abs32(ax[2].X)*e.Z,
-		Y: abs32(ax[0].Y)*e.X + abs32(ax[1].Y)*e.Y + abs32(ax[2].Y)*e.Z,
-		Z: abs32(ax[0].Z)*e.X + abs32(ax[1].Z)*e.Y + abs32(ax[2].Z)*e.Z,
+		X: float32(float32(abs32(ax[0].X)*e.X)+float32(abs32(ax[1].X)*e.Y)) + float32(abs32(ax[2].X)*e.Z),
+		Y: float32(float32(abs32(ax[0].Y)*e.X)+float32(abs32(ax[1].Y)*e.Y)) + float32(abs32(ax[2].Y)*e.Z),
+		Z: float32(float32(abs32(ax[0].Z)*e.X)+float32(abs32(ax[1].Z)*e.Y)) + float32(abs32(ax[2].Z)*e.Z),
 	}
 	return Box{Center: b.Center, HalfExtents: he}
 }

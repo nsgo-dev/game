@@ -4,6 +4,8 @@ import (
 	"cmp"
 	"math"
 	"slices"
+
+	"github.com/nsgo-dev/game/packages/game/internal/detmath"
 )
 
 // AreaOverrideMode controls how a Trigger's AreaSettings combines its gravity
@@ -273,7 +275,7 @@ func triggerOuterRadius(s Shape) float64 {
 	case ShapeCircle:
 		return float64(s.Circle.R)
 	case ShapeBox:
-		return 0.5 * math.Hypot(float64(s.Box.W), float64(s.Box.H))
+		return 0.5 * detmath.Hypot(float64(s.Box.W), float64(s.Box.H))
 	default:
 		return 1
 	}
@@ -290,7 +292,7 @@ func areaGravityVector(tr *Trigger, px, py float64) (float64, float64) {
 	}
 	dx := sanitize32(a.GravityPointX) - px
 	dy := sanitize32(a.GravityPointY) - py
-	dist := math.Hypot(dx, dy)
+	dist := detmath.Hypot(dx, dy)
 	if dist <= 1e-6 {
 		return 0, 0
 	}
@@ -425,8 +427,8 @@ func (b *RigidBody) syncedShape() Shape {
 	s := b.Shape
 	switch s.Kind {
 	case ShapeBox:
-		s.Box.X = b.X - s.Box.W*0.5
-		s.Box.Y = b.Y - s.Box.H*0.5
+		s.Box.X = b.X - float32(s.Box.W*0.5)
+		s.Box.Y = b.Y - float32(s.Box.H*0.5)
 	case ShapeCircle:
 		s.Circle.X = b.X
 		s.Circle.Y = b.Y
@@ -638,17 +640,17 @@ doneGravity:
 		remFrac -= used
 		totalSubFrac += used
 		if fd > 0 && bodyArea > 0 {
-			buoyancyMass += fd * (used * bodyArea)
+			buoyancyMass += float64(fd * float64(used*bodyArea))
 		}
 		if flDrag > 0 {
-			wDrag := flDrag * used
+			wDrag := float64(flDrag * used)
 			totalLinDrag += wDrag
 			velWeightSum += wDrag
-			fluidVelXSum += sanitize32(a.FluidVelX) * wDrag
-			fluidVelYSum += sanitize32(a.FluidVelY) * wDrag
+			fluidVelXSum += float64(sanitize32(a.FluidVelX) * wDrag)
+			fluidVelYSum += float64(sanitize32(a.FluidVelY) * wDrag)
 		}
 		if faDrag > 0 {
-			totalAngDrag += faDrag * used
+			totalAngDrag += float64(faDrag * used)
 		}
 	}
 

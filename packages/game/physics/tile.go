@@ -258,7 +258,7 @@ func MoveAndSlide(b *Body, grid TileGrid, dt time.Duration) MoveResult {
 							}
 						}
 						if hitCol >= 0 {
-							x = ox + float64(hitCol)*tw - w
+							x = ox + float64(float64(hitCol)*tw) - w
 							b.OnRightWall = true
 							b.VX = 0
 							stepDX = 0
@@ -301,8 +301,8 @@ func MoveAndSlide(b *Body, grid TileGrid, dt time.Duration) MoveResult {
 				if stepDY > 0 {
 					hitRow := -1
 					for row := minRow; row <= maxRow; row++ {
-						tileTop := oy + float64(row)*th
-						oneWayEps := max(1e-4, 1e-5*math.Abs(tileTop))
+						tileTop := oy + float64(float64(row)*th)
+						oneWayEps := max(1e-4, float64(1e-5*math.Abs(tileTop)))
 						for col := minCol; col <= maxCol; col++ {
 							flags := grid.TileFlagsAt(col, row)
 							solid := flags&TileSolid != 0
@@ -313,7 +313,7 @@ func MoveAndSlide(b *Body, grid TileGrid, dt time.Duration) MoveResult {
 							}
 						}
 						if hitRow >= 0 {
-							y = oy + float64(hitRow)*th - h
+							y = oy + float64(float64(hitRow)*th) - h
 							b.Grounded = true
 							b.VY = 0
 							stepDY = 0

@@ -170,20 +170,21 @@ func computeDefaultInvInertia(shape Shape, mass float32) float32 {
 	switch shape.Kind {
 	case ShapeSphere:
 		r := shape.Sphere.Radius
-		inertia = 0.4 * mass * r * r
+		inertia = float32(0.4 * mass * r * r)
 		center = shape.Sphere.Center
 	case ShapeBox:
 		e := shape.Box.HalfExtents
 		// An isotropic box approximation: each axis' moment is (1/3) m (e_y² + e_z²) for half extents e, and the mean of the three is (2/9) m Σe², which is (2/3) m e² for a cube (#546).
-		inertia = mass * (e.X*e.X + e.Y*e.Y + e.Z*e.Z) * 2 / 9
+		sumSq := float32(float32(e.X*e.X)+float32(e.Y*e.Y)) + float32(e.Z*e.Z)
+		inertia = float32(float32(mass*sumSq)*2) / 9
 		center = shape.Box.Center
 	case ShapeCapsule:
 		r := shape.Capsule.Radius
 		lSq := shape.Capsule.B.Sub(shape.Capsule.A).LenSq()
-		inertia = mass * (0.4*r*r + lSq/12.0)
+		inertia = float32(mass * (float32(float32(0.4*r)*r) + float32(lSq/12.0)))
 		center = shape.Capsule.A.Add(shape.Capsule.B).Scale(0.5)
 	}
-	inertia += mass * center.LenSq()
+	inertia = float32(inertia) + float32(mass*center.LenSq())
 	minI := 1e-4 * mass
 	if inertia < minI {
 		inertia = minI
@@ -483,13 +484,13 @@ func (w *World) Step(dt time.Duration) {
 		if len(areaTriggers) == 0 {
 			b.Vel = b.Vel.Add(w.Gravity.Scale(gScale * dtSec))
 			if b.LinearDamping > 0 {
-				b.Vel = b.Vel.Scale(1 / (1 + b.LinearDamping*dtSec))
+				b.Vel = b.Vel.Scale(1 / (1 + float32(b.LinearDamping*dtSec)))
 			}
 			b.Pos = b.Pos.Add(b.Vel.Scale(dtSec))
 
 			if b.AngVel.LenSq() > 0 {
 				if b.AngularDamping > 0 {
-					b.AngVel = b.AngVel.Scale(1 / (1 + b.AngularDamping*dtSec))
+					b.AngVel = b.AngVel.Scale(1 / (1 + float32(b.AngularDamping*dtSec)))
 				}
 				b.Rot = IntegrateQuat(b.Rot, b.AngVel, dtSec)
 			}
@@ -501,18 +502,18 @@ func (w *World) Step(dt time.Duration) {
 		b.Vel = b.Vel.Add(accel.Scale(dtSec))
 
 		if eff.FluidLinearDrag > 0 {
-			factor := 1 / (1 + eff.FluidLinearDrag*dtSec)
+			factor := 1 / (1 + float32(eff.FluidLinearDrag*dtSec))
 			b.Vel = eff.FluidVelocity.Add(b.Vel.Sub(eff.FluidVelocity).Scale(factor))
 		}
 		if eff.LinearDamping > 0 {
-			b.Vel = b.Vel.Scale(1 / (1 + eff.LinearDamping*dtSec))
+			b.Vel = b.Vel.Scale(1 / (1 + float32(eff.LinearDamping*dtSec)))
 		}
 		b.Pos = b.Pos.Add(b.Vel.Scale(dtSec))
 
 		if b.AngVel.LenSq() > 0 {
 			angDamp := eff.AngularDamping + eff.FluidAngularDrag
 			if angDamp > 0 {
-				b.AngVel = b.AngVel.Scale(1 / (1 + angDamp*dtSec))
+				b.AngVel = b.AngVel.Scale(1 / (1 + float32(angDamp*dtSec)))
 			}
 			b.Rot = IntegrateQuat(b.Rot, b.AngVel, dtSec)
 		}
@@ -1186,5 +1187,7 @@ func applyContactImpulse(b *Body, r, p Vec3) {
 
 // contactEffectiveMass returns the inverse effective mass of a contact along unit direction d.
 func contactEffectiveMass(invA, invIA float32, rA Vec3, invB, invIB float32, rB Vec3, d Vec3) float32 {
-	return invA + invB + invIA*rA.Cross(d).LenSq() + invIB*rB.Cross(d).LenSq()
+	tA := float32(invIA * rA.Cross(d).LenSq())
+	tB := float32(invIB * rB.Cross(d).LenSq())
+	return float32(float32(invA+invB)+tA) + tB
 }

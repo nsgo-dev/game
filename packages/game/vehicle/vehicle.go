@@ -207,8 +207,8 @@ func (v *Vehicle) Step(world *physics3d.World, dt time.Duration) {
 	in := v.input
 
 	// Steering eases toward the requested angle at SteerRate.
-	target := -in.Steer * deg2rad(cfg.MaxSteerAngle)
-	maxDelta := deg2rad(cfg.SteerRate) * h
+	target := float32(-in.Steer * deg2rad(cfg.MaxSteerAngle))
+	maxDelta := float32(deg2rad(cfg.SteerRate) * h)
 	v.steer += clampAxis(target-v.steer, -maxDelta, maxDelta)
 
 	rot := b.Rot
@@ -247,7 +247,7 @@ func (v *Vehicle) Step(world *physics3d.World, dt time.Duration) {
 		compression := wc.RestLength - w.SuspensionLength
 		// Positive relative speed means the anchor is moving away from the ground (extending).
 		rel := pointVel(b, anchor).Sub(groundVel(w.Ground, hit.Point)).Dot(up)
-		force := wc.Stiffness*compression - wc.Damping*rel
+		force := float32(wc.Stiffness*compression) - float32(wc.Damping*rel)
 		if force < 0 {
 			force = 0
 		}
@@ -321,7 +321,7 @@ func (v *Vehicle) Step(world *physics3d.World, dt time.Duration) {
 		stopJ := -vf * effMass(b, r, f) / float32(grounded)
 		var jf float32
 		if wc.Drive {
-			jf += drive * h
+			jf += float32(drive * h)
 		}
 		locked := in.Handbrake && wc.Handbrake
 		switch {
@@ -329,9 +329,9 @@ func (v *Vehicle) Step(world *physics3d.World, dt time.Duration) {
 			jf = stopJ
 			w.SpinSpeed = 0
 		default:
-			resist := cfg.RollingResistance * w.SuspensionForce * h
+			resist := float32(float32(cfg.RollingResistance*w.SuspensionForce) * h)
 			if wc.Brake {
-				resist += brake * h
+				resist += float32(brake * h)
 			}
 			jf += towardZero(stopJ, resist)
 		}
@@ -396,7 +396,7 @@ func (v *Vehicle) spinWheels(h float32) {
 		if v.input.Handbrake && wc.Handbrake {
 			w.SpinSpeed = 0
 		}
-		w.SpinAngle = float32(math.Remainder(float64(w.SpinAngle+w.SpinSpeed*h), 2*math.Pi))
+		w.SpinAngle = float32(math.Remainder(float64(w.SpinAngle+float32(w.SpinSpeed*h)), 2*math.Pi))
 	}
 }
 
@@ -439,7 +439,7 @@ func activeInv(b *physics3d.Body) (float32, float32) {
 // effMass returns the effective mass of b along unit direction d at offset r from its center of mass.
 func effMass(b *physics3d.Body, r, d physics3d.Vec3) float32 {
 	invM, invI := activeInv(b)
-	k := invM + invI*r.Cross(d).LenSq()
+	k := invM + float32(invI*r.Cross(d).LenSq())
 	if k <= 0 {
 		return 0
 	}
@@ -475,7 +475,7 @@ func towardZero(stop, limit float32) float32 {
 }
 
 func hypot(a, b float32) float32 {
-	return float32(math.Sqrt(float64(a*a + b*b)))
+	return float32(math.Sqrt(float64(float32(a*a) + float32(b*b))))
 }
 
 func deg2rad(d float32) float32 {
