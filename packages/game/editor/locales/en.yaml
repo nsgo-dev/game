@@ -110,13 +110,24 @@ strings:
   dialog.cancel: Cancel
   dialog.create: Create
   dialog.discard: Discard
+  dialog.diskConflictDesc: '{file} changed on disk since it was opened or last saved. Overwriting it will replace the changes on disk.'
+  dialog.diskConflictTitle: File changed on disk
   dialog.newScene: New Scene
+  dialog.overwrite: Overwrite
   dialog.save: Save
   dialog.saveAs: Save Scene As
   dialog.scenePathDesc: A path from the project's root. Without a .yaml extension, .scene.yaml is added.
   dialog.scenePathLabel: Scene path
   dialog.unsavedDesc: The scene {scene} or the project has unsaved changes.
   dialog.unsavedTitle: Save changes?
+  disk.compare: Compare
+  disk.disk: Disk
+  disk.dismiss: Dismiss
+  disk.keepMine: Keep mine
+  disk.mine: Mine
+  disk.reload: Reload from disk
+  disk.showDiff: Show diff
+  disk.useThese: Use these
   files.editMaterial: Edit Material
   files.editMaterialLabel: Open the selected material file in the Material Editor
   files.findRefs: Find Refs

@@ -427,6 +427,7 @@ func (e *Editor) saveClipFromPanel() error {
 		if err := e.OnSaveClip(data); err != nil {
 			return err
 		}
+		e.clipSaved = append([]byte(nil), data...)
 		e.Status = "Saved clip"
 		e.notify()
 		return nil

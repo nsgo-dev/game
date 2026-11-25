@@ -153,7 +153,6 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 	e.ProjectPath = path
 	e.projectSaved = saved
 	e.projectSavedOnce = false
-
 	resetDoc := false
 	placeholder := false
 	switch {
@@ -174,6 +173,9 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 		}
 		e.keepTileInPalette()
 		e.History = e.newTabHistory()
+		if raw, err := os.ReadFile(openedPath); err == nil {
+			e.recordSceneDiskSnapshot(openedPath, raw)
+		}
 		e.resetTabsToActive(false)
 	case e.StartScreenOpen():
 		e.Doc = DefaultSceneDoc()
@@ -191,6 +193,7 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 		}
 		e.keepTileInPalette()
 		e.History = e.newTabHistory()
+		e.clearSceneDiskSnapshot()
 		resetDoc = true
 		placeholder = true
 		e.resetTabsToActive(true)
@@ -200,6 +203,10 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 		e.resetTabsToActive(placeholder)
 	}
 
+	e.clearClipDiskSnapshot()
+	e.recordProjectDiskSnapshot(path, data)
+	e.snapshotProjectTree()
+	e.snapshotGitHead()
 	e.setStartScreenEntered()
 	e.selectFile("")
 	e.resetSearchForProject()
@@ -278,6 +285,9 @@ func (e *Editor) SaveProject() error {
 	if e.Project == nil || e.ProjectPath == "" {
 		return ErrNoProject
 	}
+	if err := e.checkDiskConflict(DiskFileProject, e.ProjectPath, e.disk.projectDisk); err != nil {
+		return err
+	}
 	data, err := project.Encode(e.Project)
 	if err != nil {
 		return err
@@ -303,6 +313,7 @@ func (e *Editor) SaveProject() error {
 	}
 	e.projectSaved = data
 	e.projectSavedOnce = true
+	e.recordProjectDiskSnapshot(e.ProjectPath, data)
 	e.invalidateProjectIndex()
 	e.Status = "Saved project " + e.ProjectPath
 	e.notify()

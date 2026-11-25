@@ -80,6 +80,9 @@ func (e *Editor) SaveAll() error {
 	if e.playing {
 		return ErrPlaying
 	}
+	if err := e.checkSaveAllConflicts(); err != nil {
+		return err
+	}
 	if e.ProjectDirty() {
 		if err := e.SaveProject(); err != nil {
 			return err
@@ -213,6 +216,9 @@ func (e *Editor) Save() error {
 	e.saveViewStateQuietly()
 	e.endGridMapStrokeForChange()
 	e.endTerrainStrokeForChange()
+	if err := e.checkSaveConflicts(); err != nil {
+		return err
+	}
 	projectSaved := false
 	if e.ProjectDirty() {
 		if err := e.SaveProject(); err != nil {
@@ -426,7 +432,9 @@ func (e *Editor) RevertScene() error {
 	e.connPick = nil
 	e.CancelGridMapStroke()
 	e.sceneSaved = saved
+	e.recordSceneDiskSnapshot(e.FilePath, data)
 	e.History.Execute(&replaceSceneCmd{ed: e, label: "Revert scene", before: e.Doc.Clone(), after: doc})
+	e.syncActiveTab()
 	e.Status = "Reverted " + e.SceneLabel()
 	e.notify()
 	return nil

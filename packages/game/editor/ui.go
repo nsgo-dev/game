@@ -78,6 +78,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 		ed.cleanupAudioMixerScope(cx)
 		ed.stopExportBuild()
 		ed.stopAssetsBuild()
+		ed.stopDiskWatcher()
 		_ = ed.DisconnectProfiler()
 		ed.cancelCreateProject()
 		_ = ed.DisconnectRemote()
@@ -165,6 +166,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 											Children: []core.Node{
 												toolbarView(cx, ed, rev, sceneFileButtons(cx, ed, rev, dirty, pathMode, pathTarget)),
 												remotePlayBarView(cx, ed, rev),
+												diskWatchBannerView(cx, ed, rev),
 												core.Show{
 													When: func() bool {
 														_ = rev.Get()

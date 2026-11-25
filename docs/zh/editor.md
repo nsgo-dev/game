@@ -773,7 +773,16 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 
 工具栏的“File”菜单包含：“New Scene”，把一个最小的有效场景（以文件名命名，大小与项目的 display 或窗口相同，带一个 world 图层）写到作者给出的、从项目根目录算起的路径并在新标签页打开（`NewScene`）；“Save As”，把当前场景另存到另一个路径，并让该文件成为当前标签页的文件（`SaveSceneAs`）；“Revert”，把当前场景恢复为其文件中保存的样子（`RevertScene`）；以及“Open Instanced Scene”、“Open Base Scene”和“Close Tab”。没有 `.yaml` 或 `.yml` 扩展名的路径会加上 `.scene.yaml`（以 `.scene` 结尾的路径加上 `.yaml`），`game check` 和 `game index` 就是按这个名称识别场景的。New Scene 和 Save As 都不会覆盖其他文件，也不会把场景写到项目自身文件的名称 `game.yaml` 和 `nsgo.yaml` 下。Revert 是一个可撤销的步骤，撤销即可找回被恢复掉的修改。
 
-`SceneDirty` 报告当前活动场景是否与打开时或上次保存时的内容不同，它像 `ProjectDirty` 对 `game.yaml` 那样比较编码结果，所以撤销回到已保存的状态后，场景又会变为未修改；`TabDirty` 检查指定标签页，`AnySceneDirty` 报告是否存在任何有未保存修改的标签页。若 `MoveFile` 改写了打开的场景的文件，场景保持原来的已修改或未修改状态；若它只改写了打开的场景中的引用而没有改写其文件（例如 `game mv` 不读取的场景：名称不是 `.scene.yaml`，也没有任何文件引用它），场景会变为已修改，保存后即可保留新的路径。每个有未保存修改的标签页都会显示 `*` 标记，工具栏显示当前活动场景的路径（`SceneLabel`），只要任意打开的标签页或项目有未保存的修改（`HasUnsavedChanges`）就会显示 `*`，窗口标题也随之变化（`WindowTitle`）。窗口标题由 `EditorView` 设置，因此基于本包构建的编辑器（例如游戏自己的编辑器）应通过 `Editor.AppName` 给出自己的名称，而不是自行设置标题；标题以该名称结尾（为空时为“NSGo Scene Editor”）。“Save”按钮、菜单栏的 File > Save、命令面板中的 Save 和 Mod+S（`Save`，即 `CmdSave` 命令）只保存当前活动场景与共享项目中修改过的内容；未修改的文件保持原样，注释也会保留。有任意打开的标签页或项目存在未保存修改时，切换项目、退出编辑器和关闭窗口都会先询问：“Save”保存所有已修改的标签页和项目（`SaveAll`）后继续，“Discard”丢弃修改后继续，“Cancel”保留修改并停留。丢弃项目的修改时，由项目决定的状态也会像撤销这些修改时一样恢复，例如通过这些修改新增的音频总线进行的试听会停止。强制退出（如注销时）无法等待回答，不会询问。
+`SceneDirty` 报告当前活动场景是否与打开时或上次保存时的内容不同，它像 `ProjectDirty` 对 `game.yaml`、`ClipDirty` 对打开的动画片段那样比较编码结果，所以撤销回到已保存的状态后，场景、项目或动画片段又会变为未修改；`TabDirty` 检查指定标签页，`AnySceneDirty` 报告是否存在任何有未保存修改的标签页。若 `MoveFile` 改写了打开的场景的文件，场景保持原来的已修改或未修改状态；若它只改写了打开的场景中的引用而没有改写其文件（例如 `game mv` 不读取的场景：名称不是 `.scene.yaml`，也没有任何文件引用它），场景会变为已修改，保存后即可保留新的路径。每个有未保存修改的标签页都会显示 `*` 标记，工具栏显示当前活动场景的路径（`SceneLabel`），只要任意打开的标签页、项目、动画片段或其他辅助文档有未保存的修改（`HasUnsavedChanges`）就会显示 `*`，窗口标题也随之变化（`WindowTitle`）。窗口标题由 `EditorView` 设置，因此基于本包构建的编辑器（例如游戏自己的编辑器）应通过 `Editor.AppName` 给出自己的名称，而不是自行设置标题；标题以该名称结尾（为空时为“NSGo Scene Editor”）。“Save”按钮、菜单栏的 File > Save、命令面板中的 Save 和 Mod+S（`Save`，即 `CmdSave` 命令）只保存当前活动场景与共享项目中修改过的内容；未修改的文件保持原样，注释也会保留。有任意打开的标签页、项目或动画片段存在未保存修改时，切换项目（`RequestOpenProject`）、退出编辑器和关闭窗口都会先询问：“Save”保存所有已修改的标签页和项目（`SaveAll`）后继续，“Discard”丢弃修改后继续，“Cancel”保留修改并停留。丢弃项目的修改时，由项目决定的状态也会像撤销这些修改时一样恢复，例如通过这些修改新增的音频总线进行的试听会停止。强制退出（如注销时）无法等待回答，不会询问。
+
+### 重载磁盘上被修改的文件与保存冲突保护（#906）
+
+绑定 UI 作用域后，编辑器会监视当前打开的场景（`FilePath`）、动画片段（`ClipPath`）、`game.yaml`（`ProjectPath`）以及项目目录树（`DiskWatchInterval`，默认 250ms；在 Go 中可调用 `PollDiskChanges` 立即检查）：
+
+- **无未保存修改时自动重载**：当打开的场景、动画片段或 `game.yaml` 在磁盘上被外部修改且编辑器内没有未保存更改时，编辑器会自动以一个可撤销的 `History` 步骤重载（多文件 git 分支切换会合并为一步，如 `Switched branch · main → boss-room · 2 files`），更新已保存快照以保持未修改状态，并显示可关闭的重载提示（`DiskReloadNotice`），场景重载还提供对象级差异详情（**查看差异**）。
+- **有未保存修改时绝不静默覆盖**：当带有未保存编辑的打开文件在磁盘上被修改时，编辑器保留内存中的编辑，并显示外部更改冲突条（`DiskConflicts`、`PrimaryDiskConflict`），提供**从磁盘重新加载**（`ReloadFromDisk`，把作者原有修改记入 `History` 的 `"Unsaved edits before reload"` 以便撤销找回）、**保留我的版本**（`KeepLocalVersion`，把磁盘版本记入 `History` 的 `"Changed outside the editor"` 并确认当前磁盘快照使后续保存可以通过），以及针对场景的**对比**合并器（`SetDiskCompareOpen`、`SetSceneConflictChoice`、`ApplySceneConflictMerge`），可对双端重叠修改的对象逐个选择**我的**或**磁盘**，仅单端修改的对象自动采纳该端结果。
+- **保存冲突保护**：`Save`、`SaveFile`、`SaveProject` 与 `SaveClipFile` 在写入前都会将当前磁盘内容与打开或上次保存时记录的 SHA-256 快照比对；若文件已在外部变更，则拒绝覆盖并返回 `ErrDiskConflict`（`*DiskConflictError`）。在 `EditorView` 中触发冲突会弹出确认对话框（**取消**、**从磁盘重新加载**，或通过 `ConfirmOverwriteSave` / `ForceSave` 确认**覆盖**）。
+- **文件浏览器自动刷新**：在项目目录中新增、删除或重命名文件时，文件浏览器（`FilesView`）会自动刷新列表，并同步失效项目索引、触发问题检查，无需手动点击刷新。
 
 ## 图层面板（#862）
 
