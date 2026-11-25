@@ -260,7 +260,39 @@ _, _, _ = path, detour, ok
 
 - **默认兼容**：`BuildNavMesh` 为所有多边形设置 `NavAreaDefault` 与 `NavFlagWalk`，`FindPath` 使用 `DefaultNavFilter()`（`IncludeFlags: NavFlagAll`、`ExcludeFlags: NavFlagDisabled`、各区域默认代价 `1.0`），与既有行为完全一致。
 - **可采纳加权 A\***：`FindPathWithFilter` 按 `filter.AreaCost(area)` 对每个多边形内的移动距离加权，并以网格内可通行区域的最小代价缩放 A\* 距离启发值，确保道路代价低于 `1.0` 时仍能求得最优走廊；非正值、`NaN` 或无穷大代价视为禁止通行。
-- **运行时零重建修改**：通过 `PolygonArea`、`SetPolygonArea`、`PolygonFlags`、`SetPolygonFlags`、`AddPolygonFlags` 和 `ClearPolygonFlags` 以 O(1) 修改多边形区域或标志；空间查询 `FindPolygonWithFilter`、`ContainsWithFilter`、`NearestPolygonWithFilter` 以及带过滤的有界/增量搜索 `FindPathWithFilterAndOptions`、`StartSearchWithFilter` 同样遵循 `NavFilter`。
+- **运行时零重建修改**：通过 `PolygonArea`、`SetPolygonArea`、`PolygonFlags`、`SetPolygonFlags`、`AddPolygonFlags` 和 `ClearPolygonFlags` 以 O(1) 修改多边形区域或标志；空间查询 `FindPolygonWithFilter`、`ContainsWithFilter`、`NearestPolygonWithFilter`、`NearestPointWithFilter`、`RaycastWithFilter`、`MoveAlongSurfaceWithFilter`、`RandomPointWithFilter`、`RandomPointAroundWithFilter` 以及带过滤的有界/增量搜索 `FindPathWithFilterAndOptions`、`StartSearchWithFilter` 同样遵循 `NavFilter`。
+
+### 空间查询、表面滑动与零分配路径复用
+
+`ai.NavMesh` 在构建时自动建立扁平的 2D AABB BVH 空间索引，使 `FindPolygon`、`NearestPolygon`、`NearestPoint` 及寻路起终点定位在大型导航网格上保持对数级开销，不再全量扫描所有多边形：
+
+```go
+rng := random.New(42)
+
+// 在给定半尺寸范围内将点击或生成位置吸附到最近的可通行多边形：
+snapped, poly, ok := mesh.NearestPoint(clickPos, core.Point{X: 32, Y: 32})
+
+// 沿导航网格表面检测直线是否畅通：
+hit, obstructed := mesh.Raycast(agentPos, targetPos)
+
+// 将移动中的智能体朝 desiredPos 沿可行走表面滑动并钳制在网格内：
+moved, onMesh := mesh.MoveAlongSurface(agentPos, desiredPos)
+
+// 按确定性随机流与面积加权采样随机点（全网任意位置或半径内可达位置）：
+patrolPt, _, _ := mesh.RandomPoint(rng)
+wanderPt, _, _ := mesh.RandomPointAround(agentPos, 96, rng)
+
+// 复用调用方切片与查询对象缓冲区，实现零堆分配寻路与走廊查询：
+query := ai.NewNavMeshQuery(mesh)
+pathBuf, ok = query.FindPathInto(pathBuf, snapped, wanderPt)
+corridorBuf, _ = query.FindCorridorInto(corridorBuf, snapped, wanderPt)
+_, _, _, _, _, _, _ = poly, hit, obstructed, moved, onMesh, patrolPt, ok
+```
+
+- **范围限定吸附**：`NearestPoint(p, extent)` 与 `NearestPointWithFilter(p, extent, filter)` 在 `[p - extent, p + extent]` 盒内寻找允许通行的最近多边形表面点（当重叠多边形的全局最近点落在盒外时自动裁剪到范围盒内）。
+- **表面射线与沿面滑动**：`Raycast` / `RaycastWithFilter` 沿共享边门户步进并返回 `NavRaycastHit{Point, Normal, Poly, T, Hit}`（遇阻时给出指向网格内部的单位边法线）；`MoveAlongSurface` / `MoveAlongSurfaceWithFilter` 沿阻挡边界平滑滑动并跨多边形跟踪路径，返回 `NavMoveResult{Point, Poly, Visited, HitBoundary}`。
+- **跨平台确定性面积加权随机点**：`RandomPoint` / `RandomPointWithFilter` 在所有允许通行的多边形上按面积均匀采样；`RandomPointAround` / `RandomPointAroundWithFilter` 仅在从 `center` 可达且位于 `radius` 内的连通多边形上采样，绝不会落入断开的孤岛。使用相同 `*random.Stream` 种子时，跨运行与跨平台结果按位一致。
+- **零堆分配复用与并发只读查询**：`mesh.FindPathInto`、`mesh.FindPathWithFilterInto`、`mesh.FindPathWithFilterAndOptionsInto` 与 `mesh.FindCorridorInto` 使用带代数戳的复用缓冲区，预热后重复调用均为 `0` 堆分配。在多个 goroutine 上并发查询同一只读 `NavMesh` 时，请为每个工作协程创建独立的 `NewNavMeshQuery(mesh)`（同时提供零分配的 `MoveAlongSurfaceInto` 与缓冲区复用的 `RandomPointAround`）。
 
 ## 有界、部分路径与增量寻路
 

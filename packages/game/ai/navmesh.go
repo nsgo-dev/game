@@ -23,18 +23,21 @@ func toPoint(v vec2) core.Point { return core.Point{X: core.Points(v.x), Y: core
 func (a vec2) add(b vec2) vec2      { return vec2{a.x + b.x, a.y + b.y} }
 func (a vec2) sub(b vec2) vec2      { return vec2{a.x - b.x, a.y - b.y} }
 func (a vec2) scale(s float64) vec2 { return vec2{a.x * s, a.y * s} }
-func (a vec2) dot(b vec2) float64   { return a.x*b.x + a.y*b.y }
-func (a vec2) cross(b vec2) float64 { return a.x*b.y - a.y*b.x }
-func (a vec2) lenSq() float64       { return a.x*a.x + a.y*a.y }
+func (a vec2) dot(b vec2) float64   { return float64(a.x*b.x) + float64(a.y*b.y) }
+func (a vec2) cross(b vec2) float64 { return float64(a.x*b.y) - float64(a.y*b.x) }
+func (a vec2) lenSq() float64       { return float64(a.x*a.x) + float64(a.y*a.y) }
 func (a vec2) len() float64         { return math.Hypot(a.x, a.y) }
 
-func dist(a, b vec2) float64   { return math.Hypot(a.x-b.x, a.y-b.y) }
-func distSq(a, b vec2) float64 { dx, dy := a.x-b.x, a.y-b.y; return dx*dx + dy*dy }
-func vequal(a, b vec2) bool    { return distSq(a, b) <= navEps*navEps }
+func dist(a, b vec2) float64 { return math.Hypot(a.x-b.x, a.y-b.y) }
+func distSq(a, b vec2) float64 {
+	dx, dy := a.x-b.x, a.y-b.y
+	return float64(dx*dx) + float64(dy*dy)
+}
+func vequal(a, b vec2) bool { return distSq(a, b) <= navEps*navEps }
 
 // triArea2 returns twice the signed area of triangle (a, b, c): positive when a->b->c turns counter-clockwise.
 func triArea2(a, b, c vec2) float64 {
-	return (b.x-a.x)*(c.y-a.y) - (b.y-a.y)*(c.x-a.x)
+	return float64((b.x-a.x)*(c.y-a.y)) - float64((b.y-a.y)*(c.x-a.x))
 }
 
 func closestPointOnSegment(p, a, b vec2) vec2 {
@@ -51,6 +54,8 @@ func closestPointOnSegment(p, a, b vec2) vec2 {
 type navPoly struct {
 	verts                  []vec2
 	minX, minY, maxX, maxY float64
+	cx, cy                 float64
+	surfArea               float64
 	outPortals             []int
 	area                   NavArea
 	flags                  NavFlags
@@ -93,9 +98,12 @@ type navPortal struct {
 
 // NavMesh is a 2D navigation mesh built from convex polygons connected across shared edges.
 type NavMesh struct {
-	polys    []navPoly
-	portals  []navPortal
-	revision uint64
+	polys        []navPoly
+	portals      []navPortal
+	bvhNodes     []navBVHNode2D
+	bvhOrder     []int
+	revision     uint64
+	defaultQuery NavMeshQuery
 }
 
 // BuildNavMesh constructs a NavMesh from convex 2D polygons, normalizing winding order and automatically connecting adjacent polygons along shared edges (including partial collinear overlaps).
@@ -137,31 +145,50 @@ func BuildNavMeshWithAreas(polys []NavPolygonInput) *NavMesh {
 		}
 		minX, minY := verts[0].x, verts[0].y
 		maxX, maxY := verts[0].x, verts[0].y
+		sumX, sumY := verts[0].x, verts[0].y
 		for _, v := range verts[1:] {
 			minX = min(minX, v.x)
 			minY = min(minY, v.y)
 			maxX = max(maxX, v.x)
 			maxY = max(maxY, v.y)
+			sumX += v.x
+			sumY += v.y
 		}
+		invN := 1.0 / float64(len(verts))
 		flags := in.Flags
 		if flags == 0 {
 			flags = NavFlagWalk
 		}
 		m.polys = append(m.polys, navPoly{
-			verts: verts,
-			minX:  minX,
-			minY:  minY,
-			maxX:  maxX,
-			maxY:  maxY,
-			area:  in.Area,
-			flags: flags,
+			verts:    verts,
+			minX:     minX,
+			minY:     minY,
+			maxX:     maxX,
+			maxY:     maxY,
+			cx:       sumX * invN,
+			cy:       sumY * invN,
+			surfArea: 0.5 * math.Abs(area2),
+			area:     in.Area,
+			flags:    flags,
 		})
 	}
 
-	// Detect shared edges between every pair of polygons.
+	m.buildBVH()
+
+	// Detect shared edges using the spatial BVH, preserving deterministic (i, j) order.
+	var candidates []int
 	for i := 0; i < len(m.polys); i++ {
 		pi := &m.polys[i]
-		for j := i + 1; j < len(m.polys); j++ {
+		candidates = m.bvhQueryAABB(
+			pi.minX-portalEps, pi.minY-portalEps,
+			pi.maxX+portalEps, pi.maxY+portalEps,
+			candidates[:0],
+		)
+		slices.Sort(candidates)
+		for _, j := range candidates {
+			if j <= i {
+				continue
+			}
 			pj := &m.polys[j]
 			if pi.maxX+portalEps < pj.minX || pj.maxX+portalEps < pi.minX ||
 				pi.maxY+portalEps < pj.minY || pj.maxY+portalEps < pi.minY {
@@ -191,6 +218,7 @@ func BuildNavMeshWithAreas(polys []NavPolygonInput) *NavMesh {
 		}
 	}
 
+	m.defaultQuery.mesh = m
 	return m
 }
 
@@ -346,33 +374,26 @@ func (m *NavMesh) ClearPolygonFlags(index int, flags NavFlags) {
 
 // FindPolygon returns the lowest index of a polygon containing p (including its edges and vertices), or -1 if p lies outside the mesh.
 func (m *NavMesh) FindPolygon(p core.Point) int {
-	if m == nil {
+	if m == nil || len(m.polys) == 0 {
 		return -1
 	}
 	v := toVec2(p)
-	for i := range m.polys {
-		if polyContains(&m.polys[i], v) {
-			return i
-		}
+	if !isFiniteVec2(v) {
+		return -1
 	}
-	return -1
+	return m.bvhFindPoly(v, NavFilter{}, false)
 }
 
 // FindPolygonWithFilter returns the lowest index of a polygon passing filter that contains p (including its edges and vertices), or -1 if none match.
 func (m *NavMesh) FindPolygonWithFilter(p core.Point, filter NavFilter) int {
-	if m == nil {
+	if m == nil || len(m.polys) == 0 {
 		return -1
 	}
 	v := toVec2(p)
-	for i := range m.polys {
-		if !filter.Allows(m.polys[i].area, m.polys[i].flags) {
-			continue
-		}
-		if polyContains(&m.polys[i], v) {
-			return i
-		}
+	if !isFiniteVec2(v) {
+		return -1
 	}
-	return -1
+	return m.bvhFindPoly(v, filter, true)
 }
 
 // Contains reports whether p lies inside or on the boundary of any polygon in the mesh.
@@ -397,30 +418,15 @@ func (m *NavMesh) NearestPolygonWithFilter(p core.Point, filter NavFilter) (inde
 	if m == nil || len(m.polys) == 0 {
 		return -1, core.Point{}, false
 	}
-	if idx := m.FindPolygonWithFilter(p, filter); idx >= 0 {
+	v := toVec2(p)
+	if !isFiniteVec2(v) {
+		return -1, core.Point{}, false
+	}
+	if idx := m.bvhFindPoly(v, filter, true); idx >= 0 {
 		return idx, p, true
 	}
-	v := toVec2(p)
-	bestIdx := -1
-	bestDistSq := math.Inf(1)
-	var bestPt vec2
-	for i := range m.polys {
-		if !filter.Allows(m.polys[i].area, m.polys[i].flags) {
-			continue
-		}
-		vs := m.polys[i].verts
-		n := len(vs)
-		for k := range n {
-			cp := closestPointOnSegment(v, vs[k], vs[(k+1)%n])
-			d2 := distSq(v, cp)
-			if d2 < bestDistSq {
-				bestDistSq = d2
-				bestIdx = i
-				bestPt = cp
-			}
-		}
-	}
-	if bestIdx < 0 {
+	bestIdx, bestPt, found := m.bvhNearestPoly(v, vec2{}, false, filter)
+	if !found {
 		return -1, core.Point{}, false
 	}
 	return bestIdx, toPoint(bestPt), true

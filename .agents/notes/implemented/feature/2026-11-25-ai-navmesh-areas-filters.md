@@ -45,7 +45,7 @@ Both `ai.NavMesh` (2D) and `world3d.NavMesh` (3D) treated every walkable polygon
   - Door and gate toggling is O(1) with zero mesh rebuilds or re-linking.
   - All existing 2D and 3D navmesh tests pass unchanged under `DefaultNavFilter()`.
 - **Costs**:
-  - `FindPathWithFilter` allocates small per-query `allowed` and `polyCost` slices of length `len(polys)` (and flat portal-index slices in `world3d`) on each call; if high-frequency per-frame multi-agent navmesh queries become a bottleneck, a reusable query scratch object (analogous to `ai.AStar`) can eliminate per-query allocations without changing the `NavFilter` or `NavMesh` API.
+  - `FindPathWithFilter` allocates small per-query `allowed` and `polyCost` slices of length `len(polys)` (and flat portal-index slices in `world3d`) on each call; high-frequency callers can use the zero-allocation `NavMeshQuery` / `FindPathInto` APIs introduced in [2D and 3D navigation mesh spatial queries and zero-allocation path reuse](2026-11-25-ai-navmesh-queries.md) without changing `NavFilter`.
   - Funnel string-pulling remains geometric within the A\*-selected polygon corridor (standard Recast/Detour behavior) rather than computing Snell's-law refraction points inside a single portal.
 - **Verification**:
   - `packages/game/ai/navmesh_test.go` and `packages/game/world3d/navmesh_test.go` verify road-over-grass reference paths, water exclusion vs swimming agents, runtime door flag toggling without rebuilding, runtime area changes, filtered spatial queries, multi-level 3D ramp gating, invalid cost rejection, nil/bounds safety, and 50-run determinism.

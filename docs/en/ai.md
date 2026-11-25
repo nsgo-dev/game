@@ -260,7 +260,39 @@ _, _, _ = path, detour, ok
 
 - **Default compatibility**: `BuildNavMesh` assigns `NavAreaDefault` and `NavFlagWalk` to every polygon, and `FindPath` runs with `DefaultNavFilter()` (`IncludeFlags: NavFlagAll`, `ExcludeFlags: NavFlagDisabled`, cost `1.0` per area).
 - **Admissible weighted A\***: `FindPathWithFilter` weights distance inside each polygon by `filter.AreaCost(area)` and scales the A\* distance heuristic by the minimum allowed area cost across the mesh so sub-unit road costs remain optimal. Non-positive, `NaN`, or infinite area costs forbid traversal.
-- **Runtime updates without rebuild**: inspect or mutate polygons in O(1) via `PolygonArea`, `SetPolygonArea`, `PolygonFlags`, `SetPolygonFlags`, `AddPolygonFlags`, and `ClearPolygonFlags`. Filtered spatial queries (`FindPolygonWithFilter`, `ContainsWithFilter`, `NearestPolygonWithFilter`) and filtered bounded/incremental searches (`FindPathWithFilterAndOptions`, `StartSearchWithFilter`) honor the same `NavFilter`.
+- **Runtime updates without rebuild**: inspect or mutate polygons in O(1) via `PolygonArea`, `SetPolygonArea`, `PolygonFlags`, `SetPolygonFlags`, `AddPolygonFlags`, and `ClearPolygonFlags`. Filtered spatial queries (`FindPolygonWithFilter`, `ContainsWithFilter`, `NearestPolygonWithFilter`, `NearestPointWithFilter`, `RaycastWithFilter`, `MoveAlongSurfaceWithFilter`, `RandomPointWithFilter`, `RandomPointAroundWithFilter`) and filtered bounded/incremental searches (`FindPathWithFilterAndOptions`, `StartSearchWithFilter`) honor the same `NavFilter`.
+
+### Spatial queries, surface movement, and zero-allocation path reuse
+
+Every `ai.NavMesh` builds a flat 2D AABB BVH spatial index at construction time so `FindPolygon`, `NearestPolygon`, `NearestPoint`, and pathfinding endpoint lookups scale logarithmically on large meshes instead of scanning every polygon:
+
+```go
+rng := random.New(42)
+
+// Snap a click or spawn position onto the nearest allowed polygon within half-extents:
+snapped, poly, ok := mesh.NearestPoint(clickPos, core.Point{X: 32, Y: 32})
+
+// Test straight-line walkability along the mesh surface:
+hit, obstructed := mesh.Raycast(agentPos, targetPos)
+
+// Slide a moving agent toward desiredPos while clamping cleanly to walkable polygons:
+moved, onMesh := mesh.MoveAlongSurface(agentPos, desiredPos)
+
+// Pick deterministic, area-weighted random points (anywhere or reachable within radius):
+patrolPt, _, _ := mesh.RandomPoint(rng)
+wanderPt, _, _ := mesh.RandomPointAround(agentPos, 96, rng)
+
+// Reuse caller and query buffers for zero-allocation path and corridor searches:
+query := ai.NewNavMeshQuery(mesh)
+pathBuf, ok = query.FindPathInto(pathBuf, snapped, wanderPt)
+corridorBuf, _ = query.FindCorridorInto(corridorBuf, snapped, wanderPt)
+_, _, _, _, _, _, _ = poly, hit, obstructed, moved, onMesh, patrolPt, ok
+```
+
+- **Extent-bounded snapping**: `NearestPoint(p, extent)` and `NearestPointWithFilter(p, extent, filter)` find the closest point inside `[p - extent, p + extent]` on any allowed polygon (clipping overlapping polygons against the search box when needed).
+- **Surface raycast and sliding**: `Raycast` / `RaycastWithFilter` walk shared-edge portals and return `NavRaycastHit{Point, Normal, Poly, T, Hit}` (with unit inward edge normal on obstruction); `MoveAlongSurface` / `MoveAlongSurfaceWithFilter` slide along obstructing boundaries across polygons and return `NavMoveResult{Point, Poly, Visited, HitBoundary}`.
+- **Deterministic area-weighted sampling**: `RandomPoint` / `RandomPointWithFilter` sample uniformly by polygon area across allowed polygons; `RandomPointAround` / `RandomPointAroundWithFilter` restrict sampling to connected allowed polygons reachable from `center` within `radius` (never returning disconnected islands). Given the same `*random.Stream` seed, results are bit-identical across runs and architectures.
+- **Zero-allocation queries and concurrency**: `mesh.FindPathInto`, `mesh.FindPathWithFilterInto`, `mesh.FindPathWithFilterAndOptionsInto`, and `mesh.FindCorridorInto` reuse generation-stamped scratch buffers for `0` heap allocations after warm-up. Create one `NewNavMeshQuery(mesh)` per worker or goroutine when querying a shared read-only `NavMesh` concurrently (also exposing `MoveAlongSurfaceInto` and buffer-reusing `RandomPointAround`).
 
 ## Bounded, partial, and incremental path searches
 
