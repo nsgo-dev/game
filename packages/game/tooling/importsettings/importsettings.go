@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"math"
+	"path"
 	"slices"
 	"strings"
 
@@ -132,12 +134,30 @@ type Font struct {
 	Padding *int `yaml:"padding,omitempty" schema:"minimum=0"`
 }
 
-// Model holds how a model target packs a glTF model into one GLB file. Each field left out keeps the target's setting in game.yaml.
+// ModelLOD describes one level of detail of a glTF model (Model.LODs), ordered from finest (LOD 0) to coarsest.
+type ModelLOD struct {
+	// Model optionally names a separate glTF or GLB model file (slash-separated path from the project root) providing this level's geometry; empty uses this model file.
+	Model string `yaml:"model,omitempty"`
+	// Node optionally names a node inside the model (this file, or Model when set) providing this level's geometry; cannot be combined with Mesh.
+	Node string `yaml:"node,omitempty"`
+	// Mesh optionally names a mesh inside the model (this file, or Model when set) providing this level's geometry; cannot be combined with Node.
+	Mesh string `yaml:"mesh,omitempty"`
+	// MinScreenRatio is the minimum projected viewport-height fraction in [0, 1] at which this level is drawn (render3d.LODLevel.MinScreenRatio). Levels must strictly decrease in MinScreenRatio; 0 marks an unbounded coarsest fallback.
+	MinScreenRatio float32 `yaml:"minScreenRatio,omitempty" schema:"minimum=0,maximum=1"`
+	// MaxDistance is an optional maximum camera distance in world units at which this level is drawn (render3d.LODLevel.MaxDistance); 0 disables distance-based switching for this level.
+	MaxDistance float32 `yaml:"maxDistance,omitempty" schema:"minimum=0"`
+}
+
+// Model holds how a model target packs a glTF model into one GLB file and how scenemodel builds its levels of detail. Each field left out keeps the target's setting in game.yaml.
 type Model struct {
 	// Scale multiplies the size of every scene of the model, such as 0.01 for a model exported in centimeters; 0 keeps the target's.
 	Scale float64 `yaml:"scale,omitempty" schema:"minimum=0"`
 	// Animations keeps the model's animations when true and leaves them out of the GLB when false.
 	Animations *bool `yaml:"animations,omitempty"`
+	// LODs declares the model's levels of detail from finest (index 0) to coarsest, with screen-ratio (and optional distance) thresholds. When omitted, scenemodel.Build pairs glTF nodes following the _LOD1, _LOD2 naming convention with default screen-ratio thresholds.
+	LODs []ModelLOD `yaml:"lods,omitempty"`
+	// LODHysteresis is the optional relative deadband in [0, 0.5] used by render3d.Queue to prevent LOD popping near thresholds.
+	LODHysteresis float32 `yaml:"lodHysteresis,omitempty" schema:"minimum=0,maximum=0.5"`
 }
 
 // Sections returns the names of the import sections f holds, of "image", "audio", "font" and "model" in that order; Validate allows at most one.
@@ -178,6 +198,9 @@ func Parse(data []byte) (*File, error) {
 	if f.Audio != nil {
 		f.Audio.normalize()
 	}
+	if f.Model != nil {
+		f.Model.normalize()
+	}
 	return &f, nil
 }
 
@@ -190,6 +213,13 @@ func Encode(f *File) ([]byte, error) {
 		c, au := *f, *f.Audio
 		au.normalize()
 		c.Audio = &au
+		f = &c
+	}
+	if f.Model != nil {
+		c, m := *f, *f.Model
+		m.LODs = slices.Clone(m.LODs)
+		m.normalize()
+		c.Model = &m
 		f = &c
 	}
 	var buf bytes.Buffer
@@ -280,7 +310,63 @@ func (fo *Font) validate() error {
 }
 
 func (m *Model) validate() error {
-	return project.ValidateModelScale(m.Scale)
+	if err := project.ValidateModelScale(m.Scale); err != nil {
+		return err
+	}
+	if math.IsNaN(float64(m.LODHysteresis)) || math.IsInf(float64(m.LODHysteresis), 0) || m.LODHysteresis < 0 || m.LODHysteresis > 0.5 {
+		return fmt.Errorf("lodHysteresis %v must be finite and in [0, 0.5]", m.LODHysteresis)
+	}
+	for i, lv := range m.LODs {
+		if lv.Model != "" {
+			if !fs.ValidPath(lv.Model) || lv.Model == "." {
+				return fmt.Errorf("lods[%d]: model %q must be a slash-separated path relative to the project root", i, lv.Model)
+			}
+			ext := strings.ToLower(path.Ext(lv.Model))
+			if ext != ".gltf" && ext != ".glb" {
+				return fmt.Errorf("lods[%d]: model %q must be a glTF file ending in .gltf or .glb", i, lv.Model)
+			}
+		}
+		if lv.Node != "" && lv.Mesh != "" {
+			return fmt.Errorf("lods[%d]: node %q and mesh %q may not both be set", i, lv.Node, lv.Mesh)
+		}
+		if math.IsNaN(float64(lv.MinScreenRatio)) || math.IsInf(float64(lv.MinScreenRatio), 0) || lv.MinScreenRatio < 0 || lv.MinScreenRatio > 1 {
+			return fmt.Errorf("lods[%d]: minScreenRatio %v must be finite and in [0, 1]", i, lv.MinScreenRatio)
+		}
+		if math.IsNaN(float64(lv.MaxDistance)) || math.IsInf(float64(lv.MaxDistance), 0) || lv.MaxDistance < 0 {
+			return fmt.Errorf("lods[%d]: maxDistance %v must be finite and non-negative", i, lv.MaxDistance)
+		}
+		if i < len(m.LODs)-1 && lv.MinScreenRatio == 0 && lv.MaxDistance == 0 {
+			return fmt.Errorf("lods[%d]: only the coarsest (last) LOD level may leave both minScreenRatio and maxDistance zero", i)
+		}
+		if i > 0 {
+			prev := m.LODs[i-1]
+			if prev.MinScreenRatio > 0 && lv.MinScreenRatio > 0 && lv.MinScreenRatio >= prev.MinScreenRatio {
+				return fmt.Errorf("lods[%d]: minScreenRatio %v must be less than lods[%d] (%v)", i, lv.MinScreenRatio, i-1, prev.MinScreenRatio)
+			}
+			if prev.MinScreenRatio == 0 && lv.MinScreenRatio > 0 {
+				return fmt.Errorf("lods[%d]: minScreenRatio %v cannot follow lods[%d] with minScreenRatio 0", i, lv.MinScreenRatio, i-1)
+			}
+			if prev.MaxDistance > 0 && lv.MaxDistance > 0 && lv.MaxDistance <= prev.MaxDistance {
+				return fmt.Errorf("lods[%d]: maxDistance %v must be greater than lods[%d] (%v)", i, lv.MaxDistance, i-1, prev.MaxDistance)
+			}
+		}
+	}
+	return nil
+}
+
+// normalize replaces negative zero float32 fields with positive zero so Encode and Parse round-trip identically.
+func (m *Model) normalize() {
+	if m.LODHysteresis == 0 {
+		m.LODHysteresis = 0
+	}
+	for i := range m.LODs {
+		if m.LODs[i].MinScreenRatio == 0 {
+			m.LODs[i].MinScreenRatio = 0
+		}
+		if m.LODs[i].MaxDistance == 0 {
+			m.LODs[i].MaxDistance = 0
+		}
+	}
 }
 
 // normalize replaces a level of negative zero with zero, which YAML writes as -0 but reads back as 0, so Encode writes the same bytes for a File as for the one Parse reads from them.

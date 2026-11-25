@@ -358,11 +358,15 @@ font:
 ```
 
 ```yaml
-# models/ship.gltf.import.yaml，由模型目标读取
+# models/ship.gltf.import.yaml，由模型目标与 scenemodel.Build 读取
 version: 1
 model:
   scale: 0.01
   animations: false
+  lodHysteresis: 0.05
+  lods:
+    - { node: Ship_LOD0, minScreenRatio: 0.25 }
+    - { node: Ship_LOD1, minScreenRatio: 0.0 }
 ```
 
 ```yaml

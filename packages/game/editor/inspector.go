@@ -1151,6 +1151,128 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 					ed.report(ed.SetObjectGridMap(objID, ""))
 				},
 			}),
+			core.Show{
+				When: func() bool {
+					_ = rev.Get()
+					return ed.ObjectLODCount3D(objID) > 0
+				},
+				Then: func(cx *core.Scope) core.Node {
+					return fieldRow("Active LOD", core.Text{
+						TestID: "inspector-lod-active",
+						ContentFunc: func() string {
+							_ = rev.Get()
+							count := ed.ObjectLODCount3D(objID)
+							if ed.ObjectOccluded3D(objID) {
+								return fmt.Sprintf("Occluded (%d levels)", count)
+							}
+							if lv, ok := ed.ObjectLOD3D(objID); ok {
+								return fmt.Sprintf("LOD %d / %d", lv, count)
+							}
+							return fmt.Sprintf("Culled (%d levels)", count)
+						},
+						Style: core.Style{FontSize: 12, Color: colors.Text()},
+					})
+				},
+			},
+			fieldRow("Occluder", ui.Select[string]{
+				TestID:   "inspector-occluder-mode",
+				Label:    "Occluder Mode",
+				Disabled: disabled,
+				Options: []ui.Option[string]{
+					{Value: "", Label: "None"},
+					{Value: string(sceneformat.OccluderModel), Label: "Model"},
+					{Value: string(sceneformat.OccluderBox), Label: "Box"},
+				},
+				Value: func() string {
+					_ = rev.Get()
+					if o, _, _ := ed.FindObject(objID); o != nil && o.Occluder != nil {
+						return string(o.Occluder.Mode)
+					}
+					return ""
+				},
+				OnChange: func(mode string) {
+					var occ *sceneformat.OccluderDoc
+					switch sceneformat.OccluderMode(mode) {
+					case sceneformat.OccluderModel:
+						occ = &sceneformat.OccluderDoc{Mode: sceneformat.OccluderModel}
+					case sceneformat.OccluderBox:
+						sz := [3]float32{1, 1, 1}
+						occ = &sceneformat.OccluderDoc{Mode: sceneformat.OccluderBox, Size: &sz}
+					}
+					if err := ed.SetObjectOccluder(objID, occ); err != nil {
+						ed.Status = err.Error()
+						ed.notify()
+					}
+				},
+			}),
+			core.Show{
+				When: func() bool {
+					_ = rev.Get()
+					o, _, _ := ed.FindObject(objID)
+					return o != nil && o.Occluder != nil && o.Occluder.Mode == sceneformat.OccluderBox
+				},
+				Then: func(cx *core.Scope) core.Node {
+					sizeInput := func(testID, label string, axis int) core.Node {
+						return fieldRow(label, ui.NumberInput{
+							TestID:   testID,
+							Label:    label,
+							Min:      0.01,
+							Step:     0.5,
+							Disabled: disabled,
+							Value: func() float64 {
+								_ = rev.Get()
+								if o, _, _ := ed.FindObject(objID); o != nil && o.Occluder != nil {
+									return float64(o.Occluder.EffectiveSize()[axis])
+								}
+								return 1
+							},
+							OnChange: func(v float64) {
+								if o, _, _ := ed.FindObject(objID); o != nil && o.Occluder != nil {
+									next := cloneOccluderDoc(o.Occluder)
+									sz := next.EffectiveSize()
+									sz[axis] = float32(v)
+									next.Size = &sz
+									ed.report(ed.SetObjectOccluder(objID, next))
+								}
+							},
+						})
+					}
+					return core.View{
+						Style: core.Style{Gap: 6},
+						Children: []core.Node{
+							sizeInput("inspector-occluder-size-x", "Occ Size X", 0),
+							sizeInput("inspector-occluder-size-y", "Occ Size Y", 1),
+							sizeInput("inspector-occluder-size-z", "Occ Size Z", 2),
+						},
+					}
+				},
+			},
+			core.Show{
+				When: func() bool {
+					_ = rev.Get()
+					o, _, _ := ed.FindObject(objID)
+					return o != nil && o.Occluder != nil && o.Occluder.Mode == sceneformat.OccluderModel
+				},
+				Then: func(cx *core.Scope) core.Node {
+					return fieldRow("2-Sided", ui.Checkbox{
+						TestID:   "inspector-occluder-double-sided",
+						Label:    "Double-Sided Occluder",
+						Disabled: disabled,
+						Checked: func() bool {
+							_ = rev.Get()
+							o, _, _ := ed.FindObject(objID)
+							return o != nil && o.Occluder != nil && o.Occluder.DoubleSided
+						},
+						OnChange: func(on bool) {
+							if o, _, _ := ed.FindObject(objID); o != nil && o.Occluder != nil {
+								next := cloneOccluderDoc(o.Occluder)
+								next.DoubleSided = on
+								ed.report(ed.SetObjectOccluder(objID, next))
+							}
+						},
+					})
+				},
+			},
 		)
 	}
 

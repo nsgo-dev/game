@@ -21,6 +21,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/render3d"
 	"github.com/nsgo-dev/game/packages/game/resource"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
+	"github.com/nsgo-dev/game/packages/game/scenemodel"
 	"github.com/nsgo-dev/game/packages/game/tilemap"
 	"github.com/nsgo-dev/game/packages/game/tooling/datatable"
 	"github.com/nsgo-dev/game/packages/game/tooling/library"
@@ -192,9 +193,10 @@ type Editor struct {
 	Doc          *sceneformat.SceneDoc
 	Built        *sceneformat.BuiltScene
 	BuildErr     error
-	History      *History
-	Resolver     sceneformat.AssetResolver
-	Prefabs      map[string]Prefab
+	History       *History
+	Resolver      sceneformat.AssetResolver
+	ModelResolver scenemodel.ModelResolver
+	Prefabs       map[string]Prefab
 	SelectedID   string
 	ActiveLayer  string
 	Tool         Tool
@@ -259,6 +261,12 @@ type Editor struct {
 	OnBakeNavMesh3DGeometry func(g *navbake3d.Geometry) error
 	// NavMesh3DAssetFS is an optional fallback file system used by BakeNavMesh3D and LoadNavMesh3D to resolve glTF models and instanced scenes when no project directory is open.
 	NavMesh3DAssetFS fs.FS
+	// ShowLODOverlay controls whether per-object active LOD labels and color-coding draw in the 3D viewport. New initializes it to true.
+	ShowLODOverlay bool
+	// ShowOccluders controls whether 3D occluder volumes draw in the 3D viewport. New initializes it to true.
+	ShowOccluders bool
+	// ShowRenderStats controls whether the RenderStats HUD overlay shows in the 3D viewport. New initializes it to true.
+	ShowRenderStats bool
 	// PlayRate is the fixed update rate in Hz during Play mode and clip playback (defaults to 60 when <= 0).
 	PlayRate int
 	// OnSaveClip is invoked by the animation panel's Save button with the encoded clip YAML; when nil the button writes to ClipPath.
@@ -438,6 +446,8 @@ type Editor struct {
 	unsavedPrompt unsavedPromptState
 	// navMesh3D holds the 3D navigation mesh bake settings, panel visibility, and cached preview mesh.
 	navMesh3D navMesh3DState
+	// vp3d holds cached 3D render3d.Queue/OcclusionBuffer state, active LOD indices and RenderStats for the 3D viewport.
+	vp3d viewport3DState
 }
 
 // DefaultSceneDoc returns a valid starter SceneDoc suitable for a new editor session.
@@ -481,6 +491,9 @@ func New(doc *sceneformat.SceneDoc, resolver sceneformat.AssetResolver) (*Editor
 		ShowLightingPreview: true,
 		ShowNavMesh3D:       true,
 		navMesh3D:           navMesh3DState{config: DefaultNavMeshBakeConfig()},
+		ShowLODOverlay:      true,
+		ShowOccluders:       true,
+		ShowRenderStats:     true,
 		selKey:              clipKeyRef{-1, -1},
 		listeners:           make(map[uint64]func()),
 		output: outputPanelState{
@@ -1621,6 +1634,9 @@ func (e *Editor) SetObjectMesh(id, mesh string) error {
 	if mesh != "" && obj.GridMap != "" {
 		return fmt.Errorf("editor: object %q draws gridMap %q; it cannot also draw mesh %q", id, obj.GridMap, mesh)
 	}
+	if mesh == "" && obj.Model == "" && obj.Occluder != nil && obj.Occluder.Mode == sceneformat.OccluderModel {
+		return fmt.Errorf("editor: object %q has a model occluder; clear or switch occluder to box before removing mesh", id)
+	}
 	e.History.Execute(&meshObjectCmd{
 		ed:      e,
 		id:      id,
@@ -1650,7 +1666,7 @@ func (c *placeObjectCmd) Do() {
 		return
 	}
 	c.wasNilSlice = c.ed.Doc.Layers[li].Objects == nil
-	if c.ed.Doc.Version < sceneformat.CurrentVersion && (instancesScene(&c.obj) || drawsModel(&c.obj)) {
+	if c.ed.Doc.Version < sceneformat.CurrentVersion && (instancesScene(&c.obj) || drawsModel(&c.obj) || hasOccluder(&c.obj)) {
 		c.ed.Doc.Version = sceneformat.CurrentVersion
 	}
 	c.ed.Doc.Layers[li].Objects = append(c.ed.Doc.Layers[li].Objects, cloneObjectDoc(c.obj))

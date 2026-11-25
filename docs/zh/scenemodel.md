@@ -44,8 +44,17 @@ layers:
 | `modelMesh` | 版本 2，需要 `model`，不能与 `modelNode` 同时使用。模型中第一个叫这个名字的网格，画在对象原点。 |
 | `gridMap` | 版本 2。模块化 3D [`*.gridmap.yaml` 文件](world3d.md#模块化-3d-gridmap)，用从项目根目录起、以斜杠分隔的路径指定。`Build` 加载网格地图及其 glTF `meshLibrary`，调用 `world3d.GridMap.BuildInstances`，为每个瓦片实例创建共用 `MeshID` 和 `MaterialID` 的子节点，并按 `GridMap.Bounds()` 设置对象节点的 `LocalBounds`。不能与 `mesh` 或 `model` 同时使用。 |
 | `material` | 一个[材质文件](resources.md)。用在基本形体上时它就是表面，没有时为白色、非金属、完全粗糙；用在模型或网格地图上时它替换模型或瓦片库的所有材质。它的基础色和自发光颜色是 sRGB，会转换为线性光；不透明度乘到基础色的 alpha 上，小于 1 时表面按混合绘制；`metallic`、`roughness`、`doubleSided` 和 `texture` 按原样使用。它的 2D 混合模式和 `unlit` 在 3D 中不适用。 |
+| `occluder` | 版本 2。将对象标记为 `render3d.OcclusionBuffer` 的 3D 遮挡体：`{ mode: model }` 使用对象自身的 `mesh` 或 `model` 几何体（存在多级 LOD 时取最粗糙的一级）；`{ mode: box, center: [x, y, z], size: [w, h, d] }` 使用对象局部空间中的显式包围盒（默认居中 `[1, 1, 1]`）。可选的 `doubleSided: true` 表示正反两面均光栅化。 |
 
 覆盖项（`overrides`）可以在被实例化或被继承的场景的对象上替换上面每个字段。合并后的对象仍要遵守上面的规则，所以把基本形体换成模型或网格地图的覆盖项要在 `model` 或 `gridMap` 旁边写上 `mesh: ""`；只改 `model` 而保留 `modelNode` 或 `modelMesh` 的覆盖项，新模型里也要有那个部分。`scene.v2.json` 为编辑器和 AI 工具描述了这些字段（[schemas](schemas.md)）。
+
+## LOD 级别与遮挡体（#904）
+
+`scenemodel.Build` 会自动填充 `DrawItem.LODs` 并提取遮挡体几何体，使 YAML 编写的 3D 关卡无需编写 Go 胶水代码即可同时获得细节层次切换与软件遮挡剔除：
+
+- **节点/网格命名约定**：拥有相同基础名并带有 `_LOD1`、`_LOD2`……后缀的同级 glTF 节点或网格（由 `gltf.ParseLODNodeName` 解析，不区分大小写，并忽略 Blender 的 `.001` 后缀）会自动与基础（`_LOD0` 或无后缀）网格配对。未显式配置阈值时使用 `scenemodel.DefaultLODScreenRatio`（`0.25`、`0.10`、`0.04`、`0.015`，最粗糙一级为 `0`）。
+- **导入附属文件（`*.import.yaml`）**：当解析器实现 `ImportSettingsResolver`（`scenemodel.Assets` 已实现）时，`Build` 会读取 `<模型>.import.yaml`（`importsettings.Model.LODs` 与 `LODHysteresis`）。每条 LOD 记录可指定 `minScreenRatio`（投影包围球直径与视口高度之比）和/或 `maxDistance`，既可覆盖命名约定发现的 `_LODn` 阈值，也可显式指向同模型内的 `node`/`mesh` 或独立的 `.gltf`/`.glb` `model` 文件。
+- **遮挡体**：带有 `occluder` 的对象会生成 `Built.Occluders`。可调用 `Built.AppendOccluders(dst)` 或 `Built.RasterizeOccluders(buf, viewProj)` 直接供给 `render3d.OcclusionBuffer`；`scenemodel.Renderer` 在 `Prepare` 中会自动把 `Built.Occluders` 光栅化到内部 `render3d.OcclusionBuffer`（除非设置了 `RendererOptions.DisableOcclusion`），并通过 `Renderer.Plan()` 暴露包含 `Stats.Occluded` 的 `render3d.RenderPlan`。
 
 ## 构建
 

@@ -329,6 +329,41 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 											shadingBtn("shading-wireframe", "Wireframe", Shading3DWireframe),
 										},
 									},
+									ui.ToolbarGroup{
+										Label: "3D Overlays",
+										Children: []core.Node{
+											ui.ToggleButton{
+												TestID: "viewport3d-toggle-lod",
+												Text:   "LOD",
+												Label:  "Toggle active LOD indicators in the 3D viewport",
+												On: func() bool {
+													_ = rev.Get()
+													return ed.ShowLODOverlay
+												},
+												OnChange: ed.SetShowLODOverlay,
+											},
+											ui.ToggleButton{
+												TestID: "viewport3d-toggle-occluders",
+												Text:   "Occluders",
+												Label:  "Toggle occluder volume visualization in the 3D viewport",
+												On: func() bool {
+													_ = rev.Get()
+													return ed.ShowOccluders
+												},
+												OnChange: ed.SetShowOccluders,
+											},
+											ui.ToggleButton{
+												TestID: "viewport3d-toggle-stats",
+												Text:   "Stats",
+												Label:  "Toggle RenderStats overlay in the 3D viewport",
+												On: func() bool {
+													_ = rev.Get()
+													return ed.ShowRenderStats
+												},
+												OnChange: ed.SetShowRenderStats,
+											},
+										},
+									},
 								},
 							}
 						},

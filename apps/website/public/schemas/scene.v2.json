@@ -423,6 +423,14 @@
           "description": "GridMap optionally names a 3D grid map file (*.gridmap.yaml or *.gridmap.yml) by its slash-separated path from the project root, such as \"levels/dungeon.gridmap.yaml\". Package scenemodel loads it and instances its tiles with world3d.GridMap.BuildInstances. It cannot be combined with Mesh or Model. Version 2.",
           "type": "string"
         },
+        "occluder": {
+          "description": "Occluder optionally marks this 3D object as an occluder for render3d.OcclusionBuffer, using either its own 3D geometry (mode \"model\") or an explicit local-space box (mode \"box\"). Version 2.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/OccluderDoc"
+            }
+          ]
+        },
         "flipX": {
           "description": "FlipX and FlipY mirror the sprite inside its untrimmed frame box.",
           "type": "boolean"
@@ -607,6 +615,14 @@
           "description": "GridMap replaces the 3D grid map file the object draws, a slash-separated path from the project root; \"\" removes it.",
           "type": "string"
         },
+        "occluder": {
+          "description": "Occluder replaces the object's 3D occluder definition.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/OccluderDoc"
+            }
+          ]
+        },
         "flipX": {
           "description": "FlipX replaces whether the sprite is mirrored horizontally.",
           "type": "boolean"
@@ -650,6 +666,46 @@
           "additionalProperties": {}
         }
       },
+      "additionalProperties": false
+    },
+    "OccluderDoc": {
+      "description": "OccluderDoc marks a 3D object as an occluder that hides objects behind it in render3d.OcclusionBuffer (ObjectDoc.Occluder). Version 2.",
+      "type": "object",
+      "properties": {
+        "mode": {
+          "description": "Mode selects the occluder geometry: \"model\" (the object's own Mesh or Model) or \"box\" (an explicit local-space solid box).",
+          "type": "string",
+          "enum": [
+            "model",
+            "box"
+          ]
+        },
+        "center": {
+          "description": "Center is the optional local-space center [x, y, z] of a \"box\" occluder; nil centers it at the object's origin. Only valid when Mode is \"box\".",
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": -3.4028234663852886e+38,
+            "maximum": 3.4028234663852886e+38
+          }
+        },
+        "size": {
+          "description": "Size is the optional local-space dimensions [width, height, depth] of a \"box\" occluder; nil defaults to [1, 1, 1], scaled by the object's transform. When set, every axis must be positive. Only valid when Mode is \"box\".",
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": -3.4028234663852886e+38,
+            "maximum": 3.4028234663852886e+38
+          }
+        },
+        "doubleSided": {
+          "description": "DoubleSided rasterizes both front and back faces of a \"model\" occluder when true.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "mode"
+      ],
       "additionalProperties": false
     },
     "SpriteRef": {

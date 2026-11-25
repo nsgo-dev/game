@@ -875,6 +875,57 @@ func modelImportFields(
 				ed.report(ed.ResetAssetImportField(relPath, "animations"))
 			}),
 		),
+		fieldRow("LOD Hyst.", func() string {
+			return "Relative LOD transition deadband [0, 0.5] to prevent popping"
+		},
+			ui.NumberInput{
+				TestID:   "import-model-lod-hysteresis",
+				Label:    "LOD Hysteresis",
+				Min:      0,
+				Max:      0.5,
+				Step:     0.01,
+				Format:   func(v float64) string { return strconv.FormatFloat(v, 'g', -1, 64) },
+				Disabled: disabled,
+				Value: func() float64 {
+					v, _ := readInfo().EffectiveModelLODHysteresis()
+					return float64(v)
+				},
+				OnChange: func(v float64) {
+					ed.report(ed.SetModelImportLODHysteresis(relPath, float32(v)))
+				},
+			},
+			resetBtn("import-model-lod-hysteresis-reset", "Reset LOD hysteresis", func() bool {
+				_, over := readInfo().EffectiveModelLODHysteresis()
+				return over
+			}, func() {
+				ed.report(ed.ResetAssetImportField(relPath, "lodHysteresis"))
+			}),
+		),
+		fieldRow("LODs", func() string {
+			return "Declared LOD levels (or automatic _LOD1/_LOD2 convention when unset)"
+		},
+			core.Text{
+				TestID: "import-model-lods",
+				ContentFunc: func() string {
+					lods, ok := readInfo().EffectiveModelLODs()
+					if !ok {
+						return "Auto (_LOD1/_LOD2)"
+					}
+					parts := make([]string, len(lods))
+					for i, lv := range lods {
+						parts[i] = fmt.Sprintf("LOD%d >= %.2g", i, lv.MinScreenRatio)
+					}
+					return strings.Join(parts, ", ")
+				},
+				Style: core.Style{FontSize: 11, Color: ui.ColorsOf(cx).Muted()},
+			},
+			resetBtn("import-model-lods-reset", "Clear declared LOD levels", func() bool {
+				_, over := readInfo().EffectiveModelLODs()
+				return over
+			}, func() {
+				ed.report(ed.ResetAssetImportField(relPath, "lods"))
+			}),
+		),
 	}
 }
 

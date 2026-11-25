@@ -14,6 +14,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/resource"
 	"github.com/nsgo-dev/game/packages/game/scene3d"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
+	"github.com/nsgo-dev/game/packages/game/tooling/importsettings"
 	"github.com/nsgo-dev/game/packages/game/world3d"
 )
 
@@ -60,6 +61,11 @@ type Part struct {
 	Material Material
 	// MaterialID identifies Material among the materials of one Built, from 0 up, shared by the parts that use the same glTF material or material file.
 	MaterialID uint32
+	// LODs are the detail levels for this part, ordered from finest (index 0, matching Mesh and MeshID) to coarsest. Empty when the part has only one detail level.
+	LODs []PartLOD
+
+	// lodLevels is the prebuilt render3d.LODLevel slice for AppendDrawItems so frame submission does not allocate.
+	lodLevels []render3d.LODLevel
 }
 
 // Drawable is a node that draws geometry: an object's node, or a node Build made for a node of the object's model.
@@ -80,6 +86,10 @@ type Built struct {
 	Drawables []*Drawable
 	// GridMaps maps each object ID that named ObjectDoc.GridMap to its constructed runtime *world3d.GridMap, for collision queries, raycasting, or custom instancing.
 	GridMaps map[string]*world3d.GridMap
+	// Occluders are the occluders built from scene objects that set ObjectDoc.Occluder, in document order.
+	Occluders []Occluder
+	// LODHysteresis is the largest non-zero lodHysteresis declared by any model import sidecar in the built scene, or 0 when none sets one.
+	LODHysteresis float32
 	// Meshes and Materials count the distinct MeshID and MaterialID values the parts use.
 	Meshes, Materials int
 }
@@ -105,16 +115,18 @@ func Build(doc *sceneformat.SceneDoc, parent *scene3d.Node, models ModelResolver
 		return nil, err
 	}
 	b := &builder{
-		built:     &Built{Nodes3D: *nodes, GridMaps: make(map[string]*world3d.GridMap)},
-		models:    models,
-		docs:      make(map[string]*gltf.Document),
-		gridMaps:  make(map[string]*world3d.GridMapDoc),
-		meshIDs:   make(map[meshKey]uint32),
-		matIDs:    make(map[materialKey]uint32),
-		gltfMats:  make(map[materialKey]Material),
-		fileMats:  make(map[string]Material),
-		textures:  make(map[textureKey]*Texture),
-		fileTexts: make(map[string]*Texture),
+		built:         &Built{Nodes3D: *nodes, GridMaps: make(map[string]*world3d.GridMap)},
+		models:        models,
+		docs:          make(map[string]*gltf.Document),
+		gridMaps:      make(map[string]*world3d.GridMapDoc),
+		sidecars:      make(map[string]*importsettings.File),
+		sidecarLoaded: make(map[string]bool),
+		meshIDs:       make(map[meshKey]uint32),
+		matIDs:        make(map[materialKey]uint32),
+		gltfMats:      make(map[materialKey]Material),
+		fileMats:      make(map[string]Material),
+		textures:      make(map[textureKey]*Texture),
+		fileTexts:     make(map[string]*Texture),
 	}
 	for li := range doc.Layers {
 		l := &doc.Layers[li]
@@ -172,22 +184,25 @@ type textureKey struct {
 
 // builder holds what one Build has loaded so far.
 type builder struct {
-	built     *Built
-	models    ModelResolver
-	docs      map[string]*gltf.Document
-	gridMaps  map[string]*world3d.GridMapDoc
-	meshIDs   map[meshKey]uint32
-	matIDs    map[materialKey]uint32
-	gltfMats  map[materialKey]Material
-	fileMats  map[string]Material
-	textures  map[textureKey]*Texture
-	fileTexts map[string]*Texture
+	built         *Built
+	models        ModelResolver
+	docs          map[string]*gltf.Document
+	gridMaps      map[string]*world3d.GridMapDoc
+	sidecars      map[string]*importsettings.File
+	sidecarLoaded map[string]bool
+	meshIDs       map[meshKey]uint32
+	matIDs        map[materialKey]uint32
+	gltfMats      map[materialKey]Material
+	fileMats      map[string]Material
+	textures      map[textureKey]*Texture
+	fileTexts     map[string]*Texture
 	// shapes caches the geometry of each primitive shape.
 	shapes map[string]render3d.Mesh
 }
 
-// object gives the object o, built at node n, its geometry.
+// object gives the object o, built at node n, its geometry and optional occluder.
 func (b *builder) object(o *sceneformat.ObjectDoc, n *scene3d.Node) error {
+	startDrawables := len(b.built.Drawables)
 	switch {
 	case o.Mesh != "":
 		mesh, err := b.shape(o.Mesh)
@@ -199,12 +214,16 @@ func (b *builder) object(o *sceneformat.ObjectDoc, n *scene3d.Node) error {
 			return err
 		}
 		b.attach(o.ID, n, []Part{{Mesh: mesh, MeshID: b.meshID(meshKey{primitive: o.Mesh, uvFrom: -1}), Material: mat, MaterialID: matID}})
-		return nil
 	case o.Model != "":
-		return b.model(o, n)
+		if err := b.model(o, n); err != nil {
+			return err
+		}
 	case o.GridMap != "":
-		return b.gridMap(o, n)
+		if err := b.gridMap(o, n); err != nil {
+			return err
+		}
 	}
+	b.buildObjectOccluders(o, n, startDrawables)
 	return nil
 }
 
@@ -273,13 +292,27 @@ func (b *builder) attach(id string, n *scene3d.Node, parts []Part) {
 // errNoModelResolver is why Build cannot load a model without a ModelResolver.
 var errNoModelResolver = errors.New("naming a model requires a ModelResolver")
 
-// model gives the object o, built at node n, the geometry of its model.
+// model gives the object o, built at node n, the geometry of its model, pairing any LOD levels declared in its import sidecar or by the _LOD1/_LOD2 node-name convention.
 func (b *builder) model(o *sceneformat.ObjectDoc, n *scene3d.Node) error {
 	doc, err := b.loadModel(o.Model)
 	if err != nil {
 		return err
 	}
-	g := gltfObject{builder: b, doc: doc, object: o.ID, override: o.Material}
+	sidecar, err := b.loadImportSettings(o.Model)
+	if err != nil {
+		return err
+	}
+	var sidecarLODs []importsettings.ModelLOD
+	if sidecar != nil && sidecar.Model != nil {
+		sidecarLODs = sidecar.Model.LODs
+		if sidecar.Model.LODHysteresis > b.built.LODHysteresis {
+			b.built.LODHysteresis = sidecar.Model.LODHysteresis
+		}
+	}
+	g := gltfObject{builder: b, doc: doc, object: o.ID, override: o.Material, sidecarLODs: sidecarLODs}
+	if len(sidecarLODs) > 0 && hasExplicitLODTargets(sidecarLODs) {
+		return g.buildExplicitSidecarLODs(o, n, sidecarLODs)
+	}
 	switch {
 	case o.ModelMesh != "":
 		mi := FindMesh(doc, o.ModelMesh)
@@ -290,6 +323,18 @@ func (b *builder) model(o *sceneformat.ObjectDoc, n *scene3d.Node) error {
 		if err != nil {
 			return err
 		}
+		if coarseMeshes := findLODMeshes(doc, mi); len(coarseMeshes) > 0 {
+			coarseParts := make([][]Part, len(coarseMeshes))
+			for k, cmi := range coarseMeshes {
+				cp, err := g.meshParts(cmi, nil)
+				if err != nil {
+					return err
+				}
+				coarseParts[k] = cp
+			}
+			ratios, dists := resolveThresholds(1+len(coarseMeshes), sidecarLODs)
+			attachPartLODs(parts, coarseParts, ratios, dists)
+		}
 		b.attach(o.ID, n, parts)
 		return nil
 	case o.ModelNode != "":
@@ -297,10 +342,19 @@ func (b *builder) model(o *sceneformat.ObjectDoc, n *scene3d.Node) error {
 		if ni < 0 {
 			return fmt.Errorf("model %q has no node %q", o.Model, o.ModelNode)
 		}
-		return g.node(ni, n, false)
+		var primary map[int][]int
+		if coarse := findSiblingLODsForNode(doc, ni); len(coarse) > 0 {
+			primary = map[int][]int{ni: coarse}
+		}
+		return g.nodeWithConsumed(ni, n, false, nil, primary)
 	}
-	for _, root := range sceneRoots(doc) {
-		if err := g.node(root, n, true); err != nil {
+	roots := sceneRoots(doc)
+	primary, consumed := groupSiblingLODs(doc, roots)
+	for _, root := range roots {
+		if consumed[root] {
+			continue
+		}
+		if err := g.nodeWithConsumed(root, n, true, consumed, primary); err != nil {
 			return err
 		}
 	}
@@ -540,10 +594,12 @@ type gltfObject struct {
 	object string
 	// override is the material file that replaces the model's materials, or "".
 	override string
+	// sidecarLODs holds threshold-only LOD entries from the model's *.import.yaml sidecar, if any.
+	sidecarLODs []importsettings.ModelLOD
 }
 
-// node builds glTF node ni: under n as a new child node with the glTF node's transform when child is true, and on n itself otherwise. Its descendants become child nodes either way.
-func (g *gltfObject) node(ni int, n *scene3d.Node, child bool) error {
+// nodeWithConsumed builds glTF node ni: under n as a new child node with the glTF node's transform when child is true, and on n itself otherwise. Any coarser _LOD sibling nodes listed in primary[ni] are attached as Part.LODs instead of being emitted as separate nodes, and nodes in consumed are skipped.
+func (g *gltfObject) nodeWithConsumed(ni int, n *scene3d.Node, child bool, consumed map[int]bool, primary map[int][]int) error {
 	gn := &g.doc.Nodes[ni]
 	at := n
 	if child {
@@ -561,10 +617,27 @@ func (g *gltfObject) node(ni int, n *scene3d.Node, child bool) error {
 		if err != nil {
 			return fmt.Errorf("model node %d (%q): %w", ni, gn.Name, err)
 		}
+		if coarseNodes := primary[ni]; len(coarseNodes) > 0 {
+			coarseParts := make([][]Part, len(coarseNodes))
+			for k, cni := range coarseNodes {
+				cn := &g.doc.Nodes[cni]
+				cp, err := g.meshParts(cn.Mesh, cn.Weights)
+				if err != nil {
+					return fmt.Errorf("model node %d (%q) LOD %d (%q): %w", ni, gn.Name, k+1, cn.Name, err)
+				}
+				coarseParts[k] = cp
+			}
+			ratios, dists := resolveThresholds(1+len(coarseNodes), g.sidecarLODs)
+			attachPartLODs(parts, coarseParts, ratios, dists)
+		}
 		g.attach(g.object, at, parts)
 	}
+	childPrimary, childConsumed := groupSiblingLODs(g.doc, gn.Children)
 	for _, c := range gn.Children {
-		if err := g.node(c, at, true); err != nil {
+		if consumed[c] || childConsumed[c] {
+			continue
+		}
+		if err := g.nodeWithConsumed(c, at, true, consumed, childPrimary); err != nil {
 			return err
 		}
 	}
@@ -900,6 +973,7 @@ func (b *Built) AppendDrawItems(dst []render3d.DrawItem) []render3d.DrawItem {
 				WorldBounds: p.Mesh.Bounds().Transform(world),
 				Triangles:   tris,
 				Vertices:    uint32(len(p.Mesh.Positions)),
+				LODs:        p.lodLevels,
 			})
 		}
 	}

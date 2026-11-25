@@ -1,6 +1,7 @@
 package scenemodel
 
 import (
+	"errors"
 	"fmt"
 	"image"
 	_ "image/jpeg" // decode the JPEG textures material files name
@@ -10,12 +11,13 @@ import (
 
 	"github.com/nsgo-dev/game/packages/game/gltf"
 	"github.com/nsgo-dev/game/packages/game/resource"
+	"github.com/nsgo-dev/game/packages/game/tooling/importsettings"
 	"github.com/nsgo-dev/game/packages/game/world3d"
 )
 
 // ModelResolver loads the glTF models objects name in sceneformat.ObjectDoc.Model, as sceneformat.MaterialResolver loads their material files. path is the slash-separated path from the project root that the scene file writes, such as "models/crate.glb". A resolver that returns the same document for the same path lets every object that names it share its decoded textures.
 //
-// The ModelResolver given to Build may also implement sceneformat.MaterialResolver, to resolve the material files objects name in ObjectDoc.Material, ImageResolver, to load the textures those material files name, and GridMapResolver, to load the 3D grid maps objects name in ObjectDoc.GridMap. Assets implements all four.
+// The ModelResolver given to Build may also implement sceneformat.MaterialResolver, to resolve the material files objects name in ObjectDoc.Material, ImageResolver, to load the textures those material files name, GridMapResolver, to load the 3D grid maps objects name in ObjectDoc.GridMap, and ImportSettingsResolver, to read a model's *.import.yaml sidecar for LOD definitions. Assets implements all five.
 type ModelResolver interface {
 	Model(path string) (*gltf.Document, error)
 }
@@ -31,27 +33,36 @@ type ImageResolver interface {
 	Image(path string) (image.Image, error)
 }
 
-// Assets loads models, grid maps, material files and images from a project's files, such as os.DirFS(projectRoot) or an embed.FS, and keeps each one it loaded, so it serves Build as a ModelResolver, a GridMapResolver, a sceneformat.MaterialResolver and an ImageResolver. Models load with gltf.LoadFS, so a .gltf file's separate buffers and images are read from beside it; grid maps parse with world3d.ParseGridMapWith; material files load through a resource.Library, which shares one value per path; images decode as PNG or JPEG.
+// ImportSettingsResolver loads the *.import.yaml sidecar of the model at modelPath, a slash-separated path from the project root such as "models/tree.glb". It returns (nil, nil) when the model has no sidecar file.
+type ImportSettingsResolver interface {
+	ImportSettings(modelPath string) (*importsettings.File, error)
+}
+
+// Assets loads models, grid maps, material files, images and model import sidecars from a project's files, such as os.DirFS(projectRoot) or an embed.FS, and keeps each one it loaded, so it serves Build as a ModelResolver, a GridMapResolver, a sceneformat.MaterialResolver, an ImageResolver and an ImportSettingsResolver. Models load with gltf.LoadFS, so a .gltf file's separate buffers and images are read from beside it; grid maps parse with world3d.ParseGridMapWith; material files load through a resource.Library, which shares one value per path; images decode as PNG or JPEG; sidecars load through importsettings.Parse.
 //
 // Its methods are safe to call from any goroutine.
 type Assets struct {
 	fsys      fs.FS
 	materials *resource.Library
 
-	mu       sync.Mutex
-	models   map[string]*gltf.Document
-	gridMaps map[string]*world3d.GridMapDoc
-	images   map[string]image.Image
+	mu            sync.Mutex
+	models        map[string]*gltf.Document
+	gridMaps      map[string]*world3d.GridMapDoc
+	images        map[string]image.Image
+	sidecars      map[string]*importsettings.File
+	sidecarLoaded map[string]bool
 }
 
 // NewAssets returns Assets that read from fsys, rooted at the project root.
 func NewAssets(fsys fs.FS) *Assets {
 	return &Assets{
-		fsys:      fsys,
-		materials: resource.NewLibrary(fsys),
-		models:    make(map[string]*gltf.Document),
-		gridMaps:  make(map[string]*world3d.GridMapDoc),
-		images:    make(map[string]image.Image),
+		fsys:          fsys,
+		materials:     resource.NewLibrary(fsys),
+		models:        make(map[string]*gltf.Document),
+		gridMaps:      make(map[string]*world3d.GridMapDoc),
+		images:        make(map[string]image.Image),
+		sidecars:      make(map[string]*importsettings.File),
+		sidecarLoaded: make(map[string]bool),
 	}
 }
 
@@ -132,6 +143,34 @@ func (a *Assets) Image(path string) (image.Image, error) {
 	}
 	a.images[path] = img
 	return img, nil
+}
+
+// ImportSettings reads and parses the *.import.yaml sidecar beside modelPath on first use and caches the result, returning (nil, nil) when no sidecar file exists.
+func (a *Assets) ImportSettings(modelPath string) (*importsettings.File, error) {
+	if err := a.check(modelPath); err != nil {
+		return nil, err
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.sidecarLoaded[modelPath] {
+		return a.sidecars[modelPath], nil
+	}
+	sidecarPath := importsettings.Path(modelPath)
+	data, err := fs.ReadFile(a.fsys, sidecarPath)
+	if errors.Is(err, fs.ErrNotExist) {
+		a.sidecarLoaded[modelPath] = true
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("scenemodel: sidecar %s: %w", sidecarPath, err)
+	}
+	f, err := importsettings.Parse(data)
+	if err != nil {
+		return nil, fmt.Errorf("scenemodel: sidecar %s: %w", sidecarPath, err)
+	}
+	a.sidecars[modelPath] = f
+	a.sidecarLoaded[modelPath] = true
+	return f, nil
 }
 
 // check returns why a cannot read path, or nil.

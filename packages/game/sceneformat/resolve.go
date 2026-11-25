@@ -438,6 +438,9 @@ func (ov *ObjectOverride) applyTo(o *ObjectDoc) {
 	setValue(&o.ModelNode, ov.ModelNode)
 	setValue(&o.ModelMesh, ov.ModelMesh)
 	setValue(&o.GridMap, ov.GridMap)
+	if ov.Occluder != nil {
+		o.Occluder = cloneOccluder(ov.Occluder)
+	}
 	setValue(&o.FlipX, ov.FlipX)
 	setValue(&o.FlipY, ov.FlipY)
 	setPointer(&o.Alpha, ov.Alpha)
@@ -617,6 +620,7 @@ func cloneObjectFields(o *ObjectDoc) ObjectDoc {
 	out.ScaleZ = clonePtr(o.ScaleZ)
 	out.Alpha = clonePtr(o.Alpha)
 	out.Sprite = clonePtr(o.Sprite)
+	out.Occluder = cloneOccluder(o.Occluder)
 	out.Components = cloneAnyMap(o.Components)
 	out.Properties = cloneAnyMap(o.Properties)
 	out.Overrides = cloneOverrides(o.Overrides)
@@ -651,6 +655,7 @@ func cloneOverrides(ovs map[string]ObjectOverride) map[string]ObjectOverride {
 		c.ModelNode = clonePtr(ov.ModelNode)
 		c.ModelMesh = clonePtr(ov.ModelMesh)
 		c.GridMap = clonePtr(ov.GridMap)
+		c.Occluder = cloneOccluder(ov.Occluder)
 		c.FlipX = clonePtr(ov.FlipX)
 		c.FlipY = clonePtr(ov.FlipY)
 		c.Alpha = clonePtr(ov.Alpha)
@@ -725,6 +730,16 @@ func clonePtr[T any](p *T) *T {
 		return nil
 	}
 	c := *p
+	return &c
+}
+
+func cloneOccluder(o *OccluderDoc) *OccluderDoc {
+	if o == nil {
+		return nil
+	}
+	c := *o
+	c.Center = clonePtr(o.Center)
+	c.Size = clonePtr(o.Size)
 	return &c
 }
 
