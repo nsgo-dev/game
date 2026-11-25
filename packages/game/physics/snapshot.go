@@ -52,7 +52,48 @@ type GridSnapshot struct {
 	Rows       int         `json:"rows"`
 	TileWidth  float32     `json:"tileWidth"`
 	TileHeight float32     `json:"tileHeight"`
+	OriginX    float32     `json:"originX,omitempty"`
+	OriginY    float32     `json:"originY,omitempty"`
 	Cells      []TileFlags `json:"cells,omitempty"`
+}
+
+// snapshotGrid returns a snapshot of tiles when it is a *Grid, or nil.
+func snapshotGrid(tiles TileGrid) *GridSnapshot {
+	g, ok := tiles.(*Grid)
+	if !ok || g == nil {
+		return nil
+	}
+	cells := make([]TileFlags, len(g.Cells))
+	copy(cells, g.Cells)
+	return &GridSnapshot{
+		Cols:       g.Cols,
+		Rows:       g.Rows,
+		TileWidth:  g.TileWidth,
+		TileHeight: g.TileHeight,
+		OriginX:    g.OriginX,
+		OriginY:    g.OriginY,
+		Cells:      cells,
+	}
+}
+
+// restoreGrid writes gs into tiles when it is a *Grid, keeping the caller's pointer, or returns a new *Grid holding gs.
+func restoreGrid(tiles TileGrid, gs *GridSnapshot) TileGrid {
+	cells := make([]TileFlags, len(gs.Cells))
+	copy(cells, gs.Cells)
+	g, ok := tiles.(*Grid)
+	if !ok || g == nil {
+		g = new(Grid)
+	}
+	*g = Grid{
+		Cols:       gs.Cols,
+		Rows:       gs.Rows,
+		TileWidth:  gs.TileWidth,
+		TileHeight: gs.TileHeight,
+		OriginX:    gs.OriginX,
+		OriginY:    gs.OriginY,
+		Cells:      cells,
+	}
+	return g
 }
 
 // WorldSnapshot captures the complete deterministic state of a physics.World,
@@ -115,6 +156,18 @@ type RigidBodySnapshot struct {
 	RestX     float32 `json:"restX,omitempty"`
 	RestY     float32 `json:"restY,omitempty"`
 	RestAngle float32 `json:"restAngle,omitempty"`
+	Kinematic bool    `json:"kinematic,omitempty"`
+	Sensor    bool    `json:"sensor,omitempty"`
+	// TargetPending reports a pose (TargetX, TargetY, TargetAngle) that SetTargetPose asked the next Step to reach.
+	TargetPending bool    `json:"targetPending,omitempty"`
+	TargetX       float32 `json:"targetX,omitempty"`
+	TargetY       float32 `json:"targetY,omitempty"`
+	TargetAngle   float32 `json:"targetAngle,omitempty"`
+	// TargetDriven reports that the last Step moved the body to a target with velocity (TargetVX, TargetVY, TargetAngularVel), which the next Step stops unless a new target is set.
+	TargetDriven     bool    `json:"targetDriven,omitempty"`
+	TargetVX         float32 `json:"targetVX,omitempty"`
+	TargetVY         float32 `json:"targetVY,omitempty"`
+	TargetAngularVel float32 `json:"targetAngularVel,omitempty"`
 }
 
 // RigidContactPointSnapshot captures the impulses one contact point ended a step with, which warm-start the next step.
@@ -125,12 +178,29 @@ type RigidContactPointSnapshot struct {
 	TangentImpulse float64 `json:"tangentImpulse"`
 }
 
-// RigidContactSnapshot captures one cached contact manifold of a RigidWorld: the pair of bodies, as indices into RigidWorldSnapshot.Bodies, the manifold's index within the pair (the chain segment against a Chain, 0 otherwise) and its points.
+// RigidContactSnapshot captures one cached contact manifold of a RigidWorld: the pair of bodies, as indices into RigidWorldSnapshot.Bodies, the manifold's index within the pair (the chain segment against a Chain, 0 otherwise) and its points. A contact with the world's Tiles has Tile set, BodyBIndex -1 and the tile's row*cols + col in Sub.
 type RigidContactSnapshot struct {
 	BodyAIndex int                         `json:"bodyAIndex"`
 	BodyBIndex int                         `json:"bodyBIndex"`
+	Tile       bool                        `json:"tile,omitempty"`
 	Sub        int                         `json:"sub,omitempty"`
 	Points     []RigidContactPointSnapshot `json:"points,omitempty"`
+}
+
+// RigidTouchSnapshot captures one contact a RigidWorld reported begun and not yet ended: two bodies, as indices into RigidWorldSnapshot.Bodies, or a body and the Tiles, with Tile set, BodyBIndex -1 and the last tile touched.
+type RigidTouchSnapshot struct {
+	BodyAIndex int       `json:"bodyAIndex"`
+	BodyBIndex int       `json:"bodyBIndex"`
+	Tile       bool      `json:"tile,omitempty"`
+	Col        int       `json:"col,omitempty"`
+	Row        int       `json:"row,omitempty"`
+	TileFlags  TileFlags `json:"tileFlags,omitempty"`
+}
+
+// RigidSenseSnapshot captures one body overlapping a sensor, both as indices into RigidWorldSnapshot.Bodies.
+type RigidSenseSnapshot struct {
+	SensorIndex  int `json:"sensorIndex"`
+	VisitorIndex int `json:"visitorIndex"`
 }
 
 // RigidJointSnapshot captures the complete public and private solver state of one RigidWorld Joint.
@@ -258,6 +328,15 @@ type RigidWorldSnapshot struct {
 	// Contacts is the warm-start cache between bodies of Bodies, and LastDt the length in seconds of the step that filled it.
 	Contacts []RigidContactSnapshot `json:"contacts,omitempty"`
 	LastDt   float64                `json:"lastDt,omitempty"`
+	// Grid is the world's Tiles when they are a *Grid, with the settings they collide with.
+	Grid            *GridSnapshot `json:"grid,omitempty"`
+	TileLayer       LayerMask     `json:"tileLayer,omitempty"`
+	TileMask        LayerMask     `json:"tileMask,omitempty"`
+	TileFriction    float32       `json:"tileFriction,omitempty"`
+	TileRestitution float32       `json:"tileRestitution,omitempty"`
+	// Touching and Sensing are the contacts and sensor overlaps the next Step compares its own with to report ContactEvents and SensorEvents. Entries with a body outside Bodies are not saved, so the end of such a contact is not reported after Restore.
+	Touching []RigidTouchSnapshot `json:"touching,omitempty"`
+	Sensing  []RigidSenseSnapshot `json:"sensing,omitempty"`
 }
 
 func snapshotBody(b *Body) BodySnapshot {
@@ -383,18 +462,7 @@ func (w *World) Save() WorldSnapshot {
 		}
 	}
 
-	if g, ok := w.Tiles.(*Grid); ok && g != nil {
-		cells := make([]TileFlags, len(g.Cells))
-		copy(cells, g.Cells)
-		snap.Grid = &GridSnapshot{
-			Cols:       g.Cols,
-			Rows:       g.Rows,
-			TileWidth:  g.TileWidth,
-			TileHeight: g.TileHeight,
-			Cells:      cells,
-		}
-	}
-
+	snap.Grid = snapshotGrid(w.Tiles)
 	return snap
 }
 
@@ -505,23 +573,7 @@ func (w *World) Restore(snap WorldSnapshot) error {
 	w.triggerActive = restoredActive
 
 	if snap.Grid != nil {
-		cells := make([]TileFlags, len(snap.Grid.Cells))
-		copy(cells, snap.Grid.Cells)
-		if g, ok := w.Tiles.(*Grid); ok && g != nil {
-			g.Cols = snap.Grid.Cols
-			g.Rows = snap.Grid.Rows
-			g.TileWidth = snap.Grid.TileWidth
-			g.TileHeight = snap.Grid.TileHeight
-			g.Cells = cells
-		} else {
-			w.Tiles = &Grid{
-				Cols:       snap.Grid.Cols,
-				Rows:       snap.Grid.Rows,
-				TileWidth:  snap.Grid.TileWidth,
-				TileHeight: snap.Grid.TileHeight,
-				Cells:      cells,
-			}
-		}
+		w.Tiles = restoreGrid(w.Tiles, snap.Grid)
 	}
 	return nil
 }
@@ -634,6 +686,16 @@ func snapshotRigidBody(b *RigidBody) RigidBodySnapshot {
 		RestX:           b.restX,
 		RestY:           b.restY,
 		RestAngle:       b.restAngle,
+		Kinematic:       b.Kinematic,
+		Sensor:          b.Sensor,
+	}
+	if b.targetPending {
+		s.TargetPending = true
+		s.TargetX, s.TargetY, s.TargetAngle = b.target.x, b.target.y, b.target.angle
+	}
+	if b.targetDriven {
+		s.TargetDriven = true
+		s.TargetVX, s.TargetVY, s.TargetAngularVel = b.targetVX, b.targetVY, b.targetAV
 	}
 	if b.sleeping {
 		env := b.sleepEnv
@@ -687,6 +749,16 @@ func applyRigidBodySnapshot(dst *RigidBody, src RigidBodySnapshot) {
 		restX:           src.RestX,
 		restY:           src.RestY,
 		restAngle:       src.RestAngle,
+		Kinematic:       src.Kinematic,
+		Sensor:          src.Sensor,
+		targetPending:   src.TargetPending,
+		targetDriven:    src.TargetDriven,
+	}
+	if src.TargetPending {
+		dst.target = rigidPose{x: src.TargetX, y: src.TargetY, angle: src.TargetAngle}
+	}
+	if src.TargetDriven {
+		dst.targetVX, dst.targetVY, dst.targetAV = src.TargetVX, src.TargetVY, src.TargetAngularVel
 	}
 	if src.SleepEnv != nil {
 		dst.sleepEnv = *src.SleepEnv
@@ -790,18 +862,48 @@ func (w *RigidWorld) Save() RigidWorldSnapshot {
 
 	// Cached contacts with a body that has left the world would be dropped by the next step, so they are not saved.
 	for _, c := range w.contacts {
-		ia, okA := bodyIdx[c.key.a]
-		ib, okB := bodyIdx[c.key.b]
-		if !okA || !okB {
+		ia, ib, tile, ok := w.pairIndices(bodyIdx, c.key.a, c.key.b)
+		if !ok {
 			continue
 		}
-		cs := RigidContactSnapshot{BodyAIndex: ia, BodyBIndex: ib, Sub: c.key.sub}
+		cs := RigidContactSnapshot{BodyAIndex: ia, BodyBIndex: ib, Tile: tile, Sub: c.key.sub}
 		for _, p := range c.points[:c.count] {
 			cs.Points = append(cs.Points, RigidContactPointSnapshot{Feature: p.id, NormalImpulse: p.pn, TangentImpulse: p.pt})
 		}
 		snap.Contacts = append(snap.Contacts, cs)
 	}
+
+	snap.Grid = snapshotGrid(w.Tiles)
+	snap.TileLayer, snap.TileMask = w.TileLayer, w.TileMask
+	snap.TileFriction, snap.TileRestitution = w.TileFriction, w.TileRestitution
+	for _, t := range w.touching {
+		ia, ib, tile, ok := w.pairIndices(bodyIdx, t.a, t.b)
+		if !ok {
+			continue
+		}
+		snap.Touching = append(snap.Touching, RigidTouchSnapshot{BodyAIndex: ia, BodyBIndex: ib, Tile: tile, Col: t.col, Row: t.row, TileFlags: t.flags})
+	}
+	for _, s := range w.sensing {
+		is, okS := bodyIdx[s.sensor]
+		iv, okV := bodyIdx[s.visitor]
+		if okS && okV {
+			snap.Sensing = append(snap.Sensing, RigidSenseSnapshot{SensorIndex: is, VisitorIndex: iv})
+		}
+	}
 	return snap
+}
+
+// pairIndices returns the indices in bodyIdx of a pair of bodies, or of a body and the body that stands for w's Tiles, with -1 and tile set for the latter, and false when a body is not in bodyIdx.
+func (w *RigidWorld) pairIndices(bodyIdx map[*RigidBody]int, a, b *RigidBody) (ia, ib int, tile, ok bool) {
+	ia, okA := bodyIdx[a]
+	if !okA {
+		return 0, 0, false, false
+	}
+	if b != nil && b == w.tileBody {
+		return ia, -1, true, true
+	}
+	ib, okB := bodyIdx[b]
+	return ia, ib, false, okB
 }
 
 func snapshotJointReaction(r jointReaction, js *RigidJointSnapshot) {
@@ -1415,12 +1517,31 @@ func (w *RigidWorld) Restore(snap RigidWorldSnapshot) error {
 			return fmt.Errorf("physics: jointBreakEvents[%d] has out-of-range bodyB index %d", i, ev.BodyBIndex)
 		}
 	}
+	validPair := func(a, b int, tile bool) bool {
+		if a < 0 || a >= len(snap.Bodies) {
+			return false
+		}
+		if tile {
+			return b == -1
+		}
+		return b >= 0 && b < len(snap.Bodies) && a != b
+	}
 	for i, cs := range snap.Contacts {
-		if cs.BodyAIndex < 0 || cs.BodyAIndex >= len(snap.Bodies) || cs.BodyBIndex < 0 || cs.BodyBIndex >= len(snap.Bodies) || cs.BodyAIndex == cs.BodyBIndex {
+		if !validPair(cs.BodyAIndex, cs.BodyBIndex, cs.Tile) || (cs.Tile && cs.Sub < 0) {
 			return fmt.Errorf("physics: contacts[%d] has out-of-range bodies %d and %d", i, cs.BodyAIndex, cs.BodyBIndex)
 		}
 		if len(cs.Points) > 2 {
 			return fmt.Errorf("physics: contacts[%d] has %d points (at most 2)", i, len(cs.Points))
+		}
+	}
+	for i, ts := range snap.Touching {
+		if !validPair(ts.BodyAIndex, ts.BodyBIndex, ts.Tile) {
+			return fmt.Errorf("physics: touching[%d] has out-of-range bodies %d and %d", i, ts.BodyAIndex, ts.BodyBIndex)
+		}
+	}
+	for i, ss := range snap.Sensing {
+		if !validPair(ss.SensorIndex, ss.VisitorIndex, false) {
+			return fmt.Errorf("physics: sensing[%d] has out-of-range bodies %d and %d", i, ss.SensorIndex, ss.VisitorIndex)
 		}
 	}
 
@@ -1522,10 +1643,19 @@ func (w *RigidWorld) Restore(snap RigidWorldSnapshot) error {
 		restoredTriggers[i] = dst
 	}
 
+	if w.tileBody == nil {
+		w.tileBody = &RigidBody{Static: true}
+	}
+	pairBody := func(i int, tile bool) *RigidBody {
+		if tile {
+			return w.tileBody
+		}
+		return restoredBodies[i]
+	}
 	contacts := make([]rigidCachedManifold, 0, len(snap.Contacts))
 	for _, cs := range snap.Contacts {
 		c := rigidCachedManifold{
-			key:   rigidPairKey{a: restoredBodies[cs.BodyAIndex], b: restoredBodies[cs.BodyBIndex], sub: cs.Sub},
+			key:   rigidPairKey{a: restoredBodies[cs.BodyAIndex], b: pairBody(cs.BodyBIndex, cs.Tile), sub: cs.Sub},
 			count: len(cs.Points),
 		}
 		for k, p := range cs.Points {
@@ -1547,6 +1677,24 @@ func (w *RigidWorld) Restore(snap RigidWorldSnapshot) error {
 	w.Triggers = restoredTriggers
 	w.contacts = contacts
 	w.lastDt = snap.LastDt
+
+	if snap.Grid != nil {
+		w.Tiles = restoreGrid(w.Tiles, snap.Grid)
+	}
+	w.TileLayer, w.TileMask = snap.TileLayer, snap.TileMask
+	w.TileFriction, w.TileRestitution = snap.TileFriction, snap.TileRestitution
+	// The cache's tiles name cells of the restored grid, so the next step must not see its geometry as changed.
+	w.tileGeom = tileGeomOf(w.Tiles)
+	w.touching = make([]rigidTouch, 0, len(snap.Touching))
+	for _, ts := range snap.Touching {
+		w.touching = append(w.touching, rigidTouch{a: restoredBodies[ts.BodyAIndex], b: pairBody(ts.BodyBIndex, ts.Tile), col: ts.Col, row: ts.Row, flags: ts.TileFlags})
+	}
+	w.sensing = make([]rigidSense, 0, len(snap.Sensing))
+	for _, ss := range snap.Sensing {
+		w.sensing = append(w.sensing, rigidSense{sensor: restoredBodies[ss.SensorIndex], visitor: restoredBodies[ss.VisitorIndex]})
+	}
+	w.contactEvents = nil
+	w.sensorEvents = nil
 	return nil
 }
 
@@ -1636,17 +1784,14 @@ func (w *RigidWorld) Checksum() uint64 {
 	// The contact cache, in order, with the same rule as Save for contacts whose bodies left the world.
 	contactCount := 0
 	for _, c := range w.contacts {
-		if _, ok := bodyIdx[c.key.a]; ok {
-			if _, ok := bodyIdx[c.key.b]; ok {
-				contactCount++
-			}
+		if _, _, _, ok := w.pairIndices(bodyIdx, c.key.a, c.key.b); ok {
+			contactCount++
 		}
 	}
 	h.WriteInt(contactCount)
 	for _, c := range w.contacts {
-		ia, okA := bodyIdx[c.key.a]
-		ib, okB := bodyIdx[c.key.b]
-		if !okA || !okB {
+		ia, ib, _, ok := w.pairIndices(bodyIdx, c.key.a, c.key.b)
+		if !ok {
 			continue
 		}
 		h.WriteInt(ia)
@@ -1659,7 +1804,72 @@ func (w *RigidWorld) Checksum() uint64 {
 			h.WriteFloat64(p.pt)
 		}
 	}
+	w.hashTilesAndEvents(&h, bodyIdx)
 	return h.Sum64()
+}
+
+// hashTilesAndEvents hashes the Tiles, their settings and the contact and sensor state events are reported from, with the same rule as Save for entries whose bodies left the world. A world that uses none of them hashes nothing more, so its digest is the one it had before they existed.
+func (w *RigidWorld) hashTilesAndEvents(h *detmath.Hasher, bodyIdx map[*RigidBody]int) {
+	if w.Tiles == nil && w.TileLayer == 0 && w.TileMask == 0 && w.TileFriction == 0 && w.TileRestitution == 0 && len(w.touching) == 0 && len(w.sensing) == 0 {
+		return
+	}
+	h.WriteString("physics.RigidWorld.tiles-events")
+	h.WriteBool(w.Tiles != nil)
+	if w.Tiles != nil {
+		tw, th := w.Tiles.TileSize()
+		cols, rows := w.Tiles.GridSize()
+		ox, oy := tileGridOrigin(w.Tiles)
+		h.WriteFloat32(tw)
+		h.WriteFloat32(th)
+		h.WriteFloat64(ox)
+		h.WriteFloat64(oy)
+		h.WriteInt(cols)
+		h.WriteInt(rows)
+		for row := range rows {
+			for col := range cols {
+				h.WriteUint32(uint32(w.Tiles.TileFlagsAt(col, row)))
+			}
+		}
+	}
+	h.WriteUint32(uint32(w.TileLayer))
+	h.WriteUint32(uint32(w.TileMask))
+	h.WriteFloat32(w.TileFriction)
+	h.WriteFloat32(w.TileRestitution)
+	touchCount := 0
+	for _, t := range w.touching {
+		if _, _, _, ok := w.pairIndices(bodyIdx, t.a, t.b); ok {
+			touchCount++
+		}
+	}
+	h.WriteInt(touchCount)
+	for _, t := range w.touching {
+		ia, ib, _, ok := w.pairIndices(bodyIdx, t.a, t.b)
+		if !ok {
+			continue
+		}
+		h.WriteInt(ia)
+		h.WriteInt(ib)
+		h.WriteInt(t.col)
+		h.WriteInt(t.row)
+		h.WriteUint32(uint32(t.flags))
+	}
+	senseCount := 0
+	for _, s := range w.sensing {
+		_, okS := bodyIdx[s.sensor]
+		_, okV := bodyIdx[s.visitor]
+		if okS && okV {
+			senseCount++
+		}
+	}
+	h.WriteInt(senseCount)
+	for _, s := range w.sensing {
+		is, okS := bodyIdx[s.sensor]
+		iv, okV := bodyIdx[s.visitor]
+		if okS && okV {
+			h.WriteInt(is)
+			h.WriteInt(iv)
+		}
+	}
 }
 
 func hashJointReaction(h *detmath.Hasher, r jointReaction) {
@@ -2036,6 +2246,24 @@ func hashRigidBody(h *detmath.Hasher, b *RigidBody) {
 		h.WriteFloat32(b.restX)
 		h.WriteFloat32(b.restY)
 		h.WriteFloat32(b.restAngle)
+	}
+	// Kinematic and sensor state is hashed only when set, so other bodies keep the digest they had before it existed.
+	if b.Kinematic || b.Sensor || b.targetPending || b.targetDriven {
+		h.WriteString("rigid.kinematic-sensor")
+		h.WriteBool(b.Kinematic)
+		h.WriteBool(b.Sensor)
+		h.WriteBool(b.targetPending)
+		if b.targetPending {
+			h.WriteFloat32(b.target.x)
+			h.WriteFloat32(b.target.y)
+			h.WriteFloat32(b.target.angle)
+		}
+		h.WriteBool(b.targetDriven)
+		if b.targetDriven {
+			h.WriteFloat32(b.targetVX)
+			h.WriteFloat32(b.targetVY)
+			h.WriteFloat32(b.targetAV)
+		}
 	}
 	// Shape-derived state is hashed only when it carries information beyond the fields above, so Box and Circle bodies with derived inertia keep the digest they had before free shapes existed.
 	if !b.hasLocal && b.derivedInertia == b.Inertia {

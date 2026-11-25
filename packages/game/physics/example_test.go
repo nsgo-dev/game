@@ -222,3 +222,44 @@ func ExampleChainShape() {
 	// Output:
 	// 92.0 true
 }
+
+// A RigidWorld with Tiles drops a crate on a tilemap floor, reports the landing as a contact event with its impact speed, and finds the crate with a raycast.
+func ExampleRigidWorld_tiles() {
+	level := physics.NewGrid(20, 10, 16, 16)
+	level.FillRect(0, 8, 20, 1, physics.TileSolid) // the floor's top is y=128
+	w := &physics.RigidWorld{GravityY: 600, Tiles: level}
+	crate := physics.NewRigidBox(80, 40, 16, 16, 1)
+	w.AddBody(crate)
+	w.OnContact = func(ev physics.ContactEvent) {
+		fmt.Printf("%s with tiles %v at row %d, %.0f px/s\n", ev.Kind, ev.Tile, ev.Row, ev.ApproachSpeed)
+	}
+	for range 60 {
+		w.Step(time.Second / 60)
+	}
+	fmt.Printf("crate bottom: %.1f\n", crate.Y+8)
+
+	hit, _ := w.RaycastFirst(core.Point{X: 0, Y: 125}, core.Point{X: 200, Y: 125}, physics.QueryBodies, 0)
+	fmt.Printf("ray hits the crate: %v at x=%.0f, facing left: %v\n", hit.RigidBody == crate, hit.Point.X, hit.NormalX < -0.99)
+	// Output:
+	// begin with tiles true at row 8, 320 px/s
+	// crate bottom: 128.0
+	// ray hits the crate: true at x=72, facing left: true
+}
+
+// A kinematic body moves as it is told and carries the dynamic bodies resting on it, here a platform driven by SetTargetPose as an animation would drive it.
+func ExampleRigidBody_kinematic() {
+	w := &physics.RigidWorld{GravityY: 600}
+	platform := physics.NewRigidBox(100, 120, 96, 12, 1)
+	platform.Kinematic = true
+	crate := physics.NewRigidBox(100, 104, 20, 20, 1)
+	crate.Friction = 1
+	platform.Friction = 1
+	w.AddBody(platform, crate)
+	for i := range 120 {
+		platform.SetTargetPose(100+float32(i+1)/2, 120, 0) // 30 px/s to the right
+		w.Step(time.Second / 60)
+	}
+	fmt.Printf("platform at x=%.1f y=%.1f, crate at x=%.1f riding: %v\n", platform.X, platform.Y, crate.X, crate.Y+10 > 113.5)
+	// Output:
+	// platform at x=160.0 y=120.0, crate at x=159.3 riding: true
+}

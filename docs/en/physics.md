@@ -150,8 +150,11 @@ if hit, ok := world.RaycastFirst(gunPos, targetPos, physics.QueryAll); ok {
 | `QueryTiles` | Solid tiles (`TileSolid`) in `World.Tiles`. |
 | `QueryOneWay` | One-way tiles (`TileOneWay`); raycasts hit them only when entering the top edge moving downward. |
 | `QueryAll` | `QueryBodies \| QueryTiles \| QueryOneWay`. |
+| `QuerySensors` | `RigidBody` sensors, in `RigidWorld` queries only; `QueryAll` leaves them out. |
 
 `World.Raycast` returns all hits along the segment sorted by ascending normalized distance `T` in `[0, 1]` (bodies before tiles on ties), while `RaycastFirst` returns the closest hit. A ray hits a segment or chain from either side with the normal facing its start, and misses one it runs along. Remove bodies cleanly with `world.Remove(b)`.
+
+`RigidWorld` has the same queries over its rigid bodies, at their true poses, and its `Tiles`: `Raycast(from, to, mask, layerMask)`, `RaycastFirst`, `QueryPoint(x, y, mask, layerMask)` and `QueryOverlap(shape, mask, layerMask)`, with hits that set `RigidBody` ([2D rigid bodies](physics2d-rigid.md)).
 
 ## Level geometry from Tiled
 
@@ -239,7 +242,7 @@ rigidWorld.AddTrigger(water)
 
 `World` and `RigidWorld` support full state snapshots and bit-exact determinism across CPU architectures (amd64 and arm64):
 
-- **`Save() / Restore(snap) / Checksum()`**: `World.Save()` returns a versioned `WorldSnapshot` (`SnapshotVersion`) capturing gravity, tile grid, bodies, triggers, and per-trigger enter/stay/exit tracking state. `RigidWorld.Save()` returns a `RigidWorldSnapshot` capturing gravity, solver settings, bodies (including pending force/torque accumulators, gravity-scale flags, sleep state and timers, and the local-space geometry the solver rotates for `Polygon`, `Capsule`, `Segment`, and `Chain` shapes), the warm-start contact cache, sleep settings, triggers/areas, joint-break events, and all built-in joints (`DistanceJoint` including rope/range mode, `SpringJoint`, `RevoluteJoint`, `PrismaticJoint`, `WeldJoint`, `WheelJoint`, and `MouseJoint`, with their limits, motors, springs, reaction impulses, and break thresholds; see [2D Rigid Bodies & Joints](physics2d-rigid.md)).
+- **`Save() / Restore(snap) / Checksum()`**: `World.Save()` returns a versioned `WorldSnapshot` (`SnapshotVersion`) capturing gravity, tile grid, bodies, triggers, and per-trigger enter/stay/exit tracking state. `RigidWorld.Save()` returns a `RigidWorldSnapshot` capturing gravity, solver settings, bodies (including pending force/torque accumulators, gravity-scale flags, sleep state and timers, and the local-space geometry the solver rotates for `Polygon`, `Capsule`, `Segment`, and `Chain` shapes), kinematic and sensor flags and kinematic targets, the warm-start contact cache, a `*Grid` `Tiles` with its tile settings, the contact and sensor overlap state behind `ContactEvents` and `SensorEvents`, sleep settings, triggers/areas, joint-break events, and all built-in joints (`DistanceJoint` including rope/range mode, `SpringJoint`, `RevoluteJoint`, `PrismaticJoint`, `WeldJoint`, `WheelJoint`, and `MouseJoint`, with their limits, motors, springs, reaction impulses, and break thresholds; see [2D Rigid Bodies & Joints](physics2d-rigid.md)).
 - **JSON-serializable plain text**: `WorldSnapshot` and `RigidWorldSnapshot` marshal cleanly with `encoding/json` without `encoding/gob` or custom binary layouts.
 - **In-place pointer & callback preservation**: `Restore` mutates existing `*Body`, `*RigidBody`, `*Trigger`, and `Joint` instances in place when counts/kinds match, preserving gameplay entity references, `UserData`, and trigger callbacks (`OnEnter`/`OnStay`/`OnExit`) across rollbacks.
 - **Cross-architecture determinism**: all stepped solver, integration, joint, narrowphase, and area paths avoid arm64 fused multiply-add (`FMADD`/`FMSUB`) contraction and FMA-using standard library transcendentals, so saving at step 100, stepping to 200, restoring, and re-stepping produces bit-identical positions, velocities, contacts, events, and `Checksum()` values on both amd64 and arm64.

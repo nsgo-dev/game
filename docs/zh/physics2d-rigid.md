@@ -1,6 +1,6 @@
 # 2D 刚体与关节架构说明
 
-本文档记录 `github.com/nsgo-dev/game/packages/game/physics` 中 2D 刚体动力学的架构决策（[#320](https://github.com/nsgo-dev/game/issues/320)、[#321](https://github.com/nsgo-dev/game/issues/321)、[#322](https://github.com/nsgo-dev/game/issues/322)、[#804](https://github.com/nsgo-dev/game/issues/804)）。
+本文档记录 `github.com/nsgo-dev/game/packages/game/physics` 中 2D 刚体动力学的架构决策（[#320](https://github.com/nsgo-dev/game/issues/320)、[#321](https://github.com/nsgo-dev/game/issues/321)、[#322](https://github.com/nsgo-dev/game/issues/322)、[#804](https://github.com/nsgo-dev/game/issues/804)、[#805](https://github.com/nsgo-dev/game/issues/805)）。
 
 ## 决策
 
@@ -35,9 +35,42 @@
 ## 取舍与适用范围
 
 - **支持的形状**：动态刚体可用旋转 `Box` 与 `Circle`、凸 `Polygon`（最多 8 个顶点，可带圆角）和 `Capsule`；静态刚体还可用 `Segment` 与 `Chain`。凹地形用 `Chain`（或多个凸多边形）表示；凹形动态刚体不在内置求解器范围内。
-- **连续碰撞**：高速刚体只对静态刚体做扫掠，因此仍可能穿过很薄的动态刚体；碰撞会结束刚体在这一步的运动，而不会把剩余时间用于沿表面滑动。对绝不能在一步结束时陷入静态刚体的刚体设置 `Bullet`。
+- **连续碰撞**：高速刚体只对静态刚体和瓦片做扫掠，因此仍可能穿过很薄的动态或运动学刚体；碰撞会结束刚体在这一步的运动，而不会把剩余时间用于沿表面滑动。对绝不能在一步结束时陷入静态刚体的刚体设置 `Bullet`。
 - **休眠**：岛作为整体休眠，因此只要有一个刚体一直在动（例如角色推着一堆箱子，或持续 `ApplyForce` 的刚体），它接触到的所有刚体都会保持清醒。通过直接修改字段移动的刚体会在下一步被唤醒；修改休眠刚体的形状不会唤醒它，修改后请调用 `Wake`。
 - **规模**：宽相与休眠让每一步的开销与醒着的刚体及其接触成正比。在性能场景（`BenchmarkRigidWorld500Bodies` 与 `BenchmarkRigidWorld500BodiesPacked`）中，500 个箱子、圆、多边形和胶囊体落入容器，在运行 Linux 的 Ryzen 9 3900X 单核上下落时每步约 2 ms，堆积密实但仍醒着时每步 5 到 6 ms，均在 60 fps 一帧的 16.7 ms 之内。若游戏需要数千刚体的大规模物理模拟，可在 `packages/game` 之外按需集成专用引擎。
+
+## 运动学刚体、传感器、瓦片与接触事件
+
+- **运动学刚体**：`RigidBody.Kinematic` 让刚体只按指令移动：按 `VX`、`VY` 与 `AngularVel`（不受重力、外力、阻尼或区域效果影响），或者按 `SetTargetPose(x, y, angle)`，它给刚体在下一步恰好到达该位姿所需的速度，并让它精确落在那里，就像动画驱动移动平台一样；没有收到新目标的刚体会停下。求解器把它当作质量无穷大，因此它会推开挡路的动态刚体，并靠摩擦带动停在它上面的刚体，而任何东西都推不动它。它从不与静态刚体、其他运动学刚体或瓦片碰撞，从不休眠，并让它推动的刚体保持清醒。直接给 `X`、`Y` 赋值相当于瞬移：它落入的刚体会被推出，但不会获得它的运动。
+- **传感器**：`RigidBody.Sensor` 让任意类型的刚体只检测重叠而不碰撞。每步之后，`RigidWorld.SensorEvents()`（以及 `OnSensor`）按刚体在这一步结束时的位姿，列出开始或结束与传感器重叠的刚体。传感器从不检测其他传感器，`World.MoveAndSlide` 也会忽略静态传感器。
+- **瓦片**：`RigidWorld.Tiles` 接受任意 `TileGrid`，与 `World` 和 `MoveAndSlide` 使用同一个接口。每个 `TileSolid` 格子作为一个方块与动态刚体碰撞，每个 `TileOneWay` 格子只以顶面碰撞：接住从上方落下的刚体，让从下方或侧面来的刚体穿过。被相邻实心瓦片覆盖的面从不推动刚体：偏向这种面的接触会改为对瓦片的开放面裁剪，与链条在平直顶点处的做法相同，因此箱子能在瓦片地面上滑动、圆和胶囊体能滚动，而不会卡在接缝上。同一平面的多块瓦片只按其中最深的一块修正一次刚体位置。`TileLayer` 与 `TileMask` 像刚体的层一样过滤瓦片，`TileFriction`（零表示 `DefaultTileFriction`，即 0.4；负值表示无摩擦）与 `TileRestitution` 设置瓦片材质；高速刚体会像对任何静态刚体一样对瓦片做扫掠；当脚下的瓦片被移除，或网格被移动、改变大小时，休眠的刚体会被唤醒。
+- **查询**：`RigidWorld.Raycast`、`RaycastFirst`、`QueryPoint` 与 `QueryOverlap` 按每个刚体的真实位姿（`RigidBody.WorldShape`，旋转的方块视为多边形）以及瓦片进行查询，返回与 `World` 查询相同的 `RaycastHit` 与 `OverlapHit` 类型，并设置其中的 `RigidBody`。`QueryMask` 选择刚体、传感器（`QuerySensors`，`QueryAll` 不包含它；形状投射要命中传感器，`ShapeCastOptions.QueryMask` 也需要包含它）、实心瓦片与单向瓦片，`LayerMask` 按层过滤刚体。命中结果顺序固定：射线按距离排序；重叠查询先按 `Bodies` 顺序列出刚体，再按行优先顺序列出瓦片。
+- **接触事件**：每步之后，`RigidWorld.ContactEvents()`（以及 `OnContact`）列出开始的接触，附带接触点、法线和 `ApproachSpeed`（两者在这一步解算接触之前相互接近的速度），以及因为分开或其中一个离开世界而结束的接触。一个刚体无论接触多少块瓦片，都只算作与瓦片的一次接触，因此在瓦片地面上滑行的箱子只会开始接触一次。接触在这一步首次发现两者重叠时开始，在第一次不再重叠的那一步结束；两个都在休眠的刚体之间的接触会保留，因此静止的一堆刚体不会报告任何事件。开始事件按这一步发现接触的顺序排列（先是按 `Bodies` 顺序的刚体对，再是每个刚体与瓦片），其后是结束事件，所以相同的输入在每次运行中、以及 `Save` 与 `Restore` 之后，都以相同顺序产生相同的事件。
+- **快照**：`RigidBodySnapshot` 保存 `Kinematic`、`Sensor` 以及待到达或上一次的目标，`RigidWorldSnapshot` 保存 `*Grid` 类型的 `Tiles`（`GridSnapshot` 现在也会保存网格原点）、瓦片设置、接触缓存中的瓦片条目，以及下一步用来比较的接触与传感器重叠。`Restore` 会清空 `ContactEvents` 与 `SensorEvents`。
+
+```go
+level := physics.NewGrid(40, 12, 16, 16)
+level.FillRect(0, 10, 40, 1, physics.TileSolid)
+w := &physics.RigidWorld{GravityY: 600, Tiles: level}
+
+lift := physics.NewRigidBox(100, 120, 96, 12, 1)
+lift.Kinematic = true
+crate := physics.NewRigidBox(100, 90, 20, 20, 1)
+w.AddBody(lift, crate)
+w.OnContact = func(ev physics.ContactEvent) {
+	if ev.Kind == physics.ContactBegin && ev.ApproachSpeed > 200 {
+		playThud(ev.Point, ev.ApproachSpeed)
+	}
+}
+
+// 每个固定步长，升降台跟随动画移动并带动箱子。
+lift.SetTargetPose(liftX(t), 120, 0)
+w.Step(dt)
+
+if hit, ok := w.RaycastFirst(eye, target, physics.QueryAll, 0); ok && hit.RigidBody == crate {
+	// 能看见箱子，命中点 hit.Point，朝向 (hit.NormalX, hit.NormalY)。
+}
+```
 
 ## 休眠与高速刚体
 

@@ -24,11 +24,16 @@ const (
 	QueryAll = QueryBodies | QueryTiles | QueryOneWay
 )
 
+// QuerySensors includes RigidBody sensors in RigidWorld queries, which QueryBodies and QueryAll leave out. World queries ignore it.
+const QuerySensors QueryMask = 1 << 3
+
 // OverlapHit is one body or tile overlapping a query shape.
 type OverlapHit struct {
 	// Body is non-nil when the hit is a body from World.Bodies.
 	Body *Body
-	// Tile is true when the hit is a tile from World.Tiles at (Col, Row).
+	// RigidBody is non-nil when the hit is a body from RigidWorld.Bodies.
+	RigidBody *RigidBody
+	// Tile is true when the hit is a tile from World.Tiles or RigidWorld.Tiles at (Col, Row).
 	Tile      bool
 	Col, Row  int
 	TileFlags TileFlags
@@ -46,7 +51,9 @@ type RaycastHit struct {
 	NormalX, NormalY float32
 	// Body is non-nil when the hit is a body from World.Bodies.
 	Body *Body
-	// Tile is true when the hit is a tile from World.Tiles at (Col, Row).
+	// RigidBody is non-nil when the hit is a body from RigidWorld.Bodies.
+	RigidBody *RigidBody
+	// Tile is true when the hit is a tile from World.Tiles or RigidWorld.Tiles at (Col, Row).
 	Tile      bool
 	Col, Row  int
 	TileFlags TileFlags
@@ -122,45 +129,51 @@ func (w *World) QueryOverlapLayer(shape Shape, mask QueryMask, layerMask LayerMa
 		}
 	}
 
-	if w.Tiles != nil && mask&(QueryTiles|QueryOneWay) != 0 {
-		tileW, tileH := w.Tiles.TileSize()
-		cols, rows := w.Tiles.GridSize()
-		if tileW > 0 && tileH > 0 && cols > 0 && rows > 0 {
-			bounds := shape.Bounds()
-			tw, th := float64(tileW), float64(tileH)
-			ox, oy := tileGridOrigin(w.Tiles)
-			ox32, oy32 := float32(ox), float32(oy)
-			minCol := max(0, int(math.Floor((float64(bounds.X)-ox)/tw)))
-			maxCol := min(cols-1, int(math.Ceil((float64(bounds.X)-ox+float64(bounds.W))/tw))-1)
-			minRow := max(0, int(math.Floor((float64(bounds.Y)-oy)/th)))
-			maxRow := min(rows-1, int(math.Ceil((float64(bounds.Y)-oy+float64(bounds.H))/th))-1)
+	return appendTileOverlaps(hits, w.Tiles, shape, mask)
+}
 
-			for row := minRow; row <= maxRow; row++ {
-				for col := minCol; col <= maxCol; col++ {
-					flags := w.Tiles.TileFlagsAt(col, row)
-					if !tileMatchesOverlap(flags, mask) {
-						continue
-					}
-					tileBox := Box{
-						X: ox32 + float32(col)*tileW,
-						Y: oy32 + float32(row)*tileH,
-						W: tileW,
-						H: tileH,
-					}
-					if c := TestShapes(shape, BoxShape(tileBox)); c.Hit {
-						hits = append(hits, OverlapHit{
-							Tile:      true,
-							Col:       col,
-							Row:       row,
-							TileFlags: flags,
-							Contact:   c,
-						})
-					}
-				}
+// appendTileOverlaps appends to hits the tiles of grid matching mask that overlap shape, in row-major order.
+func appendTileOverlaps(hits []OverlapHit, grid TileGrid, shape Shape, mask QueryMask) []OverlapHit {
+	if grid == nil || mask&(QueryTiles|QueryOneWay) == 0 {
+		return hits
+	}
+	tileW, tileH := grid.TileSize()
+	cols, rows := grid.GridSize()
+	if !(tileW > 0 && tileH > 0 && cols > 0 && rows > 0) {
+		return hits
+	}
+	bounds := shape.Bounds()
+	tw, th := float64(tileW), float64(tileH)
+	ox, oy := tileGridOrigin(grid)
+	ox32, oy32 := float32(ox), float32(oy)
+	minCol := max(0, int(math.Floor((float64(bounds.X)-ox)/tw)))
+	maxCol := min(cols-1, int(math.Ceil((float64(bounds.X)-ox+float64(bounds.W))/tw))-1)
+	minRow := max(0, int(math.Floor((float64(bounds.Y)-oy)/th)))
+	maxRow := min(rows-1, int(math.Ceil((float64(bounds.Y)-oy+float64(bounds.H))/th))-1)
+
+	for row := minRow; row <= maxRow; row++ {
+		for col := minCol; col <= maxCol; col++ {
+			flags := grid.TileFlagsAt(col, row)
+			if !tileMatchesOverlap(flags, mask) {
+				continue
+			}
+			tileBox := Box{
+				X: ox32 + float32(col)*tileW,
+				Y: oy32 + float32(row)*tileH,
+				W: tileW,
+				H: tileH,
+			}
+			if c := TestShapes(shape, BoxShape(tileBox)); c.Hit {
+				hits = append(hits, OverlapHit{
+					Tile:      true,
+					Col:       col,
+					Row:       row,
+					TileFlags: flags,
+					Contact:   c,
+				})
 			}
 		}
 	}
-
 	return hits
 }
 

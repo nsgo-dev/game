@@ -62,11 +62,28 @@ type rigidScratch struct {
 	contactIndex  map[rigidPairKey]int
 	parent        []int
 	islandRest    []float64
+	tileManifolds []hullManifold
+	touchIndex    map[rigidTouchKey]int
+	touchMatched  []bool
+	touching      []rigidTouch
+	sensing       []rigidSense
+	senseIndex    map[rigidSense]int
+	senseMatched  []bool
 }
 
 // awakeDynamic reports whether b is in the current step and is a dynamic body that is awake.
 func (b *RigidBody) awakeDynamic() bool {
-	return b != nil && !b.Static && !b.sleeping
+	return b != nil && !b.Static && !b.Kinematic && !b.sleeping
+}
+
+// fixed reports whether the solver gives b infinite mass: it is static or kinematic.
+func (b *RigidBody) fixed() bool {
+	return b.Static || b.Kinematic
+}
+
+// movingKinematic reports whether b is a kinematic body with a velocity, which keeps the bodies it touches awake.
+func (b *RigidBody) movingKinematic() bool {
+	return b != nil && b.Kinematic && !b.Static && (b.VX != 0 || b.VY != 0 || b.AngularVel != 0)
 }
 
 // wakeIfSleeping wakes b when it is non-nil and asleep.
@@ -104,12 +121,15 @@ func (b *RigidBody) movedSinceStep() bool {
 	return b.restValid && (b.X != b.restX || b.Y != b.restY || b.Angle != b.restAngle)
 }
 
-// inWorld reports whether b is one of the bodies the current Step of w visits.
+// inWorld reports whether b is one of the bodies the current Step of w visits, or the body that stands for w's tiles.
 func (w *RigidWorld) inWorld(b *RigidBody) bool {
+	if b != nil && b == w.tileBody {
+		return true
+	}
 	return b != nil && b.stamp == w.stamp && b.index < len(w.Bodies) && w.Bodies[b.index] == b
 }
 
-// broadphase returns, as i<<32 | j sorted ascending, every pair i < j of w.Bodies whose bounding boxes overlap and which may collide: neither shape empty, not both static, and layers that interact. This is the set and order of pairs the brute-force double loop over the bodies would test, found by sorting the boxes along X and sweeping. A body whose box has a NaN coordinate cannot be sorted, so it is tested against every other body with the double loop's box test.
+// broadphase returns, as i<<32 | j sorted ascending, every pair i < j of w.Bodies whose bounding boxes overlap and which may collide or be sensed (rigidPairCandidate) with layers that interact, neither shape empty. This is the set and order of pairs the brute-force double loop over the bodies would test, found by sorting the boxes along X and sweeping. A body whose box has a NaN coordinate cannot be sorted, so it is tested against every other body with the double loop's box test.
 func (w *RigidWorld) broadphase() []uint64 {
 	proxies := w.scratch.proxies[:0]
 	wild := w.scratch.wild[:0]
@@ -141,7 +161,7 @@ func (w *RigidWorld) broadphase() []uint64 {
 			i, j = j, i
 		}
 		a, b := w.Bodies[i], w.Bodies[j]
-		if (a.Static && b.Static) || !CanCollideRigid(a, b) {
+		if !rigidPairCandidate(a, b) || !CanCollideRigid(a, b) {
 			return
 		}
 		pairs = append(pairs, uint64(i)<<32|uint64(j))
@@ -183,6 +203,14 @@ func (w *RigidWorld) broadphase() []uint64 {
 	return pairs
 }
 
+// rigidPairCandidate reports whether a and b may touch: a sensor and a body that is not one, which the sensor may detect whatever the kinds, or two bodies that are not sensors and not both static or kinematic.
+func rigidPairCandidate(a, b *RigidBody) bool {
+	if a.Sensor || b.Sensor {
+		return a.Sensor != b.Sensor
+	}
+	return !(a.fixed() && b.fixed())
+}
+
 // unionFind resets the island forest over len(w.Bodies) bodies.
 func (w *RigidWorld) unionFind() []int {
 	parent := w.scratch.parent[:0]
@@ -201,9 +229,9 @@ func findRoot(parent []int, i int) int {
 	return i
 }
 
-// union joins the islands of two bodies of the current step when both are dynamic; static bodies never link islands.
+// union joins the islands of two bodies of the current step when both are dynamic; static and kinematic bodies never link islands.
 func (w *RigidWorld) union(parent []int, a, b *RigidBody) {
-	if !w.inWorld(a) || !w.inWorld(b) || a.Static || b.Static {
+	if !w.inWorld(a) || !w.inWorld(b) || a.fixed() || b.fixed() {
 		return
 	}
 	ra, rb := findRoot(parent, a.index), findRoot(parent, b.index)
@@ -215,7 +243,7 @@ func (w *RigidWorld) union(parent []int, a, b *RigidBody) {
 	}
 }
 
-// wakeDisturbed wakes every sleeping body that something changed since the last step, then the islands they belong to. A sleeping body is disturbed when it was moved, given a velocity or a pending force, when the gravity, damping or fluid of the areas it is in changed, or its gravity scale did, when a body it touched left the world, or when a static body it touched moved. With DisableSleep set, every body wakes.
+// wakeDisturbed wakes every sleeping body that something changed since the last step, then the islands they belong to. A sleeping body is disturbed when it was moved, given a velocity or a pending force, when the gravity, damping or fluid of the areas it is in changed, or its gravity scale did, when a body it touched left the world, when a static or kinematic body it touched moved or a kinematic one has a velocity, or when a tile it touched changed (tileContactChanged). With DisableSleep set, every body wakes.
 func (w *RigidWorld) wakeDisturbed(areas []activeAreaEntry) {
 	anySleeping := false
 	for _, b := range w.Bodies {
@@ -240,10 +268,16 @@ func (w *RigidWorld) wakeDisturbed(areas []activeAreaEntry) {
 		case inA && !inB:
 			a.wakeIfSleeping()
 		case inA && inB:
-			if a.Static && a.movedSinceStep() {
+			if b == w.tileBody {
+				if a.sleeping && w.tileContactChanged(w.contacts[i].key.sub) {
+					a.Wake()
+				}
+				continue
+			}
+			if a.fixed() && (a.movedSinceStep() || a.movingKinematic()) {
 				b.wakeIfSleeping()
 			}
-			if b.Static && b.movedSinceStep() {
+			if b.fixed() && (b.movedSinceStep() || b.movingKinematic()) {
 				a.wakeIfSleeping()
 			}
 		}
@@ -267,10 +301,10 @@ func (w *RigidWorld) wakeDisturbed(areas []activeAreaEntry) {
 				a.wakeIfSleeping()
 			}
 		case inA && inB:
-			if a.Static && a.movedSinceStep() {
+			if a.fixed() && (a.movedSinceStep() || a.movingKinematic()) {
 				b.wakeIfSleeping()
 			}
-			if b.Static && b.movedSinceStep() {
+			if b.fixed() && (b.movedSinceStep() || b.movingKinematic()) {
 				a.wakeIfSleeping()
 			}
 		}
@@ -317,18 +351,21 @@ func (w *RigidWorld) wakeIslands() {
 	}
 }
 
-// wakeTouched wakes every sleeping body that an awake dynamic body touches among the candidate pairs, and the islands of those bodies, repeating until no more wake.
+// wakeTouched wakes every sleeping body that an awake dynamic body or a moving kinematic one touches among the candidate pairs, and the islands of those bodies, repeating until no more wake. Sensors wake nothing.
 func (w *RigidWorld) wakeTouched(pairs []uint64) {
 	buf := w.scratch.pairManifolds[:0]
 	for {
 		woke := false
 		for _, key := range pairs {
 			a, b := w.Bodies[int(key>>32)], w.Bodies[int(uint32(key))]
+			if a.Sensor || b.Sensor {
+				continue
+			}
 			var sleeper *RigidBody
 			switch {
-			case a.sleeping && b.awakeDynamic():
+			case a.sleeping && (b.awakeDynamic() || b.movingKinematic()):
 				sleeper = a
-			case b.sleeping && a.awakeDynamic():
+			case b.sleeping && (a.awakeDynamic() || a.movingKinematic()):
 				sleeper = b
 			default:
 				continue
@@ -391,15 +428,8 @@ func (w *RigidWorld) warmStart(manifolds []rigidManifold, h float64) {
 	if len(w.contacts) == 0 || w.lastDt <= 0 {
 		return
 	}
+	w.indexContacts()
 	index := w.scratch.contactIndex
-	if index == nil {
-		index = make(map[rigidPairKey]int, len(w.contacts))
-		w.scratch.contactIndex = index
-	}
-	clear(index)
-	for i := range w.contacts {
-		index[w.contacts[i].key] = i
-	}
 	ratio := h / w.lastDt
 	for mi := range manifolds {
 		m := &manifolds[mi]
@@ -492,6 +522,16 @@ func (w *RigidWorld) updateSleep(manifolds []rigidManifold, joints []Joint, area
 					d.sleepTime = 0
 				}
 			}
+		}
+	}
+	// A body a moving kinematic one touches never counts as resting either: it rides or is pushed.
+	for mi := range manifolds {
+		a, b := manifolds[mi].a, manifolds[mi].b
+		if a.movingKinematic() && b.awakeDynamic() {
+			b.sleepTime = 0
+		}
+		if b.movingKinematic() && a.awakeDynamic() {
+			a.sleepTime = 0
 		}
 	}
 	if !candidate {
