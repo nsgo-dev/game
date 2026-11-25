@@ -6,7 +6,6 @@ import { Header } from '../components/Header'
 import { NotFound } from '../components/NotFound'
 import { copies } from '../copy'
 import { htmlLang, LANG_KEY, NON_DEFAULT_LANGS, useLang, useLangPath, useNotFound } from '../i18n'
-import { THEME_SCRIPT } from '../lib/theme'
 import css from '../styles.css?url'
 
 export const Route = createRootRoute({
@@ -14,11 +13,12 @@ export const Route = createRootRoute({
     meta: [
       { charSet: 'utf-8' },
       { name: 'viewport', content: 'width=device-width, initial-scale=1' },
-      { name: 'color-scheme', content: 'light dark' },
-      { name: 'theme-color', content: '#f3f5f9' },
+      { name: 'color-scheme', content: 'dark' },
+      { name: 'theme-color', content: '#0b0d12' },
     ],
     links: [
       { rel: 'stylesheet', href: css },
+      { rel: 'icon', href: `${import.meta.env.BASE_URL}favicon.svg`, type: 'image/svg+xml' },
       { rel: 'icon', href: `${import.meta.env.BASE_URL}icon.png`, type: 'image/png' },
       { rel: 'apple-touch-icon', href: `${import.meta.env.BASE_URL}apple-touch-icon.png` },
     ],
@@ -70,12 +70,10 @@ function Document({ children }: { children: ReactNode }) {
   const path = useLangPath()
   const missing = useNotFound()
   const redirectPath = lang === 'en' && !missing ? path : null
-  // The appearance is light until the inline script, which runs before the first paint, applies the stored one, so the html element's attributes differ from the server's by design.
   return (
-    <html lang={htmlLang(lang)} data-theme="light" suppressHydrationWarning>
+    <html lang={htmlLang(lang)} suppressHydrationWarning>
       <head>
         <HeadContent />
-        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
         <script dangerouslySetInnerHTML={{ __html: langScript(import.meta.env.BASE_URL, redirectPath) }} />
       </head>
       <body>

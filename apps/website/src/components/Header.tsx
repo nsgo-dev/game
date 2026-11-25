@@ -1,91 +1,63 @@
-import { useEffect, useState } from 'react'
 import { copies } from '../copy'
 import { useLang } from '../i18n'
-import { GITHUB_URL, nsgoUrl } from '../links'
+import { GITHUB_URL } from '../links'
 import { Logo } from './Brand'
-import { Icon } from './Icon'
 import { LanguageSwitch } from './LanguageSwitch'
+import { Search } from './Search'
 import { LocaleLink } from './LocaleLink'
-import { ThemeSwitch } from './ThemeSwitch'
 
-// nsgo.dev's header: the mark and the name, the pages, then the language and appearance menus and GitHub. Narrow screens fold the pages under a menu button.
+// The header: the mark and the name, the site's pages, then the language, GitHub and the way in. Narrow screens show the pages as a row of their own under the bar.
 export function Header() {
   const lang = useLang()
   const copy = copies[lang].nav
-  const [open, setOpen] = useState(false)
-  const [scrolled, setScrolled] = useState(false)
-
-  useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 4)
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false)
-    }
-    const wide = window.matchMedia('(min-width: 901px)')
-    const onWide = () => setOpen(false)
-    onScroll()
-    window.addEventListener('scroll', onScroll, { passive: true })
-    document.addEventListener('keydown', onKey)
-    wide.addEventListener('change', onWide)
-    return () => {
-      window.removeEventListener('scroll', onScroll)
-      document.removeEventListener('keydown', onKey)
-      wide.removeEventListener('change', onWide)
-    }
-  }, [])
-
-  const close = () => setOpen(false)
-  const className = ['header', scrolled && 'is-scrolled', open && 'is-open'].filter(Boolean).join(' ')
   const current = { 'aria-current': 'page' } as const
-
+  const pages = (
+    <>
+      <LocaleLink page="docs" lang={lang} activeProps={current}>
+        {copy.docs}
+      </LocaleLink>
+      <LocaleLink page="tutorial" lang={lang} activeProps={current}>
+        {copy.tutorial}
+      </LocaleLink>
+      <LocaleLink page="packages" lang={lang} activeProps={current}>
+        {copy.packages}
+      </LocaleLink>
+      <LocaleLink page="examples" lang={lang} activeProps={current}>
+        {copy.examples}
+      </LocaleLink>
+      <LocaleLink page="playground" lang={lang} activeProps={current}>
+        {copy.playground}
+      </LocaleLink>
+      <LocaleLink page="roadmap" lang={lang} activeProps={current}>
+        {copy.roadmap}
+      </LocaleLink>
+    </>
+  )
   return (
-    <header className={className} id="top">
-      <div className="container header__inner">
-        <LocaleLink page="home" lang={lang} className="brand" aria-label="NSGo Game">
-          <Logo size={26} />
-          <span className="brand__name">NSGo Game</span>
-        </LocaleLink>
-
-        <nav id="site-menu" className="header__links" aria-label={copy.primary}>
-          <LocaleLink page="home" lang={lang} activeOptions={{ exact: true }} activeProps={current} onClick={close}>
-            {copy.home}
+    <header className="header" id="top">
+      <div className="container header__bar">
+        <div className="header__left">
+          <LocaleLink page="home" lang={lang} aria-label="NSGo Game">
+            <Logo />
           </LocaleLink>
-          <LocaleLink page="docs" lang={lang} activeProps={current} onClick={close}>
-            {copy.docs}
-          </LocaleLink>
-          <LocaleLink page="playground" lang={lang} activeProps={current} onClick={close}>
-            {copy.playground}
-          </LocaleLink>
-          <LocaleLink page="showcase" lang={lang} activeProps={current} onClick={close}>
-            {copy.showcase}
-          </LocaleLink>
-          <LocaleLink page="roadmap" lang={lang} activeProps={current} onClick={close}>
-            {copy.roadmap}
-          </LocaleLink>
-          <a href={nsgoUrl(lang)} target="_blank" rel="noopener noreferrer" onClick={close}>
-            {copy.nsgo}
-            <Icon name="external" size={13} className="header__external" />
-          </a>
-        </nav>
-
-        <div className="header__actions">
+          <nav className="header__nav" aria-label={copy.primary}>
+            {pages}
+          </nav>
+        </div>
+        <div className="header__right">
+          <Search />
           <LanguageSwitch />
-          <ThemeSwitch />
-          <a className="header__github" href={GITHUB_URL} target="_blank" rel="noopener noreferrer" aria-label={copy.github}>
-            <Icon name="github" size={18} />
+          <a className="header__github" href={GITHUB_URL} target="_blank" rel="noopener noreferrer">
+            {copy.github}
           </a>
-          <button
-            type="button"
-            className="icon-button header__burger"
-            aria-expanded={open}
-            aria-controls="site-menu"
-            aria-label={open ? copy.close : copy.menu}
-            onClick={() => setOpen((was) => !was)}
-          >
-            <Icon name="menu" size={18} className="header__burger-open" />
-            <Icon name="close" size={18} className="header__burger-close" />
-          </button>
+          <LocaleLink page="doc" slug="getting-started" lang={lang} className="btn btn--primary header__cta">
+            {copy.getStarted}
+          </LocaleLink>
         </div>
       </div>
+      <nav className="header__mobile" aria-label={copy.primary}>
+        {pages}
+      </nav>
     </header>
   )
 }
