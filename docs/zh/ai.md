@@ -146,7 +146,36 @@ _ = waypoints
 _ = ok
 ```
 
-可通过 `Contains(p)`、`FindPolygon(p)`、`NearestPolygon(p)`、`Neighbors(index)`、`Polygon(index)` 和 `PolygonCount()` 查询网格几何信息。
+可通过 `Contains(p)`、`FindPolygon(p)`、`NearestPolygon(p)`、`Neighbors(index)`、`Polygon(index)`、`PolygonCount()` 和 `FindCorridor(start, goal)` 查询网格几何信息；通过 `AddOffMeshLink(NavOffMeshLink{...})` 添加离网连接，通过 `SetEdgeFlags(fromPoly, toPoly, flags)` 标记共享边。
+
+### 导航智能体与路径走廊（`NavAgent`、`NavAgentGroup`）
+
+`NavAgent` 在 `ai.NavMesh` 上维护当前有效的多边形走廊，直接从当前位置沿剩余走廊计算下一个漏斗拐角（`NextCorner`），平滑转向并在 `ArrivalRadius` 内减速直至停稳于 `StoppingDistance` 内，同时暴露明确的导航状态（`NavAgentIdle`、`NavAgentMoving`、`NavAgentArrived`、`NavAgentUnreachable`）：
+
+```go
+agent := ai.NewNavAgent(mesh, core.Point{X: 16, Y: 16}, ai.NavAgentConfig{
+	MaxSpeed:         120,
+	MaxAcceleration:  480,
+	Radius:           10,
+	ArrivalRadius:    40,
+	StoppingDistance: 8,
+	ReplanInterval:   100 * time.Millisecond,
+	OnLink: func(a *ai.NavAgent, ev ai.NavLinkEvent, dt time.Duration) bool {
+		// 自定义离网连接或标记边穿越完成时返回 true。
+		return true
+	},
+})
+agent.SetTarget(playerPos)
+
+// 在 game.Loop.Update 中：
+agent.SetTarget(playerPos)
+agent.Step(dt)
+```
+
+- **廉价局部走廊修复**：当智能体正常前进、被外力推离原走廊落到相邻多边形（`SetPosition`），或追逐的目标移入相邻多边形时，`NavAgent` 通过有界邻接桥接（最多 `MaxRepairDepth` 跳，默认 2）与环路裁剪在局部修复走廊，无需触发完整 A* 重规划。仅当走廊断裂超过 `MaxRepairDepth`、目标持续漂移或网格 `Revision()` 变化（`AddOffMeshLink`、`SetEdgeFlags`、`BumpRevision` 或 `SetMesh`）时才执行完整重规划。
+- **节流与错峰群体规划**：使用 `NewNavAgentGroup(NavAgentGroupConfig{MaxReplansPerStep: 4, ReplanInterval: 100 * time.Millisecond, StaggerStride: 1})` 并在固定步长中调用 `group.Step(dt)`，按确定性轮询顺序（可选配合 `StaggerStride` 错峰）严格将每步完整 A* 重规划次数限制在 `MaxReplansPerStep` 以内，避免大量追击智能体在同一帧造成卡顿尖峰。
+- **离网连接与标记边回调**：经过离网连接（`NavLinkOffMesh`）或带标记共享边（`SetEdgeFlags`）时每步调用 `OnLink`；返回 `false` 表示由回调接管跳跃、开门等自定义过渡，返回 `true` 后恢复走廊转向。未设置 `OnLink` 时，离网连接按 `MaxSpeed` 线性穿越。
+- **确定性步进**：`Step(dt)` 不使用后台 goroutine、不遍历 Go map、无隐藏随机源；重放相同输入序列每一步位置按位完全一致。
 
 ### 多边形区域代价、运行时标志与查询过滤器
 

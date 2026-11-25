@@ -60,13 +60,39 @@ const (
 	minPortalWidth           = 1e-4
 )
 
-// NavLink describes a traversable 3D portal edge from one NavPoly to an adjacent
-// NavPoly. Left and Right are ordered as seen when looking from the source
-// polygon outward across the shared edge into Neighbor.
+// NavLinkOffMesh is a link flag marking a portal as an off-mesh connection
+// (such as a jump, drop-down, ladder, or teleport) rather than a shared 3D edge.
+const NavLinkOffMesh uint32 = 1 << 0
+
+// NavOffMeshLink describes a custom 3D off-mesh connection between two walkable points on a NavMesh.
+type NavOffMeshLink struct {
+	// Start and End are the 3D endpoints on the mesh.
+	Start math3d.Vec3
+	End   math3d.Vec3
+	// Bidirectional adds links in both Start->End and End->Start directions when true.
+	Bidirectional bool
+	// Flags stores game-defined link flags; NavLinkOffMesh is always set automatically.
+	Flags uint32
+	// ID is an optional game-defined link identifier delivered in NavLinkEvent.LinkID.
+	ID int
+	// Cost overrides the A* traversal cost when positive; <= 0 uses 3D Euclidean distance.
+	Cost float32
+}
+
+// NavLink describes a traversable 3D portal edge (or off-mesh link) from one
+// NavPoly to another NavPoly. For shared-edge portals, Left and Right are
+// ordered as seen when looking from the source polygon outward across the
+// shared edge into Neighbor. For off-mesh links (OffMesh == true), Left and
+// Right hold the entry point and End holds the exit point.
 type NavLink struct {
 	Neighbor int
 	Left     math3d.Vec3
 	Right    math3d.Vec3
+	Flags    uint32
+	LinkID   int
+	OffMesh  bool
+	End      math3d.Vec3
+	Cost     float32
 }
 
 // NavPoly is a single walkable convex 3D polygon in a NavMesh.
@@ -122,6 +148,7 @@ func (p *NavPoly) ContainsXZ(x, z float32) bool {
 type NavMesh struct {
 	Polys             []NavPoly
 	VerticalTolerance float32
+	revision          uint64
 }
 
 // BuildNavMesh constructs a NavMesh from convex 3D polygons, filtering out
@@ -158,6 +185,7 @@ func BuildNavMeshWithAreas(polys []NavPolygonInput, maxSlopeRad float32) *NavMes
 
 	nm := &NavMesh{
 		VerticalTolerance: defaultVerticalTolerance,
+		revision:          1,
 	}
 
 	for _, in := range polys {
@@ -234,7 +262,10 @@ func (nm *NavMesh) SetPolygonArea(index int, area NavArea) {
 	if nm == nil || index < 0 || index >= len(nm.Polys) {
 		return
 	}
-	nm.Polys[index].Area = area
+	if nm.Polys[index].Area != area {
+		nm.Polys[index].Area = area
+		nm.revision++
+	}
 }
 
 // PolygonFlags returns the runtime traversal flags of polygon index, or 0 if index is out of range.
@@ -251,7 +282,10 @@ func (nm *NavMesh) SetPolygonFlags(index int, flags NavFlags) {
 	if nm == nil || index < 0 || index >= len(nm.Polys) {
 		return
 	}
-	nm.Polys[index].Flags = flags
+	if nm.Polys[index].Flags != flags {
+		nm.Polys[index].Flags = flags
+		nm.revision++
+	}
 }
 
 // AddPolygonFlags sets the bits in flags on polygon index at runtime without rebuilding the mesh.
@@ -260,7 +294,11 @@ func (nm *NavMesh) AddPolygonFlags(index int, flags NavFlags) {
 	if nm == nil || index < 0 || index >= len(nm.Polys) {
 		return
 	}
-	nm.Polys[index].Flags |= flags
+	next := nm.Polys[index].Flags | flags
+	if next != nm.Polys[index].Flags {
+		nm.Polys[index].Flags = next
+		nm.revision++
+	}
 }
 
 // ClearPolygonFlags clears the bits in flags on polygon index at runtime without rebuilding the mesh.
@@ -269,7 +307,11 @@ func (nm *NavMesh) ClearPolygonFlags(index int, flags NavFlags) {
 	if nm == nil || index < 0 || index >= len(nm.Polys) {
 		return
 	}
-	nm.Polys[index].Flags &^= flags
+	next := nm.Polys[index].Flags &^ flags
+	if next != nm.Polys[index].Flags {
+		nm.Polys[index].Flags = next
+		nm.revision++
+	}
 }
 
 func (nm *NavMesh) linkPolygons() {
@@ -451,6 +493,10 @@ func (nm *NavMesh) NearestPolygonWithFilter(p math3d.Vec3, filter NavFilter) (in
 	return bestIdx, bestPt, true
 }
 
+func (nm *NavMesh) polyClosestPoint(polyIdx int, p math3d.Vec3) math3d.Vec3 {
+	return closestPointOnNavPoly(&nm.Polys[polyIdx], p)
+}
+
 func closestPointOnNavPoly(poly *NavPoly, p math3d.Vec3) math3d.Vec3 {
 	signedDist := poly.Normal.Dot(p) + poly.PlaneD
 	proj := p.Sub(poly.Normal.Scale(signedDist))
@@ -501,6 +547,128 @@ type NavPathResult struct {
 	Partial    bool // true when Path ends at the closest reachable 3D point rather than goal
 	Exhausted  bool // true when the search stopped because MaxExpansions was reached
 	Expansions int  // total number of portal nodes expanded during the search
+}
+
+// Revision returns a monotonically increasing number bumped whenever the mesh topology, polygon areas/flags, or link flags change.
+func (nm *NavMesh) Revision() uint64 {
+	if nm == nil {
+		return 0
+	}
+	return nm.revision
+}
+
+// BumpRevision increments the mesh revision so NavAgents watching this mesh invalidate cached corridors and replan.
+func (nm *NavMesh) BumpRevision() {
+	if nm == nil {
+		return
+	}
+	nm.revision++
+}
+
+// AddOffMeshLink connects the polygons containing link.Start and link.End with a directed
+// (or bidirectional) off-mesh link and bumps the mesh revision.
+// Returns false if the mesh is nil or either endpoint does not match a walkable polygon.
+func (nm *NavMesh) AddOffMeshLink(link NavOffMeshLink) bool {
+	if nm == nil || len(nm.Polys) == 0 {
+		return false
+	}
+	fromPoly, okFrom := nm.FindPolygon(link.Start)
+	toPoly, okTo := nm.FindPolygon(link.End)
+	if !okFrom || !okTo || fromPoly == toPoly {
+		return false
+	}
+	start := link.Start
+	start.Y = nm.Polys[fromPoly].HeightAt(start.X, start.Z)
+	end := link.End
+	end.Y = nm.Polys[toPoly].HeightAt(end.X, end.Z)
+
+	cost := link.Cost
+	if !(cost > 0) || math.IsInf(float64(cost), 0) || math.IsNaN(float64(cost)) {
+		cost = start.Dist(end)
+	}
+	flags := link.Flags | NavLinkOffMesh
+
+	nm.Polys[fromPoly].Links = append(nm.Polys[fromPoly].Links, NavLink{
+		Neighbor: toPoly,
+		Left:     start,
+		Right:    start,
+		Flags:    flags,
+		LinkID:   link.ID,
+		OffMesh:  true,
+		End:      end,
+		Cost:     cost,
+	})
+	if link.Bidirectional {
+		nm.Polys[toPoly].Links = append(nm.Polys[toPoly].Links, NavLink{
+			Neighbor: fromPoly,
+			Left:     end,
+			Right:    end,
+			Flags:    flags,
+			LinkID:   link.ID,
+			OffMesh:  true,
+			End:      start,
+			Cost:     cost,
+		})
+	}
+	nm.revision++
+	return true
+}
+
+// SetEdgeFlags sets custom flags on the shared-edge link from fromPoly to toPoly and bumps the mesh revision.
+// Returns false if no shared-edge link connects fromPoly to toPoly.
+func (nm *NavMesh) SetEdgeFlags(fromPoly, toPoly int, flags uint32) bool {
+	if nm == nil || fromPoly < 0 || fromPoly >= len(nm.Polys) || toPoly < 0 || toPoly >= len(nm.Polys) {
+		return false
+	}
+	changed := false
+	links := nm.Polys[fromPoly].Links
+	for i := range links {
+		if !links[i].OffMesh && links[i].Neighbor == toPoly {
+			links[i].Flags = flags
+			changed = true
+		}
+	}
+	if changed {
+		nm.revision++
+	}
+	return changed
+}
+
+// FindCorridor computes the sequence of walkable polygon indices from start to goal under DefaultNavFilter.
+// Returns (nil, false) if either endpoint is off the traversable NavMesh or no connected corridor exists.
+func (nm *NavMesh) FindCorridor(start, goal math3d.Vec3) ([]int, bool) {
+	return nm.FindCorridorWithFilter(start, goal, DefaultNavFilter())
+}
+
+// FindCorridorWithFilter computes the minimum-cost sequence of walkable polygon indices from start to goal under filter.
+// Returns (nil, false) if either endpoint is off the traversable NavMesh or no connected corridor exists.
+func (nm *NavMesh) FindCorridorWithFilter(start, goal math3d.Vec3, filter NavFilter) ([]int, bool) {
+	corridor, _, ok := nm.findCorridorWithFilter(start, goal, filter)
+	if !ok {
+		return nil, false
+	}
+	return corridor, true
+}
+
+func (nm *NavMesh) findCorridorWithFilter(start, goal math3d.Vec3, filter NavFilter) ([]int, []NavLink, bool) {
+	s := NewNavMeshSearchWithFilter(nm, start, goal, filter, ai.PathOptions{})
+	s.step(-1)
+	if s.status != ai.SearchComplete {
+		return nil, nil, false
+	}
+	if s.samePoly || s.parent[s.goalNode] == -1 {
+		dp := s.directPoly
+		if dp < 0 {
+			var ok bool
+			dp, ok = nm.FindPolygonWithFilter(start, filter)
+			if !ok {
+				return nil, nil, false
+			}
+		}
+		return []int{dp}, nil, true
+	}
+	corridor, portals := s.reconstructPortalCorridor(s.parent[s.goalNode])
+	return corridor, portals, true
 }
 
 // FindPath computes a shortest 3D path from start to goal across the NavMesh
@@ -586,6 +754,7 @@ type NavMeshSearch struct {
 	exhausted    bool
 	expansions   int
 	samePoly     bool
+	directPoly   int
 	hasBest      bool
 	bestPortalID int
 	bestPt       math3d.Vec3
@@ -606,6 +775,7 @@ func NewNavMeshSearchWithFilter(nm *NavMesh, start, goal math3d.Vec3, filter Nav
 		goal:         goal,
 		opts:         opts,
 		status:       ai.SearchFailed,
+		directPoly:   -1,
 		bestPortalID: -1,
 	}
 	if nm == nil || len(nm.Polys) == 0 {
@@ -709,6 +879,7 @@ func NewNavMeshSearchWithFilter(nm *NavMesh, start, goal math3d.Vec3, filter Nav
 			if isGoalPoly[sp] {
 				if start.ApproxEqual(goal, 1e-5) {
 					s.samePoly = true
+					s.directPoly = sp
 					s.status = ai.SearchComplete
 					return s
 				}
@@ -716,6 +887,7 @@ func NewNavMeshSearchWithFilter(nm *NavMesh, start, goal math3d.Vec3, filter Nav
 				if dc < directCost {
 					directCost = dc
 					directPossible = true
+					s.directPoly = sp
 				}
 			}
 		}
@@ -795,13 +967,24 @@ func NewNavMeshSearchWithFilter(nm *NavMesh, start, goal math3d.Vec3, filter Nav
 				continue
 			}
 			pid := base + k
-			pt := bestPortalPoint3D(start, s.goal, link.Left, link.Right)
-			g := dist3D(start, pt) * spCost
+			var g float64
+			var exitPt math3d.Vec3
+			if link.OffMesh {
+				cost := float64(link.Cost)
+				if !(cost > 0) {
+					cost = dist3D(link.Left, link.End)
+				}
+				g = dist3D(start, link.Left)*spCost + cost
+				exitPt = link.End
+			} else {
+				exitPt = bestPortalPoint3D(start, s.goal, link.Left, link.Right)
+				g = dist3D(start, exitPt) * spCost
+			}
 			if g < s.gScore[pid] {
 				s.gScore[pid] = g
-				s.entryPt[pid] = pt
+				s.entryPt[pid] = exitPt
 				s.parent[pid] = -1
-				h := dist3D(pt, s.goal) * minCost
+				h := dist3D(exitPt, s.goal) * minCost
 				s.pushOrUpdate(pid, g+h, h)
 			}
 		}
@@ -913,16 +1096,27 @@ func (s *NavMeshSearch) step(stepLimit int) (ai.SearchStatus, int) {
 			if s.closed[npid] {
 				continue
 			}
-			if nlink.Neighbor == fromPoly || !s.allowed[nlink.Neighbor] {
+			if (!nlink.OffMesh && nlink.Neighbor == fromPoly) || !s.allowed[nlink.Neighbor] {
 				continue
 			}
-			pt := bestPortalPoint3D(curPt, goal, nlink.Left, nlink.Right)
-			ng := curG + dist3D(curPt, pt)*toCost
+			var ng float64
+			var exitPt math3d.Vec3
+			if nlink.OffMesh {
+				cost := float64(nlink.Cost)
+				if !(cost > 0) {
+					cost = dist3D(nlink.Left, nlink.End)
+				}
+				ng = curG + dist3D(curPt, nlink.Left)*toCost + cost
+				exitPt = nlink.End
+			} else {
+				exitPt = bestPortalPoint3D(curPt, goal, nlink.Left, nlink.Right)
+				ng = curG + dist3D(curPt, exitPt)*toCost
+			}
 			if ng < s.gScore[npid] {
 				s.gScore[npid] = ng
-				s.entryPt[npid] = pt
+				s.entryPt[npid] = exitPt
 				s.parent[npid] = cur.id
-				h := dist3D(pt, goal) * s.minCost
+				h := dist3D(exitPt, goal) * s.minCost
 				s.pushOrUpdate(npid, ng+h, h)
 			}
 		}
@@ -1137,10 +1331,56 @@ type funnelCorner struct {
 }
 
 // smoothCorridor runs the Simple Stupid Funnel Algorithm in XZ across the
-// ordered 3D portal corridor, then inserts exact 3D portal-edge crossings
-// wherever consecutive polygons change plane/slope so the path conforms
-// tightly to ramps, ridges, and multi-level bridges.
+// ordered 3D portal corridor, splitting cleanly across any off-mesh links, and
+// inserts exact 3D portal-edge crossings wherever consecutive polygons change
+// plane/slope so the path conforms tightly to ramps, ridges, and multi-level bridges.
 func (nm *NavMesh) smoothCorridor(corridor []int, portals []NavLink, start, goal math3d.Vec3) []math3d.Vec3 {
+	hasOffMesh := false
+	for _, p := range portals {
+		if p.OffMesh {
+			hasOffMesh = true
+			break
+		}
+	}
+	if !hasOffMesh {
+		return nm.smoothCorridorSegment(corridor, portals, start, goal)
+	}
+
+	var out []math3d.Vec3
+	segStart := start
+	segBegin := 0
+	for i, link := range portals {
+		if !link.OffMesh {
+			continue
+		}
+		seg := nm.smoothCorridorSegment(corridor[segBegin:i+1], portals[segBegin:i], segStart, link.Left)
+		for _, pt := range seg {
+			if len(out) == 0 || !out[len(out)-1].ApproxEqual(pt, 1e-4) {
+				out = append(out, pt)
+			}
+		}
+		if len(out) == 0 || !out[len(out)-1].ApproxEqual(link.End, 1e-4) {
+			out = append(out, link.End)
+		}
+		segStart = link.End
+		segBegin = i + 1
+	}
+	tail := nm.smoothCorridorSegment(corridor[segBegin:], portals[segBegin:], segStart, goal)
+	for _, pt := range tail {
+		if len(out) == 0 || !out[len(out)-1].ApproxEqual(pt, 1e-4) {
+			out = append(out, pt)
+		}
+	}
+	return out
+}
+
+func (nm *NavMesh) smoothCorridorSegment(corridor []int, portals []NavLink, start, goal math3d.Vec3) []math3d.Vec3 {
+	if len(portals) == 0 {
+		if start.ApproxEqual(goal, 1e-4) {
+			return []math3d.Vec3{start}
+		}
+		return []math3d.Vec3{start, goal}
+	}
 	m := len(portals) + 2
 	portalLeft := make([]math3d.Vec3, m)
 	portalRight := make([]math3d.Vec3, m)
@@ -1233,6 +1473,101 @@ func (nm *NavMesh) smoothCorridor(corridor []int, portals []NavLink, start, goal
 	}
 
 	return out
+}
+
+// nextFunnelCorner returns the first visible XZ funnel corner from pos along portals toward goal.
+// isGoal is true when the returned corner is the final goal with straight line of sight through the corridor.
+// offMeshIdx is the index into portals if the returned corner is an off-mesh link entry point, or -1 otherwise.
+func (nm *NavMesh) nextFunnelCorner(pos, goal math3d.Vec3, portals []NavLink) (corner math3d.Vec3, isGoal bool, offMeshIdx int) {
+	if len(portals) == 0 {
+		return goal, true, -1
+	}
+	if portals[0].OffMesh {
+		return portals[0].Left, false, 0
+	}
+
+	endPt := goal
+	endIsGoal := true
+	endOffMesh := -1
+	segLen := len(portals)
+	for i, link := range portals {
+		if link.OffMesh {
+			endPt = link.Left
+			endIsGoal = false
+			endOffMesh = i
+			segLen = i
+			break
+		}
+	}
+
+	m := segLen + 2
+	portalLeft := make([]math3d.Vec3, m)
+	portalRight := make([]math3d.Vec3, m)
+	portalLeft[0] = pos
+	portalRight[0] = pos
+	for i := range segLen {
+		portalLeft[i+1] = portals[i].Left
+		portalRight[i+1] = portals[i].Right
+	}
+	portalLeft[m-1] = endPt
+	portalRight[m-1] = endPt
+
+	const cornerEpsSq float32 = 1e-6 // 1e-3 world units on XZ
+	portalApex := pos
+	leftPt := pos
+	rightPt := pos
+	apexIdx, leftIdx, rightIdx := 0, 0, 0
+
+	for i := 1; i < m; i++ {
+		left := portalLeft[i]
+		right := portalRight[i]
+
+		if triArea2(portalApex, rightPt, right) <= 0 {
+			if sameXZ(portalApex, rightPt) || sameXZ(portalApex, leftPt) || triArea2(portalApex, leftPt, right) > 0 {
+				rightPt = right
+				rightIdx = i
+			} else {
+				if distXZSq(pos, leftPt) > cornerEpsSq {
+					return leftPt, false, -1
+				}
+				portalApex = leftPt
+				apexIdx = leftIdx
+				leftPt = portalApex
+				rightPt = portalApex
+				leftIdx = apexIdx
+				rightIdx = apexIdx
+				i = apexIdx
+				continue
+			}
+		}
+
+		if triArea2(portalApex, leftPt, left) >= 0 {
+			if sameXZ(portalApex, leftPt) || sameXZ(portalApex, rightPt) || triArea2(portalApex, rightPt, left) < 0 {
+				leftPt = left
+				leftIdx = i
+			} else {
+				if distXZSq(pos, rightPt) > cornerEpsSq {
+					return rightPt, false, -1
+				}
+				portalApex = rightPt
+				apexIdx = rightIdx
+				leftPt = portalApex
+				rightPt = portalApex
+				leftIdx = apexIdx
+				rightIdx = apexIdx
+				i = apexIdx
+				continue
+			}
+		}
+	}
+
+	return endPt, endIsGoal, endOffMesh
+}
+
+func distXZSq(a, b math3d.Vec3) float32 {
+	dx := a.X - b.X
+	dz := a.Z - b.Z
+	return dx*dx + dz*dz
 }
 
 func appendCorner(corners []funnelCorner, c funnelCorner) []funnelCorner {
