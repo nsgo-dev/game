@@ -87,7 +87,7 @@ stops:
 
 ### animation
 
-A clip of numeric property tracks keyed from `0` to `length` seconds. `target` names the object a track drives, the ID of an object in the scene when [animclip](animclip.md) plays it (empty is the object the clip plays on), and each target and property pair has one track. `events` are named cues in time order, each at a `time` from `0` to `length`, which a player reports as playback crosses them.
+A clip of property tracks keyed from `0` to `length` seconds. `target` names the object a track drives, the ID of an object in the scene when [animclip](animclip.md) plays it (empty is the object the clip plays on), and each target and property pair has one track. A track sets either numeric `keys` (`time`, `value`, optional `interp`) or discrete sprite `frames` (`time`, `frame`), never both; `frames` steps through atlas frame names without interpolation, used for `sprite.frame` flipbook tracks. `events` are named cues in time order, each at a `time` from `0` to `length`, which a player reports as playback crosses them.
 
 ```yaml
 type: animation
@@ -106,12 +106,18 @@ tracks:
         interp: smooth
       - time: 1.5
         value: 1
+  - property: sprite.frame
+    frames:
+      - time: 0
+        frame: torch_0
+      - time: 0.75
+        frame: torch_1
 events:
   - time: 0.75
     name: flare
 ```
 
-`Animation.Sample(t, set)` wraps or clamps `t` to the clip (`ClipTime`) and calls `set` with each track's target, property and value. [animclip](animclip.md) plays a clip on scene objects, with its properties checked against the registered component types, and the [editor's animation panel](editor.md#animation-editor) keys and saves clips.
+`Animation.Sample(t, set)` wraps or clamps `t` to the clip (`ClipTime`) and calls `set` with each numeric track's target, property and value; `Animation.SampleFrames(t, set)` does the same for discrete frame tracks (`Track.IsFrameTrack`, `Track.EvalFrame`). [animclip](animclip.md) plays a clip on scene objects, with its properties checked against the registered component types, and the [editor's animation panel](editor.md#animation-editor) keys and saves clips.
 
 ### theme
 

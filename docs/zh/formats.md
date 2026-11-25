@@ -497,6 +497,30 @@ keys:
     interp: step
 ```
 
+```yaml
+type: animation
+version: 1
+name: Hero walk
+length: 0.4
+loop: true
+tracks:
+  - property: sprite.frame
+    frames:
+      - time: 0
+        frame: hero_walk_0
+      - time: 0.1
+        frame: hero_walk_1
+      - time: 0.2
+        frame: hero_walk_2
+      - time: 0.3
+        frame: hero_walk_3
+events:
+  - time: 0.1
+    name: footstep
+  - time: 0.3
+    name: footstep
+```
+
 <!-- format: particles -->
 ### 粒子发射器
 

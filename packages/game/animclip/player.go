@@ -67,6 +67,12 @@ func NewPlayer(clip *resource.Animation, reg *sceneformat.ComponentRegistry, bin
 		if err != nil {
 			return nil, err
 		}
+		if prop.Kind == KindFrame {
+			prop.Frames = make([]string, len(tr.Frames))
+			for j, fk := range tr.Frames {
+				prop.Frames[j] = fk.Frame
+			}
+		}
 		set, err := bind(tr.Target, prop)
 		if err != nil {
 			return nil, fmt.Errorf("animclip: bind track %d (target %q property %q): %w", i, tr.Target, tr.Property, err)
@@ -75,6 +81,18 @@ func NewPlayer(clip *resource.Animation, reg *sceneformat.ComponentRegistry, bin
 			return nil, fmt.Errorf("animclip: bind track %d (target %q property %q): binder returned no setter", i, tr.Target, tr.Property)
 		}
 		apply := func(v float64) { set(prop.Convert(v)) }
+		if prop.Kind == KindFrame {
+			frames := tr.Frames
+			if len(frames) == 1 {
+				p.tl.Add(Seconds(frames[0].Time), tween.New(0.0, 0.0, 0, core.Linear, lerpStep, apply))
+				continue
+			}
+			for j := 0; j+1 < len(frames); j++ {
+				start := Seconds(frames[j].Time)
+				p.tl.Add(start, tween.New(float64(j), float64(j+1), Seconds(frames[j+1].Time)-start, core.Linear, lerpStep, apply))
+			}
+			continue
+		}
 		keys := tr.Keys
 		if len(keys) == 1 {
 			v := KeyValue(keys[0].Value)

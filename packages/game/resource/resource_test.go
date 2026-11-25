@@ -24,6 +24,7 @@ var testdataKinds = map[string]resource.Kind{
 	"jump.curve.yaml":              resource.KindCurve,
 	"sunset.gradient.yaml":         resource.KindGradient,
 	"torch_flicker.animation.yaml": resource.KindAnimation,
+	"hero_walk.animation.yaml":     resource.KindAnimation,
 	"menu.theme.yaml":              resource.KindTheme,
 	"default.buses.yaml":           resource.KindBusLayout,
 	"ice.physics.yaml":             resource.KindPhysicsMaterial,
@@ -39,8 +40,12 @@ func readTestdata(tb testing.TB, name string) []byte {
 }
 
 func TestTestdataRoundTripsUnchanged(t *testing.T) {
-	if len(testdataKinds) != len(resource.Kinds()) {
-		t.Fatalf("testdata covers %d kinds, want all %d", len(testdataKinds), len(resource.Kinds()))
+	seenKinds := make(map[resource.Kind]struct{}, len(testdataKinds))
+	for _, kind := range testdataKinds {
+		seenKinds[kind] = struct{}{}
+	}
+	if len(seenKinds) != len(resource.Kinds()) {
+		t.Fatalf("testdata covers %d kinds, want all %d", len(seenKinds), len(resource.Kinds()))
 	}
 	for name, kind := range testdataKinds {
 		t.Run(name, func(t *testing.T) {
@@ -89,6 +94,11 @@ func TestParseRejectsInvalidDocuments(t *testing.T) {
 		{"animation key past length", "type: animation\nversion: 1\nlength: 1\ntracks:\n  - property: x\n    keys:\n      - {time: 2, value: 0}\n", "must be in [0, 1]"},
 		{"animation duplicate track", "type: animation\nversion: 1\nlength: 1\ntracks:\n  - {property: x, keys: [{time: 0, value: 0}]}\n  - {property: x, keys: [{time: 0, value: 1}]}\n", "two tracks"},
 		{"animation empty property", "type: animation\nversion: 1\nlength: 1\ntracks:\n  - {keys: [{time: 0, value: 0}]}\n", "empty property"},
+		{"animation track both keys and frames", "type: animation\nversion: 1\nlength: 1\ntracks:\n  - property: sprite.frame\n    keys: [{time: 0, value: 0}]\n    frames: [{time: 0, frame: a}]\n", "both keys and frames"},
+		{"animation frame empty name", "type: animation\nversion: 1\nlength: 1\ntracks:\n  - property: sprite.frame\n    frames: [{time: 0, frame: ''}]\n", "empty frame name"},
+		{"animation frame past length", "type: animation\nversion: 1\nlength: 1\ntracks:\n  - property: sprite.frame\n    frames: [{time: 1.5, frame: a}]\n", "must be in [0, 1]"},
+		{"animation frames out of order", "type: animation\nversion: 1\nlength: 1\ntracks:\n  - property: sprite.frame\n    frames: [{time: 0.2, frame: a}, {time: 0.2, frame: b}]\n", "after the previous"},
+		{"animation frame unknown field", "type: animation\nversion: 1\nlength: 1\ntracks:\n  - property: sprite.frame\n    frames: [{time: 0, frame: a, interp: smooth}]\n", "interp"},
 		{"animation event without name", "type: animation\nversion: 1\nlength: 1\nevents:\n  - {time: 0.5}\n", "empty name"},
 		{"animation event past length", "type: animation\nversion: 1\nlength: 1\nevents:\n  - {time: 2, name: hit}\n", "must be in [0, 1]"},
 		{"animation events out of order", "type: animation\nversion: 1\nlength: 1\nevents:\n  - {time: 0.5, name: a}\n  - {time: 0.2, name: b}\n", "before the previous"},
@@ -252,6 +262,46 @@ func TestAnimationSample(t *testing.T) {
 	once.Loop = false
 	if got := once.ClipTime(5); got != 1.5 {
 		t.Fatalf("non-looping ClipTime(5) = %v, want 1.5", got)
+	}
+
+	walk, err := resource.ParseAs[*resource.Animation](readTestdata(t, "hero_walk.animation.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !walk.Tracks[0].IsFrameTrack() {
+		t.Fatal("hero_walk track 0 should be a frame track")
+	}
+	var numericCount int
+	walk.Sample(0.15, func(string, string, float32) { numericCount++ })
+	if numericCount != 0 {
+		t.Fatalf("Sample called %d times on a frame-only clip, want 0", numericCount)
+	}
+	for _, tc := range []struct {
+		t    float32
+		want string
+	}{
+		{-0.05, "hero_walk_3"}, // looping wraps -0.05 -> 0.35
+		{0, "hero_walk_0"},
+		{0.099, "hero_walk_0"},
+		{0.1, "hero_walk_1"},
+		{0.25, "hero_walk_2"},
+		{0.39, "hero_walk_3"},
+		{0.4, "hero_walk_0"}, // wraps to 0
+		{0.55, "hero_walk_1"},
+	} {
+		var gotFrame string
+		walk.SampleFrames(tc.t, func(target, property, frame string) {
+			if target != "" || property != "sprite.frame" {
+				t.Fatalf("SampleFrames target=%q property=%q", target, property)
+			}
+			gotFrame = frame
+		})
+		if gotFrame != tc.want {
+			t.Fatalf("SampleFrames(%v) = %q, want %q", tc.t, gotFrame, tc.want)
+		}
+	}
+	if got := walk.Tracks[0].EvalFrame(float32(math.NaN())); got != "hero_walk_0" {
+		t.Fatalf("EvalFrame(NaN) = %q, want hero_walk_0", got)
 	}
 }
 
