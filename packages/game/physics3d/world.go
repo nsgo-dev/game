@@ -62,6 +62,11 @@ type Body struct {
 	LinearDamping float32
 	// AngularDamping reduces angular velocity smoothly over time (1 / (1 + AngularDamping*dt)).
 	AngularDamping float32
+	// GravityScale multiplies the effective gravity applied to this body during
+	// World.Step. NewDynamicBody initializes it to 1; on a zero-initialized Body
+	// literal it defaults to 1 unless SetGravityScale(0) is called or GravityScale
+	// is modified after AddBody.
+	GravityScale float32
 	// Static marks an immovable body with infinite mass (InvMass == 0).
 	Static bool
 	// Kinematic marks a body driven directly by user/animation code (infinite
@@ -78,8 +83,12 @@ type Body struct {
 	// IsTrigger marks a sensor volume that emits trigger ContactEvents without
 	// applying impulse or positional resolution.
 	IsTrigger bool
+	// Area configures optional gravity, damping, and buoyancy/fluid drag overrides
+	// applied to overlapping dynamic bodies when IsTrigger is true.
+	Area AreaSettings
 
-	sleepTimer float32
+	gravityScaleSet bool
+	sleepTimer      float32
 	// residualDepth is the deepest contact b was left in by the last Step's final position pass.
 	residualDepth float32
 	// lastPos and lastRot are the pose at the end of the previous Step, so a kinematic body moved by setting Pos or Rot directly still wakes what it touches.
@@ -108,14 +117,16 @@ func NewDynamicBody(shape Shape, pos Vec3, mass float32) Body {
 		return NewStaticBody(shape, pos)
 	}
 	return Body{
-		Shape:          shape,
-		Pos:            pos,
-		Rot:            QuatIdentity(),
-		Mass:           mass,
-		InvMass:        1 / mass,
-		Friction:       0.5,
-		LinearDamping:  0.01,
-		AngularDamping: 0.05,
+		Shape:           shape,
+		Pos:             pos,
+		Rot:             QuatIdentity(),
+		Mass:            mass,
+		InvMass:         1 / mass,
+		Friction:        0.5,
+		LinearDamping:   0.01,
+		AngularDamping:  0.05,
+		GravityScale:    1,
+		gravityScaleSet: true,
 	}
 }
 
@@ -338,10 +349,17 @@ func (w *World) AddBody(b Body) *Body {
 	if b.AngularDamping < 0 {
 		b.AngularDamping = 0
 	}
+	if !isFinite32(b.GravityScale) || (b.GravityScale == 0 && !b.gravityScaleSet) {
+		b.GravityScale = 1
+	}
+	b.gravityScaleSet = true
 
 	stored := new(Body)
 	*stored = b
 	w.bodies = append(w.bodies, stored)
+	if stored.IsTrigger && stored.Area.Active() {
+		w.wakeAllDynamic()
+	}
 	return stored
 }
 
@@ -453,6 +471,7 @@ func (w *World) Step(dt time.Duration) {
 
 	n := len(w.bodies)
 	prevPos := make([]Vec3, n)
+	areaTriggers := w.collectActiveAreaTriggers()
 
 	// 1. Symplectic Euler integration: update velocities, then tentative poses.
 	for i, b := range w.bodies {
@@ -460,15 +479,40 @@ func (w *World) Step(dt time.Duration) {
 		if b.Static || b.Kinematic || b.Sleeping {
 			continue
 		}
-		b.Vel = b.Vel.Add(w.Gravity.Scale(dtSec))
-		if b.LinearDamping > 0 {
-			b.Vel = b.Vel.Scale(1 / (1 + b.LinearDamping*dtSec))
+		gScale := b.EffectiveGravityScale()
+		if len(areaTriggers) == 0 {
+			b.Vel = b.Vel.Add(w.Gravity.Scale(gScale * dtSec))
+			if b.LinearDamping > 0 {
+				b.Vel = b.Vel.Scale(1 / (1 + b.LinearDamping*dtSec))
+			}
+			b.Pos = b.Pos.Add(b.Vel.Scale(dtSec))
+
+			if b.AngVel.LenSq() > 0 {
+				if b.AngularDamping > 0 {
+					b.AngVel = b.AngVel.Scale(1 / (1 + b.AngularDamping*dtSec))
+				}
+				b.Rot = IntegrateQuat(b.Rot, b.AngVel, dtSec)
+			}
+			continue
+		}
+
+		eff := w.evaluateBodyAreas(b, areaTriggers)
+		accel := eff.Gravity.Add(eff.BuoyancyAccel).Scale(gScale)
+		b.Vel = b.Vel.Add(accel.Scale(dtSec))
+
+		if eff.FluidLinearDrag > 0 {
+			factor := 1 / (1 + eff.FluidLinearDrag*dtSec)
+			b.Vel = eff.FluidVelocity.Add(b.Vel.Sub(eff.FluidVelocity).Scale(factor))
+		}
+		if eff.LinearDamping > 0 {
+			b.Vel = b.Vel.Scale(1 / (1 + eff.LinearDamping*dtSec))
 		}
 		b.Pos = b.Pos.Add(b.Vel.Scale(dtSec))
 
 		if b.AngVel.LenSq() > 0 {
-			if b.AngularDamping > 0 {
-				b.AngVel = b.AngVel.Scale(1 / (1 + b.AngularDamping*dtSec))
+			angDamp := eff.AngularDamping + eff.FluidAngularDrag
+			if angDamp > 0 {
+				b.AngVel = b.AngVel.Scale(1 / (1 + angDamp*dtSec))
 			}
 			b.Rot = IntegrateQuat(b.Rot, b.AngVel, dtSec)
 		}
@@ -535,6 +579,12 @@ func (w *World) Step(dt time.Duration) {
 			}
 
 			if isTrig {
+				if a.IsTrigger && a.Area.Active() && b.Sleeping && isMoving(a) {
+					b.Wake()
+				}
+				if b.IsTrigger && b.Area.Active() && a.Sleeping && isMoving(b) {
+					a.Wake()
+				}
 				continue
 			}
 
@@ -884,10 +934,17 @@ func (w *World) Step(dt time.Duration) {
 		}
 	}
 
-	// 7. A sleeping body whose solid contact ended this step lost a support (or a neighbor moved away), so it wakes and falls instead of hanging in the air.
+	// 7. A sleeping body whose solid contact (or active area trigger overlap) ended this step lost a support or force zone, so it wakes instead of hanging in place.
 	for k, rec := range w.activeContacts {
-		if _, still := currentPairs[k]; still || rec.isTrigger {
+		if _, still := currentPairs[k]; still {
 			continue
+		}
+		if rec.isTrigger {
+			activeArea := (rec.a != nil && rec.a.IsTrigger && rec.a.Area.Active()) ||
+				(rec.b != nil && rec.b.IsTrigger && rec.b.Area.Active())
+			if !activeArea {
+				continue
+			}
 		}
 		if rec.a != nil && rec.a.Sleeping {
 			rec.a.Wake()

@@ -80,6 +80,31 @@ A dynamic body that moves more than half its smallest dimension in one step is s
 - **Internal-seam filtering**: faces occluded by adjacent solid blocks are filtered out so crates, spheres, capsules, and characters never snag on flat voxel floor or wall seams.
 - **Instant edit reflection & wakeup**: block changes take effect immediately with zero rebuild. Grids implementing `VoxelEditNotifier` automatically call `NotifyBlockChanged` / `NotifyReset` (which wake nearby sleeping bodies and stacked contacts via `World.WakeInBox`), while plain `VoxelGrid` implementations still wake bodies whose voxel support disappears on the next `World.Step`.
 
+## Gravity Scale and Area Volumes
+
+`Body` and `CharacterController` each support a per-entity `GravityScale` (initialized to `1` by `NewDynamicBody` and `NewCharacterController`; use `SetGravityScale(0)` for weightless objects or negative values to invert gravity).
+
+Any trigger body (`Body.IsTrigger = true`) can configure `Body.Area` (`AreaSettings`) to override gravity, linear/angular damping, and fluid buoyancy/drag for overlapping dynamic bodies during `World.Step` and for `CharacterController.Move`:
+
+- **Gravity modes & priority**: set `GravityMode` to `AreaOverrideCombine`, `AreaOverrideReplace`, or `AreaOverrideAdd` ordered by `Priority` (higher priority first, deterministic insertion-order tie-breaking). Supports both directional `Gravity` and radial `PointGravity` toward `GravityPoint` with `GravityStrength`, `GravityFalloff` (`GravityFalloffNone`, `GravityFalloffLinear`, `GravityFalloffInverse`, `GravityFalloffInverseSquare`), and `GravityUnitDistance`.
+- **Damping overrides**: `LinearDampingMode` / `LinearDamping` and `AngularDampingMode` / `AngularDamping` override body damping using the same priority and combine/replace/add rules.
+- **Buoyancy and fluid drag**: set `FluidDensity` (kg/m³) to apply Archimedes buoyancy from the submerged fraction of each body's bounds so a body with density `Mass / Volume` settles at submerged fraction `(Mass / Volume) / FluidDensity`, alongside `FluidLinearDrag`, `FluidAngularDrag`, and optional `FluidVelocity` current.
+- **Queries & characters**: call `world.GravityAt(point)` or `world.AreaEffectAtShape(shape, layer, mask)` to inspect the resolved field. `CharacterController.Move` automatically applies overlapping area gravity (scaled by `CharacterController.GravityScale`), fluid drag, and linear damping, and `CharacterController.EffectiveGravity(world)` reports the active gravity vector.
+
+```go
+water := physics3d.NewStaticBody(
+	physics3d.BoxShape(physics3d.Box{HalfExtents: physics3d.Vec3{X: 20, Y: 5, Z: 20}}),
+	physics3d.Vec3{Y: -5},
+)
+water.IsTrigger = true
+water.Area = physics3d.AreaSettings{
+	FluidDensity:     1000,
+	FluidLinearDrag:  5.0,
+	FluidAngularDrag: 2.0,
+}
+world.AddBody(water)
+```
+
 ## Joints and Ragdolls
 
 `World.AddJoint` solves `DistanceJoint`, `BallJoint`, `SwingTwistJoint`, `HingeJoint`, `SliderJoint`, `FixedJoint`, and `SixDOFJoint` in deterministic insertion order:

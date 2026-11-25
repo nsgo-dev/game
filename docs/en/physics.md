@@ -116,3 +116,27 @@ sw.AttachRigidBody(rope[len(rope)-1], crate, core.Point{Y: -12}, 0)
 rw.Step(dt)
 sw.Step(dt)
 ```
+
+## Gravity Scale and Area Overrides
+
+`RigidBody` and `CharacterBody` support a per-body `GravityScale` (default `1`, set `0` with `SetGravityScale(0)` for weightless bodies, or negative values to invert gravity).
+
+Any `Trigger` (registered via `RigidWorld.AddTrigger` for rigid bodies or `World.AddTrigger` for queries and character controllers) can configure `Trigger.Area` (`AreaSettings`) to override gravity, damping, and fluid buoyancy/drag for overlapping bodies during `RigidWorld.Step` and `CharacterBody.Move`:
+
+- **Gravity overrides**: set `GravityMode` to `AreaOverrideCombine`, `AreaOverrideReplace`, or `AreaOverrideAdd` with `Priority` (higher priority wins; equal priority breaks ties by trigger slice order). Use directional `(GravityX, GravityY)` or set `PointGravity: true` with `(GravityPointX, GravityPointY)`, `GravityStrength`, `GravityFalloff` (`GravityFalloffNone`, `GravityFalloffLinear`, `GravityFalloffInverse`, `GravityFalloffInverseSquare`), and `GravityUnitDistance`.
+- **Damping overrides**: `LinearDampingMode` / `LinearDamping` and `AngularDampingMode` / `AngularDamping` override a `RigidBody`'s base damping using the same priority and combine/replace/add rules.
+- **Buoyancy and fluid drag**: set `FluidDensity` (mass per unit area) to apply Archimedes buoyancy from the submerged fraction of the body's bounds so a body of density `Mass / Area` floats at submerged fraction `(Mass / Area) / FluidDensity`, paired with `FluidLinearDrag`, `FluidAngularDrag`, and optional current velocity `(FluidVelX, FluidVelY)`.
+- **Character controllers**: set `CharacterBody.World` (with `World.GravityX` / `World.GravityY` and `World.Triggers`) so `CharacterBody.Move` automatically integrates area-resolved gravity (scaled by `CharacterBody.GravityScale`), fluid drag, and linear damping. Query resolved fields directly with `GravityAt(x, y)` and `AreaEffectAtShape(shape, layer, mask)`.
+
+```go
+water := &physics.Trigger{
+	Shape: physics.BoxShape(physics.Box{X: 0, Y: 100, W: 400, H: 200}),
+	Area: physics.AreaSettings{
+		FluidDensity:     1.0,
+		FluidLinearDrag:  4.0,
+		FluidAngularDrag: 2.0,
+		FluidVelX:        30,
+	},
+}
+rigidWorld.AddTrigger(water)
+```

@@ -116,3 +116,27 @@ sw.AttachRigidBody(rope[len(rope)-1], crate, core.Point{Y: -12}, 0)
 rw.Step(dt)
 sw.Step(dt)
 ```
+
+## 重力缩放与区域覆盖
+
+`RigidBody` 和 `CharacterBody` 均支持逐物体 `GravityScale`（默认为 `1`；调用 `SetGravityScale(0)` 可设为失重，负值可反转重力）。
+
+任意 `Trigger`（刚体通过 `RigidWorld.AddTrigger` 注册，查询与角色控制器通过 `World.AddTrigger` 注册）都可以配置 `Trigger.Area`（`AreaSettings`），在 `RigidWorld.Step` 和 `CharacterBody.Move` 期间对重叠物体覆盖重力、阻尼以及流体浮力与阻力：
+
+- **重力覆盖**：通过 `GravityMode`（`AreaOverrideCombine`、`AreaOverrideReplace`、`AreaOverrideAdd`）和 `Priority` 控制重叠区域优先级（高优先级优先，同优先级按触发器切片顺序确定性决胜）。支持定向重力 `(GravityX, GravityY)`，也支持 `PointGravity: true` 配合 `(GravityPointX, GravityPointY)`、`GravityStrength`、`GravityFalloff`（`GravityFalloffNone`、`GravityFalloffLinear`、`GravityFalloffInverse`、`GravityFalloffInverseSquare`）与 `GravityUnitDistance` 实现中心点引力。
+- **阻尼覆盖**：`LinearDampingMode` / `LinearDamping` 与 `AngularDampingMode` / `AngularDamping` 使用相同的优先级与合并/替换/叠加规则覆盖刚体的基础阻尼。
+- **浮力与流体阻力**：设置 `FluidDensity`（单位面积质量）后，会根据物体包围盒浸没比例施加阿基米德浮力，使隐含密度为 `Mass / Area` 的物体稳定浮在浸没比例 `(Mass / Area) / FluidDensity` 处，并可配合 `FluidLinearDrag`、`FluidAngularDrag` 与水流速度 `(FluidVelX, FluidVelY)`。
+- **角色控制器**：设置 `CharacterBody.World`（配合 `World.GravityX` / `World.GravityY` 与 `World.Triggers`）后，`CharacterBody.Move` 会自动按区域解算后的重力（乘以 `CharacterBody.GravityScale`）、流体阻力与线性阻尼积分速度。也可通过 `GravityAt(x, y)` 和 `AreaEffectAtShape(shape, layer, mask)` 直接查询区域场。
+
+```go
+water := &physics.Trigger{
+	Shape: physics.BoxShape(physics.Box{X: 0, Y: 100, W: 400, H: 200}),
+	Area: physics.AreaSettings{
+		FluidDensity:     1.0,
+		FluidLinearDrag:  4.0,
+		FluidAngularDrag: 2.0,
+		FluidVelX:        30,
+	},
+}
+rigidWorld.AddTrigger(water)
+```

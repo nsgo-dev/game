@@ -80,6 +80,31 @@ loop := &game.Loop{
 - **内部接缝过滤**：自动过滤被相邻实体方块遮挡的内部面，滑行的木箱、球体、胶囊与角色不会在平整体素地面或墙面的接缝处卡住。
 - **编辑零重建与自动唤醒**：方块编辑立即生效无需重建。实现 `VoxelEditNotifier` 的网格会在实体性变化或清空时自动触发 `NotifyBlockChanged` / `NotifyReset`（通过 `World.WakeInBox` 传递唤醒附近及堆叠的休眠刚体）；普通 `VoxelGrid` 也会在下次 `World.Step` 时检测支撑消失并唤醒休眠刚体。
 
+## 重力缩放与区域体积
+
+`Body` 和 `CharacterController` 均支持独立的 `GravityScale`（`NewDynamicBody` 与 `NewCharacterController` 默认为 `1`；调用 `SetGravityScale(0)` 可设为失重，负值可反转重力）。
+
+任意触发器刚体（`Body.IsTrigger = true`）都可以配置 `Body.Area`（`AreaSettings`），在 `World.Step` 和 `CharacterController.Move` 中对重叠的动态刚体和角色覆盖重力、线性/角阻尼以及流体浮力与阻力：
+
+- **重力模式与优先级**：`GravityMode` 支持 `AreaOverrideCombine`、`AreaOverrideReplace` 和 `AreaOverrideAdd`，按 `Priority` 降序解算（同优先级按刚体插入顺序确定性决胜）。支持定向 `Gravity`，也支持 `PointGravity` 向 `GravityPoint` 施加中心点引力，并配置 `GravityStrength`、`GravityFalloff`（`GravityFalloffNone`、`GravityFalloffLinear`、`GravityFalloffInverse`、`GravityFalloffInverseSquare`）与 `GravityUnitDistance`。
+- **阻尼覆盖**：`LinearDampingMode` / `LinearDamping` 与 `AngularDampingMode` / `AngularDamping` 使用相同的优先级和合并/替换/叠加规则覆盖刚体自身阻尼。
+- **浮力与流体阻力**：设置 `FluidDensity`（kg/m³）后，根据刚体包围盒的浸没比例施加阿基米德浮力，使隐含密度为 `Mass / Volume` 的刚体稳定悬浮在浸没比例 `(Mass / Volume) / FluidDensity` 处，并配合 `FluidLinearDrag`、`FluidAngularDrag` 以及可选的水流速度 `FluidVelocity`。
+- **查询与角色控制器**：可通过 `world.GravityAt(point)` 或 `world.AreaEffectAtShape(shape, layer, mask)` 直接查询解算后的区域效果。`CharacterController.Move` 自动应用重叠区域的重力（乘以 `CharacterController.GravityScale`）、流体阻力与线性阻尼，并通过 `CharacterController.EffectiveGravity(world)` 返回当前生效的重力向量。
+
+```go
+water := physics3d.NewStaticBody(
+	physics3d.BoxShape(physics3d.Box{HalfExtents: physics3d.Vec3{X: 20, Y: 5, Z: 20}}),
+	physics3d.Vec3{Y: -5},
+)
+water.IsTrigger = true
+water.Area = physics3d.AreaSettings{
+	FluidDensity:     1000,
+	FluidLinearDrag:  5.0,
+	FluidAngularDrag: 2.0,
+}
+world.AddBody(water)
+```
+
 ## 关节与布娃娃
 
 `World.AddJoint` 按确定的插入顺序求解 `DistanceJoint`、`BallJoint`、`SwingTwistJoint`、`HingeJoint`、`SliderJoint`、`FixedJoint` 和 `SixDOFJoint`：

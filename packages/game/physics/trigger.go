@@ -18,6 +18,7 @@ type Trigger struct {
 	OnEnter  func(*Body)
 	OnStay   func(*Body)
 	OnExit   func(*Body)
+	Area     AreaSettings
 	UserData any
 }
 

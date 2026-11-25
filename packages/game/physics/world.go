@@ -56,6 +56,8 @@ type World struct {
 	Bodies   []*Body
 	Triggers []*Trigger
 	Tiles    TileGrid
+	GravityX float32
+	GravityY float32
 
 	triggerActive map[*Trigger][]*Body
 }
