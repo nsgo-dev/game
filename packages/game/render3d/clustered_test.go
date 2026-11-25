@@ -5,6 +5,7 @@ import (
 	"image"
 	"image/color"
 	"math"
+	"regexp"
 	"testing"
 	"time"
 
@@ -963,5 +964,45 @@ func BenchmarkClusterFallbackSelect256Lights(b *testing.B) {
 	b.ResetTimer()
 	for b.Loop() {
 		dst = render3d.SelectFallbackLights(dst, view, proj, lights, render3d.DefaultFallbackMaxLights)
+	}
+}
+
+// TestLightAndClusteredWGSLNoForwardCalls checks that every helper function in LightWGSL and the clustered lighting modules is declared before any function that calls it. NSGo v0.3.0's WGSL-to-MSL emitter writes functions in source order without forward declarations, so forward calls fail compilation on Apple Metal.
+func TestLightAndClusteredWGSLNoForwardCalls(t *testing.T) {
+	fnDecl := regexp.MustCompile(`\bfn\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
+	modules := []struct {
+		name string
+		src  string
+	}{
+		{"LightWGSL", render3d.LightWGSL},
+		{"LitPBRWGSL", render3d.LitPBRWGSL},
+		{"ClusteredBindingsWGSL", render3d.ClusteredBindingsWGSL},
+		{"ClusteredLitWGSL", render3d.ClusteredLitWGSL},
+		{"ClusteredFallbackBindingsWGSL", render3d.ClusteredFallbackBindingsWGSL},
+		{"ClusteredFallbackWGSL", render3d.ClusteredFallbackWGSL},
+	}
+	for _, m := range modules {
+		matches := fnDecl.FindAllStringSubmatchIndex(m.src, -1)
+		names := make([]string, len(matches))
+		for i, loc := range matches {
+			names[i] = m.src[loc[2]:loc[3]]
+		}
+		for i, loc := range matches {
+			end := len(m.src)
+			if i+1 < len(matches) {
+				end = matches[i+1][0]
+			}
+			body := m.src[loc[1]:end]
+			for j := i + 1; j < len(names); j++ {
+				later := names[j]
+				if later == names[i] {
+					continue
+				}
+				callRe := regexp.MustCompile(`\b` + regexp.QuoteMeta(later) + `\s*\(`)
+				if callRe.FindStringIndex(body) != nil {
+					t.Errorf("%s: fn %s calls fn %s before %s is declared (breaks Metal MSL emission without forward declarations)", m.name, names[i], later, later)
+				}
+			}
+		}
 	}
 }

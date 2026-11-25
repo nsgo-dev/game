@@ -144,14 +144,6 @@ fn pbr_brdf(n: vec3<f32>, v: vec3<f32>, l: vec3<f32>, base_color: vec3<f32>, met
 	return diff + spec;
 }
 
-fn shade_pbr(world_pos: vec3<f32>, normal: vec3<f32>, view_dir: vec3<f32>, base_color: vec3<f32>, metallic: f32, roughness: f32) -> vec3<f32> {
-	return shade_pbr_shadowed(world_pos, normal, view_dir, base_color, metallic, roughness, 1.0);
-}
-
-fn shade_pbr_shadowed(world_pos: vec3<f32>, normal: vec3<f32>, view_dir: vec3<f32>, base_color: vec3<f32>, metallic: f32, roughness: f32, shadow_vis: f32) -> vec3<f32> {
-	return shade_pbr_visibility(world_pos, normal, view_dir, base_color, metallic, roughness, shadow_vis, 1.0, 1.0);
-}
-
 fn shade_pbr_visibility(world_pos: vec3<f32>, normal: vec3<f32>, view_dir: vec3<f32>, base_color: vec3<f32>, metallic: f32, roughness: f32, shadow_vis: f32, point0_vis: f32, spot0_vis: f32) -> vec3<f32> {
 	let n = normalize(normal);
 	let v = normalize(view_dir);
@@ -215,6 +207,14 @@ fn shade_pbr_visibility(world_pos: vec3<f32>, normal: vec3<f32>, view_dir: vec3<
 		}
 	}
 	return lo;
+}
+
+fn shade_pbr_shadowed(world_pos: vec3<f32>, normal: vec3<f32>, view_dir: vec3<f32>, base_color: vec3<f32>, metallic: f32, roughness: f32, shadow_vis: f32) -> vec3<f32> {
+	return shade_pbr_visibility(world_pos, normal, view_dir, base_color, metallic, roughness, shadow_vis, 1.0, 1.0);
+}
+
+fn shade_pbr(world_pos: vec3<f32>, normal: vec3<f32>, view_dir: vec3<f32>, base_color: vec3<f32>, metallic: f32, roughness: f32) -> vec3<f32> {
+	return shade_pbr_shadowed(world_pos, normal, view_dir, base_color, metallic, roughness, 1.0);
 }
 ` + linearToSRGBWGSL
 
