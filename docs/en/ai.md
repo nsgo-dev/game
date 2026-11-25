@@ -107,6 +107,36 @@ _ = ok
 
 Inspect mesh geometry with `Contains(p)`, `FindPolygon(p)`, `NearestPolygon(p)`, `Neighbors(index)`, `Polygon(index)`, and `PolygonCount()`.
 
+### Polygon areas, runtime flags, and query filters
+
+Tag convex polygons at build time with `BuildNavMeshWithAreas` using `NavPolygonInput{Vertices, Area, Flags}` (`NavAreaDefault`, `NavAreaRoad`, `NavAreaGrass`, `NavAreaMud`, `NavAreaWater`, `NavAreaDoor`, `NavAreaHazard`, or any custom `uint8` `NavArea`; `NavFlagWalk`, `NavFlagSwim`, `NavFlagDoor`, `NavFlagJump`, `NavFlagDisabled`, `NavFlagAll` — zero `Flags` defaults to `NavFlagWalk`):
+
+```go
+mesh := ai.BuildNavMeshWithAreas([]ai.NavPolygonInput{
+	{Vertices: grassPoly, Area: ai.NavAreaGrass},
+	{Vertices: roadPoly, Area: ai.NavAreaRoad},
+	{Vertices: waterPoly, Area: ai.NavAreaWater, Flags: ai.NavFlagSwim},
+	{Vertices: doorPoly, Area: ai.NavAreaDoor, Flags: ai.NavFlagWalk | ai.NavFlagDoor},
+})
+
+filter := ai.DefaultNavFilter()
+filter.SetAreaCost(ai.NavAreaRoad, 0.5)   // roads cost half as much per unit distance
+filter.SetAreaCost(ai.NavAreaMud, 2.5)
+filter.ExcludeFlags |= ai.NavFlagSwim     // land agents route around water
+
+path, ok := mesh.FindPathWithFilter(start, goal, filter)
+
+// Close or reopen a doorway at runtime in O(1) without rebuilding the mesh:
+mesh.AddPolygonFlags(doorIndex, ai.NavFlagDisabled)
+detour, ok := mesh.FindPathWithFilter(start, goal, filter)
+mesh.ClearPolygonFlags(doorIndex, ai.NavFlagDisabled)
+_, _, _ = path, detour, ok
+```
+
+- **Default compatibility**: `BuildNavMesh` assigns `NavAreaDefault` and `NavFlagWalk` to every polygon, and `FindPath` runs with `DefaultNavFilter()` (`IncludeFlags: NavFlagAll`, `ExcludeFlags: NavFlagDisabled`, cost `1.0` per area).
+- **Admissible weighted A\***: `FindPathWithFilter` weights distance inside each polygon by `filter.AreaCost(area)` and scales the A\* distance heuristic by the minimum allowed area cost across the mesh so sub-unit road costs remain optimal. Non-positive, `NaN`, or infinite area costs forbid traversal.
+- **Runtime updates without rebuild**: inspect or mutate polygons in O(1) via `PolygonArea`, `SetPolygonArea`, `PolygonFlags`, `SetPolygonFlags`, `AddPolygonFlags`, and `ClearPolygonFlags`. Filtered spatial queries (`FindPolygonWithFilter`, `ContainsWithFilter`, `NearestPolygonWithFilter`) and filtered bounded/incremental searches (`FindPathWithFilterAndOptions`, `StartSearchWithFilter`) honor the same `NavFilter`.
+
 ## Bounded, partial, and incremental path searches
 
 Clicking an unreachable target should still move a unit as close as possible, and dozens of simultaneous long searches should never stall a frame. `AStar`, 2D `NavMesh`, and [world3d](world3d.md)'s 3D `NavMesh` share `PathOptions{MaxExpansions, AllowPartial}` and the `IncrementalSearch` interface:
@@ -155,7 +185,6 @@ _ = reqID
 ```
 
 Higher-priority requests run first, ties break deterministically in FIFO or round-robin rotation order within each priority tier, and canceled requests are never stepped again or delivered to callbacks.
-
 ## Steering behaviors
 
 `Agent` integrates smooth 2D steering forces (`MaxSpeed`, `MaxForce`, `Radius`) on fixed steps via `Agent.Step(force, dt)`:

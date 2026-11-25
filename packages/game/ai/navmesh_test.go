@@ -202,3 +202,248 @@ func TestNavMeshContainmentNearestAndDisconnected(t *testing.T) {
 	}
 	assertPathPoints(t, same, []core.Point{pt(5, 5)}, 1e-4)
 }
+
+func TestNavMeshAreaCostsPreferRoadOverGrass(t *testing.T) {
+	// Layout (x in [0, 20], y in [0, 10]):
+	// - Poly 0 (left grass):  [0, 2] x [0, 10]
+	// - Poly 1 (grass strip): [2, 18] x [0, 5]   (direct geometric path from (1,2) to (19,2))
+	// - Poly 2 (road strip):  [2, 18] x [5, 10]  (cheaper area cost: 0.5 vs grass 1.0)
+	// - Poly 3 (right grass): [18, 20] x [0, 10]
+	mesh := ai.BuildNavMeshWithAreas([]ai.NavPolygonInput{
+		{Vertices: rectPoly(0, 0, 2, 10), Area: ai.NavAreaGrass},
+		{Vertices: rectPoly(2, 0, 18, 5), Area: ai.NavAreaGrass},
+		{Vertices: rectPoly(2, 5, 18, 10), Area: ai.NavAreaRoad},
+		{Vertices: rectPoly(18, 0, 20, 10), Area: ai.NavAreaGrass},
+	})
+
+	if mesh.PolygonArea(1) != ai.NavAreaGrass || mesh.PolygonArea(2) != ai.NavAreaRoad {
+		t.Fatalf("unexpected polygon areas: grass=%d road=%d", mesh.PolygonArea(1), mesh.PolygonArea(2))
+	}
+	if mesh.PolygonFlags(2) != ai.NavFlagWalk {
+		t.Fatalf("zero input flags should default to NavFlagWalk, got %v", mesh.PolygonFlags(2))
+	}
+
+	start, goal := pt(1, 2), pt(19, 2)
+
+	// Default filter treats all areas equally (cost 1.0): straight line across grass.
+	defaultPath, ok := mesh.FindPath(start, goal)
+	if !ok {
+		t.Fatal("expected default path")
+	}
+	assertPathPoints(t, defaultPath, []core.Point{start, goal}, 1e-4)
+
+	// With road cheaper than grass (road=0.5, grass=1.0):
+	// Direct grass cost = 18.0; road detour cost = sqrt(10) + 16*0.5 + sqrt(10) ≈ 14.324 < 18.0.
+	// Funnel pulls taut onto road corners (2,5) and (18,5).
+	filter := ai.DefaultNavFilter()
+	filter.SetAreaCost(ai.NavAreaRoad, 0.5)
+	filter.SetAreaCost(ai.NavAreaGrass, 1.0)
+
+	roadPath, ok := mesh.FindPathWithFilter(start, goal, filter)
+	if !ok {
+		t.Fatal("expected road-preferring path")
+	}
+	wantRoad := []core.Point{start, pt(2, 5), pt(18, 5), goal}
+	assertPathPoints(t, roadPath, wantRoad, 1e-4)
+
+	// Determinism across repeated runs.
+	for i := range 50 {
+		again, ok := mesh.FindPathWithFilter(start, goal, filter)
+		if !ok {
+			t.Fatalf("run %d failed", i)
+		}
+		assertPathPoints(t, again, wantRoad, 1e-4)
+	}
+
+	// Changing road polygon to mud at runtime (without rebuilding) restores straight grass path.
+	mesh.SetPolygonArea(2, ai.NavAreaMud)
+	filter.SetAreaCost(ai.NavAreaMud, 2.5)
+	mudAvoidPath, ok := mesh.FindPathWithFilter(start, goal, filter)
+	if !ok {
+		t.Fatal("expected path after runtime area change")
+	}
+	assertPathPoints(t, mudAvoidPath, []core.Point{start, goal}, 1e-4)
+}
+
+func TestNavMeshExcludeWaterAndSwimmingAgent(t *testing.T) {
+	// Ring around a central water pool [4, 16] x [2, 8]:
+	// - Poly 0 (west):  [0, 4] x [0, 10]   (Walk)
+	// - Poly 1 (east):  [16, 20] x [0, 10] (Walk)
+	// - Poly 2 (water): [4, 16] x [2, 8]   (AreaWater, FlagSwim)
+	// - Poly 3 (north): [4, 16] x [8, 10]  (Walk)
+	// - Poly 4 (south): [4, 16] x [0, 2]   (Walk)
+	mesh := ai.BuildNavMeshWithAreas([]ai.NavPolygonInput{
+		{Vertices: rectPoly(0, 0, 4, 10), Area: ai.NavAreaGrass, Flags: ai.NavFlagWalk},
+		{Vertices: rectPoly(16, 0, 20, 10), Area: ai.NavAreaGrass, Flags: ai.NavFlagWalk},
+		{Vertices: rectPoly(4, 2, 16, 8), Area: ai.NavAreaWater, Flags: ai.NavFlagSwim},
+		{Vertices: rectPoly(4, 8, 16, 10), Area: ai.NavAreaGrass, Flags: ai.NavFlagWalk},
+		{Vertices: rectPoly(4, 0, 16, 2), Area: ai.NavAreaGrass, Flags: ai.NavFlagWalk},
+	})
+
+	start, goal := pt(2, 3), pt(18, 3)
+
+	// Land unit excludes water via ExcludeFlags: routes cleanly around south corners (4,2)->(16,2).
+	landFilter := ai.DefaultNavFilter()
+	landFilter.ExcludeFlags |= ai.NavFlagSwim
+	landPath, ok := mesh.FindPathWithFilter(start, goal, landFilter)
+	if !ok {
+		t.Fatal("expected land path around water")
+	}
+	assertPathPoints(t, landPath, []core.Point{start, pt(4, 2), pt(16, 2), goal}, 1e-4)
+
+	// Excluding by area ID produces the same detour.
+	areaFilter := ai.DefaultNavFilter()
+	areaFilter.ExcludeArea(ai.NavAreaWater)
+	areaPath, ok := mesh.FindPathWithFilter(start, goal, areaFilter)
+	if !ok {
+		t.Fatal("expected area-excluded path around water")
+	}
+	assertPathPoints(t, areaPath, []core.Point{start, pt(4, 2), pt(16, 2), goal}, 1e-4)
+
+	// Swimming unit includes both Walk and Swim: crosses water in a straight line.
+	swimFilter := ai.NavFilter{
+		IncludeFlags: ai.NavFlagWalk | ai.NavFlagSwim,
+		ExcludeFlags: ai.NavFlagDisabled,
+	}
+	swimPath, ok := mesh.FindPathWithFilter(start, goal, swimFilter)
+	if !ok {
+		t.Fatal("expected swimming path across water")
+	}
+	assertPathPoints(t, swimPath, []core.Point{start, goal}, 1e-4)
+
+	// Filtered spatial queries respect exclusion.
+	waterCenter := pt(10, 5)
+	if !mesh.Contains(waterCenter) {
+		t.Fatal("unfiltered Contains should report water polygon")
+	}
+	if mesh.ContainsWithFilter(waterCenter, landFilter) {
+		t.Fatal("landFilter should exclude water center")
+	}
+	if idx := mesh.FindPolygonWithFilter(waterCenter, landFilter); idx != -1 {
+		t.Fatalf("FindPolygonWithFilter in water = %d, want -1", idx)
+	}
+	// Shared edge between west grass and water resolves to grass under landFilter.
+	if idx := mesh.FindPolygonWithFilter(pt(4, 5), landFilter); idx != 0 {
+		t.Fatalf("shared edge FindPolygonWithFilter = %d, want 0 (west grass)", idx)
+	}
+	// NearestPolygonWithFilter from inside water snaps out to nearest dry edge (south or north).
+	nearIdx, nearPt, ok := mesh.NearestPolygonWithFilter(pt(10, 3), landFilter)
+	if !ok || nearIdx != 4 {
+		t.Fatalf("NearestPolygonWithFilter(10,3) = (%d, %v, %v), want poly 4 (south)", nearIdx, nearPt, ok)
+	}
+	assertPathPoints(t, []core.Point{nearPt}, []core.Point{pt(10, 2)}, 1e-4)
+
+	// Path starting inside excluded water returns no path.
+	if _, ok := mesh.FindPathWithFilter(waterCenter, goal, landFilter); ok {
+		t.Fatal("path starting inside excluded water should fail")
+	}
+}
+
+func TestNavMeshRuntimeDoorToggleWithoutRebuild(t *testing.T) {
+	// Two routes between west room [0,4]x[0,10] and east room [8,12]x[0,10]:
+	// - Direct doorway shortcut: [4, 8] x [4, 6] (Poly 2, AreaDoor, FlagWalk|FlagDoor)
+	// - Long northern detour:    [4, 8] x [8, 10] (Poly 3, FlagWalk)
+	// Wall separates them at [4,8]x[6,8] and [4,8]x[0,4].
+	mesh := ai.BuildNavMeshWithAreas([]ai.NavPolygonInput{
+		{Vertices: rectPoly(0, 0, 4, 10), Area: ai.NavAreaDefault, Flags: ai.NavFlagWalk},
+		{Vertices: rectPoly(8, 0, 12, 10), Area: ai.NavAreaDefault, Flags: ai.NavFlagWalk},
+		{Vertices: rectPoly(4, 4, 8, 6), Area: ai.NavAreaDoor, Flags: ai.NavFlagWalk | ai.NavFlagDoor},
+		{Vertices: rectPoly(4, 8, 8, 10), Area: ai.NavAreaDefault, Flags: ai.NavFlagWalk},
+	})
+
+	start, goal := pt(2, 5), pt(10, 5)
+	const doorPoly = 2
+
+	// 1. Door open -> straight through doorway.
+	openPath, ok := mesh.FindPath(start, goal)
+	if !ok {
+		t.Fatal("expected straight path through open door")
+	}
+	assertPathPoints(t, openPath, []core.Point{start, goal}, 1e-4)
+
+	// 2. Close door by adding NavFlagDisabled -> immediate detour around north corridor.
+	mesh.AddPolygonFlags(doorPoly, ai.NavFlagDisabled)
+	closedPath, ok := mesh.FindPath(start, goal)
+	if !ok {
+		t.Fatal("expected detour path when door is closed")
+	}
+	assertPathPoints(t, closedPath, []core.Point{start, pt(4, 8), pt(8, 8), goal}, 1e-4)
+
+	// 3. Reopen door by clearing NavFlagDisabled -> restores direct shortcut immediately.
+	mesh.ClearPolygonFlags(doorPoly, ai.NavFlagDisabled)
+	reopenedPath, ok := mesh.FindPath(start, goal)
+	if !ok {
+		t.Fatal("expected direct path after reopening door")
+	}
+	assertPathPoints(t, reopenedPath, []core.Point{start, goal}, 1e-4)
+
+	// 4. Closing door by clearing all flags to 0 also blocks DefaultNavFilter.
+	mesh.SetPolygonFlags(doorPoly, 0)
+	zeroFlagPath, ok := mesh.FindPath(start, goal)
+	if !ok {
+		t.Fatal("expected detour path when door flags are 0")
+	}
+	assertPathPoints(t, zeroFlagPath, []core.Point{start, pt(4, 8), pt(8, 8), goal}, 1e-4)
+
+	// 5. Restoring NavFlagWalk | NavFlagDoor restores shortcut, while a filter excluding NavFlagDoor still detours.
+	mesh.SetPolygonFlags(doorPoly, ai.NavFlagWalk|ai.NavFlagDoor)
+	noDoorFilter := ai.DefaultNavFilter()
+	noDoorFilter.ExcludeFlags |= ai.NavFlagDoor
+	noDoorPath, ok := mesh.FindPathWithFilter(start, goal, noDoorFilter)
+	if !ok {
+		t.Fatal("expected detour for filter excluding NavFlagDoor")
+	}
+	assertPathPoints(t, noDoorPath, []core.Point{start, pt(4, 8), pt(8, 8), goal}, 1e-4)
+}
+
+func TestNavMeshFilterEdgeCasesAndNilSafety(t *testing.T) {
+	// Invalid cost values (0, negative, NaN, +Inf) safely forbid that area.
+	mesh := ai.BuildNavMeshWithAreas([]ai.NavPolygonInput{
+		{Vertices: rectPoly(0, 0, 10, 10), Area: ai.NavAreaHazard},
+	})
+	for _, badCost := range []float64{0, -1, math.NaN(), math.Inf(1), math.Inf(-1)} {
+		f := ai.DefaultNavFilter()
+		f.SetAreaCost(ai.NavAreaHazard, badCost)
+		if f.Allows(ai.NavAreaHazard, ai.NavFlagWalk) {
+			t.Fatalf("bad cost %v should not be allowed", badCost)
+		}
+		if !math.IsInf(f.AreaCost(ai.NavAreaHazard), 1) {
+			t.Fatalf("AreaCost(%v) = %v, want +Inf", badCost, f.AreaCost(ai.NavAreaHazard))
+		}
+		if _, ok := mesh.FindPathWithFilter(pt(1, 1), pt(9, 9), f); ok {
+			t.Fatalf("path should fail for invalid area cost %v", badCost)
+		}
+	}
+
+	// Clone produces an independent filter.
+	orig := ai.DefaultNavFilter()
+	orig.SetAreaCost(ai.NavAreaRoad, 0.5)
+	orig.ExcludeArea(ai.NavAreaWater)
+	cloned := orig.Clone()
+	cloned.SetAreaCost(ai.NavAreaRoad, 2.0)
+	cloned.IncludeArea(ai.NavAreaWater)
+	if orig.AreaCost(ai.NavAreaRoad) != 0.5 {
+		t.Fatalf("Clone mutated original AreaCosts")
+	}
+	if orig.Allows(ai.NavAreaWater, ai.NavFlagWalk) {
+		t.Fatalf("Clone mutated original ExcludedAreas")
+	}
+
+	// Nil and out-of-range safety.
+	var nilMesh *ai.NavMesh
+	if nilMesh.PolygonArea(0) != ai.NavAreaDefault || nilMesh.PolygonFlags(0) != 0 {
+		t.Fatal("nil mesh getters returned unexpected values")
+	}
+	nilMesh.SetPolygonArea(0, ai.NavAreaRoad)
+	nilMesh.SetPolygonFlags(0, ai.NavFlagDisabled)
+	nilMesh.AddPolygonFlags(0, ai.NavFlagDoor)
+	nilMesh.ClearPolygonFlags(0, ai.NavFlagWalk)
+	if mesh.PolygonArea(-1) != ai.NavAreaDefault || mesh.PolygonArea(99) != ai.NavAreaDefault {
+		t.Fatal("out-of-range PolygonArea should return NavAreaDefault")
+	}
+	if mesh.PolygonFlags(-1) != 0 || mesh.PolygonFlags(99) != 0 {
+		t.Fatal("out-of-range PolygonFlags should return 0")
+	}
+	mesh.SetPolygonArea(-1, ai.NavAreaRoad)
+	mesh.SetPolygonFlags(99, ai.NavFlagDisabled)
+}
