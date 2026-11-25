@@ -86,11 +86,12 @@ func (e *Editor) PlayIn(cx *core.Scope) error {
 	e.endGridMapStrokeForChange()
 	e.endTerrainStrokeForChange()
 
-	// A 2D drag in progress is put back, so Play and the scene Stop restores start from the scene as last recorded.
+	// A 2D drag or particle curve drag in progress is put back, so Play and the scene Stop restores start from the last recorded state.
 	e.CancelDrag2D()
 	e.CancelShapeDrag2D()
 	e.CancelPluginDrag2D()
 	e.ClearPluginHover2D()
+	e.cancelParticleCurveDrag()
 	snap, err := sceneformat.Encode(e.Doc)
 	if err != nil {
 		return fmt.Errorf("editor: snapshot scene: %w", err)
@@ -129,6 +130,8 @@ func (e *Editor) PlayIn(cx *core.Scope) error {
 	e.stopClipLoop()
 	e.stopStatesLoop()
 	e.SetStatesDriveWithKeys(false)
+	e.stopParticlePreviewLoop()
+	e.stopSceneEmitterLoop()
 	e.stopAudioAudition()
 	e.resetInputMapTransient()
 	e.connPick = nil

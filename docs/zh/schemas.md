@@ -11,8 +11,8 @@ import "github.com/nsgo-dev/game/packages/game/tooling/jsonschema"
 | 格式 | Schema | 文件 |
 | --- | --- | --- |
 | 场景，版本 1 | `https://game.nsgo.dev/schemas/scene.v1.json` | `*.scene.yaml`，由 `sceneformat.Parse` 读取 |
-| 场景，版本 2 | `https://game.nsgo.dev/schemas/scene.v2.json` | 实例化或继承其他场景文件、引用 glTF 模型、或含分层瓦片地图或 LDtk 关卡的 `*.scene.yaml`，由 `sceneformat.Parse` 读取 |
-| 场景，版本 3 | `https://game.nsgo.dev/schemas/scene.v3.json` | 使用视差或重复图层的 `*.scene.yaml`，由 `sceneformat.Parse` 读取 |
+| 场景，版本 2 | `https://game.nsgo.dev/schemas/scene.v2.json` | 实例化或继承其他场景文件、引用 glTF 模型、放置粒子发射器，或含分层瓦片地图或 LDtk 关卡的 `*.scene.yaml`，由 `sceneformat.Parse` 读取 |
+| 场景，版本 3 | `https://game.nsgo.dev/schemas/scene.v3.json` | 使用视差或重复图层（及全部版本 2 特性）的 `*.scene.yaml`，由 `sceneformat.Parse` 读取 |
 | 图块集，版本 1 | `https://game.nsgo.dev/schemas/tileset.v1.json` | `*.tileset.yaml`，由 `tilemap.ParseTileset` 和 `tilemap.LoadTilesetFS` 读取 |
 | 导入设置，版本 1 | `https://game.nsgo.dev/schemas/import.v1.json` | 资源旁的 `*.import.yaml`，由 `importsettings.Parse` 和 `game assets` 读取，其中的署名由 `game release` 和 `game credits` 读取（见[命令行](cli.md#assets)） |
 | 体素世界，版本 1 | `https://game.nsgo.dev/schemas/voxel.v1.json` | `*.voxel.yaml`，由 `voxel.Parse` 和 `voxel.LoadYAML` 读取 |
@@ -28,9 +28,10 @@ import "github.com/nsgo-dev/game/packages/game/tooling/jsonschema"
 | 试玩配置，版本 1 | `https://game.nsgo.dev/schemas/playtest.v1.json` | `playtest.yaml`，由 `playtest.ParseConfig`、`nsgo game playtest` 与 `game_playtest` 读取（见 [playtest](playtest.md)） |
 | 游戏界面屏幕，版本 1 | `https://game.nsgo.dev/schemas/screen.v1.json` | `*.screen.yaml`，由 `gameui.ParseScreen` 和 `gameui.LoadScreenFS` 读取 |
 | 精灵状态机，版本 1 | `https://game.nsgo.dev/schemas/states.v1.json` | `*.states.yaml`，由 `animclip.ParseStateMachine` 和 `animclip.FSStates` 读取 |
+| 粒子发射器（2D），版本 1 | `https://game.nsgo.dev/schemas/particles.v1.json` | `*.particles.yaml` / `*.emitter.yaml`，由 `particles.UnmarshalConfigYAML` 和 `particles.LoadConfigFS` 读取 |
 | 数据表 | 用 `datatable.Schema[T]` 按行类型生成 | `*.yaml`，由 `datatable.LoadYAML` 读取 |
 
-其余格式在各自的 YAML 加载器落地时补上 Schema：模组清单（#474）、项目文件（#488）、共享资源（#485）、粒子（#477）、骨骼绑定（#475）和本地化表（#473）。
+其余格式在各自的 YAML 加载器落地时补上 Schema：模组清单（#474）、项目文件（#488）、共享资源（#485）、骨骼绑定（#475）和本地化表（#473）。
 
 Schema 的 URL 带有格式版本号。`scene.v3.json` 已在 `scene.v1.json` 与 `scene.v2.json` 旁发布，写着 `version: 1` 的文件仍按 `scene.v1.json` 校验（拒绝版本 2 和版本 3 新增的键），写着 `version: 2` 的文件仍按 `scene.v2.json` 校验（拒绝版本 3 新增的键）；`Encode` 写入的是文档自身版本的 Schema。
 

@@ -13,6 +13,7 @@ import (
 
 	"github.com/nsgo-dev/game/packages/game/gltf"
 	"github.com/nsgo-dev/game/packages/game/loaderr"
+	"github.com/nsgo-dev/game/packages/game/particles"
 	"github.com/nsgo-dev/game/packages/game/refs"
 	"github.com/nsgo-dev/game/packages/game/resource"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
@@ -314,6 +315,9 @@ func (s *sceneCheck) objects(objs []sceneformat.ObjectDoc, steps ...string) {
 		if o.Material != "" {
 			s.material(o.Material, append(slices.Clip(op), "material")...)
 		}
+		if o.Particles != nil {
+			s.particlesRef(o.Particles, append(slices.Clip(op), "particles")...)
+		}
 		if o.Model != "" {
 			at := func(key string) int { return s.line(append(slices.Clip(op), key)...) }
 			s.model(o.Model, o.ModelNode, o.ModelMesh, at("model"), at("modelNode"), at("modelMesh"), true)
@@ -587,6 +591,54 @@ func (s *sceneCheck) material(ref string, steps ...string) {
 		}
 		s.imageRef(p, yamlLine(&root, []string{"texture"}), s.project, mat.Texture, "texture")
 	}
+}
+
+// particlesRef checks that an object's particle emitter file exists and parses with particles.UnmarshalConfigYAML, and when an atlas is named, that it exists and contains every frame in the emitter's frameNames.
+func (s *sceneCheck) particlesRef(ref *sceneformat.ParticlesRef, steps ...string) {
+	fileLine := s.line(append(slices.Clip(steps), "file")...)
+	p, ok := s.fileRef(s.path, fileLine, s.project, ref.File, "particles")
+	if !ok {
+		return
+	}
+	cfg := s.loadParticles(p)
+	if cfg == nil || ref.Atlas == "" {
+		return
+	}
+	atlasLine := s.line(append(slices.Clip(steps), "atlas")...)
+	atlas := s.findAtlas(s.path, atlasLine, s.project, ref.Atlas, "particles atlas")
+	if atlas == nil || atlas.frames == nil {
+		return
+	}
+	var checkFrames func(c particles.Config)
+	checkFrames = func(c particles.Config) {
+		for _, fn := range c.FrameNames {
+			if !atlas.frames[fn] {
+				s.problem(s.path, atlasLine, "frame %q of particles %q is not in atlas %q (%s)", fn, ref.File, ref.Atlas, atlas.path)
+			}
+		}
+		for _, sub := range c.SubEmitters {
+			checkFrames(sub.Config)
+		}
+	}
+	checkFrames(*cfg)
+}
+
+func (c *checker) loadParticles(p string) *particles.Config {
+	if cfg, ok := c.particles[p]; ok {
+		return cfg
+	}
+	c.particles[p] = nil
+	data, ok := c.readFile(p)
+	if !ok {
+		return nil
+	}
+	cfg, err := particles.UnmarshalConfigYAML(data)
+	if err != nil {
+		c.yamlError(p, data, err)
+		return nil
+	}
+	c.particles[p] = &cfg
+	return &cfg
 }
 
 // yamlLineRE finds the "line N: " that yaml's errors carry.

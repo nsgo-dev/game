@@ -122,6 +122,7 @@ layers:
 - `name`、`prefab`（可选）
 - 变换：`x`、`y`、`originX`、`originY`、`rotation`（弧度，顺时针）、`scaleX`（默认 `1`）、`scaleY`（默认 `1`）、`flipX`、`flipY`、`alpha`（范围 `[0, 1]`，默认 `1`）、`z`（图层内绘制顺序，越小越先绘制）
 - `sprite`：可选的 `{atlas, frame}`，引用 `sprite.Atlas` 及其中的帧名
+- `particles`：可选的 `{file, atlas}`（版本 2），在对象上放置一个 2D 粒子发射器 YAML 文件（`file` 为从项目根目录起以斜杠分隔的路径；可选 `atlas` 用于解析发射器的 `frameNames`）。`sceneformat.Build` 在解析器实现 `ParticlesResolver` 时由它加载 `file`，否则回退到 `FileResolver` + `particles.UnmarshalConfigYAML`（因此 `FSAssets` 开箱即用），创建 `BuiltObject.Emitter`（并汇总在 `BuiltLayer.Emitters` 中），按对象的复合世界变换定位（`BuiltObject.Sync` 会同步更新），在 `BuiltScene.Update(dt)` 中推进，并在 `BuiltScene.Draw(d)` 中按 Z 顺序与精灵交错绘制
 - `material`：可选，从项目根目录起、以斜杠分隔的共享材质文件路径，例如 `materials/stone.material.yaml`，在构建时通过 `MaterialResolver` 解析（见 [resource](resources.md)）
 - 3D 外观：`mesh` 是内置基本形体 `box`、`sphere`、`plane`、`capsule`、`cylinder` 之一；`model`（版本 2）是从项目根目录起、以斜杠分隔的 glTF 2.0 文件路径（`.gltf` 或 `.glb`），可以用 `modelNode` 缩小到其中一个节点，或用 `modelMesh` 缩小到其中一个网格；`gridMap`（版本 2）是从项目根目录起、以斜杠分隔的 `*.gridmap.yaml` / `*.gridmap.yml` 文件路径；对象的 `material` 会替换模型或网格地图的材质，或作为基本形体的表面；可选的 `occluder`（版本 2）将对象标记为 3D 遮挡体（`mode: model` 或 `mode: box`，可配 `center`、`size` 与 `doubleSided`）。`scenemodel.Build` 把它们变成几何体、LOD 与遮挡体（[scenemodel](scenemodel.md)）。`CheckObjectModel` 检查单个对象的这些字段，编辑器的 `PlaceObject` 会拒绝它拒绝的对象；检查器的 Mesh 和 GridMap 字段彼此互斥，且都与 `model` 互斥
 - `components`：可选的映射，键是组件类型名，值是它的字段；未提供组件注册表时内容不受约束（见[组件类型](#组件类型)）
@@ -886,6 +887,7 @@ func main() {
 - **边车与目标默认值**：`InspectAssetImport` 会读取资源旁的 `*.import.yaml` 边车，并与 `game.yaml` 的 `assets` 小节中匹配目标的默认配置合并展示（图片支持 `filter`、`format`、`mipmaps`、`srgb` 与精灵表 `slice`；音频支持 `format`、`rate`、`channels`、`bitrate`、`peakDB`/`rmsDB` 响度归一化与 `loop`；字体支持 `size`、`padding` 与 `chars`；模型支持 `scale`、`animations`、`lodHysteresis` 与 `lods`），同时展示通用的 `credit` 鸣谢小节（`author`、SPDX `license`、`source` 与 `notice`）。
 - **校验写入、撤销与单字段重置**：每次编辑都通过 `importsettings.Encode` 严格校验并原子写入边车文件，作为单个可撤销步骤进入 `Editor.History`（`EditAssetImportSettings`、`SetImageImport*` / `SetAudioImport*` / `SetFontImport*` / `SetModelImport*` 以及 `SetAssetImportCredit`）。**撤销（Undo）** 会逐字节恢复编辑前的边车内容（若此前无边车则删除新建文件）；**重置（Reset）**（`ResetAssetImportField`）将单个覆盖项恢复为 `game.yaml` 目标默认值，当不再有任何覆盖项或鸣谢时自动删除空边车文件。
 - **Reimport、Build Assets 与热重载**：检查器中的 **Reimport** 按钮（`ReimportAsset`）与工具栏中的 **Build Assets** 按钮（`BuildAssets` / `BuildAssetsWith`）会在 UI 协程之外运行 `nsgo game assets`，并将标准输出和标准错误实时流式写入停靠的 **Output** 面板（`OutputPanelView`）。构建完成后，`ReloadAssets` 会从磁盘重新加载发生变化的图集与纹理到 `Editor.Resolver`（就地更新 `sceneformat.AtlasMap` 或已有 `*sprite.Atlas`，并在实现或配置了 `AssetReloader` / `OnReloadAssets` 时回调通知），无需重启编辑器即可在资源浏览器和视口中立即生效，并自动重新运行问题检查。自定义工具与测试可注入 `Editor.AssetsCommandRunner`。
+
 ## 性能分析器面板与帧耗时条（#912）
 
 在编辑器内运行游戏或通过 MCP 连接正在运行的游戏（`game_perf_readout`、`game_perf_zones`、`game_perf_reset`）时，编辑器会在游戏视口下方显示实时帧耗时条，并可展开严格遵循编辑器设计规范令牌（`docs/design/editor/PlayMode.dc.html` 与 `Spec.dc.html`）的完整性能分析器面板：
@@ -904,7 +906,6 @@ func main() {
 - **从模板新建项目（`ProjectTemplates`、`StartCreateProject`）**：模板卡片与 `All` / `2D` / `3D` 筛选标签直接从 `game new` 的模板注册表动态填充，因此新增模板无需修改编辑器代码即可自动出现。项目名称、父目录（默认 `~/games`）和可选模块路径会在输入时实时校验（`ValidateNewProjectInputs`）：检查是否仅含 `a–z`、`0–9` 和 `-`、检查父目录写入权限，以及目标目录是否已存在（已存在时提供 **Open it** 和如 `dungeon-run-2` 的可用名称建议）。点击 **Create** 会在 UI 协程之外运行 `game new`（含 `go get` 和 `go mod tidy`），将标准输出与错误实时展示在界面中，成功后自动打开生成的 `game.yaml`。
 - **打开演示（`OpenDemo`、`NewDemo`）**：无需在磁盘上创建或打开项目，直接进入内置的演示房间场景。
 - **干净切换项目与未保存修改提示**：从开始界面，或稍后通过 `File > Open Project...`（`mod+o`）、`File > New Project...`（`mod+n`）和 `File > Start Screen` 打开另一个项目时，会干净地替换当前项目、场景、动画片段、数据表、本地化工作区和撤销历史。只要当前会话存在未保存修改（`HasUnsavedChanges`），编辑器统一的未保存修改确认框就会先弹出，由用户选择 **Save**（`ConfirmSaveAndSwitch`）、**Discard**（`ConfirmDiscardAndSwitch`）或 **Cancel**（`CancelPendingSwitch`）。
-
 ## 3D LOD 与遮挡体可视化（#904）
 
 在 3D 视图（`View3D`）中，视口会运行与游戏运行时一致的 `scenemodel.Build` + `render3d.OcclusionBuffer` + `render3d.Queue` 评估流程（打开项目时自动使用 `scenemodel.NewAssets`，也可注入 `Editor.ModelResolver`）：
@@ -929,3 +930,12 @@ func main() {
 - **雕刻与绘制画笔**：支持 `TerrainBrushRaise`（抬高）、`TerrainBrushLower`（压低）、`TerrainBrushSmooth`（平滑）、`TerrainBrushFlatten`（整平至起笔处高度，或启用 `UseTargetHeight` 时整平至 `TargetHeight`）、`TerrainBrushSetHeight`（设定高度 `TargetHeight`）、`TerrainBrushPaintLayer`（绘制纹理材质层权重并自动保持各层权重之和归一化为 1）以及 `TerrainBrushPaintFoliage`（将选中植被层的密度向 `[0, 1]` 内的 `TargetDensity` 过渡，`0` 为擦除）。可通过 `SetTerrainBrush` 或面板控件配置半径 `Radius`、强度 `Strength` 和衰减曲线 `Falloff`（`TerrainFalloffSmooth`、`TerrainFalloffLinear`、`TerrainFalloffFlat`）。
 - **3D 射线笔触与单步撤销/重做**：在 3D 视口中点击或拖拽会对实时 `world3d.Heightmap` 执行射线检测（`RaycastTerrain3D`、`BeginTerrainStrokeAt` / `ContinueTerrainStrokeAt` / `EndTerrainStroke`，或直接传入世界坐标的 `BeginTerrainStroke` / `ContinueTerrainStroke`），在快速拖拽路径上自动插值平滑落笔，在地形表面投射贴地画笔半径环，并将一整次拖拽笔触作为 **单步撤销记录** 存入 `Editor.History`（按 `Escape` 或调用 `CancelTerrainStroke` 可中止当前笔触并还原）。撤销与重做会精确恢复高度图、材质权重和植被密度数据，并同步更新 `TerrainDirty()` / `HasUnsavedChanges()`。
 - **16 位无损保存**：点击 **Save Terrain**（`SaveTerrain`、`SaveTerrainTo` 或脏状态下的 `Save`）会原子写出 16 位灰度 PNG 高度图（`*image.Gray16`，消除 8 位斜坡阶梯伪影）、逐层灰度权重图 PNG（或打包 RGBA `splatMaps`）、植被密度图 PNG 以及确定性 `*.terrain.yaml`，使游戏侧通过 `world3d.LoadTerrainFS`、`TerrainDoc.ScatterFoliage` 与 `render3d.TerrainMaterialFromDoc` 加载并绘制出完全一致的地形。
+
+## 粒子发射器编辑器（#883）
+
+粒子发射器编辑器（`ParticleEditorPanelView`）可通过工具栏的 **Particles** 按钮（`CmdParticleEditor`）、在文件浏览器中双击 `*.particles.yaml` / `*.emitter.yaml` 或点击 **Open Emitter**，或在检查器中点击带有 `particles` 对象的 **Edit Emitter** 按钮打开，支持带实时预览与完整撤销/重做地编辑 2D `particles.Config` 的全部字段：
+
+- **不重启的实时预览**：面板在预览画布上运行实时的 `*particles.Emitter`（`ParticlePreview`），提供 **Play/Pause**（`PlayParticlePreview` / `PauseParticlePreview`）、**Restart**（`RestartParticlePreview`）、**Step**（`StepParticlePreview`）、**Burst**（`BurstParticlePreview`）、**Preview Atlas**（`SetParticlePreviewAtlas`）以及用于测试反弹/停止/销毁碰撞的可选 **Floor** 地板碰撞体（`SetParticlePreviewFloor`）。修改发射速率、曲线、运动等参数时通过 `Emitter.ReloadConfig` 立即生效，不会重启或清除当前存活粒子；未绑定图集或帧时，预览会以彩色圆点回退绘制，便于随时调参。
+- **全字段编辑与交互式曲线控件**：覆盖 `space`、位置、旋转、`z`、`seed`、`shape`（`point`、`circle`、`ring`、`rect`）、`rate`、`maxParticles`、定时爆发 `bursts`（增删改 `time`、`count`、`cycles`、`interval`）、`lifetimeMin`/`Max`、`speedMin`/`Max`、`angleMin`/`Max`、`gravityX`/`Y`、`initialRotationMin`/`Max`、`rotationSpeedMin`/`Max`、`collision`、`trail` 与递归 `subEmitters`（通过 `SetParticleTargetPath` / **Edit Child** 进入编辑子发射器配置）。曲线控件在交互画布上绘制 `sizeCurve`、`alphaCurve`、`rotationCurve`、`colorCurve`、`trail.widthCurve` 与 `trail.colorGradient`，支持拖拽控制点、点击新增控制点及数值微调；图集帧选择器可直接切换解析器图集中的 `frameNames`。
+- **撤销/重做与确定性保存**：所有编辑均记录在 `Editor.History` 中；点击 **Save Emitter**（`SaveParticleEmitterFile` / `SaveParticleEmitterYAML` / `OnSaveParticleEmitter`）以规范的版本化 YAML（`particles.MarshalConfigYAML`）写出，往返加载保持字节不变，并热重载当前打开场景中引用同一文件的发射器。
+- **场景放置**：可通过 `SetObjectParticles`、`PlaceParticles` 或检查器的 **PARTICLES** 区域（`file` 与 `atlas` 选择器）为场景对象绑定粒子发射器。放置的发射器在 2D 编辑视口中实时预览（`StepSceneEmitters`，隐藏对象时同步隐藏），在 Play 模式（`PlayIn`）与独立游戏（`sceneformat.Build`）中正常运行，纳入 `refs` 扫描（`MoveFile` 自动改写 `particles.file`），并由 `assetcheck` 校验文件及帧名。

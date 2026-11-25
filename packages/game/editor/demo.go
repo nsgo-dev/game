@@ -155,6 +155,8 @@ func (e *Editor) OpenDemo() error {
 	e.stopClipLoop()
 	e.stopFetch()
 	e.stopAudioAudition()
+	e.stopParticlePreviewLoop()
+	e.stopSceneEmitterLoop()
 	e.stopExportBuild()
 	e.stopAssetsBuild()
 	e.resetInputMapTransient()
@@ -175,6 +177,7 @@ func (e *Editor) OpenDemo() error {
 	e.l10n = nil
 	e.tileset = nil
 	e.ActiveTerrain = ""
+	e.particles = nil
 	e.selectFile("")
 	e.resetSearchForProject()
 	e.filesRev++

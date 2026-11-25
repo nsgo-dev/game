@@ -169,6 +169,7 @@ func (e *Editor) ApplicationMenu() []desktop.MenuItem {
 		cmdItem(CmdAudioMixer, "Audio Bus Mixer", false),
 		cmdItem(CmdLocalization, "Localization Strings", false),
 		cmdItem(CmdProfiler, "Profiler", false),
+		cmdItem(CmdParticleEditor, "Particle Emitter Editor", false),
 		sep,
 		cmdItem(CmdCheckProblems, "Check Problems", false),
 	}
@@ -202,7 +203,7 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 	sig := core.NewMemo(cx, func() string {
 		_ = rev.Get()
 		var b strings.Builder
-		fmt.Fprintf(&b, "%v|%v|%v|%v|%v|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v",
+		fmt.Fprintf(&b, "%v|%v|%v|%v|%v|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v",
 			e.StartScreenOpen(),
 			e.Playing(),
 			e.History.CanUndo(),
@@ -218,6 +219,7 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 			e.ProjectSettingsOpen(),
 			e.AudioMixerOpen(),
 			e.LocalizationOpen(),
+			e.ParticleEmitterOpen(),
 			e.ExportPanelOpen(),
 			e.ProfilerOpen(),
 			e.ShowLightingPreview,

@@ -68,6 +68,8 @@ fire.Draw(d)
 | `Ring(radius)` | 在半径为 `radius` 的圆周上均匀分布。 |
 | `Rect(width, height)` | 在以 `(X, Y)` 为中心的 `width × height` 矩形内均匀分布。 |
 
+可通过 `Kind()`（`"point"`、`"circle"`、`"ring"`、`"rect"`）、`Radius()`、`Width()` 与 `Height()` 读取已有 `Shape` 的参数。
+
 ## 生命周期曲线
 
 曲线按粒子归一化年龄 `t = Age / Lifetime`（`[0, 1]`）在按 `T` 排列的控制点之间线性插值：
@@ -92,6 +94,8 @@ glow := particles.ColorCurve{
 sparks.X, sparks.Y = hit.X, hit.Y
 sparks.Burst(24) // 立即发射，最多到 MaxParticles 上限
 ```
+
+对于定时或周期性爆发，可配置 `Bursts`（`[]Burst`，YAML 键为 `bursts`），设置 `Time`（从启动或重置起的延迟）、`Count`（每次触发发射的粒子数）、`Cycles`（`0` 或 `1` 表示触发一次，`> 1` 表示固定重复次数，`< 0` 表示无限循环）和 `Interval`（各次循环间隔）。`Update(dt)` 按确定性时序触发到期爆发，`ReloadConfig` 会更新爆发计划而不清除存活粒子，`Clear()` / `Reset()` 会重置爆发计时。
 
 `*Emitter` 的其他方法：
 
@@ -160,6 +164,7 @@ fire.ReloadConfig(cfg) // frameNames 按 fire.Atlas 解析
 - `shape.kind` 取 `point`、`circle`、`ring` 或 `rect`；`space` 取 `world` 或 `local`；`collision.mode` 取 `none`、`stop`、`bounce` 或 `kill`；子发射器的 `trigger` 取 `birth`、`death` 或 `collision`。
 - 运行时的 `Collider` 不写入文件，拖尾纹理按 URI 保存（`trail.textureURI`）。
 - `MarshalConfigJSON` 和 `UnmarshalConfigJSON` 以 JSON 编码同一套结构，供以 JSON 交换定义的程序使用；人编写的文件用 YAML。
+- 其 JSON Schema 发布在 `https://game.nsgo.dev/schemas/particles.v1.json`（`particles.SchemaURL`，见 [YAML 文件的 Schema](schemas.md)）。发射器文件（`*.particles.yaml` / `*.emitter.yaml`）也可以在[粒子发射器编辑器](editor.md#粒子发射器编辑器883)中带实时预览交互式编辑，并直接放置到版本 2 场景的对象上（`ObjectDoc.Particles`）。
 
 ### 热重载
 

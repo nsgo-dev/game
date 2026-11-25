@@ -1,0 +1,635 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://game.nsgo.dev/schemas/particles.v1.json",
+  "title": "NSGo game 2D particle emitter (version 1)",
+  "description": "EmitterDoc describes the versioned YAML schema of a 2D particle emitter definition (version: 1) for JSON Schema generation.",
+  "type": "object",
+  "properties": {
+    "version": {
+      "description": "Version is the schema version; it must be FormatVersion (1).",
+      "type": "integer",
+      "const": 1
+    },
+    "x": {
+      "description": "X is the emitter's default horizontal position in points.",
+      "type": "number",
+      "minimum": -3.4028234663852886e+38,
+      "maximum": 3.4028234663852886e+38
+    },
+    "y": {
+      "description": "Y is the emitter's default vertical position in points.",
+      "type": "number",
+      "minimum": -3.4028234663852886e+38,
+      "maximum": 3.4028234663852886e+38
+    },
+    "rotation": {
+      "description": "Rotation is the emitter's rotation in radians, clockwise on screen.",
+      "type": "number",
+      "minimum": -3.4028234663852886e+38,
+      "maximum": 3.4028234663852886e+38
+    },
+    "space": {
+      "description": "Space controls whether particles simulate in world coordinates (\"world\") or emitter-local coordinates (\"local\").",
+      "type": "string",
+      "enum": [
+        "world",
+        "local"
+      ]
+    },
+    "shape": {
+      "description": "Shape controls where new particles spawn relative to the emitter's origin.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/ShapeDoc"
+        }
+      ]
+    },
+    "rate": {
+      "description": "Rate is how many particles emit per second during Update; 0 disables continuous emission.",
+      "type": "number",
+      "minimum": -3.4028234663852886e+38,
+      "maximum": 3.4028234663852886e+38
+    },
+    "bursts": {
+      "description": "Bursts schedules automatic bursts of particles at specific elapsed times during Update.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/BurstDoc"
+      }
+    },
+    "maxParticles": {
+      "description": "MaxParticles caps how many particles may be live at once (defaults to 256 when 0 or omitted).",
+      "type": "integer",
+      "minimum": -9223372036854776000,
+      "maximum": 9223372036854776000
+    },
+    "lifetimeMin": {
+      "description": "LifetimeMin is the minimum particle lifetime as a Go duration string such as \"300ms\".",
+      "type": "string"
+    },
+    "lifetimeMax": {
+      "description": "LifetimeMax is the maximum particle lifetime as a Go duration string such as \"700ms\".",
+      "type": "string"
+    },
+    "speedMin": {
+      "description": "SpeedMin is the minimum initial particle speed in points per second.",
+      "type": "number",
+      "minimum": -3.4028234663852886e+38,
+      "maximum": 3.4028234663852886e+38
+    },
+    "speedMax": {
+      "description": "SpeedMax is the maximum initial particle speed in points per second.",
+      "type": "number",
+      "minimum": -3.4028234663852886e+38,
+      "maximum": 3.4028234663852886e+38
+    },
+    "angleMin": {
+      "description": "AngleMin is the minimum initial direction of travel in radians, clockwise from +X.",
+      "type": "number",
+      "minimum": -3.4028234663852886e+38,
+      "maximum": 3.4028234663852886e+38
+    },
+    "angleMax": {
+      "description": "AngleMax is the maximum initial direction of travel in radians, clockwise from +X.",
+      "type": "number",
+      "minimum": -3.4028234663852886e+38,
+      "maximum": 3.4028234663852886e+38
+    },
+    "gravityX": {
+      "description": "GravityX is constant horizontal acceleration in points per second squared.",
+      "type": "number",
+      "minimum": -3.4028234663852886e+38,
+      "maximum": 3.4028234663852886e+38
+    },
+    "gravityY": {
+      "description": "GravityY is constant vertical acceleration in points per second squared.",
+      "type": "number",
+      "minimum": -3.4028234663852886e+38,
+      "maximum": 3.4028234663852886e+38
+    },
+    "initialRotationMin": {
+      "description": "InitialRotationMin is the minimum starting particle rotation in radians.",
+      "type": "number",
+      "minimum": -3.4028234663852886e+38,
+      "maximum": 3.4028234663852886e+38
+    },
+    "initialRotationMax": {
+      "description": "InitialRotationMax is the maximum starting particle rotation in radians.",
+      "type": "number",
+      "minimum": -3.4028234663852886e+38,
+      "maximum": 3.4028234663852886e+38
+    },
+    "rotationSpeedMin": {
+      "description": "RotationSpeedMin is the minimum angular velocity in radians per second.",
+      "type": "number",
+      "minimum": -3.4028234663852886e+38,
+      "maximum": 3.4028234663852886e+38
+    },
+    "rotationSpeedMax": {
+      "description": "RotationSpeedMax is the maximum angular velocity in radians per second.",
+      "type": "number",
+      "minimum": -3.4028234663852886e+38,
+      "maximum": 3.4028234663852886e+38
+    },
+    "sizeCurve": {
+      "description": "SizeCurve scales each particle over its normalized lifetime in [0, 1].",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/FloatStopDoc"
+      }
+    },
+    "alphaCurve": {
+      "description": "AlphaCurve fades each particle's opacity over its normalized lifetime in [0, 1].",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/FloatStopDoc"
+      }
+    },
+    "rotationCurve": {
+      "description": "RotationCurve adds rotation in radians over a particle's normalized lifetime in [0, 1].",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/FloatStopDoc"
+      }
+    },
+    "colorCurve": {
+      "description": "ColorCurve tints each particle over its normalized lifetime in [0, 1].",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/ColorStopDoc"
+      }
+    },
+    "seed": {
+      "description": "Seed seeds the emitter's deterministic PCG PRNG.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 18446744073709552000
+    },
+    "z": {
+      "description": "Z sets the sprite Z draw order of emitted particles.",
+      "type": "integer",
+      "minimum": -9223372036854776000,
+      "maximum": 9223372036854776000
+    },
+    "frameNames": {
+      "description": "FrameNames lists the atlas frame names particles pick from at spawn time.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "collision": {
+      "description": "Collision configures optional particle collision response.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/CollisionDoc"
+        }
+      ]
+    },
+    "trail": {
+      "description": "Trail configures optional per-particle 2D ribbon trails.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/TrailDoc"
+        }
+      ]
+    },
+    "subEmitters": {
+      "description": "SubEmitters configures child bursts triggered on particle birth, death or collision.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/SubEmitterDoc"
+      }
+    }
+  },
+  "required": [
+    "version"
+  ],
+  "additionalProperties": false,
+  "definitions": {
+    "BurstDoc": {
+      "description": "BurstDoc describes one scheduled particle burst in YAML.",
+      "type": "object",
+      "properties": {
+        "time": {
+          "description": "Time is the elapsed emitter time when the first burst fires, as a Go duration string such as \"250ms\".",
+          "type": "string"
+        },
+        "count": {
+          "description": "Count is the number of particles emitted on each firing.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854776000
+        },
+        "cycles": {
+          "description": "Cycles is how many times the burst fires (0 or 1 means once; negative repeats indefinitely every interval).",
+          "type": "integer",
+          "minimum": -9223372036854776000,
+          "maximum": 9223372036854776000
+        },
+        "interval": {
+          "description": "Interval is the delay between repeated firings as a Go duration string such as \"1s\".",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "CollisionDoc": {
+      "description": "CollisionDoc describes particle collision settings in YAML.",
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "description": "Enabled turns particle collision checking on when a runtime Collider is attached.",
+          "type": "boolean"
+        },
+        "mode": {
+          "description": "Mode selects the impact response: \"none\", \"stop\", \"bounce\" or \"kill\".",
+          "type": "string",
+          "enum": [
+            "none",
+            "stop",
+            "bounce",
+            "kill"
+          ]
+        },
+        "bounce": {
+          "description": "Bounce is the restitution factor applied to normal velocity in \"bounce\" mode.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "friction": {
+          "description": "Friction damps tangential velocity on impact in \"bounce\" mode, clamped to [0, 1].",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "radius": {
+          "description": "Radius is the particle collision radius in points.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        }
+      },
+      "additionalProperties": false
+    },
+    "ColorStopDoc": {
+      "description": "ColorStopDoc is one control point on a color curve at normalized age t in [0, 1].",
+      "type": "object",
+      "properties": {
+        "t": {
+          "description": "T is the normalized particle age in [0, 1].",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "color": {
+          "description": "Color is a quoted hex color string \"#rrggbb\" or \"#rrggbbaa\".",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "EmitterFieldsDoc": {
+      "description": "EmitterFieldsDoc describes the fields of a 2D particle emitter configuration (used at the top level and inside sub-emitters without version).",
+      "type": "object",
+      "properties": {
+        "x": {
+          "description": "X is the emitter's default horizontal position in points.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "y": {
+          "description": "Y is the emitter's default vertical position in points.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "rotation": {
+          "description": "Rotation is the emitter's rotation in radians, clockwise on screen.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "space": {
+          "description": "Space controls whether particles simulate in world coordinates (\"world\") or emitter-local coordinates (\"local\").",
+          "type": "string",
+          "enum": [
+            "world",
+            "local"
+          ]
+        },
+        "shape": {
+          "description": "Shape controls where new particles spawn relative to the emitter's origin.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ShapeDoc"
+            }
+          ]
+        },
+        "rate": {
+          "description": "Rate is how many particles emit per second during Update; 0 disables continuous emission.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "bursts": {
+          "description": "Bursts schedules automatic bursts of particles at specific elapsed times during Update.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/BurstDoc"
+          }
+        },
+        "maxParticles": {
+          "description": "MaxParticles caps how many particles may be live at once (defaults to 256 when 0 or omitted).",
+          "type": "integer",
+          "minimum": -9223372036854776000,
+          "maximum": 9223372036854776000
+        },
+        "lifetimeMin": {
+          "description": "LifetimeMin is the minimum particle lifetime as a Go duration string such as \"300ms\".",
+          "type": "string"
+        },
+        "lifetimeMax": {
+          "description": "LifetimeMax is the maximum particle lifetime as a Go duration string such as \"700ms\".",
+          "type": "string"
+        },
+        "speedMin": {
+          "description": "SpeedMin is the minimum initial particle speed in points per second.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "speedMax": {
+          "description": "SpeedMax is the maximum initial particle speed in points per second.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "angleMin": {
+          "description": "AngleMin is the minimum initial direction of travel in radians, clockwise from +X.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "angleMax": {
+          "description": "AngleMax is the maximum initial direction of travel in radians, clockwise from +X.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "gravityX": {
+          "description": "GravityX is constant horizontal acceleration in points per second squared.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "gravityY": {
+          "description": "GravityY is constant vertical acceleration in points per second squared.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "initialRotationMin": {
+          "description": "InitialRotationMin is the minimum starting particle rotation in radians.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "initialRotationMax": {
+          "description": "InitialRotationMax is the maximum starting particle rotation in radians.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "rotationSpeedMin": {
+          "description": "RotationSpeedMin is the minimum angular velocity in radians per second.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "rotationSpeedMax": {
+          "description": "RotationSpeedMax is the maximum angular velocity in radians per second.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "sizeCurve": {
+          "description": "SizeCurve scales each particle over its normalized lifetime in [0, 1].",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/FloatStopDoc"
+          }
+        },
+        "alphaCurve": {
+          "description": "AlphaCurve fades each particle's opacity over its normalized lifetime in [0, 1].",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/FloatStopDoc"
+          }
+        },
+        "rotationCurve": {
+          "description": "RotationCurve adds rotation in radians over a particle's normalized lifetime in [0, 1].",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/FloatStopDoc"
+          }
+        },
+        "colorCurve": {
+          "description": "ColorCurve tints each particle over its normalized lifetime in [0, 1].",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ColorStopDoc"
+          }
+        },
+        "seed": {
+          "description": "Seed seeds the emitter's deterministic PCG PRNG.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709552000
+        },
+        "z": {
+          "description": "Z sets the sprite Z draw order of emitted particles.",
+          "type": "integer",
+          "minimum": -9223372036854776000,
+          "maximum": 9223372036854776000
+        },
+        "frameNames": {
+          "description": "FrameNames lists the atlas frame names particles pick from at spawn time.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "collision": {
+          "description": "Collision configures optional particle collision response.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/CollisionDoc"
+            }
+          ]
+        },
+        "trail": {
+          "description": "Trail configures optional per-particle 2D ribbon trails.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/TrailDoc"
+            }
+          ]
+        },
+        "subEmitters": {
+          "description": "SubEmitters configures child bursts triggered on particle birth, death or collision.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SubEmitterDoc"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "FloatStopDoc": {
+      "description": "FloatStopDoc is one control point on a float curve at normalized age t in [0, 1].",
+      "type": "object",
+      "properties": {
+        "t": {
+          "description": "T is the normalized particle age in [0, 1].",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "value": {
+          "description": "Value is the curve value at T.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        }
+      },
+      "additionalProperties": false
+    },
+    "ShapeDoc": {
+      "description": "ShapeDoc describes a 2D emission shape in YAML.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "description": "Kind selects the shape: \"point\", \"circle\", \"ring\" or \"rect\".",
+          "type": "string",
+          "enum": [
+            "point",
+            "circle",
+            "ring",
+            "rect"
+          ]
+        },
+        "radius": {
+          "description": "Radius is the radius in points for \"circle\" and \"ring\" shapes.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "width": {
+          "description": "Width is the width in points for a \"rect\" shape.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "height": {
+          "description": "Height is the height in points for a \"rect\" shape.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        }
+      },
+      "additionalProperties": false
+    },
+    "SubEmitterDoc": {
+      "description": "SubEmitterDoc describes one child burst rule in YAML.",
+      "type": "object",
+      "properties": {
+        "trigger": {
+          "description": "Trigger selects which parent particle event fires the burst: \"birth\", \"death\" or \"collision\".",
+          "type": "string",
+          "enum": [
+            "birth",
+            "death",
+            "collision"
+          ]
+        },
+        "burstCount": {
+          "description": "BurstCount is how many child particles to emit on each trigger event.",
+          "type": "integer",
+          "minimum": -9223372036854776000,
+          "maximum": 9223372036854776000
+        },
+        "inheritVelocity": {
+          "description": "InheritVelocity multiplies parent velocity added to each spawned child particle.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "config": {
+          "description": "Config configures the child emitter (without a version key).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/EmitterFieldsDoc"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "TrailDoc": {
+      "description": "TrailDoc describes per-particle ribbon trail settings in YAML.",
+      "type": "object",
+      "properties": {
+        "maxPoints": {
+          "description": "MaxPoints caps the recorded polyline vertices per trail (defaults to 64 when 0).",
+          "type": "integer",
+          "minimum": -9223372036854776000,
+          "maximum": 9223372036854776000
+        },
+        "lifetime": {
+          "description": "Lifetime is how long each trail vertex lives in seconds (defaults to 0.5 when 0).",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "minDistance": {
+          "description": "MinDistance is the minimum spacing in points between consecutive trail vertices.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "width": {
+          "description": "Width is the base ribbon width in points (defaults to 4 when 0).",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "widthCurve": {
+          "description": "WidthCurve scales Width from head (t=0) to tail (t=1).",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/FloatStopDoc"
+          }
+        },
+        "colorGradient": {
+          "description": "ColorGradient evaluates color from head (t=0) to tail (t=1).",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ColorStopDoc"
+          }
+        },
+        "color": {
+          "description": "Color is the fallback solid hex color \"#rrggbb\" or \"#rrggbbaa\" when colorGradient is empty.",
+          "type": "string"
+        },
+        "textureURI": {
+          "description": "TextureURI is an optional image URI mapped across trail segments.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

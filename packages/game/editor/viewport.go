@@ -4,6 +4,7 @@ import (
 	"math"
 
 	"github.com/nsgo-dev/game/packages/game/math2d"
+	"github.com/nsgo-dev/game/packages/game/particles"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/game/packages/game/world3d"
 	"github.com/nsgo-dev/nsgo/core"
@@ -377,6 +378,7 @@ func (e *Editor) DrawViewport(d *core.Drawing, size core.Size) {
 	e.drawCameraFrameOverlay(d)
 	e.drawTileGridOverlay(d)
 	e.drawTileHoverOverlay(d)
+	e.drawParticleEmitterOverlays(d, scene)
 	e.drawSelectionOverlay(d, scene)
 	e.drawComponentShapes2D(d, scene)
 	e.drawGizmo2D(d)
@@ -502,7 +504,12 @@ func (e *Editor) drawEditScene(d *core.Drawing, scene *sceneformat.BuiltScene, s
 		bo    *sceneformat.BuiltObject
 		alpha float32
 	}
+	type hiddenEmitter struct {
+		bo *sceneformat.BuiltObject
+		em *particles.Emitter
+	}
 	var restore []faded
+	var restoreEmitters []hiddenEmitter
 	if len(e.hidden) > 0 {
 		for _, layer := range scene.Layers {
 			var walk func(objs []*sceneformat.BuiltObject, hidden bool)
@@ -512,6 +519,10 @@ func (e *Editor) drawEditScene(d *core.Drawing, scene *sceneformat.BuiltScene, s
 					if h && bo.Sprite != nil {
 						restore = append(restore, faded{bo, bo.Sprite.Alpha})
 						bo.Sprite.Alpha = 0
+					}
+					if h && bo.Emitter != nil {
+						restoreEmitters = append(restoreEmitters, hiddenEmitter{bo, bo.Emitter})
+						bo.Emitter = nil
 					}
 					walk(bo.Children, h)
 				}
@@ -551,7 +562,7 @@ func (e *Editor) drawEditScene(d *core.Drawing, scene *sceneformat.BuiltScene, s
 		if !layer.Visible {
 			continue
 		}
-		if layer.Tilemap != nil || layer.Map != nil || len(layer.Batches) > 0 {
+		if layer.Tilemap != nil || layer.Map != nil || len(layer.Batches) > 0 || len(layer.Emitters) > 0 {
 			m := e.layerAffineFor(layer.Space, layer.ParallaxX, layer.ParallaxY)
 			d.Save()
 			applyAffine(d, m)
@@ -596,18 +607,13 @@ func (e *Editor) drawEditScene(d *core.Drawing, scene *sceneformat.BuiltScene, s
 	for _, f := range restore {
 		f.bo.Sprite.Alpha = f.alpha
 	}
+	for _, he := range restoreEmitters {
+		he.bo.Emitter = he.em
+	}
 }
 
 func drawBuiltLayer(d *core.Drawing, layer *sceneformat.BuiltLayer) {
-	if layer.Tilemap != nil {
-		layer.Tilemap.Draw(d)
-	}
-	if layer.Map != nil {
-		layer.Map.Draw(d, nil)
-	}
-	for _, b := range layer.Batches {
-		b.Draw(d)
-	}
+	layer.Draw(d, nil)
 }
 
 func (e *Editor) drawSelectionOverlay(d *core.Drawing, scene *sceneformat.BuiltScene) {

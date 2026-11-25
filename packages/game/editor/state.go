@@ -298,6 +298,8 @@ type Editor struct {
 	GridMapFS fs.FS
 	// OnSaveTileset is invoked by the Tileset Editor panel's Save button with the encoded tileset YAML; when nil the button writes to TilesetPath.
 	OnSaveTileset func(data []byte) error
+	// OnSaveParticleEmitter is invoked by the Particle Emitter panel's Save button with the encoded emitter YAML; when nil the button writes to ParticleEmitterPath.
+	OnSaveParticleEmitter func(data []byte) error
 	// ExportCommandRunner runs `go` with args for the Export panel's release builds, streaming output to stdout and stderr; when nil the editor invokes `go` via os/exec.
 	ExportCommandRunner func(ctx context.Context, args []string, stdout, stderr io.Writer) error
 	// OpenOutputFolder opens the release output directory in the OS file manager after a successful non-dry-run build; when nil the editor uses the host platform's default opener.
@@ -369,6 +371,9 @@ type Editor struct {
 	// The tileset editor: the open *.tileset.yaml document, selected terrain/tile and mask builder state.
 	tileset *tilesetEditorState
 
+	// The particle emitter editor: the open emitter config, live preview emitter, and edit-viewport scene emitter loop.
+	particles        *particleEditorState
+	sceneEmitterStop func()
 	// l10n holds the open localization string tables edited by the Localization panel, or nil when closed.
 	l10n       *localizationState
 	components *sceneformat.ComponentRegistry
@@ -591,6 +596,13 @@ func (e *Editor) AttachScope(cx *core.Scope) {
 	}
 	e.startScreen.setScope(cx)
 	e.remote.setScope(cx)
+	if cx != nil {
+		e.startParticlePreviewLoop()
+		e.syncSceneEmitterLoop()
+	} else {
+		e.stopParticlePreviewLoop()
+		e.stopSceneEmitterLoop()
+	}
 }
 
 func (e *Editor) notify() {
@@ -646,6 +658,7 @@ func (e *Editor) Rebuild() {
 	built.DrawAllTiles = true
 	e.Built = built
 	e.BuildErr = nil
+	e.syncSceneEmitterLoop()
 }
 
 // ActiveScene returns the live play scene when playing, the scene posed by the open state machine or animation clip when previewing, or the edit BuiltScene otherwise.
@@ -1739,7 +1752,7 @@ func (c *placeObjectCmd) Do() {
 		return
 	}
 	c.wasNilSlice = c.ed.Doc.Layers[li].Objects == nil
-	if c.ed.Doc.Version < sceneformat.CurrentVersion && (instancesScene(&c.obj) || drawsModel(&c.obj) || hasOccluder(&c.obj)) {
+	if c.ed.Doc.Version < sceneformat.CurrentVersion && (instancesScene(&c.obj) || drawsModel(&c.obj) || hasOccluder(&c.obj) || hasParticles(&c.obj)) {
 		c.ed.Doc.Version = sceneformat.CurrentVersion
 	}
 	c.ed.Doc.Layers[li].Objects = append(c.ed.Doc.Layers[li].Objects, cloneObjectDoc(c.obj))
@@ -1772,6 +1785,16 @@ func drawsModel(o *sceneformat.ObjectDoc) bool {
 	found := false
 	sceneformat.WalkObjects([]sceneformat.ObjectDoc{*o}, func(c, _ *sceneformat.ObjectDoc) bool {
 		found = c.Model != "" || c.GridMap != ""
+		return !found
+	})
+	return found
+}
+
+// hasParticles reports whether o or any of its descendants places a particle emitter, which needs a version 2 scene.
+func hasParticles(o *sceneformat.ObjectDoc) bool {
+	found := false
+	sceneformat.WalkObjects([]sceneformat.ObjectDoc{*o}, func(c, _ *sceneformat.ObjectDoc) bool {
+		found = c.Particles != nil
 		return !found
 	})
 	return found
@@ -2196,6 +2219,9 @@ func validateObjectForEditor(o *sceneformat.ObjectDoc) error {
 	}
 	if o.Sprite != nil && (o.Sprite.Atlas == "" || o.Sprite.Frame == "") {
 		return errors.New("editor: object sprite requires both atlas and frame")
+	}
+	if o.Particles != nil && (o.Particles.File == "" || !validScenePath(o.Particles.File)) {
+		return fmt.Errorf("editor: object particles file %q must be a slash-separated path relative to the project root", o.Particles.File)
 	}
 	if o.Scene != "" && !validScenePath(o.Scene) {
 		return fmt.Errorf("editor: object scene %q must be a slash-separated path relative to the project root", o.Scene)

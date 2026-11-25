@@ -1305,6 +1305,8 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 
 	nodes = append(nodes, sectionHeader("SPRITE"))
 	nodes = append(nodes, spriteFields(ed, rev, objID, disabled, fieldRow)...)
+	nodes = append(nodes, sectionHeader("PARTICLES"))
+	nodes = append(nodes, particlesFields(ed, rev, objID, disabled, fieldRow)...)
 
 	obj, _, _ := ed.FindObject(objID)
 	nodes = append(nodes, sectionHeader("PROPERTIES"))

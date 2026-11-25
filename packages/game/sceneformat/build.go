@@ -13,6 +13,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/lights2d"
 	"github.com/nsgo-dev/game/packages/game/loaderr"
 	"github.com/nsgo-dev/game/packages/game/math2d"
+	"github.com/nsgo-dev/game/packages/game/particles"
 	"github.com/nsgo-dev/game/packages/game/resource"
 	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/game/packages/game/tilemap"
@@ -42,6 +43,11 @@ type ImageResolver interface {
 // MaterialResolver may optionally be implemented by an AssetResolver to load the shared material files objects name in ObjectDoc.Material. A resolver that returns the same pointer for the same path, as resource.Library does, lets every scene using one file see its edits.
 type MaterialResolver interface {
 	Material(path string) (*resource.Material, error)
+}
+
+// ParticlesResolver may optionally be implemented by an AssetResolver to load particle emitter definitions named by ObjectDoc.Particles. When not implemented, Build reads the file through FileResolver (such as FSAssets) and decodes it with particles.UnmarshalConfigYAML.
+type ParticlesResolver interface {
+	Particles(path string) (particles.Config, error)
 }
 
 // AtlasMap is an AssetResolver backed by a map of atlas names to atlases.
@@ -113,8 +119,18 @@ type BuiltLayer struct {
 	Map *tilemap.Tilemap
 	// Batches are the sprite batches for the layer's sprite objects, grouped in exact Z order.
 	Batches []*sprite.Batch
+	// Emitters are the layer's built objects that carry a live 2D particle emitter (ObjectDoc.Particles), in document order.
+	Emitters []*BuiltObject
 	// Objects are the layer's top-level built objects in document order; each one's descendants hang from BuiltObject.Children.
 	Objects []*BuiltObject
+
+	// drawItems interleaves sprite batches and particle emitters in exact ascending Z order.
+	drawItems []layerDrawItem
+}
+
+type layerDrawItem struct {
+	batch   *sprite.Batch
+	emitter *BuiltObject
 }
 
 // BuiltObject is one object instantiated from an ObjectDoc.
@@ -131,6 +147,8 @@ type BuiltObject struct {
 	Sprite *sprite.Sprite
 	// Material is the shared material resolved from Doc.Material, or nil when the object names none. It is the resolver's value, not a copy, so an edit reloaded into it reaches every scene that uses it.
 	Material *resource.Material
+	// Emitter is the live 2D particle emitter built from Doc.Particles, or nil when the object has none. BuiltScene.Update steps it and BuiltScene.Draw draws it at the object's world transform.
+	Emitter *particles.Emitter
 	// Parent is the object this one is a child of, or nil for a top-level object.
 	Parent *BuiltObject
 	// Children are the object's built children in document order.
@@ -139,6 +157,9 @@ type BuiltObject struct {
 	World math2d.Affine
 	// WorldAlpha is the object's alpha multiplied by every ancestor's.
 	WorldAlpha float32
+
+	emitterBaseRot float32
+	emitterZ       int
 }
 
 // Build validates doc, resolves its referenced atlases and tilemaps through resolver, and returns a BuiltScene ready to draw. A single grid of atlas frames becomes a sprite batch (BuiltLayer.Tilemap); a layered grid, with the YAML tileset it names read through a FileResolver, and a Tiled or LDtk source, read through a TilemapResolver when the resolver implements one and otherwise through a FileResolver, become a tilemap.Tilemap (BuiltLayer.Map). A scene that instances or inherits other scene files (SceneDoc.RefersToScenes) is first resolved with Resolve, which loads them through resolver when it implements SceneResolver.
@@ -227,6 +248,35 @@ func Build(doc *SceneDoc, resolver AssetResolver) (*BuiltScene, error) {
 		return m, nil
 	}
 
+	particleConfigs := make(map[string]particles.Config)
+	getParticles := func(file string) (particles.Config, error) {
+		if cfg, ok := particleConfigs[file]; ok {
+			return cfg, nil
+		}
+		if pr, ok := resolver.(ParticlesResolver); ok {
+			cfg, err := pr.Particles(file)
+			if err != nil {
+				return particles.Config{}, fmt.Errorf("sceneformat: resolve particles %q: %w", file, err)
+			}
+			particleConfigs[file] = cfg
+			return cfg, nil
+		}
+		fr, ok := resolver.(FileResolver)
+		if !ok {
+			return particles.Config{}, fmt.Errorf("sceneformat: particles %q requires a ParticlesResolver or FileResolver (such as FSAssets)", file)
+		}
+		data, err := fr.ReadFile(file)
+		if err != nil {
+			return particles.Config{}, fmt.Errorf("sceneformat: read particles %q: %w", file, err)
+		}
+		cfg, err := particles.UnmarshalConfigYAML(data)
+		if err != nil {
+			return particles.Config{}, fmt.Errorf("sceneformat: parse particles %q: %w", file, loaderr.WithFile(err, file))
+		}
+		particleConfigs[file] = cfg
+		return cfg, nil
+	}
+
 	tiles := &tilemapBuilder{doc: doc, resolver: resolver, getAtlas: getAtlas, tilesets: make(map[string]*tilemap.TilesetDoc)}
 
 	// Sort layer indices stably by Order so doc.Layers is never mutated.
@@ -275,16 +325,16 @@ func Build(doc *SceneDoc, resolver AssetResolver) (*BuiltScene, error) {
 			bl.RepeatHeight = doc.VirtualHeight
 		}
 
-		var drawables []*BuiltObject
+		var drawables []layerDrawable
 		for j := range ld.Objects {
-			bo, err := buildObject(built, bl, nil, &ld.Objects[j], getAtlas, getMaterial, &drawables)
+			bo, err := buildObject(built, bl, nil, &ld.Objects[j], getAtlas, getMaterial, getParticles, &drawables)
 			if err != nil {
 				return nil, err
 			}
 			bl.Objects = append(bl.Objects, bo)
 		}
 
-		bl.Batches = groupSpriteBatches(drawables)
+		bl.Batches, bl.drawItems = groupLayerDrawables(drawables)
 		built.Layers = append(built.Layers, bl)
 	}
 
@@ -297,8 +347,14 @@ func Build(doc *SceneDoc, resolver AssetResolver) (*BuiltScene, error) {
 	return built, nil
 }
 
-// buildObject builds od under parent (nil for a top-level object), composing its world transform, then builds its children. It records every built object in built.Objects and appends the ones with a sprite to drawables in depth-first order, each parent before its children.
-func buildObject(built *BuiltScene, bl *BuiltLayer, parent *BuiltObject, od *ObjectDoc, getAtlas func(string) (*sprite.Atlas, error), getMaterial func(string) (*resource.Material, error), drawables *[]*BuiltObject) (*BuiltObject, error) {
+type layerDrawable struct {
+	z       int
+	sprite  *BuiltObject
+	emitter *BuiltObject
+}
+
+// buildObject builds od under parent (nil for a top-level object), composing its world transform, then builds its children. It records every built object in built.Objects and appends the ones with a sprite or particle emitter to drawables in depth-first order, each parent before its children.
+func buildObject(built *BuiltScene, bl *BuiltLayer, parent *BuiltObject, od *ObjectDoc, getAtlas func(string) (*sprite.Atlas, error), getMaterial func(string) (*resource.Material, error), getParticles func(string) (particles.Config, error), drawables *[]layerDrawable) (*BuiltObject, error) {
 	bo := &BuiltObject{
 		Doc:        od,
 		ID:         od.ID,
@@ -352,17 +408,70 @@ func buildObject(built *BuiltScene, bl *BuiltLayer, parent *BuiltObject, od *Obj
 			bo.syncMaterial()
 			built.materialed = append(built.materialed, bo)
 		}
-		*drawables = append(*drawables, bo)
+		*drawables = append(*drawables, layerDrawable{z: sp.Z, sprite: bo})
+	}
+	if od.Particles != nil {
+		cfg, err := getParticles(od.Particles.File)
+		if err != nil {
+			return nil, fmt.Errorf("sceneformat: layer %q object %q: %w", bl.Name, od.ID, err)
+		}
+		em := &particles.Emitter{}
+		if od.Particles.Atlas != "" {
+			atlas, err := getAtlas(od.Particles.Atlas)
+			if err != nil {
+				return nil, fmt.Errorf("sceneformat: layer %q object %q: particles atlas: %w", bl.Name, od.ID, err)
+			}
+			if err := checkParticleFrames(atlas, od.Particles.Atlas, cfg); err != nil {
+				return nil, fmt.Errorf("sceneformat: layer %q object %q: %w", bl.Name, od.ID, err)
+			}
+			em.Atlas = atlas
+		}
+		em.ReloadConfig(cfg)
+		wx, wy, wrot := emitterWorldTransform(parent, od, bo.World)
+		em.X, em.Y = wx, wy
+		em.Rotation = wrot + cfg.Rotation
+		if od.Z != 0 {
+			em.Z = od.Z
+		}
+		bo.Emitter = em
+		bo.emitterBaseRot = cfg.Rotation
+		bo.emitterZ = em.Z
+		bl.Emitters = append(bl.Emitters, bo)
+		*drawables = append(*drawables, layerDrawable{z: bo.emitterZ, emitter: bo})
 	}
 	built.Objects[od.ID] = bo
 	for i := range od.Children {
-		child, err := buildObject(built, bl, bo, &od.Children[i], getAtlas, getMaterial, drawables)
+		child, err := buildObject(built, bl, bo, &od.Children[i], getAtlas, getMaterial, getParticles, drawables)
 		if err != nil {
 			return nil, err
 		}
 		bo.Children = append(bo.Children, child)
 	}
 	return bo, nil
+}
+
+func checkParticleFrames(atlas *sprite.Atlas, atlasName string, cfg particles.Config) error {
+	for _, fn := range cfg.FrameNames {
+		if _, ok := atlas.Frames[fn]; !ok {
+			return fmt.Errorf("particles atlas %q has no frame %q", atlasName, fn)
+		}
+	}
+	for _, sub := range cfg.SubEmitters {
+		if err := checkParticleFrames(atlas, atlasName, sub.Config); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func emitterWorldTransform(parent *BuiltObject, od *ObjectDoc, world math2d.Affine) (x, y, rot float32) {
+	if parent == nil {
+		return od.X, od.Y, od.Rotation
+	}
+	if tx, ty, r, _, _, ok := decomposeTRS(world); ok {
+		return tx, ty, r
+	}
+	return world.Tx, world.Ty, float32(math.Atan2(float64(world.B), float64(world.A)))
 }
 
 // decomposeTRS splits m into a translation, a rotation and axis scales that sprite.Sprite can draw, so that TRS(x, y, rot, sx, sy) equals m. When m's columns are not orthogonal but are parallel, m is rank-deficient (a sprite under a parent collapsed to zero size along one axis, such as scaleX: 0) and covers no area, so it comes back with zero scales and draws nothing. decomposeTRS reports false when m's columns are neither orthogonal nor parallel, a shear no such split can carry.
@@ -580,26 +689,34 @@ func buildTilemapBatch(layerName string, resolved *TilemapDoc, getAtlas func(str
 	return &sprite.Batch{Atlas: atlas, Sprites: sprites}, float32(resolved.Width * resolved.TileWidth), float32(resolved.Height * resolved.TileHeight), nil
 }
 
-// groupSpriteBatches sorts drawables stably by Z and groups consecutive sprites sharing an atlas into sprite.Batch values, preserving exact Z order even across multiple atlases.
-func groupSpriteBatches(drawables []*BuiltObject) []*sprite.Batch {
+// groupLayerDrawables sorts drawables stably by Z, groups consecutive sprites sharing an atlas into sprite.Batch values, and returns both the sprite batches list and the interleaved draw items preserving exact Z order across sprites and particle emitters.
+func groupLayerDrawables(drawables []layerDrawable) ([]*sprite.Batch, []layerDrawItem) {
 	if len(drawables) == 0 {
-		return nil
+		return nil, nil
 	}
-	slices.SortStableFunc(drawables, func(a, b *BuiltObject) int {
-		return cmp.Compare(a.Sprite.Z, b.Sprite.Z)
+	slices.SortStableFunc(drawables, func(a, b layerDrawable) int {
+		return cmp.Compare(a.z, b.z)
 	})
 	var batches []*sprite.Batch
-	for _, bo := range drawables {
-		if n := len(batches); n > 0 && batches[n-1].Atlas == bo.Atlas {
-			batches[n-1].Sprites = append(batches[n-1].Sprites, bo.Sprite)
+	var items []layerDrawItem
+	for _, dr := range drawables {
+		if dr.emitter != nil {
+			items = append(items, layerDrawItem{emitter: dr.emitter})
 			continue
 		}
-		batches = append(batches, &sprite.Batch{
+		bo := dr.sprite
+		if n := len(items); n > 0 && items[n-1].batch != nil && items[n-1].batch.Atlas == bo.Atlas {
+			items[n-1].batch.Sprites = append(items[n-1].batch.Sprites, bo.Sprite)
+			continue
+		}
+		b := &sprite.Batch{
 			Atlas:   bo.Atlas,
 			Sprites: []*sprite.Sprite{bo.Sprite},
-		})
+		}
+		batches = append(batches, b)
+		items = append(items, layerDrawItem{batch: b})
 	}
-	return batches
+	return batches, items
 }
 
 // syncMaterial sets the object's sprite to draw with its material: the object's world alpha (its alpha times every ancestor's) times the material's opacity, and the material's blend mode.
@@ -640,6 +757,11 @@ func (bo *BuiltObject) Sync() bool {
 		sp.FlipX, sp.FlipY = od.FlipX, od.FlipY
 		sp.Alpha = bo.WorldAlpha
 		bo.syncMaterial()
+	}
+	if bo.Emitter != nil {
+		wx, wy, wrot := emitterWorldTransform(bo.Parent, od, bo.World)
+		bo.Emitter.Follow(wx, wy)
+		bo.Emitter.Rotation = wrot + bo.emitterBaseRot
 	}
 	for _, c := range bo.Children {
 		if !c.Sync() {
@@ -716,7 +838,7 @@ func (s *BuiltScene) Draw(d *core.Drawing) {
 		if !layer.Visible {
 			continue
 		}
-		if layer.Tilemap != nil || layer.Map != nil || len(layer.Batches) > 0 {
+		if layer.Tilemap != nil || layer.Map != nil || len(layer.Batches) > 0 || len(layer.Emitters) > 0 {
 			view := s.tileView(layer.Space, vw, vh)
 			if layer.Space == SpaceWorld && s.Camera != nil {
 				s.drawWithCamera(d, vw, vh, layer, view)
@@ -745,7 +867,7 @@ func (s *BuiltScene) tileView(space Space, vw, vh float32) *tilemap.Camera {
 	return &tilemap.Camera{X: vw / 2, Y: vh / 2, Zoom: 1, Width: vw, Height: vh}
 }
 
-// Update advances the animated tiles of every layer's map (BuiltLayer.Map) by dt, so the next Draw shows their current frames.
+// Update advances the animated tiles of every layer's map (BuiltLayer.Map) and every placed particle emitter (BuiltLayer.Emitters) by dt, so the next Draw shows their current state.
 func (s *BuiltScene) Update(dt time.Duration) {
 	if s == nil {
 		return
@@ -753,6 +875,11 @@ func (s *BuiltScene) Update(dt time.Duration) {
 	for _, l := range s.Layers {
 		if l.Map != nil {
 			l.Map.Update(dt)
+		}
+		for _, bo := range l.Emitters {
+			if bo.Emitter != nil {
+				bo.Emitter.Update(dt)
+			}
 		}
 	}
 }
@@ -944,14 +1071,37 @@ func clampCamera(x, y, vw, vh, zoom float32, b *BoundsDoc) (float32, float32) {
 	return x, y
 }
 
-func drawLayer(d *core.Drawing, layer *BuiltLayer, view *tilemap.Camera) {
-	if layer.Tilemap != nil {
-		layer.Tilemap.Draw(d)
+// Draw draws the layer's tilemap, layered map, and Z-order interleaved sprite batches and particle emitters into d. When view is nil, every tile of Map draws without culling.
+func (l *BuiltLayer) Draw(d *core.Drawing, view *tilemap.Camera) {
+	if l == nil || d == nil {
+		return
 	}
-	if layer.Map != nil {
-		layer.Map.Draw(d, view)
+	if l.Tilemap != nil {
+		l.Tilemap.Draw(d)
 	}
-	for _, b := range layer.Batches {
+	if l.Map != nil {
+		l.Map.Draw(d, view)
+	}
+	if len(l.drawItems) > 0 {
+		for _, item := range l.drawItems {
+			if item.batch != nil {
+				item.batch.Draw(d)
+			} else if item.emitter != nil && item.emitter.Emitter != nil {
+				item.emitter.Emitter.Draw(d)
+			}
+		}
+		return
+	}
+	for _, b := range l.Batches {
 		b.Draw(d)
 	}
+	for _, bo := range l.Emitters {
+		if bo.Emitter != nil {
+			bo.Emitter.Draw(d)
+		}
+	}
+}
+
+func drawLayer(d *core.Drawing, layer *BuiltLayer, view *tilemap.Camera) {
+	layer.Draw(d, view)
 }

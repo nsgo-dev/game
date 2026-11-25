@@ -40,6 +40,18 @@ type Particle struct {
 	rotationSpeed   float32
 }
 
+// Burst schedules an automatic burst of particles during Emitter.Update.
+type Burst struct {
+	// Time is the elapsed emitter time when the first burst fires (>= 0).
+	Time time.Duration
+	// Count is how many particles to emit on each firing (> 0).
+	Count int
+	// Cycles is how many times the burst fires: 0 or 1 means once, and a negative value repeats indefinitely every Interval.
+	Cycles int
+	// Interval is the delay between repeated firings when Cycles != 1 (must be > 0 to repeat).
+	Interval time.Duration
+}
+
 // Emitter spawns, updates and draws 2D particles deterministically from a seeded PRNG.
 //
 // Call Update from a game.Loop's fixed step and Draw from a Canvas's Draw callback. Continuous emission runs whenever Rate > 0; call Burst to emit particles on demand regardless of Rate.
@@ -60,6 +72,8 @@ type Emitter struct {
 	Shape Shape
 	// Rate is how many particles emit per second during Update; 0 or less disables continuous emission.
 	Rate float32
+	// Bursts schedules automatic bursts of particles at specific elapsed times during Update.
+	Bursts []Burst
 	// MaxParticles caps how many particles may be live at once, 256 when 0 or less.
 	MaxParticles int
 	// LifetimeMin and LifetimeMax give how long each particle lives; both 0 defaults to one second, and a LifetimeMax below LifetimeMin matches LifetimeMin.
@@ -93,12 +107,14 @@ type Emitter struct {
 	// SubEmitters configures child bursts triggered on particle birth, death, or collision.
 	SubEmitters []SubEmitterRule
 
-	particles []Particle
-	sprites   []sprite.Sprite
-	batch     sprite.Batch
-	rng       *rand.Rand
-	seeded    bool
-	emitAcc   float64
+	particles  []Particle
+	sprites    []sprite.Sprite
+	batch      sprite.Batch
+	rng        *rand.Rand
+	seeded     bool
+	emitAcc    float64
+	elapsed    time.Duration
+	burstFired []int64
 
 	attachFn          func() (float32, float32)
 	attachTransformFn func() (float32, float32, float32)
@@ -318,8 +334,73 @@ func (e *Emitter) Update(dt time.Duration) {
 		}
 	}
 
+	if math.MaxInt64-e.elapsed < dt {
+		e.elapsed = math.MaxInt64
+	} else {
+		e.elapsed += dt
+	}
+	if len(e.Bursts) > 0 {
+		e.fireScheduledBursts()
+	}
+
 	e.prevX, e.prevY = e.X, e.Y
 	e.hasPrevPos = true
+}
+
+func (e *Emitter) fireScheduledBursts() {
+	if len(e.burstFired) < len(e.Bursts) {
+		next := make([]int64, len(e.Bursts))
+		copy(next, e.burstFired)
+		e.burstFired = next
+	} else if len(e.burstFired) > len(e.Bursts) {
+		clear(e.burstFired[len(e.Bursts):])
+		e.burstFired = e.burstFired[:len(e.Bursts)]
+	}
+	maxP := e.maxParticles()
+	for i, b := range e.Bursts {
+		if b.Count <= 0 || b.Time < 0 || e.elapsed < b.Time {
+			continue
+		}
+		cycles := int64(b.Cycles)
+		if cycles == 0 {
+			cycles = 1
+		}
+		fired := e.burstFired[i]
+		if cycles > 0 && fired >= cycles {
+			continue
+		}
+		var totalDue int64
+		if b.Interval <= 0 {
+			totalDue = 1
+		} else {
+			span := e.elapsed - b.Time
+			steps := int64(span / b.Interval)
+			if steps == math.MaxInt64 {
+				totalDue = math.MaxInt64
+			} else {
+				totalDue = steps + 1
+			}
+			if cycles > 0 && totalDue > cycles {
+				totalDue = cycles
+			}
+		}
+		if totalDue <= fired {
+			continue
+		}
+		due := totalDue - fired
+		e.burstFired[i] = totalDue
+		room := maxP - len(e.particles)
+		if room <= 0 {
+			continue
+		}
+		var toSpawn int
+		if due >= int64(room) || int64(b.Count) >= int64(room) || due*int64(b.Count) >= int64(room) {
+			toSpawn = room
+		} else {
+			toSpawn = int(due) * b.Count
+		}
+		e.Burst(toSpawn)
+	}
 }
 
 // Burst immediately emits up to count particles without waiting for Update or requiring Rate > 0, stopping at MaxParticles.
@@ -458,6 +539,9 @@ func (e *Emitter) Clear() {
 	clear(e.batch.Sprites)
 	e.batch.Sprites = e.batch.Sprites[:0]
 	e.emitAcc = 0
+	e.elapsed = 0
+	clear(e.burstFired)
+	e.burstFired = e.burstFired[:0]
 	e.hasPrevPos = false
 
 	for _, tr := range e.particleTrails {

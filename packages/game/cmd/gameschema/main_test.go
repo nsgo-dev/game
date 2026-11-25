@@ -14,6 +14,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/gameui"
 	"github.com/nsgo-dev/game/packages/game/l10n"
 	"github.com/nsgo-dev/game/packages/game/navbake3d"
+	"github.com/nsgo-dev/game/packages/game/particles"
 	"github.com/nsgo-dev/game/packages/game/playtest"
 	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
@@ -829,7 +830,6 @@ func TestScreenSchemaShapeAndValidation(t *testing.T) {
 		}
 	}
 }
-
 func TestStatesSchemaShapeAndValidation(t *testing.T) {
 	s := schemaAt(t, animclip.StateMachineSchemaURL)
 	if s.Schema != jsonschema.Draft07 || s.ID != animclip.StateMachineSchemaURL {
@@ -875,6 +875,56 @@ func TestStatesSchemaShapeAndValidation(t *testing.T) {
 	for _, bad := range badDocs {
 		if err := s.ValidateYAML([]byte(bad)); err == nil {
 			t.Fatalf("states schema accepted invalid YAML:\n%s", bad)
+		}
+	}
+}
+
+func TestParticlesSchemaShapeAndValidation(t *testing.T) {
+	s := schemaAt(t, particles.SchemaURL)
+	if s.Schema != jsonschema.Draft07 || s.ID != particles.SchemaURL {
+		t.Fatalf("$schema %q, $id %q", s.Schema, s.ID)
+	}
+	if version := s.Property("version"); version == nil || version.Const != int64(particles.FormatVersion) {
+		t.Fatalf("version property = %+v", version)
+	}
+	if b, ok := s.AdditionalProperties.Boolean(); !ok || b {
+		t.Fatal("particles schema accepts unknown top-level keys")
+	}
+	for _, p := range s.Properties {
+		if p.Schema.Description == "" {
+			t.Errorf("EmitterDoc.%s has no description", p.Name)
+		}
+	}
+	for _, defName := range []string{"ShapeDoc", "BurstDoc", "FloatStopDoc", "ColorStopDoc", "CollisionDoc", "TrailDoc", "SubEmitterDoc", "EmitterFieldsDoc"} {
+		def := s.Definitions[defName]
+		if def == nil || def.Description == "" {
+			t.Fatalf("definition %s = %+v, want one with a description", defName, def)
+		}
+		if b, ok := def.AdditionalProperties.Boolean(); !ok || b {
+			t.Fatalf("definition %s accepts unknown keys", defName)
+		}
+		for _, p := range def.Properties {
+			if p.Schema.Description == "" {
+				t.Errorf("%s.%s has no description", defName, p.Name)
+			}
+		}
+	}
+	data, err := os.ReadFile(filepath.Join(root, "particles", "testdata", "sparks.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ValidateYAML(data); err != nil {
+		t.Fatalf("particles schema refused sparks.yaml: %v", err)
+	}
+	for _, bad := range []string{
+		"version: 1\nunknownKey: true\n",
+		"version: 2\nrate: 10\n",
+		"version: 1\nspace: universe\n",
+		"version: 1\nshape:\n  kind: triangle\n",
+		"version: 1\nsubEmitters:\n  - trigger: birth\n    config:\n      version: 1\n",
+	} {
+		if err := s.ValidateYAML([]byte(bad)); err == nil {
+			t.Fatalf("particles schema accepted invalid YAML:\n%s", bad)
 		}
 	}
 }

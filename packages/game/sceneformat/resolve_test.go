@@ -625,6 +625,8 @@ func TestObjectOverrideCoversEveryObjectField(t *testing.T) {
 					case reflect.TypeFor[sceneformat.OccluderDoc]():
 						sz := [3]float32{2, 2, 2}
 						e.Set(reflect.ValueOf(sceneformat.OccluderDoc{Mode: sceneformat.OccluderBox, Size: &sz}))
+					case reflect.TypeFor[sceneformat.ParticlesRef]():
+						e.Set(reflect.ValueOf(sceneformat.ParticlesRef{File: "fx/sparks.particles.yaml", Atlas: "fx"}))
 					}
 				}
 				f.Set(p)

@@ -68,6 +68,7 @@ const (
 	FieldMeshLibrary      = "mesh library"
 	FieldStates           = "states"
 	FieldClip             = "clip"
+	FieldParticles        = "particles"
 	FieldTilemapSource    = "tilemap source"
 	FieldTilesetFile      = "tileset file"
 	FieldTexture          = "texture"
@@ -634,6 +635,7 @@ func (p *Project) sceneRefs(f *File, doc *yaml.Node) {
 		p.ref(f, field(kv[1], "model"), FieldModel)
 		p.ref(f, field(kv[1], "gridMap"), FieldGridMap)
 		p.animatorRefs(f, field(kv[1], "components"))
+		p.ref(f, field(field(kv[1], "particles"), "file"), FieldParticles)
 	}
 	for _, l := range items(field(doc, "layers")) {
 		p.tilemapRefs(f, field(l, "tilemap"))
@@ -694,11 +696,13 @@ func (p *Project) objectRefs(f *File, objs *yaml.Node, depth int) {
 		p.ref(f, field(o, "model"), FieldModel)
 		p.ref(f, field(o, "gridMap"), FieldGridMap)
 		p.animatorRefs(f, field(o, "components"))
+		p.ref(f, field(field(o, "particles"), "file"), FieldParticles)
 		for _, kv := range pairs(field(o, "overrides")) {
 			p.ref(f, field(kv[1], "material"), FieldMaterial)
 			p.ref(f, field(kv[1], "model"), FieldModel)
 			p.ref(f, field(kv[1], "gridMap"), FieldGridMap)
 			p.animatorRefs(f, field(kv[1], "components"))
+			p.ref(f, field(field(kv[1], "particles"), "file"), FieldParticles)
 		}
 		p.objectRefs(f, field(o, "children"), depth+1)
 	}

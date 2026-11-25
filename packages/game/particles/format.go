@@ -22,6 +22,9 @@ import (
 // FormatVersion is the current schema version of an emitter definition, written by MarshalConfigYAML and MarshalConfigJSON and required by UnmarshalConfigYAML and UnmarshalConfigJSON.
 const FormatVersion = 1
 
+// SchemaURL is where the JSON Schema of version 1 2D particle emitter definitions is published.
+const SchemaURL = "https://game.nsgo.dev/schemas/particles.v1.json"
+
 const maxConfigSubDepth = 8
 
 // Fixes the definition's errors give.
@@ -258,6 +261,13 @@ type subEmitterDoc struct {
 	Config          *configDoc `json:"config,omitempty" yaml:"config,omitempty"`
 }
 
+type burstDoc struct {
+	Time     docDuration `json:"time,omitempty" yaml:"time,omitempty"`
+	Count    docInt      `json:"count,omitempty" yaml:"count,omitempty"`
+	Cycles   docInt      `json:"cycles,omitempty" yaml:"cycles,omitempty"`
+	Interval docDuration `json:"interval,omitempty" yaml:"interval,omitempty"`
+}
+
 type configDoc struct {
 	Version            docInt          `json:"version,omitempty" yaml:"version,omitempty"`
 	X                  float32         `json:"x,omitempty" yaml:"x,omitempty"`
@@ -266,6 +276,7 @@ type configDoc struct {
 	Space              string          `json:"space,omitempty" yaml:"space,omitempty"`
 	Shape              *shapeDoc       `json:"shape,omitempty" yaml:"shape,omitempty"`
 	Rate               float32         `json:"rate,omitempty" yaml:"rate,omitempty"`
+	Bursts             []burstDoc      `json:"bursts,omitempty" yaml:"bursts,omitempty"`
 	MaxParticles       docInt          `json:"maxParticles,omitempty" yaml:"maxParticles,omitempty"`
 	LifetimeMin        docDuration     `json:"lifetimeMin,omitempty" yaml:"lifetimeMin,omitempty"`
 	LifetimeMax        docDuration     `json:"lifetimeMax,omitempty" yaml:"lifetimeMax,omitempty"`
@@ -482,6 +493,10 @@ func configToDoc(cfg Config, includeVersion bool, depth int) (*configDoc, error)
 	if err := validateConfigFloats(cfg); err != nil {
 		return nil, err
 	}
+	bursts, err := burstsToDoc(cfg.Bursts)
+	if err != nil {
+		return nil, err
+	}
 	doc := &configDoc{
 		X:                  cfg.X,
 		Y:                  cfg.Y,
@@ -489,6 +504,7 @@ func configToDoc(cfg Config, includeVersion bool, depth int) (*configDoc, error)
 		Space:              cfg.Space.String(),
 		Shape:              shapeToDoc(cfg.Shape),
 		Rate:               cfg.Rate,
+		Bursts:             bursts,
 		MaxParticles:       docInt(cfg.MaxParticles),
 		LifetimeMin:        docDuration(cfg.LifetimeMin),
 		LifetimeMax:        docDuration(cfg.LifetimeMax),
@@ -579,6 +595,10 @@ func configFromDoc(doc *configDoc, depth int, at string) (Config, error) {
 	if err != nil {
 		return Config{}, &loaderr.Error{Field: loaderr.Join(at, "shape"), Problem: err.Error(), Fix: "use one of the shape kinds point, circle, ring or rect, with only the sizes that kind takes", Err: err}
 	}
+	bursts, err := burstsFromDoc(doc.Bursts, at)
+	if err != nil {
+		return Config{}, err
+	}
 	cfg := Config{
 		X:                  doc.X,
 		Y:                  doc.Y,
@@ -586,6 +606,7 @@ func configFromDoc(doc *configDoc, depth int, at string) (Config, error) {
 		Space:              space,
 		Shape:              shape,
 		Rate:               doc.Rate,
+		Bursts:             bursts,
 		MaxParticles:       int(doc.MaxParticles),
 		LifetimeMin:        time.Duration(doc.LifetimeMin),
 		LifetimeMax:        time.Duration(doc.LifetimeMax),
@@ -802,6 +823,56 @@ func parseSubEmitterTrigger(s string) (SubEmitterTrigger, error) {
 	}
 }
 
+func burstsToDoc(bursts []Burst) ([]burstDoc, error) {
+	if len(bursts) == 0 {
+		return nil, nil
+	}
+	out := make([]burstDoc, len(bursts))
+	for i, b := range bursts {
+		if b.Time < 0 {
+			return nil, fmt.Errorf("particles: burst[%d] time %v must be non-negative", i, b.Time)
+		}
+		if b.Count < 0 {
+			return nil, fmt.Errorf("particles: burst[%d] count %d must be non-negative", i, b.Count)
+		}
+		if b.Interval < 0 {
+			return nil, fmt.Errorf("particles: burst[%d] interval %v must be non-negative", i, b.Interval)
+		}
+		out[i] = burstDoc{
+			Time:     docDuration(b.Time),
+			Count:    docInt(b.Count),
+			Cycles:   docInt(b.Cycles),
+			Interval: docDuration(b.Interval),
+		}
+	}
+	return out, nil
+}
+
+func burstsFromDoc(docs []burstDoc, at string) ([]Burst, error) {
+	if len(docs) == 0 {
+		return nil, nil
+	}
+	out := make([]Burst, len(docs))
+	for i, b := range docs {
+		if time.Duration(b.Time) < 0 {
+			return nil, loaderr.Errorf(loaderr.Join(at, "bursts", i, "time"), "use a non-negative duration such as \"0s\" or \"250ms\"", "particles: burst time %v must be non-negative", time.Duration(b.Time))
+		}
+		if int(b.Count) < 0 {
+			return nil, loaderr.Errorf(loaderr.Join(at, "bursts", i, "count"), "use a non-negative whole number", "particles: burst count %d must be non-negative", int(b.Count))
+		}
+		if time.Duration(b.Interval) < 0 {
+			return nil, loaderr.Errorf(loaderr.Join(at, "bursts", i, "interval"), "use a non-negative duration such as \"500ms\"", "particles: burst interval %v must be non-negative", time.Duration(b.Interval))
+		}
+		out[i] = Burst{
+			Time:     time.Duration(b.Time),
+			Count:    int(b.Count),
+			Cycles:   int(b.Cycles),
+			Interval: time.Duration(b.Interval),
+		}
+	}
+	return out, nil
+}
+
 func floatCurveToDoc(c FloatCurve) []floatStopDoc {
 	if len(c) == 0 {
 		return nil
@@ -860,6 +931,11 @@ func (e *Emitter) ReloadConfig(cfg Config) {
 	e.Space = cloned.Space
 	e.Shape = cloned.Shape
 	e.Rate = cloned.Rate
+	e.Bursts = cloned.Bursts
+	if len(e.burstFired) > len(e.Bursts) {
+		clear(e.burstFired[len(e.Bursts):])
+		e.burstFired = e.burstFired[:len(e.Bursts)]
+	}
 	e.MaxParticles = cloned.MaxParticles
 	e.LifetimeMin = cloned.LifetimeMin
 	e.LifetimeMax = cloned.LifetimeMax

@@ -216,6 +216,7 @@ func (e *Editor) followMove(root, from, to string, written []refs.Write) {
 	moveFile(&e.clipMeta.path)
 	e.followDataTableMove(moveFile)
 	e.followGridMapMove(moveFile, movePath)
+	e.followParticlesMove(moveFile)
 	e.filesRev++
 	e.assetsRev++
 	e.followSearchMove(forth)
@@ -298,6 +299,9 @@ func moveScenePaths(doc *sceneformat.SceneDoc, move func(*string)) {
 			move(&o.Material)
 			move(&o.Model)
 			move(&o.GridMap)
+			if o.Particles != nil {
+				move(&o.Particles.File)
+			}
 			moveOverrides(o.Overrides, move)
 			return true
 		})
@@ -313,6 +317,11 @@ func moveOverrides(ovs map[string]sceneformat.ObjectOverride, move func(*string)
 				move(&v)
 				*p = &v
 			}
+		}
+		if ov.Particles != nil {
+			cp := *ov.Particles
+			move(&cp.File)
+			ov.Particles = &cp
 		}
 		ovs[id] = ov
 	}
