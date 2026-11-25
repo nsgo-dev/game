@@ -1,7 +1,7 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react'
-import { docs } from 'virtual:docs'
+import { docIndex } from 'virtual:docs'
 import { groupDocs } from '../content/groups'
-import type { DocPackage, DocPage } from '../content/types'
+import type { DocPackage, DocPage, DocSummary } from '../content/types'
 import { copies } from '../copy'
 import { htmlLang, type Lang, pageHead, useLang } from '../i18n'
 import { GITHUB_URL } from '../links'
@@ -13,16 +13,12 @@ const NARROW = '(max-width: 820px)'
 // Before the first paint on narrow screens, fold the pages above the article, as nsgo.dev's docs do.
 const FOLD_SCRIPT = `if (matchMedia('${NARROW}').matches) document.querySelector('.docs__nav').open = false;`
 
-export function findDoc(lang: Lang, slug: string): DocPage | undefined {
-  return docs[lang].find((d) => d.slug === slug)
-}
-
 export function docHead(lang: Lang, doc: DocPage | undefined) {
   if (!doc) return {}
   return pageHead(lang, doc.slug === 'index' ? 'docs/' : `docs/${doc.slug}/`, `${doc.title} — ${copies[lang].docs.titleSuffix}`, doc.description)
 }
 
-function DocLink({ lang, doc, children, className }: { lang: Lang; doc: DocPage; children: ReactNode; className?: string }) {
+function DocLink({ lang, doc, children, className }: { lang: Lang; doc: DocSummary; children: ReactNode; className?: string }) {
   const current = { 'aria-current': 'page' } as const
   return doc.slug === 'index' ? (
     <LocaleLink page="docs" lang={lang} className={className} activeOptions={{ exact: true }} activeProps={current}>
@@ -39,12 +35,13 @@ function DocLink({ lang, doc, children, className }: { lang: Lang; doc: DocPage;
 export function DocView({ doc }: { doc: DocPage }) {
   const lang = useLang()
   const copy = copies[lang]
-  const groups = groupDocs(docs[lang])
+  const groups = groupDocs(docIndex[lang])
   const pages = groups.flatMap((g) => g.items)
   const nav = useRef<HTMLDetailsElement>(null)
   const prose = useRef<HTMLDivElement>(null)
   const current = useCurrentHeading(doc)
   const index = pages.findIndex((d) => d.slug === doc.slug)
+  const group = groups.find((g) => g.items.some((d) => d.slug === doc.slug))
   const prev = index > 0 ? pages[index - 1] : undefined
   const next = pages[index + 1]
 
@@ -92,11 +89,16 @@ export function DocView({ doc }: { doc: DocPage }) {
         <script dangerouslySetInnerHTML={{ __html: FOLD_SCRIPT }} />
       </aside>
 
-      <article className="docs__main" lang={doc.fallback ? htmlLang('en') : undefined}>
+      <article className="docs__main" lang={doc.fallback ? htmlLang('en') : undefined} data-pagefind-body>
         {doc.fallback && (
           <p className="docs__notice" lang={htmlLang(lang)}>
             {copy.docs.fallback}
           </p>
+        )}
+        {group && (
+          <span className="docs__group-name" lang={htmlLang(lang)}>
+            {copy.docs.groups[group.key]}
+          </span>
         )}
         <h1 tabIndex={-1}>{doc.title}</h1>
         {doc.packages.length > 0 && <PackageStatuses lang={lang} packages={doc.packages} />}

@@ -13,19 +13,20 @@ import { codeToHtml } from 'shiki'
 import { type Plugin as UnifiedPlugin, unified } from 'unified'
 import type { Plugin } from 'vite'
 import { PLAYGROUND_BUILDS, PLAYGROUND_IDS, type PlaygroundId, isPlaygroundId } from '../src/content/playground.ts'
-import type { ApiPackage, ApiReference, ApiSummary, DocHeading, DocPackage, DocPage, PackageStatus, PlaygroundExample, PlaygroundFile, PlaygroundSource, Roadmap, RoadmapGroup, RoadmapIssue, RoadmapStage, Snippet } from '../src/content/types'
+import type { ApiPackage, ApiReference, ApiSummary, DocHeading, DocPackage, DocPage, DocSummary, PackageStatus, PlaygroundExample, PlaygroundFile, PlaygroundSource, Roadmap, RoadmapGroup, RoadmapIssue, RoadmapStage, Snippet } from '../src/content/types'
 import { LANGS, type Lang, NON_DEFAULT_LANGS } from '../src/locales.ts'
+import { loadSite, toTraditional } from './site.ts'
 
 const REPO = 'nsgo-dev/game'
 const PLAN = { repo: 'nsgo-dev/nsgo', number: 1047 }
-const SNIPPETS: Snippet['id'][] = ['loop', 'sprite', 'sound']
+const SNIPPETS: Snippet['id'][] = ['game', 'loop', 'sprite', 'sound']
 const THEMES = { light: 'github-light', dark: 'github-dark' } as const
 
 const modules = {
-  'virtual:docs': loadDocsModule,
   'virtual:snippets': loadSnippetsModule,
   'virtual:roadmap': loadRoadmapModule,
   'virtual:playground': loadPlaygroundModule,
+  'virtual:site': loadSiteModule,
 } as const
 // Each playground example's sources are a module of their own, virtual:playground/<id>, so a page loads only its example's.
 const PLAYGROUND_SOURCE = 'virtual:playground/'
@@ -34,6 +35,7 @@ type ModuleId = keyof typeof modules
 // A package's page of the API reference is the module virtual:api/<page>, which the reference's route imports on demand, so no page's script carries another package's API.
 const API_MODULE = 'virtual:api'
 const API_PACKAGE = `${API_MODULE}/`
+const DOCS_MODULE = 'virtual:docs'
 
 interface Context {
   root: string
@@ -51,6 +53,13 @@ export function siteContent(): Plugin {
   // The client and server builds both load each module; the roadmap is fetched, and the API reference generated, once for both.
   const cache = new Map<ModuleId, Promise<string>>()
   let api: Promise<ApiBuild> | undefined
+  // The docs are rendered once for the client and server builds, and again after a Markdown file changes.
+  let docs: Promise<DocsBuild> | undefined
+  const docsBuild = () => {
+    if (!ctx) throw new Error('the docs were asked for before the config was resolved')
+    docs ??= buildDocs(ctx)
+    return docs
+  }
   const apiBuild = () => {
     if (!ctx) throw new Error('the API reference was asked for before the config was resolved')
     api ??= buildApi(ctx)
@@ -82,9 +91,13 @@ export function siteContent(): Plugin {
         }
       })
     },
+    watchChange(id) {
+      if (ctx && id.startsWith(ctx.docsDir)) docs = undefined
+    },
     resolveId(id) {
       if (id.startsWith(PLAYGROUND_SOURCE) && isPlaygroundId(id.slice(PLAYGROUND_SOURCE.length))) return `\0${id}`
       if (id === API_MODULE || id.startsWith(API_PACKAGE)) return `\0${id}`
+      if (id === DOCS_MODULE || id.startsWith(DOCS_PAGE)) return `\0${id}`
       return id in modules ? `\0${id}` : undefined
     },
     async generateBundle() {
@@ -109,20 +122,32 @@ export function siteContent(): Plugin {
         return `export default ${JSON.stringify(pkg)}`
       }
       if (name === API_MODULE && ctx) return loadApiModule(await apiBuild())
-      if (!(name in modules) || !ctx) return undefined
-      const moduleId = name as ModuleId
-      if (moduleId === 'virtual:docs') {
+      if (name === DOCS_MODULE && ctx) {
         for (const lang of LANGS) {
           const dir = path.join(ctx.docsDir, lang)
           for (const file of await optionalMarkdownFiles(dir)) this.addWatchFile(path.join(dir, file))
         }
+        return loadDocsModule(ctx, await docsBuild())
       }
+      if (name.startsWith(DOCS_PAGE) && ctx) {
+        const page = (await docsBuild()).pages.get(name.slice(DOCS_PAGE.length))
+        if (!page) throw new Error(`${name}: no such page`)
+        return `export default ${JSON.stringify(page)}`
+      }
+      if (!(name in modules) || !ctx) return undefined
+      const moduleId = name as ModuleId
       if (moduleId === 'virtual:playground') {
         // The line counts follow the sources, and a build made while the dev server runs shows up once its nsgo.json is written.
         for (const id of PLAYGROUND_IDS) {
           const dir = path.join(ctx.examplesDir, id)
           for (const file of await playgroundFiles(dir)) this.addWatchFile(path.join(dir, file))
           this.addWatchFile(path.join(ctx.publicDir, PLAYGROUND_BUILDS, id, 'nsgo.json'))
+        }
+      }
+      if (moduleId === 'virtual:site') {
+        for (const lang of ['en', 'zh'] as const) {
+          const dir = path.join(ctx.docsDir, lang)
+          for (const file of await optionalMarkdownFiles(dir)) this.addWatchFile(path.join(dir, file))
         }
       }
       if (moduleId === 'virtual:snippets') {
@@ -187,53 +212,67 @@ export function localizeDocLinks(html: string, lang: Lang, base: string): string
   return html.replace(pattern, `$1${base}${lang}/docs/`)
 }
 
-// Each language lists English's pages in English's order, its own translation where docs/<lang>/<slug>.md exists, and English otherwise.
-// Only files that actually exist on disk are rendered and bundled; fallback locales reuse English's rendered pages with localized internal links so adding languages does not multiply build time or bundle size.
-async function loadDocsModule(ctx: Context): Promise<string> {
+// The docs are a small index, each language's pages by slug and title, and a module per rendered page, virtual:docs/<lang>/<slug>, which a page's route loads alone. A language lists English's pages in English's order, its own translation where docs/<lang>/<slug>.md exists, and English otherwise; only files on disk are rendered, and a page shown in English in another language is the English module with its links moved into that language.
+const DOCS_PAGE = 'virtual:docs/'
+
+interface DocsBuild {
+  index: Record<Lang, DocSummary[]>
+  // pages holds each rendered page by "<lang>/<slug>", English's and each translation's.
+  pages: Map<string, DocPage>
+}
+
+async function buildDocs(ctx: Context): Promise<DocsBuild> {
   const englishFiles = await markdownFiles(path.join(ctx.docsDir, 'en'))
   const packages = await readStability(ctx)
-  const english: DocPage[] = []
+  const pages = new Map<string, DocPage>()
   for (const file of englishFiles) {
     const source = await readFile(path.join(ctx.docsDir, 'en', file), 'utf8')
     const slug = file.slice(0, -'.md'.length)
-    english.push({ ...(await renderDoc(slug, source, { lang: 'en', from: 'en' }, ctx)), packages: packages.get(slug) ?? [] })
+    pages.set(`en/${slug}`, { ...(await renderDoc(slug, source, { lang: 'en', from: 'en' }, ctx)), packages: packages.get(slug) ?? [] })
   }
-  const translated: Partial<Record<Lang, Record<string, DocPage>>> = {}
+  const english = englishFiles.map((file) => pages.get(`en/${file.slice(0, -'.md'.length)}`)!)
+  const index = { en: english.map(summary) } as Record<Lang, DocSummary[]>
   for (const lang of NON_DEFAULT_LANGS) {
-    const own = new Set(await optionalMarkdownFiles(path.join(ctx.docsDir, lang)))
-    if (own.size === 0) continue
-    const bySlug: Record<string, DocPage> = {}
+    // Traditional Chinese without docs of its own shows the Simplified Chinese pages converted by OpenCC.
+    let from: Lang = lang
+    let own = new Set(await optionalMarkdownFiles(path.join(ctx.docsDir, lang)))
+    if (own.size === 0 && lang === 'zh-tw') {
+      from = 'zh'
+      own = new Set(await optionalMarkdownFiles(path.join(ctx.docsDir, from)))
+    }
     for (const file of englishFiles) {
       if (!own.has(file)) continue
-      const source = await readFile(path.join(ctx.docsDir, lang, file), 'utf8')
+      const written = await readFile(path.join(ctx.docsDir, from, file), 'utf8')
+      const source = from === lang ? written : toTraditional(written)
       const slug = file.slice(0, -'.md'.length)
-      bySlug[slug] = { ...(await renderDoc(slug, source, { lang, from: lang }, ctx)), packages: packages.get(slug) ?? [] }
+      pages.set(`${lang}/${slug}`, { ...(await renderDoc(slug, source, { lang, from }, ctx)), fallback: false, packages: packages.get(slug) ?? [] })
     }
-    if (Object.keys(bySlug).length > 0) translated[lang] = bySlug
+    index[lang] = english.map((page) => summary(pages.get(`${lang}/${page.slug}`) ?? { ...page, fallback: true }))
   }
+  return { index, pages }
+}
+
+function summary(page: DocPage): DocSummary {
+  return { slug: page.slug, title: page.title, fallback: page.fallback }
+}
+
+function loadDocsModule(ctx: Context, build: DocsBuild): string {
   const linkSource = `(<a\\b[^>]*\\shref=")(?:${escapeRegExp(ctx.base)}docs\\/)`
-  return `const base = ${JSON.stringify(ctx.base)}
-const english = ${JSON.stringify(english)}
-const translated = ${JSON.stringify(translated)}
+  const loaders = [...build.pages.keys()].map((key) => `  ${JSON.stringify(key)}: () => import(${JSON.stringify(DOCS_PAGE + key)}),`).join('\n')
+  return `export const docIndex = ${JSON.stringify(build.index)}
+const base = ${JSON.stringify(ctx.base)}
 const linkPattern = new RegExp(${JSON.stringify(linkSource)}, 'g')
-function localize(html, lang) {
-  return html.replace(linkPattern, '$1' + base + lang + '/docs/')
+const loaders = {
+${loaders}
 }
-const cache = new Map([['en', english]])
-function docsFor(lang) {
-  let list = cache.get(lang)
-  if (!list) {
-    const own = Object.hasOwn(translated, lang) ? translated[lang] : undefined
-    list = english.map((page) => (own && Object.hasOwn(own, page.slug) ? own[page.slug] : { ...page, fallback: true, html: localize(page.html, lang) }))
-    cache.set(lang, list)
-  }
-  return list
-}
-export const docs = new Proxy({}, {
-  get(_, prop) {
-    return typeof prop === 'string' ? docsFor(prop) : undefined
-  },
-})`
+export async function loadDoc(lang, slug) {
+  const own = Object.hasOwn(loaders, lang + '/' + slug) ? loaders[lang + '/' + slug] : undefined
+  if (own) return (await own()).default
+  const english = Object.hasOwn(loaders, 'en/' + slug) ? loaders['en/' + slug] : undefined
+  if (!english || !Object.hasOwn(docIndex, lang)) return undefined
+  const page = (await english()).default
+  return { ...page, fallback: true, html: page.html.replace(linkPattern, '$1' + base + lang + '/docs/') }
+}`
 }
 
 // A row of the package table in docs/en/stability.md: the package, its status, and the page that is its guide, if any. A test in packages/game keeps the table complete and the Chinese one equal to it.
@@ -405,6 +444,12 @@ export async function loadApiPackage(page) {
   const load = Object.hasOwn(loaders, page) ? loaders[page] : undefined
   return load ? (await load()).default : undefined
 }`
+}
+
+// ---- The site's own pages ----
+
+async function loadSiteModule(ctx: Context): Promise<string> {
+  return `export const site = ${JSON.stringify(await loadSite({ docsDir: ctx.docsDir, examplesDir: ctx.examplesDir, packagesDir: path.dirname(ctx.goModule) }))}`
 }
 
 // ---- Snippets ----
