@@ -786,6 +786,7 @@ func (e *Editor) drawSelectionOverlay(d *core.Drawing, scene *sceneformat.BuiltS
 	if len(ids) == 0 {
 		return
 	}
+	spec := e.SpecPalette(nil)
 	d.Save()
 	drawn := 0
 	var minX, maxX, minY, maxY float32
@@ -819,13 +820,11 @@ func (e *Editor) drawSelectionOverlay(d *core.Drawing, scene *sceneformat.BuiltS
 				minY, maxY = min(minY, c.Y), max(maxY, c.Y)
 			}
 		}
-		spec := e.SpecPalette(nil)
 		d.SetStrokeColor(spec.Accent.Edge).SetLineWidth(1.5)
 		strokePolygon(d, corners)
 		drawn++
 	}
 	if drawn > 1 {
-		spec := e.SpecPalette(nil)
 		d.SetStrokeColor(ui.Alpha(spec.Accent.Edge, 0.55)).SetLineWidth(1).SetLineDash(4, 3)
 		d.StrokeRect(minX, minY, maxX-minX, maxY-minY)
 	}

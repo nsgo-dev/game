@@ -6,6 +6,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/math2d"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/ui"
 )
 
 // MarqueeMode selects whether a marquee box matches objects it fully encloses or objects it touches.
@@ -242,10 +243,11 @@ func (e *Editor) drawMarqueeOverlay(d *core.Drawing) {
 	if w <= 0 && h <= 0 {
 		return
 	}
+	spec := e.SpecPalette(nil)
 	d.Save()
-	d.SetFillColor(core.RGBA(0x3B82F6, 0.14))
+	d.SetFillColor(ui.Alpha(spec.Accent.Fg, 0.14))
 	d.FillRect(r.X0, r.Y0, w, h)
-	d.SetStrokeColor(core.RGBA(0x38BDF8, 0.95)).SetLineWidth(1.5)
+	d.SetStrokeColor(spec.Accent.Edge).SetLineWidth(1.5)
 	if r.Mode == MarqueeTouch {
 		d.SetLineDash(5, 3)
 	}

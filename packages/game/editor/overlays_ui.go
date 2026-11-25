@@ -23,6 +23,11 @@ func viewportOverlaysBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 	overlayListKey := core.NewMemo(cx, func() string {
 		_ = rev.Get()
 		var b strings.Builder
+		if cx.Dark() {
+			b.WriteString("D:")
+		} else {
+			b.WriteString("L:")
+		}
 		b.WriteString(ed.ResolvedLanguage())
 		for _, o := range ed.ViewportOverlays() {
 			b.WriteByte('\x00')
@@ -41,12 +46,13 @@ func viewportOverlaysBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 	return core.Show{
 		When: visible.Get,
 		Then: func(cx *core.Scope) core.Node {
+			p := ed.SpecPalette(cx)
 			barDivider := func() core.Node {
 				return core.View{
 					Style: core.Style{
 						Width:      core.Pt(1),
 						Height:     core.Pt(16),
-						Background: specLineRaised,
+						Background: p.LineRaised,
 						Margin:     core.Symmetric(0, 2),
 					},
 				}
@@ -68,17 +74,18 @@ func viewportOverlaysBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 							FontSize:      11,
 							FontWeight:    600,
 							LetterSpacing: 0.6,
-							Color:         specTextMuted,
+							Color:         p.TextFaint,
 							Padding:       core.Edges{Left: 6, Right: 6, Top: 2, Bottom: 4},
 						},
 					},
 					core.Dynamic(func(cx *core.Scope) core.Node {
 						_ = overlayListKey.Get()
-						ovs := ed.ViewportOverlays()
+						rowPal := ed.SpecPalette(cx)
+						ovs := ed.viewportOverlaysFor(rowPal)
 						rows := make([]core.Node, 0, len(ovs))
 						for _, ov := range ovs {
 							o := ov
-							rows = append(rows, viewportOverlayRowView(ed, rev, o))
+							rows = append(rows, viewportOverlayRowView(ed, rev, rowPal, o))
 						}
 						return core.View{
 							Style:    core.Style{Gap: 2},
@@ -88,7 +95,7 @@ func viewportOverlaysBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 					core.View{
 						Style: core.Style{
 							Height:     core.Pt(1),
-							Background: specLineRaised,
+							Background: p.LineRaised,
 							Margin:     core.Symmetric(4, 6),
 						},
 					},
@@ -107,7 +114,7 @@ func viewportOverlaysBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 								Style: core.Style{
 									FontSize:   11.5,
 									LineHeight: 16,
-									Color:      specTextMuted,
+									Color:      p.TextFaint,
 								},
 							},
 							core.Text{
@@ -115,7 +122,7 @@ func viewportOverlaysBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 								Style: core.Style{
 									FontFamily: core.FontMonospace,
 									FontSize:   11,
-									Color:      specTextSecondary,
+									Color:      p.TextMuted,
 								},
 							},
 						},
@@ -142,9 +149,9 @@ func viewportOverlaysBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 							Gap:          2,
 							Padding:      core.All(4),
 							CornerRadius: 10,
-							Background:   specPanelBackdrop,
+							Background:   ui.Alpha(p.Raised, 0.96),
 							BorderWidth:  1,
-							BorderColor:  specLineRaised,
+							BorderColor:  p.LineRaised,
 						},
 						Children: []core.Node{
 							ui.Button{
@@ -158,7 +165,7 @@ func viewportOverlaysBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 								Variant:  ui.ButtonGhost,
 								Side:     28,
 								IconSize: 13,
-								Tint:     func() core.Color { return specTextSecondary },
+								Tint:     func() core.Color { return p.TextMuted },
 								Style: core.Style{
 									CornerRadius: 6,
 								},
@@ -176,7 +183,7 @@ func viewportOverlaysBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 									TextAlign:  core.TextAlignCenter,
 									FontFamily: core.FontMonospace,
 									FontSize:   11,
-									Color:      specTextSecondary,
+									Color:      p.TextMuted,
 								},
 							},
 							ui.Button{
@@ -190,7 +197,7 @@ func viewportOverlaysBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 								Variant:  ui.ButtonGhost,
 								Side:     28,
 								IconSize: 13,
-								Tint:     func() core.Color { return specTextSecondary },
+								Tint:     func() core.Color { return p.TextMuted },
 								Style: core.Style{
 									CornerRadius: 6,
 								},
@@ -212,14 +219,14 @@ func viewportOverlaysBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 								Color: func() core.Color {
 									_ = rev.Get()
 									if ed.SnapToGrid {
-										return specLineRaised
+										return p.LineRaised
 									}
 									return core.Transparent
 								},
 								TextStyle: core.Style{
 									FontSize:   12,
 									FontWeight: 500,
-									Color:      specText,
+									Color:      p.TextSecondary,
 								},
 								Style: core.Style{
 									Height:       core.Pt(28),
@@ -245,7 +252,7 @@ func viewportOverlaysBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 								TextStyle: core.Style{
 									FontSize:   12,
 									FontWeight: 500,
-									Color:      specTextSecondary,
+									Color:      p.TextMuted,
 								},
 								Style: core.Style{
 									Height:       core.Pt(28),
@@ -284,15 +291,15 @@ func viewportOverlaysBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 									Color: func() core.Color {
 										_ = rev.Get()
 										if ed.OverlaysPopoverOpen() {
-											return specLineRaised
+											return p.LineRaised
 										}
 										return core.Transparent
 									},
-									Tint: func() core.Color { return specTextStrong },
+									Tint: func() core.Color { return p.TextPrimary },
 									TextStyle: core.Style{
 										FontSize:   12,
 										FontWeight: 500,
-										Color:      specTextStrong,
+										Color:      p.TextPrimary,
 									},
 									Style: core.Style{
 										Height:       core.Pt(28),
@@ -305,9 +312,9 @@ func viewportOverlaysBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 									Padding:      core.All(8),
 									Gap:          4,
 									CornerRadius: 12,
-									Background:   specRaised,
+									Background:   p.Raised,
 									BorderWidth:  1,
-									BorderColor:  specLineRaised,
+									BorderColor:  p.LineRaised,
 								},
 								Children: []core.Node{popoverContent},
 							},
@@ -319,12 +326,12 @@ func viewportOverlaysBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 	}
 }
 
-func viewportOverlayRowView(ed *Editor, rev *core.Signal[uint64], o ViewportOverlay) core.Node {
+func viewportOverlayRowView(ed *Editor, rev *core.Signal[uint64], p SpecPalette, o ViewportOverlay) core.Node {
 	id := o.ID
 	name := ed.overlayDisplayName(o)
 	col := o.Color
 	if col == 0 {
-		col = specTextSecondary
+		col = p.TextMuted
 	}
 	swatch := core.Canvas{
 		Style: core.Style{
@@ -340,8 +347,8 @@ func viewportOverlayRowView(ed *Editor, rev *core.Signal[uint64], o ViewportOver
 				d.SetStrokeColor(col).SetLineWidth(1.25)
 				d.StrokeRect(1, 1, w-2, h-2)
 			case OverlaySwatchDashedBox:
-				if col == specWarning {
-					d.SetFillColor(core.RGBA(0xF2C14E, 0.12)).FillRect(1, 1, w-2, h-2)
+				if col == p.Warning.Fg {
+					d.SetFillColor(ui.Alpha(p.Warning.Fg, 0.14)).FillRect(1, 1, w-2, h-2)
 				}
 				d.SetStrokeColor(col).SetLineWidth(1.25).SetLineDash(2, 2)
 				d.StrokeRect(1, 1, w-2, h-2)
@@ -352,7 +359,7 @@ func viewportOverlayRowView(ed *Editor, rev *core.Signal[uint64], o ViewportOver
 				d.SetStrokeColor(col).SetLineWidth(1.25).SetLineDash(2, 2)
 				d.BeginPath().MoveTo(1, h*0.5).LineTo(w-1, h*0.5).Stroke()
 			case OverlaySwatchRegion:
-				d.SetFillColor(core.RGBA(0xB4BAC6, 0.25)).FillRect(1, 2, w-2, h-3)
+				d.SetFillColor(ui.Alpha(p.TextMuted, 0.25)).FillRect(1, 2, w-2, h-3)
 				d.SetStrokeColor(col).SetLineWidth(1.25).SetLineDash(2, 2)
 				d.BeginPath().MoveTo(1, 2).LineTo(w-1, 2).Stroke()
 			case OverlaySwatchLabel:
@@ -380,7 +387,7 @@ func viewportOverlayRowView(ed *Editor, rev *core.Signal[uint64], o ViewportOver
 				Style: core.Style{
 					FlexGrow: 1,
 					FontSize: 12.5,
-					Color:    specText,
+					Color:    p.TextSecondary,
 				},
 			},
 			core.Text{
@@ -399,7 +406,7 @@ func viewportOverlayRowView(ed *Editor, rev *core.Signal[uint64], o ViewportOver
 				Style: core.Style{
 					FontFamily: core.FontMonospace,
 					FontSize:   11,
-					Color:      specTextMuted,
+					Color:      p.TextFaint,
 				},
 			},
 			ui.Switch{

@@ -390,3 +390,171 @@ func TestEditorToastQueueAndSpecStyling(t *testing.T) {
 		t.Fatal("toast should be gone after dismissing last item")
 	}
 }
+
+func TestToastViewAvoids2DOverlayBarAndMemoizesRevisions(t *testing.T) {
+	ed := newTestEditor(t)
+	ed.ShowToast(editor.Toast{
+		ID:      "saved",
+		Kind:    editor.ToastSuccess,
+		Message: "Saved scene",
+	})
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1200, 760), nsgotest.Environment(core.Environment{
+		OS:     core.OSMacOS,
+		Idiom:  core.IdiomDesktop,
+		Dark:   false,
+		Locale: "en-US",
+	}))
+
+	// In 2D edit mode, toast sits above the bottom-center viewport overlay bar without overlapping it.
+	toast2D := app.Find("id:editor-toast")
+	toastRect := toast2D.Bounds()
+	barRect := app.Find("id:viewport-overlay-bar").Bounds()
+	if toastRect.Origin.Y+toastRect.Size.Height > barRect.Origin.Y {
+		t.Fatalf("toast rect %+v overlaps viewport overlay bar %+v", toastRect, barRect)
+	}
+
+	// Unrelated editor state changes bump rev without remounting the toast node.
+	app.Post(func() {
+		ed.SetSnapToGrid(!ed.SnapToGrid)
+		ed.SetSnapToGrid(!ed.SnapToGrid)
+	})
+	app.Settle()
+	toastAfter := app.Find("id:editor-toast")
+	if toastAfter.ID != toast2D.ID {
+		t.Fatalf("unrelated rev bump remounted toast node: id %v -> %v", toast2D.ID, toastAfter.ID)
+	}
+	if got := app.Find("id:editor-toast-message").Text; got != "Saved scene" {
+		t.Fatalf("toast message after unrelated rev bumps = %q, want %q", got, "Saved scene")
+	}
+
+	// In 3D mode the 2D overlay bar is hidden, so toast drops from Bottom: 60 to Bottom: 16 (+44pt lower).
+	app.Post(func() {
+		ed.SetViewMode(editor.ViewMode3D)
+	})
+	app.Settle()
+	toast3DRect := app.Find("id:editor-toast").Bounds()
+	if toast3DRect.Origin.Y <= toastRect.Origin.Y+40 {
+		t.Fatalf("3D mode toast Y = %v, want > %v (44pt lower than 2D edit mode)", toast3DRect.Origin.Y, toastRect.Origin.Y+40)
+	}
+
+	// Switching back to 2D restores the 60pt clearance.
+	app.Post(func() {
+		ed.SetViewMode(editor.ViewMode2D)
+	})
+	app.Settle()
+	toastBackRect := app.Find("id:editor-toast").Bounds()
+	if math.Abs(float64(toastBackRect.Origin.Y-toastRect.Origin.Y)) > 1 {
+		t.Fatalf("restored 2D mode toast Y = %v, want %v", toastBackRect.Origin.Y, toastRect.Origin.Y)
+	}
+}
+
+func TestSpecToastCardClampsNonFiniteProgress(t *testing.T) {
+	cases := []struct {
+		name     string
+		progress float32
+	}{
+		{"nan", float32(math.NaN())},
+		{"posInf", float32(math.Inf(1))},
+		{"negInf", float32(math.Inf(-1))},
+		{"negative", -0.5},
+		{"overOne", 1.5},
+		{"half", 0.5},
+	}
+	pal := editor.LightSpecPalette()
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+				return editor.SpecToastCard(pal, editor.Toast{
+					ID:       "prog-" + tc.name,
+					Kind:     editor.ToastProgress,
+					Message:  "Building...",
+					Progress: tc.progress,
+				}, 0, nil)
+			}, nsgotest.Size(480, 120))
+			toast := app.Find("id:editor-toast")
+			w := float64(toast.Bounds().Size.Width)
+			if math.IsNaN(w) || math.IsInf(w, 0) || w <= 0 {
+				t.Fatalf("toast bounds width invalid: %+v", toast.Bounds())
+			}
+		})
+	}
+}
+
+func TestSpecLightChromeOverlaysAndMarqueeContrast(t *testing.T) {
+	ed := newTestEditor(t)
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1200, 760), nsgotest.Environment(core.Environment{
+		OS:     core.OSMacOS,
+		Idiom:  core.IdiomDesktop,
+		Dark:   false,
+		Locale: "en-US",
+	}))
+
+	light := editor.LightSpecPalette()
+	dark := editor.DarkSpecPalette()
+
+	assertChrome := func(label string, want editor.SpecPalette) {
+		t.Helper()
+		bar := app.Find("id:viewport-overlay-bar").Style
+		wantBarBg := ui.Alpha(want.Raised, 0.96)
+		if bar.Background != wantBarBg || bar.BorderColor != want.LineRaised {
+			t.Fatalf("%s: viewport-overlay-bar bg=%#x border=%#x, want bg=%#x border=%#x",
+				label, uint32(bar.Background), uint32(bar.BorderColor), uint32(wantBarBg), uint32(want.LineRaised))
+		}
+		rail := app.Find("id:left-rail-switch").Style
+		if rail.Background != want.Bg || rail.BorderColors.Bottom != want.Line {
+			t.Fatalf("%s: left-rail-switch bg=%#x bottomBorder=%#x, want bg=%#x bottomBorder=%#x",
+				label, uint32(rail.Background), uint32(rail.BorderColors.Bottom), uint32(want.Bg), uint32(want.Line))
+		}
+		if got := app.Find("id:rail-mode-scene").Style.Background; got != want.LineRaised {
+			t.Fatalf("%s: active rail-mode-scene bg=%#x, want %#x", label, uint32(got), uint32(want.LineRaised))
+		}
+	}
+
+	assertChrome("light", light)
+
+	app.SetEnvironment(core.Environment{
+		OS:     core.OSMacOS,
+		Idiom:  core.IdiomDesktop,
+		Dark:   true,
+		Locale: "en-US",
+	})
+	assertChrome("dark", dark)
+
+	// Built-in viewport overlays, collision stroke, and marquee edge must all meet WCAG 2.2
+	// non-text 3:1 contrast against Viewport in both Light and Dark appearances.
+	for _, tc := range []struct {
+		name       string
+		appearance editor.Appearance
+		pal        editor.SpecPalette
+	}{
+		{"light", editor.AppearanceLight, light},
+		{"dark", editor.AppearanceDark, dark},
+	} {
+		if err := ed.SetAppearance(tc.appearance); err != nil {
+			t.Fatalf("SetAppearance(%s): %v", tc.name, err)
+		}
+		ovs := ed.ViewportOverlays()
+		if len(ovs) == 0 {
+			t.Fatalf("%s: expected built-in overlays", tc.name)
+		}
+		for _, ov := range ovs {
+			ratio := editor.ContrastRatio(ov.Color, tc.pal.Viewport)
+			if ratio < 3.0 {
+				t.Errorf("%s: overlay %q color #%06X on Viewport #%06X has contrast %.2f:1, want >= 3.0:1",
+					tc.name, ov.ID, uint32(ov.Color)>>8, uint32(tc.pal.Viewport)>>8, ratio)
+			}
+		}
+		collStroke := editor.CompositeOver(ui.Alpha(tc.pal.TextMuted, 0.85), tc.pal.Viewport)
+		if ratio := editor.ContrastRatio(collStroke, tc.pal.Viewport); ratio < 3.0 {
+			t.Errorf("%s: collision stroke contrast %.2f:1, want >= 3.0:1", tc.name, ratio)
+		}
+		if ratio := editor.ContrastRatio(tc.pal.Accent.Edge, tc.pal.Viewport); ratio < 3.0 {
+			t.Errorf("%s: marquee/selection Accent.Edge contrast %.2f:1, want >= 3.0:1", tc.name, ratio)
+		}
+	}
+}

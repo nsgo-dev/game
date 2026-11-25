@@ -672,7 +672,8 @@ type Editor struct {
 	shortcutCaptureActive bool
 	catalog               *l10n.Catalog
 	// toasts holds the FIFO queue of transient Spec toast notifications shown over the viewport.
-	toasts []Toast
+	toasts   []Toast
+	toastSeq uint64
 	// overlayLegendOpen controls whether the compact Spec overlay legend is shown in the viewport corner.
 	overlayLegendOpen bool
 	// hud holds the HUD and menu multi-size layout screen state, active *.screen.yaml document, locale tables, overlays, and touch drag session.
