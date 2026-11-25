@@ -106,6 +106,7 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 	e.inspectLayer = false
 	e.connPick = nil
 	e.stopClipLoop()
+	e.stopRigLoop()
 	e.stopFetch()
 	e.stopAudioAudition()
 	e.stopParticlePreviewLoop()
@@ -123,6 +124,7 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 	e.clipSaved = nil
 	e.table = nil
 	e.tableSaved = nil
+	e.rig = nil
 	e.l10n = nil
 	e.tileset = nil
 	e.ActiveTerrain = ""

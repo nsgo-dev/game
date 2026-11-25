@@ -83,6 +83,8 @@ const (
 	FieldModelImage       = "model image"
 	FieldCutsceneSource   = "cutscene source"
 	FieldCutsceneAudio    = "cutscene audio"
+	// FieldSkeletalRig is a .skel.yaml rig path referenced by an object's "skeletal" component.
+	FieldSkeletalRig = "skeletal rig"
 	// FieldScreenSprite is a sprite image or atlas path referenced by a *.screen.yaml node.
 	FieldScreenSprite = "sprite"
 	// FieldTextKey is a localization text key referenced by a *.screen.yaml node.
@@ -636,6 +638,7 @@ func (p *Project) sceneRefs(f *File, doc *yaml.Node) {
 		p.ref(f, field(kv[1], "gridMap"), FieldGridMap)
 		p.animatorRefs(f, field(kv[1], "components"))
 		p.ref(f, field(field(kv[1], "particles"), "file"), FieldParticles)
+		p.skeletalComponentRef(f, kv[1])
 	}
 	for _, l := range items(field(doc, "layers")) {
 		p.tilemapRefs(f, field(l, "tilemap"))
@@ -697,15 +700,23 @@ func (p *Project) objectRefs(f *File, objs *yaml.Node, depth int) {
 		p.ref(f, field(o, "gridMap"), FieldGridMap)
 		p.animatorRefs(f, field(o, "components"))
 		p.ref(f, field(field(o, "particles"), "file"), FieldParticles)
+		p.skeletalComponentRef(f, o)
 		for _, kv := range pairs(field(o, "overrides")) {
 			p.ref(f, field(kv[1], "material"), FieldMaterial)
 			p.ref(f, field(kv[1], "model"), FieldModel)
 			p.ref(f, field(kv[1], "gridMap"), FieldGridMap)
 			p.animatorRefs(f, field(kv[1], "components"))
 			p.ref(f, field(field(kv[1], "particles"), "file"), FieldParticles)
+			p.skeletalComponentRef(f, kv[1])
 		}
 		p.objectRefs(f, field(o, "children"), depth+1)
 	}
+}
+
+func (p *Project) skeletalComponentRef(f *File, obj *yaml.Node) {
+	comps := field(obj, "components")
+	skel := field(comps, "skeletal")
+	p.ref(f, field(skel, "rig"), FieldSkeletalRig)
 }
 
 // screenRefs records sprite path references and localization textKey usages in a *.screen.yaml node tree.

@@ -133,6 +133,8 @@ func (e *Editor) PlayIn(cx *core.Scope) error {
 	e.SetStatesDriveWithKeys(false)
 	e.stopParticlePreviewLoop()
 	e.stopSceneEmitterLoop()
+	e.stopRigLoop()
+	e.CancelRigDrag()
 	e.stopAudioAudition()
 	e.resetInputMapTransient()
 	e.connPick = nil

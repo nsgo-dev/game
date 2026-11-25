@@ -154,6 +154,7 @@ func (e *Editor) OpenDemo() error {
 	e.stroke = nil
 	e.clearTileBrushTransient()
 	e.stopClipLoop()
+	e.stopRigLoop()
 	e.stopFetch()
 	e.stopAudioAudition()
 	e.stopParticlePreviewLoop()
@@ -175,6 +176,7 @@ func (e *Editor) OpenDemo() error {
 	e.clipSaved = nil
 	e.table = nil
 	e.tableSaved = nil
+	e.rig = nil
 	e.l10n = nil
 	e.tileset = nil
 	e.ActiveTerrain = ""

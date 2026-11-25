@@ -97,6 +97,8 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 							ed.report(ed.OpenParticleEmitterProjectFile(p))
 						case isRoomsFile(p):
 							ed.report(ed.OpenRoomsProjectFile(p))
+						case isRigFile(p):
+							ed.report(ed.OpenRigProjectFile(p, ""))
 						case isProjectScene(ed.Project, p) && p != ed.ScenePath:
 							ed.openSceneAsked(p)
 						}
@@ -294,6 +296,28 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 									if err := ed.OpenTerrainProjectFile(from); err != nil {
 										ed.report(err)
 									}
+								},
+							},
+							ui.Button{
+								TestID:  "files-open-rig",
+								Text:    "Open Rig",
+								Label:   "Open the selected .skel.yaml file in the 2D Skeletal Rig editor",
+								Size:    ui.SizeSmall,
+								Variant: ui.ButtonSecondary,
+								Disabled: func() bool {
+									_ = rev.Get()
+									if ed.Playing() {
+										return true
+									}
+									from := current.Get()
+									return from == "" || !isRigFile(from)
+								},
+								OnPress: func() {
+									from := current.Get()
+									if from == "" {
+										return
+									}
+									ed.report(ed.OpenRigProjectFile(from, ""))
 								},
 							},
 						},

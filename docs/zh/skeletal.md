@@ -178,3 +178,7 @@ loop := &game.Loop{
 // 在 core.Canvas 的 Draw 中：
 hero.Draw(d)
 ```
+
+## 在编辑器中编辑与放置到场景
+
+`.skel.yaml` 骨骼文件可在 `game/editor` 中可视化编辑（骨骼手柄、插槽附件原点手柄、换肤、时间轴关键帧以及运行时播放与交叉淡入预览），并通过内置的 `skeletal` 组件（`sceneformat.SkeletalComponent`，字段为 `version`、`rig`、`atlas`、`skin`、`animation`、`loop`）放置到 `.scene.yaml` 场景中。详见 [2D 骨骼绑定编辑器](editor.md#2d-骨骼绑定编辑器886)。

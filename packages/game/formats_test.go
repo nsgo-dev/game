@@ -166,6 +166,7 @@ var formatVersions = map[string]string{
 	"sceneformat.Lights2DComponentVersion":  "sceneformat",
 	"sceneformat.MinVersion":                "sceneformat",
 	"sceneformat.PhysicsComponentVersion":   "sceneformat",
+	"sceneformat.SkeletalComponentVersion":  "sceneformat",
 	"skeletal.FormatVersion":                "skeletal",
 	"statedump.FormatVersion":               "statedump",
 	"stats.CurrentVersion":                  "stats",

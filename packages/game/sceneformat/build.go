@@ -15,6 +15,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/math2d"
 	"github.com/nsgo-dev/game/packages/game/particles"
 	"github.com/nsgo-dev/game/packages/game/resource"
+	"github.com/nsgo-dev/game/packages/game/skeletal"
 	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/game/packages/game/tilemap"
 	"github.com/nsgo-dev/nsgo/core"
@@ -121,16 +122,19 @@ type BuiltLayer struct {
 	Batches []*sprite.Batch
 	// Emitters are the layer's built objects that carry a live 2D particle emitter (ObjectDoc.Particles), in document order.
 	Emitters []*BuiltObject
+	// Skeletons are the layer's built objects that carry a live 2D skeletal rig (BuiltObject.Skeleton), in Z order.
+	Skeletons []*BuiltObject
 	// Objects are the layer's top-level built objects in document order; each one's descendants hang from BuiltObject.Children.
 	Objects []*BuiltObject
 
-	// drawItems interleaves sprite batches and particle emitters in exact ascending Z order.
+	// drawItems interleaves sprite batches, particle emitters, and skeletal rigs in exact ascending Z order.
 	drawItems []layerDrawItem
 }
 
 type layerDrawItem struct {
 	batch   *sprite.Batch
 	emitter *BuiltObject
+	skel    *BuiltObject
 }
 
 // BuiltObject is one object instantiated from an ObjectDoc.
@@ -141,10 +145,12 @@ type BuiltObject struct {
 	ID string
 	// Layer is the name of the layer containing this object.
 	Layer string
-	// Atlas is the resolved atlas for Sprite, or nil when the object has no sprite.
+	// Atlas is the resolved atlas for Sprite or Skeleton, or nil when the object has neither.
 	Atlas *sprite.Atlas
 	// Sprite is the live sprite drawn by its layer's batch, or nil when the object has no sprite. Its X, Y, Rotation, ScaleX, ScaleY and Alpha are the object's world values, composed through its ancestors.
 	Sprite *sprite.Sprite
+	// Skeleton is the live 2D skeletal rig built from the object's "skeletal" component, or nil when none is configured. Its root transform, flips, alpha and Z track the object's world values and BuiltScene.Update advances its playback.
+	Skeleton *skeletal.Skeleton
 	// Material is the shared material resolved from Doc.Material, or nil when the object names none. It is the resolver's value, not a copy, so an edit reloaded into it reaches every scene that uses it.
 	Material *resource.Material
 	// Emitter is the live 2D particle emitter built from Doc.Particles, or nil when the object has none. BuiltScene.Update steps it and BuiltScene.Draw draws it at the object's world transform.
@@ -277,6 +283,7 @@ func Build(doc *SceneDoc, resolver AssetResolver) (*BuiltScene, error) {
 		return cfg, nil
 	}
 
+	getSkeleton := makeSkeletonLoader(resolver)
 	tiles := &tilemapBuilder{doc: doc, resolver: resolver, getAtlas: getAtlas, tilesets: make(map[string]*tilemap.TilesetDoc)}
 
 	// Sort layer indices stably by Order so doc.Layers is never mutated.
@@ -327,14 +334,14 @@ func Build(doc *SceneDoc, resolver AssetResolver) (*BuiltScene, error) {
 
 		var drawables []layerDrawable
 		for j := range ld.Objects {
-			bo, err := buildObject(built, bl, nil, &ld.Objects[j], getAtlas, getMaterial, getParticles, &drawables)
+			bo, err := buildObject(built, bl, nil, &ld.Objects[j], resolver, getAtlas, getMaterial, getParticles, getSkeleton, &drawables)
 			if err != nil {
 				return nil, err
 			}
 			bl.Objects = append(bl.Objects, bo)
 		}
 
-		bl.Batches, bl.drawItems = groupLayerDrawables(drawables)
+		bl.Batches, bl.Skeletons, bl.drawItems = groupLayerDrawables(drawables)
 		built.Layers = append(built.Layers, bl)
 	}
 
@@ -351,10 +358,11 @@ type layerDrawable struct {
 	z       int
 	sprite  *BuiltObject
 	emitter *BuiltObject
+	skel    *BuiltObject
 }
 
-// buildObject builds od under parent (nil for a top-level object), composing its world transform, then builds its children. It records every built object in built.Objects and appends the ones with a sprite or particle emitter to drawables in depth-first order, each parent before its children.
-func buildObject(built *BuiltScene, bl *BuiltLayer, parent *BuiltObject, od *ObjectDoc, getAtlas func(string) (*sprite.Atlas, error), getMaterial func(string) (*resource.Material, error), getParticles func(string) (particles.Config, error), drawables *[]layerDrawable) (*BuiltObject, error) {
+// buildObject builds od under parent (nil for a top-level object), composing its world transform, then builds its children. It records every built object in built.Objects and appends the ones with a sprite, particle emitter, or skeletal rig to drawables in depth-first order, each parent before its children.
+func buildObject(built *BuiltScene, bl *BuiltLayer, parent *BuiltObject, od *ObjectDoc, resolver AssetResolver, getAtlas func(string) (*sprite.Atlas, error), getMaterial func(string) (*resource.Material, error), getParticles func(string) (particles.Config, error), getSkeleton func(string) (*skeletal.SkeletonData, error), drawables *[]layerDrawable) (*BuiltObject, error) {
 	bo := &BuiltObject{
 		Doc:        od,
 		ID:         od.ID,
@@ -439,9 +447,15 @@ func buildObject(built *BuiltScene, bl *BuiltLayer, parent *BuiltObject, od *Obj
 		bl.Emitters = append(bl.Emitters, bo)
 		*drawables = append(*drawables, layerDrawable{z: bo.emitterZ, emitter: bo})
 	}
+	if err := buildObjectSkeleton(bl, bo, resolver, getAtlas, getSkeleton); err != nil {
+		return nil, err
+	}
+	if bo.Skeleton != nil {
+		*drawables = append(*drawables, layerDrawable{z: od.Z, skel: bo})
+	}
 	built.Objects[od.ID] = bo
 	for i := range od.Children {
-		child, err := buildObject(built, bl, bo, &od.Children[i], getAtlas, getMaterial, getParticles, drawables)
+		child, err := buildObject(built, bl, bo, &od.Children[i], resolver, getAtlas, getMaterial, getParticles, getSkeleton, drawables)
 		if err != nil {
 			return nil, err
 		}
@@ -689,19 +703,25 @@ func buildTilemapBatch(layerName string, resolved *TilemapDoc, getAtlas func(str
 	return &sprite.Batch{Atlas: atlas, Sprites: sprites}, float32(resolved.Width * resolved.TileWidth), float32(resolved.Height * resolved.TileHeight), nil
 }
 
-// groupLayerDrawables sorts drawables stably by Z, groups consecutive sprites sharing an atlas into sprite.Batch values, and returns both the sprite batches list and the interleaved draw items preserving exact Z order across sprites and particle emitters.
-func groupLayerDrawables(drawables []layerDrawable) ([]*sprite.Batch, []layerDrawItem) {
+// groupLayerDrawables sorts drawables stably by Z, groups consecutive sprites sharing an atlas into sprite.Batch values, and returns the sprite batches list, the layer's skeleton list, and the interleaved draw items preserving exact Z order across sprites, particle emitters, and skeletal rigs.
+func groupLayerDrawables(drawables []layerDrawable) ([]*sprite.Batch, []*BuiltObject, []layerDrawItem) {
 	if len(drawables) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	slices.SortStableFunc(drawables, func(a, b layerDrawable) int {
 		return cmp.Compare(a.z, b.z)
 	})
 	var batches []*sprite.Batch
+	var skeletons []*BuiltObject
 	var items []layerDrawItem
 	for _, dr := range drawables {
 		if dr.emitter != nil {
 			items = append(items, layerDrawItem{emitter: dr.emitter})
+			continue
+		}
+		if dr.skel != nil {
+			skeletons = append(skeletons, dr.skel)
+			items = append(items, layerDrawItem{skel: dr.skel})
 			continue
 		}
 		bo := dr.sprite
@@ -716,7 +736,31 @@ func groupLayerDrawables(drawables []layerDrawable) ([]*sprite.Batch, []layerDra
 		batches = append(batches, b)
 		items = append(items, layerDrawItem{batch: b})
 	}
-	return batches, items
+	return batches, skeletons, items
+}
+
+// syncSkeleton copies the object's composed world transform, flips, alpha and Z onto its live skeletal rig and updates its bone world transforms. It reports false when the composed world transform is sheared.
+func (bo *BuiltObject) syncSkeleton() bool {
+	if bo.Skeleton == nil || bo.Doc == nil {
+		return true
+	}
+	od := bo.Doc
+	sk := bo.Skeleton
+	if bo.Parent == nil {
+		sk.X, sk.Y = od.X, od.Y
+		sk.Rotation = od.Rotation
+		sk.ScaleX, sk.ScaleY = od.EffectiveScaleX(), od.EffectiveScaleY()
+	} else if x, y, rot, sx, sy, drawable := decomposeTRS(bo.World); drawable {
+		sk.X, sk.Y, sk.Rotation, sk.ScaleX, sk.ScaleY = x, y, rot, sx, sy
+	} else {
+		return false
+	}
+	sk.FlipX = od.FlipX
+	sk.FlipY = od.FlipY
+	sk.Alpha = bo.WorldAlpha
+	sk.Z = od.Z
+	sk.UpdateWorldTransforms()
+	return true
 }
 
 // syncMaterial sets the object's sprite to draw with its material: the object's world alpha (its alpha times every ancestor's) times the material's opacity, and the material's blend mode.
@@ -762,6 +806,9 @@ func (bo *BuiltObject) Sync() bool {
 		wx, wy, wrot := emitterWorldTransform(bo.Parent, od, bo.World)
 		bo.Emitter.Follow(wx, wy)
 		bo.Emitter.Rotation = wrot + bo.emitterBaseRot
+	}
+	if !bo.syncSkeleton() {
+		ok = false
 	}
 	for _, c := range bo.Children {
 		if !c.Sync() {
@@ -838,7 +885,7 @@ func (s *BuiltScene) Draw(d *core.Drawing) {
 		if !layer.Visible {
 			continue
 		}
-		if layer.Tilemap != nil || layer.Map != nil || len(layer.Batches) > 0 || len(layer.Emitters) > 0 {
+		if layer.Tilemap != nil || layer.Map != nil || len(layer.Batches) > 0 || len(layer.Emitters) > 0 || len(layer.Skeletons) > 0 {
 			view := s.tileView(layer.Space, vw, vh)
 			if layer.Space == SpaceWorld && s.Camera != nil {
 				s.drawWithCamera(d, vw, vh, layer, view)
@@ -867,7 +914,7 @@ func (s *BuiltScene) tileView(space Space, vw, vh float32) *tilemap.Camera {
 	return &tilemap.Camera{X: vw / 2, Y: vh / 2, Zoom: 1, Width: vw, Height: vh}
 }
 
-// Update advances the animated tiles of every layer's map (BuiltLayer.Map) and every placed particle emitter (BuiltLayer.Emitters) by dt, so the next Draw shows their current state.
+// Update advances the animated tiles of every layer's map (BuiltLayer.Map), every placed particle emitter (BuiltLayer.Emitters), and every placed 2D skeletal rig (BuiltLayer.Skeletons) by dt, so the next Draw shows their current frames and poses.
 func (s *BuiltScene) Update(dt time.Duration) {
 	if s == nil {
 		return
@@ -879,6 +926,11 @@ func (s *BuiltScene) Update(dt time.Duration) {
 		for _, bo := range l.Emitters {
 			if bo.Emitter != nil {
 				bo.Emitter.Update(dt)
+			}
+		}
+		for _, bo := range l.Skeletons {
+			if bo.Skeleton != nil {
+				bo.Skeleton.Update(dt)
 			}
 		}
 	}
@@ -1071,16 +1123,10 @@ func clampCamera(x, y, vw, vh, zoom float32, b *BoundsDoc) (float32, float32) {
 	return x, y
 }
 
-// Draw draws the layer's tilemap, layered map, and Z-order interleaved sprite batches and particle emitters into d. When view is nil, every tile of Map draws without culling.
-func (l *BuiltLayer) Draw(d *core.Drawing, view *tilemap.Camera) {
+// DrawObjects draws the layer's sprite batches, particle emitters, and skeletal rigs into d in exact Z order.
+func (l *BuiltLayer) DrawObjects(d *core.Drawing) {
 	if l == nil || d == nil {
 		return
-	}
-	if l.Tilemap != nil {
-		l.Tilemap.Draw(d)
-	}
-	if l.Map != nil {
-		l.Map.Draw(d, view)
 	}
 	if len(l.drawItems) > 0 {
 		for _, item := range l.drawItems {
@@ -1088,6 +1134,8 @@ func (l *BuiltLayer) Draw(d *core.Drawing, view *tilemap.Camera) {
 				item.batch.Draw(d)
 			} else if item.emitter != nil && item.emitter.Emitter != nil {
 				item.emitter.Emitter.Draw(d)
+			} else if item.skel != nil && item.skel.Skeleton != nil {
+				item.skel.Skeleton.Draw(d)
 			}
 		}
 		return
@@ -1100,6 +1148,25 @@ func (l *BuiltLayer) Draw(d *core.Drawing, view *tilemap.Camera) {
 			bo.Emitter.Draw(d)
 		}
 	}
+	for _, bo := range l.Skeletons {
+		if bo.Skeleton != nil {
+			bo.Skeleton.Draw(d)
+		}
+	}
+}
+
+// Draw draws the layer's tilemap, layered map, and Z-order interleaved sprite batches, particle emitters, and skeletal rigs into d. When view is nil, every tile of Map draws without culling.
+func (l *BuiltLayer) Draw(d *core.Drawing, view *tilemap.Camera) {
+	if l == nil || d == nil {
+		return
+	}
+	if l.Tilemap != nil {
+		l.Tilemap.Draw(d)
+	}
+	if l.Map != nil {
+		l.Map.Draw(d, view)
+	}
+	l.DrawObjects(d)
 }
 
 func drawLayer(d *core.Drawing, layer *BuiltLayer, view *tilemap.Camera) {

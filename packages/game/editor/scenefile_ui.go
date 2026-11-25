@@ -106,24 +106,25 @@ func (e *Editor) saveAllFromUI() bool {
 	return true
 }
 
-// unsavedState is what has unsaved edits, the scene (SceneDirty), the project (ProjectDirty), and auxiliary editors (clip, data table, localizations), as EditorView works it out once per revision for the toolbar's marker, its Revert item and the window title.
+// unsavedState is what has unsaved edits, the scene (SceneDirty), the project (ProjectDirty), and auxiliary editors (clip, data table, localizations, skeletal rig), as EditorView works it out once per revision for the toolbar's marker, its Revert item and the window title.
 type unsavedState struct{ scene, project, other bool }
 
 // either reports whether anything in the session has unsaved edits (HasUnsavedChanges).
 func (s unsavedState) either() bool { return s.scene || s.project || s.other }
 
-// unsavedMemo works out unsavedState once per revision of ed. Both checks encode a whole file, so while Play runs, which makes a revision every frame, it keeps what it worked out at the first revision of Play: what is compared then is the scene as it was before Play, and the project cannot be edited.
+// unsavedMemo works out unsavedState once per revision of ed. Both checks encode a whole file, so while Play runs (or on pure rig-preview playback ticks), which make a revision every frame, it keeps what it already computed rather than re-encoding every document 60 times a second.
 func unsavedMemo(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) *core.Memo[unsavedState] {
 	var last unsavedState
 	computed, lastPlaying := false, false
 	return core.NewMemo(cx, func() unsavedState {
-		_ = rev.Get()
+		r := rev.Get()
 		playing := ed.Playing()
-		if !computed || !playing || !lastPlaying {
+		rigStepOnly := ed.RigPlaying() && r == ed.rigStepRev
+		if !computed || (!playing && !rigStepOnly) || (playing && !lastPlaying) {
 			last = unsavedState{
 				scene:   ed.SceneDirty(),
 				project: ed.ProjectDirty(),
-				other:   ed.LocalizationDirty() || ed.ClipDirty() || ed.DataTableDirty(),
+				other:   ed.LocalizationDirty() || ed.ClipDirty() || ed.DataTableDirty() || ed.RigDirty(),
 			}
 			computed = true
 		}

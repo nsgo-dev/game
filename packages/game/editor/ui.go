@@ -71,6 +71,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 		ed.stopStatesLoop()
 		ed.stopParticlePreviewLoop()
 		ed.stopSceneEmitterLoop()
+		ed.stopRigLoop()
 		ed.cleanupAudioMixerScope(cx)
 		ed.stopExportBuild()
 		ed.stopAssetsBuild()
@@ -157,6 +158,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 								pluginDockView(cx, ed, rev, DockBottom),
 								TilesetEditorPanelView(cx, ed, rev),
 								TerrainPanelView(cx, ed, rev),
+								RigPanelView(cx, ed, rev),
 								DataTablePanelView(cx, ed, rev),
 								ParticleEditorPanelView(cx, ed, rev),
 								AnimationPanelView(cx, ed, rev),

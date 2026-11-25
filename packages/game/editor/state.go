@@ -321,6 +321,8 @@ type Editor struct {
 	OnSaveParticleEmitter func(data []byte) error
 	// OnSaveRooms is invoked by SaveRooms / Save with the encoded *.rooms.yaml bytes; when nil SaveRooms writes to RoomsPath.
 	OnSaveRooms func(data []byte) error
+	// OnSaveRig is invoked by the Rig Editor panel's Save Rig button with the encoded .skel.yaml bytes; when nil the button writes to RigPath.
+	OnSaveRig func(data []byte) error
 	// ExportCommandRunner runs `go` with args for the Export panel's release builds, streaming output to stdout and stderr; when nil the editor invokes `go` via os/exec.
 	ExportCommandRunner func(ctx context.Context, args []string, stdout, stderr io.Writer) error
 	// OpenOutputFolder opens the release output directory in the OS file manager after a successful non-dry-run build; when nil the editor uses the host platform's default opener.
@@ -395,6 +397,11 @@ type Editor struct {
 	// The particle emitter editor: the open emitter config, live preview emitter, and edit-viewport scene emitter loop.
 	particles        *particleEditorState
 	sceneEmitterStop func()
+
+	// rig holds the open 2D skeletal rig edited by the Rig Editor panel, or nil when closed.
+	rig *rigState
+	// rigStepRev records the revision emitted by a pure StepRig playback tick so unsavedMemo skips full YAML re-encoding at 60 Hz.
+	rigStepRev uint64
 	// l10n holds the open localization string tables edited by the Localization panel, or nil when closed.
 	l10n       *localizationState
 	components *sceneformat.ComponentRegistry
@@ -1117,6 +1124,7 @@ func (e *Editor) Undo() bool {
 	e.CancelDrag2D()
 	e.CancelShapeDrag2D()
 	e.CancelPluginDrag2D()
+	e.CancelRigDrag()
 	e.CancelCameraDrag()
 	e.CancelCameraBoundsDrag()
 	e.CancelRoomDrag()
@@ -1144,6 +1152,7 @@ func (e *Editor) Redo() bool {
 	e.CancelDrag2D()
 	e.CancelShapeDrag2D()
 	e.CancelPluginDrag2D()
+	e.CancelRigDrag()
 	e.CancelCameraDrag()
 	e.CancelCameraBoundsDrag()
 	e.CancelRoomDrag()

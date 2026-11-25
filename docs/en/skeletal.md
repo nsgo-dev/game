@@ -178,3 +178,7 @@ loop := &game.Loop{
 // In a core.Canvas's Draw:
 hero.Draw(d)
 ```
+
+## Editing and placing rigs in scenes
+
+`.skel.yaml` rigs can be authored visually in `game/editor` (bone handles, slot attachment origin handles, skin switching, timeline keying, and runtime playback/crossfade preview) and placed in `.scene.yaml` files via the built-in `skeletal` component (`sceneformat.SkeletalComponent`, fields `version`, `rig`, `atlas`, `skin`, `animation`, `loop`). See [2D skeletal rig editor](editor.md#2d-skeletal-rig-editor-886).
