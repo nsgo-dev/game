@@ -1,6 +1,6 @@
 # rts
 
-`game/rts` is the unit-control layer of a real-time strategy game: flow fields that steer many units toward a goal over an `ai.Grid`, a `Crowd` that moves those units with separation and wall sliding, formations kept in versioned YAML, box and click selection, and numbered control groups.
+`game/rts` is the unit-control layer of a real-time strategy game: flow fields that steer many units toward a goal over an `ai.Grid`, a `Crowd` that moves those units with push-apart separation or ORCA local avoidance and wall sliding, formations kept in versioned YAML, box and click selection, and numbered control groups.
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/rts"
@@ -63,6 +63,8 @@ loop.Update = func(dt time.Duration) { crowd.Step(dt) }
 `Move` lays the formation out around the target, facing from the group toward it unless `Facing` is set, and moves any slot that falls on a blocked cell or on a cell the group cannot reach to the nearest free cell that can be reached. When the units cannot reach the target at all, as when it lies on an island, the formation centers on the nearest cell they can reach. Units are matched to slots so their paths do not cross, and the whole group shares one flow field whose goals are the slots' cells. Each unit follows that field until it can see its own slot within `DirectRange`, then walks straight to it; a unit that reaches the formation with a wall between it and its slot follows its own `ai.AStar` path there for the rest of the order, planning it again whenever the crowd pushes it off it. Path searches run on one step in eight for each unit, staggered by ID, so their cost stays bounded when many units need one.
 
 `Step` runs in time linear in the number of units plus the number of neighbor buckets covering the units' bounding box, so its cost follows the units rather than the size of the map: neighbors come from that bucket grid, rebuilt each step without allocating once its buffers have grown, units push apart where their bodies overlap (`Separation`, `Gap`), and bodies slide along blocked cells and the grid's edge. Every unit's force is computed from the positions at the start of the step before any unit moves, so the result does not depend on the order units move in within a step. It does depend on the order units were added in, which sets their IDs and the order their pushes are summed, so a replay adds the same units in the same order.
+
+Set `CrowdOptions.Avoidance` to `AvoidanceORCA` (with optional `CrowdOptions.ORCA` tuning) to use `ai.ORCASolver` velocity obstacles instead of `AvoidancePush` overlap pushing so opposing units steer around each other before contact while keeping deterministic, zero-allocation stepping and grid wall sliding.
 
 Each `Unit` reports its `State`: `Idle` before any order and after `Stop`, `Moving`, and `Arrived` once within `ArriveRadius` of its slot. Arrived units hold their slots; one pushed well away walks back. `Units` returns every unit for drawing, `Unit(id)` one of them, and `Remove` deletes one.
 

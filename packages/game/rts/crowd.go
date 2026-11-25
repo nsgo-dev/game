@@ -73,6 +73,28 @@ type Unit struct {
 	detour   bool // the unit follows its own path to its slot instead of the group's field
 }
 
+// AvoidanceMode selects how units in a Crowd avoid colliding with each other.
+type AvoidanceMode uint8
+
+// The avoidance modes.
+const (
+	// AvoidancePush pushes overlapping units apart (the default).
+	AvoidancePush AvoidanceMode = iota
+	// AvoidanceORCA computes collision-free velocities ahead of contact using ai.ORCASolver.
+	AvoidanceORCA
+)
+
+// String returns the mode's name.
+func (m AvoidanceMode) String() string {
+	switch m {
+	case AvoidancePush:
+		return "push"
+	case AvoidanceORCA:
+		return "orca"
+	}
+	return "unknown"
+}
+
 // CrowdOptions tunes a Crowd. The zero value works for units about half a cell wide.
 type CrowdOptions struct {
 	// Origin is the world position of the top-left corner of grid cell (0, 0); a non-finite coordinate counts as 0.
@@ -81,7 +103,7 @@ type CrowdOptions struct {
 	CellSize float32
 	// FieldCacheSize is the number of flow fields kept for reuse; 0 or less uses DefaultFieldCacheSize.
 	FieldCacheSize int
-	// Separation scales the push between overlapping units; 0 or less, or a non-finite value, uses 1.
+	// Separation scales the push between overlapping units under AvoidancePush; 0 or less, or a non-finite value, uses 1.
 	Separation float32
 	// Gap is extra room units keep between their bodies, in world units; negative and non-finite values count as 0.
 	Gap float32
@@ -91,6 +113,10 @@ type CrowdOptions struct {
 	DirectRange float32
 	// Responsiveness is how quickly a unit's velocity turns to its desired velocity, per second; 0 or less, or a non-finite value, uses 8.
 	Responsiveness float32
+	// Avoidance selects how units keep clear of each other: AvoidancePush (default) pushes overlapping units apart, while AvoidanceORCA uses ai.ORCASolver to steer around neighbors before contact.
+	Avoidance AvoidanceMode
+	// ORCA tunes the ai.ORCASolver used when Avoidance is AvoidanceORCA. Zero or non-finite fields use ai.ORCASolver defaults.
+	ORCA ai.ORCAConfig
 }
 
 // Crowd moves many units over an ai.Grid. Units follow shared flow fields to their targets, keep apart from each other, and slide along blocked cells and the grid's edge.
@@ -106,9 +132,12 @@ type Crowd struct {
 	nextID UnitID
 	steps  uint64
 
-	accel   []math2d.Vec2
-	buckets bucketGrid
-	astar   *ai.AStar
+	accel      []math2d.Vec2
+	buckets    bucketGrid
+	astar      *ai.AStar
+	orcaSolver *ai.ORCASolver
+	orcaAgents []ai.ORCAAgent
+	orcaVels   []math2d.Vec2
 }
 
 // NewCrowd returns an empty crowd moving units over grid.
@@ -135,11 +164,20 @@ func NewCrowd(grid ai.Grid, opts CrowdOptions) *Crowd {
 	if !(opts.Responsiveness > 0) || !finite(opts.Responsiveness) {
 		opts.Responsiveness = 8
 	}
+	if opts.Avoidance != AvoidanceORCA {
+		opts.Avoidance = AvoidancePush
+	}
+	var orcaSolver *ai.ORCASolver
+	if opts.Avoidance == AvoidanceORCA {
+		orcaSolver = ai.NewORCASolver(opts.ORCA)
+		opts.ORCA = orcaSolver.Config()
+	}
 	return &Crowd{
-		grid:   grid,
-		opts:   opts,
-		fields: NewFieldCache(grid, opts.Origin, opts.CellSize, opts.FieldCacheSize),
-		index:  make(map[UnitID]int),
+		grid:       grid,
+		opts:       opts,
+		fields:     NewFieldCache(grid, opts.Origin, opts.CellSize, opts.FieldCacheSize),
+		index:      make(map[UnitID]int),
+		orcaSolver: orcaSolver,
 	}
 }
 
@@ -314,6 +352,10 @@ func (c *Crowd) Step(dt time.Duration) {
 	c.steps++
 	secs := float32(dt.Seconds())
 	n := len(c.units)
+	if c.opts.Avoidance == AvoidanceORCA {
+		c.stepORCA(dt, secs)
+		return
+	}
 	if cap(c.accel) < n {
 		c.accel = make([]math2d.Vec2, n)
 	}
@@ -341,6 +383,59 @@ func (c *Crowd) Step(dt time.Duration) {
 	for i := range c.units {
 		u := &c.units[i]
 		v := u.Vel.Add(c.accel[i].Scale(secs)).ClampLen(u.speedCap)
+		if u.State != Moving && v.LenSq() < 1e-8 {
+			v = math2d.Vec2{}
+		}
+		u.Vel = v
+		u.Pos = u.Pos.Add(v.Scale(secs))
+		c.slide(u)
+		c.settle(u)
+	}
+}
+
+func (c *Crowd) stepORCA(dt time.Duration, secs float32) {
+	n := len(c.units)
+	if n == 0 {
+		return
+	}
+	if c.orcaSolver == nil {
+		c.orcaSolver = ai.NewORCASolver(c.opts.ORCA)
+	}
+	if cap(c.orcaAgents) < n {
+		c.orcaAgents = make([]ai.ORCAAgent, n)
+	}
+	c.orcaAgents = c.orcaAgents[:n]
+	halfGap := 0.5 * c.opts.Gap
+	for i := range c.units {
+		u := &c.units[i]
+		pref := c.desired(u)
+		vel := u.Vel
+		prio := float32(1)
+		if u.State == Moving {
+			// Moving units take priority over idle or arrived units so settled formations
+			// part politely for teammates reaching interior slots. If a moving unit stalls
+			// against neighbors, signal gentle intent along pref so teammates step aside.
+			prio = 3
+			if prefLenSq := pref.LenSq(); prefLenSq > 1e-6 && vel.LenSq() < 0.04*prefLenSq {
+				vel = pref.Scale(0.25)
+			}
+		}
+		c.orcaAgents[i] = ai.ORCAAgent{
+			ID:       uint64(u.ID),
+			Pos:      u.Pos,
+			Vel:      vel,
+			PrefVel:  pref,
+			Radius:   u.Radius + halfGap,
+			MaxSpeed: u.speedCap,
+			Priority: prio,
+		}
+	}
+	c.orcaVels = c.orcaSolver.Solve(c.orcaVels, c.orcaAgents, nil, dt)
+	invSecs := 1 / secs
+	for i := range c.units {
+		u := &c.units[i]
+		acc := c.orcaVels[i].Sub(u.Vel).Scale(invSecs).ClampLen(u.MaxAccel)
+		v := u.Vel.Add(acc.Scale(secs)).ClampLen(u.speedCap)
 		if u.State != Moving && v.LenSq() < 1e-8 {
 			v = math2d.Vec2{}
 		}
