@@ -18,6 +18,8 @@ type RaycastHit struct {
 	TriMesh *TriMeshCollider
 	// Heightfield is the hit heightfield collider when the ray struck terrain.
 	Heightfield *HeightfieldCollider
+	// Voxel is the hit voxel collider when the ray struck voxel terrain.
+	Voxel *VoxelCollider
 	// T is the normalized hit fraction in [0, 1] along the ray's MaxDist
 	// (or along the segment from -> to for World.Raycast).
 	T float32

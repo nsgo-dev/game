@@ -83,9 +83,10 @@ type Body struct {
 	// residualDepth is the deepest contact b was left in by the last Step's final position pass.
 	residualDepth float32
 	// lastPos and lastRot are the pose at the end of the previous Step, so a kinematic body moved by setting Pos or Rot directly still wakes what it touches.
-	lastPos  Vec3
-	lastRot  Quat
-	havePose bool
+	lastPos        Vec3
+	lastRot        Quat
+	havePose       bool
+	restingOnVoxel bool
 }
 
 // NewStaticBody returns a static Body placed at pos with default friction.
@@ -185,6 +186,7 @@ type OverlapHit struct {
 	Body        *Body
 	TriMesh     *TriMeshCollider
 	Heightfield *HeightfieldCollider
+	Voxel       *VoxelCollider
 	Contact     Contact
 }
 
@@ -212,12 +214,17 @@ type solverContact struct {
 	tangentImpulse Vec3
 	isStaticTri    bool
 	isHeightfield  bool
+	isVoxel        bool
 	tri            Triangle
+	voxel          *VoxelCollider
+	voxelX         int
+	voxelY         int
+	voxelZ         int
 	staticID       int
 }
 
-// World holds static, kinematic, and dynamic bodies, static triangle meshes and
-// heightfields, and 3D joints, stepping them forward deterministically.
+// World holds static, kinematic, and dynamic bodies, static triangle meshes,
+// heightfields, voxel colliders, and 3D joints, stepping them forward deterministically.
 type World struct {
 	// Gravity is the constant acceleration applied to dynamic bodies each step.
 	// NewWorld initializes it to (0, -9.81, 0).
@@ -244,6 +251,7 @@ type World struct {
 	jointBreakEvents []JointBreakEvent
 	triMeshes        []*TriMeshCollider
 	heightfields     []*HeightfieldCollider
+	voxels           []*VoxelCollider
 	joints           []Joint3D
 	ignoredPairs     map[pairKey]struct{}
 }
@@ -432,8 +440,11 @@ func (w *World) Step(dt time.Duration) {
 		w.cache = make(map[pairKey]cachedImpulse)
 	}
 
-	// Wake sleeping bodies that a moving kinematic body touches or that are jointed to a moving body, before anything treats them as immovable.
+	// Wake sleeping bodies that a moving kinematic body touches, that are jointed
+	// to a moving body, or whose voxel terrain support changed, before anything
+	// treats them as immovable.
 	w.wakeForMotion()
+	w.wakeForVoxels()
 
 	// Prepare joints first so active motors can wake sleeping bodies before integration.
 	for _, j := range w.joints {
@@ -573,12 +584,13 @@ func (w *World) Step(dt time.Duration) {
 		}
 	}
 
-	// 2b. Narrowphase against static triangle-mesh and heightfield colliders.
-	if len(w.triMeshes) > 0 || len(w.heightfields) > 0 {
+	// 2b. Narrowphase against static triangle-mesh, heightfield, and voxel colliders.
+	if len(w.triMeshes) > 0 || len(w.heightfields) > 0 || len(w.voxels) > 0 {
 		for i, a := range w.bodies {
 			if a.Static || a.Kinematic || a.Sleeping || a.IsTrigger {
 				continue
 			}
+			a.restingOnVoxel = false
 			for _, tm := range w.triMeshes {
 				if !canCollideMasks(a.Layer, a.Mask, tm.Layer, tm.Mask) {
 					continue
@@ -654,6 +666,37 @@ func (w *World) Step(dt time.Duration) {
 					})
 				})
 			}
+			for _, vc := range w.voxels {
+				if !canCollideMasks(a.Layer, a.Mask, vc.Layer, vc.Mask) {
+					continue
+				}
+				vc.forEachContact(shapes[i], func(vx, vy, vz int, c Contact) {
+					a.restingOnVoxel = true
+					rA := c.Point.Sub(a.Pos)
+					vn := pointVel(a, rA).Dot(c.Normal)
+					restitution := max(a.Restitution, vc.Restitution)
+					var bias float32
+					if vn < -restitutionVelThreshold {
+						bias = -restitution * vn
+					}
+					contacts = append(contacts, solverContact{
+						a:           a,
+						normal:      c.Normal,
+						depth:       c.Depth,
+						point:       c.Point,
+						rA:          rA,
+						restitution: restitution,
+						friction:    sqrt32(a.Friction * vc.Friction),
+						bias:        bias,
+						isVoxel:     true,
+						voxel:       vc,
+						voxelX:      vx,
+						voxelY:      vy,
+						voxelZ:      vz,
+						staticID:    vc.ID,
+					})
+				})
+			}
 		}
 	}
 
@@ -683,7 +726,7 @@ func (w *World) Step(dt time.Duration) {
 	// 3. Apply warm-start impulses.
 	for i := range contacts {
 		c := &contacts[i]
-		if c.isStaticTri {
+		if c.isStaticTri || c.isVoxel {
 			continue
 		}
 		total := c.normal.Scale(c.normalImpulse).Add(c.tangentImpulse)
@@ -773,7 +816,7 @@ func (w *World) Step(dt time.Duration) {
 	clear(w.cache)
 	for i := range contacts {
 		c := &contacts[i]
-		if c.isStaticTri || c.b == nil {
+		if c.isStaticTri || c.isVoxel || c.b == nil {
 			continue
 		}
 		w.cache[pairKey{a: c.a.ID, b: c.b.ID}] = cachedImpulse{
@@ -1002,6 +1045,8 @@ func (w *World) resolveResidualPenetration(contacts []solverContact, order []int
 // current re-tests c's pair at the bodies' present poses.
 func (c *solverContact) current() Contact {
 	switch {
+	case c.isVoxel:
+		return c.voxel.testVoxel(c.a.WorldShape(), c.voxelX, c.voxelY, c.voxelZ)
 	case c.isHeightfield:
 		return testShapeHeightfieldTriangle(c.a.WorldShape(), c.tri)
 	case c.isStaticTri:

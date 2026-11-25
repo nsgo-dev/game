@@ -168,9 +168,16 @@ func (c *Chunk) Bounds(voxelSize float32) math3d.AABB {
 	}
 }
 
+type solidWatcher struct {
+	id      uint64
+	onBlock func(x, y, z int)
+	onReset func()
+}
+
 // World holds a sparse collection of cubic voxel chunks indexed by [ChunkCoord],
 // tracks which chunks need remeshing after edits, maintains incremental per-voxel
-// sky and block light propagation, and provides raycasting and YAML persistence.
+// sky and block light propagation, and provides raycasting, direct collision,
+// and YAML persistence.
 type World struct {
 	chunks       map[ChunkCoord]*Chunk
 	airLight     map[ChunkCoord]*airLightChunk
@@ -183,10 +190,12 @@ type World struct {
 	hasMinChunkY bool
 	minChunkY    int
 
-	lightAddQ []BlockCoord
-	lightRemQ []lightRemNode
-	lightSeed []BlockCoord
-	origLight map[BlockCoord]uint8
+	lightAddQ     []BlockCoord
+	lightRemQ     []lightRemNode
+	lightSeed     []BlockCoord
+	origLight     map[BlockCoord]uint8
+	nextWatcherID uint64
+	solidWatchers []solidWatcher
 }
 
 // NewWorld constructs an empty World with cfg.
@@ -302,6 +311,47 @@ func (w *World) Block(pos BlockCoord) BlockID {
 	return ch.getUnchecked(lx, ly, lz)
 }
 
+// IsSolid reports whether the block at world voxel coordinate pos is solid
+// according to the world's [Registry]. Unallocated chunks contain [Air] and
+// are not solid.
+func (w *World) IsSolid(pos BlockCoord) bool {
+	if w == nil {
+		return false
+	}
+	return w.isSolidXYZ(pos.X, pos.Y, pos.Z)
+}
+
+func (w *World) isSolidXYZ(x, y, z int) bool {
+	cc := ChunkCoord{X: x >> w.shift, Y: y >> w.shift, Z: z >> w.shift}
+	ch := w.chunks[cc]
+	if ch == nil {
+		return false
+	}
+	id := ch.getUnchecked(x&w.mask, y&w.mask, z&w.mask)
+	return w.registry.IsSolid(id)
+}
+
+func (w *World) watchSolidEdits(onBlock func(x, y, z int), onReset func()) func() {
+	if w == nil {
+		return func() {}
+	}
+	w.nextWatcherID++
+	id := w.nextWatcherID
+	w.solidWatchers = append(w.solidWatchers, solidWatcher{
+		id:      id,
+		onBlock: onBlock,
+		onReset: onReset,
+	})
+	return func() {
+		for i, sw := range w.solidWatchers {
+			if sw.id == id {
+				w.solidWatchers = append(w.solidWatchers[:i], w.solidWatchers[i+1:]...)
+				return
+			}
+		}
+	}
+}
+
 // SetBlock sets the voxel at pos to id and returns whether the block changed.
 //
 // When the block changes, SetBlock updates sky and block light incrementally,
@@ -357,6 +407,13 @@ func (w *World) SetBlock(pos BlockCoord, id BlockID) bool {
 	w.markDirtyChunk(ch)
 	w.markAffectedNeighbors(cc, lx, ly, lz, oldID, id)
 	w.updateLightOnEdit(pos, oldID, id, skyMinChanged)
+	if len(w.solidWatchers) > 0 && w.registry.IsSolid(oldID) != w.registry.IsSolid(id) {
+		for _, sw := range w.solidWatchers {
+			if sw.onBlock != nil {
+				sw.onBlock(pos.X, pos.Y, pos.Z)
+			}
+		}
+	}
 	return true
 }
 
@@ -690,4 +747,9 @@ func (w *World) Clear() {
 	clear(w.origLight)
 	w.hasMinChunkY = false
 	w.minChunkY = 0
+	for _, sw := range w.solidWatchers {
+		if sw.onReset != nil {
+			sw.onReset()
+		}
+	}
 }

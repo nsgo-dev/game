@@ -486,6 +486,18 @@ func (c *CharacterController) raycastFirst(world *World, from, to Vec3) (Raycast
 			}
 		}
 	}
+	for _, vc := range world.voxels {
+		if (effectiveLayer(vc.Layer) & mask) == 0 {
+			continue
+		}
+		if h, ok := vc.Raycast(ray); ok {
+			h.Voxel = vc
+			if !found || h.T < best.T {
+				best = h
+				found = true
+			}
+		}
+	}
 	return best, found
 }
 
@@ -612,7 +624,14 @@ func (c *CharacterController) sweepCapsule(world *World, startPos, delta Vec3) (
 			}
 		})
 	}
-	if len(candidates) == 0 && len(meshTris) == 0 && len(hfTris) == 0 {
+	var voxelCols []*VoxelCollider
+	for _, vc := range world.voxels {
+		if (effectiveLayer(vc.Layer) & mask) == 0 {
+			continue
+		}
+		voxelCols = append(voxelCols, vc)
+	}
+	if len(candidates) == 0 && len(meshTris) == 0 && len(hfTris) == 0 && len(voxelCols) == 0 {
 		return startPos.Add(delta), Vec3{}, false
 	}
 
@@ -642,6 +661,11 @@ func (c *CharacterController) sweepCapsule(world *World, startPos, delta Vec3) (
 		}
 		for _, tri := range hfTris {
 			consider(testShapeHeightfieldTriangle(capShape, tri))
+		}
+		for _, vc := range voxelCols {
+			vc.forEachContact(capShape, func(_, _, _ int, ct Contact) {
+				consider(ct)
+			})
 		}
 		return best, found
 	}
@@ -731,6 +755,18 @@ func (c *CharacterController) deepestOverlapBody(world *World, pos Vec3) (Contac
 			continue
 		}
 		if ct := hf.TestShape(capShape); ct.Hit {
+			if !found || ct.Depth > best.Depth {
+				best = ct
+				bestBody = nil
+				found = true
+			}
+		}
+	}
+	for _, vc := range world.voxels {
+		if (effectiveLayer(vc.Layer) & mask) == 0 {
+			continue
+		}
+		if ct := vc.TestShape(capShape); ct.Hit {
 			if !found || ct.Depth > best.Depth {
 				best = ct
 				bestBody = nil

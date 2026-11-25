@@ -1,6 +1,6 @@
 # voxel
 
-`game/voxel` provides chunked 3D voxel worlds for sandbox games: dense cubic chunks, per-voxel sky and block light propagation (0..15) across chunk borders, greedy face meshing into [render3d](render3d.md) buffers, cross-chunk neighbor culling and ambient occlusion, minimal dirty-chunk tracking on edit, 3D DDA voxel raycasting, and deterministic versioned YAML saves.
+`game/voxel` provides chunked 3D voxel worlds for sandbox games: dense cubic chunks, per-voxel sky and block light propagation (0..15) across chunk borders, greedy face meshing into [render3d](render3d.md) buffers, cross-chunk neighbor culling and ambient occlusion, minimal dirty-chunk tracking on edit, 3D DDA voxel raycasting, direct solid-block collision for [physics3d](physics3d.md) bodies and characters (plus an axis-separated AABB move-and-slide character mover), and deterministic versioned YAML saves.
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/voxel"
@@ -102,6 +102,36 @@ if hit, ok := w.Raycast(ray, 64); ok {
 ```
 
 By default `Raycast` skips `NonSolid` blocks (such as water); pass `RaycastOptions{IncludeNonSolid: true}` to `RaycastWith` to hit any non-air voxel.
+
+## Voxel collision and character movement
+
+Use `w.Collider()` (or `voxel.NewCollider(w)`) to attach a voxel world directly to [physics3d](physics3d.md) without generating or rebuilding a triangle mesh:
+
+```go
+phys := physics3d.NewWorld()
+phys.AddVoxelCollider(w.Collider())
+
+crate := phys.AddBody(physics3d.NewDynamicBody(
+	physics3d.BoxShape(physics3d.Box{HalfExtents: physics3d.Vec3{X: 0.4, Y: 0.4, Z: 0.4}}),
+	physics3d.Vec3{X: 4.5, Y: 8.0, Z: 4.5},
+	1.0,
+))
+
+cc := physics3d.NewCharacterController(physics3d.Vec3{X: 1.5, Y: 4.0, Z: 1.5}, 0.3, 1.8)
+cc.StepHeight = w.VoxelSize() + 0.05
+```
+
+- **Zero rebuild on edit**: overlap, raycast, and sweep queries read `World.IsSolid` directly (skipping `Air` and `NonSolid` blocks such as water), so `SetBlock` and `Clear` take effect immediately and automatically wake sleeping dynamic bodies near edited voxels so resting crates fall when their support block is removed.
+- **No internal seam snagging**: occluded faces shared between adjacent solid blocks are filtered out so sliding boxes, spheres, capsules, and `CharacterController` glide smoothly across flat voxel floors and step up single-block ledges.
+
+For games that only need simple box characters against voxel terrain without a full `physics3d.World`, use `MoveAndSlideAABB` or `CharacterMover`:
+
+```go
+mover := voxel.NewCharacterMover(math3d.Vec3{X: 1.5, Y: 4.0, Z: 1.5}, 0.3, 1.8)
+mover.StepHeight = w.VoxelSize()
+res := mover.Move(w, math3d.Vec3{X: 4.0}, dt) // axis-separated Y -> X -> Z sweep + 1-block step-up
+_ = res
+```
 
 ## Saving and loading YAML
 
