@@ -622,6 +622,62 @@ func (e *Editor) gizmo3DBlocked() bool {
 	return e == nil || e.playing || e.gridMap.tool != GridMapToolNone || (e.TerrainOpen() && e.terrainBrush.Mode != TerrainBrushNone)
 }
 
+// gizmo3DAxes returns the world-space orthonormal X, Y, Z axes for the 3D transform gizmo:
+// world axes in GizmoSpaceGlobal, or the primary selected object's world orientation in GizmoSpaceLocal.
+func (e *Editor) gizmo3DAxes() (ax, ay, az [3]float64) {
+	ax = [3]float64{1, 0, 0}
+	ay = [3]float64{0, 1, 0}
+	az = [3]float64{0, 0, 1}
+	if e == nil || e.GizmoSpace3D != GizmoSpaceLocal {
+		return ax, ay, az
+	}
+	draggable := e.draggableSelectedIDs()
+	if len(draggable) == 0 {
+		return ax, ay, az
+	}
+	id := draggable[0]
+	if slices.Contains(draggable, e.SelectedID) {
+		id = e.SelectedID
+	}
+	obj, _, _ := e.FindObject(id)
+	if obj == nil {
+		return ax, ay, az
+	}
+	parent := e.parentWorld3D(obj.ID)
+	rx, ry, rz := float64(obj.RotX), float64(obj.RotY), float64(obj.RotZ)
+	lx := normalize64(parent.vector(rotateEulerXYZ64(ax, rx, ry, rz)))
+	ly := normalize64(parent.vector(rotateEulerXYZ64(ay, rx, ry, rz)))
+	lz := normalize64(parent.vector(rotateEulerXYZ64(az, rx, ry, rz)))
+	if len64(lx) < 1e-6 || len64(ly) < 1e-6 || len64(lz) < 1e-6 {
+		return ax, ay, az
+	}
+	return lx, ly, lz
+}
+
+func (e *Editor) gizmo3DAxisDir(axis GizmoAxis3D) [3]float64 {
+	ax, ay, az := e.gizmo3DAxes()
+	switch axis {
+	case Axis3DX:
+		return ax
+	case Axis3DY:
+		return ay
+	case Axis3DZ:
+		return az
+	default:
+		return [3]float64{}
+	}
+}
+
+func (e *Editor) gizmo3DMatrix(origin [3]float32) math3d.Mat4 {
+	ax, ay, az := e.gizmo3DAxes()
+	return math3d.Mat4{
+		float32(ax[0]), float32(ax[1]), float32(ax[2]), 0,
+		float32(ay[0]), float32(ay[1]), float32(ay[2]), 0,
+		float32(az[0]), float32(az[1]), float32(az[2]), 0,
+		origin[0], origin[1], origin[2], 1,
+	}
+}
+
 // PickGizmo3D hit-tests the active 3D gizmo handles on the currently selected object(s) in screen space
 // through the shared 3D gizmo handle picking engine.
 func (e *Editor) PickGizmo3D(sx, sy, w, h float32) GizmoAxis3D {
@@ -647,12 +703,7 @@ func (e *Editor) PickGizmo3D(sx, sy, w, h float32) GizmoAxis3D {
 	}
 	gizmoLen := e.GizmoLength3D(origin)
 	handles := transformGizmoHandles3D(e.GizmoMode, gizmoLen, true)
-	originMat := math3d.Mat4{
-		1, 0, 0, 0,
-		0, 1, 0, 0,
-		0, 0, 1, 0,
-		origin[0], origin[1], origin[2], 1,
-	}
+	originMat := e.gizmo3DMatrix(origin)
 	proj := e.Projection3D(w, h)
 	idx, _, hit := pickGizmoHandles3D(proj, originMat, handles, sx, sy, float64(gizmoHitRadius))
 	if !hit {
@@ -688,6 +739,8 @@ type drag3DState struct {
 	targets              []drag3DTarget // non-empty when dragging >1 selected objects
 	mode                 GizmoMode3D
 	axis                 GizmoAxis3D
+	axisDir              [3]float64
+	localSpace           bool
 	startSX              float32
 	startSY              float32
 	lastSX               float32
@@ -909,7 +962,9 @@ func (e *Editor) BeginGizmoDragAxis3D(axis GizmoAxis3D, sx, sy, w, h float32) bo
 	orig32, dir32 := e.Camera3D.ScreenRay(sx, sy, w, h)
 	orig := vec64(orig32)
 	dir := vec64(dir32)
-	axisDir := axisVector64(axis)
+	axisDir := e.gizmo3DAxisDir(axis)
+	st.axisDir = axisDir
+	st.localSpace = e.GizmoSpace3D == GizmoSpaceLocal
 	pos64 := vec64(pos)
 
 	switch e.GizmoMode {
@@ -957,7 +1012,10 @@ func (e *Editor) UpdateGizmoDrag3D(sx, sy float32) {
 	}
 	w, h := st.vpW, st.vpH
 	startPos := st.startPos
-	axisDir := axisVector64(st.axis)
+	axisDir := st.axisDir
+	if len64(axisDir) < 1e-6 {
+		axisDir = axisVector64(st.axis)
+	}
 	orig32, dir32 := e.Camera3D.ScreenRay(sx, sy, w, h)
 	orig := vec64(orig32)
 	dir := vec64(dir32)
@@ -970,16 +1028,22 @@ func (e *Editor) UpdateGizmoDrag3D(sx, sy float32) {
 			return
 		}
 		if grid, pixel := e.positionSnapMode(); grid || pixel {
-			axisIdx := 0
-			switch st.axis {
-			case Axis3DY:
-				axisIdx = 1
-			case Axis3DZ:
-				axisIdx = 2
-			}
-			snappedCoord := e.SnapValue(startPos[axisIdx] + delta)
-			if !math.IsNaN(snappedCoord) && !math.IsInf(snappedCoord, 0) {
-				delta = snappedCoord - startPos[axisIdx]
+			if st.localSpace {
+				if snapped := e.SnapValue(delta); !math.IsNaN(snapped) && !math.IsInf(snapped, 0) {
+					delta = snapped
+				}
+			} else {
+				axisIdx := 0
+				switch st.axis {
+				case Axis3DY:
+					axisIdx = 1
+				case Axis3DZ:
+					axisIdx = 2
+				}
+				snappedCoord := e.SnapValue(startPos[axisIdx] + delta)
+				if !math.IsNaN(snappedCoord) && !math.IsInf(snappedCoord, 0) {
+					delta = snappedCoord - startPos[axisIdx]
+				}
 			}
 		}
 		worldDelta := scale64(axisDir, delta)
@@ -1114,7 +1178,10 @@ func (e *Editor) updateMultiGizmoDrag3D(sx, sy float32) {
 	st := &e.drag3D
 	w, h := st.vpW, st.vpH
 	startPos := st.startPos
-	axisDir := axisVector64(st.axis)
+	axisDir := st.axisDir
+	if len64(axisDir) < 1e-6 {
+		axisDir = axisVector64(st.axis)
+	}
 	orig32, dir32 := e.Camera3D.ScreenRay(sx, sy, w, h)
 	orig := vec64(orig32)
 	dir := vec64(dir32)
@@ -2028,12 +2095,7 @@ func (e *Editor) drawGizmo3D(d *core.Drawing, w, h float32) {
 	}
 	gizmoLen := e.GizmoLength3D(origin)
 	handles := transformGizmoHandles3D(e.GizmoMode, gizmoLen, false)
-	originMat := math3d.Mat4{
-		1, 0, 0, 0,
-		0, 1, 0, 0,
-		0, 0, 1, 0,
-		origin[0], origin[1], origin[2], 1,
-	}
+	originMat := e.gizmo3DMatrix(origin)
 	drawGizmoHandles3D(d, e.Projection3D(w, h), originMat, handles, gizmoHandleIDFromAxis(e.ActiveGizmoAxis3D()))
 }
 

@@ -5,6 +5,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -307,46 +308,59 @@ func flyView3D(cx *core.Scope, ed *Editor) core.Node {
 	}
 }
 
-// axisWidgetSize3D is the side of the axis widget's square, in points, and axisWidgetReach3D how far from its center an axis's end lies.
+// Spec-derived translucent surface tokens from docs/design/editor/Spec.dc.html and Viewport3D.dc.html.
+var (
+	specViewportBarBg     = core.RGBA(0x171A21, 0.92)
+	specViewportHUDSoftBg = core.RGBA(0x171A21, 0.85)
+)
+
+// axisWidgetSize3D is the diameter of the orientation widget in points, matching Viewport3D.dc.html,
+// and axisWidgetReach3D is how far from its center each world axis end lies.
 const (
-	axisWidgetSize3D  float32 = 76
-	axisWidgetReach3D float32 = 26
+	axisWidgetSize3D  float32 = 88
+	axisWidgetReach3D float32 = 28
 	axisMarkRadius3D  float32 = 9
 )
 
-// axisMark3D is one end of a world axis on the axis widget, and the view pressing it turns to.
+// axisMark3D is one end of a world axis on the orientation widget, and the view pressing it turns to.
 type axisMark3D struct {
+	id       string
 	view     View3D
 	label    string
+	ariaName string
 	positive bool
 	color    core.Color
 	// x and y are its place in the widget, and depth how far it points away from the viewer, from -1 (at the viewer) to 1.
 	x, y, depth float32
 }
 
-// axisMarks3D returns the six axis ends of the widget for camera c, the farthest first, as they are drawn.
+// axisMarks3D returns the six axis ends of the orientation widget for camera c, the farthest first, as they are drawn.
 func axisMarks3D(c OrbitCamera3D) []axisMark3D {
 	right, up, forward := c.basis64()
 	ends := []struct {
+		id       string
 		dir      [3]float64
 		view     View3D
 		label    string
+		ariaName string
 		positive bool
 		color    core.Color
 	}{
-		{[3]float64{1, 0, 0}, View3DRight, "X", true, core.RGBA(0xEF4444, 1)},
-		{[3]float64{-1, 0, 0}, View3DLeft, "", false, core.RGBA(0xEF4444, 1)},
-		{[3]float64{0, 1, 0}, View3DTop, "Y", true, core.RGBA(0x22C55E, 1)},
-		{[3]float64{0, -1, 0}, View3DBottom, "", false, core.RGBA(0x22C55E, 1)},
-		{[3]float64{0, 0, 1}, View3DFront, "Z", true, core.RGBA(0x3B82F6, 1)},
-		{[3]float64{0, 0, -1}, View3DBack, "", false, core.RGBA(0x3B82F6, 1)},
+		{"view3d-axis-right", [3]float64{1, 0, 0}, View3DRight, "X", "View from +X (right)", true, specProblem},
+		{"view3d-axis-left", [3]float64{-1, 0, 0}, View3DLeft, "", "View from -X (left)", false, specProblem},
+		{"view3d-axis-top", [3]float64{0, 1, 0}, View3DTop, "Y", "View from +Y (top)", true, specAdded},
+		{"view3d-axis-bottom", [3]float64{0, -1, 0}, View3DBottom, "", "View from -Y (bottom)", false, specAdded},
+		{"view3d-axis-front", [3]float64{0, 0, 1}, View3DFront, "Z", "View from +Z (front)", true, specAccent},
+		{"view3d-axis-back", [3]float64{0, 0, -1}, View3DBack, "", "View from -Z (back)", false, specAccent},
 	}
 	center := axisWidgetSize3D / 2
 	marks := make([]axisMark3D, 0, len(ends))
 	for _, end := range ends {
 		marks = append(marks, axisMark3D{
+			id:       end.id,
 			view:     end.view,
 			label:    end.label,
+			ariaName: end.ariaName,
 			positive: end.positive,
 			color:    end.color,
 			x:        center + float32(dot64(end.dir, right))*axisWidgetReach3D,
@@ -378,10 +392,24 @@ func pickAxisMark3D(c OrbitCamera3D, x, y float32) (View3D, bool) {
 	return 0, false
 }
 
-// drawAxisWidget3D draws the axis widget for camera c: a line from the center to each positive end, a lettered disc at each positive end and a plain one at each negative end, the nearer over the farther.
-func drawAxisWidget3D(d *core.Drawing, c OrbitCamera3D, ink core.Color) {
+// drawAxisLines3D draws the three positive world-axis spokes from the orientation widget's center.
+func drawAxisLines3D(d *core.Drawing, c OrbitCamera3D) {
 	center := axisWidgetSize3D / 2
-	font := core.Font{Size: 11, Weight: 700}
+	for _, m := range axisMarks3D(c) {
+		if !m.positive {
+			continue
+		}
+		d.Save().SetStrokeColor(m.color).SetLineWidth(2).BeginPath().MoveTo(center, center).LineTo(m.x, m.y).Stroke().Restore()
+	}
+}
+
+// drawAxisWidget3D draws the full orientation widget onto d for offscreen/canvas tests: a line from the center to each positive end, a Spec-colored lettered disc with #101216 ink at each positive end, and a raised bordered disc at each negative end, the nearer over the farther.
+func drawAxisWidget3D(d *core.Drawing, c OrbitCamera3D, ink core.Color) {
+	if ink == 0 {
+		ink = specBg
+	}
+	center := axisWidgetSize3D / 2
+	font := core.Font{Size: 10, Weight: 600}
 	for _, m := range axisMarks3D(c) {
 		if m.positive {
 			d.Save().SetStrokeColor(m.color).SetLineWidth(2).BeginPath().MoveTo(center, center).LineTo(m.x, m.y).Stroke().Restore()
@@ -389,128 +417,427 @@ func drawAxisWidget3D(d *core.Drawing, c OrbitCamera3D, ink core.Color) {
 			d.Save().SetFillColor(ink).SetTextAlign(core.TextAlignCenter).SetTextBaseline(core.BaselineMiddle).FillText(m.label, m.x, m.y, font).Restore()
 			continue
 		}
-		d.Save().SetFillColor(m.color.Faded(0.45)).BeginPath().Arc(m.x, m.y, axisMarkRadius3D-2, 0, float32(2*math.Pi), false).Fill().Restore()
+		d.Save().SetFillColor(specRaised).SetStrokeColor(m.color).SetLineWidth(1.5).BeginPath().Arc(m.x, m.y, 6, 0, float32(2*math.Pi), false).Fill().Stroke().Restore()
 	}
 }
 
-// viewport3DOverlay is what the 3D viewport shows over the scene: the bar with the projection, the view's name, Focus and Reset view; the axis widget with the Orbit buttons in the top right corner; and the controls' help line.
+func divider3D() core.Node {
+	return core.View{
+		Style: core.Style{
+			Width:      core.Pt(1),
+			Height:     core.Pt(16),
+			Background: specLineRaised,
+			Margin:     core.Symmetric(0, 4),
+		},
+	}
+}
+
+func keycap3D(label string) core.Node {
+	return core.View{
+		Style: core.Style{
+			Height:         core.Pt(18),
+			Padding:        core.Symmetric(0, 5),
+			CornerRadius:   4,
+			Background:     specPanel,
+			BorderWidth:    1,
+			BorderColor:    specLineRaised,
+			AlignItems:     core.AlignCenter,
+			JustifyContent: core.JustifyCenter,
+		},
+		Children: []core.Node{
+			core.Text{
+				Content: label,
+				Style: core.Style{
+					FontFamily: core.FontMonospace,
+					FontSize:   10.5,
+					Color:      specText,
+				},
+			},
+		},
+	}
+}
+
+func helpGroup3D(keys []string, text string) core.Node {
+	children := make([]core.Node, 0, len(keys)+1)
+	for _, k := range keys {
+		children = append(children, keycap3D(k))
+	}
+	children = append(children, core.Text{
+		Content: text,
+		Style: core.Style{
+			FontSize: 11.5,
+			Color:    specTextSecondary,
+		},
+	})
+	return core.View{
+		Style: core.Style{
+			Direction:  core.Row,
+			AlignItems: core.AlignCenter,
+			Gap:        6,
+		},
+		Children: children,
+	}
+}
+
+// viewport3DOverlay renders the 3D viewport HUD strictly with Spec.dc.html tokens,
+// matching docs/design/editor/Viewport3D.dc.html:
+//   - Top-left: Persp/Ortho segmented control, Shading menu (Lit/Unlit/Wireframe), view name, Reset view, Camera/Env toggles, and the keycap help line below it.
+//   - Top-right: 88×88 circular orientation widget with clickable, keyboard-focusable axis buttons (+X/-X/+Y/-Y/+Z/-Z) and Orbit 15° left/right buttons.
+//   - Bottom-center: Local/Global space segmented control, Snap settings popover, and Focus F button.
 func viewport3DOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []core.Node {
-	colors := ui.ColorsOf(cx)
 	ortho := func() bool {
 		_ = rev.Get()
 		return ed.Camera3D.Orthographic
 	}
-	panel := core.Style{
+	segBtn := func(testID, text, label string, active func() bool, disabled func() bool, onPress func()) core.Node {
+		return base.Button{
+			TestID:   testID,
+			Label:    label,
+			Selected: active,
+			Disabled: disabled,
+			StyleFunc: func() core.Style {
+				on := active()
+				isDisabled := disabled != nil && disabled()
+				var bg core.Color
+				if on {
+					bg = specLineRaised
+				}
+				var opacity core.Opacity
+				if isDisabled {
+					opacity = core.Alpha(0.45)
+				}
+				return core.Style{
+					Height:         core.Pt(28),
+					Padding:        core.Symmetric(0, 10),
+					CornerRadius:   6,
+					Background:     bg,
+					Opacity:        opacity,
+					AlignItems:     core.AlignCenter,
+					JustifyContent: core.JustifyCenter,
+					Hover:          &core.Style{Background: specLineRaised},
+					FocusVisible:   specFocusRingStyle,
+				}
+			},
+			OnPress: func(core.PressEvent) { onPress() },
+			Children: []core.Node{
+				core.Text{
+					Content: text,
+					StyleFunc: func() core.Style {
+						col := specTextSecondary
+						if active() {
+							col = specTextStrong
+						}
+						return core.Style{
+							FontSize:   12.5,
+							FontWeight: 500,
+							Color:      col,
+						}
+					},
+				},
+			},
+		}
+	}
+	iconBtn := func(testID string, icon func() *core.SVG, label string, fn func()) core.Node {
+		return ui.Button{
+			TestID:   testID,
+			Icon:     icon,
+			IconSize: 13,
+			Side:     28,
+			Label:    label,
+			Size:     ui.SizeSmall,
+			Variant:  ui.ButtonGhost,
+			Tint:     func() core.Color { return specTextSecondary },
+			Style: core.Style{
+				CornerRadius: 6,
+				FocusVisible: specFocusRingStyle,
+			},
+			OnPress: fn,
+		}
+	}
+
+	barStyle := core.Style{
 		Direction:    core.Row,
 		AlignItems:   core.AlignCenter,
 		Gap:          4,
-		Padding:      core.Symmetric(2, 4),
-		CornerRadius: 6,
-		Background:   colors.Raised(),
+		Padding:      core.All(4),
+		CornerRadius: 8,
+		Background:   specViewportBarBg,
+		BorderWidth:  1,
+		BorderColor:  specLineRaised,
 	}
-	bar := panel
-	bar.Position, bar.Left, bar.Top = core.Absolute, core.Pt(8), core.Pt(8)
-	axes := core.Style{Position: core.Absolute, Right: core.Pt(8), Top: core.Pt(8), AlignItems: core.AlignCenter, Gap: 4}
-	help := core.Style{
-		Position:     core.Absolute,
-		Left:         core.Pt(8),
-		Bottom:       core.Pt(8),
-		Padding:      core.Symmetric(2, 6),
-		CornerRadius: 4,
-		FontSize:     11,
-		Color:        colors.Muted(),
-		Background:   colors.Raised(),
-	}
-	iconBtn := func(testID string, icon func() *core.SVG, label string, fn func()) core.Node {
-		return ui.Button{TestID: testID, Icon: icon, Label: label, Size: ui.SizeSmall, Variant: ui.ButtonGhost, OnPress: fn}
-	}
-	return []core.Node{
-		core.View{
-			TestID: "view3d-bar",
-			Style:  bar,
+
+	shadingMenu := ui.Menu{
+		TestID: "view3d-shading",
+		Label:  "3D Shading",
+		Face: core.View{
+			Style: core.Style{
+				Direction:    core.Row,
+				AlignItems:   core.AlignCenter,
+				Gap:          4,
+				Height:       core.Pt(28),
+				Padding:      core.Symmetric(0, 8),
+				CornerRadius: 6,
+				Hover:        &core.Style{Background: specLineRaised},
+				FocusVisible: specFocusRingStyle,
+			},
 			Children: []core.Node{
-				ui.ToolbarGroup{
-					Label: "Projection",
-					Children: []core.Node{
-						ui.ToggleButton{TestID: "view3d-persp", Text: "Persp", Label: "Perspective (" + cx.KeyLabel("5") + ")", On: func() bool { return !ortho() }, OnChange: func(on bool) {
-							if on {
-								ed.SetOrthographic3D(false)
-							}
-						}},
-						ui.ToggleButton{TestID: "view3d-ortho", Text: "Ortho", Label: "Orthographic (" + cx.KeyLabel("5") + ")", On: ortho, OnChange: func(on bool) {
-							if on {
-								ed.SetOrthographic3D(true)
-							}
-						}},
-					},
-				},
 				core.Text{
-					TestID: "view3d-name",
+					TestID: "view3d-shading-label",
 					ContentFunc: func() string {
 						_ = rev.Get()
-						return ed.ViewName3D()
+						return ed.Shading3D.String()
 					},
-					Style: core.Style{FontSize: 12, Color: colors.Text(), Padding: core.Symmetric(0, 6)},
-				},
-				ui.Button{TestID: "view3d-focus", Icon: lucide.Focus, Text: "Focus", Label: "Frame the selection (" + cx.KeyLabel("f") + ")", Size: ui.SizeSmall, Variant: ui.ButtonGhost, OnPress: func() { ed.FrameSelection() }},
-				ui.ToggleButton{
-					TestID: "view3d-camera",
-					Text:   "Camera",
-					Label:  "Look through scene camera (" + cx.KeyLabel("0") + ")",
-					Disabled: func() bool {
-						_ = rev.Get()
-						return !ed.LookThroughCamera3D() && !ed.HasSceneCamera3D()
-					},
-					On: func() bool {
-						_ = rev.Get()
-						return ed.LookThroughCamera3D()
-					},
-					OnChange: func(on bool) {
-						ed.report(ed.SetLookThroughCamera3D(on))
+					Style: core.Style{
+						FontSize:   12.5,
+						FontWeight: 500,
+						Color:      specText,
 					},
 				},
-				ui.ToggleButton{
-					TestID: "view3d-env",
-					Text:   "Env",
-					Label:  "Toggle Scene Environment settings",
-					On: func() bool {
-						_ = rev.Get()
-						return ed.EnvironmentPanelOpen()
-					},
-					OnChange: func(on bool) {
-						ed.SetEnvironmentPanelOpen(on)
+				core.Icon{
+					SVG: lucide.ChevronDown(),
+					Style: core.Style{
+						Width:  core.Pt(12),
+						Height: core.Pt(12),
+						Color:  specTextSecondary,
 					},
 				},
-				snapSettingsPopover(cx, ed, rev, "view3d-snap-settings", func() bool {
-					_ = rev.Get()
-					return ed.Playing()
-				}),
-				iconBtn("view3d-reset", lucide.RefreshCcw, "Reset view", ed.ResetView3D),
 			},
 		},
+		Children: []core.Node{
+			ui.MenuItem{
+				TestID:   "view3d-shading-lit",
+				Text:     Shading3DLit.String(),
+				OnSelect: func() { ed.SetShading3D(Shading3DLit) },
+			},
+			ui.MenuItem{
+				TestID:   "view3d-shading-unlit",
+				Text:     Shading3DUnlit.String(),
+				OnSelect: func() { ed.SetShading3D(Shading3DUnlit) },
+			},
+			ui.MenuItem{
+				TestID:   "view3d-shading-wireframe",
+				Text:     Shading3DWireframe.String(),
+				OnSelect: func() { ed.SetShading3D(Shading3DWireframe) },
+			},
+		},
+	}
+
+	cameraDisabled := func() bool {
+		_ = rev.Get()
+		return !ed.LookThroughCamera3D() && !ed.HasSceneCamera3D()
+	}
+
+	focusKey := cx.KeyLabel("f")
+	return []core.Node{
+		// Top-left stack: 3D viewport bar + keycap help line.
 		core.View{
-			TestID: "view3d-axes-panel",
-			Style:  axes,
+			Style: core.Style{
+				Position:   core.Absolute,
+				Left:       core.Pt(16),
+				Top:        core.Pt(16),
+				AlignItems: core.AlignStart,
+				Gap:        8,
+			},
 			Children: []core.Node{
-				core.Canvas{
-					TestID: "view3d-axes",
-					LabelFunc: func() string {
-						_ = rev.Get()
-						return "View axes: " + ed.ViewName3D()
-					},
-					Style: core.Style{Width: core.Pt(core.Points(axisWidgetSize3D)), Height: core.Pt(core.Points(axisWidgetSize3D))},
-					OnPress: func(ev core.PressEvent) {
-						if v, ok := pickAxisMark3D(ed.Camera3D, float32(ev.Position.X), float32(ev.Position.Y)); ok {
-							ed.SetView3D(v)
-						}
-					},
-					Draw: func(d *core.Drawing, _ core.Size) {
-						_ = rev.Get()
-						drawAxisWidget3D(d, ed.Camera3D, core.RGBA(0xFFFFFF, 1))
+				core.View{
+					TestID: "view3d-bar",
+					Style:  barStyle,
+					Children: []core.Node{
+						core.View{
+							Role:  core.RoleGroup,
+							Label: "Projection",
+							Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 2},
+							Children: []core.Node{
+								segBtn("view3d-persp", "Persp", "Perspective ("+cx.KeyLabel("5")+")", func() bool { return !ortho() }, nil, func() {
+									ed.SetOrthographic3D(false)
+								}),
+								segBtn("view3d-ortho", "Ortho", "Orthographic ("+cx.KeyLabel("5")+")", ortho, nil, func() {
+									ed.SetOrthographic3D(true)
+								}),
+							},
+						},
+						divider3D(),
+						shadingMenu,
+						divider3D(),
+						core.Text{
+							TestID: "view3d-name",
+							ContentFunc: func() string {
+								_ = rev.Get()
+								return ed.ViewName3D()
+							},
+							Style: core.Style{
+								FontSize: 12.5,
+								Color:    specTextSecondary,
+								Padding:  core.Symmetric(0, 8),
+							},
+						},
+						iconBtn("view3d-reset", lucide.House, "Reset view", ed.ResetView3D),
+						divider3D(),
+						segBtn("view3d-camera", "Camera", "Look through scene camera ("+cx.KeyLabel("0")+")", func() bool {
+							_ = rev.Get()
+							return ed.LookThroughCamera3D()
+						}, cameraDisabled, func() {
+							ed.report(ed.SetLookThroughCamera3D(!ed.LookThroughCamera3D()))
+						}),
+						segBtn("view3d-env", "Env", "Toggle Scene Environment settings", func() bool {
+							_ = rev.Get()
+							return ed.EnvironmentPanelOpen()
+						}, nil, func() {
+							ed.SetEnvironmentPanelOpen(!ed.EnvironmentPanelOpen())
+						}),
 					},
 				},
 				core.View{
-					Style: panel,
+					TestID: "view3d-help",
+					Label:  "Drag orbit · Middle pan · Right WASD fly · " + focusKey + " focus",
+					Style: core.Style{
+						Direction:    core.Row,
+						AlignItems:   core.AlignCenter,
+						Gap:          12,
+						Height:       core.Pt(28),
+						Padding:      core.Symmetric(0, 12),
+						CornerRadius: 8,
+						Background:   specViewportHUDSoftBg,
+						BorderWidth:  1,
+						BorderColor:  specLineRaised,
+					},
+					Children: []core.Node{
+						helpGroup3D([]string{"Drag"}, "orbit"),
+						helpGroup3D([]string{"Middle"}, "pan"),
+						helpGroup3D([]string{"Right", "WASD"}, "fly"),
+						helpGroup3D([]string{focusKey}, "focus"),
+					},
+				},
+			},
+		},
+
+		// Top-right: circular orientation widget with clickable axis buttons + Orbit 15° buttons.
+		core.View{
+			TestID: "view3d-axes-panel",
+			Style: core.Style{
+				Position:   core.Absolute,
+				Right:      core.Pt(16),
+				Top:        core.Pt(16),
+				AlignItems: core.AlignCenter,
+				Gap:        8,
+			},
+			Children: []core.Node{
+				core.View{
+					Role:  core.RoleGroup,
+					Label: "View orientation",
+					Style: core.Style{
+						Width:        core.Pt(core.Points(axisWidgetSize3D)),
+						Height:       core.Pt(core.Points(axisWidgetSize3D)),
+						CornerRadius: core.Points(axisWidgetSize3D / 2),
+						Background:   specViewportHUDSoftBg,
+						BorderWidth:  1,
+						BorderColor:  specLineRaised,
+					},
+					Children: []core.Node{
+						core.Canvas{
+							TestID: "view3d-axes",
+							LabelFunc: func() string {
+								_ = rev.Get()
+								return "View axes: " + ed.ViewName3D()
+							},
+							Style: core.Style{
+								Position: core.Absolute,
+								Left:     core.Pt(0),
+								Top:      core.Pt(0),
+								Width:    core.Pt(core.Points(axisWidgetSize3D)),
+								Height:   core.Pt(core.Points(axisWidgetSize3D)),
+							},
+							OnPress: func(ev core.PressEvent) {
+								if v, ok := pickAxisMark3D(ed.Camera3D, float32(ev.Position.X), float32(ev.Position.Y)); ok {
+									ed.SetView3D(v)
+								}
+							},
+							Draw: func(d *core.Drawing, _ core.Size) {
+								_ = rev.Get()
+								drawAxisLines3D(d, ed.Camera3D)
+							},
+						},
+						core.Dynamic(func(cx *core.Scope) core.Node {
+							_ = rev.Get()
+							marks := axisMarks3D(ed.Camera3D)
+							btns := make([]core.Node, 0, len(marks))
+							for i, m := range marks {
+								mark := m
+								size := float32(12)
+								slop := core.All(4)
+								bg := specRaised
+								borderW := core.Points(1.5)
+								borderCol := mark.color
+								if mark.positive {
+									size = 18
+									slop = core.All(5)
+									bg = mark.color
+									borderW = 0
+									borderCol = 0
+								}
+								var children []core.Node
+								if mark.positive {
+									children = []core.Node{
+										core.Text{
+											Content: mark.label,
+											Style: core.Style{
+												FontSize:   10,
+												FontWeight: 600,
+												Color:      specBg,
+											},
+										},
+									}
+								}
+								btns = append(btns, base.Button{
+									TestID:  mark.id,
+									Label:   mark.ariaName,
+									HitSlop: slop,
+									Style: core.Style{
+										Position:       core.Absolute,
+										Left:           core.Pt(core.Points(mark.x - size/2)),
+										Top:            core.Pt(core.Points(mark.y - size/2)),
+										ZIndex:         i + 1,
+										Width:          core.Pt(core.Points(size)),
+										Height:         core.Pt(core.Points(size)),
+										CornerRadius:   core.Points(size / 2),
+										Background:     bg,
+										BorderWidth:    borderW,
+										BorderColor:    borderCol,
+										AlignItems:     core.AlignCenter,
+										JustifyContent: core.JustifyCenter,
+										FocusVisible:   specFocusRingStyle,
+									},
+									OnPress: func(core.PressEvent) {
+										ed.SetView3D(mark.view)
+									},
+									Children: children,
+								})
+							}
+							return core.View{
+								PointerEvents: core.PointerEventsBoxNone,
+								Style: core.Style{
+									Position: core.Absolute,
+									Left:     core.Pt(0),
+									Top:      core.Pt(0),
+									Width:    core.Pt(core.Points(axisWidgetSize3D)),
+									Height:   core.Pt(core.Points(axisWidgetSize3D)),
+								},
+								Children: btns,
+							}
+						}),
+					},
+				},
+				core.View{
+					Style: core.Style{
+						Direction:    core.Row,
+						AlignItems:   core.AlignCenter,
+						Gap:          2,
+						Padding:      core.All(3),
+						CornerRadius: 8,
+						Background:   specViewportHUDSoftBg,
+						BorderWidth:  1,
+						BorderColor:  specLineRaised,
+					},
 					Children: []core.Node{
 						iconBtn("view3d-orbit-left", lucide.RotateCcw, "Orbit 15° left", func() { ed.OrbitView3D(-orbitStep3D, 0) }),
 						iconBtn("view3d-orbit-right", lucide.RotateCw, "Orbit 15° right", func() { ed.OrbitView3D(orbitStep3D, 0) }),
@@ -518,10 +845,85 @@ func viewport3DOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []c
 				},
 			},
 		},
-		core.Text{
-			TestID:  "view3d-help",
-			Content: "Drag orbit · Middle pan · Right WASD fly · " + cx.KeyLabel("f") + " focus",
-			Style:   help,
+
+		// Bottom-center floating pill: Local / Global space, Snap settings, Focus F.
+		core.View{
+			PointerEvents: core.PointerEventsBoxNone,
+			Style: core.Style{
+				Position:       core.Absolute,
+				Left:           core.Pt(0),
+				Right:          core.Pt(0),
+				Bottom:         core.Pt(16),
+				Direction:      core.Row,
+				JustifyContent: core.JustifyCenter,
+			},
+			Children: []core.Node{
+				core.View{
+					TestID: "view3d-bottom-bar",
+					Style:  barStyle,
+					Children: []core.Node{
+						core.View{
+							Role:  core.RoleGroup,
+							Label: "Transform space",
+							Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 2},
+							Children: []core.Node{
+								segBtn("view3d-space-local", "Local", "Local transform space", func() bool {
+									_ = rev.Get()
+									return ed.GizmoSpace3D == GizmoSpaceLocal
+								}, nil, func() {
+									ed.SetGizmoSpace3D(GizmoSpaceLocal)
+								}),
+								segBtn("view3d-space-global", "Global", "Global transform space", func() bool {
+									_ = rev.Get()
+									return ed.GizmoSpace3D == GizmoSpaceGlobal
+								}, nil, func() {
+									ed.SetGizmoSpace3D(GizmoSpaceGlobal)
+								}),
+							},
+						},
+						divider3D(),
+						snapSettingsPopover(cx, ed, rev, "view3d-snap-settings", func() bool {
+							_ = rev.Get()
+							return ed.Playing()
+						}),
+						divider3D(),
+						base.Button{
+							TestID: "view3d-focus",
+							Label:  "Frame the selection (" + focusKey + ")",
+							Style: core.Style{
+								Direction:    core.Row,
+								AlignItems:   core.AlignCenter,
+								Gap:          6,
+								Height:       core.Pt(28),
+								Padding:      core.Symmetric(0, 10),
+								CornerRadius: 6,
+								Hover:        &core.Style{Background: specLineRaised},
+								FocusVisible: specFocusRingStyle,
+							},
+							OnPress: func(core.PressEvent) { ed.FrameSelection() },
+							Children: []core.Node{
+								core.Icon{
+									SVG: lucide.Focus(),
+									Style: core.Style{
+										Width:  core.Pt(13),
+										Height: core.Pt(13),
+										Color:  specText,
+									},
+								},
+								core.Text{
+									Content: "Focus",
+									Style: core.Style{
+										FontSize:   12.5,
+										FontWeight: 500,
+										Color:      specText,
+									},
+								},
+								keycap3D(focusKey),
+							},
+						},
+					},
+				},
+			},
 		},
 	}
 }

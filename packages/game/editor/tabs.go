@@ -822,7 +822,9 @@ func (e *Editor) parseSceneFile(filePath string, layers *sceneformat.PhysicsLaye
 
 // activateNewTab inserts a new scene tab (or replaces the single pristine placeholder tab), activates it, and initializes its viewport and build state.
 func (e *Editor) activateNewTab(doc *sceneformat.SceneDoc, saved []byte, filePath string) {
-	e.saveViewStateQuietly()
+	if e.ScenePath != "" {
+		e.saveViewStateQuietly()
+	}
 	e.cancelTransientInteraction()
 	e.syncActiveTab()
 

@@ -12,7 +12,6 @@ import (
 	"github.com/nsgo-dev/game/packages/game/render3d"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
-	"github.com/nsgo-dev/nsgo/ui"
 )
 
 // ViewProj returns the right-handed Y-up [0, 1] NDC view-projection matrix
@@ -612,9 +611,8 @@ func (e *Editor) renderStats3DText() string {
 }
 
 // viewport3DRenderStatsOverlay renders a non-blocking RenderStats + LOD HUD card
-// over the top-right corner of the 3D viewport (clear of the axes gizmo and error banner).
+// in the bottom-right corner of the 3D viewport (clear of the top bar, orientation widget, and bottom center pill).
 func viewport3DRenderStatsOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
-	colors := ui.ColorsOf(cx)
 	return core.Show{
 		When: func() bool {
 			_ = rev.Get()
@@ -625,14 +623,14 @@ func viewport3DRenderStatsOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[u
 				TestID: "viewport3d-render-stats-panel",
 				Style: core.Style{
 					Position:      core.Absolute,
-					Top:           core.Pt(8),
-					Right:         core.Pt(96),
+					Bottom:        core.Pt(60),
+					Right:         core.Pt(16),
 					ZIndex:        10,
 					PointerEvents: core.PointerEventsNone,
-					Background:    core.RGBA(0x0F172A, 0.82),
+					Background:    specViewportHUDSoftBg,
 					Borders:       core.All(1),
-					BorderColor:   colors.Line(),
-					CornerRadius:  4,
+					BorderColor:   specLineRaised,
+					CornerRadius:  8,
 					Padding:       core.Symmetric(5, 8),
 				},
 				Children: []core.Node{
@@ -644,7 +642,7 @@ func viewport3DRenderStatsOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[u
 						},
 						Style: core.Style{
 							FontSize: 11,
-							Color:    core.RGBA(0xE2E8F0, 0.96),
+							Color:    specText,
 						},
 					},
 				},

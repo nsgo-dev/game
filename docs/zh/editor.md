@@ -664,12 +664,14 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 | 平移 | 中键拖动，或按住 Shift 拖动 | 双指滚动，或在触摸屏上双指拖动 | |
 | 向注视点缩放 | 滚轮 | 捏合，或按住 Control 或 Command 滚动 | |
 | 飞行 | 按住右键：移动指针环顾，W、A、S、D 移动，Q 和 E 下降和上升，按住 Shift 加速，滚轮调整速度 | | |
-| 聚焦选中对象 | | | `f` 或视图栏的 Focus 按钮，按其边界取景；未选中任何对象时取景整个场景 |
-| 轴向视图 | | 点按右上角坐标轴控件上的轴端 | `1` 前视、`ctrl+1` 后视、`3` 右视、`ctrl+3` 左视、`7` 顶视、`ctrl+7` 底视 |
-| 透视或正交 | | | `5`，或视图栏中的 Persp 与 Ortho |
-| 回到默认视图 | | | 视图栏的 Reset view 按钮 |
+| 聚焦选中对象 | | | `f` 或底部视图栏的 Focus `F` 按钮，按其边界取景；未选中任何对象时取景整个场景 |
+| 轴向视图 | | 点按右上角方向控件上的轴向按钮（`X`、`Y`、`Z` 或负轴端） | `1` 前视、`ctrl+1` 后视、`3` 右视、`ctrl+3` 左视、`7` 顶视、`ctrl+7` 底视，或在方向控件上通过 Tab/Enter 激活 |
+| 透视或正交 | | | `5`，或左上角视图栏中的 Persp 与 Ortho |
+| 着色模式 | | | 左上角视图栏中的着色菜单（`Lit`、`Unlit`、`Wireframe`） |
+| 变换空间（局部 / 全局） | | | 底部视图栏中的 Local / Global 切换，或命令 `gizmo.3d.space` |
+| 回到默认视图 | | | 左上角视图栏的 Reset view 按钮 |
 
-- **视图栏与状态栏**显示视图的名称：轴向视图的名称（Front、Top 等）或 Perspective，正交时附加“ · ortho”，不沿任何轴的正交视图为“User · ortho”（`ViewName3D`）。状态栏还会以度为单位显示偏航角和俯仰角。
+- **视口叠加栏与状态栏**采用编辑器设计规范色板：左上角视图栏包含 Persp/Ortho 分段切换、着色菜单（`Lit`、`Unlit`、`Wireframe`）、当前视图名称（`ViewName3D`：轴向视图名或 `Perspective`，正交时附加 ` · ortho`，偏离坐标轴的正交视图为 `User · ortho`）、Reset view 以及 Camera/Env 切换，正下方显示带键帽的操作提示条（`Drag orbit · Middle pan · Right WASD fly · F focus`）。右上角圆形方向控件在“向左/向右环绕 15°”按钮上方提供全部六个轴向端点的可点击、可键盘聚焦按钮。底部栏提供 `Local` / `Global` 变换空间切换（`GizmoSpace3D`、`SetGizmoSpace3D`）、吸附设置弹出框与 `Focus F` 按钮。状态栏同时显示以度为单位的偏航角与俯仰角（` · yaw N° · pitch M°`）以及当前操纵杆空间（` · Local` / ` · Global`，中文界面显示 ` · 局部` / ` · 全局`）。
 - **正交**（`SetOrthographic3D`、`OrbitCamera3D.Orthographic`）以平行投影显示。视图高度为 `OrthoHeight`，即透视视图在注视点处显示的高度，因此切换时位于注视点的物体大小不变，缩放会改变这个高度。`Project`、`ScreenRay`、`SceneCamera`、拾取和变换控件在两种投影下行为一致：正交时每个像素的射线都沿视线方向，因此按下会选中其下方的物体，拖动变换控件时对象沿轴移动的距离等于指针沿该轴移动的距离。正交下的轴向视图就是真正的平面图或立面图。
 - **飞行**（`BeginFly3D`、`FlyLook3D`、`FlyMove3D`、`EndFly3D`）让相机绕视点转动，并让视点和注视点一起移动。飞行期间 W、A、S、D、Q、E（无论是否按住 Shift）移动相机，而不执行它们平时的快捷键（变换控件的 W 和 S、擦除瓦片的 E）；平台支持时指针会锁定在视口内。飞行以透视方式观察，所以正交视图会切换为透视；既没有转动也没有移动相机的一次右键点击会保持正交。飞行速度 `FlySpeed3D` 以世界单位每秒计，初始为相机到注视点的距离，滚轮每次将其加倍或减半（`AdjustFlySpeed3D`）。
 - **轴向视图**（`SetView3D`，命令 `view.3d.front`、`view.3d.back`、`view.3d.right`、`view.3d.left`、`view.3d.top`、`view.3d.bottom`，以及切换投影的 `view.3d.orthographic`）保持注视点和距离不变。前视沿 -Z 方向看，右视沿 -X 方向看，顶视垂直向下看，视图上方为 -Z。
