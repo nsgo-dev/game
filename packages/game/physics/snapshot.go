@@ -331,8 +331,9 @@ type RigidWorldSnapshot struct {
 	// Contacts is the warm-start cache between bodies of Bodies, and LastDt the length in seconds of the step that filled it.
 	Contacts []RigidContactSnapshot `json:"contacts,omitempty"`
 	LastDt   float64                `json:"lastDt,omitempty"`
-	// Grid is the world's Tiles when they are a *Grid, with the settings they collide with.
+	// Grid is the world's Tiles when they are a *Grid, with the settings they collide with. CustomTiles reports Tiles of another TileGrid type, which Save cannot capture: Restore keeps the caller's Tiles then, and clears them when neither is set, as for a world without Tiles or a version 1 snapshot.
 	Grid            *GridSnapshot `json:"grid,omitempty"`
+	CustomTiles     bool          `json:"customTiles,omitempty"`
 	TileLayer       LayerMask     `json:"tileLayer,omitempty"`
 	TileMask        LayerMask     `json:"tileMask,omitempty"`
 	TileFriction    float32       `json:"tileFriction,omitempty"`
@@ -877,6 +878,7 @@ func (w *RigidWorld) Save() RigidWorldSnapshot {
 	}
 
 	snap.Grid = snapshotGrid(w.Tiles)
+	snap.CustomTiles = w.Tiles != nil && snap.Grid == nil
 	snap.TileLayer, snap.TileMask = w.TileLayer, w.TileMask
 	snap.TileFriction, snap.TileRestitution = w.TileFriction, w.TileRestitution
 	for _, t := range w.touching {
@@ -1520,6 +1522,9 @@ func (w *RigidWorld) Restore(snap RigidWorldSnapshot) error {
 			return fmt.Errorf("physics: jointBreakEvents[%d] has out-of-range bodyB index %d", i, ev.BodyBIndex)
 		}
 	}
+	if snap.Grid != nil && snap.CustomTiles {
+		return fmt.Errorf("physics: RigidWorldSnapshot has both a grid and customTiles")
+	}
 	validPair := func(a, b int, tile bool) bool {
 		if a < 0 || a >= len(snap.Bodies) {
 			return false
@@ -1681,8 +1686,11 @@ func (w *RigidWorld) Restore(snap RigidWorldSnapshot) error {
 	w.contacts = contacts
 	w.lastDt = snap.LastDt
 
-	if snap.Grid != nil {
+	switch {
+	case snap.Grid != nil:
 		w.Tiles = restoreGrid(w.Tiles, snap.Grid)
+	case !snap.CustomTiles:
+		w.Tiles = nil
 	}
 	w.TileLayer, w.TileMask = snap.TileLayer, snap.TileMask
 	w.TileFriction, w.TileRestitution = snap.TileFriction, snap.TileRestitution

@@ -282,6 +282,38 @@ func TestRigidKinematicPlatformWakesSleepingCrate(t *testing.T) {
 	}
 }
 
+// A kinematic block that comes to rest inside a sleeping crate, by a teleport or by a single target and no next one, wakes the crate and pushes it out.
+func TestRigidKinematicLandingInSleepingCrateWakesIt(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		move func(block *physics.RigidBody)
+	}{
+		{"teleport", func(block *physics.RigidBody) { block.X = 88 }},
+		{"one target", func(block *physics.RigidBody) { block.SetTargetPose(88, 84, 0) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := &physics.RigidWorld{GravityY: 600}
+			floor := physics.NewStaticRigidBox(100, 100, 400, 20)
+			crate := physics.NewRigidBox(100, 80, 20, 20, 1)
+			block := physics.NewRigidBox(60, 84, 10, 10, 1)
+			block.Kinematic = true
+			w.AddBody(floor, crate, block)
+			stepFor(w, 2*time.Second)
+			if !crate.Sleeping() {
+				t.Fatal("crate did not fall asleep on the floor")
+			}
+			tc.move(block)
+			stepFor(w, time.Second/2)
+			if block.X != 88 || block.VX != 0 {
+				t.Fatalf("block at x %v moving %v, want it still at x 88", block.X, block.VX)
+			}
+			if left := crate.X - 10; left < 93-0.05 {
+				t.Fatalf("crate left side = %v, want it pushed clear of the block's right side at 93", left)
+			}
+		})
+	}
+}
+
 func TestRigidRaycastFirstReturnsNearestBody(t *testing.T) {
 	w := &physics.RigidWorld{Tiles: tileFloor()}
 	far := physics.NewStaticRigidBox(300, 100, 20, 20)
@@ -322,6 +354,17 @@ func TestRigidRaycastFirstReturnsNearestBody(t *testing.T) {
 	down, ok := w.RaycastFirst(core.Point{X: 40, Y: 0}, core.Point{X: 40, Y: 300}, physics.QueryTiles, 0)
 	if !ok || !down.Tile || down.Col != 2 || down.Row != 10 || down.Point.Y != 160 || down.NormalY != -1 {
 		t.Fatalf("hit = %+v, want tile (2, 10) at y 160", down)
+	}
+
+	// A ray with an end that is not finite hits nothing.
+	nan := core.Points(math.NaN())
+	for _, ray := range [][2]core.Point{{{X: nan, Y: 0}, {X: 80, Y: 200}}, {{X: 0, Y: 100}, {X: 400, Y: core.Points(math.Inf(1))}}} {
+		if hit, ok := w.RaycastFirst(ray[0], ray[1], physics.QueryAll, 0); ok {
+			t.Fatalf("RaycastFirst(%v, %v) = %+v, want no hit", ray[0], ray[1], hit)
+		}
+		if hits := w.Raycast(ray[0], ray[1], physics.QueryAll, 0); len(hits) != 0 {
+			t.Fatalf("Raycast(%v, %v) = %+v, want no hits", ray[0], ray[1], hits)
+		}
 	}
 }
 
@@ -573,6 +616,38 @@ func TestRigidContactEventsAreDeterministic(t *testing.T) {
 			}
 			t.Fatalf("restore at %d: %d events and checksum %x, want %d and %x", restoreAt, len(again), againSum, len(first), sum)
 		}
+	}
+}
+
+// Restore clears the caller's Tiles for a snapshot of a world without tiles, keeps them for one whose tiles Save could not capture, and refuses a snapshot claiming both a grid and custom tiles.
+func TestRigidRestoreTilesOfSnapshotWithoutGrid(t *testing.T) {
+	plain := &physics.RigidWorld{GravityY: 600}
+	plain.AddBody(physics.NewRigidBox(100, 80, 20, 20, 1))
+	target := &physics.RigidWorld{Tiles: tileFloor(), TileFriction: 0.9}
+	if err := target.Restore(plain.Save()); err != nil {
+		t.Fatal(err)
+	}
+	if target.Tiles != nil || target.TileFriction != 0 || target.Checksum() != plain.Checksum() {
+		t.Fatalf("restored Tiles = %v, TileFriction = %v, want the saved world's none and default", target.Tiles, target.TileFriction)
+	}
+
+	custom := &physics.RigidWorld{GravityY: 600, Tiles: customGrid{}, TileFriction: 0.7}
+	snap := custom.Save()
+	if snap.Grid != nil || !snap.CustomTiles {
+		t.Fatalf("snapshot of custom tiles has Grid %v and CustomTiles %v, want nil and true", snap.Grid, snap.CustomTiles)
+	}
+	again := &physics.RigidWorld{Tiles: customGrid{}}
+	if err := again.Restore(snap); err != nil {
+		t.Fatal(err)
+	}
+	if again.Tiles != (customGrid{}) || again.TileFriction != 0.7 || again.Checksum() != custom.Checksum() {
+		t.Fatalf("restored Tiles = %v, TileFriction = %v, want the caller's custom grid and 0.7", again.Tiles, again.TileFriction)
+	}
+
+	both := (&physics.RigidWorld{Tiles: tileFloor()}).Save()
+	both.CustomTiles = true
+	if err := again.Restore(both); err == nil {
+		t.Fatal("Restore accepted a snapshot with both a grid and custom tiles")
 	}
 }
 

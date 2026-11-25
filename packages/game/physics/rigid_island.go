@@ -88,6 +88,11 @@ func (b *RigidBody) movingKinematic() bool {
 	return b != nil && b.Kinematic && !b.Static && (b.VX != 0 || b.VY != 0 || b.AngularVel != 0)
 }
 
+// movedKinematic reports whether b is a kinematic body whose pose differs from the one it ended its last step with, as after assigning X, Y or Angle.
+func (b *RigidBody) movedKinematic() bool {
+	return b != nil && b.Kinematic && !b.Static && b.movedSinceStep()
+}
+
 // wakeIfSleeping wakes b when it is non-nil and asleep.
 func (b *RigidBody) wakeIfSleeping() {
 	if b != nil && b.sleeping {
@@ -353,7 +358,7 @@ func (w *RigidWorld) wakeIslands() {
 	}
 }
 
-// wakeTouched wakes every sleeping body that an awake dynamic body or a moving kinematic one touches among the candidate pairs, and the islands of those bodies, repeating until no more wake. Sensors wake nothing.
+// wakeTouched wakes every sleeping body that an awake dynamic body, a moving kinematic one or a kinematic one moved since the last step (by a teleport, or by the target that last step landed it on) touches among the candidate pairs, and the islands of those bodies, repeating until no more wake. Sensors wake nothing.
 func (w *RigidWorld) wakeTouched(pairs []uint64) {
 	buf := w.scratch.pairManifolds[:0]
 	for {
@@ -365,9 +370,9 @@ func (w *RigidWorld) wakeTouched(pairs []uint64) {
 			}
 			var sleeper *RigidBody
 			switch {
-			case a.sleeping && (b.awakeDynamic() || b.movingKinematic()):
+			case a.sleeping && (b.awakeDynamic() || b.movingKinematic() || b.movedKinematic()):
 				sleeper = a
-			case b.sleeping && (a.awakeDynamic() || a.movingKinematic()):
+			case b.sleeping && (a.awakeDynamic() || a.movingKinematic() || a.movedKinematic()):
 				sleeper = b
 			default:
 				continue
