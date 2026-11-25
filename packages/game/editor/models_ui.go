@@ -55,7 +55,7 @@ func modelDropTarget(cx *core.Scope, ed *Editor, frame core.View) core.Node {
 	})
 }
 
-// dropModelFiles places the glTF files dropped on the viewport from another app. A file drop carries no position (core.View.OnFileDrop takes only the URLs), so the models land where the view's center points, which a drag from the asset browser does not need.
+// dropModelFiles places the glTF files dropped on the viewport from another app. A file drop carries no position (NSGo v0.3.0's core.View.OnFileDrop takes only the URLs, a gap reported to nsgo-dev/nsgo), so the models land where the view's center points, which a drag from the asset browser does not need.
 func (e *Editor) dropModelFiles(uris []string) {
 	if e.ViewMode != ViewMode3D {
 		e.report(errors.New("editor: switch the viewport to 3D to place dropped models"))
@@ -84,7 +84,7 @@ func modelTestID(m ModelEntry) string {
 	return strings.TrimSuffix(b.String(), "-")
 }
 
-// modelListView lists the models the asset browser offers (Models), each with its thumbnail (ModelThumbnail). Pressing one selects it for the Place tool and turns the tool on; dragging one onto the 3D viewport places it where it is dropped.
+// modelListView lists the models the asset browser offers (Models), each with its thumbnail (ModelThumbnail). Pressing one selects it for the Place tool and, in 3D, turns the tool on; dragging one onto the 3D viewport places it where it is dropped.
 func modelListView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	colors := ui.ColorsOf(cx)
 	thumbRev := core.NewSignal(cx, uint64(0))
@@ -131,7 +131,10 @@ func modelListView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 				},
 				OnPress: func(core.PressEvent) {
 					ed.report(ed.SelectModel(m))
-					ed.SetTool(ToolPlace)
+					// The 2D Place tool adds atlas frames, not models, so a model turns it on only in 3D.
+					if ed.ViewMode == ViewMode3D {
+						ed.SetTool(ToolPlace)
+					}
 				},
 				Children: []core.Node{
 					core.Canvas{

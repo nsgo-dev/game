@@ -105,6 +105,15 @@ func TestPlaceModelOnGeometry(t *testing.T) {
 		t.Fatalf("placement on the crate %v is not on its top", p.Point)
 	}
 	assertNear32(t, "normal y", p.Normal[1], 1, 1e-3)
+
+	// Snapping leaves a point on geometry where the ray hits it: the grid's spacing is wider than the crate, so a snapped point would hang over the floor.
+	ed.PlaceSnap3D = true
+	snapped, ok := ed.PlacementAt3D(sx, sy, placeW, placeH)
+	if !ok || !snapped.OnSurface || snapped.Point != p.Point || snapped.Normal != p.Normal {
+		t.Fatalf("placement on the crate with Snap = %+v, %v, want %+v", snapped, ok, p)
+	}
+	ed.PlaceSnap3D = false
+
 	id, err := ed.PlaceModel3D(boxModel, p)
 	if err != nil {
 		t.Fatal(err)
@@ -209,6 +218,20 @@ func TestPlaceModelRefusals(t *testing.T) {
 	if err := ed.SelectModel(editor.ModelEntry{Path: "models/crate.png"}); err == nil {
 		t.Fatal("selected a file that is not a glTF model")
 	}
+	nan := float32(math.NaN())
+	for _, in := range [][4]float32{{nan, placeH / 2, placeW, placeH}, {placeW / 2, nan, placeW, placeH}, {placeW / 2, placeH / 2, 0, placeH}, {placeW / 2, placeH / 2, placeW, nan}} {
+		if p, ok := ed.PlacementAt3D(in[0], in[1], in[2], in[3]); ok {
+			t.Errorf("PlacementAt3D%v = %+v, want none", in, p)
+		}
+	}
+	for _, bad := range []editor.Placement3D{
+		{Point: [3]float32{nan, 0, 0}, Normal: [3]float32{0, 1, 0}},
+		{Normal: [3]float32{0, float32(math.Inf(1)), 0}},
+	} {
+		if _, err := ed.PlaceModel3D(boxModel, bad); err == nil {
+			t.Errorf("placed a model at %+v", bad)
+		}
+	}
 	if ed.History.Len() != 0 {
 		t.Fatalf("refusals left %d steps in the history", ed.History.Len())
 	}
@@ -265,6 +288,38 @@ func TestSetObjectModelUndoRedo(t *testing.T) {
 	if err := ed.SetObjectModel("lid", "models/crate.txt"); err == nil {
 		t.Fatal("named a file that is not a glTF model")
 	}
+
+	// A version 2 scene already has models, so naming one leaves its version alone.
+	if err := ed.SetObjectModel("lid", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.SetObjectModel("lid", crateModel.Path); err != nil {
+		t.Fatal(err)
+	}
+	if ed.Doc.Version != 2 {
+		t.Fatalf("naming a model raised a version 2 scene to %d", ed.Doc.Version)
+	}
+}
+
+// Naming a model in a version 1 scene raises it to version 2, the first that has models, and Undo puts the scene back byte for byte.
+func TestSetObjectModelRaisesVersion1(t *testing.T) {
+	ed := editor.OpenCourtyard(t)
+	if err := ed.OpenYAML([]byte("version: 1\nname: Old\nlayers:\n  - name: level\n    objects:\n      - id: post\n")); err != nil {
+		t.Fatal(err)
+	}
+	before := saveYAML(t, ed)
+	if err := ed.SetObjectModel("post", crateModel.Path); err != nil {
+		t.Fatal(err)
+	}
+	if post, _, _ := ed.FindObject("post"); post.Model != crateModel.Path || ed.Doc.Version != 2 {
+		t.Fatalf("post %+v in a version %d scene, want the crate in version 2", post, ed.Doc.Version)
+	}
+	if !bytes.Contains(saveYAML(t, ed), []byte("version: 2\n")) {
+		t.Fatal("the saved scene is not version 2")
+	}
+	if !ed.Undo() || !bytes.Equal(saveYAML(t, ed), before) {
+		t.Fatal("Undo did not put the version 1 scene back")
+	}
 }
 
 // A glTF file dropped from another app lands where the view points when it lies in the project, all of them as one step; a file outside the project or of another kind is refused.
@@ -301,6 +356,57 @@ func TestDropModelFiles(t *testing.T) {
 	}
 	if len(objectsWith(ed, crateModel)) != 2 || !ed.History.CanRedo() {
 		t.Fatal("a refused drop changed the scene")
+	}
+
+	// A file in a folder the asset browser leaves out is refused, as it is not a model the project lists.
+	for _, dir := range []string{"_build", ".cache", "testdata"} {
+		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		hidden := filepath.Join(root, dir, "rock.glb")
+		if err := os.WriteFile(hidden, data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := ed.DropModelFiles([]string{fileURL(hidden)}, placeW/2, placeH/2, placeW, placeH); err == nil {
+			t.Errorf("placed a dropped file from %s", dir)
+		}
+	}
+	if len(objectsWith(ed, crateModel)) != 2 || !ed.History.CanRedo() {
+		t.Fatal("a refused drop from a left-out folder changed the scene")
+	}
+}
+
+// When a later file of a drop does not load, the ones placed before it are taken back and the history does not change.
+func TestDropModelFilesRollsBack(t *testing.T) {
+	ed := editor.OpenCourtyard(t)
+	root := filepath.Dir(ed.ProjectPath)
+	before := saveYAML(t, ed)
+	steps := ed.History.Len()
+	uris := []string{fileURL(filepath.Join(root, "models", "crate.glb")), fileURL(filepath.Join(root, "models", "missing.glb"))}
+	if ids, err := ed.DropModelFiles(uris, placeW/2, placeH/2, placeW, placeH); err == nil {
+		t.Fatalf("a drop with a missing model placed %v", ids)
+	}
+	if !bytes.Equal(saveYAML(t, ed), before) || ed.History.Len() != steps {
+		t.Fatalf("a refused drop left the scene changed or %d new steps", ed.History.Len()-steps)
+	}
+}
+
+// In 2D, pressing a model in the asset browser selects it without turning on the Place tool, whose presses there add atlas frames, so a click on the canvas adds nothing.
+func TestPressModelIn2DLeavesThePlaceToolOff(t *testing.T) {
+	ed := editor.OpenCourtyard(t)
+	ed.SetViewMode(editor.ViewMode2D)
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node { return editor.EditorView(cx, ed) }, nsgotest.Size(1200, 900), nsgotest.NoGPU())
+	before := saveYAML(t, ed)
+	app.Press("id:model-mesh-box")
+	if ed.SelectedModel == nil || *ed.SelectedModel != boxModel {
+		t.Fatalf("selected model %+v, want the box", ed.SelectedModel)
+	}
+	if ed.Tool == editor.ToolPlace {
+		t.Fatal("pressing a model in 2D turned on the Place tool")
+	}
+	app.Press("id:editor-viewport")
+	if !bytes.Equal(saveYAML(t, ed), before) {
+		t.Fatal("a click on the 2D canvas after pressing a model changed the scene")
 	}
 }
 

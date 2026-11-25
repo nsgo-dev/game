@@ -61,3 +61,25 @@ func TestModelThumbnailRendersOffscreen(t *testing.T) {
 		t.Fatalf("crate thumbnail after reloading = %v, %v", img != nil, err)
 	}
 }
+
+// A thumbnail queued before the assets reload is not kept: the next call renders the model again from the reloaded assets.
+func TestModelThumbnailDropsAStaleGeneration(t *testing.T) {
+	ed := openCourtyard(t)
+	crate := ModelEntry{Path: "models/crate.glb"}
+	if img, err := ed.ModelThumbnail(crate); img != nil || err != nil {
+		t.Fatalf("first ModelThumbnail = %v, %v, want it pending", img != nil, err)
+	}
+	ed.assetsRev++
+	if img, err := ed.ModelThumbnail(crate); img != nil || err != nil {
+		t.Fatalf("ModelThumbnail after reloading = %v, %v, want it pending again", img != nil, err)
+	}
+	gen := ed.thumbs.gen
+	ed.waitModelThumbnails()
+	img, err := ed.ModelThumbnail(crate)
+	if img == nil || err != nil {
+		t.Fatalf("ModelThumbnail after rendering = %v, %v", img != nil, err)
+	}
+	if ed.thumbs.gen != gen || len(ed.thumbs.queued) != 0 || len(ed.thumbs.done) != 1 {
+		t.Fatalf("thumbnails at generation %d (want %d): %d queued, %d done", ed.thumbs.gen, gen, len(ed.thumbs.queued), len(ed.thumbs.done))
+	}
+}
