@@ -3,7 +3,12 @@ package world3d
 import (
 	"bytes"
 	"fmt"
+	"image"
+	_ "image/gif"  // decode GIF terrain images
+	_ "image/jpeg" // decode JPEG terrain images
+	_ "image/png"  // decode PNG terrain images
 	"io"
+	"io/fs"
 	"math"
 	"strconv"
 
@@ -44,6 +49,8 @@ type TerrainDoc struct {
 	HeightScale float32 `yaml:"heightScale,omitempty" schema:"minimum=0"`
 	// Origin is the world-space [x, y, z] origin of heightmap sample (0, 0); omitted defaults to [0, 0, 0].
 	Origin *[3]float32 `yaml:"origin,omitempty"`
+	// ChunkSize is the number of heightmap grid cells along each terrain LOD chunk edge; omitted or 0 defaults to 64.
+	ChunkSize int `yaml:"chunkSize,omitempty" schema:"minimum=1"`
 	// SplatMaps lists 1 or 2 RGBA weight-map asset paths: map 0 drives layers 0..3 (R,G,B,A) and map 1 drives layers 4..7 (R,G,B,A).
 	SplatMaps []string `yaml:"splatMaps,omitempty"`
 	// HeightBlendContrast enables height-based layer blending when > 0 in [0, 1]; higher values sharpen layer transitions using per-layer height maps, and 0 uses linear splat blending.
@@ -108,6 +115,178 @@ func (d *TerrainDoc) EffectiveOrigin() math3d.Vec3 {
 		return math3d.Vec3Zero()
 	}
 	return math3d.Vec3{X: d.Origin[0], Y: d.Origin[1], Z: d.Origin[2]}
+}
+
+// EffectiveChunkSize returns d.ChunkSize, defaulting to 64 when omitted or zero.
+func (d *TerrainDoc) EffectiveChunkSize() int {
+	if d == nil || d.ChunkSize <= 0 {
+		return defaultTerrainChunkCells
+	}
+	return d.ChunkSize
+}
+
+// LODConfig returns a [TerrainLODConfig] populated from d's ChunkSize.
+func (d *TerrainDoc) LODConfig() TerrainLODConfig {
+	return TerrainLODConfig{
+		ChunkCells: d.EffectiveChunkSize(),
+	}
+}
+
+// TerrainImages holds decoded images supplied to [TerrainDoc.BuildHeightmap]
+// when constructing a runtime [*Heightmap] without reading from an [fs.FS].
+type TerrainImages struct {
+	// Heightmap is the grayscale heightmap image (required, at least 2x2 pixels).
+	Heightmap image.Image
+	// SplatMaps holds 0, 1, or 2 RGBA weight-map images matching TerrainDoc.SplatMaps.
+	SplatMaps []image.Image
+	// LayerHeights optionally maps a layer's Name to its decoded grayscale height map for height-based blending.
+	LayerHeights map[string]image.Image
+}
+
+// BuildHeightmap validates d and constructs a [*Heightmap] configured with d's
+// CellSize, HeightScale, Origin, and (when imgs.SplatMaps is non-empty) an
+// attached [*TerrainSplatMap] with HeightBlendContrast and per-layer height maps.
+func (d *TerrainDoc) BuildHeightmap(imgs TerrainImages) (*Heightmap, error) {
+	if err := ValidateTerrain(d); err != nil {
+		return nil, err
+	}
+	if imgs.Heightmap == nil {
+		return nil, &loaderr.Error{
+			Field:    "heightmap",
+			Problem:  "world3d: heightmap image is required",
+			Expected: "non-nil grayscale image of at least 2x2 samples",
+			Fix:      "supply a decoded heightmap image in TerrainImages.Heightmap",
+		}
+	}
+	b := imgs.Heightmap.Bounds()
+	if b.Dx() < 2 || b.Dy() < 2 {
+		return nil, &loaderr.Error{
+			Field:    "heightmap",
+			Problem:  fmt.Sprintf("world3d: heightmap image is %dx%d, need at least 2x2", b.Dx(), b.Dy()),
+			Expected: "image of at least 2x2 samples",
+			Fix:      "use a heightmap image at least 2 pixels wide and 2 pixels tall",
+		}
+	}
+	hm := LoadHeightmapGray(imgs.Heightmap, d.EffectiveCellSize(), d.HeightScale)
+	hm.Origin = d.EffectiveOrigin()
+
+	if len(imgs.SplatMaps) > 0 {
+		infos := d.LayerInfos()
+		if len(imgs.LayerHeights) > 0 {
+			for i := range infos {
+				if hImg := imgs.LayerHeights[infos[i].Name]; hImg != nil {
+					infos[i].HeightMap = LoadTerrainHeightLayer(hImg)
+				}
+			}
+		}
+		splat, err := LoadTerrainSplatMap(infos, imgs.SplatMaps...)
+		if err != nil {
+			return nil, err
+		}
+		splat.HeightBlendContrast = d.HeightBlendContrast
+		hm.Splat = splat
+	}
+	return hm, nil
+}
+
+// BuildLOD constructs a [*TerrainLOD] for hm using d's [TerrainDoc.LODConfig].
+func (d *TerrainDoc) BuildLOD(hm *Heightmap) *TerrainLOD {
+	return NewTerrainLOD(hm, d.LODConfig())
+}
+
+// LoadHeightmap decodes the heightmap, optional splat maps, and optional per-layer
+// height maps referenced by d from fsys, then builds a runtime [*Heightmap].
+func (d *TerrainDoc) LoadHeightmap(fsys fs.FS) (*Heightmap, error) {
+	if err := ValidateTerrain(d); err != nil {
+		return nil, err
+	}
+	if fsys == nil {
+		return nil, fmt.Errorf("world3d: nil filesystem")
+	}
+	if d.Heightmap == "" {
+		return nil, &loaderr.Error{
+			Field:    "heightmap",
+			Problem:  "world3d: terrain document has no heightmap path",
+			Expected: "path to a grayscale heightmap image",
+			Fix:      "set heightmap to the path of a PNG, JPEG, or GIF image",
+		}
+	}
+	hmImg, err := decodeFSImage(fsys, d.Heightmap)
+	if err != nil {
+		return nil, &loaderr.Error{
+			Field:   "heightmap",
+			Problem: fmt.Sprintf("world3d: load heightmap %q", d.Heightmap),
+			Err:     err,
+			Fix:     "ensure the heightmap path exists in the project and decodes as an image",
+		}
+	}
+	imgs := TerrainImages{Heightmap: hmImg}
+	if len(d.SplatMaps) > 0 {
+		imgs.SplatMaps = make([]image.Image, len(d.SplatMaps))
+		for i, sp := range d.SplatMaps {
+			img, err := decodeFSImage(fsys, sp)
+			if err != nil {
+				return nil, &loaderr.Error{
+					Field:   loaderr.Path("splatMaps", i),
+					Problem: fmt.Sprintf("world3d: load splat map %q", sp),
+					Err:     err,
+					Fix:     "ensure the splat map path exists and decodes as an image",
+				}
+			}
+			imgs.SplatMaps[i] = img
+		}
+		for i, l := range d.Layers {
+			if l.Height == "" {
+				continue
+			}
+			img, err := decodeFSImage(fsys, l.Height)
+			if err != nil {
+				return nil, &loaderr.Error{
+					Field:   loaderr.Path("layers", i, "height"),
+					Problem: fmt.Sprintf("world3d: load layer %q height map %q", l.Name, l.Height),
+					Err:     err,
+					Fix:     "ensure the layer height map path exists and decodes as an image",
+				}
+			}
+			if imgs.LayerHeights == nil {
+				imgs.LayerHeights = make(map[string]image.Image)
+			}
+			imgs.LayerHeights[l.Name] = img
+		}
+	}
+	return d.BuildHeightmap(imgs)
+}
+
+// LoadTerrainFS reads the YAML terrain definition at name in fsys, validates it,
+// decodes its referenced heightmap and splat images from fsys, and returns the
+// constructed [*Heightmap] alongside the parsed [*TerrainDoc].
+func LoadTerrainFS(fsys fs.FS, name string) (*Heightmap, *TerrainDoc, error) {
+	if fsys == nil {
+		return nil, nil, fmt.Errorf("world3d: nil filesystem")
+	}
+	data, err := fs.ReadFile(fsys, name)
+	if err != nil {
+		return nil, nil, fmt.Errorf("world3d: read terrain %q: %w", name, err)
+	}
+	doc, err := ParseTerrainWith(data, name)
+	if err != nil {
+		return nil, nil, err
+	}
+	hm, err := doc.LoadHeightmap(fsys)
+	if err != nil {
+		return nil, nil, loaderr.Locate(err, name, data, fixTerrainDoc)
+	}
+	return hm, doc, nil
+}
+
+func decodeFSImage(fsys fs.FS, p string) (image.Image, error) {
+	f, err := fsys.Open(p)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	img, _, err := image.Decode(f)
+	return img, err
 }
 
 // LayerInfos converts d.Layers into [TerrainLayerInfo] metadata (name, UV scale,
@@ -301,6 +480,14 @@ func ValidateTerrain(doc *TerrainDoc) error {
 					Fix:      "use finite coordinates for origin",
 				}
 			}
+		}
+	}
+	if doc.ChunkSize < 0 {
+		return &loaderr.Error{
+			Field:    "chunkSize",
+			Problem:  fmt.Sprintf("world3d: invalid chunkSize %d", doc.ChunkSize),
+			Expected: "a positive integer",
+			Fix:      "set chunkSize to a positive integer or omit it to use 64",
 		}
 	}
 	if len(doc.SplatMaps) > 2 {

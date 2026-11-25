@@ -250,12 +250,52 @@ chunks:
       - 0*60
 ```
 
+<!-- format: world3d#gridmap -->
+### 3D 网格地图
+
+| 文件 | 版本 | 读写函数 | 字段 |
+| --- | --- | --- | --- |
+| `*.gridmap.yaml` | `version: 1` | `world3d.ParseGridMap`、`world3d.EncodeGridMap`、`world3d.LoadGridMapFS` | [world3d](world3d.md)；Schema 为 `https://game.nsgo.dev/schemas/gridmap.v1.json` |
+
+```yaml
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/gridmap.v1.json
+version: 1
+name: Stone Keep
+cellSize:
+  - 2
+  - 2
+  - 2
+meshLibrary: models/dungeon_tiles.gltf
+boxes:
+  - min:
+      - 0
+      - 0
+      - 0
+    max:
+      - 4
+      - 0
+      - 4
+    tile: stone_floor
+cells:
+  - at:
+      - 0
+      - 1
+      - 0
+    tile: stone_pillar
+  - at:
+      - 4
+      - 1
+      - 0
+    tile: stone_pillar
+    orientation: 1
+```
+
 <!-- format: world3d#terrain -->
 ### 地形定义
 
 | 文件 | 版本 | 读写函数 | 字段 |
 | --- | --- | --- | --- |
-| `*.terrain.yaml` | `version: 1` | `world3d.ParseTerrain`、`world3d.EncodeTerrain` | [world3d](world3d.md)；Schema 为 `https://game.nsgo.dev/schemas/terrain.v1.json` |
+| `*.terrain.yaml` | `version: 1` | `world3d.ParseTerrain`、`world3d.EncodeTerrain`、`world3d.LoadTerrainFS` | [world3d](world3d.md)；Schema 为 `https://game.nsgo.dev/schemas/terrain.v1.json` |
 
 ```yaml
 # yaml-language-server: $schema=https://game.nsgo.dev/schemas/terrain.v1.json
@@ -308,6 +348,43 @@ layers:
       - 10
       - 10
     heightBias: 0.05
+```
+
+<!-- format: world3d#foliage -->
+### 3D 植被层
+
+| 文件 | 版本 | 读写函数 | 字段 |
+| --- | --- | --- | --- |
+| `*.foliage.yaml` | `version: 1` | `world3d.ParseFoliage`、`world3d.EncodeFoliage`、`world3d.LoadFoliageFS` | [world3d](world3d.md)；Schema 为 `https://game.nsgo.dev/schemas/foliage.v1.json` |
+
+```yaml
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/foliage.v1.json
+version: 1
+name: Alpine Meadow
+terrain: terrain/alpine.terrain.yaml
+layers:
+  - name: grass
+    mesh: models/grass_clump.glb
+    material: materials/grass.material.yaml
+    density: 1.5
+    minScale: 0.8
+    maxScale: 1.3
+    alignToNormal: 0.6
+    maxSlopeDeg: 35
+    baseMaxDistance: 80
+    seed: 42
+  - name: pine_tree
+    mesh: models/pine_tree.glb
+    densityMap: terrain/forest_density.png
+    spacing: 4
+    minScale: 0.85
+    maxScale: 1.25
+    maxSlopeDeg: 28
+    minHeight: 2
+    maxHeight: 32
+    baseMaxDistance: 160
+    boundingRadius: 3.5
+    seed: 108
 ```
 
 ## 场景、资源与动画

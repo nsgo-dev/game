@@ -15,6 +15,9 @@ import "github.com/nsgo-dev/game/packages/game/tooling/jsonschema"
 | Import settings, version 1 | `https://game.nsgo.dev/schemas/import.v1.json` | `*.import.yaml` beside an asset, read by `importsettings.Parse`, by `game assets` and, for its credit, by `game release` and `game credits` ([Command Line](cli.md#assets)) |
 | Voxel world, version 1 | `https://game.nsgo.dev/schemas/voxel.v1.json` | `*.voxel.yaml`, read by `voxel.Parse` and `voxel.LoadYAML` |
 | Localization string table, version 1 | `https://game.nsgo.dev/schemas/l10n.v1.json` | per-locale `*.yaml` files such as `locales/en.yaml`, read by `l10n.ParseYAML` and `l10n.Catalog.LoadYAML` |
+| Terrain definition, version 1 | `https://game.nsgo.dev/schemas/terrain.v1.json` | `*.terrain.yaml`, read by `world3d.ParseTerrain` and `world3d.LoadTerrainFS` |
+| 3D grid map, version 1 | `https://game.nsgo.dev/schemas/gridmap.v1.json` | `*.gridmap.yaml`, read by `world3d.ParseGridMap` and `world3d.LoadGridMapFS` |
+| 3D foliage layers, version 1 | `https://game.nsgo.dev/schemas/foliage.v1.json` | `*.foliage.yaml`, read by `world3d.ParseFoliage` and `world3d.LoadFoliageFS` |
 | Data table | generated per row type with `datatable.Schema[T]` | `*.yaml`, read by `datatable.LoadYAML` |
 
 The other formats get their schemas as their YAML loaders land: mod manifests (#474), the project file (#488), shared resources (#485), particles (#477), skeletal rigs (#475) and localization tables (#473).

@@ -40,6 +40,12 @@
         "maximum": 3.4028234663852886e+38
       }
     },
+    "chunkSize": {
+      "description": "ChunkSize is the number of heightmap grid cells along each terrain LOD chunk edge; omitted or 0 defaults to 64.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9223372036854776000
+    },
     "splatMaps": {
       "description": "SplatMaps lists 1 or 2 RGBA weight-map asset paths: map 0 drives layers 0..3 (R,G,B,A) and map 1 drives layers 4..7 (R,G,B,A).",
       "type": "array",

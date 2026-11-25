@@ -1,0 +1,30 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/gridmap.v1.json
+version: 1
+name: Stone Keep
+cellSize:
+  - 2
+  - 2
+  - 2
+meshLibrary: models/dungeon_tiles.gltf
+boxes:
+  - min:
+      - 0
+      - 0
+      - 0
+    max:
+      - 4
+      - 0
+      - 4
+    tile: stone_floor
+cells:
+  - at:
+      - 0
+      - 1
+      - 0
+    tile: stone_pillar
+  - at:
+      - 4
+      - 1
+      - 0
+    tile: stone_pillar
+    orientation: 1
