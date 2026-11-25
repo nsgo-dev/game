@@ -10,7 +10,7 @@ import (
 )
 
 // EditorView returns the root NSGo UI node for ed, composing:
-//   - Top toolbar (scene title, tool selector, Undo/Redo, Play/Stop, Save)
+//   - Top toolbar (scene title, tool selector, Undo/Redo, Run/Stop Game, Play/Stop, Save)
 //   - Left Asset Browser panel, with the file browser below it while a project is open (FilesView)
 //   - Center interactive Canvas viewport
 //   - Tile palette right of the viewport while a tile tool is active in 2D (TilePaletteView)
@@ -21,6 +21,7 @@ import (
 //   - Project Settings panel below them while open (ProjectSettingsPanelView)
 //   - Search & References panel below them when toggled or showing references (SearchPanelView)
 //   - Problems panel below them while a project is open (ProblemsView)
+//   - Output / Log panel below them (OutputPanelView)
 //   - Bottom status bar (including the live problem count while a project is open)
 func EditorView(cx *core.Scope, ed *Editor) core.Node {
 	ed.AttachScope(cx)
@@ -28,11 +29,22 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 	unsub := ed.Subscribe(func() {
 		rev.Set(ed.Revision())
 	})
+	cx.OnKey("f5", func() {
+		if ed.Project != nil && !ed.GameRunning() {
+			ed.report(ed.RunGame())
+		}
+	})
+	cx.OnKey("shift+f5", func() {
+		if ed.GameRunning() {
+			ed.report(ed.StopGame())
+		}
+	})
 	cx.Cleanup(func() {
 		unsub()
 		ed.stopClipLoop()
 		ed.cleanupAudioMixerScope(cx)
 		ed.stopExportBuild()
+		_ = ed.StopGame()
 		if ed.Playing() {
 			_ = ed.Stop()
 		}
@@ -72,6 +84,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 			SearchPanelView(cx, ed, rev),
 			ProblemsView(cx, ed, rev),
 			ExportPanelView(cx, ed, rev),
+			OutputPanelView(cx, ed, rev),
 			statusBarView(cx, ed, rev),
 		},
 	}
@@ -377,6 +390,68 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 							ed.SetExportPanelOpen(on)
 						},
 					},
+					ui.ToggleButton{
+						TestID: "toolbar-output",
+						Text:   "Output",
+						Label:  "Toggle the Output log panel",
+						On: func() bool {
+							_ = rev.Get()
+							return ed.OutputPanelOpen()
+						},
+						OnChange: func(on bool) {
+							ed.SetOutputPanelOpen(on)
+						},
+					},
+					ui.ToggleButton{
+						TestID: "toolbar-run-open-scene",
+						Text:   "Current Scene",
+						Label:  "Start game at the currently open scene",
+						Disabled: func() bool {
+							_ = rev.Get()
+							return ed.Project == nil || ed.GameRunning()
+						},
+						On: func() bool {
+							_ = rev.Get()
+							return ed.RunStartAtOpenScene()
+						},
+						OnChange: func(on bool) {
+							ed.SetRunStartAtOpenScene(on)
+						},
+					},
+					core.Show{
+						When: func() bool {
+							_ = rev.Get()
+							return ed.GameRunning()
+						},
+						Then: func(cx *core.Scope) core.Node {
+							return ui.Button{
+								TestID:  "toolbar-stop-game",
+								Text:    "Stop Game (Running)",
+								Label:   "Stop the running game (Shift+F5)",
+								Size:    ui.SizeSmall,
+								Variant: ui.ButtonDanger,
+								OnPress: func() {
+									ed.report(ed.StopGame())
+								},
+							}
+						},
+						Else: func(cx *core.Scope) core.Node {
+							return ui.Button{
+								TestID:  "toolbar-run",
+								Text:    "Run",
+								Label:   "Run the game with go tool game dev (F5)",
+								Size:    ui.SizeSmall,
+								Variant: ui.ButtonPrimary,
+								Disabled: func() bool {
+									_ = rev.Get()
+									return ed.Project == nil
+								},
+								OnPress: func() {
+									ed.report(ed.RunGame())
+								},
+							}
+						},
+					},
 					core.Show{
 						When: func() bool {
 							_ = rev.Get()
@@ -415,8 +490,7 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 							// An edited project file is saved first, whether or not the scene can be; an unedited one is left as written, comments included.
 							if ed.ProjectDirty() {
 								if err := ed.SaveProject(); err != nil {
-									ed.Status = "Save error: " + err.Error()
-									ed.notify()
+									ed.reportStatusError("Save error: " + err.Error())
 									return
 								}
 								if ed.OnSave == nil && ed.FilePath == "" {
@@ -426,29 +500,25 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 							}
 							data, err := ed.SaveYAML()
 							if err != nil {
-								ed.Status = "Save error: " + err.Error()
-								ed.notify()
+								ed.reportStatusError("Save error: " + err.Error())
 								return
 							}
 							if ed.OnSave != nil {
 								if err := ed.OnSave(data); err != nil {
-									ed.Status = "Save error: " + err.Error()
-									ed.notify()
+									ed.reportStatusError("Save error: " + err.Error())
 									return
 								}
 								ed.invalidateProjectIndex()
 								ed.CheckProblems()
 							} else if ed.FilePath != "" {
 								if err := ed.SaveFile(ed.FilePath); err != nil {
-									ed.Status = "Save error: " + err.Error()
-									ed.notify()
+									ed.reportStatusError("Save error: " + err.Error())
 									return
 								}
 							} else {
 								// Nothing was asked to persist the scene: say so
 								// instead of reporting a save that never happened.
-								ed.Status = "Save error: no save path; open or save the scene to a file first"
-								ed.notify()
+								ed.reportStatusError("Save error: no save path; open or save the scene to a file first")
 								return
 							}
 						},

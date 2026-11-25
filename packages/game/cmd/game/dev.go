@@ -24,6 +24,7 @@ var devCommand = &command{
 	define:  defineDev,
 	complete: map[string]completion{
 		"assets": filePaths,
+		"scene":  filePaths,
 		"":       filePaths,
 	},
 }
@@ -46,6 +47,7 @@ var nativeTargets = map[string]bool{"native": true, "tui": true}
 
 func defineDev(a *app, fs *flag.FlagSet) func() error {
 	assetsDir := fs.String("assets", "resources", "the directory, relative to the project directory, that the running game watches and its assets.Manager reads \"asset:\" URIs from, given to the game as hotreload.DevAssetsDir")
+	scenePath := fs.String("scene", "", "start the game at this scene path relative to the project root, given to the game as hotreload.DevScene")
 	target := fs.String("target", "", "the nsgo dev target, nsgo.yaml's dev.target when empty; assets reload on native and tui")
 	fps := fs.Bool("fps", false, "show NSGo's performance monitor in the running game")
 
@@ -76,6 +78,9 @@ func defineDev(a *app, fs *flag.FlagSet) func() error {
 		}
 
 		var env []string
+		if s := strings.TrimSpace(*scenePath); s != "" {
+			env = append(env, hotreload.SceneEnv+"="+filepath.ToSlash(s))
+		}
 		assets := *assetsDir
 		if !filepath.IsAbs(assets) {
 			assets = filepath.Join(project, assets)

@@ -199,6 +199,8 @@ type Editor struct {
 	ExportCommandRunner func(ctx context.Context, args []string, stdout, stderr io.Writer) error
 	// OpenOutputFolder opens the release output directory in the OS file manager after a successful non-dry-run build; when nil the editor uses the host platform's default opener.
 	OpenOutputFolder func(dir string) error
+	// RunGameCommand starts the child game process for RunGame / RunGameWith, streaming output to stdout and stderr; when nil the editor launches `go tool game dev` in the open project directory in its own process group on desktop.
+	RunGameCommand func(spec RunGameSpec, stdout, stderr io.Writer) (GameProcess, error)
 
 	playing      bool
 	playSnapshot []byte
@@ -262,6 +264,10 @@ type Editor struct {
 	view2DFree bool
 	// canvasW and canvasH are the viewport canvas's laid-out size (SetCanvasSize), zero until it lays out.
 	canvasW, canvasH float32
+	// output holds the docked Output / Log panel history and filter state.
+	output outputPanelState
+	// gameRun tracks the live `go tool game dev` child process started by RunGame / RunGameWith.
+	gameRun gameRunState
 }
 
 // DefaultSceneDoc returns a valid starter SceneDoc suitable for a new editor session.
@@ -303,6 +309,10 @@ func New(doc *sceneformat.SceneDoc, resolver sceneformat.AssetResolver) (*Editor
 		Status:       "Ready",
 		selKey:       clipKeyRef{-1, -1},
 		listeners:    make(map[uint64]func()),
+		output: outputPanelState{
+			open:       false,
+			lastStatus: "Ready",
+		},
 	}
 	if len(doc.Layers) > 0 {
 		ed.ActiveLayer = doc.Layers[0].Name
@@ -336,13 +346,15 @@ func (e *Editor) Subscribe(fn func()) func() {
 	}
 }
 
-// AttachScope binds a core.Scope to the editor so Play() can launch game.Loop from UI controls and background checks can post updates to the UI goroutine.
+// AttachScope binds a core.Scope to the editor so Play() can launch game.Loop from UI controls and background checks or game runs can post updates to the UI goroutine.
 func (e *Editor) AttachScope(cx *core.Scope) {
 	e.scope = cx
 	e.problems.setScope(cx)
+	e.gameRun.setScope(cx)
 }
 
 func (e *Editor) notify() {
+	e.captureStatusForOutput()
 	e.revision++
 	for _, fn := range e.listeners {
 		fn()
@@ -590,8 +602,7 @@ func (e *Editor) Undo() bool {
 	}
 	ok, err := e.History.undo()
 	if err != nil {
-		e.Status = "Undo failed: " + err.Error()
-		e.notify()
+		e.reportStatusError("Undo failed: " + err.Error())
 	}
 	if ok {
 		e.Status = "Undo"
@@ -607,8 +618,7 @@ func (e *Editor) Redo() bool {
 	}
 	ok, err := e.History.redo()
 	if err != nil {
-		e.Status = "Redo failed: " + err.Error()
-		e.notify()
+		e.reportStatusError("Redo failed: " + err.Error())
 	}
 	if ok {
 		e.Status = "Redo"

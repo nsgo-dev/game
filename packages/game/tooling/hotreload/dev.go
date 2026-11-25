@@ -21,6 +21,11 @@ func DevAssetsDir() string {
 	return filepath.Clean(dir)
 }
 
+// DevScene returns the start scene path `game dev -scene` (or the editor's Run command) passes the game in SceneEnv, or "" when none was requested.
+func DevScene() string {
+	return os.Getenv(SceneEnv)
+}
+
 // NewDevWatcher starts a Watcher on DevAssetsDir under cx when the game runs under `game dev`, and returns nil otherwise. Every Watcher method does nothing on nil, so a game can call it unconditionally and register what it reloads:
 //
 //	w := hotreload.NewDevWatcher(cx)

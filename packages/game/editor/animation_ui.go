@@ -31,13 +31,12 @@ func (e *Editor) clipLengthSeconds() float64 {
 	return animclip.KeyValue(e.clip.Length)
 }
 
-// report shows err in the status bar, so an edit the panel's controls make and the editor refuses is not silently dropped.
+// report shows err in the status bar and appends it to the Output panel history, so an edit the panel's controls make and the editor refuses is never silently dropped or overwritten by the next error.
 func (e *Editor) report(err error) {
 	if err == nil {
 		return
 	}
-	e.Status = "Error: " + err.Error()
-	e.notify()
+	e.reportStatusError("Error: " + err.Error())
 }
 
 func durationOfSeconds(s float64) time.Duration {

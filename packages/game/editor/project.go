@@ -45,6 +45,7 @@ func (e *Editor) OpenProject(path string) error {
 	e.stopAudioAudition()
 	e.stopExportBuild()
 	e.resetInputMapTransient()
+	_ = e.StopGame()
 	e.Project = f
 	e.ProjectPath = path
 	e.projectSaved = saved

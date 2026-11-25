@@ -620,7 +620,6 @@ func main() {
 - **预设与输出目录**：编辑 `export.output`（`SetExportOutput`），添加、删除和重排各平台预设（`AddExportPreset`、`RemoveExportPreset`、`MoveExportPreset`），并仅从各平台合法目标 `project.TargetsOf(platform)` 中选择构建目标（`SetExportPresetTargets`、`ToggleExportPresetTarget`）。所有修改都通过 `EditProject` 完成（经 `project.Validate` 校验并支持撤销/重做），在 `export` 为空时自动清理该小节，点击 **Save**（`SaveProject`）时写出规范 YAML 并同步 `nsgo.yaml`，与 `gameproject targets` 保持一致。
 - **鸣谢（Credits）预检**：面板打开、刷新（`CheckExportCredits`）或开始构建前，都会执行与 `game release` 相同的 `tooling/credits` 扫描。任何缺少鸣谢信息的资源都会连同其对应的 `*.import.yaml` 边车路径一并列出，并在补全前阻止发布构建；补全鸣谢后刷新即可清除告警，成功构建时会在输出目录写入 `CREDITS.md`。
 - **构建、演练与输出流**：支持构建全部预设或勾选指定目标（`ExportSelectedTargets`），并可配置分发渠道（`SetExportChannel`）、发布说明文件（`SetExportReleaseNotes`）以及 **Dry Run** 开关（`SetExportDryRun`）。`StartExportBuild` / `RunExportBuild` 与 `go tool game release` 共用同一套发布命令规划器，因此演练构建会在 UI 协程之外将完全一致的 `nsgo build` 命令行流式输出到面板的 Output 区域，非演练构建成功后自动打开解析出的输出目录（`OpenOutputFolder` / `OpenExportOutputFolder`）。
-
 ## 项目搜索与查找引用（#914）
 
 打开项目后，文件浏览器的 **Search** 按钮（`SearchOpen` / `SetSearchOpen`）会在视口下方切换显示搜索与引用面板（`SearchPanelView`），用于在项目内快速跳转或回答“哪些文件引用了当前文件”：
@@ -629,3 +628,11 @@ func main() {
 - **跳转到结果（`OpenSearchResult`）**：激活非场景文件的结果会在文件浏览器中选中它（`SelectedFile`）。激活场景文件或场景对象的结果会打开该场景（同步 `ScenePath` 与 `SelectedFile`）并选中匹配对象（`SelectedID`，若匹配的是嵌套子对象则回退选中其顶层祖先）。如果该场景已经打开，则直接就地选中对象，不会从磁盘重新加载，也不会丢失未保存编辑与撤销历史。
 - **查找引用（`FindReferences`、`ShowReferences`、`ShowSelectedFileReferences`、`References`、`OpenReference`）**：在文件浏览器中选中任意文件或目录并点击 **Find Refs**，即可基于 `refs.Scan` 列出所有入向引用，按 `refs.Scan` 报告的顺序逐行展示引用文件、从 1 开始的行号、字段名和原始值。点击某条引用会打开引用它的场景（若该行归属于某个顶层对象则自动选中该对象），或在文件浏览器中选中非场景引用文件。
 - **实时索引刷新（`RefreshSearch`）**：对当前已打开场景的内存编辑（`PlaceObject`、`SetObjectName`、`DeleteObject`、撤销/重做）会立即更新活动搜索结果；保存场景、项目、动画片段、数据表或本地化文件、安装/移除包，以及移动文件（`MoveFile` 及其撤销/重做，同时自动跟踪 `ReferencesTarget`）都会自动失效并刷新索引；编辑器外部的磁盘改动既可通过轻量目录指纹自动感知，也可点击 **Refresh**（`RefreshSearch`）强制重扫。
+
+## 运行游戏与输出面板（#910）
+
+在保留原有编辑器内 **Play** 预览（`Play`、`PlayIn`、`Stop`）的同时，编辑器可以在桌面端直接通过 `go tool game dev` 运行打开的项目，并将输出实时显示在视口下方停靠的输出面板（`OutputPanelView`）中：
+
+- **运行与停止**：点击工具栏的 **Run** 按钮（或按 **F5**）即可在打开的项目目录中启动 `go tool game dev`（`RunGame` / `RunGameWith`）。开启 **Current Scene** 开关（`SetRunStartAtOpenScene`）或传入 `RunGameOptions{StartAtOpenScene: true}` 时，会将当前打开的场景作为 `-scene <路径>` 与 `NSGO_GAME_SCENE`（`hotreload.SceneEnv`）传给游戏。游戏运行期间按钮切换为 **Stop Game (Running)**（**Shift+F5** / `StopGame`），停止时会干净地结束子进程及其启动的全部进程树（Unix 上通过独立进程组结束，Windows 上通过 `taskkill /T /F` 结束）。卸载 `EditorView`、切换项目（`OpenProject`）或调用 `Close()` 也会自动停止正在运行的游戏。自定义工具和测试可注入 `Editor.RunGameCommand`。
+- **输出 / 日志面板**：停靠在视口下方（`OutputPanelView`，可通过工具栏 **Output** 按钮或 `SetOutputPanelOpen` 开关），在 UI 协程之外实时流式显示运行中游戏的标准输出（`OutputStdout`）和标准错误（`OutputStderr`），并保留编辑器自身带时间戳的状态与错误历史（`OutputEditor`）。连续多条编辑器错误都会保留在日志中，不会被下一条覆盖。
+- **筛选、清空与 `file:line` 跳转**：切换 **Errors**（`SetOutputErrorsOnly`）只看错误日志，点击 **Clear**（`ClearOutput`）清空日志，点击包含 `file:line` 的日志行（`OpenOutputEntry`）时，若该文件是场景（`*.scene.yaml`、`*.scene.yml` 或 `autoload.scenes` 中列出的场景）则在编辑器中打开，否则在文件浏览器中选中该文件。
