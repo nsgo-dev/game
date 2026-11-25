@@ -128,6 +128,7 @@ Paths are relative to `github.com/nsgo-dev/game/packages`. The table is checked 
 | `game/pixelfx/pickups` | Experimental | [pixelfx](pixelfx.md) |
 | `game/pixelfx/projectiles` | Experimental | [pixelfx](pixelfx.md) |
 | `game/pixelfx/scifi` | Experimental | [pixelfx](pixelfx.md) |
+| `game/pixelfx/shadow` | Experimental | [pixelfx](pixelfx.md) |
 | `game/pixelfx/spawn` | Experimental | [pixelfx](pixelfx.md) |
 | `game/placeholder` | Experimental | [Placeholder Assets](placeholder.md) |
 | `game/platformer` | Experimental | [platformer](platformer.md) |
