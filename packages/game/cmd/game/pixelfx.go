@@ -15,6 +15,7 @@ import (
 	_ "github.com/nsgo-dev/game/packages/game/pixelfx/fire"
 	_ "github.com/nsgo-dev/game/packages/game/pixelfx/impacts"
 	_ "github.com/nsgo-dev/game/packages/game/pixelfx/moves"
+	_ "github.com/nsgo-dev/game/packages/game/pixelfx/nature"
 	_ "github.com/nsgo-dev/game/packages/game/pixelfx/pickups"
 	_ "github.com/nsgo-dev/game/packages/game/pixelfx/projectiles"
 	_ "github.com/nsgo-dev/game/packages/game/pixelfx/scifi"
