@@ -16,6 +16,7 @@ A new project starts from a template: a small, complete game that builds, runs a
 | `racing3d` | A 3D racer: two laps of a closed circuit against racing-line rivals, with raycast cars, checkpoints, a countdown, a best-lap ghost and a results screen, played with keyboard, gamepad or touch. [Racing 3D template](template-racing3d.md) | `github.com/nsgo-dev/game/template/racing3d` |
 | `rpg2d` | A top-down RPG: a town and a meadow to walk, people with branching dialogue, an inventory with equipment, one quest, turn-based battles and three save slots. [Guide](template-rpg2d.md). | `github.com/nsgo-dev/game/template/rpg2d` |
 | `rts2d` | A 2D real-time strategy skirmish: gather crystals, build barracks, train three unit types and destroy a computer opponent's headquarters, with fog of war, box selection, control groups and keyboard, gamepad and touch controls ([guide](template-rts2d.md)). | `github.com/nsgo-dev/game/template/rts2d` |
+| `shmup2d` | A vertical scrolling shooter: enemy waves and a stage in YAML, bullet patterns, power-ups, bombs, a boss with three phases, lives and a score, played with the keyboard, the mouse, a controller or touch. | `github.com/nsgo-dev/game/template/shmup2d` |
 | `towerdefense2d` | A 2D tower defense game: towers with upgrades beside a road enemies follow, waves defined in YAML, money and lives, played with keyboard, gamepad or touch; [Tower defense template](template-towerdefense2d.md) describes it. | `github.com/nsgo-dev/game/template/towerdefense2d` |
 | `visualnovel` | A short branching visual novel: two characters, drawn backgrounds, choices that change the ending, a backlog, auto and skip modes, save slots and two languages. | `github.com/nsgo-dev/game/template/visualnovel` |
 
@@ -24,6 +25,18 @@ A new project starts from a template: a small, complete game that builds, runs a
 ### puzzle2d
 
 A spark slides until a wall stops it and lights every lamp it passes; lighting all of a level's lamps within its moves wins the level, and a slide into a void or running out of moves loses it. The template shows how a puzzle game grows: the rules in `board.go`, where each move is an `undo.History` move that undoes and redoes exactly; the levels in `levels.yaml`, a versioned YAML file with unknown fields refused and a canonical form, which `levels.go` reads and writes; the input map in `game.yaml`, bound into `input.Actions` with swipes from `input.GestureRecognizer`; moves animated with `tween` on a fixed-step `game.Loop`; and the stars of each level kept with `save`. To change the game, add or edit levels in `levels.yaml`, whose tests check that every level can be won in its par; rebind the controls in `game.yaml`; add a tile in `board.go` and draw it in `draw.go`. The template's README lists the controls, the level format and every file.
+
+### shmup2d
+
+`shmup2d` is one stage of a vertical shooter on a 270×480 portrait playfield. Enemy waves fly in on dive, weave, cross and hover paths and fire [`bullets`](bullets.md) patterns; destroying a whole wave drops a power, bomb or life item; a boss with three phases ends the stage. Defeating the boss is the win, losing the last life the loss. It plays with the keys or WASD, a controller's stick, D-pad and buttons, and by dragging with a finger or the mouse, with a touch bomb button that `game.yaml`'s input map places.
+
+- `data/stage.yaml` is the stage: the ship's speeds, lives, bombs and weapons, the enemy kinds with their paths and patterns, the waves with their times, places and drops, and the boss with its phases. `stage.go` defines the format, with a version, unknown fields refused and a canonical encoding, which a test and a fuzz test hold to.
+- `data/patterns.yaml` holds every bullet pattern in the `bullets` format and `data/explosion.yaml` the explosion in the [`particles`](particles.md) format.
+- `world.go` is a run of the stage: the ship, enemies, waves, items and boss, and the systems that step them, which take one step's controls and report the events the game plays sounds for. `controls.go` turns the input map and the drag into those controls, `game.go` and `hud.go` hold the loop, the title, play and end screens and the native HUD.
+- The sprites are painted in code and the sounds come from the [placeholder pack](placeholder.md); `CREDITS.md` lists them.
+- The tests play the stage through `nsgotest`: a pilot that dodges and shoots clears it with a controller, and a ship left idle is shot down through the keyboard. Other tests cover touch, the mouse, pausing, every system of the world and the data files.
+
+Its `README.md` lists the controls and where to change the stage, the patterns, the paths, the items, the art and the sound.
 
 ### visualnovel
 
@@ -44,6 +57,7 @@ It is built on [`vn`](vn.md), which presents the script: portraits with expressi
 A save slot keeps the options chosen since the start, the id of the line shown and how many times that line had shown since the last choice, and loading replays that path, because the dialogue runner's saved state holds its variables and visited nodes but not where in a node it stopped. Saving over a used slot asks first. The lines read and the endings found are player settings, kept apart from the slots and saved again when the app leaves the front or quits, so skip mode knows the lines read in every playthrough. The text box keeps clear of a phone's notch and home indicator, and the backlog's Older and Newer buttons scroll it for touch and the mouse.
 
 To make the template your own, write a story in `story/story.yarn` and run its tests, which name every line without a translation and every background, ending or chapter the game does not know; add characters to `story/cast.yaml` with a look in `stage.go`, backgrounds to `backgrounds` in `stage.go`, endings to `endings` in `story.go`, and a language as a string table listed in `story.go`. The template's `README.md` lists the controls.
+
 ## Create a project from a template
 
 ```sh

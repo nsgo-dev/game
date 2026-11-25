@@ -1,0 +1,141 @@
+version: 1
+name: Stage 1
+seed: 7
+scrollSpeed: 60
+ship:
+  speed: 170
+  focusSpeed: 75
+  radius: 3
+  lives: 3
+  bombs: 2
+  invulnerable: 2s
+  weapons:
+    - shot-1
+    - shot-2
+    - shot-3
+    - shot-4
+  damage: 1
+  bombDamage: 40
+enemies:
+  - name: dart
+    frame: dart
+    hp: 1
+    radius: 8
+    score: 100
+    path: dive
+    speed: 120
+  - name: weaver
+    frame: weaver
+    hp: 4
+    radius: 9
+    score: 200
+    path: weave
+    speed: 55
+    amplitude: 40
+    period: 2.4s
+    pattern: weaver-aim
+  - name: skimmer
+    frame: skimmer
+    hp: 2
+    radius: 8
+    score: 150
+    path: cross
+    speed: 95
+  - name: gunship
+    frame: gunship
+    hp: 30
+    radius: 15
+    score: 800
+    path: hover
+    speed: 60
+    stopY: 110
+    hold: 6s
+    pattern: gunship-ring
+waves:
+  - at: 1.5s
+    enemy: dart
+    count: 5
+    every: 250ms
+    x: 45
+    "y": -16
+    stepX: 45
+    drop: power
+  - at: 5s
+    enemy: weaver
+    count: 4
+    every: 400ms
+    x: 70
+    "y": -16
+    stepX: 45
+  - at: 9s
+    enemy: skimmer
+    count: 5
+    every: 350ms
+    x: -16
+    "y": 70
+    drop: power
+  - at: 13s
+    enemy: gunship
+    count: 1
+    x: 135
+    "y": -24
+    drop: bomb
+  - at: 17s
+    enemy: dart
+    count: 5
+    every: 250ms
+    x: 225
+    "y": -16
+    stepX: -45
+    drop: power
+  - at: 20s
+    enemy: weaver
+    count: 4
+    every: 400ms
+    x: 200
+    "y": -16
+    stepX: -45
+  - at: 23s
+    enemy: skimmer
+    count: 5
+    every: 350ms
+    x: 286
+    "y": 110
+    drop: life
+  - at: 26s
+    enemy: gunship
+    count: 2
+    x: 70
+    "y": -24
+    stepX: 130
+  - at: 31s
+    enemy: dart
+    count: 7
+    every: 200ms
+    x: 30
+    "y": -16
+    stepX: 35
+    drop: bomb
+boss:
+  name: Bastion
+  frame: boss
+  at: 37s
+  hp: 450
+  radius: 26
+  score: 10000
+  speed: 50
+  "y": 90
+  phases:
+    - below: 1
+      move: sway
+      patterns:
+        - boss-fan
+    - below: 0.66
+      move: hold
+      patterns:
+        - boss-spiral
+    - below: 0.33
+      move: chase
+      patterns:
+        - boss-bloom
+        - boss-fan

@@ -16,6 +16,7 @@
 | `racing3d` | 一个 3D 赛车游戏：在封闭赛道上与沿赛车线行驶的对手比赛两圈，包含射线车辆、检查点、倒计时、最佳圈幽灵车和结算画面，可用键盘、手柄或触屏操作。[3D 赛车模板](template-racing3d.md) | `github.com/nsgo-dev/game/template/racing3d` |
 | `rpg2d` | 一个俯视角 RPG：可以行走的小镇和草地、带分支对话的人物、带装备的物品栏、一个任务、回合制战斗和三个存档槽。[指南](template-rpg2d.md)。 | `github.com/nsgo-dev/game/template/rpg2d` |
 | `rts2d` | 一场 2D 即时战略遭遇战：采集水晶、建造兵营、训练三种单位并摧毁电脑对手的总部，带战争迷雾、框选、编队以及键盘、手柄和触屏操作（[指南](template-rts2d.md)）。 | `github.com/nsgo-dev/game/template/rts2d` |
+| `shmup2d` | 一个纵向卷轴射击游戏：YAML 写的敌机波次和关卡、弹幕、强化道具、炸弹、三个阶段的 Boss、残机和分数，可用键盘、鼠标、手柄或触屏操作。 | `github.com/nsgo-dev/game/template/shmup2d` |
 | `towerdefense2d` | 一个 2D 塔防游戏：在敌人沿着行进的道路旁建造可升级的防御塔，波次写在 YAML 里，有金钱和生命，可用键盘、手柄或触摸操作；[塔防模板](template-towerdefense2d.md)介绍了它。 | `github.com/nsgo-dev/game/template/towerdefense2d` |
 | `visualnovel` | 一部分支短篇视觉小说：两个角色、代码绘制的背景、改变结局的选项、对话记录、自动与快进模式、存档槽和两种语言。 | `github.com/nsgo-dev/game/template/visualnovel` |
 
@@ -24,6 +25,18 @@
 ### puzzle2d
 
 火花一直滑行到被墙挡住为止，并点亮途经的每一盏灯；在步数用完之前点亮一关的所有灯即过关，滑进虚空或步数用完时仍有灯未亮则失败。这个模板展示解谜游戏如何成长：规则在 `board.go` 中，每一步都是 `undo.History` 的一个操作，可以精确地撤销和重做；关卡在 `levels.yaml` 中，这是一个带版本号、拒绝未知字段并有规范形式的 YAML 文件，由 `levels.go` 读写；输入映射在 `game.yaml` 中，绑定到 `input.Actions`，滑动手势来自 `input.GestureRecognizer`；移动由固定步长 `game.Loop` 上的 `tween` 播放动画；每关的星级用 `save` 保存。要修改游戏，可以在 `levels.yaml` 中增改关卡，测试会检查每一关都能在标准步数内完成；在 `game.yaml` 中重新绑定操作；在 `board.go` 中添加新的格子类型并在 `draw.go` 中绘制它。模板的 README 列出了全部操作、关卡格式和每个文件。
+
+### shmup2d
+
+`shmup2d` 是一个纵向射击游戏的一关，场地为 270×480 的竖屏。敌机波次沿俯冲、摆动、横穿和悬停路径飞入，发射 [`bullets`](bullets.md) 弹幕；击毁整波敌机会掉落强化、炸弹或残机道具；关底是一个有三个阶段的 Boss。击败 Boss 即胜利，失去最后一条命即失败。可用方向键或 WASD、手柄的摇杆、十字键和按键操作，也可以用手指或鼠标拖动，触屏炸弹按钮的位置由 `game.yaml` 的输入映射决定。
+
+- `data/stage.yaml` 是关卡：自机的速度、残机、炸弹和武器，敌机种类及其路径和弹幕，各波次的时间、位置和掉落，以及 Boss 和它的各阶段。格式由 `stage.go` 定义，带版本号、拒绝未知字段、编码规范，测试和模糊测试都会检查。
+- `data/patterns.yaml` 以 `bullets` 格式保存全部弹幕，`data/explosion.yaml` 以 [`particles`](particles.md) 格式定义爆炸。
+- `world.go` 是一局关卡：自机、敌机、波次、道具和 Boss，以及推进它们的各个系统；它接收每一步的操作，并报告需要播放音效的事件。`controls.go` 把输入映射和拖动转换成这些操作，`game.go` 和 `hud.go` 负责循环、标题、游戏和结束画面以及原生 HUD。
+- 精灵在代码中绘制，音效来自[占位资源包](placeholder.md)，`CREDITS.md` 列出了它们的来源。
+- 测试通过 `nsgotest` 游玩整关：会躲避和射击的自动驾驶用手柄通关，什么都不做的自机则在键盘操作下被击落。其他测试覆盖触屏、鼠标、暂停、关卡的每个系统和数据文件。
+
+模板的 `README.md` 列出了操作方式，以及修改关卡、弹幕、路径、道具、美术和音效的位置。
 
 ### visualnovel
 
@@ -44,6 +57,7 @@
 存档槽保存从开头起做出的选择、当前台词的 id，以及这句台词自上一次选择以来出现过几次，读档时重放这条路径，因为对话运行器保存的状态只有变量和访问过的节点，不包括停在节点中的哪个位置。覆盖已有存档前会先询问。已读台词和已发现的结局属于玩家设置，与存档槽分开保存，并在应用退到后台或退出时再保存一次，因此快进模式在每一轮游戏中都认得读过的台词。文本框会避开手机的刘海和主屏幕指示条，对话记录的“较早”和“较新”按钮让触屏和鼠标也能滚动它。
 
 要把模板改成自己的游戏，在 `story/story.yarn` 中写故事并运行测试，测试会指出每一句缺少翻译的台词，以及游戏不认识的背景、结局或章节；在 `story/cast.yaml` 中添加角色并在 `stage.go` 中为其设定外观，在 `stage.go` 的 `backgrounds` 中添加背景，在 `story.go` 的 `endings` 中添加结局，并以一张字符串表加上 `story.go` 中的登记添加一种语言。模板的 `README.md` 列出了操作方式。
+
 ## 用模板创建项目
 
 ```sh

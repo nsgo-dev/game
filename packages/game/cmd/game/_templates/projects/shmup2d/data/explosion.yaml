@@ -1,0 +1,32 @@
+version: 1
+space: world
+shape:
+  kind: circle
+  radius: 3
+maxParticles: 512
+lifetimeMin: 250ms
+lifetimeMax: 650ms
+speedMin: 30
+speedMax: 140
+angleMax: 6.2831855
+sizeCurve:
+  - t: 0
+    value: 1.4
+  - t: 1
+    value: 0.3
+alphaCurve:
+  - t: 0
+    value: 1
+  - t: 1
+    value: 0
+colorCurve:
+  - t: 0
+    color: "#fef9c3ff"
+  - t: 0.4
+    color: "#fb923cff"
+  - t: 1
+    color: "#e11d48ff"
+seed: 3
+z: 10
+frameNames:
+  - spark
