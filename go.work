@@ -3,6 +3,7 @@ go 1.27.3
 use (
 	./packages/game
 	./template
+	./template/action3d
 	./template/cards2d
 	./template/fighting2d
 	./template/fps3d
