@@ -96,6 +96,9 @@ func TestTheViewSurvivesALostDevice(t *testing.T) {
 		t.Fatal("no frames drawn after the device came back")
 	}
 	checkFrame(t, app)
+	if app.Exists("id:gpu-status") {
+		t.Fatalf("the HUD still reports a GPU problem after the device came back: %s", app.Find("id:gpu-status").Text)
+	}
 }
 
 func BenchmarkScene(b *testing.B) {

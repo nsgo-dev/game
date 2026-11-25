@@ -242,7 +242,7 @@ func (g *game) stepHero(c controls, dt time.Duration) {
 	}
 	h.move(g, wish, jump, dt)
 	for _, ev := range h.events(dt) {
-		if ev.Event.Name != hitEvent {
+		if !h.swingHits(ev) {
 			continue
 		}
 		h.hits++
@@ -287,7 +287,7 @@ func (g *game) stepEnemy(e *actor, dt time.Duration) {
 	}
 	e.move(g, wish, false, dt)
 	for _, ev := range e.events(dt) {
-		if ev.Event.Name == hitEvent {
+		if e.swingHits(ev) {
 			e.hits++
 			if e.strikes(h) && g.phase == phasePlaying {
 				e.hitsLanded++
@@ -325,6 +325,11 @@ func (a *actor) move(g *game, wish math3d.Vec3, jump bool, dt time.Duration) {
 // events advances a's animation and returns the clip events it passed.
 func (a *actor) events(dt time.Duration) []anim3d.FiredEvent {
 	return a.anim.step(dt, a.speed)
+}
+
+// swingHits reports whether ev is the hit of a swing a is still making. A flinch or a fall that replaces the attack state crossfades out of it, and anim3d keeps firing the fading attack clip's events during that blend, so a hit from a swing that was interrupted is dropped here.
+func (a *actor) swingHits(ev anim3d.FiredEvent) bool {
+	return ev.Event.Name == hitEvent && ev.State == stateAttack && a.anim.state() == stateAttack
 }
 
 // strikes reports whether a blow from a lands on b: b stands within a's reach, inside the cone a faces, near a's height.
@@ -370,7 +375,8 @@ func (g *game) separate() {
 	all := append([]*actor{g.hero}, g.enemies...)
 	for i, a := range all {
 		for _, b := range all[i+1:] {
-			if a.down || b.down {
+			// Capsules that do not overlap in height, such as the hero on the ledge above a guard or jumping over one, pass each other.
+			if a.down || b.down || abs32(b.pos.Y-a.pos.Y) >= min(a.tune.Height, b.tune.Height) {
 				continue
 			}
 			d := flat(b.pos.Sub(a.pos))
@@ -455,6 +461,8 @@ func turnToward(from, to, step float32) float32 {
 func wrapAngle(a float32) float32 {
 	return float32(math.Remainder(float64(a), 2*math.Pi))
 }
+
+func abs32(v float32) float32 { return max(v, -v) }
 
 func sin(a float32) float32 { return float32(math.Sin(float64(a))) }
 func cos(a float32) float32 { return float32(math.Cos(float64(a))) }

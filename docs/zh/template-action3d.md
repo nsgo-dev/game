@@ -48,10 +48,10 @@ go tool nsgo dev
 
 ## 在哪里修改
 
-- **关卡。** 在 `scenes/keep.scene.yaml` 中移动墙、增加敌人或灯，或画一个新关卡，可以手写，也可以用场景编辑器（`go tool game editor .`）。测试会检查它仍能加载；`game_test.go` 中机器人的路线说明了如何赢得一局，所以新的布局需要新的路线。
+- **关卡。** 在 `scenes/keep.scene.yaml` 中移动墙、增加敌人或灯，或画一个新关卡，可以手写，也可以用场景编辑器（`go run github.com/nsgo-dev/game/packages/game/cmd/game editor .`）。每个对象都位于所在图层的顶层，只有出生点可以旋转（用 `rotY`）：关卡把位置读作世界坐标、把方块读作与坐标轴对齐的盒子，所以会拒绝嵌套在其他对象里的对象和旋转过的方块。测试会检查它仍能加载；`game_test.go` 中机器人的路线说明了如何赢得一局，所以新的布局需要新的路线。
 - **战斗。** 所有数值都在 `data/actors.yaml` 中：敌人的 `attackSpeed` 小于 1 会让挥砍变慢，`health`、`reach`、`damage`、`cooldown` 和 `knockback` 不改代码就能调整难度。
 - **动画。** 编辑 `data/actors.yaml` 中片段的关键帧，或增加一个片段，并在 `rig.go` 的 `newAnimator` 中为它增加一个状态。
 - **新对象。** 在 `level.go` 的 `levelComponents` 中注册组件类型，例如移动平台或拉杆，在 `buildLevel` 中读取它，再在场景中把它的事件连接到处理器。
 - **模型。** 用 glTF 模型替换方块：用 `gltf` 包加载（见[从 Blender 导入 3D 模型](3d-models-blender.md)），用 `render3d.UploadMesh` 上传网格，并在 `renderer.draw` 中绘制。
 
-编辑 `game.yaml` 之后，`go run github.com/nsgo-dev/game/packages/game/cmd/gameproject sync` 会写入 `nsgo.yaml` 与它共有的设置；移动或增加文件之后，`go tool game index` 会更新项目的稳定文件 ID 索引 `game.index.yaml`。
+编辑 `game.yaml` 之后，`go run github.com/nsgo-dev/game/packages/game/cmd/gameproject sync` 会写入 `nsgo.yaml` 与它共有的设置；移动或增加文件之后，`go run github.com/nsgo-dev/game/packages/game/cmd/game index` 会更新项目的稳定文件 ID 索引 `game.index.yaml`。
