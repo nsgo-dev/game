@@ -1,0 +1,7 @@
+# The stable IDs of this project's files, kept by game index, game mv and the editor. Keep it in version control.
+version: 1
+files:
+  - path: assets/lantern_shrine.glb
+    sha256: 7ec219aa4e9c5a73ef37bad286e95a98cd0bc026f11b972299da8083d2135f99
+  - path: assets/shrine.scene.yaml
+    uid: crssymqft8e92

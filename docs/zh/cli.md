@@ -201,14 +201,14 @@ game check: 1 problem
 
 | 文件 | 检查内容 |
 | --- | --- |
-| 场景（`*.scene.yaml`、`*.scene.yml`） | 按[场景格式](editor.md)解析并校验通过，没有未知字段；瓦片地图的 `source` 是存在且检查通过的 Tiled `.tmj` 地图；每个精灵的 `atlas` 存在且含有它的 `frame`；内联瓦片地图的 `tileset` 图集含有它用到的每个瓦片 ID 的帧；`material` 文件存在、是有效的材质，且它的 `texture` 存在；在实例化或继承其他场景的场景中，每个连接的 `from` 和 `to` 都指向解析后场景中的对象（[检查连接](editor.md#检查连接)） |
+| 场景（`*.scene.yaml`、`*.scene.yml`） | 按[场景格式](editor.md)解析并校验通过，没有未知字段；瓦片地图的 `source` 是存在且检查通过的 Tiled `.tmj` 地图；每个精灵的 `atlas` 存在且含有它的 `frame`；内联瓦片地图的 `tileset` 图集含有它用到的每个瓦片 ID 的帧；`material` 文件存在、是有效的材质，且它的 `texture` 存在；`model` 是存在的 `.gltf` 或 `.glb` 文件，能用 `gltf.LoadFS` 加载，并含有 `modelNode` 指定的节点或 `modelMesh` 指定的网格，`mesh` 是内置基本形体（[scenemodel](scenemodel.md)）；在实例化或继承其他场景的场景中，每个连接的 `from` 和 `to` 都指向解析后场景中的对象（[检查连接](editor.md#检查连接)） |
 | Tiled 地图（`.tmj`）和图块集（`.tsj`） | 外部图块集是存在的 JSON 图块集（`.tsj`，或旧版 Tiled 使用的 `.json`；不是 `.tsx`）；图块集图片和图像图层的图片存在，组图层里的也算；地图能用 `tilemap.LoadTiled` 加载 |
 | LDtk 项目（`.ldtk`） | 图块集图片和关卡背景存在；没有关卡保存在单独的 `.ldtkl` 文件中，因为 `tilemap.LoadLDtkAll` 不读取这些文件（在 LDtk 中关闭“Save levels to separate files”）；项目能用 `tilemap.LoadLDtkAll` 加载 |
 | 精灵图集（顶层有 `frames` 和 `meta` 的 JSON，即 TexturePacker 和 Aseprite 导出的格式） | `meta.image` 存在；每一帧都落在图片之内；图集能用 `sprite.LoadAtlas` 加载 |
-| `game.yaml` 以及文件之间的其他所有引用 | `game.yaml` 按[项目文件](project.md)解析并校验通过；每个自动加载的场景和资源都存在，每个 `assets` 目标的 `in`（图集的是文件夹）也存在，上面各行没有覆盖到的其他引用所指的文件同样必须存在：场景 `inherits` 的场景和对象实例化的场景（`scene`，不论其文件名是什么）、覆盖项中以及不以 `*.scene.yaml` 命名的场景中的材质和瓦片地图 `source`，还有材质的 `texture`（无论该材质在哪里被使用）。`game assets` 写出的路径（`out`、`cache`、`manifest.in`）以及场景 `navMesh` 指定、由 `game navmesh` 写出的导航网格文件可以暂不存在 |
+| `game.yaml` 以及文件之间的其他所有引用 | `game.yaml` 按[项目文件](project.md)解析并校验通过；每个自动加载的场景和资源都存在，每个 `assets` 目标的 `in`（图集的是文件夹）也存在，上面各行没有覆盖到的其他引用所指的文件同样必须存在：场景 `inherits` 的场景和对象实例化的场景（`scene`，不论其文件名是什么）、覆盖项中以及不以 `*.scene.yaml` 命名的场景中的材质、模型和瓦片地图 `source`，材质的 `texture`（无论该材质在哪里被使用），以及 `.gltf` 模型存放在单独文件中的缓冲区和图片。`game assets` 写出的路径（`out`、`cache`、`manifest.in`）以及场景 `navMesh` 指定、由 `game navmesh` 写出的导航网格文件可以暂不存在 |
 | 项目索引（`game.index.yaml`） | 能够解析，且同一项目中没有两个场景或资源文件共用同一个 `uid`（复制出的文件在 `game index` 给它分配新 uid 之前就是这种情况）；不同的项目（例如由同一模板创建的两个游戏）可以共用 |
 
-地图、图块集和图集里写的路径相对于该文件本身，与 Tiled、LDtk 和纹理打包工具的写法一致。场景的瓦片地图 `source` 和 `material`，以及材质的 `texture`，相对于项目根目录：从场景往上最近一个含有 `game.yaml`、`nsgo.yaml` 或 `go.mod` 的目录，都没有时为被检查的目录。场景按游戏的 `sceneformat.AssetResolver` 的方式用名字指代图集，所以检查按文件名找它：同一项目中去掉 `.json` 后的文件名等于这个名字的图集 JSON（`actors` 即 `art/actors.json`），或者从项目根目录算起的路径等于这个名字的（`art/actors`）。有多个匹配时取离场景最近的一个，距离按从场景往上走到共同目录、再往下走到图集所经过的目录数计算，所以场景旁边的图集优先于子目录里的；两个同样近时报告为有歧义，直到场景用路径指明其中一个。没有图集匹配、但有同名的 JSON 文件无法解析或不是图集时，报告该文件的问题。路径必须是相对路径、使用正斜杠，且不能指到被检查的目录之外。PNG、JPEG 和 GIF 图片必须能解码；其他图片只要存在即可。
+地图、图块集和图集里写的路径相对于该文件本身，与 Tiled、LDtk 和纹理打包工具的写法一致。场景的瓦片地图 `source`、`material` 和 `model`，以及材质的 `texture`，相对于项目根目录：从场景往上最近一个含有 `game.yaml`、`nsgo.yaml` 或 `go.mod` 的目录，都没有时为被检查的目录。场景按游戏的 `sceneformat.AssetResolver` 的方式用名字指代图集，所以检查按文件名找它：同一项目中去掉 `.json` 后的文件名等于这个名字的图集 JSON（`actors` 即 `art/actors.json`），或者从项目根目录算起的路径等于这个名字的（`art/actors`）。有多个匹配时取离场景最近的一个，距离按从场景往上走到共同目录、再往下走到图集所经过的目录数计算，所以场景旁边的图集优先于子目录里的；两个同样近时报告为有歧义，直到场景用路径指明其中一个。没有图集匹配、但有同名的 JSON 文件无法解析或不是图集时，报告该文件的问题。路径必须是相对路径、使用正斜杠，且不能指到被检查的目录之外。PNG、JPEG 和 GIF 图片必须能解码；其他图片只要存在即可。
 
 名字以 `.` 或 `_` 开头的目录以及名为 `testdata` 的目录会被跳过，与 go 命令的做法一致。其他 JSON 和 YAML 文件不会被读取。地图或图集的加载器报告的问题不带行号，因此打印为 `file: message`；只有当文件的引用都能解析时，检查才会运行这个加载器，同一个错误不会被报告两次。
 

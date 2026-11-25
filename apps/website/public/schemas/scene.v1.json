@@ -342,8 +342,15 @@
           "maximum": 3.4028234663852886e+38
         },
         "mesh": {
-          "description": "Mesh optionally names a 3D mesh primitive or asset path for 3D scene views.",
-          "type": "string"
+          "description": "Mesh optionally names the built-in primitive the object draws in 3D: \"box\", \"sphere\", \"plane\", \"capsule\" or \"cylinder\" (MeshPrimitives lists them, and package scenemodel builds them). It cannot be combined with Model; scale the object to size the primitive.",
+          "type": "string",
+          "enum": [
+            "box",
+            "sphere",
+            "plane",
+            "capsule",
+            "cylinder"
+          ]
         },
         "flipX": {
           "description": "FlipX and FlipY mirror the sprite inside its untrimmed frame box.",
@@ -374,7 +381,7 @@
           ]
         },
         "material": {
-          "description": "Material optionally names a shared material resource file by its slash-separated path from the project root, such as \"materials/stone.material.yaml\". Build resolves it through a MaterialResolver; the sprite draws with the material's opacity and blend mode, so every scene that uses the file changes when it is edited.",
+          "description": "Material optionally names a shared material resource file by its slash-separated path from the project root, such as \"materials/stone.material.yaml\". Build resolves it through a MaterialResolver; the sprite draws with the material's opacity and blend mode, so every scene that uses the file changes when it is edited. In 3D it replaces every material of the object's Model, or gives its Mesh primitive its surface (package scenemodel).",
           "type": "string"
         },
         "components": {

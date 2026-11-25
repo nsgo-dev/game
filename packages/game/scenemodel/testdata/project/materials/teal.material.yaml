@@ -1,0 +1,5 @@
+type: material
+version: 1
+name: Teal
+baseColor: '#2a9d8f'
+roughness: 0.4

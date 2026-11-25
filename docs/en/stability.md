@@ -158,6 +158,7 @@ Paths are relative to `github.com/nsgo-dev/game/packages`. The table is checked 
 | `game/scene` | Stable | [scene](scene.md) |
 | `game/scene3d` | Experimental | [scene3d](scene3d.md) |
 | `game/sceneformat` | Experimental | [editor](editor.md) |
+| `game/scenemodel` | Experimental | [scenemodel](scenemodel.md) |
 | `game/screen` | Stable | [screen](screen.md) |
 | `game/server` | Experimental | [server](server.md) |
 | `game/server/cmd/dedicatedserver` | Experimental | [server](server.md) |

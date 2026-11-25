@@ -200,6 +200,11 @@ pkg/sceneformat:
       - any-glob-to-any-file:
           - packages/game/sceneformat/**
 
+pkg/scenemodel:
+  - changed-files:
+      - any-glob-to-any-file:
+          - packages/game/scenemodel/**
+
 pkg/screen:
   - changed-files:
       - any-glob-to-any-file:

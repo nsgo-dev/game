@@ -261,7 +261,7 @@ func moveProjectPaths(f *project.File, move func(*string)) {
 	f.EachPath(func(_ string, p *string) { move(p) })
 }
 
-// moveScenePaths applies move to every file path doc holds: the scene it inherits, its navigation mesh file, tilemap sources, and the scenes and materials of objects and overrides.
+// moveScenePaths applies move to every file path doc holds: the scene it inherits, its navigation mesh file, tilemap sources, and the scenes, materials and models of objects and the materials and models of overrides.
 func moveScenePaths(doc *sceneformat.SceneDoc, move func(*string)) {
 	if doc == nil {
 		return
@@ -288,19 +288,23 @@ func moveScenePaths(doc *sceneformat.SceneDoc, move func(*string)) {
 		sceneformat.WalkObjects(l.Objects, func(o, _ *sceneformat.ObjectDoc) bool {
 			move(&o.Scene)
 			move(&o.Material)
+			move(&o.Model)
 			moveOverrides(o.Overrides, move)
 			return true
 		})
 	}
 }
 
+// moveOverrides applies move to the material and model paths of every override in ovs.
 func moveOverrides(ovs map[string]sceneformat.ObjectOverride, move func(*string)) {
 	for id, ov := range ovs {
-		if ov.Material != nil {
-			m := *ov.Material
-			move(&m)
-			ov.Material = &m
-			ovs[id] = ov
+		for _, p := range []**string{&ov.Material, &ov.Model} {
+			if *p != nil {
+				v := **p
+				move(&v)
+				*p = &v
+			}
 		}
+		ovs[id] = ov
 	}
 }
