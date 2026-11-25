@@ -107,12 +107,16 @@ func newElectrified(o *pixelfx.Options) pixelfx.Instance {
 			// the jolt: the body flares to an electric silhouette, then fades back through its own shading
 			if jolt {
 				lift := elLift[ja] * jk
-				for y := 0; y < A.H; y++ {
-					for x := 0; x < A.W; x++ {
-						if c := A.Pixels[y*A.W+x]; c != 0 {
-							p.Px(A.X+float64(x), A.Y+float64(y), ramp[int(pixelfx.ClampTo(pixelfx.Round(0.4+pixelfx.Luma(c)*6+lift), 0, 6))])
+				if len(A.Pixels) >= A.W*A.H {
+					for y := 0; y < A.H; y++ {
+						for x := 0; x < A.W; x++ {
+							if c := A.Pixels[y*A.W+x]; c != 0 {
+								p.Px(A.X+float64(x), A.Y+float64(y), ramp[int(pixelfx.ClampTo(pixelfx.Round(0.4+pixelfx.Luma(c)*6+lift), 0, 6))])
+							}
 						}
 					}
+				} else if A.Mask != nil && len(A.Mask.Data) >= A.W*A.H {
+					p.Mask(A.Mask, A.X, A.Y, ramp[int(pixelfx.ClampTo(pixelfx.Round(0.4+0.5*6+lift), 0, 6))], 1)
 				}
 				p.Glow(0, -19, 26, C[5], 0.5*jk*(1-float64(ja)/3))
 			}

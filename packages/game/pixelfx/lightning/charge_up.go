@@ -242,7 +242,7 @@ func newChargeUp(o *pixelfx.Options) pixelfx.Instance {
 				// bolts every way, struck and flickering
 				for i, b := range bolts {
 					ba := int(math.Floor((t-b.t0)*30 + 1e-4))
-					if t < b.t0 || ba >= len(cuBK) {
+					if !(t >= b.t0) || ba < 0 || ba >= len(cuBK) {
 						continue
 					}
 					s := 0.75
