@@ -185,13 +185,18 @@ world.AddBody(water)
 - 在验证头顶净空、水平前进增益和可站立踏面后，自动迈上不超过 `StepHeight` 的台阶。
 - 遇到竖直墙面时干净停止，斜向撞墙时沿墙面切向滑行而不穿透。
 - 以 `PushForce`（牛顿）推动走进的动态刚体；默认值 0 时动态刚体像墙一样挡住角色。
+- 在 `CharacterController` 和 `MoveResult` 中上报支撑刚体（`GroundBody`）、接触点处的地面速度（`GroundVelocity`）以及本步偏航角增量（`GroundYawDelta`）。
+- 每步按运动学或动态地面刚体的精确线性与角运动携带角色——绕平台枢轴无漂移旋转胶囊位置，并在 `ApplyPlatformYaw` 为 `true`（`NewCharacterController` 默认开启）时将 `GroundYawDelta` 累加到 `Yaw`。
+- 通过 `PlatformOnLeave` 配置起跳或走离移动平台时的速度继承策略：`PlatformLeaveAddVelocity`（默认，继承完整地面速度）、`PlatformLeaveAddUpwardVelocity`（继承水平与向上速度，忽略向下分量）或 `PlatformLeaveDoNothing`（离开时丢弃平台速度）。
+- 通过沿分离法线推出角色来解算向胶囊移动的运动学刚体（滑动门、移动墙、升降梯）；当角色被夹在对向表面之间且无法有效分离时，在 `MoveResult.Crushed`（及 `CharacterController.Crushed`）中上报挤压状态。
 
 ```go
 cc := physics3d.NewCharacterController(physics3d.Vec3{Y: 0}, 0.3, 1.8)
+cc.PlatformOnLeave = physics3d.PlatformLeaveAddUpwardVelocity
 loop := &game.Loop{
 	Update: func(dt time.Duration) {
 		res := cc.Move(world, physics3d.Vec3{X: 3.5}, dt)
-		_ = res.Pos
+		_, _, _ = res.Pos, res.GroundBody, res.Crushed
 	},
 }
 ```

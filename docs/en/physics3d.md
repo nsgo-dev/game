@@ -185,13 +185,18 @@ world.AddBody(water)
 - Automatically steps up stairs up to `StepHeight` after verifying headroom clearance, forward progress, and a walkable landing tread.
 - Stops cleanly and slides tangentially along vertical walls without penetration.
 - Pushes dynamic bodies it walks into with `PushForce` newtons; with the default 0 they block it like walls.
+- Tracks the supporting body (`GroundBody`), its velocity at the contact point (`GroundVelocity`), and its per-step yaw rotation (`GroundYawDelta`) in both `CharacterController` and `MoveResult`.
+- Carries the character by the exact linear and angular motion of kinematic or dynamic ground bodies each step — rotating the capsule around the platform pivot without drift and adding `GroundYawDelta` to `Yaw` when `ApplyPlatformYaw` is enabled (the default in `NewCharacterController`).
+- Configures velocity inheritance on jump or walk-off via `PlatformOnLeave`: `PlatformLeaveAddVelocity` (default, inherits full ground velocity), `PlatformLeaveAddUpwardVelocity` (inherits horizontal and upward velocity while ignoring downward motion), or `PlatformLeaveDoNothing` (drops platform velocity).
+- Resolves moving kinematic bodies (sliding doors, walls, lifts) that sweep into the capsule by pushing it out along the separating normal, and reports `Crushed` in `MoveResult` (and `CharacterController.Crushed`) when squeezed between opposing surfaces with no valid depenetration.
 
 ```go
 cc := physics3d.NewCharacterController(physics3d.Vec3{Y: 0}, 0.3, 1.8)
+cc.PlatformOnLeave = physics3d.PlatformLeaveAddUpwardVelocity
 loop := &game.Loop{
 	Update: func(dt time.Duration) {
 		res := cc.Move(world, physics3d.Vec3{X: 3.5}, dt)
-		_ = res.Pos
+		_, _, _ = res.Pos, res.GroundBody, res.Crushed
 	},
 }
 ```
