@@ -14,13 +14,13 @@ func TestMain(m *testing.M) { nsgotest.Main(m) }
 
 const frame = time.Second / 60
 
-// startGame starts the app in a 960 by 540 window, three times the virtual screen, and returns it with its game.
-func startGame(t *testing.T) (*nsgotest.App, *platformerGame) {
+// startGame starts the app in a 960 by 540 window, three times the virtual screen, with opts after those, and returns it with its game.
+func startGame(t *testing.T, opts ...nsgotest.Option) (*nsgotest.App, *platformerGame) {
 	t.Helper()
 	var g *platformerGame
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		return newRoot(cx, func(pg *platformerGame) { g = pg })
-	}, nsgotest.Size(960, 540), nsgotest.ManualFrames())
+	}, append([]nsgotest.Option{nsgotest.Size(960, 540), nsgotest.ManualFrames()}, opts...)...)
 	app.Advance(3 * frame)
 	if g == nil {
 		t.Fatal("the game did not start")
@@ -77,6 +77,7 @@ func newTouchscreen(app *nsgotest.App, g *platformerGame) *touchscreen {
 	return &touchscreen{app: app, g: g, down: map[int]core.Point{}}
 }
 
+func (s *touchscreen) left(down bool)  { s.finger(1, "left", down) }
 func (s *touchscreen) right(down bool) { s.finger(1, "right", down) }
 func (s *touchscreen) jump(down bool)  { s.finger(2, actionJump, down) }
 
@@ -194,8 +195,34 @@ func TestTouchPlaythroughWins(t *testing.T) {
 	app, g := startGame(t)
 	play(app, g, newTouchscreen(app, g), true, 40*time.Second)
 	checkWin(t, app, g)
-	if !g.showTouchControls() {
-		t.Error("the on-screen controls are hidden after the screen was touched")
+}
+
+// TestDesktopShowsTheControlsOncePointedAt checks that on a desktop the on-screen controls stay hidden until the game view is touched, or clicked, since the mouse plays through the same regions.
+func TestDesktopShowsTheControlsOncePointedAt(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		point func(app *nsgotest.App, g *platformerGame)
+	}{
+		{"touch", func(app *nsgotest.App, g *platformerGame) { newTouchscreen(app, g).jump(true) }},
+		{"click", func(app *nsgotest.App, _ *platformerGame) {
+			app.PressDown("game-view")
+			app.PressUp("game-view")
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			app, g := startGame(t, nsgotest.Idiom(core.IdiomDesktop))
+			if g.env.Idiom() != core.IdiomDesktop {
+				t.Skipf("the platform's idiom is %v", g.env.Idiom())
+			}
+			if g.showTouchControls() {
+				t.Fatal("the on-screen controls are drawn on a desktop before the game view was pointed at")
+			}
+			tc.point(app, g)
+			app.Advance(frame)
+			if !g.showTouchControls() {
+				t.Errorf("the on-screen controls are hidden after a %s", tc.name)
+			}
+		})
 	}
 }
 
@@ -207,6 +234,7 @@ func TestRunningIntoSpikesLosesAndPlayAgainRestarts(t *testing.T) {
 	}
 	app.Find("text:Out of lives")
 	app.Find("text:Lives 0")
+	app.Find("text:" + g.data.level.Name)
 
 	app.Press("play-again")
 	app.Advance(2 * frame)
@@ -236,36 +264,116 @@ func TestRestartKeysStartANewRunOnlyAfterTheEnd(t *testing.T) {
 	}
 }
 
+// regionPoint returns a view point 10 points inside the top left of the region game.yaml binds to action.
+func regionPoint(g *platformerGame, action string) core.Point {
+	r, ok := Project.Region(action)
+	if !ok {
+		panic("game.yaml binds no region to " + action)
+	}
+	return g.viewport.GameToView(g.currentViewSize(), core.Point{X: r.Origin.X + 10, Y: r.Origin.Y + 10})
+}
+
+// click holds the left mouse button over action's on-screen control.
+func click(app *nsgotest.App, g *platformerGame, action string) {
+	app.PressDown("game-view")
+	app.HoverAt("game-view", regionPoint(g, action))
+}
+
 func TestEachBindingMovesThePlayer(t *testing.T) {
+	type device = func(app *nsgotest.App, g *platformerGame)
+	key := func(name string) (device, device) {
+		return func(app *nsgotest.App, _ *platformerGame) { app.KeyDown(name) }, func(app *nsgotest.App, _ *platformerGame) { app.KeyUp(name) }
+	}
+	code := func(name string) (device, device) {
+		return func(app *nsgotest.App, _ *platformerGame) { app.KeyCodeDown(name) }, func(app *nsgotest.App, _ *platformerGame) { app.KeyCodeUp(name) }
+	}
+	button := func(b gamepad.Button) (device, device) {
+		return func(app *nsgotest.App, _ *platformerGame) {
+				app.ConnectGamepad(1, "Test Controller")
+				app.SetGamepadButton(1, b, 1)
+			}, func(app *nsgotest.App, _ *platformerGame) {
+				app.SetGamepadButton(1, b, 0)
+			}
+	}
+	stick := func(x float32) (device, device) {
+		return func(app *nsgotest.App, _ *platformerGame) {
+				app.ConnectGamepad(1, "Test Controller")
+				app.SetGamepadAxis(1, gamepad.AxisLeftX, x)
+			}, func(app *nsgotest.App, _ *platformerGame) {
+				app.SetGamepadAxis(1, gamepad.AxisLeftX, 0)
+			}
+	}
+	mouse := func(action string) (device, device) {
+		return func(app *nsgotest.App, g *platformerGame) { click(app, g, action) }, func(app *nsgotest.App, _ *platformerGame) { app.PressUp("game-view") }
+	}
+	both := func(hold, leave device) [2]device { return [2]device{hold, leave} }
 	for _, tc := range []struct {
-		name  string
-		hold  func(app *nsgotest.App, g *platformerGame)
-		leave func(app *nsgotest.App, g *platformerGame)
-		dir   float32
+		name string
+		dev  [2]device
+		dir  float32
 	}{
-		{"D", func(app *nsgotest.App, _ *platformerGame) { app.KeyCodeDown("KeyD") }, func(app *nsgotest.App, _ *platformerGame) { app.KeyCodeUp("KeyD") }, 1},
-		{"dpad right", func(app *nsgotest.App, _ *platformerGame) {
-			app.ConnectGamepad(1, "Test Controller")
-			app.SetGamepadButton(1, gamepad.ButtonDPadRight, 1)
-		}, func(app *nsgotest.App, _ *platformerGame) { app.SetGamepadButton(1, gamepad.ButtonDPadRight, 0) }, 1},
-		{"touch right", func(app *nsgotest.App, g *platformerGame) { newTouchscreen(app, g).right(true) }, nil, 1},
-		{"click right", func(app *nsgotest.App, g *platformerGame) {
-			r, _ := Project.Region("right")
-			at := g.viewport.GameToView(g.currentViewSize(), core.Point{X: r.Origin.X + 10, Y: r.Origin.Y + 10})
-			app.PressDown("game-view")
-			app.HoverAt("game-view", at)
-		}, func(app *nsgotest.App, _ *platformerGame) { app.PressUp("game-view") }, 1},
+		{"left arrow", both(key("left")), -1},
+		{"right arrow", both(key("right")), 1},
+		{"A", both(code("KeyA")), -1},
+		{"D", both(code("KeyD")), 1},
+		{"dpad left", both(button(gamepad.ButtonDPadLeft)), -1},
+		{"dpad right", both(button(gamepad.ButtonDPadRight)), 1},
+		{"left stick left", both(stick(-1)), -1},
+		{"left stick right", both(stick(1)), 1},
+		{"touch left", [2]device{func(app *nsgotest.App, g *platformerGame) { newTouchscreen(app, g).left(true) }, nil}, -1},
+		{"touch right", [2]device{func(app *nsgotest.App, g *platformerGame) { newTouchscreen(app, g).right(true) }, nil}, 1},
+		{"click left", both(mouse("left")), -1},
+		{"click right", both(mouse("right")), 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			app, g := startGame(t)
+			if tc.dir < 0 {
+				// The start is next to the left wall; stand where there is room to run left.
+				g.world.placePlayer(g.world.standingAt(6, 9))
+				app.Advance(2 * frame)
+			}
 			x := g.world.body.Bounds().X
-			tc.hold(app, g)
+			tc.dev[0](app, g)
 			app.Advance(500 * time.Millisecond)
 			if moved := (g.world.body.Bounds().X - x) * tc.dir; moved < 20 {
-				t.Fatalf("holding %s moved the player %.1f points, want at least 20", tc.name, moved)
+				t.Fatalf("holding %s moved the player %.1f points, want at least 20 the right way", tc.name, moved)
 			}
-			if tc.leave != nil {
-				tc.leave(app, g)
+			if tc.dev[1] != nil {
+				tc.dev[1](app, g)
+			}
+		})
+	}
+}
+
+func TestEachJumpBindingJumps(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		hold func(app *nsgotest.App, g *platformerGame)
+	}{
+		{"space", func(app *nsgotest.App, _ *platformerGame) { app.KeyDown("space") }},
+		{"up arrow", func(app *nsgotest.App, _ *platformerGame) { app.KeyDown("up") }},
+		{"W", func(app *nsgotest.App, _ *platformerGame) { app.KeyCodeDown("KeyW") }},
+		{"south button", func(app *nsgotest.App, _ *platformerGame) {
+			app.ConnectGamepad(1, "Test Controller")
+			app.SetGamepadButton(1, gamepad.ButtonSouth, 1)
+		}},
+		{"touch", func(app *nsgotest.App, g *platformerGame) { newTouchscreen(app, g).jump(true) }},
+		{"click", func(app *nsgotest.App, g *platformerGame) { click(app, g, actionJump) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			app, g := startGame(t)
+			if !g.world.body.Grounded {
+				t.Fatal("the player is not standing at the start")
+			}
+			y := g.world.body.Bounds().Y
+			tc.hold(app, g)
+			top := y
+			for range 20 {
+				app.Advance(frame)
+				top = min(top, g.world.body.Bounds().Y)
+			}
+			if rose := y - top; rose < 16 {
+				t.Fatalf("holding %s raised the player %.1f points, want at least a tile", tc.name, rose)
 			}
 		})
 	}

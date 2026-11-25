@@ -15,7 +15,7 @@ go tool nsgo dev
 - 基于 `physics.CharacterBody` 的 [`platformer.Controller`](platformer.md)：可变高度跳跃、土狼时间、跳跃缓冲、单向平台、贴墙下滑和蹬墙跳，全部由 `data/player.yaml` 调校。
 - 在 `data/level.yaml` 里用文本画出的关卡，构建为用于碰撞的 `physics.Grid`、用于绘制的 `tilemap.Tilemap`，以及尖刺、火花、灯和信标的 `physics.Trigger` 感应区。
 - 来自 `data/rooms.yaml`、各有相机边界的房间：[`rooms.Director`](rooms.md) 把相机从一个房间滑到下一个房间，玩家等相机停稳后再继续。
-- `game.yaml` 里的一份输入映射，同时覆盖键盘、手柄、触屏和鼠标，用 `Project.BindInput` 绑定；在手机和平板上，以及任何设备在屏幕被触摸过之后，触屏区域上会画出屏幕按键。
+- `game.yaml` 里的一份输入映射，同时覆盖键盘、手柄、触屏和鼠标，用 `Project.BindInput` 绑定；在手机和平板上，以及任何设备在游戏视图被触摸或点击过之后，触屏区域上会画出屏幕按键。
 - 按整数倍缩放的 320×180 虚拟屏幕，画布上方是原生 HUD 和一局结束时的面板。
 - 测试分别用键盘、手柄和双指触屏把关卡玩到获胜，一直撞向尖刺直到输掉，并检查规则、控制器的时序以及每个数据文件都是规范格式。
 
@@ -27,7 +27,7 @@ go tool nsgo dev
 | 跳跃（按住跳得更高） | 空格、上方向键、W | 下方按键 | 右下角的箭头 |
 | 一局结束后再来一局 | R、回车 | Start | “Play again”按钮 |
 
-在屏幕按键上按住鼠标左键，效果和触摸它一样。
+在屏幕按键上按住鼠标左键，效果和触摸它一样；在桌面上，第一次在游戏视图里点击后屏幕按键就会出现。
 
 ## 组织方式
 
@@ -67,11 +67,11 @@ tiles: |
 | `G` | 终点信标，恰好一个 |
 | `P` | 玩家出发的位置，恰好一个 |
 
-每一行宽度相同。未知字段、未知字符和不是 1 的版本号都会被拒绝；游戏写回文件时逐字节不变，所以代码评审里只会看到真正的改动。
+`name` 会显示在一局结束时的面板上。每一行宽度相同，每个 `P` 和 `C` 下方都要有地面或平台。未知字段、未知字符和不是 1 的版本号都会被拒绝；游戏写回文件时逐字节不变，所以代码评审里只会看到真正的改动。
 
 ## 在哪里修改
 
-- **新关卡**：编辑 `data/level.yaml` 里的图块，并让 `data/rooms.yaml` 覆盖每一列；`TestDataFilesAreCanonical` 和 `TestRoomsCoverTheLevel` 会指出问题所在。通关测试会在玩家前方遇到尖刺、深坑和墙时起跳，路线如果需要更多操作，就要修改 `game_test.go` 里的 `obstacleAhead`。
+- **新关卡**：编辑 `data/level.yaml` 里的图块，并让 `data/rooms.yaml` 覆盖每一列；`parseLevel` 会拒绝脚下没有地面或平台的起点（`P`）和灯（`C`），`TestDataFilesAreCanonical` 和 `TestRoomsCoverTheLevel` 会指出问题所在。通关测试会在玩家前方遇到尖刺、深坑和墙时起跳，路线如果需要更多操作，就要修改 `game_test.go` 里的 `obstacleAhead`。
 - **跳跃手感**：`data/player.yaml`。更长的 `coyote_time` 或 `jump_buffer` 能容忍按晚了或按早了，`wall_jump_speed_y: 0` 关闭蹬墙跳。
 - **新的图块种类**：在 `level.go` 里加一个字符，在 `newWorld` 里加一个分支决定它的作用，在 `newTilemap` 里加一个分支决定它的样子。
 - **敌人和移动平台**：给每个对象一个 `physics.Body`，在 `world.step` 里移动它，把移动平台传给 `Controller.Step`，再加一个设置 `hurt` 的感应区。

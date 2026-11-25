@@ -3,8 +3,7 @@ id: dev.nsgo.platformergame
 version: 0.1.0
 game: true
 
-# macOS and iOS use assets/AppIcon.icon, or assets/AppIcon.icns on macOS; the
-# other targets, and Apple ones without those, use assets/Icon.png.
+# macOS and iOS use assets/AppIcon.icon, or assets/AppIcon.icns on macOS; the other targets, and Apple ones without those, use assets/Icon.png.
 # icon:
 #   apple: assets/AppIcon.icon  # an Icon Composer .icon; macOS also takes .icns
 #   png: assets/Icon.png        # a square PNG, 1024 pixels wide

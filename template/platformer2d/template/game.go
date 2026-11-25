@@ -29,8 +29,8 @@ type platformerGame struct {
 	viewport screen.Viewport
 	env      *core.Env
 	viewSize core.Size
-	// touchSeen turns the on-screen controls on once the screen has been touched.
-	touchSeen bool
+	// pointerSeen turns the on-screen controls on once the game view has been touched or clicked, so a player on a desktop sees the regions the mouse plays through.
+	pointerSeen bool
 
 	sparks *core.Signal[int]
 	lives  *core.Signal[int]
@@ -123,11 +123,11 @@ func (g *platformerGame) currentViewSize() core.Size {
 	return g.env.Window()
 }
 
-// showTouchControls reports whether to draw the on-screen controls: on phones and tablets, and anywhere once the screen has been touched.
+// showTouchControls reports whether to draw the on-screen controls: on phones and tablets, and anywhere once the game view has been touched or clicked.
 func (g *platformerGame) showTouchControls() bool {
 	switch g.env.Idiom() {
 	case core.IdiomDesktop, core.IdiomMac, core.IdiomTV:
-		return g.touchSeen
+		return g.pointerSeen
 	default:
 		return true
 	}
@@ -144,9 +144,10 @@ func (g *platformerGame) view() core.Node {
 			Bottom:   core.Pt(0),
 			Left:     core.Pt(0),
 		},
-		Focusable: func() bool { return true },
-		OnLayout:  func(b core.Bounds) { g.viewSize = b.Size },
-		OnTouch:   func(core.TouchEvent) { g.touchSeen = true },
+		Focusable:   func() bool { return true },
+		OnLayout:    func(b core.Bounds) { g.viewSize = b.Size },
+		OnTouch:     func(core.TouchEvent) { g.pointerSeen = true },
+		OnPressDown: func(core.PressEvent) { g.pointerSeen = true },
 		Children: []core.Node{
 			core.Canvas{
 				TestID: "game-canvas",
@@ -251,6 +252,11 @@ func (g *platformerGame) endPanel() core.Node {
 					Background:   core.RGBA(0x0f172a, 0.92),
 				},
 				Children: []core.Node{
+					core.Text{
+						TestID:  "level-name",
+						Content: g.data.level.Name,
+						Style:   core.Style{Color: core.RGB(0x94a3b8), FontSize: 12},
+					},
 					core.Text{
 						TestID: "end-title",
 						ContentFunc: func() string {

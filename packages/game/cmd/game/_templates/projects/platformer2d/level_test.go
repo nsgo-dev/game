@@ -70,6 +70,9 @@ func TestParseLevelRefusesInvalidFiles(t *testing.T) {
 	if _, err := parseLevel([]byte(validLevel)); err != nil {
 		t.Fatalf("the valid level: %v", err)
 	}
+	if _, err := parseLevel([]byte(strings.Replace(validLevel, "  #####", "  #=###", 1))); err != nil {
+		t.Fatalf("a level starting on a ledge: %v", err)
+	}
 	for _, tc := range []struct {
 		name, doc, want string
 	}{
@@ -86,6 +89,10 @@ func TestParseLevelRefusesInvalidFiles(t *testing.T) {
 		{"unknown tile", strings.Replace(validLevel, "#P.G#", "#PxG#", 1), "unknown tile 'x'"},
 		{"no start", strings.Replace(validLevel, "#P.G#", "#..G#", 1), "0 starts"},
 		{"two goals", strings.Replace(validLevel, "#P.G#", "#PGG#", 1), "2 goals"},
+		{"start in the air", "version: 1\nname: Test\ntileSize: 16\nlives: 3\ntiles: |\n  #P.G#\n  #...#\n  #####\n", "row 0 column 1: 'P' has no ground"},
+		{"start over a pit", strings.Replace(validLevel, "  #####", "  #.###", 1), "'P' has no ground"},
+		{"start on the bottom row", "version: 1\nname: Test\ntileSize: 16\nlives: 3\ntiles: |\n  #####\n  #P.G#\n", "'P' has no ground"},
+		{"checkpoint in the air", "version: 1\nname: Test\ntileSize: 16\nlives: 3\ntiles: |\n  #PCG#\n  ##.##\n", "row 0 column 2: 'C' has no ground"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := parseLevel([]byte(tc.doc))
@@ -118,7 +125,7 @@ func TestEncodeLevelRoundTrips(t *testing.T) {
 func FuzzParseLevel(f *testing.F) {
 	f.Add([]byte(validLevel))
 	f.Add(levelYAML)
-	f.Add([]byte("version: 1\nname: x\ntileSize: 8\nlives: 1\ntiles: \"P=^o\\nC#.G\\n\"\n"))
+	f.Add([]byte("version: 1\nname: x\ntileSize: 8\nlives: 1\ntiles: \"P=^o\\n#C.G\\n##=#\\n\"\n"))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		l, err := parseLevel(data)
 		if err != nil {
