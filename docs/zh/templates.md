@@ -7,6 +7,7 @@
 | 模板 | 内容 | `nsgo init -template` 模块 |
 | --- | --- | --- |
 | `starter` | 一个点击得分的 2D 游戏：固定步长循环上的动画精灵、原生 HUD 和无头测试，是最小的起步项目。默认模板。 | `github.com/nsgo-dev/game/template` |
+| `cards2d` | [Suit Ladders](template-cards2d.md)，一个单人纸牌游戏：在抽牌堆、手牌、弃牌堆和四座梯子之间拖放卡牌，规则写在代码里，牌组和牌桌写在 YAML 里，带编号的发牌和存档。 | `github.com/nsgo-dev/game/template/cards2d` |
 | `fighting2d` | 一对一的 2D 格斗游戏：两名原创角色，有搓招触发的必杀技、连段、上下段防御、回合和计时，可对战电脑或第二名玩家，用键盘、手柄或触屏操作。详见[格斗游戏模板](template-fighting2d.md)。 | `github.com/nsgo-dev/game/template/fighting2d` |
 | `puzzle2d` | Spark Slide，一个 2D 网格解谜游戏：让火花在棋盘上滑行、点亮每一盏灯，关卡用 YAML 定义，支持撤销和重做、步数上限、每关星级，以及保存进度的选关界面；键盘、手柄、触屏和鼠标都能玩。 | `github.com/nsgo-dev/game/template/puzzle2d` |
 | `racing3d` | 一个 3D 赛车游戏：在封闭赛道上与沿赛车线行驶的对手比赛两圈，包含射线车辆、检查点、倒计时、最佳圈幽灵车和结算画面，可用键盘、手柄或触屏操作。[3D 赛车模板](template-racing3d.md) | `github.com/nsgo-dev/game/template/racing3d` |

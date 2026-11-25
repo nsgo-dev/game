@@ -149,7 +149,7 @@ game new [flags] <dir>
 | `-list` |  | list the templates, each with a line describing it, instead of creating a project |
 | `-module string` |  | the module path in go.mod (default: the name in lower case with its words joined by -) |
 | `-name string` |  | the game's display name in game.yaml and nsgo.yaml: letters, digits, spaces, - and \_ (default: the directory's name) |
-| `-template string` | `starter` | the template to start from: starter, fighting2d, puzzle2d, racing3d, rpg2d; -list describes each |
+| `-template string` | `starter` | the template to start from: starter, cards2d, fighting2d, puzzle2d, racing3d, rpg2d; -list describes each |
 | `-version string` |  | the version of github.com/nsgo-dev/game/packages/game to require, such as v0.4.0, a commit or latest (default: this command's own version, or latest for a development build) |
 
 ## game dev

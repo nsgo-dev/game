@@ -145,6 +145,28 @@ export const SHOWCASE_ENTRIES: ShowcaseEntry[] = [
     license: 'Apache-2.0',
   },
   {
+    id: 'cards2d',
+    title: sameTitle('Suit Ladders'),
+    description: {
+      en: 'Single-player card game template: drag cards between a draw pile, a hand, a discard pile and four suit ladders, with rules in code, the deck and table in YAML, numbered deals, saves, and nsgotest playthroughs to a win and a loss.',
+      zh: '单人纸牌游戏模板：在抽牌堆、手牌、弃牌堆和四座花色梯子之间拖放卡牌，规则写在代码中，牌组和牌桌写在 YAML 中，带编号发牌、存档，以及用 nsgotest 打到一胜一负的完整对局测试。',
+      'zh-tw': '單人紙牌遊戲範本：在抽牌堆、手牌、棄牌堆和四座花色梯子之間拖放卡牌，規則寫在程式碼中，牌組和牌桌寫在 YAML 中，具編號發牌、存檔，以及用 nsgotest 打到一勝一負的完整對局測試。',
+      ja: '一人用カードゲームのテンプレート。山札、手札、捨て札と四つのスートのはしごの間でカードをドラッグし、ルールはコードに、デッキと卓は YAML に置き、番号付きの配り、セーブ、勝ちと負けまでを nsgotest で通しプレイするテストを備える。',
+      ko: '1인용 카드 게임 템플릿: 뽑을 더미, 손패, 버린 더미와 네 개의 무늬 사다리 사이로 카드를 끌어 놓으며, 규칙은 코드에, 덱과 테이블은 YAML에 두고, 번호가 붙은 배분, 저장, nsgotest로 승리와 패배까지 끝까지 플레이하는 테스트를 갖춘다.',
+      es: 'Plantilla de juego de cartas para un jugador: arrastra cartas entre un mazo, una mano, una pila de descarte y cuatro escaleras de palo, con reglas en código, mazo y mesa en YAML, repartos numerados, partidas guardadas y pruebas nsgotest que juegan hasta una victoria y una derrota.',
+      fr: 'Modèle de jeu de cartes en solo : faites glisser des cartes entre une pioche, une main, une défausse et quatre échelles de couleur, avec les règles dans le code, le paquet et la table en YAML, des donnes numérotées, des sauvegardes et des parties nsgotest jouées jusqu’à une victoire et une défaite.',
+      de: 'Vorlage für ein Kartenspiel für eine Person: Karten zwischen Nachziehstapel, Hand, Ablagestapel und vier Farbleitern ziehen, mit Regeln im Code, Deck und Tisch in YAML, nummerierten Partien, Spielständen und nsgotest-Durchläufen bis zu einem Sieg und einer Niederlage.',
+      pt: 'Modelo de jogo de cartas para um jogador: arraste cartas entre um monte de compra, uma mão, uma pilha de descarte e quatro escadas de naipe, com regras em código, baralho e mesa em YAML, distribuições numeradas, salvamentos e partidas nsgotest jogadas até uma vitória e uma derrota.',
+      ru: 'Шаблон пасьянса для одного игрока: перетаскивание карт между колодой, рукой, сбросом и четырьмя лестницами мастей, правила в коде, колода и стол в YAML, нумерованные раздачи, сохранения и прохождения nsgotest до победы и поражения.',
+    },
+    author: 'NSGo',
+    kind: 'template',
+    tags: ['Cards', 'Drag and drop', 'Save', 'nsgotest'],
+    targets: ALL_TARGETS,
+    sourceUrl: repoTreeUrl('template/cards2d/template'),
+    license: 'Apache-2.0',
+  },
+  {
     id: 'template-rpg2d',
     title: sameTitle('Hollowbrook (RPG Template)'),
     description: {
