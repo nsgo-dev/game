@@ -18,7 +18,7 @@ The port follows pixelfx at commit `5294518ce7c72e48b6100a744596e0acf57f2826` wi
 | `game/pixelfx` | The core: frames and compositing, the painter, randomness and noise, particles, the simulation, colors and palettes, the two pixel fonts, the acting system (rig, poses, acts, chains), the effect registry, sprite sheet export and the view helper |
 | `game/pixelfx/fire` | Fire: the torch so far |
 | `game/pixelfx/explosions` | Explosions: the small explosion so far |
-| `game/pixelfx/impacts` | Impacts: the ground slam so far |
+| `game/pixelfx/impacts` | Impacts: blunt hit, bullet impact, critical hit, ground slam, heavy landing, hit flash, hit spark, impact frame, parry, ricochet and shield block |
 | `game/pixelfx/moves` | Moves acted out by a character: the ground pound so far |
 | `game/pixelfx/nature` | Nature: acid splash, boulder, earth spike, healing bloom, leaf storm, poison cloud, quake, root snare, spore burst, thorns, tornado, toxic puddle and vine whip |
 | `game/pixelfx/pickups` | Pickups: chest open, coin spin, collect burst, crystal shard, gem spin, heart pickup, key glint, loot beam, potion, power star and XP orb |
