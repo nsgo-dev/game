@@ -557,3 +557,9 @@ func main() {
 - **普通文本与 CLDR 复数**：可将键设为复数模式（`SetLocalizationKeyPlural`），编辑全部六个 CLDR 复数类别（`zero`、`one`、`two`、`few`、`many`、`other`，对应 `SetLocalizationPlural` / `SetLocalizationPluralForm`），或用 `SetLocalizationString` 编辑普通字符串。
 - **缺失翻译高亮**：译文为空（或复数键缺少 `other` 回退形式）的单元格会以警告边框和 `Missing` 标记高亮；可通过 `LocalizationMissing`、`LocalizationMissingCount` 和 `LocalizationIsMissing` 查询。未翻译的键在保存时会被省略，以便运行时 `l10n.Catalog` 沿 BCP-47 链自动回退。
 - **撤销与保存**：所有本地化编辑都接入 `Editor.History`（撤销/重做）。点击 **Save Strings**（`SaveLocalizations` / `SaveLocalizationsTo`）通过 `l10n.EncodeYAML` 将每种语言以确定性规范 YAML 写入 `<dir>/<locale>.yaml`，并清理已从工作区移除的语言文件。
+
+## 问题面板（#913）
+
+打开项目后，视口下方的问题面板（`ProblemsView`）会在 UI 协程之外对项目目录运行 `assetcheck.CheckWith`（使用编辑器的组件注册表）和 `project.Check`，并在状态栏实时显示问题总数（`Problems: N`）。打开项目（`OpenProject`）、保存场景（`SaveFile`）、保存项目（`SaveProject`）、保存动画片段（`SaveClipFile`）、移动文件（`MoveFile`，包括撤销与重做）以及更换组件注册表（`SetComponentRegistry`）后都会自动重新检查。在编辑器之外修改了文件后，可点击面板上的 Check 按钮（`CheckProblems`）手动触发检查。
+
+每行显示一条问题的文件路径、从 1 开始的行号（有行号时）和错误信息，与在同一项目上运行 `go tool game check` 报告的问题一致，并补充 `project.Check` 发现的项目级问题（例如 `nsgo.yaml` 与 `game.yaml` 不一致、已安装包的文件缺失，或非 `.scene.yaml` 扩展名的自动加载场景无效）。点击某一行（`OpenProblem`）时，若该文件是场景（`*.scene.yaml`、`*.scene.yml` 或 `autoload.scenes` 中列出的场景）则直接打开该场景；若是其他项目文件或无法解析的场景，则在文件浏览器中选中该文件（`SelectedFile`、`SelectFile`）。在 Go 代码中，可从任意协程安全调用 `Problems`、`ProblemCount`、`ProblemErr`、`CheckingProblems` 和 `WaitForProblems` 读取或等待后台检查结果。

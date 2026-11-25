@@ -207,6 +207,7 @@ func (e *Editor) followMove(root, from, to string) {
 	e.followDataTableMove(moveFile)
 	e.filesRev++
 	e.Status = "Moved " + from + " to " + to
+	e.CheckProblems()
 }
 
 // ProjectFile is a file or directory of the open project, as the file browser lists it.

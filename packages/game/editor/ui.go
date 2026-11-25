@@ -16,7 +16,8 @@ import (
 //   - The library panel, when Editor.Library is set (LibraryView)
 //   - The panels of the plugins that are on (Plugin), docked left or right of the viewport or below it
 //   - Animation panel below them while a clip is open (AnimationPanelView)
-//   - Bottom status bar
+//   - Problems panel below them while a project is open (ProblemsView)
+//   - Bottom status bar (including the live problem count while a project is open)
 func EditorView(cx *core.Scope, ed *Editor) core.Node {
 	ed.AttachScope(cx)
 	rev := core.NewSignal(cx, ed.Revision())
@@ -31,7 +32,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 			_ = ed.Stop()
 		}
 		if ed.scope == cx {
-			ed.scope = nil
+			ed.AttachScope(nil)
 		}
 	})
 
@@ -61,6 +62,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 			AnimationPanelView(cx, ed, rev),
 			AudioMixerPanelView(cx, ed, rev),
 			LocalizationPanelView(cx, ed, rev),
+			ProblemsView(cx, ed, rev),
 			statusBarView(cx, ed, rev),
 		},
 	}
@@ -365,6 +367,7 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 									ed.notify()
 									return
 								}
+								ed.CheckProblems()
 							} else if ed.FilePath != "" {
 								if err := ed.SaveFile(ed.FilePath); err != nil {
 									ed.Status = "Save error: " + err.Error()
@@ -400,21 +403,45 @@ func statusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 			BorderColor:    colors.Line(),
 		},
 		Children: []core.Node{
-			core.Text{
-				ContentFunc: func() string {
-					_ = rev.Get()
-					mode := "Edit"
-					if ed.Playing() {
-						mode = "Play"
-					}
-					if ed.ViewMode == ViewMode3D {
-						return fmt.Sprintf("Mode: %s | View: 3D (%s) | Layer: %s", mode, ed.GizmoMode.String(), ed.ActiveLayer)
-					}
-					return fmt.Sprintf("Mode: %s | View: 2D | Tool: %s | Layer: %s", mode, ed.toolLabel(), ed.ActiveLayer)
-				},
-				Style: core.Style{
-					FontSize: 11,
-					Color:    colors.Muted(),
+			ui.HStack{
+				Gap: 12,
+				Children: []core.Node{
+					core.Text{
+						ContentFunc: func() string {
+							_ = rev.Get()
+							mode := "Edit"
+							if ed.Playing() {
+								mode = "Play"
+							}
+							if ed.ViewMode == ViewMode3D {
+								return fmt.Sprintf("Mode: %s | View: 3D (%s) | Layer: %s", mode, ed.GizmoMode.String(), ed.ActiveLayer)
+							}
+							return fmt.Sprintf("Mode: %s | View: 2D | Tool: %s | Layer: %s", mode, ed.toolLabel(), ed.ActiveLayer)
+						},
+						Style: core.Style{
+							FontSize: 11,
+							Color:    colors.Muted(),
+						},
+					},
+					core.Show{
+						When: func() bool {
+							_ = rev.Get()
+							return ed.Project != nil && ed.ProjectPath != ""
+						},
+						Then: func(cx *core.Scope) core.Node {
+							return core.Text{
+								TestID: "status-problems",
+								ContentFunc: func() string {
+									_ = rev.Get()
+									return ed.problemsStatusText()
+								},
+								Style: core.Style{
+									FontSize: 11,
+									Color:    colors.Muted(),
+								},
+							}
+						},
+					},
 				},
 			},
 			core.Text{
