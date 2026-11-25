@@ -514,6 +514,9 @@ func (e *Editor) SetActiveTileLayer(name string) bool {
 	if err != nil || !tm.IsLayered() || (name != "" && tm.TileLayer(name) == nil) {
 		return false
 	}
+	if name != e.ActiveTileLayer {
+		e.endTileStrokeForChange()
+	}
 	e.ActiveTileLayer = name
 	e.notify()
 	return true
