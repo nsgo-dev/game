@@ -1,0 +1,86 @@
+version: 1
+name: Platformer Game
+id: dev.nsgo.platformergame
+appVersion: 0.1.0
+window:
+  width: 960
+  height: 540
+display:
+  width: 320
+  height: 180
+  mode: fit
+  integerScale: true
+  pixelSnap: true
+  barColor: '#10162b'
+input:
+  actions:
+    - name: left
+      bindings:
+        - kind: key
+          key: left
+        - kind: keyCode
+          code: KeyA
+        - kind: gamepadButton
+          button: dpadLeft
+        - kind: touchRegion
+          region: {"y": 116, width: 64, height: 64}
+        - kind: mouseRegion
+          button: left
+          region: {"y": 116, width: 64, height: 64}
+    - name: right
+      bindings:
+        - kind: key
+          key: right
+        - kind: keyCode
+          code: KeyD
+        - kind: gamepadButton
+          button: dpadRight
+        - kind: touchRegion
+          region: {x: 64, "y": 116, width: 64, height: 64}
+        - kind: mouseRegion
+          button: left
+          region: {x: 64, "y": 116, width: 64, height: 64}
+    - name: jump
+      bindings:
+        - kind: key
+          key: space
+        - kind: key
+          key: up
+        - kind: keyCode
+          code: KeyW
+        - kind: gamepadButton
+          button: south
+        - kind: touchRegion
+          region: {x: 240, "y": 116, width: 80, height: 64}
+        - kind: mouseRegion
+          button: left
+          region: {x: 240, "y": 116, width: 80, height: 64}
+    - name: restart
+      bindings:
+        - kind: key
+          key: r
+        - kind: key
+          key: enter
+        - kind: gamepadButton
+          button: start
+  axes:
+    - name: move
+      negative: left
+      positive: right
+  gamepadAxes:
+    - name: move
+      axis: leftX
+      deadZone: 0.25
+      axial: true
+export:
+  output: dist
+  presets:
+    - platform: macos
+      targets: [macos_arm64]
+    - platform: windows
+      targets: [windows_x64]
+    - platform: ios
+      targets: [ios_simulator]
+    - platform: android
+      targets: [android_arm64]
+    - platform: web
