@@ -321,8 +321,8 @@ func loadTiledLayers(m *Tilemap, layers []tiledLayer, parentOX, parentOY, parent
 			if raw.Compression != "" {
 				return loaderr.Errorf(loaderr.Path(li, "compression"), fixEncoding, "layer %q uses compression %q; export uncompressed JSON tile data", raw.Name, raw.Compression)
 			}
-			if len(raw.Chunks) > 0 {
-				layer, err := buildChunkedTileLayer(m, raw, li, ox, oy, px, py, opacity, visible, props)
+			if m.Infinite || len(raw.Chunks) > 0 {
+				layer, err := buildChunkedTileLayer(raw, li, ox, oy, px, py, opacity, visible, props)
 				if err != nil {
 					return err
 				}
@@ -467,17 +467,39 @@ func loadTiledLayers(m *Tilemap, layers []tiledLayer, parentOX, parentOY, parent
 	return nil
 }
 
-// buildChunkedTileLayer builds the infinite map's tile layer raw, layer li of its array of layers, which the fields its errors name are relative to.
-func buildChunkedTileLayer(m *Tilemap, raw tiledLayer, li int, ox, oy, px, py, opacity float32, visible bool, props Properties) (TileLayer, error) {
+// buildChunkedTileLayer loads an infinite Tiled map's tile layer raw directly into a sparse chunked TileLayer,
+// preserving true negative and positive chunk coordinates without flattening into a dense array.
+func buildChunkedTileLayer(raw tiledLayer, li int, ox, oy, px, py, opacity float32, visible bool, props Properties) (TileLayer, error) {
+	if len(raw.Chunks) == 0 {
+		layer := NewChunkedTileLayer(raw.Name, DefaultChunkSize)
+		layer.StartX = raw.StartX
+		layer.StartY = raw.StartY
+		layer.OffsetX = ox
+		layer.OffsetY = oy
+		layer.ParallaxX = px
+		layer.ParallaxY = py
+		layer.Opacity = opacity
+		layer.Visible = visible
+		layer.YSort = ySortFromProperties(props)
+		layer.Properties = props
+		return layer, nil
+	}
+
 	type parsedChunk struct {
 		x, y, w, h int
 		data       []uint32
 	}
 	chunks := make([]parsedChunk, len(raw.Chunks))
 	var minX, minY, maxX, maxY int
+	uniformChunkSize := 0
+	uniform := true
+
 	for i, rc := range raw.Chunks {
 		if rc.Width <= 0 || rc.Height <= 0 {
 			return TileLayer{}, loaderr.Errorf(loaderr.Path(li, "chunks", i), "export the map again from Tiled; a chunk's width and height are above 0", "layer %q chunk %d has non-positive size %dx%d", raw.Name, i, rc.Width, rc.Height)
+		}
+		if rc.Width > math.MaxInt/rc.Height {
+			return TileLayer{}, loaderr.Errorf(loaderr.Path(li, "chunks", i), "make the chunk smaller", "layer %q chunk %d size %dx%d overflows", raw.Name, i, rc.Width, rc.Height)
 		}
 		var cdata []uint32
 		if err := json.Unmarshal(rc.Data, &cdata); err != nil {
@@ -490,6 +512,11 @@ func buildChunkedTileLayer(m *Tilemap, raw tiledLayer, li int, ox, oy, px, py, o
 		if i == 0 {
 			minX, minY = rc.X, rc.Y
 			maxX, maxY = rc.X+rc.Width, rc.Y+rc.Height
+			if rc.Width == rc.Height && ValidChunkSize(rc.Width) && rc.X%rc.Width == 0 && rc.Y%rc.Height == 0 {
+				uniformChunkSize = rc.Width
+			} else {
+				uniform = false
+			}
 		} else {
 			if rc.X < minX {
 				minX = rc.X
@@ -503,46 +530,45 @@ func buildChunkedTileLayer(m *Tilemap, raw tiledLayer, li int, ox, oy, px, py, o
 			if rc.Y+rc.Height > maxY {
 				maxY = rc.Y + rc.Height
 			}
+			if uniform && (rc.Width != uniformChunkSize || rc.Height != uniformChunkSize || rc.X%uniformChunkSize != 0 || rc.Y%uniformChunkSize != 0) {
+				uniform = false
+			}
 		}
 	}
 
-	// Preserve stagger parity when normalizing staggered/hex infinite chunks into a 0-based grid.
-	if m.Orientation == OrientationStaggered || m.Orientation == OrientationHexagonal {
-		if m.StaggerAxis == StaggerX && (minX&1) != 0 {
-			minX--
-		} else if m.StaggerAxis == StaggerY && (minY&1) != 0 {
-			minY--
-		}
+	chunkSize := DefaultChunkSize
+	if uniform && uniformChunkSize > 0 {
+		chunkSize = uniformChunkSize
 	}
 
-	lw := maxX - minX
-	lh := maxY - minY
-	data := make([]uint32, lw*lh)
+	layer := NewChunkedTileLayer(raw.Name, chunkSize)
+	layer.Width = maxX - minX
+	layer.Height = maxY - minY
+	layer.StartX = minX
+	layer.StartY = minY
+	layer.OffsetX = ox
+	layer.OffsetY = oy
+	layer.ParallaxX = px
+	layer.ParallaxY = py
+	layer.Opacity = opacity
+	layer.Visible = visible
+	layer.YSort = ySortFromProperties(props)
+	layer.Properties = props
+
 	for _, ch := range chunks {
 		for r := range ch.h {
-			dstRow := (ch.y - minY + r) * lw
-			srcRow := r * ch.w
-			copy(data[dstRow+(ch.x-minX):dstRow+(ch.x-minX)+ch.w], ch.data[srcRow:srcRow+ch.w])
+			rowOff := r * ch.w
+			for c := range ch.w {
+				gid := ch.data[rowOff+c]
+				if gid == 0 {
+					continue
+				}
+				layer.setTileChunked(ch.x+c, ch.y+r, gid, false)
+			}
 		}
 	}
 
-	tx, ty := m.tileOrigin(minX, minY)
-	return TileLayer{
-		Name:       raw.Name,
-		Width:      lw,
-		Height:     lh,
-		StartX:     minX,
-		StartY:     minY,
-		Data:       data,
-		OffsetX:    ox + tx,
-		OffsetY:    oy + ty,
-		ParallaxX:  px,
-		ParallaxY:  py,
-		Opacity:    opacity,
-		Visible:    visible,
-		YSort:      ySortFromProperties(props),
-		Properties: props,
-	}, nil
+	return layer, nil
 }
 
 func convertPoints(pts []tiledPoint) []core.Point {

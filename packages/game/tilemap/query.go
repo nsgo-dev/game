@@ -52,8 +52,9 @@ func (m *Tilemap) SetFlags(tileID uint32, flags TileFlags) {
 }
 
 // SetCellFlags overrides the flags at a single map cell (col, row), taking precedence over per-tile flags.
+// On maps with sparse chunked layers (or Infinite=true), negative and arbitrary positive coordinates are supported.
 func (m *Tilemap) SetCellFlags(col, row int, flags TileFlags) {
-	if col < 0 || row < 0 || col >= m.Width || row >= m.Height {
+	if !m.hasChunkedLayer() && (col < 0 || row < 0 || col >= m.Width || row >= m.Height) {
 		return
 	}
 	if m.cellFlags == nil {
@@ -74,20 +75,30 @@ func (m *Tilemap) FlagsAt(col, row int) TileFlags {
 }
 
 func (m *Tilemap) cellInfo(col, row int) (tileID uint32, flags TileFlags, nonEmpty bool) {
-	if col < 0 || row < 0 || col >= m.Width || row >= m.Height {
+	unbounded := m.hasChunkedLayer()
+	if !unbounded && (col < 0 || row < 0 || col >= m.Width || row >= m.Height) {
 		return 0, 0, false
 	}
 	for i := range m.Layers {
 		l := &m.Layers[i]
-		lw, lh := m.layerSize(l)
-		if col >= lw || row >= lh {
-			continue
+		var rawGID uint32
+		if l.IsChunked() {
+			rawGID = l.tileAtChunked(col, row)
+		} else {
+			if col < 0 || row < 0 {
+				continue
+			}
+			lw, lh := m.layerSize(l)
+			if col >= lw || row >= lh {
+				continue
+			}
+			idx := row*lw + col
+			if idx >= len(l.Data) {
+				continue
+			}
+			rawGID = l.Data[idx]
 		}
-		idx := row*lw + col
-		if idx >= len(l.Data) {
-			continue
-		}
-		id := l.Data[idx] & TileIDMask
+		id := rawGID & TileIDMask
 		if id == 0 {
 			continue
 		}
@@ -108,7 +119,14 @@ func (m *Tilemap) cellInfo(col, row int) (tileID uint32, flags TileFlags, nonEmp
 	return tileID, flags, nonEmpty
 }
 
-func (m *Tilemap) cellMatch(col, row int, mask TileFlags) (tileID uint32, flags TileFlags, ok bool) {
+func (m *Tilemap) cellMatch(col, row int, mask TileFlags, unbounded bool) (tileID uint32, flags TileFlags, ok bool) {
+	if !unbounded {
+		return m.cellMatchDense(col, row, mask)
+	}
+	return m.cellMatchUnbounded(col, row, mask)
+}
+
+func (m *Tilemap) cellMatchDense(col, row int, mask TileFlags) (tileID uint32, flags TileFlags, ok bool) {
 	if col < 0 || row < 0 || col >= m.Width || row >= m.Height {
 		return 0, 0, false
 	}
@@ -116,7 +134,14 @@ func (m *Tilemap) cellMatch(col, row int, mask TileFlags) (tileID uint32, flags 
 	nonEmpty := false
 	for i := range m.Layers {
 		l := &m.Layers[i]
-		lw, lh := m.layerSize(l)
+		lw := l.Width
+		if lw == 0 {
+			lw = m.Width
+		}
+		lh := l.Height
+		if lh == 0 {
+			lh = m.Height
+		}
 		if col >= lw || row >= lh {
 			continue
 		}
@@ -161,26 +186,98 @@ func (m *Tilemap) cellMatch(col, row int, mask TileFlags) (tileID uint32, flags 
 	return anyID, flags, true
 }
 
+func (m *Tilemap) cellMatchUnbounded(col, row int, mask TileFlags) (tileID uint32, flags TileFlags, ok bool) {
+	var matchingID, anyID uint32
+	nonEmpty := false
+	for i := range m.Layers {
+		l := &m.Layers[i]
+		var rawGID uint32
+		if l.IsChunked() {
+			rawGID = l.tileAtChunked(col, row)
+		} else {
+			if col < 0 || row < 0 {
+				continue
+			}
+			lw, lh := m.layerSize(l)
+			if col >= lw || row >= lh {
+				continue
+			}
+			idx := row*lw + col
+			if idx >= len(l.Data) {
+				continue
+			}
+			rawGID = l.Data[idx]
+		}
+		id := rawGID & TileIDMask
+		if id == 0 {
+			continue
+		}
+		nonEmpty = true
+		anyID = id
+		if m.tileFlags != nil {
+			f := m.tileFlags[id]
+			flags |= f
+			if mask != 0 && f&mask != 0 {
+				matchingID = id
+			}
+		}
+	}
+	if m.cellFlags != nil {
+		if cf, hasOverride := m.cellFlags[cellKey{col, row}]; hasOverride {
+			flags = cf
+			if cf != 0 {
+				nonEmpty = true
+			}
+		}
+	}
+	if mask == 0 {
+		if !nonEmpty {
+			return 0, 0, false
+		}
+		return anyID, flags, true
+	}
+	if flags&mask == 0 {
+		return 0, 0, false
+	}
+	if matchingID != 0 {
+		return matchingID, flags, true
+	}
+	return anyID, flags, true
+}
+
 // TilesInRect returns every map cell overlapping r whose flags match mask (or every non-empty cell when mask == 0), in row-major order.
 //
 // Cells are half-open [col*TileWidth, (col+1)*TileWidth) x [row*TileHeight, (row+1)*TileHeight), so a rectangle touching an adjacent tile's edge or corner does not include it.
 func (m *Tilemap) TilesInRect(r core.Bounds, mask TileFlags) []TileHit {
-	if m.Width <= 0 || m.Height <= 0 || m.TileWidth <= 0 || m.TileHeight <= 0 {
+	if m.TileWidth <= 0 || m.TileHeight <= 0 || r.Size.Width <= 0 || r.Size.Height <= 0 {
 		return nil
 	}
-	if r.Size.Width <= 0 || r.Size.Height <= 0 {
-		return nil
+	unbounded := m.hasChunkedLayer()
+	var boundMinCol, boundMinRow, boundMaxCol, boundMaxRow int
+	if unbounded {
+		var ok bool
+		boundMinCol, boundMinRow, boundMaxCol, boundMaxRow, ok = m.activeTileBounds()
+		if !ok {
+			return nil
+		}
+	} else {
+		if m.Width <= 0 || m.Height <= 0 {
+			return nil
+		}
+		boundMinCol, boundMinRow = 0, 0
+		boundMaxCol, boundMaxRow = m.Width-1, m.Height-1
 	}
+
 	tw, th := float64(m.TileWidth), float64(m.TileHeight)
 	minX := float64(r.Origin.X)
 	maxX := minX + float64(r.Size.Width)
 	minY := float64(r.Origin.Y)
 	maxY := minY + float64(r.Size.Height)
 
-	minCol := max(0, int(math.Floor(minX/tw)))
-	maxCol := min(m.Width-1, int(math.Ceil(maxX/tw))-1)
-	minRow := max(0, int(math.Floor(minY/th)))
-	maxRow := min(m.Height-1, int(math.Ceil(maxY/th))-1)
+	minCol := max(boundMinCol, int(math.Floor(minX/tw)))
+	maxCol := min(boundMaxCol, int(math.Ceil(maxX/tw))-1)
+	minRow := max(boundMinRow, int(math.Floor(minY/th)))
+	maxRow := min(boundMaxRow, int(math.Ceil(maxY/th))-1)
 	if minCol > maxCol || minRow > maxRow {
 		return nil
 	}
@@ -188,7 +285,7 @@ func (m *Tilemap) TilesInRect(r core.Bounds, mask TileFlags) []TileHit {
 	var hits []TileHit
 	for row := minRow; row <= maxRow; row++ {
 		for col := minCol; col <= maxCol; col++ {
-			id, flags, ok := m.cellMatch(col, row, mask)
+			id, flags, ok := m.cellMatch(col, row, mask, unbounded)
 			if !ok {
 				continue
 			}
@@ -215,24 +312,42 @@ func (m *Tilemap) TilesInRect(r core.Bounds, mask TileFlags) []TileHit {
 
 // Raycast traces the line segment from -> to and returns the first tile matching mask (or any non-empty tile when mask == 0).
 func (m *Tilemap) Raycast(from, to core.Point, mask TileFlags) (RaycastHit, bool) {
-	if m.Width <= 0 || m.Height <= 0 || m.TileWidth <= 0 || m.TileHeight <= 0 {
+	if m.TileWidth <= 0 || m.TileHeight <= 0 {
 		return RaycastHit{}, false
 	}
+	unbounded := m.hasChunkedLayer()
+	var boundMinCol, boundMinRow, boundMaxCol, boundMaxRow int
+	if unbounded {
+		var ok bool
+		boundMinCol, boundMinRow, boundMaxCol, boundMaxRow, ok = m.activeTileBounds()
+		if !ok {
+			return RaycastHit{}, false
+		}
+	} else {
+		if m.Width <= 0 || m.Height <= 0 {
+			return RaycastHit{}, false
+		}
+		boundMinCol, boundMinRow = 0, 0
+		boundMaxCol, boundMaxRow = m.Width-1, m.Height-1
+	}
+
 	tw, th := float64(m.TileWidth), float64(m.TileHeight)
-	maxX := float64(m.Width) * tw
-	maxY := float64(m.Height) * th
+	minX := float64(boundMinCol) * tw
+	maxX := float64(boundMaxCol+1) * tw
+	minY := float64(boundMinRow) * th
+	maxY := float64(boundMaxRow+1) * th
 
 	fromX, fromY := float64(from.X), float64(from.Y)
 	dx := float64(to.X) - fromX
 	dy := float64(to.Y) - fromY
 
 	if dx == 0 && dy == 0 {
-		if fromX < 0 || fromX >= maxX || fromY < 0 || fromY >= maxY {
+		if fromX < minX || fromX >= maxX || fromY < minY || fromY >= maxY {
 			return RaycastHit{}, false
 		}
 		col := int(math.Floor(fromX / tw))
 		row := int(math.Floor(fromY / th))
-		if id, flags, ok := m.cellMatch(col, row, mask); ok {
+		if id, flags, ok := m.cellMatch(col, row, mask, unbounded); ok {
 			return RaycastHit{
 				Col: col, Row: row, TileID: id, Flags: flags,
 				Point: from, T: 0,
@@ -241,14 +356,14 @@ func (m *Tilemap) Raycast(from, to core.Point, mask TileFlags) (RaycastHit, bool
 		return RaycastHit{}, false
 	}
 
-	// Slab intersection against map world bounds [0, maxX] x [0, maxY] for t in [0, 1].
+	// Slab intersection against active world bounds [minX, maxX] x [minY, maxY] for t in [0, 1].
 	t0x, t1x := math.Inf(-1), math.Inf(1)
 	if dx == 0 {
-		if fromX < 0 || fromX >= maxX {
+		if fromX < minX || fromX >= maxX {
 			return RaycastHit{}, false
 		}
 	} else {
-		a, b := (0-fromX)/dx, (maxX-fromX)/dx
+		a, b := (minX-fromX)/dx, (maxX-fromX)/dx
 		if a > b {
 			a, b = b, a
 		}
@@ -257,11 +372,11 @@ func (m *Tilemap) Raycast(from, to core.Point, mask TileFlags) (RaycastHit, bool
 
 	t0y, t1y := math.Inf(-1), math.Inf(1)
 	if dy == 0 {
-		if fromY < 0 || fromY >= maxY {
+		if fromY < minY || fromY >= maxY {
 			return RaycastHit{}, false
 		}
 	} else {
-		a, b := (0-fromY)/dy, (maxY-fromY)/dy
+		a, b := (minY-fromY)/dy, (maxY-fromY)/dy
 		if a > b {
 			a, b = b, a
 		}
@@ -287,33 +402,33 @@ func (m *Tilemap) Raycast(from, to core.Point, mask TileFlags) (RaycastHit, bool
 	var col, row int
 	if tEnter > 0 && t0x >= t0y-eps {
 		if dx > 0 {
-			col = 0
+			col = boundMinCol
 		} else {
-			col = m.Width - 1
+			col = boundMaxCol
 		}
 	} else {
 		col = int(math.Floor(px / tw))
 		if dx < 0 && float64(col)*tw == px {
 			col--
 		}
-		col = min(max(col, 0), m.Width-1)
+		col = min(max(col, boundMinCol), boundMaxCol)
 	}
 
 	if tEnter > 0 && t0y >= t0x-eps {
 		if dy > 0 {
-			row = 0
+			row = boundMinRow
 		} else {
-			row = m.Height - 1
+			row = boundMaxRow
 		}
 	} else {
 		row = int(math.Floor(py / th))
 		if dy < 0 && float64(row)*th == py {
 			row--
 		}
-		row = min(max(row, 0), m.Height-1)
+		row = min(max(row, boundMinRow), boundMaxRow)
 	}
 
-	if id, flags, ok := m.cellMatch(col, row, mask); ok {
+	if id, flags, ok := m.cellMatch(col, row, mask, unbounded); ok {
 		var nx, ny float32
 		if tEnter > 0 {
 			switch {
@@ -383,8 +498,8 @@ func (m *Tilemap) Raycast(from, to core.Point, mask TileFlags) (RaycastHit, bool
 
 		if math.Abs(tMaxX-tMaxY) <= eps {
 			// Exact corner crossing: block if both orthogonal neighbors form a diagonal wall.
-			idX, flagsX, hitX := m.cellMatch(col+stepX, row, mask)
-			_, _, hitY := m.cellMatch(col, row+stepY, mask)
+			idX, flagsX, hitX := m.cellMatch(col+stepX, row, mask, unbounded)
+			_, _, hitY := m.cellMatch(col, row+stepY, mask, unbounded)
 			if hitX && hitY {
 				return RaycastHit{
 					Col: col + stepX, Row: row, TileID: idX, Flags: flagsX,
@@ -397,10 +512,10 @@ func (m *Tilemap) Raycast(from, to core.Point, mask TileFlags) (RaycastHit, bool
 			row += stepY
 			tMaxX += tDeltaX
 			tMaxY += tDeltaY
-			if col < 0 || col >= m.Width || row < 0 || row >= m.Height {
+			if col < boundMinCol || col > boundMaxCol || row < boundMinRow || row > boundMaxRow {
 				return RaycastHit{}, false
 			}
-			if id, flags, ok := m.cellMatch(col, row, mask); ok {
+			if id, flags, ok := m.cellMatch(col, row, mask, unbounded); ok {
 				inv := float32(1 / math.Sqrt2)
 				return RaycastHit{
 					Col: col, Row: row, TileID: id, Flags: flags,
@@ -412,10 +527,10 @@ func (m *Tilemap) Raycast(from, to core.Point, mask TileFlags) (RaycastHit, bool
 		} else if tMaxX < tMaxY {
 			col += stepX
 			tMaxX += tDeltaX
-			if col < 0 || col >= m.Width {
+			if col < boundMinCol || col > boundMaxCol {
 				return RaycastHit{}, false
 			}
-			if id, flags, ok := m.cellMatch(col, row, mask); ok {
+			if id, flags, ok := m.cellMatch(col, row, mask, unbounded); ok {
 				return RaycastHit{
 					Col: col, Row: row, TileID: id, Flags: flags,
 					Point:  hitPt,
@@ -426,10 +541,10 @@ func (m *Tilemap) Raycast(from, to core.Point, mask TileFlags) (RaycastHit, bool
 		} else {
 			row += stepY
 			tMaxY += tDeltaY
-			if row < 0 || row >= m.Height {
+			if row < boundMinRow || row > boundMaxRow {
 				return RaycastHit{}, false
 			}
-			if id, flags, ok := m.cellMatch(col, row, mask); ok {
+			if id, flags, ok := m.cellMatch(col, row, mask, unbounded); ok {
 				return RaycastHit{
 					Col: col, Row: row, TileID: id, Flags: flags,
 					Point:  hitPt,

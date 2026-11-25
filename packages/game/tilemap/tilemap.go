@@ -314,16 +314,18 @@ func (ts *Tileset) tileSource(localID uint32) (img core.ImageSource, sx, sy, sw,
 	return ts.Image, sx, sy, ts.TileWidth, ts.TileHeight, 0, 0, ts.TileWidth, ts.TileHeight, true
 }
 
-// TileLayer is one row-major grid of tile GIDs drawn in map order.
+// TileLayer is one row-major grid of tile GIDs drawn in map order, or a sparse chunked layer when ChunkSize > 0.
 //
-// Its zero value is hidden and transparent; NewTileLayer returns a visible layer at full opacity.
+// Its zero value is hidden and transparent; NewTileLayer and NewChunkedTileLayer return visible layers at full opacity.
 type TileLayer struct {
-	Name      string
-	Width     int
-	Height    int
-	StartX    int
-	StartY    int
-	Data      []uint32
+	Name   string
+	Width  int
+	Height int
+	StartX int
+	StartY int
+	Data   []uint32
+	// ChunkSize is the power-of-two edge length (in tiles) for sparse chunked layers; 0 selects a dense Data layer.
+	ChunkSize int
 	OffsetX   float32
 	OffsetY   float32
 	ParallaxX float32
@@ -335,6 +337,8 @@ type TileLayer struct {
 	// Y-sorted scene.Layer's draw list alongside sprites and drawables.
 	YSort      bool
 	Properties Properties
+
+	chunks *chunkGrid
 }
 
 // ImageLayer is an image layer (such as a sky, parallax backdrop, or foreground overlay) drawn in map layer order.
@@ -485,7 +489,27 @@ func New(width, height int, tileWidth, tileHeight float32, tilesets ...*Tileset)
 }
 
 // WorldBounds returns the world rectangle covering the whole map for its Orientation.
+// For unbounded chunked maps with non-positive Width/Height, it returns the bounding box of currently loaded chunks.
 func (m *Tilemap) WorldBounds() core.Bounds {
+	if (m.Width <= 0 || m.Height <= 0) && m.hasChunkedLayer() {
+		minCol, minRow, maxCol, maxRow, ok := m.activeTileBounds()
+		if !ok || m.TileWidth <= 0 || m.TileHeight <= 0 {
+			return core.Bounds{}
+		}
+		if m.Orientation == OrientationOrthogonal {
+			return core.Bounds{
+				Origin: core.Point{
+					X: core.Points(float32(minCol) * m.TileWidth),
+					Y: core.Points(float32(minRow) * m.TileHeight),
+				},
+				Size: core.Size{
+					Width:  core.Points(float32(maxCol-minCol+1) * m.TileWidth),
+					Height: core.Points(float32(maxRow-minRow+1) * m.TileHeight),
+				},
+			}
+		}
+		return m.projectedTileRangeBounds(minCol, minRow, maxCol, maxRow)
+	}
 	if m.Orientation != OrientationOrthogonal {
 		return m.projectedWorldBounds(m.Width, m.Height)
 	}
@@ -744,8 +768,15 @@ func (m *Tilemap) DrawLayer(d *core.Drawing, layer *TileLayer, cam *Camera) {
 		clear(m.ysortBuf)
 		return
 	}
+	if m.TileWidth <= 0 || m.TileHeight <= 0 {
+		return
+	}
+	if layer.IsChunked() {
+		m.drawChunkedLayer(d, layer, cam)
+		return
+	}
 	lw, lh := m.layerSize(layer)
-	if lw <= 0 || lh <= 0 || m.TileWidth <= 0 || m.TileHeight <= 0 || len(layer.Data) == 0 {
+	if lw <= 0 || lh <= 0 || len(layer.Data) == 0 {
 		return
 	}
 
@@ -818,6 +849,142 @@ func (m *Tilemap) DrawLayer(d *core.Drawing, layer *TileLayer, cam *Camera) {
 				d.Save().Transform(a, b, c, dd, e, f).DrawImageFrom(img, sx, sy, sw, sh, ox, oy, sw, sh).Restore()
 			}
 		}
+	}
+	if savedLayer {
+		d.Restore()
+	}
+}
+
+func (m *Tilemap) drawChunkedLayer(d *core.Drawing, layer *TileLayer, cam *Camera) {
+	if layer.chunks == nil || len(layer.chunks.chunks) == 0 {
+		return
+	}
+	offX, offY := effectiveLayerOffset(layer.OffsetX, layer.OffsetY, layer.ParallaxX, layer.ParallaxY, cam)
+	if m.Orientation != OrientationOrthogonal {
+		m.drawProjectedLayer(d, layer, cam, offX, offY)
+		return
+	}
+
+	g := layer.chunks
+	size := g.size
+	shift := g.shift
+	savedLayer := false
+
+	drawChunkLive := func(ch *Chunk, minCol, maxCol, minRow, maxRow int) {
+		if ch == nil || ch.nonEmpty == 0 {
+			return
+		}
+		baseCol := ch.Coord.X << shift
+		baseRow := ch.Coord.Y << shift
+		c0 := max(0, minCol-baseCol)
+		c1 := min(size-1, maxCol-baseCol)
+		r0 := max(0, minRow-baseRow)
+		r1 := min(size-1, maxRow-baseRow)
+		if c0 > c1 || r0 > r1 {
+			return
+		}
+		for lr := r0; lr <= r1; lr++ {
+			rowOff := lr * size
+			row := baseRow + lr
+			for lc := c0; lc <= c1; lc++ {
+				idx := rowOff + lc
+				if idx >= len(ch.Tiles) {
+					continue
+				}
+				gid := ch.Tiles[idx]
+				if gid == 0 {
+					continue
+				}
+				ts, localID := m.TilesetForGID(gid)
+				if ts == nil {
+					continue
+				}
+				img, sx, sy, sw, sh, ox, oy, tw, th, ok := ts.tileSource(localID)
+				if !ok {
+					continue
+				}
+				if layer.Opacity < 1 && !savedLayer {
+					d.Save().SetAlpha(layer.Opacity)
+					savedLayer = true
+				}
+				col := baseCol + lc
+				dstX := offX + float32(col)*m.TileWidth
+				dstY := offY + float32(row+1)*m.TileHeight - th
+				flags := gid & FlipMask
+				if flags == 0 {
+					d.DrawImageFrom(img, sx, sy, sw, sh, dstX+ox, dstY+oy, sw, sh)
+				} else {
+					a, b, c, dd, e, f := flipMatrix(flags, dstX, dstY, tw, th)
+					d.Save().Transform(a, b, c, dd, e, f).DrawImageFrom(img, sx, sy, sw, sh, ox, oy, sw, sh).Restore()
+				}
+			}
+		}
+	}
+
+	if cam != nil {
+		vb := cam.VisibleBounds()
+		if vb.Size.Width <= 0 || vb.Size.Height <= 0 {
+			return
+		}
+		extraW, extraH := m.maxExtraTileSize()
+		tw, th := float64(m.TileWidth), float64(m.TileHeight)
+		minX := float64(vb.Origin.X) - float64(offX)
+		maxX := minX + float64(vb.Size.Width)
+		minY := float64(vb.Origin.Y) - float64(offY)
+		maxY := minY + float64(vb.Size.Height)
+
+		minCol := int(math.Floor((minX - extraW) / tw))
+		maxCol := int(math.Ceil(maxX/tw)) - 1
+		minRow := int(math.Floor(minY / th))
+		maxRow := int(math.Ceil((maxY+extraH)/th)) - 1
+		if minCol > maxCol || minRow > maxRow {
+			return
+		}
+
+		minCX := minCol >> shift
+		maxCX := maxCol >> shift
+		minCY := minRow >> shift
+		maxCY := maxRow >> shift
+		for cy := minCY; cy <= maxCY; cy++ {
+			for cx := minCX; cx <= maxCX; cx++ {
+				ch := g.chunks[ChunkCoord{X: cx, Y: cy}]
+				if ch == nil || ch.nonEmpty == 0 {
+					continue
+				}
+				if ch.cache != nil && !ch.Dirty && !ch.cache.Dirty && ch.cache.Pixels != nil {
+					if savedLayer {
+						d.Restore()
+						savedLayer = false
+					}
+					m.drawCachedLayer(d, layer, ch.cache, cam, offX, offY)
+					continue
+				}
+				drawChunkLive(ch, minCol, maxCol, minRow, maxRow)
+			}
+		}
+		if savedLayer {
+			d.Restore()
+		}
+		return
+	}
+
+	coords := layer.ChunkCoords()
+	for _, coord := range coords {
+		ch := g.chunks[coord]
+		if ch == nil || ch.nonEmpty == 0 {
+			continue
+		}
+		if ch.cache != nil && !ch.Dirty && !ch.cache.Dirty && ch.cache.Pixels != nil {
+			if savedLayer {
+				d.Restore()
+				savedLayer = false
+			}
+			m.drawCachedLayer(d, layer, ch.cache, nil, offX, offY)
+			continue
+		}
+		baseCol := coord.X << shift
+		baseRow := coord.Y << shift
+		drawChunkLive(ch, baseCol, baseCol+size-1, baseRow, baseRow+size-1)
 	}
 	if savedLayer {
 		d.Restore()

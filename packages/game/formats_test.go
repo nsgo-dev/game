@@ -148,6 +148,7 @@ var formatVersions = map[string]string{
 	"skeletal.FormatVersion":                "skeletal",
 	"statedump.FormatVersion":               "statedump",
 	"stats.CurrentVersion":                  "stats",
+	"tilemap.ChunkFormatVersion":            "tilemap#chunk",
 	"tooling/apiref.Version":                "tooling/apiref",
 	"tooling/bench.FormatVersion":           "tooling/bench",
 	"tooling/datatable.FormatVersion":       "tooling/datatable",

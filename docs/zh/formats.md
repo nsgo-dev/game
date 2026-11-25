@@ -1408,6 +1408,26 @@ entities:
           y: 12
 ```
 
+<!-- format: tilemap#chunk -->
+### 瓦片地图分块
+
+| 文件 | 版本 | 读写函数 | 字段 |
+| --- | --- | --- | --- |
+| `chunk_<x>_<y>.yaml`（或 `.json`），由 `tilemap.DirChunkStore` 及 `tilemap.EncodeChunkYAML` / `EncodeChunkJSON` 写出 | `version: 1` | `tilemap.DecodeChunkYAML`、`tilemap.EncodeChunkYAML`、`tilemap.DecodeChunkJSON`、`tilemap.EncodeChunkJSON` | [tilemap](tilemap.md#稀疏分块图层与流式加载) |
+
+```yaml
+version: 1
+x: -2
+"y": 1
+size: 4
+runs:
+  - 0*5
+  - "1"
+  - "2147483650"
+  - 3*4
+  - 0*5
+```
+
 ## JSON 文件
 
 这些格式是 JSON：大多由程序写给自己用，其余是与其他服务和工具交换的数据。各自的指南给出了它们的字段。

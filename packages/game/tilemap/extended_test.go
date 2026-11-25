@@ -454,14 +454,24 @@ func TestLoadTiledInfiniteImageAndNestedGroupLayers(t *testing.T) {
 	if ground == nil {
 		t.Fatal("ground layer missing")
 	}
-	// Chunks span x in [-2, 2) -> width 4, y in [-1, 1) -> height 2, start (-2, -1).
-	// Accumulated group offset = (6, 4) + (-2*16, -1*16) = (-26, -12), opacity = 0.25.
+	// Infinite Tiled layers load directly into sparse chunked layers preserving real tile coordinates.
+	// Chunks span x in [-2, 2) -> width 4, y in [-1, 1) -> height 2, start (-2, -1),
+	// while OffsetX/OffsetY carry only the accumulated group pixel offset (6, 4), opacity = 0.25.
+	if !ground.IsChunked() {
+		t.Fatal("expected infinite Tiled layer to load as a sparse chunked layer")
+	}
 	if ground.StartX != -2 || ground.StartY != -1 || ground.Width != 4 || ground.Height != 2 {
 		t.Fatalf("ground bounds = start(%d,%d) size %dx%d, want start(-2,-1) size 4x2",
 			ground.StartX, ground.StartY, ground.Width, ground.Height)
 	}
-	if ground.OffsetX != -26 || ground.OffsetY != -12 || ground.Opacity != 0.25 {
-		t.Fatalf("ground offset=(%g,%g) opacity=%g, want (-26,-12) 0.25", ground.OffsetX, ground.OffsetY, ground.Opacity)
+	if ground.OffsetX != 6 || ground.OffsetY != 4 || ground.Opacity != 0.25 {
+		t.Fatalf("ground offset=(%g,%g) opacity=%g, want (6,4) 0.25", ground.OffsetX, ground.OffsetY, ground.Opacity)
+	}
+	if got := m.TileAt(0, -2, -1); got != 1 {
+		t.Fatalf("TileAt(0, -2, -1) = %d, want 1", got)
+	}
+	if got := m.TileAt(0, 1, 0); got != 2 {
+		t.Fatalf("TileAt(0, 1, 0) = %d, want 2", got)
 	}
 
 	// Verify layer draw order: sky (with repeatx) BEFORE ground tiles (at negative & positive world coords) BEFORE fog!

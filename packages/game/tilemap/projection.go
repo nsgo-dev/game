@@ -368,8 +368,53 @@ func (m *Tilemap) projectedWorldBounds(w, h int) core.Bounds {
 	}
 }
 
+func (m *Tilemap) projectedTileRangeBounds(minCol, minRow, maxCol, maxRow int) core.Bounds {
+	if minCol > maxCol || minRow > maxRow || m.TileWidth <= 0 || m.TileHeight <= 0 {
+		return core.Bounds{}
+	}
+	tw, th := float64(m.TileWidth), float64(m.TileHeight)
+	minX, minY := math.Inf(1), math.Inf(1)
+	maxX, maxY := math.Inf(-1), math.Inf(-1)
+	consider := func(c, r int) {
+		ox, oy := m.tileOrigin(c, r)
+		minX = min(minX, float64(ox))
+		minY = min(minY, float64(oy))
+		maxX = max(maxX, float64(ox)+tw)
+		maxY = max(maxY, float64(oy)+th)
+	}
+	// Check the four extreme corners plus adjacent parity cells for staggered/hex projections.
+	cols := [4]int{minCol, min(minCol+1, maxCol), max(maxCol-1, minCol), maxCol}
+	rows := [4]int{minRow, min(minRow+1, maxRow), max(maxRow-1, minRow), maxRow}
+	for _, r := range rows {
+		for _, c := range cols {
+			consider(c, r)
+		}
+	}
+	return core.Bounds{
+		Origin: core.Point{X: core.Points(minX), Y: core.Points(minY)},
+		Size:   core.Size{Width: core.Points(maxX - minX), Height: core.Points(maxY - minY)},
+	}
+}
+
 func (m *Tilemap) drawProjectedLayer(d *core.Drawing, layer *TileLayer, cam *Camera, offX, offY float32) {
-	lw, lh := m.layerSize(layer)
+	chunked := layer.IsChunked()
+	var boundMinCol, boundMinRow, boundMaxCol, boundMaxRow int
+	var lw int
+	if chunked {
+		var ok bool
+		boundMinCol, boundMinRow, boundMaxCol, boundMaxRow, ok = layer.ChunkTileBounds()
+		if !ok {
+			return
+		}
+	} else {
+		var lh int
+		lw, lh = m.layerSize(layer)
+		if lw <= 0 || lh <= 0 || len(layer.Data) == 0 {
+			return
+		}
+		boundMinCol, boundMinRow = 0, 0
+		boundMaxCol, boundMaxRow = lw-1, lh-1
+	}
 	extraW, extraH := m.maxExtraTileSize()
 
 	hasCam := cam != nil
@@ -387,11 +432,16 @@ func (m *Tilemap) drawProjectedLayer(d *core.Drawing, layer *TileLayer, cam *Cam
 
 	savedLayer := false
 	drawCell := func(col, row int) {
-		idx := row*lw + col
-		if idx < 0 || idx >= len(layer.Data) {
-			return
+		var gid uint32
+		if chunked {
+			gid = layer.tileAtChunked(col, row)
+		} else {
+			idx := row*lw + col
+			if idx < 0 || idx >= len(layer.Data) {
+				return
+			}
+			gid = layer.Data[idx]
 		}
-		gid := layer.Data[idx]
 		if gid == 0 {
 			return
 		}
@@ -430,8 +480,8 @@ func (m *Tilemap) drawProjectedLayer(d *core.Drawing, layer *TileLayer, cam *Cam
 
 	switch m.Orientation {
 	case OrientationIsometric:
-		minCol, maxCol := 0, lw-1
-		minRow, maxRow := 0, lh-1
+		minCol, maxCol := boundMinCol, boundMaxCol
+		minRow, maxRow := boundMinRow, boundMaxRow
 		dMin, dMax := float64(minCol-maxRow), float64(maxCol-minRow)
 		sMin, sMax := float64(minCol+minRow), float64(maxCol+maxRow)
 		if hasCam {
@@ -443,10 +493,10 @@ func (m *Tilemap) drawProjectedLayer(d *core.Drawing, layer *TileLayer, cam *Cam
 			dMax = lx1 / (tw / 2)
 			sMin = (ly0 - th) / (th / 2)
 			sMax = (ly1 + extraH) / (th / 2)
-			minCol = max(0, int(math.Floor((sMin+dMin)/2)))
-			maxCol = min(lw-1, int(math.Ceil((sMax+dMax)/2)))
-			minRow = max(0, int(math.Floor((sMin-dMax)/2)))
-			maxRow = min(lh-1, int(math.Ceil((sMax-dMin)/2)))
+			minCol = max(boundMinCol, int(math.Floor((sMin+dMin)/2)))
+			maxCol = min(boundMaxCol, int(math.Ceil((sMax+dMax)/2)))
+			minRow = max(boundMinRow, int(math.Floor((sMin-dMax)/2)))
+			maxRow = min(boundMaxRow, int(math.Ceil((sMax-dMin)/2)))
 		}
 		if minCol <= maxCol && minRow <= maxRow {
 			startS := max(minCol+minRow, int(math.Floor(sMin)))
@@ -485,23 +535,23 @@ func (m *Tilemap) drawProjectedLayer(d *core.Drawing, layer *TileLayer, cam *Cam
 			return
 		}
 
-		minCol, maxCol := 0, lw-1
-		minRow, maxRow := 0, lh-1
+		minCol, maxCol := boundMinCol, boundMaxCol
+		minRow, maxRow := boundMinRow, boundMaxRow
 		if hasCam {
 			lx0 := vbMinX - float64(offX)
 			lx1 := vbMaxX - float64(offX)
 			ly0 := vbMinY - float64(offY)
 			ly1 := vbMaxY - float64(offY)
 			if m.StaggerAxis == StaggerX {
-				minCol = max(0, int(math.Floor((lx0-tw-extraW)/stepX)))
-				maxCol = min(lw-1, int(math.Ceil(lx1/stepX)))
-				minRow = max(0, int(math.Floor((ly0-th*1.5)/stepY)))
-				maxRow = min(lh-1, int(math.Ceil((ly1+extraH)/stepY)))
+				minCol = max(boundMinCol, int(math.Floor((lx0-tw-extraW)/stepX)))
+				maxCol = min(boundMaxCol, int(math.Ceil(lx1/stepX)))
+				minRow = max(boundMinRow, int(math.Floor((ly0-th*1.5)/stepY)))
+				maxRow = min(boundMaxRow, int(math.Ceil((ly1+extraH)/stepY)))
 			} else {
-				minCol = max(0, int(math.Floor((lx0-tw*1.5-extraW)/stepX)))
-				maxCol = min(lw-1, int(math.Ceil(lx1/stepX)))
-				minRow = max(0, int(math.Floor((ly0-th)/stepY)))
-				maxRow = min(lh-1, int(math.Ceil((ly1+extraH)/stepY)))
+				minCol = max(boundMinCol, int(math.Floor((lx0-tw*1.5-extraW)/stepX)))
+				maxCol = min(boundMaxCol, int(math.Ceil(lx1/stepX)))
+				minRow = max(boundMinRow, int(math.Floor((ly0-th)/stepY)))
+				maxRow = min(boundMaxRow, int(math.Ceil((ly1+extraH)/stepY)))
 			}
 		}
 		if minCol <= maxCol && minRow <= maxRow {
