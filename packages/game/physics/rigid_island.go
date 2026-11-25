@@ -57,6 +57,8 @@ type rigidScratch struct {
 	ccdContacts   []ccdContact
 	ccdCandidates []ccdCandidate
 	ccdSupports   []ccdSupport
+	ccdPoints     []ccdImpactPoint
+	ccdManifolds  []hullManifold
 	joints        []Joint
 	contacts      []rigidCachedManifold
 	contactIndex  map[rigidPairKey]int

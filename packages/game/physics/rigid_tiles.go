@@ -363,7 +363,7 @@ func (w *RigidWorld) appendTilePieces(b *RigidBody, start *hull, dy, minX, minY,
 				continue
 			}
 			if h := g.cellHull(col, row); h.finite() {
-				dst = append(dst, ccdCandidate{st: w.tileBody, h: h})
+				dst = append(dst, ccdCandidate{st: w.tileBody, sub: g.cell(col, row), h: h})
 			}
 		}
 	}

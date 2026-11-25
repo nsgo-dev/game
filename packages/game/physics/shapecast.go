@@ -31,8 +31,7 @@ type ShapeCastHit struct {
 // ShapeCastOptions configures filtering for World.ShapeCastWith, World.ShapeCastAllWith,
 // RigidWorld.ShapeCastWith, and RigidWorld.ShapeCastAllWith.
 type ShapeCastOptions struct {
-	// QueryMask selects which target kinds (bodies, solid tiles, one-way tiles) to inspect.
-	// Zero defaults to QueryAll.
+	// QueryMask selects which target kinds (bodies, solid tiles, one-way tiles, and in a RigidWorld sensors) to inspect. Zero defaults to QueryAll, which leaves sensors out.
 	QueryMask QueryMask
 	// LayerMask filters bodies by their Layer bitmask. Zero defaults to LayerAll.
 	LayerMask LayerMask
@@ -175,35 +174,33 @@ func (w *World) ShapeCastAllWith(shape Shape, dx, dy float32, opts ShapeCastOpti
 	return hits
 }
 
-// ShapeCast sweeps shape by (dx, dy) against rigid bodies in w matching layerMask and returns
-// the earliest hit. A zero layerMask defaults to LayerAll. Ties break in RigidWorld.Bodies order.
+// ShapeCast sweeps shape by (dx, dy) against the bodies that are not sensors and the tiles of w, bodies matching layerMask, and returns the earliest hit. A zero layerMask defaults to LayerAll. Ties break in RigidWorld.Bodies order, and a body wins over a tile.
 func (w *RigidWorld) ShapeCast(shape Shape, dx, dy float32, layerMask LayerMask) (ShapeCastHit, bool) {
 	return w.ShapeCastWith(shape, dx, dy, ShapeCastOptions{LayerMask: layerMask})
 }
 
-// ShapeCastAll sweeps shape by (dx, dy) against rigid bodies in w matching layerMask and returns
-// all hits sorted by ascending Fraction in [0, 1]. A zero layerMask defaults to LayerAll.
-// Equal fractions preserve RigidWorld.Bodies order.
+// ShapeCastAll sweeps shape by (dx, dy) against the bodies that are not sensors and the tiles of w, bodies matching layerMask, and returns all hits sorted by ascending Fraction in [0, 1]. A zero layerMask defaults to LayerAll. Equal fractions keep bodies, in RigidWorld.Bodies order, before tiles, in row-major order.
 func (w *RigidWorld) ShapeCastAll(shape Shape, dx, dy float32, layerMask LayerMask) []ShapeCastHit {
 	return w.ShapeCastAllWith(shape, dx, dy, ShapeCastOptions{LayerMask: layerMask})
 }
 
-// ShapeCastWith sweeps shape by (dx, dy) against rigid bodies in w matching opts and returns
-// the earliest hit. Ties break in RigidWorld.Bodies order. Sensors are hit only when opts.QueryMask has QuerySensors.
+// ShapeCastWith sweeps shape by (dx, dy) against the bodies and tiles of w matching opts and returns the earliest hit. opts.QueryMask selects targets as RigidWorld's other queries do: QueryBodies the bodies that are not sensors, QuerySensors the sensors, and QueryTiles and QueryOneWay the tiles, with zero meaning QueryAll, which leaves sensors out. Ties break in RigidWorld.Bodies order, and a body wins over a tile.
 func (w *RigidWorld) ShapeCastWith(shape Shape, dx, dy float32, opts ShapeCastOptions) (ShapeCastHit, bool) {
 	if w == nil || !shapeValid2D(shape) || !isFinite32(dx) || !isFinite32(dy) {
 		return ShapeCastHit{}, false
 	}
-	if opts.QueryMask != 0 && opts.QueryMask&QueryBodies == 0 {
-		return ShapeCastHit{}, false
+	mask := opts.QueryMask
+	if mask == 0 {
+		mask = QueryAll
 	}
 	layerMask := effectiveLayer(opts.LayerMask)
 	fx, fy := float64(dx), float64(dy)
 
 	var best ShapeCastHit
 	hasBest := false
+	maxT := 1.0
 	for _, b := range w.Bodies {
-		if b == nil || b == opts.IgnoreRigidBody || !shapeValid2D(b.Shape) || (effectiveLayer(b.Layer)&layerMask) == 0 || (b.Sensor && opts.QueryMask&QuerySensors == 0) {
+		if b == opts.IgnoreRigidBody || !queryMatches(b, mask, layerMask) || !shapeValid2D(b.Shape) {
 			continue
 		}
 		if h, ok := sweepShapeVsRigidBody(shape, fx, fy, b); ok {
@@ -211,33 +208,43 @@ func (w *RigidWorld) ShapeCastWith(shape Shape, dx, dy float32, opts ShapeCastOp
 				h.RigidBody = b
 				best = h
 				hasBest = true
+				maxT = float64(h.Fraction)
 			}
+		}
+	}
+	if w.Tiles != nil && mask&(QueryTiles|QueryOneWay) != 0 {
+		if th, ok := sweepTilesFirst(shape, fx, fy, w.Tiles, mask, maxT); ok && (!hasBest || th.Fraction < best.Fraction) {
+			best = th
+			hasBest = true
 		}
 	}
 	return best, hasBest
 }
 
-// ShapeCastAllWith sweeps shape by (dx, dy) against rigid bodies in w matching opts and returns
-// all hits sorted by ascending Fraction in [0, 1]. Equal fractions preserve RigidWorld.Bodies order. Sensors are hit only when opts.QueryMask has QuerySensors.
+// ShapeCastAllWith sweeps shape by (dx, dy) against the bodies and tiles of w matching opts, selected as ShapeCastWith selects them, and returns all hits sorted by ascending Fraction in [0, 1]. Equal fractions keep bodies, in RigidWorld.Bodies order, before tiles, in row-major order.
 func (w *RigidWorld) ShapeCastAllWith(shape Shape, dx, dy float32, opts ShapeCastOptions) []ShapeCastHit {
 	if w == nil || !shapeValid2D(shape) || !isFinite32(dx) || !isFinite32(dy) {
 		return nil
 	}
-	if opts.QueryMask != 0 && opts.QueryMask&QueryBodies == 0 {
-		return nil
+	mask := opts.QueryMask
+	if mask == 0 {
+		mask = QueryAll
 	}
 	layerMask := effectiveLayer(opts.LayerMask)
 	fx, fy := float64(dx), float64(dy)
 
 	var hits []ShapeCastHit
 	for _, b := range w.Bodies {
-		if b == nil || b == opts.IgnoreRigidBody || !shapeValid2D(b.Shape) || (effectiveLayer(b.Layer)&layerMask) == 0 || (b.Sensor && opts.QueryMask&QuerySensors == 0) {
+		if b == opts.IgnoreRigidBody || !queryMatches(b, mask, layerMask) || !shapeValid2D(b.Shape) {
 			continue
 		}
 		if h, ok := sweepShapeVsRigidBody(shape, fx, fy, b); ok {
 			h.RigidBody = b
 			hits = append(hits, h)
 		}
+	}
+	if w.Tiles != nil && mask&(QueryTiles|QueryOneWay) != 0 {
+		hits = append(hits, sweepTilesAll(shape, fx, fy, w.Tiles, mask)...)
 	}
 	slices.SortStableFunc(hits, func(a, b ShapeCastHit) int {
 		return cmp.Compare(a.Fraction, b.Fraction)

@@ -336,8 +336,14 @@ func TestSnapshotValidation(t *testing.T) {
 		t.Fatal("expected error restoring nil World")
 	}
 	w := &physics.World{}
-	if err := w.Restore(physics.WorldSnapshot{Version: 99}); err == nil {
-		t.Fatal("expected error for unsupported WorldSnapshot version")
+	for _, v := range []int{0, physics.SnapshotVersion + 1, 99} {
+		if err := w.Restore(physics.WorldSnapshot{Version: v}); err == nil {
+			t.Fatalf("expected error for unsupported WorldSnapshot version %d", v)
+		}
+	}
+	// Version 1 snapshots, from before kinematic bodies, sensors and rigid Tiles, still restore.
+	if err := w.Restore(physics.WorldSnapshot{Version: 1}); err != nil {
+		t.Fatalf("restoring a version 1 WorldSnapshot: %v", err)
 	}
 	if err := w.Restore(physics.WorldSnapshot{
 		Version:       physics.SnapshotVersion,
@@ -351,8 +357,13 @@ func TestSnapshotValidation(t *testing.T) {
 		t.Fatal("expected error restoring nil RigidWorld")
 	}
 	rw := &physics.RigidWorld{}
-	if err := rw.Restore(physics.RigidWorldSnapshot{Version: 99}); err == nil {
-		t.Fatal("expected error for unsupported RigidWorldSnapshot version")
+	for _, v := range []int{0, physics.SnapshotVersion + 1, 99} {
+		if err := rw.Restore(physics.RigidWorldSnapshot{Version: v}); err == nil {
+			t.Fatalf("expected error for unsupported RigidWorldSnapshot version %d", v)
+		}
+	}
+	if err := rw.Restore(physics.RigidWorldSnapshot{Version: 1}); err != nil {
+		t.Fatalf("restoring a version 1 RigidWorldSnapshot: %v", err)
 	}
 	if err := rw.Restore(physics.RigidWorldSnapshot{
 		Version: physics.SnapshotVersion,

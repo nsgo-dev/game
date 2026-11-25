@@ -8,8 +8,11 @@ import (
 	"github.com/nsgo-dev/nsgo/core"
 )
 
-// SnapshotVersion is the schema version stored in WorldSnapshot and RigidWorldSnapshot.
-const SnapshotVersion = 1
+// SnapshotVersion is the schema version stored in WorldSnapshot and RigidWorldSnapshot. Version 2 added the kinematic and sensor flags, kinematic targets, Tiles and their settings, the contact and sensor overlap state, tile entries in the contact cache and a grid's origin; Restore still reads version 1 snapshots, which have none of them, and refuses any other version, so a build that only knows version 1 refuses a version 2 snapshot instead of dropping what it cannot read.
+const SnapshotVersion = 2
+
+// oldestSnapshotVersion is the oldest snapshot version Restore reads.
+const oldestSnapshotVersion = 1
 
 // BodySnapshot is a JSON-serializable snapshot of one physics.Body.
 type BodySnapshot struct {
@@ -473,8 +476,8 @@ func (w *World) Restore(snap WorldSnapshot) error {
 	if w == nil {
 		return errors.New("physics: cannot restore nil World")
 	}
-	if snap.Version != SnapshotVersion {
-		return fmt.Errorf("physics: unsupported WorldSnapshot version %d (want %d)", snap.Version, SnapshotVersion)
+	if snap.Version < oldestSnapshotVersion || snap.Version > SnapshotVersion {
+		return fmt.Errorf("physics: unsupported WorldSnapshot version %d (want %d to %d)", snap.Version, oldestSnapshotVersion, SnapshotVersion)
 	}
 	for i, ta := range snap.TriggerActive {
 		if ta.TriggerIndex < 0 || ta.TriggerIndex >= len(snap.Triggers) {
@@ -1496,8 +1499,8 @@ func (w *RigidWorld) Restore(snap RigidWorldSnapshot) error {
 	if w == nil {
 		return errors.New("physics: cannot restore nil RigidWorld")
 	}
-	if snap.Version != SnapshotVersion {
-		return fmt.Errorf("physics: unsupported RigidWorldSnapshot version %d (want %d)", snap.Version, SnapshotVersion)
+	if snap.Version < oldestSnapshotVersion || snap.Version > SnapshotVersion {
+		return fmt.Errorf("physics: unsupported RigidWorldSnapshot version %d (want %d to %d)", snap.Version, oldestSnapshotVersion, SnapshotVersion)
 	}
 	for i, js := range snap.Joints {
 		if err := validateRigidJointSnapshot(js, len(snap.Bodies), fmt.Sprintf("joints[%d]", i)); err != nil {
@@ -1808,7 +1811,7 @@ func (w *RigidWorld) Checksum() uint64 {
 	return h.Sum64()
 }
 
-// hashTilesAndEvents hashes the Tiles, their settings and the contact and sensor state events are reported from, with the same rule as Save for entries whose bodies left the world. A world that uses none of them hashes nothing more, so its digest is the one it had before they existed.
+// hashTilesAndEvents hashes the Tiles, their settings and the contact and sensor state events are reported from, with the same rule as Save for entries whose bodies left the world. A world with no Tiles, default tile settings, no sensor overlap and no bodies in contact hashes nothing more, so its digest is the one it had before they existed; any world whose bodies touch hashes its contact list, so its digest differs from earlier releases.
 func (w *RigidWorld) hashTilesAndEvents(h *detmath.Hasher, bodyIdx map[*RigidBody]int) {
 	if w.Tiles == nil && w.TileLayer == 0 && w.TileMask == 0 && w.TileFriction == 0 && w.TileRestitution == 0 && len(w.touching) == 0 && len(w.sensing) == 0 {
 		return

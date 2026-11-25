@@ -693,7 +693,7 @@ func (w *RigidWorld) Step(dt time.Duration) {
 	pairs := w.broadphase()
 	w.wakeTouched(pairs)
 	manifolds := w.detectContacts(pairs, restitutionThresh, h, ignoredPairs)
-	w.updateContactEvents(manifolds)
+	w.updateContactEvents(manifolds, ignoredPairs)
 	w.warmStart(manifolds, h)
 
 	// 4. Pre-step the joints of awake bodies (applies spring forces and prepares rigid joint constraint matrices).

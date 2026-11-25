@@ -37,9 +37,7 @@ const (
 	MotionFloating
 )
 
-// MoveOptions configures World.MoveAndSlideWith. The zero value uses MotionGrounded with Up (0, -1),
-// FloorMaxAngle DefaultFloorMaxAngle (45 degrees), MaxSlides DefaultMaxSlides (4), and collides against
-// World.Bodies, World.Tiles (solid and one-way), and the static RigidBody colliders in World.RigidWorld that are not sensors.
+// MoveOptions configures World.MoveAndSlideWith. The zero value uses MotionGrounded with Up (0, -1), FloorMaxAngle DefaultFloorMaxAngle (45 degrees), MaxSlides DefaultMaxSlides (4), and collides against World.Bodies, World.Tiles (solid and one-way), and the static RigidBody colliders in World.RigidWorld that are not sensors.
 type MoveOptions struct {
 	// Mode selects MotionGrounded (default) or MotionFloating (top-down, every hit is a wall).
 	Mode MotionMode
@@ -54,8 +52,7 @@ type MoveOptions struct {
 	// Mask optionally restricts which collider kinds are tested. Zero defaults to QueryAll
 	// (World.Bodies, static RigidBody colliders, TileSolid and TileOneWay tiles).
 	Mask QueryMask
-	// RigidBodies supplies optional extra static RigidBody colliders to test in addition to World.RigidWorld.
-	// Dynamic, kinematic and sensor rigid bodies are ignored.
+	// RigidBodies supplies optional extra static RigidBody colliders to test in addition to World.RigidWorld. Dynamic, kinematic and sensor rigid bodies are ignored.
 	RigidBodies []*RigidBody
 	// Exclude skips the listed Body pointers during movement in addition to the moving body itself.
 	Exclude []*Body
