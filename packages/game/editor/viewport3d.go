@@ -565,6 +565,11 @@ func (e *Editor) PickGizmo3D(sx, sy, w, h float32) GizmoAxis3D {
 	bestDist := float64(gizmoHitRadius)
 
 	switch e.GizmoMode {
+	case Gizmo3DCollider:
+		if hh, ok := e.pickColliderHandle3D(obj, sx, sy, w, h); ok {
+			return hh.Axis
+		}
+		return Axis3DNone
 	case Gizmo3DRotate:
 		for _, axis := range axes {
 			d := e.screenDistToGizmoRing(origin, gizmoLen, axis, sx, sy, w, h)
@@ -658,6 +663,19 @@ type drag3DState struct {
 	prevRingVec [3]float64
 	hasRingVec  bool
 	accumAngle  float64
+
+	// Collider size-handle drag state (active when mode == Gizmo3DCollider).
+	colliderComp         string
+	colliderField        string
+	colliderSign         float32
+	colliderAxisDir      [3]float64
+	colliderAxisScale    float64
+	colliderIsRadius     bool
+	colliderWasNil       bool
+	colliderCompExisted  bool
+	colliderFieldExisted bool
+	colliderOldVal       any
+	colliderStartVal     float64
 }
 
 // ActiveGizmoAxis3D returns the currently dragged 3D gizmo axis, or Axis3DNone.
@@ -679,6 +697,20 @@ func (e *Editor) BeginGizmoDrag3D(sx, sy, w, h float32) GizmoAxis3D {
 	if e == nil || e.playing {
 		return Axis3DNone
 	}
+	if e.GizmoMode == Gizmo3DCollider {
+		if e.gridMap.tool != GridMapToolNone || w <= 0 || h <= 0 {
+			return Axis3DNone
+		}
+		obj, _ := e.SelectedObject()
+		if obj == nil || e.viewportFrozen(obj.ID) {
+			return Axis3DNone
+		}
+		hh, ok := e.pickColliderHandle3D(obj, sx, sy, w, h)
+		if !ok || !e.beginColliderDrag3D(obj, hh, sx, sy, w, h) {
+			return Axis3DNone
+		}
+		return hh.Axis
+	}
 	axis := e.PickGizmo3D(sx, sy, w, h)
 	if axis == Axis3DNone {
 		return Axis3DNone
@@ -696,6 +728,14 @@ func (e *Editor) BeginGizmoDragAxis3D(axis GizmoAxis3D, sx, sy, w, h float32) bo
 	}
 	obj, _ := e.SelectedObject()
 	if obj == nil || e.viewportFrozen(obj.ID) {
+		return false
+	}
+	if e.GizmoMode == Gizmo3DCollider {
+		for _, hh := range e.ColliderHandles3D(obj) {
+			if hh.Axis == axis && hh.Sign > 0 {
+				return e.beginColliderDrag3D(obj, hh, sx, sy, w, h)
+			}
+		}
 		return false
 	}
 	parentInv, ok := e.parentWorld3D(obj.ID).invert()
@@ -761,6 +801,10 @@ func (e *Editor) UpdateGizmoDrag3D(sx, sy float32) {
 	}
 
 	st := &e.drag3D
+	if st.mode == Gizmo3DCollider {
+		e.updateColliderDrag3D(obj, st, sx, sy)
+		return
+	}
 	w, h := st.vpW, st.vpH
 	startPos := st.startPos
 	axisDir := axisVector64(st.axis)
@@ -885,6 +929,9 @@ func (e *Editor) EndGizmoDrag3D() bool {
 	}
 	st := e.drag3D
 	e.drag3D = drag3DState{}
+	if st.mode == Gizmo3DCollider {
+		return e.endColliderDrag3D(st)
+	}
 
 	obj, _, _ := e.FindObject(st.objectID)
 	if obj == nil {
@@ -921,6 +968,13 @@ func (e *Editor) CancelGizmoDrag3D() {
 	}
 	st := e.drag3D
 	e.drag3D = drag3DState{}
+	if st.mode == Gizmo3DCollider {
+		if obj, _, _ := e.FindObject(st.objectID); obj != nil {
+			restoreColliderDragState(obj, &st)
+		}
+		e.notify()
+		return
+	}
 	if obj, _, _ := e.FindObject(st.objectID); obj != nil {
 		applyTransform3D(obj, st.startTransform)
 		e.Rebuild()
@@ -1364,6 +1418,9 @@ func (e *Editor) drawGizmo3D(d *core.Drawing, w, h float32) {
 	}
 
 	switch e.GizmoMode {
+	case Gizmo3DCollider:
+		e.drawColliderGizmo3D(d, obj, w, h)
+		return
 	case Gizmo3DRotate:
 		for _, ax := range axes {
 			col := ax.color

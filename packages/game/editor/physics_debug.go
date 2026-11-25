@@ -105,6 +105,7 @@ func (e *Editor) drawPhysicsDebug3D(d *core.Drawing, w, h float32) {
 	if !e.ShowPhysicsDebug || d == nil || e.Doc == nil {
 		return
 	}
+	resolver := e.physicsResolver()
 	var walk func(objs []sceneformat.ObjectDoc, parentWorld math3d.Transform)
 	walk = func(objs []sceneformat.ObjectDoc, parentWorld math3d.Transform) {
 		for oi := range objs {
@@ -115,7 +116,7 @@ func (e *Editor) drawPhysicsDebug3D(d *core.Drawing, w, h float32) {
 				}
 			}
 			world := parentWorld.Mul(sceneformat.ObjectLocalTransform3D(o))
-			for _, item := range sceneformat.ExtractPhysicsDebug3DAt(o, world) {
+			for _, item := range sceneformat.ExtractPhysicsDebug3DAtWithResolver(o, world, resolver) {
 				e.drawPhysicsShape3D(d, item, w, h)
 			}
 			if len(o.Children) > 0 {
@@ -132,21 +133,34 @@ func (e *Editor) drawPhysicsDebug3D(d *core.Drawing, w, h float32) {
 	}
 }
 
+const maxPhysicsDebugEdges3D = 4096
+
 func (e *Editor) drawPhysicsShape3D(d *core.Drawing, item sceneformat.PhysicsDebugShape3D, w, h float32) {
 	var edges [][2]physics3d.Vec3
-	switch item.Shape.Kind {
-	case physics3d.ShapeBox:
-		var boxEdges [12][2]physics3d.Vec3
-		if !item.Shape.Rot.IsIdentity() {
-			boxEdges = physics3d.OrientedBoxEdges(item.Shape.Box, item.Shape.Rot)
-		} else {
-			boxEdges = physics3d.BoxEdges(item.Shape.Box)
+	switch {
+	case item.TriMesh != nil:
+		edges = triMeshDebugEdges(item.TriMesh, maxPhysicsDebugEdges3D)
+	case item.Heightfield != nil:
+		edges = heightfieldDebugEdges(item.Heightfield, 32)
+	default:
+		switch item.Shape.Kind {
+		case physics3d.ShapeBox:
+			var boxEdges [12][2]physics3d.Vec3
+			if !item.Shape.Rot.IsIdentity() {
+				boxEdges = physics3d.OrientedBoxEdges(item.Shape.Box, item.Shape.Rot)
+			} else {
+				boxEdges = physics3d.BoxEdges(item.Shape.Box)
+			}
+			edges = boxEdges[:]
+		case physics3d.ShapeSphere:
+			edges = physics3d.SphereEdges(item.Shape.Sphere, 16)
+		case physics3d.ShapeCapsule:
+			edges = physics3d.CapsuleEdges(item.Shape.Capsule, 16)
+		case physics3d.ShapeCylinder:
+			edges = physics3d.CylinderEdges(item.Shape.Cylinder, 16)
+		case physics3d.ShapeConvexHull:
+			edges = physics3d.ConvexHullEdges(item.Shape.Hull, item.Shape.Rot)
 		}
-		edges = boxEdges[:]
-	case physics3d.ShapeSphere:
-		edges = physics3d.SphereEdges(item.Shape.Sphere, 16)
-	case physics3d.ShapeCapsule:
-		edges = physics3d.CapsuleEdges(item.Shape.Capsule, 16)
 	}
 	if len(edges) == 0 {
 		return
@@ -166,4 +180,63 @@ func (e *Editor) drawPhysicsShape3D(d *core.Drawing, item sceneformat.PhysicsDeb
 		d.Stroke()
 	}
 	d.Restore()
+}
+
+func triMeshDebugEdges(tm *physics3d.TriMeshCollider, limit int) [][2]physics3d.Vec3 {
+	if tm == nil || len(tm.Triangles) == 0 {
+		return nil
+	}
+	edges := make([][2]physics3d.Vec3, 0, min(len(tm.Triangles)*3, limit))
+	for _, tri := range tm.Triangles {
+		for _, seg := range [3][2]physics3d.Vec3{{tri.A, tri.B}, {tri.B, tri.C}, {tri.C, tri.A}} {
+			if len(edges) >= limit {
+				return edges
+			}
+			edges = append(edges, seg)
+		}
+	}
+	return edges
+}
+
+func heightfieldDebugEdges(hf *physics3d.HeightfieldCollider, maxSteps int) [][2]physics3d.Vec3 {
+	if hf == nil || hf.Cols < 2 || hf.Rows < 2 || len(hf.Heights) < hf.Cols*hf.Rows {
+		return nil
+	}
+	stepX := max(1, (hf.Cols-1)/maxSteps)
+	stepZ := max(1, (hf.Rows-1)/maxSteps)
+	vtx := func(cx, cz int) physics3d.Vec3 {
+		return physics3d.Vec3{
+			X: hf.Origin.X + float32(cx)*hf.CellSize,
+			Y: hf.Origin.Y + hf.Heights[cz*hf.Cols+cx],
+			Z: hf.Origin.Z + float32(cz)*hf.CellSize,
+		}
+	}
+	var edges [][2]physics3d.Vec3
+	for cz := 0; cz < hf.Rows; cz += stepZ {
+		for cx := 0; cx < hf.Cols-1; cx += stepX {
+			nx := min(cx+stepX, hf.Cols-1)
+			edges = append(edges, [2]physics3d.Vec3{vtx(cx, cz), vtx(nx, cz)})
+		}
+		if cz+stepZ >= hf.Rows && cz != hf.Rows-1 {
+			lastZ := hf.Rows - 1
+			for cx := 0; cx < hf.Cols-1; cx += stepX {
+				nx := min(cx+stepX, hf.Cols-1)
+				edges = append(edges, [2]physics3d.Vec3{vtx(cx, lastZ), vtx(nx, lastZ)})
+			}
+		}
+	}
+	for cx := 0; cx < hf.Cols; cx += stepX {
+		for cz := 0; cz < hf.Rows-1; cz += stepZ {
+			nz := min(cz+stepZ, hf.Rows-1)
+			edges = append(edges, [2]physics3d.Vec3{vtx(cx, cz), vtx(cx, nz)})
+		}
+		if cx+stepX >= hf.Cols && cx != hf.Cols-1 {
+			lastX := hf.Cols - 1
+			for cz := 0; cz < hf.Rows-1; cz += stepZ {
+				nz := min(cz+stepZ, hf.Rows-1)
+				edges = append(edges, [2]physics3d.Vec3{vtx(lastX, cz), vtx(lastX, nz)})
+			}
+		}
+	}
+	return edges
 }

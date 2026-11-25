@@ -122,6 +122,8 @@ const (
 	Gizmo3DTranslate GizmoMode3D = iota
 	Gizmo3DRotate
 	Gizmo3DScale
+	// Gizmo3DCollider shows draggable size handles on the selected object's 3D collider or trigger.
+	Gizmo3DCollider
 )
 
 // String returns a human-readable label for the 3D gizmo mode.
@@ -133,6 +135,8 @@ func (m GizmoMode3D) String() string {
 		return "Rotate"
 	case Gizmo3DScale:
 		return "Scale"
+	case Gizmo3DCollider:
+		return "Collider"
 	default:
 		return "Unknown"
 	}
