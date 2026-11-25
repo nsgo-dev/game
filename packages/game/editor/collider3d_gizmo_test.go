@@ -527,3 +527,150 @@ layers:
 		t.Fatalf("expected debug drawing ops for all 3D collider shapes (%d) > without (%d)", len(withDebug.Ops), len(withoutDebug.Ops))
 	}
 }
+
+func TestCollider3DGizmoBlockedByGridMapAndTerrainBrush(t *testing.T) {
+	doc := &sceneformat.SceneDoc{
+		Version: 3,
+		Layers: []sceneformat.LayerDoc{{
+			Name:  "world",
+			Space: "world",
+			Objects: []sceneformat.ObjectDoc{{
+				ID: "prop",
+				Components: map[string]any{
+					"collider3d": map[string]any{"version": 1, "shape": "box", "width": 2.0, "height": 2.0, "depth": 2.0},
+				},
+			}},
+		}},
+	}
+	ed, err := editor.New(doc, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ed.SetViewMode(editor.ViewMode3D)
+	ed.SetGizmoMode3D(editor.Gizmo3DCollider)
+	ed.SelectObject("prop")
+	ed.Camera3D.Target = [3]float32{0, 0, 0}
+	ed.Camera3D.Yaw = 0.5
+	ed.Camera3D.Pitch = 0.35
+	ed.Camera3D.Distance = 8
+
+	const w, h float32 = 800, 600
+	obj, _, _ := ed.FindObject("prop")
+	handles := ed.ColliderHandles3D(obj)
+	if len(handles) == 0 {
+		t.Fatal("expected box collider handles")
+	}
+	sx, sy, _, vis := ed.Camera3D.Project(handles[0].Pos, w, h)
+	if !vis {
+		t.Fatal("handle not visible")
+	}
+
+	// GridMap paint tool active blocks PickGizmo3D, BeginGizmoDrag3D, and BeginGizmoDragAxis3D.
+	ed.SetGridMapTool(editor.GridMapToolPaint)
+	if ax := ed.PickGizmo3D(sx, sy, w, h); ax != editor.Axis3DNone {
+		t.Fatalf("PickGizmo3D with GridMap tool = %v, want Axis3DNone", ax)
+	}
+	if ax := ed.BeginGizmoDrag3D(sx, sy, w, h); ax != editor.Axis3DNone {
+		t.Fatalf("BeginGizmoDrag3D with GridMap tool = %v, want Axis3DNone", ax)
+	}
+	if ed.BeginGizmoDragAxis3D(editor.Axis3DX, sx, sy, w, h) {
+		t.Fatal("BeginGizmoDragAxis3D with GridMap tool = true, want false")
+	}
+	ed.SetGridMapTool(editor.GridMapToolNone)
+
+	// 3D Terrain brush active blocks PickGizmo3D, BeginGizmoDrag3D, and BeginGizmoDragAxis3D.
+	if err := ed.NewTerrain(editor.NewTerrainOptions{}); err != nil {
+		t.Fatalf("NewTerrain: %v", err)
+	}
+	ed.SetTerrainBrush(editor.TerrainBrush{Mode: editor.TerrainBrushRaise, Radius: 2, Strength: 0.5})
+	if ax := ed.PickGizmo3D(sx, sy, w, h); ax != editor.Axis3DNone {
+		t.Fatalf("PickGizmo3D with Terrain brush = %v, want Axis3DNone", ax)
+	}
+	if ax := ed.BeginGizmoDrag3D(sx, sy, w, h); ax != editor.Axis3DNone {
+		t.Fatalf("BeginGizmoDrag3D with Terrain brush = %v, want Axis3DNone", ax)
+	}
+	if ed.BeginGizmoDragAxis3D(editor.Axis3DX, sx, sy, w, h) {
+		t.Fatal("BeginGizmoDragAxis3D with Terrain brush = true, want false")
+	}
+
+	// Clearing the brush re-enables the collider gizmo.
+	ed.SetTerrainBrush(editor.TerrainBrush{Mode: editor.TerrainBrushNone})
+	if !ed.BeginGizmoDragAxis3D(editor.Axis3DX, sx, sy, w, h) {
+		t.Fatal("BeginGizmoDragAxis3D after clearing Terrain brush = false, want true")
+	}
+	ed.CancelGizmoDrag3D()
+}
+
+func TestCollider3DCapsuleDragClampsHeightAndRadius(t *testing.T) {
+	setupCap := func(t *testing.T) *editor.Editor {
+		t.Helper()
+		doc := &sceneformat.SceneDoc{
+			Version: 3,
+			Layers: []sceneformat.LayerDoc{{
+				Name:  "world",
+				Space: "world",
+				Objects: []sceneformat.ObjectDoc{{
+					ID: "cap",
+					Components: map[string]any{
+						"collider3d": map[string]any{"version": 1, "shape": "capsule", "radius": 0.6, "height": 2.0},
+					},
+				}},
+			}},
+		}
+		ed, err := editor.New(doc, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ed.SetViewMode(editor.ViewMode3D)
+		ed.SetGizmoMode3D(editor.Gizmo3DCollider)
+		ed.SelectObject("cap")
+		ed.Camera3D.Target = [3]float32{0, 0, 0}
+		ed.Camera3D.Yaw = 0.5
+		ed.Camera3D.Pitch = 0.25
+		ed.Camera3D.Distance = 8
+		return ed
+	}
+	const w, h float32 = 800, 600
+
+	// Dragging capsule +Y handle far downward must clamp height >= 2*radius (1.2).
+	edH := setupCap(t)
+	obj, _, _ := edH.FindObject("cap")
+	var hy editor.ColliderHandle3D
+	for _, hh := range edH.ColliderHandles3D(obj) {
+		if hh.Axis == editor.Axis3DY && hh.Sign > 0 {
+			hy = hh
+			break
+		}
+	}
+	x0, y0, _, _ := edH.Camera3D.Project(hy.Pos, w, h)
+	x1, y1, _, _ := edH.Camera3D.Project([3]float32{hy.Pos[0], hy.Pos[1] - 2.0, hy.Pos[2]}, w, h)
+	if ax := edH.BeginGizmoDrag3D(x0, y0, w, h); ax != editor.Axis3DY {
+		t.Fatalf("capsule height pick = %v, want Axis3DY", ax)
+	}
+	edH.UpdateGizmoDrag3D(x1, y1)
+	edH.EndGizmoDrag3D()
+	obj, _, _ = edH.FindObject("cap")
+	gotH := obj.Components["collider3d"].(map[string]any)["height"].(float64)
+	assertNear32(t, "clamped capsule height", float32(gotH), 1.2, 1e-3)
+
+	// Dragging capsule +X handle far outward must clamp radius <= height/2 (1.0).
+	edR := setupCap(t)
+	obj, _, _ = edR.FindObject("cap")
+	var hx editor.ColliderHandle3D
+	for _, hh := range edR.ColliderHandles3D(obj) {
+		if hh.Axis == editor.Axis3DX && hh.Sign > 0 {
+			hx = hh
+			break
+		}
+	}
+	x0, y0, _, _ = edR.Camera3D.Project(hx.Pos, w, h)
+	x1, y1, _, _ = edR.Camera3D.Project([3]float32{hx.Pos[0] + 2.0, hx.Pos[1], hx.Pos[2]}, w, h)
+	if ax := edR.BeginGizmoDrag3D(x0, y0, w, h); ax != editor.Axis3DX {
+		t.Fatalf("capsule radius pick = %v, want Axis3DX", ax)
+	}
+	edR.UpdateGizmoDrag3D(x1, y1)
+	edR.EndGizmoDrag3D()
+	obj, _, _ = edR.FindObject("cap")
+	gotR := obj.Components["collider3d"].(map[string]any)["radius"].(float64)
+	assertNear32(t, "clamped capsule radius", float32(gotR), 1.0, 1e-3)
+}

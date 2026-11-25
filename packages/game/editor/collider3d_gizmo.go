@@ -307,6 +307,21 @@ func (e *Editor) beginColliderDrag3D(obj *sceneformat.ObjectDoc, handle Collider
 		axisScale = 1
 	}
 
+	minVal := minColliderSize3D
+	maxVal := 0.0
+	if handle.Shape == "capsule" {
+		switch handle.Field {
+		case "height":
+			if r, ok := frame.resolved["radius"].(float64); ok && 2*r > minVal {
+				minVal = 2 * r
+			}
+		case "radius":
+			if hh, ok := frame.resolved["height"].(float64); ok && hh > 0 {
+				maxVal = max(minColliderSize3D, hh*0.5)
+			}
+		}
+	}
+
 	st := drag3DState{
 		kind:                 drag3DGizmo,
 		objectID:             obj.ID,
@@ -331,6 +346,8 @@ func (e *Editor) beginColliderDrag3D(obj *sceneformat.ObjectDoc, handle Collider
 		colliderFieldExisted: fieldExisted,
 		colliderOldVal:       cloneAny(oldVal),
 		colliderStartVal:     startVal,
+		colliderMinVal:       minVal,
+		colliderMaxVal:       maxVal,
 	}
 
 	orig32, dir32 := e.Camera3D.ScreenRay(sx, sy, w, h)
@@ -358,8 +375,15 @@ func (e *Editor) updateColliderDrag3D(obj *sceneformat.ObjectDoc, st *drag3DStat
 		// Box width/height/depth and capsule/cylinder total height span both +/- sides around center.
 		newVal = st.colliderStartVal + 2*localDelta
 	}
-	if newVal < minColliderSize3D {
-		newVal = minColliderSize3D
+	minVal := st.colliderMinVal
+	if minVal < minColliderSize3D {
+		minVal = minColliderSize3D
+	}
+	if newVal < minVal {
+		newVal = minVal
+	}
+	if st.colliderMaxVal > 0 && newVal > st.colliderMaxVal {
+		newVal = st.colliderMaxVal
 	}
 	if obj.Components == nil {
 		obj.Components = make(map[string]any)

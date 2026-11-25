@@ -604,7 +604,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Switch the 3D gizmo to Collider size handles",
 			Category:    "3D Gizmo",
 			Keywords:    []string{"gizmo", "collider", "physics", "handles", "size", "3d"},
-			Shortcut:    "c",
+			Shortcut:    "shift+c",
 			Enabled:     notPlaying,
 			Checked:     func() bool { return e.GizmoMode == Gizmo3DCollider },
 			Run: func() error {
