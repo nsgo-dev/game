@@ -17,6 +17,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/game/packages/game/resource"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
+	"github.com/nsgo-dev/game/packages/game/tooling/datatable"
 	"github.com/nsgo-dev/game/packages/game/tooling/library"
 	"github.com/nsgo-dev/nsgo/core"
 )
@@ -188,6 +189,8 @@ type Editor struct {
 	PlayRate int
 	// OnSaveClip is invoked by the animation panel's Save button with the encoded clip YAML; when nil the button writes to ClipPath.
 	OnSaveClip func(data []byte) error
+	// OnSaveDataTable is invoked by the Data Table panel's Save button with the encoded table YAML; when nil the button writes to DataTablePath.
+	OnSaveDataTable func(data []byte) error
 
 	playing      bool
 	playSnapshot []byte
@@ -209,6 +212,10 @@ type Editor struct {
 	clipPlayer  *animclip.Player
 	clipErr     error
 	selKey      clipKeyRef
+
+	// The data table editor: the open table state and registered Go row types per file pattern.
+	table      *dataTableState
+	tableTypes *datatable.Registry
 
 	components *sceneformat.ComponentRegistry
 	// plugins are the registered plugins in registration order, and pluginTool the plugin tool chosen while Tool is ToolPlugin.

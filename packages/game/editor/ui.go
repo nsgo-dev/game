@@ -56,6 +56,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 				Children: mainRow(cx, ed, rev),
 			},
 			pluginDockView(cx, ed, rev, DockBottom),
+			DataTablePanelView(cx, ed, rev),
 			AnimationPanelView(cx, ed, rev),
 			statusBarView(cx, ed, rev),
 		},

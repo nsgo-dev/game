@@ -83,6 +83,14 @@ if err := datatable.SaveYAML("data/enemies.yaml", enemies); err != nil {
 }
 ```
 
+## 无类型编辑与行类型校验
+
+不导入每个游戏的 Go 行结构体、直接处理 YAML 数据表的工具和编辑器，可以用 `ParseDocument` 或 `LoadDocument` 将文件打开为无类型的 `*datatable.Document`：
+
+- 每个 `Row` 按有序切片保存 `Cell{Key, Value}`，从而保留每一行自己的键顺序；`Columns()` 按首次出现顺序返回所有行键名的并集，`ColumnKind(col)` 推断 `KindString`、`KindNumber`、`KindBool`、`KindDuration` 或 `KindList`。
+- 未做编辑时 `Marshal` 和 `Save` 返回与输入逐字节完全一致的内容；修改单个标量或内联列表单元格时只改动那一行；在结构变更（`AddRow`、`DeleteRow`、`MoveRow`）后则从保留注释与格式的 YAML AST 确定性地编码。
+- `RowTypeFor[T]()` 与 `Registry`（`RegisterRowType[T](reg, pattern)`）按与 `LoadYAML` 完全相同的规则对无类型单元格、行和文档做 Go 结构体类型校验（`ValidateCell`、`ValidateRow`、`ValidateDocument`、`ParseCellText`），以 `*datatable.CellError` 拒绝未知字段、重复字段和类型转换失败。
+
 ## 热重载
 
 `NewTable[T](path)` 加载文件并保存其行。`Watch` 把它注册到 `hotreload.Watcher`（来自 `game/tooling/hotreload`），每次有效保存后在引擎 goroutine 上用新行回调：

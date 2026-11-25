@@ -446,7 +446,22 @@ scenes/level.scene.yaml:12: sceneformat: connection 0 ("lever" held -> "west/doo
 
 编辑器也能打开游戏的[项目文件](project.md)：`OpenProject` 读取 `game.yaml` 并打开其中的主场景，`EditProject` 以可撤销的步骤修改它，`SaveProject` 写入它并同步旁边的 `nsgo.yaml`。运行 `go tool game editor <dir>` 即可打开一个项目目录。`MoveFile(from, to)` 移动项目中的文件或目录，并像 `go tool game mv` 一样改写所有指向它的引用，包括磁盘上的文件和当前打开的场景与项目（见[稳定引用](project.md#稳定引用)）；这是一个步骤，可以撤销，也可以重做。撤销会把移动改写过的每个文件逐字节恢复原样；如果某个文件在移动之后又被改过，则只把其中的引用改写回去。
 
-打开项目后，资源浏览器下方的文件浏览器（`FilesView`）列出项目中的文件和目录（`ProjectFiles`），不列出 `game index` 和 `game mv` 同样跳过的目录：名称以 `.` 或 `_` 开头的目录和名为 `testdata` 的目录。点击一项即可选中它，并把它的路径填入列表下方的输入框；改好路径后点击“Move”，就会通过 `MoveFile` 重命名或移动它。编辑器之外的操作改动了文件后，点击“Refresh”重新列出文件。
+打开项目后，资源浏览器下方的文件浏览器（`FilesView`）列出项目中的文件和目录（`ProjectFiles`），不列出 `game index` 和 `game mv` 同样跳过的目录：名称以 `.` 或 `_` 开头的目录和名为 `testdata` 的目录。点击一项即可选中它，并把它的路径填入列表下方的输入框；改好路径后点击“Move”，就会通过 `MoveFile` 重命名或移动它；选中 `.yaml`/`.yml` 文件时也可以点击“Open Table”，在数据表编辑器中打开它（`OpenDataTableProjectFile`）。编辑器之外的操作改动了文件后，点击“Refresh”重新列出文件。
+
+## 数据表编辑器（#918）
+
+数据表面板（`DataTablePanelView`）可以从文件浏览器把带版本号的 YAML 数据表（[`tooling/datatable`](datatable.md)）以电子表格网格的形式打开在视口下方：
+
+- **列与值类型**：列是所有行键名的并集，按首次出现的确定顺序排列（注册了 Go 行类型时，也会补齐任何行尚未设置的字段）。每一列的值类型（`string`、`number`、`bool`、`duration` 或 `list`）根据单元格的值推断，或直接取自已注册的 Go 行类型；布尔单元格渲染为切换按钮，标量和列表单元格在按回车或失焦时提交。
+- **行操作与视图控制**：支持添加（`AddDataTableRow`）、删除（`DeleteDataTableRow`）和重排行（`MoveDataTableRow`），点击任意列头即可排序（`SetDataTableSort`），并可按不区分大小写的子串过滤可见行（`SetDataTableFilter`）。排序和过滤只改变视图显示，不会改动底层 YAML 文档的行顺序。
+- **撤销与无损往返**：打开、关闭、添加、删除、重排和编辑单元格全部进入编辑器共用的 `History` 撤销栈。打开数据表后不做修改直接保存，文件内容逐字节完全一致；修改单个单元格时只改动那一行，同时保留注释、格式以及每一行自己的键顺序。
+- **Go 行类型校验**：游戏自己的编辑器命令可以用 `editor.RegisterDataTableType[T](ed, pattern)`（或 `Editor.RegisterDataTableRowType`）按路径或文件名模式注册 Go 结构体行类型。匹配的数据表在打开和每次编辑单元格或行时，都会按与 `datatable.LoadYAML` 完全相同的规则校验，在网格中拒绝未知列、重复字段和无效单元格值，并在面板和状态栏中显示 `*datatable.CellError`。
+
+```go
+if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err != nil {
+	log.Fatal(err)
+}
+```
 
 ## 动画编辑器
 
