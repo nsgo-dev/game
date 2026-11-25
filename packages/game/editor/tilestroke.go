@@ -3,10 +3,9 @@ package editor
 import (
 	"fmt"
 	"math"
-	"strconv"
+	"slices"
 
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
-	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/game/packages/game/tilemap"
 	"github.com/nsgo-dev/nsgo/core"
 )
@@ -25,6 +24,20 @@ const (
 	TileStrokeTerrain
 	// TileStrokeEraseTerrain removes terrain from every cell the stroke crosses and updates neighbors with SetAutotile rules.
 	TileStrokeEraseTerrain
+	// TileStrokeRect fills the dragged rectangle with ActiveTileID, previewed live and committed on EndTileStroke.
+	TileStrokeRect
+	// TileStrokeRectErase clears every cell in the dragged rectangle, previewed live and committed on EndTileStroke.
+	TileStrokeRectErase
+	// TileStrokeLine draws a Bresenham line of ActiveTileID between the start and end cells, previewed live and committed on EndTileStroke.
+	TileStrokeLine
+	// TileStrokeLineErase clears every cell along a Bresenham line between the start and end cells, previewed live and committed on EndTileStroke.
+	TileStrokeLineErase
+	// TileStrokeStamp paints the active TileStamp pattern along the stroke, pattern-aligned to the start cell, previewed live and committed on EndTileStroke.
+	TileStrokeStamp
+	// TileStrokeRandom paints deterministic weighted picks from the random brush pool along the stroke, previewed live and committed on EndTileStroke.
+	TileStrokeRandom
+	// TileStrokeSelectRegion selects a rectangular region of cells on the active tilemap for Copy or Cut.
+	TileStrokeSelectRegion
 )
 
 // String returns a human-readable label for the mode.
@@ -40,12 +53,26 @@ func (m TileStrokeMode) String() string {
 		return "Paint terrain"
 	case TileStrokeEraseTerrain:
 		return "Erase terrain"
+	case TileStrokeRect:
+		return "Rect paint"
+	case TileStrokeRectErase:
+		return "Rect erase"
+	case TileStrokeLine:
+		return "Line paint"
+	case TileStrokeLineErase:
+		return "Line erase"
+	case TileStrokeStamp:
+		return "Stamp"
+	case TileStrokeRandom:
+		return "Random paint"
+	case TileStrokeSelectRegion:
+		return "Select region"
 	default:
 		return "Unknown"
 	}
 }
 
-// tileStroke is a tile stroke under way: the layer it edits, the tile layer of a layered grid (empty for a single grid), the tile value it writes, where the pointer last was in the layer's space, and the cells it has changed so far, each once, with the value the cell held before the stroke.
+// tileStroke is a tile stroke under way: the layer it edits, the tile layer of a layered grid (empty for a single grid), the tile value it writes, where the pointer last was in the layer's space, and either the cells it has changed live (Paint/Erase/Terrain) or its live preview before release (Rect/Line/Stamp/Random/SelectRegion).
 type tileStroke struct {
 	mode        TileStrokeMode
 	layer       string
@@ -61,6 +88,22 @@ type tileStroke struct {
 	// picked says a pick stroke picked a tile, and pickedAt is the cell it last looked at (index into the map's grid, -1 for none), which it does not look at again until the pointer leaves it.
 	picked   bool
 	pickedAt int
+	// Preview brush state (used when isPreviewMode is true).
+	activeTileID int
+	activeFlip   uint32
+	startCol     int
+	startRow     int
+	endCol       int
+	endRow       int
+	stamp        TileStamp
+	randomPool   []WeightedTile
+	randomSeed   uint64
+	preview      []TilePreviewCell
+	previewMap   map[int]TilePreviewCell
+}
+
+func (s *tileStroke) isPreviewMode() bool {
+	return s != nil && s.mode >= TileStrokeRect && s.mode <= TileStrokeSelectRegion
 }
 
 // recordChange merges a change to cell idx into s.changes, preserving the original pre-stroke oldGID when the cell is updated more than once during the same stroke (as terrain neighbor updates do).
@@ -80,14 +123,23 @@ type tileHover struct {
 	picking bool
 }
 
-// BeginTileStroke starts a stroke of mode on the active layer's inline tilemap at the canvas point (x, y), and applies it to the cell there: a paint stroke writes ActiveTileID, an erase stroke clears the cell, a pick stroke makes the cell's tile the active tile, and terrain strokes place or remove the active terrain while updating neighbors through SetAutotile rules. ContinueTileStroke carries the stroke on to each point the pointer moves to, and EndTileStroke records what it changed as one undo step. A stroke that starts off the map applies nothing until it reaches the map.
+// BeginTileStroke starts a stroke of mode on the active layer's inline tilemap at the canvas point (x, y).
+// Freehand Paint, Erase, and Terrain strokes apply live; Rect, Line, Stamp, Random and SelectRegion accumulate a live preview
+// (TilePreview) without mutating the document until EndTileStroke records every changed cell as one undo step.
+// CancelTileStroke discards the preview or restores live-painted cells without recording history.
 //
-// It returns false and starts nothing while playing, in 3D, while another stroke is under way, when the active layer has no inline tilemap to edit, for a paint, erase or terrain stroke on a locked or hidden layer (reporting why in the status bar), for a terrain stroke without a valid terrain set, and for a paint stroke whose ActiveTileID is negative.
+// It returns false and starts nothing while playing, in 3D, while another stroke is under way, for non-finite coordinates, when the active layer has no inline tilemap to edit, for an edit stroke on a locked or hidden layer (reporting why in the status bar), for a terrain stroke without a valid terrain set, and when required tile/stamp/random parameters are invalid.
 func (e *Editor) BeginTileStroke(mode TileStrokeMode, x, y float32) bool {
 	if e == nil || e.playing || e.ViewMode != ViewMode2D || e.stroke != nil {
 		return false
 	}
-	if mode < TileStrokePaint || mode > TileStrokeEraseTerrain || mode == TileStrokePaint && e.ActiveTileID < 0 {
+	if !isFiniteFloat32(x) || !isFiniteFloat32(y) {
+		return false
+	}
+	if mode < TileStrokePaint || mode > TileStrokeSelectRegion {
+		return false
+	}
+	if (mode == TileStrokePaint || mode == TileStrokeRect || mode == TileStrokeLine) && e.ActiveTileID < 0 {
 		return false
 	}
 	layer, tm, err := e.resolveInlineTilemap(e.ActiveLayer)
@@ -105,12 +157,28 @@ func (e *Editor) BeginTileStroke(mode TileStrokeMode, x, y float32) bool {
 	var val int64
 	var terrainName string
 	var terrain *tilemap.Terrain
-	if mode == TileStrokePaint {
+	if mode == TileStrokePaint || mode == TileStrokeRect || mode == TileStrokeLine {
 		if val, err = e.paintValue(g, e.ActiveTileID); err != nil {
 			return false
 		}
 	}
-	if mode != TileStrokePick {
+	var stamp TileStamp
+	if mode == TileStrokeStamp {
+		var ok bool
+		stamp, ok = e.effectiveStamp()
+		if !ok {
+			return false
+		}
+		stamp = stamp.Clone()
+	}
+	var pool []WeightedTile
+	if mode == TileStrokeRandom {
+		pool = slices.Clone(e.effectiveRandomPool())
+		if len(pool) == 0 {
+			return false
+		}
+	}
+	if mode != TileStrokePick && mode != TileStrokeSelectRegion {
 		if err := e.lockedLayerErr(); err != nil {
 			e.report(err)
 			return false
@@ -129,43 +197,78 @@ func (e *Editor) BeginTileStroke(mode TileStrokeMode, x, y float32) bool {
 		}
 	}
 	lx, ly := e.layerCoordsForActive(x, y)
+	if !isFiniteFloat32(lx) || !isFiniteFloat32(ly) {
+		return false
+	}
+	startCol, startRow, ok := cellFloor(tm, lx, ly)
+	if !ok {
+		return false
+	}
+	var activeFlip uint32
+	if tm.IsLayered() {
+		activeFlip = e.ActiveTileFlip & tilemap.FlipMask
+	}
 	e.stroke = &tileStroke{
-		mode:        mode,
-		layer:       layer,
-		tileLayer:   tileLayer,
-		value:       val,
-		terrainName: terrainName,
-		terrain:     terrain,
-		lastX:       lx,
-		lastY:       ly,
-		changeIndex: map[int]int{},
-		visited:     map[int]bool{},
-		pickedAt:    -1,
+		mode:         mode,
+		layer:        layer,
+		tileLayer:    tileLayer,
+		value:        val,
+		terrainName:  terrainName,
+		terrain:      terrain,
+		lastX:        lx,
+		lastY:        ly,
+		changeIndex:  map[int]int{},
+		visited:      map[int]bool{},
+		pickedAt:     -1,
+		activeTileID: e.ActiveTileID,
+		activeFlip:   activeFlip,
+		startCol:     startCol,
+		startRow:     startRow,
+		endCol:       startCol,
+		endRow:       startRow,
+		stamp:        stamp,
+		randomPool:   pool,
+		randomSeed:   e.randomSeed,
 	}
 	if mode == TileStrokePick {
 		e.pickAt(lx, ly)
+		return true
+	}
+	if e.stroke.isPreviewMode() {
+		e.stroke.previewMap = map[int]TilePreviewCell{}
+		e.updateStrokePreview(lx, ly, true)
 		return true
 	}
 	e.strokeSegment(lx, ly, lx, ly)
 	return true
 }
 
-// ContinueTileStroke carries the stroke under way on from the pointer's last point to the canvas point (x, y): a paint or erase stroke applies to every cell the straight line between them crosses, so a fast move leaves no gaps, and a pick stroke picks the tile in the cell at (x, y). It does nothing when no stroke is under way.
+// ContinueTileStroke carries the stroke under way on from the pointer's last point to the canvas point (x, y).
+// For Paint, Erase and Terrain it edits every cell the straight line crosses; for Rect, Line, Stamp, Random and SelectRegion
+// it updates the live preview without mutating the scene document; for Pick it picks the tile at (x, y).
 func (e *Editor) ContinueTileStroke(x, y float32) {
-	if e == nil || e.stroke == nil {
+	if e == nil || e.stroke == nil || !isFiniteFloat32(x) || !isFiniteFloat32(y) {
 		return
 	}
 	s := e.stroke
 	lx, ly := e.layerCoordsForActive(x, y)
-	if s.mode == TileStrokePick {
+	if !isFiniteFloat32(lx) || !isFiniteFloat32(ly) {
+		return
+	}
+	switch {
+	case s.mode == TileStrokePick:
 		e.pickAt(lx, ly)
-	} else {
+	case s.isPreviewMode():
+		e.updateStrokePreview(lx, ly, false)
+	default:
 		e.strokeSegment(s.lastX, s.lastY, lx, ly)
 	}
 	s.lastX, s.lastY = lx, ly
 }
 
-// EndTileStroke ends the stroke under way, recording the cells it changed as one undo step ("Paint 12 tiles"); a stroke that changed nothing records none. A pick stroke made with the Pick tool that picked a tile makes Paint the active tool, so the picked tile paints next. It does nothing when no stroke is under way.
+// EndTileStroke ends the stroke under way, recording every cell it changed as one undo step; a stroke that changed nothing records none.
+// A pick stroke made with the Pick tool that picked a tile makes Paint the active tool, so the picked tile paints next.
+// A SelectRegion stroke updates TileSelection without recording an undo step.
 func (e *Editor) EndTileStroke() {
 	if e == nil || e.stroke == nil {
 		return
@@ -176,6 +279,22 @@ func (e *Editor) EndTileStroke() {
 		if s.picked && e.Tool == ToolPickTile {
 			e.SetTool(ToolPaintTile)
 		}
+		return
+	}
+	if s.mode == TileStrokeSelectRegion {
+		_, tm, err := e.resolveInlineTilemap(s.layer)
+		if err == nil {
+			if r, ok := clampTileRect(normalizeTileRect(s.startCol, s.startRow, s.endCol, s.endRow), tm.Width, tm.Height); ok {
+				e.tileSel = r
+				e.hasTileSel = true
+				e.Status = fmt.Sprintf("Selected %dx%d tile region", r.Width(), r.Height())
+			}
+		}
+		e.notify()
+		return
+	}
+	if s.isPreviewMode() {
+		e.commitPreviewStroke(s)
 		return
 	}
 	net := s.changes[:0]
@@ -204,13 +323,66 @@ func (e *Editor) EndTileStroke() {
 	e.History.Execute(&tileEditCmd{ed: e, layerName: s.layer, tileLayer: s.tileLayer, label: label, changes: net})
 }
 
-// CancelTileStroke ends the stroke under way without recording it, putting back every cell it changed, as when a second finger turns a one-finger paint into a two-finger pan. It does nothing when no stroke is under way.
+func (e *Editor) commitPreviewStroke(s *tileStroke) {
+	if len(s.preview) == 0 {
+		e.notify()
+		return
+	}
+	_, tm, err := e.resolveInlineTilemap(s.layer)
+	if err != nil {
+		e.notify()
+		return
+	}
+	g, err := gridOf(tm, s.tileLayer)
+	if err != nil {
+		e.notify()
+		return
+	}
+	values := g.values()
+	var changes []tileChange
+	for _, cell := range s.preview {
+		if cell.Col < 0 || cell.Col >= tm.Width || cell.Row < 0 || cell.Row >= tm.Height {
+			continue
+		}
+		idx := cell.Row*tm.Width + cell.Col
+		var newVal int64
+		if !cell.Erase && cell.Tile > 0 {
+			if g.layer != nil {
+				if cell.Tile > int(tilemap.TileIDMask) {
+					continue
+				}
+				newVal = int64(uint32(cell.Tile) | (cell.Flip & tilemap.FlipMask))
+			} else {
+				newVal = int64(cell.Tile)
+			}
+		}
+		if values[idx] != newVal {
+			changes = append(changes, tileChange{index: idx, oldGID: values[idx], newGID: newVal})
+		}
+	}
+	if len(changes) == 0 {
+		e.notify()
+		return
+	}
+	label := fmt.Sprintf("%s %d tiles", s.mode, len(changes))
+	if len(changes) == 1 && tm.Width > 0 {
+		idx := changes[0].index
+		label = fmt.Sprintf("%s tile (%d,%d)", s.mode, idx%tm.Width, idx/tm.Width)
+	}
+	e.History.Execute(&tileEditCmd{ed: e, layerName: s.layer, tileLayer: s.tileLayer, label: label, changes: changes})
+}
+
+// CancelTileStroke ends the stroke under way without recording it, discarding any live preview or putting back every cell a live stroke changed, as on Escape or when a second finger turns a one-finger stroke into a two-finger pan. It does nothing when no stroke is under way.
 func (e *Editor) CancelTileStroke() {
 	if e == nil || e.stroke == nil {
 		return
 	}
 	s := e.stroke
 	e.stroke = nil
+	if s.isPreviewMode() {
+		e.notify()
+		return
+	}
 	if len(s.changes) == 0 {
 		return
 	}
@@ -277,6 +449,169 @@ func (e *Editor) endTileStrokeForChange() {
 	if e.stroke != nil {
 		e.EndTileStroke()
 	}
+}
+
+func cellFloor(tm *sceneformat.TilemapDoc, lx, ly float32) (int, int, bool) {
+	if tm == nil || tm.TileWidth <= 0 || tm.TileHeight <= 0 || !isFiniteFloat32(lx) || !isFiniteFloat32(ly) {
+		return 0, 0, false
+	}
+	cx := math.Floor(float64(lx) / float64(tm.TileWidth))
+	cy := math.Floor(float64(ly) / float64(tm.TileHeight))
+	const maxCoord = float64(1 << 30)
+	if math.IsNaN(cx) || math.IsInf(cx, 0) || math.IsNaN(cy) || math.IsInf(cy, 0) {
+		return 0, 0, false
+	}
+	cx = min(max(cx, -maxCoord), maxCoord)
+	cy = min(max(cy, -maxCoord), maxCoord)
+	return int(cx), int(cy), true
+}
+
+func (e *Editor) updateStrokePreview(lx, ly float32, initial bool) {
+	s := e.stroke
+	_, tm, err := e.resolveInlineTilemap(s.layer)
+	if err != nil {
+		return
+	}
+	activeFlip := s.activeFlip
+	switch s.mode {
+	case TileStrokeRect, TileStrokeRectErase, TileStrokeSelectRegion:
+		ec, er, ok := cellFloor(tm, lx, ly)
+		if !ok {
+			return
+		}
+		if !initial && ec == s.endCol && er == s.endRow {
+			return
+		}
+		s.endCol, s.endRow = ec, er
+		s.preview = s.preview[:0]
+		if r, ok := clampTileRect(normalizeTileRect(s.startCol, s.startRow, ec, er), tm.Width, tm.Height); ok {
+			erase := s.mode == TileStrokeRectErase
+			tid := s.activeTileID
+			if erase || s.mode == TileStrokeSelectRegion {
+				tid = 0
+			}
+			for row := r.Row0; row <= r.Row1; row++ {
+				for col := r.Col0; col <= r.Col1; col++ {
+					s.preview = append(s.preview, TilePreviewCell{Col: col, Row: row, Tile: tid, Flip: activeFlip, Erase: erase})
+				}
+			}
+		}
+		e.notify()
+
+	case TileStrokeLine, TileStrokeLineErase:
+		ec, er, ok := cellFloor(tm, lx, ly)
+		if !ok {
+			return
+		}
+		if !initial && ec == s.endCol && er == s.endRow {
+			return
+		}
+		s.endCol, s.endRow = ec, er
+		s.preview = s.preview[:0]
+		erase := s.mode == TileStrokeLineErase
+		tid := s.activeTileID
+		if erase {
+			tid = 0
+		}
+		seen := make(map[int]bool)
+		bresenhamLineClipped(s.startCol, s.startRow, ec, er, tm.Width, tm.Height, func(col, row int) {
+			idx := row*tm.Width + col
+			if seen[idx] {
+				return
+			}
+			seen[idx] = true
+			s.preview = append(s.preview, TilePreviewCell{Col: col, Row: row, Tile: tid, Flip: activeFlip, Erase: erase})
+		})
+		sortPreviewCells(s.preview)
+		e.notify()
+
+	case TileStrokeStamp:
+		prevCol, prevRow, okPrev := cellFloor(tm, s.lastX, s.lastY)
+		curCol, curRow, okCur := cellFloor(tm, lx, ly)
+		if !okCur {
+			return
+		}
+		if initial || !okPrev {
+			prevCol, prevRow = curCol, curRow
+		}
+		s.endCol, s.endRow = curCol, curRow
+		hasFlips := len(s.stamp.Flips) == len(s.stamp.Tiles)
+		added := false
+		// Walk anchors along the drag so fast moves leave no stamp gaps; clamp extreme off-map coordinates.
+		minC, maxC := -s.stamp.Width, tm.Width
+		minR, maxR := -s.stamp.Height, tm.Height
+		c0, r0 := min(max(prevCol, minC), maxC), min(max(prevRow, minR), maxR)
+		c1, r1 := min(max(curCol, minC), maxC), min(max(curRow, minR), maxR)
+		bresenhamLine(c0, r0, c1, r1, func(ac, ar int) {
+			for dy := range s.stamp.Height {
+				mr := ar + dy
+				if mr < 0 || mr >= tm.Height {
+					continue
+				}
+				for dx := range s.stamp.Width {
+					mc := ac + dx
+					if mc < 0 || mc >= tm.Width {
+						continue
+					}
+					idx := mr*tm.Width + mc
+					if _, exists := s.previewMap[idx]; exists {
+						continue
+					}
+					sx := posMod(mc-s.startCol, s.stamp.Width)
+					sy := posMod(mr-s.startRow, s.stamp.Height)
+					tid, flip := s.stamp.Cell(sx, sy)
+					if !hasFlips {
+						flip = activeFlip
+					}
+					s.previewMap[idx] = TilePreviewCell{Col: mc, Row: mr, Tile: tid, Flip: flip, Erase: tid == 0}
+					added = true
+				}
+			}
+		})
+		if added || initial {
+			rebuildPreviewSlice(s)
+			e.notify()
+		}
+
+	case TileStrokeRandom:
+		tw, th := float64(tm.TileWidth), float64(tm.TileHeight)
+		x0, y0 := float64(s.lastX)/tw, float64(s.lastY)/th
+		x1, y1 := float64(lx)/tw, float64(ly)/th
+		if initial {
+			x0, y0 = x1, y1
+		}
+		added := false
+		cellsAlong(x0, y0, x1, y1, tm.Width, tm.Height, func(col, row int) {
+			idx := row*tm.Width + col
+			if _, exists := s.previewMap[idx]; exists {
+				return
+			}
+			tid := randomPickTile(s.randomSeed, col, row, s.randomPool)
+			s.previewMap[idx] = TilePreviewCell{Col: col, Row: row, Tile: tid, Flip: activeFlip}
+			added = true
+		})
+		if added || initial {
+			rebuildPreviewSlice(s)
+			e.notify()
+		}
+	}
+}
+
+func rebuildPreviewSlice(s *tileStroke) {
+	s.preview = s.preview[:0]
+	for _, cell := range s.previewMap {
+		s.preview = append(s.preview, cell)
+	}
+	sortPreviewCells(s.preview)
+}
+
+func sortPreviewCells(cells []TilePreviewCell) {
+	slices.SortFunc(cells, func(a, b TilePreviewCell) int {
+		if a.Row != b.Row {
+			return a.Row - b.Row
+		}
+		return a.Col - b.Col
+	})
 }
 
 // pickAt picks the tile in the stroke layer's cell at the layer point (lx, ly), if the point is on the map.
@@ -468,7 +803,7 @@ func (e *Editor) ClearTileHover() {
 	}
 }
 
-// HoveredTile returns the cell of the active layer's inline tilemap under the mouse (SetTileHover), which the viewport outlines, snapped to the grid. It reports false while no tile tool (Paint, Erase, Fill or Pick) is active, in 3D, while playing, when the mouse is not over the viewport and when the cell under it is off the map.
+// HoveredTile returns the cell of the active layer's inline tilemap under the mouse (SetTileHover), which the viewport outlines, snapped to the grid. It reports false while no tile tool is active, in 3D, while playing, when the mouse is not over the viewport and when the cell under it is off the map.
 func (e *Editor) HoveredTile() (col, row int, ok bool) {
 	if e == nil || !e.hover.on || e.playing || e.ViewMode != ViewMode2D || !isTileTool(e.Tool) {
 		return 0, 0, false
@@ -495,7 +830,9 @@ func (e *Editor) hoverMode() TileStrokeMode {
 	return TileStrokePaint
 }
 
-// toolStrokeMode returns the stroke a pointer going down starts with the active tool, and false for none: Alt picks with any tile tool, a secondary (right) button erases with Paint, Erase and Terrain, and otherwise Paint paints, Erase erases, Terrain places terrain and Pick picks. Fill starts no stroke, as it fills on a press.
+// toolStrokeMode returns the stroke a pointer going down starts with the active tool, and false for none:
+// Alt picks with any tile tool; a secondary (right) button erases with Paint, Erase, Terrain, Rect, Line and Random,
+// and selects a map region with Stamp; primary runs each tool's brush. Fill starts no stroke, as it fills on a press.
 func (e *Editor) toolStrokeMode(secondary, alt bool) (TileStrokeMode, bool) {
 	if !isTileTool(e.Tool) {
 		return 0, false
@@ -520,6 +857,26 @@ func (e *Editor) toolStrokeMode(secondary, alt bool) (TileStrokeMode, bool) {
 			return TileStrokeEraseTerrain, true
 		}
 		return TileStrokeTerrain, true
+	case ToolRectTile:
+		if secondary {
+			return TileStrokeRectErase, true
+		}
+		return TileStrokeRect, true
+	case ToolLineTile:
+		if secondary {
+			return TileStrokeLineErase, true
+		}
+		return TileStrokeLine, true
+	case ToolStampTile:
+		if secondary {
+			return TileStrokeSelectRegion, true
+		}
+		return TileStrokeStamp, true
+	case ToolRandomTile:
+		if secondary {
+			return TileStrokeErase, true
+		}
+		return TileStrokeRandom, true
 	}
 	return 0, false
 }
@@ -532,8 +889,13 @@ var (
 	hoverPickColor    = core.RGBA(0xFBBF24, 1)
 )
 
-// drawTileHoverOverlay outlines the cell under the mouse (HoveredTile) on the active layer: painting and filling show the active tile in it, faded, terrain shows the resolved terrain tile faded with an emerald outline, erasing tints it red and picking outlines it in amber.
+// drawTileHoverOverlay draws the active tile selection marquee, any live brush preview under way,
+// or the hover outline for the cell under the mouse (HoveredTile) on the active layer.
 func (e *Editor) drawTileHoverOverlay(d *core.Drawing) {
+	e.drawTileSelectionOverlay(d)
+	if e.drawTilePreviewOverlay(d) {
+		return
+	}
 	col, row, ok := e.HoveredTile()
 	if !ok {
 		return
@@ -546,13 +908,25 @@ func (e *Editor) drawTileHoverOverlay(d *core.Drawing) {
 	m := e.layerAffineFor(space, px, py)
 	x, y := float32(col*tm.TileWidth), float32(row*tm.TileHeight)
 	w, h := float32(tm.TileWidth), float32(tm.TileHeight)
+	lw := 1.5 / strokeScale(m)
 	mode := e.hoverMode()
 	d.Save()
 	applyAffine(d, m)
+	if e.Tool == ToolStampTile && mode == TileStrokePaint {
+		e.drawStampHoverOverlay(d, tm, col, row, lw)
+		d.Restore()
+		return
+	}
 	color := hoverPaintColor
 	switch mode {
 	case TileStrokePaint:
-		e.drawGhostTile(d, tm, x, y)
+		if e.Tool == ToolRandomTile {
+			if tid := randomPickTile(e.randomSeed, col, row, e.effectiveRandomPool()); tid > 0 {
+				e.drawGhostTileID(d, tm, tid, e.ActiveTileFlip, x, y, nil)
+			}
+		} else {
+			e.drawGhostTile(d, tm, x, y)
+		}
 	case TileStrokeTerrain:
 		color = hoverTerrainColor
 		e.drawGhostTerrainTile(d, layer, col, row, x, y)
@@ -562,7 +936,7 @@ func (e *Editor) drawTileHoverOverlay(d *core.Drawing) {
 	case TileStrokePick:
 		color = hoverPickColor
 	}
-	d.SetStrokeColor(color).SetLineWidth(1.5/strokeScale(m)).StrokeRect(x, y, w, h)
+	d.SetStrokeColor(color).SetLineWidth(lw).StrokeRect(x, y, w, h)
 	d.Restore()
 }
 
@@ -600,27 +974,8 @@ func (e *Editor) drawGhostTerrainTile(d *core.Drawing, layer string, col, row in
 
 // drawGhostTile draws the active tile faded at layer point (x, y), as the tilemap would draw it there; a tile the tileset lacks draws nothing.
 func (e *Editor) drawGhostTile(d *core.Drawing, tm *sceneformat.TilemapDoc, x, y float32) {
-	if e.ActiveTileID <= 0 || e.Resolver == nil || (e.Tool != ToolPaintTile && e.Tool != ToolFillTile) {
+	if e.ActiveTileID <= 0 || e.Resolver == nil || (e.Tool != ToolPaintTile && e.Tool != ToolFillTile && e.Tool != ToolRectTile && e.Tool != ToolLineTile) {
 		return
 	}
-	if tm.IsLayered() {
-		tile, ok := e.TilePalette().Tile(e.ActiveTileID)
-		if !ok || tile.Frame.W <= 0 || tile.Frame.H <= 0 {
-			return
-		}
-		f := tile.Frame
-		d.Save().SetAlpha(0.5).DrawImageFrom(tile.Image, f.X, f.Y, f.W, f.H, x+f.OffsetX, y+f.OffsetY, f.W, f.H).Restore()
-		return
-	}
-	atlas, err := e.Resolver.Atlas(tm.Tileset)
-	if err != nil || atlas == nil {
-		return
-	}
-	f, ok := atlas.Frames[strconv.Itoa(e.ActiveTileID)]
-	if !ok {
-		return
-	}
-	sp := sprite.NewSprite(f)
-	sp.X, sp.Y, sp.Alpha = x, y, 0.5
-	(&sprite.Batch{Atlas: atlas, Sprites: []*sprite.Sprite{&sp}}).Draw(d)
+	e.drawGhostTileID(d, tm, e.ActiveTileID, e.ActiveTileFlip, x, y, nil)
 }

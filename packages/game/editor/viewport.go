@@ -284,7 +284,7 @@ func (e *Editor) HandleCanvasPress(x, y float32) {
 				_ = e.MoveObject(e.SelectedID, float32(lx), float32(ly))
 			}
 		}
-	case ToolPlace, ToolPaintTile, ToolEraseTile, ToolFillTile, ToolTerrain:
+	case ToolPlace, ToolPaintTile, ToolEraseTile, ToolFillTile, ToolTerrain, ToolRectTile, ToolLineTile, ToolStampTile, ToolRandomTile:
 		if err := e.lockedLayerErr(); err != nil {
 			e.report(err)
 			return
@@ -327,6 +327,26 @@ func (e *Editor) pressActiveLayer(x, y float32) {
 		if col, row, ok := e.CanvasToTile(e.ActiveLayer, x, y); ok {
 			if err := e.PaintTerrain(e.ActiveLayer, col, row, e.ActiveTerrain); err != nil {
 				e.report(err)
+			}
+		}
+	case ToolRectTile:
+		if col, row, ok := e.CanvasToTile(e.ActiveLayer, x, y); ok {
+			_ = e.FillTileRect(e.ActiveLayer, col, row, col, row, e.ActiveTileID)
+		}
+	case ToolLineTile:
+		if col, row, ok := e.CanvasToTile(e.ActiveLayer, x, y); ok {
+			_ = e.DrawTileLine(e.ActiveLayer, col, row, col, row, e.ActiveTileID)
+		}
+	case ToolStampTile:
+		if col, row, ok := e.CanvasToTile(e.ActiveLayer, x, y); ok {
+			if stamp, ok := e.effectiveStamp(); ok {
+				_ = e.StampTiles(e.ActiveLayer, col, row, stamp)
+			}
+		}
+	case ToolRandomTile:
+		if col, row, ok := e.CanvasToTile(e.ActiveLayer, x, y); ok {
+			if tid := randomPickTile(e.randomSeed, col, row, e.effectiveRandomPool()); tid > 0 {
+				_ = e.PaintTile(e.ActiveLayer, col, row, tid)
 			}
 		}
 	}
@@ -1161,18 +1181,29 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 			Overflow:   core.Hidden,
 		},
 		Children: []core.Node{
-			// Bind Escape only while a viewport drag or GridMap/terrain stroke is active so Escape still
-			// reaches Popover/ColorWell/Menu OnCancel handlers at rest.
+			// Bind Escape only while a viewport drag, tile/GridMap/terrain stroke, or visible tile selection
+			// is active (and Command Palette is closed) so Escape still reaches Popover/ColorWell/Menu handlers at rest.
 			core.Show{
 				When: func() bool {
 					_ = rev.Get()
+					if ed.CommandPaletteOpen() {
+						return false
+					}
 					_, gmActive := ed.GridMapStrokeActive()
-					return ed.Dragging2D() != Handle2DNone || ed.DraggingShape2D() || ed.PluginDragging2D() || ed.cameraDrag.active || ed.cameraBoundsDrag.active || ed.roomDrag.active || gmActive || (ed.terrain != nil && ed.terrain.stroke != nil)
+					_, strokeActive := ed.TileStrokeActive()
+					selVisible := ed.ViewMode == ViewMode2D && isTileTool(ed.Tool) && ed.hasTileSel
+					return ed.Dragging2D() != Handle2DNone || ed.DraggingShape2D() || ed.PluginDragging2D() || ed.cameraDrag.active || ed.cameraBoundsDrag.active || ed.roomDrag.active || gmActive || (ed.terrain != nil && ed.terrain.stroke != nil) || strokeActive || selVisible
 				},
 				Then: func(cx *core.Scope) core.Node {
 					cx.OnKey("escape", func() {
 						ed.CancelPluginDrag2D()
 						ed.CancelShapeDrag2D()
+						if _, active := ed.TileStrokeActive(); active {
+							ed.CancelTileStroke()
+							strokeTookPress = true
+						} else if ed.ViewMode == ViewMode2D && isTileTool(ed.Tool) && ed.hasTileSel {
+							ed.ClearTileSelection()
+						}
 						ed.CancelDrag2D()
 						ed.CancelCameraDrag()
 						ed.CancelGridMapStroke()

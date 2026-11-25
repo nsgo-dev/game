@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"fmt"
 	"math"
 	"time"
 
@@ -960,15 +961,24 @@ func statusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 								l10n.Param("tool", ed.toolLabel()),
 								l10n.Param("layer", ed.activeLayerReadout()),
 							)
-							// Erase writes no tile, and a layer without tiles to pick keeps an ID the palette does not list, so only a tile Paint or Fill would write is shown.
-							if ed.Tool == ToolPaintTile || ed.Tool == ToolFillTile {
+							// Erase writes no tile, and a layer without tiles to pick keeps an ID the palette does not list, so only a tile Paint, Fill, Rect or Line would write is shown.
+							switch ed.Tool {
+							case ToolPaintTile, ToolFillTile, ToolRectTile, ToolLineTile:
 								if tile, ok := ed.TilePalette().Tile(ed.ActiveTileID); ok {
 									status += ed.T("status.tileSuffix", l10n.Param("tile", tile.Number))
 								}
-							} else if ed.Tool == ToolTerrain {
+							case ToolTerrain:
 								if p := ed.TilePalette(); p.ActiveTerrain != "" {
 									status += ed.T("status.terrainSuffix", l10n.Param("terrain", p.ActiveTerrain))
 								}
+							case ToolStampTile:
+								if stamp, ok := ed.TileStamp(); ok {
+									status += fmt.Sprintf(" | Stamp: %dx%d", stamp.Width, stamp.Height)
+								} else if tile, ok := ed.TilePalette().Tile(ed.ActiveTileID); ok {
+									status += ed.T("status.tileSuffix", l10n.Param("tile", tile.Number))
+								}
+							case ToolRandomTile:
+								status += fmt.Sprintf(" | Random: %d tiles (seed %d)", len(ed.effectiveRandomPool()), ed.RandomBrushSeed())
 							}
 							return status
 						},

@@ -82,6 +82,10 @@ func (e *Editor) ApplicationMenu() []desktop.MenuItem {
 			sep,
 			cmdItem(CmdDuplicate, e.T("menu.duplicate"), false),
 			cmdItem(CmdDelete, e.T("menu.delete"), false),
+			sep,
+			cmdItem(CmdCopyTileRegion, "Copy Tile Region", false),
+			cmdItem(CmdCutTileRegion, "Cut Tile Region", false),
+			cmdItem(CmdPasteTileRegion, "Paste Tile Region", false),
 		},
 	}
 
@@ -94,6 +98,10 @@ func (e *Editor) ApplicationMenu() []desktop.MenuItem {
 		cmdItem(CmdToolEraseTile, e.T("menu.eraseTile"), true),
 		cmdItem(CmdToolFillTile, e.T("menu.fillTile"), true),
 		cmdItem(CmdToolTerrain, e.T("menu.terrain"), true),
+		cmdItem(CmdToolRectTile, "Rectangle Tile", true),
+		cmdItem(CmdToolLineTile, "Line Tile", true),
+		cmdItem(CmdToolStampTile, "Stamp Tile", true),
+		cmdItem(CmdToolRandomTile, "Random Tile", true),
 	}
 	var pluginToolItems []desktop.MenuItem
 	for _, p := range e.activePlugins() {
@@ -206,7 +214,7 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 	sig := core.NewMemo(cx, func() string {
 		_ = rev.Get()
 		var b strings.Builder
-		fmt.Fprintf(&b, "%s|%v|%v|%v|%v|%v|%v|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v",
+		fmt.Fprintf(&b, "%s|%v|%v|%v|%v|%v|%v|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v",
 			e.ResolvedLanguage(),
 			e.EditorSettingsOpen(),
 			e.StartScreenOpen(),
@@ -232,6 +240,8 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 			e.NavMeshPanelOpen(),
 			e.ShowAllShapes,
 			e.SnapToGrid,
+			e.hasTileSel,
+			!e.tileClipboard.Empty(),
 		)
 		for _, p := range e.activePlugins() {
 			b.WriteByte('|')

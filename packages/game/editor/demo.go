@@ -152,6 +152,7 @@ func (e *Editor) OpenDemo() error {
 	}
 	e.drag2D = drag2DState{}
 	e.stroke = nil
+	e.clearTileBrushTransient()
 	e.stopClipLoop()
 	e.stopFetch()
 	e.stopAudioAudition()
