@@ -8,6 +8,9 @@ import (
 	"github.com/nsgo-dev/nsgo/core"
 )
 
+// speculativeDistance is how far apart a contact point of an overlapping pair may be and still join its manifold. A box resting a hair off level keeps both of its corners in the manifold, so the solver and warm starting see the same two points every step instead of rocking between one corner and the other.
+const speculativeDistance = 1.0
+
 // DefaultSolverIterations is the default number of sequential impulse iterations per RigidWorld.Step.
 const DefaultSolverIterations = 10
 
@@ -42,12 +45,26 @@ type RigidBody struct {
 	Static       bool
 	Layer        LayerMask
 	Mask         LayerMask
-	UserData     any
+	// Bullet sweeps the body against static bodies on every step and stops it at the first surface it reaches, so it never ends a step inside one. Without it the body is swept only on steps where a point of it moves farther than half its thickness, when it could otherwise pass through a thin wall, and a shallow overlap is left to the regular contacts.
+	Bullet   bool
+	UserData any
 
 	gravityScaleSet bool
-	forceX          float64
-	forceY          float64
-	torque          float64
+	// sleeping reports that the body rests in a sleeping island: RigidWorld skips integrating and solving it until it is woken.
+	sleeping bool
+	// sleepEnv is the gravity, damping and fluid the body fell asleep in; a change wakes it.
+	sleepEnv AreaEffect
+	// sleepTime is how long, in seconds, the body has moved slower than the world's sleep thresholds.
+	sleepTime float64
+	// restX, restY and restAngle are the pose the body had at the end of the last step it took part in, which tells Step that it was moved by hand since.
+	restX, restY, restAngle float32
+	restValid               bool
+	// stamp and index are scratch the current Step writes: stamp matches the world's when the body is in it, and index is its position in Bodies.
+	stamp  uint64
+	index  int
+	forceX float64
+	forceY float64
+	torque float64
 
 	// local holds a Polygon, Capsule, Segment or Chain shape relative to (X, Y) at Angle 0.
 	local    Shape
@@ -238,11 +255,26 @@ func (b *RigidBody) WorldToLocal(world core.Point) core.Point {
 	}
 }
 
+// Sleeping reports whether b rests in a sleeping island. RigidWorld neither moves nor solves a sleeping body until something wakes it: Wake, a force, torque or impulse, a change to its pose or velocity, a joint or contact linking it to an awake body, or the removal or movement of a static body it touches.
+func (b *RigidBody) Sleeping() bool {
+	return b != nil && b.sleeping
+}
+
+// Wake makes b take part in the next Step and restarts the time it must rest before it can sleep again. The rest of b's island wakes with it on that step.
+func (b *RigidBody) Wake() {
+	if b == nil {
+		return
+	}
+	b.sleeping = false
+	b.sleepTime = 0
+}
+
 // ApplyForce accumulates a world-space force applied to b's center of mass on the next Step.
 func (b *RigidBody) ApplyForce(fx, fy float32) {
 	if b == nil || b.Static {
 		return
 	}
+	b.Wake()
 	b.forceX += float64(fx)
 	b.forceY += float64(fy)
 }
@@ -252,6 +284,7 @@ func (b *RigidBody) ApplyTorque(torque float32) {
 	if b == nil || b.Static {
 		return
 	}
+	b.Wake()
 	b.torque += float64(torque)
 }
 
@@ -261,6 +294,7 @@ func (b *RigidBody) ApplyImpulse(ix, iy float32) {
 		return
 	}
 	b.prepareMass()
+	b.Wake()
 	b.VX += float32(float64(ix) * float64(b.InvMass))
 	b.VY += float32(float64(iy) * float64(b.InvMass))
 }
@@ -272,6 +306,7 @@ func (b *RigidBody) ApplyImpulseAtPoint(ix, iy float32, worldPoint core.Point) {
 		return
 	}
 	b.prepareMass()
+	b.Wake()
 	rx := float64(worldPoint.X) - float64(b.X)
 	ry := float64(worldPoint.Y) - float64(b.Y)
 	b.applyImpulseRaw(float64(ix), float64(iy), rx, ry)
@@ -294,6 +329,8 @@ func (b *RigidBody) prepareMass() {
 		b.Static = true
 	}
 	if b.Static {
+		b.sleeping = false
+		b.sleepTime = 0
 		b.InvMass = 0
 		b.InvInertia = 0
 		b.VX = 0
@@ -383,8 +420,9 @@ func CanCollideRigid(a, b *RigidBody) bool {
 	return layersInteract(a.Layer, a.Mask, b.Layer, b.Mask)
 }
 
-// RigidWorld simulates 2D rigid bodies and joints with deterministic symplectic Euler integration,
-// sequential impulse contact resolution with friction, and positional slop correction.
+// RigidWorld simulates 2D rigid bodies and joints with deterministic symplectic Euler integration, a sort-and-sweep broadphase, warm-started sequential impulse contact resolution with friction, positional slop correction, island sleeping and continuous collision of fast bodies against static ones.
+//
+// A dynamic body that moves slower than SleepLinearThreshold and turns slower than SleepAngularThreshold for TimeToSleep seconds is ready to sleep, and the island of bodies connected to it by contacts and joints falls asleep together once every body in it is ready. A sleeping body costs no integration or solving; see RigidBody.Sleeping for what wakes it.
 type RigidWorld struct {
 	Bodies           []*RigidBody
 	Joints           []Joint
@@ -392,10 +430,25 @@ type RigidWorld struct {
 	GravityX         float32
 	GravityY         float32
 	SolverIterations int
-	// OnJointBreak is invoked deterministically for each joint broken during
-	// Step, in joint insertion order.
+	// DisableSleep keeps every body awake. Step wakes bodies that were sleeping when it is set.
+	DisableSleep bool
+	// SleepLinearThreshold is the speed in pixels per second below which a body counts as resting; zero or less means DefaultSleepLinearThreshold.
+	SleepLinearThreshold float32
+	// SleepAngularThreshold is the angular speed in radians per second below which a body counts as resting; zero or less means DefaultSleepAngularThreshold.
+	SleepAngularThreshold float32
+	// TimeToSleep is how many seconds every body of an island must rest before the island sleeps; zero or less means DefaultTimeToSleep.
+	TimeToSleep float32
+	// OnJointBreak is invoked deterministically for each joint broken during Step, in joint insertion order.
 	OnJointBreak func(JointBreakEvent)
 
+	// contacts holds the impulses of last step's contact points, in deterministic order, for warm starting the next step; contacts between bodies that are both asleep or static carry over unchanged.
+	contacts []rigidCachedManifold
+	// lastDt is the length in seconds of the step that filled contacts, which scales its impulses to the next step's length.
+	lastDt float64
+	// stamp counts steps, marking which bodies are in Bodies during the current one.
+	stamp uint64
+	// Scratch reused by Step.
+	scratch          rigidScratch
 	jointBreakEvents []JointBreakEvent
 }
 
@@ -453,6 +506,8 @@ func (w *RigidWorld) RemoveJoint(j Joint) bool {
 }
 
 type rigidContactPoint struct {
+	// id names the features in contact, which match the point to its cached impulses on the next step.
+	id          uint32
 	px, py      float64
 	depth       float64
 	rAx, rAy    float64
@@ -460,20 +515,23 @@ type rigidContactPoint struct {
 	massNormal  float64
 	massTangent float64
 	bounceBias  float64
-	pn          float64
-	pt          float64
+	// speculativeBias is the approach speed a point still apart by -depth may close in this step, so the solver pushes only once the gap would close.
+	speculativeBias float64
+	pn              float64
+	pt              float64
 }
 
 type rigidManifold struct {
-	a, b     *RigidBody
+	a, b *RigidBody
+	// sub numbers the manifolds of one pair: the chain segment index against a Chain, 0 otherwise.
+	sub      int
 	nx, ny   float64 // unit normal pointing from A toward B
 	friction float64
 	count    int
 	points   [2]rigidContactPoint
 }
 
-// Step advances all bodies and joints in w by dt using symplectic Euler integration,
-// deterministic sequential impulse solving, and positional slop correction.
+// Step advances all bodies and joints in w by dt using symplectic Euler integration, deterministic warm-started sequential impulse solving, continuous collision for fast bodies and positional slop correction, then puts resting islands to sleep.
 func (w *RigidWorld) Step(dt time.Duration) {
 	if w == nil || dt <= 0 {
 		return
@@ -488,16 +546,24 @@ func (w *RigidWorld) Step(dt time.Duration) {
 		iters = DefaultSolverIterations
 	}
 
-	// 1. Prepare body mass/inertia and integrate forces + gravity/areas into velocities.
-	gx, gy := float64(w.GravityX), float64(w.GravityY)
-	activeAreas := collectActiveTriggers(w.Triggers)
-	for _, b := range w.Bodies {
+	// 1. Prepare body mass/inertia, then wake the islands that were disturbed since the last step.
+	w.stamp++
+	for i, b := range w.Bodies {
 		if b == nil {
 			continue
 		}
+		b.stamp = w.stamp
+		b.index = i
 		b.ensureLocal()
 		b.prepareMass()
-		if b.Static {
+	}
+	activeAreas := collectActiveTriggers(w.Triggers)
+	w.wakeDisturbed(activeAreas)
+
+	// 2. Integrate forces + gravity/areas into the velocities of awake bodies.
+	gx, gy := float64(w.GravityX), float64(w.GravityY)
+	for _, b := range w.Bodies {
+		if b == nil || b.Static || b.sleeping {
 			continue
 		}
 		invM := float64(b.InvMass)
@@ -558,119 +624,126 @@ func (w *RigidWorld) Step(dt time.Duration) {
 	}
 
 	w.jointBreakEvents = w.jointBreakEvents[:0]
-
-	// 2. Detect contact manifolds in deterministic pair order.
 	ignoredPairs := w.buildJointIgnoredPairs()
-	restitutionThresh := max(1.0, 2.0*detmath.Hypot(gx, gy)*h)
-	manifolds := w.detectContacts(restitutionThresh, ignoredPairs)
 
-	// 3. Pre-step joints (applies spring forces and prepares rigid joint constraint matrices).
-	for _, j := range w.Joints {
-		if j != nil {
-			j.preStep(h)
-		}
+	// 3. Find candidate pairs with the broadphase, wake sleeping bodies an awake one touches, and detect contact manifolds in deterministic pair order.
+	restitutionThresh := max(1.0, 2.0*detmath.Hypot(gx, gy)*h)
+	pairs := w.broadphase()
+	w.wakeTouched(pairs)
+	manifolds := w.detectContacts(pairs, restitutionThresh, h, ignoredPairs)
+	w.warmStart(manifolds, h)
+
+	// 4. Pre-step the joints of awake bodies (applies spring forces and prepares rigid joint constraint matrices).
+	joints := w.awakeJoints()
+	for _, j := range joints {
+		j.preStep(h)
 	}
 
-	// 4. Sequential impulse velocity solver.
+	// 5. Sequential impulse velocity solver.
 	for range iters {
 		for mi := range manifolds {
 			solveManifoldVelocity(&manifolds[mi])
 		}
-		for _, j := range w.Joints {
-			if j != nil {
-				j.solveVelocity()
-			}
+		for _, j := range joints {
+			j.solveVelocity()
 		}
 	}
+	w.storeContacts(manifolds, h)
 
-	// 4b. Evaluate break thresholds and remove broken joints before positional correction.
+	// 5b. Evaluate break thresholds and remove broken joints before positional correction.
 	if w.evaluateBreakableJoints() {
 		ignoredPairs = w.buildJointIgnoredPairs()
+		joints = w.awakeJoints()
 	}
 
-	// 5. Integrate positions (symplectic Euler).
+	// 6. Integrate positions (symplectic Euler), then sweep fast bodies against static ones.
+	starts := w.scratch.starts[:0]
 	for _, b := range w.Bodies {
-		if b == nil || b.Static {
+		if b == nil || b.Static || b.sleeping {
+			starts = append(starts, rigidPose{})
 			continue
 		}
+		starts = append(starts, rigidPose{x: b.X, y: b.Y, angle: b.Angle})
 		b.X = float32(float64(b.X) + float64(float64(b.VX)*h))
 		b.Y = float32(float64(b.Y) + float64(float64(b.VY)*h))
 		b.Angle = float32(float64(b.Angle) + float64(float64(b.AngularVel)*h))
 	}
+	w.scratch.starts = starts
+	w.sweepFastBodies(starts, restitutionThresh)
 
-	// 6. Positional slop correction (projection without injecting artificial bounce velocity).
+	// 7. Positional slop correction (projection without injecting artificial bounce velocity).
 	const (
 		posIterations = 4
 		posSlop       = 0.01
 		posPercent    = 0.5
 	)
-	var pairManifolds []rigidManifold
+	// Each iteration takes its pairs from a fresh broadphase pass, so a pair that the previous iteration's corrections pushed together is corrected too.
+	pairManifolds := w.scratch.pairManifolds[:0]
 	for range posIterations {
-		for i := 0; i < len(w.Bodies); i++ {
-			a := w.Bodies[i]
-			if a == nil || a.Shape.Empty() {
+		for _, key := range w.broadphase() {
+			a, b := w.Bodies[int(key>>32)], w.Bodies[int(uint32(key))]
+			if !a.awakeDynamic() && !b.awakeDynamic() {
 				continue
 			}
-			for j := i + 1; j < len(w.Bodies); j++ {
-				b := w.Bodies[j]
-				if b == nil || b.Shape.Empty() {
+			if ignoredPairs != nil {
+				if _, skip := ignoredPairs[[2]*RigidBody{a, b}]; skip {
 					continue
 				}
-				if a.Static && b.Static {
+			}
+			pairManifolds = collideRigidPair(a, b, pairManifolds[:0])
+			for _, m := range pairManifolds {
+				maxDepth := 0.0
+				for k := range m.count {
+					if m.points[k].depth > maxDepth {
+						maxDepth = m.points[k].depth
+					}
+				}
+				if maxDepth <= posSlop {
 					continue
 				}
-				if !CanCollideRigid(a, b) {
+				// An awake body pushed into a sleeping one this step wakes it, so the pair separates and both are solved from the next step on.
+				a.wakeIfSleeping()
+				b.wakeIfSleeping()
+				invMassSum := float64(a.InvMass) + float64(b.InvMass)
+				if invMassSum <= 0 {
 					continue
 				}
-				if ignoredPairs != nil {
-					if _, skip := ignoredPairs[[2]*RigidBody{a, b}]; skip {
-						continue
-					}
+				corr := (maxDepth - posSlop) * posPercent / invMassSum
+				cx := m.nx * corr
+				cy := m.ny * corr
+				if !a.Static {
+					a.X = float32(float64(a.X) - float64(cx*float64(a.InvMass)))
+					a.Y = float32(float64(a.Y) - float64(cy*float64(a.InvMass)))
 				}
-				pairManifolds = collideRigidPair(a, b, pairManifolds[:0])
-				for _, m := range pairManifolds {
-					maxDepth := 0.0
-					for k := range m.count {
-						if m.points[k].depth > maxDepth {
-							maxDepth = m.points[k].depth
-						}
-					}
-					if maxDepth <= posSlop {
-						continue
-					}
-					invMassSum := float64(a.InvMass) + float64(b.InvMass)
-					if invMassSum <= 0 {
-						continue
-					}
-					corr := (maxDepth - posSlop) * posPercent / invMassSum
-					cx := m.nx * corr
-					cy := m.ny * corr
-					if !a.Static {
-						a.X = float32(float64(a.X) - float64(cx*float64(a.InvMass)))
-						a.Y = float32(float64(a.Y) - float64(cy*float64(a.InvMass)))
-					}
-					if !b.Static {
-						b.X = float32(float64(b.X) + float64(cx*float64(b.InvMass)))
-						b.Y = float32(float64(b.Y) + float64(cy*float64(b.InvMass)))
-					}
+				if !b.Static {
+					b.X = float32(float64(b.X) + float64(cx*float64(b.InvMass)))
+					b.Y = float32(float64(b.Y) + float64(cy*float64(b.InvMass)))
 				}
 			}
 		}
-		for _, j := range w.Joints {
-			if j != nil {
-				j.solvePosition()
-			}
+		for _, j := range joints {
+			j.solvePosition()
 		}
 	}
+	w.scratch.pairManifolds = pairManifolds
 
-	// 7. Synchronize Shape geometry to updated centers.
+	// 8. Synchronize Shape geometry to updated centers.
 	for _, b := range w.Bodies {
 		if b != nil {
 			b.syncShape()
 		}
 	}
 
-	// 8. Dispatch deterministic joint-break callbacks.
+	// 9. Put islands that have rested long enough to sleep, and remember each pose, so a body moved by hand before the next step is noticed.
+	w.updateSleep(manifolds, joints, activeAreas, h)
+	for _, b := range w.Bodies {
+		if b != nil {
+			b.restX, b.restY, b.restAngle = b.X, b.Y, b.Angle
+			b.restValid = true
+		}
+	}
+
+	// 10. Dispatch deterministic joint-break callbacks.
 	if w.OnJointBreak != nil {
 		for _, ev := range w.jointBreakEvents {
 			w.OnJointBreak(ev)
@@ -729,46 +802,30 @@ func (w *RigidWorld) evaluateBreakableJoints() bool {
 	return brokeAny
 }
 
-func (w *RigidWorld) detectContacts(restitutionThresh float64, ignoredPairs map[[2]*RigidBody]struct{}) []rigidManifold {
-	var manifolds []rigidManifold
-	n := len(w.Bodies)
-	for i := 0; i < n; i++ {
-		a := w.Bodies[i]
-		if a == nil || a.Shape.Empty() {
+// detectContacts returns the contact manifolds of the candidate pairs in which at least one body is awake and dynamic and that no joint in ignoredPairs keeps apart, prepared for solving, in pair order.
+func (w *RigidWorld) detectContacts(pairs []uint64, restitutionThresh, h float64, ignoredPairs map[[2]*RigidBody]struct{}) []rigidManifold {
+	manifolds := w.scratch.manifolds[:0]
+	for _, key := range pairs {
+		a, b := w.Bodies[int(key>>32)], w.Bodies[int(uint32(key))]
+		if !a.awakeDynamic() && !b.awakeDynamic() {
 			continue
 		}
-		aMinX, aMinY, aMaxX, aMaxY := a.worldAABB()
-		for j := i + 1; j < n; j++ {
-			b := w.Bodies[j]
-			if b == nil || b.Shape.Empty() {
+		if ignoredPairs != nil {
+			if _, skip := ignoredPairs[[2]*RigidBody{a, b}]; skip {
 				continue
-			}
-			if a.Static && b.Static {
-				continue
-			}
-			if !CanCollideRigid(a, b) {
-				continue
-			}
-			if ignoredPairs != nil {
-				if _, skip := ignoredPairs[[2]*RigidBody{a, b}]; skip {
-					continue
-				}
-			}
-			bMinX, bMinY, bMaxX, bMaxY := b.worldAABB()
-			if aMaxX <= bMinX || bMaxX <= aMinX || aMaxY <= bMinY || bMaxY <= aMinY {
-				continue
-			}
-			first := len(manifolds)
-			manifolds = collideRigidPair(a, b, manifolds)
-			for k := first; k < len(manifolds); k++ {
-				prepareManifold(&manifolds[k], restitutionThresh)
 			}
 		}
+		first := len(manifolds)
+		manifolds = collideRigidPair(a, b, manifolds)
+		for k := first; k < len(manifolds); k++ {
+			prepareManifold(&manifolds[k], restitutionThresh, h)
+		}
 	}
+	w.scratch.manifolds = manifolds
 	return manifolds
 }
 
-func prepareManifold(m *rigidManifold, restitutionThresh float64) {
+func prepareManifold(m *rigidManifold, restitutionThresh, h float64) {
 	a, b := m.a, m.b
 	m.friction = math.Sqrt(max(0, float64(a.Friction)) * max(0, float64(b.Friction)))
 	e := max(0, max(float64(a.Restitution), float64(b.Restitution)))
@@ -806,10 +863,14 @@ func prepareManifold(m *rigidManifold, restitutionThresh float64) {
 		vBy := float64(b.VY) + float64(float64(b.AngularVel)*cp.rBx)
 		vn := float64((vBx-vAx)*nx) + float64((vBy-vAy)*ny)
 
+		cp.speculativeBias = 0
 		if e > 0 && -vn > restitutionThresh {
 			cp.bounceBias = e * vn // negative, so -(vn + bounceBias) boosts separation impulse
 		} else {
 			cp.bounceBias = 0
+			if cp.depth < 0 {
+				cp.speculativeBias = -cp.depth / h
+			}
 		}
 	}
 }
@@ -829,7 +890,7 @@ func solveManifoldVelocity(m *rigidManifold) {
 		vBy := float64(b.VY) + float64(float64(b.AngularVel)*cp.rBx)
 		vn := float64((vBx-vAx)*nx) + float64((vBy-vAy)*ny)
 
-		dPn := float64(cp.massNormal * (-(vn + cp.bounceBias)))
+		dPn := float64(cp.massNormal * (-(vn + cp.bounceBias + cp.speculativeBias)))
 		oldPn := cp.pn
 		cp.pn = max(oldPn+dPn, 0)
 		dPn = cp.pn - oldPn
@@ -888,7 +949,7 @@ func collideRigidPair(a, b *RigidBody, out []rigidManifold) []rigidManifold {
 			return out
 		}
 		var buf [8]hullManifold
-		for _, m := range chainManifolds(s.Chain, &h, buf[:0]) {
+		for _, m := range chainManifolds(s.Chain, &h, buf[:0], speculativeDistance) {
 			if flip {
 				m.nx, m.ny = -m.nx, -m.ny
 			}
@@ -901,17 +962,17 @@ func collideRigidPair(a, b *RigidBody, out []rigidManifold) []rigidManifold {
 	if !okA || !okB {
 		return out
 	}
-	if m := collideHulls(&ha, &hb); m.count > 0 {
+	if m := collideHullsWithin(&ha, &hb, speculativeDistance); m.count > 0 {
 		out = append(out, rigidManifoldFrom(m, a, b))
 	}
 	return out
 }
 
 func rigidManifoldFrom(m hullManifold, a, b *RigidBody) rigidManifold {
-	rm := rigidManifold{a: a, b: b, nx: m.nx, ny: m.ny, count: m.count}
+	rm := rigidManifold{a: a, b: b, sub: m.sub, nx: m.nx, ny: m.ny, count: m.count}
 	for i := range m.count {
 		p := m.points[i]
-		rm.points[i] = rigidContactPoint{px: p.x, py: p.y, depth: p.depth}
+		rm.points[i] = rigidContactPoint{id: p.id, px: p.x, py: p.y, depth: p.depth}
 	}
 	return rm
 }
@@ -955,6 +1016,7 @@ func collideRigidCircleCircle(a, b *RigidBody) (rigidManifold, bool) {
 	if distSq == 0 {
 		m.nx, m.ny = 0, 1
 		m.points[0] = rigidContactPoint{
+			id:    pointFeatureID,
 			px:    float64(a.X),
 			py:    float64(a.Y),
 			depth: sumR,
@@ -967,6 +1029,7 @@ func collideRigidCircleCircle(a, b *RigidBody) (rigidManifold, bool) {
 	mid := rA - float64(depth*0.5)
 	m.nx, m.ny = nx, ny
 	m.points[0] = rigidContactPoint{
+		id:    pointFeatureID,
 		px:    float64(a.X) + float64(nx*mid),
 		py:    float64(a.Y) + float64(ny*mid),
 		depth: depth,
@@ -997,6 +1060,8 @@ func collideRigidCircleOBB(a, b *RigidBody) (rigidManifold, bool) {
 	distSq := float64(dx*dx) + float64(dy*dy)
 
 	var lnx, lny, depth float64
+	// face is 0 when the circle's center is outside the box, or the box face it exits through, numbering the point's feature.
+	var face uint32
 	if distSq > 0 {
 		if distSq >= float64(r*r) {
 			return rigidManifold{}, false
@@ -1015,20 +1080,24 @@ func collideRigidCircleOBB(a, b *RigidBody) (rigidManifold, bool) {
 		best := dTop
 		lnx, lny = 0, 1 // outward face is (0, -1), so circle->box is (0, +1)
 		cx, cy = lx, -hh
+		face = 1
 		if dBottom < best {
 			best = dBottom
 			lnx, lny = 0, -1
 			cx, cy = lx, hh
+			face = 2
 		}
 		if dLeft < best {
 			best = dLeft
 			lnx, lny = 1, 0
 			cx, cy = -hw, ly
+			face = 3
 		}
 		if dRight < best {
 			best = dRight
 			lnx, lny = -1, 0
 			cx, cy = hw, ly
+			face = 4
 		}
 		depth = best + r
 	}
@@ -1041,6 +1110,7 @@ func collideRigidCircleOBB(a, b *RigidBody) (rigidManifold, bool) {
 
 	m := rigidManifold{a: a, b: b, nx: wnx, ny: wny, count: 1}
 	m.points[0] = rigidContactPoint{
+		id:    pointFeatureID | face,
 		px:    wpx,
 		py:    wpy,
 		depth: depth,
@@ -1052,20 +1122,21 @@ type vec2 struct{ x, y float64 }
 
 func dot2(a, b vec2) float64 { return float64(a.x*b.x) + float64(a.y*b.y) }
 
-func clipSegmentToLine(in [2]vec2, count int, normal vec2, offset float64) ([2]vec2, int) {
+func clipSegmentToLine(in [2]vec2, ids [2]uint32, count int, normal vec2, offset float64, clipID uint32) ([2]vec2, [2]uint32, int) {
 	var out [2]vec2
+	var outIDs [2]uint32
 	outCount := 0
 	if count < 2 {
-		return out, 0
+		return out, outIDs, 0
 	}
 	d0 := dot2(normal, in[0]) - offset
 	d1 := dot2(normal, in[1]) - offset
 	if d0 <= 0 {
-		out[outCount] = in[0]
+		out[outCount], outIDs[outCount] = in[0], ids[0]
 		outCount++
 	}
 	if d1 <= 0 {
-		out[outCount] = in[1]
+		out[outCount], outIDs[outCount] = in[1], ids[1]
 		outCount++
 	}
 	if d0*d1 < 0 && outCount < 2 {
@@ -1074,9 +1145,10 @@ func clipSegmentToLine(in [2]vec2, count int, normal vec2, offset float64) ([2]v
 			x: in[0].x + float64(t*(in[1].x-in[0].x)),
 			y: in[0].y + float64(t*(in[1].y-in[0].y)),
 		}
+		outIDs[outCount] = clipID
 		outCount++
 	}
-	return out, outCount
+	return out, outIDs, outCount
 }
 
 // collideRigidOBBOBB computes a 1- or 2-point contact manifold between oriented boxes a and b
@@ -1121,8 +1193,8 @@ func collideRigidOBBOBB(a, b *RigidBody) (rigidManifold, bool) {
 		return rigidManifold{}, false
 	}
 
-	// Pick the axis with minimum penetration (largest separation < 0).
-	const tieEps = 1e-5
+	// Pick the axis with minimum penetration (largest separation < 0). A later axis must separate by tieEps more to win, as in Box2D's b2CollidePolygons, so two stacked boxes whose faces separate almost equally keep the same reference face, and their contact points the same feature ids, from one step to the next.
+	const tieEps = 0.05
 	axis := 0 // 0: Ax, 1: Ay, 2: Bx, 3: By
 	bestSep := faceAx
 	if faceAy > bestSep+tieEps {
@@ -1148,6 +1220,7 @@ func collideRigidOBBOBB(a, b *RigidBody) (rigidManifold, bool) {
 		incU, incV    vec2
 		incHX, incHY  float64
 		contactNormal vec2 // always points from A toward B
+		refNegated    bool // the reference face is on the negative side of its box axis
 	)
 
 	switch axis {
@@ -1157,6 +1230,7 @@ func collideRigidOBBOBB(a, b *RigidBody) (rigidManifold, bool) {
 			refNormal = uA
 		} else {
 			refNormal = vec2{-uA.x, -uA.y}
+			refNegated = true
 		}
 		sideAxis = vA
 		refExtentN, refExtentSide = hAx, hAy
@@ -1168,6 +1242,7 @@ func collideRigidOBBOBB(a, b *RigidBody) (rigidManifold, bool) {
 			refNormal = vA
 		} else {
 			refNormal = vec2{-vA.x, -vA.y}
+			refNegated = true
 		}
 		sideAxis = uA
 		refExtentN, refExtentSide = hAy, hAx
@@ -1179,6 +1254,7 @@ func collideRigidOBBOBB(a, b *RigidBody) (rigidManifold, bool) {
 			refNormal = uB
 		} else {
 			refNormal = vec2{-uB.x, -uB.y}
+			refNegated = true
 		}
 		sideAxis = vB
 		refExtentN, refExtentSide = hBx, hBy
@@ -1190,6 +1266,7 @@ func collideRigidOBBOBB(a, b *RigidBody) (rigidManifold, bool) {
 			refNormal = vB
 		} else {
 			refNormal = vec2{-vB.x, -vB.y}
+			refNegated = true
 		}
 		sideAxis = uB
 		refExtentN, refExtentSide = hBy, hBx
@@ -1201,18 +1278,23 @@ func collideRigidOBBOBB(a, b *RigidBody) (rigidManifold, bool) {
 	incDotU := dot2(incU, refNormal)
 	incDotV := dot2(incV, refNormal)
 	var incFace [2]vec2
+	// incFaceID numbers the incident face 0 to 3 so each clipped point's feature id names it.
+	var incFaceID int
 	if math.Abs(incDotU) > math.Abs(incDotV) {
 		sign := 1.0
 		if incDotU > 0 {
 			sign = -1.0
+			incFaceID = 1
 		}
 		fc := vec2{incPos.x + float64(float64(incU.x*sign)*incHX), incPos.y + float64(float64(incU.y*sign)*incHX)}
 		incFace[0] = vec2{fc.x - float64(incV.x*incHY), fc.y - float64(incV.y*incHY)}
 		incFace[1] = vec2{fc.x + float64(incV.x*incHY), fc.y + float64(incV.y*incHY)}
 	} else {
 		sign := 1.0
+		incFaceID = 2
 		if incDotV > 0 {
 			sign = -1.0
+			incFaceID = 3
 		}
 		fc := vec2{incPos.x + float64(float64(incV.x*sign)*incHY), incPos.y + float64(float64(incV.y*sign)*incHY)}
 		incFace[0] = vec2{fc.x - float64(incU.x*incHX), fc.y - float64(incU.y*incHX)}
@@ -1221,12 +1303,17 @@ func collideRigidOBBOBB(a, b *RigidBody) (rigidManifold, bool) {
 
 	// Clip incident face against the two side planes of the reference face.
 	sideOffset := dot2(refPos, sideAxis)
-	clipped, nClip := clipSegmentToLine(incFace, 2, sideAxis, sideOffset+refExtentSide)
+	refFaceID := axis << 1
+	if refNegated {
+		refFaceID |= 1
+	}
+	inIDs := [2]uint32{clipFeatureID(false, refFaceID, incFaceID, 0), clipFeatureID(false, refFaceID, incFaceID, 1)}
+	clipped, clippedIDs, nClip := clipSegmentToLine(incFace, inIDs, 2, sideAxis, sideOffset+refExtentSide, clipFeatureID(false, refFaceID, incFaceID, 2))
 	if nClip < 2 {
 		return rigidManifold{}, false
 	}
 	negSide := vec2{-sideAxis.x, -sideAxis.y}
-	clipped, nClip = clipSegmentToLine(clipped, nClip, negSide, -sideOffset+refExtentSide)
+	clipped, clippedIDs, nClip = clipSegmentToLine(clipped, clippedIDs, nClip, negSide, -sideOffset+refExtentSide, clipFeatureID(false, refFaceID, incFaceID, 3))
 	if nClip < 1 {
 		return rigidManifold{}, false
 	}
@@ -1239,19 +1326,26 @@ func collideRigidOBBOBB(a, b *RigidBody) (rigidManifold, bool) {
 		nx: contactNormal.x,
 		ny: contactNormal.y,
 	}
+	touching := false
 	for i := range nClip {
 		sep := dot2(clipped[i], refNormal) - frontOffset
-		if sep <= 1e-6 {
-			depth := max(0, -sep)
-			m.points[m.count] = rigidContactPoint{
-				px:    clipped[i].x,
-				py:    clipped[i].y,
-				depth: depth,
-			}
-			m.count++
+		if sep > speculativeDistance {
+			continue
 		}
+		depth := -sep
+		if sep <= 1e-6 {
+			depth = max(0, -sep)
+			touching = true
+		}
+		m.points[m.count] = rigidContactPoint{
+			px:    clipped[i].x,
+			py:    clipped[i].y,
+			depth: depth,
+			id:    clippedIDs[i],
+		}
+		m.count++
 	}
-	if m.count == 0 {
+	if !touching {
 		return rigidManifold{}, false
 	}
 	return m, true

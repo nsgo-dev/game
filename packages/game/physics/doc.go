@@ -33,6 +33,8 @@
 // macOS, iOS, Windows, Linux, Android and Web/WASM, shares Shape and LayerMask directly with
 // kinematic physics, and produces deterministic results under game.Loop fixed steps.
 //
+// RigidWorld finds contact pairs with a sort-and-sweep broadphase, warm-starts contacts from the impulses each pair of features ended the last step with, puts islands of resting bodies to sleep (RigidBody.Sleeping, RigidBody.Wake), and sweeps fast bodies, and every RigidBody.Bullet, against static bodies so they stop at the first surface instead of passing through thin walls.
+//
 // DrawShape, DrawBody, DrawContact, DrawTileContacts, DrawTileGrid, DrawWorld and DrawRaycast record zoom-compensated debug overlays into a core.Drawing; builds tagged release compile them to no-ops.
 
 package physics

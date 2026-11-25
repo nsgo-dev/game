@@ -318,15 +318,33 @@ func capSeparation(a, b *hull) float64 {
 	return max(s0, s1)
 }
 
+// manifoldPoint is one contact point. id names the pair of features (reference face, incident vertex or clipping plane) that produced it, so the solver can carry the point's impulses to the next step while the same features stay in contact.
 type manifoldPoint struct {
 	x, y  float64
 	depth float64
+	id    uint32
 }
 
-// hullManifold holds up to two contact points sharing one unit normal that points from shape A toward shape B.
+// Feature ids of contact points that no face clipping produced.
+const (
+	// pointFeatureID marks the single point of two rounded hulls whose cores are points, or whose closest core features are a vertex and a vertex or edge.
+	pointFeatureID uint32 = 1 << 16
+)
+
+// clipFeatureID returns the id of a point clipped from incident edge inc against reference face ref. code is 0 or 1 for an incident vertex kept by clipping, 2 or 3 for a point cut by a side plane of the reference face, 4 for a lone incident point and 5 + i for the fallback deepest incident vertex i. flip reports that the reference face is on shape B.
+func clipFeatureID(flip bool, ref, inc int, code uint32) uint32 {
+	id := uint32(ref)<<12 | uint32(inc)<<8 | code
+	if flip {
+		id |= 1 << 15
+	}
+	return id
+}
+
+// hullManifold holds up to two contact points sharing one unit normal that points from shape A toward shape B. sub is the index of the chain segment that produced it, 0 for other shapes.
 type hullManifold struct {
 	nx, ny float64
 	count  int
+	sub    int
 	points [2]manifoldPoint
 }
 
@@ -340,6 +358,11 @@ func (m *hullManifold) maxDepth() float64 {
 
 // collideHulls returns the contact manifold of rounded hulls a and b, with the normal pointing from a toward b. Points report a positive depth; touching hulls report no points. Two hulls without area (segments) never collide.
 func collideHulls(a, b *hull) hullManifold {
+	return collideHullsWithin(a, b, 0)
+}
+
+// collideHullsWithin is collideHulls that also keeps, in a manifold of overlapping hulls, the clipped points still apart by less than margin, with a negative depth.
+func collideHullsWithin(a, b *hull, margin float64) hullManifold {
 	if !a.hasArea() && !b.hasArea() {
 		return hullManifold{}
 	}
@@ -352,7 +375,7 @@ func collideHulls(a, b *hull) hullManifold {
 		}
 		if distSq == 0 {
 			m := hullManifold{nx: 0, ny: 1, count: 1}
-			m.points[0] = manifoldPoint{x: a.v[0].x, y: a.v[0].y, depth: total}
+			m.points[0] = manifoldPoint{x: a.v[0].x, y: a.v[0].y, depth: total, id: pointFeatureID}
 			return m
 		}
 		dist := math.Sqrt(distSq)
@@ -375,22 +398,22 @@ func collideHulls(a, b *hull) hullManifold {
 			refA := edgeA >= 0 && sepA >= dist-faceContactTolerance
 			refB := edgeB >= 0 && sepB >= dist-faceContactTolerance
 			if refA && (!refB || sepA+referenceTieTolerance >= sepB) {
-				return clipHulls(a, edgeA, b, false)
+				return clipHulls(a, edgeA, b, false, margin)
 			}
 			if refB {
-				return clipHulls(b, edgeB, a, true)
+				return clipHulls(b, edgeB, a, true, margin)
 			}
 			return singlePointManifold(a, b, pa, pb, dist)
 		}
 	}
 	// The cores overlap or touch: the face of least penetration is the reference.
 	if edgeB >= 0 && (edgeA < 0 || sepB > sepA+referenceTieTolerance) {
-		return clipHulls(b, edgeB, a, true)
+		return clipHulls(b, edgeB, a, true, margin)
 	}
 	if edgeA < 0 {
 		return hullManifold{}
 	}
-	return clipHulls(a, edgeA, b, false)
+	return clipHulls(a, edgeA, b, false, margin)
 }
 
 // singlePointManifold returns a one-point manifold between the closest core points pa (on a) and pb (on b) at distance dist > 0.
@@ -403,20 +426,23 @@ func singlePointManifold(a, b *hull, pa, pb vec2, dist float64) hullManifold {
 		x:     float64(0.5*(pa.x+pb.x)) + float64(0.5*nx*(a.r-b.r)),
 		y:     float64(0.5*(pa.y+pb.y)) + float64(0.5*ny*(a.r-b.r)),
 		depth: depth,
+		id:    pointFeatureID,
 	}
 	return m
 }
 
-// clipHulls clips the incident face of inc against face edge of ref and returns the manifold. flip reports that ref is shape B, so the normal is reversed to point from A toward B.
-func clipHulls(ref *hull, edge int, inc *hull, flip bool) hullManifold {
+// clipHulls clips the incident face of inc against face edge of ref and returns the manifold. flip reports that ref is shape B, so the normal is reversed to point from A toward B. Clipped points apart by less than margin are kept with a negative depth, as long as one point overlaps.
+func clipHulls(ref *hull, edge int, inc *hull, flip bool, margin float64) hullManifold {
 	nR := ref.n[edge]
 	v1, v2 := ref.edge(edge)
 	total := ref.r + inc.r
 
 	var pts [2]vec2
+	var ids [2]uint32
 	np := 0
 	if inc.count == 1 {
 		pts[0] = inc.v[0]
+		ids[0] = clipFeatureID(flip, edge, 0, 4)
 		np = 1
 	} else {
 		// The incident face is the one most anti-parallel to the reference normal.
@@ -431,8 +457,9 @@ func clipHulls(ref *hull, edge int, inc *hull, flip bool) hullManifold {
 		if l := detmath.Hypot(t.x, t.y); l > 0 {
 			t = vec2{t.x / l, t.y / l}
 		}
-		clipped, n := clipSegmentToLine([2]vec2{w1, w2}, 2, vec2{-t.x, -t.y}, -dot2(t, v1))
-		clipped, n = clipSegmentToLine(clipped, n, t, dot2(t, v2))
+		inIDs := [2]uint32{clipFeatureID(flip, edge, k, 0), clipFeatureID(flip, edge, k, 1)}
+		clipped, clippedIDs, n := clipSegmentToLine([2]vec2{w1, w2}, inIDs, 2, vec2{-t.x, -t.y}, -dot2(t, v1), clipFeatureID(flip, edge, k, 2))
+		clipped, clippedIDs, n = clipSegmentToLine(clipped, clippedIDs, n, t, dot2(t, v2), clipFeatureID(flip, edge, k, 3))
 		if n == 0 {
 			// The incident face misses the reference face's span: fall back to the deepest incident vertex.
 			deep, depth := 0, math.Inf(1)
@@ -442,23 +469,28 @@ func clipHulls(ref *hull, edge int, inc *hull, flip bool) hullManifold {
 				}
 			}
 			pts[0] = inc.v[deep]
+			ids[0] = clipFeatureID(flip, edge, 0, 5+uint32(deep))
 			np = 1
 		} else {
-			pts = clipped
+			pts, ids = clipped, clippedIDs
 			np = n
 		}
 	}
 
 	m := hullManifold{nx: nR.x, ny: nR.y}
+	touching := false
 	rA, rB := ref.r, inc.r
 	if flip {
 		m.nx, m.ny = -nR.x, -nR.y
 		rA, rB = inc.r, ref.r
 	}
-	for _, p := range pts[:np] {
+	for pi, p := range pts[:np] {
 		s := dot2(nR, vec2{p.x - v1.x, p.y - v1.y})
-		if s >= total {
+		if s >= total+margin {
 			continue
+		}
+		if !(s >= total) {
+			touching = true
 		}
 		// Midway between the two surfaces along the normal.
 		var off float64
@@ -467,14 +499,17 @@ func clipHulls(ref *hull, edge int, inc *hull, flip bool) hullManifold {
 		} else {
 			off = 0.5 * (rA - s - rB)
 		}
-		m.points[m.count] = manifoldPoint{x: p.x + float64(m.nx*off), y: p.y + float64(m.ny*off), depth: total - s}
+		m.points[m.count] = manifoldPoint{x: p.x + float64(m.nx*off), y: p.y + float64(m.ny*off), depth: total - s, id: ids[pi]}
 		m.count++
+	}
+	if !touching {
+		return hullManifold{}
 	}
 	return m
 }
 
 // chainSegmentManifold returns the manifold of segment i of chain c against hull o, with the normal pointing from the segment toward o, after removing the ghost contacts its interior vertices would cause.
-func chainSegmentManifold(c *Chain, i int, o *hull) (hullManifold, bool) {
+func chainSegmentManifold(c *Chain, i int, o *hull, margin float64) (hullManifold, bool) {
 	n := len(c.Points)
 	p0 := vec2{float64(c.Points[i].X), float64(c.Points[i].Y)}
 	p1 := vec2{float64(c.Points[(i+1)%n].X), float64(c.Points[(i+1)%n].Y)}
@@ -488,7 +523,7 @@ func chainSegmentManifold(c *Chain, i int, o *hull) (hullManifold, bool) {
 	if sMaxX < oMinX || oMaxX < sMinX || sMaxY < oMinY || oMaxY < sMinY {
 		return hullManifold{}, false
 	}
-	m := collideHulls(&seg, o)
+	m := collideHullsWithin(&seg, o, margin)
 	if m.count == 0 {
 		return m, false
 	}
@@ -543,22 +578,23 @@ func chainSegmentManifold(c *Chain, i int, o *hull) (hullManifold, bool) {
 		return hullManifold{}, false
 	}
 	// A flat or concave vertex has no normals of its own: push along this segment's face, as the neighbour does.
-	forced := clipHulls(&seg, faceEdge, o, false)
+	forced := clipHulls(&seg, faceEdge, o, false, margin)
 	return forced, forced.count > 0
 }
 
 // chainManifolds appends to out the manifold of every segment of chain c touching hull o, with normals pointing from the chain toward o. Two segments that share a vertex both report a contact at that vertex when o rests on a peak or a flat seam; a point already reported by an earlier segment with the same normal is dropped, so a solver that applies every manifold pushes o out of the vertex once, not twice.
-func chainManifolds(c *Chain, o *hull, out []hullManifold) []hullManifold {
+func chainManifolds(c *Chain, o *hull, out []hullManifold, margin float64) []hullManifold {
 	if c.Empty() || !o.hasArea() {
 		return out
 	}
 	start := len(out)
 	for i := range c.SegmentCount() {
-		m, ok := chainSegmentManifold(c, i, o)
+		m, ok := chainSegmentManifold(c, i, o, margin)
 		if !ok {
 			continue
 		}
 		m = withoutReportedPoints(m, out[start:])
+		m.sub = i
 		if m.count > 0 {
 			out = append(out, m)
 		}
@@ -643,7 +679,7 @@ func testShapesConvex(a, b Shape) Contact {
 		var best hullManifold
 		bestDepth := 0.0
 		for i := range chain.SegmentCount() {
-			m, ok := chainSegmentManifold(chain, i, &h)
+			m, ok := chainSegmentManifold(chain, i, &h, 0)
 			if !ok {
 				continue
 			}

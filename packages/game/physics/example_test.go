@@ -87,6 +87,39 @@ func ExampleRigidWorld() {
 	// rests on the ground: true
 }
 
+// A body that rests for RigidWorld.TimeToSleep falls asleep with the rest of its island and costs nothing until something wakes it, here an impulse.
+func ExampleRigidBody_Sleeping() {
+	w := &physics.RigidWorld{GravityY: 600}
+	floor := physics.NewStaticRigidBox(100, 110, 400, 20)
+	crate := physics.NewRigidBox(100, 90, 20, 20, 1)
+	w.AddBody(floor, crate)
+	for range 60 {
+		w.Step(time.Second / 60)
+	}
+	fmt.Println("asleep after a second:", crate.Sleeping())
+	crate.ApplyImpulse(0, -100)
+	fmt.Println("asleep after an impulse:", crate.Sleeping())
+	// Output:
+	// asleep after a second: true
+	// asleep after an impulse: false
+}
+
+// A body fast enough to cross a thin wall in one step is swept against static bodies and stops at the first surface; Bullet sweeps it on every step.
+func ExampleRigidBody_bullet() {
+	w := &physics.RigidWorld{}
+	wall := physics.NewStaticRigidBox(400, 100, 4, 200)
+	shot := physics.NewRigidCircle(100, 100, 6, 1)
+	shot.VX = 5000
+	shot.Bullet = true
+	w.AddBody(wall, shot)
+	for range 10 {
+		w.Step(time.Second / 60)
+	}
+	fmt.Printf("stopped before the wall: %v, speed %.0f\n", shot.X < 392, shot.VX)
+	// Output:
+	// stopped before the wall: true, speed 0
+}
+
 // LayerBit builds collision layers; a body collides only with bodies whose layer is in its mask, and the other way round.
 func ExampleLayerBit() {
 	const player, enemy, pickup = 0, 1, 2
