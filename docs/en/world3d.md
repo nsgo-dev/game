@@ -49,6 +49,33 @@ for _, ch := range visibleChunks {
 - **Floating origin & streaming**: set `WorldOrigin` and call `UpdateWithOrigin(camLocal, &frustumLocal, origin)` so LOD distances stay invariant in `float64` world space across rebases while returned `Bounds` and `Transform` track local space without rebuilding cached meshes. Set `StreamManaged: true` and hook `SetChunkActive` to `ChunkStreamerConfig.OnLoad` / `OnUnload` (with `ChunkSize: terrain.ChunkWorldSize()`) to stream chunks on demand.
 - **Direct meshing**: `hm.BuildMeshLOD(col, row, cols, rows, lod, neighbors)` and `hm.ChunkBounds(col, row, cols, rows)` are read-only and safe to call directly from background streaming workers.
 
+## Terrain material layers and splat maps (`TerrainSplatMap`, `TerrainDoc`)
+
+Blend up to 8 PBR material layers across a heightmap using 1 or 2 RGBA weight (splat) maps (channels R, G, B, A of map 0 drive layers 0..3; map 1 drives layers 4..7), author the layers in a versioned YAML terrain definition (`*.terrain.yaml`), query the surface underfoot for gameplay via `Heightmap.LayerAt(x, z)`, and render the terrain with [render3d](render3d.md)'s `TerrainMaterial` / `GPUTerrainMaterial`:
+
+```go
+doc, err := world3d.ParseTerrain(yamlBytes) // strict version 1 YAML (EncodeTerrain writes canonical form)
+if err != nil {
+	return err
+}
+
+splat, err := world3d.LoadTerrainSplatMap(doc.LayerInfos(), splatImg0) // pass splatImg0, splatImg1 for 5..8 layers
+if err != nil {
+	return err
+}
+splat.HeightBlendContrast = doc.HeightBlendContrast
+hm.Splat = splat
+
+// Zero-allocation gameplay query for footsteps, particles, and traction:
+sample, inBounds := hm.LayerAt(player.X, player.Z)
+playFootstep(sample.Name, sample.Dominant, sample.Weight(sample.Dominant))
+_ = inBounds
+```
+
+- **Bilinear sampling & clamping**: `TerrainSplatMap.SampleUV` and `Heightmap.LayerAt` use texel-center bilinear filtering with edge clamping, matching GPU linear clamp-to-edge splat sampling. Outside the heightmap footprint, `Heightmap.LayerAt` returns `ok = false` alongside the clamped edge sample.
+- **Height-based blending**: attach per-layer grayscale height maps (`LoadTerrainHeightLayer`) and set `HeightBlendContrast` in `(0, 1]` to sharpen layer transitions (such as rock protruding through dirt) using the same algebraic `BlendTerrainWeights` formula as `render3d`'s terrain shader.
+- **Text definition**: `ParseTerrain` / `EncodeTerrain` read and write version 1 YAML (`https://game.nsgo.dev/schemas/terrain.v1.json`) declaring `heightmap`, `cellSize`, `heightScale`, `origin`, `splatMaps`, `heightBlendContrast`, `triplanar`, and 1–8 `layers` (with per-layer `uvScale`, PBR maps/factors, and `heightBias`). Unknown fields, duplicate layer names, and mismatched splat-map counts are refused with `*loaderr.Error`.
+
 ## Multi-level 3D NavMesh
 
 Build a 3D `NavMesh` from convex walkable polygons (ramps, bridges, and stacked floors). `BuildNavMesh` filters polygons steeper than `maxSlopeRad`, links shared edges in 3D, and runs portal A* with 3D string-pulling in `FindPath`:

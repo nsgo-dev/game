@@ -25,6 +25,8 @@ type Heightmap struct {
 	HeightScale float32
 	Origin      math3d.Vec3
 	Heights     []float32
+	// Splat optionally attaches splat-map material layers for gameplay queries via [Heightmap.LayerAt].
+	Splat *TerrainSplatMap
 }
 
 // TerrainHit describes the closest intersection between a ray and a Heightmap.

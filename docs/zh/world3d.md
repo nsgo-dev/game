@@ -49,6 +49,33 @@ for _, ch := range visibleChunks {
 - **浮点原点与流式加载**：设置 `WorldOrigin` 并调用 `UpdateWithOrigin(camLocal, &frustumLocal, origin)` 后，LOD 距离始终在 `float64` 世界空间计算，浮点原点重置不会触发 LOD 抖动或网格重建，而返回的 `Bounds` 与 `Transform` 会自动跟踪局部渲染空间。开启 `StreamManaged: true` 并将 `SetChunkActive` 接入 `ChunkStreamerConfig.OnLoad` / `OnUnload`（配合 `ChunkSize: terrain.ChunkWorldSize()`）即可按需流式启用区块。
 - **直接构建网格**：`hm.BuildMeshLOD(col, row, cols, rows, lod, neighbors)` 与 `hm.ChunkBounds(col, row, cols, rows)` 均为只读操作，可在后台流式工作协程中并发调用。
 
+## 地形材质层与混合权重图（`TerrainSplatMap`、`TerrainDoc`）
+
+使用 1 到 2 张 RGBA 权重图（splat map）在高度图上混合最多 8 层 PBR 材质（第 0 张图的 R、G、B、A 通道对应第 0..3 层，第 1 张图对应第 4..7 层），在带版本的 YAML 地形定义文件（`*.terrain.yaml`）中声明各层参数，通过 `Heightmap.LayerAt(x, z)` 在玩法逻辑中查询脚下地表，并配合 [render3d](render3d.md) 的 `TerrainMaterial` / `GPUTerrainMaterial` 进行光照与阴影渲染：
+
+```go
+doc, err := world3d.ParseTerrain(yamlBytes) // 严格校验的第 1 版 YAML（EncodeTerrain 输出规范格式）
+if err != nil {
+	return err
+}
+
+splat, err := world3d.LoadTerrainSplatMap(doc.LayerInfos(), splatImg0) // 5..8 层时传入 splatImg0, splatImg1
+if err != nil {
+	return err
+}
+splat.HeightBlendContrast = doc.HeightBlendContrast
+hm.Splat = splat
+
+// 面向脚步声、粒子与摩擦力的零分配玩法查询：
+sample, inBounds := hm.LayerAt(player.X, player.Z)
+playFootstep(sample.Name, sample.Dominant, sample.Weight(sample.Dominant))
+_ = inBounds
+```
+
+- **双线性采样与边界钳制**：`TerrainSplatMap.SampleUV` 与 `Heightmap.LayerAt` 采用与 GPU 线性边缘钳制采样一致的纹素中心双线性插值；坐标超出高度图范围时，`Heightmap.LayerAt` 返回 `ok = false` 以及钳制到边缘的采样结果。
+- **基于高度图的锐利混合**：为各层附加灰度高度图（`LoadTerrainHeightLayer`）并将 `HeightBlendContrast` 设为 `(0, 1]` 后，可通过与 `render3d` 地形着色器完全一致的代数公式 `BlendTerrainWeights` 锐化层间过渡（如岩石从泥土中突出）。
+- **纯文本定义**：`ParseTerrain` / `EncodeTerrain` 读写第 1 版 YAML（`https://game.nsgo.dev/schemas/terrain.v1.json`），声明 `heightmap`、`cellSize`、`heightScale`、`origin`、`splatMaps`、`heightBlendContrast`、`triplanar` 及 1–8 个 `layers`（含逐层 `uvScale`、PBR 贴图与参数和 `heightBias`）。未知字段、重名层及权重图数量不足均会返回 `*loaderr.Error`。
+
 ## 多层 3D 导航网格（`NavMesh`）
 
 用凸可行走多边形（斜坡、桥梁、多层楼板）构建 3D `NavMesh`。`BuildNavMesh` 会自动过滤超过 `maxSlopeRad` 的陡坡、在 3D 空间连接共享边，并在 `FindPath` 中执行门户 A* 与 3D 路径拉直：

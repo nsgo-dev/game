@@ -1,0 +1,50 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/terrain.v1.json
+version: 1
+name: Alpine Valley
+heightmap: terrain/alpine_height.png
+cellSize: 2
+heightScale: 40
+splatMaps:
+  - terrain/alpine_splat0.png
+heightBlendContrast: 0.65
+triplanar:
+  enabled: true
+  slopeThreshold: 0.7
+  slopeBlend: 0.15
+  sharpness: 4
+  scale: 0.25
+layers:
+  - name: grass
+    albedo: textures/grass_albedo.png
+    normal: textures/grass_normal.png
+    height: textures/grass_height.png
+    roughness: 0.85
+    uvScale:
+      - 16
+      - 16
+  - name: dirt
+    albedo: textures/dirt_albedo.png
+    normal: textures/dirt_normal.png
+    height: textures/dirt_height.png
+    roughness: 0.9
+    uvScale:
+      - 12
+      - 12
+    heightBias: -0.05
+  - name: rock
+    albedo: textures/rock_albedo.png
+    normal: textures/rock_normal.png
+    height: textures/rock_height.png
+    roughness: 0.8
+    uvScale:
+      - 8
+      - 8
+    heightBias: 0.1
+  - name: snow
+    albedo: textures/snow_albedo.png
+    normal: textures/snow_normal.png
+    roughness: 0.5
+    uvScale:
+      - 10
+      - 10
+    heightBias: 0.05
