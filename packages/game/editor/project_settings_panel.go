@@ -18,6 +18,7 @@ const (
 	ProjectSectionGeneral  ProjectSettingsSection = "general"
 	ProjectSectionWindow   ProjectSettingsSection = "window"
 	ProjectSectionDisplay  ProjectSettingsSection = "display"
+	ProjectSectionPhysics  ProjectSettingsSection = "physics"
 	ProjectSectionAutoload ProjectSettingsSection = "autoload"
 	ProjectSectionPlugins  ProjectSettingsSection = "plugins"
 )
@@ -59,7 +60,7 @@ func (e *Editor) SetProjectSettingsSection(section ProjectSettingsSection) {
 		return
 	}
 	switch section {
-	case ProjectSectionGeneral, ProjectSectionWindow, ProjectSectionDisplay, ProjectSectionAutoload, ProjectSectionPlugins:
+	case ProjectSectionGeneral, ProjectSectionWindow, ProjectSectionDisplay, ProjectSectionPhysics, ProjectSectionAutoload, ProjectSectionPlugins:
 	default:
 		return
 	}
@@ -637,6 +638,7 @@ func projectSettingsPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 			tabBtn(ProjectSectionGeneral, "General"),
 			tabBtn(ProjectSectionWindow, "Window"),
 			tabBtn(ProjectSectionDisplay, "Display"),
+			tabBtn(ProjectSectionPhysics, "Physics"),
 			tabBtn(ProjectSectionAutoload, "Autoload"),
 			tabBtn(ProjectSectionPlugins, "Plugins"),
 		},
@@ -660,6 +662,8 @@ func projectSettingsPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 							return psWindowSection(cx, ed, rev, disabled)
 						case ProjectSectionDisplay:
 							return psDisplaySection(cx, ed, rev, disabled)
+						case ProjectSectionPhysics:
+							return psPhysicsSection(cx, ed, rev, disabled)
 						case ProjectSectionAutoload:
 							return psAutoloadSection(cx, ed, rev, disabled)
 						case ProjectSectionPlugins:

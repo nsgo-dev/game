@@ -35,7 +35,7 @@ func (e *Editor) OpenProject(path string) error {
 	if a := f.Autoload; a != nil && a.MainScene != "" {
 		for _, s := range a.Scenes {
 			if s.Name == a.MainScene {
-				if err := e.OpenFile(filepath.Join(filepath.Dir(path), filepath.FromSlash(s.Path))); err != nil {
+				if err := e.openFileWithLayers(filepath.Join(filepath.Dir(path), filepath.FromSlash(s.Path)), f.PhysicsLayerTable()); err != nil {
 					return fmt.Errorf("editor: main scene %q: %w", s.Name, err)
 				}
 			}

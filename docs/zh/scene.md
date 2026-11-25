@@ -229,3 +229,7 @@ return mgr.View(scene.HostOptions{
 - **2D 叠加层与按需重绘**：在 3D 场景上 `Push` 一个 `Transparent: true` 的 2D 控制器会保持下方 3D 画面可见，同时暂停其 `Update` 并将被暂停层的指针事件设为 `PointerEventsNone`。配置 `HostOptions.Viewport` 时，透明压入的 2D 叠加层会将零值 `BarColor` 视为 `core.Transparent` 以免黑边遮挡 3D 视图。调用 `mgr.Invalidate()` 可按需重绘已挂载的 2D 画布，而不会重建 3D 视图。
 
 如需查看完整的可运行示例（通过 `Manager.View` 在 2D 庭院大地图与 3D glTF 神龛之间淡入淡出切换、在 3D 视图上压入透明 2D 暂停叠层，并跨切换共享同一个 `*input.Actions` 与 `*sound.Mixer`），请参阅 [`examples/lantern3d`](https://github.com/nsgo-dev/game/tree/main/examples/lantern3d)。
+
+## 场景文件中的物理
+
+使用 [`game/sceneformat`](editor.md#内置物理组件817) 编写的 YAML 场景可以直接在对象上声明 2D（`body2d`、`collider2d`、`trigger2d`）和 3D（`body3d`、`collider3d`、`trigger3d`）物理组件，并复用 [`game.yaml`](project.md) 中的具名碰撞层。将构建好的场景传给 `sceneformat.BuildPhysics`，即可实例化对应的 `physics.World`、`physics.RigidWorld` 与 `physics3d.World` 并在每个固定时间步与场景一起推进。

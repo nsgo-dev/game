@@ -454,11 +454,13 @@ type ParseOptions struct {
 	File string
 	// Components, when non-nil, checks every object's components against the registered types: an unregistered type, a misspelled or unknown field, a value of the wrong kind or out of range fails the load with a *ComponentError carrying File, Line and Column. It also checks the scene's connections, unless the scene instances or inherits other scene files whose objects they may name: an event or handler no component of its object declares, and an argument the handler has no param for or of the wrong kind or out of range, fail the load with a *ConnectionError carrying File, Line and Column.
 	Components *ComponentRegistry
+	// PhysicsLayers, when non-nil, validates every named collision layer and mask in built-in physics components (collider2d, trigger2d, collider3d, trigger3d) against the table. An unknown or misspelled layer name fails the load with a *loaderr.Error carrying File and 1-based Line and Column.
+	PhysicsLayers *PhysicsLayerTable
 }
 
 // ParseWith is Parse with a source name for errors and an optional component registry. Defaults of unset component fields are not written into the document, so saving it again changes nothing; read them with ComponentRegistry.Resolve.
 func ParseWith(data []byte, opts ParseOptions) (*SceneDoc, error) {
-	doc, err := parse(data, opts.Components)
+	doc, err := parse(data, opts.Components, opts.PhysicsLayers)
 	if err != nil {
 		var ce *ComponentError
 		if errors.As(err, &ce) {
@@ -527,7 +529,7 @@ func fieldPath(data []byte, steps []string) string {
 	return loaderr.Path(parts...)
 }
 
-func parse(data []byte, reg *ComponentRegistry) (*SceneDoc, error) {
+func parse(data []byte, reg *ComponentRegistry, layers *PhysicsLayerTable) (*SceneDoc, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
 		return nil, fmt.Errorf("sceneformat: empty scene document")
 	}
@@ -548,10 +550,21 @@ func parse(data []byte, reg *ComponentRegistry) (*SceneDoc, error) {
 	if err := Validate(&doc); err != nil {
 		return nil, err
 	}
-	if reg != nil {
-		var root yaml.Node
+	var root yaml.Node
+	haveRoot := false
+	loadRoot := func() error {
+		if haveRoot {
+			return nil
+		}
 		if err := yaml.Unmarshal(data, &root); err != nil {
-			return nil, fmt.Errorf("sceneformat: decode: %w", err)
+			return fmt.Errorf("sceneformat: decode: %w", err)
+		}
+		haveRoot = true
+		return nil
+	}
+	if reg != nil {
+		if err := loadRoot(); err != nil {
+			return nil, err
 		}
 		if err := checkComponentNodes(&root, &doc, reg); err != nil {
 			return nil, err
@@ -566,6 +579,17 @@ func parse(data []byte, reg *ComponentRegistry) (*SceneDoc, error) {
 				locateConnectionError(&root, err)
 				return nil, err
 			}
+		}
+	}
+	if layers != nil {
+		if err := loadRoot(); err != nil {
+			return nil, err
+		}
+		if err := checkPhysicsLayerNodes(&root, &doc, layers); err != nil {
+			return nil, err
+		}
+		if err := ValidatePhysicsLayers(&doc, layers); err != nil {
+			return nil, err
 		}
 	}
 	return &doc, nil

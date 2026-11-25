@@ -947,6 +947,9 @@ func (e *Editor) DrawViewport3D(d *core.Drawing, size core.Size) {
 	// 4. Projected 3D wireframe bounding boxes for all visible scene objects.
 	e.drawSceneObjects3D(d, w, h)
 
+	// 4b. Projected 3D physics collider and trigger debug wireframes.
+	e.drawPhysicsDebug3D(d, w, h)
+
 	// 5. Active 3D transform gizmo on the selected object.
 	if !e.playing {
 		e.drawGizmo3D(d, w, h)

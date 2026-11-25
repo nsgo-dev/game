@@ -54,6 +54,14 @@
         }
       ]
     },
+    "physics": {
+      "description": "Physics holds the default 2D and 3D gravity, solver iterations and named collision layers shared by scenes; nil uses each engine's defaults.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Physics"
+        }
+      ]
+    },
     "autoload": {
       "description": "Autoload lists the scenes and resources loaded at startup; nil loads nothing.",
       "allOf": [
@@ -1039,6 +1047,68 @@
       ],
       "additionalProperties": false
     },
+    "Physics": {
+      "description": "Physics holds the project's default 2D and 3D gravity, solver iterations, and named collision layers shared by scenes.",
+      "type": "object",
+      "properties": {
+        "gravity2D": {
+          "description": "Gravity2D is the 2D gravity acceleration in points per second squared (for example {y: 980} in +Y-down screen space); nil leaves 2D gravity at (0, 0).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Vec2"
+            }
+          ]
+        },
+        "gravity3D": {
+          "description": "Gravity3D is the 3D gravity acceleration in units per second squared (for example {y: -9.81} in Y-up 3D space); nil leaves 3D gravity at physics3d's default (0, -9.81, 0).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Vec3"
+            }
+          ]
+        },
+        "solverIterations2D": {
+          "description": "SolverIterations2D is the number of sequential-impulse iterations per 2D rigid step; 0 uses physics.DefaultSolverIterations.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854776000
+        },
+        "solverIterations3D": {
+          "description": "SolverIterations3D is the number of solver iterations per 3D physics step; 0 uses physics3d's default.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854776000
+        },
+        "layers": {
+          "description": "Layers maps human-readable collision layer names (such as \"player\", \"walls\", and \"coins\") to bit indices in [0, 31], in declaration order.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/PhysicsLayer"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "PhysicsLayer": {
+      "description": "PhysicsLayer assigns a human-readable collision layer name to a bit index in [0, 31].",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Name uniquely identifies the collision layer, such as \"player\", \"walls\", or \"coins\".",
+          "type": "string"
+        },
+        "bit": {
+          "description": "Bit is the collision bit index in [0, 31], matching LayerBit(Bit).",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 31
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
     "Preset": {
       "description": "Preset is the export preset of one platform.",
       "type": "object",
@@ -1157,6 +1227,50 @@
         "srgb": {
           "description": "SRGB marks the texture sRGB and filters its mipmaps in linear light.",
           "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Vec2": {
+      "description": "Vec2 is a two-dimensional vector in game.yaml, such as 2D gravity.",
+      "type": "object",
+      "properties": {
+        "x": {
+          "description": "X is the horizontal component.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "y": {
+          "description": "Y is the vertical component.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        }
+      },
+      "additionalProperties": false
+    },
+    "Vec3": {
+      "description": "Vec3 is a three-dimensional vector in game.yaml, such as 3D gravity.",
+      "type": "object",
+      "properties": {
+        "x": {
+          "description": "X is the X-axis component.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "y": {
+          "description": "Y is the Y-axis component.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "z": {
+          "description": "Z is the Z-axis component.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
         }
       },
       "additionalProperties": false

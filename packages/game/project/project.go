@@ -45,6 +45,8 @@ type File struct {
 	Input *Input `yaml:"input,omitempty"`
 	// Audio holds the master volume and the audio buses a sound.Mixer is configured with; nil configures nothing.
 	Audio *Audio `yaml:"audio,omitempty"`
+	// Physics holds the default 2D and 3D gravity, solver iterations and named collision layers shared by scenes; nil uses each engine's defaults.
+	Physics *Physics `yaml:"physics,omitempty"`
 	// Autoload lists the scenes and resources loaded at startup; nil loads nothing.
 	Autoload *Autoload `yaml:"autoload,omitempty"`
 	// Export holds the build output directory and the export presets per platform, which nsgo.yaml's build section follows; nil leaves nsgo.yaml without them.
@@ -569,6 +571,7 @@ func (f *File) Clone() *File {
 		}
 		c.Audio = &a
 	}
+	c.Physics = clonePhysics(f.Physics)
 	if f.Autoload != nil {
 		c.Autoload = &Autoload{
 			MainScene: f.Autoload.MainScene,
@@ -648,6 +651,11 @@ func Validate(f *File) error {
 	}
 	if f.Audio != nil {
 		if err := validateAudio(f.Audio); err != nil {
+			return err
+		}
+	}
+	if f.Physics != nil {
+		if err := validatePhysics(f.Physics); err != nil {
 			return err
 		}
 	}

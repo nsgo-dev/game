@@ -155,7 +155,7 @@ buses:
 
 ### physicsMaterial
 
-刚体的表面属性：`friction`、`restitution`（`0` 到 `1`）、`linearDamping` 和 `angularDamping`。`PhysicsMaterial.ApplyTo(body)` 把文件中设置的字段写入 `physics.RigidBody`，其余字段保持不变。
+2D 与 3D 刚体的表面属性：`friction`、`restitution`（`0` 到 `1`）、`linearDamping` 和 `angularDamping`。`PhysicsMaterial.ApplyTo(body)` 把文件中设置的字段写入 `physics.RigidBody`，`PhysicsMaterial.ApplyTo3D(body)` 将其写入 `physics3d.Body`，未设置的字段保持不变。`Library.PhysicsMaterial(path)` 按路径加载并共享单个 `*PhysicsMaterial`，同时实现 `sceneformat.PhysicsMaterialResolver` 供场景物理组件引用。
 
 ```yaml
 type: physicsMaterial

@@ -687,6 +687,8 @@ func cloneAny(v any) any {
 			out[i] = cloneAny(x[i])
 		}
 		return out
+	case []string:
+		return slices.Clone(x)
 	default:
 		return v
 	}

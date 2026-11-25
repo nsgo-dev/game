@@ -187,7 +187,6 @@ water := &physics.Trigger{
 }
 rigidWorld.AddTrigger(water)
 ```
-
 ## Snapshots, Rollback, and Cross-Architecture Determinism
 
 `World` and `RigidWorld` support full state snapshots and bit-exact determinism across CPU architectures (amd64 and arm64):
@@ -212,3 +211,7 @@ if err := rigidWorld.Restore(restored); err != nil {
 }
 _ = hashAtSave
 ```
+
+## Authoring in scene files
+
+2D physics bodies, colliders, and triggers can be authored directly in `*.scene.yaml` files using the built-in `body2d`, `collider2d`, and `trigger2d` components from [`sceneformat`](editor.md#built-in-physics-components-817), with project-wide gravity, solver iterations, and named collision layers configured under `physics:` in [`game.yaml`](project.md). Calling `sceneformat.BuildPhysics(built, gameProject.PhysicsSettings(), lib)` constructs the matching `physics.World` and `physics.RigidWorld`, resolves named `layer` and `mask` lists against `physics.layers`, applies optional `*.physicsMaterial.yaml` resources, and steps bodies and triggers in sync with `BuiltScene` (including automatically during editor Play mode).

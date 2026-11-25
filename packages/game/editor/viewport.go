@@ -326,7 +326,11 @@ func (e *Editor) DrawViewport(d *core.Drawing, size core.Size) {
 		}
 		d.Restore()
 	}
-	if e.playing || scene == nil {
+	if scene == nil {
+		return
+	}
+	e.drawPhysicsDebug2D(d, scene)
+	if e.playing {
 		return
 	}
 	e.drawCameraFrameOverlay(d)
