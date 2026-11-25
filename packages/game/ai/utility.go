@@ -551,3 +551,16 @@ func (u *utilitySelectorNode[C]) Reset() {
 		}
 	}
 }
+
+func (u *utilitySelectorNode[C]) btUtilityChildren() []Node {
+	return u.subtrees
+}
+
+func (u *utilitySelectorNode[C]) btUtilityState() (active, running int) {
+	return u.active, u.running
+}
+
+func (u *utilitySelectorNode[C]) btRestoreUtilityState(active, running int) {
+	u.active = active
+	u.running = running
+}

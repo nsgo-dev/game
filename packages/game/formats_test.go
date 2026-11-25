@@ -109,6 +109,7 @@ var formatVersions = map[string]string{
 	"accounts/token.KeySetVersion":          "accounts/token",
 	"achievements.CurrentVersion":           "achievements",
 	"ai.BTFormatVersion":                    "ai#bt",
+	"ai.BTSnapshotVersion":                  "",
 	"ai.GOAPVersion":                        "ai#goap",
 	"ai.UtilityVersion":                     "ai",
 	"bullets.FormatVersion":                 "bullets",
@@ -116,6 +117,7 @@ var formatVersions = map[string]string{
 	"cloudsave.ConfigVersion":               "cloudsave",
 	"cloudsave/sqlstore.SchemaVersion":      "",
 	"cutscene.CurrentVersion":               "cutscene",
+	"flow.MachineSnapshotVersion":           "",
 	"fog.FormatVersion":                     "fog",
 	"fighting.FormatVersion":                "fighting",
 	"framedata.CurrentVersion":              "framedata",
@@ -179,7 +181,9 @@ var formatVersions = map[string]string{
 // notFormatVersions are the version constants formatVersions maps to no entry, each with the reason.
 var notFormatVersions = map[string]string{
 	"accounts/sqlstore.SchemaVersion":  "the version of a PostgreSQL schema, which lives in the database",
+	"ai.BTSnapshotVersion":             "the version of in-memory/JSON behavior tree snapshots saved inside game save slots rather than a standalone file format; docs/en/ai.md documents it",
 	"cloudsave/sqlstore.SchemaVersion": "the version of a PostgreSQL schema, which lives in the database",
+	"flow.MachineSnapshotVersion":      "the version of in-memory/JSON state machine snapshots saved inside game save slots rather than a standalone file format; docs/en/flow.md documents it",
 	"internal/samplegltf.GLBVersion":   "the version of the binary glTF container, the gltf entry's format, that the sample models are checked against",
 	"net.ReplicationVersion":           "the version of the replication protocol on the wire between a ServerWorld and its ClientWorlds, which no file holds; docs/en/net.md documents it",
 	"physics.SnapshotVersion":          "the version of in-memory/JSON 2D physics world snapshots used by Save/Restore and rollback netcode rather than a standalone file format; docs/en/physics.md documents it",
