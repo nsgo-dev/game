@@ -271,7 +271,7 @@ func buildDocTerrains(doc *TilesetDoc, firstGID uint32) []*Terrain {
 		if td.Mode == "blob" {
 			t.Autotile.Mode = Autotile8
 		}
-		if td.Default != nil {
+		if td.Default != nil && *td.Default >= 0 && uint64(*td.Default) <= uint64(TileIDMask) {
 			t.Autotile.Default = firstGID + uint32(*td.Default)
 			hasExplicitDefault[td.Name] = true
 		}
@@ -280,7 +280,7 @@ func buildDocTerrains(doc *TilesetDoc, firstGID uint32) []*Terrain {
 	}
 	for _, tile := range doc.Tiles {
 		t := terrains[tile.Terrain]
-		if t == nil {
+		if t == nil || tile.ID < 0 || uint64(tile.ID) > uint64(TileIDMask) {
 			continue
 		}
 		gid := firstGID + uint32(tile.ID)
