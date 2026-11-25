@@ -135,6 +135,7 @@ Paths are relative to `github.com/nsgo-dev/game/packages`. The table is checked 
 | `game/pixelfx/transitions` | Experimental | [pixelfx](pixelfx.md) |
 | `game/pixelfx/ui` | Experimental | [pixelfx](pixelfx.md) |
 | `game/pixelfx/water` | Experimental | [pixelfx](pixelfx.md) |
+| `game/pixelfx/weather` | Experimental | [pixelfx](pixelfx.md) |
 | `game/placeholder` | Experimental | [Placeholder Assets](placeholder.md) |
 | `game/platformer` | Experimental | [platformer](platformer.md) |
 | `game/presence` | Experimental | [presence](presence.md) |
