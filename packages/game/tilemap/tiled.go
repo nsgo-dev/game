@@ -527,126 +527,83 @@ func loadTiledLayers(m *Tilemap, layers []tiledLayer, parentOX, parentOY, parent
 }
 
 func decodeFiniteLayerData(raw tiledLayer, li, lw, lh int, budget *int64) ([]uint32, error) {
-	field := loaderr.Path(li, "data")
-	label := fmt.Sprintf("layer %q", raw.Name)
-	expected := lw * lh
-
-	if raw.isXML {
-		if !raw.hasXMLData {
-			return nil, nil
-		}
-		var data []uint32
-		var err error
-		switch raw.Encoding {
-		case "base64":
-			data, err = decodeBase64TileData(raw.xmlDataText, raw.Compression, expected, budget, field, raw.dataLine, raw.dataCol, label)
-			if err != nil {
-				return nil, err
-			}
-			return data, nil
-		case "csv":
-			data, err = decodeCSVTileData(raw.xmlDataText, field, raw.dataLine, raw.dataCol, label)
-			if err != nil {
-				return nil, err
-			}
-		case "", "xml":
-			data = raw.xmlTiles
-		}
-		if len(data) != expected {
-			return nil, &loaderr.Error{Line: raw.dataLine, Column: raw.dataCol, Field: field, Problem: fmt.Sprintf("layer %q has %d tiles", raw.Name, len(data)), Expected: fmt.Sprintf("%d (%dx%d)", expected, lw, lh), Fix: "save the map again from Tiled so data has one GID per tile of the layer"}
-		}
-		return data, nil
-	}
-
-	if len(raw.Data) == 0 {
-		return nil, nil
-	}
-	if raw.Encoding == "base64" {
-		var b64 string
-		if err := json.Unmarshal(raw.Data, &b64); err != nil {
-			return nil, loaderr.Errorf(field, "export the map again from Tiled; base64 tile data must be a JSON string", "layer %q data: %w", raw.Name, err)
-		}
-		return decodeBase64TileData(b64, raw.Compression, expected, budget, field, 0, 0, label)
-	}
-	trimmed := bytes.TrimSpace(raw.Data)
-	var data []uint32
-	if len(trimmed) > 0 && trimmed[0] == '"' && raw.Encoding == "csv" {
-		var csvStr string
-		if err := json.Unmarshal(raw.Data, &csvStr); err != nil {
-			return nil, loaderr.Errorf(field, "export the map again from Tiled; data is an array of tile GIDs", "layer %q data: %w", raw.Name, err)
-		}
-		var err error
-		data, err = decodeCSVTileData(csvStr, field, 0, 0, label)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		if err := json.Unmarshal(raw.Data, &data); err != nil {
-			return nil, loaderr.Errorf(field, "export the map again from Tiled; data is an array of tile GIDs", "layer %q data: %w", raw.Name, err)
-		}
-	}
-	if len(data) != expected {
-		return nil, &loaderr.Error{Field: field, Problem: fmt.Sprintf("layer %q has %d tiles", raw.Name, len(data)), Expected: fmt.Sprintf("%d (%dx%d)", expected, lw, lh), Fix: "export the map again from Tiled so data has one GID per tile of the layer"}
-	}
-	return data, nil
+	return decodeTiledTileData(
+		raw.Encoding, raw.Compression, raw.isXML, raw.hasXMLData,
+		raw.xmlDataText, raw.xmlTiles, raw.Data,
+		lw, lh, budget,
+		loaderr.Path(li, "data"),
+		fmt.Sprintf("layer %q", raw.Name),
+		raw.dataLine, raw.dataCol, false,
+	)
 }
 
 func decodeChunkTileData(raw tiledLayer, rc tiledChunk, li, ci int, budget *int64) ([]uint32, error) {
-	field := loaderr.Path(li, "chunks", ci, "data")
 	label := fmt.Sprintf("layer %q chunk %d", raw.Name, ci)
 	if rc.Width > math.MaxInt/rc.Height {
 		return nil, &loaderr.Error{Line: rc.line, Column: rc.col, Field: loaderr.Path(li, "chunks", ci), Problem: fmt.Sprintf("%s size %dx%d overflows", label, rc.Width, rc.Height), Fix: "make the chunk smaller in Tiled"}
 	}
-	expected := rc.Width * rc.Height
+	return decodeTiledTileData(
+		raw.Encoding, raw.Compression, rc.isXML, true,
+		rc.xmlDataText, rc.xmlTiles, rc.Data,
+		rc.Width, rc.Height, budget,
+		loaderr.Path(li, "chunks", ci, "data"),
+		label, rc.line, rc.col, true,
+	)
+}
 
-	if rc.isXML {
-		var cdata []uint32
-		var err error
-		switch raw.Encoding {
+func decodeTiledTileData(encoding, compression string, isXML, hasXMLData bool, xmlText string, xmlTiles []uint32, rawJSON json.RawMessage, w, h int, budget *int64, field, label string, line, col int, isChunk bool) ([]uint32, error) {
+	expected := w * h
+	var data []uint32
+	var err error
+	if isXML {
+		if !hasXMLData {
+			return nil, nil
+		}
+		switch encoding {
 		case "base64":
-			return decodeBase64TileData(rc.xmlDataText, raw.Compression, expected, budget, field, rc.line, rc.col, label)
+			return decodeBase64TileData(xmlText, compression, expected, budget, field, line, col, label)
 		case "csv":
-			cdata, err = decodeCSVTileData(rc.xmlDataText, field, rc.line, rc.col, label)
+			data, err = decodeCSVTileData(xmlText, field, line, col, label)
 			if err != nil {
 				return nil, err
 			}
 		case "", "xml":
-			cdata = rc.xmlTiles
-		}
-		if len(cdata) != expected {
-			return nil, &loaderr.Error{Line: rc.line, Column: rc.col, Field: field, Problem: fmt.Sprintf("%s has %d tiles", label, len(cdata)), Expected: fmt.Sprintf("%d (%dx%d)", expected, rc.Width, rc.Height), Fix: "save the map again from Tiled so each chunk's data has one GID per tile"}
-		}
-		return cdata, nil
-	}
-
-	if raw.Encoding == "base64" {
-		var b64 string
-		if err := json.Unmarshal(rc.Data, &b64); err != nil {
-			return nil, loaderr.Errorf(field, "export the map again from Tiled; base64 chunk data must be a JSON string", "%s data: %w", label, err)
-		}
-		return decodeBase64TileData(b64, raw.Compression, expected, budget, field, 0, 0, label)
-	}
-	trimmed := bytes.TrimSpace(rc.Data)
-	var cdata []uint32
-	if len(trimmed) > 0 && trimmed[0] == '"' && raw.Encoding == "csv" {
-		var csvStr string
-		if err := json.Unmarshal(rc.Data, &csvStr); err != nil {
-			return nil, loaderr.Errorf(field, "export the map again from Tiled; data is an array of tile GIDs", "%s data: %w", label, err)
-		}
-		var err error
-		cdata, err = decodeCSVTileData(csvStr, field, 0, 0, label)
-		if err != nil {
-			return nil, err
+			data = xmlTiles
 		}
 	} else {
-		if err := json.Unmarshal(rc.Data, &cdata); err != nil {
+		if !isChunk && len(rawJSON) == 0 {
+			return nil, nil
+		}
+		if encoding == "base64" {
+			var b64 string
+			if err = json.Unmarshal(rawJSON, &b64); err != nil {
+				return nil, loaderr.Errorf(field, "export the map again from Tiled; base64 tile data must be a JSON string", "%s data: %w", label, err)
+			}
+			return decodeBase64TileData(b64, compression, expected, budget, field, 0, 0, label)
+		}
+		trimmed := bytes.TrimSpace(rawJSON)
+		if len(trimmed) > 0 && trimmed[0] == '"' && encoding == "csv" {
+			var csvStr string
+			if err = json.Unmarshal(rawJSON, &csvStr); err != nil {
+				return nil, loaderr.Errorf(field, "export the map again from Tiled; data is an array of tile GIDs", "%s data: %w", label, err)
+			}
+			data, err = decodeCSVTileData(csvStr, field, 0, 0, label)
+			if err != nil {
+				return nil, err
+			}
+		} else if err = json.Unmarshal(rawJSON, &data); err != nil {
 			return nil, loaderr.Errorf(field, "export the map again from Tiled; data is an array of tile GIDs", "%s data: %w", label, err)
 		}
+		line, col = 0, 0
 	}
-	if len(cdata) != expected {
-		return nil, &loaderr.Error{Field: field, Problem: fmt.Sprintf("%s has %d tiles", label, len(cdata)), Expected: fmt.Sprintf("%d (%dx%d)", expected, rc.Width, rc.Height), Fix: "export the map again from Tiled so each chunk's data has one GID per tile"}
+	if len(data) != expected {
+		fix := "export the map again from Tiled so data has one GID per tile of the layer"
+		if isChunk {
+			fix = "export the map again from Tiled so each chunk's data has one GID per tile"
+		}
+		return nil, &loaderr.Error{Line: line, Column: col, Field: field, Problem: fmt.Sprintf("%s has %d tiles", label, len(data)), Expected: fmt.Sprintf("%d (%dx%d)", expected, w, h), Fix: fix}
 	}
-	return cdata, nil
+	return data, nil
 }
 
 // buildChunkedTileLayer loads an infinite Tiled map's tile layer raw directly into a sparse chunked TileLayer,

@@ -5,12 +5,15 @@ const tileEditRingCap = 1024 // power of 2 for branchless ring indexing
 type tileEditLog struct {
 	rev    uint64
 	minRev uint64
-	buf    [tileEditRingCap]cellKey
+	buf    *[tileEditRingCap]cellKey
 }
 
 func (m *Tilemap) recordTileEdit(col, row int) {
 	if m.edits == nil {
 		m.edits = &tileEditLog{}
+	}
+	if m.edits.buf == nil {
+		m.edits.buf = new([tileEditRingCap]cellKey)
 	}
 	m.edits.buf[m.edits.rev&(tileEditRingCap-1)] = cellKey{col: col, row: row}
 	m.edits.rev++

@@ -132,30 +132,46 @@ func parseXMLBoolAttr(val string, line, col int, field, fix string) (bool, error
 	}
 }
 
+func parseXMLPropsChild(r *xmlReader, cl, cc int, dst *[]tiledProperty) error {
+	p, err := parseXMLProperties(r, cl, cc)
+	if err != nil {
+		return nest(err, "properties")
+	}
+	*dst = append(*dst, p...)
+	return nil
+}
+
+func parseXMLImageElem(r *xmlReader, t xmlStartElement, cl, cc int, fix string, img *string, w, h *float32, il, ic *int) error {
+	*il, *ic = cl, cc
+	for _, a := range t.Attr {
+		var err error
+		switch a.Name.Local {
+		case "source":
+			*img = a.Value
+		case "width":
+			if w != nil {
+				*w, err = parseXMLFloat32(a.Value, cl, cc, "imagewidth", fix)
+			}
+		case "height":
+			if h != nil {
+				*h, err = parseXMLFloat32(a.Value, cl, cc, "imageheight", fix)
+			}
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return r.skip()
+}
+
 // parseXMLChildLayer handles layer/imagelayer/objectgroup/group/properties children shared by <map> and <group>.
 func parseXMLChildLayer(r *xmlReader, t xmlStartElement, cl, cc, depth int, props *[]tiledProperty, layers *[]tiledLayer) (bool, error) {
 	switch t.Name.Local {
 	case "properties":
-		p, err := parseXMLProperties(r, cl, cc)
-		if err != nil {
-			return true, nest(err, "properties")
-		}
-		*props = append(*props, p...)
-		return true, nil
+		return true, parseXMLPropsChild(r, cl, cc, props)
 	case "layer", "imagelayer", "objectgroup", "group":
 		idx := len(*layers)
-		var child tiledLayer
-		var err error
-		switch t.Name.Local {
-		case "layer":
-			child, err = parseXMLLayer(r, t, cl, cc)
-		case "imagelayer":
-			child, err = parseXMLImageLayer(r, t, cl, cc)
-		case "objectgroup":
-			child, err = parseXMLObjectGroup(r, t, cl, cc)
-		case "group":
-			child, err = parseXMLGroup(r, t, cl, cc, depth)
-		}
+		child, err := parseXMLLayer(r, t, cl, cc, depth)
 		if err != nil {
 			return true, nest(err, loaderr.Path("layers", idx))
 		}
@@ -193,64 +209,53 @@ func parseXMLPointsElem(r *xmlReader, t xmlStartElement, field string, cl, cc in
 	return pts, r.skip()
 }
 
-// parseTMX parses a Tiled XML map (.tmx) into the shared tiledMap representation with element line/column numbers.
-func parseTMX(data []byte) (tiledMap, error) {
-	r := newXMLReader(data, fixTiledXML)
+func parseXMLRoot(data []byte, want, emptyMsg, fix string) (*xmlReader, xmlStartElement, int, int, error) {
+	r := newXMLReader(data, fix)
 	for {
 		tok, line, col, err := r.nextToken()
 		if errors.Is(err, io.EOF) {
-			return tiledMap{}, &loaderr.Error{Line: 1, Column: 1, Problem: "empty TMX document", Fix: fixTiledXML}
+			return nil, xmlStartElement{}, 0, 0, &loaderr.Error{Line: 1, Column: 1, Problem: emptyMsg, Fix: fix}
 		}
 		if err != nil {
-			return tiledMap{}, err
+			return nil, xmlStartElement{}, 0, 0, err
 		}
 		se, ok := tok.(xmlStartElement)
 		if !ok {
 			continue
 		}
-		if se.Name.Local != "map" {
-			return tiledMap{}, &loaderr.Error{
+		if se.Name.Local != want {
+			return nil, xmlStartElement{}, 0, 0, &loaderr.Error{
 				Line:     line,
 				Column:   col,
-				Problem:  fmt.Sprintf("unexpected root element <%s>", se.Name.Local),
-				Expected: "<map>",
-				Fix:      fixTiledXML,
+				Problem:  "unexpected root element <" + se.Name.Local + ">",
+				Expected: "<" + want + ">",
+				Fix:      fix,
 			}
 		}
-		return parseXMLMap(r, se, line, col)
+		return r, se, line, col, nil
 	}
+}
+
+// parseTMX parses a Tiled XML map (.tmx) into the shared tiledMap representation with element line/column numbers.
+func parseTMX(data []byte) (tiledMap, error) {
+	r, se, line, col, err := parseXMLRoot(data, "map", "empty TMX document", fixTiledXML)
+	if err != nil {
+		return tiledMap{}, err
+	}
+	return parseXMLMap(r, se, line, col)
 }
 
 // parseTSX parses an external Tiled XML tileset (.tsx) into the shared tiledTileset representation with element line/column numbers.
 func parseTSX(data []byte) (tiledTileset, error) {
-	r := newXMLReader(data, fixTilesetXML)
-	for {
-		tok, line, col, err := r.nextToken()
-		if errors.Is(err, io.EOF) {
-			return tiledTileset{}, &loaderr.Error{Line: 1, Column: 1, Problem: "empty TSX document", Fix: fixTilesetXML}
-		}
-		if err != nil {
-			return tiledTileset{}, err
-		}
-		se, ok := tok.(xmlStartElement)
-		if !ok {
-			continue
-		}
-		if se.Name.Local != "tileset" {
-			return tiledTileset{}, &loaderr.Error{
-				Line:     line,
-				Column:   col,
-				Problem:  fmt.Sprintf("unexpected root element <%s>", se.Name.Local),
-				Expected: "<tileset>",
-				Fix:      fixTilesetXML,
-			}
-		}
-		ref, err := parseXMLTileset(r, se, line, col, false)
-		if err != nil {
-			return tiledTileset{}, err
-		}
-		return ref.tiledTileset, nil
+	r, se, line, col, err := parseXMLRoot(data, "tileset", "empty TSX document", fixTilesetXML)
+	if err != nil {
+		return tiledTileset{}, err
 	}
+	ref, err := parseXMLTileset(r, se, line, col, false)
+	if err != nil {
+		return tiledTileset{}, err
+	}
+	return ref.tiledTileset, nil
 }
 
 func parseXMLMap(r *xmlReader, start xmlStartElement, line, col int) (tiledMap, error) {
@@ -339,27 +344,9 @@ func parseXMLTileset(r *xmlReader, start xmlStartElement, line, col int, embedde
 	err := r.walkChildren(line, col, "", "tileset", nil, func(t xmlStartElement, cl, cc int) (bool, error) {
 		switch t.Name.Local {
 		case "image":
-			ref.imageLine, ref.imageCol = cl, cc
-			for _, a := range t.Attr {
-				var err error
-				switch a.Name.Local {
-				case "source":
-					ref.Image = a.Value
-				case "width":
-					ref.ImageWidth, err = parseXMLFloat32(a.Value, cl, cc, "imagewidth", fix)
-				}
-				if err != nil {
-					return true, err
-				}
-			}
-			return true, r.skip()
+			return true, parseXMLImageElem(r, t, cl, cc, fix, &ref.Image, &ref.ImageWidth, nil, &ref.imageLine, &ref.imageCol)
 		case "properties":
-			props, err := parseXMLProperties(r, cl, cc)
-			if err != nil {
-				return true, nest(err, "properties")
-			}
-			ref.Properties = append(ref.Properties, props...)
-			return true, nil
+			return true, parseXMLPropsChild(r, cl, cc, &ref.Properties)
 		case "tile":
 			ti := len(ref.Tiles)
 			tile, err := parseXMLTile(r, t, cl, cc, fix)
@@ -399,12 +386,7 @@ func parseXMLTile(r *xmlReader, start xmlStartElement, line, col int, fix string
 	err := r.walkChildren(line, col, "", "tile", nil, func(t xmlStartElement, cl, cc int) (bool, error) {
 		switch t.Name.Local {
 		case "properties":
-			props, err := parseXMLProperties(r, cl, cc)
-			if err != nil {
-				return true, nest(err, "properties")
-			}
-			tile.Properties = append(tile.Properties, props...)
-			return true, nil
+			return true, parseXMLPropsChild(r, cl, cc, &tile.Properties)
 		case "animation":
 			frames, err := parseXMLAnimation(r, cl, cc, fix)
 			if err != nil {
@@ -413,7 +395,7 @@ func parseXMLTile(r *xmlReader, start xmlStartElement, line, col int, fix string
 			tile.Animation = append(tile.Animation, frames...)
 			return true, nil
 		case "objectgroup":
-			group, err := parseXMLObjectGroup(r, t, cl, cc)
+			group, err := parseXMLLayer(r, t, cl, cc, 1)
 			if err != nil {
 				return true, nest(err, "objectgroup")
 			}
@@ -536,22 +518,49 @@ func parseXMLLayerCommon(attrs []xmlAttr, line, col int, l *tiledLayer) error {
 	return nil
 }
 
-func parseXMLLayer(r *xmlReader, start xmlStartElement, line, col int) (tiledLayer, error) {
-	l := tiledLayer{Type: "tilelayer", isXML: true, line: line, col: col}
+func parseXMLLayer(r *xmlReader, start xmlStartElement, line, col, depth int) (tiledLayer, error) {
+	tag := start.Name.Local
+	typ := tag
+	if tag == "layer" {
+		typ = "tilelayer"
+	} else if tag == "group" && depth > maxXMLDepth {
+		return tiledLayer{}, &loaderr.Error{
+			Line:    line,
+			Column:  col,
+			Problem: fmt.Sprintf("group layers nested deeper than %d", maxXMLDepth),
+			Fix:     "flatten deeply nested group layers in Tiled",
+		}
+	}
+	l := tiledLayer{Type: typ, isXML: true, line: line, col: col}
 	if err := parseXMLLayerCommon(start.Attr, line, col, &l); err != nil {
 		return tiledLayer{}, err
 	}
-	err := r.walkChildren(line, col, "", "layer", nil, func(t xmlStartElement, cl, cc int) (bool, error) {
-		switch t.Name.Local {
-		case "properties":
-			props, err := parseXMLProperties(r, cl, cc)
-			if err != nil {
-				return true, nest(err, "properties")
+	err := r.walkChildren(line, col, "", tag, nil, func(t xmlStartElement, cl, cc int) (bool, error) {
+		if tag == "group" {
+			return parseXMLChildLayer(r, t, cl, cc, depth+1, &l.Properties, &l.Layers)
+		}
+		if t.Name.Local == "properties" {
+			return true, parseXMLPropsChild(r, cl, cc, &l.Properties)
+		}
+		switch tag {
+		case "layer":
+			if t.Name.Local == "data" {
+				return true, parseXMLData(r, t, cl, cc, &l)
 			}
-			l.Properties = append(l.Properties, props...)
-			return true, nil
-		case "data":
-			return true, parseXMLData(r, t, cl, cc, &l)
+		case "imagelayer":
+			if t.Name.Local == "image" {
+				return true, parseXMLImageElem(r, t, cl, cc, fixTiledXML, &l.Image, &l.ImageWidth, &l.ImageHeight, &l.imageLine, &l.imageCol)
+			}
+		case "objectgroup":
+			if t.Name.Local == "object" {
+				oi := len(l.Objects)
+				obj, err := parseXMLObject(r, t, cl, cc)
+				if err != nil {
+					return true, nest(err, loaderr.Path("objects", oi))
+				}
+				l.Objects = append(l.Objects, obj)
+				return true, nil
+			}
 		}
 		return false, nil
 	})
@@ -630,71 +639,6 @@ func parseXMLChunk(r *xmlReader, start xmlStartElement, line, col int) (tiledChu
 	return ch, err
 }
 
-func parseXMLImageLayer(r *xmlReader, start xmlStartElement, line, col int) (tiledLayer, error) {
-	l := tiledLayer{Type: "imagelayer", isXML: true, line: line, col: col}
-	if err := parseXMLLayerCommon(start.Attr, line, col, &l); err != nil {
-		return tiledLayer{}, err
-	}
-	err := r.walkChildren(line, col, "", "imagelayer", nil, func(t xmlStartElement, cl, cc int) (bool, error) {
-		switch t.Name.Local {
-		case "properties":
-			props, err := parseXMLProperties(r, cl, cc)
-			if err != nil {
-				return true, nest(err, "properties")
-			}
-			l.Properties = append(l.Properties, props...)
-			return true, nil
-		case "image":
-			l.imageLine, l.imageCol = cl, cc
-			for _, a := range t.Attr {
-				var err error
-				switch a.Name.Local {
-				case "source":
-					l.Image = a.Value
-				case "width":
-					l.ImageWidth, err = parseXMLFloat32(a.Value, cl, cc, "imagewidth", fixTiledXML)
-				case "height":
-					l.ImageHeight, err = parseXMLFloat32(a.Value, cl, cc, "imageheight", fixTiledXML)
-				}
-				if err != nil {
-					return true, err
-				}
-			}
-			return true, r.skip()
-		}
-		return false, nil
-	})
-	return l, err
-}
-
-func parseXMLObjectGroup(r *xmlReader, start xmlStartElement, line, col int) (tiledLayer, error) {
-	l := tiledLayer{Type: "objectgroup", isXML: true, line: line, col: col}
-	if err := parseXMLLayerCommon(start.Attr, line, col, &l); err != nil {
-		return tiledLayer{}, err
-	}
-	err := r.walkChildren(line, col, "", "objectgroup", nil, func(t xmlStartElement, cl, cc int) (bool, error) {
-		switch t.Name.Local {
-		case "properties":
-			props, err := parseXMLProperties(r, cl, cc)
-			if err != nil {
-				return true, nest(err, "properties")
-			}
-			l.Properties = append(l.Properties, props...)
-			return true, nil
-		case "object":
-			oi := len(l.Objects)
-			obj, err := parseXMLObject(r, t, cl, cc)
-			if err != nil {
-				return true, nest(err, loaderr.Path("objects", oi))
-			}
-			l.Objects = append(l.Objects, obj)
-			return true, nil
-		}
-		return false, nil
-	})
-	return l, err
-}
-
 func parseXMLObject(r *xmlReader, start xmlStartElement, line, col int) (tiledObject, error) {
 	obj := tiledObject{line: line, col: col}
 	for _, a := range start.Attr {
@@ -733,12 +677,7 @@ func parseXMLObject(r *xmlReader, start xmlStartElement, line, col int) (tiledOb
 	err := r.walkChildren(line, col, "", "object", nil, func(t xmlStartElement, cl, cc int) (bool, error) {
 		switch t.Name.Local {
 		case "properties":
-			props, err := parseXMLProperties(r, cl, cc)
-			if err != nil {
-				return true, nest(err, "properties")
-			}
-			obj.Properties = append(obj.Properties, props...)
-			return true, nil
+			return true, parseXMLPropsChild(r, cl, cc, &obj.Properties)
 		case "point":
 			obj.Point = true
 			return true, r.skip()
@@ -781,25 +720,6 @@ func parseXMLPoints(raw, field string, line, col int) ([]tiledPoint, error) {
 		pts = append(pts, tiledPoint{X: x, Y: y})
 	}
 	return pts, nil
-}
-
-func parseXMLGroup(r *xmlReader, start xmlStartElement, line, col int, depth int) (tiledLayer, error) {
-	if depth > maxXMLDepth {
-		return tiledLayer{}, &loaderr.Error{
-			Line:    line,
-			Column:  col,
-			Problem: fmt.Sprintf("group layers nested deeper than %d", maxXMLDepth),
-			Fix:     "flatten deeply nested group layers in Tiled",
-		}
-	}
-	l := tiledLayer{Type: "group", isXML: true, line: line, col: col}
-	if err := parseXMLLayerCommon(start.Attr, line, col, &l); err != nil {
-		return tiledLayer{}, err
-	}
-	err := r.walkChildren(line, col, "", "group", nil, func(t xmlStartElement, cl, cc int) (bool, error) {
-		return parseXMLChildLayer(r, t, cl, cc, depth+1, &l.Properties, &l.Layers)
-	})
-	return l, err
 }
 
 // validateLayerEncoding checks encoding and compression attributes for both TMJ and TMX tile layers.

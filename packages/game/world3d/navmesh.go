@@ -160,15 +160,9 @@ type NavMesh struct {
 // Each polygon is assigned NavAreaDefault and NavFlagWalk. If maxSlopeRad < 0,
 // a default limit of 45 degrees (pi/4) is used.
 func BuildNavMesh(polys [][]math3d.Vec3, maxSlopeRad float32) *NavMesh {
-	inputs := make([]NavPolygonInput, len(polys))
-	for i, raw := range polys {
-		inputs[i] = NavPolygonInput{
-			Vertices: raw,
-			Area:     NavAreaDefault,
-			Flags:    NavFlagWalk,
-		}
-	}
-	return BuildNavMeshWithAreas(inputs, maxSlopeRad)
+	return buildNavMesh(len(polys), maxSlopeRad, func(i int) ([]math3d.Vec3, NavArea, NavFlags) {
+		return polys[i], NavAreaDefault, NavFlagWalk
+	})
 }
 
 // BuildNavMeshWithAreas constructs a NavMesh from convex 3D polygons carrying
@@ -178,26 +172,44 @@ func BuildNavMesh(polys [][]math3d.Vec3, maxSlopeRad float32) *NavMesh {
 // Polygons with zero Flags default to NavFlagWalk. If maxSlopeRad < 0, a
 // default limit of 45 degrees (pi/4) is used.
 func BuildNavMeshWithAreas(polys []NavPolygonInput, maxSlopeRad float32) *NavMesh {
+	return buildNavMesh(len(polys), maxSlopeRad, func(i int) ([]math3d.Vec3, NavArea, NavFlags) {
+		return polys[i].Vertices, polys[i].Area, polys[i].Flags
+	})
+}
+
+func buildNavMesh(count int, maxSlopeRad float32, get func(i int) ([]math3d.Vec3, NavArea, NavFlags)) *NavMesh {
 	if maxSlopeRad < 0 {
 		maxSlopeRad = math.Pi / 4
 	}
 	minNormalY := float32(math.Cos(float64(maxSlopeRad))) - 1e-5
 
+	totalVerts := 0
+	for i := range count {
+		raw, _, _ := get(i)
+		if len(raw) >= 3 {
+			totalVerts += len(raw)
+		}
+	}
+
 	nm := &NavMesh{
+		Polys:             make([]NavPoly, 0, count),
 		VerticalTolerance: defaultVerticalTolerance,
 		revision:          1,
 	}
+	vertBuf := make([]math3d.Vec3, 0, totalVerts)
 
-	for _, in := range polys {
-		raw := in.Vertices
+	for i := range count {
+		raw, area, flags := get(i)
 		if len(raw) < 3 {
 			continue
 		}
-		verts := make([]math3d.Vec3, len(raw))
-		copy(verts, raw)
+		start := len(vertBuf)
+		vertBuf = append(vertBuf, raw...)
+		verts := vertBuf[start : start+len(raw) : start+len(raw)]
 
 		normal := newellNormal(verts)
 		if normal.LenSq() < 1e-10 {
+			vertBuf = vertBuf[:start]
 			continue
 		}
 		normal = normal.Norm()
@@ -210,6 +222,7 @@ func BuildNavMeshWithAreas(polys []NavPolygonInput, maxSlopeRad float32) *NavMes
 
 		// Filter unwalkable steep surfaces (walls, cliffs, overhangs).
 		if normal.Y < minNormalY || normal.Y < 1e-5 {
+			vertBuf = vertBuf[:start]
 			continue
 		}
 
@@ -220,7 +233,6 @@ func BuildNavMeshWithAreas(polys []NavPolygonInput, maxSlopeRad float32) *NavMes
 			sum = sum.Add(v)
 		}
 
-		flags := in.Flags
 		if flags == 0 {
 			flags = NavFlagWalk
 		}
@@ -231,7 +243,7 @@ func BuildNavMeshWithAreas(polys []NavPolygonInput, maxSlopeRad float32) *NavMes
 			PlaneD:   -normal.Dot(verts[0]),
 			Center:   sum.Scale(1 / float32(len(verts))),
 			Bounds:   bounds,
-			Area:     in.Area,
+			Area:     area,
 			Flags:    flags,
 		})
 	}
