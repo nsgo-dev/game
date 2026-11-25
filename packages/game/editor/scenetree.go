@@ -193,6 +193,8 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 		TestID: "scene-tree-panel",
 		Style: core.Style{
 			Width:       core.Pt(220),
+			FlexGrow:    1,
+			FlexBasis:   core.Pt(0),
 			Background:  colors.Inset(),
 			Borders:     core.Edges{Right: 1},
 			BorderColor: colors.Line(),

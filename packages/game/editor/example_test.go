@@ -313,3 +313,36 @@ func ExampleEditor_ReparentObject() {
 	// 20 -10
 	// 2
 }
+
+// AddLayer, MoveLayer and SetActiveLayer give a new scene a background drawn under its first layer, which objects are then placed on; each layer edit is one undoable step.
+func ExampleEditor_AddLayer() {
+	ed, err := editor.New(nil, nil)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	if err := ed.AddLayer("background", sceneformat.SpaceWorld); err != nil {
+		fmt.Println(err)
+		return
+	}
+	if err := ed.MoveLayer("background", 0); err != nil {
+		fmt.Println(err)
+		return
+	}
+	ed.SetActiveLayer("background")
+	id, _ := ed.PlaceObject("", sceneformat.ObjectDoc{ID: "sky"})
+	_, layer := ed.SelectedObject()
+	for _, l := range ed.Layers() {
+		fmt.Println(l.Name, l.Space, l.Active)
+	}
+	fmt.Println(id, "on", layer)
+
+	ed.Undo()
+	ed.Undo()
+	fmt.Println(ed.History.UndoLabel())
+	// Output:
+	// background world true
+	// main world false
+	// sky on background
+	// Add layer background
+}

@@ -265,6 +265,10 @@ type Editor struct {
 	// hidden and locked are the objects the scene tree hides in the viewports or locks against picking (SetObjectHidden, SetObjectLocked); they belong to the session, not the scene file.
 	hidden map[string]bool
 	locked map[string]bool
+	// layerLocked are the layers the layers panel locks against the viewports (SetLayerLocked); like hidden and locked, they belong to the session.
+	layerLocked map[string]bool
+	// baseLayers caches the names of the layers of the scene the open scene inherits (inheritedLayers).
+	baseLayers baseLayerCache
 	// objIndex is where every object of the open scene sits, rebuilt when the revision or the document changes (lookupObject).
 	objIndex objectIndex
 	// filesRev counts the changes the editor made to which files the open project holds, by opening it, moving files, saving a scene or clip, which may make a new file, and installing or removing packs; the file browser lists the files again when it changes.
@@ -398,6 +402,8 @@ func (e *Editor) afterMutate() {
 			e.SelectedID = ""
 		}
 	}
+	// Undoing a layer's addition, or redoing its removal, may take the active layer away.
+	e.keepActiveLayer()
 	// An undone or redone project edit may have turned off the plugin whose tool is active.
 	e.dropStalePluginTool()
 	e.dropStaleFocusedPluginPanel()
@@ -595,7 +601,7 @@ func (e *Editor) openYAMLWithLayers(data []byte, file string, layers *sceneforma
 	e.SelectedID = ""
 	// Another scene opens at its own camera's view.
 	e.view2DFree = false
-	e.hidden, e.locked = nil, nil
+	e.hidden, e.locked, e.layerLocked = nil, nil, nil
 	// The loaded scene did not come from the current path, so a later Save must
 	// not overwrite the previously opened file with unrelated content.
 	e.FilePath = ""

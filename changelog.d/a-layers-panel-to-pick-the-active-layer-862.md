@@ -1,0 +1,3 @@
+### Added
+
+- `game/editor`: a layers panel (`LayersView`) under the scene tree lists the scene's layers in draw order with their space and tilemap, makes the pressed layer the active one, and adds, removes, renames, reorders (by drag or context menu), hides and locks layers; `AddLayer`, `RemoveLayer` (which takes the connections of the layer's objects with it), `RenameLayer`, `MoveLayer`, `SetLayerVisible` and `SetLayerSpace` do the same as undoable commands that round-trip the scene file, `SetLayerLocked` keeps the viewports from picking, moving or painting a layer for the session, `Layers` reports what the panel shows, and the status bar marks the active layer hidden or locked (#862).
