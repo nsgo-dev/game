@@ -366,7 +366,7 @@ strings:
   overlays.patrolPaths: 巡逻路径
   overlays.popoverTitle: 在视口中显示
   overlays.snap: 吸附
-  overlays.snapLabel: 将形状手柄吸附到网格
+  overlays.snapLabel: 将对象和手柄吸附到网格
   overlays.triggers: 触发器
   overlays.zoomIn: 放大
   overlays.zoomOut: 缩小

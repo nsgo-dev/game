@@ -618,8 +618,15 @@ func viewportImage(ctx context.Context, c *Call) (*Result, error) {
 		var d core.Drawing
 		d.Scale(float32(scale), float32(scale))
 		size := core.Size{Width: core.Points(w), Height: core.Points(h)}
-		if args.ViewportOverlays == nil {
-			info.ViewportOverlays = ed.ActiveViewportOverlays()
+		if ed.ViewMode == editor.ViewMode3D {
+			if args.ViewportOverlays != nil {
+				return fmt.Errorf("viewport_image: viewport_overlays only applies in 2D view mode")
+			}
+			ed.DrawViewport(&d, size)
+		} else if args.ViewportOverlays == nil {
+			if !ed.Playing() {
+				info.ViewportOverlays = ed.ActiveViewportOverlays()
+			}
 			ed.DrawViewport(&d, size)
 		} else {
 			req := *args.ViewportOverlays
@@ -629,14 +636,16 @@ func viewportImage(ctx context.Context, c *Call) (*Result, error) {
 			if err := ed.DrawViewportWithOverlays(&d, size, req); err != nil {
 				return fmt.Errorf("viewport_image: %w", err)
 			}
-			seen := make(map[string]struct{}, len(req))
-			for _, id := range req {
-				if _, dup := seen[id]; !dup {
-					seen[id] = struct{}{}
-					info.ViewportOverlays = append(info.ViewportOverlays, id)
+			if !ed.Playing() {
+				seen := make(map[string]struct{}, len(req))
+				for _, id := range req {
+					if _, dup := seen[id]; !dup {
+						seen[id] = struct{}{}
+						info.ViewportOverlays = append(info.ViewportOverlays, id)
+					}
 				}
+				slices.Sort(info.ViewportOverlays)
 			}
-			slices.Sort(info.ViewportOverlays)
 		}
 		ops = d.Ops
 		info.View = ed.View2D()

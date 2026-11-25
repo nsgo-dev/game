@@ -148,9 +148,12 @@ func viewportOverlaysBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 						},
 						Children: []core.Node{
 							ui.Button{
-								TestID:   "viewport-zoom-out",
-								Icon:     lucide.Minus,
-								Label:    ed.T("overlays.zoomOut"),
+								TestID: "viewport-zoom-out",
+								Icon:   lucide.Minus,
+								LabelFunc: func() string {
+									_ = rev.Get()
+									return ed.T("overlays.zoomOut")
+								},
 								Size:     ui.SizeSmall,
 								Variant:  ui.ButtonGhost,
 								Side:     28,
@@ -177,9 +180,12 @@ func viewportOverlaysBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 								},
 							},
 							ui.Button{
-								TestID:   "viewport-zoom-in",
-								Icon:     lucide.Plus,
-								Label:    ed.T("overlays.zoomIn"),
+								TestID: "viewport-zoom-in",
+								Icon:   lucide.Plus,
+								LabelFunc: func() string {
+									_ = rev.Get()
+									return ed.T("overlays.zoomIn")
+								},
 								Size:     ui.SizeSmall,
 								Variant:  ui.ButtonGhost,
 								Side:     28,
@@ -192,9 +198,15 @@ func viewportOverlaysBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 							},
 							barDivider(),
 							ui.Button{
-								TestID:  "viewport-bar-snap",
-								Text:    ed.T("overlays.snap"),
-								Label:   ed.T("overlays.snapLabel"),
+								TestID: "viewport-bar-snap",
+								TextFunc: func() string {
+									_ = rev.Get()
+									return ed.T("overlays.snap")
+								},
+								LabelFunc: func() string {
+									_ = rev.Get()
+									return ed.T("overlays.snapLabel")
+								},
 								Size:    ui.SizeSmall,
 								Variant: ui.ButtonGhost,
 								Color: func() core.Color {
@@ -219,9 +231,15 @@ func viewportOverlaysBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 								},
 							},
 							ui.Button{
-								TestID:  "viewport-bar-fit",
-								Text:    ed.T("overlays.fit"),
-								Label:   ed.T("overlays.fitLabel"),
+								TestID: "viewport-bar-fit",
+								TextFunc: func() string {
+									_ = rev.Get()
+									return ed.T("overlays.fit")
+								},
+								LabelFunc: func() string {
+									_ = rev.Get()
+									return ed.T("overlays.fitLabel")
+								},
 								Size:    ui.SizeSmall,
 								Variant: ui.ButtonGhost,
 								TextStyle: core.Style{
