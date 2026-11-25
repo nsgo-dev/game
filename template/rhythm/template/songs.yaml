@@ -1,0 +1,118 @@
+version: 1
+judgement:
+  perfectMs: 45
+  greatMs: 90
+  goodMs: 135
+energy:
+  start: 60
+  perfect: 2
+  great: 1
+  good: 0
+  miss: -15
+songs:
+  - id: night-drive
+    title: Night Drive
+    music: placeholder:music_loop
+    loop: true
+    beatMap: night-drive.beatmap.yaml
+    lengthBeats: 64
+    charts:
+      - id: easy
+        name: Easy
+        level: 2
+        notes:
+          - {beat: 4, lane: 0}
+          - {beat: 6, lane: 1}
+          - {beat: 8, lane: 2}
+          - {beat: 10, lane: 3}
+          - {beat: 12, lane: 3}
+          - {beat: 14, lane: 2}
+          - {beat: 16, lane: 1}
+          - {beat: 18, lane: 0}
+          - {beat: 20, lane: 0}
+          - {beat: 22, lane: 1}
+          - {beat: 24, lane: 2}
+          - {beat: 26, lane: 3}
+          - {beat: 28, lane: 3}
+          - {beat: 30, lane: 2}
+          - {beat: 32, lane: 1}
+          - {beat: 34, lane: 0}
+          - {beat: 36, lane: 0}
+          - {beat: 38, lane: 1}
+          - {beat: 40, lane: 2}
+          - {beat: 42, lane: 3}
+          - {beat: 44, lane: 3}
+          - {beat: 46, lane: 2}
+          - {beat: 48, lane: 1}
+          - {beat: 50, lane: 0}
+          - {beat: 52, lane: 0}
+          - {beat: 54, lane: 1}
+          - {beat: 56, lane: 2}
+          - {beat: 58, lane: 3}
+      - id: hard
+        name: Hard
+        level: 6
+        notes:
+          - {beat: 4, lane: 0}
+          - {beat: 4, lane: 3}
+          - {beat: 5, lane: 1}
+          - {beat: 6, lane: 0}
+          - {beat: 7, lane: 3}
+          - {beat: 8, lane: 0}
+          - {beat: 9, lane: 3}
+          - {beat: 10, lane: 2}
+          - {beat: 11, lane: 1}
+          - {beat: 12, lane: 3}
+          - {beat: 13, lane: 0}
+          - {beat: 14, lane: 1}
+          - {beat: 15, lane: 1}
+          - {beat: 15.5, lane: 2}
+          - {beat: 16, lane: 1}
+          - {beat: 17, lane: 2}
+          - {beat: 18, lane: 3}
+          - {beat: 19, lane: 0}
+          - {beat: 20, lane: 0}
+          - {beat: 20, lane: 3}
+          - {beat: 21, lane: 1}
+          - {beat: 22, lane: 0}
+          - {beat: 23, lane: 3}
+          - {beat: 24, lane: 0}
+          - {beat: 25, lane: 3}
+          - {beat: 26, lane: 2}
+          - {beat: 27, lane: 1}
+          - {beat: 28, lane: 3}
+          - {beat: 29, lane: 0}
+          - {beat: 30, lane: 1}
+          - {beat: 31, lane: 1}
+          - {beat: 31.5, lane: 2}
+          - {beat: 32, lane: 1}
+          - {beat: 33, lane: 2}
+          - {beat: 34, lane: 3}
+          - {beat: 35, lane: 0}
+          - {beat: 36, lane: 0}
+          - {beat: 36, lane: 3}
+          - {beat: 37, lane: 1}
+          - {beat: 38, lane: 0}
+          - {beat: 39, lane: 3}
+          - {beat: 40, lane: 0}
+          - {beat: 41, lane: 3}
+          - {beat: 42, lane: 2}
+          - {beat: 43, lane: 1}
+          - {beat: 44, lane: 3}
+          - {beat: 45, lane: 0}
+          - {beat: 46, lane: 1}
+          - {beat: 47, lane: 1}
+          - {beat: 47.5, lane: 2}
+          - {beat: 48, lane: 1}
+          - {beat: 49, lane: 2}
+          - {beat: 50, lane: 3}
+          - {beat: 51, lane: 0}
+          - {beat: 52, lane: 0}
+          - {beat: 52, lane: 3}
+          - {beat: 53, lane: 1}
+          - {beat: 54, lane: 0}
+          - {beat: 55, lane: 3}
+          - {beat: 56, lane: 0}
+          - {beat: 57, lane: 3}
+          - {beat: 58, lane: 2}
+          - {beat: 59, lane: 1}

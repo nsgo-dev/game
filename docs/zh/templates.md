@@ -14,6 +14,7 @@
 | `platformer2d` | 一个横版平台跳跃游戏（[说明](template-platformer2d.md)）：带土狼时间和跳跃缓冲的控制器、三个各有相机边界的房间、尖刺、深坑、可收集的火花、一个检查点和一个终点，可用键盘、手柄或触屏操作。 | `github.com/nsgo-dev/game/template/platformer2d` |
 | `puzzle2d` | Spark Slide，一个 2D 网格解谜游戏：让火花在棋盘上滑行、点亮每一盏灯，关卡用 YAML 定义，支持撤销和重做、步数上限、每关星级，以及保存进度的选关界面；键盘、手柄、触屏和鼠标都能玩。 | `github.com/nsgo-dev/game/template/puzzle2d` |
 | `racing3d` | 一个 3D 赛车游戏：在封闭赛道上与沿赛车线行驶的对手比赛两圈，包含射线车辆、检查点、倒计时、最佳圈幽灵车和结算画面，可用键盘、手柄或触屏操作。[3D 赛车模板](template-racing3d.md) | `github.com/nsgo-dev/game/template/racing3d` |
+| `rhythm` | Pulse Lanes，一个四轨道节奏游戏：谱面用 YAML 写在节拍图上，音乐时钟让音符与音乐保持同步，有 Perfect、Great、Good 和 Miss 判定、连击、分数、评级，以及决定通关或失败的能量条，音频和画面延迟校准按设备保存，最佳成绩也会保存；键盘、手柄、触屏和鼠标都能玩。 | `github.com/nsgo-dev/game/template/rhythm` |
 | `roguelike2d` | 一个回合制 roguelike（[指南](template-roguelike2d.md)）：五层由本局种子生成的 BSP 房间与洞穴、撞击即攻击的战斗、带保底的加权掉落、带装备与限时药剂的属性、按回合冷却的饮药与横扫两个技能、永久死亡和本局总结，可用键盘、手柄或触屏游玩。 | `github.com/nsgo-dev/game/template/roguelike2d` |
 | `rpg2d` | 一个俯视角 RPG：可以行走的小镇和草地、带分支对话的人物、带装备的物品栏、一个任务、回合制战斗和三个存档槽。[指南](template-rpg2d.md)。 | `github.com/nsgo-dev/game/template/rpg2d` |
 | `rts2d` | 一场 2D 即时战略遭遇战：采集水晶、建造兵营、训练三种单位并摧毁电脑对手的总部，带战争迷雾、框选、编队以及键盘、手柄和触屏操作（[指南](template-rts2d.md)）。 | `github.com/nsgo-dev/game/template/rts2d` |
@@ -26,6 +27,10 @@
 ### puzzle2d
 
 火花一直滑行到被墙挡住为止，并点亮途经的每一盏灯；在步数用完之前点亮一关的所有灯即过关，滑进虚空或步数用完时仍有灯未亮则失败。这个模板展示解谜游戏如何成长：规则在 `board.go` 中，每一步都是 `undo.History` 的一个操作，可以精确地撤销和重做；关卡在 `levels.yaml` 中，这是一个带版本号、拒绝未知字段并有规范形式的 YAML 文件，由 `levels.go` 读写；输入映射在 `game.yaml` 中，绑定到 `input.Actions`，滑动手势来自 `input.GestureRecognizer`；移动由固定步长 `game.Loop` 上的 `tween` 播放动画；每关的星级用 `save` 保存。要修改游戏，可以在 `levels.yaml` 中增改关卡，测试会检查每一关都能在标准步数内完成；在 `game.yaml` 中重新绑定操作；在 `board.go` 中添加新的格子类型并在 `draw.go` 中绘制它。模板的 README 列出了全部操作、关卡格式和每个文件。
+
+### rhythm
+
+音符随着歌曲的节拍沿四条轨道落下，玩家在音符到达判定线时敲击对应的轨道；命中会累积连击并充满能量条，漏掉则消耗能量，在能量耗尽之前坚持到歌曲结束即通关，能量耗尽则失败。这个模板展示节奏游戏如何成长：歌曲列表、判定窗口和能量规则在 `songs.yaml` 中，这是一个带版本号、拒绝未知字段并有规范形式的 YAML 文件，由 `songs.go` 读写，每首歌的速度信息放在旁边的 `rhythm` 节拍图文件中；规则在 `run.go` 中，`Run` 按音轨位置判定命中，不依赖任何时钟，因此测试可以精确地驱动它；音乐通过 `audio.Player` 播放，并由 `rhythm.Clock` 跟随，比歌曲短的音轨循环播放时它会计入循环次数；命中按按键或手指按下的时刻判定，而不是按读取输入的游戏步；延迟校准使用 `rhythm.CalibrationScreen`，与谱面走同一套输入，并由 `rhythm.OffsetStore` 按设备保存；输入映射在 `game.yaml` 中，绑定到 `input.Actions`，每条轨道所在的列还绑定了触屏和鼠标；每张谱面的最佳成绩用 `save` 保存。要修改游戏，可以在 `songs.yaml` 中为新歌制谱，并把它的节拍图和音乐放在 `songs/` 下，测试会检查文件是规范形式、每张谱面都公平；判定窗口和能量也在那里调整；在 `game.yaml` 中重新绑定操作；在 `draw.go` 中修改游戏区域的外观。模板的 README 列出了全部操作、歌曲格式和每个文件。
 
 ### shmup2d
 
