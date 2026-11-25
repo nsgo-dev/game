@@ -888,7 +888,7 @@ func main() {
   - 文件与编辑：`mod+s`（保存）、`mod+z`（撤销）、`mod+shift+z`（重做）、`mod+d`（复制选中对象）、`delete` / `backspace`（删除选中对象）、`mod+c`（复制瓦片区域）、`mod+x`（剪切瓦片区域）、`mod+v`（粘贴瓦片区域）。
   - 2D 工具：`v`（选择）、`m`（移动）、`p`（放置）、`b`（绘制瓦片）、`e`（擦除瓦片）、`g`（填充瓦片）、`t`（地形）、`u`（矩形瓦片）、`l`（直线瓦片）、`c`（图章瓦片）、`n`（随机瓦片）。
   - 3D 变换控件与视图：`w`（平移）、`r`（旋转）、`s`（缩放）、`alt+2`（2D 视图）、`alt+3`（3D 视图）、`View > 3D Shading` 下的 Lit、Unlit、Wireframe 三个 3D 着色命令（无快捷键）、`f`（聚焦选中对象：2D 下通过 `FrameSelection2D` 调整独立编辑器视图 `View2D` 而不改动保存的 `Doc.Camera`，3D 下调整 `Camera3D`）、`1`、`ctrl+1`、`3`、`ctrl+3`、`7` 和 `ctrl+7`（3D 前视、后视、右视、左视、顶视和底视）以及 `5`（3D 透视或正交），这些只在 3D 视图中生效、`mod+k`（命令面板）。
-  - 项目：`f5`（播放 / 停止）、`mod+r`（运行游戏：优先调用 `Editor.OnRunGame`，未配置且已挂载作用域时回退到编辑器内运行）、`mod+,`（项目设置）、`mod+shift+e`（导出与发布）、`mod+shift+m`（性能分析器）、`mod+shift+b`（检查问题）。
+  - 项目：`f5`（播放 / 停止）、`mod+r`（运行游戏：优先调用 `Editor.OnRunGame`，未配置且已挂载作用域时回退到编辑器内运行）、`mod+,`（项目设置）、`mod+shift+u`（HUD 与菜单布局）、`mod+shift+e`（导出与发布）、`mod+shift+m`（性能分析器）、`mod+shift+b`（检查问题）。
 - **桌面菜单栏**：`EditorView` 通过 `desktop.SetApplicationMenu`（`Editor.ApplicationMenu`）注册原生应用菜单栏（`File`、`Edit`、`View`、`Project`），以实时可用/勾选状态和对应平台的快捷键提示暴露同一套命令；已启用插件的工具列在 `View > Tools` 下，已启用插件的命令列在 `Project > Plugins` 下。
 - **命令面板（`ui.CommandDialog`）**：按 `mod+k`（或点击工具栏 **Commands** 按钮 / `View > Command Palette...`）即可打开 `CommandPaletteView`，支持按子串排序与模糊匹配搜索全部内置与自定义命令、已启用插件命令、已启用插件工具（通过 `SetPluginTool` 激活）、已启用插件面板（通过 `FocusPluginPanel` 聚焦）以及当前项目的场景和文件（通过 `OpenProjectFile` 打开场景或选中文件）。
 - **插件命令**：插件可通过 `Commands []PluginCommand` 声明带可选 `Shortcut` 的命令。`RegisterPlugin` 会规范化快捷键（`NormalizeShortcut`），并在改动编辑器状态之前拒绝任何在 macOS 或 Windows/Linux 上与内置命令、自定义命令或其他已注册插件冲突的快捷键。
@@ -909,7 +909,6 @@ func main() {
 - **连接运行中的游戏**：可通过 `ConnectProfilerMCP`（基于官方 MCP Go SDK 的任意 `mcp.Transport`）、`ConnectProfilerCommand`（启动 `go tool nsgo mcp`）、`ConnectProfilerScope`（已挂载 `mcp.Bridge` 的进程内 `*core.Scope`）或 `NewBridgeProfilerClient` 创建客户端并传给 `Editor.ConnectProfiler`。挂载作用域后，编辑器会按 `Editor.ProfilerPollInterval`（默认 `250 ms`）轮询 `game_perf_readout` 和 `game_perf_zones`，也可通过 `Editor.PollProfiler` 按需轮询。未连接外部客户端时，内置 Play 模式（`Play` / `PlayIn`）也会自动使用 `debug.Overlay`、`debug.Profiler` 和 `debug.GCMonitor` 采集帧耗时与区间数据。
 - **完整性能分析器面板（`ProfilerPanelView`）**：可通过耗时条、工具栏 **Profiler** 按钮、`Project > Profiler`、命令面板或 `mod+shift+m`（`CmdProfiler` / `SetProfilerOpen`）开关。面板提供实时指标卡片与可切换的时间序列图表（`SetProfilerMetric`），涵盖 **Frame**（叠加 Update、Draw、总耗时与 GC 卡顿标记及 8.3 ms / 16.7 ms 参考线）、**FPS**、**Allocs & GC**（每帧分配次数、实时堆内存与 GC 卡顿）与 **Memory**（受跟踪资源内存与预算对比及分组统计），右侧列出按耗时排序的 `game_perf_zones` 命名计时区间表。
 - **重置与 Chrome/Perfetto Trace 导出**：点击 **Reset**（`Editor.ResetProfiler`）会向已连接的游戏调用 `game_perf_reset` 并清空编辑器已记录的历史帧与区间表。点击 **Export Trace**（或调用 `Editor.ExportProfilerTrace` / `Editor.ExportProfilerTraceFile`，或通过 `Editor.OnExportProfilerTrace` 接管输出）会通过 `debug.Profiler.WriteChromeTrace` 将已记录的帧与区间导出为合法的 Chrome/Perfetto Trace Event Format JSON。
-
 ## 开始界面（#922）
 
 不带参数运行 `go tool game editor` 时会打开开始界面（`StartScreenView`，可通过 `SetStartScreenOpen` 切换），视觉与交互遵循 `docs/design/editor/Start.dc.html`、`FirstRun.dc.html` 第 1 步以及 `Spec.dc.html` 设计 Token：
@@ -950,7 +949,6 @@ func main() {
 - **全字段编辑与交互式曲线控件**：覆盖 `space`、位置、旋转、`z`、`seed`、`shape`（`point`、`circle`、`ring`、`rect`）、`rate`、`maxParticles`、定时爆发 `bursts`（增删改 `time`、`count`、`cycles`、`interval`）、`lifetimeMin`/`Max`、`speedMin`/`Max`、`angleMin`/`Max`、`gravityX`/`Y`、`initialRotationMin`/`Max`、`rotationSpeedMin`/`Max`、`collision`、`trail` 与递归 `subEmitters`（通过 `SetParticleTargetPath` / **Edit Child** 进入编辑子发射器配置）。曲线控件在交互画布上绘制 `sizeCurve`、`alphaCurve`、`rotationCurve`、`colorCurve`、`trail.widthCurve` 与 `trail.colorGradient`，支持拖拽控制点、点击新增控制点及数值微调；图集帧选择器可直接切换解析器图集中的 `frameNames`。
 - **撤销/重做与确定性保存**：所有编辑均记录在 `Editor.History` 中；点击 **Save Emitter**（`SaveParticleEmitterFile` / `SaveParticleEmitterYAML` / `OnSaveParticleEmitter`）以规范的版本化 YAML（`particles.MarshalConfigYAML`）写出，往返加载保持字节不变，并热重载当前打开场景中引用同一文件的发射器。
 - **场景放置**：可通过 `SetObjectParticles`、`PlaceParticles` 或检查器的 **PARTICLES** 区域（`file` 与 `atlas` 选择器）为场景对象绑定粒子发射器。放置的发射器在 2D 编辑视口中实时预览（`StepSceneEmitters`，隐藏对象时同步隐藏），在 Play 模式（`PlayIn`）与独立游戏（`sceneformat.Build`）中正常运行，纳入 `refs` 扫描（`MoveFile` 自动改写 `particles.file`），并由 `assetcheck` 校验文件及帧名。
-
 ## 语言与外观设置（#921）
 
 编辑器界面通过内嵌的带版本号 `l10n` YAML 字符串表（`editor/locales/en.yaml`、`editor/locales/zh.yaml`）同时提供英文（`en`）与简体中文（`zh`）界面，并将每名用户的编辑器偏好设置作为确定性的带版本号 YAML 保存在项目之外：
@@ -980,3 +978,13 @@ func main() {
 - **骨骼、插槽、皮肤与附件**：支持增删与重命名骨骼（`AddRigBone`、`RenameRigBone`、`DeleteRigBone`）、编辑变换与长度（`MoveRigBone`、`RotateRigBone`、`ScaleRigBone`、`SetRigBoneLength`）以及更改父骨骼（`ReparentRigBone`，支持保持绑定姿势世界变换并拒绝环路）；增删、重新绑定、设置透明度与重排绘制顺序插槽（`AddRigSlot`、`DeleteRigSlot`、`SetRigSlotBone`、`SetRigSlotAlpha`、`MoveRigSlotOrder`）；管理皮肤（`AddRigSkin`、`DeleteRigSkin`、`SelectRigSkin`）并将图集帧与枢轴原点挂接到插槽（`AttachRigFrame`、`SetRigAttachment`、`SetRigAttachmentOrigin`、`SetRigAttachmentTransform`、`RemoveRigAttachment`）。
 - **时间轴、播放与交叉淡入预览**：创建与编辑动画（`AddRigAnimation`、`DeleteRigAnimation`、`SelectRigAnimation`、`SetRigAnimationDuration`、`SetRigAnimationLoop`），在时间轴上为骨骼的 `translate`、`rotate`、`scale` 以及插槽的 `attachment`、`alpha` 打关键帧（`KeyRigBoneTranslate`、`KeyRigBoneRotate`、`KeyRigBoneScale`、`KeyRigSlotAttachment`、`KeyRigSlotAlpha`、`DeleteRigBoneKeyframe`、`DeleteRigSlotKeyframe`），并直接经由运行时 `skeletal.Skeleton`（`RigSkeleton`）进行拖动预览（`SeekRig`）、播放（`PlayRig`、`PauseRig`、`StopRig`、`StepRig`）与交叉淡入混合预览（`CrossfadeRig`、`RigBlending`）。
 - **在场景中放置骨骼**：点击 **Place in Scene**（`PlaceOpenRig`、`PlaceRig`）可将骨骼作为带有内置 `"skeletal"` 组件（`sceneformat.SkeletalComponent`，包含 `version: 1`、`rig`、`atlas`、`skin`、`animation`、`loop`）的对象放入场景。`sceneformat.Build` 通过 `SkeletonResolver` 或 `FileResolver`（`FSAssets`）加载骨骼文件并构建带有指定皮肤和动画的实时 `BuiltObject.Skeleton`，在 `BuiltScene.Draw` 与 2D 编辑器视口中按精确 Z 顺序绘制，并在 `BuiltScene.Update(dt)` 中推进动画播放。`refs.Scan` 会追踪 `components.skeletal.rig`（`refs.FieldSkeletalRig`），使 `MoveFile` 重命名骨骼文件时自动更新所有场景引用。
+
+## HUD 与菜单布局界面（#1047）
+
+可通过工具栏 **HUD** 按钮、`Project > HUD & Menu Layout`、命令面板（`mod+shift+u` / `CmdHUDLayout`）、在文件浏览器中双击或打开任意 `*.screen.yaml` 文件，或点击问题面板中的界面诊断条目打开 HUD 与菜单布局界面（`HUDLayoutView`、`OpenHUDScreen` / `OpenHUDScreenFile` / `OpenHUDScreenDoc`）。界面严格遵循编辑器设计规范令牌（`docs/design/editor/HUDLayout.dc.html` 与 `Spec.dc.html`），在所选语言下同时呈现所有屏幕尺寸，并将手动编辑聚焦在高频微调上：
+
+- **顶栏与语言切换**：左侧展示 `<项目名> / screens / <文件名>` 面包屑（点击可返回场景编辑器），中间为读取自 `locales/*.yaml`（并叠加未保存的 `Editor.l10n` 编辑）的 **Language** 分段语言切换器（`SetHUDLocale`），右侧为 **Search ⌘K** 与 **Play**。切换语言会立即重绘全部四个设备尺寸、更新文本宽度表、检查器多语言文本与溢出放大预览以及 **GAME CHECK** 诊断。
+- **左侧栏（`SCREENS` 与 `NODES`）**：列出项目中所有 `*.screen.yaml` 文件（`HUDScreens`）及其节点数与当前语言的问题数；下方展示当前界面的层级节点树（`HUDTree`），附带等宽锚点标记（`TL`、`TC`、`TR`、`CL`、`C`、`CR`、`BL`、`BC`、`BR`、`FILL`）与红色问题圆点。
+- **四尺寸同屏预览与叠加开关**：通过真实的 `gameui.BuildScreen` 布局（`HUDLayoutFrames`）同时绘制带刘海的 **Phone 19.5:9**（`780 × 360`）、**Tablet 4:3**（`640 × 480`）、**Desktop 16:9**（`640 × 360`）与 **Ultrawide 21:9**（`840 × 360`），提供 **Safe areas**、**Anchors**、**Touch areas** 与 **Focus order** 四个叠加层开关（`HUDOverlays` / `ToggleHUDOverlay`），并在视口右下角浮层展示 **TEXT WIDTH, PX** 表（`HUDTextWidths`），逐语言对比每个文本节点的容器宽度与实际文本宽度并高亮溢出项。
+- **检查器、溢出放大视图与 `GAME CHECK`**：展示选中节点的 **ANCHOR**（3×3 锚点按钮网格加 **Fill**、文字描述锚点与偏移量、以及 **Keep inside the safe area** 开关）、**SIZE**（**Fixed** / **Fit text** 切换与触控目标尺寸）、**TEXT**（键名、各语言译文以及文本溢出时的 `1.5×` 放大细节预览卡片），以及基于 `gameui.CheckScreen` 的实时 **GAME CHECK** 问题列表（`HUDProblems`），每条问题附带可直接选中目标节点的 **Show** 按钮与 **Ask the agent to fix N** 按钮；无问题时显示 `"No problems at any size in this language"`。
+- **手动微调与智能体输入框**：调整容器内节点顺序（`ReorderHUDNode`）、修改容器间距（`SetHUDNodeSpacing`）、切换锚点/安全区/尺寸模式（`SetHUDNodeAnchor`、`SetHUDNodeSafeArea`、`SetHUDNodeSizeMode`）以及直接拖拽触控摇杆与触控按钮（`BeginHUDTouchDrag`、`UpdateHUDTouchDrag`、`EndHUDTouchDrag`、`CancelHUDTouchDrag`）均在 `Editor.History` 中记录为**单个可撤销步骤**，并将规范 YAML 写回磁盘上的 `*.screen.yaml` 文件（撤销时逐字节恢复原文件）。底部输入框（`SubmitHUDPrompt`、`AskAgentToFixHUDProblems`、`Editor.OnHUDPrompt`）用于向智能体发起其余界面修改请求。

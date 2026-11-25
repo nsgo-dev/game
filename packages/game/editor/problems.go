@@ -189,6 +189,10 @@ func (e *Editor) OpenProblem(p assetcheck.Problem) error {
 	if p.File == "" {
 		return nil
 	}
+	if isScreenFile(p.File) {
+		e.selectFile(p.File)
+		return e.OpenHUDScreen(p.File)
+	}
 	if isProjectScene(e.Project, p.File) && p.File != e.ScenePath {
 		// OpenScene, as the file browser opens scenes, so OnSave, which persisted the scene open before, does not get this one.
 		if err := e.OpenScene(p.File); err != nil {
