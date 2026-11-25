@@ -113,7 +113,8 @@ func Round(x float64) float64 {
 		return x
 	}
 	f := math.Floor(x)
-	if x-f >= 0.5 {
+	// Explicit conversion prevents arm64 FMA from fusing an inlined a*b argument with -f (e.g. Round(1.45*30) must be 44, not 43).
+	if float64(x)-f >= 0.5 {
 		return f + 1
 	}
 	return f
