@@ -129,16 +129,23 @@ func (e *Editor) SetComponentField(objectID, componentName, field string, value 
 }
 
 type setPropertyCmd struct {
-	ed        *Editor
-	objectID  string
-	key       string
+	ed       *Editor
+	objectID string
+	key      string
+	// label names the step, "Set property <key>" when empty.
+	label     string
 	wasNilMap bool
 	existed   bool
 	oldVal    any
 	newVal    any
 }
 
-func (c *setPropertyCmd) Label() string { return "Set property " + c.key }
+func (c *setPropertyCmd) Label() string {
+	if c.label != "" {
+		return c.label
+	}
+	return "Set property " + c.key
+}
 
 func (c *setPropertyCmd) Do() {
 	obj, _, _ := c.ed.FindObject(c.objectID)
@@ -150,6 +157,9 @@ func (c *setPropertyCmd) Do() {
 	}
 	obj.Properties[c.key] = cloneAny(c.newVal)
 	c.ed.Status = "Updated " + c.key
+	if c.label != "" {
+		c.ed.Status = c.label
+	}
 }
 
 func (c *setPropertyCmd) Undo() {
@@ -188,6 +198,7 @@ func (c *deletePropertyCmd) Do() {
 	if len(obj.Properties) == 0 {
 		obj.Properties = nil
 	}
+	c.ed.Status = "Deleted property " + c.key
 }
 
 func (c *deletePropertyCmd) Undo() {
@@ -747,9 +758,12 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 		)
 	}
 
+	nodes = append(nodes, sectionHeader("SPRITE"))
+	nodes = append(nodes, spriteFields(ed, rev, objID, disabled, fieldRow)...)
+
 	obj, _, _ := ed.FindObject(objID)
-	if obj != nil && len(obj.Properties) > 0 {
-		nodes = append(nodes, sectionHeader("PROPERTIES"))
+	nodes = append(nodes, sectionHeader("PROPERTIES"))
+	if obj != nil {
 		for _, k := range sortedMapKeys(obj.Properties) {
 			key := k
 			sample := obj.Properties[key]
@@ -769,15 +783,19 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 					_ = ed.SetProperty(objID, key, val)
 				},
 			)
-			nodes = append(nodes, fieldRow(key, ctrl))
+			del := removeButton("inspector-prop-"+key+"-delete", "Delete property "+key, disabled, func() {
+				ed.report(ed.DeleteProperty(objID, key))
+			})
+			nodes = append(nodes, fieldRow(key, withTrailing(ctrl, del)))
 		}
 	}
+	nodes = append(nodes, addPropertyRow(cx, ed, objID, disabled))
 
-	if obj != nil && len(obj.Components) > 0 {
-		nodes = append(nodes, sectionHeader("COMPONENTS"))
+	nodes = append(nodes, sectionHeader("COMPONENTS"))
+	if obj != nil {
 		for _, compName := range sortedMapKeys(obj.Components) {
 			cn := compName
-			compTitle := core.Text{
+			var compTitle core.Node = core.Text{
 				TestID:  "inspector-comp-" + cn,
 				Content: cn,
 				Style: core.Style{
@@ -786,20 +804,23 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 					Color:      colors.Text(),
 				},
 			}
+			if t, ok := ed.components.Lookup(cn); ok {
+				compTitle = withTooltip(compTitle, t.Doc)
+			}
+			remove := removeButton("inspector-comp-"+cn+"-remove", "Remove component "+cn, disabled, func() {
+				ed.report(ed.RemoveComponent(objID, cn))
+			})
+			header := withTrailing(compTitle, remove)
 			if in, plugin := ed.pluginInspector(cn); in != nil {
-				title := core.Node(compTitle)
-				if t, ok := ed.components.Lookup(cn); ok {
-					title = withTooltip(compTitle, t.Doc)
-				}
 				nodes = append(nodes, core.View{
 					TestID:   "inspector-plugin-" + plugin + "-" + cn,
 					Style:    core.Style{Gap: 8},
-					Children: []core.Node{title, in.View(cx, ed, rev, objID)},
+					Children: []core.Node{header, in.View(cx, ed, rev, objID)},
 				})
 				continue
 			}
+			nodes = append(nodes, header)
 			if t, ok := ed.components.Lookup(cn); ok {
-				nodes = append(nodes, withTooltip(compTitle, t.Doc))
 				for _, f := range t.Fields {
 					field := f
 					get := func() any {
@@ -827,7 +848,6 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 			if !ok {
 				continue
 			}
-			nodes = append(nodes, compTitle)
 			for _, fieldKey := range sortedMapKeys(m) {
 				fk := fieldKey
 				sample := m[fk]
@@ -853,6 +873,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 			}
 		}
 	}
+	nodes = append(nodes, addComponentControl(cx, ed, rev, objID, disabled))
 
 	return core.View{
 		Style:    core.Style{Gap: 8},

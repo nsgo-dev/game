@@ -160,3 +160,47 @@ func ExampleEditor_RegisterPlugin() {
 	// on: [] project lists: [terrain]
 	// on: [health]
 }
+
+// AddComponent gives an object a registered component with every field at its default, and RemoveComponent takes it away again with the connections that need it; both are undoable steps.
+func ExampleEditor_AddComponent() {
+	doc := &sceneformat.SceneDoc{
+		Version: sceneformat.CurrentVersion,
+		Name:    "yard",
+		Layers:  []sceneformat.LayerDoc{{Name: "props", Space: sceneformat.SpaceWorld}},
+	}
+	ed, err := editor.New(doc, props())
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	reg := sceneformat.NewComponentRegistry()
+	reg.MustRegister(sceneformat.ComponentType{Name: "crate", Fields: []sceneformat.Field{
+		{Name: "weight", Kind: sceneformat.FieldFloat, Default: 2.5},
+		{Name: "breakable", Kind: sceneformat.FieldBool},
+	}})
+	if err := ed.SetComponentRegistry(reg); err != nil {
+		fmt.Println(err)
+		return
+	}
+	id, _ := ed.PlaceObject("props", sceneformat.ObjectDoc{Sprite: &sceneformat.SpriteRef{Atlas: "props", Frame: "crate"}})
+
+	if err := ed.AddComponent(id, "crate"); err != nil {
+		fmt.Println(err)
+		return
+	}
+	obj, _, _ := ed.FindObject(id)
+	fmt.Println(obj.Components["crate"])
+	fmt.Println(ed.AddComponent(id, "crate"))
+
+	ed.SetObjectFlip(id, true, false)
+	ed.RemoveComponent(id, "crate")
+	fmt.Println(obj.Components, obj.FlipX)
+	ed.Undo()
+	ed.Undo()
+	fmt.Println(len(obj.Components), obj.FlipX)
+	// Output:
+	// map[breakable:false weight:2.5]
+	// editor: object "crate_1" already has component "crate"
+	// map[] true
+	// 1 false
+}

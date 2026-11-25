@@ -442,6 +442,16 @@ scenes/level.scene.yaml:12: sceneformat: connection 0 ("lever" held -> "west/doo
 
 场景从所实例化或继承的场景原样带来的问题在那个文件上报告，它的覆盖项造成的问题在覆盖项上报告，所以每个问题只报告一次。问题只给出行号，不给出列号。
 
+### 检查器（#865）
+
+检查器可以直接设置对象，无需编辑 YAML。它的每次编辑都是一个可撤销的步骤，并且都有一个 `Editor` 方法在 Go 中完成同样的事；运行（Play）期间这些方法返回 `ErrPlaying`，控件也会被禁用。编辑器拒绝的编辑会显示在状态栏中。
+
+- **精灵**：Sprite 字段从资源浏览器列出的图集帧（`Assets`）中选取一帧，按图集分组并可搜索，清除按钮会解除绑定；旁边的按钮使用资源浏览器中选中的帧。`SetObjectSprite(id, ref)` 要求同时给出图集和帧，设置了解析器时图集必须能解析并包含该帧；`ref` 为 nil 时解除精灵绑定。
+- **原点与翻转**：精灵帧内的枢轴点 `originX` 与 `originY` 用 `SetObjectOrigin(id, x, y)` 设置，它拒绝非有限值；`flipX` 与 `flipY` 用 `SetObjectFlip(id, flipX, flipY)` 设置。
+- **材质**：Material 字段从当前打开项目的 `*.material.yaml` 文件中选取一个，清除按钮则不指定材质；`SetObjectMaterial(id, path)` 接受相对项目根目录、以斜杠分隔的路径，或空路径。
+- **属性**：Add Property 接受一个键和一种类型（`string`、`int`、`float` 或 `bool`），添加的属性取该类型的零值（`AddProperty(id, key, kind)`）；空键或对象已有的键会被拒绝。每个属性的删除按钮会删除该属性（`DeleteProperty`）。
+- **组件**：Add Component 字段会筛选对象尚未拥有的已注册类型，按下其中一个即添加该组件，并写入每个已注册字段的默认值，让文件能看出组件的作用（`AddComponent(id, name)`）。按回车会添加字段中写出的类型，或唯一匹配的那个类型。对象已有的组件、注册表不认识的名称都会被拒绝；没有注册表时，该字段可以添加任意名称、不含字段的组件。如果新组件声明的事件或处理器被某个连接以裸名称引用，而对象的另一个组件也声明了它，添加也会被拒绝，因为连接将无法说明指的是哪一个：请先把它写成 `component.event`。每个组件的移除按钮会移除该组件（`RemoveComponent(id, name)`），连同所有需要它的连接：从该对象发出、事件由该组件声明的连接，以及指向该对象、处理器由该组件声明的连接，无论写成裸名称还是 `component.name`；`ComponentConnections(id, name)` 列出这些连接，撤销会把组件和连接放回原处。没有注册类型的组件仍按文件中的值显示，字段照常可编辑。
+
 ### 项目
 
 编辑器也能打开游戏的[项目文件](project.md)：`OpenProject` 读取 `game.yaml` 并打开其中的主场景，`EditProject` 以可撤销的步骤修改它，`SaveProject` 写入它并同步旁边的 `nsgo.yaml`。运行 `go tool game editor <dir>` 即可打开一个项目目录。`MoveFile(from, to)` 移动项目中的文件或目录，并像 `go tool game mv` 一样改写所有指向它的引用，包括磁盘上的文件和当前打开的场景与项目（见[稳定引用](project.md#稳定引用)）；这是一个步骤，可以撤销，也可以重做。撤销会把移动改写过的每个文件逐字节恢复原样；如果某个文件在移动之后又被改过，则只把其中的引用改写回去。
