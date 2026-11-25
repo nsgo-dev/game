@@ -32,6 +32,8 @@ loop := &game.Loop{
 
 `Step` runs once per fixed step. It reads the contacts the body's previous `Move` left on it (`Grounded`, `OnLeftWall`, `OnRightWall`), sets the body's velocity from the `Input` and the config, and moves it with `CharacterBody.Move`, so slopes, one-way tiles and moving platforms work as they do for the body alone. The `StepResult` reports the `MoveResult`, the jump the step started (`JumpGround`, `JumpWall` or `JumpNone`), whether it cut a jump short (`JumpCut`), slid on a wall (`WallSliding`), ignored horizontal input (`InputLocked`), and which wall the body could jump from (`WallSide`, -1 left, 1 right, 0 none).
 
+For a tilemap, pass a [`tileshape.View`](tileshape.md) as `grid` and its `Slopes()` (or `AppendSlopesIn` around the body) as `slopes`: the character then walks the slope, 2:1 and half-height tiles drawn in Tiled's collision editor with no hand-placed segments.
+
 `Reset` forgets every timer, such as after a respawn, and `SetConfig` swaps the tunables while the game runs.
 
 ## Timing

@@ -100,7 +100,7 @@ type CharacterBody struct {
 	// MaxSlopeAngle is the steepest walkable slope angle in radians.
 	// Values <= 0 default to DefaultMaxSlopeAngle (45 degrees).
 	MaxSlopeAngle float32
-	// SnapDist is the maximum downward distance to snap onto a walkable slope while walking downhill.
+	// SnapDist is the maximum downward distance to snap onto a walkable slope while walking downhill, or onto a tile top when walking off the lower end of a slope.
 	SnapDist float32
 	// Grounded reports whether the character is supported by a tile, walkable slope, or platform.
 	Grounded bool
@@ -153,6 +153,7 @@ func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingP
 	}
 	b := c.Body
 	wasGrounded := c.Grounded
+	prevNormal := c.GroundNormal
 	prevRiding := c.Riding
 
 	c.Grounded = false
@@ -452,6 +453,49 @@ func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingP
 	stepDY := totalDY / float64(steps)
 	const angleEps = 1e-5
 
+	// climbSurface returns the highest walkable slope surface under the character at its current x that lies above its feet, which it reached by walking from prevX with its bottom at prevBottom rather than by jumping from below.
+	climbSurface := func(prevX, prevBottom float64) (bestSurfY float64, bestNormal core.Point, climbed bool) {
+		bestSurfY = math.Inf(1)
+		for _, s := range slopes {
+			ax, ay, bx, by, ok := s.ordered()
+			if !ok || bx == ax {
+				continue
+			}
+			angle := detmath.Atan2(math.Abs(by-ay), bx-ax)
+			if angle > maxSlope+angleEps {
+				continue
+			}
+			ovL := max(x, ax)
+			ovR := min(x+w, bx)
+			if ovL > ovR {
+				continue
+			}
+			surfY := min(slopeYAt(ax, ay, bx, by, ovL), slopeYAt(ax, ay, bx, by, ovR))
+			if y+h <= surfY+1e-5 {
+				continue
+			}
+			// Verify character approached from on/above the slope rather than jumping from below.
+			var refY float64
+			switch {
+			case prevX+w <= ax+1e-4:
+				refY = ay
+			case prevX >= bx-1e-4:
+				refY = by
+			default:
+				pOvL := max(prevX, ax)
+				pOvR := min(prevX+w, bx)
+				refY = min(slopeYAt(ax, ay, bx, by, pOvL), slopeYAt(ax, ay, bx, by, pOvR))
+			}
+			climbTol := max(0.5, float64(math.Abs(x-prevX)*detmath.Tan(maxSlope))+0.5)
+			if prevBottom <= refY+climbTol && surfY < bestSurfY {
+				bestSurfY = surfY
+				bestNormal = s.Normal()
+				climbed = true
+			}
+		}
+		return bestSurfY, bestNormal, climbed
+	}
+
 	for range steps {
 		// 2a. Horizontal step.
 		if stepDX != 0 {
@@ -459,6 +503,17 @@ func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingP
 			prevY := y
 			prevBottom := y + h
 			x += stepDX
+
+			// Lift the character onto a walkable slope it is climbing before testing tile walls, so the top of a slope that meets a solid cell's top is not mistaken for the cell's side.
+			lifted := false
+			var liftSurfY float64
+			var liftNormal core.Point
+			if b.VY >= 0 && len(slopes) > 0 {
+				if surfY, normal, ok := climbSurface(prevX, prevBottom); ok && !overlapsSolidTile(x, surfY-h) {
+					y = surfY - h
+					lifted, liftSurfY, liftNormal = true, surfY, normal
+				}
+			}
 
 			if resolveTilesX(stepDX) {
 				b.VX = 0
@@ -554,50 +609,18 @@ func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingP
 				}
 			}
 
+			// A step something blocked climbs nothing.
+			if lifted && stepDX == 0 {
+				y = prevY
+				lifted = false
+			}
+
 			// Climb walkable slopes smoothly when not jumping upward.
 			if b.VY >= 0 {
-				bestSurfY := math.Inf(1)
-				var bestNormal core.Point
-				climbed := false
-
-				for _, s := range slopes {
-					ax, ay, bx, by, ok := s.ordered()
-					if !ok || bx == ax {
-						continue
-					}
-					angle := detmath.Atan2(math.Abs(by-ay), bx-ax)
-					if angle > maxSlope+angleEps {
-						continue
-					}
-					ovL := max(x, ax)
-					ovR := min(x+w, bx)
-					if ovL > ovR {
-						continue
-					}
-					surfY := min(slopeYAt(ax, ay, bx, by, ovL), slopeYAt(ax, ay, bx, by, ovR))
-					if y+h <= surfY+1e-5 {
-						continue
-					}
-					// Verify character approached from on/above the slope rather than jumping from below.
-					var refY float64
-					switch {
-					case prevX+w <= ax+1e-4:
-						refY = ay
-					case prevX >= bx-1e-4:
-						refY = by
-					default:
-						pOvL := max(prevX, ax)
-						pOvR := min(prevX+w, bx)
-						refY = min(slopeYAt(ax, ay, bx, by, pOvL), slopeYAt(ax, ay, bx, by, pOvR))
-					}
-					climbTol := max(0.5, float64(math.Abs(x-prevX)*detmath.Tan(maxSlope))+0.5)
-					if prevBottom <= refY+climbTol && surfY < bestSurfY {
-						bestSurfY = surfY
-						bestNormal = s.Normal()
-						climbed = true
-					}
+				bestSurfY, bestNormal, climbed := climbSurface(prevX, prevBottom)
+				if !climbed && lifted {
+					bestSurfY, bestNormal, climbed = liftSurfY, liftNormal, true
 				}
-
 				if climbed {
 					newY := bestSurfY - h
 					if overlapsSolidTile(x, newY) {
@@ -801,7 +824,7 @@ func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingP
 				if !ok || bx == ax {
 					continue
 				}
-				angle := math.Atan2(math.Abs(by-ay), bx-ax)
+				angle := detmath.Atan2(math.Abs(by-ay), bx-ax)
 				if angle > maxSlope+angleEps {
 					continue
 				}
@@ -830,13 +853,17 @@ func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingP
 			}
 		}
 
-		// 3c. Check resting flush on solid or one-way tiles.
+		// 3c. Check resting flush on solid or one-way tiles, or, when the character walked off the end of a slope, snap down onto the tile top within SnapDist below it.
 		if !c.Grounded && hasGrid {
 			bottom := y + h
-			row := int(math.Floor((bottom - oy + restEps) / th))
+			tileSnap := restEps
+			if wasGrounded && prevNormal.X != 0 && snapDist > tileSnap {
+				tileSnap = snapDist
+			}
+			row := int(math.Ceil((bottom - oy - restEps) / th))
 			if row >= 0 && row < rows {
 				tileTop := oy + float64(float64(row)*th)
-				if math.Abs(bottom-tileTop) <= restEps {
+				if tileTop-bottom <= tileSnap {
 					minCol := max(0, int(math.Floor((x-ox+xEps)/tw)))
 					maxCol := min(cols-1, int(math.Ceil((x-ox+w-xEps)/tw))-1)
 					for col := minCol; col <= maxCol; col++ {

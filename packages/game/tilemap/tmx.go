@@ -412,6 +412,13 @@ func parseXMLTile(r *xmlReader, start xmlStartElement, line, col int, fix string
 			}
 			tile.Animation = append(tile.Animation, frames...)
 			return true, nil
+		case "objectgroup":
+			group, err := parseXMLObjectGroup(r, t, cl, cc)
+			if err != nil {
+				return true, nest(err, "objectgroup")
+			}
+			tile.ObjectGroup = &group
+			return true, nil
 		}
 		return false, nil
 	})

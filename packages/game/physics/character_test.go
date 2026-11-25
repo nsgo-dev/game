@@ -149,6 +149,58 @@ func TestCharacterBodyWalkUpAndDown30DegreeSlope(t *testing.T) {
 	}
 }
 
+// TestCharacterBodyClimbsOntoSolidTileAtSlopeTop walks up a 45 degree slope whose top meets the top of a solid tile: the character must step onto the tile instead of stopping at its side, which it overlaps for one step before the climb lifts it.
+func TestCharacterBodyClimbsOntoSolidTileAtSlopeTop(t *testing.T) {
+	dt := time.Second / 60
+	grid := physics.NewGrid(8, 4, 16, 16)
+	grid.FillRect(0, 3, 8, 1, physics.TileSolid)
+	grid.FillRect(3, 2, 5, 1, physics.TileSolid)
+	slopes := []physics.Slope{{A: core.Point{X: 32, Y: 48}, B: core.Point{X: 48, Y: 32}}}
+
+	ch := physics.NewCharacterBody(physics.NewBoxBody(4, 32, 12, 16))
+	for i := range 60 {
+		ch.Body.VX = 98
+		ch.Body.VY += 720 * float32(dt.Seconds())
+		res := ch.Move(grid, slopes, nil, dt)
+		if res.OnRightWall {
+			t.Fatalf("step %d: stopped by the tile's side at x=%v, bottom %v", i, ch.Body.Shape.Box.X, ch.Body.Shape.Box.Bottom())
+		}
+		if !ch.Grounded {
+			t.Fatalf("step %d: left the ground at x=%v, bottom %v", i, ch.Body.Shape.Box.X, ch.Body.Shape.Box.Bottom())
+		}
+	}
+	if b := ch.Body.Shape.Box; b.X < 80 || b.Bottom() != 32 {
+		t.Fatalf("ended at x=%v, bottom %v; want on the tile top at 32 past x=80", b.X, b.Bottom())
+	}
+
+	// Walking into a wall from a slope still stops at the wall, at the slope's height.
+	grid.Set(7, 1, physics.TileSolid)
+	for range 30 {
+		ch.Body.VX = 98
+		ch.Body.VY += 720 * float32(dt.Seconds())
+		ch.Move(grid, slopes, nil, dt)
+	}
+	if b := ch.Body.Shape.Box; b.Right() != 112 || b.Bottom() != 32 || !ch.Body.OnRightWall {
+		t.Fatalf("at the wall: right %v, bottom %v, on wall %v", b.Right(), b.Bottom(), ch.Body.OnRightWall)
+	}
+
+	// Walking back down, the character stays on the ground past the slope's lower end, where it snaps onto the floor tiles instead of falling for a step.
+	for i := 0; ch.Body.Shape.Box.X > 8; i++ {
+		if i > 80 {
+			t.Fatalf("stuck walking downhill at x=%v", ch.Body.Shape.Box.X)
+		}
+		ch.Body.VX = -98
+		ch.Body.VY += 720 * float32(dt.Seconds())
+		res := ch.Move(grid, slopes, nil, dt)
+		if !ch.Grounded || res.OnLeftWall {
+			t.Fatalf("downhill step %d: grounded %v, on wall %v at x=%v, bottom %v", i, ch.Grounded, res.OnLeftWall, ch.Body.Shape.Box.X, ch.Body.Shape.Box.Bottom())
+		}
+	}
+	if b := ch.Body.Shape.Box; b.Bottom() != 48 {
+		t.Fatalf("ended at x=%v, bottom %v; want on the floor at 48", b.X, b.Bottom())
+	}
+}
+
 func TestCharacterBodyBlockedBy60DegreeSlope(t *testing.T) {
 	dt := time.Second / 60
 

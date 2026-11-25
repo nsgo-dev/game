@@ -167,6 +167,7 @@ Paths are relative to `github.com/nsgo-dev/game/packages`. The table is checked 
 | `game/stats` | Experimental | [stats](stats.md) |
 | `game/text` | Experimental | [text](text.md) |
 | `game/tilemap` | Stable | [tilemap](tilemap.md) |
+| `game/tileshape` | Experimental | [tileshape](tileshape.md) |
 | `game/tooling/apiref` | Experimental | |
 | `game/tooling/assetbuild` | Experimental | [Command Line](cli.md) |
 | `game/tooling/assetcheck` | Experimental | [Command Line](cli.md) |

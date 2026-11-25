@@ -46,6 +46,8 @@ lighting.Occluders = []lights2d.Occluder{
 }
 ```
 
+For a tilemap, a [`tileshape.View`](tileshape.md) merges solid cells and per-tile collision shapes into occluders that cast the same shadows with far fewer segments: assign `lighting.Occluders = view.Occluders()`, and again after the map changes.
+
 Set `Scene.DisableShadows` to skip occlusion for every light without touching each light's `CastShadows`, as a preset with shadows off does (`lights.DisableShadows = !preset.Shadows`, see [quality](quality.md)). `Draw`, `EvaluateAt`, `ShadeNormalMap` and `NormalSprite` all honor it, and toggling it re-shades a `NormalSprite`.
 
 When `light.CastShadows` is `true`, `Scene.Draw` clips that light against `VisibilityPolygon(origin, radius, occluders)`. You can also call the geometry helpers directly for stealth, line-of-sight, or fog-of-war checks:

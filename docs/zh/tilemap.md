@@ -57,7 +57,7 @@ d.Restore()
 
 ## 加载 Tiled 地图
 
-`LoadTiled` 会根据输入字节自动识别并解析 Tiled XML（`.tmx`）与 JSON（`.tmj`）地图到同一个 `*Tilemap`。它支持内嵌及外部 `.tsx`/`.tsj` 图块集（包括 `.tmx` 引用 `.tsj` 或 `.tmj` 引用 `.tsx` 的跨格式组合），支持有限图层与无限地图分块的 CSV、XML `<tile>` 以及 base64 瓦片数据（未压缩、`zlib` 与 `gzip`），同时支持图像层、嵌套图层组、GID 翻转位（`FlipHorizontal`、`FlipVertical`、`FlipDiagonal`）、对象层、带类型的自定义属性以及动画瓦片。对于 `zstd` 压缩，加载器会返回带有文件、行号与修复提示的 `*loaderr.Error` 明确拒绝。
+`LoadTiled` 会根据输入字节自动识别并解析 Tiled XML（`.tmx`）与 JSON（`.tmj`）地图到同一个 `*Tilemap`。它支持内嵌及外部 `.tsx`/`.tsj` 图块集（包括 `.tmx` 引用 `.tsj` 或 `.tmj` 引用 `.tsx` 的跨格式组合），支持有限图层与无限地图分块的 CSV、XML `<tile>` 以及 base64 瓦片数据（未压缩、`zlib` 与 `gzip`），同时支持图像层、嵌套图层组、GID 翻转位（`FlipHorizontal`、`FlipVertical`、`FlipDiagonal`）、对象层、带类型的自定义属性、动画瓦片，以及在 Tiled 碰撞编辑器中为瓦片绘制的碰撞形状。对于 `zstd` 压缩，加载器会返回带有文件、行号与修复提示的 `*loaderr.Error` 明确拒绝。
 
 ```go
 //go:embed resources/maps/*.tmx resources/maps/*.tsx
@@ -247,3 +247,11 @@ stream.UpdateAnimations(dt)
 // 在绘制循环中（cam.Apply(d) 之后）：
 stream.Draw(d, cam)
 ```
+
+## 碰撞形状与变更跟踪
+
+在 Tiled 碰撞编辑器中为瓦片绘制的矩形、多边形、椭圆和折线会读入 `Tileset.Shapes`（以本地瓦片 ID 为键），每个都是位于瓦片自身坐标系中的 `TileShape`：椭圆近似为 `EllipseShapeSegments` 个点，对象的旋转会被应用。`m.TileShapes(gid)` 返回放置后的瓦片按其 GID 翻转位翻转、旋转后的形状，与 `DrawLayer` 绘制该瓦片的变换相同；`m.TileBox(gid)` 返回形状所在瓦片的尺寸。
+
+`m.TileRevision()` 与 `m.TileChangesSince(rev, fn)` 除了瓦片修改，也跟踪碰撞标志的修改：`SetCellFlags` 与 `ClearCellFlags` 会记录它们修改的格子，而 `SetFlags` 可能改变显示该瓦片的所有格子，因此会要求调用方完整重建。没有改变任何内容的调用不会记录。`m.Flags(gid)` 返回设置在瓦片 ID 上的标志，`m.CellFlags(col, row)` 返回单格覆盖（如果有）。
+
+[tileshape](tileshape.md) 基于这两者：它的 `View` 是地图的 `physics.TileGrid`，从瓦片形状推导斜坡，并把实心格子与形状合并为轮廓和光照遮挡体，在每次变化后只重建附近的部分。

@@ -57,7 +57,7 @@ Passing `cam` to `m.Draw(d, cam)` or `m.DrawLayer(d, layer, cam)` visits only th
 
 ## Loading Tiled maps
 
-`LoadTiled` parses Tiled XML (`.tmx`) and JSON (`.tmj`) maps into the same `*Tilemap`, auto-detecting the format from the input bytes. It supports embedded and external `.tsx`/`.tsj` tilesets (including cross-format references such as a `.tmx` map using a `.tsj` tileset or a `.tmj` map using a `.tsx` tileset), CSV, legacy XML `<tile>`, and base64 tile data (uncompressed, `zlib`, and `gzip`) on both finite layers and infinite-map chunks, image layers, nested group layers, GID flip bits (`FlipHorizontal`, `FlipVertical`, `FlipDiagonal`), object layers, typed custom properties, and animated tiles. `zstd` compression is refused with a `*loaderr.Error` pointing at the file, line, and fix hint.
+`LoadTiled` parses Tiled XML (`.tmx`) and JSON (`.tmj`) maps into the same `*Tilemap`, auto-detecting the format from the input bytes. It supports embedded and external `.tsx`/`.tsj` tilesets (including cross-format references such as a `.tmx` map using a `.tsj` tileset or a `.tmj` map using a `.tsx` tileset), CSV, legacy XML `<tile>`, and base64 tile data (uncompressed, `zlib`, and `gzip`) on both finite layers and infinite-map chunks, image layers, nested group layers, GID flip bits (`FlipHorizontal`, `FlipVertical`, `FlipDiagonal`), object layers, typed custom properties, animated tiles, and the collision shapes drawn on tiles in Tiled's collision editor. `zstd` compression is refused with a `*loaderr.Error` pointing at the file, line, and fix hint.
 
 ```go
 //go:embed resources/maps/*.tmx resources/maps/*.tsx
@@ -247,3 +247,11 @@ stream.UpdateAnimations(dt)
 // Inside draw (after cam.Apply(d)):
 stream.Draw(d, cam)
 ```
+
+## Collision shapes and change tracking
+
+The rectangles, polygons, ellipses and polylines drawn on a tile in Tiled's collision editor load into `Tileset.Shapes`, keyed by local tile ID, as `TileShape` values in the tile's own coordinates: an ellipse becomes `EllipseShapeSegments` points, and an object's rotation is applied. `m.TileShapes(gid)` returns a placed tile's shapes flipped and rotated by its GID's flip bits, the same transform `DrawLayer` draws the tile with, and `m.TileBox(gid)` the size of the tile they are measured in.
+
+`m.TileRevision()` and `m.TileChangesSince(rev, fn)` track collision flag edits as well as tile edits: `SetCellFlags` and `ClearCellFlags` log the cell they change, and `SetFlags`, which can change every cell showing the tile, asks callers for a full rebuild. Calls that change nothing log nothing. `m.Flags(gid)` returns the flags set on a tile ID, and `m.CellFlags(col, row)` the per-cell override, if any.
+
+[tileshape](tileshape.md) builds on both: its `View` is the `physics.TileGrid` of a map, derives slopes from tile shapes, and merges solid cells and shapes into an outline and light occluders that it rebuilds around each change.

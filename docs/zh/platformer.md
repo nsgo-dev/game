@@ -32,6 +32,8 @@ loop := &game.Loop{
 
 `Step` 每个固定步长调用一次。它读取身体上一次 `Move` 留下的接触状态（`Grounded`、`OnLeftWall`、`OnRightWall`），根据 `Input` 和配置设置速度，再用 `CharacterBody.Move` 移动身体，所以斜坡、单向瓦片和移动平台的行为与直接使用身体时相同。`StepResult` 报告 `MoveResult`、本步开始的跳跃（`JumpGround`、`JumpWall` 或 `JumpNone`）、是否截短了跳跃（`JumpCut`）、是否在贴墙下滑（`WallSliding`）、是否忽略了水平输入（`InputLocked`），以及身体可以从哪面墙起跳（`WallSide`，-1 为左，1 为右，0 为无）。
 
+对于瓦片地图，把 [`tileshape.View`](tileshape.md) 作为 `grid`，把它的 `Slopes()`（或身体附近的 `AppendSlopesIn`）作为 `slopes` 传入：角色就能走过在 Tiled 碰撞编辑器中绘制的斜坡、2:1 与半高瓦片，无需手工放置线段。
+
 `Reset` 清空所有计时，例如重生之后；`SetConfig` 在游戏运行中替换可调参数。
 
 ## 计时

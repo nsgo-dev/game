@@ -27,7 +27,7 @@ func (m *Tilemap) recordBulkTileEdit() {
 	m.edits.minRev = m.edits.rev
 }
 
-// TileRevision returns a counter incremented whenever SetTile or FillRect changes a tile cell.
+// TileRevision returns a counter incremented whenever SetTile, FillRect, PutChunk or RemoveChunk changes a tile cell, or SetFlags, SetCellFlags or ClearCellFlags changes collision flags.
 func (m *Tilemap) TileRevision() uint64 {
 	if m == nil || m.edits == nil {
 		return 0
@@ -35,9 +35,9 @@ func (m *Tilemap) TileRevision() uint64 {
 	return m.edits.rev
 }
 
-// TileChangesSince calls fn for each cell (col, row) changed by SetTile or FillRect since rev, and returns the current revision and whether every change since rev fit in the log.
+// TileChangesSince calls fn for each cell (col, row) whose tile or per-cell flags changed (through SetTile, FillRect, SetCellFlags or ClearCellFlags) since rev, and returns the current revision and whether every change since rev fit in the log.
 //
-// When ok is false (for example after a bulk FillRect or more edits than the log holds), callers should rebuild from the full map.
+// When ok is false (for example after a bulk FillRect, a PutChunk or RemoveChunk, a SetFlags call, which can change every cell showing the tile, or more edits than the log holds), callers should rebuild from the full map.
 func (m *Tilemap) TileChangesSince(rev uint64, fn func(col, row int)) (current uint64, ok bool) {
 	if m == nil || m.edits == nil {
 		return 0, rev == 0
