@@ -7,6 +7,7 @@ import (
 
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/game/packages/game/sprite"
+	"github.com/nsgo-dev/game/packages/game/tilemap"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -36,16 +37,17 @@ func (m TileStrokeMode) String() string {
 	}
 }
 
-// tileStroke is a tile stroke under way: the layer it edits, the tile it writes, where the pointer last was in the layer's space, and the cells it has changed so far, each once, with the ID the cell held before the stroke.
+// tileStroke is a tile stroke under way: the layer it edits, the tile layer of a layered grid (empty for a single grid), the tile value it writes, where the pointer last was in the layer's space, and the cells it has changed so far, each once, with the value the cell held before the stroke.
 type tileStroke struct {
-	mode    TileStrokeMode
-	layer   string
-	tileID  int
-	lastX   float32
-	lastY   float32
-	changes []tileChange
-	changed map[int]bool
-	// picked says a pick stroke picked a tile, and pickedAt is the cell it last looked at (index into the map's data, -1 for none), which it does not look at again until the pointer leaves it.
+	mode      TileStrokeMode
+	layer     string
+	tileLayer string
+	value     int64
+	lastX     float32
+	lastY     float32
+	changes   []tileChange
+	changed   map[int]bool
+	// picked says a pick stroke picked a tile, and pickedAt is the cell it last looked at (index into the map's grid, -1 for none), which it does not look at again until the pointer leaves it.
 	picked   bool
 	pickedAt int
 }
@@ -71,6 +73,20 @@ func (e *Editor) BeginTileStroke(mode TileStrokeMode, x, y float32) bool {
 	if err != nil || layer != e.ActiveLayer || tm.TileWidth <= 0 || tm.TileHeight <= 0 {
 		return false
 	}
+	tileLayer := ""
+	if tm.IsLayered() {
+		tileLayer = e.tileLayerName(tm)
+	}
+	g, err := gridOf(tm, tileLayer)
+	if err != nil {
+		return false
+	}
+	var val int64
+	if mode == TileStrokePaint {
+		if val, err = e.paintValue(g, e.ActiveTileID); err != nil {
+			return false
+		}
+	}
 	if mode != TileStrokePick {
 		if err := e.lockedLayerErr(); err != nil {
 			e.report(err)
@@ -82,7 +98,7 @@ func (e *Editor) BeginTileStroke(mode TileStrokeMode, x, y float32) bool {
 		}
 	}
 	lx, ly := e.layerCoordsForActive(x, y)
-	e.stroke = &tileStroke{mode: mode, layer: layer, tileID: e.ActiveTileID, lastX: lx, lastY: ly, changed: map[int]bool{}, pickedAt: -1}
+	e.stroke = &tileStroke{mode: mode, layer: layer, tileLayer: tileLayer, value: val, lastX: lx, lastY: ly, changed: map[int]bool{}, pickedAt: -1}
 	if mode == TileStrokePick {
 		e.pickAt(lx, ly)
 		return true
@@ -130,7 +146,7 @@ func (e *Editor) EndTileStroke() {
 		}
 	}
 	// The cells already hold the stroke's tiles, so Do writes what is there and History records the step.
-	e.History.Execute(&tileEditCmd{ed: e, layerName: s.layer, label: label, changes: s.changes})
+	e.History.Execute(&tileEditCmd{ed: e, layerName: s.layer, tileLayer: s.tileLayer, label: label, changes: s.changes})
 }
 
 // CancelTileStroke ends the stroke under way without recording it, putting back every cell it changed, as when a second finger turns a one-finger paint into a two-finger pan. It does nothing when no stroke is under way.
@@ -144,10 +160,8 @@ func (e *Editor) CancelTileStroke() {
 		return
 	}
 	if _, tm, err := e.resolveInlineTilemap(s.layer); err == nil {
-		for i := len(s.changes) - 1; i >= 0; i-- {
-			if ch := s.changes[i]; ch.index >= 0 && ch.index < len(tm.Data) {
-				tm.Data[ch.index] = ch.oldGID
-			}
+		if g, err := gridOf(tm, s.tileLayer); err == nil {
+			g.apply(s.changes, true)
 		}
 	}
 	e.Rebuild()
@@ -162,22 +176,39 @@ func (e *Editor) TileStrokeActive() (TileStrokeMode, bool) {
 	return e.stroke.mode, true
 }
 
-// PickTile makes the tile in cell (col, row) of layer's inline tilemap (the active layer's when layer is empty) the active tile, as SetActiveTileID does, and reports whether the cell held one; an empty cell, one off the map, or a call while the scene plays leaves the active tile as it was and reports false.
+// PickTile makes the tile in cell (col, row) of layer's inline tilemap (the active layer's when layer is empty) the active tile, as SetActiveTileID does, and reports whether the cell held one; an empty cell, one off the map, or a call while the scene plays leaves the active tile as it was and reports false. On a layered grid it picks from ActiveTileLayer (or the first tile layer) and copies the cell's flips into ActiveTileFlip.
 func (e *Editor) PickTile(layer string, col, row int) bool {
 	if e == nil || e.playing {
 		return false
 	}
-	_, tm, err := e.resolveInlineTilemap(layer)
-	if err != nil || validateTileCoords(tm, col, row) != nil {
+	_, _, g, err := e.tileTarget(layer, col, row)
+	if err != nil {
 		return false
 	}
-	id := tm.Data[row*tm.Width+col]
-	if id <= 0 {
-		e.Status = fmt.Sprintf("Tile (%d,%d) is empty", col, row)
-		e.notify()
-		return false
+	var id, number int
+	if g.layer != nil {
+		cell, err := g.layer.Cell(col, row)
+		if err != nil {
+			return false
+		}
+		id = int(cell & tilemap.TileIDMask)
+		if id <= 0 {
+			e.Status = fmt.Sprintf("Tile (%d,%d) is empty", col, row)
+			e.notify()
+			return false
+		}
+		number = id - 1
+		e.ActiveTileFlip = cell & tilemap.FlipMask
+	} else {
+		id = g.tm.Data[row*g.tm.Width+col]
+		if id <= 0 {
+			e.Status = fmt.Sprintf("Tile (%d,%d) is empty", col, row)
+			e.notify()
+			return false
+		}
+		number = id
 	}
-	e.Status = fmt.Sprintf("Picked tile %d", id)
+	e.Status = fmt.Sprintf("Picked tile %d", number)
 	if e.ActiveTileID == id {
 		e.notify()
 		return true
@@ -212,7 +243,6 @@ func (e *Editor) pickAt(lx, ly float32) {
 	s.pickedAt = idx
 	if e.PickTile(s.layer, col, row) {
 		s.picked = true
-		s.tileID = e.ActiveTileID
 	}
 }
 
@@ -220,26 +250,32 @@ func (e *Editor) pickAt(lx, ly float32) {
 func (e *Editor) strokeSegment(x0, y0, x1, y1 float32) {
 	s := e.stroke
 	_, tm, err := e.resolveInlineTilemap(s.layer)
-	if err != nil || len(tm.Data) != tm.Width*tm.Height {
+	if err != nil {
 		return
 	}
-	id := s.tileID
-	if s.mode == TileStrokeErase {
-		id = 0
+	g, err := gridOf(tm, s.tileLayer)
+	if err != nil {
+		return
 	}
+	val := s.value
+	if s.mode == TileStrokeErase {
+		val = 0
+	}
+	values := g.values()
 	tw, th := float64(tm.TileWidth), float64(tm.TileHeight)
-	changed := false
+	var batch []tileChange
 	cellsAlong(float64(x0)/tw, float64(y0)/th, float64(x1)/tw, float64(y1)/th, tm.Width, tm.Height, func(col, row int) {
 		idx := row*tm.Width + col
-		if s.changed[idx] || tm.Data[idx] == id {
+		if s.changed[idx] || values[idx] == val {
 			return
 		}
 		s.changed[idx] = true
-		s.changes = append(s.changes, tileChange{index: idx, oldGID: tm.Data[idx], newGID: id})
-		tm.Data[idx] = id
-		changed = true
+		ch := tileChange{index: idx, oldGID: values[idx], newGID: val}
+		s.changes = append(s.changes, ch)
+		batch = append(batch, ch)
 	})
-	if changed {
+	if len(batch) > 0 {
+		g.apply(batch, false)
 		e.Rebuild()
 		e.notify()
 	}
@@ -455,6 +491,15 @@ func (e *Editor) drawTileHoverOverlay(d *core.Drawing) {
 // drawGhostTile draws the active tile faded at layer point (x, y), as the tilemap would draw it there; a tile the tileset lacks draws nothing.
 func (e *Editor) drawGhostTile(d *core.Drawing, tm *sceneformat.TilemapDoc, x, y float32) {
 	if e.ActiveTileID <= 0 || e.Resolver == nil || (e.Tool != ToolPaintTile && e.Tool != ToolFillTile) {
+		return
+	}
+	if tm.IsLayered() {
+		tile, ok := e.TilePalette().Tile(e.ActiveTileID)
+		if !ok || tile.Frame.W <= 0 || tile.Frame.H <= 0 {
+			return
+		}
+		f := tile.Frame
+		d.Save().SetAlpha(0.5).DrawImageFrom(tile.Image, f.X, f.Y, f.W, f.H, x+f.OffsetX, y+f.OffsetY, f.W, f.H).Restore()
 		return
 	}
 	atlas, err := e.Resolver.Atlas(tm.Tileset)

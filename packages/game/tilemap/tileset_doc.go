@@ -170,16 +170,27 @@ func (m *Tilemap) Terrain(name string) *Terrain {
 	return nil
 }
 
-// terrainNeighbors maps a TileDoc neighbour name to its autotile mask bit.
-var terrainNeighbors = map[string]uint8{
-	"north":     MaskNorth,
-	"east":      MaskEast,
-	"south":     MaskSouth,
-	"west":      MaskWest,
-	"northeast": MaskNorthEast,
-	"southeast": MaskSouthEast,
-	"southwest": MaskSouthWest,
-	"northwest": MaskNorthWest,
+// terrainNeighborBit maps a TileDoc neighbour name to its autotile mask bit.
+func terrainNeighborBit(name string) (uint8, bool) {
+	switch name {
+	case "north":
+		return MaskNorth, true
+	case "east":
+		return MaskEast, true
+	case "south":
+		return MaskSouth, true
+	case "west":
+		return MaskWest, true
+	case "northeast":
+		return MaskNorthEast, true
+	case "southeast":
+		return MaskSouthEast, true
+	case "southwest":
+		return MaskSouthWest, true
+	case "northwest":
+		return MaskNorthWest, true
+	}
+	return 0, false
 }
 
 // Count returns how many tiles doc defines: its TileCount for a grid image, or the length of its Frames for an atlas.
@@ -399,7 +410,7 @@ func ValidateTileset(doc *TilesetDoc) error {
 		}
 		var mask uint8
 		for j, n := range tile.Neighbors {
-			bit, ok := terrainNeighbors[n]
+			bit, ok := terrainNeighborBit(n)
 			np := loaderr.Join(tp, "neighbors", j)
 			if !ok {
 				return &loaderr.Error{Field: np, Problem: fmt.Sprintf("tilemap: tileset: tile %d has unknown neighbor %q", tile.ID, n), Expected: "north, east, south, west, northeast, southeast, southwest or northwest", Fix: "name a direction"}
@@ -414,7 +425,8 @@ func ValidateTileset(doc *TilesetDoc) error {
 		}
 		// ComputeMask8 sets a corner bit only when both edges beside it match, so a blob tile listing a corner without them could never be chosen.
 		for j, n := range tile.Neighbors {
-			if edges := cornerEdges[terrainNeighbors[n]]; edges != 0 && mask&edges != edges {
+			bit, _ := terrainNeighborBit(n)
+			if edges := cornerEdgeMask(bit); edges != 0 && mask&edges != edges {
 				return loaderr.Errorf(loaderr.Join(tp, "neighbors", j), "list both edges beside the corner as well, or remove the corner", "tilemap: tileset: tile %d lists corner %q without both edges beside it, so autotiling never chooses it", tile.ID, n)
 			}
 		}
@@ -431,12 +443,19 @@ func ValidateTileset(doc *TilesetDoc) error {
 	return nil
 }
 
-// cornerEdges maps each corner neighbour bit to the two edge bits that must match for ComputeMask8 to set it.
-var cornerEdges = map[uint8]uint8{
-	MaskNorthEast: MaskNorth | MaskEast,
-	MaskSouthEast: MaskSouth | MaskEast,
-	MaskSouthWest: MaskSouth | MaskWest,
-	MaskNorthWest: MaskNorth | MaskWest,
+// cornerEdgeMask maps each corner neighbour bit to the two edge bits that must match for ComputeMask8 to set it.
+func cornerEdgeMask(bit uint8) uint8 {
+	switch bit {
+	case MaskNorthEast:
+		return MaskNorth | MaskEast
+	case MaskSouthEast:
+		return MaskSouth | MaskEast
+	case MaskSouthWest:
+		return MaskSouth | MaskWest
+	case MaskNorthWest:
+		return MaskNorth | MaskWest
+	}
+	return 0
 }
 
 func validateShapeDoc(path string, s *TileShapeDoc) error {
@@ -612,7 +631,8 @@ func (m *Tilemap) AddTilesetDoc(doc *TilesetDoc, firstGID uint32, assets Tileset
 		if t := terrains[tile.Terrain]; t != nil {
 			var mask uint8
 			for _, n := range tile.Neighbors {
-				mask |= terrainNeighbors[n]
+				bit, _ := terrainNeighborBit(n)
+				mask |= bit
 			}
 			t.Autotile.Tiles[mask] = gid
 			if mask == 0 {

@@ -255,3 +255,59 @@ layers:
 		t.Fatalf("clip preview drew %d tiles, want 6", got)
 	}
 }
+
+func TestTileStrokeAndPickOnLayeredTilemap(t *testing.T) {
+	ed := layeredEditor(t)
+	deco := ed.Doc.Layers[0].Tilemap.TileLayer("deco")
+	ed.SetActiveTileLayer("deco")
+	ed.SetActiveTileID(3)
+	ed.SetActiveTileFlip(tilemap.FlipHorizontal)
+
+	x0, y0 := ed.WorldToCanvas(8, 8)
+	x1, y1 := ed.WorldToCanvas(40, 8)
+	if !ed.BeginTileStroke(editor.TileStrokePaint, x0, y0) {
+		t.Fatal("BeginTileStroke refused layered tilemap")
+	}
+	ed.ContinueTileStroke(x1, y1)
+	ed.EndTileStroke()
+	if deco.Rows[0] != "2h 2h 2h" {
+		t.Fatalf("deco row 0 after paint stroke = %q, want %q", deco.Rows[0], "2h 2h 2h")
+	}
+	ed.Undo()
+	if deco.Rows[0] != ". . ." {
+		t.Fatalf("deco row 0 after single undo = %q, want empty", deco.Rows[0])
+	}
+	ed.Redo()
+	if deco.Rows[0] != "2h 2h 2h" {
+		t.Fatalf("deco row 0 after redo = %q", deco.Rows[0])
+	}
+
+	// Cancelling an erase stroke restores the layered row without recording history.
+	if !ed.BeginTileStroke(editor.TileStrokeErase, x0, y0) {
+		t.Fatal("BeginTileStroke erase refused")
+	}
+	ed.ContinueTileStroke(x1, y1)
+	if deco.Rows[0] != ". . ." {
+		t.Fatalf("deco row 0 mid-erase = %q", deco.Rows[0])
+	}
+	ed.CancelTileStroke()
+	if deco.Rows[0] != "2h 2h 2h" {
+		t.Fatalf("deco row 0 after cancel = %q, want restored", deco.Rows[0])
+	}
+
+	// PickTile reads the active tile layer, sets ActiveTileID and copies its flips.
+	ed.SetActiveTileID(1)
+	ed.SetActiveTileFlip(0)
+	if !ed.PickTile("ground", 1, 0) {
+		t.Fatal("PickTile on filled layered cell returned false")
+	}
+	if ed.ActiveTileID != 3 || ed.ActiveTileFlip != tilemap.FlipHorizontal || ed.Status != "Picked tile 2" {
+		t.Fatalf("after PickTile: id=%d flip=%#x status=%q", ed.ActiveTileID, ed.ActiveTileFlip, ed.Status)
+	}
+	if ed.PickTile("ground", 0, 1) {
+		t.Fatal("PickTile on empty layered cell returned true")
+	}
+	if ed.ActiveTileID != 3 || ed.ActiveTileFlip != tilemap.FlipHorizontal {
+		t.Fatalf("empty PickTile changed selection: id=%d flip=%#x", ed.ActiveTileID, ed.ActiveTileFlip)
+	}
+}
