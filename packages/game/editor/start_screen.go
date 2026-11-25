@@ -143,6 +143,9 @@ type createProjectRun struct {
 
 func (r *createProjectRun) finish() {
 	r.once.Do(func() {
+		if r.cancel != nil {
+			r.cancel()
+		}
 		close(r.done)
 	})
 }
@@ -869,8 +872,6 @@ func (e *Editor) StartCreateProject(req CreateProjectRequest) error {
 	stderr := newOutputStreamWriter(appendLine)
 
 	go func() {
-		defer cancel()
-
 		err := runner(ctx, req, stdout, stderr)
 		stdout.Flush()
 		stderr.Flush()

@@ -112,7 +112,6 @@ func NewDemo() (*Editor, error) {
 	if err := ed.SetComponentRegistry(DemoComponentRegistry()); err != nil {
 		return nil, err
 	}
-	ed.demoComponents = true
 	ed.SetActiveLayer("actors")
 	ed.SelectObject("hero")
 	ed.attachDemoPlayUpdate()
@@ -157,6 +156,7 @@ func (e *Editor) OpenDemo() error {
 	e.stopFetch()
 	e.stopAudioAudition()
 	e.stopExportBuild()
+	e.stopAssetsBuild()
 	e.resetInputMapTransient()
 	_ = e.StopGame()
 
@@ -183,17 +183,22 @@ func (e *Editor) OpenDemo() error {
 
 	e.Doc = DemoSceneDoc()
 	e.Resolver = DemoAtlasMap()
+	e.assetsScene = ""
+	e.assetsRev++
 	e.components = DemoComponentRegistry()
-	e.demoComponents = true
 	e.FilePath = ""
 	e.ScenePath = ""
 	e.OnSave = nil
 	e.view2DFree = false
+	e.inspectAssetFile = false
+	e.inspectLayer = false
+	e.connPick = nil
 	e.hidden, e.locked, e.layerLocked = nil, nil, nil
 	e.ActiveLayer = "actors"
 	e.SelectedID = "hero"
 	e.keepTileInPalette()
 	e.attachDemoPlayUpdate()
+	e.Rebuild()
 	e.History.Clear()
 	e.markSceneSaved()
 	e.setStartScreenEntered()

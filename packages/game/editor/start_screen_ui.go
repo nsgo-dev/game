@@ -10,24 +10,10 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// Spec.dc.html color tokens (WCAG 2.2 verified contrast pairs).
+// Additional Spec.dc.html color tokens used by the Start Screen (shared tokens live in profiler_ui.go).
 var (
-	specBg            = mustSpecColor("#101216")
-	specPanel         = mustSpecColor("#12141A")
-	specRaised        = mustSpecColor("#171A21")
-	specLine          = mustSpecColor("#1F232A")
-	specLineRaised    = mustSpecColor("#262B35")
-	specTextStrong    = mustSpecColor("#FFFFFF")
-	specText          = mustSpecColor("#D9DDE5")
-	specTextSecondary = mustSpecColor("#B4BAC6")
-	specTextMuted     = mustSpecColor("#8B92A0")
-	specAccent        = mustSpecColor("#3B7BFF")
-	specAccentTint    = core.RGBA(0x3B7BFF, 0.18)
-	specAdded         = mustSpecColor("#4FD38A")
-	specRemoved       = mustSpecColor("#FF6B6B")
-	specWarningFill   = mustSpecColor("#2A2414")
-	specWarningEdge   = mustSpecColor("#4A3F1F")
-	specWarning       = mustSpecColor("#F2C14E")
+	specAccentTint = core.RGBA(0x3B7BFF, 0.18)
+	specRemoved    = mustSpecColor("#FF6B6B")
 )
 
 func mustSpecColor(hex string) core.Color {
