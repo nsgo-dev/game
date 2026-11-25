@@ -161,7 +161,7 @@ func (e *Editor) CanvasToTile(layer string, canvasX, canvasY float32) (col, row 
 	return col, row, true
 }
 
-// HitTest returns the ID of the topmost visible object under the point (canvasX, canvasY) on the viewport's canvas, seen through the 2D view, or "" if no object is hit.
+// HitTest returns the ID of the topmost visible object under the point (canvasX, canvasY) on the viewport's canvas, seen through the 2D view, nested children included, or "" if no object is hit. Objects hidden or locked in the editor (SetObjectHidden, SetObjectLocked), with their descendants, are passed over, so the press reaches what lies under them. An object that only an instanced scene adds is reported as the nearest of its ancestors that the open scene holds, the instance it belongs to.
 func (e *Editor) HitTest(canvasX, canvasY float32) string {
 	scene := e.ActiveScene()
 	if scene == nil {
@@ -174,49 +174,48 @@ func (e *Editor) HitTest(canvasX, canvasY float32) string {
 			continue
 		}
 		lx, ly := e.canvasToLayer(layer.Space, canvasX, canvasY)
-		// Find topmost object in this layer (highest Z, ties broken by later slice index).
-		bestID := ""
+		// Find the topmost object in this layer: the highest Z, ties broken by the later in draw order, which is depth first with each parent before its children.
+		var best *sceneformat.BuiltObject
 		bestZ := math.MinInt
-		for _, bo := range layer.Objects {
-			if !hitTestBuiltObject(bo, lx, ly) {
-				continue
-			}
-			z := bo.Doc.Z
-			if bestID == "" || z >= bestZ {
-				bestID = bo.ID
-				bestZ = z
+		var walk func(objs []*sceneformat.BuiltObject)
+		walk = func(objs []*sceneformat.BuiltObject) {
+			for _, bo := range objs {
+				if e.hidden[bo.ID] || e.locked[bo.ID] {
+					continue
+				}
+				if hitTestBuiltObject(bo, lx, ly) {
+					if z := bo.Doc.Z; best == nil || z >= bestZ {
+						best, bestZ = bo, z
+					}
+				}
+				walk(bo.Children)
 			}
 		}
-		if bestID != "" {
-			return bestID
+		walk(layer.Objects)
+		if best != nil {
+			for bo := best; bo != nil; bo = bo.Parent {
+				if obj, _, _ := e.FindObject(bo.ID); obj != nil {
+					return bo.ID
+				}
+			}
+			return best.ID
 		}
 	}
 	return ""
 }
 
+// hitTestBuiltObject reports whether the layer-space point (lx, ly) falls on bo: inside its sprite's frame, or for an object without a sprite inside the marker box the selection outline draws, both in bo's own space under its world transform.
 func hitTestBuiltObject(bo *sceneformat.BuiltObject, lx, ly float32) bool {
 	if bo == nil || bo.Doc == nil {
 		return false
 	}
 	o := bo.Doc
-	dx := lx - o.X
-	dy := ly - o.Y
-
-	// Undo rotation about object origin.
-	if o.Rotation != 0 {
-		sin, cos := math.Sincos(float64(-o.Rotation))
-		rx := float32(float64(dx)*cos - float64(dy)*sin)
-		ry := float32(float64(dx)*sin + float64(dy)*cos)
-		dx, dy = rx, ry
-	}
-
-	sx := o.EffectiveScaleX()
-	sy := o.EffectiveScaleY()
-	if sx == 0 || sy == 0 {
+	inv, ok := bo.World.Invert()
+	if !ok {
 		return false
 	}
-	dx /= sx
-	dy /= sy
+	p := inv.TransformPoint(math2d.Vec2{X: lx, Y: ly})
+	dx, dy := p.X, p.Y
 
 	if bo.Sprite != nil && bo.Sprite.Frame.Width > 0 && bo.Sprite.Frame.Height > 0 {
 		u := dx + o.OriginX
@@ -251,7 +250,12 @@ func (e *Editor) HandleCanvasPress(x, y float32) {
 		}
 		if e.SelectedID != "" {
 			wx, wy := e.layerCoordsForSelected(x, y)
-			_ = e.MoveObject(e.SelectedID, wx, wy)
+			// A nested child's position is in its parent's space.
+			path := objectPath(e.Doc, e.SelectedID)
+			if inv, ok := chain2(path[:max(len(path)-1, 0)]).invert(); ok {
+				lx, ly := inv.apply(float64(wx), float64(wy))
+				_ = e.MoveObject(e.SelectedID, float32(lx), float32(ly))
+			}
 		}
 	case ToolPlace:
 		wx, wy := e.layerCoordsForActive(x, y)
@@ -315,7 +319,11 @@ func (e *Editor) DrawViewport(d *core.Drawing, size core.Size) {
 			vw, vh := e.ViewportSize()
 			d.BeginPath().Rect(0, 0, vw, vh).Clip()
 		}
-		scene.Draw(d)
+		if e.playing {
+			scene.Draw(d)
+		} else {
+			e.drawWithoutHidden(d, scene)
+		}
 		d.Restore()
 	}
 	if e.playing || scene == nil {
@@ -405,12 +413,43 @@ func (e *Editor) drawTileGridOverlay(d *core.Drawing) {
 	d.Stroke().Restore()
 }
 
+// drawWithoutHidden draws scene with the sprites of the objects hidden in the editor (SetObjectHidden), and of their descendants, left out, putting their opacity back afterwards.
+func (e *Editor) drawWithoutHidden(d *core.Drawing, scene *sceneformat.BuiltScene) {
+	if len(e.hidden) == 0 {
+		scene.Draw(d)
+		return
+	}
+	type faded struct {
+		bo    *sceneformat.BuiltObject
+		alpha float32
+	}
+	var restore []faded
+	for _, layer := range scene.Layers {
+		var walk func(objs []*sceneformat.BuiltObject, hidden bool)
+		walk = func(objs []*sceneformat.BuiltObject, hidden bool) {
+			for _, bo := range objs {
+				h := hidden || e.hidden[bo.ID]
+				if h && bo.Sprite != nil {
+					restore = append(restore, faded{bo, bo.Sprite.Alpha})
+					bo.Sprite.Alpha = 0
+				}
+				walk(bo.Children, h)
+			}
+		}
+		walk(layer.Objects, false)
+	}
+	scene.Draw(d)
+	for _, f := range restore {
+		f.bo.Sprite.Alpha = f.alpha
+	}
+}
+
 func (e *Editor) drawSelectionOverlay(d *core.Drawing, scene *sceneformat.BuiltScene) {
 	if e.SelectedID == "" {
 		return
 	}
 	bo := scene.Object(e.SelectedID)
-	if bo == nil || bo.Doc == nil {
+	if bo == nil || bo.Doc == nil || viewFlagged(e.hidden, bo) {
 		return
 	}
 	space := sceneformat.SpaceWorld

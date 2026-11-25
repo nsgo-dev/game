@@ -277,3 +277,39 @@ func ExampleEditor_ZoomView2DAt() {
 	// 2 160
 	// {160 90 1 0} true
 }
+
+// ReparentObject moves an object under another one as a single undoable step, rewriting its local transform so it stays where it was drawn.
+func ExampleEditor_ReparentObject() {
+	doc := &sceneformat.SceneDoc{
+		Version: sceneformat.CurrentVersion,
+		Layers: []sceneformat.LayerDoc{{Name: "props", Objects: []sceneformat.ObjectDoc{
+			{ID: "cart", X: 100, Y: 40},
+			{ID: "crate", X: 120, Y: 30},
+		}}},
+	}
+	ed, err := editor.New(doc, props())
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	if err := ed.ReparentObject("crate", "cart", -1); err != nil {
+		fmt.Println(err)
+		return
+	}
+	crate, _, _ := ed.FindObject("crate")
+	world := ed.Built.Object("crate").World
+	fmt.Println(crate.X, crate.Y, world.Tx, world.Ty, ed.History.UndoLabel())
+
+	// The cart carries the crate now.
+	ed.MoveObject("cart", 0, 0)
+	world = ed.Built.Object("crate").World
+	fmt.Println(world.Tx, world.Ty)
+
+	ed.Undo()
+	ed.Undo()
+	fmt.Println(len(ed.Doc.Layers[0].Objects))
+	// Output:
+	// 20 -10 120 30 Reparent crate under cart
+	// 20 -10
+	// 2
+}
