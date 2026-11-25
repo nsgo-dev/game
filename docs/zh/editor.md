@@ -1113,7 +1113,6 @@ func main() {
 - **全字段编辑**：支持编辑 `name`（`SetMaterialName`），使用 NSGo `ColorWell` / `ColorPicker` 拾色器与 CSS 颜色输入框编辑 `baseColor` 和 `emissive`（`SetMaterialBaseColor`、`SetMaterialEmissive`），通过可搜索的项目图片选择器编辑 `texture`（`SetMaterialTexture`、`ProjectTextures`），通过带范围约束的滑块与数值框编辑 `metallic`、`roughness` 和 `opacity`（`SetMaterialMetallic`、`SetMaterialRoughness`、`SetMaterialOpacity`），从 `resource.BlendModes()` 中选择 `blend`（`SetMaterialBlend`），以及开关 `doubleSided` 和 `unlit`（`SetMaterialDoubleSided`、`SetMaterialUnlit`）。任何不合法的值都会在改动状态或历史前被 `resource.Encode` 拒绝。
 - **实时预览与视口联动**：面板提供实时预览（`MaterialPreviewImage`、`SetMaterialPreviewShape`），支持使用 `render3d` 渲染的 3D 球体（**Sphere**）与立方体（**Cube**，反映 `unlit`、PBR 金属度/粗糙度、自发光、贴图、透明度与双面渲染）以及 2D 精灵（**Sprite**）预览（2D 视图默认 Sprite，3D 视图默认 Sphere）。每次编辑（包括拾色器拖拽及撤销/重做）都会经由 `resource.Library.Reload`（通过 `project.Resolver.Library()` 与 `scenemodel.Assets.Library()`）实时应用，无需保存即可立刻刷新预览以及视口中所有引用该材质的 2D 精灵（`BuiltScene.SyncMaterials`）与 3D 对象。
 - **撤销/重做与确定性保存**：所有材质编辑均记录在 `Editor.History`（`EditMaterial`）中，纳入未保存检测（`MaterialDirty`、`HasUnsavedChanges`）与文件移动跟踪（`MoveFile`）；点击 **Save Material**（`SaveMaterial`、`SaveMaterialFile`、`Save`、`SaveAll` 或 `Editor.OnSaveMaterial`）按 `resource.Encode` 写出确定性的规范 YAML。
-
 ## 试玩报告界面（#1044）
 
 通过 `Project > 试玩报告`、命令面板（`mod+shift+y` / `CmdPlaytestReport`）、状态栏试玩徽章、在文件浏览器中双击任意 `*.report.yaml` 文件、调用 `OpenPlaytestReport` / `OpenPlaytestReportFile` 或代理调用 `playtest_report`，可打开全窗口的**试玩报告**界面（`PlaytestReportView`）。界面严格遵循 `docs/design/editor/Spec.dc.html` 颜色与对比度令牌（包括 `#3B7BFF` 主强调按钮上的 `#101216` 文字）并对应 `docs/design/editor/Playtest.dc.html`：
@@ -1128,3 +1127,12 @@ func main() {
   4. **胜率矩阵**（`PlaytestChartMatrix`）：对超过阈值（默认 60%）的单元格以边框、标记点及 `"above 60%"` 文字标出。
 - **Agent 解读、可执行建议与脚注**：展示数句诊断结论（`DefaultPlaytestAgentRead` 或 `SetPlaytestAgentRead`）与可点击的调优建议卡片（`RequestPlaytestSuggestion`，点击后作为审查请求发送给代理），底部附注说明所有试玩均基于回放系统，指标与机器人均来自 `playtest.yaml`。
 - **MCP 集成（`editormcp`）**：`game_playtest` 会将生成的报告同步载入编辑器，`playtest_define` 会将待审查指标直接推送到试玩报告横幅并与 Apply/Dismiss 双向同步，新增的 `playtest_report` 工具支持代理打开、检查、写入解读与建议或回放指定轮次。
+
+## 资源抽屉（#1052）
+
+在左侧栏顶部可在 **Scene**（`LeftRailScene`）与 **Assets**（`LeftRailAssets`，也可通过命令面板 `CmdToggleAssetsMode` 切换）之间切换，在视口下方统一浏览、筛选、预览并将各类项目资源直接拖入场景；界面严格使用 `docs/design/editor/Spec.dc.html` 设计 Token 并对应 `docs/design/editor/Assets.dc.html`（第 1 屏）布局：
+
+- **左侧栏（`AssetsLeftRailView`）**：顶部提供 **Scene / Assets** 分段开关（`LeftRailSwitchView`），下方列出带资源计数的项目 **FOLDERS**（包含如 `audio/music` 等空资源目录）、带计数的 **SHOW ONLY** 过滤器（**Unused**、**Missing files**、**Generated**、**Proposed**）以及底部文件拖放导入区（`"Drop files anywhere to import"`）。其中 **Unused** 与 **Missing files** 直接由 `refs.Project.UnreferencedAssets` 和 `refs.Project.MissingAssets` 计算得出。
+- **视口下方的资源抽屉（`AssetDrawerView`）**：提供类型标签页（**All**、**Sprites**、**Tiles**、**Audio**、**Fonts**）、按名称或路径筛选输入框（`SetAssetDrawerQuery`）、默认按最近修改排序的排序切换（`SetAssetDrawerSort`）以及 **Import**（`TriggerAssetImport` / `ImportAssetFiles`）和 **Generate**（`TriggerAssetGenerate`）按钮。每张卡片显示透明棋盘格预览、状态徽章（`new`、`Missing`、`Generated`、`Not used`）、文件名和元信息行（如 `"6 frames · used 31×"`）。底栏显示 `"N assets · M shown"` 及缺失文件提示（如 `"1 problem · door_open.png missing"`）；空目录显示 `"audio/music is empty · Drop .ogg or .wav files here, or ask the agent."`，筛选无结果时显示 `"Clear a filter to see more assets."`。
+- **拖拽到视口（吸附放置或替换精灵）**：将精灵卡片拖到 2D 视口空白处时会显示网格吸附虚线预览与状态胶囊（`"coin.png new Sprite on Actors · snapped to 16 px"`），松手后在活动图层上以**单个撤销步骤**放置新精灵对象（`DropAssetAt`）；拖放到已有对象上则会以**单个撤销步骤**替换该对象的精灵，按一次 **Undo** 即可还原旧精灵。按 **Escape**（`CancelAssetDrag`）可干净取消拖拽，不改动场景。
+- **右侧选中资源面板（`AssetInspectorView`）**：在棋盘格预览框中展示尺寸与格式元信息，为多帧精灵提供逐帧可播放的片段预览控件（`SetAssetPreviewPlaying`、`SetAssetPreviewClip`、`SetAssetPreviewFrame`、`StepAssetPreviewFrame`），为音频提供波形图与可播放试听控件（`ToggleAssetAudioPreview`、`StopAssetAudioPreview`），下方展示来自 `InspectAssetImport` 的紧凑 **IMPORT** 摘要以及直接来自 `refs.Project.UsedBy` 的 **USED BY** 引用列表（点击引用条目可跳转打开对应场景或文件）。未被任何文件引用的资源会提示 `"Nothing references it. The agent can propose deleting it; deleting files always asks you."`，缺失资源则提供 **Replace with a file**（`TriggerReplaceMissingAsset` / `ReplaceMissingAsset`）与 **Ask the agent**（`AskAgentAboutAsset`）操作。

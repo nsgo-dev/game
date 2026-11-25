@@ -406,6 +406,14 @@ type Editor struct {
 	OnOpenPlaytestConfig func(configPath string) error
 	// OnPlayReplayStep runs on every fixed simulation step during Play mode when watching a saved replay recording (after player.Step() and before OnPlayUpdate).
 	OnPlayReplayStep func(player *replay.Player, scene *sceneformat.BuiltScene, dt time.Duration)
+	// OnAssetImport, when set, handles the Asset Drawer's Import action for folder instead of opening the native file picker.
+	OnAssetImport func(folder string)
+	// OnAssetGenerate, when set, handles the Asset Drawer's Generate action for folder.
+	OnAssetGenerate func(folder string)
+	// OnAssetReplaceMissing, when set, handles the selected missing asset's "Replace with a file" action.
+	OnAssetReplaceMissing func(missingPath string)
+	// OnAssetAskAgent, when set, handles "Ask the agent" actions from the Asset Drawer and selected-asset inspector.
+	OnAssetAskAgent func(assetPath, prompt string)
 
 	playing            bool
 	playSnapshot       []byte
@@ -538,6 +546,8 @@ type Editor struct {
 	exportPanel exportPanelState
 	// search holds the cached project search index, active search results and Find References state.
 	search projectSearchState
+	// assetDrawer holds the Assets rail/drawer state, filter/sort/selection, preview playback, and drag-to-viewport state.
+	assetDrawer assetDrawerState
 	// view2D is the 2D viewport's own view while view2DFree is set, after the author panned or zoomed; until then the view is the scene camera's (View2D).
 	view2D     View2D
 	view2DFree bool

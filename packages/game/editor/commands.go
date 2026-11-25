@@ -85,6 +85,7 @@ const (
 	CmdEditorSettings        = "editor.settings"
 	CmdMergeConflicts        = "git.mergeConflicts"
 	CmdPlaytestReport        = "project.playtestReport"
+	CmdToggleAssetsMode      = "view.assets"
 	// The 3D viewport's axis views and projection: each axis view looks at the camera's Target along a world axis (SetView3D), and the orthographic command switches between perspective and orthographic (SetOrthographic3D).
 	CmdView3DFront        = "view.3d.front"
 	CmdView3DBack         = "view.3d.back"
@@ -1060,6 +1061,23 @@ func (e *Editor) initBuiltinCommands() {
 			Checked:     func() bool { return e.SnapScale },
 			Run: func() error {
 				e.SetSnapScale(!e.SnapScale)
+				return nil
+			},
+		},
+		{
+			ID:          CmdToggleAssetsMode,
+			Label:       "Asset Drawer",
+			Description: "Switch the left rail between Scene and Assets drawer mode",
+			Category:    "View",
+			Keywords:    []string{"assets", "drawer", "sprites", "audio", "fonts", "tiles", "unused", "missing"},
+			Enabled:     inEditor,
+			Checked:     func() bool { return e.LeftRailMode() == LeftRailAssets },
+			Run: func() error {
+				if e.LeftRailMode() == LeftRailAssets {
+					e.SetLeftRailMode(LeftRailScene)
+				} else {
+					e.SetLeftRailMode(LeftRailAssets)
+				}
 				return nil
 			},
 		},

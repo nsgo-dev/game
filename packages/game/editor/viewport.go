@@ -501,6 +501,7 @@ func (e *Editor) DrawViewport(d *core.Drawing, size core.Size) {
 	e.drawGizmo2D(d)
 	e.drawComponentShapeHandles2D(d)
 	e.drawMarqueeOverlay(d)
+	e.drawAssetDragOverlay(d, scene)
 	if t := e.activePluginTool(); t != nil && t.Draw != nil {
 		// Save and Restore keep a transform or style the tool leaves set from reaching the next frame's drawing.
 		d.Save()
@@ -1361,7 +1362,7 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 					_, strokeActive := ed.TileStrokeActive()
 					selVisible := ed.ViewMode == ViewMode2D && isTileTool(ed.Tool) && ed.hasTileSel
 					navPreview := ed.Tool == ToolNavTestPath && (ed.nav2D.preview.HasStart || ed.nav2D.preview.HasEnd)
-					activeOp := ed.Dragging2D() != Handle2DNone || ed.MarqueeActive() || ed.DraggingGizmo3D() || ed.DraggingHandle3D() || ed.DraggingComponentGizmo3D() || ed.PluginDragging3D() || ed.DraggingShape2D() || ed.PluginDragging2D() || ed.cameraDrag.active || ed.cameraBoundsDrag.active || ed.roomDrag.active || gmActive || (ed.terrain != nil && ed.terrain.stroke != nil) || strokeActive || selVisible || navPreview
+					activeOp := ed.Dragging2D() != Handle2DNone || ed.MarqueeActive() || ed.AssetDragActive() || ed.DraggingGizmo3D() || ed.DraggingHandle3D() || ed.DraggingComponentGizmo3D() || ed.PluginDragging3D() || ed.DraggingShape2D() || ed.PluginDragging2D() || ed.cameraDrag.active || ed.cameraBoundsDrag.active || ed.roomDrag.active || gmActive || (ed.terrain != nil && ed.terrain.stroke != nil) || strokeActive || selVisible || navPreview
 					return activeOp || (!ed.Playing() && ed.SelectionCount() > 0)
 				},
 				Then: func(cx *core.Scope) core.Node {
@@ -1370,10 +1371,11 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 						_, strokeActive := ed.TileStrokeActive()
 						selVisible := ed.ViewMode == ViewMode2D && isTileTool(ed.Tool) && ed.hasTileSel
 						navPreview := ed.Tool == ToolNavTestPath && (ed.nav2D.preview.HasStart || ed.nav2D.preview.HasEnd)
-						activeOp := ed.Dragging2D() != Handle2DNone || ed.MarqueeActive() || ed.DraggingGizmo3D() || ed.DraggingHandle3D() || ed.DraggingComponentGizmo3D() || ed.PluginDragging3D() || ed.DraggingShape2D() || ed.PluginDragging2D() || ed.cameraDrag.active || ed.cameraBoundsDrag.active || ed.roomDrag.active || gmActive || (ed.terrain != nil && ed.terrain.stroke != nil) || strokeActive || selVisible
+						activeOp := ed.Dragging2D() != Handle2DNone || ed.MarqueeActive() || ed.AssetDragActive() || ed.DraggingGizmo3D() || ed.DraggingHandle3D() || ed.DraggingComponentGizmo3D() || ed.PluginDragging3D() || ed.DraggingShape2D() || ed.PluginDragging2D() || ed.cameraDrag.active || ed.cameraBoundsDrag.active || ed.roomDrag.active || gmActive || (ed.terrain != nil && ed.terrain.stroke != nil) || strokeActive || selVisible
 						if activeOp {
 							ed.CancelPluginDrag2D()
 							ed.CancelShapeDrag2D()
+							ed.CancelAssetDrag()
 							ed.CancelPluginDrag3D()
 							ed.CancelComponentGizmoDrag3D()
 							if strokeActive {
@@ -1692,6 +1694,7 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 					},
 				},
 			}),
+			assetDragViewportOverlay(cx, ed, rev),
 			viewport3DRenderStatsOverlay(cx, ed, rev),
 		},
 	}
