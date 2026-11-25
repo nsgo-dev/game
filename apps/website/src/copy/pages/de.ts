@@ -75,7 +75,7 @@ export const dePages: PagesCopy = {
       "Lokal starten, Hot Reload beim Speichern",
       "Auf eine andere Plattform wechseln"
     ],
-    "requirements": "Benötigt Go 1.27+ und NSGo v0.3.0+. iOS-Builds brauchen macOS und Xcode.",
+    "requirements": "Benötigt Go 1.27+ und NSGo v0.3.4+. iOS-Builds brauchen macOS und Xcode.",
     "migrate": "Umstieg von einer anderen Engine:",
     "finalTitle": "Noch früh – und schon genug für ein ganzes Spiel.",
     "finalLead": "Noch ist nichts veröffentlicht. Die API-Stabilitätsrichtlinie zeigt, welche Pakete stabil sind und welche sich noch ändern können.",

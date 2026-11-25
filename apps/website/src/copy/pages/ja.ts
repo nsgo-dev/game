@@ -75,7 +75,7 @@ export const jaPages: PagesCopy = {
       "この環境で実行、保存でホットリロード",
       "別のターゲットへ"
     ],
-    "requirements": "Go 1.27+ と NSGo v0.3.0+ が必要です。iOS のビルドには macOS と Xcode が必要です。",
+    "requirements": "Go 1.27+ と NSGo v0.3.4+ が必要です。iOS のビルドには macOS と Xcode が必要です。",
     "migrate": "他のエンジンから移行：",
     "finalTitle": "まだ初期段階。それでも、ゲームを 1 本作りきれます。",
     "finalLead": "まだリリース前です。API 安定性ポリシーで、どのパッケージが安定版で、どれがまだ変わりうるかを確認できます。",

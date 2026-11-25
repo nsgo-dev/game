@@ -75,7 +75,7 @@ export const frPages: PagesCopy = {
       "Lancez-le ici, rechargement à chaud",
       "Passez à une autre cible"
     ],
-    "requirements": "Nécessite Go 1.27+ et NSGo v0.3.0+. Les builds iOS demandent macOS et Xcode.",
+    "requirements": "Nécessite Go 1.27+ et NSGo v0.3.4+. Les builds iOS demandent macOS et Xcode.",
     "migrate": "Vous venez d’un autre moteur :",
     "finalTitle": "Encore jeune, mais déjà de quoi publier un jeu complet.",
     "finalLead": "Rien n’est encore publié. La politique de stabilité de l’API indique quels paquets sont stables et lesquels peuvent encore changer.",

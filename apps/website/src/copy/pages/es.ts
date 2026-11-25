@@ -75,7 +75,7 @@ export const esPages: PagesCopy = {
       "Ejecútalo aquí, recarga en caliente al guardar",
       "Cambia a otro destino"
     ],
-    "requirements": "Requiere Go 1.27+ y NSGo v0.3.0+. Compilar para iOS requiere macOS y Xcode.",
+    "requirements": "Requiere Go 1.27+ y NSGo v0.3.4+. Compilar para iOS requiere macOS y Xcode.",
     "migrate": "¿Vienes de otro motor?",
     "finalTitle": "Temprano, y ya da para publicar un juego entero.",
     "finalLead": "Aún no hay versión publicada. La política de estabilidad de la API indica qué paquetes son estables y cuáles pueden cambiar.",

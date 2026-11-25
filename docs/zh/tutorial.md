@@ -26,7 +26,7 @@ git diff --no-index examples/tutorial/ch04-sprites examples/tutorial/ch05-rules
 
 ## 开始之前
 
-你需要 Go 1.27 和 NSGo v0.3.0 或更新版本，见[快速开始](getting-started.md)。教程会边做边解释用到的每个 API；各个包的其余功能见包指南，例如 [Loop](loop.md) 和 [input](input.md)。
+你需要 Go 1.27 和 NSGo v0.3.4 或更新版本，见[快速开始](getting-started.md)。教程会边做边解释用到的每个 API；各个包的其余功能见包指南，例如 [Loop](loop.md) 和 [input](input.md)。
 
 如果想在自己的模块里跟着做，从第 1 章开始，它会创建一个模块。如果想直接运行本仓库里的各章，进入 `examples/tutorial`，这个 Go 模块包含全部九章：
 

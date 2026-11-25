@@ -75,7 +75,7 @@ export const enPages = {
       "Run it here, hot reload on save",
       "Switch to another target"
     ],
-    "requirements": "Needs Go 1.27+ and NSGo v0.3.0+. iOS builds need macOS and Xcode.",
+    "requirements": "Needs Go 1.27+ and NSGo v0.3.4+. iOS builds need macOS and Xcode.",
     "migrate": "Coming from another engine:",
     "finalTitle": "Early, and already enough to ship a whole game.",
     "finalLead": "Nothing is released yet. The API stability policy says which packages are stable and which may still change.",

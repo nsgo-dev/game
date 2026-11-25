@@ -70,7 +70,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the repository layout, local test and
 
 | `game` | Go | NSGo |
 | --- | --- | --- |
-| Unreleased / `v0.1.0` | 1.27+ | `v0.3.0` or later |
+| Unreleased / `v0.1.0` | 1.27+ | `v0.3.4` or later |
 
 ## Networking
 

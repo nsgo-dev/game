@@ -24,7 +24,7 @@ The game is a walled courtyard: the hero fights three guards, jumps onto a ledge
 
 ## Gaps found in shared packages and NSGo
 
-- **NSGo's software GPU drops triangles that cross the near plane.** `rasterTriangle` in `internal/driver/gpu_software.go` (NSGo v0.3.0, lines 1766-1770, unchanged on NSGo `main`) returns when any vertex has `w <= 1e-6` instead of clipping the triangle, so under nsgotest a floor that extends behind the camera disappears; real GPUs clip it. The template's render tests check the opening view, where all the level lies in front of the camera, and the game itself needs no workaround. Filed as nsgo-dev/nsgo#2344.
+- **NSGo's software GPU drops triangles that cross the near plane.** `rasterTriangle` in `internal/driver/gpu_software.go` (NSGo v0.3.0, lines 1766-1770, unchanged on NSGo `main`) returns when any vertex has `w <= 1e-6` instead of clipping the triangle, so under nsgotest a floor that extends behind the camera disappears; real GPUs clip it. The template's render tests check the opening view, where all the level lies in front of the camera, and the game itself needs no workaround. Filed as nsgo-dev/nsgo#2344 and fixed in NSGo v0.3.4, which the template requires.
 - **Character controllers do not collide with each other.** physics3d documents this; `game.separate` pushes standing actors' capsules apart on the ground when they overlap in height (the hero on the ledge above a guard passes over it) and refuses a push that would put a capsule inside a wall, tested with `World.QueryOverlap`.
 - **render3d has no primitive mesh builders.** `cubeMesh` writes the unit cube's 24 vertices.
 - **anim3d has no text format for clips.** Clips come from glTF (`ClipFromGLTF`) or Go; the template defines its clips in `data/actors.yaml`.

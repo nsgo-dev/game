@@ -26,7 +26,7 @@ git diff --no-index examples/tutorial/ch04-sprites examples/tutorial/ch05-rules
 
 ## Before you start
 
-You need Go 1.27 and NSGo v0.3.0 or later, as [Getting Started](getting-started.md) describes. The tutorial explains each API it uses as it goes; the package guides, such as [Loop](loop.md) and [input](input.md), cover the rest of each package.
+You need Go 1.27 and NSGo v0.3.4 or later, as [Getting Started](getting-started.md) describes. The tutorial explains each API it uses as it goes; the package guides, such as [Loop](loop.md) and [input](input.md), cover the rest of each package.
 
 To follow along in your own module, start with chapter 1, which creates one. To run the chapters from a checkout of this repository instead, work in `examples/tutorial`, a Go module that holds all nine:
 

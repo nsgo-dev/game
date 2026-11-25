@@ -101,7 +101,7 @@ game 是用 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用游戏层。游戏�
 
 ## 安装
 
-这个模块需要 Go 1.27 和 NSGo `v0.3.0` 或更高版本：
+这个模块需要 Go 1.27 和 NSGo `v0.3.4` 或更高版本：
 
 ```sh
 go get github.com/nsgo-dev/game/packages/game

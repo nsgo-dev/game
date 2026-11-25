@@ -75,7 +75,7 @@ export const zhPages: PagesCopy = {
       "在本机运行，保存即热重载",
       "换一个目标平台"
     ],
-    "requirements": "需要 Go 1.27+ 与 NSGo v0.3.0+；构建 iOS 需要 macOS 与 Xcode。",
+    "requirements": "需要 Go 1.27+ 与 NSGo v0.3.4+；构建 iOS 需要 macOS 与 Xcode。",
     "migrate": "从其他引擎迁移：",
     "finalTitle": "还在早期，但已经能做完一整款游戏",
     "finalLead": "项目尚未发布。API 稳定性策略说明了哪些包已经稳定、哪些仍会变化。",
