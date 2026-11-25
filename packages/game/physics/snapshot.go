@@ -24,6 +24,7 @@ type BodySnapshot struct {
 	OnCeiling   bool      `json:"onCeiling,omitempty"`
 	OnLeftWall  bool      `json:"onLeftWall,omitempty"`
 	OnRightWall bool      `json:"onRightWall,omitempty"`
+	OneWay      bool      `json:"oneWay,omitempty"`
 	OneWayDrop  bool      `json:"oneWayDrop,omitempty"`
 }
 
@@ -241,6 +242,7 @@ func snapshotBody(b *Body) BodySnapshot {
 		OnCeiling:   b.OnCeiling,
 		OnLeftWall:  b.OnLeftWall,
 		OnRightWall: b.OnRightWall,
+		OneWay:      b.OneWay,
 		OneWayDrop:  b.OneWayDrop,
 	}
 }
@@ -259,6 +261,7 @@ func applyBodySnapshot(dst *Body, src BodySnapshot) {
 		OnCeiling:   src.OnCeiling,
 		OnLeftWall:  src.OnLeftWall,
 		OnRightWall: src.OnRightWall,
+		OneWay:      src.OneWay,
 		OneWayDrop:  src.OneWayDrop,
 		UserData:    ud,
 	}
@@ -1853,6 +1856,10 @@ func hashBody(h *detmath.Hasher, b *Body) {
 	h.WriteBool(b.OnLeftWall)
 	h.WriteBool(b.OnRightWall)
 	h.WriteBool(b.OneWayDrop)
+	// Hash OneWay only when set so worlds without one-way bodies keep their existing checksums.
+	if b.OneWay {
+		h.WriteBool(true)
+	}
 }
 
 func hashTrigger(h *detmath.Hasher, tr *Trigger) {

@@ -141,13 +141,57 @@ func (c *CharacterBody) EffectiveGravity() (gx, gy float32) {
 	return eff.GravityX * scale, eff.GravityY * scale
 }
 
+func (p *MovingPlatform) isOneWay() bool {
+	return p != nil && (p.OneWay || (p.Body != nil && p.Body.OneWay))
+}
+
+func platformBodies(platforms []*MovingPlatform) []*Body {
+	if len(platforms) == 0 {
+		return nil
+	}
+	var out []*Body
+	for _, p := range platforms {
+		if p != nil && p.Body != nil {
+			out = append(out, p.Body)
+		}
+	}
+	return out
+}
+
 // Move advances c by carrying it with any riding MovingPlatform and then moving by (Body.VX*dt, Body.VY*dt),
 // resolving solid and one-way tiles, moving platforms, walkable slopes (up to MaxSlopeAngle),
 // downhill slope snapping (up to SnapDist), and blocking steeper slopes.
 // When c.World is non-nil, Move integrates effective gravity (world gravity combined
 // with overlapping Trigger.Area overrides, scaled by GravityScale) along with area
-// linear damping and fluid linear drag into Body.VX/Body.VY before moving.
+// linear damping and fluid linear drag into Body.VX/Body.VY before moving, and also
+// collides against bodies (including OneWay bodies) and static RigidBody colliders in c.World
+// (using c.World.Tiles when grid is nil).
 func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingPlatform, dt time.Duration) MoveResult {
+	if c == nil {
+		return MoveResult{}
+	}
+	if grid == nil && c.World != nil {
+		grid = c.World.Tiles
+	}
+	return c.move(c.World, grid, slopes, platforms, dt, c.World != nil)
+}
+
+// MoveWorld advances c against world (its Bodies, Tiles, and static RigidBody colliders in
+// world.RigidWorld) together with slopes and platforms. Area gravity and damping are applied
+// only when c.World is set, so callers such as platformer.Controller that integrate their own
+// gravity can pass a World without double-applying gravity.
+func (c *CharacterBody) MoveWorld(world *World, slopes []Slope, platforms []*MovingPlatform, dt time.Duration) MoveResult {
+	if c == nil {
+		return MoveResult{}
+	}
+	var grid TileGrid
+	if world != nil {
+		grid = world.Tiles
+	}
+	return c.move(world, grid, slopes, platforms, dt, c.World != nil)
+}
+
+func (c *CharacterBody) move(world *World, grid TileGrid, slopes []Slope, platforms []*MovingPlatform, dt time.Duration, applyWorldArea bool) MoveResult {
 	if c == nil || c.Body == nil {
 		return MoveResult{}
 	}
@@ -169,7 +213,7 @@ func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingP
 	}
 
 	secs := dt.Seconds()
-	if c.World != nil && !math.IsNaN(secs) && !math.IsInf(secs, 0) && secs > 0 {
+	if applyWorldArea && c.World != nil && !math.IsNaN(secs) && !math.IsInf(secs, 0) && secs > 0 {
 		eff := c.World.AreaEffectAtShape(b.Shape, b.Layer, b.Mask)
 		gScale := float64(c.EffectiveGravityScale())
 		vx := float64(b.VX) + float64(float64(float64(eff.GravityX)*gScale)*secs)
@@ -187,6 +231,53 @@ func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingP
 		}
 		b.VX = float32(vx)
 		b.VY = float32(vy)
+	}
+
+	exclude := platformBodies(platforms)
+	hasWorldColliders := world.worldHasBodyColliders(b, exclude)
+
+	// Fast path: when using World body/rigid colliders with no separate slopes or moving platforms,
+	// sweep the body's full shape directly with World.MoveAndSlide.
+	if hasWorldColliders && len(slopes) == 0 && len(platforms) == 0 {
+		opts := MoveOptions{
+			FloorMaxAngle: c.MaxSlopeAngle,
+			Exclude:       exclude,
+		}
+		slideRes := world.moveAndSlideCore(b, dt, opts, grid)
+		c.Grounded = slideRes.OnFloor
+		c.GroundNormal = slideRes.FloorNormal
+		if b.VY >= 0 && !c.Grounded {
+			if cur, ok := shapeHull(b.Shape); ok && cur.hasArea() {
+				cfg := resolveSlideConfig(opts)
+				if nx, ny, ok := world.checkFloorRest(b, &cur, 1e-3, cfg, grid, nil, exclude); ok {
+					c.Grounded = true
+					c.GroundNormal = core.Point{X: core.Points(nx), Y: core.Points(ny)}
+					b.Grounded = true
+					b.VY = 0
+				}
+			}
+		}
+		var contacts []TileContact
+		for _, col := range slideRes.Collisions {
+			if col.Tile {
+				contacts = append(contacts, TileContact{
+					Col:     col.Col,
+					Row:     col.Row,
+					Flags:   col.TileFlags,
+					NormalX: col.NormalX,
+					NormalY: col.NormalY,
+				})
+			}
+		}
+		return MoveResult{
+			Contacts:    contacts,
+			Collisions:  slideRes.Collisions,
+			Grounded:    c.Grounded,
+			OnWall:      slideRes.OnWall,
+			OnCeiling:   slideRes.OnCeiling,
+			OnLeftWall:  slideRes.OnLeftWall,
+			OnRightWall: slideRes.OnRightWall,
+		}
 	}
 
 	maxSlope := float64(c.MaxSlopeAngle)
@@ -215,8 +306,20 @@ func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingP
 	box := b.Shape.Bounds()
 	x, y := float64(box.X), float64(box.Y)
 	w, h := float64(box.W), float64(box.H)
+	startX, startY := x, y
+	baseHull, hasBaseHull := shapeHull(b.Shape)
+	if !baseHull.hasArea() {
+		hasBaseHull = false
+	}
+	bodySlideCfg := resolveSlideConfig(MoveOptions{
+		FloorMaxAngle: float32(maxSlope),
+		Mask:          QueryBodies,
+		Exclude:       exclude,
+	})
 
 	var contacts []TileContact
+	var collisions []SlideCollision
+	var onWall bool
 	addContact := func(tc TileContact) {
 		for _, existing := range contacts {
 			if existing.Col == tc.Col && existing.Row == tc.Row &&
@@ -225,6 +328,18 @@ func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingP
 			}
 		}
 		contacts = append(contacts, tc)
+	}
+
+	sweepWorldBodies := func(dx, dy float64) (float64, float64, SlideResult) {
+		if !hasWorldColliders || !hasBaseHull || (dx == 0 && dy == 0) {
+			return dx, dy, SlideResult{}
+		}
+		cur := translateHull(&baseHull, x-startX, y-startY)
+		sres, ox, oy, _, _ := world.sweepAndSlide(b, &cur, dx, dy, float64(b.VX), float64(b.VY), bodySlideCfg, nil, nil, exclude)
+		if len(sres.Collisions) > 0 {
+			collisions = append(collisions, sres.Collisions...)
+		}
+		return ox, oy, sres
 	}
 
 	resolveTilesX := func(dx float64) bool {
@@ -326,20 +441,25 @@ func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingP
 	}
 
 	overlapsSolidTile := func(tx, ty float64) bool {
-		if !hasGrid {
-			return false
-		}
-		xEps := spanEpsilon(tx, w)
-		yEps := spanEpsilon(ty, h)
-		minCol := max(0, int(math.Floor((tx-ox+xEps)/tw)))
-		maxCol := min(cols-1, int(math.Ceil((tx-ox+w-xEps)/tw))-1)
-		minRow := max(0, int(math.Floor((ty-oy+yEps)/th)))
-		maxRow := min(rows-1, int(math.Ceil((ty-oy+h-yEps)/th))-1)
-		for row := minRow; row <= maxRow; row++ {
-			for col := minCol; col <= maxCol; col++ {
-				if grid.TileFlagsAt(col, row)&TileSolid != 0 {
-					return true
+		if hasGrid {
+			xEps := spanEpsilon(tx, w)
+			yEps := spanEpsilon(ty, h)
+			minCol := max(0, int(math.Floor((tx-ox+xEps)/tw)))
+			maxCol := min(cols-1, int(math.Ceil((tx-ox+w-xEps)/tw))-1)
+			minRow := max(0, int(math.Floor((ty-oy+yEps)/th)))
+			maxRow := min(rows-1, int(math.Ceil((ty-oy+h-yEps)/th))-1)
+			for row := minRow; row <= maxRow; row++ {
+				for col := minCol; col <= maxCol; col++ {
+					if grid.TileFlagsAt(col, row)&TileSolid != 0 {
+						return true
+					}
 				}
+			}
+		}
+		if hasWorldColliders && hasBaseHull {
+			cur := translateHull(&baseHull, tx-startX, ty-startY)
+			if c, ok := world.deepestSolidOverlap(b, &cur, QueryBodies, nil, nil, exclude); ok && c.depth > 1e-4 {
+				return true
 			}
 		}
 		return false
@@ -359,12 +479,16 @@ func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingP
 		cdx := float64(carriedPlatform.DeltaX)
 		cdy := float64(carriedPlatform.DeltaY)
 		if !math.IsNaN(cdx) && !math.IsInf(cdx, 0) && cdx != 0 {
-			x += cdx
+			mx, my, _ := sweepWorldBodies(cdx, 0)
+			x += mx
+			y += my
 			resolveTilesX(cdx)
 		}
 		if !math.IsNaN(cdy) && !math.IsInf(cdy, 0) && cdy != 0 {
 			prevBottom := y + h
-			y += cdy
+			mx, my, _ := sweepWorldBodies(0, cdy)
+			x += mx
+			y += my
 			resolveTilesY(prevBottom, cdy)
 		}
 	}
@@ -382,10 +506,11 @@ func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingP
 		pRight, pBottom := float64(pb.X+pb.W), float64(pb.Y+pb.H)
 		xEps := spanEpsilon(x, w)
 		yEps := spanEpsilon(y, h)
+		pOneWay := p.isOneWay()
 
 		// Rising platform catches character's feet.
 		if p.DeltaY < 0 && x+w > pLeft+xEps && x < pRight-xEps {
-			if !p.OneWay || !b.OneWayDrop {
+			if !pOneWay || !b.OneWayDrop {
 				prevPTop := pTop - float64(p.DeltaY)
 				if y+h <= prevPTop+1e-3 && y+h > pTop {
 					prevBottom := y + h
@@ -402,7 +527,7 @@ func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingP
 		}
 
 		// Horizontally moving solid platform pushes character out.
-		if !p.OneWay && p.DeltaX != 0 && y+h > pTop+yEps && y < pBottom-yEps {
+		if !pOneWay && p.DeltaX != 0 && y+h > pTop+yEps && y < pBottom-yEps {
 			if p.DeltaX > 0 {
 				prevPRight := pRight - float64(p.DeltaX)
 				if x >= prevPRight-1e-3 && x < pRight {
@@ -515,7 +640,43 @@ func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingP
 				}
 			}
 
-			if resolveTilesX(stepDX) {
+			if hasWorldColliders && hasBaseHull {
+				x = prevX
+				mx, my, sres := sweepWorldBodies(stepDX, 0)
+				x += mx
+				y += my
+				if sres.OnLeftWall {
+					b.OnLeftWall = true
+					onWall = true
+				}
+				if sres.OnRightWall {
+					b.OnRightWall = true
+					onWall = true
+				}
+				if sres.OnWall {
+					onWall = true
+				}
+				if sres.OnCeiling {
+					b.OnCeiling = true
+				}
+				if sres.OnFloor {
+					c.Grounded = true
+					c.GroundNormal = sres.FloorNormal
+					c.Riding = nil
+					if b.VY > 0 {
+						b.VY = 0
+					}
+					if stepDY > 0 {
+						stepDY = 0
+					}
+				}
+				if len(sres.Collisions) > 0 && !sres.OnFloor && math.Abs(mx) < math.Abs(stepDX)-1e-7 {
+					b.VX = 0
+					stepDX = 0
+				}
+			}
+
+			if stepDX != 0 && resolveTilesX(stepDX) {
 				b.VX = 0
 				stepDX = 0
 			}
@@ -524,7 +685,7 @@ func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingP
 			if stepDX != 0 {
 				yEps := spanEpsilon(y, h)
 				for _, p := range platforms {
-					if p == nil || p.OneWay || p.Body == nil || p.Body == b || p.Body.Shape.Empty() {
+					if p == nil || p.isOneWay() || p.Body == nil || p.Body == b || p.Body.Shape.Empty() {
 						continue
 					}
 					if !CanCollide(b, p.Body) {
@@ -654,7 +815,35 @@ func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingP
 		if stepDY != 0 {
 			prevBottom := y + h
 			prevTop := y
-			y += stepDY
+			hitWorldFloor := false
+			if hasWorldColliders && hasBaseHull {
+				mx, my, sres := sweepWorldBodies(0, stepDY)
+				x += mx
+				y += my
+				if sres.OnWall {
+					onWall = true
+					if sres.OnLeftWall {
+						b.OnLeftWall = true
+					}
+					if sres.OnRightWall {
+						b.OnRightWall = true
+					}
+				}
+				if sres.OnFloor {
+					c.Grounded = true
+					c.GroundNormal = sres.FloorNormal
+					c.Riding = nil
+					b.VY = 0
+					stepDY = 0
+					hitWorldFloor = true
+				} else if sres.OnCeiling {
+					b.OnCeiling = true
+					b.VY = 0
+					stepDY = 0
+				}
+			} else {
+				y += stepDY
+			}
 
 			hitFloor, hitCeil := resolveTilesY(prevBottom, stepDY)
 			if hitFloor {
@@ -670,7 +859,7 @@ func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingP
 
 			// Resolve vertically against moving platforms.
 			xEps := spanEpsilon(x, w)
-			if stepDY > 0 || (hitFloor && totalDY > 0) {
+			if stepDY > 0 || ((hitFloor || hitWorldFloor) && totalDY > 0) {
 				for _, p := range platforms {
 					if p == nil || p.Body == nil || p.Body == b || p.Body.Shape.Empty() {
 						continue
@@ -685,8 +874,9 @@ func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingP
 						continue
 					}
 					oneWayEps := max(1e-3, 1e-5*math.Abs(pTop))
-					solid := !p.OneWay
-					oneWay := p.OneWay && !b.OneWayDrop && prevBottom <= pTop+oneWayEps
+					pOneWay := p.isOneWay()
+					solid := !pOneWay
+					oneWay := pOneWay && !b.OneWayDrop && prevBottom <= pTop+oneWayEps
 					if (solid || oneWay) && prevBottom <= pTop+oneWayEps && y+h >= pTop-1e-4 {
 						if pTop-h <= y+1e-4 {
 							y = pTop - h
@@ -700,7 +890,7 @@ func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingP
 				}
 			} else if stepDY < 0 {
 				for _, p := range platforms {
-					if p == nil || p.OneWay || p.Body == nil || p.Body == b || p.Body.Shape.Empty() {
+					if p == nil || p.isOneWay() || p.Body == nil || p.Body == b || p.Body.Shape.Empty() {
 						continue
 					}
 					if !CanCollide(b, p.Body) {
@@ -779,7 +969,7 @@ func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingP
 			if p == nil || p.Body == nil || p.Body == b || p.Body.Shape.Empty() {
 				return false
 			}
-			if !CanCollide(b, p.Body) || (p.OneWay && b.OneWayDrop) {
+			if !CanCollide(b, p.Body) || (p.isOneWay() && b.OneWayDrop) {
 				return false
 			}
 			pb := p.Body.Bounds()
@@ -879,6 +1069,15 @@ func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingP
 				}
 			}
 		}
+		// 3d. Check resting flush on a world body or static rigid body.
+		if !c.Grounded && hasWorldColliders && hasBaseHull {
+			cur := translateHull(&baseHull, x-startX, y-startY)
+			if nx, ny, ok := world.checkFloorRest(b, &cur, restEps, bodySlideCfg, nil, nil, exclude); ok {
+				c.Grounded = true
+				c.GroundNormal = core.Point{X: core.Points(nx), Y: core.Points(ny)}
+				b.VY = 0
+			}
+		}
 	}
 
 	// 4. Write resolved position and ground flags back to Body.
@@ -896,7 +1095,9 @@ func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingP
 
 	return MoveResult{
 		Contacts:    contacts,
+		Collisions:  collisions,
 		Grounded:    c.Grounded,
+		OnWall:      onWall || b.OnLeftWall || b.OnRightWall,
 		OnCeiling:   b.OnCeiling,
 		OnLeftWall:  b.OnLeftWall,
 		OnRightWall: b.OnRightWall,

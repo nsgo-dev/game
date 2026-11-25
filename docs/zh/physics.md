@@ -53,7 +53,7 @@ if c := physics.TestShapes(hero, physics.PolygonShape(ramp)); c.Hit {
 
 `Shape.Area`、`Shape.Centroid` 与 `Shape.MomentOfInertia(mass)` 给出刚体所用的质量属性；圆角多边形按 Box2D 的做法，把顶点向外推出来近似。
 
-`MoveAndSlide` 与 `CharacterBody` 用物体的包围盒与瓦片求解，因此多边形或胶囊体 `Body` 按其包围盒移动并保持自身形状。`DrawShape` 以 `PolygonColor`、`CapsuleColor` 与 `SegmentColor` 绘制多边形（含圆角）、带中轴的胶囊体、线段与链的轮廓。
+`MoveAndSlide` 用物体的包围盒与瓦片求解，因此多边形或胶囊体 `Body` 按其包围盒移动并保持自身形状。`World.MoveAndSlide` 与 `World.MoveAndSlideWith` 则会按物体的真实形状（`Box`、`Circle`、`Polygon` 或 `Capsule`）对物体、瓦片和静态刚体做连续扫掠滑动。`DrawShape` 以 `PolygonColor`、`CapsuleColor` 与 `SegmentColor` 绘制多边形（含圆角）、带中轴的胶囊体、线段与链的轮廓。
 
 与这里的所有形状一样，由于没有连续碰撞检测，线段或链挡不住在一步之内中心越过它的物体：让快速物体每步的移动不超过一个半径，或者提高世界的步进频率。
 
@@ -80,10 +80,41 @@ if res.Grounded && actions.JustPressed("jump") {
 ```
 
 - **接触标志**：`MoveAndSlide` 同时更新返回值 `MoveResult` 和物体自身的 `Grounded`、`OnCeiling`、`OnLeftWall`、`OnRightWall` 标志，并列出每次瓦片接触 `Contacts`（含 `Col`、`Row`、`Flags`、`NormalX`、`NormalY`）。
-- **单向平台**：标记为 `TileOneWay` 的瓦片只在物体起点位于瓦片顶边之上且向下移动时阻挡；将 `Body.OneWayDrop` 设为 `true` 可向下穿过。
+- **单向平台**：标记为 `TileOneWay` 的瓦片以及设置了 `Body.OneWay = true` 的物体只在移动体从其朝上一侧进入且未设置 `Body.OneWayDrop` 时阻挡；将 `Body.OneWayDrop` 设为 `true` 可向下穿过。
 - **瓦片地图**：[`tilemap.Tilemap`](tilemap.md) 的 [`tileshape.View`](tileshape.md) 就是一个 `TileGrid`，可以连同它从逐瓦片碰撞形状推导出的 `Slope` 线段一起直接传给 `MoveAndSlide`、`CharacterBody.Move` 与 `World`。
 - **自定义 `TileGrid`**：只需实现 `TileSize() (float32, float32)`、`GridSize() (int, int)` 和 `TileFlagsAt(col, row int) TileFlags`，即可将其他任意地图接入 `MoveAndSlide` 与 `World`。
 - **斜坡与瓦片配合**：`CharacterBody.Move` 会先把角色抬到可行走的斜坡上，再检测瓦片墙，因此斜坡顶端与实心瓦片顶面相接时角色会走上瓦片；角色走出斜坡下端时，会贴合到 `SnapDist` 以内的瓦片顶面。
+
+## World.MoveAndSlide（物体、形状与瓦片滑动）
+
+`World.MoveAndSlide(body, dt)` 与 `World.MoveAndSlideWith(body, dt, opts)` 按物体的真实形状（`Box`、`Circle`、`Polygon` 或 `Capsule`）对 `World.Bodies` 中的静态与运动学物体（含 `OneWay` 单向物体）、`World.Tiles` 中的实心与单向瓦片，以及 `World.RigidWorld`（或 `MoveOptions.RigidBodies`）中的静态 `RigidBody` 碰撞体做扫掠碰撞，并按 `Layer` 与 `Mask`（以及可选的 `World.TileLayer` / `World.TileMask`）过滤。
+
+每次碰撞都会将剩余位移与速度沿接触法线投影滑动，最多迭代 `MaxSlides` 次（默认 `DefaultMaxSlides` = 4），支持任意非轴对齐法线（例如斜墙、凸多边形、线段与链）：
+
+```go
+world := &physics.World{Tiles: grid, RigidWorld: rigid}
+door := physics.NewBoxBody(80, 96, 8, 32)
+ledge := physics.NewBoxBody(20, 100, 48, 8)
+ledge.OneWay = true
+world.Add(player, door, ledge)
+
+// 横版平台（默认 MotionGrounded，Up = (0, -1)，FloorMaxAngle = 45°）：
+res := world.MoveAndSlide(player, dt)
+for _, c := range res.Collisions {
+	// c.Body / c.RigidBody / c.Tile、c.NormalX、c.NormalY、c.Position、c.Remainder
+	_ = c
+}
+
+// 俯视角角色沿 30° 斜墙顺滑移动：
+topDown := world.MoveAndSlideWith(hero, dt, physics.MoveOptions{
+	Mode: physics.MotionFloating,
+})
+_ = topDown.OnWall
+```
+
+- **接触面分类**：`SlideResult` 返回 `OnFloor`、`OnWall`、`OnCeiling`、`OnLeftWall`、`OnRightWall`、`FloorNormal`、`WallNormal`、`CeilingNormal`、`Travel` 以及按碰撞顺序排列的 `Collisions`。可通过 `MoveOptions.UpX`/`UpY` 与 `FloorMaxAngle` 配置自定义重力方向或可行走坡度上限，或设为 `Mode: MotionFloating` 用于俯视角移动（所有接触均视作墙壁）。
+- **单向物体**：任意 `Body` 均可设置 `Body.OneWay = true`（不限于瓦片或 `MovingPlatform`），允许角色从下方或侧面穿过、站在其朝上一侧表面，并在 `Body.OneWayDrop = true` 时向下穿过。`Body.OneWay` 会完整保存在 `WorldSnapshot` 与 `World.Checksum` 中。
+- **`CharacterBody` 集成**：设置 `CharacterBody.World = world` 或调用 `CharacterBody.MoveWorld(world, slopes, platforms, dt)` 后，平台角色会在保留斜坡与移动平台的同时，与门、方块、单向物体及静态刚体正常碰撞。
 
 ## World 空间查询与射线检测
 

@@ -21,7 +21,7 @@ The biggest change is where a game lives. In Godot you assemble scenes in the ed
 | `Timer` node, `await` on a signal | `flow.Timers`, `flow.Seq` and `flow.Wait` | [flow](flow.md) |
 | `Tween` | `tween.Tween`, `tween.Timeline` | [tween](tween.md) |
 | Input Map, `Input.is_action_just_pressed` | `input.Actions`, `JustPressed` | [input](input.md) |
-| `CharacterBody2D.move_and_slide()` | `physics.MoveAndSlide` against a `TileGrid` | [physics](physics.md) |
+| `CharacterBody2D.move_and_slide()` | `World.MoveAndSlide` / `MoveAndSlideWith` against bodies, shapes, tiles and static rigid bodies (`physics.MoveAndSlide` for tiles alone; `platformer.Controller.StepWorld` for platformers) | [physics](physics.md), [platformer](platformer.md) |
 | `RigidBody2D`, joints | `physics.RigidWorld`, `RigidBody`, joints | [2D Rigid Bodies](physics2d-rigid.md) |
 | `CharacterBody3D`, `RigidBody3D` | `physics3d.CharacterController`, `physics3d.World` | [physics3d](physics3d.md) |
 | Export presets, export templates | `nsgo.yaml` and `go tool nsgo build` | [Building and Shipping](shipping.md) |
@@ -87,7 +87,7 @@ Bindings today are touch regions, mouse buttons and device motion. Key and gamep
 
 The 2D physics package works in the same screen space as the drawing and steps on the loop's fixed `dt`.
 
-- **`CharacterBody2D`**: `physics.MoveAndSlide(body, grid, dt)` moves a `Body` by its velocity against a `TileGrid` of solid and one-way tiles and sets `Grounded`, `OnCeiling`, `OnLeftWall` and `OnRightWall`, Godot's `is_on_floor()` and friends. See [physics](physics.md).
+- **`CharacterBody2D`**: `World.MoveAndSlide(body, dt)` and `World.MoveAndSlideWith(body, dt, opts)` sweep a `Body`'s shape against static and kinematic bodies (including `Body.OneWay` platforms), solid and one-way tiles, and static `RigidBody` colliders, sliding along non-axis-aligned normals and returning `Collisions` plus `OnFloor`, `OnWall` and `OnCeiling` with configurable `UpX`/`UpY`, `FloorMaxAngle` and `MotionFloating` (top-down) mode — matching Godot's `move_and_slide()`, `is_on_floor()`, `get_slide_collision()`, `up_direction` and `motion_mode`. `physics.MoveAndSlide(body, grid, dt)` remains available for tile-only movement, and `CharacterBody.MoveWorld` / `platformer.Controller.StepWorld` add slopes and moving platforms. See [physics](physics.md) and [platformer](platformer.md).
 - **`Area2D`**: a `physics.Trigger` added with `World.AddTrigger` calls `OnEnter`, `OnStay` and `OnExit` from `World.StepTriggers`, as `body_entered` and `body_exited` do.
 - **`RayCast2D` and `intersect_ray`**: `World.RaycastFirst` and `World.Raycast`; `World.QueryOverlap` and `QueryPoint` cover shape and point queries.
 - **Collision layers and masks**: the `Layer` and `Mask` fields (`LayerMask`) on bodies and triggers.

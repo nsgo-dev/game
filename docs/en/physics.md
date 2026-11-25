@@ -53,7 +53,7 @@ A chain reports its deepest segment contact. At an interior vertex it only uses 
 
 `Shape.Area`, `Shape.Centroid` and `Shape.MomentOfInertia(mass)` give the mass properties a rigid body uses, approximating a rounded polygon by pushing its vertices out as Box2D does.
 
-`MoveAndSlide` and `CharacterBody` resolve tiles against a body's bounding box, so a polygon or capsule `Body` moves as its bounds do and keeps its shape. `DrawShape` outlines polygons (with rounded corners), capsules with their axis, segments and chains, in `PolygonColor`, `CapsuleColor` and `SegmentColor`.
+`MoveAndSlide` resolves tiles against a body's bounding box, so a polygon or capsule `Body` moves as its bounds do and keeps its shape. `World.MoveAndSlide` and `World.MoveAndSlideWith` sweep the body's full shape (`Box`, `Circle`, `Polygon` or `Capsule`) against bodies, tiles and static rigid bodies. `DrawShape` outlines polygons (with rounded corners), capsules with their axis, segments and chains, in `PolygonColor`, `CapsuleColor` and `SegmentColor`.
 
 Like any shape here, a segment or chain cannot stop a body whose center crosses it within one step, since there is no continuous collision detection: keep fast bodies under one radius of movement per step, or step the world more often.
 
@@ -80,10 +80,41 @@ if res.Grounded && actions.JustPressed("jump") {
 ```
 
 - **Contact flags**: `MoveAndSlide` updates both the returned `MoveResult` and the body's `Grounded`, `OnCeiling`, `OnLeftWall`, and `OnRightWall` flags, plus per-tile `Contacts` (`Col`, `Row`, `Flags`, `NormalX`, `NormalY`).
-- **One-way platforms**: tiles marked `TileOneWay` block downward motion only when the body starts at or above the tile's top edge, unless `Body.OneWayDrop` is `true`.
+- **One-way platforms**: tiles marked `TileOneWay` and bodies with `Body.OneWay = true` block movement only from their upward-facing side when the mover starts on that side, unless `Body.OneWayDrop` is `true`.
 - **Tilemaps**: a [`tileshape.View`](tileshape.md) of a [`tilemap.Tilemap`](tilemap.md) is a `TileGrid`, so pass it to `MoveAndSlide`, `CharacterBody.Move` and `World` directly, together with the `Slope` segments it derives from per-tile collision shapes.
 - **Custom `TileGrid`**: implement `TileSize() (float32, float32)`, `GridSize() (int, int)`, and `TileFlagsAt(col, row int) TileFlags` to plug any other map into `MoveAndSlide` and `World`.
 - **Slopes and tiles together**: `CharacterBody.Move` lifts a character onto a walkable slope before testing tile walls, so the top of a slope that meets a solid tile's top walks onto the tile, and when the character walks off the lower end of a slope it snaps down onto a tile top within `SnapDist`.
+
+## World.MoveAndSlide (bodies, shapes and tiles)
+
+`World.MoveAndSlide(body, dt)` and `World.MoveAndSlideWith(body, dt, opts)` sweep a body's actual shape (`Box`, `Circle`, `Polygon` or `Capsule`) against every static or kinematic `Body` in `World.Bodies` (including `OneWay` bodies), solid and one-way tiles in `World.Tiles`, and static `RigidBody` colliders in `World.RigidWorld` (or `MoveOptions.RigidBodies`), filtered by `Layer` and `Mask` (and optional `World.TileLayer` / `World.TileMask`).
+
+On each impact it slides the remaining displacement and velocity along the contact normal for up to `MaxSlides` iterations (default `DefaultMaxSlides` = 4), including non-axis-aligned normals such as angled walls, polygons, segments and chains:
+
+```go
+world := &physics.World{Tiles: grid, RigidWorld: rigid}
+door := physics.NewBoxBody(80, 96, 8, 32)
+ledge := physics.NewBoxBody(20, 100, 48, 8)
+ledge.OneWay = true
+world.Add(player, door, ledge)
+
+// Side-view platformer (default MotionGrounded, Up = (0, -1), FloorMaxAngle = 45°):
+res := world.MoveAndSlide(player, dt)
+for _, c := range res.Collisions {
+	// c.Body / c.RigidBody / c.Tile, c.NormalX, c.NormalY, c.Position, c.Remainder
+	_ = c
+}
+
+// Top-down character sliding smoothly along a 30-degree wall:
+topDown := world.MoveAndSlideWith(hero, dt, physics.MoveOptions{
+	Mode: physics.MotionFloating,
+})
+_ = topDown.OnWall
+```
+
+- **Surface classification**: `SlideResult` reports `OnFloor`, `OnWall`, `OnCeiling`, `OnLeftWall`, `OnRightWall`, `FloorNormal`, `WallNormal`, `CeilingNormal`, `Travel`, and the ordered `Collisions` list. Configure `MoveOptions.UpX`/`UpY` and `FloorMaxAngle` for custom gravity directions or steeper walkable floors, or set `Mode: MotionFloating` for top-down movement where every contact is a wall.
+- **One-way bodies**: set `Body.OneWay = true` on any body (not only tiles or `MovingPlatform`) so movers pass up or sideways through it, land on its upward-facing surface, and drop through it when `Body.OneWayDrop = true`. `Body.OneWay` is preserved in `WorldSnapshot` and `World.Checksum`.
+- **`CharacterBody` integration**: assign `CharacterBody.World = world` or call `CharacterBody.MoveWorld(world, slopes, platforms, dt)` so platformer characters collide with doors, blocks, one-way bodies and static rigid bodies while keeping slopes and moving platforms.
 
 ## World queries and raycasts
 

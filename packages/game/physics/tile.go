@@ -128,11 +128,13 @@ type Body struct {
 	Layer    LayerMask
 	Mask     LayerMask
 	Grounded bool
-	// OnCeiling, OnLeftWall and OnRightWall report tile contacts from the last MoveAndSlide call.
+	// OnCeiling, OnLeftWall and OnRightWall report contacts from the last MoveAndSlide, World.MoveAndSlide or CharacterBody.Move call.
 	OnCeiling   bool
 	OnLeftWall  bool
 	OnRightWall bool
-	// OneWayDrop lets the body fall through TileOneWay platforms during MoveAndSlide.
+	// OneWay marks this body as a one-way platform collider: during World.MoveAndSlide (and CharacterBody.Move when using a World), it blocks movement only from its upward-facing side when the moving body starts outside on that side and does not have OneWayDrop set.
+	OneWay bool
+	// OneWayDrop lets the body fall through TileOneWay platforms, OneWay bodies and OneWay moving platforms during movement.
 	OneWayDrop bool
 	UserData   any
 }
@@ -163,10 +165,12 @@ type TileContact struct {
 	NormalX, NormalY float32
 }
 
-// MoveResult summarizes the tile contacts and surface flags from one MoveAndSlide call.
+// MoveResult summarizes the contacts and surface flags from one MoveAndSlide or CharacterBody.Move call.
 type MoveResult struct {
 	Contacts    []TileContact
+	Collisions  []SlideCollision
 	Grounded    bool
+	OnWall      bool
 	OnCeiling   bool
 	OnLeftWall  bool
 	OnRightWall bool
@@ -359,6 +363,7 @@ func MoveAndSlide(b *Body, grid TileGrid, dt time.Duration) MoveResult {
 	return MoveResult{
 		Contacts:    contacts,
 		Grounded:    b.Grounded,
+		OnWall:      b.OnLeftWall || b.OnRightWall,
 		OnCeiling:   b.OnCeiling,
 		OnLeftWall:  b.OnLeftWall,
 		OnRightWall: b.OnRightWall,

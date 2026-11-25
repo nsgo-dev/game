@@ -21,7 +21,7 @@
 | `Timer` 节点、`await` 信号 | `flow.Timers`、`flow.Seq` 与 `flow.Wait` | [flow](flow.md) |
 | `Tween` | `tween.Tween`、`tween.Timeline` | [tween](tween.md) |
 | 输入映射、`Input.is_action_just_pressed` | `input.Actions`、`JustPressed` | [input](input.md) |
-| `CharacterBody2D.move_and_slide()` | 针对 `TileGrid` 的 `physics.MoveAndSlide` | [physics](physics.md) |
+| `CharacterBody2D.move_and_slide()` | 针对物体、形状、瓦片与静态刚体的 `World.MoveAndSlide` / `MoveAndSlideWith`（纯瓦片可用 `physics.MoveAndSlide`，平台跳跃可用 `platformer.Controller.StepWorld`） | [physics](physics.md)、[platformer](platformer.md) |
 | `RigidBody2D`、关节 | `physics.RigidWorld`、`RigidBody`、关节 | [2D 刚体](physics2d-rigid.md) |
 | `CharacterBody3D`、`RigidBody3D` | `physics3d.CharacterController`、`physics3d.World` | [physics3d](physics3d.md) |
 | 导出预设、导出模板 | `nsgo.yaml` 与 `go tool nsgo build` | [构建与发布](shipping.md) |
@@ -87,7 +87,7 @@ Godot 的输入映射在这里是一个 `input.Actions` 值：把名字绑定到
 
 2D 物理包与绘制使用同一个屏幕空间，并按循环的固定 `dt` 推进。
 
-- **`CharacterBody2D`**：`physics.MoveAndSlide(body, grid, dt)` 让 `Body` 按速度在由实心和单向瓦片组成的 `TileGrid` 中移动，并设置 `Grounded`、`OnCeiling`、`OnLeftWall` 和 `OnRightWall`，对应 Godot 的 `is_on_floor()` 等方法。见 [physics](physics.md)。
+- **`CharacterBody2D`**：`World.MoveAndSlide(body, dt)` 与 `World.MoveAndSlideWith(body, dt, opts)` 按 `Body` 的真实形状对静态与运动学物体（含 `Body.OneWay` 单向平台）、实心与单向瓦片及静态 `RigidBody` 碰撞体做扫掠滑动，支持非轴对齐法线，并返回 `Collisions` 与 `OnFloor`、`OnWall`、`OnCeiling`（可配置 `UpX`/`UpY`、`FloorMaxAngle` 及俯视角 `MotionFloating` 模式），对应 Godot 的 `move_and_slide()`、`is_on_floor()`、`get_slide_collision()`、`up_direction` 与 `motion_mode`。仅与瓦片碰撞时仍可使用 `physics.MoveAndSlide(body, grid, dt)`；需要斜坡与移动平台时使用 `CharacterBody.MoveWorld` 或 `platformer.Controller.StepWorld`。见 [physics](physics.md) 与 [platformer](platformer.md)。
 - **`Area2D`**：用 `World.AddTrigger` 加入的 `physics.Trigger` 会在 `World.StepTriggers` 中调用 `OnEnter`、`OnStay` 和 `OnExit`，相当于 `body_entered` 和 `body_exited`。
 - **`RayCast2D` 和 `intersect_ray`**：`World.RaycastFirst` 和 `World.Raycast`；形状和点查询用 `World.QueryOverlap` 和 `QueryPoint`。
 - **碰撞层与掩码**：物体和触发器上的 `Layer` 与 `Mask` 字段（`LayerMask`）。
