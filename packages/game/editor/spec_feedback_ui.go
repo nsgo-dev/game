@@ -47,6 +47,16 @@ func (t Toast) canDismiss() bool {
 	return t.Kind != ToastProgress
 }
 
+func clampToastProgress(p float32) float32 {
+	if math.IsNaN(float64(p)) || math.IsInf(float64(p), 0) || p < 0 {
+		return 0
+	}
+	if p > 1 {
+		return 1
+	}
+	return p
+}
+
 // ShowToast appends t to the editor's FIFO toast queue, merging duplicates with the same non-empty ID
 // into the existing queued entry, and repaints the editor.
 func (e *Editor) ShowToast(t Toast) {
@@ -60,12 +70,14 @@ func (e *Editor) ShowToast(t Toast) {
 		for i := range e.toasts {
 			if e.toasts[i].ID == t.ID {
 				e.toasts[i] = t
+				e.toastSeq++
 				e.notify()
 				return
 			}
 		}
 	}
 	e.toasts = append(e.toasts, t)
+	e.toastSeq++
 	e.notify()
 }
 
@@ -75,6 +87,7 @@ func (e *Editor) DismissToast() {
 		return
 	}
 	e.toasts = e.toasts[1:]
+	e.toastSeq++
 	e.notify()
 }
 
@@ -84,6 +97,7 @@ func (e *Editor) ClearToasts() {
 		return
 	}
 	e.toasts = nil
+	e.toastSeq++
 	e.notify()
 }
 
@@ -120,21 +134,46 @@ func (e *Editor) SetOverlayLegendOpen(open bool) {
 // ToastView renders the editor's active toast at the bottom center of the viewport using exclusively
 // SpecPalette tokens (matching docs/design/editor/Toasts.dc.html) in both Dark and Light appearances.
 func ToastView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+	type toastViewKey struct {
+		dark           bool
+		viewMode2DEdit bool
+		seq            uint64
+		active         bool
+	}
+	toastKey := core.NewMemo(cx, func() toastViewKey {
+		_ = rev.Get()
+		_, ok := ed.ActiveToast()
+		var seq uint64
+		var viewMode2DEdit bool
+		if ed != nil {
+			seq = ed.toastSeq
+			viewMode2DEdit = ed.ViewMode == ViewMode2D && !ed.Playing()
+		}
+		return toastViewKey{
+			dark:           cx.Dark(),
+			viewMode2DEdit: viewMode2DEdit,
+			seq:            seq,
+			active:         ok,
+		}
+	})
 	return core.Show{
 		When: func() bool {
-			_ = rev.Get()
-			_, ok := ed.ActiveToast()
-			return ok
+			return toastKey.Get().active
 		},
 		Then: func(cx *core.Scope) core.Node {
 			return core.Dynamic(func(cx *core.Scope) core.Node {
-				_ = rev.Get()
+				k := toastKey.Get()
 				t, ok := ed.ActiveToast()
 				if !ok {
 					return core.View{}
 				}
-				p := ed.SpecPalette(cx)
+				p := SpecPaletteFor(k.dark)
 				waiting := ed.QueuedToastCount()
+				bottom := core.Pt(16)
+				if k.viewMode2DEdit {
+					// Sit cleanly above the bottom-center 2D viewport overlays bar (Bottom: 12, height ~36).
+					bottom = core.Pt(60)
+				}
 				return core.View{
 					TestID:        "editor-toast-host",
 					Role:          core.RoleStatus,
@@ -143,7 +182,7 @@ func ToastView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 						Position:       core.Absolute,
 						Left:           core.Pt(12),
 						Right:          core.Pt(12),
-						Bottom:         core.Pt(16),
+						Bottom:         bottom,
 						Direction:      core.Row,
 						JustifyContent: core.JustifyCenter,
 					},
@@ -312,13 +351,7 @@ func SpecToastCard(p SpecPalette, t Toast, waiting int, onDismiss func()) core.N
 	}
 
 	if t.Kind == ToastProgress {
-		frac := t.Progress
-		if frac < 0 {
-			frac = 0
-		}
-		if frac > 1 {
-			frac = 1
-		}
+		frac := clampToastProgress(t.Progress)
 		children = append(children, core.View{
 			PointerEvents: core.PointerEventsNone,
 			Style: core.Style{

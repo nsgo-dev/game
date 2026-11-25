@@ -10,6 +10,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/math2d"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/ui"
 )
 
 // Built-in 2D viewport overlay IDs, shared between the editor's Overlays popover,
@@ -211,6 +212,19 @@ func (e *Editor) initBuiltinOverlays() {
 	}
 }
 
+func builtinOverlayColor(id string, spec SpecPalette) core.Color {
+	switch id {
+	case OverlayTriggers:
+		return spec.Warning.Fg
+	case OverlayConnections:
+		return spec.Accent.Fg
+	case OverlayCameraBounds:
+		return spec.TextFaint
+	default:
+		return spec.TextMuted
+	}
+}
+
 // RegisterViewportOverlay registers a custom viewport overlay directly on the editor.
 // It refuses an empty or invalid ID, missing name or Draw function, or an ID that clashes with
 // a built-in or previously registered overlay.
@@ -224,9 +238,6 @@ func (e *Editor) RegisterViewportOverlay(o ViewportOverlay) error {
 	}
 	if e.hasRegisteredOverlayID(o.ID) {
 		return fmt.Errorf("editor: overlay %q is already registered", o.ID)
-	}
-	if o.Color == 0 {
-		o.Color = specTextSecondary
 	}
 	o.owner = nil
 	e.customOverlays = append(e.customOverlays, o)
@@ -262,15 +273,30 @@ func (e *Editor) ViewportOverlays() []ViewportOverlay {
 	if e == nil {
 		return nil
 	}
+	return e.viewportOverlaysFor(e.SpecPalette(nil))
+}
+
+func (e *Editor) viewportOverlaysFor(spec SpecPalette) []ViewportOverlay {
+	if e == nil {
+		return nil
+	}
 	e.initBuiltinOverlays()
 	out := make([]ViewportOverlay, 0, len(e.builtinOverlays)+len(e.customOverlays))
-	out = append(out, e.builtinOverlays...)
-	out = append(out, e.customOverlays...)
+	for _, o := range e.builtinOverlays {
+		o.Color = builtinOverlayColor(o.ID, spec)
+		out = append(out, o)
+	}
+	for _, o := range e.customOverlays {
+		if o.Color == 0 {
+			o.Color = spec.TextMuted
+		}
+		out = append(out, o)
+	}
 	for _, p := range e.activePlugins() {
 		for _, o := range p.Overlays {
 			o.owner = p
 			if o.Color == 0 {
-				o.Color = specTextSecondary
+				o.Color = spec.TextMuted
 			}
 			out = append(out, o)
 		}
@@ -719,12 +745,14 @@ func drawShapeEntriesOverlay(d *core.Drawing, entries []objectShapeEntry, stroke
 
 func drawCollisionShapesOverlay(e *Editor, d *core.Drawing, scene *sceneformat.BuiltScene) {
 	entries := e.collectAllComponentShapes(scene, false)
-	drawShapeEntriesOverlay(d, entries, core.RGBA(0xB4BAC6, 0.85), core.RGBA(0xB4BAC6, 0.08), false)
+	spec := e.SpecPalette(nil)
+	drawShapeEntriesOverlay(d, entries, ui.Alpha(spec.TextMuted, 0.85), ui.Alpha(spec.TextMuted, 0.08), false)
 }
 
 func drawTriggersOverlay(e *Editor, d *core.Drawing, scene *sceneformat.BuiltScene) {
 	entries := e.collectAllComponentShapes(scene, true)
-	drawShapeEntriesOverlay(d, entries, specWarning, core.RGBA(0xF2C14E, 0.08), true)
+	spec := e.SpecPalette(nil)
+	drawShapeEntriesOverlay(d, entries, spec.Warning.Fg, ui.Alpha(spec.Warning.Fg, 0.10), true)
 }
 
 // --- Connections overlay ---
@@ -775,6 +803,8 @@ func drawConnectionsOverlay(e *Editor, d *core.Drawing, scene *sceneformat.Built
 	type pairKey struct{ a, b string }
 	pairSeen := make(map[pairKey]int, len(conns))
 
+	spec := e.SpecPalette(nil)
+	pillBg := ui.Alpha(spec.PillBg, 0.92)
 	font := core.Font{Family: core.FontMonospace, Size: 10.5}
 	for _, c := range conns {
 		start, okFrom := e.objectCanvasCenter(scene, c.From)
@@ -812,11 +842,11 @@ func drawConnectionsOverlay(e *Editor, d *core.Drawing, scene *sceneformat.Built
 		}
 
 		// Curved connector shaft.
-		d.SetStrokeColor(specAccent).SetLineWidth(1.5).SetLineDash()
+		d.SetStrokeColor(spec.Accent.Fg).SetLineWidth(1.5).SetLineDash()
 		d.BeginPath().MoveTo(start.X, start.Y).CubicTo(c1.X, c1.Y, c2.X, c2.Y, end.X, end.Y).Stroke()
 
 		// Source anchor dot (Arc rasterizes cleanly in both live canvas and editormcp RenderPNG).
-		d.SetFillColor(specAccent)
+		d.SetFillColor(spec.Accent.Fg)
 		d.BeginPath().Arc(start.X, start.Y, 3, 0, float32(2*math.Pi), false).Fill()
 
 		// Arrowhead at target end pointing along the end tangent.
@@ -827,7 +857,7 @@ func drawConnectionsOverlay(e *Editor, d *core.Drawing, scene *sceneformat.Built
 			const headHalfW float32 = 4.5
 			bx, by := end.X-ux*headLen, end.Y-uy*headLen
 			px, py := -uy*headHalfW, ux*headHalfW
-			d.SetStrokeColor(specAccent).SetLineWidth(1.5)
+			d.SetStrokeColor(spec.Accent.Fg).SetLineWidth(1.5)
 			d.BeginPath().MoveTo(bx+px, by+py).LineTo(end.X, end.Y).LineTo(bx-px, by-py).Stroke()
 		}
 
@@ -838,11 +868,11 @@ func drawConnectionsOverlay(e *Editor, d *core.Drawing, scene *sceneformat.Built
 		const pillH float32 = 18
 		px := mid.X - pillW*0.5
 		py := mid.Y - pillH*0.5
-		d.SetFillColor(specBgOverlay)
+		d.SetFillColor(pillBg)
 		d.BeginPath().Rect(px, py, pillW, pillH).Fill()
-		d.SetStrokeColor(specAccentEdge).SetLineWidth(1)
+		d.SetStrokeColor(spec.Accent.Edge).SetLineWidth(1)
 		d.BeginPath().Rect(px, py, pillW, pillH).Stroke()
-		d.SetFillColor(specText).FillText(label, px+7, py+12.5, font)
+		d.SetFillColor(spec.TextSecondary).FillText(label, px+7, py+12.5, font)
 	}
 }
 
@@ -1026,11 +1056,12 @@ func drawPatrolPathsOverlay(e *Editor, d *core.Drawing, scene *sceneformat.Built
 	if len(paths) == 0 {
 		return
 	}
+	col := e.SpecPalette(nil).TextMuted
 	for _, pp := range paths {
 		if len(pp.pts) < 2 {
 			continue
 		}
-		d.SetStrokeColor(specTextSecondary).SetLineWidth(1.5).SetLineDash(3, 3)
+		d.SetStrokeColor(col).SetLineWidth(1.5).SetLineDash(3, 3)
 		d.BeginPath().MoveTo(pp.pts[0].X, pp.pts[0].Y)
 		for _, p := range pp.pts[1:] {
 			d.LineTo(p.X, p.Y)
@@ -1039,16 +1070,16 @@ func drawPatrolPathsOverlay(e *Editor, d *core.Drawing, scene *sceneformat.Built
 
 		// Solid end ticks perpendicular to the start and end segments, plus subtle waypoint dots.
 		d.SetLineDash()
-		drawPatrolEndTick(d, pp.pts[0], pp.pts[1])
-		drawPatrolEndTick(d, pp.pts[len(pp.pts)-1], pp.pts[len(pp.pts)-2])
-		d.SetFillColor(specTextSecondary)
+		drawPatrolEndTick(d, pp.pts[0], pp.pts[1], col)
+		drawPatrolEndTick(d, pp.pts[len(pp.pts)-1], pp.pts[len(pp.pts)-2], col)
+		d.SetFillColor(col)
 		for i := 1; i < len(pp.pts)-1; i++ {
 			d.BeginPath().Arc(pp.pts[i].X, pp.pts[i].Y, 2.5, 0, float32(2*math.Pi), false).Fill()
 		}
 	}
 }
 
-func drawPatrolEndTick(d *core.Drawing, at, toward math2d.Vec2) {
+func drawPatrolEndTick(d *core.Drawing, at, toward math2d.Vec2, col core.Color) {
 	dir := toward.Sub(at)
 	l := vecLen(dir)
 	var nx, ny float32 = 0, 1
@@ -1056,7 +1087,7 @@ func drawPatrolEndTick(d *core.Drawing, at, toward math2d.Vec2) {
 		nx, ny = -dir.Y/l, dir.X/l
 	}
 	const half float32 = 4.5
-	d.SetStrokeColor(specTextSecondary).SetLineWidth(1.5)
+	d.SetStrokeColor(col).SetLineWidth(1.5)
 	d.BeginPath().MoveTo(at.X-nx*half, at.Y-ny*half).LineTo(at.X+nx*half, at.Y+ny*half).Stroke()
 }
 
@@ -1103,16 +1134,17 @@ func drawCameraBoundsOverlay(e *Editor, d *core.Drawing, _ *sceneformat.BuiltSce
 	if e == nil || e.Doc == nil || e.Doc.Camera == nil || e.Doc.Camera.Bounds == nil {
 		return
 	}
+	col := e.SpecPalette(nil).TextFaint
 	font := core.Font{Family: core.FontMonospace, Size: 10.5}
 	b := e.Doc.Camera.Bounds
 	pts := worldRectCanvasCorners(e, b.X, b.Y, b.Width, b.Height)
-	d.SetStrokeColor(specTextMuted).SetLineWidth(1.25).SetLineDash(3, 3)
+	d.SetStrokeColor(col).SetLineWidth(1.25).SetLineDash(3, 3)
 	strokePolygon(d, pts)
 	d.SetLineDash()
 	caption := fmt.Sprintf("bounds %g × %g", b.Width, b.Height)
 	br := pts[2]
 	tw := float32(len([]rune(caption))) * 6.5
-	d.SetFillColor(specTextMuted).FillText(caption, br.X-tw, br.Y+13, font)
+	d.SetFillColor(col).FillText(caption, br.X-tw, br.Y+13, font)
 }
 
 // --- Labels overlay ---
@@ -1146,6 +1178,8 @@ func drawLabelsOverlay(e *Editor, d *core.Drawing, scene *sceneformat.BuiltScene
 	if e == nil || d == nil || scene == nil {
 		return
 	}
+	spec := e.SpecPalette(nil)
+	pillBg := ui.Alpha(spec.PillBg, 0.92)
 	font := core.Font{Family: core.FontMonospace, Size: 10.5}
 	for _, layer := range scene.Layers {
 		if !layer.Visible {
@@ -1172,11 +1206,11 @@ func drawLabelsOverlay(e *Editor, d *core.Drawing, scene *sceneformat.BuiltScene
 							const pillH float32 = 16
 							px := anchor.X - pillW*0.5
 							py := anchor.Y + 4
-							d.SetFillColor(specBgOverlay)
+							d.SetFillColor(pillBg)
 							d.BeginPath().Rect(px, py, pillW, pillH).Fill()
-							d.SetStrokeColor(specLineRaised).SetLineWidth(1)
+							d.SetStrokeColor(spec.LineRaised).SetLineWidth(1)
 							d.BeginPath().Rect(px, py, pillW, pillH).Stroke()
-							d.SetFillColor(specTextSecondary).FillText(text, px+5, py+11.5, font)
+							d.SetFillColor(spec.TextMuted).FillText(text, px+5, py+11.5, font)
 						}
 					}
 				}

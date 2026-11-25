@@ -51,6 +51,7 @@ func sanitizeAssetTestID(s string) string {
 // LeftRailSwitchView renders the Scene / Assets segmented switch at the top of the left rail,
 // matching docs/design/editor/Assets.dc.html screen 1 with Spec.dc.html tokens.
 func LeftRailSwitchView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+	p := ed.SpecPalette(cx)
 	modeBtn := func(testID, label string, mode LeftRailMode) core.Node {
 		return core.View{
 			TestID: testID,
@@ -58,10 +59,11 @@ func LeftRailSwitchView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 			Label:  label,
 			StyleFunc: func() core.Style {
 				_ = rev.Get()
+				cur := ed.SpecPalette(cx)
 				active := ed.LeftRailMode() == mode
 				var bg core.Color
 				if active {
-					bg = specLineRaised
+					bg = cur.LineRaised
 				}
 				return core.Style{
 					FlexGrow:       1,
@@ -71,7 +73,7 @@ func LeftRailSwitchView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 					AlignItems:     core.AlignCenter,
 					JustifyContent: core.JustifyCenter,
 					Background:     bg,
-					FocusVisible:   specFocusRingStyle,
+					FocusVisible:   cur.FocusRing(2),
 				}
 			},
 			OnPress: func(core.PressEvent) {
@@ -82,9 +84,10 @@ func LeftRailSwitchView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 					Content: label,
 					StyleFunc: func() core.Style {
 						_ = rev.Get()
-						col := specTextMuted
+						cur := ed.SpecPalette(cx)
+						col := cur.TextFaint
 						if ed.LeftRailMode() == mode {
-							col = specTextStrong
+							col = cur.TextPrimary
 						}
 						return core.Style{
 							FontSize:   12,
@@ -105,9 +108,9 @@ func LeftRailSwitchView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 			Direction:   core.Row,
 			AlignItems:  core.AlignCenter,
 			Padding:     core.Symmetric(0, 8),
-			Background:  specBg,
+			Background:  p.Bg,
 			Borders:     core.Edges{Bottom: 1},
-			BorderColor: specLine,
+			BorderColor: p.Line,
 		},
 		Children: []core.Node{
 			core.View{
@@ -117,9 +120,9 @@ func LeftRailSwitchView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 					Gap:          2,
 					Padding:      core.All(3),
 					CornerRadius: 8,
-					Background:   specRaised,
+					Background:   p.Raised,
 					BorderWidth:  1,
-					BorderColor:  specLineRaised,
+					BorderColor:  p.LineRaised,
 				},
 				Children: []core.Node{
 					modeBtn("rail-mode-scene", "Scene", LeftRailScene),
