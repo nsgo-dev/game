@@ -39,7 +39,7 @@ const (
 
 // MoveOptions configures World.MoveAndSlideWith. The zero value uses MotionGrounded with Up (0, -1),
 // FloorMaxAngle DefaultFloorMaxAngle (45 degrees), MaxSlides DefaultMaxSlides (4), and collides against
-// World.Bodies, World.Tiles (solid and one-way), and static RigidBody colliders in World.RigidWorld.
+// World.Bodies, World.Tiles (solid and one-way), and the static RigidBody colliders in World.RigidWorld that are not sensors.
 type MoveOptions struct {
 	// Mode selects MotionGrounded (default) or MotionFloating (top-down, every hit is a wall).
 	Mode MotionMode
@@ -55,7 +55,7 @@ type MoveOptions struct {
 	// (World.Bodies, static RigidBody colliders, TileSolid and TileOneWay tiles).
 	Mask QueryMask
 	// RigidBodies supplies optional extra static RigidBody colliders to test in addition to World.RigidWorld.
-	// Dynamic (non-static) rigid bodies are ignored.
+	// Dynamic, kinematic and sensor rigid bodies are ignored.
 	RigidBodies []*RigidBody
 	// Exclude skips the listed Body pointers during movement in addition to the moving body itself.
 	Exclude []*Body
@@ -307,7 +307,7 @@ func (w *World) worldHasBodyColliders(self *Body, exclude []*Body) bool {
 	}
 	if w.RigidWorld != nil {
 		for _, rb := range w.RigidWorld.Bodies {
-			if rb != nil && rb.Static && !rb.Shape.Empty() {
+			if rb != nil && rb.Static && !rb.Sensor && !rb.Shape.Empty() {
 				return true
 			}
 		}
@@ -483,7 +483,7 @@ func (w *World) deepestSolidOverlap(
 
 	if mask&QueryBodies != 0 {
 		checkRigid := func(rb *RigidBody) {
-			if rb == nil || !rb.Static || rb.Shape.Empty() {
+			if rb == nil || !rb.Static || rb.Sensor || rb.Shape.Empty() {
 				return
 			}
 			if !layersInteract(body.Layer, body.Mask, rb.Layer, rb.Mask) {
@@ -624,7 +624,7 @@ func (w *World) sweepAll(
 	// 2. Static RigidBody colliders (World.RigidWorld then opts.RigidBodies).
 	if cfg.mask&QueryBodies != 0 {
 		checkRigid := func(rb *RigidBody) {
-			if rb == nil || !rb.Static || rb.Shape.Empty() {
+			if rb == nil || !rb.Static || rb.Sensor || rb.Shape.Empty() {
 				return
 			}
 			if !layersInteract(body.Layer, body.Mask, rb.Layer, rb.Mask) {

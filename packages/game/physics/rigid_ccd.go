@@ -102,12 +102,12 @@ type ccdSupport struct {
 func (w *RigidWorld) sweepFastBodies(starts []rigidPose, manifolds []rigidManifold, restitutionThresh float64, ignoredPairs map[[2]*RigidBody]struct{}) {
 	statics := w.scratch.statics[:0]
 	for i, b := range w.Bodies {
-		if b != nil && b.Static && !b.Shape.Empty() {
+		if b != nil && b.Static && !b.Sensor && !b.Shape.Empty() {
 			statics = append(statics, i)
 		}
 	}
 	w.scratch.statics = statics
-	if len(statics) == 0 {
+	if len(statics) == 0 && !w.tilesActive() {
 		return
 	}
 	contacts := w.scratch.ccdContacts[:0]
@@ -122,7 +122,7 @@ func (w *RigidWorld) sweepFastBodies(starts []rigidPose, manifolds []rigidManifo
 	}
 	w.scratch.ccdContacts = contacts
 	for i, b := range w.Bodies {
-		if !b.awakeDynamic() || b.Shape.Empty() {
+		if !b.awakeDynamic() || b.Sensor || b.Shape.Empty() {
 			continue
 		}
 		s := starts[i]
@@ -166,6 +166,7 @@ func (w *RigidWorld) sweepFastBodies(starts []rigidPose, manifolds []rigidManifo
 			}
 			candidates = appendStaticPieces(st, minX, minY, maxX, maxY, candidates)
 		}
+		candidates = w.appendTilePieces(b, &startHull, dy, minX, minY, maxX, maxY, candidates)
 		w.scratch.ccdCandidates = candidates
 		if len(candidates) == 0 {
 			continue
@@ -179,7 +180,7 @@ func (w *RigidWorld) sweepFastBodies(starts []rigidPose, manifolds []rigidManifo
 			if c.body != b || !shallow(c.n, 0) {
 				continue
 			}
-			if h, ok := staticPiece(c.st, c.sub); ok {
+			if h, ok := w.staticPiece(c.st, c.sub); ok {
 				supports = append(supports, ccdSupport{n: c.n, d: nearOffset(&h, c.n)})
 			}
 		}
@@ -272,6 +273,14 @@ func appendStaticPieces(st *RigidBody, minX, minY, maxX, maxY float64, dst []ccd
 		}
 	}
 	return dst
+}
+
+// staticPiece returns piece sub of static body st: segment sub of a chain, the tile sub names when st stands for w's tiles, or the body's whole hull.
+func (w *RigidWorld) staticPiece(st *RigidBody, sub int) (hull, bool) {
+	if st == w.tileBody {
+		return w.tileHullAt(sub)
+	}
+	return staticPiece(st, sub)
 }
 
 // staticPiece returns piece sub of static body st: segment sub of a chain, or the body's whole hull.

@@ -150,8 +150,11 @@ if hit, ok := world.RaycastFirst(gunPos, targetPos, physics.QueryAll); ok {
 | `QueryTiles` | `World.Tiles` 中的实心瓦片（`TileSolid`）。 |
 | `QueryOneWay` | 单向平台瓦片（`TileOneWay`）；射线仅在向下穿过其顶边时命中。 |
 | `QueryAll` | `QueryBodies \| QueryTiles \| QueryOneWay`。 |
+| `QuerySensors` | `RigidBody` 传感器，仅用于 `RigidWorld` 查询；`QueryAll` 不包含它。 |
 
 `World.Raycast` 按归一化距离 `T`（`[0, 1]`）升序返回线段上的所有命中（同距离时物体排在瓦片之前）；`RaycastFirst` 只返回最近的一个命中。射线可从任一侧命中线段或链，法线朝向射线起点；沿线段方向前进的射线不会命中它。使用 `world.Remove(b)` 可移除物体。
+
+`RigidWorld` 对其刚体（按真实位姿）和 `Tiles` 提供同样的查询：`Raycast(from, to, mask, layerMask)`、`RaycastFirst`、`QueryPoint(x, y, mask, layerMask)` 与 `QueryOverlap(shape, mask, layerMask)`，命中结果会设置 `RigidBody`（见 [2D 刚体](physics2d-rigid.md)）。
 
 ## 来自 Tiled 的关卡几何
 
@@ -239,7 +242,7 @@ rigidWorld.AddTrigger(water)
 
 `World` 与 `RigidWorld` 支持完整的世界状态快照以及跨 CPU 架构（amd64 与 arm64）的比特级确定性：
 
-- **`Save() / Restore(snap) / Checksum()`**：`World.Save()` 返回带版本号的 `WorldSnapshot`（`SnapshotVersion`），完整记录重力、瓦片网格、刚体、触发器以及逐触发器的 enter/stay/exit 追踪状态。`RigidWorld.Save()` 返回 `RigidWorldSnapshot`，记录重力、求解器配置、刚体（含待结算的力/力矩累加器、重力缩放标记、休眠状态与计时，以及求解器为 `Polygon`、`Capsule`、`Segment` 与 `Chain` 形状旋转所用的局部空间几何）、热启动接触缓存、休眠设置、触发器/区域、关节断裂事件，以及所有内置关节（含绳索/区间模式的 `DistanceJoint`、`SpringJoint`、`RevoluteJoint`、`PrismaticJoint`、`WeldJoint`、`WheelJoint` 与 `MouseJoint`，及其限位、马达、弹簧、反作用冲量和断裂阈值；详见 [2D 刚体与关节](physics2d-rigid.md)）。
+- **`Save() / Restore(snap) / Checksum()`**：`World.Save()` 返回带版本号的 `WorldSnapshot`（`SnapshotVersion`），完整记录重力、瓦片网格、刚体、触发器以及逐触发器的 enter/stay/exit 追踪状态。`RigidWorld.Save()` 返回 `RigidWorldSnapshot`，记录重力、求解器配置、刚体（含待结算的力/力矩累加器、重力缩放标记、休眠状态与计时，以及求解器为 `Polygon`、`Capsule`、`Segment` 与 `Chain` 形状旋转所用的局部空间几何）、运动学与传感器标记及运动学目标、热启动接触缓存、`*Grid` 类型的 `Tiles` 及其瓦片设置、`ContactEvents` 与 `SensorEvents` 所依据的接触与传感器重叠状态、休眠设置、触发器/区域、关节断裂事件，以及所有内置关节（含绳索/区间模式的 `DistanceJoint`、`SpringJoint`、`RevoluteJoint`、`PrismaticJoint`、`WeldJoint`、`WheelJoint` 与 `MouseJoint`，及其限位、马达、弹簧、反作用冲量和断裂阈值；详见 [2D 刚体与关节](physics2d-rigid.md)）。
 - **纯文本 JSON 序列化**：`WorldSnapshot` 和 `RigidWorldSnapshot` 可直接使用 `encoding/json` 序列化与反序列化，不使用 `encoding/gob` 或自定义二进制格式。
 - **原地保留指针与回调**：当数量和类型匹配时，`Restore` 会原地更新已有的 `*Body`、`*RigidBody`、`*Trigger` 和 `Joint` 实例，在回滚期间保持游戏实体引用、`UserData` 以及触发器回调（`OnEnter`/`OnStay`/`OnExit`）有效。
 - **跨架构确定性**：所有步进求解器、积分、关节、窄相碰撞与区域计算路径都避免了 arm64 融合乘加（`FMADD`/`FMSUB`）收缩及含 FMA 的标准库超越函数，因此在第 100 步保存、推进到第 200 步、恢复并再次推进到第 200 步时，在 amd64 与 arm64 上都会得到比特完全一致的位置、速度、接触、事件与 `Checksum()` 值。

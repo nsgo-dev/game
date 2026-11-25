@@ -1,6 +1,6 @@
 # 2D Rigid Bodies & Joints Architecture
 
-This document records the design decision for 2D rigid-body dynamics in `github.com/nsgo-dev/game/packages/game/physics` ([#320](https://github.com/nsgo-dev/game/issues/320), [#321](https://github.com/nsgo-dev/game/issues/321), [#322](https://github.com/nsgo-dev/game/issues/322), [#804](https://github.com/nsgo-dev/game/issues/804)).
+This document records the design decision for 2D rigid-body dynamics in `github.com/nsgo-dev/game/packages/game/physics` ([#320](https://github.com/nsgo-dev/game/issues/320), [#321](https://github.com/nsgo-dev/game/issues/321), [#322](https://github.com/nsgo-dev/game/issues/322), [#804](https://github.com/nsgo-dev/game/issues/804), [#805](https://github.com/nsgo-dev/game/issues/805)).
 
 ## Decision
 
@@ -35,9 +35,42 @@ Implement a lightweight, pure-Go, deterministic 2D rigid-body and constraint sol
 ## Trade-offs & Scope
 
 - **Supported shapes**: oriented `Box` and `Circle`, convex `Polygon` (up to 8 vertices, optionally rounded) and `Capsule` for dynamic bodies, and `Segment` and `Chain` for static ones. Concave terrain is a `Chain` (or several convex polygons); concave dynamic bodies are out of scope for the built-in solver.
-- **Continuous collision**: fast bodies are swept against static bodies only, so a fast body can still pass through a thin dynamic body, and the impact ends the body's motion for that step rather than spending the rest of it sliding along the surface. Set `Bullet` on a body that must never end a step inside a static body.
+- **Continuous collision**: fast bodies are swept against static bodies and tiles only, so a fast body can still pass through a thin dynamic or kinematic body, and the impact ends the body's motion for that step rather than spending the rest of it sliding along the surface. Set `Bullet` on a body that must never end a step inside a static body.
 - **Sleeping**: an island sleeps as a whole, so one body kept moving (a character pushing against a pile, a body under a constant `ApplyForce`) keeps every body it touches awake. A body moved in place by setting its fields wakes on the next step; changing the shape of a sleeping body does not wake it, so call `Wake` after editing one.
 - **Scale**: the broadphase and sleeping keep a step proportional to the awake bodies and their contacts. In the performance scenario (`BenchmarkRigidWorld500Bodies` and `BenchmarkRigidWorld500BodiesPacked`), 500 boxes, circles, polygons and capsules falling into a bin take about 2 ms a step while they fall and 5 to 6 ms once the pile is packed and still awake, on one core of a Ryzen 9 3900X running Linux, inside the 16.7 ms of a 60 fps frame. Games requiring large-scale multi-thousand-body simulations can integrate a dedicated physics engine alongside `packages/game`.
+
+## Kinematic bodies, sensors, tiles and contact events
+
+- **Kinematic bodies**: `RigidBody.Kinematic` makes a body move only as it is told, by `VX`, `VY` and `AngularVel` (with no gravity, force, damping or area effect) or by `SetTargetPose(x, y, angle)`, which gives the body the velocity that reaches the pose in the next step and lands it exactly there, the way an animation drives a moving platform; a body given no new target stops. The solver treats it as having infinite mass, so it pushes the dynamic bodies in its way and carries the ones resting on it by friction, and nothing moves it. It never collides with static or other kinematic bodies or with tiles, never sleeps, and keeps the bodies it moves against awake. Assigning `X` and `Y` directly teleports it: bodies it lands in are pushed out but not given its motion.
+- **Sensors**: `RigidBody.Sensor` makes a body of any kind detect overlaps instead of colliding. After each step, `RigidWorld.SensorEvents()` (and `OnSensor`) lists the bodies that began or ended overlapping a sensor at their final poses. A sensor never detects another sensor, and `World.MoveAndSlide` ignores static sensors.
+- **Tiles**: `RigidWorld.Tiles` takes any `TileGrid`, the same interface `World` and `MoveAndSlide` use. Each `TileSolid` cell collides with dynamic bodies as a box, and each `TileOneWay` cell as its top face only, catching a body that comes down onto it and letting one from below or the side pass. A face that a neighbouring solid tile covers never pushes: a contact leaning into it is clipped against the tile's open face instead, as a chain does at a flat vertex, so boxes slide and circles and capsules roll across tiled floors without catching on seams. The tiles of one flat surface correct a body's position once, by the deepest of them. `TileLayer` and `TileMask` filter tiles like a body's layers, `TileFriction` (zero means `DefaultTileFriction`, 0.4; negative is frictionless) and `TileRestitution` set their material, fast bodies are swept against them like any static body, and a sleeping body wakes when the tile under it is removed or the grid is moved or resized.
+- **Queries**: `RigidWorld.Raycast`, `RaycastFirst`, `QueryPoint` and `QueryOverlap` see each body at its true pose (`RigidBody.WorldShape`, a turned box as a polygon) and the tiles, and return the `RaycastHit` and `OverlapHit` types of `World`'s queries with `RigidBody` set. `QueryMask` selects bodies, sensors (`QuerySensors`, which `QueryAll` leaves out, and which `ShapeCastOptions.QueryMask` needs for shape casts to hit sensors), solid and one-way tiles, and a `LayerMask` filters bodies by layer. Hits come in a fixed order: by distance for rays, bodies in `Bodies` order before tiles in row-major order for overlaps.
+- **Contact events**: after each step, `RigidWorld.ContactEvents()` (and `OnContact`) lists the contacts that began, with their point, normal and `ApproachSpeed`, the speed at which the two closed before the step resolved the contact, and the contacts that ended because the bodies separated or one left the world. A body touching any number of tiles counts as one contact with the tiles, so a crate sliding over a tiled floor begins touching it once. A contact begins when the step first finds the bodies overlapping and ends on the first step that does not; contacts between bodies that are asleep carry over, so a resting pile reports nothing. Begin events come in the order the step finds contacts (pairs in `Bodies` order, then each body with the tiles), followed by end events, so the same inputs give the same events in the same order on every run and after `Save` and `Restore`.
+- **Snapshots**: `RigidBodySnapshot` holds `Kinematic`, `Sensor` and a pending or last target, and `RigidWorldSnapshot` holds a `*Grid` `Tiles` (`GridSnapshot` now keeps the grid's origin too), the tile settings, tile entries of the contact cache, and the contacts and sensor overlaps the next step compares its own with. `Restore` clears `ContactEvents` and `SensorEvents`.
+
+```go
+level := physics.NewGrid(40, 12, 16, 16)
+level.FillRect(0, 10, 40, 1, physics.TileSolid)
+w := &physics.RigidWorld{GravityY: 600, Tiles: level}
+
+lift := physics.NewRigidBox(100, 120, 96, 12, 1)
+lift.Kinematic = true
+crate := physics.NewRigidBox(100, 90, 20, 20, 1)
+w.AddBody(lift, crate)
+w.OnContact = func(ev physics.ContactEvent) {
+	if ev.Kind == physics.ContactBegin && ev.ApproachSpeed > 200 {
+		playThud(ev.Point, ev.ApproachSpeed)
+	}
+}
+
+// Each fixed step, the lift follows its animation and carries the crate.
+lift.SetTargetPose(liftX(t), 120, 0)
+w.Step(dt)
+
+if hit, ok := w.RaycastFirst(eye, target, physics.QueryAll, 0); ok && hit.RigidBody == crate {
+	// The crate is in sight, at hit.Point, facing (hit.NormalX, hit.NormalY).
+}
+```
 
 ## Sleeping and fast bodies
 

@@ -189,7 +189,7 @@ func (w *RigidWorld) ShapeCastAll(shape Shape, dx, dy float32, layerMask LayerMa
 }
 
 // ShapeCastWith sweeps shape by (dx, dy) against rigid bodies in w matching opts and returns
-// the earliest hit. Ties break in RigidWorld.Bodies order.
+// the earliest hit. Ties break in RigidWorld.Bodies order. Sensors are hit only when opts.QueryMask has QuerySensors.
 func (w *RigidWorld) ShapeCastWith(shape Shape, dx, dy float32, opts ShapeCastOptions) (ShapeCastHit, bool) {
 	if w == nil || !shapeValid2D(shape) || !isFinite32(dx) || !isFinite32(dy) {
 		return ShapeCastHit{}, false
@@ -203,7 +203,7 @@ func (w *RigidWorld) ShapeCastWith(shape Shape, dx, dy float32, opts ShapeCastOp
 	var best ShapeCastHit
 	hasBest := false
 	for _, b := range w.Bodies {
-		if b == nil || b == opts.IgnoreRigidBody || !shapeValid2D(b.Shape) || (effectiveLayer(b.Layer)&layerMask) == 0 {
+		if b == nil || b == opts.IgnoreRigidBody || !shapeValid2D(b.Shape) || (effectiveLayer(b.Layer)&layerMask) == 0 || (b.Sensor && opts.QueryMask&QuerySensors == 0) {
 			continue
 		}
 		if h, ok := sweepShapeVsRigidBody(shape, fx, fy, b); ok {
@@ -218,7 +218,7 @@ func (w *RigidWorld) ShapeCastWith(shape Shape, dx, dy float32, opts ShapeCastOp
 }
 
 // ShapeCastAllWith sweeps shape by (dx, dy) against rigid bodies in w matching opts and returns
-// all hits sorted by ascending Fraction in [0, 1]. Equal fractions preserve RigidWorld.Bodies order.
+// all hits sorted by ascending Fraction in [0, 1]. Equal fractions preserve RigidWorld.Bodies order. Sensors are hit only when opts.QueryMask has QuerySensors.
 func (w *RigidWorld) ShapeCastAllWith(shape Shape, dx, dy float32, opts ShapeCastOptions) []ShapeCastHit {
 	if w == nil || !shapeValid2D(shape) || !isFinite32(dx) || !isFinite32(dy) {
 		return nil
@@ -231,7 +231,7 @@ func (w *RigidWorld) ShapeCastAllWith(shape Shape, dx, dy float32, opts ShapeCas
 
 	var hits []ShapeCastHit
 	for _, b := range w.Bodies {
-		if b == nil || b == opts.IgnoreRigidBody || !shapeValid2D(b.Shape) || (effectiveLayer(b.Layer)&layerMask) == 0 {
+		if b == nil || b == opts.IgnoreRigidBody || !shapeValid2D(b.Shape) || (effectiveLayer(b.Layer)&layerMask) == 0 || (b.Sensor && opts.QueryMask&QuerySensors == 0) {
 			continue
 		}
 		if h, ok := sweepShapeVsRigidBody(shape, fx, fy, b); ok {

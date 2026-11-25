@@ -43,8 +43,12 @@ type RigidBody struct {
 	// is called or GravityScale is modified after AddBody.
 	GravityScale float32
 	Static       bool
-	Layer        LayerMask
-	Mask         LayerMask
+	// Kinematic makes the body move only as it is told: by VX, VY and AngularVel, which Step integrates with no gravity, force, damping or area effect, or by SetTargetPose. The solver treats it as having infinite mass, so it pushes and carries the dynamic bodies it touches and nothing it touches moves it; it never collides with static or other kinematic bodies or tiles, and never sleeps. Step zeroes InvMass and InvInertia while it is set and derives them again from Mass and Inertia once it is cleared. Static takes precedence: a body with both set is static.
+	Kinematic bool
+	// Sensor makes the body detect overlaps instead of colliding: it takes part in no contact, is not hit by continuous collision, and reports a SensorEvent when a body that is not a sensor starts or stops overlapping it. A sensor moves as its kind (static, kinematic or dynamic) says, and never detects another sensor.
+	Sensor bool
+	Layer  LayerMask
+	Mask   LayerMask
 	// Bullet sweeps the body against static bodies on every step and stops it at the first surface it reaches, so it never passes into one, except that a surface it already touches at the start of a step and is driven into by no more than half its half thickness is left to the regular contacts. Without it the body is swept only on steps where a point of it moves farther than half its thickness, when it could otherwise pass through a thin wall, and a shallow overlap is left to the regular contacts.
 	Bullet   bool
 	UserData any
@@ -75,6 +79,13 @@ type RigidBody struct {
 	syncX, syncY, syncAngle float32
 	// derivedInertia is the Inertia the body last derived from its shape; while Inertia still equals it, a new Shape recomputes it.
 	derivedInertia float32
+
+	// target is the pose SetTargetPose asked a kinematic body to reach on the next Step, when targetPending.
+	target        rigidPose
+	targetPending bool
+	// targetVX, targetVY and targetAV are the velocity the last target gave the body, when targetDriven: a Step with no new target stops a body still moving at it.
+	targetVX, targetVY, targetAV float32
+	targetDriven                 bool
 }
 
 // NewRigidBody returns a RigidBody holding s, a shape in world coordinates, with its center of mass at s's Centroid and its inertia computed from s for mass spread evenly over its area. If mass <= 0, or s is a Segment or Chain, the body is static. A Box or Circle gives the same body as NewRigidBox or NewRigidCircle.
@@ -269,9 +280,9 @@ func (b *RigidBody) Wake() {
 	b.sleepTime = 0
 }
 
-// ApplyForce accumulates a world-space force applied to b's center of mass on the next Step.
+// ApplyForce accumulates a world-space force applied to b's center of mass on the next Step. A static or kinematic body ignores it.
 func (b *RigidBody) ApplyForce(fx, fy float32) {
-	if b == nil || b.Static {
+	if b == nil || b.fixed() {
 		return
 	}
 	b.Wake()
@@ -279,18 +290,18 @@ func (b *RigidBody) ApplyForce(fx, fy float32) {
 	b.forceY += float64(fy)
 }
 
-// ApplyTorque accumulates a torque applied to b on the next Step.
+// ApplyTorque accumulates a torque applied to b on the next Step. A static or kinematic body ignores it.
 func (b *RigidBody) ApplyTorque(torque float32) {
-	if b == nil || b.Static {
+	if b == nil || b.fixed() {
 		return
 	}
 	b.Wake()
 	b.torque += float64(torque)
 }
 
-// ApplyImpulse immediately changes b's linear velocity by (ix, iy)*InvMass.
+// ApplyImpulse immediately changes b's linear velocity by (ix, iy)*InvMass. A static or kinematic body ignores it.
 func (b *RigidBody) ApplyImpulse(ix, iy float32) {
-	if b == nil || b.Static {
+	if b == nil || b.fixed() {
 		return
 	}
 	b.prepareMass()
@@ -299,10 +310,9 @@ func (b *RigidBody) ApplyImpulse(ix, iy float32) {
 	b.VY += float32(float64(iy) * float64(b.InvMass))
 }
 
-// ApplyImpulseAtPoint immediately applies world-space impulse (ix, iy) at worldPoint,
-// updating both linear and angular velocity.
+// ApplyImpulseAtPoint immediately applies world-space impulse (ix, iy) at worldPoint, updating both linear and angular velocity. A static or kinematic body ignores it.
 func (b *RigidBody) ApplyImpulseAtPoint(ix, iy float32, worldPoint core.Point) {
-	if b == nil || b.Static {
+	if b == nil || b.fixed() {
 		return
 	}
 	b.prepareMass()
@@ -313,7 +323,7 @@ func (b *RigidBody) ApplyImpulseAtPoint(ix, iy float32, worldPoint core.Point) {
 }
 
 func (b *RigidBody) applyImpulseRaw(ix, iy, rx, ry float64) {
-	if b.Static {
+	if b.fixed() {
 		return
 	}
 	invM := float64(b.InvMass)
@@ -336,6 +346,16 @@ func (b *RigidBody) prepareMass() {
 		b.VX = 0
 		b.VY = 0
 		b.AngularVel = 0
+		b.forceX = 0
+		b.forceY = 0
+		b.torque = 0
+		return
+	}
+	if b.Kinematic {
+		b.sleeping = false
+		b.sleepTime = 0
+		b.InvMass = 0
+		b.InvInertia = 0
 		b.forceX = 0
 		b.forceY = 0
 		b.torque = 0
@@ -423,6 +443,8 @@ func CanCollideRigid(a, b *RigidBody) bool {
 // RigidWorld simulates 2D rigid bodies and joints with deterministic symplectic Euler integration, a sort-and-sweep broadphase, warm-started sequential impulse contact resolution with friction, positional slop correction, island sleeping and continuous collision of fast bodies against static ones.
 //
 // A dynamic body that moves slower than SleepLinearThreshold and turns slower than SleepAngularThreshold for TimeToSleep seconds is ready to sleep, and the island of bodies connected to it by contacts and joints falls asleep together once every body in it is ready. A sleeping body costs no integration or solving; see RigidBody.Sleeping for what wakes it.
+//
+// Static, kinematic (RigidBody.Kinematic) and dynamic bodies collide with each other, and dynamic ones with Tiles; sensors (RigidBody.Sensor) only detect overlaps. After each Step, ContactEvents and SensorEvents list the contacts and overlaps that began or ended, and Raycast, RaycastFirst, QueryPoint, QueryOverlap and ShapeCast query the bodies and tiles.
 type RigidWorld struct {
 	Bodies           []*RigidBody
 	Joints           []Joint
@@ -440,6 +462,20 @@ type RigidWorld struct {
 	TimeToSleep float32
 	// OnJointBreak is invoked deterministically for each joint broken during Step, in joint insertion order.
 	OnJointBreak func(JointBreakEvent)
+	// OnContact is invoked at the end of Step for each of ContactEvents, in order.
+	OnContact func(ContactEvent)
+	// OnSensor is invoked at the end of Step for each of SensorEvents, in order.
+	OnSensor func(SensorEvent)
+
+	// Tiles is an optional tile grid whose TileSolid cells collide with the dynamic bodies from every side and whose TileOneWay cells hold them up from above only. A tile's sides that a neighbouring solid tile covers never push a body, so bodies slide and roll across the seams of a tiled floor or wall. Tiles collide by TileLayer and TileMask like a body, and with TileFriction and TileRestitution.
+	Tiles TileGrid
+	// TileLayer and TileMask filter which bodies collide with Tiles, as a body's Layer and Mask do (zero means LayerAll).
+	TileLayer LayerMask
+	TileMask  LayerMask
+	// TileFriction is the friction of Tiles, combined with a body's as two bodies' are; zero means DefaultTileFriction and a negative value makes tiles frictionless.
+	TileFriction float32
+	// TileRestitution is the restitution of Tiles, combined with a body's as two bodies' are.
+	TileRestitution float32
 
 	// contacts holds the impulses of last step's contact points, in deterministic order, for warm starting the next step; contacts between bodies that are both asleep or static carry over unchanged.
 	contacts []rigidCachedManifold
@@ -450,6 +486,17 @@ type RigidWorld struct {
 	// Scratch reused by Step.
 	scratch          rigidScratch
 	jointBreakEvents []JointBreakEvent
+
+	// tileBody stands for Tiles in contact manifolds, the contact cache and continuous collision: a static body whose sub names the cell (rigidTileGeom.cell).
+	tileBody *RigidBody
+	// tileGeom is the geometry of Tiles the current contact cache was built with.
+	tileGeom rigidTileGeom
+	// touching lists the pairs of bodies, and bodies and the tiles, in contact after the last Step, in deterministic order; contactEvents are the changes that Step found.
+	touching      []rigidTouch
+	contactEvents []ContactEvent
+	// sensing lists the sensors and the bodies overlapping them after the last Step, in pair order; sensorEvents are the changes that Step found.
+	sensing      []rigidSense
+	sensorEvents []SensorEvent
 }
 
 // JointBreakEvents returns the deterministic slice of JointBreakEvents produced
@@ -538,11 +585,13 @@ type rigidManifold struct {
 	sub      int
 	nx, ny   float64 // unit normal pointing from A toward B
 	friction float64
+	// approach is the fastest any point of the manifold closed along the normal before this step's solve, in pixels per second, and 0 when none did.
+	approach float64
 	count    int
 	points   [2]rigidContactPoint
 }
 
-// Step advances all bodies and joints in w by dt using symplectic Euler integration, deterministic warm-started sequential impulse solving, continuous collision for fast bodies and positional slop correction, then puts resting islands to sleep.
+// Step advances all bodies and joints in w by dt using symplectic Euler integration, deterministic warm-started sequential impulse solving against other bodies and Tiles, continuous collision for fast bodies and positional slop correction, then puts resting islands to sleep and reports the contacts and sensor overlaps that began or ended (ContactEvents, SensorEvents).
 func (w *RigidWorld) Step(dt time.Duration) {
 	if w == nil || dt <= 0 {
 		return
@@ -567,14 +616,16 @@ func (w *RigidWorld) Step(dt time.Duration) {
 		b.index = i
 		b.ensureLocal()
 		b.prepareMass()
+		b.driveKinematic(h)
 	}
+	w.prepareTiles()
 	activeAreas := collectActiveTriggers(w.Triggers)
 	w.wakeDisturbed(activeAreas)
 
 	// 2. Integrate forces + gravity/areas into the velocities of awake bodies.
 	gx, gy := float64(w.GravityX), float64(w.GravityY)
 	for _, b := range w.Bodies {
-		if b == nil || b.Static || b.sleeping {
+		if b == nil || b.fixed() || b.sleeping {
 			continue
 		}
 		invM := float64(b.InvMass)
@@ -642,6 +693,7 @@ func (w *RigidWorld) Step(dt time.Duration) {
 	pairs := w.broadphase()
 	w.wakeTouched(pairs)
 	manifolds := w.detectContacts(pairs, restitutionThresh, h, ignoredPairs)
+	w.updateContactEvents(manifolds)
 	w.warmStart(manifolds, h)
 
 	// 4. Pre-step the joints of awake bodies (applies spring forces and prepares rigid joint constraint matrices).
@@ -675,6 +727,12 @@ func (w *RigidWorld) Step(dt time.Duration) {
 			continue
 		}
 		starts = append(starts, rigidPose{x: b.X, y: b.Y, angle: b.Angle})
+		if b.Kinematic && b.targetPending {
+			// A target lands the body exactly on its pose, which integrating the velocity that leads there may miss by rounding.
+			b.X, b.Y, b.Angle = b.target.x, b.target.y, b.target.angle
+			b.targetPending = false
+			continue
+		}
 		b.X = float32(float64(b.X) + float64(float64(b.VX)*h))
 		b.Y = float32(float64(b.Y) + float64(float64(b.VY)*h))
 		b.Angle = float32(float64(b.Angle) + float64(float64(b.AngularVel)*h))
@@ -693,7 +751,7 @@ func (w *RigidWorld) Step(dt time.Duration) {
 	for range posIterations {
 		for _, key := range w.broadphase() {
 			a, b := w.Bodies[int(key>>32)], w.Bodies[int(uint32(key))]
-			if !a.awakeDynamic() && !b.awakeDynamic() {
+			if (!a.awakeDynamic() && !b.awakeDynamic()) || a.Sensor || b.Sensor {
 				continue
 			}
 			if ignoredPairs != nil {
@@ -722,16 +780,17 @@ func (w *RigidWorld) Step(dt time.Duration) {
 				corr := (maxDepth - posSlop) * posPercent / invMassSum
 				cx := m.nx * corr
 				cy := m.ny * corr
-				if !a.Static {
+				if !a.fixed() {
 					a.X = float32(float64(a.X) - float64(cx*float64(a.InvMass)))
 					a.Y = float32(float64(a.Y) - float64(cy*float64(a.InvMass)))
 				}
-				if !b.Static {
+				if !b.fixed() {
 					b.X = float32(float64(b.X) + float64(cx*float64(b.InvMass)))
 					b.Y = float32(float64(b.Y) + float64(cy*float64(b.InvMass)))
 				}
 			}
 		}
+		pairManifolds = w.correctTilePositions(pairManifolds, posSlop, posPercent)
 		for _, j := range joints {
 			j.solvePosition()
 		}
@@ -754,10 +813,23 @@ func (w *RigidWorld) Step(dt time.Duration) {
 		}
 	}
 
-	// 10. Dispatch deterministic joint-break callbacks.
+	// 10. Find the overlaps of sensors at the bodies' final poses.
+	w.updateSensorEvents()
+
+	// 11. Dispatch deterministic joint-break, contact and sensor callbacks.
 	if w.OnJointBreak != nil {
 		for _, ev := range w.jointBreakEvents {
 			w.OnJointBreak(ev)
+		}
+	}
+	if w.OnContact != nil {
+		for _, ev := range w.contactEvents {
+			w.OnContact(ev)
+		}
+	}
+	if w.OnSensor != nil {
+		for _, ev := range w.sensorEvents {
+			w.OnSensor(ev)
 		}
 	}
 }
@@ -813,12 +885,12 @@ func (w *RigidWorld) evaluateBreakableJoints() bool {
 	return brokeAny
 }
 
-// detectContacts returns the contact manifolds of the candidate pairs in which at least one body is awake and dynamic and that no joint in ignoredPairs keeps apart, prepared for solving, in pair order.
+// detectContacts returns the contact manifolds of the candidate pairs in which at least one body is awake and dynamic, neither is a sensor and no joint in ignoredPairs keeps them apart, in pair order, followed by those of each awake dynamic body with Tiles in body order, all prepared for solving.
 func (w *RigidWorld) detectContacts(pairs []uint64, restitutionThresh, h float64, ignoredPairs map[[2]*RigidBody]struct{}) []rigidManifold {
 	manifolds := w.scratch.manifolds[:0]
 	for _, key := range pairs {
 		a, b := w.Bodies[int(key>>32)], w.Bodies[int(uint32(key))]
-		if !a.awakeDynamic() && !b.awakeDynamic() {
+		if (!a.awakeDynamic() && !b.awakeDynamic()) || a.Sensor || b.Sensor {
 			continue
 		}
 		if ignoredPairs != nil {
@@ -832,6 +904,7 @@ func (w *RigidWorld) detectContacts(pairs []uint64, restitutionThresh, h float64
 			prepareManifold(&manifolds[k], restitutionThresh, h)
 		}
 	}
+	manifolds = w.detectTileContacts(manifolds, restitutionThresh, h)
 	w.scratch.manifolds = manifolds
 	return manifolds
 }
@@ -873,6 +946,7 @@ func prepareManifold(m *rigidManifold, restitutionThresh, h float64) {
 		vBx := float64(b.VX) - float64(float64(b.AngularVel)*cp.rBy)
 		vBy := float64(b.VY) + float64(float64(b.AngularVel)*cp.rBx)
 		vn := float64((vBx-vAx)*nx) + float64((vBy-vAy)*ny)
+		m.approach = max(m.approach, -vn)
 
 		cp.speculativeBias = 0
 		if e > 0 && -vn > restitutionThresh {
