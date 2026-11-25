@@ -11,8 +11,10 @@ import (
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
+	"io"
 	"io/fs"
 	"math"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -26,8 +28,24 @@ import (
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/game/packages/game/sound"
 	"github.com/nsgo-dev/game/packages/game/sprite"
+	"github.com/nsgo-dev/game/packages/game/tooling/importsettings"
 	"github.com/nsgo-dev/nsgo/audio"
 	"github.com/nsgo-dev/nsgo/core"
+)
+
+const (
+	// maxAssetScanEntries caps project WalkDir entries inspected by the Asset Drawer so huge trees stay responsive.
+	maxAssetScanEntries = 20000
+	// maxAssetThumbBytes caps image file size read from disk for thumbnail decoding.
+	maxAssetThumbBytes = 16 << 20
+	// maxAssetThumbPixels caps decoded image pixel count (e.g. 4096x4096) to prevent decompression-bomb OOMs.
+	maxAssetThumbPixels = 16_777_216
+	// maxAssetAudioWaveBytes caps WAV file size read from disk for waveform extraction.
+	maxAssetAudioWaveBytes = 16 << 20
+	// maxAssetAudioPreviewBytes caps audio file size read into memory for right-panel preview playback.
+	maxAssetAudioPreviewBytes = 32 << 20
+	// maxAssetImportBytes caps source file size read by ImportAssetFiles and ReplaceMissingAsset.
+	maxAssetImportBytes = 64 << 20
 )
 
 // LeftRailMode selects whether the editor's left rail shows the Scene tree or the Assets drawer browser.
@@ -201,12 +219,21 @@ type assetDrawerState struct {
 	// Drag-to-viewport state.
 	drag AssetDragState
 
-	// Catalog cache invalidated when project, filesRev, assetsRev, or drawerRev changes.
-	drawerRev uint64
-	cacheKey  string
-	cachedAll []AssetDrawerItem
-	cachedDir []string
-	thumbMap  map[string]decodedThumb
+	// Catalog, view, preview, and metadata caches.
+	drawerRev  uint64
+	viewRev    uint64
+	previewRev uint64
+	cacheKey   string
+	cachedAll  []AssetDrawerItem
+	cachedDir  []string
+	thumbMap   map[string]decodedThumb
+	audioCache map[string]decodedAudioMeta
+
+	// Cached InspectAssetImport summary for AssetInspectorView (avoids per-rev disk I/O).
+	importCacheKey  string
+	importCacheInfo AssetImportInfo
+	importCacheOK   bool
+	importDiskReads uint64
 }
 
 type decodedThumb struct {
@@ -214,6 +241,152 @@ type decodedThumb struct {
 	size    int64
 	img     core.ImageSource
 	w, h    int
+}
+
+type decodedAudioMeta struct {
+	modTime  time.Time
+	size     int64
+	filesRev uint64
+	wave     []float32
+	dur      time.Duration
+	rate     int
+	channels int
+	dims     string
+	prefix   string
+}
+
+type assetDrawerRailKey struct {
+	projectPath string
+	filesRev    uint64
+	assetsRev   uint64
+	drawerRev   uint64
+	scenesRev   uint64
+	viewRev     uint64
+	hasProject  bool
+}
+
+type assetDrawerInspectorKey struct {
+	rail      assetDrawerRailKey
+	importRev uint64
+}
+
+type assetDrawerPreviewKey struct {
+	rail             assetDrawerRailKey
+	previewRev       uint64
+	audioPlayingPath string
+}
+
+func (e *Editor) assetDrawerRailKey() assetDrawerRailKey {
+	if e == nil {
+		return assetDrawerRailKey{}
+	}
+	return assetDrawerRailKey{
+		projectPath: e.ProjectPath,
+		filesRev:    e.filesRev,
+		assetsRev:   e.assetsRev,
+		drawerRev:   e.assetDrawer.drawerRev,
+		scenesRev:   e.scenesRev,
+		viewRev:     e.assetDrawer.viewRev,
+		hasProject:  e.Project != nil,
+	}
+}
+
+func (e *Editor) assetDrawerInspectorKey() assetDrawerInspectorKey {
+	if e == nil {
+		return assetDrawerInspectorKey{}
+	}
+	return assetDrawerInspectorKey{
+		rail:      e.assetDrawerRailKey(),
+		importRev: e.importRev,
+	}
+}
+
+func (e *Editor) assetDrawerPreviewKey() assetDrawerPreviewKey {
+	if e == nil {
+		return assetDrawerPreviewKey{}
+	}
+	return assetDrawerPreviewKey{
+		rail:             e.assetDrawerRailKey(),
+		previewRev:       e.assetDrawer.previewRev,
+		audioPlayingPath: e.assetDrawer.audioPlayingPath,
+	}
+}
+
+func (e *Editor) cachedAssetImportSummary(relPath string) (AssetImportInfo, bool) {
+	if e == nil || e.Project == nil || e.ProjectPath == "" || relPath == "" {
+		return AssetImportInfo{}, false
+	}
+	key := fmt.Sprintf("%s\x00%s\x00%d\x00%d", e.ProjectPath, relPath, e.filesRev, e.importRev)
+	if e.assetDrawer.importCacheKey == key {
+		return e.assetDrawer.importCacheInfo, e.assetDrawer.importCacheOK
+	}
+	e.assetDrawer.importDiskReads++
+	info, err := e.InspectAssetImport(relPath)
+	ok := err == nil && info.Kind != AssetImportNone
+	e.assetDrawer.importCacheKey = key
+	e.assetDrawer.importCacheInfo = info
+	e.assetDrawer.importCacheOK = ok
+	return info, ok
+}
+
+func (e *Editor) resetAssetDrawerState() {
+	if e == nil {
+		return
+	}
+	e.stopAssetPreviewLoop()
+	e.stopAssetAudioPreview()
+	e.assetDrawer.drag = AssetDragState{}
+	e.assetDrawer.folder = ""
+	e.assetDrawer.status = AssetFilterNone
+	e.assetDrawer.query = ""
+	e.assetDrawer.selectedPath = ""
+	e.assetDrawer.proposed = nil
+	e.assetDrawer.proposedNote = ""
+	e.assetDrawer.previewPlaying = false
+	e.assetDrawer.previewClip = ""
+	e.assetDrawer.previewFrame = 0
+	e.assetDrawer.previewAccum = 0
+	e.assetDrawer.cacheKey = ""
+	e.assetDrawer.cachedAll = nil
+	e.assetDrawer.cachedDir = nil
+	e.assetDrawer.thumbMap = nil
+	e.assetDrawer.audioCache = nil
+	e.assetDrawer.importCacheKey = ""
+	e.assetDrawer.importCacheInfo = AssetImportInfo{}
+	e.assetDrawer.importCacheOK = false
+	e.assetDrawer.drawerRev++
+	e.assetDrawer.viewRev++
+	e.assetDrawer.previewRev++
+}
+
+func normalizeAssetDrawerFolder(folder string) (string, bool) {
+	trimmed := strings.TrimSpace(folder)
+	if trimmed == "" || trimmed == "." {
+		return "", true
+	}
+	if filepath.IsAbs(trimmed) || strings.HasPrefix(trimmed, "/") || strings.HasPrefix(trimmed, "\\") {
+		return "", false
+	}
+	slashed := strings.TrimRight(strings.ReplaceAll(trimmed, "\\", "/"), "/")
+	if slashed == "" || slashed == "." {
+		return "", true
+	}
+	if len(slashed) >= 2 && slashed[1] == ':' {
+		return "", false
+	}
+	for _, seg := range strings.Split(slashed, "/") {
+		if seg == ".." {
+			return "", false
+		}
+	}
+	clean := path.Clean(slashed)
+	if clean == "." {
+		return "", true
+	}
+	if !fs.ValidPath(clean) {
+		return "", false
+	}
+	return clean, true
 }
 
 // LeftRailMode returns whether the editor's left rail is in Scene mode or Assets mode.
@@ -232,11 +405,13 @@ func (e *Editor) SetLeftRailMode(mode LeftRailMode) {
 	e.assetDrawer.mode = mode
 	if mode != LeftRailAssets {
 		e.stopAssetPreviewLoop()
+		e.assetDrawer.previewPlaying = false
 		e.stopAssetAudioPreview()
 		e.CancelAssetDrag()
 	} else if e.assetDrawer.kind == "" {
 		e.assetDrawer.kind = AssetKindAll
 	}
+	e.assetDrawer.viewRev++
 	e.notify()
 }
 
@@ -250,19 +425,21 @@ func (e *Editor) AssetDrawerFolder() string {
 
 // SetAssetDrawerFolder selects a folder in the Assets left rail ("" for "All assets")
 // and clears any active SHOW ONLY status filter, matching Assets.dc.html.
+// Invalid, absolute, or parent-traversing paths are ignored.
 func (e *Editor) SetAssetDrawerFolder(folder string) {
 	if e == nil {
 		return
 	}
-	clean := strings.Trim(strings.ReplaceAll(folder, "\\", "/"), "/")
-	if clean == "." {
-		clean = ""
+	clean, ok := normalizeAssetDrawerFolder(folder)
+	if !ok {
+		return
 	}
 	if e.assetDrawer.folder == clean && e.assetDrawer.status == AssetFilterNone {
 		return
 	}
 	e.assetDrawer.folder = clean
 	e.assetDrawer.status = AssetFilterNone
+	e.assetDrawer.viewRev++
 	e.notify()
 }
 
@@ -280,6 +457,7 @@ func (e *Editor) SetAssetDrawerStatusFilter(filter AssetStatusFilter) {
 		return
 	}
 	e.assetDrawer.status = filter
+	e.assetDrawer.viewRev++
 	e.notify()
 }
 
@@ -315,6 +493,7 @@ func (e *Editor) SetAssetDrawerKind(kind AssetDrawerKind) {
 		return
 	}
 	e.assetDrawer.kind = kind
+	e.assetDrawer.viewRev++
 	e.notify()
 }
 
@@ -332,6 +511,7 @@ func (e *Editor) SetAssetDrawerQuery(query string) {
 		return
 	}
 	e.assetDrawer.query = query
+	e.assetDrawer.viewRev++
 	e.notify()
 }
 
@@ -349,6 +529,7 @@ func (e *Editor) SetAssetDrawerSort(sort AssetSortMode) {
 		return
 	}
 	e.assetDrawer.sort = sort
+	e.assetDrawer.viewRev++
 	e.notify()
 }
 
@@ -361,6 +542,7 @@ func (e *Editor) ClearAssetDrawerFilters() {
 	e.assetDrawer.status = AssetFilterNone
 	e.assetDrawer.kind = AssetKindAll
 	e.assetDrawer.query = ""
+	e.assetDrawer.viewRev++
 	e.notify()
 }
 
@@ -385,6 +567,10 @@ func (e *Editor) SelectAssetPath(relPath string) {
 		return
 	}
 	e.stopAssetAudioPreview()
+	if e.assetDrawer.previewPlaying {
+		e.assetDrawer.previewPlaying = false
+		e.stopAssetPreviewLoop()
+	}
 	e.assetDrawer.selectedPath = clean
 	e.assetDrawer.previewClip = ""
 	e.assetDrawer.previewFrame = 0
@@ -393,6 +579,8 @@ func (e *Editor) SelectAssetPath(relPath string) {
 		e.selectedFileRev++
 		e.Status = "Selected asset " + clean
 	}
+	e.assetDrawer.viewRev++
+	e.assetDrawer.previewRev++
 	e.notify()
 }
 
@@ -402,7 +590,9 @@ func (e *Editor) RefreshAssetDrawer() {
 		return
 	}
 	e.assetDrawer.drawerRev++
+	e.assetDrawer.viewRev++
 	e.assetDrawer.cacheKey = ""
+	e.assetDrawer.importCacheKey = ""
 	e.invalidateProjectIndex()
 	e.notify()
 }
@@ -423,6 +613,7 @@ func (e *Editor) ProposeAssetImports(paths []string) {
 	}
 	e.assetDrawer.proposedNote = ""
 	e.assetDrawer.drawerRev++
+	e.assetDrawer.viewRev++
 	e.assetDrawer.cacheKey = ""
 	e.notify()
 }
@@ -441,6 +632,7 @@ func (e *Editor) KeepProposedAssets() {
 	}
 	e.Status = e.assetDrawer.proposedNote
 	e.assetDrawer.drawerRev++
+	e.assetDrawer.viewRev++
 	e.assetDrawer.cacheKey = ""
 	e.notify()
 }
@@ -454,6 +646,7 @@ func (e *Editor) RevertProposedAssets() {
 	e.assetDrawer.proposedNote = "Import proposal dismissed"
 	e.Status = e.assetDrawer.proposedNote
 	e.assetDrawer.drawerRev++
+	e.assetDrawer.viewRev++
 	e.assetDrawer.cacheKey = ""
 	e.notify()
 }
@@ -597,6 +790,7 @@ func (e *Editor) ensureAssetDrawerCatalog() ([]AssetDrawerItem, []string) {
 	tilesetImages := make(map[string]bool)
 	outputSet := make(map[string]bool)
 	var outputDirs []string
+	outputRoot := false
 	if scan != nil {
 		for _, p := range scan.UnreferencedAssets() {
 			unusedSet[p] = true
@@ -610,7 +804,11 @@ func (e *Editor) ensureAssetDrawerCatalog() ([]AssetDrawerItem, []string) {
 			}
 			if r.Output && r.Target != "" {
 				if r.Dir {
-					outputDirs = append(outputDirs, r.Target+"/")
+					if r.Target == "." {
+						outputRoot = true
+					} else {
+						outputDirs = append(outputDirs, r.Target+"/")
+					}
 				} else {
 					outputSet[r.Target] = true
 				}
@@ -618,10 +816,11 @@ func (e *Editor) ensureAssetDrawerCatalog() ([]AssetDrawerItem, []string) {
 		}
 	}
 
-	// Collect all existing files (with modTimes) and directories.
+	// Collect all existing files (with modTimes) and directories within project root, capped for safety.
 	var dirs []string
 	diskAssets := make(map[string]os.FileInfo)
 	sourceSidecars := make(map[string]bool)
+	scannedEntries := 0
 	_ = fs.WalkDir(fsys, ".", func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			if p == "." {
@@ -632,26 +831,34 @@ func (e *Editor) ensureAssetDrawerCatalog() ([]AssetDrawerItem, []string) {
 		if p == "." {
 			return nil
 		}
+		scannedEntries++
+		if scannedEntries > maxAssetScanEntries {
+			return fs.SkipAll
+		}
+		absEntry := filepath.Join(root, filepath.FromSlash(p))
 		if d.IsDir() {
-			if skippedProjectDir(d.Name()) {
+			if skippedProjectDir(d.Name()) || verifyFileWithinRoot(root, absEntry, p) != nil {
 				return fs.SkipDir
 			}
 			dirs = append(dirs, p)
 			return nil
 		}
+		if verifyFileWithinRoot(root, absEntry, p) != nil {
+			return nil
+		}
 		lower := strings.ToLower(p)
 		if strings.HasSuffix(lower, ".source.yaml") {
-			sourceSidecars[strings.TrimSuffix(p, ".source.yaml")] = true
+			sourceSidecars[p[:len(p)-len(".source.yaml")]] = true
 			return nil
 		}
 		if strings.HasSuffix(lower, ".source.yml") {
-			sourceSidecars[strings.TrimSuffix(p, ".source.yml")] = true
+			sourceSidecars[p[:len(p)-len(".source.yml")]] = true
 			return nil
 		}
 		if !refs.IsAssetPath(p) {
 			return nil
 		}
-		if outputSet[p] {
+		if outputRoot || outputSet[p] {
 			return nil
 		}
 		for _, pref := range outputDirs {
@@ -664,6 +871,18 @@ func (e *Editor) ensureAssetDrawerCatalog() ([]AssetDrawerItem, []string) {
 		}
 		return nil
 	})
+
+	// Evict removed/renamed paths from thumbnail and audio metadata caches so memory stays bounded.
+	for k := range e.assetDrawer.thumbMap {
+		if _, exists := diskAssets[k]; !exists {
+			delete(e.assetDrawer.thumbMap, k)
+		}
+	}
+	for k := range e.assetDrawer.audioCache {
+		if _, exists := diskAssets[k]; !exists {
+			delete(e.assetDrawer.audioCache, k)
+		}
+	}
 
 	// Index available atlas entries from Resolver so sprite assets know their placeable (Atlas, Frame) and clip frames.
 	atlasEntries := e.Assets()
@@ -746,9 +965,9 @@ func (e *Editor) ensureAssetDrawerCatalog() ([]AssetDrawerItem, []string) {
 		} else {
 			switch kind {
 			case AssetKindSprites, AssetKindTiles:
-				e.populateImageAssetItem(&item, absPath, info, atlasEntries, entriesByAtlas, placementCounts)
+				e.populateImageAssetItem(&item, root, absPath, info, atlasEntries, entriesByAtlas, placementCounts)
 			case AssetKindAudio:
-				populateAudioAssetItem(&item, absPath)
+				e.populateAudioAssetItem(&item, root, absPath, info)
 			case AssetKindFonts:
 				populateFontAssetItem(&item)
 			default:
@@ -810,6 +1029,7 @@ func hasImageSource(img core.ImageSource) bool {
 
 func (e *Editor) populateImageAssetItem(
 	item *AssetDrawerItem,
+	root string,
 	absPath string,
 	info os.FileInfo,
 	atlasEntries []AssetEntry,
@@ -849,7 +1069,7 @@ func (e *Editor) populateImageAssetItem(
 
 	// Decode thumbnail directly from disk when no atlas frame supplied pixels.
 	if !hasImageSource(item.Image) && info != nil {
-		if thumb, ok := e.loadDiskThumb(item.Path, absPath, info); ok {
+		if thumb, ok := e.loadDiskThumb(root, item.Path, absPath, info); ok {
 			item.Image = thumb.img
 			item.Rect = sprite.Frame{W: float32(thumb.w), H: float32(thumb.h)}
 			item.ImageWidth = thumb.w
@@ -917,7 +1137,7 @@ func (e *Editor) populateImageAssetItem(
 	item.Meta = formatAssetMeta(prefix, item.UseCount, item.Unused, item.Generated)
 }
 
-func (e *Editor) loadDiskThumb(rel, absPath string, info os.FileInfo) (decodedThumb, bool) {
+func (e *Editor) loadDiskThumb(root, rel, absPath string, info os.FileInfo) (decodedThumb, bool) {
 	if e.assetDrawer.thumbMap == nil {
 		e.assetDrawer.thumbMap = make(map[string]decodedThumb)
 	}
@@ -928,8 +1148,18 @@ func (e *Editor) loadDiskThumb(rel, absPath string, info os.FileInfo) (decodedTh
 	if ext != ".png" && ext != ".jpg" && ext != ".jpeg" && ext != ".gif" {
 		return decodedThumb{}, false
 	}
-	data, err := os.ReadFile(absPath)
+	if info.Size() <= 0 || info.Size() > maxAssetThumbBytes {
+		return decodedThumb{}, false
+	}
+	if err := verifyFileWithinRoot(root, absPath, rel); err != nil {
+		return decodedThumb{}, false
+	}
+	data, err := readFileLimited(absPath, maxAssetThumbBytes)
 	if err != nil {
+		return decodedThumb{}, false
+	}
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil || cfg.Width <= 0 || cfg.Height <= 0 || int64(cfg.Width)*int64(cfg.Height) > maxAssetThumbPixels {
 		return decodedThumb{}, false
 	}
 	img, _, err := image.Decode(bytes.NewReader(data))
@@ -937,6 +1167,9 @@ func (e *Editor) loadDiskThumb(rel, absPath string, info os.FileInfo) (decodedTh
 		return decodedThumb{}, false
 	}
 	b := img.Bounds()
+	if b.Dx() <= 0 || b.Dy() <= 0 || int64(b.Dx())*int64(b.Dy()) > maxAssetThumbPixels {
+		return decodedThumb{}, false
+	}
 	rgba, ok := img.(*image.RGBA)
 	if !ok {
 		rgba = image.NewRGBA(image.Rect(0, 0, b.Dx(), b.Dy()))
@@ -953,29 +1186,70 @@ func (e *Editor) loadDiskThumb(rel, absPath string, info os.FileInfo) (decodedTh
 	return th, true
 }
 
-func populateAudioAssetItem(item *AssetDrawerItem, absPath string) {
-	data, err := os.ReadFile(absPath)
-	if err == nil {
-		if wave, dur, rate, ch, ok := decodeWAVPreview(data, 48); ok {
-			item.AudioWave = wave
-			item.AudioDuration = dur
-			item.AudioRate = rate
-			item.AudioChannels = ch
-			chLabel := "mono"
-			if ch == 2 {
-				chLabel = "stereo"
-			} else if ch > 2 {
-				chLabel = fmt.Sprintf("%d ch", ch)
-			}
-			sec := dur.Seconds()
-			item.Dims = fmt.Sprintf("%.2f s · %s · %.1f kHz", sec, chLabel, float64(rate)/1000.0)
-			item.Meta = formatAssetMeta(fmt.Sprintf("%.2f s", sec), item.UseCount, item.Unused, item.Generated)
+func (e *Editor) populateAudioAssetItem(item *AssetDrawerItem, root, absPath string, info os.FileInfo) {
+	ext := strings.ToLower(path.Ext(item.Name))
+	if info != nil && e.assetDrawer.audioCache != nil {
+		if prev, ok := e.assetDrawer.audioCache[item.Path]; ok &&
+			prev.filesRev == e.filesRev &&
+			prev.modTime.Equal(info.ModTime()) &&
+			prev.size == info.Size() {
+			item.AudioWave = prev.wave
+			item.AudioDuration = prev.dur
+			item.AudioRate = prev.rate
+			item.AudioChannels = prev.channels
+			item.Dims = prev.dims
+			item.Meta = formatAssetMeta(prev.prefix, item.UseCount, item.Unused, item.Generated)
 			return
 		}
 	}
-	item.AudioWave = synthWaveform(item.Path, 48)
-	item.Dims = strings.TrimPrefix(strings.ToLower(path.Ext(item.Name)), ".")
-	item.Meta = formatAssetMeta("", item.UseCount, item.Unused, item.Generated)
+
+	meta := decodedAudioMeta{
+		filesRev: e.filesRev,
+		wave:     synthWaveform(item.Path, 48),
+		dims:     strings.TrimPrefix(ext, "."),
+	}
+	if info != nil {
+		meta.modTime = info.ModTime()
+		meta.size = info.Size()
+	}
+
+	// Only decode PCM headers/waveforms for bounded WAV files inside the project root;
+	// skip full-file disk reads for compressed formats (OGG/MP3/FLAC) and oversized files.
+	if ext == ".wav" && info != nil && info.Size() > 0 && info.Size() <= maxAssetAudioWaveBytes {
+		if verifyFileWithinRoot(root, absPath, item.Path) == nil {
+			if data, err := readFileLimited(absPath, maxAssetAudioWaveBytes); err == nil {
+				if wave, dur, rate, ch, ok := decodeWAVPreview(data, 48); ok {
+					chLabel := "mono"
+					if ch == 2 {
+						chLabel = "stereo"
+					} else if ch > 2 {
+						chLabel = fmt.Sprintf("%d ch", ch)
+					}
+					sec := dur.Seconds()
+					meta.wave = wave
+					meta.dur = dur
+					meta.rate = rate
+					meta.channels = ch
+					meta.dims = fmt.Sprintf("%.2f s · %s · %.1f kHz", sec, chLabel, float64(rate)/1000.0)
+					meta.prefix = fmt.Sprintf("%.2f s", sec)
+				}
+			}
+		}
+	}
+
+	if info != nil {
+		if e.assetDrawer.audioCache == nil {
+			e.assetDrawer.audioCache = make(map[string]decodedAudioMeta)
+		}
+		e.assetDrawer.audioCache[item.Path] = meta
+	}
+
+	item.AudioWave = meta.wave
+	item.AudioDuration = meta.dur
+	item.AudioRate = meta.rate
+	item.AudioChannels = meta.channels
+	item.Dims = meta.dims
+	item.Meta = formatAssetMeta(meta.prefix, item.UseCount, item.Unused, item.Generated)
 }
 
 func populateFontAssetItem(item *AssetDrawerItem) {
@@ -1233,6 +1507,7 @@ func (e *Editor) SetAssetPreviewPlaying(playing bool) {
 	} else {
 		e.stopAssetPreviewLoop()
 	}
+	e.assetDrawer.previewRev++
 	e.notify()
 }
 
@@ -1251,6 +1526,8 @@ func (e *Editor) SetAssetPreviewClip(clipName string) {
 	}
 	e.assetDrawer.previewClip = clipName
 	e.assetDrawer.previewFrame = 0
+	e.assetDrawer.previewAccum = 0
+	e.assetDrawer.previewRev++
 	e.notify()
 }
 
@@ -1275,6 +1552,7 @@ func (e *Editor) SetAssetPreviewFrame(idx int) {
 		e.assetDrawer.previewPlaying = false
 		e.stopAssetPreviewLoop()
 	}
+	e.assetDrawer.previewRev++
 	e.notify()
 }
 
@@ -1297,6 +1575,7 @@ func (e *Editor) StepAssetPreviewFrame(delta int) {
 		next += n
 	}
 	e.assetDrawer.previewFrame = next
+	e.assetDrawer.previewRev++
 	e.notify()
 }
 
@@ -1312,6 +1591,17 @@ func activePreviewClip(item *AssetDrawerItem, wanted string) AssetClipPreview {
 	return item.Clips[0]
 }
 
+func (e *Editor) activePreviewFrameInterval() time.Duration {
+	snap := e.AssetDrawerSnapshot()
+	if snap.Selected != nil && len(snap.Selected.Clips) > 0 {
+		clip := activePreviewClip(snap.Selected, e.assetDrawer.previewClip)
+		if clip.FrameMS > 0 {
+			return time.Duration(clip.FrameMS) * time.Millisecond
+		}
+	}
+	return 120 * time.Millisecond
+}
+
 func (e *Editor) startAssetPreviewLoop() {
 	e.stopAssetPreviewLoop()
 	if e.scope == nil {
@@ -1325,9 +1615,10 @@ func (e *Editor) startAssetPreviewLoop() {
 				e.stopAssetPreviewLoop()
 				return
 			}
+			interval := e.activePreviewFrameInterval()
 			e.assetDrawer.previewAccum += dt
-			if e.assetDrawer.previewAccum >= 120*time.Millisecond {
-				e.assetDrawer.previewAccum -= 120 * time.Millisecond
+			if e.assetDrawer.previewAccum >= interval {
+				e.assetDrawer.previewAccum %= interval
 				e.StepAssetPreviewFrame(1)
 			}
 		},
@@ -1374,8 +1665,12 @@ func (e *Editor) ToggleAssetAudioPreview(relPath string) error {
 	if err != nil {
 		return err
 	}
-	abs := filepath.Join(filepath.Dir(e.ProjectPath), filepath.FromSlash(clean))
-	raw, err := os.ReadFile(abs)
+	root := filepath.Dir(e.ProjectPath)
+	abs := filepath.Join(root, filepath.FromSlash(clean))
+	if err := verifyFileWithinRoot(root, abs, clean); err != nil {
+		return err
+	}
+	raw, err := readFileLimited(abs, maxAssetAudioPreviewBytes)
 	if err != nil {
 		return fmt.Errorf("editor: read audio %q: %w", clean, err)
 	}
@@ -1398,6 +1693,7 @@ func (e *Editor) ToggleAssetAudioPreview(relPath string) error {
 		}
 	}
 	e.assetDrawer.audioPlayingPath = clean
+	e.assetDrawer.previewRev++
 	e.Status = "Playing " + path.Base(clean)
 	e.notify()
 	return nil
@@ -1411,6 +1707,7 @@ func (e *Editor) StopAssetAudioPreview() {
 	was := e.assetDrawer.audioPlayingPath != ""
 	e.stopAssetAudioPreview()
 	if was {
+		e.assetDrawer.previewRev++
 		e.Status = "Stopped sound preview"
 		e.notify()
 	}
@@ -1519,6 +1816,9 @@ func (e *Editor) UpdateAssetDrag(canvasX, canvasY float32) {
 	if e == nil || !e.assetDrawer.drag.Active {
 		return
 	}
+	if !isFiniteFloat32(canvasX) || !isFiniteFloat32(canvasY) {
+		return
+	}
 	e.updateAssetDragPayload(e.assetDrawer.drag.Drag, canvasX, canvasY)
 }
 
@@ -1526,9 +1826,15 @@ func (e *Editor) updateAssetDragPayload(drag AssetDrawerDrag, canvasX, canvasY f
 	if e == nil || e.playing {
 		return
 	}
+	if !isFiniteFloat32(canvasX) || !isFiniteFloat32(canvasY) {
+		return
+	}
 	step := e.AssetSnapStep()
 	lx, ly := e.layerCoordsForActive(canvasX, canvasY)
 	sx, sy := snapAssetCoord(lx, step), snapAssetCoord(ly, step)
+	if !isFiniteFloat32(sx) || !isFiniteFloat32(sy) {
+		return
+	}
 
 	hitID := e.HitTest(canvasX, canvasY)
 	hitName := hitID
@@ -1593,22 +1899,38 @@ func (e *Editor) DropAssetAt(assetPath string, canvasX, canvasY float32) (object
 	if e == nil {
 		return "", false, errors.New("editor: nil editor")
 	}
+	if !isFiniteFloat32(canvasX) || !isFiniteFloat32(canvasY) {
+		e.CancelAssetDrag()
+		return "", false, errors.New("editor: drop coordinates must be finite")
+	}
 	drag, err := e.resolveAssetDrag(assetPath)
 	if err != nil {
+		e.CancelAssetDrag()
 		return "", false, err
 	}
 	return e.dropAssetDragAt(drag, canvasX, canvasY)
 }
 
 func (e *Editor) dropAssetDragAt(drag AssetDrawerDrag, canvasX, canvasY float32) (string, bool, error) {
+	wasDragging := e.assetDrawer.drag.Active || e.assetDrawer.drag.HoveringViewport
+	notified := false
 	defer func() {
 		e.assetDrawer.drag = AssetDragState{}
+		if wasDragging && !notified {
+			e.notify()
+		}
 	}()
 	if e.playing {
 		return "", false, ErrPlaying
 	}
+	if e.Doc == nil {
+		return "", false, errors.New("editor: no scene document is open")
+	}
 	if e.ViewMode != ViewMode2D {
 		return "", false, errors.New("editor: switch to 2D view to drop sprite assets")
+	}
+	if !isFiniteFloat32(canvasX) || !isFiniteFloat32(canvasY) {
+		return "", false, errors.New("editor: drop coordinates must be finite")
 	}
 	ref, err := e.resolveSpriteRefForDrag(drag)
 	if err != nil {
@@ -1621,7 +1943,9 @@ func (e *Editor) dropAssetDragAt(drag AssetDrawerDrag, canvasX, canvasY float32)
 			return "", false, err
 		}
 		e.SelectObject(hitID)
+		e.assetDrawer.viewRev++
 		e.Status = fmt.Sprintf("Swapped sprite on %s to %s", hitID, drag.Name)
+		notified = true
 		e.notify()
 		return hitID, true, nil
 	}
@@ -1633,6 +1957,9 @@ func (e *Editor) dropAssetDragAt(drag AssetDrawerDrag, canvasX, canvasY float32)
 	step := e.AssetSnapStep()
 	lx, ly := e.layerCoordsForActive(canvasX, canvasY)
 	sx, sy := snapAssetCoord(lx, step), snapAssetCoord(ly, step)
+	if !isFiniteFloat32(sx) || !isFiniteFloat32(sy) {
+		return "", false, errors.New("editor: snapped drop coordinates must be finite")
+	}
 	name := strings.TrimSuffix(drag.Name, path.Ext(drag.Name))
 	if name == "" {
 		name = ref.Frame
@@ -1646,7 +1973,9 @@ func (e *Editor) dropAssetDragAt(drag AssetDrawerDrag, canvasX, canvasY float32)
 	if err != nil {
 		return "", false, err
 	}
+	e.assetDrawer.viewRev++
 	e.Status = fmt.Sprintf("%s new Sprite on %s · snapped to %.0f px", drag.Name, e.ActiveLayer, step)
+	notified = true
 	e.notify()
 	return id, false, nil
 }
@@ -1721,8 +2050,8 @@ func (e *Editor) drawAssetDragOverlay(d *core.Drawing, scene *sceneformat.BuiltS
 
 	if st.TargetObjectID != "" && scene != nil {
 		// Highlight the target object whose sprite will be swapped.
-		if bo := findBuiltObject(scene, st.TargetObjectID); bo != nil {
-			x, y, w, h := builtObjectCanvasBounds(e, bo)
+		if bo, layer := findBuiltObjectAndLayer(scene, st.TargetObjectID); bo != nil {
+			x, y, w, h := builtObjectCanvasBounds(e, bo, layer)
 			d.SetFillColor(specAddedFill).BeginPath().RoundRect(x-3, y-3, w+6, h+6, 4).Fill()
 			d.SetStrokeColor(specAdded).SetLineWidth(2).SetLineDash(5, 3)
 			d.BeginPath().RoundRect(x-3, y-3, w+6, h+6, 4).Stroke()
@@ -1779,9 +2108,9 @@ func (e *Editor) assetLayerToCanvas(space sceneformat.Space, px, py, lx, ly floa
 	return cw/2 + rx*v.Zoom, ch/2 + ry*v.Zoom
 }
 
-func findBuiltObject(scene *sceneformat.BuiltScene, id string) *sceneformat.BuiltObject {
+func findBuiltObjectAndLayer(scene *sceneformat.BuiltScene, id string) (*sceneformat.BuiltObject, *sceneformat.BuiltLayer) {
 	if scene == nil || id == "" {
-		return nil
+		return nil, nil
 	}
 	var walk func([]*sceneformat.BuiltObject) *sceneformat.BuiltObject
 	walk = func(objs []*sceneformat.BuiltObject) *sceneformat.BuiltObject {
@@ -1797,13 +2126,13 @@ func findBuiltObject(scene *sceneformat.BuiltScene, id string) *sceneformat.Buil
 	}
 	for _, l := range scene.Layers {
 		if found := walk(l.Objects); found != nil {
-			return found
+			return found, l
 		}
 	}
-	return nil
+	return nil, nil
 }
 
-func builtObjectCanvasBounds(e *Editor, bo *sceneformat.BuiltObject) (x, y, w, h float32) {
+func builtObjectCanvasBounds(e *Editor, bo *sceneformat.BuiltObject, layer *sceneformat.BuiltLayer) (x, y, w, h float32) {
 	if bo == nil || bo.Doc == nil {
 		return 0, 0, 24, 24
 	}
@@ -1817,13 +2146,138 @@ func builtObjectCanvasBounds(e *Editor, bo *sceneformat.BuiltObject) (x, y, w, h
 	} else {
 		lx0, ly0, lx1, ly1 = -defaultMarkerHalfSize, -defaultMarkerHalfSize, defaultMarkerHalfSize, defaultMarkerHalfSize
 	}
-	p0 := bo.World.TransformPoint(math2d.Vec2{X: lx0, Y: ly0})
-	p1 := bo.World.TransformPoint(math2d.Vec2{X: lx1, Y: ly1})
-	cx0, cy0 := e.WorldToCanvas(p0.X, p0.Y)
-	cx1, cy1 := e.WorldToCanvas(p1.X, p1.Y)
-	minX, maxX := min(cx0, cx1), max(cx0, cx1)
-	minY, maxY := min(cy0, cy1), max(cy0, cy1)
+	space := sceneformat.SpaceWorld
+	px, py := float32(1), float32(1)
+	if layer != nil {
+		space = layer.Space
+		px, py = layer.ParallaxX, layer.ParallaxY
+	}
+	corners := [4]math2d.Vec2{
+		bo.World.TransformPoint(math2d.Vec2{X: lx0, Y: ly0}),
+		bo.World.TransformPoint(math2d.Vec2{X: lx1, Y: ly0}),
+		bo.World.TransformPoint(math2d.Vec2{X: lx1, Y: ly1}),
+		bo.World.TransformPoint(math2d.Vec2{X: lx0, Y: ly1}),
+	}
+	minX, minY := float32(math.Inf(1)), float32(math.Inf(1))
+	maxX, maxY := float32(math.Inf(-1)), float32(math.Inf(-1))
+	for _, pt := range corners {
+		cx, cy := e.assetLayerToCanvas(space, px, py, pt.X, pt.Y)
+		if cx < minX {
+			minX = cx
+		}
+		if cx > maxX {
+			maxX = cx
+		}
+		if cy < minY {
+			minY = cy
+		}
+		if cy > maxY {
+			maxY = cy
+		}
+	}
+	if !isFiniteFloat32(minX) || !isFiniteFloat32(minY) || !isFiniteFloat32(maxX) || !isFiniteFloat32(maxY) {
+		return 0, 0, 24, 24
+	}
 	return minX, minY, max(12, maxX-minX), max(12, maxY-minY)
+}
+
+// --- Path validation & bounded I/O helpers ---
+
+func parseLocalFileInput(raw string) (string, error) {
+	p := strings.TrimSpace(raw)
+	if p == "" {
+		return "", errors.New("editor: empty file path")
+	}
+	lower := strings.ToLower(p)
+	if strings.HasPrefix(lower, "file://") {
+		u, err := url.Parse(p)
+		if err != nil {
+			return "", fmt.Errorf("editor: invalid file URI %q: %w", raw, err)
+		}
+		if u.Host != "" && !strings.EqualFold(u.Host, "localhost") {
+			return "", fmt.Errorf("editor: unsupported file URI host %q", u.Host)
+		}
+		unescaped := u.Path
+		if unescaped == "" {
+			return "", fmt.Errorf("editor: empty file URI path %q", raw)
+		}
+		if len(unescaped) >= 3 && unescaped[0] == '/' && unescaped[2] == ':' &&
+			(('a' <= unescaped[1] && unescaped[1] <= 'z') || ('A' <= unescaped[1] && unescaped[1] <= 'Z')) {
+			unescaped = unescaped[1:]
+		}
+		p = filepath.FromSlash(unescaped)
+	}
+	return p, nil
+}
+
+func readFileLimited(p string, maxBytes int64) ([]byte, error) {
+	f, err := os.Open(p)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if info.IsDir() {
+		return nil, fmt.Errorf("editor: %q is a directory", p)
+	}
+	if maxBytes > 0 && info.Size() > maxBytes {
+		return nil, fmt.Errorf("editor: file %q exceeds size limit (%d bytes)", p, maxBytes)
+	}
+	if maxBytes <= 0 {
+		return io.ReadAll(f)
+	}
+	data, err := io.ReadAll(io.LimitReader(f, maxBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, fmt.Errorf("editor: file %q exceeds size limit (%d bytes)", p, maxBytes)
+	}
+	return data, nil
+}
+
+func verifyProjectWritePath(rootDir, absPath, label string) error {
+	rootAbs, err := filepath.Abs(rootDir)
+	if err != nil {
+		return err
+	}
+	rootReal, err := filepath.EvalSymlinks(rootAbs)
+	if err != nil {
+		rootReal = rootAbs
+	}
+	targetReal, err := evalHUDSymlinksOrParent(absPath)
+	if err != nil {
+		return err
+	}
+	rel, err := filepath.Rel(rootReal, targetReal)
+	if err != nil {
+		return err
+	}
+	if rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return fmt.Errorf("editor: asset path %q resolves outside the project root", label)
+	}
+	return nil
+}
+
+func isSourceSidecarName(name string) bool {
+	lower := strings.ToLower(name)
+	return strings.HasSuffix(lower, ".source.yaml") || strings.HasSuffix(lower, ".source.yml")
+}
+
+func validateImportBaseName(base string) error {
+	if base == "" || base == "." || base == ".." || strings.ContainsAny(base, "/\\") {
+		return fmt.Errorf("editor: invalid asset filename %q", base)
+	}
+	if strings.HasPrefix(base, ".") {
+		return fmt.Errorf("editor: refusing to import hidden file %q", base)
+	}
+	if importsettings.IsSidecar(base) || isSourceSidecarName(base) {
+		return fmt.Errorf("editor: refusing to import sidecar file %q", base)
+	}
+	return nil
 }
 
 // --- Import, Replace Missing, Generate & Ask Agent Actions ---
@@ -1844,20 +2298,25 @@ func (e *Editor) ImportAssetFiles(srcPaths []string) ([]string, error) {
 	root := filepath.Dir(e.ProjectPath)
 	var imported []string
 	for _, raw := range srcPaths {
-		p := strings.TrimSpace(raw)
-		if p == "" {
+		if strings.TrimSpace(raw) == "" {
 			continue
 		}
-		if strings.HasPrefix(p, "file://") {
-			p = strings.TrimPrefix(p, "file://")
-		}
-		data, err := os.ReadFile(p)
+		p, err := parseLocalFileInput(raw)
 		if err != nil {
-			return imported, fmt.Errorf("editor: read %q: %w", p, err)
+			return imported, err
 		}
 		base := filepath.Base(p)
+		if err := validateImportBaseName(base); err != nil {
+			return imported, err
+		}
 		destFolder := e.assetDrawer.folder
-		if destFolder == "" {
+		if destFolder != "" {
+			cleanFolder, ok := normalizeAssetDrawerFolder(destFolder)
+			if !ok {
+				return imported, fmt.Errorf("editor: invalid destination folder %q", destFolder)
+			}
+			destFolder = cleanFolder
+		} else {
 			kind, _ := classifyAssetPath(base, false)
 			switch kind {
 			case AssetKindAudio:
@@ -1870,12 +2329,25 @@ func (e *Editor) ImportAssetFiles(srcPaths []string) ([]string, error) {
 				destFolder = "art/sprites"
 			}
 		}
-		rel := path.Join(destFolder, base)
+		rel, err := normalizeProjectAssetPath(path.Join(destFolder, base))
+		if err != nil {
+			return imported, err
+		}
 		destAbs := filepath.Join(root, filepath.FromSlash(rel))
+		if err := verifyProjectWritePath(root, destAbs, rel); err != nil {
+			return imported, err
+		}
+		data, err := readFileLimited(p, maxAssetImportBytes)
+		if err != nil {
+			return imported, fmt.Errorf("editor: read %q: %w", p, err)
+		}
 		if err := os.MkdirAll(filepath.Dir(destAbs), 0o755); err != nil {
 			return imported, err
 		}
-		if err := os.WriteFile(destAbs, data, 0o644); err != nil {
+		if err := verifyProjectWritePath(root, destAbs, rel); err != nil {
+			return imported, err
+		}
+		if err := writeFileAtomic(destAbs, data); err != nil {
 			return imported, err
 		}
 		imported = append(imported, rel)
@@ -1883,6 +2355,7 @@ func (e *Editor) ImportAssetFiles(srcPaths []string) ([]string, error) {
 	if len(imported) > 0 {
 		e.filesRev++
 		e.assetsRev++
+		e.assetDrawer.importCacheKey = ""
 		e.ProposeAssetImports(imported)
 		e.SelectAssetPath(imported[0])
 		e.Status = fmt.Sprintf("Imported %d asset(s)", len(imported))
@@ -1907,22 +2380,34 @@ func (e *Editor) ReplaceMissingAsset(missingPath, srcFilePath string) error {
 	if err != nil {
 		return err
 	}
-	src := strings.TrimPrefix(strings.TrimSpace(srcFilePath), "file://")
-	data, err := os.ReadFile(src)
+	src, err := parseLocalFileInput(srcFilePath)
+	if err != nil {
+		return err
+	}
+	root := filepath.Dir(e.ProjectPath)
+	destAbs := filepath.Join(root, filepath.FromSlash(clean))
+	if err := verifyProjectWritePath(root, destAbs, clean); err != nil {
+		return err
+	}
+	data, err := readFileLimited(src, maxAssetImportBytes)
 	if err != nil {
 		return fmt.Errorf("editor: read replacement %q: %w", srcFilePath, err)
 	}
-	destAbs := filepath.Join(filepath.Dir(e.ProjectPath), filepath.FromSlash(clean))
 	if err := os.MkdirAll(filepath.Dir(destAbs), 0o755); err != nil {
 		return err
 	}
-	if err := os.WriteFile(destAbs, data, 0o644); err != nil {
+	if err := verifyProjectWritePath(root, destAbs, clean); err != nil {
+		return err
+	}
+	if err := writeFileAtomic(destAbs, data); err != nil {
 		return err
 	}
 	e.filesRev++
 	e.assetsRev++
 	e.assetDrawer.drawerRev++
+	e.assetDrawer.viewRev++
 	e.assetDrawer.cacheKey = ""
+	e.assetDrawer.importCacheKey = ""
 	e.invalidateProjectIndex()
 	e.CheckProblems()
 	e.Status = "Replaced missing asset " + clean
@@ -2028,11 +2513,12 @@ func decodeWAVPreview(data []byte, bars int) (wave []float32, dur time.Duration,
 	pos := 12
 	for pos+8 <= len(data) {
 		id := string(data[pos : pos+4])
-		size := int(binary.LittleEndian.Uint32(data[pos+4 : pos+8]))
+		rawSize := binary.LittleEndian.Uint32(data[pos+4 : pos+8])
 		pos += 8
-		if size < 0 || pos+size > len(data) {
+		if uint64(rawSize) > uint64(len(data)-pos) {
 			break
 		}
+		size := int(rawSize)
 		chunk := data[pos : pos+size]
 		switch id {
 		case "fmt ":
@@ -2065,8 +2551,8 @@ func decodeWAVPreview(data []byte, bars int) (wave []float32, dur time.Duration,
 	}
 	wave = make([]float32, bars)
 	for i := range bars {
-		start := i * totalFrames / bars
-		end := max(start+1, (i+1)*totalFrames/bars)
+		start := int(int64(i) * int64(totalFrames) / int64(bars))
+		end := max(start+1, int(int64(i+1)*int64(totalFrames)/int64(bars)))
 		if end > totalFrames {
 			end = totalFrames
 		}

@@ -5,6 +5,8 @@ strings:
   app.defaultName: NSGo 场景编辑器
   assets.empty: 未加载图集资源
   assets.title: 资源
+  cmd.assetDrawer.desc: 在左侧栏的“场景”与“资源抽屉”模式之间切换
+  cmd.assetDrawer.label: 资源抽屉
   cmd.audioMixer.desc: 切换音频总线混音器面板
   cmd.audioMixer.label: 音频总线混音器
   cmd.bakeNavMesh3d.desc: 从当前场景的静态几何体烘焙 3D 导航网格

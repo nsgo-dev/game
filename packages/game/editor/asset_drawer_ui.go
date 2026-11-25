@@ -14,16 +14,20 @@ import (
 var specCheckerAlt = core.RGBA(0x262B35, 0.36)
 
 type versionedAssetSnap struct {
-	rev  uint64
+	key  assetDrawerRailKey
 	snap AssetDrawerSnapshot
 }
 
 func newAssetSnapMemo(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) *core.Memo[versionedAssetSnap] {
+	keyMemo := core.NewMemo(cx, func() assetDrawerRailKey {
+		_ = rev.Get()
+		return ed.assetDrawerRailKey()
+	})
 	return core.NewMemoFunc(cx, func() versionedAssetSnap {
-		r := rev.Get()
-		return versionedAssetSnap{rev: r, snap: ed.AssetDrawerSnapshot()}
+		k := keyMemo.Get()
+		return versionedAssetSnap{key: k, snap: ed.AssetDrawerSnapshot()}
 	}, func(a, b versionedAssetSnap) bool {
-		return a.rev == b.rev
+		return a.key == b.key
 	})
 }
 
@@ -1144,8 +1148,17 @@ func assetDrawerCard(ed *Editor, it AssetDrawerItem, selected bool) core.Node {
 // preview (clips playable frame-by-frame, sounds playable), missing-file actions, import settings, and USED BY from refs.
 func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	snapMemo := newAssetSnapMemo(cx, ed, rev)
+	inspectorKeyMemo := core.NewMemo(cx, func() assetDrawerInspectorKey {
+		_ = rev.Get()
+		return ed.assetDrawerInspectorKey()
+	})
+	previewKeyMemo := core.NewMemo(cx, func() assetDrawerPreviewKey {
+		_ = rev.Get()
+		return ed.assetDrawerPreviewKey()
+	})
 
 	content := core.Dynamic(func(cx *core.Scope) core.Node {
+		_ = inspectorKeyMemo.Get()
 		snap := snapMemo.Get().snap
 		if snap.Selected == nil {
 			return core.View{
@@ -1161,265 +1174,278 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 		sel := *snap.Selected
 		hasClips := len(sel.Clips) > 0
 		isAudio := sel.Kind == AssetKindAudio && !sel.Missing
-		clip := activePreviewClip(&sel, ed.AssetPreviewClip())
-		frameIdx := ed.AssetPreviewFrame()
-		if hasClips && len(clip.Frames) > 0 && frameIdx >= len(clip.Frames) {
-			frameIdx = frameIdx % len(clip.Frames)
-		}
 
-		// Build preview item (using active clip frame when playing/scrubbing clips).
-		previewItem := sel
-		if hasClips && len(clip.Frames) > 0 {
-			f := clip.Frames[frameIdx]
-			previewItem.Image = f.Image
-			previewItem.Rect = f.Rect
-		}
-		audioPlaying := isAudio && ed.AssetAudioPlayingPath() == sel.Path
-
-		previewChildren := []core.Node{
-			assetThumbnailCanvas(previewItem, 348, 168, audioPlaying),
-		}
-		if sel.Missing {
-			previewChildren = append(previewChildren, core.View{
-				PointerEvents: core.PointerEventsNone,
-				Style: core.Style{
-					Position:       core.Absolute,
-					Left:           core.Pt(0),
-					Top:            core.Pt(0),
-					Right:          core.Pt(0),
-					Bottom:         core.Pt(0),
-					AlignItems:     core.AlignCenter,
-					JustifyContent: core.JustifyCenter,
-				},
-				Children: []core.Node{
-					core.SVGView{
-						SVG:   lucide.ImageOff(),
-						Style: core.Style{Width: core.Pt(36), Height: core.Pt(36), Color: specProblem},
-					},
-				},
-			})
-		} else if sel.Kind == AssetKindFonts {
-			previewChildren = append(previewChildren, core.View{
-				PointerEvents: core.PointerEventsNone,
-				Style: core.Style{
-					Position:       core.Absolute,
-					Left:           core.Pt(0),
-					Top:            core.Pt(0),
-					Right:          core.Pt(0),
-					Bottom:         core.Pt(0),
-					AlignItems:     core.AlignCenter,
-					JustifyContent: core.JustifyCenter,
-				},
-				Children: []core.Node{
-					core.Text{
-						Content: sel.FontSample,
-						Style:   core.Style{FontSize: 28, FontWeight: 500, Color: specTextStrong},
-					},
-				},
-			})
-		}
-		if sel.Dims != "" {
-			previewChildren = append(previewChildren, core.Text{
-				TestID:  "asset-preview-dims",
-				Content: sel.Dims,
-				Style: core.Style{
-					Position: core.Absolute,
-					Left:     core.Pt(12),
-					Top:      core.Pt(8),
-					FontSize: 11,
-					Color:    specTextMuted,
-				},
-			})
-		}
-		if hasClips || isAudio {
-			playingNow := (hasClips && ed.AssetPreviewPlaying()) || audioPlaying
-			playIcon := lucide.Play
-			playLabel := "Play"
-			if playingNow {
-				playIcon = lucide.Pause
-				playLabel = "Pause"
+		// Isolate preview box & clip/audio playback controls into a preview-keyed Dynamic so
+		// 8 Hz clip ticks only update preview nodes and 60 Hz drag moves trigger zero rebuilds.
+		previewSection := core.Dynamic(func(cx *core.Scope) core.Node {
+			_ = previewKeyMemo.Get()
+			clip := activePreviewClip(&sel, ed.AssetPreviewClip())
+			frameIdx := ed.AssetPreviewFrame()
+			if hasClips && len(clip.Frames) > 0 && frameIdx >= len(clip.Frames) {
+				frameIdx = frameIdx % len(clip.Frames)
 			}
-			previewChildren = append(previewChildren, core.View{
-				Style: core.Style{
-					Position: core.Absolute,
-					Right:    core.Pt(8),
-					Bottom:   core.Pt(8),
-				},
-				Children: []core.Node{
-					ui.Button{
-						TestID:  "asset-preview-play",
-						Icon:    playIcon,
-						Label:   playLabel,
-						Variant: ui.ButtonGhost,
-						Size:    ui.SizeSmall,
-						Color:   func() core.Color { return specBgOverlay },
-						Tint:    func() core.Color { return specTextStrong },
-						Style: core.Style{
-							Width:        core.Pt(28),
-							Height:       core.Pt(28),
-							CornerRadius: 6,
-							BorderWidth:  1,
-							BorderColor:  specLineRaised,
-						},
-						OnPress: func() {
-							if isAudio {
-								ed.report(ed.ToggleAssetAudioPreview(sel.Path))
-							} else {
-								ed.SetAssetPreviewPlaying(!ed.AssetPreviewPlaying())
-							}
-						},
-					},
-				},
-			})
-		}
 
-		bodyNodes := []core.Node{
-			core.View{
-				TestID: "asset-preview-box",
-				Style: core.Style{
-					Height:       core.Pt(168),
-					FlexShrink:   0,
-					CornerRadius: 12,
-					Position:     core.Relative,
-					BorderWidth:  1,
-					BorderColor:  specLineRaised,
-					Overflow:     core.Hidden,
-				},
-				Children: previewChildren,
-			},
-		}
+			// Build preview item (using active clip frame when playing/scrubbing clips).
+			previewItem := sel
+			if hasClips && len(clip.Frames) > 0 {
+				f := clip.Frames[frameIdx]
+				previewItem.Image = f.Image
+				previewItem.Rect = f.Rect
+			}
+			audioPlaying := isAudio && ed.AssetAudioPlayingPath() == sel.Path
 
-		// Clips & frame-by-frame controls when the sprite has multiple frames/clips.
-		if hasClips {
-			clipChips := make([]core.Node, 0, len(sel.Clips))
-			for _, cl := range sel.Clips {
-				cName := cl.Name
-				on := cName == clip.Name
-				bg := specRaised
-				fg := specTextSecondary
-				border := specLineRaised
-				if on {
-					bg = specLineRaised
-					fg = specTextStrong
-					border = specLineRaised
-				}
-				clipChips = append(clipChips, core.View{
-					TestID: "asset-clip-" + sanitizeAssetTestID(cName),
-					Role:   core.RoleButton,
-					Label:  "Clip " + cName,
+			previewChildren := []core.Node{
+				assetThumbnailCanvas(previewItem, 348, 168, audioPlaying),
+			}
+			if sel.Missing {
+				previewChildren = append(previewChildren, core.View{
+					PointerEvents: core.PointerEventsNone,
 					Style: core.Style{
-						Height:         core.Pt(26),
-						Padding:        core.Symmetric(0, 10),
-						CornerRadius:   6,
+						Position:       core.Absolute,
+						Left:           core.Pt(0),
+						Top:            core.Pt(0),
+						Right:          core.Pt(0),
+						Bottom:         core.Pt(0),
 						AlignItems:     core.AlignCenter,
 						JustifyContent: core.JustifyCenter,
-						Background:     bg,
-						BorderWidth:    1,
-						BorderColor:    border,
-						FocusVisible:   specFocusRingStyle,
-					},
-					OnPress: func(core.PressEvent) {
-						ed.SetAssetPreviewClip(cName)
 					},
 					Children: []core.Node{
-						core.Text{Content: cName, Style: core.Style{FontSize: 12, Color: fg}},
+						core.SVGView{
+							SVG:   lucide.ImageOff(),
+							Style: core.Style{Width: core.Pt(36), Height: core.Pt(36), Color: specProblem},
+						},
 					},
 				})
-			}
-
-			maxThumbs := min(len(clip.Frames), 6)
-			frameButtons := make([]core.Node, 0, maxThumbs+3)
-			frameButtons = append(frameButtons, ui.Button{
-				TestID:  "asset-frame-prev",
-				Icon:    lucide.ChevronLeft,
-				Label:   "Previous frame",
-				Variant: ui.ButtonGhost,
-				Size:    ui.SizeSmall,
-				Color:   func() core.Color { return specRaised },
-				Tint:    func() core.Color { return specTextSecondary },
-				Style:   core.Style{Width: core.Pt(24), Height: core.Pt(32), CornerRadius: 6, BorderWidth: 1, BorderColor: specLineRaised},
-				OnPress: func() {
-					ed.SetAssetPreviewPlaying(false)
-					ed.StepAssetPreviewFrame(-1)
-				},
-			})
-			for i := range maxThumbs {
-				idx := i
-				fr := clip.Frames[idx]
-				active := idx == frameIdx
-				bCol := specLineRaised
-				bW := core.Points(1)
-				if active {
-					bCol = specAccent
-					bW = 1.5
-				}
-				frItem := AssetDrawerItem{Kind: AssetKindSprites, Image: fr.Image, Rect: fr.Rect}
-				frameButtons = append(frameButtons, core.View{
-					TestID: fmt.Sprintf("asset-frame-%d", idx),
-					Role:   core.RoleButton,
-					Label:  fmt.Sprintf("Frame %d", idx+1),
+			} else if sel.Kind == AssetKindFonts {
+				previewChildren = append(previewChildren, core.View{
+					PointerEvents: core.PointerEventsNone,
 					Style: core.Style{
-						Width:        core.Pt(36),
-						Height:       core.Pt(40),
-						CornerRadius: 6,
-						BorderWidth:  bW,
-						BorderColor:  bCol,
-						Overflow:     core.Hidden,
-						FocusVisible: specFocusRingStyle,
-					},
-					OnPress: func(core.PressEvent) {
-						ed.SetAssetPreviewFrame(idx)
+						Position:       core.Absolute,
+						Left:           core.Pt(0),
+						Top:            core.Pt(0),
+						Right:          core.Pt(0),
+						Bottom:         core.Pt(0),
+						AlignItems:     core.AlignCenter,
+						JustifyContent: core.JustifyCenter,
 					},
 					Children: []core.Node{
-						assetThumbnailCanvas(frItem, 36, 40, false),
+						core.Text{
+							Content: sel.FontSample,
+							Style:   core.Style{FontSize: 28, FontWeight: 500, Color: specTextStrong},
+						},
 					},
 				})
 			}
-			frameButtons = append(frameButtons, ui.Button{
-				TestID:  "asset-frame-next",
-				Icon:    lucide.ChevronRight,
-				Label:   "Next frame",
-				Variant: ui.ButtonGhost,
-				Size:    ui.SizeSmall,
-				Color:   func() core.Color { return specRaised },
-				Tint:    func() core.Color { return specTextSecondary },
-				Style:   core.Style{Width: core.Pt(24), Height: core.Pt(32), CornerRadius: 6, BorderWidth: 1, BorderColor: specLineRaised},
-				OnPress: func() {
-					ed.SetAssetPreviewPlaying(false)
-					ed.StepAssetPreviewFrame(1)
-				},
-			})
-
-			bodyNodes = append(bodyNodes, core.View{
-				TestID: "asset-preview-clips",
-				Style:  core.Style{Gap: 8},
-				Children: []core.Node{
-					core.View{
-						Style:    core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 4},
-						Children: clipChips,
+			if sel.Dims != "" {
+				previewChildren = append(previewChildren, core.Text{
+					TestID:  "asset-preview-dims",
+					Content: sel.Dims,
+					Style: core.Style{
+						Position: core.Absolute,
+						Left:     core.Pt(12),
+						Top:      core.Pt(8),
+						FontSize: 11,
+						Color:    specTextMuted,
 					},
-					core.View{
+				})
+			}
+			if hasClips || isAudio {
+				playingNow := (hasClips && ed.AssetPreviewPlaying()) || audioPlaying
+				playIcon := lucide.Play
+				playLabel := "Play"
+				if playingNow {
+					playIcon = lucide.Pause
+					playLabel = "Pause"
+				}
+				previewChildren = append(previewChildren, core.View{
+					Style: core.Style{
+						Position: core.Absolute,
+						Right:    core.Pt(8),
+						Bottom:   core.Pt(8),
+					},
+					Children: []core.Node{
+						ui.Button{
+							TestID:  "asset-preview-play",
+							Icon:    playIcon,
+							Label:   playLabel,
+							Variant: ui.ButtonGhost,
+							Size:    ui.SizeSmall,
+							Color:   func() core.Color { return specBgOverlay },
+							Tint:    func() core.Color { return specTextStrong },
+							Style: core.Style{
+								Width:        core.Pt(28),
+								Height:       core.Pt(28),
+								CornerRadius: 6,
+								BorderWidth:  1,
+								BorderColor:  specLineRaised,
+							},
+							OnPress: func() {
+								if isAudio {
+									ed.report(ed.ToggleAssetAudioPreview(sel.Path))
+								} else {
+									ed.SetAssetPreviewPlaying(!ed.AssetPreviewPlaying())
+								}
+							},
+						},
+					},
+				})
+			}
+
+			secNodes := []core.Node{
+				core.View{
+					TestID: "asset-preview-box",
+					Style: core.Style{
+						Height:       core.Pt(168),
+						FlexShrink:   0,
+						CornerRadius: 12,
+						Position:     core.Relative,
+						BorderWidth:  1,
+						BorderColor:  specLineRaised,
+						Overflow:     core.Hidden,
+					},
+					Children: previewChildren,
+				},
+			}
+
+			// Clips & frame-by-frame controls when the sprite has multiple frames/clips.
+			if hasClips {
+				clipChips := make([]core.Node, 0, len(sel.Clips))
+				for _, cl := range sel.Clips {
+					cName := cl.Name
+					on := cName == clip.Name
+					bg := specRaised
+					fg := specTextSecondary
+					border := specLineRaised
+					if on {
+						bg = specLineRaised
+						fg = specTextStrong
+						border = specLineRaised
+					}
+					clipChips = append(clipChips, core.View{
+						TestID: "asset-clip-" + sanitizeAssetTestID(cName),
+						Role:   core.RoleButton,
+						Label:  "Clip " + cName,
 						Style: core.Style{
-							Direction:      core.Row,
+							Height:         core.Pt(26),
+							Padding:        core.Symmetric(0, 10),
+							CornerRadius:   6,
 							AlignItems:     core.AlignCenter,
-							JustifyContent: core.JustifySpaceBetween,
-							Gap:            4,
+							JustifyContent: core.JustifyCenter,
+							Background:     bg,
+							BorderWidth:    1,
+							BorderColor:    border,
+							FocusVisible:   specFocusRingStyle,
+						},
+						OnPress: func(core.PressEvent) {
+							ed.SetAssetPreviewClip(cName)
 						},
 						Children: []core.Node{
-							core.View{
-								Style:    core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4},
-								Children: frameButtons,
+							core.Text{Content: cName, Style: core.Style{FontSize: 12, Color: fg}},
+						},
+					})
+				}
+
+				maxThumbs := min(len(clip.Frames), 6)
+				frameButtons := make([]core.Node, 0, maxThumbs+3)
+				frameButtons = append(frameButtons, ui.Button{
+					TestID:  "asset-frame-prev",
+					Icon:    lucide.ChevronLeft,
+					Label:   "Previous frame",
+					Variant: ui.ButtonGhost,
+					Size:    ui.SizeSmall,
+					Color:   func() core.Color { return specRaised },
+					Tint:    func() core.Color { return specTextSecondary },
+					Style:   core.Style{Width: core.Pt(24), Height: core.Pt(32), CornerRadius: 6, BorderWidth: 1, BorderColor: specLineRaised},
+					OnPress: func() {
+						ed.SetAssetPreviewPlaying(false)
+						ed.StepAssetPreviewFrame(-1)
+					},
+				})
+				for i := range maxThumbs {
+					idx := i
+					fr := clip.Frames[idx]
+					active := idx == frameIdx
+					bCol := specLineRaised
+					bW := core.Points(1)
+					if active {
+						bCol = specAccent
+						bW = 1.5
+					}
+					frItem := AssetDrawerItem{Kind: AssetKindSprites, Image: fr.Image, Rect: fr.Rect}
+					frameButtons = append(frameButtons, core.View{
+						TestID: fmt.Sprintf("asset-frame-%d", idx),
+						Role:   core.RoleButton,
+						Label:  fmt.Sprintf("Frame %d", idx+1),
+						Style: core.Style{
+							Width:        core.Pt(36),
+							Height:       core.Pt(40),
+							CornerRadius: 6,
+							BorderWidth:  bW,
+							BorderColor:  bCol,
+							Overflow:     core.Hidden,
+							FocusVisible: specFocusRingStyle,
+						},
+						OnPress: func(core.PressEvent) {
+							ed.SetAssetPreviewFrame(idx)
+						},
+						Children: []core.Node{
+							assetThumbnailCanvas(frItem, 36, 40, false),
+						},
+					})
+				}
+				frameButtons = append(frameButtons, ui.Button{
+					TestID:  "asset-frame-next",
+					Icon:    lucide.ChevronRight,
+					Label:   "Next frame",
+					Variant: ui.ButtonGhost,
+					Size:    ui.SizeSmall,
+					Color:   func() core.Color { return specRaised },
+					Tint:    func() core.Color { return specTextSecondary },
+					Style:   core.Style{Width: core.Pt(24), Height: core.Pt(32), CornerRadius: 6, BorderWidth: 1, BorderColor: specLineRaised},
+					OnPress: func() {
+						ed.SetAssetPreviewPlaying(false)
+						ed.StepAssetPreviewFrame(1)
+					},
+				})
+
+				secNodes = append(secNodes, core.View{
+					TestID: "asset-preview-clips",
+					Style:  core.Style{Gap: 8},
+					Children: []core.Node{
+						core.View{
+							Style:    core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 4},
+							Children: clipChips,
+						},
+						core.View{
+							Style: core.Style{
+								Direction:      core.Row,
+								AlignItems:     core.AlignCenter,
+								JustifyContent: core.JustifySpaceBetween,
+								Gap:            4,
 							},
-							core.Text{
-								TestID:  "asset-frame-label",
-								Content: fmt.Sprintf("%d / %d · %d ms", frameIdx+1, len(clip.Frames), clip.FrameMS),
-								Style:   core.Style{FontSize: 11, Color: specTextMuted},
+							Children: []core.Node{
+								core.View{
+									Style:    core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4},
+									Children: frameButtons,
+								},
+								core.Text{
+									TestID:  "asset-frame-label",
+									Content: fmt.Sprintf("%d / %d · %d ms", frameIdx+1, len(clip.Frames), clip.FrameMS),
+									Style:   core.Style{FontSize: 11, Color: specTextMuted},
+								},
 							},
 						},
 					},
-				},
-			})
-		}
+				})
+			}
+
+			return core.View{
+				Style:    core.Style{Gap: 16},
+				Children: secNodes,
+			}
+		})
+
+		bodyNodes := []core.Node{previewSection}
 
 		// Missing asset alert card with Replace with a file and Ask the agent.
 		if sel.Missing {
@@ -1485,9 +1511,9 @@ func AssetInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 			})
 		}
 
-		// Compact IMPORT settings summary for existing assets in a project.
+		// Compact IMPORT settings summary for existing assets in a project (cached by path, filesRev, importRev).
 		if !sel.Missing && ed.Project != nil {
-			if info, err := ed.InspectAssetImport(sel.Path); err == nil && info.Kind != AssetImportNone {
+			if info, ok := ed.cachedAssetImportSummary(sel.Path); ok {
 				bodyNodes = append(bodyNodes, assetImportSummarySection(info))
 			}
 		}

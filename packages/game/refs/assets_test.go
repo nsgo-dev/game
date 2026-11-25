@@ -104,3 +104,48 @@ image: art/tiles/stone_tiles.png
 		t.Fatalf("UsedBy(torch_old.png) = %+v, want empty", proj.UsedBy("art/props/torch_old.png"))
 	}
 }
+
+func TestAssetUsageRootDirRefAndNilProject(t *testing.T) {
+	var nilProj *refs.Project
+	if nilProj.Paths() != nil || nilProj.UsedBy("a.png") != nil || nilProj.MissingAssets() != nil || nilProj.UnreferencedAssets() != nil {
+		t.Fatal("nil Project methods should return nil")
+	}
+
+	fsys := fstest.MapFS{
+		"game.yaml": {Data: []byte(`version: 1
+name: DirAtlas
+id: dev.nsgo.diratlas
+appVersion: 0.1.0
+window:
+  width: 640
+  height: 360
+assets:
+  atlases:
+    - name: ui
+      in: art/ui
+      out: built/ui
+`)},
+		"art/ui/heart.png":   {Data: []byte("png")},
+		"art/orphan.png":     {Data: []byte("png")},
+		"built/ui/sheet.png": {Data: []byte("png")},
+	}
+	proj, err := refs.Scan(fsys)
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if used := proj.UsedBy("art/ui/heart.png"); len(used) != 1 {
+		t.Fatalf("UsedBy(art/ui/heart.png) = %+v, want 1 dir ref", used)
+	}
+	if unused := proj.UnreferencedAssets(); !slices.Equal(unused, []string{"art/orphan.png"}) {
+		t.Fatalf("UnreferencedAssets() = %v, want [art/orphan.png]", unused)
+	}
+
+	// Verify root "." Dir ref matches every asset path in UsedBy and UnreferencedAssets.
+	proj.Refs = append(proj.Refs, refs.Ref{File: "game.yaml", Field: "assets atlas in", Target: ".", Dir: true})
+	if used := proj.UsedBy("art/orphan.png"); len(used) == 0 {
+		t.Fatalf("UsedBy(art/orphan.png) = empty, want match for root dir ref \".\"")
+	}
+	if unused := proj.UnreferencedAssets(); len(unused) != 0 {
+		t.Fatalf("UnreferencedAssets() = %v, want empty when root dir ref \".\" covers project", unused)
+	}
+}
