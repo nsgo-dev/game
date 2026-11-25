@@ -132,27 +132,36 @@ func spriteFields(ed *Editor, rev *core.Signal[uint64], objID string, disabled f
 		}
 	}
 
-	// The project's material files are listed again only when the editor changes which files the project holds.
+	// The project's material files are listed again only when the editor changes which files the project holds. A resolver that cannot load them gets none, since naming one would leave the scene unable to build; the field then stays enabled only to clear a material the object already names.
 	var materialsKey string
 	var materials []string
+	currentMaterial := func() string {
+		if o := object(); o != nil {
+			return o.Material
+		}
+		return ""
+	}
 	material := ui.Select[string]{
 		TestID:      "inspector-material",
 		Label:       "Material",
 		Placeholder: "None",
 		Searchable:  true,
-		Disabled:    disabled,
-		Style:       core.Style{Width: core.Pct(100)},
+		Disabled: func() bool {
+			return disabled() || (!ed.canLoadMaterials() && currentMaterial() == "")
+		},
+		Style: core.Style{Width: core.Pct(100)},
 		OptionsFunc: func() []ui.Option[string] {
-			cur := ""
-			if o := object(); o != nil {
-				cur = o.Material
-			}
+			cur := currentMaterial()
 			if key := ed.ProjectPath + "\x00" + strconv.FormatUint(ed.filesRev, 10); key != materialsKey {
 				materialsKey, materials = key, ed.projectMaterials()
 			}
-			opts := make([]ui.Option[string], 0, len(materials)+1)
+			var offered []string
+			if ed.canLoadMaterials() {
+				offered = materials
+			}
+			opts := make([]ui.Option[string], 0, len(offered)+1)
 			listed := false
-			for _, m := range materials {
+			for _, m := range offered {
 				listed = listed || m == cur
 				opts = append(opts, ui.Option[string]{Value: m, Label: m})
 			}
@@ -161,12 +170,7 @@ func spriteFields(ed *Editor, rev *core.Signal[uint64], objID string, disabled f
 			}
 			return opts
 		},
-		Value: func() string {
-			if o := object(); o != nil {
-				return o.Material
-			}
-			return ""
-		},
+		Value:    currentMaterial,
 		OnChange: func(m string) { ed.report(ed.SetObjectMaterial(objID, m)) },
 		OnClear:  func() { ed.report(ed.SetObjectMaterial(objID, "")) },
 	}
@@ -208,12 +212,12 @@ func removeButton(testID, label string, disabled func() bool, onPress func()) co
 // propertyKinds are the kinds Add Property offers, in the order it lists them.
 var propertyKinds = []sceneformat.FieldKind{sceneformat.FieldString, sceneformat.FieldInt, sceneformat.FieldFloat, sceneformat.FieldBool}
 
-// addPropertyRow builds the inspector's Add Property row: a key, a kind and the button that adds the property, which Enter in the key presses too. A refused key, such as an empty one or one the object has, is reported in the status bar.
+// addPropertyRow builds the inspector's Add Property row: a key, trimmed of surrounding whitespace, a kind and the button that adds the property, which Enter in the key presses too. A refused key, such as an empty one or one the object has, is reported in the status bar.
 func addPropertyRow(cx *core.Scope, ed *Editor, objID string, disabled func() bool) core.Node {
 	key := core.NewSignal(cx, "")
 	kind := core.NewSignal(cx, sceneformat.FieldString)
 	add := func() {
-		if err := ed.AddProperty(objID, key.Get(), kind.Get()); err != nil {
+		if err := ed.AddProperty(objID, strings.TrimSpace(key.Get()), kind.Get()); err != nil {
 			ed.report(err)
 			return
 		}

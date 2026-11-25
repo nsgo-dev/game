@@ -10,13 +10,17 @@ import (
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 )
 
-// AddComponent adds the component named component to objectID through History. With a component registry set (SetComponentRegistry), component must be a registered type and is added holding every registered field at its default, so the scene file shows what the component does; it is refused when the added component would declare an event or handler that one of the scene's connections names bare and another of the object's components declares too, since the connection would no longer say which one it means. Without a registry the component is added with no fields. It is refused for an empty name and for a component the object already has.
+// AddComponent adds the component named component to objectID through History. With a component registry set (SetComponentRegistry), component must be a registered type and is added holding every registered field at its default, so the scene file shows what the component does; it is refused when the added component would declare an event or handler that one of the scene's connections names bare and another of the object's components declares too, since the connection would no longer say which one it means. Without a registry the component is added with no fields. It is refused for an empty name, one with leading or trailing whitespace or a '.', which connections use to qualify an event or handler with its component, and for a component the object already has.
 func (e *Editor) AddComponent(objectID, component string) error {
 	if e.playing {
 		return ErrPlaying
 	}
-	if strings.TrimSpace(component) == "" {
-		return errors.New("editor: component name must not be empty")
+	if err := checkName("component name", component); err != nil {
+		return err
+	}
+	// A connection names a component's event or handler as "component.name", so a dot in the name would make that ambiguous.
+	if strings.Contains(component, ".") {
+		return fmt.Errorf("editor: component name %q must not contain '.'", component)
 	}
 	obj, _, _ := e.FindObject(objectID)
 	if obj == nil {
@@ -51,6 +55,18 @@ func (e *Editor) AddComponent(objectID, component string) error {
 		value:       value,
 		wasNilComps: obj.Components == nil,
 	})
+	return nil
+}
+
+// checkName refuses an empty or blank name, and one with leading or trailing whitespace, which would sit beside the trimmed name as a separate key; what says what the name is, such as "property key".
+func checkName(what, name string) error {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return fmt.Errorf("editor: %s must not be empty", what)
+	}
+	if trimmed != name {
+		return fmt.Errorf("editor: %s %q must not start or end with whitespace", what, name)
+	}
 	return nil
 }
 
@@ -125,13 +141,13 @@ func namesMember(name, component string, t *sceneformat.ComponentType, handler b
 	return ok
 }
 
-// AddProperty adds the custom property key to objectID through History, holding the zero value of kind: false, 0, 0.0 or "". It is refused for an empty or blank key, a key the object already has and an unknown kind.
+// AddProperty adds the custom property key to objectID through History, holding the zero value of kind: false, 0, 0.0 or "". It is refused for an empty or blank key, one with leading or trailing whitespace, a key the object already has and an unknown kind.
 func (e *Editor) AddProperty(objectID, key string, kind sceneformat.FieldKind) error {
 	if e.playing {
 		return ErrPlaying
 	}
-	if strings.TrimSpace(key) == "" {
-		return errors.New("editor: property key must not be empty")
+	if err := checkName("property key", key); err != nil {
+		return err
 	}
 	var value any
 	switch kind {
@@ -259,7 +275,7 @@ func (e *Editor) SetObjectFlip(objectID string, flipX, flipY bool) error {
 	return nil
 }
 
-// SetObjectMaterial names the material resource file objectID's sprite draws with, by its slash-separated path from the project root such as "materials/stone.material.yaml", or with an empty path names none, through History.
+// SetObjectMaterial names the material resource file objectID's sprite draws with, by its slash-separated path from the project root such as "materials/stone.material.yaml", or with an empty path names none, through History. A named material must load through the editor's Resolver, which must therefore implement sceneformat.MaterialResolver, as sceneformat.Build needs to draw the scene.
 func (e *Editor) SetObjectMaterial(objectID, material string) error {
 	if e.playing {
 		return ErrPlaying
@@ -274,6 +290,19 @@ func (e *Editor) SetObjectMaterial(objectID, material string) error {
 	if obj.Material == material {
 		return nil
 	}
+	if material != "" {
+		mr, ok := e.Resolver.(sceneformat.MaterialResolver)
+		if !ok {
+			return errNoMaterialResolver
+		}
+		m, err := mr.Material(material)
+		if err != nil {
+			return fmt.Errorf("editor: load material %q: %w", material, err)
+		}
+		if m == nil {
+			return fmt.Errorf("editor: material %q is nil", material)
+		}
+	}
 	e.History.Execute(&objectFieldCmd{
 		ed:    e,
 		id:    objectID,
@@ -283,6 +312,14 @@ func (e *Editor) SetObjectMaterial(objectID, material string) error {
 		apply: func(o *sceneformat.ObjectDoc, v any) { o.Material = v.(string) },
 	})
 	return nil
+}
+
+var errNoMaterialResolver = errors.New("editor: the resolver cannot load material files (it does not implement sceneformat.MaterialResolver)")
+
+// canLoadMaterials reports whether the editor's Resolver implements sceneformat.MaterialResolver, which SetObjectMaterial needs to name a material and sceneformat.Build needs to draw it. The inspector's Material field offers the project's material files only when it does.
+func (e *Editor) canLoadMaterials() bool {
+	_, ok := e.Resolver.(sceneformat.MaterialResolver)
+	return ok
 }
 
 // materialSuffix ends the name of every material resource file.

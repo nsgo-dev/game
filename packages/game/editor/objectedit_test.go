@@ -7,8 +7,10 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/nsgo-dev/game/packages/game/editor"
+	"github.com/nsgo-dev/game/packages/game/resource"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
@@ -21,7 +23,7 @@ func reloaded(t *testing.T, ed *editor.Editor, id string) *sceneformat.ObjectDoc
 	if err != nil {
 		t.Fatalf("SaveYAML: %v", err)
 	}
-	again, err := editor.New(nil, testResolver())
+	again, err := editor.New(nil, ed.Resolver)
 	if err != nil {
 		t.Fatalf("editor.New: %v", err)
 	}
@@ -185,11 +187,36 @@ func TestInspectorAddsAndDeletesProperties(t *testing.T) {
 	if _, ok := hero.Properties["title"]; ok || app.Exists("id:inspector-prop-title") {
 		t.Fatal("title survives its delete button")
 	}
-	if r := reloaded(t, ed, "hero"); r.Properties["lives"] != 3 || r.Properties["title"] != nil {
+	// The key is trimmed, and a float property takes a fractional value and keeps its kind through a reload.
+	app.Type("id:inspector-add-prop-key", " drag ")
+	app.Press("id:inspector-add-prop-kind")
+	app.Press("role:option float")
+	app.Press("id:inspector-add-prop")
+	if v, ok := hero.Properties["drag"]; !ok || v != 0.0 {
+		t.Fatalf("drag after Add = %#v, %v; want float 0", v, ok)
+	}
+	if r := reloaded(t, ed, "hero"); r.Properties["drag"] != 0.0 {
+		t.Fatalf("reloaded drag = %#v, want float 0", r.Properties["drag"])
+	}
+	app.Clear("id:inspector-prop-drag")
+	app.Type("id:inspector-prop-drag", "0.5")
+	app.Submit("id:inspector-prop-drag")
+	if hero.Properties["drag"] != 0.5 {
+		t.Fatalf("drag after typing 0.5 = %#v", hero.Properties["drag"])
+	}
+	if r := reloaded(t, ed, "hero"); r.Properties["lives"] != 3 || r.Properties["title"] != nil || r.Properties["drag"] != 0.5 {
 		t.Fatalf("reloaded properties = %#v", r.Properties)
 	}
-	app.Post(func() { ed.Undo() })
+	// Undo takes back the drag's value, the drag and then the delete.
+	app.Post(func() {
+		for range 3 {
+			ed.Undo()
+		}
+	})
 	app.Settle()
+	if _, ok := hero.Properties["drag"]; ok {
+		t.Fatalf("drag survives undoing its add: %#v", hero.Properties)
+	}
 	if hero.Properties["title"] != "Knight" || !app.Exists("id:inspector-prop-title") {
 		t.Fatalf("undoing the delete: title = %#v", hero.Properties["title"])
 	}
@@ -215,6 +242,13 @@ func TestAddPropertyKindsAndRefusals(t *testing.T) {
 			t.Fatalf("undo label = %q", got)
 		}
 	}
+	// Each property keeps its kind through a save and reload, the float's zero included.
+	r := reloaded(t, ed, "hero")
+	for key, want := range map[string]any{"new_bool": false, "new_int": 0, "new_float": 0.0, "new_string": ""} {
+		if got := r.Properties[key]; got != want {
+			t.Fatalf("reloaded %s = %#v, want %#v", key, got, want)
+		}
+	}
 	for _, c := range []struct {
 		id, key string
 		kind    sceneformat.FieldKind
@@ -222,6 +256,8 @@ func TestAddPropertyKindsAndRefusals(t *testing.T) {
 	}{
 		{"hero", "", sceneformat.FieldInt, "must not be empty"},
 		{"hero", "  ", sceneformat.FieldInt, "must not be empty"},
+		{"hero", "hp ", sceneformat.FieldInt, "whitespace"},
+		{"hero", " tag", sceneformat.FieldInt, "whitespace"},
 		{"hero", "hp", sceneformat.FieldInt, "already has property"},
 		{"hero", "x", sceneformat.FieldKind(0), "unknown property kind"},
 		{"nobody", "x", sceneformat.FieldInt, "not found"},
@@ -243,6 +279,9 @@ func TestAddComponentWithoutRegistryAndItsRefusals(t *testing.T) {
 	}
 	for _, c := range []struct{ id, comp, want string }{
 		{"hero", "", "must not be empty"},
+		{"hero", "tag ", "whitespace"},
+		{"hero", " tag", "whitespace"},
+		{"hero", "a.b", "must not contain '.'"},
 		{"hero", "tag", "already has component"},
 		{"nobody", "tag", "not found"},
 	} {
@@ -362,8 +401,36 @@ func TestAddComponentRefusesToMakeAConnectionAmbiguous(t *testing.T) {
 	reloaded(t, ed, "door")
 }
 
+// materialResolver serves testResolver's atlases, listing them for the asset browser, and the material files in lib, as a project's resolver does.
+type materialResolver struct {
+	sceneformat.AtlasMap
+	lib *resource.Library
+}
+
+func (r materialResolver) Material(path string) (*resource.Material, error) {
+	return r.lib.Material(path)
+}
+
+func (r materialResolver) AtlasNames() []string {
+	names := make([]string, 0, len(r.AtlasMap))
+	for n := range r.AtlasMap {
+		names = append(names, n)
+	}
+	return names
+}
+
+// testMaterial is a material resource file's contents.
+const testMaterial = "type: material\nversion: 1\nname: Test\nopacity: 0.5\n"
+
 func TestSpriteOriginFlipAndMaterialSetters(t *testing.T) {
 	ed := newTestEditor(t)
+	// Without a MaterialResolver the scene could not build with a material, so naming one is refused.
+	if err := ed.SetObjectMaterial("hero", "materials/glow.material.yaml"); err == nil || !strings.Contains(err.Error(), "MaterialResolver") {
+		t.Fatalf("SetObjectMaterial without a MaterialResolver = %v", err)
+	}
+	ed.Resolver = materialResolver{testResolver(), resource.NewLibrary(fstest.MapFS{
+		"materials/glow.material.yaml": {Data: []byte(testMaterial)},
+	})}
 	start, err := ed.SaveYAML()
 	if err != nil {
 		t.Fatalf("SaveYAML: %v", err)
@@ -379,6 +446,9 @@ func TestSpriteOriginFlipAndMaterialSetters(t *testing.T) {
 	}
 	if err := ed.SetObjectMaterial("hero", "materials/glow.material.yaml"); err != nil {
 		t.Fatalf("SetObjectMaterial: %v", err)
+	}
+	if ed.BuildErr != nil {
+		t.Fatalf("the scene does not build after the setters: %v", ed.BuildErr)
 	}
 	r := reloaded(t, ed, "hero")
 	if *r.Sprite != (sceneformat.SpriteRef{Atlas: "actors", Frame: "slime"}) || r.OriginX != 4 || r.OriginY != 12 || !r.FlipX || !r.FlipY || r.Material != "materials/glow.material.yaml" {
@@ -413,6 +483,7 @@ func TestSpriteOriginFlipAndMaterialSetters(t *testing.T) {
 		"nan origin":     ed.SetObjectOrigin("hero", float32(nan()), 0),
 		"escaping path":  ed.SetObjectMaterial("hero", "../shared.material.yaml"),
 		"absolute path":  ed.SetObjectMaterial("hero", "/materials/a.material.yaml"),
+		"missing file":   ed.SetObjectMaterial("hero", "materials/none.material.yaml"),
 		"missing object": ed.SetObjectFlip("nobody", true, false),
 	} {
 		if err == nil {
@@ -433,7 +504,7 @@ func TestInspectorSetsSpriteOriginFlipAndMaterial(t *testing.T) {
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(p, []byte("kind: material\nversion: 1\n"), 0o644); err != nil {
+		if err := os.WriteFile(p, []byte(testMaterial), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -450,6 +521,13 @@ func TestInspectorSetsSpriteOriginFlipAndMaterial(t *testing.T) {
 	if app.Enabled("id:inspector-sprite-use-asset") {
 		t.Fatal("Use Selected is enabled with nothing selected in the asset browser")
 	}
+	// The material field is disabled until the resolver can load the project's material files; the sprite edits below show it again.
+	if app.Enabled("id:inspector-material") {
+		t.Fatal("the material field is enabled with a resolver that cannot load materials")
+	}
+	app.Post(func() {
+		ed.Resolver = materialResolver{testResolver(), resource.NewLibrary(os.DirFS(dir))}
+	})
 	app.Press("id:asset-actors-slime")
 	app.Press("id:inspector-sprite-use-asset")
 	hero, _, _ := ed.FindObject("hero")
@@ -473,6 +551,9 @@ func TestInspectorSetsSpriteOriginFlipAndMaterial(t *testing.T) {
 	}
 	if got := fieldText(app.Find("id:inspector-material")); got != "materials/stone.material.yaml" {
 		t.Fatalf("material field shows %q", got)
+	}
+	if ed.BuildErr != nil {
+		t.Fatalf("the scene does not build with the material: %v", ed.BuildErr)
 	}
 	app.Post(func() { ed.Undo() })
 	app.Settle()
