@@ -256,8 +256,13 @@ func (e *Editor) HandleCanvasPress(x, y float32) {
 		if e.handleShapePress2D(x, y, false) {
 			return
 		}
-		hit := e.HitTest(x, y)
-		e.SelectObject(hit)
+		if hit := e.HitTest(x, y); hit != "" {
+			e.SelectObject(hit)
+		} else if rid := e.HitTestRoom(x, y); rid != "" {
+			e.SelectRoom(rid)
+		} else {
+			e.SelectObject("")
+		}
 	case ToolMove:
 		if e.handleShapePress2D(x, y, false) {
 			return
@@ -375,6 +380,7 @@ func (e *Editor) DrawViewport(d *core.Drawing, size core.Size) {
 		return
 	}
 	e.drawLightingOverlays2D(d, scene)
+	e.drawRoomsOverlay(d)
 	e.drawCameraFrameOverlay(d)
 	e.drawTileGridOverlay(d)
 	e.drawTileHoverOverlay(d)
@@ -411,10 +417,44 @@ func strokePolygon(d *core.Drawing, pts []math2d.Vec2) {
 	d.ClosePath().Stroke()
 }
 
+// worldRectCanvasCorners returns the 4 canvas-space corners of world rectangle (x, y, w, h).
+func worldRectCanvasCorners(e *Editor, x, y, w, h float32) []math2d.Vec2 {
+	pts := make([]math2d.Vec2, 0, 4)
+	for _, c := range [4][2]float32{{x, y}, {x + w, y}, {x + w, y + h}, {x, y + h}} {
+		cx, cy := e.WorldToCanvas(c[0], c[1])
+		pts = append(pts, math2d.Vec2{X: cx, Y: cy})
+	}
+	return pts
+}
+
+// drawWorldRectHandles draws the 8 corner and edge-midpoint resize handles of world rectangle
+// (x, y, w, h) at fixed canvas point size.
+func drawWorldRectHandles(e *Editor, d *core.Drawing, x, y, w, h float32, active RectHandle, fill, stroke, activeFill core.Color) {
+	d.Save()
+	d.SetLineDash()
+	d.SetLineWidth(1.5)
+	for _, handle := range rectResizeHandles {
+		wx, wy := rectHandleWorldPos(handle, x, y, w, h)
+		cx, cy := e.WorldToCanvas(wx, wy)
+		half := rectHandleHalf
+		f := fill
+		s := stroke
+		if handle == active {
+			half = rectHandleHalf + 1
+			f = activeFill
+			s = core.RGBA(0xFFFFFF, 1)
+		}
+		d.SetFillColor(f).FillRect(cx-half, cy-half, 2*half, 2*half)
+		d.SetStrokeColor(s).StrokeRect(cx-half, cy-half, 2*half, 2*half)
+	}
+	d.Restore()
+}
+
 // drawCameraFrameOverlay outlines what the player sees: the scene's virtual screen through
 // the scene's camera, and, dashed, the camera's bounds. When scene settings are shown in the
-// inspector (no object selected), the start view frame and bounds are highlighted and a
-// draggable handle marks the camera's world position.
+// inspector (no object or room selected), the start view frame and bounds are highlighted,
+// interactive resize handles appear on the bounds rectangle, and a draggable handle marks
+// the camera's world position.
 func (e *Editor) drawCameraFrameOverlay(d *core.Drawing) {
 	corners := func(x, y, w, h float32, to func(x, y float32) (float32, float32)) []math2d.Vec2 {
 		pts := make([]math2d.Vec2, 0, 4)
@@ -441,6 +481,9 @@ func (e *Editor) drawCameraFrameOverlay(d *core.Drawing) {
 			d.SetStrokeColor(core.RGBA(0xFBBF24, 0.8)).SetLineDash(6, 4)
 		}
 		strokePolygon(d, corners(b.X, b.Y, b.Width, b.Height, e.WorldToCanvas))
+		if highlight && (e.Tool == ToolSelect || e.Tool == ToolMove) {
+			drawWorldRectHandles(e, d, b.X, b.Y, b.Width, b.Height, e.cameraBoundsDrag.handle, core.RGBA(0xFFFFFF, 1), core.RGBA(0xE9A84A, 1), core.RGBA(0xFBBF24, 1))
+		}
 	}
 	if hx, hy, ok := e.CameraHandleCanvasPos(); ok {
 		// If bounds clamp the visible frame away from the camera's configured position,
@@ -647,9 +690,9 @@ func (e *Editor) drawSelectionOverlay(d *core.Drawing, scene *sceneformat.BuiltS
 // wheelZoomPoints is how far a wheel moves the content, in points, to double or halve the 2D view's zoom: a notch of 40 points zooms by about 15%.
 const wheelZoomPoints = 200
 
-// viewportGestures is the 2D viewport's navigation and camera-handle drag in progress:
-// a middle-button drag, a Space-drag, a pinch, a two-finger touch pan, and dragging the
-// scene camera handle while scene settings are shown.
+// viewportGestures is the 2D viewport's navigation and handle drags in progress:
+// a middle-button drag, a Space-drag, a pinch, a two-finger touch pan, and dragging
+// the scene camera handle, camera.bounds handles, or room-map handles.
 type viewportGestures struct {
 	middle        bool
 	middleLast    core.Point
@@ -659,9 +702,13 @@ type viewportGestures struct {
 	touchPan      bool
 	touchLast     core.Point
 	cameraDrag    bool
+	boundsDrag    bool
+	roomDrag      bool
 	touchCamPos   core.Point
 	hasTouchCam   bool
 	panCamDrag    bool
+	panBoundsDrag bool
+	panRoomDrag   bool
 	suppressPress bool
 }
 
@@ -679,7 +726,7 @@ func (g *viewportGestures) wheel(ed *Editor, ev core.WheelEvent) {
 	}
 }
 
-// pan follows a one-finger or primary-button drag in 2D: with Space held, or during a middle-button drag, it pans the view; otherwise, with the Select or Move tool, a touch drag on the camera handle moves the camera (BeginCameraDrag) and a drag that starts on the selection's gizmo or an object moves, turns or scales it (BeginDrag2D), ending as one undoable step, or as nothing when the gesture is cancelled.
+// pan follows a one-finger or primary-button drag in 2D: with Space held, or during a middle-button drag, it pans the view; otherwise, with the Select or Move tool, a touch drag on the camera handle, camera bounds handles, or room handles moves or resizes them, and a drag that starts on the selection's gizmo or an object moves, turns or scales it (BeginDrag2D), ending as one undoable step, or as nothing when the gesture is cancelled.
 func (g *viewportGestures) pan(ed *Editor, ev core.PanEvent, spaceHeld, shiftHeld func() bool) {
 	at := func() (float32, float32) { return float32(ev.Position.X), float32(ev.Position.Y) }
 	switch ev.Phase {
@@ -687,8 +734,24 @@ func (g *viewportGestures) pan(ed *Editor, ev core.PanEvent, spaceHeld, shiftHel
 		g.spacePan = spaceHeld()
 		g.panLast = ev.Translation
 		g.panCamDrag = false
-		if g.spacePan || g.middle || g.touchPan || g.cameraDrag || ed.PickingConnectionTarget() {
+		g.panBoundsDrag = false
+		g.panRoomDrag = false
+		if g.spacePan || g.middle || g.touchPan || g.cameraDrag || g.boundsDrag || g.roomDrag || ed.PickingConnectionTarget() {
 			return
+		}
+		if g.hasTouchCam {
+			sx, sy := float32(g.touchCamPos.X), float32(g.touchCamPos.Y)
+			cx, cy := sx+float32(ev.Translation.X), sy+float32(ev.Translation.Y)
+			if ed.RoomCreateMode() && ed.BeginRoomDrag(sx, sy) {
+				g.panRoomDrag = true
+				ed.UpdateRoomDrag(cx, cy)
+				return
+			}
+			if ed.SelectedRoomID() != "" && ed.BeginRoomDrag(sx, sy) {
+				g.panRoomDrag = true
+				ed.UpdateRoomDrag(cx, cy)
+				return
+			}
 		}
 		// The pan begins once the pointer passes the platform's slop, so the drag starts where it went down: its position less how far it has come.
 		downX, downY := float32(ev.Position.X-ev.Translation.X), float32(ev.Position.Y-ev.Translation.Y)
@@ -709,12 +772,23 @@ func (g *viewportGestures) pan(ed *Editor, ev core.PanEvent, spaceHeld, shiftHel
 			ed.UpdateDrag2D(x, y, shiftHeld())
 			return
 		}
-		if g.hasTouchCam && ed.BeginCameraDrag(float32(g.touchCamPos.X), float32(g.touchCamPos.Y)) {
-			g.panCamDrag = true
-			ed.UpdateCameraDrag(
-				float32(g.touchCamPos.X)+float32(ev.Translation.X),
-				float32(g.touchCamPos.Y)+float32(ev.Translation.Y),
-			)
+		if g.hasTouchCam {
+			sx, sy := float32(g.touchCamPos.X), float32(g.touchCamPos.Y)
+			cx, cy := sx+float32(ev.Translation.X), sy+float32(ev.Translation.Y)
+			if ed.BeginCameraDrag(sx, sy) {
+				g.panCamDrag = true
+				ed.UpdateCameraDrag(cx, cy)
+				return
+			}
+			if ed.BeginCameraBoundsDrag(sx, sy) != RectHandleNone {
+				g.panBoundsDrag = true
+				ed.UpdateCameraBoundsDrag(cx, cy)
+				return
+			}
+			if ed.SelectedID == "" && ed.BeginRoomDrag(sx, sy) {
+				g.panRoomDrag = true
+				ed.UpdateRoomDrag(cx, cy)
+			}
 		}
 	case core.GestureChanged:
 		if g.panCamDrag {
@@ -722,6 +796,24 @@ func (g *viewportGestures) pan(ed *Editor, ev core.PanEvent, spaceHeld, shiftHel
 				g.panCamDrag = false
 			} else {
 				ed.UpdateCameraDrag(
+					float32(g.touchCamPos.X)+float32(ev.Translation.X),
+					float32(g.touchCamPos.Y)+float32(ev.Translation.Y),
+				)
+			}
+		} else if g.panBoundsDrag {
+			if !ed.cameraBoundsDrag.active {
+				g.panBoundsDrag = false
+			} else {
+				ed.UpdateCameraBoundsDrag(
+					float32(g.touchCamPos.X)+float32(ev.Translation.X),
+					float32(g.touchCamPos.Y)+float32(ev.Translation.Y),
+				)
+			}
+		} else if g.panRoomDrag {
+			if !ed.roomDrag.active {
+				g.panRoomDrag = false
+			} else {
+				ed.UpdateRoomDrag(
 					float32(g.touchCamPos.X)+float32(ev.Translation.X),
 					float32(g.touchCamPos.Y)+float32(ev.Translation.Y),
 				)
@@ -743,6 +835,16 @@ func (g *viewportGestures) pan(ed *Editor, ev core.PanEvent, spaceHeld, shiftHel
 		if g.panCamDrag {
 			g.panCamDrag = false
 			if ed.EndCameraDrag() {
+				g.suppressPress = true
+			}
+		} else if g.panBoundsDrag {
+			g.panBoundsDrag = false
+			if ed.EndCameraBoundsDrag() {
+				g.suppressPress = true
+			}
+		} else if g.panRoomDrag {
+			g.panRoomDrag = false
+			if ed.EndRoomDrag() {
 				g.suppressPress = true
 			}
 		} else if !g.spacePan && ed.PluginDragging2D() {
@@ -772,6 +874,14 @@ func (g *viewportGestures) pan(ed *Editor, ev core.PanEvent, spaceHeld, shiftHel
 		}
 		ed.CancelPluginDrag2D()
 		ed.CancelShapeDrag2D()
+		if g.panBoundsDrag {
+			g.panBoundsDrag = false
+			ed.CancelCameraBoundsDrag()
+		}
+		if g.panRoomDrag {
+			g.panRoomDrag = false
+			ed.CancelRoomDrag()
+		}
 		ed.CancelDrag2D()
 		g.spacePan = false
 		g.panLast = core.Point{}
@@ -796,28 +906,32 @@ func (g *viewportGestures) pinch(ed *Editor, ev core.GestureEvent) {
 	}
 }
 
-// touch pans the 2D view by the movement of the center of two fingers, and puts back a drag of an object (CancelDrag2D) or camera handle (CancelCameraDrag) when a second finger comes down or the touches are cancelled.
+// touch pans the 2D view by the movement of the center of two fingers, and puts back any drag in progress when a second finger comes down or the touches are cancelled.
 func (g *viewportGestures) touch(ed *Editor, ev core.TouchEvent) {
-	if ev.Phase == core.TouchCancel {
-		// The system took the touches: a drag of an object or camera they made is put back, whether or not the pan reports its own cancel. nsgotest's Finger.Cancel (nsgo v0.3.0 nsgotest/pointer.go:259) reports only the touch cancel and no GestureCancelled to an active OnPan, so the touch cancel is the one this drag can rely on in tests.
+	cancelAll := func() {
 		ed.CancelPluginDrag2D()
 		ed.CancelShapeDrag2D()
 		ed.CancelDrag2D()
 		ed.CancelCameraDrag()
+		ed.CancelCameraBoundsDrag()
+		ed.CancelRoomDrag()
 		g.panCamDrag = false
 		g.cameraDrag = false
+		g.panBoundsDrag = false
+		g.boundsDrag = false
+		g.panRoomDrag = false
+		g.roomDrag = false
+	}
+	if ev.Phase == core.TouchCancel {
+		// The system took the touches: a drag of an object or handle they made is put back, whether or not the pan reports its own cancel. nsgotest's Finger.Cancel (nsgo v0.3.0 nsgotest/pointer.go:259) reports only the touch cancel and no GestureCancelled to an active OnPan, so the touch cancel is the one this drag can rely on in tests.
+		cancelAll()
 	}
 	if len(ev.Touches) != 2 || ev.Phase == core.TouchEnd || ev.Phase == core.TouchCancel {
 		g.touchPan = false
 		return
 	}
-	// A second finger turns a one-finger drag of an object or camera into navigation, so the drag is put back.
-	ed.CancelPluginDrag2D()
-	ed.CancelShapeDrag2D()
-	ed.CancelDrag2D()
-	ed.CancelCameraDrag()
-	g.panCamDrag = false
-	g.cameraDrag = false
+	// A second finger turns a one-finger drag into navigation, so the drag is put back.
+	cancelAll()
 	c := core.Point{
 		X: (ev.Touches[0].Position.X + ev.Touches[1].Position.X) / 2,
 		Y: (ev.Touches[0].Position.Y + ev.Touches[1].Position.Y) / 2,
@@ -1049,7 +1163,7 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 				When: func() bool {
 					_ = rev.Get()
 					_, gmActive := ed.GridMapStrokeActive()
-					return ed.Dragging2D() != Handle2DNone || ed.DraggingShape2D() || ed.PluginDragging2D() || ed.cameraDrag.active || gmActive || (ed.terrain != nil && ed.terrain.stroke != nil)
+					return ed.Dragging2D() != Handle2DNone || ed.DraggingShape2D() || ed.PluginDragging2D() || ed.cameraDrag.active || ed.cameraBoundsDrag.active || ed.roomDrag.active || gmActive || (ed.terrain != nil && ed.terrain.stroke != nil)
 				},
 				Then: func(cx *core.Scope) core.Node {
 					cx.OnKey("escape", func() {
@@ -1059,8 +1173,14 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 						ed.CancelCameraDrag()
 						ed.CancelGridMapStroke()
 						ed.CancelTerrainStroke()
+						ed.CancelCameraBoundsDrag()
+						ed.CancelRoomDrag()
 						g.cameraDrag = false
 						g.panCamDrag = false
+						g.boundsDrag = false
+						g.panBoundsDrag = false
+						g.roomDrag = false
+						g.panRoomDrag = false
 					})
 					return core.View{
 						PointerEvents: core.PointerEventsNone,
@@ -1117,9 +1237,28 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 						g.middle, g.middleLast = true, ev.Position
 					case core.MouseButtonLeft:
 						g.suppressPress = false
-						if !spaceHeld() && ed.BeginCameraDrag(float32(ev.Position.X), float32(ev.Position.Y)) {
-							g.cameraDrag = true
-							return
+						px, py := float32(ev.Position.X), float32(ev.Position.Y)
+						if !spaceHeld() && !ed.PickingConnectionTarget() {
+							if ed.RoomCreateMode() && ed.BeginRoomDrag(px, py) {
+								g.roomDrag = true
+								return
+							}
+							if ed.BeginCameraDrag(px, py) {
+								g.cameraDrag = true
+								return
+							}
+							if ed.BeginCameraBoundsDrag(px, py) != RectHandleNone {
+								g.boundsDrag = true
+								return
+							}
+							if ed.SelectedRoomID() != "" && ed.BeginRoomDrag(px, py) {
+								g.roomDrag = true
+								return
+							}
+							if ed.SelectedID == "" && ed.HitTest(px, py) == "" && ed.BeginRoomDrag(px, py) {
+								g.roomDrag = true
+								return
+							}
 						}
 						beginStroke(ev.Position, false, ev.Modifiers.Alt)
 					case core.MouseButtonRight:
@@ -1141,6 +1280,34 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 							return
 						} else {
 							ed.UpdateCameraDrag(float32(ev.Position.X), float32(ev.Position.Y))
+							return
+						}
+					}
+					if g.boundsDrag {
+						if !ed.cameraBoundsDrag.active {
+							g.boundsDrag = false
+						} else if ev.PressedButton != core.MouseButtonLeft || ed.ViewMode != ViewMode2D {
+							g.boundsDrag = false
+							if ed.EndCameraBoundsDrag() {
+								g.suppressPress = true
+							}
+							return
+						} else {
+							ed.UpdateCameraBoundsDrag(float32(ev.Position.X), float32(ev.Position.Y))
+							return
+						}
+					}
+					if g.roomDrag {
+						if !ed.roomDrag.active {
+							g.roomDrag = false
+						} else if ev.PressedButton != core.MouseButtonLeft || ed.ViewMode != ViewMode2D {
+							g.roomDrag = false
+							if ed.EndRoomDrag() {
+								g.suppressPress = true
+							}
+							return
+						} else {
+							ed.UpdateRoomDrag(float32(ev.Position.X), float32(ev.Position.Y))
 							return
 						}
 					}
@@ -1205,6 +1372,20 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 						if g.cameraDrag {
 							g.cameraDrag = false
 							if ed.EndCameraDrag() {
+								g.suppressPress = true
+							}
+							return
+						}
+						if g.boundsDrag {
+							g.boundsDrag = false
+							if ed.EndCameraBoundsDrag() {
+								g.suppressPress = true
+							}
+							return
+						}
+						if g.roomDrag {
+							g.roomDrag = false
+							if ed.EndRoomDrag() {
 								g.suppressPress = true
 							}
 							return

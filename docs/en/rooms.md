@@ -56,9 +56,11 @@ rooms:
 
 A point belongs to a room when it is inside its left and top edges and before its right and bottom ones, so rooms sharing an edge never both hold it. `Map.RoomAt` returns the first room in list order holding a point.
 
-## Laying rooms out in LDtk or Tiled
+## Laying rooms out in the editor, LDtk or Tiled
 
-Rooms can come from the level editor instead of being typed by hand. `rooms.FromLDtk` makes one room per level of an LDtk project in a Free or GridVania layout, named after the level, and `rooms.FromTiledLayer` makes one room per rectangle in a Tiled object layer, named after the object and moved by the layer's offset, including the offsets of the groups that hold it. Both refuse what cannot be a room, such as a Linear layout, an ellipse or an unnamed object, instead of skipping it.
+You can edit `*.rooms.yaml` files visually right over your scene in the [scene editor](editor.md): open a `*.rooms.yaml` beside the scene from the file browser or Scene Settings inspector, create/move/resize/delete rooms with handles snapped to the scene's tile grid, edit each room's `id`, `name` and `transition` in the inspector with full Undo/Redo, and save deterministic YAML via `rooms.Encode`.
+
+Rooms can also come from an external level editor instead of being typed by hand. `rooms.FromLDtk` makes one room per level of an LDtk project in a Free or GridVania layout, named after the level, and `rooms.FromTiledLayer` makes one room per rectangle in a Tiled object layer, named after the object and moved by the layer's offset, including the offsets of the groups that hold it. Both refuse what cannot be a room, such as a Linear layout, an ellipse or an unnamed object, instead of skipping it.
 
 ```go
 data, _ := fs.ReadFile(assets, "world.ldtk")

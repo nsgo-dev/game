@@ -56,9 +56,11 @@ rooms:
 
 点位于房间左边和上边之内、右边和下边之前时属于该房间，因此共用一条边的两个房间不会同时包含边上的点。`Map.RoomAt` 按列表顺序返回第一个包含该点的房间。
 
-## 在 LDtk 或 Tiled 中布置房间
+## 在编辑器、LDtk 或 Tiled 中布置房间
 
-房间可以直接来自关卡编辑器，而不必手写。`rooms.FromLDtk` 为 Free 或 GridVania 布局的 LDtk 项目的每个关卡生成一个以关卡命名的房间，`rooms.FromTiledLayer` 为 Tiled 对象层中的每个矩形生成一个以对象命名的房间，并按该层的偏移（包括外层分组的偏移）平移。两者遇到无法作为房间的内容（如 Linear 布局、椭圆或未命名对象）都会报错，而不是跳过。
+可以在[场景编辑器](editor.md)中直接叠加在场景之上可视化编辑 `*.rooms.yaml`：从文件浏览器或场景设置检查器在场景旁打开 `*.rooms.yaml`，使用吸附到瓦片网格的手柄创建、移动、缩放和删除房间，在检查器中编辑每个房间的 `id`、`name` 与 `transition`（支持完整撤销/重做），并通过 `rooms.Encode` 确定性保存。
+
+房间也可以来自外部关卡编辑器，而不必手写。`rooms.FromLDtk` 为 Free 或 GridVania 布局的 LDtk 项目的每个关卡生成一个以关卡命名的房间，`rooms.FromTiledLayer` 为 Tiled 对象层中的每个矩形生成一个以对象命名的房间，并按该层的偏移（包括外层分组的偏移）平移。两者遇到无法作为房间的内容（如 Linear 布局、椭圆或未命名对象）都会报错，而不是跳过。
 
 ```go
 data, _ := fs.ReadFile(assets, "world.ldtk")
