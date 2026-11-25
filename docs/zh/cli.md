@@ -22,6 +22,7 @@ go tool game help
 | `manifest` | 从资源目录生成带类型的 Go 资源清单，缺少资源时构建失败 |
 | `tex` | 把 PNG 或 JPEG 纹理编码为 BC1、BC3、ETC2 或 RGBA8 格式的 KTX2 容器，可选生成 mipmap |
 | `editor` | 在场景编辑器中打开一个项目或 YAML 场景，未指定时打开演示场景 |
+| `mcp` | 通过标准输入输出向智能体提供编辑器的 MCP 工具，把每次调用转发给打开了该项目的编辑器 |
 | `release` | 通过一次 `nsgo build` 为 macOS、Windows、Linux、Web、iOS 和 Android，或为 `game.yaml` 的导出预设，构建游戏的发布包，并附上列出各资源许可证的署名文件 |
 | `replay` | 检查各目录下的输入录像，并通过它们的回放测试无界面回放，结果不一致时失败 |
 | `bench` | 无界面运行基准测试，有一项退化超过存储的基线时失败，或者更新基线 |
@@ -88,7 +89,15 @@ go tool game editor scenes/level1.yaml
 go tool game editor .
 ```
 
-在窗口中用 NSGo 场景编辑器打开指定的场景文件，未指定时打开一个小型演示房间。指定目录或 `game.yaml` 时打开游戏的[项目文件](project.md)及其主场景。打开项目后，编辑器可以从文件浏览器打开项目中的其他场景、新建场景、把场景另存到其他路径，并在退出或打开另一个场景会丢失未保存的修改时先询问（[场景文件与未保存的修改](editor.md#场景文件与未保存的修改)）。`-library` 会添加一个面板，把该[库](library.md)中的包安装到打开的项目中。它没有内置任何[编辑器插件](editor.md)：有自己插件的游戏要构建自己的编辑器命令，如 [Field Medic](https://github.com/nsgo-dev/game/tree/main/examples/fieldmedic) 所示。场景格式见[编辑器与场景格式](editor.md)。
+在窗口中用 NSGo 场景编辑器打开指定的场景文件，未指定时打开一个小型演示房间。指定目录或 `game.yaml` 时打开游戏的[项目文件](project.md)及其主场景。打开项目后，编辑器可以从文件浏览器打开项目中的其他场景、新建场景、把场景另存到其他路径，并在退出或打开另一个场景会丢失未保存的修改时先询问（[场景文件与未保存的修改](editor.md#场景文件与未保存的修改)）。`-library` 会添加一个面板，把该[库](library.md)中的包安装到打开的项目中。它没有内置任何[编辑器插件](editor.md)：有自己插件的游戏要构建自己的编辑器命令，如 [Field Medic](https://github.com/nsgo-dev/game/tree/main/examples/fieldmedic) 所示。场景格式见[编辑器与场景格式](editor.md)。编辑器会在本地端点上把打开的项目提供给智能体，`mcp` 通过它连接。
+
+### mcp
+
+```sh
+claude mcp add game-editor -- go tool game mcp
+```
+
+一个基于标准输入输出的 MCP 服务器，由 Claude Code、Codex 等智能体在项目目录（或其中任一子目录）里启动，或用 `-project` 指定项目。它找到打开了该项目的编辑器，把编辑器的工具 `scene_read`、`scene_edit`、`selection_get`、`viewport_image` 和 `game_check` 以及变更流转发给智能体；没有编辑器打开该项目时，每次调用都会说明如何打开它。工具说明见 [mcp](mcp.md#编辑器工具)。
 
 ### release
 

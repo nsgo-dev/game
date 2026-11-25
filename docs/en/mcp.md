@@ -255,3 +255,84 @@ app.Post(func() {
 })
 app.Settle()
 ```
+
+## Rendering a drawing to PNG
+
+`mcp.RenderPNG(ops, width, height, background)` plays a recorded `core.Drawing`'s operations into a PNG with the software rasterizer `game_screenshot` uses when it draws a frame itself, and reports in `SkippedOps` and `SkippedImages` what it left out (text, and images that are not in memory as `Pixels` or `Data`). The editor's `viewport_image` uses it, so its picture is the same on every platform and headless.
+
+## Editor tools
+
+The tools above reach a running game. The NSGo Game Editor has an MCP server of its own, package `game/editor/editormcp`, through which an agent reads and edits the project open in the editor: every edit goes through the same `Editor` methods the inspector, scene tree and viewport use, so it shows at once in the tree and the viewport, and the person takes it back with one Undo.
+
+```go
+import "github.com/nsgo-dev/game/packages/game/editor/editormcp"
+```
+
+### Connecting an agent
+
+`go tool game editor .` serves the open project on a local endpoint of its own: a Unix domain socket that only the user can open, named after a hash of the project's path, in `nsgo-game/editor` under the user's cache directory (`$NSGO_GAME_EDITOR_ENDPOINTS` when set). It is never a network port. When the editor opens another project, the endpoint follows it; a second editor on the same project leaves the first serving and says so on stderr.
+
+The agent starts `go tool game mcp` in the project's directory, or in any directory inside it, or names it with `-project`:
+
+```sh
+claude mcp add game-editor -- go tool game mcp
+```
+
+`go tool game mcp` is an MCP server on standard input and output that finds the editor with the project open and forwards every tool call, resource read and subscription to it. It lists the editor's tools, including those other parts of the editor add, and connects again when the editor is closed and opened anew, so the agent's session outlives the editor's. While no editor has the project open, each call answers with an error that says so and how to open it: `no editor has the project open at /path/to/game: open it with go tool game editor /path/to/game and try again`.
+
+### Tools
+
+| Tool | Action | Arguments | What it does |
+| --- | --- | --- | --- |
+| `scene_read` | read | `file`, `offset`, `limit` (all optional) | Reads a scene, prefab, data table or other text file of the project, or `game.yaml`, as lines numbered from 1. The open scene and `game.yaml` are read as the editor holds them, unsaved edits included, and the reply says when there are some; other files are read from disk. Without `file` it reads the open scene. A path must be relative to the project root and stay inside it. |
+| `scene_edit` | edit | `edits` (required), `file`, `label` (optional) | Applies the edits, in order, to the scene open in the editor, as one undo step labeled `label` (or one derived from the edits). The edits stay unsaved until the person saves. |
+| `selection_get` | read | none | The open scene, the active layer, the selected object with its lines of YAML as `scene_read` numbers them, the file selected in the file browser, the active tool and the view mode. |
+| `viewport_image` | read | `scale` (optional, 0.25 to 4) | A PNG of the viewport as it shows now: the scene through the editor's view, with the camera frame, tile grid and selection outline, at the viewport's size in points times `scale`. Text and images not loaded in memory are left out, and the reply counts them. |
+| `game_check` | run | none | Runs the Problems panel's check (`assetcheck` with the editor's component registry, and `project.Check`) and returns its problems, each with file, line and message. It reads the files on disk; the reply names the open scene when it has unsaved edits the check did not see. |
+
+The edits `scene_edit` takes, each an object with `op`:
+
+| `op` | Fields | Editor method |
+| --- | --- | --- |
+| `add` | `object` (as the scene file writes it), `layer`, `parent` | `PlaceObject`, then `ReparentObject` under `parent` |
+| `remove` | `id` | `DeleteObject` |
+| `move` | `id`, `x`, `y` | `MoveObject` |
+| `set` | `id`, `fields` | the object's setters: `id`, `name`, `x`, `y`, `z`, `rotation`, `scaleX`, `scaleY`, `alpha`, `originX`, `originY`, `flipX`, `flipY`, `sprite`, `material`, `posZ`, `rotX`, `rotY`, `rotZ`, `scaleZ`, `depth`, `mesh` |
+| `set` | `id`, `component`, `fields` | `SetComponentField` for each field |
+| `add_component` | `id`, `component`, `fields` | `AddComponent`, then `SetComponentField` |
+| `remove_component` | `id`, `component` | `RemoveComponent` |
+| `set_property`, `remove_property` | `id`, `key`, `value` | `SetProperty`, `DeleteProperty` |
+| `reparent` | `id`, `parent`, `index` | `ReparentObject` |
+| `move_to_layer` | `id`, `layer`, `index` | `MoveObjectToLayer` |
+
+An `add`'s object is read by the scene format's own reader with the editor's component registry, so it is refused as opening the file would refuse it. When the editor refuses any edit of a call, none of them applies: the scene, its undo history and its file on disk stay as they were, and the tool error names the file, the edit, the object, the component and field, and the fix, as in `scene_edit: scenes/room.scene.yaml: edit 2 (set) on object "hero" component "body" field "sped": unknown field (registered: friction, layer, solid, speed); use a component and fields the project registers, as the message lists them. Nothing was changed.` The structured result holds the same as an `editormcp.EditError`.
+
+Grouping one request of the agent into one turn the person keeps or reverts, and drawing the agent's edits live, build on this server in their own changes; until then each `scene_edit` call is one ordinary undo step.
+
+### The change stream
+
+The server has two resources: `editor://scene`, the open scene's YAML as the editor holds it, and `editor://selection`, the selection as `selection_get` reports it in JSON. A client that subscribes to them is notified of each change, and the notice's `_meta` says who made it, `"nsgo.dev/by": "agent"` for a tool call and `"person"` for the editor's own controls, with the editor's revision under `"nsgo.dev/revision"`. A burst of changes may come as one notice.
+
+### Adding tools
+
+The tools are a registry that other parts of the editor join with `Server.AddTool`, so that every action with a button or a shortcut has a tool. A `Tool` has a name, a description, a JSON Schema for its arguments, an `Action` (`ActionRead`, `ActionEdit` or `ActionRun`, which the editor's permission rules decide on) and a handler. The handler runs on one of the server's goroutines and reaches the editor with `Call.Editor`, which runs a function on the editor's goroutine and waits for it, so a tool may wait for work done elsewhere and return an image. Clients are told the tool list changed.
+
+```go
+s := editormcp.New(ed, editormcp.Options{Run: cx.Post})
+_ = s.AddTool(editormcp.Tool{
+	Name:   "scene_name",
+	Action: editormcp.ActionRead,
+	Handler: func(ctx context.Context, c *editormcp.Call) (*editormcp.Result, error) {
+		var name string
+		err := c.Editor(ctx, func(ed *editor.Editor) error { name = ed.Doc.Name; return nil })
+		return &editormcp.Result{Text: name}, err
+	},
+})
+_ = s.Open()
+```
+
+`Options.Run` hands functions to the editor's goroutine (`cx.Post` for an editor in a window); without it the server runs them on the caller's goroutine one at a time, for an editor no window drives. `Server.Connect` serves one session on any MCP transport, as a test does with `mcp.NewInMemoryTransports`.
+
+### Why its own server
+
+NSGo's `automation` registers app tools only in `nsgo dev -automation` and test builds, and `nsgo mcp` reaches only the app that `nsgo dev -automation` runs; an editor is an ordinary build. An app tool's handler also runs synchronously on the graph goroutine (nsgo-dev/nsgo#2342), which cannot wait for a project check without holding the editor, and returns JSON only, so a screenshot reaches the agent as base64 text rather than an image (nsgo-dev/nsgo#2343). The editor's server uses the official MCP Go SDK, which NSGo's own `nsgo mcp` is built on, so its tools wait off the editor's goroutine and `viewport_image` returns a real image. `Server.RegisterAutomation` still offers the same tools to `nsgo mcp` for an editor run under `go tool nsgo dev -automation`, each running on the graph goroutine from start to end and returning an `AutomationResult` with the PNG in base64.

@@ -10,6 +10,7 @@ tool (
 require (
 	github.com/ebitengine/purego v0.11.3
 	github.com/jackc/pgx/v5 v5.13.0
+	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/nsgo-dev/nsgo v0.3.0
 	go.yaml.in/yaml/v3 v3.0.6
 	golang.org/x/crypto v0.59.0
@@ -39,7 +40,6 @@ require (
 	github.com/lucasb-eyer/go-colorful v1.4.1 // indirect
 	github.com/makiuchi-d/gozxing v0.1.1 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
-	github.com/modelcontextprotocol/go-sdk v1.8.0 // indirect
 	github.com/ncruces/go-strftime v1.1.0 // indirect
 	github.com/nsgo-dev/goja v0.1.0-nsgo.2.0.20261122032045-fee2b34506fc // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect

@@ -16,6 +16,7 @@ go get -tool github.com/nsgo-dev/game/packages/game/cmd/game@latest
 | `game dev` | `game dev [-assets -fps -target] [dir] [nsgo dev flags]` | Run `nsgo dev` with live asset hot reload (`hotreload.DevAssetsDir`) |
 | `game generate` | `game generate [-in -autoload -main] component\|system\|scene\|prefab <name>` | Generate Go code, tests, `.scene.yaml` files and registrations into a project |
 | `game editor` | `game editor [-library] [project-dir \| game.yaml \| scene.yaml] [clip.animation.yaml [object-id]]` | Open the scene and animation clip editor |
+| `game mcp` | `game mcp [-project dir]` | Serve the open editor's MCP tools (`scene_read`, `scene_edit`, `selection_get`, `viewport_image`, `game_check`) on stdio for an agent, forwarding to the editor that has the project open |
 | `game check` | `game check [-in] [dir]` | Validate scenes, Tiled/LDtk maps, sprite atlases and every referenced file |
 | `game index` | `game index [-dry-run -in] [dir]` | Assign stable UIDs to scene/resource files and update the project index |
 | `game mv` | `game mv [-dry-run -in] <from> <to>` | Move/rename a file or folder and rewrite every reference in the project |
