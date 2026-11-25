@@ -24,6 +24,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/navbake3d"
 	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/game/packages/game/render3d"
+	"github.com/nsgo-dev/game/packages/game/replay"
 	"github.com/nsgo-dev/game/packages/game/resource"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/game/packages/game/scenemodel"
@@ -387,16 +388,26 @@ type Editor struct {
 	ReadClipboard func(done func(text string))
 	// DiskWatchInterval controls how often the editor polls watched open files (scene, clip, game.yaml) and the project tree for external changes while a UI scope is attached (defaults to 250ms when <= 0).
 	DiskWatchInterval time.Duration
+	// OnPlaytestPrompt, when set, is called when the author presses "Ask the agent to tune it" or clicks an actionable suggestion in the Playtest Report screen.
+	OnPlaytestPrompt func(PlaytestPromptRequest)
+	// OnOpenPlaytestConfig, when set, overrides the BOT PROFILE card's "Open" action for playtest.yaml; when nil, the editor opens an inline playtest.yaml preview drawer.
+	OnOpenPlaytestConfig func(configPath string) error
+	// OnPlayReplayStep runs on every fixed simulation step during Play mode when watching a saved replay recording (after player.Step() and before OnPlayUpdate).
+	OnPlayReplayStep func(player *replay.Player, scene *sceneformat.BuiltScene, dt time.Duration)
 
-	playing           bool
-	playSnapshot      []byte
-	playStop          func()
-	playScene         *sceneformat.BuiltScene
-	playPhysics       *sceneformat.PhysicsScene
-	playTriggerEvents []sceneformat.PhysicsTriggerEvent
-	playSteps         int
-	playFrames        int
-	physicsLayers     *sceneformat.PhysicsLayerTable
+	playing            bool
+	playSnapshot       []byte
+	playStop           func()
+	playScene          *sceneformat.BuiltScene
+	playPhysics        *sceneformat.PhysicsScene
+	playTriggerEvents  []sceneformat.PhysicsTriggerEvent
+	playSteps          int
+	playFrames         int
+	playReplay         *replay.Recording
+	playReplayPlayer   *replay.Player
+	playReplayPath     string
+	playReplayRunIndex int
+	physicsLayers      *sceneformat.PhysicsLayerTable
 
 	// projectSaved is Project's encoding when it was opened or last saved, which ProjectDirty compares against.
 	projectSaved []byte
@@ -637,6 +648,8 @@ type Editor struct {
 	hasPointer3D bool
 	// disk tracks on-disk snapshots, external-change conflicts, save-conflict prompts, and background file watching.
 	disk diskWatchState
+	// playtest holds the Playtest Report screen state, active report entries, chart view-model, and playtest_define proposal reviews.
+	playtest playtestReportState
 }
 
 // DefaultSceneDoc returns a valid starter SceneDoc suitable for a new editor session.

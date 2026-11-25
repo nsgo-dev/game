@@ -80,6 +80,7 @@ const (
 	CmdCheckProblems         = "project.check"
 	CmdEditorSettings        = "editor.settings"
 	CmdMergeConflicts        = "git.mergeConflicts"
+	CmdPlaytestReport        = "project.playtestReport"
 	// The 3D viewport's axis views and projection: each axis view looks at the camera's Target along a world axis (SetView3D), and the orthographic command switches between perspective and orthographic (SetOrthographic3D).
 	CmdView3DFront        = "view.3d.front"
 	CmdView3DBack         = "view.3d.back"
@@ -265,9 +266,13 @@ func (e *Editor) initBuiltinCommands() {
 	if len(e.commands) > 0 {
 		return
 	}
-	notPlaying := func() bool { return !e.StartScreenOpen() && !e.MergeConflictOpen() && !e.Playing() }
-	inEditor := func() bool { return !e.StartScreenOpen() && !e.MergeConflictOpen() }
-	hasProject := func() bool { return !e.StartScreenOpen() && !e.MergeConflictOpen() && e.Project != nil }
+	notPlaying := func() bool {
+		return !e.StartScreenOpen() && !e.MergeConflictOpen() && !e.PlaytestReportOpen() && !e.Playing()
+	}
+	inEditor := func() bool { return !e.StartScreenOpen() && !e.MergeConflictOpen() && !e.PlaytestReportOpen() }
+	hasProject := func() bool {
+		return !e.StartScreenOpen() && !e.MergeConflictOpen() && !e.PlaytestReportOpen() && e.Project != nil
+	}
 
 	e.commands = []EditorCommand{
 		{
@@ -1226,6 +1231,20 @@ func (e *Editor) initBuiltinCommands() {
 					return nil
 				}
 				return e.OpenMergeConflict("")
+			},
+		},
+		{
+			ID:          CmdPlaytestReport,
+			Label:       "Playtest Report",
+			Description: "Open the Playtest Report screen with goals met or missed, charts, and the agent's read",
+			Category:    "Project",
+			Keywords:    []string{"playtest", "report", "bot", "goals", "metrics", "chart", "heatmap", "replay"},
+			Shortcut:    "mod+shift+y",
+			Enabled:     func() bool { return !e.Playing() },
+			Checked:     func() bool { return e.PlaytestReportOpen() },
+			Run: func() error {
+				e.SetPlaytestReportOpen(!e.PlaytestReportOpen())
+				return nil
 			},
 		},
 	}

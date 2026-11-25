@@ -21,6 +21,8 @@ const (
 	ToolGamePlaytest = "game_playtest"
 	// ToolPlaytestDefine proposes adding or updating a metric in playtest.yaml, returning a diff that arrives as a review rather than overwriting the file directly.
 	ToolPlaytestDefine = "playtest_define"
+	// ToolPlaytestReport opens, inspects or updates the editor's Playtest Report screen (loading a report file, updating the agent's read and suggestions, or watching a run's recording).
+	ToolPlaytestReport = "playtest_report"
 )
 
 // PlaytestRunRequest is the validated request passed to Options.RunPlaytest (or the default `go tool nsgo test` runner).
@@ -167,7 +169,42 @@ func playtestTools() []Tool {
 			Action:      ActionEdit,
 			Handler:     playtestDefine,
 		},
+		{
+			Name:        ToolPlaytestReport,
+			Title:       "Inspect or update the playtest report screen",
+			Description: "Open or inspect the editor's Playtest Report screen, load a playtest.report.yaml file, attach the agent's read and actionable suggestions, or watch a recorded run in Play mode.",
+			InputSchema: []byte(playtestReportSchema),
+			Action:      ActionEdit,
+			Handler:     playtestReportTool,
+		},
 	}
+}
+
+const playtestReportSchema = `{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "file": {"type": "string", "description": "Optional slash-separated path to a playtest.report.yaml file to load"},
+    "open": {"type": "boolean", "description": "When true, open the Playtest Report screen; when false, close it"},
+    "read": {"type": "string", "description": "Optional agent's read summary paragraph to show in the Playtest Report screen"},
+    "suggestions": {"type": "array", "items": {"type": "string"}, "description": "Optional list of actionable suggestions shown under Agent's read"},
+    "watchRun": {"type": "integer", "minimum": 1, "description": "Optional 1-based run index whose saved recording to open in Play mode"}
+  }
+}`
+
+// PlaytestReportStatusResult is the structured payload returned by playtest_report.
+type PlaytestReportStatusResult struct {
+	Open             bool     `json:"open"`
+	ReportPath       string   `json:"reportPath,omitempty"`
+	Scope            string   `json:"scope,omitempty"`
+	Project          string   `json:"project,omitempty"`
+	ChartKind        string   `json:"chartKind,omitempty"`
+	Passed           bool     `json:"passed"`
+	MissedCount      int      `json:"missedCount"`
+	WatchRunIndex    int      `json:"watchRunIndex,omitempty"`
+	PendingProposals int      `json:"pendingProposals"`
+	Read             string   `json:"read,omitempty"`
+	Suggestions      []string `json:"suggestions,omitempty"`
 }
 
 type gamePlaytestArgs struct {
@@ -277,6 +314,15 @@ func gamePlaytest(ctx context.Context, c *Call) (*Result, error) {
 	if err := playtest.SaveReportFile(outPath, rep); err != nil {
 		return nil, fmt.Errorf("game_playtest: %w", err)
 	}
+
+	_ = c.Editor(ctx, func(ed *editor.Editor) error {
+		return ed.LoadPlaytestReport(editor.PlaytestReportOpenConfig{
+			Report:     rep,
+			ReportPath: cleanOut,
+			ConfigPath: cleanCfg,
+			BaseDir:    root,
+		})
+	})
 
 	res := PlaytestRunResult{
 		File:          cleanCfg,
@@ -467,6 +513,29 @@ func playtestDefine(ctx context.Context, c *Call) (*Result, error) {
 		Status:    "pending",
 	}, root)
 
+	reviewID := review.ID
+	_ = c.Editor(ctx, func(ed *editor.Editor) error {
+		ed.AddPlaytestProposal(editor.PlaytestProposal{
+			ID:          reviewID,
+			File:        review.File,
+			MetricName:  review.Metric.Name,
+			MetricLabel: review.Metric.Label,
+			Rationale:   review.Rationale,
+			Replace:     review.Replace,
+			Before:      review.Before,
+			After:       review.After,
+			Diff:        review.Diff,
+			Status:      review.Status,
+			ApplyFunc: func() error {
+				return c.s.ApplyPlaytestReview(reviewID)
+			},
+			DismissFunc: func() error {
+				return c.s.DismissPlaytestReview(reviewID)
+			},
+		})
+		return nil
+	})
+
 	var text strings.Builder
 	verb := "add"
 	if review.Replace {
@@ -608,4 +677,80 @@ func splitLines(s string) []string {
 	}
 	s = strings.TrimSuffix(s, "\n")
 	return strings.Split(s, "\n")
+}
+
+type playtestReportArgs struct {
+	File        string   `json:"file"`
+	Open        *bool    `json:"open"`
+	Read        string   `json:"read"`
+	Suggestions []string `json:"suggestions"`
+	WatchRun    int      `json:"watchRun"`
+}
+
+func playtestReportTool(ctx context.Context, c *Call) (*Result, error) {
+	var args playtestReportArgs
+	if err := c.Decode(&args); err != nil {
+		return nil, fmt.Errorf("playtest_report: %w", err)
+	}
+
+	var status PlaytestReportStatusResult
+	err := c.Editor(ctx, func(ed *editor.Editor) error {
+		if args.File != "" {
+			cleanFile, err := cleanProjectPath(args.File)
+			if err != nil {
+				return err
+			}
+			if err := ed.OpenPlaytestReportFile(cleanFile); err != nil {
+				return err
+			}
+		}
+		if args.Read != "" || args.Suggestions != nil {
+			if err := ed.SetPlaytestAgentRead(args.Read, args.Suggestions); err != nil {
+				return err
+			}
+		}
+		if args.Open != nil {
+			ed.SetPlaytestReportOpen(*args.Open)
+		}
+		if args.WatchRun > 0 {
+			if err := ed.WatchPlaytestRun(args.WatchRun); err != nil {
+				return err
+			}
+		}
+
+		status.Open = ed.PlaytestReportOpen()
+		if sess := ed.PlaytestSession(); sess != nil {
+			for _, p := range sess.Proposals {
+				if p.Status == "pending" {
+					status.PendingProposals++
+				}
+			}
+			if ent := sess.ActiveEntry(); ent != nil && ent.Report != nil {
+				status.ReportPath = ent.ReportPath
+				status.Scope = ent.Report.Scope.Scene
+				status.Project = ent.Report.Scope.Project
+				status.ChartKind = ent.Chart.Kind.String()
+				status.Passed = ent.Report.Passed
+				status.MissedCount = len(ent.Report.MissedMetrics())
+				status.WatchRunIndex = ent.WatchRunIndex
+				status.Read = ent.AgentRead
+				for _, sg := range ent.Suggestions {
+					status.Suggestions = append(status.Suggestions, sg.Text)
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("playtest_report: %w", err)
+	}
+
+	var summary string
+	if status.Scope != "" {
+		summary = fmt.Sprintf("Playtest report %s (open=%v, chart=%s, passed=%v, missed=%d, pendingProposals=%d)",
+			status.Scope, status.Open, status.ChartKind, status.Passed, status.MissedCount, status.PendingProposals)
+	} else {
+		summary = fmt.Sprintf("Playtest report screen (open=%v, no report loaded, pendingProposals=%d)", status.Open, status.PendingProposals)
+	}
+	return &Result{Text: summary, Structured: status}, nil
 }

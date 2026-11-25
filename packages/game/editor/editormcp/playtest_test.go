@@ -211,3 +211,81 @@ func TestPlaytestDefineArrivesAsReview(t *testing.T) {
 		t.Fatalf("PlaytestReviews = %+v", reviews)
 	}
 }
+
+func TestPlaytestReportToolAndEditorSync(t *testing.T) {
+	f := openFixture(t)
+	if err := os.WriteFile(filepath.Join(f.dir, playtest.FileName), []byte(fixturePlaytestYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := editormcp.New(f.ed, editormcp.Options{
+		RunPlaytest: func(_ context.Context, req editormcp.PlaytestRunRequest) (*playtest.Report, error) {
+			return &playtest.Report{
+				Version:   playtest.ReportVersion,
+				Scope:     req.Config.Scope,
+				Bot:       req.Config.Bot,
+				Rate:      60,
+				Speed:     1,
+				SeedCount: 1,
+				Passed:    false,
+				Metrics: []playtest.MetricReport{
+					{
+						Name:      "finished",
+						Label:     "Finished",
+						Aggregate: playtest.AggCount,
+						Value:     0,
+						Goal:      &playtest.Goal{Summary: "clear the room", Source: "brief.yaml", Min: playtest.Float64(1)},
+						Status:    playtest.StatusMissed,
+					},
+				},
+				Runs: []playtest.RunReport{
+					{Index: 1, Seed: 1, Outcome: playtest.OutcomeFailed, Steps: 30, DurationSeconds: 0.5},
+				},
+			}, nil
+		},
+	})
+	t.Cleanup(func() { _ = s.Close() })
+	cs := connect(t, s, nil)
+
+	// Running game_playtest syncs the report into the editor.
+	mustOK(t, call(t, cs, editormcp.ToolGamePlaytest, map[string]any{}))
+	if f.ed.ActivePlaytestReport() == nil {
+		t.Fatal("expected game_playtest to load report into editor")
+	}
+
+	// playtest_define pushes a pending proposal onto the editor session.
+	mustOK(t, call(t, cs, editormcp.ToolPlaytestDefine, map[string]any{
+		"rationale": "track deaths per run",
+		"metric": map[string]any{
+			"name":    "deaths",
+			"measure": map[string]any{"kind": "event", "key": "death", "heatMap": true},
+		},
+	}))
+	sess := f.ed.PlaytestSession()
+	if sess == nil || sess.FirstPendingProposal() == nil {
+		t.Fatal("expected playtest_define to queue a pending proposal on editor")
+	}
+
+	// playtest_report opens the screen and sets the agent's read + suggestions.
+	res := call(t, cs, editormcp.ToolPlaytestReport, map[string]any{
+		"open":        true,
+		"read":        "Run 1 failed early at the doorway.",
+		"suggestions": []string{"Widen the doorway gap"},
+	})
+	mustOK(t, res)
+	var status editormcp.PlaytestReportStatusResult
+	structured(t, res, &status)
+	if !status.Open || status.Scope != "room" || status.MissedCount != 1 || status.PendingProposals != 1 {
+		t.Fatalf("PlaytestReportStatusResult = %+v", status)
+	}
+	if !f.ed.PlaytestReportOpen() {
+		t.Fatal("expected editor PlaytestReportOpen = true")
+	}
+
+	// Applying the proposal from the editor applies it to disk and syncs the MCP server review status.
+	if err := f.ed.ApplyPlaytestProposal(sess.FirstPendingProposal().ID); err != nil {
+		t.Fatalf("ApplyPlaytestProposal: %v", err)
+	}
+	if reviews := s.PlaytestReviews(); len(reviews) != 1 || reviews[0].Status != "applied" {
+		t.Fatalf("MCP PlaytestReviews after editor apply = %+v", reviews)
+	}
+}

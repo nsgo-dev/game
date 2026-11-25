@@ -1091,3 +1091,18 @@ func main() {
 - **全字段编辑**：支持编辑 `name`（`SetMaterialName`），使用 NSGo `ColorWell` / `ColorPicker` 拾色器与 CSS 颜色输入框编辑 `baseColor` 和 `emissive`（`SetMaterialBaseColor`、`SetMaterialEmissive`），通过可搜索的项目图片选择器编辑 `texture`（`SetMaterialTexture`、`ProjectTextures`），通过带范围约束的滑块与数值框编辑 `metallic`、`roughness` 和 `opacity`（`SetMaterialMetallic`、`SetMaterialRoughness`、`SetMaterialOpacity`），从 `resource.BlendModes()` 中选择 `blend`（`SetMaterialBlend`），以及开关 `doubleSided` 和 `unlit`（`SetMaterialDoubleSided`、`SetMaterialUnlit`）。任何不合法的值都会在改动状态或历史前被 `resource.Encode` 拒绝。
 - **实时预览与视口联动**：面板提供实时预览（`MaterialPreviewImage`、`SetMaterialPreviewShape`），支持使用 `render3d` 渲染的 3D 球体（**Sphere**）与立方体（**Cube**，反映 `unlit`、PBR 金属度/粗糙度、自发光、贴图、透明度与双面渲染）以及 2D 精灵（**Sprite**）预览（2D 视图默认 Sprite，3D 视图默认 Sphere）。每次编辑（包括拾色器拖拽及撤销/重做）都会经由 `resource.Library.Reload`（通过 `project.Resolver.Library()` 与 `scenemodel.Assets.Library()`）实时应用，无需保存即可立刻刷新预览以及视口中所有引用该材质的 2D 精灵（`BuiltScene.SyncMaterials`）与 3D 对象。
 - **撤销/重做与确定性保存**：所有材质编辑均记录在 `Editor.History`（`EditMaterial`）中，纳入未保存检测（`MaterialDirty`、`HasUnsavedChanges`）与文件移动跟踪（`MoveFile`）；点击 **Save Material**（`SaveMaterial`、`SaveMaterialFile`、`Save`、`SaveAll` 或 `Editor.OnSaveMaterial`）按 `resource.Encode` 写出确定性的规范 YAML。
+
+## 试玩报告界面（#1044）
+
+通过 `Project > 试玩报告`、命令面板（`mod+shift+y` / `CmdPlaytestReport`）、状态栏试玩徽章、在文件浏览器中双击任意 `*.report.yaml` 文件、调用 `OpenPlaytestReport` / `OpenPlaytestReportFile` 或代理调用 `playtest_report`，可打开全窗口的**试玩报告**界面（`PlaytestReportView`）。界面严格遵循 `docs/design/editor/Spec.dc.html` 颜色与对比度令牌（包括 `#3B7BFF` 主强调按钮上的 `#101216` 文字）并对应 `docs/design/editor/Playtest.dc.html`：
+
+- **顶部栏与回放联动**：展示 `"Playtest · <scope>"`、项目名与运行摘要（如 `"20 headless runs by the agent · 1 m 40 s"`）、**Watch run N**（`WatchPlaytestRun` / `WatchPlaytestRunIn`，通过 `replay.LoadFile` 加载该轮次的 `.replay.yaml` 录制并经 `PlayReplayIn` 在播放模式中以 `*replay.Player` 回放，同时提供 **Back to Playtest** 返回条）以及 **Ask the agent to tune it**（`AskAgentToTunePlaytest` / `Editor.OnPlaytestPrompt`）。
+- **BOT PROFILE 卡片与 `playtest_define` 审查**：展示机器人配置名称/切换组（`BotProfileDisplayName`）、带 **Open** 按钮的 `"playtest.yaml from template <id>"`（`OpenPlaytestConfigPreview` / `Editor.OnOpenPlaytestConfig`）以及一句话策略。当代理通过 `playtest_define` 提议新指标时，界面展示带 **Review** 按钮的紫色横幅，点击后展开统一 diff 审查抽屉，确认 **Apply** 前不会改动磁盘上的 `playtest.yaml`（`ApplyPlaytestProposal`、`DismissPlaytestProposal`）。
+- **指标卡片**：每张卡片包含标签、带图标与文字的 **Met** / **Missed** 徽章（不依赖纯色区分）、格式化数值、辅助说明行，以及 `"Goal · <goal>"` 与等宽来源文件名（`brief.yaml`、`game.yaml` 或 `playtest.yaml`）。
+- **按指标自动选择图表（全部 4 种画布图表）**：`SelectPlaytestChart` 与 `DrawPlaytestChart` 按报告内容自动选择并绘制一种图表：
+  1. **关卡热力图**（`PlaytestChartHeatMap`）：展示死亡或每格停留时间热区聚簇与标注胶囊。
+  2. **按波次柱状图与目标虚线**（`PlaytestChartBars`）：对比目标上限并标记超标波次。
+  3. **按关卡折线图**（`PlaytestChartLine`）：展示关卡难度/解法曲线并标出异常峰谷。
+  4. **胜率矩阵**（`PlaytestChartMatrix`）：对超过阈值（默认 60%）的单元格以边框、标记点及 `"above 60%"` 文字标出。
+- **Agent 解读、可执行建议与脚注**：展示数句诊断结论（`DefaultPlaytestAgentRead` 或 `SetPlaytestAgentRead`）与可点击的调优建议卡片（`RequestPlaytestSuggestion`，点击后作为审查请求发送给代理），底部附注说明所有试玩均基于回放系统，指标与机器人均来自 `playtest.yaml`。
+- **MCP 集成（`editormcp`）**：`game_playtest` 会将生成的报告同步载入编辑器，`playtest_define` 会将待审查指标直接推送到试玩报告横幅并与 Apply/Dismiss 双向同步，新增的 `playtest_report` 工具支持代理打开、检查、写入解读与建议或回放指定轮次。
