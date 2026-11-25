@@ -6,8 +6,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nsgo-dev/game/packages/game/ai"
 	"github.com/nsgo-dev/game/packages/game/loaderr"
+	"github.com/nsgo-dev/game/packages/game/math3d"
 	"github.com/nsgo-dev/game/packages/game/navbake3d"
+	"github.com/nsgo-dev/game/packages/game/world3d"
 )
 
 func readRamp(t testing.TB) []byte {
@@ -42,6 +45,10 @@ func TestParseRefusesInvalidFiles(t *testing.T) {
 		{"no triangles", strings.Replace(ramp, "        triangles:\n          - [0, 1, 2]\n          - [0, 2, 3]\n", "        triangles: []\n", 1), "meshes[0].polygons[1].triangles"},
 		{"nan detail", strings.Replace(ramp, "- [2, 0.75, 2]", "- [2, .nan, 2]", 1), "meshes[0].polygons[0].detail[0]"},
 		{"duplicate agent", strings.Replace(ramp, "meshes:\n", "meshes:\n  - agent: {name: humanoid, radius: 1, height: 1, maxSlope: 1, maxClimb: 1}\n", 1), "meshes[1].agent.name"},
+		{"link nan start", ramp + "    links:\n      - start: [.nan, 0, 0]\n        end: [1, 0, 0]\n", "meshes[0].links[0].start"},
+		{"link inf end", ramp + "    links:\n      - start: [0, 0, 0]\n        end: [1, .inf, 0]\n", "meshes[0].links[0].end"},
+		{"link negative radius", ramp + "    links:\n      - start: [0, 0, 0]\n        end: [1, 0, 0]\n        radius: -0.5\n", "meshes[0].links[0].radius"},
+		{"link negative cost", ramp + "    links:\n      - start: [0, 0, 0]\n        end: [1, 0, 0]\n        cost: -1\n", "meshes[0].links[0].cost"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -137,6 +144,47 @@ func FuzzParse(f *testing.F) {
 			again.Meshes[i].NavMesh()
 		}
 	})
+}
+
+func TestOffMeshLinksYAMLAndNavMesh(t *testing.T) {
+	f, err := navbake3d.Parse(readRamp(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Add a cheap shortcut link across the ramp and verify exact YAML round-trip + NavMesh traversal.
+	f.Meshes[0].Links = []navbake3d.OffMeshLink{
+		{
+			ID:       19,
+			Start:    navbake3d.Point{1, 0.25, 2},
+			End:      navbake3d.Point{7, 1, 2},
+			Radius:   0.5,
+			Cost:     1,
+			Area:     world3d.NavAreaTeleport,
+			Flags:    uint32(world3d.NavFlagTeleport),
+			UserData: "teleport",
+		},
+	}
+	data1, err := navbake3d.Encode(f)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	back, err := navbake3d.Parse(data1)
+	if err != nil {
+		t.Fatalf("Parse:\n%s\nerr: %v", data1, err)
+	}
+	data2, err := navbake3d.Encode(back)
+	if err != nil {
+		t.Fatalf("re-Encode: %v", err)
+	}
+	if !bytes.Equal(data1, data2) {
+		t.Fatalf("YAML round-trip changed:\n%s\n---\n%s", data1, data2)
+	}
+
+	nm := back.Meshes[0].NavMesh()
+	res := nm.FindPathWithOptions(math3d.Vec3{X: 0.5, Y: 0.1, Z: 2}, math3d.Vec3{X: 7.5, Y: 1, Z: 2}, ai.PathOptions{})
+	if !res.Found || len(res.Links) != 1 || res.Links[0].LinkID != 19 || res.Links[0].UserData != "teleport" {
+		t.Fatalf("expected path via YAML off-mesh link, got %+v", res)
+	}
 }
 
 func BenchmarkBakeReferenceLevel(b *testing.B) {

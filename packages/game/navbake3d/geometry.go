@@ -27,6 +27,33 @@ type Geometry struct {
 	layers []uint32      // one per triangle
 	// solids are the ranges of triangles, as [first, end) triangle indices, that are the surfaces of closed convex solids, such as collider boxes: a bake fills them, where it takes other triangles as surfaces only.
 	solids [][2]int
+	// links are point-to-point off-mesh links carried into every baked Mesh.
+	links []OffMeshLink
+}
+
+// AddOffMeshLink registers a point-to-point off-mesh connection to be stored on every Mesh baked from g.
+// Links with non-finite coordinates or negative/non-finite Radius or Cost are skipped.
+func (g *Geometry) AddOffMeshLink(link OffMeshLink) {
+	if g == nil {
+		return
+	}
+	if !finiteVec(link.Start.Vec3()) || !finiteVec(link.End.Vec3()) {
+		return
+	}
+	if !finite32(link.Radius) || link.Radius < 0 || !finite32(link.Cost) || link.Cost < 0 {
+		return
+	}
+	g.links = append(g.links, link)
+}
+
+// OffMeshLinks returns a copy of all off-mesh links added to g in insertion order.
+func (g *Geometry) OffMeshLinks() []OffMeshLink {
+	if g == nil || len(g.links) == 0 {
+		return nil
+	}
+	out := make([]OffMeshLink, len(g.links))
+	copy(out, g.links)
+	return out
 }
 
 // TriangleCount returns the number of triangles g holds.
@@ -454,7 +481,7 @@ func SceneMeshes(fsys fs.FS) NodeMesh {
 	}
 }
 
-// AddSceneFile adds the geometry of a sceneformat scene: it resolves the scenes doc instances and inherits from fsys, builds the scene's 3D node tree and adds every object whose Model names a glTF model, as SceneMeshes loads it, on scene3d.LayerDefault.
+// AddSceneFile adds the geometry and authored nav_link off-mesh links of a sceneformat scene: it resolves the scenes doc instances and inherits from fsys, builds the scene's 3D node tree, adds every object whose Model names a glTF model (as SceneMeshes loads it) on scene3d.LayerDefault, and extracts every nav_link component into the geometry's off-mesh links.
 func (g *Geometry) AddSceneFile(doc *sceneformat.SceneDoc, fsys fs.FS) error {
 	resolved, err := sceneformat.Resolve(doc, sceneformat.FSScenes{FS: fsys})
 	if err != nil {
@@ -464,7 +491,28 @@ func (g *Geometry) AddSceneFile(doc *sceneformat.SceneDoc, fsys fs.FS) error {
 	if _, err := sceneformat.BuildNodes3D(resolved, s.Root()); err != nil {
 		return err
 	}
-	return g.AddScene(s, LayerAll, SceneMeshes(fsys))
+	if err := g.AddScene(s, LayerAll, SceneMeshes(fsys)); err != nil {
+		return err
+	}
+	links, err := sceneformat.ExtractNavLinks3D(resolved)
+	if err != nil {
+		return err
+	}
+	for _, l := range links {
+		ud, _ := l.UserData.(string)
+		g.AddOffMeshLink(OffMeshLink{
+			ID:            l.ID,
+			Start:         point(l.Start),
+			End:           point(l.End),
+			Radius:        noNegZero(l.Radius),
+			Bidirectional: l.Bidirectional,
+			Cost:          noNegZero(l.Cost),
+			Area:          l.Area,
+			Flags:         l.Flags,
+			UserData:      ud,
+		})
+	}
+	return nil
 }
 
 // bounds returns the bounding box of the triangles on a layer in mask and how many there are.

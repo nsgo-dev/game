@@ -20,6 +20,8 @@ type Source struct {
 	Outlines [][]core.Point
 	// Obstacles are the blocked areas inside the outlines, such as walls, pillars and holes.
 	Obstacles [][]core.Point
+	// Links are optional point-to-point off-mesh connections (jumps, drops, ladders, teleports) stored on every baked Mesh.
+	Links []OffMeshLink
 }
 
 // Agent is a kind of agent a mesh is baked for.
@@ -90,6 +92,11 @@ func bake(src Source, agents []Agent, opts Options) ([]*Mesh, error) {
 	if len(src.Outlines) == 0 {
 		return nil, errors.New("navbake: the source has no outline")
 	}
+	for i, l := range src.Links {
+		if err := l.validate(); err != nil {
+			return nil, fmt.Errorf("navbake: link %d: %w", i, err)
+		}
+	}
 
 	// Phase one resolves the outlines and obstacles into one blocked region.
 	var segs []seg
@@ -134,7 +141,7 @@ func bake(src Source, agents []Agent, opts Options) ([]*Mesh, error) {
 			}
 			polys = grown.convexPolygons()
 		}
-		meshes[k] = newMesh(a, polys, step)
+		meshes[k] = newMesh(a, polys, step, src.Links)
 	}
 	return meshes, nil
 }

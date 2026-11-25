@@ -128,7 +128,18 @@ func bakeMesh(g *Geometry, s Settings, a AgentType) (*Mesh, error) {
 	maxEdge := int32(min(float64(s.MaxEdgeLength/cs), 2*MaxCells))
 	contours := chf.buildContours(s.MaxSimplificationError/cs, maxEdge)
 	pm := buildPolyMesh(contours, s.MaxVertsPerPoly)
-	return chf.meshFromPolys(pm, s, a), nil
+	m := chf.meshFromPolys(pm, s, a)
+	if len(g.links) > 0 {
+		m.Links = make([]OffMeshLink, len(g.links))
+		for i, l := range g.links {
+			l.Start = point(l.Start.Vec3())
+			l.End = point(l.End.Vec3())
+			l.Radius = noNegZero(l.Radius)
+			l.Cost = noNegZero(l.Cost)
+			m.Links[i] = l
+		}
+	}
+	return m, nil
 }
 
 // meshFromPolys converts the polygon mesh to world space, adds each polygon's height detail and drops vertices no polygon uses.

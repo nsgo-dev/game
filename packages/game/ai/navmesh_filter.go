@@ -27,10 +27,16 @@ const (
 	NavAreaDoor NavArea = 5
 	// NavAreaHazard marks hazardous ground such as traps, fire, or lava.
 	NavAreaHazard NavArea = 6
+	// NavAreaJump marks jump or drop-off off-mesh links and landing surfaces.
+	NavAreaJump NavArea = 7
+	// NavAreaClimb marks climbable off-mesh links such as ladders and ledges.
+	NavAreaClimb NavArea = 8
+	// NavAreaTeleport marks teleporter or portal off-mesh links.
+	NavAreaTeleport NavArea = 9
 )
 
 // NavFlags is a bitmask of runtime traversal capabilities and states on a
-// navigation polygon (such as walk, swim, door, jump, or disabled).
+// navigation polygon (such as walk, swim, door, jump, climb, teleport, or disabled).
 type NavFlags uint32
 
 const (
@@ -40,9 +46,13 @@ const (
 	NavFlagSwim NavFlags = 1 << 1
 	// NavFlagDoor marks doorway or gate polygons that may open or close at runtime.
 	NavFlagDoor NavFlags = 1 << 2
-	// NavFlagJump marks jump or drop-off traversal polygons.
+	// NavFlagJump marks jump or drop-off traversal polygons and off-mesh links.
 	NavFlagJump NavFlags = 1 << 3
-	// NavFlagDisabled marks polygons disabled at runtime (excluded by DefaultNavFilter).
+	// NavFlagClimb marks climbable off-mesh links such as ladders.
+	NavFlagClimb NavFlags = 1 << 4
+	// NavFlagTeleport marks teleporter or portal off-mesh links.
+	NavFlagTeleport NavFlags = 1 << 5
+	// NavFlagDisabled marks polygons or links disabled at runtime (excluded by DefaultNavFilter).
 	NavFlagDisabled NavFlags = 1 << 31
 	// NavFlagAll matches any non-zero flag bitmask.
 	NavFlagAll NavFlags = ^NavFlags(0)

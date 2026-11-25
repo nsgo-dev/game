@@ -1352,6 +1352,9 @@ type NavMeshQuery struct {
 	funnelPortals [][2]vec2
 	rawPath       []vec2
 	cleanPath     []vec2
+	segPath       []vec2
+	shortcuts     []navShortcut2D
+	pathLinks     []NavPathLink
 
 	// Reusable BFS / clipping buffers for RandomPointAround.
 	bfsGen       uint32
@@ -1484,6 +1487,8 @@ func (q *NavMeshQuery) runPortalAStar(sVec, gVec vec2, filter NavFilter, opts Pa
 	}
 
 	minCost := minFilterCost(filter)
+	var zeroH bool
+	q.shortcuts, zeroH = buildNavShortcuts2D(m, gVec, minCost, filter, q.shortcuts)
 
 	directPossible := false
 	directCost := math.Inf(1)
@@ -1503,7 +1508,7 @@ func (q *NavMeshQuery) runPortalAStar(sVec, gVec vec2, filter NavFilter, opts Pa
 			}
 		}
 	}
-	if directPossible && directCost <= minCost*dist(sVec, gVec)+1e-9 {
+	if directPossible && directCost <= heuristic2D(sVec, gVec, minCost, q.shortcuts, zeroH)+1e-9 {
 		q.parent[goalNode] = -1
 		return navAStarResult2D{foundComplete: true, directPoly: directPoly, bestPortalID: -1, goalNode: goalNode}
 	}
@@ -1586,14 +1591,18 @@ func (q *NavMeshQuery) runPortalAStar(sVec, gVec vec2, filter NavFilter, opts Pa
 			var g float64
 			var exitPt vec2
 			if p.offMesh {
-				g = dist(sVec, p.left)*spCost + p.cost
+				linkCost, ok := m.offMeshPortalCost2D(p, filter)
+				if !ok {
+					continue
+				}
+				g = float64(dist(sVec, p.left)*spCost) + linkCost
 				exitPt = p.endPos
 			} else {
 				exitPt = bestPortalPoint(sVec, gVec, p.left, p.right)
 				g = dist(sVec, exitPt) * spCost
 			}
 			if q.seen[pid] != gen || g < q.gScore[pid] {
-				h := dist(exitPt, gVec) * minCost
+				h := heuristic2D(exitPt, gVec, minCost, q.shortcuts, zeroH)
 				pushOrUpdate(pid, g, g+h, h, -1, exitPt)
 			}
 		}
@@ -1662,14 +1671,18 @@ func (q *NavMeshQuery) runPortalAStar(sVec, gVec vec2, filter NavFilter, opts Pa
 			var ng float64
 			var exitPt vec2
 			if np.offMesh {
-				ng = curG + dist(curPt, np.left)*toCost + np.cost
+				linkCost, ok := m.offMeshPortalCost2D(np, filter)
+				if !ok {
+					continue
+				}
+				ng = curG + float64(dist(curPt, np.left)*toCost) + linkCost
 				exitPt = np.endPos
 			} else {
 				exitPt = bestPortalPoint(curPt, gVec, np.left, np.right)
 				ng = curG + dist(curPt, exitPt)*toCost
 			}
 			if q.seen[npid] != gen || ng < q.gScore[npid] {
-				h := dist(exitPt, gVec) * minCost
+				h := heuristic2D(exitPt, gVec, minCost, q.shortcuts, zeroH)
 				pushOrUpdate(npid, ng, ng+h, h, cur.id, exitPt)
 			}
 		}
@@ -1693,6 +1706,7 @@ func (q *NavMeshQuery) runPortalAStar(sVec, gVec vec2, filter NavFilter, opts Pa
 
 // FindPathWithFilterAndOptionsInto runs a bounded or partial 2D NavMesh search restricted to filter under opts,
 // writing the resulting waypoints into dst[:0] and reusing q's internal buffers with zero heap allocations after warm-up.
+// The returned res.Links slice reuses q's internal buffer (like dst) and is overwritten on subsequent queries on q.
 func (q *NavMeshQuery) FindPathWithFilterAndOptionsInto(dst []core.Point, start, goal core.Point, filter NavFilter, opts PathOptions) NavPathResult {
 	if q == nil || q.mesh == nil || len(q.mesh.polys) == 0 {
 		return NavPathResult{}
@@ -1724,7 +1738,7 @@ func (q *NavMeshQuery) FindPathWithFilterAndOptionsInto(dst []core.Point, start,
 			q.portalIDs = append(q.portalIDs, id)
 		}
 		slices.Reverse(q.portalIDs)
-		res.Path = q.finalizeCorridorInto(dst, sVec, gVec, q.portalIDs)
+		res.Path, res.Links = q.finalizeCorridorInto(dst, sVec, gVec, q.portalIDs)
 		return res
 	}
 
@@ -1744,7 +1758,7 @@ func (q *NavMeshQuery) FindPathWithFilterAndOptionsInto(dst []core.Point, start,
 			q.portalIDs = append(q.portalIDs, id)
 		}
 		slices.Reverse(q.portalIDs)
-		res.Path = q.finalizeCorridorInto(dst, sVec, sr.bestPt, q.portalIDs)
+		res.Path, res.Links = q.finalizeCorridorInto(dst, sVec, sr.bestPt, q.portalIDs)
 		return res
 	}
 
@@ -1791,17 +1805,7 @@ func (q *NavMeshQuery) FindCorridorWithFilterInto(dst []int, start, goal core.Po
 	return out, true
 }
 
-func (q *NavMeshQuery) finalizeCorridorInto(dst []core.Point, start, end vec2, portalIDs []int) []core.Point {
-	q.rawPath = q.stringPullInto(q.rawPath[:0], start, end, portalIDs)
-	q.cleanPath = simplifyCollinearInto(q.cleanPath[:0], q.rawPath)
-	out := dst[:0]
-	for _, v := range q.cleanPath {
-		out = append(out, toPoint(v))
-	}
-	return out
-}
-
-func (q *NavMeshQuery) stringPullInto(out []vec2, start, goal vec2, portalIDs []int) []vec2 {
+func (q *NavMeshQuery) finalizeCorridorInto(dst []core.Point, start, end vec2, portalIDs []int) ([]core.Point, []NavPathLink) {
 	m := q.mesh
 	hasOffMesh := false
 	for _, pid := range portalIDs {
@@ -1811,9 +1815,17 @@ func (q *NavMeshQuery) stringPullInto(out []vec2, start, goal vec2, portalIDs []
 		}
 	}
 	if !hasOffMesh {
-		return q.stringPullSegmentInto(out, start, goal, portalIDs)
+		q.rawPath = q.stringPullSegmentInto(q.rawPath[:0], start, end, portalIDs)
+		q.cleanPath = simplifyCollinearInto(q.cleanPath[:0], q.rawPath)
+		out := dst[:0]
+		for _, v := range q.cleanPath {
+			out = append(out, toPoint(v))
+		}
+		return out, nil
 	}
 
+	q.rawPath = q.rawPath[:0]
+	q.pathLinks = q.pathLinks[:0]
 	segStart := start
 	segBegin := 0
 	for i, pid := range portalIDs {
@@ -1821,14 +1833,48 @@ func (q *NavMeshQuery) stringPullInto(out []vec2, start, goal vec2, portalIDs []
 		if !p.offMesh {
 			continue
 		}
-		out = q.stringPullSegmentInto(out, segStart, p.left, portalIDs[segBegin:i])
-		if len(out) == 0 || !vequal(out[len(out)-1], p.endPos) {
-			out = append(out, p.endPos)
+		q.segPath = q.stringPullSegmentInto(q.segPath[:0], segStart, p.left, portalIDs[segBegin:i])
+		q.cleanPath = simplifyCollinearInto(q.cleanPath[:0], q.segPath)
+		for _, pt := range q.cleanPath {
+			if len(q.rawPath) == 0 || !vequal(q.rawPath[len(q.rawPath)-1], pt) {
+				q.rawPath = append(q.rawPath, pt)
+			}
 		}
+		if len(q.rawPath) == 0 {
+			q.rawPath = append(q.rawPath, p.left)
+		}
+		startIdx := len(q.rawPath) - 1
+		q.rawPath = append(q.rawPath, p.endPos)
+		endIdx := len(q.rawPath) - 1
+		radius, area, _, userData := m.offMeshMeta(p)
+		q.pathLinks = append(q.pathLinks, NavPathLink{
+			StartIndex: startIdx,
+			EndIndex:   endIdx,
+			FromPoly:   p.fromPoly,
+			ToPoly:     p.toPoly,
+			Start:      toPoint(p.left),
+			End:        toPoint(p.endPos),
+			Radius:     radius,
+			Area:       area,
+			Flags:      p.flags,
+			LinkID:     p.linkID,
+			UserData:   userData,
+		})
 		segStart = p.endPos
 		segBegin = i + 1
 	}
-	return q.stringPullSegmentInto(out, segStart, goal, portalIDs[segBegin:])
+	q.segPath = q.stringPullSegmentInto(q.segPath[:0], segStart, end, portalIDs[segBegin:])
+	q.cleanPath = simplifyCollinearInto(q.cleanPath[:0], q.segPath)
+	for _, pt := range q.cleanPath {
+		if len(q.rawPath) == 0 || !vequal(q.rawPath[len(q.rawPath)-1], pt) {
+			q.rawPath = append(q.rawPath, pt)
+		}
+	}
+	out := dst[:0]
+	for _, v := range q.rawPath {
+		out = append(out, toPoint(v))
+	}
+	return out, q.pathLinks
 }
 
 func (q *NavMeshQuery) stringPullSegmentInto(out []vec2, start, goal vec2, portalIDs []int) []vec2 {
@@ -2032,6 +2078,7 @@ func (m *NavMesh) FindPathWithFilterInto(dst []core.Point, start, goal core.Poin
 
 // FindPathWithFilterAndOptionsInto behaves like FindPathWithFilterAndOptions but writes waypoints into dst[:0]
 // and reuses the mesh's internal search buffers with zero heap allocations after warm-up.
+// The returned res.Links slice reuses the mesh's internal query buffer (like dst) and is overwritten on subsequent queries.
 func (m *NavMesh) FindPathWithFilterAndOptionsInto(dst []core.Point, start, goal core.Point, filter NavFilter, opts PathOptions) NavPathResult {
 	if m == nil {
 		return NavPathResult{}

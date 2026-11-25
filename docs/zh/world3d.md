@@ -89,7 +89,39 @@ if path, ok := nav.FindPath(startPos, goalPos); ok {
 }
 ```
 
-`nav.FindPolygon(p)` 会在 `VerticalTolerance` 垂直容差内定位最近的可行走多边形（天然支持上下叠层与立交桥）；也可用 `Contains(p)` 与 `NearestPolygon(p)` 检查点是否在网格上或寻找最近表面点，`FindCorridor(start, goal)` 查询多边形走廊，`AddOffMeshLink(NavOffMeshLink{...})` 注册跳跃、梯子或传送等离网连接，`SetEdgeFlags(fromPoly, toPoly, flags)` 为特殊共享边设置标记。
+`nav.FindPolygon(p)` 会在 `VerticalTolerance` 垂直容差内定位最近的可行走多边形（天然支持上下叠层与立交桥）；也可用 `Contains(p)` 与 `NearestPolygon(p)` 检查点是否在网格上或寻找最近表面点，`FindCorridor(start, goal)` 查询多边形走廊，`AddOffMeshLink(NavOffMeshLink{...})` / `OffMeshLinks()` / `ClearOffMeshLinks()` 管理跳跃、梯子或传送等离网连接，`SetEdgeFlags(fromPoly, toPoly, flags)` 为特殊共享边设置标记。
+
+### 离网连接（跳跃、梯子与传送门）
+
+使用 `AddOffMeshLink` 连接垂直分离的平台边缘、不连通的孤岛、梯子或传送门：
+
+```go
+nav.AddOffMeshLink(world3d.NavOffMeshLink{
+	Start:         math3d.Vec3{X: 9, Y: 4, Z: 5},
+	End:           math3d.Vec3{X: 13, Y: 0, Z: 5},
+	Radius:        0.5, // 在保持上下楼层隔离的前提下将边缘外的端点吸附到最近多边形
+	Bidirectional: false,
+	Cost:          0, // <= 0 时使用 3D 欧氏距离
+	Area:          world3d.NavAreaJump,
+	Flags:         uint32(world3d.NavFlagJump),
+	ID:            7,
+	UserData:      "drop",
+})
+
+res := nav.FindPathWithOptions(startPos, goalPos, ai.PathOptions{})
+if res.Found {
+	for i := 0; i+1 < len(res.Path); i++ {
+		if link, ok := res.LinkAt(i); ok {
+			// 路径段 Path[link.StartIndex] -> Path[link.EndIndex] 穿越一条 3D 离网连接。
+			_ = link.UserData
+		}
+	}
+}
+```
+
+- **路径段标记**：`NavPathResult.Links` 按路径顺序记录每一段穿越的 3D 离网连接（含 `StartIndex`、`EndIndex == StartIndex + 1`、`FromPoly`、`ToPoly`、`Start`、`End`、`Radius`、`Area`、`Flags`、`LinkID`、`UserData`），并提供 `HasLinks()` 与 `LinkAt(segmentIndex)`；`NavAgent` 会在 `NavLinkEvent` 中透传相同的 `Radius`、`Area` 与 `UserData`，并在 `Radius` 范围内触发连接穿越。
+- **捷径感知 3D 搜索与过滤**：A\* 按 `NavFilter` 对离网连接的 `Area` 与 `Flags` 过滤并按 `filter.AreaCost(link.Area)` 缩放代价，且针对低代价传送连接自动维护可采纳的 3D 启发式，确保仅在比步行更便宜时才走传送连接。
+- **YAML 持久化与场景摆放**：在场景对象上放置 `"nav_link"` 组件（`sceneformat.RegisterNavLink`、`sceneformat.ExtractNavLinks3D`、`sceneformat.ExtractBuiltNavLinks3D`）；`navbake3d.Geometry.AddSceneFile` 会自动将其写入 `*.navmesh.yaml` 的 `meshes[].links`，`navbake3d.Mesh.NavMesh` 加载时自动还原。
 
 ### 多边形区域代价、运行时标志与查询过滤器
 

@@ -72,7 +72,7 @@
       "additionalProperties": false
     },
     "Mesh": {
-      "description": "Mesh is the navigation mesh baked for one agent type: convex polygons over shared vertices, each with triangles that follow the height of the ground under it.",
+      "description": "Mesh is the navigation mesh baked for one agent type: convex polygons over shared vertices, each with triangles that follow the height of the ground under it, plus any point-to-point off-mesh links.",
       "type": "object",
       "properties": {
         "agent": {
@@ -101,8 +101,82 @@
           "items": {
             "$ref": "#/definitions/Polygon"
           }
+        },
+        "links": {
+          "description": "Links are optional point-to-point off-mesh connections (jumps, drops, ladders, teleports) applied by NavMesh.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/OffMeshLink"
+          }
         }
       },
+      "additionalProperties": false
+    },
+    "OffMeshLink": {
+      "description": "OffMeshLink is a point-to-point off-mesh connection stored in a baked 3D navigation mesh, such as a jump, drop-down, ladder, or teleporter.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "ID is an optional game-defined link identifier.",
+          "type": "integer",
+          "minimum": -9223372036854776000,
+          "maximum": 9223372036854776000
+        },
+        "start": {
+          "description": "Start is the world-space [x, y, z] entry point of the link.",
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": -3.4028234663852886e+38,
+            "maximum": 3.4028234663852886e+38
+          }
+        },
+        "end": {
+          "description": "End is the world-space [x, y, z] exit point of the link.",
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": -3.4028234663852886e+38,
+            "maximum": 3.4028234663852886e+38
+          }
+        },
+        "radius": {
+          "description": "Radius is the optional endpoint snap and entry tolerance in world units (>= 0).",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "bidirectional": {
+          "description": "Bidirectional allows traversal from End to Start as well as Start to End when true.",
+          "type": "boolean"
+        },
+        "cost": {
+          "description": "Cost overrides the A* traversal cost when positive; 0 uses 3D Euclidean distance.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "area": {
+          "description": "Area is the link's navigation area ID (0 for default).",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "flags": {
+          "description": "Flags holds optional custom link flag bits; world3d.NavLinkOffMesh is always added on load.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "userData": {
+          "description": "UserData holds optional game-defined metadata (such as \"jump\", \"ladder\", or \"teleport\").",
+          "type": "string"
+        }
+      },
+      "required": [
+        "start",
+        "end"
+      ],
       "additionalProperties": false
     },
     "Polygon": {

@@ -53,7 +53,8 @@ data, err := navbake3d.Encode(file) // 写入 levels/level1.navmesh.yaml
 | `AddTriangle`、`AddMesh` | 三角形，或按世界矩阵变换的带索引三角形列表；镜像矩阵会把绕序翻转回来 |
 | `AddGLTF` | glTF 文档默认场景中的每个网格，按其节点的世界变换放置；展开三角形带和三角扇，跳过点和线 |
 | `AddScene` | 每个不在已禁用节点子树中、`Layer` 与掩码有共同位的已启用 `scene3d` 节点，三角形来自一个 `NodeMesh`（`ColliderMesh` 读取 `*scene3d.MeshCollider`） |
-| `AddSceneFile` | 一个[场景文件](editor.md)：解析其实例化和继承的场景，构建 3D 节点树，并加载每个对象的 `model` 指定的 glTF 模型（`SceneMeshes`） |
+| `AddSceneFile` | 一个[场景文件](editor.md)：解析其实例化和继承的场景，构建 3D 节点树，加载每个对象的 `model` 指定的 glTF 模型（`SceneMeshes`），并提取所有配置的 `nav_link` 离网连接 |
+| `AddOffMeshLink` | 添加一条点对点 `OffMeshLink`（跳跃、跌落、梯子或传送门），烘焙时写入每个 `Mesh.Links` |
 | `AddHeightmap` | 一个 `world3d.Heightmap`，按其 `BuildMesh` 的方式三角化 |
 | `AddGridMap` | `world3d.GridMap` 每个已占用格子的碰撞盒 |
 | `AddPhysicsWorld` | `physics3d.World` 中层与掩码有共同位的静态刚体、三角网格、高度场和体素碰撞体；动态刚体、运动学刚体和触发器不计入，网格未实现 `physics3d.VoxelBoundsGrid` 的体素碰撞体也不计入，因为无法列出其实心体素 |
@@ -108,6 +109,7 @@ meshes:
 | `meshes[].polygons[].vertices` | 多边形各拐角在 `vertices` 中的索引，3 到 `maxVertsPerPoly` 个，沿多边形排列 |
 | `meshes[].polygons[].detail` | 在地面起伏处于多边形的边上和内部采样得到的额外顶点 |
 | `meshes[].polygons[].triangles` | 覆盖该多边形的三角形，从上方看为逆时针；小于多边形顶点数的索引 `i` 指它的第 `i` 个拐角，索引 `n + i` 指 `detail[i]` |
+| `meshes[].links` | 可选的点对点离网连接（`id`、`start: [x, y, z]`、`end: [x, y, z]`、`radius`、`bidirectional`、`cost`、`area`、`flags`、`userData`），由 `Mesh.NavMesh` 自动注册到 `world3d.NavMesh` |
 
 `Parse` 拒绝未知字段、缺失或不支持的版本、非有限坐标和越界索引，并给出行号、字段和修复方法；`Encode` 按上面的固定键顺序写出，加载后再保存不会改变文件。[文件格式](formats.md#3d-导航网格)把它与其他格式列在一起。
 

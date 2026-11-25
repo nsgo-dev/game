@@ -1541,6 +1541,8 @@ type NavMeshQuery struct {
 	portalLeft  []math3d.Vec3
 	portalRight []math3d.Vec3
 	corners     []funnelCorner
+	shortcuts   []navShortcut3D
+	pathLinks   []NavPathLink
 
 	// Reusable BFS / clipping buffers for RandomPointAround.
 	bfsGen       uint32
@@ -1718,6 +1720,8 @@ func (q *NavMeshQuery) runPortalAStar(start, goal math3d.Vec3, filter NavFilter,
 	}
 
 	minCost := minFilterCost3D(filter)
+	var zeroH bool
+	q.shortcuts, zeroH = buildNavShortcuts3D(nm, goal, minCost, filter, q.shortcuts)
 
 	directPossible := false
 	directCost := math.Inf(1)
@@ -1745,7 +1749,7 @@ func (q *NavMeshQuery) runPortalAStar(start, goal math3d.Vec3, filter NavFilter,
 				}
 			}
 		}
-		if directPossible && directCost <= minCost*dist3D(start, goal)+1e-9 {
+		if directPossible && directCost <= heuristic3D(start, goal, minCost, q.shortcuts, zeroH)+1e-9 {
 			q.parent[goalNode] = -1
 			return navAStarResult3D{
 				foundComplete: true,
@@ -1837,18 +1841,18 @@ func (q *NavMeshQuery) runPortalAStar(start, goal math3d.Vec3, filter NavFilter,
 			var g float64
 			var exitPt math3d.Vec3
 			if link.OffMesh {
-				cost := float64(link.Cost)
-				if !(cost > 0) {
-					cost = dist3D(link.Left, link.End)
+				cost, ok := nm.offMeshLinkCost3D(link, filter)
+				if !ok {
+					continue
 				}
-				g = dist3D(start, link.Left)*spCost + cost
+				g = float64(dist3D(start, link.Left)*spCost) + cost
 				exitPt = link.End
 			} else {
 				exitPt = bestPortalPoint3D(start, goal, link.Left, link.Right)
 				g = dist3D(start, exitPt) * spCost
 			}
 			if q.seen[pid] != gen || g < q.gScore[pid] {
-				h := dist3D(exitPt, goal) * minCost
+				h := heuristic3D(exitPt, goal, minCost, q.shortcuts, zeroH)
 				pushOrUpdate(pid, g, g+h, h, -1, exitPt)
 			}
 		}
@@ -1920,18 +1924,18 @@ func (q *NavMeshQuery) runPortalAStar(start, goal math3d.Vec3, filter NavFilter,
 			var ng float64
 			var exitPt math3d.Vec3
 			if nlink.OffMesh {
-				cost := float64(nlink.Cost)
-				if !(cost > 0) {
-					cost = dist3D(nlink.Left, nlink.End)
+				cost, ok := nm.offMeshLinkCost3D(nlink, filter)
+				if !ok {
+					continue
 				}
-				ng = curG + dist3D(curPt, nlink.Left)*toCost + cost
+				ng = curG + float64(dist3D(curPt, nlink.Left)*toCost) + cost
 				exitPt = nlink.End
 			} else {
 				exitPt = bestPortalPoint3D(curPt, goal, nlink.Left, nlink.Right)
 				ng = curG + dist3D(curPt, exitPt)*toCost
 			}
 			if q.seen[npid] != gen || ng < q.gScore[npid] {
-				h := dist3D(exitPt, goal) * minCost
+				h := heuristic3D(exitPt, goal, minCost, q.shortcuts, zeroH)
 				pushOrUpdate(npid, ng, ng+h, h, cur.id, exitPt)
 			}
 		}
@@ -1957,6 +1961,7 @@ func (q *NavMeshQuery) runPortalAStar(start, goal math3d.Vec3, filter NavFilter,
 
 // FindPathWithFilterAndOptionsInto runs a bounded or partial 3D NavMesh search restricted to filter under opts,
 // writing the resulting waypoints into dst[:0] and reusing q's internal buffers with zero heap allocations after warm-up.
+// The returned res.Links slice reuses q's internal buffer (like dst) and is overwritten on subsequent queries on q.
 func (q *NavMeshQuery) FindPathWithFilterAndOptionsInto(dst []math3d.Vec3, start, goal math3d.Vec3, filter NavFilter, opts ai.PathOptions) NavPathResult {
 	if q == nil || q.mesh == nil || len(q.mesh.Polys) == 0 || !isFiniteVec3(start) || !isFiniteVec3(goal) {
 		return NavPathResult{}
@@ -1979,7 +1984,7 @@ func (q *NavMeshQuery) FindPathWithFilterAndOptionsInto(dst []math3d.Vec3, start
 			return res
 		}
 		q.reconstructCorridorInto(q.parent[sr.goalNode])
-		res.Path = q.smoothCorridorInto(dst[:0], q.corridor, q.portals, sr.startSnapped, sr.goalSnapped)
+		res.Path, res.Links = q.smoothCorridorInto(dst[:0], q.corridor, q.portals, sr.startSnapped, sr.goalSnapped)
 		return res
 	}
 
@@ -1995,7 +2000,7 @@ func (q *NavMeshQuery) FindPathWithFilterAndOptionsInto(dst []math3d.Vec3, start
 			return res
 		}
 		q.reconstructCorridorInto(sr.bestPortalID)
-		res.Path = q.smoothCorridorInto(dst[:0], q.corridor, q.portals, sr.startSnapped, sr.bestPt)
+		res.Path, res.Links = q.smoothCorridorInto(dst[:0], q.corridor, q.portals, sr.startSnapped, sr.bestPt)
 		return res
 	}
 
@@ -2048,7 +2053,7 @@ func (q *NavMeshQuery) reconstructCorridorInto(lastPortalID int) {
 	}
 }
 
-func (q *NavMeshQuery) smoothCorridorInto(out []math3d.Vec3, corridor []int, portals []NavLink, start, goal math3d.Vec3) []math3d.Vec3 {
+func (q *NavMeshQuery) smoothCorridorInto(out []math3d.Vec3, corridor []int, portals []NavLink, start, goal math3d.Vec3) ([]math3d.Vec3, []NavPathLink) {
 	hasOffMesh := false
 	for _, p := range portals {
 		if p.OffMesh {
@@ -2057,9 +2062,10 @@ func (q *NavMeshQuery) smoothCorridorInto(out []math3d.Vec3, corridor []int, por
 		}
 	}
 	if !hasOffMesh {
-		return q.smoothCorridorSegmentInto(out, corridor, portals, start, goal)
+		return q.smoothCorridorSegmentInto(out, corridor, portals, start, goal), nil
 	}
 
+	q.pathLinks = q.pathLinks[:0]
 	segStart := start
 	segBegin := 0
 	for i, link := range portals {
@@ -2067,13 +2073,31 @@ func (q *NavMeshQuery) smoothCorridorInto(out []math3d.Vec3, corridor []int, por
 			continue
 		}
 		out = q.smoothCorridorSegmentInto(out, corridor[segBegin:i+1], portals[segBegin:i], segStart, link.Left)
-		if len(out) == 0 || !out[len(out)-1].ApproxEqual(link.End, 1e-4) {
-			out = append(out, link.End)
+		if len(out) == 0 {
+			out = append(out, link.Left)
 		}
+		startIdx := len(out) - 1
+		out = append(out, link.End)
+		endIdx := len(out) - 1
+		radius, area, _, userData := q.mesh.offMeshMeta(link)
+		q.pathLinks = append(q.pathLinks, NavPathLink{
+			StartIndex: startIdx,
+			EndIndex:   endIdx,
+			FromPoly:   corridor[i],
+			ToPoly:     link.Neighbor,
+			Start:      link.Left,
+			End:        link.End,
+			Radius:     radius,
+			Area:       area,
+			Flags:      link.Flags,
+			LinkID:     link.LinkID,
+			UserData:   userData,
+		})
 		segStart = link.End
 		segBegin = i + 1
 	}
-	return q.smoothCorridorSegmentInto(out, corridor[segBegin:], portals[segBegin:], segStart, goal)
+	out = q.smoothCorridorSegmentInto(out, corridor[segBegin:], portals[segBegin:], segStart, goal)
+	return out, q.pathLinks
 }
 
 func (q *NavMeshQuery) smoothCorridorSegmentInto(out []math3d.Vec3, corridor []int, portals []NavLink, start, goal math3d.Vec3) []math3d.Vec3 {
@@ -2296,6 +2320,7 @@ func (nm *NavMesh) FindPathWithFilterInto(dst []math3d.Vec3, start, goal math3d.
 
 // FindPathWithFilterAndOptionsInto behaves like FindPathWithFilterAndOptions but writes waypoints into dst[:0]
 // and reuses the mesh's internal search buffers with zero heap allocations after warm-up.
+// The returned res.Links slice reuses the mesh's internal query buffer (like dst) and is overwritten on subsequent queries.
 func (nm *NavMesh) FindPathWithFilterAndOptionsInto(dst []math3d.Vec3, start, goal math3d.Vec3, filter NavFilter, opts ai.PathOptions) NavPathResult {
 	if nm == nil {
 		return NavPathResult{}

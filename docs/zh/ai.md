@@ -199,9 +199,41 @@ _ = waypoints
 _ = ok
 ```
 
-可通过 `Contains(p)`、`FindPolygon(p)`、`NearestPolygon(p)`、`Neighbors(index)`、`Polygon(index)`、`PolygonCount()` 和 `FindCorridor(start, goal)` 查询网格几何信息；通过 `AddOffMeshLink(NavOffMeshLink{...})` 添加离网连接，通过 `SetEdgeFlags(fromPoly, toPoly, flags)` 标记共享边。
+可通过 `Contains(p)`、`FindPolygon(p)`、`NearestPolygon(p)`、`Neighbors(index)`、`Polygon(index)`、`PolygonCount()` 和 `FindCorridor(start, goal)` 查询网格几何信息；通过 `AddOffMeshLink(NavOffMeshLink{...})` 添加离网连接，通过 `OffMeshLinks()` 与 `ClearOffMeshLinks()` 查询或清除离网连接，通过 `SetEdgeFlags(fromPoly, toPoly, flags)` 标记共享边。
 
 若要把关卡切分成这些多边形，并让路径与墙保持代理半径的距离，可用 [navbake](navbake.md) 从关卡的外轮廓与障碍物或从 tilemap 烘焙网格。
+
+### 离网连接（跳跃、梯子与传送门）
+
+使用 `AddOffMeshLink` 连接不共享边的多边形，例如单向跌落、跨隙跳跃、双向梯子、门或传送门：
+
+```go
+mesh.AddOffMeshLink(ai.NavOffMeshLink{
+	Start:         core.Point{X: 90, Y: 40},
+	End:           core.Point{X: 140, Y: 40},
+	Radius:        4, // 将距边缘 4 单位以内的端点吸附到多边形，并作为智能体进入半径
+	Bidirectional: false,
+	Cost:          12, // <= 0 时使用欧氏距离
+	Area:          ai.NavAreaJump,
+	Flags:         uint32(ai.NavFlagJump),
+	ID:            1,
+	UserData:      "drop",
+})
+
+res := mesh.FindPathWithOptions(start, goal, ai.PathOptions{})
+if res.Found {
+	for i := 0; i+1 < len(res.Path); i++ {
+		if link, ok := res.LinkAt(i); ok {
+			// 路径段 Path[link.StartIndex] -> Path[link.EndIndex] 穿越一条离网连接。
+			_ = link.UserData
+		}
+	}
+}
+```
+
+- **路径段标记**：`NavPathResult.Links` 按路径顺序记录每一段穿越的离网连接（含 `StartIndex`、`EndIndex == StartIndex + 1`、`FromPoly`、`ToPoly`、`Start`、`End`、`Radius`、`Area`、`Flags`、`LinkID`、`UserData`），并提供 `HasLinks()` 与 `LinkAt(segmentIndex)` 辅助方法；共线路径简化不会折叠连接的起止点。
+- **捷径感知最优搜索与过滤**：A\* 将离网连接视为有向边（`Bidirectional` 为 `true` 时双向建边），按 `NavFilter` 对其 `Area` 与 `Flags`（含 `NavAreaJump`、`NavAreaClimb`、`NavAreaTeleport`、`NavFlagJump`、`NavFlagClimb`、`NavFlagTeleport`）进行过滤并按 `filter.AreaCost(link.Area)` 缩放代价；当存在代价低于直线距离的传送连接时自动调整启发式以保持可采纳性，确保仅在比步行更便宜时才选用传送连接。
+- **YAML 持久化与场景摆放**：可在 2D 烘焙网格 YAML 中通过 `navbake.Source.Links` / `navbake.Mesh.Links` 保存离网连接（`navbake.Mesh.NavMesh` 加载时自动注册），或在场景对象上挂载内置 `"nav_link"` 组件（`sceneformat.RegisterNavLink`、`sceneformat.ExtractNavLinks2D`、`sceneformat.ExtractBuiltNavLinks2D`）。
 
 ### 导航智能体与路径走廊（`NavAgent`、`NavAgentGroup`）
 

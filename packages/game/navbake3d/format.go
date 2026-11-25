@@ -32,7 +32,7 @@ type File struct {
 	Meshes []Mesh `yaml:"meshes,omitempty"`
 }
 
-// Mesh is the navigation mesh baked for one agent type: convex polygons over shared vertices, each with triangles that follow the height of the ground under it.
+// Mesh is the navigation mesh baked for one agent type: convex polygons over shared vertices, each with triangles that follow the height of the ground under it, plus any point-to-point off-mesh links.
 type Mesh struct {
 	// Agent is the agent type the mesh was baked for, every field set.
 	Agent AgentType `yaml:"agent"`
@@ -40,6 +40,31 @@ type Mesh struct {
 	Vertices []Point `yaml:"vertices,omitempty"`
 	// Polygons are the mesh's convex walkable polygons.
 	Polygons []Polygon `yaml:"polygons,omitempty"`
+	// Links are optional point-to-point off-mesh connections (jumps, drops, ladders, teleports) applied by NavMesh.
+	Links []OffMeshLink `yaml:"links,omitempty"`
+}
+
+// OffMeshLink is a point-to-point off-mesh connection stored in a baked 3D navigation mesh,
+// such as a jump, drop-down, ladder, or teleporter.
+type OffMeshLink struct {
+	// ID is an optional game-defined link identifier.
+	ID int `yaml:"id,omitempty"`
+	// Start is the world-space [x, y, z] entry point of the link.
+	Start Point `yaml:"start" schema:"required"`
+	// End is the world-space [x, y, z] exit point of the link.
+	End Point `yaml:"end" schema:"required"`
+	// Radius is the optional endpoint snap and entry tolerance in world units (>= 0).
+	Radius float32 `yaml:"radius,omitempty" schema:"minimum=0"`
+	// Bidirectional allows traversal from End to Start as well as Start to End when true.
+	Bidirectional bool `yaml:"bidirectional,omitempty"`
+	// Cost overrides the A* traversal cost when positive; 0 uses 3D Euclidean distance.
+	Cost float32 `yaml:"cost,omitempty" schema:"minimum=0"`
+	// Area is the link's navigation area ID (0 for default).
+	Area world3d.NavArea `yaml:"area,omitempty"`
+	// Flags holds optional custom link flag bits; world3d.NavLinkOffMesh is always added on load.
+	Flags uint32 `yaml:"flags,omitempty"`
+	// UserData holds optional game-defined metadata (such as "jump", "ladder", or "teleport").
+	UserData string `yaml:"userData,omitempty"`
 }
 
 // Polygon is one convex walkable polygon of a Mesh with its height detail.
@@ -190,6 +215,27 @@ func Validate(f *File) error {
 				return err
 			}
 		}
+		for li := range m.Links {
+			if err := validateOffMeshLink(&m.Links[li], loaderr.Path("meshes", mi, "links", li)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func validateOffMeshLink(l *OffMeshLink, at string) error {
+	if !finite32(l.Start[0]) || !finite32(l.Start[1]) || !finite32(l.Start[2]) {
+		return fieldError(at+".start", "navbake3d: off-mesh link start has a non-finite coordinate")
+	}
+	if !finite32(l.End[0]) || !finite32(l.End[1]) || !finite32(l.End[2]) {
+		return fieldError(at+".end", "navbake3d: off-mesh link end has a non-finite coordinate")
+	}
+	if !finite32(l.Radius) || l.Radius < 0 {
+		return fieldError(at+".radius", "navbake3d: off-mesh link radius %v must be finite and >= 0", l.Radius)
+	}
+	if !finite32(l.Cost) || l.Cost < 0 {
+		return fieldError(at+".cost", "navbake3d: off-mesh link cost %v must be finite and >= 0", l.Cost)
 	}
 	return nil
 }
@@ -257,7 +303,7 @@ func (m *Mesh) TriangleVertices(p *Polygon, t Triangle) [3]math3d.Vec3 {
 	return out
 }
 
-// NavMesh builds the world3d.NavMesh agents path find on from m: each detail triangle becomes one of its walkable polygons, linked to its neighbours across shared edges, so paths follow ramps, stairs and terrain at the baked heights and keep stacked floors apart. The bake already decided what is walkable, so no triangle is dropped for its slope. m must be valid, as Parse and Bake return it.
+// NavMesh builds the world3d.NavMesh agents path find on from m: each detail triangle becomes one of its walkable polygons, linked to its neighbours across shared edges, so paths follow ramps, stairs and terrain at the baked heights and keep stacked floors apart. Any OffMeshLinks stored in m.Links are registered via AddOffMeshLink. The bake already decided what is walkable, so no triangle is dropped for its slope. m must be valid, as Parse and Bake return it.
 func (m *Mesh) NavMesh() *world3d.NavMesh {
 	var polys [][]math3d.Vec3
 	for pi := range m.Polygons {
@@ -269,5 +315,22 @@ func (m *Mesh) NavMesh() *world3d.NavMesh {
 	}
 	nm := world3d.BuildNavMesh(polys, math.Pi/2)
 	nm.VerticalTolerance = max(m.Agent.Height, m.Agent.MaxClimb)
+	for _, l := range m.Links {
+		var ud any
+		if l.UserData != "" {
+			ud = l.UserData
+		}
+		nm.AddOffMeshLink(world3d.NavOffMeshLink{
+			Start:         l.Start.Vec3(),
+			End:           l.End.Vec3(),
+			Radius:        l.Radius,
+			Bidirectional: l.Bidirectional,
+			Flags:         l.Flags,
+			ID:            l.ID,
+			Cost:          l.Cost,
+			Area:          l.Area,
+			UserData:      ud,
+		})
+	}
 	return nm
 }

@@ -44,8 +44,11 @@ type NavLinkEvent struct {
 	ToPoly   int
 	Start    math3d.Vec3
 	End      math3d.Vec3
+	Radius   float32
+	Area     NavArea
 	Flags    uint32
 	LinkID   int
+	UserData any
 	OffMesh  bool
 }
 
@@ -392,7 +395,8 @@ func (a *NavAgent) Path() []math3d.Vec3 {
 		}
 		return []math3d.Vec3{a.pos, a.target}
 	}
-	return a.mesh.smoothCorridor(a.corridor, a.portals, a.pos, a.target)
+	path, _ := a.mesh.smoothCorridorWithLinks(a.corridor, a.portals, a.pos, a.target)
+	return path
 }
 
 // Step advances the 3D agent by fixed duration dt: ticks replan cooldown, detects mesh changes,
@@ -533,15 +537,19 @@ func (a *NavAgent) stepMovement(dt time.Duration) {
 
 	if offMeshIdx == 0 && len(a.portals) > 0 {
 		link := a.portals[0]
-		entryRadius := max(float64(a.cfg.StoppingDistance), float64(a.cfg.MaxSpeed)*secs*0.5)
+		radius, area, _, userData := a.mesh.offMeshMeta(link)
+		entryRadius := max(float64(a.cfg.StoppingDistance), float64(a.cfg.MaxSpeed)*secs*0.5, float64(radius))
 		if float64(a.pos.Dist(link.Left)) <= entryRadius {
 			a.beginLinkTraversal(NavLinkEvent{
 				FromPoly: a.corridor[0],
 				ToPoly:   link.Neighbor,
 				Start:    link.Left,
 				End:      link.End,
+				Radius:   radius,
+				Area:     area,
 				Flags:    link.Flags,
 				LinkID:   link.LinkID,
+				UserData: userData,
 				OffMesh:  true,
 			})
 			a.stepLinkTraversal(dt)
