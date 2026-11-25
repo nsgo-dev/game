@@ -22,6 +22,16 @@ func ExampleAStar() {
 	// [{0 0} {1 0} {1 1} {1 2} {2 2} {3 2} {3 1} {3 0} {4 0}]
 }
 
+// SmoothGridPath turns a grid A* path into world-space waypoints while keeping a body radius clear of blocked cells.
+func ExampleSmoothGridPath() {
+	grid := ai.NewBoolGrid(6, 4)
+	path, _, _ := ai.NewAStar().Find(grid, ai.Cell{Col: 0, Row: 0}, ai.Cell{Col: 5, Row: 3})
+	waypoints := ai.SmoothGridPath(grid, path, ai.GridPathOptions{CellSize: 16, Radius: 5})
+	fmt.Println(len(path), "->", len(waypoints), waypoints)
+	// Output:
+	// 9 -> 2 [{8 8} {88 56}]
+}
+
 // A CostMap makes some cells dearer to cross, so AStar goes around them when that is cheaper.
 func ExampleCostMap() {
 	m := ai.NewCostMap(3, 3)

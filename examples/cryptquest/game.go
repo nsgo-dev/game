@@ -26,6 +26,7 @@ const (
 
 	playerHitboxSize = 10
 	enemyHitboxSize  = 10
+	enemyPathRadius  = float32(enemyHitboxSize) * 0.5 * math.Sqrt2
 	playerSpeed      = 68
 	enemyPatrolSpeed = 34
 	enemyChaseSpeed  = 48
@@ -111,6 +112,7 @@ type Enemy struct {
 	Alerted       bool
 	Defeated      bool
 	Path          []ai.Cell
+	SmoothPath    []core.Point
 	PathStep      int
 	RepathTimer   time.Duration
 	LastGoal      ai.Cell
@@ -309,6 +311,7 @@ func (g *Game) newEnemy(sp EnemySpawn) *Enemy {
 		Waypoints:     slices.Clone(sp.Waypoints),
 		WaypointIndex: 1 % len(sp.Waypoints),
 		Path:          make([]ai.Cell, 0, 64),
+		SmoothPath:    make([]core.Point, 0, 64),
 		Anim: sprite.Animation{
 			Loop: true,
 			Frames: []sprite.AnimationFrame{
@@ -345,6 +348,7 @@ func (g *Game) newEnemy(sp EnemySpawn) *Enemy {
 		Enter: func() {
 			e.Defeated = true
 			e.Path = e.Path[:0]
+			e.SmoothPath = e.SmoothPath[:0]
 			e.Body.VX, e.Body.VY = 0, 0
 		},
 	})
@@ -710,19 +714,26 @@ func (g *Game) enemyShouldKeepChasing(e *Enemy) bool {
 	return distPoints(e.Center(), g.PlayerCenter()) <= loseAggroRadius
 }
 
+var enemyPathOptions = ai.GridPathOptions{
+	CellSize: TileSize,
+	Radius:   enemyPathRadius,
+}
+
 func (g *Game) planEnemyPath(e *Enemy, goal ai.Cell) bool {
 	ep := e.Center()
 	start := g.World.CellAt(float32(ep.X), float32(ep.Y))
-	// Reuse both AStar internal search buffers and e.Path slice capacity.
+	// Reuse AStar internal search buffers, e.Path cell slice, and e.SmoothPath world-space waypoints.
 	path, _, ok := g.astar.FindInto(e.Path, g.World.Nav, start, goal)
 	if !ok {
 		e.Path = e.Path[:0]
+		e.SmoothPath = e.SmoothPath[:0]
 		e.PathStep = 0
 		return false
 	}
 	e.Path = path
+	e.SmoothPath = ai.SmoothGridPathInto(e.SmoothPath, g.World.Nav, e.Path, enemyPathOptions)
 	e.LastGoal = goal
-	if len(e.Path) > 1 {
+	if len(e.SmoothPath) > 1 {
 		e.PathStep = 1
 	} else {
 		e.PathStep = 0
@@ -740,7 +751,7 @@ func (g *Game) stepEnemyPatrol(e *Enemy, dt time.Duration) {
 		e.WaypointIndex = (e.WaypointIndex + 1) % len(e.Waypoints)
 		targetCell = e.Waypoints[e.WaypointIndex]
 		g.planEnemyPath(e, targetCell)
-	} else if len(e.Path) == 0 || e.LastGoal != targetCell {
+	} else if len(e.SmoothPath) == 0 || e.LastGoal != targetCell {
 		g.planEnemyPath(e, targetCell)
 	}
 	g.followEnemyPath(e, enemyPatrolSpeed, dt)
@@ -749,7 +760,7 @@ func (g *Game) stepEnemyPatrol(e *Enemy, dt time.Duration) {
 func (g *Game) stepEnemyChase(e *Enemy, dt time.Duration) {
 	e.RepathTimer -= dt
 	playerCell := g.PlayerCell()
-	if e.RepathTimer <= 0 || e.LastGoal != playerCell || len(e.Path) == 0 {
+	if e.RepathTimer <= 0 || e.LastGoal != playerCell || len(e.SmoothPath) == 0 {
 		g.planEnemyPath(e, playerCell)
 		e.RepathTimer = repathInterval
 	}
@@ -757,21 +768,21 @@ func (g *Game) stepEnemyChase(e *Enemy, dt time.Duration) {
 }
 
 func (g *Game) followEnemyPath(e *Enemy, speed float32, dt time.Duration) {
-	if len(e.Path) == 0 {
+	if len(e.SmoothPath) == 0 {
 		e.Body.VX, e.Body.VY = 0, 0
 		return
 	}
-	if e.PathStep >= len(e.Path) {
-		e.PathStep = len(e.Path) - 1
+	if e.PathStep >= len(e.SmoothPath) {
+		e.PathStep = len(e.SmoothPath) - 1
 	}
 	ep := e.Center()
-	wp := g.World.CellCenter(e.Path[e.PathStep])
+	wp := e.SmoothPath[e.PathStep]
 	dx := float32(wp.X - ep.X)
 	dy := float32(wp.Y - ep.Y)
 	dist := float32(math.Hypot(float64(dx), float64(dy)))
-	if dist <= 2.5 && e.PathStep+1 < len(e.Path) {
+	if dist <= 2.5 && e.PathStep+1 < len(e.SmoothPath) {
 		e.PathStep++
-		wp = g.World.CellCenter(e.Path[e.PathStep])
+		wp = e.SmoothPath[e.PathStep]
 		dx = float32(wp.X - ep.X)
 		dy = float32(wp.Y - ep.Y)
 		dist = float32(math.Hypot(float64(dx), float64(dy)))
@@ -918,6 +929,7 @@ func (g *Game) Load() error {
 			e.WaypointIndex = es.WaypointIndex % len(e.Waypoints)
 		}
 		e.Path = e.Path[:0]
+		e.SmoothPath = e.SmoothPath[:0]
 		e.PathStep = 0
 		switch es.State {
 		case EnemyDefeated:
@@ -1014,13 +1026,13 @@ func (g *Game) Draw(d *core.Drawing, window core.Size) {
 
 func (g *Game) drawEnemyPaths(d *core.Drawing) {
 	for _, e := range g.Enemies {
-		if e.Defeated || e.State.Current() != EnemyChase || len(e.Path) < 2 {
+		if e.Defeated || e.State.Current() != EnemyChase || len(e.SmoothPath) < 2 {
 			continue
 		}
 		d.Save()
 		d.SetFillColor(core.RGBA(0xea3e44, 0.55))
-		for i := e.PathStep; i < len(e.Path); i++ {
-			c := g.World.CellCenter(e.Path[i])
+		for i := e.PathStep; i < len(e.SmoothPath); i++ {
+			c := e.SmoothPath[i]
 			d.BeginPath().Arc(float32(c.X), float32(c.Y), 1.8, 0, 2*math.Pi, false).Fill()
 		}
 		d.Restore()

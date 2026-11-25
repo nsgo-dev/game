@@ -48,6 +48,7 @@ func TestEnemyPathfindsAroundWallsWithAStar(t *testing.T) {
 		t.Fatalf("expected first enemy bone-warden, got %q", warden.ID)
 	}
 	initialCap := cap(warden.Path)
+	initialSmoothCap := cap(warden.SmoothPath)
 
 	// Advance a few frames so flow.Machine transitions Patrol -> Chase and plans A* path.
 	app.Advance(100 * time.Millisecond)
@@ -60,6 +61,14 @@ func TestEnemyPathfindsAroundWallsWithAStar(t *testing.T) {
 	}
 	if len(warden.Path) < 4 {
 		t.Fatalf("expected multi-step A* path around wall, got len=%d (%v)", len(warden.Path), warden.Path)
+	}
+	if len(warden.SmoothPath) < 2 || len(warden.SmoothPath) >= len(warden.Path) {
+		t.Fatalf("expected SmoothGridPathInto to drop intermediate cells: smooth=%d raw=%d (%v)", len(warden.SmoothPath), len(warden.Path), warden.SmoothPath)
+	}
+	for i := 0; i+1 < len(warden.SmoothPath); i++ {
+		if !ai.GridLineOfSight(g.World.Nav, warden.SmoothPath[i], warden.SmoothPath[i+1], enemyPathOptions) {
+			t.Fatalf("smoothed segment %d (%v -> %v) violated clearance radius %.2f", i, warden.SmoothPath[i], warden.SmoothPath[i+1], enemyPathRadius)
+		}
 	}
 
 	passedDoorway := false
@@ -77,6 +86,9 @@ func TestEnemyPathfindsAroundWallsWithAStar(t *testing.T) {
 	if warden.Path[len(warden.Path)-1] != targetCell {
 		t.Fatalf("A* path goal = %+v, want %+v", warden.Path[len(warden.Path)-1], targetCell)
 	}
+	if warden.SmoothPath[len(warden.SmoothPath)-1] != targetPos {
+		t.Fatalf("smoothed path goal = %+v, want %+v", warden.SmoothPath[len(warden.SmoothPath)-1], targetPos)
+	}
 
 	startPos := warden.Center()
 	// Advance simulation so the skeleton actively navigates around the wall.
@@ -87,6 +99,9 @@ func TestEnemyPathfindsAroundWallsWithAStar(t *testing.T) {
 	}
 	if cap(warden.Path) != initialCap {
 		t.Fatalf("expected A* FindInto to reuse path buffer capacity %d, got %d", initialCap, cap(warden.Path))
+	}
+	if cap(warden.SmoothPath) != initialSmoothCap {
+		t.Fatalf("expected SmoothGridPathInto to reuse smoothed path buffer capacity %d, got %d", initialSmoothCap, cap(warden.SmoothPath))
 	}
 }
 

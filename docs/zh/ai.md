@@ -37,6 +37,27 @@ _ = ok
 
 使用 `astar.FindInto(dst, grid, start, goal)` 可把结果写入调用方提供的 `[]ai.Cell` 切片，实现每次寻路零堆分配。若项目尚未接入瓦片地图，可直接使用扁平切片网格 `NewBoolGrid` 或 `NewCostMap`。
 
+### 视线路径平滑与任意角度搜索（Theta*）
+
+网格 A* 产出的逐格路径在使用 `FollowPath` 跟踪时往往呈阶梯状。可使用 `SmoothGridPath` 或复用缓冲区的 `SmoothGridPathInto` 将格子路径转换为平滑的世界坐标航点：
+
+```go
+opts := ai.GridPathOptions{
+	Origin:   core.Point{X: 0, Y: 0},
+	CellSize: 16,
+	Radius:   6, // 保证圆形碰撞半径与所有阻挡格保持安全距离
+}
+
+rawCells, _, ok := astar.FindInto(cellBuf, grid, startCell, goalCell)
+if ok {
+	waypoints = ai.SmoothGridPathInto(waypoints, grid, rawCells, opts)
+}
+```
+
+- **带半径间隙的视线检查**：只要两个保留航点之间的直线段与任意阻挡格（`!grid.Walkable(col, row)`）的距离都不小于 `Radius`，`SmoothGridPath` / `SmoothGridPathInto` 就会剔除中间冗余格子。矩形瓦片可设置 `CellWidth` / `CellHeight` 覆盖 `CellSize`，也可直接调用 `ai.GridLineOfSight(grid, a, b, opts)` 和 `opts.CellCenter(cell)`。
+- **零堆分配缓冲区复用**：`SmoothGridPathInto(dst, grid, cells, opts)` 将结果写入 `dst[:0]`，当 `dst` 容量足够时全程零堆分配。
+- **任意角度（Theta*）搜索**：在方形网格拓扑（`TopologySquare`、`TopologySquare4`、`TopologySquare8`）上将 `astar.AnyAngle` 设为 `true`，搜索会在格心视线穿过均匀代价可行走格时直接连接祖先节点（遵守 `NoCornerCutting`，且不会抄近路穿过高代价 `CostGrid` 地形）。若需要正值实体 `Radius` 的安全间隙，建议配合常规逐格 `AStar`（`AnyAngle: false`）再调用 `SmoothGridPathInto`，以保留绕角所需的拐点格。
+
 ### 六边形与交错等距拓扑
 
 通过 `ai.TopologyFromTilemap(m)` 自动匹配任意 `tilemap.Tilemap` 的网格拓扑，或手动指定 `astar.Topology`（`TopologySquare`、`TopologySquare4`、`TopologySquare8`、`TopologyHexPointyOdd`、`TopologyHexPointyEven`、`TopologyHexFlatOdd`、`TopologyHexFlatEven`、`TopologyStaggeredYOdd`、`TopologyStaggeredYEven`、`TopologyStaggeredXOdd`、`TopologyStaggeredXEven`）：

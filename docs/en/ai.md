@@ -37,6 +37,27 @@ _ = ok
 
 Use `astar.FindInto(dst, grid, start, goal)` to reuse a caller-owned `[]ai.Cell` buffer with zero allocations per search. `NewBoolGrid` and `NewCostMap` provide flat-slice grids when you do not already have a tilemap.
 
+### Line-of-sight path smoothing and any-angle search
+
+Tile-grid A* paths step from cell to cell and look jagged when followed with `FollowPath`. Convert a cell path into smooth world-space waypoints with `SmoothGridPath` or the buffer-reusing `SmoothGridPathInto`:
+
+```go
+opts := ai.GridPathOptions{
+	Origin:   core.Point{X: 0, Y: 0},
+	CellSize: 16,
+	Radius:   6, // keep circular body radius clear of every blocked cell
+}
+
+rawCells, _, ok := astar.FindInto(cellBuf, grid, startCell, goalCell)
+if ok {
+	waypoints = ai.SmoothGridPathInto(waypoints, grid, rawCells, opts)
+}
+```
+
+- **Radius-aware line of sight**: `SmoothGridPath` / `SmoothGridPathInto` drops intermediate cells whenever the straight segment between kept waypoints stays at least `Radius` away from every blocked cell (`!grid.Walkable(col, row)`). Set `CellWidth` / `CellHeight` instead of `CellSize` for rectangular tiles, and call `ai.GridLineOfSight(grid, a, b, opts)` or `opts.CellCenter(cell)` directly when needed.
+- **Zero-allocation buffer reuse**: `SmoothGridPathInto(dst, grid, cells, opts)` writes into `dst[:0]` with `0` heap allocations once `dst` has enough capacity.
+- **Any-angle (Theta*) search**: set `astar.AnyAngle = true` on square grids (`TopologySquare`, `TopologySquare4`, `TopologySquare8`) to relax neighbors directly from an ancestor cell whenever line of sight between cell centers crosses uniform-cost walkable cells (respecting `NoCornerCutting` and avoiding expensive `CostGrid` cells). When smoothing for a positive body `Radius`, prefer standard cell-by-cell `AStar` (`AnyAngle: false`) followed by `SmoothGridPathInto` so corner cells remain available when the body radius cannot clear a corner directly.
+
 ### Hexagonal and staggered topologies
 
 Set `astar.Topology` to match any `tilemap.Tilemap` orientation via `ai.TopologyFromTilemap(m)` or pick a topology explicitly (`TopologySquare`, `TopologySquare4`, `TopologySquare8`, `TopologyHexPointyOdd`, `TopologyHexPointyEven`, `TopologyHexFlatOdd`, `TopologyHexFlatEven`, `TopologyStaggeredYOdd`, `TopologyStaggeredYEven`, `TopologyStaggeredXOdd`, `TopologyStaggeredXEven`):
