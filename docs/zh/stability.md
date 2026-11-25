@@ -129,6 +129,7 @@
 | `game/pixelfx/critters` | 实验性 | [pixelfx](pixelfx.md) |
 | `game/pixelfx/explosions` | 实验性 | [pixelfx](pixelfx.md) |
 | `game/pixelfx/fire` | 实验性 | [pixelfx](pixelfx.md) |
+| `game/pixelfx/holy` | 实验性 | [pixelfx](pixelfx.md) |
 | `game/pixelfx/ice` | 实验性 | [pixelfx](pixelfx.md) |
 | `game/pixelfx/impacts` | 实验性 | [pixelfx](pixelfx.md) |
 | `game/pixelfx/lightning` | 实验性 | [pixelfx](pixelfx.md) |
