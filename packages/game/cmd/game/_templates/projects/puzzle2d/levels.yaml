@@ -1,0 +1,87 @@
+version: 1
+levels:
+  - id: first-light
+    name: First Light
+    moves: 6
+    stars:
+      three: 3
+      two: 4
+    rows:
+      - '#######'
+      - '#S...o#'
+      - '#.###.#'
+      - '#o....#'
+      - '#######'
+  - id: mind-the-void
+    name: Mind the Void
+    moves: 6
+    stars:
+      three: 3
+      two: 4
+    rows:
+      - '#######'
+      - '#S..x.#'
+      - '#.#...#'
+      - '#.#.#o#'
+      - '#o....#'
+      - '#######'
+  - id: detour
+    name: Detour
+    moves: 7
+    stars:
+      three: 4
+      two: 5
+    rows:
+      - '#######'
+      - '#.o.#.#'
+      - '#..S.o#'
+      - '#....##'
+      - '#.#.#.#'
+      - '#...x.#'
+      - '#######'
+  - id: crossroads
+    name: Crossroads
+    moves: 8
+    stars:
+      three: 5
+      two: 6
+    rows:
+      - '#######'
+      - '##...o#'
+      - '#....S#'
+      - '#..x..#'
+      - '#..o..#'
+      - '##.x.o#'
+      - '#.#...#'
+      - '#######'
+  - id: lantern-row
+    name: Lantern Row
+    moves: 9
+    stars:
+      three: 6
+      two: 7
+    rows:
+      - '########'
+      - '#...#..#'
+      - '#..o.o.#'
+      - '#.S.o..#'
+      - '#x#..#.#'
+      - '#..#x..#'
+      - '#...#..#'
+      - '########'
+  - id: night-garden
+    name: Night Garden
+    moves: 11
+    stars:
+      three: 7
+      two: 9
+    rows:
+      - '########'
+      - '##x##..#'
+      - '#S...o.#'
+      - '#..#...#'
+      - '##o#...#'
+      - '#...x..#'
+      - '#oo..#.#'
+      - '#...#.x#'
+      - '########'
