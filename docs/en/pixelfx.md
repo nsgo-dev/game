@@ -20,8 +20,9 @@ The port follows pixelfx at commit `5294518ce7c72e48b6100a744596e0acf57f2826` wi
 | `game/pixelfx/explosions` | Explosions: the small explosion so far |
 | `game/pixelfx/impacts` | Impacts: the ground slam so far |
 | `game/pixelfx/moves` | Moves acted out by a character: the ground pound so far |
+| `game/pixelfx/pickups` | Pickups: chest open, coin spin, collect burst, crystal shard, gem spin, heart pickup, key glint, loot beam, potion, power star and XP orb |
 
-Effects live in one subpackage per category, which registers its effects as `"<category>/<name>"` when it is imported, so a game links only the categories it imports. The other categories of pixelfx (water, ice, lightning, sci-fi, melee, projectiles, spawn, arcane, holy, shadow, status, nature, weather, ui, pickups, transitions, critters) follow one change each, as [Porting a category](#porting-a-category) describes.
+Effects live in one subpackage per category, which registers its effects as `"<category>/<name>"` when it is imported, so a game links only the categories it imports. The other categories of pixelfx (water, ice, lightning, sci-fi, melee, projectiles, spawn, arcane, holy, shadow, status, nature, weather, ui, transitions, critters) follow one change each, as [Porting a category](#porting-a-category) describes.
 
 ## Playing an effect
 
