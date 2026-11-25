@@ -69,10 +69,33 @@ func (b *RigidBody) awakeDynamic() bool {
 	return b != nil && !b.Static && !b.sleeping
 }
 
-// wakeIfSleeping wakes b when it is asleep.
+// wakeIfSleeping wakes b when it is non-nil and asleep.
 func (b *RigidBody) wakeIfSleeping() {
-	if b.sleeping {
+	if b != nil && b.sleeping {
 		b.Wake()
+	}
+}
+
+// wakePartners wakes every sleeping body partnered with b in the contact cache or in a joint.
+func (w *RigidWorld) wakePartners(b *RigidBody) {
+	for i := range w.contacts {
+		a, c := w.contacts[i].key.a, w.contacts[i].key.b
+		if a == b {
+			c.wakeIfSleeping()
+		} else if c == b {
+			a.wakeIfSleeping()
+		}
+	}
+	for _, j := range w.Joints {
+		if j == nil {
+			continue
+		}
+		a, c := jointPair(j)
+		if a == b {
+			c.wakeIfSleeping()
+		} else if c == b {
+			a.wakeIfSleeping()
+		}
 	}
 }
 
@@ -216,6 +239,33 @@ func (w *RigidWorld) wakeDisturbed(areas []activeAreaEntry) {
 			b.wakeIfSleeping()
 		case inA && !inB:
 			a.wakeIfSleeping()
+		case inA && inB:
+			if a.Static && a.movedSinceStep() {
+				b.wakeIfSleeping()
+			}
+			if b.Static && b.movedSinceStep() {
+				a.wakeIfSleeping()
+			}
+		}
+	}
+	for _, j := range w.Joints {
+		if j == nil {
+			continue
+		}
+		a, b := jointPair(j)
+		if a == nil || b == nil {
+			continue
+		}
+		inA, inB := w.inWorld(a), w.inWorld(b)
+		switch {
+		case !inA && inB:
+			if a.restValid {
+				b.wakeIfSleeping()
+			}
+		case inA && !inB:
+			if b.restValid {
+				a.wakeIfSleeping()
+			}
 		case inA && inB:
 			if a.Static && a.movedSinceStep() {
 				b.wakeIfSleeping()
@@ -424,7 +474,7 @@ func (w *RigidWorld) updateSleep(manifolds []rigidManifold, joints []Joint, area
 			continue
 		}
 		vx, vy, av := float64(b.VX), float64(b.VY), float64(b.AngularVel)
-		if float64(vx*vx)+float64(vy*vy) > linTolSq || float64(av*av) > angTolSq {
+		if !(float64(vx*vx)+float64(vy*vy) <= linTolSq) || !(float64(av*av) <= angTolSq) {
 			b.sleepTime = 0
 			continue
 		}

@@ -295,7 +295,7 @@ func staticPiece(st *RigidBody, sub int) (hull, bool) {
 
 // sweepHullAgainst runs conservative advancement of b along its motion against target and records an impact earlier than best. The time advances by the gap over the fastest approach along the normal, the translation's component plus the most rotation can bring a core point closer, so it never passes the surface.
 func sweepHullAgainst(b *RigidBody, target *hull, st *RigidBody, x0, y0, a0, dx, dy, da, reach, half float64, best *ccdHit) {
-	spin := math.Abs(da) * reach
+	spin := float64(math.Abs(da) * reach)
 	t := 0.0
 	for iter := range ccdMaxIterations {
 		h, _, _, ok := b.sweepHull(x0+float64(dx*t), y0+float64(dy*t), a0+float64(da*t))
