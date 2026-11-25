@@ -20,9 +20,14 @@ Implement a lightweight, pure-Go, deterministic 2D rigid-body and constraint sol
 - **Velocity resolution**: Sequential impulse solver (`RigidWorld.SolverIterations`, defaulting to 10) with accumulated normal and Coulomb friction clamping and a velocity threshold on restitution to prevent micro-bouncing in resting stacks.
 - **Positional correction**: Direct linear projection with slop (`0.01`) after position integration, resolving residual overlap without injecting artificial bounce velocity.
 - **Joints**:
-  - `DistanceJoint`: fixed-length rod constraint with optional `Stiffness` and XPBD `Compliance`.
-  - `SpringJoint`: damped Hooke's law spring using unconditionally stable implicit impulse integration.
-  - `RevoluteJoint`: 2-DOF pin/hinge constraint using a 2×2 effective-mass block matrix to keep local anchors coincident while allowing free rotation.
+  - `DistanceJoint` (`NewDistanceJoint`, `NewRopeJoint`): fixed-length rod constraint with optional `Stiffness` and XPBD `Compliance`, plus unilateral rope / max-distance mode (`MaxOnly: true`) and slack range mode (`[MinLength, MaxLength]`).
+  - `SpringJoint` (`NewSpringJoint`): damped Hooke's law spring using unconditionally stable implicit impulse integration.
+  - `RevoluteJoint` (`NewRevoluteJoint`): 2-DOF pin/hinge constraint using a 2×2 effective-mass block matrix, with optional angular limits (`EnableLimit`, `LowerAngle`, `UpperAngle`), angular motor (`EnableMotor`, `MotorSpeed`, `MaxMotorTorque`), and `JointAngle()` / `JointSpeed()` readouts.
+  - `PrismaticJoint` (`NewPrismaticJoint`): 1-DOF linear slider along `LocalAxisA` with locked relative rotation (`ReferenceAngle`), optional translation limits (`EnableLimit`, `LowerTranslation`, `UpperTranslation`), linear motor (`EnableMotor`, `MotorSpeed`, `MaxMotorForce`), and `JointTranslation()` / `JointSpeed()` readouts.
+  - `WeldJoint` (`NewWeldJoint`): 3-DOF rigid weld solved with a coupled 3×3 block matrix, or a soft damped spring pose lock via `FrequencyHz`/`DampingRatio` (or direct `Stiffness`/`Damping`).
+  - `WheelJoint` (`NewWheelJoint`): 2D vehicle suspension constraining a wheel hub along `LocalAxisA` with a soft suspension spring (`FrequencyHz`/`DampingRatio` or `Stiffness`/`Damping`), optional suspension travel limits (`EnableLimit`, `LowerTranslation`, `UpperTranslation`), and a rotational drive motor (`EnableMotor`, `MotorSpeed`, `MaxMotorTorque`).
+  - `MouseJoint` (`NewMouseJoint`): single-body target joint pulling `Anchor` toward a settable world `Target` (`SetTarget`) with a damped spring capped at `MaxForce`.
+  - **Connected collisions, reactions, and breaking**: two-body joints disable contact between their connected bodies by default (`CollideConnected: false`). Every built-in joint tracks per-step `ReactionForce() (fx, fy float32)`, `ReactionTorque() float32`, and `Broken() bool`, and supports optional `BreakForce` / `BreakTorque` thresholds. Joints that exceed a threshold are removed deterministically in insertion order before positional correction and reported via `RigidWorld.JointBreakEvents()` and `RigidWorld.OnJointBreak`.
 
 ## Trade-offs & Scope
 
@@ -54,7 +59,13 @@ pendulum := physics.NewRigidCircle(240, 140, 12, 1)
 pivot := physics.NewStaticRigidBox(240, 60, 8, 8)
 
 rw.AddBody(floor, crate, pendulum, pivot)
-rw.AddJoint(physics.NewDistanceJoint(pivot, pendulum, core.Point{}, core.Point{}, 80))
+rope := physics.NewRopeJoint(pivot, pendulum, core.Point{}, core.Point{}, 80)
+rope.BreakForce = 4000
+rw.AddJoint(rope)
+rw.OnJointBreak = func(ev physics.JointBreakEvent) {
+	// Handle detached rope or destructible link deterministically.
+	_ = ev
+}
 
 loop := &game.Loop{
 	Rate: 60,

@@ -107,47 +107,125 @@ type RigidBodySnapshot struct {
 
 // RigidJointSnapshot captures the complete public and private solver state of one RigidWorld Joint.
 type RigidJointSnapshot struct {
-	Kind        string             `json:"kind"` // "distance", "spring", "revolute"
-	BodyAIndex  int                `json:"bodyAIndex"`
-	BodyBIndex  int                `json:"bodyBIndex"`
-	DetachedA   *RigidBodySnapshot `json:"detachedA,omitempty"`
-	DetachedB   *RigidBodySnapshot `json:"detachedB,omitempty"`
-	AnchorAX    float32            `json:"anchorAX"`
-	AnchorAY    float32            `json:"anchorAY"`
-	AnchorBX    float32            `json:"anchorBX"`
-	AnchorBY    float32            `json:"anchorBY"`
-	Length      float32            `json:"length,omitempty"`
-	RestLength  float32            `json:"restLength,omitempty"`
-	Stiffness   float32            `json:"stiffness,omitempty"`
-	Compliance  float32            `json:"compliance,omitempty"`
-	Damping     float32            `json:"damping,omitempty"`
-	Initialized bool               `json:"initialized,omitempty"`
-	Active      bool               `json:"active,omitempty"`
-	Dt          float64            `json:"dt,omitempty"`
-	UX          float64            `json:"ux,omitempty"`
-	UY          float64            `json:"uy,omitempty"`
-	RAX         float64            `json:"rAx,omitempty"`
-	RAY         float64            `json:"rAy,omitempty"`
-	RBX         float64            `json:"rBx,omitempty"`
-	RBY         float64            `json:"rBy,omitempty"`
-	EffMass     float64            `json:"effMass,omitempty"`
-	M11         float64            `json:"m11,omitempty"`
-	M12         float64            `json:"m12,omitempty"`
-	M22         float64            `json:"m22,omitempty"`
+	Kind             string             `json:"kind"` // "distance", "spring", "revolute", "prismatic", "weld", "wheel", "mouse"
+	BodyAIndex       int                `json:"bodyAIndex"`
+	BodyBIndex       int                `json:"bodyBIndex"`
+	DetachedA        *RigidBodySnapshot `json:"detachedA,omitempty"`
+	DetachedB        *RigidBodySnapshot `json:"detachedB,omitempty"`
+	AnchorAX         float32            `json:"anchorAX"`
+	AnchorAY         float32            `json:"anchorAY"`
+	AnchorBX         float32            `json:"anchorBX"`
+	AnchorBY         float32            `json:"anchorBY"`
+	LocalAxisAX      float32            `json:"localAxisAX,omitempty"`
+	LocalAxisAY      float32            `json:"localAxisAY,omitempty"`
+	TargetX          float32            `json:"targetX,omitempty"`
+	TargetY          float32            `json:"targetY,omitempty"`
+	Length           float32            `json:"length,omitempty"`
+	MinLength        float32            `json:"minLength,omitempty"`
+	MaxLength        float32            `json:"maxLength,omitempty"`
+	MaxOnly          bool               `json:"maxOnly,omitempty"`
+	RestLength       float32            `json:"restLength,omitempty"`
+	ReferenceAngle   float32            `json:"referenceAngle,omitempty"`
+	EnableLimit      bool               `json:"enableLimit,omitempty"`
+	LowerAngle       float32            `json:"lowerAngle,omitempty"`
+	UpperAngle       float32            `json:"upperAngle,omitempty"`
+	LowerTranslation float32            `json:"lowerTranslation,omitempty"`
+	UpperTranslation float32            `json:"upperTranslation,omitempty"`
+	EnableMotor      bool               `json:"enableMotor,omitempty"`
+	MotorSpeed       float32            `json:"motorSpeed,omitempty"`
+	MaxMotorTorque   float32            `json:"maxMotorTorque,omitempty"`
+	MaxMotorForce    float32            `json:"maxMotorForce,omitempty"`
+	MaxForce         float32            `json:"maxForce,omitempty"`
+	FrequencyHz      float32            `json:"frequencyHz,omitempty"`
+	DampingRatio     float32            `json:"dampingRatio,omitempty"`
+	Stiffness        float32            `json:"stiffness,omitempty"`
+	Compliance       float32            `json:"compliance,omitempty"`
+	Damping          float32            `json:"damping,omitempty"`
+	BreakForce       float32            `json:"breakForce,omitempty"`
+	BreakTorque      float32            `json:"breakTorque,omitempty"`
+	CollideConnected bool               `json:"collideConnected,omitempty"`
+	StepImpulseX     float64            `json:"stepImpulseX,omitempty"`
+	StepImpulseY     float64            `json:"stepImpulseY,omitempty"`
+	StepAngImpulse   float64            `json:"stepAngImpulse,omitempty"`
+	LastDt           float64            `json:"lastDt,omitempty"`
+	Broken           bool               `json:"broken,omitempty"`
+	Initialized      bool               `json:"initialized,omitempty"`
+	Active           bool               `json:"active,omitempty"`
+	Soft             bool               `json:"soft,omitempty"`
+	RotLocked        bool               `json:"rotLocked,omitempty"`
+	SpringActive     bool               `json:"springActive,omitempty"`
+	Dt               float64            `json:"dt,omitempty"`
+	UX               float64            `json:"ux,omitempty"`
+	UY               float64            `json:"uy,omitempty"`
+	AX               float64            `json:"ax,omitempty"`
+	AY               float64            `json:"ay,omitempty"`
+	PX               float64            `json:"px,omitempty"`
+	PY               float64            `json:"py,omitempty"`
+	RAX              float64            `json:"rAx,omitempty"`
+	RAY              float64            `json:"rAy,omitempty"`
+	RBX              float64            `json:"rBx,omitempty"`
+	RBY              float64            `json:"rBy,omitempty"`
+	S1               float64            `json:"s1,omitempty"`
+	S2               float64            `json:"s2,omitempty"`
+	A1               float64            `json:"a1,omitempty"`
+	A2               float64            `json:"a2,omitempty"`
+	EffMass          float64            `json:"effMass,omitempty"`
+	PerpMass         float64            `json:"perpMass,omitempty"`
+	AxisMass         float64            `json:"axisMass,omitempty"`
+	SpringMass       float64            `json:"springMass,omitempty"`
+	MotorMass        float64            `json:"motorMass,omitempty"`
+	M11              float64            `json:"m11,omitempty"`
+	M12              float64            `json:"m12,omitempty"`
+	M22              float64            `json:"m22,omitempty"`
+	KA               float64            `json:"kA,omitempty"`
+	KB               float64            `json:"kB,omitempty"`
+	KC               float64            `json:"kC,omitempty"`
+	KD               float64            `json:"kD,omitempty"`
+	KE               float64            `json:"kE,omitempty"`
+	KF               float64            `json:"kF,omitempty"`
+	Gamma            float64            `json:"gamma,omitempty"`
+	GammaAng         float64            `json:"gammaAng,omitempty"`
+	Bias             float64            `json:"bias,omitempty"`
+	BiasX            float64            `json:"biasX,omitempty"`
+	BiasY            float64            `json:"biasY,omitempty"`
+	BiasAng          float64            `json:"biasAng,omitempty"`
+	AccImpulse       float64            `json:"accImpulse,omitempty"`
+	ImpulseX         float64            `json:"impulseX,omitempty"`
+	ImpulseY         float64            `json:"impulseY,omitempty"`
+	AngImpulse       float64            `json:"angImpulse,omitempty"`
+	SpringImpulse    float64            `json:"springImpulse,omitempty"`
+	MotorImpulse     float64            `json:"motorImpulse,omitempty"`
+	LimitImpulse     float64            `json:"limitImpulse,omitempty"`
+	Mode             int                `json:"mode,omitempty"`
+	LimitState       int                `json:"limitState,omitempty"`
+	TargetLen        float64            `json:"targetLen,omitempty"`
+}
+
+// RigidJointBreakEventSnapshot captures one JointBreakEvent from the most recent RigidWorld.Step.
+type RigidJointBreakEventSnapshot struct {
+	Joint      *RigidJointSnapshot `json:"joint,omitempty"`
+	BodyAIndex int                 `json:"bodyAIndex"`
+	BodyBIndex int                 `json:"bodyBIndex"`
+	DetachedA  *RigidBodySnapshot  `json:"detachedA,omitempty"`
+	DetachedB  *RigidBodySnapshot  `json:"detachedB,omitempty"`
+	ForceX     float32             `json:"forceX"`
+	ForceY     float32             `json:"forceY"`
+	Torque     float32             `json:"torque"`
 }
 
 // RigidWorldSnapshot captures the complete deterministic state of a RigidWorld,
 // including all rigid bodies (and pending forces/torques), joints and their
-// private constraint state, area triggers, gravity, and solver configuration.
-// It marshals cleanly with encoding/json.
+// private constraint state, joint-break events, area triggers, gravity, and
+// solver configuration. It marshals cleanly with encoding/json.
 type RigidWorldSnapshot struct {
-	Version          int                  `json:"version"`
-	GravityX         float32              `json:"gravityX"`
-	GravityY         float32              `json:"gravityY"`
-	SolverIterations int                  `json:"solverIterations"`
-	Bodies           []RigidBodySnapshot  `json:"bodies,omitempty"`
-	Joints           []RigidJointSnapshot `json:"joints,omitempty"`
-	Triggers         []TriggerSnapshot    `json:"triggers,omitempty"`
+	Version          int                            `json:"version"`
+	GravityX         float32                        `json:"gravityX"`
+	GravityY         float32                        `json:"gravityY"`
+	SolverIterations int                            `json:"solverIterations"`
+	Bodies           []RigidBodySnapshot            `json:"bodies,omitempty"`
+	Joints           []RigidJointSnapshot           `json:"joints,omitempty"`
+	JointBreakEvents []RigidJointBreakEventSnapshot `json:"jointBreakEvents,omitempty"`
+	Triggers         []TriggerSnapshot              `json:"triggers,omitempty"`
 }
 
 func snapshotBody(b *Body) BodySnapshot {
@@ -615,75 +693,32 @@ func (w *RigidWorld) Save() RigidWorldSnapshot {
 		if j == nil {
 			continue
 		}
-		switch jt := j.(type) {
-		case *DistanceJoint:
-			idxA, detA := resolveBodyRef(jt.A)
-			idxB, detB := resolveBodyRef(jt.B)
-			snap.Joints = append(snap.Joints, RigidJointSnapshot{
-				Kind:        "distance",
-				BodyAIndex:  idxA,
-				BodyBIndex:  idxB,
-				DetachedA:   detA,
-				DetachedB:   detB,
-				AnchorAX:    float32(jt.AnchorA.X),
-				AnchorAY:    float32(jt.AnchorA.Y),
-				AnchorBX:    float32(jt.AnchorB.X),
-				AnchorBY:    float32(jt.AnchorB.Y),
-				Length:      jt.Length,
-				Stiffness:   jt.Stiffness,
-				Compliance:  jt.Compliance,
-				Damping:     jt.Damping,
-				Initialized: jt.initialized,
-				Active:      jt.active,
-				Dt:          jt.dt,
-				UX:          jt.ux,
-				UY:          jt.uy,
-				RAX:         jt.rAx,
-				RAY:         jt.rAy,
-				RBX:         jt.rBx,
-				RBY:         jt.rBy,
-				EffMass:     jt.effMass,
-			})
-		case *SpringJoint:
-			idxA, detA := resolveBodyRef(jt.A)
-			idxB, detB := resolveBodyRef(jt.B)
-			snap.Joints = append(snap.Joints, RigidJointSnapshot{
-				Kind:        "spring",
-				BodyAIndex:  idxA,
-				BodyBIndex:  idxB,
-				DetachedA:   detA,
-				DetachedB:   detB,
-				AnchorAX:    float32(jt.AnchorA.X),
-				AnchorAY:    float32(jt.AnchorA.Y),
-				AnchorBX:    float32(jt.AnchorB.X),
-				AnchorBY:    float32(jt.AnchorB.Y),
-				RestLength:  jt.RestLength,
-				Stiffness:   jt.Stiffness,
-				Damping:     jt.Damping,
-				Initialized: jt.initialized,
-			})
-		case *RevoluteJoint:
-			idxA, detA := resolveBodyRef(jt.A)
-			idxB, detB := resolveBodyRef(jt.B)
-			snap.Joints = append(snap.Joints, RigidJointSnapshot{
-				Kind:       "revolute",
+		if js, ok := snapshotRigidJoint(j, resolveBodyRef); ok {
+			snap.Joints = append(snap.Joints, js)
+		}
+	}
+
+	if len(w.jointBreakEvents) > 0 {
+		snap.JointBreakEvents = make([]RigidJointBreakEventSnapshot, len(w.jointBreakEvents))
+		for i, ev := range w.jointBreakEvents {
+			var jsPtr *RigidJointSnapshot
+			if ev.Joint != nil {
+				if js, ok := snapshotRigidJoint(ev.Joint, resolveBodyRef); ok {
+					jsPtr = &js
+				}
+			}
+			idxA, detA := resolveBodyRef(ev.BodyA)
+			idxB, detB := resolveBodyRef(ev.BodyB)
+			snap.JointBreakEvents[i] = RigidJointBreakEventSnapshot{
+				Joint:      jsPtr,
 				BodyAIndex: idxA,
 				BodyBIndex: idxB,
 				DetachedA:  detA,
 				DetachedB:  detB,
-				AnchorAX:   float32(jt.AnchorA.X),
-				AnchorAY:   float32(jt.AnchorA.Y),
-				AnchorBX:   float32(jt.AnchorB.X),
-				AnchorBY:   float32(jt.AnchorB.Y),
-				Active:     jt.active,
-				RAX:        jt.rAx,
-				RAY:        jt.rAy,
-				RBX:        jt.rBx,
-				RBY:        jt.rBy,
-				M11:        jt.m11,
-				M12:        jt.m12,
-				M22:        jt.m22,
-			})
+				ForceX:     ev.ForceX,
+				ForceY:     ev.ForceY,
+				Torque:     ev.Torque,
+			}
 		}
 	}
 
@@ -693,6 +728,589 @@ func (w *RigidWorld) Save() RigidWorldSnapshot {
 		}
 	}
 	return snap
+}
+
+func snapshotJointReaction(r jointReaction, js *RigidJointSnapshot) {
+	js.StepImpulseX = r.stepImpulseX
+	js.StepImpulseY = r.stepImpulseY
+	js.StepAngImpulse = r.stepAngImpulse
+	js.LastDt = r.lastDt
+	js.Broken = r.broken
+}
+
+func restoreJointReaction(js RigidJointSnapshot) jointReaction {
+	return jointReaction{
+		stepImpulseX:   js.StepImpulseX,
+		stepImpulseY:   js.StepImpulseY,
+		stepAngImpulse: js.StepAngImpulse,
+		lastDt:         js.LastDt,
+		broken:         js.Broken,
+	}
+}
+
+func snapshotRigidJoint(j Joint, resolveBodyRef func(*RigidBody) (int, *RigidBodySnapshot)) (RigidJointSnapshot, bool) {
+	switch jt := j.(type) {
+	case *DistanceJoint:
+		idxA, detA := resolveBodyRef(jt.A)
+		idxB, detB := resolveBodyRef(jt.B)
+		js := RigidJointSnapshot{
+			Kind:             "distance",
+			BodyAIndex:       idxA,
+			BodyBIndex:       idxB,
+			DetachedA:        detA,
+			DetachedB:        detB,
+			AnchorAX:         float32(jt.AnchorA.X),
+			AnchorAY:         float32(jt.AnchorA.Y),
+			AnchorBX:         float32(jt.AnchorB.X),
+			AnchorBY:         float32(jt.AnchorB.Y),
+			Length:           jt.Length,
+			MinLength:        jt.MinLength,
+			MaxLength:        jt.MaxLength,
+			MaxOnly:          jt.MaxOnly,
+			Stiffness:        jt.Stiffness,
+			Compliance:       jt.Compliance,
+			Damping:          jt.Damping,
+			BreakForce:       jt.BreakForce,
+			BreakTorque:      jt.BreakTorque,
+			CollideConnected: jt.CollideConnected,
+			Initialized:      jt.initialized,
+			Active:           jt.active,
+			Dt:               jt.dt,
+			UX:               jt.ux,
+			UY:               jt.uy,
+			RAX:              jt.rAx,
+			RAY:              jt.rAy,
+			RBX:              jt.rBx,
+			RBY:              jt.rBy,
+			EffMass:          jt.effMass,
+			AccImpulse:       jt.accImpulse,
+			Mode:             jt.mode,
+			TargetLen:        jt.targetLen,
+		}
+		snapshotJointReaction(jt.jointReaction, &js)
+		return js, true
+	case *SpringJoint:
+		idxA, detA := resolveBodyRef(jt.A)
+		idxB, detB := resolveBodyRef(jt.B)
+		js := RigidJointSnapshot{
+			Kind:             "spring",
+			BodyAIndex:       idxA,
+			BodyBIndex:       idxB,
+			DetachedA:        detA,
+			DetachedB:        detB,
+			AnchorAX:         float32(jt.AnchorA.X),
+			AnchorAY:         float32(jt.AnchorA.Y),
+			AnchorBX:         float32(jt.AnchorB.X),
+			AnchorBY:         float32(jt.AnchorB.Y),
+			RestLength:       jt.RestLength,
+			Stiffness:        jt.Stiffness,
+			Damping:          jt.Damping,
+			BreakForce:       jt.BreakForce,
+			BreakTorque:      jt.BreakTorque,
+			CollideConnected: jt.CollideConnected,
+			Initialized:      jt.initialized,
+		}
+		snapshotJointReaction(jt.jointReaction, &js)
+		return js, true
+	case *RevoluteJoint:
+		idxA, detA := resolveBodyRef(jt.A)
+		idxB, detB := resolveBodyRef(jt.B)
+		js := RigidJointSnapshot{
+			Kind:             "revolute",
+			BodyAIndex:       idxA,
+			BodyBIndex:       idxB,
+			DetachedA:        detA,
+			DetachedB:        detB,
+			AnchorAX:         float32(jt.AnchorA.X),
+			AnchorAY:         float32(jt.AnchorA.Y),
+			AnchorBX:         float32(jt.AnchorB.X),
+			AnchorBY:         float32(jt.AnchorB.Y),
+			ReferenceAngle:   jt.ReferenceAngle,
+			EnableLimit:      jt.EnableLimit,
+			LowerAngle:       jt.LowerAngle,
+			UpperAngle:       jt.UpperAngle,
+			EnableMotor:      jt.EnableMotor,
+			MotorSpeed:       jt.MotorSpeed,
+			MaxMotorTorque:   jt.MaxMotorTorque,
+			BreakForce:       jt.BreakForce,
+			BreakTorque:      jt.BreakTorque,
+			CollideConnected: jt.CollideConnected,
+			Active:           jt.active,
+			Dt:               jt.dt,
+			RAX:              jt.rAx,
+			RAY:              jt.rAy,
+			RBX:              jt.rBx,
+			RBY:              jt.rBy,
+			M11:              jt.m11,
+			M12:              jt.m12,
+			M22:              jt.m22,
+			MotorMass:        jt.motorMass,
+			MotorImpulse:     jt.motorImpulse,
+			LimitImpulse:     jt.limitImpulse,
+			LimitState:       jt.limitState,
+		}
+		snapshotJointReaction(jt.jointReaction, &js)
+		return js, true
+	case *PrismaticJoint:
+		idxA, detA := resolveBodyRef(jt.A)
+		idxB, detB := resolveBodyRef(jt.B)
+		js := RigidJointSnapshot{
+			Kind:             "prismatic",
+			BodyAIndex:       idxA,
+			BodyBIndex:       idxB,
+			DetachedA:        detA,
+			DetachedB:        detB,
+			AnchorAX:         float32(jt.AnchorA.X),
+			AnchorAY:         float32(jt.AnchorA.Y),
+			AnchorBX:         float32(jt.AnchorB.X),
+			AnchorBY:         float32(jt.AnchorB.Y),
+			LocalAxisAX:      float32(jt.LocalAxisA.X),
+			LocalAxisAY:      float32(jt.LocalAxisA.Y),
+			ReferenceAngle:   jt.ReferenceAngle,
+			EnableLimit:      jt.EnableLimit,
+			LowerTranslation: jt.LowerTranslation,
+			UpperTranslation: jt.UpperTranslation,
+			EnableMotor:      jt.EnableMotor,
+			MotorSpeed:       jt.MotorSpeed,
+			MaxMotorForce:    jt.MaxMotorForce,
+			BreakForce:       jt.BreakForce,
+			BreakTorque:      jt.BreakTorque,
+			CollideConnected: jt.CollideConnected,
+			Active:           jt.active,
+			RotLocked:        jt.rotLocked,
+			Dt:               jt.dt,
+			AX:               jt.ax,
+			AY:               jt.ay,
+			PX:               jt.px,
+			PY:               jt.py,
+			S1:               jt.s1,
+			S2:               jt.s2,
+			A1:               jt.a1,
+			A2:               jt.a2,
+			M11:              jt.perpM11,
+			M12:              jt.perpM12,
+			M22:              jt.perpM22,
+			MotorMass:        jt.motorMass,
+			MotorImpulse:     jt.motorImpulse,
+			LimitImpulse:     jt.limitImpulse,
+			LimitState:       jt.limitState,
+		}
+		snapshotJointReaction(jt.jointReaction, &js)
+		return js, true
+	case *WeldJoint:
+		idxA, detA := resolveBodyRef(jt.A)
+		idxB, detB := resolveBodyRef(jt.B)
+		js := RigidJointSnapshot{
+			Kind:             "weld",
+			BodyAIndex:       idxA,
+			BodyBIndex:       idxB,
+			DetachedA:        detA,
+			DetachedB:        detB,
+			AnchorAX:         float32(jt.AnchorA.X),
+			AnchorAY:         float32(jt.AnchorA.Y),
+			AnchorBX:         float32(jt.AnchorB.X),
+			AnchorBY:         float32(jt.AnchorB.Y),
+			ReferenceAngle:   jt.ReferenceAngle,
+			FrequencyHz:      jt.FrequencyHz,
+			DampingRatio:     jt.DampingRatio,
+			Stiffness:        jt.Stiffness,
+			Damping:          jt.Damping,
+			BreakForce:       jt.BreakForce,
+			BreakTorque:      jt.BreakTorque,
+			CollideConnected: jt.CollideConnected,
+			Active:           jt.active,
+			Soft:             jt.soft,
+			Dt:               jt.dt,
+			RAX:              jt.rAx,
+			RAY:              jt.rAy,
+			RBX:              jt.rBx,
+			RBY:              jt.rBy,
+			KA:               jt.k.a,
+			KB:               jt.k.b,
+			KC:               jt.k.c,
+			KD:               jt.k.d,
+			KE:               jt.k.e,
+			KF:               jt.k.f,
+			Gamma:            jt.gammaLin,
+			GammaAng:         jt.gammaAng,
+			BiasX:            jt.biasX,
+			BiasY:            jt.biasY,
+			BiasAng:          jt.biasAng,
+			ImpulseX:         jt.impulseX,
+			ImpulseY:         jt.impulseY,
+			AngImpulse:       jt.angImpulse,
+		}
+		snapshotJointReaction(jt.jointReaction, &js)
+		return js, true
+	case *WheelJoint:
+		idxA, detA := resolveBodyRef(jt.A)
+		idxB, detB := resolveBodyRef(jt.B)
+		js := RigidJointSnapshot{
+			Kind:             "wheel",
+			BodyAIndex:       idxA,
+			BodyBIndex:       idxB,
+			DetachedA:        detA,
+			DetachedB:        detB,
+			AnchorAX:         float32(jt.AnchorA.X),
+			AnchorAY:         float32(jt.AnchorA.Y),
+			AnchorBX:         float32(jt.AnchorB.X),
+			AnchorBY:         float32(jt.AnchorB.Y),
+			LocalAxisAX:      float32(jt.LocalAxisA.X),
+			LocalAxisAY:      float32(jt.LocalAxisA.Y),
+			FrequencyHz:      jt.FrequencyHz,
+			DampingRatio:     jt.DampingRatio,
+			Stiffness:        jt.Stiffness,
+			Damping:          jt.Damping,
+			EnableLimit:      jt.EnableLimit,
+			LowerTranslation: jt.LowerTranslation,
+			UpperTranslation: jt.UpperTranslation,
+			EnableMotor:      jt.EnableMotor,
+			MotorSpeed:       jt.MotorSpeed,
+			MaxMotorTorque:   jt.MaxMotorTorque,
+			BreakForce:       jt.BreakForce,
+			BreakTorque:      jt.BreakTorque,
+			CollideConnected: jt.CollideConnected,
+			Active:           jt.active,
+			SpringActive:     jt.springActive,
+			Dt:               jt.dt,
+			AX:               jt.ax,
+			AY:               jt.ay,
+			PX:               jt.px,
+			PY:               jt.py,
+			S1:               jt.sAx,
+			S2:               jt.sBx,
+			A1:               jt.a1,
+			A2:               jt.a2,
+			PerpMass:         jt.perpMass,
+			AxisMass:         jt.axisMass,
+			SpringMass:       jt.springMass,
+			MotorMass:        jt.motorMass,
+			Gamma:            jt.gamma,
+			Bias:             jt.bias,
+			SpringImpulse:    jt.springImpulse,
+			MotorImpulse:     jt.motorImpulse,
+			LimitImpulse:     jt.limitImpulse,
+			LimitState:       jt.limitState,
+		}
+		snapshotJointReaction(jt.jointReaction, &js)
+		return js, true
+	case *MouseJoint:
+		idxB, detB := resolveBodyRef(jt.Body)
+		js := RigidJointSnapshot{
+			Kind:         "mouse",
+			BodyAIndex:   -1,
+			BodyBIndex:   idxB,
+			DetachedB:    detB,
+			AnchorBX:     float32(jt.Anchor.X),
+			AnchorBY:     float32(jt.Anchor.Y),
+			TargetX:      float32(jt.Target.X),
+			TargetY:      float32(jt.Target.Y),
+			MaxForce:     jt.MaxForce,
+			FrequencyHz:  jt.FrequencyHz,
+			DampingRatio: jt.DampingRatio,
+			Stiffness:    jt.Stiffness,
+			Damping:      jt.Damping,
+			BreakForce:   jt.BreakForce,
+			BreakTorque:  jt.BreakTorque,
+			Active:       jt.active,
+			Dt:           jt.dt,
+			RBX:          jt.rX,
+			RBY:          jt.rY,
+			M11:          jt.m11,
+			M12:          jt.m12,
+			M22:          jt.m22,
+			Gamma:        jt.gamma,
+			BiasX:        jt.biasX,
+			BiasY:        jt.biasY,
+			ImpulseX:     jt.impulseX,
+			ImpulseY:     jt.impulseY,
+		}
+		snapshotJointReaction(jt.jointReaction, &js)
+		return js, true
+	default:
+		return RigidJointSnapshot{}, false
+	}
+}
+
+func validateRigidJointSnapshot(js RigidJointSnapshot, bodyCount int, label string) error {
+	switch js.Kind {
+	case "distance", "spring", "revolute", "prismatic", "weld", "wheel", "mouse":
+	default:
+		return fmt.Errorf("physics: %s has unknown kind %q", label, js.Kind)
+	}
+	if js.BodyAIndex < -1 || js.BodyAIndex >= bodyCount {
+		return fmt.Errorf("physics: %s has out-of-range bodyA index %d", label, js.BodyAIndex)
+	}
+	if js.BodyBIndex < -1 || js.BodyBIndex >= bodyCount {
+		return fmt.Errorf("physics: %s has out-of-range bodyB index %d", label, js.BodyBIndex)
+	}
+	return nil
+}
+
+func restoreRigidJoint(js RigidJointSnapshot, existing Joint, resolveRestoredBody func(int, *RigidBodySnapshot) *RigidBody) Joint {
+	bodyA := resolveRestoredBody(js.BodyAIndex, js.DetachedA)
+	bodyB := resolveRestoredBody(js.BodyBIndex, js.DetachedB)
+	anchorA := core.Point{X: core.Points(js.AnchorAX), Y: core.Points(js.AnchorAY)}
+	anchorB := core.Point{X: core.Points(js.AnchorBX), Y: core.Points(js.AnchorBY)}
+	rxn := restoreJointReaction(js)
+
+	switch js.Kind {
+	case "distance":
+		dst, _ := existing.(*DistanceJoint)
+		if dst == nil {
+			dst = new(DistanceJoint)
+		}
+		*dst = DistanceJoint{
+			A:                bodyA,
+			B:                bodyB,
+			AnchorA:          anchorA,
+			AnchorB:          anchorB,
+			Length:           js.Length,
+			MinLength:        js.MinLength,
+			MaxLength:        js.MaxLength,
+			MaxOnly:          js.MaxOnly,
+			Stiffness:        js.Stiffness,
+			Compliance:       js.Compliance,
+			Damping:          js.Damping,
+			BreakForce:       js.BreakForce,
+			BreakTorque:      js.BreakTorque,
+			CollideConnected: js.CollideConnected,
+			jointReaction:    rxn,
+			initialized:      js.Initialized,
+			active:           js.Active,
+			dt:               js.Dt,
+			ux:               js.UX,
+			uy:               js.UY,
+			rAx:              js.RAX,
+			rAy:              js.RAY,
+			rBx:              js.RBX,
+			rBy:              js.RBY,
+			effMass:          js.EffMass,
+			accImpulse:       js.AccImpulse,
+			mode:             js.Mode,
+			targetLen:        js.TargetLen,
+		}
+		return dst
+	case "spring":
+		dst, _ := existing.(*SpringJoint)
+		if dst == nil {
+			dst = new(SpringJoint)
+		}
+		*dst = SpringJoint{
+			A:                bodyA,
+			B:                bodyB,
+			AnchorA:          anchorA,
+			AnchorB:          anchorB,
+			RestLength:       js.RestLength,
+			Stiffness:        js.Stiffness,
+			Damping:          js.Damping,
+			BreakForce:       js.BreakForce,
+			BreakTorque:      js.BreakTorque,
+			CollideConnected: js.CollideConnected,
+			jointReaction:    rxn,
+			initialized:      js.Initialized,
+		}
+		return dst
+	case "revolute":
+		dst, _ := existing.(*RevoluteJoint)
+		if dst == nil {
+			dst = new(RevoluteJoint)
+		}
+		*dst = RevoluteJoint{
+			A:                bodyA,
+			B:                bodyB,
+			AnchorA:          anchorA,
+			AnchorB:          anchorB,
+			ReferenceAngle:   js.ReferenceAngle,
+			EnableLimit:      js.EnableLimit,
+			LowerAngle:       js.LowerAngle,
+			UpperAngle:       js.UpperAngle,
+			EnableMotor:      js.EnableMotor,
+			MotorSpeed:       js.MotorSpeed,
+			MaxMotorTorque:   js.MaxMotorTorque,
+			BreakForce:       js.BreakForce,
+			BreakTorque:      js.BreakTorque,
+			CollideConnected: js.CollideConnected,
+			jointReaction:    rxn,
+			active:           js.Active,
+			dt:               js.Dt,
+			rAx:              js.RAX,
+			rAy:              js.RAY,
+			rBx:              js.RBX,
+			rBy:              js.RBY,
+			m11:              js.M11,
+			m12:              js.M12,
+			m22:              js.M22,
+			motorMass:        js.MotorMass,
+			motorImpulse:     js.MotorImpulse,
+			limitImpulse:     js.LimitImpulse,
+			limitState:       js.LimitState,
+		}
+		return dst
+	case "prismatic":
+		dst, _ := existing.(*PrismaticJoint)
+		if dst == nil {
+			dst = new(PrismaticJoint)
+		}
+		*dst = PrismaticJoint{
+			A:                bodyA,
+			B:                bodyB,
+			AnchorA:          anchorA,
+			AnchorB:          anchorB,
+			LocalAxisA:       core.Point{X: core.Points(js.LocalAxisAX), Y: core.Points(js.LocalAxisAY)},
+			ReferenceAngle:   js.ReferenceAngle,
+			EnableLimit:      js.EnableLimit,
+			LowerTranslation: js.LowerTranslation,
+			UpperTranslation: js.UpperTranslation,
+			EnableMotor:      js.EnableMotor,
+			MotorSpeed:       js.MotorSpeed,
+			MaxMotorForce:    js.MaxMotorForce,
+			BreakForce:       js.BreakForce,
+			BreakTorque:      js.BreakTorque,
+			CollideConnected: js.CollideConnected,
+			jointReaction:    rxn,
+			active:           js.Active,
+			dt:               js.Dt,
+			ax:               js.AX,
+			ay:               js.AY,
+			px:               js.PX,
+			py:               js.PY,
+			s1:               js.S1,
+			s2:               js.S2,
+			a1:               js.A1,
+			a2:               js.A2,
+			perpM11:          js.M11,
+			perpM12:          js.M12,
+			perpM22:          js.M22,
+			rotLocked:        js.RotLocked,
+			motorMass:        js.MotorMass,
+			motorImpulse:     js.MotorImpulse,
+			limitImpulse:     js.LimitImpulse,
+			limitState:       js.LimitState,
+		}
+		return dst
+	case "weld":
+		dst, _ := existing.(*WeldJoint)
+		if dst == nil {
+			dst = new(WeldJoint)
+		}
+		*dst = WeldJoint{
+			A:                bodyA,
+			B:                bodyB,
+			AnchorA:          anchorA,
+			AnchorB:          anchorB,
+			ReferenceAngle:   js.ReferenceAngle,
+			FrequencyHz:      js.FrequencyHz,
+			DampingRatio:     js.DampingRatio,
+			Stiffness:        js.Stiffness,
+			Damping:          js.Damping,
+			BreakForce:       js.BreakForce,
+			BreakTorque:      js.BreakTorque,
+			CollideConnected: js.CollideConnected,
+			jointReaction:    rxn,
+			active:           js.Active,
+			soft:             js.Soft,
+			dt:               js.Dt,
+			rAx:              js.RAX,
+			rAy:              js.RAY,
+			rBx:              js.RBX,
+			rBy:              js.RBY,
+			k: symMat3_64{
+				a: js.KA, b: js.KB, c: js.KC,
+				d: js.KD, e: js.KE, f: js.KF,
+			},
+			gammaLin:   js.Gamma,
+			gammaAng:   js.GammaAng,
+			biasX:      js.BiasX,
+			biasY:      js.BiasY,
+			biasAng:    js.BiasAng,
+			impulseX:   js.ImpulseX,
+			impulseY:   js.ImpulseY,
+			angImpulse: js.AngImpulse,
+		}
+		return dst
+	case "wheel":
+		dst, _ := existing.(*WheelJoint)
+		if dst == nil {
+			dst = new(WheelJoint)
+		}
+		*dst = WheelJoint{
+			A:                bodyA,
+			B:                bodyB,
+			AnchorA:          anchorA,
+			AnchorB:          anchorB,
+			LocalAxisA:       core.Point{X: core.Points(js.LocalAxisAX), Y: core.Points(js.LocalAxisAY)},
+			FrequencyHz:      js.FrequencyHz,
+			DampingRatio:     js.DampingRatio,
+			Stiffness:        js.Stiffness,
+			Damping:          js.Damping,
+			EnableLimit:      js.EnableLimit,
+			LowerTranslation: js.LowerTranslation,
+			UpperTranslation: js.UpperTranslation,
+			EnableMotor:      js.EnableMotor,
+			MotorSpeed:       js.MotorSpeed,
+			MaxMotorTorque:   js.MaxMotorTorque,
+			BreakForce:       js.BreakForce,
+			BreakTorque:      js.BreakTorque,
+			CollideConnected: js.CollideConnected,
+			jointReaction:    rxn,
+			active:           js.Active,
+			dt:               js.Dt,
+			ax:               js.AX,
+			ay:               js.AY,
+			px:               js.PX,
+			py:               js.PY,
+			sAx:              js.S1,
+			sBx:              js.S2,
+			a1:               js.A1,
+			a2:               js.A2,
+			perpMass:         js.PerpMass,
+			axisMass:         js.AxisMass,
+			springMass:       js.SpringMass,
+			motorMass:        js.MotorMass,
+			gamma:            js.Gamma,
+			bias:             js.Bias,
+			springActive:     js.SpringActive,
+			springImpulse:    js.SpringImpulse,
+			motorImpulse:     js.MotorImpulse,
+			limitImpulse:     js.LimitImpulse,
+			limitState:       js.LimitState,
+		}
+		return dst
+	case "mouse":
+		dst, _ := existing.(*MouseJoint)
+		if dst == nil {
+			dst = new(MouseJoint)
+		}
+		*dst = MouseJoint{
+			Body:          bodyB,
+			Anchor:        anchorB,
+			Target:        core.Point{X: core.Points(js.TargetX), Y: core.Points(js.TargetY)},
+			MaxForce:      js.MaxForce,
+			FrequencyHz:   js.FrequencyHz,
+			DampingRatio:  js.DampingRatio,
+			Stiffness:     js.Stiffness,
+			Damping:       js.Damping,
+			BreakForce:    js.BreakForce,
+			BreakTorque:   js.BreakTorque,
+			jointReaction: rxn,
+			active:        js.Active,
+			dt:            js.Dt,
+			rX:            js.RBX,
+			rY:            js.RBY,
+			m11:           js.M11,
+			m12:           js.M12,
+			m22:           js.M22,
+			gamma:         js.Gamma,
+			biasX:         js.BiasX,
+			biasY:         js.BiasY,
+			impulseX:      js.ImpulseX,
+			impulseY:      js.ImpulseY,
+		}
+		return dst
+	default:
+		return nil
+	}
 }
 
 // Restore replaces w's state from snap. Existing *RigidBody, Joint, and
@@ -706,16 +1324,21 @@ func (w *RigidWorld) Restore(snap RigidWorldSnapshot) error {
 		return fmt.Errorf("physics: unsupported RigidWorldSnapshot version %d (want %d)", snap.Version, SnapshotVersion)
 	}
 	for i, js := range snap.Joints {
-		switch js.Kind {
-		case "distance", "spring", "revolute":
-		default:
-			return fmt.Errorf("physics: joints[%d] has unknown kind %q", i, js.Kind)
+		if err := validateRigidJointSnapshot(js, len(snap.Bodies), fmt.Sprintf("joints[%d]", i)); err != nil {
+			return err
 		}
-		if js.BodyAIndex < -1 || js.BodyAIndex >= len(snap.Bodies) {
-			return fmt.Errorf("physics: joints[%d] has out-of-range bodyA index %d", i, js.BodyAIndex)
+	}
+	for i, ev := range snap.JointBreakEvents {
+		if ev.Joint != nil {
+			if err := validateRigidJointSnapshot(*ev.Joint, len(snap.Bodies), fmt.Sprintf("jointBreakEvents[%d].joint", i)); err != nil {
+				return err
+			}
 		}
-		if js.BodyBIndex < -1 || js.BodyBIndex >= len(snap.Bodies) {
-			return fmt.Errorf("physics: joints[%d] has out-of-range bodyB index %d", i, js.BodyBIndex)
+		if ev.BodyAIndex < -1 || ev.BodyAIndex >= len(snap.Bodies) {
+			return fmt.Errorf("physics: jointBreakEvents[%d] has out-of-range bodyA index %d", i, ev.BodyAIndex)
+		}
+		if ev.BodyBIndex < -1 || ev.BodyBIndex >= len(snap.Bodies) {
+			return fmt.Errorf("physics: jointBreakEvents[%d] has out-of-range bodyB index %d", i, ev.BodyBIndex)
 		}
 	}
 
@@ -762,83 +1385,29 @@ func (w *RigidWorld) Restore(snap RigidWorldSnapshot) error {
 
 	restoredJoints := make([]Joint, len(snap.Joints))
 	for i, js := range snap.Joints {
-		bodyA := resolveRestoredBody(js.BodyAIndex, js.DetachedA)
-		bodyB := resolveRestoredBody(js.BodyBIndex, js.DetachedB)
-		anchorA := core.Point{X: core.Points(js.AnchorAX), Y: core.Points(js.AnchorAY)}
-		anchorB := core.Point{X: core.Points(js.AnchorBX), Y: core.Points(js.AnchorBY)}
+		var existing Joint
+		if i < len(w.Joints) {
+			existing = w.Joints[i]
+		}
+		restoredJoints[i] = restoreRigidJoint(js, existing, resolveRestoredBody)
+	}
 
-		switch js.Kind {
-		case "distance":
-			var dst *DistanceJoint
-			if i < len(w.Joints) {
-				dst, _ = w.Joints[i].(*DistanceJoint)
+	var restoredBreakEvents []JointBreakEvent
+	if len(snap.JointBreakEvents) > 0 {
+		restoredBreakEvents = make([]JointBreakEvent, len(snap.JointBreakEvents))
+		for i, ev := range snap.JointBreakEvents {
+			var j Joint
+			if ev.Joint != nil {
+				j = restoreRigidJoint(*ev.Joint, nil, resolveRestoredBody)
 			}
-			if dst == nil {
-				dst = new(DistanceJoint)
+			restoredBreakEvents[i] = JointBreakEvent{
+				Joint:  j,
+				BodyA:  resolveRestoredBody(ev.BodyAIndex, ev.DetachedA),
+				BodyB:  resolveRestoredBody(ev.BodyBIndex, ev.DetachedB),
+				ForceX: ev.ForceX,
+				ForceY: ev.ForceY,
+				Torque: ev.Torque,
 			}
-			*dst = DistanceJoint{
-				A:           bodyA,
-				B:           bodyB,
-				AnchorA:     anchorA,
-				AnchorB:     anchorB,
-				Length:      js.Length,
-				Stiffness:   js.Stiffness,
-				Compliance:  js.Compliance,
-				Damping:     js.Damping,
-				initialized: js.Initialized,
-				active:      js.Active,
-				dt:          js.Dt,
-				ux:          js.UX,
-				uy:          js.UY,
-				rAx:         js.RAX,
-				rAy:         js.RAY,
-				rBx:         js.RBX,
-				rBy:         js.RBY,
-				effMass:     js.EffMass,
-			}
-			restoredJoints[i] = dst
-		case "spring":
-			var dst *SpringJoint
-			if i < len(w.Joints) {
-				dst, _ = w.Joints[i].(*SpringJoint)
-			}
-			if dst == nil {
-				dst = new(SpringJoint)
-			}
-			*dst = SpringJoint{
-				A:           bodyA,
-				B:           bodyB,
-				AnchorA:     anchorA,
-				AnchorB:     anchorB,
-				RestLength:  js.RestLength,
-				Stiffness:   js.Stiffness,
-				Damping:     js.Damping,
-				initialized: js.Initialized,
-			}
-			restoredJoints[i] = dst
-		case "revolute":
-			var dst *RevoluteJoint
-			if i < len(w.Joints) {
-				dst, _ = w.Joints[i].(*RevoluteJoint)
-			}
-			if dst == nil {
-				dst = new(RevoluteJoint)
-			}
-			*dst = RevoluteJoint{
-				A:       bodyA,
-				B:       bodyB,
-				AnchorA: anchorA,
-				AnchorB: anchorB,
-				active:  js.Active,
-				rAx:     js.RAX,
-				rAy:     js.RAY,
-				rBx:     js.RBX,
-				rBy:     js.RBY,
-				m11:     js.M11,
-				m12:     js.M12,
-				m22:     js.M22,
-			}
-			restoredJoints[i] = dst
 		}
 	}
 
@@ -876,6 +1445,7 @@ func (w *RigidWorld) Restore(snap RigidWorldSnapshot) error {
 	w.SolverIterations = snap.SolverIterations
 	w.Bodies = restoredBodies
 	w.Joints = restoredJoints
+	w.jointBreakEvents = restoredBreakEvents
 	w.Triggers = restoredTriggers
 	return nil
 }
@@ -930,58 +1500,20 @@ func (w *RigidWorld) Checksum() uint64 {
 		if j == nil {
 			continue
 		}
-		switch jt := j.(type) {
-		case *DistanceJoint:
-			h.WriteUint8(1)
-			hashBodyRef(jt.A)
-			hashBodyRef(jt.B)
-			h.WriteFloat32(float32(jt.AnchorA.X))
-			h.WriteFloat32(float32(jt.AnchorA.Y))
-			h.WriteFloat32(float32(jt.AnchorB.X))
-			h.WriteFloat32(float32(jt.AnchorB.Y))
-			h.WriteFloat32(jt.Length)
-			h.WriteFloat32(jt.Stiffness)
-			h.WriteFloat32(jt.Compliance)
-			h.WriteFloat32(jt.Damping)
-			h.WriteBool(jt.initialized)
-			h.WriteBool(jt.active)
-			h.WriteFloat64(jt.dt)
-			h.WriteFloat64(jt.ux)
-			h.WriteFloat64(jt.uy)
-			h.WriteFloat64(jt.rAx)
-			h.WriteFloat64(jt.rAy)
-			h.WriteFloat64(jt.rBx)
-			h.WriteFloat64(jt.rBy)
-			h.WriteFloat64(jt.effMass)
-		case *SpringJoint:
-			h.WriteUint8(2)
-			hashBodyRef(jt.A)
-			hashBodyRef(jt.B)
-			h.WriteFloat32(float32(jt.AnchorA.X))
-			h.WriteFloat32(float32(jt.AnchorA.Y))
-			h.WriteFloat32(float32(jt.AnchorB.X))
-			h.WriteFloat32(float32(jt.AnchorB.Y))
-			h.WriteFloat32(jt.RestLength)
-			h.WriteFloat32(jt.Stiffness)
-			h.WriteFloat32(jt.Damping)
-			h.WriteBool(jt.initialized)
-		case *RevoluteJoint:
-			h.WriteUint8(3)
-			hashBodyRef(jt.A)
-			hashBodyRef(jt.B)
-			h.WriteFloat32(float32(jt.AnchorA.X))
-			h.WriteFloat32(float32(jt.AnchorA.Y))
-			h.WriteFloat32(float32(jt.AnchorB.X))
-			h.WriteFloat32(float32(jt.AnchorB.Y))
-			h.WriteBool(jt.active)
-			h.WriteFloat64(jt.rAx)
-			h.WriteFloat64(jt.rAy)
-			h.WriteFloat64(jt.rBx)
-			h.WriteFloat64(jt.rBy)
-			h.WriteFloat64(jt.m11)
-			h.WriteFloat64(jt.m12)
-			h.WriteFloat64(jt.m22)
+		hashRigidJoint(&h, j, hashBodyRef)
+	}
+
+	h.WriteInt(len(w.jointBreakEvents))
+	for _, ev := range w.jointBreakEvents {
+		h.WriteBool(ev.Joint != nil)
+		if ev.Joint != nil {
+			hashRigidJoint(&h, ev.Joint, hashBodyRef)
 		}
+		hashBodyRef(ev.BodyA)
+		hashBodyRef(ev.BodyB)
+		h.WriteFloat32(ev.ForceX)
+		h.WriteFloat32(ev.ForceY)
+		h.WriteFloat32(ev.Torque)
 	}
 
 	trigCount := 0
@@ -997,6 +1529,248 @@ func (w *RigidWorld) Checksum() uint64 {
 		}
 	}
 	return h.Sum64()
+}
+
+func hashJointReaction(h *detmath.Hasher, r jointReaction) {
+	h.WriteFloat64(r.stepImpulseX)
+	h.WriteFloat64(r.stepImpulseY)
+	h.WriteFloat64(r.stepAngImpulse)
+	h.WriteFloat64(r.lastDt)
+	h.WriteBool(r.broken)
+}
+
+func hashRigidJoint(h *detmath.Hasher, j Joint, hashBodyRef func(*RigidBody)) {
+	switch jt := j.(type) {
+	case *DistanceJoint:
+		h.WriteUint8(1)
+		hashBodyRef(jt.A)
+		hashBodyRef(jt.B)
+		h.WriteFloat32(float32(jt.AnchorA.X))
+		h.WriteFloat32(float32(jt.AnchorA.Y))
+		h.WriteFloat32(float32(jt.AnchorB.X))
+		h.WriteFloat32(float32(jt.AnchorB.Y))
+		h.WriteFloat32(jt.Length)
+		h.WriteFloat32(jt.MinLength)
+		h.WriteFloat32(jt.MaxLength)
+		h.WriteBool(jt.MaxOnly)
+		h.WriteFloat32(jt.Stiffness)
+		h.WriteFloat32(jt.Compliance)
+		h.WriteFloat32(jt.Damping)
+		h.WriteFloat32(jt.BreakForce)
+		h.WriteFloat32(jt.BreakTorque)
+		h.WriteBool(jt.CollideConnected)
+		hashJointReaction(h, jt.jointReaction)
+		h.WriteBool(jt.initialized)
+		h.WriteBool(jt.active)
+		h.WriteFloat64(jt.dt)
+		h.WriteFloat64(jt.ux)
+		h.WriteFloat64(jt.uy)
+		h.WriteFloat64(jt.rAx)
+		h.WriteFloat64(jt.rAy)
+		h.WriteFloat64(jt.rBx)
+		h.WriteFloat64(jt.rBy)
+		h.WriteFloat64(jt.effMass)
+		h.WriteFloat64(jt.accImpulse)
+		h.WriteInt(jt.mode)
+		h.WriteFloat64(jt.targetLen)
+	case *SpringJoint:
+		h.WriteUint8(2)
+		hashBodyRef(jt.A)
+		hashBodyRef(jt.B)
+		h.WriteFloat32(float32(jt.AnchorA.X))
+		h.WriteFloat32(float32(jt.AnchorA.Y))
+		h.WriteFloat32(float32(jt.AnchorB.X))
+		h.WriteFloat32(float32(jt.AnchorB.Y))
+		h.WriteFloat32(jt.RestLength)
+		h.WriteFloat32(jt.Stiffness)
+		h.WriteFloat32(jt.Damping)
+		h.WriteFloat32(jt.BreakForce)
+		h.WriteFloat32(jt.BreakTorque)
+		h.WriteBool(jt.CollideConnected)
+		hashJointReaction(h, jt.jointReaction)
+		h.WriteBool(jt.initialized)
+	case *RevoluteJoint:
+		h.WriteUint8(3)
+		hashBodyRef(jt.A)
+		hashBodyRef(jt.B)
+		h.WriteFloat32(float32(jt.AnchorA.X))
+		h.WriteFloat32(float32(jt.AnchorA.Y))
+		h.WriteFloat32(float32(jt.AnchorB.X))
+		h.WriteFloat32(float32(jt.AnchorB.Y))
+		h.WriteFloat32(jt.ReferenceAngle)
+		h.WriteBool(jt.EnableLimit)
+		h.WriteFloat32(jt.LowerAngle)
+		h.WriteFloat32(jt.UpperAngle)
+		h.WriteBool(jt.EnableMotor)
+		h.WriteFloat32(jt.MotorSpeed)
+		h.WriteFloat32(jt.MaxMotorTorque)
+		h.WriteFloat32(jt.BreakForce)
+		h.WriteFloat32(jt.BreakTorque)
+		h.WriteBool(jt.CollideConnected)
+		hashJointReaction(h, jt.jointReaction)
+		h.WriteBool(jt.active)
+		h.WriteFloat64(jt.dt)
+		h.WriteFloat64(jt.rAx)
+		h.WriteFloat64(jt.rAy)
+		h.WriteFloat64(jt.rBx)
+		h.WriteFloat64(jt.rBy)
+		h.WriteFloat64(jt.m11)
+		h.WriteFloat64(jt.m12)
+		h.WriteFloat64(jt.m22)
+		h.WriteFloat64(jt.motorMass)
+		h.WriteFloat64(jt.motorImpulse)
+		h.WriteFloat64(jt.limitImpulse)
+		h.WriteInt(jt.limitState)
+	case *PrismaticJoint:
+		h.WriteUint8(4)
+		hashBodyRef(jt.A)
+		hashBodyRef(jt.B)
+		h.WriteFloat32(float32(jt.AnchorA.X))
+		h.WriteFloat32(float32(jt.AnchorA.Y))
+		h.WriteFloat32(float32(jt.AnchorB.X))
+		h.WriteFloat32(float32(jt.AnchorB.Y))
+		h.WriteFloat32(float32(jt.LocalAxisA.X))
+		h.WriteFloat32(float32(jt.LocalAxisA.Y))
+		h.WriteFloat32(jt.ReferenceAngle)
+		h.WriteBool(jt.EnableLimit)
+		h.WriteFloat32(jt.LowerTranslation)
+		h.WriteFloat32(jt.UpperTranslation)
+		h.WriteBool(jt.EnableMotor)
+		h.WriteFloat32(jt.MotorSpeed)
+		h.WriteFloat32(jt.MaxMotorForce)
+		h.WriteFloat32(jt.BreakForce)
+		h.WriteFloat32(jt.BreakTorque)
+		h.WriteBool(jt.CollideConnected)
+		hashJointReaction(h, jt.jointReaction)
+		h.WriteBool(jt.active)
+		h.WriteBool(jt.rotLocked)
+		h.WriteFloat64(jt.dt)
+		h.WriteFloat64(jt.ax)
+		h.WriteFloat64(jt.ay)
+		h.WriteFloat64(jt.px)
+		h.WriteFloat64(jt.py)
+		h.WriteFloat64(jt.s1)
+		h.WriteFloat64(jt.s2)
+		h.WriteFloat64(jt.a1)
+		h.WriteFloat64(jt.a2)
+		h.WriteFloat64(jt.perpM11)
+		h.WriteFloat64(jt.perpM12)
+		h.WriteFloat64(jt.perpM22)
+		h.WriteFloat64(jt.motorMass)
+		h.WriteFloat64(jt.motorImpulse)
+		h.WriteFloat64(jt.limitImpulse)
+		h.WriteInt(jt.limitState)
+	case *WeldJoint:
+		h.WriteUint8(5)
+		hashBodyRef(jt.A)
+		hashBodyRef(jt.B)
+		h.WriteFloat32(float32(jt.AnchorA.X))
+		h.WriteFloat32(float32(jt.AnchorA.Y))
+		h.WriteFloat32(float32(jt.AnchorB.X))
+		h.WriteFloat32(float32(jt.AnchorB.Y))
+		h.WriteFloat32(jt.ReferenceAngle)
+		h.WriteFloat32(jt.FrequencyHz)
+		h.WriteFloat32(jt.DampingRatio)
+		h.WriteFloat32(jt.Stiffness)
+		h.WriteFloat32(jt.Damping)
+		h.WriteFloat32(jt.BreakForce)
+		h.WriteFloat32(jt.BreakTorque)
+		h.WriteBool(jt.CollideConnected)
+		hashJointReaction(h, jt.jointReaction)
+		h.WriteBool(jt.active)
+		h.WriteBool(jt.soft)
+		h.WriteFloat64(jt.dt)
+		h.WriteFloat64(jt.rAx)
+		h.WriteFloat64(jt.rAy)
+		h.WriteFloat64(jt.rBx)
+		h.WriteFloat64(jt.rBy)
+		h.WriteFloat64(jt.k.a)
+		h.WriteFloat64(jt.k.b)
+		h.WriteFloat64(jt.k.c)
+		h.WriteFloat64(jt.k.d)
+		h.WriteFloat64(jt.k.e)
+		h.WriteFloat64(jt.k.f)
+		h.WriteFloat64(jt.gammaLin)
+		h.WriteFloat64(jt.gammaAng)
+		h.WriteFloat64(jt.biasX)
+		h.WriteFloat64(jt.biasY)
+		h.WriteFloat64(jt.biasAng)
+		h.WriteFloat64(jt.impulseX)
+		h.WriteFloat64(jt.impulseY)
+		h.WriteFloat64(jt.angImpulse)
+	case *WheelJoint:
+		h.WriteUint8(6)
+		hashBodyRef(jt.A)
+		hashBodyRef(jt.B)
+		h.WriteFloat32(float32(jt.AnchorA.X))
+		h.WriteFloat32(float32(jt.AnchorA.Y))
+		h.WriteFloat32(float32(jt.AnchorB.X))
+		h.WriteFloat32(float32(jt.AnchorB.Y))
+		h.WriteFloat32(float32(jt.LocalAxisA.X))
+		h.WriteFloat32(float32(jt.LocalAxisA.Y))
+		h.WriteFloat32(jt.FrequencyHz)
+		h.WriteFloat32(jt.DampingRatio)
+		h.WriteFloat32(jt.Stiffness)
+		h.WriteFloat32(jt.Damping)
+		h.WriteBool(jt.EnableLimit)
+		h.WriteFloat32(jt.LowerTranslation)
+		h.WriteFloat32(jt.UpperTranslation)
+		h.WriteBool(jt.EnableMotor)
+		h.WriteFloat32(jt.MotorSpeed)
+		h.WriteFloat32(jt.MaxMotorTorque)
+		h.WriteFloat32(jt.BreakForce)
+		h.WriteFloat32(jt.BreakTorque)
+		h.WriteBool(jt.CollideConnected)
+		hashJointReaction(h, jt.jointReaction)
+		h.WriteBool(jt.active)
+		h.WriteBool(jt.springActive)
+		h.WriteFloat64(jt.dt)
+		h.WriteFloat64(jt.ax)
+		h.WriteFloat64(jt.ay)
+		h.WriteFloat64(jt.px)
+		h.WriteFloat64(jt.py)
+		h.WriteFloat64(jt.sAx)
+		h.WriteFloat64(jt.sBx)
+		h.WriteFloat64(jt.a1)
+		h.WriteFloat64(jt.a2)
+		h.WriteFloat64(jt.perpMass)
+		h.WriteFloat64(jt.axisMass)
+		h.WriteFloat64(jt.springMass)
+		h.WriteFloat64(jt.motorMass)
+		h.WriteFloat64(jt.gamma)
+		h.WriteFloat64(jt.bias)
+		h.WriteFloat64(jt.springImpulse)
+		h.WriteFloat64(jt.motorImpulse)
+		h.WriteFloat64(jt.limitImpulse)
+		h.WriteInt(jt.limitState)
+	case *MouseJoint:
+		h.WriteUint8(7)
+		hashBodyRef(jt.Body)
+		h.WriteFloat32(float32(jt.Anchor.X))
+		h.WriteFloat32(float32(jt.Anchor.Y))
+		h.WriteFloat32(float32(jt.Target.X))
+		h.WriteFloat32(float32(jt.Target.Y))
+		h.WriteFloat32(jt.MaxForce)
+		h.WriteFloat32(jt.FrequencyHz)
+		h.WriteFloat32(jt.DampingRatio)
+		h.WriteFloat32(jt.Stiffness)
+		h.WriteFloat32(jt.Damping)
+		h.WriteFloat32(jt.BreakForce)
+		h.WriteFloat32(jt.BreakTorque)
+		hashJointReaction(h, jt.jointReaction)
+		h.WriteBool(jt.active)
+		h.WriteFloat64(jt.dt)
+		h.WriteFloat64(jt.rX)
+		h.WriteFloat64(jt.rY)
+		h.WriteFloat64(jt.m11)
+		h.WriteFloat64(jt.m12)
+		h.WriteFloat64(jt.m22)
+		h.WriteFloat64(jt.gamma)
+		h.WriteFloat64(jt.biasX)
+		h.WriteFloat64(jt.biasY)
+		h.WriteFloat64(jt.impulseX)
+		h.WriteFloat64(jt.impulseY)
+	}
 }
 
 func hashShape(h *detmath.Hasher, s Shape) {

@@ -20,9 +20,14 @@
 - **速度求解**：顺序冲量（Sequential Impulse）求解器（`RigidWorld.SolverIterations`，默认 10 次迭代），支持累计法向与库仑摩擦冲量钳位，并对弹性恢复设置速度阈值，防止静止堆叠出现微幅弹跳。
 - **位置修正**：在位置积分后执行带容差（slop = `0.01`）的直接线性位置投影，消除残余穿透而不额外注入虚假反弹速度。
 - **关节约束**：
-  - `DistanceJoint`：定长杆约束，支持可选的 `Stiffness` 与 XPBD `Compliance` 柔度参数。
-  - `SpringJoint`：胡克定律阻尼弹簧，采用无条件稳定的隐式冲量积分。
-  - `RevoluteJoint`：二自由度铰链/销钉约束，通过 2×2 有效质量块矩阵使两个局部锚点在世界空间重合，同时允许自由旋转。
+  - `DistanceJoint`（`NewDistanceJoint`、`NewRopeJoint`）：定长杆约束，支持可选的 `Stiffness` 与 XPBD `Compliance` 柔度参数，并支持单向绳索/最大距离模式（`MaxOnly: true`）以及松弛区间模式（`[MinLength, MaxLength]`）。
+  - `SpringJoint`（`NewSpringJoint`）：胡克定律阻尼弹簧，采用无条件稳定的隐式冲量积分。
+  - `RevoluteJoint`（`NewRevoluteJoint`）：二自由度铰链/销钉约束，通过 2×2 有效质量块矩阵使局部锚点重合，支持角度限位（`EnableLimit`、`LowerAngle`、`UpperAngle`）、角速度马达（`EnableMotor`、`MotorSpeed`、`MaxMotorTorque`）以及 `JointAngle()` / `JointSpeed()` 读数。
+  - `PrismaticJoint`（`NewPrismaticJoint`）：沿 `LocalAxisA` 滑动的一自由度滑块约束，锁定相对转角（`ReferenceAngle`），支持位移限位（`EnableLimit`、`LowerTranslation`、`UpperTranslation`）、线性马达（`EnableMotor`、`MotorSpeed`、`MaxMotorForce`）以及 `JointTranslation()` / `JointSpeed()` 读数。
+  - `WeldJoint`（`NewWeldJoint`）：通过耦合 3×3 块矩阵求解的三自由度刚性焊接关节，也可通过 `FrequencyHz`/`DampingRatio`（或直接设置 `Stiffness`/`Damping`）作为柔顺阻尼弹簧姿态锁使用。
+  - `WheelJoint`（`NewWheelJoint`）：2D 车辆悬挂关节，约束车轮轮毂沿 `LocalAxisA` 伸缩，带悬挂弹簧（`FrequencyHz`/`DampingRatio` 或 `Stiffness`/`Damping`）、可选行程限位（`EnableLimit`、`LowerTranslation`、`UpperTranslation`）与旋转驱动马达（`EnableMotor`、`MotorSpeed`、`MaxMotorTorque`）。
+  - `MouseJoint`（`NewMouseJoint`）：单刚体目标牵引关节，以受 `MaxForce` 限制的阻尼弹簧将局部锚点 `Anchor` 拉向可动态更新的世界坐标 `Target`（`SetTarget`）。
+  - **连接体碰撞、反作用力与断裂**：双刚体关节默认关闭相连刚体间的接触碰撞（`CollideConnected: false`）。所有内置关节均追踪每步的 `ReactionForce() (fx, fy float32)`、`ReactionTorque() float32` 与 `Broken() bool`，并支持可选的 `BreakForce` / `BreakTorque` 断裂阈值；超过阈值的关节会在位置修正前按插入顺序确定性移除，并通过 `RigidWorld.JointBreakEvents()` 与 `RigidWorld.OnJointBreak` 上报。
 
 ## 取舍与适用范围
 
@@ -54,7 +59,13 @@ pendulum := physics.NewRigidCircle(240, 140, 12, 1)
 pivot := physics.NewStaticRigidBox(240, 60, 8, 8)
 
 rw.AddBody(floor, crate, pendulum, pivot)
-rw.AddJoint(physics.NewDistanceJoint(pivot, pendulum, core.Point{}, core.Point{}, 80))
+rope := physics.NewRopeJoint(pivot, pendulum, core.Point{}, core.Point{}, 80)
+rope.BreakForce = 4000
+rw.AddJoint(rope)
+rw.OnJointBreak = func(ev physics.JointBreakEvent) {
+	// 确定性地处理绳索或可破坏连接断裂。
+	_ = ev
+}
 
 loop := &game.Loop{
 	Rate: 60,

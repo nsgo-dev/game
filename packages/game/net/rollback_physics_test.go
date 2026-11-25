@@ -170,7 +170,7 @@ func ExampleRollbackSession_physics() {
 
 func TestRollbackPhysics2DSoak(t *testing.T) {
 	// Cross-architecture golden checksum after 600 rollback ticks (must match on amd64 and arm64).
-	const wantGolden uint64 = 0xd8d68acc414c4f7b
+	const wantGolden uint64 = 0x65a7beea7ec0b057
 
 	hub := gamenet.NewLoopbackHub(gamenet.LoopbackConfig{
 		Latency:  40 * time.Millisecond,

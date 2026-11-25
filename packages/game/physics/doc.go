@@ -21,7 +21,9 @@
 // StepTriggers.
 //
 // RigidWorld and RigidBody implement lightweight, pure-Go deterministic 2D rigid-body
-// dynamics and constraints (DistanceJoint, SpringJoint and RevoluteJoint) directly inside
+// dynamics and constraints (DistanceJoint with rope/range mode, SpringJoint, RevoluteJoint
+// with limits and motor, PrismaticJoint, WeldJoint, WheelJoint and MouseJoint, all with
+// reaction force/torque readouts and optional break thresholds) directly inside
 // this package rather than binding a C/C++ library such as Box2D or Chipmunk. Keeping the
 // solver pure Go eliminates cgo and external dependencies, guarantees uniform builds across
 // macOS, iOS, Windows, Linux, Android and Web/WASM, shares Shape and LayerMask directly with
