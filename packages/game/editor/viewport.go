@@ -579,20 +579,21 @@ func (e *Editor) drawCameraFrameOverlay(d *core.Drawing) {
 	}
 	vw, vh := e.ViewportSize()
 	highlight := e.ShowingSceneSettings()
+	spec := e.SpecPalette(nil)
 	d.Save()
 	if highlight {
-		d.SetStrokeColor(core.RGBA(0x3B7BFF, 1)).SetLineWidth(1.5)
+		d.SetStrokeColor(spec.Accent.Edge).SetLineWidth(1.5)
 	} else {
-		d.SetStrokeColor(core.RGBA(0xF8FAFC, 0.7)).SetLineWidth(1)
+		d.SetStrokeColor(ui.Alpha(spec.TextMuted, 0.7)).SetLineWidth(1)
 	}
 	strokePolygon(d, corners(0, 0, vw, vh, e.ScreenToCanvas))
 	if e.Doc != nil && e.Doc.Camera != nil && e.Doc.Camera.Bounds != nil && e.drawOverlayOverride == nil {
 		b := e.Doc.Camera.Bounds
 		if highlight {
-			d.SetStrokeColor(core.RGBA(0xE9A84A, 0.95)).SetLineWidth(1.5).SetLineDash(6, 4)
+			d.SetStrokeColor(ui.Alpha(spec.Changed.Edge, 0.95)).SetLineWidth(1.5).SetLineDash(6, 4)
 			strokePolygon(d, corners(b.X, b.Y, b.Width, b.Height, e.WorldToCanvas))
 			if e.Tool == ToolSelect || e.Tool == ToolMove {
-				drawWorldRectHandles(e, d, b.X, b.Y, b.Width, b.Height, e.cameraBoundsDrag.handle, core.RGBA(0xFFFFFF, 1), core.RGBA(0xE9A84A, 1), core.RGBA(0xFBBF24, 1))
+				drawWorldRectHandles(e, d, b.X, b.Y, b.Width, b.Height, e.cameraBoundsDrag.handle, spec.Raised, spec.Changed.Edge, spec.Changed.Fg)
 			}
 		}
 	}
@@ -601,21 +602,21 @@ func (e *Editor) drawCameraFrameOverlay(d *core.Drawing) {
 		// draw a dashed tether from the handle to the clamped frame center.
 		fcx, fcy := e.ScreenToCanvas(vw/2, vh/2)
 		if math.Hypot(float64(hx-fcx), float64(hy-fcy)) > 1 {
-			d.SetStrokeColor(core.RGBA(0x3B7BFF, 0.6)).SetLineWidth(1).SetLineDash(4, 3)
+			d.SetStrokeColor(ui.Alpha(spec.Accent.Edge, 0.6)).SetLineWidth(1).SetLineDash(4, 3)
 			d.BeginPath().MoveTo(hx, hy).LineTo(fcx, fcy).Stroke()
 		}
 		// Reset dash for the solid crosshair and circular handle.
 		d.SetLineDash()
 		const arm float32 = 10
-		d.SetStrokeColor(core.RGBA(0x3B7BFF, 1)).SetLineWidth(1.5)
+		d.SetStrokeColor(spec.Accent.Edge).SetLineWidth(1.5)
 		d.BeginPath().MoveTo(hx-arm, hy).LineTo(hx+arm, hy).MoveTo(hx, hy-arm).LineTo(hx, hy+arm).Stroke()
 		r := float32(5)
-		fill := core.RGBA(0xFFFFFF, 1)
-		stroke := core.RGBA(0x3B7BFF, 1)
+		fill := spec.Raised
+		stroke := spec.Accent.Edge
 		if e.cameraDrag.active {
 			r = 6
-			fill = core.RGBA(0x3B7BFF, 1)
-			stroke = core.RGBA(0xFFFFFF, 1)
+			fill = spec.Accent.Edge
+			stroke = spec.Raised
 		}
 		d.SetFillColor(fill).SetStrokeColor(stroke).SetLineWidth(1.5)
 		d.BeginPath().Ellipse(hx, hy, r, r).Fill().Stroke()
@@ -818,12 +819,14 @@ func (e *Editor) drawSelectionOverlay(d *core.Drawing, scene *sceneformat.BuiltS
 				minY, maxY = min(minY, c.Y), max(maxY, c.Y)
 			}
 		}
-		d.SetStrokeColor(core.RGBA(0x38BDF8, 1)).SetLineWidth(1.5)
+		spec := e.SpecPalette(nil)
+		d.SetStrokeColor(spec.Accent.Edge).SetLineWidth(1.5)
 		strokePolygon(d, corners)
 		drawn++
 	}
 	if drawn > 1 {
-		d.SetStrokeColor(core.RGBA(0x38BDF8, 0.55)).SetLineWidth(1).SetLineDash(4, 3)
+		spec := e.SpecPalette(nil)
+		d.SetStrokeColor(ui.Alpha(spec.Accent.Edge, 0.55)).SetLineWidth(1).SetLineDash(4, 3)
 		d.StrokeRect(minX, minY, maxX-minX, maxY-minY)
 	}
 	d.Restore()
@@ -1140,7 +1143,6 @@ func touchStroke(ev core.TouchEvent, begin func(at core.Point, secondary, alt bo
 //
 // In 2D, with the Select or Move tool, a drag on an object moves it, and a drag on the selection's gizmo moves it along one of its axes, turns it with the ring or scales it with a corner or edge handle (Shift keeps the aspect ratio), each recorded as one undoable step when the drag ends; Escape or a cancelled gesture puts the object back (BeginDrag2D). A mouse wheel, a pinch or a touchpad scroll with Control or Command held zooms the 2D view (View2D) about the pointer, and a touchpad's scroll, a mouse wheel's sideways scroll, a middle-button drag, a drag with Space held or a two-finger drag pans it; while the scene plays the view is the scene camera's and does not move; F frames the selection (FrameSelection2D), Home frames everything (FrameAll2D) and Mod+0 returns to the scene camera's view (ResetView2D). With a tile tool a drag with the mouse or one finger is a tile stroke (BeginTileStroke) over every cell it crosses, recorded as one undo step: Paint paints and Erase erases, a right-button drag erases with Paint, Alt with any tile tool picks the tile under the pointer, and Pick picks and hands over to Paint; the cell under the resting mouse is outlined (HoveredTile). In 3D a drag orbits the camera or drags the gizmo; a middle-button drag, a Shift-drag, a touchpad's scroll and a two-finger drag pan it; the wheel and a pinch zoom it; holding the right button flies it, the pointer turning it and W, A, S, D, Q and E moving it (BeginFly3D); F frames the selection; and a bar, an axis widget and the controls' help line over the scene switch the projection, turn to the axis views, orbit by 15 degrees and reset the view.
 func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
-	colors := ui.ColorsOf(cx)
 	tileAnimRev := core.NewSignal(cx, ed.TileAnimRevision())
 	unsubTileAnim := ed.SubscribeTileAnim(func() {
 		tileAnimRev.Set(ed.TileAnimRevision())
@@ -1330,12 +1332,13 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 		}
 	})
 
+	spec := ed.SpecPalette(cx)
 	return core.View{
 		TestID: "editor-viewport-container",
 		Style: core.Style{
 			FlexGrow:   1,
 			Position:   core.Relative,
-			Background: colors.Surface(),
+			Background: spec.Viewport,
 			Overflow:   core.Hidden,
 		},
 		Children: []core.Node{
@@ -1687,6 +1690,8 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 			assetDragViewportOverlay(cx, ed, rev),
 			viewport3DRenderStatsOverlay(cx, ed, rev),
 			viewportOverlaysBarView(cx, ed, rev),
+			viewportOverlayLegendView(cx, ed, rev),
+			ToastView(cx, ed, rev),
 		},
 	}
 }

@@ -94,6 +94,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 		}
 	})
 
+	cx.SetTheme(SpecTheme())
 	colors := ui.ColorsOf(cx)
 	appearanceMemo := core.NewMemo(cx, func() core.Appearance {
 		_ = rev.Get()
@@ -119,7 +120,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 		_ = rev.Get()
 		return chromeState{
 			lang: ed.ResolvedLanguage(),
-			dark: cx.Env().Dark(),
+			dark: cx.Dark(),
 		}
 	})
 
@@ -276,7 +277,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 		},
 		StyleFunc: func() core.Style {
 			_ = chromeKey.Get()
-			return core.Style{Background: colors.Surface()}
+			return core.Style{Background: colors.Background()}
 		},
 		Children: []core.Node{
 			workspace,
@@ -1337,6 +1338,7 @@ func statusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 							return len(ed.DetectedMergeConflicts()) > 0
 						},
 						Then: func(cx *core.Scope) core.Node {
+							spec := ed.SpecPalette(cx)
 							return ui.Button{
 								TestID:  "status-merge-conflicts",
 								Icon:    lucide.GitMerge,
@@ -1350,19 +1352,19 @@ func statusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 									}
 									return fmt.Sprintf("%d scene conflicts", n)
 								},
-								Color: func() core.Color { return specWarningFill },
-								Tint:  func() core.Color { return specWarning },
+								Color: func() core.Color { return spec.Warning.Fill },
+								Tint:  func() core.Color { return spec.Warning.Fg },
 								TextStyle: core.Style{
 									FontSize:   11,
 									FontWeight: 500,
-									Color:      specWarning,
+									Color:      spec.Warning.Fg,
 								},
 								Style: core.Style{
 									Height:       core.Pt(22),
 									CornerRadius: 6,
 									Padding:      core.Symmetric(0, 8),
 									BorderWidth:  1,
-									BorderColor:  specWarningEdge,
+									BorderColor:  spec.Warning.Edge,
 								},
 								OnPress: func() {
 									ed.report(ed.OpenMergeConflict(""))
@@ -1376,6 +1378,7 @@ func statusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 							return ed.ActivePlaytestReport() != nil
 						},
 						Then: func(cx *core.Scope) core.Node {
+							spec := ed.SpecPalette(cx)
 							return ui.Button{
 								TestID:  "status-playtest-report",
 								Variant: ui.ButtonGhost,
@@ -1394,21 +1397,21 @@ func statusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 								Color: func() core.Color {
 									_ = rev.Get()
 									if rep := ed.ActivePlaytestReport(); rep != nil && len(rep.MissedMetrics()) > 0 {
-										return specPlaytestMissedFill
+										return spec.Removed.Fill
 									}
-									return specAddedFill
+									return spec.Added.Fill
 								},
 								TextStyle: core.Style{
 									FontSize:   11,
 									FontWeight: 600,
-									Color:      specText,
+									Color:      spec.TextSecondary,
 								},
 								Style: core.Style{
 									Height:       core.Pt(22),
 									CornerRadius: 6,
 									Padding:      core.Symmetric(0, 8),
 									BorderWidth:  1,
-									BorderColor:  specLineRaised,
+									BorderColor:  spec.LineRaised,
 								},
 								OnPress: func() {
 									ed.SetPlaytestReportOpen(true)
@@ -1446,6 +1449,7 @@ func playReplayBannerView(ed *Editor, rev *core.Signal[uint64]) core.Node {
 			return ed.Playing() && ed.PlayReplay() != nil
 		},
 		Then: func(cx *core.Scope) core.Node {
+			spec := ed.SpecPalette(cx)
 			return core.View{
 				TestID: "play-replay-banner",
 				Style: core.Style{
@@ -1455,9 +1459,9 @@ func playReplayBannerView(ed *Editor, rev *core.Signal[uint64]) core.Node {
 					FlexShrink:  0,
 					Padding:     core.Symmetric(0, 12),
 					Gap:         10,
-					Background:  specPanel,
+					Background:  spec.Panel,
 					Borders:     core.Edges{Bottom: 1},
-					BorderColor: specLine,
+					BorderColor: spec.Line,
 				},
 				Children: []core.Node{
 					core.Text{
@@ -1477,7 +1481,7 @@ func playReplayBannerView(ed *Editor, rev *core.Signal[uint64]) core.Node {
 						Style: core.Style{
 							FontFamily: core.FontMonospace,
 							FontSize:   11.5,
-							Color:      specTextSecondary,
+							Color:      spec.TextMuted,
 							FlexGrow:   1,
 						},
 					},
@@ -1486,19 +1490,19 @@ func playReplayBannerView(ed *Editor, rev *core.Signal[uint64]) core.Node {
 						Text:    "Back to Playtest",
 						Variant: ui.ButtonGhost,
 						Size:    ui.SizeSmall,
-						Color:   func() core.Color { return specRaised },
+						Color:   func() core.Color { return spec.Raised },
 						TextStyle: core.Style{
 							FontSize:   11.5,
 							FontWeight: 500,
-							Color:      specText,
+							Color:      spec.TextSecondary,
 						},
 						Style: core.Style{
 							Height:       core.Pt(24),
 							CornerRadius: 6,
 							Padding:      core.Symmetric(0, 10),
 							BorderWidth:  1,
-							BorderColor:  specLineRaised,
-							FocusVisible: specFocusRingStyle,
+							BorderColor:  spec.LineRaised,
+							FocusVisible: spec.FocusRing(2),
 						},
 						OnPress: func() {
 							ed.report(ed.Stop())
