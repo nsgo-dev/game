@@ -14,12 +14,12 @@ import (
 const ProfilePuzzleSolver = "puzzle-solver"
 
 const (
-	defaultPuzzleStateLimit       = 2_000_000
-	defaultPuzzleUndoAfterBad     = 3
-	defaultPuzzleMistakeRate      = 0.35
-	defaultPuzzleMaxHumanMoves    = 200
-	puzzleModeHuman               = "human"
-	puzzleModeSolver              = "solver"
+	defaultPuzzleStateLimit    = 2_000_000
+	defaultPuzzleUndoAfterBad  = 3
+	defaultPuzzleMistakeRate   = 0.35
+	defaultPuzzleMaxHumanMoves = 200
+	puzzleModeHuman            = "human"
+	puzzleModeSolver           = "solver"
 )
 
 func init() {

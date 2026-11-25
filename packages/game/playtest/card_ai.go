@@ -334,14 +334,14 @@ func (b *CardAI) Decide(_ int, _ time.Duration, rawObs any, rng *random.Stream) 
 
 // CardMatchResult holds the outcome of one AI-vs-AI card match.
 type CardMatchResult struct {
-	DeckA           string
-	DeckB           string
-	FirstPlayer     int
-	Winner          int
-	Turns           int
-	Decisions       int
-	MedianThinkMs   float64
-	P99ThinkMs      float64
+	DeckA         string
+	DeckB         string
+	FirstPlayer   int
+	Winner        int
+	Turns         int
+	Decisions     int
+	MedianThinkMs float64
+	P99ThinkMs    float64
 }
 
 // CardTournamentReport summarizes a complete round-robin deck-pair tournament between two greedy 1-turn-lookahead CardAIs.
