@@ -84,7 +84,7 @@ func TestPerfReadoutMatchesDebugOverlay(t *testing.T) {
 
 	var escapeSink [][]byte
 	app.Post(func() {
-		for _, f := range frames {
+		for i, f := range frames {
 			prof.BeginFrame()
 			tPhys := prof.Begin("physics")
 			now = now.Add(f.phys)
@@ -106,6 +106,9 @@ func TestPerfReadoutMatchesDebugOverlay(t *testing.T) {
 			}
 			if f.triggerGC {
 				runtime.GC()
+			}
+			if i == len(frames)-1 {
+				overlay.NoteFrameCause("first use of torch_glow compiled its shader")
 			}
 			overlay.RecordFrame(f.total, f.update, f.draw)
 		}
@@ -209,9 +212,9 @@ func TestPerfReadoutMatchesDebugOverlay(t *testing.T) {
 	if len(detailed.History) != 3 {
 		t.Fatalf("len(history) = %d, want 3", len(detailed.History))
 	}
-	// Last 3 frames are frames[2], frames[3] (GC hitch), frames[4].
-	if detailed.History[0].FrameMs != 20 || detailed.History[1].FrameMs != 25 || !detailed.History[1].GCHitch || detailed.History[2].FrameMs != 30 {
-		t.Fatalf("history tail = %+v, want [20ms, 25ms+hitch, 30ms]", detailed.History)
+	// Last 3 frames are frames[2], frames[3] (GC hitch), frames[4] (spike cause).
+	if detailed.History[0].FrameMs != 20 || detailed.History[0].Cause != "" || detailed.History[1].FrameMs != 25 || !detailed.History[1].GCHitch || detailed.History[2].FrameMs != 30 || detailed.History[2].Cause != "first use of torch_glow compiled its shader" {
+		t.Fatalf("history tail = %+v, want [20ms, 25ms+hitch, 30ms+cause]", detailed.History)
 	}
 	if len(detailed.Zones) != 2 {
 		t.Fatalf("len(zones) = %d, want 2", len(detailed.Zones))

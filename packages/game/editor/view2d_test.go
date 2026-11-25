@@ -197,9 +197,10 @@ func TestPlayShowsTheCameraViewWhateverTheFreeView(t *testing.T) {
 	if !ed.View2DFollowsCamera() {
 		t.Fatal("while playing View2DFollowsCamera reports false, though the view is the scene camera's")
 	}
+	playCW, playCH := ed.CanvasSize()
 	for _, c := range [][2]float32{{0, 0}, {vw, vh}} {
 		x, y := ed.ScreenToCanvas(c[0], c[1])
-		if wx, wy := (cw-vw)/2+c[0], (ch-vh)/2+c[1]; !near(x, wx, 1e-3) || !near(y, wy, 1e-3) {
+		if wx, wy := (playCW-vw)/2+c[0], (playCH-vh)/2+c[1]; !near(x, wx, 1e-3) || !near(y, wy, 1e-3) {
 			t.Fatalf("while playing the screen's corner (%v, %v) is at canvas (%v, %v), want (%v, %v)", c[0], c[1], x, y, wx, wy)
 		}
 	}

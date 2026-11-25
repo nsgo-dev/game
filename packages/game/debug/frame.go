@@ -24,6 +24,10 @@ func (s *FrameStats) Record(total, update, draw time.Duration) {
 }
 
 func (s *FrameStats) record(total, update, draw time.Duration, gcHitch bool) {
+	s.recordWithCause(total, update, draw, gcHitch, "")
+}
+
+func (s *FrameStats) recordWithCause(total, update, draw time.Duration, gcHitch bool, cause string) {
 	if s == nil {
 		return
 	}
@@ -39,7 +43,7 @@ func (s *FrameStats) record(total, update, draw time.Duration, gcHitch bool) {
 	if total == 0 && update+draw > 0 {
 		total = update + draw
 	}
-	s.samples[s.head] = FrameSample{Total: total, Update: update, Draw: draw, GCHitch: gcHitch}
+	s.samples[s.head] = FrameSample{Total: total, Update: update, Draw: draw, GCHitch: gcHitch, Cause: cause}
 	s.head = (s.head + 1) % FrameHistory
 	if s.count < FrameHistory {
 		s.count++

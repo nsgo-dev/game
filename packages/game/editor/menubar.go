@@ -156,6 +156,7 @@ func (e *Editor) ApplicationMenu() []desktop.MenuItem {
 		cmdItem(CmdProjectSettings, "Project Settings", false),
 		cmdItem(CmdAudioMixer, "Audio Bus Mixer", false),
 		cmdItem(CmdLocalization, "Localization Strings", false),
+		cmdItem(CmdProfiler, "Profiler", false),
 		sep,
 		cmdItem(CmdCheckProblems, "Check Problems", false),
 	}
@@ -189,7 +190,7 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 	sig := core.NewMemo(cx, func() string {
 		_ = rev.Get()
 		var b strings.Builder
-		fmt.Fprintf(&b, "%v|%v|%v|%v|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v",
+		fmt.Fprintf(&b, "%v|%v|%v|%v|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v",
 			e.Playing(),
 			e.History.CanUndo(),
 			e.History.CanRedo(),
@@ -205,6 +206,7 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 			e.AudioMixerOpen(),
 			e.LocalizationOpen(),
 			e.ExportPanelOpen(),
+			e.ProfilerOpen(),
 		)
 		for _, p := range e.activePlugins() {
 			b.WriteByte('|')

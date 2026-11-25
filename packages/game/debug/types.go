@@ -64,6 +64,8 @@ type FrameSample struct {
 	Draw time.Duration
 	// GCHitch reports whether a GC pause occurred during this frame.
 	GCHitch bool
+	// Cause is an optional short explanation of a frame-time spike (such as shader compilation or asset streaming) when known by the game.
+	Cause string
 }
 
 // SceneSnapshot describes one active scene for the scene inspector.
