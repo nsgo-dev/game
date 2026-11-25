@@ -268,7 +268,7 @@ func signedArea(pts []vec) float64 {
 	var a float64
 	for i, p := range pts {
 		q := pts[(i+1)%len(pts)]
-		a += p.x*q.y - q.x*p.y
+		a += float64(p.x*q.y) - float64(q.x*p.y)
 	}
 	return a / 2
 }
@@ -469,6 +469,9 @@ func (v *View) buildGeom(ch *chunk, cx, cy int) {
 	ch.boxes = v.mergeBoxes(ch.boxes, ch, cx, cy)
 	if len(ch.shapeBoxes) > 1 {
 		ch.shapeBoxes = mergeRects(ch.shapeBoxes, eps)
+	}
+	if len(ch.shapePolys) > 1 {
+		ch.shapePolys = mergeConvexPolys(ch.shapePolys, eps)
 	}
 	ch.geomOK = true
 	v.aggOK = 0
@@ -722,11 +725,12 @@ func isConvexPoly(pts []vec, eps float64) bool {
 		if ul <= eps || vl <= eps {
 			return false
 		}
-		cross := ux*vy - uy*vx
+		cross := float64(ux*vy) - float64(uy*vx)
 		if cross < -eps*(ul+vl) {
 			return false
 		}
-		turning += math.Atan2(cross, ux*vx+uy*vy)
+		dot := float64(ux*vx) + float64(uy*vy)
+		turning += math.Atan2(cross, dot)
 	}
 	return math.Abs(turning-2*math.Pi) < 1e-4
 }
@@ -756,8 +760,8 @@ func simplifyCollinear(pts []vec, eps float64) []vec {
 				changed = true
 				continue
 			}
-			cross := ux*vy - uy*vx
-			dot := ux*vx + uy*vy
+			cross := float64(ux*vy) - float64(uy*vx)
+			dot := float64(ux*vx) + float64(uy*vy)
 			if math.Abs(cross) <= eps*(ul+vl) && dot >= 0 {
 				changed = true
 				continue
@@ -803,6 +807,28 @@ func tryMergeConvexPolys(a, b []vec, eps float64) ([]vec, bool) {
 	return nil, false
 }
 
+type polyBounds struct {
+	minX, minY, maxX, maxY float64
+}
+
+func computePolyBounds(pts []vec) polyBounds {
+	if len(pts) == 0 {
+		return polyBounds{}
+	}
+	b := polyBounds{minX: pts[0].x, minY: pts[0].y, maxX: pts[0].x, maxY: pts[0].y}
+	for _, p := range pts[1:] {
+		b.minX = min(b.minX, p.x)
+		b.minY = min(b.minY, p.y)
+		b.maxX = max(b.maxX, p.x)
+		b.maxY = max(b.maxY, p.y)
+	}
+	return b
+}
+
+func (a polyBounds) overlaps(b polyBounds, eps float64) bool {
+	return a.minX <= b.maxX+eps && b.minX <= a.maxX+eps && a.minY <= b.maxY+eps && b.minY <= a.maxY+eps
+}
+
 // mergeConvexPolys greedily merges adjacent convex polygons that share an edge whenever their union
 // remains convex with at most physics.MaxPolygonVertices vertices.
 func mergeConvexPolys(in []poly, eps float64) []poly {
@@ -811,9 +837,13 @@ func mergeConvexPolys(in []poly, eps float64) []poly {
 	}
 	out := make([]poly, len(in))
 	convex := make([]bool, len(in))
+	bounds := make([]polyBounds, len(in))
 	for i, p := range in {
 		out[i] = p
 		convex[i] = len(p.pts) <= physics.MaxPolygonVertices && isConvexPoly(p.pts, eps)
+		if convex[i] {
+			bounds[i] = computePolyBounds(p.pts)
+		}
 	}
 	for {
 		merged := false
@@ -821,20 +851,21 @@ func mergeConvexPolys(in []poly, eps float64) []poly {
 			if !convex[i] {
 				continue
 			}
-			for j := i + 1; j < len(out); j++ {
-				if !convex[j] {
+			for j := i + 1; j < len(out); {
+				if !convex[j] || !bounds[i].overlaps(bounds[j], eps) {
+					j++
 					continue
 				}
 				if m, ok := tryMergeConvexPolys(out[i].pts, out[j].pts, eps); ok {
 					out[i] = poly{pts: m}
+					bounds[i] = computePolyBounds(m)
 					out = slices.Delete(out, j, j+1)
 					convex = slices.Delete(convex, j, j+1)
+					bounds = slices.Delete(bounds, j, j+1)
 					merged = true
-					break
+					continue
 				}
-			}
-			if merged {
-				break
+				j++
 			}
 		}
 		if !merged {

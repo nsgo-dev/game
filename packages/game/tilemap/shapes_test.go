@@ -289,3 +289,60 @@ func TestLoadTiledPreservesTileCollisionObjectGroupsAndRoundTripsSampleTMJ(t *te
 		t.Fatalf("programmatic Shapes round-trip = %+v, want %+v", progBack.Tilesets[0].Shapes, prog.Tilesets[0].Shapes)
 	}
 }
+
+func TestEncodeTiledClearsFlagsAndRejectsNonFiniteOrOverflow(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("testdata", "sample.tmj"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	loader := tilemap.TilesetLoader{
+		LoadTileset: func(source string) ([]byte, error) {
+			return os.ReadFile(filepath.Join("testdata", filepath.FromSlash(source)))
+		},
+	}
+	m, err := tilemap.LoadTiled(raw, loader)
+	if err != nil {
+		t.Fatalf("LoadTiled(sample.tmj): %v", err)
+	}
+	// Clear TileSolid on GID 1 (row 0, col 0), clear TileOneWay on GID 2 (row 2, col 0),
+	// and replace custom flag 4 with flag 16 on GID 10 (row 2, col 3).
+	gidSolid := m.TileAt(0, 0, 0) & tilemap.TileIDMask
+	gidOneWay := m.TileAt(0, 0, 2) & tilemap.TileIDMask
+	gidCustom := m.TileAt(0, 3, 2) & tilemap.TileIDMask
+	m.SetFlags(gidSolid, 0)
+	m.SetFlags(gidOneWay, 0)
+	m.SetFlags(gidCustom, tilemap.TileFlags(1<<4))
+
+	enc, err := tilemap.EncodeTiled(m)
+	if err != nil {
+		t.Fatalf("EncodeTiled: %v", err)
+	}
+	m2, err := tilemap.LoadTiled(enc, tilemap.TilesetLoader{})
+	if err != nil {
+		t.Fatalf("LoadTiled(encoded): %v", err)
+	}
+	if got := m2.FlagsAt(0, 0); got != 0 {
+		t.Fatalf("cleared solid tile flags = %v, want 0", got)
+	}
+	if got := m2.FlagsAt(0, 2); got != 0 {
+		t.Fatalf("cleared one-way tile flags = %v, want 0", got)
+	}
+	if got := m2.FlagsAt(3, 2); got != tilemap.TileFlags(1<<4) {
+		t.Fatalf("replaced custom tile flags = %v, want %v", got, tilemap.TileFlags(1<<4))
+	}
+
+	// Non-finite tile sizes and overflowing layer dimensions must be refused cleanly.
+	nanMap := tilemap.New(1, 1, float32(math.NaN()), 16)
+	if _, err := tilemap.EncodeTiled(nanMap); err == nil {
+		t.Fatal("EncodeTiled(NaN TileWidth) succeeded, want error")
+	}
+	infMap := tilemap.New(1, 1, 16, float32(math.Inf(1)))
+	if _, err := tilemap.EncodeTiled(infMap); err == nil {
+		t.Fatal("EncodeTiled(+Inf TileHeight) succeeded, want error")
+	}
+	huge := tilemap.New(1<<20, 1<<20, 16, 16)
+	huge.Layers = append(huge.Layers, tilemap.TileLayer{Name: "huge", Width: 1 << 20, Height: 1 << 20})
+	if _, err := tilemap.EncodeTiled(huge); err == nil {
+		t.Fatal("EncodeTiled(overflowing layer) succeeded, want error")
+	}
+}
