@@ -339,6 +339,7 @@ func (e *Editor) relocate(id string, to objectSlot, label string) error {
 		return err
 	}
 	e.CancelGizmoDrag3D()
+	e.CancelComponentGizmoDrag3D()
 	e.History.Execute(&relocateCmd{ed: e, id: id, label: label, from: from, to: to, before: before, after: after})
 	return nil
 }
@@ -686,6 +687,7 @@ func (e *Editor) SetObjectID(oldID, newID string) error {
 		}
 	}
 	e.CancelGizmoDrag3D()
+	e.CancelComponentGizmoDrag3D()
 	e.History.Execute(cmd)
 	return nil
 }

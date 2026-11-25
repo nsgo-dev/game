@@ -20,6 +20,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/l10n"
 	"github.com/nsgo-dev/game/packages/game/loaderr"
 	"github.com/nsgo-dev/game/packages/game/math2d"
+	"github.com/nsgo-dev/game/packages/game/math3d"
 	"github.com/nsgo-dev/game/packages/game/navbake3d"
 	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/game/packages/game/render3d"
@@ -531,6 +532,18 @@ type Editor struct {
 	pluginHoverActive bool
 	pluginHoverRef    pluginToolRef
 	pluginHoverPos    math2d.Vec2
+	// pluginDrag3D tracks a 3D viewport drag claimed by the active plugin tool (BeginPluginDrag3D).
+	pluginDrag3D        bool
+	pluginDrag3DMoved   bool
+	pluginDrag3DRef     pluginToolRef
+	pluginDrag3DLast    math2d.Vec2
+	pluginDrag3DW       float32
+	pluginDrag3DH       float32
+	pluginHover3DActive bool
+	pluginHover3DRef    pluginToolRef
+	pluginHover3DRay    math3d.Ray
+	// compGizmoDrag tracks an interactive 3D component gizmo handle drag (BeginComponentGizmoDrag3D).
+	compGizmoDrag componentGizmoDrag3DState
 	// stroke is the tile stroke under way (BeginTileStroke), or nil.
 	stroke *tileStroke
 	// hover is where the mouse rests over the viewport (SetTileHover).
@@ -856,6 +869,9 @@ func (e *Editor) SetTool(t Tool) {
 	e.CancelShapeDrag2D()
 	e.CancelPluginDrag2D()
 	e.ClearPluginHover2D()
+	e.CancelComponentGizmoDrag3D()
+	e.CancelPluginDrag3D()
+	e.ClearPluginHover3D()
 	e.CancelCameraDrag()
 	e.CancelCameraBoundsDrag()
 	e.CancelRoomDrag()
@@ -878,6 +894,9 @@ func (e *Editor) SetViewMode(mode ViewMode) {
 	e.endGridMapStrokeForChange()
 	e.endTerrainStrokeForChange()
 	e.CancelGizmoDrag3D()
+	e.CancelComponentGizmoDrag3D()
+	e.CancelPluginDrag3D()
+	e.ClearPluginHover3D()
 	e.EndViewport3DDrag()
 	e.endFly3D()
 	e.CancelDrag2D()
@@ -918,6 +937,8 @@ func (e *Editor) SetGizmoMode3D(mode GizmoMode3D) {
 	}
 	e.endGridMapStrokeForChange()
 	e.CancelGizmoDrag3D()
+	e.CancelComponentGizmoDrag3D()
+	e.CancelPluginDrag3D()
 	e.gridMap.tool = GridMapToolNone
 	e.GizmoMode = mode
 	e.Status = "Gizmo: " + mode.String()
@@ -1113,6 +1134,9 @@ func (e *Editor) openYAMLWithLayers(data []byte, file string, layers *sceneforma
 	e.shapeDrag = shapeDragState{}
 	e.CancelPluginDrag2D()
 	e.ClearPluginHover2D()
+	e.CancelComponentGizmoDrag3D()
+	e.CancelPluginDrag3D()
+	e.ClearPluginHover3D()
 	e.cameraDrag = cameraDragState{}
 	e.cameraBoundsDrag = cameraBoundsDragState{}
 	e.roomDrag = roomDragState{}
@@ -1216,6 +1240,8 @@ func (e *Editor) SaveFile(path string) error {
 	if !e.playing {
 		e.CancelShapeDrag2D()
 		e.CancelPluginDrag2D()
+		e.CancelComponentGizmoDrag3D()
+		e.CancelPluginDrag3D()
 		e.CancelCameraDrag()
 		e.CancelCameraBoundsDrag()
 		e.CancelRoomDrag()
@@ -1296,6 +1322,8 @@ func (e *Editor) Undo() bool {
 	e.CancelDrag2D()
 	e.CancelShapeDrag2D()
 	e.CancelPluginDrag2D()
+	e.CancelComponentGizmoDrag3D()
+	e.CancelPluginDrag3D()
 	e.CancelRigDrag()
 	e.CancelCameraDrag()
 	e.CancelCameraBoundsDrag()
@@ -1328,6 +1356,8 @@ func (e *Editor) Redo() bool {
 	e.CancelDrag2D()
 	e.CancelShapeDrag2D()
 	e.CancelPluginDrag2D()
+	e.CancelComponentGizmoDrag3D()
+	e.CancelPluginDrag3D()
 	e.CancelRigDrag()
 	e.CancelCameraDrag()
 	e.CancelCameraBoundsDrag()
@@ -1351,6 +1381,9 @@ func (e *Editor) Redo() bool {
 // SelectObject selects the object with ID id (or clears selection if id == "").
 // Returns true if selection succeeded (or cleared).
 func (e *Editor) SelectObject(id string) bool {
+	if id != e.SelectedID {
+		e.CancelComponentGizmoDrag3D()
+	}
 	if id == "" {
 		hadRoom := e.rooms != nil && e.rooms.selectedRoomID != ""
 		if e.SelectedID != "" || e.inspectAssetFile || e.inspectLayer || e.connPick != nil || hadRoom {
@@ -1645,6 +1678,8 @@ func (e *Editor) DeleteObject(id string) error {
 	e.CancelDrag2D()
 	e.CancelShapeDrag2D()
 	e.CancelPluginDrag2D()
+	e.CancelComponentGizmoDrag3D()
+	e.CancelPluginDrag3D()
 	e.CancelCameraDrag()
 	e.CancelCameraBoundsDrag()
 	e.CancelRoomDrag()

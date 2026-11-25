@@ -278,3 +278,64 @@ func (g *groupCmd) rollback(n int) {
 		}
 	}
 }
+
+// previewGroup records a temporary preview capture group and any outer Group it suspended.
+type previewGroup struct {
+	g    *groupCmd
+	prev *groupCmd
+}
+
+// beginPreview starts capturing commands executed through h into a temporary group without
+// pushing anything onto the undo stack yet. Used by interactive handle drags so every move
+// previews live, cancels cleanly by rolling back, and commits as one undo step via commitPreview.
+func (h *History) beginPreview(label string) previewGroup {
+	if h == nil {
+		return previewGroup{}
+	}
+	g := &groupCmd{label: label}
+	prev := h.group
+	h.group = g
+	return previewGroup{g: g, prev: prev}
+}
+
+// endPreview stops capturing commands into p, restores any suspended outer group, and returns the captured commands.
+func (h *History) endPreview(p previewGroup) []Command {
+	if h == nil || p.g == nil {
+		return nil
+	}
+	if h.group == p.g {
+		h.group = p.prev
+	}
+	return p.g.cmds
+}
+
+// commitPreview pushes already-applied preview commands onto h as one undoable step without
+// re-running Do(). Returns true when a step was recorded.
+func (h *History) commitPreview(label string, cmds []Command) bool {
+	if h == nil || len(cmds) == 0 {
+		return false
+	}
+	var cmd Command
+	if len(cmds) == 1 && label == "" {
+		cmd = cmds[0]
+	} else {
+		cmd = &groupCmd{label: label, cmds: cmds}
+	}
+	if h.group != nil {
+		h.group.cmds = append(h.group.cmds, cmd)
+		if h.onChange != nil {
+			h.onChange()
+		}
+		return true
+	}
+	if h.cursor < len(h.commands) {
+		clear(h.commands[h.cursor:])
+		h.commands = h.commands[:h.cursor]
+	}
+	h.commands = append(h.commands, cmd)
+	h.cursor = len(h.commands)
+	if h.onChange != nil {
+		h.onChange()
+	}
+	return true
+}

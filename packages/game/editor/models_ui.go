@@ -214,7 +214,10 @@ func place3DToolsView(rev *core.Signal[uint64], ed *Editor, notPlaying func() bo
 	return ui.ToolbarGroup{
 		Label: "Place",
 		Children: []core.Node{
-			ui.ToggleButton{TestID: "tool3d-select", Text: "Select", Disabled: notPlaying, On: func() bool { return !placing() }, OnChange: func(on bool) {
+			ui.ToggleButton{TestID: "tool3d-select", Text: "Select", Disabled: notPlaying, On: func() bool {
+				_ = rev.Get()
+				return !placing() && !(ed.Tool == ToolPlugin && ed.activePluginToolSupports3D())
+			}, OnChange: func(on bool) {
 				if on {
 					ed.SetTool(ToolSelect)
 				}

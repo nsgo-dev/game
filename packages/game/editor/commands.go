@@ -1394,6 +1394,8 @@ func (e *Editor) DuplicateObject(id string) (string, error) {
 	e.CancelDrag2D()
 	e.CancelShapeDrag2D()
 	e.CancelPluginDrag2D()
+	e.CancelComponentGizmoDrag3D()
+	e.CancelPluginDrag3D()
 	e.CancelCameraDrag()
 	obj, li, _ := e.FindObject(id)
 	if obj == nil {

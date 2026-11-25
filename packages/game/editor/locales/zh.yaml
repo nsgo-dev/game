@@ -395,6 +395,7 @@ strings:
   status.ready: 就绪
   status.terrainSuffix: ' | 地形：{terrain}'
   status.tileSuffix: ' | 瓦片：{tile}'
+  status.toolSuffix: ' | 工具：{tool}'
   tilePalette.flipDiag: 沿对角线翻转
   tilePalette.flipHoriz: 水平翻转
   tilePalette.flipVert: 垂直翻转

@@ -606,7 +606,7 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 							return ed.ViewMode == ViewMode2D
 						},
 						Then: func(cx *core.Scope) core.Node {
-							return pluginToolsView(cx, ed, rev, notPlaying)
+							return pluginToolsView(cx, ed, rev, notPlaying, ViewMode2D)
 						},
 					},
 					core.Show{
@@ -658,6 +658,7 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 									},
 								},
 							},
+							pluginToolsView(cx, ed, rev, notPlaying, ViewMode3D),
 						},
 					}
 				},
@@ -1091,12 +1092,16 @@ func statusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 										l10n.Param("layer", ed.activeLayerReadout()),
 									)
 								}
-								return ed.T("status.mode3d",
+								status := ed.T("status.mode3d",
 									l10n.Param("mode", mode),
 									l10n.Param("view", ed.viewStatus3D()),
 									l10n.Param("gizmo", ed.localizedGizmoName(ed.GizmoMode)),
 									l10n.Param("layer", ed.activeLayerReadout()),
 								)
+								if ed.Tool == ToolPlugin && ed.activePluginToolSupports3D() {
+									status += ed.T("status.toolSuffix", l10n.Param("tool", ed.toolLabel()))
+								}
+								return status
 							}
 							zoom := int(math.Round(float64(ed.View2D().Zoom * 100)))
 							status := ed.T("status.mode2d",

@@ -183,6 +183,8 @@ func (e *Editor) SetGridMapTool(tool GridMapTool) {
 	}
 	e.endGridMapStrokeForChange()
 	e.CancelGizmoDrag3D()
+	e.CancelComponentGizmoDrag3D()
+	e.CancelPluginDrag3D()
 	e.gridMap.tool = tool
 	if tool != GridMapToolNone && e.gridMap.grid == nil {
 		e.autoOpenSceneGridMap()

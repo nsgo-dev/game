@@ -26,10 +26,11 @@ type viewport3DGestures struct {
 	unlock  func()
 	flyLast core.Point
 	// multi says two or more fingers are down, which pan the view; touchLast is their center.
-	multi     bool
-	touchPan  bool
-	touchLast core.Point
-	pinchLast float32
+	multi         bool
+	touchPan      bool
+	touchLast     core.Point
+	pinchLast     float32
+	suppressPress bool
 }
 
 // wheel zooms the view by a mouse wheel's turn or a touchpad scroll with Control or Command held, pans it by a touchpad's scroll, and while flying changes the fly speed.
@@ -151,6 +152,7 @@ func (g *viewport3DGestures) touch(ed *Editor, ev core.TouchEvent) {
 	case core.TouchStart:
 		if len(ev.Touches) == 1 {
 			g.multi = false
+			g.suppressPress = false
 		}
 		for _, t := range ev.Touches {
 			if t.Changed && len(ev.Touches) == 1 {
@@ -162,6 +164,8 @@ func (g *viewport3DGestures) touch(ed *Editor, ev core.TouchEvent) {
 		g.hasPress = false
 		if ev.Phase == core.TouchCancel {
 			ed.CancelGizmoDrag3D()
+			ed.CancelComponentGizmoDrag3D()
+			ed.CancelPluginDrag3D()
 		}
 	}
 	if len(ev.Touches) < 2 || ev.Phase == core.TouchEnd || ev.Phase == core.TouchCancel {
@@ -175,6 +179,8 @@ func (g *viewport3DGestures) touch(ed *Editor, ev core.TouchEvent) {
 		g.multi = true
 		g.hasPress = false
 		ed.CancelGizmoDrag3D()
+		ed.CancelComponentGizmoDrag3D()
+		ed.CancelPluginDrag3D()
 		if g.began {
 			ed.EndViewport3DDrag()
 			g.began = false
@@ -203,7 +209,7 @@ func (g *viewport3DGestures) pan(ed *Editor, ev core.PanEvent, shiftHeld func() 
 			return
 		}
 		g.began = g.hasPress && !ed.PickingConnectionTarget()
-		if !g.began && !ed.PickingConnectionTarget() && ed.TerrainOpen() && ed.TerrainBrush().Mode != TerrainBrushNone {
+		if !g.began && !ed.PickingConnectionTarget() && ((ed.TerrainOpen() && ed.TerrainBrush().Mode != TerrainBrushNone) || (ed.Tool == ToolPlugin && ed.activePluginToolSupports3D())) {
 			g.pressPos = core.Point{
 				X: ev.Position.X - ev.Translation.X,
 				Y: ev.Position.Y - ev.Translation.Y,
@@ -212,7 +218,7 @@ func (g *viewport3DGestures) pan(ed *Editor, ev core.PanEvent, shiftHeld func() 
 			g.began = true
 		}
 		if g.began {
-			// A press that turns into a pan first picks a terrain brush hit or gizmo handle under the press point, and orbits otherwise, or pans with Shift held.
+			// A press that turns into a pan first picks a terrain brush hit, 3D plugin tool drag, component gizmo handle, or transform gizmo handle under the press point, and orbits otherwise, or pans with Shift held.
 			ed.BeginViewport3DDrag(float32(g.pressPos.X), float32(g.pressPos.Y), cw, ch, shiftHeld())
 		}
 	case core.GestureChanged:
@@ -235,9 +241,18 @@ func (g *viewport3DGestures) pan(ed *Editor, ev core.PanEvent, shiftHeld func() 
 			return
 		}
 		ed.OrbitView3D(-dx*0.01, dy*0.01)
-	case core.GestureEnded, core.GestureCancelled:
+	case core.GestureEnded:
 		if g.began {
+			if ed.PluginDragging3D() || ed.DraggingComponentGizmo3D() {
+				g.suppressPress = true
+			}
 			ed.EndViewport3DDrag()
+			g.began = false
+		}
+		g.lastPan = core.Point{}
+	case core.GestureCancelled:
+		if g.began {
+			ed.CancelViewport3DDrag()
 			g.began = false
 		}
 		g.lastPan = core.Point{}
