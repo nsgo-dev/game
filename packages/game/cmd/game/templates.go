@@ -50,6 +50,7 @@ var projectTemplates = []projectTemplate{
 	newProjectTemplate("racing3d", templateModuleRoot+"/racing3d", "A 3D racer: two laps against racing-line rivals with raycast cars, checkpoints, a countdown, a best-lap ghost and a results screen"),
 	newProjectTemplate("rpg2d", templateModuleRoot+"/rpg2d", "A top-down RPG: a town and a meadow, people with branching dialogue, an inventory with equipment, one quest, turn-based battles and three save slots"),
 	newProjectTemplate("rts2d", templateModuleRoot+"/rts2d", "A 2D real-time strategy skirmish: gather crystals, build barracks, train three unit types and destroy a computer opponent's base, with fog of war, box selection and control groups"),
+	newProjectTemplate("shmup2d", templateModuleRoot+"/shmup2d", "A vertical scrolling shooter: enemy waves and a stage in YAML, bullet patterns, power-ups, bombs, a boss with phases, lives and a score"),
 	newProjectTemplate("towerdefense2d", templateModuleRoot+"/towerdefense2d", "A 2D tower defense game: towers with upgrades beside a road enemies follow, waves defined in YAML, money and lives, with keyboard, gamepad and touch controls"),
 	newProjectTemplate("visualnovel", templateModuleRoot+"/visualnovel", "A short branching visual novel: two characters, drawn backgrounds, choices that change the ending, a backlog, auto and skip modes, save slots and two languages"),
 }
