@@ -125,3 +125,45 @@ m.DrawWorldMap(d, core.Bounds{Size: size}, "", &player, &style)
 - `WorldMapProjection` 和 `MinimapProjection` 返回视图使用的 `Projection`。`ToWorld` 把地图上的点击转换成世界坐标，例如配合 `RoomAt` 和 `AddMarker` 放置标记。
 
 同一张地图绘制两次记录的操作完全相同，从存档恢复的地图与存档时的地图绘制结果一致。
+
+## 瓦片小地图
+
+`TileMinimap` 把 `tilemap.Tilemap` 的图层渲染成一张紧凑的小地图图像，适用于 RTS、策略、Roguelike 与俯视角 RPG 游戏，支持叠加 `fog.Fog` 战争迷雾、单位与兴趣点标记、相机可见矩形以及点击平移相机。
+
+```go
+mm := worldmap.NewTileMinimap(tm, nil)
+style := worldmap.DefaultTileMinimapStyle()
+
+// 在 Canvas 的 Draw 回调中：
+mm.Draw(d, core.Bounds{Size: size}, &worldmap.TileMinimapOverlay{
+	Fog:    f,
+	Team:   playerTeam,
+	Camera: cam,
+	Markers: []worldmap.TileMarker{
+		{Position: heroPos, Kind: "ally"},
+		{Position: enemyPos, Kind: "enemy", RequireVisible: true},
+		{Position: shrinePos, Color: core.RGB(0xf2c14e)},
+	},
+}, &style)
+
+// 在指针点击位于 clickPos（与 dst 同一坐标系）时：
+mm.PanCamera(cam, core.Bounds{Size: size}, clickPos, &style)
+```
+
+### 瓦片颜色与增量更新
+
+每个格子按从下到上的顺序合成所有可见瓦片图层（遵循图层不透明度，或仅合成 `TileMinimapOptions.Layers` 指定的图层索引）。瓦片颜色按以下优先级确定：
+
+1. 若设置了 `TileMinimapOptions.TileColor(tileID)` 且返回 `ok = true`，使用其返回的颜色。
+2. 瓦片的自定义颜色属性（`TileMinimapOptions.ColorProperty`，默认为 `DefaultTileColorProperty`，即 `"minimap_color"`），通过 `tilemap.Properties.Color` 解析。
+3. 否则计算图块集中该瓦片图像非透明像素的按透明度加权平均色（来源为 `Image.Pixels`、内嵌的 `Image.Data`，或按 URI、去掉 `"asset:"` 前缀的 URI 或图块集名称匹配的 `TileMinimapOptions.Images`）。忽略完全透明的像素可确保等距菱形瓦片精灵保留不透明地形色。
+
+通过 `Tilemap.SetTile`（及小范围 `Tilemap.FillRect`）做的改动会由 `Tilemap.TileRevision` / `Tilemap.TileChangesSince` 记录，因此 `Sync` 和 `Draw` 只重算发生变化的格子，而不重绘整张地图。若直接修改了 `layer.Data`、`layer.Visible`、`layer.Opacity` 或瓦片属性，可调用 `Invalidate` 触发完整重建。
+
+### 战争迷雾、标记、相机框与点击平移
+
+- **战争迷雾**：当 `TileMinimapOverlay.Fog` 非空时，`TileMinimap` 把 `TileMinimapStyle.Fog`（两者皆透明时回退到 `fog.DefaultStyle()`）合成到 `Unseen` 与 `Explored` 格子上，并以 `Fog.Revision(Team)` 为键缓存结果。迷雾未变化的帧会直接跳过重新合成；在迷雾版本号不变的情况下调用 `SetTile` 也只会局部更新合成图中的对应格子。
+- **标记**：每个 `TileMarker` 在其世界坐标 `Position` 处绘制方块，颜色依次取自 `Color`、`TileMinimapStyle.MarkerKinds[Kind]` 或 `TileMinimapStyle.Marker`。设置 `RequireVisible: true` 后，敌方标记仅在其所在格子对当前阵营为 `fog.Visible` 时才显示。
+- **相机矩形**：当 `TileMinimapOverlay.Camera` 非空时，`Draw` 描边绘出相机的可见区域（未旋转时为轴对齐矩形，`Camera.Rotation != 0` 时为旋转四边形）。
+- **正交与等距地图**：正交地图每瓦片 1 像素；`tilemap.OrientationIsometric` 地图渲染为与 `Tilemap.WorldBounds` 对齐的 `(W+H) x (W+H-1)` 实心菱形，菱形外的角落保持透明。
+- **点击平移**：`Projection`、`WorldToMinimap` 与 `MinimapToWorld` 同时支持正交与等距地图的世界坐标与小地图坐标互转。当 `click` 落在 `dst` 内时，`PanCamera(cam, dst, click, style)` 把相机中心移到对应的世界点并调用 `cam.Clamp()`。

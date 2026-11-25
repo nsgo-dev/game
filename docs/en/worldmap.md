@@ -125,3 +125,45 @@ m.DrawWorldMap(d, core.Bounds{Size: size}, "", &player, &style)
 - `WorldMapProjection` and `MinimapProjection` return the `Projection` a view uses. `ToWorld` turns a tap on the map into a world point, for example to place a marker with `RoomAt` and `AddMarker`.
 
 Drawing the same map twice records the same operations, and a map restored from a save draws exactly as the one that was saved.
+
+## Tile minimap
+
+`TileMinimap` renders a `tilemap.Tilemap`'s layers as a compact minimap image for RTS, strategy, roguelike and top-down RPG games, with optional `fog.Fog` compositing, unit and point-of-interest markers, the camera's visible rectangle, and click-to-pan.
+
+```go
+mm := worldmap.NewTileMinimap(tm, nil)
+style := worldmap.DefaultTileMinimapStyle()
+
+// Inside a Canvas Draw callback:
+mm.Draw(d, core.Bounds{Size: size}, &worldmap.TileMinimapOverlay{
+	Fog:    f,
+	Team:   playerTeam,
+	Camera: cam,
+	Markers: []worldmap.TileMarker{
+		{Position: heroPos, Kind: "ally"},
+		{Position: enemyPos, Kind: "enemy", RequireVisible: true},
+		{Position: shrinePos, Color: core.RGB(0xf2c14e)},
+	},
+}, &style)
+
+// On pointer click at clickPos (in the same coordinates as dst):
+mm.PanCamera(cam, core.Bounds{Size: size}, clickPos, &style)
+```
+
+### Tile colors and incremental updates
+
+Each cell is composited from bottom to top across every visible tile layer (respecting layer opacity, or the subset listed in `TileMinimapOptions.Layers`). A tile's color comes from:
+
+1. `TileMinimapOptions.TileColor(tileID)` when provided and returning `ok = true`.
+2. The tile's custom color property (`TileMinimapOptions.ColorProperty`, defaulting to `DefaultTileColorProperty`, `"minimap_color"`), parsed via `tilemap.Properties.Color`.
+3. Otherwise, the alpha-weighted average color of the tile's non-transparent pixels from its tileset image (`Image.Pixels`, embedded `Image.Data`, or `TileMinimapOptions.Images` matched by URI, URI without `"asset:"`, or tileset name). Ignoring fully transparent pixels preserves opaque terrain colors for diamond isometric tile sprites.
+
+Edits made through `Tilemap.SetTile` (and small `Tilemap.FillRect` calls) are tracked by `Tilemap.TileRevision` / `Tilemap.TileChangesSince`, so `Sync` and `Draw` recompute only the changed cells rather than redrawing the whole map. Call `Invalidate` after mutating `layer.Data`, `layer.Visible`, `layer.Opacity` or tile properties directly.
+
+### Fog, markers, camera and click-to-pan
+
+- **Fog of war**: when `TileMinimapOverlay.Fog` is non-nil, `TileMinimap` composites `TileMinimapStyle.Fog` (`fog.DefaultStyle()` when both colors are transparent) over `Unseen` and `Explored` cells and caches the result against `Fog.Revision(Team)`. Unchanged frames skip recompositing completely, and single-tile `SetTile` edits patch only the changed cells in the composited image when the fog revision has not changed.
+- **Markers**: each `TileMarker` draws a square at its world `Position` using `Color`, `TileMinimapStyle.MarkerKinds[Kind]`, or `TileMinimapStyle.Marker`. Set `RequireVisible: true` to hide enemy blips unless their map cell is currently `fog.Visible` to the drawn team.
+- **Camera rectangle**: when `TileMinimapOverlay.Camera` is non-nil, `Draw` outlines the camera's visible region (axis-aligned for unrotated cameras, rotated quad when `Camera.Rotation != 0`).
+- **Orthogonal and isometric maps**: orthogonal maps render 1 pixel per tile; `tilemap.OrientationIsometric` maps render as a solid `(W+H) x (W+H-1)` diamond aligned with `Tilemap.WorldBounds`, with transparent corners outside the diamond.
+- **Click-to-pan**: `Projection`, `WorldToMinimap`, and `MinimapToWorld` convert between world and minimap coordinates for both orthogonal and isometric maps. `PanCamera(cam, dst, click, style)` centers `cam` on the clicked world point when `click` lies inside `dst` and calls `cam.Clamp()`.

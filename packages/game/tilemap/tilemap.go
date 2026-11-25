@@ -462,6 +462,7 @@ type Tilemap struct {
 	cellFlags  map[cellKey]TileFlags
 	layerOrder []layerRef
 	caches     map[int]*LayerCache
+	edits      *tileEditLog
 }
 
 // New constructs an empty Tilemap of width by height tiles sized tileWidth by tileHeight points.
