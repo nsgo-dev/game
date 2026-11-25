@@ -18,14 +18,26 @@ var (
 	tau = pixelfx.Tau
 )
 
-// Gold is holy gold, dark to bright: a plum shadow, rust, amber, gold, pale gold, cream, white. It is the default palette of most holy effects.
-var Gold = []string{"#3b1d2a", "#7a3a2c", "#c4652e", "#f0a040", "#ffd25e", "#fff0a0", "#fffbe0", "#ffffff"}
+// goldHex is holy gold, dark to bright: a plum shadow, rust, amber, gold, pale gold, cream, white. It is the default palette of most holy effects.
+var goldHex = []string{"#3b1d2a", "#7a3a2c", "#c4652e", "#f0a040", "#ffd25e", "#fff0a0", "#fffbe0", "#ffffff"}
 
-// Green is healing green, warm: deep pine, leaf, spring green, a yellow-green highlight, cream. It is the default palette of holy/heal-aoe.
-var Green = []string{"#0e2a24", "#14472f", "#1d6e3a", "#2f9a45", "#5cc654", "#a0e46c", "#dcffb4", "#ffffff"}
+// greenHex is healing green, warm: deep pine, leaf, spring green, a yellow-green highlight, cream. It is the default palette of holy/heal-aoe.
+var greenHex = []string{"#0e2a24", "#14472f", "#1d6e3a", "#2f9a45", "#5cc654", "#a0e46c", "#dcffb4", "#ffffff"}
 
-// Ash is the colour of the fallen, a cool grey-violet, dark to light. It is the default ash of holy/resurrection.
-var Ash = []string{"#16131c", "#26222f", "#3a3546", "#524c5e", "#6e6878", "#8c8796"}
+// ashHex is the colour of the fallen, a cool grey-violet, dark to light. It is the default ash of holy/resurrection.
+var ashHex = []string{"#16131c", "#26222f", "#3a3546", "#524c5e", "#6e6878", "#8c8796"}
+
+func goldPalette() pixelfx.Value  { return pixelfx.Palette(goldHex...) }
+func greenPalette() pixelfx.Value { return pixelfx.Palette(greenHex...) }
+func ashPalette() pixelfx.Value   { return pixelfx.Palette(ashHex...) }
+
+// bounded holds an option's value v to [lo, hi], taking NaN to lo, so a negative, infinite or NaN value set by a caller cannot stall an effect's loops; values the effect was made for pass unchanged.
+func bounded(v, lo, hi float64) float64 {
+	if !(v >= lo) {
+		return lo
+	}
+	return math.Min(v, hi)
+}
 
 // ---- the character
 

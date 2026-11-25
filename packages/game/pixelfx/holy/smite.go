@@ -21,7 +21,7 @@ var Smite = &pixelfx.Effect{
 		FPS:      30,
 		BG:       "ground",
 		Options: []pixelfx.Option{
-			{Name: "palette", Default: pixelfx.Palette(Gold...)},
+			{Name: "palette", Default: goldPalette()},
 			{Name: "stone", Default: pixelfx.Color("#5a5066")},
 			{Name: "seed", Default: pixelfx.Num(9)},
 		},

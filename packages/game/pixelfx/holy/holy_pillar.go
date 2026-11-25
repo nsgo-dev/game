@@ -21,7 +21,7 @@ var HolyPillar = &pixelfx.Effect{
 		FPS:      30,
 		BG:       "ground",
 		Options: []pixelfx.Option{
-			{Name: "palette", Default: pixelfx.Palette(Gold...)},
+			{Name: "palette", Default: goldPalette()},
 			{Name: "shafts", Default: pixelfx.Num(7)},
 			{Name: "seed", Default: pixelfx.Num(3)},
 		},
@@ -48,7 +48,7 @@ type pillarMote struct{ x, y, v, amp, f, ph float64 }
 
 func newHolyPillar(o *pixelfx.Options) pixelfx.Instance {
 	C, R, W := pixelfx.Fit(o.Palette(), 8), pixelfx.NewRng(o.Seed()), pixelfx.White
-	N := max(3, int(pixelfx.ToInt32(o.Num("shafts"))))
+	N := min(64, max(3, int(pixelfx.ToInt32(o.Num("shafts")))))
 	mid := float64(N-1) / 2
 	TOP, PY, SUN, SY, RX := pillarTop, pillarPY, pillarSun, pillarSY, pillarRX
 	OPEN, HIT, FOLD, SHUT, LIFT := pillarOpen, pillarHit, pillarFold, pillarShut, pillarLift
