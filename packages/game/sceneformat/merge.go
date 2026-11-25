@@ -808,6 +808,7 @@ func (m *sceneMerger) mergeObjectOverrideFields(st *sideTracker, ctx conflictCtx
 		ModelNode:  mergePtr(m, st, ctx, fn("modelNode"), b.ModelNode, o.ModelNode, t.ModelNode),
 		ModelMesh:  mergePtr(m, st, ctx, fn("modelMesh"), b.ModelMesh, o.ModelMesh, t.ModelMesh),
 		GridMap:    mergePtr(m, st, ctx, fn("gridMap"), b.GridMap, o.GridMap, t.GridMap),
+		Occluder:   m.mergeOccluder(st, ctx, fn("occluder"), b.Occluder, o.Occluder, t.Occluder),
 		FlipX:      mergePtr(m, st, ctx, fn("flipX"), b.FlipX, o.FlipX, t.FlipX),
 		FlipY:      mergePtr(m, st, ctx, fn("flipY"), b.FlipY, o.FlipY, t.FlipY),
 		Alpha:      mergePtr(m, st, ctx, fn("alpha"), b.Alpha, o.Alpha, t.Alpha),
@@ -860,6 +861,67 @@ func (m *sceneMerger) mergeSprite(st *sideTracker, ctx conflictCtx, prefix strin
 	return &SpriteRef{
 		Atlas: mergeScalar(m, st, ctx, prefix+".atlas", b.Atlas, ours.Atlas, theirs.Atlas),
 		Frame: mergeScalar(m, st, ctx, prefix+".frame", b.Frame, ours.Frame, theirs.Frame),
+	}
+}
+
+func (m *sceneMerger) mergeOccluder(st *sideTracker, ctx conflictCtx, prefix string, base, ours, theirs *OccluderDoc) *OccluderDoc {
+	if occluderEqual(ours, theirs) {
+		if !occluderEqual(ours, base) {
+			st.mark(true, true)
+		}
+		return cloneOccluder(ours)
+	}
+	if occluderEqual(ours, base) {
+		st.mark(false, true)
+		return cloneOccluder(theirs)
+	}
+	if occluderEqual(theirs, base) {
+		st.mark(true, false)
+		return cloneOccluder(ours)
+	}
+	if base != nil && (ours == nil || theirs == nil) {
+		msg := "deleted on ours, modified on theirs"
+		if theirs == nil {
+			msg = "modified on ours, deleted on theirs"
+		}
+		m.addConflict(MergeConflict{
+			Kind:    ConflictDeleteModify,
+			Scope:   ctx.scope,
+			Layer:   ctx.layer,
+			Object:  ctx.object,
+			Target:  ctx.target,
+			Field:   prefix,
+			Message: msg,
+			Base:    toYAMLValue(base),
+			Ours:    toYAMLValue(ours),
+			Theirs:  toYAMLValue(theirs),
+		})
+		return cloneOccluder(ours)
+	}
+	if ours.Mode != theirs.Mode {
+		m.addConflict(MergeConflict{
+			Kind:    ConflictField,
+			Scope:   ctx.scope,
+			Layer:   ctx.layer,
+			Object:  ctx.object,
+			Target:  ctx.target,
+			Field:   prefix,
+			Message: "both sides changed occluder mode differently",
+			Base:    toYAMLValue(base),
+			Ours:    toYAMLValue(ours),
+			Theirs:  toYAMLValue(theirs),
+		})
+		return cloneOccluder(ours)
+	}
+	b := base
+	if b == nil || b.Mode != ours.Mode {
+		b = &OccluderDoc{Mode: ours.Mode}
+	}
+	return &OccluderDoc{
+		Mode:        ours.Mode,
+		Center:      mergePtr(m, st, ctx, prefix+".center", b.Center, ours.Center, theirs.Center),
+		Size:        mergePtr(m, st, ctx, prefix+".size", b.Size, ours.Size, theirs.Size),
+		DoubleSided: mergeScalar(m, st, ctx, prefix+".doubleSided", b.DoubleSided, ours.DoubleSided, theirs.DoubleSided),
 	}
 }
 
@@ -1453,6 +1515,7 @@ func (m *sceneMerger) mergeObjectFields(st *sideTracker, ctx conflictCtx, b, o, 
 		ModelNode:  mergeScalar(m, st, ctx, "modelNode", b.ModelNode, o.ModelNode, t.ModelNode),
 		ModelMesh:  mergeScalar(m, st, ctx, "modelMesh", b.ModelMesh, o.ModelMesh, t.ModelMesh),
 		GridMap:    mergeScalar(m, st, ctx, "gridMap", b.GridMap, o.GridMap, t.GridMap),
+		Occluder:   m.mergeOccluder(st, ctx, "occluder", b.Occluder, o.Occluder, t.Occluder),
 		FlipX:      mergeScalar(m, st, ctx, "flipX", b.FlipX, o.FlipX, t.FlipX),
 		FlipY:      mergeScalar(m, st, ctx, "flipY", b.FlipY, o.FlipY, t.FlipY),
 		Alpha:      mergePtr(m, st, ctx, "alpha", b.Alpha, o.Alpha, t.Alpha),
@@ -1846,6 +1909,7 @@ func objectOverrideEqual(a, b ObjectOverride) bool {
 		ptrEqual(a.ModelNode, b.ModelNode) &&
 		ptrEqual(a.ModelMesh, b.ModelMesh) &&
 		ptrEqual(a.GridMap, b.GridMap) &&
+		occluderEqual(a.Occluder, b.Occluder) &&
 		ptrEqual(a.FlipX, b.FlipX) &&
 		ptrEqual(a.FlipY, b.FlipY) &&
 		ptrEqual(a.Alpha, b.Alpha) &&
@@ -1881,6 +1945,7 @@ func objectOwnEqual(a, b *ObjectDoc) bool {
 		a.ModelNode == b.ModelNode &&
 		a.ModelMesh == b.ModelMesh &&
 		a.GridMap == b.GridMap &&
+		occluderEqual(a.Occluder, b.Occluder) &&
 		a.FlipX == b.FlipX &&
 		a.FlipY == b.FlipY &&
 		ptrEqual(a.Alpha, b.Alpha) &&
@@ -1934,6 +1999,16 @@ func cloneBounds(b *BoundsDoc) *BoundsDoc {
 
 func cloneSprite(s *SpriteRef) *SpriteRef {
 	return clonePtr(s)
+}
+
+func occluderEqual(a, b *OccluderDoc) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.Mode == b.Mode &&
+		ptrEqual(a.Center, b.Center) &&
+		ptrEqual(a.Size, b.Size) &&
+		a.DoubleSided == b.DoubleSided
 }
 
 func cloneLayerMeta(l *LayerDoc) *LayerDoc {
@@ -1992,6 +2067,7 @@ func cloneObjectOverride(o ObjectOverride) ObjectOverride {
 		ModelNode:  clonePtr(o.ModelNode),
 		ModelMesh:  clonePtr(o.ModelMesh),
 		GridMap:    clonePtr(o.GridMap),
+		Occluder:   cloneOccluder(o.Occluder),
 		FlipX:      clonePtr(o.FlipX),
 		FlipY:      clonePtr(o.FlipY),
 		Alpha:      clonePtr(o.Alpha),
@@ -2013,6 +2089,7 @@ func cloneObjectOwn(o *ObjectDoc) *ObjectDoc {
 	cp.ScaleZ = clonePtr(o.ScaleZ)
 	cp.Alpha = clonePtr(o.Alpha)
 	cp.Sprite = cloneSprite(o.Sprite)
+	cp.Occluder = cloneOccluder(o.Occluder)
 	cp.Components = cloneAnyMap(o.Components)
 	cp.Properties = cloneAnyMap(o.Properties)
 	if len(o.Overrides) > 0 {

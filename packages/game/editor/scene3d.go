@@ -17,6 +17,8 @@ import (
 	"github.com/nsgo-dev/game/packages/game/scene3d"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/game/packages/game/scenemodel"
+	"github.com/nsgo-dev/game/packages/game/tooling/importsettings"
+	"github.com/nsgo-dev/game/packages/game/world3d"
 )
 
 // scene3DState is the open scene built in 3D with package scenemodel, which the 3D viewport draws on the GPU and picks by geometry. It is built on first use after the scene's look changes (an object's mesh, model, material, instanced scene or overrides, its layers, or the project's files) and otherwise kept: a transform, a hidden object, a clip's pose or a running game moves the built nodes in place (sync3D), so a gizmo drag rebuilds no mesh.
@@ -27,12 +29,14 @@ type scene3DState struct {
 	err   error
 	// gen counts the builds, so the GPU renderer knows when to upload the geometry again.
 	gen uint64
-	// stale says the scene may have changed its look since the last build (Rebuild sets it); doc, key, assetsRev and projectPath are what the last build was made from.
-	stale       bool
-	doc         *sceneformat.SceneDoc
-	key         uint64
-	assetsRev   uint64
-	projectPath string
+	// stale says the scene may have changed its look since the last build (Rebuild sets it); doc, key, assetsRev, importRev, modelResolver and projectPath are what the last build was made from.
+	stale         bool
+	doc           *sceneformat.SceneDoc
+	key           uint64
+	assetsRev     uint64
+	importRev     uint64
+	modelResolver scenemodel.ModelResolver
+	projectPath   string
 	// files loads models, material files and images from the open project's files.
 	files *scenemodel.Assets
 	// bounds holds the bounds of each object's own geometry in its node's space, before its transform; an object without geometry has none.
@@ -41,8 +45,9 @@ type scene3DState struct {
 	edges map[uint32][][2]uint32
 }
 
-// scene3DAssets resolves what scenemodel.Build loads: the editor's Resolver when it can, and the open project's files otherwise.
+// scene3DAssets resolves what scenemodel.Build loads: the editor's ModelResolver or Resolver when they can, and the open project's files otherwise.
 type scene3DAssets struct {
+	models   scenemodel.ModelResolver
 	resolver sceneformat.AssetResolver
 	files    *scenemodel.Assets
 }
@@ -50,8 +55,11 @@ type scene3DAssets struct {
 // errNoProjectFiles is why a model, material file or image cannot load without a project open and a Resolver that loads it.
 var errNoProjectFiles = errors.New("editor: no project is open to load it from, and the Resolver does not load it")
 
-// Model loads the glTF model at path through the Resolver when it is a scenemodel.ModelResolver, and from the project's files otherwise.
+// Model loads the glTF model at path through ModelResolver or Resolver when it is a scenemodel.ModelResolver, and from the project's files otherwise.
 func (a scene3DAssets) Model(path string) (*gltf.Document, error) {
+	if a.models != nil {
+		return a.models.Model(path)
+	}
 	if r, ok := a.resolver.(scenemodel.ModelResolver); ok {
 		return r.Model(path)
 	}
@@ -61,8 +69,11 @@ func (a scene3DAssets) Model(path string) (*gltf.Document, error) {
 	return a.files.Model(path)
 }
 
-// Material loads the material file at path through the Resolver when it is a sceneformat.MaterialResolver, and from the project's files otherwise.
+// Material loads the material file at path through ModelResolver or Resolver when it is a sceneformat.MaterialResolver, and from the project's files otherwise.
 func (a scene3DAssets) Material(path string) (*resource.Material, error) {
+	if r, ok := a.models.(sceneformat.MaterialResolver); ok {
+		return r.Material(path)
+	}
 	if r, ok := a.resolver.(sceneformat.MaterialResolver); ok {
 		return r.Material(path)
 	}
@@ -72,8 +83,11 @@ func (a scene3DAssets) Material(path string) (*resource.Material, error) {
 	return a.files.Material(path)
 }
 
-// Image loads the image at path through the Resolver when it is a scenemodel.ImageResolver, and from the project's files otherwise.
+// Image loads the image at path through ModelResolver or Resolver when it is a scenemodel.ImageResolver, and from the project's files otherwise.
 func (a scene3DAssets) Image(path string) (image.Image, error) {
+	if r, ok := a.models.(scenemodel.ImageResolver); ok {
+		return r.Image(path)
+	}
 	if r, ok := a.resolver.(scenemodel.ImageResolver); ok {
 		return r.Image(path)
 	}
@@ -81,6 +95,34 @@ func (a scene3DAssets) Image(path string) (image.Image, error) {
 		return nil, errNoProjectFiles
 	}
 	return a.files.Image(path)
+}
+
+// GridMap loads the 3D grid map at path through ModelResolver or Resolver when it is a scenemodel.GridMapResolver, and from the project's files otherwise.
+func (a scene3DAssets) GridMap(path string) (*world3d.GridMapDoc, error) {
+	if r, ok := a.models.(scenemodel.GridMapResolver); ok {
+		return r.GridMap(path)
+	}
+	if r, ok := a.resolver.(scenemodel.GridMapResolver); ok {
+		return r.GridMap(path)
+	}
+	if a.files == nil {
+		return nil, errNoProjectFiles
+	}
+	return a.files.GridMap(path)
+}
+
+// ImportSettings loads the *.import.yaml sidecar beside modelPath through ModelResolver or Resolver when it is a scenemodel.ImportSettingsResolver, and from the project's files otherwise.
+func (a scene3DAssets) ImportSettings(modelPath string) (*importsettings.File, error) {
+	if r, ok := a.models.(scenemodel.ImportSettingsResolver); ok {
+		return r.ImportSettings(modelPath)
+	}
+	if r, ok := a.resolver.(scenemodel.ImportSettingsResolver); ok {
+		return r.ImportSettings(modelPath)
+	}
+	if a.files == nil {
+		return nil, nil
+	}
+	return a.files.ImportSettings(modelPath)
 }
 
 // Scene3D returns the open scene built in 3D by scenemodel.Build, the geometry and materials the 3D viewport draws and picks by, with its nodes posed as the viewport shows them: by the open animation clip at the playhead, by the running game while playing, and with the objects hidden in the editor (SetObjectHidden) and screen-space layers invisible. It returns nil and the error when the scene does not build, such as when a model it names does not load.
@@ -99,7 +141,7 @@ func (e *Editor) scene3D() *scene3DState {
 	s := &e.s3d
 	if e.Doc == nil {
 		// gen only grows, so a renderer still holding the last build's upload never takes the next build for it.
-		*s = scene3DState{gen: s.gen, files: s.files, projectPath: s.projectPath, assetsRev: s.assetsRev}
+		*s = scene3DState{gen: s.gen, files: s.files, projectPath: s.projectPath, assetsRev: s.assetsRev, importRev: s.importRev, modelResolver: s.modelResolver}
 		return s
 	}
 	if e.ProjectPath != s.projectPath || e.assetsRev != s.assetsRev {
@@ -108,16 +150,20 @@ func (e *Editor) scene3D() *scene3DState {
 		s.files = nil
 		s.stale = true
 	}
+	if e.importRev != s.importRev || e.ModelResolver != s.modelResolver {
+		s.files = nil
+		s.stale = true
+	}
 	if s.files == nil && e.ProjectPath != "" {
 		s.files = scenemodel.NewAssets(os.DirFS(filepath.Dir(e.ProjectPath)))
 	}
 	if s.stale || s.doc != e.Doc {
 		key, comparable := lookKey3D(e.Doc)
-		if !comparable || s.world == nil || s.err != nil || key != s.key || e.ProjectPath != s.projectPath || e.assetsRev != s.assetsRev {
+		if !comparable || s.world == nil || s.err != nil || key != s.key || e.ProjectPath != s.projectPath || e.assetsRev != s.assetsRev || e.importRev != s.importRev || e.ModelResolver != s.modelResolver {
 			e.build3D(s)
 		}
 		s.doc, s.key, s.stale = e.Doc, key, false
-		s.projectPath, s.assetsRev = e.ProjectPath, e.assetsRev
+		s.projectPath, s.assetsRev, s.importRev, s.modelResolver = e.ProjectPath, e.assetsRev, e.importRev, e.ModelResolver
 	}
 	if s.built != nil {
 		e.sync3D(s)
@@ -140,7 +186,7 @@ func (e *Editor) build3D(s *scene3DState) {
 		doc = resolved
 	}
 	world := scene3d.NewScene()
-	built, err := scenemodel.Build(doc, world.Root(), scene3DAssets{resolver: e.Resolver, files: s.files})
+	built, err := scenemodel.Build(doc, world.Root(), scene3DAssets{models: e.ModelResolver, resolver: e.Resolver, files: s.files})
 	if err != nil {
 		s.err = err
 		return
@@ -349,7 +395,9 @@ func lookKey3D(doc *sceneformat.SceneDoc) (key uint64, comparable bool) {
 				str(o.Model)
 				str(o.ModelNode)
 				str(o.ModelMesh)
+				str(o.GridMap)
 				str(o.Material)
+				writeJSON(o.Occluder)
 				str(o.Scene)
 				writeJSON(o.Overrides)
 				walk(o.Children)

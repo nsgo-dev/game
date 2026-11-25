@@ -73,8 +73,12 @@ func attachPartLODs(baseParts []Part, coarseParts [][]Part, ratios []float32, di
 	for pi := range baseParts {
 		lods := make([]PartLOD, 0, 1+len(coarseParts))
 		lods = append(lods, partLODEntry(baseParts[pi], ratios[0], dists[0]))
+		droppedCoarsest := false
 		for k, cparts := range coarseParts {
 			if pi >= len(cparts) {
+				if k == len(coarseParts)-1 {
+					droppedCoarsest = true
+				}
 				continue
 			}
 			lods = append(lods, partLODEntry(cparts[pi], ratios[k+1], dists[k+1]))
@@ -82,7 +86,11 @@ func attachPartLODs(baseParts []Part, coarseParts [][]Part, ratios []float32, di
 		if len(lods) < 2 {
 			continue
 		}
-		// Ensure the last level is reachable even if intermediate levels dropped out.
+		// Ensure the last level is reachable even if coarser levels dropped out.
+		if droppedCoarsest {
+			lods[len(lods)-1].MinScreenRatio = 0
+			lods[len(lods)-1].MaxDistance = 0
+		}
 		levels := make([]render3d.LODLevel, len(lods))
 		for i, lv := range lods {
 			levels[i] = render3d.LODLevel{
@@ -291,11 +299,13 @@ func resolveThresholds(count int, sidecarLODs []importsettings.ModelLOD) (ratios
 // firstDrawableNode returns the first node index in doc's default scene (depth-first) that carries a valid mesh, or -1.
 func firstDrawableNode(doc *gltf.Document) int {
 	var found = -1
+	visited := make([]bool, len(doc.Nodes))
 	var walk func(ni int)
 	walk = func(ni int) {
-		if found >= 0 || ni < 0 || ni >= len(doc.Nodes) {
+		if found >= 0 || ni < 0 || ni >= len(doc.Nodes) || visited[ni] {
 			return
 		}
+		visited[ni] = true
 		if doc.Nodes[ni].Mesh >= 0 && doc.Nodes[ni].Mesh < len(doc.Meshes) {
 			found = ni
 			return
@@ -362,9 +372,15 @@ func (g *gltfObject) nodeFirstMeshParts(ni int, targetPath string, lodIdx int) (
 	if gn.Mesh >= 0 && gn.Mesh < len(g.doc.Meshes) {
 		return g.meshParts(gn.Mesh, gn.Weights)
 	}
+	visited := make([]bool, len(g.doc.Nodes))
+	visited[ni] = true
 	var walk func(idx int) int
 	walk = func(idx int) int {
 		for _, c := range g.doc.Nodes[idx].Children {
+			if c < 0 || c >= len(g.doc.Nodes) || visited[c] {
+				continue
+			}
+			visited[c] = true
 			if g.doc.Nodes[c].Mesh >= 0 && g.doc.Nodes[c].Mesh < len(g.doc.Meshes) {
 				return c
 			}

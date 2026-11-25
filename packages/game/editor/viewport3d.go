@@ -1196,16 +1196,17 @@ var boxEdges3D = [12][2]int{
 	{0, 4}, {1, 5}, {2, 6}, {3, 7}, // connecting edges
 }
 
-// drawSceneObjects3D strokes the boxes of the visible scene objects, back to front with the selected one last; over the GPU view (overlay) it leaves out the boxes of the unselected objects whose geometry the GPU view draws.
+// drawSceneObjects3D strokes the boxes of the visible scene objects, back to front with the selected one last; over the GPU view (overlay) it leaves out the wireframe boxes of the unselected non-occluded objects whose geometry the GPU view draws, while still drawing their LOD badges and occluded dashed indicators.
 func (e *Editor) drawSceneObjects3D(d *core.Drawing, w, h float32, overlay bool) {
 	if e.Doc == nil {
 		return
 	}
 	type drawable3D struct {
-		obj      *sceneformat.ObjectDoc
-		parent   aff3
-		depth    float32
-		selected bool
+		obj       *sceneformat.ObjectDoc
+		parent    aff3
+		depth     float32
+		selected  bool
+		wireframe bool
 	}
 	eye := e.Camera3D.eye64()
 	_, _, forward := e.Camera3D.basis64()
@@ -1228,17 +1229,22 @@ func (e *Editor) drawSceneObjects3D(d *core.Drawing, w, h float32, overlay bool)
 				children := o.Children
 				// While an animation clip is open, draw each object as the clip poses it at the playhead, as the 2D viewport does through ActiveScene.
 				o = e.posed3D(o)
-				if _, geometry := e.geometryBounds3D(o.ID); overlay && geometry && o.ID != e.SelectedID {
+				_, geometry := e.geometryBounds3D(o.ID)
+				occluded := e.vp3d.occludedObjects[o.ID]
+				_, hasLOD := e.vp3d.lodByObject[o.ID]
+				wireframe := !(overlay && geometry && o.ID != e.SelectedID) || occluded
+				if !wireframe && !(e.ShowLODOverlay && hasLOD) {
 					walk(children, parent.mul(local3(o)))
 					continue
 				}
 				rel := sub64(parent.point([3]float64{float64(o.X), float64(o.Y), float64(o.PosZ)}), eye)
 				depth := float32(dot64(rel, forward))
 				items = append(items, drawable3D{
-					obj:      o,
-					parent:   parent,
-					depth:    depth,
-					selected: o.ID == e.SelectedID,
+					obj:       o,
+					parent:    parent,
+					depth:     depth,
+					selected:  o.ID == e.SelectedID,
+					wireframe: wireframe,
 				})
 				walk(children, parent.mul(local3(o)))
 			}
@@ -1258,39 +1264,41 @@ func (e *Editor) drawSceneObjects3D(d *core.Drawing, w, h float32, overlay bool)
 	})
 
 	for _, item := range items {
-		corners := e.objectCorners3DUnder(item.obj, item.parent)
-		color := core.RGBA(0xCBD5E1, 0.8)
-		lineWidth := float32(1.25)
 		occluded := e.vp3d.occludedObjects[item.obj.ID]
 		lod, hasLOD := e.vp3d.lodByObject[item.obj.ID]
-		if occluded {
-			color = core.RGBA(0x94A3B8, 0.35)
-		} else if e.ShowLODOverlay && hasLOD {
-			color = lodColor3D(lod)
-		}
-		if item.selected {
-			color = core.RGBA(0x38BDF8, 1)
-			lineWidth = 2.0
-		}
-
-		d.Save().SetStrokeColor(color).SetLineWidth(lineWidth)
-		if occluded {
-			d.SetLineDash(4, 4)
-		}
-		d.BeginPath()
-		hasEdge := false
-		for _, edge := range boxEdges3D {
-			x0, y0, x1, y1, vis := e.Camera3D.projectSegment(corners[edge[0]], corners[edge[1]], w, h)
-			if !vis {
-				continue
+		if item.wireframe {
+			corners := e.objectCorners3DUnder(item.obj, item.parent)
+			color := core.RGBA(0xCBD5E1, 0.8)
+			lineWidth := float32(1.25)
+			if occluded {
+				color = core.RGBA(0x94A3B8, 0.35)
+			} else if e.ShowLODOverlay && hasLOD {
+				color = lodColor3D(lod)
 			}
-			d.MoveTo(x0, y0).LineTo(x1, y1)
-			hasEdge = true
+			if item.selected {
+				color = core.RGBA(0x38BDF8, 1)
+				lineWidth = 2.0
+			}
+
+			d.Save().SetStrokeColor(color).SetLineWidth(lineWidth)
+			if occluded {
+				d.SetLineDash(4, 4)
+			}
+			d.BeginPath()
+			hasEdge := false
+			for _, edge := range boxEdges3D {
+				x0, y0, x1, y1, vis := e.Camera3D.projectSegment(corners[edge[0]], corners[edge[1]], w, h)
+				if !vis {
+					continue
+				}
+				d.MoveTo(x0, y0).LineTo(x1, y1)
+				hasEdge = true
+			}
+			if hasEdge {
+				d.Stroke()
+			}
+			d.Restore()
 		}
-		if hasEdge {
-			d.Stroke()
-		}
-		d.Restore()
 
 		if e.ShowLODOverlay && hasLOD && !occluded {
 			e.drawObjectLODBadge3D(d, item.obj, lod, w, h)

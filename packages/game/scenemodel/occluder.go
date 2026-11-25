@@ -68,7 +68,11 @@ func (b *builder) buildObjectOccluders(o *sceneformat.ObjectDoc, n *scene3d.Node
 				if p.Material.AlphaMode == render3d.AlphaBlend {
 					continue
 				}
-				base := render3d.OccluderFromMesh(p.Mesh.Positions, p.Mesh.Indices, math3d.Mat4Identity())
+				mesh := p.Mesh
+				if len(p.LODs) > 0 {
+					mesh = p.LODs[len(p.LODs)-1].Mesh
+				}
+				base := render3d.OccluderFromMesh(mesh.Positions, mesh.Indices, math3d.Mat4Identity())
 				if len(base.Indices) < 3 {
 					continue
 				}
@@ -77,7 +81,7 @@ func (b *builder) buildObjectOccluders(o *sceneformat.ObjectDoc, n *scene3d.Node
 					Node:        d.Node,
 					Object:      o.ID,
 					Mode:        sceneformat.OccluderModel,
-					LocalBounds: p.Mesh.Bounds(),
+					LocalBounds: mesh.Bounds(),
 					DoubleSided: o.Occluder.DoubleSided,
 					base:        base,
 				})
