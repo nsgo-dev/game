@@ -363,8 +363,7 @@ func aabbOfCorners3D(corners [8][3]float32) (boxMin, boxMax [3]float32) {
 	return boxMin, boxMax
 }
 
-// Pick3D casts a perspective ray through viewport pixel (sx, sy) and intersects it against every
-// visible scene object's 3D AABB, nested children included, returning the flat index (Objects3D's) of the closest hit object. Objects hidden or locked in the editor (SetObjectHidden, SetObjectLocked), with their descendants, and the objects of hidden and locked layers (SetLayerVisible, SetLayerLocked) are passed over.
+// Pick3D casts a perspective ray through viewport pixel (sx, sy) and intersects it against every visible scene object's 3D AABB, nested children included, returning the flat index (Objects3D's) of the closest hit object. Objects hidden or locked in the editor (SetObjectHidden, SetObjectLocked), with their descendants, and the objects of hidden and locked layers (SetLayerVisible, SetLayerLocked) are passed over.
 func (e *Editor) Pick3D(sx, sy, w, h float32) (objectIndex int, ok bool) {
 	if e == nil || e.Doc == nil || w <= 0 || h <= 0 {
 		return -1, false

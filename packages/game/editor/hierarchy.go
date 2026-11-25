@@ -835,13 +835,15 @@ func viewFlagged(flags map[string]bool, bo *sceneformat.BuiltObject) bool {
 	return false
 }
 
-// viewportFrozen reports whether the object id, or one of its ancestors, is hidden or locked in the editor, or its layer is locked (SetLayerLocked), so the viewports neither pick nor manipulate it: no gizmo handle, no Move-tool drag. The scene tree and the inspector still edit it.
+// viewportFrozen reports whether the object id, or one of its ancestors, is hidden or locked in the editor, or its layer is locked (SetLayerLocked) or not drawn (SetLayerVisible), so the viewports neither pick nor manipulate it: no gizmo handle, no Move-tool drag. The scene tree and the inspector still edit it.
 func (e *Editor) viewportFrozen(id string) bool {
-	if len(e.hidden) == 0 && len(e.locked) == 0 && len(e.layerLocked) == 0 {
+	if len(e.hidden) == 0 && len(e.locked) == 0 && len(e.layerLocked) == 0 && !e.anyLayerHidden() {
 		return false
 	}
-	if loc := locateObject(e.Doc, id); loc.obj != nil && e.layerLocked[e.Doc.Layers[loc.layer].Name] {
-		return true
+	if loc := locateObject(e.Doc, id); loc.obj != nil {
+		if name := e.Doc.Layers[loc.layer].Name; e.layerLocked[name] || !e.layerDrawn(name) {
+			return true
+		}
 	}
 	path := objectPath(e.Doc, id)
 	return pathFlagged(e.hidden, path) || pathFlagged(e.locked, path)

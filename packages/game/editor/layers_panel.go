@@ -21,7 +21,7 @@ type layerHint struct {
 	on     bool
 }
 
-// LayersView renders the layers panel: the open scene's layers in draw order, the first drawn at the top, each with its space, its tilemap, an eye button that shows or hides it (SetLayerVisible, written to the scene file) and a lock button that locks it against the viewports for the session (SetLayerLocked). Pressing a layer's row makes it the active layer, which placing and painting target and the status bar names. The Add button adds a world layer drawn over the others (AddLayer) and makes it active, and the Remove button removes the active layer with its objects (RemoveLayer). Dragging a row above or below another moves the layer there in the draw order (MoveLayer). A row's context menu, or a double press, renames it in place (RenameLayer); the menu also moves it up or down, sets its space (SetLayerSpace), hides, locks or removes it. Every edit but the lock goes through History.
+// LayersView renders the layers panel: the open scene's layers in draw order, the first drawn at the top, each with its space, its tilemap, an eye button that shows or hides it (SetLayerVisible, written to the scene file) and a lock button that locks it against the viewports for the session (SetLayerLocked). Pressing a layer's row makes it the active layer, which placing and painting target and the status bar names. The Add button adds a world layer drawn over the others (AddLayer) and makes it active, and the Remove button removes the active layer with its objects (RemoveLayer). Dragging a row above or below another moves the layer there in the draw order (MoveLayer). A row's context menu, or a double press, renames it in place (RenameLayer); the menu also moves it up or down, sets its space (SetLayerSpace), hides, locks or removes it. On the row of a layer that extends one of the base scene's, the eye, renaming, moving, dragging and the space items are off, since that scene owns them. Every edit but the lock goes through History.
 func LayersView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	colors := ui.ColorsOf(cx)
 	selection := ui.NewSelection(cx, false)
@@ -74,7 +74,7 @@ func LayersView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node 
 	})
 
 	startEdit := func(name string) {
-		if ed.Playing() || ed.layerIndex(name) < 0 {
+		if ed.Playing() || ed.layerIndex(name) < 0 || ed.inheritedLayers()[name] {
 			return
 		}
 		editing.Set(name)
@@ -267,6 +267,8 @@ func layerPanelRow(cx *core.Scope, ed *Editor, layers func() []LayerInfo, name s
 	setHidden := func(on bool) error { return ed.SetLayerVisible(name, !on) }
 	setLocked := func(on bool) error { return ed.SetLayerLocked(name, on) }
 	never := func() bool { return false }
+	// A layer that extends one of the base scene's has its name, order, space and visibility owned by that scene (Editor.inheritedErr), so those controls are off on its row.
+	baseOwned := func() bool { return editsOff() || info().Inherited }
 
 	content := core.View{
 		TestID: "layers-row-" + name,
@@ -285,7 +287,7 @@ func layerPanelRow(cx *core.Scope, ed *Editor, layers func() []LayerInfo, name s
 		},
 		Children: []core.Node{
 			label,
-			toggle("layers-eye-"+name, hidden, setHidden, lucide.EyeOff, lucide.Eye, "Show layer "+name, "Hide layer "+name, editsOff),
+			toggle("layers-eye-"+name, hidden, setHidden, lucide.EyeOff, lucide.Eye, "Show layer "+name, "Hide layer "+name, baseOwned),
 			toggle("layers-lock-"+name, locked, setLocked, lucide.Lock, lucide.LockOpen, "Unlock layer "+name, "Lock layer "+name, never),
 		},
 	}
@@ -299,18 +301,18 @@ func layerPanelRow(cx *core.Scope, ed *Editor, layers func() []LayerInfo, name s
 		return ui.MenuItem{
 			TestID:   "layers-space-" + string(space) + "-" + name,
 			Text:     text,
-			Disabled: func() bool { return editsOff() || info().Space == space },
+			Disabled: func() bool { return baseOwned() || info().Space == space },
 			OnSelect: func() { ed.report(ed.SetLayerSpace(name, space)) },
 		}
 	}
 	items := []core.Node{
-		ui.MenuItem{TestID: "layers-rename-item-" + name, Text: "Rename", Disabled: editsOff, OnSelect: func() { startEdit(name) }},
+		ui.MenuItem{TestID: "layers-rename-item-" + name, Text: "Rename", Disabled: baseOwned, OnSelect: func() { startEdit(name) }},
 		ui.MenuSeparator{},
 		ui.MenuItem{TestID: "layers-up-" + name, Text: "Move Layer Up",
-			Disabled: func() bool { pos, _ := layerPosition(layers(), name); return editsOff() || pos <= 0 },
+			Disabled: func() bool { pos, _ := layerPosition(layers(), name); return baseOwned() || pos <= 0 },
 			OnSelect: func() { move(-1) }},
 		ui.MenuItem{TestID: "layers-down-" + name, Text: "Move Layer Down",
-			Disabled: func() bool { pos, n := layerPosition(layers(), name); return editsOff() || pos < 0 || pos >= n-1 },
+			Disabled: func() bool { pos, n := layerPosition(layers(), name); return baseOwned() || pos < 0 || pos >= n-1 },
 			OnSelect: func() { move(1) }},
 		ui.MenuSeparator{},
 		spaceItem(sceneformat.SpaceWorld, "World Space"),
@@ -321,7 +323,7 @@ func layerPanelRow(cx *core.Scope, ed *Editor, layers func() []LayerInfo, name s
 				return "Show Layer"
 			}
 			return "Hide Layer"
-		}, Disabled: editsOff, OnSelect: func() { ed.report(setHidden(!hidden())) }},
+		}, Disabled: baseOwned, OnSelect: func() { ed.report(setHidden(!hidden())) }},
 		ui.MenuItem{TestID: "layers-lock-item-" + name, TextFunc: func() string {
 			if locked() {
 				return "Unlock Layer"
@@ -346,7 +348,7 @@ func layerPanelRow(cx *core.Scope, ed *Editor, layers func() []LayerInfo, name s
 						Children: []core.Node{content},
 					},
 					Data: func() any {
-						if editsOff() || editing.GetUntracked() == name {
+						if editsOff() || editing.GetUntracked() == name || ed.inheritedLayers()[name] {
 							return nil
 						}
 						return layerDrag{name: name}
