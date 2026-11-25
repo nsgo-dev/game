@@ -670,3 +670,51 @@ func TestWholeNumberFloatPropertiesKeepTheirKind(t *testing.T) {
 		t.Fatalf("the reread scene encodes differently:\n%s\nwant\n%s", again, data)
 	}
 }
+
+// TestWholeNumberFloatOverridePropertiesKeepTheirKind checks that the properties an override sets, on an inherited object (SceneDoc.Overrides) and on an object of an instanced scene (ObjectDoc.Overrides), keep a whole-number float's kind, a map[any]any value included.
+func TestWholeNumberFloatOverridePropertiesKeepTheirKind(t *testing.T) {
+	doc := &sceneformat.SceneDoc{
+		Version:  sceneformat.CurrentVersion,
+		Inherits: "scenes/base.scene.yaml",
+		Overrides: map[string]sceneformat.ObjectOverride{
+			"hero": {Properties: map[string]any{"speed": 2.0, "tags": map[any]any{"weight": 5.0}}},
+		},
+		Layers: []sceneformat.LayerDoc{{
+			Name: "actors",
+			Objects: []sceneformat.ObjectDoc{{
+				ID:        "slime_1",
+				Scene:     "scenes/slime.scene.yaml",
+				Overrides: map[string]sceneformat.ObjectOverride{"body": {Properties: map[string]any{"jump": float64(3)}}},
+			}},
+		}},
+	}
+	data, err := sceneformat.Encode(doc)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	for _, want := range []string{"speed: 2.0\n", "weight: 5.0\n", "jump: 3.0\n"} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("encoded scene lacks %q:\n%s", want, data)
+		}
+	}
+	back, err := sceneformat.Parse(data)
+	if err != nil {
+		t.Fatalf("Parse: %v\n%s", err, data)
+	}
+	if v, ok := back.Overrides["hero"].Properties["speed"].(float64); !ok || v != 2 {
+		t.Fatalf("scene override speed read back as %#v", back.Overrides["hero"].Properties["speed"])
+	}
+	if v, ok := back.Overrides["hero"].Properties["tags"].(map[string]any)["weight"].(float64); !ok || v != 5 {
+		t.Fatalf("scene override tags read back as %#v", back.Overrides["hero"].Properties["tags"])
+	}
+	if v, ok := back.Layers[0].Objects[0].Overrides["body"].Properties["jump"].(float64); !ok || v != 3 {
+		t.Fatalf("instance override jump read back as %#v", back.Layers[0].Objects[0].Overrides["body"].Properties["jump"])
+	}
+	again, err := sceneformat.Encode(back)
+	if err != nil {
+		t.Fatalf("Encode again: %v", err)
+	}
+	if !bytes.Equal(again, data) {
+		t.Fatalf("the reread scene encodes differently:\n%s\nwant\n%s", again, data)
+	}
+}

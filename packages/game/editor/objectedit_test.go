@@ -241,6 +241,9 @@ func TestAddPropertyKindsAndRefusals(t *testing.T) {
 		if got := ed.History.UndoLabel(); got != "Add property "+key {
 			t.Fatalf("undo label = %q", got)
 		}
+		if ed.Status != "Added property "+key {
+			t.Fatalf("status = %q", ed.Status)
+		}
 	}
 	// Each property keeps its kind through a save and reload, the float's zero included.
 	r := reloaded(t, ed, "hero")
@@ -399,6 +402,25 @@ func TestAddComponentRefusesToMakeAConnectionAmbiguous(t *testing.T) {
 		t.Fatalf("switch = %#v", got)
 	}
 	reloaded(t, ed, "door")
+}
+
+// TestAddComponentChecksAResolvedSceneForAmbiguity checks the refusal in a scene that instances another, whose connections bind only once it is resolved.
+func TestAddComponentChecksAResolvedSceneForAmbiguity(t *testing.T) {
+	ed := switchboard(t)
+	ed.Resolver = sceneFiles{AtlasMap: testResolver(), files: map[string]string{"scenes/slime.scene.yaml": slimeScene}}
+	if _, err := ed.PlaceScene("actors", "scenes/slime.scene.yaml", 0, 0); err != nil {
+		t.Fatalf("PlaceScene: %v", err)
+	}
+	if !ed.Doc.RefersToScenes() {
+		t.Fatal("the scene refers to no other scene")
+	}
+	var connErr *sceneformat.ConnectionError
+	if err := ed.AddComponent("lever", "switch"); !errors.As(err, &connErr) || !strings.Contains(err.Error(), "several components") {
+		t.Fatalf("AddComponent(lever, switch) in an instancing scene = %v, want a *ConnectionError about several components", err)
+	}
+	if err := ed.AddComponent("door", "switch"); err != nil {
+		t.Fatalf("AddComponent(door, switch): %v", err)
+	}
 }
 
 // materialResolver serves testResolver's atlases, listing them for the asset browser, and the material files in lib, as a project's resolver does.

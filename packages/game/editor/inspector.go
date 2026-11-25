@@ -133,7 +133,9 @@ type setPropertyCmd struct {
 	objectID string
 	key      string
 	// label names the step, "Set property <key>" when empty.
-	label     string
+	label string
+	// status is the status bar's message once the step is done, "Updated <key>" when empty.
+	status    string
 	wasNilMap bool
 	existed   bool
 	oldVal    any
@@ -157,8 +159,8 @@ func (c *setPropertyCmd) Do() {
 	}
 	obj.Properties[c.key] = cloneAny(c.newVal)
 	c.ed.Status = "Updated " + c.key
-	if c.label != "" {
-		c.ed.Status = c.label
+	if c.status != "" {
+		c.ed.Status = c.status
 	}
 }
 
