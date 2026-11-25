@@ -68,22 +68,22 @@ func lsLevel(a float64) float64 {
 }
 
 // lsCracks grows the cracks the strike splits in the floor: Lichtenberg branches lying on the floor's face.
-func lsCracks(R *pixelfx.Rng) []fernBranch {
-	var out []fernBranch
+func lsCracks(R *pixelfx.Rng) []branch {
+	var out []branch
 	var grow func(x, y, a, n, w, d float64, depth int)
 	grow = func(x, y, a, n, w, d float64, depth int) {
-		pts := []fernPoint{{x, y, d}}
+		pts := []branchPoint{{x, y, d}}
 		for s := 0.0; s < n; s += 1.5 {
 			a += R.Range(-0.32, 0.32)
 			x += math.Cos(a) * 1.5
 			y = pixelfx.ClampTo(y+math.Sin(a)*0.45, 0, 5)
 			d += 1.5
-			pts = append(pts, fernPoint{x, y, d})
+			pts = append(pts, branchPoint{x, y, d})
 			if depth < 2 && s > 3 && R.Chance(0.09) {
 				grow(x, y, a+R.Sign()*R.Range(0.5, 1.2), (n-s)*R.Range(0.3, 0.6), w*0.6, d, depth+1)
 			}
 		}
-		out = append(out, fernBranch{pts: pts, w: w})
+		out = append(out, branch{pts: pts, w: w})
 	}
 	for i := range 6 {
 		x, y := R.Range(-1, 1), R.Range(0, 1)
@@ -544,7 +544,7 @@ func newLightningStrike(o *pixelfx.Options) pixelfx.Instance {
 					if br.w < 1 || r.Next() < 0.3 {
 						continue
 					}
-					j1 := slices.IndexFunc(br.pts, func(q fernPoint) bool { return q.d > run })
+					j1 := slices.IndexFunc(br.pts, func(q branchPoint) bool { return q.d > run })
 					if j1 < 0 {
 						j1 = len(br.pts)
 					}
