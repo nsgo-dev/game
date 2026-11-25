@@ -539,6 +539,8 @@ type Editor struct {
 	baseLayers baseLayerCache
 	// baseScenes caches resolved source scenes for override inspection and editing.
 	baseScenes baseSceneCache
+	// instanceCounts caches per-file scene instance counts across the open project so CountSceneInstances avoids disk walks on UI ticks.
+	instanceCounts instanceCountCache
 	// assetsScene is the ScenePath the project.Resolver of ProjectAssets finds atlases nearest, and assetsResolverRev the assetsRev it last read the project's atlases and materials at (syncProjectAssets).
 	assetsScene       string
 	assetsResolverRev uint64
@@ -882,30 +884,7 @@ func (e *Editor) afterMutate() {
 	e.syncHUDAfterMutate()
 	e.Rebuild()
 	// Ensure SelectedID and selectedIDs still point to existing local, instanced, or inherited objects.
-	if len(e.selectedIDs) > 0 {
-		var kept []string
-		for _, id := range e.selectedIDs {
-			if id != "" && !slices.Contains(kept, id) {
-				if obj, _ := e.FindResolvedObject(id); obj != nil {
-					kept = append(kept, id)
-				}
-			}
-		}
-		e.selectedIDs = kept
-	}
-	if e.SelectedID != "" {
-		if obj, _ := e.FindResolvedObject(e.SelectedID); obj == nil {
-			if len(e.selectedIDs) > 0 {
-				e.SelectedID = e.selectedIDs[len(e.selectedIDs)-1]
-			} else {
-				e.SelectedID = ""
-			}
-		} else if len(e.selectedIDs) == 0 {
-			e.selectedIDs = []string{e.SelectedID}
-		}
-	} else {
-		e.selectedIDs = nil
-	}
+	e.pruneSelection()
 	if e.connPick != nil && e.SelectedID != e.connPick.sourceID {
 		e.connPick = nil
 	}
