@@ -27,6 +27,13 @@
         "light",
         "dark"
       ]
+    },
+    "viewportOverlays": {
+      "description": "ViewportOverlays lists the enabled 2D viewport overlay IDs in canonical sorted order. When omitted, the editor uses DefaultViewportOverlays(); an empty list disables all overlays.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
     }
   },
   "required": [

@@ -52,6 +52,11 @@ autoload:
 version: 1
 language: system
 appearance: system
+viewportOverlays:
+  - collision_shapes
+  - connections
+  - navigation
+  - triggers
 ```
 
 <!-- format: tooling/importsettings -->

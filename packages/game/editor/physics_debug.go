@@ -25,7 +25,15 @@ func physicsDebugColor(isTrigger bool, bodyKind string) core.Color {
 }
 
 func (e *Editor) drawPhysicsDebug2D(d *core.Drawing, scene *sceneformat.BuiltScene) {
-	if !e.ShowPhysicsDebug || d == nil || scene == nil {
+	if d == nil || scene == nil {
+		return
+	}
+	if e.drawOverlayOverride == nil && !e.ShowPhysicsDebug {
+		return
+	}
+	showCollision := e.playing || e.overlayActive(OverlayCollisionShapes)
+	showTriggers := e.playing || e.overlayActive(OverlayTriggers)
+	if !showCollision && !showTriggers {
 		return
 	}
 	for _, layer := range scene.Layers {
@@ -39,7 +47,15 @@ func (e *Editor) drawPhysicsDebug2D(d *core.Drawing, scene *sceneformat.BuiltSce
 				if bo == nil || bo.Doc == nil {
 					continue
 				}
-				shapes = append(shapes, sceneformat.ExtractPhysicsDebug2D(bo.Doc, &bo.World)...)
+				for _, item := range sceneformat.ExtractPhysicsDebug2D(bo.Doc, &bo.World) {
+					if item.IsTrigger && !showTriggers {
+						continue
+					}
+					if !item.IsTrigger && !showCollision {
+						continue
+					}
+					shapes = append(shapes, item)
+				}
 				if len(bo.Children) > 0 {
 					walk(bo.Children)
 				}

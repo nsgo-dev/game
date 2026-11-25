@@ -498,6 +498,7 @@ func (e *Editor) DrawViewport(d *core.Drawing, size core.Size) {
 	e.drawParticleEmitterOverlays(d, scene)
 	e.drawSelectionOverlay(d, scene)
 	e.drawComponentShapes2D(d, scene)
+	e.drawViewportOverlays(d, scene)
 	e.drawGizmo2D(d)
 	e.drawComponentShapeHandles2D(d)
 	e.drawMarqueeOverlay(d)
@@ -586,16 +587,14 @@ func (e *Editor) drawCameraFrameOverlay(d *core.Drawing) {
 		d.SetStrokeColor(core.RGBA(0xF8FAFC, 0.7)).SetLineWidth(1)
 	}
 	strokePolygon(d, corners(0, 0, vw, vh, e.ScreenToCanvas))
-	if e.Doc != nil && e.Doc.Camera != nil && e.Doc.Camera.Bounds != nil {
+	if e.Doc != nil && e.Doc.Camera != nil && e.Doc.Camera.Bounds != nil && e.drawOverlayOverride == nil {
 		b := e.Doc.Camera.Bounds
 		if highlight {
 			d.SetStrokeColor(core.RGBA(0xE9A84A, 0.95)).SetLineWidth(1.5).SetLineDash(6, 4)
-		} else {
-			d.SetStrokeColor(core.RGBA(0xFBBF24, 0.8)).SetLineDash(6, 4)
-		}
-		strokePolygon(d, corners(b.X, b.Y, b.Width, b.Height, e.WorldToCanvas))
-		if highlight && (e.Tool == ToolSelect || e.Tool == ToolMove) {
-			drawWorldRectHandles(e, d, b.X, b.Y, b.Width, b.Height, e.cameraBoundsDrag.handle, core.RGBA(0xFFFFFF, 1), core.RGBA(0xE9A84A, 1), core.RGBA(0xFBBF24, 1))
+			strokePolygon(d, corners(b.X, b.Y, b.Width, b.Height, e.WorldToCanvas))
+			if e.Tool == ToolSelect || e.Tool == ToolMove {
+				drawWorldRectHandles(e, d, b.X, b.Y, b.Width, b.Height, e.cameraBoundsDrag.handle, core.RGBA(0xFFFFFF, 1), core.RGBA(0xE9A84A, 1), core.RGBA(0xFBBF24, 1))
+			}
 		}
 	}
 	if hx, hy, ok := e.CameraHandleCanvasPos(); ok {
@@ -1696,6 +1695,7 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 			}),
 			assetDragViewportOverlay(cx, ed, rev),
 			viewport3DRenderStatsOverlay(cx, ed, rev),
+			viewportOverlaysBarView(cx, ed, rev),
 		},
 	}
 }

@@ -307,6 +307,7 @@ strings:
   menu.openBaseScene: Open Base Scene
   menu.openInstancedScene: Open Instanced Scene
   menu.openProject: Open Project...
+  menu.overlays: Overlays
   menu.paintTile: Paint Tile
   menu.particleEditor: Particle Emitter Editor
   menu.paste: Paste
@@ -353,6 +354,22 @@ strings:
   output.title: Output ({count})
   output.titleBuilding: Output (Building Assets · {count})
   output.titleRunning: Output (Running · {count})
+  overlays.agentNote: The agent's screenshots use the same set
+  overlays.button: Overlays
+  overlays.cameraBounds: Camera bounds
+  overlays.collisionShapes: Collision shapes
+  overlays.connections: Connections
+  overlays.fit: Fit
+  overlays.fitLabel: Fit all visible objects in the 2D viewport
+  overlays.labels: Labels
+  overlays.navigation: Navigation
+  overlays.patrolPaths: Patrol paths
+  overlays.popoverTitle: SHOW IN VIEWPORT
+  overlays.snap: Snap
+  overlays.snapLabel: Snap shape handles to grid
+  overlays.triggers: Triggers
+  overlays.zoomIn: Zoom in
+  overlays.zoomOut: Zoom out
   palette.empty: No matching commands or files
   palette.group.commands: Commands
   palette.group.files: Files
@@ -543,3 +560,9 @@ plurals:
   output.errorCount:
     one: ' · {count} error'
     other: ' · {count} errors'
+  overlays.count.regions:
+    one: '{count} region'
+    other: '{count} regions'
+  overlays.count.shapes:
+    one: '{count} shape'
+    other: '{count} shapes'

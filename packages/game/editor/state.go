@@ -674,6 +674,11 @@ type Editor struct {
 	playtest playtestReportState
 	// snapInvert temporarily inverts snapping while a modifier key (Ctrl/Cmd) is held during a drag or press.
 	snapInvert bool
+	// builtinOverlays and customOverlays hold the 2D viewport overlay definitions shown in the Overlays popover and editormcp's viewport_image.
+	builtinOverlays     []ViewportOverlay
+	customOverlays      []ViewportOverlay
+	overlaysPopoverOpen bool
+	drawOverlayOverride map[string]bool
 }
 
 // DefaultSceneDoc returns a valid starter SceneDoc suitable for a new editor session.
@@ -745,6 +750,7 @@ func New(doc *sceneformat.SceneDoc, resolver sceneformat.AssetResolver) (*Editor
 	ed.keepTileInPalette()
 	// The scene the editor starts on is clean: an error here leaves it dirty, which only asks before losing it.
 	ed.sceneSaved, _ = sceneformat.Encode(doc)
+	ed.initBuiltinOverlays()
 	ed.initBuiltinCommands()
 	ed.Rebuild()
 	ed.resetTabsToActive(isPlaceholder)

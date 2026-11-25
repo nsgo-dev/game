@@ -113,6 +113,16 @@ func (e *Editor) SetShowNavMesh2D(show bool) {
 	} else {
 		e.Status = "2D NavMesh overlay off"
 	}
+	if e.settings.ViewportOverlays != nil || e.SettingsPath != "" {
+		set := e.effectiveOverlaySet()
+		if show {
+			set[OverlayNavigation] = true
+		} else {
+			delete(set, OverlayNavigation)
+		}
+		_ = e.commitOverlaySet(set)
+		return
+	}
 	e.notify()
 }
 
@@ -569,7 +579,7 @@ func (e *Editor) drawNavMesh2DOverlay(d *core.Drawing, scene *sceneformat.BuiltS
 	if d == nil || scene == nil || e.playing {
 		return
 	}
-	showMesh := e.ShowNavMesh2D
+	showMesh := e.overlayActive(OverlayNavigation)
 	showTool := e.Tool == ToolNavTestPath
 	if !showMesh && !showTool {
 		return

@@ -157,6 +157,25 @@ func (e *Editor) ApplicationMenu() []desktop.MenuItem {
 		cmdItem(CmdShadingWire, e.T("menu.shadingWireframe"), true),
 	}
 
+	// View > Overlays submenu
+	var overlayMenuItems []desktop.MenuItem
+	for _, ov := range e.ViewportOverlays() {
+		ovID := ov.ID
+		overlayMenuItems = append(overlayMenuItems, desktop.MenuItem{
+			Label:     e.overlayDisplayName(ov),
+			Disabled:  e.Playing() || e.ViewMode != ViewMode2D,
+			Checkable: true,
+			Checked:   e.ViewportOverlayEnabled(ovID),
+			When:      core.MenuNotEditing,
+			OnSelect: func() {
+				if e.Playing() || e.ViewMode != ViewMode2D {
+					return
+				}
+				e.report(e.ToggleViewportOverlay(ovID))
+			},
+		})
+	}
+
 	// View menu
 	viewMenu := desktop.MenuItem{
 		Label: e.T("menu.view"),
@@ -170,6 +189,7 @@ func (e *Editor) ApplicationMenu() []desktop.MenuItem {
 			cmdItem(CmdFrameSelection, e.T("menu.frameSelection"), false),
 			cmdItem(CmdToggleLightingPreview, e.T("menu.lightingPreview"), false),
 			cmdItem(CmdToggleNavMesh2D, e.T("menu.navMesh2dOverlay"), false),
+			{Label: e.T("menu.overlays"), Items: overlayMenuItems},
 			sep,
 			cmdItem(CmdNavMeshOverlay, e.T("menu.navMeshOverlay"), false),
 			cmdItem(CmdNavMeshPanel, e.T("menu.navMeshPanel"), false),
@@ -291,6 +311,15 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 			e.Doc != nil && e.Doc.Inherits != "",
 			e.selectedObjectInstancesScene(),
 		)
+		for _, ov := range e.ViewportOverlays() {
+			b.WriteByte('|')
+			b.WriteString(ov.ID)
+			if e.ViewportOverlayEnabled(ov.ID) {
+				b.WriteString(":1")
+			} else {
+				b.WriteString(":0")
+			}
+		}
 		for _, p := range e.activePlugins() {
 			b.WriteByte('|')
 			b.WriteString(p.Name)
