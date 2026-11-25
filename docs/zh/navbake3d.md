@@ -141,7 +141,7 @@ navbake3d.DrawDebug(d, viewProj, viewport, mesh, navbake3d.DefaultDebugStyle())
 ## 命令行
 
 ```sh
-go tool game navmesh scenes/level1.scene.yaml
+nsgo game navmesh scenes/level1.scene.yaml
 ```
 
 [`game navmesh`](cli.md#navmesh) 为[项目文件](project.md)中 `navigation` 部分的每种代理类型烘焙场景的 glTF 模型，并写入场景的 `navMesh` 指定的文件。

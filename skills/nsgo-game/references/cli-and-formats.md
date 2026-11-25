@@ -1,8 +1,8 @@
 # CLI Commands and Text File Formats
 
-## `go tool game` CLI
+## `nsgo game` CLI
 
-Install the tool once per module:
+Install the tool once per module, then run it as `nsgo game` (nsgo-dev/nsgo#2366) or `go tool game`; outside a module, `nsgo game` runs the matching release with `go run`:
 
 ```sh
 go get -tool github.com/nsgo-dev/game/packages/game/cmd/game@latest

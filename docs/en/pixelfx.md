@@ -83,10 +83,10 @@ pixelfx.View{Source: src.Get, Scale: 4}
 `Render` renders every frame of an effect the way pixelfx renders a sprite sheet: at its own frame rate (or the one given), round(duration × fps) frames, one more for a one-shot so its last frame is its end, with light eased out over the 8 pixels at each edge unless the effect fills the screen. `Frames.Sheet` lays them out in a grid and writes Aseprite JSON (json-array) that `sprite.LoadAtlas` reads: each frame's rectangle, its duration (1000 / fps milliseconds, rounded) and its pivot at the effect's origin, one frame tag that loops a loop and plays a one-shot once, and pixelfx's own meta (`id`, `fps`, `loop`, `frameSize`, `pivot`, `columns`, and an act's timing). The sheet stores straight alpha, as PNG does.
 
 ```sh
-go tool game pixelfx -out assets/fx fire/torch
-go tool game pixelfx -set seed=4 -set palette=#102,#215,#43a,#8cf,#fff -flip -out assets/fx -name frost-torch fire/torch
-go tool game pixelfx -act -out assets/fx moves/ground-pound
-go tool game pixelfx -list
+nsgo game pixelfx -out assets/fx fire/torch
+nsgo game pixelfx -set seed=4 -set palette=#102,#215,#43a,#8cf,#fff -flip -out assets/fx -name frost-torch fire/torch
+nsgo game pixelfx -act -out assets/fx moves/ground-pound
+nsgo game pixelfx -list
 ```
 
 `game pixelfx` writes `<name>.png` and `<name>.json` into `-out` (the effect's name, such as `torch`, unless `-name` says otherwise). `-set name=value` sets one of the effect's options: a number, `true` or `false`, a color such as `#4a3f69`, a ramp of colors separated by commas, or text; `-list` lists the effects with their options and defaults. `-act` renders the effect acted out, the stock character performing it with its target, at 60 frames per second unless `-fps` says otherwise.

@@ -1546,7 +1546,7 @@ targets:
 
 ```yaml
 version: 1
-note: Update with go tool game bench -update.
+note: Update with nsgo game bench -update.
 max_regression_pct: {ns_per_op: 25, bytes_per_op: 30, allocs_per_op: 12.5}
 benchmarks:
   BenchmarkBatchDraw1000: {ns_per_op: 3500000, bytes_per_op: 80128, allocs_per_op: 1000}

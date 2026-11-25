@@ -122,4 +122,4 @@ To check the whole state rather than a hand-picked struct, dump it as text with 
 
 ## Playing recordings in CI
 
-`go tool game replay` plays a project's recordings headless: it checks that every `*.replay.yaml` file under the directories it is given can be played, then runs the tests with `Replay` in their names, such as `TestLevel1ClearReplay` above, and fails when a recording is broken, a run ends in another state than the test expects or no test passed, so a misnamed test cannot leave the recordings unplayed. See [Command Line](cli.md#replay).
+`nsgo game replay` plays a project's recordings headless: it checks that every `*.replay.yaml` file under the directories it is given can be played, then runs the tests with `Replay` in their names, such as `TestLevel1ClearReplay` above, and fails when a recording is broken, a run ends in another state than the test expects or no test passed, so a misnamed test cannot leave the recordings unplayed. See [Command Line](cli.md#replay).

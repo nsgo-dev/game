@@ -13,13 +13,15 @@
 
 ## 创建项目
 
-用 `game` 命令的 `new` 子命令创建项目。它把起手模板写入一个新目录，再让 Go 把游戏层和 `game` 工具加入它的 `go.mod`，与模板自带的 `nsgo` 工具并列：
+用 `game` 命令的 `new` 子命令创建项目，以 `nsgo game` 运行，在 0.3.0 之后的下一个版本发布前需要 main 上的 `nsgo`（见[命令行](cli.md#安装)）。它把起手模板写入一个新目录，再让 Go 把游戏层和 `game` 工具加入它的 `go.mod`，与模板自带的 `nsgo` 工具并列：
 
 ```sh
-go run github.com/nsgo-dev/game/packages/game/cmd/game@latest new mygame
+nsgo game new mygame
 cd mygame
 go tool nsgo dev
 ```
+
+`go run github.com/nsgo-dev/game/packages/game/cmd/game@latest new mygame` 不经 `nsgo` 做同样的事。
 
 起手模板包含精灵动画、点击得分和测试。它的设置都在[项目文件](project.md) `game.yaml` 中，`nsgo.yaml` 与之保持一致。`new` 用目录名作为这两个文件里的 `name` 和 `id`，以及模块路径；`-name` 和 `-module` 可以另行指定，例如 `-module example.com/mygame`。所有参数见[命令行](cli.md#new)；`-template` 可以从其他[项目模板](templates.md)开始，`new -list` 会列出它们。发布游戏之前，把应用标识改成你自己的：在 `game.yaml` 中修改游戏名称和应用标识，然后运行 `go run github.com/nsgo-dev/game/packages/game/cmd/gameproject sync` 把它们写入 `nsgo.yaml`。
 
@@ -80,7 +82,7 @@ go tool nsgo dev -target android
 
 给任意 `nsgo dev` 命令加上 `-fps`，可以在运行中的游戏画面上叠加 NSGo 的性能监视器。
 
-如果还想在保存 `resources/` 下的图集、图片和数据文件时让运行中的游戏重新加载它们，用 `go tool game dev` 运行游戏（先执行 `go get -tool github.com/nsgo-dev/game/packages/game/cmd/game`），并用 `hotreload.NewDevWatcher` 在这些文件上启动监视器，做法见[保存时重新加载](assets.md#保存时重新加载)。
+如果还想在保存 `resources/` 下的图集、图片和数据文件时让运行中的游戏重新加载它们，用 `nsgo game dev` 运行游戏（先执行 `go get -tool github.com/nsgo-dev/game/packages/game/cmd/game`），并用 `hotreload.NewDevWatcher` 在这些文件上启动监视器，做法见[保存时重新加载](assets.md#保存时重新加载)。
 
 ## 用 Loop 和 sprite.Batch 绘制精灵
 

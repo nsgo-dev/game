@@ -150,8 +150,8 @@ Every non-internal package under `github.com/nsgo-dev/game/packages` (shown rela
 | `game/statedump` | Experimental | Headless deterministic YAML state dumps and line diffs between runs |
 | `game/gametest` | Experimental | Testing helpers and fixtures for game-layer tests |
 | `game/perf` | Experimental | Zero-alloc `Pool`/`Arena`/`SlicePool`, `SpatialHash`, `Quadtree` and `CullBatch` |
-| `game/editor` | Experimental | Visual scene and animation clip editor embedded behind `go tool game editor` |
-| `game/editor/editormcp` | Experimental | The editor's MCP server: `scene_read`, `scene_edit`, `selection_get`, `viewport_image` and `game_check` on the open project, served on a per-project local endpoint that `go tool game mcp` forwards to |
+| `game/editor` | Experimental | Visual scene and animation clip editor embedded behind `nsgo game editor` |
+| `game/editor/editormcp` | Experimental | The editor's MCP server: `scene_read`, `scene_edit`, `selection_get`, `viewport_image` and `game_check` on the open project, served on a per-project local endpoint that `nsgo game mcp` forwards to |
 
 ## Project, CLI and asset tooling
 
@@ -159,7 +159,7 @@ Every non-internal package under `github.com/nsgo-dev/game/packages` (shown rela
 | --- | --- | --- |
 | `game/project` | Experimental | `game.yaml` parser, canonical encoder and `nsgo.yaml` consistency checker |
 | `game/refs` | Experimental | Stable file UIDs, project index and reference-rewriting file moves |
-| `game/cmd/game` | Experimental | The `go tool game` CLI |
+| `game/cmd/game` | Experimental | The `nsgo game` CLI |
 | `game/cmd/gameapi` | Experimental | Generates API reference JSON from package doc comments |
 | `game/cmd/gameproject` | Experimental | Formats and checks `game.yaml` against `nsgo.yaml` |
 | `game/cmd/gameschema` | Experimental | Generates and checks published JSON Schemas for YAML formats |

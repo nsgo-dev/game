@@ -13,13 +13,15 @@ Run `go tool nsgo doctor` inside a project to check what toolchains this machine
 
 ## Create a project
 
-Create the project with the `game` command's `new` subcommand. It writes the starter into a new directory and has Go add the game layer and the `game` tool to its `go.mod`, beside the `nsgo` tool the starter already has:
+Create the project with the `game` command's `new` subcommand, run as `nsgo game` with an `nsgo` from main until the release after 0.3.0 ([Command Line](cli.md#install)). It writes the starter into a new directory and has Go add the game layer and the `game` tool to its `go.mod`, beside the `nsgo` tool the starter already has:
 
 ```sh
-go run github.com/nsgo-dev/game/packages/game/cmd/game@latest new mygame
+nsgo game new mygame
 cd mygame
 go tool nsgo dev
 ```
+
+`go run github.com/nsgo-dev/game/packages/game/cmd/game@latest new mygame` does the same without `nsgo`.
 
 The starter includes an animated sprite, tap-to-score input, and tests. Its settings live in `game.yaml`, the [project file](project.md), which `nsgo.yaml` mirrors. `new` names the game after its directory in both files' `name` and `id` and in the module path; `-name` and `-module` choose others, such as `-module example.com/mygame`. [Command Line](cli.md#new) describes every flag, and `-template` starts from another of the [templates](templates.md), which `new -list` lists. Change the identifier to your own before you ship the game: edit the game's name and identifier in `game.yaml`, then run `go run github.com/nsgo-dev/game/packages/game/cmd/gameproject sync` to write them into `nsgo.yaml`.
 
@@ -80,7 +82,7 @@ go tool nsgo dev -target android
 
 Add `-fps` to any `nsgo dev` command to show NSGo's performance monitor over the running game.
 
-To also reload atlases, images and data files in the running game when you save them under `resources/`, run it with `go tool game dev` (after `go get -tool github.com/nsgo-dev/game/packages/game/cmd/game`) and start a watcher on them with `hotreload.NewDevWatcher`, as [Reloading on save](assets.md#reloading-on-save) shows.
+To also reload atlases, images and data files in the running game when you save them under `resources/`, run it with `nsgo game dev` (after `go get -tool github.com/nsgo-dev/game/packages/game/cmd/game`) and start a watcher on them with `hotreload.NewDevWatcher`, as [Reloading on save](assets.md#reloading-on-save) shows.
 
 ## Draw a sprite on a fixed-step loop
 

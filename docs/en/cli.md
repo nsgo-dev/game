@@ -4,14 +4,16 @@
 
 ## Install
 
-Add the command to your module as a tool, then run it with `go tool game`:
+Run the command as `nsgo game`, a command of NSGo's own `nsgo` (nsgo-dev/nsgo#2366), which needs `nsgo` from main until the release after 0.3.0. In a project, `nsgo game` runs the `game` tool the module's `go.mod` declares:
 
 ```sh
 go get -tool github.com/nsgo-dev/game/packages/game/cmd/game
-go tool game help
+nsgo game help
 ```
 
-The `tool` line in `go.mod` pins the command to the module's version of the game layer, so everyone working on the game runs the same one. A project created with [`game new`](#new) has it already.
+The `tool` line in `go.mod` pins the command to the module's version of the game layer, so everyone working on the game runs the same one. A project created with [`game new`](#new) has it already. An `nsgo` of another version than the one the project's `go.mod` pins runs the project's own instead, so the project's `nsgo` tool needs #2366 too: `go get -tool github.com/nsgo-dev/nsgo/cmd/nsgo@main`. Outside a project, such as to create one, `nsgo game` runs the game layer's release made for that `nsgo` with `go run`, with nothing else to install.
+
+`go tool game` runs the same command in a project without `nsgo`, and `go run github.com/nsgo-dev/game/packages/game/cmd/game@latest` does anywhere.
 
 ## Commands
 
@@ -40,14 +42,14 @@ The `tool` line in `go.mod` pins the command to the module's version of the game
 | `completion` | Writes a completion script for zsh, bash or fish |
 | `help` | Lists the commands, or shows one command's flags |
 
-`go tool game help` lists the commands, and `go tool game help <command>` or `go tool game <command> -h` shows a command's usage line, what it does and its flags. [Command Reference](cli-reference.md) lists every command's flags and their defaults on one page, generated from the commands' definitions.
+`nsgo game help` lists the commands, and `nsgo game help <command>` or `nsgo game <command> -h` shows a command's usage line, what it does and its flags. [Command Reference](cli-reference.md) lists every command's flags and their defaults on one page, generated from the commands' definitions.
 
 A command exits with 0 when it succeeds or shows help, 1 when it fails (a file it cannot read, an encoder it cannot find, a manifest or asset that is out of date, a build that fails, a replay whose end state does not match, a benchmark that regressed, a broken reference `check` found, a file `generate` would overwrite, an asset without a credit) and 2 when it is called wrongly (an unknown flag, a missing required flag, flags that conflict, an argument it does not take), in which case it also prints its usage. Its errors start with its name, such as `game pack: -in directory is required`, except an unknown or malformed flag, which Go's flag package reports in its own words, such as `flag provided but not defined: -nope`. An unknown command also exits with 2, and points to `game help` instead of printing a usage.
 
 ### pack
 
 ```sh
-go tool game pack -in art/ui -out assets -name ui -padding 2
+nsgo game pack -in art/ui -out assets -name ui -padding 2
 ```
 
 Writes `ui.png` and `ui.json` to `-out` (`ui-0.png`, `ui-0.json`, `ui-1.png` and so on when the frames need more than one page) and prints each path. `-padding` and `-extrude` set the transparent gap and the repeated edge pixels around each frame, `-max-width` and `-max-height` bound a page, `-scale` is written to `meta.scale`, and transparent borders are trimmed, each frame keeping its offset in its untrimmed size, unless `-trim=false`.
@@ -55,8 +57,8 @@ Writes `ui.png` and `ui.json` to `-out` (`ui-0.png`, `ui-0.json`, `ui-1.png` and
 ### audio
 
 ```sh
-go tool game audio -in sfx/jump.wav -out assets/jump.wav -rate 22050 -channels 1 -peak-db -1
-go tool game audio -in music/theme.wav -out assets/theme.m4a -format aac -rms-db -14 -bitrate 192
+nsgo game audio -in sfx/jump.wav -out assets/jump.wav -rate 22050 -channels 1 -peak-db -1
+nsgo game audio -in music/theme.wav -out assets/theme.m4a -format aac -rms-db -14 -bitrate 192
 ```
 
 Reads a WAV file, resamples it to `-rate`, mixes it to `-channels`, and normalizes either its peak (`-peak-db`) or its loudness (`-rms-db`, with soft clipping), not both. Passing both is a usage error. WAV output is written in Go; MP3 needs `ffmpeg` on `PATH`, and AAC uses `ffmpeg`, or `afconvert` on macOS when `ffmpeg` is missing; otherwise the command fails with an error naming the missing encoder.
@@ -66,8 +68,8 @@ When an [import settings sidecar](#import-settings-beside-each-asset) sits besid
 ### manifest
 
 ```sh
-go tool game manifest -in assets -out assets/manifest_gen.go -pkg assets
-go tool game manifest -in assets -out assets/manifest_gen.go -pkg assets -check
+nsgo game manifest -in assets -out assets/manifest_gen.go -pkg assets
+nsgo game manifest -in assets -out assets/manifest_gen.go -pkg assets -check
 ```
 
 Writes a Go file declaring a typed reference for every asset under `-in`, skipping files and folders whose names start with a dot, Go files and import settings sidecars (`*.import.yaml`), or prints it when `-out` is empty. `-embed` emits `//go:embed` directives instead of `asset:` URIs, with `-embed-dir` prefixed to their patterns. `-check` leaves `-out` alone and fails when it differs from what would be generated, for CI; a `go:generate` line running the first form keeps the file current. The generated file's header names the command that wrote it (`// Code generated by game manifest. DO NOT EDIT.`), so a manifest generated by the earlier `gamemanifest` command must be regenerated once before `-check` passes.
@@ -75,7 +77,7 @@ Writes a Go file declaring a typed reference for every asset under `-in`, skippi
 ### tex
 
 ```sh
-go tool game tex -format bc1 -mipmaps -srgb -out assets/albedo.ktx2 art/albedo.png
+nsgo game tex -format bc1 -mipmaps -srgb -out assets/albedo.ktx2 art/albedo.png
 ```
 
 Encodes the image named by the argument (or `-in`) into a KTX2 file at `-out` (`-o` for short), by default the input's path with a `.ktx2` extension. `-format` is `bc1`, `bc3`, `etc2` or `rgba8`, `-mipmaps` writes the whole chain down to 1x1, and `-srgb` marks the texture sRGB and filters its mipmaps in linear light.
@@ -85,8 +87,8 @@ When an [import settings sidecar](#import-settings-beside-each-asset) sits besid
 ### editor
 
 ```sh
-go tool game editor scenes/level1.yaml
-go tool game editor .
+nsgo game editor scenes/level1.yaml
+nsgo game editor .
 ```
 
 Opens the NSGo Scene Editor in a window on the scene file named, or on a small demo room when none is. A directory or a `game.yaml` opens the game's [project file](project.md) and its main scene. The editor reads the project's files from the project root, the directory of `game.yaml` (for a scene file, the nearest directory above it that holds one, or else the scene's own directory), so the YAML tilesets of layered tilemaps and Tiled and LDtk sources build and fill the tile palette. With a project open, the editor opens the project's other scenes from its file browser, makes new ones, saves them under other paths, and asks before quitting or opening another scene loses unsaved edits ([Scene files and unsaved changes](editor.md#scene-files-and-unsaved-changes)). `-library` adds a panel that installs packs from that [library](library.md) into the open project. It has no [editor plugins](editor.md) built in: a game with its own builds its own editor command, as [Field Medic](https://github.com/nsgo-dev/game/tree/main/examples/fieldmedic) does. The scene format is described in [Editor & Scene Format](editor.md). The editor serves its open project to agents on a local endpoint, which `mcp` reaches.
@@ -94,7 +96,7 @@ Opens the NSGo Scene Editor in a window on the scene file named, or on a small d
 ### mcp
 
 ```sh
-claude mcp add game-editor -- go tool game mcp
+claude mcp add game-editor -- nsgo game mcp
 ```
 
 An MCP server on standard input and output, which an agent such as Claude Code or Codex starts in the project's directory, or in a directory inside it, or with `-project` naming it. It finds the editor that has the project open and forwards to it the editor's tools, `scene_read`, `scene_edit`, `selection_get`, `viewport_image` and `game_check`, and its change stream; while no editor has the project open, each call answers with how to open it. [mcp](mcp.md#editor-tools) describes the tools.
@@ -102,9 +104,9 @@ An MCP server on standard input and output, which an agent such as Claude Code o
 ### release
 
 ```sh
-go tool game release
-go tool game release -channel store -release-notes notes/0.2.0.md
-go tool game release -target macos_arm64,web -output build -dry-run
+nsgo game release
+nsgo game release -channel store -release-notes notes/0.2.0.md
+nsgo game release -target macos_arm64,web -output build -dry-run
 ```
 
 Builds the game in the directory named, the current one by default, which holds its `nsgo.yaml`, for every platform in one run of `nsgo build`: macOS, Windows and Linux on both architectures, web, iOS and Android on arm64 unless told otherwise. Each target's package goes to `<output>/<name>-<version>-<target>`, and the files a release uploads (disk images, installers, Debian and Arch packages, AppImages, the IPA, the APK and the site's zip, each with a `.sha256`) to `<output>/releases`, as `nsgo build` lays them out. A target that fails stops the run and exits with 1. The game's module must have NSGo as a tool (`tool github.com/nsgo-dev/nsgo/cmd/nsgo` in `go.mod`, as the starter has), since the command runs `go -C <dir> tool nsgo build`, so the build uses the module's own NSGo version; `-dry-run` prints that command instead of running it.
@@ -129,15 +131,15 @@ The command reads `game.yaml`'s `version`, which must be the integer 1, its `exp
 
 When `game.yaml` has an `assets` section, which the whole file must then pass [project file](project.md) validation for, the release ships a credits file: after `nsgo build` succeeds, the command writes `CREDITS.md` into the output directory, beside the packages, listing the author, license and source of every asset that section reaches and each notice a license asks to be shipped, from the `credit` section of each asset's [import settings sidecar](#import-settings-beside-each-asset), as [`game credits`](#credits) writes it. The assets are the images each atlas packs, the input of each texture, audio, font and model target, the buffers and images each model names by relative path, which its GLB embeds, and every file the manifest lists in its folder, such as fonts, maps and models, leaving out the files the targets write, which are made from those inputs. An asset without a credit stops the release before anything is built, with the list of the sidecars to write; a file the manifest lists that a target wrote before its output changed counts as an asset until `game assets` removes it. `-dry-run` checks the credits too and names the file it would write. A game without an `assets` section gets no credits file, and the command notes it on standard error. Files the game loads from elsewhere, such as `autoload` resources or files it embeds outside the manifest's folder, are not listed, so credit those yourself.
 
-The credits file is written beside the packages, not into them, since `nsgo build` decides what a package holds: it is for the publisher to put on the store page or download page. To ship it inside every package as well, write it into NSGo's `resources` folder, which `nsgo build` copies into each package, before the release: `go tool game credits -out resources/CREDITS.md`.
+The credits file is written beside the packages, not into them, since `nsgo build` decides what a package holds: it is for the publisher to put on the store page or download page. To ship it inside every package as well, write it into NSGo's `resources` folder, which `nsgo build` copies into each package, before the release: `nsgo game credits -out resources/CREDITS.md`.
 
 Which targets a machine can build is what `nsgo doctor` shows: iOS needs a Mac with Xcode, and the macOS disk image needs `hdiutil` in a logged-in session, so a release of every platform runs on a Mac.
 
 ### replay
 
 ```sh
-go tool game replay ./...
-go tool game replay -run '^TestBossReplay$' ./levels
+nsgo game replay ./...
+nsgo game replay -run '^TestBossReplay$' ./levels
 ```
 
 Plays a game's [input recordings](replay.md) headless, for CI. A recording needs the game's own simulation to play, so the command plays them through the game's tests: it first loads every `*.replay.yaml` file under each directory and fails, without running any test, when one cannot be played (an unknown key, a name missing from the header, a step out of order) or when a directory holds none, so a mistyped path cannot pass. It then runs the tests whose names match `-run`, by default every test with `Replay` in its name, headless with `go tool nsgo test`, and fails when one fails, which is what `replay.AssertEndState` does when a run ends in another state than the one the test expects. It also fails when no test in a directory passed, as when `-run` matches no test, so a misnamed test or a mistyped pattern cannot pass without playing a recording. Name the tests that play recordings accordingly, such as `TestLevel1ClearReplay`.
@@ -147,9 +149,9 @@ Each directory is a tree, as `nsgo test` reads it: with or without a trailing `/
 ### bench
 
 ```sh
-go tool game bench ./sprite ./tilemap
-go tool game bench -update ./sprite ./tilemap
-go tool game bench -in bench.txt
+nsgo game bench ./sprite ./tilemap
+nsgo game bench -update ./sprite ./tilemap
+nsgo game bench -in bench.txt
 ```
 
 Runs the benchmarks under each directory headless with `go tool nsgo test -bench`, `-count` times (3 by default) for `-benchtime` each (200ms by default), takes each benchmark's median time, bytes and allocations per operation, and compares them with the baseline file named by `-baseline`, by default `benchmarks/baseline.yaml`. It prints a line per benchmark in the baseline and fails when one grew past its limit or was not measured, or when the baseline holds no benchmark; a measured benchmark the baseline lacks is listed as new and does not fail. `-bench` narrows the benchmarks run, as `go test -bench` does. `-in` reads the results from a file of `go test -bench -benchmem` output instead of running anything.
@@ -158,7 +160,7 @@ Runs the benchmarks under each directory headless with `go tool nsgo test -bench
 
 ```yaml
 version: 1
-note: Update with go tool game bench -update ./sprite ./tilemap
+note: Update with nsgo game bench -update ./sprite ./tilemap
 max_regression_pct: {ns_per_op: 25, bytes_per_op: 25, allocs_per_op: 25}
 benchmarks:
   BenchmarkBatchDraw1000: {ns_per_op: 155412, bytes_per_op: 72232, allocs_per_op: 754}
@@ -170,35 +172,35 @@ Benchmarks are named without their `-GOMAXPROCS` suffix, so a baseline recorded 
 ### new
 
 ```sh
-go run github.com/nsgo-dev/game/packages/game/cmd/game@latest new mygame
-go tool game new -name "Space Rocks" -module example.com/rocks rocks
-go tool game new -list
+nsgo game new mygame
+nsgo game new -name "Space Rocks" -module example.com/rocks rocks
+nsgo game new -list
 ```
 
 Writes a project from a template into the directory named, creating it if needed, and prints each file's path. It then runs `go get -tool github.com/nsgo-dev/game/packages/game/cmd/game@<version>` and `go mod tidy` there, which need the Go module proxy, so the project requires that version of the game layer and has the `game` tool beside the `nsgo` tool, and builds and runs with `go tool nsgo dev` without edits.
 
-The game is named after the directory unless `-name` gives a name (letters, digits, spaces, `-` and `_`, starting with a letter), which `game.yaml` and `nsgo.yaml` hold as `name`, with `id` derived from it as `dev.nsgo.<name in lower case without spaces or punctuation>`. The module path is the name in lower case with its words joined by `-` unless `-module` gives one. A module path that is a standard-library package's, such as `time` for a game called Time, is refused because the project could not build, so such a game needs `-module`, such as `-module example.com/time`. `-version` is the version of the game layer to require, such as `v0.4.0`, a commit or `latest`; by default it is the version of the command running, so `go run …@v0.4.0 new` creates a project on `v0.4.0`, and `latest` when the command was built from a checkout of this repository. `-template` chooses the template, `starter` by default, and an unknown name is refused with the names there are. `-list` prints each template's name, the default marked, beside a line saying what it is, and creates nothing. [Templates](templates.md) lists them with the module `nsgo init -template` takes for each, and describes how a template is laid out and how to add one.
+The game is named after the directory unless `-name` gives a name (letters, digits, spaces, `-` and `_`, starting with a letter), which `game.yaml` and `nsgo.yaml` hold as `name`, with `id` derived from it as `dev.nsgo.<name in lower case without spaces or punctuation>`. The module path is the name in lower case with its words joined by `-` unless `-module` gives one. A module path that is a standard-library package's, such as `time` for a game called Time, is refused because the project could not build, so such a game needs `-module`, such as `-module example.com/time`. `-version` is the version of the game layer to require, such as `v0.4.0`, a commit or `latest`; by default it is the version of the command running, so `go run …@v0.4.0 new`, or `nsgo game new` with `NSGO_GAME_VERSION=v0.4.0` outside a project, creates a project on `v0.4.0`, and `latest` when the command was built from a checkout of this repository. `-template` chooses the template, `starter` by default, and an unknown name is refused with the names there are. `-list` prints each template's name, the default marked, beside a line saying what it is, and creates nothing. [Templates](templates.md) lists them with the module `nsgo init -template` takes for each, and describes how a template is laid out and how to add one.
 
 `new` writes nothing when any file it would write already exists in the directory, and fails with 1. When `go get` or `go mod tidy` fails, such as without a network, the files stay where they are written, and the error names the commands left to run in the directory to finish the project: both `go get -tool …` and `go mod tidy` when `go get` failed, and `go mod tidy` alone when it failed.
 
 ### dev
 
 ```sh
-go tool game dev
-go tool game dev -target native -fps
-go tool game dev -scene scenes/level2.scene.yaml
-go tool game dev ./mygame -lang fr
+nsgo game dev
+nsgo game dev -target native -fps
+nsgo game dev -scene scenes/level2.scene.yaml
+nsgo game dev ./mygame -lang fr
 ```
 
-Runs `go tool nsgo dev`, which builds the game, starts it and rebuilds it when its Go code changes, and tells the running game where its assets are: the absolute path of `-assets` (`resources` in the project directory by default) in the `NSGO_GAME_ASSETS` environment variable, which `hotreload.DevAssetsDir` returns. Passing `-scene <path>` sets `NSGO_GAME_SCENE` (`hotreload.SceneEnv`, read by `hotreload.DevScene`) so the running game can start directly at that scene (as the editor's Run command does when starting at the open scene). It must be the directory the game's `assets.Manager` reads `"asset:"` URIs from: one made with `assets.WithFS(os.DirFS(hotreload.DevAssetsDir()))`, since a `Manager` without `WithFS` reads `assets/` in the directory `game dev` runs in. A game that starts a watcher on it with `hotreload.NewDevWatcher` sees an atlas, image, data file, shader or material it has loaded change within a second of the file being saved, without restarting; see [Reloading on save](assets.md#reloading-on-save) and [Hot-reloading shaders and materials](render3d.md#hot-reloading-shaders-and-materials). The first argument that is not a flag is the project directory, `.` when there is none, and the arguments after it go to `nsgo dev` unchanged; `-target` and `-fps` are passed on too, and a `-target` among the arguments after the directory decides the target, as it does for `nsgo dev`. `nsgo dev`'s output is game dev's, and Control+C stops both. `go tool game dev` exits with 1 when `nsgo dev` fails.
+Runs `go tool nsgo dev`, which builds the game, starts it and rebuilds it when its Go code changes, and tells the running game where its assets are: the absolute path of `-assets` (`resources` in the project directory by default) in the `NSGO_GAME_ASSETS` environment variable, which `hotreload.DevAssetsDir` returns. Passing `-scene <path>` sets `NSGO_GAME_SCENE` (`hotreload.SceneEnv`, read by `hotreload.DevScene`) so the running game can start directly at that scene (as the editor's Run command does when starting at the open scene). It must be the directory the game's `assets.Manager` reads `"asset:"` URIs from: one made with `assets.WithFS(os.DirFS(hotreload.DevAssetsDir()))`, since a `Manager` without `WithFS` reads `assets/` in the directory `game dev` runs in. A game that starts a watcher on it with `hotreload.NewDevWatcher` sees an atlas, image, data file, shader or material it has loaded change within a second of the file being saved, without restarting; see [Reloading on save](assets.md#reloading-on-save) and [Hot-reloading shaders and materials](render3d.md#hot-reloading-shaders-and-materials). The first argument that is not a flag is the project directory, `.` when there is none, and the arguments after it go to `nsgo dev` unchanged; `-target` and `-fps` are passed on too, and a `-target` among the arguments after the directory decides the target, as it does for `nsgo dev`. `nsgo dev`'s output is game dev's, and Control+C stops both. `nsgo game dev` exits with 1 when `nsgo dev` fails.
 
 Assets reload on the `native` and `tui` targets, and on `android` with `-android-host`, whose app's Go runs on this machine and reads the files. On the web and on phones the app cannot reach the asset directory, so game dev says so and the game picks up asset changes when `nsgo dev` rebuilds it. Without an asset directory game dev runs `nsgo dev` as it is and says that assets will not reload. An asset the game embeds with `go:embed` is part of its binary: `nsgo dev` rebuilds and restarts the game when such a file changes, and the watcher's reload shows the change before that.
 
 ### check
 
 ```sh
-go tool game check
-go tool game check examples/caverun
+nsgo game check
+nsgo game check examples/caverun
 ```
 
 Checks every scene, map, tileset and atlas under the directory named (or `-in`, or the working directory when neither is given), and the references between them, so a broken reference fails before a player reaches it. Each problem is printed to standard error as `file:line: message`, with the file named from the working directory so an editor can open it, followed by a count, and the command exits with 1; with no problems it prints how many files of each kind it checked and exits with 0:
@@ -228,13 +230,13 @@ When a reference names a file that is gone and the project index knows where it 
 scenes/room.scene.yaml:10: material "materials/stone.material.yaml": not found; it moved to "materials/rock.material.yaml"; run game index to update the reference
 ```
 
-The Examples workflow runs `game check` on the sample games. To run it in a game's own CI, add the command as a tool as above and run `go tool game check` from the game's directory. The checks are also a package, `github.com/nsgo-dev/game/packages/game/tooling/assetcheck`, whose `Check` takes an `fs.FS` and returns the problems as values, and whose `CheckWith` also takes the game's component registry to check the events and handlers that connections name.
+The Examples workflow runs `game check` on the sample games. To run it in a game's own CI, add the command as a tool as above and run `nsgo game check` from the game's directory. The checks are also a package, `github.com/nsgo-dev/game/packages/game/tooling/assetcheck`, whose `Check` takes an `fs.FS` and returns the problems as values, and whose `CheckWith` also takes the game's component registry to check the events and handlers that connections name.
 
 ### assets
 
 ```sh
-go tool game assets
-go tool game assets -check
+nsgo game assets
+nsgo game assets -check
 ```
 
 Builds every asset target that `game.yaml` (or the file `-in` names) declares, in one run: it packs the atlases, encodes the textures and converts the audio as `pack`, `tex` and `audio` do, bakes the fonts into bitmap fonts and packs the models into single GLB files, then regenerates the manifest as `manifest` does. Each target is rebuilt only when it changed: a second run with nothing changed writes no file, and changing one image repacks only the atlas it belongs to. It prints a line for each target it built and then the counts, such as `1 built, 4 up to date`.
@@ -376,10 +378,10 @@ A sidecar's settings are part of the key of every target that reads its asset, s
 ### generate
 
 ```sh
-go tool game generate component player_health
-go tool game generate system movement
-go tool game generate -main scene level_one
-go tool game generate prefab enemy
+nsgo game generate component player_health
+nsgo game generate system movement
+nsgo game generate -main scene level_one
+nsgo game generate prefab enemy
 ```
 
 Writes the code and files of a new component, system, scene or prefab into the game in `-in`, the working directory by default, laid out as [`game new`](#new) lays out a project, and prints the path of each file it writes. The Go code goes into the package in that directory, under that package's name, and every Go file comes with a test beside it. The name is ASCII letters and digits starting with a letter, in camel case or with its words joined by `-` or `_`, and is written in each form it is used in: `player_health`, `player-health` and `PlayerHealth` all give the Go type `PlayerHealth`, the key `playerHealth` and files named `player_health_*`.
@@ -398,8 +400,8 @@ What `generate` writes builds, passes the tests `go tool nsgo test` runs and pas
 ### mv
 
 ```sh
-go tool game mv materials/stone.material.yaml materials/rock.material.yaml
-go tool game mv -dry-run art gfx
+nsgo game mv materials/stone.material.yaml materials/rock.material.yaml
+nsgo game mv -dry-run art gfx
 ```
 
 Moves or renames a file or directory and rewrites every reference to what it moves: in `game.yaml`, scenes, resource files, and Tiled and LDtk files, whose own paths relative to themselves are rewritten too when they move. Each reference is changed in place, keeping its quotes and the rest of its file byte for byte, comments included. The project index, `game.index.yaml`, is brought up to date. The paths are taken from the working directory and must lie inside the project, the directory `-in` names or else the nearest one at or above the working directory that holds `game.yaml`, `nsgo.yaml` or `go.mod`. Each change is printed; `-dry-run` prints them without making them, as it does for `release`. A move that would leave a reference broken is refused before anything changes, as are moving `game.yaml` or the index, a move onto an existing file and a move out of the project. See [Stable references](project.md#stable-references).
@@ -407,8 +409,8 @@ Moves or renames a file or directory and rewrites every reference to what it mov
 ### index
 
 ```sh
-go tool game index
-go tool game index -dry-run examples/caverun
+nsgo game index
+nsgo game index -dry-run examples/caverun
 ```
 
 Gives every scene and resource file without a `uid` one, as a line after its `version`, points every reference to a file that was moved without the tools at the file's new path, gives a copied file that kept its original's uid a new one, and writes `game.index.yaml` at each project root, listing each scene and resource file's path and uid and each other referenced file's path and SHA-256. It prints each change, or that the index is up to date; `-dry-run` prints them without making them. The directory is the one named, `-in`, or else the nearest at or above the working directory holding `game.yaml`, `nsgo.yaml` or `go.mod`. Unlike `check`, which checks the working directory and what is under it, `mv` and `index` default to that whole project, since a reference to a moved file can be anywhere in it and the index sits at its root: run from a subdirectory, `check` looks at the subdirectory alone while `index` updates the whole project. Run it once to start keeping an index, and again after moving files by hand or with Git; commit the index with the files.
@@ -416,10 +418,10 @@ Gives every scene and resource file without a `uid` one, as a line after its `ve
 ### library
 
 ```sh
-go tool game library list tiles
-go tool game library install dungeon-tiles
-go tool game library remove dungeon-tiles
-go tool game library digest library/packs/dungeon-tiles
+nsgo game library list tiles
+nsgo game library install dungeon-tiles
+nsgo game library remove dungeon-tiles
+nsgo game library digest library/packs/dungeon-tiles
 ```
 
 Lists the packs of a library that match the words given (`-kind` keeps one kind), with the version the project has installed; installs packs into the project in the working directory (or `-project`), writing their files and recording them and the autoload entries and editor plugins they add in `game.yaml`; installs a newer release over an older one; removes an installed pack; and prints a pack directory's digest for the library's index. The library is the shared one in this repository unless `-index` names another. The index and pack formats, what an install may and may not overwrite, and how to add a pack are in [Asset and Plugin Library](library.md).
@@ -427,8 +429,8 @@ Lists the packs of a library that match the words given (`-kind` keeps one kind)
 ### credits
 
 ```sh
-go tool game credits
-go tool game credits -in game.yaml -out CREDITS.md
+nsgo game credits
+nsgo game credits -in game.yaml -out CREDITS.md
 ```
 
 Writes the credits file that `game release` writes beside its packages, to `-out`, or prints it when `-out` is empty, from the `assets` section of `-in` (`game.yaml` by default), without building anything. It lists the same assets as `release`, with the author, license and source from the `credit` section of the [import settings sidecar](#import-settings-beside-each-asset) beside each one, and fails with 1, naming the sidecar each uncredited asset needs, when any has no credit, so CI can run it to keep every asset credited. The file is Markdown and depends only on the credits, so the same sidecars always give the same bytes:
@@ -465,10 +467,10 @@ The assets are sorted by path. The licenses table counts the assets under each l
 ### pixelfx
 
 ```sh
-go tool game pixelfx -out assets/fx fire/torch
-go tool game pixelfx -set seed=4 -set palette=#102,#215,#43a,#8cf,#fff -flip -name frost-torch -out assets/fx fire/torch
-go tool game pixelfx -act -fps 30 -out assets/fx moves/ground-pound
-go tool game pixelfx -list
+nsgo game pixelfx -out assets/fx fire/torch
+nsgo game pixelfx -set seed=4 -set palette=#102,#215,#43a,#8cf,#fff -flip -name frost-torch -out assets/fx fire/torch
+nsgo game pixelfx -act -fps 30 -out assets/fx moves/ground-pound
+nsgo game pixelfx -list
 ```
 
 Renders one of the [pixelfx](pixelfx.md) effects the command was built with to a PNG sprite sheet and its Aseprite JSON, `<name>.png` and `<name>.json` in `-out`, which `sprite.LoadAtlas` reads: every frame at the effect's own frame rate (or `-fps`), laid out in a grid, with each frame's duration and its pivot at the effect's origin, and one animation tag that loops a loop and plays a one-shot once. The name is the effect's (`torch`) unless `-name` gives one, which must be a file name without a directory. `-set name=value` sets one of the effect's options, as a number, `true` or `false`, a color such as `#4a3f69` (`#rgb`, `#rrggbb`, or `#rrggbbaa` with its alpha ignored), colors separated by commas for a palette, or text, and `-flip` mirrors it. `-act` renders the effect acted out instead: the stock character performing it, with its straw target, at 60 frames per second unless `-fps` says otherwise, and the JSON carries the act's timing for a game with its own character. `-list` lists the effects with their size, length and options. An effect, option or value the command does not know exits with 2. The categories it renders are the ones ported so far; each category's port adds its own.
@@ -476,8 +478,8 @@ Renders one of the [pixelfx](pixelfx.md) effects the command was built with to a
 ### navmesh
 
 ```sh
-go tool game navmesh scenes/level1.scene.yaml
-go tool game navmesh -out build/level1.navmesh.yaml scenes/level1.scene.yaml
+nsgo game navmesh scenes/level1.scene.yaml
+nsgo game navmesh -out build/level1.navmesh.yaml scenes/level1.scene.yaml
 ```
 
 Bakes the [navigation meshes](navbake3d.md) of a 3D scene: it resolves the scenes the scene instances and inherits, loads the glTF model (`.gltf` or `.glb`) each object's `mesh` names, from the project root, at the object's 3D transform, and bakes the triangles once for each agent type in the `navigation` section of the [project file](project.md), with that section's settings; without one, it bakes one agent type called `default` with the default settings. It writes the [navigation mesh file](formats.md#3d-navigation-meshes) to `-out`, or to the file the scene's `navMesh` names from the project root, and prints the file and each agent type's number of polygons. The project directory is `-in`, or the nearest directory at or above the working directory that holds `game.yaml`, `nsgo.yaml` or `go.mod`, and the scene must be inside it. The same scene and settings always write the same bytes, so the file belongs in version control beside the scene, and a bake that changes nothing shows no diff. A scene without a `navMesh` and no `-out` exits with 2, and one with no geometry to bake exits with 1.
@@ -486,40 +488,40 @@ Bakes the [navigation meshes](navbake3d.md) of a 3D scene: it resolves the scene
 
 ```sh
 mkdir -p ~/.zfunc
-go tool game completion zsh > ~/.zfunc/_game
+nsgo game completion zsh > ~/.zfunc/_game
 ```
 
 Writes a completion script for `zsh`, `bash` or `fish` to standard output. It completes the subcommands with their summaries, each subcommand's flags with their descriptions, the values `-format` and `release`'s `-channel` take, the kinds `generate` writes (offered for its name too, since a command's arguments complete alike at every position), the effects `pixelfx` renders, and file paths for `-in`, `-out` and the files and directories the other commands take. The script is generated from the commands' definitions, so after upgrading the game layer, write it again to complete the subcommands and flags the upgrade added.
 
-The script completes a command named `game`. Typed as `go tool game`, the shell completes `go` instead, so either install the command with `go install github.com/nsgo-dev/game/packages/game/cmd/game@latest`, or define `game` as a shell function that runs `go tool game`, which works inside the game's module and keeps the version its `go.mod` pins. Save the script to a file once rather than generating it each time a shell starts, since `go tool game` only runs inside the module.
+The script completes a command named `game`. Typed as `nsgo game` or `go tool game`, the shell completes `nsgo` or `go` instead, so either install the command with `go install github.com/nsgo-dev/game/packages/game/cmd/game@latest`, or define `game` as a shell function that runs `nsgo game`, which keeps the version a module's `go.mod` pins inside the module. Save the script to a file once rather than generating it each time a shell starts, since generating it runs the command.
 
 zsh, with the script saved as `_game` in a directory on `$fpath`, in `~/.zshrc`:
 
 ```zsh
 fpath=(~/.zfunc $fpath)
 autoload -Uz compinit && compinit
-game() { go tool game "$@"; }
+game() { nsgo game "$@"; }
 ```
 
 bash, in bash-completion's directory, which loads it the first time `game` is completed, or sourced from `~/.bashrc` without bash-completion:
 
 ```sh
 mkdir -p ~/.local/share/bash-completion/completions
-go tool game completion bash > ~/.local/share/bash-completion/completions/game
+nsgo game completion bash > ~/.local/share/bash-completion/completions/game
 ```
 
 ```bash
-game() { go tool game "$@"; }
+game() { nsgo game "$@"; }
 ```
 
 fish, in its completions directory:
 
 ```sh
-go tool game completion fish > ~/.config/fish/completions/game.fish
+nsgo game completion fish > ~/.config/fish/completions/game.fish
 ```
 
 ```fish
 function game
-    go tool game $argv
+    nsgo game $argv
 end
 ```
