@@ -70,8 +70,8 @@ for _, id := range slices.Sorted(maps.Keys(enemies)) {
 IEEE-754 浮点加法和乘法不满足结合律：`(a + b) + c` 与 `a + (b + c)` 在最低位上可能不同。此外，Go 语言规范允许编译器在 arm64 上将 `a*b + c` 收缩为单次舍入的融合乘加指令（`FMADD`/`FMSUB`），而 amd64 执行的是两次独立舍入的乘法与加法。经过几百个 tick 后，即使 arm64 与 amd64 之间仅差 1 ULP，也可能跨过碰撞或条件分支的阈值，从而放大成明显分叉。
 
 - 累加力、速度、得分等浮点值时，始终按固定、确定的实体顺序执行。
-- 在要求跨 amd64 与 arm64 比特完全一致的自定义模拟代码中，用显式类型转换包裹乘积（`float32(a*b) + c` 或 `float64(a*b) + c`）——Go 规范保证显式转换会禁止 FMA 收缩——并避免在步进路径中直接调用在 arm64 上会生成 FMA 的标准库超越函数（`math.Sin`、`math.Cos`、`math.Atan2`、`math.Hypot`）。
-- `packages/game/physics`、`packages/game/physics3d` 和 `packages/game/vehicle` 已在步进模拟路径中全面消除 arm64 FMA 指令，并在 CI 中同时于 Ubuntu amd64 与 macOS arm64 上验证跨架构黄金轨迹哈希。
+- 在要求跨 amd64 与 arm64 比特完全一致的自定义模拟代码中，用显式类型转换包裹乘积（`float32(a*b) + c` 或 `float64(a*b) + c`）——Go 规范保证显式转换会禁止 FMA 收缩——并避免在步进路径中直接调用在 arm64 上会生成 FMA 的标准库超越函数（`math.Sin`、`math.Cos`、`math.Atan2`、`math.Hypot`），以及 `math.Pow`、`math.Exp` 和 `math.Log`——它们在两种架构上走不同的实现（`math.Exp` 在 amd64 与 arm64 上各有一份汇编，`math.Log` 只在 amd64 上是汇编），舍入结果不同。
+- `packages/game/physics`、`packages/game/physics3d` 和 `packages/game/vehicle` 已在步进模拟路径中全面消除 arm64 FMA 指令，并在 CI 中同时于 Ubuntu amd64 与 macOS arm64 上验证跨架构黄金轨迹哈希。在 `packages/game/physics` 中，这覆盖刚体世界、XPBD `SoftWorld`、角色控制器与瓦片碰撞；在 arm64 上，它的测试还会用 `go tool objdump` 反汇编整个包，只要调试绘制代码之外出现任何 `FMADD`、`FMSUB`、`FNMADD` 或 `FNMSUB` 就会失败。
 - 避免在不同路径中混用 `float32` 和 `float64`。
 - 计数器、计时器、网格坐标和资源数量优先使用整数或定点表示。
 
