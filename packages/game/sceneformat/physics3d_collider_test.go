@@ -521,3 +521,64 @@ layers:
 	}{model: customModel, terrain: hm}
 	_ = customRes
 }
+
+type staticModelResolver struct {
+	sceneformat.AtlasMap
+	models map[string]*gltf.Document
+}
+
+func (r staticModelResolver) Model(path string) (*gltf.Document, error) {
+	if doc, ok := r.models[path]; ok {
+		return doc, nil
+	}
+	return nil, fmt.Errorf("missing model %q", path)
+}
+
+func TestBuildPhysics3DCyclicGLTFNodeGraphDoesNotOverflow(t *testing.T) {
+	crateGLTF := makeTestGLTFBox(math3d.Vec3{X: -1, Y: 0, Z: -1}, math3d.Vec3{X: 1, Y: 1, Z: 1})
+	docGLTF, err := gltf.LoadFS(fstest.MapFS{"models/cyclic.gltf": &fstest.MapFile{Data: crateGLTF}}, "models/cyclic.gltf")
+	if err != nil {
+		t.Fatalf("gltf.LoadFS: %v", err)
+	}
+	// Introduce a 2-node cycle: node 0 -> node 1 -> node 0.
+	docGLTF.Nodes = append(docGLTF.Nodes, gltf.Node{Name: "child", Children: []int{0}})
+	docGLTF.Nodes[0].Children = append(docGLTF.Nodes[0].Children, 1)
+
+	res := staticModelResolver{models: map[string]*gltf.Document{"models/cyclic.gltf": docGLTF}}
+	doc := &sceneformat.SceneDoc{
+		Version: 3,
+		Layers: []sceneformat.LayerDoc{{
+			Name: "world",
+			Objects: []sceneformat.ObjectDoc{
+				{
+					ID: "cyclic_convex", Model: "models/cyclic.gltf",
+					Components: map[string]any{
+						"body3d":     map[string]any{"version": 1, "kind": "static"},
+						"collider3d": map[string]any{"version": 1, "shape": "convex"},
+					},
+				},
+				{
+					ID: "cyclic_trimesh", X: 5, Model: "models/cyclic.gltf",
+					Components: map[string]any{
+						"body3d":     map[string]any{"version": 1, "kind": "static"},
+						"collider3d": map[string]any{"version": 1, "shape": "trimesh"},
+					},
+				},
+			},
+		}},
+	}
+	built, err := sceneformat.Build(doc, nil)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	ps, err := sceneformat.BuildPhysics(built, nil, res)
+	if err != nil {
+		t.Fatalf("BuildPhysics on cyclic glTF: %v", err)
+	}
+	if b := ps.Bodies3D["cyclic_convex"]; b == nil || b.Shape.Kind != physics3d.ShapeConvexHull {
+		t.Fatalf("cyclic_convex = %+v, want ShapeConvexHull", b)
+	}
+	if tm := ps.TriMeshes3D["cyclic_trimesh"]; tm == nil || len(tm.Triangles) == 0 {
+		t.Fatalf("cyclic_trimesh = %+v, want non-empty TriMeshCollider", tm)
+	}
+}

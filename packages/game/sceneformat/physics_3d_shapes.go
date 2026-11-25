@@ -282,11 +282,14 @@ func extractGLTFObjectMesh(doc *gltf.Document, modelPath, modelNode, modelMesh s
 		}
 	}
 
+	inStack := make([]bool, len(doc.Nodes))
 	var walkNode func(ni int, parent math3d.Mat4, applySelf bool)
 	walkNode = func(ni int, parent math3d.Mat4, applySelf bool) {
-		if ni < 0 || ni >= len(doc.Nodes) {
+		if ni < 0 || ni >= len(doc.Nodes) || inStack[ni] {
 			return
 		}
+		inStack[ni] = true
+		defer func() { inStack[ni] = false }()
 		gn := &doc.Nodes[ni]
 		cur := parent
 		if applySelf {

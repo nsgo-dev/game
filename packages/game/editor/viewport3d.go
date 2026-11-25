@@ -548,9 +548,13 @@ func (e *Editor) GizmoLength3D(pos [3]float32) float32 {
 	return l
 }
 
+func (e *Editor) gizmo3DBlocked() bool {
+	return e == nil || e.playing || e.gridMap.tool != GridMapToolNone || (e.TerrainOpen() && e.terrainBrush.Mode != TerrainBrushNone)
+}
+
 // PickGizmo3D hit-tests the active 3D gizmo handles on the currently selected object in screen space.
 func (e *Editor) PickGizmo3D(sx, sy, w, h float32) GizmoAxis3D {
-	if e == nil || e.playing || e.gridMap.tool != GridMapToolNone || w <= 0 || h <= 0 {
+	if e.gizmo3DBlocked() || w <= 0 || h <= 0 {
 		return Axis3DNone
 	}
 	obj, _ := e.SelectedObject()
@@ -676,6 +680,8 @@ type drag3DState struct {
 	colliderFieldExisted bool
 	colliderOldVal       any
 	colliderStartVal     float64
+	colliderMinVal       float64
+	colliderMaxVal       float64
 }
 
 // ActiveGizmoAxis3D returns the currently dragged 3D gizmo axis, or Axis3DNone.
@@ -694,11 +700,11 @@ func (e *Editor) DraggingGizmo3D() bool {
 // BeginGizmoDrag3D attempts to pick a 3D gizmo handle on the selected object at (sx, sy) and start dragging it.
 // Returns the picked GizmoAxis3D (Axis3DNone if no handle was hit).
 func (e *Editor) BeginGizmoDrag3D(sx, sy, w, h float32) GizmoAxis3D {
-	if e == nil || e.playing {
+	if e.gizmo3DBlocked() {
 		return Axis3DNone
 	}
 	if e.GizmoMode == Gizmo3DCollider {
-		if e.gridMap.tool != GridMapToolNone || w <= 0 || h <= 0 {
+		if w <= 0 || h <= 0 {
 			return Axis3DNone
 		}
 		obj, _ := e.SelectedObject()
@@ -723,7 +729,7 @@ func (e *Editor) BeginGizmoDrag3D(sx, sy, w, h float32) GizmoAxis3D {
 
 // BeginGizmoDragAxis3D begins a 3D gizmo drag constrained to axis starting from viewport pixel (sx, sy).
 func (e *Editor) BeginGizmoDragAxis3D(axis GizmoAxis3D, sx, sy, w, h float32) bool {
-	if e == nil || e.playing || axis == Axis3DNone || w <= 0 || h <= 0 {
+	if e.gizmo3DBlocked() || axis == Axis3DNone || w <= 0 || h <= 0 {
 		return false
 	}
 	obj, _ := e.SelectedObject()
@@ -1155,8 +1161,8 @@ func (e *Editor) DrawViewport3D(d *core.Drawing, size core.Size) {
 		e.drawWireframe3D(d, s3, w, h)
 	}
 
-	// 6. Active 3D transform gizmo on the selected object (hidden while painting a GridMap).
-	if !e.playing && e.gridMap.tool == GridMapToolNone {
+	// 6. Active 3D transform gizmo on the selected object (hidden while painting a GridMap or 3D Terrain brush).
+	if !e.gizmo3DBlocked() {
 		e.drawGizmo3D(d, w, h)
 	}
 }
