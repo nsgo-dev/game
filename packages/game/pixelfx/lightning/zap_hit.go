@@ -37,33 +37,25 @@ var zhSnap = 0.05
 
 var zhAsh = pixelfx.Hex("#6a6680")
 
-// fernPoint is a point of a burn branch and how far along the branch it lies.
-type fernPoint struct{ x, y, d float64 }
-
-type fernBranch struct {
-	pts []fernPoint
-	w   float64
-}
-
 // zhFern grows the burn the current leaves on what it hit: a Lichtenberg fern, main fronds radiating, side fronds alternating.
-func zhFern(R *pixelfx.Rng) []fernBranch {
-	var out []fernBranch
+func zhFern(R *pixelfx.Rng) []branch {
+	var out []branch
 	var grow func(x, y, a, n, w, d float64, depth int)
 	grow = func(x, y, a, n, w, d float64, depth int) {
-		pts := []fernPoint{{x, y, d}}
+		pts := []branchPoint{{x, y, d}}
 		side := R.Sign()
 		for s := 0.0; s < n; s += 1.4 {
 			a += R.Range(-0.3, 0.3)
 			x += math.Cos(a) * 1.4
 			y += math.Sin(a) * 1.4
 			d += 1.4
-			pts = append(pts, fernPoint{x, y, d})
+			pts = append(pts, branchPoint{x, y, d})
 			if depth < 2 && s > 2 && R.Chance(0.24) {
 				side = -side
 				grow(x, y, a+side*R.Range(0.55, 1.05), (n-s)*R.Range(0.3, 0.55), w*0.6, d, depth+1)
 			}
 		}
-		out = append(out, fernBranch{pts: pts, w: w})
+		out = append(out, branch{pts: pts, w: w})
 	}
 	for i := range 6 {
 		grow(0, 0, (float64(i)/6)*tau+R.Range(-0.35, 0.35), R.Range(18, 32), 1, 0, 0)

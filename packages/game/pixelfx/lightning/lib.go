@@ -26,6 +26,15 @@ var volt = []string{"#120a33", "#2a1b78", "#4630c0", "#5a62f0", "#58a6ff", "#9ed
 // plasma is the default spark ramp, head to tail: cyan that reads apart from the violet bolt.
 var plasma = []string{"#ffffff", "#c8f8ff", "#7ff3ff", "#1ab8e6"}
 
+// branchPoint is a point of a burn or crack branch and how far along the branch it lies.
+type branchPoint struct{ x, y, d float64 }
+
+// branch is a burn or crack branch: its points from the root out and its width.
+type branch struct {
+	pts []branchPoint
+	w   float64
+}
+
 var (
 	soot  = pixelfx.Hex("#110c16")
 	soot2 = pixelfx.Hex("#1c1522")
@@ -193,7 +202,7 @@ func walk(pts [][2]float64, fn func(x, y float64)) {
 	}
 }
 
-// strokeOpts are a stroke's options: Hero inks it for a white frame (the body goes white), Light is its glow strength (0.5 when unsaid), A its alpha (1), UpTo draws the trunk only to that share of its length, Core is the radius of a thicker white core (0 for a 1 px one), and MinY puts no glow above that y.
+// strokeOpts are a stroke's options: hero inks it for a white frame (the body goes white), light is its glow strength (0.5 when unsaid), a its alpha (1), upTo draws the trunk only to that share of its length, core is the radius of a thicker white core (0 for a 1 px one), and minY puts no glow above that y.
 type strokeOpts struct {
 	hero  bool
 	light pixelfx.Opt

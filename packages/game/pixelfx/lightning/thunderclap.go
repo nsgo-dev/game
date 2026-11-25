@@ -67,6 +67,7 @@ var thClapT = 0.12
 var thBK = [...]float64{1, 0.7, 0.95, 0.5, 0.8, 0.3}
 
 var (
+	thAsh   = pixelfx.Hex("#5b5566")
 	thDust  = pixelfx.Hex("#6e6382")
 	thStone = pixelfx.Ramp("#655b7a", "#4a4263", "#342d45")
 )
@@ -122,7 +123,7 @@ func newThunderclap(o *pixelfx.Options) pixelfx.Instance {
 	}
 	ringEnd := thClapT + 0.5
 	ramp := []uint32{C[1], C[2], C[4], C[6]}
-	smokeC := pixelfx.Mix(lsAsh, C[4], 0.3)
+	smokeC := pixelfx.Mix(thAsh, C[4], 0.3)
 	t, clapped := 0.0, false
 	var landed [8]bool
 	return &pixelfx.Funcs{
