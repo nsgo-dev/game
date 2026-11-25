@@ -1,0 +1,56 @@
+version: 1
+startCrystals: 100
+maxUnits: 30
+crystalsPerNode: 400
+carryAmount: 8
+gatherSeconds: 1
+queueLimit: 5
+opponentThinkSeconds: 1
+start:
+  - unit: worker
+    count: 4
+  - unit: soldier
+    count: 2
+units:
+  - name: worker
+    hp: 40
+    speed: 36
+    radius: 3.5
+    sight: 5
+    cost: 50
+    trainSeconds: 6
+    trainedAt: hq
+    gathers: true
+  - name: soldier
+    hp: 90
+    speed: 32
+    radius: 4
+    damage: 9
+    range: 3
+    cooldown: 0.8
+    sight: 6
+    cost: 60
+    trainSeconds: 7
+    trainedAt: barracks
+  - name: ranger
+    hp: 55
+    speed: 34
+    radius: 3.5
+    damage: 7
+    range: 30
+    cooldown: 1
+    sight: 7
+    cost: 75
+    trainSeconds: 8
+    trainedAt: barracks
+buildings:
+  - name: hq
+    hp: 1200
+    size: 3
+    sight: 7
+  - name: barracks
+    hp: 600
+    size: 2
+    sight: 5
+    cost: 150
+    buildSeconds: 12

@@ -47,6 +47,7 @@ var projectTemplates = []projectTemplate{
 	newProjectTemplate("puzzle2d", templateModuleRoot+"/puzzle2d", "A 2D grid puzzle: slide a spark to light every lamp, with levels in YAML, undo and redo, a move limit, stars per level and a level select that saves progress"),
 	newProjectTemplate("racing3d", templateModuleRoot+"/racing3d", "A 3D racer: two laps against racing-line rivals with raycast cars, checkpoints, a countdown, a best-lap ghost and a results screen"),
 	newProjectTemplate("rpg2d", templateModuleRoot+"/rpg2d", "A top-down RPG: a town and a meadow, people with branching dialogue, an inventory with equipment, one quest, turn-based battles and three save slots"),
+	newProjectTemplate("rts2d", templateModuleRoot+"/rts2d", "A 2D real-time strategy skirmish: gather crystals, build barracks, train three unit types and destroy a computer opponent's base, with fog of war, box selection and control groups"),
 }
 
 // repoDir returns the slash-separated directory of this repository that holds t's files, the template directory of its module.

@@ -9,6 +9,7 @@ use (
 	./template/puzzle2d
 	./template/racing3d
 	./template/rpg2d
+	./template/rts2d
 	./examples/starburst
 	./examples/slidegem
 	./examples/cryptquest
