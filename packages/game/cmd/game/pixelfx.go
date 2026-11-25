@@ -14,6 +14,7 @@ import (
 	_ "github.com/nsgo-dev/game/packages/game/pixelfx/critters"
 	_ "github.com/nsgo-dev/game/packages/game/pixelfx/explosions"
 	_ "github.com/nsgo-dev/game/packages/game/pixelfx/fire"
+	_ "github.com/nsgo-dev/game/packages/game/pixelfx/ice"
 	_ "github.com/nsgo-dev/game/packages/game/pixelfx/impacts"
 	_ "github.com/nsgo-dev/game/packages/game/pixelfx/moves"
 	_ "github.com/nsgo-dev/game/packages/game/pixelfx/nature"
