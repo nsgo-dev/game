@@ -114,3 +114,40 @@ func TestMvAndIndexErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestMvScreenSpriteAndTextKey(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"game.yaml":               "version: 1\nname: Test\nid: dev.nsgo.test\nappVersion: 0.1.0\nwindow:\n  width: 640\n  height: 360\n",
+		"art/heart.png":           "png",
+		"screens/hud.screen.yaml": "version: 1\ndesignWidth: 640\ndesignHeight: 360\nnodes:\n  - id: hearts\n    type: sprite_row\n    sprite: art/heart.png\n  - id: hint\n    type: label\n    textKey: hud.hint\n",
+		"locales/en.yaml":         "version: 1\nlocale: en\nstrings:\n  hud.hint: Jump\n",
+	})
+
+	// Move sprite file referenced by screen.
+	a, stdout, stderr := newTestApp(t)
+	if code := run([]string{"mv", "-in", dir, filepath.Join(dir, "art", "heart.png"), filepath.Join(dir, "art", "ui", "heart.png")}, a); code != 0 {
+		t.Fatalf("mv sprite exit %d (stderr: %s)", code, stderr)
+	}
+	if !strings.Contains(stdout.String(), `update sprite "art/heart.png"`) {
+		t.Fatalf("mv sprite stdout = %q", stdout)
+	}
+	if got := readPath(t, filepath.Join(dir, "screens", "hud.screen.yaml")); !strings.Contains(got, "sprite: art/ui/heart.png") {
+		t.Fatalf("screen not rewritten:\n%s", got)
+	}
+
+	// Rename text key across screen + locale table with -text-key.
+	a, stdout, stderr = newTestApp(t)
+	if code := run([]string{"mv", "-in", dir, "-text-key", "hud.hint", "hud.tip"}, a); code != 0 {
+		t.Fatalf("mv -text-key exit %d (stderr: %s)", code, stderr)
+	}
+	if !strings.Contains(stdout.String(), `update text key "hud.hint"`) || !strings.Contains(stdout.String(), `update string key "hud.hint"`) {
+		t.Fatalf("mv -text-key stdout = %q", stdout)
+	}
+	if got := readPath(t, filepath.Join(dir, "screens", "hud.screen.yaml")); !strings.Contains(got, "textKey: hud.tip") {
+		t.Fatalf("screen textKey not rewritten:\n%s", got)
+	}
+	if got := readPath(t, filepath.Join(dir, "locales", "en.yaml")); !strings.Contains(got, "hud.tip: Jump") {
+		t.Fatalf("locale string key not rewritten:\n%s", got)
+	}
+}

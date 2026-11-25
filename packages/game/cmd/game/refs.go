@@ -13,11 +13,11 @@ import (
 	"github.com/nsgo-dev/game/packages/game/refs"
 )
 
-// mvCommand moves a file or directory of a project and rewrites every reference to it, as refs.PlanMove plans.
+// mvCommand moves a file or directory of a project and rewrites every reference to it, as refs.PlanMove plans, or renames a localization text key with -text-key.
 var mvCommand = &command{
 	name:    "mv",
 	args:    "<from> <to>",
-	summary: "Move or rename a file or directory of a project and rewrite every reference to it, keeping the project index up to date",
+	summary: "Move or rename a file, directory, or text key (-text-key) and rewrite every reference to it, keeping the project index up to date",
 	define:  defineMv,
 	complete: map[string]completion{
 		"": filePaths,
@@ -38,14 +38,25 @@ var indexCommand = &command{
 func defineMv(a *app, fs *flag.FlagSet) func() error {
 	inArg := inFlag(fs, "", "project directory (defaults to the nearest directory at or above the working directory holding game.yaml, nsgo.yaml or go.mod)")
 	dryRun := fs.Bool("dry-run", false, "print what would change without changing anything")
+	textKey := fs.Bool("text-key", false, "rename a localization text key across screen files and YAML string tables instead of moving a file")
 
 	return func() error {
 		if fs.NArg() != 2 {
+			if *textKey {
+				return usagef("expected the old text key and new text key, got %d arguments", fs.NArg())
+			}
 			return usagef("expected a file to move and where to move it, got %d arguments", fs.NArg())
 		}
 		dir, err := projectDir(*inArg)
 		if err != nil {
 			return err
+		}
+		if *textKey {
+			plan, err := refs.PlanRenameTextKey(os.DirFS(dir), fs.Arg(0), fs.Arg(1))
+			if err != nil {
+				return err
+			}
+			return finishPlan(a.stdout, dir, plan, *dryRun)
 		}
 		from, err := projectPath(dir, fs.Arg(0))
 		if err != nil {
@@ -110,6 +121,9 @@ func finishPlan(w io.Writer, dir string, plan *refs.Plan, dryRun bool) error {
 	}
 	for _, r := range plan.Updated {
 		fmt.Fprintf(w, "%s:%d: update %s %q\n", name(r.File), r.Line, r.Field, r.Value)
+	}
+	for _, r := range plan.UpdatedTextKeys {
+		fmt.Fprintf(w, "%s:%d: update %s %q\n", name(r.File), r.Line, r.Field, r.Key)
 	}
 	for _, p := range plan.Assigned {
 		fmt.Fprintf(w, "%s: add a uid\n", name(p))

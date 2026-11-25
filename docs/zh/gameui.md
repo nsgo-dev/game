@@ -149,3 +149,50 @@ overlay.Sync(proj)
 ```
 
 在 `core.Stack` 中将 `overlay.View(cx)` 叠放在游戏 `Canvas` 之上即可。投射到 `ScreenBounds` 之外的锚点会自动隐藏，位置通过 `SetWorldPosition` 与 `Sync` 更新而无需重建外层视图树。
+
+## 界面屏幕文件（`*.screen.yaml`）
+
+可将 HUD 与菜单编写为带版本号的纯文本 YAML 文件（`*.screen.yaml`，已发布 Schema 为 `https://game.nsgo.dev/schemas/screen.v1.json`），而不必在 Go 代码中手写所有控件。`ParseScreen`、`LoadScreenFS` 与 `EncodeScreen` 会拒绝未知字段、重复的节点 ID 或焦点顺序、YAML 锚点/别名以及不支持的版本号，并以规范的 2 空格缩进 YAML 无损往返。
+
+屏幕文件声明 `designWidth` × `designHeight` 设计画布尺寸（例如 `640 × 360`）、可选的 `scaleMode`（`fit`、`fill`、`stretch`、`integer`）以及节点树（`vbox`、`hbox`、`label`、`button`、`sprite_row`、`color_rect`、`touch_stick`、`touch_button`、`container`）：
+
+- **锚点与安全区**：通过 `anchor` 指定九宫格锚点（`top_left`、`top_center`、`top_right`、`center_left`、`center`、`center_right`、`bottom_left`、`bottom_center`、`bottom_right`）或 `fill`，通过 `offset`（右侧/底部锚点的正值向内缩进）设置偏移，并用 `safeArea` 控制是否保持在安全区内（非 `fill` 默认为 `true`，`fill` 默认为 `false`）。
+- **尺寸与本地化文本**：在 `textKey` 中存放本地化键而非字面文本，使用 `sizeMode: fixed` 搭配 `width` 或 `sizeMode: fit_text` 随翻译文本自适应宽度，并支持 `padding`、`spacing`、`fontSize`、`textColor`、`background` 与 `cornerRadius`。
+- **焦点顺序、触控热区与设备类别**：使用从 1 开始的 `focusOrder` 声明键盘/手柄焦点遍历顺序，使用 `touchHitSize` 设置扩展圆形触控热区（`TouchButton`、`TouchStick`、`Button`），并使用 `deviceClasses`（`phone`、`tablet`、`desktop`、`ultrawide`）按设备类别条件显示控件。
+
+运行时调用 `BuildScreen` 将屏幕文件构建为 `gameui.Root` 与 `SpatialNavigator`：
+
+```go
+doc, err := gameui.LoadScreenFS(assetsFS, "screens/hud.screen.yaml")
+if err != nil {
+	return err
+}
+
+phone := gameui.ReferenceDevicesFor(doc.DesignWidth, doc.DesignHeight)[0]
+screen, err := gameui.BuildScreen(doc, gameui.ScreenBuildOptions{
+	SafeArea:       phone.SafeArea,
+	DeviceClass:    phone.Class,
+	ViewportWidth:  phone.Width,
+	ViewportHeight: phone.Height,
+	Catalog:        catalog,
+	Locale:         "zh",
+	OnClick: map[string]func(){
+		"pause_button": openPauseMenu,
+		"jump":         triggerJump,
+	},
+})
+```
+
+在 `Canvas.Draw` 中调用 `screen.Draw(d, bounds)`，并可通过 `screen.ApplyCatalog(catalog, locale)` 动态切换语言、通过 `screen.SetSafeArea(insets)` 更新安全区边距、通过 `screen.SetDeviceClass(class)` 切换设备类别过滤。
+
+### 静态检查（`game check`）与安全重构（`refs`、`game mv`）
+
+`game check`（及 `gameui.CheckScreen`）会检查项目中的所有 `*.screen.yaml` 文件，并按文件、行号和节点 ID 报告以下问题：
+
+- 手机和平板上的触控热区小于 `44 pt`；
+- 本地化文本（含全角中文字符宽度）在四个参考尺寸（`Phone 19.5:9 (notch)`、`Tablet 4:3`、`Desktop 16:9`、`Ultrawide 21:9`）下超出固定框或安全区；
+- `textKey` 在项目的任意语言字符串表中缺失；
+- 文本与其填充背景的 WCAG 对比度低于 `4.5:1`；
+- 引用的 `sprite` 图片或图集帧缺失。
+
+`refs` 与 `game mv` 会追踪 `*.screen.yaml` 中的 `sprite` 路径和 `textKey` 引用：`game mv art/heart.png art/ui/heart.png` 会原地更新 `sprite:`，而 `game mv -text-key hud.hint.lever hud.tip.lever` 会同步重命名所有 `*.screen.yaml` 与 YAML 本地化字符串表中的键。

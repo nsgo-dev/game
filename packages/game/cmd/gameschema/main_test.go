@@ -10,6 +10,7 @@ import (
 
 	"github.com/nsgo-dev/game/packages/game/ai"
 	"github.com/nsgo-dev/game/packages/game/cutscene"
+	"github.com/nsgo-dev/game/packages/game/gameui"
 	"github.com/nsgo-dev/game/packages/game/l10n"
 	"github.com/nsgo-dev/game/packages/game/navbake3d"
 	"github.com/nsgo-dev/game/packages/game/playtest"
@@ -715,7 +716,6 @@ func TestCutsceneSchemasShapeAndValidation(t *testing.T) {
 		}
 	}
 }
-
 func TestPlaytestSchemaShapeAndValidation(t *testing.T) {
 	s := schemaAt(t, playtest.SchemaURL)
 	if s.Schema != jsonschema.Draft07 || s.ID != playtest.SchemaURL {
@@ -763,6 +763,58 @@ func TestPlaytestSchemaShapeAndValidation(t *testing.T) {
 	for _, bad := range badDocs {
 		if err := s.ValidateYAML([]byte(bad)); err == nil {
 			t.Fatalf("playtest schema accepted invalid YAML:\n%s", bad)
+		}
+	}
+}
+
+func TestScreenSchemaShapeAndValidation(t *testing.T) {
+	s := schemaAt(t, gameui.ScreenSchemaURL)
+	if s.Schema != jsonschema.Draft07 || s.ID != gameui.ScreenSchemaURL {
+		t.Fatalf("$schema %q, $id %q", s.Schema, s.ID)
+	}
+	if version := s.Property("version"); version == nil || version.Const != int64(gameui.ScreenFormatVersion) {
+		t.Fatalf("version property = %+v", version)
+	}
+	if b, ok := s.AdditionalProperties.Boolean(); !ok || b {
+		t.Fatal("screen schema accepts unknown top-level keys")
+	}
+	for _, p := range s.Properties {
+		if p.Schema.Description == "" {
+			t.Errorf("ScreenDoc.%s has no description", p.Name)
+		}
+	}
+	for _, defName := range []string{"ScreenNodeDoc", "ScreenOffsetDoc", "ScreenPaddingDoc"} {
+		def := s.Definitions[defName]
+		if def == nil || def.Description == "" {
+			t.Fatalf("definition %s = %+v, want one with a description", defName, def)
+		}
+		if b, ok := def.AdditionalProperties.Boolean(); !ok || b {
+			t.Fatalf("definition %s accepts unknown keys", defName)
+		}
+		for _, p := range def.Properties {
+			if p.Schema.Description == "" {
+				t.Errorf("%s.%s has no description", defName, p.Name)
+			}
+		}
+	}
+	for _, name := range []string{"hud.screen.yaml", "pause.screen.yaml"} {
+		data, err := os.ReadFile(filepath.Join(root, "gameui", "testdata", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.ValidateYAML(data); err != nil {
+			t.Fatalf("screen schema refused %s: %v", name, err)
+		}
+	}
+	badDocs := []string{
+		"version: 1\ndesignWidth: 640\ndesignHeight: 360\nunknownKey: true\n",
+		"version: 1\ndesignWidth: 0\ndesignHeight: 360\n",
+		"version: 1\ndesignWidth: 640\ndesignHeight: 360\nnodes:\n  - id: a\n    type: unknown\n",
+		"version: 1\ndesignWidth: 640\ndesignHeight: 360\nnodes:\n  - id: a\n    type: container\n    deviceClasses: [watch]\n",
+	}
+	for _, bad := range badDocs {
+		if err := s.ValidateYAML([]byte(bad)); err == nil {
+			t.Fatalf("screen schema accepted invalid YAML:\n%s", bad)
 		}
 	}
 }

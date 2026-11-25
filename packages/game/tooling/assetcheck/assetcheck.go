@@ -65,6 +65,8 @@ type Report struct {
 	GridMaps, Terrains, Foliage int
 	// Cutscenes counts the *.cutscene.yaml / *.cutscene.yml files that were checked.
 	Cutscenes int
+	// Screens counts the gameui *.screen.yaml / *.screen.yml files that were checked.
+	Screens int
 	// Problems are the problems found, sorted by file, then line, then message.
 	Problems []Problem
 }
@@ -100,7 +102,7 @@ func CheckWith(fsys fs.FS, opts Options) (*Report, error) {
 		sceneObjs:   make(map[string]map[string]bool),
 		l10nByRoot:  make(map[string]*l10nIndex),
 	}
-	var scenes, cutscenes, gridMaps, terrains, foliages, tiledMaps, tilesets, yamlTilesets, ldtks, jsons, otherYAMLs []string
+	var scenes, cutscenes, screens, gridMaps, terrains, foliages, tiledMaps, tilesets, yamlTilesets, ldtks, jsons, otherYAMLs []string
 	err := fs.WalkDir(fsys, ".", func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			if p == "." {
@@ -123,6 +125,8 @@ func CheckWith(fsys fs.FS, opts Options) (*Report, error) {
 			yamlTilesets = append(yamlTilesets, p)
 		case strings.HasSuffix(name, ".cutscene.yaml"), strings.HasSuffix(name, ".cutscene.yml"):
 			cutscenes = append(cutscenes, p)
+		case strings.HasSuffix(name, ".screen.yaml"), strings.HasSuffix(name, ".screen.yml"):
+			screens = append(screens, p)
 		case strings.HasSuffix(name, ".gridmap.yaml"), strings.HasSuffix(name, ".gridmap.yml"):
 			gridMaps = append(gridMaps, p)
 		case strings.HasSuffix(name, ".terrain.yaml"), strings.HasSuffix(name, ".terrain.yml"):
@@ -152,7 +156,7 @@ func CheckWith(fsys fs.FS, opts Options) (*Report, error) {
 	}
 	c.otherYAMLs = otherYAMLs
 
-	// Atlases first, so that scenes find their frames.
+	// Atlases first, so that scenes and screens find their frames.
 	for _, p := range jsons {
 		c.sniffAtlas(p)
 	}
@@ -176,6 +180,12 @@ func CheckWith(fsys fs.FS, opts Options) (*Report, error) {
 	}
 	for _, p := range cutscenes {
 		c.checkCutscene(p)
+	}
+	if len(screens) > 0 {
+		c.loadLocaleTables(otherYAMLs)
+		for _, p := range screens {
+			c.checkScreen(p)
+		}
 	}
 	for _, p := range gridMaps {
 		c.checkGridMap(p)
@@ -230,6 +240,8 @@ type checker struct {
 	sceneObjs map[string]map[string]bool
 	// l10nByRoot caches discovered l10n string table keys per project root.
 	l10nByRoot map[string]*l10nIndex
+	// localeTables holds the parsed l10n YAML string tables discovered in each project root.
+	localeTables map[string]*projectLocales
 }
 
 // problem records a problem in file at line (0 for none).
@@ -485,6 +497,9 @@ func (r *Report) Summary() string {
 	}
 	if r.Cutscenes > 0 {
 		counts += ", " + plural(r.Cutscenes, "cutscene", "cutscenes")
+	}
+	if r.Screens > 0 {
+		counts += ", " + plural(r.Screens, "screen", "screens")
 	}
 	if r.OK() {
 		return counts + ": no problems"

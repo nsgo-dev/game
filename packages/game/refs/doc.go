@@ -8,6 +8,8 @@
 //   - scenes (sceneformat), the files named *.scene.yaml or *.scene.yml and every other YAML file a reference names as a scene: the scene a scene inherits, the navigation mesh file a scene names (navMesh, which game navmesh writes and so need not exist, Ref.Output), the scene an object instances, an object's material and model and an override's material and model, and a tilemap's source and the YAML tileset a layered tilemap names (tilesetFile);
 //   - YAML tilesets (tilemap.TilesetDoc), the files named *.tileset.yaml or *.tileset.yml: the grid image their tiles are cut from;
 //   - cutscenes (cutscene), the files named *.cutscene.yaml or *.cutscene.yml: the scene a timeline cutscene plays against, a video cutscene's project-relative source path, and the audio source paths on sound and music tracks;
+//   - screens (gameui), the files named *.screen.yaml or *.screen.yml: each node's sprite path (FieldScreenSprite) and localization textKey (FieldTextKey in Project.TextKeys);
+//   - localization string tables (l10n), versioned YAML string tables holding locale and strings/plurals maps: each message key definition (FieldStringKey and FieldPluralKey in Project.TextKeys);
 //   - resource files (resource), YAML files whose header has a resource type: a material's texture;
 //   - Tiled maps (.tmj) and tilesets (.tsj, and .json files a map names as its external tileset): external tilesets, tileset and tile images and image layers;
 //   - sprite atlases, JSON files with top-level frames and meta objects: the page image in meta.image;

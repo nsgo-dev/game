@@ -132,3 +132,28 @@ func TestCheckReportsMissingCutsceneLineID(t *testing.T) {
 		t.Fatalf("stderr = %q, want %q", stderr, want)
 	}
 }
+
+func TestCheckReportsChineseScreenOverflow(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"game.yaml": "version: 1\nname: Test\nid: dev.nsgo.test\nappVersion: 0.1.0\nwindow:\n  width: 640\n  height: 360\n",
+		"screens/hud.screen.yaml": "version: 1\ndesignWidth: 640\ndesignHeight: 360\nnodes:\n" +
+			"  - id: hint\n    type: label\n    anchor: bottom_center\n    width: 160\n    height: 22\n" +
+			"    padding:\n      left: 6\n      right: 6\n    textKey: hud.hint.lever\n    textColor: '#ffffff'\n    background: '#101216'\n",
+		"locales/en.yaml": "version: 1\nlocale: en\nstrings:\n  hud.hint.lever: Jump at levers to pull\n",
+		"locales/zh.yaml": "version: 1\nlocale: zh\nstrings:\n  hud.hint.lever: 靠近拉杆时按下跳跃键即可拉动\n",
+	})
+	a, _, stderr := newTestApp(t)
+	if code := run([]string{"check", dir}, a); code != 1 {
+		t.Fatalf("exit %d, want 1 (stderr: %s)", code, stderr)
+	}
+	got := stderr.String()
+	for _, want := range []string{
+		filepath.Join(dir, "screens", "hud.screen.yaml") + `:8: node "hint" (locale "zh")`,
+		`overflows 160 pt box`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("stderr = %q, want substring %q", got, want)
+		}
+	}
+}

@@ -1,6 +1,7 @@
 package gameui
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/nsgo-dev/nsgo/core"
@@ -142,6 +143,8 @@ func isDisabled(w Widget) bool {
 	switch v := w.(type) {
 	case *Button:
 		return v.Disabled
+	case *TouchButton:
+		return v.Disabled
 	case *Toggle:
 		return v.Disabled
 	case *Slider:
@@ -153,10 +156,47 @@ func isDisabled(w Widget) bool {
 	}
 }
 
+type focusOrderWidget interface {
+	focusOrder() int
+}
+
+type customHitTestWidget interface {
+	hitTestPoint(p core.Point) bool
+}
+
+func widgetFocusOrder(w Widget) int {
+	if fw, ok := w.(focusOrderWidget); ok {
+		return fw.focusOrder()
+	}
+	return 0
+}
+
 func (r *Root) syncFocusables() {
 	r.focusables = r.focusables[:0]
 	if r.Child != nil {
 		collectFocusables(r.Child, &r.focusables)
+	}
+	hasExplicitOrder := false
+	for _, w := range r.focusables {
+		if widgetFocusOrder(w) > 0 {
+			hasExplicitOrder = true
+			break
+		}
+	}
+	if hasExplicitOrder {
+		slices.SortStableFunc(r.focusables, func(a, b Widget) int {
+			oa, ob := widgetFocusOrder(a), widgetFocusOrder(b)
+			switch {
+			case oa > 0 && ob > 0:
+				return oa - ob
+			case oa > 0:
+				return -1
+			case ob > 0:
+				return 1
+			default:
+				return 0
+			}
+		})
 	}
 	if !r.hasFocus || r.focused == nil {
 		r.focusIdx = -1
@@ -359,6 +399,14 @@ func activateWidget(w Widget) bool {
 			v.OnClick()
 		}
 		return true
+	case *TouchButton:
+		if v.Disabled {
+			return false
+		}
+		if v.OnClick != nil {
+			v.OnClick()
+		}
+		return true
 	case *Toggle:
 		if v.Disabled {
 			return false
@@ -532,8 +580,16 @@ func hitTestWidget(w Widget, p core.Point) Widget {
 			return hit
 		}
 	}
-	if w.focusable() && w.Bounds().Contains(p) {
-		return w
+	if w.focusable() {
+		if ht, ok := w.(customHitTestWidget); ok {
+			if ht.hitTestPoint(p) {
+				return w
+			}
+			return nil
+		}
+		if w.Bounds().Contains(p) {
+			return w
+		}
 	}
 	return nil
 }

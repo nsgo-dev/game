@@ -1,0 +1,102 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/screen.v1.json
+version: 1
+name: hud
+designWidth: 640
+designHeight: 360
+nodes:
+  - id: status
+    type: vbox
+    anchor: top_left
+    offset:
+      x: 12
+      "y": 12
+    spacing: 4
+    children:
+      - id: hearts
+        type: sprite_row
+        width: 52
+        height: 14
+        spacing: 4
+        sprite: art/ui/heart.png
+        spriteCount: 3
+      - id: coins
+        type: label
+        sizeMode: fit_text
+        height: 16
+        textKey: hud.coins
+        textColor: '#ffffff'
+  - id: floor_label
+    type: label
+    anchor: top_center
+    offset:
+      "y": 12
+    sizeMode: fit_text
+    height: 18
+    textKey: hud.floor.1
+    textColor: '#ffffff'
+  - id: pause_button
+    type: button
+    anchor: top_right
+    offset:
+      x: 12
+      "y": 12
+    width: 44
+    height: 44
+    textKey: hud.pause
+    touchHitSize: 44
+    textColor: '#ffffff'
+    background: '#161b26'
+    cornerRadius: 6
+  - id: hint
+    type: label
+    anchor: bottom_center
+    offset:
+      "y": 70
+    sizeMode: fit_text
+    height: 22
+    padding:
+      right: 6
+      left: 6
+    textKey: hud.hint.lever
+    textColor: '#ffffff'
+    background: rgba(16,18,22,0.78)
+    cornerRadius: 4
+  - id: touch
+    type: container
+    deviceClasses:
+      - phone
+      - tablet
+    children:
+      - id: stick
+        type: touch_stick
+        anchor: bottom_left
+        offset:
+          x: 24
+          "y": 20
+        width: 72
+        height: 72
+        touchHitSize: 96
+      - id: jump
+        type: touch_button
+        anchor: bottom_right
+        offset:
+          x: 24
+          "y": 28
+        width: 52
+        height: 52
+        textKey: hud.jump
+        touchHitSize: 64
+        textColor: '#ffffff'
+        background: '#1c2638'
+      - id: attack
+        type: touch_button
+        anchor: bottom_right
+        offset:
+          x: 92
+          "y": 20
+        width: 44
+        height: 44
+        textKey: hud.attack
+        touchHitSize: 48
+        textColor: '#ffffff'
+        background: '#1c2638'

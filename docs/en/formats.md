@@ -415,6 +415,57 @@ layers:
           frame: hero
 ```
 
+<!-- format: gameui -->
+### Game UI screen
+
+| Files | Version | Read and written by | Fields |
+| --- | --- | --- | --- |
+| `*.screen.yaml`, such as `screens/hud.screen.yaml` and `screens/pause.screen.yaml` | `version: 1` | `gameui.ParseScreen`, `gameui.EncodeScreen`, `gameui.LoadScreenFS`, `gameui.BuildScreen` | [gameui](gameui.md); schema `https://game.nsgo.dev/schemas/screen.v1.json` |
+
+```yaml
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/screen.v1.json
+version: 1
+name: hud
+designWidth: 640
+designHeight: 360
+nodes:
+  - id: status
+    type: vbox
+    anchor: top_left
+    offset:
+      x: 12
+      "y": 12
+    spacing: 4
+    children:
+      - id: hearts
+        type: sprite_row
+        width: 52
+        height: 14
+        sprite: art/ui/heart.png
+        spriteCount: 3
+      - id: coins
+        type: label
+        sizeMode: fit_text
+        height: 16
+        textKey: hud.coins
+  - id: touch
+    type: container
+    deviceClasses:
+      - phone
+      - tablet
+    children:
+      - id: jump
+        type: touch_button
+        anchor: bottom_right
+        offset:
+          x: 24
+          "y": 28
+        width: 52
+        height: 52
+        textKey: hud.jump
+        touchHitSize: 64
+```
+
 <!-- format: navbake3d -->
 ### 3D navigation meshes
 
