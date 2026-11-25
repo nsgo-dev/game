@@ -50,6 +50,7 @@ func defineDev(a *app, fs *flag.FlagSet) func() error {
 	scenePath := fs.String("scene", "", "start the game at this scene path relative to the project root, given to the game as hotreload.DevScene")
 	target := fs.String("target", "", "the nsgo dev target, nsgo.yaml's dev.target when empty; assets reload on native and tui")
 	fps := fs.Bool("fps", false, "show NSGo's performance monitor in the running game")
+	automation := fs.Bool("automation", false, "enable NSGo automation so the editor and nsgo mcp can inspect and drive the running game")
 
 	return func() error {
 		dir, passthrough := splitDevArgs(fs.Args())
@@ -71,6 +72,9 @@ func defineDev(a *app, fs *flag.FlagSet) func() error {
 		}
 		if *fps {
 			args = append(args, "-fps")
+		}
+		if *automation {
+			args = append(args, "-automation")
 		}
 		args = append(args, passthrough...)
 		if dir != "" {

@@ -38,6 +38,27 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 			ed.report(ed.StopGame())
 		}
 	})
+	cx.OnKeyWith("mod+shift+p", core.KeyOptions{When: core.KeyNotEditing}, func() {
+		if !ed.RemoteConnected() {
+			return
+		}
+		snap := ed.RemoteSnapshot()
+		if snap.Loop != nil && snap.Loop.Paused {
+			ed.report(ed.RemoteResume())
+		} else {
+			ed.report(ed.RemotePause())
+		}
+	})
+	cx.OnKeyWith(".", core.KeyOptions{When: core.KeyNotEditing}, func() {
+		if !ed.RemoteConnected() {
+			return
+		}
+		snap := ed.RemoteSnapshot()
+		if snap.Loop != nil && snap.Loop.Paused {
+			_, err := ed.RemoteStep(1)
+			ed.report(err)
+		}
+	})
 	cx.Cleanup(func() {
 		unsub()
 		ed.stopClipLoop()
@@ -47,6 +68,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 		ed.stopAssetsBuild()
 		_ = ed.DisconnectProfiler()
 		ed.cancelCreateProject()
+		_ = ed.DisconnectRemote()
 		_ = ed.StopGame()
 		if ed.Playing() {
 			_ = ed.Stop()
@@ -89,6 +111,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 						},
 						Children: []core.Node{
 							toolbarView(cx, ed, rev, sceneFileButtons(cx, ed, rev, dirty, pathMode, pathTarget)),
+							remotePlayBarView(cx, ed, rev),
 							core.View{
 								// A zero basis gives the row the height left after the toolbar, the animation panel and the status bar, rather than its content's.
 								Style: core.Style{
@@ -850,6 +873,7 @@ func statusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 							}
 						},
 					},
+					remoteStatusView(cx, ed, rev),
 				},
 			},
 			core.Text{

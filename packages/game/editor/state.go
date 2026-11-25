@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
 	"github.com/nsgo-dev/game/packages/game/animclip"
 	"github.com/nsgo-dev/game/packages/game/loaderr"
 	"github.com/nsgo-dev/game/packages/game/math2d"
@@ -294,6 +296,10 @@ type Editor struct {
 	OpenOutputFolder func(dir string) error
 	// RunGameCommand starts the child game process for RunGame / RunGameWith, streaming output to stdout and stderr; when nil the editor launches `go tool game dev` in the open project directory in its own process group on desktop.
 	RunGameCommand func(spec RunGameSpec, stdout, stderr io.Writer) (GameProcess, error)
+	// RemoteTransport, when set, supplies the MCP client transport used to connect to a running game launched with RunGameOptions.Automation; when nil the editor spawns `go tool nsgo mcp` in the project directory on desktop.
+	RemoteTransport func(ctx context.Context, spec RunGameSpec) (mcp.Transport, error)
+	// RemoteRefreshInterval controls how often the remote scene tree and inspector poll the running game while unpaused (defaults to 250ms when <= 0).
+	RemoteRefreshInterval time.Duration
 	// AssetsCommandRunner runs `go tool game assets` for BuildAssets and ReimportAsset, streaming output to stdout and stderr; when nil the editor invokes `go` in the open project directory on desktop.
 	AssetsCommandRunner func(ctx context.Context, spec AssetsBuildSpec, stdout, stderr io.Writer) error
 	// OnReloadAssets, when set, is called after ReloadAssets reloads changed atlases or textures from disk.
@@ -465,6 +471,8 @@ type Editor struct {
 	navMesh3D navMesh3DState
 	// vp3d holds cached 3D render3d.Queue/OcclusionBuffer state, active LOD indices and RenderStats for the 3D viewport.
 	vp3d viewport3DState
+	// remote holds the live remote scene tree, inspector, MCP client session, loop controls, tunables, and console state.
+	remote remoteState
 }
 
 // DefaultSceneDoc returns a valid starter SceneDoc suitable for a new editor session.
@@ -567,6 +575,7 @@ func (e *Editor) AttachScope(cx *core.Scope) {
 		e.stopProfilerPoller()
 	}
 	e.startScreen.setScope(cx)
+	e.remote.setScope(cx)
 }
 
 func (e *Editor) notify() {
