@@ -1,8 +1,10 @@
 package editor
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"math"
 	"os"
@@ -193,6 +195,10 @@ type Editor struct {
 	OnSaveClip func(data []byte) error
 	// OnSaveDataTable is invoked by the Data Table panel's Save button with the encoded table YAML; when nil the button writes to DataTablePath.
 	OnSaveDataTable func(data []byte) error
+	// ExportCommandRunner runs `go` with args for the Export panel's release builds, streaming output to stdout and stderr; when nil the editor invokes `go` via os/exec.
+	ExportCommandRunner func(ctx context.Context, args []string, stdout, stderr io.Writer) error
+	// OpenOutputFolder opens the release output directory in the OS file manager after a successful non-dry-run build; when nil the editor uses the host platform's default opener.
+	OpenOutputFolder func(dir string) error
 
 	playing      bool
 	playSnapshot []byte
@@ -241,6 +247,8 @@ type Editor struct {
 	selectedFileRev uint64
 	// problems holds the asynchronous assetcheck and project.Check state for the open project.
 	problems problemState
+	// exportPanel holds the Export & Release panel state, credits pre-flight report, and build output stream.
+	exportPanel exportPanelState
 }
 
 // DefaultSceneDoc returns a valid starter SceneDoc suitable for a new editor session.
@@ -337,6 +345,7 @@ func (e *Editor) afterMutate() {
 	// An undone or redone project edit may have turned off the plugin whose tool is active.
 	e.dropStalePluginTool()
 	e.syncAudioMixer()
+	e.syncExportPanel()
 	e.Rebuild()
 	e.notify()
 }

@@ -12,11 +12,11 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
-	"strconv"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
 
+	"github.com/nsgo-dev/game/packages/game/internal/releaseplan"
 	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/game/packages/game/tooling/credits"
 )
@@ -30,16 +30,16 @@ var releaseCommand = &command{
 	complete: map[string]completion{
 		"output":        filePaths,
 		"release-notes": filePaths,
-		"channel":       oneOf("direct", "store", "steam", "none"),
+		"channel":       oneOf(releaseplan.Channels...),
 		"":              filePaths,
 	},
 }
 
 // releasePlatforms are what game release builds when neither -target nor game.yaml's export presets say otherwise, as nsgo build -target names them: macos, windows, linux and android expand to their architectures, and ios and web are one target each.
-var releasePlatforms = []string{"macos", "windows", "linux", "web", "ios", "android"}
+var releasePlatforms = releaseplan.DefaultPlatforms
 
 // steamPlatforms are what game release builds by default for the steam channel, whose depots nsgo build makes only of desktop targets.
-var steamPlatforms = []string{"macos", "windows", "linux"}
+var steamPlatforms = releaseplan.SteamPlatforms
 
 // gameFileName is the project file at a game's root whose export section game release reads.
 const gameFileName = "game.yaml"
@@ -72,14 +72,7 @@ var runNSGo = func(args []string, stdout, stderr io.Writer) error {
 }
 
 // releaseSettings are the parts of game.yaml that game release reads: the build output directory, the build targets of the export presets and the assets section, whose assets the credits file lists.
-type releaseSettings struct {
-	// Output is export.output, a slash-separated directory inside the project; empty leaves nsgo.yaml's build.output.
-	Output string
-	// Targets are the presets' targets in order, a preset without targets giving its platform name; nil without presets.
-	Targets []string
-	// Assets is the assets section as package project parses it with the whole file; nil when game.yaml has none, and then no credits file is written.
-	Assets *project.Assets
-}
+type releaseSettings = releaseplan.Settings
 
 // gameFileKeys are game.yaml's top-level fields, taken from the yaml tags of package project's File (#488) so that the two cannot drift apart, and so that a misspelt section such as exprot is refused rather than ignored.
 var gameFileKeys = projectFileKeys()
@@ -115,7 +108,7 @@ type exportPreset struct {
 }
 
 // noCreditsNote is what game release prints when game.yaml has no assets section, and so no credits file is written.
-const noCreditsNote = "game release: note: game.yaml has no assets section, so no " + credits.FileName + " is written; credit the assets the game ships yourself"
+const noCreditsNote = releaseplan.NoCreditsNote
 
 // parseReleaseSettings reads the version and export section of a game.yaml, refusing unknown top-level fields, a version other than the integer 1, unknown fields in export, an empty preset list, platforms and targets nsgo build does not know, a target of another platform, duplicates and an output outside the project. When the file has an assets section, which game release reads for the credits file, the whole file is parsed and validated by package project, as game assets parses it.
 func parseReleaseSettings(data []byte) (releaseSettings, error) {
@@ -300,148 +293,40 @@ func readReleaseSettings(dir string) (releaseSettings, error) {
 }
 
 // nsgoSettings are the parts of nsgo.yaml that game release reads.
-type nsgoSettings struct {
-	// Channel is updates.channel, the channel nsgo build hands the packages out through when -channel does not say.
-	Channel string
-	// Output is build.output, the directory nsgo build writes to when neither -output nor game.yaml's export.output says, relative to the project unless absolute; empty is nsgo's default, dist.
-	Output string
-}
-
-// readNSGoSettings reads dir's nsgo.yaml. The file is nsgo's, which validates it when it builds, so fields game release does not read are left alone rather than refused.
-func readNSGoSettings(dir string) (nsgoSettings, error) {
-	path := filepath.Join(dir, "nsgo.yaml")
-	data, err := os.ReadFile(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nsgoSettings{}, fmt.Errorf("%s has no nsgo.yaml; run game release in the game's root or name it", dir)
-	}
-	if err != nil {
-		return nsgoSettings{}, err
-	}
-	var file struct {
-		Updates struct {
-			Channel string `yaml:"channel"`
-		} `yaml:"updates"`
-		Build struct {
-			Output string `yaml:"output"`
-		} `yaml:"build"`
-	}
-	if err := yaml.Unmarshal(data, &file); err != nil {
-		return nsgoSettings{}, fmt.Errorf("%s: %w", path, err)
-	}
-	return nsgoSettings{Channel: file.Updates.Channel, Output: file.Build.Output}, nil
-}
-
-// nsgoDefaultOutput is the directory nsgo build writes to when nsgo.yaml's build.output is empty, from NSGo v0.3.0's cmd/nsgo/project.go.
-const nsgoDefaultOutput = "dist"
-
-// releaseOutput returns the absolute directory nsgo build writes the release to, as releaseArgs passes it and nsgo resolves it: -output, relative to the working directory, else game.yaml's export.output, else nsgo.yaml's build.output, else dist, these relative to dir.
-func releaseOutput(dir string, opts releaseOptions, settings releaseSettings, nsgo nsgoSettings) (string, error) {
-	switch {
-	case opts.output != "":
-		return filepath.Abs(opts.output)
-	case settings.Output != "":
-		return filepath.Join(dir, filepath.FromSlash(settings.Output)), nil
-	case nsgo.Output != "":
-		if filepath.IsAbs(nsgo.Output) {
-			return filepath.Clean(nsgo.Output), nil
-		}
-		return filepath.Join(dir, filepath.FromSlash(nsgo.Output)), nil
-	}
-	return filepath.Join(dir, nsgoDefaultOutput), nil
-}
+type nsgoSettings = releaseplan.NSGoSettings
 
 // releaseOptions are game release's flags.
-type releaseOptions struct {
-	// targets is -target, comma-separated; empty takes game.yaml's presets, else steamPlatforms for the steam channel, else releasePlatforms.
-	targets string
-	// output is -output; empty takes game.yaml's export.output, else nsgo.yaml's build.output.
-	output string
-	// channel is -channel, which nsgo build takes as the channel the packages are handed out through.
-	channel string
-	// notes is -release-notes, a Markdown file nsgo build puts in the appcasts.
-	notes string
-	// jobs is -jobs, how many targets build at once; 0 leaves nsgo's default.
-	jobs int
-}
+type releaseOptions = releaseplan.Options
 
-// releaseArgs returns the arguments of the go command that builds the project in dir: go -C dir tool nsgo build with the targets and output resolved from opts, then game.yaml's settings, then the defaults, the channel coming from opts, then nsgo.yaml. nsgo.yaml's build.targets is not a default: it is plain nsgo build's everyday list, which in the starter holds a simulator build and leaves out Linux. Paths in opts are relative to the working directory, and game.yaml's output to dir.
+// releaseArgs delegates to releaseplan.Args, translating ErrInvalidTarget into a usage error for CLI exit code 2.
 func releaseArgs(dir string, opts releaseOptions, settings releaseSettings, nsgo nsgoSettings) ([]string, error) {
-	targets := releasePlatforms
-	channel := opts.channel
-	if channel == "" {
-		channel = nsgo.Channel
+	args, err := releaseplan.Args(dir, opts, settings, nsgo)
+	if errors.Is(err, releaseplan.ErrInvalidTarget) {
+		return nil, usagef("-target %q names an empty target", opts.Targets)
 	}
-	if channel == "steam" {
-		targets = steamPlatforms
-	}
-	if settings.Targets != nil {
-		targets = settings.Targets
-	}
-	if opts.targets != "" {
-		targets = strings.Split(opts.targets, ",")
-		for _, t := range targets {
-			if t == "" {
-				return nil, usagef("-target %q names an empty target", opts.targets)
-			}
-		}
-	}
-	args := []string{"-C", dir, "tool", "nsgo", "build", "-target", strings.Join(targets, ",")}
-	switch {
-	case opts.output != "":
-		abs, err := filepath.Abs(opts.output)
-		if err != nil {
-			return nil, err
-		}
-		args = append(args, "-output", abs)
-	case settings.Output != "":
-		args = append(args, "-output", filepath.FromSlash(settings.Output))
-	}
-	if opts.channel != "" {
-		args = append(args, "-channel", opts.channel)
-	}
-	if opts.notes != "" {
-		abs, err := filepath.Abs(opts.notes)
-		if err != nil {
-			return nil, err
-		}
-		args = append(args, "-release-notes", abs)
-	}
-	if opts.jobs != 0 {
-		args = append(args, "-jobs", strconv.Itoa(opts.jobs))
-	}
-	return args, nil
+	return args, err
 }
 
 // shellQuote writes args as one line a POSIX shell reads back as the same arguments.
 func shellQuote(args []string) string {
-	quoted := make([]string, len(args))
-	for i, a := range args {
-		if a != "" && strings.IndexFunc(a, func(r rune) bool {
-			return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("-_./,=:+@%", r))
-		}) < 0 {
-			quoted[i] = a
-			continue
-		}
-		quoted[i] = "'" + strings.ReplaceAll(a, "'", `'\''`) + "'"
-	}
-	return strings.Join(quoted, " ")
+	return releaseplan.ShellQuote(args)
 }
 
 func defineRelease(a *app, fs *flag.FlagSet) func() error {
 	var opts releaseOptions
-	fs.StringVar(&opts.targets, "target", "", "comma-separated nsgo build `targets` (default: game.yaml's export presets, else "+strings.Join(releasePlatforms, ",")+", or "+strings.Join(steamPlatforms, ",")+" for the steam channel)")
-	fs.StringVar(&opts.output, "output", "", "the output `directory` (default: game.yaml's export.output, else nsgo.yaml's build.output)")
-	fs.StringVar(&opts.channel, "channel", "", "the `channel` the packages are handed out through: direct, store, steam or none (default: nsgo.yaml's updates.channel)")
-	fs.StringVar(&opts.notes, "release-notes", "", "a Markdown `file` of the release's notes for the update prompts")
-	fs.IntVar(&opts.jobs, "jobs", 0, "how many targets build at once (default: nsgo's)")
+	fs.StringVar(&opts.Targets, "target", "", "comma-separated nsgo build `targets` (default: game.yaml's export presets, else "+strings.Join(releasePlatforms, ",")+", or "+strings.Join(steamPlatforms, ",")+" for the steam channel)")
+	fs.StringVar(&opts.Output, "output", "", "the output `directory` (default: game.yaml's export.output, else nsgo.yaml's build.output)")
+	fs.StringVar(&opts.Channel, "channel", "", "the `channel` the packages are handed out through: direct, store, steam or none (default: nsgo.yaml's updates.channel)")
+	fs.StringVar(&opts.Notes, "release-notes", "", "a Markdown `file` of the release's notes for the update prompts")
+	fs.IntVar(&opts.Jobs, "jobs", 0, "how many targets build at once (default: nsgo's)")
 	dryRun := fs.Bool("dry-run", false, "print the nsgo build command instead of running it")
 
 	return func() error {
 		if fs.NArg() > 1 {
 			return usagef("takes one directory, not %q as well", fs.Args()[1:])
 		}
-		if opts.jobs < 0 {
-			return usagef("-jobs %d must not be negative", opts.jobs)
+		if opts.Jobs < 0 {
+			return usagef("-jobs %d must not be negative", opts.Jobs)
 		}
 		dir := "."
 		if fs.NArg() == 1 {
@@ -451,48 +336,34 @@ func defineRelease(a *app, fs *flag.FlagSet) func() error {
 		if err != nil {
 			return err
 		}
-		nsgo, err := readNSGoSettings(dir)
-		if err != nil {
-			return err
-		}
 		settings, err := readReleaseSettings(dir)
 		if err != nil {
 			return err
 		}
-		args, err := releaseArgs(dir, opts, settings, nsgo)
+		plan, err := releaseplan.Build(dir, opts, settings)
+		if errors.Is(err, releaseplan.ErrInvalidTarget) {
+			return usagef("-target %q names an empty target", opts.Targets)
+		}
 		if err != nil {
 			return err
 		}
-		// The credits are collected before building, so an asset without a license stops the release before nsgo build spends its time.
-		var entries []credits.Entry
-		var creditsDir string
-		if settings.Assets != nil {
-			if entries, err = credits.Collect(dir, settings.Assets); err != nil {
-				return err
-			}
-			if creditsDir, err = releaseOutput(dir, opts, settings, nsgo); err != nil {
-				return err
-			}
-		} else {
+		if !plan.AssetsConfigured {
 			// Without an assets section the command knows of no asset, so it says so rather than leave the credits out silently.
 			fmt.Fprintln(a.stderr, noCreditsNote)
 		}
 		if *dryRun {
-			fmt.Fprintln(a.stdout, shellQuote(append([]string{"go"}, args...)))
-			if creditsDir != "" {
-				fmt.Fprintf(a.stdout, "# then writes the credits of %d assets to %s\n", len(entries), filepath.Join(creditsDir, credits.FileName))
-			}
+			releaseplan.WriteDryRun(a.stdout, plan)
 			return nil
 		}
-		if err := runNSGo(args, a.stdout, a.stderr); err != nil {
+		if err := runNSGo(plan.Args, a.stdout, a.stderr); err != nil {
 			return fmt.Errorf("nsgo build: %w", err)
 		}
-		if creditsDir != "" {
-			name, err := credits.Write(creditsDir, entries)
+		if plan.CreditsPath != "" {
+			name, err := credits.Write(plan.OutputDir, plan.Credits)
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(a.stdout, "wrote the credits of %d assets to %s\n", len(entries), name)
+			fmt.Fprintf(a.stdout, "wrote the credits of %d assets to %s\n", len(plan.Credits), name)
 		}
 		return nil
 	}
