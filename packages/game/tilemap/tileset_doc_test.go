@@ -241,6 +241,7 @@ func TestParseTilesetErrors(t *testing.T) {
 		{"bad_point", head + "tiles:\n  - id: 0\n    shapes:\n      - kind: polyline\n        points: [[0, 0], [1]]\n", "tiles[0].shapes[0].points[1]", "[x, y] pair"},
 		{"frame_out_of_range", head + "tiles:\n  - id: 0\n    animation:\n      - tile: 9\n        duration: 1s\n", "tiles[0].animation[0].tile", "shows tile 9"},
 		{"frame_without_tile", head + "tiles:\n  - id: 0\n    animation:\n      - duration: 100ms\n", "tiles[0].animation[0].tile", "has no tile"},
+		{"frame_null_tile", head + "tiles:\n  - id: 0\n    animation:\n      - tile: null\n        duration: 100ms\n", "tiles[0].animation[0].tile", "has no tile"},
 		{"zero_duration", head + "tiles:\n  - id: 0\n    animation:\n      - tile: 1\n        duration: 0s\n", "tiles[0].animation[0].duration", "duration 0s"},
 		{"neighbors_without_terrain", head + "tiles:\n  - id: 0\n    neighbors: [north]\n", "tiles[0].neighbors", "without a terrain"},
 		{"unknown_terrain", head + "tiles:\n  - id: 0\n    terrain: sand\n", "tiles[0].terrain", `unknown terrain "sand"`},

@@ -253,7 +253,7 @@ func requireFrameTiles(data []byte) error {
 	}
 	for i, tile := range frames.Tiles {
 		for j, f := range tile.Animation {
-			if _, ok := f["tile"]; !ok {
+			if v, ok := f["tile"]; !ok || v == nil {
 				return loaderr.Errorf(loaderr.Join(loaderr.Path("tiles", i), "animation", j, "tile"), "name the tile the frame shows, such as tile: 0", "tilemap: tileset: tile %d animation frame %d has no tile", tile.ID, j)
 			}
 		}

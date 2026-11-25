@@ -286,6 +286,7 @@ func TestLayeredTilemapValidation(t *testing.T) {
 		{"level_without_ldtk", "version: 2\nlayers:\n  - name: a\n    tilemap:\n      source: m.tmj\n      level: L\n", "requires an LDtk", 6},
 		{"level_alone", "version: 2\nlayers:\n  - name: a\n    tilemap:\n      level: L\n", "requires an LDtk source", 5},
 		{"level_version_1", "version: 1\nlayers:\n  - name: a\n    tilemap:\n      source: m.ldtk\n      level: L\n", "need version 2", 6},
+		{"dimensions_overflow", "version: 2\nlayers:\n  - name: a\n    tilemap:\n      tileWidth: 16\n      tileHeight: 16\n      width: 2147483647\n      height: 2147483647\n      tilesetFile: t.tileset.yaml\n      tileLayers:\n        - name: f\n          rows: [\".\"]\n        - name: g\n          rows: [\".\"]\n", "more than", 7},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
