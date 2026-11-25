@@ -36,27 +36,30 @@ type SceneTab struct {
 
 // sceneTab holds the per-scene state preserved when switching between open tabs.
 type sceneTab struct {
-	id              uint64
-	doc             *sceneformat.SceneDoc
-	built           *sceneformat.BuiltScene
-	buildErr        error
-	history         *History
-	filePath        string
-	scenePath       string
-	onSave          func([]byte) error
-	sceneSaved      []byte
-	selectedID      string
-	activeLayer     string
-	activeTileID    int
-	activeTileLayer string
-	activeTileFlip  uint32
-	view2D          View2D
-	view2DFree      bool
-	camera3D        OrbitCamera3D
-	hidden          map[string]bool
-	locked          map[string]bool
-	layerLocked     map[string]bool
-	inspectLayer    bool
+	id                  uint64
+	doc                 *sceneformat.SceneDoc
+	built               *sceneformat.BuiltScene
+	buildErr            error
+	history             *History
+	filePath            string
+	scenePath           string
+	onSave              func([]byte) error
+	sceneSaved          []byte
+	selectedID          string
+	activeLayer         string
+	activeTileID        int
+	activeTileLayer     string
+	activeTileFlip      uint32
+	tileSel             TileRect
+	hasTileSel          bool
+	view2D              View2D
+	view2DFree          bool
+	camera3D            OrbitCamera3D
+	lookThroughCamera3D bool
+	hidden              map[string]bool
+	locked              map[string]bool
+	layerLocked         map[string]bool
+	inspectLayer        bool
 	// placeholder is true only for a pristine untitled tab created automatically by New(nil, ...) or by closing the last open tab.
 	placeholder bool
 }
@@ -124,9 +127,12 @@ func (e *Editor) syncActiveTab() {
 	t.activeTileID = e.ActiveTileID
 	t.activeTileLayer = e.ActiveTileLayer
 	t.activeTileFlip = e.ActiveTileFlip
+	t.tileSel = e.tileSel
+	t.hasTileSel = e.hasTileSel
 	t.view2D = e.view2D
 	t.view2DFree = e.view2DFree
 	t.camera3D = e.Camera3D
+	t.lookThroughCamera3D = e.lookThroughCamera3D
 	t.hidden = e.hidden
 	t.locked = e.locked
 	t.layerLocked = e.layerLocked
@@ -155,9 +161,12 @@ func (e *Editor) loadActiveTab() {
 	e.ActiveTileID = t.activeTileID
 	e.ActiveTileLayer = t.activeTileLayer
 	e.ActiveTileFlip = t.activeTileFlip
+	e.tileSel = t.tileSel
+	e.hasTileSel = t.hasTileSel
 	e.view2D = t.view2D
 	e.view2DFree = t.view2DFree
 	e.Camera3D = t.camera3D
+	e.lookThroughCamera3D = t.lookThroughCamera3D
 	e.hidden = t.hidden
 	e.locked = t.locked
 	e.layerLocked = t.layerLocked
@@ -190,20 +199,41 @@ func (e *Editor) canReplacePlaceholderTab() bool {
 		!e.SceneDirty()
 }
 
-// cancelTransientInteraction cancels any viewport drag or preview and commits any in-progress tile or GridMap stroke before changing or closing a tab.
+// cancelTransientInteraction cancels any viewport drag or preview and commits any in-progress tile, GridMap or terrain stroke before changing or closing a tab.
 func (e *Editor) cancelTransientInteraction() {
 	e.CancelDrag2D()
 	e.CancelShapeDrag2D()
 	e.CancelPluginDrag2D()
 	e.ClearPluginHover2D()
 	e.CancelCameraDrag()
+	e.CancelCameraBoundsDrag()
+	e.CancelRoomDrag()
+	e.CancelRigDrag()
+	e.CancelHUDTouchDrag()
 	e.cancelBackgroundPreview()
 	e.CancelGizmoDrag3D()
+	e.CancelHandleDrag3D()
 	e.EndViewport3DDrag()
 	e.endFly3D()
 	e.endTileStrokeForChange()
 	e.endGridMapStrokeForChange()
+	e.endTerrainStrokeForChange()
 	e.connPick = nil
+}
+
+// canonicalTabFilePath resolves filePath to a cleaned absolute path and follows symlinks when the path exists on disk so symlinked paths (including macOS /var vs /private/var) match the existing tab.
+func canonicalTabFilePath(p string) string {
+	if p == "" {
+		return ""
+	}
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return filepath.Clean(p)
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		return filepath.Clean(resolved)
+	}
+	return filepath.Clean(abs)
 }
 
 // findTabByPath returns the index of the open tab matching scenePath or filePath, or -1 if none matches.
@@ -212,24 +242,13 @@ func (e *Editor) findTabByPath(scenePath, filePath string) int {
 		return -1
 	}
 	e.syncActiveTab()
-	var absTarget string
-	if filePath != "" {
-		if a, err := filepath.Abs(filePath); err == nil {
-			absTarget = filepath.Clean(a)
-		} else {
-			absTarget = filepath.Clean(filePath)
-		}
-	}
+	absTarget := canonicalTabFilePath(filePath)
 	for i, t := range e.tabs {
 		if scenePath != "" && t.scenePath == scenePath {
 			return i
 		}
 		if absTarget != "" && t.filePath != "" {
-			tAbs := filepath.Clean(t.filePath)
-			if a, err := filepath.Abs(t.filePath); err == nil {
-				tAbs = filepath.Clean(a)
-			}
-			if tAbs == absTarget {
+			if canonicalTabFilePath(t.filePath) == absTarget {
 				return i
 			}
 		}
@@ -404,6 +423,8 @@ func (e *Editor) SelectTab(index int) error {
 	} else {
 		e.refreshClipPreview()
 		e.refreshStatesPreview()
+		e.syncRemoteDocObjectIDs()
+		e.syncSceneEmitterLoop()
 	}
 	e.resetNavMeshForScene()
 	e.tryAutoloadNavMesh3D()
@@ -439,10 +460,17 @@ func (e *Editor) SaveTab(index int) error {
 		e.CancelShapeDrag2D()
 		e.CancelPluginDrag2D()
 		e.CancelCameraDrag()
+		e.CancelCameraBoundsDrag()
+		e.CancelRoomDrag()
+		e.CancelRigDrag()
+		e.CancelHUDTouchDrag()
+		e.CancelGizmoDrag3D()
+		e.CancelHandleDrag3D()
 		e.cancelBackgroundPreview()
 		e.endTileStrokeForChange()
 		e.saveViewStateQuietly()
 		e.endGridMapStrokeForChange()
+		e.endTerrainStrokeForChange()
 		if !e.SceneDirty() && (e.OnSave != nil || e.FilePath == "" || fileExists(e.FilePath)) {
 			return nil
 		}
@@ -456,6 +484,7 @@ func (e *Editor) SaveTab(index int) error {
 				return err
 			}
 			e.sceneSaved = append([]byte(nil), data...)
+			e.tabs[e.activeTab].placeholder = false
 			e.syncActiveTab()
 			e.invalidateProjectIndex()
 			e.rebuildDependentTabs(e.activeTabID())
@@ -484,6 +513,7 @@ func (e *Editor) SaveTab(index int) error {
 			return err
 		}
 		t.sceneSaved = append([]byte(nil), data...)
+		t.placeholder = false
 		e.invalidateProjectIndex()
 		e.rebuildDependentTabs(t.id)
 		e.Status = "Saved scene"
@@ -491,10 +521,14 @@ func (e *Editor) SaveTab(index int) error {
 		e.CheckProblems()
 		return nil
 	case t.filePath != "":
+		if err := os.MkdirAll(filepath.Dir(t.filePath), 0o755); err != nil {
+			return err
+		}
 		if err := writeFileAtomic(t.filePath, data); err != nil {
 			return err
 		}
 		t.sceneSaved = append([]byte(nil), data...)
+		t.placeholder = false
 		e.filesRev++
 		e.invalidateProjectIndex()
 		e.rebuildDependentTabs(t.id)
@@ -583,6 +617,8 @@ func (e *Editor) CloseTab(index int) error {
 	} else {
 		e.refreshClipPreview()
 		e.refreshStatesPreview()
+		e.syncRemoteDocObjectIDs()
+		e.syncSceneEmitterLoop()
 	}
 	e.resetNavMeshForScene()
 	e.tryAutoloadNavMesh3D()

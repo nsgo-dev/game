@@ -15,10 +15,11 @@ func SceneTabsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 	var lastTabs []SceneTab
 	computed, lastPlaying := false, false
 	tabs := core.NewMemoFunc(cx, func() []SceneTab {
-		_ = rev.Get()
+		r := rev.Get()
 		playing := ed.Playing()
-		// Skip per-frame YAML dirty checks while Play ticks every frame.
-		if !computed || !playing || !lastPlaying {
+		rigStepOnly := ed.RigPlaying() && r == ed.rigStepRev
+		// Skip per-frame YAML dirty checks while Play or Rig playback ticks every frame.
+		if !computed || (!playing && !rigStepOnly) || (playing && !lastPlaying) {
 			lastTabs = ed.Tabs()
 			computed = true
 		}

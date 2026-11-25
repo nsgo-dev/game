@@ -103,7 +103,7 @@ func unsavedMemo(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) *core.Mem
 				scene:    sceneDirty,
 				anyScene: anySceneDirty,
 				project:  ed.ProjectDirty(),
-				other:    ed.GridMapDirty() || ed.TerrainDirty() || ed.RoomsDirty() || ed.LocalizationDirty() || ed.ClipDirty() || ed.DataTableDirty() || ed.RigDirty(),
+				other:    ed.GridMapDirty() || ed.TerrainDirty() || ed.RoomsDirty() || ed.LocalizationDirty() || ed.ClipDirty() || ed.CutsceneDirty() || ed.DataTableDirty() || ed.RigDirty(),
 			}
 			computed = true
 		}
@@ -425,7 +425,7 @@ func sceneFileButtons(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirt
 				ui.MenuSeparator{},
 				ui.MenuItem{
 					TestID: "toolbar-open-instanced-scene",
-					Text:   "Open Instanced Scene",
+					Text:   ed.T("menu.openInstancedScene"),
 					Disabled: func() bool {
 						return noProject() || !ed.selectedObjectInstancesScene()
 					},
@@ -433,7 +433,7 @@ func sceneFileButtons(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirt
 				},
 				ui.MenuItem{
 					TestID: "toolbar-open-base-scene",
-					Text:   "Open Base Scene",
+					Text:   ed.T("menu.openBaseScene"),
 					Disabled: func() bool {
 						return noProject() || ed.Doc == nil || ed.Doc.Inherits == ""
 					},
@@ -442,7 +442,7 @@ func sceneFileButtons(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirt
 				ui.MenuSeparator{},
 				ui.MenuItem{
 					TestID: "toolbar-close-tab",
-					Text:   "Close Tab",
+					Text:   ed.T("toolbar.closeTab"),
 					Disabled: func() bool {
 						_ = rev.Get()
 						return ed.Playing()

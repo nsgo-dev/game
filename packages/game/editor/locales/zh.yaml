@@ -217,6 +217,7 @@ strings:
   library.update: 更新
   menu.audioMixer: 音频总线混音器
   menu.checkProblems: 检查问题
+  menu.closeTab: 关闭场景标签页
   menu.commandPalette: 命令面板…
   menu.delete: 删除
   menu.duplicate: 复制
@@ -234,6 +235,8 @@ strings:
   menu.navMeshOverlay: 显示 3D 导航网格
   menu.navMeshPanel: 烘焙 3D 导航网格…
   menu.newProject: 新建项目…
+  menu.openBaseScene: 打开基础场景
+  menu.openInstancedScene: 打开实例化场景
   menu.openProject: 打开项目…
   menu.paintTile: 绘制瓦片
   menu.particleEditor: 粒子发射器编辑器
@@ -375,6 +378,7 @@ strings:
   toolbar.animateLabel: 在新动画片段中为选中对象制作动画
   toolbar.buildAssets: 构建资源
   toolbar.buildAssetsLabel: 对当前打开的项目运行 go tool game assets 并重新加载变更的图集与纹理
+  toolbar.closeTab: 关闭标签页
   toolbar.commands: 命令
   toolbar.commandsLabel: 打开命令面板
   toolbar.currentScene: 当前场景

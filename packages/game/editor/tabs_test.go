@@ -569,3 +569,106 @@ func TestMoveFileUpdatesAllOpenTabs(t *testing.T) {
 		t.Fatalf("level tab BuildErr after MoveFile: %v", ed.BuildErr)
 	}
 }
+
+// TestSceneTabsIsolateTileSelectionAndCancelDrags verifies that tile region selection is preserved per tab and that switching tabs cancels active room and camera-bounds drags.
+func TestSceneTabsIsolateTileSelectionAndCancelDrags(t *testing.T) {
+	ed, dir := openTestProject(t)
+	// Add an inline tilemap layer on tab 0 so SetTileSelection succeeds.
+	ed.Doc.Layers = append(ed.Doc.Layers, sceneformat.LayerDoc{
+		Name: "tiles",
+		Tilemap: &sceneformat.TilemapDoc{
+			Width:      4,
+			Height:     4,
+			TileWidth:  16,
+			TileHeight: 16,
+			Data:       make([]int, 16),
+		},
+	})
+	ed.SetActiveLayer("tiles")
+	if !ed.SetTileSelection(0, 0, 2, 1) {
+		t.Fatal("SetTileSelection on tab 0 failed")
+	}
+	wantSel, ok := ed.TileSelection()
+	if !ok {
+		t.Fatal("expected tile selection on tab 0")
+	}
+	// Open a second tab; tile selection must not bleed into tab 1.
+	if err := ed.OpenScene("scenes/other.scene.yaml"); err != nil {
+		t.Fatalf("OpenScene: %v", err)
+	}
+	if _, ok := ed.TileSelection(); ok {
+		t.Fatal("tab 0 tile selection leaked into tab 1")
+	}
+	// Switching back to tab 0 restores tab 0's tile selection.
+	if err := ed.SelectTab(0); err != nil {
+		t.Fatalf("SelectTab(0): %v", err)
+	}
+	gotSel, ok := ed.TileSelection()
+	if !ok || gotSel != wantSel {
+		t.Fatalf("tab 0 tile selection after return = (%+v, %v), want (%+v, true)", gotSel, ok, wantSel)
+	}
+	// Start an active room drag on tab 0, then switch to tab 1: the drag must be cancelled.
+	if err := ed.NewRoomMap(filepath.Join(dir, "world.rooms.yaml")); err != nil {
+		t.Fatalf("NewRoomMap: %v", err)
+	}
+	ed.SetRoomCreateMode(true)
+	if !ed.BeginRoomDrag(50, 50) {
+		t.Fatal("BeginRoomDrag did not start drag")
+	}
+	if err := ed.SelectTab(1); err != nil {
+		t.Fatalf("SelectTab(1): %v", err)
+	}
+	if ed.UpdateRoomDrag(60, 60) {
+		t.Fatal("SelectTab did not cancel active room drag")
+	}
+}
+
+// TestSceneTabsDeduplicateSymlinkPath verifies that opening a scene file through a symlink focuses the existing tab rather than opening a duplicate tab.
+func TestSceneTabsDeduplicateSymlinkPath(t *testing.T) {
+	dir := t.TempDir()
+	scenePath := filepath.Join(dir, "arena.scene.yaml")
+	data, err := sceneformat.Encode(editor.DefaultSceneDoc())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(scenePath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	linkPath := filepath.Join(dir, "alias.scene.yaml")
+	if err := os.Symlink(scenePath, linkPath); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+	ed, err := editor.New(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenFile(scenePath); err != nil {
+		t.Fatalf("OpenFile(scenePath): %v", err)
+	}
+	if ed.TabCount() != 1 {
+		t.Fatalf("TabCount after first open = %d, want 1", ed.TabCount())
+	}
+	if err := ed.OpenFile(linkPath); err != nil {
+		t.Fatalf("OpenFile(linkPath): %v", err)
+	}
+	if ed.TabCount() != 1 {
+		t.Fatalf("TabCount after opening symlink = %d, want 1 (duplicate tab opened)", ed.TabCount())
+	}
+}
+
+// TestSaveAllReturnsErrNoRoomsFileWhenUntitledRoomsDirty verifies that SaveAll never silently drops an untitled dirty room map.
+func TestSaveAllReturnsErrNoRoomsFileWhenUntitledRoomsDirty(t *testing.T) {
+	ed, err := editor.New(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.NewRoomMap(""); err != nil {
+		t.Fatalf("NewRoomMap: %v", err)
+	}
+	if !ed.HasUnsavedChanges() {
+		t.Fatal("expected HasUnsavedChanges true for untitled dirty room map")
+	}
+	if err := ed.SaveAll(); !errors.Is(err, editor.ErrNoRoomsFile) {
+		t.Fatalf("SaveAll() = %v, want ErrNoRoomsFile", err)
+	}
+}
