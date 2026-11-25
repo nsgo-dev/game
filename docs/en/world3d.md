@@ -8,7 +8,7 @@ import "github.com/nsgo-dev/game/packages/game/world3d"
 
 ## Heightmap terrain (`Heightmap`)
 
-Load a grayscale heightmap image (`LoadHeightmapGray`) or populate `Heights` directly, then sample bilinear heights and normals, raycast against triangles, and build chunked `TerrainMesh` geometry:
+Load a 16-bit (or 8-bit) grayscale PNG heightmap (`LoadHeightmapGray`, `DecodeHeightmapPNG`) or create one with `NewHeightmap`, then sample bilinear heights and normals, raycast against triangles, build chunked `TerrainMesh` geometry, and write back lossless 16-bit grayscale PNGs (`ToGray16`, `EncodePNG`, `EncodeHeightmapPNG`) without 8-bit slope banding:
 
 ```go
 hm := world3d.LoadHeightmapGray(grayImg, 2.0, 40.0)
@@ -76,7 +76,7 @@ _ = inBounds
 
 - **Bilinear sampling & clamping**: `TerrainSplatMap.SampleUV` and `Heightmap.LayerAt` use texel-center bilinear filtering with edge clamping, matching GPU linear clamp-to-edge splat sampling. Outside the heightmap footprint, `Heightmap.LayerAt` returns `ok = false` alongside the clamped edge sample.
 - **Height-based blending**: attach per-layer grayscale height maps (`LoadTerrainHeightLayer`) and set `HeightBlendContrast` in `(0, 1]` to sharpen layer transitions (such as rock protruding through dirt) using the same algebraic `BlendTerrainWeights` formula as `render3d`'s terrain shader.
-- **Text definition**: `ParseTerrain` / `EncodeTerrain` read and write version 1 YAML (`https://game.nsgo.dev/schemas/terrain.v1.json`) declaring `heightmap`, `cellSize`, `heightScale`, `origin`, `chunkSize` (default `64` cells per LOD chunk), `splatMaps`, `heightBlendContrast`, `triplanar`, and 1–8 `layers` (with per-layer `uvScale`, PBR maps/factors, and `heightBias`). Unknown fields, duplicate layer names, and mismatched splat-map counts are refused with `*loaderr.Error`. Call `doc.BuildHeightmap(imgs)` / `doc.BuildLOD(hm)` (or `world3d.LoadTerrainFS(fsys, path)`) to build the runtime `*Heightmap`, attached `*TerrainSplatMap`, and `*TerrainLOD` directly from YAML. `game check` validates every `*.terrain.yaml` file and its referenced heightmap, splat maps, and layer textures.
+- **Text definition**: `ParseTerrain` / `EncodeTerrain` read and write version 1 YAML (`https://game.nsgo.dev/schemas/terrain.v1.json`) declaring `size` (`[cols, rows]`), `heightmap` (16-bit grayscale PNG), `cellSize`, `heightScale`, `origin`, `chunkSize` (default `64` cells per LOD chunk), either packed RGBA `splatMaps` or per-layer grayscale `weightMap` PNGs (`PackLayerWeightMaps`, `LoadTerrainSplatMapFromWeights`), `heightBlendContrast`, `triplanar`, 1–8 `layers` (each with optional `material` resource path, `weightMap`, `uvScale`, PBR maps/factors, and `heightBias`), and optional embedded `foliage` scatter layers with grayscale `densityMap` PNGs (`DensityMap.EncodePNG`, `Heightmap.FoliageDensityAt`, `TerrainDoc.ScatterFoliage`). Unknown fields, duplicate layer names, mixing `splatMaps` with per-layer `weightMap` paths, size mismatches, and mismatched splat-map counts are refused with `*loaderr.Error`. Call `doc.BuildHeightmap(imgs)` / `doc.BuildLOD(hm)` (or `world3d.LoadTerrainFS(fsys, path)`) to build the runtime `*Heightmap`, attached `*TerrainSplatMap`, attached foliage density maps, and `*TerrainLOD` directly from YAML. `game check` validates every `*.terrain.yaml` file and its referenced heightmap, splat/weight maps, material resources, layer textures, and foliage meshes and density maps.
 
 ## Multi-level 3D NavMesh
 

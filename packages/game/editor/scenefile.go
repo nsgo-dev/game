@@ -63,15 +63,15 @@ func (e *Editor) DataTableDirty() bool {
 	return err != nil || !bytes.Equal(data, e.tableSaved)
 }
 
-// HasUnsavedChanges reports whether the open scene, project, GridMap, localization workspace, animation clip, or data table has edits that are not saved, which opening another scene or project, New Scene, and quitting would lose.
+// HasUnsavedChanges reports whether the open scene, project, GridMap, terrain, localization workspace, animation clip, or data table has edits that are not saved, which opening another scene or project, New Scene, and quitting would lose.
 func (e *Editor) HasUnsavedChanges() bool {
 	if e == nil {
 		return false
 	}
-	return e.SceneDirty() || e.ProjectDirty() || e.GridMapDirty() || e.LocalizationDirty() || e.ClipDirty() || e.DataTableDirty()
+	return e.SceneDirty() || e.ProjectDirty() || e.GridMapDirty() || e.TerrainDirty() || e.LocalizationDirty() || e.ClipDirty() || e.DataTableDirty()
 }
 
-// SaveAll persists all currently dirty editors (project, scene, GridMap, localizations, clip, and data table) that have a save destination configured.
+// SaveAll persists all currently dirty editors (project, scene, GridMap, terrain, localizations, clip, and data table) that have a save destination configured.
 func (e *Editor) SaveAll() error {
 	if e == nil {
 		return nil
@@ -79,7 +79,7 @@ func (e *Editor) SaveAll() error {
 	if e.playing {
 		return ErrPlaying
 	}
-	if e.ProjectDirty() || e.SceneDirty() || e.GridMapDirty() {
+	if e.ProjectDirty() || e.SceneDirty() || e.GridMapDirty() || e.TerrainDirty() {
 		if err := e.Save(); err != nil {
 			return err
 		}
@@ -154,7 +154,7 @@ func (e *Editor) Save() error {
 	if e.playing {
 		return ErrPlaying
 	}
-	// A drag in progress is put back first, so the file holds the scene as it was before the drag and not a half-dragged object; a tile or GridMap stroke under way is recorded first so the file and history agree.
+	// A drag in progress is put back first, so the file holds the scene as it was before the drag and not a half-dragged object; a tile, GridMap, or terrain stroke under way is recorded first so the file and history agree.
 	e.CancelDrag2D()
 	e.CancelShapeDrag2D()
 	e.CancelPluginDrag2D()
@@ -164,6 +164,7 @@ func (e *Editor) Save() error {
 	// The view is kept beside the project rather than in the scene, so saving records it whether or not the scene has edits.
 	e.saveViewStateQuietly()
 	e.endGridMapStrokeForChange()
+	e.endTerrainStrokeForChange()
 	projectSaved := false
 	if e.ProjectDirty() {
 		if err := e.SaveProject(); err != nil {
@@ -178,9 +179,16 @@ func (e *Editor) Save() error {
 		}
 		gridMapSaved = true
 	}
+	terrainSaved := false
+	if e.TerrainDirty() && e.TerrainPath() != "" {
+		if err := e.SaveTerrain(); err != nil {
+			return err
+		}
+		terrainSaved = true
+	}
 	if !e.SceneDirty() && (e.OnSave != nil || e.FilePath == "" || fileExists(e.FilePath)) {
 		// Rewriting an unedited scene would only drop its comments and hand-kept layout.
-		if !projectSaved && !gridMapSaved {
+		if !projectSaved && !gridMapSaved && !terrainSaved {
 			e.Status = "No unsaved changes"
 			e.notify()
 		}

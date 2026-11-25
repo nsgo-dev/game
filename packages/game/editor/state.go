@@ -484,6 +484,9 @@ type Editor struct {
 	vp3d viewport3DState
 	// remote holds the live remote scene tree, inspector, MCP client session, loop controls, tunables, and console state.
 	remote remoteState
+	// terrain holds the open 3D terrain editing session (heightmap, layer weights, foliage density maps) and active brush state.
+	terrain      *terrainState
+	terrainBrush TerrainBrush
 }
 
 // DefaultSceneDoc returns a valid starter SceneDoc suitable for a new editor session.
@@ -531,6 +534,7 @@ func New(doc *sceneformat.SceneDoc, resolver sceneformat.AssetResolver) (*Editor
 		ShowOccluders:       true,
 		ShowRenderStats:     true,
 		GridSize:            defaultGridSize2D,
+		terrainBrush:        DefaultTerrainBrush(),
 		selKey:              clipKeyRef{-1, -1},
 		listeners:           make(map[uint64]func()),
 		output: outputPanelState{
@@ -682,6 +686,7 @@ func (e *Editor) SetViewMode(mode ViewMode) {
 	}
 	e.endTileStrokeForChange()
 	e.endGridMapStrokeForChange()
+	e.endTerrainStrokeForChange()
 	e.CancelGizmoDrag3D()
 	e.EndViewport3DDrag()
 	e.endFly3D()
@@ -1024,6 +1029,7 @@ func (e *Editor) Undo() bool {
 	// A stroke under way is recorded first, so Undo takes it back as a whole.
 	e.endTileStrokeForChange()
 	e.endGridMapStrokeForChange()
+	e.endTerrainStrokeForChange()
 	ok, err := e.History.undo()
 	if err != nil {
 		e.reportStatusError("Undo failed: " + err.Error())
@@ -1047,6 +1053,7 @@ func (e *Editor) Redo() bool {
 	e.cancelBackgroundPreview()
 	e.endTileStrokeForChange()
 	e.endGridMapStrokeForChange()
+	e.endTerrainStrokeForChange()
 	ok, err := e.History.redo()
 	if err != nil {
 		e.reportStatusError("Redo failed: " + err.Error())

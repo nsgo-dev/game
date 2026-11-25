@@ -634,6 +634,7 @@ const (
 	drag3DGizmo
 	drag3DOrbit
 	drag3DPan
+	drag3DTerrain
 )
 
 type drag3DState struct {
@@ -927,7 +928,7 @@ func (e *Editor) CancelGizmoDrag3D() {
 	e.notify()
 }
 
-// HandleViewport3DPress handles a click/tap in the 3D viewport: with the Place tool and a model selected in the asset browser (SelectedModel) it places the model where the press lands (PlaceModelAt3D), reporting in the status bar why it could not; otherwise it picks the closest 3D object or clears selection.
+// HandleViewport3DPress handles a click/tap in the 3D viewport: with a terrain brush active it applies a dab, with the Place tool and a model selected in the asset browser (SelectedModel) it places the model where the press lands (PlaceModelAt3D), otherwise it picks the closest 3D object or clears selection.
 func (e *Editor) HandleViewport3DPress(sx, sy, w, h float32) {
 	if e == nil || e.playing {
 		return
@@ -937,6 +938,12 @@ func (e *Editor) HandleViewport3DPress(sx, sy, w, h float32) {
 			e.finishConnectionPick(hit)
 		}
 		return
+	}
+	if e.TerrainOpen() && e.terrainBrush.Mode != TerrainBrushNone {
+		if e.BeginTerrainStrokeAt(sx, sy, w, h) {
+			e.EndTerrainStroke()
+			return
+		}
 	}
 	if e.Tool == ToolPlace && e.SelectedModel != nil {
 		_, err := e.PlaceModelAt3D(*e.SelectedModel, sx, sy, w, h)
@@ -949,10 +956,24 @@ func (e *Editor) HandleViewport3DPress(sx, sy, w, h float32) {
 	e.Select3DAt(sx, sy, w, h)
 }
 
-// BeginViewport3DDrag starts either a 3D gizmo drag (if a handle is under the cursor and !pan) or a camera orbit/pan drag. It does nothing while the camera flies (BeginFly3D).
+// BeginViewport3DDrag starts a terrain brush stroke (if a terrain brush is active and hits the terrain and !pan), a 3D gizmo drag (if a handle is under the cursor and !pan), or a camera orbit/pan drag. It does nothing while the camera flies (BeginFly3D).
 func (e *Editor) BeginViewport3DDrag(sx, sy, w, h float32, pan bool) {
 	if e == nil || e.fly3D {
 		return
+	}
+	if !pan && !e.playing && e.TerrainOpen() && e.terrainBrush.Mode != TerrainBrushNone {
+		if e.BeginTerrainStrokeAt(sx, sy, w, h) {
+			e.drag3D = drag3DState{
+				kind:    drag3DTerrain,
+				startSX: sx,
+				startSY: sy,
+				lastSX:  sx,
+				lastSY:  sy,
+				vpW:     w,
+				vpH:     h,
+			}
+			return
+		}
 	}
 	if !pan && !e.playing {
 		if axis := e.BeginGizmoDrag3D(sx, sy, w, h); axis != Axis3DNone {
@@ -974,12 +995,16 @@ func (e *Editor) BeginViewport3DDrag(sx, sy, w, h float32, pan bool) {
 	}
 }
 
-// UpdateViewport3DDrag advances the active 3D gizmo drag or camera orbit/pan drag.
+// UpdateViewport3DDrag advances the active terrain brush stroke, 3D gizmo drag, or camera orbit/pan drag.
 func (e *Editor) UpdateViewport3DDrag(sx, sy float32) {
 	if e == nil {
 		return
 	}
 	switch e.drag3D.kind {
+	case drag3DTerrain:
+		e.drag3D.lastSX = sx
+		e.drag3D.lastSY = sy
+		e.ContinueTerrainStrokeAt(sx, sy, e.drag3D.vpW, e.drag3D.vpH)
 	case drag3DGizmo:
 		e.UpdateGizmoDrag3D(sx, sy)
 	case drag3DOrbit:
@@ -998,12 +1023,17 @@ func (e *Editor) UpdateViewport3DDrag(sx, sy float32) {
 	}
 }
 
-// EndViewport3DDrag finishes any active 3D gizmo or camera drag.
+// EndViewport3DDrag finishes any active terrain brush stroke, 3D gizmo drag, or camera drag.
 func (e *Editor) EndViewport3DDrag() {
 	if e == nil {
 		return
 	}
-	if e.drag3D.kind == drag3DGizmo {
+	switch e.drag3D.kind {
+	case drag3DTerrain:
+		e.drag3D = drag3DState{}
+		e.EndTerrainStroke()
+		return
+	case drag3DGizmo:
 		e.EndGizmoDrag3D()
 		return
 	}
@@ -1047,6 +1077,9 @@ func (e *Editor) DrawViewport3D(d *core.Drawing, size core.Size) {
 
 	// 3. World origin axes (X red, Y green, Z blue).
 	e.drawOriginAxes3D(d, w, h)
+
+	// 3b. Open terrain heightmap surface, painted layers, foliage density preview, and brush cursor.
+	e.drawTerrain3D(d, w, h)
 
 	// 4. Evaluate 3D LODs and occlusion buffer, then draw projected 3D wireframe bounding boxes for the visible scene objects.
 	e.ensureViewport3DPlan(w, h)

@@ -1037,13 +1037,13 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 			Overflow:   core.Hidden,
 		},
 		Children: []core.Node{
-			// Bind Escape only while a viewport drag or GridMap stroke is active so Escape still
+			// Bind Escape only while a viewport drag or GridMap/terrain stroke is active so Escape still
 			// reaches Popover/ColorWell/Menu OnCancel handlers at rest.
 			core.Show{
 				When: func() bool {
 					_ = rev.Get()
 					_, gmActive := ed.GridMapStrokeActive()
-					return ed.Dragging2D() != Handle2DNone || ed.DraggingShape2D() || ed.PluginDragging2D() || ed.cameraDrag.active || gmActive
+					return ed.Dragging2D() != Handle2DNone || ed.DraggingShape2D() || ed.PluginDragging2D() || ed.cameraDrag.active || gmActive || (ed.terrain != nil && ed.terrain.stroke != nil)
 				},
 				Then: func(cx *core.Scope) core.Node {
 					cx.OnKey("escape", func() {
@@ -1052,6 +1052,7 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 						ed.CancelDrag2D()
 						ed.CancelCameraDrag()
 						ed.CancelGridMapStroke()
+						ed.CancelTerrainStroke()
 						g.cameraDrag = false
 						g.panCamDrag = false
 					})
@@ -1152,6 +1153,9 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 							}
 							return
 						}
+						if ed.TerrainOpen() {
+							ed.SetTerrainHoverAt(x, y, cw, ch)
+						}
 						g3.mouseMove(ed, ev)
 						return
 					}
@@ -1208,6 +1212,7 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 					ed.ClearTileHover()
 					ed.ClearGridMapHover()
 					ed.ClearPluginHover2D()
+					ed.ClearTerrainHover()
 				},
 				OnTouch: func(ev core.TouchEvent) {
 					if ed.ViewMode != ViewMode3D {

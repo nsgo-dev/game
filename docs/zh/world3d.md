@@ -8,7 +8,7 @@ import "github.com/nsgo-dev/game/packages/game/world3d"
 
 ## 高度图地形（`Heightmap`）
 
-通过 `LoadHeightmapGray` 加载灰度图（或直接填充 `Heights`），即可双线性采样高度与法线、对地形三角形做射线检测，并分块生成 `TerrainMesh` 网格：
+通过 `LoadHeightmapGray` 或 `DecodeHeightmapPNG` 加载 16 位（或 8 位）灰度 PNG 高度图（或用 `NewHeightmap` 创建平地），即可双线性采样高度与法线、对地形三角形做射线检测、分块生成 `TerrainMesh` 网格，并通过 `ToGray16` / `EncodePNG` / `EncodeHeightmapPNG` 无损写回 16 位灰度 PNG（避免 8 位斜坡阶梯带状伪影）：
 
 ```go
 hm := world3d.LoadHeightmapGray(grayImg, 2.0, 40.0)
@@ -76,7 +76,7 @@ _ = inBounds
 
 - **双线性采样与边界钳制**：`TerrainSplatMap.SampleUV` 与 `Heightmap.LayerAt` 采用与 GPU 线性边缘钳制采样一致的纹素中心双线性插值；坐标超出高度图范围时，`Heightmap.LayerAt` 返回 `ok = false` 以及钳制到边缘的采样结果。
 - **基于高度图的锐利混合**：为各层附加灰度高度图（`LoadTerrainHeightLayer`）并将 `HeightBlendContrast` 设为 `(0, 1]` 后，可通过与 `render3d` 地形着色器完全一致的代数公式 `BlendTerrainWeights` 锐化层间过渡（如岩石从泥土中突出）。
-- **纯文本定义**：`ParseTerrain` / `EncodeTerrain` 读写第 1 版 YAML（`https://game.nsgo.dev/schemas/terrain.v1.json`），声明 `heightmap`、`cellSize`、`heightScale`、`origin`、`chunkSize`（每个 LOD 区块边长的格数，默认 `64`）、`splatMaps`、`heightBlendContrast`、`triplanar` 及 1–8 个 `layers`（含逐层 `uvScale`、PBR 贴图与参数和 `heightBias`）。未知字段、重名层及权重图数量不足均会返回 `*loaderr.Error`。调用 `doc.BuildHeightmap(imgs)` / `doc.BuildLOD(hm)`（或 `world3d.LoadTerrainFS(fsys, path)`）可直接从 YAML 构建运行时 `*Heightmap`、关联的 `*TerrainSplatMap` 与 `*TerrainLOD`。`game check` 会检查所有 `*.terrain.yaml` 文件及其引用的高度图、权重图和各层贴图。
+- **纯文本定义**：`ParseTerrain` / `EncodeTerrain` 读写第 1 版 YAML（`https://game.nsgo.dev/schemas/terrain.v1.json`），声明 `size`（`[cols, rows]`）、`heightmap`（16 位灰度 PNG）、`cellSize`、`heightScale`、`origin`、`chunkSize`（每个 LOD 区块边长的格数，默认 `64`）、打包 RGBA `splatMaps` 或逐层灰度 `weightMap` PNG（`PackLayerWeightMaps`、`LoadTerrainSplatMapFromWeights`）、`heightBlendContrast`、`triplanar`、1–8 个 `layers`（支持可选 `material` 材质资源路径、`weightMap`、`uvScale`、PBR 贴图与参数和 `heightBias`），以及可选内嵌的 `foliage` 植被散布层与灰度 `densityMap` PNG（`DensityMap.EncodePNG`、`Heightmap.FoliageDensityAt`、`TerrainDoc.ScatterFoliage`）。未知字段、重名层、混用 `splatMaps` 与逐层 `weightMap`、尺寸不匹配及权重图数量不足均会返回 `*loaderr.Error`。调用 `doc.BuildHeightmap(imgs)` / `doc.BuildLOD(hm)`（或 `world3d.LoadTerrainFS(fsys, path)`）可直接从 YAML 构建运行时 `*Heightmap`、关联的 `*TerrainSplatMap`、植被密度图与 `*TerrainLOD`。`game check` 会检查所有 `*.terrain.yaml` 文件及其引用的高度图、权重图、材质资源、各层贴图以及植被网格和密度图。
 
 ## 多层 3D 导航网格（`NavMesh`）
 

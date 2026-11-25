@@ -121,8 +121,12 @@ func (c *checker) checkTerrain(p string) {
 	proj := c.projectRoot(path.Dir(p))
 	if doc.Heightmap != "" {
 		line := yamlLine(&root, []string{"heightmap"})
-		if img := c.imageRef(p, line, proj, doc.Heightmap, "terrain heightmap"); img != nil && img.sized && (img.width < 2 || img.height < 2) {
-			c.problem(p, line, "terrain heightmap %q is %dx%d; need at least 2x2 samples", doc.Heightmap, img.width, img.height)
+		if img := c.imageRef(p, line, proj, doc.Heightmap, "terrain heightmap"); img != nil && img.sized {
+			if img.width < 2 || img.height < 2 {
+				c.problem(p, line, "terrain heightmap %q is %dx%d; need at least 2x2 samples", doc.Heightmap, img.width, img.height)
+			} else if doc.Size != nil && (img.width != doc.Size[0] || img.height != doc.Size[1]) {
+				c.problem(p, line, "terrain heightmap %q is %dx%d; does not match size [%d, %d]", doc.Heightmap, img.width, img.height, doc.Size[0], doc.Size[1])
+			}
 		}
 	}
 	for i, sm := range doc.SplatMaps {
@@ -130,6 +134,12 @@ func (c *checker) checkTerrain(p string) {
 	}
 	for i, l := range doc.Layers {
 		li := strconv.Itoa(i)
+		if l.Material != "" {
+			c.fileRef(p, yamlLine(&root, []string{"layers", li, "material"}), proj, l.Material, "terrain layer material")
+		}
+		if l.WeightMap != "" {
+			c.imageRef(p, yamlLine(&root, []string{"layers", li, "weightMap"}), proj, l.WeightMap, "terrain layer weightMap")
+		}
 		if l.Albedo != "" {
 			c.imageRef(p, yamlLine(&root, []string{"layers", li, "albedo"}), proj, l.Albedo, "terrain layer albedo")
 		}
@@ -141,6 +151,16 @@ func (c *checker) checkTerrain(p string) {
 		}
 		if l.Height != "" {
 			c.imageRef(p, yamlLine(&root, []string{"layers", li, "height"}), proj, l.Height, "terrain layer height")
+		}
+	}
+	for i, fl := range doc.Foliage {
+		fi := strconv.Itoa(i)
+		c.fileRef(p, yamlLine(&root, []string{"foliage", fi, "mesh"}), proj, fl.Mesh, "terrain foliage mesh")
+		if fl.Material != "" {
+			c.fileRef(p, yamlLine(&root, []string{"foliage", fi, "material"}), proj, fl.Material, "terrain foliage material")
+		}
+		if fl.DensityMap != "" {
+			c.imageRef(p, yamlLine(&root, []string{"foliage", fi, "densityMap"}), proj, fl.DensityMap, "terrain foliage densityMap")
 		}
 	}
 }

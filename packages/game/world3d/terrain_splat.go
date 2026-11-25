@@ -317,6 +317,255 @@ func NewTerrainSplatMapFromRGBA(width, height int, layers []TerrainLayerInfo, sp
 	}, nil
 }
 
+// PackLayerWeightMaps packs 1 to 8 per-layer grayscale weight-map images into
+// 1 (for 1..4 layers) or 2 (for 5..8 layers) straight-alpha RGBA [*image.NRGBA]
+// splat maps suitable for [LoadTerrainSplatMap] and GPU terrain shaders.
+//
+// The output dimensions match the first non-nil weight image (or 1x1 when all
+// images are nil, in which case layer 0 defaults to weight 255). Non-nil images
+// with different dimensions are bilinearly resampled to match. Nil entries
+// contribute zero weight to their channel.
+func PackLayerWeightMaps(weights ...image.Image) (splat0, splat1 *image.NRGBA, err error) {
+	if len(weights) == 0 || len(weights) > MaxTerrainLayers {
+		return nil, nil, fmt.Errorf("%w: weight map count %d must be in [1, %d]", ErrInvalidTerrainSplat, len(weights), MaxTerrainLayers)
+	}
+	w, h := 0, 0
+	for i, img := range weights {
+		if img == nil {
+			continue
+		}
+		b := img.Bounds()
+		if b.Dx() <= 0 || b.Dy() <= 0 {
+			return nil, nil, fmt.Errorf("%w: weight map %d has empty bounds %v", ErrInvalidTerrainSplat, i, b)
+		}
+		if w == 0 {
+			w, h = b.Dx(), b.Dy()
+		}
+	}
+	allNil := w == 0
+	if allNil {
+		w, h = 1, 1
+	}
+
+	splat0 = image.NewNRGBA(image.Rect(0, 0, w, h))
+	if len(weights) > 4 {
+		splat1 = image.NewNRGBA(image.Rect(0, 0, w, h))
+	}
+	if allNil {
+		splat0.SetNRGBA(0, 0, color.NRGBA{R: 255})
+		return splat0, splat1, nil
+	}
+
+	for li, img := range weights {
+		if img == nil {
+			continue
+		}
+		dst := splat0
+		ch := li
+		if li >= 4 {
+			dst = splat1
+			ch = li - 4
+		}
+		gray := resampleGray8(img, w, h)
+		for y := range h {
+			rowOff := dst.PixOffset(0, y)
+			gBase := y * w
+			for x := range w {
+				dst.Pix[rowOff+x*4+ch] = gray[gBase+x]
+			}
+		}
+	}
+	return splat0, splat1, nil
+}
+
+func resampleGray8(img image.Image, dstW, dstH int) []byte {
+	b := img.Bounds()
+	srcW, srcH := b.Dx(), b.Dy()
+	src := make([]byte, srcW*srcH)
+	switch g := img.(type) {
+	case *image.Gray:
+		for y := range srcH {
+			off := g.PixOffset(b.Min.X, b.Min.Y+y)
+			copy(src[y*srcW:(y+1)*srcW], g.Pix[off:off+srcW])
+		}
+	case *image.Gray16:
+		for y := range srcH {
+			off := g.PixOffset(b.Min.X, b.Min.Y+y)
+			rowBase := y * srcW
+			for x := range srcW {
+				p := off + x*2
+				u16 := uint16(g.Pix[p])<<8 | uint16(g.Pix[p+1])
+				src[rowBase+x] = uint8((uint32(u16)*255 + 32767) / 65535)
+			}
+		}
+	default:
+		for y := range srcH {
+			rowBase := y * srcW
+			for x := range srcW {
+				c := color.Gray16Model.Convert(img.At(b.Min.X+x, b.Min.Y+y)).(color.Gray16)
+				src[rowBase+x] = uint8((uint32(c.Y)*255 + 32767) / 65535)
+			}
+		}
+	}
+	if srcW == dstW && srcH == dstH {
+		return src
+	}
+	dst := make([]byte, dstW*dstH)
+	for y := range dstH {
+		fy := (float64(y)+0.5)/float64(dstH)*float64(srcH) - 0.5
+		y0 := int(math.Floor(fy))
+		ty := fy - float64(y0)
+		iy0 := clampIndex(y0, srcH)
+		iy1 := clampIndex(y0+1, srcH)
+		for x := range dstW {
+			fx := (float64(x)+0.5)/float64(dstW)*float64(srcW) - 0.5
+			x0 := int(math.Floor(fx))
+			tx := fx - float64(x0)
+			ix0 := clampIndex(x0, srcW)
+			ix1 := clampIndex(x0+1, srcW)
+			v00 := float64(src[iy0*srcW+ix0])
+			v10 := float64(src[iy0*srcW+ix1])
+			v01 := float64(src[iy1*srcW+ix0])
+			v11 := float64(src[iy1*srcW+ix1])
+			top := v00*(1-tx) + v10*tx
+			bot := v01*(1-tx) + v11*tx
+			v := top*(1-ty) + bot*ty
+			dst[y*dstW+x] = uint8(math.Round(min(max(v, 0), 255)))
+		}
+	}
+	return dst
+}
+
+// LoadTerrainSplatMapFromWeights constructs a [TerrainSplatMap] from 1..8 layer
+// definitions and per-layer grayscale weight-map images. Trailing omitted
+// entries in weights default to zero weight; images with different dimensions
+// are resampled to match the first non-nil weight image.
+func LoadTerrainSplatMapFromWeights(layers []TerrainLayerInfo, weights []image.Image) (*TerrainSplatMap, error) {
+	if len(layers) == 0 || len(layers) > MaxTerrainLayers {
+		return nil, fmt.Errorf("%w: layer count %d must be in [1, %d]", ErrInvalidTerrainSplat, len(layers), MaxTerrainLayers)
+	}
+	if len(weights) > len(layers) {
+		return nil, fmt.Errorf("%w: got %d weight maps for %d layers", ErrInvalidTerrainSplat, len(weights), len(layers))
+	}
+	padded := make([]image.Image, len(layers))
+	copy(padded, weights)
+	s0, s1, err := PackLayerWeightMaps(padded...)
+	if err != nil {
+		return nil, err
+	}
+	if s1 != nil {
+		return LoadTerrainSplatMap(layers, s0, s1)
+	}
+	return LoadTerrainSplatMap(layers, s0)
+}
+
+// Width returns the texel width of splat map 0, or 0 for a nil splat map.
+func (s *TerrainSplatMap) Width() int {
+	if s == nil {
+		return 0
+	}
+	return s.splat0.width
+}
+
+// Height returns the texel height of splat map 0, or 0 for a nil splat map.
+func (s *TerrainSplatMap) Height() int {
+	if s == nil {
+		return 0
+	}
+	return s.splat0.height
+}
+
+// TexelWeight returns the raw weight in [0, 1] stored for layer at texel (x, y),
+// or 0 if out of range.
+func (s *TerrainSplatMap) TexelWeight(layer, x, y int) float32 {
+	if s == nil || layer < 0 || layer >= s.LayerCount() {
+		return 0
+	}
+	g := &s.splat0
+	ch := layer
+	if layer >= 4 {
+		if !s.hasSplat1 {
+			return 0
+		}
+		g = &s.splat1
+		ch = layer - 4
+	}
+	if x < 0 || y < 0 || x >= g.width || y >= g.height {
+		return 0
+	}
+	return float32(g.rgba[(y*g.width+x)*4+ch]) / 255.0
+}
+
+// SetTexelWeight writes a clamped [0, 1] weight for layer at texel (x, y).
+// Out-of-range coordinates or layers are ignored.
+func (s *TerrainSplatMap) SetTexelWeight(layer, x, y int, weight float32) {
+	if s == nil || layer < 0 || layer >= s.LayerCount() {
+		return
+	}
+	g := &s.splat0
+	ch := layer
+	if layer >= 4 {
+		if !s.hasSplat1 {
+			return
+		}
+		g = &s.splat1
+		ch = layer - 4
+	}
+	if x < 0 || y < 0 || x >= g.width || y >= g.height {
+		return
+	}
+	if math.IsNaN(float64(weight)) || math.IsInf(float64(weight), 0) || weight < 0 {
+		weight = 0
+	} else if weight > 1 {
+		weight = 1
+	}
+	g.rgba[(y*g.width+x)*4+ch] = uint8(math.Round(float64(weight) * 255.0))
+}
+
+// SplatImages returns copies of s's RGBA splat map(s) as [*image.NRGBA] images
+// (splat1 is nil when s has at most 4 layers).
+func (s *TerrainSplatMap) SplatImages() (splat0, splat1 *image.NRGBA) {
+	if s == nil || s.splat0.width <= 0 || s.splat0.height <= 0 {
+		return nil, nil
+	}
+	splat0 = image.NewNRGBA(image.Rect(0, 0, s.splat0.width, s.splat0.height))
+	copy(splat0.Pix, s.splat0.rgba)
+	if s.hasSplat1 && s.splat1.width > 0 && s.splat1.height > 0 {
+		splat1 = image.NewNRGBA(image.Rect(0, 0, s.splat1.width, s.splat1.height))
+		copy(splat1.Pix, s.splat1.rgba)
+	}
+	return splat0, splat1
+}
+
+// LayerWeightImage extracts layer's weight channel (0..7) as an 8-bit grayscale
+// image, or nil if s is nil or layer is out of range.
+func (s *TerrainSplatMap) LayerWeightImage(layer int) *image.Gray {
+	if s == nil || layer < 0 || layer >= s.LayerCount() {
+		return nil
+	}
+	g := &s.splat0
+	ch := layer
+	if layer >= 4 {
+		if !s.hasSplat1 {
+			return nil
+		}
+		g = &s.splat1
+		ch = layer - 4
+	}
+	if g.width <= 0 || g.height <= 0 {
+		return nil
+	}
+	img := image.NewGray(image.Rect(0, 0, g.width, g.height))
+	for y := range g.height {
+		dstOff := img.PixOffset(0, y)
+		srcRow := y * g.width * 4
+		for x := range g.width {
+			img.Pix[dstOff+x] = g.rgba[srcRow+x*4+ch]
+		}
+	}
+	return img
+}
+
 // LayerCount returns the number of active layers in s (0 for nil).
 func (s *TerrainSplatMap) LayerCount() int {
 	if s == nil {
