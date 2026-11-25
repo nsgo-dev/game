@@ -71,7 +71,7 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 			if f.Dir {
 				name += "/"
 			}
-			rows = append(rows, core.View{
+			rowNode := core.View{
 				TestID: "files-row-" + p,
 				StyleFunc: func() core.Style {
 					bg := colors.Inset()
@@ -118,6 +118,36 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 					Content: name,
 					Style:   core.Style{FontSize: 12, Color: colors.Text()},
 				}},
+			}
+			rows = append(rows, ui.ContextMenu{
+				TestID:  "files-menu-" + p,
+				Trigger: rowNode,
+				Children: []core.Node{
+					ui.MenuItem{
+						TestID:   "files-ctx-find-usages-" + p,
+						Text:     ed.T("files.findUsages"),
+						Shortcut: "⇧F12",
+						Disabled: func() bool { _ = rev.Get(); return ed.Playing() },
+						OnSelect: func() {
+							ed.SelectFile(p)
+							ed.report(ed.OpenUsagesScreen(p))
+						},
+					},
+					ui.MenuItem{
+						TestID:   "files-ctx-rename-safely-" + p,
+						Text:     ed.T("files.renameSafely"),
+						Shortcut: "F2",
+						Disabled: func() bool { _ = rev.Get(); return ed.Playing() },
+						OnSelect: func() {
+							ed.SelectFile(p)
+							if err := ed.OpenUsagesScreen(p); err != nil {
+								ed.report(err)
+								return
+							}
+							ed.report(ed.StartSafeRename())
+						},
+					},
+				},
 			})
 		}
 		return core.View{Style: core.Style{Gap: 1}, Children: rows}

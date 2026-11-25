@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/nsgo-dev/game/packages/game/refs"
 	"github.com/nsgo-dev/game/packages/game/tooling/datatable"
 )
 
@@ -680,7 +681,7 @@ func (e *Editor) failDataTable(err error) {
 	e.report(err)
 }
 
-func (e *Editor) followDataTableMove(moveFile func(*string)) {
+func (e *Editor) followDataTableMove(moveFile func(*string), movePath func(*string), written []refs.Write) {
 	if e == nil || e.table == nil || !e.table.fromDisk {
 		return
 	}
@@ -688,6 +689,84 @@ func (e *Editor) followDataTableMove(moveFile func(*string)) {
 	moveFile(&e.table.path)
 	if e.table.path != before {
 		e.table.rowType = e.DataTableRowTypeFor(e.table.path)
+	}
+	var rewritten []byte
+	if rel, ok := e.projectRel(e.table.path); ok {
+		for _, w := range written {
+			if w.Path == rel {
+				rewritten = w.Data
+				break
+			}
+		}
+	}
+	if e.DataTableDirty() {
+		// Preserve unsaved edits in memory: rewrite matching path cells in place instead of clobbering e.table.doc from disk.
+		if e.table.doc != nil && movePath != nil {
+			rewriteDataTablePaths(e.table.doc, movePath)
+		}
+		if len(rewritten) > 0 {
+			if doc, err := datatable.ParseDocument(e.table.path, rewritten); err == nil {
+				if saved, err := doc.Marshal(); err == nil {
+					e.tableSaved = saved
+				}
+			}
+		}
+		return
+	}
+	if len(rewritten) > 0 {
+		if doc, err := datatable.ParseDocument(e.table.path, rewritten); err == nil {
+			e.table.doc = doc
+			e.table.lastErr = nil
+			if saved, err := doc.Marshal(); err == nil {
+				e.tableSaved = saved
+			}
+		}
+	}
+}
+
+func rewriteDataTablePaths(doc *datatable.Document, movePath func(*string)) {
+	if doc == nil || movePath == nil {
+		return
+	}
+	cols := doc.Columns()
+	for r := 0; r < doc.RowCount(); r++ {
+		for _, col := range cols {
+			val, ok := doc.Cell(r, col)
+			if !ok {
+				continue
+			}
+			if next, changed := rewriteDataTableValue(val, movePath); changed {
+				_ = doc.SetCell(r, col, next)
+			}
+		}
+	}
+}
+
+func rewriteDataTableValue(v datatable.Value, movePath func(*string)) (datatable.Value, bool) {
+	switch v.Kind {
+	case datatable.KindString:
+		s := v.Text
+		movePath(&s)
+		if s != v.Text {
+			return datatable.StringValue(s), true
+		}
+		return v, false
+	case datatable.KindList:
+		changed := false
+		out := make([]datatable.Value, len(v.List))
+		for i, elem := range v.List {
+			nv, c := rewriteDataTableValue(elem, movePath)
+			out[i] = nv
+			if c {
+				changed = true
+			}
+		}
+		if changed {
+			return datatable.ListValue(out...), true
+		}
+		return v, false
+	default:
+		return v, false
 	}
 }
 

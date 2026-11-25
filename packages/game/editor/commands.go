@@ -83,6 +83,7 @@ const (
 	CmdExport                = "project.export"
 	CmdProfiler              = "project.profiler"
 	CmdCheckProblems         = "project.check"
+	CmdFindUsages            = "project.findUsages"
 	CmdEditorSettings        = "editor.settings"
 	CmdMergeConflicts        = "git.mergeConflicts"
 	CmdPlaytestReport        = "project.playtestReport"
@@ -276,11 +277,13 @@ func (e *Editor) initBuiltinCommands() {
 		return
 	}
 	notPlaying := func() bool {
-		return !e.StartScreenOpen() && !e.MergeConflictOpen() && !e.PlaytestReportOpen() && !e.Playing()
+		return !e.StartScreenOpen() && !e.MergeConflictOpen() && !e.PlaytestReportOpen() && !e.UsagesScreenOpen() && !e.Playing()
 	}
-	inEditor := func() bool { return !e.StartScreenOpen() && !e.MergeConflictOpen() && !e.PlaytestReportOpen() }
+	inEditor := func() bool {
+		return !e.StartScreenOpen() && !e.MergeConflictOpen() && !e.PlaytestReportOpen() && !e.UsagesScreenOpen()
+	}
 	hasProject := func() bool {
-		return !e.StartScreenOpen() && !e.MergeConflictOpen() && !e.PlaytestReportOpen() && e.Project != nil
+		return !e.StartScreenOpen() && !e.MergeConflictOpen() && !e.PlaytestReportOpen() && !e.UsagesScreenOpen() && e.Project != nil
 	}
 
 	e.commands = []EditorCommand{
@@ -1332,6 +1335,28 @@ func (e *Editor) initBuiltinCommands() {
 			},
 		},
 		{
+			ID:          CmdFindUsages,
+			Label:       "Find Usages",
+			Description: "Find every usage of the selected prefab, scene, or file across scenes, variants, data tables, and Go code, and rename it safely in one review",
+			Category:    "Project",
+			Keywords:    []string{"usages", "references", "find", "rename", "refactor", "prefab", "scene"},
+			Shortcut:    "shift+f12",
+			Enabled: func() bool {
+				if e.StartScreenOpen() || e.MergeConflictOpen() || e.PlaytestReportOpen() || e.HUDLayoutOpen() || e.Playing() || e.Project == nil {
+					return false
+				}
+				if e.UsagesScreenOpen() {
+					return true
+				}
+				target, _ := e.findUsagesTarget()
+				return target != ""
+			},
+			Checked: func() bool { return e.UsagesScreenOpen() },
+			Run: func() error {
+				return e.OpenUsagesScreen("")
+			},
+		},
+		{
 			ID:          CmdEditorSettings,
 			Label:       "Editor Settings",
 			Description: "Configure editor language and appearance",
@@ -1527,6 +1552,7 @@ var builtinCommandKeys = map[string][3]string{
 	CmdExport:                {"cmd.export.label", "cmd.export.desc", "cmd.category.project"},
 	CmdProfiler:              {"cmd.profiler.label", "cmd.profiler.desc", "cmd.category.project"},
 	CmdCheckProblems:         {"cmd.checkProblems.label", "cmd.checkProblems.desc", "cmd.category.project"},
+	CmdFindUsages:            {"cmd.findUsages.label", "cmd.findUsages.desc", "cmd.category.project"},
 	CmdEditorSettings:        {"cmd.editorSettings.label", "cmd.editorSettings.desc", "cmd.category.file"},
 	CmdMergeConflicts:        {"cmd.mergeConflicts.label", "cmd.mergeConflicts.desc", "cmd.category.project"},
 	CmdToggleAssetsMode:      {"cmd.assetDrawer.label", "cmd.assetDrawer.desc", "cmd.category.view"},

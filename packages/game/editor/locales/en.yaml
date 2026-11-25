@@ -33,6 +33,8 @@ strings:
   cmd.editorSettings.label: Editor Settings
   cmd.export.desc: Toggle the Export & Release Build panel
   cmd.export.label: Export & Release
+  cmd.findUsages.desc: Find every usage of the selected prefab, scene, or file and rename it safely in one review
+  cmd.findUsages.label: Find Usages
   cmd.frameSelection.desc: Center the viewport camera on the selected object or scene
   cmd.frameSelection.label: Frame Selection
   cmd.gizmoRotate.desc: Switch the 3D transform gizmo to Rotate mode
@@ -134,6 +136,7 @@ strings:
   files.editMaterialLabel: Open the selected material file in the Material Editor
   files.findRefs: Find Refs
   files.findRefsLabel: Find every reference to the selected file across the project
+  files.findUsages: Find Usages
   files.move: Move
   files.moveLabel: Rename or move the selected file and update every reference to it
   files.newPathLabel: New path of the selected file
@@ -142,6 +145,7 @@ strings:
   files.openTable: Open Table
   files.openTableLabel: Open the selected YAML file in the Data Table editor
   files.refresh: Refresh
+  files.renameSafely: Rename Safely…
   files.search: Search
   files.searchLabel: Toggle the Project Search and References panel
   files.title: Files
@@ -291,6 +295,7 @@ strings:
   menu.export: Export & Release...
   menu.file: File
   menu.fillTile: Fill Tile
+  menu.findUsages: Find Usages
   menu.frameSelection: Frame Selection
   menu.gizmo3d: 3D Gizmo
   menu.group: Group
@@ -401,6 +406,7 @@ strings:
   sceneTree.delete: Delete
   sceneTree.duplicate: Duplicate
   sceneTree.expand: Expand
+  sceneTree.findUsages: Find Usages
   sceneTree.group: Group
   sceneTree.hide: Hide in Viewport
   sceneTree.hideNamed: Hide {id}

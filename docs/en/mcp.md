@@ -298,6 +298,8 @@ claude mcp add game-editor -- nsgo game mcp
 | `cutscene_scrub` | read | `file` (optional), `timeSeconds` (optional), `view` (optional: `"before"` or `"after"`) | Opens (when `file` is provided) and scrubs the cutscene timeline playhead to `timeSeconds`, returning the posed camera, actor positions/states, active localized dialogue subtitle, and active review counts. |
 | `tileset_read` | read | `file` (optional) | Reads the open YAML tileset (`*.tileset.yaml`, or `file` relative to the project root, falling back to the active layer's `tilesetFile`) as canonical YAML and structured tile rules (collision flags, shapes, animation, terrain, name, weight, custom properties). |
 | `tileset_edit` | edit | `ops` (required), `file`, `save` (optional) | Applies tileset operations (`set_tile` for `name`/`solid`/`oneWay`/`flags`/`weight`/`shapes`/`animation`/`terrain`/`neighbors`, `set_property`, `remove_property`, `add_terrain`, `remove_terrain`) to the YAML tileset in one atomic undo step; edits stay unsaved unless `save: true` is passed. |
+| `refs_find` | read | `file`, `open` (optional) | Finds every usage of a prefab, scene, or project file grouped across scenes (with override counts), prefab variants (`inherits`), data tables (rows), and Go code (`go/parser` string constants marked `notRewritten`), and optionally opens the References screen in the editor. |
+| `refactor_rename` | edit | `from`, `to` (required), `apply` (optional) | Prepares the safe YAML-only rename review in the editor with exact `-`/`+` line diffs and non-rewritten Go warnings without writing to disk until Keep (or applies through `MoveFile` as one undo step when `apply: true`). |
 
 The edits `scene_edit` takes, each an object with `op`:
 

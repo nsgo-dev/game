@@ -29,6 +29,10 @@ const (
 	KindProject FileKind = "project"
 	// KindScene is a sceneformat scene document.
 	KindScene FileKind = "scene"
+	// KindPrefab is a prefab YAML document (*.prefab.yaml or *.prefab.yml).
+	KindPrefab FileKind = "prefab"
+	// KindDataTable is a YAML data table whose rows reference project files.
+	KindDataTable FileKind = "data_table"
 	// KindScreen is a gameui *.screen.yaml HUD or menu screen document.
 	KindScreen FileKind = "screen"
 	// KindStringTable is a versioned YAML localization string table (l10n.StringTable).
@@ -62,6 +66,8 @@ const (
 	FieldInherits         = "inherits"
 	FieldNavMesh          = "navigation mesh"
 	FieldScene            = "scene"
+	FieldPrefab           = "prefab"
+	FieldDataTable        = "data table"
 	FieldMaterial         = "material"
 	FieldModel            = "model"
 	FieldGridMap          = "grid map"
@@ -304,7 +310,13 @@ func Scan(fsys fs.FS) (*Project, error) {
 			}
 		}
 	}
-	p.pending = pending
+	var stillPending []string
+	for _, name := range pending {
+		if !p.readDataTableYAML(name) {
+			stillPending = append(stillPending, name)
+		}
+	}
+	p.pending = stillPending
 	slices.SortFunc(p.Files, func(a, b *File) int { return cmp.Compare(a.Path, b.Path) })
 	slices.SortStableFunc(p.Refs, func(a, b Ref) int { return cmp.Compare(a.File, b.File) })
 	slices.SortStableFunc(p.TextKeys, func(a, b TextKeyRef) int { return cmp.Compare(a.File, b.File) })
@@ -423,7 +435,7 @@ func (p *Project) readYAML(name string, asScene bool) bool {
 	}
 	var root yaml.Node
 	if err := yaml.Unmarshal(data, &root); err != nil || root.Kind != yaml.DocumentNode || len(root.Content) == 0 || root.Content[0].Kind != yaml.MappingNode {
-		if asScene || isSceneName(name) || isCutsceneName(name) || isScreenName(name) || isGridMapName(name) || isTilesetName(name) {
+		if asScene || isSceneName(name) || isPrefabName(name) || isCutsceneName(name) || isScreenName(name) || isGridMapName(name) || isTilesetName(name) {
 			p.unread = append(p.unread, name)
 		}
 		return false
@@ -454,6 +466,11 @@ func (p *Project) readYAML(name string, asScene bool) bool {
 		for _, st := range items(field(doc, "states")) {
 			p.ref(f, field(st, "clip"), FieldClip)
 		}
+		return true
+	case isPrefabName(name):
+		f.Kind = KindPrefab
+		p.add(f)
+		p.prefabRefs(f, doc)
 		return true
 	case asScene || isSceneName(name):
 		f.Kind = KindScene
@@ -523,6 +540,133 @@ func (p *Project) readProject(name string, data []byte) {
 func isSceneName(name string) bool {
 	lower := strings.ToLower(name)
 	return strings.HasSuffix(lower, ".scene.yaml") || strings.HasSuffix(lower, ".scene.yml")
+}
+
+// isPrefabName reports whether name is a prefab file by its name, *.prefab.yaml or *.prefab.yml.
+func isPrefabName(name string) bool {
+	lower := strings.ToLower(name)
+	return strings.HasSuffix(lower, ".prefab.yaml") || strings.HasSuffix(lower, ".prefab.yml")
+}
+
+// isPrefabFileRef reports whether n holds a path-valued prefab reference (such as "prefabs/slime.prefab.yaml") rather than a bare prefab name looked up in an AssetResolver.
+func (p *Project) isPrefabFileRef(root string, n *yaml.Node) bool {
+	if n == nil || n.Kind != yaml.ScalarNode || n.Value == "" || (n.Tag != "" && n.Tag != "!!str") {
+		return false
+	}
+	if !validPath(n.Value) {
+		return false
+	}
+	lower := strings.ToLower(n.Value)
+	if strings.ContainsRune(n.Value, '/') || strings.HasSuffix(lower, ".yaml") || strings.HasSuffix(lower, ".yml") {
+		return true
+	}
+	return p.exists[path.Join(root, n.Value)]
+}
+
+// prefabRefs records the references of a *.prefab.yaml document: the prefab it inherits, any scene/prefab/material/model/gridMap/particle/animator/skeletal references, and nested layers if the prefab is scene-shaped.
+func (p *Project) prefabRefs(f *File, doc *yaml.Node) {
+	p.ref(f, field(doc, "inherits"), FieldInherits)
+	p.ref(f, field(doc, "scene"), FieldScene)
+	if pf := field(doc, "prefab"); p.isPrefabFileRef(f.Root, pf) {
+		p.ref(f, pf, FieldPrefab)
+	}
+	p.ref(f, field(doc, "material"), FieldMaterial)
+	p.ref(f, field(doc, "model"), FieldModel)
+	p.ref(f, field(doc, "gridMap"), FieldGridMap)
+	p.animatorRefs(f, field(doc, "components"))
+	p.ref(f, field(field(doc, "particles"), "file"), FieldParticles)
+	p.skeletalComponentRef(f, doc)
+	for _, l := range items(field(doc, "layers")) {
+		p.tilemapRefs(f, field(l, "tilemap"))
+		p.objectRefs(f, field(l, "objects"), 0)
+	}
+}
+
+// readDataTableYAML inspects a pending YAML file as a data table (either a canonical version/rows document or a mapping holding sequences of row mappings) and records any project file path references found in row cells. It returns true when the file is recorded as KindDataTable.
+func (p *Project) readDataTableYAML(name string) bool {
+	data, err := fs.ReadFile(p.fsys, name)
+	if err != nil {
+		return false
+	}
+	var root yaml.Node
+	if err := yaml.Unmarshal(data, &root); err != nil || root.Kind != yaml.DocumentNode || len(root.Content) == 0 || root.Content[0].Kind != yaml.MappingNode {
+		return false
+	}
+	doc := root.Content[0]
+	f := &File{Path: name, Kind: KindDataTable, data: data, starts: lineStarts(data), doc: doc, Root: p.Root(name)}
+	var found []Ref
+	for _, kv := range pairs(doc) {
+		seq := kv[1]
+		if seq == nil || seq.Kind != yaml.SequenceNode {
+			continue
+		}
+		for _, row := range items(seq) {
+			if row == nil || row.Kind != yaml.MappingNode {
+				continue
+			}
+			for _, cell := range pairs(row) {
+				p.collectDataTableCellRefs(f, cell[1], &found)
+			}
+		}
+	}
+	if len(found) == 0 {
+		return false
+	}
+	p.add(f)
+	p.Refs = append(p.Refs, found...)
+	return true
+}
+
+func (p *Project) collectDataTableCellRefs(f *File, n *yaml.Node, out *[]Ref) {
+	n = deref(n)
+	if n == nil {
+		return
+	}
+	switch n.Kind {
+	case yaml.ScalarNode:
+		if n.Value == "" || (n.Tag != "" && n.Tag != "!!str") || !validPath(n.Value) {
+			return
+		}
+		target := path.Join(f.Root, n.Value)
+		if !p.exists[target] && !isKnownProjectYAMLRef(n.Value) {
+			return
+		}
+		r := Ref{File: f.Path, Line: n.Line, Column: n.Column, Field: FieldDataTable, Value: n.Value, Target: target}
+		if s, err := yamlSpan(f.data, f.starts, n); err == nil {
+			r.span = s
+		} else {
+			r.span = span{start: -1}
+		}
+		*out = append(*out, r)
+	case yaml.SequenceNode:
+		for _, elem := range items(n) {
+			if elem != nil && elem.Kind == yaml.ScalarNode {
+				p.collectDataTableCellRefs(f, elem, out)
+			}
+		}
+	}
+}
+
+func isKnownProjectYAMLRef(v string) bool {
+	lower := strings.ToLower(v)
+	for _, suf := range []string{
+		".prefab.yaml", ".prefab.yml",
+		".scene.yaml", ".scene.yml",
+		".material.yaml", ".material.yml",
+		".tileset.yaml", ".tileset.yml",
+		".terrain.yaml", ".terrain.yml",
+		".cutscene.yaml", ".cutscene.yml",
+		".screen.yaml", ".screen.yml",
+		".states.yaml", ".states.yml",
+		".gridmap.yaml", ".gridmap.yml",
+		".particles.yaml", ".particles.yml",
+		".skel.yaml", ".skel.yml",
+	} {
+		if strings.HasSuffix(lower, suf) {
+			return true
+		}
+	}
+	return false
 }
 
 // isCutsceneName reports whether name is a cutscene file by its name, *.cutscene.yaml or *.cutscene.yml.
@@ -606,7 +750,7 @@ func isResourceKind(n *yaml.Node) bool {
 
 // add records f and its uid. An empty or null uid, which sceneformat and resource read as no uid, is kept as f.uid without f.UID, so that game index fills it in.
 func (p *Project) add(f *File) {
-	if f.Kind == KindScene || f.Kind == KindResource || f.Kind == KindScreen || f.Kind == KindStates {
+	if f.Kind == KindScene || f.Kind == KindPrefab || f.Kind == KindResource || f.Kind == KindScreen || f.Kind == KindStates {
 		k, n := entry(f.doc, "uid")
 		switch {
 		case n == nil || n.Kind != yaml.ScalarNode:
@@ -641,6 +785,9 @@ func (p *Project) sceneRefs(f *File, doc *yaml.Node) {
 		p.tilemapRefs(f, field(kv[1], "tilemap"))
 	}
 	for _, kv := range pairs(field(doc, "overrides")) {
+		if pf := field(kv[1], "prefab"); p.isPrefabFileRef(f.Root, pf) {
+			p.ref(f, pf, FieldPrefab)
+		}
 		p.ref(f, field(kv[1], "material"), FieldMaterial)
 		p.ref(f, field(kv[1], "model"), FieldModel)
 		p.ref(f, field(kv[1], "gridMap"), FieldGridMap)
@@ -705,6 +852,9 @@ func (p *Project) objectRefs(f *File, objs *yaml.Node, depth int) {
 	}
 	for _, o := range items(objs) {
 		p.ref(f, field(o, "scene"), FieldScene)
+		if pf := field(o, "prefab"); p.isPrefabFileRef(f.Root, pf) {
+			p.ref(f, pf, FieldPrefab)
+		}
 		p.ref(f, field(o, "material"), FieldMaterial)
 		p.ref(f, field(o, "model"), FieldModel)
 		p.ref(f, field(o, "gridMap"), FieldGridMap)
@@ -714,6 +864,9 @@ func (p *Project) objectRefs(f *File, objs *yaml.Node, depth int) {
 		p.ref(f, field(field(o, "lightProbeGrid"), "data"), FieldLightProbeGrid)
 		p.skeletalComponentRef(f, o)
 		for _, kv := range pairs(field(o, "overrides")) {
+			if pf := field(kv[1], "prefab"); p.isPrefabFileRef(f.Root, pf) {
+				p.ref(f, pf, FieldPrefab)
+			}
 			p.ref(f, field(kv[1], "material"), FieldMaterial)
 			p.ref(f, field(kv[1], "model"), FieldModel)
 			p.ref(f, field(kv[1], "gridMap"), FieldGridMap)
