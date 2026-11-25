@@ -362,6 +362,15 @@ func (e *Editor) ClosePlaytestReport() {
 	e.SetPlaytestReportOpen(false)
 }
 
+func (e *Editor) resetPlaytestForProject() {
+	if e == nil {
+		return
+	}
+	e.playtest.open = false
+	e.playtest.session = nil
+	e.playtest.rev++
+}
+
 // LoadPlaytestReport loads a playtest report into the editor without forcing the Playtest Report screen open.
 func (e *Editor) LoadPlaytestReport(cfg PlaytestReportOpenConfig) error {
 	return e.setPlaytestReport(cfg, false)
@@ -527,7 +536,7 @@ func (e *Editor) OpenPlaytestReportFile(reportPath string) error {
 	if raw == "" {
 		raw = playtest.ReportFileName
 	}
-	absPath, relPath, baseDir, err := e.resolvePlaytestPath(raw, "")
+	absPath, relPath, baseDir, err := e.resolvePlaytestPath(raw, "", true)
 	if err != nil {
 		return err
 	}
@@ -543,7 +552,42 @@ func (e *Editor) OpenPlaytestReportFile(reportPath string) error {
 	})
 }
 
-func (e *Editor) resolvePlaytestPath(p, fallbackBase string) (absPath, relPath, baseDir string, err error) {
+func isWithinPlaytestDir(base, target string) (string, bool) {
+	rel, err := filepath.Rel(base, target)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", false
+	}
+	return rel, true
+}
+
+// evalPlaytestPathSymlinks resolves symlinks in target, walking up to the nearest existing
+// ancestor when target does not exist yet so symlinked parent directories cannot escape baseDir.
+func evalPlaytestPathSymlinks(target string) (string, error) {
+	clean := filepath.Clean(target)
+	if resolved, err := filepath.EvalSymlinks(clean); err == nil {
+		return resolved, nil
+	}
+	var tail []string
+	cur := clean
+	for {
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return clean, nil
+		}
+		tail = append(tail, filepath.Base(cur))
+		cur = parent
+		if resolved, err := filepath.EvalSymlinks(cur); err == nil {
+			parts := make([]string, 0, 1+len(tail))
+			parts = append(parts, resolved)
+			for i := len(tail) - 1; i >= 0; i-- {
+				parts = append(parts, tail[i])
+			}
+			return filepath.Join(parts...), nil
+		}
+	}
+}
+
+func (e *Editor) resolvePlaytestPath(p, fallbackBase string, allowStandaloneAbs bool) (absPath, relPath, baseDir string, err error) {
 	baseDir = strings.TrimSpace(fallbackBase)
 	if baseDir == "" {
 		baseDir = e.playtestProjectDir()
@@ -551,9 +595,22 @@ func (e *Editor) resolvePlaytestPath(p, fallbackBase string) (absPath, relPath, 
 	if filepath.IsAbs(p) {
 		clean := filepath.Clean(p)
 		if baseDir != "" {
-			if rel, rerr := filepath.Rel(baseDir, clean); rerr == nil && !strings.HasPrefix(rel, "..") && rel != ".." {
-				return clean, filepath.ToSlash(rel), baseDir, nil
+			resolvedBase, berr := evalPlaytestPathSymlinks(baseDir)
+			if berr != nil {
+				return "", "", "", fmt.Errorf("editor: resolve base dir %q: %w", baseDir, berr)
 			}
+			resolvedTarget, terr := evalPlaytestPathSymlinks(clean)
+			if terr != nil {
+				return "", "", "", fmt.Errorf("editor: resolve path %q: %w", p, terr)
+			}
+			rel, ok := isWithinPlaytestDir(resolvedBase, resolvedTarget)
+			if !ok {
+				return "", "", "", fmt.Errorf("editor: path %q leaves the project directory", p)
+			}
+			return clean, filepath.ToSlash(rel), baseDir, nil
+		}
+		if !allowStandaloneAbs {
+			return "", "", "", fmt.Errorf("editor: absolute path %q is not allowed without a project base directory", p)
 		}
 		return clean, filepath.ToSlash(clean), filepath.Dir(clean), nil
 	}
@@ -565,13 +622,17 @@ func (e *Editor) resolvePlaytestPath(p, fallbackBase string) (absPath, relPath, 
 		return "", "", "", fmt.Errorf("editor: path %q leaves the project directory", p)
 	}
 	joined := filepath.Join(baseDir, filepath.FromSlash(slashed))
-	// Reject symlinks escaping baseDir when the file exists.
-	if resolvedBase, berr := filepath.EvalSymlinks(baseDir); berr == nil {
-		if resolvedTarget, terr := filepath.EvalSymlinks(joined); terr == nil {
-			if rel, rerr := filepath.Rel(resolvedBase, resolvedTarget); rerr != nil || strings.HasPrefix(rel, "..") || rel == ".." {
-				return "", "", "", fmt.Errorf("editor: path %q escapes the project directory via symlink", p)
-			}
-		}
+	// Reject symlinks escaping baseDir for both existing files and non-existent files under symlinked directories.
+	resolvedBase, berr := evalPlaytestPathSymlinks(baseDir)
+	if berr != nil {
+		return "", "", "", fmt.Errorf("editor: resolve base dir %q: %w", baseDir, berr)
+	}
+	resolvedTarget, terr := evalPlaytestPathSymlinks(joined)
+	if terr != nil {
+		return "", "", "", fmt.Errorf("editor: resolve path %q: %w", p, terr)
+	}
+	if _, ok := isWithinPlaytestDir(resolvedBase, resolvedTarget); !ok {
+		return "", "", "", fmt.Errorf("editor: path %q escapes the project directory via symlink", p)
 	}
 	return joined, slashed, baseDir, nil
 }
@@ -677,6 +738,9 @@ func (e *Editor) ApplyPlaytestProposal(id string) error {
 	if e == nil || e.playtest.session == nil {
 		return errors.New("editor: no playtest session")
 	}
+	if e.playing {
+		return ErrPlaying
+	}
 	p := e.playtest.session.ProposalByID(id)
 	if p == nil {
 		return fmt.Errorf("editor: unknown playtest proposal %q", id)
@@ -693,7 +757,7 @@ func (e *Editor) ApplyPlaytestProposal(id string) error {
 		if ent := e.playtest.session.ActiveEntry(); ent != nil {
 			base = ent.BaseDir
 		}
-		absPath, _, _, err := e.resolvePlaytestPath(p.File, base)
+		absPath, _, _, err := e.resolvePlaytestPath(p.File, base, false)
 		if err != nil {
 			return err
 		}
@@ -706,7 +770,10 @@ func (e *Editor) ApplyPlaytestProposal(id string) error {
 				return fmt.Errorf("editor: %s changed on disk since proposal %s was created", p.File, id)
 			}
 		}
-		if err := os.WriteFile(absPath, []byte(p.After), 0o644); err != nil {
+		if err := os.MkdirAll(filepath.Dir(absPath), 0o755); err != nil {
+			return fmt.Errorf("editor: prepare dir for %s: %w", p.File, err)
+		}
+		if err := writeFileAtomic(absPath, []byte(p.After)); err != nil {
 			return fmt.Errorf("editor: write %s: %w", p.File, err)
 		}
 	}
@@ -725,6 +792,9 @@ func (e *Editor) ApplyPlaytestProposal(id string) error {
 func (e *Editor) DismissPlaytestProposal(id string) error {
 	if e == nil || e.playtest.session == nil {
 		return errors.New("editor: no playtest session")
+	}
+	if e.playing {
+		return ErrPlaying
 	}
 	p := e.playtest.session.ProposalByID(id)
 	if p == nil {
@@ -768,7 +838,7 @@ func (e *Editor) OpenPlaytestConfigPreview() error {
 	e.playtest.session.ReviewProposalID = ""
 	e.playtest.session.ConfigPreviewOpen = true
 	e.playtest.session.ConfigPreviewPath = cfgFile
-	absPath, _, _, err := e.resolvePlaytestPath(cfgFile, entry.BaseDir)
+	absPath, _, _, err := e.resolvePlaytestPath(cfgFile, entry.BaseDir, false)
 	if err != nil {
 		e.playtest.session.ConfigPreviewText = ""
 		e.playtest.session.ConfigPreviewErr = err.Error()
@@ -908,7 +978,7 @@ func (e *Editor) WatchPlaytestRunIn(cx *core.Scope, runIndex int) error {
 	if strings.TrimSpace(run.Recording) == "" {
 		return fmt.Errorf("editor: run %d has no saved replay recording", run.Index)
 	}
-	absPath, relPath, _, err := e.resolvePlaytestPath(run.Recording, entry.BaseDir)
+	absPath, relPath, _, err := e.resolvePlaytestPath(run.Recording, entry.BaseDir, false)
 	if err != nil {
 		return fmt.Errorf("editor: resolve run %d recording: %w", run.Index, err)
 	}
@@ -1356,12 +1426,19 @@ func buildHeatMapChartSpec(rep *playtest.Report, hm playtest.HeatMap) PlaytestCh
 		title = fmt.Sprintf("Heat map · %s", hm.Event)
 	}
 
+	pts := make([]playtest.HeatPoint, 0, len(hm.Points))
+	for _, pt := range hm.Points {
+		if isFinite64(pt.X) && isFinite64(pt.Y) {
+			pts = append(pts, pt)
+		}
+	}
+
 	minX, maxX := 0.0, 640.0
 	minY, maxY := 0.0, 360.0
-	if len(hm.Points) > 0 {
-		minX, maxX = hm.Points[0].X, hm.Points[0].X
-		minY, maxY = hm.Points[0].Y, hm.Points[0].Y
-		for _, pt := range hm.Points[1:] {
+	if len(pts) > 0 {
+		minX, maxX = pts[0].X, pts[0].X
+		minY, maxY = pts[0].Y, pts[0].Y
+		for _, pt := range pts[1:] {
 			if pt.X < minX {
 				minX = pt.X
 			}
@@ -1391,7 +1468,7 @@ func buildHeatMapChartSpec(rep *playtest.Report, hm playtest.HeatMap) PlaytestCh
 		}
 	}
 
-	clusters := clusterHeatPoints(hm.Points, maxX-minX, maxY-minY)
+	clusters := clusterHeatPoints(pts, maxX-minX, maxY-minY)
 	chips := make([]PlaytestHeatChip, 0, min(3, len(clusters)))
 	for i := 0; i < len(clusters) && i < 3; i++ {
 		cl := clusters[i]
@@ -1433,7 +1510,7 @@ func buildHeatMapChartSpec(rep *playtest.Report, hm playtest.HeatMap) PlaytestCh
 			Metric:        hm.Metric,
 			Event:         hm.Event,
 			IsTimePerTile: isTime,
-			Points:        slices.Clone(hm.Points),
+			Points:        pts,
 			Clusters:      clusters,
 			Chips:         chips,
 			MinX:          minX,
@@ -1448,6 +1525,12 @@ func clusterHeatPoints(pts []playtest.HeatPoint, spanX, spanY float64) []Playtes
 	if len(pts) == 0 {
 		return nil
 	}
+	if !isFinite64(spanX) || spanX < 0 {
+		spanX = 0
+	}
+	if !isFinite64(spanY) || spanY < 0 {
+		spanY = 0
+	}
 	radius := max(24.0, math.Hypot(spanX, spanY)*0.09)
 	type accum struct {
 		sumX, sumY float64
@@ -1455,7 +1538,12 @@ func clusterHeatPoints(pts []playtest.HeatPoint, spanX, spanY float64) []Playtes
 		tags       map[string]int
 	}
 	var groups []*accum
+	validCount := 0
 	for _, pt := range pts {
+		if !isFinite64(pt.X) || !isFinite64(pt.Y) {
+			continue
+		}
+		validCount++
 		var best *accum
 		bestDist := radius
 		for _, g := range groups {
@@ -1477,8 +1565,11 @@ func clusterHeatPoints(pts []playtest.HeatPoint, spanX, spanY float64) []Playtes
 			best.tags[pt.Tag]++
 		}
 	}
+	if validCount == 0 {
+		return nil
+	}
 
-	total := float64(len(pts))
+	total := float64(validCount)
 	out := make([]PlaytestHeatCluster, 0, len(groups))
 	for _, g := range groups {
 		share := float64(g.count) / total
@@ -1527,22 +1618,31 @@ func buildBarChartSpec(rep *playtest.Report, s playtest.SeriesChart) PlaytestCha
 	}
 	sub := fmt.Sprintf("%s per run · %d runs", agg, max(1, rep.SeedCount))
 
+	entries := slices.Clone(s.Entries)
 	maxVal := 0.0
 	hasFractional := false
-	for _, e := range s.Entries {
-		if e.Value > maxVal {
-			maxVal = e.Value
+	for i := range entries {
+		v := entries[i].Value
+		if !isFinite64(v) {
+			entries[i].Value = 0
+			continue
 		}
-		if math.Abs(e.Value-math.Round(e.Value)) >= 0.01 {
+		if v > maxVal {
+			maxVal = v
+		}
+		if math.Abs(v-math.Round(v)) >= 0.01 {
 			hasFractional = true
 		}
 	}
+	var targetMax *float64
 	var targetText string
-	if s.TargetMax != nil {
-		if *s.TargetMax > maxVal {
-			maxVal = *s.TargetMax
+	if s.TargetMax != nil && isFinite64(*s.TargetMax) {
+		tmVal := *s.TargetMax
+		targetMax = &tmVal
+		if tmVal > maxVal {
+			maxVal = tmVal
 		}
-		targetText = fmt.Sprintf("goal <= %s", formatCleanNumber(*s.TargetMax, 1))
+		targetText = fmt.Sprintf("goal <= %s", formatCleanNumber(tmVal, 1))
 		if s.Unit != "" {
 			targetText += " " + s.Unit
 		}
@@ -1554,10 +1654,13 @@ func buildBarChartSpec(rep *playtest.Report, s playtest.SeriesChart) PlaytestCha
 			}
 		}
 	}
-	if maxVal <= 0 {
+	if !isFinite64(maxVal) || maxVal <= 0 {
 		maxVal = 1
 	} else {
 		maxVal *= 1.15
+		if !isFinite64(maxVal) {
+			maxVal = 1
+		}
 	}
 	dec := 0
 	if hasFractional {
@@ -1570,8 +1673,8 @@ func buildBarChartSpec(rep *playtest.Report, s playtest.SeriesChart) PlaytestCha
 		Bars: &PlaytestSeriesChart{
 			Name:       s.Name,
 			Unit:       s.Unit,
-			Entries:    slices.Clone(s.Entries),
-			TargetMax:  s.TargetMax,
+			Entries:    entries,
+			TargetMax:  targetMax,
 			TargetText: targetText,
 			MaxVal:     maxVal,
 			Decimals:   dec,
@@ -1589,27 +1692,39 @@ func buildLineChartSpec(rep *playtest.Report, s playtest.SeriesChart) PlaytestCh
 		sub = fmt.Sprintf("%s · per level", s.Unit)
 	}
 
+	entries := slices.Clone(s.Entries)
 	maxVal := 0.0
 	hasFractional := false
-	for _, e := range s.Entries {
-		if e.Value > maxVal {
-			maxVal = e.Value
+	for i := range entries {
+		v := entries[i].Value
+		if !isFinite64(v) {
+			entries[i].Value = 0
+			continue
 		}
-		if math.Abs(e.Value-math.Round(e.Value)) >= 0.01 {
+		if v > maxVal {
+			maxVal = v
+		}
+		if math.Abs(v-math.Round(v)) >= 0.01 {
 			hasFractional = true
 		}
 	}
+	var targetMax *float64
 	var targetText string
-	if s.TargetMax != nil {
-		if *s.TargetMax > maxVal {
-			maxVal = *s.TargetMax
+	if s.TargetMax != nil && isFinite64(*s.TargetMax) {
+		tmVal := *s.TargetMax
+		targetMax = &tmVal
+		if tmVal > maxVal {
+			maxVal = tmVal
 		}
-		targetText = fmt.Sprintf("goal <= %s", formatCleanNumber(*s.TargetMax, 1))
+		targetText = fmt.Sprintf("goal <= %s", formatCleanNumber(tmVal, 1))
 	}
-	if maxVal <= 0 {
+	if !isFinite64(maxVal) || maxVal <= 0 {
 		maxVal = 1
 	} else {
 		maxVal *= 1.15
+		if !isFinite64(maxVal) {
+			maxVal = 1
+		}
 	}
 	dec := 0
 	if hasFractional {
@@ -1622,8 +1737,8 @@ func buildLineChartSpec(rep *playtest.Report, s playtest.SeriesChart) PlaytestCh
 		Line: &PlaytestSeriesChart{
 			Name:       s.Name,
 			Unit:       s.Unit,
-			Entries:    slices.Clone(s.Entries),
-			TargetMax:  s.TargetMax,
+			Entries:    entries,
+			TargetMax:  targetMax,
 			TargetText: targetText,
 			MaxVal:     maxVal,
 			Decimals:   dec,
@@ -1637,7 +1752,7 @@ func buildMatrixChartSpec(rep *playtest.Report, m playtest.MatrixChart) Playtest
 		title = "Win rate by deck pair"
 	}
 	flagAbove := 60.0
-	if m.FlagAbove != nil {
+	if m.FlagAbove != nil && isFinite64(*m.FlagAbove) {
 		flagAbove = *m.FlagAbove
 	}
 	unit := m.Unit
@@ -1652,7 +1767,14 @@ func buildMatrixChartSpec(rep *playtest.Report, m playtest.MatrixChart) Playtest
 
 	cells := make([][]*float64, len(m.Cells))
 	for i, row := range m.Cells {
-		cells[i] = slices.Clone(row)
+		cloned := make([]*float64, len(row))
+		for j, cell := range row {
+			if cell != nil && isFinite64(*cell) {
+				v := *cell
+				cloned[j] = &v
+			}
+		}
+		cells[i] = cloned
 	}
 	return PlaytestChartSpec{
 		Kind:     PlaytestChartMatrix,
