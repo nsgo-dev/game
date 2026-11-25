@@ -19,6 +19,10 @@ strings:
   cmd.checkProblems.label: 检查问题
   cmd.commandPalette.desc: 搜索并运行编辑器命令、插件工具、面板与项目文件
   cmd.commandPalette.label: 命令面板
+  cmd.copy.desc: 将选中的对象或瓦片区域拷贝到剪贴板
+  cmd.copy.label: 拷贝
+  cmd.cut.desc: 将选中的对象或瓦片区域剪切到剪贴板
+  cmd.cut.label: 剪切
   cmd.delete.desc: 从场景中移除当前选中的对象
   cmd.delete.label: 删除选中对象
   cmd.duplicate.desc: 在同一图层克隆当前选中的对象
@@ -35,6 +39,8 @@ strings:
   cmd.gizmoScale.label: 3D 操纵杆：缩放
   cmd.gizmoTranslate.desc: 将 3D 变换操纵杆切换为平移模式
   cmd.gizmoTranslate.label: 3D 操纵杆：平移
+  cmd.group.desc: 将选中的对象归组到位于其共同中心的新空父级下
+  cmd.group.label: 编组选中对象
   cmd.lightingPreview.desc: 在 2D 视口中显示或隐藏实时 2D 灯光、遮挡阴影与环境暗度
   cmd.lightingPreview.label: 切换 2D 光照预览
   cmd.localization.desc: 切换本地化字符串表面板
@@ -53,6 +59,10 @@ strings:
   cmd.newProject.label: 新建项目…
   cmd.openProject.desc: 选择要在编辑器中打开的项目目录
   cmd.openProject.label: 打开项目…
+  cmd.paste.desc: 将剪贴板中的对象粘贴到当前图层，或粘贴已复制的瓦片区域
+  cmd.paste.label: 粘贴
+  cmd.pasteInto.desc: 将剪贴板中的对象粘贴为当前选中对象的子级
+  cmd.pasteInto.label: 粘贴为子级
   cmd.playStop.desc: 切换编辑器内运行预览
   cmd.playStop.label: 播放 / 停止
   cmd.profiler.desc: 切换正在运行游戏的性能分析器面板
@@ -89,6 +99,8 @@ strings:
   cmd.toolSelect.label: 工具：选择
   cmd.undo.desc: 撤销上一次编辑
   cmd.undo.label: 撤销
+  cmd.ungroup.desc: 将当前选中对象的子级移出并保持其世界变换
+  cmd.ungroup.label: 取消编组
   cmd.view2d.desc: 显示 2D 场景视口
   cmd.view2d.label: 切换至 2D 视图
   cmd.view3d.desc: 显示 3D 轨道与操纵杆视口
@@ -252,6 +264,8 @@ strings:
   menu.checkProblems: 检查问题
   menu.closeTab: 关闭场景标签页
   menu.commandPalette: 命令面板…
+  menu.copy: 拷贝
+  menu.cut: 剪切
   menu.delete: 删除
   menu.duplicate: 复制
   menu.edit: 编辑
@@ -262,6 +276,7 @@ strings:
   menu.fillTile: 填充瓦片
   menu.frameSelection: 聚焦选中
   menu.gizmo3d: 3D 操纵杆
+  menu.group: 编组
   menu.lightingPreview: 2D 光照预览
   menu.localization: 本地化字符串
   menu.materialEditor: 材质编辑器
@@ -277,6 +292,8 @@ strings:
   menu.openProject: 打开项目…
   menu.paintTile: 绘制瓦片
   menu.particleEditor: 粒子发射器编辑器
+  menu.paste: 粘贴
+  menu.pasteInto: 粘贴为子级
   menu.place: 放置
   menu.play: 播放
   menu.plugins: 插件
@@ -301,6 +318,7 @@ strings:
   menu.tools: 工具
   menu.translate: 平移
   menu.undo: 撤销
+  menu.ungroup: 取消编组
   menu.view: 视图
   menu.view2d: 2D 视图
   menu.view3d: 3D 视图
@@ -339,8 +357,12 @@ strings:
   scene.untitledScene: 未命名场景
   sceneTree.active: 当前
   sceneTree.changeID: 修改 ID
+  sceneTree.copy: 拷贝
+  sceneTree.cut: 剪切
   sceneTree.delete: 删除
+  sceneTree.duplicate: 复制
   sceneTree.expand: 展开
+  sceneTree.group: 编组
   sceneTree.hide: 在视口中隐藏
   sceneTree.hideNamed: 隐藏 {id}
   sceneTree.indent: 设为上一项的子级
@@ -354,11 +376,14 @@ strings:
   sceneTree.objectID: 对象 ID
   sceneTree.objectName: 对象名称
   sceneTree.outdent: 移出父级
+  sceneTree.paste: 粘贴
+  sceneTree.pasteInto: 粘贴为子级
   sceneTree.remote: 远程
   sceneTree.rename: 重命名
   sceneTree.show: 在视口中显示
   sceneTree.showNamed: 显示 {id}
   sceneTree.title: 场景
+  sceneTree.ungroup: 取消编组
   sceneTree.unlock: 解锁
   sceneTree.unlockNamed: 解锁 {id}
   search.close: 关闭

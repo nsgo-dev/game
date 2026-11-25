@@ -19,6 +19,10 @@ strings:
   cmd.checkProblems.label: Check Problems
   cmd.commandPalette.desc: Search and run editor commands, plugin tools, panels, and project files
   cmd.commandPalette.label: Command Palette
+  cmd.copy.desc: Copy the selected objects or tile region to the clipboard
+  cmd.copy.label: Copy
+  cmd.cut.desc: Cut the selected objects or tile region to the clipboard
+  cmd.cut.label: Cut
   cmd.delete.desc: Remove the currently selected object from the scene
   cmd.delete.label: Delete Selected Object
   cmd.duplicate.desc: Clone the currently selected object on the same layer
@@ -35,6 +39,8 @@ strings:
   cmd.gizmoScale.label: '3D Gizmo: Scale'
   cmd.gizmoTranslate.desc: Switch the 3D transform gizmo to Translate mode
   cmd.gizmoTranslate.label: '3D Gizmo: Translate'
+  cmd.group.desc: Wrap the selected objects under a new empty parent at their common centre
+  cmd.group.label: Group Selected Objects
   cmd.lightingPreview.desc: Show or hide live 2D lights, occluder shadows, and ambient darkness in the 2D viewport
   cmd.lightingPreview.label: Toggle 2D Lighting Preview
   cmd.localization.desc: Toggle the Localization string table panel
@@ -53,6 +59,10 @@ strings:
   cmd.newProject.label: New Project...
   cmd.openProject.desc: Choose a project folder to open in the editor
   cmd.openProject.label: Open Project...
+  cmd.paste.desc: Paste objects from the clipboard onto the active layer, or paste a copied tile region
+  cmd.paste.label: Paste
+  cmd.pasteInto.desc: Paste objects from the clipboard as children of the selected object
+  cmd.pasteInto.label: Paste as Child
   cmd.playStop.desc: Toggle play-in-editor simulation
   cmd.playStop.label: Play / Stop
   cmd.profiler.desc: Toggle the Profiler panel for the running game
@@ -89,6 +99,8 @@ strings:
   cmd.toolSelect.label: 'Tool: Select'
   cmd.undo.desc: Undo the last edit
   cmd.undo.label: Undo
+  cmd.ungroup.desc: Lift the selected object's children out while keeping their world transforms
+  cmd.ungroup.label: Ungroup Selected Object
   cmd.view2d.desc: Show the 2D scene viewport
   cmd.view2d.label: Switch to 2D View
   cmd.view3d.desc: Show the 3D orbit and gizmo viewport
@@ -252,6 +264,8 @@ strings:
   menu.checkProblems: Check Problems
   menu.closeTab: Close Scene Tab
   menu.commandPalette: Command Palette...
+  menu.copy: Copy
+  menu.cut: Cut
   menu.delete: Delete
   menu.duplicate: Duplicate
   menu.edit: Edit
@@ -262,6 +276,7 @@ strings:
   menu.fillTile: Fill Tile
   menu.frameSelection: Frame Selection
   menu.gizmo3d: 3D Gizmo
+  menu.group: Group
   menu.lightingPreview: 2D Lighting Preview
   menu.localization: Localization Strings
   menu.materialEditor: Material Editor
@@ -277,6 +292,8 @@ strings:
   menu.openProject: Open Project...
   menu.paintTile: Paint Tile
   menu.particleEditor: Particle Emitter Editor
+  menu.paste: Paste
+  menu.pasteInto: Paste as Child
   menu.place: Place
   menu.play: Play
   menu.plugins: Plugins
@@ -301,6 +318,7 @@ strings:
   menu.tools: Tools
   menu.translate: Translate
   menu.undo: Undo
+  menu.ungroup: Ungroup
   menu.view: View
   menu.view2d: 2D View
   menu.view3d: 3D View
@@ -339,8 +357,12 @@ strings:
   scene.untitledScene: Untitled Scene
   sceneTree.active: active
   sceneTree.changeID: Change ID
+  sceneTree.copy: Copy
+  sceneTree.cut: Cut
   sceneTree.delete: Delete
+  sceneTree.duplicate: Duplicate
   sceneTree.expand: Expand
+  sceneTree.group: Group
   sceneTree.hide: Hide in Viewport
   sceneTree.hideNamed: Hide {id}
   sceneTree.indent: Make Child of Previous
@@ -354,11 +376,14 @@ strings:
   sceneTree.objectID: Object ID
   sceneTree.objectName: Object Name
   sceneTree.outdent: Move Out of Parent
+  sceneTree.paste: Paste
+  sceneTree.pasteInto: Paste as Child
   sceneTree.remote: Remote
   sceneTree.rename: Rename
   sceneTree.show: Show in Viewport
   sceneTree.showNamed: Show {id}
   sceneTree.title: Scene
+  sceneTree.ungroup: Ungroup
   sceneTree.unlock: Unlock
   sceneTree.unlockNamed: Unlock {id}
   search.close: Close

@@ -9,7 +9,6 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -26,8 +25,14 @@ const (
 	CmdOpenBaseScene         = "scene.openBase"
 	CmdUndo                  = "edit.undo"
 	CmdRedo                  = "edit.redo"
+	CmdCopy                  = "edit.copy"
+	CmdCut                   = "edit.cut"
+	CmdPaste                 = "edit.paste"
+	CmdPasteInto             = "edit.pasteInto"
 	CmdDelete                = "edit.delete"
 	CmdDuplicate             = "edit.duplicate"
+	CmdGroup                 = "edit.group"
+	CmdUngroup               = "edit.ungroup"
 	CmdToolSelect            = "tool.select"
 	CmdToolMove              = "tool.move"
 	CmdToolPlace             = "tool.place"
@@ -392,6 +397,87 @@ func (e *Editor) initBuiltinCommands() {
 			},
 		},
 		{
+			ID:          CmdCopy,
+			Label:       "Copy",
+			Description: "Copy the selected objects or tile region to the clipboard",
+			Category:    "Edit",
+			Keywords:    []string{"copy", "clipboard", "yaml", "object", "tile"},
+			Shortcut:    "mod+c",
+			Enabled: func() bool {
+				if !notPlaying() {
+					return false
+				}
+				return len(e.SelectedIDs()) > 0 || (e.ViewMode == ViewMode2D && e.hasTileSel)
+			},
+			Run: func() error {
+				if e.ViewMode == ViewMode2D && e.hasTileSel && (isTileTool(e.Tool) || len(e.SelectedIDs()) == 0) {
+					_, err := e.CopySelectedTileRegion()
+					return err
+				}
+				_, err := e.CopySelected()
+				return err
+			},
+		},
+		{
+			ID:          CmdCut,
+			Label:       "Cut",
+			Description: "Cut the selected objects or tile region to the clipboard",
+			Category:    "Edit",
+			Keywords:    []string{"cut", "clipboard", "yaml", "object", "tile"},
+			Shortcut:    "mod+x",
+			Enabled: func() bool {
+				if !notPlaying() {
+					return false
+				}
+				return len(e.SelectedIDs()) > 0 || (e.ViewMode == ViewMode2D && e.hasTileSel)
+			},
+			Run: func() error {
+				if e.ViewMode == ViewMode2D && e.hasTileSel && (isTileTool(e.Tool) || len(e.SelectedIDs()) == 0) {
+					_, err := e.CutSelectedTileRegion()
+					return err
+				}
+				_, err := e.CutSelected()
+				return err
+			},
+		},
+		{
+			ID:          CmdPaste,
+			Label:       "Paste",
+			Description: "Paste objects from the clipboard onto the active layer, or paste a copied tile region",
+			Category:    "Edit",
+			Keywords:    []string{"paste", "clipboard", "yaml", "object", "tile"},
+			Shortcut:    "mod+v",
+			Enabled:     notPlaying,
+			Run: func() error {
+				if e.ViewMode == ViewMode2D && isTileTool(e.Tool) && !e.tileClipboard.Empty() && e.lastClipboardKind == clipboardTile {
+					if col, row, ok := e.HoveredTile(); ok {
+						return e.PasteTileRegion(e.ActiveLayer, col, row)
+					}
+					if sel, ok := e.TileSelection(); ok {
+						return e.PasteTileRegion(e.ActiveLayer, sel.Col0, sel.Row0)
+					}
+					e.activeStamp = e.tileClipboard.Clone()
+					e.SetTool(ToolStampTile)
+					return nil
+				}
+				_, err := e.Paste()
+				return err
+			},
+		},
+		{
+			ID:          CmdPasteInto,
+			Label:       "Paste as Child",
+			Description: "Paste objects from the clipboard as children of the selected object",
+			Category:    "Edit",
+			Keywords:    []string{"paste", "child", "parent", "clipboard", "yaml", "object"},
+			Shortcut:    "mod+shift+v",
+			Enabled:     func() bool { return notPlaying() && e.SelectedID != "" },
+			Run: func() error {
+				_, err := e.PasteInto(e.SelectedID)
+				return err
+			},
+		},
+		{
 			ID:                 CmdDelete,
 			Label:              "Delete Selected Object",
 			Description:        "Remove the currently selected object from the scene",
@@ -419,9 +505,41 @@ func (e *Editor) initBuiltinCommands() {
 			Category:    "Edit",
 			Keywords:    []string{"clone", "copy", "object"},
 			Shortcut:    "mod+d",
-			Enabled:     func() bool { return !e.StartScreenOpen() && !e.Playing() && e.SelectedID != "" },
+			Enabled:     func() bool { return notPlaying() && e.SelectedID != "" },
 			Run: func() error {
 				_, err := e.DuplicateSelected()
+				return err
+			},
+		},
+		{
+			ID:          CmdGroup,
+			Label:       "Group Selected Objects",
+			Description: "Wrap the selected objects under a new empty parent at their common centre",
+			Category:    "Edit",
+			Keywords:    []string{"group", "parent", "container", "hierarchy", "object"},
+			Shortcut:    "mod+g",
+			Enabled:     func() bool { return notPlaying() && len(e.SelectedIDs()) > 0 },
+			Run: func() error {
+				_, err := e.GroupSelected()
+				return err
+			},
+		},
+		{
+			ID:          CmdUngroup,
+			Label:       "Ungroup Selected Object",
+			Description: "Lift the selected object's children out while keeping their world transforms",
+			Category:    "Edit",
+			Keywords:    []string{"ungroup", "unparent", "children", "hierarchy", "object"},
+			Shortcut:    "mod+shift+g",
+			Enabled: func() bool {
+				if !notPlaying() || e.SelectedID == "" {
+					return false
+				}
+				o, _, _ := e.FindObject(e.SelectedID)
+				return o != nil && len(o.Children) > 0
+			},
+			Run: func() error {
+				_, err := e.UngroupSelected()
 				return err
 			},
 		},
@@ -585,8 +703,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Copy the selected tilemap region to the tile clipboard",
 			Category:    "Edit",
 			Keywords:    []string{"copy", "tile", "region", "stamp", "clipboard"},
-			Shortcut:    "mod+c",
-			Enabled:     func() bool { return !e.Playing() && e.ViewMode == ViewMode2D && e.hasTileSel },
+			Enabled:     func() bool { return notPlaying() && e.ViewMode == ViewMode2D && e.hasTileSel },
 			Run: func() error {
 				_, err := e.CopySelectedTileRegion()
 				return err
@@ -598,8 +715,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Cut the selected tilemap region to the tile clipboard",
 			Category:    "Edit",
 			Keywords:    []string{"cut", "tile", "region", "stamp", "clipboard"},
-			Shortcut:    "mod+x",
-			Enabled:     func() bool { return !e.Playing() && e.ViewMode == ViewMode2D && e.hasTileSel },
+			Enabled:     func() bool { return notPlaying() && e.ViewMode == ViewMode2D && e.hasTileSel },
 			Run: func() error {
 				_, err := e.CutSelectedTileRegion()
 				return err
@@ -611,8 +727,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Paste the tile clipboard at the hovered cell or activate it as the Stamp brush",
 			Category:    "Edit",
 			Keywords:    []string{"paste", "tile", "region", "stamp", "clipboard"},
-			Shortcut:    "mod+v",
-			Enabled:     func() bool { return !e.Playing() && e.ViewMode == ViewMode2D && !e.tileClipboard.Empty() },
+			Enabled:     func() bool { return notPlaying() && e.ViewMode == ViewMode2D && !e.tileClipboard.Empty() },
 			Run: func() error {
 				if col, row, ok := e.HoveredTile(); ok {
 					return e.PasteTileRegion(e.ActiveLayer, col, row)
@@ -1226,8 +1341,14 @@ var builtinCommandKeys = map[string][3]string{
 	CmdSave:                  {"cmd.save.label", "cmd.save.desc", "cmd.category.file"},
 	CmdUndo:                  {"cmd.undo.label", "cmd.undo.desc", "cmd.category.edit"},
 	CmdRedo:                  {"cmd.redo.label", "cmd.redo.desc", "cmd.category.edit"},
+	CmdCopy:                  {"cmd.copy.label", "cmd.copy.desc", "cmd.category.edit"},
+	CmdCut:                   {"cmd.cut.label", "cmd.cut.desc", "cmd.category.edit"},
+	CmdPaste:                 {"cmd.paste.label", "cmd.paste.desc", "cmd.category.edit"},
+	CmdPasteInto:             {"cmd.pasteInto.label", "cmd.pasteInto.desc", "cmd.category.edit"},
 	CmdDelete:                {"cmd.delete.label", "cmd.delete.desc", "cmd.category.edit"},
 	CmdDuplicate:             {"cmd.duplicate.label", "cmd.duplicate.desc", "cmd.category.edit"},
+	CmdGroup:                 {"cmd.group.label", "cmd.group.desc", "cmd.category.edit"},
+	CmdUngroup:               {"cmd.ungroup.label", "cmd.ungroup.desc", "cmd.category.edit"},
 	CmdToolSelect:            {"cmd.toolSelect.label", "cmd.toolSelect.desc", "cmd.category.tools"},
 	CmdToolMove:              {"cmd.toolMove.label", "cmd.toolMove.desc", "cmd.category.tools"},
 	CmdToolPlace:             {"cmd.toolPlace.label", "cmd.toolPlace.desc", "cmd.category.tools"},
@@ -1372,68 +1493,57 @@ func (e *Editor) TriggerShortcut(shortcut string) bool {
 	return false
 }
 
-// DeleteSelected deletes the currently selected object as an undoable command.
+// DeleteSelected deletes the currently selected object(s) as one undoable command.
 // When nothing is selected, it returns nil without modifying history.
 func (e *Editor) DeleteSelected() error {
 	if e.playing {
 		return ErrPlaying
 	}
-	if e.SelectedID == "" {
+	ids := e.SelectedIDs()
+	if len(ids) == 0 {
 		return nil
 	}
-	return e.DeleteObject(e.SelectedID)
+	if len(ids) == 1 {
+		return e.DeleteObject(ids[0])
+	}
+	e.cancelActiveObjectDrags()
+	roots, err := e.normalizeObjectSelection(ids)
+	if err != nil {
+		return err
+	}
+	if len(roots) == 1 {
+		return e.DeleteObject(roots[0])
+	}
+	label := fmt.Sprintf("Delete %d objects", len(roots))
+	return e.deleteRootObjects(roots, label, fmt.Sprintf("Deleted %d objects", len(roots)))
 }
 
-// DuplicateObject clones object id on the same layer with fresh unique IDs for it and its descendants,
-// selects the duplicate, and returns its new ID as one undoable command.
+// DuplicateObject clones object id on the same layer (and under the same parent) next to
+// the original with fresh unique IDs for it and its descendants, rewriting internal connections
+// and overrides to the new IDs, selects the duplicate, and returns its new ID as one undoable command.
 func (e *Editor) DuplicateObject(id string) (string, error) {
-	if e.playing {
-		return "", ErrPlaying
+	ids, err := e.DuplicateObjects(id)
+	if err != nil || len(ids) == 0 {
+		return "", err
 	}
-	// A drag in progress is put back first, so the copy is of the object as it was before the drag.
-	e.CancelDrag2D()
-	e.CancelShapeDrag2D()
-	e.CancelPluginDrag2D()
-	e.CancelComponentGizmoDrag3D()
-	e.CancelPluginDrag3D()
-	e.CancelCameraDrag()
-	obj, li, _ := e.FindObject(id)
-	if obj == nil {
-		return "", fmt.Errorf("editor: object %q not found", id)
-	}
-	cloned := cloneObjectDoc(*obj)
-	allocated := make(map[string]struct{})
-	var assignIDs func(o *sceneformat.ObjectDoc)
-	assignIDs = func(o *sceneformat.ObjectDoc) {
-		base := o.ID
-		if base == "" {
-			base = o.Name
-		}
-		for {
-			candidate := e.generateObjectID(base)
-			if _, taken := allocated[candidate]; !taken {
-				o.ID = candidate
-				allocated[candidate] = struct{}{}
-				break
-			}
-		}
-		for i := range o.Children {
-			assignIDs(&o.Children[i])
-		}
-	}
-	assignIDs(&cloned)
-	return e.PlaceObject(e.Doc.Layers[li].Name, cloned)
+	return ids[0], nil
 }
 
-// DuplicateSelected duplicates the currently selected object and returns the duplicate's ID.
+// DuplicateSelected duplicates the currently selected object(s) in one undoable step
+// and returns the primary duplicate's ID.
 func (e *Editor) DuplicateSelected() (string, error) {
 	if e.playing {
 		return "", ErrPlaying
 	}
-	if e.SelectedID == "" {
+	ids := e.SelectedIDs()
+	if len(ids) == 0 {
 		return "", nil
 	}
-	return e.DuplicateObject(e.SelectedID)
+	dups, err := e.DuplicateObjects(ids...)
+	if err != nil || len(dups) == 0 {
+		return "", err
+	}
+	return dups[len(dups)-1], nil
 }
 
 // TogglePlay starts play-in-editor if stopped, or stops it and restores the pre-play snapshot if playing.

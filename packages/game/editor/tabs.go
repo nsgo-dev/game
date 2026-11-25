@@ -7,6 +7,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 
 	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
@@ -46,6 +47,7 @@ type sceneTab struct {
 	onSave              func([]byte) error
 	sceneSaved          []byte
 	selectedID          string
+	selectedIDs         []string
 	activeLayer         string
 	activeTileID        int
 	activeTileLayer     string
@@ -123,6 +125,7 @@ func (e *Editor) syncActiveTab() {
 	t.onSave = e.OnSave
 	t.sceneSaved = e.sceneSaved
 	t.selectedID = e.SelectedID
+	t.selectedIDs = slices.Clone(e.selectedIDs)
 	t.activeLayer = e.ActiveLayer
 	t.activeTileID = e.ActiveTileID
 	t.activeTileLayer = e.ActiveTileLayer
@@ -157,6 +160,8 @@ func (e *Editor) loadActiveTab() {
 	e.OnSave = t.onSave
 	e.sceneSaved = t.sceneSaved
 	e.SelectedID = t.selectedID
+	e.selectedIDs = slices.Clone(t.selectedIDs)
+	e.pasteStreak = 0
 	e.ActiveLayer = t.activeLayer
 	e.ActiveTileID = t.activeTileID
 	e.ActiveTileLayer = t.activeTileLayer

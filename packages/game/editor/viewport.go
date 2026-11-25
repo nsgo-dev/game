@@ -688,31 +688,34 @@ func drawBuiltLayer(d *core.Drawing, layer *sceneformat.BuiltLayer) {
 }
 
 func (e *Editor) drawSelectionOverlay(d *core.Drawing, scene *sceneformat.BuiltScene) {
-	if e.SelectedID == "" {
+	ids := e.SelectedIDs()
+	if len(ids) == 0 {
 		return
 	}
-	bo := scene.Object(e.SelectedID)
-	if bo == nil || bo.Doc == nil || viewFlagged(e.hidden, bo) {
-		return
+	for _, id := range ids {
+		bo := scene.Object(id)
+		if bo == nil || bo.Doc == nil || viewFlagged(e.hidden, bo) {
+			continue
+		}
+		space := sceneformat.SpaceWorld
+		var px, py float32 = 1, 1
+		if layer := scene.Layer(bo.Layer); layer != nil {
+			space = layer.Space
+			px, py = layer.ParallaxX, layer.ParallaxY
+		}
+		m := e.layerAffineFor(space, px, py).Mul(bo.World)
+		rx, ry, rw, rh := objectOutline(bo)
+		corners := []math2d.Vec2{
+			m.TransformPoint(math2d.Vec2{X: rx, Y: ry}),
+			m.TransformPoint(math2d.Vec2{X: rx + rw, Y: ry}),
+			m.TransformPoint(math2d.Vec2{X: rx + rw, Y: ry + rh}),
+			m.TransformPoint(math2d.Vec2{X: rx, Y: ry + rh}),
+		}
+		d.Save()
+		d.SetStrokeColor(core.RGBA(0x38BDF8, 1)).SetLineWidth(1.5)
+		strokePolygon(d, corners)
+		d.Restore()
 	}
-	space := sceneformat.SpaceWorld
-	var px, py float32 = 1, 1
-	if layer := scene.Layer(bo.Layer); layer != nil {
-		space = layer.Space
-		px, py = layer.ParallaxX, layer.ParallaxY
-	}
-	m := e.layerAffineFor(space, px, py).Mul(bo.World)
-	rx, ry, rw, rh := objectOutline(bo)
-	corners := []math2d.Vec2{
-		m.TransformPoint(math2d.Vec2{X: rx, Y: ry}),
-		m.TransformPoint(math2d.Vec2{X: rx + rw, Y: ry}),
-		m.TransformPoint(math2d.Vec2{X: rx + rw, Y: ry + rh}),
-		m.TransformPoint(math2d.Vec2{X: rx, Y: ry + rh}),
-	}
-	d.Save()
-	d.SetStrokeColor(core.RGBA(0x38BDF8, 1)).SetLineWidth(1.5)
-	strokePolygon(d, corners)
-	d.Restore()
 }
 
 // wheelZoomPoints is how far a wheel moves the content, in points, to double or halve the 2D view's zoom: a notch of 40 points zooms by about 15%.
@@ -1376,6 +1379,7 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 					if ed.ViewMode == ViewMode3D {
 						cw, ch := ed.CanvasSize()
 						x, y := float32(ev.Position.X), float32(ev.Position.Y)
+						ed.SetViewportPointer3D(x, y)
 						if in3DGridMap() {
 							ed.SetGridMapHover(x, y, cw, ch, ev.Modifiers.Alt)
 						}
@@ -1396,6 +1400,7 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 						return
 					}
 					if ed.ViewMode == ViewMode2D {
+						ed.SetViewportPointer2D(float32(ev.Position.X), float32(ev.Position.Y))
 						ed.SetTileHover(float32(ev.Position.X), float32(ev.Position.Y), ev.Modifiers.Alt)
 						ed.SetPluginHover2D(float32(ev.Position.X), float32(ev.Position.Y))
 					}
@@ -1460,6 +1465,7 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 					}
 				},
 				OnMouseLeave: func(core.MouseEvent) {
+					ed.ClearViewportPointer()
 					ed.ClearTileHover()
 					ed.ClearGridMapHover()
 					ed.ClearPluginHover2D()

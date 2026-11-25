@@ -745,6 +745,15 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 
 3D 视口会绘制并拾取所有对象，包括嵌套的子对象：`Objects3D` 按深度优先列出它们，并给出各自父对象的 ID；子对象的几何体和包围盒由其祖先的变换确定位置（[3D 视口](#3d-视口890)）。
 
+### 拷贝、粘贴、复制与编组对象（#868）
+
+场景树支持多选对象（`SelectObjects`、`SelectedIDs`、`ToggleSelectObject`、`IsObjectSelected`），对象剪贴板、创建副本与编组操作均可通过“编辑”菜单、场景树右键上下文菜单、命令面板和快捷键触发：
+
+- **拷贝（`mod+c`、`CopyObjects`、`CopySelected`）与剪切（`mod+x`、`CutObjects`、`CutSelected`）**：将选中对象连同其嵌套子对象、组件、属性、`overrides` 以及两端均落在选中子树内的所有连接，编码为规范的 `sceneformat` YAML 写入系统剪贴板（`core.Scope.SetClipboard` 或可注入钩子 `Editor.WriteClipboard`），可直接粘贴到另一场景或文本编辑器。剪切会在**单个撤销步骤**中移除原对象及其连接。当 2D 瓦片工具下存在活动瓦片选区时，`mod+c` 与 `mod+x` 仍按原行为拷贝或剪切瓦片区域。
+- **粘贴（`mod+v`、`Paste`、`PasteWith`、`PasteYAML`、`PasteYAMLWith`）与粘贴为子级（`mod+shift+v`、`PasteInto`）**：从系统剪贴板读取场景格式 YAML（`core.Scope.ReadClipboard` / `Editor.ReadClipboard`），将对象放置到当前图层 `ActiveLayer`（或指定父对象 `ParentID` 下），优先落在视口悬停指针处（`SetViewportPointer2D` / `SetViewportPointer3D`），否则在目标场景已有同名 ID 时相对原位置偏移排列。目标场景未占用的原始 ID 会直接保留，已占用的 ID 会分配新的唯一 ID，同时将内部连接与场景覆盖（含实例化路径 `"enemy_1/body"`）改写为新 ID，并在目标场景已有主 3D 相机时自动清除副本的 `current` 标志。所有粘贴都经过 `PlaceObject` 的完整校验（`sceneformat.Validate`、`ValidateComponents`、`ValidateConnections`、`ValidatePhysicsLayers` 以及实例化场景的 `Resolve`）并作为**单个撤销步骤**提交；无法解析或校验失败的 YAML 会在状态栏报错拒绝，不修改场景与撤销历史。
+- **复制副本（`mod+d`、`DuplicateObject`、`DuplicateObjects`、`DuplicateSelected`、`DuplicateSelectedObjects`）**：在**单个撤销步骤**中将选中对象克隆到同一图层与父级下且紧邻原对象的位置，分配唯一 ID 并改写内部连接与覆盖，且不覆盖系统剪贴板。
+- **编组（`mod+g`、`GroupObjects`、`GroupSelected`）与取消编组（`mod+shift+g`、`UngroupObject`、`UngroupSelected`）**：编组在选中对象的 2D/3D 世界中心处新建空父对象并将它们归入其下，通过 `keepWorldTransform` 换算局部变换使屏幕位置与世界变换保持不变，记录为**单个撤销步骤**。取消编组在**单个撤销步骤**中将直接子级提升到父级所在层级并保持其世界变换；对于无可视化/组件内容且无连接的空分组容器会自动移除，非空父对象则保留自身。
+
 ## 3D 导航网格烘焙（#901）
 
 在 3D 视图模式下，编辑器可直接从当前打开场景的静态几何体烘焙 Recast 风格的 3D 导航网格（`navbake3d`），并在 3D 视口上实时预览：
@@ -931,7 +940,7 @@ func main() {
 所有常用编辑器操作统一注册在同一个命令注册表中（`Editor.Commands`、`Editor.RegisterCommand`、`Editor.ExecuteCommand`），由单一数据源同时驱动键盘快捷键、桌面应用菜单栏和命令面板：
 
 - **跨平台快捷键与文本焦点保护**：快捷键使用 NSGo 的 `"mod"` 修饰键（macOS 为 Command，Windows/Linux 为 Ctrl，可通过 `FormatShortcut` 格式化显示），并全部使用 `core.KeyNotEditing` 和 `core.MenuNotEditing` 绑定，因此当任意文本输入框拥有焦点时（例如检查器的 Name 输入框或搜索框），输入字符或按下 Delete/Backspace/Undo/Save 绝不会误触编辑器快捷键：
-  - 文件与编辑：`mod+s`（保存）、`mod+z`（撤销）、`mod+shift+z`（重做）、`mod+d`（复制选中对象）、`delete` / `backspace`（删除选中对象）、`mod+c`（复制瓦片区域）、`mod+x`（剪切瓦片区域）、`mod+v`（粘贴瓦片区域）。
+  - 文件与编辑：`mod+s`（保存）、`mod+z`（撤销）、`mod+shift+z`（重做）、`mod+c`（拷贝对象或当前瓦片区域）、`mod+x`（剪切对象或当前瓦片区域）、`mod+v`（粘贴对象或瓦片区域）、`mod+shift+v`（粘贴为子级）、`mod+d`（复制选中对象）、`mod+g`（编组）、`mod+shift+g`（取消编组）、`delete` / `backspace`（删除选中对象）。
   - 2D 工具：`v`（选择）、`m`（移动）、`p`（放置）、`b`（绘制瓦片）、`e`（擦除瓦片）、`g`（填充瓦片）、`t`（地形）、`u`（矩形瓦片）、`l`（直线瓦片）、`c`（图章瓦片）、`n`（随机瓦片）。
   - 3D 变换控件与视图：`w`（平移）、`r`（旋转）、`s`（缩放）、`shift+c`（碰撞体手柄）、`alt+2`（2D 视图）、`alt+3`（3D 视图）、`View > 3D Shading` 下的 Lit、Unlit、Wireframe 三个 3D 着色命令（无快捷键）、`f`（聚焦选中对象：2D 下通过 `FrameSelection2D` 调整独立编辑器视图 `View2D` 而不改动保存的 `Doc.Camera`，3D 下调整 `Camera3D`）、`1`、`ctrl+1`、`3`、`ctrl+3`、`7` 和 `ctrl+7`（3D 前视、后视、右视、左视、顶视和底视）、`5`（3D 透视或正交）以及 `0`（透过场景相机观看），这些只在 3D 视图中生效、`View > Scene Environment`（开关场景环境面板）、`mod+k`（命令面板）。
   - 项目：`f5`（播放 / 停止）、`mod+r`（运行游戏：优先调用 `Editor.OnRunGame`，未配置且已挂载作用域时回退到编辑器内运行）、`mod+,`（项目设置）、`mod+shift+u`（HUD 与菜单布局）、`mod+shift+e`（导出与发布）、`mod+shift+m`（性能分析器）、`mod+shift+b`（检查问题）。

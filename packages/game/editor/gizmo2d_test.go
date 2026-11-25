@@ -641,8 +641,8 @@ func TestEditsDuringADragPutItBackFirst(t *testing.T) {
 	}
 	dup, _, _ := ed.FindObject(id)
 	hero, _, _ := ed.FindObject("hero")
-	if dup == nil || dup.X != 40 || dup.Y != 40 || hero.X != 40 || hero.Y != 40 {
-		t.Fatal("a duplicate made during a drag copied the half-dragged transform")
+	if dup == nil || dup.X != 56 || dup.Y != 56 || hero.X != 40 || hero.Y != 40 {
+		t.Fatalf("a duplicate made during a drag copied the half-dragged transform: dup=(%v,%v), hero=(%v,%v)", dup.X, dup.Y, hero.X, hero.Y)
 	}
 	ed.Undo()
 
