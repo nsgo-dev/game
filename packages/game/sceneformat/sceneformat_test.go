@@ -600,3 +600,73 @@ func TestValidateNamesTheField(t *testing.T) {
 		t.Fatalf("nil document: %#v", fe)
 	}
 }
+
+// TestWholeNumberFloatPropertiesKeepTheirKind checks that a custom property holding a whole-number float, at the top or nested in a list or map, is written with a decimal point and reads back as a float, while ints stay ints and the encoded document is left as it was.
+func TestWholeNumberFloatPropertiesKeepTheirKind(t *testing.T) {
+	props := map[string]any{
+		"zero":   0.0,
+		"two":    float64(2),
+		"neg":    float64(-3),
+		"half":   0.5,
+		"big":    1e21,
+		"single": float32(4),
+		"count":  7,
+		"list":   []any{1.0, 2},
+		"nested": map[string]any{"speed": 3.0},
+	}
+	doc := &sceneformat.SceneDoc{
+		Version:       sceneformat.CurrentVersion,
+		Name:          "Floats",
+		VirtualWidth:  160,
+		VirtualHeight: 120,
+		Layers: []sceneformat.LayerDoc{{
+			Name: "actors",
+			Objects: []sceneformat.ObjectDoc{{
+				ID:         "hero",
+				Properties: props,
+				Children:   []sceneformat.ObjectDoc{{ID: "child", Properties: map[string]any{"f": 1.0}}},
+			}},
+		}},
+	}
+	data, err := sceneformat.Encode(doc)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	for _, want := range []string{"zero: 0.0\n", "two: 2.0\n", "neg: -3.0\n", "half: 0.5\n", "big: 1e+21\n", "single: 4.0\n", "count: 7\n", "- 1.0\n", "- 2\n", "speed: 3.0\n", "f: 1.0\n"} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("encoded scene lacks %q:\n%s", want, data)
+		}
+	}
+	if _, ok := props["two"].(float64); !ok {
+		t.Fatalf("Encode changed the document's property to %#v", props["two"])
+	}
+	back, err := sceneformat.Parse(data)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	got := back.Layers[0].Objects[0].Properties
+	want := map[string]any{
+		"zero":   0.0,
+		"two":    2.0,
+		"neg":    -3.0,
+		"half":   0.5,
+		"big":    1e21,
+		"single": 4.0,
+		"count":  7,
+		"list":   []any{1.0, 2},
+		"nested": map[string]any{"speed": 3.0},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("properties read back as %#v, want %#v", got, want)
+	}
+	if f, ok := back.Layers[0].Objects[0].Children[0].Properties["f"].(float64); !ok || f != 1 {
+		t.Fatalf("child property read back as %#v", back.Layers[0].Objects[0].Children[0].Properties["f"])
+	}
+	again, err := sceneformat.Encode(back)
+	if err != nil {
+		t.Fatalf("Encode again: %v", err)
+	}
+	if !bytes.Equal(again, data) {
+		t.Fatalf("the reread scene encodes differently:\n%s\nwant\n%s", again, data)
+	}
+}

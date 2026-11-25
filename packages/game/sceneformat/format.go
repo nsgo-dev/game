@@ -243,7 +243,7 @@ type ObjectDoc struct {
 	Material string `yaml:"material,omitempty"`
 	// Components holds structured component data keyed by component type name.
 	Components map[string]any `yaml:"components,omitempty"`
-	// Properties holds arbitrary custom metadata for gameplay scripts or editors.
+	// Properties holds arbitrary custom metadata for gameplay scripts or editors. Encode writes a whole-number float with a decimal point (2.0), so that every value reads back with the kind it was written with.
 	Properties map[string]any `yaml:"properties,omitempty"`
 	// Scene optionally instances another scene file, named by its slash-separated path from the project root such as "scenes/enemy.scene.yaml". Resolve makes the top-level objects of every layer of that scene, in document order, this object's first children, ahead of the ones in Children, with each instanced object's ID prefixed by this object's ID and a slash ("enemy_1/body"). The instanced scene's layer settings, camera, background and virtual size do not carry over, and a scene whose layers hold a tilemap cannot be instanced. Version 2.
 	Scene string `yaml:"scene,omitempty"`
@@ -572,7 +572,7 @@ func trailingDocumentLine(data []byte) int {
 	return 0
 }
 
-// Encode validates doc and serializes it as deterministic 2-space YAML, starting with the line SchemaCommentFor returns for its version.
+// Encode validates doc and serializes it as deterministic 2-space YAML, starting with the line SchemaCommentFor returns for its version. A whole-number float in a custom property (ObjectDoc.Properties) is written with a decimal point, such as 2.0, so that it reads back as a float and not an int.
 func Encode(doc *SceneDoc) ([]byte, error) {
 	if err := Validate(doc); err != nil {
 		return nil, err
@@ -581,7 +581,7 @@ func Encode(doc *SceneDoc) ([]byte, error) {
 	buf.WriteString(SchemaCommentFor(doc.Version) + "\n")
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
-	if err := enc.Encode(doc); err != nil {
+	if err := enc.Encode(floatKinds(doc)); err != nil {
 		_ = enc.Close()
 		return nil, fmt.Errorf("sceneformat: encode: %w", err)
 	}
