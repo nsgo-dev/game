@@ -119,14 +119,15 @@ func tiledTileShapes(objects []tiledObject) ([]TileShape, error) {
 		if typ == "" {
 			typ = o.Class
 		}
+		ow, oh, orot := float32Val(o.Width), float32Val(o.Height), float32Val(o.Rotation)
 		s := TileShape{Name: o.Name, Type: typ, Properties: props}
 		switch {
 		case o.Ellipse:
-			if o.Width <= 0 || o.Height <= 0 {
+			if ow <= 0 || oh <= 0 {
 				continue
 			}
 			s.Shape = ObjectEllipse
-			rx, ry := float64(o.Width)/2, float64(o.Height)/2
+			rx, ry := float64(ow)/2, float64(oh)/2
 			s.Points = make([]core.Point, EllipseShapeSegments)
 			for k := range s.Points {
 				a := 2 * math.Pi * float64(k) / EllipseShapeSegments
@@ -145,18 +146,18 @@ func tiledTileShapes(objects []tiledObject) ([]TileShape, error) {
 			s.Shape = ObjectPolyline
 			s.Points = convertPoints(o.Polyline)
 		default:
-			if o.Width <= 0 || o.Height <= 0 {
+			if ow <= 0 || oh <= 0 {
 				continue
 			}
 			s.Shape = ObjectRect
 			s.Points = []core.Point{
 				{X: 0, Y: 0},
-				{X: core.Points(o.Width), Y: 0},
-				{X: core.Points(o.Width), Y: core.Points(o.Height)},
-				{X: 0, Y: core.Points(o.Height)},
+				{X: core.Points(ow), Y: 0},
+				{X: core.Points(ow), Y: core.Points(oh)},
+				{X: 0, Y: core.Points(oh)},
 			}
 		}
-		placeObjectPoints(s.Points, float64(o.X), float64(o.Y), float64(o.Rotation))
+		placeObjectPoints(s.Points, float64(o.X), float64(o.Y), float64(orot))
 		shapes = append(shapes, s)
 	}
 	return shapes, nil

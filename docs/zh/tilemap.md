@@ -89,7 +89,7 @@ if err != nil {
 ### 图片集合图块集、图块对象、对象模板与文本对象
 
 - **图片集合图块集**：带有逐瓦片 `<image>` 的图块集会加载到 `Tileset.TileImages`（`map[uint32]TileImage`，以 0 起始的本地瓦片 ID 为键），保留每个瓦片自身的宽高和可选子矩形（`X`、`Y`、`Width`、`Height`），路径相对外部图块集目录解析。`Tileset.TileOffsetX`/`TileOffsetY` 会作用于瓦片层与图块对象绘制；`Tileset.ObjectAlignment`（`ObjectAlignmentUnspecified`、`TopLeft`、`Top`、`TopRight`、`Left`、`Center`、`Right`、`BottomLeft`、`Bottom`、`BottomRight`）控制图块对象的锚点（正交/交错/六边形地图默认 `BottomLeft`，等距地图默认 `Bottom`）。
-- **绘制图块对象与图层着色**：`m.Draw(d, cam)` 会按 Tiled 的原始图层顺序穿插绘制瓦片层、图像层与对象层，通过 `m.DrawObjectLayer(d, layer, cam)` 绘制每个可见的 `ObjectTile`，完整应用图层可见性、不透明度、`TintColor`、偏移、视差、对象尺寸、顺时针旋转 `Rotation`、GID 翻转位、`tileoffset`、`objectalignment` 以及相机视锥裁剪。设置 `TileLayer.TintColor`、`ImageLayer.TintColor` 或 `ObjectLayer.TintColor` 后，绘制时会对该层像素乘以对应着色。
+- **绘制图块对象与图层着色**：`m.Draw(d, cam)` 会按 Tiled 的原始图层顺序穿插绘制瓦片层、图像层与对象层，通过 `m.DrawObjectLayer(d, layer, cam)` 绘制每个可见的 `ObjectTile`，完整应用图层可见性、不透明度、`TintColor`、偏移、视差、对象尺寸、顺时针旋转 `Rotation`、GID 翻转位、`tileoffset`、`objectalignment` 以及相机视锥裁剪。设置 `TileLayer.TintColor`、`ImageLayer.TintColor` 或 `ObjectLayer.TintColor` 后，绘制时会对该层像素乘以对应着色（同时设置 `Tinted: true` 与 `TintColor: 0` 可区分全透明 `#00000000` 与未着色）。
 - **对象模板（`.tx` / `.tj`）**：当对象引用外部模板时，`LoadTiled` 通过 `TilesetLoader.LoadTemplate` 读取并按路径缓存模板，将模板的字段、几何形状与自定义属性和对象实例上的覆盖值合并，并把模板引用的图块集 GID 重映射到地图图块集中（若与地图已有外部图块集规范路径一致则直接复用）。
 - **文本对象**：Tiled 的 `<text>` / `"text"` 对象会以 `Shape == ObjectText` 和 `Object.Text`（`*TextObject`，包含 `Text`、`FontFamily`、`PixelSize`、`Wrap`、`Color`、`Bold`、`Italic`、`Underline`、`Strikeout`、`Kerning`、`HAlign`、`VAlign`）作为结构化数据加载，供游戏侧自行排版绘制。
 

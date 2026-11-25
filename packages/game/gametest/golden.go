@@ -580,14 +580,14 @@ func drawTransformedImage(dst *image.RGBA, m affine, src image.Image, sx, sy, sw
 		return
 	}
 	var tr, tg, tb, ta float64 = 1, 1, 1, 1
-	if tinted && tint != 0 && tint != core.RGB(0xffffff) {
-		tr = float64(tint>>24&0xff) / 255
-		tg = float64(tint>>16&0xff) / 255
-		tb = float64(tint>>8&0xff) / 255
+	if tinted && tint != core.RGB(0xffffff) {
 		ta = float64(tint&0xff) / 255
 		if ta <= 0 {
 			return
 		}
+		tr = float64(tint>>24&0xff) / 255
+		tg = float64(tint>>16&0xff) / 255
+		tb = float64(tint>>8&0xff) / 255
 	}
 	sb := src.Bounds()
 	for py := minY; py < maxY; py++ {
