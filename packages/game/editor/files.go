@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/nsgo-dev/nsgo/base/dragdrop"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
@@ -67,11 +68,35 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 		rows := make([]core.Node, 0, len(l.files))
 		for _, f := range l.files {
 			p := f.Path
+			isDir := f.Dir
 			name := path.Base(p)
-			if f.Dir {
+			if isDir {
 				name += "/"
 			}
-			rowNode := core.View{
+			isScene := !isDir && isProjectScene(ed.Project, p)
+			rowChildren := []core.Node{core.Text{
+				Content: name,
+				Style:   core.Style{FontSize: 12, Color: colors.Text(), FlexGrow: 1, FlexShrink: 1},
+			}}
+			if isScene {
+				rowChildren = append(rowChildren, ui.Button{
+					TestID:  "files-place-" + p,
+					Text:    "+",
+					Label:   ed.T("files.placeSceneLabel"),
+					Size:    ui.SizeSmall,
+					Variant: ui.ButtonSecondary,
+					Disabled: func() bool {
+						_ = rev.Get()
+						return ed.Playing() || p == ed.ScenePath
+					},
+					OnPress: func() {
+						cx, cy := ed.defaultPlacePos()
+						_, err := ed.PlaceScene(ed.ActiveLayer, p, cx, cy)
+						ed.report(err)
+					},
+				})
+			}
+			rowView := core.View{
 				TestID: "files-row-" + p,
 				StyleFunc: func() core.Style {
 					bg := colors.Inset()
@@ -79,6 +104,9 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 						bg = colors.Raised()
 					}
 					return core.Style{
+						Direction:    core.Row,
+						AlignItems:   core.AlignCenter,
+						Gap:          4,
 						Padding:      core.Symmetric(3, 6),
 						Margin:       core.Edges{Left: core.Points(6 * strings.Count(p, "/"))},
 						CornerRadius: 4,
@@ -87,7 +115,7 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 				},
 				OnPress: func(ev core.PressEvent) {
 					ed.SelectFile(p)
-					if ev.Clicks == 2 && !f.Dir && !ed.Playing() {
+					if ev.Clicks == 2 && !isDir && !ed.Playing() {
 						switch {
 						case isMaterialFile(p):
 							ed.report(ed.OpenMaterialProjectFile(p))
@@ -114,14 +142,35 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 						}
 					}
 				},
-				Children: []core.Node{core.Text{
-					Content: name,
-					Style:   core.Style{FontSize: 12, Color: colors.Text()},
-				}},
+				Children: rowChildren,
+			}
+			var trigger core.Node = rowView
+			if isScene {
+				trigger = dragdrop.Source{
+					View: rowView,
+					Data: func() any {
+						if ed.Playing() || p == ed.ScenePath {
+							return nil
+						}
+						return sceneFileDrag{path: p}
+					},
+					Preview: func(any) core.Node {
+						return core.Text{
+							Content: name,
+							Style: core.Style{
+								FontSize:     12,
+								Padding:      core.Symmetric(4, 8),
+								CornerRadius: 4,
+								Color:        colors.Text(),
+								Background:   colors.Raised(),
+							},
+						}
+					},
+				}
 			}
 			rows = append(rows, ui.ContextMenu{
 				TestID:  "files-menu-" + p,
-				Trigger: rowNode,
+				Trigger: trigger,
 				Children: []core.Node{
 					ui.MenuItem{
 						TestID:   "files-ctx-find-usages-" + p,
@@ -219,6 +268,31 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 								},
 							},
 							ui.Button{
+								TestID:  "files-place-scene",
+								Text:    ed.T("files.placeScene"),
+								Label:   ed.T("files.placeSceneLabel"),
+								Size:    ui.SizeSmall,
+								Variant: ui.ButtonSecondary,
+								Disabled: func() bool {
+									_ = rev.Get()
+									p := current.Get()
+									if ed.Playing() || p == "" || p == ed.ScenePath {
+										return true
+									}
+									if slices.ContainsFunc(files.Get().files, func(f ProjectFile) bool { return f.Path == p && f.Dir }) {
+										return true
+									}
+									return !isProjectScene(ed.Project, p)
+								},
+								OnPress: func() {
+									if p := current.Get(); p != "" {
+										cx, cy := ed.defaultPlacePos()
+										_, err := ed.PlaceScene(ed.ActiveLayer, p, cx, cy)
+										ed.report(err)
+									}
+								},
+							},
+							ui.Button{
 								TestID:  "files-refresh",
 								Text:    ed.T("files.refresh"),
 								Size:    ui.SizeSmall,
@@ -232,7 +306,7 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 					},
 					ui.ScrollView{
 						Style:    core.Style{FlexGrow: 1, MinHeight: core.Pt(48)},
-						Children: []core.Node{list},
+						Children: []core.Node{ownDragArea(cx, list)},
 					},
 					ui.Input{
 						TestID:   "files-path",

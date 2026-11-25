@@ -4,6 +4,9 @@ locale: en
 strings:
   app.defaultName: NSGo Scene Editor
   assets.empty: No atlas assets loaded
+  assets.placePrefab: Place prefab
+  assets.prefab: Prefab
+  assets.prefabs: Prefabs
   assets.title: Assets
   cmd.assetDrawer.desc: Switch the left rail between Scene and Assets drawer mode
   cmd.assetDrawer.label: Asset Drawer
@@ -144,6 +147,8 @@ strings:
   files.openLabel: Open the selected scene
   files.openTable: Open Table
   files.openTableLabel: Open the selected YAML file in the Data Table editor
+  files.placeScene: Place
+  files.placeSceneLabel: Place an instance of this scene in the active layer
   files.refresh: Refresh
   files.renameSafely: Rename Safely…
   files.search: Search
@@ -281,6 +286,7 @@ strings:
   material.shape.sphere: Sphere
   material.shape.sprite: Sprite
   material.title: Material Editor
+  menu.applyOverridesToSource: Apply Overrides to Source
   menu.audioMixer: Audio Bus Mixer
   menu.changes: Changes & Commit
   menu.checkProblems: Check Problems
@@ -302,6 +308,7 @@ strings:
   menu.group: Group
   menu.lightingPreview: 2D Lighting Preview
   menu.localization: Localization Strings
+  menu.makeInstanceLocal: Make Instance Local
   menu.materialEditor: Material Editor
   menu.mergeConflicts: Resolve Scene Merge Conflicts
   menu.move: Move
@@ -326,6 +333,7 @@ strings:
   menu.project: Project
   menu.projectSettings: Project Settings
   menu.redo: Redo
+  menu.revertOverrides: Revert All Overrides
   menu.rotate: Rotate
   menu.runGame: Run Game
   menu.save: Save
@@ -376,6 +384,20 @@ strings:
   overlays.triggers: Triggers
   overlays.zoomIn: Zoom in
   overlays.zoomOut: Zoom out
+  overrides.applyToSource: Apply to Source
+  overrides.baseScene: Base scene
+  overrides.inherited: Inherited
+  overrides.instance: Instance
+  overrides.instanceCount: '{count} instance(s)'
+  overrides.instanced: Instanced
+  overrides.makeLocal: Make Local
+  overrides.openBaseScene: Open Base Scene
+  overrides.openInstancedScene: Open Scene
+  overrides.openSourceScene: Open Source
+  overrides.overrideCount: '{count} override(s)'
+  overrides.overridesSource: Overrides source value {value}
+  overrides.revertAll: Revert All
+  overrides.revertField: Revert {field}
   palette.empty: No matching commands or files
   palette.group.commands: Commands
   palette.group.files: Files
@@ -413,6 +435,8 @@ strings:
   sceneTree.hideNamed: Hide {id}
   sceneTree.hint: ⇧ click adds to the selection · drag a row to reparent
   sceneTree.indent: Make Child of Previous
+  sceneTree.inheritedTag: base
+  sceneTree.instancedTag: inst
   sceneTree.label: Scene Tree
   sceneTree.layerLabel: Layer {name}
   sceneTree.lock: Lock

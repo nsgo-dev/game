@@ -1557,10 +1557,6 @@ func (e *Editor) SetObjectParticles(objectID string, ref *sceneformat.ParticlesR
 	if e.playing {
 		return ErrPlaying
 	}
-	obj, _, _ := e.FindObject(objectID)
-	if obj == nil {
-		return fmt.Errorf("editor: object %q not found", objectID)
-	}
 	if ref != nil {
 		if ref.File == "" || !fs.ValidPath(ref.File) || ref.File == "." {
 			return fmt.Errorf("editor: particles file %q must be a slash-separated path relative to the project root", ref.File)
@@ -1588,6 +1584,26 @@ func (e *Editor) SetObjectParticles(objectID string, ref *sceneformat.ParticlesR
 				}
 			}
 		}
+	}
+	obj, _, _ := e.FindObject(objectID)
+	if obj == nil {
+		if info := e.ObjectOverrideInfo(objectID); info.Origin != ObjectLocal {
+			return e.editObjectOverride(objectID, "Set particles on "+objectID, 2, func(ov *sceneformat.ObjectOverride, resolved, base *sceneformat.ObjectDoc) error {
+				if particlesRefEqual(resolved.Particles, ref) {
+					return nil
+				}
+				if ref == nil {
+					if base != nil && base.Particles != nil {
+						return fmt.Errorf("editor: cannot clear inherited particles on %q; revert override or edit the source scene", objectID)
+					}
+					ov.Particles = nil
+					return nil
+				}
+				ov.Particles = cloneParticlesRef(ref)
+				return nil
+			})
+		}
+		return fmt.Errorf("editor: object %q not found", objectID)
 	}
 	if particlesRefEqual(obj.Particles, ref) {
 		return nil

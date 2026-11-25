@@ -24,6 +24,37 @@ func (e *Editor) AddComponent(objectID, component string) error {
 	}
 	obj, _, _ := e.FindObject(objectID)
 	if obj == nil {
+		if info := e.ObjectOverrideInfo(objectID); info.Origin != ObjectLocal {
+			resolved, _ := e.FindResolvedObject(objectID)
+			if resolved == nil {
+				return fmt.Errorf("editor: object %q not found", objectID)
+			}
+			if _, has := resolved.Components[component]; has {
+				return fmt.Errorf("editor: object %q already has component %q", objectID, component)
+			}
+			value := map[string]any{}
+			if e.components != nil {
+				t, ok := e.components.Lookup(component)
+				if !ok {
+					err := e.components.CheckComponent(component, value)
+					var ce *sceneformat.ComponentError
+					if errors.As(err, &ce) {
+						ce.Object = objectID
+					}
+					return err
+				}
+				for _, f := range t.Fields {
+					value[f.Name] = f.Default
+				}
+			}
+			return e.editObjectOverride(objectID, "Add component "+component, 2, func(ov *sceneformat.ObjectOverride, _, _ *sceneformat.ObjectDoc) error {
+				if ov.Components == nil {
+					ov.Components = make(map[string]any)
+				}
+				ov.Components[component] = cloneMap(value)
+				return nil
+			})
+		}
 		return fmt.Errorf("editor: object %q not found", objectID)
 	}
 	if _, has := obj.Components[component]; has {
@@ -116,6 +147,22 @@ func (e *Editor) RemoveComponent(objectID, component string) error {
 	}
 	obj, _, _ := e.FindObject(objectID)
 	if obj == nil {
+		if info := e.ObjectOverrideInfo(objectID); info.Origin != ObjectLocal {
+			return e.editObjectOverride(objectID, "Remove component "+component, 2, func(ov *sceneformat.ObjectOverride, resolved, base *sceneformat.ObjectDoc) error {
+				if _, has := resolved.Components[component]; !has {
+					return fmt.Errorf("editor: object %q has no component %q", objectID, component)
+				}
+				if base != nil && base.Components != nil {
+					if _, onBase := base.Components[component]; onBase {
+						return fmt.Errorf("editor: cannot remove inherited component %q on %q; revert its overrides or edit the source scene", component, objectID)
+					}
+				}
+				if ov.Components != nil {
+					delete(ov.Components, component)
+				}
+				return nil
+			})
+		}
 		return fmt.Errorf("editor: object %q not found", objectID)
 	}
 	old, has := obj.Components[component]
@@ -185,6 +232,18 @@ func (e *Editor) AddProperty(objectID, key string, kind sceneformat.FieldKind) e
 	}
 	obj, _, _ := e.FindObject(objectID)
 	if obj == nil {
+		if info := e.ObjectOverrideInfo(objectID); info.Origin != ObjectLocal {
+			return e.editObjectOverride(objectID, "Add property "+key, 2, func(ov *sceneformat.ObjectOverride, resolved, _ *sceneformat.ObjectDoc) error {
+				if _, has := resolved.Properties[key]; has {
+					return fmt.Errorf("editor: object %q already has property %q", objectID, key)
+				}
+				if ov.Properties == nil {
+					ov.Properties = make(map[string]any)
+				}
+				ov.Properties[key] = value
+				return nil
+			})
+		}
 		return fmt.Errorf("editor: object %q not found", objectID)
 	}
 	if _, has := obj.Properties[key]; has {
@@ -207,10 +266,6 @@ func (e *Editor) SetObjectSprite(objectID string, ref *sceneformat.SpriteRef) er
 	if e.playing {
 		return ErrPlaying
 	}
-	obj, _, _ := e.FindObject(objectID)
-	if obj == nil {
-		return fmt.Errorf("editor: object %q not found", objectID)
-	}
 	if ref != nil {
 		if ref.Atlas == "" || ref.Frame == "" {
 			return errors.New("editor: object sprite requires both atlas and frame")
@@ -227,6 +282,26 @@ func (e *Editor) SetObjectSprite(objectID string, ref *sceneformat.SpriteRef) er
 				return fmt.Errorf("editor: atlas %q has no frame %q", ref.Atlas, ref.Frame)
 			}
 		}
+	}
+	obj, _, _ := e.FindObject(objectID)
+	if obj == nil {
+		if info := e.ObjectOverrideInfo(objectID); info.Origin != ObjectLocal {
+			return e.editObjectOverride(objectID, "Set sprite of "+objectID, 2, func(ov *sceneformat.ObjectOverride, resolved, base *sceneformat.ObjectDoc) error {
+				if spriteEqual(resolved.Sprite, ref) {
+					return nil
+				}
+				if ref == nil {
+					if base != nil && base.Sprite != nil {
+						return fmt.Errorf("editor: cannot clear inherited sprite on %q; revert override or edit the source scene", objectID)
+					}
+					ov.Sprite = nil
+					return nil
+				}
+				ov.Sprite = cloneSprite(ref)
+				return nil
+			})
+		}
+		return fmt.Errorf("editor: object %q not found", objectID)
 	}
 	if spriteEqual(obj.Sprite, ref) {
 		return nil
@@ -252,6 +327,17 @@ func (e *Editor) SetObjectOrigin(objectID string, x, y float32) error {
 	}
 	obj, _, _ := e.FindObject(objectID)
 	if obj == nil {
+		if info := e.ObjectOverrideInfo(objectID); info.Origin != ObjectLocal {
+			return e.editObjectOverride(objectID, "Set origin of "+objectID, 2, func(ov *sceneformat.ObjectOverride, resolved, _ *sceneformat.ObjectDoc) error {
+				if x != resolved.OriginX {
+					ov.OriginX = sceneformat.Float32(x)
+				}
+				if y != resolved.OriginY {
+					ov.OriginY = sceneformat.Float32(y)
+				}
+				return nil
+			})
+		}
 		return fmt.Errorf("editor: object %q not found", objectID)
 	}
 	if obj.OriginX == x && obj.OriginY == y {
@@ -278,6 +364,17 @@ func (e *Editor) SetObjectFlip(objectID string, flipX, flipY bool) error {
 	}
 	obj, _, _ := e.FindObject(objectID)
 	if obj == nil {
+		if info := e.ObjectOverrideInfo(objectID); info.Origin != ObjectLocal {
+			return e.editObjectOverride(objectID, "Flip "+objectID, 2, func(ov *sceneformat.ObjectOverride, resolved, _ *sceneformat.ObjectDoc) error {
+				if flipX != resolved.FlipX {
+					ov.FlipX = sceneformat.Bool(flipX)
+				}
+				if flipY != resolved.FlipY {
+					ov.FlipY = sceneformat.Bool(flipY)
+				}
+				return nil
+			})
+		}
 		return fmt.Errorf("editor: object %q not found", objectID)
 	}
 	if obj.FlipX == flipX && obj.FlipY == flipY {
@@ -305,13 +402,6 @@ func (e *Editor) SetObjectMaterial(objectID, material string) error {
 	if material != "" && (!fs.ValidPath(material) || material == ".") {
 		return fmt.Errorf("editor: material %q must be a slash-separated path relative to the project root", material)
 	}
-	obj, _, _ := e.FindObject(objectID)
-	if obj == nil {
-		return fmt.Errorf("editor: object %q not found", objectID)
-	}
-	if obj.Material == material {
-		return nil
-	}
 	if material != "" {
 		mr, ok := e.Resolver.(sceneformat.MaterialResolver)
 		if !ok {
@@ -324,6 +414,22 @@ func (e *Editor) SetObjectMaterial(objectID, material string) error {
 		if m == nil {
 			return fmt.Errorf("editor: material %q is nil", material)
 		}
+	}
+	obj, _, _ := e.FindObject(objectID)
+	if obj == nil {
+		if info := e.ObjectOverrideInfo(objectID); info.Origin != ObjectLocal {
+			return e.editObjectOverride(objectID, "Set material of "+objectID, 2, func(ov *sceneformat.ObjectOverride, resolved, _ *sceneformat.ObjectDoc) error {
+				if resolved.Material == material {
+					return nil
+				}
+				ov.Material = sceneformat.String(material)
+				return nil
+			})
+		}
+		return fmt.Errorf("editor: object %q not found", objectID)
+	}
+	if obj.Material == material {
+		return nil
 	}
 	e.History.Execute(&objectFieldCmd{
 		ed:    e,
@@ -364,7 +470,7 @@ func (e *Editor) projectMaterials() []string {
 
 // addableComponents returns the registered component types objectID lacks whose names hold query, ignoring case, in ascending order.
 func (e *Editor) addableComponents(objectID, query string) []string {
-	obj, _, _ := e.FindObject(objectID)
+	obj, _ := e.FindResolvedObject(objectID)
 	if obj == nil {
 		return nil
 	}

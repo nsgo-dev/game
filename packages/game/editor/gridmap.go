@@ -1634,6 +1634,23 @@ func (e *Editor) SetObjectGridMap(id, gridMapPath string) error {
 	}
 	obj, _, _ := e.FindObject(id)
 	if obj == nil {
+		if info := e.ObjectOverrideInfo(id); info.Origin != ObjectLocal {
+			return e.editObjectOverride(id, "Set gridMap on "+id, 2, func(ov *sceneformat.ObjectOverride, resolved, _ *sceneformat.ObjectDoc) error {
+				if resolved.GridMap == gridMapPath {
+					return nil
+				}
+				if gridMapPath != "" {
+					if resolved.Mesh != "" {
+						return fmt.Errorf("editor: object %q draws mesh %q; it cannot also draw gridMap %q", id, resolved.Mesh, gridMapPath)
+					}
+					if resolved.Model != "" {
+						return fmt.Errorf("editor: object %q draws model %q; it cannot also draw gridMap %q", id, resolved.Model, gridMapPath)
+					}
+				}
+				ov.GridMap = sceneformat.String(gridMapPath)
+				return nil
+			})
+		}
 		return fmt.Errorf("editor: object %q not found", id)
 	}
 	if obj.GridMap == gridMapPath {

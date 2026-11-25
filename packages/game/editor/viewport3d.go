@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"fmt"
 	"math"
+	"reflect"
 	"slices"
 
 	"github.com/nsgo-dev/game/packages/game/math3d"
@@ -277,13 +278,14 @@ type Object3DRef struct {
 	Doc      *sceneformat.ObjectDoc
 }
 
-// Objects3D returns the objects of every layer, nested children included, depth first in document order with each parent before its children, with sequential flat indices (Pick3D's).
+// Objects3D returns the objects of every layer, nested, instanced and inherited children included, depth first in document order with each parent before its children, with sequential flat indices (Pick3D's).
 func (e *Editor) Objects3D() []Object3DRef {
-	if e == nil || e.Doc == nil {
+	doc := e.resolvedDoc()
+	if doc == nil {
 		return nil
 	}
 	var out []Object3DRef
-	for li := range e.Doc.Layers {
+	for li := range doc.Layers {
 		var walk func(objs []sceneformat.ObjectDoc, parent string)
 		walk = func(objs []sceneformat.ObjectDoc, parent string) {
 			for oi := range objs {
@@ -299,7 +301,7 @@ func (e *Editor) Objects3D() []Object3DRef {
 				walk(o.Children, o.ID)
 			}
 		}
-		walk(e.Doc.Layers[li].Objects, "")
+		walk(doc.Layers[li].Objects, "")
 	}
 	return out
 }
@@ -316,7 +318,7 @@ func (e *Editor) parentWorld3D(id string) aff3 {
 			return chain3(path)
 		}
 	}
-	path := objectPath(e.Doc, id)
+	path := e.resolvedObjectPath(id)
 	if len(path) < 2 {
 		return ident3
 	}
@@ -469,11 +471,15 @@ func (e *Editor) Pick3D(sx, sy, w, h float32) (objectIndex int, ok bool) {
 	s3 := e.scene3D()
 	meshID, meshHit := e.pickGeometry3D(s3, orig, dir)
 
+	doc := e.resolvedDoc()
+	if doc == nil {
+		return -1, false
+	}
 	meshIdx, boxIdx := -1, -1
 	boxT := math.Inf(1)
 	idx := 0
-	for li := range e.Doc.Layers {
-		layer := &e.Doc.Layers[li]
+	for li := range doc.Layers {
+		layer := &doc.Layers[li]
 		// Screen-space layers hold HUD and menu objects at canvas coordinates,
 		// so they are neither drawn as 3D wireframes nor pickable in 3D; the
 		// flat index still advances for them to stay in step with Objects3D.
@@ -730,6 +736,13 @@ type drag3DState struct {
 	colliderStartVal     float64
 	colliderMinVal       float64
 	colliderMaxVal       float64
+
+	// Override snapshot when dragging an instanced or inherited 3D object.
+	overrideInfo    ObjectOverrideInfo
+	overrideOld     sceneformat.ObjectOverride
+	overrideHadOld  bool
+	overrideWasNil  bool
+	overridePrevVer int
 }
 
 // ActiveGizmoAxis3D returns the currently dragged 3D gizmo axis, or Axis3DNone.
@@ -806,9 +819,28 @@ func (e *Editor) BeginGizmoDragAxis3D(axis GizmoAxis3D, sx, sy, w, h float32) bo
 	gizmoLen := e.GizmoLength3D(pos)
 	var st drag3DState
 	if len(draggable) == 1 {
-		obj, _, _ := e.FindObject(draggable[0])
+		obj, _ := e.FindResolvedObject(draggable[0])
 		if obj == nil || e.viewportFrozen(obj.ID) {
 			return false
+		}
+		info := e.ObjectOverrideInfo(obj.ID)
+		var (
+			oldOv     sceneformat.ObjectOverride
+			hadOld    bool
+			wasNilMap bool
+			prevVer   int
+		)
+		if info.Origin != ObjectLocal {
+			if e.BuildErr != nil {
+				e.report(e.BuildErr)
+				return false
+			}
+			var ok bool
+			oldOv, hadOld, wasNilMap, ok = e.currentOverrideFor(e.Doc, info)
+			if !ok {
+				return false
+			}
+			prevVer = e.Doc.Version
 		}
 		parentInv, ok := e.parentWorld3D(obj.ID).invert()
 		if !ok {
@@ -816,20 +848,25 @@ func (e *Editor) BeginGizmoDragAxis3D(axis GizmoAxis3D, sx, sy, w, h float32) bo
 			return false
 		}
 		st = drag3DState{
-			kind:           drag3DGizmo,
-			objectID:       obj.ID,
-			mode:           e.GizmoMode,
-			axis:           axis,
-			startSX:        sx,
-			startSY:        sy,
-			lastSX:         sx,
-			lastSY:         sy,
-			vpW:            w,
-			vpH:            h,
-			gizmoLen:       gizmoLen,
-			startTransform: captureTransform3D(obj),
-			startPos:       vec64(pos),
-			parentInv:      parentInv,
+			kind:            drag3DGizmo,
+			objectID:        obj.ID,
+			mode:            e.GizmoMode,
+			axis:            axis,
+			startSX:         sx,
+			startSY:         sy,
+			lastSX:          sx,
+			lastSY:          sy,
+			vpW:             w,
+			vpH:             h,
+			gizmoLen:        gizmoLen,
+			startTransform:  captureTransform3D(obj),
+			startPos:        vec64(pos),
+			parentInv:       parentInv,
+			overrideInfo:    info,
+			overrideOld:     oldOv,
+			overrideHadOld:  hadOld,
+			overrideWasNil:  wasNilMap,
+			overridePrevVer: prevVer,
 		}
 	} else {
 		targets := make([]drag3DTarget, 0, len(draggable))
@@ -905,7 +942,7 @@ func (e *Editor) UpdateGizmoDrag3D(sx, sy float32) {
 		e.updateMultiGizmoDrag3D(sx, sy)
 		return
 	}
-	obj, _, _ := e.FindObject(e.drag3D.objectID)
+	obj, _ := e.FindResolvedObject(e.drag3D.objectID)
 	if obj == nil {
 		e.drag3D = drag3DState{}
 		return
@@ -913,7 +950,9 @@ func (e *Editor) UpdateGizmoDrag3D(sx, sy float32) {
 
 	st := &e.drag3D
 	if st.mode == Gizmo3DCollider {
-		e.updateColliderDrag3D(obj, st, sx, sy)
+		if localObj, _, _ := e.FindObject(e.drag3D.objectID); localObj != nil {
+			e.updateColliderDrag3D(localObj, st, sx, sy)
+		}
 		return
 	}
 	w, h := st.vpW, st.vpH
@@ -923,6 +962,7 @@ func (e *Editor) UpdateGizmoDrag3D(sx, sy float32) {
 	orig := vec64(orig32)
 	dir := vec64(dir32)
 
+	next := st.startTransform
 	switch st.mode {
 	case Gizmo3DTranslate:
 		delta := e.computeAxisDelta(st, startPos, axisDir, orig, dir, sx, sy)
@@ -949,7 +989,7 @@ func (e *Editor) UpdateGizmoDrag3D(sx, sy float32) {
 		if !isFiniteFloat32(nx) || !isFiniteFloat32(ny) || !isFiniteFloat32(nz) {
 			return
 		}
-		obj.X, obj.Y, obj.PosZ = nx, ny, nz
+		next.X, next.Y, next.PosZ = nx, ny, nz
 
 	case Gizmo3DRotate:
 		angle := e.computeRotationAngle(st, startPos, axisDir, orig, dir, sx, sy)
@@ -962,25 +1002,25 @@ func (e *Editor) UpdateGizmoDrag3D(sx, sy float32) {
 			if !isFiniteFloat32(rx) {
 				return
 			}
-			obj.RotX = rx
-			obj.RotY = st.startTransform.RotY
-			obj.RotZ = st.startTransform.RotZ
+			next.RotX = rx
+			next.RotY = st.startTransform.RotY
+			next.RotZ = st.startTransform.RotZ
 		case Axis3DY:
 			ry := float32(e.SnapRotationRadians(float64(st.startTransform.RotY) + angle))
 			if !isFiniteFloat32(ry) {
 				return
 			}
-			obj.RotX = st.startTransform.RotX
-			obj.RotY = ry
-			obj.RotZ = st.startTransform.RotZ
+			next.RotX = st.startTransform.RotX
+			next.RotY = ry
+			next.RotZ = st.startTransform.RotZ
 		case Axis3DZ:
 			rz := float32(e.SnapRotationRadians(float64(st.startTransform.RotZ) + angle))
 			if !isFiniteFloat32(rz) {
 				return
 			}
-			obj.RotX = st.startTransform.RotX
-			obj.RotY = st.startTransform.RotY
-			obj.RotZ = rz
+			next.RotX = st.startTransform.RotX
+			next.RotY = st.startTransform.RotY
+			next.RotZ = rz
 		}
 
 	case Gizmo3DScale:
@@ -1001,12 +1041,10 @@ func (e *Editor) UpdateGizmoDrag3D(sx, sy float32) {
 					base = float64(*st.startTransform.ScaleX)
 				}
 				if base == 0 {
-					// A zero scale would stay zero under a multiplicative drag,
-					// so start the drag from a unit scale instead.
 					base = 1
 				}
 				if v := float32(e.SnapScaleFactor(base * factor)); isFiniteFloat32(v) {
-					obj.ScaleX = sceneformat.Float32(v)
+					next.ScaleX = sceneformat.Float32(v)
 				}
 			case Axis3DY:
 				base := float64(1)
@@ -1014,12 +1052,10 @@ func (e *Editor) UpdateGizmoDrag3D(sx, sy float32) {
 					base = float64(*st.startTransform.ScaleY)
 				}
 				if base == 0 {
-					// A zero scale would stay zero under a multiplicative drag,
-					// so start the drag from a unit scale instead.
 					base = 1
 				}
 				if v := float32(e.SnapScaleFactor(base * factor)); isFiniteFloat32(v) {
-					obj.ScaleY = sceneformat.Float32(v)
+					next.ScaleY = sceneformat.Float32(v)
 				}
 			case Axis3DZ:
 				base := float64(1)
@@ -1027,15 +1063,42 @@ func (e *Editor) UpdateGizmoDrag3D(sx, sy float32) {
 					base = float64(*st.startTransform.ScaleZ)
 				}
 				if base == 0 {
-					// A zero scale would stay zero under a multiplicative drag,
-					// so start the drag from a unit scale instead.
 					base = 1
 				}
 				if v := float32(e.SnapScaleFactor(base * factor)); isFiniteFloat32(v) {
-					obj.ScaleZ = sceneformat.Float32(v)
+					next.ScaleZ = sceneformat.Float32(v)
 				}
 			}
 		}
+	}
+
+	if st.overrideInfo.Origin != ObjectLocal {
+		nextOv := cloneObjectOverride(st.overrideOld)
+		switch st.mode {
+		case Gizmo3DTranslate:
+			nextOv.X = sceneformat.Float32(next.X)
+			nextOv.Y = sceneformat.Float32(next.Y)
+			nextOv.PosZ = sceneformat.Float32(next.PosZ)
+		case Gizmo3DRotate:
+			nextOv.RotX = sceneformat.Float32(next.RotX)
+			nextOv.RotY = sceneformat.Float32(next.RotY)
+			nextOv.RotZ = sceneformat.Float32(next.RotZ)
+		case Gizmo3DScale:
+			switch st.axis {
+			case Axis3DX:
+				nextOv.ScaleX = cloneFloat32Ptr(next.ScaleX)
+			case Axis3DY:
+				nextOv.ScaleY = cloneFloat32Ptr(next.ScaleY)
+			case Axis3DZ:
+				nextOv.ScaleZ = cloneFloat32Ptr(next.ScaleZ)
+			}
+		}
+		if e.Doc.Version < 2 {
+			e.Doc.Version = 2
+		}
+		setOverrideOnDoc(e.Doc, st.overrideInfo, nextOv, !isEmptyObjectOverride(nextOv), st.overrideWasNil)
+	} else {
+		applyTransform3D(obj, next)
 	}
 
 	st.lastSX = sx
@@ -1313,6 +1376,42 @@ func (e *Editor) EndGizmoDrag3D() bool {
 		return true
 	}
 
+	if st.overrideInfo.Origin != ObjectLocal {
+		afterOv, hasAfter, _, ok := e.currentOverrideFor(e.Doc, st.overrideInfo)
+		e.Doc.Version = st.overridePrevVer
+		setOverrideOnDoc(e.Doc, st.overrideInfo, st.overrideOld, st.overrideHadOld, st.overrideWasNil)
+		if !ok || (st.overrideHadOld == hasAfter && reflect.DeepEqual(st.overrideOld, afterOv)) {
+			e.Rebuild()
+			e.notify()
+			return false
+		}
+		candidate := e.Doc.Clone()
+		nextVer := st.overridePrevVer
+		if hasAfter && nextVer < 2 {
+			nextVer = 2
+		}
+		candidate.Version = nextVer
+		setOverrideOnDoc(candidate, st.overrideInfo, afterOv, hasAfter, st.overrideWasNil)
+		if _, err := e.checkCandidateScene(candidate); err != nil {
+			e.Rebuild()
+			e.notify()
+			return false
+		}
+		e.History.Execute(&objectOverrideCmd{
+			ed:          e,
+			info:        st.overrideInfo,
+			label:       st.mode.String() + " 3D " + st.objectID + " (" + st.axis.String() + ")",
+			oldOv:       st.overrideOld,
+			hadOld:      st.overrideHadOld,
+			wasNilMap:   st.overrideWasNil,
+			newOv:       afterOv,
+			hasNew:      hasAfter,
+			prevVersion: st.overridePrevVer,
+			nextVersion: nextVer,
+		})
+		return true
+	}
+
 	obj, _, _ := e.FindObject(st.objectID)
 	if obj == nil {
 		e.notify()
@@ -1373,6 +1472,13 @@ func (e *Editor) CancelGizmoDrag3D() {
 		if restored {
 			e.Rebuild()
 		}
+		e.notify()
+		return
+	}
+	if st.overrideInfo.Origin != ObjectLocal {
+		e.Doc.Version = st.overridePrevVer
+		setOverrideOnDoc(e.Doc, st.overrideInfo, st.overrideOld, st.overrideHadOld, st.overrideWasNil)
+		e.Rebuild()
 		e.notify()
 		return
 	}
@@ -1794,9 +1900,13 @@ func (e *Editor) drawSceneObjects3D(d *core.Drawing, w, h float32, overlay bool)
 	eye := vc.eye
 	forward := vc.forward
 
+	doc := e.resolvedDoc()
+	if doc == nil {
+		return
+	}
 	var items []drawable3D
-	for li := range e.Doc.Layers {
-		layer := &e.Doc.Layers[li]
+	for li := range doc.Layers {
+		layer := &doc.Layers[li]
 		if !layer.IsVisible() || layer.EffectiveSpace() == sceneformat.SpaceScreen {
 			continue
 		}

@@ -3,7 +3,6 @@ package editor_test
 import (
 	"bytes"
 	"math"
-	"strings"
 	"testing"
 
 	"github.com/nsgo-dev/game/packages/game/editor"
@@ -404,14 +403,17 @@ layers:
 	}
 	ed.SetActiveLayer("sky")
 
-	if err := ed.SetLayerParallax("sky", 0.25, 1); err == nil || !strings.Contains(err.Error(), "layerOverrides") {
-		t.Fatalf("SetLayerParallax on inherited layer = %v, want layerOverrides error", err)
+	if err := ed.SetLayerParallax("sky", 0.25, 1); err != nil {
+		t.Fatalf("SetLayerParallax on inherited layer should write layerOverrides: %v", err)
 	}
-	if err := ed.SetLayerRepeat("sky", false, false, 0, 0); err == nil || !strings.Contains(err.Error(), "layerOverrides") {
-		t.Fatalf("SetLayerRepeat on inherited layer = %v, want layerOverrides error", err)
+	if err := ed.SetLayerRepeat("sky", false, false, 0, 0); err != nil {
+		t.Fatalf("SetLayerRepeat on inherited layer should write layerOverrides: %v", err)
 	}
 	if ed.BuildErr != nil {
-		t.Fatalf("BuildErr after refused inherited edits = %v, want nil", ed.BuildErr)
+		t.Fatalf("BuildErr after inherited layer overrides = %v, want nil", ed.BuildErr)
+	}
+	if lo, ok := ed.Doc.LayerOverrides["sky"]; !ok || lo.ParallaxX == nil || *lo.ParallaxX != 0.25 || lo.RepeatX == nil || *lo.RepeatX {
+		t.Fatalf("LayerOverrides[sky] = %+v, want parallaxX=0.25 repeatX=false", lo)
 	}
 
 	app := startEditorView(t, ed)
@@ -424,9 +426,15 @@ layers:
 		"inspector-layer-repeat-width",
 		"inspector-layer-repeat-height",
 	} {
-		if app.Enabled("id:" + id) {
-			t.Errorf("%s is enabled on an inherited layer", id)
+		if !app.Enabled("id:" + id) {
+			t.Errorf("%s should be enabled on an inherited layer via layerOverrides", id)
 		}
+	}
+	app.Find("id:inspector-layer-override-dot-parallaxX")
+	app.Find("id:inspector-layer-revert-parallaxX")
+	app.Press("id:inspector-layer-revert-all")
+	if len(ed.Doc.LayerOverrides) != 0 {
+		t.Fatalf("LayerOverrides after Revert All = %+v, want empty", ed.Doc.LayerOverrides)
 	}
 
 	// Own layer in the same inheriting scene remains editable (both in UI and API).

@@ -34,8 +34,22 @@ func (e *Editor) SetPlaceOptions3D(height float32, snap, align bool) error {
 	return nil
 }
 
-// modelDropTarget makes frame, the viewport's frame, take models dragged from the asset browser (in 3D)
-// and sprite assets dragged from the Asset Drawer (in 2D, placing snapped on empty space or swapping on an existing object).
+// sceneFileDrag is carried while a scene file row is dragged from the file browser onto the viewport.
+type sceneFileDrag struct{ path string }
+
+// prefabDrag is carried while a prefab row is dragged from the asset browser onto the viewport.
+type prefabDrag struct{ name string }
+
+// defaultPlacePos returns the virtual viewport center used by quick-place ("+") buttons.
+func (e *Editor) defaultPlacePos() (float32, float32) {
+	if e != nil && e.Doc != nil && e.Doc.VirtualWidth > 0 && e.Doc.VirtualHeight > 0 {
+		return e.Doc.VirtualWidth / 2, e.Doc.VirtualHeight / 2
+	}
+	return 32, 32
+}
+
+// modelDropTarget makes frame, the viewport's frame, take models dragged from the asset browser (in 3D),
+// sprite assets dragged from the Asset Drawer (in 2D), scene files dragged from the file browser, and prefabs dragged from the asset browser.
 func modelDropTarget(cx *core.Scope, ed *Editor, frame core.View) core.Node {
 	return ownDragArea(cx, dragdrop.Target{
 		View: frame,
@@ -48,6 +62,8 @@ func modelDropTarget(cx *core.Scope, ed *Editor, frame core.View) core.Node {
 				return ed.ViewMode == ViewMode3D
 			case AssetDrawerDrag:
 				return ed.ViewMode == ViewMode2D
+			case sceneFileDrag, prefabDrag:
+				return true
 			default:
 				return false
 			}
@@ -68,14 +84,28 @@ func modelDropTarget(cx *core.Scope, ed *Editor, frame core.View) core.Node {
 			}
 		},
 		OnDrop: func(ev dragdrop.Event) {
-			switch v := ev.Data.(type) {
+			switch d := ev.Data.(type) {
 			case ModelEntry:
-				ed.report(ed.SelectModel(v))
+				ed.report(ed.SelectModel(d))
 				cw, ch := ed.CanvasSize()
-				_, err := ed.PlaceModelAt3D(v, float32(ev.Position.X), float32(ev.Position.Y), cw, ch)
+				_, err := ed.PlaceModelAt3D(d, float32(ev.Position.X), float32(ev.Position.Y), cw, ch)
 				ed.report(err)
 			case AssetDrawerDrag:
-				_, _, err := ed.dropAssetDragAt(v, float32(ev.Position.X), float32(ev.Position.Y))
+				_, _, err := ed.dropAssetDragAt(d, float32(ev.Position.X), float32(ev.Position.Y))
+				ed.report(err)
+			case sceneFileDrag:
+				var wx, wy float32
+				if ed.ViewMode == ViewMode2D {
+					wx, wy = ed.layerCoordsForActive(float32(ev.Position.X), float32(ev.Position.Y))
+				}
+				_, err := ed.PlaceScene(ed.ActiveLayer, d.path, wx, wy)
+				ed.report(err)
+			case prefabDrag:
+				var wx, wy float32
+				if ed.ViewMode == ViewMode2D {
+					wx, wy = ed.layerCoordsForActive(float32(ev.Position.X), float32(ev.Position.Y))
+				}
+				_, err := ed.PlacePrefab(ed.ActiveLayer, d.name, wx, wy)
 				ed.report(err)
 			}
 		},
@@ -287,7 +317,7 @@ func place3DToolsView(rev *core.Signal[uint64], ed *Editor, notPlaying func() bo
 func modelField(ed *Editor, rev *core.Signal[uint64], objID string, disabled func() bool) core.Node {
 	current := func() string {
 		_ = rev.Get()
-		if o, _, _ := ed.FindObject(objID); o != nil {
+		if o, _ := ed.FindResolvedObject(objID); o != nil {
 			return o.Model
 		}
 		return ""
@@ -302,7 +332,7 @@ func modelField(ed *Editor, rev *core.Signal[uint64], objID string, disabled fun
 			if disabled() {
 				return true
 			}
-			o, _, _ := ed.FindObject(objID)
+			o, _ := ed.FindResolvedObject(objID)
 			return o != nil && o.Mesh != ""
 		},
 		OptionsFunc: func() []ui.Option[string] {

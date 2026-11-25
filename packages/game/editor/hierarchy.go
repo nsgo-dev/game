@@ -201,7 +201,7 @@ func moveObjectIn(doc *sceneformat.SceneDoc, id string, slot objectSlot, t objec
 
 // checkTransformEdit reports whether the tree that holds the object id would still be valid (sceneformat.CheckObjectTree), from its top-level ancestor down, after edit changes id's fields: a nested child's sprite is sheared by its ancestors' scales and rotations, so checking the object's own subtree is not enough.
 func (e *Editor) checkTransformEdit(id string, edit func(o *sceneformat.ObjectDoc)) error {
-	path := objectPath(e.Doc, id)
+	path := e.resolvedObjectPath(id)
 	if path == nil {
 		return fmt.Errorf("editor: object %q not found", id)
 	}
@@ -804,7 +804,7 @@ func (e *Editor) SetObjectLocked(id string, locked bool) error {
 func (e *Editor) ObjectLocked(id string) bool { return e.locked[id] }
 
 func (e *Editor) setViewFlag(flags *map[string]bool, id string, on bool) error {
-	if obj, _, _ := e.FindObject(id); obj == nil {
+	if obj, _ := e.FindResolvedObject(id); obj == nil {
 		return fmt.Errorf("editor: object %q not found", id)
 	}
 	if (*flags)[id] == on {
@@ -840,12 +840,12 @@ func (e *Editor) viewportFrozen(id string) bool {
 	if len(e.hidden) == 0 && len(e.locked) == 0 && len(e.layerLocked) == 0 && !e.anyLayerHidden() {
 		return false
 	}
-	if loc := locateObject(e.Doc, id); loc.obj != nil {
-		if name := e.Doc.Layers[loc.layer].Name; e.layerLocked[name] || !e.layerDrawn(name) {
+	if _, name := e.FindResolvedObject(id); name != "" {
+		if e.layerLocked[name] || !e.layerDrawn(name) {
 			return true
 		}
 	}
-	path := objectPath(e.Doc, id)
+	path := e.resolvedObjectPath(id)
 	return pathFlagged(e.hidden, path) || pathFlagged(e.locked, path)
 }
 

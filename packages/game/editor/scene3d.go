@@ -303,11 +303,12 @@ func (e *Editor) sync3D(s *scene3DState) {
 }
 
 func (e *Editor) syncBuilt3D(built *scenemodel.Built) {
-	if built == nil || e.Doc == nil {
+	doc := e.resolvedDoc()
+	if built == nil || doc == nil {
 		return
 	}
-	for li := range e.Doc.Layers {
-		l := &e.Doc.Layers[li]
+	for li := range doc.Layers {
+		l := &doc.Layers[li]
 		if ln := built.Layers[l.Name]; ln != nil {
 			ln.Visible = l.IsVisible() && l.EffectiveSpace() != sceneformat.SpaceScreen
 		}
@@ -329,7 +330,7 @@ func (e *Editor) syncBuilt3D(built *scenemodel.Built) {
 		if l == nil {
 			continue
 		}
-		if o, _, _ := e.FindObject(l.Object); o != nil {
+		if o, _ := e.FindResolvedObject(l.Object); o != nil {
 			posed := e.posed3D(o)
 			if posed.Light != nil {
 				l.Doc = *posed.Light.Clone()
@@ -340,7 +341,7 @@ func (e *Editor) syncBuilt3D(built *scenemodel.Built) {
 		if c == nil {
 			continue
 		}
-		if o, _, _ := e.FindObject(c.Object); o != nil {
+		if o, _ := e.FindResolvedObject(c.Object); o != nil {
 			posed := e.posed3D(o)
 			if posed.Camera != nil {
 				c.Doc = *posed.Camera.Clone()
@@ -383,10 +384,10 @@ func (e *Editor) pickGeometry3D(s *scene3DState, orig, dir [3]float64) (id strin
 	return id, ok
 }
 
-// docObjectFor returns id when the open scene holds an object with it, and otherwise the nearest ancestor the scene holds of the instanced object id names ("enemy_1/body" belongs to "enemy_1"), or "" for none.
+// docObjectFor returns id when the resolved scene holds an object with it (local, instanced, or inherited), falling back to the nearest ancestor held in the scene, or "" for none.
 func (e *Editor) docObjectFor(id string) string {
 	for id != "" {
-		if obj, _, _ := e.FindObject(id); obj != nil {
+		if obj, _ := e.FindResolvedObject(id); obj != nil {
 			return id
 		}
 		i := strings.LastIndexByte(id, '/')
@@ -400,10 +401,10 @@ func (e *Editor) docObjectFor(id string) string {
 
 // pickBlocked3D reports whether the object id, or one of its ancestors, is hidden or locked in the editor, or its layer is locked, so a press passes through it.
 func (e *Editor) pickBlocked3D(id string) bool {
-	if _, li, _ := e.FindObject(id); li >= 0 && e.layerLocked[e.Doc.Layers[li].Name] {
+	if _, layerName := e.FindResolvedObject(id); layerName != "" && e.layerLocked[layerName] {
 		return true
 	}
-	for _, o := range objectPath(e.Doc, id) {
+	for _, o := range e.resolvedObjectPath(id) {
 		if e.hidden[o.ID] || e.locked[o.ID] {
 			return true
 		}

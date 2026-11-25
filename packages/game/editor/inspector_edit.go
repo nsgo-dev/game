@@ -17,10 +17,10 @@ type spriteChoice struct{ atlas, frame string }
 func (c spriteChoice) label() string { return c.atlas + "/" + c.frame }
 
 // spriteFields builds the inspector's sprite rows for objID: the atlas frame, picked from the frames the asset browser lists or taken from its selection, the origin, the flips and the material.
-func spriteFields(ed *Editor, rev *core.Signal[uint64], objID string, disabled func() bool, fieldRow func(string, core.Node) core.Node) []core.Node {
+func spriteFields(ed *Editor, rev *core.Signal[uint64], objID string, disabled func() bool, fieldRow func(string, string, core.Node) core.Node) []core.Node {
 	object := func() *sceneformat.ObjectDoc {
 		_ = rev.Get()
-		o, _, _ := ed.FindObject(objID)
+		o, _ := ed.FindResolvedObject(objID)
 		return o
 	}
 	current := func() spriteChoice {
@@ -98,7 +98,7 @@ func spriteFields(ed *Editor, rev *core.Signal[uint64], objID string, disabled f
 				}
 			},
 			OnChange: func(v float64) {
-				o, _, _ := ed.FindObject(objID)
+				o, _ := ed.FindResolvedObject(objID)
 				if o == nil {
 					return
 				}
@@ -120,7 +120,7 @@ func spriteFields(ed *Editor, rev *core.Signal[uint64], objID string, disabled f
 				return o != nil && ((y && o.FlipY) || (!y && o.FlipX))
 			},
 			OnChange: func(on bool) {
-				o, _, _ := ed.FindObject(objID)
+				o, _ := ed.FindResolvedObject(objID)
 				if o == nil {
 					return
 				}
@@ -205,23 +205,23 @@ func spriteFields(ed *Editor, rev *core.Signal[uint64], objID string, disabled f
 	}
 
 	return []core.Node{
-		fieldRow(ed.T("inspector.sprite"), withTrailing(sprite, fromBrowser)),
-		fieldRow(ed.T("inspector.originX"), origin("inspector-origin-x", ed.T("inspector.originX"), false)),
-		fieldRow(ed.T("inspector.originY"), origin("inspector-origin-y", ed.T("inspector.originY"), true)),
-		fieldRow(ed.T("inspector.flip"), ui.HStack{Gap: 12, Children: []core.Node{
+		fieldRow("sprite", ed.T("inspector.sprite"), withTrailing(sprite, fromBrowser)),
+		fieldRow("originX", ed.T("inspector.originX"), origin("inspector-origin-x", ed.T("inspector.originX"), false)),
+		fieldRow("originY", ed.T("inspector.originY"), origin("inspector-origin-y", ed.T("inspector.originY"), true)),
+		fieldRow("flipX", ed.T("inspector.flip"), ui.HStack{Gap: 12, Children: []core.Node{
 			flip("inspector-flip-x", "X", false),
 			flip("inspector-flip-y", "Y", true),
 		}}),
-		fieldRow(ed.T("inspector.material"), material),
+		fieldRow("material", ed.T("inspector.material"), material),
 		ui.HStack{Gap: 6, Children: []core.Node{editMaterialBtn, newMaterialBtn}},
 	}
 }
 
 // particlesFields builds the inspector's particles rows for objID: the emitter YAML file, optional atlas override, and a button to open the emitter in the Particle Emitter panel.
-func particlesFields(ed *Editor, rev *core.Signal[uint64], objID string, disabled func() bool, fieldRow func(string, core.Node) core.Node) []core.Node {
+func particlesFields(ed *Editor, rev *core.Signal[uint64], objID string, disabled func() bool, fieldRow func(string, string, core.Node) core.Node) []core.Node {
 	object := func() *sceneformat.ObjectDoc {
 		_ = rev.Get()
-		o, _, _ := ed.FindObject(objID)
+		o, _ := ed.FindResolvedObject(objID)
 		return o
 	}
 	var filesKey string
@@ -321,7 +321,7 @@ func particlesFields(ed *Editor, rev *core.Signal[uint64], objID string, disable
 			return disabled() || currentFile() == ""
 		},
 		OnPress: func() {
-			o, _, _ := ed.FindObject(objID)
+			o, _ := ed.FindResolvedObject(objID)
 			if o == nil || o.Particles == nil || o.Particles.File == "" {
 				return
 			}
@@ -340,8 +340,8 @@ func particlesFields(ed *Editor, rev *core.Signal[uint64], objID string, disable
 		},
 	}
 	return []core.Node{
-		fieldRow("Emitter", fileSelect),
-		fieldRow("Atlas", atlasSelect),
+		fieldRow("particles", "Emitter", fileSelect),
+		fieldRow("", "Atlas", atlasSelect),
 		editBtn,
 	}
 }

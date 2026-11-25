@@ -432,6 +432,31 @@ func (e *Editor) SetObjectModel(id, model string) error {
 	}
 	obj, _, _ := e.FindObject(id)
 	if obj == nil {
+		if info := e.ObjectOverrideInfo(id); info.Origin != ObjectLocal {
+			return e.editObjectOverride(id, "Set model of "+id, modelsVersion, func(ov *sceneformat.ObjectOverride, resolved, _ *sceneformat.ObjectDoc) error {
+				if resolved.Model == model {
+					return nil
+				}
+				if model != "" {
+					m := ModelEntry{Path: model}
+					if err := m.valid(); err != nil {
+						return err
+					}
+					if resolved.Mesh != "" {
+						return fmt.Errorf("editor: object %q draws mesh %q; it cannot also draw model %q", id, resolved.Mesh, model)
+					}
+					if _, _, err := e.buildModel3D(m); err != nil {
+						return fmt.Errorf("editor: load model %q: %w", model, err)
+					}
+				} else if resolved.Mesh == "" && resolved.Occluder != nil && resolved.Occluder.Mode == sceneformat.OccluderModel {
+					return fmt.Errorf("editor: object %q has a model occluder; clear or switch occluder to box before removing model", id)
+				}
+				ov.Model = sceneformat.String(model)
+				ov.ModelNode = nil
+				ov.ModelMesh = nil
+				return nil
+			})
+		}
 		return fmt.Errorf("editor: object %q not found", id)
 	}
 	if obj.Model == model {

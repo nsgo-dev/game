@@ -94,6 +94,10 @@ func (e *Editor) ApplicationMenu() []desktop.MenuItem {
 			cmdItem(CmdGroup, e.T("menu.group"), false),
 			cmdItem(CmdUngroup, e.T("menu.ungroup"), false),
 			sep,
+			cmdItem(CmdRevertOverrides, e.T("menu.revertOverrides"), false),
+			cmdItem(CmdApplyOverridesToSource, e.T("menu.applyOverridesToSource"), false),
+			cmdItem(CmdMakeInstanceLocal, e.T("menu.makeInstanceLocal"), false),
+			sep,
 			cmdItem(CmdCopyTileRegion, "Copy Tile Region", false),
 			cmdItem(CmdCutTileRegion, "Cut Tile Region", false),
 			cmdItem(CmdPasteTileRegion, "Paste Tile Region", false),
@@ -266,7 +270,7 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 			}
 		}
 		var b strings.Builder
-		fmt.Fprintf(&b, "%s|%v|%v|%v|%v|%v|%v|%s|%v|%v|%v|%v|%d|%v|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%d|%d|%v|%v",
+		fmt.Fprintf(&b, "%s|%v|%v|%v|%v|%v|%v|%s|%v|%v|%v|%v|%d|%v|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%d|%d|%v|%v|%v|%d",
 			e.ResolvedLanguage(),
 			e.EditorSettingsOpen(),
 			e.StartScreenOpen(),
@@ -315,6 +319,8 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 			e.ActiveTab(),
 			e.Doc != nil && e.Doc.Inherits != "",
 			e.selectedObjectInstancesScene(),
+			e.ObjectHasAnyOverride(e.SelectedID),
+			e.InstanceOverrideCount(e.SelectedID),
 		)
 		for _, ov := range e.ViewportOverlays() {
 			b.WriteByte('|')

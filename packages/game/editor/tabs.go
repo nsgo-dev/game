@@ -429,6 +429,7 @@ func (e *Editor) SelectTab(index int) error {
 	e.loadActiveTab()
 	e.inspectAssetFile = false
 	e.baseLayers = baseLayerCache{}
+	e.baseScenes = baseSceneCache{}
 	e.s3d.stale = true
 	if e.syncProjectAssets() || e.Built == nil {
 		e.Rebuild()
@@ -605,6 +606,7 @@ func (e *Editor) CloseTab(index int) error {
 		e.loadActiveTab()
 		e.inspectAssetFile = false
 		e.baseLayers = baseLayerCache{}
+		e.baseScenes = baseSceneCache{}
 		e.s3d.stale = true
 		e.keepTileInPalette()
 		e.Rebuild()
@@ -640,6 +642,7 @@ func (e *Editor) CloseTab(index int) error {
 	e.loadActiveTab()
 	e.inspectAssetFile = false
 	e.baseLayers = baseLayerCache{}
+	e.baseScenes = baseSceneCache{}
 	e.s3d.stale = true
 	if e.syncProjectAssets() || e.Built == nil {
 		e.Rebuild()
@@ -680,7 +683,7 @@ func (e *Editor) RequestCloseTab(index int) error {
 	return errUnsaved
 }
 
-// OpenInstancedScene opens the scene file instanced by objectID (or SelectedID when empty) in a tab, switching to its tab if it is already open.
+// OpenInstancedScene opens the scene file instanced by objectID (or its owning instance if objectID is an instanced child, or SelectedID when empty) in a tab, switching to its tab if it is already open.
 func (e *Editor) OpenInstancedScene(objectID string) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
@@ -698,14 +701,16 @@ func (e *Editor) OpenInstancedScene(objectID string) error {
 	if id == "" {
 		return errors.New("editor: no object selected")
 	}
-	obj, _, _ := e.FindObject(id)
-	if obj == nil {
-		return fmt.Errorf("editor: object %q not found", id)
+	if obj, _, _ := e.FindObject(id); obj != nil {
+		if obj.Scene == "" {
+			return fmt.Errorf("editor: object %q does not instance a scene", id)
+		}
+		return e.OpenScene(obj.Scene)
 	}
-	if obj.Scene == "" {
-		return fmt.Errorf("editor: object %q does not instance a scene", id)
+	if info := e.ObjectOverrideInfo(id); info.Origin == ObjectInstanced && info.SourceScene != "" {
+		return e.OpenScene(info.SourceScene)
 	}
-	return e.OpenScene(obj.Scene)
+	return fmt.Errorf("editor: object %q not found", id)
 }
 
 // OpenBaseScene opens the base scene that the active scene inherits (SceneDoc.Inherits) in a tab, switching to its tab if it is already open.
@@ -743,6 +748,7 @@ func (e *Editor) rebuildDependentTabs(savedTabID uint64) {
 	e.syncActiveTab()
 	e.scenesRev++
 	e.baseLayers = baseLayerCache{}
+	e.baseScenes = baseSceneCache{}
 	for i, t := range e.tabs {
 		if t.id == savedTabID || t.doc == nil || !t.doc.RefersToScenes() {
 			continue
@@ -837,6 +843,7 @@ func (e *Editor) activateNewTab(doc *sceneformat.SceneDoc, saved []byte, filePat
 	e.loadActiveTab()
 	e.inspectAssetFile = false
 	e.baseLayers = baseLayerCache{}
+	e.baseScenes = baseSceneCache{}
 	e.s3d.stale = true
 	e.keepTileInPalette()
 	e.syncScenePath()
@@ -852,8 +859,11 @@ func (e *Editor) activateNewTab(doc *sceneformat.SceneDoc, saved []byte, filePat
 	e.refreshOpenSceneSearch()
 }
 
-// selectedObjectInstancesScene reports whether the active scene's selected object instances another scene file.
+// selectedObjectInstancesScene reports whether the active scene's selected object is a scene instance or an instanced child of one.
 func (e *Editor) selectedObjectInstancesScene() bool {
-	obj, _ := e.SelectedObject()
-	return obj != nil && obj.Scene != ""
+	if e == nil || e.SelectedID == "" {
+		return false
+	}
+	info := e.ObjectOverrideInfo(e.SelectedID)
+	return (info.Origin == ObjectLocal && info.SourceScene != "") || info.Origin == ObjectInstanced
 }
