@@ -107,6 +107,8 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 	e.connPick = nil
 	e.stopClipLoop()
 	e.stopRigLoop()
+	e.stopStatesLoop()
+	e.resetCutsceneState()
 	e.stopFetch()
 	e.stopAudioAudition()
 	e.stopParticlePreviewLoop()

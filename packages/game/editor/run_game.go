@@ -320,6 +320,8 @@ func (e *Editor) Close() error {
 		return nil
 	}
 	e.stopClipLoop()
+	e.stopStatesLoop()
+	e.stopCutsceneLoop()
 	e.stopAudioAudition()
 	e.stopExportBuild()
 	e.stopAssetsBuild()

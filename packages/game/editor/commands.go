@@ -303,7 +303,7 @@ func (e *Editor) initBuiltinCommands() {
 			Category:    "Edit",
 			Keywords:    []string{"revert", "history"},
 			Shortcut:    "mod+z",
-			Enabled:     func() bool { return !e.StartScreenOpen() && !e.Playing() && e.History.CanUndo() },
+			Enabled:     func() bool { return !e.StartScreenOpen() && !e.Playing() && e.canUndo() },
 			Run: func() error {
 				e.Undo()
 				return nil
@@ -316,7 +316,7 @@ func (e *Editor) initBuiltinCommands() {
 			Category:    "Edit",
 			Keywords:    []string{"repeat", "history"},
 			Shortcut:    "mod+shift+z",
-			Enabled:     func() bool { return !e.StartScreenOpen() && !e.Playing() && e.History.CanRedo() },
+			Enabled:     func() bool { return !e.StartScreenOpen() && !e.Playing() && e.canRedo() },
 			Run: func() error {
 				e.Redo()
 				return nil

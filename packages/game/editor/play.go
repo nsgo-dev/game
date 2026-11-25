@@ -130,6 +130,8 @@ func (e *Editor) PlayIn(cx *core.Scope) error {
 
 	e.stopClipLoop()
 	e.stopStatesLoop()
+	e.stopCutsceneLoop()
+	e.SetCutsceneReviewPeekBefore(false)
 	e.SetStatesDriveWithKeys(false)
 	e.stopParticlePreviewLoop()
 	e.stopSceneEmitterLoop()
