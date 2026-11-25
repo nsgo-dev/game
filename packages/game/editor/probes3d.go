@@ -15,6 +15,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/game/packages/game/refs"
 	"github.com/nsgo-dev/game/packages/game/render3d"
+	"github.com/nsgo-dev/game/packages/game/scene3d"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/game/packages/game/scenemodel"
 )
@@ -358,11 +359,59 @@ func (e *Editor) probeBakeOptions(built *scenemodel.Built) scenemodel.ProbeBakeO
 	if e.Lights3D != nil {
 		lights := *e.Lights3D
 		opts.FallbackLights = &lights
-	} else if !built.HasSceneLighting() {
+	} else if len(built.Lights) == 0 && !built.Environment.Present {
 		lights := DefaultLights3D()
 		opts.FallbackLights = &lights
 	}
 	return opts
+}
+
+// buildScene3DForProbeBake builds a fresh 3D scene snapshot for offline probe baking with all
+// ReflectionProbe.Cubemap and LightProbeGrid.Data file paths cleared. Because baking renders with
+// DisableProbes: true, clearing baked probe file references ensures baking succeeds even when an
+// author entered a new output path before baking or deleted stale baked files, and avoids
+// redundant cubemap prefiltering while baking multiple probes.
+func (e *Editor) buildScene3DForProbeBake() (*scenemodel.Built, error) {
+	if e == nil || e.Doc == nil {
+		return nil, errors.New("editor: nil scene document")
+	}
+	doc := e.Doc
+	if doc.RefersToScenes() {
+		scenes, _ := e.Resolver.(sceneformat.SceneResolver)
+		resolved, err := sceneformat.Resolve(doc, scenes)
+		if err != nil {
+			return nil, fmt.Errorf("editor: resolve 3D scene for probe bake: %w", err)
+		}
+		doc = resolved
+	} else {
+		doc = doc.Clone()
+	}
+	for li := range doc.Layers {
+		sceneformat.WalkObjects(doc.Layers[li].Objects, func(o, _ *sceneformat.ObjectDoc) bool {
+			if o.ReflectionProbe != nil {
+				o.ReflectionProbe.Cubemap = ""
+			}
+			if o.LightProbeGrid != nil {
+				o.LightProbeGrid.Data = ""
+			}
+			return true
+		})
+	}
+	var files *scenemodel.Assets
+	if root := e.scene3DFilesRoot(); root != "" {
+		files = scenemodel.NewAssets(newConfinedProjectDirFS(root))
+	}
+	world := scene3d.NewScene()
+	built, err := scenemodel.Build(doc, world.Root(), scene3DAssets{
+		models:   e.ModelResolver,
+		resolver: e.Resolver,
+		files:    files,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("editor: build 3D scene for probe bake: %w", err)
+	}
+	e.syncBuilt3D(built)
+	return built, nil
 }
 
 // BakeReflectionProbe3D renders the open 3D scene from object id's reflection probe position into
@@ -370,6 +419,10 @@ func (e *Editor) probeBakeOptions(built *scenemodel.Built) scenemodel.ProbeBakeO
 // via History when unset or changed, and refreshes the 3D scene build so the viewport shows the
 // baked reflection immediately. Returns the slash-separated output path relative to the project root.
 func (e *Editor) BakeReflectionProbe3D(id string) (string, error) {
+	return e.bakeReflectionProbe3DWith(id, nil)
+}
+
+func (e *Editor) bakeReflectionProbe3DWith(id string, prebuilt *scenemodel.Built) (string, error) {
 	if e == nil || e.Doc == nil {
 		return "", errors.New("editor: nil scene document")
 	}
@@ -396,16 +449,16 @@ func (e *Editor) BakeReflectionProbe3D(id string) (string, error) {
 		return "", err
 	}
 
-	s := e.scene3D()
-	if s.err != nil {
-		return "", fmt.Errorf("editor: build 3D scene for probe bake: %w", s.err)
-	}
-	if s.built == nil {
-		return "", errors.New("editor: 3D scene build is unavailable")
+	built := prebuilt
+	if built == nil {
+		built, err = e.buildScene3DForProbeBake()
+		if err != nil {
+			return "", err
+		}
 	}
 
 	var rp *scenemodel.ReflectionProbe
-	for _, cand := range s.built.ReflectionProbes {
+	for _, cand := range built.ReflectionProbes {
 		if cand != nil && cand.Object == id {
 			rp = cand
 			break
@@ -415,7 +468,7 @@ func (e *Editor) BakeReflectionProbe3D(id string) (string, error) {
 		return "", fmt.Errorf("editor: reflection probe %q was not found in the 3D scene build", id)
 	}
 
-	cube, err := scenemodel.BakeReflectionProbe(s.built, rp, e.probeBakeOptions(s.built))
+	cube, err := scenemodel.BakeReflectionProbe(built, rp, e.probeBakeOptions(built))
 	if err != nil {
 		return "", err
 	}
@@ -452,6 +505,10 @@ func (e *Editor) BakeReflectionProbe3D(id string) (string, error) {
 // YAML, writes it atomically to disk, links LightProbeGrid.Data via History when unset or changed,
 // and refreshes the 3D scene build. Returns the slash-separated output path relative to the project root.
 func (e *Editor) BakeLightProbeGrid3D(id string) (string, error) {
+	return e.bakeLightProbeGrid3DWith(id, nil)
+}
+
+func (e *Editor) bakeLightProbeGrid3DWith(id string, prebuilt *scenemodel.Built) (string, error) {
 	if e == nil || e.Doc == nil {
 		return "", errors.New("editor: nil scene document")
 	}
@@ -479,16 +536,16 @@ func (e *Editor) BakeLightProbeGrid3D(id string) (string, error) {
 		return "", err
 	}
 
-	s := e.scene3D()
-	if s.err != nil {
-		return "", fmt.Errorf("editor: build 3D scene for probe bake: %w", s.err)
-	}
-	if s.built == nil {
-		return "", errors.New("editor: 3D scene build is unavailable")
+	built := prebuilt
+	if built == nil {
+		built, err = e.buildScene3DForProbeBake()
+		if err != nil {
+			return "", err
+		}
 	}
 
 	var lp *scenemodel.LightProbeGrid
-	for _, cand := range s.built.LightProbeGrids {
+	for _, cand := range built.LightProbeGrids {
 		if cand != nil && cand.Object == id {
 			lp = cand
 			break
@@ -498,7 +555,7 @@ func (e *Editor) BakeLightProbeGrid3D(id string) (string, error) {
 		return "", fmt.Errorf("editor: light probe grid %q was not found in the 3D scene build", id)
 	}
 
-	grid, err := scenemodel.BakeLightProbeGrid(s.built, lp, e.probeBakeOptions(s.built))
+	grid, err := scenemodel.BakeLightProbeGrid(built, lp, e.probeBakeOptions(built))
 	if err != nil {
 		return "", err
 	}
@@ -559,16 +616,20 @@ func (e *Editor) BakeAllProbes3D() (int, error) {
 	if len(reflIDs) == 0 && len(gridIDs) == 0 {
 		return 0, errors.New("editor: scene has no reflection probes or light probe grids")
 	}
+	built, err := e.buildScene3DForProbeBake()
+	if err != nil {
+		return 0, err
+	}
 	baked := 0
-	err := e.History.Group("Bake Probes", func() error {
+	err = e.History.Group("Bake Probes", func() error {
 		for _, id := range reflIDs {
-			if _, err := e.BakeReflectionProbe3D(id); err != nil {
+			if _, err := e.bakeReflectionProbe3DWith(id, built); err != nil {
 				return err
 			}
 			baked++
 		}
 		for _, id := range gridIDs {
-			if _, err := e.BakeLightProbeGrid3D(id); err != nil {
+			if _, err := e.bakeLightProbeGrid3DWith(id, built); err != nil {
 				return err
 			}
 			baked++

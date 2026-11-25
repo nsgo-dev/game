@@ -2,6 +2,7 @@ package scenemodel_test
 
 import (
 	"bytes"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -213,5 +214,66 @@ func TestBakeAndShadeWithReflectionProbeAndLightProbeGrid(t *testing.T) {
 	}
 	if bakedPix[0] == 0 && bakedPix[1] == 0 && bakedPix[2] == 0 {
 		t.Fatalf("baked sphere pixel is black: %v", bakedPix)
+	}
+}
+
+// Regression for Blocker #1 & Minor #1: rebaking a scene that has baked probes but no explicit 3D lights
+// or environment must still use FallbackLights (not render pitch black), and NaN/Inf Near/Far planes default safely.
+func TestBakeProbeFallbackLightingSurvivesRebakeAndNaNPlanes(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "probes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Create a valid baked HDR cubemap so Built.HasBakedProbes() is already true on input.
+	seedCM, err := render3d.NewHDRCubemap(8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var seedBuf bytes.Buffer
+	if err := render3d.EncodeCubemapHDR(&seedBuf, seedCM); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "probes", "seed.hdr"), seedBuf.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	sz := [3]float32{10, 10, 10}
+	doc := &sceneformat.SceneDoc{
+		Version: sceneformat.CurrentVersion,
+		Name:    "FallbackRebake",
+		Layers: []sceneformat.LayerDoc{{
+			Name: "world",
+			Objects: []sceneformat.ObjectDoc{
+				{ID: "wall", Mesh: "box", X: 2.5, Y: 0, PosZ: 0, ScaleX: sceneformat.Float32(0.5), ScaleY: sceneformat.Float32(4), ScaleZ: sceneformat.Float32(4)},
+				{ID: "rp", X: 0, Y: 0, PosZ: 0, ReflectionProbe: &sceneformat.ReflectionProbeDoc{Size: &sz, Resolution: 16, Cubemap: "probes/seed.hdr"}},
+			},
+		}},
+	}
+	world := scene3d.NewScene()
+	built, err := scenemodel.Build(doc, world.Root(), scenemodel.NewAssets(os.DirFS(dir)))
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if !built.HasBakedProbes() || !built.HasSceneLighting() {
+		t.Fatalf("expected pre-baked probe to set HasBakedProbes/HasSceneLighting")
+	}
+	fallback := render3d.LightRig{
+		Ambient: render3d.AmbientLight{Color: math3d.Vec3{X: 0.8, Y: 0.8, Z: 0.8}, Intensity: 1},
+	}
+	cm, err := scenemodel.BakeReflectionProbe(built, built.ReflectionProbes[0], scenemodel.ProbeBakeOptions{
+		Size:           16,
+		Near:           float32(math.NaN()),
+		Far:            float32(math.Inf(1)),
+		FallbackLights: &fallback,
+	})
+	if err != nil {
+		t.Fatalf("BakeReflectionProbe: %v", err)
+	}
+	var sum float64
+	for _, px := range cm.Faces[0] {
+		sum += float64(px[0]) + float64(px[1]) + float64(px[2])
+	}
+	if sum <= 0.1 {
+		t.Fatalf("rebaked +X face under fallback lighting rendered black (sum=%v)", sum)
 	}
 }

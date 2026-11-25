@@ -6,7 +6,6 @@ import (
 	"errors"
 	"hash/fnv"
 	"image"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -40,7 +39,8 @@ type scene3DState struct {
 	materialLibRev uint64
 	modelResolver  scenemodel.ModelResolver
 	projectPath    string
-	// files loads models, material files and images from the open project's files.
+	filesRoot      string
+	// files loads models, material files and images from the open project's files (or the open scene file's directory when standalone).
 	files *scenemodel.Assets
 	// bounds holds the bounds of each object's own geometry in its node's space, before its transform; an object without geometry has none.
 	bounds map[string]math3d.AABB
@@ -167,15 +167,31 @@ func (e *Editor) Scene3D() (*scenemodel.Built, error) {
 	return s.built, s.err
 }
 
+// scene3DFilesRoot returns the directory against which 3D scene assets are resolved: the project root
+// when a project is open, or the open scene file's directory for a standalone saved scene.
+func (e *Editor) scene3DFilesRoot() string {
+	if e == nil {
+		return ""
+	}
+	if e.ProjectPath != "" {
+		return filepath.Dir(e.ProjectPath)
+	}
+	if e.FilePath != "" {
+		return filepath.Dir(e.FilePath)
+	}
+	return ""
+}
+
 // scene3D brings the 3D build up to date with the open scene, building it again when its look changed, and returns it with its nodes posed (sync3D).
 func (e *Editor) scene3D() *scene3DState {
 	s := &e.s3d
 	if e.Doc == nil {
 		// gen only grows, so a renderer still holding the last build's upload never takes the next build for it.
-		*s = scene3DState{gen: s.gen, files: s.files, projectPath: s.projectPath, assetsRev: s.assetsRev, scenesRev: s.scenesRev, importRev: s.importRev, materialRev: s.materialRev, materialLibRev: s.materialLibRev, modelResolver: s.modelResolver}
+		*s = scene3DState{gen: s.gen, files: s.files, projectPath: s.projectPath, filesRoot: s.filesRoot, assetsRev: s.assetsRev, scenesRev: s.scenesRev, importRev: s.importRev, materialRev: s.materialRev, materialLibRev: s.materialLibRev, modelResolver: s.modelResolver}
 		return s
 	}
-	if e.ProjectPath != s.projectPath || e.assetsRev != s.assetsRev {
+	filesRoot := e.scene3DFilesRoot()
+	if e.ProjectPath != s.projectPath || filesRoot != s.filesRoot || e.assetsRev != s.assetsRev {
 		// Files the editor moved, installed or rescanned may be what the cached models and materials came from, including the materials a project.Resolver serves.
 		e.syncProjectAssets()
 		s.files = nil
@@ -188,8 +204,8 @@ func (e *Editor) scene3D() *scene3DState {
 		s.files = nil
 		s.stale = true
 	}
-	if s.files == nil && e.ProjectPath != "" {
-		s.files = scenemodel.NewAssets(os.DirFS(filepath.Dir(e.ProjectPath)))
+	if s.files == nil && filesRoot != "" {
+		s.files = scenemodel.NewAssets(newConfinedProjectDirFS(filesRoot))
 	}
 	libRev := e.currentMaterialLibRev()
 	materialChanged := e.materialRev != s.materialRev || libRev != s.materialLibRev
@@ -198,11 +214,11 @@ func (e *Editor) scene3D() *scene3DState {
 	}
 	if s.stale || s.doc != e.Doc {
 		key, comparable := lookKey3D(e.Doc)
-		if !comparable || s.world == nil || s.err != nil || key != s.key || e.ProjectPath != s.projectPath || e.assetsRev != s.assetsRev || (e.scenesRev != s.scenesRev && e.Doc.RefersToScenes()) || e.importRev != s.importRev || materialChanged || e.ModelResolver != s.modelResolver {
+		if !comparable || s.world == nil || s.err != nil || key != s.key || e.ProjectPath != s.projectPath || filesRoot != s.filesRoot || e.assetsRev != s.assetsRev || (e.scenesRev != s.scenesRev && e.Doc.RefersToScenes()) || e.importRev != s.importRev || materialChanged || e.ModelResolver != s.modelResolver {
 			e.build3D(s)
 		}
 		s.doc, s.key, s.stale = e.Doc, key, false
-		s.projectPath, s.assetsRev, s.scenesRev, s.importRev, s.materialRev, s.materialLibRev, s.modelResolver = e.ProjectPath, e.assetsRev, e.scenesRev, e.importRev, e.materialRev, e.currentMaterialLibRev(), e.ModelResolver
+		s.projectPath, s.filesRoot, s.assetsRev, s.scenesRev, s.importRev, s.materialRev, s.materialLibRev, s.modelResolver = e.ProjectPath, filesRoot, e.assetsRev, e.scenesRev, e.importRev, e.materialRev, e.currentMaterialLibRev(), e.ModelResolver
 	}
 	if s.built != nil {
 		e.sync3D(s)
@@ -283,7 +299,13 @@ func appendTriangles(dst []math3d.Vec3, m render3d.Mesh) []math3d.Vec3 {
 
 // sync3D poses the built nodes as the viewport shows the scene: each object's transform as the open clip or the running game poses it, the objects hidden in the editor invisible with their descendants, and each layer visible when it is visible and in world space. It touches a node only when that changes something.
 func (e *Editor) sync3D(s *scene3DState) {
-	built := s.built
+	e.syncBuilt3D(s.built)
+}
+
+func (e *Editor) syncBuilt3D(built *scenemodel.Built) {
+	if built == nil || e.Doc == nil {
+		return
+	}
 	for li := range e.Doc.Layers {
 		l := &e.Doc.Layers[li]
 		if ln := built.Layers[l.Name]; ln != nil {

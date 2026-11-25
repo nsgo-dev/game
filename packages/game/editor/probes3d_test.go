@@ -288,3 +288,111 @@ func TestBakeProbesRejectsUnsafePaths(t *testing.T) {
 		t.Fatal("BakeLightProbeGrid3D accepted reserved game.yaml path")
 	}
 }
+
+// Regressions for Blockers #1, #2, and #3:
+// 1. Rebaking a fallback-lit scene (no 3D lights, no environment) stays lit instead of rendering pitch black.
+// 2. Pre-set unbaked/deleted cubemap & data paths do not block baking.
+// 3. Baking in a standalone saved scene (FilePath set, ProjectPath empty) loads cleanly in Scene3D().
+func TestBakeProbesRebakeFallbackLitMissingTargetAndStandaloneScene(t *testing.T) {
+	// 1 & 2: Project scene with NO explicit 3D lights and NO environment, plus pre-set missing output paths.
+	projDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(projDir, "game.yaml"), []byte("version: 1\nname: ProbeRegressions\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sz := [3]float32{8, 6, 8}
+	cnt := [3]int{2, 2, 2}
+	doc := &sceneformat.SceneDoc{
+		Version: sceneformat.CurrentVersion,
+		Name:    "NoLights",
+		Layers: []sceneformat.LayerDoc{{
+			Name: "world",
+			Objects: []sceneformat.ObjectDoc{
+				{ID: "wall", Mesh: "box", X: 2.5, Y: 0, PosZ: 0, ScaleX: sceneformat.Float32(0.5), ScaleY: sceneformat.Float32(4), ScaleZ: sceneformat.Float32(4)},
+				{ID: "rp", X: 0, Y: 0, PosZ: 0, ReflectionProbe: &sceneformat.ReflectionProbeDoc{Size: &sz, Resolution: 16, Cubemap: "probes/custom_missing.hdr"}},
+				{ID: "lp", X: 0, Y: 0, PosZ: 0, LightProbeGrid: &sceneformat.LightProbeGridDoc{Size: &sz, Counts: &cnt, Data: "probes/custom_missing.probes.yaml"}},
+			},
+		}},
+	}
+	ed, err := editor.New(doc, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ed.ProjectPath = filepath.Join(projDir, "game.yaml")
+
+	// Blocker #2: Baking must succeed even though custom_missing.hdr and custom_missing.probes.yaml do not exist yet.
+	n, err := ed.BakeAllProbes3D()
+	if err != nil {
+		t.Fatalf("BakeAllProbes3D with missing target files: %v", err)
+	}
+	if n != 2 {
+		t.Fatalf("BakeAllProbes3D baked %d probes, want 2", n)
+	}
+	built1, err := ed.Scene3D()
+	if err != nil {
+		t.Fatalf("Scene3D after first bake: %v", err)
+	}
+	faceSum := func(cm [][3]float32) float64 {
+		var s float64
+		for _, p := range cm {
+			s += float64(p[0]) + float64(p[1]) + float64(p[2])
+		}
+		return s
+	}
+	sum1 := faceSum(built1.ReflectionProbes[0].Cubemap.Faces[0])
+	if sum1 <= 0.1 {
+		t.Fatalf("first fallback-lit bake +X face sum = %v, want > 0.1", sum1)
+	}
+
+	// Blocker #1: Rebaking the already-baked fallback-lit scene must NOT render pitch black!
+	if _, err := ed.BakeReflectionProbe3D("rp"); err != nil {
+		t.Fatalf("rebake BakeReflectionProbe3D: %v", err)
+	}
+	built2, err := ed.Scene3D()
+	if err != nil {
+		t.Fatalf("Scene3D after rebake: %v", err)
+	}
+	sum2 := faceSum(built2.ReflectionProbes[0].Cubemap.Faces[0])
+	if sum2 <= 0.1 {
+		t.Fatalf("rebaked fallback-lit +X face rendered black (sum=%v, first bake was %v)", sum2, sum1)
+	}
+
+	// Deleting a baked file on disk and rebaking must also succeed.
+	if err := os.Remove(filepath.Join(projDir, "probes", "custom_missing.hdr")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ed.BakeReflectionProbe3D("rp"); err != nil {
+		t.Fatalf("BakeReflectionProbe3D after deleting target file: %v", err)
+	}
+
+	// Blocker #3: Standalone saved scene (FilePath set, ProjectPath empty) must bake AND render in Scene3D().
+	standaloneDir := t.TempDir()
+	edStandalone, err := editor.New(&sceneformat.SceneDoc{
+		Version: sceneformat.CurrentVersion,
+		Name:    "Standalone",
+		Layers: []sceneformat.LayerDoc{{
+			Name: "world",
+			Objects: []sceneformat.ObjectDoc{
+				{ID: "wall", Mesh: "box", X: 2.5, Y: 0, PosZ: 0, ScaleX: sceneformat.Float32(0.5), ScaleY: sceneformat.Float32(4), ScaleZ: sceneformat.Float32(4)},
+				{ID: "rp", X: 0, Y: 0, PosZ: 0, ReflectionProbe: &sceneformat.ReflectionProbeDoc{Size: &sz, Resolution: 16}},
+				{ID: "lp", X: 0, Y: 0, PosZ: 0, LightProbeGrid: &sceneformat.LightProbeGridDoc{Size: &sz, Counts: &cnt}},
+			},
+		}},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edStandalone.FilePath = filepath.Join(standaloneDir, "room.scene.yaml")
+	if _, err := edStandalone.BakeAllProbes3D(); err != nil {
+		t.Fatalf("standalone BakeAllProbes3D: %v", err)
+	}
+	builtStandalone, err := edStandalone.Scene3D()
+	if err != nil {
+		t.Fatalf("standalone Scene3D() failed after bake: %v", err)
+	}
+	if len(builtStandalone.ReflectionProbes) != 1 || builtStandalone.ReflectionProbes[0].Cubemap == nil {
+		t.Fatalf("standalone Scene3D() did not load baked reflection probe cubemap")
+	}
+	if len(builtStandalone.LightProbeGrids) != 1 || builtStandalone.LightProbeGrids[0].Grid == nil {
+		t.Fatalf("standalone Scene3D() did not load baked light probe grid")
+	}
+}
