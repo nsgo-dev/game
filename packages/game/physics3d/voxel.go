@@ -988,16 +988,19 @@ func (w *World) WakeInBox(bounds Box) {
 	if w == nil || len(w.bodies) == 0 {
 		return
 	}
+	w.bp.ensureInit(w)
 	var woken []int
-	for _, b := range w.bodies {
-		if b.Static || b.Kinematic || !b.Sleeping {
-			continue
+	w.bp.queryDynamicAABB(bounds, func(p *bpProxy) bool {
+		b := p.body
+		if b == nil || b.Static || b.Kinematic || !b.Sleeping {
+			return true
 		}
-		if aabbOverlap(bounds, b.WorldShape().Bounds()) {
+		if aabbOverlap(bounds, p.worldBounds) {
 			b.Wake()
 			woken = append(woken, b.ID)
 		}
-	}
+		return true
+	})
 	if len(woken) == 0 || len(w.activeContacts) == 0 {
 		return
 	}
@@ -1027,16 +1030,19 @@ func (w *World) wakeForVoxels() {
 	if len(w.voxels) == 0 {
 		return
 	}
+	w.bp.ensureInit(w)
 	up, haveUp := gravityUp(w.Gravity)
 	var probeOffset Vec3
 	if haveUp {
 		probeOffset = up.Scale(-sleepWakeDepth)
 	}
-	for _, b := range w.bodies {
+	for _, pid := range w.bp.dynamicList {
+		p := &w.bp.proxies[pid]
+		b := p.body
 		if b.Static || b.Kinematic || !b.Sleeping || b.IsTrigger {
 			continue
 		}
-		ws := b.WorldShape()
+		ws := p.worldShape
 		// Wake if a newly placed solid block deeply overlaps this sleeping body.
 		penetrated := false
 		for _, vc := range w.voxels {

@@ -1124,6 +1124,7 @@ func (w *World) AddTriMesh(tm *TriMeshCollider) *TriMeshCollider {
 		tm.Restitution = 1
 	}
 	w.triMeshes = append(w.triMeshes, tm)
+	w.bp.addTriMesh(w, tm)
 	return tm
 }
 
@@ -1132,6 +1133,7 @@ func (w *World) RemoveTriMesh(id int) bool {
 	for i, tm := range w.triMeshes {
 		if tm.ID == id {
 			w.triMeshes = append(w.triMeshes[:i], w.triMeshes[i+1:]...)
+			w.bp.removeTriMesh(w, i)
 			w.wakeAllDynamic()
 			return true
 		}
@@ -1166,6 +1168,7 @@ func (w *World) AddHeightfield(hf *HeightfieldCollider) *HeightfieldCollider {
 		hf.Restitution = 1
 	}
 	w.heightfields = append(w.heightfields, hf)
+	w.bp.addHeightfield(w, hf)
 	return hf
 }
 
@@ -1174,6 +1177,7 @@ func (w *World) RemoveHeightfield(id int) bool {
 	for i, hf := range w.heightfields {
 		if hf.ID == id {
 			w.heightfields = append(w.heightfields[:i], w.heightfields[i+1:]...)
+			w.bp.removeHeightfield(w, i)
 			w.wakeAllDynamic()
 			return true
 		}

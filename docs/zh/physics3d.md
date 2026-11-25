@@ -118,6 +118,14 @@ loop := &game.Loop{
 
 单步位移超过自身最小尺寸一半的动态刚体，会以子步对静态、运动学和休眠刚体以及三角网格、高度场、体素碰撞体做扫掠，在第一次出现新的重叠处停下，因此高速刚体不会穿过薄的几何体。本步开始时已经存在的接触（例如高速滑行或滚动的刚体身下的地面）不会让它停下，除非刚体陷入其中明显更深。高速动态刚体之间不做扫掠。
 
+### 宽相加速
+
+`World` 使用分离的确定性静态与动态 AABB 树来加速刚体配对检测、射线检测（`Raycast`、`RaycastFirst`、`RaycastLayer`、`RaycastFirstLayer`）、重叠查询（`QueryOverlap`、`OverlapLayer`）、CCD 扫掠、`WakeInBox` 以及 `CharacterController` 查询：
+
+- **静动分离的双树结构**：静态非触发器刚体、`TriMeshCollider` 与 `HeightfieldCollider` 存放在静态树中（每个三角网格和高度场仅占一个宽相条目，内部继续使用自身的 BVH 或网格），通过自顶向下划分构建紧凑的空间结构，使静止关卡几何在没有物体靠近时几乎零开销。动态、运动学与触发器刚体存放在动态树中，采用松弛包围盒（fat AABB）、按位移方向的前瞻扩展以及基于表面积启发式（SAH）的树旋转，使休眠或慢速刚体几乎不触发树更新。
+- **确定性顺序**：候选碰撞对按刚体插入顺序排序，射线与重叠查询遵循与线性扫描一致的确定性决胜规则，因此模拟轨迹、事件与查询命中结果与暴力遍历按位完全一致。
+- **自动同步**：`AddBody`、`RemoveBody`、`AddTriMesh`、`RemoveTriMesh`、`AddHeightfield`、`RemoveHeightfield`、`Restore` 与 `Step` 会自动维护宽相结构。如果在两次 `Step` 之间直接修改了刚体的 `Pos`、`Rot`、`Shape`、`Static` 或 `IsTrigger` 并立即执行射线或重叠查询，请先调用 `world.SyncBroadphase()`。
+
 ## 体素碰撞体
 
 `VoxelCollider`（通过 `NewVoxelCollider(grid)` 创建并用 `World.AddVoxelCollider` 加入，或由 `game/voxel` 的 `voxel.NewCollider(w)` / `w.Collider()` 直接适配）无需构建三角网格，即可让刚体、`CharacterController`、CCD 以及世界级射线/重叠查询直接与任意 `VoxelGrid` 碰撞：
@@ -274,8 +282,8 @@ sw.Step(dt)
 
 - **`Save() / Restore(snap) / Checksum()`**：`World.Save()` 将所有公开和私有求解器状态捕获到带版本号的 `WorldSnapshot`（`SnapshotVersion`）中，包括重力与求解器/休眠配置、刚体（含完整形状，包括 `ConvexHull` 的几何数据和 `Cylinder`，以及私有休眠计时器、重力缩放标记、残余穿透深度、上一帧插值姿态及体素静置状态）、有序热启动接触冲量缓存、活跃接触/触发器对集合、上一帧接触与关节断裂事件、忽略碰撞对、全部 7 种内置 `Joint3D` 类型（`DistanceJoint`、`BallJoint`、`HingeJoint`、`SliderJoint`、`FixedJoint`、`SwingTwistJoint`、`SixDOFJoint`，含展开角度状态与最近反作用冲量），以及 `TriMeshCollider`、`HeightfieldCollider` 和 `VoxelGrid` 碰撞体绑定。
 - **纯文本 JSON 序列化**：`WorldSnapshot` 支持直接使用 `encoding/json` 序列化与反序列化（不使用 `encoding/gob` 或自定义二进制布局）。
-- **原地保留指针与回调**：当数量和类型匹配时，`Restore` 原地更新现有的 `*Body`、`Joint3D` 和碰撞体实例，在回滚期间保持游戏实体指针、`UserData` 以及世界回调（`OnContact`、`OnTrigger`、`OnJointBreak`）有效。
-- **跨架构确定性**：所有步进 3D 积分、窄相碰撞（OBB、网格/高度场、体素）、顺序冲量求解器、关节、区域以及 `vehicle` 悬架/轮胎路径都避免了 arm64 FMA 收缩及含 FMA 的标准库超越函数，确保在 amd64 与 arm64 上产生比特完全一致的轨迹和 `Checksum()` 值。
+- **原地保留指针与回调**：当数量和类型匹配时，`Restore` 原地更新现有的 `*Body`、`Joint3D` 和碰撞体实例，确定性地重建宽相树，并在回滚期间保持游戏实体指针、`UserData` 以及世界回调（`OnContact`、`OnTrigger`、`OnJointBreak`）有效。
+- **跨架构确定性**：所有步进 3D 积分、宽相、窄相碰撞（GJK/EPA/SAT、OBB、网格/高度场、体素）、顺序冲量求解器、关节、区域以及 `vehicle` 悬架/轮胎路径都避免了 arm64 FMA 收缩及含 FMA 的标准库超越函数，确保在 amd64 与 arm64 上产生比特完全一致的轨迹和 `Checksum()` 值。
 
 ```go
 snap := world.Save()

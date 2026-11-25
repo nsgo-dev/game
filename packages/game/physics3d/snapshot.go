@@ -1220,6 +1220,9 @@ func (w *World) Restore(snap WorldSnapshot) error {
 	w.bodies = restoredBodies
 	w.cache = restoredCache
 	w.activeContacts = restoredActive
+	if w.nextActiveContacts != nil {
+		clear(w.nextActiveContacts)
+	}
 	w.contactEvents = restoredContactEvents
 	w.jointBreakEvents = restoredBreakEvents
 	w.ignoredPairs = restoredIgnored
@@ -1227,6 +1230,7 @@ func (w *World) Restore(snap WorldSnapshot) error {
 	w.triMeshes = restoredTriMeshes
 	w.heightfields = restoredHFs
 	w.voxels = restoredVoxels
+	w.bp.rebuild(w)
 	return nil
 }
 
