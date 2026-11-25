@@ -55,6 +55,7 @@ func (e *Editor) OpenProject(path string) error {
 	e.filesRev++
 	e.History.Clear()
 	e.dropStalePluginTool()
+	e.dropStaleFocusedPluginPanel()
 	e.syncAudioMixer()
 	e.resetExportPanelForProject()
 	e.Status = "Opened project " + path

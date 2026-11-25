@@ -29,12 +29,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 	unsub := ed.Subscribe(func() {
 		rev.Set(ed.Revision())
 	})
-	cx.OnKey("f5", func() {
-		if ed.Project != nil && !ed.GameRunning() {
-			ed.report(ed.RunGame())
-		}
-	})
-	cx.OnKey("shift+f5", func() {
+	cx.OnKeyWith("shift+f5", core.KeyOptions{When: core.KeyNotEditing}, func() {
 		if ed.GameRunning() {
 			ed.report(ed.StopGame())
 		}
@@ -54,6 +49,8 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 	})
 
 	colors := ui.ColorsOf(cx)
+	ed.bindShortcuts(cx, rev)
+	ed.bindApplicationMenu(cx, rev)
 
 	return core.View{
 		TestID: "scene-editor",
@@ -86,6 +83,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 			ExportPanelView(cx, ed, rev),
 			OutputPanelView(cx, ed, rev),
 			statusBarView(cx, ed, rev),
+			CommandPaletteView(cx, ed, rev),
 		},
 	}
 }
@@ -481,46 +479,23 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 						},
 					},
 					ui.Button{
+						TestID:  "toolbar-palette",
+						Text:    "Commands",
+						Label:   "Open the Command Palette",
+						Size:    ui.SizeSmall,
+						Variant: ui.ButtonSecondary,
+						OnPress: func() {
+							ed.ToggleCommandPalette()
+						},
+					},
+					ui.Button{
 						TestID:   "toolbar-save",
 						Text:     "Save",
 						Size:     ui.SizeSmall,
 						Variant:  ui.ButtonOutline,
 						Disabled: notPlaying,
 						OnPress: func() {
-							// An edited project file is saved first, whether or not the scene can be; an unedited one is left as written, comments included.
-							if ed.ProjectDirty() {
-								if err := ed.SaveProject(); err != nil {
-									ed.reportStatusError("Save error: " + err.Error())
-									return
-								}
-								if ed.OnSave == nil && ed.FilePath == "" {
-									// Only the project has a file to save to: the scene was never opened from or saved to one.
-									return
-								}
-							}
-							data, err := ed.SaveYAML()
-							if err != nil {
-								ed.reportStatusError("Save error: " + err.Error())
-								return
-							}
-							if ed.OnSave != nil {
-								if err := ed.OnSave(data); err != nil {
-									ed.reportStatusError("Save error: " + err.Error())
-									return
-								}
-								ed.invalidateProjectIndex()
-								ed.CheckProblems()
-							} else if ed.FilePath != "" {
-								if err := ed.SaveFile(ed.FilePath); err != nil {
-									ed.reportStatusError("Save error: " + err.Error())
-									return
-								}
-							} else {
-								// Nothing was asked to persist the scene: say so
-								// instead of reporting a save that never happened.
-								ed.reportStatusError("Save error: no save path; open or save the scene to a file first")
-								return
-							}
+							_ = ed.Save()
 						},
 					},
 				},

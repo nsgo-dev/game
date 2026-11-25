@@ -25,6 +25,8 @@ type Plugin struct {
 	Inspectors []Inspector
 	// Tools are added to the 2D viewport's tool bar.
 	Tools []PluginTool
+	// Commands are added to the editor's command registry, desktop menu bar, command palette, and keyboard shortcuts while the plugin is on.
+	Commands []PluginCommand
 }
 
 // Dock is where a plugin's Panel sits in the editor window.
@@ -85,7 +87,28 @@ type PluginTool struct {
 	Draw func(ed *Editor, d *core.Drawing)
 }
 
-// RegisterPlugin makes p available to the editor. It is on while the open project names it under editor.plugins in game.yaml, or after SetPluginEnabled turns it on. RegisterPlugin refuses a name that is empty, has spaces or control characters or is already registered, a panel, inspector or tool without its ID, title, label, component or function, a panel or tool ID or component name with control characters, a panel with an unknown dock, and two panels, inspectors or tools of p with the same ID or component. The editor keeps a copy of p's lists.
+// PluginCommand is a command a plugin adds to the editor's command registry, command palette,
+// desktop menu bar, and optional keyboard shortcut.
+type PluginCommand struct {
+	// ID identifies the command within its plugin (registered globally as "plugin.<plugin>.<id>") and has no spaces or control characters.
+	ID string
+	// Label is the display name shown in the command palette and menu bar.
+	Label string
+	// Description is optional explanatory text shown in the command palette.
+	Description string
+	// Category groups the command in the command palette (defaults to the plugin's name when empty).
+	Category string
+	// Keywords are extra search terms matched by the command palette.
+	Keywords []string
+	// Shortcut is an optional NSGo key shortcut (such as "mod+shift+h" or "alt+h"). Clashing with any built-in, custom, or other registered plugin shortcut is refused at RegisterPlugin time.
+	Shortcut string
+	// Enabled, when set, reports whether the command can run right now; nil means always enabled.
+	Enabled func(ed *Editor) bool
+	// Run executes the command.
+	Run func(ed *Editor) error
+}
+
+// RegisterPlugin makes p available to the editor. It is on while the open project names it under editor.plugins in game.yaml, or after SetPluginEnabled turns it on. RegisterPlugin refuses a name that is empty, has spaces or control characters or is already registered, a panel, inspector, tool or command without its ID, title, label, component or function, a panel or tool ID or component name with control characters, a command ID with spaces or control characters, a panel with an unknown dock, two panels, inspectors, tools or commands of p with the same ID or component, and any command whose shortcut is invalid or clashes with an already-registered shortcut. The editor keeps a copy of p's lists.
 func (e *Editor) RegisterPlugin(p Plugin) error {
 	if err := validatePlugin(&p); err != nil {
 		return err
@@ -93,9 +116,35 @@ func (e *Editor) RegisterPlugin(p Plugin) error {
 	if e.plugin(p.Name) != nil {
 		return fmt.Errorf("editor: plugin %q is already registered", p.Name)
 	}
+	owners := e.registeredShortcutOwners()
+	localShortcuts := make(map[string]string)
+	clonedCmds := make([]PluginCommand, len(p.Commands))
+	for i, c := range p.Commands {
+		fullID := pluginCommandID(p.Name, c.ID)
+		if e.hasRegisteredCommandID(fullID) {
+			return fmt.Errorf("editor: plugin %s: command %q is already registered", p.Name, fullID)
+		}
+		norm, err := NormalizeShortcut(c.Shortcut)
+		if err != nil {
+			return fmt.Errorf("editor: plugin %s: command %q: %w", p.Name, c.ID, err)
+		}
+		for _, ck := range shortcutCollisionKeys(norm) {
+			if existing, clash := owners[ck]; clash {
+				return fmt.Errorf("editor: plugin %s: command %q shortcut %q clashes with command %q", p.Name, c.ID, norm, existing)
+			}
+			if prev, clash := localShortcuts[ck]; clash {
+				return fmt.Errorf("editor: plugin %s: command %q shortcut %q clashes with command %q", p.Name, c.ID, norm, prev)
+			}
+			localShortcuts[ck] = fullID
+		}
+		c.Shortcut = norm
+		c.Keywords = slices.Clone(c.Keywords)
+		clonedCmds[i] = c
+	}
 	p.Panels = slices.Clone(p.Panels)
 	p.Inspectors = slices.Clone(p.Inspectors)
 	p.Tools = slices.Clone(p.Tools)
+	p.Commands = clonedCmds
 	e.plugins = append(e.plugins, &p)
 	if e.Project != nil && e.Project.Editor != nil && slices.Contains(e.Project.Editor.Plugins, p.Name) {
 		e.Status = "Plugin " + p.Name + " is on"
@@ -159,6 +208,23 @@ func validatePlugin(p *Plugin) error {
 			return fmt.Errorf("%s: two tools have ID %q", where, t.ID)
 		}
 		tools[t.ID] = struct{}{}
+	}
+	cmds := make(map[string]struct{}, len(p.Commands))
+	for i, c := range p.Commands {
+		switch {
+		case c.ID == "":
+			return fmt.Errorf("%s: command %d has no ID", where, i)
+		case strings.IndexFunc(c.ID, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0:
+			return fmt.Errorf("%s: command ID %q must have no spaces or control characters", where, c.ID)
+		case strings.TrimSpace(c.Label) == "":
+			return fmt.Errorf("%s: command %q has no label", where, c.ID)
+		case c.Run == nil:
+			return fmt.Errorf("%s: command %q has no Run", where, c.ID)
+		}
+		if _, dup := cmds[c.ID]; dup {
+			return fmt.Errorf("%s: two commands have ID %q", where, c.ID)
+		}
+		cmds[c.ID] = struct{}{}
 	}
 	return nil
 }
@@ -459,6 +525,7 @@ func pluginDockView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dock D
 // pluginPanelView is one docked panel: its title above its content, which scrolls.
 func pluginPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dp dockedPanel) core.Node {
 	colors := ui.ColorsOf(cx)
+	ref := panelRef{dp.plugin, dp.panel.ID}
 	return core.View{
 		TestID: "plugin-panel-" + dp.plugin + "-" + dp.panel.ID,
 		Style: core.Style{
@@ -466,6 +533,16 @@ func pluginPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dp do
 			FlexBasis: core.Pt(0),
 			Padding:   core.All(10),
 			Gap:       8,
+		},
+		StyleFunc: func() core.Style {
+			_ = rev.Get()
+			if ed.focusedPluginPanel == ref {
+				return core.Style{
+					BorderWidth: 1,
+					BorderColor: colors.Accent(),
+				}
+			}
+			return core.Style{}
 		},
 		Children: []core.Node{
 			core.Text{
