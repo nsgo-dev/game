@@ -72,6 +72,32 @@ func renderFullscreen(t *testing.T, sr *gpu.SoftwareRenderer, pipe *gpu.Pipeline
 	return img.RGBAAt(img.Bounds().Dx()/2, img.Bounds().Dy()/2)
 }
 
+func writeFileAtomic(t *testing.T, path, data string) {
+	t.Helper()
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".tmp-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpPath := tmp.Name()
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+	if _, err := tmp.WriteString(data); err != nil {
+		_ = tmp.Close()
+		t.Fatal(err)
+	}
+	if err := tmp.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		t.Fatal(err)
+	}
+	cleanup = false
+}
+
 func wantRGBA(t *testing.T, got, want color.RGBA) {
 	t.Helper()
 	if got != want {
@@ -153,7 +179,7 @@ func TestShaderHotReloadUpdatesPixelsWithinOneSecondAndRecoversFromErrors(t *tes
 		t.Fatal(err)
 	}
 	shaderFile := filepath.Join(shaderDir, "quad.wgsl")
-	writeFile(t, shaderFile, solidColorWGSL("1.0", "0.0", "0.0"))
+	writeFileAtomic(t, shaderFile, solidColorWGSL("1.0", "0.0", "0.0"))
 	t.Setenv(hotreload.AssetsDirEnv, dir)
 
 	sr := gpu.NewSoftwareRenderer(16, 16, gpu.FormatUndefined)
@@ -211,10 +237,13 @@ func TestShaderHotReloadUpdatesPixelsWithinOneSecondAndRecoversFromErrors(t *tes
 
 	// 1. Edit shader to green and verify live reload updates pixels within 1 second.
 	start := time.Now()
-	writeFile(t, shaderFile, solidColorWGSL("0.0", "1.0", "0.0"))
+	writeFileAtomic(t, shaderFile, solidColorWGSL("0.0", "1.0", "0.0"))
 	app.WaitUntil(time.Second, func() bool { return reloadedCnt.Load() >= 1 })
 	if elapsed := time.Since(start); elapsed >= time.Second {
 		t.Fatalf("shader reload took %v, want < 1s", elapsed)
+	}
+	if gotErrs := errCnt.Load(); gotErrs != 0 {
+		t.Fatalf("unexpected %d reload error(s) during valid shader save: %+v", gotErrs, reloader.Errors())
 	}
 	greenPipe := reloader.Pipeline("quad")
 	if greenPipe == nil || greenPipe.ID() == initialPipe.ID() {
@@ -227,8 +256,9 @@ func TestShaderHotReloadUpdatesPixelsWithinOneSecondAndRecoversFromErrors(t *tes
 
 	// 2. Introduce a WGSL compile error: must report structured error without crashing AND keep drawing green.
 	badWGSL := strings.Replace(solidColorWGSL("0.0", "1.0", "0.0"), "vec4<f32>(0.0, 1.0, 0.0, 1.0)", "undefined_symbol", 1)
-	writeFile(t, shaderFile, badWGSL)
-	app.WaitUntil(time.Second, func() bool { return errCnt.Load() >= 1 })
+	prevErrs := errCnt.Load()
+	writeFileAtomic(t, shaderFile, badWGSL)
+	app.WaitUntil(time.Second, func() bool { return errCnt.Load() > prevErrs })
 
 	re, hasErr := reloader.LastError("quad")
 	if !hasErr {
@@ -249,8 +279,8 @@ func TestShaderHotReloadUpdatesPixelsWithinOneSecondAndRecoversFromErrors(t *tes
 
 	// 3. Valid WGSL but missing required entry point -> CreatePipeline fails, still keeps green pipeline!
 	missingEntryWGSL := strings.Replace(solidColorWGSL("1.0", "1.0", "0.0"), "fn fs_main", "fn fs_other", 1)
-	prevErrs := errCnt.Load()
-	writeFile(t, shaderFile, missingEntryWGSL)
+	prevErrs = errCnt.Load()
+	writeFileAtomic(t, shaderFile, missingEntryWGSL)
 	app.WaitUntil(time.Second, func() bool { return errCnt.Load() > prevErrs })
 	if cur := reloader.Pipeline("quad"); cur != greenPipe {
 		t.Fatalf("entry-point error replaced active pipeline")
@@ -259,7 +289,7 @@ func TestShaderHotReloadUpdatesPixelsWithinOneSecondAndRecoversFromErrors(t *tes
 
 	// 4. Fix shader to blue -> recovers seamlessly, clears error, swaps pipeline, draws blue.
 	prevReloads := reloadedCnt.Load()
-	writeFile(t, shaderFile, solidColorWGSL("0.0", "0.0", "1.0"))
+	writeFileAtomic(t, shaderFile, solidColorWGSL("0.0", "0.0", "1.0"))
 	app.WaitUntil(time.Second, func() bool { return reloadedCnt.Load() > prevReloads })
 
 	if _, stillErr := reloader.LastError("quad"); stillErr {
@@ -279,6 +309,148 @@ func TestShaderHotReloadUpdatesPixelsWithinOneSecondAndRecoversFromErrors(t *tes
 		t.Fatalf("reloadedHit=%v errHistory=%d", reloadedHit, len(errHistory))
 	}
 	mu.Unlock()
+}
+
+// TestShaderHotReloadToleratesTruncateThenWrite verifies issue #962:
+// an editor save that truncates a shader file before writing new contents never
+// emits a spurious empty-source ReloadError, while a file that genuinely stays
+// empty still reports the empty-source error after settling and recovers cleanly.
+func TestShaderHotReloadToleratesTruncateThenWrite(t *testing.T) {
+	dir := t.TempDir()
+	shaderDir := filepath.Join(dir, "shaders")
+	if err := os.MkdirAll(shaderDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	shaderFile := filepath.Join(shaderDir, "quad.wgsl")
+	writeFileAtomic(t, shaderFile, solidColorWGSL("1.0", "0.0", "0.0"))
+
+	sr := gpu.NewSoftwareRenderer(16, 16, gpu.FormatUndefined)
+	t.Cleanup(sr.Close)
+	dev := sr.Device()
+
+	var (
+		reloader    *hotreload.ShaderReloader
+		mu          sync.Mutex
+		errHistory  []hotreload.ReloadError
+		reloadedCnt atomic.Int32
+		errCnt      atomic.Int32
+	)
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		w := hotreload.NewWatcher(cx, dir,
+			hotreload.WithPollInterval(15*time.Millisecond),
+			hotreload.WithDebounce(20*time.Millisecond),
+		)
+		reloader = hotreload.NewShaderReloader(cx, dev,
+			hotreload.WithShaderDir(dir),
+			hotreload.WithOnShaderReload(func(string, string) {
+				reloadedCnt.Add(1)
+			}),
+			hotreload.WithOnShaderError(func(re hotreload.ReloadError) {
+				mu.Lock()
+				errHistory = append(errHistory, re)
+				mu.Unlock()
+				errCnt.Add(1)
+			}),
+		)
+		w.WatchShaders(reloader)
+
+		_, err := reloader.RegisterPipeline("quad", hotreload.PipelineSpec{
+			Shader: "shaders/quad.wgsl",
+			Build: func(v, f *gpu.ShaderModule) (gpu.PipelineDesc, error) {
+				return gpu.PipelineDesc{
+					Label:     "quad",
+					Vertex:    gpu.ShaderStage{Module: v, EntryPoint: "vs_main"},
+					Fragment:  gpu.ShaderStage{Module: f, EntryPoint: "fs_main"},
+					Primitive: gpu.PrimitiveState{Topology: gpu.TopologyTriangleList},
+					Targets:   []gpu.ColorTargetState{{Format: dev.SurfaceFormat()}},
+				}, nil
+			},
+		})
+		if err != nil {
+			t.Errorf("RegisterPipeline: %v", err)
+		}
+		return core.View{}
+	})
+
+	wantRGBA(t, renderFullscreen(t, sr, reloader.Pipeline("quad")), color.RGBA{R: 255, G: 0, B: 0, A: 255})
+
+	truncateThenWrite := func(content string, pause time.Duration) {
+		t.Helper()
+		f, err := os.OpenFile(shaderFile, os.O_WRONLY|os.O_TRUNC, 0o644)
+		if err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(pause)
+		if _, err := f.WriteString(content); err != nil {
+			_ = f.Close()
+			t.Fatal(err)
+		}
+		if err := f.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// 1. Truncate-then-write a valid shader with a pause longer than the normal
+	// 20ms debounce so the watcher observes the 0-byte state multiple times.
+	truncateThenWrite(solidColorWGSL("0.0", "1.0", "0.0"), 75*time.Millisecond)
+	app.WaitUntil(time.Second, func() bool { return reloadedCnt.Load() >= 1 })
+	app.Settle()
+
+	mu.Lock()
+	if len(errHistory) != 0 {
+		t.Fatalf("truncate-then-write emitted spurious ReloadError(s): %+v", errHistory)
+	}
+	mu.Unlock()
+	greenPipe := reloader.Pipeline("quad")
+	wantRGBA(t, renderFullscreen(t, sr, greenPipe), color.RGBA{R: 0, G: 255, B: 0, A: 255})
+
+	// 2. Truncate-then-write a broken shader: must report the real syntax error,
+	// never a transient empty-source error.
+	badWGSL := strings.Replace(solidColorWGSL("0.0", "1.0", "0.0"), "vec4<f32>(0.0, 1.0, 0.0, 1.0)", "undefined_symbol", 1)
+	truncateThenWrite(badWGSL, 75*time.Millisecond)
+	app.WaitUntil(time.Second, func() bool { return errCnt.Load() >= 1 })
+	app.Settle()
+
+	re, ok := reloader.LastError("quad")
+	if !ok || re.Line <= 0 || strings.Contains(re.Message, "empty shader source") {
+		t.Fatalf("expected real WGSL line error after truncate-then-write, got ok=%v re=%+v", ok, re)
+	}
+	mu.Lock()
+	for _, h := range errHistory {
+		if strings.Contains(h.Message, "empty shader source") {
+			t.Fatalf("unexpected empty-source error during truncate-then-write: %+v", errHistory)
+		}
+	}
+	mu.Unlock()
+	if reloader.Pipeline("quad") != greenPipe {
+		t.Fatal("broken edit replaced active pipeline")
+	}
+
+	// 3. Genuinely empty file: truncating and leaving the file empty must still
+	// report an empty-source ReloadError once settled, keeping the green pipeline.
+	prevErrs := errCnt.Load()
+	if err := os.Truncate(shaderFile, 0); err != nil {
+		t.Fatal(err)
+	}
+	app.WaitUntil(time.Second, func() bool { return errCnt.Load() > prevErrs })
+
+	re, ok = reloader.LastError("quad")
+	if !ok || !strings.Contains(re.Message, "empty shader source") {
+		t.Fatalf("expected empty-source ReloadError for genuinely empty file, got ok=%v re=%+v", ok, re)
+	}
+	if reloader.Pipeline("quad") != greenPipe {
+		t.Fatal("empty file replaced active pipeline")
+	}
+
+	// 4. Writing a valid shader recovers and clears the empty-source error.
+	prevReloads := reloadedCnt.Load()
+	writeFileAtomic(t, shaderFile, solidColorWGSL("0.0", "0.0", "1.0"))
+	app.WaitUntil(time.Second, func() bool { return reloadedCnt.Load() > prevReloads })
+	if _, stillErr := reloader.LastError("quad"); stillErr {
+		t.Fatal("expected error to clear after valid shader save")
+	}
+	wantRGBA(t, renderFullscreen(t, sr, reloader.Pipeline("quad")), color.RGBA{R: 0, G: 0, B: 255, A: 255})
 }
 
 func TestWatchShaderSupportsKageAndReportsLineErrors(t *testing.T) {

@@ -54,6 +54,19 @@ type fileFingerprint struct {
 // racyWindow is how close to hashedAt a modification time may be for the fingerprint to vouch for the contents by modification time and size alone. File systems keep modification times at a granularity (a kernel tick on Linux, two seconds on FAT), so a write of the same length within that granularity after hashing leaves both unchanged; as git does for racily clean index entries, such a fingerprint compares contents again.
 const racyWindow = 2 * time.Second
 
+// emptyFileSettle is how long an empty (0-byte) file must stay empty before a debouncing Watcher delivers it. Editors and os.WriteFile commonly save in place by truncating the file to 0 bytes before writing the new contents, and under load that gap can exceed DefaultDebounce; waiting longer for 0-byte reads prevents spurious empty-file reloads while still delivering files that genuinely stay empty.
+const emptyFileSettle = 250 * time.Millisecond
+
+func (w *Watcher) settleDuration(size int64) time.Duration {
+	if w.cfg.debounce <= 0 {
+		return 0
+	}
+	if size == 0 && emptyFileSettle > w.cfg.debounce {
+		return emptyFileSettle
+	}
+	return w.cfg.debounce
+}
+
 // statUnchanged reports whether info shows the fingerprinted contents for certain: the same modification time and size, with the modification time far enough before hashedAt that a later write would have moved it.
 func (fp fileFingerprint) statUnchanged(modTime time.Time, size int64) bool {
 	return fp.exists && modTime.Equal(fp.modTime) && size == fp.size && fp.hashedAt.Sub(modTime) >= racyWindow
@@ -278,9 +291,13 @@ func (w *Watcher) poll(now time.Time) time.Duration {
 		if !e.hasPending {
 			return
 		}
-		rem := w.cfg.debounce - now.Sub(e.pendingAt)
+		rem := w.settleDuration(e.pending.size) - now.Sub(e.pendingAt)
 		if rem < time.Millisecond {
 			rem = time.Millisecond
+		}
+		// Keep polling at the normal debounce cadence while waiting for a 0-byte file to settle so incoming bytes are picked up promptly.
+		if e.pending.size == 0 && w.cfg.debounce > 0 && w.cfg.debounce < rem {
+			rem = w.cfg.debounce
 		}
 		if rem < nextDelay {
 			nextDelay = rem
@@ -383,7 +400,7 @@ func (w *Watcher) checkEntry(entry *fileEntry, info fs.FileInfo, now time.Time) 
 			entry.delivered = fp
 			return nil, false
 		}
-		if w.cfg.debounce <= 0 {
+		if w.settleDuration(size) <= 0 {
 			entry.delivered = fp
 			return data, true
 		}
@@ -417,7 +434,7 @@ func (w *Watcher) checkEntry(entry *fileEntry, info fs.FileInfo, now time.Time) 
 		return nil, false
 	}
 
-	if now.Sub(entry.pendingAt) < w.cfg.debounce {
+	if now.Sub(entry.pendingAt) < w.settleDuration(size) {
 		return nil, false
 	}
 
@@ -428,18 +445,25 @@ func (w *Watcher) checkEntry(entry *fileEntry, info fs.FileInfo, now time.Time) 
 	}
 	sum := sha256.Sum256(data)
 	if sum != entry.pending.hash {
-		entry.pending = fileFingerprint{
+		fp := fileFingerprint{
 			exists:   true,
 			modTime:  modTime,
 			size:     size,
 			hash:     sum,
 			hashedAt: now,
 		}
+		if entry.delivered.exists && !entry.delivered.unhashed && sum == entry.delivered.hash {
+			entry.delivered = fp
+			entry.hasPending = false
+			return nil, false
+		}
+		entry.pending = fp
 		entry.pendingAt = now
 		return nil, false
 	}
 
 	entry.delivered = entry.pending
+	entry.delivered.hashedAt = now
 	entry.hasPending = false
 	return data, true
 }

@@ -184,6 +184,65 @@ func TestRapidSavesDebounceIntoFinalContent(t *testing.T) {
 	}
 }
 
+func TestTruncateThenWriteSettlesBeforeDeliveringEmpty(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "shader.txt")
+	if err := os.WriteFile(filePath, []byte("v1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var (
+		deliveries []string
+		count      atomic.Int32
+	)
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		w := hotreload.NewWatcher(cx, dir,
+			hotreload.WithPollInterval(15*time.Millisecond),
+			hotreload.WithDebounce(15*time.Millisecond),
+		)
+		w.Watch("shader.txt", func(data []byte) {
+			deliveries = append(deliveries, string(data))
+			count.Add(1)
+		})
+		return core.View{}
+	})
+
+	// Truncate and pause longer than the 15ms debounce before writing the real payload.
+	f, err := os.OpenFile(filePath, os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(75 * time.Millisecond)
+	if _, err := f.WriteString("v2"); err != nil {
+		_ = f.Close()
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	app.WaitUntil(time.Second, func() bool { return count.Load() >= 1 })
+	app.Settle()
+
+	var got []string
+	app.Post(func() { got = append([]string(nil), deliveries...) })
+	app.Settle()
+	if len(got) != 1 || got[0] != "v2" {
+		t.Fatalf("deliveries after truncate-then-write = %q, want [\"v2\"]", got)
+	}
+
+	// Leaving the file genuinely empty must eventually deliver the empty payload.
+	if err := os.Truncate(filePath, 0); err != nil {
+		t.Fatal(err)
+	}
+	app.WaitUntil(time.Second, func() bool { return count.Load() >= 2 })
+	app.Post(func() { got = append([]string(nil), deliveries...) })
+	app.Settle()
+	if len(got) != 2 || got[1] != "" {
+		t.Fatalf("deliveries after genuine empty save = %q, want [\"v2\" \"\"]", got)
+	}
+}
+
 func TestUnchangedContentDoesNotTriggerReload(t *testing.T) {
 	dir := t.TempDir()
 	filePath := filepath.Join(dir, "config.json")

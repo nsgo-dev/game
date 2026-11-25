@@ -35,7 +35,7 @@ func WithPollInterval(d time.Duration) Option {
 	}
 }
 
-// WithDebounce sets how long a changed file must stay stable before its callback runs, preventing half-written reads during rapid saves. Negative values are ignored; 0 delivers as soon as a changed hash is read.
+// WithDebounce sets how long a changed file must stay stable before its callback runs, preventing half-written reads during rapid saves. When debouncing is enabled (d > 0), empty (0-byte) files wait longer to settle so truncate-then-write editor saves do not deliver a transient empty payload before the content arrives. Negative values are ignored; 0 delivers as soon as a changed hash is read.
 func WithDebounce(d time.Duration) Option {
 	return func(c *config) {
 		if d >= 0 {
