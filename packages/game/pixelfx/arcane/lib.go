@@ -69,6 +69,9 @@ func bayer(x, y float64) float64 {
 
 // tone maps light intensity I (0..1) to a step of ramp R (dark to bright), dithering between neighbouring steps so a gradient reads smooth at 1x; below lo it thins out through the dither and returns 0 (draw nothing). sharp (0..1) narrows the dithered zone between two steps, so broad areas stay clean and only edges dither.
 func tone(R []uint32, I, x, y, lo, sharp float64) uint32 {
+	if math.IsNaN(I) {
+		return 0
+	}
 	b := bayer(x, y)
 	if I < lo && b > I/lo {
 		return 0
