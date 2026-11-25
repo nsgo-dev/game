@@ -157,6 +157,122 @@ func TestSceneDrawAmbientAndLightsOps(t *testing.T) {
 	}
 }
 
+func TestSceneLightCompositeModes(t *testing.T) {
+	// Nil scene is safe and reports default CompositeLighter.
+	var nilScene *lights2d.Scene
+	nilScene.SetLightComposite(core.CompositeSourceOver)
+	if got := nilScene.EffectiveLightComposite(); got != core.CompositeLighter {
+		t.Fatalf("nil.EffectiveLightComposite() = %v, want CompositeLighter", got)
+	}
+
+	bounds := core.Bounds{Size: core.Size{Width: 300, Height: 200}}
+	makeScene := func() *lights2d.Scene {
+		return &lights2d.Scene{
+			Ambient: core.RGBA(0x050814, 0.75),
+			Lights: []*lights2d.Light{
+				lights2d.NewLight(80, 100, 60, core.RGB(0xffaa44)),
+				lights2d.NewLight(200, 100, 70, core.RGB(0x66ccff)),
+			},
+		}
+	}
+
+	defaultScene := makeScene()
+	if got := defaultScene.EffectiveLightComposite(); got != core.CompositeLighter {
+		t.Fatalf("default EffectiveLightComposite() = %v, want CompositeLighter", got)
+	}
+
+	sourceOverScene := makeScene()
+	sourceOverScene.SetLightComposite(core.CompositeSourceOver)
+	if sourceOverScene.LightComposite != core.CompositeSourceOver {
+		t.Fatalf("SetLightComposite(SourceOver) left LightComposite = %v", sourceOverScene.LightComposite)
+	}
+	if got := sourceOverScene.EffectiveLightComposite(); got != core.CompositeSourceOver {
+		t.Fatalf("SourceOver EffectiveLightComposite() = %v, want CompositeSourceOver", got)
+	}
+
+	screenScene := makeScene()
+	screenScene.LightComposite = core.CompositeScreen
+	if got := screenScene.EffectiveLightComposite(); got != core.CompositeScreen {
+		t.Fatalf("Screen EffectiveLightComposite() = %v, want CompositeScreen", got)
+	}
+
+	switchedBackScene := makeScene()
+	switchedBackScene.SetLightComposite(core.CompositeSourceOver)
+	switchedBackScene.SetLightComposite(core.CompositeLighter)
+	if got := switchedBackScene.EffectiveLightComposite(); got != core.CompositeLighter {
+		t.Fatalf("switchedBack EffectiveLightComposite() = %v, want CompositeLighter", got)
+	}
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return core.View{Children: []core.Node{
+			core.Canvas{
+				TestID: "default",
+				Style:  core.Style{Width: core.Pt(300), Height: core.Pt(200)},
+				Draw:   func(d *core.Drawing, _ core.Size) { defaultScene.Draw(d, bounds) },
+			},
+			core.Canvas{
+				TestID: "sourceOver",
+				Style:  core.Style{Width: core.Pt(300), Height: core.Pt(200)},
+				Draw:   func(d *core.Drawing, _ core.Size) { sourceOverScene.Draw(d, bounds) },
+			},
+			core.Canvas{
+				TestID: "screen",
+				Style:  core.Style{Width: core.Pt(300), Height: core.Pt(200)},
+				Draw:   func(d *core.Drawing, _ core.Size) { screenScene.Draw(d, bounds) },
+			},
+			core.Canvas{
+				TestID: "switchedBack",
+				Style:  core.Style{Width: core.Pt(300), Height: core.Pt(200)},
+				Draw:   func(d *core.Drawing, _ core.Size) { switchedBackScene.Draw(d, bounds) },
+			},
+		}}
+	})
+
+	// lightGlowComposites returns the CompositeOp active at each light glow's DrawFillGradient op.
+	lightGlowComposites := func(ops []core.DrawOp) []core.CompositeOp {
+		var stack []core.CompositeOp
+		cur := core.CompositeSourceOver
+		var got []core.CompositeOp
+		for _, op := range ops {
+			switch op.Kind {
+			case core.DrawSave:
+				stack = append(stack, cur)
+			case core.DrawRestore:
+				if len(stack) > 0 {
+					cur = stack[len(stack)-1]
+					stack = stack[:len(stack)-1]
+				}
+			case core.DrawComposite:
+				cur = op.Composite
+			case core.DrawFillGradient:
+				got = append(got, cur)
+			}
+		}
+		return got
+	}
+
+	cases := []struct {
+		id   string
+		want core.CompositeOp
+	}{
+		{id: "default", want: core.CompositeLighter},
+		{id: "sourceOver", want: core.CompositeSourceOver},
+		{id: "screen", want: core.CompositeScreen},
+		{id: "switchedBack", want: core.CompositeLighter},
+	}
+	for _, tc := range cases {
+		comps := lightGlowComposites(app.Find(tc.id).Ops)
+		if len(comps) != 2 {
+			t.Fatalf("%s: expected 2 light glow ops, got %d (%v)", tc.id, len(comps), comps)
+		}
+		for i, got := range comps {
+			if got != tc.want {
+				t.Errorf("%s: light %d composite = %v, want %v", tc.id, i, got, tc.want)
+			}
+		}
+	}
+}
+
 func TestLightAttenuationAndSpotlightCone(t *testing.T) {
 	// Omnidirectional light with default quadratic falloff (Falloff == 0 -> 2).
 	omni := &lights2d.Light{
