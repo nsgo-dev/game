@@ -634,6 +634,7 @@ func (e *Editor) FillTileRect(layer string, col0, row0, col1, row1, tileID int) 
 	if err != nil {
 		return err
 	}
+	e.exitTileReviewBeforePreview()
 	values := g.values()
 	var changes []tileChange
 	for row := r.Row0; row <= r.Row1; row++ {
@@ -690,6 +691,7 @@ func (e *Editor) DrawTileLine(layer string, col0, row0, col1, row1, tileID int) 
 	if err != nil {
 		return err
 	}
+	e.exitTileReviewBeforePreview()
 	values := g.values()
 	seen := make(map[int]bool)
 	var changes []tileChange
@@ -749,6 +751,7 @@ func (e *Editor) StampTiles(layer string, col, row int, stamp TileStamp) error {
 }
 
 func (e *Editor) applyStampAt(layerName, tileLayer string, g tileGrid, col, row int, stamp TileStamp, verb string) error {
+	e.exitTileReviewBeforePreview()
 	values := g.values()
 	hasFlips := len(stamp.Flips) == len(stamp.Tiles)
 	var changes []tileChange
@@ -803,6 +806,7 @@ func (e *Editor) CopyTileRegion(layer string, col0, row0, col1, row1 int) (TileS
 	if !ok {
 		return TileStamp{}, fmt.Errorf("editor: tile rectangle (%d,%d)-(%d,%d) is out of bounds (%dx%d)", col0, row0, col1, row1, g.tm.Width, g.tm.Height)
 	}
+	e.exitTileReviewBeforePreview()
 	stamp := readTileStamp(g, r)
 	e.tileClipboard = stamp.Clone()
 	e.lastClipboardKind = clipboardTile
@@ -835,6 +839,7 @@ func (e *Editor) CutTileRegion(layer string, col0, row0, col1, row1 int) (TileSt
 	if !ok {
 		return TileStamp{}, fmt.Errorf("editor: tile rectangle (%d,%d)-(%d,%d) is out of bounds (%dx%d)", col0, row0, col1, row1, g.tm.Width, g.tm.Height)
 	}
+	e.exitTileReviewBeforePreview()
 	stamp := readTileStamp(g, r)
 	e.tileClipboard = stamp.Clone()
 	e.lastClipboardKind = clipboardTile

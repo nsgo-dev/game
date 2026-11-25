@@ -209,6 +209,7 @@ func (e *Editor) PaintTile(layer string, col, row, tileID int) error {
 	if err != nil {
 		return err
 	}
+	e.exitTileReviewBeforePreview()
 	idx := row*g.tm.Width + col
 	old := g.get(idx)
 	if old == v {
@@ -233,6 +234,7 @@ func (e *Editor) EraseTile(layer string, col, row int) error {
 	if err != nil {
 		return err
 	}
+	e.exitTileReviewBeforePreview()
 	idx := row*g.tm.Width + col
 	old := g.get(idx)
 	if old == 0 {
@@ -264,6 +266,7 @@ func (e *Editor) FloodFillTile(layer string, col, row, tileID int) error {
 	if err != nil {
 		return err
 	}
+	e.exitTileReviewBeforePreview()
 	w, h := g.tm.Width, g.tm.Height
 	values := g.values()
 
@@ -455,6 +458,7 @@ func (e *Editor) editTerrainCell(layer string, col, row int, terrainName string,
 	if col < 0 || col >= g.tm.Width || row < 0 || row >= g.tm.Height {
 		return fmt.Errorf("editor: tile (%d, %d) out of bounds (%dx%d)", col, row, g.tm.Width, g.tm.Height)
 	}
+	e.exitTileReviewBeforePreview()
 	values := g.values()
 	changes := applyTerrainCell(values, g.tm.Width, g.tm.Height, col, row, placed, t)
 	if len(changes) == 0 {

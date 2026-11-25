@@ -140,6 +140,8 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 	e.l10n = nil
 	e.stopTileAnimLoop()
 	e.tileset = nil
+	e.tileReview = nil
+	e.paletteImgCache = paletteFileImageCache{}
 	e.ActiveTerrain = ""
 	e.particles = nil
 	e.material = nil

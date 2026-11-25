@@ -3,6 +3,7 @@ package editor
 import (
 	"bytes"
 	"fmt"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -15,6 +16,49 @@ import (
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
+
+type paletteFileImageCache struct {
+	valid     bool
+	uri       string
+	filesRev  uint64
+	assetsRev uint64
+	resolver  sceneformat.AssetResolver
+	data      []byte
+	diskReads uint64
+}
+
+func sameAssetResolver(a, b sceneformat.AssetResolver) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	ta, tb := reflect.TypeOf(a), reflect.TypeOf(b)
+	if ta != tb || !ta.Comparable() {
+		return false
+	}
+	return a == b
+}
+
+func (e *Editor) cachedPaletteFileImage(uri string, fr sceneformat.FileResolver) []byte {
+	c := &e.paletteImgCache
+	if c.valid && c.uri == uri && c.filesRev == e.filesRev && c.assetsRev == e.assetsRev && sameAssetResolver(c.resolver, e.Resolver) {
+		return c.data
+	}
+	c.diskReads++
+	data, err := fr.ReadFile(uri)
+	if err != nil {
+		data = nil
+	}
+	c.valid = true
+	c.uri = uri
+	c.filesRev = e.filesRev
+	c.assetsRev = e.assetsRev
+	c.resolver = e.Resolver
+	c.data = data
+	return data
+}
 
 // TilePalette is what the tile palette shows for the active layer: the tiles of the tileset its inline tilemap names, in tile ID order, or, when there are none to pick, why.
 type TilePalette struct {
@@ -187,7 +231,7 @@ func (e *Editor) layeredPalette(p TilePalette, tm *sceneformat.TilemapDoc) TileP
 			return p
 		}
 	} else if fr, ok := e.Resolver.(sceneformat.FileResolver); ok {
-		if data, err := fr.ReadFile(doc.Image); err == nil && len(data) > 0 {
+		if data := e.cachedPaletteFileImage(doc.Image, fr); len(data) > 0 {
 			img = core.ImageSource{URI: doc.Image, Data: data}
 		}
 	}
@@ -282,7 +326,7 @@ func sameImage(a, b core.ImageSource) bool {
 	if a.URI != b.URI || a.Version != b.Version || a.Pixels != b.Pixels || a.Offscreen != b.Offscreen || a.Size != b.Size || len(a.Data) != len(b.Data) {
 		return false
 	}
-	return len(a.Data) == 0 || bytes.Equal(a.Data, b.Data)
+	return len(a.Data) == 0 || &a.Data[0] == &b.Data[0] || bytes.Equal(a.Data, b.Data)
 }
 
 // paletteWidth is the tile palette panel's width in points, and paletteInner the width its tiles wrap in: the panel less its padding on both sides and its left border, which NSGo lays out inside the panel's box.

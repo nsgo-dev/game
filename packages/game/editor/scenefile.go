@@ -213,6 +213,7 @@ func (e *Editor) Save() error {
 		return err
 	}
 	e.endTileStrokeForChange()
+	e.exitTileReviewBeforePreview()
 	// The view is kept beside the project rather than in the scene, so saving records it whether or not the scene has edits.
 	e.saveViewStateQuietly()
 	e.endGridMapStrokeForChange()

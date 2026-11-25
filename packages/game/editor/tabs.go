@@ -233,6 +233,7 @@ func (e *Editor) cancelTransientInteraction() {
 	e.endTileStrokeForChange()
 	e.endGridMapStrokeForChange()
 	e.endTerrainStrokeForChange()
+	e.exitTileReviewBeforePreview()
 	e.connPick = nil
 }
 
@@ -487,6 +488,7 @@ func (e *Editor) SaveTab(index int) error {
 		e.ClearPluginHover3D()
 		e.cancelBackgroundPreview()
 		e.endTileStrokeForChange()
+		e.exitTileReviewBeforePreview()
 		e.saveViewStateQuietly()
 		e.endGridMapStrokeForChange()
 		e.endTerrainStrokeForChange()

@@ -681,7 +681,13 @@ func tileReviewStatus(ctx context.Context, c *Call) (*Result, error) {
 	}
 	var st TileReviewStatusResult
 	if err := c.Editor(ctx, func(ed *editor.Editor) error {
-		if ed.TileReviewOpen() {
+		if args.View != "" || args.Focus != "" {
+			if ed.Playing() {
+				return editor.ErrPlaying
+			}
+			if !ed.TileReviewOpen() {
+				return editor.ErrNoTileReview
+			}
 			if args.Focus != "" {
 				if !ed.FocusTileReviewRegion(args.Focus) {
 					return fmt.Errorf("tile review has no region %q", args.Focus)
@@ -711,6 +717,9 @@ func tileReviewToggleRegion(ctx context.Context, c *Call, toolName string, rever
 	}
 	if args.ID == "" && args.Index == nil {
 		return nil, errors.New(toolName + ": pass either id or index")
+	}
+	if args.ID != "" && args.Index != nil {
+		return nil, errors.New(toolName + ": pass only one of id or index, not both")
 	}
 	var st TileReviewStatusResult
 	if err := c.Editor(ctx, func(ed *editor.Editor) error {
