@@ -1,6 +1,6 @@
 # ai
 
-`game/ai` provides deterministic game AI building blocks stepped cleanly on `game.Loop`: grid `AStar` pathfinding, `HPA` hierarchical pathfinding, `JPS` Jump Point Search, 2D `NavMesh` navigation with funnel smoothing, steering behaviors, behavior trees, utility AI scoring, goal-oriented action planning (GOAP), attack tokens and squads, spatial influence maps, EQS-style tactical position queries with cover points and reservations, and perception with sight, hearing and memory.
+`game/ai` provides deterministic game AI building blocks stepped cleanly on `game.Loop`: grid `AStar` pathfinding, `HPA` hierarchical pathfinding, `JPS` Jump Point Search, generic `GraphSearch` (A*, Dijkstra, and budgeted movement ranges with paths over hex tilemaps, waypoint graphs, or custom graphs), 2D `NavMesh` navigation with funnel smoothing, steering behaviors, behavior trees, utility AI scoring, goal-oriented action planning (GOAP), attack tokens and squads, spatial influence maps, EQS-style tactical position queries with cover points and reservations, and perception with sight, hearing and memory.
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/ai"
@@ -131,6 +131,59 @@ _, _, _ = path, cost, waypoints
 - Use `jps.FindInto(dst, grid, start, goal)` or `jps.FindJumpPointsInto(dst, grid, start, goal)` for zero-allocation buffer reuse.
 - `JPS` assumes uniform traversal cost `1` per walkable cell; use `AStar` or `HPA` for weighted `CostGrid` / `EdgeCostGrid` maps.
 
+## Generic graph search, hex adapters, and waypoint graphs
+
+When pathfinding over hexagonal tilemaps, hand-placed waypoints, 3D cell grids, or custom domain graphs, use `GraphSearch[N]` over any `Graph[N]` (`AppendNeighbors(dst []GraphEdge[N], node N) []GraphEdge[N]`) or `HeuristicGraph[N]` (adding `Heuristic(from, goal N) float64`):
+
+- **A* and Dijkstra with buffer reuse**: `Find` / `FindInto`, `FindWithHeuristic` / `FindWithHeuristicInto`, and `FindDijkstra` / `FindDijkstraInto` reuse internal node, heap, map, and neighbor buffers across calls (`FindInto` and `FindDijkstraInto` allocate `0` times after warm-up; `Find` allocates only the returned path slice). Ties break deterministically like `AStar`: lowest `f`, lowest `h`, `GraphSearch.Less` (or optional `NodeOrder[N]`), then discovery order.
+- **Range queries with reconstructed paths**: `Range(g, start, budget)` and buffer-reusing `RangeInto(dst, g, start, budget)` run Dijkstra within `budget` and return a `*GraphRange[N]` containing every reachable node and cost (`Nodes()`, `Contains(n)`, `Cost(n)`, `Parent(n)`) plus direct path reconstruction (`Path(n)` and zero-allocation `PathInto(dst, n)`).
+- **Custom callback graphs**: wrap quick ad-hoc graphs with `GraphFunc[N]{Neighbors, Estimate, Valid, Less}` or implement optional `ValidatedGraph[N]` to reject invalid/blocked endpoints before searching.
+
+### Hex grid adapter over `tilemap.Tilemap`
+
+`NewHexGrid(m)` wraps any hexagonal `*tilemap.Tilemap` across all stagger axes (`StaggerX`, `StaggerY`) and indices (`StaggerOdd`, `StaggerEven`), delegating directly to `m.HexNeighbors` and `m.HexDistance`:
+
+```go
+hex := ai.NewHexGrid(hexMap)
+hex.Cost = func(col, row int) float64 {
+	if isForest(col, row) {
+		return 2
+	}
+	return 1
+}
+
+search := ai.NewGraphSearch[ai.Cell]()
+path, cost, ok := search.Find(hex, start, goal)
+
+// Movement range for turn-based tactics, including path preview to any cell in range:
+moveRange := search.Range(hex, start, 4)
+if preview, reachable := moveRange.Path(hoveredCell); reachable {
+	_, _, _, _ = path, cost, ok, preview
+}
+```
+
+Set `SolidMask` (defaults to `tilemap.TileSolid`), `Walk`, `Cost`, or directed `StepCost` to customize passability and per-cell or per-edge terrain costs. `HexGrid` also satisfies `Grid`, `CostGrid`, and `EdgeCostGrid`.
+
+### Waypoint graphs
+
+`NewWaypointGraph()` stores hand-placed 2D (`Add`, `SetPos`, `Pos`, `Nearest`, `Points` / `PointsInto`) or 3D (`Add3D`, `SetPos3D`, `Pos3D`, `Nearest3D`, `Points3D` / `Points3DInto`) waypoints with stable integer IDs, live Euclidean-distance edges (`Connect`, `ConnectUndirected`), explicit weighted directed/undirected edges (`AddEdge`, `AddUndirectedEdge`), temporary node toggling (`SetEnabled`), and deletion (`Remove`):
+
+```go
+wg := ai.NewWaypointGraph()
+a := wg.Add(core.Point{X: 0, Y: 0})
+b := wg.Add(core.Point{X: 80, Y: 0})
+c := wg.Add(core.Point{X: 80, Y: 60})
+wg.ConnectUndirected(a, b) // Euclidean distance cost (80)
+wg.ConnectUndirected(b, c) // Euclidean distance cost (60)
+wg.AddEdge(a, c, 120)      // explicit directed cost
+
+search := ai.NewGraphSearch[int]()
+nodePath, totalCost, ok := search.Find(wg, a, c)
+waypoints := wg.Points(nodePath) // ready for ai.FollowPath
+_, _, _ = totalCost, ok, waypoints
+```
+
+`WaypointGraph.Heuristic` returns Euclidean distance between waypoints (admissible whenever every edge costs at least Euclidean distance); call `search.FindDijkstra` when a graph includes shortcut or portal edges cheaper than straight-line distance.
 ## 2D NavMesh with funnel smoothing
 
 For open arenas or non-grid worlds, build a `NavMesh` from convex 2D polygons. `BuildNavMesh` normalizes polygon winding, automatically connects adjacent polygons along shared edges (including partial collinear overlaps), and `FindPath` runs portal-graph A* followed by Simple Stupid Funnel Algorithm string-pulling:

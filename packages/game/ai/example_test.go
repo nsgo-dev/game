@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/packages/game/ai"
+	"github.com/nsgo-dev/game/packages/game/tilemap"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -58,6 +59,40 @@ func ExampleGridFunc() {
 	fmt.Println(ok, path)
 	// Output:
 	// true [{1 0} {0 0} {0 1} {0 2} {1 2} {2 2}]
+}
+
+// HexGrid adapts a hexagonal tilemap.Tilemap to GraphSearch for both A* paths and budgeted movement ranges with reconstructed paths.
+func ExampleHexGrid() {
+	m := tilemap.New(5, 5, 32, 36)
+	m.Orientation = tilemap.OrientationHexagonal
+	m.StaggerAxis = tilemap.StaggerY
+	m.StaggerIndex = tilemap.StaggerOdd
+	m.SetCellFlags(2, 2, tilemap.TileSolid)
+
+	hex := ai.NewHexGrid(m)
+	search := ai.NewGraphSearch[ai.Cell]()
+	rng := search.Range(hex, ai.Cell{Col: 1, Row: 2}, 3)
+	path, ok := rng.Path(ai.Cell{Col: 3, Row: 2})
+	cost, _ := rng.Cost(ai.Cell{Col: 3, Row: 2})
+	fmt.Println(ok, cost, len(path))
+	// Output:
+	// true 3 4
+}
+
+// WaypointGraph stores hand-placed 2D or 3D waypoints with weighted edges searched by GraphSearch.
+func ExampleWaypointGraph() {
+	g := ai.NewWaypointGraph()
+	a := g.Add(core.Point{X: 0, Y: 0})
+	b := g.Add(core.Point{X: 30, Y: 0})
+	c := g.Add(core.Point{X: 30, Y: 40})
+	g.ConnectUndirected(a, b)
+	g.ConnectUndirected(b, c)
+	g.ConnectUndirected(a, c)
+
+	path, cost, ok := ai.NewGraphSearch[int]().Find(g, a, c)
+	fmt.Println(ok, cost, path)
+	// Output:
+	// true 50 [0 2]
 }
 
 // A NavMesh joins convex polygons that share edges and finds paths across them.
