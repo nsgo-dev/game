@@ -7,35 +7,6 @@ import (
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 )
 
-// SelectedIDs returns a copy of the currently selected object IDs in selection order,
-// or nil when no object is selected. SelectedID is always the primary object within
-// this set when non-empty.
-func (e *Editor) SelectedIDs() []string {
-	if e == nil || e.SelectedID == "" {
-		return nil
-	}
-	if len(e.selectedIDs) == 0 {
-		return []string{e.SelectedID}
-	}
-	out := make([]string, 0, len(e.selectedIDs)+1)
-	hasPrimary := false
-	for _, id := range e.selectedIDs {
-		if id == "" {
-			continue
-		}
-		if id == e.SelectedID {
-			hasPrimary = true
-		}
-		if !slices.Contains(out, id) {
-			out = append(out, id)
-		}
-	}
-	if !hasPrimary {
-		out = append(out, e.SelectedID)
-	}
-	return out
-}
-
 // SelectionCount returns the number of currently selected objects.
 func (e *Editor) SelectionCount() int {
 	return len(e.SelectedIDs())
@@ -43,13 +14,7 @@ func (e *Editor) SelectionCount() int {
 
 // IsSelected reports whether object id is part of the current selection set.
 func (e *Editor) IsSelected(id string) bool {
-	if e == nil || id == "" || e.SelectedID == "" {
-		return false
-	}
-	if e.SelectedID == id {
-		return true
-	}
-	return slices.Contains(e.selectedIDs, id)
+	return e.IsObjectSelected(id)
 }
 
 // SelectedObjects returns the ObjectDoc pointers for every selected object currently
@@ -76,11 +41,11 @@ func (e *Editor) ClearSelection() bool {
 	return e.SelectObject("")
 }
 
-// SelectObjects replaces the current selection with the unique existing object IDs in ids.
+// SelectObjectsWithPrimary replaces the current selection with the unique existing object IDs in ids.
 // primary sets SelectedID when it appears in the resulting set; otherwise the first ID
 // becomes primary. Passing an empty slice clears selection and returns true; passing only
 // unknown IDs leaves selection unchanged and returns false.
-func (e *Editor) SelectObjects(ids []string, primary string) bool {
+func (e *Editor) SelectObjectsWithPrimary(ids []string, primary string) bool {
 	if e == nil {
 		return false
 	}
@@ -109,6 +74,7 @@ func (e *Editor) SelectObjects(ids []string, primary string) bool {
 	curIDs := e.SelectedIDs()
 	changed := e.SelectedID != primary || !slices.Equal(curIDs, valid) || e.inspectAssetFile || e.inspectLayer || e.connPick != nil || hadRoom
 	if changed {
+		e.CancelComponentGizmoDrag3D()
 		e.CancelCameraDrag()
 		e.CancelCameraBoundsDrag()
 		e.CancelRoomDrag()
@@ -151,7 +117,7 @@ func (e *Editor) AddToSelection(ids ...string) bool {
 	if !foundAny {
 		return false
 	}
-	return e.SelectObjects(next, primary)
+	return e.SelectObjectsWithPrimary(next, primary)
 }
 
 // RemoveFromSelection removes ids from the current selection set. If SelectedID is removed,
@@ -183,7 +149,7 @@ func (e *Editor) RemoveFromSelection(ids ...string) bool {
 	if !slices.Contains(next, primary) {
 		primary = next[len(next)-1]
 	}
-	return e.SelectObjects(next, primary)
+	return e.SelectObjectsWithPrimary(next, primary)
 }
 
 // ToggleSelection removes id if it is currently selected, or adds it (as primary) if it exists.

@@ -769,7 +769,7 @@ func (e *Editor) BeginGizmoDrag3D(sx, sy, w, h float32) GizmoAxis3D {
 
 // BeginGizmoDragAxis3D begins a 3D gizmo drag constrained to axis starting from viewport pixel (sx, sy).
 func (e *Editor) BeginGizmoDragAxis3D(axis GizmoAxis3D, sx, sy, w, h float32) bool {
-	if e.gizmo3DBlocked() || axis == Axis3DNone || w <= 0 || h <= 0 {
+	if e.gizmo3DBlocked() || axis == Axis3DNone || w <= 0 || h <= 0 || !isFiniteFloat32(sx) || !isFiniteFloat32(sy) || !isFiniteFloat32(w) || !isFiniteFloat32(h) {
 		return false
 	}
 	if e.GizmoMode == Gizmo3DCollider {
@@ -890,10 +890,10 @@ func (e *Editor) BeginGizmoDragAxis3D(axis GizmoAxis3D, sx, sy, w, h float32) bo
 
 // UpdateGizmoDrag3D updates the selected object's (or objects') 3D transform live during an active gizmo drag.
 func (e *Editor) UpdateGizmoDrag3D(sx, sy float32) {
-	if e == nil || e.playing || e.drag3D.kind != drag3DGizmo {
+	if e == nil || e.playing || e.drag3D.kind != drag3DGizmo || !isFiniteFloat32(sx) || !isFiniteFloat32(sy) {
 		return
 	}
-	if len(e.drag3D.targets) > 1 {
+	if len(e.drag3D.targets) > 0 {
 		e.updateMultiGizmoDrag3D(sx, sy)
 		return
 	}
@@ -983,6 +983,9 @@ func (e *Editor) UpdateGizmoDrag3D(sx, sy float32) {
 }
 
 func (e *Editor) updateMultiGizmoDrag3D(sx, sy float32) {
+	if !isFiniteFloat32(sx) || !isFiniteFloat32(sy) {
+		return
+	}
 	st := &e.drag3D
 	w, h := st.vpW, st.vpH
 	startPos := st.startPos
@@ -992,6 +995,7 @@ func (e *Editor) updateMultiGizmoDrag3D(sx, sy float32) {
 	dir := vec64(dir32)
 
 	objs := make([]*sceneformat.ObjectDoc, len(st.targets))
+	nexts := make([]Transform3D, len(st.targets))
 	for i, t := range st.targets {
 		obj, _, _ := e.FindObject(t.id)
 		if obj == nil {
@@ -999,20 +1003,27 @@ func (e *Editor) updateMultiGizmoDrag3D(sx, sy float32) {
 			return
 		}
 		objs[i] = obj
+		nexts[i] = t.startTransform
 	}
 
 	switch st.mode {
 	case Gizmo3DTranslate:
 		delta := e.computeAxisDelta(st, startPos, axisDir, orig, dir, sx, sy)
+		if math.IsNaN(delta) || math.IsInf(delta, 0) {
+			return
+		}
 		worldDelta := scale64(axisDir, delta)
 		for i, t := range st.targets {
 			local := t.parentInv.vector(worldDelta)
-			objs[i].X = t.startTransform.X + float32(local[0])
-			objs[i].Y = t.startTransform.Y + float32(local[1])
-			objs[i].PosZ = t.startTransform.PosZ + float32(local[2])
+			nexts[i].X = t.startTransform.X + float32(local[0])
+			nexts[i].Y = t.startTransform.Y + float32(local[1])
+			nexts[i].PosZ = t.startTransform.PosZ + float32(local[2])
 		}
 	case Gizmo3DRotate:
 		angle := e.computeRotationAngle(st, startPos, axisDir, orig, dir, sx, sy)
+		if math.IsNaN(angle) || math.IsInf(angle, 0) {
+			return
+		}
 		cosA, sinA := math.Cos(angle), math.Sin(angle)
 		for i, t := range st.targets {
 			rel := sub64(t.startPos, startPos)
@@ -1024,60 +1035,86 @@ func (e *Editor) updateMultiGizmoDrag3D(sx, sy float32) {
 			)
 			worldDelta := sub64(rotRel, rel)
 			local := t.parentInv.vector(worldDelta)
-			objs[i].X = t.startTransform.X + float32(local[0])
-			objs[i].Y = t.startTransform.Y + float32(local[1])
-			objs[i].PosZ = t.startTransform.PosZ + float32(local[2])
-			objs[i].RotX = t.startTransform.RotX + float32(axisDir[0]*angle)
-			objs[i].RotY = t.startTransform.RotY + float32(axisDir[1]*angle)
-			objs[i].RotZ = t.startTransform.RotZ + float32(axisDir[2]*angle)
+			nexts[i].X = t.startTransform.X + float32(local[0])
+			nexts[i].Y = t.startTransform.Y + float32(local[1])
+			nexts[i].PosZ = t.startTransform.PosZ + float32(local[2])
+			nexts[i].RotX = t.startTransform.RotX + float32(axisDir[0]*angle)
+			nexts[i].RotY = t.startTransform.RotY + float32(axisDir[1]*angle)
+			nexts[i].RotZ = t.startTransform.RotZ + float32(axisDir[2]*angle)
 		}
 	case Gizmo3DScale:
 		delta := e.computeAxisDelta(st, startPos, axisDir, orig, dir, sx, sy)
+		if math.IsNaN(delta) || math.IsInf(delta, 0) {
+			return
+		}
 		denom := float64(st.gizmoLen)
 		if denom <= 1e-4 {
 			denom = 1
 		}
 		factor := 1.0 + delta/denom
-		if !math.IsNaN(factor) && !math.IsInf(factor, 0) {
-			for i, t := range st.targets {
-				rel := sub64(t.startPos, startPos)
-				proj := dot64(rel, axisDir)
-				worldDelta := scale64(axisDir, proj*(factor-1))
-				local := t.parentInv.vector(worldDelta)
-				objs[i].X = t.startTransform.X + float32(local[0])
-				objs[i].Y = t.startTransform.Y + float32(local[1])
-				objs[i].PosZ = t.startTransform.PosZ + float32(local[2])
-				switch st.axis {
-				case Axis3DX:
-					base := 1.0
-					if t.startTransform.ScaleX != nil {
-						base = float64(*t.startTransform.ScaleX)
-					}
-					if base == 0 {
-						base = 1
-					}
-					objs[i].ScaleX = sceneformat.Float32(float32(base * factor))
-				case Axis3DY:
-					base := 1.0
-					if t.startTransform.ScaleY != nil {
-						base = float64(*t.startTransform.ScaleY)
-					}
-					if base == 0 {
-						base = 1
-					}
-					objs[i].ScaleY = sceneformat.Float32(float32(base * factor))
-				case Axis3DZ:
-					base := 1.0
-					if t.startTransform.ScaleZ != nil {
-						base = float64(*t.startTransform.ScaleZ)
-					}
-					if base == 0 {
-						base = 1
-					}
-					objs[i].ScaleZ = sceneformat.Float32(float32(base * factor))
+		if math.IsNaN(factor) || math.IsInf(factor, 0) || math.Abs(factor) < minScale2D {
+			return
+		}
+		for i, t := range st.targets {
+			rel := sub64(t.startPos, startPos)
+			proj := dot64(rel, axisDir)
+			worldDelta := scale64(axisDir, proj*(factor-1))
+			local := t.parentInv.vector(worldDelta)
+			nexts[i].X = t.startTransform.X + float32(local[0])
+			nexts[i].Y = t.startTransform.Y + float32(local[1])
+			nexts[i].PosZ = t.startTransform.PosZ + float32(local[2])
+			switch st.axis {
+			case Axis3DX:
+				base := 1.0
+				if t.startTransform.ScaleX != nil {
+					base = float64(*t.startTransform.ScaleX)
 				}
+				if base == 0 {
+					base = 1
+				}
+				sv := float32(base * factor)
+				if !isFiniteFloat32(sv) || math.Abs(float64(sv)) < minScale2D {
+					return
+				}
+				nexts[i].ScaleX = sceneformat.Float32(sv)
+			case Axis3DY:
+				base := 1.0
+				if t.startTransform.ScaleY != nil {
+					base = float64(*t.startTransform.ScaleY)
+				}
+				if base == 0 {
+					base = 1
+				}
+				sv := float32(base * factor)
+				if !isFiniteFloat32(sv) || math.Abs(float64(sv)) < minScale2D {
+					return
+				}
+				nexts[i].ScaleY = sceneformat.Float32(sv)
+			case Axis3DZ:
+				base := 1.0
+				if t.startTransform.ScaleZ != nil {
+					base = float64(*t.startTransform.ScaleZ)
+				}
+				if base == 0 {
+					base = 1
+				}
+				sv := float32(base * factor)
+				if !isFiniteFloat32(sv) || math.Abs(float64(sv)) < minScale2D {
+					return
+				}
+				nexts[i].ScaleZ = sceneformat.Float32(sv)
 			}
 		}
+	}
+
+	for _, tr := range nexts {
+		if !isFiniteFloat32(tr.X) || !isFiniteFloat32(tr.Y) || !isFiniteFloat32(tr.PosZ) ||
+			!isFiniteFloat32(tr.RotX) || !isFiniteFloat32(tr.RotY) || !isFiniteFloat32(tr.RotZ) {
+			return
+		}
+	}
+	for i, obj := range objs {
+		applyTransform3D(obj, nexts[i])
 	}
 
 	st.lastSX = sx
@@ -1139,7 +1176,7 @@ func (e *Editor) EndGizmoDrag3D() bool {
 	if st.mode == Gizmo3DCollider {
 		return e.endColliderDrag3D(st)
 	}
-	if len(st.targets) > 1 {
+	if len(st.targets) > 0 {
 		type pending struct {
 			id    string
 			obj   *sceneformat.ObjectDoc
@@ -1236,7 +1273,7 @@ func (e *Editor) CancelGizmoDrag3D() {
 		e.notify()
 		return
 	}
-	if len(st.targets) > 1 {
+	if len(st.targets) > 0 {
 		restored := false
 		for _, t := range st.targets {
 			if obj, _, _ := e.FindObject(t.id); obj != nil {

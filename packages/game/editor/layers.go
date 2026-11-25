@@ -283,12 +283,13 @@ func (e *Editor) RemoveLayer(name string) error {
 	}
 	e.endTileStrokeForChange()
 	e.History.Execute(&removeLayerCmd{
-		ed:           e,
-		index:        li,
-		layer:        cloneLayerDoc(&e.Doc.Layers[li]),
-		prevActive:   e.ActiveLayer,
-		prevTile:     e.ActiveTileID,
-		prevSelected: e.SelectedID,
+		ed:              e,
+		index:           li,
+		layer:           cloneLayerDoc(&e.Doc.Layers[li]),
+		prevActive:      e.ActiveLayer,
+		prevTile:        e.ActiveTileID,
+		prevSelected:    e.SelectedID,
+		prevSelectedIDs: e.SelectedIDs(),
 	})
 	return nil
 }
@@ -318,10 +319,11 @@ type removeLayerCmd struct {
 	index int
 	layer sceneformat.LayerDoc
 	// conns are the connections Do removed with the layer's objects, each with its index before the removal, in ascending order.
-	conns        []removedConnection
-	prevActive   string
-	prevTile     int
-	prevSelected string
+	conns           []removedConnection
+	prevActive      string
+	prevTile        int
+	prevSelected    string
+	prevSelectedIDs []string
 	// tookActive records that Do made another layer active, and with it maybe another tile.
 	tookActive bool
 	wasLocked  bool
@@ -360,9 +362,21 @@ func (c *removeLayerCmd) Do() {
 		// The layer taking over may paint another tileset, as SetActiveLayer keeps in mind.
 		e.keepTileInPalette()
 	}
-	if _, ok := ids[e.SelectedID]; ok {
-		e.SelectedID = ""
+	remaining := make([]string, 0, len(e.selectedIDs))
+	for _, sid := range e.SelectedIDs() {
+		if _, removed := ids[sid]; !removed {
+			remaining = append(remaining, sid)
+		}
 	}
+	primary := e.SelectedID
+	if _, removed := ids[primary]; removed {
+		if len(remaining) > 0 {
+			primary = remaining[len(remaining)-1]
+		} else {
+			primary = ""
+		}
+	}
+	e.setSelectionQuiet(remaining, primary)
 	e.Status = "Removed layer " + c.layer.Name
 }
 
@@ -381,7 +395,7 @@ func (c *removeLayerCmd) Undo() {
 		e.ActiveTileID = c.prevTile
 		e.keepTileInPalette()
 	}
-	e.SelectedID = c.prevSelected
+	e.setSelectionQuiet(c.prevSelectedIDs, c.prevSelected)
 }
 
 // RenameLayer renames the layer oldName to newName as an undoable command, and with it the ActiveLayer and the layer's lock. It refuses an empty name and one another layer has, and, in a scene that inherits another, renaming a layer that extends one of the base's or to the name of one of them, since the name is what ties the layer to the base and its layer overrides. Other scene files that inherit the open one and name the layer are not rewritten.

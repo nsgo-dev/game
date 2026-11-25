@@ -102,7 +102,12 @@ func (e *Editor) EndMarquee2D() []string {
 	}
 	st := e.marquee
 	e.marquee = marqueeState{}
-	return e.applyMarqueeSelection(st.startX, st.startY, st.curX, st.curY, st.add, st.toggle, st.mode)
+	revBefore := e.revision
+	res := e.applyMarqueeSelection(st.startX, st.startY, st.curX, st.curY, st.add, st.toggle, st.mode)
+	if e.revision == revBefore {
+		e.notify()
+	}
+	return res
 }
 
 // CancelMarquee2D aborts an active 2D marquee drag without changing the selection.
@@ -119,7 +124,7 @@ func (e *Editor) CancelMarquee2D() bool {
 // from (x0, y0) to (x1, y1) directly (without an interactive drag) and returns the
 // resulting selected object IDs.
 func (e *Editor) SelectMarquee2D(x0, y0, x1, y1 float32, add, toggle bool, mode MarqueeMode) []string {
-	if e == nil || e.playing || e.ViewMode != ViewMode2D {
+	if e == nil || e.playing || e.ViewMode != ViewMode2D || !isFiniteFloat32(x0) || !isFiniteFloat32(y0) || !isFiniteFloat32(x1) || !isFiniteFloat32(y1) {
 		return nil
 	}
 	return e.applyMarqueeSelection(x0, y0, x1, y1, add, toggle, mode)
@@ -149,7 +154,7 @@ func (e *Editor) applyMarqueeSelection(x0, y0, x1, y1 float32, add, toggle bool,
 			if !slices.Contains(next, primary) {
 				primary = next[len(next)-1]
 			}
-			e.SelectObjects(next, primary)
+			e.SelectObjectsWithPrimary(next, primary)
 		}
 	case add:
 		if len(hits) == 0 {
@@ -162,7 +167,7 @@ func (e *Editor) applyMarqueeSelection(x0, y0, x1, y1 float32, add, toggle bool,
 			e.ClearSelection()
 			e.notify()
 		} else {
-			e.SelectObjects(hits, hits[0])
+			e.SelectObjectsWithPrimary(hits, hits[0])
 		}
 	}
 	return e.SelectedIDs()

@@ -7,7 +7,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"slices"
 
 	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
@@ -127,7 +126,7 @@ func (e *Editor) syncActiveTab() {
 	t.sceneSaved = e.sceneSaved
 	t.sceneDisk = e.disk.sceneDisk
 	t.selectedID = e.SelectedID
-	t.selectedIDs = slices.Clone(e.selectedIDs)
+	t.selectedIDs = e.SelectedIDs()
 	t.activeLayer = e.ActiveLayer
 	t.activeTileID = e.ActiveTileID
 	t.activeTileLayer = e.ActiveTileLayer
@@ -163,8 +162,7 @@ func (e *Editor) loadActiveTab() {
 	e.sceneSaved = t.sceneSaved
 	e.disk.sceneDisk = t.sceneDisk
 	e.onActiveSceneTabChanged()
-	e.SelectedID = t.selectedID
-	e.selectedIDs = slices.Clone(t.selectedIDs)
+	e.setSelectionQuiet(t.selectedIDs, t.selectedID)
 	e.pasteStreak = 0
 	e.ActiveLayer = t.activeLayer
 	e.ActiveTileID = t.activeTileID
@@ -211,6 +209,7 @@ func (e *Editor) canReplacePlaceholderTab() bool {
 // cancelTransientInteraction cancels any viewport drag or preview and commits any in-progress tile, GridMap or terrain stroke before changing or closing a tab.
 func (e *Editor) cancelTransientInteraction() {
 	e.CancelDrag2D()
+	e.CancelMarquee2D()
 	e.CancelShapeDrag2D()
 	e.CancelPluginDrag2D()
 	e.ClearPluginHover2D()

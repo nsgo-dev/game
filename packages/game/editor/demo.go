@@ -212,9 +212,10 @@ func (e *Editor) OpenDemo() error {
 	e.inspectAssetFile = false
 	e.inspectLayer = false
 	e.connPick = nil
+	e.marquee = marqueeState{}
 	e.hidden, e.locked, e.layerLocked = nil, nil, nil
 	e.ActiveLayer = "actors"
-	e.SelectedID = "hero"
+	e.setSelectionQuiet([]string{"hero"}, "hero")
 	e.Camera3D = DefaultOrbitCamera3D()
 	e.History = e.newTabHistory()
 	e.keepTileInPalette()
