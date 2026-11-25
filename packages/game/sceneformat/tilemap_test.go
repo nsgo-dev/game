@@ -510,6 +510,85 @@ func TestFSAssets(t *testing.T) {
 	}
 }
 
+func TestTilemapOffsetsParseBuildValidateAndMerge(t *testing.T) {
+	const v3Single = `# yaml-language-server: $schema=https://game.nsgo.dev/schemas/scene.v3.json
+version: 3
+name: Offset Map
+layers:
+  - name: floor
+    tilemap:
+      offsetX: -32
+      offsetY: -16
+      tileWidth: 16
+      tileHeight: 16
+      width: 3
+      height: 2
+      tileset: cave_tiles
+      data: [0, 0, 0, 0, 0, 1]
+`
+	doc, err := sceneformat.Parse([]byte(v3Single))
+	if err != nil {
+		t.Fatalf("Parse v3 single with offset: %v", err)
+	}
+	encoded, err := sceneformat.Encode(doc)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	if string(encoded) != v3Single {
+		t.Fatalf("round-trip mismatch:\ngot:\n%s\nwant:\n%s", encoded, v3Single)
+	}
+	built, err := sceneformat.Build(doc, caveResolver)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	sprites := built.Layer("floor").Tilemap.Sprites
+	if len(sprites) != 1 || sprites[0].X != 0 || sprites[0].Y != 0 {
+		t.Fatalf("offset sprite = %+v, want single tile at (0, 0) from col=2, row=1 with offset (-32, -16)", sprites)
+	}
+
+	// Layered tilemap sets Tilemap.Origin from offsetX/offsetY.
+	v3Layered := strings.Replace(layeredScene, "version: 2", "version: 3", 1)
+	v3Layered = strings.Replace(v3Layered, "      tileWidth: 16", "      offsetX: -16\n      offsetY: -32\n      tileWidth: 16", 1)
+	fsys := layeredProject()
+	fsys["level.scene.yaml"] = &fstest.MapFile{Data: []byte(v3Layered)}
+	builtLayered, _ := buildLayered(t, fsys)
+	if got := builtLayered.Layer("ground").Map.Origin; got != (core.Point{X: -16, Y: -32}) {
+		t.Fatalf("layered Map.Origin = %+v, want (-16, -32)", got)
+	}
+
+	// Older versions and ref tilemaps refuse offsetX/offsetY.
+	for _, tc := range []struct {
+		name, yaml, want string
+	}{
+		{"v1_offset", "version: 1\nlayers:\n  - name: a\n    tilemap:\n      offsetX: -16\n      tileWidth: 16\n      tileHeight: 16\n      width: 1\n      height: 1\n      tileset: cave_tiles\n      data: [0]\n", "need version 3"},
+		{"v2_offset", "version: 2\nlayers:\n  - name: a\n    tilemap:\n      offsetY: -16\n      tileWidth: 16\n      tileHeight: 16\n      width: 1\n      height: 1\n      tileset: cave_tiles\n      data: [0]\n", "need version 3"},
+		{"ref_offset", "version: 3\ntilemaps:\n  g:\n    tileWidth: 16\n    tileHeight: 16\n    width: 1\n    height: 1\n    tileset: cave_tiles\n    data: [0]\nlayers:\n  - name: a\n    tilemap:\n      ref: g\n      offsetX: -16\n", "cannot set offsetX or offsetY on a ref tilemap"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := sceneformat.Parse([]byte(tc.yaml)); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("Parse = %v, want %q", err, tc.want)
+			}
+		})
+	}
+
+	// Three-way merge merges offsetX and offsetY independently.
+	base := doc.Clone()
+	ours := doc.Clone()
+	theirs := doc.Clone()
+	ours.Layers[0].Tilemap.OffsetX = -48
+	theirs.Layers[0].Tilemap.OffsetY = -32
+	res, err := sceneformat.Merge(base, ours, theirs)
+	if err != nil {
+		t.Fatalf("Merge: %v", err)
+	}
+	if res.HasConflicts() {
+		t.Fatalf("unexpected merge conflicts: %+v", res.Conflicts)
+	}
+	if got := res.Doc.Layers[0].Tilemap; got.OffsetX != -48 || got.OffsetY != -32 {
+		t.Fatalf("merged offset = (%v, %v), want (-48, -32)", got.OffsetX, got.OffsetY)
+	}
+}
+
 func mustRead(t *testing.T, a sceneformat.FSAssets, p string) []byte {
 	t.Helper()
 	data, err := a.ReadFile(p)

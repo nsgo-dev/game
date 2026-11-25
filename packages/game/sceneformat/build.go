@@ -526,6 +526,12 @@ func (b *tilemapBuilder) build(bl *BuiltLayer, tm *TilemapDoc) (float32, float32
 				// The loaded grid is not part of the document, so its error keeps no path into it.
 				return 0, 0, err.(*FieldError).Err
 			}
+			if resolved.OffsetX != 0 || resolved.OffsetY != 0 {
+				shifted := *loaded
+				shifted.OffsetX += resolved.OffsetX
+				shifted.OffsetY += resolved.OffsetY
+				loaded = &shifted
+			}
 			resolved = loaded
 		} else {
 			m, err := b.external(where, resolved)
@@ -610,6 +616,10 @@ func (b *tilemapBuilder) external(where string, tm *TilemapDoc) (*tilemap.Tilema
 	if err != nil {
 		return nil, fmt.Errorf("sceneformat: %s: %w", where, loaderr.WithFile(err, tm.Source))
 	}
+	if tm.OffsetX != 0 || tm.OffsetY != 0 {
+		m.Origin.X += core.Points(tm.OffsetX)
+		m.Origin.Y += core.Points(tm.OffsetY)
+	}
 	return m, nil
 }
 
@@ -638,6 +648,9 @@ func (b *tilemapBuilder) layered(layerName string, tm *TilemapDoc) (*tilemap.Til
 		return nil, err
 	}
 	m := tilemap.New(tm.Width, tm.Height, float32(tm.TileWidth), float32(tm.TileHeight))
+	if tm.OffsetX != 0 || tm.OffsetY != 0 {
+		m.Origin = core.Point{X: core.Points(tm.OffsetX), Y: core.Points(tm.OffsetY)}
+	}
 	assets := tilemap.TilesetAssets{Image: b.image, Atlas: b.getAtlas}
 	if _, err := m.AddTilesetDoc(doc, 1, assets); err != nil {
 		return nil, fmt.Errorf("sceneformat: %s tileset %q: %w", where, tm.TilesetFile, err)
@@ -681,12 +694,12 @@ func buildTilemapBatch(layerName string, resolved *TilemapDoc, getAtlas func(str
 				return nil, 0, 0, fmt.Errorf("sceneformat: layer %q tilemap tileset %q has no frame %q", layerName, resolved.Tileset, key)
 			}
 			sp := sprite.NewSprite(frame)
-			sp.X = float32(col * resolved.TileWidth)
-			sp.Y = float32(row * resolved.TileHeight)
+			sp.X = resolved.OffsetX + float32(col)*float32(resolved.TileWidth)
+			sp.Y = resolved.OffsetY + float32(row)*float32(resolved.TileHeight)
 			sprites = append(sprites, &sp)
 		}
 	}
-	return &sprite.Batch{Atlas: atlas, Sprites: sprites}, float32(resolved.Width * resolved.TileWidth), float32(resolved.Height * resolved.TileHeight), nil
+	return &sprite.Batch{Atlas: atlas, Sprites: sprites}, float32(resolved.Width) * float32(resolved.TileWidth), float32(resolved.Height) * float32(resolved.TileHeight), nil
 }
 
 // groupLayerDrawables sorts drawables stably by Z, groups consecutive sprites sharing an atlas into sprite.Batch values, and returns both the sprite batches list and the interleaved draw items preserving exact Z order across sprites and particle emitters.

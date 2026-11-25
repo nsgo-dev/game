@@ -21,7 +21,7 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-// CurrentVersion is the newest scene format schema version, the one new documents are written in. Version 2 adds scene instancing (ObjectDoc.Scene and ObjectDoc.Overrides), inheritance (SceneDoc.Inherits, SceneDoc.Overrides and SceneDoc.LayerOverrides) and glTF models (ObjectDoc.Model, ObjectDoc.ModelNode and ObjectDoc.ModelMesh). Version 3 adds parallax and repeating layers (LayerDoc.ParallaxX, LayerDoc.ParallaxY, LayerDoc.RepeatX, LayerDoc.RepeatY, LayerDoc.RepeatWidth and LayerDoc.RepeatHeight, and the matching fields on LayerOverride).
+// CurrentVersion is the newest scene format schema version, the one new documents are written in. Version 2 adds scene instancing (ObjectDoc.Scene and ObjectDoc.Overrides), inheritance (SceneDoc.Inherits, SceneDoc.Overrides and SceneDoc.LayerOverrides) and glTF models (ObjectDoc.Model, ObjectDoc.ModelNode and ObjectDoc.ModelMesh). Version 3 adds parallax and repeating layers (LayerDoc.ParallaxX, LayerDoc.ParallaxY, LayerDoc.RepeatX, LayerDoc.RepeatY, LayerDoc.RepeatWidth and LayerDoc.RepeatHeight, and the matching fields on LayerOverride) and tilemap offsets (TilemapDoc.OffsetX and TilemapDoc.OffsetY).
 const CurrentVersion = 3
 
 // MinVersion is the oldest scene format schema version this package still reads. A version 1 or version 2 document is read and written unchanged, and may not use any field added by a newer version.
@@ -236,6 +236,9 @@ type TilemapDoc struct {
 	Source string `yaml:"source,omitempty"`
 	// Level names the level of an LDtk Source to build; empty builds the project's first level. It requires a .ldtk Source. Build reads a source with a Level through a FileResolver even when the resolver implements TilemapResolver. Version 2.
 	Level string `yaml:"level,omitempty"`
+	// OffsetX and OffsetY shift the tilemap's top-left corner (cell 0, 0) in its layer's coordinate space in points. Version 3.
+	OffsetX float32 `yaml:"offsetX,omitempty"`
+	OffsetY float32 `yaml:"offsetY,omitempty"`
 	// TileWidth and TileHeight are each tile's size in points for an inline grid.
 	TileWidth  int `yaml:"tileWidth,omitempty" schema:"minimum=0"`
 	TileHeight int `yaml:"tileHeight,omitempty" schema:"minimum=0"`
@@ -1192,6 +1195,19 @@ func validateTilemap(version int, path []string, where string, tm *TilemapDoc, a
 			return fieldErr(at(path, field), "sceneformat: %s: level, tilesetFile and tileLayers need version 2, not %d", where, version)
 		}
 	}
+	if version < 3 && (tm.OffsetX != 0 || tm.OffsetY != 0) {
+		field := "offsetY"
+		if tm.OffsetX != 0 {
+			field = "offsetX"
+		}
+		return fieldErr(at(path, field), "sceneformat: %s: offsetX and offsetY need version 3, not %d", where, version)
+	}
+	if !isFinite(tm.OffsetX) {
+		return fieldErr(at(path, "offsetX"), "sceneformat: %s has non-finite offsetX", where)
+	}
+	if !isFinite(tm.OffsetY) {
+		return fieldErr(at(path, "offsetY"), "sceneformat: %s has non-finite offsetY", where)
+	}
 	isRef := tm.IsRef()
 	isExt := tm.IsExternal()
 	isInline := tm.IsInline()
@@ -1219,6 +1235,13 @@ func validateTilemap(version int, path []string, where string, tm *TilemapDoc, a
 		return fieldErr(at(path, "level"), "sceneformat: %s level %q requires an LDtk (.ldtk) source", where, tm.Level)
 	}
 	if isRef {
+		if tm.OffsetX != 0 || tm.OffsetY != 0 {
+			field := "offsetY"
+			if tm.OffsetX != 0 {
+				field = "offsetX"
+			}
+			return fieldErr(at(path, field), "sceneformat: %s cannot set offsetX or offsetY on a ref tilemap; set them on the top-level tilemap instead", where)
+		}
 		if !allowRef {
 			return fieldErr(at(path, "ref"), "sceneformat: %s cannot use ref in top-level tilemaps", where)
 		}

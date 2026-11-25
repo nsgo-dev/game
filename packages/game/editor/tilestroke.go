@@ -314,10 +314,11 @@ func (e *Editor) strokeSegment(x0, y0, x1, y1 float32) {
 	}
 	values := g.values()
 	tw, th := float64(tm.TileWidth), float64(tm.TileHeight)
+	ox, oy := float64(tm.OffsetX), float64(tm.OffsetY)
 	var batch []tileChange
 	if s.mode == TileStrokeTerrain || s.mode == TileStrokeEraseTerrain {
 		placed := s.mode == TileStrokeTerrain
-		cellsAlong(float64(x0)/tw, float64(y0)/th, float64(x1)/tw, float64(y1)/th, tm.Width, tm.Height, func(col, row int) {
+		cellsAlong((float64(x0)-ox)/tw, (float64(y0)-oy)/th, (float64(x1)-ox)/tw, (float64(y1)-oy)/th, tm.Width, tm.Height, func(col, row int) {
 			idx := row*tm.Width + col
 			if s.visited[idx] {
 				return
@@ -334,7 +335,7 @@ func (e *Editor) strokeSegment(x0, y0, x1, y1 float32) {
 		if s.mode == TileStrokeErase {
 			val = 0
 		}
-		cellsAlong(float64(x0)/tw, float64(y0)/th, float64(x1)/tw, float64(y1)/th, tm.Width, tm.Height, func(col, row int) {
+		cellsAlong((float64(x0)-ox)/tw, (float64(y0)-oy)/th, (float64(x1)-ox)/tw, (float64(y1)-oy)/th, tm.Width, tm.Height, func(col, row int) {
 			idx := row*tm.Width + col
 			if _, seen := s.changeIndex[idx]; seen || values[idx] == val {
 				return
@@ -353,11 +354,20 @@ func (e *Editor) strokeSegment(x0, y0, x1, y1 float32) {
 
 // tileAt returns the cell of tm at the layer point (lx, ly), and false off the map.
 func tileAt(tm *sceneformat.TilemapDoc, lx, ly float32) (col, row int, ok bool) {
-	if tm.TileWidth <= 0 || tm.TileHeight <= 0 || lx < 0 || ly < 0 {
+	if tm == nil || tm.TileWidth <= 0 || tm.TileHeight <= 0 || tm.Width <= 0 || tm.Height <= 0 {
 		return 0, 0, false
 	}
-	col, row = int(lx)/tm.TileWidth, int(ly)/tm.TileHeight
-	if col >= tm.Width || row >= tm.Height {
+	rx := float64(lx) - float64(tm.OffsetX)
+	ry := float64(ly) - float64(tm.OffsetY)
+	if !finite(rx) || !finite(ry) || rx < 0 || ry < 0 {
+		return 0, 0, false
+	}
+	if rx >= float64(tm.Width)*float64(tm.TileWidth) || ry >= float64(tm.Height)*float64(tm.TileHeight) {
+		return 0, 0, false
+	}
+	col = int(math.Floor(rx / float64(tm.TileWidth)))
+	row = int(math.Floor(ry / float64(tm.TileHeight)))
+	if col < 0 || col >= tm.Width || row < 0 || row >= tm.Height {
 		return 0, 0, false
 	}
 	return col, row, true
@@ -544,7 +554,7 @@ func (e *Editor) drawTileHoverOverlay(d *core.Drawing) {
 	}
 	space, px, py := e.layerSpaceAndParallax(layer)
 	m := e.layerAffineFor(space, px, py)
-	x, y := float32(col*tm.TileWidth), float32(row*tm.TileHeight)
+	x, y := tm.OffsetX+float32(col)*float32(tm.TileWidth), tm.OffsetY+float32(row)*float32(tm.TileHeight)
 	w, h := float32(tm.TileWidth), float32(tm.TileHeight)
 	mode := e.hoverMode()
 	d.Save()

@@ -148,15 +148,7 @@ func (e *Editor) CanvasToTile(layer string, canvasX, canvasY float32) (col, row 
 	}
 	space, px, py := e.layerSpaceAndParallax(layerName)
 	lx, ly := e.canvasToLayerFor(space, px, py, canvasX, canvasY)
-	if lx < 0 || ly < 0 || tm.TileWidth <= 0 || tm.TileHeight <= 0 {
-		return 0, 0, false
-	}
-	col = int(lx) / tm.TileWidth
-	row = int(ly) / tm.TileHeight
-	if col < 0 || col >= tm.Width || row < 0 || row >= tm.Height {
-		return 0, 0, false
-	}
-	return col, row, true
+	return tileAt(tm, lx, ly)
 }
 
 // HitTest returns the ID of the topmost visible object under the point (canvasX, canvasY) on the viewport's canvas, seen through the 2D view, nested children included, or "" if no object is hit. Objects hidden or locked in the editor (SetObjectHidden, SetObjectLocked), with their descendants, and the objects of hidden and locked layers (SetLayerVisible, SetLayerLocked) are passed over, so the press reaches what lies under them. An object that only an instanced scene adds is reported as the nearest of its ancestors that the open scene holds, the instance it belongs to.
@@ -529,16 +521,17 @@ func (e *Editor) drawTileGridOverlay(d *core.Drawing) {
 	applyAffine(d, m)
 	// The grid is a hairline at any zoom.
 	d.SetStrokeColor(core.RGBA(0xFFFFFF, 0.2)).SetLineWidth(1 / strokeScale(m))
-	totalW := float32(tm.Width * tm.TileWidth)
-	totalH := float32(tm.Height * tm.TileHeight)
+	ox, oy := tm.OffsetX, tm.OffsetY
+	totalW := float32(tm.Width) * float32(tm.TileWidth)
+	totalH := float32(tm.Height) * float32(tm.TileHeight)
 	d.BeginPath()
 	for c := 0; c <= tm.Width; c++ {
-		x := float32(c * tm.TileWidth)
-		d.MoveTo(x, 0).LineTo(x, totalH)
+		x := ox + float32(c)*float32(tm.TileWidth)
+		d.MoveTo(x, oy).LineTo(x, oy+totalH)
 	}
 	for r := 0; r <= tm.Height; r++ {
-		y := float32(r * tm.TileHeight)
-		d.MoveTo(0, y).LineTo(totalW, y)
+		y := oy + float32(r)*float32(tm.TileHeight)
+		d.MoveTo(ox, y).LineTo(ox+totalW, y)
 	}
 	d.Stroke().Restore()
 }

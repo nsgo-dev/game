@@ -308,6 +308,10 @@ func layerPanelRow(cx *core.Scope, ed *Editor, layers func() []LayerInfo, name s
 		}
 	}
 	items := []core.Node{
+		ui.MenuItem{TestID: "layers-inspect-" + name, Text: ed.T("layers.inspectLayer"), OnSelect: func() {
+			ed.SelectObject("")
+			ed.SetActiveLayer(name)
+		}},
 		ui.MenuItem{TestID: "layers-rename-item-" + name, Text: ed.T("layers.rename"), Disabled: baseOwned, OnSelect: func() { startEdit(name) }},
 		ui.MenuSeparator{},
 		ui.MenuItem{TestID: "layers-up-" + name, Text: ed.T("layers.moveUp"),

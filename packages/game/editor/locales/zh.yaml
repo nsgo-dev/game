@@ -192,6 +192,7 @@ strings:
   layers.empty: 暂无图层
   layers.hide: 隐藏图层
   layers.hideNamed: 隐藏图层 {name}
+  layers.inspectLayer: 检查图层
   layers.lock: 锁定图层
   layers.lockNamed: 锁定图层 {name}
   layers.moveDown: 下移图层
@@ -359,6 +360,7 @@ strings:
   tilePalette.flipVert: 垂直翻转
   tilePalette.gridLabel: '{tileset} 的瓦片'
   tilePalette.paintLayer: 绘制瓦片图层 {name}
+  tilePalette.setupTilemap: 设置瓦片地图
   tilePalette.tileLabel: 瓦片 {number}
   tilePalette.title: 瓦片
   tool.eraseTile: 擦除瓦片

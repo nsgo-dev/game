@@ -155,8 +155,9 @@ func (e *Editor) FrameAll2D() bool {
 				}
 			}
 			if _, tm, err := e.resolveInlineTilemap(layer.Name); err == nil && tm != nil {
-				w, h := float32(tm.Width*tm.TileWidth), float32(tm.Height*tm.TileHeight)
-				for _, c := range [4][2]float32{{0, 0}, {w, 0}, {w, h}, {0, h}} {
+				x0, y0 := tm.OffsetX, tm.OffsetY
+				w, h := float32(tm.Width)*float32(tm.TileWidth), float32(tm.Height)*float32(tm.TileHeight)
+				for _, c := range [4][2]float32{{x0, y0}, {x0 + w, y0}, {x0 + w, y0 + h}, {x0, y0 + h}} {
 					x, y := e.layerToWorld(layer.Space, c[0], c[1])
 					pts = append(pts, math2d.Vec2{X: x, Y: y})
 				}

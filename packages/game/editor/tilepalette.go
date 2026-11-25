@@ -243,11 +243,34 @@ func tilePalettePanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 	grid := core.Dynamic(func(cx *core.Scope) core.Node {
 		p := palette.Get()
 		if len(p.Tiles) == 0 {
-			return core.Text{
+			emptyText := core.Text{
 				TestID:  "tile-palette-empty",
 				Content: p.Message,
 				Style:   core.Style{FontSize: 12, Color: colors.Muted()},
 			}
+			if li := ed.layerIndex(p.Layer); li >= 0 && ed.Doc.Layers[li].Tilemap == nil && !ed.inheritedLayers()[p.Layer] {
+				return core.View{
+					Style: core.Style{Gap: 8},
+					Children: []core.Node{
+						emptyText,
+						ui.Button{
+							TestID:  "tile-palette-setup-layer",
+							Text:    ed.T("tilePalette.setupTilemap"),
+							Size:    ui.SizeSmall,
+							Variant: ui.ButtonSecondary,
+							Disabled: func() bool {
+								_ = rev.Get()
+								return ed.Playing()
+							},
+							OnPress: func() {
+								ed.SelectObject("")
+								ed.SetActiveLayer(p.Layer)
+							},
+						},
+					},
+				}
+			}
+			return emptyText
 		}
 		// A tile wider than the panel is scaled down to fit it; others show at the tilemap's tile size.
 		cellW, cellH := float32(max(p.TileWidth, 1)), float32(max(p.TileHeight, 1))
