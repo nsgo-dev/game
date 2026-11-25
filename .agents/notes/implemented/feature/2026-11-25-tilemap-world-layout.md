@@ -28,7 +28,7 @@ Add world-space placement across `tilemap`, `fog`, and `physics` while keeping `
 
 ### Invariants
 
-- Package dependency direction stays strictly acyclic and preserves stability rules: `game/tilemap` imports only `nsgo/core`, `game/sprite`, and `game/loaderr`; `game/physics` imports only `nsgo/core`; neither imports the other or any Experimental package.
+- Package dependency direction stays strictly acyclic and preserves stability rules: `game/tilemap` imports only `nsgo/core`, `game/sprite`, `game/loaderr`, and `game/random` (added for Wang set variant selection in [tilemap-wang-sets](./2026-11-25-tilemap-wang-sets.md)); `game/physics` imports only `nsgo/core`; neither imports the other or any Experimental package.
 - Zero-origin `Tilemap`, `fog.Fog`, and `physics.TileGrid` values behave identically to before, including JSON snapshot bytes for `fog.Fog`.
 - `WorldStream.Update` always processes unloads before loads in deterministic `World.Levels` order, and `UnloadMargin` is clamped to at least `LoadMargin` so a level cannot thrash in one update.
 

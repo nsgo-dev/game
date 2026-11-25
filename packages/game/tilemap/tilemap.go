@@ -220,10 +220,45 @@ type Tileset struct {
 	Properties Properties
 	// TileProperties holds custom properties keyed by 0-based local tile ID.
 	TileProperties map[uint32]Properties
+	// TileProbabilities holds per-tile random selection weights keyed by 0-based local tile ID (unset defaults to 1).
+	TileProbabilities map[uint32]float64
 	// Animations holds tile animations keyed by 0-based local tile ID.
 	Animations map[uint32]*TileAnimation
 	// Shapes holds the collision shapes of tiles keyed by 0-based local tile ID, such as the ones Tiled's collision editor draws; an animated tile keeps the shapes of its own ID whichever frame shows.
 	Shapes map[uint32][]TileShape
+	// WangSets holds Tiled Wang sets (terrain sets) defined on this tileset.
+	WangSets []WangSet
+}
+
+// TileProbability returns the selection probability for localID, defaulting to 1 when unset.
+func (ts *Tileset) TileProbability(localID uint32) float64 {
+	if ts != nil && ts.TileProbabilities != nil {
+		if p, ok := ts.TileProbabilities[localID]; ok {
+			return p
+		}
+	}
+	return 1
+}
+
+// WangSet returns the first WangSet on ts with the given name, or nil if none matches.
+func (ts *Tileset) WangSet(name string) *WangSet {
+	if ts == nil {
+		return nil
+	}
+	for i := range ts.WangSets {
+		if ts.WangSets[i].Name == name {
+			return &ts.WangSets[i]
+		}
+	}
+	return nil
+}
+
+// WangSetAt returns the WangSet at index in ts.WangSets, or nil if index is out of range.
+func (ts *Tileset) WangSetAt(index int) *WangSet {
+	if ts == nil || index < 0 || index >= len(ts.WangSets) {
+		return nil
+	}
+	return &ts.WangSets[index]
 }
 
 // NewAtlasTileset builds a Tileset from atlas whose local tile IDs (0, 1, ...) correspond to frameNames in order.
