@@ -23,6 +23,32 @@ _, _, _, _, _ = y, ok, normal, hit, chunkMesh
 _ = hitOK
 ```
 
+## Terrain level of detail (`TerrainLOD`)
+
+Large terrains can contain tens of millions of triangles at full resolution. `TerrainLOD` partitions a `Heightmap` into chunks (default 64×64 cells), selects per-chunk power-of-two vertex strides (`1, 2, 4, ...`) from camera-to-AABB distance with hysteresis, applies bias from the game-wide [quality](quality.md) preset (`TerrainLODBiasFor`), culls chunk AABBs against the camera frustum, and caches crack-free stitched `TerrainMesh` geometry per chunk:
+
+```go
+terrain := world3d.NewTerrainLOD(hm, world3d.TerrainLODConfig{
+	ChunkCells: 64,
+	Hysteresis: 0.10, // 10% deadband around each LOD threshold
+	LODBias:    world3d.TerrainLODBiasFor(sel.Level()),
+})
+
+// Each frame (or use UpdateWithOrigin with a *FloatingOrigin):
+visibleChunks := terrain.Update(camPos, &frustum)
+for _, ch := range visibleChunks {
+	if ch.Changed {
+		uploadChunkMesh(ch.Coord, ch.Mesh, ch.Revision)
+	}
+	drawTerrainChunk(ch.Coord, ch.Transform)
+}
+```
+
+- **Crack-free seams**: whenever a chunk borders a coarser neighbor along North, South, West, or East, `BuildMeshLOD` re-triangulates that border strip to connect directly to the neighbor's coarse edge vertices, avoiding both height cracks and T-junctions at every LOD pair (including partial heightmap border chunks).
+- **Quality presets**: call `terrain.SetQualityLevel(level)` (or `terrain.SetLODBias(bias)`) when the player's quality tier changes. `TerrainLODBiasFor` returns `+1.0` for `quality.Low`, `+0.5` for `quality.Medium`, and `0.0` for `quality.High`, scaling distance thresholds by `2^(-bias)`.
+- **Floating origin & streaming**: set `WorldOrigin` and call `UpdateWithOrigin(camLocal, &frustumLocal, origin)` so LOD distances stay invariant in `float64` world space across rebases while returned `Bounds` and `Transform` track local space without rebuilding cached meshes. Set `StreamManaged: true` and hook `SetChunkActive` to `ChunkStreamerConfig.OnLoad` / `OnUnload` (with `ChunkSize: terrain.ChunkWorldSize()`) to stream chunks on demand.
+- **Direct meshing**: `hm.BuildMeshLOD(col, row, cols, rows, lod, neighbors)` and `hm.ChunkBounds(col, row, cols, rows)` are read-only and safe to call directly from background streaming workers.
+
 ## Multi-level 3D NavMesh
 
 Build a 3D `NavMesh` from convex walkable polygons (ramps, bridges, and stacked floors). `BuildNavMesh` filters polygons steeper than `maxSlopeRad`, links shared edges in 3D, and runs portal A* with 3D string-pulling in `FindPath`:

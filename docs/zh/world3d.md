@@ -23,6 +23,32 @@ _, _, _, _, _ = y, ok, normal, hit, chunkMesh
 _ = hitOK
 ```
 
+## 地形多级细节（`TerrainLOD`）
+
+大型地形若全部按满分辨率构建，远景会消耗数千万个三角形。`TerrainLOD` 将 `Heightmap` 划分为固定大小的区块（默认 64×64 格），依据相机到区块 AABB 的距离及迟滞（hysteresis）为每个区块选择 2 的幂顶点步长（`1, 2, 4, ...`），支持通过全局 [quality](quality.md) 画质预设（`TerrainLODBiasFor`）施加偏移，用区块 AABB 执行视锥裁剪，并为可见区块缓存无缝缝合的 `TerrainMesh` 网格：
+
+```go
+terrain := world3d.NewTerrainLOD(hm, world3d.TerrainLODConfig{
+	ChunkCells: 64,
+	Hysteresis: 0.10, // 各 LOD 距离阈值周围 10% 迟滞死区
+	LODBias:    world3d.TerrainLODBiasFor(sel.Level()),
+})
+
+// 每帧更新（若使用 FloatingOrigin，可改用 UpdateWithOrigin）：
+visibleChunks := terrain.Update(camPos, &frustum)
+for _, ch := range visibleChunks {
+	if ch.Changed {
+		uploadChunkMesh(ch.Coord, ch.Mesh, ch.Revision)
+	}
+	drawTerrainChunk(ch.Coord, ch.Transform)
+}
+```
+
+- **无缝接缝**：当区块的北、南、西、东任一相邻区块处于更粗糙的 LOD 时，`BuildMeshLOD` 会重新三角化该边界条带并直接连接到邻块的粗顶点，在任意 LOD 组合下（包括高度图边缘的非满尺寸区块）同时消除高度裂缝与 T 型接缝。
+- **画质预设偏移**：玩家切换画质档位时可调用 `terrain.SetQualityLevel(level)`（或 `terrain.SetLODBias(bias)`）。`TerrainLODBiasFor` 为 `quality.Low` 返回 `+1.0`、`quality.Medium` 返回 `+0.5`、`quality.High` 返回 `0.0`，并按 `2^(-bias)` 缩放各层距离阈值。
+- **浮点原点与流式加载**：设置 `WorldOrigin` 并调用 `UpdateWithOrigin(camLocal, &frustumLocal, origin)` 后，LOD 距离始终在 `float64` 世界空间计算，浮点原点重置不会触发 LOD 抖动或网格重建，而返回的 `Bounds` 与 `Transform` 会自动跟踪局部渲染空间。开启 `StreamManaged: true` 并将 `SetChunkActive` 接入 `ChunkStreamerConfig.OnLoad` / `OnUnload`（配合 `ChunkSize: terrain.ChunkWorldSize()`）即可按需流式启用区块。
+- **直接构建网格**：`hm.BuildMeshLOD(col, row, cols, rows, lod, neighbors)` 与 `hm.ChunkBounds(col, row, cols, rows)` 均为只读操作，可在后台流式工作协程中并发调用。
+
 ## 多层 3D 导航网格（`NavMesh`）
 
 用凸可行走多边形（斜坡、桥梁、多层楼板）构建 3D `NavMesh`。`BuildNavMesh` 会自动过滤超过 `maxSlopeRad` 的陡坡、在 3D 空间连接共享边，并在 `FindPath` 中执行门户 A* 与 3D 路径拉直：
