@@ -34,23 +34,50 @@ func (e *Editor) SetPlaceOptions3D(height float32, snap, align bool) error {
 	return nil
 }
 
-// modelDropTarget makes frame, the viewport's frame, take the models dragged from the asset browser: in 3D a model dropped on it is placed where it lands (PlaceModelAt3D) and becomes the selected model.
+// modelDropTarget makes frame, the viewport's frame, take models dragged from the asset browser (in 3D)
+// and sprite assets dragged from the Asset Drawer (in 2D, placing snapped on empty space or swapping on an existing object).
 func modelDropTarget(cx *core.Scope, ed *Editor, frame core.View) core.Node {
 	return ownDragArea(cx, dragdrop.Target{
 		View: frame,
 		Accept: func(data any) bool {
-			_, ok := data.(ModelEntry)
-			return ok && ed.ViewMode == ViewMode3D && !ed.Playing()
+			if ed.Playing() {
+				return false
+			}
+			switch data.(type) {
+			case ModelEntry:
+				return ed.ViewMode == ViewMode3D
+			case AssetDrawerDrag:
+				return ed.ViewMode == ViewMode2D
+			default:
+				return false
+			}
+		},
+		OnEnter: func(ev dragdrop.Event) {
+			if d, ok := ev.Data.(AssetDrawerDrag); ok && ed.ViewMode == ViewMode2D {
+				ed.updateAssetDragPayload(d, float32(ev.Position.X), float32(ev.Position.Y))
+			}
+		},
+		OnMove: func(ev dragdrop.Event) {
+			if d, ok := ev.Data.(AssetDrawerDrag); ok && ed.ViewMode == ViewMode2D {
+				ed.updateAssetDragPayload(d, float32(ev.Position.X), float32(ev.Position.Y))
+			}
+		},
+		OnLeave: func(ev dragdrop.Event) {
+			if _, ok := ev.Data.(AssetDrawerDrag); ok {
+				ed.ClearAssetDragHover()
+			}
 		},
 		OnDrop: func(ev dragdrop.Event) {
-			m, ok := ev.Data.(ModelEntry)
-			if !ok {
-				return
+			switch v := ev.Data.(type) {
+			case ModelEntry:
+				ed.report(ed.SelectModel(v))
+				cw, ch := ed.CanvasSize()
+				_, err := ed.PlaceModelAt3D(v, float32(ev.Position.X), float32(ev.Position.Y), cw, ch)
+				ed.report(err)
+			case AssetDrawerDrag:
+				_, _, err := ed.dropAssetDragAt(v, float32(ev.Position.X), float32(ev.Position.Y))
+				ed.report(err)
 			}
-			ed.report(ed.SelectModel(m))
-			cw, ch := ed.CanvasSize()
-			_, err := ed.PlaceModelAt3D(m, float32(ev.Position.X), float32(ev.Position.Y), cw, ch)
-			ed.report(err)
 		},
 	})
 }
