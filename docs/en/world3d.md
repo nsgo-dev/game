@@ -89,6 +89,24 @@ if path, ok := nav.FindPath(startPos, goalPos); ok {
 
 Use `nav.FindPolygon(p)` to locate the closest walkable polygon vertically within `VerticalTolerance` (supporting stacked floors and overpasses).
 
+For unreachable targets or frame-budgeted multi-agent queries, pass `ai.PathOptions{MaxExpansions, AllowPartial}` to `nav.FindPathWithOptions(startPos, goalPos, opts)` (returning a `NavPathResult` with `Partial`, `Exhausted`, and `Expansions`), or create a deterministic multi-frame `*world3d.NavMeshSearch` via `nav.StartSearch(startPos, goalPos, opts)`:
+
+```go
+search := nav.StartSearch(startPos, goalPos, ai.PathOptions{
+	MaxExpansions: 128,
+	AllowPartial:  true,
+})
+// Step directly, or schedule alongside 2D searches in an ai.PathQueue:
+queue.Submit(search, 0, func(_ ai.PathRequestID, _ ai.SearchStatus) {
+	res := search.Result()
+	if res.Found {
+		follow3DWaypoints(res.Path) // res.Partial is true if goal was unreachable or budgeted out
+	}
+})
+```
+
+Stepping `NavMeshSearch` across any positive per-step budget returns the exact same 3D surface path as `FindPathWithOptions`, and partial paths end at the closest reachable 3D point on the explored polygons.
+
 ## Modular 3D `GridMap`
 
 Place reusable 3D mesh tiles on an integer `GridCoord{X, Y, Z}` lattice with 24 axis-aligned cube orientations (`GridOrientationMat4`), fast collision box extraction, chunk-culled raycasting (chunks are sorted along the ray and the occupied cells of each are tested), and frustum-culled instanced batches:

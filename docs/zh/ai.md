@@ -107,6 +107,55 @@ _ = ok
 
 可通过 `Contains(p)`、`FindPolygon(p)`、`NearestPolygon(p)`、`Neighbors(index)`、`Polygon(index)` 和 `PolygonCount()` 查询网格几何信息。
 
+## 有界、部分路径与增量寻路
+
+点击不可达目标时单位应尽量走近目标，同时大量并发长寻路也不应拖垮单帧预算。`AStar`、2D `NavMesh` 以及 [world3d](world3d.md) 的 3D `NavMesh` 共享 `PathOptions{MaxExpansions, AllowPartial}` 与 `IncrementalSearch` 接口：
+
+```go
+// 单次有界搜索，并启用部分路径回退：
+res := astar.FindWithOptions(grid, start, goal, ai.PathOptions{
+	MaxExpansions: 128,
+	AllowPartial:  true,
+})
+if res.Found {
+	// 当 res.Partial 为 true 时，res.Path 终止于已探索范围内离目标最近的可行走格子。
+	// res.Exhausted 表示搜索是否因触及 MaxExpansions 而提前停止。
+	follow(res.Path)
+}
+
+// 2D NavMesh 有界 / 部分路径搜索（复用同一 PathOptions）：
+navRes := mesh.FindPathWithOptions(startPt, goalPt, ai.PathOptions{
+	MaxExpansions: 64,
+	AllowPartial:  true,
+})
+_ = navRes
+```
+
+- **部分路径**：开启 `AllowPartial: true` 后，当目标被墙围死、位于障碍格或网格外部、或超出 `MaxExpansions` 预算时，`FindWithOptions` / `FindWithOptionsInto`（预热后零堆分配）以及 `NavMesh.FindPathWithOptions` 会返回通往已探索范围内最近格子或最近多边形边界点的合法路径，并标记 `Partial: true`。设置 `AStar.MaxExpansions > 0` 也会限制 `Find` / `FindInto`，并在 `PathOptions.MaxExpansions == 0` 时作为默认预算（传入负值 `PathOptions.MaxExpansions` 可显式覆盖为不限步数）。
+- **确定性增量步进**：通过 `astar.StartSearch(grid, start, goal, opts)`（`*AStarSearch`，支持 `Reset` 复用缓冲区）或 `mesh.StartSearch(start, goal, opts)`（`*NavMeshSearch`）启动跨帧搜索，并每帧调用 `Step(maxExpansions)` 推进。无论按任意正数步长切分（哪怕每次仅展开 1 个节点），最终得到的路径、代价、`Partial` 标记与展开次数均与单次搜索完全一致。
+- **预算化寻路请求队列（`PathQueue`）**：使用 `NewPathQueue`、`Submit` / `SubmitGrid` / `SubmitNavMesh`、`Cancel` 和 `Step(budget)` / `StepDefault()`，在严格的单步节点展开预算内统一调度网格、2D `NavMesh` 与 `world3d.NavMesh` 寻路请求：
+
+```go
+queue := ai.NewPathQueue(ai.PathQueueConfig{
+	DefaultBudget: 64,                     // StepDefault 每步严格不超过该展开次数
+	Policy:        ai.PathQueueRoundRobin, // 或 ai.PathQueueFIFO（默认）
+	SliceSize:     16,                     // 轮转模式下单次时间片上限（0 表示均分剩余预算）
+})
+
+reqID, search := queue.SubmitGrid(astar, grid, start, goal, ai.PathOptions{
+	AllowPartial: true,
+}, 1, func(id ai.PathRequestID, res ai.GridPathResult) {
+	assignUnitPath(res.Path, res.Partial)
+})
+
+// 在 game.Loop.Update 中：
+_ = queue.StepDefault() // 绝不超过 DefaultBudget 次展开
+_ = search.Status()     // 可直接轮询状态，或通过 queue.Cancel(reqID) 取消请求
+_ = reqID
+```
+
+高优先级请求优先执行，同优先级内按确定性 FIFO 或轮转顺序推进，取消后的请求不会继续步进也不会触发回调。
+
 ## 转向行为（Steering）
 
 `Agent` 封装位置、速度、最大速度、最大转向力与半径，在固定步长中通过 `Agent.Step(force, dt)` 积分移动：

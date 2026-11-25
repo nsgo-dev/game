@@ -178,6 +178,16 @@ func (f GridFunc) MoveCost(col, row int) float64 {
 	return c
 }
 
+// GridPathResult is the outcome of a bounded or incremental grid A* search.
+type GridPathResult struct {
+	Path       []Cell
+	Cost       float64
+	Found      bool // true when a complete or partial path was produced
+	Partial    bool // true when Path ends at the closest explored cell rather than goal
+	Exhausted  bool // true when the search stopped because MaxExpansions was reached
+	Expansions int  // total number of grid cells expanded during the search
+}
+
 // AStar finds lowest-cost paths on a Grid, reusing its internal search buffers across calls.
 //
 // NewAStar returns a searcher with NoCornerCutting enabled by default. An AStar is not safe for concurrent use by multiple goroutines.
@@ -194,7 +204,14 @@ type AStar struct {
 	AnyAngle bool
 	// Topology selects the cell adjacency and admissible distance heuristic. The zero value (TopologySquare) preserves square-grid behavior.
 	Topology GridTopology
+	// MaxExpansions caps the number of cells expanded per Find or FindInto call.
+	// Zero or negative means unlimited expansions. FindWithOptions uses this limit when PathOptions.MaxExpansions is zero.
+	MaxExpansions int
 
+	astarState
+}
+
+type astarState struct {
 	gen     uint32
 	seen    []uint32
 	closed  []uint32
@@ -224,60 +241,273 @@ func (a *AStar) Find(g Grid, start, goal Cell) (path []Cell, cost float64, ok bo
 
 // FindInto behaves like Find but writes the resulting path into dst[:0], avoiding allocations when dst has enough capacity.
 func (a *AStar) FindInto(dst []Cell, g Grid, start, goal Cell) (path []Cell, cost float64, ok bool) {
-	if g == nil {
+	res := a.FindWithOptionsInto(dst, g, start, goal, PathOptions{})
+	if !res.Found || res.Partial {
 		return nil, 0, false
+	}
+	return res.Path, res.Cost, true
+}
+
+// FindWithOptions searches g from start to goal under opts, supporting an expansion budget
+// and optional partial paths to the closest explored cell when the goal is unreachable or the budget runs out.
+func (a *AStar) FindWithOptions(g Grid, start, goal Cell, opts PathOptions) GridPathResult {
+	return a.FindWithOptionsInto(nil, g, start, goal, opts)
+}
+
+// FindWithOptionsInto behaves like FindWithOptions but writes the resulting path into dst[:0],
+// avoiding allocations when dst has enough capacity.
+func (a *AStar) FindWithOptionsInto(dst []Cell, g Grid, start, goal Cell, opts PathOptions) GridPathResult {
+	var runner astarRunner
+	runner.init(&a.astarState, a.Diagonal, a.NoCornerCutting, a.AnyAngle, a.Topology, effectiveAStarMaxExpansions(a, opts), opts.AllowPartial, g, start, goal)
+	runner.step(&a.astarState, -1)
+	return runner.resultInto(&a.astarState, dst)
+}
+
+// StartSearch begins an incremental grid A* search using a's configuration (Diagonal, NoCornerCutting, Topology, MaxExpansions).
+// The returned AStarSearch owns independent search buffers so multiple searches may run across frames concurrently.
+func (a *AStar) StartSearch(g Grid, start, goal Cell, opts PathOptions) *AStarSearch {
+	return NewAStarSearch(a, g, start, goal, opts)
+}
+
+// AStarSearch runs a deterministic grid A* search incrementally across bounded Step calls.
+//
+// Stepping a search with any positive per-step expansion budget produces the exact same path,
+// cost, partial flag, and expansion count as a single-shot AStar.FindWithOptions call.
+// *AStarSearch implements IncrementalSearch.
+type AStarSearch struct {
+	state  astarState
+	runner astarRunner
+}
+
+// NewAStarSearch initializes an incremental grid A* search copying configuration from a
+// (when a is nil, defaults to 4-way TopologySquare with NoCornerCutting enabled).
+func NewAStarSearch(a *AStar, g Grid, start, goal Cell, opts PathOptions) *AStarSearch {
+	s := &AStarSearch{}
+	s.Reset(a, g, start, goal, opts)
+	return s
+}
+
+// Reset reinitializes s for a new query, reusing its internal search buffers.
+func (s *AStarSearch) Reset(a *AStar, g Grid, start, goal Cell, opts PathOptions) {
+	diagonal := false
+	noCornerCutting := true
+	anyAngle := false
+	topology := TopologySquare
+	if a != nil {
+		diagonal = a.Diagonal
+		noCornerCutting = a.NoCornerCutting
+		anyAngle = a.AnyAngle
+		topology = a.Topology
+	}
+	s.runner.init(&s.state, diagonal, noCornerCutting, anyAngle, topology, effectiveAStarMaxExpansions(a, opts), opts.AllowPartial, g, start, goal)
+}
+
+// Step advances the search by at most maxExpansions grid cell expansions and returns
+// the updated status and exact number of expansions performed.
+// When maxExpansions <= 0 or the search is already finished, Step performs 0 expansions.
+func (s *AStarSearch) Step(maxExpansions int) (status SearchStatus, expansions int) {
+	if s == nil {
+		return SearchFailed, 0
+	}
+	if maxExpansions <= 0 || s.runner.status.Done() {
+		return s.runner.status, 0
+	}
+	return s.runner.step(&s.state, maxExpansions)
+}
+
+// Status returns the search's current status.
+func (s *AStarSearch) Status() SearchStatus {
+	if s == nil {
+		return SearchFailed
+	}
+	return s.runner.status
+}
+
+// Expansions returns the cumulative number of grid cells expanded so far.
+func (s *AStarSearch) Expansions() int {
+	if s == nil {
+		return 0
+	}
+	return s.runner.expansions
+}
+
+// Result returns the search outcome once finished (or a result with Found == false while still in progress).
+func (s *AStarSearch) Result() GridPathResult {
+	return s.ResultInto(nil)
+}
+
+// ResultInto behaves like Result but writes the path into dst[:0] when finished.
+func (s *AStarSearch) ResultInto(dst []Cell) GridPathResult {
+	if s == nil {
+		return GridPathResult{}
+	}
+	return s.runner.resultInto(&s.state, dst)
+}
+
+func effectiveAStarMaxExpansions(a *AStar, opts PathOptions) int {
+	if opts.MaxExpansions > 0 {
+		return opts.MaxExpansions
+	}
+	if opts.MaxExpansions < 0 {
+		return 0
+	}
+	if a != nil && a.MaxExpansions > 0 {
+		return a.MaxExpansions
+	}
+	return 0
+}
+
+type astarRunner struct {
+	g               Grid
+	eg              EdgeCostGrid
+	hasEdgeCost     bool
+	cg              CostGrid
+	hasCost         bool
+	cols            int
+	rows            int
+	start           Cell
+	goal            Cell
+	startID         int
+	goalID          int
+	goalReachable   bool
+	sameStartGoal   bool
+	diagonal        bool
+	noCornerCutting bool
+	anyAngle        bool
+	topology        GridTopology
+	maxExpansions   int
+	allowPartial    bool
+	gen             uint32
+
+	status     SearchStatus
+	exhausted  bool
+	expansions int
+	hasBest    bool
+	bestID     int
+	bestH      float64
+	bestG      float64
+}
+
+func (r *astarRunner) heuristic(c1, r1, c2, r2 int) float64 {
+	if r.anyAngle {
+		return math.Hypot(float64(c2-c1), float64(r2-r1))
+	}
+	return r.topology.distance(c1, r1, c2, r2, r.diagonal)
+}
+
+func (r *astarRunner) init(state *astarState, diagonal, noCornerCutting, anyAngle bool, topology GridTopology, maxExpansions int, allowPartial bool, g Grid, start, goal Cell) {
+	*r = astarRunner{
+		g:               g,
+		start:           start,
+		goal:            goal,
+		diagonal:        diagonal,
+		noCornerCutting: noCornerCutting,
+		topology:        topology,
+		maxExpansions:   maxExpansions,
+		allowPartial:    allowPartial,
+		status:          SearchFailed,
+	}
+	if g == nil {
+		return
 	}
 	cols, rows := g.GridSize()
 	if cols <= 0 || rows <= 0 {
-		return nil, 0, false
+		return
 	}
-	if !inBounds(start, cols, rows) || !inBounds(goal, cols, rows) {
-		return nil, 0, false
+	if !inBounds(start, cols, rows) || !g.Walkable(start.Col, start.Row) {
+		return
 	}
-	if !g.Walkable(start.Col, start.Row) || !g.Walkable(goal.Col, goal.Row) {
-		return nil, 0, false
-	}
+	r.cols = cols
+	r.rows = rows
+
 	if start == goal {
-		return append(dst[:0], start), 0, true
+		r.sameStartGoal = true
+		r.status = SearchComplete
+		return
 	}
 
-	n := cols * rows
-	a.prepare(n)
+	goalReachable := inBounds(goal, cols, rows) && g.Walkable(goal.Col, goal.Row)
+	if !goalReachable && !allowPartial {
+		return
+	}
+	r.goalReachable = goalReachable
+	r.startID = start.Row*cols + start.Col
+	if goalReachable {
+		r.goalID = goal.Row*cols + goal.Col
+	} else {
+		r.goalID = -1
+	}
 
-	eg, hasEdgeCost := g.(EdgeCostGrid)
-	cg, hasCost := g.(CostGrid)
-	anyAngle := a.AnyAngle && !hasEdgeCost && (a.Topology == TopologySquare || a.Topology == TopologySquare4 || a.Topology == TopologySquare8)
+	r.eg, r.hasEdgeCost = g.(EdgeCostGrid)
+	r.cg, r.hasCost = g.(CostGrid)
+	r.anyAngle = anyAngle && !r.hasEdgeCost && (topology == TopologySquare || topology == TopologySquare4 || topology == TopologySquare8)
 
-	startID := start.Row*cols + start.Col
-	goalID := goal.Row*cols + goal.Col
-	gen := a.gen
+	state.prepare(cols * rows)
+	r.gen = state.gen
 
-	a.seen[startID] = gen
-	a.gScore[startID] = 0
-	a.parent[startID] = -1
-	h0 := a.heuristicFor(start.Col, start.Row, goal.Col, goal.Row, anyAngle)
-	a.heapPush(astarNode{id: startID, f: h0, h: h0})
+	state.seen[r.startID] = r.gen
+	state.gScore[r.startID] = 0
+	state.parent[r.startID] = -1
+	h0 := r.heuristic(start.Col, start.Row, goal.Col, goal.Row)
+	state.heapPush(astarNode{id: r.startID, f: h0, h: h0})
+
+	r.hasBest = true
+	r.bestID = r.startID
+	r.bestH = h0
+	r.bestG = 0
+	r.status = SearchInProgress
+}
+
+// step advances the runner by up to stepLimit expansions (< 0 means no per-step cap).
+func (r *astarRunner) step(state *astarState, stepLimit int) (SearchStatus, int) {
+	if r.status.Done() {
+		return r.status, 0
+	}
+
+	budget := stepLimit
+	if r.maxExpansions > 0 {
+		rem := r.maxExpansions - r.expansions
+		if rem <= 0 {
+			r.finishExhausted()
+			return r.status, 0
+		}
+		if budget < 0 || rem < budget {
+			budget = rem
+		}
+	}
 
 	var steps [8]neighborStep
+	done := 0
+	gen := r.gen
+	cols, rows := r.cols, r.rows
+	goal := r.goal
+	g := r.g
 
-	for len(a.open) > 0 {
-		cur := a.heapPop()
-		if cur.id == goalID {
-			out := dst[:0]
-			for id := goalID; id != -1; id = a.parent[id] {
-				out = append(out, Cell{Col: id % cols, Row: id / cols})
-			}
-			slices.Reverse(out)
-			return out, a.gScore[goalID], true
+	for len(state.open) > 0 && (budget < 0 || done < budget) {
+		cur := state.heapPop()
+		done++
+		r.expansions++
+
+		if r.goalReachable && cur.id == r.goalID {
+			r.status = SearchComplete
+			return r.status, done
 		}
-		a.closed[cur.id] = gen
+		state.closed[cur.id] = gen
+
+		curG := state.gScore[cur.id]
+		curParent := state.parent[cur.id]
+		if r.allowPartial {
+			if cur.h < r.bestH || (cur.h == r.bestH && (curG < r.bestG || (curG == r.bestG && cur.id < r.bestID))) {
+				r.bestH = cur.h
+				r.bestG = curG
+				r.bestID = cur.id
+			}
+		}
 
 		c := cur.id % cols
-		r := cur.id / cols
-		curG := a.gScore[cur.id]
-		curParent := a.parent[cur.id]
+		row := cur.id / cols
 
-		stepCount := a.Topology.neighbors(c, r, a.Diagonal, &steps)
+		stepCount := r.topology.neighbors(c, row, r.diagonal, &steps)
 		for i := range stepCount {
 			st := steps[i]
 			nc, nr := st.col, st.row
@@ -285,29 +515,29 @@ func (a *AStar) FindInto(dst []Cell, g Grid, start, goal Cell) (path []Cell, cos
 				continue
 			}
 			nid := nr*cols + nc
-			if a.closed[nid] == gen {
+			if state.closed[nid] == gen {
 				continue
 			}
 			if !g.Walkable(nc, nr) {
 				continue
 			}
-			if st.diag && a.NoCornerCutting {
+			if st.diag && r.noCornerCutting {
 				if !g.Walkable(st.corner1Col, st.corner1Row) || !g.Walkable(st.corner2Col, st.corner2Row) {
 					continue
 				}
 			}
 
 			tileCost := 1.0
-			if hasEdgeCost {
-				ec := eg.EdgeCost(c, r, nc, nr)
+			if r.hasEdgeCost {
+				ec := r.eg.EdgeCost(c, row, nc, nr)
 				if ec < 0 || math.IsInf(ec, 0) || math.IsNaN(ec) {
 					continue
 				}
 				if ec >= 1 {
 					tileCost = ec
 				}
-			} else if hasCost {
-				tc := cg.MoveCost(nc, nr)
+			} else if r.hasCost {
+				tc := r.cg.MoveCost(nc, nr)
 				if tc > 0 && !math.IsInf(tc, 0) && !math.IsNaN(tc) {
 					tileCost = tc
 				}
@@ -315,11 +545,11 @@ func (a *AStar) FindInto(dst []Cell, g Grid, start, goal Cell) (path []Cell, cos
 			ng := curG + st.dist*tileCost
 			nParent := cur.id
 
-			if anyAngle && curParent != -1 {
+			if r.anyAngle && curParent != -1 {
 				pc := curParent % cols
 				pr := curParent / cols
-				if thetaLineOfSight(g, cols, rows, hasCost, cg, pc, pr, nc, nr, a.NoCornerCutting) {
-					losG := a.gScore[curParent] + math.Hypot(float64(nc-pc), float64(nr-pr))
+				if thetaLineOfSight(g, cols, rows, r.hasCost, r.cg, pc, pr, nc, nr, r.noCornerCutting) {
+					losG := state.gScore[curParent] + math.Hypot(float64(nc-pc), float64(nr-pr))
 					if losG <= ng {
 						ng = losG
 						nParent = curParent
@@ -327,28 +557,84 @@ func (a *AStar) FindInto(dst []Cell, g Grid, start, goal Cell) (path []Cell, cos
 				}
 			}
 
-			if a.seen[nid] != gen {
-				a.seen[nid] = gen
-				a.gScore[nid] = ng
-				a.parent[nid] = nParent
-				h := a.heuristicFor(nc, nr, goal.Col, goal.Row, anyAngle)
-				a.heapPush(astarNode{id: nid, f: ng + h, h: h})
-			} else if ng < a.gScore[nid] {
-				a.gScore[nid] = ng
-				a.parent[nid] = nParent
-				h := a.heuristicFor(nc, nr, goal.Col, goal.Row, anyAngle)
-				if pos := a.heapPos[nid]; pos >= 0 {
-					a.open[pos].f = ng + h
-					a.open[pos].h = h
-					a.siftUp(pos)
+			if state.seen[nid] != gen {
+				state.seen[nid] = gen
+				state.gScore[nid] = ng
+				state.parent[nid] = nParent
+				h := r.heuristic(nc, nr, goal.Col, goal.Row)
+				state.heapPush(astarNode{id: nid, f: ng + h, h: h})
+			} else if ng < state.gScore[nid] {
+				state.gScore[nid] = ng
+				state.parent[nid] = nParent
+				h := r.heuristic(nc, nr, goal.Col, goal.Row)
+				if pos := state.heapPos[nid]; pos >= 0 {
+					state.open[pos].f = ng + h
+					state.open[pos].h = h
+					state.siftUp(pos)
 				} else {
-					a.heapPush(astarNode{id: nid, f: ng + h, h: h})
+					state.heapPush(astarNode{id: nid, f: ng + h, h: h})
 				}
 			}
 		}
 	}
 
-	return nil, 0, false
+	if len(state.open) == 0 {
+		r.exhausted = false
+		if r.allowPartial && r.hasBest {
+			r.status = SearchPartial
+		} else {
+			r.status = SearchFailed
+		}
+	} else if r.maxExpansions > 0 && r.expansions >= r.maxExpansions {
+		r.finishExhausted()
+	}
+
+	return r.status, done
+}
+
+func (r *astarRunner) finishExhausted() {
+	r.exhausted = true
+	if r.allowPartial && r.hasBest {
+		r.status = SearchPartial
+	} else {
+		r.status = SearchFailed
+	}
+}
+
+func (r *astarRunner) resultInto(state *astarState, dst []Cell) GridPathResult {
+	res := GridPathResult{
+		Exhausted:  r.exhausted,
+		Expansions: r.expansions,
+	}
+	switch r.status {
+	case SearchComplete:
+		if r.sameStartGoal {
+			res.Path = append(dst[:0], r.start)
+			res.Found = true
+			return res
+		}
+		res.Path = reconstructGridPath(dst, state.parent, r.cols, r.goalID)
+		res.Cost = state.gScore[r.goalID]
+		res.Found = true
+		return res
+	case SearchPartial:
+		res.Path = reconstructGridPath(dst, state.parent, r.cols, r.bestID)
+		res.Cost = state.gScore[r.bestID]
+		res.Found = true
+		res.Partial = true
+		return res
+	default:
+		return res
+	}
+}
+
+func reconstructGridPath(dst []Cell, parent []int, cols, endID int) []Cell {
+	out := dst[:0]
+	for id := endID; id != -1; id = parent[id] {
+		out = append(out, Cell{Col: id % cols, Row: id / cols})
+	}
+	slices.Reverse(out)
+	return out
 }
 
 func inBounds(c Cell, cols, rows int) bool {
@@ -362,7 +648,7 @@ func (a *AStar) heuristicFor(c1, r1, c2, r2 int, anyAngle bool) float64 {
 	return a.Topology.distance(c1, r1, c2, r2, a.Diagonal)
 }
 
-func (a *AStar) prepare(n int) {
+func (a *astarState) prepare(n int) {
 	if cap(a.seen) < n {
 		a.seen = make([]uint32, n)
 		a.closed = make([]uint32, n)
@@ -397,14 +683,14 @@ func astarLess(x, y astarNode) bool {
 	return x.id < y.id
 }
 
-func (a *AStar) heapPush(node astarNode) {
+func (a *astarState) heapPush(node astarNode) {
 	idx := len(a.open)
 	a.open = append(a.open, node)
 	a.heapPos[node.id] = idx
 	a.siftUp(idx)
 }
 
-func (a *AStar) heapPop() astarNode {
+func (a *astarState) heapPop() astarNode {
 	top := a.open[0]
 	a.heapPos[top.id] = -1
 	last := len(a.open) - 1
@@ -419,7 +705,7 @@ func (a *AStar) heapPop() astarNode {
 	return top
 }
 
-func (a *AStar) siftUp(i int) {
+func (a *astarState) siftUp(i int) {
 	for i > 0 {
 		p := (i - 1) / 2
 		if !astarLess(a.open[i], a.open[p]) {
@@ -432,7 +718,7 @@ func (a *AStar) siftUp(i int) {
 	}
 }
 
-func (a *AStar) siftDown(i int) {
+func (a *astarState) siftDown(i int) {
 	n := len(a.open)
 	for {
 		l := 2*i + 1
