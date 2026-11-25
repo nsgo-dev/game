@@ -4,6 +4,7 @@ package gametest
 
 import (
 	"bytes"
+	"cmp"
 	"errors"
 	"flag"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -36,7 +38,7 @@ type RenderOptions struct {
 
 // RenderOps deterministically rasterizes recorded core.DrawOp operations into an RGBA image of size width by height pixels.
 //
-// Supported operations include Save, Restore, Translate, Scale, Rotate, Transform, SetTransform, SetAlpha, SetFillColor, SetStrokeColor, SetLineWidth, Clear, Rect + Fill/Stroke (including FillRect and StrokeRect), DrawImage / DrawImageIn / DrawImageFrom and DrawAtlas.
+// Supported operations include Save, Restore, Translate, Scale, Rotate, Transform, SetTransform, SetAlpha, SetFillColor, SetStrokeColor, SetLineWidth, Clear, Rect + Fill/Stroke (including FillRect and StrokeRect), polygon paths (MoveTo, LineTo, ClosePath + Fill/Stroke), DrawImage / DrawImageIn / DrawImageFrom and DrawAtlas.
 func RenderOps(width, height int, ops []core.DrawOp, opts ...RenderOptions) *image.RGBA {
 	if width <= 0 || height <= 0 {
 		return image.NewRGBA(image.Rectangle{})
@@ -81,6 +83,8 @@ func RenderOps(width, height int, ops []core.DrawOp, opts ...RenderOptions) *ima
 	}
 	var stack []state
 	var rects []pathRect
+	var subs []pathSub
+	var curSub []pathPt
 	decoded := make(map[string]image.Image)
 
 	resolveImage := func(src *core.ImageSource) image.Image {
@@ -148,12 +152,28 @@ func RenderOps(width, height int, ops []core.DrawOp, opts ...RenderOptions) *ima
 			}
 		case core.DrawBeginPath:
 			rects = rects[:0]
+			subs = subs[:0]
+			curSub = nil
 		case core.DrawRect:
 			rects = append(rects, pathRect{
 				x: float64(op.X), y: float64(op.Y),
 				w: float64(op.W), h: float64(op.H),
 				m: cur.m,
 			})
+		case core.DrawMoveTo:
+			if len(curSub) > 0 {
+				subs = append(subs, pathSub{pts: curSub})
+			}
+			px, py := cur.m.apply(float64(op.X), float64(op.Y))
+			curSub = []pathPt{{x: px, y: py}}
+		case core.DrawLineTo:
+			px, py := cur.m.apply(float64(op.X), float64(op.Y))
+			curSub = append(curSub, pathPt{x: px, y: py})
+		case core.DrawClosePath:
+			if len(curSub) > 0 {
+				subs = append(subs, pathSub{pts: curSub, closed: true})
+				curSub = nil
+			}
 		case core.DrawFill:
 			sr, sg, sb, sa := premulFromColor(cur.fillColor, cur.alpha)
 			if sa <= 0 {
@@ -162,6 +182,13 @@ func RenderOps(width, height int, ops []core.DrawOp, opts ...RenderOptions) *ima
 			for _, r := range rects {
 				fillTransformedRect(dst, r.m, r.x, r.y, r.w, r.h, sr, sg, sb, sa)
 			}
+			if len(subs) > 0 || len(curSub) >= 3 {
+				all := subs
+				if len(curSub) >= 3 {
+					all = append(slices.Clone(subs), pathSub{pts: curSub, closed: true})
+				}
+				fillPolygons(dst, all, op.EvenOdd, sr, sg, sb, sa)
+			}
 		case core.DrawStroke:
 			sr, sg, sb, sa := premulFromColor(cur.strokeColor, cur.alpha)
 			if sa <= 0 || cur.lineWidth <= 0 {
@@ -169,6 +196,13 @@ func RenderOps(width, height int, ops []core.DrawOp, opts ...RenderOptions) *ima
 			}
 			for _, r := range rects {
 				strokeTransformedRect(dst, r.m, r.x, r.y, r.w, r.h, cur.lineWidth, sr, sg, sb, sa)
+			}
+			if len(subs) > 0 || len(curSub) >= 2 {
+				all := subs
+				if len(curSub) >= 2 {
+					all = append(slices.Clone(subs), pathSub{pts: curSub})
+				}
+				strokePolygons(dst, all, cur.lineWidth, sr, sg, sb, sa)
 			}
 		case core.DrawClear:
 			clearTransformedRect(dst, cur.m, float64(op.X), float64(op.Y), float64(op.W), float64(op.H))
@@ -617,4 +651,150 @@ func clamp01(v float64) float64 {
 
 func toByte(v float64) uint8 {
 	return uint8(math.Round(clamp01(v) * 255))
+}
+
+type pathPt struct {
+	x, y float64
+}
+
+type pathSub struct {
+	pts    []pathPt
+	closed bool
+}
+
+type polyEdge struct {
+	x0, y0, x1, y1 float64
+}
+
+type scanCrossing struct {
+	x   float64
+	dir int
+}
+
+// fillPolygons rasterizes all polygon subpaths together with scanline winding (nonzero or even-odd), blending each covered pixel once so adjacent tiles sharing an edge neither crack nor double-blend.
+func fillPolygons(dst *image.RGBA, subs []pathSub, evenOdd bool, sr, sg, sb, sa float64) {
+	b := dst.Bounds()
+	w, h := b.Dx(), b.Dy()
+	if w <= 0 || h <= 0 {
+		return
+	}
+	var edges []polyEdge
+	minY, maxY := math.Inf(1), math.Inf(-1)
+	for _, sub := range subs {
+		n := len(sub.pts)
+		if n < 3 {
+			continue
+		}
+		for i := range n {
+			p0 := sub.pts[i]
+			p1 := sub.pts[(i+1)%n]
+			if p0.y == p1.y {
+				continue
+			}
+			edges = append(edges, polyEdge{x0: p0.x, y0: p0.y, x1: p1.x, y1: p1.y})
+			if p0.y < minY {
+				minY = p0.y
+			}
+			if p1.y < minY {
+				minY = p1.y
+			}
+			if p0.y > maxY {
+				maxY = p0.y
+			}
+			if p1.y > maxY {
+				maxY = p1.y
+			}
+		}
+	}
+	if len(edges) == 0 {
+		return
+	}
+	yStart := max(0, int(math.Floor(minY)))
+	yEnd := min(h, int(math.Ceil(maxY)))
+	var crossings []scanCrossing
+	for py := yStart; py < yEnd; py++ {
+		cy := float64(py) + 0.5
+		crossings = crossings[:0]
+		for _, e := range edges {
+			if e.y0 <= cy && e.y1 > cy {
+				ix := e.x0 + (cy-e.y0)*(e.x1-e.x0)/(e.y1-e.y0)
+				crossings = append(crossings, scanCrossing{x: ix, dir: 1})
+			} else if e.y1 <= cy && e.y0 > cy {
+				ix := e.x0 + (cy-e.y0)*(e.x1-e.x0)/(e.y1-e.y0)
+				crossings = append(crossings, scanCrossing{x: ix, dir: -1})
+			}
+		}
+		if len(crossings) < 2 {
+			continue
+		}
+		slices.SortFunc(crossings, func(a, b scanCrossing) int {
+			return cmp.Compare(a.x, b.x)
+		})
+		winding := 0
+		inside := false
+		spanStart := 0.0
+		for _, c := range crossings {
+			winding += c.dir
+			nowInside := winding != 0
+			if evenOdd {
+				nowInside = (winding & 1) != 0
+			}
+			if !inside && nowInside {
+				spanStart = c.x
+				inside = true
+			} else if inside && !nowInside {
+				px0 := max(0, int(math.Ceil(spanStart-0.5)))
+				px1 := min(w, int(math.Ceil(c.x-0.5)))
+				for px := px0; px < px1; px++ {
+					blendOver(dst, px, py, sr, sg, sb, sa)
+				}
+				inside = false
+			}
+		}
+	}
+}
+
+func strokePolygons(dst *image.RGBA, subs []pathSub, lineWidth, sr, sg, sb, sa float64) {
+	b := dst.Bounds()
+	w, h := b.Dx(), b.Dy()
+	if w <= 0 || h <= 0 || lineWidth <= 0 {
+		return
+	}
+	half := lineWidth / 2
+	halfSq := half * half
+	for _, sub := range subs {
+		n := len(sub.pts)
+		if n < 2 {
+			continue
+		}
+		segCount := n - 1
+		if sub.closed {
+			segCount = n
+		}
+		for i := range segCount {
+			p0 := sub.pts[i]
+			p1 := sub.pts[(i+1)%n]
+			minX := max(0, int(math.Floor(min(p0.x, p1.x)-half)))
+			maxX := min(w, int(math.Ceil(max(p0.x, p1.x)+half)))
+			minY := max(0, int(math.Floor(min(p0.y, p1.y)-half)))
+			maxY := min(h, int(math.Ceil(max(p0.y, p1.y)+half)))
+			dx, dy := p1.x-p0.x, p1.y-p0.y
+			lenSq := dx*dx + dy*dy
+			for py := minY; py < maxY; py++ {
+				cy := float64(py) + 0.5
+				for px := minX; px < maxX; px++ {
+					cx := float64(px) + 0.5
+					t := 0.0
+					if lenSq > 0 {
+						t = clamp01(((cx-p0.x)*dx + (cy-p0.y)*dy) / lenSq)
+					}
+					qx, qy := p0.x+t*dx, p0.y+t*dy
+					ddx, ddy := cx-qx, cy-qy
+					if ddx*ddx+ddy*ddy <= halfSq {
+						blendOver(dst, px, py, sr, sg, sb, sa)
+					}
+				}
+			}
+		}
+	}
 }

@@ -183,9 +183,12 @@ func (f GridFunc) MoveCost(col, row int) float64 {
 // NewAStar returns a searcher with NoCornerCutting enabled by default. An AStar is not safe for concurrent use by multiple goroutines.
 type AStar struct {
 	// Diagonal allows 8-way movement with step distance sqrt(2) on diagonals; false restricts movement to 4 cardinal directions.
+	// On hexagonal topologies Diagonal has no effect; TopologySquare4 and TopologySquare8 override Diagonal.
 	Diagonal bool
-	// NoCornerCutting prevents diagonal moves when either adjacent cardinal cell is blocked. It only takes effect when Diagonal is true.
+	// NoCornerCutting prevents diagonal moves when either adjacent cardinal cell is blocked. It only takes effect when diagonal moves are enabled.
 	NoCornerCutting bool
+	// Topology selects the cell adjacency and admissible distance heuristic. The zero value (TopologySquare) preserves square-grid behavior.
+	Topology GridTopology
 
 	gen     uint32
 	seen    []uint32
@@ -236,6 +239,7 @@ func (a *AStar) FindInto(dst []Cell, g Grid, start, goal Cell) (path []Cell, cos
 	n := cols * rows
 	a.prepare(n)
 
+	eg, hasEdgeCost := g.(EdgeCostGrid)
 	cg, hasCost := g.(CostGrid)
 
 	startID := start.Row*cols + start.Col
@@ -248,26 +252,7 @@ func (a *AStar) FindInto(dst []Cell, g Grid, start, goal Cell) (path []Cell, cos
 	h0 := a.heuristic(start.Col, start.Row, goal.Col, goal.Row)
 	a.heapPush(astarNode{id: startID, f: h0, h: h0})
 
-	// Fixed neighbor order guarantees deterministic exploration and tie-breaking.
-	type step struct {
-		dc, dr int
-		dist   float64
-		diag   bool
-	}
-	steps := [...]step{
-		{0, -1, 1, false},
-		{1, 0, 1, false},
-		{0, 1, 1, false},
-		{-1, 0, 1, false},
-		{1, -1, math.Sqrt2, true},
-		{1, 1, math.Sqrt2, true},
-		{-1, 1, math.Sqrt2, true},
-		{-1, -1, math.Sqrt2, true},
-	}
-	stepCount := 4
-	if a.Diagonal {
-		stepCount = 8
-	}
+	var steps [8]neighborStep
 
 	for len(a.open) > 0 {
 		cur := a.heapPop()
@@ -285,9 +270,10 @@ func (a *AStar) FindInto(dst []Cell, g Grid, start, goal Cell) (path []Cell, cos
 		r := cur.id / cols
 		curG := a.gScore[cur.id]
 
+		stepCount := a.Topology.neighbors(c, r, a.Diagonal, &steps)
 		for i := range stepCount {
 			st := steps[i]
-			nc, nr := c+st.dc, r+st.dr
+			nc, nr := st.col, st.row
 			if nc < 0 || nc >= cols || nr < 0 || nr >= rows {
 				continue
 			}
@@ -299,13 +285,21 @@ func (a *AStar) FindInto(dst []Cell, g Grid, start, goal Cell) (path []Cell, cos
 				continue
 			}
 			if st.diag && a.NoCornerCutting {
-				if !g.Walkable(c+st.dc, r) || !g.Walkable(c, r+st.dr) {
+				if !g.Walkable(st.corner1Col, st.corner1Row) || !g.Walkable(st.corner2Col, st.corner2Row) {
 					continue
 				}
 			}
 
 			tileCost := 1.0
-			if hasCost {
+			if hasEdgeCost {
+				ec := eg.EdgeCost(c, r, nc, nr)
+				if ec < 0 || math.IsInf(ec, 0) || math.IsNaN(ec) {
+					continue
+				}
+				if ec >= 1 {
+					tileCost = ec
+				}
+			} else if hasCost {
 				tc := cg.MoveCost(nc, nr)
 				if tc > 0 && !math.IsInf(tc, 0) && !math.IsNaN(tc) {
 					tileCost = tc
@@ -342,18 +336,7 @@ func inBounds(c Cell, cols, rows int) bool {
 }
 
 func (a *AStar) heuristic(c1, r1, c2, r2 int) float64 {
-	dx := c1 - c2
-	if dx < 0 {
-		dx = -dx
-	}
-	dy := r1 - r2
-	if dy < 0 {
-		dy = -dy
-	}
-	if !a.Diagonal {
-		return float64(dx + dy)
-	}
-	return float64(max(dx, dy)) + (math.Sqrt2-1)*float64(min(dx, dy))
+	return a.Topology.distance(c1, r1, c2, r2, a.Diagonal)
 }
 
 func (a *AStar) prepare(n int) {

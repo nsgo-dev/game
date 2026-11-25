@@ -1,8 +1,8 @@
-// Package fog tracks fog of war for strategy games: which cells of an orthogonal tile grid each team has explored and which it can see right now.
+// Package fog tracks fog of war for strategy games: which cells of an orthogonal, isometric, staggered or hexagonal tile grid each team has explored and which it can see right now.
 //
 // A Fog holds a grid of opaque cells (walls, cliffs, forests) and a set of vision sources (units and buildings), each with a team, a cell and a radius in cells. Update recomputes every changed team's visible cells by symmetric shadowcasting from its sources, limited to each source's radius, and adds them to the cells the team has explored, which stay explored when the sources move away. A cell is therefore Unseen, Explored or Visible to each team.
 //
-// Draw paints the fog over a tilemap in world coordinates under a tilemap.Camera, and a Fog marshals to and from versioned JSON text, so a save.Store slot keeps a team's explored map, the sources and the opaque cells through a save and load.
+// Draw paints the fog over a tilemap in world coordinates under a tilemap.Camera aligned to the map's orientation (rectangles for orthogonal grids, diamonds for isometric and staggered grids, hexagons for hexagonal grids), and a Fog marshals to and from versioned JSON text, so a save.Store slot keeps a team's explored map, the sources and the opaque cells through a save and load.
 package fog
 
 import (
@@ -66,6 +66,15 @@ type Source struct {
 type Fog struct {
 	// TileWidth and TileHeight are a cell's size in world points, used by Draw and CellAt.
 	TileWidth, TileHeight float32
+	// Orientation selects how cells are arranged for visibility, CellAt and Draw.
+	// The zero value (tilemap.OrientationOrthogonal) preserves orthogonal behavior.
+	Orientation tilemap.Orientation
+	// StaggerAxis selects which axis is staggered for staggered isometric and hexagonal grids.
+	StaggerAxis tilemap.StaggerAxis
+	// StaggerIndex selects whether odd or even rows or columns are shifted for staggered and hexagonal grids.
+	StaggerIndex tilemap.StaggerIndex
+	// HexSideLength is the length of a hex's flat side along its staggered axis; 0 defaults to half TileWidth (StaggerX) or half TileHeight (StaggerY), matching tilemap.Tilemap.
+	HexSideLength float32
 
 	width, height int
 	opaque        []uint64
@@ -105,9 +114,13 @@ func New(width, height int, tileWidth, tileHeight float32) *Fog {
 	}
 }
 
-// NewFromTilemap returns a Fog the size of m's grid and tiles in which every cell whose tilemap flags include any bit of mask is opaque; a zero mask makes no cell opaque.
+// NewFromTilemap returns a Fog matching m's grid size, tile size and projection (Orientation, StaggerAxis, StaggerIndex, HexSideLength) in which every cell whose tilemap flags include any bit of mask is opaque; a zero mask makes no cell opaque.
 func NewFromTilemap(m *tilemap.Tilemap, mask tilemap.TileFlags) *Fog {
 	f := New(m.Width, m.Height, m.TileWidth, m.TileHeight)
+	f.Orientation = m.Orientation
+	f.StaggerAxis = m.StaggerAxis
+	f.StaggerIndex = m.StaggerIndex
+	f.HexSideLength = m.HexSideLength
 	if mask == 0 {
 		return f
 	}
@@ -119,6 +132,19 @@ func NewFromTilemap(m *tilemap.Tilemap, mask tilemap.TileFlags) *Fog {
 		}
 	}
 	return f
+}
+
+func (f *Fog) projectionMap() tilemap.Tilemap {
+	return tilemap.Tilemap{
+		Width:         f.width,
+		Height:        f.height,
+		TileWidth:     f.TileWidth,
+		TileHeight:    f.TileHeight,
+		Orientation:   f.Orientation,
+		StaggerAxis:   f.StaggerAxis,
+		StaggerIndex:  f.StaggerIndex,
+		HexSideLength: f.HexSideLength,
+	}
 }
 
 func wordsFor(cells int) int { return (cells + 63) / 64 }
@@ -320,11 +346,26 @@ func (f *Fog) see(s Source, vis []uint64) {
 	}
 	// A radius past the grid's diagonal sees no more cells, so clamping bounds the work for huge radii.
 	r := min(max(s.Radius, 0), f.width+f.height)
-	if f.opaqueCount == 0 {
-		f.disc(s.Col, s.Row, r, vis)
-		return
+	switch f.Orientation {
+	case tilemap.OrientationHexagonal:
+		if f.opaqueCount == 0 {
+			f.hexDisc(s.Col, s.Row, r, vis)
+			return
+		}
+		f.hexShadowcast(s.Col, s.Row, r, vis)
+	case tilemap.OrientationStaggered:
+		if f.opaqueCount == 0 {
+			f.staggeredDisc(s.Col, s.Row, r, vis)
+			return
+		}
+		f.staggeredShadowcast(s.Col, s.Row, r, vis)
+	default:
+		if f.opaqueCount == 0 {
+			f.disc(s.Col, s.Row, r, vis)
+			return
+		}
+		f.shadowcast(s.Col, s.Row, r, vis)
 	}
-	f.shadowcast(s.Col, s.Row, r, vis)
 }
 
 // inRange reports whether an offset of (dx, dy) cells lies in a disc of radius r.
@@ -385,12 +426,24 @@ func (f *Fog) cellAt(p core.Point) (col, row int) {
 	if f.TileWidth <= 0 || f.TileHeight <= 0 {
 		return -1, -1
 	}
-	x := math.Floor(float64(p.X) / float64(f.TileWidth))
-	y := math.Floor(float64(p.Y) / float64(f.TileHeight))
-	if math.IsNaN(x) || math.IsNaN(y) || x < -1 || y < -1 || x > float64(f.width) || y > float64(f.height) {
+	px, py := float64(p.X), float64(p.Y)
+	if math.IsNaN(px) || math.IsNaN(py) || math.IsInf(px, 0) || math.IsInf(py, 0) {
 		return -1, -1
 	}
-	return int(x), int(y)
+	if f.Orientation == tilemap.OrientationOrthogonal {
+		x := math.Floor(px / float64(f.TileWidth))
+		y := math.Floor(py / float64(f.TileHeight))
+		if x < -1 || y < -1 || x > float64(f.width) || y > float64(f.height) {
+			return -1, -1
+		}
+		return int(x), int(y)
+	}
+	maxCoord := float64(f.width+f.height+2) * float64(max(f.TileWidth, f.TileHeight)) * 2
+	if math.Abs(px) > maxCoord || math.Abs(py) > maxCoord {
+		return -1, -1
+	}
+	m := f.projectionMap()
+	return m.WorldToTile(p)
 }
 
 // VisibleAt reports whether team can see the cell holding world point p as of the last Update.

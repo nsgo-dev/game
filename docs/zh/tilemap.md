@@ -131,3 +131,12 @@ if hit, ok := m.Raycast(enemyEye, playerPos, tilemap.TileSolid); ok {
 	_ = hit
 }
 ```
+
+## 等距、交错等距与六边形地图
+
+设置 `Orientation`（`OrientationOrthogonal`、`OrientationIsometric`、`OrientationStaggered` 或 `OrientationHexagonal`）以及 `StaggerAxis`（`StaggerY` / `StaggerX`）、`StaggerIndex`（`StaggerOdd` / `StaggerEven`）与 `HexSideLength`，即可投影并绘制菱形等距、交错等距以及尖顶/平顶六边形地图：
+
+- `TileOrigin(col, row)` 与 `TileToWorld(col, row)` 返回格子在世界空间中的包围盒原点与中心点，`WorldToTile(p)` 将格内任意世界坐标还原回 `(col, row)`。
+- `HexNeighbors(col, row)` 与 `HexDistance(c1, r1, c2, r2)` 针对两种交错轴与奇偶偏移计算精确的 6 邻格与立方距离。
+- 需要在这类投影地图上做寻路或战术移动范围查询时，可将 `ai.TopologyFromTilemap(m)` 传入 [`game/ai`](ai.md#六边形与交错等距拓扑)（`AStar.Topology`、`AStar.MovementRange`、`ReachableCells`）。
+- 需要在等距、交错等距与六边形地图上做视线计算与对齐瓦片轮廓的战争迷雾绘制时，可用 `fog.NewFromTilemap(m, tilemap.TileSolid)` 构建 [`game/fog`](fog.md)。

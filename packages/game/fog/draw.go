@@ -20,11 +20,15 @@ func DefaultStyle() Style {
 	return Style{Unseen: core.RGB(0x000000), Explored: core.RGBA(0x000000, 0.55)}
 }
 
-// Draw paints team's fog over the grid in world coordinates, as of the last Update: one filled path of Style.Unseen over unseen cells and one of Style.Explored over explored cells, each built from horizontal runs of cells. Visible cells stay uncovered.
+// Draw paints team's fog over the grid in world coordinates, as of the last Update: one filled path of Style.Unseen over unseen cells and one of Style.Explored over explored cells. Visible cells stay uncovered.
 //
-// Like tilemap.Tilemap.Draw, Draw expects d to already carry the camera's transform (cam.Apply(d)), and uses cam only to skip cells outside cam.VisibleBounds(); a nil cam draws the whole grid. Draw it after the tilemap and units so it covers them. The grid's cell (col, row) covers world points from (col*TileWidth, row*TileHeight), so Draw suits orthogonal maps.
+// Like tilemap.Tilemap.Draw, Draw expects d to already carry the camera's transform (cam.Apply(d)), and uses cam only to skip cells outside cam.VisibleBounds(); a nil cam draws the whole grid. Draw it after the tilemap and units so it covers them. Orthogonal grids emit horizontal runs of rectangles; isometric and staggered grids emit aligned tile diamonds; hexagonal grids emit aligned pointy-top or flat-top hexagons matching Tilemap's projection.
 func (f *Fog) Draw(d *core.Drawing, team Team, cam *tilemap.Camera, style Style) {
 	if f.width == 0 || f.height == 0 || f.TileWidth <= 0 || f.TileHeight <= 0 {
+		return
+	}
+	if f.Orientation != tilemap.OrientationOrthogonal {
+		f.drawProjected(d, team, cam, style)
 		return
 	}
 	minCol, maxCol := 0, f.width-1
@@ -56,6 +60,157 @@ func (f *Fog) Draw(d *core.Drawing, team Team, cam *tilemap.Camera, style Style)
 	if saved {
 		d.Restore()
 	}
+}
+
+func (f *Fog) hexSide() float32 {
+	if f.HexSideLength > 0 {
+		return f.HexSideLength
+	}
+	if f.StaggerAxis == tilemap.StaggerX {
+		return f.TileWidth / 2
+	}
+	return f.TileHeight / 2
+}
+
+func (f *Fog) drawProjected(d *core.Drawing, team Team, cam *tilemap.Camera, style Style) {
+	minCol, maxCol := 0, f.width-1
+	minRow, maxRow := 0, f.height-1
+	hasCam := cam != nil
+	var vbMinX, vbMinY, vbMaxX, vbMaxY float64
+	tw, th := float64(f.TileWidth), float64(f.TileHeight)
+
+	if hasCam {
+		vb := cam.VisibleBounds()
+		if vb.Size.Width <= 0 || vb.Size.Height <= 0 {
+			return
+		}
+		vbMinX = float64(vb.Origin.X)
+		vbMinY = float64(vb.Origin.Y)
+		vbMaxX = vbMinX + float64(vb.Size.Width)
+		vbMaxY = vbMinY + float64(vb.Size.Height)
+
+		switch f.Orientation {
+		case tilemap.OrientationIsometric:
+			dMin := (vbMinX - tw) / (tw / 2)
+			dMax := vbMaxX / (tw / 2)
+			sMin := (vbMinY - th) / (th / 2)
+			sMax := vbMaxY / (th / 2)
+			minCol = max(minCol, clampInt(math.Floor((sMin+dMin)/2)))
+			maxCol = min(maxCol, clampInt(math.Ceil((sMax+dMax)/2)))
+			minRow = max(minRow, clampInt(math.Floor((sMin-dMax)/2)))
+			maxRow = min(maxRow, clampInt(math.Ceil((sMax-dMin)/2)))
+
+		case tilemap.OrientationStaggered, tilemap.OrientationHexagonal:
+			var stepX, stepY float64
+			if f.Orientation == tilemap.OrientationStaggered {
+				if f.StaggerAxis == tilemap.StaggerX {
+					stepX, stepY = tw/2, th
+				} else {
+					stepX, stepY = tw, th/2
+				}
+			} else {
+				s := float64(f.hexSide())
+				if f.StaggerAxis == tilemap.StaggerX {
+					stepX, stepY = (tw+s)/2, th
+				} else {
+					stepX, stepY = tw, (th+s)/2
+				}
+			}
+			if stepX <= 0 || stepY <= 0 {
+				return
+			}
+			if f.StaggerAxis == tilemap.StaggerX {
+				minCol = max(minCol, clampInt(math.Floor((vbMinX-tw)/stepX)))
+				maxCol = min(maxCol, clampInt(math.Ceil(vbMaxX/stepX)))
+				minRow = max(minRow, clampInt(math.Floor((vbMinY-th*1.5)/stepY)))
+				maxRow = min(maxRow, clampInt(math.Ceil(vbMaxY/stepY)))
+			} else {
+				minCol = max(minCol, clampInt(math.Floor((vbMinX-tw*1.5)/stepX)))
+				maxCol = min(maxCol, clampInt(math.Ceil(vbMaxX/stepX)))
+				minRow = max(minRow, clampInt(math.Floor((vbMinY-th)/stepY)))
+				maxRow = min(maxRow, clampInt(math.Ceil(vbMaxY/stepY)))
+			}
+		}
+		if minCol > maxCol || minRow > maxRow {
+			return
+		}
+	}
+
+	m := f.projectionMap()
+	l := f.teams[team]
+	saved := false
+	if style.Unseen&0xff != 0 {
+		saved = f.fillProjectedPolygons(d, &m, l, Unseen, style.Unseen, minCol, maxCol, minRow, maxRow, hasCam, vbMinX, vbMinY, vbMaxX, vbMaxY, saved)
+	}
+	if style.Explored&0xff != 0 && l != nil {
+		saved = f.fillProjectedPolygons(d, &m, l, Explored, style.Explored, minCol, maxCol, minRow, maxRow, hasCam, vbMinX, vbMinY, vbMaxX, vbMaxY, saved)
+	}
+	if saved {
+		d.Restore()
+	}
+}
+
+func (f *Fog) fillProjectedPolygons(d *core.Drawing, m *tilemap.Tilemap, l *layer, want State, color core.Color, minCol, maxCol, minRow, maxRow int, hasCam bool, vbMinX, vbMinY, vbMaxX, vbMaxY float64, saved bool) bool {
+	tw, th := f.TileWidth, f.TileHeight
+	hw, hh := tw/2, th/2
+	side := f.hexSide()
+	hexDX := (tw - side) / 2
+	hexDY := (th - side) / 2
+	begun := false
+
+	for row := minRow; row <= maxRow; row++ {
+		base := row * f.width
+		for col := minCol; col <= maxCol; col++ {
+			if stateOf(l, base+col) != want {
+				continue
+			}
+			orig := m.TileOrigin(col, row)
+			ox, oy := float32(orig.X), float32(orig.Y)
+			if hasCam {
+				if float64(ox+tw) <= vbMinX || float64(ox) >= vbMaxX || float64(oy+th) <= vbMinY || float64(oy) >= vbMaxY {
+					continue
+				}
+			}
+			if !begun {
+				if !saved {
+					d.Save()
+					saved = true
+				}
+				d.SetFillColor(color).BeginPath()
+				begun = true
+			}
+			switch f.Orientation {
+			case tilemap.OrientationHexagonal:
+				if f.StaggerAxis == tilemap.StaggerX {
+					d.MoveTo(ox+hexDX, oy).
+						LineTo(ox+tw-hexDX, oy).
+						LineTo(ox+tw, oy+hh).
+						LineTo(ox+tw-hexDX, oy+th).
+						LineTo(ox+hexDX, oy+th).
+						LineTo(ox, oy+hh).
+						ClosePath()
+				} else {
+					d.MoveTo(ox+hw, oy).
+						LineTo(ox+tw, oy+hexDY).
+						LineTo(ox+tw, oy+th-hexDY).
+						LineTo(ox+hw, oy+th).
+						LineTo(ox, oy+th-hexDY).
+						LineTo(ox, oy+hexDY).
+						ClosePath()
+				}
+			default: // OrientationIsometric, OrientationStaggered
+				d.MoveTo(ox+hw, oy).
+					LineTo(ox+tw, oy+hh).
+					LineTo(ox+hw, oy+th).
+					LineTo(ox, oy+hh).
+					ClosePath()
+			}
+		}
+	}
+	if begun {
+		d.Fill()
+	}
+	return saved
 }
 
 // clampInt converts v to an int no further from zero than MaxCells, so cameras far outside the grid cannot overflow.
