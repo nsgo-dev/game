@@ -2,6 +2,7 @@ package editor
 
 import (
 	"bytes"
+	"fmt"
 	"image"
 	"image/draw"
 	_ "image/jpeg"
@@ -9,6 +10,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/nsgo-dev/game/packages/game/tooling/importsettings"
@@ -20,6 +22,10 @@ const (
 	importPivotHitRadius   float32 = 10
 	importPivotMarkRadius  float32 = 4.5
 	importPivotCrossRadius float32 = 7
+	// maxImportPreviewCells caps full per-cell grid/marker rendering and Select option
+	// materialization so fine slice grids on large images (such as 1x1 on 1024x1024)
+	// stay instant and bounded in memory.
+	maxImportPreviewCells = 1024
 )
 
 type imageImportPreviewState struct {
@@ -65,7 +71,11 @@ func (e *Editor) loadImportPreviewImage(relPath string) (*image.RGBA, int, int, 
 	if err != nil {
 		return nil, 0, 0, err
 	}
-	abs := filepath.Join(filepath.Dir(e.ProjectPath), filepath.FromSlash(clean))
+	rootDir := filepath.Dir(e.ProjectPath)
+	abs := filepath.Join(rootDir, filepath.FromSlash(clean))
+	if err := verifyFileWithinRoot(rootDir, abs, relPath); err != nil {
+		return nil, 0, 0, err
+	}
 	info, err := os.Stat(abs)
 	if err != nil {
 		return nil, 0, 0, err
@@ -94,6 +104,29 @@ func (e *Editor) loadImportPreviewImage(relPath string) (*image.RGBA, int, int, 
 	p.cachedW = w
 	p.cachedH = h
 	return rgba, w, h, nil
+}
+
+func verifyFileWithinRoot(rootDir, absPath, label string) error {
+	rootAbs, err := filepath.Abs(rootDir)
+	if err != nil {
+		return err
+	}
+	rootReal, err := filepath.EvalSymlinks(rootAbs)
+	if err != nil {
+		rootReal = rootAbs
+	}
+	targetReal, err := filepath.EvalSymlinks(absPath)
+	if err != nil {
+		return err
+	}
+	rel, err := filepath.Rel(rootReal, targetReal)
+	if err != nil {
+		return err
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return fmt.Errorf("editor: asset path %q resolves outside the project root", label)
+	}
+	return nil
 }
 
 // SelectedImportSliceCell returns the 0-based slice cell currently selected in the image import preview (0 by default).
@@ -203,11 +236,15 @@ func (e *Editor) ImageImportPreviewCellPoint(relPath string, cell int, pt import
 	if !hasSlice {
 		return 0, 0, false
 	}
-	rects, _, _, err := s.Cells(bounds)
-	if err != nil || cell >= len(rects) {
+	n, cols, _, err := s.GridCounts(bounds)
+	if err != nil || cell >= n {
 		return 0, 0, false
 	}
-	x, y = previewPivotCanvasPos(ox, oy, scale, rects[cell], pt)
+	r, ok := s.CellRect(bounds, cols, cell)
+	if !ok {
+		return 0, 0, false
+	}
+	x, y = previewPivotCanvasPos(ox, oy, scale, r, pt)
 	return x, y, true
 }
 
@@ -215,6 +252,9 @@ func (e *Editor) ImageImportPreviewCellPoint(relPath string, cell int, pt import
 // For a sliced sheet it drags that cell's per-cell pivot override; for an unsliced image it drags the default pivot.
 func (e *Editor) BeginImagePivotDrag(relPath string, canvasX, canvasY, canvasW, canvasH float32) bool {
 	if e == nil || e.playing || e.Project == nil || e.ProjectPath == "" {
+		return false
+	}
+	if !finite32(canvasX) || !finite32(canvasY) || !finite32(canvasW) || !finite32(canvasH) {
 		return false
 	}
 	info, err := e.InspectAssetImport(relPath)
@@ -228,11 +268,69 @@ func (e *Editor) BeginImagePivotDrag(relPath string, canvasX, canvasY, canvasW, 
 	bounds := image.Rect(0, 0, info.ImageWidth, info.ImageHeight)
 
 	if s, hasSlice := info.EffectiveImageSlice(); hasSlice {
+		n, cols, rows, err := s.GridCounts(bounds)
+		if err != nil || n == 0 {
+			return false
+		}
+		sel := e.SelectedImportSliceCell()
+		if sel < 0 || sel >= n {
+			sel = 0
+		}
+		if n > maxImportPreviewCells {
+			// For dense grids, hit-test the selected cell's pivot marker first, then locate the clicked cell in O(1).
+			if sr, ok := s.CellRect(bounds, cols, sel); ok {
+				orig, _, _ := info.EffectiveCellImagePivot(sel)
+				mx, my := previewPivotCanvasPos(ox, oy, scale, sr, orig)
+				dx, dy := canvasX-mx, canvasY-my
+				if dx*dx+dy*dy <= importPivotHitRadius*importPivotHitRadius {
+					e.importPreview.selectedCell = sel
+					e.importPreview.hasSelectedCell = true
+					e.importPreview.drag = imagePivotDragState{
+						active:    true,
+						relPath:   info.Path,
+						cell:      sel,
+						origPivot: orig,
+						livePivot: orig,
+						moved:     false,
+						canvasW:   canvasW,
+						canvasH:   canvasH,
+						imgW:      info.ImageWidth,
+						imgH:      info.ImageHeight,
+						cellRect:  sr,
+					}
+					e.notify()
+					return true
+				}
+			}
+			imgX := (canvasX - ox) / scale
+			imgY := (canvasY - oy) / scale
+			if idx, r, ok := hitSliceCellO1(*s, bounds, cols, rows, n, imgX, imgY); ok {
+				orig, _, _ := info.EffectiveCellImagePivot(idx)
+				live := previewCanvasToPivot(ox, oy, scale, r, canvasX, canvasY)
+				e.importPreview.selectedCell = idx
+				e.importPreview.hasSelectedCell = true
+				e.importPreview.drag = imagePivotDragState{
+					active:    true,
+					relPath:   info.Path,
+					cell:      idx,
+					origPivot: orig,
+					livePivot: live,
+					moved:     true,
+					canvasW:   canvasW,
+					canvasH:   canvasH,
+					imgW:      info.ImageWidth,
+					imgH:      info.ImageHeight,
+					cellRect:  r,
+				}
+				e.notify()
+				return true
+			}
+			return false
+		}
 		rects, _, _, err := s.Cells(bounds)
 		if err != nil || len(rects) == 0 {
 			return false
 		}
-		sel := e.SelectedImportSliceCell()
 		bestCell := -1
 		bestDist := float32(importPivotHitRadius * importPivotHitRadius)
 		for i, r := range rects {
@@ -329,9 +427,39 @@ func (e *Editor) BeginImagePivotDrag(relPath string, canvasX, canvasY, canvasW, 
 	return true
 }
 
+func hitSliceCellO1(s importsettings.Slice, bounds image.Rectangle, cols, rows, n int, imgX, imgY float32) (int, image.Rectangle, bool) {
+	rx := float64(imgX) - float64(bounds.Min.X) - float64(s.Margin)
+	ry := float64(imgY) - float64(bounds.Min.Y) - float64(s.Margin)
+	if rx < 0 || ry < 0 {
+		return 0, image.Rectangle{}, false
+	}
+	strideX := float64(s.Width) + float64(s.Spacing)
+	strideY := float64(s.Height) + float64(s.Spacing)
+	if strideX <= 0 || strideY <= 0 {
+		return 0, image.Rectangle{}, false
+	}
+	col := int(math.Floor(rx / strideX))
+	row := int(math.Floor(ry / strideY))
+	if col < 0 || col >= cols || row < 0 || row >= rows {
+		return 0, image.Rectangle{}, false
+	}
+	idx := row*cols + col
+	if idx < 0 || idx >= n {
+		return 0, image.Rectangle{}, false
+	}
+	r, ok := s.CellRect(bounds, cols, idx)
+	if !ok {
+		return 0, image.Rectangle{}, false
+	}
+	if imgX < float32(r.Min.X) || imgX > float32(r.Max.X) || imgY < float32(r.Min.Y) || imgY > float32(r.Max.Y) {
+		return 0, image.Rectangle{}, false
+	}
+	return idx, r, true
+}
+
 // UpdateImagePivotDrag moves the active dragged pivot marker to canvas coordinates (canvasX, canvasY) without writing the sidecar until EndImagePivotDrag.
 func (e *Editor) UpdateImagePivotDrag(canvasX, canvasY float32) {
-	if e == nil || !e.importPreview.drag.active {
+	if e == nil || !e.importPreview.drag.active || !finite32(canvasX) || !finite32(canvasY) {
 		return
 	}
 	d := &e.importPreview.drag
@@ -420,13 +548,36 @@ func (e *Editor) DrawImageImportPreview(d *core.Drawing, size core.Size, relPath
 	bounds := image.Rect(0, 0, imgW, imgH)
 
 	if s, hasSlice := info.EffectiveImageSlice(); hasSlice {
-		rects, _, _, err := s.Cells(bounds)
-		if err != nil || len(rects) == 0 {
+		n, cols, _, err := s.GridCounts(bounds)
+		if err != nil || n == 0 {
 			return
 		}
 		sel := e.SelectedImportSliceCell()
-		if sel < 0 || sel >= len(rects) {
+		if sel < 0 || sel >= n {
 			sel = 0
+		}
+		if n > maxImportPreviewCells {
+			// Dense grids skip drawing millions of cell outlines/markers and show only the selected cell.
+			if sr, ok := s.CellRect(bounds, cols, sel); ok {
+				d.SetStrokeColor(core.RGBA(0x38BDF8, 1)).SetLineWidth(1.5).StrokeRect(
+					ox+float32(sr.Min.X)*scale,
+					oy+float32(sr.Min.Y)*scale,
+					float32(sr.Dx())*scale,
+					float32(sr.Dy())*scale,
+				)
+				pt, overridden, _ := info.EffectiveCellImagePivot(sel)
+				draggingCell := dragForThis && drag.cell == sel
+				if draggingCell {
+					pt = drag.livePivot
+				}
+				mx, my := previewPivotCanvasPos(ox, oy, scale, sr, pt)
+				drawPivotMarker(d, mx, my, overridden, true, draggingCell)
+			}
+			return
+		}
+		rects, _, _, err := s.Cells(bounds)
+		if err != nil || len(rects) == 0 {
+			return
 		}
 		// Draw slice cell outlines first so the selected cell border and pivot markers sit on top.
 		for i, r := range rects {

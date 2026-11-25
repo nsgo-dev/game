@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1361,5 +1362,113 @@ layers:
 	}
 	if _, err := os.Stat(sidecarPath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("expected sidecar removed after resetting pivot, stat err = %v", err)
+	}
+}
+
+func TestImageImportDenseGridPreviewNonFiniteDragPlayCancelAndSymlinkGuard(t *testing.T) {
+	parentDir := t.TempDir()
+	projectDir := filepath.Join(parentDir, "proj")
+	outsidePNG := filepath.Join(parentDir, "outside.png")
+	if err := os.WriteFile(outsidePNG, encodeTestPNG(t, 24, 24), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	gameYAML := `version: 1
+name: DenseSliceSafety
+id: dev.example.denseslice
+appVersion: 1.0.0
+window:
+  width: 640
+  height: 360
+autoload:
+  mainScene: room
+  scenes:
+    - name: room
+      path: scenes/room.scene.yaml
+assets:
+  atlases:
+    - name: sheet
+      in: art/sheet
+      out: assets/atlases
+`
+	roomScene := `version: 2
+name: Room
+layers:
+  - name: actors
+`
+	writeFixtureFiles(t, projectDir, map[string]string{
+		project.FileName:         gameYAML,
+		project.NSGoFileName:     fixtureNSGoYAML,
+		"scenes/room.scene.yaml": roomScene,
+	}, map[string][]byte{
+		"art/sheet/big.png": encodeTestPNG(t, 1024, 1024),
+	})
+	symlinkPath := filepath.Join(projectDir, "art", "sheet", "linked.png")
+	if err := os.Symlink(outsidePNG, symlinkPath); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	ed, err := editor.New(nil, testResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenProject(projectDir); err != nil {
+		t.Fatal(err)
+	}
+	ed.WaitForProblems()
+
+	// 1. Symlink pointing outside project root must not be read by InspectAssetImport / preview.
+	linkedInfo, err := ed.InspectAssetImport("art/sheet/linked.png")
+	if err != nil {
+		t.Fatalf("InspectAssetImport(linked.png): %v", err)
+	}
+	if linkedInfo.ImageWidth != 0 || linkedInfo.ImageHeight != 0 {
+		t.Fatalf("symlinked outside image leaked dimensions %dx%d, want 0x0", linkedInfo.ImageWidth, linkedInfo.ImageHeight)
+	}
+
+	// 2. 1024x1024 image with 1x1 slice (1,048,576 cells) must stay instant in DrawImageImportPreview,
+	//    mounted InspectorView (numeric cell picker instead of 1M-option Select), and O(1) BeginImagePivotDrag.
+	if err := ed.SetImageImportSlice("art/sheet/big.png", &importsettings.Slice{Width: 1, Height: 1}); err != nil {
+		t.Fatalf("SetImageImportSlice(1x1): %v", err)
+	}
+	ed.SelectFile("art/sheet/big.png")
+
+	var drawing core.Drawing
+	ed.DrawImageImportPreview(&drawing, core.Size{Width: 240, Height: 180}, "art/sheet/big.png")
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	})
+	app.Resize(1280, 800)
+	if app.Find("id:import-image-pivot-cell-select") == nil {
+		t.Fatal("expected bounded cell selector to mount for dense 1x1 grid")
+	}
+
+	// 3. Non-finite coordinates are ignored by BeginImagePivotDrag / UpdateImagePivotDrag.
+	if ed.BeginImagePivotDrag("art/sheet/big.png", float32(math.NaN()), 50, 240, 180) {
+		t.Fatal("BeginImagePivotDrag accepted NaN")
+	}
+	if ed.BeginImagePivotDrag("art/sheet/big.png", float32(math.Inf(1)), 50, 240, 180) {
+		t.Fatal("BeginImagePivotDrag accepted +Inf")
+	}
+	cx, cy, ok := ed.ImageImportPreviewCellPoint("art/sheet/big.png", 0, importsettings.PivotPoint{0.5, 0.5}, 240, 180)
+	if !ok {
+		t.Fatal("ImageImportPreviewCellPoint(cell 0) failed on dense grid")
+	}
+	if !ed.BeginImagePivotDrag("art/sheet/big.png", cx, cy, 240, 180) {
+		t.Fatal("BeginImagePivotDrag failed on dense grid")
+	}
+	ed.UpdateImagePivotDrag(float32(math.NaN()), cy)
+	ed.UpdateImagePivotDrag(cx, float32(math.Inf(-1)))
+
+	// 4. Entering Play mode cancels an active image pivot drag cleanly.
+	if err := ed.Play(); err != nil {
+		t.Fatalf("Play: %v", err)
+	}
+	if ed.ImagePivotDragging() {
+		t.Fatal("Play did not cancel active image pivot drag")
+	}
+	if err := ed.Stop(); err != nil {
+		t.Fatalf("Stop: %v", err)
 	}
 }
