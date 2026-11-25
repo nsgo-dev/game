@@ -147,6 +147,54 @@ func TestSetActiveLayerKeepsTheActiveTileInItsTileset(t *testing.T) {
 	}
 }
 
+// wallsFirstSceneDoc is paletteSceneDoc with the walls layer first, so it is the layer a newly opened scene starts on.
+func wallsFirstSceneDoc() *sceneformat.SceneDoc {
+	doc := paletteSceneDoc()
+	n := len(doc.Layers)
+	doc.Layers = append(doc.Layers[n-1:], doc.Layers[:n-1]...)
+	return doc
+}
+
+func TestNewSelectsATileOfTheFirstLayer(t *testing.T) {
+	ed, err := editor.New(wallsFirstSceneDoc(), paletteResolver())
+	if err != nil {
+		t.Fatalf("editor.New: %v", err)
+	}
+	if ed.ActiveLayer != "walls" || ed.ActiveTileID != 2 {
+		t.Fatalf("layer %q, ActiveTileID = %d, want walls and 2, its first tile, since the walls tileset has no tile 1", ed.ActiveLayer, ed.ActiveTileID)
+	}
+}
+
+func TestOpenYAMLSelectsATileOfTheFirstLayer(t *testing.T) {
+	src, err := editor.New(wallsFirstSceneDoc(), paletteResolver())
+	if err != nil {
+		t.Fatalf("editor.New: %v", err)
+	}
+	data, err := src.SaveYAML()
+	if err != nil {
+		t.Fatalf("SaveYAML: %v", err)
+	}
+	ed, err := editor.New(paletteSceneDoc(), paletteResolver())
+	if err != nil {
+		t.Fatalf("editor.New: %v", err)
+	}
+	if ed.ActiveTileID != 1 {
+		t.Fatalf("ActiveTileID = %d, want 1 on the floor layer", ed.ActiveTileID)
+	}
+	if err := ed.OpenYAML(data); err != nil {
+		t.Fatalf("OpenYAML: %v", err)
+	}
+	if ed.ActiveLayer != "walls" || ed.ActiveTileID != 2 {
+		t.Fatalf("layer %q, ActiveTileID = %d, want walls and 2, its first tile, since the walls tileset has no tile 1", ed.ActiveLayer, ed.ActiveTileID)
+	}
+	if err := ed.PaintTile(ed.ActiveLayer, 0, 0, ed.ActiveTileID); err != nil {
+		t.Fatalf("PaintTile: %v", err)
+	}
+	if ed.BuildErr != nil {
+		t.Fatalf("painting the opened walls layer fails to build: %v", ed.BuildErr)
+	}
+}
+
 // The issue's first acceptance item: a tile chosen in the palette is the one Paint writes, and the saved scene file holds its ID.
 func TestTilePaletteChoosesTheTilePaintSaves(t *testing.T) {
 	ed := newTestEditor(t)
@@ -271,6 +319,19 @@ func TestTilePaletteFollowsTheActiveLayer(t *testing.T) {
 	if got := app.Find("id:tile-palette-empty").Text; got != `Layer "actors" has no inline tilemap to paint` {
 		t.Fatalf("empty palette says %q", got)
 	}
+	if got := app.Find("id:editor-status-mode").Text; strings.Contains(got, "Tile:") {
+		t.Fatalf("status = %q shows a tile on a layer without tiles to pick", got)
+	}
+
+	app.Post(func() { ed.SetActiveLayer("walls") })
+	app.Settle()
+	if got := app.Find("id:editor-status-mode").Text; !strings.HasSuffix(got, "| Tile: 2") {
+		t.Fatalf("status = %q, want the selected walls tile 2 with Fill", got)
+	}
+	app.Press("id:tool-erase")
+	if got := app.Find("id:editor-status-mode").Text; strings.Contains(got, "Tile:") {
+		t.Fatalf("status = %q shows a tile with Erase, which writes none", got)
+	}
 
 	app.Press("id:tool-select")
 	if app.Exists("id:tile-palette") {
@@ -302,6 +363,16 @@ func TestTilePaletteArrowKeysMoveTheSelection(t *testing.T) {
 	if ed.ActiveTileID != 5 {
 		t.Fatalf("ActiveTileID = %d after Left, want 5", ed.ActiveTileID)
 	}
+	// Up and Down step through the tiles in ID order too, as Left and Right do, rather than by rows of the wrapped grid.
+	app.Key("down")
+	if ed.ActiveTileID != 10 {
+		t.Fatalf("ActiveTileID = %d after Down, want 10", ed.ActiveTileID)
+	}
+	app.Key("up")
+	app.Key("up")
+	if ed.ActiveTileID != 2 {
+		t.Fatalf("ActiveTileID = %d after Up twice, want 2", ed.ActiveTileID)
+	}
 }
 
 func TestTilePaletteHiddenIn3D(t *testing.T) {
@@ -331,9 +402,14 @@ func TestTilePaletteFitsAWideTileInThePanel(t *testing.T) {
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		return editor.EditorView(cx, ed)
 	}, nsgotest.Size(1280, 680))
-	// The panel's tiles wrap in 204 points, less the ring of 2 on each side.
+	// The panel's tiles wrap in 203 points (224 less 10 of padding on each side and the left border of 1), and each tile's ring of 2 and padding of 2 on each side sit inside its box.
 	thumb := app.Find("id:tile-palette-thumb-1")
-	if thumb.Frame.Size.Width != 200 || thumb.Frame.Size.Height != 100 {
-		t.Fatalf("a 408x204 tile shows at %vx%v, want it scaled to 200x100", thumb.Frame.Size.Width, thumb.Frame.Size.Height)
+	// 408x204 scales to 195x97.5, and layout rounds the height to a whole point.
+	if thumb.Frame.Size.Width != 195 || thumb.Frame.Size.Height != 98 {
+		t.Fatalf("a 408x204 tile shows at %vx%v, want it scaled to 195x98", thumb.Frame.Size.Width, thumb.Frame.Size.Height)
+	}
+	grid, tile := app.Find("id:tile-palette-grid"), app.Find("id:tile-palette-1")
+	if tile.Frame.Size.Width > grid.Frame.Size.Width {
+		t.Fatalf("the wide tile's box is %v wide, wider than the %v its grid wraps in", tile.Frame.Size.Width, grid.Frame.Size.Width)
 	}
 }
