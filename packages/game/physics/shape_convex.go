@@ -5,6 +5,7 @@ import (
 	"math"
 	"slices"
 
+	"github.com/nsgo-dev/game/packages/game/internal/detmath"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -58,13 +59,13 @@ func NewBoxPolygon(cx, cy, w, h, angle float32) Polygon {
 		}
 	}
 	hw, hh := float64(w)*0.5, float64(h)*0.5
-	s, c := math.Sincos(float64(angle))
+	s, c := detmath.Sincos(float64(angle))
 	local := [4]vec2{{-hw, -hh}, {hw, -hh}, {hw, hh}, {-hw, hh}}
 	p := Polygon{Count: 4}
 	for i, l := range local {
 		p.Vertices[i] = core.Point{
-			X: core.Points(float64(cx) + l.x*c - l.y*s),
-			Y: core.Points(float64(cy) + l.x*s + l.y*c),
+			X: core.Points(float64(cx) + float64(l.x*c) - float64(l.y*s)),
+			Y: core.Points(float64(cy) + float64(l.x*s) + float64(l.y*c)),
 		}
 	}
 	return p
@@ -84,7 +85,7 @@ func convexHull(pts []vec2) []vec2 {
 	for _, p := range sorted {
 		dup := false
 		for _, q := range welded {
-			if math.Hypot(p.x-q.x, p.y-q.y) < polygonWeldTolerance {
+			if detmath.Hypot(p.x-q.x, p.y-q.y) < polygonWeldTolerance {
 				dup = true
 				break
 			}
@@ -96,7 +97,7 @@ func convexHull(pts []vec2) []vec2 {
 	if len(welded) < 3 {
 		return nil
 	}
-	cross := func(o, a, b vec2) float64 { return (a.x-o.x)*(b.y-o.y) - (a.y-o.y)*(b.x-o.x) }
+	cross := func(o, a, b vec2) float64 { return float64((a.x-o.x)*(b.y-o.y)) - float64((a.y-o.y)*(b.x-o.x)) }
 	hull := make([]vec2, 0, 2*len(welded))
 	for _, p := range welded {
 		for len(hull) >= 2 && cross(hull[len(hull)-2], hull[len(hull)-1], p) <= 0 {
@@ -119,7 +120,7 @@ func convexHull(pts []vec2) []vec2 {
 		for i := range hull {
 			prev := hull[(i+len(hull)-1)%len(hull)]
 			next := hull[(i+1)%len(hull)]
-			l := math.Hypot(next.x-prev.x, next.y-prev.y)
+			l := detmath.Hypot(next.x-prev.x, next.y-prev.y)
 			if l == 0 || math.Abs(cross(prev, next, hull[i]))/l < polygonWeldTolerance {
 				hull = slices.Delete(hull, i, i+1)
 				changed = true
@@ -204,7 +205,7 @@ func (c Capsule) Contains(x, y float32) bool {
 	q := closestOnSegment(vec2{float64(c.X1), float64(c.Y1)}, vec2{float64(c.X2), float64(c.Y2)}, vec2{float64(x), float64(y)})
 	dx, dy := float64(x)-q.x, float64(y)-q.y
 	r := float64(c.R)
-	return dx*dx+dy*dy <= r*r
+	return float64(dx*dx)+float64(dy*dy) <= float64(r*r)
 }
 
 // Translated returns a copy of c shifted by (dx, dy).
@@ -367,10 +368,10 @@ func (s Shape) Centroid() (x, y float32) {
 		var sumL, sx, sy float64
 		for i := range s.Chain.SegmentCount() {
 			seg := s.Chain.Segment(i)
-			l := math.Hypot(float64(seg.X2)-float64(seg.X1), float64(seg.Y2)-float64(seg.Y1))
+			l := detmath.Hypot(float64(seg.X2)-float64(seg.X1), float64(seg.Y2)-float64(seg.Y1))
 			sumL += l
-			sx += l * (float64(seg.X1) + float64(seg.X2)) * 0.5
-			sy += l * (float64(seg.Y1) + float64(seg.Y2)) * 0.5
+			sx += float64(l * (float64(seg.X1) + float64(seg.X2)) * 0.5)
+			sy += float64(l * (float64(seg.Y1) + float64(seg.Y2)) * 0.5)
 		}
 		if sumL == 0 {
 			p := s.Chain.Points[0]
@@ -394,7 +395,7 @@ func (s Shape) MomentOfInertia(mass float32) float32 {
 			return 0
 		}
 		w, h := float64(s.Box.W), float64(s.Box.H)
-		return float32(m * (w*w + h*h) / 12.0)
+		return float32(m * (float64(w*w) + float64(h*h)) / 12.0)
 	case ShapeCircle:
 		if s.Circle.Empty() {
 			return 0
@@ -422,14 +423,17 @@ func (s Shape) massProperties() (area, cx, cy, inertia float64) {
 		}
 		r := float64(c.R)
 		rr := r * r
-		length := math.Hypot(float64(c.X2)-float64(c.X1), float64(c.Y2)-float64(c.Y1))
-		circleMass := math.Pi * rr
-		boxMass := 2 * r * length
+		length := detmath.Hypot(float64(c.X2)-float64(c.X1), float64(c.Y2)-float64(c.Y1))
+		circleMass := float64(math.Pi * rr)
+		boxMass := float64(2 * r * length)
 		// The two half circles, each offset by half the length, follow Box2D's b2ComputeCapsuleMass with the parallel-axis theorem applied twice.
-		lc := 4 * r / (3 * math.Pi)
-		h := 0.5 * length
-		circleInertia := circleMass * (0.5*rr + h*h + 2*h*lc)
-		boxInertia := boxMass * (4*rr + length*length) / 12
+		lc := float64(4 * r / (3 * math.Pi))
+		h := float64(0.5 * length)
+		halfRR := float64(0.5 * rr)
+		hh := float64(h * h)
+		hlc := float64(2 * h * lc)
+		circleInertia := float64(circleMass * (halfRR + hh + hlc))
+		boxInertia := boxMass * (float64(4*rr) + float64(length*length)) / 12
 		x, y := c.Center()
 		return circleMass + boxMass, float64(x), float64(y), circleInertia + boxInertia
 	case ShapePolygon:
@@ -446,10 +450,10 @@ func (s Shape) massProperties() (area, cx, cy, inertia float64) {
 				prev := h.n[(i+h.count-1)%h.count]
 				next := h.n[i]
 				mid := vec2{prev.x + next.x, prev.y + next.y}
-				if l := math.Hypot(mid.x, mid.y); l > 0 {
+				if l := detmath.Hypot(mid.x, mid.y); l > 0 {
 					mid = vec2{mid.x / l, mid.y / l}
 				}
-				verts[i] = vec2{h.v[i].x + sqrt2*h.r*mid.x, h.v[i].y + sqrt2*h.r*mid.y}
+				verts[i] = vec2{h.v[i].x + float64(sqrt2*h.r*mid.x), h.v[i].y + float64(sqrt2*h.r*mid.y)}
 			}
 		}
 		// Triangle fan from the first vertex, relative to it for precision.
@@ -458,21 +462,21 @@ func (s Shape) massProperties() (area, cx, cy, inertia float64) {
 		for i := 1; i+1 < h.count; i++ {
 			e1 := vec2{verts[i].x - origin.x, verts[i].y - origin.y}
 			e2 := vec2{verts[i+1].x - origin.x, verts[i+1].y - origin.y}
-			d := e1.x*e2.y - e1.y*e2.x
-			triA := 0.5 * d
+			d := float64(e1.x*e2.y) - float64(e1.y*e2.x)
+			triA := float64(0.5 * d)
 			sumA += triA
 			sumX += triA * (e1.x + e2.x) / 3
 			sumY += triA * (e1.y + e2.y) / 3
-			intx2 := e1.x*e1.x + e2.x*e1.x + e2.x*e2.x
-			inty2 := e1.y*e1.y + e2.y*e1.y + e2.y*e2.y
-			sumI += (0.25 / 3.0 * d) * (intx2 + inty2)
+			intx2 := float64(e1.x*e1.x) + float64(e2.x*e1.x) + float64(e2.x*e2.x)
+			inty2 := float64(e1.y*e1.y) + float64(e2.y*e1.y) + float64(e2.y*e2.y)
+			sumI += float64((0.25 / 3.0 * d) * (intx2 + inty2))
 		}
 		if sumA <= 0 {
 			return 0, 0, 0, 0
 		}
 		lcx, lcy := sumX/sumA, sumY/sumA
 		// Inertia about the centroid by the parallel-axis theorem.
-		inertia = sumI - sumA*(lcx*lcx+lcy*lcy)
+		inertia = sumI - float64(sumA*(float64(lcx*lcx)+float64(lcy*lcy)))
 		return sumA, origin.x + lcx, origin.y + lcy, inertia
 	}
 	return 0, 0, 0, 0
@@ -480,9 +484,9 @@ func (s Shape) massProperties() (area, cx, cy, inertia float64) {
 
 // transformed rotates s by angle about the origin and then moves it by (x, y). It handles polygons, capsules, segments and chains, whose geometry is free to rotate.
 func (s Shape) transformed(x, y, angle float64) Shape {
-	sn, cs := math.Sincos(angle)
+	sn, cs := detmath.Sincos(angle)
 	tf := func(px, py float64) (float64, float64) {
-		return x + px*cs - py*sn, y + px*sn + py*cs
+		return x + float64(px*cs) - float64(py*sn), y + float64(px*sn) + float64(py*cs)
 	}
 	switch s.Kind {
 	case ShapePolygon:

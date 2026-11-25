@@ -395,3 +395,75 @@ func TestGoldenTrajectory2D(t *testing.T) {
 		t.Fatalf("physics.RigidWorld golden checksum = %#016x, want %#016x", gotRigid, wantRigidGolden)
 	}
 }
+
+func buildConvexRigidWorld2D() *physics.RigidWorld {
+	rw := &physics.RigidWorld{GravityY: 500}
+	floor := physics.NewStaticRigidBody(physics.ChainShape([]core.Point{{X: 0, Y: 200}, {X: 120, Y: 220}, {X: 240, Y: 200}, {X: 360, Y: 230}}, false))
+	floor.ID = 1
+	ramp := physics.NewStaticRigidBody(physics.SegmentShape(physics.Segment{X1: 250, Y1: 120, X2: 340, Y2: 170}))
+	ramp.ID = 2
+	hex, ok := physics.NewPolygon([]core.Point{{X: 40, Y: 40}, {X: 60, Y: 30}, {X: 80, Y: 40}, {X: 80, Y: 60}, {X: 60, Y: 70}, {X: 40, Y: 60}}, 1)
+	if !ok {
+		panic("NewPolygon rejected the hexagon")
+	}
+	poly := physics.NewRigidBody(physics.PolygonShape(hex), 2)
+	poly.ID = 3
+	poly.VX = 40
+	poly.AngularVel = 1.5
+	capsule := physics.NewRigidBody(physics.CapsuleShape(physics.Capsule{X1: 150, Y1: 60, X2: 190, Y2: 70, R: 8}), 1.5)
+	capsule.ID = 4
+	capsule.VX = -30
+	tilted := physics.NewRigidBody(physics.PolygonShape(physics.NewBoxPolygon(290, 60, 24, 14, 0.4)), 1)
+	tilted.ID = 5
+	rw.AddBody(floor, ramp, poly, capsule, tilted)
+	return rw
+}
+
+func TestRigidWorldSaveRestoreConvexShapes(t *testing.T) {
+	const dt = time.Second / 60
+	rw := buildConvexRigidWorld2D()
+	for range 90 {
+		rw.Step(dt)
+	}
+	raw, err := json.Marshal(rw.Save())
+	if err != nil {
+		t.Fatalf("json.Marshal(RigidWorldSnapshot): %v", err)
+	}
+	snapChecksum := rw.Checksum()
+	for range 120 {
+		rw.Step(dt)
+	}
+	want := rw.Checksum()
+
+	for _, name := range []string{"in place", "fresh"} {
+		var decoded physics.RigidWorldSnapshot
+		if err := json.Unmarshal(raw, &decoded); err != nil {
+			t.Fatalf("json.Unmarshal(RigidWorldSnapshot): %v", err)
+		}
+		target := rw
+		if name == "fresh" {
+			target = &physics.RigidWorld{}
+		}
+		if err := target.Restore(decoded); err != nil {
+			t.Fatalf("%s Restore: %v", name, err)
+		}
+		if got := target.Checksum(); got != snapChecksum {
+			t.Fatalf("%s restored checksum = %#x, want %#x", name, got, snapChecksum)
+		}
+		for range 120 {
+			target.Step(dt)
+		}
+		if got := target.Checksum(); got != want {
+			t.Fatalf("%s checksum after re-stepping = %#x, want %#x", name, got, want)
+		}
+	}
+}
+
+func TestRigidWorldSaveDoesNotShareChainPoints(t *testing.T) {
+	rw := buildConvexRigidWorld2D()
+	snap := rw.Save()
+	rw.Bodies[0].Shape.Chain.Points[0].Y = 999
+	if got := snap.Bodies[0].Shape.Chain.Points[0].Y; got == 999 {
+		t.Fatal("snapshot chain shares points with the live body")
+	}
+}
