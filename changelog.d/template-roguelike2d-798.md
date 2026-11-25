@@ -1,0 +1,3 @@
+### Added
+
+- `game new -template roguelike2d` and `nsgo init -template github.com/nsgo-dev/game/template/roguelike2d`: a turn-based roguelike template with five floors generated from the run's seed by `procgen`, bump-to-attack combat, weighted loot with pity from `loot`, stats with equipment and timed tonics from `stats`, a quaff and a cleave on turn cooldowns from `ability`, permadeath and a run summary with `save`, played with the keyboard, a controller or touch, and tests that play it to a win and a loss (#798).
