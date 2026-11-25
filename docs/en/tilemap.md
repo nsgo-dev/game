@@ -1,6 +1,6 @@
 # tilemap
 
-`game/tilemap` draws orthogonal tiled worlds with camera frustum culling, loads Tiled `.tmj` maps and animated tiles, queries tile collision flags and rays, and drives a 2D camera with smoothing, clamping, and screen shake.
+`game/tilemap` draws orthogonal, isometric, staggered, and hexagonal tiled worlds with camera frustum culling, loads Tiled `.tmx`/`.tmj` maps (with embedded or external `.tsx`/`.tsj` tilesets and animated tiles), queries tile collision flags and rays, and drives a 2D camera with smoothing, clamping, and screen shake.
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/tilemap"
@@ -57,19 +57,19 @@ Passing `cam` to `m.Draw(d, cam)` or `m.DrawLayer(d, layer, cam)` visits only th
 
 ## Loading Tiled maps
 
-`LoadTiled` parses uncompressed orthogonal Tiled JSON maps (`.tmj`), supporting embedded and external (`.tsj`) tilesets, GID flip bits (`FlipHorizontal`, `FlipVertical`, `FlipDiagonal`), object layers, typed custom properties, and animated tiles:
+`LoadTiled` parses Tiled XML (`.tmx`) and JSON (`.tmj`) maps into the same `*Tilemap`, auto-detecting the format from the input bytes. It supports embedded and external `.tsx`/`.tsj` tilesets (including cross-format references such as a `.tmx` map using a `.tsj` tileset or a `.tmj` map using a `.tsx` tileset), CSV, legacy XML `<tile>`, and base64 tile data (uncompressed, `zlib`, and `gzip`) on both finite layers and infinite-map chunks, image layers, nested group layers, GID flip bits (`FlipHorizontal`, `FlipVertical`, `FlipDiagonal`), object layers, typed custom properties, and animated tiles. `zstd` compression is refused with a `*loaderr.Error` pointing at the file, line, and fix hint.
 
 ```go
-//go:embed resources/maps/*.tmj resources/maps/*.tsj
+//go:embed resources/maps/*.tmx resources/maps/*.tsx
 var mapFS embed.FS
 
-raw, err := mapFS.ReadFile("resources/maps/level1.tmj")
+raw, err := mapFS.ReadFile("resources/maps/level1.tmx")
 if err != nil {
 	return err
 }
 
 m, err := tilemap.LoadTiled(raw, tilemap.TilesetLoader{
-	LoadJSON: func(source string) ([]byte, error) {
+	LoadTileset: func(source string) ([]byte, error) {
 		return mapFS.ReadFile("resources/maps/" + source)
 	},
 	LoadImage: func(imagePath string) (core.ImageSource, error) {
@@ -80,6 +80,8 @@ if err != nil {
 	return err
 }
 ```
+
+Existing callers that set `TilesetLoader.LoadJSON` continue to work for both `.tsj` and `.tsx` tilesets when `LoadTileset` is nil.
 
 ### Building tilemaps in code
 

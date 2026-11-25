@@ -1861,7 +1861,7 @@ These are read as the tools that make them write them, never converted into a fo
 
 | Files | Read by | Guide |
 | --- | --- | --- |
-| Tiled JSON maps (`.tmj`) with embedded or external (`.tsj`) tilesets | `tilemap.LoadTiled`; `rooms.FromTiledLayer` makes rooms from an object layer | [tilemap](tilemap.md), [rooms](rooms.md) |
+| Tiled XML (`.tmx`) and JSON (`.tmj`) maps with embedded or external (`.tsx`, `.tsj`) tilesets and CSV, XML, or base64 (`uncompressed`, `zlib`, `gzip`) tile data | `tilemap.LoadTiled`; `rooms.FromTiledLayer` makes rooms from an object layer | [tilemap](tilemap.md), [rooms](rooms.md) |
 
 <!-- format: tilemap#world -->
 ### Tiled world

@@ -1,12 +1,14 @@
 package tilemap
 
 import (
+	"bytes"
 	"cmp"
 	"encoding/json"
 	"fmt"
 	"math"
 	"path"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,60 +18,79 @@ import (
 
 // TilesetLoader resolves external tileset files and tileset images referenced by a Tiled map.
 //
-// Either field may be nil: LoadJSON is only needed when the map references an external .tsj tileset, and LoadImage defaults to core.ImageSource{URI: imagePath}.
+// Either tileset callback may be nil: LoadTileset (or LoadJSON as a fallback) is only needed when the map references an external .tsx or .tsj tileset, and LoadImage defaults to core.ImageSource{URI: imagePath}.
 type TilesetLoader struct {
-	// LoadJSON reads the raw JSON of an external tileset file given its source path in the map.
+	// LoadTileset reads the raw bytes of an external tileset file (.tsx or .tsj) given its source path in the map.
+	// When nil, LoadTiled falls back to LoadJSON.
+	LoadTileset func(source string) ([]byte, error)
+	// LoadJSON reads the raw bytes of an external tileset file (.tsj or .tsx) given its source path in the map.
+	// Kept for compatibility with existing callers; used when LoadTileset is nil.
 	LoadJSON func(source string) ([]byte, error)
-	// LoadImage returns the ImageSource for a tileset's image path (resolved relative to the external tileset's directory when loaded from a .tsj).
+	// LoadImage returns the ImageSource for a tileset's image path (resolved relative to the external tileset's directory when loaded from a .tsx or .tsj).
 	LoadImage func(imagePath string) (core.ImageSource, error)
 }
 
-// LoadTiled parses a Tiled JSON map (.tmj) into a Tilemap, loading any external .tsj tilesets and resolving tileset and image-layer images through resolve.
+func (l TilesetLoader) loadTilesetFn() func(string) ([]byte, error) {
+	if l.LoadTileset != nil {
+		return l.LoadTileset
+	}
+	return l.LoadJSON
+}
+
+// LoadTiled parses a Tiled map — either JSON (.tmj) or XML (.tmx) — into a Tilemap, loading any external .tsx or .tsj tilesets and resolving tileset and image-layer images through resolve.
 //
-// Orthogonal, isometric, staggered, and hexagonal maps, infinite chunked maps, image layers, nested group layers, embedded and external tilesets, GID flip flags, object layers, custom properties and tile animations are supported.
+// Orthogonal, isometric, staggered, and hexagonal maps, infinite chunked maps, CSV, XML, and base64 tile data (uncompressed, zlib, and gzip), image layers, nested group layers, embedded and external tilesets (including cross-format TMX/TSJ and TMJ/TSX references), GID flip flags, object layers, custom properties and tile animations are supported. zstd compression is refused with an actionable fix hint.
 //
 // Its errors are *loaderr.Error values that give the line and field of the problem and how to fix it. An error in an external tileset names that tileset's source; for one in the map itself, a caller that read data from a file names it with loaderr.WithFile.
 func LoadTiled(data []byte, resolve TilesetLoader) (*Tilemap, error) {
-	m, err := loadTiled(data, resolve)
+	if isXML(data) {
+		raw, err := parseTMX(data)
+		if err != nil {
+			return nil, loaderr.Locate(err, "", nil, fixTiledXML)
+		}
+		m, err := buildTiledMap(raw, resolve)
+		return m, loaderr.Locate(err, "", nil, fixTiledXML)
+	}
+	var raw tiledMap
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, loaderr.Locate(err, "", data, fixTiled)
+	}
+	m, err := buildTiledMap(raw, resolve)
 	return m, loaderr.Locate(err, "", data, fixTiled)
 }
 
-// fixTiled is the fix for a Tiled map error that has no more specific one.
+// fixTiled is the fix for a Tiled JSON map error that has no more specific one.
 const fixTiled = "correct the map in Tiled and export it again as JSON (.tmj)"
 
-func loadTiled(data []byte, resolve TilesetLoader) (*Tilemap, error) {
-	var raw tiledMap
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, err
-	}
+func buildTiledMap(raw tiledMap, resolve TilesetLoader) (*Tilemap, error) {
 	orientation, err := parseTiledOrientation(raw.Orientation)
 	if err != nil {
-		return nil, &loaderr.Error{Field: "orientation", Problem: err.Error(), Expected: `"orthogonal", "isometric", "staggered" or "hexagonal"`, Fix: "set the map's orientation to one of those in Tiled's map properties", Err: err}
+		return nil, &loaderr.Error{Line: raw.line, Column: raw.col, Field: "orientation", Problem: err.Error(), Expected: `"orthogonal", "isometric", "staggered" or "hexagonal"`, Fix: "set the map's orientation to one of those in Tiled's map properties", Err: err}
 	}
 	staggerAxis, err := parseTiledStaggerAxis(raw.StaggerAxis)
 	if err != nil {
-		return nil, &loaderr.Error{Field: "staggeraxis", Problem: err.Error(), Expected: `"x" or "y"`, Fix: "set the map's stagger axis to x or y in Tiled", Err: err}
+		return nil, &loaderr.Error{Line: raw.line, Column: raw.col, Field: "staggeraxis", Problem: err.Error(), Expected: `"x" or "y"`, Fix: "set the map's stagger axis to x or y in Tiled", Err: err}
 	}
 	staggerIndex, err := parseTiledStaggerIndex(raw.StaggerIndex)
 	if err != nil {
-		return nil, &loaderr.Error{Field: "staggerindex", Problem: err.Error(), Expected: `"odd" or "even"`, Fix: "set the map's stagger index to odd or even in Tiled", Err: err}
+		return nil, &loaderr.Error{Line: raw.line, Column: raw.col, Field: "staggerindex", Problem: err.Error(), Expected: `"odd" or "even"`, Fix: "set the map's stagger index to odd or even in Tiled", Err: err}
 	}
 	if raw.Width < 0 || raw.Height < 0 {
 		field := "width"
 		if raw.Width >= 0 {
 			field = "height"
 		}
-		return nil, loaderr.Errorf(field, "give the map a width and height of 0 or more tiles", "map size %dx%d must be non-negative", raw.Width, raw.Height)
+		return nil, &loaderr.Error{Line: raw.line, Column: raw.col, Field: field, Problem: fmt.Sprintf("map size %dx%d must be non-negative", raw.Width, raw.Height), Fix: "give the map a width and height of 0 or more tiles"}
 	}
 	if raw.Width > 0 && raw.Height > 0 && raw.Width > math.MaxInt/raw.Height {
-		return nil, loaderr.Errorf("width", "make the map smaller", "map size %dx%d overflows", raw.Width, raw.Height)
+		return nil, &loaderr.Error{Line: raw.line, Column: raw.col, Field: "width", Problem: fmt.Sprintf("map size %dx%d overflows", raw.Width, raw.Height), Fix: "make the map smaller"}
 	}
 	if raw.TileWidth <= 0 || raw.TileHeight <= 0 {
 		field := "tilewidth"
 		if raw.TileWidth > 0 {
 			field = "tileheight"
 		}
-		return nil, loaderr.Errorf(field, "give the map a tile size above 0 in Tiled's map properties", "tile size %gx%g must be positive", raw.TileWidth, raw.TileHeight)
+		return nil, &loaderr.Error{Line: raw.line, Column: raw.col, Field: field, Problem: fmt.Sprintf("tile size %gx%g must be positive", raw.TileWidth, raw.TileHeight), Fix: "give the map a tile size above 0 in Tiled's map properties"}
 	}
 
 	props, err := parseProperties(raw.Properties)
@@ -90,26 +111,38 @@ func loadTiled(data []byte, resolve TilesetLoader) (*Tilemap, error) {
 		Properties:    props,
 	}
 
+	loadExternal := resolve.loadTilesetFn()
 	for i, ref := range raw.Tilesets {
 		if ref.FirstGID == 0 {
-			return nil, loaderr.Errorf(loaderr.Path("tilesets", i, "firstgid"), "export the map again from Tiled; a tileset's firstgid is 1 or more", "tileset %d has firstgid 0", i)
+			return nil, &loaderr.Error{Line: ref.line, Column: ref.col, Field: loaderr.Path("tilesets", i, "firstgid"), Problem: fmt.Sprintf("tileset %d has firstgid 0", i), Fix: "save or export the map again from Tiled; a tileset's firstgid is 1 or more"}
 		}
 		var tsRaw tiledTileset
 		if ref.Source != "" {
-			if resolve.LoadJSON == nil {
-				return nil, loaderr.Errorf(loaderr.Path("tilesets", i, "source"), "set TilesetLoader.LoadJSON, or embed the tileset in the map in Tiled", "external tileset %q requires TilesetLoader.LoadJSON", ref.Source)
+			if loadExternal == nil {
+				return nil, &loaderr.Error{Line: ref.line, Column: ref.col, Field: loaderr.Path("tilesets", i, "source"), Problem: fmt.Sprintf("external tileset %q requires TilesetLoader.LoadTileset (or LoadJSON)", ref.Source), Fix: "set TilesetLoader.LoadTileset (or LoadJSON), or embed the tileset in the map in Tiled"}
 			}
-			ext, err := resolve.LoadJSON(ref.Source)
+			ext, err := loadExternal(ref.Source)
 			if err != nil {
-				return nil, loaderr.Errorf(loaderr.Path("tilesets", i, "source"), "check that the tileset file exists next to the map at this path", "load tileset %q: %w", ref.Source, err)
+				return nil, &loaderr.Error{Line: ref.line, Column: ref.col, Field: loaderr.Path("tilesets", i, "source"), Problem: fmt.Sprintf("load tileset %q: %v", ref.Source, err), Fix: "check that the tileset file exists next to the map at this path", Err: err}
 			}
-			if err := json.Unmarshal(ext, &tsRaw); err != nil {
-				return nil, loaderr.Locate(err, ref.Source, ext, "export the tileset again from Tiled as JSON (.tsj)")
+			var extLocData []byte
+			extFix := "correct the tileset in Tiled and export it again as JSON (.tsj)"
+			if isXML(ext) {
+				extFix = fixTilesetXML
+				tsRaw, err = parseTSX(ext)
+				if err != nil {
+					return nil, loaderr.Locate(err, ref.Source, nil, extFix)
+				}
+			} else {
+				extLocData = ext
+				if err := json.Unmarshal(ext, &tsRaw); err != nil {
+					return nil, loaderr.Locate(err, ref.Source, ext, "export the tileset again from Tiled as JSON (.tsj)")
+				}
 			}
 			ts, err := buildTileset(m, ref.FirstGID, tsRaw, path.Dir(ref.Source), resolve)
 			if err != nil {
 				// The error is about the tileset's own file.
-				return nil, loaderr.Locate(err, ref.Source, ext, "correct the tileset in Tiled and export it again as JSON (.tsj)")
+				return nil, loaderr.Locate(err, ref.Source, extLocData, extFix)
 			}
 			m.Tilesets = append(m.Tilesets, ts)
 			continue
@@ -126,7 +159,8 @@ func loadTiled(data []byte, resolve TilesetLoader) (*Tilemap, error) {
 		return cmp.Compare(a.FirstGID, b.FirstGID)
 	})
 
-	if err := loadTiledLayers(m, raw.Layers, 0, 0, 1, 1, 1, true, resolve); err != nil {
+	budget := maxMapDecompressedBytes
+	if err := loadTiledLayers(m, raw.Layers, 0, 0, 1, 1, 1, true, resolve, &budget); err != nil {
 		return nil, nest(err, "layers")
 	}
 	return m, nil
@@ -197,7 +231,11 @@ func buildTileset(m *Tilemap, firstGID uint32, raw tiledTileset, baseDir string,
 			var err error
 			img, err = resolve.LoadImage(imgPath)
 			if err != nil {
-				return nil, loaderr.Errorf("image", "check that the tileset image exists at this path, relative to the tileset", "load image %q: %w", imgPath, err)
+				imgLine, imgCol := raw.imageLine, raw.imageCol
+				if imgLine == 0 {
+					imgLine, imgCol = raw.line, raw.col
+				}
+				return nil, &loaderr.Error{Line: imgLine, Column: imgCol, Field: "image", Problem: fmt.Sprintf("load image %q: %v", imgPath, err), Fix: "check that the tileset image exists at this path, relative to the tileset", Err: err}
 			}
 		} else {
 			img = core.ImageSource{URI: imgPath}
@@ -240,7 +278,13 @@ func buildTileset(m *Tilemap, firstGID uint32, raw tiledTileset, baseDir string,
 			frames := make([]TileAnimFrame, len(tile.Animation))
 			for j, f := range tile.Animation {
 				if f.Duration < 0 || int64(f.Duration) > math.MaxInt64/int64(time.Millisecond) {
-					return nil, loaderr.Errorf(loaderr.Path("tiles", ti, "animation", j, "duration"), "give the animation frame a duration of 0 or more milliseconds in Tiled", "tile %d animation frame %d has invalid duration %d", tile.ID, j, f.Duration)
+					return nil, &loaderr.Error{
+						Line:    f.line,
+						Column:  f.col,
+						Field:   loaderr.Path("tiles", ti, "animation", j, "duration"),
+						Problem: fmt.Sprintf("tile %d animation frame %d has invalid duration %d", tile.ID, j, f.Duration),
+						Fix:     "give the animation frame a duration of 0 or more milliseconds in Tiled",
+					}
 				}
 				frames[j] = TileAnimFrame{
 					TileID:   f.TileID,
@@ -286,7 +330,7 @@ func ySortFromProperties(p Properties) bool {
 }
 
 // loadTiledLayers adds layers to m. The fields its errors name are relative to the array of layers, as in "[2].data".
-func loadTiledLayers(m *Tilemap, layers []tiledLayer, parentOX, parentOY, parentPX, parentPY, parentOpacity float32, parentVisible bool, resolve TilesetLoader) error {
+func loadTiledLayers(m *Tilemap, layers []tiledLayer, parentOX, parentOY, parentPX, parentPY, parentOpacity float32, parentVisible bool, resolve TilesetLoader, budget *int64) error {
 	for li, raw := range layers {
 		visible := parentVisible
 		if raw.Visible != nil {
@@ -312,17 +356,13 @@ func loadTiledLayers(m *Tilemap, layers []tiledLayer, parentOX, parentOY, parent
 			return nest(err, loaderr.Path(li, "properties"))
 		}
 
-		const fixEncoding = `in Tiled's map properties, set "Tile Layer Format" to CSV, and export again`
 		switch raw.Type {
 		case "tilelayer":
-			if raw.Encoding != "" {
-				return loaderr.Errorf(loaderr.Path(li, "encoding"), fixEncoding, "layer %q uses encoding %q; export uncompressed JSON tile data", raw.Name, raw.Encoding)
-			}
-			if raw.Compression != "" {
-				return loaderr.Errorf(loaderr.Path(li, "compression"), fixEncoding, "layer %q uses compression %q; export uncompressed JSON tile data", raw.Name, raw.Compression)
+			if err := validateLayerEncoding(raw, li); err != nil {
+				return err
 			}
 			if m.Infinite || len(raw.Chunks) > 0 {
-				layer, err := buildChunkedTileLayer(raw, li, ox, oy, px, py, opacity, visible, props)
+				layer, err := buildChunkedTileLayer(raw, li, ox, oy, px, py, opacity, visible, props, budget)
 				if err != nil {
 					return err
 				}
@@ -339,23 +379,26 @@ func loadTiledLayers(m *Tilemap, layers []tiledLayer, parentOX, parentOY, parent
 			}
 
 			lw, lh := raw.Width, raw.Height
-			if lw <= 0 {
+			if lw < 0 || lh < 0 {
+				field := loaderr.Path(li, "width")
+				if lw >= 0 {
+					field = loaderr.Path(li, "height")
+				}
+				return &loaderr.Error{Line: raw.line, Column: raw.col, Field: field, Problem: fmt.Sprintf("layer %q size %dx%d must be non-negative", raw.Name, lw, lh), Fix: "give the layer a width and height of 0 or more tiles"}
+			}
+			if lw == 0 {
 				lw = m.Width
 			}
-			if lh <= 0 {
+			if lh == 0 {
 				lh = m.Height
 			}
 			if lw > 0 && lh > 0 && lw > math.MaxInt/lh {
-				return loaderr.Errorf(loaderr.Path(li, "width"), "make the layer smaller", "layer %q size %dx%d overflows", raw.Name, lw, lh)
+				return &loaderr.Error{Line: raw.line, Column: raw.col, Field: loaderr.Path(li, "width"), Problem: fmt.Sprintf("layer %q size %dx%d overflows", raw.Name, lw, lh), Fix: "make the layer smaller"}
 			}
-			var data []uint32
-			if len(raw.Data) > 0 {
-				if err := json.Unmarshal(raw.Data, &data); err != nil {
-					return loaderr.Errorf(loaderr.Path(li, "data"), "export the map again from Tiled; data is an array of tile GIDs", "layer %q data: %w", raw.Name, err)
-				}
-				if len(data) != lw*lh {
-					return &loaderr.Error{Field: loaderr.Path(li, "data"), Problem: fmt.Sprintf("layer %q has %d tiles", raw.Name, len(data)), Expected: fmt.Sprintf("%d (%dx%d)", lw*lh, lw, lh), Fix: "export the map again from Tiled so data has one GID per tile of the layer"}
-				}
+
+			data, err := decodeFiniteLayerData(raw, li, lw, lh, budget)
+			if err != nil {
+				return err
 			}
 			m.addTileLayer(TileLayer{
 				Name:       raw.Name,
@@ -380,7 +423,11 @@ func loadTiledLayers(m *Tilemap, layers []tiledLayer, parentOX, parentOY, parent
 				if resolve.LoadImage != nil {
 					img, err = resolve.LoadImage(raw.Image)
 					if err != nil {
-						return loaderr.Errorf(loaderr.Path(li, "image"), "check that the layer's image exists at this path", "image layer %q load image %q: %w", raw.Name, raw.Image, err)
+						imgLine, imgCol := raw.imageLine, raw.imageCol
+						if imgLine == 0 {
+							imgLine, imgCol = raw.line, raw.col
+						}
+						return &loaderr.Error{Line: imgLine, Column: imgCol, Field: loaderr.Path(li, "image"), Problem: fmt.Sprintf("image layer %q load image %q: %v", raw.Name, raw.Image, err), Fix: "check that the layer's image exists at this path", Err: err}
 					}
 				} else {
 					img = core.ImageSource{URI: raw.Image}
@@ -459,7 +506,7 @@ func loadTiledLayers(m *Tilemap, layers []tiledLayer, parentOX, parentOY, parent
 			})
 
 		case "group":
-			if err := loadTiledLayers(m, raw.Layers, ox, oy, px, py, opacity, visible, resolve); err != nil {
+			if err := loadTiledLayers(m, raw.Layers, ox, oy, px, py, opacity, visible, resolve, budget); err != nil {
 				return nest(err, loaderr.Path(li, "layers"))
 			}
 		}
@@ -467,9 +514,132 @@ func loadTiledLayers(m *Tilemap, layers []tiledLayer, parentOX, parentOY, parent
 	return nil
 }
 
+func decodeFiniteLayerData(raw tiledLayer, li, lw, lh int, budget *int64) ([]uint32, error) {
+	field := loaderr.Path(li, "data")
+	label := fmt.Sprintf("layer %q", raw.Name)
+	expected := lw * lh
+
+	if raw.isXML {
+		if !raw.hasXMLData {
+			return nil, nil
+		}
+		var data []uint32
+		var err error
+		switch raw.Encoding {
+		case "base64":
+			data, err = decodeBase64TileData(raw.xmlDataText, raw.Compression, expected, budget, field, raw.dataLine, raw.dataCol, label)
+			if err != nil {
+				return nil, err
+			}
+			return data, nil
+		case "csv":
+			data, err = decodeCSVTileData(raw.xmlDataText, field, raw.dataLine, raw.dataCol, label)
+			if err != nil {
+				return nil, err
+			}
+		case "", "xml":
+			data = raw.xmlTiles
+		}
+		if len(data) != expected {
+			return nil, &loaderr.Error{Line: raw.dataLine, Column: raw.dataCol, Field: field, Problem: fmt.Sprintf("layer %q has %d tiles", raw.Name, len(data)), Expected: fmt.Sprintf("%d (%dx%d)", expected, lw, lh), Fix: "save the map again from Tiled so data has one GID per tile of the layer"}
+		}
+		return data, nil
+	}
+
+	if len(raw.Data) == 0 {
+		return nil, nil
+	}
+	if raw.Encoding == "base64" {
+		var b64 string
+		if err := json.Unmarshal(raw.Data, &b64); err != nil {
+			return nil, loaderr.Errorf(field, "export the map again from Tiled; base64 tile data must be a JSON string", "layer %q data: %w", raw.Name, err)
+		}
+		return decodeBase64TileData(b64, raw.Compression, expected, budget, field, 0, 0, label)
+	}
+	trimmed := bytes.TrimSpace(raw.Data)
+	var data []uint32
+	if len(trimmed) > 0 && trimmed[0] == '"' && raw.Encoding == "csv" {
+		var csvStr string
+		if err := json.Unmarshal(raw.Data, &csvStr); err != nil {
+			return nil, loaderr.Errorf(field, "export the map again from Tiled; data is an array of tile GIDs", "layer %q data: %w", raw.Name, err)
+		}
+		var err error
+		data, err = decodeCSVTileData(csvStr, field, 0, 0, label)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		if err := json.Unmarshal(raw.Data, &data); err != nil {
+			return nil, loaderr.Errorf(field, "export the map again from Tiled; data is an array of tile GIDs", "layer %q data: %w", raw.Name, err)
+		}
+	}
+	if len(data) != expected {
+		return nil, &loaderr.Error{Field: field, Problem: fmt.Sprintf("layer %q has %d tiles", raw.Name, len(data)), Expected: fmt.Sprintf("%d (%dx%d)", expected, lw, lh), Fix: "export the map again from Tiled so data has one GID per tile of the layer"}
+	}
+	return data, nil
+}
+
+func decodeChunkTileData(raw tiledLayer, rc tiledChunk, li, ci int, budget *int64) ([]uint32, error) {
+	field := loaderr.Path(li, "chunks", ci, "data")
+	label := fmt.Sprintf("layer %q chunk %d", raw.Name, ci)
+	if rc.Width > math.MaxInt/rc.Height {
+		return nil, &loaderr.Error{Line: rc.line, Column: rc.col, Field: loaderr.Path(li, "chunks", ci), Problem: fmt.Sprintf("%s size %dx%d overflows", label, rc.Width, rc.Height), Fix: "make the chunk smaller in Tiled"}
+	}
+	expected := rc.Width * rc.Height
+
+	if rc.isXML {
+		var cdata []uint32
+		var err error
+		switch raw.Encoding {
+		case "base64":
+			return decodeBase64TileData(rc.xmlDataText, raw.Compression, expected, budget, field, rc.line, rc.col, label)
+		case "csv":
+			cdata, err = decodeCSVTileData(rc.xmlDataText, field, rc.line, rc.col, label)
+			if err != nil {
+				return nil, err
+			}
+		case "", "xml":
+			cdata = rc.xmlTiles
+		}
+		if len(cdata) != expected {
+			return nil, &loaderr.Error{Line: rc.line, Column: rc.col, Field: field, Problem: fmt.Sprintf("%s has %d tiles", label, len(cdata)), Expected: fmt.Sprintf("%d (%dx%d)", expected, rc.Width, rc.Height), Fix: "save the map again from Tiled so each chunk's data has one GID per tile"}
+		}
+		return cdata, nil
+	}
+
+	if raw.Encoding == "base64" {
+		var b64 string
+		if err := json.Unmarshal(rc.Data, &b64); err != nil {
+			return nil, loaderr.Errorf(field, "export the map again from Tiled; base64 chunk data must be a JSON string", "%s data: %w", label, err)
+		}
+		return decodeBase64TileData(b64, raw.Compression, expected, budget, field, 0, 0, label)
+	}
+	trimmed := bytes.TrimSpace(rc.Data)
+	var cdata []uint32
+	if len(trimmed) > 0 && trimmed[0] == '"' && raw.Encoding == "csv" {
+		var csvStr string
+		if err := json.Unmarshal(rc.Data, &csvStr); err != nil {
+			return nil, loaderr.Errorf(field, "export the map again from Tiled; data is an array of tile GIDs", "%s data: %w", label, err)
+		}
+		var err error
+		cdata, err = decodeCSVTileData(csvStr, field, 0, 0, label)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		if err := json.Unmarshal(rc.Data, &cdata); err != nil {
+			return nil, loaderr.Errorf(field, "export the map again from Tiled; data is an array of tile GIDs", "%s data: %w", label, err)
+		}
+	}
+	if len(cdata) != expected {
+		return nil, &loaderr.Error{Field: field, Problem: fmt.Sprintf("%s has %d tiles", label, len(cdata)), Expected: fmt.Sprintf("%d (%dx%d)", expected, rc.Width, rc.Height), Fix: "export the map again from Tiled so each chunk's data has one GID per tile"}
+	}
+	return cdata, nil
+}
+
 // buildChunkedTileLayer loads an infinite Tiled map's tile layer raw directly into a sparse chunked TileLayer,
 // preserving true negative and positive chunk coordinates without flattening into a dense array.
-func buildChunkedTileLayer(raw tiledLayer, li int, ox, oy, px, py, opacity float32, visible bool, props Properties) (TileLayer, error) {
+func buildChunkedTileLayer(raw tiledLayer, li int, ox, oy, px, py, opacity float32, visible bool, props Properties, budget *int64) (TileLayer, error) {
 	if len(raw.Chunks) == 0 {
 		layer := NewChunkedTileLayer(raw.Name, DefaultChunkSize)
 		layer.StartX = raw.StartX
@@ -490,45 +660,43 @@ func buildChunkedTileLayer(raw tiledLayer, li int, ox, oy, px, py, opacity float
 		data       []uint32
 	}
 	chunks := make([]parsedChunk, len(raw.Chunks))
-	var minX, minY, maxX, maxY int
+	var minX, minY, maxX, maxY int64
 	uniformChunkSize := 0
 	uniform := true
 
 	for i, rc := range raw.Chunks {
 		if rc.Width <= 0 || rc.Height <= 0 {
-			return TileLayer{}, loaderr.Errorf(loaderr.Path(li, "chunks", i), "export the map again from Tiled; a chunk's width and height are above 0", "layer %q chunk %d has non-positive size %dx%d", raw.Name, i, rc.Width, rc.Height)
+			return TileLayer{}, &loaderr.Error{Line: rc.line, Column: rc.col, Field: loaderr.Path(li, "chunks", i), Problem: fmt.Sprintf("layer %q chunk %d has non-positive size %dx%d", raw.Name, i, rc.Width, rc.Height), Fix: "save or export the map again from Tiled; a chunk's width and height are above 0"}
 		}
-		if rc.Width > math.MaxInt/rc.Height {
-			return TileLayer{}, loaderr.Errorf(loaderr.Path(li, "chunks", i), "make the chunk smaller", "layer %q chunk %d size %dx%d overflows", raw.Name, i, rc.Width, rc.Height)
-		}
-		var cdata []uint32
-		if err := json.Unmarshal(rc.Data, &cdata); err != nil {
-			return TileLayer{}, loaderr.Errorf(loaderr.Path(li, "chunks", i, "data"), "export the map again from Tiled; data is an array of tile GIDs", "layer %q chunk %d data: %w", raw.Name, i, err)
-		}
-		if len(cdata) != rc.Width*rc.Height {
-			return TileLayer{}, &loaderr.Error{Field: loaderr.Path(li, "chunks", i, "data"), Problem: fmt.Sprintf("layer %q chunk %d has %d tiles", raw.Name, i, len(cdata)), Expected: fmt.Sprintf("%d (%dx%d)", rc.Width*rc.Height, rc.Width, rc.Height), Fix: "export the map again from Tiled so each chunk's data has one GID per tile"}
+		cdata, err := decodeChunkTileData(raw, rc, li, i, budget)
+		if err != nil {
+			return TileLayer{}, err
 		}
 		chunks[i] = parsedChunk{x: rc.X, y: rc.Y, w: rc.Width, h: rc.Height, data: cdata}
+		cx0 := int64(rc.X)
+		cy0 := int64(rc.Y)
+		cx1 := cx0 + int64(rc.Width)
+		cy1 := cy0 + int64(rc.Height)
 		if i == 0 {
-			minX, minY = rc.X, rc.Y
-			maxX, maxY = rc.X+rc.Width, rc.Y+rc.Height
+			minX, minY = cx0, cy0
+			maxX, maxY = cx1, cy1
 			if rc.Width == rc.Height && ValidChunkSize(rc.Width) && rc.X%rc.Width == 0 && rc.Y%rc.Height == 0 {
 				uniformChunkSize = rc.Width
 			} else {
 				uniform = false
 			}
 		} else {
-			if rc.X < minX {
-				minX = rc.X
+			if cx0 < minX {
+				minX = cx0
 			}
-			if rc.Y < minY {
-				minY = rc.Y
+			if cy0 < minY {
+				minY = cy0
 			}
-			if rc.X+rc.Width > maxX {
-				maxX = rc.X + rc.Width
+			if cx1 > maxX {
+				maxX = cx1
 			}
-			if rc.Y+rc.Height > maxY {
-				maxY = rc.Y + rc.Height
+			if cy1 > maxY {
+				maxY = cy1
 			}
 			if uniform && (rc.Width != uniformChunkSize || rc.Height != uniformChunkSize || rc.X%uniformChunkSize != 0 || rc.Y%uniformChunkSize != 0) {
 				uniform = false
@@ -542,10 +710,14 @@ func buildChunkedTileLayer(raw tiledLayer, li int, ox, oy, px, py, opacity float
 	}
 
 	layer := NewChunkedTileLayer(raw.Name, chunkSize)
-	layer.Width = maxX - minX
-	layer.Height = maxY - minY
-	layer.StartX = minX
-	layer.StartY = minY
+	if minX >= math.MinInt32 && maxX <= math.MaxInt32 && maxX-minX <= math.MaxInt32 {
+		layer.Width = int(maxX - minX)
+		layer.StartX = int(minX)
+	}
+	if minY >= math.MinInt32 && maxY <= math.MaxInt32 && maxY-minY <= math.MaxInt32 {
+		layer.Height = int(maxY - minY)
+		layer.StartY = int(minY)
+	}
 	layer.OffsetX = ox
 	layer.OffsetY = oy
 	layer.ParallaxX = px
@@ -587,13 +759,49 @@ func parseProperties(raw []tiledProperty) (Properties, error) {
 	props := make(Properties, len(raw))
 	for pi, rp := range raw {
 		bad := func(err error) error {
-			return loaderr.Errorf(loaderr.Path(pi, "value"), fmt.Sprintf("give the property a value of its type, %s, in Tiled", typeName(rp.Type)), "property %q (%s): %w", rp.Name, typeName(rp.Type), err)
+			e := loaderr.Errorf(loaderr.Path(pi, "value"), fmt.Sprintf("give the property a value of its type, %s, in Tiled", typeName(rp.Type)), "property %q (%s): %w", rp.Name, typeName(rp.Type), err)
+			e.Line, e.Column = rp.line, rp.col
+			return e
 		}
 		typ := rp.Type
 		if typ == "" {
 			typ = "string"
 		}
 		var val any
+		if rp.isXML {
+			switch typ {
+			case "string", "color", "file":
+				val = rp.xmlValue
+			case "int", "object":
+				n, err := strconv.Atoi(strings.TrimSpace(rp.xmlValue))
+				if err != nil {
+					return nil, bad(err)
+				}
+				val = n
+			case "float":
+				f, err := strconv.ParseFloat(strings.TrimSpace(rp.xmlValue), 64)
+				if err != nil || math.IsNaN(f) || math.IsInf(f, 0) {
+					if err == nil {
+						err = fmt.Errorf("non-finite float %q", rp.xmlValue)
+					}
+					return nil, bad(err)
+				}
+				val = f
+			case "bool":
+				switch strings.TrimSpace(rp.xmlValue) {
+				case "true":
+					val = true
+				case "false":
+					val = false
+				default:
+					return nil, bad(fmt.Errorf("invalid bool %q", rp.xmlValue))
+				}
+			default:
+				val = rp.xmlValue
+			}
+			props[rp.Name] = Property{Name: rp.Name, Type: typ, Value: val}
+			continue
+		}
 		switch typ {
 		case "string", "color", "file":
 			var s string
@@ -672,12 +880,16 @@ type tiledMap struct {
 	Layers        []tiledLayer      `json:"layers"`
 	Tilesets      []tiledTilesetRef `json:"tilesets"`
 	Properties    []tiledProperty   `json:"properties"`
+	line          int
+	col           int
 }
 
 type tiledTilesetRef struct {
 	FirstGID uint32 `json:"firstgid"`
 	Source   string `json:"source"`
 	tiledTileset
+	line int
+	col  int
 }
 
 type tiledTileset struct {
@@ -692,6 +904,10 @@ type tiledTileset struct {
 	Margin     float32         `json:"margin"`
 	Properties []tiledProperty `json:"properties"`
 	Tiles      []tiledTile     `json:"tiles"`
+	line       int
+	col        int
+	imageLine  int
+	imageCol   int
 }
 
 type tiledTile struct {
@@ -700,19 +916,28 @@ type tiledTile struct {
 	Class      string               `json:"class"`
 	Properties []tiledProperty      `json:"properties"`
 	Animation  []tiledAnimFrameJSON `json:"animation"`
+	line       int
+	col        int
 }
 
 type tiledAnimFrameJSON struct {
 	TileID   uint32 `json:"tileid"`
 	Duration int    `json:"duration"`
+	line     int
+	col      int
 }
 
 type tiledChunk struct {
-	X      int             `json:"x"`
-	Y      int             `json:"y"`
-	Width  int             `json:"width"`
-	Height int             `json:"height"`
-	Data   json.RawMessage `json:"data"`
+	X           int             `json:"x"`
+	Y           int             `json:"y"`
+	Width       int             `json:"width"`
+	Height      int             `json:"height"`
+	Data        json.RawMessage `json:"data"`
+	isXML       bool
+	xmlDataText string
+	xmlTiles    []uint32
+	line        int
+	col         int
 }
 
 type tiledLayer struct {
@@ -740,6 +965,16 @@ type tiledLayer struct {
 	Objects     []tiledObject   `json:"objects"`
 	Layers      []tiledLayer    `json:"layers"`
 	Properties  []tiledProperty `json:"properties"`
+	isXML       bool
+	hasXMLData  bool
+	xmlDataText string
+	xmlTiles    []uint32
+	line        int
+	col         int
+	dataLine    int
+	dataCol     int
+	imageLine   int
+	imageCol    int
 }
 
 type tiledObject struct {
@@ -759,6 +994,8 @@ type tiledObject struct {
 	Polygon    []tiledPoint    `json:"polygon"`
 	Polyline   []tiledPoint    `json:"polyline"`
 	Properties []tiledProperty `json:"properties"`
+	line       int
+	col        int
 }
 
 type tiledPoint struct {
@@ -767,7 +1004,11 @@ type tiledPoint struct {
 }
 
 type tiledProperty struct {
-	Name  string          `json:"name"`
-	Type  string          `json:"type"`
-	Value json.RawMessage `json:"value"`
+	Name     string          `json:"name"`
+	Type     string          `json:"type"`
+	Value    json.RawMessage `json:"value"`
+	isXML    bool
+	xmlValue string
+	line     int
+	col      int
 }

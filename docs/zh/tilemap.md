@@ -1,6 +1,6 @@
 # tilemap
 
-`game/tilemap` 负责带视锥裁剪的正交瓦片地图绘制、Tiled `.tmj` 地图与动画瓦片加载、瓦片碰撞标志与射线查询，以及支持平滑跟随、边界限制和屏幕震动的 2D 相机。
+`game/tilemap` 负责带视锥裁剪的正交、等距、交错与六边形瓦片地图绘制、Tiled `.tmx`/`.tmj` 地图（含内嵌或外部 `.tsx`/`.tsj` 图块集）与动画瓦片加载、瓦片碰撞标志与射线查询，以及支持平滑跟随、边界限制和屏幕震动的 2D 相机。
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/tilemap"
@@ -57,19 +57,19 @@ d.Restore()
 
 ## 加载 Tiled 地图
 
-`LoadTiled` 解析未压缩的正交 Tiled JSON 地图（`.tmj`），支持内嵌与外部 `.tsj` 图块集、GID 翻转位（`FlipHorizontal`、`FlipVertical`、`FlipDiagonal`）、对象层、带类型的自定义属性以及动画瓦片：
+`LoadTiled` 会根据输入字节自动识别并解析 Tiled XML（`.tmx`）与 JSON（`.tmj`）地图到同一个 `*Tilemap`。它支持内嵌及外部 `.tsx`/`.tsj` 图块集（包括 `.tmx` 引用 `.tsj` 或 `.tmj` 引用 `.tsx` 的跨格式组合），支持有限图层与无限地图分块的 CSV、XML `<tile>` 以及 base64 瓦片数据（未压缩、`zlib` 与 `gzip`），同时支持图像层、嵌套图层组、GID 翻转位（`FlipHorizontal`、`FlipVertical`、`FlipDiagonal`）、对象层、带类型的自定义属性以及动画瓦片。对于 `zstd` 压缩，加载器会返回带有文件、行号与修复提示的 `*loaderr.Error` 明确拒绝。
 
 ```go
-//go:embed resources/maps/*.tmj resources/maps/*.tsj
+//go:embed resources/maps/*.tmx resources/maps/*.tsx
 var mapFS embed.FS
 
-raw, err := mapFS.ReadFile("resources/maps/level1.tmj")
+raw, err := mapFS.ReadFile("resources/maps/level1.tmx")
 if err != nil {
 	return err
 }
 
 m, err := tilemap.LoadTiled(raw, tilemap.TilesetLoader{
-	LoadJSON: func(source string) ([]byte, error) {
+	LoadTileset: func(source string) ([]byte, error) {
 		return mapFS.ReadFile("resources/maps/" + source)
 	},
 	LoadImage: func(imagePath string) (core.ImageSource, error) {
@@ -80,6 +80,8 @@ if err != nil {
 	return err
 }
 ```
+
+当 `LoadTileset` 为 nil 时，沿用 `TilesetLoader.LoadJSON` 的旧调用方仍可同时加载 `.tsj` 与 `.tsx` 外部图块集。
 
 ### 用代码构建瓦片地图
 
