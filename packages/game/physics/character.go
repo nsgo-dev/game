@@ -380,7 +380,7 @@ func (c *CharacterBody) move(world *World, grid TileGrid, slopes []Slope, platfo
 					}
 				}
 				if hitCol >= 0 {
-					x = ox + float64(hitCol+1)*tw
+					x = ox + float64(float64(hitCol+1)*tw)
 					b.OnLeftWall = true
 					return true
 				}
@@ -431,7 +431,7 @@ func (c *CharacterBody) move(world *World, grid TileGrid, slopes []Slope, platfo
 					}
 				}
 				if hitRow >= 0 {
-					y = oy + float64(hitRow+1)*th
+					y = oy + float64(float64(hitRow+1)*th)
 					b.OnCeiling = true
 					return false, true
 				}

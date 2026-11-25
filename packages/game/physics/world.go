@@ -158,8 +158,8 @@ func appendTileOverlaps(hits []OverlapHit, grid TileGrid, shape Shape, mask Quer
 				continue
 			}
 			tileBox := Box{
-				X: ox32 + float32(col)*tileW,
-				Y: oy32 + float32(row)*tileH,
+				X: ox32 + float32(float32(col)*tileW),
+				Y: oy32 + float32(float32(row)*tileH),
 				W: tileW,
 				H: tileH,
 			}

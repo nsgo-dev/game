@@ -4,6 +4,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/nsgo-dev/game/packages/game/internal/detmath"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -149,11 +150,10 @@ type trackedBody2D struct {
 }
 
 func (tb *trackedBody2D) worldAnchor(local core.Point) (ax, ay, rx, ry float64) {
-	c := math.Cos(tb.curAngle)
-	s := math.Sin(tb.curAngle)
+	s, c := detmath.Sincos(tb.curAngle)
 	lx, ly := float64(local.X), float64(local.Y)
-	rx = lx*c - ly*s
-	ry = lx*s + ly*c
+	rx = float64(lx*c) - float64(ly*s)
+	ry = float64(lx*s) + float64(ly*c)
 	return tb.curX + rx, tb.curY + ry, rx, ry
 }
 
@@ -161,17 +161,17 @@ func (tb *trackedBody2D) generalizedInvMass(rx, ry, nx, ny float64) float64 {
 	if tb.staticOrNil {
 		return 0
 	}
-	rn := rx*ny - ry*nx
-	return tb.invMass + tb.invInertia*rn*rn
+	rn := float64(rx*ny) - float64(ry*nx)
+	return tb.invMass + float64(float64(tb.invInertia*rn)*rn)
 }
 
 func (tb *trackedBody2D) applyPosImpulse(px, py, rx, ry float64) {
 	if tb.staticOrNil {
 		return
 	}
-	dx := px * tb.invMass
-	dy := py * tb.invMass
-	da := (rx*py - ry*px) * tb.invInertia
+	dx := float64(px * tb.invMass)
+	dy := float64(py * tb.invMass)
+	da := float64((float64(rx*py) - float64(ry*px)) * tb.invInertia)
 	tb.curX += dx
 	tb.curY += dy
 	tb.curAngle += da
@@ -259,7 +259,7 @@ func (sw *SoftWorld) UnpinParticle(idx int) {
 func (sw *SoftWorld) AddDistance(a, b int, restLength, compliance float32) int {
 	if restLength < 0 && sw.validParticle(a) && sw.validParticle(b) {
 		pa, pb := sw.Particles[a], sw.Particles[b]
-		restLength = float32(math.Hypot(float64(pb.X)-float64(pa.X), float64(pb.Y)-float64(pa.Y)))
+		restLength = float32(detmath.Hypot(float64(pb.X)-float64(pa.X), float64(pb.Y)-float64(pa.Y)))
 	}
 	if restLength < 0 {
 		restLength = 0
@@ -282,7 +282,7 @@ func (sw *SoftWorld) AddDistance(a, b int, restLength, compliance float32) int {
 func (sw *SoftWorld) AddTether(a, b int, maxLength, compliance float32) int {
 	if maxLength < 0 && sw.validParticle(a) && sw.validParticle(b) {
 		pa, pb := sw.Particles[a], sw.Particles[b]
-		maxLength = float32(math.Hypot(float64(pb.X)-float64(pa.X), float64(pb.Y)-float64(pa.Y)))
+		maxLength = float32(detmath.Hypot(float64(pb.X)-float64(pa.X), float64(pb.Y)-float64(pa.Y)))
 	}
 	if maxLength < 0 {
 		maxLength = 0
@@ -369,8 +369,8 @@ func (sw *SoftWorld) AddShapeMatch(particles []int, stiffness float32) int {
 			m = 1.0 / float64(p.InvMass)
 		}
 		sumM += m
-		cx += float64(p.X) * m
-		cy += float64(p.Y) * m
+		cx += float64(float64(p.X) * m)
+		cy += float64(float64(p.Y) * m)
 	}
 	if sumM > 0 {
 		cx /= sumM
@@ -422,7 +422,7 @@ func (sw *SoftWorld) RopeLength(particles []int) float32 {
 			continue
 		}
 		pa, pb := sw.Particles[a], sw.Particles[b]
-		total += math.Hypot(float64(pb.X)-float64(pa.X), float64(pb.Y)-float64(pa.Y))
+		total += detmath.Hypot(float64(pb.X)-float64(pa.X), float64(pb.Y)-float64(pa.Y))
 	}
 	return float32(total)
 }
@@ -441,7 +441,7 @@ func (sw *SoftWorld) PolygonArea(particles []int) float32 {
 			continue
 		}
 		pa, pb := sw.Particles[ia], sw.Particles[ib]
-		sum += float64(pa.X)*float64(pb.Y) - float64(pb.X)*float64(pa.Y)
+		sum += float64(float64(pa.X)*float64(pb.Y)) - float64(float64(pb.X)*float64(pa.Y))
 	}
 	return float32(sum * 0.5)
 }
@@ -489,8 +489,8 @@ func (sw *SoftWorld) AddRope(cfg RopeConfig) []int {
 	indices := make([]int, count)
 	for i := 0; i < count; i++ {
 		t := float64(i) / float64(segs)
-		x := float32(float64(cfg.StartX) + (float64(cfg.EndX)-float64(cfg.StartX))*t)
-		y := float32(float64(cfg.StartY) + (float64(cfg.EndY)-float64(cfg.StartY))*t)
+		x := float32(float64(cfg.StartX) + float64((float64(cfg.EndX)-float64(cfg.StartX))*t))
+		y := float32(float64(cfg.StartY) + float64((float64(cfg.EndY)-float64(cfg.StartY))*t))
 		pinned := (i == 0 && cfg.PinStart) || (i == segs && cfg.PinEnd)
 		indices[i] = sw.AddParticle(Particle{
 			X:        x,
@@ -504,7 +504,7 @@ func (sw *SoftWorld) AddRope(cfg RopeConfig) []int {
 		})
 	}
 
-	totalLen := math.Hypot(float64(cfg.EndX)-float64(cfg.StartX), float64(cfg.EndY)-float64(cfg.StartY))
+	totalLen := detmath.Hypot(float64(cfg.EndX)-float64(cfg.StartX), float64(cfg.EndY)-float64(cfg.StartY))
 	segLen := float32(totalLen / float64(segs))
 	for i := 0; i < segs; i++ {
 		sw.AddDistance(indices[i], indices[i+1], segLen, cfg.Compliance)
@@ -581,8 +581,9 @@ func (sw *SoftWorld) AddSoftBody(cfg SoftBodyConfig) []int {
 	indices := make([]int, n)
 	for i := 0; i < n; i++ {
 		theta := 2 * math.Pi * float64(i) / float64(n)
-		x := float32(float64(cfg.CenterX) + float64(rx)*math.Cos(theta))
-		y := float32(float64(cfg.CenterY) + float64(ry)*math.Sin(theta))
+		sin, cos := detmath.Sincos(theta)
+		x := float32(float64(cfg.CenterX) + float64(float64(rx)*cos))
+		y := float32(float64(cfg.CenterY) + float64(float64(ry)*sin))
 		indices[i] = sw.AddParticle(Particle{
 			X:           x,
 			Y:           y,
@@ -702,9 +703,9 @@ func (sw *SoftWorld) Step(dt time.Duration) {
 			if hist, ok := sw.findBodyHistory(b); ok {
 				sx, sy, sa = hist.x, hist.y, hist.angle
 			} else if !b.Static {
-				sx = tx - float64(b.VX)*dtSec
-				sy = ty - float64(b.VY)*dtSec
-				sa = ta - float64(b.AngularVel)*dtSec
+				sx = tx - float64(float64(b.VX)*dtSec)
+				sy = ty - float64(float64(b.VY)*dtSec)
+				sa = ta - float64(float64(b.AngularVel)*dtSec)
 			}
 			ti = len(tracked)
 			tracked = append(tracked, trackedBody2D{
@@ -741,7 +742,7 @@ func (sw *SoftWorld) Step(dt time.Duration) {
 	gx, gy := float64(sw.GravityX), float64(sw.GravityY)
 	dampFactor := 1.0
 	if sw.Damping > 0 {
-		dampFactor = 1.0 / (1.0 + float64(sw.Damping)*h)
+		dampFactor = 1.0 / (1.0 + float64(float64(sw.Damping)*h))
 	}
 
 	px := make([]float64, len(sw.Particles))
@@ -802,12 +803,12 @@ func (sw *SoftWorld) Step(dt time.Duration) {
 				continue
 			}
 			w := p.effectiveInvMass()
-			vx[i] = (vx[i] + (gx+p.forceX*w)*h) * dampFactor
-			vy[i] = (vy[i] + (gy+p.forceY*w)*h) * dampFactor
+			vx[i] = (vx[i] + float64((gx+float64(p.forceX*w))*h)) * dampFactor
+			vy[i] = (vy[i] + float64((gy+float64(p.forceY*w))*h)) * dampFactor
 			preHitVX[i] = vx[i]
 			preHitVY[i] = vy[i]
-			px[i] += vx[i] * h
-			py[i] += vy[i] * h
+			px[i] += float64(vx[i] * h)
+			py[i] += float64(vy[i] * h)
 		}
 
 		// Reset XPBD Lagrange multipliers for this substep.
@@ -873,7 +874,7 @@ func (sw *SoftWorld) Step(dt time.Duration) {
 		}
 
 		// Derive XPBD velocities from constrained displacements.
-		restThresh := max(1.0, 2.0*math.Hypot(gx, gy)*h)
+		restThresh := max(1.0, 2.0*detmath.Hypot(gx, gy)*h)
 		for i := range sw.Particles {
 			p := &sw.Particles[i]
 			if p.IsPinned() {
@@ -885,14 +886,14 @@ func (sw *SoftWorld) Step(dt time.Duration) {
 			vy[i] = (py[i] - prevY[i]) * invH
 
 			if hits[i].hit && hits[i].rest > 0 {
-				preVN := preHitVX[i]*hits[i].nx + preHitVY[i]*hits[i].ny
+				preVN := float64(preHitVX[i]*hits[i].nx) + float64(preHitVY[i]*hits[i].ny)
 				if -preVN > restThresh {
-					curVN := vx[i]*hits[i].nx + vy[i]*hits[i].ny
-					targetVN := -hits[i].rest * preVN
+					curVN := float64(vx[i]*hits[i].nx) + float64(vy[i]*hits[i].ny)
+					targetVN := float64(-hits[i].rest * preVN)
 					if targetVN > curVN {
 						dv := targetVN - curVN
-						vx[i] += hits[i].nx * dv
-						vy[i] += hits[i].ny * dv
+						vx[i] += float64(hits[i].nx * dv)
+						vy[i] += float64(hits[i].ny * dv)
 					}
 				}
 			}
@@ -925,9 +926,9 @@ func (sw *SoftWorld) Step(dt time.Duration) {
 			b.X = float32(tb.curX)
 			b.Y = float32(tb.curY)
 			b.Angle = float32(tb.curAngle)
-			b.VX = float32(float64(b.VX) + tb.corrX*invDt)
-			b.VY = float32(float64(b.VY) + tb.corrY*invDt)
-			b.AngularVel = float32(float64(b.AngularVel) + tb.corrAngle*invDt)
+			b.VX = float32(float64(b.VX) + float64(tb.corrX*invDt))
+			b.VY = float32(float64(b.VY) + float64(tb.corrY*invDt))
+			b.AngularVel = float32(float64(b.AngularVel) + float64(tb.corrAngle*invDt))
 			b.syncShape()
 		}
 		sw.saveBodyHistory(b, float64(b.X), float64(b.Y), float64(b.Angle))
@@ -975,7 +976,7 @@ func (sw *SoftWorld) solveDistance2D(
 
 	dx := bx - ax
 	dy := by - ay
-	dist := math.Hypot(dx, dy)
+	dist := detmath.Hypot(dx, dy)
 	if dist <= 1e-9 {
 		return
 	}
@@ -999,12 +1000,12 @@ func (sw *SoftWorld) solveDistance2D(
 		wB = pb.effectiveInvMass()
 	}
 
-	alphaTilde := float64(c.Compliance) * invHSq
+	alphaTilde := float64(float64(c.Compliance) * invHSq)
 	denom := wA + wB + alphaTilde
 	if denom <= 1e-12 {
 		return
 	}
-	dLambda := (-err - alphaTilde*c.lambda) / denom
+	dLambda := (-err - float64(alphaTilde*c.lambda)) / denom
 	if c.MaxOnly {
 		newLambda := c.lambda + dLambda
 		if newLambda > 0 {
@@ -1021,8 +1022,8 @@ func (sw *SoftWorld) solveDistance2D(
 		tb.applyPosImpulse(-dLambda*nx, -dLambda*ny, rAx, rAy)
 		px[c.A], py[c.A], _, _ = tb.worldAnchor(sw.Attachments[attA].LocalAnchor)
 	} else if wA > 0 {
-		px[c.A] -= dLambda * wA * nx
-		py[c.A] -= dLambda * wA * ny
+		px[c.A] -= float64(dLambda * wA * nx)
+		py[c.A] -= float64(dLambda * wA * ny)
 	}
 
 	if attB >= 0 {
@@ -1030,13 +1031,13 @@ func (sw *SoftWorld) solveDistance2D(
 		tb.applyPosImpulse(dLambda*nx, dLambda*ny, rBx, rBy)
 		px[c.B], py[c.B], _, _ = tb.worldAnchor(sw.Attachments[attB].LocalAnchor)
 	} else if wB > 0 {
-		px[c.B] += dLambda * wB * nx
-		py[c.B] += dLambda * wB * ny
+		px[c.B] += float64(dLambda * wB * nx)
+		py[c.B] += float64(dLambda * wB * ny)
 	}
 }
 
 func signedAngle2D(e1x, e1y, e2x, e2y float64) float64 {
-	return math.Atan2(e1x*e2y-e1y*e2x, e1x*e2x+e1y*e2y)
+	return detmath.Atan2(float64(e1x*e2y)-float64(e1y*e2x), float64(e1x*e2x)+float64(e1y*e2y))
 }
 
 func wrapAngle(a float64) float64 {
@@ -1064,8 +1065,8 @@ func (sw *SoftWorld) solveBending2D(c *BendingConstraint, px, py []float64, invH
 	e1y := py[c.A] - py[c.B]
 	e2x := px[c.C] - px[c.B]
 	e2y := py[c.C] - py[c.B]
-	l1Sq := e1x*e1x + e1y*e1y
-	l2Sq := e2x*e2x + e2y*e2y
+	l1Sq := float64(e1x*e1x) + float64(e1y*e1y)
+	l2Sq := float64(e2x*e2x) + float64(e2y*e2y)
 	if l1Sq <= 1e-12 || l2Sq <= 1e-12 {
 		return
 	}
@@ -1081,25 +1082,25 @@ func (sw *SoftWorld) solveBending2D(c *BendingConstraint, px, py []float64, invH
 	gBx := -(gAx + gCx)
 	gBy := -(gAy + gCy)
 
-	alphaTilde := float64(c.Compliance) * invHSq
-	denom := wA*(gAx*gAx+gAy*gAy) + wB*(gBx*gBx+gBy*gBy) + wC*(gCx*gCx+gCy*gCy) + alphaTilde
+	alphaTilde := float64(float64(c.Compliance) * invHSq)
+	denom := float64(wA*(float64(gAx*gAx)+float64(gAy*gAy))) + float64(wB*(float64(gBx*gBx)+float64(gBy*gBy))) + float64(wC*(float64(gCx*gCx)+float64(gCy*gCy))) + alphaTilde
 	if denom <= 1e-12 {
 		return
 	}
-	dLambda := (-err - alphaTilde*c.lambda) / denom
+	dLambda := (-err - float64(alphaTilde*c.lambda)) / denom
 	c.lambda += dLambda
 
 	if wA > 0 {
-		px[c.A] += dLambda * wA * gAx
-		py[c.A] += dLambda * wA * gAy
+		px[c.A] += float64(dLambda * wA * gAx)
+		py[c.A] += float64(dLambda * wA * gAy)
 	}
 	if wB > 0 {
-		px[c.B] += dLambda * wB * gBx
-		py[c.B] += dLambda * wB * gBy
+		px[c.B] += float64(dLambda * wB * gBx)
+		py[c.B] += float64(dLambda * wB * gBy)
 	}
 	if wC > 0 {
-		px[c.C] += dLambda * wC * gCx
-		py[c.C] += dLambda * wC * gCy
+		px[c.C] += float64(dLambda * wC * gCx)
+		py[c.C] += float64(dLambda * wC * gCy)
 	}
 }
 
@@ -1118,15 +1119,15 @@ func (sw *SoftWorld) solveArea2D(c *AreaConstraint, px, py []float64, invHSq flo
 	for i := 0; i < n; i++ {
 		ia := c.Particles[i]
 		ib := c.Particles[(i+1)%n]
-		area += px[ia]*py[ib] - px[ib]*py[ia]
+		area += float64(px[ia]*py[ib]) - float64(px[ib]*py[ia])
 	}
-	area *= 0.5
+	area = float64(area * 0.5)
 
 	pressure := float64(c.Pressure)
 	if pressure <= 0 {
 		pressure = 1
 	}
-	target := float64(c.RestArea) * pressure
+	target := float64(float64(c.RestArea) * pressure)
 	err := area - target
 
 	var denom float64
@@ -1137,14 +1138,14 @@ func (sw *SoftWorld) solveArea2D(c *AreaConstraint, px, py []float64, invHSq flo
 		gx := 0.5 * (py[iNext] - py[iPrev])
 		gy := 0.5 * (px[iPrev] - px[iNext])
 		w := sw.Particles[iCur].effectiveInvMass()
-		denom += w * (gx*gx + gy*gy)
+		denom += float64(w * (float64(gx*gx) + float64(gy*gy)))
 	}
-	alphaTilde := float64(c.Compliance) * invHSq
+	alphaTilde := float64(float64(c.Compliance) * invHSq)
 	denom += alphaTilde
 	if denom <= 1e-12 {
 		return
 	}
-	dLambda := (-err - alphaTilde*c.lambda) / denom
+	dLambda := (-err - float64(alphaTilde*c.lambda)) / denom
 	c.lambda += dLambda
 
 	// Compute gradients against pre-update coordinates for exact symmetry.
@@ -1160,8 +1161,8 @@ func (sw *SoftWorld) solveArea2D(c *AreaConstraint, px, py []float64, invHSq flo
 		idx := c.Particles[i]
 		w := sw.Particles[idx].effectiveInvMass()
 		if w > 0 {
-			px[idx] += dLambda * w * gradX[i]
-			py[idx] += dLambda * w * gradY[i]
+			px[idx] += float64(dLambda * w * gradX[i])
+			py[idx] += float64(dLambda * w * gradY[i])
 		}
 	}
 }
@@ -1182,8 +1183,8 @@ func (sw *SoftWorld) solveShapeMatch2D(c *ShapeMatchConstraint, px, py []float64
 			m = 1.0 / float64(sw.Particles[idx].InvMass)
 		}
 		sumM += m
-		cx += px[idx] * m
-		cy += py[idx] * m
+		cx += float64(px[idx] * m)
+		cy += float64(py[idx] * m)
 	}
 	if sumM <= 0 {
 		return
@@ -1203,10 +1204,10 @@ func (sw *SoftWorld) solveShapeMatch2D(c *ShapeMatchConstraint, px, py []float64
 		ry := py[idx] - cy
 		qx := float64(c.RestOffsets[i][0])
 		qy := float64(c.RestOffsets[i][1])
-		a += m * (rx*qx + ry*qy)
-		b += m * (ry*qx - rx*qy)
+		a += float64(m * (float64(rx*qx) + float64(ry*qy)))
+		b += float64(m * (float64(ry*qx) - float64(rx*qy)))
 	}
-	l := math.Hypot(a, b)
+	l := detmath.Hypot(a, b)
 	cosT, sinT := 1.0, 0.0
 	if l > 1e-12 {
 		cosT = a / l
@@ -1219,7 +1220,7 @@ func (sw *SoftWorld) solveShapeMatch2D(c *ShapeMatchConstraint, px, py []float64
 	} else if stiff > 1 {
 		stiff = 1
 	}
-	k := 1.0 - math.Pow(1.0-stiff, 1.0/float64(max(1, iters)))
+	k := shapeMatchGain(stiff, iters)
 	for i := 0; i < n; i++ {
 		idx := c.Particles[i]
 		if sw.Particles[idx].IsPinned() {
@@ -1227,11 +1228,48 @@ func (sw *SoftWorld) solveShapeMatch2D(c *ShapeMatchConstraint, px, py []float64
 		}
 		qx := float64(c.RestOffsets[i][0])
 		qy := float64(c.RestOffsets[i][1])
-		gx := cx + qx*cosT - qy*sinT
-		gy := cy + qx*sinT + qy*cosT
-		px[idx] += (gx - px[idx]) * k
-		py[idx] += (gy - py[idx]) * k
+		gx := cx + float64(qx*cosT) - float64(qy*sinT)
+		gy := cy + float64(qx*sinT) + float64(qy*cosT)
+		px[idx] += float64((gx - px[idx]) * k)
+		py[idx] += float64((gy - py[idx]) * k)
 	}
+}
+
+// shapeMatchGain returns 1 - (1-stiff)^(1/iters), the gain per solver iteration that compounds to stiff over iters iterations. It takes the root with Newton's method in plain IEEE-754 arithmetic rather than math.Pow, whose Exp has its own assembly on amd64 and on arm64 and whose Log is assembly on amd64 only, so the two architectures round it differently.
+func shapeMatchGain(stiff float64, iters int) float64 {
+	x := 1.0 - stiff
+	n := max(1, iters)
+	if x <= 0 {
+		return 1
+	}
+	if n == 1 || x >= 1 {
+		return stiff
+	}
+	// Newton's method on y^n = x from y = 1 decreases monotonically toward the root because y^n is convex, so it stops at the first step that fails to decrease. Stiffness is a float32, so x >= 2^-24 and the loop takes about |ln x| + 6 steps and the cap is only a backstop.
+	y := 1.0
+	fn := float64(n)
+	fm := float64(n - 1)
+	for range 128 {
+		next := (float64(fm*y) + x/powInt(y, n-1)) / fn
+		if !(next < y) {
+			break
+		}
+		y = next
+	}
+	return 1 - y
+}
+
+// powInt returns y^m for m >= 0 by repeated squaring.
+func powInt(y float64, m int) float64 {
+	r := 1.0
+	for m > 0 {
+		if m&1 == 1 {
+			r *= y
+		}
+		y *= y
+		m >>= 1
+	}
+	return r
 }
 
 func (sw *SoftWorld) solveCompliantAttachment2D(att *RigidAttachment, tb *trackedBody2D, px, py []float64, invHSq float64) {
@@ -1242,7 +1280,7 @@ func (sw *SoftWorld) solveCompliantAttachment2D(att *RigidAttachment, tb *tracke
 	ax, ay, rx, ry := tb.worldAnchor(att.LocalAnchor)
 	dx := px[att.Particle] - ax
 	dy := py[att.Particle] - ay
-	dist := math.Hypot(dx, dy)
+	dist := detmath.Hypot(dx, dy)
 	if dist <= 1e-9 {
 		return
 	}
@@ -1251,17 +1289,17 @@ func (sw *SoftWorld) solveCompliantAttachment2D(att *RigidAttachment, tb *tracke
 
 	wP := p.effectiveInvMass()
 	wB := tb.generalizedInvMass(rx, ry, nx, ny)
-	alphaTilde := float64(att.Compliance) * invHSq
+	alphaTilde := float64(float64(att.Compliance) * invHSq)
 	denom := wP + wB + alphaTilde
 	if denom <= 1e-12 {
 		return
 	}
-	dLambda := (-dist - alphaTilde*att.lambda) / denom
+	dLambda := (-dist - float64(alphaTilde*att.lambda)) / denom
 	att.lambda += dLambda
 
 	if wP > 0 {
-		px[att.Particle] += dLambda * wP * nx
-		py[att.Particle] += dLambda * wP * ny
+		px[att.Particle] += float64(dLambda * wP * nx)
+		py[att.Particle] += float64(dLambda * wP * ny)
 	}
 	if !tb.staticOrNil {
 		tb.applyPosImpulse(-dLambda*nx, -dLambda*ny, rx, ry)
@@ -1284,17 +1322,17 @@ func (sw *SoftWorld) resolveParticleCollisions2D(
 		if depth <= 0 {
 			return
 		}
-		px[i] += nx * depth
-		py[i] += ny * depth
+		px[i] += float64(nx * depth)
+		py[i] += float64(ny * depth)
 
 		mu := math.Sqrt(max(0, float64(p.Friction)) * max(0, surfaceFriction))
 		if mu > 0 {
 			dx := px[i] - prevX[i]
 			dy := py[i] - prevY[i]
-			vn := dx*nx + dy*ny
-			tx := dx - vn*nx
-			ty := dy - vn*ny
-			tLen := math.Hypot(tx, ty)
+			vn := float64(dx*nx) + float64(dy*ny)
+			tx := dx - float64(vn*nx)
+			ty := dy - float64(vn*ny)
+			tLen := detmath.Hypot(tx, ty)
 			if tLen > 1e-12 {
 				maxSlide := mu * depth
 				if tLen <= maxSlide {
@@ -1302,8 +1340,8 @@ func (sw *SoftWorld) resolveParticleCollisions2D(
 					py[i] -= ty
 				} else {
 					s := maxSlide / tLen
-					px[i] -= tx * s
-					py[i] -= ty * s
+					px[i] -= float64(tx * s)
+					py[i] -= float64(ty * s)
 				}
 			}
 		}
@@ -1383,14 +1421,14 @@ func (sw *SoftWorld) resolveParticleTileGrid2D(
 	maxRow := min(rows-1, int(math.Ceil((py[i]-oy+r)/th))-1)
 
 	for row := minRow; row <= maxRow; row++ {
-		tileTop := oy + float64(row)*th
+		tileTop := oy + float64(float64(row)*th)
 		for col := minCol; col <= maxCol; col++ {
 			flags := grid.TileFlagsAt(col, row)
 			if flags == 0 {
 				continue
 			}
 			if flags&TileSolid != 0 {
-				tileBox := Box{X: ox32 + float32(col)*tileW, Y: oy32 + float32(row)*tileH, W: tileW, H: tileH}
+				tileBox := Box{X: ox32 + float32(float32(col)*tileW), Y: oy32 + float32(float32(row)*tileH), W: tileW, H: tileH}
 				c := TestCircleBox(Circle{X: float32(px[i]), Y: float32(py[i]), R: float32(r)}, tileBox)
 				if c.Hit {
 					applySurface(float64(c.NormalX), float64(c.NormalY), float64(c.Depth), 0.5, 0)
@@ -1398,7 +1436,7 @@ func (sw *SoftWorld) resolveParticleTileGrid2D(
 			} else if flags&TileOneWay != 0 {
 				// One-way platform blocks downward crossings of the top edge only.
 				if prevY[i]+r <= tileTop+1e-3 && py[i]+r > tileTop {
-					tileLeft := ox + float64(col)*tw
+					tileLeft := ox + float64(float64(col)*tw)
 					tileRight := tileLeft + tw
 					if px[i]+r > tileLeft && px[i]-r < tileRight {
 						applySurface(0, -1, py[i]+r-tileTop, 0.5, 0)
@@ -1423,23 +1461,22 @@ func collideParticleRigidBody2D(x, y, r float64, rb *RigidBody) (nx, ny, depth f
 		}
 		return float64(c.NormalX), float64(c.NormalY), float64(c.Depth), true
 	case ShapeBox:
-		hw := float64(rb.Shape.Box.W) * 0.5
-		hh := float64(rb.Shape.Box.H) * 0.5
+		hw := float64(float64(rb.Shape.Box.W) * 0.5)
+		hh := float64(float64(rb.Shape.Box.H) * 0.5)
 		if hw <= 0 || hh <= 0 {
 			return 0, 0, 0, false
 		}
-		cosB := math.Cos(float64(rb.Angle))
-		sinB := math.Sin(float64(rb.Angle))
+		sinB, cosB := detmath.Sincos(float64(rb.Angle))
 		relX := x - float64(rb.X)
 		relY := y - float64(rb.Y)
-		lx := relX*cosB + relY*sinB
-		ly := -relX*sinB + relY*cosB
+		lx := float64(relX*cosB) + float64(relY*sinB)
+		ly := float64(-relX*sinB) + float64(relY*cosB)
 
 		cx := min(max(lx, -hw), hw)
 		cy := min(max(ly, -hh), hh)
 		dx := lx - cx
 		dy := ly - cy
-		distSq := dx*dx + dy*dy
+		distSq := float64(dx*dx) + float64(dy*dy)
 
 		var lnx, lny float64
 		if distSq > 0 {
@@ -1471,8 +1508,8 @@ func collideParticleRigidBody2D(x, y, r float64, rb *RigidBody) (nx, ny, depth f
 			}
 			depth = best + r
 		}
-		wnx := lnx*cosB - lny*sinB
-		wny := lnx*sinB + lny*cosB
+		wnx := float64(lnx*cosB) - float64(lny*sinB)
+		wny := float64(lnx*sinB) + float64(lny*cosB)
 		return wnx, wny, depth, true
 	case ShapePolygon, ShapeCapsule, ShapeSegment, ShapeChain:
 		p := pointHull(x, y, r)

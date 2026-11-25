@@ -278,7 +278,7 @@ func MoveAndSlide(b *Body, grid TileGrid, dt time.Duration) MoveResult {
 							}
 						}
 						if hitCol >= 0 {
-							x = ox + float64(hitCol+1)*tw
+							x = ox + float64(float64(hitCol+1)*tw)
 							b.OnLeftWall = true
 							b.VX = 0
 							stepDX = 0
@@ -333,7 +333,7 @@ func MoveAndSlide(b *Body, grid TileGrid, dt time.Duration) MoveResult {
 							}
 						}
 						if hitRow >= 0 {
-							y = oy + float64(hitRow+1)*th
+							y = oy + float64(float64(hitRow+1)*th)
 							b.OnCeiling = true
 							b.VY = 0
 							stepDY = 0
