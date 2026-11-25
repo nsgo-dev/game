@@ -262,15 +262,20 @@ func sceneFileButtons(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirt
 		return ed.Playing() || ed.Project == nil || ed.ProjectPath == ""
 	}
 	return []core.Node{
-		core.Text{
-			TestID: "toolbar-scene-path",
-			ContentFunc: func() string {
-				_ = rev.Get()
-				return ed.SceneLabel()
+		core.View{
+			Style: core.Style{MaxWidth: core.Pt(220)},
+			Children: []core.Node{
+				core.Text{
+					TestID: "toolbar-scene-path",
+					ContentFunc: func() string {
+						_ = rev.Get()
+						return ed.SceneLabel()
+					},
+					MaxLines:      1,
+					EllipsizeMode: core.EllipsizeHead,
+					Style:         core.Style{FontSize: 12, Color: colors.Muted(), MaxWidth: core.Pt(220)},
+				},
 			},
-			MaxLines:      1,
-			EllipsizeMode: core.EllipsizeHead,
-			Style:         core.Style{FontSize: 12, Color: colors.Muted(), MaxWidth: core.Pt(220)},
 		},
 		core.Show{
 			When: func() bool { return dirty.Get().either() },
