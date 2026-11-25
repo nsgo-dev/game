@@ -84,8 +84,15 @@ jobs:
           CLOUDSAVE_POSTGRES_DSN: postgres://postgres:accounts-ci@127.0.0.1:5432/postgres?sslmode=disable
         run: go tool nsgo test ./cloudsave/sqlstore/...
 
-  starter:
-    name: Test the starter against its pinned modules
+  # One matrix entry per template game new offers, in the order packages/game/cmd/game/templates.go registers them, which TestTemplatesRunInCI checks; dir is the template directory of the template's module.
+  templates:
+    name: Test the ${{ matrix.template }} template against its pinned modules
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - template: starter
+            dir: template/template
     runs-on: depot-ubuntu-24.04-4
     timeout-minutes: 20
     steps:
@@ -98,15 +105,17 @@ jobs:
         with:
           go-version-file: packages/game/go.mod
           cache: true
-          cache-dependency-path: template/template/go.sum
+          cache-dependency-path: ${{ matrix.dir }}/go.sum
       # A game made with nsgo init -template builds against the packages/game version go.mod.tmpl pins, not this checkout: test a copy outside the workspace so a stale pin fails here.
-      - name: Test a game made from the starter
+      - name: Test a game made from the template
         env:
           GOWORK: "off"
+          TEMPLATE: ${{ matrix.template }}
+          TEMPLATE_DIR: ${{ matrix.dir }}
         run: |
-          dir="$RUNNER_TEMP/startergame"
-          cp -R template/template "$dir"
-          sed 's|{{.Module}}|example.com/startergame|' "$dir/go.mod.tmpl" > "$dir/go.mod"
+          dir="$RUNNER_TEMP/${TEMPLATE}game"
+          cp -R "$TEMPLATE_DIR" "$dir"
+          sed "s|{{.Module}}|example.com/${TEMPLATE}game|" "$dir/go.mod.tmpl" > "$dir/go.mod"
           rm "$dir/go.mod.tmpl"
           cd "$dir"
           go tool nsgo test ./...

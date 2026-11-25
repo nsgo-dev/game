@@ -21,7 +21,7 @@ cd mygame
 go tool nsgo dev
 ```
 
-起手模板包含精灵动画、点击得分和测试。它的设置都在[项目文件](project.md) `game.yaml` 中，`nsgo.yaml` 与之保持一致。`new` 用目录名作为这两个文件里的 `name` 和 `id`，以及模块路径；`-name` 和 `-module` 可以另行指定，例如 `-module example.com/mygame`。所有参数见[命令行](cli.md#new)。发布游戏之前，把应用标识改成你自己的：在 `game.yaml` 中修改游戏名称和应用标识，然后运行 `go run github.com/nsgo-dev/game/packages/game/cmd/gameproject sync` 把它们写入 `nsgo.yaml`。
+起手模板包含精灵动画、点击得分和测试。它的设置都在[项目文件](project.md) `game.yaml` 中，`nsgo.yaml` 与之保持一致。`new` 用目录名作为这两个文件里的 `name` 和 `id`，以及模块路径；`-name` 和 `-module` 可以另行指定，例如 `-module example.com/mygame`。所有参数见[命令行](cli.md#new)；`-template` 可以从其他[项目模板](templates.md)开始，`new -list` 会列出它们。发布游戏之前，把应用标识改成你自己的：在 `game.yaml` 中修改游戏名称和应用标识，然后运行 `go run github.com/nsgo-dev/game/packages/game/cmd/gameproject sync` 把它们写入 `nsgo.yaml`。
 
 NSGo 自带的命令也能从模板模块写出同一个起手模板，但不包含 `game` 工具：`nsgo init -template github.com/nsgo-dev/game/template -module example.com/mygame mygame`。这需要支持 [Go 模块模板](https://nsgo.dev/zh/docs/getting-started/#来自-go-模块的模板)的 NSGo 命令，例如 `go install github.com/nsgo-dev/nsgo/cmd/nsgo@v0.3.0`。它写出的 `game.yaml` 和 `nsgo.yaml` 把游戏命名为 `Starter Game`，需要你自己修改。
 

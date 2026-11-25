@@ -10,7 +10,7 @@ game/
 ├─ packages/
 │  └─ game/          Go module github.com/nsgo-dev/game/packages/game
 ├─ examples/         playable sample games built on the game layer
-├─ template/         Go module publishing the starter from template/template/
+├─ template/         Go modules publishing the game new templates: starter from template/template/, the others from template/<name>/template/
 ├─ docs/
 │  ├─ en/            site documentation in English
 │  └─ zh/            the same pages in Simplified Chinese
