@@ -74,7 +74,7 @@ _ = inBounds
 
 - **双线性采样与边界钳制**：`TerrainSplatMap.SampleUV` 与 `Heightmap.LayerAt` 采用与 GPU 线性边缘钳制采样一致的纹素中心双线性插值；坐标超出高度图范围时，`Heightmap.LayerAt` 返回 `ok = false` 以及钳制到边缘的采样结果。
 - **基于高度图的锐利混合**：为各层附加灰度高度图（`LoadTerrainHeightLayer`）并将 `HeightBlendContrast` 设为 `(0, 1]` 后，可通过与 `render3d` 地形着色器完全一致的代数公式 `BlendTerrainWeights` 锐化层间过渡（如岩石从泥土中突出）。
-- **纯文本定义**：`ParseTerrain` / `EncodeTerrain` 读写第 1 版 YAML（`https://game.nsgo.dev/schemas/terrain.v1.json`），声明 `heightmap`、`cellSize`、`heightScale`、`origin`、`splatMaps`、`heightBlendContrast`、`triplanar` 及 1–8 个 `layers`（含逐层 `uvScale`、PBR 贴图与参数和 `heightBias`）。未知字段、重名层及权重图数量不足均会返回 `*loaderr.Error`。
+- **纯文本定义**：`ParseTerrain` / `EncodeTerrain` 读写第 1 版 YAML（`https://game.nsgo.dev/schemas/terrain.v1.json`），声明 `heightmap`、`cellSize`、`heightScale`、`origin`、`chunkSize`（每个 LOD 区块边长的格数，默认 `64`）、`splatMaps`、`heightBlendContrast`、`triplanar` 及 1–8 个 `layers`（含逐层 `uvScale`、PBR 贴图与参数和 `heightBias`）。未知字段、重名层及权重图数量不足均会返回 `*loaderr.Error`。调用 `doc.BuildHeightmap(imgs)` / `doc.BuildLOD(hm)`（或 `world3d.LoadTerrainFS(fsys, path)`）可直接从 YAML 构建运行时 `*Heightmap`、关联的 `*TerrainSplatMap` 与 `*TerrainLOD`。`game check` 会检查所有 `*.terrain.yaml` 文件及其引用的高度图、权重图和各层贴图。
 
 ## 多层 3D 导航网格（`NavMesh`）
 
@@ -108,6 +108,23 @@ hit, ok := grid.Raycast(ray, 100)
 _, _, _, _ = batches, colliders, hit, ok
 ```
 
+网格地图也可以用第 1 版 YAML 编写和保存（`*.gridmap.yaml`，Schema 为 `https://game.nsgo.dev/schemas/gridmap.v1.json`），声明 `origin`、`cellSize`、`meshLibrary`、互不重叠的填充盒游程（`boxes`）和单个格子（`cells`），均按规范的 `(y, z, x)` 顺序写出：
+
+```go
+grid, doc, err := world3d.LoadGridMapFS(projectFS, "levels/dungeon.gridmap.yaml")
+if err != nil {
+	return err
+}
+exported, err := grid.ToDoc(doc.Name, doc.MeshLibrary)
+if err != nil {
+	return err
+}
+yamlBytes, err := world3d.EncodeGridMap(exported) // 输出确定，ParseGridMap 拒绝未知字段
+_, _ = exported, yamlBytes
+```
+
+`game check` 会检查所有 `*.gridmap.yaml` 文件，确认其 `meshLibrary` 存在且可加载（对 `.gltf` 文件），并校验 `boxes[*].tile` 与 `cells[*].tile` 中的每个瓦片名称都在该网格库中存在。
+
 ## 程序化植被与视锥裁剪（`FoliageField`）
 
 按坡度、海拔和可选的 `DensityMap` 在 `Heightmap` 上确定性散布草丛、岩石或树木，并按 `QualityProfile` 收集视锥与距离裁剪后的可见实例：
@@ -129,6 +146,22 @@ field := world3d.Scatter(hm, world3d.FoliageLayer{
 quality := world3d.DefaultQualityProfile(world3d.QualityHigh)
 visible = field.CollectVisible(camPos, frustum, quality, visible[:0])
 ```
+
+植被层也可以用第 1 版 YAML 定义（`*.foliage.yaml`，Schema 为 `https://game.nsgo.dev/schemas/foliage.v1.json`），声明每层的 `mesh`、可选的 `material` 与 `densityMap`、`density`（每平方米候选实例数）或 `spacing`（平均世界间距，等价于 `density = 1 / spacing²`，二者择一）、缩放范围（`minScale`、`maxScale`）、`alignToNormal`、坡度范围（`minSlopeDeg`、`maxSlopeDeg`）、海拔范围（`minHeight`、`maxHeight`）、`baseMaxDistance`、`boundingRadius` 和 `seed`：
+
+```go
+foliageDoc, err := world3d.LoadFoliageFS(projectFS, "terrain/meadow.foliage.yaml")
+if err != nil {
+	return err
+}
+fields, err := foliageDoc.ScatterAll(hm, hm.Bounds(), world3d.FoliageBuildOptions{
+	ResolveMesh:     resolveMeshID,
+	ResolveMaterial: resolveMaterialID,
+	FS:              projectFS,
+})
+```
+
+`ParseFoliage` 会拒绝未知字段和矛盾配置（如同时设置 `density` 和 `spacing`），`EncodeFoliage` 输出确定性的规范 YAML，`game check` 会检查所有 `*.foliage.yaml` 文件及其引用的地形、网格、材质和密度图。
 
 `world3d.QualityLevelFor(level)` 把全局 [quality](quality.md) 档位映射到同名的植被档位，因此 `DefaultQualityProfile(QualityLevelFor(sel.Level()))` 会跟随玩家的画质预设。`QualityUltra` 仍需显式选择，高于所有预设。
 

@@ -102,6 +102,20 @@ var formats = []format{
 		pkg:     "world3d",
 		version: world3d.TerrainFormatVersion,
 	},
+	{
+		url:     world3d.GridMapSchemaURL,
+		title:   "NSGo game 3D grid map (version 1)",
+		typ:     reflect.TypeFor[world3d.GridMapDoc](),
+		pkg:     "world3d",
+		version: world3d.GridMapFormatVersion,
+	},
+	{
+		url:     world3d.FoliageSchemaURL,
+		title:   "NSGo game 3D foliage layers (version 1)",
+		typ:     reflect.TypeFor[world3d.FoliageDoc](),
+		pkg:     "world3d",
+		version: world3d.FoliageFormatVersion,
+	},
 }
 
 // schemaFile is one generated schema and the file name it is written under.

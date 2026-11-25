@@ -3,6 +3,7 @@
 // Check walks a directory and reads:
 //
 //   - scenes, files named *.scene.yaml or *.scene.yml, parsed and validated by sceneformat, whose tilemap sources, sprite and tileset atlases and materials must exist and load, whose sprite frames and tile IDs must be in their atlases, which must resolve with sceneformat.Resolve when they instance or inherit other scenes, and whose connections must name objects of the scene, counting the objects the scenes it instances and inherits bring, and, given the game's component types (Options.Components), events and handlers those objects' components declare;
+//   - 3D world files named *.gridmap.yaml/.yml, *.terrain.yaml/.yml and *.foliage.yaml/.yml, parsed and validated by world3d, whose referenced mesh libraries (and their tile names for .gltf libraries), heightmaps, splat maps, layer textures, terrain definitions, foliage meshes, materials and density maps must exist and decode;
 //   - Tiled maps (.tmj) and tilesets (.tsj), whose external tilesets must be JSON tilesets (.tsj or .json) that exist, whose tileset and image-layer images must exist, and which must load with tilemap.LoadTiled;
 //   - LDtk projects (.ldtk), whose tileset images and level backgrounds must exist, whose levels must not be saved in separate files, which tilemap.LoadLDtkAll does not read, and which must load with tilemap.LoadLDtkAll;
 //   - sprite atlases, JSON files with top-level frames and meta objects as TexturePacker and Aseprite write them, whose meta.image must exist, whose frames must lie inside it, and which must load with sprite.LoadAtlas;
@@ -56,6 +57,8 @@ func (p Problem) String() string {
 type Report struct {
 	// Scenes, Maps, Tilesets and Atlases count the files of each kind that were checked: scene files, Tiled and LDtk maps, Tiled tilesets, and sprite atlases.
 	Scenes, Maps, Tilesets, Atlases int
+	// GridMaps, Terrains and Foliage count the 3D world YAML files that were checked: *.gridmap.yaml, *.terrain.yaml and *.foliage.yaml.
+	GridMaps, Terrains, Foliage int
 	// Problems are the problems found, sorted by file, then line, then message.
 	Problems []Problem
 }
@@ -84,9 +87,10 @@ func CheckWith(fsys fs.FS, opts Options) (*Report, error) {
 		broken:     make(map[string]bool),
 		images:     make(map[string]*imageInfo),
 		materials:  make(map[string]bool),
+		meshLibs:   make(map[string]*meshLibInfo),
 		roots:      make(map[string]string),
 	}
-	var scenes, tiledMaps, tilesets, ldtks, jsons []string
+	var scenes, gridMaps, terrains, foliages, tiledMaps, tilesets, ldtks, jsons []string
 	err := fs.WalkDir(fsys, ".", func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			if p == "." {
@@ -105,6 +109,12 @@ func CheckWith(fsys fs.FS, opts Options) (*Report, error) {
 		switch {
 		case strings.HasSuffix(name, ".scene.yaml"), strings.HasSuffix(name, ".scene.yml"):
 			scenes = append(scenes, p)
+		case strings.HasSuffix(name, ".gridmap.yaml"), strings.HasSuffix(name, ".gridmap.yml"):
+			gridMaps = append(gridMaps, p)
+		case strings.HasSuffix(name, ".terrain.yaml"), strings.HasSuffix(name, ".terrain.yml"):
+			terrains = append(terrains, p)
+		case strings.HasSuffix(name, ".foliage.yaml"), strings.HasSuffix(name, ".foliage.yml"):
+			foliages = append(foliages, p)
 		case strings.HasSuffix(name, ".tmj"):
 			tiledMaps = append(tiledMaps, p)
 		case strings.HasSuffix(name, ".tsj"):
@@ -142,6 +152,15 @@ func CheckWith(fsys fs.FS, opts Options) (*Report, error) {
 	for _, p := range scenes {
 		c.checkScene(p)
 	}
+	for _, p := range gridMaps {
+		c.checkGridMap(p)
+	}
+	for _, p := range terrains {
+		c.checkTerrain(p)
+	}
+	for _, p := range foliages {
+		c.checkFoliage(p)
+	}
 	c.checkRefs()
 	return c.finish(), nil
 }
@@ -168,6 +187,8 @@ type checker struct {
 	images map[string]*imageInfo
 	// materials marks the material files already checked.
 	materials map[string]bool
+	// meshLibs caches parsed glTF 2.0 mesh libraries referenced by *.gridmap.yaml files.
+	meshLibs map[string]*meshLibInfo
 	// roots caches the project root of each directory.
 	roots map[string]string
 	// refs is what refs.Scan found: every reference between the files, and the project indexes that say where a moved file went.
@@ -418,6 +439,15 @@ func plural(n int, one, many string) string {
 // Summary returns a line counting the files checked and the problems found, such as "1 scene, 2 maps, 0 tilesets, 1 atlas: 3 problems".
 func (r *Report) Summary() string {
 	counts := plural(r.Scenes, "scene", "scenes") + ", " + plural(r.Maps, "map", "maps") + ", " + plural(r.Tilesets, "tileset", "tilesets") + ", " + plural(r.Atlases, "atlas", "atlases")
+	if r.GridMaps > 0 {
+		counts += ", " + plural(r.GridMaps, "grid map", "grid maps")
+	}
+	if r.Terrains > 0 {
+		counts += ", " + plural(r.Terrains, "terrain", "terrains")
+	}
+	if r.Foliage > 0 {
+		counts += ", " + plural(r.Foliage, "foliage file", "foliage files")
+	}
 	if r.OK() {
 		return counts + ": no problems"
 	}

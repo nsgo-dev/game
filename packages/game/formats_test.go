@@ -161,6 +161,8 @@ var formatVersions = map[string]string{
 	"vehicle.GhostVersion":                  "vehicle#ghost",
 	"vn.CastVersion":                        "vn",
 	"voxel.FormatVersion":                   "voxel",
+	"world3d.FoliageFormatVersion":          "world3d#foliage",
+	"world3d.GridMapFormatVersion":          "world3d#gridmap",
 	"world3d.TerrainFormatVersion":          "world3d#terrain",
 	"worldmap.StateVersion":                 "worldmap#state",
 	"worldmap.Version":                      "worldmap",

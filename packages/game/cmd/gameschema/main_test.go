@@ -12,6 +12,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/game/packages/game/tooling/jsonschema"
 	"github.com/nsgo-dev/game/packages/game/voxel"
+	"github.com/nsgo-dev/game/packages/game/world3d"
 )
 
 // root is packages/game, and published the directory the website serves the schemas from, both relative to this package.
@@ -370,5 +371,96 @@ func TestL10nSchemaShapeAndValidation(t *testing.T) {
 	}
 	if err := s.ValidateYAML([]byte("version: 1\nlocale: en\nplurals:\n  coins:\n    singular: 1\n    other: n\n")); err == nil {
 		t.Fatal("l10n schema accepted unknown plural category")
+	}
+}
+
+func TestWorld3DSchemasShapeAndValidation(t *testing.T) {
+	cases := []struct {
+		name    string
+		url     string
+		version int
+		defs    []string
+		fixture string
+		badYAML []string
+	}{
+		{
+			name:    "terrain",
+			url:     world3d.TerrainSchemaURL,
+			version: world3d.TerrainFormatVersion,
+			defs:    []string{"TerrainTriplanarDoc", "TerrainLayerDoc"},
+			fixture: filepath.Join(root, "world3d", "testdata", "alpine.terrain.yaml"),
+			badYAML: []string{
+				"version: 1\nunknownKey: true\nlayers: [{name: grass}]\n",
+				"version: 1\nchunkSize: 0\nlayers: [{name: grass}]\n",
+			},
+		},
+		{
+			name:    "gridmap",
+			url:     world3d.GridMapSchemaURL,
+			version: world3d.GridMapFormatVersion,
+			defs:    []string{"GridBoxDoc", "GridCellDoc"},
+			fixture: filepath.Join(root, "world3d", "testdata", "dungeon.gridmap.yaml"),
+			badYAML: []string{
+				"version: 1\nunknownKey: true\n",
+				"version: 1\ncells: [{at: [0, 0, 0], tile: floor, orientation: 24}]\n",
+			},
+		},
+		{
+			name:    "foliage",
+			url:     world3d.FoliageSchemaURL,
+			version: world3d.FoliageFormatVersion,
+			defs:    []string{"FoliageLayerDoc"},
+			fixture: filepath.Join(root, "world3d", "testdata", "meadow.foliage.yaml"),
+			badYAML: []string{
+				"version: 1\nunknownKey: true\nlayers: [{name: grass, mesh: grass.glb, density: 1}]\n",
+				"version: 1\nlayers: [{name: grass, mesh: grass.glb, maxSlopeDeg: 95}]\n",
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := schemaAt(t, tc.url)
+			if s.Schema != jsonschema.Draft07 || s.ID != tc.url {
+				t.Fatalf("$schema %q, $id %q", s.Schema, s.ID)
+			}
+			if version := s.Property("version"); version == nil || version.Const != int64(tc.version) {
+				t.Fatalf("version property = %+v", version)
+			}
+			if b, ok := s.AdditionalProperties.Boolean(); !ok || b {
+				t.Fatalf("%s schema accepts unknown top-level keys", tc.name)
+			}
+			for _, p := range s.Properties {
+				if p.Schema.Description == "" {
+					t.Errorf("%s.%s has no description", tc.name, p.Name)
+				}
+			}
+			for _, defName := range tc.defs {
+				def := s.Definitions[defName]
+				if def == nil || def.Description == "" {
+					t.Fatalf("definition %s = %+v, want one with a description", defName, def)
+				}
+				if b, ok := def.AdditionalProperties.Boolean(); !ok || b {
+					t.Fatalf("definition %s accepts unknown keys", defName)
+				}
+				for _, p := range def.Properties {
+					if p.Schema.Description == "" {
+						t.Errorf("%s.%s has no description", defName, p.Name)
+					}
+				}
+			}
+			data, err := os.ReadFile(tc.fixture)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := s.ValidateYAML(data); err != nil {
+				t.Fatalf("%s schema refused %s: %v", tc.name, tc.fixture, err)
+			}
+			for _, bad := range tc.badYAML {
+				if err := s.ValidateYAML([]byte(bad)); err == nil {
+					t.Fatalf("%s schema accepted invalid YAML:\n%s", tc.name, bad)
+				}
+			}
+		})
 	}
 }

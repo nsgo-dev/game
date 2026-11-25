@@ -74,7 +74,7 @@ _ = inBounds
 
 - **Bilinear sampling & clamping**: `TerrainSplatMap.SampleUV` and `Heightmap.LayerAt` use texel-center bilinear filtering with edge clamping, matching GPU linear clamp-to-edge splat sampling. Outside the heightmap footprint, `Heightmap.LayerAt` returns `ok = false` alongside the clamped edge sample.
 - **Height-based blending**: attach per-layer grayscale height maps (`LoadTerrainHeightLayer`) and set `HeightBlendContrast` in `(0, 1]` to sharpen layer transitions (such as rock protruding through dirt) using the same algebraic `BlendTerrainWeights` formula as `render3d`'s terrain shader.
-- **Text definition**: `ParseTerrain` / `EncodeTerrain` read and write version 1 YAML (`https://game.nsgo.dev/schemas/terrain.v1.json`) declaring `heightmap`, `cellSize`, `heightScale`, `origin`, `splatMaps`, `heightBlendContrast`, `triplanar`, and 1–8 `layers` (with per-layer `uvScale`, PBR maps/factors, and `heightBias`). Unknown fields, duplicate layer names, and mismatched splat-map counts are refused with `*loaderr.Error`.
+- **Text definition**: `ParseTerrain` / `EncodeTerrain` read and write version 1 YAML (`https://game.nsgo.dev/schemas/terrain.v1.json`) declaring `heightmap`, `cellSize`, `heightScale`, `origin`, `chunkSize` (default `64` cells per LOD chunk), `splatMaps`, `heightBlendContrast`, `triplanar`, and 1–8 `layers` (with per-layer `uvScale`, PBR maps/factors, and `heightBias`). Unknown fields, duplicate layer names, and mismatched splat-map counts are refused with `*loaderr.Error`. Call `doc.BuildHeightmap(imgs)` / `doc.BuildLOD(hm)` (or `world3d.LoadTerrainFS(fsys, path)`) to build the runtime `*Heightmap`, attached `*TerrainSplatMap`, and `*TerrainLOD` directly from YAML. `game check` validates every `*.terrain.yaml` file and its referenced heightmap, splat maps, and layer textures.
 
 ## Multi-level 3D NavMesh
 
@@ -108,6 +108,23 @@ hit, ok := grid.Raycast(ray, 100)
 _, _, _, _ = batches, colliders, hit, ok
 ```
 
+Grid maps can also be authored and saved as version 1 YAML (`*.gridmap.yaml`, schema `https://game.nsgo.dev/schemas/gridmap.v1.json`) with `origin`, `cellSize`, `meshLibrary`, non-overlapping filled box runs (`boxes`), and individual cells (`cells`), all written in canonical `(y, z, x)` order:
+
+```go
+grid, doc, err := world3d.LoadGridMapFS(projectFS, "levels/dungeon.gridmap.yaml")
+if err != nil {
+	return err
+}
+exported, err := grid.ToDoc(doc.Name, doc.MeshLibrary)
+if err != nil {
+	return err
+}
+yamlBytes, err := world3d.EncodeGridMap(exported) // deterministic, refuses unknown fields on ParseGridMap
+_, _ = exported, yamlBytes
+```
+
+`game check` validates every `*.gridmap.yaml` file, checks that its `meshLibrary` exists and loads (for `.gltf`), and verifies that every `boxes[*].tile` and `cells[*].tile` name exists in that library.
+
 ## Procedural foliage culling (`FoliageField`)
 
 Deterministically scatter grass, rocks, or trees across a `Heightmap` constrained by slope, height, and an optional `DensityMap`, then collect frustum- and distance-culled instances scaled by a `QualityProfile`:
@@ -129,6 +146,22 @@ field := world3d.Scatter(hm, world3d.FoliageLayer{
 quality := world3d.DefaultQualityProfile(world3d.QualityHigh)
 visible = field.CollectVisible(camPos, frustum, quality, visible[:0])
 ```
+
+Foliage layers can also be authored in version 1 YAML (`*.foliage.yaml`, schema `https://game.nsgo.dev/schemas/foliage.v1.json`) specifying each layer's `mesh`, optional `material` and `densityMap`, either `density` (instances/m²) or `spacing` (average distance in meters, where `density = 1 / spacing²`), scale range (`minScale`, `maxScale`), `alignToNormal`, slope limits (`minSlopeDeg`, `maxSlopeDeg`), height limits (`minHeight`, `maxHeight`), `baseMaxDistance`, `boundingRadius`, and `seed`:
+
+```go
+foliageDoc, err := world3d.LoadFoliageFS(projectFS, "terrain/meadow.foliage.yaml")
+if err != nil {
+	return err
+}
+fields, err := foliageDoc.ScatterAll(hm, hm.Bounds(), world3d.FoliageBuildOptions{
+	ResolveMesh:     resolveMeshID,
+	ResolveMaterial: resolveMaterialID,
+	FS:              projectFS,
+})
+```
+
+`ParseFoliage` refuses unknown fields and contradictory settings (such as setting both `density` and `spacing`), `EncodeFoliage` writes deterministic canonical YAML, and `game check` validates every `*.foliage.yaml` file and its referenced terrain, meshes, materials, and density map images.
 
 `world3d.QualityLevelFor(level)` maps a game-wide [quality](quality.md) level to the foliage tier of the same name, so `DefaultQualityProfile(QualityLevelFor(sel.Level()))` follows the player's preset. `QualityUltra` stays an explicit choice above every preset.
 

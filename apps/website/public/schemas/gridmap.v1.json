@@ -1,0 +1,132 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://game.nsgo.dev/schemas/gridmap.v1.json",
+  "title": "NSGo game 3D grid map (version 1)",
+  "description": "GridMapDoc is the root of a versioned YAML modular 3D grid map document referencing a mesh library and placing tiles on an integer 3D lattice.",
+  "type": "object",
+  "properties": {
+    "version": {
+      "description": "Version is the schema version; must be 1.",
+      "type": "integer",
+      "const": 1
+    },
+    "name": {
+      "description": "Name is an optional human-readable name for the grid map.",
+      "type": "string"
+    },
+    "origin": {
+      "description": "Origin is the world-space [x, y, z] origin of grid cell (0, 0, 0); omitted defaults to [0, 0, 0].",
+      "type": "array",
+      "items": {
+        "type": "number",
+        "minimum": -3.4028234663852886e+38,
+        "maximum": 3.4028234663852886e+38
+      }
+    },
+    "cellSize": {
+      "description": "CellSize is the world-space [x, y, z] dimensions of one grid cell; omitted defaults to [1, 1, 1].",
+      "type": "array",
+      "items": {
+        "type": "number",
+        "minimum": -3.4028234663852886e+38,
+        "maximum": 3.4028234663852886e+38
+      }
+    },
+    "meshLibrary": {
+      "description": "MeshLibrary is the optional asset path to the glTF 2.0 (.gltf) mesh library supplying named tiles.",
+      "type": "string"
+    },
+    "boxes": {
+      "description": "Boxes lists non-overlapping filled axis-aligned coordinate box runs placed before individual cells, written in canonical (y, z, x) order.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/GridBoxDoc"
+      }
+    },
+    "cells": {
+      "description": "Cells lists individual occupied cells placed in canonical (y, z, x) coordinate order.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/GridCellDoc"
+      }
+    }
+  },
+  "required": [
+    "version"
+  ],
+  "additionalProperties": false,
+  "definitions": {
+    "GridBoxDoc": {
+      "description": "GridBoxDoc describes an axis-aligned box run of identical tiles placed from Min to Max (inclusive).",
+      "type": "object",
+      "properties": {
+        "min": {
+          "description": "Min is the inclusive minimum integer [x, y, z] grid coordinate of the filled box.",
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": -9223372036854776000,
+            "maximum": 9223372036854776000
+          }
+        },
+        "max": {
+          "description": "Max is the inclusive maximum integer [x, y, z] grid coordinate of the filled box; each axis must be >= min.",
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": -9223372036854776000,
+            "maximum": 9223372036854776000
+          }
+        },
+        "tile": {
+          "description": "Tile is the name of the tile in the referenced mesh library.",
+          "type": "string",
+          "minLength": 1
+        },
+        "orientation": {
+          "description": "Orientation is the orthogonal cube rotation index in 0..23 (0..3 are 0°, 90°, 180°, 270° around +Y); omitted defaults to 0.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 23
+        }
+      },
+      "required": [
+        "min",
+        "max",
+        "tile"
+      ],
+      "additionalProperties": false
+    },
+    "GridCellDoc": {
+      "description": "GridCellDoc describes one occupied cell in a [GridMapDoc].",
+      "type": "object",
+      "properties": {
+        "at": {
+          "description": "At is the discrete integer [x, y, z] grid coordinate of the cell.",
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": -9223372036854776000,
+            "maximum": 9223372036854776000
+          }
+        },
+        "tile": {
+          "description": "Tile is the name of the tile in the referenced mesh library.",
+          "type": "string",
+          "minLength": 1
+        },
+        "orientation": {
+          "description": "Orientation is the orthogonal cube rotation index in 0..23 (0..3 are 0°, 90°, 180°, 270° around +Y); omitted defaults to 0.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 23
+        }
+      },
+      "required": [
+        "at",
+        "tile"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

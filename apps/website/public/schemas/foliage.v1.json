@@ -1,0 +1,142 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://game.nsgo.dev/schemas/foliage.v1.json",
+  "title": "NSGo game 3D foliage layers (version 1)",
+  "description": "FoliageDoc is the root of a versioned YAML foliage definition declaring one or more procedural foliage scatter layers over a terrain heightmap.",
+  "type": "object",
+  "properties": {
+    "version": {
+      "description": "Version is the schema version; must be 1.",
+      "type": "integer",
+      "const": 1
+    },
+    "name": {
+      "description": "Name is an optional human-readable name for the foliage set.",
+      "type": "string"
+    },
+    "terrain": {
+      "description": "Terrain is an optional asset path to the terrain definition (*.terrain.yaml) these foliage layers scatter over.",
+      "type": "string"
+    },
+    "layers": {
+      "description": "Layers lists 1 or more procedural foliage scatter layers in authoring order.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/definitions/FoliageLayerDoc"
+      }
+    }
+  },
+  "required": [
+    "version",
+    "layers"
+  ],
+  "additionalProperties": false,
+  "definitions": {
+    "FoliageLayerDoc": {
+      "description": "FoliageLayerDoc describes one procedural foliage scatter layer in a [FoliageDoc].",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Name is the unique identifier for this foliage layer (such as \"grass\", \"pine_tree\", \"boulder\").",
+          "type": "string",
+          "minLength": 1
+        },
+        "mesh": {
+          "description": "Mesh is the asset path to the foliage mesh (such as a .gltf or .glb model).",
+          "type": "string",
+          "minLength": 1
+        },
+        "material": {
+          "description": "Material is an optional asset path to a material override for the foliage mesh.",
+          "type": "string"
+        },
+        "densityMap": {
+          "description": "DensityMap is an optional asset path to a grayscale density mask image covering the terrain bounds.",
+          "type": "string"
+        },
+        "density": {
+          "description": "Density is the target candidate instances per square meter; set either density or spacing (not both).",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "exclusiveMinimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "spacing": {
+          "description": "Spacing is the target average world-space spacing between instances in meters (equivalent to density = 1 / spacing^2); set either spacing or density (not both).",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "exclusiveMinimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "minScale": {
+          "description": "MinScale is the minimum uniform instance scale; omitted defaults to 1 (or maxScale when only maxScale is set).",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "exclusiveMinimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "maxScale": {
+          "description": "MaxScale is the maximum uniform instance scale; omitted defaults to 1 (or minScale when only minScale is set).",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "exclusiveMinimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "alignToNormal": {
+          "description": "AlignToNormal blends instance up-axis alignment from upright (0) to terrain surface normal (1).",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "minSlopeDeg": {
+          "description": "MinSlopeDeg is the minimum terrain slope in degrees [0, 90] where instances may spawn.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 90
+        },
+        "maxSlopeDeg": {
+          "description": "MaxSlopeDeg is the maximum terrain slope in degrees [0, 90] where instances may spawn; 0 with minSlopeDeg 0 allows all slopes.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 90
+        },
+        "minHeight": {
+          "description": "MinHeight is the minimum world-space Y elevation where instances may spawn.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "maxHeight": {
+          "description": "MaxHeight is the maximum world-space Y elevation where instances may spawn.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "baseMaxDistance": {
+          "description": "BaseMaxDistance is the default maximum draw distance in world units; 0 means uncapped unless limited by QualityProfile.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "boundingRadius": {
+          "description": "BoundingRadius is the bounding sphere radius at scale 1 around the mesh pivot for frustum culling and distance fade; 0 defaults to 1 around the pivot.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "seed": {
+          "description": "Seed is the deterministic PRNG seed for repeatable scattering.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709552000
+        }
+      },
+      "required": [
+        "name",
+        "mesh"
+      ],
+      "additionalProperties": false
+    }
+  }
+}
