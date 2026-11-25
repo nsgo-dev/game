@@ -131,8 +131,14 @@ func pbPedestal(p *pixelfx.Painter, C []uint32, glow float64) {
 	p.Glow(9, -9, 3, C[5], 0.5)
 }
 
+// pbMaxTendrils caps the tendrils option so +Inf or huge values cannot overflow or exhaust memory.
+const pbMaxTendrils = 64
+
 func newPlasmaBall(o *pixelfx.Options) pixelfx.Instance {
 	C, seed, n := pixelfx.Fit(o.Palette(), 8), o.Seed(), o.Num("tendrils")
+	if n > pbMaxTendrils {
+		n = pbMaxTendrils
+	}
 	count := 0
 	if n > 0 {
 		count = int(math.Floor(n))
