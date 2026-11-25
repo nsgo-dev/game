@@ -392,6 +392,20 @@ type RigidWorld struct {
 	GravityX         float32
 	GravityY         float32
 	SolverIterations int
+	// OnJointBreak is invoked deterministically for each joint broken during
+	// Step, in joint insertion order.
+	OnJointBreak func(JointBreakEvent)
+
+	jointBreakEvents []JointBreakEvent
+}
+
+// JointBreakEvents returns the deterministic slice of JointBreakEvents produced
+// by the most recent RigidWorld.Step, in joint insertion order.
+func (w *RigidWorld) JointBreakEvents() []JointBreakEvent {
+	if w == nil {
+		return nil
+	}
+	return w.jointBreakEvents
 }
 
 // AddBody appends non-nil rigid bodies to w.Bodies.
@@ -543,9 +557,12 @@ func (w *RigidWorld) Step(dt time.Duration) {
 		b.torque = 0
 	}
 
+	w.jointBreakEvents = w.jointBreakEvents[:0]
+
 	// 2. Detect contact manifolds in deterministic pair order.
+	ignoredPairs := w.buildJointIgnoredPairs()
 	restitutionThresh := max(1.0, 2.0*detmath.Hypot(gx, gy)*h)
-	manifolds := w.detectContacts(restitutionThresh)
+	manifolds := w.detectContacts(restitutionThresh, ignoredPairs)
 
 	// 3. Pre-step joints (applies spring forces and prepares rigid joint constraint matrices).
 	for _, j := range w.Joints {
@@ -564,6 +581,11 @@ func (w *RigidWorld) Step(dt time.Duration) {
 				j.solveVelocity()
 			}
 		}
+	}
+
+	// 4b. Evaluate break thresholds and remove broken joints before positional correction.
+	if w.evaluateBreakableJoints() {
+		ignoredPairs = w.buildJointIgnoredPairs()
 	}
 
 	// 5. Integrate positions (symplectic Euler).
@@ -599,6 +621,11 @@ func (w *RigidWorld) Step(dt time.Duration) {
 				}
 				if !CanCollideRigid(a, b) {
 					continue
+				}
+				if ignoredPairs != nil {
+					if _, skip := ignoredPairs[[2]*RigidBody{a, b}]; skip {
+						continue
+					}
 				}
 				pairManifolds = collideRigidPair(a, b, pairManifolds[:0])
 				for _, m := range pairManifolds {
@@ -642,9 +669,67 @@ func (w *RigidWorld) Step(dt time.Duration) {
 			b.syncShape()
 		}
 	}
+
+	// 8. Dispatch deterministic joint-break callbacks.
+	if w.OnJointBreak != nil {
+		for _, ev := range w.jointBreakEvents {
+			w.OnJointBreak(ev)
+		}
+	}
 }
 
-func (w *RigidWorld) detectContacts(restitutionThresh float64) []rigidManifold {
+func (w *RigidWorld) buildJointIgnoredPairs() map[[2]*RigidBody]struct{} {
+	if len(w.Joints) == 0 {
+		return nil
+	}
+	var pairs map[[2]*RigidBody]struct{}
+	for _, j := range w.Joints {
+		if j == nil {
+			continue
+		}
+		if cc, ok := j.(collideConnectedJoint); ok && cc.collideConnected() {
+			continue
+		}
+		jb, ok := j.(jointBodies)
+		if !ok {
+			continue
+		}
+		a, b := jb.jointBodyPair()
+		if a == nil || b == nil || a == b {
+			continue
+		}
+		if pairs == nil {
+			pairs = make(map[[2]*RigidBody]struct{}, len(w.Joints)*2)
+		}
+		pairs[[2]*RigidBody{a, b}] = struct{}{}
+		pairs[[2]*RigidBody{b, a}] = struct{}{}
+	}
+	return pairs
+}
+
+func (w *RigidWorld) evaluateBreakableJoints() bool {
+	if len(w.Joints) == 0 {
+		return false
+	}
+	oldLen := len(w.Joints)
+	dst := w.Joints[:0]
+	brokeAny := false
+	for _, j := range w.Joints {
+		if bj, ok := j.(breakableJoint); ok {
+			if ev, broken := bj.checkBreak(); broken {
+				w.jointBreakEvents = append(w.jointBreakEvents, ev)
+				brokeAny = true
+				continue
+			}
+		}
+		dst = append(dst, j)
+	}
+	clear(w.Joints[len(dst):oldLen])
+	w.Joints = dst
+	return brokeAny
+}
+
+func (w *RigidWorld) detectContacts(restitutionThresh float64, ignoredPairs map[[2]*RigidBody]struct{}) []rigidManifold {
 	var manifolds []rigidManifold
 	n := len(w.Bodies)
 	for i := 0; i < n; i++ {
@@ -663,6 +748,11 @@ func (w *RigidWorld) detectContacts(restitutionThresh float64) []rigidManifold {
 			}
 			if !CanCollideRigid(a, b) {
 				continue
+			}
+			if ignoredPairs != nil {
+				if _, skip := ignoredPairs[[2]*RigidBody{a, b}]; skip {
+					continue
+				}
 			}
 			bMinX, bMinY, bMaxX, bMaxY := b.worldAABB()
 			if aMaxX <= bMinX || bMaxX <= aMinX || aMaxY <= bMinY || bMaxY <= aMinY {
