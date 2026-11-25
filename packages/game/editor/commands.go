@@ -30,6 +30,13 @@ const (
 	CmdToolEraseTile         = "tool.erase"
 	CmdToolFillTile          = "tool.fill"
 	CmdToolTerrain           = "tool.terrain"
+	CmdToolRectTile          = "tool.rect"
+	CmdToolLineTile          = "tool.line"
+	CmdToolStampTile         = "tool.stamp"
+	CmdToolRandomTile        = "tool.random"
+	CmdCopyTileRegion        = "tile.copy"
+	CmdCutTileRegion         = "tile.cut"
+	CmdPasteTileRegion       = "tile.paste"
 	CmdGizmoTranslate        = "gizmo.translate"
 	CmdGizmoRotate           = "gizmo.rotate"
 	CmdGizmoScale            = "gizmo.scale"
@@ -441,6 +448,108 @@ func (e *Editor) initBuiltinCommands() {
 			Checked:     func() bool { return e.ViewMode == ViewMode2D && e.Tool == ToolTerrain },
 			Run: func() error {
 				e.SetTool(ToolTerrain)
+				return nil
+			},
+		},
+		{
+			ID:          CmdToolRectTile,
+			Label:       "Tool: Rectangle Tile",
+			Description: "Switch to the Rectangle Tile brush (drag to fill, right-drag to erase)",
+			Category:    "Tools",
+			Keywords:    []string{"rect", "rectangle", "box", "tile", "tilemap", "2d"},
+			Shortcut:    "u",
+			Enabled:     notPlaying,
+			Checked:     func() bool { return e.ViewMode == ViewMode2D && e.Tool == ToolRectTile },
+			Run: func() error {
+				e.SetTool(ToolRectTile)
+				return nil
+			},
+		},
+		{
+			ID:          CmdToolLineTile,
+			Label:       "Tool: Line Tile",
+			Description: "Switch to the Line Tile brush (Bresenham line; right-drag to erase)",
+			Category:    "Tools",
+			Keywords:    []string{"line", "bresenham", "tile", "tilemap", "2d"},
+			Shortcut:    "l",
+			Enabled:     notPlaying,
+			Checked:     func() bool { return e.ViewMode == ViewMode2D && e.Tool == ToolLineTile },
+			Run: func() error {
+				e.SetTool(ToolLineTile)
+				return nil
+			},
+		},
+		{
+			ID:          CmdToolStampTile,
+			Label:       "Tool: Stamp Tile",
+			Description: "Switch to the Stamp Tile brush (paint patterns, right-drag to select region)",
+			Category:    "Tools",
+			Keywords:    []string{"stamp", "pattern", "paste", "tile", "tilemap", "2d"},
+			Shortcut:    "c",
+			Enabled:     notPlaying,
+			Checked:     func() bool { return e.ViewMode == ViewMode2D && e.Tool == ToolStampTile },
+			Run: func() error {
+				e.SetTool(ToolStampTile)
+				return nil
+			},
+		},
+		{
+			ID:          CmdToolRandomTile,
+			Label:       "Tool: Random Tile",
+			Description: "Switch to the Random Tile brush (deterministic weighted tile pick)",
+			Category:    "Tools",
+			Keywords:    []string{"random", "scatter", "weighted", "seed", "tile", "tilemap", "2d"},
+			Shortcut:    "n",
+			Enabled:     notPlaying,
+			Checked:     func() bool { return e.ViewMode == ViewMode2D && e.Tool == ToolRandomTile },
+			Run: func() error {
+				e.SetTool(ToolRandomTile)
+				return nil
+			},
+		},
+		{
+			ID:          CmdCopyTileRegion,
+			Label:       "Copy Tile Region",
+			Description: "Copy the selected tilemap region to the tile clipboard",
+			Category:    "Edit",
+			Keywords:    []string{"copy", "tile", "region", "stamp", "clipboard"},
+			Shortcut:    "mod+c",
+			Enabled:     func() bool { return !e.Playing() && e.ViewMode == ViewMode2D && e.hasTileSel },
+			Run: func() error {
+				_, err := e.CopySelectedTileRegion()
+				return err
+			},
+		},
+		{
+			ID:          CmdCutTileRegion,
+			Label:       "Cut Tile Region",
+			Description: "Cut the selected tilemap region to the tile clipboard",
+			Category:    "Edit",
+			Keywords:    []string{"cut", "tile", "region", "stamp", "clipboard"},
+			Shortcut:    "mod+x",
+			Enabled:     func() bool { return !e.Playing() && e.ViewMode == ViewMode2D && e.hasTileSel },
+			Run: func() error {
+				_, err := e.CutSelectedTileRegion()
+				return err
+			},
+		},
+		{
+			ID:          CmdPasteTileRegion,
+			Label:       "Paste Tile Region",
+			Description: "Paste the tile clipboard at the hovered cell or activate it as the Stamp brush",
+			Category:    "Edit",
+			Keywords:    []string{"paste", "tile", "region", "stamp", "clipboard"},
+			Shortcut:    "mod+v",
+			Enabled:     func() bool { return !e.Playing() && e.ViewMode == ViewMode2D && !e.tileClipboard.Empty() },
+			Run: func() error {
+				if col, row, ok := e.HoveredTile(); ok {
+					return e.PasteTileRegion(e.ActiveLayer, col, row)
+				}
+				if sel, ok := e.TileSelection(); ok {
+					return e.PasteTileRegion(e.ActiveLayer, sel.Col0, sel.Row0)
+				}
+				e.activeStamp = e.tileClipboard.Clone()
+				e.SetTool(ToolStampTile)
 				return nil
 			},
 		},

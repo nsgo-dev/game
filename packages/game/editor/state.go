@@ -51,6 +51,14 @@ const (
 	ToolPickTile
 	// ToolTerrain paints or erases autotiled terrain sets from a layered grid's YAML tileset, updating each cell and its neighbors through the same rules as tilemap.Tilemap.SetAutotile.
 	ToolTerrain
+	// ToolRectTile fills or erases a dragged rectangle of tiles on the active layer's inline tilemap.
+	ToolRectTile
+	// ToolLineTile draws or erases a Bresenham line of tiles between two cells.
+	ToolLineTile
+	// ToolStampTile paints a rectangular TileStamp pattern (selected from the palette or copied/cut from the map).
+	ToolStampTile
+	// ToolRandomTile paints a deterministic weighted random pick from selected tiles.
+	ToolRandomTile
 )
 
 // String returns a human-readable label for the tool.
@@ -74,6 +82,14 @@ func (t Tool) String() string {
 		return "Pick Tile"
 	case ToolTerrain:
 		return "Terrain"
+	case ToolRectTile:
+		return "Rect Tile"
+	case ToolLineTile:
+		return "Line Tile"
+	case ToolStampTile:
+		return "Stamp Tile"
+	case ToolRandomTile:
+		return "Random Tile"
 	default:
 		return "Unknown"
 	}
@@ -465,6 +481,20 @@ type Editor struct {
 	stroke *tileStroke
 	// hover is where the mouse rests over the viewport (SetTileHover).
 	hover tileHover
+	// tileSel is the selected rectangular region on the active layer's inline tilemap, for Copy/Cut.
+	tileSel    TileRect
+	hasTileSel bool
+	// tileClipboard is the last region copied or cut from a tilemap (CopyTileRegion, CutTileRegion).
+	tileClipboard TileStamp
+	// activeStamp is the rectangular pattern painted by ToolStampTile (SetTileStamp, SelectPaletteStamp, CopyTileRegion).
+	activeStamp TileStamp
+	// paletteStampAnchor and paletteStampRect track the rectangular selection made inside TilePaletteView.
+	paletteStampAnchor  int
+	paletteStampRect    TileRect
+	hasPaletteStampRect bool
+	// randomTiles and randomSeed configure ToolRandomTile's deterministic weighted picks.
+	randomTiles []WeightedTile
+	randomSeed  uint64
 	// inspectAssetFile prefers the selected asset's import settings in InspectorView over SelectedID after selecting an asset in FilesView.
 	inspectAssetFile bool
 	// inspectLayer prefers ActiveLayer's parallax/repeat settings in InspectorView over Scene Settings when no object or asset file is selected (set by SetActiveLayer, cleared by SelectObject or opening a scene).
@@ -544,6 +574,7 @@ func New(doc *sceneformat.SceneDoc, resolver sceneformat.AssetResolver) (*Editor
 		GizmoMode:           Gizmo3DTranslate,
 		Camera3D:            DefaultOrbitCamera3D(),
 		ActiveTileID:        1,
+		randomSeed:          1,
 		Status:              "Ready",
 		ShowPhysicsDebug:    true,
 		ShowLightingPreview: true,
@@ -779,6 +810,11 @@ func (e *Editor) SetActiveLayer(name string) bool {
 	}
 	if name != e.ActiveLayer {
 		e.endTileStrokeForChange()
+		e.tileSel = TileRect{}
+		e.hasTileSel = false
+		e.paletteStampAnchor = 0
+		e.paletteStampRect = TileRect{}
+		e.hasPaletteStampRect = false
 	}
 	e.CancelCameraDrag()
 	e.CancelCameraBoundsDrag()
@@ -802,6 +838,8 @@ func (e *Editor) SetActiveTileLayer(name string) bool {
 	}
 	if name != e.ActiveTileLayer {
 		e.endTileStrokeForChange()
+		e.tileSel = TileRect{}
+		e.hasTileSel = false
 	}
 	e.ActiveTileLayer = name
 	e.notify()
@@ -945,6 +983,11 @@ func (e *Editor) openYAMLWithLayers(data []byte, file string, layers *sceneforma
 	// A stroke under way edits the scene being replaced, whose history goes with it.
 	e.stroke = nil
 	e.gridMap.stroke = nil
+	e.tileSel = TileRect{}
+	e.hasTileSel = false
+	e.paletteStampAnchor = 0
+	e.paletteStampRect = TileRect{}
+	e.hasPaletteStampRect = false
 	e.Doc = doc
 	e.sceneSaved = saved
 	e.SelectedID = ""

@@ -688,6 +688,17 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 - **绘制、擦除、拾取与矩形填充**：指针悬停在 3D 视口上时会将视线射线投射到当前层高平面（`ScreenToGridMapCell`），并实时绘制悬停格预览（拖动 **Box** 填充时绘制虚线矩形预览）。单击或拖动会把经过的所有格子作为单个可撤销笔画绘制或擦除（`BeginGridMapStroke`、`ContinueGridMapStroke`、`EndGridMapStroke`、`CancelGridMapStroke`，按 `Escape` 取消）；**Pick**（或 Alt+单击）拾取指针下格子的瓦片与朝向；**Box** 在当前层高上拖出填充矩形（`FillGridMapBox`）。
 - **撤销与规范保存**：每一次绘制、擦除、矩形填充与格子旋转（`PaintGridMapCell`、`EraseGridMapCell`、`FillGridMapBox`、`RotateGridMapCell`）都进入编辑器共用的 `History`（撤销/重做）。`Save`（`SaveGridMap`、`SaveGridMapFile`）通过 `world3d.GridMap.ToDoc` 与 `world3d.EncodeGridMap` 写出确定性的规范 `.gridmap.yaml`，保存后的文件可逐字节无损往返，并在 `scenemodel.Build` 中一致渲染。
 
+## 矩形、直线、图章与随机瓦片画笔（#876）
+
+四种扩展瓦片画笔同时支持单网格和分层内联瓦片地图：每次拖拽在松手前都会在 2D 视口中显示实时预览，按 **Escape**（或放下第二根手指）可无损取消且不改动场景，松手时将所有变更格子合并为 `Editor.History` 中的**单个可撤销步骤**：
+
+- **矩形（`ToolRectTile`，快捷键 `u`）**：在两个格子之间拖拽以 `ActiveTileID` 填充矩形（`TileStrokeRect`、`FillTileRect`），或按住右键拖拽擦除矩形（`TileStrokeRectErase`、`EraseTileRect`）。
+- **直线（`ToolLineTile`，快捷键 `l`）**：在两个格子之间拖拽以 Bresenham 直线绘制 `ActiveTileID`（`TileStrokeLine`、`DrawTileLine`），或按住右键拖拽沿直线擦除（`TileStrokeLineErase`、`EraseTileLine`）。
+- **图章与区域剪贴板（`ToolStampTile`，快捷键 `c`）**：单击按左上角锚点盖章、拖拽按起点网格对齐平铺绘制矩形 `TileStamp` 图案（`TileStrokeStamp`、`StampTiles`），同时保留分层瓦片地图每格的翻转位以及复制区域中的空（`0`）格子。图章既可从瓦片调色板框选矩形生成（`SelectPaletteStamp`、`SelectPaletteStampRange`，或在调色板中先点击起始瓦片，再切换 **Rect** 或按住 Shift 点击对角瓦片），也可在地图上右键拖拽选区（`TileStrokeSelectRegion`、`SetTileSelection`）后执行**复制**（`mod+c`、`CopyTileRegion`、`CopySelectedTileRegion`）、**剪切**（`mod+x`、`CutTileRegion`、`CutSelectedTileRegion`，单个撤销步骤）和**粘贴**（`mod+v`、`PasteTileRegion`）。
+- **随机（`ToolRandomTile`，快捷键 `n`）**：按固定种子（`SetRandomBrushSeed`、`RandomBrushSeed`）从多个带权重瓦片中确定性地加权抽取绘制（`SetRandomBrushTiles`、`SetRandomBrushTileWeight`、`ToggleRandomBrushTile`）。在瓦片调色板中点击瓦片即可加入或移出权重池，并通过每项的 `-`/`+` 按钮调节权重与 Seed 输入框设置种子；按住右键拖拽可擦除。
+
+在 Go 中，`TilePreview()` 返回进行中画笔在松手前的实时预览格子，`TileStamp` / `TileClipboard` / `TileSelection` 管理图案与选区；四种画笔在单网格与分层 YAML 瓦片地图上行为一致，并保持确定性的 YAML 往返保存。
+
 ## 场景树（#861）
 
 编辑器左侧的场景树面板（`SceneTreeView`）列出打开场景的各个图层，并在每个图层下列出其对象及嵌套的子对象，相当于 Godot 的 Scene 面板和 Unity 的 Hierarchy。每次编辑和撤销后它都会随之更新。按下对象所在的行会选中该对象；在任一视口中选中对象时，会选中它的行并展开其上层的各行；按下图层的行会把它设为当前图层。所有对象编辑对嵌套子对象与顶层对象一样有效：`FindObject` 和 `SelectObject` 在整棵树中按 ID 查找对象，检查器编辑所选的子对象，其变换在父对象的空间中编辑，因此移动工具会把它的原点放到按下的位置，3D 操纵器沿世界坐标轴移动它。
@@ -874,8 +885,8 @@ func main() {
 所有常用编辑器操作统一注册在同一个命令注册表中（`Editor.Commands`、`Editor.RegisterCommand`、`Editor.ExecuteCommand`），由单一数据源同时驱动键盘快捷键、桌面应用菜单栏和命令面板：
 
 - **跨平台快捷键与文本焦点保护**：快捷键使用 NSGo 的 `"mod"` 修饰键（macOS 为 Command，Windows/Linux 为 Ctrl，可通过 `FormatShortcut` 格式化显示），并全部使用 `core.KeyNotEditing` 和 `core.MenuNotEditing` 绑定，因此当任意文本输入框拥有焦点时（例如检查器的 Name 输入框或搜索框），输入字符或按下 Delete/Backspace/Undo/Save 绝不会误触编辑器快捷键：
-  - 文件与编辑：`mod+s`（保存）、`mod+z`（撤销）、`mod+shift+z`（重做）、`mod+d`（复制选中对象）、`delete` / `backspace`（删除选中对象）。
-  - 2D 工具：`v`（选择）、`m`（移动）、`p`（放置）、`b`（绘制瓦片）、`e`（擦除瓦片）、`g`（填充瓦片）。
+  - 文件与编辑：`mod+s`（保存）、`mod+z`（撤销）、`mod+shift+z`（重做）、`mod+d`（复制选中对象）、`delete` / `backspace`（删除选中对象）、`mod+c`（复制瓦片区域）、`mod+x`（剪切瓦片区域）、`mod+v`（粘贴瓦片区域）。
+  - 2D 工具：`v`（选择）、`m`（移动）、`p`（放置）、`b`（绘制瓦片）、`e`（擦除瓦片）、`g`（填充瓦片）、`t`（地形）、`u`（矩形瓦片）、`l`（直线瓦片）、`c`（图章瓦片）、`n`（随机瓦片）。
   - 3D 变换控件与视图：`w`（平移）、`r`（旋转）、`s`（缩放）、`alt+2`（2D 视图）、`alt+3`（3D 视图）、`View > 3D Shading` 下的 Lit、Unlit、Wireframe 三个 3D 着色命令（无快捷键）、`f`（聚焦选中对象：2D 下通过 `FrameSelection2D` 调整独立编辑器视图 `View2D` 而不改动保存的 `Doc.Camera`，3D 下调整 `Camera3D`）、`1`、`ctrl+1`、`3`、`ctrl+3`、`7` 和 `ctrl+7`（3D 前视、后视、右视、左视、顶视和底视）以及 `5`（3D 透视或正交），这些只在 3D 视图中生效、`mod+k`（命令面板）。
   - 项目：`f5`（播放 / 停止）、`mod+r`（运行游戏：优先调用 `Editor.OnRunGame`，未配置且已挂载作用域时回退到编辑器内运行）、`mod+,`（项目设置）、`mod+shift+e`（导出与发布）、`mod+shift+m`（性能分析器）、`mod+shift+b`（检查问题）。
 - **桌面菜单栏**：`EditorView` 通过 `desktop.SetApplicationMenu`（`Editor.ApplicationMenu`）注册原生应用菜单栏（`File`、`Edit`、`View`、`Project`），以实时可用/勾选状态和对应平台的快捷键提示暴露同一套命令；已启用插件的工具列在 `View > Tools` 下，已启用插件的命令列在 `Project > Plugins` 下。

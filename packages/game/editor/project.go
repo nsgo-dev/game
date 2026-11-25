@@ -79,6 +79,7 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 			}
 			e.drag2D = drag2DState{}
 			e.stroke = nil
+			e.clearTileBrushTransient()
 			e.Doc = DefaultSceneDoc()
 			e.FilePath = ""
 			e.ScenePath = ""
@@ -100,6 +101,7 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 	}
 	e.drag2D = drag2DState{}
 	e.stroke = nil
+	e.clearTileBrushTransient()
 	e.inspectAssetFile = false
 	e.inspectLayer = false
 	e.connPick = nil
