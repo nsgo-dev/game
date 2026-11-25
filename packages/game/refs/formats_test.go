@@ -268,3 +268,30 @@ func TestPlanMoveChangesOnlyTheCase(t *testing.T) {
 		t.Fatalf("PlanMove onto another file = %v", err)
 	}
 }
+
+func TestYAMLTilesetsAndLayeredTilemaps(t *testing.T) {
+	fsys := fstest.MapFS{
+		"game.yaml":                  {Data: []byte(gameHead)},
+		"tilesets/cave.tileset.yaml": {Data: []byte("version: 1\ntileWidth: 16\ntileHeight: 16\nimage: art/cave.png\ncolumns: 1\ntileCount: 1\n")},
+		"art/cave.png":               {Data: []byte("cave")},
+		"level.scene.yaml": {Data: []byte("version: 2\ntilemaps:\n  shared:\n    tileWidth: 16\n    tileHeight: 16\n    width: 1\n    height: 1\n    tilesetFile: tilesets/cave.tileset.yaml\n    tileLayers:\n      - name: a\n        rows: [\"0\"]\n" +
+			"layers:\n  - name: ground\n    tilemap:\n      tileWidth: 16\n      tileHeight: 16\n      width: 1\n      height: 1\n      tilesetFile: tilesets/rock.tileset.yaml\n      tileLayers:\n        - name: a\n          rows: [\"0\"]\n")},
+	}
+	p := scan(t, fsys)
+	want := []string{
+		`level.scene.yaml:8 tileset file "tilesets/cave.tileset.yaml" -> tilesets/cave.tileset.yaml`,
+		`level.scene.yaml:19 tileset file "tilesets/rock.tileset.yaml" -> tilesets/rock.tileset.yaml`,
+		`tilesets/cave.tileset.yaml:4 tileset image "art/cave.png" -> art/cave.png`,
+	}
+	if got := refList(p); !slices.Equal(got, want) {
+		t.Fatalf("refs:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	if got := checkList(p); len(got) != 1 || !strings.Contains(got[0], "level.scene.yaml:19") {
+		t.Fatalf("problems = %v, want the missing tileset file", got)
+	}
+	for _, f := range p.Files {
+		if f.Path == "tilesets/cave.tileset.yaml" && f.Kind != refs.KindTileset {
+			t.Fatalf("tileset read as %q", f.Kind)
+		}
+	}
+}

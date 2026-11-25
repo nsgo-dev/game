@@ -109,3 +109,42 @@ func ExampleObjectLayer_PhysicsBodies() {
 	// 1 ground true
 	// 136 true
 }
+
+// caveTileset is a YAML tileset (*.tileset.yaml): a grid image whose tile 0 is solid and whose tile 2 is a slope.
+const caveTileset = `version: 1
+name: cave
+tileWidth: 16
+tileHeight: 16
+image: tiles/cave.png
+columns: 4
+tileCount: 4
+tiles:
+  - id: 0
+    solid: true
+    properties:
+      kind: stone
+  - id: 2
+    shapes:
+      - kind: polygon
+        points: [[0, 16], [16, 0], [16, 16]]
+`
+
+// ParseTileset reads a YAML tileset, and AddTilesetDoc builds it into a map's tileset with its flags, properties and collision shapes.
+func ExampleTilemap_AddTilesetDoc() {
+	doc, err := tilemap.ParseTileset([]byte(caveTileset))
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	m := tilemap.New(3, 1, 16, 16)
+	if _, err := m.AddTilesetDoc(doc, 1, tilemap.TilesetAssets{}); err != nil {
+		fmt.Println(err)
+		return
+	}
+	m.Layers = append(m.Layers, tilemap.NewTileLayer("ground", 3, 1, []uint32{1, 0, 3}))
+	fmt.Println(m.FlagsAt(0, 0) == tilemap.TileSolid, m.TileProperties(1)["kind"].Value)
+	fmt.Println(m.TileShapes(3)[0].Points)
+	// Output:
+	// true stone
+	// [{0 16} {16 0} {16 16}]
+}

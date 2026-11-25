@@ -1,0 +1,59 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/tileset.v1.json
+version: 1
+name: cave
+tileWidth: 16
+tileHeight: 16
+image: tiles/cave.png
+columns: 4
+tileCount: 8
+spacing: 2
+margin: 1
+properties:
+  biome: cave
+  depth: 3
+  gravity: 9.5
+  lit: false
+  scale: 2.0
+terrains:
+  - name: rock
+    mode: cardinal
+tiles:
+  - id: 0
+    solid: true
+    terrain: rock
+  - id: 1
+    solid: true
+    properties:
+      friction: 0.5
+    terrain: rock
+    neighbors: [east]
+  - id: 2
+    shapes:
+      - kind: polygon
+        name: slope
+        points: [[0, 16], [16, 0], [16, 16]]
+  - id: 3
+    oneWay: true
+  - id: 4
+    animation:
+      - tile: 4
+        duration: 200ms
+      - tile: 5
+        duration: 100ms
+  - id: 6
+    flags: 4
+    shapes:
+      - kind: rect
+        type: water
+        "y": 8
+        width: 16
+        height: 8
+        properties:
+          depth: 1.0
+      - kind: ellipse
+        x: 4
+        "y": 4
+        width: 8
+        height: 8
+      - kind: polyline
+        points: [[0, 8], [16, 8]]

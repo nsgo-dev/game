@@ -4,43 +4,52 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"strings"
 
+	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/game/packages/game/sprite"
+	"github.com/nsgo-dev/game/packages/game/tilemap"
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// TilePalette is what the tile palette shows for the active layer: the tiles of the tileset atlas its inline tilemap names, in tile ID order, or, when there are none to pick, why.
+// TilePalette is what the tile palette shows for the active layer: the tiles of the tileset its inline tilemap names, in tile ID order, or, when there are none to pick, why.
 type TilePalette struct {
 	// Layer is the active layer's name.
 	Layer string
-	// Tileset is the atlas the layer's tilemap names, empty when the layer has no inline tilemap.
+	// Tileset is the atlas a single grid names, or the YAML tileset file a layered grid names; empty when the layer has no inline tilemap.
 	Tileset string
 	// TileWidth and TileHeight are the tilemap's tile size in points, which the palette shows each tile at.
 	TileWidth, TileHeight int
+	// TileLayers are the names of a layered grid's tile layers, in order, and TileLayer the one Paint, Erase and Fill change (Editor.ActiveTileLayer, or the first); both are empty for a single grid.
+	TileLayers []string
+	TileLayer  string
 	// Tiles are the tileset's tiles in ascending ID order.
 	Tiles []PaletteTile
 	// Message says why Tiles is empty, such as a layer without an inline tilemap or a tileset that does not resolve; it is empty when Tiles is not.
 	Message string
 }
 
-// PaletteTile is one tile of a TilePalette: a frame of the tileset atlas whose name is its tile ID ("1", "2", ...), as sceneformat looks tiles up.
+// PaletteTile is one tile of a TilePalette: for a single grid, a frame of the tileset atlas whose name is its tile ID ("1", "2", ...), as sceneformat looks tiles up; for a layered grid, a tile of its YAML tileset.
 type PaletteTile struct {
-	// ID is the tile ID painting it writes into the tilemap's data.
+	// ID is the tile ID painting writes: the value in a single grid's data, or a layered grid's tile's local ID plus 1, as PaintTile takes it.
 	ID int
-	// Image is the tileset atlas's image.
+	// Image is the image the tile is drawn from: the tileset atlas's image, or a YAML tileset's grid image.
 	Image core.ImageSource
 	// Frame is the tile's frame in Image.
 	Frame sprite.Frame
 }
+
+// maxPaletteTiles is the most tiles the palette lists from a layered grid's tileset.
+const maxPaletteTiles = 1 << 14
 
 // Has reports whether p holds a tile with the given ID.
 func (p TilePalette) Has(id int) bool {
 	return slices.ContainsFunc(p.Tiles, func(t PaletteTile) bool { return t.ID == id })
 }
 
-// TilePalette returns the palette of the active layer: the frames of its inline tilemap's tileset atlas whose names are tile IDs, in ID order, at the tilemap's tile size. A layer with no inline tilemap (none, or an external Tiled map, which the editor does not paint), a tileset the Resolver cannot resolve and a tileset with no tile frames give a palette with no tiles and a Message saying so.
+// TilePalette returns the palette of the active layer: the frames of its inline tilemap's tileset atlas whose names are tile IDs, or for a layered grid the tiles of its YAML tileset (up to the first 16384), in ID order, at the tilemap's tile size. A layer with no inline tilemap (none, or an external Tiled or LDtk map, which the editor does not paint), a tileset the Resolver cannot resolve and a tileset with no tile frames give a palette with no tiles and a Message saying so. A layered grid's tileset is read through the Resolver's sceneformat.FileResolver, and its image through its sceneformat.ImageResolver when it has one.
 func (e *Editor) TilePalette() TilePalette {
 	p := TilePalette{Layer: e.ActiveLayer}
 	li := e.layerIndex(e.ActiveLayer)
@@ -52,6 +61,9 @@ func (e *Editor) TilePalette() TilePalette {
 	if tm == nil {
 		p.Message = fmt.Sprintf("Layer %q has no inline tilemap to paint", e.ActiveLayer)
 		return p
+	}
+	if tm.IsLayered() {
+		return e.layeredPalette(p, tm)
 	}
 	p.Tileset, p.TileWidth, p.TileHeight = tm.Tileset, tm.TileWidth, tm.TileHeight
 	if e.Resolver == nil {
@@ -81,6 +93,55 @@ func (e *Editor) TilePalette() TilePalette {
 	return p
 }
 
+// layeredPalette fills p with the tiles of the YAML tileset the layered grid tm names.
+func (e *Editor) layeredPalette(p TilePalette, tm *sceneformat.TilemapDoc) TilePalette {
+	p.Tileset, p.TileWidth, p.TileHeight = tm.TilesetFile, tm.TileWidth, tm.TileHeight
+	for _, l := range tm.TileLayers {
+		p.TileLayers = append(p.TileLayers, l.Name)
+	}
+	p.TileLayer = e.tileLayerName(tm)
+	fr, ok := e.Resolver.(sceneformat.FileResolver)
+	if !ok {
+		p.Message = fmt.Sprintf("Tileset %q cannot be read: the editor's resolver does not read project files (sceneformat.FileResolver)", tm.TilesetFile)
+		return p
+	}
+	data, err := fr.ReadFile(tm.TilesetFile)
+	var doc *tilemap.TilesetDoc
+	if err == nil {
+		doc, err = tilemap.ParseTileset(data)
+	}
+	if err != nil {
+		p.Message = fmt.Sprintf("Tileset %q cannot be read: %v", tm.TilesetFile, err)
+		return p
+	}
+	img := core.ImageSource{URI: doc.Image}
+	var atlas *sprite.Atlas
+	if doc.Atlas != "" {
+		if atlas, err = e.Resolver.Atlas(doc.Atlas); err == nil && atlas == nil {
+			err = fmt.Errorf("the resolver returned no atlas")
+		}
+		if err != nil {
+			p.Message = fmt.Sprintf("Tileset %q atlas %q cannot be resolved: %v", tm.TilesetFile, doc.Atlas, err)
+			return p
+		}
+		img = atlas.Image
+	} else if ir, ok := e.Resolver.(sceneformat.ImageResolver); ok {
+		if img, err = ir.Image(doc.Image); err != nil {
+			p.Message = fmt.Sprintf("Tileset %q image %q cannot be resolved: %v", tm.TilesetFile, doc.Image, err)
+			return p
+		}
+	}
+	for id := range min(doc.Count(), maxPaletteTiles) {
+		if f, ok := tilemap.TilesetFrame(doc, atlas, id); ok {
+			p.Tiles = append(p.Tiles, PaletteTile{ID: id + 1, Image: img, Frame: f})
+		}
+	}
+	if len(p.Tiles) == 0 {
+		p.Message = fmt.Sprintf("Tileset %q has no tiles", tm.TilesetFile)
+	}
+	return p
+}
+
 // isTileTool reports whether t paints, erases, fills or picks tiles.
 func isTileTool(t Tool) bool {
 	return t == ToolPaintTile || t == ToolEraseTile || t == ToolFillTile || t == ToolPickTile
@@ -98,6 +159,7 @@ func (e *Editor) keepTileInPalette() {
 // samePalette reports whether a and b show the same tiles, so that edits that leave the active layer's tiles as they were keep the palette's grid mounted.
 func samePalette(a, b TilePalette) bool {
 	return a.Layer == b.Layer && a.Tileset == b.Tileset && a.Message == b.Message &&
+		a.TileLayer == b.TileLayer && slices.Equal(a.TileLayers, b.TileLayers) &&
 		a.TileWidth == b.TileWidth && a.TileHeight == b.TileHeight &&
 		slices.EqualFunc(a.Tiles, b.Tiles, func(x, y PaletteTile) bool {
 			return x.ID == y.ID && x.Frame == y.Frame && sameImage(x.Image, y.Image)
@@ -240,10 +302,66 @@ func tilePalettePanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 					},
 				},
 			},
+			core.Dynamic(func(cx *core.Scope) core.Node {
+				return tileLayerControls(ed, palette.Get())
+			}),
 			ui.ScrollView{
 				Style:    core.Style{FlexGrow: 1},
 				Children: []core.Node{grid},
 			},
+		},
+	}
+}
+
+// tileLayerControls returns the controls a layered grid's palette shows above its tiles: a toggle per tile layer that picks the one tile tools change, and the flips Paint and Fill place tiles with. A single grid has neither, and gets an empty view.
+func tileLayerControls(ed *Editor, p TilePalette) core.Node {
+	if len(p.TileLayers) == 0 {
+		return core.View{}
+	}
+	layers := make([]core.Node, 0, len(p.TileLayers))
+	for _, name := range p.TileLayers {
+		layers = append(layers, ui.ToggleButton{
+			TestID: "tile-layer-" + name,
+			Text:   name,
+			Label:  "Paint tile layer " + name,
+			On:     func() bool { return p.TileLayer == name },
+			OnChange: func(on bool) {
+				if on {
+					ed.SetActiveTileLayer(name)
+				}
+			},
+		})
+	}
+	flips := []struct {
+		text, label string
+		bit         uint32
+	}{
+		{"H", "Flip horizontally", tilemap.FlipHorizontal},
+		{"V", "Flip vertically", tilemap.FlipVertical},
+		{"D", "Flip diagonally", tilemap.FlipDiagonal},
+	}
+	flipButtons := make([]core.Node, 0, len(flips))
+	for _, f := range flips {
+		flipButtons = append(flipButtons, ui.ToggleButton{
+			TestID: "tile-flip-" + strings.ToLower(f.text),
+			Text:   f.text,
+			Label:  f.label,
+			On:     func() bool { return ed.ActiveTileFlip&f.bit != 0 },
+			OnChange: func(on bool) {
+				if on {
+					ed.SetActiveTileFlip(ed.ActiveTileFlip | f.bit)
+				} else {
+					ed.SetActiveTileFlip(ed.ActiveTileFlip &^ f.bit)
+				}
+			},
+		})
+	}
+	return core.View{
+		TestID: "tile-layer-controls",
+		Style:  core.Style{Gap: 6},
+		Children: []core.Node{
+			core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 4}, Children: layers},
+			core.View{Style: core.Style{Direction: core.Row, Gap: 4}, Children: flipButtons},
 		},
 	}
 }

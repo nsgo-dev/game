@@ -143,6 +143,8 @@ func (e *Editor) PlayIn(cx *core.Scope) error {
 			if e.playPhysics != nil && e.playPhysics.HasPhysics() {
 				e.playPhysics.Step(dt)
 			}
+			// Animated tiles of the scene's tilemaps advance as they do in the game.
+			e.playScene.Update(dt)
 			if e.OnPlayUpdate != nil {
 				e.OnPlayUpdate(e.playScene, dt)
 			}

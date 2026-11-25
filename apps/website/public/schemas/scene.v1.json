@@ -429,7 +429,7 @@
       "additionalProperties": false
     },
     "TilemapDoc": {
-      "description": "TilemapDoc describes either a reference to a named top-level tilemap (Ref), an external Tiled JSON map (Source), or an inline tile grid.",
+      "description": "TilemapDoc describes a tilemap in one of three modes: a reference to a named top-level tilemap (Ref), an external Tiled or LDtk map (Source), or an inline grid. An inline grid is either a single grid of atlas frame numbers (Tileset and Data) or, in version 2, a layered grid that places the tiles of a YAML tileset (TilesetFile and TileLayers).",
       "type": "object",
       "properties": {
         "ref": {
@@ -437,7 +437,7 @@
           "type": "string"
         },
         "source": {
-          "description": "Source is a path to an external Tiled .tmj file resolved by a TilemapResolver.",
+          "description": "Source is the slash-separated path from the project root of an external map: a Tiled map (.tmj or .tmx) or an LDtk project (.ldtk). Build loads it itself when its resolver implements FileResolver, as FSAssets does, or through a TilemapResolver.",
           "type": "string"
         },
         "tileWidth": {
@@ -465,11 +465,11 @@
           "maximum": 9223372036854776000
         },
         "tileset": {
-          "description": "Tileset is the atlas name providing frames keyed by 1-based tile ID (\"1\", \"2\", ...).",
+          "description": "Tileset is, for a single grid, the atlas name providing frames keyed by 1-based tile ID (\"1\", \"2\", ...).",
           "type": "string"
         },
         "data": {
-          "description": "Data holds Width*Height row-major tile IDs; 0 is an empty cell.",
+          "description": "Data holds a single grid's Width*Height row-major tile IDs; 0 is an empty cell.",
           "type": "array",
           "items": {
             "type": "integer",

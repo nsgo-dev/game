@@ -228,6 +228,8 @@ type Tileset struct {
 	Shapes map[uint32][]TileShape
 	// WangSets holds Tiled Wang sets (terrain sets) defined on this tileset.
 	WangSets []WangSet
+	// Terrains are the tileset's terrain sets, such as the ones a YAML tileset defines (TilesetDoc.Terrains), in their order there; Tilemap.Terrain finds one by name.
+	Terrains []*Terrain
 }
 
 // TileProbability returns the selection probability for localID, defaulting to 1 when unset.

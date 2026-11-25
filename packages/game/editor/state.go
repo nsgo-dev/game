@@ -19,6 +19,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/game/packages/game/resource"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
+	"github.com/nsgo-dev/game/packages/game/tilemap"
 	"github.com/nsgo-dev/game/packages/game/tooling/datatable"
 	"github.com/nsgo-dev/game/packages/game/tooling/library"
 	"github.com/nsgo-dev/nsgo/core"
@@ -160,22 +161,26 @@ type Prefab struct {
 // Editor owns the editable SceneDoc, its resolved BuiltScene, undo/redo History,
 // viewport tool/selection state, asset browser selection, and play-mode lifecycle.
 type Editor struct {
-	Doc           *sceneformat.SceneDoc
-	Built         *sceneformat.BuiltScene
-	BuildErr      error
-	History       *History
-	Resolver      sceneformat.AssetResolver
-	Prefabs       map[string]Prefab
-	SelectedID    string
-	ActiveLayer   string
-	Tool          Tool
-	ViewMode      ViewMode
-	GizmoMode     GizmoMode3D
-	Camera3D      OrbitCamera3D
-	ActiveTileID  int
-	SelectedAsset *AssetEntry
-	Status        string
-	FilePath      string
+	Doc          *sceneformat.SceneDoc
+	Built        *sceneformat.BuiltScene
+	BuildErr     error
+	History      *History
+	Resolver     sceneformat.AssetResolver
+	Prefabs      map[string]Prefab
+	SelectedID   string
+	ActiveLayer  string
+	Tool         Tool
+	ViewMode     ViewMode
+	GizmoMode    GizmoMode3D
+	Camera3D     OrbitCamera3D
+	ActiveTileID int
+	// ActiveTileLayer names the tile layer of a layered grid (sceneformat.TilemapDoc.TileLayers) that PaintTile, EraseTile and FloodFillTile change, empty for its first. A single grid has no tile layers and ignores it.
+	ActiveTileLayer string
+	// ActiveTileFlip holds the flip bits (tilemap.FlipHorizontal, FlipVertical and FlipDiagonal) that the Paint and Fill tools place tiles of a layered grid with.
+	ActiveTileFlip uint32
+	SelectedAsset  *AssetEntry
+	Status         string
+	FilePath       string
 	// Project is the game's project file (game.yaml) OpenProject opened, nil without one; EditProject changes it undoably and SaveProject writes it.
 	Project *project.File
 	// ProjectPath is the game.yaml path OpenProject opened Project from.
@@ -435,6 +440,8 @@ func (e *Editor) Rebuild() {
 		e.BuildErr = err
 		return
 	}
+	// The 2D view pans and zooms past the scene camera's frame, so the edit scene draws every tile of its maps.
+	built.DrawAllTiles = true
 	e.Built = built
 	e.BuildErr = nil
 }
@@ -499,6 +506,23 @@ func (e *Editor) SetActiveLayer(name string) bool {
 	e.keepTileInPalette()
 	e.notify()
 	return true
+}
+
+// SetActiveTileLayer selects the tile layer of the active layer's layered grid that tile painting changes, as ActiveTileLayer describes; empty selects its first. It reports false, changing nothing, when the active layer's tilemap is not a layered grid with a tile layer of that name.
+func (e *Editor) SetActiveTileLayer(name string) bool {
+	_, tm, err := e.resolveInlineTilemap(e.ActiveLayer)
+	if err != nil || !tm.IsLayered() || (name != "" && tm.TileLayer(name) == nil) {
+		return false
+	}
+	e.ActiveTileLayer = name
+	e.notify()
+	return true
+}
+
+// SetActiveTileFlip sets the flip bits the Paint and Fill tools place tiles of a layered grid with (ActiveTileFlip); bits other than tilemap.FlipMask are dropped.
+func (e *Editor) SetActiveTileFlip(flip uint32) {
+	e.ActiveTileFlip = flip & tilemap.FlipMask
+	e.notify()
 }
 
 // SetActiveTileID sets the tile GID used by PaintTile and FloodFillTile tools, which the tile palette (TilePaletteView) sets when a tile is pressed.

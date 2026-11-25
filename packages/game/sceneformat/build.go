@@ -4,12 +4,17 @@ import (
 	"cmp"
 	"fmt"
 	"math"
+	"path"
 	"slices"
 	"strconv"
+	"strings"
+	"time"
 
+	"github.com/nsgo-dev/game/packages/game/loaderr"
 	"github.com/nsgo-dev/game/packages/game/math2d"
 	"github.com/nsgo-dev/game/packages/game/resource"
 	"github.com/nsgo-dev/game/packages/game/sprite"
+	"github.com/nsgo-dev/game/packages/game/tilemap"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -18,9 +23,19 @@ type AssetResolver interface {
 	Atlas(name string) (*sprite.Atlas, error)
 }
 
-// TilemapResolver may optionally be implemented by an AssetResolver to load external tilemap sources (such as Tiled .tmj files) into an inline TilemapDoc.
+// TilemapResolver may optionally be implemented by an AssetResolver to load external tilemap sources into an inline TilemapDoc. Build uses it, when the resolver implements it, for every TilemapDoc.Source, ahead of reading the source itself through a FileResolver.
 type TilemapResolver interface {
 	Tilemap(source string) (*TilemapDoc, error)
+}
+
+// FileResolver may optionally be implemented by an AssetResolver to read the project's files by their slash-separated paths from the project root. Build reads through it the YAML tilesets that layered grids name (TilemapDoc.TilesetFile) and, with no TilemapResolver, the Tiled (.tmj, .tmx) and LDtk (.ldtk) maps that tilemap sources name, with the tilesets and images those refer to, so a scene uses them with no code of the game's own. FSAssets implements it.
+type FileResolver interface {
+	ReadFile(path string) ([]byte, error)
+}
+
+// ImageResolver may optionally be implemented by an AssetResolver to load the images that YAML tilesets and Tiled and LDtk maps draw their tiles from, given each one's slash-separated path from the project root. Without it an image is core.ImageSource{URI: path}.
+type ImageResolver interface {
+	Image(path string) (core.ImageSource, error)
 }
 
 // MaterialResolver may optionally be implemented by an AssetResolver to load the shared material files objects name in ObjectDoc.Material. A resolver that returns the same pointer for the same path, as resource.Library does, lets every scene using one file see its edits.
@@ -54,6 +69,9 @@ type BuiltScene struct {
 	// Objects indexes every built object in the scene, children included, by its unique ID.
 	Objects map[string]*BuiltObject
 
+	// DrawAllTiles makes Draw draw every tile of the layers' maps (BuiltLayer.Map). By default Draw culls them to the scene's view, its virtual viewport through the camera, which a view that shows more of the world, such as an editor's panned past the camera, sets it to avoid.
+	DrawAllTiles bool
+
 	// materialed are the sprite objects with a material, in build order, which SyncMaterials updates.
 	materialed []*BuiltObject
 }
@@ -70,8 +88,10 @@ type BuiltLayer struct {
 	Order int
 	// Visible controls whether Draw renders this layer.
 	Visible bool
-	// Tilemap is the sprite batch for the layer's tilemap, or nil if the layer has none.
+	// Tilemap is the sprite batch for the layer's tilemap when it is a single grid of atlas frames (TilemapDoc.Tileset and Data), or nil.
 	Tilemap *sprite.Batch
+	// Map is the tilemap built from the layer's tilemap when it is a layered grid (TilemapDoc.TileLayers) or a Tiled or LDtk source, or nil. It holds the tileset's flags, properties, shapes, animations and terrains, so in the layer's coordinates it answers FlagsAt, TileProperties, TilesInRect and Raycast and serves tileshape.New; Draw draws only its tiles inside the view, and BuiltScene.Update animates them.
+	Map *tilemap.Tilemap
 	// Batches are the sprite batches for the layer's sprite objects, grouped in exact Z order.
 	Batches []*sprite.Batch
 	// Objects are the layer's top-level built objects in document order; each one's descendants hang from BuiltObject.Children.
@@ -102,7 +122,7 @@ type BuiltObject struct {
 	WorldAlpha float32
 }
 
-// Build validates doc, resolves its referenced atlases and tilemaps through resolver, and returns a BuiltScene ready to draw. A scene that instances or inherits other scene files (SceneDoc.RefersToScenes) is first resolved with Resolve, which loads them through resolver when it implements SceneResolver.
+// Build validates doc, resolves its referenced atlases and tilemaps through resolver, and returns a BuiltScene ready to draw. A single grid of atlas frames becomes a sprite batch (BuiltLayer.Tilemap); a layered grid, with the YAML tileset it names read through a FileResolver, and a Tiled or LDtk source, read through a TilemapResolver when the resolver implements one and otherwise through a FileResolver, become a tilemap.Tilemap (BuiltLayer.Map). A scene that instances or inherits other scene files (SceneDoc.RefersToScenes) is first resolved with Resolve, which loads them through resolver when it implements SceneResolver.
 func Build(doc *SceneDoc, resolver AssetResolver) (*BuiltScene, error) {
 	if err := Validate(doc); err != nil {
 		return nil, err
@@ -180,6 +200,8 @@ func Build(doc *SceneDoc, resolver AssetResolver) (*BuiltScene, error) {
 		return m, nil
 	}
 
+	tiles := &tilemapBuilder{doc: doc, resolver: resolver, getAtlas: getAtlas, tilesets: make(map[string]*tilemap.TilesetDoc)}
+
 	// Sort layer indices stably by Order so doc.Layers is never mutated.
 	order := make([]int, len(doc.Layers))
 	for i := range order {
@@ -202,11 +224,9 @@ func Build(doc *SceneDoc, resolver AssetResolver) (*BuiltScene, error) {
 		}
 
 		if ld.Tilemap != nil {
-			batch, err := buildTilemapBatch(doc, ld.Name, ld.Tilemap, resolver, getAtlas)
-			if err != nil {
+			if err := tiles.build(bl, ld.Tilemap); err != nil {
 				return nil, err
 			}
-			bl.Tilemap = batch
 		}
 
 		var drawables []*BuiltObject
@@ -316,30 +336,172 @@ func decomposeTRS(m math2d.Affine) (x, y, rot, sx, sy float32, ok bool) {
 	return m.Tx, m.Ty, rot, float32(scaleX), float32(scaleY), true
 }
 
-func buildTilemapBatch(doc *SceneDoc, layerName string, tm *TilemapDoc, resolver AssetResolver, getAtlas func(string) (*sprite.Atlas, error)) (*sprite.Batch, error) {
+// tilemapBuilder builds the tilemaps of one Build call's layers, reading each YAML tileset once.
+type tilemapBuilder struct {
+	doc      *SceneDoc
+	resolver AssetResolver
+	getAtlas func(string) (*sprite.Atlas, error)
+	tilesets map[string]*tilemap.TilesetDoc
+}
+
+// build builds layer bl's tilemap tm into bl.Tilemap or bl.Map.
+func (b *tilemapBuilder) build(bl *BuiltLayer, tm *TilemapDoc) error {
 	resolved := tm
 	if resolved.IsRef() {
-		resolved = doc.Tilemaps[resolved.Ref]
+		resolved = b.doc.Tilemaps[resolved.Ref]
 	}
 	if resolved.IsExternal() {
-		tr, ok := resolver.(TilemapResolver)
-		if !ok {
-			return nil, fmt.Errorf("sceneformat: layer %q tilemap source %q requires a TilemapResolver", layerName, resolved.Source)
+		where := fmt.Sprintf("layer %q tilemap source %q", bl.Name, resolved.Source)
+		if tr, ok := b.resolver.(TilemapResolver); ok {
+			loaded, err := tr.Tilemap(resolved.Source)
+			if err != nil {
+				return fmt.Errorf("sceneformat: %s: %w", where, err)
+			}
+			if loaded == nil {
+				return fmt.Errorf("sceneformat: %s returned nil", where)
+			}
+			if err := validateInlineTilemap(nil, fmt.Sprintf("layer %q tilemap %q", bl.Name, resolved.Source), loaded); err != nil {
+				// The loaded grid is not part of the document, so its error keeps no path into it.
+				return err.(*FieldError).Err
+			}
+			resolved = loaded
+		} else {
+			m, err := b.external(where, resolved)
+			if err != nil {
+				return err
+			}
+			bl.Map = m
+			return nil
 		}
-		loaded, err := tr.Tilemap(resolved.Source)
-		if err != nil {
-			return nil, fmt.Errorf("sceneformat: layer %q tilemap source %q: %w", layerName, resolved.Source, err)
-		}
-		if loaded == nil {
-			return nil, fmt.Errorf("sceneformat: layer %q tilemap source %q returned nil", layerName, resolved.Source)
-		}
-		if err := validateInlineTilemap(nil, fmt.Sprintf("layer %q tilemap %q", layerName, resolved.Source), loaded); err != nil {
-			// The loaded grid is not part of the document, so its error keeps no path into it.
-			return nil, err.(*FieldError).Err
-		}
-		resolved = loaded
 	}
+	if resolved.IsLayered() {
+		m, err := b.layered(bl.Name, resolved)
+		if err != nil {
+			return err
+		}
+		bl.Map = m
+		return nil
+	}
+	batch, err := buildTilemapBatch(bl.Name, resolved, b.getAtlas)
+	if err != nil {
+		return err
+	}
+	bl.Tilemap = batch
+	return nil
+}
 
+// readFile reads the project file at p through the resolver's FileResolver.
+func (b *tilemapBuilder) readFile(where, p string) ([]byte, error) {
+	fr, ok := b.resolver.(FileResolver)
+	if !ok {
+		return nil, fmt.Errorf("sceneformat: %s: reading %q requires a FileResolver (such as FSAssets) or, for a tilemap source, a TilemapResolver", where, p)
+	}
+	data, err := fr.ReadFile(p)
+	if err != nil {
+		return nil, fmt.Errorf("sceneformat: %s: read %q: %w", where, p, err)
+	}
+	return data, nil
+}
+
+// image returns the image at the project path p through the resolver's ImageResolver, or as a URI.
+func (b *tilemapBuilder) image(p string) (core.ImageSource, error) {
+	if ir, ok := b.resolver.(ImageResolver); ok {
+		return ir.Image(p)
+	}
+	return core.ImageSource{URI: p}, nil
+}
+
+// external loads the Tiled or LDtk map that tm.Source names, through the resolver's FileResolver.
+func (b *tilemapBuilder) external(where string, tm *TilemapDoc) (*tilemap.Tilemap, error) {
+	ext := strings.ToLower(pathExt(tm.Source))
+	if ext != ".tmj" && ext != ".tmx" && ext != ".ldtk" {
+		return nil, fmt.Errorf("sceneformat: %s is not a Tiled map (.tmj, .tmx) or LDtk project (.ldtk)", where)
+	}
+	data, err := b.readFile(where, tm.Source)
+	if err != nil {
+		return nil, err
+	}
+	dir := path.Dir(tm.Source)
+	var m *tilemap.Tilemap
+	if ext == ".ldtk" {
+		var imgErr error
+		m, err = tilemap.LoadLDtk(data, tm.Level, func(rel string) core.ImageSource {
+			img, err := b.image(path.Join(dir, rel))
+			if err != nil && imgErr == nil {
+				imgErr = fmt.Errorf("image %q: %w", path.Join(dir, rel), err)
+			}
+			return img
+		})
+		if err == nil {
+			err = imgErr
+		}
+	} else {
+		m, err = tilemap.LoadTiled(data, tilemap.TilesetLoader{
+			LoadTileset: func(source string) ([]byte, error) {
+				return b.readFile(where, path.Join(dir, source))
+			},
+			LoadImage: func(p string) (core.ImageSource, error) {
+				return b.image(path.Join(dir, p))
+			},
+		})
+	}
+	if err != nil {
+		return nil, fmt.Errorf("sceneformat: %s: %w", where, loaderr.WithFile(err, tm.Source))
+	}
+	return m, nil
+}
+
+// tileset returns the YAML tileset at the project path p, reading and parsing it on first use.
+func (b *tilemapBuilder) tileset(where, p string) (*tilemap.TilesetDoc, error) {
+	if ts, ok := b.tilesets[p]; ok {
+		return ts, nil
+	}
+	data, err := b.readFile(where, p)
+	if err != nil {
+		return nil, err
+	}
+	ts, err := tilemap.ParseTileset(data)
+	if err != nil {
+		return nil, fmt.Errorf("sceneformat: %s: %w", where, loaderr.WithFile(err, p))
+	}
+	b.tilesets[p] = ts
+	return ts, nil
+}
+
+// layered builds the layered grid tm of layer layerName into a tilemap.Tilemap: its tileset at GID 1, then its tile layers in order.
+func (b *tilemapBuilder) layered(layerName string, tm *TilemapDoc) (*tilemap.Tilemap, error) {
+	where := fmt.Sprintf("layer %q tilemap", layerName)
+	doc, err := b.tileset(where, tm.TilesetFile)
+	if err != nil {
+		return nil, err
+	}
+	m := tilemap.New(tm.Width, tm.Height, float32(tm.TileWidth), float32(tm.TileHeight))
+	assets := tilemap.TilesetAssets{Image: b.image, Atlas: b.getAtlas}
+	if _, err := m.AddTilesetDoc(doc, 1, assets); err != nil {
+		return nil, fmt.Errorf("sceneformat: %s tileset %q: %w", where, tm.TilesetFile, err)
+	}
+	count := uint32(doc.Count())
+	m.Layers = make([]tilemap.TileLayer, 0, len(tm.TileLayers))
+	for i := range tm.TileLayers {
+		l := &tm.TileLayers[i]
+		cells, err := l.Cells()
+		if err != nil {
+			return nil, fmt.Errorf("sceneformat: %s: %w", where, err)
+		}
+		for j, cell := range cells {
+			if id := cell & tilemap.TileIDMask; id > count {
+				return nil, fmt.Errorf("sceneformat: %s tile layer %q row %d column %d places tile %d, but tileset %q has %d tiles", where, l.Name, j/tm.Width, j%tm.Width, id-1, tm.TilesetFile, count)
+			}
+		}
+		tl := tilemap.NewTileLayer(l.Name, tm.Width, tm.Height, cells)
+		tl.Visible = l.IsVisible()
+		tl.Opacity = l.EffectiveOpacity()
+		m.Layers = append(m.Layers, tl)
+	}
+	return m, nil
+}
+
+func buildTilemapBatch(layerName string, resolved *TilemapDoc, getAtlas func(string) (*sprite.Atlas, error)) (*sprite.Batch, error) {
 	atlas, err := getAtlas(resolved.Tileset)
 	if err != nil {
 		return nil, fmt.Errorf("sceneformat: layer %q tilemap: %w", layerName, err)
@@ -465,7 +627,7 @@ func (s *BuiltScene) Object(id string) *BuiltObject {
 	return s.Objects[id]
 }
 
-// Draw draws the scene into d: it syncs materials (SyncMaterials), then draws the background fill over the virtual viewport (when configured), then each visible layer in order. World-space layers draw under the camera transform; screen-space layers draw in canvas coordinates. Draw leaves d's transform and paint state as it found it.
+// Draw draws the scene into d: it syncs materials (SyncMaterials), then draws the background fill over the virtual viewport (when configured), then each visible layer in order, its tilemap beneath its objects. World-space layers draw under the camera transform; screen-space layers draw in canvas coordinates. A layer's map (BuiltLayer.Map) draws only the tiles inside the virtual viewport, seen through the camera for a world-space layer, unless the scene has no virtual size or DrawAllTiles is set. Draw leaves d's transform and paint state as it found it.
 func (s *BuiltScene) Draw(d *core.Drawing) {
 	if s == nil || d == nil {
 		return
@@ -483,18 +645,45 @@ func (s *BuiltScene) Draw(d *core.Drawing) {
 		if !layer.Visible {
 			continue
 		}
-		if layer.Tilemap == nil && len(layer.Batches) == 0 {
+		if layer.Tilemap == nil && layer.Map == nil && len(layer.Batches) == 0 {
 			continue
 		}
+		view := s.tileView(layer.Space, vw, vh)
 		if layer.Space == SpaceWorld && s.Camera != nil {
-			s.drawWithCamera(d, vw, vh, layer)
+			s.drawWithCamera(d, vw, vh, layer, view)
 			continue
 		}
-		drawLayer(d, layer)
+		drawLayer(d, layer, view)
 	}
 }
 
-func (s *BuiltScene) drawWithCamera(d *core.Drawing, vw, vh float32, layer *BuiltLayer) {
+// tileView returns the camera that culls the tiles of a layer in space to what the scene shows, its virtual viewport of vw by vh points seen through the scene camera for a world-space layer, or nil to draw every tile when the scene has no virtual size or DrawAllTiles is set.
+func (s *BuiltScene) tileView(space Space, vw, vh float32) *tilemap.Camera {
+	if s.DrawAllTiles || vw <= 0 || vh <= 0 {
+		return nil
+	}
+	if space == SpaceWorld && s.Camera != nil {
+		cam := s.Camera
+		zoom := cam.EffectiveZoom()
+		x, y := clampCamera(cam.X, cam.Y, vw, vh, zoom, cam.Bounds)
+		return &tilemap.Camera{X: x, Y: y, Zoom: zoom, Rotation: cam.Rotation, Width: vw, Height: vh}
+	}
+	return &tilemap.Camera{X: vw / 2, Y: vh / 2, Zoom: 1, Width: vw, Height: vh}
+}
+
+// Update advances the animated tiles of every layer's map (BuiltLayer.Map) by dt, so the next Draw shows their current frames.
+func (s *BuiltScene) Update(dt time.Duration) {
+	if s == nil {
+		return
+	}
+	for _, l := range s.Layers {
+		if l.Map != nil {
+			l.Map.Update(dt)
+		}
+	}
+}
+
+func (s *BuiltScene) drawWithCamera(d *core.Drawing, vw, vh float32, layer *BuiltLayer, view *tilemap.Camera) {
 	cam := s.Camera
 	zoom := cam.EffectiveZoom()
 	cx, cy := vw/2, vh/2
@@ -502,7 +691,7 @@ func (s *BuiltScene) drawWithCamera(d *core.Drawing, vw, vh float32, layer *Buil
 
 	// Identity camera needs no Save/Restore wrapper.
 	if zoom == 1 && cam.Rotation == 0 && cx-camX == 0 && cy-camY == 0 {
-		drawLayer(d, layer)
+		drawLayer(d, layer, view)
 		return
 	}
 
@@ -523,7 +712,7 @@ func (s *BuiltScene) drawWithCamera(d *core.Drawing, vw, vh float32, layer *Buil
 			d.Translate(-camX, -camY)
 		}
 	}
-	drawLayer(d, layer)
+	drawLayer(d, layer, view)
 	d.Restore()
 }
 
@@ -550,9 +739,12 @@ func clampCamera(x, y, vw, vh, zoom float32, b *BoundsDoc) (float32, float32) {
 	return x, y
 }
 
-func drawLayer(d *core.Drawing, layer *BuiltLayer) {
+func drawLayer(d *core.Drawing, layer *BuiltLayer, view *tilemap.Camera) {
 	if layer.Tilemap != nil {
 		layer.Tilemap.Draw(d)
+	}
+	if layer.Map != nil {
+		layer.Map.Draw(d, view)
 	}
 	for _, b := range layer.Batches {
 		b.Draw(d)

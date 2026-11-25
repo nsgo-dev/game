@@ -2,7 +2,8 @@
 //
 // Check walks a directory and reads:
 //
-//   - scenes, files named *.scene.yaml or *.scene.yml, parsed and validated by sceneformat, whose tilemap sources, sprite and tileset atlases and materials must exist and load, whose glTF models (.gltf or .glb) must exist and load with gltf.LoadFS and hold the node or mesh an object names, whose sprite frames and tile IDs must be in their atlases, which must resolve with sceneformat.Resolve when they instance or inherit other scenes, and whose connections must name objects of the scene, counting the objects the scenes it instances and inherits bring, and, given the game's component types (Options.Components), events and handlers those objects' components declare;
+//   - scenes, files named *.scene.yaml or *.scene.yml, parsed and validated by sceneformat, whose tilemap sources (Tiled .tmj and .tmx maps and LDtk .ldtk projects, with the level they name), YAML tilesets, sprite and tileset atlases and materials must exist and load, whose glTF models (.gltf or .glb) must exist and load with gltf.LoadFS and hold the node or mesh an object names, whose sprite frames and tile IDs must be in their atlases and tilesets, which must resolve with sceneformat.Resolve when they instance or inherit other scenes, and whose connections must name objects of the scene, counting the objects the scenes it instances and inherits bring, and, given the game's component types (Options.Components), events and handlers those objects' components declare;
+//   - YAML tilesets, files named *.tileset.yaml or *.tileset.yml, parsed and validated by tilemap.ParseTileset, whose grid image must exist and be large enough for their columns and tile count, or whose atlas must exist and hold their frames;
 //   - 3D world files named *.gridmap.yaml/.yml, *.terrain.yaml/.yml and *.foliage.yaml/.yml, parsed and validated by world3d, whose referenced mesh libraries (and their tile names for .gltf libraries), heightmaps, splat maps, layer textures, terrain definitions, foliage meshes, materials and density maps must exist and decode;
 //   - Tiled maps (.tmj) and tilesets (.tsj), whose external tilesets must be JSON tilesets (.tsj or .json) that exist, whose tileset and image-layer images must exist, and which must load with tilemap.LoadTiled;
 //   - LDtk projects (.ldtk), whose tileset images and level backgrounds must exist, whose levels must not be saved in separate files, which tilemap.LoadLDtkAll does not read, and which must load with tilemap.LoadLDtkAll;
@@ -11,7 +12,7 @@
 //
 // A reference to a file that is gone says where the file went when the project index (refs.IndexFileName) finds it again (refs.Project.Moved), and that game index updates the reference.
 //
-// A file a map or tileset names is resolved from that file's directory, as Tiled and LDtk write them. A scene's tilemap source and material paths are resolved from its project root, the nearest directory above the scene that holds game.yaml, nsgo.yaml or go.mod, or the checked directory when none does. A scene names an atlas by name, as a sceneformat.AssetResolver resolves it: the name is the path of an atlas JSON file without its .json extension, either from the project root or as the file's base name, and when several atlases in the project match, the one nearest the scene, counting the directories up from the scene and down to the atlas, wins. A JSON file of that name that does not parse, or is not an atlas, is reported when a scene names it. PNG, JPEG and GIF images must also decode; other images only have to exist.
+// A file a map or tileset names is resolved from that file's directory, as Tiled and LDtk write them. A scene's tilemap source, tileset file and material paths, and a YAML tileset's image, are resolved from its project root, the nearest directory above the scene that holds game.yaml, nsgo.yaml or go.mod, or the checked directory when none does. A scene names an atlas by name, as a sceneformat.AssetResolver resolves it: the name is the path of an atlas JSON file without its .json extension, either from the project root or as the file's base name, and when several atlases in the project match, the one nearest the scene, counting the directories up from the scene and down to the atlas, wins. A JSON file of that name that does not parse, or is not an atlas, is reported when a scene names it. PNG, JPEG and GIF images must also decode; other images only have to exist.
 //
 // Directories whose names start with "." or "_", and those named testdata, are skipped, as the go command skips them.
 package assetcheck
@@ -34,6 +35,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/game/packages/game/refs"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
+	"github.com/nsgo-dev/game/packages/game/tilemap"
 )
 
 // Problem is one thing wrong with a file Check read.
@@ -56,7 +58,7 @@ func (p Problem) String() string {
 
 // Report is what Check found.
 type Report struct {
-	// Scenes, Maps, Tilesets and Atlases count the files of each kind that were checked: scene files, Tiled and LDtk maps, Tiled tilesets, and sprite atlases.
+	// Scenes, Maps, Tilesets and Atlases count the files of each kind that were checked: scene files, Tiled and LDtk maps, Tiled and YAML tilesets, and sprite atlases.
 	Scenes, Maps, Tilesets, Atlases int
 	// GridMaps, Terrains and Foliage count the 3D world YAML files that were checked: *.gridmap.yaml, *.terrain.yaml and *.foliage.yaml.
 	GridMaps, Terrains, Foliage int
@@ -81,18 +83,19 @@ func Check(fsys fs.FS) (*Report, error) {
 // CheckWith walks fsys, such as os.DirFS of a game's directory, checks every scene, map, tileset and atlas in it as the package comment describes, and returns what it found. It returns an error only when fsys's root cannot be read; a file it cannot read or parse is a Problem.
 func CheckWith(fsys fs.FS, opts Options) (*Report, error) {
 	c := &checker{
-		fsys:       fsys,
-		components: opts.Components,
-		atlases:    make(map[string]*atlasInfo),
-		checked:    make(map[string]bool),
-		broken:     make(map[string]bool),
-		images:     make(map[string]*imageInfo),
-		materials:  make(map[string]bool),
-		meshLibs:   make(map[string]*meshLibInfo),
-		models:     make(map[string]*gltf.Document),
-		roots:      make(map[string]string),
+		fsys:        fsys,
+		components:  opts.Components,
+		atlases:     make(map[string]*atlasInfo),
+		checked:     make(map[string]bool),
+		broken:      make(map[string]bool),
+		images:      make(map[string]*imageInfo),
+		materials:   make(map[string]bool),
+		meshLibs:    make(map[string]*meshLibInfo),
+		models:      make(map[string]*gltf.Document),
+		tilesetDocs: make(map[string]*tilemap.TilesetDoc),
+		roots:       make(map[string]string),
 	}
-	var scenes, gridMaps, terrains, foliages, tiledMaps, tilesets, ldtks, jsons []string
+	var scenes, gridMaps, terrains, foliages, tiledMaps, tilesets, yamlTilesets, ldtks, jsons []string
 	err := fs.WalkDir(fsys, ".", func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			if p == "." {
@@ -111,6 +114,8 @@ func CheckWith(fsys fs.FS, opts Options) (*Report, error) {
 		switch {
 		case strings.HasSuffix(name, ".scene.yaml"), strings.HasSuffix(name, ".scene.yml"):
 			scenes = append(scenes, p)
+		case strings.HasSuffix(name, ".tileset.yaml"), strings.HasSuffix(name, ".tileset.yml"):
+			yamlTilesets = append(yamlTilesets, p)
 		case strings.HasSuffix(name, ".gridmap.yaml"), strings.HasSuffix(name, ".gridmap.yml"):
 			gridMaps = append(gridMaps, p)
 		case strings.HasSuffix(name, ".terrain.yaml"), strings.HasSuffix(name, ".terrain.yml"):
@@ -144,6 +149,9 @@ func CheckWith(fsys fs.FS, opts Options) (*Report, error) {
 	}
 	for _, p := range tilesets {
 		c.checkTiledTileset(p)
+	}
+	for _, p := range yamlTilesets {
+		c.checkYAMLTileset(p)
 	}
 	for _, p := range tiledMaps {
 		c.checkTiledMap(p)
@@ -193,6 +201,8 @@ type checker struct {
 	meshLibs map[string]*meshLibInfo
 	// models holds each glTF model loaded so far, nil for one that does not load.
 	models map[string]*gltf.Document
+	// tilesetDocs caches each YAML tileset checked, nil for one that does not parse.
+	tilesetDocs map[string]*tilemap.TilesetDoc
 	// roots caches the project root of each directory.
 	roots map[string]string
 	// refs is what refs.Scan found: every reference between the files, and the project indexes that say where a moved file went.

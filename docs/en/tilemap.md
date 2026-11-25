@@ -1,6 +1,6 @@
 # tilemap
 
-`game/tilemap` draws orthogonal, isometric, staggered, and hexagonal tiled worlds with camera frustum culling, loads Tiled `.tmx`/`.tmj` maps (with embedded or external `.tsx`/`.tsj` tilesets and animated tiles), queries tile collision flags and rays, and drives a 2D camera with smoothing, clamping, and screen shake.
+`game/tilemap` draws orthogonal, isometric, staggered, and hexagonal tiled worlds with camera frustum culling, loads Tiled `.tmx`/`.tmj` maps (with embedded or external `.tsx`/`.tsj` tilesets and animated tiles) and YAML tilesets (`*.tileset.yaml`), queries tile collision flags and rays, and drives a 2D camera with smoothing, clamping, and screen shake.
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/tilemap"
@@ -136,6 +136,74 @@ m.SetTerrainRect(0, 6, 2, 3, 3, ws, water, rng)
 - **Corner, edge, and mixed sets**: `WangCorner` matches the four tile corners, `WangEdge` matches the four tile edges, and `WangMixed` matches all eight slots. Existing neighbors whose shared corners or edges change are updated automatically, including multi-hop transitions (for example creating a dirt shoreline ring when painting water onto grass in a tileset without direct grass-to-water tiles).
 - **Deterministic probability selection**: when multiple tiles tie for the best match, `SetTerrain` and `SetTerrainRect` choose weighted by tile probability from `*random.Stream` (or any `TerrainRand`, so the same seed always picks the same variants). Pass `rng == nil` for deterministic lowest-`TileID` selection.
 - **Code-defined blobs**: `AutotileSet`, `ApplyAutotile`, and `SetAutotile` remain available for code-defined 4-bit (16-tile) and 8-bit corner-gated (47-tile) single-terrain blobs.
+
+## YAML tilesets
+
+A YAML tileset (`*.tileset.yaml`, `TilesetDoc`) is the text counterpart of Godot's TileSet resource: it says once what each tile is, and the maps that use it only place tiles. Scene files place its tiles in layered grids ([Editor & Scene Format](editor.md#tilemaps)). It cuts its tiles from a grid image (`image`, `columns`, `tileCount`, optional `spacing` and `margin`) or takes them from frames of a sprite atlas (`atlas`, `frames` in local ID order). A tile's local ID is its index in the grid, row by row from the top left, or in `frames`, from 0.
+
+```yaml
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/tileset.v1.json
+version: 1
+name: cave
+tileWidth: 16
+tileHeight: 16
+image: tiles/cave.png
+columns: 4
+tileCount: 8
+terrains:
+  - name: rock
+    mode: cardinal
+tiles:
+  - id: 0
+    solid: true
+    terrain: rock
+  - id: 1
+    solid: true
+    properties:
+      friction: 0.5
+    terrain: rock
+    neighbors: [east]
+  - id: 2
+    shapes:
+      - kind: polygon
+        points: [[0, 16], [16, 0], [16, 16]]
+  - id: 4
+    animation:
+      - tile: 4
+        duration: 200ms
+      - tile: 5
+        duration: 200ms
+```
+
+`tiles` lists the tiles that carry more than their picture, in ascending ID order:
+
+| Field | Meaning |
+| --- | --- |
+| `solid`, `oneWay`, `flags` | `TileSolid`, `TileOneWay` and any further `TileFlags` bits the game defines, set on the tile with `SetFlags` |
+| `properties` | Custom properties, each a bool, an integer, a number or a string, as `TileProperties` returns them; the tileset has its own `properties` too |
+| `shapes` | Collision shapes in the tile's coordinates: `rect` and `ellipse` by `x`, `y`, `width` and `height`, `polygon` (3 points or more) and `polyline` (2 or more) by `points`, each with optional `name`, `type` and `properties`; they load into `Tileset.Shapes` as Tiled's collision editor's do, for [tileshape](tileshape.md) |
+| `animation` | Frames of `tile` and positive `duration` (such as `150ms`) that `Update` cycles through |
+| `terrain`, `neighbors` | The terrain set from `terrains` the tile belongs to, and the directions (`north`, `east`, `south`, `west`, and for a `blob` terrain also `northeast`, `southeast`, `southwest`, `northwest`) in which a cell of the same terrain lies next to it |
+
+A terrain's `mode` is `cardinal`, which matches the four edge neighbours (16 tiles, `Autotile4`), or `blob`, which also matches a corner when both edges beside it match (47 tiles, `Autotile8`). No two tiles of a terrain may list the same neighbours, and the one that lists none is its default.
+
+`ParseTileset` refuses unknown keys and every rule above with a `*loaderr.Error` at the line at fault, and `EncodeTileset` writes the canonical form, so loading and saving a tileset changes no byte; `LoadTilesetFS` reads one from an `fs.FS`. `m.AddTilesetDoc(doc, firstGID, assets)` builds it into a `Tileset` of `m` whose GIDs start at `firstGID`, resolving its image through `TilesetAssets.Image` (a `core.ImageSource{URI: path}` when nil) or its atlas through `TilesetAssets.Atlas`, and sets its tiles' flags on the map:
+
+```go
+doc, err := tilemap.LoadTilesetFS(os.DirFS(projectDir), "tilesets/cave.tileset.yaml")
+if err != nil {
+	return err
+}
+m := tilemap.New(40, 23, 16, 16)
+if _, err := m.AddTilesetDoc(doc, 1, tilemap.TilesetAssets{}); err != nil {
+	return err
+}
+// Autotile a layer with the rock terrain.
+rock := m.Terrain("rock")
+m.ApplyAutotile(0, rock.Autotile, rock.Contains)
+```
+
+Each terrain becomes a `Terrain` in `Tileset.Terrains`, whose `Autotile` maps neighbour masks to GIDs for `ApplyAutotile` and `SetAutotile` and whose `Contains` tells its tiles apart. `TilesetFrame(doc, atlas, id)` gives where a tile lies in its image, as an editor's palette shows it.
 
 ## Animated tiles
 

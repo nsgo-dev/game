@@ -22,6 +22,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/navbake3d"
 	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
+	"github.com/nsgo-dev/game/packages/game/tilemap"
 	"github.com/nsgo-dev/game/packages/game/tooling/importsettings"
 	"github.com/nsgo-dev/game/packages/game/tooling/jsonschema"
 	"github.com/nsgo-dev/game/packages/game/voxel"
@@ -51,7 +52,7 @@ type format struct {
 }
 
 // sceneV2Fields names the Go fields of the scene document types that scene format version 2 added; the version 1 schema leaves them out, since Validate refuses them in a version 1 document.
-var sceneV2Fields = map[string]bool{"Inherits": true, "LayerOverrides": true, "Overrides": true, "Scene": true, "Model": true, "ModelNode": true, "ModelMesh": true}
+var sceneV2Fields = map[string]bool{"Inherits": true, "LayerOverrides": true, "Overrides": true, "Scene": true, "Model": true, "ModelNode": true, "ModelMesh": true, "Level": true, "TilesetFile": true, "TileLayers": true}
 
 // sceneV1Field maps a scene document field as jsonschema.YAMLField does, skipping the fields version 2 added.
 func sceneV1Field(f reflect.StructField) jsonschema.Field {
@@ -77,6 +78,13 @@ var formats = []format{
 		typ:     reflect.TypeFor[sceneformat.SceneDoc](),
 		pkg:     "sceneformat",
 		version: 2,
+	},
+	{
+		url:     tilemap.TilesetSchemaURL,
+		title:   "NSGo game tileset (version 1)",
+		typ:     reflect.TypeFor[tilemap.TilesetDoc](),
+		pkg:     "tilemap",
+		version: tilemap.TilesetFormatVersion,
 	},
 	{
 		url:     importsettings.SchemaURL,
@@ -183,6 +191,24 @@ func generate(root string) ([]schemaFile, error) {
 			}
 			// Args is a map[string]any, which Reflect allows any value in, but sceneformat.Validate takes only scalars, so an editor flags the rest as the loader does.
 			args.AdditionalProperties = &jsonschema.Schema{Types: []jsonschema.Type{jsonschema.TypeBoolean, jsonschema.TypeNumber, jsonschema.TypeString}}
+		}
+		if f.url == tilemap.TilesetSchemaURL {
+			// Properties are map[string]any, which Reflect allows any value in, but tilemap.ValidateTileset takes only scalars, so an editor flags the rest as the loader does.
+			scalar := &jsonschema.Schema{Types: []jsonschema.Type{jsonschema.TypeBoolean, jsonschema.TypeNumber, jsonschema.TypeString}}
+			props := []*jsonschema.Schema{s.Property("properties")}
+			for _, def := range []string{"TileDoc", "TileShapeDoc"} {
+				d := s.Definitions[def]
+				if d == nil {
+					return nil, fmt.Errorf("%s: no %s definition", f.url, def)
+				}
+				props = append(props, d.Property("properties"))
+			}
+			for _, p := range props {
+				if p == nil {
+					return nil, fmt.Errorf("%s: a properties field is missing", f.url)
+				}
+				p.AdditionalProperties = scalar
+			}
 		}
 		if f.url == ai.BTSchemaURL {
 			btValSchema := func(desc string) *jsonschema.Schema {
