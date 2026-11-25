@@ -640,3 +640,54 @@ func TestDrawWorldCharacterContactAndRaycast(t *testing.T) {
 		t.Fatalf("DrawRaycast(miss) emitted %+v, want 1 RayColor segment", rayMissSegs)
 	}
 }
+
+func TestCompoundDebugDraw(t *testing.T) {
+	w := physics3d.NewWorld()
+	w.AddBody(physics3d.NewStaticBody(
+		physics3d.BoxShape(physics3d.Box{HalfExtents: physics3d.Vec3{X: 10, Y: 0.5, Z: 10}}),
+		physics3d.Vec3{Y: -0.5},
+	))
+	hull, err := physics3d.NewConvexHull(rockPoints(3, 20, 0.3), 12)
+	if err != nil {
+		t.Fatalf("NewConvexHull: %v", err)
+	}
+	shape := physics3d.CompoundShape(
+		physics3d.CompoundChild{Shape: physics3d.BoxShape(physics3d.Box{HalfExtents: physics3d.Vec3{X: 0.3, Y: 0.3, Z: 0.3}}), Offset: physics3d.Vec3{X: -1, Y: 0.25}},
+		physics3d.CompoundChild{Shape: physics3d.SphereShape(physics3d.Sphere{Radius: 0.3}), Offset: physics3d.Vec3{X: 1, Y: 0.25}},
+		physics3d.CompoundChild{Shape: physics3d.CapsuleShape(physics3d.VerticalCapsule(physics3d.Vec3{}, 0.2, 0.8)), Offset: physics3d.Vec3{Y: 1}},
+		physics3d.CompoundChild{Shape: physics3d.ConvexHullShape(hull), Offset: physics3d.Vec3{Z: 1, Y: 0.4}},
+		physics3d.CompoundChild{Shape: physics3d.CylinderShape(physics3d.VerticalCylinder(physics3d.Vec3{}, 0.2, 0.6)), Offset: physics3d.Vec3{Z: -1, Y: 0.4}},
+	)
+	b := w.AddBody(physics3d.NewDynamicBody(shape, physics3d.Vec3{}, 5))
+
+	vp := core.Bounds{Size: core.Size{Width: 800, Height: 600}}
+	view := physics3d.Mat4LookAt(physics3d.Vec3{X: 0, Y: 3, Z: 8}, physics3d.Vec3{}, physics3d.Vec3{Y: 1})
+	proj := physics3d.Mat4Perspective(math.Pi/3, 800.0/600.0, 0.1, 100)
+	viewProj := physics3d.Mat4Mul(proj, view)
+	style := physics3d.DefaultDebugStyle()
+
+	shapeOps := renderCanvasOps(t, 800, 600, func(d *core.Drawing) {
+		physics3d.DrawShape(d, viewProj, vp, b.WorldShape(), style)
+	})
+	shapeSegs := extractSegments(t, shapeOps)
+	if len(shapeSegs) == 0 {
+		t.Fatal("DrawShape produced no segments for ShapeCompound")
+	}
+	seenColors := map[core.Color]bool{}
+	for _, seg := range shapeSegs {
+		seenColors[seg.color] = true
+	}
+	for _, want := range []core.Color{style.BoxColor, style.SphereColor, style.CapsuleColor, style.HullColor, style.CylinderColor} {
+		if !seenColors[want] {
+			t.Fatalf("DrawShape missing child color %v", want)
+		}
+	}
+
+	worldOps := renderCanvasOps(t, 800, 600, func(d *core.Drawing) {
+		physics3d.DrawWorld(d, viewProj, vp, w, style)
+	})
+	worldSegs := extractSegments(t, worldOps)
+	if len(worldSegs) <= len(shapeSegs) {
+		t.Fatalf("DrawWorld emitted %d segments, expected more than shape alone (%d)", len(worldSegs), len(shapeSegs))
+	}
+}

@@ -16,7 +16,7 @@ Why pure Go instead of wrapping a C/C++ physics engine (such as Jolt, Bullet, or
 - **No FFI overhead**: Queries, raycasts, rigid-body steps, and character moves operate directly on Go values with zero cgo boundary crossings.
 - **Bit-for-bit determinism**: Stepping a `World` with fixed durations from `game.Loop` runs broadphase, narrowphase, impulse solving, and positional correction in a fixed body and contact order with no map-order iteration or wall-clock input.
 
-The scope is intentionally focused: boxes (axis-aligned or oriented), spheres, capsules, convex hulls, and cylinders, static triangle meshes (`TriMeshCollider`, added with `World.AddTriMesh`), heightfields (`HeightfieldCollider`, added with `World.AddHeightfield`), and voxel grids (`VoxelCollider`, added with `World.AddVoxelCollider`) that collide with bodies and the character controller, exact overlap, raycast, and voxel sweep queries, rigid bodies with linear and angular dynamics, joints, ragdolls, and a capsule character controller. Bodies use a scalar (isotropic) inertia rather than a full inertia tensor. Contacts between boxes, spheres and capsules use one representative point per body pair; a pair that involves a convex hull or a cylinder gets up to four points spread over the touching area.
+The scope is intentionally focused: boxes (axis-aligned or oriented), spheres, capsules, convex hulls, cylinders, and compound shapes assembled from child colliders, static triangle meshes (`TriMeshCollider`, added with `World.AddTriMesh`), heightfields (`HeightfieldCollider`, added with `World.AddHeightfield`), and voxel grids (`VoxelCollider`, added with `World.AddVoxelCollider`) that collide with bodies and the character controller, exact overlap, raycast, and voxel sweep queries, rigid bodies with linear and angular dynamics, joints, ragdolls, and a capsule character controller. Single-primitive bodies use a scalar (isotropic) inertia, while compound bodies compute a combined `CenterOfMass` and 3×3 symmetric `InvInertiaTensor` (`SymMat3`) from their solid children via the parallel-axis theorem. Contacts between boxes, spheres and capsules use one representative point per collider pair; a pair that involves a convex hull or a cylinder gets up to four points spread over the touching area.
 
 ## Coordinate Convention
 
@@ -24,13 +24,14 @@ The scope is intentionally focused: boxes (axis-aligned or oriented), spheres, c
 
 ## Shapes, Overlaps, and Raycasts
 
-Five primitives are wrapped by the tagged `Shape` value (`BoxShape`, `SphereShape`, `CapsuleShape`, `ConvexHullShape`, `CylinderShape`):
+Five primitives and a compound assembly are wrapped by the tagged `Shape` value (`BoxShape`, `SphereShape`, `CapsuleShape`, `ConvexHullShape`, `CylinderShape`, `CompoundShape`):
 
 - `Box` — box defined by `Center` and `HalfExtents` (or constructed via `BoxFromMinMax(min, max)`). It is axis-aligned unless the wrapping `Shape` sets `Rot`, which orients it about its `Center`. `Shape.Transformed(pos, rot)` and `Body.WorldShape()` keep a rotated body's box oriented, so overlap tests, raycasts and debug drawing see its real corners; `Shape.Bounds()` returns the enclosing AABB for broad-phase use.
 - `Sphere` — `Center` and `Radius`.
 - `Capsule` — line segment from `A` to `B` swept by `Radius` (or `VerticalCapsule(center, radius, height)`).
 - `ConvexHull` — a convex polyhedron for props such as rocks, debris, furniture, wedges and low-poly vehicle hulls, built once by `NewConvexHull(points, maxVertices)` and then shared, read-only, by every shape and body that uses it. Its vertices are relative to `Center`, and the wrapping `Shape`'s `Rot` turns it about `Center` as it does a box.
 - `Cylinder` — a solid cylinder with flat caps whose axis runs from `A` to `B`, of the given `Radius` (or `VerticalCylinder(center, radius, height)`), for barrels, wheels and pillars. A cylinder whose `A` and `B` coincide or whose `Radius` is not positive has no volume, and collisions, raycasts and areas ignore it.
+- `ShapeCompound` — multiple `CompoundChild` colliders (`Box`, `Sphere`, `Capsule`, `ConvexHull`, `Cylinder`, or nested `ShapeCompound`) on one rigid body, each with its own local `Offset` and `Rot`, optional `Mass` or `Density`, and optional per-child `Trigger`, `Layer`, and `Mask`.
 
 ### Convex hulls
 
@@ -54,6 +55,28 @@ rock := world.AddBody(physics3d.NewDynamicBody(physics3d.ConvexHullShape(hull), 
 
 A hull reports its `Vertices`, `Faces` (vertex indices counter-clockwise seen from outside), `FaceNormals`, `Edges`, `Volume`, `Centroid` and `InertiaTensor(mass)` for uniform density. A body's inertia comes from the hull's exact tensor (the mean of its principal moments, as the scalar inertia above), and a cylinder's from the solid-cylinder formula.
 
+### Compound shapes
+
+`CompoundShape(children...)` combines several `CompoundChild` colliders onto a single rigid body so furniture, vehicles, or characters with separate hitboxes move and rotate as one body without fixed joints:
+
+```go
+leg := physics3d.BoxShape(physics3d.Box{HalfExtents: physics3d.Vec3{X: 0.06, Y: 0.4, Z: 0.06}})
+top := physics3d.BoxShape(physics3d.Box{HalfExtents: physics3d.Vec3{X: 0.75, Y: 0.05, Z: 0.35}})
+tableShape := physics3d.CompoundShape(
+	physics3d.CompoundChild{Shape: top, Offset: physics3d.Vec3{Y: 0.85}, Mass: 3},
+	physics3d.CompoundChild{Shape: leg, Offset: physics3d.Vec3{X: -0.69, Y: 0.4, Z: -0.29}, Mass: 1.5},
+	physics3d.CompoundChild{Shape: leg, Offset: physics3d.Vec3{X: 0.69, Y: 0.4, Z: -0.29}, Mass: 1.5},
+	physics3d.CompoundChild{Shape: leg, Offset: physics3d.Vec3{X: -0.69, Y: 0.4, Z: 0.29}, Mass: 1.5},
+	physics3d.CompoundChild{Shape: leg, Offset: physics3d.Vec3{X: 0.69, Y: 0.4, Z: 0.29}, Mass: 1.5},
+)
+// Passing mass 0 derives total mass, CenterOfMass, and InvInertiaTensor from the children.
+table := world.AddBody(physics3d.NewDynamicBody(tableShape, physics3d.Vec3{}, 0))
+```
+
+- **Mass, center of mass, and inertia**: `ComputeCompoundMassProperties` (called automatically by `AddBody` and `Body.RecomputeMassProperties`) computes combined `Mass`, local `CenterOfMass`, and the 3×3 symmetric `InvInertiaTensor` (`SymMat3`) from all non-trigger children via the parallel-axis theorem. Children can specify explicit `Mass` or `Density`; passing a positive `mass` to `NewDynamicBody` distributes or scales child masses to match. `Body.WorldCenterOfMass()` returns the world-space center of mass, and `Body.ApplyImpulseAtPoint(impulse, worldPoint)` applies linear and angular impulses about it.
+- **Bounds and queries**: `Shape.Bounds()` encloses every child. Contacts (`ContactEvent.ChildIndexA`/`ChildIndexB`), raycasts (`RaycastHit.ChildIndex`), and overlaps (`OverlapHit.ChildIndex`) test every child and report its zero-based child index (`-1` for non-compound bodies and static colliders).
+- **Per-child triggers and layers**: setting `CompoundChild.Trigger = true` turns that child into a sensor volume (such as a head hurtbox on a solid character body) that emits `OnTrigger` events without applying impulses, blocking character controllers or CCD sweeps, or contributing to mass and inertia. Optional `CompoundChild.Layer` and `Mask` override the parent `Body.Layer` and `Body.Mask` when non-zero.
+
 Overlap tests return a `Contact` whose unit `Normal` points from `B` toward `A` (the direction to translate `A` by `Depth` to separate the shapes):
 
 - `TestBoxBox`, `TestOrientedBoxBox` (separating axis theorem over the 15 face and edge axes), `TestSphereSphere`, `TestCapsuleCapsule`, `TestBoxSphere`, `TestBoxCapsule`, `TestSphereCapsule`, and `TestShapes(a, b)`, which handles oriented boxes.
@@ -65,9 +88,9 @@ Raycasts test a `Ray{Origin, Dir, MaxDist}` against standalone shapes (`RaycastB
 
 ### Shape Casts
 
-Sweep any `Shape` (`Box`, `Sphere`, or `Capsule`) with a `Quat` orientation from `origin` along displacement `delta` against bodies, triangle meshes (`TriMeshCollider`), heightfields (`HeightfieldCollider`), and voxel colliders (`VoxelCollider`):
+Sweep any `Shape` (`Box`, `Sphere`, `Capsule`, or `ShapeCompound` composed of them) with a `Quat` orientation from `origin` along displacement `delta` against bodies, triangle meshes (`TriMeshCollider`), heightfields (`HeightfieldCollider`), and voxel colliders (`VoxelCollider`):
 
-- `world.ShapeCast(shape, origin, rot, delta)` returns the earliest `RaycastHit` (`Body`/`TriMesh`/`Heightfield`/`Voxel`, `T`, `Distance`, `Point`, `Normal`); `world.ShapeCastAll(...)` returns all hits sorted by ascending `T` with the same deterministic tie-breaking order as `Raycast` (`Body` < `TriMesh` < `Heightfield` < `Voxel`, then ascending ID).
+- `world.ShapeCast(shape, origin, rot, delta)` returns the earliest `RaycastHit` (`Body`/`TriMesh`/`Heightfield`/`Voxel`, `ChildIndex`, `T`, `Distance`, `Point`, `Normal`); `world.ShapeCastAll(...)` returns all hits sorted by ascending `T` with the same deterministic tie-breaking order as `Raycast` (`Body` < `TriMesh` < `Heightfield` < `Voxel`, then ascending ID and `ChildIndex`). Compound bodies are tested per child with per-child `Layer` and `Trigger` filtering.
 - Use `world.ShapeCastLayer(shape, origin, rot, delta, mask, ignore)` and `ShapeCastAllLayer` for `LayerMask` filtering and excluding a `*Body`, or `ShapeCastWith` / `ShapeCastAllWith` (`ShapeCastOptions`) to also exclude `IgnoreBodyID` or triggers (`IgnoreTriggers`).
 - Standalone helpers `ShapeCastShape(moving, delta, target)`, `TriMeshCollider.ShapeCast(shape, delta)`, and `HeightfieldCollider.ShapeCast(shape, delta)` test individual colliders directly. Sphere, box/OBB, and box-triangle pairs use exact analytic sweeps (Minkowski sums and moving SAT); capsule-box, capsule-capsule, and capsule-triangle pairs use exact-distance conservative advancement (`<= 1e-4`). Initial overlaps return `T == 0`, `Distance == 0`, and the `TestShapes` separation normal.
 
@@ -234,7 +257,7 @@ The controller is not a body in the `World`, so dynamic bodies do not collide wi
 
 ## Debug Drawing
 
-`DrawWorld`, `DrawBody`, `DrawShape`, `DrawCharacter`, `DrawContact` and `DrawRaycast` draw collider wireframes, contacts and rays onto a `core.Drawing` through a view-projection matrix, styled by `DebugStyle`; `DrawLine3D` draws one segment. Convex hulls draw every hull edge in `HullColor` and cylinders a ring around each cap and four side lines in `CylinderColor`; `ConvexHullEdges` and `CylinderEdges` return those segments for other renderers. Release builds compile them to no-ops.
+`DrawWorld`, `DrawBody`, `DrawShape`, `DrawCharacter`, `DrawContact` and `DrawRaycast` draw collider wireframes, contacts and rays onto a `core.Drawing` through a view-projection matrix, styled by `DebugStyle`; `DrawLine3D` draws one segment. Convex hulls draw every hull edge in `HullColor`, cylinders draw a ring around each cap and four side lines in `CylinderColor`, and compound shapes draw every child in its primitive's color (with `DrawWorld` marking contacts per colliding child pair); `ConvexHullEdges` and `CylinderEdges` return those segments for other renderers. Release builds compile them to no-ops.
 
 Segments are clipped to the camera frustum before projection. By default the near plane is clip `z >= -w`, which matches this package's `Mat4Perspective` and `Mat4Ortho` (`[-1, 1]` depth). For a `[0, 1]` depth projection, such as `math3d.Perspective`, `math3d.Ortho` or a `render3d` camera, set `DebugStyle.DepthZO` (and use `DrawLine3DZO` for single segments): it clips at `z >= 0`, as `render3d.ProjectSegment` does. Without it an orthographic `[0, 1]` camera, whose `w` is 1 everywhere, draws colliders behind the camera.
 
@@ -280,7 +303,7 @@ sw.Step(dt)
 
 `World` supports full state snapshots, deterministic FNV-1a 64-bit checksums, and cross-architecture determinism across amd64 and arm64:
 
-- **`Save() / Restore(snap) / Checksum()`**: `World.Save()` captures all public and private solver state into a versioned `WorldSnapshot` (`SnapshotVersion`), including gravity and solver/sleep settings, bodies (with their full shape, including a `ConvexHull`'s geometry and a `Cylinder`, private sleep timers, gravity-scale flags, residual depth, previous interpolation poses, and voxel resting state), sorted warm-start contact impulse cache, active contact/trigger pair sets, last-step contact and joint-break events, ignored body pairs, all 7 built-in `Joint3D` types (`DistanceJoint`, `BallJoint`, `HingeJoint`, `SliderJoint`, `FixedJoint`, `SwingTwistJoint`, `SixDOFJoint`, including unwrapped angle state and last reaction impulses), plus `TriMeshCollider`, `HeightfieldCollider`, and `VoxelGrid` collider bindings.
+- **`Save() / Restore(snap) / Checksum()`**: `World.Save()` captures all public and private solver state into a versioned `WorldSnapshot` (`SnapshotVersion`), including gravity and solver/sleep settings, bodies (with their full shape, including a `ConvexHull`'s geometry, `Cylinder`, and `ShapeCompound` children, `CenterOfMass`, `InvInertiaTensor`, private sleep timers, gravity-scale flags, residual depth, previous interpolation poses, and voxel resting state), sorted per-child warm-start contact impulse cache, active contact/trigger pair sets, last-step contact and joint-break events (including compound child indices), ignored body pairs, all 7 built-in `Joint3D` types (`DistanceJoint`, `BallJoint`, `HingeJoint`, `SliderJoint`, `FixedJoint`, `SwingTwistJoint`, `SixDOFJoint`, including unwrapped angle state and last reaction impulses), plus `TriMeshCollider`, `HeightfieldCollider`, and `VoxelGrid` collider bindings.
 - **JSON-serializable plain text**: `WorldSnapshot` marshals cleanly with `encoding/json` (no `encoding/gob` or custom binary layout).
 - **In-place pointer & callback preservation**: `Restore` updates existing `*Body`, `Joint3D`, and collider instances in place when counts/kinds match, rebuilds the broadphase trees deterministically, and preserves gameplay pointers, `UserData`, and world callbacks (`OnContact`, `OnTrigger`, `OnJointBreak`).
 - **Cross-architecture determinism**: all stepped 3D integration, broadphase, narrowphase (GJK/EPA/SAT, OBB, mesh/heightfield, voxel), sequential impulse solver, joint, area, and `vehicle` suspension/tire paths avoid arm64 FMA contraction and FMA-using standard library transcendentals, ensuring bit-identical trajectories and `Checksum()` values on amd64 and arm64.

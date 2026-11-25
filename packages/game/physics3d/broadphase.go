@@ -870,8 +870,22 @@ func shapesEqual(a, b Shape) bool {
 		return a.Hull == b.Hull && a.Rot == b.Rot
 	case ShapeCylinder:
 		return a.Cylinder == b.Cylinder
+	case ShapeCompound:
+		if len(a.Children) != len(b.Children) {
+			return false
+		}
+		for i := range a.Children {
+			ca, cb := a.Children[i], b.Children[i]
+			if ca.Offset != cb.Offset || ca.Rot != cb.Rot ||
+				ca.Mass != cb.Mass || ca.Density != cb.Density ||
+				ca.Trigger != cb.Trigger || ca.Layer != cb.Layer || ca.Mask != cb.Mask ||
+				!shapesEqual(ca.Shape, cb.Shape) {
+				return false
+			}
+		}
+		return true
 	default:
-		return a == b
+		return false
 	}
 }
 
@@ -998,7 +1012,7 @@ func (bp *broadphase3D) insertBodyEntry(b *Body, order int) {
 	pid := bp.allocProxy()
 	ws := b.WorldShape()
 	wb := ws.Bounds()
-	isDyn := !b.Static || b.IsTrigger
+	isDyn := bodyIsBroadphaseDynamic(b)
 	nodeID := aabbNullNode
 	if isDyn {
 		nodeID = bp.dynamicTree.createProxy(aabbBoundsFromBox(wb, broadphaseDynamicMargin), pid)
@@ -1017,7 +1031,7 @@ func (bp *broadphase3D) insertBodyEntry(b *Body, order int) {
 		order:       int32(order),
 		kind:        bpKindBody,
 		inDynamic:   isDyn,
-		cachedShape: b.Shape,
+		cachedShape: cloneShape(b.Shape),
 		worldShape:  ws,
 		worldBounds: wb,
 	}
@@ -1138,12 +1152,12 @@ func (bp *broadphase3D) removeHeightfield(w *World, idx int) {
 func (bp *broadphase3D) updateBodyProxy(pid int32, disp Vec3) {
 	p := &bp.proxies[pid]
 	b := p.body
-	wantDyn := !b.Static || b.IsTrigger
+	wantDyn := bodyIsBroadphaseDynamic(b)
 	ws := b.WorldShape()
 	wb := ws.Bounds()
 	p.cachedPos = b.Pos
 	p.cachedRot = b.Rot
-	p.cachedShape = b.Shape
+	p.cachedShape = cloneShape(b.Shape)
 	p.worldShape = ws
 	p.worldBounds = wb
 
@@ -1184,7 +1198,7 @@ func (bp *broadphase3D) syncAllBodies(w *World) {
 	for i, b := range w.bodies {
 		pid := bp.bodyProxies[i]
 		p := &bp.proxies[pid]
-		wantDyn := !b.Static || b.IsTrigger
+		wantDyn := bodyIsBroadphaseDynamic(b)
 		if p.inDynamic == wantDyn && b.Pos == p.cachedPos && b.Rot == p.cachedRot && shapesEqual(b.Shape, p.cachedShape) {
 			continue
 		}
@@ -1206,7 +1220,7 @@ func (bp *broadphase3D) syncDynamicBodies(w *World, prevPos []Vec3) {
 		pid := bp.dynamicList[di]
 		p := &bp.proxies[pid]
 		b := p.body
-		wantDyn := !b.Static || b.IsTrigger
+		wantDyn := bodyIsBroadphaseDynamic(b)
 		if !wantDyn {
 			bp.updateBodyProxy(pid, Vec3{})
 			if hasPrev {
@@ -1243,7 +1257,7 @@ func (bp *broadphase3D) findBodyPairs() []bpBodyPair {
 			a := bp.proxies[bp.bodyProxies[i]].body
 			for j := i + 1; j < n; j++ {
 				b := bp.proxies[bp.bodyProxies[j]].body
-				if a.Static && b.Static && !a.IsTrigger && !b.IsTrigger {
+				if a.Static && b.Static && !bodyIsBroadphaseDynamic(a) && !bodyIsBroadphaseDynamic(b) {
 					continue
 				}
 				bp.pairBuf = append(bp.pairBuf, bpBodyPair{i: i, j: j})

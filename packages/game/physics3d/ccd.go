@@ -22,6 +22,18 @@ func shapeMinExtent(s Shape) float32 {
 		return float32(s.Hull.geom.halfWidth)
 	case ShapeCylinder:
 		return min(s.Cylinder.Radius, s.Cylinder.Height()*0.5)
+	case ShapeCompound:
+		var best float32
+		for _, c := range s.Children {
+			if c.Trigger {
+				continue
+			}
+			e := shapeMinExtent(c.Shape)
+			if e > 0 && (best == 0 || e < best) {
+				best = e
+			}
+		}
+		return best
 	default:
 		return 0
 	}
@@ -66,6 +78,7 @@ func (w *World) sweepFastBody(b *Body, from Vec3, jointIgnored map[pairKey]struc
 		},
 	)
 
+	bIsCompound := b.Shape.Kind == ShapeCompound
 	w.bp.ensureInit(w)
 	var candBodies []sweepBodyCand
 	var candTMs []*TriMeshCollider
@@ -77,7 +90,10 @@ func (w *World) sweepFastBody(b *Body, from Vec3, jointIgnored map[pairKey]struc
 			if o == b || o.IsTrigger || !(o.Static || o.Kinematic || o.Sleeping) {
 				return true
 			}
-			if !CanCollide(b, o) || w.isPairIgnored(b.ID, o.ID) {
+			if w.isPairIgnored(b.ID, o.ID) {
+				return true
+			}
+			if !bIsCompound && o.Shape.Kind != ShapeCompound && !CanCollide(b, o) {
 				return true
 			}
 			if jointIgnored != nil {
@@ -92,13 +108,13 @@ func (w *World) sweepFastBody(b *Body, from Vec3, jointIgnored map[pairKey]struc
 			candBodies = append(candBodies, sweepBodyCand{body: o, shape: p.worldShape, bounds: p.worldBounds})
 		case bpKindTriMesh:
 			tm := p.triMesh
-			if !canCollideMasks(b.Layer, b.Mask, tm.Layer, tm.Mask) || !aabbOverlap(sweptBounds, tm.Bounds) {
+			if (!bIsCompound && !canCollideMasks(b.Layer, b.Mask, tm.Layer, tm.Mask)) || !aabbOverlap(sweptBounds, tm.Bounds) {
 				return true
 			}
 			candTMs = append(candTMs, tm)
 		case bpKindHeightfield:
 			hf := p.heightfield
-			if !canCollideMasks(b.Layer, b.Mask, hf.Layer, hf.Mask) || !aabbOverlap(sweptBounds, hf.Bounds) {
+			if (!bIsCompound && !canCollideMasks(b.Layer, b.Mask, hf.Layer, hf.Mask)) || !aabbOverlap(sweptBounds, hf.Bounds) {
 				return true
 			}
 			candHFs = append(candHFs, hf)
@@ -108,7 +124,7 @@ func (w *World) sweepFastBody(b *Body, from Vec3, jointIgnored map[pairKey]struc
 
 	var candVoxels []*VoxelCollider
 	for _, vc := range w.voxels {
-		if canCollideMasks(b.Layer, b.Mask, vc.Layer, vc.Mask) {
+		if bIsCompound || canCollideMasks(b.Layer, b.Mask, vc.Layer, vc.Mask) {
 			candVoxels = append(candVoxels, vc)
 		}
 	}
@@ -117,7 +133,7 @@ func (w *World) sweepFastBody(b *Body, from Vec3, jointIgnored map[pairKey]struc
 	}
 
 	start := make(map[any]float32)
-	sweepOverlapsCandidates(startShape, candBodies, candTMs, candHFs, candVoxels, func(key any, depth float32) bool {
+	sweepOverlapsCandidates(b, startShape, candBodies, candTMs, candHFs, candVoxels, func(key any, depth float32) bool {
 		start[key] = depth
 		return false
 	})
@@ -125,7 +141,7 @@ func (w *World) sweepFastBody(b *Body, from Vec3, jointIgnored map[pairKey]struc
 	k := min(int(math.Ceil(float64(dist/stepLen))), maxSweepSteps)
 	for s := 1; s < k; s++ {
 		p := from.Add(d.Scale(float32(s) / float32(k)))
-		blocked := sweepOverlapsCandidates(b.Shape.Transformed(p, b.Rot), candBodies, candTMs, candHFs, candVoxels, func(key any, depth float32) bool {
+		blocked := sweepOverlapsCandidates(b, b.Shape.Transformed(p, b.Rot), candBodies, candTMs, candHFs, candVoxels, func(key any, depth float32) bool {
 			d0, ok := start[key]
 			return !ok || depth > d0+slop
 		})
@@ -139,7 +155,32 @@ func (w *World) sweepFastBody(b *Body, from Vec3, jointIgnored map[pairKey]struc
 // sweepOverlapsCandidates calls visit for every candidate collider overlapped
 // by shape, stopping and returning true as soon as visit returns true.
 func sweepOverlapsCandidates(
+	b *Body,
 	shape Shape,
+	candBodies []sweepBodyCand,
+	candTMs []*TriMeshCollider,
+	candHFs []*HeightfieldCollider,
+	candVoxels []*VoxelCollider,
+	visit func(key any, depth float32) bool,
+) bool {
+	if shape.Kind == ShapeCompound {
+		for ci, c := range shape.Children {
+			if c.Trigger {
+				continue
+			}
+			layerA, maskA, _ := b.childEffective(ci)
+			if sweepOverlapsCandidatesChild(c.LocalShape(), layerA, maskA, candBodies, candTMs, candHFs, candVoxels, visit) {
+				return true
+			}
+		}
+		return false
+	}
+	return sweepOverlapsCandidatesChild(shape, b.Layer, b.Mask, candBodies, candTMs, candHFs, candVoxels, visit)
+}
+
+func sweepOverlapsCandidatesChild(
+	shape Shape,
+	layerA, maskA LayerMask,
 	candBodies []sweepBodyCand,
 	candTMs []*TriMeshCollider,
 	candHFs []*HeightfieldCollider,
@@ -152,12 +193,38 @@ func sweepOverlapsCandidates(
 		if !aabbOverlap(bounds, cb.bounds) {
 			continue
 		}
-		if c := TestShapes(shape, cb.shape); c.Hit && visit(cb.body, c.Depth) {
+		o := cb.body
+		if o.Shape.Kind == ShapeCompound {
+			if len(cb.shape.Children) == 0 {
+				continue
+			}
+			for cj, oc := range cb.shape.Children {
+				if oc.Trigger {
+					continue
+				}
+				layerB, maskB, _ := o.childEffective(cj)
+				if !canCollideMasks(layerA, maskA, layerB, maskB) {
+					continue
+				}
+				cs := oc.LocalShape()
+				if !aabbOverlap(bounds, cs.Bounds()) {
+					continue
+				}
+				if c := testShapesSolid(shape, cs); c.Hit && visit(o, c.Depth) {
+					return true
+				}
+			}
+			continue
+		}
+		if !canCollideMasks(layerA, maskA, o.Layer, o.Mask) {
+			continue
+		}
+		if c := testShapesSolid(shape, cb.shape); c.Hit && visit(o, c.Depth) {
 			return true
 		}
 	}
 	for _, tm := range candTMs {
-		if !aabbOverlap(bounds, tm.Bounds) {
+		if !canCollideMasks(layerA, maskA, tm.Layer, tm.Mask) || !aabbOverlap(bounds, tm.Bounds) {
 			continue
 		}
 		if c := tm.TestShape(shape); c.Hit && visit(tm, c.Depth) {
@@ -165,7 +232,7 @@ func sweepOverlapsCandidates(
 		}
 	}
 	for _, hf := range candHFs {
-		if !aabbOverlap(bounds, hf.Bounds) {
+		if !canCollideMasks(layerA, maskA, hf.Layer, hf.Mask) || !aabbOverlap(bounds, hf.Bounds) {
 			continue
 		}
 		if c := hf.TestShape(shape); c.Hit && visit(hf, c.Depth) {
@@ -173,6 +240,9 @@ func sweepOverlapsCandidates(
 		}
 	}
 	for _, vc := range candVoxels {
+		if !canCollideMasks(layerA, maskA, vc.Layer, vc.Mask) {
+			continue
+		}
 		if c := vc.TestShape(shape); c.Hit && visit(vc, c.Depth) {
 			return true
 		}

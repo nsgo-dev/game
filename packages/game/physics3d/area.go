@@ -309,6 +309,13 @@ func shapeContainsPoint(s Shape, p Vec3) bool {
 		}
 		r := float64(c.Radius)
 		return d.sub(u.scale(t)).lenSq() <= r*r
+	case ShapeCompound:
+		for _, child := range s.Children {
+			if shapeContainsPoint(child.LocalShape(), p) {
+				return true
+			}
+		}
+		return false
 	default:
 		return false
 	}
@@ -333,6 +340,9 @@ func shapeOuterRadius3D(s Shape) float64 {
 		h := 0.5 * float64(s.Cylinder.Height())
 		r := float64(s.Cylinder.Radius)
 		return math.Sqrt(float64(h*h) + float64(r*r))
+	case ShapeCompound:
+		he := s.Bounds().HalfExtents
+		return math.Sqrt(float64(float64(he.X)*float64(he.X)) + float64(float64(he.Y)*float64(he.Y)) + float64(float64(he.Z)*float64(he.Z)))
 	default:
 		return 1
 	}
@@ -367,9 +377,36 @@ func shapeVolume3D(s Shape) float64 {
 			return 0
 		}
 		return math.Pi * r * r * float64(s.Cylinder.Height())
+	case ShapeCompound:
+		var total float64
+		for _, child := range s.Children {
+			if child.Trigger {
+				continue
+			}
+			total += shapeVolume3D(child.Shape)
+		}
+		return total
 	default:
 		return 0
 	}
+}
+
+// testAreaShapeVsSolid tests an area's shape (which may itself be a compound trigger)
+// against a body's solid shape, skipping nested Trigger children inside solidShape.
+func testAreaShapeVsSolid(areaShape, solidShape Shape) Contact {
+	if solidShape.Kind == ShapeCompound {
+		var best Contact
+		for _, child := range solidShape.Children {
+			if child.Trigger {
+				continue
+			}
+			if c := testAreaShapeVsSolid(areaShape, child.LocalShape()); c.Hit && (!best.Hit || c.Depth > best.Depth) {
+				best = c
+			}
+		}
+		return best
+	}
+	return TestShapes(areaShape, solidShape)
 }
 
 func boundsOverlapFraction3D(bodyBounds, areaBounds Box) float64 {
@@ -464,10 +501,34 @@ func (w *World) evaluateBodyAreas(b *Body, entries []activeAreaEntry) AreaEffect
 		if e.body == b {
 			continue
 		}
-		if !CanCollide(e.body, b) || w.isPairIgnored(e.body.ID, b.ID) {
+		if w.isPairIgnored(e.body.ID, b.ID) {
 			continue
 		}
 		if !aabbOverlap(wb, e.bounds) {
+			continue
+		}
+		if b.Shape.Kind == ShapeCompound {
+			hit := false
+			for ci, child := range ws.Children {
+				if child.Trigger {
+					continue
+				}
+				layerB, maskB, _ := b.childEffective(ci)
+				if !canCollideMasks(e.body.Layer, e.body.Mask, layerB, maskB) {
+					continue
+				}
+				cs := child.LocalShape()
+				if aabbOverlap(cs.Bounds(), e.bounds) && testAreaShapeVsSolid(e.worldShape, cs).Hit {
+					hit = true
+					break
+				}
+			}
+			if hit {
+				matching = append(matching, e)
+			}
+			continue
+		}
+		if !CanCollide(e.body, b) {
 			continue
 		}
 		if TestShapes(e.worldShape, ws).Hit {
@@ -478,7 +539,7 @@ func (w *World) evaluateBodyAreas(b *Body, entries []activeAreaEntry) AreaEffect
 		matching,
 		w.Gravity,
 		baseLin, baseAng,
-		b.Pos,
+		b.WorldCenterOfMass(),
 		wb, true,
 		shapeVolume3D(b.Shape),
 		float64(b.InvMass),

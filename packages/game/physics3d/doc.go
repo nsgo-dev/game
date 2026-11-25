@@ -4,7 +4,7 @@
 //
 // physics3d is implemented purely with the Go standard library and no cgo or third-party physics engine bindings (Epic #180, option a). Avoiding cgo keeps builds reproducible and portable across every NSGo target — macOS, Windows, Linux, iOS, Android, and WebAssembly — without C/C++ toolchains, per-platform native libraries, or FFI marshaling overhead.
 //
-// The simulation trades full articulated meshes and rotational inertia tensors for a focused set of primitives (boxes, spheres, capsules, convex hulls built from point clouds or meshes, and cylinders), exact overlap and raycast queries, rigid bodies with iterative impulse and positional resolution, and a capsule character controller that handles slopes, stairs, and wall sliding. Pairs that involve a convex hull or a cylinder are tested with GJK and EPA and give the solver up to four contact points over the touching area.
+// The simulation trades full articulated meshes for a focused set of primitives (boxes, spheres, capsules, convex hulls built from point clouds or meshes, cylinders, and compound shapes assembled from child colliders with local offsets, rotations, combined parallel-axis inertia tensors, and optional per-child triggers and collision layers), exact overlap and raycast queries, rigid bodies with iterative impulse and positional resolution, and a capsule character controller that handles slopes, stairs, and wall sliding. Pairs that involve a convex hull or a cylinder are tested with GJK and EPA and give the solver up to four contact points over the touching area.
 //
 // # Coordinate Convention
 //

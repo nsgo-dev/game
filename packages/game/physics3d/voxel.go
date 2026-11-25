@@ -302,7 +302,7 @@ func (vc *VoxelCollider) testVoxelWithMask(s Shape, vb Box, occluded voxelFaceMa
 		}
 	}
 
-	raw := TestShapes(s, BoxShape(vb))
+	raw := testShapesSolid(s, BoxShape(vb))
 	if !raw.Hit {
 		return Contact{}
 	}
@@ -480,6 +480,15 @@ func bestExposedFaceContact(s Shape, vb Box, bMin, bMax Vec3, occluded voxelFace
 }
 
 func (vc *VoxelCollider) forEachContact(s Shape, visit func(vx, vy, vz int, c Contact)) {
+	if s.Kind == ShapeCompound {
+		for _, child := range s.Children {
+			if child.Trigger {
+				continue
+			}
+			vc.forEachContact(child.LocalShape(), visit)
+		}
+		return
+	}
 	x0, y0, z0, x1, y1, z1, ok := vc.voxelRange(s.Bounds())
 	if !ok {
 		return
@@ -591,11 +600,12 @@ func (vc *VoxelCollider) Raycast(ray Ray) (RaycastHit, bool) {
 	if g.IsSolid(vx, vy, vz) {
 		dist := float32(tStart)
 		return RaycastHit{
-			Voxel:    vc,
-			T:        clamp32(dist/ray.MaxDist, 0, 1),
-			Distance: dist,
-			Point:    ray.Origin.Add(unitDir.Scale(dist)),
-			Normal:   unitDir.Neg(),
+			ChildIndex: -1,
+			Voxel:      vc,
+			T:          clamp32(dist/ray.MaxDist, 0, 1),
+			Distance:   dist,
+			Point:      ray.Origin.Add(unitDir.Scale(dist)),
+			Normal:     unitDir.Neg(),
 		}, true
 	}
 
@@ -641,11 +651,12 @@ func (vc *VoxelCollider) Raycast(ray Ray) (RaycastHit, bool) {
 				dist = 0
 			}
 			return RaycastHit{
-				Voxel:    vc,
-				T:        clamp32(dist/ray.MaxDist, 0, 1),
-				Distance: dist,
-				Point:    ray.Origin.Add(unitDir.Scale(dist)),
-				Normal:   normal,
+				ChildIndex: -1,
+				Voxel:      vc,
+				T:          clamp32(dist/ray.MaxDist, 0, 1),
+				Distance:   dist,
+				Point:      ray.Origin.Add(unitDir.Scale(dist)),
+				Normal:     normal,
 			}, true
 		}
 	}

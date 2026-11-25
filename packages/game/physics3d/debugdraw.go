@@ -210,6 +210,10 @@ func DrawShape(d *core.Drawing, viewProj Mat4, viewport core.Bounds, s Shape, st
 		drawEdges(d, viewProj, viewport, ConvexHullEdges(s.Hull, s.Rot), st.HullColor, st.LineWidth, st.DepthZO)
 	case ShapeCylinder:
 		drawEdges(d, viewProj, viewport, CylinderEdges(s.Cylinder, st.SphereSegments), st.CylinderColor, st.LineWidth, st.DepthZO)
+	case ShapeCompound:
+		for _, c := range s.Children {
+			DrawShape(d, viewProj, viewport, c.LocalShape(), st)
+		}
 	}
 }
 
@@ -294,8 +298,31 @@ func DrawWorld(d *core.Drawing, viewProj Mat4, viewport core.Bounds, w *World, s
 			if !aabbOverlap(bounds[i], bounds[j]) {
 				continue
 			}
-			if c := TestShapes(shapes[i], shapes[j]); c.Hit {
-				DrawContact(d, viewProj, viewport, c, st)
+			if a.Shape.Kind != ShapeCompound && b.Shape.Kind != ShapeCompound {
+				if c := TestShapes(shapes[i], shapes[j]); c.Hit {
+					DrawContact(d, viewProj, viewport, c, st)
+				}
+				continue
+			}
+			countA, countB := a.childCount(), b.childCount()
+			for ia := 0; ia < countA; ia++ {
+				sa := shapes[i]
+				if a.Shape.Kind == ShapeCompound {
+					sa = shapes[i].Children[ia].LocalShape()
+				}
+				ba := sa.Bounds()
+				for ib := 0; ib < countB; ib++ {
+					sb := shapes[j]
+					if b.Shape.Kind == ShapeCompound {
+						sb = shapes[j].Children[ib].LocalShape()
+					}
+					if !aabbOverlap(ba, sb.Bounds()) {
+						continue
+					}
+					if c := TestShapes(sa, sb); c.Hit {
+						DrawContact(d, viewProj, viewport, c, st)
+					}
+				}
 			}
 		}
 	}

@@ -1441,10 +1441,31 @@ func (sw *SoftWorld) resolveParticleCollisions3D(
 		if b == nil || b == skipBody || b.IsTrigger {
 			continue
 		}
-		if !canCollideMasks(p.Layer, p.Mask, b.Layer, b.Mask) {
+		if !aabbOverlap(pBounds, bodyBounds[bi]) {
 			continue
 		}
-		if !aabbOverlap(pBounds, bodyBounds[bi]) {
+		if b.Shape.Kind == ShapeCompound {
+			ws := bodyShapes[bi]
+			for ci, child := range ws.Children {
+				if child.Trigger {
+					continue
+				}
+				layerB, maskB, _ := b.childEffective(ci)
+				if !canCollideMasks(p.Layer, p.Mask, layerB, maskB) {
+					continue
+				}
+				cs := child.LocalShape()
+				if !aabbOverlap(pBounds, cs.Bounds()) {
+					continue
+				}
+				if c := testShapesSolid(pShape, cs); c.Hit {
+					applySurface(toVec3d(c.Normal), float64(c.Depth), float64(b.effectiveFriction()), float64(b.effectiveRestitution()))
+					pShape, pBounds = makeParticleShape()
+				}
+			}
+			continue
+		}
+		if !canCollideMasks(p.Layer, p.Mask, b.Layer, b.Mask) {
 			continue
 		}
 		if c := TestShapes(pShape, bodyShapes[bi]); c.Hit {

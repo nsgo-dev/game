@@ -83,10 +83,11 @@ func raycastTriangleNorm(origin, dir Vec3, maxDist float32, tri Triangle) (Rayca
 		n = n.Neg()
 	}
 	return RaycastHit{
-		T:        clamp32(dist/maxDist, 0, 1),
-		Distance: dist,
-		Point:    origin.Add(dir.Scale(dist)),
-		Normal:   n,
+		ChildIndex: -1,
+		T:          clamp32(dist/maxDist, 0, 1),
+		Distance:   dist,
+		Point:      origin.Add(dir.Scale(dist)),
+		Normal:     n,
 	}, true
 }
 
@@ -374,9 +375,35 @@ func TestShapeTriangle(s Shape, tri Triangle) Contact {
 		return TestBoxTriangle(s.Box, tri)
 	case ShapeConvexHull, ShapeCylinder:
 		return testConvexTriangle(toCvx(s), tri)
+	case ShapeCompound:
+		var best Contact
+		for _, child := range s.Children {
+			if c := TestShapeTriangle(child.LocalShape(), tri); c.Hit && (!best.Hit || c.Depth > best.Depth) {
+				best = c
+			}
+		}
+		return best
 	default:
 		return Contact{}
 	}
+}
+
+// testShapeTriangleSolid is like TestShapeTriangle but skips nested Trigger children
+// inside compound shapes.
+func testShapeTriangleSolid(s Shape, tri Triangle) Contact {
+	if s.Kind == ShapeCompound {
+		var best Contact
+		for _, child := range s.Children {
+			if child.Trigger {
+				continue
+			}
+			if c := testShapeTriangleSolid(child.LocalShape(), tri); c.Hit && (!best.Hit || c.Depth > best.Depth) {
+				best = c
+			}
+		}
+		return best
+	}
+	return TestShapeTriangle(s, tri)
 }
 
 // rayIntersectsBoxDist returns (tMin, tMax, hit) for a normalized ray against box.
@@ -976,7 +1003,20 @@ func (hf *HeightfieldCollider) QueryTriangles(bounds Box, visit func(tri Triangl
 }
 
 func testShapeHeightfieldTriangle(s Shape, tri Triangle) Contact {
-	c := TestShapeTriangle(s, tri)
+	return testShapeHeightfieldTriangleOpt(s, tri, false)
+}
+
+func testShapeHeightfieldTriangleSolid(s Shape, tri Triangle) Contact {
+	return testShapeHeightfieldTriangleOpt(s, tri, true)
+}
+
+func testShapeHeightfieldTriangleOpt(s Shape, tri Triangle, solidOnly bool) Contact {
+	var c Contact
+	if solidOnly {
+		c = testShapeTriangleSolid(s, tri)
+	} else {
+		c = TestShapeTriangle(s, tri)
+	}
 	if !c.Hit {
 		return c
 	}
@@ -988,8 +1028,8 @@ func testShapeHeightfieldTriangle(s Shape, tri Triangle) Contact {
 		}
 		c.Normal = n
 		// Depth belongs to the normal it was measured along. When the shape lies under this triangle, the new normal must lift it clear of the triangle's highest point: a sphere whose center is 0.3 below a flat cell needs radius+0.3 to get out upward, not the radius-0.3 that pushed it down (#546). A shape beside the triangle, such as one touching a plateau's edge from the foot of a cliff, keeps its measured depth: re-measuring there reported the whole step height and lifted it onto the plateau.
-		if shapeUnderTriangle(s, tri, n) {
-			depth := triangleMaxAlong(tri, n) - shapeMinAlong(s, n)
+		if shapeUnderTriangle(s, tri, n, solidOnly) {
+			depth := triangleMaxAlong(tri, n) - shapeMinAlongOpt(s, n, solidOnly)
 			if !(depth > 0) {
 				return Contact{}
 			}
@@ -1000,7 +1040,7 @@ func testShapeHeightfieldTriangle(s Shape, tri Triangle) Contact {
 }
 
 // shapeUnderTriangle reports whether a reference point of s (a sphere's or box's center, a hull's centroid, or a point of a capsule's or cylinder's axis) lies inside tri's XZ footprint and below its plane, whose upward unit normal is n.
-func shapeUnderTriangle(s Shape, tri Triangle, n Vec3) bool {
+func shapeUnderTriangle(s Shape, tri Triangle, n Vec3, solidOnly bool) bool {
 	under := func(p Vec3) bool {
 		return p.Sub(tri.A).Dot(n) < 0 && pointInTriangleXZ(p, tri)
 	}
@@ -1021,6 +1061,16 @@ func shapeUnderTriangle(s Shape, tri Triangle, n Vec3) bool {
 	case ShapeCylinder:
 		a, b := s.Cylinder.A, s.Cylinder.B
 		return under(a) || under(b) || under(a.Add(b).Scale(0.5))
+	case ShapeCompound:
+		for _, child := range s.Children {
+			if solidOnly && child.Trigger {
+				continue
+			}
+			if shapeUnderTriangle(child.LocalShape(), tri, n, solidOnly) {
+				return true
+			}
+		}
+		return false
 	default:
 		return false
 	}
@@ -1045,6 +1095,10 @@ func triangleMaxAlong(tri Triangle, n Vec3) float32 {
 
 // shapeMinAlong returns the smallest projection of s onto the unit direction n.
 func shapeMinAlong(s Shape, n Vec3) float32 {
+	return shapeMinAlongOpt(s, n, false)
+}
+
+func shapeMinAlongOpt(s Shape, n Vec3, solidOnly bool) float32 {
 	switch s.Kind {
 	case ShapeSphere:
 		return s.Sphere.Center.Dot(n) - s.Sphere.Radius
@@ -1065,6 +1119,24 @@ func shapeMinAlong(s Shape, n Vec3) float32 {
 		}
 		nd := toDV(n)
 		return float32(c.support(nd.neg()).dot(nd))
+	case ShapeCompound:
+		hasAny := false
+		var minV float32
+		for _, child := range s.Children {
+			if solidOnly && child.Trigger {
+				continue
+			}
+			cs := child.LocalShape()
+			if cs.Kind == ShapeCompound && len(cs.Children) == 0 {
+				continue
+			}
+			v := shapeMinAlongOpt(cs, n, solidOnly)
+			if !hasAny || v < minV {
+				minV = v
+				hasAny = true
+			}
+		}
+		return minV
 	default:
 		return 0
 	}

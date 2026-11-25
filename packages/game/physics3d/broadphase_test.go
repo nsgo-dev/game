@@ -727,3 +727,76 @@ func BenchmarkBroadphaseCharacterMove2000Static(b *testing.B) {
 		cc.Move(w, Vec3{X: 4.0, Z: 1.5}, dt)
 	}
 }
+
+func TestBroadphaseCompoundAndStaticTriggerChildBitIdentical(t *testing.T) {
+	build := func(bruteForce bool) (*World, *int) {
+		w := NewWorld()
+		w.bp.bruteForce = bruteForce
+		w.Gravity = Vec3{Y: -9.81}
+
+		// Static compound body with a solid base AND a trigger child (must be placed in
+		// dynamic broadphase tree so static-vs-static trigger overlaps are still detected).
+		staticSensor := NewStaticBody(CompoundShape(
+			CompoundChild{
+				Shape:  BoxShape(Box{HalfExtents: Vec3{X: 8, Y: 0.5, Z: 8}}),
+				Offset: Vec3{Y: -0.5},
+			},
+			CompoundChild{
+				Shape:   BoxShape(Box{HalfExtents: Vec3{X: 1.5, Y: 1.0, Z: 1.5}}),
+				Offset:  Vec3{Y: 1.0},
+				Trigger: true,
+			},
+		), Vec3{})
+		w.AddBody(staticSensor)
+
+		// Another static body overlapping staticSensor's trigger child.
+		w.AddBody(NewStaticBody(
+			SphereShape(Sphere{Radius: 0.4}),
+			Vec3{X: 0.5, Y: 1.0, Z: 0},
+		))
+
+		// Dynamic compound body falling onto staticSensor and entering its trigger child.
+		dynShape := CompoundShape(
+			CompoundChild{
+				Shape:  BoxShape(Box{HalfExtents: Vec3{X: 0.6, Y: 0.2, Z: 0.4}}),
+				Offset: Vec3{Y: 0.3},
+				Mass:   2,
+			},
+			CompoundChild{
+				Shape:  SphereShape(Sphere{Radius: 0.3}),
+				Offset: Vec3{X: -0.4, Y: -0.2},
+				Mass:   1,
+			},
+			CompoundChild{
+				Shape:   SphereShape(Sphere{Radius: 0.8}),
+				Offset:  Vec3{X: 0.4, Y: 0.2},
+				Trigger: true,
+			},
+		)
+		dyn := w.AddBody(NewDynamicBody(dynShape, Vec3{X: -0.3, Y: 2.2, Z: 0.1}, 3))
+		dyn.AngVel = Vec3{X: 0.5, Y: 0.2, Z: -0.4}
+
+		triggers := 0
+		w.OnTrigger = func(ev ContactEvent) {
+			if ev.Kind == ContactEnter {
+				triggers++
+			}
+		}
+		return w, &triggers
+	}
+
+	wBP, trigBP := build(false)
+	wBF, trigBF := build(true)
+
+	const dt = time.Second / 60
+	for step := range 90 {
+		wBP.Step(dt)
+		wBF.Step(dt)
+		if wBP.Checksum() != wBF.Checksum() {
+			t.Fatalf("step %d: Checksum mismatch BP=%#x BF=%#x", step, wBP.Checksum(), wBF.Checksum())
+		}
+	}
+	if *trigBP == 0 || *trigBP != *trigBF {
+		t.Fatalf("trigger count BP=%d BF=%d, want equal and > 0", *trigBP, *trigBF)
+	}
+}
