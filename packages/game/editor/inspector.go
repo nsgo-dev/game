@@ -77,9 +77,9 @@ func (e *Editor) SetComponentField(objectID, componentName, field string, value 
 		return fmt.Errorf("editor: component name and field must not be empty")
 	}
 	reg := e.components
-	if _, builtin := builtinPhysicsComponents.Lookup(componentName); reg == nil && builtin {
-		// Without a registry components are free-form, but the built-in physics components keep their schema, as the inspector shows it (lookupComponentType).
-		reg = builtinPhysicsComponents
+	if _, builtin := builtinEditorComponents.Lookup(componentName); reg == nil && builtin {
+		// Without a registry components are free-form, but the built-in components (physics + animator) keep their schema, as the inspector shows it (lookupComponentType).
+		reg = builtinEditorComponents
 	}
 	if reg != nil {
 		norm, err := reg.CheckField(componentName, field, value)

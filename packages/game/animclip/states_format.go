@@ -9,7 +9,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"unicode"
 
 	"github.com/nsgo-dev/game/packages/game/resource"
 	"go.yaml.in/yaml/v3"
@@ -244,6 +243,9 @@ func ValidateStateMachine(doc *StateMachineDoc) error {
 			return smErr(fmt.Sprintf("transition from %q to itself is not allowed", tr.From), "transitions", idx, "to")
 		}
 		when := strings.TrimSpace(tr.When)
+		if tr.When != "" && when == "" {
+			return smErr(fmt.Sprintf("transition %s -> %s condition must not be whitespace-only", tr.From, tr.To), "transitions", idx, "when")
+		}
 		if when == "" && !tr.OnEnd {
 			return smErr(fmt.Sprintf("transition %s -> %s must set 'when' or 'onEnd: true'", tr.From, tr.To), "transitions", idx)
 		}
@@ -368,17 +370,18 @@ func validParamIdent(s string) bool {
 	if s == "" || s == "true" || s == "false" || s == "and" || s == "or" || s == "not" || s == "abs" {
 		return false
 	}
-	for i, r := range s {
+	for i := 0; i < len(s); i++ {
+		b := s[i]
 		if i == 0 {
-			if !unicode.IsLetter(r) && r != '_' {
+			if !((b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || b == '_') {
 				return false
 			}
 			continue
 		}
-		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' && r != '.' {
+		if !((b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '_' || b == '.') {
 			return false
 		}
-		if r == '.' && (i == len(s)-1 || s[i-1] == '.') {
+		if b == '.' && (i == len(s)-1 || s[i-1] == '.') {
 			return false
 		}
 	}

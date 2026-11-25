@@ -2,9 +2,11 @@ package editor_test
 
 import (
 	"bytes"
+	"errors"
 	"image"
 	"image/color"
 	"image/png"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -372,5 +374,124 @@ func TestStatesGraphUIAndDriveWithKeysAndScreenshot(t *testing.T) {
 	}
 	if !bytes.Equal(saved, statesYAML) {
 		t.Fatalf("round-trip YAML changed after undo:\ngot:\n%s\nwant:\n%s", saved, statesYAML)
+	}
+}
+
+func TestStatesDriveKeysShortcutPassthroughEscapeAndPlayModeGuards(t *testing.T) {
+	ed, _, _, statesYAML := knightStatesFixture(t)
+	if err := ed.OpenStatesYAML(statesYAML, "knight"); err != nil {
+		t.Fatalf("OpenStatesYAML: %v", err)
+	}
+	if ed.StatesDirty() {
+		t.Fatal("freshly opened state machine should not be dirty")
+	}
+
+	var rootScope *core.Scope
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		rootScope = cx
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1120, 720))
+
+	app.Post(func() {
+		ed.SetStatesDriveWithKeys(true)
+	})
+	app.Settle()
+	if !ed.StatesDriveWithKeys() {
+		t.Fatal("SetStatesDriveWithKeys(true) did not activate")
+	}
+
+	// Bound key is consumed.
+	var consumed bool
+	app.Post(func() {
+		consumed = ed.StatesHandleKeyEvent(core.KeyEvent{Key: "ArrowRight"}, true)
+	})
+	app.Settle()
+	if !consumed {
+		t.Fatal("expected bound ArrowRight key to be consumed")
+	}
+	if !ed.StatesActionHeld("move_right") {
+		t.Fatal("expected move_right to be held after ArrowRight down")
+	}
+
+	// Unbound keys and modifier chords must NOT be swallowed.
+	for _, ev := range []core.KeyEvent{
+		{Key: "x"},
+		{Key: "z", Modifiers: core.Modifiers{Platform: true}},
+		{Key: "s", Modifiers: core.Modifiers{Control: true}},
+		{Key: "a", Modifiers: core.Modifiers{Alt: true}},
+	} {
+		var sw bool
+		app.Post(func() { sw = ed.StatesHandleKeyEvent(ev, true) })
+		app.Settle()
+		if sw {
+			t.Fatalf("StatesHandleKeyEvent(%+v) swallowed unbound/modifier key", ev)
+		}
+	}
+
+	// Escape releases held keys and exits Drive with keys.
+	var esc bool
+	app.Post(func() { esc = ed.StatesHandleKeyEvent(core.KeyEvent{Key: "Escape"}, true) })
+	app.Settle()
+	if !esc {
+		t.Fatal("expected Escape to be handled in Drive with keys mode")
+	}
+	if ed.StatesDriveWithKeys() || ed.StatesActionHeld("move_right") {
+		t.Fatalf("Escape did not exit Drive with keys or release move_right: drive=%v held=%v", ed.StatesDriveWithKeys(), ed.StatesActionHeld("move_right"))
+	}
+
+	// Play mode disables Drive with keys, ignores keys, and refuses SaveStatesFile.
+	var playErr error
+	var playKey bool
+	var saveErr error
+	outPath := filepath.Join(t.TempDir(), "x.states.yaml")
+	app.Post(func() {
+		ed.SetStatesDriveWithKeys(true)
+		playErr = ed.PlayIn(rootScope)
+		if playErr == nil {
+			if ed.StatesDriveWithKeys() {
+				t.Error("Play() should disable Drive with keys")
+			}
+			ed.SetStatesDriveWithKeys(true)
+			if ed.StatesDriveWithKeys() {
+				t.Error("SetStatesDriveWithKeys(true) must be ignored during Play mode")
+			}
+			playKey = ed.StatesHandleKeyEvent(core.KeyEvent{Key: "ArrowRight"}, true)
+			saveErr = ed.SaveStatesFile(outPath)
+			ed.Stop()
+		}
+	})
+	app.Settle()
+	if playErr != nil {
+		t.Fatalf("PlayIn: %v", playErr)
+	}
+	if playKey {
+		t.Fatal("StatesHandleKeyEvent must return false during Play mode")
+	}
+	if !errors.Is(saveErr, editor.ErrPlaying) {
+		t.Fatalf("SaveStatesFile during Play = %v, want ErrPlaying", saveErr)
+	}
+
+	// Cached StatesDirty tracks edits and save accurately.
+	var addErr, saveOK error
+	savedPath := filepath.Join(t.TempDir(), "saved.states.yaml")
+	app.Post(func() {
+		addErr = ed.AddStatesState(animclip.StateDoc{Name: "dash", Clip: "anim/knight_run.animation.yaml"})
+	})
+	app.Settle()
+	if addErr != nil {
+		t.Fatalf("AddStatesState: %v", addErr)
+	}
+	if !ed.StatesDirty() {
+		t.Fatal("expected StatesDirty() == true after edit")
+	}
+	app.Post(func() {
+		saveOK = ed.SaveStatesFile(savedPath)
+	})
+	app.Settle()
+	if saveOK != nil {
+		t.Fatalf("SaveStatesFile: %v", saveOK)
+	}
+	if ed.StatesDirty() {
+		t.Fatal("expected StatesDirty() == false after SaveStatesFile")
 	}
 }

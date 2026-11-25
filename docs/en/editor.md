@@ -691,7 +691,7 @@ Opening a `*.states.yaml` file (from the file browser, command palette, or `Open
 
 - **Graph and active state**: every state appears as a node card showing its name, clip metadata (frame count, frame duration, loop/once) and sprite thumbnail, with directed labelled transition edges and an `Any state` wildcard badge. During preview, the active state node highlights live and the preview card renders the active clip frame.
 - **Drive with keys**: toggling **Drive with keys** binds the preview to the project's input actions (such as `move_left`, `move_right`, `jump`, `attack`, `hurt`) through the same `animclip.InputDriver` and `animclip.StateMachine` the game uses, advancing on fixed steps on `game.Loop` so interactive preview and runtime playback match frame for frame.
-- **Outgoing transitions (`LEAVING <STATE>`)**: selecting any state displays its outgoing transitions (including `Any state` interrupts) and their conditions, and graph edits (`AddStatesState`, `RemoveStatesState`, `AddStatesTransition`, `RemoveStatesTransition`, `SetStatesTransitionCondition`, `SetStatesEntry`, `SetStatesNodePosition`) go through the editor's undo/redo history and save back to deterministic canonical YAML (`SaveStatesYAML` / `SaveStatesFile`).
+- **Outgoing transitions (`LEAVING <STATE>`)**: selecting any state displays its outgoing transitions (including `Any state` interrupts) and their conditions, and graph edits (`AddStatesState`, `RemoveStatesState`, `AddStatesTransition`, `RemoveStatesTransition`, `SetStatesEntry`, `SetStatesNodePos`, `SetStatesDoc`) go through the editor's undo/redo history and save back to deterministic canonical YAML (`SaveStatesYAML` / `SaveStatesFile`).
 
 ## Editor plugins (#492)
 

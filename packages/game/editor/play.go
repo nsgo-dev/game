@@ -124,6 +124,7 @@ func (e *Editor) PlayIn(cx *core.Scope) error {
 
 	e.stopClipLoop()
 	e.stopStatesLoop()
+	e.SetStatesDriveWithKeys(false)
 	e.stopAudioAudition()
 	e.resetInputMapTransient()
 	e.connPick = nil

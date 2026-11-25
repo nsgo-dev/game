@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,7 +25,7 @@ const (
 const statesWriteSchema = `{
   "type": "object",
   "additionalProperties": false,
-  "required": ["file"],
+  "required": ["file", "yaml"],
   "properties": {
     "file": {"type": "string", "description": "Slash-separated path inside the project root ending in .states.yaml, such as anim/knight.states.yaml"},
     "yaml": {"type": "string", "description": "YAML source of the *.states.yaml document; validated strictly and written in canonical form"},
@@ -142,22 +143,29 @@ func statesWrite(ctx context.Context, c *Call) (*Result, error) {
 
 	var res StatesWriteResult
 	if err := c.Editor(ctx, func(ed *editor.Editor) error {
+		if ed.Playing() {
+			return fmt.Errorf("states_write: %w", editor.ErrPlaying)
+		}
 		root := projectRoot(ed)
 		if root == "" {
 			return errors.New("states_write: no project is open in the editor; open one with go tool game editor <project-dir>")
 		}
-		abs := filepath.Join(root, filepath.FromSlash(clean))
-		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
-			return fmt.Errorf("states_write: %s: %w", clean, err)
-		}
-		if err := os.WriteFile(abs, canonical, 0o644); err != nil {
-			return fmt.Errorf("states_write: %s: %w", clean, err)
-		}
+		target := args.Target
 		if openInEditor {
-			target := args.Target
 			if target == "" {
 				target = ed.StatesTarget()
 			}
+			if target != "" {
+				if obj, _, _ := ed.FindObject(target); obj == nil {
+					return fmt.Errorf("states_write: object %q not found", target)
+				}
+			}
+		}
+		abs, err := writeProjectFileAtomic(root, clean, canonical)
+		if err != nil {
+			return fmt.Errorf("states_write: %w", err)
+		}
+		if openInEditor {
 			if err := ed.OpenStatesFile(abs, target); err != nil {
 				return fmt.Errorf("states_write: open %s: %w", clean, err)
 			}
@@ -180,16 +188,124 @@ func statesWrite(ctx context.Context, c *Call) (*Result, error) {
 	return &Result{Text: text, Structured: res}, nil
 }
 
+// writeProjectFileAtomic writes data atomically to rel inside root, refusing any symlink that escapes root or any non-regular existing destination.
+func writeProjectFileAtomic(root, rel string, data []byte) (string, error) {
+	realRoot := root
+	if r, err := filepath.EvalSymlinks(root); err == nil {
+		realRoot = r
+	}
+	abs := filepath.Join(realRoot, filepath.FromSlash(rel))
+
+	// Walk up from abs to the deepest existing ancestor and verify symlinks cannot escape realRoot.
+	probe := abs
+	for {
+		_, err := os.Lstat(probe)
+		if err == nil {
+			realProbe, err := filepath.EvalSymlinks(probe)
+			if err != nil {
+				return "", fmt.Errorf("%s: %w", rel, err)
+			}
+			if !pathWithinRoot(realRoot, realProbe) {
+				return "", fmt.Errorf("%s: path links to %s, outside the project", rel, realProbe)
+			}
+			if probe == abs {
+				st, err := os.Stat(realProbe)
+				if err != nil {
+					return "", fmt.Errorf("%s: %w", rel, err)
+				}
+				if !st.Mode().IsRegular() {
+					return "", fmt.Errorf("%s: destination is not a regular file", rel)
+				}
+				abs = realProbe
+			}
+			break
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", fmt.Errorf("%s: %w", rel, err)
+		}
+		parent := filepath.Dir(probe)
+		if parent == probe {
+			break
+		}
+		probe = parent
+	}
+
+	dir := filepath.Dir(abs)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("%s: %w", rel, err)
+	}
+	realDir, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", rel, err)
+	}
+	if !pathWithinRoot(realRoot, realDir) {
+		return "", fmt.Errorf("%s: directory links to %s, outside the project", rel, realDir)
+	}
+	finalPath := filepath.Join(realDir, filepath.Base(abs))
+
+	tmp, err := os.CreateTemp(realDir, ".states-*.tmp")
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", rel, err)
+	}
+	tmpPath := tmp.Name()
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return "", fmt.Errorf("%s: %w", rel, err)
+	}
+	if err := tmp.Close(); err != nil {
+		return "", fmt.Errorf("%s: %w", rel, err)
+	}
+	if err := os.Chmod(tmpPath, 0o644); err != nil {
+		return "", fmt.Errorf("%s: %w", rel, err)
+	}
+	if err := os.Rename(tmpPath, finalPath); err != nil {
+		return "", fmt.Errorf("%s: %w", rel, err)
+	}
+	cleanup = false
+	return finalPath, nil
+}
+
+func pathWithinRoot(root, candidate string) bool {
+	rel, err := filepath.Rel(root, candidate)
+	if err != nil {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
 func statesTest(ctx context.Context, c *Call) (*Result, error) {
 	var args statesTestArgs
 	if err := c.Decode(&args); err != nil {
 		return nil, fmt.Errorf("states_test: %w", err)
 	}
-	if args.DurationSeconds < 0 || args.DurationSeconds > 60 {
-		return nil, fmt.Errorf("states_test: durationSeconds %v must be in (0, 60]", args.DurationSeconds)
+	if math.IsNaN(args.DurationSeconds) || math.IsInf(args.DurationSeconds, 0) ||
+		args.DurationSeconds < 0 || (args.DurationSeconds > 0 && args.DurationSeconds < 0.1) || args.DurationSeconds > 60 {
+		return nil, fmt.Errorf("states_test: durationSeconds %v must be in [0.1, 60]", args.DurationSeconds)
 	}
 	if args.Rate < 0 || args.Rate > 240 {
 		return nil, fmt.Errorf("states_test: rate %d must be in [1, 240]", args.Rate)
+	}
+	for i, s := range args.Script {
+		if s.AtMs < 0 {
+			return nil, fmt.Errorf("states_test: script[%d].atMs %d must be >= 0", i, s.AtMs)
+		}
+		if s.DurationMs < 0 {
+			return nil, fmt.Errorf("states_test: script[%d].durationMs %d must be >= 0", i, s.DurationMs)
+		}
+		if math.IsNaN(s.MoveX) || math.IsInf(s.MoveX, 0) {
+			return nil, fmt.Errorf("states_test: script[%d].moveX must be finite", i)
+		}
+		for k, v := range s.Floats {
+			if math.IsNaN(v) || math.IsInf(v, 0) {
+				return nil, fmt.Errorf("states_test: script[%d].floats[%q] must be finite", i, k)
+			}
+		}
 	}
 
 	var (
