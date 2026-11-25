@@ -379,7 +379,7 @@
           "additionalProperties": {}
         },
         "properties": {
-          "description": "Properties holds arbitrary custom metadata for gameplay scripts or editors.",
+          "description": "Properties holds arbitrary custom metadata for gameplay scripts or editors. Encode writes a whole-number float with a decimal point (2.0), so that every value reads back with the kind it was written with.",
           "type": "object",
           "additionalProperties": {}
         },
