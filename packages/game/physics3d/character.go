@@ -1,7 +1,9 @@
 package physics3d
 
 import (
+	"cmp"
 	"math"
+	"slices"
 	"time"
 
 	"github.com/nsgo-dev/game/packages/game/internal/detmath"
@@ -242,6 +244,7 @@ func (c *CharacterController) Move(world *World, wishMove Vec3, dt time.Duration
 	}
 
 	dtSec := float32(dt.Seconds())
+	world.bp.syncDynamicBodies(world, nil)
 	c.pushes = c.pushes[:0]
 	maxSlope := c.maxSlopeAngle()
 	minGroundY := float32(detmath.Cos(float64(maxSlope)))
@@ -694,58 +697,82 @@ func (c *CharacterController) raycastFirst(world *World, from, to Vec3) (Raycast
 		return RaycastHit{}, false
 	}
 	ray := Ray{Origin: from, Dir: delta, MaxDist: maxDist}
+	slab, ok := newRaySlab(from, delta)
+	if !ok {
+		return RaycastHit{}, false
+	}
+	world.bp.ensureInit(world)
 	mask := c.effectiveMask()
 	var best RaycastHit
+	var bestKind bpKind
+	var bestOrder int32
 	found := false
-	for _, b := range world.bodies {
-		if b.ID == c.IgnoreBodyID || b.IsTrigger {
-			continue
-		}
-		if (effectiveLayer(b.Layer) & mask) == 0 {
-			continue
-		}
-		if h, ok := RaycastShape(ray, b.WorldShape()); ok {
-			h.Body = b
-			if !found || h.T < best.T {
-				best = h
-				found = true
-			}
+	consider := func(h RaycastHit, kind bpKind, order int32) {
+		if !found || h.T < best.T || (h.T == best.T && (kind < bestKind || (kind == bestKind && order < bestOrder))) {
+			best = h
+			bestKind = kind
+			bestOrder = order
+			found = true
 		}
 	}
-	for _, tm := range world.triMeshes {
-		if (effectiveLayer(tm.Layer) & mask) == 0 {
-			continue
-		}
-		if h, ok := tm.Raycast(ray); ok {
-			h.TriMesh = tm
-			if !found || h.T < best.T {
-				best = h
-				found = true
+
+	limit := maxDist + max(float32(1e-4), float32(maxDist*1e-5))
+	world.bp.raycastOrdered(&slab, limit, func(p *bpProxy, curMax float32) (float32, bool) {
+		switch p.kind {
+		case bpKindBody:
+			b := p.body
+			if b.ID == c.IgnoreBodyID || b.IsTrigger {
+				return curMax, true
+			}
+			if (effectiveLayer(b.Layer) & mask) == 0 {
+				return curMax, true
+			}
+			if h, hit := RaycastShape(ray, p.worldShape); hit {
+				h.Body = b
+				consider(h, bpKindBody, p.order)
+				next := best.Distance + max(float32(1e-5), float32(best.Distance*1e-6))
+				if next < curMax {
+					curMax = next
+				}
+			}
+		case bpKindTriMesh:
+			tm := p.triMesh
+			if (effectiveLayer(tm.Layer) & mask) == 0 {
+				return curMax, true
+			}
+			if h, hit := tm.Raycast(ray); hit {
+				h.TriMesh = tm
+				consider(h, bpKindTriMesh, p.order)
+				next := best.Distance + max(float32(1e-5), float32(best.Distance*1e-6))
+				if next < curMax {
+					curMax = next
+				}
+			}
+		case bpKindHeightfield:
+			hf := p.heightfield
+			if (effectiveLayer(hf.Layer) & mask) == 0 {
+				return curMax, true
+			}
+			if h, hit := hf.Raycast(ray); hit {
+				h.Heightfield = hf
+				consider(h, bpKindHeightfield, p.order)
+				next := best.Distance + max(float32(1e-5), float32(best.Distance*1e-6))
+				if next < curMax {
+					curMax = next
+				}
 			}
 		}
-	}
-	for _, hf := range world.heightfields {
-		if (effectiveLayer(hf.Layer) & mask) == 0 {
-			continue
-		}
-		if h, ok := hf.Raycast(ray); ok {
-			h.Heightfield = hf
-			if !found || h.T < best.T {
-				best = h
-				found = true
-			}
-		}
-	}
-	for _, vc := range world.voxels {
+		return curMax, true
+	})
+
+	const voxelKind bpKind = 4
+	for i, vc := range world.voxels {
 		if (effectiveLayer(vc.Layer) & mask) == 0 {
 			continue
 		}
-		if h, ok := vc.Raycast(ray); ok {
+		if h, hit := vc.Raycast(ray); hit {
 			h.Voxel = vc
-			if !found || h.T < best.T {
-				best = h
-				found = true
-			}
+			consider(h, voxelKind, int32(i))
 		}
 	}
 	return best, found
@@ -850,46 +877,69 @@ func (c *CharacterController) sweepCapsuleHit(world *World, startPos, delta Vec3
 	)
 
 	mask := c.effectiveMask()
+	world.bp.ensureInit(world)
+	type orderedCand struct {
+		kind  bpKind
+		order int32
+		proxy *bpProxy
+	}
+	var rawCands []orderedCand
+	world.bp.queryAABB(sweptBounds, func(p *bpProxy) bool {
+		switch p.kind {
+		case bpKindBody:
+			b := p.body
+			if b == ignoreBody || b.ID == c.IgnoreBodyID || b.IsTrigger {
+				return true
+			}
+			if (effectiveLayer(b.Layer) & mask) == 0 {
+				return true
+			}
+			if aabbOverlap(sweptBounds, p.worldBounds) {
+				rawCands = append(rawCands, orderedCand{kind: bpKindBody, order: p.order, proxy: p})
+			}
+		case bpKindTriMesh:
+			tm := p.triMesh
+			if (effectiveLayer(tm.Layer)&mask) == 0 || !aabbOverlap(sweptBounds, tm.Bounds) {
+				return true
+			}
+			rawCands = append(rawCands, orderedCand{kind: bpKindTriMesh, order: p.order, proxy: p})
+		case bpKindHeightfield:
+			hf := p.heightfield
+			if (effectiveLayer(hf.Layer)&mask) == 0 || !aabbOverlap(sweptBounds, hf.Bounds) {
+				return true
+			}
+			rawCands = append(rawCands, orderedCand{kind: bpKindHeightfield, order: p.order, proxy: p})
+		}
+		return true
+	})
+	if len(rawCands) > 1 {
+		slices.SortFunc(rawCands, func(a, b orderedCand) int {
+			if a.kind != b.kind {
+				return cmp.Compare(a.kind, b.kind)
+			}
+			return cmp.Compare(a.order, b.order)
+		})
+	}
 	var candidates []bodyShapeCandidate
-	for _, b := range world.bodies {
-		if b == ignoreBody || b.ID == c.IgnoreBodyID || b.IsTrigger {
-			continue
-		}
-		if (effectiveLayer(b.Layer) & mask) == 0 {
-			continue
-		}
-		ws := b.WorldShape()
-		if aabbOverlap(sweptBounds, ws.Bounds()) {
-			candidates = append(candidates, bodyShapeCandidate{body: b, shape: ws})
-		}
-	}
 	var meshTris []Triangle
-	for _, tm := range world.triMeshes {
-		if (effectiveLayer(tm.Layer) & mask) == 0 {
-			continue
-		}
-		if !aabbOverlap(sweptBounds, tm.Bounds) {
-			continue
-		}
-		tm.QueryTriangles(sweptBounds, func(tri Triangle) {
-			if aabbOverlap(sweptBounds, tri.Bounds()) {
-				meshTris = append(meshTris, tri)
-			}
-		})
-	}
 	var hfTris []Triangle
-	for _, hf := range world.heightfields {
-		if (effectiveLayer(hf.Layer) & mask) == 0 {
-			continue
+	for _, rc := range rawCands {
+		switch rc.kind {
+		case bpKindBody:
+			candidates = append(candidates, bodyShapeCandidate{body: rc.proxy.body, shape: rc.proxy.worldShape})
+		case bpKindTriMesh:
+			rc.proxy.triMesh.QueryTriangles(sweptBounds, func(tri Triangle) {
+				if aabbOverlap(sweptBounds, tri.Bounds()) {
+					meshTris = append(meshTris, tri)
+				}
+			})
+		case bpKindHeightfield:
+			rc.proxy.heightfield.QueryTriangles(sweptBounds, func(tri Triangle) {
+				if aabbOverlap(sweptBounds, tri.Bounds()) {
+					hfTris = append(hfTris, tri)
+				}
+			})
 		}
-		if !aabbOverlap(sweptBounds, hf.Bounds) {
-			continue
-		}
-		hf.QueryTriangles(sweptBounds, func(tri Triangle) {
-			if aabbOverlap(sweptBounds, tri.Bounds()) {
-				hfTris = append(hfTris, tri)
-			}
-		})
 	}
 	var voxelCols []*VoxelCollider
 	for _, vc := range world.voxels {
@@ -989,68 +1039,71 @@ func (c *CharacterController) deepestOverlapBodyIgnoring(world *World, pos Vec3,
 	capShape := CapsuleShape(c.capsuleAt(pos))
 	capBounds := capShape.Bounds()
 	mask := c.effectiveMask()
+	world.bp.ensureInit(world)
 	var best Contact
 	var bestBody *Body
+	var bestKind bpKind
+	var bestOrder int32
 	found := false
-	for _, b := range world.bodies {
-		if b == ignoreBody || b.ID == c.IgnoreBodyID || b.IsTrigger {
-			continue
-		}
-		if (effectiveLayer(b.Layer) & mask) == 0 {
-			continue
-		}
-		ws := b.WorldShape()
-		if !aabbOverlap(capBounds, ws.Bounds()) {
-			continue
-		}
-		if ct := TestShapes(capShape, ws); ct.Hit {
-			if !found || ct.Depth > best.Depth {
-				best = ct
-				bestBody = b
-				found = true
-			}
+	consider := func(ct Contact, body *Body, kind bpKind, order int32) {
+		if !found || ct.Depth > best.Depth || (ct.Depth == best.Depth && (kind < bestKind || (kind == bestKind && order < bestOrder))) {
+			best = ct
+			bestBody = body
+			bestKind = kind
+			bestOrder = order
+			found = true
 		}
 	}
-	for _, tm := range world.triMeshes {
-		if (effectiveLayer(tm.Layer) & mask) == 0 {
-			continue
-		}
-		if !aabbOverlap(capBounds, tm.Bounds) {
-			continue
-		}
-		if ct := tm.TestShape(capShape); ct.Hit {
-			if !found || ct.Depth > best.Depth {
-				best = ct
-				bestBody = nil
-				found = true
+
+	world.bp.queryAABB(capBounds, func(p *bpProxy) bool {
+		switch p.kind {
+		case bpKindBody:
+			b := p.body
+			if b == ignoreBody || b.ID == c.IgnoreBodyID || b.IsTrigger {
+				return true
+			}
+			if (effectiveLayer(b.Layer) & mask) == 0 {
+				return true
+			}
+			if !aabbOverlap(capBounds, p.worldBounds) {
+				return true
+			}
+			if ct := TestShapes(capShape, p.worldShape); ct.Hit {
+				consider(ct, b, bpKindBody, p.order)
+			}
+		case bpKindTriMesh:
+			tm := p.triMesh
+			if (effectiveLayer(tm.Layer) & mask) == 0 {
+				return true
+			}
+			if !aabbOverlap(capBounds, tm.Bounds) {
+				return true
+			}
+			if ct := tm.TestShape(capShape); ct.Hit {
+				consider(ct, nil, bpKindTriMesh, p.order)
+			}
+		case bpKindHeightfield:
+			hf := p.heightfield
+			if (effectiveLayer(hf.Layer) & mask) == 0 {
+				return true
+			}
+			if !aabbOverlap(capBounds, hf.Bounds) {
+				return true
+			}
+			if ct := hf.TestShape(capShape); ct.Hit {
+				consider(ct, nil, bpKindHeightfield, p.order)
 			}
 		}
-	}
-	for _, hf := range world.heightfields {
-		if (effectiveLayer(hf.Layer) & mask) == 0 {
-			continue
-		}
-		if !aabbOverlap(capBounds, hf.Bounds) {
-			continue
-		}
-		if ct := hf.TestShape(capShape); ct.Hit {
-			if !found || ct.Depth > best.Depth {
-				best = ct
-				bestBody = nil
-				found = true
-			}
-		}
-	}
-	for _, vc := range world.voxels {
+		return true
+	})
+
+	const voxelKind bpKind = 4
+	for i, vc := range world.voxels {
 		if (effectiveLayer(vc.Layer) & mask) == 0 {
 			continue
 		}
 		if ct := vc.TestShape(capShape); ct.Hit {
-			if !found || ct.Depth > best.Depth {
-				best = ct
-				bestBody = nil
-				found = true
-			}
+			consider(ct, nil, voxelKind, int32(i))
 		}
 	}
 	return best, bestBody, found

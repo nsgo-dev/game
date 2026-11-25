@@ -227,17 +227,25 @@ type activeAreaEntry struct {
 }
 
 func (w *World) collectActiveAreaTriggers() []activeAreaEntry {
+	w.bp.ensureInit(w)
 	var out []activeAreaEntry
-	for i, b := range w.bodies {
+	for _, pid := range w.bp.dynamicList {
+		p := &w.bp.proxies[pid]
+		b := p.body
 		if b == nil || !b.IsTrigger || !b.Area.Active() {
 			continue
 		}
-		ws := b.WorldShape()
+		ws := p.worldShape
+		wb := p.worldBounds
+		if b.Pos != p.cachedPos || b.Rot != p.cachedRot || !shapesEqual(b.Shape, p.cachedShape) {
+			ws = b.WorldShape()
+			wb = ws.Bounds()
+		}
 		out = append(out, activeAreaEntry{
 			body:       b,
 			worldShape: ws,
-			bounds:     ws.Bounds(),
-			order:      i,
+			bounds:     wb,
+			order:      int(p.order),
 		})
 	}
 	slices.SortStableFunc(out, func(a, b activeAreaEntry) int {

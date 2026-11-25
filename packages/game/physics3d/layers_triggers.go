@@ -132,40 +132,51 @@ func (w *World) RaycastLayer(from, to Vec3, mask LayerMask) []RaycastHit {
 		return nil
 	}
 	ray := Ray{Origin: from, Dir: delta, MaxDist: maxDist}
+	slab, ok := newRaySlab(from, delta)
+	if !ok {
+		return nil
+	}
+	w.bp.ensureInit(w)
 
 	var hits []RaycastHit
-	for _, b := range w.bodies {
-		if (effectiveLayer(b.Layer) & mask) == 0 {
-			continue
+	limit := maxDist + max(float32(1e-4), float32(maxDist*1e-5))
+	w.bp.raycastOrdered(&slab, limit, func(p *bpProxy, curMax float32) (float32, bool) {
+		switch p.kind {
+		case bpKindBody:
+			b := p.body
+			if (effectiveLayer(b.Layer) & mask) == 0 {
+				return curMax, true
+			}
+			if h, hit := RaycastShape(ray, p.worldShape); hit {
+				h.Body = b
+				hits = append(hits, h)
+			}
+		case bpKindTriMesh:
+			tm := p.triMesh
+			if (effectiveLayer(tm.Layer) & mask) == 0 {
+				return curMax, true
+			}
+			if h, hit := tm.Raycast(ray); hit {
+				h.TriMesh = tm
+				hits = append(hits, h)
+			}
+		case bpKindHeightfield:
+			hf := p.heightfield
+			if (effectiveLayer(hf.Layer) & mask) == 0 {
+				return curMax, true
+			}
+			if h, hit := hf.Raycast(ray); hit {
+				h.Heightfield = hf
+				hits = append(hits, h)
+			}
 		}
-		if h, ok := RaycastShape(ray, b.WorldShape()); ok {
-			h.Body = b
-			hits = append(hits, h)
-		}
-	}
-	for _, tm := range w.triMeshes {
-		if (effectiveLayer(tm.Layer) & mask) == 0 {
-			continue
-		}
-		if h, ok := tm.Raycast(ray); ok {
-			h.TriMesh = tm
-			hits = append(hits, h)
-		}
-	}
-	for _, hf := range w.heightfields {
-		if (effectiveLayer(hf.Layer) & mask) == 0 {
-			continue
-		}
-		if h, ok := hf.Raycast(ray); ok {
-			h.Heightfield = hf
-			hits = append(hits, h)
-		}
-	}
+		return curMax, true
+	})
 	for _, vc := range w.voxels {
 		if (effectiveLayer(vc.Layer) & mask) == 0 {
 			continue
 		}
-		if h, ok := vc.Raycast(ray); ok {
+		if h, hit := vc.Raycast(ray); hit {
 			h.Voxel = vc
 			hits = append(hits, h)
 		}
@@ -184,6 +195,11 @@ func (w *World) RaycastFirstLayer(from, to Vec3, mask LayerMask) (RaycastHit, bo
 		return RaycastHit{}, false
 	}
 	ray := Ray{Origin: from, Dir: delta, MaxDist: maxDist}
+	slab, ok := newRaySlab(from, delta)
+	if !ok {
+		return RaycastHit{}, false
+	}
+	w.bp.ensureInit(w)
 
 	var best RaycastHit
 	found := false
@@ -194,38 +210,57 @@ func (w *World) RaycastFirstLayer(from, to Vec3, mask LayerMask) (RaycastHit, bo
 		}
 	}
 
-	for _, b := range w.bodies {
-		if (effectiveLayer(b.Layer) & mask) == 0 {
-			continue
+	limit := maxDist + max(float32(1e-4), float32(maxDist*1e-5))
+	w.bp.raycastOrdered(&slab, limit, func(p *bpProxy, curMax float32) (float32, bool) {
+		switch p.kind {
+		case bpKindBody:
+			b := p.body
+			if (effectiveLayer(b.Layer) & mask) == 0 {
+				return curMax, true
+			}
+			if h, hit := RaycastShape(ray, p.worldShape); hit {
+				h.Body = b
+				consider(h)
+				next := best.Distance + max(float32(1e-5), float32(best.Distance*1e-6))
+				if next < curMax {
+					curMax = next
+				}
+			}
+		case bpKindTriMesh:
+			tm := p.triMesh
+			if (effectiveLayer(tm.Layer) & mask) == 0 {
+				return curMax, true
+			}
+			if h, hit := tm.Raycast(ray); hit {
+				h.TriMesh = tm
+				consider(h)
+				next := best.Distance + max(float32(1e-5), float32(best.Distance*1e-6))
+				if next < curMax {
+					curMax = next
+				}
+			}
+		case bpKindHeightfield:
+			hf := p.heightfield
+			if (effectiveLayer(hf.Layer) & mask) == 0 {
+				return curMax, true
+			}
+			if h, hit := hf.Raycast(ray); hit {
+				h.Heightfield = hf
+				consider(h)
+				next := best.Distance + max(float32(1e-5), float32(best.Distance*1e-6))
+				if next < curMax {
+					curMax = next
+				}
+			}
 		}
-		if h, ok := RaycastShape(ray, b.WorldShape()); ok {
-			h.Body = b
-			consider(h)
-		}
-	}
-	for _, tm := range w.triMeshes {
-		if (effectiveLayer(tm.Layer) & mask) == 0 {
-			continue
-		}
-		if h, ok := tm.Raycast(ray); ok {
-			h.TriMesh = tm
-			consider(h)
-		}
-	}
-	for _, hf := range w.heightfields {
-		if (effectiveLayer(hf.Layer) & mask) == 0 {
-			continue
-		}
-		if h, ok := hf.Raycast(ray); ok {
-			h.Heightfield = hf
-			consider(h)
-		}
-	}
+		return curMax, true
+	})
+
 	for _, vc := range w.voxels {
 		if (effectiveLayer(vc.Layer) & mask) == 0 {
 			continue
 		}
-		if h, ok := vc.Raycast(ray); ok {
+		if h, hit := vc.Raycast(ray); hit {
 			h.Voxel = vc
 			consider(h)
 		}
@@ -240,40 +275,77 @@ func (w *World) OverlapLayer(shape Shape, mask LayerMask) []OverlapHit {
 	if mask == 0 {
 		return nil
 	}
+	w.bp.ensureInit(w)
 	queryBounds := shape.Bounds()
+	type orderedHit struct {
+		kind  bpKind
+		order int32
+		hit   OverlapHit
+	}
+	var ordered []orderedHit
+	w.bp.queryAABB(queryBounds, func(p *bpProxy) bool {
+		switch p.kind {
+		case bpKindBody:
+			b := p.body
+			if (effectiveLayer(b.Layer) & mask) == 0 {
+				return true
+			}
+			if !aabbOverlap(queryBounds, p.worldBounds) {
+				return true
+			}
+			if c := TestShapes(shape, p.worldShape); c.Hit {
+				ordered = append(ordered, orderedHit{
+					kind:  bpKindBody,
+					order: p.order,
+					hit:   OverlapHit{Body: b, Contact: c},
+				})
+			}
+		case bpKindTriMesh:
+			tm := p.triMesh
+			if (effectiveLayer(tm.Layer) & mask) == 0 {
+				return true
+			}
+			if !aabbOverlap(queryBounds, tm.Bounds) {
+				return true
+			}
+			if c := tm.TestShape(shape); c.Hit {
+				ordered = append(ordered, orderedHit{
+					kind:  bpKindTriMesh,
+					order: p.order,
+					hit:   OverlapHit{TriMesh: tm, Contact: c},
+				})
+			}
+		case bpKindHeightfield:
+			hf := p.heightfield
+			if (effectiveLayer(hf.Layer) & mask) == 0 {
+				return true
+			}
+			if !aabbOverlap(queryBounds, hf.Bounds) {
+				return true
+			}
+			if c := hf.TestShape(shape); c.Hit {
+				ordered = append(ordered, orderedHit{
+					kind:  bpKindHeightfield,
+					order: p.order,
+					hit:   OverlapHit{Heightfield: hf, Contact: c},
+				})
+			}
+		}
+		return true
+	})
+	if len(ordered) > 1 {
+		slices.SortFunc(ordered, func(a, b orderedHit) int {
+			if a.kind != b.kind {
+				return cmp.Compare(a.kind, b.kind)
+			}
+			return cmp.Compare(a.order, b.order)
+		})
+	}
 	var hits []OverlapHit
-	for _, b := range w.bodies {
-		if (effectiveLayer(b.Layer) & mask) == 0 {
-			continue
-		}
-		ws := b.WorldShape()
-		if !aabbOverlap(queryBounds, ws.Bounds()) {
-			continue
-		}
-		if c := TestShapes(shape, ws); c.Hit {
-			hits = append(hits, OverlapHit{Body: b, Contact: c})
-		}
-	}
-	for _, tm := range w.triMeshes {
-		if (effectiveLayer(tm.Layer) & mask) == 0 {
-			continue
-		}
-		if !aabbOverlap(queryBounds, tm.Bounds) {
-			continue
-		}
-		if c := tm.TestShape(shape); c.Hit {
-			hits = append(hits, OverlapHit{TriMesh: tm, Contact: c})
-		}
-	}
-	for _, hf := range w.heightfields {
-		if (effectiveLayer(hf.Layer) & mask) == 0 {
-			continue
-		}
-		if !aabbOverlap(queryBounds, hf.Bounds) {
-			continue
-		}
-		if c := hf.TestShape(shape); c.Hit {
-			hits = append(hits, OverlapHit{Heightfield: hf, Contact: c})
+	if len(ordered) > 0 {
+		hits = make([]OverlapHit, len(ordered))
+		for i, oh := range ordered {
+			hits[i] = oh.hit
 		}
 	}
 	for _, vc := range w.voxels {
@@ -341,21 +413,24 @@ func (w *World) reconcileContactEvents(current map[pairKey]activeContactRecord) 
 		w.activeContacts = make(map[pairKey]activeContactRecord)
 	}
 
-	curKeys := make([]pairKey, 0, len(current))
+	curKeys := w.curKeysBuf[:0]
 	for k := range current {
 		curKeys = append(curKeys, k)
 	}
 	slices.SortFunc(curKeys, comparePairKeys)
+	w.curKeysBuf = curKeys
 
-	var exitKeys []pairKey
+	exitKeys := w.exitKeysBuf[:0]
 	for k := range w.activeContacts {
 		if _, still := current[k]; !still {
 			exitKeys = append(exitKeys, k)
 		}
 	}
 	slices.SortFunc(exitKeys, comparePairKeys)
+	w.exitKeysBuf = exitKeys
 
-	events := make([]ContactEvent, 0, len(curKeys)+len(exitKeys))
+	clear(w.contactEvents)
+	events := w.contactEvents[:0]
 	for _, k := range curKeys {
 		cur := current[k]
 		if prev, existed := w.activeContacts[k]; existed {
@@ -415,7 +490,14 @@ func (w *World) reconcileContactEvents(current map[pairKey]activeContactRecord) 
 		})
 	}
 
+	old := w.activeContacts
 	w.activeContacts = current
+	if old != nil {
+		clear(old)
+		w.nextActiveContacts = old
+	} else {
+		w.nextActiveContacts = nil
+	}
 	w.contactEvents = events
 
 	for _, ev := range events {

@@ -118,6 +118,14 @@ A shape that ends up below a heightfield's surface is pushed out upward, by the 
 
 A dynamic body that moves more than half its smallest dimension in one step is swept in sub-steps against static, kinematic and sleeping bodies, triangle meshes, heightfields, and voxel colliders, and stops at the first new overlap, so fast bodies do not tunnel through thin geometry. Contacts the body already has when the step begins, such as the floor under a fast sliding or rolling body, do not stop it unless the body sinks clearly deeper into them. Fast dynamic bodies are not swept against each other.
 
+### Broadphase
+
+`World` accelerates body-pair detection, raycasts (`Raycast`, `RaycastFirst`, `RaycastLayer`, `RaycastFirstLayer`), overlaps (`QueryOverlap`, `OverlapLayer`), CCD sweeps, `WakeInBox`, and `CharacterController` queries with separate deterministic static and dynamic AABB trees:
+
+- **Separate static and dynamic trees**: static non-trigger bodies, `TriMeshCollider`s, and `HeightfieldCollider`s live in the static tree (each triangle mesh and heightfield stays as a single broadphase entry, backed by its own internal BVH or grid), built top-down for tight spatial partitioning so stationary level geometry costs almost nothing until something moves near it. Dynamic, kinematic, and trigger bodies live in the dynamic tree with fattened AABBs, predictive displacement expansion, and SAH-minimizing rotations so sleeping or slowly moving bodies rarely update the tree.
+- **Deterministic order**: candidate pairs are sorted into body insertion order and raycast/overlap tie-breaking follows the same deterministic rules as a linear scan, so trajectories, events, and query hits remain bit-identical to a brute-force pass.
+- **Automatic sync**: `AddBody`, `RemoveBody`, `AddTriMesh`, `RemoveTriMesh`, `AddHeightfield`, `RemoveHeightfield`, `Restore`, and `Step` maintain the broadphase automatically. If you mutate a body's `Pos`, `Rot`, `Shape`, `Static`, or `IsTrigger` fields directly and run raycast or overlap queries before the next `Step`, call `world.SyncBroadphase()` first.
+
 ## Voxel Colliders
 
 `VoxelCollider` (created with `NewVoxelCollider(grid)` and added with `World.AddVoxelCollider`, or adapted from `game/voxel` via `voxel.NewCollider(w)` / `w.Collider()`) collides bodies, `CharacterController`, CCD, and world raycast/overlap queries directly against any `VoxelGrid` without building a triangle mesh:
@@ -274,8 +282,8 @@ sw.Step(dt)
 
 - **`Save() / Restore(snap) / Checksum()`**: `World.Save()` captures all public and private solver state into a versioned `WorldSnapshot` (`SnapshotVersion`), including gravity and solver/sleep settings, bodies (with their full shape, including a `ConvexHull`'s geometry and a `Cylinder`, private sleep timers, gravity-scale flags, residual depth, previous interpolation poses, and voxel resting state), sorted warm-start contact impulse cache, active contact/trigger pair sets, last-step contact and joint-break events, ignored body pairs, all 7 built-in `Joint3D` types (`DistanceJoint`, `BallJoint`, `HingeJoint`, `SliderJoint`, `FixedJoint`, `SwingTwistJoint`, `SixDOFJoint`, including unwrapped angle state and last reaction impulses), plus `TriMeshCollider`, `HeightfieldCollider`, and `VoxelGrid` collider bindings.
 - **JSON-serializable plain text**: `WorldSnapshot` marshals cleanly with `encoding/json` (no `encoding/gob` or custom binary layout).
-- **In-place pointer & callback preservation**: `Restore` updates existing `*Body`, `Joint3D`, and collider instances in place when counts/kinds match, preserving gameplay pointers, `UserData`, and world callbacks (`OnContact`, `OnTrigger`, `OnJointBreak`).
-- **Cross-architecture determinism**: all stepped 3D integration, narrowphase (GJK/EPA/SAT, OBB, mesh/heightfield, voxel), sequential impulse solver, joint, area, and `vehicle` suspension/tire paths avoid arm64 FMA contraction and FMA-using standard library transcendentals, ensuring bit-identical trajectories and `Checksum()` values on amd64 and arm64.
+- **In-place pointer & callback preservation**: `Restore` updates existing `*Body`, `Joint3D`, and collider instances in place when counts/kinds match, rebuilds the broadphase trees deterministically, and preserves gameplay pointers, `UserData`, and world callbacks (`OnContact`, `OnTrigger`, `OnJointBreak`).
+- **Cross-architecture determinism**: all stepped 3D integration, broadphase, narrowphase (GJK/EPA/SAT, OBB, mesh/heightfield, voxel), sequential impulse solver, joint, area, and `vehicle` suspension/tire paths avoid arm64 FMA contraction and FMA-using standard library transcendentals, ensuring bit-identical trajectories and `Checksum()` values on amd64 and arm64.
 
 ```go
 snap := world.Save()

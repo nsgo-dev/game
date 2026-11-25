@@ -270,18 +270,26 @@ type World struct {
 	// World.Step in joint insertion order.
 	OnJointBreak func(JointBreakEvent)
 
-	bodies           []*Body
-	nextID           int
-	nextColliderID   int
-	cache            map[pairKey]cachedImpulse
-	activeContacts   map[pairKey]activeContactRecord
-	contactEvents    []ContactEvent
-	jointBreakEvents []JointBreakEvent
-	triMeshes        []*TriMeshCollider
-	heightfields     []*HeightfieldCollider
-	voxels           []*VoxelCollider
-	joints           []Joint3D
-	ignoredPairs     map[pairKey]struct{}
+	bodies             []*Body
+	nextID             int
+	nextColliderID     int
+	cache              map[pairKey]cachedImpulse
+	activeContacts     map[pairKey]activeContactRecord
+	nextActiveContacts map[pairKey]activeContactRecord
+	contactEvents      []ContactEvent
+	jointBreakEvents   []JointBreakEvent
+	triMeshes          []*TriMeshCollider
+	heightfields       []*HeightfieldCollider
+	voxels             []*VoxelCollider
+	joints             []Joint3D
+	ignoredPairs       map[pairKey]struct{}
+
+	bp              broadphase3D
+	contactsBuf     []solverContact
+	shockOrderBuf   []int
+	shockHeightsBuf []float32
+	curKeysBuf      []pairKey
+	exitKeysBuf     []pairKey
 }
 
 // NewWorld returns a World with standard Y-up gravity (0, -9.81, 0) and 8
@@ -374,6 +382,7 @@ func (w *World) AddBody(b Body) *Body {
 	stored := new(Body)
 	*stored = b
 	w.bodies = append(w.bodies, stored)
+	w.bp.addBody(w, stored)
 	if stored.IsTrigger && stored.Area.Active() {
 		w.wakeAllDynamic()
 	}
@@ -406,6 +415,7 @@ func (w *World) RemoveBody(id int) bool {
 		return false
 	}
 	w.bodies = append(w.bodies[:idx], w.bodies[idx+1:]...)
+	w.bp.removeBody(w, idx)
 	w.removeJointsForBody(id)
 	// Drop warm-start impulses involving id, or a later body that reuses the ID would start from this one's contacts (#546).
 	for k := range w.cache {
@@ -428,6 +438,18 @@ func (w *World) RemoveBody(id int) bool {
 // Bodies returns the bodies currently in w in deterministic insertion order.
 func (w *World) Bodies() []*Body {
 	return w.bodies
+}
+
+// SyncBroadphase refreshes the broadphase acceleration structure for any bodies
+// whose Pos, Rot, Shape, Static, or IsTrigger fields were mutated directly
+// since the last World.Step. AddBody, RemoveBody, AddTriMesh, RemoveTriMesh,
+// AddHeightfield, RemoveHeightfield, Restore, and Step maintain the broadphase
+// automatically.
+func (w *World) SyncBroadphase() {
+	if w == nil {
+		return
+	}
+	w.bp.syncAllBodies(w)
 }
 
 // Raycast casts a segment from from to to against all bodies and static
@@ -460,7 +482,12 @@ func (w *World) Step(dt time.Duration) {
 	w.jointBreakEvents = w.jointBreakEvents[:0]
 	if len(w.bodies) == 0 {
 		if len(w.activeContacts) > 0 {
-			w.reconcileContactEvents(make(map[pairKey]activeContactRecord))
+			if w.nextActiveContacts == nil {
+				w.nextActiveContacts = make(map[pairKey]activeContactRecord)
+			} else {
+				clear(w.nextActiveContacts)
+			}
+			w.reconcileContactEvents(w.nextActiveContacts)
 		} else {
 			w.contactEvents = w.contactEvents[:0]
 		}
@@ -475,6 +502,9 @@ func (w *World) Step(dt time.Duration) {
 		w.cache = make(map[pairKey]cachedImpulse)
 	}
 
+	// Reconcile any external pose/shape/static/trigger mutations once per step.
+	w.bp.syncAllBodies(w)
+
 	// Wake sleeping bodies that a moving kinematic body touches, that are jointed
 	// to a moving body, or whose voxel terrain support changed, before anything
 	// treats them as immovable.
@@ -486,13 +516,19 @@ func (w *World) Step(dt time.Duration) {
 		j.Prepare(dtSec)
 	}
 
-	n := len(w.bodies)
-	prevPos := make([]Vec3, n)
+	dynCount := len(w.bp.dynamicList)
+	if cap(w.bp.dynPrevPos) < dynCount {
+		w.bp.dynPrevPos = make([]Vec3, dynCount)
+	} else {
+		w.bp.dynPrevPos = w.bp.dynPrevPos[:dynCount]
+	}
+	prevPos := w.bp.dynPrevPos
 	areaTriggers := w.collectActiveAreaTriggers()
 
 	// 1. Symplectic Euler integration: update velocities, then tentative poses.
-	for i, b := range w.bodies {
-		prevPos[i] = b.Pos
+	for di, pid := range w.bp.dynamicList {
+		b := w.bp.proxies[pid].body
+		prevPos[di] = b.Pos
 		if b.Static || b.Kinematic || b.Sleeping {
 			continue
 		}
@@ -538,209 +574,221 @@ func (w *World) Step(dt time.Duration) {
 	jointIgnored := w.buildJointIgnoredPairs()
 
 	// 1b. Sweep fast bodies so they cannot tunnel through thin static geometry.
-	for i, b := range w.bodies {
+	for di, pid := range w.bp.dynamicList {
+		b := w.bp.proxies[pid].body
 		if b.Static || b.Kinematic || b.Sleeping || b.IsTrigger {
 			continue
 		}
-		w.sweepFastBody(b, prevPos[i], jointIgnored)
+		w.sweepFastBody(b, prevPos[di], jointIgnored)
 	}
 
 	// 2. Deterministic broadphase + narrowphase pair detection.
-	shapes := make([]Shape, n)
-	bounds := make([]Box, n)
-	for i, b := range w.bodies {
-		shapes[i] = b.WorldShape()
-		bounds[i] = shapes[i].Bounds()
+	w.bp.syncDynamicBodies(w, prevPos)
+
+	if w.nextActiveContacts == nil {
+		w.nextActiveContacts = make(map[pairKey]activeContactRecord)
+	} else {
+		clear(w.nextActiveContacts)
 	}
+	currentPairs := w.nextActiveContacts
 
-	currentPairs := make(map[pairKey]activeContactRecord)
+	contacts := w.contactsBuf[:0]
+	pairs := w.bp.findBodyPairs()
+	var singleContact [1]Contact
+	for _, pair := range pairs {
+		pA := &w.bp.proxies[w.bp.bodyProxies[pair.i]]
+		pB := &w.bp.proxies[w.bp.bodyProxies[pair.j]]
+		a := pA.body
+		b := pB.body
+		isTrig := a.IsTrigger || b.IsTrigger
+		if a.Static && b.Static && !isTrig {
+			continue
+		}
+		if !CanCollide(a, b) {
+			continue
+		}
+		if w.isPairIgnored(a.ID, b.ID) {
+			continue
+		}
+		key, swapped := canonicalPairKey(a.ID, b.ID)
+		if _, ok := jointIgnored[key]; ok {
+			continue
+		}
+		if !aabbOverlap(pA.worldBounds, pB.worldBounds) {
+			continue
+		}
+		c := TestShapes(pA.worldShape, pB.worldShape)
+		if !c.Hit {
+			continue
+		}
 
-	var contacts []solverContact
-	for i := 0; i < n; i++ {
-		a := w.bodies[i]
-		for j := i + 1; j < n; j++ {
-			b := w.bodies[j]
-			isTrig := a.IsTrigger || b.IsTrigger
-			if a.Static && b.Static && !isTrig {
-				continue
-			}
-			if !CanCollide(a, b) {
-				continue
-			}
-			if w.isPairIgnored(a.ID, b.ID) {
-				continue
-			}
-			key, swapped := canonicalPairKey(a.ID, b.ID)
-			if _, ok := jointIgnored[key]; ok {
-				continue
-			}
-			if !aabbOverlap(bounds[i], bounds[j]) {
-				continue
-			}
-			c := TestShapes(shapes[i], shapes[j])
-			if !c.Hit {
-				continue
-			}
+		evA, evB, evNorm := a, b, c.Normal
+		if swapped {
+			evA, evB, evNorm = b, a, c.Normal.Neg()
+		}
+		currentPairs[key] = activeContactRecord{
+			a:         evA,
+			b:         evB,
+			point:     c.Point,
+			normal:    evNorm,
+			depth:     c.Depth,
+			isTrigger: isTrig,
+		}
 
-			evA, evB, evNorm := a, b, c.Normal
-			if swapped {
-				evA, evB, evNorm = b, a, c.Normal.Neg()
-			}
-			currentPairs[key] = activeContactRecord{
-				a:         evA,
-				b:         evB,
-				point:     c.Point,
-				normal:    evNorm,
-				depth:     c.Depth,
-				isTrigger: isTrig,
-			}
-
-			if isTrig {
-				if a.IsTrigger && a.Area.Active() && b.Sleeping && isMoving(a) {
-					b.Wake()
-				}
-				if b.IsTrigger && b.Area.Active() && a.Sleeping && isMoving(b) {
-					a.Wake()
-				}
-				continue
-			}
-
-			// Wake a sleeping dynamic body struck by a moving dynamic or kinematic body. This runs before the inactive-pair skip, which would otherwise let a kinematic body pass through sleeping ones.
-			if a.Sleeping && isMoving(b) {
-				a.Wake()
-			}
-			if b.Sleeping && isMoving(a) {
+		if isTrig {
+			if a.IsTrigger && a.Area.Active() && b.Sleeping && isMoving(a) {
 				b.Wake()
 			}
-			if (a.Static || a.Kinematic || a.Sleeping) && (b.Static || b.Kinematic || b.Sleeping) {
-				continue
+			if b.IsTrigger && b.Area.Active() && a.Sleeping && isMoving(b) {
+				a.Wake()
 			}
+			continue
+		}
 
-			// A pair with a convex hull or a cylinder gets up to four points spread over the touching area, so a face or a cap resting on another body stays flat instead of rocking about the single point TestShapes reports (#808).
-			points := []Contact{c}
-			if isConvexKind(shapes[i]) || isConvexKind(shapes[j]) {
-				points = shapeManifold(shapes[i], shapes[j], c)
+		// Wake a sleeping dynamic body struck by a moving dynamic or kinematic body. This runs before the inactive-pair skip, which would otherwise let a kinematic body pass through sleeping ones.
+		if a.Sleeping && isMoving(b) {
+			a.Wake()
+		}
+		if b.Sleeping && isMoving(a) {
+			b.Wake()
+		}
+		if (a.Static || a.Kinematic || a.Sleeping) && (b.Static || b.Kinematic || b.Sleeping) {
+			continue
+		}
+
+		// A pair with a convex hull or a cylinder gets up to four points spread over the touching area, so a face or a cap resting on another body stays flat instead of rocking about the single point TestShapes reports (#808).
+		var points []Contact
+		if isConvexKind(pA.worldShape) || isConvexKind(pB.worldShape) {
+			points = shapeManifold(pA.worldShape, pB.worldShape, c)
+		} else {
+			singleContact[0] = c
+			points = singleContact[:]
+		}
+		restitution := max(a.effectiveRestitution(), b.effectiveRestitution())
+		friction := sqrt32(a.effectiveFriction() * b.effectiveFriction())
+		cacheKey := pairKey{a: a.ID, b: b.ID}
+		cached, warm := w.cache[cacheKey]
+		warm = warm && cached.normal.Dot(c.Normal) > 0.95
+		for _, pc := range points {
+			// Compute restitution bias once from the pre-solver closing velocity at the contact point.
+			rA, rB := pc.Point.Sub(a.Pos), pc.Point.Sub(b.Pos)
+			rv := pointVel(a, rA).Sub(pointVel(b, rB))
+			vn := rv.Dot(pc.Normal)
+			var bias float32
+			if vn < -restitutionVelThreshold {
+				bias = -restitution * vn
 			}
-			restitution := max(a.effectiveRestitution(), b.effectiveRestitution())
-			friction := sqrt32(a.effectiveFriction() * b.effectiveFriction())
-			cacheKey := pairKey{a: a.ID, b: b.ID}
-			cached, warm := w.cache[cacheKey]
-			warm = warm && cached.normal.Dot(c.Normal) > 0.95
-			for _, pc := range points {
-				// Compute restitution bias once from the pre-solver closing velocity at the contact point.
-				rA, rB := pc.Point.Sub(a.Pos), pc.Point.Sub(b.Pos)
-				rv := pointVel(a, rA).Sub(pointVel(b, rB))
-				vn := rv.Dot(pc.Normal)
-				var bias float32
-				if vn < -restitutionVelThreshold {
-					bias = -restitution * vn
-				}
-				sc := solverContact{
-					a:           a,
-					b:           b,
-					normal:      pc.Normal,
-					depth:       pc.Depth,
-					point:       pc.Point,
-					rA:          rA,
-					rB:          rB,
-					restitution: restitution,
-					friction:    friction,
-					bias:        bias,
-				}
-				// Warm-start from the previous step's accumulated impulse, shared among the pair's points, when the contact normal remains aligned.
-				if warm {
-					share := 1 / float32(len(points))
-					sc.normalImpulse = cached.normalImpulse * share
-					sc.tangentImpulse = cached.tangentImpulse.Sub(c.Normal.Scale(cached.tangentImpulse.Dot(c.Normal))).Scale(share)
-				}
-				contacts = append(contacts, sc)
+			sc := solverContact{
+				a:           a,
+				b:           b,
+				normal:      pc.Normal,
+				depth:       pc.Depth,
+				point:       pc.Point,
+				rA:          rA,
+				rB:          rB,
+				restitution: restitution,
+				friction:    friction,
+				bias:        bias,
 			}
+			// Warm-start from the previous step's accumulated impulse, shared among the pair's points, when the contact normal remains aligned.
+			if warm {
+				share := 1 / float32(len(points))
+				sc.normalImpulse = cached.normalImpulse * share
+				sc.tangentImpulse = cached.tangentImpulse.Sub(c.Normal.Scale(cached.tangentImpulse.Dot(c.Normal))).Scale(share)
+			}
+			contacts = append(contacts, sc)
 		}
 	}
 
 	// 2b. Narrowphase against static triangle-mesh, heightfield, and voxel colliders.
 	if len(w.triMeshes) > 0 || len(w.heightfields) > 0 || len(w.voxels) > 0 {
-		for i, a := range w.bodies {
+		hasStaticMeshesOrHF := len(w.triMeshes) > 0 || len(w.heightfields) > 0
+		for _, pid := range w.bp.dynamicList {
+			p := &w.bp.proxies[pid]
+			a := p.body
 			if a.Static || a.Kinematic || a.Sleeping || a.IsTrigger {
 				continue
 			}
 			a.restingOnVoxel = false
-			for _, tm := range w.triMeshes {
-				if !canCollideMasks(a.Layer, a.Mask, tm.Layer, tm.Mask) {
-					continue
-				}
-				if !aabbOverlap(bounds[i], tm.Bounds) {
-					continue
-				}
-				tm.QueryTriangles(bounds[i], func(tri Triangle) {
-					if !aabbOverlap(bounds[i], tri.Bounds()) {
-						return
+			if hasStaticMeshesOrHF {
+				tms, hfs := w.bp.queryStaticMeshesAndHeightfields(p.worldBounds)
+				for _, tm := range tms {
+					if !canCollideMasks(a.Layer, a.Mask, tm.Layer, tm.Mask) {
+						continue
 					}
-					for _, c := range shapeTriangleContacts(shapes[i], tri, false) {
-						rA := c.Point.Sub(a.Pos)
-						vn := pointVel(a, rA).Dot(c.Normal)
-						restitution := max(a.effectiveRestitution(), tm.Restitution)
-						var bias float32
-						if vn < -restitutionVelThreshold {
-							bias = -restitution * vn
+					if !aabbOverlap(p.worldBounds, tm.Bounds) {
+						continue
+					}
+					tm.QueryTriangles(p.worldBounds, func(tri Triangle) {
+						if !aabbOverlap(p.worldBounds, tri.Bounds()) {
+							return
 						}
-						contacts = append(contacts, solverContact{
-							a:           a,
-							normal:      c.Normal,
-							depth:       c.Depth,
-							point:       c.Point,
-							rA:          rA,
-							restitution: restitution,
-							friction:    sqrt32(a.effectiveFriction() * tm.Friction),
-							bias:        bias,
-							isStaticTri: true,
-							tri:         tri,
-							staticID:    tm.ID,
-						})
-					}
-				})
-			}
-			for _, hf := range w.heightfields {
-				if !canCollideMasks(a.Layer, a.Mask, hf.Layer, hf.Mask) {
-					continue
-				}
-				if !aabbOverlap(bounds[i], hf.Bounds) {
-					continue
-				}
-				hf.QueryTriangles(bounds[i], func(tri Triangle) {
-					if !aabbOverlap(bounds[i], tri.Bounds()) {
-						return
-					}
-					for _, c := range shapeTriangleContacts(shapes[i], tri, true) {
-						rA := c.Point.Sub(a.Pos)
-						vn := pointVel(a, rA).Dot(c.Normal)
-						restitution := max(a.effectiveRestitution(), hf.Restitution)
-						var bias float32
-						if vn < -restitutionVelThreshold {
-							bias = -restitution * vn
+						for _, c := range shapeTriangleContacts(p.worldShape, tri, false) {
+							rA := c.Point.Sub(a.Pos)
+							vn := pointVel(a, rA).Dot(c.Normal)
+							restitution := max(a.effectiveRestitution(), tm.Restitution)
+							var bias float32
+							if vn < -restitutionVelThreshold {
+								bias = -restitution * vn
+							}
+							contacts = append(contacts, solverContact{
+								a:           a,
+								normal:      c.Normal,
+								depth:       c.Depth,
+								point:       c.Point,
+								rA:          rA,
+								restitution: restitution,
+								friction:    sqrt32(a.effectiveFriction() * tm.Friction),
+								bias:        bias,
+								isStaticTri: true,
+								tri:         tri,
+								staticID:    tm.ID,
+							})
 						}
-						contacts = append(contacts, solverContact{
-							a:             a,
-							normal:        c.Normal,
-							depth:         c.Depth,
-							point:         c.Point,
-							rA:            rA,
-							restitution:   restitution,
-							friction:      sqrt32(a.effectiveFriction() * hf.Friction),
-							bias:          bias,
-							isStaticTri:   true,
-							isHeightfield: true,
-							tri:           tri,
-							staticID:      hf.ID,
-						})
+					})
+				}
+				for _, hf := range hfs {
+					if !canCollideMasks(a.Layer, a.Mask, hf.Layer, hf.Mask) {
+						continue
 					}
-				})
+					if !aabbOverlap(p.worldBounds, hf.Bounds) {
+						continue
+					}
+					hf.QueryTriangles(p.worldBounds, func(tri Triangle) {
+						if !aabbOverlap(p.worldBounds, tri.Bounds()) {
+							return
+						}
+						for _, c := range shapeTriangleContacts(p.worldShape, tri, true) {
+							rA := c.Point.Sub(a.Pos)
+							vn := pointVel(a, rA).Dot(c.Normal)
+							restitution := max(a.effectiveRestitution(), hf.Restitution)
+							var bias float32
+							if vn < -restitutionVelThreshold {
+								bias = -restitution * vn
+							}
+							contacts = append(contacts, solverContact{
+								a:             a,
+								normal:        c.Normal,
+								depth:         c.Depth,
+								point:         c.Point,
+								rA:            rA,
+								restitution:   restitution,
+								friction:      sqrt32(a.effectiveFriction() * hf.Friction),
+								bias:          bias,
+								isStaticTri:   true,
+								isHeightfield: true,
+								tri:           tri,
+								staticID:      hf.ID,
+							})
+						}
+					})
+				}
 			}
 			for _, vc := range w.voxels {
 				if !canCollideMasks(a.Layer, a.Mask, vc.Layer, vc.Mask) {
 					continue
 				}
-				vc.forEachContact(shapes[i], func(vx, vy, vz int, c Contact) {
+				vc.forEachContact(p.worldShape, func(vx, vy, vz int, c Contact) {
 					a.restingOnVoxel = true
 					rA := c.Point.Sub(a.Pos)
 					vn := pointVel(a, rA).Dot(c.Normal)
@@ -878,7 +926,7 @@ func (w *World) Step(dt time.Duration) {
 	up, haveUp := gravityUp(w.Gravity)
 	var shock []int
 	if haveUp {
-		shock = shockOrder(contacts, up)
+		shock = w.shockOrder(contacts, up)
 		propagateShockVelocity(contacts, shock, up)
 	}
 
@@ -937,6 +985,12 @@ func (w *World) Step(dt time.Duration) {
 
 	// 5b. Shock propagation, position half: one bottom-up pass that resolves each vertical contact by moving only its upper body, so a tall stack or a heavy body on a light one does not keep the penetration that Gauss-Seidel leaves under large mass ratios (#546).
 	w.resolveResidualPenetration(contacts, shock, up)
+	clear(contacts)
+	w.contactsBuf = contacts[:0]
+
+	// Refresh dynamic broadphase proxies with final post-solver poses so
+	// post-Step raycasts, overlaps, and character queries see exact positions.
+	w.bp.syncDynamicBodies(w, nil)
 
 	// 6. Put settled bodies to sleep so resting stacks have zero drift.
 	const (
@@ -944,11 +998,12 @@ func (w *World) Step(dt time.Duration) {
 		sleepAngVelSq = sleepAngVelThreshold * sleepAngVelThreshold
 	)
 	invDtSq := 1 / (dtSec * dtSec)
-	for i, b := range w.bodies {
+	for di, pid := range w.bp.dynamicList {
+		b := w.bp.proxies[pid].body
 		if b.Static || b.Kinematic || b.Sleeping {
 			continue
 		}
-		dispSq := b.Pos.Sub(prevPos[i]).LenSq() * invDtSq
+		dispSq := b.Pos.Sub(prevPos[di]).LenSq() * invDtSq
 		// A body still sunk into a neighbor stays awake: asleep, the solver would skip the pair and freeze that penetration in place.
 		if b.Vel.LenSq() < sleepVelSq && dispSq < sleepVelSq && b.AngVel.LenSq() < sleepAngVelSq && b.residualDepth <= sleepMaxDepth {
 			b.sleepTimer += dtSec
@@ -982,7 +1037,9 @@ func (w *World) Step(dt time.Duration) {
 		}
 	}
 	for _, b := range w.bodies {
-		b.lastPos, b.lastRot, b.havePose = b.Pos, b.Rot, true
+		if !b.havePose || b.lastPos != b.Pos || b.lastRot != b.Rot {
+			b.lastPos, b.lastRot, b.havePose = b.Pos, b.Rot, true
+		}
 	}
 
 	// 8. Reconcile active contacts and emit deterministic Enter/Stay/Exit and joint-break events.
@@ -1031,9 +1088,20 @@ func gravityUp(g Vec3) (Vec3, bool) {
 }
 
 // shockOrder returns the indices of contacts sorted from the lowest contact point along up to the highest. contacts is already in a deterministic order, so the stable sort keeps ties deterministic.
-func shockOrder(contacts []solverContact, up Vec3) []int {
-	order := make([]int, len(contacts))
-	heights := make([]float32, len(contacts))
+func (w *World) shockOrder(contacts []solverContact, up Vec3) []int {
+	n := len(contacts)
+	if cap(w.shockOrderBuf) < n {
+		w.shockOrderBuf = make([]int, n)
+	} else {
+		w.shockOrderBuf = w.shockOrderBuf[:n]
+	}
+	if cap(w.shockHeightsBuf) < n {
+		w.shockHeightsBuf = make([]float32, n)
+	} else {
+		w.shockHeightsBuf = w.shockHeightsBuf[:n]
+	}
+	order := w.shockOrderBuf
+	heights := w.shockHeightsBuf
 	for i := range contacts {
 		order[i] = i
 		heights[i] = contacts[i].point.Dot(up)
@@ -1083,7 +1151,9 @@ func propagateShockVelocity(contacts []solverContact, order []int, up Vec3) {
 // resolveResidualPenetration runs after the Gauss-Seidel position iterations. It visits contacts in order (bottom up along up) and moves only the upper body of each vertical contact deeper than shockKeepDepth back to that depth, so the correction below is final by the time the body above is placed. Side contacts, contacts whose upper body cannot move, and every contact when order is nil (no gravity) keep the Gauss-Seidel result. It records on each body the deepest contact left afterwards, which gates sleeping, and wakes a sleeping body left deeper than sleepWakeDepth.
 func (w *World) resolveResidualPenetration(contacts []solverContact, order []int, up Vec3) {
 	for _, b := range w.bodies {
-		b.residualDepth = 0
+		if b.residualDepth != 0 {
+			b.residualDepth = 0
+		}
 	}
 	visit := func(c *solverContact) {
 		cur := c.current()
@@ -1120,7 +1190,8 @@ func (w *World) resolveResidualPenetration(contacts []solverContact, order []int
 			visit(&contacts[i])
 		}
 	}
-	for _, b := range w.bodies {
+	for _, pid := range w.bp.dynamicList {
+		b := w.bp.proxies[pid].body
 		if b.Sleeping && b.residualDepth > sleepWakeDepth {
 			b.Wake()
 		}
