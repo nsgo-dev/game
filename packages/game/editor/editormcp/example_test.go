@@ -90,6 +90,8 @@ func ExampleServer_AddTool() {
 	// merge_finish run
 	// merge_resolve edit
 	// merge_status read
+	// object_locate_yaml read
+	// object_set_field edit
 	// playtest_define edit
 	// playtest_report edit
 	// refactor_rename edit

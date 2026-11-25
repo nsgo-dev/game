@@ -59,7 +59,7 @@ func builtinTools() []Tool {
 			Description: "Edit the scene open in the editor through the same commands as the inspector, scene tree and viewport. The edits of one call apply in order as one undo step, and when the editor refuses any of them none applies and the error names the file, the edit, the object, the field and the fix. Edits stay unsaved in the editor until the person saves. Ops: " +
 				"add {object, layer?, parent?} places an object written as in the scene file (id, name, x, y, sprite, components, properties, children...), in layer coordinates; " +
 				"remove {id}; move {id, x, y}; " +
-				"set {id, fields} changes object fields: id, name, x, y, z, rotation, scaleX, scaleY, alpha, originX, originY, flipX, flipY, sprite ({atlas, frame} or null), material, posZ, rotX, rotY, rotZ, scaleZ, depth, mesh; " +
+				"set {id, fields} changes object fields: id, name, x, y, z, rotation, scaleX, scaleY, alpha, originX, originY, flipX, flipY, sprite ({atlas, frame} or null), material, particles ({file, atlas?} or null), posZ, rotX, rotY, rotZ, scaleZ, depth, mesh, model, gridMap, occluder, light, camera; " +
 				"set {id, component, fields} changes fields of a component the object has; " +
 				"add_component {id, component, fields?}; remove_component {id, component}; " +
 				"set_property {id, key, value}; remove_property {id, key}; " +
@@ -140,7 +140,7 @@ func builtinTools() []Tool {
 			Action:      ActionEdit,
 			Handler:     tilesetEdit,
 		},
-	}, append(append(append(playtestTools(), mergeTools()...), refsTools()...), tileTools()...)...)
+	}, append(append(append(append(playtestTools(), mergeTools()...), refsTools()...), tileTools()...), inspectorTools()...)...)
 }
 
 // projectRoot returns the absolute, symlink-free root of ed's project, or "" without one.

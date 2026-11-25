@@ -62,7 +62,7 @@ func TestProxyFindsTheEditor(t *testing.T) {
 		}
 	}}, "")
 
-	if names := listNames(t, cs); !slices.Equal(names, []string{"cutscene_scrub", "cutscene_write", "game_check", "game_playtest", "merge_abort", "merge_finish", "merge_resolve", "merge_status", "playtest_define", "playtest_report", "refactor_rename", "refs_find", "scene_edit", "scene_read", "selection_get", "states_test", "states_write", "tile_autotile", "tile_erase", "tile_paint", "tile_query", "tile_review_keep", "tile_review_restore_region", "tile_review_revert_all", "tile_review_revert_region", "tile_review_status", "tileset_edit", "tileset_read", "viewport_image"}) {
+	if names := listNames(t, cs); !slices.Equal(names, []string{"cutscene_scrub", "cutscene_write", "game_check", "game_playtest", "merge_abort", "merge_finish", "merge_resolve", "merge_status", "object_locate_yaml", "object_set_field", "playtest_define", "playtest_report", "refactor_rename", "refs_find", "scene_edit", "scene_read", "selection_get", "states_test", "states_write", "tile_autotile", "tile_erase", "tile_paint", "tile_query", "tile_review_keep", "tile_review_restore_region", "tile_review_revert_all", "tile_review_revert_region", "tile_review_status", "tileset_edit", "tileset_read", "viewport_image"}) {
 		t.Fatalf("tools without an editor: %v", names)
 	}
 	res := call(t, cs, editormcp.ToolSceneRead, nil)

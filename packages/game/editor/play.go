@@ -156,6 +156,7 @@ func (e *Editor) PlayIn(cx *core.Scope) error {
 	// A 2D drag or particle curve drag in progress is put back, so Play and the scene Stop restores start from the last recorded state.
 	e.CancelDrag2D()
 	e.CancelMarquee2D()
+	e.CancelInspectorScrub()
 	e.CancelShapeDrag2D()
 	e.CancelPluginDrag2D()
 	e.CancelAssetDrag()

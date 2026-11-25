@@ -166,6 +166,7 @@ strings:
   inspector.addComponent: 添加组件
   inspector.addProperty: 添加属性
   inspector.alpha: 不透明度
+  inspector.askToAdd: 请智能体添加
   inspector.background: 背景
   inspector.backgroundColor: 背景颜色
   inspector.backgroundColorPicker: 背景取色器
@@ -191,10 +192,19 @@ strings:
   inspector.editConnection: 编辑连接
   inspector.editMaterial: 编辑材质
   inspector.empty: 未选中对象
+  inspector.fieldCountOne: '{count} 个字段'
+  inspector.fieldCountOther: '{count} 个字段'
+  inspector.filterFields: 筛选字段
   inspector.flip: 翻转
+  inspector.footer: 此对象的其余内容都在其 YAML 文件中。可请智能体处理，或直接打开文件。
+  inspector.group.audioVisual: 音画
+  inspector.group.gameplay: 玩法
+  inspector.group.physics: 物理
   inspector.height: 高度
+  inspector.inReviewCount: '{count} 项待审'
   inspector.incoming: 传入（{count}）
   inspector.jumpTo: 跳转至 {id}
+  inspector.kindLayer: '{kind} · 图层 {layer}'
   inspector.material: 材质
   inspector.mesh: 网格
   inspector.mixed: 混合
@@ -210,10 +220,14 @@ strings:
   inspector.none: 无
   inspector.objectName: 对象名称
   inspector.once: 仅一次
+  inspector.openYAML: 打开 YAML
   inspector.originX: 原点 X
   inspector.originY: 原点 Y
   inspector.outgoing: 发出（{count}）
   inspector.posZ: 位置 Z
+  inspector.position: 位置
+  inspector.problemCountOne: '{count} 个问题'
+  inspector.problemCountOther: '{count} 个问题'
   inspector.remoteTitle: 远程检查器
   inspector.removeComponent: 移除组件 {name}
   inspector.removeConnection: 移除连接
@@ -222,11 +236,13 @@ strings:
   inspector.rotZ: 旋转 Z
   inspector.rotation: 旋转
   inspector.save: 保存
+  inspector.scale: 缩放
   inspector.scaleX: 缩放 X
   inspector.scaleY: 缩放 Y
   inspector.scaleZ: 缩放 Z
   inspector.sceneName: 场景名称
   inspector.scenePrefix: 场景 · {label}
+  inspector.scrubHint3D: 拖拽标签微调 · 按住 Shift 以 0.01 步进
   inspector.section.camera: 相机
   inspector.section.components: 组件
   inspector.section.connections: 连接
@@ -243,7 +259,9 @@ strings:
   inspector.useAssetLabel: 使用资源浏览器中选中的帧
   inspector.virtualHeight: 虚拟高度
   inspector.virtualWidth: 虚拟宽度
+  inspector.wasInReview: 原值 {value} · 审查中
   inspector.width: 宽度
+  inspector.zOrder: Z 顺序
   inspector.zoom: 缩放
   layers.add: 添加图层
   layers.empty: 暂无图层

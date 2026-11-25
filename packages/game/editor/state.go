@@ -407,6 +407,10 @@ type Editor struct {
 	OnSaveScreen func(path string, data []byte) error
 	// OnHUDPrompt, when set, is called when the author submits a prompt from the HUD layout screen's composer or "Ask the agent to fix N" button.
 	OnHUDPrompt func(HUDPromptRequest)
+	// OnOpenFileAtLine, when set, is called by OpenSelectedObjectYAML with the file path and 1-based line number of the selected object in the scene YAML.
+	OnOpenFileAtLine func(path string, line int)
+	// OnComposerPrompt, when set, is called when the inspector (such as Ask to add) sends or stages a prompt for the agent composer.
+	OnComposerPrompt func(prompt string)
 	// GitRunner invokes git with args in dir for scene merge conflict inspection, commit, and abort; when nil, os/exec runs git.
 	GitRunner func(dir string, args ...string) (string, error)
 	// MergeSuggester generates the agent's suggested resolution and reason for each conflicted scene item; when nil, DefaultMergeSuggestion is used.
@@ -731,6 +735,18 @@ type Editor struct {
 	usages referencesScreenState
 	// changes holds the Changes & Commit screen state, working-tree file diffing, and commit milestones.
 	changes changesState
+	// inspectorFilter narrows visible inspector sections and fields by case-insensitive substring match.
+	inspectorFilter string
+	// inspectorCollapsed tracks which titled inspector sections are collapsed by section ID.
+	inspectorCollapsed map[string]bool
+	// inspectorScrub tracks an active live label-drag scrub in the inspector.
+	inspectorScrub inspectorScrubState
+	// composerDraft holds the current prompt text staged for the agent composer (e.g. via Ask to add).
+	composerDraft string
+	// inspectorReviewChanges holds active agent review field changes shown in the inspector.
+	inspectorReviewChanges []InspectorReviewChange
+	// inspectorFieldProblems holds explicit field-level problems shown as problem pills in the inspector.
+	inspectorFieldProblems []InspectorFieldProblem
 }
 
 // DefaultSceneDoc returns a valid starter SceneDoc suitable for a new editor session.
@@ -983,6 +999,7 @@ func (e *Editor) SetTool(t Tool) {
 	}
 	e.CancelDrag2D()
 	e.CancelMarquee2D()
+	e.CancelInspectorScrub()
 	e.CancelShapeDrag2D()
 	e.CancelPluginDrag2D()
 	e.ClearPluginHover2D()
@@ -1018,6 +1035,7 @@ func (e *Editor) SetViewMode(mode ViewMode) {
 	e.endFly3D()
 	e.CancelDrag2D()
 	e.CancelMarquee2D()
+	e.CancelInspectorScrub()
 	e.CancelShapeDrag2D()
 	e.CancelPluginDrag2D()
 	e.ClearPluginHover2D()
@@ -1452,6 +1470,7 @@ func (e *Editor) Undo() bool {
 	// A drag in progress is put back first, so the step undone is the one before it and not the half-dragged object.
 	e.CancelDrag2D()
 	e.CancelMarquee2D()
+	e.CancelInspectorScrub()
 	e.CancelShapeDrag2D()
 	e.CancelPluginDrag2D()
 	e.CancelComponentGizmoDrag3D()
@@ -1494,6 +1513,7 @@ func (e *Editor) Redo() bool {
 	}
 	e.CancelDrag2D()
 	e.CancelMarquee2D()
+	e.CancelInspectorScrub()
 	e.CancelShapeDrag2D()
 	e.CancelPluginDrag2D()
 	e.CancelComponentGizmoDrag3D()
@@ -1821,6 +1841,7 @@ func (e *Editor) DeleteObject(id string) error {
 	// A drag in progress is put back first, so Undo of the delete restores the object as it was before the drag.
 	e.CancelDrag2D()
 	e.CancelMarquee2D()
+	e.CancelInspectorScrub()
 	e.CancelShapeDrag2D()
 	e.CancelPluginDrag2D()
 	e.CancelComponentGizmoDrag3D()

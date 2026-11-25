@@ -166,6 +166,7 @@ strings:
   inspector.addComponent: Add component
   inspector.addProperty: Add property
   inspector.alpha: Alpha
+  inspector.askToAdd: Ask to add
   inspector.background: Background
   inspector.backgroundColor: Background Color
   inspector.backgroundColorPicker: Background Color Picker
@@ -191,10 +192,19 @@ strings:
   inspector.editConnection: Edit connection
   inspector.editMaterial: Edit Material
   inspector.empty: No object selected
+  inspector.fieldCountOne: '{count} field'
+  inspector.fieldCountOther: '{count} fields'
+  inspector.filterFields: Filter fields
   inspector.flip: Flip
+  inspector.footer: Everything else about this object is in its YAML. Ask the agent, or open the file.
+  inspector.group.audioVisual: AUDIO AND VISUAL
+  inspector.group.gameplay: GAMEPLAY
+  inspector.group.physics: PHYSICS
   inspector.height: Height
+  inspector.inReviewCount: '{count} in review'
   inspector.incoming: Incoming ({count})
   inspector.jumpTo: Jump to {id}
+  inspector.kindLayer: '{kind} · layer {layer}'
   inspector.material: Material
   inspector.mesh: Mesh
   inspector.mixed: Mixed
@@ -210,10 +220,14 @@ strings:
   inspector.none: None
   inspector.objectName: Object Name
   inspector.once: once
+  inspector.openYAML: Open YAML
   inspector.originX: Origin X
   inspector.originY: Origin Y
   inspector.outgoing: Outgoing ({count})
   inspector.posZ: Pos Z
+  inspector.position: Position
+  inspector.problemCountOne: '{count} problem'
+  inspector.problemCountOther: '{count} problems'
   inspector.remoteTitle: Remote Inspector
   inspector.removeComponent: Remove component {name}
   inspector.removeConnection: Remove connection
@@ -222,11 +236,13 @@ strings:
   inspector.rotZ: Rot Z
   inspector.rotation: Rotation
   inspector.save: Save
+  inspector.scale: Scale
   inspector.scaleX: Scale X
   inspector.scaleY: Scale Y
   inspector.scaleZ: Scale Z
   inspector.sceneName: Scene Name
   inspector.scenePrefix: Scene · {label}
+  inspector.scrubHint3D: Drag a label to scrub · Shift for 0.01 steps
   inspector.section.camera: CAMERA
   inspector.section.components: COMPONENTS
   inspector.section.connections: CONNECTIONS
@@ -243,7 +259,9 @@ strings:
   inspector.useAssetLabel: Use the asset browser's selected frame
   inspector.virtualHeight: Virtual Height
   inspector.virtualWidth: Virtual Width
+  inspector.wasInReview: was {value} · in review
   inspector.width: Width
+  inspector.zOrder: Z order
   inspector.zoom: Zoom
   layers.add: Add Layer
   layers.empty: No layers

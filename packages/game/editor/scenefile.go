@@ -201,6 +201,7 @@ func (e *Editor) Save() error {
 	}
 	// A drag in progress is put back first, so the file holds the scene as it was before the drag and not a half-dragged object; a tile, GridMap, or terrain stroke under way is recorded first so the file and history agree.
 	e.CancelDrag2D()
+	e.CancelInspectorScrub()
 	e.CancelShapeDrag2D()
 	e.CancelPluginDrag2D()
 	e.CancelComponentGizmoDrag3D()
@@ -370,6 +371,7 @@ func (e *Editor) SaveSceneAs(rel string) (string, error) {
 	}
 	// A drag in progress is put back first, so the file holds the scene as it was before the drag; a tile or GridMap stroke under way is recorded first so the file and history agree.
 	e.CancelDrag2D()
+	e.CancelInspectorScrub()
 	e.CancelShapeDrag2D()
 	e.CancelPluginDrag2D()
 	e.CancelComponentGizmoDrag3D()
@@ -425,6 +427,7 @@ func (e *Editor) RevertScene() error {
 	}
 	// A drag or tile/GridMap stroke in progress is put back first, so Undo of the revert brings back the scene as it was before it.
 	e.CancelDrag2D()
+	e.CancelInspectorScrub()
 	e.CancelShapeDrag2D()
 	e.CancelPluginDrag2D()
 	e.CancelComponentGizmoDrag3D()
