@@ -22,13 +22,22 @@ type TilePalette struct {
 	Tileset string
 	// TileWidth and TileHeight are the tilemap's tile size in points, which the palette shows each tile at.
 	TileWidth, TileHeight int
-	// TileLayers are the names of a layered grid's tile layers, in order, and TileLayer the one Paint, Erase and Fill change (Editor.ActiveTileLayer, or the first); both are empty for a single grid.
+	// TileLayers are the names of a layered grid's tile layers, in order, and TileLayer the one Paint, Erase, Fill and Terrain change (Editor.ActiveTileLayer, or the first); both are empty for a single grid.
 	TileLayers []string
 	TileLayer  string
+	// Terrains are the terrain sets defined in a layered grid's YAML tileset, and ActiveTerrain the one ToolTerrain paints (Editor.ActiveTerrain, or the first).
+	Terrains      []PaletteTerrain
+	ActiveTerrain string
 	// Tiles are the tileset's tiles in ascending ID order.
 	Tiles []PaletteTile
 	// Message says why Tiles is empty, such as a layer without an inline tilemap or a tileset that does not resolve; it is empty when Tiles is not.
 	Message string
+}
+
+// PaletteTerrain describes one terrain set shown in the tile palette for a layered grid's YAML tileset.
+type PaletteTerrain struct {
+	Name string
+	Mode string
 }
 
 // PaletteTile is one tile of a TilePalette: for a single grid, a frame of the tileset atlas whose name is its tile ID ("1", "2", ...), as sceneformat looks tiles up; for a layered grid, a tile of its YAML tileset.
@@ -111,23 +120,27 @@ func (e *Editor) layeredPalette(p TilePalette, tm *sceneformat.TilemapDoc) TileP
 		p.TileLayers = append(p.TileLayers, l.Name)
 	}
 	p.TileLayer = e.tileLayerName(tm)
-	fr, ok := e.Resolver.(sceneformat.FileResolver)
-	if !ok {
-		p.Message = fmt.Sprintf("Tileset %q cannot be read: the editor's resolver does not read project files (sceneformat.FileResolver)", tm.TilesetFile)
-		return p
-	}
-	data, err := fr.ReadFile(tm.TilesetFile)
-	var doc *tilemap.TilesetDoc
-	if err == nil {
-		doc, err = tilemap.ParseTileset(data)
-	}
+	doc, err := e.loadTilesetDoc(tm.TilesetFile)
 	if err != nil {
 		p.Message = fmt.Sprintf("Tileset %q cannot be read: %v", tm.TilesetFile, err)
 		return p
 	}
+	for _, td := range doc.Terrains {
+		p.Terrains = append(p.Terrains, PaletteTerrain{Name: td.Name, Mode: td.Mode})
+	}
+	if len(p.Terrains) > 0 {
+		p.ActiveTerrain = p.Terrains[0].Name
+		if e.ActiveTerrain != "" && slices.ContainsFunc(p.Terrains, func(t PaletteTerrain) bool { return t.Name == e.ActiveTerrain }) {
+			p.ActiveTerrain = e.ActiveTerrain
+		}
+	}
 	img := core.ImageSource{URI: doc.Image}
 	var atlas *sprite.Atlas
 	if doc.Atlas != "" {
+		if e.Resolver == nil {
+			p.Message = fmt.Sprintf("Tileset %q atlas %q cannot be resolved: the editor has no asset resolver", tm.TilesetFile, doc.Atlas)
+			return p
+		}
 		if atlas, err = e.Resolver.Atlas(doc.Atlas); err == nil && atlas == nil {
 			err = fmt.Errorf("the resolver returned no atlas")
 		}
@@ -153,24 +166,27 @@ func (e *Editor) layeredPalette(p TilePalette, tm *sceneformat.TilemapDoc) TileP
 	return p
 }
 
-// isTileTool reports whether t paints, erases, fills or picks tiles.
+// isTileTool reports whether t paints, erases, fills, picks tiles or paints terrain.
 func isTileTool(t Tool) bool {
-	return t == ToolPaintTile || t == ToolEraseTile || t == ToolFillTile || t == ToolPickTile
+	return t == ToolPaintTile || t == ToolEraseTile || t == ToolFillTile || t == ToolPickTile || t == ToolTerrain
 }
 
-// keepTileInPalette selects the first tile of the active layer's palette when the active tile ID is not one of its tiles, so the palette follows a layer whose tileset lacks the tile that was selected. It leaves the ID alone when the palette has no tiles.
+// keepTileInPalette selects the first tile of the active layer's palette when the active tile ID is not one of its tiles, and selects the first terrain when ActiveTerrain is not one of its terrains, so the palette follows the active layer.
 func (e *Editor) keepTileInPalette() {
 	p := e.TilePalette()
-	if len(p.Tiles) == 0 || p.Has(e.ActiveTileID) {
-		return
+	if len(p.Tiles) > 0 && !p.Has(e.ActiveTileID) {
+		e.ActiveTileID = p.Tiles[0].ID
 	}
-	e.ActiveTileID = p.Tiles[0].ID
+	if len(p.Terrains) > 0 && !slices.ContainsFunc(p.Terrains, func(t PaletteTerrain) bool { return t.Name == e.ActiveTerrain }) {
+		e.ActiveTerrain = p.Terrains[0].Name
+	}
 }
 
 // samePalette reports whether a and b show the same tiles, so that edits that leave the active layer's tiles as they were keep the palette's grid mounted.
 func samePalette(a, b TilePalette) bool {
 	return a.Layer == b.Layer && a.Tileset == b.Tileset && a.Message == b.Message &&
 		a.TileLayer == b.TileLayer && slices.Equal(a.TileLayers, b.TileLayers) &&
+		a.ActiveTerrain == b.ActiveTerrain && slices.Equal(a.Terrains, b.Terrains) &&
 		a.TileWidth == b.TileWidth && a.TileHeight == b.TileHeight &&
 		slices.EqualFunc(a.Tiles, b.Tiles, func(x, y PaletteTile) bool {
 			return x.ID == y.ID && x.Frame == y.Frame && sameImage(x.Image, y.Image)
@@ -324,7 +340,7 @@ func tilePalettePanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 	}
 }
 
-// tileLayerControls returns the controls a layered grid's palette shows above its tiles: a toggle per tile layer that picks the one tile tools change, and the flips Paint and Fill place tiles with. A single grid has neither, and gets an empty view.
+// tileLayerControls returns the controls a layered grid's palette shows above its tiles: a toggle per tile layer that picks the one tile tools change, the flips Paint and Fill place tiles with, the terrain selector for ToolTerrain, and an Edit Tileset button. A single grid has none, and gets an empty view.
 func tileLayerControls(ed *Editor, rev *core.Signal[uint64], p TilePalette) core.Node {
 	if len(p.TileLayers) == 0 {
 		return core.View{}
@@ -370,13 +386,64 @@ func tileLayerControls(ed *Editor, rev *core.Signal[uint64], p TilePalette) core
 			},
 		})
 	}
-	return core.View{
-		TestID: "tile-layer-controls",
-		Style:  core.Style{Gap: 6},
-		Children: []core.Node{
-			core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 4}, Children: layers},
-			core.View{Style: core.Style{Direction: core.Row, Gap: 4}, Children: flipButtons},
+	children := []core.Node{
+		core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 4}, Children: layers},
+		core.View{
+			Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4},
+			Children: append(flipButtons, ui.Button{
+				TestID:  "tile-palette-edit-tileset",
+				Text:    "Edit Tileset",
+				Label:   "Open this layer's tileset in the Tileset Editor",
+				Size:    ui.SizeSmall,
+				Variant: ui.ButtonSecondary,
+				Disabled: func() bool {
+					_ = rev.Get()
+					return ed.Playing()
+				},
+				OnPress: func() {
+					ed.report(ed.OpenActiveLayerTileset())
+				},
+			}),
 		},
+	}
+	if len(p.Terrains) > 0 {
+		tBtns := make([]core.Node, 0, len(p.Terrains))
+		for _, t := range p.Terrains {
+			terrain := t
+			modeTag := "4-bit"
+			if terrain.Mode == "blob" {
+				modeTag = "8-bit"
+			}
+			tBtns = append(tBtns, ui.ToggleButton{
+				TestID: "tile-terrain-" + terrain.Name,
+				Text:   fmt.Sprintf("%s (%s)", terrain.Name, modeTag),
+				Label:  "Paint terrain " + terrain.Name,
+				On: func() bool {
+					return p.ActiveTerrain == terrain.Name
+				},
+				OnChange: func(on bool) {
+					if on {
+						ed.SetActiveTerrain(terrain.Name)
+					}
+				},
+			})
+		}
+		children = append(children, core.View{
+			TestID:   "tile-terrain-controls",
+			Style:    core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 4},
+			Children: tBtns,
+		})
+	} else if ed.Tool == ToolTerrain {
+		children = append(children, core.Text{
+			TestID:  "tile-terrain-empty",
+			Content: "No terrain sets defined. Press Edit Tileset to add one.",
+			Style:   core.Style{FontSize: 11},
+		})
+	}
+	return core.View{
+		TestID:   "tile-layer-controls",
+		Style:    core.Style{Gap: 6},
+		Children: children,
 	}
 }
 

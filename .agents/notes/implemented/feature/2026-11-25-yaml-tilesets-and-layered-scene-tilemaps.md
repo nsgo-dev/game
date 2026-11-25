@@ -46,7 +46,7 @@ The editor paints layered grids with the same commands: `ActiveTileLayer` picks 
 ## Consequences
 
 - **Benefits**: a scene built with `FSAssets` gets the full tilemap runtime (flags, properties, shapes, animation, terrains, culling, `Raycast`, `tileshape.New`) from text files alone, and a Tiled or LDtk map named in a scene needs no game code. Loading and saving a tileset or scene changes no byte (conformance tests on `tilemap/testdata/*.tileset.yaml` and `sceneformat/testdata/canonical/layered_tilemap.scene.yaml`).
-- **Costs and known limits**: one tileset per layered grid; a grid's cells are capped at `1 << 24` over all its layers and `MaxTileLayers` layers. Layers have no offset, parallax or y-sort fields yet. The editor paints but does not autotile with terrains, and its palette lists at most 16384 tiles. Culling uses the virtual viewport, so a game that draws a scene into a canvas larger than its virtual size must set `DrawAllTiles` or a virtual size that matches. Revisit the one-tileset rule if a real level needs tiles of two images in one layer.
+- **Costs and known limits**: one tileset per layered grid; a grid's cells are capped at `1 << 24` over all its layers and `MaxTileLayers` layers. Layers have no offset, parallax or y-sort fields yet. Its palette lists at most 16384 tiles; terrain autotile painting and the tileset editor are covered in [Editor terrain painting with autotile rules](2026-11-25-editor-terrain-autotile.md). Culling uses the virtual viewport, so a game that draws a scene into a canvas larger than its virtual size must set `DrawAllTiles` or a virtual size that matches. Revisit the one-tileset rule if a real level needs tiles of two images in one layer.
 
 ## Verification
 

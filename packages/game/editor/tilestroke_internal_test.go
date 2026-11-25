@@ -122,6 +122,7 @@ func TestToolStrokeMode(t *testing.T) {
 		{ToolEraseTile, want{TileStrokeErase, true}, want{TileStrokeErase, true}, want{TileStrokePick, true}},
 		{ToolFillTile, want{}, want{}, want{TileStrokePick, true}},
 		{ToolPickTile, want{TileStrokePick, true}, want{}, want{TileStrokePick, true}},
+		{ToolTerrain, want{TileStrokeTerrain, true}, want{TileStrokeEraseTerrain, true}, want{TileStrokePick, true}},
 		{ToolSelect, want{}, want{}, want{}},
 		{ToolPlace, want{}, want{}, want{}},
 	} {

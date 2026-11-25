@@ -101,6 +101,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 								Children: []core.Node{dragdrop.Area{Children: mainRow(cx, ed, rev)}},
 							},
 							pluginDockView(cx, ed, rev, DockBottom),
+							TilesetEditorPanelView(cx, ed, rev),
 							DataTablePanelView(cx, ed, rev),
 							AnimationPanelView(cx, ed, rev),
 							StatesPanelView(cx, ed, rev),
@@ -378,6 +379,7 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 									toolBtn("tool-erase", "Erase", ToolEraseTile),
 									toolBtn("tool-fill", "Fill", ToolFillTile),
 									toolBtn("tool-pick", "Pick", ToolPickTile),
+									toolBtn("tool-terrain", "Terrain", ToolTerrain),
 								},
 							}
 						},
@@ -822,6 +824,10 @@ func statusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 							if ed.Tool == ToolPaintTile || ed.Tool == ToolFillTile {
 								if tile, ok := ed.TilePalette().Tile(ed.ActiveTileID); ok {
 									status += fmt.Sprintf(" | Tile: %d", tile.Number)
+								}
+							} else if ed.Tool == ToolTerrain {
+								if p := ed.TilePalette(); p.ActiveTerrain != "" {
+									status += fmt.Sprintf(" | Terrain: %s", p.ActiveTerrain)
 								}
 							}
 							return status

@@ -195,7 +195,7 @@ tiles:
 | `animation` | 由 `tile` 和正的 `duration`（如 `150ms`）组成的帧，`Update` 循环播放 |
 | `terrain`、`neighbors` | 瓦片所属的 `terrains` 中的地形集，以及同一地形的单元格与它相邻的方向（`north`、`east`、`south`、`west`，`blob` 地形还可以有 `northeast`、`southeast`、`southwest`、`northwest`）；角方向只有在它两侧的边方向都列出时才能列出（`northeast` 需要 `north` 和 `east`），因为只有两侧的边都匹配时角才会匹配 |
 
-地形的 `mode` 为 `cardinal` 时匹配四条边上的邻居（16 个瓦片，`Autotile4`），为 `blob` 时在角两侧的边都匹配时也匹配该角（47 个瓦片，`Autotile8`）。同一地形的两个瓦片不能列出相同的邻居，不列任何邻居的那个是它的默认瓦片。
+地形的 `mode` 为 `cardinal` 时匹配四条边上的邻居（16 个瓦片，`Autotile4`），为 `blob` 时在角两侧的边都匹配时也匹配该角（47 个瓦片，`Autotile8`）。可选字段 `default` 指定当邻居掩码未映射任何瓦片时使用的局部瓦片 ID；省略时，不列任何邻居（掩码 `0`）的那个瓦片为默认瓦片。同一地形的两个瓦片不能列出相同的邻居。
 
 `ParseTileset` 拒绝未知字段以及违反上述任何规则的文件，返回指向出错行的 `*loaderr.Error`；`EncodeTileset` 写出规范形式，因此加载再保存图块集不会改变任何字节；`LoadTilesetFS` 从 `fs.FS` 读取图块集。`m.AddTilesetDoc(doc, firstGID, assets)` 把它构建成 `m` 中 GID 从 `firstGID` 开始的 `Tileset`，通过 `TilesetAssets.Image`（为 nil 时为 `core.ImageSource{URI: path}`）解析图片或通过 `TilesetAssets.Atlas` 解析图集，并把瓦片的标志设置到地图上：
 
@@ -208,12 +208,12 @@ m := tilemap.New(40, 23, 16, 16)
 if _, err := m.AddTilesetDoc(doc, 1, tilemap.TilesetAssets{}); err != nil {
 	return err
 }
-// 用 rock 地形自动铺设一个图层。
-rock := m.Terrain("rock")
-m.ApplyAutotile(0, rock.Autotile, rock.Contains)
+// 用 rock 地形自动铺设一个图层，或绘制单个地形格并更新邻居。
+m.ApplyTerrain(0, "rock")
+m.SetTerrainTile(0, 4, 3, "rock", true)
 ```
 
-每个地形成为 `Tileset.Terrains` 中的一个 `Terrain`，它的 `Autotile` 把邻居掩码映射到 GID，供 `ApplyAutotile` 和 `SetAutotile` 使用，`Contains` 判断一个瓦片是否属于它。`TilesetFrame(doc, atlas, id)` 给出瓦片在图片中的位置，编辑器的调色板就用它显示瓦片。
+每个地形成为 `Tileset.Terrains` 中的一个 `Terrain`（也可通过 `doc.Terrain(name, firstGID)` 直接从 `TilesetDoc` 构建），它的 `Autotile` 把邻居掩码映射到 GID，供 `ApplyAutotile` 和 `SetAutotile` 使用，`Contains` 判断一个瓦片是否属于它。`ApplyTerrain` 和 `SetTerrainTile` 按名称查找地形并直接执行 `ApplyAutotile` / `SetAutotile`。`ValidTerrainMask`、`ToggleTerrainMask`、`TerrainMaskNeighbors` 和 `TerrainNeighborsMask` 在保持 4 位和 8 位角门控规则的前提下转换和编辑邻居掩码。`TilesetFrame(doc, atlas, id)` 给出瓦片在图片中的位置，编辑器的调色板就用它显示瓦片。
 
 ## 动画瓦片
 

@@ -116,6 +116,12 @@
             "cardinal",
             "blob"
           ]
+        },
+        "default": {
+          "description": "Default is the optional local tile ID used when a cell's neighbour mask has no tile mapped to it. When omitted, the tile of the terrain that lists no neighbours (mask 0) is the default.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854776000
         }
       },
       "required": [

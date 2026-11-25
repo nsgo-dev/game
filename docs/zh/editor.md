@@ -653,21 +653,28 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 - **一步操作**：每次放置都是一个可撤销的步骤，撤销会取回，重做会再次放置。播放时、当前图层被锁定或位于屏幕空间时，以及模型无法加载时，放置会被拒绝；在版本 1 的场景中放置模型会把场景提升到当前版本，与 `PlaceObject` 相同。
 ## 瓦片调色板（#874）
 
-在 2D 视图中启用 Paint、Erase、Fill 或 Pick 工具时，视口右侧会显示瓦片调色板。它把当前图层瓦片集的瓦片按瓦片 ID 顺序排成网格，每个瓦片按瓦片地图的瓦片尺寸显示（比面板还宽的瓦片会缩小到面板宽度）。这些瓦片是瓦片集图集中名称为瓦片 ID（`"1"`、`"2"`……）的帧，与场景格式查找瓦片的方式一致；其他帧不会列出。点击一个瓦片，或用方向键在瓦片之间移动，即可把它设为 Paint 和 Fill 写入的瓦片（`SetActiveTileID`）；所有方向键都按 ID 顺序逐个移动，左键和上键移到上一个瓦片，右键和下键移到下一个，而不是按网格的行移动。选中的瓦片带有一圈高亮，使用 Paint 或 Fill 时状态栏显示它的 ID。选择瓦片不算编辑，不进入撤销历史；之后的绘制是一个可撤销的步骤。
+在 2D 视图中启用 Paint、Erase、Fill、Pick 或 Terrain 工具时，视口右侧会显示瓦片调色板。它把当前图层瓦片集的瓦片按瓦片 ID 顺序排成网格，每个瓦片按瓦片地图的瓦片尺寸显示（比面板还宽的瓦片会缩小到面板宽度）。这些瓦片是瓦片集图集中名称为瓦片 ID（`"1"`、`"2"`……）的帧，与场景格式查找瓦片的方式一致；其他帧不会列出。点击一个瓦片，或用方向键在瓦片之间移动，即可把它设为 Paint 和 Fill 写入的瓦片（`SetActiveTileID`）；所有方向键都按 ID 顺序逐个移动，左键和上键移到上一个瓦片，右键和下键移到下一个，而不是按网格的行移动。选中的瓦片带有一圈高亮，使用 Paint 或 Fill 时状态栏显示它的 ID。选择瓦片不算编辑，不进入撤销历史；之后的绘制是一个可撤销的步骤。
 
 调色板跟随当前图层：图层改变时，调色板显示新图层的瓦片集；如果该瓦片集没有所选 ID 的瓦片，就选中它的第一个瓦片。没有内联瓦片地图的图层（没有瓦片地图，或使用外部 Tiled 或 LDtk 地图）、解析器无法解析的瓦片集、没有瓦片帧的瓦片集，都会显示一条说明原因的消息，而不是空网格。在 Go 中，`TilePalette()` 返回调色板为当前图层显示的内容：瓦片集、瓦片尺寸和瓦片，或那条消息。
 
-对分层网格，调色板显示它的 YAML 图块集中的瓦片，图块集通过解析器的 `sceneformat.FileResolver`（例如 `FSAssets`）读取，瓦片 ID 按 `PaintTile` 接受的方式从 1 开始：瓦片 ID `n` 绘制图块集的局部瓦片 `n - 1`。调色板的标签和状态栏用局部 ID 称呼每个瓦片，也就是行和图块集的 `tiles[].id` 写的数字（`PaletteTile.Number`）。瓦片上方每个瓦片图层有一个切换按钮，用来选择 Paint、Erase 和 Fill 修改的图层（`SetActiveTileLayer`、`ActiveTileLayer`，默认为第一个），H、V、D 切换按钮设置 Paint 和 Fill 放置瓦片时的翻转（`SetActiveTileFlip`、`ActiveTileFlip`）。这些编辑按 `Encode` 保存的形式写入图层的行，每次都是一个可撤销的步骤；Fill 只连通瓦片和翻转都相同的单元格。
+对分层网格，调色板显示它的 YAML 图块集中的瓦片，图块集通过解析器的 `sceneformat.FileResolver`（例如 `FSAssets`）读取，瓦片 ID 按 `PaintTile` 接受的方式从 1 开始：瓦片 ID `n` 绘制图块集的局部瓦片 `n - 1`。调色板的标签和状态栏用局部 ID 称呼每个瓦片，也就是行和图块集的 `tiles[].id` 写的数字（`PaletteTile.Number`）。瓦片上方每个瓦片图层有一个切换按钮，用来选择 Paint、Erase、Fill 和 Terrain 修改的图层（`SetActiveTileLayer`、`ActiveTileLayer`，默认为第一个），H、V、D 切换按钮设置 Paint 和 Fill 放置瓦片时的翻转（`SetActiveTileFlip`、`ActiveTileFlip`），地形切换按钮选择 Terrain 绘制的地形集（`SetActiveTerrain`、`ActiveTerrain`），**Edit Tileset** 按钮会在图块集编辑器中打开该图层的 `*.tileset.yaml`。这些编辑按 `Encode` 保存的形式写入图层的行，每次都是一个可撤销的步骤；Fill 只连通瓦片和翻转都相同的单元格。
 
 ## 绘制、擦除与拾取瓦片（#875）
 
 使用 Paint 或 Erase 时，用鼠标或单指拖动会绘制或擦除拖动经过的每一个格子，无论移动多快都不会漏格，整笔是一个可撤销的步骤，所以一次 Undo 就能撤回一次拖动画出的整行。单击或轻点只绘制或擦除它所在的那一格。使用 Paint 时，按住右键拖动会擦除。从地图外开始的一笔在进入地图后才开始绘制，没有改变任何格子的一笔不会记入历史，按住 Space 拖动则是平移视图。第二根手指会取消单指的一笔并恢复它改过的格子，所以双指平移永远不会绘制。
 
-启用瓦片工具时，鼠标下的格子会显示对齐网格的轮廓：Paint 和 Fill 在格子里半透明地显示所选瓦片，Erase 把格子染成红色，按下会拾取时轮廓为琥珀色。
+启用瓦片工具时，鼠标下的格子会显示对齐网格的轮廓：Paint 和 Fill 在格子里半透明地显示所选瓦片，Terrain 以翠绿轮廓半透明预览自动匹配的地形瓦片，Erase 把格子染成红色，按下会拾取时轮廓为琥珀色。
 
 拾取会把某个格子里的瓦片设为要绘制的瓦片，调色板也会选中它：在任何瓦片工具下 Alt+单击（或 Alt+拖动），或使用 Pick 工具，拾取后会切换到 Paint。拾取空格子时所选瓦片保持不变。拾取不算编辑，不进入撤销历史。
 
-在 Go 中，`BeginTileStroke(mode, x, y)`、`ContinueTileStroke` 和 `EndTileStroke` 在画布坐标上画一笔（`TileStrokePaint`、`TileStrokeErase` 或 `TileStrokePick`），`CancelTileStroke` 撤回这一笔，`TileStrokeActive` 报告是否有一笔正在进行；绘制与擦除会拒绝锁定或隐藏的图层，选择工具或图层、修改图层、切换视图、保存、Undo、Redo 和 Play 都会先结束正在进行的一笔（Revert 则会取消它）。`PickTile(layer, col, row)` 拾取瓦片，`SetTileHover` 和 `ClearTileHover` 移动轮廓，`HoveredTile` 返回轮廓所在的格子。
+在 Go 中，`BeginTileStroke(mode, x, y)`、`ContinueTileStroke` 和 `EndTileStroke` 在画布坐标上画一笔（`TileStrokePaint`、`TileStrokeErase`、`TileStrokePick`、`TileStrokeTerrain` 或 `TileStrokeEraseTerrain`），`CancelTileStroke` 撤回这一笔，`TileStrokeActive` 报告是否有一笔正在进行；绘制与擦除会拒绝锁定或隐藏的图层，选择工具或图层、修改图层、切换视图、保存、Undo、Redo 和 Play 都会先结束正在进行的一笔（Revert 则会取消它）。`PickTile(layer, col, row)` 拾取瓦片，`SetTileHover` 和 `ClearTileHover` 移动轮廓，`HoveredTile` 返回轮廓所在的格子。
+
+## 地形绘制与图块集编辑器（#879）
+
+分层瓦片地图（`*.tileset.yaml`）在运行时（`tilemap.ApplyTerrain`、`tilemap.SetTerrainTile`）与编辑器中共用同一套自动瓦片地形集：
+
+- **地形画笔（`ToolTerrain`，快捷键 `t`）**：左键拖动放置地形（`TileStrokeTerrain`），右键拖动擦除地形（`TileStrokeEraseTerrain`），按与 `tilemap.Tilemap.SetAutotile` 完全一致的 4 位正交（`cardinal`）和 8 位角门控（`blob`）规则更新所经过的格子及其周围邻居。整笔（含放置/擦除的格子与所有受影响的邻居）记为一个可撤销步骤，一次 Undo 即可完整还原。在 Go 中，`PaintTerrain(layer, col, row, terrain)` 与 `EraseTerrain(layer, col, row, terrain)` 执行单格地形编辑。
+- **图块集编辑器（`TilesetEditorPanelView`）**：可通过瓦片调色板的 **Edit Tileset** 按钮（`OpenActiveLayerTileset`）、文件浏览器的 **Edit Tileset** 按钮（`OpenTilesetProjectFile`）或 `OpenTilesetFile` / `OpenTilesetYAML` 打开 `*.tileset.yaml`。支持新建或删除 4 位（`cardinal`）和 8 位（`blob`）地形集（`AddTilesetTerrain`、`RemoveTilesetTerrain`、`SetTilesetTerrainMode`）、设置显式默认瓦片（`SetTilesetTerrainDefault`），以及通过点击中心、四条边（`N`、`E`、`S`、`W`）和 8 位 `blob` 模式下的四个角（`NW`、`NE`、`SW`、`SE`）为瓦片分配邻居掩码（`ToggleTilesetEdgeOrCorner`、`ToggleTilesetTileCenter`、`SetTilesetTileMask`）。点击角会自动满足角门控规则（启用角时自动启用相邻两条边；关闭边时自动清除依赖该边的角）。若中间点击产生的掩码已被另一个瓦片占用，编辑器会保持原瓦片不变，便于继续点击到达其他掩码或点击 **Reassign**（`ReassignTilesetEditMask`）一步重新分配。所有图块集编辑都可撤销，立即生效于地形画笔，并以规范 YAML 写回文件（`SaveTileset`、`SaveTilesetYAML`）。
 
 ## 3D GridMap 绘制（#899）
 

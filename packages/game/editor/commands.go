@@ -29,6 +29,7 @@ const (
 	CmdToolPaintTile         = "tool.paint"
 	CmdToolEraseTile         = "tool.erase"
 	CmdToolFillTile          = "tool.fill"
+	CmdToolTerrain           = "tool.terrain"
 	CmdGizmoTranslate        = "gizmo.translate"
 	CmdGizmoRotate           = "gizmo.rotate"
 	CmdGizmoScale            = "gizmo.scale"
@@ -414,6 +415,20 @@ func (e *Editor) initBuiltinCommands() {
 			Checked:     func() bool { return e.ViewMode == ViewMode2D && e.Tool == ToolFillTile },
 			Run: func() error {
 				e.SetTool(ToolFillTile)
+				return nil
+			},
+		},
+		{
+			ID:          CmdToolTerrain,
+			Label:       "Tool: Terrain",
+			Description: "Switch to the Terrain autotile brush",
+			Category:    "Tools",
+			Keywords:    []string{"terrain", "autotile", "blob", "brush", "tile", "tilemap", "2d"},
+			Shortcut:    "t",
+			Enabled:     notPlaying,
+			Checked:     func() bool { return e.ViewMode == ViewMode2D && e.Tool == ToolTerrain },
+			Run: func() error {
+				e.SetTool(ToolTerrain)
 				return nil
 			},
 		},

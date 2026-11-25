@@ -1,0 +1,42 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/tileset.v1.json
+version: 1
+name: grass_blob
+tileWidth: 16
+tileHeight: 16
+image: tiles/grass.png
+columns: 4
+tileCount: 16
+terrains:
+  - name: grass
+    mode: blob
+    default: 0
+tiles:
+  - id: 0
+    terrain: grass
+  - id: 1
+    terrain: grass
+    neighbors: [east, south, southeast]
+  - id: 2
+    terrain: grass
+    neighbors: [east, south, west, southeast, southwest]
+  - id: 3
+    terrain: grass
+    neighbors: [south, west, southwest]
+  - id: 4
+    terrain: grass
+    neighbors: [north, east, south, northeast, southeast]
+  - id: 5
+    terrain: grass
+    neighbors: [north, east, south, west, northeast, southeast, southwest, northwest]
+  - id: 6
+    terrain: grass
+    neighbors: [north, south, west, southwest, northwest]
+  - id: 7
+    terrain: grass
+    neighbors: [north, east, northeast]
+  - id: 8
+    terrain: grass
+    neighbors: [north, east, west, northeast, northwest]
+  - id: 9
+    terrain: grass
+    neighbors: [north, west, northwest]
