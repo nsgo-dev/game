@@ -273,6 +273,23 @@ gltf.ApplyMorphWeights(prim, weights, &morphed)
 - `EvaluateMorphTangents` blends tangent `XYZ` displacements, renormalizes `XYZ`, and preserves `W` handedness unchanged, complementing `EvaluateMorphPositions` and `EvaluateMorphNormals`.
 - To draw an animated morph mesh in an NSGo `gpu.View`, upload the base primitive and targets into `render3d.GPUMorphMesh` (see [`render3d`](render3d.md#morph-target-meshes-morphmesh-gpumorphmesh)). The test suite verifies full animation playback and pixel readback against the Khronos `AnimatedMorphCube` sample model.
 
+## Collision nodes (`-colonly` and `extras.collider`)
+
+Author level colliders directly alongside visual geometry in Blender using Godot-style node name suffixes or Custom Properties (`extras.collider`), and keep collider-only nodes out of visual draws:
+
+| Name suffix | Collider shape | Drawn visually? |
+| --- | --- | --- |
+| `-col` / `-colonly` | Triangle mesh (`ColliderTriMesh`) | Yes / No |
+| `-boxcol` / `-boxcolonly` | Oriented box (`ColliderBox`) | Yes / No |
+| `-spherecol` / `-spherecolonly` | Sphere (`ColliderSphere`) | Yes / No |
+| `-capsulecol` / `-capsulecolonly` | Capsule (`ColliderCapsule`) | Yes / No |
+| `-convcol` / `-convcolonly` | Convex (`ColliderConvex`, currently built as trimesh) | Yes / No |
+
+Suffix matching is case-insensitive and strips Blender's trailing duplicate numbers (such as `Wall-colonly.001`). Nodes can also declare `extras.collider` (as a shape string, `true`/`false`, or an object with `shape`/`type`, `draw`/`only`/`visible`, `trigger`, `tag`, `center`, `halfExtents`/`size`, `radius`, `height`, `friction`, `restitution`, `layer`, and `mask`) — including on meshless Empty nodes.
+
+- **Filter visual draws**: call `doc.DrawableNodes()` (or `doc.SceneDrawableNodes(sceneIdx)` / `node.IsDrawable()`) so `-colonly` and `draw: false` nodes are excluded from rendering.
+- **Inspect or build physics colliders**: call `doc.ColliderNodes()` / `gltf.ParseNodeCollider(node)` for raw metadata, or pass `doc` directly to [`physics3d.World.AddGLTFColliders`](physics3d.md#gltf-gridmap-and-heightmap-colliders).
+
 ## Round-trip sample models
 
 The [placeholder pack](placeholder.md) holds three minimal, deterministic glTF 2.0 sample models under [`packages/game/placeholder/pack/models/`](../../packages/game/placeholder/pack/models/), generated and round-trip verified in Go by [`packages/game/internal/samplegltf/`](../../packages/game/internal/samplegltf/samplegltf.go). Like the rest of the pack they are dedicated to the public domain under CC0 1.0, and `placeholder.Model` loads them.

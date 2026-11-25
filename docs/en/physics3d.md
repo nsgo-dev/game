@@ -105,6 +105,40 @@ A dynamic body that moves more than half its smallest dimension in one step is s
 - **Internal-seam filtering**: faces occluded by adjacent solid blocks are filtered out so crates, spheres, capsules, and characters never snag on flat voxel floor or wall seams.
 - **Instant edit reflection & wakeup**: block changes take effect immediately with zero rebuild. Grids implementing `VoxelEditNotifier` automatically call `NotifyBlockChanged` / `NotifyReset` (which wake nearby sleeping bodies and stacked contacts via `World.WakeInBox`), while plain `VoxelGrid` implementations still wake bodies whose voxel support disappears on the next `World.Step`.
 
+## glTF, GridMap, and Heightmap Colliders
+
+Build static level geometry directly from glTF scenes, `world3d` GridMaps, and standard Go heightmap images without manually unpacking vertices or cell boxes:
+
+- **glTF triangle meshes**: `NewTriMeshFromGLTFPrimitive(prim, worldMat)`, `NewTriMeshFromGLTFMesh(mesh, worldMat)`, and `NewTriMeshFromGLTFNode(doc, nodeIdx)` build BVH-accelerated `*TriMeshCollider` values from indexed or non-indexed `Triangles`, `TriangleStrip`, and `TriangleFan` primitives, applying full node world transforms and flipping winding automatically when the transform has a negative determinant.
+- **glTF collider conventions (`-colonly` & `extras.collider`)**: `World.AddGLTFColliders(doc, opts)` and `BuildGLTFColliders(doc, opts)` recognize Godot-style node name suffixes (`-col`, `-colonly`, `-boxcol`, `-boxcolonly`, `-spherecol`, `-spherecolonly`, `-capsulecol`, `-capsulecolonly`, `-convcol`, `-convcolonly`, case-insensitive and tolerating Blender `.001` duplicate numbering) as well as `node.Extras` (`{"collider": "box" | true | {"shape", "draw", "only", "trigger", "tag", "center", "halfExtents"|"size", "radius", "height", "friction", "restitution", "layer", "mask"}}`). Primitive box and capsule colliders preserve full node rotation as oriented boxes and rotated capsules; `-convcol` / `-convcolonly` build a `TriMeshCollider` until native convex hulls are added. Visual renderers filter out collider-only nodes with `doc.DrawableNodes()` or `node.IsDrawable()` in [`game/gltf`](3d-models-blender.md#collision-nodes--colonly-and-extrascollider). Call `GLTFColliders.RemoveFromWorld(world)` when unloading a streamed level.
+- **Greedy 3D box merging & `GridMap` bodies**: `MergeBoxes(boxes, eps)` greedily merges adjacent axis-aligned boxes along X, then Z, then Y within tolerance `eps` (default `1e-4`), preserving the exact solid volume in deterministic order. On a [`world3d.GridMap`](world3d.md#modular-3d-gridmap), `grid.AddCollidersToWorld(world, opts)` extracts cell `ColliderBoxes` and merges adjacent cells into minimal static bodies (set `DisableMerge: true` to emit one body per box).
+- **Heightfields from `image.Image`**: `NewHeightfieldFromImage(img, HeightfieldImageOptions{...})` builds a `*HeightfieldCollider` from any 8-bit/16-bit grayscale or color `image.Image` (`HeightmapLuminance`, `HeightmapRed`, `HeightmapGreen`, `HeightmapBlue`, `HeightmapAlpha`), with configurable `CellSize` or `WorldWidth`/`WorldDepth`, `MinHeight`/`MaxHeight`, `Origin`, `FlipZ`, and optional `(Cols, Rows)` resampling (`Bilinear: true` for smooth interpolation). For an existing `world3d.Heightmap`, call `hm.Collider()`.
+
+```go
+doc, err := gltf.LoadFS(assetsFS, "levels/courtyard.glb")
+if err != nil {
+	return err
+}
+levelCols, err := world.AddGLTFColliders(doc, physics3d.GLTFColliderOptions{})
+if err != nil {
+	return err
+}
+// Render only visual nodes (skips -colonly / draw:false collider nodes):
+for _, nodeIdx := range doc.DrawableNodes() {
+	drawGLTFNode(doc, nodeIdx)
+}
+
+hf, err := physics3d.NewHeightfieldFromImage(heightImg, physics3d.HeightfieldImageOptions{
+	WorldWidth: 64,
+	MinHeight:  -2,
+	MaxHeight:  18,
+})
+if err == nil {
+	world.AddHeightfield(hf)
+}
+_ = levelCols
+```
+
 ## Gravity Scale and Area Volumes
 
 `Body` and `CharacterController` each support a per-entity `GravityScale` (initialized to `1` by `NewDynamicBody` and `NewCharacterController`; use `SetGravityScale(0)` for weightless objects or negative values to invert gravity).

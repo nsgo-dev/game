@@ -19,7 +19,9 @@ hit, hitOK := hm.Raycast(ray, 500)
 
 // Build a 32x32 cell mesh chunk for GPU upload:
 chunkMesh := hm.BuildMesh(0, 0, 32, 32)
-_, _, _, _, _ = y, ok, normal, hit, chunkMesh
+// Or bridge directly to a physics3d.HeightfieldCollider:
+hfCollider := hm.Collider()
+_, _, _, _, _, _ = y, ok, normal, hit, chunkMesh, hfCollider
 _ = hitOK
 ```
 
@@ -185,6 +187,8 @@ colliders := grid.CollisionBoxesIn(playerAABB)
 hit, ok := grid.Raycast(ray, 100)
 _, _, _, _ = batches, colliders, hit, ok
 ```
+
+To populate a [`physics3d.World`](physics3d.md) from a `GridMap`'s `ColliderBoxes`, call `grid.AddCollidersToWorld(world, opts)` (or `grid.BuildStaticBodies(opts)` / `grid.MergedColliderBoxes()`). Adjacent aligned cell boxes are greedily merged along X, then Z, then Y via `physics3d.MergeBoxes`, cutting static body counts and removing internal cell seams while producing identical collision outcomes (set `GridColliderOptions{DisableMerge: true}` to emit one body per cell box).
 
 Grid maps can also be authored and saved as version 1 YAML (`*.gridmap.yaml`, schema `https://game.nsgo.dev/schemas/gridmap.v1.json`) with `origin`, `cellSize`, `meshLibrary`, non-overlapping filled box runs (`boxes`), and individual cells (`cells`), all written in canonical `(y, z, x)` order:
 

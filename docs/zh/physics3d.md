@@ -105,6 +105,40 @@ loop := &game.Loop{
 - **内部接缝过滤**：自动过滤被相邻实体方块遮挡的内部面，滑行的木箱、球体、胶囊与角色不会在平整体素地面或墙面的接缝处卡住。
 - **编辑零重建与自动唤醒**：方块编辑立即生效无需重建。实现 `VoxelEditNotifier` 的网格会在实体性变化或清空时自动触发 `NotifyBlockChanged` / `NotifyReset`（通过 `World.WakeInBox` 传递唤醒附近及堆叠的休眠刚体）；普通 `VoxelGrid` 也会在下次 `World.Step` 时检测支撑消失并唤醒休眠刚体。
 
+## glTF、GridMap 与高度图碰撞体
+
+无需手动拷贝顶点或逐格创建包围盒，即可直接从 glTF 场景、`world3d` 网格地图和标准 Go 高度图图像构建静态关卡碰撞体：
+
+- **glTF 三角网格**：`NewTriMeshFromGLTFPrimitive(prim, worldMat)`、`NewTriMeshFromGLTFMesh(mesh, worldMat)` 与 `NewTriMeshFromGLTFNode(doc, nodeIdx)` 从带索引或无索引的 `Triangles`、`TriangleStrip`、`TriangleFan` 图元构建带 BVH 加速的 `*TriMeshCollider`，自动应用节点完整世界变换并在负行列式镜像变换时翻转绕序以保持外法线朝向。
+- **glTF 碰撞节点约定（`-colonly` 与 `extras.collider`）**：`World.AddGLTFColliders(doc, opts)` 与 `BuildGLTFColliders(doc, opts)` 识别 Godot 风格的节点名后缀（`-col`、`-colonly`、`-boxcol`、`-boxcolonly`、`-spherecol`、`-spherecolonly`、`-capsulecol`、`-capsulecolonly`、`-convcol`、`-convcolonly`，不区分大小写并兼容 Blender 的 `.001` 复制编号）以及 `node.Extras`（`{"collider": "box" | true | {"shape", "draw", "only", "trigger", "tag", "center", "halfExtents"|"size", "radius", "height", "friction", "restitution", "layer", "mask"}}`）。盒体与胶囊体完整保留节点旋转（定向盒体与旋转胶囊体）；在原生凸包形状加入前，`-convcol` / `-convcolonly` 会回退构建 `TriMeshCollider`。渲染器可通过 [`game/gltf`](3d-models-blender.md#碰撞节点-colonly-与-extrascollider) 的 `doc.DrawableNodes()` 或 `node.IsDrawable()` 跳过仅碰撞节点；卸载流式关卡时调用 `GLTFColliders.RemoveFromWorld(world)` 即可一键移除。
+- **3D 贪心合并盒体与 `GridMap` 刚体**：`MergeBoxes(boxes, eps)` 按 X → Z → Y 顺序在容差 `eps`（默认 `1e-4`）内贪心合并相邻对齐的轴对齐盒体，输出完全等价的确定性合并结果。对 [`world3d.GridMap`](world3d.md#模块化-3d-gridmap) 调用 `grid.AddCollidersToWorld(world, opts)` 可提取所有格子的 `ColliderBoxes` 并自动合并相邻格子为更少的静态刚体（设置 `DisableMerge: true` 可按单格创建）。
+- **从 `image.Image` 构建高度场**：`NewHeightfieldFromImage(img, HeightfieldImageOptions{...})` 支持任意 8 位/16 位灰度或彩色 `image.Image`（可选 `HeightmapLuminance`、`HeightmapRed`、`HeightmapGreen`、`HeightmapBlue`、`HeightmapAlpha` 通道），可配置 `CellSize` 或 `WorldWidth`/`WorldDepth`、`MinHeight`/`MaxHeight`、`Origin`、`FlipZ`，以及可选的 `(Cols, Rows)` 重采样（设置 `Bilinear: true` 启用双线性插值）。已有 `world3d.Heightmap` 时可直接调用 `hm.Collider()`。
+
+```go
+doc, err := gltf.LoadFS(assetsFS, "levels/courtyard.glb")
+if err != nil {
+	return err
+}
+levelCols, err := world.AddGLTFColliders(doc, physics3d.GLTFColliderOptions{})
+if err != nil {
+	return err
+}
+// 仅绘制视觉节点（自动跳过 -colonly / draw:false 碰撞节点）：
+for _, nodeIdx := range doc.DrawableNodes() {
+	drawGLTFNode(doc, nodeIdx)
+}
+
+hf, err := physics3d.NewHeightfieldFromImage(heightImg, physics3d.HeightfieldImageOptions{
+	WorldWidth: 64,
+	MinHeight:  -2,
+	MaxHeight:  18,
+})
+if err == nil {
+	world.AddHeightfield(hf)
+}
+_ = levelCols
+```
+
 ## 重力缩放与区域体积
 
 `Body` 和 `CharacterController` 均支持独立的 `GravityScale`（`NewDynamicBody` 与 `NewCharacterController` 默认为 `1`；调用 `SetGravityScale(0)` 可设为失重，负值可反转重力）。
