@@ -185,8 +185,13 @@ type AStar struct {
 	// Diagonal allows 8-way movement with step distance sqrt(2) on diagonals; false restricts movement to 4 cardinal directions.
 	// On hexagonal topologies Diagonal has no effect; TopologySquare4 and TopologySquare8 override Diagonal.
 	Diagonal bool
-	// NoCornerCutting prevents diagonal moves when either adjacent cardinal cell is blocked. It only takes effect when diagonal moves are enabled.
+	// NoCornerCutting prevents diagonal moves when either adjacent cardinal cell is blocked. It only takes effect when diagonal moves are enabled, and also prevents Theta* any-angle lines of sight from grazing blocked cell corners when AnyAngle is true.
 	NoCornerCutting bool
+	// AnyAngle enables Theta*-style any-angle pathfinding on square grids (TopologySquare, TopologySquare4, TopologySquare8),
+	// linking neighbors directly to an ancestor cell whenever line of sight between cell centers is unobstructed across uniform-cost cells.
+	// AnyAngle is ignored on hexagonal or staggered topologies and on EdgeCostGrid maps.
+	// When smoothing a path for a body with positive clearance radius, prefer standard cell-by-cell A* (AnyAngle: false) followed by SmoothGridPath or SmoothGridPathInto.
+	AnyAngle bool
 	// Topology selects the cell adjacency and admissible distance heuristic. The zero value (TopologySquare) preserves square-grid behavior.
 	Topology GridTopology
 
@@ -241,6 +246,7 @@ func (a *AStar) FindInto(dst []Cell, g Grid, start, goal Cell) (path []Cell, cos
 
 	eg, hasEdgeCost := g.(EdgeCostGrid)
 	cg, hasCost := g.(CostGrid)
+	anyAngle := a.AnyAngle && !hasEdgeCost && (a.Topology == TopologySquare || a.Topology == TopologySquare4 || a.Topology == TopologySquare8)
 
 	startID := start.Row*cols + start.Col
 	goalID := goal.Row*cols + goal.Col
@@ -249,7 +255,7 @@ func (a *AStar) FindInto(dst []Cell, g Grid, start, goal Cell) (path []Cell, cos
 	a.seen[startID] = gen
 	a.gScore[startID] = 0
 	a.parent[startID] = -1
-	h0 := a.heuristic(start.Col, start.Row, goal.Col, goal.Row)
+	h0 := a.heuristicFor(start.Col, start.Row, goal.Col, goal.Row, anyAngle)
 	a.heapPush(astarNode{id: startID, f: h0, h: h0})
 
 	var steps [8]neighborStep
@@ -269,6 +275,7 @@ func (a *AStar) FindInto(dst []Cell, g Grid, start, goal Cell) (path []Cell, cos
 		c := cur.id % cols
 		r := cur.id / cols
 		curG := a.gScore[cur.id]
+		curParent := a.parent[cur.id]
 
 		stepCount := a.Topology.neighbors(c, r, a.Diagonal, &steps)
 		for i := range stepCount {
@@ -306,17 +313,30 @@ func (a *AStar) FindInto(dst []Cell, g Grid, start, goal Cell) (path []Cell, cos
 				}
 			}
 			ng := curG + st.dist*tileCost
+			nParent := cur.id
+
+			if anyAngle && curParent != -1 {
+				pc := curParent % cols
+				pr := curParent / cols
+				if thetaLineOfSight(g, cols, rows, hasCost, cg, pc, pr, nc, nr, a.NoCornerCutting) {
+					losG := a.gScore[curParent] + math.Hypot(float64(nc-pc), float64(nr-pr))
+					if losG <= ng {
+						ng = losG
+						nParent = curParent
+					}
+				}
+			}
 
 			if a.seen[nid] != gen {
 				a.seen[nid] = gen
 				a.gScore[nid] = ng
-				a.parent[nid] = cur.id
-				h := a.heuristic(nc, nr, goal.Col, goal.Row)
+				a.parent[nid] = nParent
+				h := a.heuristicFor(nc, nr, goal.Col, goal.Row, anyAngle)
 				a.heapPush(astarNode{id: nid, f: ng + h, h: h})
 			} else if ng < a.gScore[nid] {
 				a.gScore[nid] = ng
-				a.parent[nid] = cur.id
-				h := a.heuristic(nc, nr, goal.Col, goal.Row)
+				a.parent[nid] = nParent
+				h := a.heuristicFor(nc, nr, goal.Col, goal.Row, anyAngle)
 				if pos := a.heapPos[nid]; pos >= 0 {
 					a.open[pos].f = ng + h
 					a.open[pos].h = h
@@ -335,7 +355,10 @@ func inBounds(c Cell, cols, rows int) bool {
 	return c.Col >= 0 && c.Col < cols && c.Row >= 0 && c.Row < rows
 }
 
-func (a *AStar) heuristic(c1, r1, c2, r2 int) float64 {
+func (a *AStar) heuristicFor(c1, r1, c2, r2 int, anyAngle bool) float64 {
+	if anyAngle {
+		return math.Hypot(float64(c1-c2), float64(r1-r2))
+	}
 	return a.Topology.distance(c1, r1, c2, r2, a.Diagonal)
 }
 
