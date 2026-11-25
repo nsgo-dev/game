@@ -176,6 +176,9 @@ type MoveResult struct {
 // resolving X before Y. It zeroes velocity along blocked axes, updates b's Grounded, OnCeiling,
 // OnLeftWall and OnRightWall flags, and subdivides large displacements so fast bodies do not
 // tunnel through single-tile walls or platforms.
+//
+// Tiles are resolved against the bounding box of b's shape, so a Polygon or Capsule body moves
+// as its bounds do and keeps its shape; the whole shape is translated by the resolved movement.
 func MoveAndSlide(b *Body, grid TileGrid, dt time.Duration) MoveResult {
 	if b == nil {
 		return MoveResult{}
@@ -353,6 +356,8 @@ func MoveAndSlide(b *Body, grid TileGrid, dt time.Duration) MoveResult {
 	case ShapeCircle:
 		b.Shape.Circle.X = float32(x + float64(b.Shape.Circle.R))
 		b.Shape.Circle.Y = float32(y + float64(b.Shape.Circle.R))
+	default:
+		b.Shape = b.Shape.Translated(float32(x-float64(box.X)), float32(y-float64(box.Y)))
 	}
 
 	return MoveResult{

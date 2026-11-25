@@ -1,6 +1,6 @@
 # physics
 
-`game/physics` 提供 2D 碰撞形状（`Box` 与 `Circle`）、精确重叠接触计算、防穿墙瓦片滑动解析 `MoveAndSlide`，以及 `World` 上的确定性空间查询与射线检测。
+`game/physics` 提供 2D 碰撞形状（`Box`、`Circle`、凸多边形 `Polygon`、`Capsule`、`Segment` 与 `Chain`）、精确重叠接触计算、防穿墙瓦片滑动解析 `MoveAndSlide`，以及 `World` 上的确定性空间查询与射线检测。
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/physics"
@@ -24,6 +24,38 @@ if c := physics.TestBoxCircle(playerBox, coin); c.Hit {
 ```
 
 仅在边缘或角点相切而穿透深度为 0 的形状会返回 `Hit == false`。空形状（`W <= 0`、`H <= 0` 或 `R <= 0`）不会与任何物体重叠。
+
+## 多边形、胶囊体、线段与链
+
+斜坡、楔块、旋转的道具、角色以及用线条画出的地形，仅靠矩形和圆形不够用。另外四种参照 Box2D 设计的形状同样封装在 `Shape` 中，凡是矩形能用的地方都能用：`TestShapes`、`Body`、`Trigger`、`World` 的查询与射线、`RigidBody` 以及调试绘制。
+
+| 形状 | 构造方式 | 用途 |
+| --- | --- | --- |
+| `Polygon` | `NewPolygon(points, radius)`、`NewBoxPolygon(cx, cy, w, h, angle)`，再用 `PolygonShape(p)` | 3 到 `MaxPolygonVertices`（8）个顶点的凸多边形，可用 `Radius` 做圆角，使其能顺滑越过拐角 |
+| `Capsule` | `CapsuleShape(Capsule{X1, Y1, X2, Y2, R})` | 线段按半径扫掠而成，适合不应卡在瓦片接缝或台阶边缘的角色 |
+| `Segment` | `SegmentShape(Segment{X1, Y1, X2, Y2})` | 没有厚度的线段，适合边沿和墙 |
+| `Chain` | `ChainShape(points, loop)` | 折线或闭合环，适合静态地形 |
+
+`NewPolygon` 会对任意点求凸包，合并几乎重合的点，去掉共线顶点，并使结果在屏幕上按顺时针环绕；凸包顶点少于 3 个或多于 8 个时返回 `false`。只有在多边形已是凸的且按此方向环绕时，才手写 `Polygon`。
+
+```go
+ramp, _ := physics.NewPolygon([]core.Point{{X: 0, Y: 200}, {X: 300, Y: 200}, {X: 300, Y: 50}}, 0)
+hero := physics.CapsuleShape(physics.Capsule{X1: 120, Y1: 100, X2: 120, Y2: 130, R: 8})
+if c := physics.TestShapes(hero, physics.PolygonShape(ramp)); c.Hit {
+	// 沿坡面法线把角色推出去。
+	_ = c
+}
+```
+
+任意两种形状组合都会报告命中、法线和深度。矩形与圆形之间仍使用各自的检测函数；其余组合对形状的核心（多边形、线段或点）做分离轴检测，再加上各自的圆角半径，接触点取两个表面之间的中点。线段和链没有面积：它们从两侧与所有有面积的形状碰撞，但彼此之间从不碰撞；它们也不包含任何点，因此 `QueryPoint` 不会返回它们。
+
+链只报告其最深的那段线段接触。在内部顶点处，它只采用相邻线段所允许的法线，因此沿一段平直的多段链滑动的箱子或滚动的球不会卡在线段之间的接缝上，也就是 Box2D 的链同样消除的幽灵碰撞。链的开放端点与单独线段的端点行为一致。
+
+`Shape.Area`、`Shape.Centroid` 与 `Shape.MomentOfInertia(mass)` 给出刚体所用的质量属性；圆角多边形按 Box2D 的做法，把顶点向外推出来近似。
+
+`MoveAndSlide` 与 `CharacterBody` 用物体的包围盒与瓦片求解，因此多边形或胶囊体 `Body` 按其包围盒移动并保持自身形状。`DrawShape` 以 `PolygonColor`、`CapsuleColor` 与 `SegmentColor` 绘制多边形（含圆角）、带中轴的胶囊体、线段与链的轮廓。
+
+与这里的所有形状一样，由于没有连续碰撞检测，线段或链挡不住在一步之内中心越过它的物体：让快速物体每步的移动不超过一个半径，或者提高世界的步进频率。
 
 ## MoveAndSlide 与 TileGrid
 
@@ -88,7 +120,20 @@ if hit, ok := world.RaycastFirst(gunPos, targetPos, physics.QueryAll); ok {
 | `QueryOneWay` | 单向平台瓦片（`TileOneWay`）；射线仅在向下穿过其顶边时命中。 |
 | `QueryAll` | `QueryBodies \| QueryTiles \| QueryOneWay`。 |
 
-`World.Raycast` 按归一化距离 `T`（`[0, 1]`）升序返回线段上的所有命中（同距离时物体排在瓦片之前）；`RaycastFirst` 只返回最近的一个命中。使用 `world.Remove(b)` 可移除物体。
+`World.Raycast` 按归一化距离 `T`（`[0, 1]`）升序返回线段上的所有命中（同距离时物体排在瓦片之前）；`RaycastFirst` 只返回最近的一个命中。射线可从任一侧命中线段或链，法线朝向射线起点；沿线段方向前进的射线不会命中它。使用 `world.Remove(b)` 可移除物体。
+
+## 来自 Tiled 的关卡几何
+
+`tilemap.Object.PhysicsShape` 把 Tiled 中的矩形、椭圆、多边形或折线对象转成形状，`ObjectLayer.PhysicsBodies` 为图层中的每个对象返回一个静态 `Body`，因此在 Tiled 中画的地形无需手写转换代码就能参与碰撞：
+
+```go
+for _, ground := range m.ObjectLayer("collision").PhysicsBodies() {
+	world.Add(ground)                                      // 运动学查询与触发器
+	rigid.AddBody(physics.NewStaticRigidBody(ground.Shape)) // 刚体
+}
+```
+
+各类对象如何映射为形状，见 [tilemap](tilemap.md)。
 
 ## 绳索与软体（XPBD）
 

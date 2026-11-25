@@ -97,6 +97,22 @@ m.SetTile(0, 5, 19, 1) // layer 0, col 5, row 19 -> GID 1
 
 Look up layers and objects by name with `m.Layer("ground")` and `m.ObjectLayer("spawns")`. Read typed custom properties on maps, layers, tilesets, tiles (`m.TileProperties(gid)`), and objects via `Properties` helpers (`Bool`, `Int`, `Float`, `String`, `Color`, `File`, `ObjectID`, `Has`). For polygon/polyline objects, `obj.WorldPoints()` returns vertices translated by `(obj.X, obj.Y)`.
 
+Objects drawn as collision geometry become [physics](physics.md) shapes with `obj.PhysicsShape()`, and `layer.PhysicsBodies()` returns a static `physics.Body` per object, moved by the layer's offset, with the object's ID, its type as `Tag` and the object itself as `UserData`. Hidden objects count, since collision layers are often hidden:
+
+| Tiled object | Shape |
+| --- | --- |
+| Rectangle | `Box`, or a `Polygon` when rotated |
+| Ellipse | `Circle` when round, otherwise an 8-vertex `Polygon` inscribed in it |
+| Polygon | `Polygon` when convex with at most 8 vertices, otherwise a closed `Chain` along its outline |
+| Polyline | `Segment` for two points, otherwise an open `Chain` |
+| Point, tile | none |
+
+```go
+for _, ground := range m.ObjectLayer("collision").PhysicsBodies() {
+	rigid.AddBody(physics.NewStaticRigidBody(ground.Shape))
+}
+```
+
 ## Animated tiles
 
 Tiled tile animations load into `Tileset.Animations`, keyed by 0-based local tile ID. Call `m.Update(dt)` on every `game.Loop.Update` step to advance all animated tiles cleanly across cycles:

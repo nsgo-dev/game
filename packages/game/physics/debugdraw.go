@@ -25,6 +25,10 @@ type DebugStyle struct {
 	NormalColor     core.Color
 	RayColor        core.Color
 	VelocityColor   core.Color
+	// PolygonColor outlines polygons, CapsuleColor capsules, and SegmentColor segments and chains.
+	PolygonColor core.Color
+	CapsuleColor core.Color
+	SegmentColor core.Color
 
 	LineWidth     float32
 	Zoom          float32
@@ -46,6 +50,9 @@ func DefaultDebugStyle() DebugStyle {
 		NormalColor:     core.RGB(0xfacc15),
 		RayColor:        core.RGB(0xf472b6),
 		VelocityColor:   core.RGB(0x60a5fa),
+		PolygonColor:    core.RGB(0x34d399),
+		CapsuleColor:    core.RGB(0x818cf8),
+		SegmentColor:    core.RGB(0xfb923c),
 		LineWidth:       1,
 		NormalLength:    12,
 		ContactRadius:   2.5,
@@ -61,6 +68,9 @@ type resolvedStyle struct {
 	normalColor     core.Color
 	rayColor        core.Color
 	velocityColor   core.Color
+	polygonColor    core.Color
+	capsuleColor    core.Color
+	segmentColor    core.Color
 
 	zoom          float32
 	lineWidth     float32
@@ -96,6 +106,15 @@ func resolveDebugStyle(d *core.Drawing, s DebugStyle) resolvedStyle {
 	if s.VelocityColor == 0 {
 		s.VelocityColor = def.VelocityColor
 	}
+	if s.PolygonColor == 0 {
+		s.PolygonColor = def.PolygonColor
+	}
+	if s.CapsuleColor == 0 {
+		s.CapsuleColor = def.CapsuleColor
+	}
+	if s.SegmentColor == 0 {
+		s.SegmentColor = def.SegmentColor
+	}
 	if !isPositiveFinite(s.LineWidth) {
 		s.LineWidth = def.LineWidth
 	}
@@ -126,6 +145,9 @@ func resolveDebugStyle(d *core.Drawing, s DebugStyle) resolvedStyle {
 		normalColor:     s.NormalColor,
 		rayColor:        s.RayColor,
 		velocityColor:   s.VelocityColor,
+		polygonColor:    s.PolygonColor,
+		capsuleColor:    s.CapsuleColor,
+		segmentColor:    s.SegmentColor,
 		zoom:            zoom,
 		lineWidth:       s.LineWidth / zoom,
 		normalLen:       normalLen,
@@ -201,8 +223,11 @@ func drawingZoom(d *core.Drawing) float32 {
 	return float32(scale)
 }
 
-// DrawShape draws s as a wireframe outline in d using style: a rectangle for ShapeBox, or a
-// circle with a +X orientation radius tick for ShapeCircle. It preserves d's drawing state.
+// DrawShape draws s as a wireframe outline in d using style: a rectangle for ShapeBox, a
+// circle with a +X orientation radius tick for ShapeCircle, the outline of a polygon (with
+// rounded corners when it has a Radius) for ShapePolygon, the stadium outline and core segment
+// of a capsule for ShapeCapsule, a line for ShapeSegment and a polyline for ShapeChain.
+// It preserves d's drawing state.
 func DrawShape(d *core.Drawing, s Shape, style DebugStyle) {
 	if d == nil || s.Empty() {
 		return
@@ -237,7 +262,91 @@ func drawShape(d *core.Drawing, s Shape, st resolvedStyle) {
 		d.MoveTo(c.X, c.Y)
 		d.LineTo(c.X+c.R, c.Y)
 		d.Stroke()
+	case ShapePolygon:
+		if s.Polygon.Empty() {
+			return
+		}
+		h := polygonHull(s.Polygon)
+		d.SetStrokeColor(st.polygonColor)
+		d.SetLineWidth(st.lineWidth)
+		d.BeginPath()
+		if h.r > 0 {
+			roundedHullPath(d, &h)
+		} else {
+			d.MoveTo(float32(h.v[0].x), float32(h.v[0].y))
+			for _, v := range h.v[1:h.count] {
+				d.LineTo(float32(v.x), float32(v.y))
+			}
+			d.ClosePath()
+		}
+		d.Stroke()
+	case ShapeCapsule:
+		h, ok := shapeHull(s)
+		if !ok {
+			return
+		}
+		d.SetStrokeColor(st.capsuleColor)
+		d.SetLineWidth(st.lineWidth)
+		d.BeginPath()
+		if h.count == 1 {
+			d.Arc(float32(h.v[0].x), float32(h.v[0].y), float32(h.r), 0, twoPi, false)
+		} else {
+			roundedHullPath(d, &h)
+			// The core segment shows the capsule's axis, as the circle's tick shows its orientation.
+			d.MoveTo(float32(h.v[0].x), float32(h.v[0].y))
+			d.LineTo(float32(h.v[1].x), float32(h.v[1].y))
+		}
+		d.Stroke()
+	case ShapeSegment:
+		g := s.Segment
+		if g.Empty() {
+			return
+		}
+		d.SetStrokeColor(st.segmentColor)
+		d.SetLineWidth(st.lineWidth)
+		d.BeginPath()
+		d.MoveTo(g.X1, g.Y1)
+		d.LineTo(g.X2, g.Y2)
+		d.Stroke()
+	case ShapeChain:
+		c := s.Chain
+		if c.Empty() {
+			return
+		}
+		d.SetStrokeColor(st.segmentColor)
+		d.SetLineWidth(st.lineWidth)
+		d.BeginPath()
+		d.MoveTo(float32(c.Points[0].X), float32(c.Points[0].Y))
+		for _, p := range c.Points[1:] {
+			d.LineTo(float32(p.X), float32(p.Y))
+		}
+		if c.Loop {
+			d.ClosePath()
+		}
+		d.Stroke()
 	}
+}
+
+// roundedHullPath adds the outline of a rounded hull to the current path: each face pushed out by the radius, joined by an arc around each vertex. Angles increase clockwise on screen, the direction the hull winds.
+func roundedHullPath(d *core.Drawing, h *hull) {
+	edges := h.edgeCount()
+	last := h.n[edges-1]
+	start := h.v[0]
+	d.MoveTo(float32(start.x+last.x*h.r), float32(start.y+last.y*h.r))
+	for i := range edges {
+		prev := h.n[(i+edges-1)%edges]
+		n := h.n[i]
+		v := h.v[i]
+		a0 := math.Atan2(prev.y, prev.x)
+		a1 := math.Atan2(n.y, n.x)
+		if a1 < a0 {
+			a1 += 2 * math.Pi
+		}
+		d.Arc(float32(v.x), float32(v.y), float32(h.r), float32(a0), float32(a1), false)
+		next := h.v[(i+1)%h.count]
+		d.LineTo(float32(next.x+n.x*h.r), float32(next.y+n.y*h.r))
+	}
+	d.ClosePath()
 }
 
 // DrawBody draws b's collision shape and, when style.VelocityScale > 0, its velocity vector.
@@ -264,6 +373,8 @@ func drawBody(d *core.Drawing, b *Body, st resolvedStyle) {
 			cx, cy = b.Shape.Box.Center()
 		case ShapeCircle:
 			cx, cy = b.Shape.Circle.X, b.Shape.Circle.Y
+		default:
+			cx, cy = b.Shape.Bounds().Center()
 		}
 		ex := cx + b.VX*st.velocityScale
 		ey := cy + b.VY*st.velocityScale

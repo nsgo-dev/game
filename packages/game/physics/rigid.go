@@ -15,8 +15,13 @@ const DefaultSolverIterations = 10
 //
 // (X, Y) is the world-space center of mass and Angle is the rotation in radians
 // (increasing clockwise in NSGo's +X right, +Y down screen space).
-// Shape holds the body's geometry (Box or Circle) and is synchronized with (X, Y)
-// after each simulation step.
+// Shape holds the body's geometry in world space and is synchronized with (X, Y)
+// after each simulation step. A Box keeps its axis-aligned extents centered on (X, Y)
+// and a Circle its center, with Angle applied by the solver; a Polygon, Capsule, Segment
+// or Chain is stored rotated by Angle, so World queries and debug drawing see its true pose.
+// Assigning a new Shape between steps re-anchors it to the body's current pose.
+//
+// Segment and Chain shapes have no area, so a body holding one is always static.
 type RigidBody struct {
 	ID             int
 	Tag            string
@@ -47,6 +52,101 @@ type RigidBody struct {
 	forceX          float64
 	forceY          float64
 	torque          float64
+
+	// local holds a Polygon, Capsule, Segment or Chain shape relative to (X, Y) at Angle 0.
+	local    Shape
+	hasLocal bool
+	// synced is the world Shape last derived from local at pose (syncX, syncY, syncAngle), with its bounds.
+	synced                  Shape
+	syncBounds              Box
+	syncX, syncY, syncAngle float32
+}
+
+// NewRigidBody returns a RigidBody holding s, a shape in world coordinates, with its center of mass at s's Centroid and its inertia computed from s for mass spread evenly over its area. If mass <= 0, or s is a Segment or Chain, the body is static. A Box or Circle gives the same body as NewRigidBox or NewRigidCircle.
+func NewRigidBody(s Shape, mass float32) *RigidBody {
+	switch s.Kind {
+	case ShapeBox:
+		cx, cy := s.Box.Center()
+		return NewRigidBox(cx, cy, s.Box.W, s.Box.H, mass)
+	case ShapeCircle:
+		return NewRigidCircle(s.Circle.X, s.Circle.Y, s.Circle.R, mass)
+	}
+	cx, cy := s.Centroid()
+	b := &RigidBody{Shape: s, X: cx, Y: cy, Friction: 0.4, GravityScale: 1, gravityScaleSet: true}
+	b.ensureLocal()
+	if mass <= 0 || s.Kind == ShapeSegment || s.Kind == ShapeChain || s.Empty() {
+		b.Static = true
+		return b
+	}
+	b.Mass = mass
+	b.InvMass = 1 / mass
+	if inertia := s.MomentOfInertia(mass); inertia > 0 {
+		b.Inertia = inertia
+		b.InvInertia = 1 / inertia
+	}
+	return b
+}
+
+// NewStaticRigidBody returns a static (infinite-mass) RigidBody holding s, such as level terrain built from a Polygon, Segment or Chain.
+func NewStaticRigidBody(s Shape) *RigidBody {
+	return NewRigidBody(s, 0)
+}
+
+// hasFreeShape reports whether s is a kind the body stores in local space and rotates: a Polygon, Capsule, Segment or Chain.
+func hasFreeShape(k ShapeKind) bool {
+	return k == ShapePolygon || k == ShapeCapsule || k == ShapeSegment || k == ShapeChain
+}
+
+// ensureLocal re-derives the local shape when Shape was assigned since the last synchronization.
+func (b *RigidBody) ensureLocal() {
+	if !hasFreeShape(b.Shape.Kind) {
+		b.hasLocal = false
+		return
+	}
+	if b.hasLocal && b.Shape == b.synced {
+		return
+	}
+	b.local = b.Shape.toLocal(float64(b.X), float64(b.Y), float64(b.Angle))
+	b.hasLocal = true
+	b.setSynced(b.Shape)
+}
+
+func (b *RigidBody) setSynced(s Shape) {
+	b.synced = s
+	b.syncBounds = s.Bounds()
+	b.syncX, b.syncY, b.syncAngle = b.X, b.Y, b.Angle
+}
+
+// poseShape returns the body's free shape in world space at its current pose.
+func (b *RigidBody) poseShape() (Shape, Box) {
+	if b.X == b.syncX && b.Y == b.syncY && b.Angle == b.syncAngle {
+		return b.synced, b.syncBounds
+	}
+	s := b.local.transformed(float64(b.X), float64(b.Y), float64(b.Angle))
+	return s, s.Bounds()
+}
+
+// rigidHull returns the rounded hull of a body's convex shape at its current pose.
+func (b *RigidBody) rigidHull() (hull, bool) {
+	switch b.Shape.Kind {
+	case ShapeBox:
+		if b.Shape.Box.Empty() {
+			return hull{}, false
+		}
+		return orientedBoxHull(float64(b.X), float64(b.Y), float64(b.Shape.Box.W)*0.5, float64(b.Shape.Box.H)*0.5, float64(b.Angle)), true
+	case ShapeCircle:
+		if b.Shape.Circle.Empty() {
+			return hull{}, false
+		}
+		return pointHull(float64(b.X), float64(b.Y), float64(b.Shape.Circle.R)), true
+	case ShapePolygon, ShapeCapsule, ShapeSegment:
+		if !b.hasLocal {
+			return hull{}, false
+		}
+		s, _ := b.poseShape()
+		return shapeHull(s)
+	}
+	return hull{}, false
 }
 
 // NewRigidBox returns a dynamic rectangular RigidBody centered at (x, y) with size (w, h) and mass.
@@ -182,6 +282,9 @@ func (b *RigidBody) applyImpulseRaw(ix, iy, rx, ry float64) {
 }
 
 func (b *RigidBody) prepareMass() {
+	if b.Shape.Kind == ShapeSegment || b.Shape.Kind == ShapeChain {
+		b.Static = true
+	}
 	if b.Static {
 		b.InvMass = 0
 		b.InvInertia = 0
@@ -208,6 +311,8 @@ func (b *RigidBody) prepareMass() {
 			case ShapeCircle:
 				r := float64(b.Shape.Circle.R)
 				inertia = 0.5 * float64(b.Mass) * r * r
+			default:
+				inertia = float64(b.Shape.MomentOfInertia(b.Mass))
 			}
 			if inertia > 0 {
 				b.Inertia = float32(inertia)
@@ -225,6 +330,15 @@ func (b *RigidBody) syncShape() {
 	case ShapeCircle:
 		b.Shape.Circle.X = b.X
 		b.Shape.Circle.Y = b.Y
+	default:
+		if !b.hasLocal || b.Shape != b.synced {
+			return
+		}
+		if b.X == b.syncX && b.Y == b.syncY && b.Angle == b.syncAngle {
+			return
+		}
+		b.Shape = b.local.transformed(float64(b.X), float64(b.Y), float64(b.Angle))
+		b.setSynced(b.Shape)
 	}
 }
 
@@ -244,7 +358,11 @@ func (b *RigidBody) worldAABB() (minX, minY, maxX, maxY float64) {
 		ey := float64(hw*s) + float64(hh*c)
 		return cx - ex, cy - ey, cx + ex, cy + ey
 	default:
-		return cx, cy, cx, cy
+		if !b.hasLocal {
+			return cx, cy, cx, cy
+		}
+		_, bb := b.poseShape()
+		return float64(bb.X), float64(bb.Y), float64(bb.X) + float64(bb.W), float64(bb.Y) + float64(bb.H)
 	}
 }
 
@@ -354,6 +472,7 @@ func (w *RigidWorld) Step(dt time.Duration) {
 		if b == nil {
 			continue
 		}
+		b.ensureLocal()
 		b.prepareMass()
 		if b.Static {
 			continue
@@ -454,6 +573,7 @@ func (w *RigidWorld) Step(dt time.Duration) {
 		posSlop       = 0.01
 		posPercent    = 0.5
 	)
+	var pairManifolds []rigidManifold
 	for range posIterations {
 		for i := 0; i < len(w.Bodies); i++ {
 			a := w.Bodies[i]
@@ -471,33 +591,32 @@ func (w *RigidWorld) Step(dt time.Duration) {
 				if !CanCollideRigid(a, b) {
 					continue
 				}
-				m, hit := collideRigidBodies(a, b)
-				if !hit {
-					continue
-				}
-				maxDepth := 0.0
-				for k := range m.count {
-					if m.points[k].depth > maxDepth {
-						maxDepth = m.points[k].depth
+				pairManifolds = collideRigidPair(a, b, pairManifolds[:0])
+				for _, m := range pairManifolds {
+					maxDepth := 0.0
+					for k := range m.count {
+						if m.points[k].depth > maxDepth {
+							maxDepth = m.points[k].depth
+						}
 					}
-				}
-				if maxDepth <= posSlop {
-					continue
-				}
-				invMassSum := float64(a.InvMass) + float64(b.InvMass)
-				if invMassSum <= 0 {
-					continue
-				}
-				corr := (maxDepth - posSlop) * posPercent / invMassSum
-				cx := m.nx * corr
-				cy := m.ny * corr
-				if !a.Static {
-					a.X = float32(float64(a.X) - float64(cx*float64(a.InvMass)))
-					a.Y = float32(float64(a.Y) - float64(cy*float64(a.InvMass)))
-				}
-				if !b.Static {
-					b.X = float32(float64(b.X) + float64(cx*float64(b.InvMass)))
-					b.Y = float32(float64(b.Y) + float64(cy*float64(b.InvMass)))
+					if maxDepth <= posSlop {
+						continue
+					}
+					invMassSum := float64(a.InvMass) + float64(b.InvMass)
+					if invMassSum <= 0 {
+						continue
+					}
+					corr := (maxDepth - posSlop) * posPercent / invMassSum
+					cx := m.nx * corr
+					cy := m.ny * corr
+					if !a.Static {
+						a.X = float32(float64(a.X) - float64(cx*float64(a.InvMass)))
+						a.Y = float32(float64(a.Y) - float64(cy*float64(a.InvMass)))
+					}
+					if !b.Static {
+						b.X = float32(float64(b.X) + float64(cx*float64(b.InvMass)))
+						b.Y = float32(float64(b.Y) + float64(cy*float64(b.InvMass)))
+					}
 				}
 			}
 		}
@@ -540,12 +659,11 @@ func (w *RigidWorld) detectContacts(restitutionThresh float64) []rigidManifold {
 			if aMaxX <= bMinX || bMaxX <= aMinX || aMaxY <= bMinY || bMaxY <= aMinY {
 				continue
 			}
-			m, hit := collideRigidBodies(a, b)
-			if !hit {
-				continue
+			first := len(manifolds)
+			manifolds = collideRigidPair(a, b, manifolds)
+			for k := first; k < len(manifolds); k++ {
+				prepareManifold(&manifolds[k], restitutionThresh)
 			}
-			prepareManifold(&m, restitutionThresh)
-			manifolds = append(manifolds, m)
 		}
 	}
 	return manifolds
@@ -640,6 +758,66 @@ func solveManifoldVelocity(m *rigidManifold) {
 			b.applyImpulseRaw(ftx, fty, cp.rBx, cp.rBy)
 		}
 	}
+}
+
+// collideRigidPair appends the contact manifolds of a and b to out, with normals pointing from a toward b: one for convex shapes, and one per touching segment against a Chain.
+func collideRigidPair(a, b *RigidBody, out []rigidManifold) []rigidManifold {
+	ak, bk := a.Shape.Kind, b.Shape.Kind
+	if (ak == ShapeBox || ak == ShapeCircle) && (bk == ShapeBox || bk == ShapeCircle) {
+		if m, hit := collideRigidBodies(a, b); hit {
+			out = append(out, m)
+		}
+		return out
+	}
+	if ak == ShapeChain || bk == ShapeChain {
+		if ak == bk {
+			return out
+		}
+		chainBody, other, flip := a, b, false
+		if bk == ShapeChain {
+			chainBody, other, flip = b, a, true
+		}
+		if !chainBody.hasLocal {
+			return out
+		}
+		h, ok := other.rigidHull()
+		if !ok {
+			return out
+		}
+		s, _ := chainBody.poseShape()
+		if s.Chain.Empty() {
+			return out
+		}
+		for i := range s.Chain.SegmentCount() {
+			m, ok := chainSegmentManifold(s.Chain, i, &h)
+			if !ok {
+				continue
+			}
+			if flip {
+				m.nx, m.ny = -m.nx, -m.ny
+			}
+			out = append(out, rigidManifoldFrom(m, a, b))
+		}
+		return out
+	}
+	ha, okA := a.rigidHull()
+	hb, okB := b.rigidHull()
+	if !okA || !okB {
+		return out
+	}
+	if m := collideHulls(&ha, &hb); m.count > 0 {
+		out = append(out, rigidManifoldFrom(m, a, b))
+	}
+	return out
+}
+
+func rigidManifoldFrom(m hullManifold, a, b *RigidBody) rigidManifold {
+	rm := rigidManifold{a: a, b: b, nx: m.nx, ny: m.ny, count: m.count}
+	for i := range m.count {
+		p := m.points[i]
+		rm.points[i] = rigidContactPoint{px: p.x, py: p.y, depth: p.depth}
+	}
+	return rm
 }
 
 func collideRigidBodies(a, b *RigidBody) (rigidManifold, bool) {

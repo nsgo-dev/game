@@ -81,13 +81,25 @@ const (
 	ShapeBox
 	// ShapeCircle holds a Circle.
 	ShapeCircle
+	// ShapePolygon holds a convex, optionally rounded Polygon.
+	ShapePolygon
+	// ShapeCapsule holds a Capsule.
+	ShapeCapsule
+	// ShapeSegment holds a Segment.
+	ShapeSegment
+	// ShapeChain holds a Chain.
+	ShapeChain
 )
 
-// Shape holds either a Box or a Circle so bodies and queries handle both uniformly.
+// Shape holds one of Box, Circle, Polygon, Capsule, Segment or Chain, selected by Kind, so bodies, triggers and queries handle every shape uniformly. Shapes are comparable with ==; a chain compares by its pointer.
 type Shape struct {
-	Kind   ShapeKind
-	Box    Box
-	Circle Circle
+	Kind    ShapeKind
+	Box     Box
+	Circle  Circle
+	Polygon Polygon
+	Capsule Capsule
+	Segment Segment
+	Chain   *Chain
 }
 
 // BoxShape returns a Shape wrapping b.
@@ -96,19 +108,27 @@ func BoxShape(b Box) Shape { return Shape{Kind: ShapeBox, Box: b} }
 // CircleShape returns a Shape wrapping c.
 func CircleShape(c Circle) Shape { return Shape{Kind: ShapeCircle, Circle: c} }
 
-// Empty reports whether s holds no positive-area shape.
+// Empty reports whether s holds no usable geometry: a Box or Circle without positive area, a Polygon or Capsule that is empty, a Segment of zero length or a Chain without a segment. Segments and chains have no area but are not empty.
 func (s Shape) Empty() bool {
 	switch s.Kind {
 	case ShapeBox:
 		return s.Box.Empty()
 	case ShapeCircle:
 		return s.Circle.Empty()
+	case ShapePolygon:
+		return s.Polygon.Empty()
+	case ShapeCapsule:
+		return s.Capsule.Empty()
+	case ShapeSegment:
+		return s.Segment.Empty()
+	case ShapeChain:
+		return s.Chain.Empty()
 	default:
 		return true
 	}
 }
 
-// Bounds returns the axis-aligned Box enclosing s, or a zero Box when s is empty.
+// Bounds returns the axis-aligned Box enclosing s, or a zero Box when s is empty. The bounds of a horizontal or vertical segment or chain have zero height or width.
 func (s Shape) Bounds() Box {
 	switch s.Kind {
 	case ShapeBox:
@@ -118,30 +138,50 @@ func (s Shape) Bounds() Box {
 		return s.Box
 	case ShapeCircle:
 		return s.Circle.Bounds()
+	case ShapePolygon:
+		return s.Polygon.Bounds()
+	case ShapeCapsule:
+		return s.Capsule.Bounds()
+	case ShapeSegment:
+		return s.Segment.Bounds()
+	case ShapeChain:
+		return s.Chain.Bounds()
 	default:
 		return Box{}
 	}
 }
 
-// Contains reports whether (x, y) lies inside or on the boundary of s.
+// Contains reports whether (x, y) lies inside or on the boundary of s. Segments and chains have no inside and contain no point.
 func (s Shape) Contains(x, y float32) bool {
 	switch s.Kind {
 	case ShapeBox:
 		return s.Box.Contains(x, y)
 	case ShapeCircle:
 		return s.Circle.Contains(x, y)
+	case ShapePolygon:
+		return s.Polygon.Contains(x, y)
+	case ShapeCapsule:
+		return s.Capsule.Contains(x, y)
 	default:
 		return false
 	}
 }
 
-// Translated returns a copy of s shifted by (dx, dy).
+// Translated returns a copy of s shifted by (dx, dy). A chain is copied into a new Chain.
 func (s Shape) Translated(dx, dy float32) Shape {
 	switch s.Kind {
 	case ShapeBox:
 		s.Box = s.Box.Translated(dx, dy)
 	case ShapeCircle:
 		s.Circle = s.Circle.Translated(dx, dy)
+	case ShapePolygon:
+		s.Polygon = s.Polygon.Translated(dx, dy)
+	case ShapeCapsule:
+		s.Capsule = s.Capsule.Translated(dx, dy)
+	case ShapeSegment:
+		s.Segment = s.Segment.Translated(dx, dy)
+	case ShapeChain:
+		s.Chain = s.Chain.Translated(dx, dy)
 	}
 	return s
 }
@@ -344,7 +384,9 @@ func TestBoxCircle(a Box, b Circle) Contact {
 	return c
 }
 
-// TestShapes tests whether shapes a and b overlap. The returned Contact normal points from b toward a.
+// TestShapes tests whether shapes a and b overlap. The returned Contact normal points from b toward a, and translating a by (NormalX*Depth, NormalY*Depth) separates them.
+//
+// Pairs of boxes and circles use TestBoxBox, TestBoxCircle, TestCircleBox and TestCircleCircle. Every pair involving a Polygon, Capsule, Segment or Chain uses the separating axis test on the shapes' cores plus their rounding radii, reporting the contact point between the two surfaces. Segments and chains collide with every shape with area but never with each other; a chain reports its deepest segment contact, using only normals its neighbouring segments allow at interior vertices.
 func TestShapes(a, b Shape) Contact {
 	switch a.Kind {
 	case ShapeBox:
@@ -362,5 +404,5 @@ func TestShapes(a, b Shape) Contact {
 			return TestCircleCircle(a.Circle, b.Circle)
 		}
 	}
-	return Contact{}
+	return testShapesConvex(a, b)
 }
