@@ -231,7 +231,7 @@ func (e *Editor) RunGameWith(opts RunGameOptions) error {
 		stdoutWriter.Flush()
 		stderrWriter.Flush()
 		if connectRemote {
-			_ = e.DisconnectRemote()
+			_ = e.disconnectRemote(true)
 		}
 
 		stoppedByUser := run.stopping.Load()

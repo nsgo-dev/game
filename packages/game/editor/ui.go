@@ -42,21 +42,25 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 		if !ed.RemoteConnected() {
 			return
 		}
-		snap := ed.RemoteSnapshot()
-		if snap.Loop != nil && snap.Loop.Paused {
-			ed.report(ed.RemoteResume())
-		} else {
-			ed.report(ed.RemotePause())
-		}
+		snap := ed.remoteSnapshotShared()
+		paused := snap.Loop != nil && snap.Loop.Paused
+		ed.dispatchRemoteAction(cx, func() error {
+			if paused {
+				return ed.RemoteResume()
+			}
+			return ed.RemotePause()
+		})
 	})
 	cx.OnKeyWith(".", core.KeyOptions{When: core.KeyNotEditing}, func() {
 		if !ed.RemoteConnected() {
 			return
 		}
-		snap := ed.RemoteSnapshot()
+		snap := ed.remoteSnapshotShared()
 		if snap.Loop != nil && snap.Loop.Paused {
-			_, err := ed.RemoteStep(1)
-			ed.report(err)
+			ed.dispatchRemoteAction(cx, func() error {
+				_, err := ed.RemoteStep(1)
+				return err
+			})
 		}
 	})
 	cx.Cleanup(func() {

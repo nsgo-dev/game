@@ -165,23 +165,34 @@ func NewRemoteBridgeServer(bridge *gamemcp.Bridge, run func(func())) *sdkmcp.Ser
 	return srv
 }
 
+type remoteChangeKey struct {
+	entityRef string
+	component string
+	field     string
+}
+
 type remoteState struct {
 	mu              sync.Mutex
 	refreshMu       sync.Mutex
 	scope           *core.Scope
 	tab             SceneTreeTab
 	session         *sdkmcp.ClientSession
+	sessionCtx      context.Context
 	cancelTransport context.CancelFunc
 	cancelPoll      context.CancelFunc
 	pollDone        chan struct{}
+	actionCh        chan func()
+	actionDone      chan struct{}
 	cancelDial      context.CancelFunc
 	dialDone        chan struct{}
 	snap            RemoteSnapshot
+	snapPtr         *RemoteSnapshot // immutable snapshot shared with UI memos
+	seq             uint64          // monotonic counter bumped whenever remote UI state changes
+	docObjectIDs    map[string]struct{}
 	seenObjects     map[string]RemoteTakenEntity
 	takenByID       map[string]RemoteTakenEntity
 	liveChanges     []RemoteLiveChange
 	consoleLog      []RemoteConsoleEntry
-	lastDigest      string
 	selectedStep    int
 }
 
@@ -189,6 +200,127 @@ func (r *remoteState) setScope(cx *core.Scope) {
 	r.mu.Lock()
 	r.scope = cx
 	r.mu.Unlock()
+}
+
+func (e *Editor) publishSnapLocked() {
+	cp := cloneRemoteSnapshot(e.remote.snap)
+	e.remote.snapPtr = &cp
+	e.remote.seq++
+}
+
+func (e *Editor) remoteSeq() uint64 {
+	if e == nil {
+		return 0
+	}
+	e.remote.mu.Lock()
+	s := e.remote.seq
+	e.remote.mu.Unlock()
+	return s
+}
+
+// remoteSnapshotShared returns the current immutable RemoteSnapshot pointer without deep-cloning.
+// Callers must never mutate the returned snapshot or its slices/maps.
+func (e *Editor) remoteSnapshotShared() *RemoteSnapshot {
+	if e == nil {
+		return &RemoteSnapshot{}
+	}
+	e.remote.mu.Lock()
+	p := e.remote.snapPtr
+	if p == nil {
+		cp := cloneRemoteSnapshot(e.remote.snap)
+		e.remote.snapPtr = &cp
+		p = &cp
+	}
+	e.remote.mu.Unlock()
+	return p
+}
+
+func (e *Editor) hasRemoteLiveChanges() bool {
+	if e == nil {
+		return false
+	}
+	e.remote.mu.Lock()
+	has := len(e.remote.liveChanges) > 0
+	e.remote.mu.Unlock()
+	return has
+}
+
+func (e *Editor) remoteLiveChangesByKey() map[remoteChangeKey]RemoteLiveChange {
+	if e == nil {
+		return nil
+	}
+	e.remote.mu.Lock()
+	defer e.remote.mu.Unlock()
+	if len(e.remote.liveChanges) == 0 {
+		return nil
+	}
+	out := make(map[remoteChangeKey]RemoteLiveChange, len(e.remote.liveChanges))
+	for _, c := range e.remote.liveChanges {
+		c.From = cloneAny(c.From)
+		c.To = cloneAny(c.To)
+		out[remoteChangeKey{c.EntityRef, c.Component, c.Field}] = c
+	}
+	return out
+}
+
+func collectDocObjectIDs(doc *sceneformat.SceneDoc) map[string]struct{} {
+	if doc == nil {
+		return nil
+	}
+	ids := make(map[string]struct{})
+	var walk func(objs []sceneformat.ObjectDoc)
+	walk = func(objs []sceneformat.ObjectDoc) {
+		for i := range objs {
+			if objs[i].ID != "" {
+				ids[objs[i].ID] = struct{}{}
+			}
+			if len(objs[i].Children) > 0 {
+				walk(objs[i].Children)
+			}
+		}
+	}
+	for i := range doc.Layers {
+		walk(doc.Layers[i].Objects)
+	}
+	return ids
+}
+
+func stringSetEqual(a, b map[string]struct{}) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k := range a {
+		if _, ok := b[k]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// syncRemoteDocObjectIDs snapshots e.Doc's object IDs under e.remote.mu on the UI/caller goroutine
+// so background polling (refreshRemote) never reads e.Doc concurrently.
+func (e *Editor) syncRemoteDocObjectIDs() {
+	if e == nil {
+		return
+	}
+	ids := collectDocObjectIDs(e.Doc)
+	e.remote.mu.Lock()
+	changed := !stringSetEqual(e.remote.docObjectIDs, ids)
+	e.remote.docObjectIDs = ids
+	if changed {
+		e.remote.seq++
+	}
+	e.remote.mu.Unlock()
+}
+
+func (e *Editor) remoteDocObjectIDs() map[string]struct{} {
+	if e == nil {
+		return nil
+	}
+	e.remote.mu.Lock()
+	ids := e.remote.docObjectIDs
+	e.remote.mu.Unlock()
+	return ids
 }
 
 // SceneTreeTab returns whether the scene tree panel is showing the local scene document or the live remote tree.
@@ -209,6 +341,9 @@ func (e *Editor) SetSceneTreeTab(tab SceneTreeTab) {
 	e.remote.mu.Lock()
 	changed := e.remote.tab != tab
 	e.remote.tab = tab
+	if changed {
+		e.remote.seq++
+	}
 	e.remote.mu.Unlock()
 	if changed {
 		e.notify()
@@ -341,6 +476,9 @@ func (e *Editor) ClearRemoteConsole() {
 	e.remote.mu.Lock()
 	had := len(e.remote.consoleLog) > 0
 	e.remote.consoleLog = nil
+	if had {
+		e.remote.seq++
+	}
 	e.remote.mu.Unlock()
 	if had {
 		e.postRemoteNotify()
@@ -358,12 +496,15 @@ func (e *Editor) ConnectRemote(ctx context.Context, transport sdkmcp.Transport) 
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	e.syncRemoteDocObjectIDs()
+	interval := e.RemoteRefreshInterval
 	e.stopRemoteDial()
 	_ = e.DisconnectRemote()
 
 	e.remote.mu.Lock()
 	e.remote.snap.Connecting = true
 	e.remote.snap.Error = ""
+	e.publishSnapLocked()
 	e.remote.mu.Unlock()
 
 	client := sdkmcp.NewClient(&sdkmcp.Implementation{
@@ -376,6 +517,7 @@ func (e *Editor) ConnectRemote(ctx context.Context, transport sdkmcp.Transport) 
 		e.remote.snap.Connecting = false
 		e.remote.snap.Connected = false
 		e.remote.snap.Error = err.Error()
+		e.publishSnapLocked()
 		e.remote.mu.Unlock()
 		e.postRemoteNotify()
 		return fmt.Errorf("editor: connect remote MCP: %w", err)
@@ -383,11 +525,16 @@ func (e *Editor) ConnectRemote(ctx context.Context, transport sdkmcp.Transport) 
 
 	pollCtx, cancelPoll := context.WithCancel(context.Background())
 	pollDone := make(chan struct{})
+	actionCh := make(chan func(), 64)
+	actionDone := make(chan struct{})
 
 	e.remote.mu.Lock()
 	e.remote.session = cs
+	e.remote.sessionCtx = pollCtx
 	e.remote.cancelPoll = cancelPoll
 	e.remote.pollDone = pollDone
+	e.remote.actionCh = actionCh
+	e.remote.actionDone = actionDone
 	e.remote.tab = SceneTreeRemote
 	e.remote.snap = RemoteSnapshot{
 		Connected:  true,
@@ -395,16 +542,17 @@ func (e *Editor) ConnectRemote(ctx context.Context, transport sdkmcp.Transport) 
 	}
 	e.remote.seenObjects = make(map[string]RemoteTakenEntity)
 	e.remote.takenByID = make(map[string]RemoteTakenEntity)
-	e.remote.lastDigest = ""
 	if e.remote.selectedStep <= 0 {
 		e.remote.selectedStep = 1
 	}
+	e.publishSnapLocked()
 	e.remote.mu.Unlock()
 
 	// Perform initial snapshot synchronously so callers have live state immediately.
-	_ = e.RefreshRemote()
+	_ = e.refreshRemoteForSession(pollCtx, cs, false, true)
 
-	go e.remotePollLoop(pollCtx, cs, pollDone)
+	go e.remoteActionLoop(pollCtx, actionCh, actionDone)
+	go e.remotePollLoop(pollCtx, cs, interval, pollDone)
 
 	e.postRemoteStatus("Connected to running game")
 	return nil
@@ -428,9 +576,81 @@ func (e *Editor) ConnectRemoteCommand(ctx context.Context, dir string, extraArgs
 	return e.ConnectRemote(ctx, transport)
 }
 
+// startRemoteCommandConnect dials `go tool nsgo mcp` asynchronously for the Remote tab's Connect button.
+// It snapshots e.ProjectPath, e.RemoteRefreshInterval, and e.Doc object IDs on the UI goroutine before
+// spawning a tracked dial goroutine that DisconnectRemote / Close cancels and joins cleanly.
+func (e *Editor) startRemoteCommandConnect() {
+	if e == nil {
+		return
+	}
+	e.syncRemoteDocObjectIDs()
+	dir := ""
+	if e.ProjectPath != "" {
+		dir = filepath.Dir(e.ProjectPath)
+	}
+	interval := e.RemoteRefreshInterval
+	e.stopRemoteDial()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+
+	e.remote.mu.Lock()
+	e.remote.cancelDial = cancel
+	e.remote.dialDone = done
+	e.remote.tab = SceneTreeRemote
+	e.remote.snap.Connecting = true
+	e.remote.snap.Error = ""
+	e.publishSnapLocked()
+	e.remote.mu.Unlock()
+	e.notify()
+
+	go func() {
+		defer close(done)
+		defer cancel()
+
+		if !canConnectRemoteCommand {
+			e.remote.mu.Lock()
+			e.remote.snap.Connecting = false
+			e.remote.snap.Error = ErrRemoteUnsupported.Error()
+			e.publishSnapLocked()
+			e.remote.mu.Unlock()
+			e.postRemoteStatusBG("Remote connect failed: " + ErrRemoteUnsupported.Error())
+			return
+		}
+		transport, err := newRemoteCommandTransport(dir)
+		if err != nil {
+			e.remote.mu.Lock()
+			e.remote.snap.Connecting = false
+			e.remote.snap.Error = err.Error()
+			e.publishSnapLocked()
+			e.remote.mu.Unlock()
+			e.postRemoteStatusBG("Remote connect failed: " + err.Error())
+			return
+		}
+		connCtx, connCancel := context.WithTimeout(ctx, 15*time.Second)
+		err = e.connectRemoteFromDial(connCtx, transport, nil, interval)
+		connCancel()
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			e.remote.mu.Lock()
+			e.remote.snap.Connecting = false
+			e.remote.snap.Error = err.Error()
+			e.publishSnapLocked()
+			e.remote.mu.Unlock()
+			e.postRemoteStatusBG("Remote connect failed: " + err.Error())
+		}
+	}()
+}
+
 // DisconnectRemote closes any active remote MCP client session and stops background polling.
 // Any unkept RemoteLiveChanges are preserved so the author can still keep them in the scene or discard them after stopping.
 func (e *Editor) DisconnectRemote() error {
+	return e.disconnectRemote(false)
+}
+
+func (e *Editor) disconnectRemote(fromBG bool) error {
 	if e == nil {
 		return nil
 	}
@@ -440,12 +660,16 @@ func (e *Editor) DisconnectRemote() error {
 	cs := e.remote.session
 	cancelTransport := e.remote.cancelTransport
 	cancel := e.remote.cancelPoll
-	done := e.remote.pollDone
+	pollDone := e.remote.pollDone
+	actionDone := e.remote.actionDone
 	wasConnected := e.remote.snap.Connected || e.remote.snap.Connecting
 	e.remote.session = nil
+	e.remote.sessionCtx = nil
 	e.remote.cancelTransport = nil
 	e.remote.cancelPoll = nil
 	e.remote.pollDone = nil
+	e.remote.actionCh = nil
+	e.remote.actionDone = nil
 	e.remote.snap.Connected = false
 	e.remote.snap.Connecting = false
 	e.remote.snap.Error = ""
@@ -463,7 +687,7 @@ func (e *Editor) DisconnectRemote() error {
 	e.remote.snap.Taken = nil
 	e.remote.seenObjects = nil
 	e.remote.takenByID = nil
-	e.remote.lastDigest = ""
+	e.publishSnapLocked()
 	e.remote.mu.Unlock()
 
 	if cancel != nil {
@@ -476,11 +700,18 @@ func (e *Editor) DisconnectRemote() error {
 	if cs != nil {
 		closeErr = cs.Close()
 	}
-	if done != nil {
-		<-done
+	if pollDone != nil {
+		<-pollDone
+	}
+	if actionDone != nil {
+		<-actionDone
 	}
 	if wasConnected {
-		e.postRemoteNotify()
+		if fromBG {
+			e.postRemoteNotifyBG()
+		} else {
+			e.postRemoteNotify()
+		}
 	}
 	return closeErr
 }
@@ -491,7 +722,10 @@ func (e *Editor) stopRemoteDial() {
 	done := e.remote.dialDone
 	e.remote.cancelDial = nil
 	e.remote.dialDone = nil
-	e.remote.snap.Connecting = false
+	if e.remote.snap.Connecting {
+		e.remote.snap.Connecting = false
+		e.publishSnapLocked()
+	}
 	e.remote.mu.Unlock()
 	if cancel != nil {
 		cancel()
@@ -503,6 +737,10 @@ func (e *Editor) stopRemoteDial() {
 
 // startRemoteAutoConnect dials the running game's MCP endpoint in the background after RunGameWith launches with -automation.
 func (e *Editor) startRemoteAutoConnect(spec RunGameSpec, runDone <-chan struct{}) {
+	e.syncRemoteDocObjectIDs()
+	transportFn := e.RemoteTransport
+	interval := e.RemoteRefreshInterval
+
 	e.stopRemoteDial()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -513,6 +751,7 @@ func (e *Editor) startRemoteAutoConnect(spec RunGameSpec, runDone <-chan struct{
 	e.remote.tab = SceneTreeRemote
 	e.remote.snap.Connecting = true
 	e.remote.snap.Error = ""
+	e.publishSnapLocked()
 	e.remote.mu.Unlock()
 	e.postRemoteNotify()
 
@@ -528,8 +767,9 @@ func (e *Editor) startRemoteAutoConnect(spec RunGameSpec, runDone <-chan struct{
 			case <-runDone:
 				e.remote.mu.Lock()
 				e.remote.snap.Connecting = false
+				e.publishSnapLocked()
 				e.remote.mu.Unlock()
-				e.postRemoteNotify()
+				e.postRemoteNotifyBG()
 				return
 			default:
 			}
@@ -537,8 +777,8 @@ func (e *Editor) startRemoteAutoConnect(spec RunGameSpec, runDone <-chan struct{
 			transportCtx, cancelTransport := context.WithCancel(context.Background())
 			var transport sdkmcp.Transport
 			var err error
-			if e.RemoteTransport != nil {
-				transport, err = e.RemoteTransport(transportCtx, spec)
+			if transportFn != nil {
+				transport, err = transportFn(transportCtx, spec)
 			} else if canConnectRemoteCommand {
 				transport, err = newRemoteCommandTransport(spec.Dir)
 			} else {
@@ -546,7 +786,7 @@ func (e *Editor) startRemoteAutoConnect(spec RunGameSpec, runDone <-chan struct{
 			}
 			if err == nil && transport != nil {
 				connCtx, connCancel := context.WithTimeout(ctx, 15*time.Second)
-				err = e.connectRemoteFromDial(connCtx, transport, cancelTransport)
+				err = e.connectRemoteFromDial(connCtx, transport, cancelTransport, interval)
 				connCancel()
 				if err == nil {
 					return
@@ -558,8 +798,9 @@ func (e *Editor) startRemoteAutoConnect(spec RunGameSpec, runDone <-chan struct{
 				e.remote.mu.Lock()
 				e.remote.snap.Connecting = false
 				e.remote.snap.Error = err.Error()
+				e.publishSnapLocked()
 				e.remote.mu.Unlock()
-				e.postRemoteNotify()
+				e.postRemoteNotifyBG()
 				return
 			}
 
@@ -569,8 +810,9 @@ func (e *Editor) startRemoteAutoConnect(spec RunGameSpec, runDone <-chan struct{
 			case <-runDone:
 				e.remote.mu.Lock()
 				e.remote.snap.Connecting = false
+				e.publishSnapLocked()
 				e.remote.mu.Unlock()
-				e.postRemoteNotify()
+				e.postRemoteNotifyBG()
 				return
 			case <-time.After(backoff):
 				if backoff < 500*time.Millisecond {
@@ -582,7 +824,10 @@ func (e *Editor) startRemoteAutoConnect(spec RunGameSpec, runDone <-chan struct{
 }
 
 // connectRemoteFromDial establishes a session without calling stopRemoteDial (which would wait on itself).
-func (e *Editor) connectRemoteFromDial(ctx context.Context, transport sdkmcp.Transport, cancelTransport context.CancelFunc) error {
+func (e *Editor) connectRemoteFromDial(ctx context.Context, transport sdkmcp.Transport, cancelTransport context.CancelFunc, interval time.Duration) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	client := sdkmcp.NewClient(&sdkmcp.Implementation{
 		Name:    "nsgo-game-editor",
 		Version: "1.0.0",
@@ -593,15 +838,28 @@ func (e *Editor) connectRemoteFromDial(ctx context.Context, transport sdkmcp.Tra
 	}
 	pollCtx, cancelPoll := context.WithCancel(context.Background())
 	pollDone := make(chan struct{})
+	actionCh := make(chan func(), 64)
+	actionDone := make(chan struct{})
 
 	e.remote.mu.Lock()
+	if err := ctx.Err(); err != nil {
+		e.remote.mu.Unlock()
+		cancelPoll()
+		_ = cs.Close()
+		return err
+	}
 	oldCS := e.remote.session
 	oldCancel := e.remote.cancelPoll
 	oldTransportCancel := e.remote.cancelTransport
+	oldPollDone := e.remote.pollDone
+	oldActionDone := e.remote.actionDone
 	e.remote.session = cs
+	e.remote.sessionCtx = pollCtx
 	e.remote.cancelTransport = cancelTransport
 	e.remote.cancelPoll = cancelPoll
 	e.remote.pollDone = pollDone
+	e.remote.actionCh = actionCh
+	e.remote.actionDone = actionDone
 	e.remote.tab = SceneTreeRemote
 	e.remote.snap = RemoteSnapshot{
 		Connected:  true,
@@ -609,10 +867,10 @@ func (e *Editor) connectRemoteFromDial(ctx context.Context, transport sdkmcp.Tra
 	}
 	e.remote.seenObjects = make(map[string]RemoteTakenEntity)
 	e.remote.takenByID = make(map[string]RemoteTakenEntity)
-	e.remote.lastDigest = ""
 	if e.remote.selectedStep <= 0 {
 		e.remote.selectedStep = 1
 	}
+	e.publishSnapLocked()
 	e.remote.mu.Unlock()
 
 	if oldCancel != nil {
@@ -624,17 +882,76 @@ func (e *Editor) connectRemoteFromDial(ctx context.Context, transport sdkmcp.Tra
 	if oldCS != nil {
 		_ = oldCS.Close()
 	}
+	if oldPollDone != nil {
+		<-oldPollDone
+	}
+	if oldActionDone != nil {
+		<-oldActionDone
+	}
 
-	_ = e.RefreshRemote()
-	go e.remotePollLoop(pollCtx, cs, pollDone)
-	e.postRemoteStatus("Connected to running game")
+	_ = e.refreshRemoteForSession(pollCtx, cs, true, true)
+	go e.remoteActionLoop(pollCtx, actionCh, actionDone)
+	go e.remotePollLoop(pollCtx, cs, interval, pollDone)
+	e.postRemoteStatusBG("Connected to running game")
 	return nil
 }
 
-func (e *Editor) remotePollLoop(ctx context.Context, cs *sdkmcp.ClientSession, done chan struct{}) {
+func (e *Editor) remoteActionLoop(ctx context.Context, ch <-chan func(), done chan struct{}) {
+	defer close(done)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case fn := <-ch:
+			if ctx.Err() != nil {
+				return
+			}
+			fn()
+		}
+	}
+}
+
+func (e *Editor) dispatchRemoteAction(cx *core.Scope, fn func() error) {
+	if e == nil || fn == nil {
+		return
+	}
+	e.remote.mu.Lock()
+	ch := e.remote.actionCh
+	ctx := e.remote.sessionCtx
+	scope := e.remote.scope
+	e.remote.mu.Unlock()
+	if scope == nil {
+		scope = cx
+	}
+	if ch == nil || ctx == nil {
+		// Disconnected (no RPC will be made); run directly on caller goroutine.
+		e.report(fn())
+		return
+	}
+	run := func() {
+		err := fn()
+		if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, ErrRemoteNotConnected) {
+			if scope != nil {
+				scope.Post(func() { e.report(err) })
+			}
+		}
+	}
+	select {
+	case ch <- run:
+	case <-ctx.Done():
+	default:
+		if scope != nil {
+			scope.Post(func() {
+				e.Status = "Remote action queue busy"
+				e.notify()
+			})
+		}
+	}
+}
+
+func (e *Editor) remotePollLoop(ctx context.Context, cs *sdkmcp.ClientSession, interval time.Duration, done chan struct{}) {
 	defer close(done)
 
-	interval := e.RemoteRefreshInterval
 	if interval <= 0 {
 		interval = defaultRemoteRefreshInterval
 	}
@@ -652,15 +969,23 @@ func (e *Editor) remotePollLoop(ctx context.Context, cs *sdkmcp.ClientSession, d
 		case <-ctx.Done():
 			return
 		case <-sessionClosed:
+			var cancel context.CancelFunc
 			e.remote.mu.Lock()
 			if e.remote.session == cs {
+				cancel = e.remote.cancelPoll
 				e.remote.session = nil
+				e.remote.sessionCtx = nil
+				e.remote.actionCh = nil
 				e.remote.snap.Connected = false
 				e.remote.snap.Connecting = false
 				e.remote.snap.Loop = nil
+				e.publishSnapLocked()
 			}
 			e.remote.mu.Unlock()
-			e.postRemoteNotify()
+			if cancel != nil {
+				cancel()
+			}
+			e.postRemoteNotifyBG()
 			return
 		case <-ticker.C:
 			// Avoid redundant polling traffic while paused; explicit Step/Edit/Refresh calls refresh immediately.
@@ -674,23 +999,27 @@ func (e *Editor) remotePollLoop(ctx context.Context, cs *sdkmcp.ClientSession, d
 			if paused {
 				continue
 			}
-			_ = e.refreshRemote(ctx, false)
+			_ = e.refreshRemoteForSession(ctx, cs, true, false)
 		}
 	}
 }
 
-func (e *Editor) remoteSession() (*sdkmcp.ClientSession, error) {
+func (e *Editor) remoteSession() (*sdkmcp.ClientSession, context.Context, error) {
 	if e == nil {
-		return nil, ErrRemoteNotConnected
+		return nil, nil, ErrRemoteNotConnected
 	}
 	e.remote.mu.Lock()
 	cs := e.remote.session
+	ctx := e.remote.sessionCtx
 	connected := e.remote.snap.Connected
 	e.remote.mu.Unlock()
 	if cs == nil || !connected {
-		return nil, ErrRemoteNotConnected
+		return nil, nil, ErrRemoteNotConnected
 	}
-	return cs, nil
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return cs, ctx, nil
 }
 
 func callRemoteToolJSON(ctx context.Context, cs *sdkmcp.ClientSession, name string, args any, dst any) error {
@@ -748,19 +1077,26 @@ func extractMCPText(res *sdkmcp.CallToolResult) string {
 
 // RefreshRemote queries the connected running game for its latest scenes, layers, live entities, selected entity components, loop state, and tunables.
 func (e *Editor) RefreshRemote() error {
-	return e.refreshRemote(context.Background(), true)
-}
-
-func (e *Editor) refreshRemote(ctx context.Context, forceNotify bool) error {
-	cs, err := e.remoteSession()
+	cs, ctx, err := e.remoteSession()
 	if err != nil {
 		return err
+	}
+	return e.refreshRemoteForSession(ctx, cs, false, true)
+}
+
+func (e *Editor) refreshRemoteForSession(ctx context.Context, cs *sdkmcp.ClientSession, fromBG, forceNotify bool) error {
+	if cs == nil {
+		return ErrRemoteNotConnected
 	}
 
 	e.remote.refreshMu.Lock()
 	defer e.remote.refreshMu.Unlock()
 
 	e.remote.mu.Lock()
+	if e.remote.session != cs {
+		e.remote.mu.Unlock()
+		return ErrRemoteNotConnected
+	}
 	activeScene := e.remote.snap.ActiveScene
 	selectedRef := e.remote.snap.SelectedRef
 	e.remote.mu.Unlock()
@@ -839,7 +1175,7 @@ func (e *Editor) refreshRemote(ctx context.Context, forceNotify bool) error {
 	e.remote.mu.Lock()
 	if e.remote.session != cs {
 		e.remote.mu.Unlock()
-		return nil
+		return ErrRemoteNotConnected
 	}
 	if e.remote.seenObjects == nil {
 		e.remote.seenObjects = make(map[string]RemoteTakenEntity)
@@ -847,14 +1183,18 @@ func (e *Editor) refreshRemote(ctx context.Context, forceNotify bool) error {
 	if e.remote.takenByID == nil {
 		e.remote.takenByID = make(map[string]RemoteTakenEntity)
 	}
+	// Read snapshotted docObjectIDs under e.remote.mu — never touch e.Doc from background polling.
+	docIDs := e.remote.docObjectIDs
 	for _, ent := range entitiesRes.Entities {
-		if ent.Name != "" && e.docHasObjectID(ent.Name) {
-			e.remote.seenObjects[ent.Name] = RemoteTakenEntity{
-				ObjectID: ent.Name,
-				Name:     ent.Name,
-				Layer:    ent.Layer,
+		if ent.Name != "" {
+			if _, ok := docIDs[ent.Name]; ok {
+				e.remote.seenObjects[ent.Name] = RemoteTakenEntity{
+					ObjectID: ent.Name,
+					Name:     ent.Name,
+					Layer:    ent.Layer,
+				}
+				delete(e.remote.takenByID, ent.Name)
 			}
-			delete(e.remote.takenByID, ent.Name)
 		}
 	}
 	for id, seen := range e.remote.seenObjects {
@@ -894,23 +1234,76 @@ func (e *Editor) refreshRemote(ctx context.Context, forceNotify bool) error {
 		next.Error = firstErr.Error()
 	}
 
-	digest := remoteSnapshotDigest(next)
-	changed := digest != e.remote.lastDigest
+	changed := !remoteSnapshotsEqual(e.remote.snap, next)
 	e.remote.snap = next
-	e.remote.lastDigest = digest
+	if forceNotify || changed {
+		e.publishSnapLocked()
+	}
 	e.remote.mu.Unlock()
 
 	if forceNotify || changed {
-		e.postRemoteNotify()
+		if fromBG {
+			e.postRemoteNotifyBG()
+		} else {
+			e.postRemoteNotify()
+		}
 	}
 	return firstErr
 }
 
-func remoteSnapshotDigest(s RemoteSnapshot) string {
-	copySnap := s
-	copySnap.RefreshCount = 0
-	b, _ := json.Marshal(copySnap)
-	return string(b)
+func remoteSnapshotsEqual(a, b RemoteSnapshot) bool {
+	if a.Connected != b.Connected ||
+		a.Connecting != b.Connecting ||
+		a.Error != b.Error ||
+		a.ActiveScene != b.ActiveScene ||
+		a.SelectedRef != b.SelectedRef ||
+		a.FPS != b.FPS ||
+		a.HasFPS != b.HasFPS ||
+		a.HasConsole != b.HasConsole ||
+		a.Scenes.Current != b.Scenes.Current ||
+		!slices.Equal(a.Scenes.Scenes, b.Scenes.Scenes) ||
+		!slices.Equal(a.Layers, b.Layers) ||
+		!slices.Equal(a.Taken, b.Taken) ||
+		len(a.Entities) != len(b.Entities) {
+		return false
+	}
+	if (a.Loop == nil) != (b.Loop == nil) {
+		return false
+	}
+	if a.Loop != nil && *a.Loop != *b.Loop {
+		return false
+	}
+	for i := range a.Entities {
+		ea, eb := a.Entities[i], b.Entities[i]
+		if ea.Ref != eb.Ref || ea.Name != eb.Name || ea.Layer != eb.Layer || ea.Parent != eb.Parent ||
+			!slices.Equal(ea.Tags, eb.Tags) || !slices.Equal(ea.Components, eb.Components) {
+			return false
+		}
+	}
+	if (a.Inspected == nil) != (b.Inspected == nil) {
+		return false
+	}
+	if a.Inspected != nil {
+		ia, ib := a.Inspected, b.Inspected
+		if ia.Ref != ib.Ref || ia.Name != ib.Name || ia.Layer != ib.Layer || ia.Parent != ib.Parent ||
+			!slices.Equal(ia.Tags, ib.Tags) || !slices.Equal(ia.Children, ib.Children) ||
+			len(ia.Components) != len(ib.Components) {
+			return false
+		}
+		for k, va := range ia.Components {
+			vb, ok := ib.Components[k]
+			if !ok || !bytes.Equal(va, vb) {
+				return false
+			}
+		}
+	}
+	if len(a.Tunables) != len(b.Tunables) {
+		return false
+	}
+	if len(a.Tunables) > 0 && !reflect.DeepEqual(a.Tunables, b.Tunables) {
+		return false
+	}
+	return true
 }
 
 func remoteHasScene(res gamemcp.ScenesListResult, name string) bool {
@@ -941,7 +1334,7 @@ func (e *Editor) docHasObjectID(id string) bool {
 
 // SelectRemoteScene chooses which remote scene's layers are shown in the Remote tab and refreshes layers immediately.
 func (e *Editor) SelectRemoteScene(name string) error {
-	cs, err := e.remoteSession()
+	cs, ctx, err := e.remoteSession()
 	if err != nil {
 		return err
 	}
@@ -950,13 +1343,17 @@ func (e *Editor) SelectRemoteScene(name string) error {
 	if name != "" {
 		args["scene"] = name
 	}
-	if err := callRemoteToolJSON(context.Background(), cs, gamemcp.ToolLayersList, args, &layersRes); err != nil {
+	if err := callRemoteToolJSON(ctx, cs, gamemcp.ToolLayersList, args, &layersRes); err != nil {
 		return err
 	}
 	e.remote.mu.Lock()
+	if e.remote.session != cs {
+		e.remote.mu.Unlock()
+		return ErrRemoteNotConnected
+	}
 	e.remote.snap.ActiveScene = name
 	e.remote.snap.Layers = layersRes.Layers
-	e.remote.lastDigest = remoteSnapshotDigest(e.remote.snap)
+	e.publishSnapLocked()
 	e.remote.mu.Unlock()
 	e.postRemoteNotify()
 	return nil
@@ -972,23 +1369,27 @@ func (e *Editor) SelectRemoteEntity(ref string) error {
 		e.remote.mu.Lock()
 		e.remote.snap.SelectedRef = ""
 		e.remote.snap.Inspected = nil
-		e.remote.lastDigest = remoteSnapshotDigest(e.remote.snap)
+		e.publishSnapLocked()
 		e.remote.mu.Unlock()
 		e.postRemoteNotify()
 		return nil
 	}
-	cs, err := e.remoteSession()
+	cs, ctx, err := e.remoteSession()
 	if err != nil {
 		return err
 	}
 	var ins gamemcp.EntityInspectResult
-	if err := callRemoteToolJSON(context.Background(), cs, gamemcp.ToolEntityInspect, map[string]any{"ref": ref}, &ins); err != nil {
+	if err := callRemoteToolJSON(ctx, cs, gamemcp.ToolEntityInspect, map[string]any{"ref": ref}, &ins); err != nil {
 		return err
 	}
 	e.remote.mu.Lock()
+	if e.remote.session != cs {
+		e.remote.mu.Unlock()
+		return ErrRemoteNotConnected
+	}
 	e.remote.snap.SelectedRef = ref
 	e.remote.snap.Inspected = &ins
-	e.remote.lastDigest = remoteSnapshotDigest(e.remote.snap)
+	e.publishSnapLocked()
 	e.remote.mu.Unlock()
 	e.postRemoteNotify()
 	return nil
@@ -996,7 +1397,7 @@ func (e *Editor) SelectRemoteEntity(ref string) error {
 
 // SetRemoteComponentField patches one field of component on the live entity ref via game_component_set, records or updates the edit in RemoteLiveChanges, and updates the cached inspection snapshot.
 func (e *Editor) SetRemoteComponentField(ref, component, field string, value any) error {
-	cs, err := e.remoteSession()
+	cs, ctx, err := e.remoteSession()
 	if err != nil {
 		return err
 	}
@@ -1005,12 +1406,12 @@ func (e *Editor) SetRemoteComponentField(ref, component, field string, value any
 	}
 
 	// Ensure we know the current value (and entity name / object_ref) before editing so LiveChanges captures the baseline From value.
-	ins := e.inspectForChangeBaseline(cs, ref)
+	ins := e.inspectForChangeBaseline(ctx, cs, ref)
 	oldVal := extractComponentFieldValue(ins, component, field)
 	entityName, objectID := remoteEntityIdentity(ins, ref)
 
 	var res gamemcp.ComponentSetResult
-	if err := callRemoteToolJSON(context.Background(), cs, gamemcp.ToolComponentSet, map[string]any{
+	if err := callRemoteToolJSON(ctx, cs, gamemcp.ToolComponentSet, map[string]any{
 		"ref":       ref,
 		"component": component,
 		"value":     map[string]any{field: value},
@@ -1019,6 +1420,10 @@ func (e *Editor) SetRemoteComponentField(ref, component, field string, value any
 	}
 
 	e.remote.mu.Lock()
+	if e.remote.session != cs {
+		e.remote.mu.Unlock()
+		return ErrRemoteNotConnected
+	}
 	if e.remote.snap.Inspected != nil && e.remote.snap.Inspected.Ref == ref {
 		if e.remote.snap.Inspected.Components == nil {
 			e.remote.snap.Inspected.Components = make(map[string]json.RawMessage)
@@ -1046,7 +1451,7 @@ func (e *Editor) SetRemoteComponentField(ref, component, field string, value any
 		From:       oldVal,
 		To:         appliedVal,
 	})
-	e.remote.lastDigest = remoteSnapshotDigest(e.remote.snap)
+	e.publishSnapLocked()
 	e.remote.mu.Unlock()
 
 	e.postRemoteStatus(fmt.Sprintf("Live set %s.%s", component, field))
@@ -1055,7 +1460,7 @@ func (e *Editor) SetRemoteComponentField(ref, component, field string, value any
 
 // SetRemoteComponentValue sets or replaces a scalar or structured component value on the live entity ref via game_component_set.
 func (e *Editor) SetRemoteComponentValue(ref, component string, value any, replace bool) error {
-	cs, err := e.remoteSession()
+	cs, ctx, err := e.remoteSession()
 	if err != nil {
 		return err
 	}
@@ -1063,7 +1468,7 @@ func (e *Editor) SetRemoteComponentValue(ref, component string, value any, repla
 		return errors.New("editor: remote component set requires ref and component")
 	}
 
-	ins := e.inspectForChangeBaseline(cs, ref)
+	ins := e.inspectForChangeBaseline(ctx, cs, ref)
 	var oldVal any
 	if ins != nil {
 		if raw, ok := ins.Components[component]; ok {
@@ -1073,7 +1478,7 @@ func (e *Editor) SetRemoteComponentValue(ref, component string, value any, repla
 	entityName, objectID := remoteEntityIdentity(ins, ref)
 
 	var res gamemcp.ComponentSetResult
-	if err := callRemoteToolJSON(context.Background(), cs, gamemcp.ToolComponentSet, map[string]any{
+	if err := callRemoteToolJSON(ctx, cs, gamemcp.ToolComponentSet, map[string]any{
 		"ref":       ref,
 		"component": component,
 		"value":     value,
@@ -1083,6 +1488,10 @@ func (e *Editor) SetRemoteComponentValue(ref, component string, value any, repla
 	}
 
 	e.remote.mu.Lock()
+	if e.remote.session != cs {
+		e.remote.mu.Unlock()
+		return ErrRemoteNotConnected
+	}
 	if e.remote.snap.Inspected != nil && e.remote.snap.Inspected.Ref == ref {
 		if e.remote.snap.Inspected.Components == nil {
 			e.remote.snap.Inspected.Components = make(map[string]json.RawMessage)
@@ -1107,23 +1516,29 @@ func (e *Editor) SetRemoteComponentValue(ref, component string, value any, repla
 		From:       oldVal,
 		To:         appliedVal,
 	})
-	e.remote.lastDigest = remoteSnapshotDigest(e.remote.snap)
+	e.publishSnapLocked()
 	e.remote.mu.Unlock()
 
 	e.postRemoteStatus(fmt.Sprintf("Live set %s", component))
 	return nil
 }
 
-func (e *Editor) inspectForChangeBaseline(cs *sdkmcp.ClientSession, ref string) *gamemcp.EntityInspectResult {
+func (e *Editor) inspectForChangeBaseline(ctx context.Context, cs *sdkmcp.ClientSession, ref string) *gamemcp.EntityInspectResult {
 	e.remote.mu.Lock()
-	if e.remote.snap.Inspected != nil && e.remote.snap.Inspected.Ref == ref {
+	if e.remote.session == cs && e.remote.snap.Inspected != nil && e.remote.snap.Inspected.Ref == ref {
 		cp := *e.remote.snap.Inspected
+		if e.remote.snap.Inspected.Components != nil {
+			cp.Components = make(map[string]json.RawMessage, len(e.remote.snap.Inspected.Components))
+			for k, v := range e.remote.snap.Inspected.Components {
+				cp.Components[k] = slices.Clone(v)
+			}
+		}
 		e.remote.mu.Unlock()
 		return &cp
 	}
 	e.remote.mu.Unlock()
 	var ins gamemcp.EntityInspectResult
-	if err := callRemoteToolJSON(context.Background(), cs, gamemcp.ToolEntityInspect, map[string]any{"ref": ref}, &ins); err == nil {
+	if err := callRemoteToolJSON(ctx, cs, gamemcp.ToolEntityInspect, map[string]any{"ref": ref}, &ins); err == nil {
 		return &ins
 	}
 	return nil
@@ -1234,16 +1649,46 @@ func (e *Editor) RevertRemoteLiveChange(index int) error {
 	}
 	change := e.remote.liveChanges[index]
 	cs := e.remote.session
+	ctx := e.remote.sessionCtx
 	connected := e.remote.snap.Connected
 	e.remote.mu.Unlock()
 
+	return e.revertRemoteLiveChange(change, cs, ctx, connected)
+}
+
+func (e *Editor) revertRemoteLiveChangeByKey(ref, component, field string) error {
+	if e == nil {
+		return nil
+	}
+	e.remote.mu.Lock()
+	idx := -1
+	for i, c := range e.remote.liveChanges {
+		if c.EntityRef == ref && c.Component == component && c.Field == field {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		e.remote.mu.Unlock()
+		return nil
+	}
+	change := e.remote.liveChanges[idx]
+	cs := e.remote.session
+	ctx := e.remote.sessionCtx
+	connected := e.remote.snap.Connected
+	e.remote.mu.Unlock()
+
+	return e.revertRemoteLiveChange(change, cs, ctx, connected)
+}
+
+func (e *Editor) revertRemoteLiveChange(change RemoteLiveChange, cs *sdkmcp.ClientSession, ctx context.Context, connected bool) error {
 	if connected && cs != nil {
 		var payload any = change.From
 		if change.Field != "" {
 			payload = map[string]any{change.Field: change.From}
 		}
 		var res gamemcp.ComponentSetResult
-		if err := callRemoteToolJSON(context.Background(), cs, gamemcp.ToolComponentSet, map[string]any{
+		if err := callRemoteToolJSON(ctx, cs, gamemcp.ToolComponentSet, map[string]any{
 			"ref":       change.EntityRef,
 			"component": change.Component,
 			"value":     payload,
@@ -1251,7 +1696,7 @@ func (e *Editor) RevertRemoteLiveChange(index int) error {
 			return err
 		}
 		e.remote.mu.Lock()
-		if e.remote.snap.Inspected != nil && e.remote.snap.Inspected.Ref == change.EntityRef && len(res.Value) > 0 {
+		if e.remote.session == cs && e.remote.snap.Inspected != nil && e.remote.snap.Inspected.Ref == change.EntityRef && len(res.Value) > 0 {
 			if e.remote.snap.Inspected.Components == nil {
 				e.remote.snap.Inspected.Components = make(map[string]json.RawMessage)
 			}
@@ -1268,6 +1713,7 @@ func (e *Editor) RevertRemoteLiveChange(index int) error {
 			break
 		}
 	}
+	e.publishSnapLocked()
 	e.remote.mu.Unlock()
 	e.postRemoteStatus("Reverted live change")
 	return nil
@@ -1282,7 +1728,7 @@ func (e *Editor) DiscardRemoteLiveChanges() error {
 	if len(changes) == 0 {
 		return nil
 	}
-	cs, _ := e.remoteSession()
+	cs, ctx, _ := e.remoteSession()
 	var firstErr error
 	if cs != nil {
 		for _, c := range changes {
@@ -1291,16 +1737,21 @@ func (e *Editor) DiscardRemoteLiveChanges() error {
 				payload = map[string]any{c.Field: c.From}
 			}
 			var res gamemcp.ComponentSetResult
-			if err := callRemoteToolJSON(context.Background(), cs, gamemcp.ToolComponentSet, map[string]any{
+			if err := callRemoteToolJSON(ctx, cs, gamemcp.ToolComponentSet, map[string]any{
 				"ref":       c.EntityRef,
 				"component": c.Component,
 				"value":     payload,
-			}, &res); err != nil && firstErr == nil {
-				firstErr = err
+			}, &res); err != nil {
+				if firstErr == nil {
+					firstErr = err
+				}
+				if errors.Is(err, context.Canceled) {
+					break
+				}
 				continue
 			}
 			e.remote.mu.Lock()
-			if e.remote.snap.Inspected != nil && e.remote.snap.Inspected.Ref == c.EntityRef && len(res.Value) > 0 {
+			if e.remote.session == cs && e.remote.snap.Inspected != nil && e.remote.snap.Inspected.Ref == c.EntityRef && len(res.Value) > 0 {
 				if e.remote.snap.Inspected.Components == nil {
 					e.remote.snap.Inspected.Components = make(map[string]json.RawMessage)
 				}
@@ -1311,6 +1762,7 @@ func (e *Editor) DiscardRemoteLiveChanges() error {
 	}
 	e.remote.mu.Lock()
 	e.remote.liveChanges = nil
+	e.publishSnapLocked()
 	e.remote.mu.Unlock()
 	e.postRemoteStatus("Discarded live changes")
 	return firstErr
@@ -1331,12 +1783,11 @@ func (e *Editor) KeepRemoteLiveChangesInScene() (int, error) {
 	}
 
 	type resolvedChange struct {
-		idx      int
 		objectID string
 		change   RemoteLiveChange
 	}
 	var applicable []resolvedChange
-	for i, c := range changes {
+	for _, c := range changes {
 		objID := c.ObjectID
 		if objID == "" && c.EntityName != "" {
 			if obj, _, _ := e.FindObject(c.EntityName); obj != nil {
@@ -1352,7 +1803,7 @@ func (e *Editor) KeepRemoteLiveChangesInScene() (int, error) {
 		if c.Field == "" {
 			continue
 		}
-		applicable = append(applicable, resolvedChange{idx: i, objectID: objID, change: c})
+		applicable = append(applicable, resolvedChange{objectID: objID, change: c})
 	}
 	if len(applicable) == 0 {
 		return 0, errors.New("editor: none of the live changes map to an object in the open scene")
@@ -1374,18 +1825,25 @@ func (e *Editor) KeepRemoteLiveChangesInScene() (int, error) {
 		return 0, err
 	}
 
-	appliedSet := make(map[int]bool, len(applicable))
+	appliedByKey := make(map[remoteChangeKey]any, len(applicable))
 	for _, rc := range applicable {
-		appliedSet[rc.idx] = true
+		appliedByKey[remoteChangeKey{rc.change.EntityRef, rc.change.Component, rc.change.Field}] = rc.change.To
 	}
 	e.remote.mu.Lock()
 	var remaining []RemoteLiveChange
-	for i, c := range e.remote.liveChanges {
-		if !appliedSet[i] {
-			remaining = append(remaining, c)
+	for _, c := range e.remote.liveChanges {
+		k := remoteChangeKey{c.EntityRef, c.Component, c.Field}
+		if appliedTo, ok := appliedByKey[k]; ok {
+			if remoteValuesEqual(c.To, appliedTo) {
+				continue
+			}
+			// A newer live edit updated this same key while keeping; keep the remaining delta.
+			c.From = cloneAny(appliedTo)
 		}
+		remaining = append(remaining, c)
 	}
 	e.remote.liveChanges = remaining
+	e.remote.seq++
 	e.remote.mu.Unlock()
 
 	e.Status = fmt.Sprintf("Kept %d live change(s) in scene", len(applicable))
@@ -1444,38 +1902,46 @@ func (e *Editor) applyRemoteChangeToScene(objectID string, c RemoteLiveChange) e
 
 // RemotePause pauses the running game's fixed-step loop via game_loop_pause.
 func (e *Editor) RemotePause() error {
-	cs, err := e.remoteSession()
+	cs, ctx, err := e.remoteSession()
 	if err != nil {
 		return err
 	}
 	var res gamemcp.LoopStatusResult
-	if err := callRemoteToolJSON(context.Background(), cs, gamemcp.ToolLoopPause, nil, &res); err != nil {
+	if err := callRemoteToolJSON(ctx, cs, gamemcp.ToolLoopPause, nil, &res); err != nil {
 		return err
 	}
 	e.remote.mu.Lock()
+	if e.remote.session != cs {
+		e.remote.mu.Unlock()
+		return ErrRemoteNotConnected
+	}
 	cp := res
 	e.remote.snap.Loop = &cp
-	e.remote.lastDigest = remoteSnapshotDigest(e.remote.snap)
+	e.publishSnapLocked()
 	e.remote.mu.Unlock()
-	_ = e.RefreshRemote()
+	_ = e.refreshRemoteForSession(ctx, cs, false, true)
 	e.postRemoteStatus(fmt.Sprintf("Paused at step %d", res.Steps))
 	return nil
 }
 
 // RemoteResume resumes the running game's fixed-step loop via game_loop_resume.
 func (e *Editor) RemoteResume() error {
-	cs, err := e.remoteSession()
+	cs, ctx, err := e.remoteSession()
 	if err != nil {
 		return err
 	}
 	var res gamemcp.LoopStatusResult
-	if err := callRemoteToolJSON(context.Background(), cs, gamemcp.ToolLoopResume, nil, &res); err != nil {
+	if err := callRemoteToolJSON(ctx, cs, gamemcp.ToolLoopResume, nil, &res); err != nil {
 		return err
 	}
 	e.remote.mu.Lock()
+	if e.remote.session != cs {
+		e.remote.mu.Unlock()
+		return ErrRemoteNotConnected
+	}
 	cp := res
 	e.remote.snap.Loop = &cp
-	e.remote.lastDigest = remoteSnapshotDigest(e.remote.snap)
+	e.publishSnapLocked()
 	e.remote.mu.Unlock()
 	e.postRemoteStatus("Resumed running game")
 	return nil
@@ -1483,7 +1949,7 @@ func (e *Editor) RemoteResume() error {
 
 // RemoteStep synchronously advances the running game by count fixed updates via game_loop_step, then refreshes the remote tree and selected entity inspection.
 func (e *Editor) RemoteStep(count int) (gamemcp.LoopStepResult, error) {
-	cs, err := e.remoteSession()
+	cs, ctx, err := e.remoteSession()
 	if err != nil {
 		return gamemcp.LoopStepResult{}, err
 	}
@@ -1494,35 +1960,44 @@ func (e *Editor) RemoteStep(count int) (gamemcp.LoopStepResult, error) {
 		count = gamemcp.MaxLoopSteps
 	}
 	var res gamemcp.LoopStepResult
-	if err := callRemoteToolJSON(context.Background(), cs, gamemcp.ToolLoopStep, map[string]any{"count": count}, &res); err != nil {
+	if err := callRemoteToolJSON(ctx, cs, gamemcp.ToolLoopStep, map[string]any{"count": count}, &res); err != nil {
 		return gamemcp.LoopStepResult{}, err
 	}
 	e.remote.mu.Lock()
+	if e.remote.session != cs {
+		e.remote.mu.Unlock()
+		return gamemcp.LoopStepResult{}, ErrRemoteNotConnected
+	}
 	if e.remote.snap.Loop != nil {
 		e.remote.snap.Loop.Steps = res.TotalSteps
 		e.remote.snap.Loop.GameTimeSeconds = res.GameTimeSeconds
 		e.remote.snap.Loop.Paused = res.Paused
 	}
+	e.publishSnapLocked()
 	e.remote.mu.Unlock()
-	_ = e.RefreshRemote()
+	_ = e.refreshRemoteForSession(ctx, cs, false, true)
 	e.postRemoteStatus(fmt.Sprintf("Stepped %d update(s) (step %d)", res.StepsAdvanced, res.TotalSteps))
 	return res, nil
 }
 
 // RemoteSetTimeScale sets the running game's simulation time scale via game_loop_time_scale.
 func (e *Editor) RemoteSetTimeScale(scale float64) error {
-	cs, err := e.remoteSession()
+	cs, ctx, err := e.remoteSession()
 	if err != nil {
 		return err
 	}
 	var res gamemcp.LoopStatusResult
-	if err := callRemoteToolJSON(context.Background(), cs, gamemcp.ToolLoopTimeScale, map[string]any{"time_scale": scale}, &res); err != nil {
+	if err := callRemoteToolJSON(ctx, cs, gamemcp.ToolLoopTimeScale, map[string]any{"time_scale": scale}, &res); err != nil {
 		return err
 	}
 	e.remote.mu.Lock()
+	if e.remote.session != cs {
+		e.remote.mu.Unlock()
+		return ErrRemoteNotConnected
+	}
 	cp := res
 	e.remote.snap.Loop = &cp
-	e.remote.lastDigest = remoteSnapshotDigest(e.remote.snap)
+	e.publishSnapLocked()
 	e.remote.mu.Unlock()
 	e.postRemoteStatus(fmt.Sprintf("Time scale: %g×", res.TimeScale))
 	return nil
@@ -1530,12 +2005,12 @@ func (e *Editor) RemoteSetTimeScale(scale float64) error {
 
 // RemoteSetTunable updates a registered debug console tunable on the running game via game_tunable_set.
 func (e *Editor) RemoteSetTunable(name string, value any, clamp bool) (gamemcp.TunableSetResult, error) {
-	cs, err := e.remoteSession()
+	cs, ctx, err := e.remoteSession()
 	if err != nil {
 		return gamemcp.TunableSetResult{}, err
 	}
 	var res gamemcp.TunableSetResult
-	if err := callRemoteToolJSON(context.Background(), cs, gamemcp.ToolTunableSet, map[string]any{
+	if err := callRemoteToolJSON(ctx, cs, gamemcp.ToolTunableSet, map[string]any{
 		"name":  name,
 		"value": value,
 		"clamp": clamp,
@@ -1543,13 +2018,17 @@ func (e *Editor) RemoteSetTunable(name string, value any, clamp bool) (gamemcp.T
 		return gamemcp.TunableSetResult{}, err
 	}
 	e.remote.mu.Lock()
+	if e.remote.session != cs {
+		e.remote.mu.Unlock()
+		return gamemcp.TunableSetResult{}, ErrRemoteNotConnected
+	}
 	for i := range e.remote.snap.Tunables {
 		if e.remote.snap.Tunables[i].Name == name {
 			e.remote.snap.Tunables[i].Value = res.Value
 			break
 		}
 	}
-	e.remote.lastDigest = remoteSnapshotDigest(e.remote.snap)
+	e.publishSnapLocked()
 	e.remote.mu.Unlock()
 	e.postRemoteStatus(fmt.Sprintf("Tunable %s = %v", name, res.Value))
 	return res, nil
@@ -1557,7 +2036,7 @@ func (e *Editor) RemoteSetTunable(name string, value any, clamp bool) (gamemcp.T
 
 // RemoteExecConsole executes a command line on the running game's debug console via game_console_exec, appends the result to RemoteConsoleHistory, and refreshes remote state.
 func (e *Editor) RemoteExecConsole(command string) (gamemcp.ConsoleExecResult, error) {
-	cs, err := e.remoteSession()
+	cs, ctx, err := e.remoteSession()
 	if err != nil {
 		return gamemcp.ConsoleExecResult{}, err
 	}
@@ -1566,7 +2045,7 @@ func (e *Editor) RemoteExecConsole(command string) (gamemcp.ConsoleExecResult, e
 		return gamemcp.ConsoleExecResult{}, errors.New("editor: console command must not be empty")
 	}
 	var res gamemcp.ConsoleExecResult
-	if err := callRemoteToolJSON(context.Background(), cs, gamemcp.ToolConsoleExec, map[string]any{
+	if err := callRemoteToolJSON(ctx, cs, gamemcp.ToolConsoleExec, map[string]any{
 		"command": cmd,
 	}, &res); err != nil {
 		return gamemcp.ConsoleExecResult{}, err
@@ -1581,13 +2060,18 @@ func (e *Editor) RemoteExecConsole(command string) (gamemcp.ConsoleExecResult, e
 		Error:   res.Error,
 	}
 	e.remote.mu.Lock()
+	if e.remote.session != cs {
+		e.remote.mu.Unlock()
+		return gamemcp.ConsoleExecResult{}, ErrRemoteNotConnected
+	}
 	e.remote.consoleLog = append(e.remote.consoleLog, entry)
 	if len(e.remote.consoleLog) > maxRemoteConsoleEntries {
 		e.remote.consoleLog = e.remote.consoleLog[len(e.remote.consoleLog)-maxRemoteConsoleEntries:]
 	}
+	e.remote.seq++
 	e.remote.mu.Unlock()
 
-	_ = e.RefreshRemote()
+	_ = e.refreshRemoteForSession(ctx, cs, false, true)
 	e.postRemoteNotify()
 	return res, nil
 }
@@ -1611,6 +2095,9 @@ func (e *Editor) setRemoteStepCount(n int) {
 	e.remote.mu.Lock()
 	changed := e.remote.selectedStep != n
 	e.remote.selectedStep = n
+	if changed {
+		e.remote.seq++
+	}
 	e.remote.mu.Unlock()
 	if changed {
 		e.notify()
@@ -1633,6 +2120,20 @@ func (e *Editor) postRemoteNotify() {
 	e.notify()
 }
 
+func (e *Editor) postRemoteNotifyBG() {
+	if e == nil {
+		return
+	}
+	e.remote.mu.Lock()
+	scope := e.remote.scope
+	e.remote.mu.Unlock()
+	if scope != nil {
+		scope.Post(func() {
+			e.notify()
+		})
+	}
+}
+
 func (e *Editor) postRemoteStatus(status string) {
 	if e == nil {
 		return
@@ -1649,4 +2150,19 @@ func (e *Editor) postRemoteStatus(status string) {
 	}
 	e.Status = status
 	e.notify()
+}
+
+func (e *Editor) postRemoteStatusBG(status string) {
+	if e == nil {
+		return
+	}
+	e.remote.mu.Lock()
+	scope := e.remote.scope
+	e.remote.mu.Unlock()
+	if scope != nil {
+		scope.Post(func() {
+			e.Status = status
+			e.notify()
+		})
+	}
 }
