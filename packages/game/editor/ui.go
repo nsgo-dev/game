@@ -253,6 +253,7 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 									toolBtn("tool-paint", "Paint", ToolPaintTile),
 									toolBtn("tool-erase", "Erase", ToolEraseTile),
 									toolBtn("tool-fill", "Fill", ToolFillTile),
+									toolBtn("tool-pick", "Pick", ToolPickTile),
 								},
 							}
 						},

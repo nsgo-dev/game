@@ -522,9 +522,19 @@ In Go, `BeginDrag2D(x, y)` starts a drag at a canvas point and returns the handl
 
 ## Tile palette (#874)
 
-While the Paint, Erase or Fill tool is active in 2D, the tile palette shows right of the viewport. It shows the tiles of the active layer's tileset as a grid in tile ID order, each at the tilemap's tile size (a tile wider than the panel is scaled down to fit it). The tiles are the tileset atlas's frames whose names are tile IDs (`"1"`, `"2"`, …), as the scene format looks tiles up; other frames are left out. Pressing a tile, or moving between tiles with the arrow keys, makes it the tile Paint and Fill write (`SetActiveTileID`); every arrow key steps through the tiles in ID order, Left and Up to the previous tile and Right and Down to the next, not by rows of the grid. The selected tile is ringed, and with Paint or Fill the status bar shows its ID. Choosing a tile is not an edit and does not go into the undo history; the paint that follows is one undoable step.
+While the Paint, Erase, Fill or Pick tool is active in 2D, the tile palette shows right of the viewport. It shows the tiles of the active layer's tileset as a grid in tile ID order, each at the tilemap's tile size (a tile wider than the panel is scaled down to fit it). The tiles are the tileset atlas's frames whose names are tile IDs (`"1"`, `"2"`, …), as the scene format looks tiles up; other frames are left out. Pressing a tile, or moving between tiles with the arrow keys, makes it the tile Paint and Fill write (`SetActiveTileID`); every arrow key steps through the tiles in ID order, Left and Up to the previous tile and Right and Down to the next, not by rows of the grid. The selected tile is ringed, and with Paint or Fill the status bar shows its ID. Choosing a tile is not an edit and does not go into the undo history; the paint that follows is one undoable step.
 
 The palette follows the active layer: when it changes, the palette shows the new layer's tileset, and if that tileset has no tile with the selected ID, its first tile is selected. A layer with no inline tilemap (none, or an external Tiled map), a tileset the resolver cannot resolve and a tileset without tile frames each show a message saying so instead of an empty grid. In Go, `TilePalette()` returns what the palette shows for the active layer: its tileset, tile size and tiles, or the message.
+
+## Painting, erasing and picking tiles (#875)
+
+With Paint or Erase, a drag with the mouse or one finger paints or erases every cell it crosses, however fast it moves, and the whole stroke is one undoable step, so one Undo takes back a row painted in one drag. A click or tap paints or erases its one cell. With Paint, a right-button drag erases. A stroke that starts off the map paints once it reaches it, a stroke that changes nothing records nothing, and a drag with Space held pans the view instead. A second finger cancels a one-finger stroke and puts its cells back, so a two-finger pan never paints.
+
+While a tile tool is active, the cell under the mouse is outlined, snapped to the grid: with Paint and Fill it shows the selected tile faded in the cell, with Erase it is tinted red, and when a press would pick it is outlined in amber.
+
+Picking takes the tile in a cell as the tile to paint, and the palette selects it: Alt+click (or Alt+drag) with any tile tool, or the Pick tool, which then hands over to Paint. An empty cell leaves the selected tile as it was. Picking is not an edit and does not go into the undo history.
+
+In Go, `BeginTileStroke(mode, x, y)`, `ContinueTileStroke` and `EndTileStroke` draw a stroke (`TileStrokePaint`, `TileStrokeErase` or `TileStrokePick`) at canvas points, `CancelTileStroke` puts it back and `TileStrokeActive` reports one under way; choosing a tool or layer, switching views, Undo, Redo and Play end a stroke under way first. `PickTile(layer, col, row)` picks, `SetTileHover` and `ClearTileHover` move the outline and `HoveredTile` returns the cell it is on.
 
 ## Scene tree (#861)
 
