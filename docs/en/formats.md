@@ -846,6 +846,72 @@ actions:
           shiftX: 0.5
 ```
 
+<!-- format: ai#goap -->
+### GOAP action set
+
+| Files | Version | Read and written by | Fields |
+| --- | --- | --- | --- |
+| Any `.yaml` file the game loads, such as `camp.goap.yaml` | `version: 1` | `ai.ParseGOAP`, `ai.EncodeGOAP` | [ai](ai.md#goal-oriented-action-planning-goap) |
+
+```yaml
+version: 1
+nodeBudget: 512
+facts:
+  bools:
+    - has_axe
+    - has_fire
+  ints:
+    - wood
+actions:
+  - name: fetch_axe
+    cost: 1
+    check: axe_available
+    effects:
+      bools:
+        - fact: has_axe
+          value: true
+  - name: chop_wood
+    cost: 1
+    preconditions:
+      bools:
+        - fact: has_axe
+          value: true
+    effects:
+      ints:
+        - fact: wood
+          op: add
+          value: 1
+  - name: gather_sticks
+    cost: 3
+    effects:
+      ints:
+        - fact: wood
+          op: add
+          value: 1
+  - name: build_fire
+    cost: 1
+    preconditions:
+      ints:
+        - fact: wood
+          op: gte
+          value: 2
+    effects:
+      bools:
+        - fact: has_fire
+          value: true
+      ints:
+        - fact: wood
+          op: add
+          value: -2
+goals:
+  - name: light_campfire
+    priority: 10
+    target:
+      bools:
+        - fact: has_fire
+          value: true
+```
+
 <!-- format: procgen -->
 ### Tile rules
 

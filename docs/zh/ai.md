@@ -1,6 +1,6 @@
 # ai
 
-`game/ai` 提供可直接运行在 `game.Loop` 固定步长上的确定性游戏 AI 组件：网格 `AStar` 寻路、带漏斗平滑的 2D 导航网格 `NavMesh`、转向行为（steering）、行为树以及效用 AI（Utility AI）评分。
+`game/ai` 提供可直接运行在 `game.Loop` 固定步长上的确定性游戏 AI 组件：网格 `AStar` 寻路、带漏斗平滑的 2D 导航网格 `NavMesh`、转向行为（steering）、行为树、效用 AI（Utility AI）评分以及目标导向行动规划（GOAP）。
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/ai"
@@ -220,3 +220,107 @@ reasoner, err := ai.BuildReasoner(cfg, ai.UtilityBindings[UnitState]{
 ```
 
 解析器会拒绝未知字段、不支持的版本号以及多余的 YAML 文档，规范格式文件读取再写回后字节完全一致（详见 [文件格式](formats.md#效用-ai)）。
+
+## 目标导向行动规划（GOAP）
+
+当智能体需要朝着目标动态组合多步动作链（例如取斧头 → 砍木头 → 生火），而不必手工连线每一条状态迁移时，可使用 `FactSchema`、`GOAPAction`、带优先级的 `GOAPGoal` 以及 `GOAPPlanner`：
+
+```go
+schema := ai.NewFactSchema()
+hasAxe := schema.MustBool("has_axe")
+hasFire := schema.MustBool("has_fire")
+wood := schema.MustInt("wood")
+
+planner, err := ai.NewGOAPPlanner(
+	ai.GOAPAction{
+		Name:    "fetch_axe",
+		Cost:    1,
+		Effects: ai.Effects{}.SetBool(hasAxe, true),
+		Check:   func(ai.WorldState) bool { return camp.AxeAvailable() },
+	},
+	ai.GOAPAction{
+		Name:          "chop_wood",
+		Cost:          1,
+		Preconditions: ai.Conditions{}.RequireBool(hasAxe, true),
+		Effects:       ai.Effects{}.AddInt(wood, 1),
+	},
+	ai.GOAPAction{
+		Name:    "gather_sticks",
+		Cost:    3,
+		Effects: ai.Effects{}.AddInt(wood, 1),
+	},
+	ai.GOAPAction{
+		Name:          "build_fire",
+		Cost:          1,
+		Preconditions: ai.Conditions{}.RequireIntGte(wood, 2),
+		Effects:       ai.Effects{}.SetBool(hasFire, true).AddInt(wood, -2),
+	},
+)
+if err != nil {
+	return err
+}
+
+goal := ai.GOAPGoal{
+	Name:     "light_campfire",
+	Priority: 10,
+	Target:   ai.Conditions{}.RequireBool(hasFire, true),
+}
+
+plan, cost, err := planner.PlanNames(ai.WorldState{}, goal)
+// plan == ["fetch_axe", "chop_wood", "chop_wood", "build_fire"], cost == 4
+_, _, _ = plan, cost, err
+```
+
+### 世界状态、条件与效果
+
+- **`WorldState`** 是紧凑的可比较值类型，将最多 `MaxBoolFacts`（128）个命名布尔事实打包进 `[2]uint64` 位集合，并附带最多 `MaxIntFacts`（16）个小型 `int16` 整数事实。通过 `FactSchema.Bool` / `FactSchema.Int`（或 `MustBool` / `MustInt`）注册事实名。
+- **`Conditions`** 用于表达动作前置条件与目标状态，支持布尔约束（`RequireBool`）与整数区间约束（`RequireIntEq`、`RequireIntGte`、`RequireIntLte`、`RequireIntGt`、`RequireIntLt`、`RequireIntRange`）。
+- **`Effects`** 用于表达动作完成后的世界状态变化，支持布尔赋值（`SetBool`）与整数更新（`SetInt`、`AddInt`）。
+- **`GOAPAction.Check`** 是可选的过程化前置检查（`func(WorldState) bool`），针对当前世界状态求值，用于检验符号位集合之外的运行时条件（如实体是否存在或路径是否可达）。
+
+### 逆向 A* 搜索与节点预算
+
+- `GOAPPlanner` 从 `goal.Target` 逆向搜索回当前 `WorldState`，基于可用动作的可采纳启发式保证返回最低代价计划。
+- 同分始终按固定顺序打破平局（先比 `f`、再比 `h`、再比步数、最后按动作声明顺序的发现序号），多次运行结果完全一致。
+- `GOAPPlanner.NodeBudget`（默认 `DefaultGOAPNodeBudget`，1024）限制单次规划最多展开的搜索节点数；超出预算时干净地返回 `ErrBudgetExceeded` 而非无限搜索；不可达目标返回 `ErrNoPlan`。
+- 内部节点池、二叉堆和开放寻址哈希表缓冲区在多次调用间复用；调用 `PlanInto(dst, start, goal)` 或 `PlanBestGoalInto(dst, start, goals)` 在预热后每次规划零堆分配。
+
+### 计划执行器与行为树集成
+
+`NewPlanRunner(planner, worldFn, goals, executors)` 按顺序依次驱动计划中每个动作绑定的 `Node`（`executors[action.Name]`）：
+
+- 当某个动作返回 `StatusFailure` 时，`PlanRunner` 会重置该动作节点、临时排除失败动作并自动重规划以寻找替代路线（若无可用路线则返回 `StatusFailure`）。
+- 当 `worldFn()` 返回的世界状态使剩余计划的前置条件或过程化检查失效，或更高优先级目标变为未满足且可达时，`PlanRunner` 会重置正在运行的动作并自动重规划。
+- `*PlanRunner` 直接实现 `ai.Node` 接口，既可在 `game.Loop` 中独立步进，也可直接嵌入任意行为树：
+
+```go
+runner := ai.NewPlanRunner(planner, camp.WorldState, goals, map[string]ai.Node{
+	"fetch_axe":     fetchAxeNode,
+	"chop_wood":     chopWoodNode,
+	"gather_sticks": gatherSticksNode,
+	"build_fire":    buildFireNode,
+})
+
+tree := ai.Selector(
+	ai.Guard(camp.InDanger, fleeNode),
+	runner,
+)
+```
+
+### GOAP YAML 配置格式
+
+可在带版本号的 YAML 文件（`version: 1`）中声明事实表、动作集、节点预算与优先级目标，用 `ParseGOAP` 解析、`EncodeGOAP` 确定性写回，并通过 `BuildGOAP` 编译为 `GOAPSet`：
+
+```go
+cfg, err := ai.ParseGOAP(yamlBytes)
+if err != nil {
+	return err
+}
+set, err := ai.BuildGOAP(cfg, ai.GOAPBindings{
+	Checks: map[string]func(ai.WorldState) bool{
+		"axe_available": func(ai.WorldState) bool { return camp.AxeAvailable() },
+	},
+})
+```
+
+解析器会拒绝未知字段、不支持的版本号、未声明事实引用、无效运算符以及多余的 YAML 文档，规范格式文件读取再写回后字节完全一致（详见 [文件格式](formats.md#goap-动作集)）。

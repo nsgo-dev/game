@@ -1,6 +1,6 @@
 # ai
 
-`game/ai` provides deterministic game AI building blocks stepped cleanly on `game.Loop`: grid `AStar` pathfinding, 2D `NavMesh` navigation with funnel smoothing, steering behaviors, behavior trees, and utility AI scoring.
+`game/ai` provides deterministic game AI building blocks stepped cleanly on `game.Loop`: grid `AStar` pathfinding, 2D `NavMesh` navigation with funnel smoothing, steering behaviors, behavior trees, utility AI scoring, and goal-oriented action planning (GOAP).
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/ai"
@@ -220,3 +220,107 @@ reasoner, err := ai.BuildReasoner(cfg, ai.UtilityBindings[UnitState]{
 ```
 
 Unknown fields, unsupported versions, and trailing YAML documents are refused; canonical documents round-trip byte-for-byte unchanged (see [File Formats](formats.md#utility-ai)).
+
+## Goal-oriented action planning (GOAP)
+
+When agents need to assemble multi-step action chains dynamically toward goals (fetch an axe, chop wood, build a fire) without hand-wiring every transition, define a `FactSchema`, `GOAPAction`s, and prioritized `GOAPGoal`s for a `GOAPPlanner`:
+
+```go
+schema := ai.NewFactSchema()
+hasAxe := schema.MustBool("has_axe")
+hasFire := schema.MustBool("has_fire")
+wood := schema.MustInt("wood")
+
+planner, err := ai.NewGOAPPlanner(
+	ai.GOAPAction{
+		Name:    "fetch_axe",
+		Cost:    1,
+		Effects: ai.Effects{}.SetBool(hasAxe, true),
+		Check:   func(ai.WorldState) bool { return camp.AxeAvailable() },
+	},
+	ai.GOAPAction{
+		Name:          "chop_wood",
+		Cost:          1,
+		Preconditions: ai.Conditions{}.RequireBool(hasAxe, true),
+		Effects:       ai.Effects{}.AddInt(wood, 1),
+	},
+	ai.GOAPAction{
+		Name:    "gather_sticks",
+		Cost:    3,
+		Effects: ai.Effects{}.AddInt(wood, 1),
+	},
+	ai.GOAPAction{
+		Name:          "build_fire",
+		Cost:          1,
+		Preconditions: ai.Conditions{}.RequireIntGte(wood, 2),
+		Effects:       ai.Effects{}.SetBool(hasFire, true).AddInt(wood, -2),
+	},
+)
+if err != nil {
+	return err
+}
+
+goal := ai.GOAPGoal{
+	Name:     "light_campfire",
+	Priority: 10,
+	Target:   ai.Conditions{}.RequireBool(hasFire, true),
+}
+
+plan, cost, err := planner.PlanNames(ai.WorldState{}, goal)
+// plan == ["fetch_axe", "chop_wood", "chop_wood", "build_fire"], cost == 4
+_, _, _ = plan, cost, err
+```
+
+### World state, conditions, and effects
+
+- **`WorldState`** is a compact comparable value type packing up to `MaxBoolFacts` (128) named boolean facts into a `[2]uint64` bitset and up to `MaxIntFacts` (16) small `int16` integer facts. Register names with `FactSchema.Bool` / `FactSchema.Int` (or `MustBool` / `MustInt`).
+- **`Conditions`** express required boolean values (`RequireBool`) and integer bounds (`RequireIntEq`, `RequireIntGte`, `RequireIntLte`, `RequireIntGt`, `RequireIntLt`, `RequireIntRange`) for action preconditions and goal targets.
+- **`Effects`** express boolean assignments (`SetBool`) and integer updates (`SetInt`, `AddInt`).
+- **`GOAPAction.Check`** is an optional procedural precondition (`func(WorldState) bool`) evaluated against the current world state so actions can verify runtime conditions (such as reachability or entity availability) outside the symbolic bitset.
+
+### Regressive A* search and node budget
+
+- `GOAPPlanner` runs deterministic regressive A* from `goal.Target` back to the current `WorldState`, using an admissible heuristic over usable actions to guarantee the cheapest plan.
+- Ties break in a fixed order (lowest `f`, lowest `h`, fewest actions, lowest discovery index in action declaration order), producing identical plans across runs.
+- `GOAPPlanner.NodeBudget` (default `DefaultGOAPNodeBudget`, 1024) caps how many search nodes are expanded per plan; exceeding it fails cleanly with `ErrBudgetExceeded` instead of searching unboundedly. Unreachable goals return `ErrNoPlan`.
+- Internal node, heap, and open-addressing hash-table buffers are reused across calls: use `PlanInto(dst, start, goal)` or `PlanBestGoalInto(dst, start, goals)` for zero heap allocations after warm-up.
+
+### Plan runner and behavior tree integration
+
+`NewPlanRunner(planner, worldFn, goals, executors)` executes planned actions in order by ticking each action's bound `Node` (`executors[action.Name]`):
+
+- When an action returns `StatusFailure`, `PlanRunner` resets it, temporarily excludes the failed action, and replans to reach the goal by another route (returning `StatusFailure` if no route exists).
+- When `worldFn()` invalidates a remaining precondition or procedural check, or when a higher-priority goal becomes unsatisfied and achievable, `PlanRunner` resets the running action and replans automatically.
+- `*PlanRunner` implements `ai.Node` directly, so it can run standalone on `game.Loop` or sit inside any behavior tree:
+
+```go
+runner := ai.NewPlanRunner(planner, camp.WorldState, goals, map[string]ai.Node{
+	"fetch_axe":     fetchAxeNode,
+	"chop_wood":     chopWoodNode,
+	"gather_sticks": gatherSticksNode,
+	"build_fire":    buildFireNode,
+})
+
+tree := ai.Selector(
+	ai.Guard(camp.InDanger, fleeNode),
+	runner,
+)
+```
+
+### GOAP YAML configuration
+
+Author facts, actions, node budgets, and prioritized goals in a versioned YAML file (`version: 1`) decoded with `ParseGOAP`, encoded deterministically with `EncodeGOAP`, and compiled with `BuildGOAP`:
+
+```go
+cfg, err := ai.ParseGOAP(yamlBytes)
+if err != nil {
+	return err
+}
+set, err := ai.BuildGOAP(cfg, ai.GOAPBindings{
+	Checks: map[string]func(ai.WorldState) bool{
+		"axe_available": func(ai.WorldState) bool { return camp.AxeAvailable() },
+	},
+})
+```
+
+Unknown fields, unsupported versions, undefined fact references, invalid operators, and trailing YAML documents are refused; canonical documents round-trip byte-for-byte unchanged (see [File Formats](formats.md#goap-action-set)).
