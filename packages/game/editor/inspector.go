@@ -621,35 +621,46 @@ func renderInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 		},
 		Children: []core.Node{
 			scrubEscape,
-			core.View{
-				Style: core.Style{
-					Direction:      core.Row,
-					AlignItems:     core.AlignCenter,
-					JustifyContent: core.JustifySpaceBetween,
-					Height:         core.Pt(38),
-					Padding:        core.Symmetric(0, 12),
-					Borders:        core.Edges{Bottom: 1},
-					BorderColor:    specLine,
-					Gap:            8,
-					FlexShrink:     0,
+			core.Show{
+				When: func() bool {
+					_ = rev.Get()
+					return shouldShowPlayInspectorTabs(ed)
 				},
-				Children: []core.Node{
-					core.Text{
-						TestID: "inspector-title",
-						ContentFunc: func() string {
-							_ = rev.Get()
-							if shouldShowRemoteInspector(ed) {
-								return ed.T("inspector.remoteTitle")
-							}
-							return ed.T("inspector.title")
-						},
+				Then: func(cx *core.Scope) core.Node {
+					return playInspectorTabBarView(cx, ed, rev)
+				},
+				Else: func(cx *core.Scope) core.Node {
+					return core.View{
 						Style: core.Style{
-							FontSize:   13,
-							FontWeight: core.FontWeightSemibold,
-							Color:      specTextStrong,
+							Direction:      core.Row,
+							AlignItems:     core.AlignCenter,
+							JustifyContent: core.JustifySpaceBetween,
+							Height:         core.Pt(38),
+							Padding:        core.Symmetric(0, 12),
+							Borders:        core.Edges{Bottom: 1},
+							BorderColor:    specLine,
+							Gap:            8,
+							FlexShrink:     0,
 						},
-					},
-					openYAMLBtn,
+						Children: []core.Node{
+							core.Text{
+								TestID: "inspector-title",
+								ContentFunc: func() string {
+									_ = rev.Get()
+									if shouldShowRemoteInspector(ed) {
+										return ed.T("inspector.remoteTitle")
+									}
+									return ed.T("inspector.title")
+								},
+								Style: core.Style{
+									FontSize:   13,
+									FontWeight: core.FontWeightSemibold,
+									Color:      specTextStrong,
+								},
+							},
+							openYAMLBtn,
+						},
+					}
 				},
 			},
 			ui.ScrollView{
@@ -662,63 +673,74 @@ func renderInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 					Gap:     10,
 				},
 				Children: []core.Node{
-					core.Dynamic(func(cx *core.Scope) core.Node {
-						key := schema.Get()
-						if key == "remote" {
-							return remoteInspectorView(cx, ed, rev)
-						}
-						if key == "" {
-							return core.Text{
-								TestID:  "inspector-empty",
-								Content: ed.T("inspector.empty"),
-								Style: core.Style{
-									FontSize: 12,
-									Color:    specTextMuted,
-								},
-							}
-						}
-						if strings.HasPrefix(key, "asset:") {
-							if rel, kind := ed.inspectedImportAsset(); rel != "" {
-								return assetImportInspectorView(cx, ed, rev, rel, kind)
-							}
-							return nil
-						}
-						subKey := key
-						if strings.HasPrefix(subKey, "T") {
-							if _, after, ok := strings.Cut(subKey, ":"); ok {
-								subKey = after
-							}
-						}
-						if strings.HasPrefix(subKey, "L:") {
-							if ed.layerIndex(ed.ActiveLayer) >= 0 || ed.inheritedLayers()[ed.ActiveLayer] {
-								return layerInspectorView(cx, ed, rev, ed.ActiveLayer)
-							}
-							return nil
-						}
-						if subKey == "room" {
-							if ed.SelectedRoomID() != "" {
-								return roomInspectorView(cx, ed, rev)
-							}
-							return nil
-						}
-						if strings.HasPrefix(subKey, "tile:") {
-							return tileInspectorView(cx, ed, rev)
-						}
-						if subKey == "scene" {
-							return sceneInspectorView(cx, ed, rev)
-						}
-						if strings.HasPrefix(subKey, "M:") {
-							if ids := ed.SelectedIDs(); len(ids) > 1 {
-								return multiInspectorFieldsView(cx, ed, rev, ids)
-							}
-							return nil
-						}
-						obj, layerName := ed.SelectedObject()
-						if obj == nil {
-							return nil
-						}
-						return inspectorFieldsView(cx, ed, rev, obj.ID, layerName)
-					}),
+					core.Show{
+						When: func() bool {
+							_ = rev.Get()
+							return shouldShowPlayInspectorTabs(ed) && ed.PlayInspectorTab() == PlayTabAgent
+						},
+						Then: func(cx *core.Scope) core.Node {
+							return playAgentPanelView(cx, ed, rev)
+						},
+						Else: func(cx *core.Scope) core.Node {
+							return core.Dynamic(func(cx *core.Scope) core.Node {
+								key := schema.Get()
+								if key == "remote" {
+									return remoteInspectorView(cx, ed, rev)
+								}
+								if key == "" {
+									return core.Text{
+										TestID:  "inspector-empty",
+										Content: ed.T("inspector.empty"),
+										Style: core.Style{
+											FontSize: 12,
+											Color:    specTextMuted,
+										},
+									}
+								}
+								if strings.HasPrefix(key, "asset:") {
+									if rel, kind := ed.inspectedImportAsset(); rel != "" {
+										return assetImportInspectorView(cx, ed, rev, rel, kind)
+									}
+									return nil
+								}
+								subKey := key
+								if strings.HasPrefix(subKey, "T") {
+									if _, after, ok := strings.Cut(subKey, ":"); ok {
+										subKey = after
+									}
+								}
+								if strings.HasPrefix(subKey, "L:") {
+									if ed.layerIndex(ed.ActiveLayer) >= 0 || ed.inheritedLayers()[ed.ActiveLayer] {
+										return layerInspectorView(cx, ed, rev, ed.ActiveLayer)
+									}
+									return nil
+								}
+								if subKey == "room" {
+									if ed.SelectedRoomID() != "" {
+										return roomInspectorView(cx, ed, rev)
+									}
+									return nil
+								}
+								if strings.HasPrefix(subKey, "tile:") {
+									return tileInspectorView(cx, ed, rev)
+								}
+								if subKey == "scene" {
+									return sceneInspectorView(cx, ed, rev)
+								}
+								if strings.HasPrefix(subKey, "M:") {
+									if ids := ed.SelectedIDs(); len(ids) > 1 {
+										return multiInspectorFieldsView(cx, ed, rev, ids)
+									}
+									return nil
+								}
+								obj, layerName := ed.SelectedObject()
+								if obj == nil {
+									return nil
+								}
+								return inspectorFieldsView(cx, ed, rev, obj.ID, layerName)
+							})
+						},
+					},
 				},
 			},
 		},

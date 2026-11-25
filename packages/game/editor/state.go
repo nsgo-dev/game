@@ -17,6 +17,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/nsgo-dev/game/packages/game"
 	"github.com/nsgo-dev/game/packages/game/animclip"
 	"github.com/nsgo-dev/game/packages/game/internal/releaseplan"
 	"github.com/nsgo-dev/game/packages/game/l10n"
@@ -328,6 +329,24 @@ type Editor struct {
 	OnPlayDraw func(scene *sceneformat.BuiltScene, alpha float64)
 	// OnPlayTrigger runs whenever a built-in 2D or 3D physics trigger fires enter, stay, or exit during Play mode.
 	OnPlayTrigger func(ev sceneformat.PhysicsTriggerEvent)
+	// OnPlayReset, when set, is called when Play mode starts or resets for replay playback with the recording's seed so game state resets deterministically.
+	OnPlayReset func(seed uint64) error
+	// PlayInputSource supplies live action/axis input sampled into the 60-second rolling replay buffer during Play mode.
+	PlayInputSource replay.ActionSource
+	// PlayInputActions lists the watched action names recorded in Play mode's rolling replay buffer. When empty and Project defines input actions, those action names are used in sorted order.
+	PlayInputActions []string
+	// PlayInputAxes lists the watched axis names recorded in Play mode's rolling replay buffer.
+	PlayInputAxes []string
+	// PlaySeed is the random seed written into Play mode's rolling replay recordings.
+	PlaySeed uint64
+	// ReplayDir optionally overrides the root directory under which replays/<scene>-<frame>.replay.yaml files are written when no project is open.
+	ReplayDir string
+	// OnPlayMarksThread, when set, is called when unsent Play mode marks are dispatched as one thread (via SendPlayMarks or automatically when Play stops).
+	OnPlayMarksThread func(PlayMarksThread)
+	// OnAskFrozenFrame, when set, is called when the author submits a prompt from Play mode's "Ask about frame N" dialog.
+	OnAskFrozenFrame func(AskFrozenFrameRequest)
+	// OnAskPanicFix, when set, is called when the author clicks "Ask the agent to fix" on a panic card in the Output panel.
+	OnAskPanicFix func(PanicReport)
 	// ShowPhysicsDebug controls whether 2D and 3D physics collider and trigger outlines draw in the viewport. New initializes it to true.
 	ShowPhysicsDebug bool
 	// ShowLightingPreview controls whether 2D lights, occluder shadows, and ambient darkness draw live in the 2D edit viewport. New initializes it to true.
@@ -510,6 +529,9 @@ type Editor struct {
 	OnAskAboutProblem func(ProblemQuestionRequest)
 
 	playing            bool
+	playPaused         bool
+	playTimeScale      float64
+	playLoop           *game.Loop
 	playSnapshot       []byte
 	playStop           func()
 	playScene          *sceneformat.BuiltScene
@@ -521,6 +543,8 @@ type Editor struct {
 	playReplayPlayer   *replay.Player
 	playReplayPath     string
 	playReplayRunIndex int
+	playRolling        *playRollingRecorder
+	playMarks          playMarksState
 	physicsLayers      *sceneformat.PhysicsLayerTable
 
 	// projectSaved is Project's encoding when it was opened or last saved, which ProjectDirty compares against.

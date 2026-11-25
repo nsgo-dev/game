@@ -434,6 +434,7 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 					}
 				},
 			},
+			playReplayFooterView(cx, ed, rev),
 		},
 	}
 }

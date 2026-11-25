@@ -1833,6 +1833,7 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 			viewport3DRenderStatsOverlay(cx, ed, rev),
 			viewportOverlaysBarView(cx, ed, rev),
 			viewportOverlayLegendView(cx, ed, rev),
+			playViewportOverlaysView(cx, ed, rev),
 		}, append(viewportTileOverlays(cx, ed, rev), ToastView(cx, ed, rev))...),
 	}
 }

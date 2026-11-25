@@ -98,6 +98,8 @@ const (
 	CmdGeneratedAssets        = "project.generatedAssets"
 	CmdConnectAgent           = "agent.connect"
 	CmdAgentPanel             = "view.agent"
+	CmdPlayMark               = "play.mark"
+	CmdAskFrozenFrame         = "play.askFrozenFrame"
 	// The 3D viewport's axis views and projection: each axis view looks at the camera's Target along a world axis (SetView3D), and the orthographic command switches between perspective and orthographic (SetOrthographic3D).
 	CmdView3DFront        = "view.3d.front"
 	CmdView3DBack         = "view.3d.back"
@@ -1329,6 +1331,29 @@ func (e *Editor) initBuiltinCommands() {
 			Run:         func() error { return e.TogglePlay() },
 		},
 		{
+			ID:          CmdPlayMark,
+			Label:       "Mark Play Moment",
+			Description: "Add a mark at the current Play frame with the rolling 60 s input replay attached",
+			Category:    "Project",
+			Keywords:    []string{"play", "mark", "flag", "replay", "moment"},
+			Shortcut:    "alt+f",
+			Enabled:     func() bool { return inEditor() && (e.Playing() || e.RemoteConnected()) },
+			Run: func() error {
+				_, err := e.AddPlayMark()
+				return err
+			},
+		},
+		{
+			ID:          CmdAskFrozenFrame,
+			Label:       "Something Looks Wrong",
+			Description: "Pause Play mode and ask the agent about the frozen frame with replay and live state attached",
+			Category:    "Project",
+			Keywords:    []string{"play", "ask", "agent", "freeze", "frozen", "frame", "bug", "replay"},
+			Shortcut:    "mod+l",
+			Enabled:     func() bool { return inEditor() && (e.Playing() || e.RemoteConnected()) },
+			Run:         func() error { return e.OpenAskFrozenFrame() },
+		},
+		{
 			ID:          CmdRunGame,
 			Label:       "Run Game",
 			Description: "Launch the game using Editor.OnRunGame, go tool game dev, or play-in-editor",
@@ -1815,6 +1840,8 @@ var builtinCommandKeys = map[string][3]string{
 	CmdCommandPalette:        {"cmd.commandPalette.label", "cmd.commandPalette.desc", "cmd.category.view"},
 	CmdShortcutsSheet:        {"cmd.shortcutsSheet.label", "cmd.shortcutsSheet.desc", "cmd.category.view"},
 	CmdPlayStop:              {"cmd.playStop.label", "cmd.playStop.desc", "cmd.category.project"},
+	CmdPlayMark:              {"cmd.playMark.label", "cmd.playMark.desc", "cmd.category.project"},
+	CmdAskFrozenFrame:        {"cmd.askFrozenFrame.label", "cmd.askFrozenFrame.desc", "cmd.category.project"},
 	CmdRunGame:               {"cmd.runGame.label", "cmd.runGame.desc", "cmd.category.project"},
 	CmdProjectSettings:       {"cmd.projectSettings.label", "cmd.projectSettings.desc", "cmd.category.project"},
 	CmdAudioMixer:            {"cmd.audioMixer.label", "cmd.audioMixer.desc", "cmd.category.project"},

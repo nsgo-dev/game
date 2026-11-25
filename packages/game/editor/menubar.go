@@ -222,6 +222,8 @@ func (e *Editor) ApplicationMenu() []desktop.MenuItem {
 	}
 	projectItems := []desktop.MenuItem{
 		cmdItem(CmdPlayStop, playLabel, false),
+		cmdItem(CmdPlayMark, e.T("menu.playMark"), false),
+		cmdItem(CmdAskFrozenFrame, e.T("menu.askFrozenFrame"), false),
 		cmdItem(CmdRunGame, e.T("menu.runGame"), false),
 		sep,
 		cmdItem(CmdProjectSettings, e.T("menu.projectSettings"), false),
@@ -277,7 +279,7 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 			}
 		}
 		var b strings.Builder
-		fmt.Fprintf(&b, "%s|%v|%s|%v|%d|%v|%v|%v|%v|%v|%v|%s|%v|%v|%v|%v|%v|%d|%v|%v|%v|%d|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%d|%d|%v|%v|%v|%d|%s|%v|%v|%v|%s",
+		fmt.Fprintf(&b, "%s|%v|%s|%v|%d|%v|%v|%v|%v|%v|%v|%s|%v|%v|%v|%v|%v|%v|%d|%v|%v|%v|%d|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%d|%d|%v|%v|%v|%d|%s|%v|%v|%v|%s",
 			e.ResolvedLanguage(),
 			e.SettingsOpen(),
 			e.SettingsPage(),
@@ -292,6 +294,7 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 			e.SelectedFile,
 			e.AssetGeneratorOpen(),
 			e.Playing(),
+			e.RemoteConnected(),
 			e.canUndo(),
 			e.canRedo(),
 			e.SelectedID != "" || e.SelectedRoomID() != "",

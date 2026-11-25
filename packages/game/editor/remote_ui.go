@@ -269,6 +269,41 @@ func remotePlayBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 						Gap: 6,
 						Children: []core.Node{
 							ui.Button{
+								TestID:  "remote-mark-btn",
+								Icon:    lucide.Flag,
+								Label:   "Mark this moment without stopping (" + cx.KeyLabel("alt+f") + ")",
+								Size:    ui.SizeSmall,
+								Variant: ui.ButtonSecondary,
+								TextFunc: func() string {
+									_ = rev.Get()
+									if n := len(ed.PlayMarks()); n > 0 {
+										return fmt.Sprintf("Mark · %d", n)
+									}
+									return "Mark"
+								},
+								Disabled: func() bool {
+									return !snapMemo.Get().Connected
+								},
+								OnPress: func() {
+									_, err := ed.AddPlayMark()
+									ed.report(err)
+								},
+							},
+							ui.Button{
+								TestID:  "remote-ask-btn",
+								Icon:    lucide.Sparkles,
+								Text:    "Something looks wrong",
+								Label:   "Pause and ask the agent about this frame (" + cx.KeyLabel("mod+l") + ")",
+								Size:    ui.SizeSmall,
+								Variant: ui.ButtonSecondary,
+								Disabled: func() bool {
+									return !snapMemo.Get().Connected
+								},
+								OnPress: func() {
+									ed.report(ed.OpenAskFrozenFrame())
+								},
+							},
+							ui.Button{
 								TestID:  "remote-refresh",
 								Text:    "Refresh",
 								Icon:    lucide.RefreshCw,

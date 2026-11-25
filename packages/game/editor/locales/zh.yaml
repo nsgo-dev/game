@@ -42,6 +42,8 @@ strings:
   assets.title: 资源
   cmd.agentPanel.desc: 在右侧栏的“智能体”与“检视器”面板之间切换
   cmd.agentPanel.label: 智能体面板
+  cmd.askFrozenFrame.desc: 暂停运行模式并携带回放与实时状态向智能体询问当前冻结帧
+  cmd.askFrozenFrame.label: 画面看起来不对
   cmd.assetDrawer.desc: 在左侧栏的“场景”与“资源抽屉”模式之间切换
   cmd.assetDrawer.label: 资源抽屉
   cmd.audioMixer.desc: 切换音频总线混音器面板
@@ -110,6 +112,8 @@ strings:
   cmd.paste.label: 粘贴
   cmd.pasteInto.desc: 将剪贴板中的对象粘贴为当前选中对象的子级
   cmd.pasteInto.label: 粘贴为子级
+  cmd.playMark.desc: 在当前运行帧添加标记并附上最近 60 秒输入回放
+  cmd.playMark.label: 标记运行瞬间
   cmd.playStop.desc: 切换编辑器内运行预览
   cmd.playStop.label: 播放 / 停止
   cmd.profiler.desc: 切换正在运行游戏的性能分析器面板
@@ -402,6 +406,7 @@ strings:
   material.shape.sprite: 精灵
   material.title: 材质编辑器
   menu.applyOverridesToSource: 将覆盖应用到源场景
+  menu.askFrozenFrame: 画面看起来不对
   menu.audioMixer: 音频总线混音器
   menu.buildRelease: 构建与发布…
   menu.changes: 变更与提交
@@ -445,6 +450,7 @@ strings:
   menu.pasteInto: 粘贴为子级
   menu.place: 放置
   menu.play: 播放
+  menu.playMark: 标记运行瞬间
   menu.playtestReport: 试玩报告
   menu.plugins: 插件
   menu.profiler: 性能分析器

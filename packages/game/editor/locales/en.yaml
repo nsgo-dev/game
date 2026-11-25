@@ -42,6 +42,8 @@ strings:
   assets.title: Assets
   cmd.agentPanel.desc: Toggle the right sidebar between the Agent panel and the Inspector
   cmd.agentPanel.label: Agent Panel
+  cmd.askFrozenFrame.desc: Pause Play mode and ask the agent about the frozen frame with replay and live state attached
+  cmd.askFrozenFrame.label: Something Looks Wrong
   cmd.assetDrawer.desc: Switch the left rail between Scene and Assets drawer mode
   cmd.assetDrawer.label: Asset Drawer
   cmd.audioMixer.desc: Toggle the Audio Bus Mixer panel
@@ -110,6 +112,8 @@ strings:
   cmd.paste.label: Paste
   cmd.pasteInto.desc: Paste objects from the clipboard as children of the selected object
   cmd.pasteInto.label: Paste as Child
+  cmd.playMark.desc: Add a mark at the current Play frame with the rolling 60 s input replay attached
+  cmd.playMark.label: Mark Play Moment
   cmd.playStop.desc: Toggle play-in-editor simulation
   cmd.playStop.label: Play / Stop
   cmd.profiler.desc: Toggle the Profiler panel for the running game
@@ -402,6 +406,7 @@ strings:
   material.shape.sprite: Sprite
   material.title: Material Editor
   menu.applyOverridesToSource: Apply Overrides to Source
+  menu.askFrozenFrame: Something Looks Wrong
   menu.audioMixer: Audio Bus Mixer
   menu.buildRelease: Build & Release...
   menu.changes: Changes & Commit
@@ -445,6 +450,7 @@ strings:
   menu.pasteInto: Paste as Child
   menu.place: Place
   menu.play: Play
+  menu.playMark: Mark Play Moment
   menu.playtestReport: Playtest Report
   menu.plugins: Plugins
   menu.profiler: Profiler

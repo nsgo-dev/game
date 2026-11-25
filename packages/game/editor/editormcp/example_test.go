@@ -100,6 +100,8 @@ func ExampleServer_AddTool() {
 	// object_select_same_prefab read
 	// object_set_field edit
 	// object_visibility edit
+	// play_frozen_context read
+	// play_replay_step run
 	// playtest_define edit
 	// playtest_report edit
 	// problem_propose_fix read

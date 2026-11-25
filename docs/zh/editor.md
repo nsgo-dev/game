@@ -1259,7 +1259,6 @@ func main() {
 - **背景预览、`brief.yaml` 风格检查与音效试听**：图像候选与参考资源并排显示在可切换的背景上（`PREVIEW ON`：Floor 3、Floor 1、Checker，`SetAssetGenPreviewBackground`），逐项展示**调色板色数（Palette）**、**像素网格对齐（Pixel grid）**、**相对参考资源的尺寸（Size）**以及**相对关卡墙面的对比度（Contrast）**通过/失败结论与原因（`LoadAssetStyleBrief`、`SetAssetStyleBrief`）。音效候选展示波形、时长、RMS 响度（`dBFS`）、峰值与响度检查结果，并支持内存试听（`PlayGeneratedSoundCandidate`、`StopGeneratedSoundCandidate`）。
 - **单步原子可撤销的选定与来源旁注文件（`<file>.source.yaml`）**：点击 **Pick**（`PickGeneratedCandidate`）在 `Editor.History` 的**单个可撤销步骤**中原子写出选定的媒体文件及其确定性的版本 1 `<file>.source.yaml` 旁注文件（`importsettings.AssetSource`、`AssetSourceVersion = 1`、Schema `https://game.nsgo.dev/schemas/source.v1.json`），记录 `version`、`generator`、`model`、`prompt`、`seed`、`references`、`license`、`commercialUse` 与 `approvedBy`；执行一次 `Editor.Undo()` 即可同时移除两个文件。**Vary this**（`VaryGeneratedCandidate`）、**Refine**（`RefineGeneratedAsset`）与 **Regenerate N**（`RegenerateAsset`）使用相同参考重新调用生成器，同样不写磁盘。
 - **导出许可证门禁（`LICENSES · CHECKED AT EXPORT`）**：`credits.ScanGeneratedLicenses`、`credits.CheckGeneratedLicenses`、`credits.Collect`、`releaseplan.Build`、`game release` 以及编辑器的导出面板（`CheckExportCredits`）会扫描项目中的所有 `*.source.yaml` 文件。任何许可证为空或未知（`license: ""` 或 `license: unknown`）的生成资源都会以 `*credits.UnknownLicenseError` 阻止发布构建并在错误信息中列出其路径，直到通过 `SetGeneratedAssetLicense` / **Set license** 设置合法许可证为止。
-
 ## 焦点环与 F6 键盘区域（#1003）
 
 编辑器中的每个交互控件都遵循 `docs/design/editor/Spec.dc.html` 规范，在键盘聚焦时绘制焦点环，并可通过 `Tab`、`F6` 或方向键访问：
@@ -1270,7 +1269,6 @@ func main() {
 - **视口内焦点即选中对象**：视口画布本身不绘制焦点环；当焦点位于视口（`editor-viewport-frame`）内时，`Tab`（`Editor.SelectNextObject`）与 `Shift-Tab`（`Editor.SelectPreviousObject`）按场景顺序循环选中下一个/上一个可见且未锁定的对象。
 - **对话框焦点限制与关闭恢复**：所有编辑器对话框（`EditorSettingsDialogView`、`ShortcutsSheetView`、`CommandPaletteView`、未保存提示、场景路径对话框与保存冲突对话框）会将 `Tab` / `Shift-Tab` 限制在最顶层模态框内（同时不干扰 `Settings › Shortcuts` 的按键录制），在对话框打开期间屏蔽全局快捷键（除用于停止智能体的 `⌘.` / `Ctrl+.`，即 `Editor.OnStopAgent` 外），并在按 `Esc` 取消或点击操作按钮关闭后将焦点精确恢复到打开该对话框的控件。
 - **焦点稳定性**：在拖拽或检查器数值微调进行中（`Editor.IsDragging`）或用户正在文本字段中输入时（`Editor.IsTyping`），编辑器不会自动抢占焦点；弹出 Toast 不会抢走焦点；`Editor.ShouldFocusAgentPrompt` 仅在未拖拽、未输入且焦点原本就位于智能体面板内（`Editor.SetAgentPanelRef`）时才返回 `true`。
-
 ## 连接智能体与状态胶囊（#1009）
 
 在编辑器内或通过 `go tool game mcp install` 连接本机的外部编程智能体（Claude Code、Codex 或任意 MCP 客户端），界面严格遵循 `docs/design/editor/Spec.dc.html` 设计 Token 并对应 `docs/design/editor/Connect.dc.html`、`docs/design/editor/AgentStates.dc.html` 与 `docs/design/editor/Settings.dc.html`：
@@ -1284,4 +1282,12 @@ func main() {
   - `Waiting for you · m:ss`（点击聚焦当前待处理请求卡片）
   - `Reconnecting · try n of 5`（按 `1、2、4、8、16 s` 指数退避重试，可通过 `Editor.AgentScheduleAfter` 注入调度器以确定性测试）
   - `Disconnected` 及 **Reconnect** 与 **Troubleshoot** 按钮（点击 **Troubleshoot** 直接在失败的步骤重新打开连接对话框，而非回到起始步）。
->>>>>>> a7b64108 (feat(editor,editormcp): connect an agent via Connect dialog, mcp install, and status chip)
+
+## 运行模式标记、滚动回放与冻结帧智能体提问（#1042）
+
+在运行模式（`Play`、`PlayIn`、`StepPlay`、`PlayTick`）或连接运行中游戏期间，编辑器会持续保留最近 60 秒的滚动输入回放，支持在不中断运行的情况下打标记、冻结任意帧向智能体提问，并在输出面板提供崩溃堆栈卡片与一键回放到崩溃前一帧（对应 `docs/design/editor/PlayMode.dc.html`，严格采用 `Spec.dc.html` 设计令牌）：
+
+- **最近 60 秒滚动输入录制**：每次固定步长更新都会将 `Editor.PlayInputSource`（监听 `Editor.PlayInputActions` / `Editor.PlayInputAxes`，默认读取 `game.yaml` 中的输入动作）采样到上限 60 秒的滑动窗口（`60 × PlayRateHz()`，60 Hz 下为 3,600 帧；`PlayRollingFrameCount`、`PlayRollingSummary` 显示 `"Last 60 s kept · N frames"`）。打标记、提问或捕获 panic 时，编辑器会原子写入 `replays/<场景>-<帧号>.replay.yaml` 版本 2 `replay` YAML 文件（`SavePlayRollingReplay`、`PlayLastReplayPath`），并在超过 60 秒窗口时平滑重基准帧号且保留进入窗口时的按住状态与轴值。
+- **运行控制栏与标记（`alt+f` / `CmdPlayMark`）**：本地运行模式在主工具栏下方展示 Spec 风格的运行控制栏（`playModeBarView`，不增加 2D 工具栏按钮），包含运行/暂停状态徽章、暂停/继续（`mod+shift+p`、`SetPlayPaused`）、单帧步进（暂停时按 `.`、`StepPlay`）、时间倍率（`0.25×`–`2×`、`SetPlayTimeScale`）、**Mark `⌥F`**（`AddPlayMark`）、**Something looks wrong `⌘L`** 与 **Stop**。按下 `alt+f` 不会停止运行，会保存对应的 `.replay.yaml`、在 60 秒帧耗时条上标注旗标，并在右侧 **Agent** 标签页的 **MARKS · N** 列表中展示时间、帧号与 `"replay attached"`（`PlayInspectorTab`、`PlayMarks`）。停止运行（`Stop`）或提前点击 **Send marks now**（`SendPlayMarks`）会将全部未发送标记打包为**同一条线程**派发给 `Editor.OnPlayMarksThread`（并保存在 `LastPlayMarksThread` 中）。
+- **冻结帧提问（`mod+l` / `CmdAskFrozenFrame`）与 MCP 回放步进**：按下 `mod+l` 或点击 **Something looks wrong**（`OpenAskFrozenFrame`）会立即暂停运行、截取当前视口 PNG 并打开 **"Ask about frame N"** 弹窗，展示冻结帧缩略图、附件标签、输入框（`"What looks wrong? e.g. the slime walks through the wall"`）、`"A fix comes back as a review"` 提示及 **Cancel** / **Ask** 按钮。提交（`SubmitAskFrozenFrame`）后会保存滚动回放、附上帧图像与实时实体状态快照、触发 `Editor.OnAskFrozenFrame` 并切到 **Agent** 标签页。智能体通过 `editormcp` 的 `play_frozen_context` 获取冻结帧上下文，并通过 `play_replay_step`（`AgentStepPlayReplay`）步进回放；视口显示智能体徽章（`"agent stepping frames A–B"`），Agent 标签页记录步进日志（`"Stepped frames A–B with game_loop_step…"`），且游戏保持暂停直至用户手动恢复。
+- **输出面板崩溃卡片与回放到崩溃前**：`ParsePanicTrace` 会解析游戏运行输出或 Play 模式恢复的 Go panic 消息与调用栈（`OutputPanic`、`SetOutputPanic`）。`OutputPanelView` 以 Spec 风格卡片展示错误消息、可点击跳转到源码文件的游戏调用帧 `file:line` 链接、折叠的运行时调用帧（`"N frames in the game runtime · Show"` / `"Hide"` 切换，`SetOutputPanicRuntimeExpanded`）、**Ask the agent to fix**（`AskAgentToFixPanic`、`Editor.OnAskPanicFix`）以及 **Replay up to the panic**（`ReplayUpToPanic`、`ReplayUpToFrame`），后者重置场景（设置时调用 `Editor.OnPlayReset`）、经由 `PlayActiveInput()` 回放已保存录制，并在崩溃帧前一帧（`panicFrame - 1`）精确停住并暂停而不触发崩溃。
