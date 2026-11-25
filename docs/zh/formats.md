@@ -834,6 +834,52 @@ neighbors:
     down: water
 ```
 
+<!-- format: procgen#rooms -->
+### 地牢房间模板
+
+| 文件 | 版本 | 读写函数 | 字段 |
+| --- | --- | --- | --- |
+| 游戏加载的任意 `.yaml` 文件，如 `rooms.yaml` | `version: 1` | `procgen.ParseRoomTemplates`、`procgen.EncodeRoomTemplates` | [procgen](procgen.md) |
+
+```yaml
+version: 1
+rooms:
+  - id: start_hub
+    weight: 1
+    tags:
+      - start
+    doors:
+      - side: north
+        offset: 3
+      - side: south
+        offset: 3
+      - side: east
+        offset: 2
+      - side: west
+        offset: 2
+    tiles:
+      - '###.###'
+      - '#.....#'
+      - '.......'
+      - '#.....#'
+      - '###.###'
+  - id: boss_vault
+    tags:
+      - goal
+    width: 7
+    height: 5
+    source: rooms/boss_vault.tmj
+    doors:
+      - side: north
+        offset: 3
+      - side: south
+        offset: 3
+      - side: east
+        offset: 2
+      - side: west
+        offset: 2
+```
+
 <!-- format: vn -->
 ### 视觉小说角色表
 

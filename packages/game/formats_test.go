@@ -127,6 +127,7 @@ var formatVersions = map[string]string{
 	"net.ReplicationVersion":                "",
 	"particles.FormatVersion":               "particles",
 	"platformer.CurrentVersion":             "platformer",
+	"procgen.RoomTemplatesVersion":          "procgen#rooms",
 	"procgen.RulesVersion":                  "procgen",
 	"project.CurrentVersion":                "project",
 	"quality.FormatVersion":                 "quality",

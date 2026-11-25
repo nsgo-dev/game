@@ -88,3 +88,31 @@ func FuzzCave(f *testing.F) {
 		}
 	})
 }
+
+func FuzzParseRoomTemplates(f *testing.F) {
+	if data, err := os.ReadFile("testdata/dungeon_rooms.yaml"); err == nil {
+		f.Add(data)
+	}
+	if data, err := os.ReadFile("testdata/canonical/rooms.yaml"); err == nil {
+		f.Add(data)
+	}
+	f.Add([]byte("version: 1\nrooms: []\n"))
+	f.Fuzz(func(t *testing.T, data []byte) {
+		rt, err := procgen.ParseRoomTemplates(data)
+		if err != nil {
+			return
+		}
+		out, err := procgen.EncodeRoomTemplates(rt)
+		if err != nil {
+			t.Fatalf("EncodeRoomTemplates: %v", err)
+		}
+		rt2, err := procgen.ParseRoomTemplates(out)
+		if err != nil {
+			t.Fatalf("ParseRoomTemplates of encoded: %v\n%s", err, out)
+		}
+		out2, err := procgen.EncodeRoomTemplates(rt2)
+		if err != nil || !bytes.Equal(out, out2) {
+			t.Fatalf("round trip changed room templates: %v\n%s\n---\n%s", err, out, out2)
+		}
+	})
+}

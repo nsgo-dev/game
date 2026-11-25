@@ -1,0 +1,79 @@
+# Hand-authored dungeon room templates mixing inline grids, rotations and a .tmj reference.
+version: 1
+rooms:
+  - id: entry
+    weight: 1
+    tags: [start]
+    doors:
+      - {side: north, offset: 3}
+      - {side: south, offset: 3}
+      - {side: east, offset: 3}
+      - {side: west, offset: 3}
+    tiles:
+      - "###.###"
+      - "#.....#"
+      - "#.....#"
+      - "......."
+      - "#.....#"
+      - "#.....#"
+      - "###.###"
+  - id: crossroads
+    weight: 3
+    tags: [combat]
+    doors:
+      - {side: north, offset: 3}
+      - {side: south, offset: 3}
+      - {side: east, offset: 3}
+      - {side: west, offset: 3}
+    tiles:
+      - "###.###"
+      - "#.....#"
+      - "#.#.#.#"
+      - "......."
+      - "#.#.#.#"
+      - "#.....#"
+      - "###.###"
+  - id: wide_hall
+    weight: 2
+    tags: [combat]
+    allowRotate: true
+    doors:
+      - {side: north, offset: 3}
+      - {side: south, offset: 3}
+      - {side: east, offset: 3}
+      - {side: west, offset: 3}
+    tiles:
+      - "###.###"
+      - "#.....#"
+      - "#.....#"
+      - "......."
+      - "#.....#"
+      - "#.....#"
+      - "###.###"
+  - id: shrine
+    weight: 1
+    tags: [key, treasure]
+    doors:
+      - {side: north, offset: 3}
+      - {side: south, offset: 3}
+      - {side: east, offset: 3}
+      - {side: west, offset: 3}
+    tiles:
+      - "###.###"
+      - "#.....#"
+      - "#..a..#"
+      - "......."
+      - "#.....#"
+      - "#.....#"
+      - "###.###"
+  - id: boss_sanctum
+    weight: 1
+    tags: [goal]
+    width: 7
+    height: 7
+    source: rooms/boss_sanctum.tmj
+    doors:
+      - {side: north, offset: 3}
+      - {side: south, offset: 3}
+      - {side: east, offset: 3}
+      - {side: west, offset: 3}

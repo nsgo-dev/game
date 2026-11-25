@@ -59,3 +59,33 @@ func BenchmarkWFC64x64(b *testing.B) {
 		}
 	}
 }
+
+func BenchmarkGenerateRoomsStitch(b *testing.B) {
+	cfg := procgen.RoomsConfig{
+		Templates: variableSizeRoomTemplates(b),
+		Mode:      procgen.PlacementStitch,
+		Graph:     procgen.GraphConfig{CriticalPath: 6, Branches: 4, Loops: 2, Locks: 2},
+	}
+	b.ReportAllocs()
+	for i := range b.N {
+		if _, err := procgen.GenerateRooms(random.New(uint64(i)), cfg); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkGenerateRoomsGrid(b *testing.B) {
+	cfg := procgen.RoomsConfig{
+		Templates: loadRoomTemplates(b),
+		Mode:      procgen.PlacementGrid,
+		GridCols:  4,
+		GridRows:  4,
+		Graph:     procgen.GraphConfig{CriticalPath: 6, Branches: 4, Loops: 2, Locks: 2},
+	}
+	b.ReportAllocs()
+	for i := range b.N {
+		if _, err := procgen.GenerateRooms(random.New(uint64(i)), cfg); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
