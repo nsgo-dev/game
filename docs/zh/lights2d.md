@@ -74,3 +74,7 @@ knight.Draw(d, lighting)
 ```
 
 `NormalSprite` 会缓存 CPU 着色后的像素缓冲，仅当精灵坐标、`LightZ`、环境光或影响范围内的光源/遮挡体变化时才重新计算。若原地修改了 `Diffuse` 或 `NormalMap` 像素，请调用 `knight.Invalidate()`；若需离线烘焙自定义缓冲，可直接调用 `ShadeNormalMap`、`ShadeNormalMapWithOccluders` 或 `scene.ShadeNormalMap`。
+
+## 在场景文件中编排光源与遮挡体
+
+你也可以直接在 `*.scene.yaml` 场景文件中声明 `ambientColor`、`light2d` 点光源/聚光灯以及 `occluder2d` 矩形/多边形/瓦片地图遮挡体，并在 [`game/editor`](editor.md#内置-2d-光照与遮挡体组件887) 中通过实时光照预览与交互手柄进行编辑。`sceneformat.Build` 会将其构建为 `BuiltScene.Lights2D`，在编辑器预览与游戏中投射完全一致的阴影。

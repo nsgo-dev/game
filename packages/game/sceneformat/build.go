@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nsgo-dev/game/packages/game/lights2d"
 	"github.com/nsgo-dev/game/packages/game/loaderr"
 	"github.com/nsgo-dev/game/packages/game/math2d"
 	"github.com/nsgo-dev/game/packages/game/resource"
@@ -62,6 +63,15 @@ type BuiltScene struct {
 	// BackgroundColor is the parsed background color; HasBackground reports whether Draw paints it.
 	BackgroundColor core.Color
 	HasBackground   bool
+	// AmbientColor is the parsed 2D lighting ambient color; HasAmbient reports whether the scene sets one.
+	AmbientColor core.Color
+	HasAmbient   bool
+	// Lights2D is the 2D lighting scene built from SceneDoc.AmbientColor, built-in light2d and occluder2d components, and tilemap collision shapes, or nil when the scene defines none.
+	Lights2D *lights2d.Scene
+	// SkipLights2D disables drawing Lights2D inside Draw when true (for example when an editor toggles lighting preview off).
+	SkipLights2D bool
+	// Lights2DBounds optionally overrides the world-space bounds passed to Lights2D.Draw inside Draw. Nil uses the scene's virtual viewport through Camera (or the union of light/occluder extents when the virtual size is 0).
+	Lights2DBounds *core.Bounds
 	// Camera is the active camera transform for world-space layers; nil leaves world space untransformed.
 	Camera *CameraDoc
 	// Layers are the scene's layers in draw order (lowest Order first, ties in document order).
@@ -156,6 +166,14 @@ func Build(doc *SceneDoc, resolver AssetResolver) (*BuiltScene, error) {
 		}
 		built.BackgroundColor = c
 		built.HasBackground = true
+	}
+	if doc.AmbientColor != "" {
+		c, err := core.ParseColor(doc.AmbientColor)
+		if err != nil {
+			return nil, fmt.Errorf("sceneformat: ambientColor %q: %w", doc.AmbientColor, err)
+		}
+		built.AmbientColor = c
+		built.HasAmbient = true
 	}
 	if doc.Camera != nil {
 		cam := *doc.Camera
@@ -269,6 +287,12 @@ func Build(doc *SceneDoc, resolver AssetResolver) (*BuiltScene, error) {
 		bl.Batches = groupSpriteBatches(drawables)
 		built.Layers = append(built.Layers, bl)
 	}
+
+	lights, err := BuildLights2D(built)
+	if err != nil {
+		return nil, err
+	}
+	built.Lights2D = lights
 
 	return built, nil
 }
@@ -670,20 +694,41 @@ func (s *BuiltScene) Draw(d *core.Drawing) {
 		d.Save().SetFillColor(s.BackgroundColor).FillRect(0, 0, vw, vh).Restore()
 	}
 
-	for _, layer := range s.Layers {
+	lastWorld := -1
+	for i, layer := range s.Layers {
+		if layer.Visible && layer.Space == SpaceWorld {
+			lastWorld = i
+		}
+	}
+	lightsDrawn := false
+	drawLights := func() {
+		if lightsDrawn || s.SkipLights2D || s.Lights2D == nil {
+			return
+		}
+		lightsDrawn = true
+		s.drawLights2D(d, vw, vh)
+	}
+	if lastWorld < 0 {
+		drawLights()
+	}
+
+	for i, layer := range s.Layers {
 		if !layer.Visible {
 			continue
 		}
-		if layer.Tilemap == nil && layer.Map == nil && len(layer.Batches) == 0 {
-			continue
+		if layer.Tilemap != nil || layer.Map != nil || len(layer.Batches) > 0 {
+			view := s.tileView(layer.Space, vw, vh)
+			if layer.Space == SpaceWorld && s.Camera != nil {
+				s.drawWithCamera(d, vw, vh, layer, view)
+			} else {
+				drawLayer(d, layer, view)
+			}
 		}
-		view := s.tileView(layer.Space, vw, vh)
-		if layer.Space == SpaceWorld && s.Camera != nil {
-			s.drawWithCamera(d, vw, vh, layer, view)
-			continue
+		if i == lastWorld {
+			drawLights()
 		}
-		drawLayer(d, layer, view)
 	}
+	drawLights()
 }
 
 // tileView returns the camera that culls the tiles of a layer in space to what the scene shows, its virtual viewport of vw by vh points seen through the scene camera for a world-space layer, or nil to draw every tile when the scene has no virtual size or DrawAllTiles is set.

@@ -234,3 +234,7 @@ return mgr.View(scene.HostOptions{
 ## 场景文件中的物理
 
 使用 [`game/sceneformat`](editor.md#内置物理组件817) 编写的 YAML 场景可以直接在对象上声明 2D（`body2d`、`collider2d`、`trigger2d`）和 3D（`body3d`、`collider3d`、`trigger3d`）物理组件，并复用 [`game.yaml`](project.md) 中的具名碰撞层。将构建好的场景传给 `sceneformat.BuildPhysics`，即可实例化对应的 `physics.World`、`physics.RigidWorld` 与 `physics3d.World` 并在每个固定时间步与场景一起推进。
+
+## 场景文件中的 2D 光照
+
+YAML 场景还可以设置 `ambientColor`，并在对象上附加内置的 `light2d` 与 `occluder2d`（矩形、多边形或瓦片地图碰撞）组件。`sceneformat.Build` 会自动构建 `BuiltScene.Lights2D`（`*lights2d.Scene`），使 `BuiltScene.Draw` 在游戏与编辑器的光照预览中渲染出完全一致的 2D 光照与阴影（[`game/editor`](editor.md#内置-2d-光照与遮挡体组件887)）。

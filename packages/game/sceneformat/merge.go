@@ -128,6 +128,7 @@ func (m *sceneMerger) run() *MergeResult {
 	out.VirtualWidth = mergeScalar(m, &sceneSide, conflictCtx{scope: "scene"}, "virtualWidth", m.base.VirtualWidth, m.ours.VirtualWidth, m.theirs.VirtualWidth)
 	out.VirtualHeight = mergeScalar(m, &sceneSide, conflictCtx{scope: "scene"}, "virtualHeight", m.base.VirtualHeight, m.ours.VirtualHeight, m.theirs.VirtualHeight)
 	out.BackgroundColor = mergeScalar(m, &sceneSide, conflictCtx{scope: "scene"}, "backgroundColor", m.base.BackgroundColor, m.ours.BackgroundColor, m.theirs.BackgroundColor)
+	out.AmbientColor = mergeScalar(m, &sceneSide, conflictCtx{scope: "scene"}, "ambientColor", m.base.AmbientColor, m.ours.AmbientColor, m.theirs.AmbientColor)
 	out.Camera = m.mergeCamera(&sceneSide, m.base.Camera, m.ours.Camera, m.theirs.Camera)
 	if side := sceneSide.side(); side != "" {
 		m.addMerged("scene", "", side, "changed")

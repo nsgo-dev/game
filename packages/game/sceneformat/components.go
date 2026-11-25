@@ -25,9 +25,11 @@ const (
 	FieldString
 	// FieldStringList holds a list of strings (such as named collision masks) and decodes to a Go []string.
 	FieldStringList
+	// FieldPointList holds a list of 2D [x, y] points (such as an occluder polygon's vertices) and decodes to a Go [][2]float64.
+	FieldPointList
 )
 
-// String returns the kind's name as written in error messages: "bool", "int", "float", "string" or "[]string".
+// String returns the kind's name as written in error messages: "bool", "int", "float", "string", "[]string" or "[][2]float64".
 func (k FieldKind) String() string {
 	switch k {
 	case FieldBool:
@@ -40,6 +42,8 @@ func (k FieldKind) String() string {
 		return "string"
 	case FieldStringList:
 		return "[]string"
+	case FieldPointList:
+		return "[][2]float64"
 	default:
 		return "FieldKind(" + strconv.Itoa(int(k)) + ")"
 	}
@@ -187,7 +191,7 @@ func normalizeFields(owner, noun string, fields []Field) ([]Field, error) {
 		}
 		seen[f.Name] = struct{}{}
 		where := fmt.Sprintf("%s %s %q", owner, noun, f.Name)
-		if f.Kind < FieldBool || f.Kind > FieldStringList {
+		if f.Kind < FieldBool || f.Kind > FieldPointList {
 			return nil, fmt.Errorf("sceneformat: %s has unknown kind %v", where, f.Kind)
 		}
 		if len(f.Enum) > 0 && f.Kind != FieldString {
@@ -479,6 +483,9 @@ func cloneFields(fields []Field) []Field {
 		if ss, ok := f.Default.([]string); ok {
 			out[i].Default = slices.Clone(ss)
 		}
+		if pts, ok := f.Default.([][2]float64); ok {
+			out[i].Default = slices.Clone(pts)
+		}
 	}
 	return out
 }
@@ -493,6 +500,8 @@ func zeroValue(k FieldKind) any {
 		return 0.0
 	case FieldStringList:
 		return []string(nil)
+	case FieldPointList:
+		return [][2]float64(nil)
 	default:
 		return ""
 	}
@@ -536,6 +545,12 @@ func (f Field) check(v any) (any, string) {
 		default:
 			return nil, "want list of strings, got " + describeValue(v)
 		}
+	case FieldPointList:
+		pts, msg := checkPointList(v)
+		if msg != "" {
+			return nil, msg
+		}
+		return pts, ""
 	case FieldInt:
 		n, ok := toInt(v)
 		if !ok {

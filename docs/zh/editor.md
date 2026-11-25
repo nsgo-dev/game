@@ -44,6 +44,7 @@ import "github.com/nsgo-dev/game/packages/game/sceneformat"
 | `navMesh` | `string` | 可选，从项目根目录起、以斜杠分隔的场景烘焙[导航网格文件](navbake3d.md)路径，由 `nsgo game navmesh` 写入（所有版本均可用）。继承其他场景时，它会替换基础场景的值。 |
 | `virtualWidth`、`virtualHeight` | `float32` | 虚拟视口尺寸（单位为点）。两者必须同时为 `0` 或同时为正数。 |
 | `backgroundColor` | `string` | 可选的 CSS 颜色字符串，由 `core.ParseColor` 解析（如 `"#141824"`）。在绘制各图层前填充 `(0, 0, virtualWidth, virtualHeight)`。 |
+| `ambientColor` | `string` | 可选的 CSS 颜色字符串，由 `core.ParseColor` 解析（如 `"rgba(12, 16, 30, 0.85)"`）。设置场景 2D 光照通道的环境暗场颜色（`lights2d.Scene.Ambient`，两个版本均可用）。 |
 | `camera` | 对象 | 可选的默认 2D 相机配置，作用于世界空间图层（`x`、`y`、`zoom`、`rotation`，以及可选的 `bounds`）。 |
 | `tilemaps` | 映射 | 可选的命名瓦片地图定义，供图层通过 `tilemap.ref` 引用。 |
 | `layerOverrides` | 映射 | 按名称修改继承来的图层：`space`、`order`、`visible`、`tilemap`（版本 2 及以上），以及 `parallaxX`、`parallaxY`、`repeatX`、`repeatY`、`repeatWidth`、`repeatHeight`（版本 3，需要 `inherits`）。 |
@@ -399,6 +400,18 @@ scenes/room.scene.yaml:11:13: sceneformat: object "hero" component "body" field 
 - **具名碰撞层**：`layer` 与 `mask` 直接引用 [`game.yaml`](project.md) 中 `physics.layers` 声明的易读层名，而非原始位掩码。向 `sceneformat.ParseWith` 传入 `ParseOptions{File: ..., PhysicsLayers: proj.PhysicsLayerTable()}`（`project.File.LoadAutoloads` 与 `Editor.OpenProject` 会自动传入）：任何拼错或未知的层名都会加载失败，并返回带有精确文件路径、从 1 开始的行号、列号、字段路径及合法层列表的 `*loaderr.Error`。
 - **构建与步进（`BuildPhysics`）**：`ps, err := sceneformat.BuildPhysics(built, proj.PhysicsSettings(), lib)` 会构造匹配的 `physics.World`、`physics.RigidWorld` 和 `physics3d.World`（应用项目重力、求解器迭代次数、具名 `Layer`/`Mask` 位掩码以及通过 `PhysicsMaterialResolver` 解析的 `*.physics.yaml` 资源）。调用 `ps.Step(dt)` 会推进 2D 运动学与刚体、2D 触发器以及 3D 刚体与触发器，将更新后的局部坐标位姿写回 `BuiltObject.Doc`，并把 `PhysicsTriggerEvent`（`TriggerEnter`、`TriggerStay`、`TriggerExit`）派发到 `ps.OnTrigger` 及已连接的 `ps.Signals`（`enter` / `stay` / `exit`）。
 - **编辑器内运行与视口调试线框**：`Editor.PlayIn` 会自动构建并步进 `PhysicsScene`（`Editor.PlayPhysics`、`Editor.PlayTriggerEvents`、`Editor.OnPlayTrigger`），因此包含玩家刚体、墙壁碰撞体与金币触发器的场景无需编写碰撞 Go 代码即可直接在编辑器中运行并触发碰撞与触发事件。`Editor.ShowPhysicsDebug` 开启时（默认开启，可用 `SetShowPhysicsDebug` 切换），2D 与 3D 视口均会绘制每个 `collider2d`、`trigger2d`、`collider3d` 和 `trigger3d` 的线框轮廓。
+
+### 内置 2D 光照与遮挡体组件（#887）
+
+`sceneformat` 内置两个带版本号的 2D 光照组件（`Lights2DComponentVersion = 1`），可通过 `RegisterLights2DComponents(reg)` 或 `Lights2DComponentRegistry()` 一起注册（编辑器检查器中默认自动可用）：
+
+| 组件 | 主要字段 |
+| --- | --- |
+| `light2d` | `version`（`1`）、`kind`（`point`、`spot`）、`color`（CSS 颜色）、`radius`、`intensity`、`falloff`、`direction`（弧度，与对象旋转叠加）、`angle`（聚光灯张角弧度）、`castShadows`、`enabled`、`offsetX`、`offsetY` |
+| `occluder2d` | `version`（`1`）、`shape`（`rect`、`polygon`、`tilemap`）、`width`、`height`、`offsetX`、`offsetY`、`points`（`[][2]float64`，流式 YAML `[[x, y], ...]`）、`layer`、`tileLayers`（`[]string`）、`enabled` |
+
+- **自动构建 `lights2d.Scene`**：`sceneformat.Build` 会把 `SceneDoc.AmbientColor`、可见世界空间图层上的所有 `light2d` 与 `occluder2d`，以及 `shape: "tilemap"` 遮挡体（通过 [`tileshape.View`](tileshape.md) 从瓦片地图碰撞形状提取）组装为 `BuiltScene.Lights2D`（`*lights2d.Scene`）。除非设置了 `SkipLights2D`，`BuiltScene.Draw` 会在场景相机变换下将 `Lights2D` 绘制在世界空间图层之上（屏幕空间 HUD 图层之下）；运行时移动光源或遮挡体后调用 `BuiltScene.SyncLights2D()` 同步。
+- **2D 光照预览与交互手柄**：2D 视口工具栏提供 **Lighting** 切换按钮（`Editor.ShowLightingPreview`、`SetShowLightingPreview`、命令 `CmdToggleLightingPreview`），在编辑模式下实时预览与游戏完全一致的 `lights2d.Scene` 阴影与环境暗场。选中 `light2d` 对象时会显示半径（`Handle2DLightRadius`）、聚光灯张角（`Handle2DLightSpotAngle`）与聚光灯方向（`Handle2DLightSpotDirection`）手柄；选中 `occluder2d` 对象时，矩形遮挡体显示四边缩放手柄（`Handle2DOccluderRectN/E/S/W`），多边形遮挡体显示可拖动顶点手柄（`Handle2DOccluderVertex`）与边中点插点手柄（`Handle2DOccluderEdgeMid`，以及 `SetOccluderPolygonPoints`、`InsertOccluderVertex`、`RemoveOccluderVertex`、`ConvertOccluderToPolygon`）。每次拖动记录为一个可撤销步骤，按 Escape 可取消；`SetAmbientColor`（或检查器中的 Scene Lighting 区域）可撤销地编辑 `ambientColor`。
 
 ### 连接（#490）
 

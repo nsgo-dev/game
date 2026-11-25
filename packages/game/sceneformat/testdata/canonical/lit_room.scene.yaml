@@ -1,0 +1,33 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/scene.v2.json
+version: 2
+name: Lit Room
+virtualWidth: 320
+virtualHeight: 180
+backgroundColor: '#141824'
+ambientColor: rgba(12, 16, 30, 0.85)
+layers:
+  - name: world
+    space: world
+    objects:
+      - id: torch
+        x: 80
+        "y": 90
+        components:
+          light2d:
+            castShadows: true
+            color: '#ffaa44'
+            enabled: true
+            falloff: 2
+            intensity: 1.2
+            kind: point
+            radius: 160
+            version: 1
+      - id: pillar
+        x: 150
+        "y": 90
+        components:
+          occluder2d:
+            enabled: true
+            points: [[-12, -20], [12, -20], [12, 20], [-12, 20]]
+            shape: polygon
+            version: 1

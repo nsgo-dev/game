@@ -40,6 +40,24 @@ const (
 	Handle2DScaleSW
 	// Handle2DScaleNW is the outline's top left corner: a drag scales the object's X and Y about its origin.
 	Handle2DScaleNW
+	// Handle2DLightRadius is the radius handle on a selected object with a light2d component: a drag adjusts light2d.radius.
+	Handle2DLightRadius
+	// Handle2DLightSpotAngle is either cone-edge handle on a selected spotlight (light2d kind "spot"): a drag adjusts light2d.angle.
+	Handle2DLightSpotAngle
+	// Handle2DLightSpotDirection is the aim handle along a selected spotlight's center ray: a drag adjusts light2d.direction.
+	Handle2DLightSpotDirection
+	// Handle2DOccluderVertex is a vertex handle on a selected polygon occluder2d: a drag moves that vertex in local space.
+	Handle2DOccluderVertex
+	// Handle2DOccluderEdgeMid is an edge-midpoint handle on a selected polygon occluder2d: a drag inserts a new vertex on that edge and moves it.
+	Handle2DOccluderEdgeMid
+	// Handle2DOccluderRectN is the top edge handle on a selected rect occluder2d: a drag resizes occluder2d.height.
+	Handle2DOccluderRectN
+	// Handle2DOccluderRectE is the right edge handle on a selected rect occluder2d: a drag resizes occluder2d.width.
+	Handle2DOccluderRectE
+	// Handle2DOccluderRectS is the bottom edge handle on a selected rect occluder2d: a drag resizes occluder2d.height.
+	Handle2DOccluderRectS
+	// Handle2DOccluderRectW is the left edge handle on a selected rect occluder2d: a drag resizes occluder2d.width.
+	Handle2DOccluderRectW
 )
 
 // String returns a human-readable label for the handle.
@@ -71,6 +89,24 @@ func (h GizmoHandle2D) String() string {
 		return "Scale SW"
 	case Handle2DScaleNW:
 		return "Scale NW"
+	case Handle2DLightRadius:
+		return "Light Radius"
+	case Handle2DLightSpotAngle:
+		return "Spot Angle"
+	case Handle2DLightSpotDirection:
+		return "Spot Direction"
+	case Handle2DOccluderVertex:
+		return "Occluder Vertex"
+	case Handle2DOccluderEdgeMid:
+		return "Insert Occluder Vertex"
+	case Handle2DOccluderRectN:
+		return "Occluder Height N"
+	case Handle2DOccluderRectE:
+		return "Occluder Width E"
+	case Handle2DOccluderRectS:
+		return "Occluder Height S"
+	case Handle2DOccluderRectW:
+		return "Occluder Width W"
 	default:
 		return "None"
 	}
@@ -78,6 +114,19 @@ func (h GizmoHandle2D) String() string {
 
 // IsScale reports whether h is one of the corner or edge scale handles.
 func (h GizmoHandle2D) IsScale() bool { return h >= Handle2DScaleN && h <= Handle2DScaleNW }
+
+// IsLight reports whether h is one of the 2D light radius, spot-angle, or direction handles.
+func (h GizmoHandle2D) IsLight() bool {
+	return h >= Handle2DLightRadius && h <= Handle2DLightSpotDirection
+}
+
+// IsOccluder reports whether h is one of the 2D occluder polygon or rect shape handles.
+func (h GizmoHandle2D) IsOccluder() bool {
+	return h >= Handle2DOccluderVertex && h <= Handle2DOccluderRectW
+}
+
+// IsComponentHandle reports whether h edits a component (light2d or occluder2d) rather than the object's 2D transform.
+func (h GizmoHandle2D) IsComponentHandle() bool { return h.IsLight() || h.IsOccluder() }
 
 // The 2D gizmo's sizes, in canvas points, which stay the same at any zoom.
 const (
@@ -135,6 +184,11 @@ type drag2DState struct {
 	grab math2d.Vec2
 	// prevAngle is the pointer's angle about the origin at the last update, and angle how far it has turned in all, unwrapped, for the rotation ring.
 	prevAngle, angle float64
+	// Component-handle drag state (light2d radius/spot angle/direction and occluder2d rect/polygon handles).
+	compName    string
+	compBefore  map[string]any
+	toLocal     aff2
+	vertexIndex int
 }
 
 // gizmo2D is the selected object's gizmo as drawn on the canvas.
@@ -303,17 +357,29 @@ func (g gizmo2D) pick(p math2d.Vec2) GizmoHandle2D {
 
 // PickGizmo2D returns the part of the selected object's 2D gizmo under the canvas point (x, y), Handle2DBody over the selected object away from its handles, or Handle2DNone. It is Handle2DNone whenever the gizmo is not shown (Gizmo2DShown).
 func (e *Editor) PickGizmo2D(x, y float32) GizmoHandle2D {
+	h, _ := e.pickGizmo2DWithIndex(x, y)
+	return h
+}
+
+func (e *Editor) pickGizmo2DWithIndex(x, y float32) (GizmoHandle2D, int) {
 	if !e.Gizmo2DShown() {
-		return Handle2DNone
+		return Handle2DNone, -1
 	}
 	g, _ := e.gizmo2D()
-	if h := g.pick(math2d.Vec2{X: x, Y: y}); h != Handle2DNone {
-		return h
+	p := math2d.Vec2{X: x, Y: y}
+	if abs32(p.X-g.origin.X) <= gizmoCenterHalf && abs32(p.Y-g.origin.Y) <= gizmoCenterHalf {
+		return Handle2DMove, -1
+	}
+	if lh, idx := e.pickLightingHandle2D(x, y); lh != Handle2DNone {
+		return lh, idx
+	}
+	if h := g.pick(p); h != Handle2DNone {
+		return h, -1
 	}
 	if e.HitTest(x, y) == e.SelectedID {
-		return Handle2DBody
+		return Handle2DBody, -1
 	}
-	return Handle2DNone
+	return Handle2DNone, -1
 }
 
 // Dragging2D returns the handle a 2D viewport drag in progress holds, or Handle2DNone when none is.
@@ -329,7 +395,10 @@ func (e *Editor) BeginDrag2D(x, y float32) GizmoHandle2D {
 	if e == nil || e.playing || e.ViewMode != ViewMode2D || (e.Tool != ToolSelect && e.Tool != ToolMove) || e.drag2D.handle != Handle2DNone || !isFiniteFloat32(x) || !isFiniteFloat32(y) {
 		return Handle2DNone
 	}
-	h := e.PickGizmo2D(x, y)
+	h, idx := e.pickGizmo2DWithIndex(x, y)
+	if h.IsComponentHandle() {
+		return e.beginLightingDrag2D(h, idx, x, y)
+	}
 	if h == Handle2DNone {
 		hit := e.HitTest(x, y)
 		if hit == "" {
@@ -380,6 +449,10 @@ func (e *Editor) BeginDrag2D(x, y float32) GizmoHandle2D {
 // A scale that would be zero or close to it, or a scale or rotation that would shear a sprite in the object's tree, its ancestors taken into account (as ScaleObject and RotateObject refuse), is not taken: the object keeps its last valid transform and the status bar says why. It does nothing without a drag.
 func (e *Editor) UpdateDrag2D(x, y float32, keepAspect bool) {
 	if e == nil || e.drag2D.handle == Handle2DNone || !isFiniteFloat32(x) || !isFiniteFloat32(y) {
+		return
+	}
+	if e.drag2D.handle.IsComponentHandle() {
+		e.updateLightingDrag2D(x, y, keepAspect)
 		return
 	}
 	st := &e.drag2D
@@ -516,6 +589,9 @@ func (e *Editor) EndDrag2D() bool {
 	if e == nil || e.drag2D.handle == Handle2DNone {
 		return false
 	}
+	if e.drag2D.handle.IsComponentHandle() {
+		return e.endLightingDrag2D()
+	}
 	st := e.drag2D
 	e.drag2D = drag2DState{}
 	obj, _, _ := e.FindObject(st.objectID)
@@ -546,6 +622,9 @@ func (e *Editor) EndDrag2D() bool {
 func (e *Editor) CancelDrag2D() bool {
 	if e == nil || e.drag2D.handle == Handle2DNone {
 		return false
+	}
+	if e.drag2D.handle.IsComponentHandle() {
+		return e.cancelLightingDrag2D()
 	}
 	st := e.drag2D
 	e.drag2D = drag2DState{}
@@ -636,6 +715,7 @@ func (e *Editor) drawGizmo2D(d *core.Drawing) {
 		}
 	}
 	d.Restore()
+	e.drawSelectedLightingHandles2D(d)
 }
 
 func unitVec(v math2d.Vec2) math2d.Vec2 {
