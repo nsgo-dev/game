@@ -35,6 +35,23 @@ func HUDLayoutView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 	canvasW := core.NewSignal(cx, float32(848))
 	canvasH := core.NewSignal(cx, float32(812))
 
+	// Pause heavy left-rail / text-width-table / inspector rebuilds (which run gameui.CheckScreen
+	// across project screens) while a touch drag streams mouse moves; selection changes on drag
+	// start and completion/cancel still update immediately.
+	type hudStableKey struct {
+		rev uint64
+		sel string
+	}
+	var lastNonDragRev uint64
+	stableRev := core.NewMemo(cx, func() hudStableKey {
+		r := rev.Get()
+		if !ed.HUDTouchDragActive() {
+			lastNonDragRev = r
+		}
+		return hudStableKey{rev: lastNonDragRev, sel: ed.HUDSelectedNodeID()}
+	})
+	stableTick := func() { _ = stableRev.Get() }
+
 	return core.View{
 		TestID: "hud-layout-screen",
 		Role:   core.RoleRegion,
@@ -75,9 +92,9 @@ func HUDLayoutView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 					Overflow:  core.Hidden,
 				},
 				Children: []core.Node{
-					hudLeftRailView(cx, ed, rev),
-					hudCenterViewportView(cx, ed, rev, canvasW, canvasH),
-					hudInspectorRailView(cx, ed, rev, promptDraft),
+					hudLeftRailView(cx, ed, rev, stableTick),
+					hudCenterViewportView(cx, ed, rev, stableTick, canvasW, canvasH),
+					hudInspectorRailView(cx, ed, rev, stableTick, promptDraft),
 				},
 			},
 		},
@@ -87,6 +104,17 @@ func HUDLayoutView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 // hudHeaderView builds the 44 px top header with breadcrumb, Language segmented control, Search ⌘K, and Play.
 func hudHeaderView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	searchShortcut := FormatShortcut("mod+k", cx.Env().OS())
+	type hudLangKey struct {
+		locales string
+		active  string
+	}
+	langKey := core.NewMemo(cx, func() hudLangKey {
+		_ = rev.Get()
+		return hudLangKey{
+			locales: strings.Join(ed.HUDLocales(), "\x00"),
+			active:  ed.HUDLocale(),
+		}
+	})
 
 	return core.View{
 		TestID: "hud-header",
@@ -196,35 +224,33 @@ func hudHeaderView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 						Style:   core.Style{FontSize: 12.5, Color: specTextMuted},
 					},
 					core.Dynamic(func(cx *core.Scope) core.Node {
-						_ = rev.Get()
+						_ = langKey.Get()
 						locales := ed.HUDLocales()
 						active := ed.HUDLocale()
 						btns := make([]core.Node, 0, len(locales))
 						for _, loc := range locales {
 							l := loc
 							on := l == active
+							bg := core.Transparent
+							fg := specTextMuted
+							if on {
+								bg = specLineRaised
+								fg = specTextStrong
+							}
 							btns = append(btns, core.View{
 								TestID: "hud-lang-" + l,
 								Role:   core.RoleButton,
 								Label:  "Language " + hudLocaleLabel(l),
-								StyleFunc: func() core.Style {
-									_ = rev.Get()
-									cur := ed.HUDLocale() == l
-									bg := core.Transparent
-									if cur {
-										bg = specLineRaised
-									}
-									return core.Style{
-										Height:         core.Pt(24),
-										MinWidth:       core.Pt(28),
-										Direction:      core.Row,
-										AlignItems:     core.AlignCenter,
-										JustifyContent: core.JustifyCenter,
-										Padding:        core.Symmetric(0, 10),
-										CornerRadius:   6,
-										Background:     bg,
-										FocusVisible:   specFocusRingStyle,
-									}
+								Style: core.Style{
+									Height:         core.Pt(24),
+									MinWidth:       core.Pt(28),
+									Direction:      core.Row,
+									AlignItems:     core.AlignCenter,
+									JustifyContent: core.JustifyCenter,
+									Padding:        core.Symmetric(0, 10),
+									CornerRadius:   6,
+									Background:     bg,
+									FocusVisible:   specFocusRingStyle,
 								},
 								OnPress: func(core.PressEvent) {
 									ed.SetHUDLocale(l)
@@ -235,12 +261,7 @@ func hudHeaderView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 										Style: core.Style{
 											FontSize:   12,
 											FontWeight: core.FontWeightMedium,
-											Color: func() core.Color {
-												if on {
-													return specTextStrong
-												}
-												return specTextMuted
-											}(),
+											Color:      fg,
 										},
 									},
 								},
@@ -362,7 +383,7 @@ func hudHeaderView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 }
 
 // hudLeftRailView builds the 232 px left rail: SCREENS list, NODES tree, and bottom manual-scope note.
-func hudLeftRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+func hudLeftRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], stableTick func()) core.Node {
 	return core.View{
 		TestID: "hud-left-rail",
 		Role:   core.RoleRegion,
@@ -399,7 +420,7 @@ func hudLeftRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 			},
 			// SCREENS list.
 			core.Dynamic(func(cx *core.Scope) core.Node {
-				_ = rev.Get()
+				stableTick()
 				screens := ed.HUDScreens()
 				activePath := ed.HUDActiveScreenPath()
 				if len(screens) == 0 {
@@ -415,8 +436,14 @@ func hudLeftRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 					}
 				}
 				rows := make([]core.Node, 0, len(screens))
+				seenName := make(map[string]int, len(screens))
 				for _, sc := range screens {
 					entry := sc
+					seenName[entry.Name]++
+					idSuffix := ""
+					if seenName[entry.Name] > 1 {
+						idSuffix = fmt.Sprintf("-%d", seenName[entry.Name])
+					}
 					on := entry.Path == activePath
 					meta := fmt.Sprintf("%d nodes", entry.NodeCount)
 					metaColor := specTextMuted
@@ -440,7 +467,7 @@ func hudLeftRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 						fg = specTextStrong
 					}
 					rows = append(rows, core.View{
-						TestID: "hud-screen-" + entry.Name,
+						TestID: "hud-screen-" + entry.Name + idSuffix,
 						Role:   core.RoleButton,
 						Label:  "Screen " + entry.Name + " " + meta,
 						Style: core.Style{
@@ -467,7 +494,7 @@ func hudLeftRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 								},
 							},
 							core.Text{
-								TestID:  "hud-screen-meta-" + entry.Name,
+								TestID:  "hud-screen-meta-" + entry.Name + idSuffix,
 								Content: meta,
 								Style: core.Style{
 									FontSize: 11,
@@ -529,7 +556,7 @@ func hudLeftRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 				},
 				Children: []core.Node{
 					core.Dynamic(func(cx *core.Scope) core.Node {
-						_ = rev.Get()
+						stableTick()
 						tree := ed.HUDTree()
 						selID := ed.HUDSelectedNodeID()
 						rows := make([]core.Node, 0, len(tree))
@@ -644,7 +671,22 @@ func hudLeftRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 }
 
 // hudCenterViewportView builds the center column: sub-header with 4 overlay switches, the 4-device canvas, and the TEXT WIDTH, PX table.
-func hudCenterViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], canvasW, canvasH *core.Signal[float32]) core.Node {
+func hudCenterViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], stableTick func(), canvasW, canvasH *core.Signal[float32]) core.Node {
+	type hudStageMode struct {
+		kind   string
+		path   string
+		errMsg string
+	}
+	stageMode := core.NewMemo(cx, func() hudStageMode {
+		_ = rev.Get()
+		if loadErr := ed.HUDLoadErr(); loadErr != nil {
+			return hudStageMode{kind: "error", path: ed.HUDActiveScreenPath(), errMsg: loadErr.Error()}
+		}
+		if rec := ed.activeHUDScreenRecord(); rec == nil || rec.doc == nil {
+			return hudStageMode{kind: "empty"}
+		}
+		return hudStageMode{kind: "ok"}
+	})
 	overlaySwitch := func(key, label string, activeFn func(HUDOverlays) bool, swatch core.Node) core.Node {
 		return core.View{
 			TestID: "hud-overlay-" + key,
@@ -837,11 +879,13 @@ func hudCenterViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64],
 				},
 				Children: []core.Node{
 					core.Dynamic(func(cx *core.Scope) core.Node {
-						_ = rev.Get()
-						if loadErr := ed.HUDLoadErr(); loadErr != nil {
-							return hudErrorStateView(ed.HUDActiveScreenPath(), loadErr)
+						m := stageMode.Get()
+						if m.kind == "error" {
+							if loadErr := ed.HUDLoadErr(); loadErr != nil {
+								return hudErrorStateView(m.path, loadErr)
+							}
 						}
-						if ed.HUDActiveScreen() == nil {
+						if m.kind == "empty" {
 							return hudEmptyStateView()
 						}
 						return core.Canvas{
@@ -857,7 +901,7 @@ func hudCenterViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64],
 							},
 						}
 					}),
-					hudTextWidthTableView(cx, ed, rev),
+					hudTextWidthTableView(cx, ed, stableTick),
 				},
 			},
 		},
@@ -955,9 +999,9 @@ func hudErrorStateView(path string, err error) core.Node {
 }
 
 // hudTextWidthTableView renders the floating "TEXT WIDTH, PX" table at the bottom-right of the viewport stage.
-func hudTextWidthTableView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+func hudTextWidthTableView(cx *core.Scope, ed *Editor, stableTick func()) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
-		_ = rev.Get()
+		stableTick()
 		rows := ed.HUDTextWidths()
 		if len(rows) == 0 {
 			return nil
@@ -1109,7 +1153,7 @@ func hudTextWidthTableView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 
 // hudInspectorRailView builds the 360 px right rail: node header, ANCHOR 3×3 + fill, SIZE/Spacing/Order,
 // TEXT + zoomed overflow detail, GAME CHECK list + Ask agent button, and bottom composer.
-func hudInspectorRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], promptDraft *core.Signal[string]) core.Node {
+func hudInspectorRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], stableTick func(), promptDraft *core.Signal[string]) core.Node {
 	return core.View{
 		TestID: "hud-inspector-rail",
 		Role:   core.RoleRegion,
@@ -1182,7 +1226,7 @@ func hudInspectorRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], 
 				},
 				Children: []core.Node{
 					core.Dynamic(func(cx *core.Scope) core.Node {
-						_ = rev.Get()
+						stableTick()
 						doc := ed.HUDActiveScreen()
 						if doc == nil {
 							return core.View{
@@ -1891,8 +1935,14 @@ func hudGameCheckSectionView(ed *Editor, doc *gameui.ScreenDoc) core.Node {
 			},
 		})
 	} else {
+		seenProb := make(map[string]int, len(probs))
 		for i, p := range probs {
 			prob := p
+			seenProb[prob.NodeID]++
+			probSuffix := ""
+			if seenProb[prob.NodeID] > 1 {
+				probSuffix = fmt.Sprintf("-%d", seenProb[prob.NodeID])
+			}
 			selected := prob.NodeID == selID
 			cardBg := specRaised
 			cardBorder := specLineRaised
@@ -1933,7 +1983,7 @@ func hudGameCheckSectionView(ed *Editor, doc *gameui.ScreenDoc) core.Node {
 						},
 						Children: []core.Node{
 							core.Text{
-								TestID:  "hud-problem-title-" + prob.NodeID,
+								TestID:  "hud-problem-title-" + prob.NodeID + probSuffix,
 								Content: prob.Title,
 								Style:   core.Style{FontSize: 12.5, Color: specTextStrong},
 							},
@@ -1944,7 +1994,7 @@ func hudGameCheckSectionView(ed *Editor, doc *gameui.ScreenDoc) core.Node {
 						},
 					},
 					core.View{
-						TestID: "hud-problem-show-" + prob.NodeID,
+						TestID: "hud-problem-show-" + prob.NodeID + probSuffix,
 						Role:   core.RoleButton,
 						Label:  "Show " + prob.NodeID,
 						Style: core.Style{

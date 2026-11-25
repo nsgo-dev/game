@@ -141,6 +141,8 @@ func (e *Editor) PlayIn(cx *core.Scope) error {
 	e.CancelCameraDrag()
 	e.CancelCameraBoundsDrag()
 	e.CancelRoomDrag()
+	e.CancelHUDTouchDrag()
+	e.hud.open = false
 	e.cancelBackgroundPreview()
 	e.playSnapshot = snap
 	e.Doc = playDoc

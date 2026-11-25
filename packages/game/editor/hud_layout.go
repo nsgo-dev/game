@@ -147,6 +147,7 @@ type hudDragState struct {
 
 type hudLayoutState struct {
 	open           bool
+	session        uint64
 	screens        []hudScreenRecord
 	activePath     string
 	selectedNodeID string
@@ -255,6 +256,9 @@ func (e *Editor) SetHUDLayoutOpen(open bool) {
 	if e == nil {
 		return
 	}
+	if open && e.playing {
+		return
+	}
 	if e.hud.open == open {
 		return
 	}
@@ -299,6 +303,7 @@ func (e *Editor) ensureHUDDefaults() {
 
 func (e *Editor) resetHUDForProject() {
 	e.CancelHUDTouchDrag()
+	e.hud.session++
 	e.hud.screens = nil
 	e.hud.activePath = ""
 	e.hud.selectedNodeID = ""
@@ -308,6 +313,77 @@ func (e *Editor) resetHUDForProject() {
 	e.hud.localePlurals = nil
 	if e.Project != nil && e.ProjectPath != "" {
 		_ = e.refreshHUDScreensInternal(false)
+	}
+}
+
+// checkHUDProjectSymlink enforces that absPath does not escape the open project's root via symlinks.
+// When mustContain is true (project-relative reads and scans), absPath must resolve strictly inside
+// the project root. When mustContain is false (disk writes), containment is enforced whenever absPath
+// is lexically inside the project root so symlinks inside the project cannot redirect writes outside.
+func (e *Editor) checkHUDProjectSymlink(absPath string, mustContain bool) error {
+	if e == nil || e.ProjectPath == "" {
+		return nil
+	}
+	root := filepath.Clean(filepath.Dir(e.ProjectPath))
+	cleanPath := filepath.Clean(absPath)
+	if !mustContain {
+		lexRel, err := filepath.Rel(root, cleanPath)
+		if err != nil || lexRel == ".." || strings.HasPrefix(lexRel, ".."+string(filepath.Separator)) || filepath.IsAbs(lexRel) {
+			return nil
+		}
+	}
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		realRoot = root
+	}
+	var realPath string
+	if mustContain {
+		realPath, err = filepath.EvalSymlinks(cleanPath)
+		if err != nil {
+			return err
+		}
+	} else {
+		realPath, err = evalHUDSymlinksOrParent(cleanPath)
+		if err != nil {
+			return err
+		}
+	}
+	rel, err := filepath.Rel(realRoot, realPath)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return fmt.Errorf("editor: screen path %q resolves outside the project", absPath)
+	}
+	return nil
+}
+
+func evalHUDSymlinksOrParent(p string) (string, error) {
+	p = filepath.Clean(p)
+	if real, err := filepath.EvalSymlinks(p); err == nil {
+		return real, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	if fi, lerr := os.Lstat(p); lerr == nil && fi.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("editor: refusing to follow unresolved symlink %q", p)
+	}
+	cur := p
+	var tail []string
+	for {
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return p, nil
+		}
+		tail = append(tail, filepath.Base(cur))
+		cur = parent
+		if real, err := filepath.EvalSymlinks(cur); err == nil {
+			slices.Reverse(tail)
+			parts := append([]string{real}, tail...)
+			return filepath.Join(parts...), nil
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return "", err
+		}
+		if fi, lerr := os.Lstat(cur); lerr == nil && fi.Mode()&os.ModeSymlink != 0 {
+			return "", fmt.Errorf("editor: refusing to follow unresolved symlink %q", cur)
+		}
 	}
 }
 
@@ -327,7 +403,7 @@ func (e *Editor) refreshHUDScreensInternal(keepActive bool) error {
 		return nil
 	}
 	root := filepath.Dir(e.ProjectPath)
-	e.loadHUDLocalesFromDir(filepath.Join(root, "locales"))
+	e.loadHUDLocalesFromDir(filepath.Join(root, "locales"), true)
 
 	var records []hudScreenRecord
 	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, walkErr error) error {
@@ -336,12 +412,15 @@ func (e *Editor) refreshHUDScreensInternal(keepActive bool) error {
 		}
 		if d.IsDir() {
 			name := d.Name()
-			if name != "." && (strings.HasPrefix(name, ".") || name == "node_modules" || name == "dist" || name == "build") {
+			if name != "." && (skippedProjectDir(name) || name == "node_modules" || name == "dist" || name == "build") {
 				return filepath.SkipDir
 			}
 			return nil
 		}
 		if !isScreenFile(d.Name()) {
+			return nil
+		}
+		if err := e.checkHUDProjectSymlink(p, true); err != nil {
 			return nil
 		}
 		rel, err := filepath.Rel(root, p)
@@ -401,7 +480,7 @@ func loadHUDScreenRecord(relPath, absPath string) hudScreenRecord {
 	return rec
 }
 
-func (e *Editor) loadHUDLocalesFromDir(dir string) {
+func (e *Editor) loadHUDLocalesFromDir(dir string, enforceProjectRoot bool) {
 	locales := make([]string, 0, 4)
 	stringsMap := make(map[string]map[string]string)
 	pluralsMap := make(map[string]map[string]l10n.PluralForms)
@@ -416,7 +495,13 @@ func (e *Editor) loadHUDLocalesFromDir(dir string) {
 			if !strings.HasSuffix(low, ".yaml") && !strings.HasSuffix(low, ".yml") {
 				continue
 			}
-			data, err := os.ReadFile(filepath.Join(dir, ent.Name()))
+			locFile := filepath.Join(dir, ent.Name())
+			if enforceProjectRoot {
+				if err := e.checkHUDProjectSymlink(locFile, true); err != nil {
+					continue
+				}
+			}
+			data, err := os.ReadFile(locFile)
 			if err != nil {
 				continue
 			}
@@ -472,6 +557,9 @@ func (e *Editor) OpenHUDScreen(relPath string) error {
 	if e == nil {
 		return ErrNoHUDScreen
 	}
+	if e.playing {
+		return ErrPlaying
+	}
 	relPath = strings.TrimSpace(strings.ReplaceAll(relPath, `\`, "/"))
 	if relPath == "" {
 		return ErrNoHUDScreen
@@ -489,7 +577,13 @@ func (e *Editor) OpenHUDScreen(relPath string) error {
 		return r.path == relPath || r.name == relPath
 	})
 	if idx < 0 && e.ProjectPath != "" {
-		abs := filepath.Join(filepath.Dir(e.ProjectPath), filepath.FromSlash(relPath))
+		abs, err := e.projectFile(relPath)
+		if err != nil {
+			return err
+		}
+		if err := e.checkHUDProjectSymlink(abs, true); err != nil {
+			return err
+		}
 		rec := loadHUDScreenRecord(relPath, abs)
 		if rec.loadErr != nil && errors.Is(rec.loadErr, os.ErrNotExist) {
 			return rec.loadErr
@@ -519,18 +613,22 @@ func (e *Editor) OpenHUDScreenFile(absPath string) error {
 	if e == nil {
 		return ErrNoHUDScreen
 	}
+	if e.playing {
+		return ErrPlaying
+	}
 	abs, err := filepath.Abs(absPath)
 	if err != nil {
 		return err
 	}
 	e.CancelHUDTouchDrag()
+	e.hud.session++
 
 	dir := filepath.Dir(abs)
 	// Look for a locales directory beside or above the screen directory.
 	if info, err := os.Stat(filepath.Join(dir, "locales")); err == nil && info.IsDir() {
-		e.loadHUDLocalesFromDir(filepath.Join(dir, "locales"))
+		e.loadHUDLocalesFromDir(filepath.Join(dir, "locales"), false)
 	} else if info, err := os.Stat(filepath.Join(filepath.Dir(dir), "locales")); err == nil && info.IsDir() {
-		e.loadHUDLocalesFromDir(filepath.Join(filepath.Dir(dir), "locales"))
+		e.loadHUDLocalesFromDir(filepath.Join(filepath.Dir(dir), "locales"), false)
 	}
 
 	var records []hudScreenRecord
@@ -567,6 +665,9 @@ func (e *Editor) OpenHUDScreenDoc(name string, doc *gameui.ScreenDoc, locales ma
 	if e == nil || doc == nil {
 		return ErrNoHUDScreen
 	}
+	if e.playing {
+		return ErrPlaying
+	}
 	if err := gameui.ValidateScreen(doc); err != nil {
 		return err
 	}
@@ -593,6 +694,7 @@ func (e *Editor) OpenHUDScreenDoc(name string, doc *gameui.ScreenDoc, locales ma
 		raw:  raw,
 	}
 	if idx := slices.IndexFunc(e.hud.screens, func(r hudScreenRecord) bool { return r.path == relPath }); idx >= 0 {
+		e.hud.session++
 		e.hud.screens[idx] = rec
 	} else {
 		e.hud.screens = append(e.hud.screens, rec)
@@ -1258,10 +1360,10 @@ func (e *Editor) HUDLayoutFrames(canvasW, canvasH float32) []HUDFrameLayout {
 	if rec == nil || rec.doc == nil {
 		return nil
 	}
-	if canvasW <= 0 {
+	if !isFiniteFloat32(canvasW) || canvasW <= 0 {
 		canvasW = 848
 	}
-	if canvasH <= 0 {
+	if !isFiniteFloat32(canvasH) || canvasH <= 0 {
 		canvasH = 812
 	}
 	devices := gameui.ReferenceDevicesFor(rec.doc.DesignWidth, rec.doc.DesignHeight)
@@ -1349,6 +1451,7 @@ func (e *Editor) HUDLayoutFrames(canvasW, canvasH float32) []HUDFrameLayout {
 
 type hudScreenCmd struct {
 	ed            *Editor
+	session       uint64
 	path          string
 	absPath       string
 	label         string
@@ -1366,6 +1469,9 @@ func (c *hudScreenCmd) Do()           { _ = c.do() }
 func (c *hudScreenCmd) Undo()         { _ = c.undo() }
 
 func (c *hudScreenCmd) do() error {
+	if c.ed == nil || c.ed.hud.session != c.session {
+		return nil
+	}
 	if err := c.persist(c.afterRaw); err != nil {
 		return err
 	}
@@ -1374,6 +1480,9 @@ func (c *hudScreenCmd) do() error {
 }
 
 func (c *hudScreenCmd) undo() error {
+	if c.ed == nil || c.ed.hud.session != c.session {
+		return nil
+	}
 	if err := c.persist(c.beforeRaw); err != nil {
 		return err
 	}
@@ -1391,6 +1500,9 @@ func (c *hudScreenCmd) persist(data []byte) error {
 		}
 	}
 	if c.writeDiskFile && c.absPath != "" {
+		if err := c.ed.checkHUDProjectSymlink(c.absPath, false); err != nil {
+			return err
+		}
 		if err := writeFileAtomic(c.absPath, data); err != nil {
 			return err
 		}
@@ -1399,16 +1511,20 @@ func (c *hudScreenCmd) persist(data []byte) error {
 }
 
 func (c *hudScreenCmd) applyState(doc *gameui.ScreenDoc, raw []byte, sel string) {
+	found := false
 	for i := range c.ed.hud.screens {
-		if c.ed.hud.screens[i].path == c.path {
+		if c.ed.hud.screens[i].path == c.path && c.ed.hud.screens[i].absPath == c.absPath {
 			c.ed.hud.screens[i].doc = doc.Clone()
 			c.ed.hud.screens[i].raw = bytes.Clone(raw)
 			c.ed.hud.screens[i].loadErr = nil
+			found = true
 			break
 		}
 	}
-	c.ed.hud.activePath = c.path
-	c.ed.hud.selectedNodeID = sel
+	if found {
+		c.ed.hud.activePath = c.path
+		c.ed.hud.selectedNodeID = sel
+	}
 	if c.writeDiskFile && c.absPath != "" {
 		c.ed.invalidateProjectIndex()
 		c.ed.CheckProblems()
@@ -1448,6 +1564,7 @@ func (e *Editor) commitHUDScreenEdit(label string, edit func(doc *gameui.ScreenD
 	}
 	cmd := &hudScreenCmd{
 		ed:            e,
+		session:       e.hud.session,
 		path:          rec.path,
 		absPath:       rec.absPath,
 		label:         label,
@@ -1688,7 +1805,10 @@ func (e *Editor) HUDTouchDragActive() bool {
 
 // UpdateHUDTouchDrag previews the dragged touch control's anchor-relative offset across all four device frames.
 func (e *Editor) UpdateHUDTouchDrag(canvasX, canvasY float32) bool {
-	if e == nil || !e.hud.drag.active {
+	if e == nil || e.playing || !e.hud.drag.active {
+		return false
+	}
+	if !isFiniteFloat32(canvasX) || !isFiniteFloat32(canvasY) {
 		return false
 	}
 	rec := e.activeHUDScreenRecord()
@@ -1737,6 +1857,10 @@ func (e *Editor) EndHUDTouchDrag() error {
 	if e == nil || !e.hud.drag.active {
 		return nil
 	}
+	if e.playing {
+		e.CancelHUDTouchDrag()
+		return ErrPlaying
+	}
 	drag := e.hud.drag
 	e.hud.drag = hudDragState{}
 
@@ -1760,6 +1884,7 @@ func (e *Editor) EndHUDTouchDrag() error {
 	rec.doc = drag.beforeDoc.Clone()
 	cmd := &hudScreenCmd{
 		ed:            e,
+		session:       e.hud.session,
 		path:          rec.path,
 		absPath:       rec.absPath,
 		label:         "Move " + drag.nodeID,
@@ -1886,9 +2011,15 @@ func findHUDNodeSlot(nodes *[]gameui.ScreenNodeDoc, id string) (*[]gameui.Screen
 }
 
 func formatHUDPoints(v float32) string {
+	if !isFiniteFloat32(v) {
+		return "0"
+	}
 	rounded := math.Round(float64(v)*10) / 10
+	if rounded == 0 {
+		rounded = 0
+	}
 	if rounded == math.Trunc(rounded) {
-		return strconv.Itoa(int(rounded))
+		return strconv.FormatFloat(rounded, 'f', 0, 64)
 	}
 	return strconv.FormatFloat(rounded, 'f', 1, 64)
 }
