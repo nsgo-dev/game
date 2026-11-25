@@ -79,6 +79,7 @@ Unity 把行为挂在对象上；这里数据和行为是分开的，与 Unity �
 | Unity | 这里 |
 | --- | --- |
 | 带 `BoxCollider2D` 或 `CircleCollider2D` 的动态 `Rigidbody2D` | `physics.RigidWorld` 中的 `physics.RigidBody` |
+| `PolygonCollider2D`、`CapsuleCollider2D`、`EdgeCollider2D` | 用 `NewRigidBody` 创建的 `Polygon`（凸，最多 8 个顶点）、`Capsule`、`Segment` 或 `Chain` 形状 |
 | `HingeJoint2D`、`SpringJoint2D`、`DistanceJoint2D` | `RevoluteJoint`、`SpringJoint`、`DistanceJoint` |
 | 运动学平台跳跃控制器 | 针对 `TileGrid` 的 `physics.MoveAndSlide`，带 `Grounded` 和贴墙标志 |
 | `isTrigger` 和 `OnTriggerEnter2D` | 带 `OnEnter`、`OnStay` 和 `OnExit` 的 `physics.Trigger`，由 `World.StepTriggers` 驱动 |

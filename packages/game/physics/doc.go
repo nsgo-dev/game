@@ -5,9 +5,7 @@
 // Coordinates follow NSGo's screen space: X increases to the right, Y increases downward,
 // and angles are measured in radians increasing clockwise.
 //
-// Shapes (Box and Circle, unified by Shape) test overlaps with TestBoxBox, TestCircleCircle,
-// TestBoxCircle, TestCircleBox and TestShapes, returning a Contact whose unit normal points
-// from B toward A by the penetration Depth needed to separate them.
+// Shapes (Box, Circle, convex and optionally rounded Polygon, Capsule, Segment and static Chain, unified by Shape) test overlaps with TestBoxBox, TestCircleCircle, TestBoxCircle, TestCircleBox and TestShapes, returning a Contact whose unit normal points from B toward A by the penetration Depth needed to separate them. Polygons, capsules, segments and chains collide by the separating axis test on rounded hulls, as in Box2D, and chains suppress the ghost contacts their interior vertices would otherwise cause.
 //
 // Collision filtering uses 32-bit LayerMask values (Layer and Mask) on Body, Trigger and
 // RigidBody. Zero values default to LayerAll so unfiltered code stays backwards-compatible.

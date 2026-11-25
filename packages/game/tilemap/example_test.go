@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/nsgo-dev/game/packages/game/physics"
 	"github.com/nsgo-dev/game/packages/game/tilemap"
 	"github.com/nsgo-dev/nsgo/core"
 )
@@ -67,4 +68,44 @@ func ExampleCamera() {
 	// Output:
 	// 480 100 {{320 10} {320 180}}
 	// {280 90}
+}
+
+// slopes is a Tiled map whose "collision" object layer holds a polyline drawn as the level's ground: flat, down a slope, and flat again.
+const slopes = `{
+	"type": "map", "orientation": "orthogonal", "renderorder": "right-down",
+	"width": 20, "height": 10, "tilewidth": 16, "tileheight": 16, "infinite": false,
+	"layers": [{
+		"type": "objectgroup", "name": "collision", "x": 0, "y": 0, "opacity": 1, "visible": false,
+		"objects": [{
+			"id": 1, "name": "", "type": "ground", "x": 0, "y": 80, "width": 0, "height": 0, "rotation": 0, "visible": true,
+			"polyline": [{"x": 0, "y": 0}, {"x": 96, "y": 0}, {"x": 224, "y": 64}, {"x": 320, "y": 64}]
+		}]
+	}],
+	"tilesets": []
+}`
+
+// PhysicsBodies turns a Tiled polyline into static terrain: a ball dropped on the map's ground line lands on it and rolls down its slope onto the lower floor.
+func ExampleObjectLayer_PhysicsBodies() {
+	m, err := tilemap.LoadTiled([]byte(slopes), tilemap.TilesetLoader{})
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	terrain := m.Objects[0].PhysicsBodies()
+	fmt.Println(len(terrain), terrain[0].Tag, terrain[0].Shape.Kind == physics.ShapeChain)
+
+	w := &physics.RigidWorld{GravityY: 600}
+	for _, b := range terrain {
+		w.AddBody(physics.NewStaticRigidBody(b.Shape))
+	}
+	ball := physics.NewRigidCircle(40, 40, 8, 1)
+	w.AddBody(ball)
+	for range 200 {
+		ball.VX = min(ball.VX+2, 80) // a gentle push to the right
+		w.Step(time.Second / 60)
+	}
+	fmt.Printf("%.0f %v\n", ball.Y, ball.X > 224)
+	// Output:
+	// 1 ground true
+	// 136 true
 }

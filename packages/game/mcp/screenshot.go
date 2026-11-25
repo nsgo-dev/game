@@ -108,9 +108,13 @@ type OverlaysDrawn struct {
 	Camera          bool `json:"camera,omitempty"`
 	Labels          bool `json:"labels,omitempty"`
 	// SpriteBounds counts the sprites outlined: those in scene layers' Item.Batch. Sprites a Drawable item or a tilemap draws get no outline.
-	SpriteBounds    int `json:"sprite_bounds,omitempty"`
-	PhysicsBoxes    int `json:"physics_boxes,omitempty"`
-	PhysicsCircles  int `json:"physics_circles,omitempty"`
+	SpriteBounds   int `json:"sprite_bounds,omitempty"`
+	PhysicsBoxes   int `json:"physics_boxes,omitempty"`
+	PhysicsCircles int `json:"physics_circles,omitempty"`
+	// PhysicsPolygons, PhysicsCapsules and PhysicsLines count the polygon, capsule, and segment or chain bodies outlined.
+	PhysicsPolygons int `json:"physics_polygons,omitempty"`
+	PhysicsCapsules int `json:"physics_capsules,omitempty"`
+	PhysicsLines    int `json:"physics_lines,omitempty"`
 	PhysicsTriggers int `json:"physics_triggers,omitempty"`
 	PhysicsTiles    int `json:"physics_tiles,omitempty"`
 }
@@ -1038,7 +1042,8 @@ func (b *Bridge) drawPhysicsOverlays(dst *image.RGBA, clip image.Rectangle, worl
 				continue
 			}
 			bodyM := worldM
-			if rb.Angle != 0 {
+			// Boxes and circles keep their unrotated extents with Angle applied by the solver; other shapes are stored at their pose already.
+			if rb.Angle != 0 && (rb.Shape.Kind == physics.ShapeBox || rb.Shape.Kind == physics.ShapeCircle) {
 				bodyM = worldM.mul(rotateAroundAffine2D(float64(rb.X), float64(rb.Y), float64(rb.Angle)))
 			}
 			x0, y0, ok := drawPhysicsShapeOverlay(dst, clip, bodyM, rb.Shape, style.BoxColor, style.CircleColor, drawn, false)
@@ -1143,9 +1148,114 @@ func drawPhysicsShapeOverlay(dst *image.RGBA, clip image.Rectangle, m affine2D, 
 			drawn.PhysicsCircles++
 		}
 		return x0, y0, ok
+	case physics.ShapePolygon, physics.ShapeCapsule, physics.ShapeSegment, physics.ShapeChain:
+		outline, closed := physicsShapeOutline(s)
+		col := boxColor
+		if s.Kind == physics.ShapeCapsule {
+			col = circleColor
+		}
+		x0, y0, ok := drawWorldPolyline(dst, clip, m, outline, closed, col)
+		switch {
+		case isTrigger:
+			drawn.PhysicsTriggers++
+		case s.Kind == physics.ShapePolygon:
+			drawn.PhysicsPolygons++
+		case s.Kind == physics.ShapeCapsule:
+			drawn.PhysicsCapsules++
+		default:
+			drawn.PhysicsLines++
+		}
+		return x0, y0, ok
 	default:
 		return 0, 0, false
 	}
+}
+
+// physicsShapeOutline returns the world-space outline of a polygon, capsule, segment or chain as a polyline, with rounded corners and capsule ends sampled as arcs, and whether it closes.
+func physicsShapeOutline(s physics.Shape) ([][2]float64, bool) {
+	var corePts [][2]float64
+	var r float64
+	switch s.Kind {
+	case physics.ShapePolygon:
+		p := s.Polygon
+		for _, v := range p.Vertices[:p.Count] {
+			corePts = append(corePts, [2]float64{float64(v.X), float64(v.Y)})
+		}
+		r = float64(p.Radius)
+	case physics.ShapeCapsule:
+		c := s.Capsule
+		corePts = [][2]float64{{float64(c.X1), float64(c.Y1)}, {float64(c.X2), float64(c.Y2)}}
+		r = float64(c.R)
+	case physics.ShapeSegment:
+		g := s.Segment
+		return [][2]float64{{float64(g.X1), float64(g.Y1)}, {float64(g.X2), float64(g.Y2)}}, false
+	case physics.ShapeChain:
+		out := make([][2]float64, len(s.Chain.Points))
+		for i, p := range s.Chain.Points {
+			out[i] = [2]float64{float64(p.X), float64(p.Y)}
+		}
+		return out, s.Chain.Loop
+	}
+	if r <= 0 {
+		return corePts, true
+	}
+	n := len(corePts)
+	if n == 2 && corePts[0] == corePts[1] {
+		n = 1
+	}
+	normal := func(i int) (float64, float64) {
+		a, b := corePts[i], corePts[(i+1)%n]
+		ex, ey := b[0]-a[0], b[1]-a[1]
+		l := math.Hypot(ex, ey)
+		if l == 0 {
+			return 0, 0
+		}
+		return ey / l, -ex / l
+	}
+	const arcSteps = 8
+	var out [][2]float64
+	for i := range n {
+		v := corePts[i]
+		a0, a1 := 0.0, 2*math.Pi
+		if n > 1 {
+			px, py := normal((i + n - 1) % n)
+			nx, ny := normal(i)
+			a0, a1 = math.Atan2(py, px), math.Atan2(ny, nx)
+			if a1 < a0 {
+				a1 += 2 * math.Pi
+			}
+		}
+		for k := 0; k <= arcSteps; k++ {
+			a := a0 + (a1-a0)*float64(k)/arcSteps
+			out = append(out, [2]float64{v[0] + r*math.Cos(a), v[1] + r*math.Sin(a)})
+		}
+	}
+	return out, true
+}
+
+// drawWorldPolyline draws a 1-pixel polyline through world points under m and returns the top-left of its screen bounds for labels.
+func drawWorldPolyline(dst *image.RGBA, clip image.Rectangle, m affine2D, pts [][2]float64, closed bool, col core.Color) (int, int, bool) {
+	if len(pts) < 2 {
+		return 0, 0, false
+	}
+	sr, sg, sb, sa := premulFromColor(col, 1)
+	if sa <= 0 {
+		return 0, 0, false
+	}
+	minX, minY := math.Inf(1), math.Inf(1)
+	for _, p := range pts {
+		x, y := m.apply(p[0], p[1])
+		minX, minY = min(minX, x), min(minY, y)
+	}
+	segs := len(pts) - 1
+	if closed {
+		segs = len(pts)
+	}
+	for i := range segs {
+		a, b := pts[i], pts[(i+1)%len(pts)]
+		drawWorldSegment(dst, clip, m, a[0], a[1], b[0], b[1], sr, sg, sb, sa)
+	}
+	return int(math.Floor(minX)), int(math.Floor(minY)), true
 }
 
 func drawOneWayTileOverlay(dst *image.RGBA, clip image.Rectangle, m affine2D, x, y, tw, tick, sr, sg, sb, sa float64) {

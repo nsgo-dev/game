@@ -97,6 +97,22 @@ m.SetTile(0, 5, 19, 1) // 图层 0，第 5 列第 19 行 -> GID 1
 
 通过 `m.Layer("ground")` 和 `m.ObjectLayer("spawns")` 按名称查找图层与对象层。地图、图层、图块集、瓦片（`m.TileProperties(gid)`）和对象上的自定义属性都可通过 `Properties` 的类型化方法（`Bool`、`Int`、`Float`、`String`、`Color`、`File`、`ObjectID`、`Has`）读取。多边形与折线对象可通过 `obj.WorldPoints()` 获取叠加了 `(obj.X, obj.Y)` 的世界坐标顶点。
 
+作为碰撞几何绘制的对象可用 `obj.PhysicsShape()` 转为 [physics](physics.md) 形状；`layer.PhysicsBodies()` 为每个对象返回一个静态 `physics.Body`，已按图层偏移移动，并以对象 ID 为 `ID`、对象类型为 `Tag`、对象本身为 `UserData`。隐藏的对象同样计入，因为碰撞图层通常是隐藏的：
+
+| Tiled 对象 | 形状 |
+| --- | --- |
+| 矩形 | `Box`，旋转后为 `Polygon` |
+| 椭圆 | 正圆为 `Circle`，否则为内接的 8 顶点 `Polygon` |
+| 多边形 | 凸且不超过 8 个顶点时为 `Polygon`，否则为沿轮廓闭合的 `Chain` |
+| 折线 | 两个点为 `Segment`，否则为开放的 `Chain` |
+| 点、图块 | 无 |
+
+```go
+for _, ground := range m.ObjectLayer("collision").PhysicsBodies() {
+	rigid.AddBody(physics.NewStaticRigidBody(ground.Shape))
+}
+```
+
 ## 动画瓦片
 
 Tiled 瓦片动画会加载到 `Tileset.Animations`（以 0 起始的本地瓦片 ID 为键）。在每个 `game.Loop.Update` 步长调用 `m.Update(dt)` 即可推进全部动画瓦片：

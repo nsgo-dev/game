@@ -15,6 +15,9 @@ type DebugStyle struct {
 	NormalColor     core.Color
 	RayColor        core.Color
 	VelocityColor   core.Color
+	PolygonColor    core.Color
+	CapsuleColor    core.Color
+	SegmentColor    core.Color
 
 	LineWidth     float32
 	Zoom          float32

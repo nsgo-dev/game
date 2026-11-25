@@ -227,7 +227,7 @@ bridge, err := mcp.Attach(cx, mcp.Config{
 `game_screenshot` 会渲染或捕获当前游戏画面，并在与游戏完全一致的 `screen.Viewport` 裁剪/缩放/黑边以及 `tilemap.Camera`（含视差图层与 `SpaceScreen` HUD 图层）变换下合成所请求的叠加层：
 
 - **`bounds`**：为渲染场景中每个可见精灵绘制 1 像素青色（`#00e5ff`）包围盒边框。
-- **`collision_shapes` / `physics`**：绘制来自 `Config.Physics` 的 2D 碰撞形状（矩形刚体绿色 `#22c55e`、带 `+X` 朝向刻度的圆形天蓝色 `#38bdf8`、触发器粉色 `#f472b6`、实心瓦片琥珀色 `#f59e0b`、单向平台瓦片紫色 `#c084fc`）以及 `Config.RigidPhysics` 中的旋转刚体。配色与 `physics.DefaultDebugStyle()` 及 `mcp.DefaultOverlayStyle()` 一致。
+- **`collision_shapes` / `physics`**：绘制来自 `Config.Physics` 的 2D 碰撞形状（矩形、多边形、线段与链物体绿色 `#22c55e`，带 `+X` 朝向刻度的圆形与胶囊体天蓝色 `#38bdf8`，触发器粉色 `#f472b6`、实心瓦片琥珀色 `#f59e0b`、单向平台瓦片紫色 `#c084fc`）以及 `Config.RigidPhysics` 中的旋转刚体，并在 `overlays_drawn` 中按 `physics_boxes`、`physics_circles`、`physics_polygons`、`physics_capsules`、`physics_lines`、`physics_triggers` 与 `physics_tiles` 计数。矩形、圆形、触发器与瓦片的配色与 `physics.DefaultDebugStyle()` 及 `mcp.DefaultOverlayStyle()` 一致。
 - **`grid`**：按 `grid_step` 或 `overlays.grid_step`（默认 `32` 点）绘制世界空间参考网格。
 - **`camera`**：绘制当前活跃相机的可见范围边框与中心十字线（`#facc15`）。
 - **`labels`**：为精灵帧名和带标签的物理体绘制紧凑点阵文字标签。

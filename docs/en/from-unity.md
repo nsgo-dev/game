@@ -79,6 +79,7 @@ Everything steps on the loop's fixed `dt`, in a fixed order, so the same inputs 
 | Unity | Here |
 | --- | --- |
 | `Rigidbody2D` (dynamic) with `BoxCollider2D` or `CircleCollider2D` | `physics.RigidBody` in a `physics.RigidWorld` |
+| `PolygonCollider2D`, `CapsuleCollider2D`, `EdgeCollider2D` | `Polygon` (convex, up to 8 vertices), `Capsule`, `Segment` or `Chain` shapes, built with `NewRigidBody` |
 | `HingeJoint2D`, `SpringJoint2D`, `DistanceJoint2D` | `RevoluteJoint`, `SpringJoint`, `DistanceJoint` |
 | A kinematic platformer controller | `physics.MoveAndSlide` against a `TileGrid`, with `Grounded` and wall flags |
 | `isTrigger` and `OnTriggerEnter2D` | `physics.Trigger` with `OnEnter`, `OnStay` and `OnExit`, run by `World.StepTriggers` |

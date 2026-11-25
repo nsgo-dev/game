@@ -42,7 +42,7 @@ type RaycastHit struct {
 	T float32
 	// Point is the world-space intersection point.
 	Point core.Point
-	// NormalX and NormalY form the unit surface normal at Point, or (0, 0) when the ray starts inside a shape.
+	// NormalX and NormalY form the unit surface normal at Point, or (0, 0) when the ray starts inside a shape. Segments and chains are hit from either side, with the normal facing the ray's start; a ray running along one misses it.
 	NormalX, NormalY float32
 	// Body is non-nil when the hit is a body from World.Bodies.
 	Body *Body
@@ -286,8 +286,14 @@ func raycastShape(fx, fy, dx, dy float64, s Shape) (RaycastHit, bool) {
 		return raycastBox(fx, fy, dx, dy, s.Box)
 	case ShapeCircle:
 		return raycastCircle(fx, fy, dx, dy, s.Circle)
+	case ShapeChain:
+		return raycastChain(fx, fy, dx, dy, s.Chain)
 	default:
-		return RaycastHit{}, false
+		h, ok := shapeHull(s)
+		if !ok {
+			return RaycastHit{}, false
+		}
+		return raycastHull(fx, fy, dx, dy, &h)
 	}
 }
 

@@ -123,3 +123,53 @@ func round(v float32) float64 {
 	}
 	return r
 }
+
+// NewPolygon builds a convex polygon from any points, and TestShapes collides it with every other shape: here a capsule sinks 2 units into a ramp's slope.
+func ExampleNewPolygon() {
+	ramp, ok := physics.NewPolygon([]core.Point{{X: 0, Y: 100}, {X: 100, Y: 100}, {X: 100, Y: 0}}, 0)
+	fmt.Println(ok, ramp.Count)
+
+	// A capsule standing on the slope y = 100 - x, 2 units deep.
+	d := 2 / math.Sqrt2
+	pill := physics.Capsule{X1: float32(50 - d), Y1: float32(30 - d), X2: float32(50 - d), Y2: float32(50 - d), R: 2 + 2}
+	c := physics.TestShapes(physics.CapsuleShape(pill), physics.PolygonShape(ramp))
+	fmt.Println(c.Hit, round(c.NormalX), round(c.NormalY), round(c.Depth))
+	// Output:
+	// true 3
+	// true -0.71 -0.71 2
+}
+
+// NewRigidBody gives any shape mass and inertia: a box slides down a static polygon ramp.
+func ExampleNewRigidBody() {
+	w := &physics.RigidWorld{GravityY: 600}
+	ramp, _ := physics.NewPolygon([]core.Point{{X: 0, Y: 50}, {X: 0, Y: 200}, {X: 300, Y: 200}}, 0)
+	slope := math.Atan2(150, 300)
+	crate := physics.NewRigidBody(physics.PolygonShape(physics.NewBoxPolygon(64.5, 70.6, 20, 20, float32(slope))), 1)
+	crate.Friction = 0.1
+	w.AddBody(physics.NewStaticRigidBody(physics.PolygonShape(ramp)), crate)
+	for range 60 {
+		w.Step(time.Second / 60)
+	}
+	// The crate was built already tilted, so its Angle counts the turn since then: it slid without tipping.
+	fmt.Println(crate.X > 100, crate.VX > 0, math.Abs(float64(crate.Angle)) < 0.05)
+	// Output:
+	// true true true
+}
+
+// A Chain is terrain drawn as a polyline: a ball rolls across its seams as smoothly as along one long segment.
+func ExampleChainShape() {
+	var points []core.Point
+	for x := 0; x <= 400; x += 16 {
+		points = append(points, core.Point{X: core.Points(x), Y: 100})
+	}
+	w := &physics.RigidWorld{GravityY: 600}
+	ball := physics.NewRigidCircle(20, 92, 8, 1)
+	ball.VX = 120
+	w.AddBody(physics.NewStaticRigidBody(physics.ChainShape(points, false)), ball)
+	for range 60 {
+		w.Step(time.Second / 60)
+	}
+	fmt.Printf("%.1f %v\n", ball.Y, ball.X > 100)
+	// Output:
+	// 92.0 true
+}

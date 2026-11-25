@@ -1,6 +1,6 @@
 # physics
 
-`game/physics` provides 2D collision shapes (`Box` and `Circle`), exact overlap contacts, anti-tunneling tile resolution with `MoveAndSlide`, and deterministic spatial queries and raycasts on `World`.
+`game/physics` provides 2D collision shapes (`Box`, `Circle`, convex `Polygon`, `Capsule`, `Segment` and `Chain`), exact overlap contacts, anti-tunneling tile resolution with `MoveAndSlide`, and deterministic spatial queries and raycasts on `World`.
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/physics"
@@ -24,6 +24,38 @@ if c := physics.TestBoxCircle(playerBox, coin); c.Hit {
 ```
 
 Shapes that only touch along an edge or corner with zero penetration report `Hit == false`. Empty shapes (`W <= 0`, `H <= 0`, or `R <= 0`) never overlap anything.
+
+## Polygons, capsules, segments and chains
+
+Ramps, wedges, rotated props, characters and terrain drawn as lines need more than boxes and circles. Four more shapes, modelled on Box2D's, share `Shape` and work everywhere a box does: `TestShapes`, `Body`, `Trigger`, `World` queries and raycasts, `RigidBody` and debug drawing.
+
+| Shape | Constructor | Use |
+| --- | --- | --- |
+| `Polygon` | `NewPolygon(points, radius)`, `NewBoxPolygon(cx, cy, w, h, angle)`, then `PolygonShape(p)` | Convex polygon of 3 to `MaxPolygonVertices` (8) vertices, optionally rounded by `Radius` so it slides over corners |
+| `Capsule` | `CapsuleShape(Capsule{X1, Y1, X2, Y2, R})` | A segment swept by a radius, for characters that should not snag on tile seams or step edges |
+| `Segment` | `SegmentShape(Segment{X1, Y1, X2, Y2})` | A line with no thickness, for ledges and walls |
+| `Chain` | `ChainShape(points, loop)` | A polyline, or a closed loop, for static terrain |
+
+`NewPolygon` computes the convex hull of any points, merges near duplicates, drops collinear vertices and winds the result clockwise on screen; it reports `false` for fewer than 3 or more than 8 hull vertices. Write a `Polygon` by hand only when it is already convex and wound that way.
+
+```go
+ramp, _ := physics.NewPolygon([]core.Point{{X: 0, Y: 200}, {X: 300, Y: 200}, {X: 300, Y: 50}}, 0)
+hero := physics.CapsuleShape(physics.Capsule{X1: 120, Y1: 100, X2: 120, Y2: 130, R: 8})
+if c := physics.TestShapes(hero, physics.PolygonShape(ramp)); c.Hit {
+	// Push the hero out along the slope's normal.
+	_ = c
+}
+```
+
+Every pair reports a hit with its normal and depth. Pairs of boxes and circles keep their own tests; every other pair runs the separating axis test on the shapes' cores (a polygon, a segment or a point) plus their rounding radii, and reports the contact point midway between the two surfaces. Segments and chains have no area: they collide with every shape that has one, from either side, but never with each other, and they contain no point, so `QueryPoint` never returns them.
+
+A chain reports its deepest segment contact. At an interior vertex it only uses the normals its neighbouring segments allow, so a box sliding or a ball rolling along a flat run of segments never catches on the seams between them, the ghost collisions Box2D's chains also remove. Its open ends behave like a lone segment's ends.
+
+`Shape.Area`, `Shape.Centroid` and `Shape.MomentOfInertia(mass)` give the mass properties a rigid body uses, approximating a rounded polygon by pushing its vertices out as Box2D does.
+
+`MoveAndSlide` and `CharacterBody` resolve tiles against a body's bounding box, so a polygon or capsule `Body` moves as its bounds do and keeps its shape. `DrawShape` outlines polygons (with rounded corners), capsules with their axis, segments and chains, in `PolygonColor`, `CapsuleColor` and `SegmentColor`.
+
+Like any shape here, a segment or chain cannot stop a body whose center crosses it within one step, since there is no continuous collision detection: keep fast bodies under one radius of movement per step, or step the world more often.
 
 ## MoveAndSlide and TileGrid
 
@@ -88,7 +120,20 @@ if hit, ok := world.RaycastFirst(gunPos, targetPos, physics.QueryAll); ok {
 | `QueryOneWay` | One-way tiles (`TileOneWay`); raycasts hit them only when entering the top edge moving downward. |
 | `QueryAll` | `QueryBodies \| QueryTiles \| QueryOneWay`. |
 
-`World.Raycast` returns all hits along the segment sorted by ascending normalized distance `T` in `[0, 1]` (bodies before tiles on ties), while `RaycastFirst` returns the closest hit. Remove bodies cleanly with `world.Remove(b)`.
+`World.Raycast` returns all hits along the segment sorted by ascending normalized distance `T` in `[0, 1]` (bodies before tiles on ties), while `RaycastFirst` returns the closest hit. A ray hits a segment or chain from either side with the normal facing its start, and misses one it runs along. Remove bodies cleanly with `world.Remove(b)`.
+
+## Level geometry from Tiled
+
+`tilemap.Object.PhysicsShape` turns a Tiled rectangle, ellipse, polygon or polyline object into a shape, and `ObjectLayer.PhysicsBodies` returns a static `Body` for each object of a layer, so terrain drawn in Tiled collides without a hand-written converter:
+
+```go
+for _, ground := range m.ObjectLayer("collision").PhysicsBodies() {
+	world.Add(ground)                                      // kinematic queries and triggers
+	rigid.AddBody(physics.NewStaticRigidBody(ground.Shape)) // rigid bodies
+}
+```
+
+See [tilemap](tilemap.md) for how each object maps to a shape.
 
 ## Ropes and Soft Bodies (XPBD)
 

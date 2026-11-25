@@ -889,6 +889,8 @@ func (c *CharacterBody) Move(grid TileGrid, slopes []Slope, platforms []*MovingP
 	case ShapeCircle:
 		b.Shape.Circle.X = float32(x + float64(b.Shape.Circle.R))
 		b.Shape.Circle.Y = float32(y + float64(b.Shape.Circle.R))
+	default:
+		b.Shape = b.Shape.Translated(float32(x-float64(box.X)), float32(y-float64(box.Y)))
 	}
 	b.Grounded = c.Grounded
 
