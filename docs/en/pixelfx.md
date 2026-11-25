@@ -27,8 +27,9 @@ The port follows pixelfx at commit `5294518ce7c72e48b6100a744596e0acf57f2826` wi
 | `game/pixelfx/shadow` | Shadow: black hole, curse, dark explosion, eclipse, grasping hands, hex sigil, life steal, necro skulls, shadow flames, shadow tendrils, soul drain, void orb |
 | `game/pixelfx/spawn` | Spawn and death: coin drop, disintegrate, dissolve burn, egg hatch, poof, respawn beam, shatter death, soul rise, spawn portal and summon rise |
 | `game/pixelfx/status` | Status effects on a character: bleeding, burning, charmed, confused, cursed, frozen, haste, petrified, poisoned, rage, sleep, slowed and stunned |
+| `game/pixelfx/transitions` | Screen transitions (320 x 180): blinds, burn away, CRT off, diamond wipe, glitch wipe, iris, pixel dissolve, shatter wipe, slash wipe and star iris |
 
-Effects live in one subpackage per category, which registers its effects as `"<category>/<name>"` when it is imported, so a game links only the categories it imports. The other categories of pixelfx (water, ice, lightning, melee, arcane, holy, weather, ui, transitions, critters) follow one change each, as [Porting a category](#porting-a-category) describes.
+Effects live in one subpackage per category, which registers its effects as `"<category>/<name>"` when it is imported, so a game links only the categories it imports. The other categories of pixelfx (water, ice, lightning, melee, arcane, holy, weather, ui, critters) follow one change each, as [Porting a category](#porting-a-category) describes.
 
 ## Playing an effect
 
