@@ -28,9 +28,9 @@ func (nm *NavMesh) buildBVH() {
 		nm.bvhOrder = nil
 		return
 	}
-	nm.bvhOrder = make([]int, n)
+	nm.bvhOrder = make([]int32, n)
 	for i := range n {
-		nm.bvhOrder[i] = i
+		nm.bvhOrder[i] = int32(i)
 	}
 	nm.bvhNodes = make([]navBVHNode3D, 0, max(1, (2*n)/navBVHLeafSize3D+4))
 	nm.buildBVHNode(0, n, 0)
@@ -95,7 +95,7 @@ func (nm *NavMesh) buildBVHNode(start, end, depth int) int32 {
 	rightCount := end - i
 	if leftCount == 0 || rightCount == 0 || leftCount < count/8 || rightCount < count/8 {
 		sub := nm.bvhOrder[start:end]
-		slices.SortFunc(sub, func(a, b int) int {
+		slices.SortFunc(sub, func(a, b int32) int {
 			ca := axisVal(nm.Polys[a].Center)
 			cb := axisVal(nm.Polys[b].Center)
 			if ca < cb {
@@ -104,7 +104,7 @@ func (nm *NavMesh) buildBVHNode(start, end, depth int) int32 {
 			if ca > cb {
 				return 1
 			}
-			return a - b
+			return int(a - b)
 		})
 		i = start + count/2
 	}
@@ -117,34 +117,6 @@ func (nm *NavMesh) buildBVHNode(start, end, depth int) int32 {
 		right:  rightIdx,
 	}
 	return nodeIdx
-}
-
-func (nm *NavMesh) rebuildPortalIndex() {
-	n := len(nm.Polys)
-	if cap(nm.linkOffset) < n+1 {
-		nm.linkOffset = make([]int, n+1)
-	} else {
-		nm.linkOffset = nm.linkOffset[:n+1]
-	}
-	nm.linkOffset[0] = 0
-	for i := range n {
-		nm.linkOffset[i+1] = nm.linkOffset[i] + len(nm.Polys[i].Links)
-	}
-	total := nm.linkOffset[n]
-	if cap(nm.portalFrom) < total {
-		nm.portalFrom = make([]int, total)
-		nm.portalLink = make([]NavLink, total)
-	} else {
-		nm.portalFrom = nm.portalFrom[:total]
-		nm.portalLink = nm.portalLink[:total]
-	}
-	for i := range n {
-		base := nm.linkOffset[i]
-		for k, link := range nm.Polys[i].Links {
-			nm.portalFrom[base+k] = i
-			nm.portalLink[base+k] = link
-		}
-	}
 }
 
 func (nm *NavMesh) bvhQueryAABB(box math3d.AABB, dst []int) []int {
@@ -168,7 +140,7 @@ func (nm *NavMesh) bvhQueryAABB(box math3d.AABB, dst []int) []int {
 		if n.count > 0 {
 			end := int(n.left + n.count)
 			for k := int(n.left); k < end; k++ {
-				idx := nm.bvhOrder[k]
+				idx := int(nm.bvhOrder[k])
 				if nm.Polys[idx].Bounds.Intersects(box) {
 					dst = append(dst, idx)
 				}
@@ -228,7 +200,7 @@ func (nm *NavMesh) bvhFindPoly(p math3d.Vec3, tol float32, filter NavFilter) (in
 		if n.count > 0 {
 			end := int(n.left + n.count)
 			for k := int(n.left); k < end; k++ {
-				checkPoly(nm.bvhOrder[k])
+				checkPoly(int(nm.bvhOrder[k]))
 			}
 			continue
 		}
@@ -297,7 +269,7 @@ func (nm *NavMesh) bvhFindPolysAt(p math3d.Vec3, tol float32, filter NavFilter, 
 			if n.count > 0 {
 				end := int(n.left + n.count)
 				for k := int(n.left); k < end; k++ {
-					consider(nm.bvhOrder[k])
+					consider(int(nm.bvhOrder[k]))
 				}
 				continue
 			}
@@ -425,7 +397,7 @@ func (nm *NavMesh) bvhNearestPoly(p, ext math3d.Vec3, useExtent bool, filter Nav
 		if n.count > 0 {
 			end := int(n.left + n.count)
 			for k := int(n.left); k < end; k++ {
-				checkPoly(nm.bvhOrder[k])
+				checkPoly(int(nm.bvhOrder[k]))
 			}
 			continue
 		}
@@ -1058,9 +1030,6 @@ func polySurfaceArea3Dd(verts []vec3d) float64 {
 }
 
 func (nm *NavMesh) polyAreaAt(i int) float64 {
-	if i < len(nm.polyAreas) {
-		return nm.polyAreas[i]
-	}
 	return polySurfaceArea3D(nm.Polys[i].Vertices)
 }
 
@@ -1151,8 +1120,8 @@ func sampleConvexPoly3Dd(verts []vec3d, rng *random.Stream) vec3d {
 		}
 	}
 	a, b, c := verts[0], verts[triIdx], verts[triIdx+1]
-	u := rng.Float64()
-	v := rng.Float64()
+	u := float64(rng.Float64())
+	v := float64(rng.Float64())
 	if u+v > 1 {
 		u = 1 - u
 		v = 1 - v
@@ -1320,7 +1289,7 @@ func closestPointOnConvex3Dd(verts []vec3d, poly *NavPoly, p vec3d) vec3d {
 		eLen := math.Sqrt(float64(edx*edx) + float64(edz*edz))
 		// For CCW polygons viewed from +Y, interior points satisfy (b.x-a.x)*(p.z-a.z) - (b.z-a.z)*(p.x-a.x) <= 0.
 		cross := float64(edx*(proj.z-a.z)) - float64(edz*(proj.x-a.x))
-		if cross > 1e-4*eLen+1e-6 {
+		if cross > float64(1e-4*eLen)+1e-6 {
 			inside = false
 			break
 		}
@@ -1543,6 +1512,13 @@ func (nm *NavMesh) randomPointAround(center math3d.Vec3, radius float32, rng *ra
 type NavMeshQuery struct {
 	mesh *NavMesh
 
+	// Cached flat portal index (per-query so concurrent read-only queries never mutate mesh).
+	portalMesh    *NavMesh
+	portalRev     uint64
+	linkOffset    []int32
+	portalFrom    []int32
+	portalLinkIdx []int32
+
 	// Generation-stamped A* scratch buffers.
 	gen     uint32
 	seen    []uint32
@@ -1669,19 +1645,50 @@ type navAStarResult3D struct {
 	goalSnapped   math3d.Vec3
 }
 
+func (q *NavMeshQuery) ensurePortalIndex(nm *NavMesh) int {
+	n := len(nm.Polys)
+	if q.portalMesh == nm && q.portalRev == nm.revision && len(q.linkOffset) == n+1 {
+		return int(q.linkOffset[n])
+	}
+	if cap(q.linkOffset) < n+1 {
+		q.linkOffset = make([]int32, n+1)
+	} else {
+		q.linkOffset = q.linkOffset[:n+1]
+	}
+	q.linkOffset[0] = 0
+	for i := range n {
+		q.linkOffset[i+1] = q.linkOffset[i] + int32(len(nm.Polys[i].Links))
+	}
+	total := int(q.linkOffset[n])
+	if cap(q.portalFrom) < total {
+		q.portalFrom = make([]int32, total)
+		q.portalLinkIdx = make([]int32, total)
+	} else {
+		q.portalFrom = q.portalFrom[:total]
+		q.portalLinkIdx = q.portalLinkIdx[:total]
+	}
+	for i := range n {
+		base := int(q.linkOffset[i])
+		for k := range nm.Polys[i].Links {
+			q.portalFrom[base+k] = int32(i)
+			q.portalLinkIdx[base+k] = int32(k)
+		}
+	}
+	q.portalMesh = nm
+	q.portalRev = nm.revision
+	return total
+}
+
 func (q *NavMeshQuery) runPortalAStar(start, goal math3d.Vec3, filter NavFilter, opts ai.PathOptions) navAStarResult3D {
 	nm := q.mesh
 	n := len(nm.Polys)
-	if len(nm.linkOffset) != n+1 {
-		nm.rebuildPortalIndex()
-	}
+	totalPortals := q.ensurePortalIndex(nm)
 
 	tol := nm.VerticalTolerance
 	if tol <= 0 {
 		tol = defaultVerticalTolerance
 	}
 
-	totalPortals := nm.linkOffset[n]
 	goalNode := totalPortals
 	nodeCount := goalNode + 1
 	q.ensurePathBuffers(n, nodeCount)
@@ -1816,7 +1823,7 @@ func (q *NavMeshQuery) runPortalAStar(start, goal math3d.Vec3, filter NavFilter,
 
 	for _, sp := range q.startPolys {
 		spCost := filter.AreaCost(nm.Polys[sp].Area)
-		base := nm.linkOffset[sp]
+		base := int(q.linkOffset[sp])
 		for k, link := range nm.Polys[sp].Links {
 			np := &nm.Polys[link.Neighbor]
 			if !filter.Allows(np.Area, np.Flags) {
@@ -1865,8 +1872,8 @@ func (q *NavMeshQuery) runPortalAStar(start, goal math3d.Vec3, filter NavFilter,
 		}
 		q.closed[cur.id] = gen
 
-		fromPoly := nm.portalFrom[cur.id]
-		link := nm.portalLink[cur.id]
+		fromPoly := int(q.portalFrom[cur.id])
+		link := nm.Polys[fromPoly].Links[q.portalLinkIdx[cur.id]]
 		toPolyIdx := link.Neighbor
 		toPoly := &nm.Polys[toPolyIdx]
 		curG := q.gScore[cur.id]
@@ -1893,7 +1900,7 @@ func (q *NavMeshQuery) runPortalAStar(start, goal math3d.Vec3, filter NavFilter,
 			}
 		}
 
-		base := nm.linkOffset[toPolyIdx]
+		base := int(q.linkOffset[toPolyIdx])
 		for k, nlink := range toPoly.Links {
 			npid := base + k
 			if q.closed[npid] == gen {
@@ -2030,10 +2037,12 @@ func (q *NavMeshQuery) reconstructCorridorInto(lastPortalID int) {
 	slices.Reverse(q.portalIDs)
 
 	n := len(q.portalIDs)
-	q.corridor = append(q.corridor[:0], nm.portalFrom[q.portalIDs[0]])
+	q.corridor = append(q.corridor[:0], int(q.portalFrom[q.portalIDs[0]]))
 	q.portals = q.portals[:0]
 	for i := range n {
-		l := nm.portalLink[q.portalIDs[i]]
+		pid := q.portalIDs[i]
+		from := int(q.portalFrom[pid])
+		l := nm.Polys[from].Links[q.portalLinkIdx[pid]]
 		q.portals = append(q.portals, l)
 		q.corridor = append(q.corridor, l.Neighbor)
 	}
@@ -2258,6 +2267,15 @@ func (q *NavMeshQuery) MoveAlongSurfaceWithFilterInto(visitedDst []int, start, t
 	return q.mesh.moveAlongSurfaceInto(visitedDst, start, target, filter)
 }
 
+func (nm *NavMesh) ensureDefaultQuery() *NavMeshQuery {
+	if nm.defaultQuery == nil {
+		nm.defaultQuery = &NavMeshQuery{mesh: nm}
+	} else {
+		nm.defaultQuery.mesh = nm
+	}
+	return nm.defaultQuery
+}
+
 // FindPathInto behaves like FindPath but writes waypoints into dst[:0] and reuses the mesh's internal search buffers
 // so repeated calls perform zero heap allocations after warm-up.
 //
@@ -2273,8 +2291,7 @@ func (nm *NavMesh) FindPathWithFilterInto(dst []math3d.Vec3, start, goal math3d.
 	if nm == nil {
 		return nil, false
 	}
-	nm.defaultQuery.mesh = nm
-	return nm.defaultQuery.FindPathWithFilterInto(dst, start, goal, filter)
+	return nm.ensureDefaultQuery().FindPathWithFilterInto(dst, start, goal, filter)
 }
 
 // FindPathWithFilterAndOptionsInto behaves like FindPathWithFilterAndOptions but writes waypoints into dst[:0]
@@ -2283,8 +2300,7 @@ func (nm *NavMesh) FindPathWithFilterAndOptionsInto(dst []math3d.Vec3, start, go
 	if nm == nil {
 		return NavPathResult{}
 	}
-	nm.defaultQuery.mesh = nm
-	return nm.defaultQuery.FindPathWithFilterAndOptionsInto(dst, start, goal, filter, opts)
+	return nm.ensureDefaultQuery().FindPathWithFilterAndOptionsInto(dst, start, goal, filter, opts)
 }
 
 // FindCorridorInto behaves like FindCorridor but writes polygon indices into dst[:0] and reuses
@@ -2301,6 +2317,5 @@ func (nm *NavMesh) FindCorridorWithFilterInto(dst []int, start, goal math3d.Vec3
 	if nm == nil {
 		return nil, false
 	}
-	nm.defaultQuery.mesh = nm
-	return nm.defaultQuery.FindCorridorWithFilterInto(dst, start, goal, filter)
+	return nm.ensureDefaultQuery().FindCorridorWithFilterInto(dst, start, goal, filter)
 }

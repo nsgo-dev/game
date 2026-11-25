@@ -114,7 +114,7 @@ func (p *NavPoly) HeightAt(x, z float32) float32 {
 	if p == nil || math.Abs(float64(p.Normal.Y)) < 1e-7 {
 		return 0
 	}
-	return -(p.Normal.X*x + p.Normal.Z*z + p.PlaneD) / p.Normal.Y
+	return -(float32(p.Normal.X*x) + float32(p.Normal.Z*z) + p.PlaneD) / p.Normal.Y
 }
 
 // ContainsXZ reports whether (x, z) lies inside or on the boundary of p's XZ projection.
@@ -148,14 +148,10 @@ func (p *NavPoly) ContainsXZ(x, z float32) bool {
 type NavMesh struct {
 	Polys             []NavPoly
 	VerticalTolerance float32
-	polyAreas         []float64
 	bvhNodes          []navBVHNode3D
-	bvhOrder          []int
-	linkOffset        []int
-	portalFrom        []int
-	portalLink        []NavLink
+	bvhOrder          []int32
 	revision          uint64
-	defaultQuery      NavMeshQuery
+	defaultQuery      *NavMeshQuery
 }
 
 // BuildNavMesh constructs a NavMesh from convex 3D polygons, filtering out
@@ -257,7 +253,6 @@ func buildNavMesh(count int, maxSlopeRad float32, get func(i int) ([]math3d.Vec3
 
 	nm.buildBVH()
 	nm.linkPolygons()
-	nm.defaultQuery.mesh = nm
 	return nm
 }
 
@@ -338,7 +333,8 @@ func (nm *NavMesh) ClearPolygonFlags(index int, flags NavFlags) {
 func (nm *NavMesh) linkPolygons() {
 	n := len(nm.Polys)
 	pad := math3d.Vec3{X: sharedEdgeEps, Y: sharedEdgeEps, Z: sharedEdgeEps}
-	var candidates []int
+	var candBuf [32]int
+	candidates := candBuf[:0]
 
 	for i := range n {
 		pi := &nm.Polys[i]
@@ -599,7 +595,6 @@ func (nm *NavMesh) AddOffMeshLink(link NavOffMeshLink) bool {
 			Cost:     cost,
 		})
 	}
-	nm.linkOffset = nm.linkOffset[:0]
 	nm.revision++
 	return true
 }
@@ -619,7 +614,6 @@ func (nm *NavMesh) SetEdgeFlags(fromPoly, toPoly int, flags uint32) bool {
 		}
 	}
 	if changed {
-		nm.linkOffset = nm.linkOffset[:0]
 		nm.revision++
 	}
 	return changed

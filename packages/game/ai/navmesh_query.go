@@ -1015,8 +1015,8 @@ func sampleConvexPoly2D(verts []vec2, rng *random.Stream) vec2 {
 		}
 	}
 	a, b, c := verts[0], verts[triIdx], verts[triIdx+1]
-	u := rng.Float64()
-	v := rng.Float64()
+	u := float64(rng.Float64())
+	v := float64(rng.Float64())
 	if u+v > 1 {
 		u = 1 - u
 		v = 1 - v
@@ -1225,7 +1225,7 @@ func (m *NavMesh) randomPointAround(center core.Point, radius float32, rng *rand
 
 		clipped := clipPolyAABB2D(poly.verts, minX, minY, maxX, maxY, bufA[:0], bufB[:0])
 		if len(clipped) >= 3 {
-			a := 0.5 * math.Abs(polygonArea2(clipped))
+			a := float64(0.5 * math.Abs(polygonArea2(clipped)))
 			if a > 1e-12 {
 				vs := len(clippedVerts)
 				clippedVerts = append(clippedVerts, clipped...)
