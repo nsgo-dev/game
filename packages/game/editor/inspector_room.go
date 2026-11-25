@@ -91,36 +91,50 @@ func roomInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 	}
 
 	// Transition duration & color drafts committed on Enter / Blur.
+	// Keyed by selected room ID as well as value so switching between two rooms with
+	// identical duration or color resets any uncommitted draft cleanly.
+	type roomFieldSync struct {
+		id  string
+		val string
+	}
 	durDraft := core.NewSignal(cx, "")
 	durDirty := core.NewSignal(cx, false)
-	durSynced := core.NewMemo(cx, func() string {
+	durSynced := core.NewMemo(cx, func() roomFieldSync {
 		r := currentRoom()
-		if r != nil && r.Transition != nil && r.Transition.Duration > 0 {
-			return time.Duration(r.Transition.Duration).String()
+		if r == nil {
+			return roomFieldSync{}
 		}
-		return ""
+		val := ""
+		if r.Transition != nil && r.Transition.Duration > 0 {
+			val = time.Duration(r.Transition.Duration).String()
+		}
+		return roomFieldSync{id: r.ID, val: val}
 	})
 	cx.Effect(func() {
 		cur := durSynced.Get()
 		cx.Untrack(func() {
-			durDraft.Set(cur)
+			durDraft.Set(cur.val)
 			durDirty.Set(false)
 		})
 	})
 
 	colorDraft := core.NewSignal(cx, "")
 	colorDirty := core.NewSignal(cx, false)
-	colorSynced := core.NewMemo(cx, func() string {
+	colorSynced := core.NewMemo(cx, func() roomFieldSync {
 		r := currentRoom()
-		if r != nil && r.Transition != nil {
-			return r.Transition.Color
+		if r == nil {
+			return roomFieldSync{}
 		}
-		return ""
+		val := ""
+		if r.Transition != nil {
+			val = r.Transition.Color
+		}
+		return roomFieldSync{id: r.ID, val: val}
 	})
 	cx.Effect(func() {
 		cur := colorSynced.Get()
 		cx.Untrack(func() {
-			colorDraft.Set(cur)
+			colorDraft.Set(cur.val)
 			colorDirty.Set(false)
 		})
 	})
@@ -143,14 +157,14 @@ func roomInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 		d, err := parseRoomDuration(raw)
 		if err != nil {
 			ed.report(err)
-			durDraft.Set(durSynced.Get())
+			durDraft.Set(durSynced.Get().val)
 			return
 		}
 		next := *r.Transition
 		next.Duration = d
 		if err := ed.SetRoomTransition(r.ID, &next); err != nil {
 			ed.report(err)
-			durDraft.Set(durSynced.Get())
+			durDraft.Set(durSynced.Get().val)
 		}
 	}
 
@@ -164,7 +178,7 @@ func roomInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 		next.Color = strings.TrimSpace(raw)
 		if err := ed.SetRoomTransition(r.ID, &next); err != nil {
 			ed.report(err)
-			colorDraft.Set(colorSynced.Get())
+			colorDraft.Set(colorSynced.Get().val)
 		}
 	}
 
@@ -445,11 +459,11 @@ func roomInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 									if durDirty.Get() {
 										return durDraft.Get()
 									}
-									return durSynced.Get()
+									return durSynced.Get().val
 								},
 								OnFocus: func() {
 									if !durDirty.Get() {
-										durDraft.Set(durSynced.Get())
+										durDraft.Set(durSynced.Get().val)
 									}
 								},
 								OnChange: func(text string) {
@@ -505,11 +519,11 @@ func roomInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 							if colorDirty.Get() {
 								return colorDraft.Get()
 							}
-							return colorSynced.Get()
+							return colorSynced.Get().val
 						},
 						OnFocus: func() {
 							if !colorDirty.Get() {
-								colorDraft.Set(colorSynced.Get())
+								colorDraft.Set(colorSynced.Get().val)
 							}
 						},
 						OnChange: func(text string) {
@@ -607,6 +621,145 @@ func roomsSceneSection(
 		return b.String()
 	})
 
+	currentMapTransition := func() *rooms.Transition {
+		_ = rev.Get()
+		if ed.rooms == nil || ed.rooms.doc == nil {
+			return nil
+		}
+		return ed.rooms.doc.Transition
+	}
+
+	type mapFieldSync struct {
+		target *roomMapState
+		val    string
+	}
+	mapDurDraft := core.NewSignal(cx, "")
+	mapDurDirty := core.NewSignal(cx, false)
+	mapDurSynced := core.NewMemo(cx, func() mapFieldSync {
+		_ = rev.Get()
+		val := ""
+		if ed.rooms != nil && ed.rooms.doc != nil && ed.rooms.doc.Transition != nil && ed.rooms.doc.Transition.Duration > 0 {
+			val = time.Duration(ed.rooms.doc.Transition.Duration).String()
+		}
+		return mapFieldSync{target: ed.rooms, val: val}
+	})
+	cx.Effect(func() {
+		cur := mapDurSynced.Get()
+		cx.Untrack(func() {
+			mapDurDraft.Set(cur.val)
+			mapDurDirty.Set(false)
+		})
+	})
+
+	mapColorDraft := core.NewSignal(cx, "")
+	mapColorDirty := core.NewSignal(cx, false)
+	mapColorSynced := core.NewMemo(cx, func() mapFieldSync {
+		_ = rev.Get()
+		val := ""
+		if ed.rooms != nil && ed.rooms.doc != nil && ed.rooms.doc.Transition != nil {
+			val = ed.rooms.doc.Transition.Color
+		}
+		return mapFieldSync{target: ed.rooms, val: val}
+	})
+	cx.Effect(func() {
+		cur := mapColorSynced.Get()
+		cx.Untrack(func() {
+			mapColorDraft.Set(cur.val)
+			mapColorDirty.Set(false)
+		})
+	})
+
+	updateMapTransition := func(mutate func(cur *rooms.Transition) *rooms.Transition) {
+		if ed.rooms == nil || ed.rooms.doc == nil {
+			return
+		}
+		next := mutate(cloneTransition(ed.rooms.doc.Transition))
+		ed.report(ed.SetRoomMapTransition(next))
+	}
+
+	commitMapDuration := func(raw string) {
+		mapDurDirty.Set(false)
+		if ed.rooms == nil || ed.rooms.doc == nil || ed.rooms.doc.Transition == nil {
+			return
+		}
+		d, err := parseRoomDuration(raw)
+		if err != nil {
+			ed.report(err)
+			mapDurDraft.Set(mapDurSynced.Get().val)
+			return
+		}
+		next := *ed.rooms.doc.Transition
+		next.Duration = d
+		if err := ed.SetRoomMapTransition(&next); err != nil {
+			ed.report(err)
+			mapDurDraft.Set(mapDurSynced.Get().val)
+		}
+	}
+
+	commitMapColor := func(raw string) {
+		mapColorDirty.Set(false)
+		if ed.rooms == nil || ed.rooms.doc == nil || ed.rooms.doc.Transition == nil {
+			return
+		}
+		next := *ed.rooms.doc.Transition
+		next.Color = strings.TrimSpace(raw)
+		if err := ed.SetRoomMapTransition(&next); err != nil {
+			ed.report(err)
+			mapColorDraft.Set(mapColorSynced.Get().val)
+		}
+	}
+
+	mapTransKindBtn := func(testID, label string, kind rooms.Kind, clear bool) core.Node {
+		return ui.ToggleButton{
+			TestID:   testID,
+			Text:     label,
+			Disabled: disabled,
+			On: func() bool {
+				tr := currentMapTransition()
+				if clear {
+					return tr == nil
+				}
+				return tr != nil && tr.Kind == kind
+			},
+			OnChange: func(on bool) {
+				if !on {
+					return
+				}
+				updateMapTransition(func(cur *rooms.Transition) *rooms.Transition {
+					if clear {
+						return nil
+					}
+					next := rooms.Transition{Kind: kind}
+					if cur != nil && kind != rooms.KindCut {
+						next.Duration = cur.Duration
+						next.Easing = cur.Easing
+						if kind == rooms.KindFade {
+							next.Color = cur.Color
+						}
+					}
+					return &next
+				})
+			},
+		}
+	}
+
+	mapTransTimed := func() bool {
+		tr := currentMapTransition()
+		return tr != nil && (tr.Kind == rooms.KindSlide || tr.Kind == rooms.KindFade)
+	}
+	mapTransFade := func() bool {
+		tr := currentMapTransition()
+		return tr != nil && tr.Kind == rooms.KindFade
+	}
+	mapEasingOptions := []ui.Option[rooms.Easing]{
+		{Value: "", Label: "Default"},
+		{Value: rooms.EasingLinear, Label: "linear"},
+		{Value: rooms.EasingEase, Label: "ease"},
+		{Value: rooms.EasingEaseIn, Label: "easeIn"},
+		{Value: rooms.EasingEaseOut, Label: "easeOut"},
+		{Value: rooms.EasingEaseInOut, Label: "easeInOut"},
+	}
+
 	return core.View{
 		TestID: "inspector-rooms-section",
 		Style:  core.Style{Gap: 8},
@@ -691,6 +844,114 @@ func roomsSceneSection(
 									},
 								},
 							},
+							fieldRow("Default", core.View{
+								Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 4},
+								Children: []core.Node{
+									mapTransKindBtn("inspector-rooms-transition-none", "None", "", true),
+									mapTransKindBtn("inspector-rooms-transition-cut", "Cut", rooms.KindCut, false),
+									mapTransKindBtn("inspector-rooms-transition-slide", "Slide", rooms.KindSlide, false),
+									mapTransKindBtn("inspector-rooms-transition-fade", "Fade", rooms.KindFade, false),
+								},
+							}),
+							core.Show{
+								When: mapTransTimed,
+								Then: func(cx *core.Scope) core.Node {
+									return core.View{
+										Style: core.Style{Gap: 8},
+										Children: []core.Node{
+											fieldRow("Duration", ui.Input{
+												TestID:      "inspector-rooms-transition-duration",
+												Label:       "Default Transition Duration",
+												Placeholder: "e.g. 400ms",
+												Disabled:    disabled,
+												Value: func() string {
+													_ = rev.Get()
+													if mapDurDirty.Get() {
+														return mapDurDraft.Get()
+													}
+													return mapDurSynced.Get().val
+												},
+												OnFocus: func() {
+													if !mapDurDirty.Get() {
+														mapDurDraft.Set(mapDurSynced.Get().val)
+													}
+												},
+												OnChange: func(text string) {
+													mapDurDraft.Set(text)
+													mapDurDirty.Set(true)
+												},
+												OnSubmit: func(text string) {
+													mapDurDraft.Set(text)
+													commitMapDuration(text)
+												},
+												OnBlur: func() {
+													if mapDurDirty.Get() {
+														commitMapDuration(mapDurDraft.Get())
+													}
+												},
+											}),
+											fieldRow("Easing", ui.Select[rooms.Easing]{
+												TestID:   "inspector-rooms-transition-easing",
+												Label:    "Default Transition Easing",
+												Disabled: disabled,
+												Style:    core.Style{Width: core.Pct(100)},
+												Options:  mapEasingOptions,
+												Value: func() rooms.Easing {
+													if tr := currentMapTransition(); tr != nil {
+														return tr.Easing
+													}
+													return ""
+												},
+												OnChange: func(e rooms.Easing) {
+													updateMapTransition(func(cur *rooms.Transition) *rooms.Transition {
+														if cur == nil {
+															return nil
+														}
+														cur.Easing = e
+														return cur
+													})
+												},
+											}),
+										},
+									}
+								},
+							},
+							core.Show{
+								When: mapTransFade,
+								Then: func(cx *core.Scope) core.Node {
+									return fieldRow("Color", ui.Input{
+										TestID:      "inspector-rooms-transition-color",
+										Label:       "Default Fade Color",
+										Placeholder: "#000000",
+										Disabled:    disabled,
+										Value: func() string {
+											_ = rev.Get()
+											if mapColorDirty.Get() {
+												return mapColorDraft.Get()
+											}
+											return mapColorSynced.Get().val
+										},
+										OnFocus: func() {
+											if !mapColorDirty.Get() {
+												mapColorDraft.Set(mapColorSynced.Get().val)
+											}
+										},
+										OnChange: func(text string) {
+											mapColorDraft.Set(text)
+											mapColorDirty.Set(true)
+										},
+										OnSubmit: func(text string) {
+											mapColorDraft.Set(text)
+											commitMapColor(text)
+										},
+										OnBlur: func() {
+											if mapColorDirty.Get() {
+												commitMapColor(mapColorDraft.Get())
+											}
+										},
+									})
+								},
+							},
 							core.Dynamic(func(cx *core.Scope) core.Node {
 								_ = roomListKey.Get()
 								m := ed.Rooms()
@@ -738,7 +999,11 @@ func roomsSceneSection(
 								Variant:  ui.ButtonSecondary,
 								Disabled: disabled,
 								OnPress: func() {
-									ed.report(ed.NewRoomMap(""))
+									defaultPath := ""
+									if ed.FilePath != "" || ed.ProjectPath != "" {
+										defaultPath = ed.roomDefaultPath()
+									}
+									ed.report(ed.NewRoomMap(defaultPath))
 								},
 							},
 						},

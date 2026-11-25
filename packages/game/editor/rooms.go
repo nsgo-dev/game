@@ -151,7 +151,81 @@ func (e *Editor) OpenRoomsProjectFile(relPath string) error {
 	if err != nil {
 		return err
 	}
+	if err := e.checkProjectSymlink(abs, true); err != nil {
+		return err
+	}
 	return e.OpenRoomsFile(abs)
+}
+
+// checkProjectSymlink verifies that absPath does not escape the open project's root via symlinks.
+// When mustContain is true (project-relative reads), absPath must resolve strictly inside the project root.
+// When mustContain is false (writes via SaveRoomsFile), containment is enforced whenever absPath is
+// lexically inside the project root so symlinks inside the project cannot redirect writes outside.
+func (e *Editor) checkProjectSymlink(absPath string, mustContain bool) error {
+	if e == nil || e.ProjectPath == "" {
+		return nil
+	}
+	root := filepath.Clean(filepath.Dir(e.ProjectPath))
+	cleanPath := filepath.Clean(absPath)
+	if !mustContain {
+		lexRel, err := filepath.Rel(root, cleanPath)
+		if err != nil || lexRel == ".." || strings.HasPrefix(lexRel, ".."+string(filepath.Separator)) || filepath.IsAbs(lexRel) {
+			return nil
+		}
+	}
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		realRoot = root
+	}
+	var realPath string
+	if mustContain {
+		realPath, err = filepath.EvalSymlinks(cleanPath)
+		if err != nil {
+			return err
+		}
+	} else {
+		realPath, err = evalSymlinksOrParent(cleanPath)
+		if err != nil {
+			return err
+		}
+	}
+	rel, err := filepath.Rel(realRoot, realPath)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return fmt.Errorf("editor: room map %q resolves outside the project", absPath)
+	}
+	return nil
+}
+
+func evalSymlinksOrParent(p string) (string, error) {
+	p = filepath.Clean(p)
+	if real, err := filepath.EvalSymlinks(p); err == nil {
+		return real, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	if fi, lerr := os.Lstat(p); lerr == nil && fi.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("editor: refusing to follow unresolved symlink %q", p)
+	}
+	cur := p
+	var tail []string
+	for {
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return p, nil
+		}
+		tail = append(tail, filepath.Base(cur))
+		cur = parent
+		if real, err := filepath.EvalSymlinks(cur); err == nil {
+			slices.Reverse(tail)
+			parts := append([]string{real}, tail...)
+			return filepath.Join(parts...), nil
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return "", err
+		}
+		if fi, lerr := os.Lstat(cur); lerr == nil && fi.Mode()&os.ModeSymlink != 0 {
+			return "", fmt.Errorf("editor: refusing to follow unresolved symlink %q", cur)
+		}
+	}
 }
 
 // OpenRoomsYAML parses data with rooms.Parse and opens the room map beside the current scene.
@@ -282,6 +356,9 @@ func (e *Editor) SaveRoomsFile(filePath string) error {
 	}
 	if e.playing {
 		return ErrPlaying
+	}
+	if err := e.checkProjectSymlink(filePath, false); err != nil {
+		return err
 	}
 	data, err := e.SaveRoomsYAML()
 	if err != nil {
@@ -550,6 +627,7 @@ func (e *Editor) AddRoom(r rooms.Room) (string, error) {
 	e.rooms.lastErr = nil
 	e.History.Execute(&roomMapEditCmd{
 		ed:         e,
+		target:     e.rooms,
 		label:      "Add room " + added.ID,
 		status:     "Added room " + added.ID,
 		before:     cloneRoomMap(e.rooms.doc),
@@ -619,6 +697,7 @@ func (e *Editor) DeleteRoom(id string) error {
 	e.rooms.lastErr = nil
 	e.History.Execute(&roomMapEditCmd{
 		ed:         e,
+		target:     e.rooms,
 		label:      "Delete room " + id,
 		status:     "Deleted room " + id,
 		before:     cloneRoomMap(e.rooms.doc),
@@ -663,6 +742,7 @@ func (e *Editor) SetRoomRect(id string, x, y, w, h float32) error {
 	e.rooms.lastErr = nil
 	e.History.Execute(&roomMapEditCmd{
 		ed:        e,
+		target:    e.rooms,
 		label:     "Resize room " + id,
 		status:    "Updated room " + id,
 		before:    cloneRoomMap(e.rooms.doc),
@@ -706,6 +786,7 @@ func (e *Editor) SetRoomID(oldID, newID string) error {
 	e.rooms.lastErr = nil
 	e.History.Execute(&roomMapEditCmd{
 		ed:         e,
+		target:     e.rooms,
 		label:      "Rename room " + oldID,
 		status:     "Renamed room to " + newID,
 		before:     cloneRoomMap(e.rooms.doc),
@@ -745,6 +826,7 @@ func (e *Editor) SetRoomName(id, name string) error {
 	e.rooms.lastErr = nil
 	e.History.Execute(&roomMapEditCmd{
 		ed:        e,
+		target:    e.rooms,
 		label:     "Set room name " + id,
 		status:    "Updated room name",
 		before:    cloneRoomMap(e.rooms.doc),
@@ -784,6 +866,7 @@ func (e *Editor) SetRoomTransition(id string, tr *rooms.Transition) error {
 	e.rooms.lastErr = nil
 	e.History.Execute(&roomMapEditCmd{
 		ed:        e,
+		target:    e.rooms,
 		label:     "Set room transition " + id,
 		status:    "Updated room transition",
 		before:    cloneRoomMap(e.rooms.doc),
@@ -819,6 +902,7 @@ func (e *Editor) SetRoomMapTransition(tr *rooms.Transition) error {
 	e.rooms.lastErr = nil
 	e.History.Execute(&roomMapEditCmd{
 		ed:        e,
+		target:    e.rooms,
 		label:     "Set map transition",
 		status:    "Updated room map transition",
 		before:    cloneRoomMap(e.rooms.doc),
@@ -1064,6 +1148,7 @@ func (e *Editor) EndRoomDrag() bool {
 	e.rooms.lastErr = nil
 	e.History.Execute(&roomMapEditCmd{
 		ed:        e,
+		target:    e.rooms,
 		label:     label,
 		status:    label,
 		before:    cloneRoomMap(e.rooms.doc),
@@ -1174,38 +1259,50 @@ func (e *Editor) drawRoomsOverlay(d *core.Drawing) {
 }
 
 func (e *Editor) drawRoomSnapGrid(d *core.Drawing, gw, gh float32) {
-	if gw <= 0 || gh <= 0 {
+	if !isFiniteFloat32(gw) || !isFiniteFloat32(gh) || gw <= 0 || gh <= 0 {
 		return
 	}
 	cw, ch := e.CanvasSize()
+	if !isFiniteFloat32(cw) || !isFiniteFloat32(ch) || cw <= 0 || ch <= 0 {
+		return
+	}
 	// Find world AABB visible on canvas.
 	corners := [4][2]float32{{0, 0}, {cw, 0}, {cw, ch}, {0, ch}}
 	minX, minY := float32(math.Inf(1)), float32(math.Inf(1))
 	maxX, maxY := float32(math.Inf(-1)), float32(math.Inf(-1))
 	for _, c := range corners {
 		wx, wy := e.CanvasToWorld(c[0], c[1])
+		if !isFiniteFloat32(wx) || !isFiniteFloat32(wy) {
+			return
+		}
 		minX = min(minX, wx)
 		maxX = max(maxX, wx)
 		minY = min(minY, wy)
 		maxY = max(maxY, wy)
 	}
-	// Cap line count so zooming far out never draws thousands of lines.
-	xCount := int((maxX - minX) / gw)
-	yCount := int((maxY - minY) / gh)
-	if xCount > 256 || yCount > 256 || xCount < 0 || yCount < 0 {
+	if !isFiniteFloat32(minX) || !isFiniteFloat32(maxX) || !isFiniteFloat32(minY) || !isFiniteFloat32(maxY) {
 		return
 	}
-	startX := float32(math.Floor(float64(minX)/float64(gw))) * gw
-	startY := float32(math.Floor(float64(minY)/float64(gh))) * gh
+	// Cap line count in float64 so zooming far out never overflows int or draws thousands of lines.
+	spanX := float64(maxX) - float64(minX)
+	spanY := float64(maxY) - float64(minY)
+	if spanX < 0 || spanY < 0 || spanX/float64(gw) > 256 || spanY/float64(gh) > 256 {
+		return
+	}
+	startX := float32(math.Floor(float64(minX)/float64(gw)) * float64(gw))
+	startY := float32(math.Floor(float64(minY)/float64(gh)) * float64(gh))
+	if !isFiniteFloat32(startX) || !isFiniteFloat32(startY) {
+		return
+	}
 	d.Save()
 	d.SetStrokeColor(core.RGBA(0x5EEAD4, 0.16)).SetLineWidth(1)
 	d.BeginPath()
-	for x := startX; x <= maxX; x += gw {
+	for x, n := startX, 0; x <= maxX && n <= 258; x, n = x+gw, n+1 {
 		x0, y0 := e.WorldToCanvas(x, minY)
 		x1, y1 := e.WorldToCanvas(x, maxY)
 		d.MoveTo(x0, y0).LineTo(x1, y1)
 	}
-	for y := startY; y <= maxY; y += gh {
+	for y, n := startY, 0; y <= maxY && n <= 258; y, n = y+gh, n+1 {
 		x0, y0 := e.WorldToCanvas(minX, y)
 		x1, y1 := e.WorldToCanvas(maxX, y)
 		d.MoveTo(x0, y0).LineTo(x1, y1)
@@ -1217,6 +1314,7 @@ func (e *Editor) drawRoomSnapGrid(d *core.Drawing, gw, gh float32) {
 
 type roomMapEditCmd struct {
 	ed         *Editor
+	target     *roomMapState
 	label      string
 	status     string
 	before     *rooms.Map
@@ -1229,7 +1327,7 @@ type roomMapEditCmd struct {
 func (c *roomMapEditCmd) Label() string { return c.label }
 
 func (c *roomMapEditCmd) Do() {
-	if c.ed.rooms == nil {
+	if c.ed.rooms == nil || c.ed.rooms != c.target {
 		return
 	}
 	c.ed.rooms.doc = cloneRoomMap(c.after)
@@ -1245,7 +1343,7 @@ func (c *roomMapEditCmd) Do() {
 }
 
 func (c *roomMapEditCmd) Undo() {
-	if c.ed.rooms == nil {
+	if c.ed.rooms == nil || c.ed.rooms != c.target {
 		return
 	}
 	c.ed.rooms.doc = cloneRoomMap(c.before)

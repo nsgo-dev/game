@@ -389,18 +389,18 @@ type Editor struct {
 	// fly3D says the 3D viewport's camera is flying (BeginFly3D).
 	fly3D bool
 	// fly3DOrtho says the camera was orthographic when the flight began, and fly3DMoved that the flight has turned or moved it, so a flight that did neither puts the projection back.
-	fly3DOrtho   bool
-	fly3DMoved   bool
+	fly3DOrtho       bool
+	fly3DMoved       bool
 	cameraDrag       cameraDragState
 	cameraBoundsDrag cameraBoundsDragState
 	rooms            *roomMapState
 	roomDrag         roomDragState
 	bgPreview        bgPreviewState
-	scope        *core.Scope
-	revision     uint64
-	nextID       int
-	nextListener uint64
-	listeners    map[uint64]func()
+	scope            *core.Scope
+	revision         uint64
+	nextID           int
+	nextListener     uint64
+	listeners        map[uint64]func()
 	// askUnsaved asks the author, through the prompt EditorView shows, whether to save or discard unsaved edits before something loses them; nil without an EditorView.
 	askUnsaved func(proceed, cancel func())
 	// fetch is the library panel's fetch of a pack from a remote library under way, or nil.
