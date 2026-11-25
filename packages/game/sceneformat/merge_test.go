@@ -677,23 +677,166 @@ func TestMergeInvalidInputsReturnError(t *testing.T) {
 // SceneDoc or its sub-structs without updating Merge.
 func TestMergeCoversAllDocumentFields(t *testing.T) {
 	wantCounts := map[reflect.Type]int{
-		reflect.TypeFor[sceneformat.SceneDoc]():       15,
+		reflect.TypeFor[sceneformat.SceneDoc]():       16,
 		reflect.TypeFor[sceneformat.CameraDoc]():      5,
 		reflect.TypeFor[sceneformat.BoundsDoc]():      4,
+		reflect.TypeFor[sceneformat.EnvironmentDoc](): 7,
+		reflect.TypeFor[sceneformat.SkyDoc]():         6,
+		reflect.TypeFor[sceneformat.FogDoc]():         10,
 		reflect.TypeFor[sceneformat.LayerDoc]():       12,
 		reflect.TypeFor[sceneformat.TilemapDoc]():     13,
 		reflect.TypeFor[sceneformat.TileLayerDoc]():   4,
-		reflect.TypeFor[sceneformat.ObjectDoc]():      34,
+		reflect.TypeFor[sceneformat.ObjectDoc]():      36,
 		reflect.TypeFor[sceneformat.OccluderDoc]():    4,
 		reflect.TypeFor[sceneformat.SpriteRef]():      2,
 		reflect.TypeFor[sceneformat.ParticlesRef]():   2,
+		reflect.TypeFor[sceneformat.LightDoc]():       7,
+		reflect.TypeFor[sceneformat.Camera3DDoc]():    6,
 		reflect.TypeFor[sceneformat.LayerOverride]():  10,
-		reflect.TypeFor[sceneformat.ObjectOverride](): 30,
+		reflect.TypeFor[sceneformat.ObjectOverride](): 32,
 		reflect.TypeFor[sceneformat.ConnectionDoc]():  6,
 	}
 	for typ, want := range wantCounts {
 		if got := typ.NumField(); got != want {
 			t.Errorf("%s has %d fields, Merge was written for %d; update merge.go and this test", typ.Name(), got, want)
 		}
+	}
+}
+
+func TestMergeScene3DLightsEnvironmentAndCameras(t *testing.T) {
+	base := &sceneformat.SceneDoc{
+		Version:  sceneformat.CurrentVersion,
+		Inherits: "scenes/base3d.scene.yaml",
+		Environment: &sceneformat.EnvironmentDoc{
+			Sky:              &sceneformat.SkyDoc{Kind: sceneformat.SkyGradient, Zenith: "#203050", Horizon: "#708090", Ground: "#181818"},
+			AmbientColor:     "#ffffff",
+			AmbientIntensity: sceneformat.Float32(0.25),
+			Fog:              &sceneformat.FogDoc{Mode: sceneformat.FogLinear, Color: "#8090a8", Start: 10, End: 80},
+			Tonemapping:      sceneformat.TonemapNone,
+			Exposure:         sceneformat.Float32(1.0),
+		},
+		Overrides: map[string]sceneformat.ObjectOverride{
+			"lamp": {
+				Light: &sceneformat.LightDoc{Kind: sceneformat.LightPoint, Color: "#ffffff", Intensity: sceneformat.Float32(2), Range: 10},
+			},
+			"cam_ov": {
+				Camera: &sceneformat.Camera3DDoc{Projection: sceneformat.ProjectionPerspective, FOV: sceneformat.Float32(60), Far: sceneformat.Float32(200)},
+			},
+		},
+		Layers: []sceneformat.LayerDoc{{
+			Name: "world",
+			Objects: []sceneformat.ObjectDoc{
+				{
+					ID: "spot",
+					Light: &sceneformat.LightDoc{
+						Kind:      sceneformat.LightSpot,
+						Color:     "#ffeecc",
+						Intensity: sceneformat.Float32(4),
+						Range:     15,
+						InnerCone: 15,
+						OuterCone: sceneformat.Float32(35),
+					},
+				},
+				{
+					ID: "cam1",
+					Camera: &sceneformat.Camera3DDoc{
+						Projection: sceneformat.ProjectionPerspective,
+						FOV:        sceneformat.Float32(60),
+						Near:       sceneformat.Float32(0.1),
+						Far:        sceneformat.Float32(500),
+					},
+				},
+				{
+					ID: "cam2",
+					Camera: &sceneformat.Camera3DDoc{
+						Projection:  sceneformat.ProjectionOrthographic,
+						OrthoHeight: sceneformat.Float32(12),
+						Near:        sceneformat.Float32(-10),
+						Far:         sceneformat.Float32(200),
+					},
+				},
+			},
+		}},
+	}
+
+	ours := cloneDoc(t, base)
+	theirs := cloneDoc(t, base)
+
+	// Disjoint edits to Environment, Light, Camera, and Overrides combine cleanly.
+	ours.Environment.Sky.Zenith = "#102040"
+	ours.Environment.Exposure = sceneformat.Float32(1.3)
+	ours.Layers[0].Objects[0].Light.Intensity = sceneformat.Float32(6)
+	ours.Layers[0].Objects[1].Camera.FOV = sceneformat.Float32(50)
+	lampOurs := ours.Overrides["lamp"]
+	lampOurs.Light.Range = 20
+	ours.Overrides["lamp"] = lampOurs
+	camOvOurs := ours.Overrides["cam_ov"]
+	camOvOurs.Camera.FOV = sceneformat.Float32(75)
+	ours.Overrides["cam_ov"] = camOvOurs
+
+	theirs.Environment.Fog.End = 120
+	theirs.Environment.Tonemapping = sceneformat.TonemapACES
+	theirs.Layers[0].Objects[0].Light.Range = 25
+	theirs.Layers[0].Objects[0].Light.Shadows = true
+	theirs.Layers[0].Objects[1].Camera.Far = sceneformat.Float32(800)
+	lampTheirs := theirs.Overrides["lamp"]
+	lampTheirs.Light.Color = "#ffd0a0"
+	theirs.Overrides["lamp"] = lampTheirs
+	camOvTheirs := theirs.Overrides["cam_ov"]
+	camOvTheirs.Camera.Far = sceneformat.Float32(400)
+	theirs.Overrides["cam_ov"] = camOvTheirs
+
+	res, err := sceneformat.Merge(base, ours, theirs)
+	if err != nil {
+		t.Fatalf("Merge: %v", err)
+	}
+	if res.HasConflicts() {
+		t.Fatalf("unexpected conflicts: %+v", res.Conflicts)
+	}
+	if res.Doc.Environment.Sky.Zenith != "#102040" || *res.Doc.Environment.Exposure != 1.3 ||
+		res.Doc.Environment.Fog.End != 120 || res.Doc.Environment.Tonemapping != sceneformat.TonemapACES {
+		t.Errorf("merged environment mismatch: %+v sky=%+v fog=%+v", res.Doc.Environment, res.Doc.Environment.Sky, res.Doc.Environment.Fog)
+	}
+	gotLight := res.Doc.Layers[0].Objects[0].Light
+	if *gotLight.Intensity != 6 || gotLight.Range != 25 || !gotLight.Shadows {
+		t.Errorf("merged spot light mismatch: %+v", gotLight)
+	}
+	gotCam := res.Doc.Layers[0].Objects[1].Camera
+	if *gotCam.FOV != 50 || *gotCam.Far != 800 {
+		t.Errorf("merged camera mismatch: %+v", gotCam)
+	}
+	if res.Doc.Overrides["lamp"].Light.Range != 20 || res.Doc.Overrides["lamp"].Light.Color != "#ffd0a0" {
+		t.Errorf("merged light override mismatch: %+v", res.Doc.Overrides["lamp"].Light)
+	}
+	if *res.Doc.Overrides["cam_ov"].Camera.FOV != 75 || *res.Doc.Overrides["cam_ov"].Camera.Far != 400 {
+		t.Errorf("merged camera override mismatch: %+v", res.Doc.Overrides["cam_ov"].Camera)
+	}
+
+	// Conflicting light kind + conflicting sky kind produce ConflictField.
+	oursC := cloneDoc(t, base)
+	theirsC := cloneDoc(t, base)
+	oursC.Environment.Sky = &sceneformat.SkyDoc{Kind: sceneformat.SkyColor, Color: "#112233"}
+	theirsC.Environment.Sky = &sceneformat.SkyDoc{Kind: sceneformat.SkyHDR, HDR: "env/noon.hdr"}
+	oursC.Layers[0].Objects[0].Light = &sceneformat.LightDoc{Kind: sceneformat.LightDirectional}
+	theirsC.Layers[0].Objects[0].Light = &sceneformat.LightDoc{Kind: sceneformat.LightPoint, Range: 12}
+	resC, err := sceneformat.Merge(base, oursC, theirsC)
+	if err != nil {
+		t.Fatalf("Merge conflicts: %v", err)
+	}
+	if len(resC.Conflicts) != 2 {
+		t.Fatalf("expected 2 conflicts (sky kind + light kind), got %+v", resC.Conflicts)
+	}
+
+	// Two branches setting current: true on different cameras triggers ConflictValidation.
+	oursCur := cloneDoc(t, base)
+	theirsCur := cloneDoc(t, base)
+	oursCur.Layers[0].Objects[1].Camera.Current = true
+	theirsCur.Layers[0].Objects[2].Camera.Current = true
+	resCur, err := sceneformat.Merge(base, oursCur, theirsCur)
+	if err != nil {
+		t.Fatalf("Merge dual current camera: %v", err)
+	}
+	if len(resCur.Conflicts) != 1 || resCur.Conflicts[0].Kind != sceneformat.ConflictValidation {
+		t.Fatalf("expected ConflictValidation for two current cameras, got %+v", resCur.Conflicts)
 	}
 }

@@ -95,19 +95,19 @@ func view3DCamFromSceneCamera(cam *scene3d.Camera) view3DCam {
 	p := cam.Projection
 	ortho := p.Kind == scene3d.ProjectionOrthographic
 	fov := float64(p.FOVY)
-	if fov <= 0.05 || fov >= math.Pi-0.05 || math.IsNaN(fov) {
+	if fov <= 0.05 || fov >= math.Pi-0.05 || math.IsNaN(fov) || math.IsInf(fov, 0) {
 		fov = math.Pi / 3
 	}
 	halfH := float64(p.OrthoHeight) * 0.5
-	if halfH <= 0 || math.IsNaN(halfH) {
+	if halfH <= 0 || math.IsNaN(halfH) || math.IsInf(halfH, 0) {
 		halfH = 5
 	}
 	near := float64(p.Near)
-	if near <= 0 || math.IsNaN(near) {
+	if math.IsNaN(near) || math.IsInf(near, 0) || (!ortho && near <= 0) {
 		near = 0.1
 	}
 	far := float64(p.Far)
-	if far <= near || math.IsNaN(far) {
+	if math.IsNaN(far) || math.IsInf(far, 0) || far <= near {
 		far = near + 1000
 	}
 	r := cam.Right()
@@ -345,6 +345,9 @@ func (e *Editor) PickHandle3D(sx, sy, w, h float32) Handle3DKind {
 	if e == nil || e.playing || w <= 0 || h <= 0 {
 		return Handle3DNone
 	}
+	if e.gridMap.tool != GridMapToolNone || (e.TerrainOpen() && e.terrainBrush.Mode != TerrainBrushNone) {
+		return Handle3DNone
+	}
 	obj, _ := e.SelectedObject()
 	if obj == nil || e.viewportFrozen(obj.ID) {
 		return Handle3DNone
@@ -578,9 +581,14 @@ func (e *Editor) UpdateHandleDrag3D(sx, sy float32) {
 		newRadius := math.Max(0.01, startRad+delta)
 		deg := clamp64(math.Atan2(newRadius, coneLen)*180/math.Pi, 1, 89.5)
 		deg = math.Round(deg*10) / 10
-		obj.Light.OuterCone = sceneformat.Float32(float32(deg))
-		if obj.Light.InnerCone > float32(deg) {
-			obj.Light.InnerCone = float32(deg)
+		outer := float32(deg)
+		obj.Light.OuterCone = sceneformat.Float32(outer)
+		maxInner := float32(math.Max(0, math.Round((deg-0.1)*10)/10))
+		if maxInner >= outer {
+			maxInner = 0
+		}
+		if obj.Light.InnerCone > maxInner {
+			obj.Light.InnerCone = maxInner
 		}
 
 	case Handle3DLightInnerCone:
@@ -591,9 +599,16 @@ func (e *Editor) UpdateHandleDrag3D(sx, sy float32) {
 		startRad := coneLen * math.Tan(float64(math3d.DegToRad(st.startLight.InnerCone)))
 		delta := axisDelta(st.handlePlanePt, st.handleAxis)
 		newRadius := math.Max(0, startRad+delta)
-		maxDeg := float64(obj.Light.EffectiveOuterCone())
+		outer := obj.Light.EffectiveOuterCone()
+		maxDeg := math.Max(0, float64(outer)-0.1)
 		deg := clamp64(math.Atan2(newRadius, coneLen)*180/math.Pi, 0, maxDeg)
 		deg = math.Round(deg*10) / 10
+		if float32(deg) >= outer {
+			deg = math.Max(0, math.Floor(maxDeg*10)/10)
+			if float32(deg) >= outer {
+				deg = 0
+			}
+		}
 		obj.Light.InnerCone = float32(deg)
 
 	case Handle3DCameraFOV:

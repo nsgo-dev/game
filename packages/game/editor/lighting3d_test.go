@@ -10,7 +10,7 @@ import (
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
-func newLightingTestEditor(t *testing.T) *editor.Editor {
+func newLighting3DTestEditor(t *testing.T) *editor.Editor {
 	t.Helper()
 	doc := &sceneformat.SceneDoc{
 		Version:         sceneformat.CurrentVersion,
@@ -132,7 +132,7 @@ func dragHandle(t *testing.T, ed *editor.Editor, kind editor.Handle3DKind, dx, d
 }
 
 func TestLightAndCamera3DHandlesUndoable(t *testing.T) {
-	ed := newLightingTestEditor(t)
+	ed := newLighting3DTestEditor(t)
 
 	// 1. Directional light direction handle.
 	ed.SelectObject("sun")
@@ -282,7 +282,7 @@ func TestLightAndCamera3DHandlesUndoable(t *testing.T) {
 }
 
 func TestLightAndCameraIconsPickingAndLookThroughToggle(t *testing.T) {
-	ed := newLightingTestEditor(t)
+	ed := newLighting3DTestEditor(t)
 	const w, h float32 = 800, 600
 
 	// Clicking each light and camera's projected icon selects it.
@@ -408,5 +408,184 @@ func TestEnvironmentPanelAndVersionUpgradeUndo(t *testing.T) {
 	// Inspector shows LIGHT 3D and CAMERA 3D sections for the selected camera object.
 	if !app.Exists("id:inspector-cam3d-fov") {
 		t.Fatal("inspector-cam3d-fov not mounted for selected 3D camera")
+	}
+}
+
+func TestHandle3DSpotConeClampStaysValid(t *testing.T) {
+	doc := &sceneformat.SceneDoc{
+		Version:         sceneformat.CurrentVersion,
+		Name:            "Spot Clamp",
+		VirtualWidth:    640,
+		VirtualHeight:   360,
+		BackgroundColor: "#141824",
+		Layers: []sceneformat.LayerDoc{{
+			Name: "world",
+			Objects: []sceneformat.ObjectDoc{{
+				ID: "spot",
+				Light: &sceneformat.LightDoc{
+					Kind:      sceneformat.LightSpot,
+					Range:     10,
+					InnerCone: 20,
+					OuterCone: sceneformat.Float32(30),
+				},
+			}},
+		}},
+	}
+	ed, err := editor.New(doc, nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	ed.SetViewMode(editor.ViewMode3D)
+	ed.Camera3D.Target = [3]float32{0, 0, -5}
+	ed.Camera3D.Distance = 12
+	ed.Camera3D.Yaw = 0.6
+	ed.Camera3D.Pitch = 0.35
+	ed.SelectObject("spot")
+
+	const w, h float32 = 800, 600
+
+	// Drag inner cone handle far past outer cone: must clamp strictly below OuterCone and stay valid.
+	hp, ok := ed.HandlePosition3D(editor.Handle3DLightInnerCone)
+	if !ok {
+		t.Fatal("HandlePosition3D(InnerCone) returned false")
+	}
+	sx, sy, _, vis := ed.Camera3D.Project(hp, w, h)
+	if !vis {
+		t.Fatal("InnerCone handle not visible")
+	}
+	if !ed.BeginHandleDragKind3D(editor.Handle3DLightInnerCone, sx, sy, w, h) {
+		t.Fatal("BeginHandleDragKind3D(InnerCone) failed")
+	}
+	ed.UpdateHandleDrag3D(sx, sy-400)
+	ed.EndHandleDrag3D()
+
+	spot, _, _ := ed.FindObject("spot")
+	if spot.Light.InnerCone >= spot.Light.EffectiveOuterCone() {
+		t.Fatalf("InnerCone %v >= OuterCone %v after extreme drag", spot.Light.InnerCone, spot.Light.EffectiveOuterCone())
+	}
+	if err := sceneformat.Validate(ed.Doc); err != nil {
+		t.Fatalf("scene invalid after inner cone drag: %v", err)
+	}
+
+	// Drag outer cone handle far inward below InnerCone: must push InnerCone strictly below OuterCone.
+	hp, ok = ed.HandlePosition3D(editor.Handle3DLightOuterCone)
+	if !ok {
+		t.Fatal("HandlePosition3D(OuterCone) returned false")
+	}
+	sx, sy, _, vis = ed.Camera3D.Project(hp, w, h)
+	if !vis {
+		t.Fatal("OuterCone handle not visible")
+	}
+	if !ed.BeginHandleDragKind3D(editor.Handle3DLightOuterCone, sx, sy, w, h) {
+		t.Fatal("BeginHandleDragKind3D(OuterCone) failed")
+	}
+	ed.UpdateHandleDrag3D(sx-400, sy)
+	ed.EndHandleDrag3D()
+
+	spot, _, _ = ed.FindObject("spot")
+	if spot.Light.InnerCone >= spot.Light.EffectiveOuterCone() {
+		t.Fatalf("InnerCone %v >= OuterCone %v after shrinking outer cone", spot.Light.InnerCone, spot.Light.EffectiveOuterCone())
+	}
+	if err := sceneformat.Validate(ed.Doc); err != nil {
+		t.Fatalf("scene invalid after outer cone drag: %v", err)
+	}
+}
+
+func TestLookThroughOrthoCameraPreservesNegativeNearAndGuardsTools(t *testing.T) {
+	doc := &sceneformat.SceneDoc{
+		Version:         sceneformat.CurrentVersion,
+		Name:            "Ortho Near",
+		VirtualWidth:    640,
+		VirtualHeight:   360,
+		BackgroundColor: "#141824",
+		Layers: []sceneformat.LayerDoc{{
+			Name: "world",
+			Objects: []sceneformat.ObjectDoc{
+				{
+					ID:   "cam",
+					PosZ: 0,
+					Camera: &sceneformat.Camera3DDoc{
+						Projection:  sceneformat.ProjectionOrthographic,
+						OrthoHeight: sceneformat.Float32(10),
+						Near:        sceneformat.Float32(-20),
+						Far:         sceneformat.Float32(50),
+						Current:     true,
+					},
+				},
+				{
+					// Placed at Z = +5 (behind the camera origin, in front of Near = -20):
+					// pickIcon3D projects via vc.project, which clips against vc.near.
+					ID:    "behind_light",
+					PosZ:  5,
+					Light: &sceneformat.LightDoc{Kind: sceneformat.LightPoint, Range: 3},
+				},
+				{
+					ID:   "pt",
+					X:    4,
+					PosZ: -5,
+					Light: &sceneformat.LightDoc{
+						Kind:  sceneformat.LightPoint,
+						Range: 4,
+					},
+				},
+			},
+		}},
+	}
+	ed, err := editor.New(doc, nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	ed.SetViewMode(editor.ViewMode3D)
+	if err := ed.SetLookThroughCamera3D(true); err != nil {
+		t.Fatalf("SetLookThroughCamera3D: %v", err)
+	}
+
+	const w, h float32 = 800, 600
+	// Pick3DObject at center of viewport must hit "behind_light" (Z=+5, camera-space Z=-5 > Near=-20).
+	// If Near were clamped to 0.1, "behind_light" would be clipped behind the near plane and missed.
+	if got, ok := ed.Pick3DObject(w/2, h/2, w, h); !ok || got != "behind_light" {
+		t.Fatalf("Pick3DObject through ortho camera with near=-20 = (%q, %v), want (%q, true)", got, ok, "behind_light")
+	}
+
+	// PickHandle3D must return Handle3DNone while a terrain brush or GridMap tool is active.
+	if err := ed.SetLookThroughCamera3D(false); err != nil {
+		t.Fatalf("SetLookThroughCamera3D(false): %v", err)
+	}
+	ed.Camera3D.Target = [3]float32{4, 0, -5}
+	ed.Camera3D.Distance = 12
+	ed.SelectObject("pt")
+	hp, ok := ed.HandlePosition3D(editor.Handle3DLightRange)
+	if !ok {
+		t.Fatal("HandlePosition3D(Range) returned false")
+	}
+	sx, sy, _, vis := ed.Camera3D.Project(hp, w, h)
+	if !vis {
+		t.Fatal("Range handle not visible")
+	}
+	if got := ed.PickHandle3D(sx, sy, w, h); got != editor.Handle3DLightRange {
+		t.Fatalf("PickHandle3D at rest = %v, want Handle3DLightRange", got)
+	}
+	if err := ed.NewTerrain(editor.NewTerrainOptions{}); err != nil {
+		t.Fatalf("NewTerrain: %v", err)
+	}
+	b := ed.TerrainBrush()
+	b.Mode = editor.TerrainBrushRaise
+	ed.SetTerrainBrush(b)
+	if got := ed.PickHandle3D(sx, sy, w, h); got != editor.Handle3DNone {
+		t.Fatalf("PickHandle3D while terrain brush active = %v, want Handle3DNone", got)
+	}
+	ed.CloseTerrain()
+
+	// OpenDemo resets lookThroughCamera3D and envPanelOpen.
+	_ = ed.SetLookThroughCamera3D(true)
+	ed.SetEnvironmentPanelOpen(true)
+	if err := ed.OpenDemo(); err != nil {
+		t.Fatalf("OpenDemo: %v", err)
+	}
+	if ed.LookThroughCamera3D() {
+		t.Error("OpenDemo left LookThroughCamera3D true")
+	}
+	if ed.EnvironmentPanelOpen() {
+		t.Error("OpenDemo left EnvironmentPanelOpen true")
 	}
 }
