@@ -395,6 +395,7 @@ strings:
   status.ready: Ready
   status.terrainSuffix: ' | Terrain: {terrain}'
   status.tileSuffix: ' | Tile: {tile}'
+  status.toolSuffix: ' | Tool: {tool}'
   tilePalette.flipDiag: Flip diagonally
   tilePalette.flipHoriz: Flip horizontally
   tilePalette.flipVert: Flip vertically

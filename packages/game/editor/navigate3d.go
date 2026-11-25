@@ -348,6 +348,8 @@ func (e *Editor) endFly3D() {
 func (e *Editor) endCameraGestures3D() {
 	e.endFly3D()
 	e.CancelGizmoDrag3D()
+	e.CancelComponentGizmoDrag3D()
+	e.CancelPluginDrag3D()
 	e.drag3D = drag3DState{}
 }
 

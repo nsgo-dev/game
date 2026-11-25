@@ -269,7 +269,7 @@ func (e *Editor) ExecutePaletteItem(id string) error {
 		if e.Playing() {
 			return ErrPlaying
 		}
-		e.SetViewMode(ViewMode2D)
+		e.ensureViewModeForPluginTool(plugin, toolID)
 		err := e.SetPluginTool(plugin, toolID)
 		if err != nil {
 			e.report(err)

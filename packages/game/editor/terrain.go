@@ -397,6 +397,10 @@ func (e *Editor) SetTerrainBrush(b TerrainBrush) {
 	}
 	e.terrainBrush = b
 	if b.Mode != TerrainBrushNone {
+		e.CancelGizmoDrag3D()
+		e.CancelComponentGizmoDrag3D()
+		e.CancelPluginDrag3D()
+		e.ClearPluginHover3D()
 		e.Status = "Terrain Brush: " + b.Mode.String()
 	}
 	e.notify()

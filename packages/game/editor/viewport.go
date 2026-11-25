@@ -1071,6 +1071,10 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 				g.suppressPress = false
 				return
 			}
+			if g3.suppressPress {
+				g3.suppressPress = false
+				return
+			}
 			// A press with Space held ends a Space-drag that did not move, which navigates rather than edits.
 			if spaceHeld() {
 				return
@@ -1204,16 +1208,19 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 					_, strokeActive := ed.TileStrokeActive()
 					selVisible := ed.ViewMode == ViewMode2D && isTileTool(ed.Tool) && ed.hasTileSel
 					navPreview := ed.Tool == ToolNavTestPath && (ed.nav2D.preview.HasStart || ed.nav2D.preview.HasEnd)
-					return ed.Dragging2D() != Handle2DNone || ed.DraggingShape2D() || ed.PluginDragging2D() || ed.cameraDrag.active || ed.cameraBoundsDrag.active || ed.roomDrag.active || gmActive || (ed.terrain != nil && ed.terrain.stroke != nil) || strokeActive || selVisible || navPreview
+					return ed.Dragging2D() != Handle2DNone || ed.DraggingShape2D() || ed.PluginDragging2D() || ed.DraggingGizmo3D() || ed.DraggingHandle3D() || ed.DraggingComponentGizmo3D() || ed.PluginDragging3D() || ed.cameraDrag.active || ed.cameraBoundsDrag.active || ed.roomDrag.active || gmActive || (ed.terrain != nil && ed.terrain.stroke != nil) || strokeActive || selVisible || navPreview
 				},
 				Then: func(cx *core.Scope) core.Node {
 					cx.OnKey("escape", func() {
-						hadDrag := ed.Dragging2D() != Handle2DNone || ed.DraggingShape2D() || ed.PluginDragging2D() || ed.cameraDrag.active || ed.cameraBoundsDrag.active || ed.roomDrag.active
+						hadDrag := ed.Dragging2D() != Handle2DNone || ed.DraggingShape2D() || ed.PluginDragging2D() || ed.DraggingGizmo3D() || ed.DraggingHandle3D() || ed.DraggingComponentGizmo3D() || ed.PluginDragging3D() || ed.cameraDrag.active || ed.cameraBoundsDrag.active || ed.roomDrag.active
 						_, gmActive := ed.GridMapStrokeActive()
 						_, tileActive := ed.TileStrokeActive()
 						terrainActive := ed.terrain != nil && ed.terrain.stroke != nil
 						ed.CancelPluginDrag2D()
 						ed.CancelShapeDrag2D()
+						ed.CancelPluginDrag3D()
+						ed.CancelComponentGizmoDrag3D()
+						ed.CancelGizmoDrag3D()
 						if tileActive {
 							ed.CancelTileStroke()
 							strokeTookPress = true
@@ -1384,6 +1391,7 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 						if ed.TerrainOpen() {
 							ed.SetTerrainHoverAt(x, y, cw, ch)
 						}
+						ed.SetPluginHover3D(x, y, cw, ch)
 						g3.mouseMove(ed, ev)
 						return
 					}
@@ -1455,6 +1463,7 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 					ed.ClearTileHover()
 					ed.ClearGridMapHover()
 					ed.ClearPluginHover2D()
+					ed.ClearPluginHover3D()
 					ed.ClearTerrainHover()
 				},
 				OnTouch: func(ev core.TouchEvent) {

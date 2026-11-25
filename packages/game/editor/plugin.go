@@ -10,6 +10,7 @@ import (
 
 	"github.com/nsgo-dev/game/packages/game/l10n"
 	"github.com/nsgo-dev/game/packages/game/math2d"
+	"github.com/nsgo-dev/game/packages/game/math3d"
 	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -25,8 +26,10 @@ type Plugin struct {
 	Panels []Panel
 	// Inspectors replace the inspector's generic fields of the components they name.
 	Inspectors []Inspector
-	// Tools are added to the 2D viewport's tool bar.
+	// Tools are added to the 2D and/or 3D viewport's tool bar according to which hooks they set.
 	Tools []PluginTool
+	// Gizmos3D register 3D viewport handles and drag editors per component type while the plugin is on.
+	Gizmos3D []ComponentGizmo3D
 	// Commands are added to the editor's command registry, desktop menu bar, command palette, and keyboard shortcuts while the plugin is on.
 	Commands []PluginCommand
 	// Catalog optionally supplies localized strings for this plugin (for example English and Simplified Chinese) resolved in the editor's active language via Editor.PluginT, Editor.PluginPlural, and panel/tool/command TitleKey/LabelKey fields.
@@ -85,7 +88,11 @@ type Inspector struct {
 	View func(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], objectID string) core.Node
 }
 
-// PluginTool is a 2D viewport tool a plugin adds. While it is the active tool (Editor.SetPluginTool), a press on the 2D viewport calls Press, pointer drags call OnDragBegin/OnDragMove/OnDragEnd/OnDragCancel, pointer motion calls OnHover, and Draw draws over the scene in edit mode.
+// PluginTool is a 2D and/or 3D viewport tool a plugin adds. While it is the active tool (Editor.SetPluginTool),
+// in 2D a press calls Press, drags call OnDragBegin/OnDragMove/OnDragEnd/OnDragCancel, pointer motion calls OnHover,
+// and Draw draws over the scene in edit mode; in 3D a press calls Press3D with the camera's pick ray, drags call
+// OnDragBegin3D/OnDragMove3D/OnDragEnd3D/OnDragCancel3D, pointer motion calls OnHover3D, and Draw3D draws over the
+// 3D view with the camera's Projection3D.
 type PluginTool struct {
 	// ID identifies the tool within its plugin and has no control characters; its tool bar button has the test ID "tool-<plugin>-<id>", which can collide as Panel.ID's can.
 	ID string
@@ -93,7 +100,7 @@ type PluginTool struct {
 	Label string
 	// LabelKey is an optional localization key in the plugin's catalog used in place of Label when present.
 	LabelKey string
-	// Press, when set, handles a press at canvas coordinates (x, y), which go through the editor's 2D view (View2D) rather than the scene camera: Editor.CanvasToWorld converts them to world coordinates for a world-space layer, and Editor.CanvasToScreen to the scene's screen coordinates for a screen-space layer. It is not called while playing. At least one of Press or OnDragBegin must be set.
+	// Press, when set, handles a press at canvas coordinates (x, y), which go through the editor's 2D view (View2D) rather than the scene camera: Editor.CanvasToWorld converts them to world coordinates for a world-space layer, and Editor.CanvasToScreen to the scene's screen coordinates for a screen-space layer. It is not called while playing. At least one of Press, OnDragBegin, Press3D, or OnDragBegin3D must be set.
 	Press func(ed *Editor, x, y float32)
 	// Draw, when set, draws over the scene in canvas coordinates while the tool is active and the editor is not playing. Canvas coordinates follow the 2D view: Editor.WorldToCanvas places a world point and Editor.ScreenToCanvas a screen-space layer's point.
 	Draw func(ed *Editor, d *core.Drawing)
@@ -107,6 +114,28 @@ type PluginTool struct {
 	OnDragCancel func(ed *Editor)
 	// OnHover, when set, is called as the pointer moves across the 2D viewport at canvas coordinates (x, y) while the tool is active in edit mode, and with active=false when the pointer leaves the viewport or the tool becomes inactive.
 	OnHover func(ed *Editor, x, y float32, active bool)
+	// Press3D, when set, handles a press in the 3D viewport with the world-space pick ray from the editor's 3D camera. Not called while playing.
+	Press3D func(ed *Editor, ray math3d.Ray)
+	// Draw3D, when set, draws over the 3D viewport while the tool is active in 3D edit mode using proj's camera projection and helpers.
+	Draw3D func(ed *Editor, d *core.Drawing, proj Projection3D)
+	// OnDragBegin3D, when set, is called when a primary drag begins in the 3D viewport with the pick ray. Returning true claims the drag so subsequent motion calls OnDragMove3D and release calls OnDragEnd3D (or OnDragCancel3D if cancelled), instead of orbiting the camera.
+	OnDragBegin3D func(ed *Editor, ray math3d.Ray) bool
+	// OnDragMove3D, when set, is called as a claimed 3D drag moves with the updated pick ray.
+	OnDragMove3D func(ed *Editor, ray math3d.Ray)
+	// OnDragEnd3D, when set, is called when a claimed 3D drag finishes with the final pick ray.
+	OnDragEnd3D func(ed *Editor, ray math3d.Ray)
+	// OnDragCancel3D, when set, is called when a claimed 3D drag is cancelled by Escape, a cancelled gesture, a second finger, Play, Undo/Redo, Save, or changing tools, view mode or scene.
+	OnDragCancel3D func(ed *Editor)
+	// OnHover3D, when set, is called as the pointer moves across the 3D viewport with the pick ray while the tool is active in 3D edit mode, and with active=false when the pointer leaves the viewport or the tool becomes inactive.
+	OnHover3D func(ed *Editor, ray math3d.Ray, active bool)
+}
+
+func (t PluginTool) supports2D() bool {
+	return t.Press != nil || t.OnDragBegin != nil || t.Draw != nil || t.OnHover != nil
+}
+
+func (t PluginTool) supports3D() bool {
+	return t.Press3D != nil || t.OnDragBegin3D != nil || t.Draw3D != nil || t.OnHover3D != nil
 }
 
 // PluginCommand is a command a plugin adds to the editor's command registry, command palette,
@@ -172,6 +201,7 @@ func (e *Editor) RegisterPlugin(p Plugin) error {
 	p.Panels = slices.Clone(p.Panels)
 	p.Inspectors = slices.Clone(p.Inspectors)
 	p.Tools = slices.Clone(p.Tools)
+	p.Gizmos3D = slices.Clone(p.Gizmos3D)
 	p.Commands = clonedCmds
 	cat, err := buildPluginCatalog(&p)
 	if err != nil {
@@ -260,13 +290,28 @@ func validatePlugin(p *Plugin) error {
 			return fmt.Errorf("%s: tool ID %q has control characters", where, t.ID)
 		case t.Label == "" && t.LabelKey == "":
 			return fmt.Errorf("%s: tool %q has no label", where, t.ID)
-		case t.Press == nil && t.OnDragBegin == nil:
-			return fmt.Errorf("%s: tool %q has no Press or OnDragBegin", where, t.ID)
+		case t.Press == nil && t.OnDragBegin == nil && t.Press3D == nil && t.OnDragBegin3D == nil:
+			return fmt.Errorf("%s: tool %q has no Press, OnDragBegin, Press3D or OnDragBegin3D", where, t.ID)
 		}
 		if _, dup := tools[t.ID]; dup {
 			return fmt.Errorf("%s: two tools have ID %q", where, t.ID)
 		}
 		tools[t.ID] = struct{}{}
+	}
+	gizmos3D := make(map[string]struct{}, len(p.Gizmos3D))
+	for i, g := range p.Gizmos3D {
+		switch {
+		case g.Component == "":
+			return fmt.Errorf("%s: 3D gizmo %d names no component", where, i)
+		case hasControl(g.Component):
+			return fmt.Errorf("%s: 3D gizmo component %q has control characters", where, g.Component)
+		case g.Handles == nil:
+			return fmt.Errorf("%s: 3D gizmo for %q has no Handles", where, g.Component)
+		}
+		if _, dup := gizmos3D[g.Component]; dup {
+			return fmt.Errorf("%s: two 3D gizmos handle component %q", where, g.Component)
+		}
+		gizmos3D[g.Component] = struct{}{}
 	}
 	cmds := make(map[string]struct{}, len(p.Commands))
 	for i, c := range p.Commands {
@@ -378,6 +423,9 @@ func (e *Editor) SetPluginEnabled(name string, on bool) error {
 
 // SetPluginTool makes the tool id of the plugin that is on the active viewport tool; Tool becomes ToolPlugin. Choosing another tool with SetTool, or turning the plugin off, ends it.
 func (e *Editor) SetPluginTool(plugin, id string) error {
+	if e == nil {
+		return fmt.Errorf("editor: nil editor")
+	}
 	p := e.activePlugin(plugin)
 	if p == nil {
 		return fmt.Errorf("editor: plugin %q is not on", plugin)
@@ -393,13 +441,152 @@ func (e *Editor) SetPluginTool(plugin, id string) error {
 	e.CancelShapeDrag2D()
 	e.CancelPluginDrag2D()
 	e.ClearPluginHover2D()
+	e.CancelGizmoDrag3D()
+	e.CancelComponentGizmoDrag3D()
+	e.CancelPluginDrag3D()
+	e.ClearPluginHover3D()
 	e.CancelCameraDrag()
 	e.endTileStrokeForChange()
+	e.endGridMapStrokeForChange()
+	e.gridMap.tool = GridMapToolNone
 	e.Tool = ToolPlugin
 	e.pluginTool = pluginToolRef{plugin, id}
 	e.Status = "Tool: " + p.Tools[i].Label
 	e.notify()
 	return nil
+}
+
+// BeginPluginDrag3D starts a drag on the active 3D plugin tool at viewport pixel (sx, sy), returning true if the tool claimed the drag via OnDragBegin3D.
+func (e *Editor) BeginPluginDrag3D(sx, sy, w, h float32) bool {
+	if e == nil || e.playing || e.ViewMode != ViewMode3D || e.Tool != ToolPlugin || e.pluginDrag3D || w <= 0 || h <= 0 || !isFiniteFloat32(sx) || !isFiniteFloat32(sy) {
+		return false
+	}
+	t := e.activePluginTool()
+	if t == nil || t.OnDragBegin3D == nil {
+		return false
+	}
+	ray := e.PickRay3D(sx, sy, w, h)
+	if !t.OnDragBegin3D(e, ray) {
+		return false
+	}
+	e.pluginDrag3D = true
+	e.pluginDrag3DMoved = false
+	e.pluginDrag3DRef = e.pluginTool
+	e.pluginDrag3DLast = math2d.Vec2{X: sx, Y: sy}
+	e.pluginDrag3DW = w
+	e.pluginDrag3DH = h
+	e.drag3D = drag3DState{
+		kind:    drag3DPlugin,
+		startSX: sx,
+		startSY: sy,
+		lastSX:  sx,
+		lastSY:  sy,
+		vpW:     w,
+		vpH:     h,
+	}
+	e.notify()
+	return true
+}
+
+// UpdatePluginDrag3D delivers drag movement at viewport pixel (sx, sy) to the active plugin tool's OnDragMove3D callback as a camera pick ray.
+func (e *Editor) UpdatePluginDrag3D(sx, sy float32) {
+	if e == nil || !e.pluginDrag3D || !isFiniteFloat32(sx) || !isFiniteFloat32(sy) {
+		return
+	}
+	if e.playing || e.ViewMode != ViewMode3D || e.Tool != ToolPlugin || e.pluginTool != e.pluginDrag3DRef {
+		e.CancelPluginDrag3D()
+		return
+	}
+	pos := math2d.Vec2{X: sx, Y: sy}
+	if e.pluginDrag3DMoved && pos == e.pluginDrag3DLast {
+		return
+	}
+	e.pluginDrag3DMoved = true
+	e.pluginDrag3DLast = pos
+	if e.drag3D.kind == drag3DPlugin {
+		e.drag3D.lastSX = sx
+		e.drag3D.lastSY = sy
+	}
+	if t := e.activePluginTool(); t != nil && t.OnDragMove3D != nil {
+		t.OnDragMove3D(e, e.PickRay3D(sx, sy, e.pluginDrag3DW, e.pluginDrag3DH))
+	}
+}
+
+// EndPluginDrag3D finishes an active 3D plugin tool drag at viewport pixel (sx, sy), calling OnDragEnd3D with the final pick ray.
+func (e *Editor) EndPluginDrag3D(sx, sy float32) bool {
+	if e == nil || !e.pluginDrag3D {
+		return false
+	}
+	ref := e.pluginDrag3DRef
+	w, h := e.pluginDrag3DW, e.pluginDrag3DH
+	if !isFiniteFloat32(sx) || !isFiniteFloat32(sy) {
+		sx, sy = e.pluginDrag3DLast.X, e.pluginDrag3DLast.Y
+	}
+	e.pluginDrag3D = false
+	e.pluginDrag3DMoved = false
+	e.pluginDrag3DRef = pluginToolRef{}
+	if e.drag3D.kind == drag3DPlugin {
+		e.drag3D = drag3DState{}
+	}
+	if t := e.pluginToolByRef(ref); t != nil && t.OnDragEnd3D != nil && isFiniteFloat32(sx) && isFiniteFloat32(sy) {
+		t.OnDragEnd3D(e, e.PickRay3D(sx, sy, w, h))
+	}
+	e.notify()
+	return true
+}
+
+// CancelPluginDrag3D aborts an active 3D plugin tool drag, calling OnDragCancel3D when set.
+func (e *Editor) CancelPluginDrag3D() bool {
+	if e == nil || !e.pluginDrag3D {
+		return false
+	}
+	ref := e.pluginDrag3DRef
+	e.pluginDrag3D = false
+	e.pluginDrag3DMoved = false
+	e.pluginDrag3DRef = pluginToolRef{}
+	if e.drag3D.kind == drag3DPlugin {
+		e.drag3D = drag3DState{}
+	}
+	if t := e.pluginToolByRef(ref); t != nil && t.OnDragCancel3D != nil {
+		t.OnDragCancel3D(e)
+	}
+	e.notify()
+	return true
+}
+
+// PluginDragging3D reports whether a plugin tool currently owns a 3D viewport drag.
+func (e *Editor) PluginDragging3D() bool {
+	return e != nil && e.pluginDrag3D
+}
+
+// SetPluginHover3D notifies the active plugin tool's OnHover3D callback of pointer motion at viewport pixel (sx, sy) in 3D edit mode.
+func (e *Editor) SetPluginHover3D(sx, sy, w, h float32) {
+	if e == nil || e.playing || e.ViewMode != ViewMode3D || e.Tool != ToolPlugin || w <= 0 || h <= 0 || !isFiniteFloat32(sx) || !isFiniteFloat32(sy) {
+		return
+	}
+	t := e.activePluginTool()
+	if t == nil || t.OnHover3D == nil {
+		return
+	}
+	ray := e.PickRay3D(sx, sy, w, h)
+	e.pluginHover3DActive = true
+	e.pluginHover3DRef = e.pluginTool
+	e.pluginHover3DRay = ray
+	t.OnHover3D(e, ray, true)
+}
+
+// ClearPluginHover3D notifies the hovered 3D plugin tool's OnHover3D callback with active=false when the pointer leaves the viewport or the tool changes.
+func (e *Editor) ClearPluginHover3D() {
+	if e == nil || !e.pluginHover3DActive {
+		return
+	}
+	ref := e.pluginHover3DRef
+	ray := e.pluginHover3DRay
+	e.pluginHover3DActive = false
+	e.pluginHover3DRef = pluginToolRef{}
+	if t := e.pluginToolByRef(ref); t != nil && t.OnHover3D != nil {
+		t.OnHover3D(e, ray, false)
+	}
 }
 
 // BeginPluginDrag2D starts a drag on the active plugin tool at canvas coordinates (x, y), returning true if the tool claimed the drag via OnDragBegin.
@@ -544,7 +731,7 @@ func (e *Editor) ComponentField(objectID, component, field string) (any, bool) {
 			return v, true
 		}
 	}
-	if t, ok := e.components.Lookup(component); ok {
+	if t, ok := e.lookupComponentType(component); ok {
 		if f, ok := t.Field(field); ok {
 			return f.Default, true
 		}
@@ -619,9 +806,52 @@ func (e *Editor) dropStalePluginTool() {
 	if e.Tool == ToolPlugin && e.activePluginTool() == nil {
 		e.CancelPluginDrag2D()
 		e.ClearPluginHover2D()
+		e.CancelPluginDrag3D()
+		e.ClearPluginHover3D()
 		e.Tool = ToolSelect
 		e.pluginTool = pluginToolRef{}
 	}
+	if e.compGizmoDrag.active && e.componentGizmo3D(e.compGizmoDrag.component) != e.compGizmoDrag.gizmo {
+		e.CancelComponentGizmoDrag3D()
+	}
+}
+
+func (e *Editor) activePluginToolSupports3D() bool {
+	t := e.activePluginTool()
+	return t != nil && t.supports3D()
+}
+
+// ensureViewModeForPluginTool switches the viewport to 2D or 3D when the plugin tool supports only one mode,
+// keeping the current mode when the tool supports both.
+func (e *Editor) ensureViewModeForPluginTool(plugin, id string) {
+	p := e.activePlugin(plugin)
+	if p == nil {
+		return
+	}
+	for i := range p.Tools {
+		if p.Tools[i].ID == id {
+			s2 := p.Tools[i].supports2D()
+			s3 := p.Tools[i].supports3D()
+			if s2 && !s3 {
+				e.SetViewMode(ViewMode2D)
+			} else if s3 && !s2 {
+				e.SetViewMode(ViewMode3D)
+			}
+			return
+		}
+	}
+}
+
+// pluginComponentGizmo3D returns the ComponentGizmo3D of the first active plugin in editor.plugins order that handles component.
+func (e *Editor) pluginComponentGizmo3D(component string) *ComponentGizmo3D {
+	for _, p := range e.activePlugins() {
+		for i := range p.Gizmos3D {
+			if p.Gizmos3D[i].Component == component {
+				return &p.Gizmos3D[i]
+			}
+		}
+	}
+	return nil
 }
 
 // pluginInspector returns the inspector of the first plugin that is on, in the project's order, that draws component, and that plugin's name.
@@ -752,13 +982,22 @@ func pluginPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dp do
 	}
 }
 
-// pluginToolsView is the tool bar group of the 2D tools of the plugins that are on, or nothing when they have none.
-func pluginToolsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled func() bool) core.Node {
+// pluginToolsView is the tool bar group of the active plugins' tools that support mode (ViewMode2D or ViewMode3D), or nothing when they have none.
+func pluginToolsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled func() bool, mode ViewMode) core.Node {
+	matches := func(t PluginTool) bool {
+		if mode == ViewMode3D {
+			return t.supports3D()
+		}
+		return t.supports2D()
+	}
 	key := core.NewMemo(cx, func() string {
 		_ = rev.Get()
 		var b strings.Builder
 		for _, p := range ed.activePlugins() {
 			for _, t := range p.Tools {
+				if !matches(t) {
+					continue
+				}
 				// Names and IDs have no control characters, so the NUL separators keep two different sets of tools from giving the same key.
 				b.WriteString(p.Name)
 				b.WriteByte(0)
@@ -775,6 +1014,9 @@ func pluginToolsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disab
 		var buttons []core.Node
 		for _, p := range ed.activePlugins() {
 			for _, t := range p.Tools {
+				if !matches(t) {
+					continue
+				}
 				ref := pluginToolRef{p.Name, t.ID}
 				buttons = append(buttons, ui.ToggleButton{
 					TestID:   "tool-" + ref.plugin + "-" + ref.id,

@@ -5,6 +5,7 @@ import (
 	"math"
 	"slices"
 
+	"github.com/nsgo-dev/game/packages/game/math3d"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
 )
@@ -556,7 +557,8 @@ func (e *Editor) gizmo3DBlocked() bool {
 	return e == nil || e.playing || e.gridMap.tool != GridMapToolNone || (e.TerrainOpen() && e.terrainBrush.Mode != TerrainBrushNone)
 }
 
-// PickGizmo3D hit-tests the active 3D gizmo handles on the currently selected object in screen space.
+// PickGizmo3D hit-tests the active 3D gizmo handles on the currently selected object in screen space
+// through the shared 3D gizmo handle picking engine.
 func (e *Editor) PickGizmo3D(sx, sy, w, h float32) GizmoAxis3D {
 	if e.gizmo3DBlocked() || w <= 0 || h <= 0 {
 		return Axis3DNone
@@ -565,79 +567,27 @@ func (e *Editor) PickGizmo3D(sx, sy, w, h float32) GizmoAxis3D {
 	if obj == nil || e.viewportFrozen(obj.ID) {
 		return Axis3DNone
 	}
-	origin := e.worldPosition3D(obj)
-	gizmoLen := e.GizmoLength3D(origin)
-	axes := [3]GizmoAxis3D{Axis3DX, Axis3DY, Axis3DZ}
-
-	bestAxis := Axis3DNone
-	bestDist := float64(gizmoHitRadius)
-
-	switch e.GizmoMode {
-	case Gizmo3DCollider:
+	if e.GizmoMode == Gizmo3DCollider {
 		if hh, ok := e.pickColliderHandle3D(obj, sx, sy, w, h); ok {
 			return hh.Axis
 		}
 		return Axis3DNone
-	case Gizmo3DRotate:
-		for _, axis := range axes {
-			d := e.screenDistToGizmoRing(origin, gizmoLen, axis, sx, sy, w, h)
-			if d < bestDist {
-				bestDist = d
-				bestAxis = axis
-			}
-		}
-	default: // Translate and Scale share 3 axial handles.
-		for _, axis := range axes {
-			dir := axisVector32(axis)
-			startPt := [3]float32{
-				origin[0] + dir[0]*gizmoLen*0.08,
-				origin[1] + dir[1]*gizmoLen*0.08,
-				origin[2] + dir[2]*gizmoLen*0.08,
-			}
-			endPt := [3]float32{
-				origin[0] + dir[0]*gizmoLen*1.12,
-				origin[1] + dir[1]*gizmoLen*1.12,
-				origin[2] + dir[2]*gizmoLen*1.12,
-			}
-			x0, y0, x1, y1, vis := e.Camera3D.projectSegment(startPt, endPt, w, h)
-			if !vis {
-				continue
-			}
-			d := pointToSegmentDist64(float64(sx), float64(sy), float64(x0), float64(y0), float64(x1), float64(y1))
-			if d < bestDist {
-				bestDist = d
-				bestAxis = axis
-			}
-		}
 	}
-	return bestAxis
-}
-
-func (e *Editor) screenDistToGizmoRing(origin [3]float32, radius float32, axis GizmoAxis3D, sx, sy, w, h float32) float64 {
-	u, v := ringBasis64(axis)
-	orig := vec64(origin)
-	r := float64(radius)
-	best := math.Inf(1)
-
-	ringPoint := func(i int) [3]float32 {
-		a := (2 * math.Pi * float64(i)) / float64(gizmoRingSteps)
-		ca, sa := math.Cos(a)*r, math.Sin(a)*r
-		p := add64(orig, add64(scale64(u, ca), scale64(v, sa)))
-		return vec32(p)
+	origin := e.worldPosition3D(obj)
+	gizmoLen := e.GizmoLength3D(origin)
+	handles := transformGizmoHandles3D(e.GizmoMode, gizmoLen, true)
+	originMat := math3d.Mat4{
+		1, 0, 0, 0,
+		0, 1, 0, 0,
+		0, 0, 1, 0,
+		origin[0], origin[1], origin[2], 1,
 	}
-
-	prev := ringPoint(0)
-	for i := 1; i <= gizmoRingSteps; i++ {
-		cur := ringPoint(i % gizmoRingSteps)
-		if x0, y0, x1, y1, vis := e.Camera3D.projectSegment(prev, cur, w, h); vis {
-			d := pointToSegmentDist64(float64(sx), float64(sy), float64(x0), float64(y0), float64(x1), float64(y1))
-			if d < best {
-				best = d
-			}
-		}
-		prev = cur
+	proj := e.Projection3D(w, h)
+	idx, _, hit := pickGizmoHandles3D(proj, originMat, handles, sx, sy, float64(gizmoHitRadius))
+	if !hit {
+		return Axis3DNone
 	}
-	return best
+	return gizmoAxisFromHandleID(handles[idx].ID)
 }
 
 type drag3DKind int
@@ -646,6 +596,8 @@ const (
 	drag3DNone drag3DKind = iota
 	drag3DGizmo
 	drag3DHandle
+	drag3DComponentGizmo
+	drag3DPlugin
 	drag3DOrbit
 	drag3DPan
 	drag3DTerrain
@@ -1010,7 +962,7 @@ func (e *Editor) CancelGizmoDrag3D() {
 	e.notify()
 }
 
-// HandleViewport3DPress handles a click/tap in the 3D viewport: with a terrain brush active it applies a dab, with the Place tool and a model selected in the asset browser (SelectedModel) it places the model where the press lands (PlaceModelAt3D), otherwise it picks the closest 3D object or clears selection.
+// HandleViewport3DPress handles a click/tap in the 3D viewport: with a terrain brush active it applies a dab, with an active 3D plugin tool it calls Press3D with the camera pick ray, with the Place tool and a model selected in the asset browser (SelectedModel) it places the model where the press lands (PlaceModelAt3D), otherwise it picks the closest 3D object or clears selection.
 func (e *Editor) HandleViewport3DPress(sx, sy, w, h float32) {
 	if e == nil || e.playing {
 		return
@@ -1027,18 +979,32 @@ func (e *Editor) HandleViewport3DPress(sx, sy, w, h float32) {
 			return
 		}
 	}
+	if e.Tool == ToolPlugin {
+		if t := e.activePluginTool(); t != nil && t.supports3D() {
+			if t.Press3D != nil {
+				t.Press3D(e, e.PickRay3D(sx, sy, w, h))
+			}
+			return
+		}
+	}
 	if e.Tool == ToolPlace && e.SelectedModel != nil {
 		_, err := e.PlaceModelAt3D(*e.SelectedModel, sx, sy, w, h)
 		e.report(err)
 		return
 	}
-	if e.PickHandle3D(sx, sy, w, h) != Handle3DNone || e.PickGizmo3D(sx, sy, w, h) != Axis3DNone {
+	if e.PickHandle3D(sx, sy, w, h) != Handle3DNone {
+		return
+	}
+	if _, hit := e.PickComponentGizmo3D(sx, sy, w, h); hit {
+		return
+	}
+	if e.PickGizmo3D(sx, sy, w, h) != Axis3DNone {
 		return
 	}
 	e.Select3DAt(sx, sy, w, h)
 }
 
-// BeginViewport3DDrag starts a terrain brush stroke (if a terrain brush is active and hits the terrain and !pan), a light/camera handle drag, a 3D gizmo drag (if a handle is under the cursor and !pan), or a camera orbit/pan drag. It does nothing while the camera flies (BeginFly3D).
+// BeginViewport3DDrag starts a terrain brush stroke (if a terrain brush is active and hits the terrain and !pan), an active 3D plugin tool drag (if OnDragBegin3D claims it and !pan), a light/camera handle drag, a 3D component gizmo handle drag, a 3D transform gizmo drag, or a camera orbit/pan drag. It does nothing while the camera flies (BeginFly3D).
 func (e *Editor) BeginViewport3DDrag(sx, sy, w, h float32, pan bool) {
 	if e == nil || e.fly3D {
 		return
@@ -1057,8 +1023,14 @@ func (e *Editor) BeginViewport3DDrag(sx, sy, w, h float32, pan bool) {
 			return
 		}
 	}
+	if !pan && !e.playing && e.Tool == ToolPlugin && e.BeginPluginDrag3D(sx, sy, w, h) {
+		return
+	}
 	if !pan && !e.playing {
 		if handle := e.BeginHandleDrag3D(sx, sy, w, h); handle != Handle3DNone {
+			return
+		}
+		if _, ok := e.BeginComponentGizmoDrag3D(sx, sy, w, h); ok {
 			return
 		}
 		if axis := e.BeginGizmoDrag3D(sx, sy, w, h); axis != Axis3DNone {
@@ -1083,7 +1055,7 @@ func (e *Editor) BeginViewport3DDrag(sx, sy, w, h float32, pan bool) {
 	}
 }
 
-// UpdateViewport3DDrag advances the active terrain brush stroke, 3D handle drag, gizmo drag, or camera orbit/pan drag.
+// UpdateViewport3DDrag advances the active terrain brush stroke, 3D plugin tool drag, 3D handle drag, 3D component gizmo drag, 3D transform gizmo drag, or camera orbit/pan drag.
 func (e *Editor) UpdateViewport3DDrag(sx, sy float32) {
 	if e == nil {
 		return
@@ -1095,6 +1067,10 @@ func (e *Editor) UpdateViewport3DDrag(sx, sy float32) {
 		e.ContinueTerrainStrokeAt(sx, sy, e.drag3D.vpW, e.drag3D.vpH)
 	case drag3DHandle:
 		e.UpdateHandleDrag3D(sx, sy)
+	case drag3DPlugin:
+		e.UpdatePluginDrag3D(sx, sy)
+	case drag3DComponentGizmo:
+		e.UpdateComponentGizmoDrag3D(sx, sy)
 	case drag3DGizmo:
 		e.UpdateGizmoDrag3D(sx, sy)
 	case drag3DOrbit:
@@ -1113,7 +1089,7 @@ func (e *Editor) UpdateViewport3DDrag(sx, sy float32) {
 	}
 }
 
-// EndViewport3DDrag finishes any active terrain brush stroke, 3D handle, gizmo, or camera drag.
+// EndViewport3DDrag finishes any active terrain brush stroke, 3D plugin tool drag, 3D handle drag, 3D component gizmo drag, 3D transform gizmo drag, or camera drag.
 func (e *Editor) EndViewport3DDrag() {
 	if e == nil {
 		return
@@ -1126,8 +1102,40 @@ func (e *Editor) EndViewport3DDrag() {
 	case drag3DHandle:
 		e.EndHandleDrag3D()
 		return
+	case drag3DPlugin:
+		e.EndPluginDrag3D(e.drag3D.lastSX, e.drag3D.lastSY)
+		return
+	case drag3DComponentGizmo:
+		e.EndComponentGizmoDrag3D()
+		return
 	case drag3DGizmo:
 		e.EndGizmoDrag3D()
+		return
+	}
+	e.drag3D = drag3DState{}
+}
+
+// CancelViewport3DDrag aborts any active 3D drag (terrain stroke, 3D handle drag, 3D plugin tool drag, 3D component gizmo drag, 3D transform gizmo drag, or camera drag).
+func (e *Editor) CancelViewport3DDrag() {
+	if e == nil {
+		return
+	}
+	switch e.drag3D.kind {
+	case drag3DTerrain:
+		e.drag3D = drag3DState{}
+		e.CancelTerrainStroke()
+		return
+	case drag3DHandle:
+		e.CancelHandleDrag3D()
+		return
+	case drag3DPlugin:
+		e.CancelPluginDrag3D()
+		return
+	case drag3DComponentGizmo:
+		e.CancelComponentGizmoDrag3D()
+		return
+	case drag3DGizmo:
+		e.CancelGizmoDrag3D()
 		return
 	}
 	e.drag3D = drag3DState{}
@@ -1198,10 +1206,22 @@ func (e *Editor) DrawViewport3D(d *core.Drawing, size core.Size) {
 		e.drawWireframe3D(d, s3, w, h)
 	}
 
-	// 6. Active 3D transform gizmo and light/camera interactive handles on the selected object (hidden while painting a GridMap or 3D Terrain brush).
+	proj := e.Projection3D(w, h)
+
+	// 6. Active 3D transform gizmo, light/camera handles, and component gizmo handles on the selected object (hidden while painting a GridMap or 3D Terrain brush).
 	if !e.gizmo3DBlocked() {
 		e.drawSceneHandles3D(d, w, h)
 		e.drawGizmo3D(d, w, h)
+		e.drawComponentGizmos3D(d, proj)
+	}
+
+	// 7. Active 3D plugin tool overlay.
+	if !e.playing {
+		if t := e.activePluginTool(); t != nil && t.Draw3D != nil {
+			d.Save()
+			t.Draw3D(e, d, proj)
+			d.Restore()
+		}
 	}
 }
 
@@ -1455,89 +1475,20 @@ func (e *Editor) drawGizmo3D(d *core.Drawing, w, h float32) {
 	if obj == nil || e.viewportFrozen(obj.ID) {
 		return
 	}
-	origin := e.worldPosition3D(obj)
-	gizmoLen := e.GizmoLength3D(origin)
-	activeAxis := e.ActiveGizmoAxis3D()
-
-	axes := []struct {
-		axis  GizmoAxis3D
-		color core.Color
-	}{
-		{Axis3DX, core.RGBA(0xEF4444, 1)},
-		{Axis3DY, core.RGBA(0x22C55E, 1)},
-		{Axis3DZ, core.RGBA(0x3B82F6, 1)},
-	}
-
-	switch e.GizmoMode {
-	case Gizmo3DCollider:
+	if e.GizmoMode == Gizmo3DCollider {
 		e.drawColliderGizmo3D(d, obj, w, h)
 		return
-	case Gizmo3DRotate:
-		for _, ax := range axes {
-			col := ax.color
-			lw := float32(2.0)
-			if ax.axis == activeAxis {
-				col = core.RGBA(0xFACC15, 1)
-				lw = 3.0
-			}
-			e.drawGizmoRing3D(d, origin, gizmoLen, ax.axis, col, lw, w, h)
-		}
-
-	default: // Translate (arrows) or Scale (cube caps)
-		for _, ax := range axes {
-			col := ax.color
-			lw := float32(2.5)
-			if ax.axis == activeAxis {
-				col = core.RGBA(0xFACC15, 1)
-				lw = 3.5
-			}
-			dir := axisVector32(ax.axis)
-			endPt := [3]float32{
-				origin[0] + dir[0]*gizmoLen,
-				origin[1] + dir[1]*gizmoLen,
-				origin[2] + dir[2]*gizmoLen,
-			}
-			x0, y0, x1, y1, vis := e.Camera3D.projectSegment(origin, endPt, w, h)
-			if !vis {
-				continue
-			}
-			d.Save().SetStrokeColor(col).SetLineWidth(lw).BeginPath().MoveTo(x0, y0).LineTo(x1, y1).Stroke().Restore()
-
-			if e.GizmoMode == Gizmo3DScale {
-				d.Save().SetFillColor(col).FillRect(x1-4, y1-4, 8, 8).Restore()
-			} else {
-				drawArrowHead2D(d, x0, y0, x1, y1, col)
-			}
-		}
 	}
-}
-
-func (e *Editor) drawGizmoRing3D(d *core.Drawing, origin [3]float32, radius float32, axis GizmoAxis3D, color core.Color, lw, w, h float32) {
-	u, v := ringBasis64(axis)
-	orig := vec64(origin)
-	r := float64(radius)
-
-	ringPoint := func(i int) [3]float32 {
-		a := (2 * math.Pi * float64(i)) / float64(gizmoRingSteps)
-		ca, sa := math.Cos(a)*r, math.Sin(a)*r
-		return vec32(add64(orig, add64(scale64(u, ca), scale64(v, sa))))
+	origin := e.worldPosition3D(obj)
+	gizmoLen := e.GizmoLength3D(origin)
+	handles := transformGizmoHandles3D(e.GizmoMode, gizmoLen, false)
+	originMat := math3d.Mat4{
+		1, 0, 0, 0,
+		0, 1, 0, 0,
+		0, 0, 1, 0,
+		origin[0], origin[1], origin[2], 1,
 	}
-
-	d.Save().SetStrokeColor(color).SetLineWidth(lw).BeginPath()
-	hasSeg := false
-	prev := ringPoint(0)
-	for i := 1; i <= gizmoRingSteps; i++ {
-		cur := ringPoint(i % gizmoRingSteps)
-		if x0, y0, x1, y1, vis := e.Camera3D.projectSegment(prev, cur, w, h); vis {
-			d.MoveTo(x0, y0).LineTo(x1, y1)
-			hasSeg = true
-		}
-		prev = cur
-	}
-	if hasSeg {
-		d.Stroke()
-	}
-	d.Restore()
+	drawGizmoHandles3D(d, e.Projection3D(w, h), originMat, handles, gizmoHandleIDFromAxis(e.ActiveGizmoAxis3D()))
 }
 
 func drawArrowHead2D(d *core.Drawing, x0, y0, x1, y1 float32, color core.Color) {

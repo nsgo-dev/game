@@ -124,7 +124,7 @@ func (e *Editor) ApplicationMenu() []desktop.MenuItem {
 					if e.Playing() {
 						return
 					}
-					e.SetViewMode(ViewMode2D)
+					e.ensureViewModeForPluginTool(pName, tID)
 					e.report(e.SetPluginTool(pName, tID))
 				},
 			})

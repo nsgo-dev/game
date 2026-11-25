@@ -256,6 +256,8 @@ func (e *Editor) BeginConnectionPick(onPick func(targetID string)) {
 	e.CancelDrag2D()
 	e.CancelShapeDrag2D()
 	e.CancelPluginDrag2D()
+	e.CancelComponentGizmoDrag3D()
+	e.CancelPluginDrag3D()
 	e.CancelTileStroke()
 	e.connPick = &connPickState{
 		sourceID: e.SelectedID,

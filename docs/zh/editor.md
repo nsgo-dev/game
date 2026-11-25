@@ -800,9 +800,9 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 - **按键驱动（Drive with keys）**：开启 **Drive with keys** 后，预览通过与游戏相同的 `animclip.InputDriver` 和 `animclip.StateMachine` 绑定到项目的输入动作（如 `move_left`、`move_right`、`jump`、`attack`、`hurt`），在 `game.Loop` 的固定步长上推进，使交互预览与运行时播放逐帧一致。
 - **出边列表（`LEAVING <STATE>`）**：选中任意状态即可查看其所有出边过渡（含 `Any state` 中断）及条件表达式；所有图编辑操作（`AddStatesState`、`RemoveStatesState`、`AddStatesTransition`、`RemoveStatesTransition`、`SetStatesEntry`、`SetStatesNodePos`、`SetStatesDoc`）均进入编辑器的撤销/重做历史，并以确定性规范 YAML 写回（`SaveStatesYAML` / `SaveStatesFile`）。
 
-## 编辑器插件（#492）
+## 编辑器插件（#492、#898）
 
-插件为场景编辑器添加自己的面板、自己组件类型的检查器以及 2D 视口工具，作用与 Godot 的 `EditorPlugin` 相同。Go 无法在所有平台上于运行时加载代码，因此插件是编译进编辑器程序的 Go 代码：编辑器程序用 `Editor.RegisterPlugin` 注册插件，项目在其[项目文件](project.md)中列出插件名即可启用：
+插件为场景编辑器添加自己的面板、自己组件类型的检查器、2D 与 3D 视口工具以及按组件类型注册的 3D 操纵杆，作用与 Godot 的 `EditorPlugin` 相同。Go 无法在所有平台上于运行时加载代码，因此插件是编译进编辑器程序的 Go 代码：编辑器程序用 `Editor.RegisterPlugin` 注册插件，项目在其[项目文件](project.md)中列出插件名即可启用：
 
 ```yaml
 editor:
@@ -825,11 +825,15 @@ func main() {
 }
 ```
 
-`editor.Plugin` 有一个 `Name`，规则与 `game.yaml` 中其他名称相同（不含空白和控制字符），以及三个列表：
+`editor.Plugin` 有一个 `Name`，规则与 `game.yaml` 中其他名称相同（不含空白和控制字符），以及以下扩展列表：
 
 - **面板**（`Panel`）：停靠在视口左侧（`DockLeft`，位于资源浏览器之后）、检查器右侧（`DockRight`）或视口下方（`DockBottom`）的视图，上方显示其 `Title`。`View(cx, ed, rev)` 在面板出现时构建一次，只要其插件处于启用状态，面板就保持挂载并保留其状态，不受其他面板增减的影响；与编辑器自带的面板一样，它在响应式函数中读取 `rev`，以跟随编辑器状态的每一次变化。没有面板的停靠区不占空间。
 - **检查器**（`Inspector`）：检查器用 `View(cx, ed, rev, objectID)` 在组件标题下方绘制 `Component` 指定的组件，取代该组件的通用字段。`Editor.ComponentField` 读取一个字段；场景未设置该字段时返回其注册的默认值，对象没有该组件时返回 false。与通用字段一样，检查器的控件应在 `Playing` 返回 true 时禁用，编辑器拒绝的编辑应通过 `Editor.Report` 显示在状态栏中。两个已启用的插件绘制同一个组件时，`editor.plugins` 中排在前面的插件生效。
-- **工具**（`PluginTool`）：工具栏中位于内置 2D 工具旁的一个按钮。当它是当前工具时（`SetPluginTool`，此时 `Tool` 为 `ToolPlugin`），在视口上按下会以画布坐标调用 `Press(ed, x, y)`（用 `CanvasToWorld` 转换为世界坐标，用 `CanvasToScreen` 转换为屏幕空间图层的坐标），拖动会依次调用 `OnDragBegin(ed, x, y)`（返回 `true` 接管拖动）、`OnDragMove(ed, x, y)`、`OnDragEnd(ed, x, y)` 与 `OnDragCancel(ed)`（`BeginPluginDrag2D`、`UpdatePluginDrag2D`、`EndPluginDrag2D`、`CancelPluginDrag2D`、`PluginDragging2D`），指针移动会调用 `OnHover(ed, x, y, active)`（`SetPluginHover2D`、`ClearPluginHover2D`），设置了 `Draw` 时它会在编辑模式下绘制在场景之上。工具至少需要提供 `Press` 或 `OnDragBegin` 之一。选择其他工具或关闭插件都会结束该工具。
+- **工具**（`PluginTool`）：根据所实现的钩子，出现在 2D 和/或 3D 视口工具栏中的按钮。当它是当前工具时（`SetPluginTool`，此时 `Tool` 为 `ToolPlugin`）：
+  - **2D 钩子**：在 2D 视口上按下会以画布坐标调用 `Press(ed, x, y)`（用 `CanvasToWorld` 转换为世界坐标，用 `CanvasToScreen` 转换为屏幕空间图层的坐标），拖动会依次调用 `OnDragBegin(ed, x, y)`（返回 `true` 接管拖动）、`OnDragMove(ed, x, y)`、`OnDragEnd(ed, x, y)` 与 `OnDragCancel(ed)`（`BeginPluginDrag2D`、`UpdatePluginDrag2D`、`EndPluginDrag2D`、`CancelPluginDrag2D`、`PluginDragging2D`），指针移动会调用 `OnHover(ed, x, y, active)`（`SetPluginHover2D`、`ClearPluginHover2D`），设置了 `Draw` 时它会在编辑模式下绘制在 2D 场景之上。
+  - **3D 钩子（#898）**：在 3D 视口上按下会以编辑器 3D 相机的世界空间拾取射线 `math3d.Ray`（`PickRay3D`）调用 `Press3D(ed, ray)`，拖动会依次调用 `OnDragBegin3D(ed, ray)`（返回 `true` 接管拖动而不旋转相机）、`OnDragMove3D(ed, ray)`、`OnDragEnd3D(ed, ray)` 与 `OnDragCancel3D(ed)`（`BeginPluginDrag3D`、`UpdatePluginDrag3D`、`EndPluginDrag3D`、`CancelPluginDrag3D`、`PluginDragging3D`），指针移动会调用 `OnHover3D(ed, ray, active)`（`SetPluginHover3D`、`ClearPluginHover3D`），设置了 `Draw3D(ed, d, proj)` 时它会通过 `Projection3D`（提供 `Camera`、`Width`、`Height`、`ViewProj`、`Project`、`ProjectSegment`、`ScreenRay`、`GizmoLength`、`DrawPoint`、`DrawLine`、`DrawBox`）在 3D 视口之上绘制。
+  - 工具至少需要提供 `Press`、`OnDragBegin`、`Press3D` 或 `OnDragBegin3D` 之一。仅含 2D 钩子的工具只出现在 2D 工具栏并在 3D 中保持空闲；含 3D 钩子的工具出现在 3D 工具栏中，从命令面板或菜单栏触发仅支持 3D 的工具时会自动切换到 3D 视图。选择其他工具或关闭插件都会结束该工具。
+- **3D 组件操纵杆**（`Gizmos3D []ComponentGizmo3D`，#898）：按组件类型注册对象空间中的 3D 手柄（点 `GizmoHandlePoint3D`、线段 `GizmoHandleLine3D`、线框盒 `GizmoHandleBox3D`，可标记为 `DisplayOnly`），由 `Handles(ed, objectID)` 返回，并配以 `Drag(ed, drag GizmoDrag3D) error` 拖拽回调。编辑器自动沿完整父子层级将对象空间手柄变换到世界空间并执行屏幕空间拾取（`PickComponentGizmo3D`、`BeginComponentGizmoDrag3D`、`UpdateComponentGizmoDrag3D`、`EndComponentGizmoDrag3D`、`CancelComponentGizmoDrag3D`），并向 `Drag` 传入 `GizmoDrag3D`（含世界与对象空间射线以及 `AxisDelta`、`PlanePoint`、`PlaneDelta`、`ViewPlaneDelta` 辅助方法）。在 `Drag` 中通过 `Editor`（例如 `SetComponentField` 或 `Editor.History`）执行的修改会在每次指针移动时实时预览，按 `Escape` 或取消时干净回滚且不写入历史，松手结束时合并为**单个撤销步骤**提交到 `Editor.History`。两个已启用插件为同一组件注册 3D 操纵杆时，`editor.plugins` 中排在前面的插件生效。编辑器自带的 3D 变换操纵杆（平移、旋转、缩放）与内置 `collider3d` / `trigger3d` 手柄均复用这套共享 3D 手柄 API。
 
 插件只通过编辑器的方法修改场景，例如 `SetComponentField`、`PlaceObject` 和 `MoveObject`，或者在 `Editor.History` 上执行自己的 `Command`，因此它的每一次编辑都与其他编辑一起撤销和重做。`History.Group(label, fn)` 把 `fn` 做的编辑记录为一个步骤，按一次撤销即可撤回；`fn` 失败时撤销这些编辑且不记录任何步骤。编辑器的 MCP 服务器（[mcp](mcp.md#编辑器工具)）就这样应用智能体的每次请求。`RegisterPlugin` 会拒绝没有名称或名称已注册的插件、缺少 ID、标题、标签、组件或函数的面板、检查器或工具、含控制字符的 ID 或组件名、未知的停靠位置，以及 ID 或组件重复的面板、检查器或工具。测试 ID 用 `-` 连接插件名和 ID（`plugin-panel-<plugin>-<id>`、`tool-<plugin>-<id>`、`inspector-plugin-<plugin>-<component>`），因此一起使用的插件，其名称和 ID 不应连接成相同的字符串。
 
