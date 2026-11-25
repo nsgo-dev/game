@@ -1,0 +1,3 @@
+### Added
+
+- `game/editor`: the 3D viewport pans with a middle-button drag, a Shift-drag, a touchpad's scroll or a two-finger drag, zooms with the wheel or a pinch, and flies while the right button is held, looking with the pointer and moving with W, A, S, D, Q and E at a speed the wheel changes. F frames the selection, the number keys and a clickable axis widget turn to the front, back, right, left, top and bottom views, and 5 or the viewport's bar switches between perspective and orthographic, in which picking and gizmo drags work as in perspective. Each scene of a project opens at the camera it was left at, kept in `.game/editor.yaml` out of version control (`SaveViewState`) (#891).

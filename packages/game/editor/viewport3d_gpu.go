@@ -34,7 +34,7 @@ func DefaultLights3D() render3d.LightRig {
 	}
 }
 
-// SceneCamera returns c as a scene3d.Camera for a viewport w by h, with the same eye, target, field of view and clip planes that Project and ScreenRay use, which the 3D viewport draws the scene's geometry through.
+// SceneCamera returns c as a scene3d.Camera for a viewport w by h, with the same eye, view direction, projection (perspective, or orthographic with OrthoHeight) and clip planes that Project and ScreenRay use, which the 3D viewport draws the scene's geometry through.
 func (c OrbitCamera3D) SceneCamera(w, h float32) *scene3d.Camera {
 	_, fov, near, far := c.effectiveParams()
 	aspect := float32(1)
@@ -42,8 +42,16 @@ func (c OrbitCamera3D) SceneCamera(w, h float32) *scene3d.Camera {
 		aspect = w / h
 	}
 	eye := c.Eye()
-	cam := scene3d.NewPerspectiveCamera(math3d.Vec3{X: eye[0], Y: eye[1], Z: eye[2]}, float32(fov), aspect, float32(near), float32(far))
-	cam.LookAt(math3d.Vec3{X: c.Target[0], Y: c.Target[1], Z: c.Target[2]}, math3d.Vec3Up())
+	pos := math3d.Vec3{X: eye[0], Y: eye[1], Z: eye[2]}
+	var cam *scene3d.Camera
+	if c.Orthographic {
+		cam = scene3d.NewOrthographicCamera(pos, c.OrthoHeight(), aspect, float32(near), float32(far))
+	} else {
+		cam = scene3d.NewPerspectiveCamera(pos, float32(fov), aspect, float32(near), float32(far))
+	}
+	// The camera's own up, not the world's, so a view straight down or up still has one.
+	_, up, _ := c.Basis()
+	cam.LookAt(math3d.Vec3{X: c.Target[0], Y: c.Target[1], Z: c.Target[2]}, math3d.Vec3{X: up[0], Y: up[1], Z: up[2]})
 	return cam
 }
 

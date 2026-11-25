@@ -575,7 +575,28 @@ In 3D the viewport shows the scene as the game draws it: a `gpu.View` fills the 
 - **Live edits**: the build is made again only when what the scene looks like changes (an object's look, its place in the tree, an instanced scene or an override, or the project's files). A gizmo drag, an undo of a move, the open animation clip's pose at the playhead and a playing game's changes move the built nodes in place, so a drag rebuilds and uploads no mesh. `ObjectCorners3D` and `ObjectAABB3D` give an object's box as the bounds of its geometry when it has any, and Frame Selection (`f`) frames those bounds, so a model a meter across fills the view.
 - **Without a GPU**: on a target where the GPU view is not supported, before its first frame and after a device loss, the canvas draws the whole wireframe view instead: the scene's background, the grid, a box around every object (its geometry's bounds when it has any) and the gizmo. `Viewport3DOnGPU` reports which one shows.
 
-`OrbitCamera3D.SceneCamera` turns the editor's orbit camera into the `scene3d.Camera` the GPU view draws through, with the same eye, field of view and clip planes the canvas projects with, so the overlays line up with the geometry.
+`OrbitCamera3D.SceneCamera` turns the editor's orbit camera into the `scene3d.Camera` the GPU view draws through, with the same eye, projection and clip planes the canvas projects with, so the overlays line up with the geometry.
+
+### Navigating the 3D view (#891)
+
+Navigating moves only the editor's camera (`Camera3D`, an `OrbitCamera3D`): it is never an edit, never goes into the undo history and never changes the scene file. The camera jumps where it is told without animating.
+
+| Do | With a mouse | With a touchpad or touch screen | With the keyboard or a button |
+| --- | --- | --- | --- |
+| Orbit about the target | Drag | Drag with one finger | The Orbit 15° left and right buttons under the axis widget |
+| Pan | Middle-button drag, or Shift+drag | Two-finger scroll, or a two-finger drag on a touch screen | |
+| Zoom toward the target | Wheel | Pinch, or scroll with Control or Command held | |
+| Fly | Hold the right button: move the pointer to look, W, A, S, D to move, Q and E down and up, Shift to go faster, the wheel to change the speed | | |
+| Focus the selection | | | `f` or the bar's Focus button, framing its bounds, or the whole scene with nothing selected |
+| Axis views | | Press an axis end on the axis widget in the top right corner | `1` Front, `ctrl+1` Back, `3` Right, `ctrl+3` Left, `7` Top, `ctrl+7` Bottom |
+| Perspective or orthographic | | | `5`, or Persp and Ortho in the bar |
+| Back to the default view | | | The bar's Reset view button |
+
+- **The bar and the status bar** name the view: an axis view's name (Front, Top, ...) or Perspective, with " · ortho" in orthographic, where a view along no axis is "User · ortho" (`ViewName3D`). The status bar adds its yaw and pitch in degrees.
+- **Orthographic** (`SetOrthographic3D`, `OrbitCamera3D.Orthographic`) projects in parallel. The view is `OrthoHeight` high, the height the perspective view shows at the target, so switching keeps what lies there the same size, and zooming changes that height. `Project`, `ScreenRay`, `SceneCamera`, picking and the gizmo work the same in both: in orthographic every pixel's ray runs along the view, so a press picks what lies under it and a gizmo drag moves the object by the distance the pointer travels along the axis. An axis view in orthographic is a true plan or elevation.
+- **Flying** (`BeginFly3D`, `FlyLook3D`, `FlyMove3D`, `EndFly3D`) turns the camera about its eye and moves eye and target together. While it flies, W, S and E move the camera instead of switching the gizmo, and the pointer is locked to the viewport where the platform can lock it. A flight looks in perspective, so an orthographic view switches to perspective. Its speed, `FlySpeed3D` in world units a second, starts at the camera's distance from its target and the wheel doubles or halves it (`AdjustFlySpeed3D`).
+- **Axis views** (`SetView3D`, the commands `view.3d.front`, `view.3d.back`, `view.3d.right`, `view.3d.left`, `view.3d.top` and `view.3d.bottom`, and `view.3d.orthographic` for the projection) keep the target and the distance. Front looks along -Z, Right along -X and Top straight down with -Z at the top of the view.
+- **Saved per scene**: each scene of a project opens at the camera it was left at. The editor writes the views to `.game/editor.yaml` in the project (`ViewStateFile`, described on [File Formats](formats.md)) as another scene opens, as the scene is saved and as the window closes, and an app that ends the editor another way calls `SaveViewState`. A scene it has no view of opens at `DefaultOrbitCamera3D`. Creating the `.game` folder, the editor writes a `.gitignore` there that ignores the folder, so the views stay out of version control.
 
 ## Tile palette (#874)
 
@@ -777,7 +798,7 @@ Every common editor action lives in a single command registry (`Editor.Commands`
 - **Platform shortcuts and text-field guard**: shortcuts use NSGo's `"mod"` modifier (Command on macOS, Ctrl on Windows and Linux; formatted via `FormatShortcut`) and are bound with `core.KeyNotEditing` and `core.MenuNotEditing` so typing or pressing Delete/Backspace/Undo/Save while any text field has focus (such as the inspector's Name field or a search box) never triggers editor shortcuts:
   - File & Edit: `mod+s` (Save), `mod+z` (Undo), `mod+shift+z` (Redo), `mod+d` (Duplicate), `delete` / `backspace` (Delete selected object).
   - 2D Tools: `v` (Select), `m` (Move), `p` (Place), `b` (Paint Tile), `e` (Erase Tile), `g` (Fill Tile).
-  - 3D Gizmo & View: `w` (Translate), `r` (Rotate), `s` (Scale), `alt+2` (2D View), `alt+3` (3D View), the Lit, Unlit and Wireframe 3D shading commands under `View > 3D Shading` (no shortcut), `f` (Frame Selection, framing the independent 2D `View2D` via `FrameSelection2D` without mutating `Doc.Camera` and `Camera3D` in 3D), `mod+k` (Command Palette).
+  - 3D Gizmo & View: `w` (Translate), `r` (Rotate), `s` (Scale), `alt+2` (2D View), `alt+3` (3D View), the Lit, Unlit and Wireframe 3D shading commands under `View > 3D Shading` (no shortcut), `f` (Frame Selection, framing the independent 2D `View2D` via `FrameSelection2D` without mutating `Doc.Camera` and `Camera3D` in 3D), `1`, `ctrl+1`, `3`, `ctrl+3`, `7` and `ctrl+7` (the Front, Back, Right, Left, Top and Bottom 3D views) and `5` (3D perspective or orthographic), which work in the 3D view only, `mod+k` (Command Palette).
   - Project: `f5` (Play / Stop), `mod+r` (Run Game via `Editor.OnRunGame`, falling back to play-in-editor when a scope is attached), `mod+,` (Project Settings), `mod+shift+e` (Export & Release), `mod+shift+b` (Check Problems).
 - **Desktop menu bar**: `EditorView` registers the native application menu bar (`File`, `Edit`, `View`, `Project`) through `desktop.SetApplicationMenu` (`Editor.ApplicationMenu`), exposing the same registered commands with live enabled/checked states, formatted shortcut hints, active plugin tools under `View > Tools`, and active plugin commands under `Project > Plugins`.
 - **Command Palette (`ui.CommandDialog`)**: press `mod+k` (or the toolbar's **Commands** button / `View > Command Palette...`) to open `CommandPaletteView`, which lists every built-in and custom command, active plugin commands, active plugin tools (activating them via `SetPluginTool`), active plugin panels (focusing them via `FocusPluginPanel`), and the open project's scenes and files (opening scenes or selecting files via `OpenProjectFile`) with ranked substring and fuzzy matching.
