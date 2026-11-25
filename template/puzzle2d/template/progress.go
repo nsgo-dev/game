@@ -42,6 +42,12 @@ func (s *progressStore) Load() (Progress, error) {
 	if err != nil || p.Stars == nil {
 		p = Progress{Stars: map[string]int{}}
 	}
+	// A save edited by hand, or written by a later version, may hold any number: keep only the 1 to 3 stars a win earns.
+	for id, n := range p.Stars {
+		if n < 1 || n > 3 {
+			delete(p.Stars, id)
+		}
+	}
 	return p, err
 }
 

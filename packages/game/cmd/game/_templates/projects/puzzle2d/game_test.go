@@ -276,3 +276,58 @@ func TestEveryLevelIsWonInPlay(t *testing.T) {
 		expectText(t, app, "level-"+strconv.Itoa(i+1)+"-stars", "★★★")
 	}
 }
+
+// TestKeyboardAndAssistivePressesOnTheBoardMakeNoMove checks, on a desktop, that Tab never stops on the board, so Space and Enter cannot press it, and that a screen reader's activation of the board, which lands at its origin, slides nothing.
+func TestKeyboardAndAssistivePressesOnTheBoardMakeNoMove(t *testing.T) {
+	app, g := startGame(t, nsgotest.Environment(core.Environment{OS: core.OSMacOS}))
+	app.Press("level-1")
+	app.Advance(stepTime)
+	for range 6 {
+		app.Key("tab")
+		if app.Find("board").Focused {
+			t.Fatal("Tab stopped on the board")
+		}
+	}
+	app.AccessibilityAction("board", core.ActionActivate)
+	app.Advance(settleTime)
+	if b := g.board(); b.Moves != 0 {
+		t.Fatalf("activating the board made %d moves, leaving the spark at %v", b.Moves, b.Spark)
+	}
+}
+
+// TestPressesBesideTheBoardMakeNoMove presses the counters above the board and the gap beside the buttons below it, which let presses through to the board's view.
+func TestPressesBesideTheBoardMakeNoMove(t *testing.T) {
+	app, g := startGame(t)
+	app.Press("level-1")
+	app.Advance(stepTime)
+	w, h := g.viewSize.Width, g.viewSize.Height
+	for _, at := range []core.Point{{X: w / 2, Y: 20}, {X: 8, Y: h - 30}, {X: w - 8, Y: h - 30}} {
+		app.PressAt("board", at)
+		app.Advance(settleTime)
+		if b := g.board(); b.Moves != 0 {
+			t.Fatalf("a press at %v made %d moves, leaving the spark at %v", at, b.Moves, b.Spark)
+		}
+	}
+}
+
+// TestSavedStarsOutOfRangeAreDropped starts the game on a save holding more stars than a win earns and fewer than none, as a hand-edited save or a later version may, and checks that the level select shows and a real win still saves.
+func TestSavedStarsOutOfRangeAreDropped(t *testing.T) {
+	app, g := startGame(t)
+	if err := g.store.Save(Progress{Stars: map[string]int{Levels.Levels[0].ID: 5, Levels.Levels[1].ID: -1}}); err != nil {
+		t.Fatal(err)
+	}
+	kept := map[string]string{}
+	st := app.Storage()
+	for _, k := range st.Keys() {
+		kept[k], _ = st.GetItem(k)
+	}
+	again, g2 := startGame(t, nsgotest.Storage(kept))
+	expectText(t, again, "level-1-stars", "☆☆☆")
+	expectText(t, again, "level-2-stars", "Locked")
+	if !g2.progress.Record(Levels.Levels[0].ID, 3) {
+		t.Fatal("a 3-star win did not beat the dropped saved stars")
+	}
+	if got := starText(5) + starText(-1); got != "★★★☆☆☆" {
+		t.Fatalf("starText(5) + starText(-1) = %q", got)
+	}
+}

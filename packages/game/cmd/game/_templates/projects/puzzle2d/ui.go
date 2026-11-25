@@ -35,6 +35,7 @@ func (g *sparkGame) view() core.Node {
 
 // starText returns n of three stars as filled and empty star characters.
 func starText(n int) string {
+	n = min(max(n, 0), 3)
 	return strings.Repeat("★", n) + strings.Repeat("☆", 3-n)
 }
 
@@ -126,7 +127,13 @@ func (g *sparkGame) playView() core.Node {
 		OnLayout: func(b core.Bounds) {
 			g.viewSize = b.Size
 		},
-		OnPress: func(ev core.PressEvent) { g.tap(ev.Position) },
+		// The board is no Tab stop: keys and controllers play through the actions. Keyboard and assistive presses land at the view's origin, which is not a place the player chose, so tap ignores them.
+		NoFocus: true,
+		OnPress: func(ev core.PressEvent) {
+			if !ev.Keyboard {
+				g.tap(ev.Position)
+			}
+		},
 		Children: []core.Node{
 			core.Canvas{
 				TestID: "board-canvas",

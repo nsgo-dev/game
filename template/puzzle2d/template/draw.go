@@ -33,6 +33,8 @@ var (
 // boardLayout places a board's cells in its view: the top left corner of cell (0, 0) and the size of a cell.
 type boardLayout struct {
 	x, y, cell float32
+	// top and bottom bound the band of the view between the native controls, where a press means the board.
+	top, bottom float32
 }
 
 // layoutFor centers b in a view of size, in the space between the native controls, with square cells as large as fit up to maxCell.
@@ -41,15 +43,17 @@ func layoutFor(size core.Size, b *Board) boardLayout {
 	cell := min((w-2*boardMargin)/float32(b.Width), (h-hudReserve-barReserve)/float32(b.Height), maxCell)
 	cell = max(cell, 1)
 	return boardLayout{
-		x:    (w - cell*float32(b.Width)) / 2,
-		y:    hudReserve + (h-hudReserve-barReserve-cell*float32(b.Height))/2,
-		cell: cell,
+		x:      (w - cell*float32(b.Width)) / 2,
+		y:      hudReserve + (h-hudReserve-barReserve-cell*float32(b.Height))/2,
+		cell:   cell,
+		top:    hudReserve,
+		bottom: h - barReserve,
 	}
 }
 
-// cellAt returns the position p of the view in cells, and whether it is on the board's view at all.
+// cellAt returns the position p of the view in cells, and whether p is in the band between the native controls: a press above or below it, on the counters or beside a button, is not on the board.
 func (l boardLayout) cellAt(p core.Point) (x, y float32, ok bool) {
-	if l.cell <= 0 {
+	if l.cell <= 0 || float32(p.Y) < l.top || float32(p.Y) > l.bottom {
 		return 0, 0, false
 	}
 	return (float32(p.X) - l.x) / l.cell, (float32(p.Y) - l.y) / l.cell, true
