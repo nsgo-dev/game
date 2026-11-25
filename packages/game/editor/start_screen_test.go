@@ -231,7 +231,7 @@ func TestStartScreenUIRecentVisibilityTemplatesFiltersAndValidation(t *testing.T
 }
 
 func TestStartScreenFolderPickerAndMissingRecentUI(t *testing.T) {
-	projDir := writeEditorProject(t)
+	projDir := writeBareProject(t, "Demo")
 	recentFile := filepath.Join(t.TempDir(), "recent.yaml")
 
 	ed, err := editor.NewDemo()
@@ -294,7 +294,7 @@ func TestStartScreenFolderPickerAndMissingRecentUI(t *testing.T) {
 }
 
 func TestStartScreenFolderPickerFallsBackToNSGoPickDirectories(t *testing.T) {
-	projDir := writeEditorProject(t)
+	projDir := writeBareProject(t, "Demo")
 	ed, err := editor.NewDemo()
 	if err != nil {
 		t.Fatal(err)
@@ -375,8 +375,8 @@ func TestProjectSwitchingUnsavedEditsPromptFromFileMenuAndStartScreen(t *testing
 	if ed.Project == nil || ed.Project.Name != "Project B" {
 		t.Fatalf("after Save & Switch: project=%+v, want Project B", ed.Project)
 	}
-	if ed.HasUnsavedChanges() || ed.FilePath != "" {
-		t.Fatalf("after switching to bare Project B: dirty=%v filePath=%q", ed.HasUnsavedChanges(), ed.FilePath)
+	if ed.HasUnsavedChanges() || ed.ScenePath != "" {
+		t.Fatalf("after switching to bare Project B: dirty=%v scenePath=%q", ed.HasUnsavedChanges(), ed.ScenePath)
 	}
 	// Verify project A's edits were written to disk before switching.
 	savedA, err := project.Check(os.DirFS(projA))
@@ -438,8 +438,7 @@ func TestStartScreenCreateProjectStreamsOutputAndHandlesFailure(t *testing.T) {
 	}, nsgotest.Size(1280, 800))
 
 	app.Press("id:start-create")
-	ed.WaitForCreateProject()
-	app.Settle()
+	waitForCreateInApp(t, app, ed)
 
 	if !ed.StartScreenOpen() {
 		t.Fatal("Start Screen should stay open when CreateProject fails")
@@ -468,8 +467,7 @@ func TestStartScreenCreateProjectStreamsOutputAndHandlesFailure(t *testing.T) {
 	}
 
 	app.Press("id:start-create")
-	ed.WaitForCreateProject()
-	app.Settle()
+	waitForCreateInApp(t, app, ed)
 
 	if ed.StartScreenOpen() {
 		t.Fatalf("Start Screen stayed open after successful create (err=%v, status=%q)", ed.CreateProjectErr(), ed.Status)
@@ -507,8 +505,7 @@ func TestStartScreenConcurrencyNilSafetyTildeExpansionAndClose(t *testing.T) {
 		}
 	}
 
-	// 3) Concurrent StartCreateProject calls allow only one runner (no TOCTOU), and
-	// WaitForCreateProject does not return until OpenProject/createErr have finished.
+	// 3a) Concurrent StartCreateProject calls allow only one runner (no TOCTOU).
 	parentDir := t.TempDir()
 	ed, err := editor.NewDemo()
 	if err != nil {
@@ -534,10 +531,6 @@ func TestStartScreenConcurrencyNilSafetyTildeExpansionAndClose(t *testing.T) {
 		return os.WriteFile(filepath.Join(dir, project.FileName), []byte(yamlData), 0o644)
 	}
 
-	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
-		return editor.EditorView(cx, ed)
-	}, nsgotest.Size(1280, 800))
-
 	const workers = 4
 	errs := make([]error, workers)
 	var wg sync.WaitGroup
@@ -552,21 +545,13 @@ func TestStartScreenConcurrencyNilSafetyTildeExpansionAndClose(t *testing.T) {
 		}(i)
 	}
 	<-started
-	close(release)
 	wg.Wait()
+	close(release)
 	ed.WaitForCreateProject()
 
-	// Immediately after WaitForCreateProject (before Settle), finishOnMain must already have completed!
-	if ed.CreatingProject() {
-		t.Fatal("CreatingProject is still true after WaitForCreateProject returned")
+	if ed.CreatingProject() || ed.StartScreenOpen() || ed.Project == nil || ed.Project.Name != "race-game" {
+		t.Fatalf("headless WaitForCreateProject state: creating=%v open=%v project=%+v err=%v", ed.CreatingProject(), ed.StartScreenOpen(), ed.Project, ed.CreateProjectErr())
 	}
-	if ed.StartScreenOpen() {
-		t.Fatalf("StartScreenOpen is still true after WaitForCreateProject (err=%v)", ed.CreateProjectErr())
-	}
-	if ed.Project == nil || ed.Project.Name != "race-game" {
-		t.Fatalf("Project after WaitForCreateProject = %+v, want race-game", ed.Project)
-	}
-	app.Settle()
 
 	succeeded := 0
 	alreadyRunning := 0
@@ -583,6 +568,78 @@ func TestStartScreenConcurrencyNilSafetyTildeExpansionAndClose(t *testing.T) {
 	if succeeded != 1 || alreadyRunning != workers-1 || runs.Load() != 1 {
 		t.Fatalf("concurrent creates: succeeded=%d alreadyRunning=%d runs=%d, want 1 / %d / 1", succeeded, alreadyRunning, runs.Load(), workers-1)
 	}
+
+	// 3b) With a mounted EditorView, WaitForCreateProject does not return until finishOnMain has opened the project.
+	edUI, err := editor.NewDemo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	edUI.SetStartProjectParentDir(parentDir)
+	edUI.SetStartProjectName("ui-race-game")
+	edUI.SetStartScreenOpen(true)
+	uiRelease := make(chan struct{})
+	uiRunnerReturned := make(chan struct{})
+	edUI.CreateProject = func(_ context.Context, req editor.CreateProjectRequest, _ io.Writer, _ io.Writer) error {
+		<-uiRelease
+		dir := req.TargetDir()
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+		yamlData := "version: 1\nname: ui-race-game\nid: dev.nsgo.uiracegame\nappVersion: 0.1.0\nwindow:\n  width: 640\n  height: 360\n"
+		err := os.WriteFile(filepath.Join(dir, project.FileName), []byte(yamlData), 0o644)
+		close(uiRunnerReturned)
+		return err
+	}
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, edUI)
+	}, nsgotest.Size(1280, 800))
+	var startErr error
+	app.Post(func() {
+		startErr = edUI.StartCreateProject(editor.CreateProjectRequest{
+			Name:      "ui-race-game",
+			ParentDir: parentDir,
+		})
+	})
+	app.Settle()
+	if startErr != nil {
+		t.Fatalf("UI StartCreateProject: %v", startErr)
+	}
+	waitDone := make(chan struct{})
+	go func() {
+		edUI.WaitForCreateProject()
+		close(waitDone)
+	}()
+	close(uiRelease)
+	<-uiRunnerReturned
+	// Before app.Settle pumps scope.Post(finishOnMain), WaitForCreateProject must still be blocked.
+	select {
+	case <-waitDone:
+		t.Fatal("WaitForCreateProject returned before finishOnMain ran on the UI scope")
+	case <-time.After(25 * time.Millisecond):
+	}
+	// Pump posted callbacks until finishOnMain completes and unblocks WaitForCreateProject.
+	deadline := time.After(5 * time.Second)
+	for {
+		app.Settle()
+		select {
+		case <-waitDone:
+			goto uiCreateDone
+		case <-time.After(5 * time.Millisecond):
+		case <-deadline:
+			t.Fatal("timed out waiting for finishOnMain to unblock WaitForCreateProject")
+		}
+	}
+uiCreateDone:
+	if edUI.CreatingProject() {
+		t.Fatal("CreatingProject is still true after WaitForCreateProject returned")
+	}
+	if edUI.StartScreenOpen() {
+		t.Fatalf("StartScreenOpen is still true after WaitForCreateProject (err=%v)", edUI.CreateProjectErr())
+	}
+	if edUI.Project == nil || edUI.Project.Name != "ui-race-game" {
+		t.Fatalf("Project after WaitForCreateProject = %+v, want ui-race-game", edUI.Project)
+	}
+	app.Settle()
 
 	// 4) Editor.Close cancels an active StartCreateProject run.
 	ed2, err := editor.NewDemo()
@@ -616,5 +673,26 @@ func TestStartScreenConcurrencyNilSafetyTildeExpansionAndClose(t *testing.T) {
 	ed2.WaitForCreateProject()
 	if ed2.CreatingProject() {
 		t.Fatal("CreatingProject remained true after Close + WaitForCreateProject")
+	}
+}
+
+func waitForCreateInApp(t *testing.T, app *nsgotest.App, ed *editor.Editor) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() {
+		ed.WaitForCreateProject()
+		close(done)
+	}()
+	deadline := time.After(30 * time.Second)
+	for {
+		app.Settle()
+		select {
+		case <-done:
+			app.Settle()
+			return
+		case <-time.After(5 * time.Millisecond):
+		case <-deadline:
+			t.Fatal("timed out waiting for StartCreateProject to finish")
+		}
 	}
 }

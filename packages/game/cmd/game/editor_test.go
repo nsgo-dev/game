@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nsgo-dev/game/packages/game/editor"
 	"github.com/nsgo-dev/game/packages/game/editor/editorcmd"
@@ -176,6 +177,7 @@ func TestOpenArgsOpensASavedSceneAndAnExistingClip(t *testing.T) {
 		t.Fatalf("editor scene clip launched %+v, want the clip %s open", opened, clip)
 	}
 }
+
 const layeredProjectYAML = `version: 1
 name: Cave
 id: dev.example.cave
@@ -241,6 +243,7 @@ func TestEditorReadsTheOpenProjectsFiles(t *testing.T) {
 		}
 	}
 }
+
 // editorFixture is a project with its own atlas and two scene files, whose main scene draws the atlas and sets a component no registry declares.
 const editorFixture = "testdata/editorproject"
 
@@ -433,8 +436,24 @@ func TestEditorStartScreenCreateStarterBuildsAndPersistsRecent(t *testing.T) {
 	app.Settle()
 
 	app.Press("id:start-create")
-	ed.WaitForCreateProject()
-	app.Settle()
+	waitDone := make(chan struct{})
+	go func() {
+		ed.WaitForCreateProject()
+		close(waitDone)
+	}()
+	waitDeadline := time.After(30 * time.Second)
+	for {
+		app.Settle()
+		select {
+		case <-waitDone:
+			app.Settle()
+			goto createDone
+		case <-time.After(5 * time.Millisecond):
+		case <-waitDeadline:
+			t.Fatal("timed out waiting for StartCreateProject to finish")
+		}
+	}
+createDone:
 
 	createdDir := filepath.Join(parentDir, "star-quest")
 	wantGameYAML := filepath.Join(createdDir, project.FileName)

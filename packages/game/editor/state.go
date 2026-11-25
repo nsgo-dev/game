@@ -322,9 +322,8 @@ type Editor struct {
 	tableTypes *datatable.Registry
 
 	// l10n holds the open localization string tables edited by the Localization panel, or nil when closed.
-	l10n           *localizationState
-	components     *sceneformat.ComponentRegistry
-	demoComponents bool
+	l10n       *localizationState
+	components *sceneformat.ComponentRegistry
 	// plugins are the registered plugins in registration order, and pluginTool the plugin tool chosen while Tool is ToolPlugin.
 	plugins            []*Plugin
 	pluginTool         pluginToolRef
@@ -706,7 +705,6 @@ func (e *Editor) SetComponentRegistry(reg *sceneformat.ComponentRegistry) error 
 		return nil
 	}
 	e.components = reg
-	e.demoComponents = false
 	// Clear triggers onChange -> afterMutate -> Rebuild + notify.
 	e.History.Clear()
 	if e.Project != nil && e.ProjectPath != "" {

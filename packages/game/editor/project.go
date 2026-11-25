@@ -73,7 +73,7 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 	if !opened {
 		// The scene stays open under the new project, so its view is kept in the project it was shown in.
 		e.saveViewStateQuietly()
-		if e.ProjectPath != "" || e.StartScreenOpen() {
+		if e.StartScreenOpen() {
 			if e.playing {
 				_ = e.Stop()
 			}
@@ -100,6 +100,9 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 	}
 	e.drag2D = drag2DState{}
 	e.stroke = nil
+	e.inspectAssetFile = false
+	e.inspectLayer = false
+	e.connPick = nil
 	e.stopClipLoop()
 	e.stopFetch()
 	e.stopAudioAudition()

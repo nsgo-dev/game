@@ -12,6 +12,6 @@ func TestRecentProjectsFormatConformance(t *testing.T) {
 		Decode: editor.ParseRecentProjects,
 		Encode: editor.EncodeRecentProjects,
 		Files:  []string{"testdata/recent_projects.yaml"},
-		Doc:    "editor",
+		Doc:    "editor#recent",
 	})
 }
