@@ -9,6 +9,7 @@ import (
 
 	"github.com/nsgo-dev/game/packages/game/editor"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
+	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -513,5 +514,137 @@ func TestLayersReportSpaceTilemapAndObjects(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("Layers = %+v\nwant %+v", got, want)
+	}
+}
+
+// Undoing a layer's addition takes its lock with it, so a later layer of the same name starts unlocked, and redoing the addition locks it again.
+func TestUndoingALayerAdditionDropsItsLock(t *testing.T) {
+	ed := newNestedEditor(t)
+	if err := ed.AddLayer("extra", sceneformat.SpaceWorld); err != nil {
+		t.Fatalf("AddLayer: %v", err)
+	}
+	if err := ed.SetLayerLocked("extra", true); err != nil {
+		t.Fatalf("SetLayerLocked: %v", err)
+	}
+	ed.Undo()
+	if ed.LayerLocked("extra") {
+		t.Fatal("the undone layer's lock stayed behind")
+	}
+	ed.Redo()
+	if !ed.LayerLocked("extra") {
+		t.Fatal("redoing the addition did not lock the layer again")
+	}
+	ed.Undo()
+	if err := ed.AddLayer("extra", sceneformat.SpaceWorld); err != nil {
+		t.Fatalf("AddLayer again: %v", err)
+	}
+	if ed.LayerLocked("extra") || layerInfoOf(t, ed, "extra").Locked {
+		t.Fatal("a new layer took the lock of an undone one of the same name")
+	}
+}
+
+// Removing the active layer hands the active role to a layer that may paint another tileset, and the active tile follows, as SetActiveLayer keeps it; Undo brings back the layer and its tile.
+func TestRemovingTheActiveLayerKeepsTheTileInThePalette(t *testing.T) {
+	resolver := testResolver()
+	resolver["small"] = &sprite.Atlas{
+		Image:  core.ImageSource{URI: "asset:small.png"},
+		Frames: map[string]sprite.Frame{"1": {Name: "1", W: 16, H: 16, Width: 16, Height: 16}},
+	}
+	doc := testSceneDoc()
+	doc.Layers = slices.Insert(doc.Layers, 1, sceneformat.LayerDoc{
+		Name:    "deco",
+		Order:   5,
+		Tilemap: &sceneformat.TilemapDoc{TileWidth: 16, TileHeight: 16, Width: 2, Height: 2, Tileset: "small", Data: []int{0, 0, 0, 0}},
+	})
+	ed, err := editor.New(doc, resolver)
+	if err != nil {
+		t.Fatalf("editor.New: %v", err)
+	}
+	ed.SetActiveLayer("floor")
+	ed.SetActiveTileID(3)
+	if err := ed.RemoveLayer("floor"); err != nil {
+		t.Fatalf("RemoveLayer: %v", err)
+	}
+	if ed.ActiveLayer != "deco" || ed.ActiveTileID != 1 {
+		t.Fatalf("after the removal the active layer is %q with tile %d, want deco with tile 1", ed.ActiveLayer, ed.ActiveTileID)
+	}
+	ed.Undo()
+	if ed.ActiveLayer != "floor" || ed.ActiveTileID != 3 {
+		t.Fatalf("after Undo the active layer is %q with tile %d, want floor with tile 3", ed.ActiveLayer, ed.ActiveTileID)
+	}
+}
+
+// An object on a layer the scene does not draw is frozen in the viewports like one hidden in the scene tree: a selected one is not moved by the Move tool.
+func TestHiddenLayerObjectsAreNotMovedInTheViewport(t *testing.T) {
+	ed := newNestedEditor(t)
+	if err := ed.SetLayerVisible("actors", false); err != nil {
+		t.Fatalf("SetLayerVisible: %v", err)
+	}
+	if !ed.SelectObject("hero") {
+		t.Fatal("SelectObject hero")
+	}
+	ed.SetTool(editor.ToolMove)
+	mx, my := ed.WorldToCanvas(90, 90)
+	ed.HandleCanvasPress(mx, my)
+	if obj, _, _ := ed.FindObject("hero"); obj.X != 40 || obj.Y != 40 {
+		t.Fatalf("the Move tool moved hero on the hidden layer to (%v, %v)", obj.X, obj.Y)
+	}
+	if err := ed.SetLayerVisible("actors", true); err != nil {
+		t.Fatalf("SetLayerVisible: %v", err)
+	}
+	ed.HandleCanvasPress(mx, my)
+	if obj, _, _ := ed.FindObject("hero"); obj.X == 40 && obj.Y == 40 {
+		t.Fatal("the Move tool did not move hero once its layer was shown")
+	}
+}
+
+// In a scene that inherits another, a new layer draws over the base's layers too, and the panel turns off the controls the base owns on a row that extends one of its layers.
+func TestLayersPanelInAnInheritingScene(t *testing.T) {
+	resolver := sceneFiles{AtlasMap: testResolver(), files: map[string]string{"scenes/base.scene.yaml": `version: 2
+layers:
+  - name: ground
+  - name: fg
+    order: 50
+`}}
+	doc, err := sceneformat.Parse([]byte(`version: 2
+inherits: scenes/base.scene.yaml
+layers:
+  - name: ground
+  - name: hud
+`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	ed, err := editor.New(doc, resolver)
+	if err != nil {
+		t.Fatalf("editor.New: %v", err)
+	}
+	app := startEditorView(t, ed)
+
+	if app.Enabled("id:layers-eye-ground") || !app.Enabled("id:layers-eye-hud") {
+		t.Fatal("the eye button is on for the base's layer or off for the scene's own")
+	}
+	app.RightClick("id:layers-row-ground")
+	for _, id := range []string{"layers-rename-item-ground", "layers-hide-ground", "layers-space-screen-ground", "layers-down-ground"} {
+		if app.Enabled("id:" + id) {
+			t.Errorf("%s is enabled on a layer the base owns", id)
+		}
+	}
+	app.Key("escape")
+
+	app.Press("id:layers-add")
+	added := ed.ActiveLayer
+	if info := layerInfoOf(t, ed, added); info.Order != 50 || info.Inherited {
+		t.Fatalf("the added layer = %+v, want order 50 to draw over the base's fg", info)
+	}
+	eff := ed.Built.Doc.Layers
+	last := eff[0]
+	for _, l := range eff {
+		if l.Order >= last.Order {
+			last = l
+		}
+	}
+	if last.Name != added {
+		t.Fatalf("the resolved scene draws %q last, want the added %q", last.Name, added)
 	}
 }

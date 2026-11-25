@@ -206,7 +206,7 @@ func validSpace(space sceneformat.Space) bool {
 	return space == sceneformat.SpaceWorld || space == sceneformat.SpaceScreen
 }
 
-// AddLayer adds a layer named name in space (SpaceWorld or SpaceScreen; empty leaves the field unset, which is world) to the open scene as an undoable command. The new layer comes last in the file and draws over every other layer: its order is the highest order of the scene's layers, which is left unset when that is 0. It refuses an empty name, a name another layer of the scene has, and a name of a layer of the scene the open scene inherits, which a layer of that name would extend rather than add. It does not change ActiveLayer.
+// AddLayer adds a layer named name in space (SpaceWorld or SpaceScreen; empty leaves the field unset, which is world) to the open scene as an undoable command. The new layer comes last in the file and draws over every other layer: its order is the highest order of the layers the scene draws, those of the scene it inherits included, which is left unset when that is 0. It refuses an empty name, a name another layer of the scene has, and a name of a layer of the scene the open scene inherits, which a layer of that name would extend rather than add. It does not change ActiveLayer.
 func (e *Editor) AddLayer(name string, space sceneformat.Space) error {
 	if e.playing {
 		return ErrPlaying
@@ -221,8 +221,8 @@ func (e *Editor) AddLayer(name string, space sceneformat.Space) error {
 		return err
 	}
 	order := 0
-	for i := range e.Doc.Layers {
-		order = max(order, e.Doc.Layers[i].Order)
+	for _, l := range e.effectiveLayers() {
+		order = max(order, l.Order)
 	}
 	layer := sceneformat.LayerDoc{Name: name, Space: space, Order: order}
 	candidate := e.Doc.Clone()
@@ -238,12 +238,17 @@ type addLayerCmd struct {
 	ed     *Editor
 	layer  sceneformat.LayerDoc
 	wasNil bool
+	// wasLocked records whether the layer was locked when Undo took it away, so that a Redo locks it again and a later layer of the same name does not start locked.
+	wasLocked bool
 }
 
 func (c *addLayerCmd) Label() string { return "Add layer " + c.layer.Name }
 
 func (c *addLayerCmd) Do() {
 	c.ed.Doc.Layers = append(c.ed.Doc.Layers, c.layer)
+	if c.wasLocked {
+		c.ed.setLayerLockedFlag(c.layer.Name, true)
+	}
 	c.ed.Status = "Added layer " + c.layer.Name
 }
 
@@ -254,6 +259,8 @@ func (c *addLayerCmd) Undo() {
 	if len(c.ed.Doc.Layers) == 0 && c.wasNil {
 		c.ed.Doc.Layers = nil
 	}
+	c.wasLocked = c.ed.layerLocked[c.layer.Name]
+	c.ed.setLayerLockedFlag(c.layer.Name, false)
 }
 
 // RemoveLayer removes the layer name, with its objects and its tilemap, from the open scene as an undoable command, together with the scene's connections from or to its objects, their descendants or the objects of scenes they instance; Undo puts the layer back where it was, with them. When the layer is the active one, the layer that takes its place in the file, or the one before it, becomes active.
@@ -279,6 +286,7 @@ func (e *Editor) RemoveLayer(name string) error {
 		index:        li,
 		layer:        cloneLayerDoc(&e.Doc.Layers[li]),
 		prevActive:   e.ActiveLayer,
+		prevTile:     e.ActiveTileID,
 		prevSelected: e.SelectedID,
 	})
 	return nil
@@ -311,8 +319,11 @@ type removeLayerCmd struct {
 	// conns are the connections Do removed with the layer's objects, each with its index before the removal, in ascending order.
 	conns        []removedConnection
 	prevActive   string
+	prevTile     int
 	prevSelected string
-	wasLocked    bool
+	// tookActive records that Do made another layer active, and with it maybe another tile.
+	tookActive bool
+	wasLocked  bool
 }
 
 func (c *removeLayerCmd) Label() string { return "Remove layer " + c.layer.Name }
@@ -339,11 +350,14 @@ func (c *removeLayerCmd) Do() {
 	}
 	c.wasLocked = e.layerLocked[c.layer.Name]
 	delete(e.layerLocked, c.layer.Name)
-	if e.ActiveLayer == c.layer.Name {
+	c.tookActive = e.ActiveLayer == c.layer.Name
+	if c.tookActive {
 		e.ActiveLayer = ""
 		if n := len(e.Doc.Layers); n > 0 {
 			e.ActiveLayer = e.Doc.Layers[min(li, n-1)].Name
 		}
+		// The layer taking over may paint another tileset, as SetActiveLayer keeps in mind.
+		e.keepTileInPalette()
 	}
 	if _, ok := ids[e.SelectedID]; ok {
 		e.SelectedID = ""
@@ -361,7 +375,11 @@ func (c *removeLayerCmd) Undo() {
 	if c.wasLocked {
 		e.setLayerLockedFlag(c.layer.Name, true)
 	}
-	e.ActiveLayer = c.prevActive
+	if c.tookActive {
+		e.ActiveLayer = c.prevActive
+		e.ActiveTileID = c.prevTile
+		e.keepTileInPalette()
+	}
 	e.SelectedID = c.prevSelected
 }
 
@@ -675,6 +693,23 @@ func (e *Editor) keepActiveLayer() {
 	e.keepTileInPalette()
 }
 
+// layerDrawn reports whether the open scene draws its layer name, as the visible field of the layer the scene draws says (effectiveLayers), so that in a scene that inherits another the base and the layer overrides count; it reports true for a name no layer has.
+func (e *Editor) layerDrawn(name string) bool {
+	layers := e.effectiveLayers()
+	if i := slices.IndexFunc(layers, func(l sceneformat.LayerDoc) bool { return l.Name == name }); i >= 0 {
+		return layers[i].IsVisible()
+	}
+	return true
+}
+
+// anyLayerHidden reports whether the open scene leaves one of its layers undrawn (layerDrawn).
+func (e *Editor) anyLayerHidden() bool {
+	if e.Doc == nil {
+		return false
+	}
+	return slices.ContainsFunc(e.effectiveLayers(), func(l sceneformat.LayerDoc) bool { return !l.IsVisible() })
+}
+
 // lockedLayerErr returns why a viewport tool cannot edit the active layer, or nil when it can.
 func (e *Editor) lockedLayerErr() error {
 	if e.layerLocked[e.ActiveLayer] {
@@ -689,14 +724,8 @@ func (e *Editor) activeLayerReadout() string {
 	if li < 0 {
 		return "none"
 	}
-	visible := e.Doc.Layers[li].IsVisible()
-	if eff := e.effectiveLayers(); e.Doc.Inherits != "" {
-		if i := slices.IndexFunc(eff, func(l sceneformat.LayerDoc) bool { return l.Name == e.ActiveLayer }); i >= 0 {
-			visible = eff[i].IsVisible()
-		}
-	}
 	var flags []string
-	if !visible {
+	if !e.layerDrawn(e.Doc.Layers[li].Name) {
 		flags = append(flags, "hidden")
 	}
 	if e.layerLocked[e.ActiveLayer] {
