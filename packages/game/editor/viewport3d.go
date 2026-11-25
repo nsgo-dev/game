@@ -831,6 +831,12 @@ func (e *Editor) HandleViewport3DPress(sx, sy, w, h float32) {
 	if e == nil || e.playing {
 		return
 	}
+	if e.connPick != nil {
+		if hit, ok := e.Pick3DObject(sx, sy, w, h); ok && hit != "" {
+			e.finishConnectionPick(hit)
+		}
+		return
+	}
 	if e.PickGizmo3D(sx, sy, w, h) != Axis3DNone {
 		return
 	}

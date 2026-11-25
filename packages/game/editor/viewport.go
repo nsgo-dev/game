@@ -238,6 +238,12 @@ func (e *Editor) HandleCanvasPress(x, y float32) {
 		e.HandleViewport3DPress(x, y, cw, ch)
 		return
 	}
+	if e.connPick != nil {
+		if hit := e.HitTest(x, y); hit != "" {
+			e.finishConnectionPick(hit)
+		}
+		return
+	}
 	switch e.Tool {
 	case ToolSelect:
 		hit := e.HitTest(x, y)
