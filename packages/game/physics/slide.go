@@ -813,7 +813,7 @@ func overlapHullChain(cur *hull, c *Chain) (nx, ny, depth float64, ok bool) {
 		return 0, 0, 0, false
 	}
 	for i := range c.SegmentCount() {
-		m, hit := chainSegmentManifold(c, i, cur)
+		m, hit := chainSegmentManifold(c, i, cur, 0)
 		if !hit {
 			continue
 		}

@@ -304,3 +304,29 @@ func TestRigidNonFiniteSleepSettingsMeanDefaults(t *testing.T) {
 		}
 	}
 }
+
+func TestRigidMouseJointWakesAndHoldsBody(t *testing.T) {
+	// A sleeping crate grabbed by a MouseJoint wakes, follows the target, and stays awake while held.
+	w := &physics.RigidWorld{GravityY: 600}
+	floor := physics.NewStaticRigidBox(500, 110, 2000, 20)
+	crate := physics.NewRigidBox(100, 90, 20, 20, 1)
+	w.AddBody(floor, crate)
+	for range 120 {
+		w.Step(step)
+	}
+	if !crate.Sleeping() {
+		t.Fatal("crate did not sleep on the floor")
+	}
+	mouse := physics.NewMouseJoint(crate, core.Point{X: 100, Y: 90}, 5000)
+	mouse.Target = core.Point{X: 100, Y: 40}
+	w.Joints = append(w.Joints, mouse)
+	for range 120 {
+		w.Step(step)
+		if crate.Sleeping() {
+			t.Fatal("crate held by a mouse joint fell asleep")
+		}
+	}
+	if crate.Y > 60 {
+		t.Fatalf("crate at y=%v, want lifted toward the target at y=40", crate.Y)
+	}
+}
