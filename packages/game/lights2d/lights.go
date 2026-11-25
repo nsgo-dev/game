@@ -108,11 +108,39 @@ type Scene struct {
 	// Occluders block light from lights with CastShadows enabled.
 	Occluders []Occluder
 	// LightComposite sets how light glows composite onto the drawing.
-	// Zero defaults to core.CompositeLighter (additive). Set to
-	// core.CompositeScreen for softer screen-blended lights.
+	// Zero defaults to core.CompositeLighter (additive) unless set explicitly
+	// with SetLightComposite. Assign core.CompositeScreen for softer
+	// screen-blended lights, or call SetLightComposite(core.CompositeSourceOver)
+	// for alpha-over glows.
 	LightComposite core.CompositeOp
 	// DisableShadows skips occlusion for every light, as though none had CastShadows, without changing the lights; a low quality preset sets it (quality.Preset.Shadows false).
 	DisableShadows bool
+
+	lightCompositeSet bool
+}
+
+// SetLightComposite sets how light glows composite onto the drawing, including
+// core.CompositeSourceOver (whose zero value is otherwise treated as unset and
+// defaults to core.CompositeLighter).
+func (s *Scene) SetLightComposite(op core.CompositeOp) {
+	if s == nil {
+		return
+	}
+	s.LightComposite = op
+	s.lightCompositeSet = true
+}
+
+// EffectiveLightComposite returns the composite operation Draw uses for light
+// glows: s.LightComposite when non-zero or set with SetLightComposite, and
+// core.CompositeLighter otherwise.
+func (s *Scene) EffectiveLightComposite() core.CompositeOp {
+	if s == nil {
+		return core.CompositeLighter
+	}
+	if s.LightComposite == 0 && !s.lightCompositeSet {
+		return core.CompositeLighter
+	}
+	return s.LightComposite
 }
 
 // shadowOccluders returns the occluders shadow-casting lights test against: none when DisableShadows is set.
@@ -151,10 +179,7 @@ func (s *Scene) Draw(d *core.Drawing, bounds core.Bounds) {
 		d.FillRect(bx, by, bw, bh)
 	}
 
-	comp := s.LightComposite
-	if comp == 0 {
-		comp = core.CompositeLighter
-	}
+	comp := s.EffectiveLightComposite()
 
 	bMaxX := bx + bw
 	bMaxY := by + bh

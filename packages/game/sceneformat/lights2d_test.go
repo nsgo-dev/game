@@ -305,3 +305,44 @@ layers:
 		t.Fatalf("overridden AmbientColor = %q, want #112233cc", resOver.AmbientColor)
 	}
 }
+
+func TestSyncLights2DPreservesLightComposite(t *testing.T) {
+	doc, err := sceneformat.Parse([]byte(litSceneYAML))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	built, err := sceneformat.Build(doc, nil)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if got := built.Lights2D.EffectiveLightComposite(); got != core.CompositeLighter {
+		t.Fatalf("initial EffectiveLightComposite() = %v, want CompositeLighter", got)
+	}
+
+	// Default unset stays default across SyncLights2D.
+	if err := built.SyncLights2D(); err != nil {
+		t.Fatalf("SyncLights2D (default): %v", err)
+	}
+	if built.Lights2D.LightComposite != 0 || built.Lights2D.EffectiveLightComposite() != core.CompositeLighter {
+		t.Fatalf("after default SyncLights2D: field=%v effective=%v, want 0 / CompositeLighter",
+			built.Lights2D.LightComposite, built.Lights2D.EffectiveLightComposite())
+	}
+
+	// Explicit SetLightComposite(CompositeSourceOver) survives SyncLights2D.
+	built.Lights2D.SetLightComposite(core.CompositeSourceOver)
+	if err := built.SyncLights2D(); err != nil {
+		t.Fatalf("SyncLights2D (SourceOver): %v", err)
+	}
+	if got := built.Lights2D.EffectiveLightComposite(); got != core.CompositeSourceOver {
+		t.Fatalf("after SourceOver SyncLights2D: EffectiveLightComposite() = %v, want CompositeSourceOver", got)
+	}
+
+	// Direct non-zero assignment survives SyncLights2D.
+	built.Lights2D.LightComposite = core.CompositeScreen
+	if err := built.SyncLights2D(); err != nil {
+		t.Fatalf("SyncLights2D (Screen): %v", err)
+	}
+	if got := built.Lights2D.EffectiveLightComposite(); got != core.CompositeScreen {
+		t.Fatalf("after Screen SyncLights2D: EffectiveLightComposite() = %v, want CompositeScreen", got)
+	}
+}

@@ -625,9 +625,11 @@ func (s *BuiltScene) SyncLights2D() error {
 		return nil
 	}
 	var prevComp core.CompositeOp
+	var prevCompExplicit bool
 	var prevDisable bool
 	if s.Lights2D != nil {
 		prevComp = s.Lights2D.LightComposite
+		prevCompExplicit = prevComp == 0 && s.Lights2D.EffectiveLightComposite() == core.CompositeSourceOver
 		prevDisable = s.Lights2D.DisableShadows
 	}
 	next, err := BuildLights2D(s)
@@ -635,7 +637,11 @@ func (s *BuiltScene) SyncLights2D() error {
 		return err
 	}
 	if next != nil {
-		next.LightComposite = prevComp
+		if prevCompExplicit {
+			next.SetLightComposite(core.CompositeSourceOver)
+		} else {
+			next.LightComposite = prevComp
+		}
 		next.DisableShadows = prevDisable
 	}
 	s.Lights2D = next

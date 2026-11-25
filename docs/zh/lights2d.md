@@ -30,6 +30,7 @@ lighting.Draw(d, worldBounds)
 
 - `NewLight(x, y, radius, color)` 创建默认启用的全向点光源，`Intensity: 1`，二次衰减 `Falloff: 2`。
 - 将 `ConeSpread` 设为 `(0, 2*math.Pi)` 即可变为方向聚光灯，沿 `ConeAngle` 做 smoothstep 角度衰减。
+- 当 `Scene.LightComposite` 未设置（零值 `0`）时，光晕默认使用加法混合 `core.CompositeLighter`。可直接赋值非零混合模式（如 `core.CompositeScreen`）获得更柔和的滤色光照，或调用 `lighting.SetLightComposite(core.CompositeSourceOver)` 显式使用常规 Alpha 叠加（因为 `core.CompositeSourceOver` 即为零值）。可通过 `lighting.EffectiveLightComposite()` 查询当前生效的混合模式。
 - 可用 `light.AttenuationAt(x, y)` 或 `scene.EvaluateAt(x, y)` 在 CPU 侧查询任意世界坐标的精确照度。
 
 ## 可见性多边形阴影遮挡体
