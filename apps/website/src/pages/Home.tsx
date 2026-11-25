@@ -22,8 +22,8 @@ const PLATFORMS = ['macOS', 'iOS', 'Windows', 'Linux', 'Android', 'Web']
 // The loop's numbers under the reel, beside the words for each in the page's language.
 const READOUTS = ['60 Hz', '320×180', '< 8.3 ms']
 
-// The examples the reel plays, one after another.
-const REEL: FeaturedId[] = ['caverun', 'cryptquest', 'starburst', 'fountain']
+// The examples the hero's game window plays, one after another: the recordings close to 16:9, so the window shows them whole instead of cropping a wide one.
+const REEL: FeaturedId[] = ['caverun', 'cryptquest', 'starburst']
 const REEL_MS = 6000
 
 // The code the home page shows, a tab per snippet under apps/website/snippets/.
@@ -46,8 +46,8 @@ export function Home() {
   return (
     <>
       <section className="container hero" aria-labelledby="home-title">
-        <div className="hero__top">
-          <div className="hero__title rise">
+        <div className="hero__grid">
+          <div className="hero__copy rise">
             <span className="pill">
               <span className="pill__tag">Go 1.27+</span>
               {home.eyebrow}
@@ -56,8 +56,6 @@ export function Home() {
               <span>{home.title[0]}</span>
               <span>{home.title[1]}</span>
             </h1>
-          </div>
-          <div className="hero__side rise-2">
             <p className="hero__lead">{home.lead}</p>
             <div className="hero__actions">
               <LocaleLink page="doc" slug="getting-started" lang={lang} className="btn btn--primary btn--large">
@@ -71,8 +69,8 @@ export function Home() {
             </div>
             <TypedCommand command={NEW_GAME} />
           </div>
+          <Reel lang={lang} />
         </div>
-        <Reel lang={lang} />
       </section>
 
       <section className="container facts" aria-label={home.platforms}>
@@ -397,47 +395,55 @@ function Reel({ lang }: { lang: Lang }) {
 
   const current = featured(REEL[active]!)
   return (
-    <div className={playing ? 'reel reel--playing rise-big' : 'reel rise-big'} style={{ '--reel-ms': `${REEL_MS}ms` } as CSSProperties}>
-      <div className="reel__viewport" id="reel-panel" role="tabpanel" aria-labelledby={`reel-tab-${active}`}>
-        {REEL.map((id, i) => (
-          <ExampleMedia key={id} example={featured(id)} className={i === active ? 'reel__media is-on' : 'reel__media'} playing={i === active} eager={i === 0} />
-        ))}
-        <span className="reel__shade" aria-hidden="true" />
-        <div className="reel__caption">
-          <div className="reel__name">
-            <span className="live">
-              <span className="live__dot" aria-hidden="true" />
-              {copy.home.live}
-            </span>
+    <div className={playing ? 'stage reel--playing rise-big' : 'stage rise-big'} style={{ '--reel-ms': `${REEL_MS}ms` } as CSSProperties}>
+      <div className="stage__window">
+        <div className="stage__bar">
+          <span className="stage__lights" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </span>
+          <span className="stage__title">
             <strong>{current.title}</strong>
+            <span>{copy.genres[current.id]}</span>
+          </span>
+          <span className="live">
+            <span className="live__dot" aria-hidden="true" />
+            {copy.home.live}
+          </span>
+        </div>
+        <div className="stage__viewport" id="reel-panel" role="tabpanel" aria-labelledby={`reel-tab-${active}`}>
+          {REEL.map((id, i) => (
+            <ExampleMedia key={id} example={featured(id)} className={i === active ? 'stage__media is-on' : 'stage__media'} playing={i === active} eager={i === 0} />
+          ))}
+        </div>
+        <div className="stage__foot">
+          <div className="stage__tabs" role="tablist" aria-label={copy.nav.examples} onKeyDown={onKey}>
+            {REEL.map((id, i) => (
+              <button
+                key={id}
+                id={`reel-tab-${i}`}
+                type="button"
+                role="tab"
+                className="stage__tab"
+                aria-selected={i === active}
+                aria-controls="reel-panel"
+                tabIndex={i === active ? 0 : -1}
+                onClick={() => pick(i)}
+              >
+                <span className="stage__tab-name">
+                  <span>0{i + 1}</span>
+                  {featured(id).title}
+                </span>
+                {/* Keyed by the turn, so the bar under the example showing fills again from the start. */}
+                <span className="reel__bar" aria-hidden="true">
+                  <span key={i === active ? cycle : 'idle'} />
+                </span>
+              </button>
+            ))}
           </div>
           <PlayLink id={current.id} lang={lang} />
         </div>
-      </div>
-      <div className="reel__tabs" role="tablist" aria-label={copy.nav.examples} onKeyDown={onKey}>
-        {REEL.map((id, i) => (
-          <button
-            key={id}
-            id={`reel-tab-${i}`}
-            type="button"
-            role="tab"
-            className="reel__tab"
-            aria-selected={i === active}
-            aria-controls="reel-panel"
-            tabIndex={i === active ? 0 : -1}
-            onClick={() => pick(i)}
-          >
-            {/* Keyed by the turn, so the bar under the example showing fills again from the start. */}
-            <span className="reel__bar" aria-hidden="true">
-              <span key={i === active ? cycle : 'idle'} />
-            </span>
-            <span className="reel__tab-name">
-              <span>0{i + 1}</span>
-              <strong>{featured(id).title}</strong>
-            </span>
-            <span className="reel__genre">{copy.genres[id]}</span>
-          </button>
-        ))}
       </div>
     </div>
   )
@@ -453,11 +459,11 @@ function PlayLink({ id, lang }: { id: FeaturedId; lang: Lang }) {
     </>
   )
   return isPlaygroundId(id) ? (
-    <LocaleLink page="playgroundExample" example={id} lang={lang} className="btn btn--primary">
+    <LocaleLink page="playgroundExample" example={id} lang={lang} className="btn btn--glass">
       {body}
     </LocaleLink>
   ) : (
-    <LocaleLink page="examples" lang={lang} hash={id} className="btn btn--primary">
+    <LocaleLink page="examples" lang={lang} hash={id} className="btn btn--glass">
       {copy.nav.examples}
       <Icon name="arrow" size={14} className="arrow" />
     </LocaleLink>
