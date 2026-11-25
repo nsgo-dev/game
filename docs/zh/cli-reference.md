@@ -323,6 +323,20 @@ nsgo game navmesh [flags] <scene.yaml>
 | `-in string` |  | project directory, whose game.yaml holds the navigation settings and from which the scene's paths start (defaults to the nearest directory at or above the working directory holding game.yaml, nsgo.yaml or go.mod) |
 | `-out file` |  | navigation mesh file to write (defaults to the file the scene's navMesh names) |
 
+## game merge
+
+Merge scene YAML files object by object for Git, or set up the Git merge driver in a project.
+
+```sh
+nsgo game merge [flags] <base> <ours> <theirs> [path] | -setup [dir]
+```
+
+| 参数 | 默认值 | 说明 |
+| --- | --- | --- |
+| `-conflict-out string` |  | file to write the YAML conflict report to instead of overwriting the output file on conflict |
+| `-out string` |  | file to write the merged scene or conflict report to (default: overwrite \<ours> in place, as Git expects) |
+| `-setup` |  | register the nsgo-scene merge driver in local Git config and .gitattributes |
+
 ## game completion
 
 Write a shell completion script for zsh, bash or fish.

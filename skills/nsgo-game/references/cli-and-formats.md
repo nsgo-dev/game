@@ -21,6 +21,7 @@ go get -tool github.com/nsgo-dev/game/packages/game/cmd/game@latest
 | `game index` | `game index [-dry-run -in] [dir]` | Assign stable UIDs to scene/resource files and update the project index |
 | `game mv` | `game mv [-dry-run -in] <from> <to>` | Move/rename a file or folder and rewrite every reference in the project |
 | `game library` | `game library [-dir -index -kind -project] list\|install\|remove\|digest ...` | Browse and install digest-checked asset, plugin or template packs into `game.yaml` |
+| `game merge` | `game merge [-out -conflict-out] <base> <ours> <theirs> [path]` / `game merge -setup [dir]` | Git merge driver that merges `*.scene.yaml` files object by object by ID, or sets up `.gitattributes` and Git config |
 
 ### Asset pipeline
 

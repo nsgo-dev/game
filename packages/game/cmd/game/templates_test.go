@@ -75,7 +75,7 @@ func TestTemplateRegistry(t *testing.T) {
 		}
 
 		files := collectFiles(t, tmpl.files)
-		for _, need := range []string{"go.mod.tmpl", "go.sum", "game.yaml", "nsgo.yaml", "main.go", "README.md", ".gitignore"} {
+		for _, need := range []string{"go.mod.tmpl", "go.sum", "game.yaml", "nsgo.yaml", "main.go", "README.md", ".gitignore", ".gitattributes"} {
 			if _, ok := files[need]; !ok {
 				t.Errorf("template %s has no %s", tmpl.name, need)
 			}

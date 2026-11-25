@@ -1,0 +1,33 @@
+version: 1
+path: scenes/level_01.scene.yaml
+merged:
+  - scope: object
+    target: slime_03
+    side: ours
+    action: added
+conflicts:
+  - kind: field
+    scope: object
+    layer: actors
+    object: door
+    field: x
+    base: 584
+    ours: 560
+    theirs: 600
+  - kind: delete-modify
+    scope: object
+    layer: actors
+    object: slime_02
+    message: modified on ours, deleted on theirs
+    base:
+      id: slime_02
+      x: 240
+      "y": 280
+    ours:
+      components:
+        patrol:
+          speed: 30
+      id: slime_02
+      x: 240
+      "y": 280
+    theirs: null

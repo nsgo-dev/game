@@ -140,6 +140,12 @@ func defineNew(a *app, fs *flag.FlagSet) func() error {
 				return fmt.Errorf("go %s in %s: %w; the project's files are written, so run %s there once it can succeed", strings.Join(args, " "), dir, err, strings.Join(rest, " && "))
 			}
 		}
+		// If the project directory is already a Git repository, register the scene merge driver in its local config.
+		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+			if err := configureGitMergeDriver(dir); err != nil {
+				fmt.Fprintf(a.stderr, "game new: warning: could not configure git scene merge driver: %v\n", err)
+			}
+		}
 		fmt.Fprintf(a.stdout, "\ncd %s && go tool nsgo dev\n", shellWord(dir, runtime.GOOS))
 		return nil
 	}

@@ -158,6 +158,7 @@ var formatVersions = map[string]string{
 	"rhythm.CalibrationsVersion":            "rhythm#calibrations",
 	"rooms.FormatVersion":                   "rooms",
 	"rts.FormationsVersion":                 "rts",
+	"sceneformat.ConflictVersion":           "sceneformat#conflict",
 	"sceneformat.CurrentVersion":            "sceneformat",
 	"sceneformat.MinVersion":                "sceneformat",
 	"sceneformat.PhysicsComponentVersion":   "sceneformat",

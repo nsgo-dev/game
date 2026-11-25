@@ -39,6 +39,7 @@ The `tool` line in `go.mod` pins the command to the module's version of the game
 | `credits` | Writes the credits file `release` ships: every asset's author and license, from the import settings sidecar beside it, failing when an asset has none |
 | `pixelfx` | Renders a pixelfx effect, or the effect acted out, to a PNG sprite sheet and Aseprite JSON for `sprite.LoadAtlas` |
 | `navmesh` | Bakes a scene's glTF level geometry into a navigation mesh for each agent type `game.yaml` declares, written to the file the scene's `navMesh` names |
+| `merge` | Merges scene YAML files object by object for Git, or sets up the `nsgo-scene` Git merge driver in a project |
 | `completion` | Writes a completion script for zsh, bash or fish |
 | `help` | Lists the commands, or shows one command's flags |
 
@@ -191,7 +192,7 @@ Writes a project from a template into the directory named, creating it if needed
 
 The game is named after the directory unless `-name` gives a name (letters, digits, spaces, `-` and `_`, starting with a letter), which `game.yaml` and `nsgo.yaml` hold as `name`, with `id` derived from it as `dev.nsgo.<name in lower case without spaces or punctuation>`. The module path is the name in lower case with its words joined by `-` unless `-module` gives one. A module path that is a standard-library package's, such as `time` for a game called Time, is refused because the project could not build, so such a game needs `-module`, such as `-module example.com/time`. `-version` is the version of the game layer to require, such as `v0.4.0`, a commit or `latest`; by default it is the version of the command running, so `go run …@v0.4.0 new`, or `nsgo game new` with `NSGO_GAME_VERSION=v0.4.0` outside a project, creates a project on `v0.4.0`, and `latest` when the command was built from a checkout of this repository. `-template` chooses the template, `starter` by default, and an unknown name is refused with the names there are. `-list` prints each template's name, the default marked, beside a line saying what it is, and creates nothing. [Templates](templates.md) lists them with the module `nsgo init -template` takes for each, and describes how a template is laid out and how to add one.
 
-`new` writes nothing when any file it would write already exists in the directory, and fails with 1. When `go get` or `go mod tidy` fails, such as without a network, the files stay where they are written, and the error names the commands left to run in the directory to finish the project: both `go get -tool …` and `go mod tidy` when `go get` failed, and `go mod tidy` alone when it failed.
+`new` writes nothing when any file it would write already exists in the directory, and fails with 1. Every template includes `.gitattributes` registering `*.scene.yaml` and `*.scene.yml` with the `nsgo-scene` merge driver, and when the directory already holds a `.git` repository, `new` also configures the local Git driver automatically (otherwise run `go tool game merge -setup` after `git init`). When `go get` or `go mod tidy` fails, such as without a network, the files stay where they are written, and the error names the commands left to run in the directory to finish the project: both `go get -tool …` and `go mod tidy` when `go get` failed, and `go mod tidy` alone when it failed.
 
 ### dev
 
@@ -497,6 +498,20 @@ nsgo game navmesh -out build/level1.navmesh.yaml scenes/level1.scene.yaml
 ```
 
 Bakes the [navigation meshes](navbake3d.md) of a 3D scene: it resolves the scenes the scene instances and inherits, loads the glTF model (`.gltf` or `.glb`) each object's `mesh` names, from the project root, at the object's 3D transform, and bakes the triangles once for each agent type in the `navigation` section of the [project file](project.md), with that section's settings; without one, it bakes one agent type called `default` with the default settings. It writes the [navigation mesh file](formats.md#3d-navigation-meshes) to `-out`, or to the file the scene's `navMesh` names from the project root, and prints the file and each agent type's number of polygons. The project directory is `-in`, or the nearest directory at or above the working directory that holds `game.yaml`, `nsgo.yaml` or `go.mod`, and the scene must be inside it. The same scene and settings always write the same bytes, so the file belongs in version control beside the scene, and a bake that changes nothing shows no diff. A scene without a `navMesh` and no `-out` exits with 2, and one with no geometry to bake exits with 1.
+
+### merge
+
+```sh
+go tool game merge -setup
+go tool game merge %O %A %B %P
+go tool game merge -out merged.scene.yaml base.scene.yaml ours.scene.yaml theirs.scene.yaml scenes/level1.scene.yaml
+```
+
+Three-way Git merge driver for YAML scene files (`*.scene.yaml`, `*.scene.yml`). Instead of merging scenes line by line, it matches layers by `name`, objects by `id` anywhere in the scene tree (including across reparenting and layer moves), tilemaps and overrides by key, and connections by `(from, event, to, handler)`, merging fields one by one so independent edits on two branches combine cleanly and are written in canonical `sceneformat.Encode` order.
+
+When Git invokes the driver with `<base> <ours> <theirs> [path]`, a clean merge overwrites `<ours>` (or `-out`) with the canonical merged scene and exits with 0. An empty `<base>` file (a Git add/add merge) is handled by merging `<ours>` and `<theirs>` against an empty ancestor. When both sides change the same field differently, one side deletes what the other modified, both add different objects with the same ID, reparenting conflicts or cycles occur, or the combined scene fails `sceneformat.Validate`, the driver writes a versioned, deterministic [scene merge conflict report](formats.md#scene-merge-conflict-report) (`version: 1` YAML naming each object, field, and the `base`, `ours`, and `theirs` values) to `<ours>` (or `-conflict-out` / `-out`) and exits with 1 so Git marks the path unmerged.
+
+`-setup [dir]` registers `merge.nsgo-scene.name` and `merge.nsgo-scene.driver` (`go tool game merge %O %A %B %P`) in the repository's local Git config and ensures `.gitattributes` routes `*.scene.yaml` and `*.scene.yml` to `merge=nsgo-scene`. New projects created with `game new` already include `.gitattributes` and configure the driver automatically when initialized inside a Git repository.
 
 ### completion
 
