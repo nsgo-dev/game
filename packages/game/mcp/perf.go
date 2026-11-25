@@ -38,6 +38,7 @@ type PerfFrameSample struct {
 	UpdateMs float64 `json:"update_ms"`
 	DrawMs   float64 `json:"draw_ms"`
 	GCHitch  bool    `json:"gc_hitch,omitempty"`
+	Cause    string  `json:"cause,omitempty"`
 }
 
 // PerfZoneInfo summarizes one named timing scope from debug.Profiler.
@@ -325,6 +326,7 @@ func (b *Bridge) handlePerfReadout(_ context.Context, raw json.RawMessage) (any,
 							UpdateMs: durationMs(s.Update),
 							DrawMs:   durationMs(s.Draw),
 							GCHitch:  s.GCHitch,
+							Cause:    s.Cause,
 						})
 					}
 					res.History = hist

@@ -44,6 +44,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 		ed.cleanupAudioMixerScope(cx)
 		ed.stopExportBuild()
 		ed.stopAssetsBuild()
+		_ = ed.DisconnectProfiler()
 		_ = ed.StopGame()
 		if ed.Playing() {
 			_ = ed.Stop()
@@ -92,6 +93,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 			SearchPanelView(cx, ed, rev),
 			ProblemsView(cx, ed, rev),
 			ExportPanelView(cx, ed, rev),
+			ProfilerPanelView(cx, ed, rev),
 			OutputPanelView(cx, ed, rev),
 			statusBarView(cx, ed, rev),
 			CommandPaletteView(cx, ed, rev),
@@ -122,7 +124,18 @@ func mainRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []core.Node {
 	}
 	return append(row,
 		pluginDockView(cx, ed, rev, DockLeft),
-		ViewportView(cx, ed, rev),
+		core.View{
+			TestID: "editor-center-column",
+			Style: core.Style{
+				FlexGrow:  1,
+				FlexBasis: core.Pt(0),
+				Overflow:  core.Hidden,
+			},
+			Children: []core.Node{
+				ViewportView(cx, ed, rev),
+				ProfilerStripView(cx, ed, rev),
+			},
+		},
 		TilePaletteView(cx, ed, rev),
 		InspectorView(cx, ed, rev),
 		pluginDockView(cx, ed, rev, DockRight),
@@ -342,6 +355,86 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 						},
 					},
 					ui.Button{
+						TestID:   "toolbar-save",
+						Text:     "Save",
+						Size:     ui.SizeSmall,
+						Variant:  ui.ButtonOutline,
+						Disabled: notPlaying,
+						OnPress:  func() { ed.saveFromUI() },
+					},
+					core.Show{
+						When: func() bool {
+							_ = rev.Get()
+							return ed.Playing()
+						},
+						Then: func(cx *core.Scope) core.Node {
+							return ui.Button{
+								TestID:  "toolbar-play",
+								Text:    "Stop",
+								Size:    ui.SizeSmall,
+								Variant: ui.ButtonPrimary,
+								OnPress: func() {
+									_ = ed.Stop()
+								},
+							}
+						},
+						Else: func(cx *core.Scope) core.Node {
+							return ui.Button{
+								TestID:  "toolbar-play",
+								Text:    "Play",
+								Size:    ui.SizeSmall,
+								Variant: ui.ButtonPrimary,
+								OnPress: func() {
+									_ = ed.Play()
+								},
+							}
+						},
+					},
+					core.Show{
+						When: func() bool {
+							_ = rev.Get()
+							return ed.GameRunning()
+						},
+						Then: func(cx *core.Scope) core.Node {
+							return ui.Button{
+								TestID:  "toolbar-stop-game",
+								Text:    "Stop Game (Running)",
+								Label:   "Stop the running game (Shift+F5)",
+								Size:    ui.SizeSmall,
+								Variant: ui.ButtonDanger,
+								OnPress: func() {
+									ed.report(ed.StopGame())
+								},
+							}
+						},
+						Else: func(cx *core.Scope) core.Node {
+							return ui.Button{
+								TestID:  "toolbar-run",
+								Text:    "Run",
+								Label:   "Run the game with go tool game dev (F5)",
+								Size:    ui.SizeSmall,
+								Variant: ui.ButtonPrimary,
+								Disabled: func() bool {
+									_ = rev.Get()
+									return ed.Project == nil
+								},
+								OnPress: func() {
+									ed.report(ed.RunGame())
+								},
+							}
+						},
+					},
+					ui.Button{
+						TestID:  "toolbar-palette",
+						Text:    "Commands",
+						Label:   "Open the Command Palette",
+						Size:    ui.SizeSmall,
+						Variant: ui.ButtonSecondary,
+						OnPress: func() {
+							ed.ToggleCommandPalette()
+						},
+					},
+					ui.Button{
 						TestID:  "toolbar-animate",
 						Text:    "Animate",
 						Label:   "Animate the selected object in a new clip",
@@ -450,6 +543,18 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 						},
 					},
 					ui.ToggleButton{
+						TestID: "toolbar-profiler",
+						Text:   "Profiler",
+						Label:  "Toggle the Profiler panel",
+						On: func() bool {
+							_ = rev.Get()
+							return ed.ProfilerOpen()
+						},
+						OnChange: func(on bool) {
+							ed.SetProfilerOpen(on)
+						},
+					},
+					ui.ToggleButton{
 						TestID: "toolbar-output",
 						Text:   "Output",
 						Label:  "Toggle the Output log panel",
@@ -476,86 +581,6 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 						OnChange: func(on bool) {
 							ed.SetRunStartAtOpenScene(on)
 						},
-					},
-					core.Show{
-						When: func() bool {
-							_ = rev.Get()
-							return ed.GameRunning()
-						},
-						Then: func(cx *core.Scope) core.Node {
-							return ui.Button{
-								TestID:  "toolbar-stop-game",
-								Text:    "Stop Game (Running)",
-								Label:   "Stop the running game (Shift+F5)",
-								Size:    ui.SizeSmall,
-								Variant: ui.ButtonDanger,
-								OnPress: func() {
-									ed.report(ed.StopGame())
-								},
-							}
-						},
-						Else: func(cx *core.Scope) core.Node {
-							return ui.Button{
-								TestID:  "toolbar-run",
-								Text:    "Run",
-								Label:   "Run the game with go tool game dev (F5)",
-								Size:    ui.SizeSmall,
-								Variant: ui.ButtonPrimary,
-								Disabled: func() bool {
-									_ = rev.Get()
-									return ed.Project == nil
-								},
-								OnPress: func() {
-									ed.report(ed.RunGame())
-								},
-							}
-						},
-					},
-					core.Show{
-						When: func() bool {
-							_ = rev.Get()
-							return ed.Playing()
-						},
-						Then: func(cx *core.Scope) core.Node {
-							return ui.Button{
-								TestID:  "toolbar-play",
-								Text:    "Stop",
-								Size:    ui.SizeSmall,
-								Variant: ui.ButtonPrimary,
-								OnPress: func() {
-									_ = ed.Stop()
-								},
-							}
-						},
-						Else: func(cx *core.Scope) core.Node {
-							return ui.Button{
-								TestID:  "toolbar-play",
-								Text:    "Play",
-								Size:    ui.SizeSmall,
-								Variant: ui.ButtonPrimary,
-								OnPress: func() {
-									_ = ed.Play()
-								},
-							}
-						},
-					},
-					ui.Button{
-						TestID:  "toolbar-palette",
-						Text:    "Commands",
-						Label:   "Open the Command Palette",
-						Size:    ui.SizeSmall,
-						Variant: ui.ButtonSecondary,
-						OnPress: func() {
-							ed.ToggleCommandPalette()
-						},
-					},
-					ui.Button{
-						TestID:   "toolbar-save",
-						Text:     "Save",
-						Size:     ui.SizeSmall,
-						Variant:  ui.ButtonOutline,
-						Disabled: notPlaying,
-						OnPress:  func() { ed.saveFromUI() },
 					},
 				},
 			},

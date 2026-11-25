@@ -40,6 +40,9 @@ func (*Overlay) Toggle() {}
 // RecordFrame is a no-op in release builds.
 func (*Overlay) RecordFrame(time.Duration, time.Duration, time.Duration) {}
 
+// NoteFrameCause is a no-op in release builds.
+func (*Overlay) NoteFrameCause(string) {}
+
 // WrapLoop is a no-op in release builds.
 func (*Overlay) WrapLoop(*game.Loop) {}
 

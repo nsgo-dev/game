@@ -266,6 +266,10 @@ type Editor struct {
 	AssetsCommandRunner func(ctx context.Context, spec AssetsBuildSpec, stdout, stderr io.Writer) error
 	// OnReloadAssets, when set, is called after ReloadAssets reloads changed atlases or textures from disk.
 	OnReloadAssets func(result ReloadAssetsResult)
+	// OnExportProfilerTrace is invoked by the Profiler panel's Export Trace button with the Chrome/Perfetto Trace Event Format JSON bytes; when nil the button opens a Save File dialog.
+	OnExportProfilerTrace func(data []byte) error
+	// ProfilerPollInterval configures how often the editor polls game_perf_readout and game_perf_zones while connected to a running game (defaults to 250ms when <= 0).
+	ProfilerPollInterval time.Duration
 
 	playing           bool
 	playSnapshot      []byte
@@ -362,6 +366,8 @@ type Editor struct {
 	canvasW, canvasH float32
 	// output holds the docked Output / Log panel history and filter state.
 	output outputPanelState
+	// profiler holds the live remote/play-mode performance telemetry, recorded frame timeline, zones table, and panel visibility.
+	profiler profilerState
 	// gameRun tracks the live `go tool game dev` child process started by RunGame / RunGameWith.
 	gameRun gameRunState
 	// drag2D is the 2D viewport's drag of an object or a gizmo handle in progress (BeginDrag2D).
@@ -476,6 +482,12 @@ func (e *Editor) AttachScope(cx *core.Scope) {
 	e.problems.setScope(cx)
 	e.gameRun.setScope(cx)
 	e.assetBuild.setScope(cx)
+	e.profiler.setScope(cx)
+	if cx != nil && e.ProfilerConnected() && !e.isPlayProfilerActive() {
+		e.startProfilerPoller()
+	} else if cx == nil {
+		e.stopProfilerPoller()
+	}
 }
 
 func (e *Editor) notify() {

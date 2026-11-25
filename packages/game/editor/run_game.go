@@ -273,7 +273,7 @@ func (e *Editor) WaitGame() error {
 	return err
 }
 
-// Close releases background resources owned by the editor, stopping any running game process, export build, clip playback, audio audition, or play-in-editor loop.
+// Close releases background resources owned by the editor, stopping any running game process, profiler client, export build, clip playback, audio audition, or play-in-editor loop.
 func (e *Editor) Close() error {
 	if e == nil {
 		return nil
@@ -286,8 +286,9 @@ func (e *Editor) Close() error {
 	if e.Playing() {
 		playErr = e.Stop()
 	}
+	profErr := e.DisconnectProfiler()
 	stopErr := e.StopGame()
-	return errors.Join(stopErr, playErr)
+	return errors.Join(stopErr, playErr, profErr)
 }
 
 func (e *Editor) openRunSceneRelPath() string {

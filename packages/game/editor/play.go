@@ -1,11 +1,14 @@
 package editor
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/nsgo-dev/game/packages/game"
+	"github.com/nsgo-dev/game/packages/game/debug"
+	"github.com/nsgo-dev/game/packages/game/mcp"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
 )
@@ -136,20 +139,48 @@ func (e *Editor) PlayIn(cx *core.Scope) error {
 	e.refreshClipPreview()
 	e.Status = "Playing"
 
+	playProf := debug.NewProfiler(300)
+	playProf.BeginFrame()
+	playGC := debug.NewGCMonitor(debug.FrameHistory)
+	playOverlay := debug.New(debug.Options{
+		Profiler: playProf,
+		GC:       playGC,
+	})
+	useLocalProfiler := !e.ProfilerConnected()
+	if useLocalProfiler {
+		bridge := mcp.New(mcp.Config{
+			Overlay:  playOverlay,
+			Profiler: playProf,
+			GC:       playGC,
+		})
+		e.attachProfilerClient(NewBridgeProfilerClient(bridge), true, "Play · live")
+	}
+
+	var updateCost time.Duration
+	var lastDrawEnd time.Time
+
 	loop := &game.Loop{
 		Rate: e.PlayRate,
 		Update: func(dt time.Duration) {
 			if !e.playing {
 				return
 			}
+			tStart := time.Now()
 			e.playSteps++
 			if e.playPhysics != nil && e.playPhysics.HasPhysics() {
+				tok := playProf.Begin("physics")
 				e.playPhysics.Step(dt)
+				playProf.End(tok)
 			}
 			// Animated tiles of the scene's tilemaps advance as they do in the game.
 			e.playScene.Update(dt)
 			if e.OnPlayUpdate != nil {
+				tok := playProf.Begin("update")
 				e.OnPlayUpdate(e.playScene, dt)
+				playProf.End(tok)
+			}
+			if elapsed := time.Since(tStart); elapsed > 0 {
+				updateCost += elapsed
 			}
 			e.notify()
 		},
@@ -157,15 +188,38 @@ func (e *Editor) PlayIn(cx *core.Scope) error {
 			if !e.playing {
 				return
 			}
+			tStart := time.Now()
 			e.playFrames++
 			if e.OnPlayDraw != nil {
+				tok := playProf.Begin("draw")
 				e.OnPlayDraw(e.playScene, alpha)
+				playProf.End(tok)
+			}
+			playProf.EndFrame()
+			playProf.BeginFrame()
+			drawEnd := time.Now()
+			drawCost := max(time.Duration(0), drawEnd.Sub(tStart))
+			total := updateCost + drawCost
+			if !lastDrawEnd.IsZero() {
+				if delta := drawEnd.Sub(lastDrawEnd); delta > total {
+					total = delta
+				}
+			}
+			lastDrawEnd = drawEnd
+			u := updateCost
+			updateCost = 0
+			playOverlay.RecordFrame(total, u, drawCost)
+			if e.isPlayProfilerActive() && (e.playFrames == 1 || e.playFrames%10 == 0) {
+				_ = e.PollProfiler(context.Background())
 			}
 			e.notify()
 		},
 	}
 	cx.Run(func() {
 		e.playStop = loop.Run(cx)
+		cx.Cleanup(func() {
+			e.detachPlayProfiler()
+		})
 	})
 	e.notify()
 	return nil
@@ -184,6 +238,7 @@ func (e *Editor) Stop() error {
 	e.playing = false
 	e.playScene = nil
 	e.playPhysics = nil
+	e.detachPlayProfiler()
 
 	snap := e.playSnapshot
 	e.playSnapshot = nil

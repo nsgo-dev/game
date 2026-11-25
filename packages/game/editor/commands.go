@@ -42,6 +42,7 @@ const (
 	CmdAudioMixer      = "project.mixer"
 	CmdLocalization    = "project.l10n"
 	CmdExport          = "project.export"
+	CmdProfiler        = "project.profiler"
 	CmdCheckProblems   = "project.check"
 	// The 3D viewport's axis views and projection: each axis view looks at the camera's Target along a world axis (SetView3D), and the orthographic command switches between perspective and orthographic (SetOrthographic3D).
 	CmdView3DFront        = "view.3d.front"
@@ -593,6 +594,19 @@ func (e *Editor) initBuiltinCommands() {
 			Checked:     func() bool { return e.ExportPanelOpen() },
 			Run: func() error {
 				e.SetExportPanelOpen(!e.ExportPanelOpen())
+				return nil
+			},
+		},
+		{
+			ID:          CmdProfiler,
+			Label:       "Profiler",
+			Description: "Toggle the Profiler panel for the running game",
+			Category:    "Project",
+			Keywords:    []string{"profiler", "perf", "performance", "fps", "frame", "zones", "trace", "memory", "gc", "panel"},
+			Shortcut:    "mod+shift+m",
+			Checked:     func() bool { return e.ProfilerOpen() },
+			Run: func() error {
+				e.SetProfilerOpen(!e.ProfilerOpen())
 				return nil
 			},
 		},

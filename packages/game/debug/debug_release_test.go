@@ -49,6 +49,8 @@ func TestReleaseBuildIsDisabledZeroCostStub(t *testing.T) {
 	}
 	dbg.SetVisible(true)
 	dbg.Toggle()
+	dbg.NoteFrameCause("shader compile")
+	dbg.RecordFrame(16*time.Millisecond, 4*time.Millisecond, 2*time.Millisecond)
 	if dbg.Visible() {
 		t.Fatal("Visible() became true after SetVisible/Toggle in release build")
 	}

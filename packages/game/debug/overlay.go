@@ -33,6 +33,7 @@ type Overlay struct {
 	lastAI       AISnapshot
 	drawStats    DrawStats
 	hasDrawStats bool
+	pendingCause string
 
 	attached  *core.Scope
 	visSig    *core.Signal[bool]
@@ -113,6 +114,14 @@ func (o *Overlay) Toggle() {
 	o.SetVisible(!o.visible)
 }
 
+// NoteFrameCause attaches a short explanation (for example "first use of torch_glow compiled its shader") to the next frame recorded by RecordFrame. Calling it with an empty string is a no-op; calling it again before RecordFrame replaces the pending cause.
+func (o *Overlay) NoteFrameCause(cause string) {
+	if o == nil || cause == "" {
+		return
+	}
+	o.pendingCause = cause
+}
+
 // RecordFrame records one frame's total, update and draw durations into the ring buffer, samples the attached GCMonitor (if any), and refreshes the visible overlay graph.
 func (o *Overlay) RecordFrame(total, update, draw time.Duration) {
 	if o == nil {
@@ -122,7 +131,9 @@ func (o *Overlay) RecordFrame(total, update, draw time.Duration) {
 	if o.opts.GC != nil {
 		gcHitch = o.opts.GC.SampleFrame(total).Hitched
 	}
-	o.stats.record(total, update, draw, gcHitch)
+	cause := o.pendingCause
+	o.pendingCause = ""
+	o.stats.recordWithCause(total, update, draw, gcHitch, cause)
 	if !o.visible {
 		return
 	}
@@ -275,6 +286,7 @@ func (o *Overlay) ResetStats() {
 	o.stats.Reset()
 	o.drawStats = DrawStats{}
 	o.hasDrawStats = false
+	o.pendingCause = ""
 	if o.visible {
 		o.frameTick++
 		if o.frameSig != nil {
