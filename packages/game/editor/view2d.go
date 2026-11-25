@@ -338,47 +338,21 @@ func (e *Editor) canvasToLayerFor(space sceneformat.Space, px, py, x, y float32)
 	return lx, ly
 }
 
-// repeatRanges2D computes the horizontal and vertical repeat tile indices covering the 2D view's visible bounds for a parallax layer.
-func repeatRanges2D(camX, camY, cw, ch, zoom, rot float32, repeatX, repeatY bool, repeatW, repeatH float32) (minCol, maxCol, minRow, maxRow int, rx, ry bool) {
-	if (!repeatX || repeatW <= 0) && (!repeatY || repeatH <= 0) {
-		return 0, 0, 0, 0, false, false
+// layerSpaceAndParallax returns the effective Space and parallax factors for layerName, preferring the resolved ActiveScene layer (so inherited layers use the base scene's or layerOverrides' settings) and falling back to e.Doc.Layers.
+func (e *Editor) layerSpaceAndParallax(layerName string) (sceneformat.Space, float32, float32) {
+	if e == nil {
+		return sceneformat.SpaceWorld, 1, 1
 	}
-	if zoom <= 0 {
-		zoom = 1
-	}
-	z := float64(zoom)
-	hw := math.Max(0, float64(cw)/2)
-	hh := math.Max(0, float64(ch)/2)
-	halfW, halfH := hw/z, hh/z
-	if rot != 0 {
-		sin, cos := math.Sincos(float64(rot))
-		acos, asin := math.Abs(cos), math.Abs(sin)
-		halfW = (hw*acos + hh*asin) / z
-		halfH = (hw*asin + hh*acos) / z
-	}
-	if repeatX && repeatW > 0 && halfW > 0 {
-		w := float64(repeatW)
-		minX := float64(camX) - halfW
-		maxX := float64(camX) + halfW
-		minCol = int(math.Floor(minX / w))
-		maxCol = int(math.Ceil(maxX/w)) - 1
-		if maxCol < minCol {
-			maxCol = minCol
+	if scene := e.ActiveScene(); scene != nil {
+		if bl := scene.Layer(layerName); bl != nil {
+			return bl.Space, bl.ParallaxX, bl.ParallaxY
 		}
-		rx = true
 	}
-	if repeatY && repeatH > 0 && halfH > 0 {
-		h := float64(repeatH)
-		minY := float64(camY) - halfH
-		maxY := float64(camY) + halfH
-		minRow = int(math.Floor(minY / h))
-		maxRow = int(math.Ceil(maxY/h)) - 1
-		if maxRow < minRow {
-			maxRow = minRow
-		}
-		ry = true
+	if li := e.layerIndex(layerName); li >= 0 {
+		ld := &e.Doc.Layers[li]
+		return ld.EffectiveSpace(), ld.EffectiveParallaxX(), ld.EffectiveParallaxY()
 	}
-	return minCol, maxCol, minRow, maxRow, rx, ry
+	return sceneformat.SpaceWorld, 1, 1
 }
 
 // strokeScale is how many canvas points one unit of m spans, which a hairline drawn under m divides its width by.

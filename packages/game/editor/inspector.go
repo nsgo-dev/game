@@ -291,10 +291,20 @@ func inspectorSchemaKey(ed *Editor) string {
 	}
 	obj, layer := ed.SelectedObject()
 	if obj == nil {
-		if ed.inspectLayer {
+		if ed != nil && ed.inspectLayer {
 			if li := ed.layerIndex(ed.ActiveLayer); li >= 0 {
 				l := &ed.Doc.Layers[li]
-				return "L:" + l.Name + ":" + string(l.EffectiveSpace())
+				space := l.EffectiveSpace()
+				inherited := ed.inheritedLayers()[l.Name]
+				if inherited {
+					if eff := ed.effectiveLayers(); len(eff) > 0 {
+						if i := slices.IndexFunc(eff, func(el sceneformat.LayerDoc) bool { return el.Name == l.Name }); i >= 0 {
+							space = eff[i].EffectiveSpace()
+						}
+					}
+					return "L:" + l.Name + ":" + string(space) + ":inherited"
+				}
+				return "L:" + l.Name + ":" + string(space)
 			}
 		}
 		if ed != nil && ed.Doc != nil {
@@ -453,8 +463,18 @@ func InspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 
 func layerInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], layerName string) core.Node {
 	colors := ui.ColorsOf(cx)
+	isInherited := func() bool {
+		_ = rev.Get()
+		return ed.inheritedLayers()[layerName]
+	}
 	layer := func() *sceneformat.LayerDoc {
 		_ = rev.Get()
+		if ed.inheritedLayers()[layerName] {
+			eff := ed.effectiveLayers()
+			if i := slices.IndexFunc(eff, func(el sceneformat.LayerDoc) bool { return el.Name == layerName }); i >= 0 {
+				return &eff[i]
+			}
+		}
 		if li := ed.layerIndex(layerName); li >= 0 {
 			return &ed.Doc.Layers[li]
 		}
@@ -466,7 +486,7 @@ func layerInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], la
 	}
 	disabled := func() bool {
 		_ = rev.Get()
-		return ed.Playing() || isScreen()
+		return ed.Playing() || isScreen() || isInherited()
 	}
 
 	sectionHeader := func(title string) core.Node {
@@ -503,8 +523,15 @@ func layerInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], la
 		}
 	}
 
+	inheritedNow := ed.inheritedLayers()[layerName]
 	spaceText := string(sceneformat.SpaceWorld)
-	if li := ed.layerIndex(layerName); li >= 0 {
+	if inheritedNow {
+		if eff := ed.effectiveLayers(); len(eff) > 0 {
+			if i := slices.IndexFunc(eff, func(el sceneformat.LayerDoc) bool { return el.Name == layerName }); i >= 0 {
+				spaceText = string(eff[i].EffectiveSpace())
+			}
+		}
+	} else if li := ed.layerIndex(layerName); li >= 0 {
 		spaceText = string(ed.Doc.Layers[li].EffectiveSpace())
 	}
 	formatFloat := func(v float64) string { return strconv.FormatFloat(v, 'g', -1, 64) }
@@ -667,6 +694,15 @@ func layerInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], la
 		nodes = append(nodes, core.Text{
 			TestID:  "inspector-layer-screen-note",
 			Content: "Screen-space layers ignore camera parallax and repeat.",
+			Style: core.Style{
+				FontSize: 11,
+				Color:    colors.Muted(),
+			},
+		})
+	} else if inheritedNow {
+		nodes = append(nodes, core.Text{
+			TestID:  "inspector-layer-inherited-note",
+			Content: "Inherited from base scene; edit parallax and repeat there or under layerOverrides.",
 			Style: core.Style{
 				FontSize: 11,
 				Color:    colors.Muted(),

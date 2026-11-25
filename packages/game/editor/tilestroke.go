@@ -464,11 +464,8 @@ func (e *Editor) drawTileHoverOverlay(d *core.Drawing) {
 	if err != nil {
 		return
 	}
-	space := sceneformat.SpaceWorld
-	if li := e.layerIndex(layer); li >= 0 {
-		space = e.Doc.Layers[li].EffectiveSpace()
-	}
-	m := e.layerAffine(space)
+	space, px, py := e.layerSpaceAndParallax(layer)
+	m := e.layerAffineFor(space, px, py)
 	x, y := float32(col*tm.TileWidth), float32(row*tm.TileHeight)
 	w, h := float32(tm.TileWidth), float32(tm.TileHeight)
 	mode := e.hoverMode()

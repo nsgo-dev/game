@@ -726,7 +726,7 @@ func (s *BuiltScene) drawWithCamera(d *core.Drawing, vw, vh float32, layer *Buil
 		pview.Y = pcamY
 		layerView = &pview
 	}
-	minCol, maxCol, minRow, maxRow, rx, ry := repeatRanges(pcamX, pcamY, vw, vh, zoom, cam.Rotation, layer.RepeatX, layer.RepeatY, layer.RepeatWidth, layer.RepeatHeight)
+	minCol, maxCol, minRow, maxRow, rx, ry := layer.RepeatTileRanges(pcamX, pcamY, vw, vh, zoom, cam.Rotation)
 
 	// Identity camera without repeat needs no Save/Restore wrapper.
 	if zoom == 1 && cam.Rotation == 0 && cx-pcamX == 0 && cy-pcamY == 0 && !rx && !ry {
@@ -787,12 +787,55 @@ func (s *BuiltScene) drawWithCamera(d *core.Drawing, vw, vh float32, layer *Buil
 	d.Restore()
 }
 
-// repeatRanges computes the tile column and row ranges that cover the visible bounds of a camera at (camX, camY) with viewport (vw, vh), zoom and rotation, matching scene.Layer's repeat tiling.
-func repeatRanges(camX, camY, vw, vh, zoom, rot float32, repeatX, repeatY bool, repeatW, repeatH float32) (minCol, maxCol, minRow, maxRow int, rx, ry bool) {
-	if (!repeatX || repeatW <= 0) && (!repeatY || repeatH <= 0) {
+const (
+	// maxRepeatIndex keeps repeat tile indices exact in float32 and safely inside signed 32-bit int on all architectures.
+	maxRepeatIndex = 1 << 24
+	// maxRepeatPerAxis bounds repeat draws along a single axis when repeat periods are tiny or zoom is extreme.
+	maxRepeatPerAxis = 256
+	// maxRepeatTotal bounds total 2D repeat draws (cols * rows) so a tiny 2D repeat period cannot stall rendering.
+	maxRepeatTotal = 4096
+)
+
+func repeatAxisRange(cam, half, period float64, limit int) (lo, hi int, ok bool) {
+	if !isFinite64(cam) || !isFinite64(half) || !isFinite64(period) || period <= 0 || half <= 0 || limit <= 0 {
+		return 0, 0, false
+	}
+	loF := math.Floor((cam - half) / period)
+	hiF := math.Ceil((cam+half)/period) - 1
+	if !isFinite64(loF) || !isFinite64(hiF) {
+		return 0, 0, false
+	}
+	if hiF < loF {
+		hiF = loF
+	}
+	if hiF-loF >= float64(limit) {
+		center := math.Floor(cam / period)
+		if !isFinite64(center) {
+			return 0, 0, false
+		}
+		loF = center - float64(limit/2)
+		hiF = loF + float64(limit-1)
+	}
+	if loF < -maxRepeatIndex || hiF > maxRepeatIndex {
+		return 0, 0, false
+	}
+	return int(loF), int(hiF), true
+}
+
+// RepeatTileRanges computes the tile column and row ranges covering the visible bounds of a camera at (camX, camY) with viewport (vw, vh), zoom and rotation, matching scene.Layer's repeat tiling while guarding non-finite inputs, integer overflow, and extreme repeat counts.
+func (l *BuiltLayer) RepeatTileRanges(camX, camY, vw, vh, zoom, rot float32) (minCol, maxCol, minRow, maxRow int, rx, ry bool) {
+	if l == nil {
 		return 0, 0, 0, 0, false, false
 	}
-	if zoom <= 0 {
+	repeatX := l.RepeatX && isFinite(l.RepeatWidth) && l.RepeatWidth > 0
+	repeatY := l.RepeatY && isFinite(l.RepeatHeight) && l.RepeatHeight > 0
+	if !repeatX && !repeatY {
+		return 0, 0, 0, 0, false, false
+	}
+	if !isFinite(camX) || !isFinite(camY) || !isFinite(vw) || !isFinite(vh) || !isFinite(rot) {
+		return 0, 0, 0, 0, false, false
+	}
+	if !isFinite(zoom) || zoom <= 0 {
 		zoom = 1
 	}
 	z := float64(zoom)
@@ -805,27 +848,30 @@ func repeatRanges(camX, camY, vw, vh, zoom, rot float32, repeatX, repeatY bool, 
 		halfW = (hw*acos + hh*asin) / z
 		halfH = (hw*asin + hh*acos) / z
 	}
-	if repeatX && repeatW > 0 && halfW > 0 {
-		w := float64(repeatW)
-		minX := float64(camX) - halfW
-		maxX := float64(camX) + halfW
-		minCol = int(math.Floor(minX / w))
-		maxCol = int(math.Ceil(maxX/w)) - 1
-		if maxCol < minCol {
-			maxCol = minCol
-		}
-		rx = true
+	if repeatX {
+		minCol, maxCol, rx = repeatAxisRange(float64(camX), halfW, float64(l.RepeatWidth), maxRepeatPerAxis)
 	}
-	if repeatY && repeatH > 0 && halfH > 0 {
-		h := float64(repeatH)
-		minY := float64(camY) - halfH
-		maxY := float64(camY) + halfH
-		minRow = int(math.Floor(minY / h))
-		maxRow = int(math.Ceil(maxY/h)) - 1
-		if maxRow < minRow {
-			maxRow = minRow
+	if repeatY {
+		minRow, maxRow, ry = repeatAxisRange(float64(camY), halfH, float64(l.RepeatHeight), maxRepeatPerAxis)
+	}
+	if rx && ry {
+		cols := maxCol - minCol + 1
+		rows := maxRow - minRow + 1
+		if cols*rows > maxRepeatTotal {
+			const max2DAxis = 64 // 64*64 == maxRepeatTotal
+			if cols > max2DAxis {
+				c := (minCol + maxCol) / 2
+				minCol = c - max2DAxis/2
+				maxCol = minCol + max2DAxis - 1
+				cols = max2DAxis
+			}
+			maxRows := max(1, maxRepeatTotal/cols)
+			if rows > maxRows {
+				c := (minRow + maxRow) / 2
+				minRow = c - maxRows/2
+				maxRow = minRow + maxRows - 1
+			}
 		}
-		ry = true
 	}
 	return minCol, maxCol, minRow, maxRow, rx, ry
 }

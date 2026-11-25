@@ -144,13 +144,7 @@ func (e *Editor) CanvasToTile(layer string, canvasX, canvasY float32) (col, row 
 	if err != nil {
 		return 0, 0, false
 	}
-	space := sceneformat.SpaceWorld
-	var px, py float32 = 1, 1
-	if li := e.layerIndex(layerName); li >= 0 {
-		ld := &e.Doc.Layers[li]
-		space = ld.EffectiveSpace()
-		px, py = ld.EffectiveParallaxX(), ld.EffectiveParallaxY()
-	}
+	space, px, py := e.layerSpaceAndParallax(layerName)
 	lx, ly := e.canvasToLayerFor(space, px, py, canvasX, canvasY)
 	if lx < 0 || ly < 0 || tm.TileWidth <= 0 || tm.TileHeight <= 0 {
 		return 0, 0, false
@@ -308,17 +302,17 @@ func (e *Editor) pressActiveLayer(x, y float32) {
 }
 
 func (e *Editor) layerCoordsForActive(x, y float32) (float32, float32) {
-	if li := e.layerIndex(e.ActiveLayer); li >= 0 {
-		ld := &e.Doc.Layers[li]
-		return e.canvasToLayerFor(ld.EffectiveSpace(), ld.EffectiveParallaxX(), ld.EffectiveParallaxY(), x, y)
+	if e.layerIndex(e.ActiveLayer) >= 0 {
+		space, px, py := e.layerSpaceAndParallax(e.ActiveLayer)
+		return e.canvasToLayerFor(space, px, py, x, y)
 	}
 	return e.CanvasToWorld(x, y)
 }
 
 func (e *Editor) layerCoordsForSelected(x, y float32) (float32, float32) {
 	if _, li, _ := e.FindObject(e.SelectedID); li >= 0 {
-		ld := &e.Doc.Layers[li]
-		return e.canvasToLayerFor(ld.EffectiveSpace(), ld.EffectiveParallaxX(), ld.EffectiveParallaxY(), x, y)
+		space, px, py := e.layerSpaceAndParallax(e.Doc.Layers[li].Name)
+		return e.canvasToLayerFor(space, px, py, x, y)
 	}
 	return e.CanvasToWorld(x, y)
 }
@@ -456,13 +450,7 @@ func (e *Editor) drawTileGridOverlay(d *core.Drawing) {
 	if err != nil || tm == nil {
 		return
 	}
-	space := sceneformat.SpaceWorld
-	var px, py float32 = 1, 1
-	if li := e.layerIndex(layerName); li >= 0 {
-		ld := &e.Doc.Layers[li]
-		space = ld.EffectiveSpace()
-		px, py = ld.EffectiveParallaxX(), ld.EffectiveParallaxY()
-	}
+	space, px, py := e.layerSpaceAndParallax(layerName)
 	m := e.layerAffineFor(space, px, py)
 	d.Save()
 	applyAffine(d, m)
@@ -512,16 +500,15 @@ func (e *Editor) drawEditScene(d *core.Drawing, scene *sceneformat.BuiltScene) {
 		if !layer.Visible {
 			continue
 		}
-		if layer.Tilemap == nil && len(layer.Batches) == 0 {
+		if layer.Tilemap == nil && layer.Map == nil && len(layer.Batches) == 0 {
 			continue
 		}
 		m := e.layerAffineFor(layer.Space, layer.ParallaxX, layer.ParallaxY)
 		d.Save()
 		applyAffine(d, m)
 		if layer.Space == sceneformat.SpaceWorld && (layer.RepeatX || layer.RepeatY) {
-			minCol, maxCol, minRow, maxRow, rx, ry := repeatRanges2D(
+			minCol, maxCol, minRow, maxRow, rx, ry := layer.RepeatTileRanges(
 				v.X*layer.ParallaxX, v.Y*layer.ParallaxY, cw, ch, v.Zoom, v.Rotation,
-				layer.RepeatX, layer.RepeatY, layer.RepeatWidth, layer.RepeatHeight,
 			)
 			if !rx && !ry {
 				drawBuiltLayer(d, layer)
@@ -560,6 +547,9 @@ func (e *Editor) drawEditScene(d *core.Drawing, scene *sceneformat.BuiltScene) {
 func drawBuiltLayer(d *core.Drawing, layer *sceneformat.BuiltLayer) {
 	if layer.Tilemap != nil {
 		layer.Tilemap.Draw(d)
+	}
+	if layer.Map != nil {
+		layer.Map.Draw(d, nil)
 	}
 	for _, b := range layer.Batches {
 		b.Draw(d)

@@ -319,6 +319,8 @@ type Editor struct {
 	hover tileHover
 	// inspectAssetFile prefers the selected asset's import settings in InspectorView over SelectedID after selecting an asset in FilesView.
 	inspectAssetFile bool
+	// inspectLayer prefers ActiveLayer's parallax/repeat settings in InspectorView over Scene Settings when no object or asset file is selected (set by SetActiveLayer, cleared by SelectObject or opening a scene).
+	inspectLayer bool
 	// importRev bumps whenever an asset's *.import.yaml sidecar is written, removed, undone, or redone so InspectorView resyncs text drafts.
 	importRev uint64
 	// assetBuild tracks asynchronous `go tool game assets` builds and last-loaded output hashes for live atlas/texture reloading.
@@ -522,7 +524,10 @@ func (e *Editor) SetActiveLayer(name string) bool {
 	if name != e.ActiveLayer {
 		e.endTileStrokeForChange()
 	}
+	e.CancelCameraDrag()
 	e.ActiveLayer = name
+	e.inspectAssetFile = false
+	e.inspectLayer = true
 	e.keepTileInPalette()
 	e.notify()
 	return true
@@ -664,6 +669,7 @@ func (e *Editor) openYAMLWithLayers(data []byte, file string, layers *sceneforma
 	e.sceneSaved = saved
 	e.SelectedID = ""
 	e.inspectAssetFile = false
+	e.inspectLayer = false
 	e.connPick = nil
 	// Another scene opens at its own camera's view.
 	e.view2DFree = false
@@ -815,9 +821,10 @@ func (e *Editor) Redo() bool {
 // Returns true if selection succeeded (or cleared).
 func (e *Editor) SelectObject(id string) bool {
 	if id == "" {
-		if e.SelectedID != "" || e.inspectAssetFile || e.connPick != nil {
+		if e.SelectedID != "" || e.inspectAssetFile || e.inspectLayer || e.connPick != nil {
 			e.SelectedID = ""
 			e.inspectAssetFile = false
+			e.inspectLayer = false
 			e.connPick = nil
 			e.notify()
 		}
@@ -826,10 +833,11 @@ func (e *Editor) SelectObject(id string) bool {
 	if obj, _, _ := e.FindObject(id); obj == nil {
 		return false
 	}
-	if e.SelectedID != id || e.inspectAssetFile || e.connPick != nil {
+	if e.SelectedID != id || e.inspectAssetFile || e.inspectLayer || e.connPick != nil {
 		e.CancelCameraDrag()
 		e.SelectedID = id
 		e.inspectAssetFile = false
+		e.inspectLayer = false
 		e.connPick = nil
 		e.Status = "Selected " + id
 		e.notify()

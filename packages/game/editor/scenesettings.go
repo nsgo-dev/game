@@ -75,10 +75,13 @@ func (e *Editor) cancelBackgroundPreview() {
 }
 
 // ShowingSceneSettings reports whether the inspector is showing the open scene's own
-// settings (a scene document is loaded, no object is selected, and no asset file's import
-// settings are being inspected).
+// settings (a scene document is loaded, no object or layer is selected for inspection,
+// and no asset file's import settings are being inspected).
 func (e *Editor) ShowingSceneSettings() bool {
 	if e == nil || e.Doc == nil || e.SelectedID != "" {
+		return false
+	}
+	if e.inspectLayer && e.layerIndex(e.ActiveLayer) >= 0 {
 		return false
 	}
 	rel, _ := e.inspectedImportAsset()

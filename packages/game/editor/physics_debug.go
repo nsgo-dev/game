@@ -51,7 +51,11 @@ func (e *Editor) drawPhysicsDebug2D(d *core.Drawing, scene *sceneformat.BuiltSce
 		}
 
 		d.Save()
-		applyAffine(d, e.layerAffine(layer.Space))
+		if e.playing && scene.Camera == nil {
+			applyAffine(d, e.layerAffine(layer.Space))
+		} else {
+			applyAffine(d, e.layerAffineFor(layer.Space, layer.ParallaxX, layer.ParallaxY))
+		}
 		for _, item := range shapes {
 			drawPhysicsShape2D(d, item)
 		}
