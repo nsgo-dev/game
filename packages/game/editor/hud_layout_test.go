@@ -2,6 +2,8 @@ package editor_test
 
 import (
 	"bytes"
+	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -718,5 +720,242 @@ func TestHUDLayoutEmptyErrorAndEditorIntegration(t *testing.T) {
 	}
 	if !ed.HUDLayoutOpen() || ed.HUDActiveScreenPath() != "screens/hud.screen.yaml" {
 		t.Fatalf("OpenProblem did not open hud screen: open=%v path=%q", ed.HUDLayoutOpen(), ed.HUDActiveScreenPath())
+	}
+}
+
+func TestHUDLayoutRefusesPathTraversalAndSymlinkEscape(t *testing.T) {
+	projDir := makeHUDFixtureProject(t)
+	outsideDir := t.TempDir()
+	outsideScreen := filepath.Join(outsideDir, "secret.screen.yaml")
+	outsideBytes, err := gameui.EncodeScreen(&gameui.ScreenDoc{
+		Version:      gameui.ScreenFormatVersion,
+		Name:         "secret",
+		DesignWidth:  640,
+		DesignHeight: 360,
+		Nodes:        []gameui.ScreenNodeDoc{{ID: "secret_lbl", Type: gameui.NodeLabel, Width: 100, Height: 20, TextKey: "hud.coins"}},
+	})
+	if err != nil {
+		t.Fatalf("EncodeScreen: %v", err)
+	}
+	if err := os.WriteFile(outsideScreen, outsideBytes, 0o644); err != nil {
+		t.Fatalf("WriteFile outsideScreen: %v", err)
+	}
+	outsideLocale := filepath.Join(outsideDir, "xx.yaml")
+	if err := os.WriteFile(outsideLocale, []byte("version: 1\nlocale: xx\nstrings:\n  secret: leaked\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile outsideLocale: %v", err)
+	}
+
+	linkScreen := filepath.Join(projDir, "screens", "escape.screen.yaml")
+	if err := os.Symlink(outsideScreen, linkScreen); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	linkLocale := filepath.Join(projDir, "locales", "xx.yaml")
+	if err := os.Symlink(outsideLocale, linkLocale); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	ed := newTestEditor(t)
+	if err := ed.OpenProject(projDir); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+
+	// Scan must skip symlinked screens and locales escaping the project root.
+	for _, sc := range ed.HUDScreens() {
+		if strings.Contains(sc.Path, "escape") {
+			t.Fatalf("RefreshHUDScreens included escaping symlink screen %q", sc.Path)
+		}
+	}
+	for _, loc := range ed.HUDLocales() {
+		if loc == "xx" {
+			t.Fatal("RefreshHUDScreens loaded escaping symlink locale xx")
+		}
+	}
+
+	// Direct OpenHUDScreen must refuse path traversal and symlink escapes.
+	relEscape, err := filepath.Rel(projDir, outsideScreen)
+	if err == nil {
+		if err := ed.OpenHUDScreen(filepath.ToSlash(relEscape)); err == nil {
+			t.Fatalf("expected OpenHUDScreen(%q) to refuse path traversal", relEscape)
+		}
+	}
+	if err := ed.OpenHUDScreen(outsideScreen); err == nil {
+		t.Fatal("expected OpenHUDScreen(abs) to refuse absolute path")
+	}
+	if err := ed.OpenHUDScreen("screens/escape.screen.yaml"); err == nil {
+		t.Fatal("expected OpenHUDScreen to refuse symlink escaping project root")
+	}
+}
+
+func TestHUDLayoutCrossFileUndoIsolationAndDemoReset(t *testing.T) {
+	dirA := t.TempDir()
+	dirB := t.TempDir()
+	fileA := filepath.Join(dirA, "hud.screen.yaml")
+	fileB := filepath.Join(dirB, "hud.screen.yaml")
+
+	docA := &gameui.ScreenDoc{
+		Version:      gameui.ScreenFormatVersion,
+		Name:         "hud",
+		DesignWidth:  640,
+		DesignHeight: 360,
+		Nodes:        []gameui.ScreenNodeDoc{{ID: "node_a", Type: gameui.NodeLabel, Anchor: gameui.AnchorTopLeft, Width: 80, Height: 20, TextKey: "a"}},
+	}
+	docB := &gameui.ScreenDoc{
+		Version:      gameui.ScreenFormatVersion,
+		Name:         "hud",
+		DesignWidth:  640,
+		DesignHeight: 360,
+		Nodes:        []gameui.ScreenNodeDoc{{ID: "node_b", Type: gameui.NodeLabel, Anchor: gameui.AnchorBottomRight, Width: 90, Height: 24, TextKey: "b"}},
+	}
+	rawA, _ := gameui.EncodeScreen(docA)
+	rawB, _ := gameui.EncodeScreen(docB)
+	if err := os.WriteFile(fileA, rawA, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fileB, rawB, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ed := newTestEditor(t)
+	if err := ed.OpenHUDScreenFile(fileA); err != nil {
+		t.Fatalf("OpenHUDScreenFile A: %v", err)
+	}
+	if err := ed.SetHUDNodeAnchor("node_a", gameui.AnchorTopRight); err != nil {
+		t.Fatalf("SetHUDNodeAnchor on A: %v", err)
+	}
+	editedA, _ := os.ReadFile(fileA)
+
+	// Switch to standalone fileB (which shares the base name "hud.screen.yaml").
+	if err := ed.OpenHUDScreenFile(fileB); err != nil {
+		t.Fatalf("OpenHUDScreenFile B: %v", err)
+	}
+
+	// Undo/Redo of fileA's command must not overwrite fileB in memory or fileA on disk.
+	ed.Undo()
+	if got := ed.HUDActiveScreen(); got == nil || len(got.Nodes) != 1 || got.Nodes[0].ID != "node_b" {
+		t.Fatalf("Undo after switching standalone screen files corrupted screen B: %+v", got)
+	}
+	if diskA, _ := os.ReadFile(fileA); !bytes.Equal(diskA, editedA) {
+		t.Fatal("stale cross-session Undo rewrote previous standalone fileA on disk")
+	}
+	ed.Redo()
+	if got := ed.HUDActiveScreen(); got == nil || len(got.Nodes) != 1 || got.Nodes[0].ID != "node_b" {
+		t.Fatalf("Redo after switching standalone screen files corrupted screen B: %+v", got)
+	}
+
+	// OpenDemo must reset HUD layout state and close the HUD layout screen.
+	projDir := makeHUDFixtureProject(t)
+	if err := ed.OpenProject(projDir); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+	if err := ed.OpenHUDScreen("screens/hud.screen.yaml"); err != nil {
+		t.Fatalf("OpenHUDScreen: %v", err)
+	}
+	if err := ed.OpenDemo(); err != nil {
+		t.Fatalf("OpenDemo: %v", err)
+	}
+	if ed.HUDLayoutOpen() {
+		t.Fatal("expected OpenDemo to close HUDLayoutOpen")
+	}
+	if len(ed.HUDScreens()) != 0 {
+		t.Fatalf("expected OpenDemo to clear project HUD screens, got %d", len(ed.HUDScreens()))
+	}
+}
+
+func TestHUDLayoutPlayModeCancelsDragClosesScreenAndGuardsEdits(t *testing.T) {
+	dir := makeHUDFixtureProject(t)
+	ed := newTestEditor(t)
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+	if err := ed.OpenHUDScreen("screens/hud.screen.yaml"); err != nil {
+		t.Fatalf("OpenHUDScreen: %v", err)
+	}
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1440, 900))
+	app.Settle()
+
+	frames := ed.HUDLayoutFrames(848, 812)
+	jb := frames[0].Built.Widget("jump").Bounds()
+	startX := frames[0].X + (float32(jb.Origin.X)+float32(jb.Size.Width)/2)*frames[0].Scale
+	startY := frames[0].Y + (float32(jb.Origin.Y)+float32(jb.Size.Height)/2)*frames[0].Scale
+	if !ed.BeginHUDTouchDrag(startX, startY, 848, 812) {
+		t.Fatal("BeginHUDTouchDrag failed")
+	}
+
+	// Entering Play mode while HUD layout & drag are active must cancel the drag and exit HUD layout.
+	app.Post(func() {
+		if err := ed.Play(); err != nil {
+			t.Errorf("Play: %v", err)
+		}
+	})
+	app.Settle()
+
+	if !ed.Playing() {
+		t.Fatal("expected Playing() == true")
+	}
+	if ed.HUDTouchDragActive() {
+		t.Fatal("expected Play() to cancel active HUD touch drag")
+	}
+	if ed.HUDLayoutOpen() || app.Exists("id:hud-layout-screen") {
+		t.Fatal("expected Play() to close HUDLayoutView so playing viewport is visible")
+	}
+
+	// Opening HUD screens or mutating during Play is refused.
+	ed.SetHUDLayoutOpen(true)
+	if ed.HUDLayoutOpen() {
+		t.Fatal("SetHUDLayoutOpen(true) should be ignored while playing")
+	}
+	if err := ed.OpenHUDScreen("screens/pause.screen.yaml"); !errors.Is(err, editor.ErrPlaying) {
+		t.Fatalf("OpenHUDScreen during Play = %v, want ErrPlaying", err)
+	}
+	if err := ed.OpenHUDScreenFile(filepath.Join(dir, "screens", "pause.screen.yaml")); !errors.Is(err, editor.ErrPlaying) {
+		t.Fatalf("OpenHUDScreenFile during Play = %v, want ErrPlaying", err)
+	}
+	if err := ed.OpenHUDScreenDoc("mem", ed.HUDActiveScreen(), nil); !errors.Is(err, editor.ErrPlaying) {
+		t.Fatalf("OpenHUDScreenDoc during Play = %v, want ErrPlaying", err)
+	}
+
+	app.Post(func() { _ = ed.Stop() })
+	app.Settle()
+}
+
+func TestHUDLayoutNonFiniteInputsAndOverflowSafeFormatting(t *testing.T) {
+	dir := makeHUDFixtureProject(t)
+	ed := newTestEditor(t)
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+	if err := ed.OpenHUDScreen("screens/hud.screen.yaml"); err != nil {
+		t.Fatalf("OpenHUDScreen: %v", err)
+	}
+
+	frames := ed.HUDLayoutFrames(float32(math.NaN()), float32(math.Inf(1)))
+	if len(frames) != 4 {
+		t.Fatalf("HUDLayoutFrames(NaN, +Inf) returned %d frames, want 4", len(frames))
+	}
+	for _, fr := range frames {
+		if math.IsNaN(float64(fr.X)) || math.IsInf(float64(fr.X), 0) || math.IsNaN(float64(fr.W)) || math.IsInf(float64(fr.W), 0) {
+			t.Fatalf("non-finite frame geometry from HUDLayoutFrames: %+v", fr)
+		}
+	}
+
+	jb := frames[0].Built.Widget("jump").Bounds()
+	startX := frames[0].X + (float32(jb.Origin.X)+float32(jb.Size.Width)/2)*frames[0].Scale
+	startY := frames[0].Y + (float32(jb.Origin.Y)+float32(jb.Size.Height)/2)*frames[0].Scale
+	if !ed.BeginHUDTouchDrag(startX, startY, 848, 812) {
+		t.Fatal("BeginHUDTouchDrag failed")
+	}
+	if ed.UpdateHUDTouchDrag(float32(math.NaN()), float32(math.Inf(-1))) {
+		t.Fatal("UpdateHUDTouchDrag accepted non-finite coordinates")
+	}
+	ed.CancelHUDTouchDrag()
+
+	if err := ed.SetHUDNodeOffset("hint", float32(math.NaN()), 0); err == nil {
+		t.Fatal("SetHUDNodeOffset accepted NaN")
+	}
+	if err := ed.SetHUDNodeSpacing("status", float32(math.Inf(1))); err == nil {
+		t.Fatal("SetHUDNodeSpacing accepted +Inf")
 	}
 }

@@ -188,6 +188,8 @@ func (e *Editor) OpenDemo() error {
 	e.dropStaleFocusedPluginPanel()
 	e.syncAudioMixer()
 	e.resetExportPanelForProject()
+	e.resetHUDForProject()
+	e.hud.open = false
 
 	e.Doc = DemoSceneDoc()
 	e.Resolver = DemoAtlasMap()
