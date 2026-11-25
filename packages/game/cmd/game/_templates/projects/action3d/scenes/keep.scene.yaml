@@ -1,0 +1,175 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/scene.v1.json
+version: 1
+uid: xytq0b09ymm4j
+name: Keep
+backgroundColor: '#1e293b'
+layers:
+  - name: ground
+    objects:
+      - id: floor
+        "y": -0.5
+        scaleX: 26
+        scaleZ: 34
+        components:
+          block:
+            color: '#57534e'
+      - id: wall_north
+        "y": 2
+        posZ: -17.5
+        scaleX: 27
+        scaleY: 4
+        components:
+          block:
+            color: '#78716c'
+      - id: wall_south
+        "y": 2
+        posZ: 17.5
+        scaleX: 27
+        scaleY: 4
+        components:
+          block:
+            color: '#78716c'
+      - id: wall_west
+        x: -13.5
+        "y": 2
+        scaleY: 4
+        scaleZ: 34
+        components:
+          block:
+            color: '#78716c'
+      - id: wall_east
+        x: 13.5
+        "y": 2
+        scaleY: 4
+        scaleZ: 34
+        components:
+          block:
+            color: '#78716c'
+      - id: gate_west
+        x: -7.25
+        "y": 1.5
+        posZ: -5
+        scaleX: 11.5
+        scaleY: 3
+        components:
+          block:
+            color: '#a8a29e'
+      - id: gate_east
+        x: 7.25
+        "y": 1.5
+        posZ: -5
+        scaleX: 11.5
+        scaleY: 3
+        components:
+          block:
+            color: '#a8a29e'
+      - id: ledge
+        x: 8
+        "y": 0.4
+        posZ: 3
+        scaleX: 5
+        scaleY: 0.8
+        scaleZ: 5
+        components:
+          block:
+            color: '#a8a29e'
+      - id: pillar_1
+        x: -6
+        "y": 1.5
+        posZ: 8
+        scaleX: 1.2
+        scaleY: 3
+        scaleZ: 1.2
+        components:
+          block: {}
+      - id: pillar_2
+        x: -6
+        "y": 1.5
+        posZ: 1
+        scaleX: 1.2
+        scaleY: 3
+        scaleZ: 1.2
+        components:
+          block: {}
+      - id: altar
+        "y": 0.15
+        posZ: -13
+        scaleX: 2.4
+        scaleY: 0.3
+        scaleZ: 2.4
+        components:
+          block:
+            color: '#a8a29e'
+  - name: props
+    objects:
+      - id: key
+        x: 8
+        "y": 1.4
+        posZ: 3
+        components:
+          key: {}
+      - id: door
+        "y": 1.5
+        posZ: -5
+        scaleX: 3
+        scaleY: 3
+        scaleZ: 0.6
+        components:
+          door: {}
+      - id: goal
+        "y": 0.3
+        posZ: -13
+        components:
+          goal: {}
+  - name: actors
+    objects:
+      - id: hero
+        posZ: 10
+        components:
+          spawn: {}
+      - id: guard_1
+        x: 4
+        components:
+          enemy: {}
+      - id: guard_2
+        x: 10
+        posZ: 8.5
+        components:
+          enemy: {}
+      - id: warden
+        x: 3
+        posZ: -10
+        components:
+          enemy: {}
+  - name: lights
+    objects:
+      - id: lamp_gate
+        "y": 3.5
+        posZ: 10
+        components:
+          lamp:
+            color: '#ffd8a8'
+            intensity: 14
+            range: 14
+      - id: lamp_ledge
+        x: 8
+        "y": 3.5
+        posZ: 3
+        components:
+          lamp:
+            color: '#fde68a'
+            intensity: 10
+            range: 9
+      - id: lamp_goal
+        "y": 3
+        posZ: -13
+        components:
+          lamp:
+            color: '#67e8f9'
+            intensity: 12
+            range: 12
+connections:
+  - from: key
+    event: collected
+    to: door
+    handler: unlock
