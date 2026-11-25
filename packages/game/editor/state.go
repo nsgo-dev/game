@@ -217,6 +217,8 @@ type Editor struct {
 	table      *dataTableState
 	tableTypes *datatable.Registry
 
+	// l10n holds the open localization string tables edited by the Localization panel, or nil when closed.
+	l10n       *localizationState
 	components *sceneformat.ComponentRegistry
 	// plugins are the registered plugins in registration order, and pluginTool the plugin tool chosen while Tool is ToolPlugin.
 	plugins      []*Plugin

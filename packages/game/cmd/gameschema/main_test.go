@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nsgo-dev/game/packages/game/l10n"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/game/packages/game/tooling/jsonschema"
 	"github.com/nsgo-dev/game/packages/game/voxel"
@@ -323,5 +324,51 @@ func TestVoxelSchemaShapeAndValidation(t *testing.T) {
 	}
 	if err := s.ValidateYAML([]byte("version: 1\nchunkSize: 16\nunknownKey: true\n")); err == nil {
 		t.Fatal("voxel schema accepted unknown top-level key")
+	}
+}
+
+func TestL10nSchemaShapeAndValidation(t *testing.T) {
+	s := schemaAt(t, l10n.SchemaURL)
+	if s.Schema != jsonschema.Draft07 || s.ID != l10n.SchemaURL {
+		t.Fatalf("$schema %q, $id %q", s.Schema, s.ID)
+	}
+	if version := s.Property("version"); version == nil || version.Const != int64(l10n.StringTableVersion) {
+		t.Fatalf("version property = %+v", version)
+	}
+	if b, ok := s.AdditionalProperties.Boolean(); !ok || b {
+		t.Fatal("l10n schema accepts unknown top-level keys")
+	}
+	def := s.Definitions["PluralForms"]
+	if def == nil || def.Description == "" {
+		t.Fatalf("definition PluralForms = %+v, want one with a description", def)
+	}
+	if b, ok := def.AdditionalProperties.Boolean(); !ok || b {
+		t.Fatal("PluralForms accepts unknown plural categories")
+	}
+	for _, p := range def.Properties {
+		if p.Schema.Description == "" {
+			t.Errorf("PluralForms.%s has no description", p.Name)
+		}
+	}
+
+	data, err := l10n.EncodeYAML(&l10n.StringTable{
+		Version: l10n.StringTableVersion,
+		Locale:  "en",
+		Strings: map[string]string{"menu.play": "Play"},
+		Plurals: map[string]l10n.PluralForms{
+			"coins": {Zero: "No coins", One: "{count} coin", Other: "{count} coins"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ValidateYAML(data); err != nil {
+		t.Fatalf("l10n schema refused EncodeYAML output: %v\n%s", err, data)
+	}
+	if err := s.ValidateYAML([]byte("version: 1\nlocale: en\nunknownKey: true\n")); err == nil {
+		t.Fatal("l10n schema accepted unknown top-level key")
+	}
+	if err := s.ValidateYAML([]byte("version: 1\nlocale: en\nplurals:\n  coins:\n    singular: 1\n    other: n\n")); err == nil {
+		t.Fatal("l10n schema accepted unknown plural category")
 	}
 }

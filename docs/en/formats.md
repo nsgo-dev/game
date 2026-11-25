@@ -143,6 +143,28 @@ groups:
     - voice/intro.wav
 ```
 
+<!-- format: l10n#strings -->
+### Localization string table (YAML)
+
+| Files | Version | Read and written by | Fields |
+| --- | --- | --- | --- |
+| One `.yaml` file per locale, such as `locales/en.yaml` | `version: 1` | `l10n.ParseYAML`, `l10n.EncodeYAML`, `l10n.Catalog.LoadYAML` | [l10n](l10n.md) |
+
+```yaml
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/l10n.v1.json
+version: 1
+locale: en
+strings:
+  hud.score: 'Score: {score}'
+  menu.play: Play
+  menu.quit: Quit
+plurals:
+  coins:
+    zero: No coins
+    one: '{count} coin'
+    other: '{count} coins'
+```
+
 <!-- format: modding -->
 ### Mod manifest
 

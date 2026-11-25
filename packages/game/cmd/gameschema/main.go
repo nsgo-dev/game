@@ -16,6 +16,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/nsgo-dev/game/packages/game/l10n"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/game/packages/game/tooling/importsettings"
 	"github.com/nsgo-dev/game/packages/game/tooling/jsonschema"
@@ -85,6 +86,13 @@ var formats = []format{
 		typ:     reflect.TypeFor[voxel.WorldDoc](),
 		pkg:     "voxel",
 		version: voxel.FormatVersion,
+	},
+	{
+		url:     l10n.SchemaURL,
+		title:   "NSGo game localization string table (version 1)",
+		typ:     reflect.TypeFor[l10n.StringTable](),
+		pkg:     "l10n",
+		version: l10n.StringTableVersion,
 	},
 }
 

@@ -143,6 +143,28 @@ groups:
     - voice/intro.wav
 ```
 
+<!-- format: l10n#strings -->
+### 本地化字符串表（YAML）
+
+| 文件 | 版本 | 读写函数 | 字段 |
+| --- | --- | --- | --- |
+| 每种语言一个 `.yaml` 文件，如 `locales/en.yaml` | `version: 1` | `l10n.ParseYAML`、`l10n.EncodeYAML`、`l10n.Catalog.LoadYAML` | [l10n](l10n.md) |
+
+```yaml
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/l10n.v1.json
+version: 1
+locale: en
+strings:
+  hud.score: 'Score: {score}'
+  menu.play: Play
+  menu.quit: Quit
+plurals:
+  coins:
+    zero: No coins
+    one: '{count} coin'
+    other: '{count} coins'
+```
+
 <!-- format: modding -->
 ### 模组清单
 

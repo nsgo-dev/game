@@ -60,6 +60,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 			DataTablePanelView(cx, ed, rev),
 			AnimationPanelView(cx, ed, rev),
 			AudioMixerPanelView(cx, ed, rev),
+			LocalizationPanelView(cx, ed, rev),
 			statusBarView(cx, ed, rev),
 		},
 	}
@@ -287,6 +288,22 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 						},
 						OnChange: func(on bool) {
 							ed.SetAudioMixerOpen(on)
+						},
+					},
+					ui.ToggleButton{
+						TestID:   "toolbar-l10n",
+						Text:     "Strings",
+						Disabled: notPlaying,
+						On: func() bool {
+							_ = rev.Get()
+							return ed.LocalizationOpen()
+						},
+						OnChange: func(on bool) {
+							if on {
+								ed.report(ed.openDefaultLocalizations())
+							} else {
+								ed.report(ed.CloseLocalizations())
+							}
 						},
 					},
 					core.Show{

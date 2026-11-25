@@ -29,12 +29,18 @@ func Param(name string, value any) Arg {
 // PluralForms holds localized message templates keyed by CLDR plural category.
 // Any unset category falls back to Other (or One if Other is empty).
 type PluralForms struct {
-	Zero  string
-	One   string
-	Two   string
-	Few   string
-	Many  string
-	Other string
+	// Zero is the template used when count is 0 (if provided) or matches the CLDR zero category.
+	Zero string `yaml:"zero,omitempty"`
+	// One is the template used for the CLDR one plural category.
+	One string `yaml:"one,omitempty"`
+	// Two is the template used for the CLDR two plural category.
+	Two string `yaml:"two,omitempty"`
+	// Few is the template used for the CLDR few plural category.
+	Few string `yaml:"few,omitempty"`
+	// Many is the template used for the CLDR many plural category.
+	Many string `yaml:"many,omitempty"`
+	// Other is the default fallback template for pluralization.
+	Other string `yaml:"other,omitempty"`
 }
 
 // entry stores either a plain string or plural forms for a catalog key.
