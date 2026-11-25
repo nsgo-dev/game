@@ -106,7 +106,7 @@ func splitConvexPoly2D(poly []vec2, a, b vec2) (left, right []vec2) {
 	}
 	hasPos, hasNeg := false, false
 	for i, p := range poly {
-		d := (p.x-a.x)*nx + (p.y-a.y)*ny
+		d := float64((p.x-a.x)*nx) + float64((p.y-a.y)*ny)
 		dists[i] = d
 		if d > tiledSplitEps {
 			hasPos = true
@@ -152,8 +152,8 @@ func splitConvexPoly2D(poly []vec2, a, b vec2) (left, right []vec2) {
 		if (s0 > 0 && s1 < 0) || (s0 < 0 && s1 > 0) {
 			t := d0 / (d0 - d1)
 			mid := vec2{
-				x: p0.x + (p1.x-p0.x)*t,
-				y: p0.y + (p1.y-p0.y)*t,
+				x: p0.x + float64((p1.x-p0.x)*t),
+				y: p0.y + float64((p1.y-p0.y)*t),
 			}
 			left = append(left, mid)
 			right = append(right, mid)
@@ -341,8 +341,9 @@ func offsetConvexPoly2D(poly []vec2, margin float64) []vec2 {
 	}
 	n := len(poly)
 	type offsetEdge struct {
-		p0, p1 vec2
-		nx, ny float64
+		p0, p1    vec2
+		origStart vec2
+		nx, ny    float64
 	}
 	edges := make([]offsetEdge, 0, n)
 	for i := range n {
@@ -356,10 +357,11 @@ func offsetConvexPoly2D(poly []vec2, margin float64) []vec2 {
 		// Outward unit normal for CCW edge a->b is (d.y/l, -d.x/l).
 		nx, ny := d.y/l, -d.x/l
 		edges = append(edges, offsetEdge{
-			p0: vec2{a.x + nx*margin, a.y + ny*margin},
-			p1: vec2{b.x + nx*margin, b.y + ny*margin},
-			nx: nx,
-			ny: ny,
+			p0:        vec2{a.x + nx*margin, a.y + ny*margin},
+			p1:        vec2{b.x + nx*margin, b.y + ny*margin},
+			origStart: a,
+			nx:        nx,
+			ny:        ny,
 		})
 	}
 	m := len(edges)
@@ -375,7 +377,7 @@ func offsetConvexPoly2D(poly []vec2, margin float64) []vec2 {
 		if dot < 0.0 {
 			// Bevel at the midpoint normal direction at distance margin from the original vertex.
 			out = append(out, e0.p1)
-			v := poly[i]
+			v := e1.origStart
 			bx, by := e0.nx+e1.nx, e0.ny+e1.ny
 			bl := math.Hypot(bx, by)
 			if bl > 1e-9 {

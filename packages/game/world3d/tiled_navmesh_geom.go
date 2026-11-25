@@ -363,8 +363,9 @@ func offsetConvexPolyXZ(poly []vec2XZ, margin float64) []vec2XZ {
 	}
 	n := len(poly)
 	type offsetEdge struct {
-		p0, p1 vec2XZ
-		nx, nz float64
+		p0, p1    vec2XZ
+		origStart vec2XZ
+		nx, nz    float64
 	}
 	edges := make([]offsetEdge, 0, n)
 	for i := range n {
@@ -378,10 +379,11 @@ func offsetConvexPolyXZ(poly []vec2XZ, margin float64) []vec2XZ {
 		// Outward unit normal for CCW-from-+Y edge a->b is (-dz/l, dx/l).
 		nx, nz := -dz/l, dx/l
 		edges = append(edges, offsetEdge{
-			p0: vec2XZ{a.x + nx*margin, a.z + nz*margin},
-			p1: vec2XZ{b.x + nx*margin, b.z + nz*margin},
-			nx: nx,
-			nz: nz,
+			p0:        vec2XZ{a.x + nx*margin, a.z + nz*margin},
+			p1:        vec2XZ{b.x + nx*margin, b.z + nz*margin},
+			origStart: a,
+			nx:        nx,
+			nz:        nz,
 		})
 	}
 	m := len(edges)
@@ -395,7 +397,7 @@ func offsetConvexPolyXZ(poly []vec2XZ, margin float64) []vec2XZ {
 		dot := e0.nx*e1.nx + e0.nz*e1.nz
 		if dot < 0.0 {
 			out = append(out, e0.p1)
-			v := poly[i]
+			v := e1.origStart
 			bx, bz := e0.nx+e1.nx, e0.nz+e1.nz
 			bl := math.Hypot(bx, bz)
 			if bl > 1e-9 {
@@ -695,7 +697,7 @@ func (pl plane3D) heightAt(x, z float64) float32 {
 	if math.Abs(float64(pl.normal.Y)) < 1e-7 {
 		return 0
 	}
-	return float32(-(float64(pl.normal.X)*x + float64(pl.normal.Z)*z + float64(pl.planeD)) / float64(pl.normal.Y))
+	return float32(-(float64(float64(pl.normal.X)*x) + float64(float64(pl.normal.Z)*z) + float64(pl.planeD)) / float64(pl.normal.Y))
 }
 
 func samePlane3D(a, b plane3D) bool {

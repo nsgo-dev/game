@@ -350,6 +350,8 @@ func (m *Mesh) TiledNavMesh(tileSize float32) *world3d.TiledNavMesh {
 		}
 	}
 	tm := world3d.BuildTiledNavMesh(polys, math.Pi/2, tileSize)
-	tm.VerticalTolerance = max(m.Agent.Height, m.Agent.MaxClimb)
+	if vtol := max(m.Agent.Height, m.Agent.MaxClimb); vtol > 0 {
+		tm.VerticalTolerance = vtol
+	}
 	return tm
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"math"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -469,5 +470,83 @@ func BenchmarkTiledNavMesh3DFindPath(b *testing.B) {
 		if _, ok := tm.FindPath(start, goal); !ok {
 			b.Fatal("FindPath missed")
 		}
+	}
+}
+
+func TestTiledNavMesh3DConcurrentNearestPolygonRaceFree(t *testing.T) {
+	tm := buildLargeTiledMesh3D(6, 32)
+	var wg sync.WaitGroup
+	for g := range 8 {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for i := range 32 {
+				q := v3(float32(-20+id*25+i), 0, float32(-10+i*6))
+				if _, _, ok := tm.NearestPolygon(q); !ok {
+					t.Errorf("goroutine %d: NearestPolygon(%v) failed", id, q)
+					return
+				}
+			}
+		}(g)
+	}
+	wg.Wait()
+}
+
+func TestTiledNavMesh3DRaycastDiagonalCornerBridge(t *testing.T) {
+	// 2x2 grid of 16x16 tiles meeting at corner (16, 0, 16).
+	tm := world3d.BuildTiledNavMesh([][]math3d.Vec3{tiledQuadXZ(0, 0, 32, 32, 0)}, math.Pi/4, 16)
+	hit, blocked := tm.Raycast(v3(2, 0, 2), v3(30, 0, 30))
+	if blocked || hit.Hit {
+		t.Fatalf("diagonal 3D raycast across 4-tile corner (16,0,16) falsely blocked: %+v", hit)
+	}
+}
+
+func TestTiledNavMesh3DSlopedRampIgnoresFloatingObstacle(t *testing.T) {
+	// Sloped ramp rising linearly from y=0 at x=0 to y=10 at x=20 (slope ~26.6 deg < 45 deg).
+	ramp := []math3d.Vec3{
+		v3(0, 0, 0),
+		v3(0, 0, 8),
+		v3(20, 10, 8),
+		v3(20, 10, 0),
+	}
+	tm := world3d.BuildTiledNavMesh([][]math3d.Vec3{ramp}, math.Pi/4, 32)
+	// Place a floating box at X in [2,6], Y in [7,10] — well above the ramp surface Y in [1,3] there,
+	// even though its Y span overlaps the ramp polygon's overall AABB Y in [0,10].
+	if _, ok := tm.AddObstacle(world3d.NavBoxObstacle(v3(2, 7, 1), v3(6, 10, 7))); !ok {
+		t.Fatal("AddObstacle failed")
+	}
+	// Surface at (4, 2, 4) directly beneath the floating box must remain walkable and uncarved.
+	if !tm.Contains(v3(4, 2, 4)) {
+		t.Fatal("floating obstacle above low end of sloped ramp falsely carved the ramp")
+	}
+	path, ok := tm.FindPath(v3(1, 0.5, 4), v3(19, 9.5, 4))
+	if !ok || len(path) != 2 {
+		t.Fatalf("expected direct uncarved path up ramp, got ok=%v path=%v", ok, path)
+	}
+}
+
+func TestTiledNavMesh3DTightenRespectsCheapRoadAndOversizedObstacleSafe(t *testing.T) {
+	polys := []world3d.NavPolygonInput{
+		{Vertices: tiledQuadXZ(0, 0, 32, 10, 0), Area: world3d.NavAreaRoad, Flags: world3d.NavFlagWalk},
+		{Vertices: tiledQuadXZ(22, 10, 32, 32, 0), Area: world3d.NavAreaRoad, Flags: world3d.NavFlagWalk},
+		{Vertices: tiledQuadXZ(0, 22, 22, 32, 0), Area: world3d.NavAreaRoad, Flags: world3d.NavFlagWalk},
+		{Vertices: tiledQuadXZ(0, 10, 22, 22, 0), Area: world3d.NavAreaDefault, Flags: world3d.NavFlagWalk},
+	}
+	tm := world3d.BuildTiledNavMeshWithAreas(polys, math.Pi/4, 16)
+	filter := world3d.DefaultNavFilter()
+	filter.SetAreaCost(world3d.NavAreaRoad, 0.2)
+
+	res := tm.FindPathWithFilterAndOptions(v3(4, 0, 5), v3(4, 0, 27), filter, ai.PathOptions{})
+	if !res.Found {
+		t.Fatal("expected 3D path along cheap road")
+	}
+	if len(res.Path) <= 2 {
+		t.Fatalf("tightenTiledPath3D erroneously shortcut across higher-cost implicit NavAreaDefault: %v", res.Path)
+	}
+	if id, ok := tm.AddObstacle(world3d.NavBoxObstacle(v3(-1e9, -10, -1e9), v3(1e9, 10, 1e9))); ok || id != 0 {
+		t.Fatalf("AddObstacle accepted oversized 3D box: id=%d ok=%v", id, ok)
+	}
+	if tm.ObstacleCount() != 0 {
+		t.Fatalf("ObstacleCount = %d after rejected obstacle, want 0", tm.ObstacleCount())
 	}
 }

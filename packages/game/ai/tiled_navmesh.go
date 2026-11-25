@@ -3,11 +3,41 @@ package ai
 import (
 	"math"
 	"slices"
+	"sync"
+	"sync/atomic"
 
 	"github.com/nsgo-dev/nsgo/core"
 )
 
-const defaultNavTileSize2D float32 = 64
+const (
+	defaultNavTileSize2D  float32 = 64
+	minNavTileCoord2D     int32   = math.MinInt32 + 1
+	maxNavTileCoord2D     int32   = math.MaxInt32 - 1
+	maxNavObstacleTiles2D int64   = 65536
+)
+
+func clampTileCoord2D(v float64) int32 {
+	if math.IsNaN(v) {
+		return 0
+	}
+	f := math.Floor(v)
+	if f <= float64(minNavTileCoord2D) {
+		return minNavTileCoord2D
+	}
+	if f >= float64(maxNavTileCoord2D) {
+		return maxNavTileCoord2D
+	}
+	return int32(f)
+}
+
+func neighborCoord2D(c, dir NavTileCoord) (NavTileCoord, bool) {
+	nx := int64(c.X) + int64(dir.X)
+	ny := int64(c.Y) + int64(dir.Y)
+	if nx < math.MinInt32 || nx > math.MaxInt32 || ny < math.MinInt32 || ny > math.MaxInt32 {
+		return NavTileCoord{}, false
+	}
+	return NavTileCoord{X: int32(nx), Y: int32(ny)}, true
+}
 
 // NavTileCoord identifies a fixed-size tile in a 2D TiledNavMesh.
 type NavTileCoord struct {
@@ -220,10 +250,10 @@ func BakeNavTile(coord NavTileCoord, tileSize float32, origin core.Point, polys 
 	if math.IsNaN(oy) || math.IsInf(oy, 0) {
 		oy = 0
 	}
-	minX := ox + float64(coord.X)*ts
-	maxX := ox + float64(coord.X+1)*ts
-	minY := oy + float64(coord.Y)*ts
-	maxY := oy + float64(coord.Y+1)*ts
+	minX := ox + float64(float64(coord.X)*ts)
+	maxX := ox + float64((float64(coord.X)+1)*ts)
+	minY := oy + float64(float64(coord.Y)*ts)
+	maxY := oy + float64((float64(coord.Y)+1)*ts)
 
 	tile := &NavTile{
 		coord:    coord,
@@ -413,7 +443,8 @@ type TiledNavMesh struct {
 	polyCount    int
 
 	// Coarse tile BVH for fast unbounded NearestPolygon / large-extent queries.
-	tileBVHDirty bool
+	tileBVHMu    sync.Mutex
+	tileBVHDirty atomic.Bool
 	tileBVHNodes []navBVHNode2D
 	tileBVHOrder []*navTileSlot2D
 
@@ -505,9 +536,9 @@ func BuildTiledNavMeshWithAreas(polys []NavPolygonInput, tileSize float32) *Tile
 			continue
 		}
 		tx0, ty0, tx1, ty1 := tm.tileRangeForAABB(minX, minY, maxX, maxY)
-		for tx := tx0; tx <= tx1; tx++ {
-			for ty := ty0; ty <= ty1; ty++ {
-				c := NavTileCoord{X: tx, Y: ty}
+		for tx := int64(tx0); tx <= int64(tx1); tx++ {
+			for ty := int64(ty0); ty <= int64(ty1); ty++ {
+				c := NavTileCoord{X: int32(tx), Y: int32(ty)}
 				if _, exists := perTile[c]; !exists {
 					coords = append(coords, c)
 				}
@@ -548,8 +579,8 @@ func (tm *TiledNavMesh) TileCoordAt(p core.Point) NavTileCoord {
 		return NavTileCoord{}
 	}
 	return NavTileCoord{
-		X: int32(math.Floor((float64(p.X) - tm.originX) / tm.tileSize)),
-		Y: int32(math.Floor((float64(p.Y) - tm.originY) / tm.tileSize)),
+		X: clampTileCoord2D((float64(p.X) - tm.originX) / tm.tileSize),
+		Y: clampTileCoord2D((float64(p.Y) - tm.originY) / tm.tileSize),
 	}
 }
 
@@ -564,16 +595,16 @@ func (tm *TiledNavMesh) TileBounds(coord NavTileCoord) (minPt, maxPt core.Point)
 }
 
 func (tm *TiledNavMesh) tileBounds64(coord NavTileCoord) (minX, minY, maxX, maxY float64) {
-	minX = tm.originX + float64(coord.X)*tm.tileSize
-	maxX = tm.originX + float64(coord.X+1)*tm.tileSize
-	minY = tm.originY + float64(coord.Y)*tm.tileSize
-	maxY = tm.originY + float64(coord.Y+1)*tm.tileSize
+	minX = tm.originX + float64(float64(coord.X)*tm.tileSize)
+	maxX = tm.originX + float64((float64(coord.X)+1)*tm.tileSize)
+	minY = tm.originY + float64(float64(coord.Y)*tm.tileSize)
+	maxY = tm.originY + float64((float64(coord.Y)+1)*tm.tileSize)
 	return
 }
 
 func (tm *TiledNavMesh) tileRangeForAABB(minX, minY, maxX, maxY float64) (tx0, ty0, tx1, ty1 int32) {
-	tx0 = int32(math.Floor((minX - tm.originX) / tm.tileSize))
-	ty0 = int32(math.Floor((minY - tm.originY) / tm.tileSize))
+	tx0 = clampTileCoord2D((minX - tm.originX) / tm.tileSize)
+	ty0 = clampTileCoord2D((minY - tm.originY) / tm.tileSize)
 	adjMaxX := maxX
 	if maxX > minX+tiledSplitEps {
 		adjMaxX = maxX - tiledSplitEps
@@ -582,8 +613,8 @@ func (tm *TiledNavMesh) tileRangeForAABB(minX, minY, maxX, maxY float64) (tx0, t
 	if maxY > minY+tiledSplitEps {
 		adjMaxY = maxY - tiledSplitEps
 	}
-	tx1 = int32(math.Floor((adjMaxX - tm.originX) / tm.tileSize))
-	ty1 = int32(math.Floor((adjMaxY - tm.originY) / tm.tileSize))
+	tx1 = clampTileCoord2D((adjMaxX - tm.originX) / tm.tileSize)
+	ty1 = clampTileCoord2D((adjMaxY - tm.originY) / tm.tileSize)
 	if tx1 < tx0 {
 		tx1 = tx0
 	}
@@ -724,7 +755,7 @@ func (tm *TiledNavMesh) RemoveTile(coord NavTileCoord) bool {
 	delete(tm.tiles, coord)
 	tm.slots[slot.slotID] = nil
 	tm.freeSlots = append(tm.freeSlots, slot.slotID)
-	tm.tileBVHDirty = true
+	tm.tileBVHDirty.Store(true)
 
 	tm.revision++
 	tm.tileVersions[coord]++
@@ -813,7 +844,7 @@ func (tm *TiledNavMesh) installTile(coord NavTileCoord, tile *NavTile, kind NavT
 		}
 		tm.slots[slotID] = slot
 		tm.tiles[coord] = slot
-		tm.tileBVHDirty = true
+		tm.tileBVHDirty.Store(true)
 	}
 	slot.base = baseCopy
 
@@ -986,7 +1017,7 @@ func (tm *TiledNavMesh) rebuildSlot(slot *navTileSlot2D) {
 
 	// 6. Link across borders with existing cardinal neighbor tiles.
 	tm.linkNeighborsOf(slot)
-	tm.tileBVHDirty = true
+	tm.tileBVHDirty.Store(true)
 }
 
 func polyBounds2D(verts []vec2) (minX, minY, maxX, maxY float64) {
@@ -1031,7 +1062,11 @@ func mergeTilePolys2D(polys []basePoly2D) []basePoly2D {
 // unlinkNeighborsOf removes all cross-tile portals pointing into slot from its 4 cardinal neighbors.
 func (tm *TiledNavMesh) unlinkNeighborsOf(slot *navTileSlot2D) {
 	for _, dir := range tileDir2D {
-		nb := tm.tiles[NavTileCoord{X: slot.coord.X + dir.X, Y: slot.coord.Y + dir.Y}]
+		nc, ok := neighborCoord2D(slot.coord, dir)
+		if !ok {
+			continue
+		}
+		nb := tm.tiles[nc]
 		if nb == nil {
 			continue
 		}
@@ -1067,7 +1102,11 @@ func (s *navTileSlot2D) removePortalsTo(targetSlot int32) {
 
 func (tm *TiledNavMesh) linkNeighborsOf(slot *navTileSlot2D) {
 	for d, dir := range tileDir2D {
-		nb := tm.tiles[NavTileCoord{X: slot.coord.X + dir.X, Y: slot.coord.Y + dir.Y}]
+		nc, ok := neighborCoord2D(slot.coord, dir)
+		if !ok {
+			continue
+		}
+		nb := tm.tiles[nc]
 		if nb == nil {
 			continue
 		}
@@ -1187,9 +1226,12 @@ func (tm *TiledNavMesh) AddObstacle(obs NavObstacle) (NavObstacleID, bool) {
 	if !ok {
 		return 0, false
 	}
+	touched, ok := tm.coordsForObstacleAABB(minX, minY, maxX, maxY)
+	if !ok {
+		return 0, false
+	}
 	tm.nextObstacleID++
 	id := tm.nextObstacleID
-	touched := tm.coordsForObstacleAABB(minX, minY, maxX, maxY)
 	entry := &obstacleEntry2D{
 		id:      id,
 		obs:     obs,
@@ -1222,11 +1264,14 @@ func (tm *TiledNavMesh) UpdateObstacle(id NavObstacleID, obs NavObstacle) bool {
 	if !ok {
 		return false
 	}
+	newTiles, ok := tm.coordsForObstacleAABB(minX, minY, maxX, maxY)
+	if !ok {
+		return false
+	}
 	oldTiles := old.tiles
 	for _, c := range oldTiles {
 		tm.removeTileObstacleRef(c, id)
 	}
-	newTiles := tm.coordsForObstacleAABB(minX, minY, maxX, maxY)
 	old.obs = obs
 	old.cutters = cutters
 	old.minX, old.minY, old.maxX, old.maxY = minX, minY, maxX, maxY
@@ -1285,15 +1330,47 @@ func (tm *TiledNavMesh) ObstacleCount() int {
 	return len(tm.obstacles)
 }
 
-func (tm *TiledNavMesh) coordsForObstacleAABB(minX, minY, maxX, maxY float64) []NavTileCoord {
-	tx0, ty0, tx1, ty1 := tm.tileRangeForAABB(minX, minY, maxX, maxY)
-	out := make([]NavTileCoord, 0, int(tx1-tx0+1)*int(ty1-ty0+1))
+func (tm *TiledNavMesh) coordsForObstacleAABB(minX, minY, maxX, maxY float64) ([]NavTileCoord, bool) {
+	if math.IsNaN(minX) || math.IsInf(minX, 0) || math.IsNaN(minY) || math.IsInf(minY, 0) ||
+		math.IsNaN(maxX) || math.IsInf(maxX, 0) || math.IsNaN(maxY) || math.IsInf(maxY, 0) {
+		return nil, false
+	}
+	fMinX := math.Floor((minX - tm.originX) / tm.tileSize)
+	fMinY := math.Floor((minY - tm.originY) / tm.tileSize)
+	adjMaxX := maxX
+	if maxX > minX+tiledSplitEps {
+		adjMaxX = maxX - tiledSplitEps
+	}
+	adjMaxY := maxY
+	if maxY > minY+tiledSplitEps {
+		adjMaxY = maxY - tiledSplitEps
+	}
+	fMaxX := math.Floor((adjMaxX - tm.originX) / tm.tileSize)
+	fMaxY := math.Floor((adjMaxY - tm.originY) / tm.tileSize)
+	if fMaxX < fMinX {
+		fMaxX = fMinX
+	}
+	if fMaxY < fMinY {
+		fMaxY = fMinY
+	}
+	if fMinX < float64(minNavTileCoord2D) || fMaxX > float64(maxNavTileCoord2D) ||
+		fMinY < float64(minNavTileCoord2D) || fMaxY > float64(maxNavTileCoord2D) {
+		return nil, false
+	}
+	spanX := int64(fMaxX) - int64(fMinX) + 1
+	spanY := int64(fMaxY) - int64(fMinY) + 1
+	if spanX <= 0 || spanY <= 0 || spanX > maxNavObstacleTiles2D || spanY > maxNavObstacleTiles2D || spanX*spanY > maxNavObstacleTiles2D {
+		return nil, false
+	}
+	tx0, ty0 := int64(fMinX), int64(fMinY)
+	tx1, ty1 := int64(fMaxX), int64(fMaxY)
+	out := make([]NavTileCoord, 0, int(spanX*spanY))
 	for tx := tx0; tx <= tx1; tx++ {
 		for ty := ty0; ty <= ty1; ty++ {
-			out = append(out, NavTileCoord{X: tx, Y: ty})
+			out = append(out, NavTileCoord{X: int32(tx), Y: int32(ty)})
 		}
 	}
-	return out
+	return out, true
 }
 
 func (tm *TiledNavMesh) addTileObstacleRef(coord NavTileCoord, id NavObstacleID) {
@@ -1562,13 +1639,13 @@ func (tm *TiledNavMesh) Neighbors(ref NavPolyRef) []NavPolyRef {
 // sorted deterministically by NavTileCoord.
 func (tm *TiledNavMesh) candidateTilesAtPoint(v vec2, buf []NavTileCoord) []NavTileCoord {
 	buf = buf[:0]
-	tx0 := int32(math.Floor((v.x - portalEps - tm.originX) / tm.tileSize))
-	tx1 := int32(math.Floor((v.x + portalEps - tm.originX) / tm.tileSize))
-	ty0 := int32(math.Floor((v.y - portalEps - tm.originY) / tm.tileSize))
-	ty1 := int32(math.Floor((v.y + portalEps - tm.originY) / tm.tileSize))
-	for tx := tx0; tx <= tx1; tx++ {
-		for ty := ty0; ty <= ty1; ty++ {
-			buf = append(buf, NavTileCoord{X: tx, Y: ty})
+	tx0 := clampTileCoord2D((v.x - portalEps - tm.originX) / tm.tileSize)
+	tx1 := clampTileCoord2D((v.x + portalEps - tm.originX) / tm.tileSize)
+	ty0 := clampTileCoord2D((v.y - portalEps - tm.originY) / tm.tileSize)
+	ty1 := clampTileCoord2D((v.y + portalEps - tm.originY) / tm.tileSize)
+	for tx := int64(tx0); tx <= int64(tx1); tx++ {
+		for ty := int64(ty0); ty <= int64(ty1); ty++ {
+			buf = append(buf, NavTileCoord{X: int32(tx), Y: int32(ty)})
 		}
 	}
 	return buf
@@ -1615,36 +1692,42 @@ func (tm *TiledNavMesh) ContainsWithFilter(p core.Point, filter NavFilter) bool 
 }
 
 func (tm *TiledNavMesh) ensureTileBVH() {
-	if !tm.tileBVHDirty {
+	if !tm.tileBVHDirty.Load() {
 		return
 	}
-	tm.tileBVHDirty = false
-	tm.tileBVHOrder = tm.tileBVHOrder[:0]
+	tm.tileBVHMu.Lock()
+	defer tm.tileBVHMu.Unlock()
+	if !tm.tileBVHDirty.Load() {
+		return
+	}
+	order := make([]*navTileSlot2D, 0, len(tm.tiles))
 	for _, slot := range tm.tiles {
 		if slot != nil && slot.hasBounds {
-			tm.tileBVHOrder = append(tm.tileBVHOrder, slot)
+			order = append(order, slot)
 		}
 	}
-	if len(tm.tileBVHOrder) == 0 {
-		tm.tileBVHNodes = tm.tileBVHNodes[:0]
+	if len(order) == 0 {
+		tm.tileBVHOrder = nil
+		tm.tileBVHNodes = nil
+		tm.tileBVHDirty.Store(false)
 		return
 	}
-	slices.SortFunc(tm.tileBVHOrder, func(a, b *navTileSlot2D) int {
+	slices.SortFunc(order, func(a, b *navTileSlot2D) int {
 		return compareNavTileCoord2D(a.coord, b.coord)
 	})
-	n := len(tm.tileBVHOrder)
-	tm.tileBVHNodes = make([]navBVHNode2D, 0, max(1, (2*n)/navBVHLeafSize+4))
+	n := len(order)
+	nodes := make([]navBVHNode2D, 0, max(1, (2*n)/navBVHLeafSize+4))
 	var build func(start, end, depth int) int32
 	build = func(start, end, depth int) int32 {
-		nodeIdx := int32(len(tm.tileBVHNodes))
-		tm.tileBVHNodes = append(tm.tileBVHNodes, navBVHNode2D{})
+		nodeIdx := int32(len(nodes))
+		nodes = append(nodes, navBVHNode2D{})
 
-		s0 := tm.tileBVHOrder[start]
+		s0 := order[start]
 		minX, minY, maxX, maxY := s0.polyMinX, s0.polyMinY, s0.polyMaxX, s0.polyMaxY
 		cMinX, cMinY := 0.5*(s0.polyMinX+s0.polyMaxX), 0.5*(s0.polyMinY+s0.polyMaxY)
 		cMaxX, cMaxY := cMinX, cMinY
 		for i := start + 1; i < end; i++ {
-			s := tm.tileBVHOrder[i]
+			s := order[i]
 			minX = min(minX, s.polyMinX)
 			minY = min(minY, s.polyMinY)
 			maxX = max(maxX, s.polyMaxX)
@@ -1659,7 +1742,7 @@ func (tm *TiledNavMesh) ensureTileBVH() {
 
 		count := end - start
 		if count <= navBVHLeafSize || depth >= 56 {
-			tm.tileBVHNodes[nodeIdx] = navBVHNode2D{
+			nodes[nodeIdx] = navBVHNode2D{
 				minX:  minX,
 				minY:  minY,
 				maxX:  maxX,
@@ -1671,7 +1754,7 @@ func (tm *TiledNavMesh) ensureTileBVH() {
 		}
 
 		splitY := (cMaxY - cMinY) > (cMaxX - cMinX)
-		sub := tm.tileBVHOrder[start:end]
+		sub := order[start:end]
 		if splitY {
 			slices.SortFunc(sub, func(a, b *navTileSlot2D) int {
 				ca := 0.5 * (a.polyMinY + a.polyMaxY)
@@ -1700,7 +1783,7 @@ func (tm *TiledNavMesh) ensureTileBVH() {
 		mid := start + count/2
 		leftIdx := build(start, mid, depth+1)
 		rightIdx := build(mid, end, depth+1)
-		tm.tileBVHNodes[nodeIdx] = navBVHNode2D{
+		nodes[nodeIdx] = navBVHNode2D{
 			minX:  minX,
 			minY:  minY,
 			maxX:  maxX,
@@ -1711,6 +1794,9 @@ func (tm *TiledNavMesh) ensureTileBVH() {
 		return nodeIdx
 	}
 	build(0, n, 0)
+	tm.tileBVHOrder = order
+	tm.tileBVHNodes = nodes
+	tm.tileBVHDirty.Store(false)
 }
 
 // NearestPolygon returns the polygon closest to p and the closest point on or inside it,
@@ -1798,19 +1884,24 @@ func (tm *TiledNavMesh) nearestPolyInternal(v, ext vec2, useExtent bool, filter 
 
 	// Fast path for bounded queries covering only a small number of grid tiles.
 	if useExtent {
-		tx0 := int32(math.Floor((bMinX - tm.originX) / tm.tileSize))
-		tx1 := int32(math.Floor((bMaxX - tm.originX) / tm.tileSize))
-		ty0 := int32(math.Floor((bMinY - tm.originY) / tm.tileSize))
-		ty1 := int32(math.Floor((bMaxY - tm.originY) / tm.tileSize))
-		spanX := int64(tx1) - int64(tx0) + 1
-		spanY := int64(ty1) - int64(ty0) + 1
-		if spanX > 0 && spanY > 0 && spanX*spanY <= 64 && spanX*spanY <= int64(len(tm.tiles))*2 {
-			for tx := tx0; tx <= tx1; tx++ {
-				for ty := ty0; ty <= ty1; ty++ {
-					considerSlot(tm.tiles[NavTileCoord{X: tx, Y: ty}])
+		fMinX := math.Floor((bMinX - tm.originX) / tm.tileSize)
+		fMaxX := math.Floor((bMaxX - tm.originX) / tm.tileSize)
+		fMinY := math.Floor((bMinY - tm.originY) / tm.tileSize)
+		fMaxY := math.Floor((bMaxY - tm.originY) / tm.tileSize)
+		if fMinX >= float64(minNavTileCoord2D) && fMaxX <= float64(maxNavTileCoord2D) &&
+			fMinY >= float64(minNavTileCoord2D) && fMaxY <= float64(maxNavTileCoord2D) {
+			tx0, tx1 := int64(fMinX), int64(fMaxX)
+			ty0, ty1 := int64(fMinY), int64(fMaxY)
+			spanX := tx1 - tx0 + 1
+			spanY := ty1 - ty0 + 1
+			if spanX > 0 && spanY > 0 && spanX <= 64 && spanY <= 64 && spanX*spanY <= 64 && spanX*spanY <= int64(len(tm.tiles))*2 {
+				for tx := tx0; tx <= tx1; tx++ {
+					for ty := ty0; ty <= ty1; ty++ {
+						considerSlot(tm.tiles[NavTileCoord{X: int32(tx), Y: int32(ty)}])
+					}
 				}
+				return bestRef, bestPt, bestFound
 			}
-			return bestRef, bestPt, bestFound
 		}
 	}
 
@@ -2143,13 +2234,39 @@ func (tm *TiledNavMesh) Raycast(start, target core.Point) (TiledNavRaycastHit, b
 
 // RaycastWithFilter behaves like Raycast restricted to polygons allowed by filter.
 func (tm *TiledNavMesh) RaycastWithFilter(start, target core.Point, filter NavFilter) (TiledNavRaycastHit, bool) {
+	return tm.raycastWithFilterInternal(start, target, filter, 0, nil)
+}
+
+func (tm *TiledNavMesh) raycastWithFilterInternal(start, target core.Point, filter NavFilter, maxAreaCost float64, visitedTiles map[NavTileCoord]bool) (TiledNavRaycastHit, bool) {
 	sVec := toVec2(start)
 	tVec := toVec2(target)
 	if tm == nil || len(tm.tiles) == 0 || !isFiniteVec2(sVec) || !isFiniteVec2(tVec) {
 		hit := TiledNavRaycastHit{Point: start, T: 0, Hit: true}
 		return hit, true
 	}
-	starts := tm.findPolyLocsAt(sVec, filter, false)
+	allowPoly := func(p *navPoly) bool {
+		if !filter.Allows(p.area, p.flags) {
+			return false
+		}
+		if maxAreaCost > 0 {
+			c := filter.AreaCost(p.area)
+			if c <= 0 || math.IsNaN(c) || math.IsInf(c, 0) || c > maxAreaCost {
+				return false
+			}
+		}
+		return true
+	}
+	rawStarts := tm.findPolyLocsAt(sVec, filter, maxAreaCost > 0)
+	var starts []polyLoc2D
+	if maxAreaCost > 0 {
+		for _, loc := range rawStarts {
+			if allowPoly(&tm.slots[loc.slot].polys[loc.poly]) {
+				starts = append(starts, loc)
+			}
+		}
+	} else {
+		starts = rawStarts
+	}
 	if len(starts) == 0 {
 		hit := TiledNavRaycastHit{Point: start, T: 0, Hit: true}
 		return hit, true
@@ -2175,6 +2292,9 @@ func (tm *TiledNavMesh) RaycastWithFilter(start, target core.Point, filter NavFi
 	}
 
 	curSlot := tm.slots[curLoc.slot]
+	if visitedTiles != nil {
+		visitedTiles[curSlot.coord] = true
+	}
 	curRef := NavPolyRef{Tile: curSlot.coord, Poly: curLoc.poly, Salt: curSlot.salt}
 	if vequal(sVec, tVec) || polyContains(&curSlot.polys[curLoc.poly], tVec) {
 		return TiledNavRaycastHit{Point: target, Poly: curRef, T: 1, Hit: false}, false
@@ -2188,6 +2308,9 @@ func (tm *TiledNavMesh) RaycastWithFilter(start, target core.Point, filter NavFi
 	maxSteps := tm.polyCount + 4
 	for range maxSteps {
 		slot := tm.slots[curLoc.slot]
+		if visitedTiles != nil {
+			visitedTiles[slot.coord] = true
+		}
 		poly := &slot.polys[curLoc.poly]
 		curRef = NavPolyRef{Tile: slot.coord, Poly: curLoc.poly, Salt: slot.salt}
 		if polyContains(poly, tVec) {
@@ -2223,7 +2346,7 @@ func (tm *TiledNavMesh) RaycastWithFilter(start, target core.Point, filter NavFi
 				continue
 			}
 			np := &ns.polys[tp.toPoly]
-			if !filter.Allows(np.area, np.flags) {
+			if !allowPoly(np) {
 				continue
 			}
 			if !pointOnSegment2D(exitPt, tp.left, tp.right, portalEps) {
@@ -2244,6 +2367,9 @@ func (tm *TiledNavMesh) RaycastWithFilter(start, target core.Point, filter NavFi
 			curLoc = nextLoc
 			curT = tExit
 			visited[curLoc] = true
+			if visitedTiles != nil {
+				visitedTiles[tm.slots[curLoc.slot].coord] = true
+			}
 			if reached {
 				ns := tm.slots[curLoc.slot]
 				ref := NavPolyRef{Tile: ns.coord, Poly: curLoc.poly, Salt: ns.salt}
@@ -2253,10 +2379,13 @@ func (tm *TiledNavMesh) RaycastWithFilter(start, target core.Point, filter NavFi
 		}
 
 		// Check corner grazing across neighboring polygons sharing exitPt.
-		if bridge, ok := tm.findCornerBridgeTiled2D(curLoc, exitPt, sVec, tVec, dir, tExit, filter, visited); ok {
+		if bridge, ok := tm.findCornerBridgeTiled2D(curLoc, exitPt, sVec, tVec, dir, tExit, allowPoly, visited); ok {
 			curLoc = bridge
 			curT = tExit
 			visited[curLoc] = true
+			if visitedTiles != nil {
+				visitedTiles[tm.slots[curLoc.slot].coord] = true
+			}
 			continue
 		}
 
@@ -2273,7 +2402,7 @@ func (tm *TiledNavMesh) RaycastWithFilter(start, target core.Point, filter NavFi
 	return TiledNavRaycastHit{Point: toPoint(pt), Poly: curRef, T: float32(min(max(curT, 0), 1)), Hit: true}, true
 }
 
-func (tm *TiledNavMesh) findCornerBridgeTiled2D(start polyLoc2D, exitPt, sVec, tVec, dir vec2, tExit float64, filter NavFilter, visited map[polyLoc2D]bool) (polyLoc2D, bool) {
+func (tm *TiledNavMesh) findCornerBridgeTiled2D(start polyLoc2D, exitPt, sVec, tVec, dir vec2, tExit float64, allowPoly func(*navPoly) bool, visited map[polyLoc2D]bool) (polyLoc2D, bool) {
 	queue := []polyLoc2D{start}
 	seen := map[polyLoc2D]bool{start: true}
 	bestLoc := polyLoc2D{slot: -1, poly: -1}
@@ -2297,7 +2426,7 @@ func (tm *TiledNavMesh) findCornerBridgeTiled2D(start polyLoc2D, exitPt, sVec, t
 				continue
 			}
 			np := &ns.polys[tp.toPoly]
-			if !filter.Allows(np.area, np.flags) {
+			if !allowPoly(np) {
 				continue
 			}
 			if !pointOnSegment2D(exitPt, tp.left, tp.right, portalEps) {
@@ -2795,8 +2924,9 @@ func (tm *TiledNavMesh) FindPathWithFilterAndOptions(start, goal core.Point, fil
 			corridor[i+1] = NavPolyRef{Tile: dst.coord, Poly: tp.toPoly, Salt: dst.salt}
 		}
 		res.Corridor = corridor
-		res.Tiles = tm.collectTileVersions(corridor)
-		res.Path = tm.tightenTiledPath2D(stringPullTiled2D(sVec, gVec, chain), corridor, filter)
+		tightPath, extraTiles := tm.tightenTiledPath2D(stringPullTiled2D(sVec, gVec, chain), corridor, filter)
+		res.Path = tightPath
+		res.Tiles = tm.collectTileVersions(corridor, extraTiles)
 		return res
 	}
 
@@ -2833,22 +2963,24 @@ func (tm *TiledNavMesh) FindPathWithFilterAndOptions(start, goal core.Point, fil
 			corridor[i+1] = NavPolyRef{Tile: dst.coord, Poly: tp.toPoly, Salt: dst.salt}
 		}
 		res.Corridor = corridor
-		res.Tiles = tm.collectTileVersions(corridor)
-		res.Path = tm.tightenTiledPath2D(stringPullTiled2D(sVec, bestPt, chain), corridor, filter)
+		tightPath, extraTiles := tm.tightenTiledPath2D(stringPullTiled2D(sVec, bestPt, chain), corridor, filter)
+		res.Path = tightPath
+		res.Tiles = tm.collectTileVersions(corridor, extraTiles)
 		return res
 	}
 
 	return res
 }
 
-func (tm *TiledNavMesh) collectTileVersions(corridor []NavPolyRef) []NavTileVersion {
-	if len(corridor) == 0 {
+func (tm *TiledNavMesh) collectTileVersions(corridor []NavPolyRef, extra []NavTileCoord) []NavTileVersion {
+	if len(corridor) == 0 && len(extra) == 0 {
 		return nil
 	}
-	coords := make([]NavTileCoord, 0, len(corridor))
+	coords := make([]NavTileCoord, 0, len(corridor)+len(extra))
 	for _, ref := range corridor {
 		coords = append(coords, ref.Tile)
 	}
+	coords = append(coords, extra...)
 	slices.SortFunc(coords, compareNavTileCoord2D)
 	coords = slices.Compact(coords)
 	out := make([]NavTileVersion, len(coords))
@@ -2908,33 +3040,26 @@ func funnelPointDist2D(apex, fLeft, fRight, target vec2, apexG, cost float64) fl
 // tightenTiledPath2D removes any artificial bends at interior tile-grid vertices on uniform-cost
 // corridors by checking mesh-surface line of sight and pulling bends onto true obstacle corners.
 // It preserves all NavFilter constraints and never shortcuts across higher-cost areas.
-func (tm *TiledNavMesh) tightenTiledPath2D(pts []core.Point, corridor []NavPolyRef, filter NavFilter) []core.Point {
+func (tm *TiledNavMesh) tightenTiledPath2D(pts []core.Point, corridor []NavPolyRef, filter NavFilter) ([]core.Point, []NavTileCoord) {
 	if len(pts) <= 2 || len(corridor) == 0 {
-		return pts
+		return pts, nil
 	}
 	// Only tighten when the corridor has uniform area cost (otherwise bends may follow cheap roads).
 	refCost := filter.AreaCost(tm.PolygonArea(corridor[0]))
 	for _, ref := range corridor[1:] {
 		if math.Abs(filter.AreaCost(tm.PolygonArea(ref))-refCost) > 1e-9 {
-			return pts
+			return pts, nil
 		}
 	}
-	// Restrict raycasts to polygons costing no more than refCost.
-	rayFilter := filter
-	if len(filter.AreaCosts) > 0 {
-		rayFilter = filter.Clone()
-		for area, c := range filter.AreaCosts {
-			if c > refCost+1e-9 {
-				rayFilter.ExcludeArea(area)
-			}
-		}
-	}
+	// Restrict raycasts to polygons costing no more than refCost (covering all areas, including implicit cost 1.0 when refCost < 1).
+	maxCost := refCost + 1e-9
 
 	out := make([]vec2, len(pts))
 	for i, p := range pts {
 		out[i] = toVec2(p)
 	}
 
+	modified := false
 	for pass := 0; pass < 4 && len(out) > 2; pass++ {
 		changed := false
 		// 1. Greedy LOS shortcutting: skip any intermediate waypoints with unobstructed surface sight.
@@ -2942,7 +3067,7 @@ func (tm *TiledNavMesh) tightenTiledPath2D(pts []core.Point, corridor []NavPolyR
 		for i+2 < len(out) {
 			bestJ := i + 1
 			for j := len(out) - 1; j > i+1; j-- {
-				if _, hit := tm.RaycastWithFilter(toPoint(out[i]), toPoint(out[j]), rayFilter); !hit {
+				if _, hit := tm.raycastWithFilterInternal(toPoint(out[i]), toPoint(out[j]), filter, maxCost, nil); !hit {
 					bestJ = j
 					break
 				}
@@ -2950,6 +3075,7 @@ func (tm *TiledNavMesh) tightenTiledPath2D(pts []core.Point, corridor []NavPolyR
 			if bestJ > i+1 {
 				out = append(out[:i+1], out[bestJ:]...)
 				changed = true
+				modified = true
 			}
 			i++
 		}
@@ -2957,10 +3083,11 @@ func (tm *TiledNavMesh) tightenTiledPath2D(pts []core.Point, corridor []NavPolyR
 		// 2. Pull bends stuck on an interior tile-grid corner onto the true obstructing obstacle vertex.
 		for k := 1; k+1 < len(out); k++ {
 			a, b, c := out[k-1], out[k], out[k+1]
-			hit, blocked := tm.RaycastWithFilter(toPoint(a), toPoint(c), rayFilter)
+			hit, blocked := tm.raycastWithFilterInternal(toPoint(a), toPoint(c), filter, maxCost, nil)
 			if !blocked {
 				out = append(out[:k], out[k+1:]...)
 				changed = true
+				modified = true
 				k--
 				continue
 			}
@@ -2983,10 +3110,10 @@ func (tm *TiledNavMesh) tightenTiledPath2D(pts []core.Point, corridor []NavPolyR
 					if candLen >= bestLen {
 						continue
 					}
-					if _, h1 := tm.RaycastWithFilter(toPoint(a), toPoint(cand), rayFilter); h1 {
+					if _, h1 := tm.raycastWithFilterInternal(toPoint(a), toPoint(cand), filter, maxCost, nil); h1 {
 						continue
 					}
-					if _, h2 := tm.RaycastWithFilter(toPoint(cand), toPoint(c), rayFilter); h2 {
+					if _, h2 := tm.raycastWithFilterInternal(toPoint(cand), toPoint(c), filter, maxCost, nil); h2 {
 						continue
 					}
 					bestLen = candLen
@@ -2996,6 +3123,7 @@ func (tm *TiledNavMesh) tightenTiledPath2D(pts []core.Point, corridor []NavPolyR
 			if !vequal(bestCand, b) {
 				out[k] = bestCand
 				changed = true
+				modified = true
 			}
 		}
 		if !changed {
@@ -3008,7 +3136,20 @@ func (tm *TiledNavMesh) tightenTiledPath2D(pts []core.Point, corridor []NavPolyR
 	for i, v := range clean {
 		res[i] = toPoint(v)
 	}
-	return res
+	var extraTiles []NavTileCoord
+	if modified && len(res) >= 2 {
+		visited := make(map[NavTileCoord]bool, len(corridor))
+		for i := 0; i+1 < len(res); i++ {
+			tm.raycastWithFilterInternal(res[i], res[i+1], filter, maxCost, visited)
+		}
+		if len(visited) > 0 {
+			extraTiles = make([]NavTileCoord, 0, len(visited))
+			for c := range visited {
+				extraTiles = append(extraTiles, c)
+			}
+		}
+	}
+	return res, extraTiles
 }
 
 func stringPullTiled2D(start, goal vec2, chain []tiledPortal2D) []core.Point {

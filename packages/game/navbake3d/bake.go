@@ -74,21 +74,23 @@ func BakeTile(g *Geometry, settings Settings, agent AgentType, coord world3d.Chu
 	}
 
 	cs, ch := settings.CellSize, settings.CellHeight
-	walkRadius := int32(math.Ceil(float64(agent.Radius / cs)))
-	border := float64(walkRadius+3) * float64(cs)
+	cs64 := float64(cs)
+	border := (math.Ceil(float64(agent.Radius)/cs64) + 3) * cs64
 
 	ts := float64(tileSize)
 	tileMinX := float64(origin.X) + float64(coord.X)*ts
-	tileMaxX := float64(origin.X) + float64(coord.X+1)*ts
+	tileMaxX := float64(origin.X) + (float64(coord.X)+1)*ts
 	tileMinZ := float64(origin.Z) + float64(coord.Z)*ts
-	tileMaxZ := float64(origin.Z) + float64(coord.Z+1)*ts
+	tileMaxZ := float64(origin.Z) + (float64(coord.Z)+1)*ts
 
 	// Align the padded voxel grid origin to global cs steps so adjacent tiles share identical voxel columns across borders.
-	cs64 := float64(cs)
 	padMinX := float32(math.Floor((tileMinX-border)/cs64) * cs64)
 	padMaxX := float32(math.Ceil((tileMaxX+border)/cs64) * cs64)
 	padMinZ := float32(math.Floor((tileMinZ-border)/cs64) * cs64)
 	padMaxZ := float32(math.Ceil((tileMaxZ+border)/cs64) * cs64)
+	if !finiteVec(math3d.Vec3{X: padMinX, Y: 0, Z: padMinZ}) || !finiteVec(math3d.Vec3{X: padMaxX, Y: 0, Z: padMaxZ}) {
+		return nil, fmt.Errorf("navbake3d: tile coord %v exceeds finite float32 bounds", coord)
+	}
 
 	minY, maxY := float32(math.Inf(1)), float32(math.Inf(-1))
 	hits := 0
