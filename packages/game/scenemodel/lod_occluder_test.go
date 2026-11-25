@@ -381,3 +381,63 @@ func TestOccluderWallCullsObjectsBehindIt(t *testing.T) {
 		})
 	}
 }
+
+func TestModelOccluderUsesCoarsestLOD(t *testing.T) {
+	high, err := scenemodel.PrimitiveMesh(sceneformat.MeshSphere)
+	if err != nil {
+		t.Fatal(err)
+	}
+	low, err := scenemodel.PrimitiveMesh(sceneformat.MeshBox)
+	if err != nil {
+		t.Fatal(err)
+	}
+	toMesh := func(name string, m render3d.Mesh) gltf.Mesh {
+		return gltf.Mesh{
+			Name: name,
+			Primitives: []gltf.Primitive{{
+				Mode:       gltf.ModeTriangles,
+				Positions:  m.Positions,
+				Normals:    m.Normals,
+				TexCoords0: m.UVs,
+				Indices:    m.Indices,
+				Material:   -1,
+			}},
+		}
+	}
+	modelDoc := &gltf.Document{
+		Scene:  0,
+		Scenes: []gltf.Scene{{Roots: []int{0, 1}}},
+		Nodes: []gltf.Node{
+			{Name: "Wall_LOD0", Mesh: 0, Parent: -1, Scale: math3d.Vec3One(), Rotation: math3d.QuatIdentity()},
+			{Name: "Wall_LOD1", Mesh: 1, Parent: -1, Scale: math3d.Vec3One(), Rotation: math3d.QuatIdentity()},
+		},
+		Meshes: []gltf.Mesh{toMesh("Wall_LOD0", high), toMesh("Wall_LOD1", low)},
+	}
+	res := &mapModelResolver{
+		models: map[string]*gltf.Document{"models/wall.glb": modelDoc},
+	}
+	doc := &sceneformat.SceneDoc{
+		Version: sceneformat.CurrentVersion,
+		Layers: []sceneformat.LayerDoc{{
+			Name: "world",
+			Objects: []sceneformat.ObjectDoc{{
+				ID:       "wall",
+				Model:    "models/wall.glb",
+				Occluder: &sceneformat.OccluderDoc{Mode: sceneformat.OccluderModel},
+			}},
+		}},
+	}
+	sc := scene3d.NewScene()
+	built, err := scenemodel.Build(doc, sc.Root(), res)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(built.Occluders) != 1 {
+		t.Fatalf("len(built.Occluders) = %d, want 1", len(built.Occluders))
+	}
+	ro := built.Occluders[0].RenderOccluder()
+	wantTris := len(low.Indices) / 3
+	if gotTris := len(ro.Indices) / 3; gotTris != wantTris {
+		t.Fatalf("model occluder triangle count = %d, want coarsest LOD %d (LOD0 has %d)", gotTris, wantTris, len(high.Indices)/3)
+	}
+}

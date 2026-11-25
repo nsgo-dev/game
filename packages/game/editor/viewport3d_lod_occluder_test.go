@@ -252,3 +252,73 @@ func TestEditor3DViewportOccluderWallCullsAndDraws(t *testing.T) {
 		t.Fatalf("front.Occluder after undo = %+v, want nil", obj.Occluder)
 	}
 }
+
+func TestScene3DUnifiesLODsOccludersModelRemovalAndOrthoViewProj(t *testing.T) {
+	// 1. Nil *Editor guard on SetObjectOccluder.
+	var nilEd *editor.Editor
+	if err := nilEd.SetObjectOccluder("pillar", &sceneformat.OccluderDoc{Mode: sceneformat.OccluderBox}); err == nil {
+		t.Fatal("nil Editor.SetObjectOccluder returned nil error")
+	}
+
+	// 2. Scene3D honors ModelResolver + ImportSettingsResolver AND rebuilds on SetObjectOccluder.
+	resolver, _, _ := testTwoLODResolver(t, 0.30)
+	ed := newTest3DEditor(t,
+		sceneformat.ObjectDoc{ID: "pillar", Name: "Pillar", Model: "models/pillar.glb"},
+	)
+	ed.ModelResolver = resolver
+
+	built1, err := ed.Scene3D()
+	if err != nil {
+		t.Fatalf("Scene3D initial: %v", err)
+	}
+	if len(built1.Drawables) == 0 || len(built1.Drawables[0].Parts) == 0 || len(built1.Drawables[0].Parts[0].LODs) != 2 {
+		t.Fatalf("Scene3D did not load sidecar/sibling LODs via ModelResolver: drawables=%d", len(built1.Drawables))
+	}
+	if len(built1.Occluders) != 0 {
+		t.Fatalf("initial Scene3D Occluders = %d, want 0", len(built1.Occluders))
+	}
+
+	if err := ed.SetObjectOccluder("pillar", &sceneformat.OccluderDoc{Mode: sceneformat.OccluderModel}); err != nil {
+		t.Fatalf("SetObjectOccluder(model): %v", err)
+	}
+	built2, err := ed.Scene3D()
+	if err != nil {
+		t.Fatalf("Scene3D after SetObjectOccluder: %v", err)
+	}
+	if built2 == built1 || len(built2.Occluders) != 1 {
+		t.Fatalf("Scene3D did not rebuild occluders after SetObjectOccluder: same=%v occluders=%d", built2 == built1, len(built2.Occluders))
+	}
+
+	// 3. SetObjectModel(id, "") refuses to remove Model while model-mode Occluder is set.
+	if err := ed.SetObjectModel("pillar", ""); err == nil || !strings.Contains(err.Error(), "model occluder") {
+		t.Fatalf("SetObjectModel(pillar, \"\") with model occluder = %v, want model occluder error", err)
+	}
+	if err := ed.SetObjectOccluder("pillar", nil); err != nil {
+		t.Fatalf("SetObjectOccluder(nil): %v", err)
+	}
+	if err := ed.SetObjectModel("pillar", ""); err != nil {
+		t.Fatalf("SetObjectModel(pillar, \"\") after clearing occluder: %v", err)
+	}
+
+	// 4. OrbitCamera3D.ViewProj matches SceneCamera in orthographic mode and at vertical pitch.
+	orthoCam := editor.OrbitCamera3D{
+		Target:       [3]float32{0, 0, 0},
+		Yaw:          0,
+		Pitch:        float32(-math.Pi / 2),
+		Distance:     10,
+		Orthographic: true,
+		FOV:          float32(math.Pi / 4),
+		Near:         0.1,
+		Far:          100,
+	}
+	gotVP := orthoCam.ViewProj(640, 360)
+	wantVP := orthoCam.SceneCamera(640, 360).ViewProj()
+	if gotVP != wantVP {
+		t.Fatalf("OrbitCamera3D.ViewProj mismatch with SceneCamera in ortho/vertical pitch")
+	}
+	for i, v := range gotVP {
+		if math.IsNaN(float64(v)) || math.IsInf(float64(v), 0) {
+			t.Fatalf("ViewProj[%d] = %v is non-finite", i, v)
+		}
+	}
+}

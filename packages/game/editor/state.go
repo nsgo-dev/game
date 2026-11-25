@@ -190,20 +190,20 @@ type Prefab struct {
 // Editor owns the editable SceneDoc, its resolved BuiltScene, undo/redo History,
 // viewport tool/selection state, asset browser selection, and play-mode lifecycle.
 type Editor struct {
-	Doc          *sceneformat.SceneDoc
-	Built        *sceneformat.BuiltScene
-	BuildErr     error
+	Doc           *sceneformat.SceneDoc
+	Built         *sceneformat.BuiltScene
+	BuildErr      error
 	History       *History
 	Resolver      sceneformat.AssetResolver
 	ModelResolver scenemodel.ModelResolver
 	Prefabs       map[string]Prefab
-	SelectedID   string
-	ActiveLayer  string
-	Tool         Tool
-	ViewMode     ViewMode
-	GizmoMode    GizmoMode3D
-	Camera3D     OrbitCamera3D
-	ActiveTileID int
+	SelectedID    string
+	ActiveLayer   string
+	Tool          Tool
+	ViewMode      ViewMode
+	GizmoMode     GizmoMode3D
+	Camera3D      OrbitCamera3D
+	ActiveTileID  int
 	// ActiveTileLayer names the tile layer of a layered grid (sceneformat.TilemapDoc.TileLayers) that PaintTile, EraseTile and FloodFillTile change, empty for its first. A single grid has no tile layers and ignores it.
 	ActiveTileLayer string
 	// ActiveTileFlip holds the flip bits (tilemap.FlipHorizontal, FlipVertical and FlipDiagonal) that the Paint and Fill tools place tiles of a layered grid with.

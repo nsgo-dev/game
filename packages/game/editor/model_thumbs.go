@@ -75,7 +75,7 @@ func (e *Editor) ModelThumbnail(m ModelEntry) (*image.RGBA, error) {
 	t.mu.Unlock()
 
 	// The model loads here, on the UI goroutine, as everything the Resolver serves does; only the rendering runs on the worker. It loads through files of its own rather than the 3D build's cache, so browsing the list keeps no model the scene does not use, and they are dropped with the build once the thumbnail is rendered.
-	assets := scene3DAssets{resolver: e.Resolver}
+	assets := scene3DAssets{models: e.ModelResolver, resolver: e.Resolver}
 	if e.ProjectPath != "" {
 		assets.files = scenemodel.NewAssets(os.DirFS(filepath.Dir(e.ProjectPath)))
 	}

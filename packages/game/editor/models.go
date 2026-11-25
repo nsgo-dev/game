@@ -237,7 +237,7 @@ func (e *Editor) modelAssets3D() scene3DAssets {
 			files = scenemodel.NewAssets(os.DirFS(filepath.Dir(e.ProjectPath)))
 		}
 	}
-	return scene3DAssets{resolver: e.Resolver, files: files}
+	return scene3DAssets{models: e.ModelResolver, resolver: e.Resolver, files: files}
 }
 
 // buildModel3D builds m alone, drawn by one object at the origin with no transform, through the 3D build's assets (modelAssets3D), and returns the build and the bounds of its geometry in the object's space. It fails when m's model does not load.
@@ -441,6 +441,8 @@ func (e *Editor) SetObjectModel(id, model string) error {
 		if _, _, err := e.buildModel3D(m); err != nil {
 			return fmt.Errorf("editor: load model %q: %w", model, err)
 		}
+	} else if obj.Mesh == "" && obj.Occluder != nil && obj.Occluder.Mode == sceneformat.OccluderModel {
+		return fmt.Errorf("editor: object %q has a model occluder; clear or switch occluder to box before removing model", id)
 	}
 	e.History.Execute(&modelObjectCmd{
 		ed:          e,

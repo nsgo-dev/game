@@ -1,56 +1,38 @@
 package editor
 
 import (
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"math"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/nsgo-dev/game/packages/game/math3d"
 	"github.com/nsgo-dev/game/packages/game/render3d"
-	"github.com/nsgo-dev/game/packages/game/scene3d"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
-	"github.com/nsgo-dev/game/packages/game/scenemodel"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// ViewProj returns the right-handed Y-up perspective [0, 1] NDC view-projection
-// matrix matching OrbitCamera3D.Project for a viewport of size w x h.
+// ViewProj returns the right-handed Y-up [0, 1] NDC view-projection matrix
+// matching OrbitCamera3D.SceneCamera (perspective or orthographic) for a
+// viewport of size w x h.
 func (c OrbitCamera3D) ViewProj(w, h float32) math3d.Mat4 {
 	if w <= 0 || h <= 0 {
 		w, h = 640, 360
 	}
-	_, fov, near, far := c.effectiveParams()
-	eye3 := c.Eye()
-	eye := math3d.Vec3{X: eye3[0], Y: eye3[1], Z: eye3[2]}
-	target := math3d.Vec3{X: c.Target[0], Y: c.Target[1], Z: c.Target[2]}
-	view := math3d.LookAt(eye, target, math3d.Vec3Up())
-	proj := math3d.Perspective(float32(fov), w/h, float32(near), float32(far))
-	return proj.Mul(view)
+	return c.SceneCamera(w, h).ViewProj()
 }
 
 type viewport3DState struct {
-	builtDocRev   uint64
-	builtImpRev   uint64
-	builtDoc      *sceneformat.SceneDoc
-	builtProj     string
-	builtRes      scenemodel.ModelResolver
-	built         *scenemodel.Built
-	builtErr      error
-	projAssetsDir string
-	projAssetsRev uint64
-	projAssets    *scenemodel.Assets
-
 	queue     render3d.Queue
 	occ       *render3d.OcclusionBuffer
 	items     []render3d.DrawItem
 	occluders []render3d.Occluder
 
 	planValid     bool
+	planGen       uint64
 	planDocRev    uint64
 	planImpRev    uint64
 	planCam       OrbitCamera3D
@@ -70,84 +52,10 @@ func (e *Editor) invalidate3DBuild() {
 	if e == nil {
 		return
 	}
-	e.vp3d.builtDoc = nil
-	e.vp3d.built = nil
-	e.vp3d.builtErr = nil
+	e.s3d.files = nil
+	e.s3d.stale = true
 	e.vp3d.planValid = false
 	e.vp3d.queue.ResetLODHistory()
-}
-
-func (e *Editor) resolveModelResolver() scenemodel.ModelResolver {
-	if e == nil {
-		return nil
-	}
-	if e.ModelResolver != nil {
-		return e.ModelResolver
-	}
-	if mr, ok := e.Resolver.(scenemodel.ModelResolver); ok {
-		return mr
-	}
-	if e.ProjectPath != "" {
-		dir := filepath.Dir(e.ProjectPath)
-		if e.vp3d.projAssets == nil || e.vp3d.projAssetsDir != dir || e.vp3d.projAssetsRev != e.importRev {
-			e.vp3d.projAssets = scenemodel.NewAssets(os.DirFS(dir))
-			e.vp3d.projAssetsDir = dir
-			e.vp3d.projAssetsRev = e.importRev
-		}
-		return e.vp3d.projAssets
-	}
-	return nil
-}
-
-func (e *Editor) ensureBuilt3D() *scenemodel.Built {
-	if e == nil || e.Doc == nil {
-		e.vp3d.built = nil
-		e.vp3d.builtErr = nil
-		return nil
-	}
-	models := e.resolveModelResolver()
-	if e.vp3d.builtDoc == e.Doc &&
-		e.vp3d.builtDocRev == e.revision &&
-		e.vp3d.builtImpRev == e.importRev &&
-		e.vp3d.builtProj == e.ProjectPath &&
-		e.vp3d.builtRes == models &&
-		(e.vp3d.built != nil || e.vp3d.builtErr != nil) {
-		return e.vp3d.built
-	}
-	e.vp3d.builtDoc = e.Doc
-	e.vp3d.builtDocRev = e.revision
-	e.vp3d.builtImpRev = e.importRev
-	e.vp3d.builtProj = e.ProjectPath
-	e.vp3d.builtRes = models
-	e.vp3d.planValid = false
-
-	doc := e.Doc
-	if doc.RefersToScenes() {
-		if sr, ok := e.Resolver.(sceneformat.SceneResolver); ok {
-			if resolved, err := sceneformat.Resolve(doc, sr); err == nil {
-				doc = resolved
-			} else {
-				e.vp3d.built = nil
-				e.vp3d.builtErr = err
-				return nil
-			}
-		} else {
-			e.vp3d.built = nil
-			e.vp3d.builtErr = nil
-			return nil
-		}
-	}
-
-	sc := scene3d.NewScene()
-	built, err := scenemodel.Build(doc, sc.Root(), models)
-	if err != nil {
-		e.vp3d.built = nil
-		e.vp3d.builtErr = err
-		return nil
-	}
-	e.vp3d.built = built
-	e.vp3d.builtErr = nil
-	return built
 }
 
 func (e *Editor) hiddenSignature3D() uint64 {
@@ -170,8 +78,9 @@ func (e *Editor) hiddenSignature3D() uint64 {
 }
 
 // ensureViewport3DPlan evaluates scenemodel LOD selection and occlusion culling
-// against Camera3D at viewport size (w, h), caching the result until scene,
-// sidecars, camera, viewport size, or visibility changes.
+// against Camera3D at viewport size (w, h) using the shared Scene3D build,
+// caching the result until scene, sidecars, camera, viewport size, or
+// visibility changes.
 func (e *Editor) ensureViewport3DPlan(w, h float32) {
 	if e == nil {
 		return
@@ -182,13 +91,19 @@ func (e *Editor) ensureViewport3DPlan(w, h float32) {
 			w, h = e.ViewportSize()
 		}
 	}
-	built := e.ensureBuilt3D()
+	s3 := e.scene3D()
+	built := s3.built
+	if e.vp3d.planGen != s3.gen {
+		e.vp3d.planValid = false
+		e.vp3d.queue.ResetLODHistory()
+	}
 	hiddenSig := e.hiddenSignature3D()
 	clipTime := int64(-1)
 	if e.clipScene != nil {
 		clipTime = int64(e.clipTime)
 	}
 	if e.vp3d.planValid &&
+		e.vp3d.planGen == s3.gen &&
 		e.vp3d.planDocRev == e.revision &&
 		e.vp3d.planImpRev == e.importRev &&
 		e.vp3d.planCam == e.Camera3D &&
@@ -201,6 +116,7 @@ func (e *Editor) ensureViewport3DPlan(w, h float32) {
 	}
 
 	e.vp3d.planValid = true
+	e.vp3d.planGen = s3.gen
 	e.vp3d.planDocRev = e.revision
 	e.vp3d.planImpRev = e.importRev
 	e.vp3d.planCam = e.Camera3D
@@ -234,25 +150,6 @@ func (e *Editor) ensureViewport3DPlan(w, h float32) {
 	if built == nil {
 		e.vp3d.stats = render3d.RenderStats{}
 		return
-	}
-
-	// Sync layer visibility, editor hidden flags, and active clip poses onto built nodes.
-	if e.Doc != nil {
-		for li := range e.Doc.Layers {
-			l := &e.Doc.Layers[li]
-			if ln, ok := built.Layers[l.Name]; ok {
-				ln.SetVisible(l.IsVisible() && l.EffectiveSpace() != sceneformat.SpaceScreen)
-			}
-			sceneformat.WalkObjects(l.Objects, func(o, _ *sceneformat.ObjectDoc) bool {
-				if on, ok := built.Objects[o.ID]; ok {
-					on.SetVisible(!e.hidden[o.ID])
-					if e.clipScene != nil {
-						on.Local = sceneformat.ObjectLocalTransform3D(e.posed3D(o))
-					}
-				}
-				return true
-			})
-		}
 	}
 
 	// Track LOD level counts and world bounds per scene object.
@@ -409,6 +306,9 @@ func (e *Editor) ObjectOccluded3D(id string) bool {
 // SetObjectOccluder sets or clears (when nil) object id's 3D occluder definition
 // through History. Setting an occluder on a version 1 scene raises it to version 2.
 func (e *Editor) SetObjectOccluder(id string, occ *sceneformat.OccluderDoc) error {
+	if e == nil || e.Doc == nil {
+		return errors.New("editor: nil scene document")
+	}
 	if e.playing {
 		return ErrPlaying
 	}
@@ -556,9 +456,9 @@ func (e *Editor) drawOccluders3D(d *core.Drawing, w, h float32) {
 	// Track which object IDs were drawn from built scenemodel.Occluders so
 	// fallback doc walking does not double-draw them.
 	drawnFromBuilt := make(map[string]bool)
-	if e.vp3d.built != nil {
-		for i := range e.vp3d.built.Occluders {
-			occ := &e.vp3d.built.Occluders[i]
+	if e.s3d.built != nil {
+		for i := range e.s3d.built.Occluders {
+			occ := &e.s3d.built.Occluders[i]
 			if occ.Node == nil || !occ.Node.EffectiveVisible() || !occ.Node.EffectiveEnabled() {
 				continue
 			}
@@ -691,7 +591,7 @@ func (e *Editor) renderStats3DText() string {
 }
 
 // viewport3DRenderStatsOverlay renders a non-blocking RenderStats + LOD HUD card
-// over the top-left corner of the 3D viewport.
+// over the top-right corner of the 3D viewport (clear of the axes gizmo and error banner).
 func viewport3DRenderStatsOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	colors := ui.ColorsOf(cx)
 	return core.Show{
@@ -705,7 +605,7 @@ func viewport3DRenderStatsOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[u
 				Style: core.Style{
 					Position:      core.Absolute,
 					Top:           core.Pt(8),
-					Left:          core.Pt(8),
+					Right:         core.Pt(96),
 					ZIndex:        10,
 					PointerEvents: core.PointerEventsNone,
 					Background:    core.RGBA(0x0F172A, 0.82),
