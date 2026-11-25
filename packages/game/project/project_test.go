@@ -778,3 +778,70 @@ func TestEmptyEditorSectionRoundTrips(t *testing.T) {
 		}
 	}
 }
+
+func TestExportBudgetsRoundTripAndValidation(t *testing.T) {
+	const raw = `version: 1
+name: Game
+id: dev.example.game
+appVersion: 1.0.0
+window:
+  width: 640
+  height: 360
+export:
+  output: dist
+  budgets:
+    qualityProfile: low
+    downloadSizeMB: 80
+    frameTimeP95Ms: 16.7
+  presets:
+    - platform: web
+`
+	f, err := project.Parse([]byte(raw))
+	if err != nil {
+		t.Fatalf("Parse valid export.budgets: %v", err)
+	}
+	if f.Export == nil || f.Export.Budgets == nil {
+		t.Fatal("expected Export.Budgets to be parsed")
+	}
+	if f.Export.Budgets.QualityProfile != "low" || f.Export.Budgets.DownloadSizeMB != 80 || f.Export.Budgets.FrameTimeP95Ms != 16.7 {
+		t.Fatalf("Budgets = %+v", f.Export.Budgets)
+	}
+	encoded, err := project.Encode(f)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	if string(encoded) != raw {
+		t.Fatalf("round trip mismatch:\ngot:\n%s\nwant:\n%s", encoded, raw)
+	}
+	cloned := f.Clone()
+	cloned.Export.Budgets.DownloadSizeMB = 99
+	if f.Export.Budgets.DownloadSizeMB != 80 {
+		t.Fatal("Clone shared Budgets pointer with original")
+	}
+
+	const head = "version: 1\nname: Game\nid: dev.example.game\nappVersion: 1.0.0\nwindow:\n  width: 640\n  height: 360\n"
+	badCases := []struct {
+		name string
+		yaml string
+		want string
+	}{
+		{"unknown field", head + "export:\n  budgets:\n    extra: 1\n", "extra"},
+		{"space in qualityProfile", head + "export:\n  budgets:\n    qualityProfile: low spec\n", "qualityProfile"},
+		{"negative downloadSizeMB", head + "export:\n  budgets:\n    downloadSizeMB: -1\n", "downloadSizeMB"},
+		{"negative frameTimeP95Ms", head + "export:\n  budgets:\n    frameTimeP95Ms: -0.5\n", "frameTimeP95Ms"},
+		{"nan downloadSizeMB", head + "export:\n  budgets:\n    downloadSizeMB: .nan\n", "downloadSizeMB"},
+		{"inf frameTimeP95Ms", head + "export:\n  budgets:\n    frameTimeP95Ms: .inf\n", "frameTimeP95Ms"},
+	}
+	for _, tc := range badCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := project.Parse([]byte(tc.yaml)); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("Parse(%s) = %v, want error containing %q", tc.name, err, tc.want)
+			}
+		})
+	}
+	fBad := f.Clone()
+	fBad.Export.Budgets.FrameTimeP95Ms = math.NaN()
+	if err := project.Validate(fBad); err == nil {
+		t.Fatal("Validate accepted NaN FrameTimeP95Ms")
+	}
+}

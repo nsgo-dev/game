@@ -263,6 +263,10 @@ func (e *Editor) SetHUDLayoutOpen(open bool) {
 		return
 	}
 	if open {
+		e.startScreen.open = false
+		e.merge.open = false
+		e.playtest.open = false
+		e.closeBuildReleaseScreenSilent()
 		if e.Project != nil && e.ProjectPath != "" && len(e.hud.screens) == 0 {
 			_ = e.RefreshHUDScreens()
 		}

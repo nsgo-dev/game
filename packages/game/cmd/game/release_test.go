@@ -341,6 +341,37 @@ func TestParseReleaseSettingsAcceptsEveryProjectSection(t *testing.T) {
 	}
 }
 
+func TestParseReleaseSettingsValidatesExportBudgets(t *testing.T) {
+	valid := "version: 1\nexport:\n  budgets:\n    qualityProfile: low\n    downloadSizeMB: 80\n    frameTimeP95Ms: 16.7\n  presets: [{platform: web}]\n"
+	if _, err := parseReleaseSettings([]byte(valid)); err != nil {
+		t.Fatalf("valid export.budgets rejected: %v", err)
+	}
+	if _, err := parseReleaseSettings([]byte("version: 1\nexport:\n  budgets: null\n")); err != nil {
+		t.Fatalf("null export.budgets rejected: %v", err)
+	}
+	bad := []struct {
+		name string
+		yaml string
+		want string
+	}{
+		{"scalar", "version: 1\nexport:\n  budgets: bad\n", "mapping"},
+		{"sequence", "version: 1\nexport:\n  budgets: [1, 2]\n", "mapping"},
+		{"unknown field", "version: 1\nexport:\n  budgets:\n    unknown: 1\n", `unknown field "unknown"`},
+		{"wrong type", "version: 1\nexport:\n  budgets:\n    downloadSizeMB: nope\n", "export:"},
+		{"negative download", "version: 1\nexport:\n  budgets:\n    downloadSizeMB: -5\n", "downloadSizeMB"},
+		{"nan frame", "version: 1\nexport:\n  budgets:\n    frameTimeP95Ms: .nan\n", "frameTimeP95Ms"},
+		{"inf download", "version: 1\nexport:\n  budgets:\n    downloadSizeMB: .inf\n", "downloadSizeMB"},
+		{"bad quality profile", "version: 1\nexport:\n  budgets:\n    qualityProfile: \"low spec\"\n", "qualityProfile"},
+	}
+	for _, tc := range bad {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := parseReleaseSettings([]byte(tc.yaml)); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("parseReleaseSettings(%s) = %v, want error containing %q", tc.name, err, tc.want)
+			}
+		})
+	}
+}
+
 func TestShellQuote(t *testing.T) {
 	got := shellQuote([]string{"go", "-C", "/a b/it's", "", "-target", "web,ios", "$HOME"})
 	want := `go -C '/a b/it'\''s' '' -target web,ios '$HOME'`

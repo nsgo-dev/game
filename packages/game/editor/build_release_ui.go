@@ -85,245 +85,268 @@ func BuildReleaseScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 }
 
 func buildReleaseHeaderView(cx *core.Scope, ed *Editor, brRev *core.Memo[uint64], versionDraft *core.Signal[string]) core.Node {
-	return core.Dynamic(func(cx *core.Scope) core.Node {
+	projectNameMemo := core.NewMemo(cx, func() string {
 		_ = brRev.Get()
-		snap := ed.BuildReleaseSnapshot()
-
-		includedCount := 0
-		doneCount := 0
-		failedCount := 0
-		for _, p := range snap.Presets {
-			if p.Included && p.Status != BuildPresetSetup {
-				includedCount++
-				switch p.Status {
-				case BuildPresetDone:
-					doneCount++
-				case BuildPresetFailed:
-					failedCount++
-				}
-			}
+		name := ed.BuildReleaseSnapshot().ProjectName
+		if name == "" {
+			return "Project"
 		}
-
-		chipText := fmt.Sprintf("Ready · %d presets", includedCount)
-		var chipBg core.Color
-		chipBorder := specLineRaised
-		chipFg := specTextSecondary
-		dotColor := specTextMuted
-		switch {
-		case snap.Running:
-			chipText = fmt.Sprintf("Building · %d of %d done", doneCount, includedCount)
-			chipBg = specAgentTint
-			chipBorder = specAgentEdge
-			chipFg = specText
-			dotColor = specAgent
-		case snap.Stopped:
-			chipText = fmt.Sprintf("Stopped · %d of %d done", doneCount, includedCount)
-			chipBorder = specLineRaised
-			chipFg = specTextSecondary
-			dotColor = specTextMuted
-		case failedCount > 0:
-			chipText = fmt.Sprintf("%d of %d done · %d failed", doneCount, includedCount, failedCount)
-			chipBg = specProblemTint
-			chipBorder = specProblemEdge
-			chipFg = specText
-			dotColor = specProblem
-		case doneCount > 0 && doneCount == includedCount:
-			chipText = fmt.Sprintf("Done · %d of %d built", doneCount, includedCount)
-			chipBg = specAddedFill
-			chipBorder = specAddedEdge
-			chipFg = specText
-			dotColor = specAdded
-		}
-
-		actionLabel := "Build"
-		actionBg := specAccent
-		actionFg := specBg
-		actionIcon := lucide.Play
-		if snap.Running {
-			actionLabel = "Stop"
-			actionBg = specLineRaised
-			actionFg = specTextStrong
-			actionIcon = lucide.Square
-		} else if snap.Stopped {
-			actionLabel = "Resume"
-			actionBg = specAccent
-			actionFg = specBg
-			actionIcon = lucide.Play
-		}
-
-		commit := snap.GitCommit
-		if commit == "" {
-			commit = "local"
-		}
-		branch := snap.GitBranch
-		if branch == "" {
-			branch = "main"
-		}
-		metaText := fmt.Sprintf("from %s on %s · last release %s", commit, branch, snap.LastReleaseVersion)
-
-		projectName := snap.ProjectName
-		if projectName == "" {
-			projectName = "Project"
-		}
-
-		return core.View{
-			TestID: "build-release-header",
-			Role:   core.RoleRegion,
-			Label:  "Release header",
-			Style: core.Style{
-				Height:      core.Pt(44),
-				FlexShrink:  0,
-				Direction:   core.Row,
-				AlignItems:  core.AlignCenter,
-				Gap:         10,
-				Padding:     core.Symmetric(0, 12),
-				Background:  specBg,
-				Borders:     core.Edges{Bottom: 1},
-				BorderColor: specLine,
-			},
-			Children: []core.Node{
-				core.View{
-					TestID: "build-release-back",
-					Role:   core.RoleButton,
-					Label:  "Back to scene editor",
-					Style: core.Style{
-						Height:       core.Pt(28),
-						Direction:    core.Row,
-						AlignItems:   core.AlignCenter,
-						Gap:          8,
-						Padding:      core.Symmetric(0, 6),
-						CornerRadius: 6,
-						Hover:        &core.Style{Background: specRaised},
-						FocusVisible: specFocusRingStyle,
-					},
-					OnPress: func(core.PressEvent) {
-						ed.CloseBuildReleaseScreen()
-					},
-					Children: []core.Node{
-						core.View{
-							Style: core.Style{
-								Width:        core.Pt(20),
-								Height:       core.Pt(20),
-								CornerRadius: 5,
-								Background:   specAccent,
-							},
-						},
-						core.Text{
-							Content: projectName,
-							Style:   core.Style{FontSize: 12.5, FontWeight: core.FontWeightSemibold, Color: specTextStrong},
-						},
-						core.Text{
-							Content: "/",
-							Style:   core.Style{FontSize: 12.5, Color: specTextMuted},
-						},
-						core.Text{
-							Content: "Release",
-							Style:   core.Style{FontSize: 12.5, Color: specTextSecondary},
-						},
-					},
-				},
-				core.Text{
-					Content: "Version",
-					Style:   core.Style{FontSize: 12, Color: specTextMuted},
-				},
-				core.View{
-					Style: core.Style{Width: core.Pt(72)},
-					Children: []core.Node{
-						ui.Input{
-							TestID:      "build-release-version",
-							Label:       "Release version",
-							Placeholder: "0.1.0",
-							Disabled:    func() bool { return snap.Running },
-							Value:       versionDraft.Get,
-							OnChange:    versionDraft.Set,
-							OnSubmit: func(v string) {
-								ed.report(ed.SetReleaseVersion(v))
-							},
-							Style: core.Style{
-								Width:        core.Pct(100),
-								Height:       core.Pt(28),
-								Background:   specRaised,
-								BorderWidth:  1,
-								BorderColor:  specLineRaised,
-								CornerRadius: 6,
-								Color:        specTextStrong,
-								FontSize:     11.5,
-							},
-						},
-					},
-				},
-				core.Text{
-					TestID:  "build-release-meta",
-					Content: metaText,
-					Style:   core.Style{FontSize: 12, Color: specTextMuted, FontVariant: core.FontTabularNums},
-				},
-				core.View{Style: core.Style{FlexGrow: 1}},
-				buildReleasePillButton("build-release-dry-run", "Dry Run", snap.DryRun, snap.Running, func() {
-					ed.SetReleaseDryRun(!snap.DryRun)
-				}),
-				core.View{
-					TestID: "build-release-status-chip",
-					Style: core.Style{
-						Height:       core.Pt(28),
-						Direction:    core.Row,
-						AlignItems:   core.AlignCenter,
-						Gap:          8,
-						Padding:      core.Symmetric(0, 12),
-						CornerRadius: 14,
-						Background:   chipBg,
-						BorderWidth:  1,
-						BorderColor:  chipBorder,
-					},
-					Children: []core.Node{
-						core.View{
-							Style: core.Style{
-								Width:        core.Pt(6),
-								Height:       core.Pt(6),
-								CornerRadius: 3,
-								Background:   dotColor,
-							},
-						},
-						core.Text{
-							Content: chipText,
-							Style:   core.Style{FontSize: 12, Color: chipFg},
-						},
-					},
-				},
-				core.View{
-					TestID: "build-release-primary-action",
-					Role:   core.RoleButton,
-					Label:  actionLabel,
-					Style: core.Style{
-						Height:       core.Pt(30),
-						Direction:    core.Row,
-						AlignItems:   core.AlignCenter,
-						Gap:          6,
-						Padding:      core.Symmetric(0, 12),
-						CornerRadius: 8,
-						Background:   actionBg,
-						FocusVisible: specFocusRingStyle,
-					},
-					OnPress: func(core.PressEvent) {
-						switch {
-						case snap.Running:
-							ed.StopReleaseBuild()
-						case snap.Stopped:
-							ed.report(ed.ResumeReleaseBuild())
-						default:
-							ed.report(ed.StartReleaseBuild())
-						}
-					},
-					Children: []core.Node{
-						buildSpecIcon(actionIcon(), 12, actionFg),
-						core.Text{
-							Content: actionLabel,
-							Style:   core.Style{FontSize: 12.5, FontWeight: core.FontWeightMedium, Color: actionFg},
-						},
-					},
-				},
-			},
-		}
+		return name
 	})
+
+	// Keep the outer header and version ui.Input outside core.Dynamic so streaming log lines
+	// and release-notes keystrokes (which increment brRev) never remount or drop focus on
+	// build-release-version.
+	return core.View{
+		TestID: "build-release-header",
+		Role:   core.RoleRegion,
+		Label:  "Release header",
+		Style: core.Style{
+			Height:      core.Pt(44),
+			FlexShrink:  0,
+			Direction:   core.Row,
+			AlignItems:  core.AlignCenter,
+			Gap:         10,
+			Padding:     core.Symmetric(0, 12),
+			Background:  specBg,
+			Borders:     core.Edges{Bottom: 1},
+			BorderColor: specLine,
+		},
+		Children: []core.Node{
+			core.View{
+				TestID: "build-release-back",
+				Role:   core.RoleButton,
+				Label:  "Back to scene editor",
+				Style: core.Style{
+					Height:       core.Pt(28),
+					Direction:    core.Row,
+					AlignItems:   core.AlignCenter,
+					Gap:          8,
+					Padding:      core.Symmetric(0, 6),
+					CornerRadius: 6,
+					Hover:        &core.Style{Background: specRaised},
+					FocusVisible: specFocusRingStyle,
+				},
+				OnPress: func(core.PressEvent) {
+					ed.CloseBuildReleaseScreen()
+				},
+				Children: []core.Node{
+					core.View{
+						Style: core.Style{
+							Width:        core.Pt(20),
+							Height:       core.Pt(20),
+							CornerRadius: 5,
+							Background:   specAccent,
+						},
+					},
+					core.Dynamic(func(cx *core.Scope) core.Node {
+						return core.Text{
+							Content: projectNameMemo.Get(),
+							Style:   core.Style{FontSize: 12.5, FontWeight: core.FontWeightSemibold, Color: specTextStrong},
+						}
+					}),
+					core.Text{
+						Content: "/",
+						Style:   core.Style{FontSize: 12.5, Color: specTextMuted},
+					},
+					core.Text{
+						Content: "Release",
+						Style:   core.Style{FontSize: 12.5, Color: specTextSecondary},
+					},
+				},
+			},
+			core.Text{
+				Content: "Version",
+				Style:   core.Style{FontSize: 12, Color: specTextMuted},
+			},
+			core.View{
+				Style: core.Style{Width: core.Pt(72)},
+				Children: []core.Node{
+					ui.Input{
+						TestID:      "build-release-version",
+						Label:       "Release version",
+						Placeholder: "0.1.0",
+						Disabled: func() bool {
+							_ = brRev.Get()
+							return ed.ReleaseBuildRunning()
+						},
+						Value:    versionDraft.Get,
+						OnChange: versionDraft.Set,
+						OnSubmit: func(v string) {
+							ed.report(ed.SetReleaseVersion(v))
+						},
+						Style: core.Style{
+							Width:        core.Pct(100),
+							Height:       core.Pt(28),
+							Background:   specRaised,
+							BorderWidth:  1,
+							BorderColor:  specLineRaised,
+							CornerRadius: 6,
+							Color:        specTextStrong,
+							FontSize:     11.5,
+						},
+					},
+				},
+			},
+			core.Dynamic(func(cx *core.Scope) core.Node {
+				_ = brRev.Get()
+				snap := ed.BuildReleaseSnapshot()
+
+				includedCount := 0
+				doneCount := 0
+				failedCount := 0
+				for _, p := range snap.Presets {
+					if p.Included && p.Status != BuildPresetSetup {
+						includedCount++
+						switch p.Status {
+						case BuildPresetDone:
+							doneCount++
+						case BuildPresetFailed:
+							failedCount++
+						}
+					}
+				}
+
+				chipText := fmt.Sprintf("Ready · %d presets", includedCount)
+				var chipBg core.Color
+				chipBorder := specLineRaised
+				chipFg := specTextSecondary
+				dotColor := specTextMuted
+				switch {
+				case snap.Running:
+					chipText = fmt.Sprintf("Building · %d of %d done", doneCount, includedCount)
+					chipBg = specAgentTint
+					chipBorder = specAgentEdge
+					chipFg = specText
+					dotColor = specAgent
+				case snap.Stopped:
+					chipText = fmt.Sprintf("Stopped · %d of %d done", doneCount, includedCount)
+					chipBorder = specLineRaised
+					chipFg = specTextSecondary
+					dotColor = specTextMuted
+				case failedCount > 0:
+					chipText = fmt.Sprintf("%d of %d done · %d failed", doneCount, includedCount, failedCount)
+					chipBg = specProblemTint
+					chipBorder = specProblemEdge
+					chipFg = specText
+					dotColor = specProblem
+				case doneCount > 0 && doneCount == includedCount:
+					chipText = fmt.Sprintf("Done · %d of %d built", doneCount, includedCount)
+					chipBg = specAddedFill
+					chipBorder = specAddedEdge
+					chipFg = specText
+					dotColor = specAdded
+				}
+
+				actionLabel := "Build"
+				actionBg := specAccent
+				actionFg := specBg
+				actionIcon := lucide.Play
+				if snap.Running {
+					actionLabel = "Stop"
+					actionBg = specLineRaised
+					actionFg = specTextStrong
+					actionIcon = lucide.Square
+				} else if snap.Stopped {
+					actionLabel = "Resume"
+					actionBg = specAccent
+					actionFg = specBg
+					actionIcon = lucide.Play
+				}
+
+				commit := snap.GitCommit
+				if commit == "" {
+					commit = "local"
+				}
+				branch := snap.GitBranch
+				if branch == "" {
+					branch = "main"
+				}
+				metaText := fmt.Sprintf("from %s on %s · last release %s", commit, branch, snap.LastReleaseVersion)
+
+				return core.View{
+					Style: core.Style{
+						FlexGrow:   1,
+						FlexBasis:  core.Pt(0),
+						Direction:  core.Row,
+						AlignItems: core.AlignCenter,
+						Gap:        10,
+					},
+					Children: []core.Node{
+						core.Text{
+							TestID:  "build-release-meta",
+							Content: metaText,
+							Style:   core.Style{FontSize: 12, Color: specTextMuted, FontVariant: core.FontTabularNums},
+						},
+						core.View{Style: core.Style{FlexGrow: 1}},
+						buildReleasePillButton("build-release-dry-run", "Dry Run", snap.DryRun, snap.Running, func() {
+							ed.SetReleaseDryRun(!snap.DryRun)
+						}),
+						core.View{
+							TestID: "build-release-status-chip",
+							Style: core.Style{
+								Height:       core.Pt(28),
+								Direction:    core.Row,
+								AlignItems:   core.AlignCenter,
+								Gap:          8,
+								Padding:      core.Symmetric(0, 12),
+								CornerRadius: 14,
+								Background:   chipBg,
+								BorderWidth:  1,
+								BorderColor:  chipBorder,
+							},
+							Children: []core.Node{
+								core.View{
+									Style: core.Style{
+										Width:        core.Pt(6),
+										Height:       core.Pt(6),
+										CornerRadius: 3,
+										Background:   dotColor,
+									},
+								},
+								core.Text{
+									Content: chipText,
+									Style:   core.Style{FontSize: 12, Color: chipFg},
+								},
+							},
+						},
+						core.View{
+							TestID: "build-release-primary-action",
+							Role:   core.RoleButton,
+							Label:  actionLabel,
+							Style: core.Style{
+								Height:       core.Pt(30),
+								Direction:    core.Row,
+								AlignItems:   core.AlignCenter,
+								Gap:          6,
+								Padding:      core.Symmetric(0, 12),
+								CornerRadius: 8,
+								Background:   actionBg,
+								FocusVisible: specFocusRingStyle,
+							},
+							OnPress: func(core.PressEvent) {
+								switch {
+								case snap.Running:
+									ed.StopReleaseBuild()
+								case snap.Stopped:
+									ed.report(ed.ResumeReleaseBuild())
+								default:
+									ed.report(ed.StartReleaseBuild())
+								}
+							},
+							Children: []core.Node{
+								buildSpecIcon(actionIcon(), 12, actionFg),
+								core.Text{
+									Content: actionLabel,
+									Style:   core.Style{FontSize: 12.5, FontWeight: core.FontWeightMedium, Color: actionFg},
+								},
+							},
+						},
+					},
+				}
+			}),
+		},
+	}
 }
 
 func buildReleasePillButton(testID, label string, active, disabled bool, onPress func()) core.Node {
@@ -1521,15 +1544,15 @@ func buildDetailDoneView(ed *Editor, snap BuildReleaseSnapshot, p BuildPresetEnt
 	}
 
 	dlBudget := snap.Preflight.DownloadSizeBudgetMB
-	if dlBudget <= 0 {
+	if dlBudget <= 0 || math.IsNaN(dlBudget) || math.IsInf(dlBudget, 0) {
 		dlBudget = DefaultDownloadSizeBudgetMB
 	}
 	frameBudget := snap.Preflight.FrameTimeP95BudgetMs
-	if frameBudget <= 0 {
+	if frameBudget <= 0 || math.IsNaN(frameBudget) || math.IsInf(frameBudget, 0) {
 		frameBudget = DefaultFrameTimeP95BudgetMs
 	}
-	sizePct := math.Min(100, math.Max(4, (float64(res.SizeBytes)/(1024*1024)/dlBudget)*100))
-	framePct := math.Min(100, math.Max(4, (res.FrameTimeP95Ms/frameBudget)*100))
+	sizePct := clampBudgetPct((float64(res.SizeBytes) / (1024 * 1024) / dlBudget) * 100)
+	framePct := clampBudgetPct((res.FrameTimeP95Ms / frameBudget) * 100)
 
 	budgetsRow := core.View{
 		TestID: "build-result-budgets",
@@ -1537,10 +1560,10 @@ func buildDetailDoneView(ed *Editor, snap BuildReleaseSnapshot, p BuildPresetEnt
 		Children: []core.Node{
 			buildBudgetCard("build-budget-download", "Download size",
 				fmt.Sprintf("%s / %.0f MB", formatSizeMB(res.SizeBytes), dlBudget),
-				res.DownloadBudgetMet, float32(sizePct)),
+				res.DownloadBudgetMet, sizePct),
 			buildBudgetCard("build-budget-frame", "Frame time p95",
 				fmt.Sprintf("%.1f / %.1f ms", res.FrameTimeP95Ms, frameBudget),
-				res.FrameTimeBudgetMet, float32(framePct)),
+				res.FrameTimeBudgetMet, framePct),
 		},
 	}
 
@@ -1701,6 +1724,16 @@ func buildDetailDoneView(ed *Editor, snap BuildReleaseSnapshot, p BuildPresetEnt
 			},
 		},
 	}
+}
+
+func clampBudgetPct(v float64) float32 {
+	if math.IsNaN(v) || math.IsInf(v, -1) || v < 4 {
+		return 4
+	}
+	if math.IsInf(v, 1) || v > 100 {
+		return 100
+	}
+	return float32(v)
 }
 
 func buildBudgetCard(testID, title, metric string, met bool, pct float32) core.Node {

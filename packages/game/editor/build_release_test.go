@@ -6,11 +6,13 @@ import (
 	"image/color"
 	"image/png"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -632,4 +634,305 @@ func TestBuildReleaseScreenIOSReadinessAgentVsPerson(t *testing.T) {
 	if reviewUploadsCalled != 1 {
 		t.Fatalf("reviewUploadsCalled = %d, want 1", reviewUploadsCalled)
 	}
+}
+
+func TestBuildReleaseHardeningSymlinksKnownFieldsAndFinder(t *testing.T) {
+	outside := t.TempDir()
+	outsideSecret := filepath.Join(outside, "secret.txt")
+	if err := os.WriteFile(outsideSecret, []byte("untouched"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	dir := writeBuildReleaseProject(t, `export:
+  presets:
+    - platform: android
+    - platform: ios
+    - platform: web
+`)
+	// Symlink PrivacyInfo.xcprivacy to an outside file -> agent write must fail without touching outside file.
+	if err := os.Symlink(outsideSecret, filepath.Join(dir, "PrivacyInfo.xcprivacy")); err != nil {
+		t.Skipf("symlinks unsupported: %v", err)
+	}
+	// Symlink export/android.export.yaml to an outside file -> ApplyBuildPresetFixAndRebuild must fail.
+	if err := os.MkdirAll(filepath.Join(dir, "export"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outsideSecret, filepath.Join(dir, "export", "android.export.yaml")); err != nil {
+		t.Skipf("symlinks unsupported: %v", err)
+	}
+	// Put an unknown field in export/web.export.yaml and build/last-release.yaml -> KnownFields(true) must ignore them.
+	if err := os.WriteFile(filepath.Join(dir, "export", "web.export.yaml"), []byte("summary: custom\nunknownField: 123\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "build"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "build", "last-release.yaml"), []byte("version: \"9.9.9\"\nbogusKey: true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ed, err := editor.New(nil, testResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ed.ReleaseCheckRunner = func(_ context.Context, _ string) ([]assetcheck.Problem, time.Duration, error) {
+		return nil, time.Millisecond, nil
+	}
+	ed.ReleaseReadinessInspector = func(platform, _ string, _ *project.File) []editor.BuildReadinessItem {
+		if platform == "ios" {
+			return []editor.BuildReadinessItem{{
+				ID:             "privacy_manifest",
+				Label:          "Privacy manifest",
+				Status:         editor.BuildReadinessWarn,
+				AgentCanHandle: true,
+			}}
+		}
+		return nil
+	}
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenBuildReleaseScreen(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify KnownFields(true) refused the malformed web.export.yaml and last-release.yaml.
+	snap := ed.BuildReleaseSnapshot()
+	if snap.LastReleaseVersion == "9.9.9" {
+		t.Fatalf("last-release.yaml with unknown field should have been rejected, got version %q", snap.LastReleaseVersion)
+	}
+	for _, p := range snap.Presets {
+		if p.Platform == "web" && p.Summary == "custom" {
+			t.Fatal("web.export.yaml with unknown field should have been rejected")
+		}
+	}
+
+	// Verify symlinked PrivacyInfo.xcprivacy write is refused and outsideSecret is untouched.
+	if err := ed.RunBuildReadinessAction("ios", "privacy_manifest"); err == nil {
+		t.Fatal("expected symlinked PrivacyInfo.xcprivacy write to fail")
+	}
+	if got, _ := os.ReadFile(outsideSecret); string(got) != "untouched" {
+		t.Fatalf("outsideSecret modified: %q", got)
+	}
+
+	// Verify symlinked export/android.export.yaml write in ApplyBuildPresetFixAndRebuild is refused.
+	if err := ed.SetBuildPresetFixProposal("android", &editor.BuildPresetFixProposal{
+		Platform:     "android",
+		Title:        "Fix keystore",
+		SigningPatch: &editor.BuildPresetSigningConfig{Keystore: "keychain:test"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.ApplyBuildPresetFixAndRebuild("android"); err == nil {
+		t.Fatal("expected ApplyBuildPresetFixAndRebuild through symlink to fail")
+	}
+	if got, _ := os.ReadFile(outsideSecret); string(got) != "untouched" {
+		t.Fatalf("outsideSecret modified after fix: %q", got)
+	}
+
+	// Verify ShowBuildArtifactInFinder rejects an artifact path escaping the project root.
+	opened := false
+	ed.OpenOutputFolder = func(string) error {
+		opened = true
+		return nil
+	}
+	ed.ReleaseMeasureRunner = func(_ context.Context, platform string, _ *releaseplan.Plan) (editor.BuildArtifactResult, error) {
+		return editor.BuildArtifactResult{
+			ArtifactPath: filepath.Join(outside, "evil.zip"),
+			ArtifactName: "evil.zip",
+			SizeBytes:    1024,
+		}, nil
+	}
+	if err := ed.SetBuildPresetIncluded("android", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.StartReleaseBuild(editor.BuildReleaseOptions{DryRun: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.WaitReleaseBuild(); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.ShowBuildArtifactInFinder("web"); err == nil {
+		t.Fatal("expected ShowBuildArtifactInFinder to reject path outside project dir")
+	}
+	if opened {
+		t.Fatal("OpenOutputFolder should not be called for outside path")
+	}
+}
+
+func TestBuildReleaseHardeningConcurrencyPrioritizePlayAndInputFocus(t *testing.T) {
+	dir := writeBuildReleaseProject(t, `export:
+  presets:
+    - platform: macos
+    - platform: windows
+    - platform: linux
+`)
+	ed, err := editor.New(nil, testResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ed.ReleaseCheckRunner = func(_ context.Context, _ string) ([]assetcheck.Problem, time.Duration, error) {
+		return nil, time.Millisecond, nil
+	}
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify sibling full-window screens mutually exclude Build & Release.
+	if err := ed.OpenBuildReleaseScreen(); err != nil {
+		t.Fatal(err)
+	}
+	ed.SetPlaytestReportOpen(true)
+	if ed.BuildReleaseScreenOpen() || !ed.PlaytestReportOpen() {
+		t.Fatalf("expected PlaytestReport to close BuildRelease (build=%v playtest=%v)", ed.BuildReleaseScreenOpen(), ed.PlaytestReportOpen())
+	}
+	ed.SetHUDLayoutOpen(true)
+	if ed.PlaytestReportOpen() || !ed.HUDLayoutOpen() {
+		t.Fatalf("expected HUDLayout to close PlaytestReport (hud=%v playtest=%v)", ed.HUDLayoutOpen(), ed.PlaytestReportOpen())
+	}
+	if err := ed.OpenBuildReleaseScreen(); err != nil {
+		t.Fatal(err)
+	}
+	if ed.HUDLayoutOpen() || !ed.BuildReleaseScreenOpen() {
+		t.Fatalf("expected BuildRelease to close HUDLayout (build=%v hud=%v)", ed.BuildReleaseScreenOpen(), ed.HUDLayoutOpen())
+	}
+
+	// Live PrioritizeBuildPreset + concurrent -race exercise (scope == nil headless).
+	macosStarted := make(chan struct{})
+	releaseMacos := make(chan struct{})
+	var buildOrderMu sync.Mutex
+	var buildOrder []string
+	var workerExited atomic.Bool
+
+	ed.ReleaseStepRunner = func(ctx context.Context, req editor.ReleaseStepRequest, stdout, _ io.Writer) error {
+		if req.StepID == editor.BuildStepCheck {
+			buildOrderMu.Lock()
+			buildOrder = append(buildOrder, req.Platform)
+			buildOrderMu.Unlock()
+		}
+		if req.Platform == "macos" && req.StepID == editor.BuildStepCheck {
+			close(macosStarted)
+			select {
+			case <-releaseMacos:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+		_, _ = io.WriteString(stdout, "step "+req.Platform+" "+string(req.StepID)+"\n")
+		return nil
+	}
+	if err := ed.StartReleaseBuild(editor.BuildReleaseOptions{DryRun: true}); err != nil {
+		t.Fatal(err)
+	}
+	<-macosStarted
+
+	// While running: readiness mutations are blocked with ErrReleaseBuildRunning.
+	if err := ed.RunBuildReadinessAction("macos", "any"); err != editor.ErrReleaseBuildRunning {
+		t.Fatalf("RunBuildReadinessAction while running = %v, want ErrReleaseBuildRunning", err)
+	}
+	if err := ed.RunBuildReadinessAgentSetup("macos"); err != editor.ErrReleaseBuildRunning {
+		t.Fatalf("RunBuildReadinessAgentSetup while running = %v, want ErrReleaseBuildRunning", err)
+	}
+
+	// Prioritize linux ahead of windows while macos is still building.
+	ed.PrioritizeBuildPreset("linux")
+	// Concurrent status/snapshot reads while worker runs (-race check).
+	_ = ed.BuildReleaseSnapshot()
+	ed.SelectBuildPreset("linux")
+	close(releaseMacos)
+
+	if err := ed.WaitReleaseBuild(); err != nil {
+		t.Fatalf("WaitReleaseBuild: %v", err)
+	}
+	buildOrderMu.Lock()
+	gotOrder := slices.Clone(buildOrder)
+	buildOrderMu.Unlock()
+	if want := []string{"macos", "linux", "windows"}; !slices.Equal(gotOrder, want) {
+		t.Fatalf("live prioritized build order = %v, want %v", gotOrder, want)
+	}
+
+	// Verify WaitReleaseBuild blocks until the worker goroutine truly exits after StopReleaseBuild.
+	inStep := make(chan struct{})
+	ed.ReleaseStepRunner = func(ctx context.Context, req editor.ReleaseStepRequest, _ io.Writer, _ io.Writer) error {
+		if req.StepID == editor.BuildStepCheck {
+			close(inStep)
+			<-ctx.Done()
+			time.Sleep(25 * time.Millisecond)
+			workerExited.Store(true)
+			return ctx.Err()
+		}
+		return nil
+	}
+	if err := ed.StartReleaseBuild(editor.BuildReleaseOptions{DryRun: true}); err != nil {
+		t.Fatal(err)
+	}
+	<-inStep
+	ed.StopReleaseBuild()
+	_ = ed.WaitReleaseBuild()
+	if !workerExited.Load() {
+		t.Fatal("WaitReleaseBuild returned before worker goroutine finished cleanup")
+	}
+
+	// Verify NaN frame time & MinInt64 size delta render cleanly and build-release-version keeps focus across brRev ticks.
+	ed.ReleaseStepRunner = nil
+	ed.ReleaseMeasureRunner = func(_ context.Context, platform string, plan *releaseplan.Plan) (editor.BuildArtifactResult, error) {
+		return editor.BuildArtifactResult{
+			ArtifactPath:   filepath.Join(plan.OutputDir, platform+".zip"),
+			ArtifactName:   platform + ".zip",
+			SizeBytes:      -10,
+			DeltaBytes:     math.MinInt64,
+			HasLastRelease: true,
+			FrameTimeP95Ms: math.NaN(),
+		}, nil
+	}
+	if err := ed.SetBuildPresetIncluded("windows", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.SetBuildPresetIncluded("linux", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.StartReleaseBuild(editor.BuildReleaseOptions{DryRun: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.WaitReleaseBuild(); err != nil {
+		t.Fatal(err)
+	}
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1440, 900))
+	app.Settle()
+
+	// Focus build-release-version, trigger brRev tick via SetReleaseNotesText, and verify focus survives.
+	origVer := ed.Project.AppVersion
+	app.Focus("id:build-release-version")
+	app.Settle()
+	app.Post(func() {
+		ed.SetReleaseNotesText("typing release notes ticks brRev")
+	})
+	app.Settle()
+	app.Key("9")
+	app.Key("enter")
+	app.Settle()
+	if ed.Project.AppVersion == origVer || !strings.Contains(ed.Project.AppVersion, "9") {
+		t.Fatalf("build-release-version lost focus across brRev tick: AppVersion = %q (orig %q)", ed.Project.AppVersion, origVer)
+	}
+
+	// Entering Play mode closes Build & Release screen and stops any running build.
+	app.Post(func() {
+		if err := ed.Play(); err != nil {
+			t.Errorf("Play: %v", err)
+		}
+	})
+	app.Settle()
+	if ed.BuildReleaseScreenOpen() {
+		t.Fatal("Play mode should close BuildReleaseScreenOpen")
+	}
+	if err := ed.RunBuildReadinessAction("macos", "any"); err != editor.ErrPlaying {
+		t.Fatalf("RunBuildReadinessAction while playing = %v, want ErrPlaying", err)
+	}
+	app.Post(func() {
+		_ = ed.Stop()
+	})
+	app.Settle()
 }
