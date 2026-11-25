@@ -104,6 +104,7 @@ const (
 	CmdView3DBottom       = "view.3d.bottom"
 	CmdView3DOrthographic = "view.3d.orthographic"
 	CmdView3DCamera       = "view.3d.camera"
+	CmdGizmoSpace3D       = "gizmo.3d.space"
 	CmdEnvironmentPanel   = "scene.environment"
 	CmdAddReflectionProbe = "scene.addReflectionProbe"
 	CmdAddLightProbeGrid  = "scene.addLightProbeGrid"
@@ -1062,6 +1063,23 @@ func (e *Editor) initBuiltinCommands() {
 			},
 		},
 		{
+			ID:          CmdGizmoSpace3D,
+			Label:       "3D Gizmo: Local / Global Space",
+			Description: "Toggle the 3D transform gizmo between local object axes and global world axes",
+			Category:    "3D Gizmo",
+			Keywords:    []string{"local", "global", "world", "space", "gizmo", "3d"},
+			Enabled:     func() bool { return e.ViewMode == ViewMode3D },
+			Checked:     func() bool { return e.GizmoSpace3D == GizmoSpaceLocal },
+			Run: func() error {
+				if e.GizmoSpace3D == GizmoSpaceLocal {
+					e.SetGizmoSpace3D(GizmoSpaceGlobal)
+				} else {
+					e.SetGizmoSpace3D(GizmoSpaceLocal)
+				}
+				return nil
+			},
+		},
+		{
 			ID:          CmdToggleLightingPreview,
 			Label:       "Toggle 2D Lighting Preview",
 			Description: "Show or hide live 2D lights, occluder shadows, and ambient darkness in the 2D viewport",
@@ -1734,6 +1752,7 @@ var builtinCommandKeys = map[string][3]string{
 	CmdGizmoTranslate:        {"cmd.gizmoTranslate.label", "cmd.gizmoTranslate.desc", "cmd.category.gizmo3d"},
 	CmdGizmoRotate:           {"cmd.gizmoRotate.label", "cmd.gizmoRotate.desc", "cmd.category.gizmo3d"},
 	CmdGizmoScale:            {"cmd.gizmoScale.label", "cmd.gizmoScale.desc", "cmd.category.gizmo3d"},
+	CmdGizmoSpace3D:          {"cmd.gizmoSpace3d.label", "cmd.gizmoSpace3d.desc", "cmd.category.gizmo3d"},
 	CmdView2D:                {"cmd.view2d.label", "cmd.view2d.desc", "cmd.category.view"},
 	CmdView3D:                {"cmd.view3d.label", "cmd.view3d.desc", "cmd.category.view"},
 	CmdShadingLit:            {"cmd.shadingLit.label", "cmd.shadingLit.desc", "cmd.category.view"},

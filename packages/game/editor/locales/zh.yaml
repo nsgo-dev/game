@@ -46,6 +46,8 @@ strings:
   cmd.gizmoRotate.label: 3D 操纵杆：旋转
   cmd.gizmoScale.desc: 将 3D 变换操纵杆切换为缩放模式
   cmd.gizmoScale.label: 3D 操纵杆：缩放
+  cmd.gizmoSpace3d.desc: 在局部对象坐标轴与全局世界坐标轴之间切换 3D 变换操纵杆
+  cmd.gizmoSpace3d.label: 3D 操纵杆：局部 / 全局空间
   cmd.gizmoTranslate.desc: 将 3D 变换操纵杆切换为平移模式
   cmd.gizmoTranslate.label: 3D 操纵杆：平移
   cmd.group.desc: 将选中的对象归组到位于其共同中心的新空父级下
@@ -162,6 +164,8 @@ strings:
   files.title: 文件
   gizmo.rotate: 旋转
   gizmo.scale: 缩放
+  gizmo.spaceGlobal: 全局
+  gizmo.spaceLocal: 局部
   gizmo.translate: 平移
   inspector.addComponent: 添加组件
   inspector.addProperty: 添加属性
@@ -554,7 +558,7 @@ strings:
   status.changes: 变更
   status.changesCount: 变更：{count}
   status.mode2d: 模式：{mode} | 视图：2D {zoom}% | 工具：{tool} | 图层：{layer}
-  status.mode3d: 模式：{mode} | 视图：3D {view} | 操纵杆：{gizmo} | 图层：{layer}
+  status.mode3d: 模式：{mode} | 视图：3D {view} | 操纵杆：{gizmo} · {space} | 图层：{layer}
   status.mode3dGridMap: 模式：{mode} | 视图：3D {view}（GridMap {tool}，Y={floor}，朝向={orient}/24）| 图层：{layer}
   status.modeEdit: 编辑
   status.modePlay: 运行

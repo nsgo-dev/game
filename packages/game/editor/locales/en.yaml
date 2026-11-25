@@ -46,6 +46,8 @@ strings:
   cmd.gizmoRotate.label: '3D Gizmo: Rotate'
   cmd.gizmoScale.desc: Switch the 3D transform gizmo to Scale mode
   cmd.gizmoScale.label: '3D Gizmo: Scale'
+  cmd.gizmoSpace3d.desc: Toggle the 3D transform gizmo between local object axes and global world axes
+  cmd.gizmoSpace3d.label: '3D Gizmo: Local / Global Space'
   cmd.gizmoTranslate.desc: Switch the 3D transform gizmo to Translate mode
   cmd.gizmoTranslate.label: '3D Gizmo: Translate'
   cmd.group.desc: Wrap the selected objects under a new empty parent at their common centre
@@ -162,6 +164,8 @@ strings:
   files.title: Files
   gizmo.rotate: Rotate
   gizmo.scale: Scale
+  gizmo.spaceGlobal: Global
+  gizmo.spaceLocal: Local
   gizmo.translate: Translate
   inspector.addComponent: Add component
   inspector.addProperty: Add property
@@ -554,7 +558,7 @@ strings:
   status.changes: Changes
   status.changesCount: 'Changes: {count}'
   status.mode2d: 'Mode: {mode} | View: 2D {zoom}% | Tool: {tool} | Layer: {layer}'
-  status.mode3d: 'Mode: {mode} | View: 3D {view} | Gizmo: {gizmo} | Layer: {layer}'
+  status.mode3d: 'Mode: {mode} | View: 3D {view} | Gizmo: {gizmo} · {space} | Layer: {layer}'
   status.mode3dGridMap: 'Mode: {mode} | View: 3D {view} (GridMap {tool}, Y={floor}, Orient={orient}/24) | Layer: {layer}'
   status.modeEdit: Edit
   status.modePlay: Play

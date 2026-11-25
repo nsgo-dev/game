@@ -200,6 +200,27 @@ func (a GizmoAxis3D) String() string {
 	}
 }
 
+// GizmoSpace3D selects whether the 3D transform gizmo aligns with world axes (Global)
+// or the selected object's world orientation (Local).
+type GizmoSpace3D int
+
+const (
+	// GizmoSpaceGlobal aligns 3D transform gizmo axes with world X, Y, Z.
+	GizmoSpaceGlobal GizmoSpace3D = iota
+	// GizmoSpaceLocal aligns 3D transform gizmo axes with the selected object's orientation.
+	GizmoSpaceLocal
+)
+
+// String returns "Global" or "Local".
+func (s GizmoSpace3D) String() string {
+	switch s {
+	case GizmoSpaceLocal:
+		return "Local"
+	default:
+		return "Global"
+	}
+}
+
 // Prefab is a reusable object template that PlaceObject and PlacePrefab can instantiate.
 type Prefab struct {
 	Name       string
@@ -238,6 +259,7 @@ type Editor struct {
 	Tool          Tool
 	ViewMode      ViewMode
 	GizmoMode     GizmoMode3D
+	GizmoSpace3D  GizmoSpace3D
 	Camera3D      OrbitCamera3D
 	ActiveTileID  int
 	// ActiveTileLayer names the tile layer of a layered grid (sceneformat.TilemapDoc.TileLayers) that PaintTile, EraseTile and FloodFillTile change, empty for its first. A single grid has no tile layers and ignores it.
@@ -1055,6 +1077,18 @@ func (e *Editor) SetShading3D(mode Shading3D) {
 	}
 	e.Shading3D = mode
 	e.Status = "Shading: " + mode.String()
+	e.notify()
+}
+
+// SetGizmoSpace3D switches the 3D transform gizmo between Global (world) and Local (object) axes.
+// It cancels any active 3D gizmo drag so no drag mixes spaces, is not undoable, and ignores unknown values.
+func (e *Editor) SetGizmoSpace3D(space GizmoSpace3D) {
+	if e == nil || e.GizmoSpace3D == space || (space != GizmoSpaceGlobal && space != GizmoSpaceLocal) {
+		return
+	}
+	e.CancelGizmoDrag3D()
+	e.GizmoSpace3D = space
+	e.Status = "Space: " + space.String()
 	e.notify()
 }
 

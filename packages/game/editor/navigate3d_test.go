@@ -227,8 +227,8 @@ func TestViewport3DFocusAxisViewsAndProjection(t *testing.T) {
 	if !ed.Orthographic3D() || text("id:view3d-name") != "Top · ortho" {
 		t.Fatalf("after 5 orthographic %v, view %q; want Top · ortho", ed.Orthographic3D(), text("id:view3d-name"))
 	}
-	if got := text("id:editor-status-mode"); !strings.Contains(got, "Top · ortho · yaw 0° · pitch 90°") {
-		t.Fatalf("status %q does not name the view", got)
+	if got := text("id:editor-status-mode"); !strings.Contains(got, "Top · ortho · yaw 0° · pitch 90°") || !strings.Contains(got, " · Global") {
+		t.Fatalf("status %q does not name the view and Global space", got)
 	}
 	app.Press("id:view3d-persp")
 	if ed.Orthographic3D() {
@@ -239,15 +239,62 @@ func TestViewport3DFocusAxisViewsAndProjection(t *testing.T) {
 		t.Fatal("Ortho left the view in perspective")
 	}
 
-	// The axis widget is 76 points square with each axis's end 26 points from its center; in the front view +X lies right of the center and +Y above it.
+	// Shading dropdown in the 3D viewport bar switches between Lit, Unlit and Wireframe.
+	if got := text("id:view3d-shading-label"); got != "Lit" {
+		t.Fatalf("initial shading label = %q, want Lit", got)
+	}
+	app.Press("id:view3d-shading")
+	app.Press("id:view3d-shading-unlit")
+	if ed.Shading3D != editor.Shading3DUnlit || text("id:view3d-shading-label") != "Unlit" {
+		t.Fatalf("after Unlit: shading=%v label=%q", ed.Shading3D, text("id:view3d-shading-label"))
+	}
+	app.Press("id:view3d-shading")
+	app.Press("id:view3d-shading-wireframe")
+	if ed.Shading3D != editor.Shading3DWireframe || text("id:view3d-shading-label") != "Wireframe" {
+		t.Fatalf("after Wireframe: shading=%v label=%q", ed.Shading3D, text("id:view3d-shading-label"))
+	}
+	app.Press("id:view3d-shading")
+	app.Press("id:view3d-shading-lit")
+	if ed.Shading3D != editor.Shading3DLit || text("id:view3d-shading-label") != "Lit" {
+		t.Fatalf("after Lit: shading=%v label=%q", ed.Shading3D, text("id:view3d-shading-label"))
+	}
+
+	// Transform space toggle updates GizmoSpace3D and the status bar's " · Local" / " · Global" indicator.
+	app.Press("id:view3d-space-local")
+	if ed.GizmoSpace3D != editor.GizmoSpaceLocal || !strings.Contains(text("id:editor-status-mode"), " · Local") {
+		t.Fatalf("after Local: space=%v status=%q", ed.GizmoSpace3D, text("id:editor-status-mode"))
+	}
+	app.Press("id:view3d-space-global")
+	if ed.GizmoSpace3D != editor.GizmoSpaceGlobal || !strings.Contains(text("id:editor-status-mode"), " · Global") {
+		t.Fatalf("after Global: space=%v status=%q", ed.GizmoSpace3D, text("id:editor-status-mode"))
+	}
+
+	// The orientation widget is 88 points in diameter with each axis end 28 points from its center,
+	// and each axis end is also a real clickable, keyboard-reachable button.
 	app.Key("1")
-	app.PressAt("id:view3d-axes", pt(38+26, 38))
+	app.PressAt("id:view3d-axes", pt(44+28, 44))
 	if v, _ := ed.Camera3D.AxisView(); v != editor.View3DRight {
 		t.Fatalf("pressing +X on the axis widget turned to %v, want Right", v)
 	}
-	app.PressAt("id:view3d-axes", pt(38, 38-26))
+	app.PressAt("id:view3d-axes", pt(44, 44-28))
 	if v, _ := ed.Camera3D.AxisView(); v != editor.View3DTop {
 		t.Fatalf("pressing +Y on the axis widget turned to %v, want Top", v)
+	}
+	for _, tc := range []struct {
+		id   string
+		view editor.View3D
+	}{
+		{"id:view3d-axis-front", editor.View3DFront},
+		{"id:view3d-axis-right", editor.View3DRight},
+		{"id:view3d-axis-left", editor.View3DLeft},
+		{"id:view3d-axis-top", editor.View3DTop},
+		{"id:view3d-axis-bottom", editor.View3DBottom},
+		{"id:view3d-axis-back", editor.View3DBack},
+	} {
+		app.Press(tc.id)
+		if v, ok := ed.Camera3D.AxisView(); !ok || v != tc.view {
+			t.Fatalf("pressing %s turned to %v (%v), want %v", tc.id, v, ok, tc.view)
+		}
 	}
 
 	app.Key("1")
@@ -750,4 +797,70 @@ func TestOrthographicGizmoRotateScaleAndElevations(t *testing.T) {
 			t.Fatalf("a drag on the Y arm, edge on from the top, moved the cube to (%v, %v, %v)", obj.X, obj.Y, obj.PosZ)
 		}
 	})
+}
+
+// Local space aligns the 3D transform gizmo with the selected object's orientation,
+// while Global space aligns it with the world axes.
+func TestViewport3DLocalGizmoSpaceOnRotatedObject(t *testing.T) {
+	const w, h float32 = 640, 360
+	ed := newTest3DEditor(t, sceneformat.ObjectDoc{
+		ID:    "pillar",
+		Name:  "Pillar",
+		RotY:  float32(math.Pi / 2), // local +X points along world -Z
+		Depth: 16,
+	})
+	ed.Camera3D = editor.OrbitCamera3D{Distance: 200, FOV: float32(math.Pi / 3), Near: 0.5, Far: 5000, Orthographic: true}
+	ed.Camera3D.SetView(editor.View3DTop)
+	ed.SelectObject("pillar")
+	ed.SetGizmoMode3D(editor.Gizmo3DTranslate)
+
+	if err := ed.ExecuteCommand(editor.CmdGizmoSpace3D); err != nil {
+		t.Fatalf("ExecuteCommand(CmdGizmoSpace3D): %v", err)
+	}
+	if ed.GizmoSpace3D != editor.GizmoSpaceLocal {
+		t.Fatalf("GizmoSpace3D = %v, want Local", ed.GizmoSpace3D)
+	}
+
+	gLen := ed.GizmoLength3D([3]float32{0, 0, 0})
+	// Local +X points along world -Z because RotY = +90°.
+	from := [3]float32{0, 0, -gLen * 0.6}
+	to := [3]float32{0, 0, -gLen*0.6 - 25}
+	x0, y0, _, vis0 := ed.Camera3D.Project(from, w, h)
+	x1, y1, _, vis1 := ed.Camera3D.Project(to, w, h)
+	if !vis0 || !vis1 {
+		t.Fatal("local X drag points are not visible")
+	}
+	if axis := ed.BeginGizmoDrag3D(x0, y0, w, h); axis != editor.Axis3DX {
+		t.Fatalf("BeginGizmoDrag3D on rotated local +X picked %v, want X", axis)
+	}
+	ed.UpdateGizmoDrag3D(x1, y1)
+	if !ed.EndGizmoDrag3D() {
+		t.Fatal("local X drag did not commit")
+	}
+	obj, _, _ := ed.FindObject("pillar")
+	assertNear32(t, "local X drag world X", obj.X, 0, 0.5)
+	assertNear32(t, "local X drag world PosZ", obj.PosZ, -25, 0.5)
+
+	// Switching back to Global restores world +X dragging.
+	if err := ed.ExecuteCommand(editor.CmdGizmoSpace3D); err != nil {
+		t.Fatalf("ExecuteCommand(CmdGizmoSpace3D) toggle back: %v", err)
+	}
+	if ed.GizmoSpace3D != editor.GizmoSpaceGlobal {
+		t.Fatalf("GizmoSpace3D = %v, want Global", ed.GizmoSpace3D)
+	}
+	origin := [3]float32{obj.X, obj.Y, obj.PosZ}
+	gFrom := [3]float32{origin[0] + gLen*0.6, origin[1], origin[2]}
+	gTo := [3]float32{gFrom[0] + 20, gFrom[1], gFrom[2]}
+	gx0, gy0, _, _ := ed.Camera3D.Project(gFrom, w, h)
+	gx1, gy1, _, _ := ed.Camera3D.Project(gTo, w, h)
+	if axis := ed.BeginGizmoDrag3D(gx0, gy0, w, h); axis != editor.Axis3DX {
+		t.Fatalf("BeginGizmoDrag3D on global +X picked %v, want X", axis)
+	}
+	ed.UpdateGizmoDrag3D(gx1, gy1)
+	if !ed.EndGizmoDrag3D() {
+		t.Fatal("global X drag did not commit")
+	}
+	obj, _, _ = ed.FindObject("pillar")
+	assertNear32(t, "global X drag world X", obj.X, 20, 0.5)
+	assertNear32(t, "global X drag world PosZ", obj.PosZ, -25, 0.5)
 }

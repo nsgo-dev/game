@@ -1246,10 +1246,15 @@ func statusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 										l10n.Param("layer", ed.activeLayerReadout()),
 									)
 								}
+								space := ed.T("gizmo.spaceGlobal")
+								if ed.GizmoSpace3D == GizmoSpaceLocal {
+									space = ed.T("gizmo.spaceLocal")
+								}
 								status := ed.T("status.mode3d",
 									l10n.Param("mode", mode),
 									l10n.Param("view", ed.viewStatus3D()),
 									l10n.Param("gizmo", ed.localizedGizmoName(ed.GizmoMode)),
+									l10n.Param("space", space),
 									l10n.Param("layer", ed.activeLayerReadout()),
 								)
 								if ed.Tool == ToolPlugin && ed.activePluginToolSupports3D() {

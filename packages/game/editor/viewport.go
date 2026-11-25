@@ -1703,7 +1703,6 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 
 // viewport3DErrorView shows, in a corner of the 3D viewport, why it cannot show the scene's geometry (Viewport3DError), and nothing when it can.
 func viewport3DErrorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
-	colors := ui.ColorsOf(cx)
 	message := func() string {
 		_ = rev.Get()
 		if err := ed.Viewport3DError(); err != nil {
@@ -1719,14 +1718,16 @@ func viewport3DErrorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 				ContentFunc: message,
 				Style: core.Style{
 					Position:     core.Absolute,
-					Left:         core.Pt(8),
-					Top:          core.Pt(44),
-					Right:        core.Pt(96),
+					Left:         core.Pt(16),
+					Top:          core.Pt(96),
+					Right:        core.Pt(116),
 					Padding:      core.Symmetric(4, 8),
-					CornerRadius: 4,
+					CornerRadius: 6,
 					FontSize:     12,
-					Color:        colors.Danger(),
-					Background:   colors.Raised(),
+					Color:        specProblem,
+					Background:   specViewportBarBg,
+					BorderWidth:  1,
+					BorderColor:  specProblemEdge,
 				},
 			}
 		},
