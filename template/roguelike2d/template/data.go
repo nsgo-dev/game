@@ -3,6 +3,7 @@ package main
 import (
 	_ "embed"
 	"fmt"
+	"strings"
 
 	"github.com/nsgo-dev/game/packages/game/ability"
 	"github.com/nsgo-dev/game/packages/game/loot"
@@ -29,13 +30,13 @@ var (
 	abilitiesYAML []byte
 )
 
-// The abilities the game gives an effect to; data/abilities.yaml must define both.
+// The abilities the game gives an effect to in run.abilityEvent; data/abilities.yaml must define both.
 const (
 	abilityQuaff  = "quaff"
 	abilityCleave = "cleave"
 )
 
-// The resource the quaff ability spends and the conditions the abilities test, as data/abilities.yaml names them.
+// The resource the quaff ability spends and the conditions the abilities test, as data/abilities.yaml names them. These are the only ones run.condition and draughtPool answer, so the data check refuses any other name.
 const (
 	resourceDraughts = "draughts"
 	conditionHurt    = "hurt"
@@ -145,6 +146,18 @@ func (g *gameData) check() error {
 		}
 		if !found {
 			return fmt.Errorf("data/abilities.yaml: no %s ability", id)
+		}
+	}
+	for _, a := range g.abilities.Abilities {
+		for _, c := range a.Conditions {
+			if name := strings.TrimPrefix(c, "!"); name != conditionHurt && name != conditionFoes {
+				return fmt.Errorf("data/abilities.yaml: ability %q: condition %q is not one the game answers (%s, %s)", a.ID, name, conditionHurt, conditionFoes)
+			}
+		}
+		for _, c := range a.Costs {
+			if c.Resource != resourceDraughts {
+				return fmt.Errorf("data/abilities.yaml: ability %q: resource %q is not one the game keeps (%s)", a.ID, c.Resource, resourceDraughts)
+			}
 		}
 	}
 	return nil

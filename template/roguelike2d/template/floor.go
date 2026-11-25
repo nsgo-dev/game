@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/nsgo-dev/game/packages/game/entities"
 	"github.com/nsgo-dev/game/packages/game/loot"
 	"github.com/nsgo-dev/game/packages/game/procgen"
 	"github.com/nsgo-dev/game/packages/game/random"
@@ -18,7 +19,7 @@ var steps = [4]cell{{X: 0, Y: -1}, {X: 1, Y: 0}, {X: 0, Y: 1}, {X: -1, Y: 0}}
 // minMonsterDistance is the fewest steps from the player's arrival that a monster spawns, so a floor never starts with a fight.
 const minMonsterDistance = 6
 
-// floor is one generated floor of a run: its cells, where the player arrives, its exit, and the monsters and items on it.
+// floor is one generated floor of a run: its cells, where the player arrives, its exit, and the world of actors, the monsters and items on it.
 type floor struct {
 	// index is the floor's place in Dungeon.Floors, from 0.
 	index int
@@ -29,29 +30,11 @@ type floor struct {
 	// exit is the stairs down, or on the last floor the relic.
 	exit cell
 	// relic reports whether exit is the relic, which wins the run, rather than stairs.
-	relic    bool
-	monsters []*monster
-	items    []*floorItem
+	relic bool
+	// actors holds the floor's monsters and items as entities, with the components actors.go defines.
+	actors *entities.World
 	// seen marks the cells the player has seen, which stay drawn, dimmer, once out of sight.
 	seen []bool
-}
-
-// monster is one monster on a floor.
-type monster struct {
-	def    *MonsterDef
-	at     cell
-	health int
-	// hunting is set once the monster has noticed the player; it then chases the player for the rest of the floor.
-	hunting bool
-	// guard keeps a guardian on its cell: it strikes whoever stands next to it but never leaves the exit it guards.
-	guard bool
-}
-
-// floorItem is an item lying on a floor, count of it.
-type floorItem struct {
-	def   *ItemDef
-	count int
-	at    cell
 }
 
 // floorStream returns the stream floor index of the run with seed is generated from. Each floor has its own, so a resumed run regenerates the floor it was saved on exactly.
@@ -63,7 +46,7 @@ func floorStream(seed uint64, index int, purpose string) *random.Stream {
 func generateFloor(d *Dungeon, index int, seed uint64, roller *loot.Roller) (*floor, error) {
 	def := &d.Floors[index]
 	s := floorStream(seed, index, "floor")
-	f := &floor{index: index, def: def, relic: index == len(d.Floors)-1}
+	f := &floor{index: index, def: def, relic: index == len(d.Floors)-1, actors: newActors()}
 
 	switch def.Generator {
 	case generatorBSP:
@@ -107,7 +90,7 @@ func generateFloor(d *Dungeon, index int, seed uint64, roller *loot.Roller) (*fl
 
 	if def.Guardian != "" {
 		m, _ := d.monster(def.Guardian)
-		f.monsters = append(f.monsters, &monster{def: m, at: f.exit, health: m.Health, guard: true})
+		f.spawnFoe(m, f.exit, true)
 	}
 	kinds := d.spawnable(index + 1)
 	weights := make([]float64, len(kinds))
@@ -119,8 +102,7 @@ func generateFloor(d *Dungeon, index int, seed uint64, roller *loot.Roller) (*fl
 		if !ok {
 			break
 		}
-		m := &d.Monsters[kinds[s.WeightedIndex(weights)]]
-		f.monsters = append(f.monsters, &monster{def: m, at: at, health: m.Health})
+		f.spawnFoe(&d.Monsters[kinds[s.WeightedIndex(weights)]], at, false)
 	}
 
 	var drops []loot.Drop
@@ -134,8 +116,7 @@ func generateFloor(d *Dungeon, index int, seed uint64, roller *loot.Roller) (*fl
 			if !ok {
 				break
 			}
-			it, _ := d.item(dr.Item)
-			f.items = append(f.items, &floorItem{def: it, count: dr.Count, at: at})
+			f.spawnLoot(dr.Item, dr.Count, at)
 		}
 	}
 	return f, nil
@@ -234,16 +215,6 @@ func lineOfSight(g *procgen.Grid, a, b cell) bool {
 			y += sy
 		}
 	}
-}
-
-// monsterAt returns the living monster on c.
-func (f *floor) monsterAt(c cell) *monster {
-	for _, m := range f.monsters {
-		if m.at == c {
-			return m
-		}
-	}
-	return nil
 }
 
 // walkable reports whether c is a floor cell.

@@ -76,25 +76,30 @@ func drawRun(d *core.Drawing, r *run, size core.Size) {
 			d.SetFillColor(core.RGB(colorStairs)).FillText(">", cx, cy, glyphFont)
 		}
 	}
-	for _, it := range f.items {
-		if !r.visible[it.at.Y*f.grid.Width+it.at.X] {
+	for _, e := range f.loot() {
+		at := f.at(e)
+		if !r.visible[at.Y*f.grid.Width+at.X] {
 			continue
 		}
-		cx, cy := center(it.at)
-		c, _ := parseColor(it.def.Color)
-		d.SetFillColor(core.RGB(c)).FillText(itemGlyphs[it.def.Kind], cx, cy, glyphFont)
+		cx, cy := center(at)
+		def, _ := r.data.dungeon.item(f.lootOf(e).Item)
+		c, _ := parseColor(def.Color)
+		d.SetFillColor(core.RGB(c)).FillText(itemGlyphs[def.Kind], cx, cy, glyphFont)
 	}
-	for _, m := range f.monsters {
-		if !r.visible[m.at.Y*f.grid.Width+m.at.X] {
+	for _, e := range f.foes() {
+		at := f.at(e)
+		if !r.visible[at.Y*f.grid.Width+at.X] {
 			continue
 		}
-		cx, cy := center(m.at)
-		c, _ := parseColor(m.def.Color)
-		d.SetFillColor(core.RGB(c)).FillText(m.def.Glyph, cx, cy, glyphFont)
-		if m.health < m.def.Health {
-			px, py := float32(m.at.X*tileSize+1), float32(m.at.Y*tileSize)
+		foe := f.foe(e)
+		def := r.foeDef(foe)
+		cx, cy := center(at)
+		c, _ := parseColor(def.Color)
+		d.SetFillColor(core.RGB(c)).FillText(def.Glyph, cx, cy, glyphFont)
+		if foe.Health < def.Health {
+			px, py := float32(at.X*tileSize+1), float32(at.Y*tileSize)
 			d.SetFillColor(core.RGB(colorFloorSeen)).FillRect(px, py, tileSize-2, 1.5)
-			d.SetFillColor(core.RGB(colorHealth)).FillRect(px, py, (tileSize-2)*float32(m.health)/float32(m.def.Health), 1.5)
+			d.SetFillColor(core.RGB(colorHealth)).FillRect(px, py, (tileSize-2)*float32(foe.Health)/float32(def.Health), 1.5)
 		}
 	}
 	cx, cy := center(r.pos)

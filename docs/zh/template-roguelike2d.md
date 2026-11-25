@@ -1,6 +1,6 @@
 # roguelike2d 模板
 
-`roguelike2d` 是一个小型回合制 roguelike：探索者下到微光深渊（Glimmerdeep）的五层，与栖居其中的怪物战斗，收集武器、护甲、药水、药剂和碎晶，最后从底层取走心之余烬（Heart Ember），而宝库守卫（Vault Warden）就站在它上面。每一层都由本局的种子生成，死亡是永久的：一局结束的那一刻，这一局的存档就被删除，同时保留本局总结和所有对局的记录。它基于 [`procgen`](procgen.md)、[`loot`](loot.md)、[`stats`](stats.md)、[`ability`](ability.md)、[`save`](save.md)、`random`、[`input`](input.md) 和 [`screen`](screen.md) 构建，美术由代码绘制。
+`roguelike2d` 是一个小型回合制 roguelike：探索者下到微光深渊（Glimmerdeep）的五层，与栖居其中的怪物战斗，收集武器、护甲、药水、药剂和碎晶，最后从底层取走心之余烬（Heart Ember），而宝库守卫（Vault Warden）就站在它上面。每一层都由本局的种子生成，死亡是永久的：一局结束的那一刻，这一局的存档就被删除，同时保留本局总结和所有对局的记录。它基于 [`procgen`](procgen.md)、[`entities`](entities.md)、[`loot`](loot.md)、[`stats`](stats.md)、[`ability`](ability.md)、[`save`](save.md)、`random`、[`input`](input.md) 和 [`screen`](screen.md) 构建，美术由代码绘制。
 
 ```sh
 go run github.com/nsgo-dev/game/packages/game/cmd/game@latest new -template roguelike2d mygame
@@ -13,13 +13,14 @@ go tool nsgo dev
 ## 它展示了什么
 
 - 由 [`procgen`](procgen.md) 从本局种子分出的随机流生成的楼层：用走廊相连的 BSP 房间和元胞自动机洞穴，出口放在离起点最远的地面格上，所以同一个种子在每个平台上都生成同样的楼层。
+- 以实体表示的角色：楼层上的每个怪物和每件掉在地上的物品都是该楼层 [`entities`](entities.md) 世界里的一个实体，由 `Position`、`Foe`、`Guard` 和 `Loot` 组件组成；每回合里怪物的部分是 `entities.Scheduler` 上的两个系统：先察觉（notice），再追猎（hunt）。
 - 回合：玩家每做一个动作，每个怪物随后各行动一次。怪物在感知距离内发现玩家，沿广度优先的距离图追猎，贴身时出手；走向怪物就是攻击它。玩家沿视线看见周围，见过的格子会继续画出，只是更暗。
 - 来自 [`loot`](loot.md) 的加权掉落：每层的物品格和每个怪物的掉落都从 `data/loot.yaml` 掷出，药水有软保底、最好的武器有硬保底，保底计数在楼层之间延续。
 - 来自 [`stats`](stats.md) 的属性：生命、攻击和防御，武器和护甲各占一个装备槽，由 `Sheet.Refresh` 替换；限时药剂的修饰符由 `Sheet.Step` 每回合倒数一次；升级会提高基础值。
 - 来自 [`ability`](ability.md) 的技能：消耗一瓶药水的饮药，以及打击所有相邻敌人的横扫，受条件和冷却约束。施法器以每秒一步运行，所以 `data/abilities.yaml` 里的每个时长都按回合计。
-- 基于 [`save`](save.md) 的永久死亡：玩家每到达一层就保存这一局，关掉应用后从那里继续；这一局胜利或失败时存档被删除。记录存档统计每一局，一局结束时的面板显示本局总结和记录。
+- 基于 [`save`](save.md) 的永久死亡：玩家每到达一层以及每走完一回合都会保存这一局，其中包括以 `entities` 快照保存的楼层角色世界和各随机流的状态，所以关掉应用再打开，这一局会从离开时的那一刻原样继续。在一击落下前退出不会撤销任何事；这一局胜利或失败时存档被删除。记录存档统计每一局，一局结束时的面板显示本局总结和记录。
 - `game.yaml` 里的一份输入映射，同时覆盖键盘、手柄、触屏和鼠标；在手机和平板上，以及任何设备在游戏被触摸或点击过之后，会画出屏幕按键。
-- 测试分别用键盘、手柄和触屏把游戏玩到获胜，再玩到死亡，检查这一局的存档已删除、记录计入了这一局，从存储中恢复一局，生成四十个种子的每一层，用两个机器人在这些种子上检查平衡，逐条检查规则，并检查每个数据文件都是规范格式。
+- 测试分别用键盘、手柄和触屏把游戏玩到获胜，再玩到死亡，检查这一局的存档已删除、记录计入了这一局，从存储中恢复一局打到一半的楼层，并检查它之后的进程与从未关闭过的那一局完全相同，拒绝数值超出范围的对局存档，生成四十个种子的每一层，用两个机器人在这些种子上检查平衡，逐条检查规则，并检查每个数据文件都是规范格式。
 
 ## 操作
 
@@ -44,8 +45,9 @@ go tool nsgo dev
 | `data/abilities.yaml` | 饮药和横扫，格式见 [`ability`](ability.md)。 |
 | `dungeon.go`、`data.go` | 地牢格式，以及加载四个文件并检查每个文件引用其他文件的名称。 |
 | `floor.go` | 生成一层：格子、起点、出口、怪物和物品，以及距离图和视线。 |
+| `actors.go` | 楼层上怪物和物品的组件，以及执行怪物回合的察觉和追猎系统。 |
 | `run.go` | 一局的规则，一次一个回合，不涉及设备和绘制。 |
-| `records.go` | 对局存档和记录存档，以及本局总结。 |
+| `records.go` | 对局存档和记录存档、恢复对局存档时必须通过的检查，以及本局总结。 |
 | `game.go`、`draw.go` | 根组件、固定步长循环、输入、HUD、一局结束时的面板和绘制。 |
 | `*_test.go` | 通关测试、机器人、规则、楼层生成和数据文件。 |
 
@@ -100,15 +102,15 @@ items:
 | `monsters` | 每种怪物的显示名称、绘制用的字母和 `#rrggbb` 颜色、战斗数值、给的经验、开始追猎的步行距离、可选的 `drops` 掉落表，以及它出现的楼层和在其中的权重；没有 `from` 和 `to` 的怪物只作为守卫出现。 |
 | `items` | 每种物品的 `kind`：`weapon` 或 `armor` 在 `rank` 高于当前装备时装上并施加其属性 `effect`，`draught` 增加药水，`tonic` 施加其限时 `effect`，`shards` 是本局得分。掉落的数量就是一次掉落给多少药水或碎晶。 |
 
-未知字段、未知的物品种类和生成器、未定义的名称以及 1 以外的版本都会被拒绝，游戏写回文件时逐字节不变，所以评审只看到真正的改动。`TestDataFilesAgree` 检查四个文件之间互相引用的名称。
+未知字段、未知的物品种类和生成器、未定义的名称以及 1 以外的版本都会被拒绝。这个文件保持规范格式：它不是 `encodeDungeon` 写出的形式时 `TestDataFilesAreCanonical` 会失败，加载一个文件再重新编码不会改变任何内容，所以评审只看到真正的改动。`TestDataFilesAgree` 检查四个文件之间互相引用的名称，包括 `data/abilities.yaml` 里的每个条件和资源，它们必须是 `run.condition` 和 `draughtPool` 能回答的。
 
 ## 从哪里改
 
 - **楼层**：编辑 `data/dungeon.yaml` 的 `floors`。`TestFloorsAreSound` 生成四十个种子的每一层，报告不连通、出口太近或生成位置重叠的楼层；`generateFloor` 里的 `procgen.BSPConfig` 和 `procgen.CaveConfig` 可以进一步调整房间和洞穴的形状。
 - **平衡**：怪物的数值、玩家的成长和掉落权重。`TestBotsWinAndLose` 在四十个种子上分别用一个清空每层的机器人和一个直奔出口的机器人游玩，前者不再获胜或后者不再死亡时失败，并在日志里记下两者的次数。
 - **新的怪物或物品**：在 `data/dungeon.yaml` 加一条，装备和药剂在 `data/stats.yaml` 加它的属性效果，物品还要在掉落表里加一行。新的物品种类需要在 `run.take` 里加一个分支。
-- **新的技能**：在 `data/abilities.yaml` 加一条带 `action` 的技能，在 `game.yaml` 为这个动作加绑定，在 `run.abilityEvent` 里加它的效果，在 `roguelikeGame.update` 里激活它。
-- **更聪明的怪物**：`run.monstersAct` 沿一张距离图行走；[`ai`](ai.md) 提供行为树和寻路，可以做会逃跑、保持距离或巡逻的怪物。
+- **新的技能**：在 `data/abilities.yaml` 加一条带 `action` 的技能，在 `game.yaml` 为这个动作加绑定，并在 `run.abilityEvent` 里加它的效果。`roguelikeGame.update` 按每条技能写明的 `action` 激活它，`run.act` 使用动作携带的那个技能。新的条件或资源还需要在 `run.condition` 或 `draughtPool` 里加一个分支，并把名称加进数据检查。
+- **更聪明的怪物**：`actors.go` 里的追猎系统沿一张距离图行走。新的行为就是一个新组件，再在 `run.newMonsterTurn` 构建的调度器上加一个系统，用 `entities.Before` 和 `entities.After` 排定顺序；[`ai`](ai.md) 提供行为树和寻路，可以做会逃跑、保持距离或巡逻的怪物。
 - **操作**：`game.yaml` 的 `input` 部分；触屏区域以虚拟屏幕的点为单位。`game.go` 里的 `repeatDelay` 和 `repeatEvery` 决定按住方向时走多快。
 - **美术**：`draw.go` 绘制字母和图形；可以改用 `sprite.LoadAtlas` 加载图集，并绘制用 `procgen.Grid.Paint` 填好的 `tilemap.Tilemap`。
-- **存档**：`records.go` 里的 `runSave` 就是对局存档。它的结构改变时，提高 `saveVersion` 并给 `newSaveStore` 加上 `save.WithMigration`。
+- **存档**：`records.go` 里的 `runSave` 就是对局存档，其中组件的名称由 `newActors` 注册的编解码器给出。两者任一结构改变时，提高 `saveVersion` 并给 `newSaveStore` 加上 `save.WithMigration`。

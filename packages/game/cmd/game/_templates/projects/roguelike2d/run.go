@@ -3,8 +3,10 @@ package main
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/nsgo-dev/game/packages/game/ability"
+	"github.com/nsgo-dev/game/packages/game/entities"
 	"github.com/nsgo-dev/game/packages/game/loot"
 	"github.com/nsgo-dev/game/packages/game/random"
 	"github.com/nsgo-dev/game/packages/game/stats"
@@ -47,6 +49,8 @@ type action struct {
 	kind actionKind
 	// dir is the step a move takes.
 	dir cell
+	// ability is the id in data/abilities.yaml an actAbility uses.
+	ability string
 }
 
 type actionKind int
@@ -54,11 +58,11 @@ type actionKind int
 const (
 	actMove actionKind = iota
 	actWait
-	actQuaff
-	actCleave
+	// actAbility uses the ability the action names, which takes a turn when the ability activates.
+	actAbility
 )
 
-// run is one descent through the dungeon, from the first floor to a win or a death. It knows nothing about devices or drawing: the game turns input into actions, calls act once per action and draws what it holds. Each turn is the player's action and then every monster's, so the same seed and the same actions always play out the same way.
+// run is one descent through the dungeon, from the first floor to a win or a death. It knows nothing about devices or drawing: the game turns input into actions, calls act once per action and draws what it holds. Each turn is the player's action and then the monsters', which the systems of monsterTurn play on the floor's world of actors, so the same seed and the same actions always play out the same way.
 type run struct {
 	data *gameData
 	seed uint64
@@ -80,6 +84,8 @@ type run struct {
 	caster *ability.Caster
 	roller *loot.Roller
 	combat *random.Stream
+	// monsterTurn runs the systems that play the monsters' part of each turn.
+	monsterTurn *entities.Scheduler
 
 	dist    []int
 	visible []bool
@@ -88,13 +94,14 @@ type run struct {
 	state outcome
 	// killer names what ended a lost run.
 	killer string
-	// onFloor, when set, is called as the player arrives on each floor, before it is generated, with the run's save at that moment; the game writes it to the run slot, and an error it returns is shown in the log.
-	onFloor func(runSave) error
+	// persist, when set, is called with the run's save as the player arrives on each floor and after every turn that leaves the run in play; the game writes it to the run slot, so quitting and coming back resumes the run exactly where it stood. An error it returns is shown in the log, once until a save succeeds again.
+	persist   func(runSave) error
+	saveError bool
 }
 
 // newRun starts a run with seed on the first floor.
-func newRun(data *gameData, seed uint64, onFloor func(runSave) error) (*run, error) {
-	r, err := newRunState(data, seed, onFloor)
+func newRun(data *gameData, seed uint64, persist func(runSave) error) (*run, error) {
+	r, err := newRunState(data, seed, persist)
 	if err != nil {
 		return nil, err
 	}
@@ -109,8 +116,8 @@ func newRun(data *gameData, seed uint64, onFloor func(runSave) error) (*run, err
 	return r, nil
 }
 
-// newRunState returns a run with seed at level 1 and no floor, with its sheet, caster and loot roller made from data.
-func newRunState(data *gameData, seed uint64, onFloor func(runSave) error) (*run, error) {
+// newRunState returns a run with seed at level 1 and no floor, with its sheet, caster, loot roller and monster systems made from data.
+func newRunState(data *gameData, seed uint64, persist func(runSave) error) (*run, error) {
 	sheet, err := data.stats.NewSheet()
 	if err != nil {
 		return nil, err
@@ -120,7 +127,8 @@ func newRunState(data *gameData, seed uint64, onFloor func(runSave) error) (*run
 	if err != nil {
 		return nil, err
 	}
-	r := &run{data: data, seed: seed, sheet: sheet, caster: caster, level: 1, onFloor: onFloor}
+	r := &run{data: data, seed: seed, sheet: sheet, caster: caster, level: 1, persist: persist}
+	r.monsterTurn = r.newMonsterTurn()
 	r.roller = loot.NewRoller(data.loot, floorStream(seed, 0, "loot"))
 	caster.Resources = draughtPool{r}
 	caster.Condition = r.condition
@@ -128,12 +136,8 @@ func newRunState(data *gameData, seed uint64, onFloor func(runSave) error) (*run
 	return r, nil
 }
 
-// enterFloor saves the run and puts the player on floor index, generated from the run's seed.
+// enterFloor puts the player on floor index, generated from the run's seed, and saves the run.
 func (r *run) enterFloor(index int) error {
-	var saveErr error
-	if r.onFloor != nil {
-		saveErr = r.onFloor(r.save(index))
-	}
 	pity := r.roller.State()
 	r.roller = loot.NewRoller(r.data.loot, floorStream(r.seed, index, "loot"))
 	if err := r.roller.SetState(pity); err != nil {
@@ -149,10 +153,20 @@ func (r *run) enterFloor(index int) error {
 	r.visible = make([]bool, len(f.grid.Cells))
 	r.look()
 	r.say(fmt.Sprintf("Floor %d: %s.", index+1, f.def.Name))
-	if saveErr != nil {
-		r.say("The run could not be saved: " + saveErr.Error())
-	}
+	r.persistNow()
 	return nil
+}
+
+// persistNow hands the run's save to persist.
+func (r *run) persistNow() {
+	if r.persist == nil {
+		return
+	}
+	err := r.persist(r.save())
+	if err != nil && !r.saveError {
+		r.say("The run could not be saved: " + err.Error())
+	}
+	r.saveError = err != nil
 }
 
 // act plays one action and reports whether it took a turn. A step into a wall and an ability that cannot be used take none.
@@ -162,19 +176,15 @@ func (r *run) act(a action) bool {
 	}
 	switch a.kind {
 	case actWait:
-	case actQuaff, actCleave:
-		id := abilityQuaff
-		if a.kind == actCleave {
-			id = abilityCleave
-		}
-		if reason := r.caster.TryActivate(id); reason != ability.ReasonOK {
-			r.say(refusal(id, reason))
+	case actAbility:
+		if reason := r.caster.TryActivate(a.ability); reason != ability.ReasonOK {
+			r.say(refusal(a.ability, reason))
 			return false
 		}
 	default:
 		to := cell{X: r.pos.X + a.dir.X, Y: r.pos.Y + a.dir.Y}
-		if m := r.floor.monsterAt(to); m != nil {
-			r.strike(m, r.attack())
+		if e, ok := r.floor.foeAt(to); ok {
+			r.strike(e, r.attack())
 			break
 		}
 		if !r.floor.walkable(to) {
@@ -204,6 +214,9 @@ func (r *run) act(a action) bool {
 		r.tick()
 	}
 	r.look()
+	if r.state == playing {
+		r.persistNow()
+	}
 	return true
 }
 
@@ -228,38 +241,11 @@ func (r *run) look() {
 	r.dist = distances(r.floor.grid, r.pos)
 }
 
-// monstersAct gives every monster its turn: a monster within its sense of the player starts to hunt, a hunting monster next to the player strikes, and one further away steps down the distance map toward the player.
+// monstersAct plays the monsters' part of a turn: the systems of monsterTurn, run on the floor's world with the distance map from where the player now stands.
 func (r *run) monstersAct() {
 	r.dist = distances(r.floor.grid, r.pos)
-	for _, m := range r.floor.monsters {
-		if r.state != playing {
-			return
-		}
-		d := r.distAt(m.at)
-		if d < 0 {
-			continue
-		}
-		if d <= m.def.Sense {
-			m.hunting = true
-		}
-		if !m.hunting {
-			continue
-		}
-		if d == 1 {
-			r.hurt(m)
-			continue
-		}
-		if m.guard {
-			continue
-		}
-		best := m.at
-		for _, st := range steps {
-			n := cell{X: m.at.X + st.X, Y: m.at.Y + st.Y}
-			if nd := r.distAt(n); nd >= 0 && nd < r.distAt(best) && r.floor.monsterAt(n) == nil && n != r.pos {
-				best = n
-			}
-		}
-		m.at = best
+	if err := r.monsterTurn.Step(r.floor.actors, time.Second); err != nil {
+		panic(err)
 	}
 }
 
@@ -276,51 +262,45 @@ func (r *run) damage(attack, defense int) int {
 	return max(1, attack+r.combat.IntRange(0, 2)-defense)
 }
 
-// strike hits m with attack, and defeats it when its health runs out.
-func (r *run) strike(m *monster, attack int) {
-	n := r.damage(attack, m.def.Defense)
-	m.health -= n
-	if m.health > 0 {
-		r.say(fmt.Sprintf("You hit the %s for %d.", m.def.Name, n))
+// strike hits the monster e with attack, and defeats it when its health runs out.
+func (r *run) strike(e entities.Entity, attack int) {
+	foe := r.floor.foe(e)
+	def := r.foeDef(foe)
+	n := r.damage(attack, def.Defense)
+	foe.Health -= n
+	if foe.Health > 0 {
+		r.say(fmt.Sprintf("You hit the %s for %d.", def.Name, n))
 		return
 	}
-	r.say(fmt.Sprintf("You defeat the %s.", m.def.Name))
+	r.say(fmt.Sprintf("You defeat the %s.", def.Name))
 	r.kills++
-	r.removeMonster(m)
-	if m.def.Drops != "" {
-		drops, err := r.roller.Roll(m.def.Drops)
+	at := r.floor.at(e)
+	r.floor.actors.Destroy(e)
+	if def.Drops != "" {
+		drops, err := r.roller.Roll(def.Drops)
 		if err != nil {
 			panic(err)
 		}
 		for _, dr := range drops {
-			it, _ := r.data.dungeon.item(dr.Item)
-			r.floor.items = append(r.floor.items, &floorItem{def: it, count: dr.Count, at: m.at})
+			r.floor.spawnLoot(dr.Item, dr.Count, at)
 		}
 	}
-	r.gainXP(m.def.XP)
+	r.gainXP(def.XP)
 }
 
-// hurt has m strike the player, which ends the run when the player's health runs out.
-func (r *run) hurt(m *monster) {
-	n := r.damage(m.def.Attack, r.defense())
+// hurt has the monster e strike the player, which ends the run when the player's health runs out.
+func (r *run) hurt(e entities.Entity) {
+	def := r.foeDef(r.floor.foe(e))
+	n := r.damage(def.Attack, r.defense())
 	r.health -= n
 	if r.health > 0 {
-		r.say(fmt.Sprintf("The %s hits you for %d.", m.def.Name, n))
+		r.say(fmt.Sprintf("The %s hits you for %d.", def.Name, n))
 		return
 	}
 	r.health = 0
 	r.state = lost
-	r.killer = m.def.Name
-	r.say(fmt.Sprintf("The %s strikes you down.", m.def.Name))
-}
-
-func (r *run) removeMonster(m *monster) {
-	for i, o := range r.floor.monsters {
-		if o == m {
-			r.floor.monsters = append(r.floor.monsters[:i], r.floor.monsters[i+1:]...)
-			return
-		}
-	}
+	r.killer = def.Name
+	r.say(fmt.Sprintf("The %s strikes you down.", def.Name))
 }
 
 // gainXP adds xp and raises the player's level for every LevelXP times the current level it reaches, raising the maxHealth and attack bases and healing by the level's health.
@@ -360,46 +340,45 @@ func (r *run) baseOf(stat string) float64 {
 	return 0
 }
 
-// pickUp takes every item on the player's cell.
+// pickUp takes every item on the player's cell, in the order floor.loot gives.
 func (r *run) pickUp() {
-	kept := r.floor.items[:0]
-	for _, it := range r.floor.items {
-		if it.at != r.pos {
-			kept = append(kept, it)
+	for _, e := range r.floor.loot() {
+		if r.floor.at(e) != r.pos {
 			continue
 		}
-		r.take(it)
+		it := r.floor.lootOf(e)
+		def, _ := r.data.dungeon.item(it.Item)
+		r.take(def, it.Count)
+		r.floor.actors.Destroy(e)
 	}
-	clear(r.floor.items[len(kept):])
-	r.floor.items = kept
 }
 
-// take applies one item the player picked up.
-func (r *run) take(it *floorItem) {
-	switch it.def.Kind {
+// take applies count of an item the player picked up.
+func (r *run) take(it *ItemDef, count int) {
+	switch it.Kind {
 	case kindWeapon, kindArmor:
 		held := r.weapon
-		if it.def.Kind == kindArmor {
+		if it.Kind == kindArmor {
 			held = r.armor
 		}
-		if held != nil && held.Rank >= it.def.Rank {
-			r.say(fmt.Sprintf("You leave the %s; your %s is as good.", it.def.Name, held.Name))
+		if held != nil && held.Rank >= it.Rank {
+			r.say(fmt.Sprintf("You leave the %s; your %s is as good.", it.Name, held.Name))
 			return
 		}
-		r.equip(it.def)
-		r.say(fmt.Sprintf("You take up the %s.", it.def.Name))
+		r.equip(it)
+		r.say(fmt.Sprintf("You take up the %s.", it.Name))
 	case kindDraught:
-		r.draughts += it.count
-		r.say(fmt.Sprintf("You find %s.", plural(it.count, "draught")))
+		r.draughts += count
+		r.say(fmt.Sprintf("You find %s.", plural(count, "draught")))
 	case kindTonic:
-		e, _ := r.data.stats.Effect(it.def.Effect)
+		e, _ := r.data.stats.Effect(it.Effect)
 		if _, err := r.sheet.Refresh(tonicSource+e.Name, e); err != nil {
 			panic(err)
 		}
-		r.say(fmt.Sprintf("You drink the %s.", it.def.Name))
+		r.say(fmt.Sprintf("You drink the %s.", it.Name))
 	case kindShards:
-		r.shards += it.count
-		r.say(fmt.Sprintf("You gather %s.", plural(it.count, "shard")))
+		r.shards += count
+		r.say(fmt.Sprintf("You gather %s.", plural(count, "shard")))
 	}
 }
 
@@ -442,18 +421,18 @@ func (r *run) abilityEvent(ev ability.Event) {
 	case abilityCleave:
 		foes := r.adjacent()
 		r.say(fmt.Sprintf("You cleave %s.", plural(len(foes), "foe")))
-		for _, m := range foes {
-			r.strike(m, r.attack())
+		for _, e := range foes {
+			r.strike(e, r.attack())
 		}
 	}
 }
 
-// adjacent returns the monsters on the eight cells around the player.
-func (r *run) adjacent() []*monster {
-	var out []*monster
-	for _, m := range r.floor.monsters {
-		if dx, dy := abs(m.at.X-r.pos.X), abs(m.at.Y-r.pos.Y); dx <= 1 && dy <= 1 {
-			out = append(out, m)
+// adjacent returns the monsters on the eight cells around the player, in the order floor.foes gives.
+func (r *run) adjacent() []entities.Entity {
+	var out []entities.Entity
+	for _, e := range r.floor.foes() {
+		if at := r.floor.at(e); abs(at.X-r.pos.X) <= 1 && abs(at.Y-r.pos.Y) <= 1 {
+			out = append(out, e)
 		}
 	}
 	return out

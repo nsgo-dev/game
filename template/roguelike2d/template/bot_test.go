@@ -16,17 +16,17 @@ const (
 func botAction(r *run, style int) action {
 	if style == botClear {
 		if r.health*100 < r.maxHealth()*45 && r.caster.CanActivate(abilityQuaff) == ability.ReasonOK {
-			return action{kind: actQuaff}
+			return action{kind: actAbility, ability: abilityQuaff}
 		}
 		if len(r.adjacent()) >= 2 && r.caster.CanActivate(abilityCleave) == ability.ReasonOK {
-			return action{kind: actCleave}
+			return action{kind: actAbility, ability: abilityCleave}
 		}
 		if r.health*100 < r.maxHealth()*80 && !threatened(r) {
 			return action{kind: actWait}
 		}
 	}
 	for _, st := range steps {
-		if m := r.floor.monsterAt(cell{X: r.pos.X + st.X, Y: r.pos.Y + st.Y}); m != nil && (style == botClear || !m.guard) {
+		if e, ok := r.floor.foeAt(cell{X: r.pos.X + st.X, Y: r.pos.Y + st.Y}); ok && (style == botClear || !r.floor.guards(e)) {
 			return action{kind: actMove, dir: st}
 		}
 	}
@@ -35,9 +35,9 @@ func botAction(r *run, style int) action {
 
 // threatened reports whether a monster is next to the player or one that is not a guardian hunts within ten steps, so resting would only let it hit.
 func threatened(r *run) bool {
-	for _, m := range r.floor.monsters {
-		d := r.distAt(m.at)
-		if d == 1 || m.hunting && !m.guard && d >= 0 && d <= 10 {
+	for _, e := range r.floor.foes() {
+		d := r.distAt(r.floor.at(e))
+		if d == 1 || r.floor.foe(e).Hunting && !r.floor.guards(e) && d >= 0 && d <= 10 {
 			return true
 		}
 	}
@@ -53,12 +53,12 @@ func botTarget(r *run, style int) cell {
 				best, bestDist = c, d
 			}
 		}
-		for _, it := range r.floor.items {
-			consider(it.at)
+		for _, e := range r.floor.loot() {
+			consider(r.floor.at(e))
 		}
-		for _, m := range r.floor.monsters {
-			if !m.guard {
-				consider(m.at)
+		for _, e := range r.floor.foes() {
+			if !r.floor.guards(e) {
+				consider(r.floor.at(e))
 			}
 		}
 		if bestDist >= 0 {

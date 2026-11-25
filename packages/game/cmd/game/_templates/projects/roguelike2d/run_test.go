@@ -1,9 +1,11 @@
 package main
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
 
+	"github.com/nsgo-dev/game/packages/game/entities"
 	"github.com/nsgo-dev/game/packages/game/loot"
 	"github.com/nsgo-dev/game/packages/game/procgen"
 )
@@ -37,31 +39,37 @@ func TestFloorsAreSound(t *testing.T) {
 				t.Errorf("seed %d floor %d: the exit is %d steps from the start, want at least 10", seed, i+1, d)
 			}
 			used := map[cell]bool{f.start: true}
-			for _, m := range f.monsters {
-				if !f.walkable(m.at) || (used[m.at] && !m.guard) {
-					t.Errorf("seed %d floor %d: the %s is on a wall or a taken cell %v", seed, i+1, m.def.Name, m.at)
+			for _, e := range f.foes() {
+				at, kind, guard := f.at(e), f.foe(e).Kind, f.guards(e)
+				if !f.walkable(at) || (used[at] && !guard) {
+					t.Errorf("seed %d floor %d: the %s is on a wall or a taken cell %v", seed, i+1, kind, at)
 				}
-				used[m.at] = true
-				if d := dist[m.at.Y*f.grid.Width+m.at.X]; !m.guard && d < minMonsterDistance {
-					t.Errorf("seed %d floor %d: the %s spawned %d steps from the start", seed, i+1, m.def.Name, d)
+				used[at] = true
+				if d := dist[at.Y*f.grid.Width+at.X]; !guard && d < minMonsterDistance {
+					t.Errorf("seed %d floor %d: the %s spawned %d steps from the start", seed, i+1, kind, d)
 				}
 			}
-			for _, it := range f.items {
-				if !f.walkable(it.at) || it.at == f.start || it.at == f.exit {
-					t.Errorf("seed %d floor %d: the %s is on a wall, the start or the exit", seed, i+1, it.def.Name)
+			for _, e := range f.loot() {
+				if at := f.at(e); !f.walkable(at) || at == f.start || at == f.exit {
+					t.Errorf("seed %d floor %d: the %s is on a wall, the start or the exit", seed, i+1, f.lootOf(e).Item)
 				}
+			}
+			if err := f.checkActors(data.dungeon); err != nil {
+				t.Errorf("seed %d floor %d: %v", seed, i+1, err)
 			}
 			last := i == len(data.dungeon.Floors)-1
 			if f.relic != last {
 				t.Errorf("seed %d floor %d: relic is %v", seed, i+1, f.relic)
 			}
 			if g := data.dungeon.Floors[i].Guardian; g != "" {
-				if m := f.monsterAt(f.exit); m == nil || m.def.ID != g || !m.guard {
+				if e, ok := f.foeAt(f.exit); !ok || f.foe(e).Kind != g || !f.guards(e) {
 					t.Errorf("seed %d floor %d: the exit is not guarded by the %s", seed, i+1, g)
 				}
 			}
 			again, _ := generateFloor(data.dungeon, i, seed, loot.NewRoller(data.loot, floorStream(seed, i, "loot")))
-			if !again.grid.Equal(f.grid) || !reflect.DeepEqual(again.monsters, f.monsters) || !reflect.DeepEqual(again.items, f.items) {
+			a, _ := again.actors.Snapshot()
+			b, _ := f.actors.Snapshot()
+			if !again.grid.Equal(f.grid) || !reflect.DeepEqual(a, b) {
 				t.Errorf("seed %d floor %d: generating it again gave another floor", seed, i+1)
 			}
 		}
@@ -92,12 +100,12 @@ func TestBotsWinAndLose(t *testing.T) {
 func emptyRun(t *testing.T, seed uint64) *run {
 	t.Helper()
 	r := startRun(t, seed)
-	r.floor.monsters, r.floor.items = nil, nil
+	r.floor.actors.Clear()
 	return r
 }
 
 // place puts a monster of kind id next to the player, in the first open direction, and returns it.
-func place(t *testing.T, r *run, id string) *monster {
+func place(t *testing.T, r *run, id string) entities.Entity {
 	t.Helper()
 	def, ok := r.data.dungeon.monster(id)
 	if !ok {
@@ -105,15 +113,14 @@ func place(t *testing.T, r *run, id string) *monster {
 	}
 	for _, st := range steps {
 		at := cell{X: r.pos.X + st.X, Y: r.pos.Y + st.Y}
-		if r.floor.walkable(at) && r.floor.monsterAt(at) == nil {
-			m := &monster{def: def, at: at, health: def.Health}
-			r.floor.monsters = append(r.floor.monsters, m)
+		if _, taken := r.floor.foeAt(at); r.floor.walkable(at) && !taken {
+			e := r.floor.spawnFoe(def, at, false)
 			r.look()
-			return m
+			return e
 		}
 	}
 	t.Fatal("no open cell next to the player")
-	return nil
+	return entities.Zero
 }
 
 func dirTo(r *run, c cell) cell { return cell{X: c.X - r.pos.X, Y: c.Y - r.pos.Y} }
@@ -136,13 +143,14 @@ func TestWallsTakeNoTurn(t *testing.T) {
 func TestBumpingAttacksAndDefeatingGivesXP(t *testing.T) {
 	r := emptyRun(t, 3)
 	m := place(t, r, "moss-rat")
-	for n := 0; n < 10 && len(r.floor.monsters) > 0; n++ {
-		if !r.act(action{kind: actMove, dir: dirTo(r, m.at)}) {
+	at, def := r.floor.at(m), r.foeDef(r.floor.foe(m))
+	for n := 0; n < 10 && len(r.floor.foes()) > 0; n++ {
+		if !r.act(action{kind: actMove, dir: dirTo(r, at)}) {
 			t.Fatal("attacking took no turn")
 		}
 	}
-	if len(r.floor.monsters) != 0 || r.kills != 1 || r.xp != m.def.XP {
-		t.Fatalf("after the fight: %d monsters, %d kills, %d xp; want 0, 1, %d", len(r.floor.monsters), r.kills, r.xp, m.def.XP)
+	if len(r.floor.foes()) != 0 || r.kills != 1 || r.xp != def.XP {
+		t.Fatalf("after the fight: %d monsters, %d kills, %d xp; want 0, 1, %d", len(r.floor.foes()), r.kills, r.xp, def.XP)
 	}
 }
 
@@ -176,11 +184,11 @@ func TestOnlyBetterGearIsEquipped(t *testing.T) {
 	base := r.attack()
 	spike, _ := r.data.dungeon.item("iron-spike")
 	pick, _ := r.data.dungeon.item("rusty-pick")
-	r.take(&floorItem{def: spike, count: 1})
+	r.take(spike, 1)
 	if r.weapon != spike || r.attack() != base+2 {
 		t.Fatalf("after the iron spike: weapon %s, attack %d; want iron-spike, %d", r.weapon.ID, r.attack(), base+2)
 	}
-	r.take(&floorItem{def: pick, count: 1})
+	r.take(pick, 1)
 	if r.weapon != spike || r.attack() != base+2 {
 		t.Fatalf("the rusty pick replaced the iron spike")
 	}
@@ -191,7 +199,7 @@ func TestTonicsWearOff(t *testing.T) {
 	base := r.attack()
 	tonic, _ := r.data.dungeon.item("fury-tonic")
 	e, _ := r.data.stats.Effect(tonic.Effect)
-	r.take(&floorItem{def: tonic, count: 1})
+	r.take(tonic, 1)
 	if r.attack() <= base {
 		t.Fatalf("the fury tonic left attack at %d", r.attack())
 	}
@@ -208,42 +216,45 @@ func TestTonicsWearOff(t *testing.T) {
 
 func TestQuaffHealsAndCoolsDown(t *testing.T) {
 	r := emptyRun(t, 3)
-	if r.act(action{kind: actQuaff}) || r.lastMessage() != "You are not hurt." {
+	if r.act(action{kind: actAbility, ability: abilityQuaff}) || r.lastMessage() != "You are not hurt." {
 		t.Fatalf("quaffing at full health: %q", r.lastMessage())
 	}
 	r.health = 5
-	if !r.act(action{kind: actQuaff}) {
+	if !r.act(action{kind: actAbility, ability: abilityQuaff}) {
 		t.Fatalf("quaffing while hurt was refused: %q", r.lastMessage())
 	}
 	if r.health < 5+r.data.dungeon.Player.DraughtHeal || r.draughts != r.data.dungeon.Player.Draughts-1 {
 		t.Fatalf("after a draught: health %d, %d draughts", r.health, r.draughts)
 	}
 	r.health = 5
-	if r.act(action{kind: actQuaff}) || r.lastMessage() != "You need a moment before another draught." {
+	if r.act(action{kind: actAbility, ability: abilityQuaff}) || r.lastMessage() != "You need a moment before another draught." {
 		t.Fatalf("a second draught at once: %q", r.lastMessage())
 	}
 	r.draughts = 0
 	for n := 0; n < 3; n++ {
 		r.act(action{kind: actWait})
 	}
-	if r.act(action{kind: actQuaff}) || r.lastMessage() != "You have no draughts left." {
+	if r.act(action{kind: actAbility, ability: abilityQuaff}) || r.lastMessage() != "You have no draughts left." {
 		t.Fatalf("quaffing with no draughts: %q", r.lastMessage())
 	}
 }
 
 func TestCleaveHitsEveryNeighbour(t *testing.T) {
 	r := emptyRun(t, 3)
-	if r.act(action{kind: actCleave}) || r.lastMessage() != "There is nothing next to you to cleave." {
+	if r.act(action{kind: actAbility, ability: abilityCleave}) || r.lastMessage() != "There is nothing next to you to cleave." {
 		t.Fatalf("cleaving nothing: %q", r.lastMessage())
 	}
 	a, b := place(t, r, "rust-crawler"), place(t, r, "rust-crawler")
-	if !r.act(action{kind: actCleave}) {
+	if !r.act(action{kind: actAbility, ability: abilityCleave}) {
 		t.Fatalf("cleaving two crawlers was refused: %q", r.lastMessage())
 	}
-	if a.health == a.def.Health || b.health == b.def.Health {
-		t.Fatalf("the cleave missed a crawler: %d and %d health left", a.health, b.health)
+	full, _ := r.data.dungeon.monster("rust-crawler")
+	for _, e := range []entities.Entity{a, b} {
+		if foe, alive := entities.Get[Foe](r.floor.actors, e); alive && foe.Health == full.Health {
+			t.Fatalf("the cleave missed a crawler: %d health left", foe.Health)
+		}
 	}
-	if r.act(action{kind: actCleave}) {
+	if r.act(action{kind: actAbility, ability: abilityCleave}) {
 		t.Fatal("cleaving again at once was allowed")
 	}
 }
@@ -251,11 +262,10 @@ func TestCleaveHitsEveryNeighbour(t *testing.T) {
 func TestMonstersHuntAndStrike(t *testing.T) {
 	r := emptyRun(t, 3)
 	m := place(t, r, "gloom-bat")
-	m.hunting = false
 	health := r.health
 	r.act(action{kind: actWait})
-	if !m.hunting || r.health >= health {
-		t.Fatalf("a bat next to the player: hunting %v, health %d of %d", m.hunting, r.health, health)
+	if !r.floor.foe(m).Hunting || r.health >= health {
+		t.Fatalf("a bat next to the player: hunting %v, health %d of %d", r.floor.foe(m).Hunting, r.health, health)
 	}
 }
 
@@ -279,5 +289,63 @@ func TestSameSeedSameRun(t *testing.T) {
 	playRun(b, botClear, 20000)
 	if a.summarize() != b.summarize() {
 		t.Fatalf("the same seed ended %+v and %+v", a.summarize(), b.summarize())
+	}
+}
+
+// TestResumeRefusesBadSlots resumes a run saved mid-floor, then the same save with one thing wrong at a time: each must be refused, so the game starts a new run rather than play numbers the rules cannot handle.
+func TestResumeRefusesBadSlots(t *testing.T) {
+	r := startRun(t, winSeed)
+	for n := 0; n < 30 && r.state == playing; n++ {
+		r.act(nextAction(r, botClear))
+	}
+	good := r.save()
+	if _, err := resumeRun(r.data, good, nil); err != nil {
+		t.Fatalf("resuming a good save: %v", err)
+	}
+	wall := cell{}
+	for i, v := range r.floor.grid.Cells {
+		if !procgen.IsFloor(v) {
+			wall = cell{X: i % r.floor.grid.Width, Y: i / r.floor.grid.Width}
+			break
+		}
+	}
+	firstFoe := func(s *runSave) *entities.ComponentSnapshot {
+		for i := range s.Actors.Entities {
+			for j := range s.Actors.Entities[i].Components {
+				if c := &s.Actors.Entities[i].Components[j]; c.Type == codecFoe {
+					return c
+				}
+			}
+		}
+		t.Fatal("the save holds no monster")
+		return nil
+	}
+	for _, tc := range []struct {
+		name string
+		edit func(s *runSave)
+	}{
+		{"huge level", func(s *runSave) { s.Level = 1 << 60 }},
+		{"negative xp", func(s *runSave) { s.XP = -1 }},
+		{"xp past the level", func(s *runSave) { s.XP = s.Level * r.data.dungeon.Player.LevelXP }},
+		{"negative draughts", func(s *runSave) { s.Draughts = -1 }},
+		{"huge shards", func(s *runSave) { s.Shards = 1 << 40 }},
+		{"negative turns", func(s *runSave) { s.Turns = -5 }},
+		{"player in a wall", func(s *runSave) { s.Position = positionOf(wall) }},
+		{"short seen", func(s *runSave) { s.Seen = s.Seen[:len(s.Seen)-1] }},
+		{"unknown monster", func(s *runSave) { firstFoe(s).Data = json.RawMessage(`{"kind":"dragon","health":3}`) }},
+		{"dead monster", func(s *runSave) { firstFoe(s).Data = json.RawMessage(`{"kind":"moss-rat","health":0}`) }},
+		{"unknown component", func(s *runSave) { firstFoe(s).Type = "wings" }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			raw, _ := json.Marshal(good)
+			var s runSave
+			if err := json.Unmarshal(raw, &s); err != nil {
+				t.Fatal(err)
+			}
+			tc.edit(&s)
+			if _, err := resumeRun(r.data, s, nil); err == nil {
+				t.Fatal("the save was resumed")
+			}
+		})
 	}
 }

@@ -6,8 +6,9 @@ It demonstrates:
 
 - Floors from [`procgen`](https://github.com/nsgo-dev/game/blob/main/docs/en/procgen.md): BSP rooms and corridors, and cellular-automaton caves, with the exit as far from the start as the floor allows.
 - Turn-based movement and bump-to-attack combat, monsters that notice the player within their sense and hunt down a distance map, and line of sight with explored cells remembered.
+- Monsters and items as entities in each floor's [`entities`](https://github.com/nsgo-dev/game/blob/main/docs/en/entities.md) world, with the monsters' turn played by a notice system and a hunt system on an `entities.Scheduler`.
 - Weighted floor loot and monster drops with pity counters from [`loot`](https://github.com/nsgo-dev/game/blob/main/docs/en/loot.md), player stats with equipment and timed tonic modifiers from [`stats`](https://github.com/nsgo-dev/game/blob/main/docs/en/stats.md), and a quaff and a cleave from [`ability`](https://github.com/nsgo-dev/game/blob/main/docs/en/ability.md), whose cooldowns count turns.
-- Permadeath with [`save`](https://github.com/nsgo-dev/game/blob/main/docs/en/save.md): the run is saved as the player arrives on each floor and deleted when it ends, and the records slot counts every run.
+- Permadeath with [`save`](https://github.com/nsgo-dev/game/blob/main/docs/en/save.md): the run is saved as the player arrives on each floor and after every turn, so it resumes exactly where it stood, and deleted when it ends, and the records slot counts every run.
 - One input map in `game.yaml` for the keyboard, game controllers, touch and the mouse, with on-screen controls on phones and tablets.
 - Headless tests that play the game to a win with the keyboard, a controller and touch, and to a death.
 
@@ -65,6 +66,7 @@ go tool nsgo check -target macos,windows,linux,android,web
 - `data/stats.yaml`, `data/loot.yaml`, `data/abilities.yaml`: the player's stats and item effects, the drop tables, and the abilities, in the formats of `stats`, `loot` and `ability`.
 - `data.go`, `dungeon.go`: loading the data files and checking the names they use from each other.
 - `floor.go`: generating a floor, the distance map and line of sight.
+- `actors.go`: the components of a floor's monsters and items, and the systems that play the monsters' turn.
 - `run.go`: one run's rules, one turn at a time, with no input or drawing.
 - `records.go`: the run and records save slots and the run summary.
 - `game.go`, `draw.go`: the root component, input, the HUD, the end-of-run panel and drawing.

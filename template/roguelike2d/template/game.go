@@ -13,7 +13,7 @@ import (
 	"github.com/nsgo-dev/nsgo/desktop"
 )
 
-// The actions and axes game.yaml's input map declares and this file reads.
+// The actions and axes game.yaml's input map declares. The game reads the movement axes, wait and restart itself; an ability's action is the one data/abilities.yaml names, which update looks up there, and the touch controls draw quaff and cleave.
 const (
 	axisMoveX     = "moveX"
 	axisMoveY     = "moveY"
@@ -145,7 +145,7 @@ func (g *roguelikeGame) setRun(r *run) {
 	g.turn.Update(func(n int) int { return n + 1 })
 }
 
-// saveRun writes the run slot as the player arrives on a floor.
+// saveRun writes the run slot, which the run asks for as the player arrives on a floor and after every turn.
 func (g *roguelikeGame) saveRun(s runSave) error {
 	if g.keepRun {
 		return nil
@@ -192,14 +192,16 @@ func (g *roguelikeGame) update(time.Duration) {
 	default:
 		g.held = cell{}
 	}
-	if !ok {
-		switch {
-		case g.actions.JustPressed(actionWait):
-			a, ok = action{kind: actWait}, true
-		case g.actions.JustPressed(actionQuaff):
-			a, ok = action{kind: actQuaff}, true
-		case g.actions.JustPressed(actionCleave):
-			a, ok = action{kind: actCleave}, true
+	if !ok && g.actions.JustPressed(actionWait) {
+		a, ok = action{kind: actWait}, true
+	}
+	// Each ability is used with the input action data/abilities.yaml gives it, so a new ability needs no case here.
+	for i := range g.data.abilities.Abilities {
+		if ok {
+			break
+		}
+		if def := &g.data.abilities.Abilities[i]; def.Action != "" && g.actions.JustPressed(def.Action) {
+			a, ok = action{kind: actAbility, ability: def.ID}, true
 		}
 	}
 	if ok {
