@@ -297,7 +297,7 @@ func (e *Editor) layerCoordsForSelected(x, y float32) (float32, float32) {
 	return e.CanvasToWorld(x, y)
 }
 
-// DrawViewport renders the active scene in 2D or 3D mode and, when in edit mode, the appropriate editor overlays (the scene camera's frame and bounds, tile grid, selection outline and the active plugin tool's Draw in 2D; grid, axes, boxes and gizmo in 3D). In 2D the scene draws through the 2D view (View2D) over the whole canvas; in Play mode the player's frame, the scene's virtual screen, is all that shows. size is the canvas's size, which it records (SetCanvasSize).
+// DrawViewport renders the active scene in 2D or 3D mode and, when in edit mode, the appropriate editor overlays (the scene camera's frame and bounds, tile grid, selection outline, the selection's transform gizmo and the active plugin tool's Draw in 2D; grid, axes, boxes and gizmo in 3D). In 2D the scene draws through the 2D view (View2D) over the whole canvas; in Play mode the player's frame, the scene's virtual screen, is all that shows. size is the canvas's size, which it records (SetCanvasSize).
 func (e *Editor) DrawViewport(d *core.Drawing, size core.Size) {
 	if e == nil || d == nil {
 		return
@@ -336,6 +336,7 @@ func (e *Editor) DrawViewport(d *core.Drawing, size core.Size) {
 	e.drawCameraFrameOverlay(d)
 	e.drawTileGridOverlay(d)
 	e.drawSelectionOverlay(d, scene)
+	e.drawGizmo2D(d)
 	if t := e.activePluginTool(); t != nil && t.Draw != nil {
 		// Save and Restore keep a transform or style the tool leaves set from reaching the next frame's drawing.
 		d.Save()
@@ -502,6 +503,44 @@ func (g *viewportGestures) wheel(ed *Editor, ev core.WheelEvent) {
 	}
 }
 
+// pan follows a one-finger or primary-button drag in 2D: with Space held, or during a middle-button drag, it pans the view; otherwise, with the Select or Move tool, a drag that starts on the selection's gizmo or an object moves, turns or scales it (BeginDrag2D), and ends as one undoable step, or as nothing when the gesture is cancelled.
+func (g *viewportGestures) pan(ed *Editor, ev core.PanEvent, spaceHeld, shiftHeld func() bool) {
+	at := func() (float32, float32) { return float32(ev.Position.X), float32(ev.Position.Y) }
+	switch ev.Phase {
+	case core.GestureBegan:
+		g.spacePan = spaceHeld()
+		g.panLast = ev.Translation
+		if g.spacePan || g.middle || g.touchPan {
+			return
+		}
+		// The pan begins once the pointer passes the platform's slop, so the drag starts where it went down: its position less how far it has come.
+		if ed.BeginDrag2D(float32(ev.Position.X-ev.Translation.X), float32(ev.Position.Y-ev.Translation.Y)) != Handle2DNone {
+			x, y := at()
+			ed.UpdateDrag2D(x, y, shiftHeld())
+		}
+	case core.GestureChanged:
+		if g.spacePan {
+			ed.PanView2D(float32(ev.Translation.X-g.panLast.X), float32(ev.Translation.Y-g.panLast.Y))
+		} else if ed.Dragging2D() != Handle2DNone {
+			x, y := at()
+			ed.UpdateDrag2D(x, y, shiftHeld())
+		}
+		g.panLast = ev.Translation
+	case core.GestureEnded:
+		if !g.spacePan && ed.Dragging2D() != Handle2DNone {
+			x, y := at()
+			ed.UpdateDrag2D(x, y, shiftHeld())
+			ed.EndDrag2D()
+		}
+		g.spacePan = false
+		g.panLast = core.Point{}
+	default:
+		ed.CancelDrag2D()
+		g.spacePan = false
+		g.panLast = core.Point{}
+	}
+}
+
 // pinch zooms the 2D view about the pinch's center by how much the pinch scaled since its last report.
 func (g *viewportGestures) pinch(ed *Editor, ev core.GestureEvent) {
 	switch ev.Phase {
@@ -520,12 +559,18 @@ func (g *viewportGestures) pinch(ed *Editor, ev core.GestureEvent) {
 	}
 }
 
-// touch pans the 2D view by the movement of the center of two fingers.
+// touch pans the 2D view by the movement of the center of two fingers, and puts back a drag of an object (CancelDrag2D) when a second finger comes down or the touches are cancelled.
 func (g *viewportGestures) touch(ed *Editor, ev core.TouchEvent) {
+	if ev.Phase == core.TouchCancel {
+		// The system took the touches: a drag of an object they made is put back, whether or not the pan reports its own cancel. nsgotest's Finger.Cancel (nsgo v0.3.0 nsgotest/pointer.go:259) reports only the touch cancel and no GestureCancelled to an active OnPan, so the touch cancel is the one this drag can rely on in tests.
+		ed.CancelDrag2D()
+	}
 	if len(ev.Touches) != 2 || ev.Phase == core.TouchEnd || ev.Phase == core.TouchCancel {
 		g.touchPan = false
 		return
 	}
+	// A second finger turns a one-finger drag of an object into navigation, so the drag is put back.
+	ed.CancelDrag2D()
 	c := core.Point{
 		X: (ev.Touches[0].Position.X + ev.Touches[1].Position.X) / 2,
 		Y: (ev.Touches[0].Position.Y + ev.Touches[1].Position.Y) / 2,
@@ -539,7 +584,7 @@ func (g *viewportGestures) touch(ed *Editor, ev core.TouchEvent) {
 
 // ViewportView renders the center interactive core.Canvas viewport panel, which fills the panel.
 //
-// In 2D a mouse wheel, a pinch or a touchpad scroll with Control or Command held zooms the 2D view (View2D) about the pointer, and a touchpad's scroll, a mouse wheel's sideways scroll, a middle-button drag, a drag with Space held or a two-finger drag pans it; while the scene plays the view is the scene camera's and does not move; F frames the selection (FrameSelection2D), Home frames everything (FrameAll2D) and Mod+0 returns to the scene camera's view (ResetView2D). In 3D a drag orbits the camera or drags the gizmo and the wheel dollies.
+// In 2D, with the Select or Move tool, a drag on an object moves it, and a drag on the selection's gizmo moves it along one of its axes, turns it with the ring or scales it with a corner or edge handle (Shift keeps the aspect ratio), each recorded as one undoable step when the drag ends; Escape or a cancelled gesture puts the object back (BeginDrag2D). A mouse wheel, a pinch or a touchpad scroll with Control or Command held zooms the 2D view (View2D) about the pointer, and a touchpad's scroll, a mouse wheel's sideways scroll, a middle-button drag, a drag with Space held or a two-finger drag pans it; while the scene plays the view is the scene camera's and does not move; F frames the selection (FrameSelection2D), Home frames everything (FrameAll2D) and Mod+0 returns to the scene camera's view (ResetView2D). In 3D a drag orbits the camera or drags the gizmo and the wheel dollies.
 func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	colors := ui.ColorsOf(cx)
 	var lastPan core.Point
@@ -556,6 +601,8 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 	// The first read of the held keys asks the platform to report every key, so Space is known to be held when a drag begins.
 	spaceHeld := func() bool { return core.Untracked(cx, func() bool { return core.KeyHeld(cx, "space") }) }
 	spaceHeld()
+	// A pan event carries no modifiers, so Shift, which keeps the aspect ratio while scaling, is read from the held keys.
+	shiftHeld := func() bool { return core.Untracked(cx, func() bool { return core.KeyHeld(cx, "shift") }) }
 	in2D := func() bool { return ed.ViewMode == ViewMode2D && !ed.Playing() }
 	cx.OnKey("f", func() {
 		if in2D() {
@@ -572,6 +619,7 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 			ed.ResetView2D()
 		}
 	})
+	cx.OnKey("escape", func() { ed.CancelDrag2D() })
 
 	return core.View{
 		TestID: "editor-viewport-container",
@@ -637,19 +685,7 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 				},
 				OnPan: func(ev core.PanEvent) {
 					if ed.ViewMode != ViewMode3D {
-						switch ev.Phase {
-						case core.GestureBegan:
-							g.spacePan = spaceHeld()
-							g.panLast = ev.Translation
-						case core.GestureChanged:
-							if g.spacePan {
-								ed.PanView2D(float32(ev.Translation.X-g.panLast.X), float32(ev.Translation.Y-g.panLast.Y))
-							}
-							g.panLast = ev.Translation
-						default:
-							g.spacePan = false
-							g.panLast = core.Point{}
-						}
+						g.pan(ed, ev, spaceHeld, shiftHeld)
 						return
 					}
 					cw, ch := ed.CanvasSize()

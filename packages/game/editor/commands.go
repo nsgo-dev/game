@@ -766,6 +766,8 @@ func (e *Editor) DuplicateObject(id string) (string, error) {
 	if e.playing {
 		return "", ErrPlaying
 	}
+	// A drag in progress is put back first, so the copy is of the object as it was before the drag.
+	e.CancelDrag2D()
 	obj, li, _ := e.FindObject(id)
 	if obj == nil {
 		return "", fmt.Errorf("editor: object %q not found", id)

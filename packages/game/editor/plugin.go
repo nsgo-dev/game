@@ -330,6 +330,7 @@ func (e *Editor) SetPluginTool(plugin, id string) error {
 	if e.Tool == ToolPlugin && e.pluginTool == (pluginToolRef{plugin, id}) {
 		return nil
 	}
+	e.CancelDrag2D()
 	e.Tool = ToolPlugin
 	e.pluginTool = pluginToolRef{plugin, id}
 	e.Status = "Tool: " + p.Tools[i].Label
