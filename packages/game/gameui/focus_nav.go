@@ -616,6 +616,8 @@ func widgetNavOverrides(w Widget) NavOverrides {
 	switch v := w.(type) {
 	case *Button:
 		return v.Nav
+	case *TouchButton:
+		return v.Nav
 	case *Toggle:
 		return v.Nav
 	case *Slider:

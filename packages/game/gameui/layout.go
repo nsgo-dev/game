@@ -120,12 +120,22 @@ func (b *HBox) measure(theme *Theme) core.Size {
 func (l *Label) measure(theme *Theme) core.Size {
 	font := resolveFont(l.Font, theme.Font)
 	tw, th := measureText(l.Text, font, theme)
-	return applySizeConstraints(tw, th, l.spec())
+	padX := float32(l.Padding.Left + l.Padding.Right)
+	padY := float32(l.Padding.Top + l.Padding.Bottom)
+	return applySizeConstraints(tw+padX, th+padY, l.spec())
 }
 
 func (b *Button) measure(theme *Theme) core.Size {
 	font := resolveFont(b.Font, theme.Font)
 	tw, th := measureText(b.Text, font, theme)
+	var padX, padY float32
+	if b.Padding != (core.Edges{}) {
+		padX = float32(b.Padding.Left + b.Padding.Right)
+		padY = float32(b.Padding.Top + b.Padding.Bottom)
+		prefW := tw + padX
+		prefH := max(th+padY, 24)
+		return applySizeConstraints(prefW, prefH, b.spec())
+	}
 	pad := max(theme.Padding, 4)
 	prefW := tw + 2*pad
 	prefH := max(th+pad, 32)

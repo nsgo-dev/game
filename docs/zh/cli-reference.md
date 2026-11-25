@@ -239,7 +239,7 @@ nsgo game generate [flags] component|system|scene|prefab <name>
 
 ## game mv
 
-Move or rename a file or directory of a project and rewrite every reference to it, keeping the project index up to date.
+Move or rename a file, directory, or text key (-text-key) and rewrite every reference to it, keeping the project index up to date.
 
 ```sh
 nsgo game mv [flags] <from> <to>
@@ -249,6 +249,7 @@ nsgo game mv [flags] <from> <to>
 | --- | --- | --- |
 | `-dry-run` |  | print what would change without changing anything |
 | `-in string` |  | project directory (defaults to the nearest directory at or above the working directory holding game.yaml, nsgo.yaml or go.mod) |
+| `-text-key` |  | rename a localization text key across screen files and YAML string tables instead of moving a file |
 
 ## game index
 

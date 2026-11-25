@@ -1,0 +1,274 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://game.nsgo.dev/schemas/screen.v1.json",
+  "title": "NSGo game UI screen (version 1)",
+  "description": "ScreenDoc is the root of a versioned *.screen.yaml HUD or menu screen definition.",
+  "type": "object",
+  "properties": {
+    "version": {
+      "description": "Version is the schema version; it must equal ScreenFormatVersion (1).",
+      "type": "integer",
+      "const": 1
+    },
+    "uid": {
+      "description": "UID is an optional stable ID for the screen file, kept across renames by game index and game mv.",
+      "type": "string"
+    },
+    "name": {
+      "description": "Name is the screen's human-readable name (for example \"hud\" or \"pause\").",
+      "type": "string"
+    },
+    "designWidth": {
+      "description": "DesignWidth is the authored reference canvas width in virtual points (for example 640).",
+      "type": "number",
+      "minimum": -3.4028234663852886e+38,
+      "exclusiveMinimum": 0,
+      "maximum": 3.4028234663852886e+38
+    },
+    "designHeight": {
+      "description": "DesignHeight is the authored reference canvas height in virtual points (for example 360).",
+      "type": "number",
+      "minimum": -3.4028234663852886e+38,
+      "exclusiveMinimum": 0,
+      "maximum": 3.4028234663852886e+38
+    },
+    "scaleMode": {
+      "description": "ScaleMode controls how the screen scales to different window sizes: fit (default), fill, stretch, or integer.",
+      "type": "string",
+      "enum": [
+        "fit",
+        "fill",
+        "stretch",
+        "integer"
+      ]
+    },
+    "nodes": {
+      "description": "Nodes are the top-level UI nodes of the screen, rendered in slice order.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/ScreenNodeDoc"
+      }
+    }
+  },
+  "required": [
+    "version",
+    "designWidth",
+    "designHeight"
+  ],
+  "additionalProperties": false,
+  "definitions": {
+    "ScreenNodeDoc": {
+      "description": "ScreenNodeDoc is one node in a *.screen.yaml tree.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "ID uniquely identifies this node within the screen.",
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "description": "Type selects the widget or container kind.",
+          "type": "string",
+          "enum": [
+            "vbox",
+            "hbox",
+            "label",
+            "button",
+            "sprite_row",
+            "color_rect",
+            "touch_stick",
+            "touch_button",
+            "container"
+          ]
+        },
+        "anchor": {
+          "description": "Anchor positions the node relative to the screen or safe area: one of the nine anchor points or fill.",
+          "type": "string",
+          "enum": [
+            "top_left",
+            "top_center",
+            "top_right",
+            "center_left",
+            "center",
+            "center_right",
+            "bottom_left",
+            "bottom_center",
+            "bottom_right",
+            "fill"
+          ]
+        },
+        "offset": {
+          "description": "Offset shifts the node from its anchor in virtual points. For right and bottom anchors, positive values inset inward from that edge.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ScreenOffsetDoc"
+            }
+          ]
+        },
+        "safeArea": {
+          "description": "SafeArea keeps the node inside the display safe area (away from notches and home indicators). Nil defaults to true for non-fill anchors and false for fill.",
+          "type": "boolean"
+        },
+        "sizeMode": {
+          "description": "SizeMode selects whether width is fixed (\"fixed\", the default) or sizes to fit localized text (\"fit_text\").",
+          "type": "string",
+          "enum": [
+            "fixed",
+            "fit_text"
+          ]
+        },
+        "width": {
+          "description": "Width is the node's fixed width in virtual points (0 uses intrinsic or container-determined width).",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "height": {
+          "description": "Height is the node's fixed height in virtual points (0 uses intrinsic or container-determined height).",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "padding": {
+          "description": "Padding is the node's inner padding in virtual points.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ScreenPaddingDoc"
+            }
+          ]
+        },
+        "spacing": {
+          "description": "Spacing is the gap between children of a vbox, hbox, or sprite_row in virtual points.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "textKey": {
+          "description": "TextKey names a localized string in the project's l10n tables (such as \"hud.hint.lever\"). Screen files store localization keys rather than literal text.",
+          "type": "string"
+        },
+        "focusOrder": {
+          "description": "FocusOrder sets the explicit keyboard/gamepad focus traversal order (1-based; 0 means not explicitly ordered).",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854776000
+        },
+        "touchHitSize": {
+          "description": "TouchHitSize is the touch target diameter in virtual points for touch_stick, touch_button, or touch-interactive buttons.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "deviceClasses": {
+          "description": "DeviceClasses optionally restricts the node and its subtree to the listed device classes (for example [phone, tablet]). Empty shows on all devices.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "phone",
+              "tablet",
+              "desktop",
+              "ultrawide"
+            ]
+          }
+        },
+        "sprite": {
+          "description": "Sprite is a project-relative path to a sprite image or atlas file (for example \"art/ui/heart.png\"), followed by refs and game mv.",
+          "type": "string"
+        },
+        "spriteFrame": {
+          "description": "SpriteFrame optionally names a frame inside a sprite atlas when Sprite points to an atlas JSON file.",
+          "type": "string"
+        },
+        "spriteCount": {
+          "description": "SpriteCount is the number of repeated icons in a sprite_row (defaults to 1 when Sprite is set).",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854776000
+        },
+        "fontSize": {
+          "description": "FontSize overrides the text font size in virtual points for text-bearing nodes.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "textColor": {
+          "description": "TextColor is an optional CSS color string parsed with core.ParseColor for text.",
+          "type": "string"
+        },
+        "background": {
+          "description": "Background is an optional CSS color string parsed with core.ParseColor for the node's fill.",
+          "type": "string"
+        },
+        "cornerRadius": {
+          "description": "CornerRadius is an optional corner radius in virtual points.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "children": {
+          "description": "Children are nested child nodes for container types (vbox, hbox, container).",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ScreenNodeDoc"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "ScreenOffsetDoc": {
+      "description": "ScreenOffsetDoc is an offset from a node's anchor point in virtual points. For right and bottom anchors, positive X and Y values move inward away from that edge.",
+      "type": "object",
+      "properties": {
+        "x": {
+          "description": "X is the horizontal offset in virtual points.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "y": {
+          "description": "Y is the vertical offset in virtual points.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        }
+      },
+      "additionalProperties": false
+    },
+    "ScreenPaddingDoc": {
+      "description": "ScreenPaddingDoc holds inner padding in virtual points.",
+      "type": "object",
+      "properties": {
+        "top": {
+          "description": "Top is the top inner padding in virtual points.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "right": {
+          "description": "Right is the right inner padding in virtual points.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "bottom": {
+          "description": "Bottom is the bottom inner padding in virtual points.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "left": {
+          "description": "Left is the left inner padding in virtual points.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3.4028234663852886e+38
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

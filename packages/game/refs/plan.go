@@ -27,7 +27,9 @@ type Plan struct {
 	Writes []Write
 	// Updated are the references the writes change, as they were before the plan.
 	Updated []Ref
-	// Assigned are the scene and resource files the writes give a new uid, at their paths after the moves.
+	// UpdatedTextKeys are the localization text key references and definitions the writes change, as they were before the plan.
+	UpdatedTextKeys []TextKeyRef
+	// Assigned are the scene, screen and resource files the writes give a new uid, at their paths after the moves.
 	Assigned []string
 }
 
@@ -493,7 +495,7 @@ func PlanIndex(fsys fs.FS, opts IndexOptions) (*Plan, error) {
 	}
 	bad := slices.Clone(p.indexProblems)
 	for _, f := range p.Files {
-		if n := field(f.doc, "uid"); (f.Kind == KindScene || f.Kind == KindResource) && n != nil && f.uid == nil {
+		if n := field(f.doc, "uid"); (f.Kind == KindScene || f.Kind == KindResource || f.Kind == KindScreen) && n != nil && f.uid == nil {
 			bad = append(bad, Problem{File: f.Path, Line: n.Line, Message: fmt.Sprintf("uid %q is not a uid; delete the line and run game index again to get a new one", n.Value)})
 		}
 	}
@@ -565,7 +567,7 @@ func PlanIndex(fsys fs.FS, opts IndexOptions) (*Plan, error) {
 		}
 	}
 	for _, f := range p.Files {
-		if (f.Kind != KindScene && f.Kind != KindResource) || f.UID != "" {
+		if (f.Kind != KindScene && f.Kind != KindResource && f.Kind != KindScreen) || f.UID != "" {
 			continue
 		}
 		id, err := newUID()
@@ -577,6 +579,69 @@ func PlanIndex(fsys fs.FS, opts IndexOptions) (*Plan, error) {
 		}
 	}
 	return pl.finish()
+}
+
+// PlanRenameTextKey plans renaming the localization text key from to to across every *.screen.yaml file (textKey fields) and YAML localization string table (strings and plurals keys) in fsys.
+// It rewrites each occurrence in place, preserving comments and formatting, and refuses empty keys, no-op renames, unknown keys, or a target key that already exists in a string table holding from.
+func PlanRenameTextKey(fsys fs.FS, from, to string) (*Plan, error) {
+	if from == "" || strings.TrimSpace(from) != from {
+		return nil, fmt.Errorf("refs: text key %q must be non-empty without surrounding spaces", from)
+	}
+	if to == "" || strings.TrimSpace(to) != to {
+		return nil, fmt.Errorf("refs: text key %q must be non-empty without surrounding spaces", to)
+	}
+	if from == to {
+		return nil, fmt.Errorf("refs: text key is already %q", to)
+	}
+	p, err := Scan(fsys)
+	if err != nil {
+		return nil, err
+	}
+	if len(p.Problems) > 0 {
+		return nil, fmt.Errorf("refs: fix these first:\n%s", problemList(p.Problems))
+	}
+	usages := p.TextKeyUsages(from)
+	if len(usages) == 0 {
+		return nil, fmt.Errorf("refs: no text key %q found in screens or localization tables", from)
+	}
+	// Refuse colliding with an existing key in any string table where from is defined.
+	tablesWithFrom := make(map[string]bool)
+	for _, u := range usages {
+		if u.Field == FieldStringKey || u.Field == FieldPluralKey {
+			tablesWithFrom[u.File] = true
+		}
+	}
+	for _, existing := range p.TextKeyUsages(to) {
+		if (existing.Field == FieldStringKey || existing.Field == FieldPluralKey) && tablesWithFrom[existing.File] {
+			return nil, fmt.Errorf("refs: %s:%d: text key %q already exists", existing.File, existing.Line, to)
+		}
+	}
+
+	edits := make(map[string][]edit)
+	plan := &Plan{}
+	seen := make(map[refKey]bool)
+	for _, u := range usages {
+		if u.span.start < 0 {
+			return nil, fmt.Errorf("refs: %s:%d: %s %q is not written as a plain or quoted scalar on one line, so it cannot be rewritten in place", u.File, u.Line, u.Field, u.Key)
+		}
+		rk := refKey{u.File, u.span.start}
+		if seen[rk] {
+			continue
+		}
+		seen[rk] = true
+		edits[u.File] = append(edits[u.File], edit{u.span.start, u.span.end, formatValue(u.span.syntax, to)})
+		plan.UpdatedTextKeys = append(plan.UpdatedTextKeys, u)
+	}
+	for _, name := range sortedKeys(edits) {
+		f := p.files[name]
+		data := applyEdits(f.data, edits[name])
+		plan.Writes = append(plan.Writes, Write{Path: name, Data: data})
+	}
+	slices.SortFunc(plan.Writes, func(a, b Write) int { return cmp.Compare(a.Path, b.Path) })
+	slices.SortFunc(plan.UpdatedTextKeys, func(a, b TextKeyRef) int {
+		return cmp.Or(cmp.Compare(a.File, b.File), cmp.Compare(a.Line, b.Line), cmp.Compare(a.Column, b.Column))
+	})
+	return plan, nil
 }
 
 func problemList(probs []Problem) string {

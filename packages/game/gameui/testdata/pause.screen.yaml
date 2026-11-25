@@ -1,0 +1,75 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/screen.v1.json
+version: 1
+name: pause
+designWidth: 640
+designHeight: 360
+nodes:
+  - id: dim
+    type: color_rect
+    anchor: fill
+    safeArea: false
+    background: rgba(10,12,16,0.62)
+  - id: panel
+    type: vbox
+    anchor: center
+    offset:
+      "y": 4
+    width: 200
+    height: 196
+    padding:
+      top: 16
+      right: 16
+      bottom: 16
+      left: 16
+    spacing: 8
+    background: '#171a21'
+    cornerRadius: 8
+    children:
+      - id: title
+        type: label
+        sizeMode: fit_text
+        height: 20
+        textKey: pause.title
+        fontSize: 14
+        textColor: '#ffffff'
+      - id: resume
+        type: button
+        height: 26
+        padding:
+          right: 8
+          left: 8
+        textKey: pause.resume
+        focusOrder: 1
+        textColor: '#ffffff'
+        background: '#243044'
+      - id: restart
+        type: button
+        sizeMode: fit_text
+        height: 26
+        padding:
+          right: 8
+          left: 8
+        textKey: pause.restart
+        focusOrder: 2
+        textColor: '#ffffff'
+        background: '#243044'
+      - id: settings
+        type: button
+        height: 26
+        padding:
+          right: 8
+          left: 8
+        textKey: pause.settings
+        focusOrder: 3
+        textColor: '#ffffff'
+        background: '#243044'
+      - id: quit
+        type: button
+        height: 26
+        padding:
+          right: 8
+          left: 8
+        textKey: pause.quit
+        focusOrder: 4
+        textColor: '#ffffff'
+        background: '#243044'

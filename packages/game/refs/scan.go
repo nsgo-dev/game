@@ -29,6 +29,10 @@ const (
 	KindProject FileKind = "project"
 	// KindScene is a sceneformat scene document.
 	KindScene FileKind = "scene"
+	// KindScreen is a gameui *.screen.yaml HUD or menu screen document.
+	KindScreen FileKind = "screen"
+	// KindStringTable is a versioned YAML localization string table (l10n.StringTable).
+	KindStringTable FileKind = "string_table"
 	// KindResource is a resource file.
 	KindResource FileKind = "resource"
 	// KindTiled is a Tiled map (.tmj) or tileset (.tsj).
@@ -68,7 +72,31 @@ const (
 	FieldModelImage       = "model image"
 	FieldCutsceneSource   = "cutscene source"
 	FieldCutsceneAudio    = "cutscene audio"
+	// FieldScreenSprite is a sprite image or atlas path referenced by a *.screen.yaml node.
+	FieldScreenSprite = "sprite"
+	// FieldTextKey is a localization text key referenced by a *.screen.yaml node.
+	FieldTextKey = "text key"
+	// FieldStringKey is a localization string entry key in a YAML string table.
+	FieldStringKey = "string key"
+	// FieldPluralKey is a localization plural entry key in a YAML string table.
+	FieldPluralKey = "plural key"
 )
+
+// TextKeyRef is one occurrence of a localization text key in a project file: either a screen node's textKey reference or a string table's key definition.
+type TextKeyRef struct {
+	// File is the slash-separated path of the file that holds the key.
+	File string
+	// Line and Column are where the key is written in File (both 1-based).
+	Line, Column int
+	// Field says what the occurrence is: FieldTextKey, FieldStringKey, or FieldPluralKey.
+	Field string
+	// Key is the localization key string (for example "hud.hint.lever").
+	Key string
+	// NodeID is the screen node ID when the occurrence is in a screen file, or empty in a string table.
+	NodeID string
+
+	span span
+}
 
 // Ref is one reference from a file to another.
 type Ref struct {
@@ -135,6 +163,8 @@ type Project struct {
 	Files []*File
 	// Refs are the references found, in file order and then in the order each file writes them.
 	Refs []Ref
+	// TextKeys are the localization text key references and definitions found in *.screen.yaml files and YAML string tables, in file order and then document order.
+	TextKeys []TextKeyRef
 	// Problems are what makes the references unsafe to follow or rewrite: a game.yaml or an index that does not parse, and a uid two files of one project share. A reference to a file that is gone is not one of them; Check reports those.
 	Problems []Problem
 
@@ -249,6 +279,7 @@ func Scan(fsys fs.FS) (*Project, error) {
 	p.pending = pending
 	slices.SortFunc(p.Files, func(a, b *File) int { return cmp.Compare(a.Path, b.Path) })
 	slices.SortStableFunc(p.Refs, func(a, b Ref) int { return cmp.Compare(a.File, b.File) })
+	slices.SortStableFunc(p.TextKeys, func(a, b TextKeyRef) int { return cmp.Compare(a.File, b.File) })
 	for _, f := range p.Files {
 		if f.UID == "" {
 			continue
@@ -364,7 +395,7 @@ func (p *Project) readYAML(name string, asScene bool) bool {
 	}
 	var root yaml.Node
 	if err := yaml.Unmarshal(data, &root); err != nil || root.Kind != yaml.DocumentNode || len(root.Content) == 0 || root.Content[0].Kind != yaml.MappingNode {
-		if asScene || isSceneName(name) || isCutsceneName(name) {
+		if asScene || isSceneName(name) || isCutsceneName(name) || isScreenName(name) {
 			p.unread = append(p.unread, name)
 		}
 		return false
@@ -384,6 +415,11 @@ func (p *Project) readYAML(name string, asScene bool) bool {
 		p.add(f)
 		p.cutsceneRefs(f, doc)
 		return true
+	case isScreenName(name):
+		f.Kind = KindScreen
+		p.add(f)
+		p.screenRefs(f, field(doc, "nodes"), 0)
+		return true
 	case asScene || isSceneName(name):
 		f.Kind = KindScene
 		p.add(f)
@@ -393,6 +429,11 @@ func (p *Project) readYAML(name string, asScene bool) bool {
 		f.Kind = KindTileset
 		p.add(f)
 		p.ref(f, field(doc, "image"), FieldTilesetImage)
+		return true
+	case isStringTableDoc(doc):
+		f.Kind = KindStringTable
+		p.add(f)
+		p.stringTableKeys(f, doc)
 		return true
 	}
 	return false
@@ -447,6 +488,43 @@ func (p *Project) cutsceneRefs(f *File, doc *yaml.Node) {
 	}
 }
 
+// isScreenName reports whether name is a gameui screen file by its name, *.screen.yaml or *.screen.yml.
+func isScreenName(name string) bool {
+	lower := strings.ToLower(name)
+	return strings.HasSuffix(lower, ".screen.yaml") || strings.HasSuffix(lower, ".screen.yml")
+}
+
+// isStringTableDoc reports whether doc is a versioned YAML localization string table (l10n.StringTable):
+// a mapping with scalar version and locale keys and only keys from {version, locale, strings, plurals}.
+func isStringTableDoc(doc *yaml.Node) bool {
+	if doc == nil || doc.Kind != yaml.MappingNode {
+		return false
+	}
+	hasVersion, hasLocale, hasEntries := false, false, false
+	for i := 0; i+1 < len(doc.Content); i += 2 {
+		k, v := doc.Content[i].Value, deref(doc.Content[i+1])
+		switch k {
+		case "version":
+			if v == nil || v.Kind != yaml.ScalarNode {
+				return false
+			}
+			hasVersion = true
+		case "locale":
+			if v == nil || v.Kind != yaml.ScalarNode || v.Value == "" {
+				return false
+			}
+			hasLocale = true
+		case "strings", "plurals":
+			if v != nil && v.Kind == yaml.MappingNode {
+				hasEntries = true
+			}
+		default:
+			return false
+		}
+	}
+	return hasVersion && hasLocale && hasEntries
+}
+
 // isResourceKind reports whether n is a scalar naming a resource type.
 func isResourceKind(n *yaml.Node) bool {
 	return n != nil && n.Kind == yaml.ScalarNode && slices.Contains(resource.Kinds(), resource.Kind(n.Value))
@@ -454,7 +532,7 @@ func isResourceKind(n *yaml.Node) bool {
 
 // add records f and its uid. An empty or null uid, which sceneformat and resource read as no uid, is kept as f.uid without f.UID, so that game index fills it in.
 func (p *Project) add(f *File) {
-	if f.Kind == KindScene || f.Kind == KindResource {
+	if f.Kind == KindScene || f.Kind == KindResource || f.Kind == KindScreen {
 		k, n := entry(f.doc, "uid")
 		switch {
 		case n == nil || n.Kind != yaml.ScalarNode:
@@ -523,6 +601,58 @@ func (p *Project) objectRefs(f *File, objs *yaml.Node, depth int) {
 		}
 		p.objectRefs(f, field(o, "children"), depth+1)
 	}
+}
+
+// screenRefs records sprite path references and localization textKey usages in a *.screen.yaml node tree.
+func (p *Project) screenRefs(f *File, nodes *yaml.Node, depth int) {
+	if depth > maxDepth {
+		return
+	}
+	for _, n := range items(nodes) {
+		p.ref(f, field(n, "sprite"), FieldScreenSprite)
+		var nodeID string
+		if idNode := field(n, "id"); idNode != nil && idNode.Kind == yaml.ScalarNode {
+			nodeID = idNode.Value
+		}
+		p.textKeyRef(f, field(n, "textKey"), FieldTextKey, nodeID)
+		p.screenRefs(f, field(n, "children"), depth+1)
+	}
+}
+
+// stringTableKeys records localization key definitions in an l10n YAML string table's strings and plurals maps.
+func (p *Project) stringTableKeys(f *File, doc *yaml.Node) {
+	for _, kv := range pairs(field(doc, "strings")) {
+		p.textKeyRef(f, kv[0], FieldStringKey, "")
+	}
+	for _, kv := range pairs(field(doc, "plurals")) {
+		p.textKeyRef(f, kv[0], FieldPluralKey, "")
+	}
+}
+
+// textKeyRef records a localization key scalar occurrence in f.
+func (p *Project) textKeyRef(f *File, n *yaml.Node, what, nodeID string) *TextKeyRef {
+	if n == nil || n.Kind != yaml.ScalarNode || n.Value == "" || (n.Tag != "" && n.Tag != "!!str") {
+		return nil
+	}
+	r := TextKeyRef{File: f.Path, Line: n.Line, Column: n.Column, Field: what, Key: n.Value, NodeID: nodeID}
+	if s, err := yamlSpan(f.data, f.starts, n); err == nil {
+		r.span = s
+	} else {
+		r.span = span{start: -1}
+	}
+	p.TextKeys = append(p.TextKeys, r)
+	return &p.TextKeys[len(p.TextKeys)-1]
+}
+
+// TextKeyUsages returns every occurrence of key in the scanned project across screen files and string tables, in file and line order.
+func (p *Project) TextKeyUsages(key string) []TextKeyRef {
+	var out []TextKeyRef
+	for _, r := range p.TextKeys {
+		if r.Key == key {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // ref records the root-relative reference whose value is the node n of f, when n is a non-empty string, and returns it, or nil.

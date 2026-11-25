@@ -144,11 +144,18 @@ func (l *Label) draw(d *core.Drawing, theme *Theme, state WidgetState) {
 	if w <= 0 || h <= 0 {
 		return
 	}
-	drawCustomFrame(d, b, state, l.DrawBackground, l.FrameDrawer, l.NineSlice, nil, nil)
+	if !drawCustomFrame(d, b, state, l.DrawBackground, l.FrameDrawer, l.NineSlice, nil, nil) && l.Background != 0 && l.Background != core.Transparent {
+		x, y := float32(b.Origin.X), float32(b.Origin.Y)
+		r := max(0, l.CornerRadius)
+		d.SetFillColor(l.Background).FillPath(rectPath(x, y, w, h, r), core.NonZero)
+	}
 	if l.Text == "" {
 		return
 	}
-	x, y := float32(b.Origin.X), float32(b.Origin.Y)
+	x := float32(b.Origin.X) + float32(l.Padding.Left)
+	y := float32(b.Origin.Y) + float32(l.Padding.Top)
+	innerW := max(0, w-float32(l.Padding.Left+l.Padding.Right))
+	innerH := max(0, h-float32(l.Padding.Top+l.Padding.Bottom))
 	font := resolveFont(l.Font, theme.Font)
 	col := l.Color
 	if col == 0 {
@@ -161,14 +168,14 @@ func (l *Label) draw(d *core.Drawing, theme *Theme, state WidgetState) {
 	tx := x
 	switch align {
 	case core.TextAlignCenter:
-		tx = x + w/2
+		tx = x + innerW/2
 	case core.TextAlignEnd, core.TextAlignRight:
-		tx = x + w
+		tx = x + innerW
 	}
 	drawText(d, l.TextDrawer, theme, TextDrawParams{
 		Text:     l.Text,
 		X:        tx,
-		Y:        y + h/2,
+		Y:        y + innerH/2,
 		Font:     font,
 		Color:    col,
 		Align:    align,
@@ -184,11 +191,17 @@ func (b *Button) draw(d *core.Drawing, theme *Theme, state WidgetState) {
 		return
 	}
 	x, y := float32(rect.Origin.X), float32(rect.Origin.Y)
-	radius := resolveRadius(0, theme.CornerRadius)
+	radius := resolveRadius(b.CornerRadius, theme.CornerRadius)
 
 	fill := theme.Background
+	if b.Background != 0 {
+		fill = b.Background
+	}
 	border := theme.Border
 	textColor := theme.Text
+	if b.TextColor != 0 {
+		textColor = b.TextColor
+	}
 	switch {
 	case state.Disabled:
 		fill = theme.Disabled

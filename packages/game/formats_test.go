@@ -124,6 +124,7 @@ var formatVersions = map[string]string{
 	"fog.FormatVersion":                     "fog",
 	"fighting.FormatVersion":                "fighting",
 	"framedata.CurrentVersion":              "framedata",
+	"gameui.ScreenFormatVersion":            "gameui",
 	"idle.LocaleVersion":                    "idle",
 	"internal/samplegltf.GLBVersion":        "",
 	"inventory.CurrentVersion":              "inventory",

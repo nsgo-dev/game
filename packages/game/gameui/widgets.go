@@ -144,6 +144,9 @@ func (b *HBox) setBounds(r core.Bounds) { b.bounds = r }
 type Label struct {
 	Text           string
 	Color          core.Color
+	Background     core.Color
+	CornerRadius   float32
+	Padding        core.Edges
 	Font           core.Font
 	TextAlign      core.TextAlign
 	Width          float32
@@ -185,6 +188,12 @@ type Button struct {
 	OnClick        func()
 	Disabled       bool
 	Font           core.Font
+	TextColor      core.Color
+	Background     core.Color
+	CornerRadius   float32
+	Padding        core.Edges
+	FocusOrder     int
+	TouchHitSize   float32
 	Width          float32
 	Height         float32
 	MinWidth       float32
@@ -204,6 +213,11 @@ type Button struct {
 // Bounds returns the button's laid-out rectangle.
 func (b *Button) Bounds() core.Bounds { return b.bounds }
 
+// HitBounds returns the button's interactive hit area, expanded to TouchHitSize when larger than Bounds.
+func (b *Button) HitBounds() core.Bounds {
+	return expandedHitBounds(b.bounds, b.TouchHitSize)
+}
+
 func (b *Button) spec() layoutSpec {
 	return layoutSpec{
 		Width:     b.Width,
@@ -215,9 +229,11 @@ func (b *Button) spec() layoutSpec {
 		Hidden:    b.Hidden,
 	}
 }
-func (b *Button) focusable() bool         { return !b.Disabled && !b.Hidden }
-func (b *Button) childWidgets() []Widget  { return nil }
-func (b *Button) setBounds(r core.Bounds) { b.bounds = r }
+func (b *Button) focusable() bool                { return !b.Disabled && !b.Hidden }
+func (b *Button) focusOrder() int                { return b.FocusOrder }
+func (b *Button) hitTestPoint(p core.Point) bool { return b.HitBounds().Contains(p) }
+func (b *Button) childWidgets() []Widget         { return nil }
+func (b *Button) setBounds(r core.Bounds)        { b.bounds = r }
 
 // Toggle is a focusable boolean checkbox or switch control.
 type Toggle struct {

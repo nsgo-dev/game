@@ -19,6 +19,7 @@ import (
 
 	"github.com/nsgo-dev/game/packages/game/ai"
 	"github.com/nsgo-dev/game/packages/game/cutscene"
+	"github.com/nsgo-dev/game/packages/game/gameui"
 	"github.com/nsgo-dev/game/packages/game/l10n"
 	"github.com/nsgo-dev/game/packages/game/navbake3d"
 	"github.com/nsgo-dev/game/packages/game/playtest"
@@ -207,6 +208,13 @@ var formats = []format{
 		pkg:     "playtest",
 		version: playtest.CurrentVersion,
 	},
+	{
+		url:     gameui.ScreenSchemaURL,
+		title:   "NSGo game UI screen (version 1)",
+		typ:     reflect.TypeFor[gameui.ScreenDoc](),
+		pkg:     "gameui",
+		version: gameui.ScreenFormatVersion,
+	},
 }
 
 // durationTypes maps duration types to their YAML schema forms: time.Duration accepts a Go duration string or integer nanoseconds; cutscene.Duration accepts only Go duration strings such as "1.5s".
@@ -308,6 +316,7 @@ func generate(root string) ([]schemaFile, error) {
 				}
 			}
 		}
+<<<<<<< HEAD
 		if f.url == playtest.SchemaURL {
 			if botDef := s.Definitions["BotConfig"]; botDef != nil {
 				if params := botDef.Property("params"); params != nil {
@@ -315,6 +324,21 @@ func generate(root string) ([]schemaFile, error) {
 				}
 			}
 		}
+||||||| parent of 4d6e38fc (feat(gameui): add *.screen.yaml screen files, safe-area builder, checks, and refs support)
+=======
+		if f.url == gameui.ScreenSchemaURL {
+			if nodeDef := s.Definitions["ScreenNodeDoc"]; nodeDef != nil {
+				if dc := nodeDef.Property("deviceClasses"); dc != nil && dc.Items != nil {
+					dc.Items.Enum = []any{
+						string(gameui.DevicePhone),
+						string(gameui.DeviceTablet),
+						string(gameui.DeviceDesktop),
+						string(gameui.DeviceUltrawide),
+					}
+				}
+			}
+		}
+>>>>>>> 4d6e38fc (feat(gameui): add *.screen.yaml screen files, safe-area builder, checks, and refs support)
 		data, err := s.Marshal()
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", f.url, err)

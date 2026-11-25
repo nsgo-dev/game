@@ -149,3 +149,50 @@ overlay.Sync(proj)
 ```
 
 Mount `overlay.View(cx)` above your `Canvas` inside a `core.Stack`. Anchors that project outside `ScreenBounds` are hidden automatically, and positions update via `SetWorldPosition` and `Sync` without rebuilding the surrounding view tree.
+
+## Screen files (`*.screen.yaml`)
+
+Author HUDs and menus as plain-text versioned YAML files (`*.screen.yaml`, published schema `https://game.nsgo.dev/schemas/screen.v1.json`) rather than hand-coding every widget in Go. `ParseScreen`, `LoadScreenFS`, and `EncodeScreen` refuse unknown fields, duplicate node IDs or focus orders, YAML anchors/aliases, and unsupported versions, and round-trip losslessly in canonical 2-space YAML.
+
+A screen defines a `designWidth` × `designHeight` reference canvas (such as `640 × 360`), an optional `scaleMode` (`fit`, `fill`, `stretch`, or `integer`), and a tree of nodes (`vbox`, `hbox`, `label`, `button`, `sprite_row`, `color_rect`, `touch_stick`, `touch_button`, `container`):
+
+- **Anchors and safe areas:** set `anchor` to one of nine points (`top_left`, `top_center`, `top_right`, `center_left`, `center`, `center_right`, `bottom_left`, `bottom_center`, `bottom_right`) or `fill`, `offset` (`x`, `y` inset inward from right/bottom edges), and `safeArea` (defaults to `true` for non-fill anchors and `false` for `fill`).
+- **Sizing and localized text:** store localization keys in `textKey` (never literal strings), use `sizeMode: fixed` with `width` or `sizeMode: fit_text` to grow with localized text, and set `padding`, `spacing`, `fontSize`, `textColor`, `background`, and `cornerRadius`.
+- **Focus order, touch areas, and device classes:** declare explicit 1-based `focusOrder` for keyboard/gamepad traversal, `touchHitSize` for expanded circular touch targets (`TouchButton`, `TouchStick`, `Button`), and `deviceClasses` (`phone`, `tablet`, `desktop`, `ultrawide`) to show controls only on matching devices.
+
+Build a parsed screen into a `gameui.Root` and `SpatialNavigator` at runtime with `BuildScreen`:
+
+```go
+doc, err := gameui.LoadScreenFS(assetsFS, "screens/hud.screen.yaml")
+if err != nil {
+	return err
+}
+
+phone := gameui.ReferenceDevicesFor(doc.DesignWidth, doc.DesignHeight)[0]
+screen, err := gameui.BuildScreen(doc, gameui.ScreenBuildOptions{
+	SafeArea:       phone.SafeArea,
+	DeviceClass:    phone.Class,
+	ViewportWidth:  phone.Width,
+	ViewportHeight: phone.Height,
+	Catalog:        catalog,
+	Locale:         "zh",
+	OnClick: map[string]func(){
+		"pause_button": openPauseMenu,
+		"jump":         triggerJump,
+	},
+})
+```
+
+Call `screen.Draw(d, bounds)` inside `Canvas.Draw`, switch languages dynamically with `screen.ApplyCatalog(catalog, locale)`, update safe-area insets with `screen.SetSafeArea(insets)`, or switch device filters with `screen.SetDeviceClass(class)`.
+
+### Validation (`game check`) and safe refactoring (`refs`, `game mv`)
+
+`game check` (and `gameui.CheckScreen`) checks every `*.screen.yaml` file in a project and reports the file, line, and node for:
+
+- touch areas under `44 pt` on phones and tablets;
+- localized text that overflows its box in any project locale at the four reference sizes (`Phone 19.5:9 (notch)`, `Tablet 4:3`, `Desktop 16:9`, `Ultrawide 21:9`), accounting for full-width CJK glyphs;
+- a `textKey` missing from any project locale string table;
+- text under `4.5:1` WCAG contrast against its fill;
+- missing `sprite` images or atlas frames.
+
+`refs` and `game mv` follow `sprite` paths and `textKey` references in `*.screen.yaml` files: `game mv art/heart.png art/ui/heart.png` rewrites `sprite:` in place, and `game mv -text-key hud.hint.lever hud.tip.lever` renames a localization key across both `*.screen.yaml` files and YAML string tables.
