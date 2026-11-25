@@ -97,5 +97,7 @@ func ExampleServer_AddTool() {
 	// selection_get read
 	// states_test run
 	// states_write edit
+	// tileset_edit edit
+	// tileset_read read
 	// viewport_image read
 }

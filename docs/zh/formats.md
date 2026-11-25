@@ -580,7 +580,7 @@ meshes:
 
 | 文件 | 版本 | 读写函数 | 字段 |
 | --- | --- | --- | --- |
-| `*.tileset.yaml`，如 `tilesets/cave.tileset.yaml`，由场景的分层瓦片地图（`tilesetFile`）引用 | `version: 1` | `tilemap.ParseTileset`、`tilemap.EncodeTileset`、`tilemap.LoadTilesetFS`；由 `Tilemap.AddTilesetDoc` 构建 | [tilemap](tilemap.md#yaml-图块集)；Schema 为 `https://game.nsgo.dev/schemas/tileset.v1.json` |
+| `*.tileset.yaml`，如 `tilesets/cave.tileset.yaml`，由场景的内联或分层瓦片地图（`tilesetFile`）引用 | `version: 1` | `tilemap.ParseTileset`、`tilemap.EncodeTileset`、`tilemap.LoadTilesetFS`；由 `Tilemap.AddTilesetDoc` 构建 | [tilemap](tilemap.md#yaml-图块集)；Schema 为 `https://game.nsgo.dev/schemas/tileset.v1.json` |
 
 ```yaml
 # yaml-language-server: $schema=https://game.nsgo.dev/schemas/tileset.v1.json

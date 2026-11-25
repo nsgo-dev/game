@@ -96,7 +96,7 @@ func (e *Editor) TilePalette() TilePalette {
 		p.Message = fmt.Sprintf("Layer %q has no inline tilemap to paint", e.ActiveLayer)
 		return p
 	}
-	if tm.IsLayered() {
+	if tm.HasTilesetFile() || tm.IsLayered() {
 		return e.layeredPalette(p, tm)
 	}
 	p.Tileset, p.TileWidth, p.TileHeight = tm.Tileset, tm.TileWidth, tm.TileHeight
@@ -728,72 +728,76 @@ func tileRandomControls(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 	}
 }
 
-// tileLayerControls returns the controls a layered grid's palette shows above its tiles: a toggle per tile layer that picks the one tile tools change, the flips tile brushes place tiles with, the terrain selector for ToolTerrain, and an Edit Tileset button. A single grid has none, and gets an empty view.
+// tileLayerControls returns the controls a YAML-tileset grid's palette shows above its tiles: a toggle per tile layer (for layered grids), the flips tile brushes place tiles with, the terrain selector for ToolTerrain, an Edit Tileset button, and the palette note from Tiles.dc.html. A legacy atlas single grid has none, and gets an empty view.
 func tileLayerControls(ed *Editor, rev *core.Signal[uint64], p TilePalette) core.Node {
-	if len(p.TileLayers) == 0 {
+	if len(p.TileLayers) == 0 && !isTilesetFile(p.Tileset) {
 		return core.View{}
 	}
-	layers := make([]core.Node, 0, len(p.TileLayers))
-	for _, name := range p.TileLayers {
-		layers = append(layers, ui.ToggleButton{
-			TestID: "tile-layer-" + name,
-			Text:   name,
-			Label:  ed.T("tilePalette.paintLayer", l10n.Param("name", name)),
-			On:     func() bool { return p.TileLayer == name },
-			OnChange: func(on bool) {
-				if on {
-					ed.SetActiveTileLayer(name)
-				}
-			},
-		})
+	var children []core.Node
+	if len(p.TileLayers) > 0 {
+		layers := make([]core.Node, 0, len(p.TileLayers))
+		for _, name := range p.TileLayers {
+			layers = append(layers, ui.ToggleButton{
+				TestID: "tile-layer-" + name,
+				Text:   name,
+				Label:  ed.T("tilePalette.paintLayer", l10n.Param("name", name)),
+				On:     func() bool { return p.TileLayer == name },
+				OnChange: func(on bool) {
+					if on {
+						ed.SetActiveTileLayer(name)
+					}
+				},
+			})
+		}
+		children = append(children, core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 4}, Children: layers})
 	}
-	flips := []struct {
-		text, label string
-		bit         uint32
-	}{
-		{"H", ed.T("tilePalette.flipHoriz"), tilemap.FlipHorizontal},
-		{"V", ed.T("tilePalette.flipVert"), tilemap.FlipVertical},
-		{"D", ed.T("tilePalette.flipDiag"), tilemap.FlipDiagonal},
-	}
-	flipButtons := make([]core.Node, 0, len(flips))
-	for _, f := range flips {
-		flipButtons = append(flipButtons, ui.ToggleButton{
-			TestID: "tile-flip-" + strings.ToLower(f.text),
-			Text:   f.text,
-			Label:  f.label,
-			On: func() bool {
-				_ = rev.Get()
-				return ed.ActiveTileFlip&f.bit != 0
-			},
-			OnChange: func(on bool) {
-				if on {
-					ed.SetActiveTileFlip(ed.ActiveTileFlip | f.bit)
-				} else {
-					ed.SetActiveTileFlip(ed.ActiveTileFlip &^ f.bit)
-				}
-			},
-		})
-	}
-	children := []core.Node{
-		core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 4}, Children: layers},
-		core.View{
-			Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4},
-			Children: append(flipButtons, ui.Button{
-				TestID:  "tile-palette-edit-tileset",
-				Text:    "Edit Tileset",
-				Label:   "Open this layer's tileset in the Tileset Editor",
-				Size:    ui.SizeSmall,
-				Variant: ui.ButtonSecondary,
-				Disabled: func() bool {
+	var rowChildren []core.Node
+	if len(p.TileLayers) > 0 {
+		flips := []struct {
+			text, label string
+			bit         uint32
+		}{
+			{"H", ed.T("tilePalette.flipHoriz"), tilemap.FlipHorizontal},
+			{"V", ed.T("tilePalette.flipVert"), tilemap.FlipVertical},
+			{"D", ed.T("tilePalette.flipDiag"), tilemap.FlipDiagonal},
+		}
+		for _, f := range flips {
+			rowChildren = append(rowChildren, ui.ToggleButton{
+				TestID: "tile-flip-" + strings.ToLower(f.text),
+				Text:   f.text,
+				Label:  f.label,
+				On: func() bool {
 					_ = rev.Get()
-					return ed.Playing()
+					return ed.ActiveTileFlip&f.bit != 0
 				},
-				OnPress: func() {
-					ed.report(ed.OpenActiveLayerTileset())
+				OnChange: func(on bool) {
+					if on {
+						ed.SetActiveTileFlip(ed.ActiveTileFlip | f.bit)
+					} else {
+						ed.SetActiveTileFlip(ed.ActiveTileFlip &^ f.bit)
+					}
 				},
-			}),
-		},
+			})
+		}
 	}
+	rowChildren = append(rowChildren, ui.Button{
+		TestID:  "tile-palette-edit-tileset",
+		Text:    "Edit Tileset",
+		Label:   "Open this layer's tileset in the Tileset Editor",
+		Size:    ui.SizeSmall,
+		Variant: ui.ButtonSecondary,
+		Disabled: func() bool {
+			_ = rev.Get()
+			return ed.Playing()
+		},
+		OnPress: func() {
+			ed.report(ed.OpenActiveLayerTileset())
+		},
+	})
+	children = append(children, core.View{
+		Style:    core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4},
+		Children: rowChildren,
+	})
 	if len(p.Terrains) > 0 {
 		tBtns := make([]core.Node, 0, len(p.Terrains))
 		for _, t := range p.Terrains {
@@ -825,9 +829,14 @@ func tileLayerControls(ed *Editor, rev *core.Signal[uint64], p TilePalette) core
 		children = append(children, core.Text{
 			TestID:  "tile-terrain-empty",
 			Content: "No terrain sets defined. Press Edit Tileset to add one.",
-			Style:   core.Style{FontSize: 11},
+			Style:   core.Style{FontSize: 11, Color: specTextMuted},
 		})
 	}
+	children = append(children, core.Text{
+		TestID:  "tile-palette-rules-note",
+		Content: "Rules for collision, terrain and variants live in the tileset file.",
+		Style:   core.Style{FontSize: 11, Color: specTextMuted},
+	})
 	return core.View{
 		TestID:   "tile-layer-controls",
 		Style:    core.Style{Gap: 6},

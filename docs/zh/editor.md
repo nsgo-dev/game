@@ -67,7 +67,7 @@ import "github.com/nsgo-dev/game/packages/game/sceneformat"
 
 - **引用（`ref`，仅限图层）**：指向顶层 `tilemaps` 中的命名条目。
 - **外部地图（`source`）**：从项目根目录起以斜杠分隔的路径，指向 Tiled 地图（`.tmj` 或 `.tmx`）或 LDtk 项目（`.ldtk`）；对 LDtk，`level` 指定要构建的关卡（版本 2），不写则构建项目的第一个关卡。
-- **内联网格**：包含 `tileWidth`、`tileHeight`、`width`、`height`、`tileset`（帧名按从 1 开始的瓦片 ID `"1"`、`"2"`…… 索引的图集名）、可选的 `offsetX` / `offsetY`（版本 3，以图层点数偏移 `(0, 0)` 单元格），以及长度为 `width * height` 的行主序 `data`（`0` 表示空瓦片）。
+- **内联网格**：包含 `tileWidth`、`tileHeight`、`width`、`height`，以及 `tileset`（帧名按从 1 开始的瓦片 ID `"1"`、`"2"`…… 索引的图集名）或 `tilesetFile`（版本 2+，YAML 图块集 `*.tileset.yaml` 的路径）、可选的 `offsetX` / `offsetY`（版本 3，以图层点数偏移 `(0, 0)` 单元格），配合长度为 `width * height` 的行主序 `data`（`0` 表示空瓦片；使用 `tilesetFile` 时，ID `n` 放置局部瓦片 `n - 1`）。
 - **分层网格**（版本 2）：包含 `tileWidth`、`tileHeight`、`width`、`height`、可选的 `offsetX` / `offsetY`（版本 3）、`tilesetFile`（YAML 图块集 `*.tileset.yaml` 的路径，见 [YAML 图块集](tilemap.md#yaml-图块集)，单元格放置的就是它的瓦片），以及 `tileLayers`：最多 `MaxTileLayers` 个按顺序绘制的命名瓦片图层。
 
 分层网格的图块集只定义一次每个瓦片的标志、属性、碰撞形状、动画和地形，地图只负责放置瓦片，与 Godot 的 TileSet 之于 TileMapLayer 相同。每个瓦片图层有 `name`、可选的 `visible`（默认 `true`）和 `opacity`（默认 `1`），以及 `rows`：从上到下共 `height` 行，每行 `width` 个以空格分隔的单元格。单元格为空时写 `.`，否则写瓦片在图块集中的局部 ID（`0`、`1`……），后面可以跟 `h`、`v`、`d` 中的任意几个，分别表示水平、垂直和沿对角线翻转，与 Tiled 的翻转位相同，因此 `3hv` 是旋转了半圈的瓦片 3。一行可以用多余的空格对齐单元格，字母也可以任意顺序书写；`Encode` 统一写成单个空格、字母按 `h`、`v`、`d` 的顺序，于是每一行在 diff 中都是一行。
@@ -100,7 +100,7 @@ layers:
 
 `TileLayerDoc.Cell`、`SetCell` 和 `Cells` 以瓦片值读写图层的单元格，即构建后它们的 GID：空单元格为 `0`，否则为局部 ID 加 1，并带上 `tilemap.FlipHorizontal`、`FlipVertical` 和 `FlipDiagonal` 翻转位；`ParseTileRow` 和 `FormatTileRow` 对单独一行做同样的事。
 
-`Build` 把图集帧组成的单一网格变成精灵批次（`BuiltLayer.Tilemap`），把分层网格或外部地图变成 `tilemap.Tilemap`（`BuiltLayer.Map`）。这个地图带有图块集的标志、属性、形状、动画和地形，因此在图层坐标中可以回答 `FlagsAt`、`TileProperties`、`TilesInRect` 和 `Raycast`，也可以交给 `tileshape.New` 生成斜坡与遮挡体。`BuiltScene.Draw` 只绘制虚拟视口内的地图瓦片（世界坐标图层按相机看到的范围），除非场景没有虚拟尺寸或设置了 `DrawAllTiles`，编辑器的编辑视图就会设置它；`BuiltScene.Update(dt)` 推进动画瓦片。
+`Build` 把图集帧组成的单一网格变成精灵批次（`BuiltLayer.Tilemap`），把分层网格、引用 `tilesetFile` 的单层内联网格或外部地图变成 `tilemap.Tilemap`（`BuiltLayer.Map`）。这个地图带有图块集的标志、属性、形状、动画和地形，因此在图层坐标中可以回答 `FlagsAt`、`TileProperties`、`TilesInRect` 和 `Raycast`，可以直接交给 `physics.MoveAndSlide` 参与碰撞，也可以交给 `tileshape.New` 生成斜坡与遮挡体。`BuiltScene.Draw` 只绘制虚拟视口内的地图瓦片（世界坐标图层按相机看到的范围），除非场景没有虚拟尺寸或设置了 `DrawAllTiles`，编辑器的编辑视图就会设置它；`BuiltScene.Update(dt)` 推进动画瓦片。
 
 `Build` 通过解析器的 `FileResolver`（`ReadFile`）读取 YAML 图块集、Tiled 地图及其外部图块集和 LDtk 项目，Tiled 或 LDtk 文件中的路径相对于该文件所在目录；图片在解析器实现了 `ImageResolver`（`Image`）时由它加载，否则按路径命名（`core.ImageSource{URI: path}`）。`FSAssets` 从 `fs.FS` 读取项目文件，因此引用 `.tmj`、`.ldtk` 或 `.tileset.yaml` 的场景无需游戏自己编写解析器即可构建。实现了 `TilemapResolver` 的解析器仍会像以前一样自行把每个 `source` 加载为 `TilemapDoc`，但指定了 LDtk `level` 的 source 除外：`Tilemap(source)` 无法接收关卡名，因此 `Build` 通过 `FileResolver` 读取它。
 
@@ -689,7 +689,7 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 
 调色板跟随当前图层：图层改变时，调色板显示新图层的瓦片集；如果该瓦片集没有所选 ID 的瓦片，就选中它的第一个瓦片。没有内联瓦片地图的图层（没有瓦片地图，或使用外部 Tiled 或 LDtk 地图）、解析器无法解析的瓦片集、没有瓦片帧的瓦片集，都会显示一条说明原因的消息，而不是空网格。在 Go 中，`TilePalette()` 返回调色板为当前图层显示的内容：瓦片集、瓦片尺寸和瓦片，或那条消息。
 
-对分层网格，调色板显示它的 YAML 图块集中的瓦片，图块集通过解析器的 `sceneformat.FileResolver`（例如 `FSAssets`）读取，瓦片 ID 按 `PaintTile` 接受的方式从 1 开始：瓦片 ID `n` 绘制图块集的局部瓦片 `n - 1`。调色板的标签和状态栏用局部 ID 称呼每个瓦片，也就是行和图块集的 `tiles[].id` 写的数字（`PaletteTile.Number`）。瓦片上方每个瓦片图层有一个切换按钮，用来选择 Paint、Erase、Fill 和 Terrain 修改的图层（`SetActiveTileLayer`、`ActiveTileLayer`，默认为第一个），H、V、D 切换按钮设置 Paint 和 Fill 放置瓦片时的翻转（`SetActiveTileFlip`、`ActiveTileFlip`），地形切换按钮选择 Terrain 绘制的地形集（`SetActiveTerrain`、`ActiveTerrain`），**Edit Tileset** 按钮会在图块集编辑器中打开该图层的 `*.tileset.yaml`。这些编辑按 `Encode` 保存的形式写入图层的行，每次都是一个可撤销的步骤；Fill 只连通瓦片和翻转都相同的单元格。
+对引用了 `tilesetFile` 的单层或分层网格，调色板显示它的 YAML 图块集中的瓦片，图块集通过解析器的 `sceneformat.FileResolver`（例如 `FSAssets`）读取，瓦片 ID 按 `PaintTile` 接受的方式从 1 开始：瓦片 ID `n` 绘制图块集的局部瓦片 `n - 1`。调色板的标签和状态栏用局部 ID 称呼每个瓦片，也就是行和图块集的 `tiles[].id` 写的数字（`PaletteTile.Number`），底部提示碰撞、地形和变体规则保存在图块集文件中。瓦片上方每个瓦片图层（分层网格）有一个切换按钮，用来选择 Paint、Erase、Fill 和 Terrain 修改的图层（`SetActiveTileLayer`、`ActiveTileLayer`，默认为第一个），H、V、D 切换按钮设置 Paint 和 Fill 放置瓦片时的翻转（`SetActiveTileFlip`、`ActiveTileFlip`），地形切换按钮选择 Terrain 绘制的地形集（`SetActiveTerrain`、`ActiveTerrain`），**Edit Tileset** 按钮会在图块集编辑器中打开该图层的 `*.tileset.yaml`。在 2D 瓦片工具下选中 YAML 图块集图层且未选中对象时，右侧**瓦片检查器**会展示所选瓦片的缩略图、名称与来源单元格、`COLLISION` 分段开关（`Solid`、`One-way`、`None`）、地形/碰撞/变体权重规则以及打开完整图块集编辑器的快捷按钮。这些编辑按 `Encode` 保存的形式写入图层的行，每次都是一个可撤销的步骤；Fill 只连通瓦片和翻转都相同的单元格。
 
 ## 绘制、擦除与拾取瓦片（#875）
 
@@ -701,12 +701,17 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 
 在 Go 中，`BeginTileStroke(mode, x, y)`、`ContinueTileStroke` 和 `EndTileStroke` 在画布坐标上画一笔（`TileStrokePaint`、`TileStrokeErase`、`TileStrokePick`、`TileStrokeTerrain` 或 `TileStrokeEraseTerrain`），`CancelTileStroke` 撤回这一笔，`TileStrokeActive` 报告是否有一笔正在进行；绘制与擦除会拒绝锁定或隐藏的图层，选择工具或图层、修改图层、切换视图、保存、Undo、Redo 和 Play 都会先结束正在进行的一笔（Revert 则会取消它）。`PickTile(layer, col, row)` 拾取瓦片，`SetTileHover` 和 `ClearTileHover` 移动轮廓，`HoveredTile` 返回轮廓所在的格子。
 
-## 地形绘制与图块集编辑器（#879）
+## 地形绘制与图块集编辑器（#878、#879）
 
-分层瓦片地图（`*.tileset.yaml`）在运行时（`tilemap.ApplyTerrain`、`tilemap.SetTerrainTile`）与编辑器中共用同一套自动瓦片地形集：
+由 `*.tileset.yaml` 驱动的内联与分层瓦片地图在运行时（`tilemap.ApplyTerrain`、`tilemap.SetTerrainTile`、`physics.MoveAndSlide`、`tileshape.New`）与编辑器中共用同一套瓦片标志、碰撞形状、动画、自定义数据与自动瓦片地形集：
 
 - **地形画笔（`ToolTerrain`，快捷键 `t`）**：左键拖动放置地形（`TileStrokeTerrain`），右键拖动擦除地形（`TileStrokeEraseTerrain`），按与 `tilemap.Tilemap.SetAutotile` 完全一致的 4 位正交（`cardinal`）和 8 位角门控（`blob`）规则更新所经过的格子及其周围邻居。整笔（含放置/擦除的格子与所有受影响的邻居）记为一个可撤销步骤，一次 Undo 即可完整还原。在 Go 中，`PaintTerrain(layer, col, row, terrain)` 与 `EraseTerrain(layer, col, row, terrain)` 执行单格地形编辑。
-- **图块集编辑器（`TilesetEditorPanelView`）**：可通过瓦片调色板的 **Edit Tileset** 按钮（`OpenActiveLayerTileset`）、文件浏览器的 **Edit Tileset** 按钮（`OpenTilesetProjectFile`）或 `OpenTilesetFile` / `OpenTilesetYAML` 打开 `*.tileset.yaml`。支持新建或删除 4 位（`cardinal`）和 8 位（`blob`）地形集（`AddTilesetTerrain`、`RemoveTilesetTerrain`、`SetTilesetTerrainMode`）、设置显式默认瓦片（`SetTilesetTerrainDefault`），以及通过点击中心、四条边（`N`、`E`、`S`、`W`）和 8 位 `blob` 模式下的四个角（`NW`、`NE`、`SW`、`SE`）为瓦片分配邻居掩码（`ToggleTilesetEdgeOrCorner`、`ToggleTilesetTileCenter`、`SetTilesetTileMask`）。点击角会自动满足角门控规则（启用角时自动启用相邻两条边；关闭边时自动清除依赖该边的角）。若中间点击产生的掩码已被另一个瓦片占用，编辑器会保持原瓦片不变，便于继续点击到达其他掩码或点击 **Reassign**（`ReassignTilesetEditMask`）一步重新分配。所有图块集编辑都可撤销，立即生效于地形画笔，并以规范 YAML 写回文件（`SaveTileset`、`SaveTilesetYAML`）。
+- **图块集编辑器（`TilesetEditorPanelView`）**：可通过瓦片调色板的 **Edit Tileset** 按钮（`OpenActiveLayerTileset`）、右侧瓦片检查器、在文件浏览器中双击或点击 **Open** / **Edit Tileset**（`OpenTilesetProjectFile`）或 `OpenTilesetFile` / `OpenTilesetYAML` 打开任意 `*.tileset.yaml`。左侧网格展示每个瓦片的缩略图及实心/单向碰撞、碰撞形状、动画、地形掩码和默认瓦片标记，右侧四个标签页编辑每个瓦片：
+  - **Terrain**：新建或删除 4 位（`cardinal`）和 8 位（`blob`）地形集（`AddTilesetTerrain`、`RemoveTilesetTerrain`、`SetTilesetTerrainMode`）、设置显式默认瓦片（`SetTilesetTerrainDefault`），以及通过点击中心、四条边（`N`、`E`、`S`、`W`）和 8 位 `blob` 模式下的四个角（`NW`、`NE`、`SW`、`SE`）为瓦片分配邻居掩码（`ToggleTilesetEdgeOrCorner`、`ToggleTilesetTileCenter`、`SetTilesetTileMask`）。点击角会自动满足角门控规则（启用角时自动启用相邻两条边；关闭边时自动清除依赖该边的角）。若中间点击产生的掩码已被另一个瓦片占用，编辑器会保持原瓦片不变，便于继续点击到达其他掩码或点击 **Reassign**（`ReassignTilesetEditMask`）一步重新分配。
+  - **Collision**：切换 `Solid`、`One-way`、`None` 或自定义标志位（`SetTilesetTileCollision`、`SetTilesetTileFlags`、`ToggleTilesetTileFlagBit`），并在放大的瓦片画布上直接绘制矩形（`rect`）或多边形（`polygon`）碰撞形状（`AddTilesetTileShape`、`UpdateTilesetTileShape`、`RemoveTilesetTileShape`、`AddTilesetDraftPolygonPoint`、`CommitTilesetDraftPolygon`）。
+  - **Animation**：为瓦片添加、编辑或删除动画帧及其时长（`AddTilesetTileAnimFrame`、`UpdateTilesetTileAnimFrame`、`RemoveTilesetTileAnimFrame`、`SetTilesetTileAnimation`），并提供可播放/暂停的实时预览（`SetTilesetAnimPlaying`、`TilesetAnimPreviewTile`）。动画瓦片在 2D 编辑器视口（编辑模式与 Play 模式）以及游戏中都会实时播放（`StepTileAnimations`）。
+  - **Data**：编辑瓦片的显示名称 `name`、变体权重 `weight` 及类型化自定义属性（`bool`、`int`、`float`、`string`）（`SetTilesetTileName`、`SetTilesetTileWeight`、`SetTilesetTileProperty`、`DeleteTilesetTileProperty`）。
+  - 所有图块集编辑都进入编辑器共用的 `History`（支持撤销/重做），保存前即实时生效于视口、Play 模式和地形画笔，并以规范 YAML 写回文件（`SaveTileset`、`SaveTilesetYAML`）。智能体可通过编辑器 MCP 工具 `tileset_read` 与 `tileset_edit` 原子读写同一批字段（[MCP](mcp.md#工具)）。
 
 ## 3D GridMap 绘制（#899）
 

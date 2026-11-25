@@ -345,6 +345,9 @@ func inspectorSchemaKey(ed *Editor) string {
 			}
 		}
 		if ed != nil && ed.Doc != nil {
+			if tsPath, tileID, ok := ed.inspectedTilesetTile(); ok {
+				return tabPrefix + fmt.Sprintf("tile:%s:%d", tsPath, tileID)
+			}
 			return tabPrefix + "scene"
 		}
 		return ""
@@ -531,6 +534,9 @@ func InspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 								return roomInspectorView(cx, ed, rev)
 							}
 							return nil
+						}
+						if strings.HasPrefix(subKey, "tile:") {
+							return tileInspectorView(cx, ed, rev)
 						}
 						if subKey == "scene" {
 							return sceneInspectorView(cx, ed, rev)

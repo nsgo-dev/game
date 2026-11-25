@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/packages/game/loaderr"
+	"github.com/nsgo-dev/game/packages/game/physics"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/game/packages/game/tilemap"
@@ -596,4 +597,78 @@ func mustRead(t *testing.T, a sceneformat.FSAssets, p string) []byte {
 		t.Fatal(err)
 	}
 	return data
+}
+
+func TestInlineTilemapWithTilesetFileTakesFlagsAndAnimations(t *testing.T) {
+	const inlineScene = `version: 2
+name: Inline Tileset
+virtualWidth: 64
+virtualHeight: 32
+layers:
+  - name: ground
+    tilemap:
+      tileWidth: 16
+      tileHeight: 16
+      width: 4
+      height: 2
+      tilesetFile: tilesets/cave.tileset.yaml
+      data: [0, 3, 0, 0, 1, 1, 2, 1]
+`
+	doc, err := sceneformat.Parse([]byte(inlineScene))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	tm := doc.Layers[0].Tilemap
+	if !tm.HasTilesetFile() || tm.IsLayered() {
+		t.Fatalf("HasTilesetFile=%v IsLayered=%v, want true/false", tm.HasTilesetFile(), tm.IsLayered())
+	}
+	// Round-trips unchanged through Encode and Parse.
+	enc, err := sceneformat.Encode(doc)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	back, err := sceneformat.Parse(enc)
+	if err != nil {
+		t.Fatalf("Parse(enc): %v", err)
+	}
+	again, err := sceneformat.Encode(back)
+	if err != nil || !bytes.Equal(again, enc) {
+		t.Fatalf("round-trip mismatch (%v):\n%s", err, again)
+	}
+
+	built, err := sceneformat.Build(doc, sceneformat.FSAssets{FS: layeredProject()})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	ground := built.Layer("ground")
+	if ground.Map == nil || ground.Tilemap != nil {
+		t.Fatalf("ground Map=%v Tilemap=%v, want Map only", ground.Map, ground.Tilemap)
+	}
+	if ground.Map.FlagsAt(0, 1) != tilemap.TileSolid || ground.Map.FlagsAt(2, 1) != tilemap.TileOneWay {
+		t.Fatalf("flags = (%v, %v), want (TileSolid, TileOneWay)", ground.Map.FlagsAt(0, 1), ground.Map.FlagsAt(2, 1))
+	}
+	// Collide directly via physics.MoveAndSlide with no Go code naming any tile.
+	body := &physics.Body{
+		Shape: physics.BoxShape(physics.Box{X: 2, Y: 0, W: 12, H: 12}),
+	}
+	for range 20 {
+		body.VY += 400 / 60.0
+		physics.MoveAndSlide(body, ground.Map, time.Second/60)
+	}
+	if !body.Grounded || body.Bounds().Bottom() != 16 {
+		t.Fatalf("MoveAndSlide: grounded=%v bottom=%v, want grounded at 16", body.Grounded, body.Bounds().Bottom())
+	}
+	// Animated tile 2 (GID 3 at col 1, row 0) advances on built.Update.
+	anim := ground.Map.Tilesets[0].Animations[2]
+	if anim == nil || anim.CurrentTileID() != 2 {
+		t.Fatalf("initial animation = %+v, want tile 2", anim)
+	}
+	built.Update(100 * time.Millisecond)
+	if anim.CurrentTileID() != 3 {
+		t.Fatalf("after 100ms animation shows tile %d, want 3", anim.CurrentTileID())
+	}
+	// Combining tileset and tilesetFile is refused.
+	if _, err := sceneformat.Parse([]byte(strings.Replace(inlineScene, "tilesetFile: tilesets/cave.tileset.yaml", "tileset: cave\n      tilesetFile: tilesets/cave.tileset.yaml", 1))); err == nil || !strings.Contains(err.Error(), "cannot combine") {
+		t.Fatalf("combining tileset and tilesetFile error = %v", err)
+	}
 }

@@ -124,6 +124,22 @@ func builtinTools() []Tool {
 			Action:      ActionRead,
 			Handler:     cutsceneScrub,
 		},
+		{
+			Name:        ToolTilesetRead,
+			Title:       "Read a YAML tileset",
+			Description: "Read a *.tileset.yaml tileset document (or the tileset currently open in the editor, or the active layer's tilesetFile) with per-tile names, solid/one-way/custom flags, variant weights, collision shapes, animations, custom properties, and terrain rules.",
+			InputSchema: []byte(tilesetReadSchema),
+			Action:      ActionRead,
+			Handler:     tilesetRead,
+		},
+		{
+			Name:        ToolTilesetEdit,
+			Title:       "Edit a YAML tileset",
+			Description: "Edit a *.tileset.yaml tileset through the editor's undoable tileset commands in one atomic undo step: set_tile (name, solid, oneWay, flags, weight, shapes, animation, terrain, neighbors), set_property, remove_property, add_terrain, remove_terrain, with optional save.",
+			InputSchema: []byte(tilesetEditSchema),
+			Action:      ActionEdit,
+			Handler:     tilesetEdit,
+		},
 	}, append(playtestTools(), mergeTools()...)...)
 }
 
@@ -279,6 +295,12 @@ func sceneRead(ctx context.Context, c *Call) (*Result, error) {
 		case clean == project.FileName && ed.ProjectDirty():
 			// An unedited game.yaml is read from disk below, comments and line numbers as the person wrote them and game_check reports them.
 			data, err := project.Encode(ed.Project)
+			if err != nil {
+				return err
+			}
+			text, info.File, info.Source, info.Unsaved, info.hasFile = data, clean, "editor", true, true
+		case ed.TilesetOpen() && ed.TilesetPath() == clean && ed.TilesetDirty():
+			data, err := ed.SaveTilesetYAML()
 			if err != nil {
 				return err
 			}

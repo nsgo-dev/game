@@ -149,7 +149,7 @@ m.SetTerrainRect(0, 6, 2, 3, 3, ws, water, rng)
 
 ## YAML 图块集
 
-YAML 图块集（`*.tileset.yaml`，`TilesetDoc`）是 Godot TileSet 资源的文本形式：它只说明一次每个瓦片是什么，使用它的地图只负责放置瓦片。场景文件在分层网格中放置它的瓦片（[编辑器与场景格式](editor.md#瓦片地图tilemaps)）。它的瓦片要么从网格图片中切出（`image`、`columns`、`tileCount`，以及可选的 `spacing` 和 `margin`），要么取自精灵图集的帧（`atlas`，以及按局部 ID 顺序排列的 `frames`）。瓦片的局部 ID 是它在网格中从左上角起逐行计数的序号，或在 `frames` 中的序号，从 0 开始。
+YAML 图块集（`*.tileset.yaml`，`TilesetDoc`）是 Godot TileSet 资源的文本形式：它只说明一次每个瓦片是什么，使用它的地图只负责放置瓦片。场景文件可在分层网格或单层内联瓦片地图中放置它的瓦片（[编辑器与场景格式](editor.md#瓦片地图tilemaps)）。它的瓦片要么从网格图片中切出（`image`、`columns`、`tileCount`，以及可选的 `spacing` 和 `margin`），要么取自精灵图集的帧（`atlas`，以及按局部 ID 顺序排列的 `frames`）。瓦片的局部 ID 是它在网格中从左上角起逐行计数的序号，或在 `frames` 中的序号，从 0 开始。
 
 ```yaml
 # yaml-language-server: $schema=https://game.nsgo.dev/schemas/tileset.v1.json
@@ -189,7 +189,9 @@ tiles:
 
 | 字段 | 含义 |
 | --- | --- |
-| `solid`、`oneWay`、`flags` | `TileSolid`、`TileOneWay` 以及游戏自定义的其他 `TileFlags` 位，用 `SetFlags` 设置到该瓦片上 |
+| `name` | 可选的可读瓦片名称，用于检查器与编辑器显示 |
+| `solid`、`oneWay`、`flags` | `TileSolid`、`TileOneWay` 以及游戏自定义的其他 `TileFlags` 位，用 `SetFlags` 设置到该瓦片上；`*Tilemap` 实现了 `physics.TileGrid` 与 `physics.TileGridOrigin`，因此标记为 `solid` 的瓦片可直接通过 `physics.MoveAndSlide` 参与碰撞 |
+| `weight` | 可选的非负变体权重，加载到 `Tileset.TileProbabilities` |
 | `properties` | 自定义属性，每个值为布尔、整数、数字或字符串，即 `TileProperties` 返回的内容；图块集本身也有 `properties` |
 | `shapes` | 瓦片坐标中的碰撞形状：`rect` 和 `ellipse` 由 `x`、`y`、`width`、`height` 给出，`polygon`（至少 3 个点）和 `polyline`（至少 2 个点）由 `points` 给出，均可带 `name`、`type` 和 `properties`；它们与 Tiled 碰撞编辑器画出的形状一样载入 `Tileset.Shapes`，供 [tileshape](tileshape.md) 使用 |
 | `animation` | 由 `tile` 和正的 `duration`（如 `150ms`）组成的帧，`Update` 循环播放 |

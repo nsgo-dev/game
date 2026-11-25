@@ -149,7 +149,7 @@ m.SetTerrainRect(0, 6, 2, 3, 3, ws, water, rng)
 
 ## YAML tilesets
 
-A YAML tileset (`*.tileset.yaml`, `TilesetDoc`) is the text counterpart of Godot's TileSet resource: it says once what each tile is, and the maps that use it only place tiles. Scene files place its tiles in layered grids ([Editor & Scene Format](editor.md#tilemaps)). It cuts its tiles from a grid image (`image`, `columns`, `tileCount`, optional `spacing` and `margin`) or takes them from frames of a sprite atlas (`atlas`, `frames` in local ID order). A tile's local ID is its index in the grid, row by row from the top left, or in `frames`, from 0.
+A YAML tileset (`*.tileset.yaml`, `TilesetDoc`) is the text counterpart of Godot's TileSet resource: it says once what each tile is, and the maps that use it only place tiles. Scene files place its tiles in layered grids or single-grid inline tilemaps ([Editor & Scene Format](editor.md#tilemaps)). It cuts its tiles from a grid image (`image`, `columns`, `tileCount`, optional `spacing` and `margin`) or takes them from frames of a sprite atlas (`atlas`, `frames` in local ID order). A tile's local ID is its index in the grid, row by row from the top left, or in `frames`, from 0.
 
 ```yaml
 # yaml-language-server: $schema=https://game.nsgo.dev/schemas/tileset.v1.json
@@ -189,7 +189,9 @@ tiles:
 
 | Field | Meaning |
 | --- | --- |
-| `solid`, `oneWay`, `flags` | `TileSolid`, `TileOneWay` and any further `TileFlags` bits the game defines, set on the tile with `SetFlags` |
+| `name` | Optional human-readable tile name shown in inspectors and tools |
+| `solid`, `oneWay`, `flags` | `TileSolid`, `TileOneWay` and any further `TileFlags` bits the game defines, set on the tile with `SetFlags`; `*Tilemap` implements `physics.TileGrid` and `physics.TileGridOrigin`, so a tile marked `solid` collides through `physics.MoveAndSlide` directly |
+| `weight` | Optional non-negative variant weight loaded into `Tileset.TileProbabilities` |
 | `properties` | Custom properties, each a bool, an integer, a number or a string, as `TileProperties` returns them; the tileset has its own `properties` too |
 | `shapes` | Collision shapes in the tile's coordinates: `rect` and `ellipse` by `x`, `y`, `width` and `height`, `polygon` (3 points or more) and `polyline` (2 or more) by `points`, each with optional `name`, `type` and `properties`; they load into `Tileset.Shapes` as Tiled's collision editor's do, for [tileshape](tileshape.md) |
 | `animation` | Frames of `tile` and positive `duration` (such as `150ms`) that `Update` cycles through |

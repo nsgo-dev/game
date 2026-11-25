@@ -320,7 +320,13 @@ func (e *Editor) ShowingSceneSettings() bool {
 		return false
 	}
 	rel, _ := e.inspectedImportAsset()
-	return rel == ""
+	if rel != "" {
+		return false
+	}
+	if _, _, ok := e.inspectedTilesetTile(); ok {
+		return false
+	}
+	return true
 }
 
 // effectiveCamera returns a cloned CameraDoc representing the scene's active start camera:

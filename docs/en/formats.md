@@ -580,7 +580,7 @@ meshes:
 
 | Files | Version | Read and written by | Fields |
 | --- | --- | --- | --- |
-| `*.tileset.yaml`, such as `tilesets/cave.tileset.yaml`, named by a scene's layered tilemap (`tilesetFile`) | `version: 1` | `tilemap.ParseTileset`, `tilemap.EncodeTileset`, `tilemap.LoadTilesetFS`; `Tilemap.AddTilesetDoc` builds it | [tilemap](tilemap.md#yaml-tilesets); schema `https://game.nsgo.dev/schemas/tileset.v1.json` |
+| `*.tileset.yaml`, such as `tilesets/cave.tileset.yaml`, named by a scene's inline or layered tilemap (`tilesetFile`) | `version: 1` | `tilemap.ParseTileset`, `tilemap.EncodeTileset`, `tilemap.LoadTilesetFS`; `Tilemap.AddTilesetDoc` builds it | [tilemap](tilemap.md#yaml-tilesets); schema `https://game.nsgo.dev/schemas/tileset.v1.json` |
 
 ```yaml
 # yaml-language-server: $schema=https://game.nsgo.dev/schemas/tileset.v1.json

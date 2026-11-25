@@ -108,7 +108,7 @@ func (e *Editor) PlayIn(cx *core.Scope) error {
 			return fmt.Errorf("editor: resolve play scene: %w", err)
 		}
 	}
-	playBuilt, err := sceneformat.Build(playDoc, e.Resolver)
+	playBuilt, err := sceneformat.Build(playDoc, e.liveResolver())
 	if err != nil {
 		return fmt.Errorf("editor: build play scene: %w", err)
 	}
@@ -132,6 +132,7 @@ func (e *Editor) PlayIn(cx *core.Scope) error {
 	e.stopStatesLoop()
 	e.stopCutsceneLoop()
 	e.SetCutsceneReviewPeekBefore(false)
+	e.stopTileAnimLoop()
 	e.SetStatesDriveWithKeys(false)
 	e.stopParticlePreviewLoop()
 	e.stopSceneEmitterLoop()

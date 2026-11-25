@@ -11,6 +11,7 @@ import (
 
 	"github.com/nsgo-dev/game/packages/game/internal/formattest"
 	"github.com/nsgo-dev/game/packages/game/loaderr"
+	"github.com/nsgo-dev/game/packages/game/physics"
 	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/game/packages/game/tilemap"
 	"github.com/nsgo-dev/nsgo/core"
@@ -254,6 +255,9 @@ func TestParseTilesetErrors(t *testing.T) {
 		{"blob_corner_without_edges", head + "terrains:\n  - name: rock\n    mode: blob\ntiles:\n  - id: 0\n    terrain: rock\n    neighbors: [north, northeast]\n", "tiles[0].neighbors[1]", "without both edges"},
 		{"neighbor_twice", head + "terrains:\n  - name: rock\n    mode: cardinal\ntiles:\n  - id: 0\n    terrain: rock\n    neighbors: [north, north]\n", "tiles[0].neighbors[1]", "twice"},
 		{"same_neighbors", head + "terrains:\n  - name: rock\n    mode: cardinal\ntiles:\n  - id: 0\n    terrain: rock\n    neighbors: [north, east]\n  - id: 1\n    terrain: rock\n    neighbors: [east, north]\n", "tiles[1].neighbors", "tiles 0 and 1"},
+		{"negative_weight", head + "tiles:\n  - id: 0\n    weight: -0.5\n", "tiles[0].weight", "finite and non-negative"},
+		{"nan_weight", head + "tiles:\n  - id: 0\n    weight: .nan\n", "tiles[0].weight", "finite and non-negative"},
+		{"inf_weight", head + "tiles:\n  - id: 0\n    weight: .inf\n", "tiles[0].weight", "finite and non-negative"},
 		{"trailing_document", head + "---\nversion: 1\n", "", "trailing"},
 	}
 	for _, tc := range cases {
@@ -378,6 +382,68 @@ func TestTerrainMaskHelpers(t *testing.T) {
 	// In cardinal mode, diagonal bits are ignored.
 	if got := tilemap.ToggleTerrainMask(tilemap.Autotile4, tilemap.MaskNorth, tilemap.MaskNorthEast); got != tilemap.MaskNorth {
 		t.Fatalf("cardinal Toggle(N, NE) = %#x, want %#x", got, tilemap.MaskNorth)
+	}
+}
+
+func TestTilesetTileNameWeightAndMoveAndSlide(t *testing.T) {
+	w := 0.5
+	doc := &tilemap.TilesetDoc{
+		Version:    1,
+		Name:       "dungeon",
+		TileWidth:  16,
+		TileHeight: 16,
+		Image:      "art/tiles/dungeon.png",
+		Columns:    4,
+		TileCount:  4,
+		Tiles: []tilemap.TileDoc{
+			{ID: 0, Name: "stone", Solid: true},
+			{ID: 1, Name: "moss", Solid: true, Weight: &w},
+			{ID: 2, Name: "plank", OneWay: true},
+		},
+	}
+	encoded, err := tilemap.EncodeTileset(doc)
+	if err != nil {
+		t.Fatalf("EncodeTileset: %v", err)
+	}
+	parsed, err := tilemap.ParseTileset(encoded)
+	if err != nil {
+		t.Fatalf("ParseTileset: %v", err)
+	}
+	if !reflect.DeepEqual(parsed, doc) {
+		t.Fatalf("round-trip mismatch:\ngot:  %+v\nwant: %+v", parsed, doc)
+	}
+	cloned := parsed.Clone()
+	*cloned.Tiles[1].Weight = 2.0
+	if *parsed.Tiles[1].Weight != 0.5 {
+		t.Fatal("Clone shared TileDoc.Weight pointer")
+	}
+
+	m := tilemap.New(4, 3, 16, 16)
+	ts, err := m.AddTilesetDoc(parsed, 1, tilemap.TilesetAssets{})
+	if err != nil {
+		t.Fatalf("AddTilesetDoc: %v", err)
+	}
+	if got := ts.TileProbability(0); got != 1 {
+		t.Fatalf("TileProbability(0) = %v, want 1", got)
+	}
+	if got := ts.TileProbability(1); got != 0.5 {
+		t.Fatalf("TileProbability(1) = %v, want 0.5", got)
+	}
+	// Row 2 is a solid floor of tile 0 (GID 1); no Go code calls SetFlags.
+	m.Layers = append(m.Layers, tilemap.NewTileLayer("floor", 4, 3, []uint32{
+		0, 0, 0, 0,
+		0, 0, 0, 0,
+		1, 1, 1, 1,
+	}))
+	body := &physics.Body{
+		Shape: physics.BoxShape(physics.Box{X: 16, Y: 10, W: 12, H: 12}),
+	}
+	for range 20 {
+		body.VY += 400 / 60.0
+		physics.MoveAndSlide(body, m, time.Second/60)
+	}
+	if !body.Grounded || body.Bounds().Bottom() != 32 {
+		t.Fatalf("MoveAndSlide against Tilemap: grounded=%v bottom=%v, want grounded at 32", body.Grounded, body.Bounds().Bottom())
 	}
 }
 

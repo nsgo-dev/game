@@ -421,7 +421,7 @@ func (p *Project) readYAML(name string, asScene bool) bool {
 	}
 	var root yaml.Node
 	if err := yaml.Unmarshal(data, &root); err != nil || root.Kind != yaml.DocumentNode || len(root.Content) == 0 || root.Content[0].Kind != yaml.MappingNode {
-		if asScene || isSceneName(name) || isCutsceneName(name) || isScreenName(name) || isGridMapName(name) {
+		if asScene || isSceneName(name) || isCutsceneName(name) || isScreenName(name) || isGridMapName(name) || isTilesetName(name) {
 			p.unread = append(p.unread, name)
 		}
 		return false

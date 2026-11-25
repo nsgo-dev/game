@@ -295,6 +295,8 @@ claude mcp add game-editor -- nsgo game mcp
 | `states_test` | run | `file`（可选）、`durationSeconds`（可选，默认 `8`）、`rate`（可选，默认 `60`）、`script`（可选） | 通过 `animclip.SimulateStateMachine` 在固定步长下用脚本化输入驱动 `*.states.yaml` 状态机，返回状态切换轨迹、访问过的状态、卡死状态检查和摘要（例如 `Played 8 s of scripted input · no stuck states`）。 |
 | `cutscene_write` | edit | `file`（必填）、`yaml`（必填）、`prompt`（可选）、`review`（可选）、`open`（可选，默认 `true`） | 使用 `cutscene.Parse` 严格校验 `*.cutscene.yaml` 文件（校验失败时不改动磁盘和编辑器），并在过场时间轴中打开交互式 Before/After 审查而不立即覆盖磁盘文件（仅当显式传入 `review: false` 时直接写出规范 YAML）。 |
 | `cutscene_scrub` | read | `file`（可选）、`timeSeconds`（可选）、`view`（可选：`"before"` 或 `"after"`） | 按需打开 `file` 并将过场时间轴播放头拖动到 `timeSeconds`，返回该时刻的相机姿态与标签、角色位置与状态、当前激活的本地化字幕以及审查状态。 |
+| `tileset_read` | read | `file`（可选） | 读取当前打开的 YAML 图块集（`*.tileset.yaml`，或相对于项目根的 `file`，未指定时回退到当前图层的 `tilesetFile`），返回规范 YAML 及结构化的瓦片规则（碰撞标志、形状、动画、地形、名称、权重与自定义属性）。 |
+| `tileset_edit` | edit | `ops`（必填）、`file`、`save`（可选） | 按顺序把图块集操作（`set_tile` 设置 `name`/`solid`/`oneWay`/`flags`/`weight`/`shapes`/`animation`/`terrain`/`neighbors`，以及 `set_property`、`remove_property`、`add_terrain`、`remove_terrain`）作为一个原子撤销步骤应用到 YAML 图块集；除非传入 `save: true`，否则改动在保存前保持未保存状态。 |
 
 `scene_edit` 接受的编辑，每项是一个带 `op` 的对象：
 

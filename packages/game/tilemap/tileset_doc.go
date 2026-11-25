@@ -80,12 +80,16 @@ type TerrainDoc struct {
 type TileDoc struct {
 	// ID is the tile's local ID, from 0 to the tileset's tile count less 1.
 	ID int `yaml:"id" schema:"required,minimum=0"`
+	// Name is an optional human-readable name for the tile, such as "stone" or "moss".
+	Name string `yaml:"name,omitempty"`
 	// Solid sets TileSolid on the tile, so collision queries and tileshape treat its cells as blocked.
 	Solid bool `yaml:"solid,omitempty"`
 	// OneWay sets TileOneWay on the tile, a platform that blocks only from above.
 	OneWay bool `yaml:"oneWay,omitempty"`
 	// Flags are further TileFlags bits the game defines, such as a water or ladder bit, set on the tile beside Solid and OneWay.
 	Flags TileFlags `yaml:"flags,omitempty"`
+	// Weight is the tile's optional relative selection weight for random and variant brushes (>= 0; omitted defaults to 1).
+	Weight *float64 `yaml:"weight,omitempty" schema:"minimum=0"`
 	// Properties are the tile's custom properties, each a bool, an integer, a number or a string, as Tilemap.TileProperties returns them.
 	Properties map[string]any `yaml:"properties,omitempty"`
 	// Shapes are the tile's collision shapes in its own coordinates, (0, 0) at its top left, as Tileset.Shapes holds them.
@@ -223,6 +227,10 @@ func (doc *TilesetDoc) Clone() *TilesetDoc {
 	if doc.Tiles != nil {
 		cp.Tiles = make([]TileDoc, len(doc.Tiles))
 		for i, tile := range doc.Tiles {
+			if tile.Weight != nil {
+				w := *tile.Weight
+				tile.Weight = &w
+			}
 			if tile.Properties != nil {
 				tile.Properties = maps.Clone(tile.Properties)
 			}
@@ -523,6 +531,11 @@ func ValidateTileset(doc *TilesetDoc) error {
 			return loaderr.Errorf(loaderr.Join(tp, "id"), "list tiles in ascending ID order, each once", "tilemap: tileset: tile %d comes after tile %d", tile.ID, prev)
 		}
 		prev = tile.ID
+		if tile.Weight != nil {
+			if math.IsNaN(*tile.Weight) || math.IsInf(*tile.Weight, 0) || *tile.Weight < 0 {
+				return loaderr.Errorf(loaderr.Join(tp, "weight"), "set weight to a finite number 0 or greater", "tilemap: tileset: tile %d weight %v must be finite and non-negative", tile.ID, *tile.Weight)
+			}
+		}
 		if err := validateProps(loaderr.Join(tp, "properties"), tile.Properties); err != nil {
 			return err
 		}
@@ -735,6 +748,12 @@ func (m *Tilemap) AddTilesetDoc(doc *TilesetDoc, firstGID uint32, assets Tileset
 	ts.Terrains = buildDocTerrains(doc, firstGID)
 	for _, tile := range doc.Tiles {
 		local := uint32(tile.ID)
+		if tile.Weight != nil {
+			if ts.TileProbabilities == nil {
+				ts.TileProbabilities = make(map[uint32]float64)
+			}
+			ts.TileProbabilities[local] = *tile.Weight
+		}
 		if len(tile.Properties) > 0 {
 			if ts.TileProperties == nil {
 				ts.TileProperties = make(map[uint32]Properties)

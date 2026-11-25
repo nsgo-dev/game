@@ -110,6 +110,49 @@ func TestYAMLTilesetsAndLayeredTilemaps(t *testing.T) {
 	}
 }
 
+func TestInlineTilesetFileChecksBrokenRefAndOutOfRangeTile(t *testing.T) {
+	const inlineScene = `version: 2
+layers:
+  - name: ground
+    tilemap:
+      tileWidth: 16
+      tileHeight: 16
+      width: 2
+      height: 1
+      tilesetFile: tilesets/cave.tileset.yaml
+      data: [1, 4]
+`
+	fsys := tilesetProject(t)
+	fsys["scenes/inline_ts.scene.yaml"] = &fstest.MapFile{Data: []byte(inlineScene)}
+	if r := mustCheck(t, fsys); !r.OK() {
+		t.Fatalf("clean inline tilesetFile scene reported problems:\n%s", problems(r))
+	}
+
+	// Broken tilesetFile reference reports file and line.
+	broken := tilesetProject(t)
+	broken["scenes/inline_ts.scene.yaml"] = &fstest.MapFile{Data: []byte(strings.Replace(inlineScene, "tilesets/cave.tileset.yaml", "tilesets/missing.tileset.yaml", 1))}
+	r := mustCheck(t, broken)
+	if len(r.Problems) != 1 {
+		t.Fatalf("broken tilesetFile: got %d problems, want 1:\n%s", len(r.Problems), problems(r))
+	}
+	wantLine := lineOf(t, string(broken["scenes/inline_ts.scene.yaml"].Data), "tilesets/missing.tileset.yaml")
+	if p := r.Problems[0]; p.File != "scenes/inline_ts.scene.yaml" || p.Line != wantLine || !strings.Contains(p.Message, `tileset file "tilesets/missing.tileset.yaml": not found`) {
+		t.Fatalf("broken tilesetFile problem = %q, want scenes/inline_ts.scene.yaml:%d", p, wantLine)
+	}
+
+	// Out-of-range tile ID in flat data reports file and line.
+	oob := tilesetProject(t)
+	oob["scenes/inline_ts.scene.yaml"] = &fstest.MapFile{Data: []byte(strings.Replace(inlineScene, "[1, 4]", "[1, 9]", 1))}
+	r2 := mustCheck(t, oob)
+	if len(r2.Problems) != 1 {
+		t.Fatalf("out-of-range data tile: got %d problems, want 1:\n%s", len(r2.Problems), problems(r2))
+	}
+	wantDataLine := lineOf(t, string(oob["scenes/inline_ts.scene.yaml"].Data), "data:")
+	if p := r2.Problems[0]; p.File != "scenes/inline_ts.scene.yaml" || p.Line != wantDataLine || !strings.Contains(p.Message, "outside tileset") {
+		t.Fatalf("out-of-range problem = %q, want scenes/inline_ts.scene.yaml:%d", p, wantDataLine)
+	}
+}
+
 const (
 	caveTMX = `<?xml version="1.0" encoding="UTF-8"?>
 <map version="1.10" orientation="orthogonal" renderorder="right-down" width="2" height="1" tilewidth="16" tileheight="16" infinite="0">

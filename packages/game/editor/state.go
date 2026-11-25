@@ -423,8 +423,9 @@ type Editor struct {
 	table      *dataTableState
 	tableTypes *datatable.Registry
 
-	// The tileset editor: the open *.tileset.yaml document, selected terrain/tile and mask builder state.
-	tileset *tilesetEditorState
+	// The tileset editor: the open *.tileset.yaml document, selected terrain/tile, collision/animation/data state, and viewport tile animation loop.
+	tileset      *tilesetEditorState
+	tileAnimStop func()
 
 	// The particle emitter editor: the open emitter config, live preview emitter, and edit-viewport scene emitter loop.
 	particles        *particleEditorState
@@ -712,11 +713,13 @@ func (e *Editor) AttachScope(cx *core.Scope) {
 	if cx != nil {
 		e.startParticlePreviewLoop()
 		e.syncSceneEmitterLoop()
+		e.syncTileAnimLoop()
 		cx.SetAppearance(e.Appearance().CoreAppearance())
 	} else {
 		e.stopParticlePreviewLoop()
 		e.stopSceneEmitterLoop()
 		e.stopModelPreviewLoop()
+		e.stopTileAnimLoop()
 	}
 }
 
@@ -768,6 +771,7 @@ func (e *Editor) Rebuild() {
 	defer e.refreshClipPreview()
 	defer e.refreshStatesPreview()
 	defer e.refreshCutscenePreview()
+	defer e.syncTileAnimLoop()
 	e.syncRemoteDocObjectIDs()
 	if e.drag3D.kind != drag3DGizmo {
 		e.s3d.stale = true
@@ -779,7 +783,7 @@ func (e *Editor) Rebuild() {
 		return
 	}
 	e.syncProjectAssets()
-	built, err := sceneformat.Build(e.Doc, e.Resolver)
+	built, err := sceneformat.Build(e.Doc, e.liveResolver())
 	if err != nil {
 		e.BuildErr = err
 		return
@@ -823,6 +827,9 @@ func (e *Editor) SetTool(t Tool) {
 	e.CancelRoomDrag()
 	e.endTileStrokeForChange()
 	e.Tool = t
+	if isTileTool(t) {
+		e.inspectLayer = false
+	}
 	e.pluginTool = pluginToolRef{}
 	e.Status = "Tool: " + t.String()
 	e.notify()
@@ -938,6 +945,7 @@ func (e *Editor) SetActiveTileID(id int) {
 		return
 	}
 	e.ActiveTileID = id
+	e.inspectLayer = false
 	e.notify()
 }
 

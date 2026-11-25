@@ -5,11 +5,16 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
+	"maps"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
+	"github.com/nsgo-dev/game/packages/game"
+	"github.com/nsgo-dev/game/packages/game/resource"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/game/packages/game/tilemap"
@@ -19,16 +24,46 @@ import (
 // ErrNoTileset is returned by tileset editor operations when no YAML tileset is open.
 var ErrNoTileset = errors.New("editor: no tileset is open")
 
+// TilesetEditorTab selects which per-tile editing tab is shown in the Tileset Editor panel.
+type TilesetEditorTab string
+
+const (
+	// TilesetTabTerrain edits 4-bit cardinal and 8-bit blob autotile masks.
+	TilesetTabTerrain TilesetEditorTab = "terrain"
+	// TilesetTabCollision edits per-tile solid/one-way/custom flags and rect/polygon collision shapes.
+	TilesetTabCollision TilesetEditorTab = "collision"
+	// TilesetTabAnimation edits per-tile animation frames, durations, and live playback preview.
+	TilesetTabAnimation TilesetEditorTab = "animation"
+	// TilesetTabData edits per-tile name, variant weight, and typed custom properties.
+	TilesetTabData TilesetEditorTab = "data"
+)
+
+// TilesetShapeTool selects the interactive collision shape drawing tool on the tile canvas.
+type TilesetShapeTool string
+
+const (
+	// TilesetShapeToolRect adds or edits rectangular collision shapes over the tile.
+	TilesetShapeToolRect TilesetShapeTool = "rect"
+	// TilesetShapeToolPolygon clicks vertices over the tile to construct a polygon collision shape.
+	TilesetShapeToolPolygon TilesetShapeTool = "polygon"
+)
+
 type tilesetEditorState struct {
 	doc             *tilemap.TilesetDoc
 	saved           []byte
 	path            string
 	relPath         string
 	fromDisk        bool
+	tab             TilesetEditorTab
 	selectedTerrain string
 	selectedTile    int
 	editMask        uint8
 	conflictTile    int
+	selectedShape   int
+	shapeTool       TilesetShapeTool
+	draftPoly       [][2]float32
+	animPlaying     bool
+	animElapsed     time.Duration
 	lastErr         error
 }
 
@@ -242,7 +277,7 @@ func (e *Editor) OpenTilesetYAML(name string, data []byte) error {
 	return e.openTileset(clean, clean, data, false)
 }
 
-// OpenActiveLayerTileset opens the active layer's layered tilemap's YAML tileset in the Tileset Editor panel.
+// OpenActiveLayerTileset opens the active layer's YAML tileset (whether layered or single-grid with TilesetFile) in the Tileset Editor panel.
 func (e *Editor) OpenActiveLayerTileset() error {
 	if e == nil {
 		return errors.New("editor: nil editor")
@@ -254,7 +289,7 @@ func (e *Editor) OpenActiveLayerTileset() error {
 	if err != nil {
 		return err
 	}
-	if !tm.IsLayered() {
+	if !tm.HasTilesetFile() {
 		return fmt.Errorf("editor: layer %q has no YAML tileset", layerName)
 	}
 	return e.OpenTilesetProjectFile(tm.TilesetFile)
@@ -271,13 +306,17 @@ func (e *Editor) openTileset(filePath, relPath string, data []byte, fromDisk boo
 	}
 	e.endTileStrokeForChange()
 	st := &tilesetEditorState{
-		doc:          doc,
-		saved:        saved,
-		path:         filePath,
-		relPath:      relPath,
-		fromDisk:     fromDisk,
-		selectedTile: 0,
-		conflictTile: -1,
+		doc:           doc,
+		saved:         saved,
+		path:          filePath,
+		relPath:       relPath,
+		fromDisk:      fromDisk,
+		tab:           TilesetTabTerrain,
+		selectedTile:  0,
+		conflictTile:  -1,
+		selectedShape: -1,
+		shapeTool:     TilesetShapeToolRect,
+		animPlaying:   true,
 	}
 	if len(doc.Terrains) > 0 {
 		st.selectedTerrain = doc.Terrains[0].Name
@@ -287,6 +326,7 @@ func (e *Editor) openTileset(filePath, relPath string, data []byte, fromDisk boo
 	}
 	e.tileset = st
 	e.syncTilesetMaskView()
+	e.syncTileAnimLoop()
 	e.Status = "Opened tileset " + e.TilesetPath()
 	e.notify()
 	return nil
@@ -304,6 +344,7 @@ func (e *Editor) CloseTileset() error {
 		return nil
 	}
 	e.tileset = nil
+	e.Rebuild()
 	e.Status = "Closed tileset editor"
 	e.notify()
 	return nil
@@ -381,19 +422,23 @@ func (e *Editor) SetTilesetSelectedTerrain(name string) bool {
 	return true
 }
 
-// SetTilesetSelectedTile selects local tile tileID in the Tileset Editor and syncs the 3x3 edge/corner view to its current mask.
+// SetTilesetSelectedTile selects local tile tileID in the Tileset Editor and syncs the 3x3 edge/corner view, shape selection, and animation preview.
 func (e *Editor) SetTilesetSelectedTile(tileID int) bool {
 	if !e.TilesetOpen() || tileID < 0 || tileID >= e.tileset.doc.Count() {
 		return false
 	}
 	e.tileset.selectedTile = tileID
+	e.tileset.selectedShape = -1
+	e.tileset.draftPoly = nil
+	e.tileset.animElapsed = 0
 	e.tileset.lastErr = nil
 	e.syncTilesetMaskView()
+	e.syncTileAnimLoop()
 	e.notify()
 	return true
 }
 
-// syncTilesetMaskView reconciles selectedTerrain, selectedTile, editMask and conflictTile after loading or mutating the tileset doc.
+// syncTilesetMaskView reconciles selectedTerrain, selectedTile, editMask, selectedShape, and conflictTile after loading or mutating the tileset doc.
 func (e *Editor) syncTilesetMaskView() {
 	if !e.TilesetOpen() {
 		return
@@ -418,6 +463,13 @@ func (e *Editor) syncTilesetMaskView() {
 		if mask, ok := tileDocMask(doc, st.selectedTile, st.selectedTerrain); ok {
 			st.editMask = mask
 		}
+	}
+	if tile := findTileDoc(doc, st.selectedTile); tile != nil {
+		if st.selectedShape >= len(tile.Shapes) {
+			st.selectedShape = len(tile.Shapes) - 1
+		}
+	} else {
+		st.selectedShape = -1
 	}
 }
 
@@ -474,7 +526,46 @@ func terrainMaskOwner(doc *tilemap.TilesetDoc, terrainName string, mask uint8) i
 }
 
 func tileDocIsEmpty(t *tilemap.TileDoc) bool {
-	return !t.Solid && !t.OneWay && t.Flags == 0 && len(t.Properties) == 0 && len(t.Shapes) == 0 && len(t.Animation) == 0 && t.Terrain == "" && len(t.Neighbors) == 0
+	return t.Name == "" && !t.Solid && !t.OneWay && t.Flags == 0 && t.Weight == nil &&
+		len(t.Properties) == 0 && len(t.Shapes) == 0 && len(t.Animation) == 0 &&
+		t.Terrain == "" && len(t.Neighbors) == 0
+}
+
+func findTileDoc(doc *tilemap.TilesetDoc, tileID int) *tilemap.TileDoc {
+	if doc == nil {
+		return nil
+	}
+	for i := range doc.Tiles {
+		if doc.Tiles[i].ID == tileID {
+			return &doc.Tiles[i]
+		}
+	}
+	return nil
+}
+
+func ensureTileDoc(doc *tilemap.TilesetDoc, tileID int) *tilemap.TileDoc {
+	if t := findTileDoc(doc, tileID); t != nil {
+		return t
+	}
+	doc.Tiles = append(doc.Tiles, tilemap.TileDoc{ID: tileID})
+	slices.SortFunc(doc.Tiles, func(a, b tilemap.TileDoc) int {
+		return cmp.Compare(a.ID, b.ID)
+	})
+	return findTileDoc(doc, tileID)
+}
+
+func pruneTileDoc(doc *tilemap.TilesetDoc, tileID int) {
+	if doc == nil {
+		return
+	}
+	for i := range doc.Tiles {
+		if doc.Tiles[i].ID == tileID {
+			if tileDocIsEmpty(&doc.Tiles[i]) {
+				doc.Tiles = slices.Delete(doc.Tiles, i, i+1)
+			}
+			return
+		}
+	}
 }
 
 func clearTileTerrainInDoc(doc *tilemap.TilesetDoc, tileID int) {
@@ -822,4 +913,730 @@ func (c *tilesetDocCmd) Undo() {
 	c.ed.tileset.doc = c.before.Clone()
 	c.ed.syncTilesetMaskView()
 	c.ed.keepTileInPalette()
+}
+
+// TilesetTab returns the active tab of the Tileset Editor panel.
+func (e *Editor) TilesetTab() TilesetEditorTab {
+	if !e.TilesetOpen() {
+		return TilesetTabTerrain
+	}
+	if e.tileset.tab == "" {
+		return TilesetTabTerrain
+	}
+	return e.tileset.tab
+}
+
+// SetTilesetTab switches the active per-tile editing tab in the Tileset Editor panel.
+func (e *Editor) SetTilesetTab(tab TilesetEditorTab) {
+	if !e.TilesetOpen() {
+		return
+	}
+	switch tab {
+	case TilesetTabTerrain, TilesetTabCollision, TilesetTabAnimation, TilesetTabData:
+	default:
+		return
+	}
+	if e.tileset.tab == tab {
+		return
+	}
+	e.tileset.tab = tab
+	e.tileset.draftPoly = nil
+	e.syncTileAnimLoop()
+	e.notify()
+}
+
+// TilesetShapeTool returns the active collision shape drawing tool (rect or polygon).
+func (e *Editor) TilesetShapeTool() TilesetShapeTool {
+	if !e.TilesetOpen() || e.tileset.shapeTool == "" {
+		return TilesetShapeToolRect
+	}
+	return e.tileset.shapeTool
+}
+
+// SetTilesetShapeTool selects the collision shape drawing tool (rect or polygon).
+func (e *Editor) SetTilesetShapeTool(tool TilesetShapeTool) {
+	if !e.TilesetOpen() {
+		return
+	}
+	if tool != TilesetShapeToolRect && tool != TilesetShapeToolPolygon {
+		return
+	}
+	e.tileset.shapeTool = tool
+	e.tileset.draftPoly = nil
+	e.notify()
+}
+
+// TilesetSelectedShape returns the index of the selected collision shape on the selected tile, or -1.
+func (e *Editor) TilesetSelectedShape() int {
+	if !e.TilesetOpen() {
+		return -1
+	}
+	return e.tileset.selectedShape
+}
+
+// SetTilesetSelectedShape selects collision shape index on the selected tile (-1 clears selection).
+func (e *Editor) SetTilesetSelectedShape(index int) {
+	if !e.TilesetOpen() {
+		return
+	}
+	tile := findTileDoc(e.tileset.doc, e.tileset.selectedTile)
+	if index < 0 || tile == nil || index >= len(tile.Shapes) {
+		e.tileset.selectedShape = -1
+	} else {
+		e.tileset.selectedShape = index
+	}
+	e.notify()
+}
+
+// TilesetDraftPolygon returns a copy of the polygon vertices currently being drawn over the tile canvas.
+func (e *Editor) TilesetDraftPolygon() [][2]float32 {
+	if !e.TilesetOpen() || len(e.tileset.draftPoly) == 0 {
+		return nil
+	}
+	return slices.Clone(e.tileset.draftPoly)
+}
+
+// AddTilesetDraftPolygonPoint appends a vertex (x, y) in tile coordinates to the draft polygon being drawn.
+func (e *Editor) AddTilesetDraftPolygonPoint(x, y float32) {
+	if !e.TilesetOpen() || e.playing {
+		return
+	}
+	if math.IsNaN(float64(x)) || math.IsInf(float64(x), 0) || math.IsNaN(float64(y)) || math.IsInf(float64(y), 0) {
+		return
+	}
+	e.tileset.draftPoly = append(e.tileset.draftPoly, [2]float32{x, y})
+	e.notify()
+}
+
+// ClearTilesetDraftPolygon discards any in-progress polygon vertices.
+func (e *Editor) ClearTilesetDraftPolygon() {
+	if !e.TilesetOpen() || len(e.tileset.draftPoly) == 0 {
+		return
+	}
+	e.tileset.draftPoly = nil
+	e.notify()
+}
+
+// CommitTilesetDraftPolygon turns the draft polygon (at least 3 points) into a collision shape on the selected tile as one undoable edit.
+func (e *Editor) CommitTilesetDraftPolygon() error {
+	if !e.TilesetOpen() {
+		return ErrNoTileset
+	}
+	if e.playing {
+		return ErrPlaying
+	}
+	if len(e.tileset.draftPoly) < 3 {
+		return errors.New("editor: a polygon collision shape needs at least 3 points")
+	}
+	pts := make([][]float32, len(e.tileset.draftPoly))
+	for i, p := range e.tileset.draftPoly {
+		pts[i] = []float32{p[0], p[1]}
+	}
+	err := e.AddTilesetTileShape(e.tileset.selectedTile, tilemap.TileShapeDoc{
+		Kind:   "polygon",
+		Points: pts,
+	})
+	if err == nil {
+		e.tileset.draftPoly = nil
+		e.notify()
+	}
+	return err
+}
+
+// TilesetTileInfo returns a deep copy of tileID's TileDoc in the open tileset and whether the tileset has explicit data for it.
+func (e *Editor) TilesetTileInfo(tileID int) (tilemap.TileDoc, bool) {
+	if !e.TilesetOpen() || tileID < 0 || tileID >= e.tileset.doc.Count() {
+		return tilemap.TileDoc{}, false
+	}
+	t := findTileDoc(e.tileset.doc, tileID)
+	if t == nil {
+		return tilemap.TileDoc{ID: tileID}, false
+	}
+	cp := *t
+	if t.Weight != nil {
+		w := *t.Weight
+		cp.Weight = &w
+	}
+	if t.Properties != nil {
+		cp.Properties = maps.Clone(t.Properties)
+	}
+	if t.Shapes != nil {
+		cp.Shapes = make([]tilemap.TileShapeDoc, len(t.Shapes))
+		for i, s := range t.Shapes {
+			if s.Points != nil {
+				pts := make([][]float32, len(s.Points))
+				for j, pt := range s.Points {
+					pts[j] = slices.Clone(pt)
+				}
+				s.Points = pts
+			}
+			if s.Properties != nil {
+				s.Properties = maps.Clone(s.Properties)
+			}
+			cp.Shapes[i] = s
+		}
+	}
+	if t.Animation != nil {
+		cp.Animation = slices.Clone(t.Animation)
+	}
+	if t.Neighbors != nil {
+		cp.Neighbors = slices.Clone(t.Neighbors)
+	}
+	return cp, true
+}
+
+// TilesetTileDisplayName returns tileID's human-readable name from doc: TileDoc.Name when set, else the atlas frame name, else "tile_<id>".
+func TilesetTileDisplayName(doc *tilemap.TilesetDoc, tileID int) string {
+	if doc != nil {
+		if t := findTileDoc(doc, tileID); t != nil && t.Name != "" {
+			return t.Name
+		}
+		if doc.Atlas != "" && tileID >= 0 && tileID < len(doc.Frames) {
+			return doc.Frames[tileID]
+		}
+	}
+	return fmt.Sprintf("tile_%d", tileID)
+}
+
+// TilesetTileSource formats where tileID comes from in doc, e.g. "art/tiles/dungeon.png · cell 2, 1" or "atlas: props · frame torch_1".
+func TilesetTileSource(doc *tilemap.TilesetDoc, tileID int) string {
+	if doc == nil {
+		return ""
+	}
+	if doc.Atlas != "" {
+		frame := ""
+		if tileID >= 0 && tileID < len(doc.Frames) {
+			frame = doc.Frames[tileID]
+		}
+		return fmt.Sprintf("atlas: %s · frame %s", doc.Atlas, frame)
+	}
+	cols := max(doc.Columns, 1)
+	col, row := tileID%cols, tileID/cols
+	return fmt.Sprintf("%s · cell %d, %d", doc.Image, col, row)
+}
+
+// SetTilesetTileName sets tileID's optional name as an undoable edit.
+func (e *Editor) SetTilesetTileName(tileID int, name string) error {
+	name = strings.TrimSpace(name)
+	return e.commitTilesetEdit(fmt.Sprintf("Rename tile %d", tileID), func(doc *tilemap.TilesetDoc) error {
+		if tileID < 0 || tileID >= doc.Count() {
+			return fmt.Errorf("editor: tile %d is outside the tileset's %d tiles", tileID, doc.Count())
+		}
+		t := ensureTileDoc(doc, tileID)
+		t.Name = name
+		pruneTileDoc(doc, tileID)
+		return nil
+	})
+}
+
+// SetTilesetTileWeight sets (or clears when weight == nil) tileID's variant selection weight as an undoable edit.
+func (e *Editor) SetTilesetTileWeight(tileID int, weight *float64) error {
+	return e.commitTilesetEdit(fmt.Sprintf("Set tile %d weight", tileID), func(doc *tilemap.TilesetDoc) error {
+		if tileID < 0 || tileID >= doc.Count() {
+			return fmt.Errorf("editor: tile %d is outside the tileset's %d tiles", tileID, doc.Count())
+		}
+		if weight != nil && (math.IsNaN(*weight) || math.IsInf(*weight, 0) || *weight < 0) {
+			return fmt.Errorf("editor: tile weight %v must be finite and non-negative", *weight)
+		}
+		t := ensureTileDoc(doc, tileID)
+		if weight == nil {
+			t.Weight = nil
+		} else {
+			w := *weight
+			t.Weight = &w
+		}
+		pruneTileDoc(doc, tileID)
+		return nil
+	})
+}
+
+// SetTilesetTileCollision sets tileID's primary collision mode ("solid", "one-way", or "none") as an undoable edit, preserving any custom flags bits.
+func (e *Editor) SetTilesetTileCollision(tileID int, mode string) error {
+	return e.commitTilesetEdit(fmt.Sprintf("Set tile %d collision to %s", tileID, mode), func(doc *tilemap.TilesetDoc) error {
+		if tileID < 0 || tileID >= doc.Count() {
+			return fmt.Errorf("editor: tile %d is outside the tileset's %d tiles", tileID, doc.Count())
+		}
+		var solid, oneWay bool
+		switch strings.ToLower(strings.TrimSpace(mode)) {
+		case "solid":
+			solid = true
+		case "one-way", "oneway":
+			oneWay = true
+		case "none", "":
+		default:
+			return fmt.Errorf("editor: collision mode %q must be \"solid\", \"one-way\", or \"none\"", mode)
+		}
+		t := ensureTileDoc(doc, tileID)
+		t.Solid = solid
+		t.OneWay = oneWay
+		pruneTileDoc(doc, tileID)
+		return nil
+	})
+}
+
+// SetTilesetTileFlags sets tileID's solid, one-way, and custom flag bits in one undoable edit.
+func (e *Editor) SetTilesetTileFlags(tileID int, solid, oneWay bool, customFlags tilemap.TileFlags) error {
+	return e.commitTilesetEdit(fmt.Sprintf("Set tile %d flags", tileID), func(doc *tilemap.TilesetDoc) error {
+		if tileID < 0 || tileID >= doc.Count() {
+			return fmt.Errorf("editor: tile %d is outside the tileset's %d tiles", tileID, doc.Count())
+		}
+		t := ensureTileDoc(doc, tileID)
+		t.Solid = solid
+		t.OneWay = oneWay
+		t.Flags = customFlags
+		pruneTileDoc(doc, tileID)
+		return nil
+	})
+}
+
+// ToggleTilesetTileFlagBit toggles bit (2..31 for custom bits, 0 for solid, 1 for one-way) on tileID as an undoable edit.
+func (e *Editor) ToggleTilesetTileFlagBit(tileID int, bit uint) error {
+	if bit > 31 {
+		return fmt.Errorf("editor: tile flag bit %d must be in [0, 31]", bit)
+	}
+	return e.commitTilesetEdit(fmt.Sprintf("Toggle tile %d flag bit %d", tileID, bit), func(doc *tilemap.TilesetDoc) error {
+		if tileID < 0 || tileID >= doc.Count() {
+			return fmt.Errorf("editor: tile %d is outside the tileset's %d tiles", tileID, doc.Count())
+		}
+		t := ensureTileDoc(doc, tileID)
+		switch bit {
+		case 0:
+			t.Solid = !t.Solid
+		case 1:
+			t.OneWay = !t.OneWay
+		default:
+			t.Flags ^= tilemap.TileFlags(1 << bit)
+		}
+		pruneTileDoc(doc, tileID)
+		return nil
+	})
+}
+
+// AddTilesetTileShape appends a collision shape (rect, ellipse, polygon, or polyline) to tileID as an undoable edit and selects it.
+func (e *Editor) AddTilesetTileShape(tileID int, shape tilemap.TileShapeDoc) error {
+	var newIdx int
+	err := e.commitTilesetEdit(fmt.Sprintf("Add %s shape to tile %d", shape.Kind, tileID), func(doc *tilemap.TilesetDoc) error {
+		if tileID < 0 || tileID >= doc.Count() {
+			return fmt.Errorf("editor: tile %d is outside the tileset's %d tiles", tileID, doc.Count())
+		}
+		t := ensureTileDoc(doc, tileID)
+		t.Shapes = append(t.Shapes, cloneTileShapeDoc(shape))
+		newIdx = len(t.Shapes) - 1
+		return nil
+	})
+	if err == nil && e.TilesetOpen() && e.tileset.selectedTile == tileID {
+		e.tileset.selectedShape = newIdx
+		e.notify()
+	}
+	return err
+}
+
+// UpdateTilesetTileShape replaces collision shape shapeIndex on tileID as an undoable edit.
+func (e *Editor) UpdateTilesetTileShape(tileID, shapeIndex int, shape tilemap.TileShapeDoc) error {
+	return e.commitTilesetEdit(fmt.Sprintf("Update shape %d on tile %d", shapeIndex, tileID), func(doc *tilemap.TilesetDoc) error {
+		if tileID < 0 || tileID >= doc.Count() {
+			return fmt.Errorf("editor: tile %d is outside the tileset's %d tiles", tileID, doc.Count())
+		}
+		t := findTileDoc(doc, tileID)
+		if t == nil || shapeIndex < 0 || shapeIndex >= len(t.Shapes) {
+			return fmt.Errorf("editor: tile %d has no shape %d", tileID, shapeIndex)
+		}
+		t.Shapes[shapeIndex] = cloneTileShapeDoc(shape)
+		return nil
+	})
+}
+
+// RemoveTilesetTileShape deletes collision shape shapeIndex from tileID as an undoable edit.
+func (e *Editor) RemoveTilesetTileShape(tileID, shapeIndex int) error {
+	return e.commitTilesetEdit(fmt.Sprintf("Remove shape %d from tile %d", shapeIndex, tileID), func(doc *tilemap.TilesetDoc) error {
+		if tileID < 0 || tileID >= doc.Count() {
+			return fmt.Errorf("editor: tile %d is outside the tileset's %d tiles", tileID, doc.Count())
+		}
+		t := findTileDoc(doc, tileID)
+		if t == nil || shapeIndex < 0 || shapeIndex >= len(t.Shapes) {
+			return fmt.Errorf("editor: tile %d has no shape %d", tileID, shapeIndex)
+		}
+		t.Shapes = slices.Delete(t.Shapes, shapeIndex, shapeIndex+1)
+		if len(t.Shapes) == 0 {
+			t.Shapes = nil
+		}
+		pruneTileDoc(doc, tileID)
+		return nil
+	})
+}
+
+func cloneTileShapeDoc(s tilemap.TileShapeDoc) tilemap.TileShapeDoc {
+	if s.Points != nil {
+		pts := make([][]float32, len(s.Points))
+		for i, pt := range s.Points {
+			pts[i] = slices.Clone(pt)
+		}
+		s.Points = pts
+	}
+	if s.Properties != nil {
+		s.Properties = maps.Clone(s.Properties)
+	}
+	return s
+}
+
+// AddTilesetTileAnimFrame appends an animation frame to tileID as an undoable edit.
+func (e *Editor) AddTilesetTileAnimFrame(tileID int, frame tilemap.TileFrameDoc) error {
+	err := e.commitTilesetEdit(fmt.Sprintf("Add animation frame to tile %d", tileID), func(doc *tilemap.TilesetDoc) error {
+		if tileID < 0 || tileID >= doc.Count() {
+			return fmt.Errorf("editor: tile %d is outside the tileset's %d tiles", tileID, doc.Count())
+		}
+		t := ensureTileDoc(doc, tileID)
+		t.Animation = append(t.Animation, frame)
+		return nil
+	})
+	if err == nil {
+		e.syncTileAnimLoop()
+	}
+	return err
+}
+
+// UpdateTilesetTileAnimFrame updates animation frame frameIndex of tileID as an undoable edit.
+func (e *Editor) UpdateTilesetTileAnimFrame(tileID, frameIndex int, frame tilemap.TileFrameDoc) error {
+	return e.commitTilesetEdit(fmt.Sprintf("Update animation frame %d on tile %d", frameIndex, tileID), func(doc *tilemap.TilesetDoc) error {
+		if tileID < 0 || tileID >= doc.Count() {
+			return fmt.Errorf("editor: tile %d is outside the tileset's %d tiles", tileID, doc.Count())
+		}
+		t := findTileDoc(doc, tileID)
+		if t == nil || frameIndex < 0 || frameIndex >= len(t.Animation) {
+			return fmt.Errorf("editor: tile %d has no animation frame %d", tileID, frameIndex)
+		}
+		t.Animation[frameIndex] = frame
+		return nil
+	})
+}
+
+// RemoveTilesetTileAnimFrame deletes animation frame frameIndex from tileID as an undoable edit.
+func (e *Editor) RemoveTilesetTileAnimFrame(tileID, frameIndex int) error {
+	err := e.commitTilesetEdit(fmt.Sprintf("Remove animation frame %d from tile %d", frameIndex, tileID), func(doc *tilemap.TilesetDoc) error {
+		if tileID < 0 || tileID >= doc.Count() {
+			return fmt.Errorf("editor: tile %d is outside the tileset's %d tiles", tileID, doc.Count())
+		}
+		t := findTileDoc(doc, tileID)
+		if t == nil || frameIndex < 0 || frameIndex >= len(t.Animation) {
+			return fmt.Errorf("editor: tile %d has no animation frame %d", tileID, frameIndex)
+		}
+		t.Animation = slices.Delete(t.Animation, frameIndex, frameIndex+1)
+		if len(t.Animation) == 0 {
+			t.Animation = nil
+		}
+		pruneTileDoc(doc, tileID)
+		return nil
+	})
+	if err == nil {
+		e.syncTileAnimLoop()
+	}
+	return err
+}
+
+// SetTilesetTileAnimation replaces tileID's full animation frame sequence as one undoable edit (nil or empty clears animation).
+func (e *Editor) SetTilesetTileAnimation(tileID int, frames []tilemap.TileFrameDoc) error {
+	err := e.commitTilesetEdit(fmt.Sprintf("Set tile %d animation", tileID), func(doc *tilemap.TilesetDoc) error {
+		if tileID < 0 || tileID >= doc.Count() {
+			return fmt.Errorf("editor: tile %d is outside the tileset's %d tiles", tileID, doc.Count())
+		}
+		t := ensureTileDoc(doc, tileID)
+		if len(frames) == 0 {
+			t.Animation = nil
+		} else {
+			t.Animation = slices.Clone(frames)
+		}
+		pruneTileDoc(doc, tileID)
+		return nil
+	})
+	if err == nil {
+		e.syncTileAnimLoop()
+	}
+	return err
+}
+
+// SetTilesetAnimPlaying toggles live animation preview playback in the Tileset Editor.
+func (e *Editor) SetTilesetAnimPlaying(playing bool) {
+	if !e.TilesetOpen() {
+		return
+	}
+	e.tileset.animPlaying = playing
+	e.syncTileAnimLoop()
+	e.notify()
+}
+
+// TilesetAnimPlaying reports whether the Tileset Editor's tile animation preview is currently playing.
+func (e *Editor) TilesetAnimPlaying() bool {
+	return e.TilesetOpen() && e.tileset.animPlaying
+}
+
+// TilesetAnimPreviewTile returns the local tile ID currently displayed by the Tileset Editor's animation preview for the selected tile.
+func (e *Editor) TilesetAnimPreviewTile() int {
+	if !e.TilesetOpen() {
+		return -1
+	}
+	sel := e.tileset.selectedTile
+	t := findTileDoc(e.tileset.doc, sel)
+	if t == nil || len(t.Animation) == 0 {
+		return sel
+	}
+	var total time.Duration
+	for _, f := range t.Animation {
+		if f.Duration > 0 {
+			total += f.Duration
+		}
+	}
+	if total <= 0 {
+		return t.Animation[0].Tile
+	}
+	elapsed := e.tileset.animElapsed % total
+	if elapsed < 0 {
+		elapsed += total
+	}
+	for _, f := range t.Animation {
+		if f.Duration <= 0 {
+			continue
+		}
+		if elapsed < f.Duration {
+			return f.Tile
+		}
+		elapsed -= f.Duration
+	}
+	return t.Animation[0].Tile
+}
+
+// SetTilesetTileProperty sets a typed custom property (bool, int, float64, or string) on tileID as an undoable edit.
+func (e *Editor) SetTilesetTileProperty(tileID int, key string, value any) error {
+	key = strings.TrimSpace(key)
+	return e.commitTilesetEdit(fmt.Sprintf("Set tile %d property %q", tileID, key), func(doc *tilemap.TilesetDoc) error {
+		if tileID < 0 || tileID >= doc.Count() {
+			return fmt.Errorf("editor: tile %d is outside the tileset's %d tiles", tileID, doc.Count())
+		}
+		if key == "" {
+			return errors.New("editor: property key cannot be empty")
+		}
+		switch v := value.(type) {
+		case bool, int, string:
+		case float32:
+			value = float64(v)
+		case float64:
+			if math.IsNaN(v) || math.IsInf(v, 0) {
+				return fmt.Errorf("editor: property %q value must be finite", key)
+			}
+		default:
+			return fmt.Errorf("editor: property %q has unsupported type %T (want bool, int, float64, or string)", key, value)
+		}
+		t := ensureTileDoc(doc, tileID)
+		if t.Properties == nil {
+			t.Properties = make(map[string]any)
+		}
+		t.Properties[key] = value
+		return nil
+	})
+}
+
+// DeleteTilesetTileProperty removes custom property key from tileID as an undoable edit.
+func (e *Editor) DeleteTilesetTileProperty(tileID int, key string) error {
+	return e.commitTilesetEdit(fmt.Sprintf("Delete tile %d property %q", tileID, key), func(doc *tilemap.TilesetDoc) error {
+		if tileID < 0 || tileID >= doc.Count() {
+			return fmt.Errorf("editor: tile %d is outside the tileset's %d tiles", tileID, doc.Count())
+		}
+		t := findTileDoc(doc, tileID)
+		if t == nil || len(t.Properties) == 0 {
+			return nil
+		}
+		delete(t.Properties, key)
+		if len(t.Properties) == 0 {
+			t.Properties = nil
+		}
+		pruneTileDoc(doc, tileID)
+		return nil
+	})
+}
+
+// hasAnimatedTiles reports whether e.Built holds any tilemap with at least one animated tile.
+func (e *Editor) hasAnimatedTiles() bool {
+	if e == nil || e.Built == nil {
+		return false
+	}
+	for _, l := range e.Built.Layers {
+		if l.Map == nil {
+			continue
+		}
+		for _, ts := range l.Map.Tilesets {
+			if ts != nil && len(ts.Animations) > 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (e *Editor) tilesetPreviewNeedsLoop() bool {
+	if !e.TilesetOpen() || !e.tileset.animPlaying {
+		return false
+	}
+	t := findTileDoc(e.tileset.doc, e.tileset.selectedTile)
+	return t != nil && len(t.Animation) > 0
+}
+
+// StepTileAnimations advances animated tiles in the edit viewport and the Tileset Editor's animation preview by dt.
+func (e *Editor) StepTileAnimations(dt time.Duration) {
+	if e == nil || dt <= 0 || e.playing {
+		return
+	}
+	changed := false
+	if e.hasAnimatedTiles() {
+		e.Built.Update(dt)
+		changed = true
+	}
+	if e.tilesetPreviewNeedsLoop() {
+		e.tileset.animElapsed += dt
+		changed = true
+	}
+	if changed {
+		e.notify()
+	}
+}
+
+func (e *Editor) syncTileAnimLoop() {
+	if e == nil {
+		return
+	}
+	want := !e.playing && e.scope != nil && (e.hasAnimatedTiles() || e.tilesetPreviewNeedsLoop())
+	if !want {
+		e.stopTileAnimLoop()
+		return
+	}
+	if e.tileAnimStop != nil {
+		return
+	}
+	rate := e.PlayRate
+	if rate <= 0 {
+		rate = 60
+	}
+	loop := &game.Loop{
+		Rate:   rate,
+		Update: e.StepTileAnimations,
+	}
+	e.scope.Run(func() {
+		e.tileAnimStop = loop.Run(e.scope)
+	})
+}
+
+func (e *Editor) stopTileAnimLoop() {
+	if e == nil || e.tileAnimStop == nil {
+		return
+	}
+	stop := e.tileAnimStop
+	e.tileAnimStop = nil
+	stop()
+}
+
+// inspectedTilesetTile returns the YAML tileset path and 0-based local tile ID when the right-side Inspector should show the Tile Inspector (matching Tiles.dc.html).
+func (e *Editor) inspectedTilesetTile() (string, int, bool) {
+	if e == nil || e.Doc == nil || e.ViewMode != ViewMode2D || e.SelectedID != "" || e.inspectLayer {
+		return "", -1, false
+	}
+	if rel, _ := e.inspectedImportAsset(); rel != "" {
+		return "", -1, false
+	}
+	if !isTileTool(e.Tool) {
+		return "", -1, false
+	}
+	li := e.layerIndex(e.ActiveLayer)
+	if li < 0 {
+		return "", -1, false
+	}
+	tm := e.inlineTilemapForLayer(&e.Doc.Layers[li])
+	if tm == nil || !tm.HasTilesetFile() {
+		return "", -1, false
+	}
+	doc, err := e.loadTilesetDoc(tm.TilesetFile)
+	if err != nil || doc == nil || doc.Count() == 0 {
+		return "", -1, false
+	}
+	tileID := e.ActiveTileID - 1
+	if tileID < 0 || tileID >= doc.Count() {
+		tileID = 0
+	}
+	return tm.TilesetFile, tileID, true
+}
+
+// ensureTilesetOpenForPath opens relPath in the Tileset Editor if it is not already the open tileset, so edits made from the right-side Tile Inspector go through the same undoable TilesetDoc commands.
+func (e *Editor) ensureTilesetOpenForPath(relPath string) error {
+	if e.TilesetOpen() && e.tileset.matchesPath(relPath) {
+		return nil
+	}
+	return e.OpenTilesetProjectFile(relPath)
+}
+
+// liveResolver wraps e.Resolver so sceneformat.Build and PlayIn see live unsaved edits made in the Tileset Editor immediately.
+func (e *Editor) liveResolver() sceneformat.AssetResolver {
+	if e == nil || !e.TilesetOpen() {
+		return e.Resolver
+	}
+	base := &liveTilesetResolver{ed: e, inner: e.Resolver}
+	if tr, ok := e.Resolver.(sceneformat.TilemapResolver); ok {
+		return &liveTilesetWithTilemapResolver{liveTilesetResolver: base, tr: tr}
+	}
+	return base
+}
+
+type liveTilesetResolver struct {
+	ed    *Editor
+	inner sceneformat.AssetResolver
+}
+
+func (r *liveTilesetResolver) Atlas(name string) (*sprite.Atlas, error) {
+	if r.inner == nil {
+		return nil, fmt.Errorf("atlas %q not found", name)
+	}
+	return r.inner.Atlas(name)
+}
+
+func (r *liveTilesetResolver) ReadFile(p string) ([]byte, error) {
+	if r.ed != nil && r.ed.TilesetOpen() && r.ed.tileset.matchesPath(p) {
+		return tilemap.EncodeTileset(r.ed.tileset.doc)
+	}
+	if fr, ok := r.inner.(sceneformat.FileResolver); ok {
+		return fr.ReadFile(p)
+	}
+	return nil, fmt.Errorf("reading %q requires a FileResolver", p)
+}
+
+func (r *liveTilesetResolver) Image(p string) (core.ImageSource, error) {
+	if ir, ok := r.inner.(sceneformat.ImageResolver); ok {
+		return ir.Image(p)
+	}
+	return core.ImageSource{URI: p}, nil
+}
+
+func (r *liveTilesetResolver) Scene(p string) (*sceneformat.SceneDoc, error) {
+	if sr, ok := r.inner.(sceneformat.SceneResolver); ok {
+		return sr.Scene(p)
+	}
+	return nil, fmt.Errorf("scene %q requires a SceneResolver", p)
+}
+
+func (r *liveTilesetResolver) Material(p string) (*resource.Material, error) {
+	if mr, ok := r.inner.(sceneformat.MaterialResolver); ok {
+		return mr.Material(p)
+	}
+	return nil, fmt.Errorf("material %q requires a MaterialResolver", p)
+}
+
+func (r *liveTilesetResolver) PhysicsMaterial(p string) (*resource.PhysicsMaterial, error) {
+	if pmr, ok := r.inner.(sceneformat.PhysicsMaterialResolver); ok {
+		return pmr.PhysicsMaterial(p)
+	}
+	return nil, fmt.Errorf("physics material %q requires a PhysicsMaterialResolver", p)
+}
+
+type liveTilesetWithTilemapResolver struct {
+	*liveTilesetResolver
+	tr sceneformat.TilemapResolver
+}
+
+func (r *liveTilesetWithTilemapResolver) Tilemap(source string) (*sceneformat.TilemapDoc, error) {
+	return r.tr.Tilemap(source)
 }
