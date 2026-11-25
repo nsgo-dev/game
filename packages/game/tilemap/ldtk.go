@@ -22,6 +22,21 @@ type LevelNeighbour struct {
 	Dir string
 }
 
+// LDtkOptions configures LoadLDtkWith, LoadLDtkAllWith, and LoadLDtkWorldWith.
+type LDtkOptions struct {
+	// ResolveImage maps an LDtk tileset relative path into an ImageSource.
+	// When nil, core.ImageSource{URI: relPath} is used.
+	ResolveImage func(relPath string) core.ImageSource
+	// IntGridFlags maps LDtk IntGrid value identifiers or IntGrid value group identifiers
+	// (case-insensitive) to TileFlags, overriding the built-in heuristic.
+	// Mapping a name to 0 explicitly marks matching IntGrid cells non-colliding.
+	IntGridFlags map[string]TileFlags
+	// IntGridValueFlags maps positive numeric LDtk IntGrid values (1, 2, ...) directly to TileFlags,
+	// taking precedence over IntGridFlags and the built-in heuristic.
+	// Mapping a value to 0 explicitly marks matching IntGrid cells non-colliding.
+	IntGridValueFlags map[int]TileFlags
+}
+
 // LoadLDtk parses an LDtk JSON project and builds a Tilemap for the level matching levelIdentifier (or the first level when levelIdentifier is empty).
 //
 // Tiles (gridTiles), AutoLayer (autoLayerTiles), IntGrid (intGridCsv mapped to TileSolid/TileFlags plus optional autoLayerTiles), and Entities (entityInstances mapped to ObjectLayer with fieldInstances properties) are supported, including LDtk flip bits (bit 0 = FlipHorizontal, bit 1 = FlipVertical).
@@ -29,14 +44,20 @@ type LevelNeighbour struct {
 //
 // Its errors are *loaderr.Error values that give the line and field of the problem and how to fix it; a caller that read data from a file names it with loaderr.WithFile.
 func LoadLDtk(data []byte, levelIdentifier string, resolveImage func(relPath string) core.ImageSource) (*Tilemap, error) {
-	m, err := loadLDtk(data, levelIdentifier, resolveImage)
+	return LoadLDtkWith(data, levelIdentifier, LDtkOptions{ResolveImage: resolveImage})
+}
+
+// LoadLDtkWith parses an LDtk JSON project with opts (including custom IntGrid-to-TileFlags mappings, such as those produced by project.File.LDtkOptions)
+// and builds a Tilemap for the level matching levelIdentifier (or the first level when levelIdentifier is empty).
+func LoadLDtkWith(data []byte, levelIdentifier string, opts LDtkOptions) (*Tilemap, error) {
+	m, err := loadLDtk(data, levelIdentifier, opts)
 	return m, loaderr.LocateJSON(err, "", data, fixLDtk)
 }
 
 // fixLDtk is the fix for an LDtk project error that has no more specific one.
 const fixLDtk = "correct the project in LDtk and save it again"
 
-func loadLDtk(data []byte, levelIdentifier string, resolveImage func(relPath string) core.ImageSource) (*Tilemap, error) {
+func loadLDtk(data []byte, levelIdentifier string, opts LDtkOptions) (*Tilemap, error) {
 	var proj ldtkProject
 	if err := json.Unmarshal(data, &proj); err != nil {
 		return nil, err
@@ -55,14 +76,14 @@ func loadLDtk(data []byte, levelIdentifier string, resolveImage func(relPath str
 				return nil, loaderr.Errorf("levels", "pass the identifier of a level in the project, or an empty one for the first level", "level %q not found", levelIdentifier)
 			}
 		}
-		return buildLDtkLevel(&proj, proj.Levels, proj.WorldLayout, "levels", index, resolveImage)
+		return buildLDtkLevel(&proj, proj.Levels, proj.WorldLayout, "levels", index, opts)
 	}
 	if len(proj.Worlds) > 0 {
 		for wi := range proj.Worlds {
 			w := &proj.Worlds[wi]
 			for li := range w.Levels {
 				if levelIdentifier == "" || w.Levels[li].Identifier == levelIdentifier {
-					return buildLDtkLevel(&proj, w.Levels, w.WorldLayout, loaderr.Path("worlds", wi, "levels"), li, resolveImage)
+					return buildLDtkLevel(&proj, w.Levels, w.WorldLayout, loaderr.Path("worlds", wi, "levels"), li, opts)
 				}
 			}
 		}
@@ -77,11 +98,16 @@ func loadLDtk(data []byte, levelIdentifier string, resolveImage func(relPath str
 // For Free and GridVania layouts, each Tilemap carries its world Origin (worldX, worldY) and Neighbours list.
 // Its errors are *loaderr.Error values, as LoadLDtk's are.
 func LoadLDtkAll(data []byte, resolveImage func(relPath string) core.ImageSource) (map[string]*Tilemap, error) {
-	out, err := loadLDtkAll(data, resolveImage)
+	return LoadLDtkAllWith(data, LDtkOptions{ResolveImage: resolveImage})
+}
+
+// LoadLDtkAllWith parses an LDtk JSON project with opts and builds a Tilemap for every level, keyed by level identifier.
+func LoadLDtkAllWith(data []byte, opts LDtkOptions) (map[string]*Tilemap, error) {
+	out, err := loadLDtkAll(data, opts)
 	return out, loaderr.LocateJSON(err, "", data, fixLDtk)
 }
 
-func loadLDtkAll(data []byte, resolveImage func(relPath string) core.ImageSource) (map[string]*Tilemap, error) {
+func loadLDtkAll(data []byte, opts LDtkOptions) (map[string]*Tilemap, error) {
 	var proj ldtkProject
 	if err := json.Unmarshal(data, &proj); err != nil {
 		return nil, err
@@ -89,7 +115,7 @@ func loadLDtkAll(data []byte, resolveImage func(relPath string) core.ImageSource
 	if len(proj.Levels) > 0 {
 		out := make(map[string]*Tilemap, len(proj.Levels))
 		for i := range proj.Levels {
-			m, err := buildLDtkLevel(&proj, proj.Levels, proj.WorldLayout, "levels", i, resolveImage)
+			m, err := buildLDtkLevel(&proj, proj.Levels, proj.WorldLayout, "levels", i, opts)
 			if err != nil {
 				return nil, err
 			}
@@ -102,7 +128,7 @@ func loadLDtkAll(data []byte, resolveImage func(relPath string) core.ImageSource
 		w := &proj.Worlds[wi]
 		levelsPath := loaderr.Path("worlds", wi, "levels")
 		for li := range w.Levels {
-			m, err := buildLDtkLevel(&proj, w.Levels, w.WorldLayout, levelsPath, li, resolveImage)
+			m, err := buildLDtkLevel(&proj, w.Levels, w.WorldLayout, levelsPath, li, opts)
 			if err != nil {
 				return nil, err
 			}
@@ -119,11 +145,16 @@ func loadLDtkAll(data []byte, resolveImage func(relPath string) core.ImageSource
 //
 // Its errors are *loaderr.Error values, as LoadLDtk's are.
 func LoadLDtkWorld(data []byte, worldIdentifier string, resolveImage func(relPath string) core.ImageSource) (*LevelWorld, error) {
-	w, err := loadLDtkWorld(data, worldIdentifier, resolveImage)
+	return LoadLDtkWorldWith(data, worldIdentifier, LDtkOptions{ResolveImage: resolveImage})
+}
+
+// LoadLDtkWorldWith parses an LDtk JSON project (.ldtk) into a LevelWorld using opts (including custom IntGrid-to-TileFlags mappings).
+func LoadLDtkWorldWith(data []byte, worldIdentifier string, opts LDtkOptions) (*LevelWorld, error) {
+	w, err := loadLDtkWorld(data, worldIdentifier, opts)
 	return w, loaderr.LocateJSON(err, "", data, fixLDtk)
 }
 
-func loadLDtkWorld(data []byte, worldIdentifier string, resolveImage func(relPath string) core.ImageSource) (*LevelWorld, error) {
+func loadLDtkWorld(data []byte, worldIdentifier string, opts LDtkOptions) (*LevelWorld, error) {
 	var proj ldtkProject
 	if err := json.Unmarshal(data, &proj); err != nil {
 		return nil, err
@@ -209,7 +240,7 @@ func loadLDtkWorld(data []byte, worldIdentifier string, resolveImage func(relPat
 			WorldDepth: lvl.WorldDepth,
 			Neighbours: neighbours,
 			Load: func() (*Tilemap, error) {
-				m, err := buildLDtkLevel(&proj, levels, layout, levelsPath, idx, resolveImage)
+				m, err := buildLDtkLevel(&proj, levels, layout, levelsPath, idx, opts)
 				return m, loaderr.LocateJSON(err, "", rawCopy, fixLDtk)
 			},
 		}
@@ -268,7 +299,8 @@ func resolveLDtkNeighbours(levels []ldtkLevel, lvl *ldtkLevel) []LevelNeighbour 
 }
 
 // buildLDtkLevel builds levels[index].
-func buildLDtkLevel(proj *ldtkProject, levels []ldtkLevel, layout *string, levelsPath string, index int, resolveImage func(relPath string) core.ImageSource) (*Tilemap, error) {
+func buildLDtkLevel(proj *ldtkProject, levels []ldtkLevel, layout *string, levelsPath string, index int, opts LDtkOptions) (*Tilemap, error) {
+	resolveImage := opts.ResolveImage
 	lvl := &levels[index]
 	at := loaderr.Join(levelsPath, index)
 	gridSize := proj.DefaultGridSize
@@ -360,19 +392,37 @@ func buildLDtkLevel(proj *ldtkProject, levels []ldtkLevel, layout *string, level
 		nextGID += uint32(tileCount)
 	}
 
-	// Index IntGrid value definitions from defs.layers by layer UID and identifier.
-	intGridDefsByUID := make(map[int]map[int]string, len(proj.Defs.Layers))
-	intGridDefsByName := make(map[string]map[int]string, len(proj.Defs.Layers))
+	// Index IntGrid value definitions (and their group names) from defs.layers by layer UID and identifier.
+	type ldtkIntGridEntry struct {
+		identifier string
+		group      string
+	}
+	intGridDefsByUID := make(map[int]map[int]ldtkIntGridEntry, len(proj.Defs.Layers))
+	intGridDefsByName := make(map[string]map[int]ldtkIntGridEntry, len(proj.Defs.Layers))
 	for _, ldef := range proj.Defs.Layers {
 		if len(ldef.IntGridValues) == 0 {
 			continue
 		}
-		vals := make(map[int]string, len(ldef.IntGridValues))
+		groups := make(map[int]string, len(ldef.IntGridValuesGroups))
+		for _, g := range ldef.IntGridValuesGroups {
+			groups[g.UID] = g.Identifier
+		}
+		vals := make(map[int]ldtkIntGridEntry, len(ldef.IntGridValues))
 		for _, v := range ldef.IntGridValues {
-			vals[v.Value] = v.Identifier
+			vals[v.Value] = ldtkIntGridEntry{
+				identifier: v.Identifier,
+				group:      groups[v.GroupUID],
+			}
 		}
 		intGridDefsByUID[ldef.UID] = vals
 		intGridDefsByName[ldef.Identifier] = vals
+	}
+	var customNameFlags map[string]TileFlags
+	if len(opts.IntGridFlags) > 0 {
+		customNameFlags = make(map[string]TileFlags, len(opts.IntGridFlags))
+		for k, f := range opts.IntGridFlags {
+			customNameFlags[strings.ToLower(strings.TrimSpace(k))] = f
+		}
 	}
 
 	// LDtk lists layerInstances top-to-bottom (foreground first); iterate bottom-to-top for painter's draw order.
@@ -439,9 +489,9 @@ func buildLDtkLevel(proj *ldtkProject, levels []ldtkLevel, layout *string, level
 			})
 
 		case "IntGrid":
-			valNames := intGridDefsByUID[li.LayerDefUID]
-			if valNames == nil {
-				valNames = intGridDefsByName[li.Identifier]
+			valDefs := intGridDefsByUID[li.LayerDefUID]
+			if valDefs == nil {
+				valDefs = intGridDefsByName[li.Identifier]
 			}
 			for idx, v := range li.IntGridCSV {
 				if v == 0 {
@@ -449,7 +499,8 @@ func buildLDtkLevel(proj *ldtkProject, levels []ldtkLevel, layout *string, level
 				}
 				col := idx % lw
 				row := idx / lw
-				flag := ldtkIntGridFlag(v, valNames[v])
+				entry := valDefs[v]
+				flag := resolveLDtkIntGridFlag(v, entry.identifier, entry.group, opts.IntGridValueFlags, customNameFlags)
 				if flag != 0 {
 					m.SetCellFlags(col, row, m.FlagsAt(col, row)|flag)
 				}
@@ -576,15 +627,39 @@ func buildLDtkTileData(tiles []ldtkTileInstance, lw, lh, gridSize int, ts *Tiles
 	return data
 }
 
-func ldtkIntGridFlag(value int, identifier string) TileFlags {
+func resolveLDtkIntGridFlag(value int, identifier, group string, valueFlags map[int]TileFlags, nameFlags map[string]TileFlags) TileFlags {
 	if value <= 0 {
 		return 0
 	}
-	switch strings.ToLower(strings.TrimSpace(identifier)) {
-	case "solid", "wall", "walls", "ground", "collision", "collisions":
-		return TileSolid
-	case "oneway", "one_way", "one-way", "platform":
-		return TileOneWay
+	if len(valueFlags) > 0 {
+		if f, ok := valueFlags[value]; ok {
+			return f
+		}
+	}
+	if len(nameFlags) > 0 {
+		if id := strings.ToLower(strings.TrimSpace(identifier)); id != "" {
+			if f, ok := nameFlags[id]; ok {
+				return f
+			}
+		}
+		if g := strings.ToLower(strings.TrimSpace(group)); g != "" {
+			if f, ok := nameFlags[g]; ok {
+				return f
+			}
+		}
+	}
+	return ldtkIntGridFlag(value, identifier, group)
+}
+
+func ldtkIntGridFlag(value int, identifier, group string) TileFlags {
+	if value <= 0 {
+		return 0
+	}
+	if f, ok := ldtkIntGridNameFlag(identifier); ok {
+		return f
+	}
+	if f, ok := ldtkIntGridNameFlag(group); ok {
+		return f
 	}
 	if value == 1 {
 		return TileSolid
@@ -593,6 +668,17 @@ func ldtkIntGridFlag(value int, identifier string) TileFlags {
 		return TileFlags(1 << uint(value-1))
 	}
 	return TileSolid
+}
+
+func ldtkIntGridNameFlag(name string) (TileFlags, bool) {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "solid", "wall", "walls", "ground", "collision", "collisions":
+		return TileSolid, true
+	case "oneway", "one_way", "one-way", "platform":
+		return TileOneWay, true
+	default:
+		return 0, false
+	}
 }
 
 // parseLDtkFields reads the field instances found at the field path at.
@@ -696,15 +782,23 @@ type ldtkTilesetDef struct {
 }
 
 type ldtkLayerDef struct {
-	UID           int                `json:"uid"`
-	Identifier    string             `json:"identifier"`
-	Type          string             `json:"type"`
-	GridSize      int                `json:"gridSize"`
-	IntGridValues []ldtkIntGridValue `json:"intGridValues"`
+	UID                 int                     `json:"uid"`
+	Identifier          string                  `json:"identifier"`
+	Type                string                  `json:"type"`
+	GridSize            int                     `json:"gridSize"`
+	IntGridValues       []ldtkIntGridValue      `json:"intGridValues"`
+	IntGridValuesGroups []ldtkIntGridValueGroup `json:"intGridValuesGroups"`
 }
 
 type ldtkIntGridValue struct {
 	Value      int    `json:"value"`
+	Identifier string `json:"identifier"`
+	Color      string `json:"color"`
+	GroupUID   int    `json:"groupUid"`
+}
+
+type ldtkIntGridValueGroup struct {
+	UID        int    `json:"uid"`
 	Identifier string `json:"identifier"`
 	Color      string `json:"color"`
 }

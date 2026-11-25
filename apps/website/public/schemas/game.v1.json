@@ -776,6 +776,37 @@
       },
       "additionalProperties": false
     },
+    "LDtkIntGridRule": {
+      "description": "LDtkIntGridRule maps one LDtk IntGrid value (by identifier/group name or positive numeric value) to tile collision flags. Exactly one of Name or Value must be set; leaving Solid, OneWay, and Flags all unset explicitly maps matching cells to 0 (non-colliding).",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Name matches an LDtk IntGrid value identifier or IntGrid value group identifier (case-insensitive).",
+          "type": "string"
+        },
+        "value": {
+          "description": "Value matches a positive numeric LDtk IntGrid value (1, 2, ...).",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854776000
+        },
+        "solid": {
+          "description": "Solid sets tilemap.TileSolid on matching IntGrid cells.",
+          "type": "boolean"
+        },
+        "oneWay": {
+          "description": "OneWay sets tilemap.TileOneWay on matching IntGrid cells.",
+          "type": "boolean"
+        },
+        "flags": {
+          "description": "Flags sets additional game-defined tilemap.TileFlags bits on matching IntGrid cells alongside Solid and OneWay.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        }
+      },
+      "additionalProperties": false
+    },
     "ManifestTarget": {
       "description": "ManifestTarget is the typed Go asset manifest generated from a folder of assets, as game manifest generates it.",
       "type": "object",
@@ -1048,7 +1079,7 @@
       "additionalProperties": false
     },
     "Physics": {
-      "description": "Physics holds the project's default 2D and 3D gravity, solver iterations, and named collision layers shared by scenes.",
+      "description": "Physics holds the project's default 2D and 3D gravity, solver iterations, named collision layers, and LDtk IntGrid collision flag mappings shared by scenes.",
       "type": "object",
       "properties": {
         "gravity2D": {
@@ -1084,6 +1115,13 @@
           "type": "array",
           "items": {
             "$ref": "#/definitions/PhysicsLayer"
+          }
+        },
+        "ldtkIntGrid": {
+          "description": "LDtkIntGrid maps LDtk IntGrid value identifiers, group identifiers, or numeric values to tilemap.TileFlags when loading .ldtk projects.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/LDtkIntGridRule"
           }
         }
       },

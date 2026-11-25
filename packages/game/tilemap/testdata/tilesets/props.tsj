@@ -15,7 +15,16 @@
         {"name": "loot", "type": "string", "value": "gold"},
         {"name": "value", "type": "int", "value": 100},
         {"name": "tint", "type": "color", "value": "#00ccff"}
-      ]
+      ],
+      "objectgroup": {
+        "type": "objectgroup",
+        "name": "",
+        "opacity": 1,
+        "visible": true,
+        "objects": [
+          {"id": 1, "name": "chest", "type": "prop", "x": 2, "y": 2, "width": 12, "height": 12, "visible": true}
+        ]
+      }
     },
     {
       "id": 1,

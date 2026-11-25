@@ -13,6 +13,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/resource"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/game/packages/game/sprite"
+	"github.com/nsgo-dev/game/packages/game/tilemap"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -41,6 +42,9 @@ type projectFiles struct {
 	listErr    error
 	// atlases caches each atlas file loaded, or why it did not load, by path.
 	atlases map[string]loadedAtlas
+	// ldtkLoaded caches LDtkOptions read from game.yaml until Refresh.
+	ldtkLoaded bool
+	ldtkOpts   tilemap.LDtkOptions
 }
 
 // loadedAtlas is an atlas file's load result.
@@ -73,6 +77,7 @@ func (r *Resolver) Refresh() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.listed, f.atlasPaths, f.listErr = false, nil, nil
+	f.ldtkLoaded, f.ldtkOpts = false, tilemap.LDtkOptions{}
 	clear(f.atlases)
 	f.materials = resource.NewLibrary(f.fsys)
 }
@@ -197,6 +202,21 @@ func (f *projectFiles) library() *resource.Library {
 // ReadFile reads the file at p, a slash-separated path from the project root, so that sceneformat.Build reads through it the YAML tilesets layered tilemaps name and the Tiled and LDtk maps tilemap sources name, with the tilesets those refer to, and the editor's tile palette lists their tiles, as sceneformat.FSAssets does. Their images are left as URIs, as FSAssets leaves them.
 func (r *Resolver) ReadFile(p string) ([]byte, error) {
 	return fs.ReadFile(r.files.fsys, p)
+}
+
+// LDtkOptions returns the tilemap.LDtkOptions derived from game.yaml's physics.ldtkIntGrid section, if present,
+// implementing sceneformat.LDtkOptionsResolver so scenes referencing .ldtk sources map IntGrid values from project settings.
+func (r *Resolver) LDtkOptions() tilemap.LDtkOptions {
+	f := r.files
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !f.ldtkLoaded {
+		f.ldtkLoaded = true
+		if pf, err := ReadFS(f.fsys); err == nil && pf != nil {
+			f.ldtkOpts = pf.LDtkOptions(nil)
+		}
+	}
+	return f.ldtkOpts
 }
 
 // list returns the project's atlas files, walking it on first use. f.mu is held.

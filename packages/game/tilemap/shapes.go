@@ -45,6 +45,16 @@ func (s TileShape) Flipped(flags uint32, tileWidth, tileHeight float32) TileShap
 	return s
 }
 
+// TileCollisionGroup returns the collision ObjectLayer authored on gid's tile in its tileset (flip bits ignored), and whether the tile defines one.
+func (m *Tilemap) TileCollisionGroup(gid uint32) (ObjectLayer, bool) {
+	ts, localID := m.TilesetForGID(gid)
+	if ts == nil || len(ts.TileCollisions) == 0 {
+		return ObjectLayer{}, false
+	}
+	g, ok := ts.TileCollisions[localID]
+	return g, ok
+}
+
 // TileShapes returns the collision shapes of gid's tile, flipped and rotated by gid's flip bits in the coordinates of its tileset's tile, or nil when the tile has none.
 //
 // An unflipped gid returns the tileset's own slice, which the caller must not modify.

@@ -19,6 +19,9 @@
     <property name="solid" type="bool" value="true"/>
     <property name="friction" type="float" value="0.75"/>
    </properties>
+   <objectgroup draworder="index">
+    <object id="1" name="bounds" type="solid" x="0" y="0" width="16" height="16"/>
+   </objectgroup>
   </tile>
   <tile id="1">
    <properties>
@@ -31,6 +34,13 @@
     <frame tileid="3" duration="200"/>
     <frame tileid="4" duration="150"/>
    </animation>
+  </tile>
+  <tile id="5">
+   <objectgroup draworder="index">
+    <object id="1" name="slope" type="ramp" x="0" y="0">
+     <polygon points="0,16 16,0 16,16"/>
+    </object>
+   </objectgroup>
   </tile>
  </tileset>
  <tileset firstgid="9" source="tilesets/props.tsx"/>

@@ -10,6 +10,9 @@
    <property name="value" type="int" value="100"/>
    <property name="tint" type="color" value="#00ccff"/>
   </properties>
+  <objectgroup draworder="index">
+   <object id="1" name="chest" type="prop" x="2" y="2" width="12" height="12"/>
+  </objectgroup>
  </tile>
  <tile id="1">
   <properties>

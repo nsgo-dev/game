@@ -255,6 +255,8 @@ type Tileset struct {
 	TileProbabilities map[uint32]float64
 	// Animations holds tile animations keyed by 0-based local tile ID.
 	Animations map[uint32]*TileAnimation
+	// TileCollisions holds each tile's collision object group as authored in Tiled's collision editor (.tmj/.tsj/.tmx/.tsx), keyed by 0-based local tile ID.
+	TileCollisions map[uint32]ObjectLayer
 	// Shapes holds the collision shapes of tiles keyed by 0-based local tile ID, such as the ones Tiled's collision editor draws; an animated tile keeps the shapes of its own ID whichever frame shows.
 	Shapes map[uint32][]TileShape
 	// WangSets holds Tiled Wang sets (terrain sets) defined on this tileset.

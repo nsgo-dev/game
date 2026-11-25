@@ -332,10 +332,10 @@ stream.Update(playerPos)
 
 使用 `Tilemap.Origin`、LDtk 世界布局、Tiled `.world` 文件以及基于区域的 `WorldStream`，可以将多张瓦片地图直接安放在同一个世界坐标系中：
 
-- **世界原点（`Tilemap.Origin`）**：每个 `Tilemap` 都带有 `Origin core.Point`（零值 `(0, 0)` 保持零开销向后兼容）。`Draw`、`DrawLayer`、`DrawImageLayer`、`CacheStaticLayer`、`AppendYSortTiles`、`WorldBounds`、`TileOrigin`、`TileToWorld`、`WorldToTile`、`TilesInRect` 与 `Raycast` 均统一遵循 `Origin`；`fog.NewFromTilemap`（`fog.Fog.Origin`）以及实现可选接口 `physics.TileGridOrigin`（`GridOrigin() (x, y float32)`）的 `physics.TileGrid` 适配器同样自动遵循该世界原点。
-- **LDtk 多关卡世界**：在 `Free` 和 `GridVania` 布局下，`LoadLDtk` 与 `LoadLDtkAll` 会按关卡的 `(worldX, worldY)` 填充 `Origin`，并从 `__neighbours` 解析邻接列表 `Neighbours`（`[]LevelNeighbour`，包含 `Identifier`、`IID`、`UID` 以及方向 `n`/`s`/`e`/`w`/`ne`/`nw`/`se`/`sw`/`o`/`<`/`>`）。`LoadLDtkWorld(data, worldIdentifier, resolveImage)` 返回按需延迟加载的 `*LevelWorld`，同时支持单世界与多世界 `.ldtk` 项目（拒绝没有 2D 世界坐标的 `LinearHorizontal` 与 `LinearVertical` 布局）。
+- **世界原点（`Tilemap.Origin`）**：每个 `Tilemap` 都带有 `Origin core.Point`（零值 `(0, 0)` 保持零开销向后兼容）。`Draw`、`DrawLayer`、`DrawImageLayer`、`CacheStaticLayer`、`AppendYSortTiles`、`WorldBounds`、`TileOrigin`、`TileToWorld`、`WorldToTile`、`TilesInRect` 与 `Raycast` 均统一遵循 `Origin`；`fog.NewFromTilemap`（`fog.Fog.Origin`）与 `physics.TileGridOrigin` 亦然：`*Tilemap` 与 `*WorldStream` 均通过 `TileFlags.PhysicsFlags()` 直接实现 `physics.TileGrid`（`TileSize`、`GridSize`、`TileFlagsAt`）和 `physics.TileGridOrigin`（`GridOrigin`）。
+- **LDtk 多关卡世界与 IntGrid 标志映射**：在 `Free` 和 `GridVania` 布局下，`LoadLDtk` 与 `LoadLDtkAll` 会按关卡的 `(worldX, worldY)` 填充 `Origin`，并从 `__neighbours` 解析邻接列表 `Neighbours`（`[]LevelNeighbour`，包含 `Identifier`、`IID`、`UID` 以及方向 `n`/`s`/`e`/`w`/`ne`/`nw`/`se`/`sw`/`o`/`<`/`>`），同时在映射 IntGrid 数值时识别 LDtk 的 `intGridValuesGroups`。使用 `LoadLDtkWith`、`LoadLDtkAllWith`、`LoadLDtkWorldWith` 配合 `LDtkOptions`（或来自 [`game.yaml`](project.md) 中 `physics.ldtkIntGrid` 的 `project.File.LDtkOptions`），可按项目设置把 IntGrid 标识符、分组名称或数值映射为指定 `TileFlags`（包括将装饰性格子显式映射为 `0`）。`LoadLDtkWorld(data, worldIdentifier, resolveImage)` 返回按需延迟加载的 `*LevelWorld`，同时支持单世界与多世界 `.ldtk` 项目（拒绝没有 2D 世界坐标的 `LinearHorizontal` 与 `LinearVertical` 布局）。
 - **Tiled `.world` 文件**：`ParseTiledWorld(data)` 解析 Tiled `.world` JSON 文件，同时支持显式 `maps` 列表（`fileName`、`x`、`y` 与可选 `width`/`height`）和正则 `patterns`（`regexp`、`multiplierX`、`multiplierY`、`offsetX`、`offsetY`、`mapWidth`、`mapHeight`），并在 JSON 或正则非法时返回带行号、字段与修复建议的 `*loaderr.Error`。`TiledWorld.Resolve(fileNames)` 以确定性顺序展开正则匹配并跳过显式已列出的地图；`LoadTiledWorld(data, loader)` 构建按需加载的 `*LevelWorld`，并将每张加载出的 `.tmj` 地图的 `Origin` 设为 `.world` 中的世界坐标。
-- **按区域流式加载关卡（`WorldStream`）**：只加载与相机或查询矩形（外扩 `LoadMargin`）重叠的关卡，并卸载超出 `UnloadMargin` 滞回范围的关卡，按确定性世界顺序触发 `OnEnter`/`OnLeave` 并返回 `[]WorldStreamEvent`。`WorldStream` 还提供无缝多关卡绘制 `Draw`、`UpdateAnimations`、`LevelAt`、`FlagsAtWorld`、`TilesInRect`、`Raycast` 以及统一网格访问器（`TileSize`、`GridSize`、`GridOrigin`、`GridFlagsAt`），使 `physics.Body` 或 `physics.CharacterBody` 可以无卡顿地跨关卡接缝行走。
+- **按区域流式加载关卡（`WorldStream`）**：只加载与相机或查询矩形（外扩 `LoadMargin`）重叠的关卡，并卸载超出 `UnloadMargin` 滞回范围的关卡，按确定性世界顺序触发 `OnEnter`/`OnLeave` 并返回 `[]WorldStreamEvent`。`WorldStream` 还提供无缝多关卡绘制 `Draw`、`UpdateAnimations`、`LevelAt`、`FlagsAtWorld`、`TilesInRect`、`Raycast`，并直接实现 `physics.TileGrid` + `physics.TileGridOrigin`（`TileSize`、`GridSize`、`GridOrigin`、`TileFlagsAt`、`GridFlagsAt`），使 `physics.Body` 或 `physics.CharacterBody` 可以无卡顿地跨关卡接缝行走。
 
 ```go
 world, err := tilemap.LoadLDtkWorld(ldtkBytes, "", func(relPath string) core.ImageSource {
@@ -366,10 +366,12 @@ stream.UpdateAnimations(dt)
 stream.Draw(d, cam)
 ```
 
-## 碰撞形状与变更跟踪
+## 碰撞形状、往返编码与变更跟踪
 
-在 Tiled 碰撞编辑器中为瓦片绘制的矩形、多边形、椭圆和折线会读入 `Tileset.Shapes`（以本地瓦片 ID 为键），每个都是位于瓦片自身坐标系中的 `TileShape`：椭圆近似为 `EllipseShapeSegments` 个点，对象的旋转会被应用。`m.TileShapes(gid)` 返回放置后的瓦片按其 GID 翻转位翻转、旋转后的形状，与 `DrawLayer` 绘制该瓦片的变换相同；`m.TileBox(gid)` 返回形状所在瓦片的尺寸。
+在 Tiled 碰撞编辑器（`.tmj`、`.tsj`、`.tmx` 或 `.tsx`）中为每个瓦片编写的碰撞对象组会原样保留在 `Tileset.TileCollisions`（`map[uint32]ObjectLayer`，以本地瓦片 ID 为键，可通过 `m.TileCollisionGroup(gid)` 查询）中，其中的矩形、多边形、椭圆和折线同时会读入 `Tileset.Shapes` 作为位于瓦片自身坐标系中的 `TileShape`：椭圆近似为 `EllipseShapeSegments` 个点，对象的旋转会被应用。`m.TileShapes(gid)` 返回放置后的瓦片按其 GID 翻转位翻转、旋转后的形状，与 `DrawLayer` 绘制该瓦片的变换相同；`m.TileBox(gid)` 返回形状所在瓦片的尺寸。`EncodeTiled(m)` 写出确定性的 Tiled JSON（`.tmj`）文档，经 `LoadTiled` 往返加载与保存后完整保留图块集、图层、属性、动画与逐瓦片碰撞对象组。
+
+`*Tilemap` 直接满足 `physics.TileGrid` 与 `physics.TileGridOrigin`（`TileSize`、`GridSize`、`GridOrigin`、`TileFlagsAt`），因此无需适配器即可直接传给 `physics.MoveAndSlide(body, m, dt)`、`physics.World{Tiles: m}` 和 `physics.RigidWorld{Tiles: m}`。
 
 `m.TileRevision()` 与 `m.TileChangesSince(rev, fn)` 除了瓦片修改，也跟踪碰撞标志的修改：`SetCellFlags` 与 `ClearCellFlags` 会记录它们修改的格子，而 `SetFlags` 可能改变显示该瓦片的所有格子，因此会要求调用方完整重建。没有改变任何内容的调用不会记录。`m.Flags(gid)` 返回设置在瓦片 ID 上的标志，`m.CellFlags(col, row)` 返回单格覆盖（如果有）。
 
-[tileshape](tileshape.md) 基于这两者：它的 `View` 是地图的 `physics.TileGrid`，从瓦片形状推导斜坡，并把实心格子与形状合并为轮廓和光照遮挡体，在每次变化后只重建附近的部分。
+[tileshape](tileshape.md) 基于这两者：它的 `View` 同样是 `physics.TileGrid`，从瓦片形状推导斜坡，并把实心格子与非整格瓦片形状合并为 `Boxes`、`StaticShapes`、`Outline` 和光照遮挡体，在每次变化后只重建附近的部分。

@@ -51,6 +51,12 @@ type ParticlesResolver interface {
 	Particles(path string) (particles.Config, error)
 }
 
+// LDtkOptionsResolver may optionally be implemented by an AssetResolver to provide tilemap.LDtkOptions
+// (such as IntGrid-to-TileFlags mappings from project settings) when Build loads an LDtk (.ldtk) map.
+type LDtkOptionsResolver interface {
+	LDtkOptions() tilemap.LDtkOptions
+}
+
 // AtlasMap is an AssetResolver backed by a map of atlas names to atlases.
 type AtlasMap map[string]*sprite.Atlas
 
@@ -607,13 +613,18 @@ func (b *tilemapBuilder) external(where string, tm *TilemapDoc) (*tilemap.Tilema
 	var m *tilemap.Tilemap
 	if ext == ".ldtk" {
 		var imgErr error
-		m, err = tilemap.LoadLDtk(data, tm.Level, func(rel string) core.ImageSource {
+		var ldtkOpts tilemap.LDtkOptions
+		if lr, ok := b.resolver.(LDtkOptionsResolver); ok {
+			ldtkOpts = lr.LDtkOptions()
+		}
+		ldtkOpts.ResolveImage = func(rel string) core.ImageSource {
 			img, err := b.image(path.Join(dir, rel))
 			if err != nil && imgErr == nil {
 				imgErr = fmt.Errorf("image %q: %w", path.Join(dir, rel), err)
 			}
 			return img
-		})
+		}
+		m, err = tilemap.LoadLDtkWith(data, tm.Level, ldtkOpts)
 		if err == nil {
 			err = imgErr
 		}

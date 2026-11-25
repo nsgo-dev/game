@@ -43,7 +43,9 @@ A cell collides as a whole when its tiles carry `TileSolid` or `TileOneWay` (fro
 | `Slopes()` | The upward-facing and vertical edges of solid shapes, the upward-facing edges of one-way shapes, and every polyline, as `physics.Slope` segments |
 | `AppendSlopesIn(dst, r)` | The slopes of the chunks around `r`, for passing only nearby slopes to `CharacterBody.Move` on a large map |
 | `Outline()` | The boundary of every solid cell and solid shape, with shared edges removed and collinear edges merged, solid side on the right |
-| `Boxes()` | Solid cells merged into rectangles, then rectangular solid shapes such as half tiles, for `physics.NewStaticRigidBox` |
+| `Boxes()` | Solid cells and axis-aligned rectangular solid shapes (such as half tiles) merged across neighbours into maximal rectangles, for `physics.NewStaticRigidBox` |
+| `StaticShapes()` | All solid geometry as static `physics.Shape` values merged across neighbours: maximal `Box` shapes for solid cells and rectangular partial tiles, merged convex `Polygon` shapes for adjacent convex partial tiles (such as multi-tile slopes), and closed `Chain` shapes for concave or >8-vertex partial tiles (such as ellipses), for `physics.NewStaticRigidBody` or `physics.World` |
+| `AppendStaticShapesIn(dst, r)` | Static shapes of the chunks around `r`, merged across those chunks |
 | `Occluders()` | `Outline` as `lights2d` occluders, one per chunk |
 
 With these slopes, `CharacterBody` walks 45 degree, 2:1 (about 26.6 degree, the tiles tilesets often call 22.5 degree), true 22.5 degree and half-height tiles, steps from a slope onto the solid tiles at its top, and snaps onto the floor tiles past a slope's lower end, with no hand-placed segments. `CharacterBody` has no ceiling segments, so the underside of a partial shape does not stop a jump; use whole cells, or `ShapedSolid`, where a ceiling matters.

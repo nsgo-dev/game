@@ -286,3 +286,101 @@ func TestLoadLDtkTilesAutoLayerIntGridAndEntities(t *testing.T) {
 		t.Fatal("expected error for empty LDtk levels")
 	}
 }
+
+func TestLoadLDtkWithCustomIntGridMappingAndGroups(t *testing.T) {
+	const groupedLDtk = `{
+		"defaultGridSize": 16,
+		"defs": {
+			"layers": [
+				{
+					"uid": 10,
+					"identifier": "Terrain",
+					"type": "IntGrid",
+					"gridSize": 16,
+					"intGridValuesGroups": [
+						{"uid": 100, "identifier": "Solid", "color": "#FFFFFF"},
+						{"uid": 200, "identifier": "Hazards", "color": "#FF0000"}
+					],
+					"intGridValues": [
+						{"value": 1, "identifier": "Stone", "color": "#888888", "groupUid": 100},
+						{"value": 2, "identifier": "Bridge", "color": "#AA8844", "groupUid": 0},
+						{"value": 3, "identifier": "Lava", "color": "#FF3300", "groupUid": 200},
+						{"value": 4, "identifier": "Decor", "color": "#00AA00", "groupUid": 0}
+					]
+				}
+			]
+		},
+		"levels": [
+			{
+				"identifier": "L0",
+				"uid": 0,
+				"pxWid": 64,
+				"pxHei": 16,
+				"layerInstances": [
+					{
+						"__identifier": "Terrain",
+						"__type": "IntGrid",
+						"__cWid": 4,
+						"__cHei": 1,
+						"__gridSize": 16,
+						"layerDefUid": 10,
+						"intGridCsv": [1, 2, 3, 4]
+					}
+				]
+			}
+		]
+	}`
+
+	// Default heuristic honors intGridValuesGroups ("Stone" in group "Solid" -> TileSolid).
+	defMap, err := tilemap.LoadLDtk([]byte(groupedLDtk), "L0", nil)
+	if err != nil {
+		t.Fatalf("LoadLDtk: %v", err)
+	}
+	if got := defMap.FlagsAt(0, 0); got != tilemap.TileSolid {
+		t.Fatalf("default Stone (group Solid) = %v, want TileSolid", got)
+	}
+
+	// LoadLDtkWith applies project-configured identifier, group, and numeric value rules (including explicit 0).
+	const flagHazard tilemap.TileFlags = 1 << 4
+	const flagBridgeExtra tilemap.TileFlags = 1 << 5
+	opts := tilemap.LDtkOptions{
+		IntGridFlags: map[string]tilemap.TileFlags{
+			"bridge":  tilemap.TileOneWay | flagBridgeExtra,
+			"hazards": flagHazard,
+			"decor":   0, // explicitly non-colliding
+		},
+		IntGridValueFlags: map[int]tilemap.TileFlags{
+			1: tilemap.TileSolid | tilemap.TileFlags(1<<3), // numeric rule overrides group
+		},
+	}
+	m, err := tilemap.LoadLDtkWith([]byte(groupedLDtk), "L0", opts)
+	if err != nil {
+		t.Fatalf("LoadLDtkWith: %v", err)
+	}
+	if got := m.FlagsAt(0, 0); got != (tilemap.TileSolid | tilemap.TileFlags(1<<3)) {
+		t.Fatalf("value 1 (Stone) = %v, want Solid|(1<<3)", got)
+	}
+	if got := m.FlagsAt(1, 0); got != (tilemap.TileOneWay | flagBridgeExtra) {
+		t.Fatalf("Bridge = %v, want OneWay|flagBridgeExtra", got)
+	}
+	if got := m.FlagsAt(2, 0); got != flagHazard {
+		t.Fatalf("Lava (group Hazards) = %v, want flagHazard", got)
+	}
+	if got := m.FlagsAt(3, 0); got != 0 {
+		t.Fatalf("Decor = %v, want 0 (explicitly cleared)", got)
+	}
+
+	// LoadLDtkAllWith and LoadLDtkWorldWith apply the same options.
+	all, err := tilemap.LoadLDtkAllWith([]byte(groupedLDtk), opts)
+	if err != nil || all["L0"].FlagsAt(2, 0) != flagHazard || all["L0"].FlagsAt(3, 0) != 0 {
+		t.Fatalf("LoadLDtkAllWith = (%v, %v)", all, err)
+	}
+	w, err := tilemap.LoadLDtkWorldWith([]byte(groupedLDtk), "", opts)
+	if err != nil {
+		t.Fatalf("LoadLDtkWorldWith: %v", err)
+	}
+	lm, err := w.Levels[0].Load()
+	if err != nil || lm.FlagsAt(1, 0) != (tilemap.TileOneWay|flagBridgeExtra) || lm.FlagsAt(3, 0) != 0 {
+		t.Fatalf("LoadLDtkWorldWith level = (%v, %v)", lm, err)
+	}
+}

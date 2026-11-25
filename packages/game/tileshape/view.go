@@ -62,11 +62,12 @@ type View struct {
 	shapes map[uint32]*tileGeom // the geometry of each gid's shapes, nil for none
 
 	// Whole-map results, each rebuilt on use after any chunk changes.
-	aggOK     aggregates
-	outline   []Segment
-	slopes    []physics.Slope
-	boxes     []physics.Box
-	occluders []lights2d.Occluder
+	aggOK        aggregates
+	outline      []Segment
+	slopes       []physics.Slope
+	boxes        []physics.Box
+	staticShapes []physics.Shape
+	occluders    []lights2d.Occluder
 
 	// Scratch space reused by every chunk build.
 	rawBuf  []edge
@@ -84,6 +85,7 @@ const (
 	aggOutline aggregates = 1 << iota
 	aggSlopes
 	aggBoxes
+	aggStaticShapes
 	aggOccluders
 )
 
@@ -194,7 +196,7 @@ func (v *View) Outline() []Segment {
 	return v.outline
 }
 
-// Boxes returns the solid whole cells merged into rectangles within each 16 by 16 chunk, followed by each solid tile shape that is an axis-aligned rectangle, such as a half tile, as static physics boxes; pass each to physics.NewStaticRigidBox for a physics.RigidWorld. Shapes of other forms have no box: use Outline or Slopes for them.
+// Boxes returns the solid whole cells and axis-aligned rectangular solid tile shapes (such as half tiles), merged across neighbours into maximal rectangles, as static physics boxes; pass each to physics.NewStaticRigidBox for a physics.RigidWorld. For non-rectangular partial shapes such as slopes, rounded corners, and ellipses, use StaticShapes, Outline, or Slopes.
 func (v *View) Boxes() []physics.Box {
 	if v.aggregate(aggBoxes) {
 		v.boxes = v.boxes[:0]
@@ -202,9 +204,68 @@ func (v *View) Boxes() []physics.Box {
 		v.eachChunk(func(ch *chunk) { v.boxes = append(v.boxes, ch.shapeBoxes...) })
 		if len(v.boxes) == 0 {
 			v.boxes = nil
+		} else {
+			v.boxes = mergeRects(v.boxes, 1e-4*max(v.tw, v.th))
 		}
 	}
 	return v.boxes
+}
+
+// StaticShapes returns static physics.Shape colliders for every solid whole cell and solid partial tile shape,
+// merged across neighbours where possible: maximal physics.Box shapes for solid cells and axis-aligned rectangular
+// partial tiles, merged convex physics.Polygon shapes for adjacent convex partial tiles (such as multi-tile slopes
+// and bevels), and closed physics.Chain shapes for concave or high-vertex partial shapes (such as ellipses).
+// Pass each shape to physics.NewStaticRigidBody or &physics.Body{Shape: s} to collide in RigidWorld or World.
+func (v *View) StaticShapes() []physics.Shape {
+	if v.aggregate(aggStaticShapes) {
+		v.staticShapes = v.staticShapes[:0]
+		boxes := v.Boxes()
+		for _, b := range boxes {
+			v.staticShapes = append(v.staticShapes, physics.BoxShape(b))
+		}
+		var polys []poly
+		v.eachChunk(func(ch *chunk) {
+			polys = append(polys, ch.shapePolys...)
+		})
+		eps := 1e-4 * max(v.tw, v.th)
+		for _, p := range mergeConvexPolys(polys, eps) {
+			if s, ok := polyToPhysicsShape(p, eps); ok {
+				v.staticShapes = append(v.staticShapes, s)
+			}
+		}
+		if len(v.staticShapes) == 0 {
+			v.staticShapes = nil
+		}
+	}
+	return v.staticShapes
+}
+
+// AppendStaticShapesIn appends to dst the static physics shapes of the chunks that r, grown by one cell and oversized-tile reach, overlaps, merged across those chunks.
+func (v *View) AppendStaticShapesIn(dst []physics.Shape, r core.Bounds) []physics.Shape {
+	c0, r0, c1, r1, ok := v.chunkRange(r)
+	if !ok {
+		return dst
+	}
+	var boxes []physics.Box
+	var polys []poly
+	for cy := r0; cy <= r1; cy++ {
+		for cx := c0; cx <= c1; cx++ {
+			ch := v.geomChunk(cx, cy)
+			boxes = append(boxes, ch.boxes...)
+			boxes = append(boxes, ch.shapeBoxes...)
+			polys = append(polys, ch.shapePolys...)
+		}
+	}
+	eps := 1e-4 * max(v.tw, v.th)
+	for _, b := range mergeRects(boxes, eps) {
+		dst = append(dst, physics.BoxShape(b))
+	}
+	for _, p := range mergeConvexPolys(polys, eps) {
+		if s, ok := polyToPhysicsShape(p, eps); ok {
+			dst = append(dst, s)
+		}
+	}
+	return dst
 }
 
 // Occluders returns Outline as lights2d occluders, one per 16 by 16 chunk with solid geometry, which cast the same shadows as a rectangle occluder per solid cell and a polygon occluder per solid shape. Assign the result to lights2d.Scene.Occluders again after the map changes: a change rebuilds only the chunks around it, and the others' segments are reused.
@@ -369,7 +430,7 @@ func (v *View) chunkRange(r core.Bounds) (c0, r0, c1, r1 int, ok bool) {
 // aggregate reports whether the whole-map result kind must be rebuilt, and marks it up to date; it clears every result when the map has no cells.
 func (v *View) aggregate(kind aggregates) bool {
 	if !v.sync() {
-		v.outline, v.slopes, v.boxes, v.occluders = nil, nil, nil, nil
+		v.outline, v.slopes, v.boxes, v.staticShapes, v.occluders = nil, nil, nil, nil, nil
 		return false
 	}
 	if v.aggOK&kind != 0 {
