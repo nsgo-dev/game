@@ -51,15 +51,40 @@ type Painter struct {
 	Fade, LightK float64
 	// Layer is the layer being drawn.
 	Layer Layer
+
+	clip               bool
+	cx0, cy0, cx1, cy1 float64
 }
 
-// Reset re-reads the frame and clears placement, fade and light strength.
+// Reset re-reads the frame and clears placement, fade, light strength and clip.
 func (p *Painter) Reset() *Painter {
 	f := p.Frame
 	p.W, p.H, p.OX, p.OY, p.C, p.L = f.W, f.H, f.OX, f.OY, f.Color, f.Light
 	p.TX, p.TY, p.FX, p.CS, p.SN = 0, 0, 1, 1, 0
 	p.Fade, p.LightK, p.Layer = 1, 1, LayerFront
+	p.clip = false
 	return p
+}
+
+// Clipped returns a copy of p drawing into the same frame that drops any pixel whose frame center falls outside [x0, x1) x [y0, y1) in local space.
+func (p *Painter) Clipped(x0, y0, x1, y1 float64) *Painter {
+	q := *p
+	if q.clip {
+		q.cx0, q.cy0 = math.Max(q.cx0, x0), math.Max(q.cy0, y0)
+		q.cx1, q.cy1 = math.Min(q.cx1, x1), math.Min(q.cy1, y1)
+	} else {
+		q.clip = true
+		q.cx0, q.cy0, q.cx1, q.cy1 = x0, y0, x1, y1
+	}
+	return &q
+}
+
+func (p *Painter) clipped(sx, sy int) bool {
+	if !p.clip {
+		return false
+	}
+	lx, ly := p.FromX(float64(sx)+0.5, float64(sy)+0.5), p.FromY(float64(sx)+0.5, float64(sy)+0.5)
+	return lx < p.cx0 || ly < p.cy0 || lx >= p.cx1 || ly >= p.cy1
 }
 
 // Place puts the effect's origin at (x, y) in frame space, mirrored if flip, rotated by angle (radians).
@@ -103,7 +128,7 @@ func (p *Painter) CellY(x, y float64) int {
 
 // Put writes color c at the frame pixel (sx, sy) at alpha a (0..1, faded by ordered dither). Color 0 means "nothing": it never erases what's there.
 func (p *Painter) Put(sx, sy int, c uint32, a float64) {
-	if c == 0 {
+	if p.clipped(sx, sy) || c == 0 {
 		return
 	}
 	a *= p.Fade
@@ -119,6 +144,9 @@ func (p *Painter) Put(sx, sy int, c uint32, a float64) {
 
 // Add adds k of color c's light to the frame pixel (sx, sy).
 func (p *Painter) Add(sx, sy int, c uint32, k float64) {
+	if p.clipped(sx, sy) {
+		return
+	}
 	k *= p.Fade * p.LightK
 	if k <= 0.004 {
 		return
@@ -137,6 +165,9 @@ func (p *Painter) Add(sx, sy int, c uint32, k float64) {
 
 // BlendPx blends color c over what's at the frame pixel (sx, sy) at alpha a (0..1), keeping the result's own alpha: soft smoke, vapour and mist. Use Dot for hard pixel fades and Blend for translucent volumes.
 func (p *Painter) BlendPx(sx, sy int, c uint32, a float64) {
+	if p.clipped(sx, sy) {
+		return
+	}
 	a *= p.Fade
 	if c == 0 || a <= 0.004 {
 		return

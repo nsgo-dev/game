@@ -132,6 +132,7 @@
 | `game/pixelfx/shadow` | 实验性 | [pixelfx](pixelfx.md) |
 | `game/pixelfx/spawn` | 实验性 | [pixelfx](pixelfx.md) |
 | `game/pixelfx/status` | 实验性 | [pixelfx](pixelfx.md) |
+| `game/pixelfx/transitions` | 实验性 | [pixelfx](pixelfx.md) |
 | `game/placeholder` | 实验性 | [占位素材](placeholder.md) |
 | `game/platformer` | 实验性 | [platformer](platformer.md) |
 | `game/presence` | 实验性 | [presence](presence.md) |

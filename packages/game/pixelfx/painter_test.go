@@ -116,3 +116,21 @@ func TestTextAndSprite(t *testing.T) {
 		t.Fatalf("the stock actor drew %d pixels and %#x in the corner", c, g.Color[0])
 	}
 }
+
+func TestPainterClipped(t *testing.T) {
+	f := pixelfx.NewFrame(16, 16, 0, 0)
+	p := f.Painter().Place(4, 4, false, 0).Clipped(0, 0, 8, 8)
+	p.Rect(-4, -4, 16, 16, pixelfx.White, 1)
+	p.Glow(0, 0, 6, pixelfx.Patch, 1)
+	for y := range 16 {
+		for x := range 16 {
+			inside := x >= 4 && x < 12 && y >= 4 && y < 12
+			if (f.Color[y*16+x] != 0) != inside {
+				t.Fatalf("color at (%d, %d): %#x, want inside=%v", x, y, f.Color[y*16+x], inside)
+			}
+			if !inside && f.Light[y*16+x] != 0 {
+				t.Fatalf("light leaked outside clip at (%d, %d): %#x", x, y, f.Light[y*16+x])
+			}
+		}
+	}
+}
