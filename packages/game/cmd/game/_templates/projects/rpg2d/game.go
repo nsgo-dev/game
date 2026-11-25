@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/nsgo-dev/game/packages/game/flow"
@@ -171,6 +172,8 @@ type Game struct {
 	// from and walk are the step the player is taking: the tile left and the time left, 0 when standing.
 	from Cell
 	walk time.Duration
+	// arriving is set when a foe started a battle while the player was stepping onto a tile, so the step finishes, picking up what lies there or taking the exit, once the battle is won or fled.
+	arriving bool
 
 	battle *battle
 	grace  time.Duration
@@ -178,6 +181,9 @@ type Game struct {
 	choice int
 	// won is set when the main quest completes, and shows modeWon once the conversation ends.
 	won bool
+
+	// slotsRead is what the save slots held when the menu page was last shown, read from storage once per page rather than on every step (readSlots).
+	slotsRead []slotRead
 
 	message     string
 	messageLeft time.Duration
@@ -221,7 +227,7 @@ func (g *Game) newProgress() progress {
 // startNewGame throws the current playthrough away and starts a new one in the town.
 func (g *Game) startNewGame() {
 	g.progress = g.newProgress()
-	g.battle, g.won, g.grace = nil, false, 0
+	g.battle, g.won, g.grace, g.arriving = nil, false, 0, false
 	g.enter(g.c.world.Start)
 	g.mode = modeField
 	g.say(g.level.Name)
@@ -707,9 +713,11 @@ func (g *Game) drinkPotion() {
 
 // --- Battles ---
 
-// startBattle starts a fight with f.
+// startBattle starts a fight with f. A step the player is taking is cut short and finished after the battle (finishStep).
 func (g *Game) startBattle(f *foeState) {
-	g.walk = 0
+	if g.walk > 0 {
+		g.walk, g.arriving = 0, true
+	}
 	g.battle = &battle{foe: f, hp: f.kind.HP}
 	g.battle.say(fmt.Sprintf("%s blocks your way!", f.kind.Name))
 	g.showMenu(modeBattle, pageBattle)
@@ -751,6 +759,15 @@ func (g *Game) attackFoe() {
 	g.mode = modeField
 	g.say(won)
 	g.quests.Handle(quest.Defeated{Enemy: kind.ID, Amount: 1}.Event())
+	g.finishStep()
+}
+
+// finishStep completes the step a battle cut short, once the player is back on the map.
+func (g *Game) finishStep() {
+	if g.arriving {
+		g.arriving = false
+		g.arrive()
+	}
 }
 
 // foeTurn lets the foe strike, ending the game when the player's HP runs out.
@@ -761,7 +778,7 @@ func (g *Game) foeTurn() {
 	b.hurt = flashTime
 	b.say(fmt.Sprintf("%s hits you for %d.", b.foe.kind.Name, n))
 	if g.hp == 0 {
-		g.battle = nil
+		g.battle, g.arriving = nil, false
 		g.showMenu(modeLost, pageLost)
 	}
 }
@@ -775,6 +792,7 @@ func (g *Game) flee() {
 	g.mode = modeField
 	g.grace = fleeGrace
 	g.say("You got away.")
+	g.finishStep()
 }
 
 // say shows a message over the game for a while.
@@ -782,9 +800,12 @@ func (g *Game) say(text string) {
 	g.message, g.messageLeft = text, messageTime
 }
 
-// amount names n of an item: "a Potion" or "3 Coin".
+// amount names n of an item: "a Potion", "an Iron Sword" or "3 Coin".
 func amount(name string, n int) string {
 	if n == 1 {
+		if name != "" && strings.ContainsRune("AEIOUaeiou", rune(name[0])) {
+			return "an " + name
+		}
 		return "a " + name
 	}
 	return fmt.Sprintf("%d %s", n, name)

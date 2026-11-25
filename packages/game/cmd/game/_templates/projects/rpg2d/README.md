@@ -28,7 +28,7 @@ Every control is in `game.yaml`'s input map, so rebinding one is an edit there.
 | Back, open the pack | Escape or Backspace | East (B) | The B button |
 | Open and close the pack | Tab | Start | The Pack button |
 
-The on-screen pad is drawn on phones and tablets. Menus are buttons, so a tap or a click picks an entry too.
+The on-screen pad is drawn on phones and tablets, and on other devices once the map is touched or clicked. Menus are buttons, so a tap or a click picks an entry too.
 
 ## How it is organised
 

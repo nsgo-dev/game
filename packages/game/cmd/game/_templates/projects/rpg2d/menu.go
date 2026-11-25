@@ -42,12 +42,14 @@ type menuView struct {
 // showMenu switches to mode m showing page, its first entry selected.
 func (g *Game) showMenu(m mode, page string) {
 	g.mode, g.page, g.back, g.sel = m, page, "", 0
+	g.readSlots()
 	g.rev++
 }
 
 // showPage shows page in the current mode, cancel returning to the page shown now.
 func (g *Game) showPage(page string) {
 	g.back, g.page, g.sel = g.page, page, 0
+	g.readSlots()
 	g.rev++
 }
 
@@ -147,7 +149,7 @@ func (g *Game) battleMenu() menuView {
 		bottom: true,
 		items: []menuItem{
 			{id: "attack", label: "Attack", run: g.attackFoe},
-			{id: "potion", label: fmt.Sprintf("Potion (%d)", potions), disabled: potions == 0, run: g.drinkPotion},
+			{id: "potion", label: fmt.Sprintf("Potion (%d)", potions), disabled: potions == 0 || g.hp >= maxHP(&g.progress), run: g.drinkPotion},
 			{id: "flee", label: "Flee", disabled: b.foe.kind.Boss, run: g.flee},
 		},
 	}
@@ -160,12 +162,12 @@ func (g *Game) slotMenu(saving bool) menuView {
 		v.title = "Save game"
 	}
 	for i, slot := range slots {
-		summary, ok := g.slotSummary(slot)
-		item := menuItem{id: slot, label: fmt.Sprintf("Slot %d · %s", i+1, summary)}
+		read := g.slotsRead[i]
+		item := menuItem{id: slot, label: fmt.Sprintf("Slot %d · %s", i+1, read.summary)}
 		if saving {
 			item.run = func() { g.saveTo(slot) }
 		} else {
-			item.disabled = !ok
+			item.disabled = !read.ok
 			item.run = func() { g.loadFrom(slot) }
 		}
 		v.items = append(v.items, item)
@@ -230,6 +232,7 @@ func (g *Game) menuBack() {
 	switch {
 	case g.back != "":
 		g.page, g.back, g.sel = g.back, "", 0
+		g.readSlots()
 		g.rev++
 	case g.mode == modeMenu:
 		g.closeMenu()

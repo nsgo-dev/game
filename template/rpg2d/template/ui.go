@@ -71,7 +71,7 @@ type app struct {
 	actions  *input.Actions
 	viewport screen.Viewport
 	scenes   *scene.Manager
-	// size is the stage's size in the window; touch is whether to draw the touch pad.
+	// size is the stage's size in the window; touch is whether to draw the on-screen pad, from the start on phones and tablets and from the first press on the stage elsewhere, since game.yaml binds the pad's regions to the mouse as well as to touch.
 	size  core.Size
 	touch bool
 	// prev is the direction read last step; tap is a press on the stage waiting for the next step.
@@ -185,8 +185,9 @@ func (a *app) node() core.Node {
 		TestID:   "stage",
 		NoFocus:  true,
 		OnLayout: func(b core.Bounds) { a.size = b.Size },
-		// A tap or click picks a conversation's option or moves the conversation on.
+		// A tap or click picks a conversation's option or moves the conversation on, and shows the on-screen pad for playing on.
 		OnPressDown: func(ev core.PressEvent) {
+			a.touch = true
 			if p, ok := a.viewport.ViewToGame(a.size, ev.Position); ok {
 				a.tap = &p
 			}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"unicode/utf8"
 
 	"go.yaml.in/yaml/v3"
@@ -24,7 +25,7 @@ type World struct {
 	// Tiles is the legend of the maps' rows: one character per kind of tile.
 	Tiles []TileDef `yaml:"tiles"`
 	// Foes are the kinds of enemy a map can place.
-	Foes []FoeDef `yaml:"foes"`
+	Foes []FoeDef `yaml:"foes,omitempty"`
 	// Maps are the places the player walks, the first one the town.
 	Maps []MapDef `yaml:"maps"`
 }
@@ -166,7 +167,35 @@ func ParseWorld(data []byte) (*World, error) {
 	if err := w.Validate(); err != nil {
 		return nil, err
 	}
+	w.normalize()
 	return &w, nil
+}
+
+// normalize turns the empty lists of w into nil, as EncodeWorld leaves them out, so that an explicit `exits: []` and no exits at all load as the same World.
+func (w *World) normalize() {
+	if len(w.Foes) == 0 {
+		w.Foes = nil
+	}
+	for i := range w.Maps {
+		m := &w.Maps[i]
+		if len(m.Exits) == 0 {
+			m.Exits = nil
+		}
+		if len(m.People) == 0 {
+			m.People = nil
+		}
+		if len(m.Foes) == 0 {
+			m.Foes = nil
+		}
+		if len(m.Items) == 0 {
+			m.Items = nil
+		}
+		for j := range m.Foes {
+			if len(m.Foes[j].Patrol) == 0 {
+				m.Foes[j].Patrol = nil
+			}
+		}
+	}
 }
 
 // EncodeWorld validates w and writes it as 2-space YAML with fields in schema order, which ParseWorld reads back to the same World.
@@ -186,7 +215,7 @@ func EncodeWorld(w *World) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// Validate checks w: the version; a positive tile size; one-character tile keys used once; foe kinds with an ID, a name and positive HP; maps with unique IDs whose rows are equally long and use only tile keys; and exits, people, foes and items on walkable tiles inside their map, with exits leading to walkable tiles of maps that exist and IDs unique across the world.
+// Validate checks w: the version; a positive tile size; one-character tile keys used once; foe kinds with an ID, a name and positive HP; maps with unique IDs whose rows are equally long and use only tile keys; and exits, people, foes and items on walkable tiles inside their map, with exits leading to walkable tiles of maps that exist and IDs unique across the world. No two people, foes, or a person and an item, foe, exit or arrival share a tile, and a foe's patrol, walked as the game walks it (columns first, then rows, back to its start at the end), never crosses a solid tile, a person or a foe that stands still.
 func (w *World) Validate() error {
 	if w == nil {
 		return errors.New("world: nil world")
@@ -275,11 +304,38 @@ func (w *World) Validate() error {
 		}
 		return nil
 	}
+	// people and still are where each map's people and its foes without a patrol stand, which nothing else may share and patrols may not cross.
+	people := map[string]map[Cell]string{}
+	still := map[string]map[Cell]string{}
+	for i := range w.Maps {
+		m := &w.Maps[i]
+		people[m.ID], still[m.ID] = map[Cell]string{}, map[Cell]string{}
+		for _, p := range m.People {
+			if other, ok := people[m.ID][p.At]; ok {
+				return fmt.Errorf("world: map %q: person %q stands on %v with %q", m.ID, p.ID, p.At, other)
+			}
+			people[m.ID][p.At] = p.ID
+		}
+		for _, f := range m.Foes {
+			if len(f.Patrol) == 0 {
+				still[m.ID][f.At] = f.ID
+			}
+		}
+	}
+	free := func(m *MapDef, c Cell, what string) error {
+		if p, ok := people[m.ID][c]; ok {
+			return fmt.Errorf("world: map %q: %s at %v is where person %q stands", m.ID, what, c, p)
+		}
+		return nil
+	}
 	start := maps[w.Start.Map]
 	if start == nil {
 		return fmt.Errorf("world: start map %q does not exist", w.Start.Map)
 	}
 	if err := walkable(start, w.Start.At, "the start"); err != nil {
+		return err
+	}
+	if err := free(start, w.Start.At, "the start"); err != nil {
 		return err
 	}
 	for i := range w.Maps {
@@ -288,11 +344,17 @@ func (w *World) Validate() error {
 			if err := walkable(m, e.At, "an exit"); err != nil {
 				return err
 			}
+			if err := free(m, e.At, "an exit"); err != nil {
+				return err
+			}
 			to := maps[e.To.Map]
 			if to == nil {
 				return fmt.Errorf("world: map %q: exit at %v leads to map %q, which does not exist", m.ID, e.At, e.To.Map)
 			}
 			if err := walkable(to, e.To.At, "the arrival of an exit from "+m.ID); err != nil {
+				return err
+			}
+			if err := free(to, e.To.At, "the arrival of an exit from "+m.ID); err != nil {
 				return err
 			}
 		}
@@ -307,6 +369,7 @@ func (w *World) Validate() error {
 				return err
 			}
 		}
+		foeAt := map[Cell]string{}
 		for _, f := range m.Foes {
 			if err := unique("foe", f.ID); err != nil {
 				return err
@@ -317,10 +380,31 @@ func (w *World) Validate() error {
 			if err := walkable(m, f.At, "foe "+f.ID); err != nil {
 				return err
 			}
+			if err := free(m, f.At, "foe "+f.ID); err != nil {
+				return err
+			}
+			if other, ok := foeAt[f.At]; ok {
+				return fmt.Errorf("world: map %q: foe %q starts on %v with foe %q", m.ID, f.ID, f.At, other)
+			}
+			foeAt[f.At] = f.ID
 			for _, c := range f.Patrol {
 				if err := walkable(m, c, "a patrol stop of foe "+f.ID); err != nil {
 					return err
 				}
+			}
+			if err := walkPatrol(f, func(c Cell) error {
+				if err := walkable(m, c, "the patrol of foe "+f.ID); err != nil {
+					return err
+				}
+				if err := free(m, c, "the patrol of foe "+f.ID); err != nil {
+					return err
+				}
+				if other, ok := still[m.ID][c]; ok {
+					return fmt.Errorf("world: map %q: the patrol of foe %q crosses %v, where foe %q stands still", m.ID, f.ID, c, other)
+				}
+				return nil
+			}); err != nil {
+				return err
 			}
 		}
 		for _, it := range m.Items {
@@ -331,6 +415,35 @@ func (w *World) Validate() error {
 				return fmt.Errorf("world: item %q needs an item and no negative count", it.ID)
 			}
 			if err := walkable(m, it.At, "item "+it.ID); err != nil {
+				return err
+			}
+			if err := free(m, it.At, "item "+it.ID); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// walkPatrol calls visit with every tile f steps onto in one round of its patrol, walked as the game walks it: from At to each stop in turn and back to At, along columns first and then rows, the way updateFoe moves it.
+func walkPatrol(f Foe, visit func(Cell) error) error {
+	if len(f.Patrol) == 0 {
+		return nil
+	}
+	at := f.At
+	for _, goal := range append(slices.Clone(f.Patrol), f.At) {
+		for at != goal {
+			switch {
+			case goal.X() < at.X():
+				at[0]--
+			case goal.X() > at.X():
+				at[0]++
+			case goal.Y() < at.Y():
+				at[1]--
+			default:
+				at[1]++
+			}
+			if err := visit(at); err != nil {
 				return err
 			}
 		}

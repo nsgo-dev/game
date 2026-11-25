@@ -80,7 +80,7 @@ func (g *Game) restore(s saveFile) error {
 	p.hp = min(max(s.HP, 1), maxHP(&p))
 	p.facing = s.Facing
 	g.progress = p
-	g.battle, g.won, g.grace = nil, false, 0
+	g.battle, g.won, g.grace, g.arriving = nil, false, 0, false
 	g.enter(Place{Map: s.Map, At: s.At})
 	return nil
 }
@@ -91,6 +91,7 @@ func (g *Game) saveTo(slot string) {
 		g.say("Could not save: " + err.Error())
 		return
 	}
+	g.readSlots()
 	g.closeMenu()
 	g.say("Saved to " + slotName(slot) + ".")
 }
@@ -126,10 +127,25 @@ func (g *Game) slotSummary(slot string) (string, bool) {
 	return fmt.Sprintf("%s · HP %d", name, s.HP), true
 }
 
-// anySave reports whether any slot holds a save.
-func (g *Game) anySave() bool {
+// slotRead is what a save slot held when readSlots last looked: slotSummary's description, and whether it holds a save.
+type slotRead struct {
+	summary string
+	ok      bool
+}
+
+// readSlots reads every save slot's summary into g.slotsRead. The menus show the slots from there, since they are built on every fixed step and storage is too slow to read that often.
+func (g *Game) readSlots() {
+	g.slotsRead = g.slotsRead[:0]
 	for _, slot := range slots {
-		if g.store.Exists(slot) {
+		summary, ok := g.slotSummary(slot)
+		g.slotsRead = append(g.slotsRead, slotRead{summary, ok})
+	}
+}
+
+// anySave reports whether any slot held a save when readSlots last looked.
+func (g *Game) anySave() bool {
+	for _, r := range g.slotsRead {
+		if r.ok {
 			return true
 		}
 	}
