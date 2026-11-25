@@ -474,31 +474,42 @@ func (w *RigidWorld) AddBody(bodies ...*RigidBody) {
 	}
 }
 
-// RemoveBody deletes the first occurrence of b from w.Bodies, preserving the order of remaining bodies.
+// RemoveBody deletes the first occurrence of b from w.Bodies, preserving the order of remaining bodies, and wakes any sleeping bodies that touched or were jointed to b.
 func (w *RigidWorld) RemoveBody(b *RigidBody) bool {
 	for i, existing := range w.Bodies {
 		if existing == b {
 			w.Bodies = append(w.Bodies[:i], w.Bodies[i+1:]...)
+			if b != nil {
+				w.wakePartners(b)
+			}
 			return true
 		}
 	}
 	return false
 }
 
-// AddJoint appends non-nil joints to w.Joints.
+// AddJoint appends non-nil joints to w.Joints and wakes any sleeping bodies they connect.
 func (w *RigidWorld) AddJoint(joints ...Joint) {
 	for _, j := range joints {
 		if j != nil {
 			w.Joints = append(w.Joints, j)
+			a, b := jointPair(j)
+			a.wakeIfSleeping()
+			b.wakeIfSleeping()
 		}
 	}
 }
 
-// RemoveJoint deletes the first occurrence of j from w.Joints, preserving the order of remaining joints.
+// RemoveJoint deletes the first occurrence of j from w.Joints, preserving the order of remaining joints, and wakes any sleeping bodies it connected.
 func (w *RigidWorld) RemoveJoint(j Joint) bool {
 	for i, existing := range w.Joints {
 		if existing == j {
 			w.Joints = append(w.Joints[:i], w.Joints[i+1:]...)
+			if j != nil {
+				a, b := jointPair(j)
+				a.wakeIfSleeping()
+				b.wakeIfSleeping()
+			}
 			return true
 		}
 	}

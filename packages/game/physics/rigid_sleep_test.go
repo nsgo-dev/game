@@ -330,3 +330,171 @@ func TestRigidMouseJointWakesAndHoldsBody(t *testing.T) {
 		t.Fatalf("crate at y=%v, want lifted toward the target at y=40", crate.Y)
 	}
 }
+
+func TestRigidRemoveSupportSaveRestoreMatchesOriginal(t *testing.T) {
+	// Removing a sleeping stack's static floor and saving before the next Step must produce bit-identical wake and fall behavior after Restore.
+	w := &physics.RigidWorld{GravityY: 600}
+	floor := physics.NewStaticRigidBox(100, 110, 400, 20)
+	bottom := physics.NewRigidBox(100, 90, 20, 20, 1)
+	top := physics.NewRigidBox(100, 70, 20, 20, 1)
+	w.AddBody(floor, bottom, top)
+	for range 120 {
+		w.Step(step)
+	}
+	if !bottom.Sleeping() || !top.Sleeping() {
+		t.Fatalf("stack did not sleep: bottom=%v top=%v", bottom.Sleeping(), top.Sleeping())
+	}
+	if !w.RemoveBody(floor) {
+		t.Fatal("RemoveBody(floor) returned false")
+	}
+	raw, err := json.Marshal(w.Save())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snap physics.RigidWorldSnapshot
+	if err := json.Unmarshal(raw, &snap); err != nil {
+		t.Fatal(err)
+	}
+	fresh := &physics.RigidWorld{}
+	if err := fresh.Restore(snap); err != nil {
+		t.Fatal(err)
+	}
+	for range 30 {
+		w.Step(step)
+		fresh.Step(step)
+	}
+	if bottom.Sleeping() || top.Sleeping() {
+		t.Fatalf("original stack stayed asleep: bottom=%v top=%v", bottom.Sleeping(), top.Sleeping())
+	}
+	if bottom.Y <= 110 || top.Y <= 90 {
+		t.Fatalf("original stack did not fall: bottom.Y=%v top.Y=%v", bottom.Y, top.Y)
+	}
+	if fresh.Bodies[0].Sleeping() || fresh.Bodies[1].Sleeping() {
+		t.Fatalf("restored stack stayed asleep: bottom=%v top=%v", fresh.Bodies[0].Sleeping(), fresh.Bodies[1].Sleeping())
+	}
+	if got, want := fresh.Checksum(), w.Checksum(); got != want {
+		t.Fatalf("restored checksum %#x != original %#x", got, want)
+	}
+}
+
+func TestRigidJointSleepWakeOnAnchorAndMutations(t *testing.T) {
+	settleHanging := func(t *testing.T) (*physics.RigidWorld, *physics.RigidBody, *physics.RigidBody, physics.Joint) {
+		t.Helper()
+		w := &physics.RigidWorld{GravityY: 600}
+		anchor := physics.NewStaticRigidBox(100, 40, 10, 10)
+		bob := physics.NewRigidBox(100, 100, 20, 20, 1)
+		bob.LinearDamping = 2
+		j := physics.NewDistanceJoint(anchor, bob, core.Point{}, core.Point{}, 60)
+		w.AddBody(anchor, bob)
+		w.AddJoint(j)
+		for range 120 {
+			w.Step(step)
+		}
+		if !bob.Sleeping() {
+			t.Fatal("hanging bob did not sleep")
+		}
+		return w, anchor, bob, j
+	}
+
+	t.Run("move static anchor", func(t *testing.T) {
+		w, anchor, bob, _ := settleHanging(t)
+		anchor.X += 60
+		for range 30 {
+			w.Step(step)
+		}
+		if bob.Sleeping() {
+			t.Fatal("bob stayed asleep after its static joint anchor moved")
+		}
+		if bob.X <= 110 {
+			t.Fatalf("bob did not follow moved anchor: bob.X=%v", bob.X)
+		}
+	})
+
+	t.Run("remove static anchor", func(t *testing.T) {
+		w, anchor, bob, _ := settleHanging(t)
+		if !w.RemoveBody(anchor) {
+			t.Fatal("RemoveBody(anchor) returned false")
+		}
+		if bob.Sleeping() {
+			t.Fatal("RemoveBody(anchor) did not wake jointed bob immediately")
+		}
+	})
+
+	t.Run("remove static anchor by slice edit", func(t *testing.T) {
+		w, _, bob, _ := settleHanging(t)
+		w.Bodies = []*physics.RigidBody{bob}
+		w.Step(step)
+		if bob.Sleeping() {
+			t.Fatal("bob stayed asleep after static joint anchor left w.Bodies")
+		}
+	})
+
+	t.Run("RemoveJoint", func(t *testing.T) {
+		w, _, bob, j := settleHanging(t)
+		startY := bob.Y
+		if !w.RemoveJoint(j) {
+			t.Fatal("RemoveJoint returned false")
+		}
+		if bob.Sleeping() {
+			t.Fatal("RemoveJoint did not wake sleeping bob")
+		}
+		for range 20 {
+			w.Step(step)
+		}
+		if bob.Y <= startY+10 {
+			t.Fatalf("bob did not fall after RemoveJoint: startY=%v y=%v", startY, bob.Y)
+		}
+	})
+
+	t.Run("AddJoint", func(t *testing.T) {
+		w := &physics.RigidWorld{GravityY: 600}
+		floor := physics.NewStaticRigidBox(200, 110, 600, 20)
+		left := physics.NewRigidBox(100, 90, 20, 20, 1)
+		right := physics.NewRigidBox(220, 90, 20, 20, 1)
+		left.Friction = 0
+		right.Friction = 0
+		w.AddBody(floor, left, right)
+		for range 120 {
+			w.Step(step)
+		}
+		if !left.Sleeping() || !right.Sleeping() {
+			t.Fatalf("crates did not sleep: left=%v right=%v", left.Sleeping(), right.Sleeping())
+		}
+		w.AddJoint(physics.NewSpringJoint(left, right, core.Point{}, core.Point{}, 40, 200, 5))
+		if left.Sleeping() || right.Sleeping() {
+			t.Fatalf("AddJoint did not wake sleeping crates: left=%v right=%v", left.Sleeping(), right.Sleeping())
+		}
+		for range 20 {
+			w.Step(step)
+		}
+		if right.X-left.X >= 115 {
+			t.Fatalf("spring joint did not pull woken crates together: dist=%v", right.X-left.X)
+		}
+	})
+}
+
+func TestRigidNaNVelocityDoesNotSleep(t *testing.T) {
+	nan := float32(math.NaN())
+	cases := []struct {
+		name string
+		set  func(b *physics.RigidBody)
+	}{
+		{"linear VX", func(b *physics.RigidBody) { b.VX = nan }},
+		{"linear VY", func(b *physics.RigidBody) { b.VY = nan }},
+		{"angular", func(b *physics.RigidBody) { b.AngularVel = nan }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := &physics.RigidWorld{}
+			b := physics.NewRigidBox(100, 100, 20, 20, 1)
+			tc.set(b)
+			w.AddBody(b)
+			for i := range 90 {
+				w.Step(step)
+				if b.Sleeping() {
+					t.Fatalf("%s = NaN slept at step %d", tc.name, i)
+				}
+			}
+		})
+	}
+}
