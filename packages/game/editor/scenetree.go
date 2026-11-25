@@ -232,39 +232,94 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 			Gap:         6,
 		},
 		Children: []core.Node{
-			core.Text{
-				Content: "Scene",
-				Style:   core.Style{FontSize: 13, FontWeight: 700, Color: colors.Text()},
+			ui.HStack{
+				Gap: 4,
+				Children: []core.Node{
+					ui.ToggleButton{
+						TestID: "scene-tree-tab-local",
+						Text:   "Scene",
+						On: func() bool {
+							_ = rev.Get()
+							return ed.SceneTreeTab() == SceneTreeLocal
+						},
+						OnChange: func(on bool) {
+							if on {
+								ed.SetSceneTreeTab(SceneTreeLocal)
+							}
+						},
+					},
+					ui.ToggleButton{
+						TestID: "scene-tree-tab-remote",
+						Text:   "Remote",
+						On: func() bool {
+							_ = rev.Get()
+							return ed.SceneTreeTab() == SceneTreeRemote
+						},
+						OnChange: func(on bool) {
+							if on {
+								ed.SetSceneTreeTab(SceneTreeRemote)
+							}
+						},
+					},
+					core.Show{
+						When: func() bool {
+							_ = rev.Get()
+							return ed.RemoteConnected()
+						},
+						Then: func(cx *core.Scope) core.Node {
+							return core.View{
+								TestID: "scene-tree-remote-live-dot",
+								Style: core.Style{
+									Width:        core.Pt(7),
+									Height:       core.Pt(7),
+									CornerRadius: 4,
+									Background:   colors.Up(),
+								},
+							}
+						},
+					},
+				},
 			},
-			dragdrop.Area{Children: []core.Node{ui.Tree{
-				TestID:   "scene-tree",
-				Label:    "Scene Tree",
-				Roots:    roots,
-				Children: func(key any) []any { k, _ := key.(sceneTreeKey); return children(k) },
-				Expanded: func(key any) bool { k, _ := key.(sceneTreeKey); return expanded(k) },
-				OnExpand: func(key any, on bool) {
-					if k, ok := key.(sceneTreeKey); ok {
-						setOpen(k, on)
-					}
+			core.Show{
+				When: func() bool {
+					_ = rev.Get()
+					return ed.SceneTreeTab() == SceneTreeRemote
 				},
-				OnActivate: func(key any) {
-					if k, ok := key.(sceneTreeKey); ok {
-						startEdit(k, editName)
-					}
+				Then: func(cx *core.Scope) core.Node {
+					return remoteSceneTreeView(cx, ed, rev)
 				},
-				RowLabel: func(key any) string {
-					k, _ := key.(sceneTreeKey)
-					if k.id == "" {
-						return "Layer " + k.layer
-					}
-					return k.id
+				Else: func(cx *core.Scope) core.Node {
+					return dragdrop.Area{Children: []core.Node{ui.Tree{
+						TestID:   "scene-tree",
+						Label:    "Scene Tree",
+						Roots:    roots,
+						Children: func(key any) []any { k, _ := key.(sceneTreeKey); return children(k) },
+						Expanded: func(key any) bool { k, _ := key.(sceneTreeKey); return expanded(k) },
+						OnExpand: func(key any, on bool) {
+							if k, ok := key.(sceneTreeKey); ok {
+								setOpen(k, on)
+							}
+						},
+						OnActivate: func(key any) {
+							if k, ok := key.(sceneTreeKey); ok {
+								startEdit(k, editName)
+							}
+						},
+						RowLabel: func(key any) string {
+							k, _ := key.(sceneTreeKey)
+							if k.id == "" {
+								return "Layer " + k.layer
+							}
+							return k.id
+						},
+						ToggleLabel: "Expand",
+						Selection:   selection,
+						Row:         row,
+						Ref:         listRef,
+						Style:       core.Style{FlexGrow: 1, FlexBasis: core.Pt(0)},
+					}}}
 				},
-				ToggleLabel: "Expand",
-				Selection:   selection,
-				Row:         row,
-				Ref:         listRef,
-				Style:       core.Style{FlexGrow: 1, FlexBasis: core.Pt(0)},
-			}}},
+			},
 		},
 	}
 }

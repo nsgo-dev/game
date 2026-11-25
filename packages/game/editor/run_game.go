@@ -24,6 +24,8 @@ var ErrRunGameUnsupported = errors.New("editor: running the game is only support
 type RunGameOptions struct {
 	// StartAtOpenScene passes the currently open scene (when it belongs to the open project) to `game dev -scene <path>` and sets hotreload.SceneEnv in the child environment.
 	StartAtOpenScene bool
+	// Automation passes `-automation` to `game dev` and connects the editor's remote scene tree and inspector to the running game over MCP.
+	Automation bool
 	// ExtraArgs are optional extra arguments appended after `go tool game dev` (and `-scene <path>` when set).
 	ExtraArgs []string
 }
@@ -63,6 +65,7 @@ type gameRunState struct {
 	active           *gameRun
 	lastErr          error
 	startAtOpenScene bool
+	automation       bool
 	scope            *core.Scope
 }
 
@@ -106,10 +109,35 @@ func (e *Editor) SetRunStartAtOpenScene(startAtOpen bool) {
 	}
 }
 
-// RunGame launches `go tool game dev` in the open project's directory using the editor's RunStartAtOpenScene setting.
+// RunWithAutomation reports whether RunGame passes `-automation` and connects the editor's Remote tab and inspector to the running game over MCP.
+func (e *Editor) RunWithAutomation() bool {
+	if e == nil {
+		return false
+	}
+	e.gameRun.mu.Lock()
+	defer e.gameRun.mu.Unlock()
+	return e.gameRun.automation
+}
+
+// SetRunWithAutomation toggles whether RunGame launches the game with `-automation` and connects the editor's Remote inspector.
+func (e *Editor) SetRunWithAutomation(on bool) {
+	if e == nil {
+		return
+	}
+	e.gameRun.mu.Lock()
+	changed := e.gameRun.automation != on
+	e.gameRun.automation = on
+	e.gameRun.mu.Unlock()
+	if changed {
+		e.notify()
+	}
+}
+
+// RunGame launches `go tool game dev` in the open project's directory using the editor's RunStartAtOpenScene and RunWithAutomation settings.
 func (e *Editor) RunGame() error {
 	return e.RunGameWith(RunGameOptions{
 		StartAtOpenScene: e.RunStartAtOpenScene(),
+		Automation:       e.RunWithAutomation(),
 	})
 }
 
@@ -145,9 +173,14 @@ func (e *Editor) RunGameWith(opts RunGameOptions) error {
 			env = setEnvVar(env, hotreload.SceneEnv, scenePath)
 		}
 	}
+	hasAutomationArg := slices.Contains(opts.ExtraArgs, "-automation") || slices.Contains(opts.ExtraArgs, "--automation")
+	if opts.Automation && !hasAutomationArg {
+		args = append(args, "-automation")
+	}
 	if len(opts.ExtraArgs) > 0 {
 		args = append(args, opts.ExtraArgs...)
 	}
+	connectRemote := opts.Automation || hasAutomationArg
 
 	spec := RunGameSpec{
 		Dir:   projectDir,
@@ -189,10 +222,17 @@ func (e *Editor) RunGameWith(opts RunGameOptions) error {
 	e.setStatusWithoutLogging("Running game")
 	e.notify()
 
+	if connectRemote {
+		e.startRemoteAutoConnect(spec, run.done)
+	}
+
 	go func() {
 		waitErr := proc.Wait()
 		stdoutWriter.Flush()
 		stderrWriter.Flush()
+		if connectRemote {
+			_ = e.DisconnectRemote()
+		}
 
 		stoppedByUser := run.stopping.Load()
 		var exitStatus string
@@ -249,6 +289,7 @@ func (e *Editor) StopGame() error {
 		return nil
 	}
 	run.stopping.Store(true)
+	_ = e.DisconnectRemote()
 	stopErr := run.proc.Stop()
 	<-run.done
 	e.setStatusWithoutLogging("Game stopped")
@@ -288,8 +329,9 @@ func (e *Editor) Close() error {
 		playErr = e.Stop()
 	}
 	profErr := e.DisconnectProfiler()
+	remoteErr := e.DisconnectRemote()
 	stopErr := e.StopGame()
-	return errors.Join(stopErr, playErr, profErr)
+	return errors.Join(stopErr, remoteErr, playErr, profErr)
 }
 
 func (e *Editor) openRunSceneRelPath() string {

@@ -109,6 +109,7 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 	e.stopExportBuild()
 	e.stopAssetsBuild()
 	e.resetInputMapTransient()
+	_ = e.DisconnectRemote()
 	_ = e.StopGame()
 	e.clip = nil
 	e.clipMeta = clipMeta{}

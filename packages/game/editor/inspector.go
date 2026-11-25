@@ -309,6 +309,9 @@ func (e *Editor) lookupComponentType(cn string) (sceneformat.ComponentType, bool
 // so InspectorView only remounts controls when selection or field layout changes
 // (preserving input focus during value edits).
 func inspectorSchemaKey(ed *Editor) string {
+	if shouldShowRemoteInspector(ed) {
+		return "remote"
+	}
 	if rel, kind := ed.inspectedImportAsset(); rel != "" {
 		return "asset:" + string(kind) + ":" + rel
 	}
@@ -440,7 +443,13 @@ func InspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 		},
 		Children: []core.Node{
 			core.Text{
-				Content: "Inspector",
+				ContentFunc: func() string {
+					_ = rev.Get()
+					if shouldShowRemoteInspector(ed) {
+						return "Remote Inspector"
+					}
+					return "Inspector"
+				},
 				Style: core.Style{
 					FontSize:   13,
 					FontWeight: 700,
@@ -457,6 +466,9 @@ func InspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 				Children: []core.Node{
 					core.Dynamic(func(cx *core.Scope) core.Node {
 						key := schema.Get()
+						if key == "remote" {
+							return remoteInspectorView(cx, ed, rev)
+						}
 						if key == "" {
 							return core.Text{
 								TestID:  "inspector-empty",
