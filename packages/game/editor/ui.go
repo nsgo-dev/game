@@ -124,6 +124,7 @@ func mainRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []core.Node {
 		pluginDockView(cx, ed, rev, DockLeft),
 		ViewportView(cx, ed, rev),
 		TilePaletteView(cx, ed, rev),
+		GridMapPaletteView(cx, ed, rev),
 		InspectorView(cx, ed, rev),
 		pluginDockView(cx, ed, rev, DockRight),
 	)
@@ -176,7 +177,7 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 			Disabled: notPlaying,
 			On: func() bool {
 				_ = rev.Get()
-				return ed.GizmoMode == mode
+				return ed.GizmoMode == mode && ed.GridMapTool() == GridMapToolNone
 			},
 			OnChange: func(on bool) {
 				if on {
@@ -202,6 +203,24 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 		}
 	}
 
+	gridMapBtn := func(testID, label string, tool GridMapTool) core.Node {
+		return ui.ToggleButton{
+			TestID:   testID,
+			Text:     label,
+			Disabled: notPlaying,
+			On: func() bool {
+				_ = rev.Get()
+				return ed.GridMapTool() == tool
+			},
+			OnChange: func(on bool) {
+				if on {
+					ed.SetGridMapTool(tool)
+				} else if ed.GridMapTool() == tool {
+					ed.SetGridMapTool(GridMapToolNone)
+				}
+			},
+		}
+	}
 	// The edit tools and the 2D view group make the bar wider than a narrow window; it wraps, moving the file and play buttons to a second row rather than past the window's edge, where they cannot be pressed.
 	return core.View{
 		TestID: "editor-toolbar",
@@ -288,6 +307,23 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 									toolBtn("tool-erase", "Erase", ToolEraseTile),
 									toolBtn("tool-fill", "Fill", ToolFillTile),
 									toolBtn("tool-pick", "Pick", ToolPickTile),
+								},
+							}
+						},
+					},
+					core.Show{
+						When: func() bool {
+							_ = rev.Get()
+							return ed.ViewMode == ViewMode3D
+						},
+						Then: func(cx *core.Scope) core.Node {
+							return ui.ToolbarGroup{
+								Label: "GridMap",
+								Children: []core.Node{
+									gridMapBtn("gridmap-tool-paint", "Paint", GridMapToolPaint),
+									gridMapBtn("gridmap-tool-erase", "Erase", GridMapToolErase),
+									gridMapBtn("gridmap-tool-pick", "Pick", GridMapToolPick),
+									gridMapBtn("gridmap-tool-boxfill", "Box", GridMapToolBoxFill),
 								},
 							}
 						},
@@ -612,6 +648,9 @@ func statusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 								mode = "Play"
 							}
 							if ed.ViewMode == ViewMode3D {
+								if gt := ed.GridMapTool(); gt != GridMapToolNone {
+									return fmt.Sprintf("Mode: %s | View: 3D %s (GridMap %s, Y=%d, Orient=%d/24) | Layer: %s", mode, ed.viewStatus3D(), gt.String(), ed.GridMapFloor(), ed.GridMapOrientation(), ed.activeLayerReadout())
+								}
 								return fmt.Sprintf("Mode: %s | View: 3D %s | Gizmo: %s | Layer: %s", mode, ed.viewStatus3D(), ed.GizmoMode.String(), ed.activeLayerReadout())
 							}
 							status := fmt.Sprintf("Mode: %s | View: 2D %.0f%% | Tool: %s | Layer: %s", mode, ed.View2D().Zoom*100, ed.toolLabel(), ed.activeLayerReadout())

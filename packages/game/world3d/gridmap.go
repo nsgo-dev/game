@@ -1,6 +1,8 @@
 package world3d
 
 import (
+	"cmp"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -112,6 +114,82 @@ func GridOrientationMat4(orient uint8) math3d.Mat4 {
 	return gridOrientations[orient%GridOrientationCount]
 }
 
+// GridAxis identifies a principal 3D axis for 90-degree GridMap item rotations.
+type GridAxis int
+
+const (
+	// GridAxisX is the world X axis.
+	GridAxisX GridAxis = iota
+	// GridAxisY is the world Y axis.
+	GridAxisY
+	// GridAxisZ is the world Z axis.
+	GridAxisZ
+)
+
+var gridAxisQuarterTurns = [3][4]math3d.Mat4{
+	// GridAxisX: 0°, 90°, 180°, 270° around +X
+	{
+		math3d.Mat4Identity(),
+		{1, 0, 0, 0, 0, 0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1},
+		{1, 0, 0, 0, 0, -1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1},
+		{1, 0, 0, 0, 0, 0, -1, 0, 0, 1, 0, 0, 0, 0, 0, 1},
+	},
+	// GridAxisY: 0°, 90°, 180°, 270° around +Y
+	{
+		math3d.Mat4Identity(),
+		{0, 0, -1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1},
+		{-1, 0, 0, 0, 0, 1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1},
+		{0, 0, 1, 0, 0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 0, 1},
+	},
+	// GridAxisZ: 0°, 90°, 180°, 270° around +Z
+	{
+		math3d.Mat4Identity(),
+		{0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1},
+		{-1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1},
+		{0, -1, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1},
+	},
+}
+
+// FindGridOrientation returns the orientation index (0..23) whose exact
+// orthogonal rotation matrix matches the upper-left 3x3 of m, or (0, false) if
+// none does.
+func FindGridOrientation(m math3d.Mat4) (uint8, bool) {
+	for i := range GridOrientationCount {
+		o := gridOrientations[i]
+		if math.Abs(float64(m[0]-o[0])) < 1e-4 &&
+			math.Abs(float64(m[1]-o[1])) < 1e-4 &&
+			math.Abs(float64(m[2]-o[2])) < 1e-4 &&
+			math.Abs(float64(m[4]-o[4])) < 1e-4 &&
+			math.Abs(float64(m[5]-o[5])) < 1e-4 &&
+			math.Abs(float64(m[6]-o[6])) < 1e-4 &&
+			math.Abs(float64(m[8]-o[8])) < 1e-4 &&
+			math.Abs(float64(m[9]-o[9])) < 1e-4 &&
+			math.Abs(float64(m[10]-o[10])) < 1e-4 {
+			return uint8(i), true
+		}
+	}
+	return 0, false
+}
+
+// RotateGridOrientation applies quarterTurns 90-degree rotations around axis
+// (world-space X, Y, or Z) to orient and returns the resulting orientation in
+// 0..23. Composing X, Y, and Z quarter-turns reaches all 24 cube orientations.
+func RotateGridOrientation(orient uint8, axis GridAxis, quarterTurns int) uint8 {
+	orient %= GridOrientationCount
+	if axis < GridAxisX || axis > GridAxisZ {
+		return orient
+	}
+	turns := ((quarterTurns % 4) + 4) % 4
+	if turns == 0 {
+		return orient
+	}
+	combined := gridAxisQuarterTurns[axis][turns].Mul(gridOrientations[orient])
+	if next, ok := FindGridOrientation(combined); ok {
+		return next
+	}
+	return orient
+}
+
 // MeshTileDef describes a modular 3D tile stored in a MeshLibrary.
 type MeshTileDef struct {
 	ID            uint16
@@ -219,6 +297,25 @@ func (l *MeshLibrary) Len() int {
 	return len(l.byID)
 }
 
+// Items returns all tile definitions registered in the library sorted by
+// ascending ID. Each returned entry owns a copy of its ColliderBoxes.
+func (l *MeshLibrary) Items() []MeshTileDef {
+	if l == nil || len(l.byID) == 0 {
+		return nil
+	}
+	out := make([]MeshTileDef, 0, len(l.byID))
+	for _, def := range l.byID {
+		if len(def.ColliderBoxes) > 0 {
+			def.ColliderBoxes = slices.Clone(def.ColliderBoxes)
+		}
+		out = append(out, def)
+	}
+	slices.SortFunc(out, func(a, b MeshTileDef) int {
+		return cmp.Compare(a.ID, b.ID)
+	})
+	return out
+}
+
 // Revision returns a counter that changes whenever Add replaces or registers a
 // definition, so caches derived from the library can invalidate.
 func (l *MeshLibrary) Revision() uint64 {
@@ -257,17 +354,45 @@ type gltfAccessor struct {
 	Max []float32 `json:"max"`
 }
 
-// LoadMeshLibraryFromGLTF parses a glTF 2.0 JSON document's nodes, meshes, and
-// POSITION accessor min/max bounds to build a MeshLibrary without external
-// dependencies. Each node referencing a mesh becomes a MeshTileDef whose
-// MeshID is the glTF mesh index, MaterialID is the first primitive's material
-// index (or 0 if omitted), LocalBounds is the union of all primitive POSITION
-// accessor bounds, and ColliderBoxes defaults to LocalBounds when present.
+// LoadMeshLibraryFromGLTF parses a glTF 2.0 JSON (.gltf) or binary (.glb)
+// document's nodes, meshes, and POSITION accessor min/max bounds to build a
+// MeshLibrary without external dependencies. Each node referencing a mesh
+// becomes a MeshTileDef whose MeshID is the glTF mesh index, MaterialID is the
+// first primitive's material index (or 0 if omitted), LocalBounds is the union
+// of all primitive POSITION accessor bounds, and ColliderBoxes defaults to
+// LocalBounds when present.
 //
 // Its errors are *loaderr.Error values that give the line and field of the problem and how to fix it; a caller that read the document from a file names it with loaderr.WithFile.
 func LoadMeshLibraryFromGLTF(gltfJSON []byte) (*MeshLibrary, error) {
+	if len(gltfJSON) >= 4 && binary.LittleEndian.Uint32(gltfJSON[:4]) == 0x46546C67 {
+		jsonChunk, err := extractGLBJSONChunk(gltfJSON)
+		if err != nil {
+			return nil, loaderr.Locate(err, "", nil, fixGLTFLibrary)
+		}
+		lib, err := loadMeshLibraryFromGLTF(jsonChunk)
+		return lib, loaderr.Locate(err, "", nil, fixGLTFLibrary)
+	}
 	lib, err := loadMeshLibraryFromGLTF(gltfJSON)
 	return lib, loaderr.Locate(err, "", gltfJSON, fixGLTFLibrary)
+}
+
+func extractGLBJSONChunk(data []byte) ([]byte, error) {
+	if len(data) < 20 {
+		return nil, loaderr.Errorf("", fixGLTFLibrary, "truncated glTF binary (.glb) header")
+	}
+	version := binary.LittleEndian.Uint32(data[4:8])
+	if version != 2 {
+		return nil, &loaderr.Error{Field: "asset.version", Problem: fmt.Sprintf("unsupported GLB version %d", version), Expected: "2", Fix: fixGLTFLibrary}
+	}
+	chunkLen := binary.LittleEndian.Uint32(data[12:16])
+	chunkType := binary.LittleEndian.Uint32(data[16:20])
+	if chunkType != 0x4E4F534A {
+		return nil, loaderr.Errorf("", fixGLTFLibrary, "first GLB chunk is not JSON")
+	}
+	if uint64(20)+uint64(chunkLen) > uint64(len(data)) {
+		return nil, loaderr.Errorf("", fixGLTFLibrary, "truncated GLB JSON chunk")
+	}
+	return data[20 : 20+chunkLen], nil
 }
 
 // fixGLTFLibrary is the fix for a mesh library error that has no more specific one.
@@ -545,6 +670,21 @@ func (g *GridMap) Cell(c GridCoord) (GridCell, bool) {
 	}
 	cell, ok := ch.cells[c]
 	return cell, ok
+}
+
+// EachCell calls fn for every occupied cell in the GridMap until fn returns
+// false or all cells have been visited.
+func (g *GridMap) EachCell(fn func(c GridCoord, cell GridCell) bool) {
+	if g == nil || fn == nil || g.count == 0 {
+		return
+	}
+	for _, ch := range g.chunks {
+		for c, cell := range ch.cells {
+			if !fn(c, cell) {
+				return
+			}
+		}
+	}
 }
 
 // FillBox sets every cell in the inclusive coordinate box [minC, maxC] to

@@ -550,7 +550,7 @@ func (e *Editor) GizmoLength3D(pos [3]float32) float32 {
 
 // PickGizmo3D hit-tests the active 3D gizmo handles on the currently selected object in screen space.
 func (e *Editor) PickGizmo3D(sx, sy, w, h float32) GizmoAxis3D {
-	if e == nil || e.playing || w <= 0 || h <= 0 {
+	if e == nil || e.playing || e.gridMap.tool != GridMapToolNone || w <= 0 || h <= 0 {
 		return Axis3DNone
 	}
 	obj, _ := e.SelectedObject()
@@ -1051,6 +1051,9 @@ func (e *Editor) DrawViewport3D(d *core.Drawing, size core.Size) {
 	// 4. Projected 3D wireframe bounding boxes for the visible scene objects.
 	e.drawSceneObjects3D(d, w, h, overlay)
 
+	// 4a. Active 3D GridMap floor, occupied cells, and hover/box-fill preview.
+	e.drawGridMap3D(d, w, h)
+
 	// 4b. Projected 3D physics collider and trigger debug wireframes.
 	e.drawPhysicsDebug3D(d, w, h)
 
@@ -1059,8 +1062,8 @@ func (e *Editor) DrawViewport3D(d *core.Drawing, size core.Size) {
 		e.drawWireframe3D(d, s3, w, h)
 	}
 
-	// 6. Active 3D transform gizmo on the selected object.
-	if !e.playing {
+	// 6. Active 3D transform gizmo on the selected object (hidden while painting a GridMap).
+	if !e.playing && e.gridMap.tool == GridMapToolNone {
 		e.drawGizmo3D(d, w, h)
 	}
 }

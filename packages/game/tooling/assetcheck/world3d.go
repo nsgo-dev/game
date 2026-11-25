@@ -45,9 +45,13 @@ func (c *checker) meshLibrary(p string) *meshLibInfo {
 
 // checkGridMap checks the 3D grid map at p: that world3d.ParseGridMap parses
 // and validates it, that its referenced meshLibrary exists (and loads as glTF
-// 2.0 when named *.gltf), and that every box and cell tile name exists in that
-// mesh library.
+// 2.0 when named *.gltf or *.glb), and that every box and cell tile name exists
+// in that mesh library.
 func (c *checker) checkGridMap(p string) {
+	if c.checked[p] {
+		return
+	}
+	c.checked[p] = true
 	c.report.GridMaps++
 	data, ok := c.readFile(p)
 	if !ok {
@@ -65,10 +69,16 @@ func (c *checker) checkGridMap(p string) {
 	}
 	proj := c.projectRoot(path.Dir(p))
 	if doc.MeshLibrary == "" {
+		if len(doc.Boxes) > 0 {
+			c.problem(p, yamlLine(&root, []string{"boxes", "0", "tile"}), "grid map box tile %q: meshLibrary is required to resolve tile names", doc.Boxes[0].Tile)
+		} else if len(doc.Cells) > 0 {
+			c.problem(p, yamlLine(&root, []string{"cells", "0", "tile"}), "grid map cell tile %q: meshLibrary is required to resolve tile names", doc.Cells[0].Tile)
+		}
 		return
 	}
 	libPath, ok := c.fileRef(p, yamlLine(&root, []string{"meshLibrary"}), proj, doc.MeshLibrary, "mesh library")
-	if !ok || !strings.EqualFold(path.Ext(libPath), ".gltf") {
+	ext := strings.ToLower(path.Ext(libPath))
+	if !ok || (ext != ".gltf" && ext != ".glb") {
 		return
 	}
 	info := c.meshLibrary(libPath)

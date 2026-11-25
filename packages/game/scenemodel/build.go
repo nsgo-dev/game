@@ -1,10 +1,12 @@
 package scenemodel
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"image"
 	"math"
+	"slices"
 
 	"github.com/nsgo-dev/game/packages/game/gltf"
 	"github.com/nsgo-dev/game/packages/game/math3d"
@@ -12,6 +14,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/resource"
 	"github.com/nsgo-dev/game/packages/game/scene3d"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
+	"github.com/nsgo-dev/game/packages/game/world3d"
 )
 
 // AttachmentKey is the scene3d.Node attachment under which Build stores the *Drawable of each node that draws geometry, so code that holds a node, such as an editor's picking, can find what it draws with scene3d.AttachmentAs.
@@ -73,8 +76,10 @@ type Drawable struct {
 type Built struct {
 	// Nodes3D holds the layer and object nodes, as sceneformat.BuildNodes3D builds them.
 	sceneformat.Nodes3D
-	// Drawables are the nodes that draw geometry, depth first in document order: an object's node, then the nodes made for its model's nodes, then its child objects.
+	// Drawables are the nodes that draw geometry, depth first in document order: an object's node, then the nodes made for its model's nodes or grid map instances, then its child objects.
 	Drawables []*Drawable
+	// GridMaps maps each object ID that named ObjectDoc.GridMap to its constructed runtime *world3d.GridMap, for collision queries, raycasting, or custom instancing.
+	GridMaps map[string]*world3d.GridMap
 	// Meshes and Materials count the distinct MeshID and MaterialID values the parts use.
 	Meshes, Materials int
 }
@@ -83,12 +88,13 @@ type Built struct {
 //
 //   - ObjectDoc.Mesh, a built-in primitive (PrimitiveMesh), drawn on the object's node with the object's material, or with a white, non-metallic, fully rough surface when it names none;
 //   - ObjectDoc.Model, a glTF model loaded through models: with ModelMesh, that mesh drawn on the object's node; with ModelNode, that node's mesh drawn on the object's node and each of its descendants as a child node with its own transform; and with neither, a child node for each root node of the model's default scene (or of its first scene, or every parentless node when it has none) and their descendants. The model's materials are used unless the object names a material file, which replaces them all.
+//   - ObjectDoc.GridMap, a 3D grid map loaded through a GridMapResolver and its glTF mesh library through models, instanced with world3d.GridMap.BuildInstances as child nodes of the object's node sharing the tile meshes and materials, with the built *world3d.GridMap recorded in Built.GridMaps.
 //
 // A node Build makes for a glTF node is named after it, and is added after the object's child objects. Every node that draws gets its geometry's bounds as its LocalBounds and its *Drawable as the attachment AttachmentKey. A model draws in its bind pose with its meshes' default morph weights applied; skins, cameras, lights, animations and vertex colors are not used, nor are points and lines. A primitive without normals draws flat-shaded, and the base color texture's UV set and KHR_texture_transform are applied to the UVs.
 //
-// models may be nil when no object names a model. It must implement sceneformat.MaterialResolver when an object names a material file, and ImageResolver when such a file names a texture; Assets does both. A material file is read when Build runs: build again to see it edited.
+// models may be nil when no object names a model or grid map. It must implement sceneformat.MaterialResolver when an object names a material file, ImageResolver when such a file names a texture, and GridMapResolver when an object names a grid map; Assets does all four. A material file is read when Build runs: build again to see it edited.
 //
-// Build returns an error and leaves parent unchanged when doc is invalid or still instances or inherits other scene files (pass it through sceneformat.Resolve first), when parent is nil, or when a model, node, mesh, material or image cannot be loaded or found.
+// Build returns an error and leaves parent unchanged when doc is invalid or still instances or inherits other scene files (pass it through sceneformat.Resolve first), when parent is nil, or when a model, node, mesh, grid map, material or image cannot be loaded or found.
 func Build(doc *sceneformat.SceneDoc, parent *scene3d.Node, models ModelResolver) (*Built, error) {
 	if parent == nil {
 		return nil, scene3d.ErrNilNode
@@ -99,9 +105,10 @@ func Build(doc *sceneformat.SceneDoc, parent *scene3d.Node, models ModelResolver
 		return nil, err
 	}
 	b := &builder{
-		built:     &Built{Nodes3D: *nodes},
+		built:     &Built{Nodes3D: *nodes, GridMaps: make(map[string]*world3d.GridMap)},
 		models:    models,
 		docs:      make(map[string]*gltf.Document),
+		gridMaps:  make(map[string]*world3d.GridMapDoc),
 		meshIDs:   make(map[meshKey]uint32),
 		matIDs:    make(map[materialKey]uint32),
 		gltfMats:  make(map[materialKey]Material),
@@ -168,6 +175,7 @@ type builder struct {
 	built     *Built
 	models    ModelResolver
 	docs      map[string]*gltf.Document
+	gridMaps  map[string]*world3d.GridMapDoc
 	meshIDs   map[meshKey]uint32
 	matIDs    map[materialKey]uint32
 	gltfMats  map[materialKey]Material
@@ -194,6 +202,8 @@ func (b *builder) object(o *sceneformat.ObjectDoc, n *scene3d.Node) error {
 		return nil
 	case o.Model != "":
 		return b.model(o, n)
+	case o.GridMap != "":
+		return b.gridMap(o, n)
 	}
 	return nil
 }
@@ -314,6 +324,169 @@ func (b *builder) loadModel(path string) (*gltf.Document, error) {
 	}
 	b.docs[path] = doc
 	return doc, nil
+}
+
+// loadGridMap loads the grid map document at path through the resolver's GridMapResolver once.
+func (b *builder) loadGridMap(path string) (*world3d.GridMapDoc, error) {
+	if doc, ok := b.gridMaps[path]; ok {
+		return doc, nil
+	}
+	gr, ok := b.models.(GridMapResolver)
+	if !ok {
+		return nil, fmt.Errorf("gridMap %q requires a ModelResolver that is also a GridMapResolver", path)
+	}
+	doc, err := gr.GridMap(path)
+	if err != nil {
+		return nil, fmt.Errorf("gridMap %q: %w", path, err)
+	}
+	if doc == nil {
+		return nil, fmt.Errorf("gridMap %q: the GridMapResolver returned no document", path)
+	}
+	b.gridMaps[path] = doc
+	return doc, nil
+}
+
+// gridMap loads the GridMap document and its glTF mesh library for object o, builds the runtime *world3d.GridMap, and instances its tiles under node n via world3d.GridMap.BuildInstances.
+func (b *builder) gridMap(o *sceneformat.ObjectDoc, n *scene3d.Node) error {
+	gdoc, err := b.loadGridMap(o.GridMap)
+	if err != nil {
+		return err
+	}
+	if gdoc.MeshLibrary == "" {
+		gm, err := gdoc.Build(nil)
+		if err != nil {
+			return fmt.Errorf("gridMap %q: %w", o.GridMap, err)
+		}
+		b.built.GridMaps[o.ID] = gm
+		return nil
+	}
+	gltfDoc, err := b.loadModel(gdoc.MeshLibrary)
+	if err != nil {
+		return fmt.Errorf("gridMap %q: %w", o.GridMap, err)
+	}
+	lib := meshLibraryFromGLTF(gltfDoc)
+	gm, err := gdoc.Build(lib)
+	if err != nil {
+		return fmt.Errorf("gridMap %q: %w", o.GridMap, err)
+	}
+	b.built.GridMaps[o.ID] = gm
+	if bounds := gm.Bounds(); !bounds.Empty() {
+		n.SetLocalBounds(bounds)
+	}
+
+	batches := gm.BuildInstances(nil, nil)
+	g := gltfObject{builder: b, doc: gltfDoc, object: o.ID, override: o.Material}
+	for _, batch := range batches {
+		mi := int(batch.MeshID)
+		if mi < 0 || mi >= len(gltfDoc.Meshes) {
+			return fmt.Errorf("gridMap %q: invalid mesh index %d", o.GridMap, mi)
+		}
+		parts, err := g.meshParts(mi, nil)
+		if err != nil {
+			return fmt.Errorf("gridMap %q: %w", o.GridMap, err)
+		}
+		if len(parts) == 0 {
+			continue
+		}
+		// Sort instance transforms deterministically by position (Y, Z, X) then matrix entries so Built.Drawables is reproducible across runs.
+		transforms := slices.Clone(batch.Transforms)
+		slices.SortFunc(transforms, compareMat4)
+		for idx, xform := range transforms {
+			cn := scene3d.NewNode(fmt.Sprintf("%s_grid_%d_%d", o.ID, batch.MeshID, idx))
+			cn.Local = math3d.Transform{
+				Pos:   math3d.Vec3{X: xform[12], Y: xform[13], Z: xform[14]},
+				Rot:   math3d.QuatFromMat4(xform),
+				Scale: math3d.Vec3One(),
+			}
+			if err := n.AddChild(cn); err != nil {
+				return fmt.Errorf("gridMap %q instance %d: %w", o.GridMap, idx, err)
+			}
+			b.attach(o.ID, cn, parts)
+		}
+	}
+	return nil
+}
+
+// meshLibraryFromGLTF builds a *world3d.MeshLibrary from a parsed *gltf.Document using the same node/mesh naming and bounds rules as world3d.LoadMeshLibraryFromGLTF.
+func meshLibraryFromGLTF(doc *gltf.Document) *world3d.MeshLibrary {
+	lib := world3d.NewMeshLibrary()
+	if doc == nil {
+		return lib
+	}
+	addMesh := func(name string, meshIdx int) {
+		if meshIdx < 0 || meshIdx >= len(doc.Meshes) {
+			return
+		}
+		mesh := &doc.Meshes[meshIdx]
+		if name == "" {
+			name = mesh.Name
+		}
+		if name == "" {
+			name = fmt.Sprintf("mesh_%d", meshIdx)
+		}
+		var matID uint32
+		hasMat := false
+		bounds := math3d.AABBEmpty()
+		for i := range mesh.Primitives {
+			prim := &mesh.Primitives[i]
+			if !hasMat && prim.Material >= 0 {
+				matID = uint32(prim.Material)
+				hasMat = true
+			}
+			if !prim.Bounds.Empty() {
+				bounds = bounds.Union(prim.Bounds)
+			} else {
+				for _, p := range prim.Positions {
+					bounds = bounds.ExpandPoint(p)
+				}
+			}
+		}
+		var colliders []math3d.AABB
+		if !bounds.Empty() {
+			colliders = []math3d.AABB{bounds}
+		}
+		lib.Add(world3d.MeshTileDef{
+			Name:          name,
+			MeshID:        uint32(meshIdx),
+			MaterialID:    matID,
+			LocalBounds:   bounds,
+			ColliderBoxes: colliders,
+		})
+	}
+
+	if len(doc.Nodes) > 0 {
+		for i := range doc.Nodes {
+			node := &doc.Nodes[i]
+			if node.Mesh < 0 || node.Mesh >= len(doc.Meshes) {
+				continue
+			}
+			name := node.Name
+			if name == "" {
+				name = doc.Meshes[node.Mesh].Name
+			}
+			if name == "" {
+				name = fmt.Sprintf("tile_%d", i)
+			}
+			addMesh(name, node.Mesh)
+		}
+	} else {
+		for meshIdx := range doc.Meshes {
+			addMesh(doc.Meshes[meshIdx].Name, meshIdx)
+		}
+	}
+	return lib
+}
+
+func compareMat4(a, b math3d.Mat4) int {
+	if c := cmp.Or(cmp.Compare(a[13], b[13]), cmp.Compare(a[14], b[14]), cmp.Compare(a[12], b[12])); c != 0 {
+		return c
+	}
+	for i := range 12 {
+		if c := cmp.Compare(a[i], b[i]); c != 0 {
+			return c
+		}
+	}
+	return 0
 }
 
 // FindNode returns the index of the first node of doc named name, or -1 when none is, as sceneformat.ObjectDoc.ModelNode looks it up.

@@ -215,6 +215,7 @@ func (e *Editor) followMove(root, from, to string, written []refs.Write) {
 	e.syncProjectAssets()
 	moveFile(&e.clipMeta.path)
 	e.followDataTableMove(moveFile)
+	e.followGridMapMove(moveFile, movePath)
 	e.filesRev++
 	e.assetsRev++
 	e.followSearchMove(forth)
@@ -296,16 +297,17 @@ func moveScenePaths(doc *sceneformat.SceneDoc, move func(*string)) {
 			move(&o.Scene)
 			move(&o.Material)
 			move(&o.Model)
+			move(&o.GridMap)
 			moveOverrides(o.Overrides, move)
 			return true
 		})
 	}
 }
 
-// moveOverrides applies move to the material and model paths of every override in ovs.
+// moveOverrides applies move to the material, model, and gridMap paths of every override in ovs.
 func moveOverrides(ovs map[string]sceneformat.ObjectOverride, move func(*string)) {
 	for id, ov := range ovs {
-		for _, p := range []**string{&ov.Material, &ov.Model} {
+		for _, p := range []**string{&ov.Material, &ov.Model, &ov.GridMap} {
 			if *p != nil {
 				v := **p
 				move(&v)

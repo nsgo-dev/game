@@ -1063,13 +1063,13 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 				TestID:      "inspector-mesh",
 				Label:       "Mesh",
 				Placeholder: "None",
-				// An object that draws a glTF model cannot also draw a primitive, which SetObjectMesh refuses.
+				// An object that draws a glTF model or GridMap cannot also draw a primitive, which SetObjectMesh refuses.
 				Disabled: func() bool {
 					if disabled() {
 						return true
 					}
 					o, _, _ := ed.FindObject(objID)
-					return o != nil && o.Model != ""
+					return o != nil && (o.Model != "" || o.GridMap != "")
 				},
 				Options: meshOptions(),
 				Value: func() string {
@@ -1087,6 +1087,57 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 				},
 			}),
 			fieldRow("Model", modelField(ed, rev, objID, disabled)),
+			fieldRow("GridMap", ui.Select[string]{
+				TestID:      "inspector-gridmap",
+				Label:       "GridMap",
+				Placeholder: "None",
+				Searchable:  true,
+				Disabled: func() bool {
+					if disabled() {
+						return true
+					}
+					o, _, _ := ed.FindObject(objID)
+					return o != nil && (o.Mesh != "" || o.Model != "")
+				},
+				OptionsFunc: func() []ui.Option[string] {
+					_ = rev.Get()
+					cur := ""
+					if o, _, _ := ed.FindObject(objID); o != nil {
+						cur = o.GridMap
+					}
+					files := ed.projectGridMaps()
+					opts := make([]ui.Option[string], 0, len(files)+1)
+					listed := false
+					for _, f := range files {
+						listed = listed || f == cur
+						opts = append(opts, ui.Option[string]{Value: f, Label: f})
+					}
+					if cur != "" && !listed {
+						opts = append([]ui.Option[string]{{Value: cur, Label: cur}}, opts...)
+					}
+					return opts
+				},
+				Value: func() string {
+					_ = rev.Get()
+					if o, _, _ := ed.FindObject(objID); o != nil {
+						return o.GridMap
+					}
+					return ""
+				},
+				OnChange: func(gm string) {
+					if err := ed.SetObjectGridMap(objID, gm); err != nil {
+						ed.Status = err.Error()
+						ed.notify()
+						return
+					}
+					if gm != "" {
+						ed.autoOpenSceneGridMap()
+					}
+				},
+				OnClear: func() {
+					ed.report(ed.SetObjectGridMap(objID, ""))
+				},
+			}),
 		)
 	}
 

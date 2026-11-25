@@ -115,6 +115,9 @@ func (s *sceneCheck) sceneRefs(doc *sceneformat.SceneDoc, reg *sceneformat.Compo
 		if o := byID[ov.id]; o != nil && o.Model != "" && (ov.model != nil || ov.modelNode != nil || ov.modelMesh != nil) {
 			s.overrideModel(o, ov)
 		}
+		if o := byID[ov.id]; o != nil && o.GridMap != "" && ov.gridMap != nil {
+			s.gridMap(o.GridMap, s.line(append(slices.Clip(ov.steps), "gridMap")...))
+		}
 	}
 	missing := false
 	for i, c := range conns {
@@ -210,17 +213,17 @@ func (s *sceneCheck) resolvedConnections(resolved *sceneformat.SceneDoc, merged 
 // duplicatePrefix starts the message of a sceneformat.ConnectionError for a connection that repeats an earlier one, which ends with the earlier one's index.
 const duplicatePrefix = "connects the same event and handler as connection "
 
-// objectOverride is an override a scene applies to an object of a scene it instances or inherits: the object's ID in the resolved scene, the components it changes, the model, node and mesh it sets, nil when it leaves them, and the steps to it in the scene file.
+// objectOverride is an override a scene applies to an object of a scene it instances or inherits: the object's ID in the resolved scene, the components it changes, the model, node, mesh and gridMap it sets, nil when it leaves them, and the steps to it in the scene file.
 type objectOverride struct {
-	id                          string
-	components                  map[string]any
-	model, modelNode, modelMesh *string
-	steps                       []string
+	id                                   string
+	components                           map[string]any
+	model, modelNode, modelMesh, gridMap *string
+	steps                                []string
 }
 
 // newObjectOverride returns the objectOverride for ov, which changes the object id of the resolved scene and is found at steps in the scene file.
 func newObjectOverride(id string, ov *sceneformat.ObjectOverride, steps []string) objectOverride {
-	return objectOverride{id: id, components: ov.Components, model: ov.Model, modelNode: ov.ModelNode, modelMesh: ov.ModelMesh, steps: steps}
+	return objectOverride{id: id, components: ov.Components, model: ov.Model, modelNode: ov.ModelNode, modelMesh: ov.ModelMesh, gridMap: ov.GridMap, steps: steps}
 }
 
 // overrides returns the overrides doc applies, those of SceneDoc.Overrides first and then those of its instances in document order, each sorted by ID.
@@ -315,7 +318,17 @@ func (s *sceneCheck) objects(objs []sceneformat.ObjectDoc, steps ...string) {
 			at := func(key string) int { return s.line(append(slices.Clip(op), key)...) }
 			s.model(o.Model, o.ModelNode, o.ModelMesh, at("model"), at("modelNode"), at("modelMesh"), true)
 		}
+		if o.GridMap != "" {
+			s.gridMap(o.GridMap, s.line(append(slices.Clip(op), "gridMap")...))
+		}
 		s.objects(o.Children, append(slices.Clip(op), "children")...)
+	}
+}
+
+// gridMap checks that ref, a 3D grid map file named from the project root, exists and checks it if not already checked.
+func (s *sceneCheck) gridMap(ref string, line int) {
+	if p, ok := s.fileRef(s.path, line, s.project, ref, "grid map"); ok && !s.checked[p] {
+		s.checkGridMap(p)
 	}
 }
 

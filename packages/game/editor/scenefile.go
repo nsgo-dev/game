@@ -26,9 +26,9 @@ func (e *Editor) SceneDirty() bool {
 	return err != nil || !bytes.Equal(data, e.sceneSaved)
 }
 
-// HasUnsavedChanges reports whether the open scene or the open project has edits that are not saved (SceneDirty, ProjectDirty), which opening another scene, New Scene and quitting would lose.
+// HasUnsavedChanges reports whether the open scene, open project, or open GridMap has edits that are not saved (SceneDirty, ProjectDirty, GridMapDirty), which opening another scene, New Scene and quitting would lose.
 func (e *Editor) HasUnsavedChanges() bool {
-	return e.SceneDirty() || e.ProjectDirty()
+	return e.SceneDirty() || e.ProjectDirty() || e.GridMapDirty()
 }
 
 // SceneLabel names the open scene as the toolbar and window title show it: its path from the project root (ScenePath) when it has one, else its file's path (FilePath), else "Untitled".
@@ -69,13 +69,14 @@ func (e *Editor) Save() error {
 	if e.playing {
 		return ErrPlaying
 	}
-	// A drag in progress is put back first, so the file holds the scene as it was before the drag and not a half-dragged object; a tile stroke under way is recorded first so the file and history agree.
+	// A drag in progress is put back first, so the file holds the scene as it was before the drag and not a half-dragged object; a tile or GridMap stroke under way is recorded first so the file and history agree.
 	e.CancelDrag2D()
 	e.CancelCameraDrag()
 	e.cancelBackgroundPreview()
 	e.endTileStrokeForChange()
 	// The view is kept beside the project rather than in the scene, so saving records it whether or not the scene has edits.
 	e.saveViewStateQuietly()
+	e.endGridMapStrokeForChange()
 	projectSaved := false
 	if e.ProjectDirty() {
 		if err := e.SaveProject(); err != nil {
@@ -83,9 +84,16 @@ func (e *Editor) Save() error {
 		}
 		projectSaved = true
 	}
+	gridMapSaved := false
+	if e.GridMapDirty() && (e.OnSaveGridMap != nil || e.gridMap.filePath != "") {
+		if err := e.SaveGridMap(); err != nil {
+			return err
+		}
+		gridMapSaved = true
+	}
 	if !e.SceneDirty() && (e.OnSave != nil || e.FilePath == "" || fileExists(e.FilePath)) {
 		// Rewriting an unedited scene would only drop its comments and hand-kept layout.
-		if !projectSaved {
+		if !projectSaved && !gridMapSaved {
 			e.Status = "No unsaved changes"
 			e.notify()
 		}
@@ -169,11 +177,12 @@ func (e *Editor) SaveSceneAs(rel string) (string, error) {
 	if e.playing {
 		return "", ErrPlaying
 	}
-	// A drag in progress is put back first, so the file holds the scene as it was before the drag; a tile stroke under way is recorded first so the file and history agree.
+	// A drag in progress is put back first, so the file holds the scene as it was before the drag; a tile or GridMap stroke under way is recorded first so the file and history agree.
 	e.CancelDrag2D()
 	e.CancelCameraDrag()
 	e.cancelBackgroundPreview()
 	e.endTileStrokeForChange()
+	e.endGridMapStrokeForChange()
 	rel = withSceneExt(rel)
 	abs, err := e.sceneTarget(rel)
 	if err != nil {
@@ -216,12 +225,13 @@ func (e *Editor) RevertScene() error {
 	if err != nil {
 		return err
 	}
-	// A drag or tile stroke in progress is put back first, so Undo of the revert brings back the scene as it was before it.
+	// A drag or tile/GridMap stroke in progress is put back first, so Undo of the revert brings back the scene as it was before it.
 	e.CancelDrag2D()
 	e.CancelCameraDrag()
 	e.cancelBackgroundPreview()
 	e.CancelTileStroke()
 	e.connPick = nil
+	e.CancelGridMapStroke()
 	e.sceneSaved = saved
 	e.History.Execute(&replaceSceneCmd{ed: e, label: "Revert scene", before: e.Doc.Clone(), after: doc})
 	e.Status = "Reverted " + e.SceneLabel()
