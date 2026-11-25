@@ -1,0 +1,27 @@
+version: 1
+patterns:
+  - name: bolt
+    kind: aimed
+    frame: bolt
+    count: 1
+    speed: 320
+    shots: 1
+    lifetime: 600ms
+    radius: 3
+    faceHeading: true
+  - name: frost
+    kind: aimed
+    frame: frost
+    count: 1
+    speed: 220
+    shots: 1
+    lifetime: 700ms
+    radius: 4
+  - name: shell
+    kind: aimed
+    frame: shell
+    count: 1
+    speed: 180
+    shots: 1
+    lifetime: 1s
+    radius: 5

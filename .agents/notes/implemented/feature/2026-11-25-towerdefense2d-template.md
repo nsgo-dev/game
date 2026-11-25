@@ -1,0 +1,35 @@
+# Agent Note: The towerdefense2d template
+
+Status: implemented
+
+## Problem
+
+Issue #799, under the "Every template" umbrella #786, asks for a `towerdefense2d` template: a tower defense map with a path enemies follow, waves defined in YAML, several tower types with upgrades, money and lives, built mainly on `ai`, `tilemap`, `bullets` and `stats`, playable with keyboard, gamepad and touch, and tested by an `nsgotest` playthrough that reaches a win and a loss. The template infrastructure (#787) fixes where it lives and how it is registered; the design of the game, its data files and how its tests play it are this note's.
+
+## Decision
+
+The template is the module `github.com/nsgo-dev/game/template/towerdefense2d`, its project in `template/towerdefense2d/template/`, copied byte for byte to `packages/game/cmd/game/_templates/projects/towerdefense2d` and registered in `projectTemplates`. The game, Bramble Gate, is an original design: one road from a spawn `S` to a gate `G`, towers only on grass beside it, five waves called by the player.
+
+- **Data files.** Three files, all autoloaded through `game.yaml`'s `autoload.resources` and read with `Project.LoadAutoloads` from an `embed.FS` of `data/`, so the same path works on every target and `gameproject check` sees them:
+  - `data/level.yaml` (`LevelVersion = 1`): tile size, money, lives, the map as one double-quoted string per row in a fixed legend (`.` grass, `=` road, `S`, `G`, `^` rock, `~` water), enemy kinds whose `stats` are `stats.Def`s (`health`, `speed`, optional `armor`), and waves of groups (`enemy`, `count`, `delay`, `interval`) with a `bonus`.
+  - `data/towers.yaml` (`TowersVersion = 1`): the sell `refund` share and tower kinds with `cost`, `color`, `pattern`, `stats` (`damage`, `range`, `cooldown` required; `splash`, `slow`, `chill` optional) and `upgrades`, each a `cost` and `stats.Modifier`s applied as a permanent `stats.Effect`.
+  - `data/projectiles.yaml`: a plain `bullets` pattern file. `LoadData` requires each tower's pattern to exist, name a frame and fire one shot with no delay, since the tower's `cooldown` stat times its shots.
+  - Both template formats decode with `KnownFields(true)`, refuse trailing documents, validate (stats through `stats.Validate`, the road through A*), and encode deterministically; `TestDataFilesAreCanonical` keeps the shipped files byte-equal to their encoding, and two fuzz targets check that encoding is stable.
+- **Simulation.** `World` owns the `tilemap.Tilemap` (cells flagged road, buildable or `TileSolid`), the route from `ai.AStar.Find` over the road cells, and the towers and enemies. It runs on fixed steps with no clock and no randomness: each step spawns due enemies, walks them along the route by their `speed` stat (stepping their sheets so a frost `chill` expires on time), and for each tower updates its own `bullets.Field`, fires at the in-range enemy furthest along the road, leading it twice by the projectile's flight time, and resolves hits with splash and slow. A wave can be called once the previous one has finished spawning; its bonus is paid when the road is empty; the game is won when the last wave is cleared and lost when lives reach 0.
+- **Controls.** `game.yaml`'s input map binds every action (cursor axes, build, upgrade, sell, tower choice, wave, speed, pause, restart) to keys and gamepad buttons and the cursor axes also to the left stick; `Actions.WatchKeys` and `Actions.WatchGamepads` feed them. Touch and mouse go through the canvas's `OnPress`: a tap moves the cursor, a second tap on the cursor's buildable cell builds, and the toolbar's native buttons do the rest. The speed control runs one to three world steps per loop update rather than raising `Loop.TimeScale`, so input is read once per frame and the cursor's key repeat keeps its pace at every speed.
+- **Tests.** `plan_test.go` holds `winningPlan` and `thinPlan`, orders carried out between waves. `TestPlanWinsAndThinPlanLoses` plays them on `World` directly; `TestPlaythroughWins` and `TestPlaythroughLoses` play the same plans through the whole app with `nsgotest` for each of keyboard, gamepad and touch, at the fastest speed, and check the end banner and play-again.
+- **Pin.** `go.mod.tmpl` pins the game layer at `v0.0.0-20261125061635-eb3b47b6037e`, the `main` commit the template was written against, rather than the starter's older pin, so the CI job that tests the template outside the workspace builds the same `ai`, `tilemap`, `input` and `bullets` code the workspace does.
+
+## Alternatives considered
+
+- **Mazing on open ground, enemies re-pathing around towers.** It uses `ai` more heavily (a search per placement, refusing placements that block every route) and is a well-loved variant, but it makes every placement a pathfinding question, needs path-blocking UI and makes a scripted playthrough depend on route changes. A fixed road with towers beside it is what the issue describes ("a path enemies follow") and keeps the template readable in an afternoon; mazing can grow from `World.Buildable` and the A* route.
+- **A Tiled map (`.tmj`) for the level.** `tilemap.LoadTiled` reads it and authors could paint it in Tiled, but the level also needs waves and enemies, which Tiled has no place for, and a JSON tile array is harder to read and review than a legend of characters. The ASCII map in `level.yaml` stays one file a person edits by hand.
+- **One shared `bullets.Field` for every tower.** Fewer fields to update and draw, but a `bullets.Bullet` carries only its pattern name and shot index, not the tower that fired it, so damage that depends on a tower's upgrades could not be looked up on a hit. A field per tower ties every projectile to its tower's sheet.
+- **Inline projectile parameters in `towers.yaml`.** Simpler to read in one place, but it would re-declare what the `bullets` pattern format already validates and encodes; naming a pattern reuses that format unchanged.
+- **Keeping the starter's pin.** It already had the packages, but `ai`, `tilemap`, `input` and `bullets` have changed since; testing in the workspace against `main` and in CI against an older pin would test two different games.
+
+## Consequences
+
+- Benefits: every number in the game is in a reviewed text file with a schema; the world is deterministic, so a plan wins or loses the same way on every run and target; the same plan proves all three control schemes; a new tower behavior is one stat read in `World.fire` or `World.hit`.
+- Costs: the data files must be in their canonical form, so a hand edit that changes layout fails `TestDataFilesAreCanonical` until it is re-encoded, and `game.index.yaml` holds their hashes, so it needs `game index` after a data change. A retuned level can break `winningPlan`, which then needs new orders.
+- Gaps in shared packages, worked around in the template: `bullets.Bullet` has no field for game data such as damage or the firing entity (a field per tower instead); `bullets.Emitter` has no "fire one shot now" call, so a tower resets and updates its one-shot emitter each time its cooldown runs out.

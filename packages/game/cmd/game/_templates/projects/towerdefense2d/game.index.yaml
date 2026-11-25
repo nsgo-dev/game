@@ -1,0 +1,9 @@
+# The stable IDs of this project's files, kept by game index, game mv and the editor. Keep it in version control.
+version: 1
+files:
+  - path: data/level.yaml
+    sha256: 7c6d266c97ea62ef6b4186fe073c448b1d6d110f08a6d0e32a3f74b2bff49c8c
+  - path: data/projectiles.yaml
+    sha256: d2fb284fe34b7d9e57362597fa60246b17c7c8c121518006403fe44639ffc140
+  - path: data/towers.yaml
+    sha256: 485585caed5852ef1248a795b864870c4d9fb02050c6c30b6c35b5a5d926552d

@@ -15,6 +15,7 @@ A new project starts from a template: a small, complete game that builds, runs a
 | `racing3d` | A 3D racer: two laps of a closed circuit against racing-line rivals, with raycast cars, checkpoints, a countdown, a best-lap ghost and a results screen, played with keyboard, gamepad or touch. [Racing 3D template](template-racing3d.md) | `github.com/nsgo-dev/game/template/racing3d` |
 | `rpg2d` | A top-down RPG: a town and a meadow to walk, people with branching dialogue, an inventory with equipment, one quest, turn-based battles and three save slots. [Guide](template-rpg2d.md). | `github.com/nsgo-dev/game/template/rpg2d` |
 | `rts2d` | A 2D real-time strategy skirmish: gather crystals, build barracks, train three unit types and destroy a computer opponent's headquarters, with fog of war, box selection, control groups and keyboard, gamepad and touch controls ([guide](template-rts2d.md)). | `github.com/nsgo-dev/game/template/rts2d` |
+| `towerdefense2d` | A 2D tower defense game: towers with upgrades beside a road enemies follow, waves defined in YAML, money and lives, played with keyboard, gamepad or touch; [Tower defense template](template-towerdefense2d.md) describes it. | `github.com/nsgo-dev/game/template/towerdefense2d` |
 
 `go tool game new -list` prints the same list from the command itself, the default first.
 

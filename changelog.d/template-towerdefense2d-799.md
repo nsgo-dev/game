@@ -1,0 +1,3 @@
+### Added
+
+- `game new -template towerdefense2d` and `nsgo init -template github.com/nsgo-dev/game/template/towerdefense2d` create Bramble Gate, a 2D tower defense game to grow from: towers with upgrades on `stats` sheets beside a road found with `ai.AStar` on a `tilemap`, `bullets` projectiles that lead their target, splash and slow, waves, enemies, towers and projectiles in versioned YAML that `game.yaml` autoloads, money and lives, and keyboard, gamepad and touch controls from `game.yaml`'s input map, with `nsgotest` playthroughs that win and lose it with each; [Tower defense template](docs/en/template-towerdefense2d.md) describes it (#799).

@@ -11,6 +11,7 @@ use (
 	./template/racing3d
 	./template/rpg2d
 	./template/rts2d
+	./template/towerdefense2d
 	./examples/starburst
 	./examples/slidegem
 	./examples/cryptquest
