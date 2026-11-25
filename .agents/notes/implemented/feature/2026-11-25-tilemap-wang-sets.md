@@ -16,25 +16,25 @@ Extend `game/tilemap` with Tiled JSON Wang set loading (`tiled.go`, `tilemap.go`
   - Validate Wang set `type`, hex `color`, non-negative finite `probability`, 8-entry `wangid` length, and color-index bounds via `*loaderr.Error` pointing at the exact embedded `.tmj` or external `.tsj` field.
   - Expose `Tileset.WangSet(name)`, `Tileset.WangSetAt(index)`, `Tilemap.WangSet(name)`, `WangSet.ColorIndex(name)`, and `WangSet.WangIDForTile(localTileID)`.
 - **Multi-terrain autotiling (`packages/game/tilemap/wang.go`)**:
-  - Add `Tilemap.SetTerrain(layerIndex, col, row, set, terrain, rng)` and `Tilemap.SetTerrainRect(layerIndex, col, row, w, h, set, terrain, rng)` accepting a `*random.Stream` from Stable package `game/random`.
+  - Add `TerrainRand` (`interface { Float64() float64 }`, satisfied by `*random.Stream`) plus `Tilemap.SetTerrain(layerIndex, col, row, set, terrain, rng)` and `Tilemap.SetTerrainRect(layerIndex, col, row, w, h, set, terrain, rng)`.
   - Lazily build and cache an immutable `wangIndex` on `WangSet` (invalidated automatically if `Type`, `len(WangTiles)`, or `len(Colors)` changes) containing active-slot masks, `localTileID -> WangID` lookup, `TileID`-sorted candidate order, and an all-pairs shortest-path color distance table (Floyd-Warshall over `0..maxColor`) matching Tiled's transition penalty matrix.
   - Paint the target cell(s) in deterministic row-major order, then run bounded BFS wave propagation outward (processing cardinal neighbors before diagonal neighbors in each wave so diagonal cells observe both adjacent cardinal cells settled). Each neighbor minimizes `(hardPenalty, softPenalty)` against settled neighbor slots (hard) and its existing outer slots (soft), automatically producing seamless direct 2/3-terrain transitions as well as multi-hop rings (such as Water -> Dirt -> Grass when no direct Grass-Water tiles exist).
   - Read existing flipped tiles on the layer through `transformWangID` (diagonal, horizontal, vertical in Tiled's order) so neighbor constraints honor flipped tiles, and never overwrite non-Wang tiles during neighbor correction.
   - Only materialize tiles in previously empty cells when the WangSet explicitly contains `0` (empty) in active slots (`hasZeroColor`) and an exact empty-transition match exists; erasing (`terrain == 0`) clears painted cells and any orphaned transition neighbors whose active slots all become `0`.
-  - Break ties among equal-scoring best matches by tile probability (scaled by unconstrained color probability, matching Tiled) using `*random.Stream` (or deterministically by lowest positive-weight `TileID` when `rng == nil`).
+  - Break ties among equal-scoring best matches by tile probability (scaled by unconstrained color probability, matching Tiled) using `TerrainRand` (e.g. `*random.Stream`, or deterministically by lowest positive-weight `TileID` when `rng == nil`).
   - Route all tile writes through `Tilemap.SetTile`, so dense layers, sparse chunked layers (including negative coordinates), static layer/chunk cache invalidation, and `TileRevision` edit logs work uniformly.
 
 ### Invariants
 
-- `game/tilemap` remains strictly Stable and imports only Stable module packages (`game/sprite`, `game/loaderr`, `game/random`) plus `nsgo/core`.
+- `game/tilemap` remains strictly Stable and imports only Stable module packages (`game/sprite`, `game/loaderr`) plus `nsgo/core` (no dependency on `game/random`).
 - Because Tiled diamond isometric grids rotate the square grid 45° clockwise, the 8 clockwise `WangID` indices map to the exact same `(dx, dy)` grid neighbor offsets for both `OrientationOrthogonal` and `OrientationIsometric`.
 - `AutotileSet`, `ApplyAutotile`, and `SetAutotile` are unchanged.
 
 ## Alternatives considered
 
-### Pass an `io`/stdlib `*math/rand/v2.Rand` or custom RNG callback instead of `*random.Stream`
+### Import `game/random` directly and take concrete `*random.Stream`
 
-Using a custom `func() float64` callback would avoid adding an import edge from `game/tilemap` to `game/random`. Rejected because `game/random` is already Stable (no stability regression), issue #850 specifically asks for `*random.Stream` so callers pass the same cross-platform deterministic stream used across the engine, and `game/random` adds negligible WASM footprint.
+Taking a concrete `*random.Stream` would avoid defining the single-method `TerrainRand` interface. Rejected because pulling `game/random` into `game/tilemap` adds unnecessary WASM binary weight for tilemap callers that do not use `SetTerrain`, whereas `type TerrainRand interface { Float64() float64 }` accepts `*random.Stream` directly with zero extra import edges.
 
 ### Restrict neighbor updates to a single 1-cell ring around the painted cells
 
@@ -48,7 +48,7 @@ Keeping a parallel terrain-ID grid on `TileLayer` would avoid mapping GIDs back 
 
 - **Benefit:** Tiled Wang sets (`corner`, `edge`, `mixed`) and tile probabilities load directly from `.tmj`/`.tsj` files and drive seamless multi-terrain painting on orthogonal and isometric maps, dense and chunked layers, with seed-reproducible variant selection.
 - **Benefit:** Multi-hop transitions (such as Grass-Dirt-Water shorelines) resolve automatically without hand-written Go transition tables.
-- **Cost:** `game/tilemap` now imports `game/random` (both Stable), and `Tileset` grows by `TileProbabilities` and `WangSets` fields (nil when unused).
+- **Cost:** `Tileset` grows by `TileProbabilities` and `WangSets` fields (nil when unused), and `TerrainRand` is a small single-method interface in `game/tilemap`.
 
 ## Testing
 

@@ -2,6 +2,7 @@ package tilemap_test
 
 import (
 	"fmt"
+	"math"
 	"testing"
 
 	"github.com/nsgo-dev/game/packages/game/internal/loaderrtest"
@@ -31,7 +32,7 @@ func makeCorner3Tileset(firstGID uint32) (*tilemap.Tileset, *tilemap.WangSet) {
 		for tr := uint8(1); tr <= 3; tr++ {
 			for br := uint8(1); br <= 3; br++ {
 				for bl := uint8(1); bl <= 3; bl++ {
-					id := uint32((tl-1)*27 + (tr-1)*9 + (br-1)*3 + (bl-1))
+					id := uint32((tl-1)*27 + (tr-1)*9 + (br-1)*3 + (bl - 1))
 					ws.WangTiles = append(ws.WangTiles, tilemap.WangTile{
 						TileID:      id,
 						WangID:      tilemap.WangID{0, tr, 0, br, 0, bl, 0, tl},
@@ -71,7 +72,7 @@ func makeEdge3Tileset(firstGID uint32) (*tilemap.Tileset, *tilemap.WangSet) {
 		for right := uint8(1); right <= 3; right++ {
 			for bottom := uint8(1); bottom <= 3; bottom++ {
 				for left := uint8(1); left <= 3; left++ {
-					id := uint32((top-1)*27 + (right-1)*9 + (bottom-1)*3 + (left-1))
+					id := uint32((top-1)*27 + (right-1)*9 + (bottom-1)*3 + (left - 1))
 					ws.WangTiles = append(ws.WangTiles, tilemap.WangTile{
 						TileID:      id,
 						WangID:      tilemap.WangID{top, 0, right, 0, bottom, 0, left, 0},
@@ -858,5 +859,46 @@ func TestWangFlippedExistingTilesAndNonWangProtection(t *testing.T) {
 	wantFlipped := cornerTileGID(firstGID, G, D, D, G) | tilemap.FlipHorizontal
 	if got := m.TileAt(0, 2, 1); got != wantFlipped {
 		t.Fatalf("matching flipped neighbor modified: got %#x, want %#x", got, wantFlipped)
+	}
+}
+
+func TestWangNonFiniteAndNegativeProbabilitiesIgnored(t *testing.T) {
+	ws := tilemap.WangSet{
+		Name:     "BadWeights",
+		Type:     tilemap.WangCorner,
+		FirstGID: 1,
+		Colors: []tilemap.WangColor{
+			{Name: "Grass", Probability: math.NaN()},
+		},
+		WangTiles: []tilemap.WangTile{
+			{TileID: 0, WangID: tilemap.WangID{0, 1, 0, 1, 0, 1, 0, 1}, Probability: math.Inf(1)},
+			{TileID: 1, WangID: tilemap.WangID{0, 1, 0, 1, 0, 1, 0, 1}, Probability: math.NaN()},
+			{TileID: 2, WangID: tilemap.WangID{0, 1, 0, 1, 0, 1, 0, 1}, Probability: -3},
+			{TileID: 3, WangID: tilemap.WangID{0, 1, 0, 1, 0, 1, 0, 1}, Probability: 2},
+		},
+	}
+	ts := tilemap.NewGridTileset(1, core.Src("asset:badweights.png"), 16, 16, 4, 4)
+	ts.WangSets = []tilemap.WangSet{ws}
+	m := tilemap.New(4, 4, 16, 16, ts)
+	m.Layers = []tilemap.TileLayer{tilemap.NewTileLayer("g", 4, 4, nil)}
+
+	// With rng, only TileID 3 (GID 4) has a valid positive finite weight.
+	m.SetTerrainRect(0, 0, 0, 4, 4, &ts.WangSets[0], 1, random.New(7))
+	for r := range 4 {
+		for c := range 4 {
+			if got := m.TileAt(0, c, r); got != 4 {
+				t.Fatalf("rng pick at (%d,%d) = %d, want GID 4", c, r, got)
+			}
+		}
+	}
+
+	// With nil rng, lowest positive finite weight TileID is also TileID 3 (GID 4).
+	m.SetTerrainRect(0, 0, 0, 4, 4, &ts.WangSets[0], 1, nil)
+	for r := range 4 {
+		for c := range 4 {
+			if got := m.TileAt(0, c, r); got != 4 {
+				t.Fatalf("nil rng pick at (%d,%d) = %d, want GID 4", c, r, got)
+			}
+		}
 	}
 }

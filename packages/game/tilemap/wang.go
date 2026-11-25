@@ -2,6 +2,7 @@ package tilemap
 
 import (
 	"cmp"
+	"math"
 	"slices"
 
 	"github.com/nsgo-dev/nsgo/core"
@@ -70,14 +71,21 @@ type WangColor struct {
 	zeroProbability bool
 }
 
-func (c WangColor) weight() float64 {
-	if c.Probability > 0 {
-		return c.Probability
+func sanitizeWangWeight(p float64, explicitZero bool) float64 {
+	if math.IsNaN(p) || math.IsInf(p, 0) || p < 0 {
+		return 0
 	}
-	if c.zeroProbability {
+	if p > 0 {
+		return p
+	}
+	if explicitZero {
 		return 0
 	}
 	return 1
+}
+
+func (c WangColor) weight() float64 {
+	return sanitizeWangWeight(c.Probability, c.zeroProbability)
 }
 
 // WangTile maps a 0-based local tile ID in its Tileset to its 8-slot WangID and selection probability.
@@ -90,13 +98,7 @@ type WangTile struct {
 }
 
 func (t WangTile) weight() float64 {
-	if t.Probability > 0 {
-		return t.Probability
-	}
-	if t.zeroProbability {
-		return 0
-	}
-	return 1
+	return sanitizeWangWeight(t.Probability, t.zeroProbability)
 }
 
 // WangSet is a Tiled Wang set (terrain set) defining corner, edge, or mixed multi-terrain autotiling rules.
@@ -206,10 +208,10 @@ func (ws *WangSet) ensureIndex() *wangIndex {
 	}
 
 	idx := &wangIndex{
-		typ:        ws.Type,
-		tileCount:  len(ws.WangTiles),
-		colorCount: len(ws.Colors),
-		tileToWang: make(map[uint32]WangID, len(ws.WangTiles)),
+		typ:         ws.Type,
+		tileCount:   len(ws.WangTiles),
+		colorCount:  len(ws.Colors),
+		tileToWang:  make(map[uint32]WangID, len(ws.WangTiles)),
 		sortedTiles: make([]int, len(ws.WangTiles)),
 	}
 	switch ws.Type {
@@ -424,6 +426,9 @@ func (ws *WangSet) findBestMatch(idx *wangIndex, desired WangID, hardMask [8]boo
 				}
 			}
 		}
+		if math.IsNaN(w) || math.IsInf(w, 0) || w <= 0 {
+			return 0
+		}
 		return w
 	}
 
@@ -442,7 +447,7 @@ func (ws *WangSet) findBestMatch(idx *wangIndex, desired WangID, hardMask [8]boo
 	for _, ti := range best {
 		total += candWeight(ti)
 	}
-	if total <= 0 {
+	if total <= 0 || math.IsNaN(total) || math.IsInf(total, 0) {
 		wt := &ws.WangTiles[best[0]]
 		return wt.TileID, wt.WangID, exact, true
 	}

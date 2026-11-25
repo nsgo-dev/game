@@ -57,7 +57,7 @@ Passing `cam` to `m.Draw(d, cam)` or `m.DrawLayer(d, layer, cam)` visits only th
 
 ## Loading Tiled maps
 
-`LoadTiled` parses Tiled XML (`.tmx`) and JSON (`.tmj`) maps into the same `*Tilemap`, auto-detecting the format from the input bytes. It supports embedded and external `.tsx`/`.tsj` tilesets (including cross-format references such as a `.tmx` map using a `.tsj` tileset or a `.tmj` map using a `.tsx` tileset), CSV, legacy XML `<tile>`, and base64 tile data (uncompressed, `zlib`, and `gzip`) on both finite layers and infinite-map chunks, image layers, nested group layers, Tiled Wang sets (`wangsets`) and per-tile probabilities, GID flip bits (`FlipHorizontal`, `FlipVertical`, `FlipDiagonal`), object layers, typed custom properties, animated tiles, and the collision shapes drawn on tiles in Tiled's collision editor. `zstd` compression is refused with a `*loaderr.Error` pointing at the file, line, and fix hint.
+`LoadTiled` parses Tiled XML (`.tmx`) and JSON (`.tmj`) maps into the same `*Tilemap`, auto-detecting the format from the input bytes. It supports embedded and external `.tsx`/`.tsj` tilesets (including cross-format references such as a `.tmx` map using a `.tsj` tileset or a `.tmj` map using a `.tsx` tileset), CSV, legacy XML `<tile>`, and base64 tile data (uncompressed, `zlib`, and `gzip`) on both finite layers and infinite-map chunks, image layers, nested group layers, Tiled JSON Wang sets (`wangsets` in `.tmj`/`.tsj`) and per-tile probabilities, GID flip bits (`FlipHorizontal`, `FlipVertical`, `FlipDiagonal`), object layers, typed custom properties, animated tiles, and the collision shapes drawn on tiles in Tiled's collision editor. `zstd` compression is refused with a `*loaderr.Error` pointing at the file, line, and fix hint.
 
 ```go
 //go:embed resources/maps/*.tmx resources/maps/*.tsx
@@ -136,6 +136,7 @@ m.SetTerrainRect(0, 6, 2, 3, 3, ws, water, rng)
 - **Corner, edge, and mixed sets**: `WangCorner` matches the four tile corners, `WangEdge` matches the four tile edges, and `WangMixed` matches all eight slots. Existing neighbors whose shared corners or edges change are updated automatically, including multi-hop transitions (for example creating a dirt shoreline ring when painting water onto grass in a tileset without direct grass-to-water tiles).
 - **Deterministic probability selection**: when multiple tiles tie for the best match, `SetTerrain` and `SetTerrainRect` choose weighted by tile probability from `*random.Stream` (or any `TerrainRand`, so the same seed always picks the same variants). Pass `rng == nil` for deterministic lowest-`TileID` selection.
 - **Code-defined blobs**: `AutotileSet`, `ApplyAutotile`, and `SetAutotile` remain available for code-defined 4-bit (16-tile) and 8-bit corner-gated (47-tile) single-terrain blobs.
+
 ## Animated tiles
 
 Tiled tile animations load into `Tileset.Animations`, keyed by 0-based local tile ID. Call `m.Update(dt)` on every `game.Loop.Update` step to advance all animated tiles cleanly across cycles:

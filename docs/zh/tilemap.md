@@ -57,7 +57,7 @@ d.Restore()
 
 ## 加载 Tiled 地图
 
-`LoadTiled` 会根据输入字节自动识别并解析 Tiled XML（`.tmx`）与 JSON（`.tmj`）地图到同一个 `*Tilemap`。它支持内嵌及外部 `.tsx`/`.tsj` 图块集（包括 `.tmx` 引用 `.tsj` 或 `.tmj` 引用 `.tsx` 的跨格式组合），支持有限图层与无限地图分块的 CSV、XML `<tile>` 以及 base64 瓦片数据（未压缩、`zlib` 与 `gzip`），同时支持图像层、嵌套图层组、Tiled Wang 地形集（`wangsets`）与逐瓦片概率、GID 翻转位（`FlipHorizontal`、`FlipVertical`、`FlipDiagonal`）、对象层、带类型的自定义属性、动画瓦片，以及在 Tiled 碰撞编辑器中为瓦片绘制的碰撞形状。对于 `zstd` 压缩，加载器会返回带有文件、行号与修复提示的 `*loaderr.Error` 明确拒绝。
+`LoadTiled` 会根据输入字节自动识别并解析 Tiled XML（`.tmx`）与 JSON（`.tmj`）地图到同一个 `*Tilemap`。它支持内嵌及外部 `.tsx`/`.tsj` 图块集（包括 `.tmx` 引用 `.tsj` 或 `.tmj` 引用 `.tsx` 的跨格式组合），支持有限图层与无限地图分块的 CSV、XML `<tile>` 以及 base64 瓦片数据（未压缩、`zlib` 与 `gzip`），同时支持图像层、嵌套图层组、Tiled JSON Wang 地形集（`.tmj`/`.tsj` 中的 `wangsets`）与逐瓦片概率、GID 翻转位（`FlipHorizontal`、`FlipVertical`、`FlipDiagonal`）、对象层、带类型的自定义属性、动画瓦片，以及在 Tiled 碰撞编辑器中为瓦片绘制的碰撞形状。对于 `zstd` 压缩，加载器会返回带有文件、行号与修复提示的 `*loaderr.Error` 明确拒绝。
 
 ```go
 //go:embed resources/maps/*.tmx resources/maps/*.tsx
@@ -136,6 +136,7 @@ m.SetTerrainRect(0, 6, 2, 3, 3, ws, water, rng)
 - **角点、边线与混合集合**：`WangCorner` 匹配四个角点，`WangEdge` 匹配四条边，`WangMixed` 同时匹配全部八个槽位。共享边或角发生变化的邻格会自动更新，并支持多跳过渡（例如在没有草地直连水域的图块集中向草地绘制水域时，自动生成一圈泥土岸线过渡）。
 - **确定性按概率选型**：当多个瓦片并列最佳匹配时，`SetTerrain` 与 `SetTerrainRect` 会通过 `*random.Stream`（或任意 `TerrainRand`）按瓦片概率加权抽取（相同种子始终选出完全一致的变体）；传入 `rng == nil` 时确定性地选择本地 `TileID` 最小的瓦片。
 - **代码定义的位掩码拼接**：`AutotileSet`、`ApplyAutotile` 与 `SetAutotile` 继续保留，用于代码中定义的 4 位（16 瓦片）与 8 位角点门控（47 瓦片）单地形自动拼接。
+
 ## 动画瓦片
 
 Tiled 瓦片动画会加载到 `Tileset.Animations`（以 0 起始的本地瓦片 ID 为键）。在每个 `game.Loop.Update` 步长调用 `m.Update(dt)` 即可推进全部动画瓦片：
