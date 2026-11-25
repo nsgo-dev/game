@@ -307,6 +307,7 @@ func New(doc *sceneformat.SceneDoc, resolver sceneformat.AssetResolver) (*Editor
 	if len(doc.Layers) > 0 {
 		ed.ActiveLayer = doc.Layers[0].Name
 	}
+	ed.keepTileInPalette()
 	ed.History.onChange = func() {
 		ed.afterMutate()
 	}
@@ -425,17 +426,18 @@ func (e *Editor) SetGizmoMode3D(mode GizmoMode3D) {
 	e.notify()
 }
 
-// SetActiveLayer selects the layer targeted by object placement and tile painting.
+// SetActiveLayer selects the layer targeted by object placement and tile painting. When the layer's tileset (TilePalette) has no tile with ActiveTileID, its first tile becomes the active tile.
 func (e *Editor) SetActiveLayer(name string) bool {
 	if e.layerIndex(name) < 0 {
 		return false
 	}
 	e.ActiveLayer = name
+	e.keepTileInPalette()
 	e.notify()
 	return true
 }
 
-// SetActiveTileID sets the tile GID used by PaintTile and FloodFillTile tools.
+// SetActiveTileID sets the tile GID used by PaintTile and FloodFillTile tools, which the tile palette (TilePaletteView) sets when a tile is pressed.
 func (e *Editor) SetActiveTileID(id int) {
 	if id < 0 {
 		return
@@ -501,6 +503,7 @@ func (e *Editor) openYAML(data []byte, file string) error {
 	} else {
 		e.ActiveLayer = ""
 	}
+	e.keepTileInPalette()
 	e.Status = "Opened scene"
 	// Clear triggers onChange -> afterMutate -> Rebuild + notify.
 	e.History.Clear()

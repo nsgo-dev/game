@@ -13,6 +13,7 @@ import (
 //   - Top toolbar (scene title, tool selector, Undo/Redo, Play/Stop, Save)
 //   - Left Asset Browser panel, with the file browser below it while a project is open (FilesView)
 //   - Center interactive Canvas viewport
+//   - Tile palette right of the viewport while a tile tool is active in 2D (TilePaletteView)
 //   - Right Property Inspector panel
 //   - The library panel, when Editor.Library is set (LibraryView)
 //   - The panels of the plugins that are on (Plugin), docked left or right of the viewport or below it
@@ -96,6 +97,7 @@ func mainRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []core.Node {
 	return append(row,
 		pluginDockView(cx, ed, rev, DockLeft),
 		ViewportView(cx, ed, rev),
+		TilePaletteView(cx, ed, rev),
 		InspectorView(cx, ed, rev),
 		pluginDockView(cx, ed, rev, DockRight),
 	)
@@ -498,6 +500,7 @@ func statusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 				Gap: 12,
 				Children: []core.Node{
 					core.Text{
+						TestID: "editor-status-mode",
 						ContentFunc: func() string {
 							_ = rev.Get()
 							mode := "Edit"
@@ -507,7 +510,11 @@ func statusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 							if ed.ViewMode == ViewMode3D {
 								return fmt.Sprintf("Mode: %s | View: 3D (%s) | Layer: %s", mode, ed.GizmoMode.String(), ed.ActiveLayer)
 							}
-							return fmt.Sprintf("Mode: %s | View: 2D %.0f%% | Tool: %s | Layer: %s", mode, ed.View2D().Zoom*100, ed.toolLabel(), ed.ActiveLayer)
+							status := fmt.Sprintf("Mode: %s | View: 2D %.0f%% | Tool: %s | Layer: %s", mode, ed.View2D().Zoom*100, ed.toolLabel(), ed.ActiveLayer)
+							if isTileTool(ed.Tool) {
+								status += fmt.Sprintf(" | Tile: %d", ed.ActiveTileID)
+							}
+							return status
 						},
 						Style: core.Style{
 							FontSize: 11,

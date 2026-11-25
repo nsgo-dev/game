@@ -58,6 +58,45 @@ func ExampleEditor() {
 	// 64
 }
 
+// The tile palette lists the tiles of the active layer's tileset in ID order; the tile chosen in it is the one PaintTile writes into the layer's tilemap.
+func ExampleEditor_TilePalette() {
+	tiles := sceneformat.AtlasMap{"cave": &sprite.Atlas{
+		Image: core.ImageSource{URI: "asset:cave.png"},
+		Frames: map[string]sprite.Frame{
+			"1":  {Name: "1", W: 16, H: 16, Width: 16, Height: 16},
+			"2":  {Name: "2", X: 16, W: 16, H: 16, Width: 16, Height: 16},
+			"10": {Name: "10", X: 32, W: 16, H: 16, Width: 16, Height: 16},
+		},
+	}}
+	doc := &sceneformat.SceneDoc{
+		Version: sceneformat.CurrentVersion,
+		Name:    "cave",
+		Layers: []sceneformat.LayerDoc{{Name: "ground", Space: sceneformat.SpaceWorld, Tilemap: &sceneformat.TilemapDoc{
+			TileWidth: 16, TileHeight: 16, Width: 3, Height: 1, Tileset: "cave", Data: []int{0, 0, 0},
+		}}},
+	}
+	ed, err := editor.New(doc, tiles)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	palette := ed.TilePalette()
+	for _, t := range palette.Tiles {
+		fmt.Print(t.ID, " ")
+	}
+	fmt.Println("from", palette.Tileset)
+
+	ed.SetActiveTileID(palette.Tiles[2].ID)
+	if err := ed.PaintTile("ground", 1, 0, ed.ActiveTileID); err != nil {
+		fmt.Println(err)
+		return
+	}
+	fmt.Println(ed.Doc.Layers[0].Tilemap.Data)
+	// Output:
+	// 1 2 10 from cave
+	// [0 10 0]
+}
+
 // rename is a Command that changes a string and can change it back.
 type rename struct {
 	target   *string
