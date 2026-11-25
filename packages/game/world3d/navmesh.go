@@ -148,7 +148,14 @@ func (p *NavPoly) ContainsXZ(x, z float32) bool {
 type NavMesh struct {
 	Polys             []NavPoly
 	VerticalTolerance float32
+	polyAreas         []float64
+	bvhNodes          []navBVHNode3D
+	bvhOrder          []int
+	linkOffset        []int
+	portalFrom        []int
+	portalLink        []NavLink
 	revision          uint64
+	defaultQuery      NavMeshQuery
 }
 
 // BuildNavMesh constructs a NavMesh from convex 3D polygons, filtering out
@@ -248,7 +255,9 @@ func buildNavMesh(count int, maxSlopeRad float32, get func(i int) ([]math3d.Vec3
 		})
 	}
 
+	nm.buildBVH()
 	nm.linkPolygons()
+	nm.defaultQuery.mesh = nm
 	return nm
 }
 
@@ -329,11 +338,17 @@ func (nm *NavMesh) ClearPolygonFlags(index int, flags NavFlags) {
 func (nm *NavMesh) linkPolygons() {
 	n := len(nm.Polys)
 	pad := math3d.Vec3{X: sharedEdgeEps, Y: sharedEdgeEps, Z: sharedEdgeEps}
+	var candidates []int
 
 	for i := range n {
 		pi := &nm.Polys[i]
 		bi := math3d.AABB{Min: pi.Bounds.Min.Sub(pad), Max: pi.Bounds.Max.Add(pad)}
-		for j := i + 1; j < n; j++ {
+		candidates = nm.bvhQueryAABB(bi, candidates[:0])
+		slices.Sort(candidates)
+		for _, j := range candidates {
+			if j <= i {
+				continue
+			}
 			pj := &nm.Polys[j]
 			if !bi.Intersects(pj.Bounds) {
 				continue
@@ -426,33 +441,14 @@ func (nm *NavMesh) FindPolygon(p math3d.Vec3) (int, bool) {
 // contains (p.X, p.Z) and whose 3D surface height is closest to p.Y within
 // VerticalTolerance. Returns (-1, false) if no matching polygon is found.
 func (nm *NavMesh) FindPolygonWithFilter(p math3d.Vec3, filter NavFilter) (int, bool) {
-	if nm == nil || len(nm.Polys) == 0 {
+	if nm == nil || len(nm.Polys) == 0 || !isFiniteVec3(p) {
 		return -1, false
 	}
 	tol := nm.VerticalTolerance
 	if tol <= 0 {
 		tol = defaultVerticalTolerance
 	}
-	bestIdx := -1
-	bestDY := tol + 1
-	for i := range nm.Polys {
-		poly := &nm.Polys[i]
-		if !filter.Allows(poly.Area, poly.Flags) {
-			continue
-		}
-		if !poly.ContainsXZ(p.X, p.Z) {
-			continue
-		}
-		dy := float32(math.Abs(float64(p.Y - poly.HeightAt(p.X, p.Z))))
-		if dy <= tol && dy < bestDY {
-			bestDY = dy
-			bestIdx = i
-		}
-	}
-	if bestIdx < 0 {
-		return -1, false
-	}
-	return bestIdx, true
+	return nm.bvhFindPoly(p, tol, filter)
 }
 
 // Contains reports whether p lies on any polygon in the mesh within VerticalTolerance.
@@ -476,33 +472,14 @@ func (nm *NavMesh) NearestPolygon(p math3d.Vec3) (index int, point math3d.Vec3, 
 // NearestPolygonWithFilter returns the polygon passing filter closest to p in 3D
 // and the closest point on or inside that polygon.
 func (nm *NavMesh) NearestPolygonWithFilter(p math3d.Vec3, filter NavFilter) (index int, point math3d.Vec3, ok bool) {
-	if nm == nil || len(nm.Polys) == 0 {
+	if nm == nil || len(nm.Polys) == 0 || !isFiniteVec3(p) {
 		return -1, math3d.Vec3{}, false
 	}
 	if idx, found := nm.FindPolygonWithFilter(p, filter); found {
 		pt := math3d.Vec3{X: p.X, Y: nm.Polys[idx].HeightAt(p.X, p.Z), Z: p.Z}
 		return idx, pt, true
 	}
-	bestIdx := -1
-	bestDistSq := math.Inf(1)
-	var bestPt math3d.Vec3
-	for i := range nm.Polys {
-		poly := &nm.Polys[i]
-		if !filter.Allows(poly.Area, poly.Flags) {
-			continue
-		}
-		cp := closestPointOnNavPoly(poly, p)
-		d2 := distSq3D(p, cp)
-		if d2 < bestDistSq {
-			bestDistSq = d2
-			bestIdx = i
-			bestPt = cp
-		}
-	}
-	if bestIdx < 0 {
-		return -1, math3d.Vec3{}, false
-	}
-	return bestIdx, bestPt, true
+	return nm.bvhNearestPoly(p, math3d.Vec3{}, false, filter)
 }
 
 func (nm *NavMesh) polyClosestPoint(polyIdx int, p math3d.Vec3) math3d.Vec3 {
@@ -545,7 +522,7 @@ func distSq3D(a, b math3d.Vec3) float64 {
 	dx := float64(a.X - b.X)
 	dy := float64(a.Y - b.Y)
 	dz := float64(a.Z - b.Z)
-	return dx*dx + dy*dy + dz*dz
+	return float64(dx*dx) + float64(dy*dy) + float64(dz*dz)
 }
 
 func dist3D(a, b math3d.Vec3) float64 {
@@ -622,6 +599,7 @@ func (nm *NavMesh) AddOffMeshLink(link NavOffMeshLink) bool {
 			Cost:     cost,
 		})
 	}
+	nm.linkOffset = nm.linkOffset[:0]
 	nm.revision++
 	return true
 }
@@ -641,6 +619,7 @@ func (nm *NavMesh) SetEdgeFlags(fromPoly, toPoly int, flags uint32) bool {
 		}
 	}
 	if changed {
+		nm.linkOffset = nm.linkOffset[:0]
 		nm.revision++
 	}
 	return changed

@@ -118,7 +118,39 @@ _, _, _ = path, detour, ok
 
 - **Default compatibility**: `BuildNavMesh` assigns `NavAreaDefault` and `NavFlagWalk` to every walkable `NavPoly`, and `FindPath` delegates to `FindPathWithFilter` with `DefaultNavFilter()`.
 - **Admissible 3D weighted portal A\***: traversal inside each polygon is weighted by `filter.AreaCost(poly.Area)` with an admissible 3D heuristic scaled by the minimum allowed area cost across the mesh, followed by exact 3D funnel smoothing across ramps and stacked levels.
-- **Runtime mutation & filtered queries**: inspect or update polygons in O(1) via `PolygonCount`, `PolygonArea`, `SetPolygonArea`, `PolygonFlags`, `SetPolygonFlags`, `AddPolygonFlags`, and `ClearPolygonFlags`, and run filtered lookups with `FindPolygonWithFilter`, `ContainsWithFilter`, and `NearestPolygonWithFilter`.
+- **Runtime mutation & filtered queries**: inspect or update polygons in O(1) via `PolygonCount`, `PolygonArea`, `SetPolygonArea`, `PolygonFlags`, `SetPolygonFlags`, `AddPolygonFlags`, and `ClearPolygonFlags`, and run filtered lookups with `FindPolygonWithFilter`, `ContainsWithFilter`, `NearestPolygonWithFilter`, `NearestPointWithFilter`, `RaycastWithFilter`, `MoveAlongSurfaceWithFilter`, `RandomPointWithFilter`, and `RandomPointAroundWithFilter`.
+
+### Spatial queries, surface movement, and zero-allocation path reuse
+
+`world3d.NavMesh` builds a flat 3D AABB BVH spatial index at construction time so `FindPolygon`, `NearestPolygon`, `NearestPoint`, and pathfinding endpoint lookups scale logarithmically on large multi-level worlds without scanning every polygon:
+
+```go
+rng := random.New(42)
+
+// Snap a 3D click or spawn position within 3D half-extents (cleanly separating stacked floors):
+snapped, poly, ok := nav.NearestPoint(spawnPos, math3d.Vec3{X: 3, Y: 1.5, Z: 3})
+
+// Cast a surface ray across ramps and bridges (stops at bridge edges instead of dropping levels):
+hit, obstructed := nav.Raycast(agentPos, targetPos)
+
+// Slide an agent along the 3D mesh surface while tracking ramp elevation and staying off ledges:
+moved, onMesh := nav.MoveAlongSurface(agentPos, desiredPos)
+
+// Pick deterministic 3D surface-area-weighted random points (anywhere or reachable within 3D radius):
+patrolPt, _, _ := nav.RandomPoint(rng)
+wanderPt, _, _ := nav.RandomPointAround(agentPos, 12, rng)
+
+// Reuse buffers via NavMeshQuery for zero-allocation path and corridor queries:
+query := world3d.NewNavMeshQuery(nav)
+pathBuf, ok = query.FindPathInto(pathBuf, snapped, wanderPt)
+corridorBuf, _ = query.FindCorridorInto(corridorBuf, snapped, wanderPt)
+_, _, _, _, _, _, _ = poly, hit, obstructed, moved, onMesh, patrolPt, ok
+```
+
+- **3D extent-bounded snapping**: `NearestPoint(p, extent)` and `NearestPointWithFilter(p, extent, filter)` restrict matches to `[p - extent, p + extent]` in full 3D (clipping sloped polygons to the extent box when needed), keeping stacked floors and overpasses cleanly separated by `extent.Y`.
+- **3D surface raycast and sliding**: `Raycast` / `RaycastWithFilter` traverse only shared 3D polygon edges, returning `NavRaycastHit{Point, Normal, Poly, T, Hit}` with exact `HeightAt` elevation and a 3D surface-tangent inward normal; `MoveAlongSurface` / `MoveAlongSurfaceWithFilter` slide along boundary edges across ramps and bridges without dropping between stacked levels (`NavMoveResult{Point, Poly, Visited, HitBoundary}`).
+- **Deterministic 3D surface-area random points**: `RandomPoint` / `RandomPointWithFilter` weight polygons by true 3D surface area (not just XZ projection); `RandomPointAround` / `RandomPointAroundWithFilter` sample only reachable polygons within 3D Euclidean `radius` of the snapped center (never jumping to unconnected floors overhead). Results are bit-identical across runs and architectures for the same `*random.Stream` seed.
+- **Zero-allocation path reuse & concurrent queries**: `nav.FindPathInto`, `nav.FindPathWithFilterInto`, `nav.FindPathWithFilterAndOptionsInto`, and `nav.FindCorridorInto` reuse generation-stamped scratch buffers with `0` heap allocations after warm-up; allocate one `NewNavMeshQuery(nav)` per worker goroutine for concurrent read-only queries over a shared `NavMesh`.
 
 For unreachable targets or frame-budgeted multi-agent queries, pass `ai.PathOptions{MaxExpansions, AllowPartial}` to `nav.FindPathWithOptions(startPos, goalPos, opts)` (returning a `NavPathResult` with `Partial`, `Exhausted`, and `Expansions`), or create a deterministic multi-frame `*world3d.NavMeshSearch` via `nav.StartSearch(startPos, goalPos, opts)`:
 

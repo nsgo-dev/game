@@ -118,7 +118,39 @@ _, _, _ = path, detour, ok
 
 - **默认兼容**：`BuildNavMesh` 为每个可行走 `NavPoly` 分配 `NavAreaDefault` 与 `NavFlagWalk`，`FindPath` 使用 `DefaultNavFilter()` 调用 `FindPathWithFilter`。
 - **可采纳 3D 加权门户 A\***：每个多边形内的移动距离按 `filter.AreaCost(poly.Area)` 加权，并以网格内允许区域的最小代价缩放 3D 距离启发值，随后沿斜坡与多层桥梁执行精确的 3D 漏斗平滑。
-- **运行时修改与过滤查询**：通过 `PolygonCount`、`PolygonArea`、`SetPolygonArea`、`PolygonFlags`、`SetPolygonFlags`、`AddPolygonFlags` 和 `ClearPolygonFlags` 以 O(1) 读写多边形区域与标志；通过 `FindPolygonWithFilter`、`ContainsWithFilter` 和 `NearestPolygonWithFilter` 执行过滤空间查询。
+- **运行时修改与过滤查询**：通过 `PolygonCount`、`PolygonArea`、`SetPolygonArea`、`PolygonFlags`、`SetPolygonFlags`、`AddPolygonFlags` 和 `ClearPolygonFlags` 以 O(1) 读写多边形区域与标志；通过 `FindPolygonWithFilter`、`ContainsWithFilter`、`NearestPolygonWithFilter`、`NearestPointWithFilter`、`RaycastWithFilter`、`MoveAlongSurfaceWithFilter`、`RandomPointWithFilter` 与 `RandomPointAroundWithFilter` 执行过滤空间查询。
+
+### 空间查询、表面滑动与零分配路径复用
+
+`world3d.NavMesh` 在构建时自动建立扁平的 3D AABB BVH 空间索引，使 `FindPolygon`、`NearestPolygon`、`NearestPoint` 与寻路起终点定位在大型多层 3D 场景中保持对数级查询开销，不再遍历全部多边形：
+
+```go
+rng := random.New(42)
+
+// 在 3D 半尺寸范围内吸附点击或生成点（按 Y 范围干净隔离上下叠层）：
+snapped, poly, ok := nav.NearestPoint(spawnPos, math3d.Vec3{X: 3, Y: 1.5, Z: 3})
+
+// 沿斜坡与桥面执行表面射线检测（遇桥边立即阻挡，不会误跳到下方地面）：
+hit, obstructed := nav.Raycast(agentPos, targetPos)
+
+// 沿 3D 导航网格表面平滑滑动，持续贴合斜坡高度并防止跌落边缘：
+moved, onMesh := nav.MoveAlongSurface(agentPos, desiredPos)
+
+// 按确定性随机流与真实 3D 表面积加权采样随机点（全网或 3D 半径内可达范围）：
+patrolPt, _, _ := nav.RandomPoint(rng)
+wanderPt, _, _ := nav.RandomPointAround(agentPos, 12, rng)
+
+// 通过 NavMeshQuery 复用缓冲区，实现零堆分配寻路与走廊查询：
+query := world3d.NewNavMeshQuery(nav)
+pathBuf, ok = query.FindPathInto(pathBuf, snapped, wanderPt)
+corridorBuf, _ = query.FindCorridorInto(corridorBuf, snapped, wanderPt)
+_, _, _, _, _, _, _ = poly, hit, obstructed, moved, onMesh, patrolPt, ok
+```
+
+- **3D 范围限定吸附**：`NearestPoint(p, extent)` 与 `NearestPointWithFilter(p, extent, filter)` 在三维盒 `[p - extent, p + extent]` 内求最近可行走表面点（必要时将斜坡多边形裁剪到范围盒内），天然通过 `extent.Y` 区分上下叠层与立交桥。
+- **3D 表面射线与沿面滑动**：`Raycast` / `RaycastWithFilter` 仅穿越 3D 共享边，返回带精确 `HeightAt` 高度与 3D 表面切向内法线的 `NavRaycastHit{Point, Normal, Poly, T, Hit}`；`MoveAlongSurface` / `MoveAlongSurfaceWithFilter` 沿边界平滑滑动并贴合斜坡与桥面，绝不在叠层间误跳（返回 `NavMoveResult{Point, Poly, Visited, HitBoundary}`）。
+- **跨平台确定性 3D 表面积采样**：`RandomPoint` / `RandomPointWithFilter` 按真实三维表面积（而非仅 XZ 投影面积）加权采样；`RandomPointAround` / `RandomPointAroundWithFilter` 仅在从起点连通可达且位于三维欧氏 `radius` 内的多边形上采样，绝不会采到头顶未连通的楼层。相同 `*random.Stream` 种子下跨运行与跨平台按位一致。
+- **零堆分配路径复用与并发查询**：`nav.FindPathInto`、`nav.FindPathWithFilterInto`、`nav.FindPathWithFilterAndOptionsInto` 与 `nav.FindCorridorInto` 使用带代数戳的复用缓冲区，预热后重复调用均为 `0` 堆分配；多线程并发只读查询同一 `NavMesh` 时，请为每个工作协程创建独立的 `NewNavMeshQuery(nav)`。
 
 面对不可达目标或需要按帧预算分摊多智能体寻路时，可向 `nav.FindPathWithOptions(startPos, goalPos, opts)` 传入 `ai.PathOptions{MaxExpansions, AllowPartial}`（返回包含 `Partial`、`Exhausted` 与 `Expansions` 的 `NavPathResult`），或通过 `nav.StartSearch(startPos, goalPos, opts)` 创建可跨帧步进的 `*world3d.NavMeshSearch`：
 
