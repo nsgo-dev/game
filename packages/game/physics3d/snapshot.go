@@ -1422,6 +1422,32 @@ func hashShape3D(h *detmath.Hasher, s Shape) {
 		hashVec3(h, s.Capsule.A)
 		hashVec3(h, s.Capsule.B)
 		h.WriteFloat32(s.Capsule.Radius)
+	case ShapeConvexHull:
+		hashVec3(h, s.Hull.Center)
+		hashQuat(h, s.Rot)
+		g := s.Hull.geom
+		if g == nil {
+			h.WriteInt(0)
+			return
+		}
+		h.WriteInt(len(g.v))
+		for _, v := range g.v {
+			h.WriteFloat64(v.x)
+			h.WriteFloat64(v.y)
+			h.WriteFloat64(v.z)
+		}
+		h.WriteInt(len(g.faces))
+		for _, f := range g.faces {
+			h.WriteInt(len(f.idx))
+			for _, ix := range f.idx {
+				h.WriteInt(ix)
+			}
+			h.WriteFloat64(f.d)
+		}
+	case ShapeCylinder:
+		hashVec3(h, s.Cylinder.A)
+		hashVec3(h, s.Cylinder.B)
+		h.WriteFloat32(s.Cylinder.Radius)
 	}
 }
 

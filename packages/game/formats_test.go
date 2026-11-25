@@ -51,6 +51,7 @@ var notJSONFormats = map[string]string{
 	"internal/samplegltf": "validates the sample glTF models, glTF being the gltf entry's format",
 	"loaderr":             "decodes a document only to find a field's line and column for an error",
 	"mcp":                 "decodes JSON arguments and results of MCP automation tool calls, which are RPC payloads on the wire",
+	"physics3d":           "decodes a ConvexHull's geometry inside WorldSnapshot, an in-memory/JSON world snapshot for Save/Restore and rollback netcode rather than a standalone file format, as physics3d.SnapshotVersion explains",
 	"presence":            "decodes JSON frames of Discord's local IPC protocol, which are RPC messages on the wire",
 	"refs":                "scans other formats' JSON documents for file references",
 	"rooms":               "reads LDtk projects, the format of the tilemap#ldtk entry",

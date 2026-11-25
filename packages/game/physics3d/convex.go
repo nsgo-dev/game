@@ -614,7 +614,7 @@ func (q *quickhull) finish() (*hullGeom, error) {
 		var n dv
 		for i := range idx {
 			a, b := g.v[idx[i]], g.v[idx[(i+1)%len(idx)]]
-			n = n.add(dv{(a.y - b.y) * (a.z + b.z), (a.z - b.z) * (a.x + b.x), (a.x - b.x) * (a.y + b.y)})
+			n = n.add(dv{float64((a.y - b.y) * (a.z + b.z)), float64((a.z - b.z) * (a.x + b.x)), float64((a.x - b.x) * (a.y + b.y))})
 		}
 		n = n.norm()
 		if n.lenSq() == 0 {
@@ -679,7 +679,7 @@ func (g *hullGeom) massProperties() error {
 				pa := [3]float64{p.x, p.y, p.z}
 				for r := range 3 {
 					for k := range 3 {
-						cov[r][k] += det / 120 * pa[r] * pa[k]
+						cov[r][k] += float64(det / 120 * pa[r] * pa[k])
 					}
 				}
 			}
@@ -692,7 +692,7 @@ func (g *hullGeom) massProperties() error {
 	cc := [3]float64{cen.x, cen.y, cen.z}
 	for r := range 3 {
 		for k := range 3 {
-			cov[r][k] -= vol * cc[r] * cc[k]
+			cov[r][k] -= float64(vol * cc[r] * cc[k])
 		}
 	}
 	tr := cov[0][0] + cov[1][1] + cov[2][2]

@@ -194,7 +194,7 @@ func computeDefaultInvInertia(shape Shape, mass float32) float32 {
 		// The mean of a solid cylinder's moments: m(3r²+h²)/12 about the two axes across it and mr²/2 about its own, which averages to m(6r²+h²)/18 (#808).
 		r := shape.Cylinder.Radius
 		h := shape.Cylinder.Height()
-		inertia = mass * (6*r*r + h*h) / 18
+		inertia = mass * (float32(6*r*r) + float32(h*h)) / 18
 		center = shape.Cylinder.Center()
 	}
 	inertia = float32(inertia) + float32(mass*center.LenSq())

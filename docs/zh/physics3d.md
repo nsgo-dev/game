@@ -213,7 +213,7 @@ sw.Step(dt)
 
 `World` 支持完整的世界状态快照、确定性 64 位 FNV-1a 校验和，以及跨 amd64 与 arm64 CPU 架构的比特级确定性：
 
-- **`Save() / Restore(snap) / Checksum()`**：`World.Save()` 将所有公开和私有求解器状态捕获到带版本号的 `WorldSnapshot`（`SnapshotVersion`）中，包括重力与求解器/休眠配置、刚体（含私有休眠计时器、重力缩放标记、残余穿透深度、上一帧插值姿态及体素静置状态）、有序热启动接触冲量缓存、活跃接触/触发器对集合、上一帧接触与关节断裂事件、忽略碰撞对、全部 7 种内置 `Joint3D` 类型（`DistanceJoint`、`BallJoint`、`HingeJoint`、`SliderJoint`、`FixedJoint`、`SwingTwistJoint`、`SixDOFJoint`，含展开角度状态与最近反作用冲量），以及 `TriMeshCollider`、`HeightfieldCollider` 和 `VoxelGrid` 碰撞体绑定。
+- **`Save() / Restore(snap) / Checksum()`**：`World.Save()` 将所有公开和私有求解器状态捕获到带版本号的 `WorldSnapshot`（`SnapshotVersion`）中，包括重力与求解器/休眠配置、刚体（含完整形状，包括 `ConvexHull` 的几何数据和 `Cylinder`，以及私有休眠计时器、重力缩放标记、残余穿透深度、上一帧插值姿态及体素静置状态）、有序热启动接触冲量缓存、活跃接触/触发器对集合、上一帧接触与关节断裂事件、忽略碰撞对、全部 7 种内置 `Joint3D` 类型（`DistanceJoint`、`BallJoint`、`HingeJoint`、`SliderJoint`、`FixedJoint`、`SwingTwistJoint`、`SixDOFJoint`，含展开角度状态与最近反作用冲量），以及 `TriMeshCollider`、`HeightfieldCollider` 和 `VoxelGrid` 碰撞体绑定。
 - **纯文本 JSON 序列化**：`WorldSnapshot` 支持直接使用 `encoding/json` 序列化与反序列化（不使用 `encoding/gob` 或自定义二进制布局）。
 - **原地保留指针与回调**：当数量和类型匹配时，`Restore` 原地更新现有的 `*Body`、`Joint3D` 和碰撞体实例，在回滚期间保持游戏实体指针、`UserData` 以及世界回调（`OnContact`、`OnTrigger`、`OnJointBreak`）有效。
 - **跨架构确定性**：所有步进 3D 积分、窄相碰撞（OBB、网格/高度场、体素）、顺序冲量求解器、关节、区域以及 `vehicle` 悬架/轮胎路径都避免了 arm64 FMA 收缩及含 FMA 的标准库超越函数，确保在 amd64 与 arm64 上产生比特完全一致的轨迹和 `Checksum()` 值。
