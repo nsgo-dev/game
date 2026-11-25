@@ -85,7 +85,7 @@ import "github.com/nsgo-dev/game/packages/game/sceneformat"
 - 变换：`x`、`y`、`originX`、`originY`、`rotation`（弧度，顺时针）、`scaleX`（默认 `1`）、`scaleY`（默认 `1`）、`flipX`、`flipY`、`alpha`（范围 `[0, 1]`，默认 `1`）、`z`（图层内绘制顺序，越小越先绘制）
 - `sprite`：可选的 `{atlas, frame}`，引用 `sprite.Atlas` 及其中的帧名
 - `material`：可选，从项目根目录起、以斜杠分隔的共享材质文件路径，例如 `materials/stone.material.yaml`，在构建时通过 `MaterialResolver` 解析（见 [resource](resources.md)）
-- 3D 外观：`mesh` 是内置基本形体 `box`、`sphere`、`plane`、`capsule`、`cylinder` 之一；`model`（版本 2）是从项目根目录起、以斜杠分隔的 glTF 2.0 文件路径（`.gltf` 或 `.glb`），可以用 `modelNode` 缩小到其中一个节点，或用 `modelMesh` 缩小到其中一个网格；对象的 `material` 会替换模型的材质，或作为基本形体的表面。`scenemodel.Build` 把它们变成几何体（[scenemodel](scenemodel.md)）
+- 3D 外观：`mesh` 是内置基本形体 `box`、`sphere`、`plane`、`capsule`、`cylinder` 之一；`model`（版本 2）是从项目根目录起、以斜杠分隔的 glTF 2.0 文件路径（`.gltf` 或 `.glb`），可以用 `modelNode` 缩小到其中一个节点，或用 `modelMesh` 缩小到其中一个网格；对象的 `material` 会替换模型的材质，或作为基本形体的表面。`scenemodel.Build` 把它们变成几何体（[scenemodel](scenemodel.md)）。`CheckObjectModel` 检查单个对象的这些字段，编辑器的 `PlaceObject` 会拒绝它拒绝的对象；检查器的 Mesh 字段列出这些基本形体，对象绘制模型时该字段不可用
 - `components`：可选的映射，键是组件类型名，值是它的字段；未提供组件注册表时内容不受约束（见[组件类型](#组件类型)）
 - `properties`：可选的 `map[string]any`，存放自定义元数据
 - `scene`：可选，从项目根目录起、以斜杠分隔的场景文件路径，本对象实例化该场景（版本 2，见下文“实例化与继承”）

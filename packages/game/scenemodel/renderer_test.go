@@ -168,6 +168,24 @@ func TestRendererRejectsBadInput(t *testing.T) {
 	if _, err := r.Prepare(nil, levelLights); err == nil {
 		t.Error("Prepare accepted a nil camera")
 	}
+
+	// A closed renderer refuses to prepare and records nothing, instead of reaching for released resources.
+	if err := r.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if _, err := r.Prepare(levelCamera(), levelLights); err == nil || !strings.Contains(err.Error(), "closed") {
+		t.Errorf("Prepare after Close = %v, want an error", err)
+	}
+	enc := sr.Device().BeginEncoder()
+	pass := enc.BeginRenderPass(gpu.RenderPassDesc{
+		Label:            "closed",
+		ColorAttachments: []gpu.ColorAttachment{{LoadOp: gpu.LoadClear, StoreOp: gpu.StoreStore}},
+		DepthStencil:     &gpu.DepthStencilAttachment{DepthLoadOp: gpu.LoadClear, DepthStoreOp: gpu.StoreDiscard, ClearDepth: 1},
+	})
+	r.Draw(pass)
+	pass.End()
+	sr.Device().Submit(enc.Finish())
+	sr.WaitIdle()
 }
 
 // assertReference compares got with the reference PNG at path, allowing a few edge pixels to differ by rounding between CPU architectures (fused multiply-add on arm64), and writes got and a diff image on mismatch. UPDATE_GOLDEN=1 rewrites the reference.

@@ -89,6 +89,19 @@ func TestModelsInScenes(t *testing.T) {
 		{"override names a missing model", func(fsys fstest.MapFS) {
 			fsys["scenes/pen.scene.yaml"] = &fstest.MapFile{Data: []byte("version: 2\nname: Pen\nlayers:\n  - name: level\n    objects:\n      - id: yard\n        scene: scenes/yard.scene.yaml\n        overrides:\n          whole:\n            model: models/gone.glb\n")}
 		}, "scenes/pen.scene.yaml", "model: models/gone.glb", `model "models/gone.glb": not found`, 1},
+		{"inheriting scene's override names a missing node", func(fsys fstest.MapFS) {
+			fsys["scenes/pen.scene.yaml"] = &fstest.MapFile{Data: []byte("version: 2\nname: Pen\ninherits: scenes/yard.scene.yaml\noverrides:\n  body:\n    modelNode: Tail\n")}
+		}, "scenes/pen.scene.yaml", "modelNode: Tail", `modelNode "Tail" is not a node of model "models/robot.gltf"`, 1},
+		{"override sets only a missing node", func(fsys fstest.MapFS) {
+			fsys["scenes/pen.scene.yaml"] = &fstest.MapFile{Data: []byte("version: 2\nname: Pen\nlayers:\n  - name: level\n    objects:\n      - id: yard\n        scene: scenes/yard.scene.yaml\n        overrides:\n          body:\n            modelNode: Tail\n")}
+		}, "scenes/pen.scene.yaml", "modelNode: Tail", `modelNode "Tail" is not a node of model "models/robot.gltf"`, 1},
+		{"override sets only a missing mesh", func(fsys fstest.MapFS) {
+			fsys["scenes/pen.scene.yaml"] = &fstest.MapFile{Data: []byte("version: 2\nname: Pen\nlayers:\n  - name: level\n    objects:\n      - id: yard\n        scene: scenes/yard.scene.yaml\n        overrides:\n          shape:\n            modelMesh: TailMesh\n")}
+		}, "scenes/pen.scene.yaml", "modelMesh: TailMesh", `modelMesh "TailMesh" is not a mesh of model "models/robot.gltf"`, 1},
+		{"override sets a model without the kept node", func(fsys fstest.MapFS) {
+			fsys["models/other.gltf"] = &fstest.MapFile{Data: []byte(strings.Replace(triangleGLTF(), `"name": "Body"`, `"name": "Trunk"`, 1))}
+			fsys["scenes/pen.scene.yaml"] = &fstest.MapFile{Data: []byte("version: 2\nname: Pen\nlayers:\n  - name: level\n    objects:\n      - id: yard\n        scene: scenes/yard.scene.yaml\n        overrides:\n          body:\n            model: models/other.gltf\n")}
+		}, "scenes/pen.scene.yaml", "model: models/other.gltf", `modelNode "Body" is not a node of model "models/other.gltf"`, 1},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

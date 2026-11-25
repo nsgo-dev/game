@@ -638,6 +638,18 @@ func TestEditor3DViewportUIRenderingAndControls(t *testing.T) {
 	}
 	checkDrawOps("3D Scale")
 
+	// An object that draws a glTF model cannot also draw a primitive, so its Mesh field is disabled.
+	if !app.Enabled("id:inspector-mesh") {
+		t.Fatal("Mesh field disabled on box_a, which draws no model")
+	}
+	if _, err := ed.PlaceObject("world", sceneformat.ObjectDoc{ID: "crate", Model: "models/crate.glb"}); err != nil {
+		t.Fatalf("PlaceObject of a model object: %v", err)
+	}
+	app.Settle()
+	if ed.SelectedID != "crate" || app.Enabled("id:inspector-mesh") {
+		t.Fatalf("Mesh field enabled %v with %q selected, want it disabled on crate", app.Enabled("id:inspector-mesh"), ed.SelectedID)
+	}
+
 	// Toggle back to 2D view mode cleanly.
 	app.Press("id:view-mode-2d")
 	if ed.ViewMode != editor.ViewMode2D {

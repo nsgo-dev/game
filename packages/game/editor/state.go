@@ -766,7 +766,7 @@ func (e *Editor) generateObjectID(base string) string {
 
 // PlaceObject adds obj to layerName (or ActiveLayer when empty) as an undoable command,
 // merging defaults from e.Prefabs when obj.Prefab matches a registered prefab.
-// Returns the placed object's unique ID. It refuses a tree that nests deeper than sceneformat.MaxObjectDepth levels or holds a sheared sprite (see sceneformat.CheckObjectTree), or that reuses an ID, including one the scene gets from a scene it inherits or instances. A tree that instances a scene file (sceneformat.ObjectDoc.Scene) needs a Resolver that implements sceneformat.SceneResolver, and is refused unless the scene still resolves with it placed: see checkPlacedInstances.
+// Returns the placed object's unique ID. It refuses a tree that nests deeper than sceneformat.MaxObjectDepth levels or holds a sheared sprite (see sceneformat.CheckObjectTree), or that reuses an ID, including one the scene gets from a scene it inherits or instances, and an object whose mesh and model fields sceneformat.CheckObjectModel refuses. Placing an object that draws a glTF model in a version 1 scene raises it to sceneformat.CurrentVersion, which Undo restores. A tree that instances a scene file (sceneformat.ObjectDoc.Scene) needs a Resolver that implements sceneformat.SceneResolver, and is refused unless the scene still resolves with it placed: see checkPlacedInstances.
 func (e *Editor) PlaceObject(layerName string, obj sceneformat.ObjectDoc) (string, error) {
 	if e.playing {
 		return "", ErrPlaying
@@ -1294,7 +1294,7 @@ type placeObjectCmd struct {
 	obj          sceneformat.ObjectDoc
 	prevSelected string
 	wasNilSlice  bool
-	// prevVersion is the scene's version before the placement, which raises a version 1 scene to sceneformat.CurrentVersion when obj instances another scene.
+	// prevVersion is the scene's version before the placement, which raises a version 1 scene to sceneformat.CurrentVersion when obj instances another scene or draws a glTF model.
 	prevVersion int
 }
 
@@ -1306,7 +1306,7 @@ func (c *placeObjectCmd) Do() {
 		return
 	}
 	c.wasNilSlice = c.ed.Doc.Layers[li].Objects == nil
-	if c.ed.Doc.Version < sceneformat.CurrentVersion && instancesScene(&c.obj) {
+	if c.ed.Doc.Version < sceneformat.CurrentVersion && (instancesScene(&c.obj) || drawsModel(&c.obj)) {
 		c.ed.Doc.Version = sceneformat.CurrentVersion
 	}
 	c.ed.Doc.Layers[li].Objects = append(c.ed.Doc.Layers[li].Objects, cloneObjectDoc(c.obj))
@@ -1332,6 +1332,16 @@ func (c *placeObjectCmd) Undo() {
 	c.ed.Doc.Layers[li].Objects = objs
 	c.ed.Doc.Version = c.prevVersion
 	c.ed.SelectedID = c.prevSelected
+}
+
+// drawsModel reports whether o or any of its descendants names a glTF model, which needs a version 2 scene.
+func drawsModel(o *sceneformat.ObjectDoc) bool {
+	found := false
+	sceneformat.WalkObjects([]sceneformat.ObjectDoc{*o}, func(c, _ *sceneformat.ObjectDoc) bool {
+		found = c.Model != ""
+		return !found
+	})
+	return found
 }
 
 // instancesScene reports whether o or any of its descendants instances a scene file.
@@ -1690,7 +1700,7 @@ func applyPrefabDefaults(dst *sceneformat.ObjectDoc, pf Prefab) {
 	if dst.Depth == 0 && pf.Depth != 0 {
 		dst.Depth = pf.Depth
 	}
-	if dst.Mesh == "" && pf.Mesh != "" {
+	if dst.Mesh == "" && dst.Model == "" && pf.Mesh != "" {
 		dst.Mesh = pf.Mesh
 	}
 	if !dst.FlipX && pf.FlipX {
@@ -1760,7 +1770,7 @@ func validateObjectForEditor(o *sceneformat.ObjectDoc) error {
 	if len(o.Overrides) > 0 && o.Scene == "" {
 		return errors.New("editor: object overrides require a scene")
 	}
-	return nil
+	return sceneformat.CheckObjectModel(o)
 }
 
 func cloneObjectDoc(o sceneformat.ObjectDoc) sceneformat.ObjectDoc {

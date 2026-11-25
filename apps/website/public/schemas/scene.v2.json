@@ -572,9 +572,10 @@
           "maximum": 3.4028234663852886e+38
         },
         "mesh": {
-          "description": "Mesh replaces the built-in 3D primitive the object draws.",
+          "description": "Mesh replaces the built-in 3D primitive the object draws; \"\" removes it, as an override that gives the object a Model in place of a primitive must.",
           "type": "string",
           "enum": [
+            "",
             "box",
             "sphere",
             "plane",
