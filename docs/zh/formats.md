@@ -800,6 +800,52 @@ formations:
     spacing: 1.5
 ```
 
+<!-- format: ai -->
+### 效用 AI
+
+| 文件 | 版本 | 读写函数 | 字段 |
+| --- | --- | --- | --- |
+| 游戏加载的任意 `.yaml` 文件，如 `guard.utility.yaml` | `version: 1` | `ai.ParseUtility`、`ai.EncodeUtility` | [ai](ai.md#效用-ai) |
+
+```yaml
+version: 1
+momentum: 0.1
+actions:
+  - name: attack
+    weight: 1.2
+    considerations:
+      - name: target_close
+        input: target_distance
+        max: 200
+        curve:
+          kind: linear
+          slope: -1
+          shiftY: 1
+      - name: healthy
+        input: health_ratio
+        curve:
+          kind: logistic
+          slope: 1
+          exponent: 10
+          shiftX: 0.35
+  - name: heal
+    weight: 1.1
+    considerations:
+      - name: low_health
+        input: health_ratio
+        curve:
+          kind: polynomial
+          slope: -1
+          exponent: 2
+          shiftY: 1
+      - name: has_potion
+        input: potion_count
+        curve:
+          kind: step
+          slope: 1
+          shiftX: 0.5
+```
+
 <!-- format: procgen -->
 ### 图块规则
 

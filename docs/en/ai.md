@@ -1,6 +1,6 @@
 # ai
 
-`game/ai` provides deterministic game AI building blocks stepped cleanly on `game.Loop`: grid `AStar` pathfinding, 2D `NavMesh` navigation with funnel smoothing, steering behaviors, and behavior trees.
+`game/ai` provides deterministic game AI building blocks stepped cleanly on `game.Loop`: grid `AStar` pathfinding, 2D `NavMesh` navigation with funnel smoothing, steering behaviors, behavior trees, and utility AI scoring.
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/ai"
@@ -109,6 +109,114 @@ tree.Tick(dt)
 
 Available nodes:
 
-- **Composites**: `Sequence`, `Selector` (preempts and resets lower-priority running branches when a higher-priority branch succeeds or runs), `Parallel(policy, ...)` (`RequireAll` or `RequireOne`).
+- **Composites**: `Sequence`, `Selector` (preempts and resets lower-priority running branches when a higher-priority branch succeeds or runs), `Parallel(policy, ...)` (`RequireAll` or `RequireOne`), `UtilitySelector(reasoner, ctx, rng, subtrees)`.
 - **Decorators**: `Guard(cond, child)`, `Cooldown(d, child)`, `Inverter`, `Succeeder`, `Failer`, `Repeater(count, child)`, `UntilFail`.
 - **Leaves**: `Action(fn)`, `Condition(fn)`, `Wait(d)`.
+
+## Utility AI
+
+When agents weigh continuous factors (distance, health, ammo, threat) instead of fixed boolean priorities, score candidate `UtilityAction`s with a `Reasoner[C]` using Dave Mark's Infinite Axis Utility System (IAUS):
+
+```go
+type UnitState struct {
+	HP       float64
+	EnemyDst float64
+	Potions  float64
+}
+
+reasoner := ai.NewReasoner(
+	ai.UtilityAction[UnitState]{
+		Name:   "attack",
+		Weight: 1.2,
+		Considerations: []ai.Consideration[UnitState]{
+			{
+				Name:  "close",
+				Input: func(s UnitState) float64 { return s.EnemyDst },
+				Min:   0, Max: 200,
+				Curve: ai.LinearCurve(-1, 0, 1),
+			},
+			{
+				Name:  "healthy",
+				Input: func(s UnitState) float64 { return s.HP },
+				Min:   0, Max: 100,
+				Curve: ai.LogisticCurve(1, 10, 0.35, 0),
+			},
+		},
+	},
+	ai.UtilityAction[UnitState]{
+		Name:   "heal",
+		Weight: 1.1,
+		Considerations: []ai.Consideration[UnitState]{
+			{
+				Name:  "low_hp",
+				Input: func(s UnitState) float64 { return s.HP },
+				Min:   0, Max: 100,
+				Curve: ai.PolynomialCurve(-1, 2, 0, 1),
+			},
+			{
+				Name:  "has_potion",
+				Input: func(s UnitState) float64 { return s.Potions },
+				Curve: ai.StepCurve(1, 0, 1),
+			},
+		},
+	},
+)
+reasoner.Momentum = 0.1 // bonus for the currently active action
+
+idx, score := reasoner.Choose(state, nil)
+_, _ = reasoner.ActionName(idx), score
+```
+
+### Considerations and response curves
+
+Each `Consideration[C]` reads a number from `C`, optionally normalizes `[Min, Max]` into `[0, 1]` (or clamps directly to `[0, 1]` when `Max <= Min`), and maps it through a `ResponseCurve` whose output is clamped to `[0, 1]`:
+
+| Kind / Constructor | Formula |
+| --- | --- |
+| `CurveLinear` / `LinearCurve(slope, shiftX, shiftY)` | `slope*(x - shiftX) + shiftY` |
+| `CurvePolynomial` / `PolynomialCurve(slope, exponent, shiftX, shiftY)` | `slope*(x - shiftX)^exponent + shiftY` |
+| `CurveLogistic` / `LogisticCurve(slope, steepness, midpoint, shiftY)` | `slope / (1 + exp(-steepness*(x - midpoint))) + shiftY` |
+| `CurveLogit` / `LogitCurve(slope, midpoint, shiftY)` | `slope*ln(u/(1 - u)) + shiftY`, `u = x - midpoint + 0.5` |
+| `CurveStep` / `StepCurve(threshold, low, high)` | `low` for `x < threshold`, `high` for `x >= threshold` |
+| `CurveResource` / `ResourceCurve(eval)` | Delegates to a `CurveEvaluator` (`Eval(float32) float32`), satisfied directly by `*resource.Curve` |
+| `CustomCurve(fn)` | Wraps a `func(float64) float64` as a `CurveEvaluator` |
+
+### Scoring, momentum, and selection
+
+- **Compensation factor**: an action's `N` considerations are multiplied together (any `0` vetoes the action immediately) and compensated with `modFactor = 1 - 1/N`, `score = score + (1 - score)*modFactor*score`, then multiplied by `Weight` (defaulting to `1` when `0`; negative disables the action).
+- **Momentum bonus**: while an action is currently active and its base score is positive, `Reasoner.Momentum + UtilityAction.Momentum` is added so the agent does not oscillate between two nearly equal options every step. A vetoed action (`0`) never receives momentum.
+- **Top-N weighted choice**: set `Reasoner.TopN > 1` and pass a deterministic `*random.Stream` to pick among the top `N` positive-scoring actions weighted by score. Leaving `TopN <= 1` or passing a `nil` stream picks the highest-scoring action deterministically. Ties always break in fixed action declaration order.
+- **Zero-allocation multi-agent sharing**: call `reasoner.ChooseWithCurrent(ctx, agent.ActiveAction, rng)` to score many agents with one shared `Reasoner` and zero heap allocations after warm-up.
+
+### Behavior tree integration
+
+Use `UtilitySelector(reasoner, ctx, rng, subtrees)` to embed utility scoring as a behavior tree `Node`. Each `UtilitySelector` tracks its own active action for momentum and calls `Reset()` on an interrupted running subtree when another action overtakes it:
+
+```go
+node := ai.UtilitySelector(reasoner, func() UnitState { return unit.State() }, rng, map[string]ai.Node{
+	"attack": attackSubtree,
+	"heal":   healSubtree,
+})
+```
+
+### YAML configuration
+
+Define actions, considerations, and curves in a versioned YAML file (`version: 1`) parsed with `ParseUtility` and encoded deterministically with `EncodeUtility`. Bind Go input functions and an optional `resource` curve loader (`LoadCurve`) via `BuildReasoner`:
+
+```go
+cfg, err := ai.ParseUtility(yamlBytes)
+if err != nil {
+	return err
+}
+reasoner, err := ai.BuildReasoner(cfg, ai.UtilityBindings[UnitState]{
+	Inputs: map[string]func(UnitState) float64{
+		"target_distance": func(s UnitState) float64 { return s.EnemyDst },
+		"health_ratio":    func(s UnitState) float64 { return s.HP / 100 },
+	},
+	LoadCurve: func(path string) (ai.CurveEvaluator, error) {
+		return resource.LoadAs[*resource.Curve](resLib, path)
+	},
+})
+```
+
+Unknown fields, unsupported versions, and trailing YAML documents are refused; canonical documents round-trip byte-for-byte unchanged (see [File Formats](formats.md#utility-ai)).

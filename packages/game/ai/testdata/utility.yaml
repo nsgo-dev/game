@@ -1,0 +1,54 @@
+version: 1
+momentum: 0.1
+actions:
+  - name: attack
+    weight: 1.2
+    considerations:
+      - name: target_close
+        input: target_distance
+        max: 200
+        curve:
+          kind: linear
+          slope: -1
+          shiftY: 1
+      - name: healthy
+        input: health_ratio
+        curve:
+          kind: logistic
+          slope: 1
+          exponent: 10
+          shiftX: 0.35
+  - name: heal
+    weight: 1.1
+    momentum: 0.05
+    considerations:
+      - name: low_health
+        input: health_ratio
+        curve:
+          kind: polynomial
+          slope: -1
+          exponent: 2
+          shiftY: 1
+      - name: has_potion
+        input: potion_count
+        curve:
+          kind: step
+          slope: 1
+          shiftX: 0.5
+  - name: flee
+    considerations:
+      - name: danger
+        input: threat_level
+        curve:
+          kind: resource
+          file: curves/flee_urgency.curve.yaml
+  - name: scout
+    weight: 0.5
+    considerations:
+      - name: curiosity
+        input: unexplored_ratio
+        curve:
+          kind: logit
+          slope: 0.1
+          shiftX: 0.5
+          shiftY: 0.5
