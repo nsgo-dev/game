@@ -41,6 +41,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 	cx.Cleanup(func() {
 		unsub()
 		ed.stopClipLoop()
+		ed.stopStatesLoop()
 		ed.cleanupAudioMixerScope(cx)
 		ed.stopExportBuild()
 		ed.stopAssetsBuild()
@@ -102,6 +103,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 							pluginDockView(cx, ed, rev, DockBottom),
 							DataTablePanelView(cx, ed, rev),
 							AnimationPanelView(cx, ed, rev),
+							StatesPanelView(cx, ed, rev),
 							ProjectSettingsPanelView(cx, ed, rev),
 							AudioMixerPanelView(cx, ed, rev),
 							InputMapPanelView(cx, ed, rev),

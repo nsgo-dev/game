@@ -92,6 +92,22 @@ func builtinTools() []Tool {
 			Action:      ActionRun,
 			Handler:     gameCheck,
 		},
+		{
+			Name:        ToolStatesWrite,
+			Title:       "Write a sprite state machine",
+			Description: "Validate and write a *.states.yaml sprite animation state machine file inside the open project in canonical YAML form, and open it in the editor's state machine graph as an undoable edit.",
+			InputSchema: []byte(statesWriteSchema),
+			Action:      ActionEdit,
+			Handler:     statesWrite,
+		},
+		{
+			Name:        ToolStatesTest,
+			Title:       "Test a sprite state machine with scripted input",
+			Description: "Run deterministic fixed-step scripted input against a *.states.yaml file (or the state machine open in the editor) and report its visited state trace, transitions and any stuck states, such as \"Played 8 s of scripted input · no stuck states\".",
+			InputSchema: []byte(statesTestSchema),
+			Action:      ActionRun,
+			Handler:     statesTest,
+		},
 	}, playtestTools()...)
 }
 

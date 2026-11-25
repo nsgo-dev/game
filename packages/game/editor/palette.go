@@ -118,6 +118,14 @@ func (e *Editor) OpenProjectFile(relPath string) error {
 		return nil
 	}
 	e.selectFile(relPath)
+	if isStatesFile(relPath) {
+		if err := e.OpenStatesProjectFile(relPath); err != nil {
+			return err
+		}
+		e.Status = "Opened " + relPath
+		e.notify()
+		return nil
+	}
 	if relPath == project.FileName {
 		e.SetProjectSettingsOpen(true)
 		e.Status = "Opened " + relPath

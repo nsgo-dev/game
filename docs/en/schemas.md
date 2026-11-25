@@ -27,6 +27,7 @@ import "github.com/nsgo-dev/game/packages/game/tooling/jsonschema"
 | Cutscene, version 2 | `https://game.nsgo.dev/schemas/cutscene.v2.json` | `*.cutscene.yaml` video or timeline cutscenes, read by `cutscene.Parse` |
 | Playtest configuration, version 1 | `https://game.nsgo.dev/schemas/playtest.v1.json` | `playtest.yaml`, read by `playtest.ParseConfig`, `nsgo game playtest` and `game_playtest` ([playtest](playtest.md)) |
 | Game UI screen, version 1 | `https://game.nsgo.dev/schemas/screen.v1.json` | `*.screen.yaml`, read by `gameui.ParseScreen` and `gameui.LoadScreenFS` |
+| Sprite state machine, version 1 | `https://game.nsgo.dev/schemas/states.v1.json` | `*.states.yaml`, read by `animclip.ParseStateMachine` and `animclip.FSStates` |
 | Data table | generated per row type with `datatable.Schema[T]` | `*.yaml`, read by `datatable.LoadYAML` |
 
 The other formats get their schemas as their YAML loaders land: mod manifests (#474), the project file (#488), shared resources (#485), particles (#477), skeletal rigs (#475) and localization tables (#473).

@@ -89,5 +89,7 @@ func ExampleServer_AddTool() {
 	// scene_name read
 	// scene_read read
 	// selection_get read
+	// states_test run
+	// states_write edit
 	// viewport_image read
 }

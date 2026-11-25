@@ -62,7 +62,7 @@ func TestProxyFindsTheEditor(t *testing.T) {
 		}
 	}}, "")
 
-	if names := listNames(t, cs); !slices.Equal(names, []string{"game_check", "game_playtest", "playtest_define", "scene_edit", "scene_read", "selection_get", "viewport_image"}) {
+	if names := listNames(t, cs); !slices.Equal(names, []string{"game_check", "game_playtest", "playtest_define", "scene_edit", "scene_read", "selection_get", "states_test", "states_write", "viewport_image"}) {
 		t.Fatalf("tools without an editor: %v", names)
 	}
 	res := call(t, cs, editormcp.ToolSceneRead, nil)

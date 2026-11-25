@@ -75,6 +75,11 @@ func (l *Library) PhysicsMaterial(path string) (*PhysicsMaterial, error) {
 	return LoadAs[*PhysicsMaterial](l, path)
 }
 
+// Animation loads the animation clip at path. It lets a Library serve as an animclip.ClipResolver.
+func (l *Library) Animation(path string) (*Animation, error) {
+	return LoadAs[*Animation](l, path)
+}
+
 // Reload parses data as the new contents of path and, when path is loaded, copies them into the shared value so every holder sees them. It reports whether path was loaded; an unloaded path is ignored. On an error, including a file that changed its type, the loaded value is left as it was.
 func (l *Library) Reload(path string, data []byte) (bool, error) {
 	if l == nil {

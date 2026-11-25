@@ -49,6 +49,8 @@ const (
 	KindCutscene FileKind = "cutscene"
 	// KindGridMap is a world3d GridMap YAML file (*.gridmap.yaml or *.gridmap.yml), which references a glTF mesh library.
 	KindGridMap FileKind = "gridmap"
+	// KindStates is a *.states.yaml sprite animation state machine file.
+	KindStates FileKind = "states"
 )
 
 // Fields name what a reference is, in Ref.Field and in messages. A reference in game.yaml has the Field project.PathRefs gives it, such as project.FieldAtlasIn; the two autoload ones are repeated here.
@@ -62,6 +64,8 @@ const (
 	FieldModel            = "model"
 	FieldGridMap          = "grid map"
 	FieldMeshLibrary      = "mesh library"
+	FieldStates           = "states"
+	FieldClip             = "clip"
 	FieldTilemapSource    = "tilemap source"
 	FieldTilesetFile      = "tileset file"
 	FieldTexture          = "texture"
@@ -430,6 +434,13 @@ func (p *Project) readYAML(name string, asScene bool) bool {
 		p.add(f)
 		p.screenRefs(f, field(doc, "nodes"), 0)
 		return true
+	case isStatesName(name):
+		f.Kind = KindStates
+		p.add(f)
+		for _, st := range items(field(doc, "states")) {
+			p.ref(f, field(st, "clip"), FieldClip)
+		}
+		return true
 	case asScene || isSceneName(name):
 		f.Kind = KindScene
 		p.add(f)
@@ -563,6 +574,12 @@ func isGridMapName(name string) bool {
 	return strings.HasSuffix(lower, ".gridmap.yaml") || strings.HasSuffix(lower, ".gridmap.yml")
 }
 
+// isStatesName reports whether name is a sprite state machine file, *.states.yaml or *.states.yml.
+func isStatesName(name string) bool {
+	lower := strings.ToLower(name)
+	return strings.HasSuffix(lower, ".states.yaml") || strings.HasSuffix(lower, ".states.yml")
+}
+
 // isResourceKind reports whether n is a scalar naming a resource type.
 func isResourceKind(n *yaml.Node) bool {
 	return n != nil && n.Kind == yaml.ScalarNode && slices.Contains(resource.Kinds(), resource.Kind(n.Value))
@@ -570,7 +587,7 @@ func isResourceKind(n *yaml.Node) bool {
 
 // add records f and its uid. An empty or null uid, which sceneformat and resource read as no uid, is kept as f.uid without f.UID, so that game index fills it in.
 func (p *Project) add(f *File) {
-	if f.Kind == KindScene || f.Kind == KindResource || f.Kind == KindScreen {
+	if f.Kind == KindScene || f.Kind == KindResource || f.Kind == KindScreen || f.Kind == KindStates {
 		k, n := entry(f.doc, "uid")
 		switch {
 		case n == nil || n.Kind != yaml.ScalarNode:
@@ -603,6 +620,7 @@ func (p *Project) sceneRefs(f *File, doc *yaml.Node) {
 		p.ref(f, field(kv[1], "material"), FieldMaterial)
 		p.ref(f, field(kv[1], "model"), FieldModel)
 		p.ref(f, field(kv[1], "gridMap"), FieldGridMap)
+		p.animatorRefs(f, field(kv[1], "components"))
 	}
 	for _, l := range items(field(doc, "layers")) {
 		p.tilemapRefs(f, field(l, "tilemap"))
@@ -635,10 +653,12 @@ func (p *Project) objectRefs(f *File, objs *yaml.Node, depth int) {
 		p.ref(f, field(o, "material"), FieldMaterial)
 		p.ref(f, field(o, "model"), FieldModel)
 		p.ref(f, field(o, "gridMap"), FieldGridMap)
+		p.animatorRefs(f, field(o, "components"))
 		for _, kv := range pairs(field(o, "overrides")) {
 			p.ref(f, field(kv[1], "material"), FieldMaterial)
 			p.ref(f, field(kv[1], "model"), FieldModel)
 			p.ref(f, field(kv[1], "gridMap"), FieldGridMap)
+			p.animatorRefs(f, field(kv[1], "components"))
 		}
 		p.objectRefs(f, field(o, "children"), depth+1)
 	}
@@ -694,6 +714,12 @@ func (p *Project) TextKeyUsages(key string) []TextKeyRef {
 		}
 	}
 	return out
+}
+
+func (p *Project) animatorRefs(f *File, comps *yaml.Node) {
+	if anim := field(comps, "animator"); anim != nil {
+		p.ref(f, field(anim, "states"), FieldStates)
+	}
 }
 
 // ref records the root-relative reference whose value is the node n of f, when n is a non-empty string, and returns it, or nil.

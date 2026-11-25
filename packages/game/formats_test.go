@@ -114,6 +114,7 @@ var formatVersions = map[string]string{
 	"ai.BTSnapshotVersion":                  "",
 	"ai.GOAPVersion":                        "ai#goap",
 	"ai.UtilityVersion":                     "ai",
+	"animclip.StateMachineVersion":          "animclip",
 	"bullets.FormatVersion":                 "bullets",
 	"cards.FormatVersion":                   "cards",
 	"cloudsave.ConfigVersion":               "cloudsave",

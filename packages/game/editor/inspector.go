@@ -275,14 +275,20 @@ func (c *setComponentFieldCmd) Undo() {
 	m[c.field] = cloneAny(c.oldVal)
 }
 
-var builtinPhysicsComponents = sceneformat.PhysicsComponentRegistry()
+var builtinEditorComponents = func() *sceneformat.ComponentRegistry {
+	reg := sceneformat.PhysicsComponentRegistry()
+	_ = sceneformat.RegisterAnimatorComponent(reg)
+	return reg
+}()
 
-// lookupComponentType returns the schema of cn from e.components when set, or from the built-in physics component registry when e.components is nil.
+// lookupComponentType returns the schema of cn from e.components when set, or from the built-in component registry (physics + animator) when e.components is nil.
 func (e *Editor) lookupComponentType(cn string) (sceneformat.ComponentType, bool) {
 	if e != nil && e.components != nil {
-		return e.components.Lookup(cn)
+		if ct, ok := e.components.Lookup(cn); ok {
+			return ct, true
+		}
 	}
-	return builtinPhysicsComponents.Lookup(cn)
+	return builtinEditorComponents.Lookup(cn)
 }
 
 // inspectorSchemaKey computes a stable signature of either the selected asset file

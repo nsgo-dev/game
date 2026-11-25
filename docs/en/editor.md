@@ -685,6 +685,14 @@ The editor's animation panel keys any registered property on a timeline and save
 
 `SaveClipYAML` and `SaveClipFile` write deterministic YAML, so a clip that is opened and saved again does not change.
 
+### Sprite state machine graph (#1054)
+
+Opening a `*.states.yaml` file (from the file browser, command palette, or `OpenStatesFile` / `OpenStatesYAML` / `OpenStatesProjectFile`) opens the **State Machine** graph panel below the viewport:
+
+- **Graph and active state**: every state appears as a node card showing its name, clip metadata (frame count, frame duration, loop/once) and sprite thumbnail, with directed labelled transition edges and an `Any state` wildcard badge. During preview, the active state node highlights live and the preview card renders the active clip frame.
+- **Drive with keys**: toggling **Drive with keys** binds the preview to the project's input actions (such as `move_left`, `move_right`, `jump`, `attack`, `hurt`) through the same `animclip.InputDriver` and `animclip.StateMachine` the game uses, advancing on fixed steps on `game.Loop` so interactive preview and runtime playback match frame for frame.
+- **Outgoing transitions (`LEAVING <STATE>`)**: selecting any state displays its outgoing transitions (including `Any state` interrupts) and their conditions, and graph edits (`AddStatesState`, `RemoveStatesState`, `AddStatesTransition`, `RemoveStatesTransition`, `SetStatesTransitionCondition`, `SetStatesEntry`, `SetStatesNodePosition`) go through the editor's undo/redo history and save back to deterministic canonical YAML (`SaveStatesYAML` / `SaveStatesFile`).
+
 ## Editor plugins (#492)
 
 A plugin extends the scene editor with its own panels, an inspector for its own component types and 2D viewport tools, as Godot's `EditorPlugin` does. Go cannot load code at run time on every platform, so a plugin is Go code built into the editor binary: the binary registers it with `Editor.RegisterPlugin`, and a project turns it on by naming it in its [project file](project.md):

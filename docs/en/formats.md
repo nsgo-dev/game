@@ -655,6 +655,104 @@ events:
     name: footstep
 ```
 
+<!-- format: animclip -->
+### Sprite state machine
+
+| Files | Version | Read and written by | Fields |
+| --- | --- | --- | --- |
+| `*.states.yaml`, such as `anim/knight.states.yaml` | `version: 1` | `animclip.ParseStateMachine`, `animclip.EncodeStateMachine` | [animclip](animclip.md#sprite-state-machines); schema `https://game.nsgo.dev/schemas/states.v1.json` |
+
+```yaml
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/states.v1.json
+version: 1
+name: Knight
+entry: idle
+parameters:
+  - name: move.x
+    type: float
+  - name: velocity.y
+    type: float
+  - name: on_floor
+    type: bool
+    default: true
+  - name: jump
+    type: trigger
+  - name: attack
+    type: trigger
+  - name: hurt
+    type: trigger
+states:
+  - name: idle
+    clip: anim/knight_idle.animation.yaml
+    x: 40
+    "y": 230
+  - name: run
+    clip: anim/knight_run.animation.yaml
+    x: 330
+    "y": 230
+  - name: jump
+    clip: anim/knight_jump.animation.yaml
+    x: 190
+    "y": 70
+  - name: fall
+    clip: anim/knight_fall.animation.yaml
+    x: 430
+    "y": 70
+  - name: attack
+    clip: anim/knight_attack.animation.yaml
+    x: 190
+    "y": 400
+  - name: hurt
+    clip: anim/knight_hurt.animation.yaml
+    x: 430
+    "y": 400
+transitions:
+  - from: idle
+    to: run
+    label: moving
+    when: '|move.x| > 0.1'
+  - from: run
+    to: idle
+    label: stopped
+    when: '|move.x| <= 0.1'
+  - from: idle
+    to: jump
+    label: jump pressed, on floor
+    when: jump && on_floor
+  - from: run
+    to: jump
+    label: jump pressed, on floor
+    when: jump && on_floor
+  - from: jump
+    to: fall
+    label: falling
+    when: velocity.y > 0
+  - from: fall
+    to: run
+    label: lands
+    when: on_floor
+  - from: idle
+    to: attack
+    label: attack pressed
+    when: attack
+  - from: run
+    to: attack
+    label: attack pressed
+    when: attack
+  - from: attack
+    to: idle
+    label: clip ends
+    onEnd: true
+  - from: '*'
+    to: hurt
+    label: took damage
+    when: hurt
+  - from: hurt
+    to: idle
+    label: clip ends
+    onEnd: true
+```
+
 <!-- format: particles -->
 ### Particle emitter
 
