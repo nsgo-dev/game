@@ -1,6 +1,6 @@
 # ai
 
-`game/ai` 提供可直接运行在 `game.Loop` 固定步长上的确定性游戏 AI 组件：网格 `AStar` 寻路、分层寻路 `HPA`、跳点搜索 `JPS`、带漏斗平滑的 2D 导航网格 `NavMesh`、转向行为（steering）、行为树、效用 AI（Utility AI）评分、目标导向行动规划（GOAP）、攻击令牌与小队协作、空间影响图（Influence Maps）、EQS 风格的战术位置查询、掩体点与占位预订系统，以及带视觉、听觉与记忆的感知。
+`game/ai` 提供可直接运行在 `game.Loop` 固定步长上的确定性游戏 AI 组件：网格 `AStar` 寻路、分层寻路 `HPA`、跳点搜索 `JPS`、通用图搜索 `GraphSearch`（支持六边形瓦片地图适配器、航点图与自定义图上的 A*、Dijkstra 和带路径的移动范围查询）、带漏斗平滑的 2D 导航网格 `NavMesh`、转向行为（steering）、行为树、效用 AI（Utility AI）评分、目标导向行动规划（GOAP）、攻击令牌与小队协作、空间影响图（Influence Maps）、EQS 风格的战术位置查询、掩体点与占位预订系统，以及带视觉、听觉与记忆的感知。
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/ai"
@@ -131,6 +131,59 @@ _, _, _ = path, cost, waypoints
 - 使用 `jps.FindInto(dst, grid, start, goal)` 或 `jps.FindJumpPointsInto(dst, grid, start, goal)` 可复用调用方缓冲区实现零堆分配。
 - `JPS` 假设所有可通行格子步长代价均为 `1`；带权重的 `CostGrid` / `EdgeCostGrid` 请使用 `AStar` 或 `HPA`。
 
+## 通用图搜索、六边形适配器与航点图
+
+当需要在六边形瓦片地图、手工摆放的航点网络、3D 格子网格或自定义领域图上寻路时，可使用 `GraphSearch[N]` 搜索任意实现 `Graph[N]`（`AppendNeighbors(dst []GraphEdge[N], node N) []GraphEdge[N]`）或 `HeuristicGraph[N]`（增加 `Heuristic(from, goal N) float64`）的图：
+
+- **复用缓冲区的 A* 与 Dijkstra**：`Find` / `FindInto`、`FindWithHeuristic` / `FindWithHeuristicInto` 与 `FindDijkstra` / `FindDijkstraInto` 在多次调用间复用内部节点、堆、索引表和邻居缓冲区（预热后 `FindInto` 与 `FindDijkstraInto` 零堆分配，`Find` 仅分配返回的路径切片）。平局打破规则与 `AStar` 一致：依次按最低 `f`、最低 `h`、`GraphSearch.Less`（或可选 `NodeOrder[N]`）、确定性发现顺序排序。
+- **带路径重建的范围查询**：`Range(g, start, budget)` 与复用缓冲区的 `RangeInto(dst, g, start, budget)` 在预算 `budget` 内运行 Dijkstra，返回 `*GraphRange[N]`，既包含所有可达节点与最小代价（`Nodes()`、`Contains(n)`、`Cost(n)`、`Parent(n)`），又支持直接重建到任意可达节点的最短路径（`Path(n)` 与零堆分配的 `PathInto(dst, n)`）。
+- **函数回调图**：可通过 `GraphFunc[N]{Neighbors, Estimate, Valid, Less}` 快速包装临时图，或实现可选接口 `ValidatedGraph[N]` 在搜索前拦截越界、阻挡或已删除的起终点。
+
+### 基于 `tilemap.Tilemap` 的六边形网格适配器
+
+`NewHexGrid(m)` 直接适配任意六边形 `*tilemap.Tilemap`，完整支持全部交错轴（`StaggerX`、`StaggerY`）与奇偶偏移（`StaggerOdd`、`StaggerEven`），内部直接调用 `m.HexNeighbors` 与 `m.HexDistance`：
+
+```go
+hex := ai.NewHexGrid(hexMap)
+hex.Cost = func(col, row int) float64 {
+	if isForest(col, row) {
+		return 2
+	}
+	return 1
+}
+
+search := ai.NewGraphSearch[ai.Cell]()
+path, cost, ok := search.Find(hex, start, goal)
+
+// 回合制战棋移动范围查询，并可直接获取悬停格子的移动路径预览：
+moveRange := search.Range(hex, start, 4)
+if preview, reachable := moveRange.Path(hoveredCell); reachable {
+	_, _, _, _ = path, cost, ok, preview
+}
+```
+
+可通过 `SolidMask`（默认 `tilemap.TileSolid`）、`Walk`、`Cost` 或有向 `StepCost` 自定义可通行性与逐格/逐边地形代价。`HexGrid` 同时实现了 `Grid`、`CostGrid` 和 `EdgeCostGrid`。
+
+### 航点图（WaypointGraph）
+
+`NewWaypointGraph()` 管理手工摆放的 2D（`Add`、`SetPos`、`Pos`、`Nearest`、`Points` / `PointsInto`）或 3D（`Add3D`、`SetPos3D`、`Pos3D`、`Nearest3D`、`Points3D` / `Points3DInto`）航点，提供稳定整数 ID、自动欧氏距离连边（`Connect`、`ConnectUndirected`）、显式权重的有向/无向边（`AddEdge`、`AddUndirectedEdge`）、临时开关节点（`SetEnabled`）以及删除节点（`Remove`）：
+
+```go
+wg := ai.NewWaypointGraph()
+a := wg.Add(core.Point{X: 0, Y: 0})
+b := wg.Add(core.Point{X: 80, Y: 0})
+c := wg.Add(core.Point{X: 80, Y: 60})
+wg.ConnectUndirected(a, b) // 自动采用欧氏距离代价（80）
+wg.ConnectUndirected(b, c) // 自动采用欧氏距离代价（60）
+wg.AddEdge(a, c, 120)      // 显式指定有向边代价
+
+search := ai.NewGraphSearch[int]()
+nodePath, totalCost, ok := search.Find(wg, a, c)
+waypoints := wg.Points(nodePath) // 可直接传给 ai.FollowPath
+_, _, _ = totalCost, ok, waypoints
+```
+
+`WaypointGraph.Heuristic` 返回航点间欧氏距离（在所有边代价不小于欧氏距离时保证可采纳）；若图中包含代价低于直线距离的传送门或捷径边，请调用 `search.FindDijkstra`。
 ## 带漏斗平滑的 2D NavMesh
 
 对于开放式竞技场或非网格地形，可用凸多边形构建 `NavMesh`。`BuildNavMesh` 会自动统一绕序、沿共享边（含部分共线重叠）连接相邻多边形；`FindPath` 通过门户图 A* 加上 Simple Stupid Funnel Algorithm 拉直路径：
