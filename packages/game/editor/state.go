@@ -486,6 +486,8 @@ type Editor struct {
 	ProfilerPollInterval time.Duration
 	// RecentProjectsPath is the per-user YAML file where recently opened projects are stored outside any project directory. When empty, recent projects stay in memory without writing to disk.
 	RecentProjectsPath string
+	// LayoutPath is the per-user YAML file where the editor's dock panel layout is stored outside any project directory. When empty, layout edits stay in memory without writing to disk.
+	LayoutPath string
 	// Now returns the current time for recent-project timestamps and relative-time labels; when nil, time.Now is used.
 	Now func() time.Time
 	// PickProjectFolder prompts the user to choose a project folder (for Open Project and New Project's parent folder). When nil and a UI scope is attached, the editor invokes cx.PickDirectories.
@@ -942,6 +944,8 @@ type Editor struct {
 	hasPointer2D bool
 	pointer3D    [2]float32
 	hasPointer3D bool
+	// dock holds the editor's dockable panel layout blueprint, hidden panels, and mounted ui.DockArea ref.
+	dock dockLayoutState
 	// disk tracks on-disk snapshots, external-change conflicts, save-conflict prompts, and background file watching.
 	disk diskWatchState
 	// playtest holds the Playtest Report screen state, active report entries, chart view-model, and playtest_define proposal reviews.

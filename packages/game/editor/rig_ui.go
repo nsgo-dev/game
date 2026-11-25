@@ -145,8 +145,8 @@ func rigPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 		return a.Duration.Seconds()
 	}
 
-	header := ui.HStack{
-		Gap: 6,
+	header := core.View{
+		Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Wrap: core.Wrap, Gap: 6},
 		Children: []core.Node{
 			core.Text{Content: "Rig Editor", Style: core.Style{FontSize: 13, FontWeight: 700, Color: colors.Text()}},
 			core.View{Style: core.Style{Width: core.Pt(110)}, Children: []core.Node{ui.Input{
@@ -1030,14 +1030,14 @@ func rigPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 
 	return core.View{
 		TestID: "rig-panel",
-		Style: core.Style{
+		Style: dockedStyle(cx, core.Style{
 			Height:      core.Pt(320),
 			Padding:     core.Symmetric(6, 12),
 			Gap:         6,
 			Background:  colors.Inset(),
 			Borders:     core.Edges{Top: 1},
 			BorderColor: colors.Line(),
-		},
+		}),
 		Children: []core.Node{
 			core.Show{
 				When: func() bool {

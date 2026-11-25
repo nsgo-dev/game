@@ -510,13 +510,25 @@ func TestBottomPanelsSpecLightThemeParity(t *testing.T) {
 
 	assertPalette := func(label string, want editor.SpecPalette) {
 		t.Helper()
-		for _, id := range []string{"problems-panel", "search-panel", "datatable-panel", "l10n-panel", "anim-panel"} {
-			v := app.Find("id:" + id)
+		panels := []struct {
+			key string
+			id  string
+		}{
+			{editor.PanelProblems, "problems-panel"},
+			{editor.PanelSearch, "search-panel"},
+			{editor.PanelDataTable, "datatable-panel"},
+			{editor.PanelLocalization, "l10n-panel"},
+			{editor.PanelAnimation, "anim-panel"},
+		}
+		for _, p := range panels {
+			app.Press("id:dock-tab-" + p.key)
+			app.Settle()
+			v := app.Find("id:" + p.id)
 			if v.Style.Background != want.Panel {
-				t.Fatalf("%s: %s background = #%08X, want #%08X", label, id, uint32(v.Style.Background), uint32(want.Panel))
+				t.Fatalf("%s: %s background = #%08X, want #%08X", label, p.id, uint32(v.Style.Background), uint32(want.Panel))
 			}
 			if v.Style.BorderColors.Top != want.Line {
-				t.Fatalf("%s: %s top border = #%08X, want #%08X", label, id, uint32(v.Style.BorderColors.Top), uint32(want.Line))
+				t.Fatalf("%s: %s top border = #%08X, want #%08X", label, p.id, uint32(v.Style.BorderColors.Top), uint32(want.Line))
 			}
 		}
 		playBtn := app.Find("id:anim-play")
@@ -571,28 +583,21 @@ func TestBottomPanelsMemoizedIconsNoRemountOnUnrelatedTicks(t *testing.T) {
 		return id
 	}
 
+	// Switch to Animation tab and verify anim-play icon does not remount on unrelated rev ticks.
+	app.Press("id:dock-tab-" + editor.PanelAnimation)
+	app.Settle()
 	playIconBefore := firstIconID("anim-play")
-	colIconBefore := firstIconID("datatable-col-hp")
 
-	// Unrelated rev ticks (seeking playhead, editing clip name, editing a cell) must not remount either icon.
 	app.Post(func() {
 		ed.SeekClip(250 * time.Millisecond)
 		_ = ed.SetClipName("Renamed")
-		_ = ed.SetDataTableCellText(0, "hp", "42")
 	})
 	app.Settle()
-
 	if got := firstIconID("anim-play"); got != playIconBefore {
 		t.Fatalf("anim-play icon remounted on unrelated rev ticks: id %d -> %d", playIconBefore, got)
 	}
-	if got := firstIconID("datatable-col-hp"); got != colIconBefore {
-		t.Fatalf("datatable-col-hp icon remounted on unrelated rev ticks: id %d -> %d", colIconBefore, got)
-	}
-
-	// Changing the memoized state (playing clip, sorting column) updates the icons as expected.
 	app.Post(func() {
 		_ = ed.PlayClip()
-		ed.SetDataTableSort("hp", editor.SortAsc)
 	})
 	app.Settle()
 	if !ed.ClipPlaying() {
@@ -601,11 +606,28 @@ func TestBottomPanelsMemoizedIconsNoRemountOnUnrelatedTicks(t *testing.T) {
 	if got := firstIconID("anim-play"); got == playIconBefore {
 		t.Fatal("expected anim-play icon to update when ClipPlaying changed")
 	}
+	app.Post(ed.PauseClip)
+	app.Settle()
+
+	// Switch to Data Table tab and verify datatable-col-hp icon does not remount on unrelated rev ticks.
+	app.Press("id:dock-tab-" + editor.PanelDataTable)
+	app.Settle()
+	colIconBefore := firstIconID("datatable-col-hp")
+
+	app.Post(func() {
+		_ = ed.SetDataTableCellText(0, "hp", "42")
+	})
+	app.Settle()
+	if got := firstIconID("datatable-col-hp"); got != colIconBefore {
+		t.Fatalf("datatable-col-hp icon remounted on unrelated rev ticks: id %d -> %d", colIconBefore, got)
+	}
+	app.Post(func() {
+		ed.SetDataTableSort("hp", editor.SortAsc)
+	})
+	app.Settle()
 	if got := firstIconID("datatable-col-hp"); got == colIconBefore {
 		t.Fatal("expected datatable-col-hp icon to update when sort order changed")
 	}
-	app.Post(ed.PauseClip)
-	app.Settle()
 }
 
 // #1063 regression: ClipLoading and SearchLoading reset on transitions, and Play mode disables anim-save & anim-scrub.

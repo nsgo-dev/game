@@ -640,14 +640,17 @@ func OutputPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 		Then: func(cx *core.Scope) core.Node {
 			return core.View{
 				TestID: "output-panel",
-				Style: core.Style{
+				Style: dockedStyle(cx, core.Style{
 					Background:  colors.Inset(),
 					Borders:     core.Edges{Top: 1},
 					BorderColor: colors.Line(),
 					Padding:     core.All(8),
 					Gap:         6,
-				},
+				}),
 				StyleFunc: func() core.Style {
+					if isDockedPanel(cx) {
+						return core.Style{}
+					}
 					if state.Get().panicReport != nil {
 						return core.Style{Height: core.Pt(236)}
 					}
@@ -702,7 +705,7 @@ func OutputPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 						},
 					},
 					ui.ScrollView{
-						Style:    core.Style{FlexGrow: 1},
+						Style:    core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), MinHeight: core.Pt(0)},
 						Children: []core.Node{list},
 					},
 				},

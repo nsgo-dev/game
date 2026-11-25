@@ -302,13 +302,13 @@ func terrainPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 
 	return core.View{
 		TestID: "terrain-panel",
-		Style: core.Style{
+		Style: dockedStyle(cx, core.Style{
 			Padding:     core.Symmetric(6, 12),
 			Gap:         6,
 			Background:  colors.Inset(),
 			Borders:     core.Edges{Top: 1},
 			BorderColor: colors.Line(),
-		},
+		}),
 		Children: []core.Node{
 			header,
 			brushes,

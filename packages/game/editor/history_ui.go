@@ -567,13 +567,13 @@ func HistoryPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 		TestID: "history-panel",
 		StyleFunc: func() core.Style {
 			p := pal()
-			return core.Style{
+			return dockedStyle(cx, core.Style{
 				Width:       core.Pt(340),
 				FlexShrink:  0,
 				Background:  p.Panel,
 				Borders:     core.Edges{Left: 1},
 				BorderColor: p.Line,
-			}
+			})
 		},
 		Children: []core.Node{
 			header,

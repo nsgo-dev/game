@@ -29,6 +29,7 @@ func newTestApp(t *testing.T) (*app, *bytes.Buffer, *bytes.Buffer) {
 			return nil
 		},
 		recentProjectsPath: filepath.Join(t.TempDir(), "recent-projects.yaml"),
+		layoutPath:         filepath.Join(t.TempDir(), "layout.yaml"),
 	}, &stdout, &stderr
 }
 

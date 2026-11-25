@@ -102,8 +102,8 @@ func tilesetEditorPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 		}
 	}
 
-	header := ui.HStack{
-		Gap: 8,
+	header := core.View{
+		Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Wrap: core.Wrap, Gap: 8},
 		Children: []core.Node{
 			core.Text{
 				Content: "Tileset Editor",
@@ -484,14 +484,14 @@ func tilesetEditorPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 
 	return core.View{
 		TestID: "tileset-editor-panel",
-		Style: core.Style{
+		Style: dockedStyle(cx, core.Style{
 			Height:      core.Pt(270),
 			Padding:     core.Symmetric(8, 12),
 			Gap:         8,
 			Background:  specPanel,
 			Borders:     core.Edges{Top: 1},
 			BorderColor: specLine,
-		},
+		}),
 		Children: []core.Node{
 			header,
 			core.Show{

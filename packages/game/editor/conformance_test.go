@@ -24,3 +24,12 @@ func TestCheckpointManifestFormatConformance(t *testing.T) {
 		Doc:    "editor#checkpoint",
 	})
 }
+
+func TestLayoutFormatConformance(t *testing.T) {
+	formattest.Run(t, formattest.Format[*editor.LayoutFile]{
+		Decode: editor.ParseLayout,
+		Encode: editor.EncodeLayout,
+		Files:  []string{"testdata/layout.yaml"},
+		Doc:    "editor#layout",
+	})
+}

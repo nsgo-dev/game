@@ -281,6 +281,8 @@ strings:
   cmd.redo.label: 重做
   cmd.replayTips.desc: 重置已关闭的首次审查提示以便重新显示
   cmd.replayTips.label: 重播提示
+  cmd.resetLayout.desc: 恢复默认的可停靠面板布局
+  cmd.resetLayout.label: 重置布局
   cmd.revertAgentTurn.desc: 将当前待确认智能体回合触及的所有文件还原到请求前状态
   cmd.revertAgentTurn.label: 还原智能体回合
   cmd.runGame.desc: 使用 Editor.OnRunGame、go tool game dev 或编辑器内运行启动游戏
@@ -772,6 +774,7 @@ strings:
   menu.overlays: 叠加层
   menu.paintTile: 绘制瓦片
   menu.pan: 平移
+  menu.panels: 面板
   menu.particleEditor: 粒子发射器编辑器
   menu.paste: 粘贴
   menu.pasteInto: 粘贴为子级
@@ -786,6 +789,7 @@ strings:
   menu.projectSettings: 项目设置
   menu.redo: 重做
   menu.replayTips: 重播提示
+  menu.resetLayout: 重置布局
   menu.revertOverrides: 还原所有覆盖
   menu.rotate: 旋转
   menu.runGame: 运行游戏

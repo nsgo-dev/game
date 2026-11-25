@@ -2168,6 +2168,51 @@ files:
     sha256: fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210
 ```
 
+<!-- format: editor#layout -->
+### 编辑器面板布局
+
+| 文件 | 版本 | 读写函数 | 字段 |
+| --- | --- | --- | --- |
+| 用户配置目录中的 `layout.yaml`（`<UserConfigDir>/nsgo-game/layout.yaml`，位于任何项目之外） | `version: 1` | `editor.ParseLayout`、`editor.EncodeLayout`、`Editor.SetLayoutPath` | [编辑器与场景格式](editor.md#可停靠面板与布局919) |
+
+按用户跨会话保存编辑器可停靠面板的排布：`center`（包含 `viewport` 及停靠在其旁的面板的标签组或分割树）、可选的 `left`、`right` 与 `bottom` 停靠区（各自包含以点为单位的 `size`、可选的 `closed` 以及 `root`），以及可选的已排序 `hidden` 面板键列表。每个节点要么是标签组（`panels` 与可选的当前标签索引 `active`），要么是分割节点（`axis` 为 `"horizontal"` 或 `"vertical"`、可选的 `sizes` 点数数组与 `children`）。内置面板键包括 `viewport`、`scene_tree`、`layers`、`assets`、`files`、`library`、`inspector`、`problems`、`output`、`profiler`、`animation`、`search`、`states`、`tileset`、`terrain`、`rig`、`particles`、`material`、`environment`、`datatable`、`navmesh` 与 `localization`；插件面板键使用 `plugin:<plugin>:<id>`。未知字段、重复键、重复面板条目与不支持的版本均会被拒绝；启动恢复时不再存在的面板会被自动丢弃。
+
+```yaml
+version: 1
+center:
+  panels:
+    - viewport
+left:
+  size: 444
+  root:
+    axis: horizontal
+    sizes: [220, 224]
+    children:
+      - axis: vertical
+        sizes: [0, 200]
+        children:
+          - panels:
+              - scene_tree
+          - panels:
+              - layers
+      - axis: vertical
+        children:
+          - panels:
+              - assets
+          - panels:
+              - files
+              - inspector
+            active: 1
+bottom:
+  size: 164
+  root:
+    panels:
+      - problems
+      - output
+hidden:
+  - layers
+```
+
 <!-- format: tooling/assetbuild -->
 ### 资源构建缓存
 

@@ -642,13 +642,13 @@ func TasksPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			TestID: "tasks-panel",
 			Role:   core.RoleRegion,
 			Label:  ed.T("tasks.panelTitle"),
-			Style: core.Style{
+			Style: dockedStyle(cx, core.Style{
 				Width:       core.Pt(368),
 				FlexShrink:  0,
 				Background:  p.Panel,
 				Borders:     core.Edges{Left: 1},
 				BorderColor: p.Line,
-			},
+			}),
 			Children: []core.Node{
 				header,
 				listSection,

@@ -621,7 +621,7 @@ func renderInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 
 	return core.View{
 		TestID: "editor-inspector",
-		Style: core.Style{
+		Style: dockedStyle(cx, core.Style{
 			Width:       core.Pt(272),
 			FlexGrow:    1,
 			FlexBasis:   core.Pt(0),
@@ -629,7 +629,7 @@ func renderInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 			Borders:     core.Edges{Left: 1},
 			BorderColor: specLine,
 			Gap:         0,
-		},
+		}),
 		Children: []core.Node{
 			scrubEscape,
 			core.Show{
@@ -678,6 +678,7 @@ func renderInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 				Style: core.Style{
 					FlexGrow:  1,
 					FlexBasis: core.Pt(0),
+					MinHeight: core.Pt(0),
 				},
 				ContentStyle: core.Style{
 					Padding: core.All(10),

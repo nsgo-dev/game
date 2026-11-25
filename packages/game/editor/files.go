@@ -208,7 +208,7 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 		Then: func(cx *core.Scope) core.Node {
 			return core.View{
 				TestID: "file-browser",
-				Style: core.Style{
+				Style: dockedStyle(cx, core.Style{
 					FlexGrow:    1,
 					FlexBasis:   core.Pt(0),
 					Background:  colors.Inset(),
@@ -216,7 +216,7 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 					BorderColor: colors.Line(),
 					Padding:     core.All(6),
 					Gap:         4,
-				},
+				}),
 				Children: []core.Node{
 					ui.HStack{
 						Gap: 6,
@@ -306,7 +306,7 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 						},
 					},
 					ui.ScrollView{
-						Style:    core.Style{FlexGrow: 1, MinHeight: core.Pt(48)},
+						Style:    core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), MinHeight: core.Pt(0)},
 						Children: []core.Node{ownDragArea(cx, list)},
 					},
 					specInputField(cx, ed, ui.Input{
@@ -323,8 +323,8 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 							draft.Set(targetDraft{rev: ed.selectedFileRev, text: v})
 						},
 					}),
-					ui.HStack{
-						Gap: 6,
+					core.View{
+						Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Wrap: core.Wrap, Gap: 6},
 						Children: []core.Node{
 							ui.Button{
 								TestID:  "files-move",
@@ -377,73 +377,88 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 									}
 								},
 							},
-							ui.Button{
-								TestID:  "files-open-tileset",
-								Text:    "Edit Tileset",
-								Label:   "Open the selected tileset file in the Tileset Editor",
-								Size:    ui.SizeSmall,
-								Variant: ui.ButtonSecondary,
-								Disabled: func() bool {
+							core.Show{
+								When: func() bool {
 									_ = rev.Get()
-									if ed.Playing() {
-										return true
-									}
-									return !isTilesetFile(current.Get())
+									return isTilesetFile(current.Get())
 								},
-								OnPress: func() {
-									from := current.Get()
-									if from == "" {
-										return
-									}
-									if err := ed.OpenTilesetProjectFile(from); err != nil {
-										ed.report(err)
+								Then: func(cx *core.Scope) core.Node {
+									return ui.Button{
+										TestID:  "files-open-tileset",
+										Text:    "Edit Tileset",
+										Label:   "Open the selected tileset file in the Tileset Editor",
+										Size:    ui.SizeSmall,
+										Variant: ui.ButtonSecondary,
+										Disabled: func() bool {
+											_ = rev.Get()
+											return ed.Playing()
+										},
+										OnPress: func() {
+											from := current.Get()
+											if from == "" {
+												return
+											}
+											if err := ed.OpenTilesetProjectFile(from); err != nil {
+												ed.report(err)
+											}
+										},
 									}
 								},
 							},
-							ui.Button{
-								TestID:  "files-open-terrain",
-								Text:    "Terrain",
-								Label:   "Open the selected *.terrain.yaml file in the 3D terrain editor",
-								Size:    ui.SizeSmall,
-								Variant: ui.ButtonSecondary,
-								Disabled: func() bool {
+							core.Show{
+								When: func() bool {
 									_ = rev.Get()
-									if ed.Playing() {
-										return true
-									}
 									from := current.Get()
-									return from == "" || !isTerrainFile(from)
+									return from != "" && isTerrainFile(from)
 								},
-								OnPress: func() {
-									from := current.Get()
-									if from == "" {
-										return
-									}
-									if err := ed.OpenTerrainProjectFile(from); err != nil {
-										ed.report(err)
+								Then: func(cx *core.Scope) core.Node {
+									return ui.Button{
+										TestID:  "files-open-terrain",
+										Text:    "Terrain",
+										Label:   "Open the selected *.terrain.yaml file in the 3D terrain editor",
+										Size:    ui.SizeSmall,
+										Variant: ui.ButtonSecondary,
+										Disabled: func() bool {
+											_ = rev.Get()
+											return ed.Playing()
+										},
+										OnPress: func() {
+											from := current.Get()
+											if from == "" {
+												return
+											}
+											if err := ed.OpenTerrainProjectFile(from); err != nil {
+												ed.report(err)
+											}
+										},
 									}
 								},
 							},
-							ui.Button{
-								TestID:  "files-open-rig",
-								Text:    "Open Rig",
-								Label:   "Open the selected .skel.yaml file in the 2D Skeletal Rig editor",
-								Size:    ui.SizeSmall,
-								Variant: ui.ButtonSecondary,
-								Disabled: func() bool {
+							core.Show{
+								When: func() bool {
 									_ = rev.Get()
-									if ed.Playing() {
-										return true
-									}
 									from := current.Get()
-									return from == "" || !isRigFile(from)
+									return from != "" && isRigFile(from)
 								},
-								OnPress: func() {
-									from := current.Get()
-									if from == "" {
-										return
+								Then: func(cx *core.Scope) core.Node {
+									return ui.Button{
+										TestID:  "files-open-rig",
+										Text:    "Open Rig",
+										Label:   "Open the selected .skel.yaml file in the 2D Skeletal Rig editor",
+										Size:    ui.SizeSmall,
+										Variant: ui.ButtonSecondary,
+										Disabled: func() bool {
+											_ = rev.Get()
+											return ed.Playing()
+										},
+										OnPress: func() {
+											from := current.Get()
+											if from == "" {
+												return
+											}
+											ed.report(ed.OpenRigProjectFile(from, ""))
+										},
 									}
-									ed.report(ed.OpenRigProjectFile(from, ""))
 								},
 							},
 						},

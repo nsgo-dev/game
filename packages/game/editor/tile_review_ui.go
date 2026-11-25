@@ -315,7 +315,7 @@ func tileReviewPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 		OnKeyUp: func(ev core.KeyEvent) {
 			ed.TileReviewHandleKeyEvent(ev, false)
 		},
-		Style: core.Style{
+		Style: dockedStyle(cx, core.Style{
 			Width:       core.Pt(304),
 			FlexShrink:  0,
 			Background:  specPanel,
@@ -324,7 +324,7 @@ func tileReviewPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 			Padding:     core.All(12),
 			Gap:         12,
 			Overflow:    core.Hidden,
-		},
+		}),
 		Children: []core.Node{
 			// Agent step trace
 			core.Dynamic(func(cx *core.Scope) core.Node {

@@ -1211,7 +1211,7 @@ func localizationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 		})},
 	}
 
-	return specPanelContainer(p, "l10n-panel", "Localization", 272, header, errorBanner, table)
+	return specPanelContainer(cx, p, "l10n-panel", "Localization", 272, header, errorBanner, table)
 }
 
 func localizationCell(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint64], loc, key string, isPlural bool, disabled func() bool) core.Node {

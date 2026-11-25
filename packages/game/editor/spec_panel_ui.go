@@ -177,19 +177,22 @@ func specDynamicIcon(svgFunc func() *core.SVG, size core.Points, colFunc func() 
 }
 
 // specPanelContainer renders a bottom panel root region using SpecPalette tokens (Dark & Light).
-func specPanelContainer(p SpecPalette, testID, ariaLabel string, height core.Points, children ...core.Node) core.Node {
+func specPanelContainer(cx *core.Scope, p SpecPalette, testID, ariaLabel string, height core.Points, children ...core.Node) core.Node {
+	style := dockedStyle(cx, core.Style{
+		Height:      core.Pt(height),
+		FlexShrink:  0,
+		Background:  p.Panel,
+		Borders:     core.Edges{Top: 1},
+		BorderColor: p.Line,
+		Overflow:    core.Hidden,
+	})
+	style.Borders = core.Edges{Top: 1}
+	style.BorderColor = p.Line
 	return core.View{
-		TestID: testID,
-		Role:   core.RoleRegion,
-		Label:  ariaLabel,
-		Style: core.Style{
-			Height:      core.Pt(height),
-			FlexShrink:  0,
-			Background:  p.Panel,
-			Borders:     core.Edges{Top: 1},
-			BorderColor: p.Line,
-			Overflow:    core.Hidden,
-		},
+		TestID:   testID,
+		Role:     core.RoleRegion,
+		Label:    ariaLabel,
+		Style:    style,
 		Children: children,
 	}
 }

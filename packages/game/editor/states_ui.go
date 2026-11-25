@@ -283,8 +283,14 @@ func statesPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 		},
 	}
 
+	graphSize := core.NewSignal(cx, core.Size{})
 	graphArea := core.View{
 		TestID: "states-graph",
+		OnLayout: func(b core.Bounds) {
+			if b.Size != graphSize.GetUntracked() {
+				graphSize.Set(b.Size)
+			}
+		},
 		Style: core.Style{
 			FlexGrow:   1,
 			FlexBasis:  core.Pt(0),
@@ -310,10 +316,11 @@ func statesPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 			},
 			// Interactive state node cards + transition edge label pills + Any state pill.
 			core.Dynamic(func(cx *core.Scope) core.Node {
+				sz := graphSize.Get()
 				if structure.Get() == "" || ed.states.doc == nil {
 					return nil
 				}
-				return statesGraphOverlay(cx, ed, rev)
+				return statesGraphOverlay(cx, ed, rev, sz)
 			}),
 		},
 	}
@@ -328,12 +335,12 @@ func statesPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 		OnKeyUp: func(ev core.KeyEvent) {
 			ed.StatesHandleKeyEvent(ev, false)
 		},
-		Style: core.Style{
+		Style: dockedStyle(cx, core.Style{
 			Height:      core.Pt(380),
 			Background:  specBG,
 			Borders:     core.Edges{Top: 1},
 			BorderColor: specLine,
-		},
+		}),
 		Children: []core.Node{
 			header,
 			core.Show{
@@ -475,8 +482,8 @@ func stateNodePos(doc *animclip.StateMachineDoc, name string) (float32, float32)
 	return 24, 24
 }
 
-// graphBoundsTransform maps document graph coordinates into the docked graph canvas so horizontal transitions have generous room for arrows and labels while vertical rows fit cleanly without clipping.
-func graphBoundsTransform(doc *animclip.StateMachineDoc) (scaleX, scaleY, offX, offY float32) {
+// graphBoundsTransformFor maps document graph coordinates into the docked graph canvas so horizontal transitions have generous room for arrows and labels while all nodes and the Any state badge stay visible when the dock is resized.
+func graphBoundsTransformFor(doc *animclip.StateMachineDoc, avail core.Size) (scaleX, scaleY, offX, offY float32) {
 	if doc == nil || len(doc.States) == 0 {
 		return 1, 1, 0, 0
 	}
@@ -491,47 +498,69 @@ func graphBoundsTransform(doc *animclip.StateMachineDoc) (scaleX, scaleY, offX, 
 	}
 	spanX := maxX - minX
 	spanY := maxY - minY
-	scaleX = 1
-	if spanX > 0 {
-		// Spread compact graphs out to ~660px between leftmost and rightmost node origins (total width ~808px + Any state badge).
-		scaleX = 660 / spanX
-		if scaleX > 1.75 {
-			scaleX = 1.75
-		} else if scaleX < 0.85 {
-			scaleX = 0.85
+	targetSpanX := float32(660)
+	if w := float32(avail.Width); w > 0 {
+		hasAny := false
+		for _, tr := range doc.Transitions {
+			if tr.From == animclip.AnyState {
+				hasAny = true
+				break
+			}
+		}
+		reserve := float32(24) + stateNodeW + 16
+		if hasAny {
+			reserve += 56 + anyNodeW
+		}
+		if fit := w - reserve; fit < targetSpanX {
+			targetSpanX = max(fit, 120)
 		}
 	}
+	scaleX = 1
+	if spanX > 0 {
+		scaleX = targetSpanX / spanX
+		if scaleX > 1.75 {
+			scaleX = 1.75
+		}
+	}
+	targetH := float32(292)
+	if h := float32(avail.Height); h > 0 && h-36 < targetH {
+		targetH = max(h-36, stateNodeH+16)
+	}
 	scaleY = 1
-	if spanY+stateNodeH > 292 {
-		scaleY = (292 - stateNodeH) / spanY
+	if spanY > 0 && spanY+stateNodeH > targetH {
+		scaleY = (targetH - stateNodeH) / spanY
 	}
 	offX = 24 - minX*scaleX
 	offY = 18 - minY*scaleY
 	return scaleX, scaleY, offX, offY
 }
 
-func stateNodeScreenPos(doc *animclip.StateMachineDoc, name string) (x, y float32) {
+func stateNodeScreenPos(doc *animclip.StateMachineDoc, name string, avail core.Size) (x, y float32) {
 	gx, gy := stateNodePos(doc, name)
-	sx, sy, ox, oy := graphBoundsTransform(doc)
+	sx, sy, ox, oy := graphBoundsTransformFor(doc, avail)
 	return gx*sx + ox, gy*sy + oy
 }
 
-func anyNodeScreenPos(doc *animclip.StateMachineDoc) (x, y float32) {
+func anyNodeScreenPos(doc *animclip.StateMachineDoc, avail core.Size) (x, y float32) {
 	var maxRight float32
 	for _, st := range doc.States {
-		nx, _ := stateNodeScreenPos(doc, st.Name)
+		nx, _ := stateNodeScreenPos(doc, st.Name, avail)
 		maxRight = max(maxRight, nx+stateNodeW)
 	}
 	// Vertically align with the first wildcard transition's target state when present.
 	y = 18
 	for _, tr := range doc.Transitions {
 		if tr.From == animclip.AnyState {
-			_, ty := stateNodeScreenPos(doc, tr.To)
+			_, ty := stateNodeScreenPos(doc, tr.To, avail)
 			y = ty + (stateNodeH-anyNodeH)/2
 			break
 		}
 	}
-	return maxRight + 110, y
+	gap := float32(110)
+	if w := float32(avail.Width); w > 0 && maxRight+gap+anyNodeW > w-12 {
+		gap = max(w-12-anyNodeW-maxRight, 16)
+	}
+	return maxRight + gap, y
 }
 
 func drawStatesGraphCanvas(d *core.Drawing, size core.Size, ed *Editor) {
@@ -559,13 +588,13 @@ func drawStatesGraphCanvas(d *core.Drawing, size core.Size, ed *Editor) {
 	for _, tr := range doc.Transitions {
 		var sx, sy, sw, sh float32
 		if tr.From == animclip.AnyState {
-			sx, sy = anyNodeScreenPos(doc)
+			sx, sy = anyNodeScreenPos(doc, size)
 			sw, sh = anyNodeW, anyNodeH
 		} else {
-			sx, sy = stateNodeScreenPos(doc, tr.From)
+			sx, sy = stateNodeScreenPos(doc, tr.From, size)
 			sw, sh = stateNodeW, stateNodeH
 		}
-		tx, ty := stateNodeScreenPos(doc, tr.To)
+		tx, ty := stateNodeScreenPos(doc, tr.To, size)
 		tw, th := stateNodeW, stateNodeH
 
 		x1, y1 := sx+sw/2, sy+sh/2
@@ -650,7 +679,7 @@ func drawArrowHead(d *core.Drawing, x1, y1, x2, y2 float32, col core.Color) {
 	strokeLine(d, x2, y2, bx-px*half, by-py*half)
 }
 
-func statesGraphOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+func statesGraphOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], avail core.Size) core.Node {
 	doc := ed.states.doc
 	if doc == nil {
 		return nil
@@ -672,13 +701,13 @@ func statesGraphOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 		}
 		var sx, sy, sw, sh float32
 		if tr.From == animclip.AnyState {
-			sx, sy = anyNodeScreenPos(doc)
+			sx, sy = anyNodeScreenPos(doc, avail)
 			sw, sh = anyNodeW, anyNodeH
 		} else {
-			sx, sy = stateNodeScreenPos(doc, tr.From)
+			sx, sy = stateNodeScreenPos(doc, tr.From, avail)
 			sw, sh = stateNodeW, stateNodeH
 		}
-		tx, ty := stateNodeScreenPos(doc, tr.To)
+		tx, ty := stateNodeScreenPos(doc, tr.To, avail)
 		x1, y1 := sx+sw/2, sy+sh/2
 		x2, y2 := tx+stateNodeW/2, ty+stateNodeH/2
 		dx, dy := x2-x1, y2-y1
@@ -745,7 +774,7 @@ func statesGraphOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 		}
 	}
 	if hasAny {
-		ax, ay := anyNodeScreenPos(doc)
+		ax, ay := anyNodeScreenPos(doc, avail)
 		children = append(children, core.View{
 			TestID: "states-node-any",
 			Style: core.Style{
@@ -773,7 +802,7 @@ func statesGraphOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 	// State node buttons (Animation.dc.html lines 124-132).
 	for _, st := range doc.States {
 		stateName := st.Name
-		nx, ny := stateNodeScreenPos(doc, stateName)
+		nx, ny := stateNodeScreenPos(doc, stateName, avail)
 		meta, _ := ed.StatesClipMetaFor(stateName)
 		metaSummary := meta.Summary
 		if metaSummary == "" {

@@ -743,6 +743,7 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 					Direction:      core.Row,
 					AlignItems:     core.AlignCenter,
 					JustifyContent: core.JustifyCenter,
+					FlexShrink:     0,
 					Height:         core.Pt(specButtonHeight),
 					Padding:        core.Symmetric(0, specSpace12),
 					Gap:            6,
@@ -779,6 +780,7 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 				Label:  "Queue",
 				Style: core.Style{
 					Height:         core.Pt(specButtonHeight),
+					FlexShrink:     0,
 					Padding:        core.Symmetric(0, specSpace12),
 					CornerRadius:   specRadiusButton,
 					AlignItems:     core.AlignCenter,
@@ -812,6 +814,7 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 				Style: core.Style{
 					Width:          core.Pt(specButtonHeight),
 					Height:         core.Pt(specButtonHeight),
+					FlexShrink:     0,
 					CornerRadius:   specRadiusButton,
 					Background:     sendBg,
 					AlignItems:     core.AlignCenter,

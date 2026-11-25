@@ -280,14 +280,14 @@ func LibraryView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 
 	return core.View{
 		TestID: "library-panel",
-		Style: core.Style{
+		Style: dockedStyle(cx, core.Style{
 			Width:       core.Pt(224),
 			Background:  colors.Inset(),
 			Borders:     core.Edges{Right: 1},
 			BorderColor: colors.Line(),
 			Padding:     core.All(10),
 			Gap:         8,
-		},
+		}),
 		Children: []core.Node{
 			core.Text{
 				TestID:  "library-title",
@@ -295,7 +295,7 @@ func LibraryView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 				Style:   core.Style{FontSize: 13, FontWeight: 700, Color: colors.Text()},
 			},
 			ui.ScrollView{
-				Style:        core.Style{FlexGrow: 1},
+				Style:        core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), MinHeight: core.Pt(0)},
 				ContentStyle: core.Style{Gap: 6},
 				Children:     rows,
 			},

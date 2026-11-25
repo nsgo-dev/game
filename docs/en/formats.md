@@ -2168,6 +2168,51 @@ files:
     sha256: fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210
 ```
 
+<!-- format: editor#layout -->
+### Editor panel layout
+
+| Files | Version | Read and written by | Fields |
+| --- | --- | --- | --- |
+| `layout.yaml` in the user config directory (`<UserConfigDir>/nsgo-game/layout.yaml`, outside any project) | `version: 1` | `editor.ParseLayout`, `editor.EncodeLayout`, `Editor.SetLayoutPath` | [Editor & Scene Format](editor.md#dockable-panels-and-layout-919) |
+
+Stores the user's dockable panel arrangement across sessions: `center` (a tab group or split tree holding `viewport` and any panels docked beside it), optional `left`, `right` and `bottom` docks (each with `size` in points, optional `closed`, and `root`), and optional sorted `hidden` panel keys. Each node is either a tab group (`panels` and optional `active` tab index) or a split (`axis`: `"horizontal"` or `"vertical"`, optional `sizes` in points, and `children`). Built-in panels use keys such as `viewport`, `scene_tree`, `layers`, `assets`, `files`, `library`, `inspector`, `problems`, `output`, `profiler`, `animation`, `search`, `states`, `tileset`, `terrain`, `rig`, `particles`, `material`, `environment`, `datatable`, `navmesh`, and `localization`; plugin panels use `plugin:<plugin>:<id>`. Unknown fields, duplicate keys, duplicate panel entries, and unsupported versions are refused; a saved panel that no longer exists when the editor starts is dropped on restore.
+
+```yaml
+version: 1
+center:
+  panels:
+    - viewport
+left:
+  size: 444
+  root:
+    axis: horizontal
+    sizes: [220, 224]
+    children:
+      - axis: vertical
+        sizes: [0, 200]
+        children:
+          - panels:
+              - scene_tree
+          - panels:
+              - layers
+      - axis: vertical
+        children:
+          - panels:
+              - assets
+          - panels:
+              - files
+              - inspector
+            active: 1
+bottom:
+  size: 164
+  root:
+    panels:
+      - problems
+      - output
+hidden:
+  - layers
+```
+
 <!-- format: tooling/assetbuild -->
 ### Asset build cache
 

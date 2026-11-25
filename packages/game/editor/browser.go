@@ -261,14 +261,14 @@ func AssetBrowserView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 
 	return core.View{
 		TestID: "asset-browser",
-		Style: core.Style{
+		Style: dockedStyle(cx, core.Style{
 			Width:       core.Pt(224),
 			Background:  colors.Inset(),
 			Borders:     core.Edges{Right: 1},
 			BorderColor: colors.Line(),
 			Padding:     core.All(10),
 			Gap:         8,
-		},
+		}),
 		Children: []core.Node{
 			core.Text{
 				TestID:  "assets-title",
@@ -281,7 +281,9 @@ func AssetBrowserView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 			},
 			ui.ScrollView{
 				Style: core.Style{
-					FlexGrow: 1,
+					FlexGrow:  1,
+					FlexBasis: core.Pt(0),
+					MinHeight: core.Pt(0),
 				},
 				ContentStyle: core.Style{
 					Gap: 6,

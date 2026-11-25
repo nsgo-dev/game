@@ -31,6 +31,8 @@ type app struct {
 	goRun func(dir string, args []string, stdout, stderr io.Writer) error
 	// recentProjectsPath overrides the per-user recent projects YAML file path used by `game editor` (tests set it inside t.TempDir()).
 	recentProjectsPath string
+	// layoutPath overrides the per-user editor dock layout YAML file path used by `game editor` (tests set it inside t.TempDir()).
+	layoutPath string
 }
 
 // command is one subcommand of game.
