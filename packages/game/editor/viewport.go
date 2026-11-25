@@ -251,6 +251,9 @@ func (e *Editor) HandleCanvasPress(x, y float32) {
 		}
 		return
 	}
+	if e.RoomCreateMode() {
+		return
+	}
 	switch e.Tool {
 	case ToolSelect:
 		if e.handleShapePress2D(x, y, false) {
@@ -844,7 +847,8 @@ func (g *viewportGestures) pan(ed *Editor, ev core.PanEvent, spaceHeld, shiftHel
 			}
 		} else if g.panRoomDrag {
 			g.panRoomDrag = false
-			if ed.EndRoomDrag() {
+			wasCreating := ed.roomDrag.creating
+			if ed.EndRoomDrag() || wasCreating {
 				g.suppressPress = true
 			}
 		} else if !g.spacePan && ed.PluginDragging2D() {
@@ -1302,7 +1306,8 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 							g.roomDrag = false
 						} else if ev.PressedButton != core.MouseButtonLeft || ed.ViewMode != ViewMode2D {
 							g.roomDrag = false
-							if ed.EndRoomDrag() {
+							wasCreating := ed.roomDrag.creating
+							if ed.EndRoomDrag() || wasCreating {
 								g.suppressPress = true
 							}
 							return
@@ -1385,7 +1390,8 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 						}
 						if g.roomDrag {
 							g.roomDrag = false
-							if ed.EndRoomDrag() {
+							wasCreating := ed.roomDrag.creating
+							if ed.EndRoomDrag() || wasCreating {
 								g.suppressPress = true
 							}
 							return

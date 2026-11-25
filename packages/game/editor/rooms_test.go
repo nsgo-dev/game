@@ -2,6 +2,7 @@ package editor_test
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -609,6 +610,229 @@ func mathAbs32(v float32) float32 {
 		return -v
 	}
 	return v
+}
+
+func TestRoomMapUndoDoesNotCorruptSwitchedMap(t *testing.T) {
+	ed := newFarEditor(t)
+	if err := ed.NewRoomMap(""); err != nil {
+		t.Fatalf("NewRoomMap A: %v", err)
+	}
+	if _, err := ed.AddRoom(rooms.Room{ID: "alpha_extra", X: 320, Y: 0, Width: 320, Height: 180}); err != nil {
+		t.Fatalf("AddRoom on map A: %v", err)
+	}
+	// Switch to a completely different room map B.
+	mapBYAML := []byte("version: 1\nrooms:\n  - id: beta_only\n    x: 0\n    y: 0\n    width: 640\n    height: 360\n")
+	if err := ed.OpenRoomsYAML("beta.rooms.yaml", mapBYAML); err != nil {
+		t.Fatalf("OpenRoomsYAML B: %v", err)
+	}
+
+	// Undoing/redoing the history entry recorded on map A must not corrupt map B.
+	ed.Undo()
+	if got := ed.Rooms(); got == nil || len(got.Rooms) != 1 || got.Rooms[0].ID != "beta_only" {
+		t.Fatalf("Undo after switching room maps corrupted map B: %+v", got)
+	}
+	ed.Redo()
+	if got := ed.Rooms(); got == nil || len(got.Rooms) != 1 || got.Rooms[0].ID != "beta_only" {
+		t.Fatalf("Redo after switching room maps corrupted map B: %+v", got)
+	}
+}
+
+func TestNewRoomMapFromInspectorAssignsDefaultPathAndSaveErrorsOnUntitled(t *testing.T) {
+	dir := writeEditorProject(t)
+
+	ed, err := editor.New(nil, nil)
+	if err != nil {
+		t.Fatalf("editor.New: %v", err)
+	}
+	if err := ed.OpenProject(filepath.Join(dir, "game.yaml")); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+	ed.SelectObject("")
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1280, 800))
+
+	// Clicking "New Room Map" inside a project assigns a default path beside the scene so Save works.
+	app.Press("id:inspector-rooms-new")
+	wantPath := filepath.Join(dir, "scenes", "room.rooms.yaml")
+	if ed.RoomsPath() != wantPath {
+		t.Fatalf("RoomsPath after New Room Map = %q, want %q", ed.RoomsPath(), wantPath)
+	}
+	if !ed.RoomsDirty() || !ed.HasUnsavedChanges() {
+		t.Fatal("new room map should be dirty before Save")
+	}
+	app.Post(func() {
+		if err := ed.Save(); err != nil {
+			t.Errorf("Save() for inspector-created room map: %v", err)
+		}
+	})
+	app.Settle()
+	if ed.RoomsDirty() {
+		t.Fatal("expected RoomsDirty() == false after Save")
+	}
+	if _, err := os.Stat(wantPath); err != nil {
+		t.Fatalf("expected saved room map at %s: %v", wantPath, err)
+	}
+
+	// An untitled room map (NewRoomMap("")) with a dirty scene must still report ErrNoRoomsFile on Save().
+	app.Post(func() {
+		if err := ed.NewRoomMap(""); err != nil {
+			t.Errorf("NewRoomMap(\"\"): %v", err)
+		}
+		if err := ed.SetCameraPosition(10, 20); err != nil {
+			t.Errorf("SetCameraPosition: %v", err)
+		}
+	})
+	app.Settle()
+	var saveErr error
+	app.Post(func() { saveErr = ed.Save() })
+	app.Settle()
+	if !errors.Is(saveErr, editor.ErrNoRoomsFile) {
+		t.Fatalf("Save() with dirty scene + untitled dirty room map = %v, want ErrNoRoomsFile", saveErr)
+	}
+	if !ed.RoomsDirty() {
+		t.Fatal("untitled room map should remain dirty after ErrNoRoomsFile")
+	}
+}
+
+func TestRoomInspectorDraftResetsAcrossRoomsWithIdenticalTransition(t *testing.T) {
+	ed := newFarEditor(t)
+	raw := []byte("version: 1\nrooms:\n  - id: room_a\n    x: 0\n    y: 0\n    width: 320\n    height: 180\n    transition:\n      kind: fade\n      duration: 400ms\n      color: \"#000000\"\n  - id: room_b\n    x: 320\n    y: 0\n    width: 320\n    height: 180\n    transition:\n      kind: fade\n      duration: 400ms\n      color: \"#000000\"\n")
+	if err := ed.OpenRoomsYAML("twin.rooms.yaml", raw); err != nil {
+		t.Fatalf("OpenRoomsYAML: %v", err)
+	}
+	ed.SelectRoom("room_a")
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1280, 800))
+
+	// Type uncommitted drafts into room_a without submitting.
+	app.Clear("id:inspector-room-transition-duration")
+	app.Type("id:inspector-room-transition-duration", "999ms")
+	app.Clear("id:inspector-room-transition-color")
+	app.Type("id:inspector-room-transition-color", "#abcdef")
+
+	// Switch to room_b, which has the exact same committed duration/color as room_a.
+	app.Post(func() { ed.SelectRoom("room_b") })
+	app.Settle()
+
+	if got := app.Find("id:inspector-room-transition-duration").Text; got != "400ms" {
+		t.Fatalf("duration draft leaked from room_a to room_b: got %q, want 400ms", got)
+	}
+	if got := app.Find("id:inspector-room-transition-color").Text; got != "#000000" {
+		t.Fatalf("color draft leaked from room_a to room_b: got %q, want #000000", got)
+	}
+	if tr := ed.Rooms().Room("room_b").Transition; tr.Duration != rooms.Duration(400*time.Millisecond) || tr.Color != "#000000" {
+		t.Fatalf("room_b transition mutated unexpectedly: %+v", tr)
+	}
+}
+
+func TestOpenAndSaveRoomsRejectsProjectSymlinkEscape(t *testing.T) {
+	projDir := writeEditorProject(t)
+	outsideDir := t.TempDir()
+
+	outsideFile := filepath.Join(outsideDir, "secret.rooms.yaml")
+	outsideContent := "version: 1\nrooms:\n  - id: secret\n    x: 0\n    y: 0\n    width: 320\n    height: 180\n"
+	writeRoomTestFile(t, outsideFile, outsideContent)
+
+	linkFile := filepath.Join(projDir, "escape.rooms.yaml")
+	if err := os.Symlink(outsideFile, linkFile); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	linkDir := filepath.Join(projDir, "escape_dir")
+	if err := os.Symlink(outsideDir, linkDir); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	ed, err := editor.New(nil, nil)
+	if err != nil {
+		t.Fatalf("editor.New: %v", err)
+	}
+	if err := ed.OpenProject(filepath.Join(projDir, "game.yaml")); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+
+	if err := ed.OpenRoomsProjectFile("escape.rooms.yaml"); err == nil {
+		t.Fatal("expected OpenRoomsProjectFile to refuse symlink escaping project root")
+	}
+	if err := ed.OpenRoomsProjectFile("escape_dir/secret.rooms.yaml"); err == nil {
+		t.Fatal("expected OpenRoomsProjectFile to refuse symlinked directory escaping project root")
+	}
+
+	if err := ed.NewRoomMap(""); err != nil {
+		t.Fatalf("NewRoomMap: %v", err)
+	}
+	if err := ed.SaveRoomsFile(linkFile); err == nil {
+		t.Fatal("expected SaveRoomsFile to refuse writing through symlink escaping project root")
+	}
+	if err := ed.SaveRoomsFile(filepath.Join(linkDir, "new.rooms.yaml")); err == nil {
+		t.Fatal("expected SaveRoomsFile to refuse writing through symlinked directory escaping project root")
+	}
+	gotOutside, err := os.ReadFile(outsideFile)
+	if err != nil {
+		t.Fatalf("ReadFile outsideFile: %v", err)
+	}
+	if string(gotOutside) != outsideContent {
+		t.Fatal("outside symlink target was modified")
+	}
+}
+
+func TestRoomsSceneSectionDefaultTransitionAndZeroDragCreateClick(t *testing.T) {
+	ed := newFarEditor(t)
+	if err := ed.NewRoomMap(""); err != nil {
+		t.Fatalf("NewRoomMap: %v", err)
+	}
+	ed.SelectObject("")
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1280, 800))
+
+	// Edit map-level default transition in Scene Settings -> ROOMS section.
+	app.Press("id:inspector-rooms-transition-fade")
+	if tr := ed.Rooms().Transition; tr == nil || tr.Kind != rooms.KindFade {
+		t.Fatalf("map default transition after Fade = %+v", tr)
+	}
+	app.Clear("id:inspector-rooms-transition-duration")
+	app.Type("id:inspector-rooms-transition-duration", "300ms")
+	app.Submit("id:inspector-rooms-transition-duration")
+	app.Clear("id:inspector-rooms-transition-color")
+	app.Type("id:inspector-rooms-transition-color", "#223344")
+	app.Submit("id:inspector-rooms-transition-color")
+	if tr := ed.Rooms().Transition; tr == nil || tr.Duration != rooms.Duration(300*time.Millisecond) || tr.Color != "#223344" {
+		t.Fatalf("map default fade transition = %+v", tr)
+	}
+	app.Press("id:inspector-rooms-transition-none")
+	if tr := ed.Rooms().Transition; tr != nil {
+		t.Fatalf("map default transition after None = %+v, want nil", tr)
+	}
+
+	// Zero-drag click in Draw Room mode must not fall through and select underlying scene objects.
+	ed.SetRoomCreateMode(true)
+	ed.SelectObject("")
+	var heroX, heroY float32
+	foundHero := false
+	for _, layer := range ed.Doc.Layers {
+		if len(layer.Objects) > 0 {
+			heroX, heroY = layer.Objects[0].X, layer.Objects[0].Y
+			foundHero = true
+			break
+		}
+	}
+	if !foundHero {
+		t.Fatal("expected at least one scene object in newFarEditor")
+	}
+	hx, hy := ed.WorldToCanvas(heroX, heroY)
+	// First verify a normal click outside Draw Room mode WOULD select the object, then verify Draw Room mode blocks it.
+	app.Post(func() {
+		ed.HandleCanvasPress(hx, hy)
+	})
+	app.Settle()
+	if ed.SelectedID != "" {
+		t.Fatalf("zero-drag click in Draw Room mode selected object %q, want empty", ed.SelectedID)
+	}
 }
 
 func writeRoomTestFile(t *testing.T, p, content string) {

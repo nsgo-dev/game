@@ -319,7 +319,9 @@ func (e *Editor) initBuiltinCommands() {
 			Keywords:           []string{"remove", "object", "erase"},
 			Shortcut:           "delete",
 			AlternateShortcuts: []string{"backspace"},
-			Enabled: func() bool { return !e.StartScreenOpen() && !e.Playing() && (e.SelectedID != "" || e.SelectedRoomID() != "") },
+			Enabled: func() bool {
+				return !e.StartScreenOpen() && !e.Playing() && (e.SelectedID != "" || e.SelectedRoomID() != "")
+			},
 			Run: func() error {
 				if e.SelectedID != "" {
 					return e.DeleteSelected()

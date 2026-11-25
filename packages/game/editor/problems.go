@@ -175,6 +175,8 @@ func (e *Editor) selectFile(relPath string) {
 	e.inspectAssetFile = relPath != "" && e.AssetImportKind(relPath) != AssetImportNone
 	if e.inspectAssetFile {
 		e.CancelCameraDrag()
+		e.CancelCameraBoundsDrag()
+		e.CancelRoomDrag()
 	}
 }
 
