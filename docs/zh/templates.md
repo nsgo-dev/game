@@ -63,17 +63,16 @@ packages/game/cmd/game/
 2. 把 `./template/<name>` 加入 `go.work` 的 `use` 列表。
 3. 在 `packages/game/cmd/game` 中把项目复制进 `game` 命令：`cp -R ../../../../template/<name>/template _templates/projects/<name>`。
 4. 在 `packages/game/cmd/game/templates.go` 的 `projectTemplates` 中加一条：`newProjectTemplate("<name>", templateModuleRoot+"/<name>", "<一行英文，说明这是什么游戏>")`。
-5. 在 `.github/workflows/test.yml` 的 `templates` 任务的 `include` 列表中加一条：`template: <name>` 和 `dir: template/<name>/template`。
-6. 在 `docs/en/templates.md` 和 `docs/zh/templates.md` 上面的表格中为模板各加一行，并在 `changelog.d/` 下加一个片段。
+5. 在 `docs/en/templates.md` 和 `docs/zh/templates.md` 上面的表格中为模板各加一行，并在 `changelog.d/` 下加一个片段。
 
 `template/<name>/template/` 中的项目遵循以下规则，测试会尽可能检查它们：
 
-- `go.mod.tmpl` 以 `module {{.Module}}` 开头，依赖一个已发布的、包含模板所用全部包的 `github.com/nsgo-dev/game/packages/game` 版本，并带有 `tool github.com/nsgo-dev/nsgo/cmd/nsgo`。它是唯一含模板动作的文件：`game new` 和 `nsgo init` 也会渲染 `nsgo.yaml` 和 `main.go`，但模板还必须在工作区中原样构建。名为 `go.mod` 的文件会让该目录成为独立模块，`go:embed` 和工作区都无法包含它。
+- `go.mod.tmpl` 以 `module {{.Module}}` 开头，依赖一个已发布的、包含模板所用全部包的 `github.com/nsgo-dev/game/packages/game` 版本，并带有 `tool github.com/nsgo-dev/nsgo/cmd/nsgo`。它是唯一含模板动作的文件：`game new` 和 `nsgo init` 也会渲染 `nsgo.yaml`、`main.go` 和其他 `.tmpl` 文件，但 CI 只渲染 `go.mod.tmpl`，模板还必须在工作区中原样构建，所以这些文件渲染后必须与原文相同，`main.go` 中也不能出现 `{{`（例如 `[]T{{...}}` 这样的复合字面量），这类代码放到其他 Go 文件中。其余文件按原样复制，内容不限。名为 `go.mod` 的文件会让该目录成为独立模块，`go:embed` 和工作区都无法包含它。
 - `go.sum` 记录所固定模块的校验和。生成方法：在仓库外复制一份模板，把其中的 `go.mod.tmpl` 变成 `go.mod`，然后在那里运行 `GOWORK=off go mod tidy`。
 - `game.yaml` 是规范格式（`go run github.com/nsgo-dev/game/packages/game/cmd/gameproject check` 会检查），`nsgo.yaml` 与它一致；`game new` 会替换两者的 `name` 和 `id`。
 - 包含 `main.go`、`README.md`、`.gitignore` 和测试，并且在 `packages/game` 中运行 `go run ./cmd/game index ../../template` 无事可做。
 - 模板作者编写的每个文件都是文本，与本仓库中的任何项目一样。
 
-缺少上述任何一步时，`packages/game/cmd/game` 的测试都会失败：`_templates/projects` 下的副本与模块的 `template` 目录有任何一个字节不同；某个 `template/*/template` 目录没有注册；某条注册没有副本、模块或 `go.work` 条目；CI 矩阵没有按顺序列出已注册的模板；本页或其英文版中没有写明模板及其模块的那一行。测试还会用每个模板创建项目，用本地游戏层构建并运行它的测试。
+缺少上述任何一步时，`packages/game/cmd/game` 的测试都会失败：`_templates/projects` 下的副本与模块的 `template` 目录有任何一个字节不同；某个 `template/*/template` 目录没有注册；某条注册没有副本、模块或 `go.work` 条目；本页或其英文版中没有写明模板及其模块的那一行。测试还会用每个模板创建项目，用本地游戏层构建并运行它的测试。
 
-CI 的 `templates` 任务以开发者拿到项目的方式测试每个模板：把模板复制到工作区之外，为 `example.com/<name>game` 渲染 `go.mod`，并在 `GOWORK=off` 下运行 `go tool nsgo test ./...`，因此项目依赖的是 `go.mod.tmpl` 固定的游戏层版本，而不是当前检出的代码。如果模板需要尚未发布的包，等该包合入 `main` 后再提升这个固定版本。
+新增模板无需修改 CI：`templates` 任务列出 `template/template` 和每个 `template/*/template` 目录，并以开发者拿到项目的方式测试每个模板：把模板复制到工作区之外，为 `example.com/<name>game` 渲染 `go.mod`，并在 `GOWORK=off` 下运行 `go tool nsgo test ./...`，因此项目依赖的是 `go.mod.tmpl` 固定的游戏层版本，而不是当前检出的代码。如果模板需要尚未发布的包，等该包合入 `main` 后再提升这个固定版本。

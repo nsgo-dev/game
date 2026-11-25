@@ -1,9 +1,10 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
+	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -11,8 +12,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
-
-	"go.yaml.in/yaml/v3"
+	"testing/fstest"
+	"text/template"
 )
 
 // repoRoot is this repository's root, relative to this package.
@@ -32,6 +33,15 @@ func needRepo(t *testing.T) {
 // collectFiles returns every regular file of fsys by its slash-separated name.
 func collectFiles(t *testing.T, fsys fs.FS) map[string][]byte {
 	t.Helper()
+	files, err := regularFiles(fsys)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return files
+}
+
+// regularFiles returns every regular file of fsys by its slash-separated name.
+func regularFiles(fsys fs.FS) (map[string][]byte, error) {
 	files := map[string][]byte{}
 	err := fs.WalkDir(fsys, ".", func(name string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
@@ -40,10 +50,7 @@ func collectFiles(t *testing.T, fsys fs.FS) map[string][]byte {
 		files[name], err = fs.ReadFile(fsys, name)
 		return err
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return files
+	return files, err
 }
 
 // TestTemplateRegistry checks each entry of projectTemplates: a usable unique name, a summary, the module its name implies, and the files every template needs.
@@ -76,9 +83,11 @@ func TestTemplateRegistry(t *testing.T) {
 		tests := false
 		for name, content := range files {
 			tests = tests || strings.HasSuffix(name, "_test.go")
-			// Only go.mod.tmpl is rendered by both game new and the CI job, and the rest must build as they are in the workspace.
-			if name != "go.mod.tmpl" && bytes.Contains(content, []byte("{{")) {
-				t.Errorf("template %s: %s holds a template action; only go.mod.tmpl may", tmpl.name, name)
+			// game new renders nsgo.yaml, main.go and every .tmpl file, but the CI job renders only go.mod.tmpl and the template must build as it is in the workspace, so every other rendered file must render to itself. Files game new copies as they are, such as other Go files and assets, may hold any bytes.
+			if rendered(name) && name != "go.mod.tmpl" {
+				if got, err := renderTemplateFile(name, content); err != nil || !bytes.Equal(got, content) {
+					t.Errorf("template %s: %s does not render to itself (%v); only go.mod.tmpl may hold a template action", tmpl.name, name, err)
+				}
 			}
 			if path.Base(name) == "go.mod" {
 				t.Errorf("template %s: %s would make it a module of its own; name it go.mod.tmpl", tmpl.name, name)
@@ -87,7 +96,7 @@ func TestTemplateRegistry(t *testing.T) {
 		if !tests {
 			t.Errorf("template %s has no tests", tmpl.name)
 		}
-		if mod := string(files["go.mod.tmpl"]); !strings.HasPrefix(mod, "module {{.Module}}\n") || !strings.Contains(mod, "\t"+gameModule+" ") {
+		if mod := string(files["go.mod.tmpl"]); !strings.HasPrefix(mod, "module {{.Module}}\n") || !requiresModule(mod, gameModule) {
 			t.Errorf("template %s: go.mod.tmpl does not start with module {{.Module}} and require %s", tmpl.name, gameModule)
 		}
 	}
@@ -105,108 +114,209 @@ func TestTemplateRegistry(t *testing.T) {
 	}
 }
 
-// TestTemplatesMatchTemplateModules keeps each template game new embeds identical to the template directory of its module, the one nsgo init -template writes, and every template module in the repository registered and in go.work. After changing a template, copy it over from this directory: rm -r _templates/projects/<name> && cp -R ../../../../<dir> _templates/projects/<name>, where <dir> is template/template for starter and template/<name>/template otherwise.
-func TestTemplatesMatchTemplateModules(t *testing.T) {
-	needRepo(t)
-	work, err := os.ReadFile(filepath.Join(repoRoot, "go.work"))
+// rendered reports whether renderProject renders the template file name with text/template rather than copying it as it is.
+func rendered(name string) bool {
+	return strings.HasSuffix(name, ".tmpl") || name == "nsgo.yaml" || name == "main.go"
+}
+
+// renderTemplateFile renders the template file name, holding content, as renderProject does, with the data game new gives a project called My Game.
+func renderTemplateFile(name string, content []byte) ([]byte, error) {
+	tmpl, err := template.New(name).Option("missingkey=error").Parse(string(content))
 	if err != nil {
-		t.Fatal(err)
+		return nil, err
 	}
-	var uses []string
-	for line := range strings.Lines(string(work)) {
-		if f := strings.Fields(line); len(f) == 1 && strings.HasPrefix(f[0], "./") {
-			uses = append(uses, strings.TrimPrefix(f[0], "./"))
-		} else if len(f) == 2 && f[0] == "use" {
-			uses = append(uses, strings.TrimPrefix(f[1], "./"))
+	var b bytes.Buffer
+	err = tmpl.Execute(&b, newData{Name: "My Game", ID: "dev.nsgo.mygame", Module: "example.com/mygame", Slug: "my-game"})
+	return b.Bytes(), err
+}
+
+// requiresModule reports whether the go.mod file src requires module, on a require line of its own or inside a require ( ... ) block.
+func requiresModule(src, module string) bool {
+	for line := range strings.Lines(src) {
+		f := strings.Fields(line)
+		if len(f) >= 3 && f[0] == "require" && f[1] == module || len(f) >= 2 && f[0] == module {
+			return true
+		}
+	}
+	return false
+}
+
+func TestTemplateFileChecks(t *testing.T) {
+	for _, tc := range []struct {
+		src  string
+		want bool
+	}{
+		{"module {{.Module}}\n\nrequire (\n\t" + gameModule + " v0.1.0\n)\n", true},
+		{"module {{.Module}}\n\nrequire " + gameModule + " v0.1.0\n", true},
+		{"module {{.Module}}\n\nrequire " + gameModule + "/x v0.1.0\n", false},
+		{"module {{.Module}}\n", false},
+	} {
+		if got := requiresModule(tc.src, gameModule); got != tc.want {
+			t.Errorf("requiresModule(%q) = %v, want %v", tc.src, got, tc.want)
 		}
 	}
 
-	registered := map[string]string{}
-	for _, tmpl := range projectTemplates {
-		dir := tmpl.repoDir()
-		registered[dir] = tmpl.name
-		embedded := "_templates/projects/" + tmpl.name
-		want, got := collectFiles(t, os.DirFS(filepath.Join(repoRoot, filepath.FromSlash(dir)))), collectFiles(t, tmpl.files)
-		if len(want) == 0 {
-			t.Errorf("template %s: %s is missing or empty", tmpl.name, dir)
+	// Go code and assets that game new copies as they are may hold "{{", as a composite literal such as []T{{...}} does, and are not checked; main.go is rendered, so it may not.
+	for name, want := range map[string]bool{"main.go": true, "nsgo.yaml": true, "go.mod.tmpl": true, "levels/one.yaml.tmpl": true, "renderer.go": false, "assets/sprite.png": false, "game.yaml": false} {
+		if got := rendered(name); got != want {
+			t.Errorf("rendered(%q) = %v, want %v", name, got, want)
 		}
-		for name, content := range want {
+	}
+	if got, err := renderTemplateFile("main.go", []byte("package main\n")); err != nil || string(got) != "package main\n" {
+		t.Errorf("a plain main.go renders to %q, %v", got, err)
+	}
+	literal := []byte("package main\n\nvar s = []struct{ a int }{{1}}\n")
+	if got, err := renderTemplateFile("main.go", literal); err == nil && bytes.Equal(got, literal) {
+		t.Error("a main.go holding a composite literal with {{ renders to itself, though text/template cannot parse it")
+	}
+}
+
+// TestTemplatesMatchTemplateModules keeps each template game new embeds identical to the template directory of its module, the one nsgo init -template writes, and every template module in the repository registered and in go.work. After changing a template, copy it over from this directory: rm -r _templates/projects/<name> && cp -R ../../../../<dir> _templates/projects/<name>, where <dir> is template/template for starter and template/<name>/template otherwise.
+func TestTemplatesMatchTemplateModules(t *testing.T) {
+	needRepo(t)
+	for _, problem := range checkTemplateModules(repoRoot, projectTemplates) {
+		t.Error(problem)
+	}
+}
+
+// TestCheckTemplateModulesNested runs checkTemplateModules against a repository made up here, with starter and a nested template x, so that what only a template other than the default reaches is covered before one is registered.
+func TestCheckTemplateModulesNested(t *testing.T) {
+	files := fstest.MapFS{"main.go": {Data: []byte("package main\n")}}
+	starter := projectTemplate{name: "starter", module: templateModuleRoot, files: files}
+	x := projectTemplate{name: "x", module: templateModuleRoot + "/x", files: files}
+	if got := starter.repoDir(); got != "template/template" {
+		t.Errorf("repoDir of starter = %q, want template/template", got)
+	}
+	if got := x.repoDir(); got != "template/x/template" {
+		t.Errorf("repoDir of x = %q, want template/x/template", got)
+	}
+
+	write := func(root, name, content string) {
+		t.Helper()
+		p := filepath.Join(root, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	repo := func(work string) string {
+		root := t.TempDir()
+		write(root, "go.work", work)
+		write(root, "template/go.mod", "module "+templateModuleRoot+"\n\ngo 1.27\n")
+		write(root, "template/template/main.go", "package main\n")
+		write(root, "template/x/go.mod", "module "+templateModuleRoot+"/x\n\ngo 1.27\n")
+		write(root, "template/x/template/main.go", "package main\n")
+		return root
+	}
+	tmpls := []projectTemplate{starter, x}
+
+	for _, work := range []string{
+		"go 1.27\n\nuse (\n\t./template\n\t./template/x\n)\n",
+		"go 1.27\n\nuse ./template\nuse ./template/x\n",
+	} {
+		if problems := checkTemplateModules(repo(work), tmpls); len(problems) != 0 {
+			t.Errorf("go.work %q: %q", work, problems)
+		}
+	}
+
+	root := repo("go 1.27\n\nuse ./template\n")
+	write(root, "template/x/template/extra.go", "package main\n")
+	write(root, "template/y/template/main.go", "package main\n")
+	want := []string{
+		"_templates/projects/x has no extra.go",
+		"template x: go.work does not use ./template/x",
+		"template/y/template is a template no entry of projectTemplates names",
+	}
+	if got := checkTemplateModules(root, tmpls); !slices.Equal(got, want) {
+		t.Errorf("problems = %q, want %q", got, want)
+	}
+
+	write(root, "template/x/go.mod", "module example.com/x\n")
+	if got, want := checkTemplateModules(root, tmpls), `template x: template/x/go.mod declares "module example.com/x", want module `+templateModuleRoot+"/x"; !slices.Contains(got, want) {
+		t.Errorf("problems = %q, want one %q", got, want)
+	}
+}
+
+// checkTemplateModules returns what is wrong with the templates tmpls in the repository at root: an embedded copy that differs from its module's template directory, a module whose go.mod is missing or declares another path, a module go.work does not use, and a template/*/template directory no template names.
+func checkTemplateModules(root string, tmpls []projectTemplate) []string {
+	work, err := os.ReadFile(filepath.Join(root, "go.work"))
+	if err != nil {
+		return []string{err.Error()}
+	}
+	uses := workUses(string(work))
+
+	var problems []string
+	registered := map[string]bool{}
+	for _, tmpl := range tmpls {
+		dir := tmpl.repoDir()
+		registered[dir] = true
+		embedded := "_templates/projects/" + tmpl.name
+		want, err := regularFiles(os.DirFS(filepath.Join(root, filepath.FromSlash(dir))))
+		if err != nil || len(want) == 0 {
+			problems = append(problems, fmt.Sprintf("template %s: %s is missing or empty (%v)", tmpl.name, dir, err))
+		}
+		got, err := regularFiles(tmpl.files)
+		if err != nil {
+			problems = append(problems, fmt.Sprintf("template %s: %v", tmpl.name, err))
+		}
+		for _, name := range slices.Sorted(maps.Keys(want)) {
 			if g, ok := got[name]; !ok {
-				t.Errorf("%s has no %s", embedded, name)
-			} else if !bytes.Equal(g, content) {
-				t.Errorf("%s/%s differs from %s's", embedded, name, dir)
+				problems = append(problems, fmt.Sprintf("%s has no %s", embedded, name))
+			} else if !bytes.Equal(g, want[name]) {
+				problems = append(problems, fmt.Sprintf("%s/%s differs from %s's", embedded, name, dir))
 			}
 		}
-		for name := range got {
+		for _, name := range slices.Sorted(maps.Keys(got)) {
 			if _, ok := want[name]; !ok {
-				t.Errorf("%s/%s is not in %s", embedded, name, dir)
+				problems = append(problems, fmt.Sprintf("%s/%s is not in %s", embedded, name, dir))
 			}
 		}
 
 		moduleDir := path.Dir(dir)
-		mod, err := os.Open(filepath.Join(repoRoot, filepath.FromSlash(moduleDir), "go.mod"))
+		mod, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(moduleDir), "go.mod"))
 		if err != nil {
-			t.Errorf("template %s: %v", tmpl.name, err)
+			problems = append(problems, fmt.Sprintf("template %s: %v", tmpl.name, err))
 			continue
 		}
-		first, _, _ := bufio.NewReader(mod).ReadLine()
-		mod.Close()
-		if string(first) != "module "+tmpl.module {
-			t.Errorf("template %s: %s/go.mod declares %q, want module %s", tmpl.name, moduleDir, first, tmpl.module)
+		first, _, _ := strings.Cut(string(mod), "\n")
+		if first = strings.TrimSpace(first); first != "module "+tmpl.module {
+			problems = append(problems, fmt.Sprintf("template %s: %s/go.mod declares %q, want module %s", tmpl.name, moduleDir, first, tmpl.module))
 		}
 		if !slices.Contains(uses, moduleDir) {
-			t.Errorf("template %s: go.work does not use ./%s", tmpl.name, moduleDir)
+			problems = append(problems, fmt.Sprintf("template %s: go.work does not use ./%s", tmpl.name, moduleDir))
 		}
 	}
 
-	onDisk, err := filepath.Glob(filepath.Join(repoRoot, "template", "*", "template"))
+	onDisk, err := filepath.Glob(filepath.Join(root, "template", "*", "template"))
 	if err != nil {
-		t.Fatal(err)
+		return append(problems, err.Error())
 	}
 	for _, d := range onDisk {
-		rel := filepath.ToSlash(strings.TrimPrefix(d, repoRoot+string(filepath.Separator)))
-		if _, ok := registered[rel]; !ok {
-			t.Errorf("%s is a template no entry of projectTemplates names", rel)
+		rel, err := filepath.Rel(root, d)
+		if err != nil {
+			problems = append(problems, err.Error())
+			continue
+		}
+		if rel = filepath.ToSlash(rel); !registered[rel] {
+			problems = append(problems, rel+" is a template no entry of projectTemplates names")
 		}
 	}
+	return problems
 }
 
-// TestTemplatesRunInCI keeps the templates job of the Test workflow testing every template, in registry order, from the directory its module holds it in.
-func TestTemplatesRunInCI(t *testing.T) {
-	needRepo(t)
-	src, err := os.ReadFile(filepath.Join(repoRoot, ".github", "workflows", "test.yml"))
-	if err != nil {
-		t.Fatal(err)
+// workUses returns the slash-separated directories the go.work file src uses, from use ./dir lines and use ( ... ) blocks alike, without their leading ./.
+func workUses(src string) []string {
+	var uses []string
+	for line := range strings.Lines(src) {
+		if f := strings.Fields(line); len(f) == 1 && strings.HasPrefix(f[0], "./") {
+			uses = append(uses, strings.TrimPrefix(f[0], "./"))
+		} else if len(f) == 2 && f[0] == "use" && f[1] != "(" {
+			uses = append(uses, strings.TrimPrefix(f[1], "./"))
+		}
 	}
-	var workflow struct {
-		Jobs map[string]struct {
-			Strategy struct {
-				Matrix struct {
-					Include []struct {
-						Template string `yaml:"template"`
-						Dir      string `yaml:"dir"`
-					} `yaml:"include"`
-				} `yaml:"matrix"`
-			} `yaml:"strategy"`
-		} `yaml:"jobs"`
-	}
-	if err := yaml.Unmarshal(src, &workflow); err != nil {
-		t.Fatal(err)
-	}
-	job, ok := workflow.Jobs["templates"]
-	if !ok {
-		t.Fatal("test.yml has no templates job")
-	}
-	var got, want []string
-	for _, e := range job.Strategy.Matrix.Include {
-		got = append(got, e.Template+" "+e.Dir)
-	}
-	for _, tmpl := range projectTemplates {
-		want = append(want, tmpl.name+" "+tmpl.repoDir())
-	}
-	if !slices.Equal(got, want) {
-		t.Errorf("test.yml templates matrix = %q, want %q", got, want)
-	}
+	return uses
 }
 
 // TestTemplatesListedInDocs keeps the templates page in each language naming every template with the module nsgo init -template takes for it.

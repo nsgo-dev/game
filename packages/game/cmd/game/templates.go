@@ -38,7 +38,7 @@ func newProjectTemplate(name, module, summary string) projectTemplate {
 	return projectTemplate{name: name, summary: summary, module: module, files: mustSub(projectsFS, "_templates/projects/"+name)}
 }
 
-// projectTemplates are the templates game new offers, the default first and the rest in the order game new -list prints them. Adding a template adds its module under template/<name>, its copy under _templates/projects/<name> and one entry here, as docs/en/templates.md describes.
+// projectTemplates are the templates game new offers, the default first and the rest in the order game new -list prints them. Adding a template adds its module under template/<name>, its copy under _templates/projects/<name> and one entry here, as docs/en/templates.md describes; CI finds it from its directory.
 var projectTemplates = []projectTemplate{
 	newProjectTemplate("starter", templateModuleRoot, "A tap-to-score 2D game: an animated sprite on a fixed-step loop, a native HUD and headless tests, the smallest project to grow from"),
 }

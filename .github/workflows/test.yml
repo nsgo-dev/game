@@ -84,15 +84,40 @@ jobs:
           CLOUDSAVE_POSTGRES_DSN: postgres://postgres:accounts-ci@127.0.0.1:5432/postgres?sslmode=disable
         run: go tool nsgo test ./cloudsave/sqlstore/...
 
-  # One matrix entry per template game new offers, in the order packages/game/cmd/game/templates.go registers them, which TestTemplatesRunInCI checks; dir is the template directory of the template's module.
+  # Lists one matrix entry per template game new offers, from the template directories on disk: starter in template/template and every other template in template/<name>/template, which TestTemplatesMatchTemplateModules keeps the same as the registry in packages/game/cmd/game/templates.go. Adding a template therefore needs no edit here.
+  template-list:
+    name: List the templates
+    runs-on: depot-ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.list.outputs.matrix }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: template
+      - name: List the template directories
+        id: list
+        run: |
+          {
+            jq -cn '{template: "starter", dir: "template/template"}'
+            for dir in template/*/template; do
+              [ -d "$dir" ] || continue
+              name="${dir#template/}"
+              jq -cn --arg template "${name%/template}" --arg dir "$dir" '{$template, $dir}'
+            done
+          } | jq -cs '{include: .}' > "$RUNNER_TEMP/matrix.json"
+          cat "$RUNNER_TEMP/matrix.json"
+          echo "matrix=$(cat "$RUNNER_TEMP/matrix.json")" >> "$GITHUB_OUTPUT"
+
+  # One entry per template from template-list; dir is the template directory of the template's module.
   templates:
     name: Test the ${{ matrix.template }} template against its pinned modules
+    needs: template-list
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - template: starter
-            dir: template/template
+      matrix: ${{ fromJSON(needs.template-list.outputs.matrix) }}
     runs-on: depot-ubuntu-24.04-4
     timeout-minutes: 20
     steps:
