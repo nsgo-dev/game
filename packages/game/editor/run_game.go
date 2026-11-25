@@ -281,6 +281,7 @@ func (e *Editor) Close() error {
 	e.stopClipLoop()
 	e.stopAudioAudition()
 	e.stopExportBuild()
+	e.stopAssetsBuild()
 	var playErr error
 	if e.Playing() {
 		playErr = e.Stop()

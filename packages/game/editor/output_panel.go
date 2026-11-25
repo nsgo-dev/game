@@ -342,6 +342,9 @@ func isErrorStatus(status string) bool {
 		"redo failed:",
 		"export failed:",
 		"export blocked:",
+		"assets build failed:",
+		"assets reload failed:",
+		"reimport failed:",
 		"game exited with error:",
 	} {
 		if strings.HasPrefix(lower, prefix) {
@@ -499,11 +502,12 @@ func OutputPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 		return ed.OutputPanelOpen()
 	})
 	type snapshot struct {
-		entries    []OutputEntry
-		totalCount int
-		errorCount int
-		errorsOnly bool
-		running    bool
+		entries        []OutputEntry
+		totalCount     int
+		errorCount     int
+		errorsOnly     bool
+		running        bool
+		assetsBuilding bool
 	}
 	state := core.NewMemoFunc(cx, func() snapshot {
 		_ = rev.Get()
@@ -515,17 +519,19 @@ func OutputPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 			}
 		}
 		return snapshot{
-			entries:    ed.FilteredOutputEntries(),
-			totalCount: len(all),
-			errorCount: errCount,
-			errorsOnly: ed.OutputErrorsOnly(),
-			running:    ed.GameRunning(),
+			entries:        ed.FilteredOutputEntries(),
+			totalCount:     len(all),
+			errorCount:     errCount,
+			errorsOnly:     ed.OutputErrorsOnly(),
+			running:        ed.GameRunning(),
+			assetsBuilding: ed.AssetsBuilding(),
 		}
 	}, func(a, b snapshot) bool {
 		return a.totalCount == b.totalCount &&
 			a.errorCount == b.errorCount &&
 			a.errorsOnly == b.errorsOnly &&
 			a.running == b.running &&
+			a.assetsBuilding == b.assetsBuilding &&
 			slices.Equal(a.entries, b.entries)
 	})
 
@@ -607,8 +613,11 @@ func OutputPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 								ContentFunc: func() string {
 									s := state.Get()
 									title := fmt.Sprintf("Output (%d)", s.totalCount)
-									if s.running {
+									switch {
+									case s.running:
 										title = fmt.Sprintf("Output (Running · %d)", s.totalCount)
+									case s.assetsBuilding:
+										title = fmt.Sprintf("Output (Building Assets · %d)", s.totalCount)
 									}
 									if s.errorCount > 0 {
 										title += fmt.Sprintf(" · %d error", s.errorCount)

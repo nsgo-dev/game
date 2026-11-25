@@ -219,6 +219,10 @@ type Editor struct {
 	OpenOutputFolder func(dir string) error
 	// RunGameCommand starts the child game process for RunGame / RunGameWith, streaming output to stdout and stderr; when nil the editor launches `go tool game dev` in the open project directory in its own process group on desktop.
 	RunGameCommand func(spec RunGameSpec, stdout, stderr io.Writer) (GameProcess, error)
+	// AssetsCommandRunner runs `go tool game assets` for BuildAssets and ReimportAsset, streaming output to stdout and stderr; when nil the editor invokes `go` in the open project directory on desktop.
+	AssetsCommandRunner func(ctx context.Context, spec AssetsBuildSpec, stdout, stderr io.Writer) error
+	// OnReloadAssets, when set, is called after ReloadAssets reloads changed atlases or textures from disk.
+	OnReloadAssets func(result ReloadAssetsResult)
 
 	playing           bool
 	playSnapshot      []byte
@@ -311,6 +315,12 @@ type Editor struct {
 	stroke *tileStroke
 	// hover is where the mouse rests over the viewport (SetTileHover).
 	hover tileHover
+	// inspectAssetFile prefers the selected asset's import settings in InspectorView over SelectedID after selecting an asset in FilesView.
+	inspectAssetFile bool
+	// importRev bumps whenever an asset's *.import.yaml sidecar is written, removed, undone, or redone so InspectorView resyncs text drafts.
+	importRev uint64
+	// assetBuild tracks asynchronous `go tool game assets` builds and last-loaded output hashes for live atlas/texture reloading.
+	assetBuild assetBuildState
 }
 
 // DefaultSceneDoc returns a valid starter SceneDoc suitable for a new editor session.
@@ -398,6 +408,7 @@ func (e *Editor) AttachScope(cx *core.Scope) {
 	e.scope = cx
 	e.problems.setScope(cx)
 	e.gameRun.setScope(cx)
+	e.assetBuild.setScope(cx)
 }
 
 func (e *Editor) notify() {
@@ -641,6 +652,7 @@ func (e *Editor) openYAMLWithLayers(data []byte, file string, layers *sceneforma
 	e.Doc = doc
 	e.sceneSaved = saved
 	e.SelectedID = ""
+	e.inspectAssetFile = false
 	// Another scene opens at its own camera's view.
 	e.view2DFree = false
 	e.hidden, e.locked, e.layerLocked = nil, nil, nil
@@ -785,8 +797,9 @@ func (e *Editor) Redo() bool {
 // Returns true if selection succeeded (or cleared).
 func (e *Editor) SelectObject(id string) bool {
 	if id == "" {
-		if e.SelectedID != "" {
+		if e.SelectedID != "" || e.inspectAssetFile {
 			e.SelectedID = ""
+			e.inspectAssetFile = false
 			e.notify()
 		}
 		return true
@@ -794,8 +807,9 @@ func (e *Editor) SelectObject(id string) bool {
 	if obj, _, _ := e.FindObject(id); obj == nil {
 		return false
 	}
-	if e.SelectedID != id {
+	if e.SelectedID != id || e.inspectAssetFile {
 		e.SelectedID = id
+		e.inspectAssetFile = false
 		e.Status = "Selected " + id
 		e.notify()
 	}
