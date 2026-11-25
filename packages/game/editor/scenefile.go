@@ -85,17 +85,17 @@ func (e *Editor) SaveAll() error {
 			return err
 		}
 	}
-	if e.GridMapDirty() && (e.OnSaveGridMap != nil || e.gridMap.filePath != "") {
+	if e.GridMapDirty() {
 		if err := e.SaveGridMap(); err != nil {
 			return err
 		}
 	}
-	if e.TerrainDirty() && e.TerrainPath() != "" {
+	if e.TerrainDirty() {
 		if err := e.SaveTerrain(); err != nil {
 			return err
 		}
 	}
-	if e.RoomsDirty() && (e.OnSaveRooms != nil || (e.rooms != nil && e.rooms.path != "")) {
+	if e.RoomsDirty() {
 		if err := e.SaveRooms(); err != nil {
 			return err
 		}

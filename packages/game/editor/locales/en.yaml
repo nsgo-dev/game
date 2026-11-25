@@ -217,6 +217,7 @@ strings:
   library.update: Update
   menu.audioMixer: Audio Bus Mixer
   menu.checkProblems: Check Problems
+  menu.closeTab: Close Scene Tab
   menu.commandPalette: Command Palette...
   menu.delete: Delete
   menu.duplicate: Duplicate
@@ -234,6 +235,8 @@ strings:
   menu.navMeshOverlay: Show 3D NavMesh
   menu.navMeshPanel: 3D NavMesh Bake...
   menu.newProject: New Project...
+  menu.openBaseScene: Open Base Scene
+  menu.openInstancedScene: Open Instanced Scene
   menu.openProject: Open Project...
   menu.paintTile: Paint Tile
   menu.particleEditor: Particle Emitter Editor
@@ -375,6 +378,7 @@ strings:
   toolbar.animateLabel: Animate the selected object in a new clip
   toolbar.buildAssets: Build Assets
   toolbar.buildAssetsLabel: Run go tool game assets for the open project and reload changed atlases and textures
+  toolbar.closeTab: Close Tab
   toolbar.commands: Commands
   toolbar.commandsLabel: Open the Command Palette
   toolbar.currentScene: Current Scene
