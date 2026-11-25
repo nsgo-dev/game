@@ -1,6 +1,6 @@
 # ai
 
-`game/ai` 提供可直接运行在 `game.Loop` 固定步长上的确定性游戏 AI 组件：网格 `AStar` 寻路、分层寻路 `HPA`、跳点搜索 `JPS`、通用图搜索 `GraphSearch`（支持六边形瓦片地图适配器、航点图与自定义图上的 A*、Dijkstra 和带路径的移动范围查询）、带漏斗平滑的 2D 导航网格 `NavMesh`、转向行为（steering）、行为树、效用 AI（Utility AI）评分、目标导向行动规划（GOAP）、攻击令牌与小队协作、空间影响图（Influence Maps）、EQS 风格的战术位置查询、掩体点与占位预订系统，以及带视觉、听觉与记忆的感知。
+`game/ai` 提供可直接运行在 `game.Loop` 固定步长上的确定性游戏 AI 组件：网格 `AStar` 寻路、分层寻路 `HPA`、跳点搜索 `JPS`、通用图搜索 `GraphSearch`（支持六边形瓦片地图适配器、航点图与自定义图上的 A*、Dijkstra 和带路径的移动范围查询）、带漏斗平滑的 2D 导航网格 `NavMesh`、转向行为（steering）、2D 与 3D XZ 平面基于速度障碍的局部避障（ORCA）、行为树、效用 AI（Utility AI）评分、目标导向行动规划（GOAP）、攻击令牌与小队协作、空间影响图（Influence Maps）、EQS 风格的战术位置查询、掩体点与占位预订系统，以及带视觉、听觉与记忆的感知。
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/ai"
@@ -394,6 +394,36 @@ if ok {
 	agent.Step(force, dt)
 }
 ```
+
+## 基于速度障碍的局部避障（ORCA）
+
+仅在身体重叠后才相互推开的分离力容易导致迎面死锁与门口拥堵。`ORCASolver` 实现了最优互惠碰撞避免算法（RVO2 风格的速度障碍、二维线性规划及最小穿透回退），让智能体在发生接触前就平滑绕开邻居与静态障碍边：
+
+```go
+solver := ai.NewORCASolver(ai.ORCAConfig{
+	TimeHorizon:     2.0, // 智能体间碰撞前瞻时间（秒）
+	TimeHorizonObst: 1.0, // 静态墙体前瞻时间（秒）
+	MaxNeighbors:    16,
+})
+
+walls := []ai.ORCAObstacle{
+	{A: math2d.V2(-12, 0), B: math2d.V2(-1.5, 0)},
+	{A: math2d.V2(1.5, 0), B: math2d.V2(12, 0)},
+}
+
+// 在 game.Loop.Update 中：
+for i := range agents {
+	agents[i].PrefVel = desiredVelocity(agents[i], goals[i])
+}
+// Step 同步更新 Vel 与 Pos；也可调用 Solve(out, agents, walls, dt)
+// 仅计算无碰撞速度而不修改智能体位置。
+solver.Step(agents, walls, dt)
+```
+
+- **共享 2D 与 3D XZ 平面**：2D 场景使用 `ORCAAgent` / `ORCAObstacle`（`math2d.Vec2`）配合 `Solve`、`SolveAgent` 与 `Step`；3D 地面导航网格智能体使用 `ORCAAgent3D` / `ORCAObstacle3D`（`ai.Vec3`）配合 `SolveXZ`、`SolveAgentXZ` 与 `StepXZ`，复用同一套核心求解器并保留 `Pos.Y`（`Vel.Y` 置零）。
+- **静态障碍线段**：`ORCAObstacle` 线段按双面处理（与端点顺序无关），并在 LP3 不可行回退时作为硬约束保留，使拥挤人群在窄门与墙角处也不会穿墙。
+- **避障层级、掩码与优先级**：通过 `Layer`（`0` 默认 `ORCALayerDefault`，第 0 位）与 `Mask`（`0` 默认 `ORCAMaskAll`；障碍物 `Layer` 为 `0` 时同样默认 `ORCAMaskAll`）隔离地面与空中等移动层级。当智能体避让不互惠的邻居（对方 `Mask` 忽略自己）或 `Stationary` / `MaxSpeed <= 0` 的静止邻居时，会自动承担 `1.0` 的全部避让责任；互惠邻居之间按 `pB / (pA + pB)` 平滑分配责任，使高优先级或固守位置的单位少让路甚至原地不动，低优先级单位主动绕行。
+- **确定性与零堆分配**：内部空间哈希邻居查询会在进入线性规划前按距离与智能体固有属性对邻居和障碍物做规范排序，无论邻居或障碍切片如何打乱顺序，输出速度都按位一致，回放每一步的位置完全相同。复用 `ORCASolver` 与输出缓冲区在预热后每步 `0 B/op`、`0 allocs/op`。
 
 ## 行为树
 

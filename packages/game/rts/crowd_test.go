@@ -475,3 +475,96 @@ func TestCrowdStepsHugeUnits(t *testing.T) {
 		c.Step(step)
 	}
 }
+
+func TestCrowdORCAHeadOnAndMazeNavigation(t *testing.T) {
+	t.Run("head-on opposing units pass without overlapping", func(t *testing.T) {
+		g := ai.NewBoolGrid(30, 20)
+		c := rts.NewCrowd(g, rts.CrowdOptions{
+			Avoidance: rts.AvoidanceORCA,
+			ORCA:      ai.ORCAConfig{TimeHorizon: 2.0},
+		})
+		if c.Options().Avoidance != rts.AvoidanceORCA || c.Options().Avoidance.String() != "orca" {
+			t.Fatalf("unexpected avoidance mode: %v", c.Options().Avoidance)
+		}
+		a := c.Add(rts.UnitSpec{Pos: math2d.V2(4, 10), Radius: 0.4, MaxSpeed: 5, MaxAccel: 40})
+		b := c.Add(rts.UnitSpec{Pos: math2d.V2(26, 10), Radius: 0.4, MaxSpeed: 5, MaxAccel: 40})
+		c.Move([]rts.UnitID{a}, rts.MoveOrder{Target: math2d.V2(26, 10)})
+		c.Move([]rts.UnitID{b}, rts.MoveOrder{Target: math2d.V2(4, 10)})
+
+		for s := range 60 * 10 {
+			c.Step(step)
+			ua, _ := c.Unit(a)
+			ub, _ := c.Unit(b)
+			if d := ua.Pos.Dist(ub.Pos); d < ua.Radius+ub.Radius-0.02 {
+				t.Fatalf("step %d: ORCA crowd units overlapped: dist=%.4f", s, d)
+			}
+			if ua.State == rts.Arrived && ub.State == rts.Arrived {
+				break
+			}
+		}
+		ua, _ := c.Unit(a)
+		ub, _ := c.Unit(b)
+		if ua.State != rts.Arrived || ub.State != rts.Arrived {
+			t.Fatalf("units did not arrive: a=%v at %v, b=%v at %v", ua.State, ua.Pos, ub.State, ub.Pos)
+		}
+	})
+
+	t.Run("maze crossing deterministic and zero-alloc", func(t *testing.T) {
+		run := func(checkAllocs bool) []rts.Unit {
+			g := mazeGrid(64, 64)
+			c := rts.NewCrowd(g, rts.CrowdOptions{
+				Gap:       0.05,
+				Avoidance: rts.AvoidanceORCA,
+				ORCA:      ai.ORCAConfig{TimeHorizon: 1.5, NeighborDist: 4, MaxNeighbors: 12},
+			})
+			ids := spawnBlock(c, 48, 8, math2d.V2(2.5, 20.5))
+			c.Move(ids, rts.MoveOrder{Target: math2d.V2(56, 30), Formation: rts.Formation{Shape: rts.ShapeBox, Spacing: 1.0}})
+			c.Step(step)
+			if checkAllocs {
+				if allocs := testing.AllocsPerRun(20, func() { c.Step(step) }); allocs != 0 {
+					t.Fatalf("ORCA Crowd.Step allocated %v times", allocs)
+				}
+			}
+			for range 60 * 40 {
+				c.Step(step)
+				if allArrived(c) {
+					break
+				}
+			}
+			for _, u := range c.Units() {
+				if blocked(g, u.Pos, u.Radius, 0.02) {
+					t.Fatalf("unit %d ended inside wall at %v", u.ID, u.Pos)
+				}
+				if u.State != rts.Arrived {
+					t.Fatalf("unit %d %v at %v, want arrived", u.ID, u.State, u.Pos)
+				}
+			}
+			return append([]rts.Unit(nil), c.Units()...)
+		}
+		a := run(true)
+		b := run(false)
+		for i := range a {
+			if a[i].Pos != b[i].Pos || a[i].Vel != b[i].Vel || a[i].State != b[i].State {
+				t.Fatalf("ORCA crowd unit %d diverged between runs: %+v vs %+v", i, a[i].Pos, b[i].Pos)
+			}
+		}
+	})
+}
+
+func BenchmarkCrowdStep1000ORCA(b *testing.B) {
+	g := mazeGrid(160, 128)
+	c := rts.NewCrowd(g, rts.CrowdOptions{
+		Gap:       0.05,
+		Avoidance: rts.AvoidanceORCA,
+		ORCA:      ai.ORCAConfig{TimeHorizon: 1.5, NeighborDist: 4, MaxNeighbors: 12},
+	})
+	ids := spawnBlock(c, 1000, 40, math2d.Vec2{X: 2.5, Y: 40.5})
+	c.Move(ids, rts.MoveOrder{Target: math2d.Vec2{X: 140, Y: 64}, Formation: rts.Formation{Shape: rts.ShapeBox, Spacing: 0.9}})
+	for range 300 {
+		c.Step(step)
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		c.Step(step)
+	}
+}

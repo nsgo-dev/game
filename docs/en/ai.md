@@ -1,6 +1,6 @@
 # ai
 
-`game/ai` provides deterministic game AI building blocks stepped cleanly on `game.Loop`: grid `AStar` pathfinding, `HPA` hierarchical pathfinding, `JPS` Jump Point Search, generic `GraphSearch` (A*, Dijkstra, and budgeted movement ranges with paths over hex tilemaps, waypoint graphs, or custom graphs), 2D `NavMesh` navigation with funnel smoothing, steering behaviors, behavior trees, utility AI scoring, goal-oriented action planning (GOAP), attack tokens and squads, spatial influence maps, EQS-style tactical position queries with cover points and reservations, and perception with sight, hearing and memory.
+`game/ai` provides deterministic game AI building blocks stepped cleanly on `game.Loop`: grid `AStar` pathfinding, `HPA` hierarchical pathfinding, `JPS` Jump Point Search, generic `GraphSearch` (A*, Dijkstra, and budgeted movement ranges with paths over hex tilemaps, waypoint graphs, or custom graphs), 2D `NavMesh` navigation with funnel smoothing, steering behaviors, velocity-based local avoidance (ORCA) in 2D and 3D XZ, behavior trees, utility AI scoring, goal-oriented action planning (GOAP), attack tokens and squads, spatial influence maps, EQS-style tactical position queries with cover points and reservations, and perception with sight, hearing and memory.
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/ai"
@@ -394,6 +394,36 @@ if ok {
 	agent.Step(force, dt)
 }
 ```
+
+## Velocity-based local avoidance (ORCA)
+
+Push-apart separation reacts only after bodies overlap, causing head-on deadlocks and jostling in doorways. `ORCASolver` implements Optimal Reciprocal Collision Avoidance (RVO2-style velocity obstacles with 2D linear programming and minimum-penetration infeasible fallback) so agents steer smoothly around neighbors and static obstacle edges before contact:
+
+```go
+solver := ai.NewORCASolver(ai.ORCAConfig{
+	TimeHorizon:     2.0, // seconds to look ahead for agents
+	TimeHorizonObst: 1.0, // seconds to look ahead for static walls
+	MaxNeighbors:    16,
+})
+
+walls := []ai.ORCAObstacle{
+	{A: math2d.V2(-12, 0), B: math2d.V2(-1.5, 0)},
+	{A: math2d.V2(1.5, 0), B: math2d.V2(12, 0)},
+}
+
+// Inside game.Loop.Update:
+for i := range agents {
+	agents[i].PrefVel = desiredVelocity(agents[i], goals[i])
+}
+// Step updates Vel and Pos synchronously, or call Solve(out, agents, walls, dt)
+// to obtain collision-free velocities without mutating agent positions.
+solver.Step(agents, walls, dt)
+```
+
+- **2D and 3D XZ-plane sharing**: use `Solve`, `SolveAgent`, and `Step` with `ORCAAgent` / `ORCAObstacle` (`math2d.Vec2`) in 2D, or `SolveXZ`, `SolveAgentXZ`, and `StepXZ` with `ORCAAgent3D` / `ORCAObstacle3D` (`ai.Vec3`) so 2D and grounded 3D navmesh agents share the same solver while preserving `Pos.Y` and zeroing `Vel.Y`.
+- **Static obstacle edges**: `ORCAObstacle` line segments are treated as two-sided (winding-agnostic) and act as hard constraints during LP3 infeasible fallback so overcrowded agents stay clear of walls and doorway jambs.
+- **Layers, masks, and priority**: set `Layer` (zero defaults to `ORCALayerDefault`, bit 0) and `Mask` (zero defaults to `ORCAMaskAll`; obstacle `Layer` 0 also defaults to `ORCAMaskAll`) to separate movement domains such as ground vs. air. When an agent avoids a non-cooperative neighbor whose `Mask` ignores it, or a `Stationary` / zero-`MaxSpeed` neighbor, it automatically takes full avoidance responsibility (`1.0`). Among cooperative neighbors, higher `Priority` smoothly yields less (`pB / (pA + pB)`) so holding-position units hold their ground while lower-priority units steer around them.
+- **Deterministic and zero-allocation**: internal spatial-hash neighbor lookups and candidate/obstacle sorting canonicalize every constraint by distance and intrinsic agent properties before solving the LP, so shuffling neighbor or obstacle order produces bit-identical velocities and replays produce identical positions every step. Reusing `ORCASolver` and output buffers allocates `0 B/op` after warm-up.
 
 ## Behavior trees
 
