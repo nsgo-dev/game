@@ -79,9 +79,9 @@ type PluginTool struct {
 	ID string
 	// Label is the tool's button text and its name in the status bar.
 	Label string
-	// Press handles a press at canvas coordinates (x, y); Editor.CanvasToWorld converts them to world coordinates. It is not called while playing.
+	// Press handles a press at canvas coordinates (x, y), which go through the editor's 2D view (View2D) rather than the scene camera: Editor.CanvasToWorld converts them to world coordinates for a world-space layer, and Editor.CanvasToScreen to the scene's screen coordinates for a screen-space layer. It is not called while playing.
 	Press func(ed *Editor, x, y float32)
-	// Draw, when set, draws over the scene in canvas coordinates while the tool is active and the editor is not playing.
+	// Draw, when set, draws over the scene in canvas coordinates while the tool is active and the editor is not playing. Canvas coordinates follow the 2D view: Editor.WorldToCanvas places a world point and Editor.ScreenToCanvas a screen-space layer's point.
 	Draw func(ed *Editor, d *core.Drawing)
 }
 

@@ -305,6 +305,10 @@ func (e *Editor) DrawViewport(d *core.Drawing, size core.Size) {
 	}
 	scene := e.ActiveScene()
 	if scene != nil {
+		if !e.playing && scene.HasBackground {
+			// The scene fills its background over the camera frame only; in edit mode the view can be panned or zoomed past that frame, so the whole canvas gets the scene's background and objects away from the camera are judged against the game's clear color.
+			d.Save().SetFillColor(scene.BackgroundColor).FillRect(0, 0, float32(size.Width), float32(size.Height)).Restore()
+		}
 		d.Save()
 		applyAffine(d, e.screenAffine())
 		if e.playing {

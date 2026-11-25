@@ -56,9 +56,9 @@ func (e *Editor) View2D() View2D {
 	return e.cameraView2D()
 }
 
-// View2DFollowsCamera reports whether the 2D view is the scene camera's view, which it is until the author pans or zooms and again after ResetView2D.
+// View2DFollowsCamera reports whether the 2D view is the scene camera's view, which it is until the author pans or zooms, again after ResetView2D, and always while the scene plays.
 func (e *Editor) View2DFollowsCamera() bool {
-	return e != nil && !e.view2DFree
+	return e != nil && (!e.view2DFree || e.playing)
 }
 
 // SetView2D sets the 2D viewport's view, its zoom clamped to [MinView2DZoom, MaxView2DZoom]. It reports false, and changes nothing, for a non-finite value, a zoom that is not positive or while the scene plays, when the view is the scene camera's.
