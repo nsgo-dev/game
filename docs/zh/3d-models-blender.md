@@ -273,6 +273,23 @@ gltf.ApplyMorphWeights(prim, weights, &morphed)
 - `EvaluateMorphTangents` 混合切线的 `XYZ` 增量并重新归一化，同时原样保留 `W` 手性符号，与 `EvaluateMorphPositions` 和 `EvaluateMorphNormals` 配套。
 - 如需在 NSGo `gpu.View` 中绘制带动画的变形网格，可将基础图元与变形目标上传到 `render3d.GPUMorphMesh`（见 [`render3d`](render3d.md#变形目标网格morphmeshgpumorphmesh)）。测试套件使用 Khronos `AnimatedMorphCube` 示例模型验证了完整动画播放与像素回读。
 
+## 碰撞节点（`-colonly` 与 `extras.collider`）
+
+在 Blender 中可以直接通过 Godot 风格的节点名后缀或自定义属性（`extras.collider`）与视觉网格一起制作关卡碰撞体，并在绘制时自动跳过仅碰撞节点：
+
+| 节点名后缀 | 碰撞形状 | 是否绘制？ |
+| --- | --- | --- |
+| `-col` / `-colonly` | 三角网格（`ColliderTriMesh`） | 是 / 否 |
+| `-boxcol` / `-boxcolonly` | 定向盒体（`ColliderBox`） | 是 / 否 |
+| `-spherecol` / `-spherecolonly` | 球体（`ColliderSphere`） | 是 / 否 |
+| `-capsulecol` / `-capsulecolonly` | 胶囊体（`ColliderCapsule`） | 是 / 否 |
+| `-convcol` / `-convcolonly` | 凸包（`ColliderConvex`，当前回退为三角网格） | 是 / 否 |
+
+后缀匹配不区分大小写，并自动兼容 Blender 复制对象时追加的数字后缀（如 `Wall-colonly.001`）。节点也可通过 `extras.collider` 声明碰撞体（支持形状字符串、`true`/`false`，或包含 `shape`/`type`、`draw`/`only`/`visible`、`trigger`、`tag`、`center`、`halfExtents`/`size`、`radius`、`height`、`friction`、`restitution`、`layer`、`mask` 的对象），并支持挂在无网格的空节点上。
+
+- **过滤绘制节点**：调用 `doc.DrawableNodes()`（或 `doc.SceneDrawableNodes(sceneIdx)` / `node.IsDrawable()`）即可排除 `-colonly` 和 `draw: false` 节点。
+- **读取元数据或创建物理碰撞体**：调用 `doc.ColliderNodes()` / `gltf.ParseNodeCollider(node)` 读取原始标注，或直接传给 [`physics3d.World.AddGLTFColliders`](physics3d.md#gltfgridmap-与高度图碰撞体)。
+
 ## 往返校验示例模型
 
 [占位素材包](placeholder.md)在 [`packages/game/placeholder/pack/models/`](../../packages/game/placeholder/pack/models/) 中包含三个极简、字节级确定的 glTF 2.0 示例模型，由 [`packages/game/internal/samplegltf/`](../../packages/game/internal/samplegltf/samplegltf.go) 生成并完成往返校验。与素材包的其他文件一样，它们以 CC0 1.0 贡献到公有领域，可用 `placeholder.Model` 加载。

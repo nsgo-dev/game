@@ -19,7 +19,9 @@ hit, hitOK := hm.Raycast(ray, 500)
 
 // 生成 32x32 网格区块供 GPU 上传：
 chunkMesh := hm.BuildMesh(0, 0, 32, 32)
-_, _, _, _, _ = y, ok, normal, hit, chunkMesh
+// 或直接桥接为 physics3d.HeightfieldCollider：
+hfCollider := hm.Collider()
+_, _, _, _, _, _ = y, ok, normal, hit, chunkMesh, hfCollider
 _ = hitOK
 ```
 
@@ -125,6 +127,8 @@ colliders := grid.CollisionBoxesIn(playerAABB)
 hit, ok := grid.Raycast(ray, 100)
 _, _, _, _ = batches, colliders, hit, ok
 ```
+
+如需将 `GridMap` 中各瓦片的 `ColliderBoxes` 加入 [`physics3d.World`](physics3d.md)，调用 `grid.AddCollidersToWorld(world, opts)`（或 `grid.BuildStaticBodies(opts)` / `grid.MergedColliderBoxes()`）。该方法会通过 `physics3d.MergeBoxes` 按 X → Z → Y 顺序贪心合并相邻对齐的格子碰撞盒，在不改变碰撞结果的前提下大幅减少静态刚体数量并消除格子间内部接缝（如需逐格生成独立刚体，可设置 `GridColliderOptions{DisableMerge: true}`）。
 
 网格地图也可以用第 1 版 YAML 编写和保存（`*.gridmap.yaml`，Schema 为 `https://game.nsgo.dev/schemas/gridmap.v1.json`），声明 `origin`、`cellSize`、`meshLibrary`、互不重叠的填充盒游程（`boxes`）和单个格子（`cells`），均按规范的 `(y, z, x)` 顺序写出：
 
