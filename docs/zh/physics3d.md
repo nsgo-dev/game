@@ -63,6 +63,23 @@ rock := world.AddBody(physics3d.NewDynamicBody(physics3d.ConvexHullShape(hull), 
 
 射线检测支持对单个形状测试 `Ray{Origin, Dir, MaxDist}`（`RaycastBox`、`RaycastSphere`、`RaycastCapsule`、`RaycastConvexHull`、`RaycastCylinder`、`RaycastShape`），以及对整个世界发射线段（`world.Raycast(from, to)` 和 `world.RaycastFirst(from, to)`），返回按 `[0, 1]` 范围内的 `T` 升序排列的 `RaycastHit`，包含世界坐标命中点 `Point`、距离 `Distance` 和向外单位法线 `Normal`。起点位于任意形状内部的射线在 `T` 为 0 处命中，`Point` 为起点，`Normal` 沿射线反方向（`-Dir`）。
 
+### 形状投射（Shape Cast）
+
+将任意 `Shape`（`Box`、`Sphere` 或 `Capsule`）以朝向 `rot` 置于 `origin` 并沿位移 `delta` 扫掠，检测与刚体、三角网格（`TriMeshCollider`）、高度场（`HeightfieldCollider`）以及体素碰撞体（`VoxelCollider`）的首次碰撞：
+
+- `world.ShapeCast(shape, origin, rot, delta)` 返回最早命中的 `RaycastHit`（包含 `Body`/`TriMesh`/`Heightfield`/`Voxel`、`T`、`Distance`、`Point`、`Normal`）；`world.ShapeCastAll(...)` 按 `T` 升序返回全部命中，采用与 `Raycast` 相同的确定性决胜顺序（`Body` < `TriMesh` < `Heightfield` < `Voxel`，再按 ID 升序）。
+- 使用 `world.ShapeCastLayer(shape, origin, rot, delta, mask, ignore)` 与 `ShapeCastAllLayer` 按 `LayerMask` 过滤并忽略指定 `*Body`，或使用 `ShapeCastWith` / `ShapeCastAllWith`（`ShapeCastOptions`）额外支持 `IgnoreBodyID` 与 `IgnoreTriggers`。
+- 独立辅助函数 `ShapeCastShape(moving, delta, target)`、`TriMeshCollider.ShapeCast(shape, delta)` 与 `HeightfieldCollider.ShapeCast(shape, delta)` 可直接测试单个碰撞体。球体、盒体/OBB 与盒体-三角形对采用精确解析扫掠（闵可夫斯基和与运动 SAT）；胶囊-盒体、胶囊-胶囊与胶囊-三角形对采用精确距离保守推进（误差 `<= 1e-4`）。初始重叠在 `T == 0`、`Distance == 0` 处返回 `TestShapes` 分离法线。
+
+```go
+// 基于 3D 形状投射的第三人称相机弹簧臂，在碰到墙面前拉近相机避免穿墙。
+cameraProbe := physics3d.SphereShape(physics3d.Sphere{Radius: 0.25})
+camPos := pivot.Add(armDelta)
+if hit, ok := world.ShapeCastLayer(cameraProbe, pivot, physics3d.QuatIdentity(), armDelta, physics3d.LayerAll, playerBody); ok {
+	camPos = pivot.Add(armDelta.Scale(hit.T))
+}
+```
+
 ## 刚体动力学
 
 `World` 管理静态（`Static: true` 或零质量）和动态 `Body`，在 `Step(dt)` 中通过半隐式欧拉积分、确定性碰撞检测、带热启动和三维各向同性库仑摩擦的迭代冲量求解器、非线性高斯-赛德尔位置修正以及静止休眠机制推进模拟。
