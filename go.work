@@ -5,6 +5,7 @@ use (
 	./template
 	./template/fighting2d
 	./template/puzzle2d
+	./template/racing3d
 	./template/rpg2d
 	./examples/starburst
 	./examples/slidegem
