@@ -7,6 +7,7 @@ import (
 
 	"github.com/nsgo-dev/game/packages/game/mcp"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
@@ -205,6 +206,58 @@ func ProfilerStripView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 											},
 										},
 									},
+								}
+							}),
+							core.Dynamic(func(cx *core.Scope) core.Node {
+								_ = rev.Get()
+								marks := ed.PlayMarks()
+								if len(marks) == 0 {
+									return nil
+								}
+								curFrame, rate := ed.currentPlayFrameAndRate()
+								window := float64(rollingReplayWindowSeconds * max(1, rate))
+								var pins []core.Node
+								for i, m := range marks {
+									age := float64(curFrame - m.Frame)
+									if age < 0 || age >= window {
+										continue
+									}
+									pct := float32(math.Max(1, math.Min(98, 100-(age/window)*100)))
+									pins = append(pins, core.View{
+										TestID:        fmt.Sprintf("profiler-strip-mark-pin-%d", i),
+										PointerEvents: core.PointerEventsNone,
+										Style: core.Style{
+											Position:       core.Absolute,
+											Left:           core.Pct(pct),
+											Top:            core.Pt(0),
+											Width:          core.Pt(16),
+											Height:         core.Pt(16),
+											AlignItems:     core.AlignCenter,
+											JustifyContent: core.JustifyCenter,
+											CornerRadius:   4,
+											Background:     specLineRaised,
+										},
+										Children: []core.Node{
+											core.Icon{
+												SVG:   lucide.Flag(),
+												Style: core.Style{Width: core.Pt(10), Height: core.Pt(10), Color: specTextStrong},
+											},
+										},
+									})
+								}
+								if len(pins) == 0 {
+									return nil
+								}
+								return core.View{
+									PointerEvents: core.PointerEventsNone,
+									Style: core.Style{
+										Position: core.Absolute,
+										Left:     core.Pt(0),
+										Top:      core.Pt(0),
+										Right:    core.Pt(0),
+										Bottom:   core.Pt(0),
+									},
+									Children: pins,
 								}
 							}),
 						},

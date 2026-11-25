@@ -215,6 +215,8 @@ func (e *Editor) RunGameWith(opts RunGameOptions) error {
 
 	e.output.mu.Lock()
 	e.output.open = true
+	e.output.runCount++
+	e.output.runLines = nil
 	e.output.mu.Unlock()
 
 	startMsg := fmt.Sprintf("Running game: %s %s", spec.Name, strings.Join(spec.Args, " "))

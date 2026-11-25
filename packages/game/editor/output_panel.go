@@ -79,12 +79,16 @@ type OutputEntry struct {
 }
 
 type outputPanelState struct {
-	mu           sync.Mutex
-	open         bool
-	errorsOnly   bool
-	entries      []OutputEntry
-	lastStatus   string
-	lastBuildErr string
+	mu               sync.Mutex
+	open             bool
+	errorsOnly       bool
+	entries          []OutputEntry
+	lastStatus       string
+	lastBuildErr     string
+	runCount         int
+	runLines         []string
+	panicReport      *PanicReport
+	panicRuntimeOpen bool
 }
 
 // OutputPanelOpen reports whether the Output panel is visible below the viewport.
@@ -170,13 +174,16 @@ func (e *Editor) FilteredOutputEntries() []OutputEntry {
 	return out
 }
 
-// ClearOutput removes all recorded entries from the Output panel.
+// ClearOutput removes all recorded entries and any panic card from the Output panel.
 func (e *Editor) ClearOutput() {
 	if e == nil {
 		return
 	}
 	e.output.mu.Lock()
 	e.output.entries = nil
+	e.output.runLines = nil
+	e.output.panicReport = nil
+	e.output.panicRuntimeOpen = false
 	e.output.mu.Unlock()
 	e.notify()
 }
@@ -269,6 +276,13 @@ func (e *Editor) appendOutputEntry(source OutputSource, level OutputLevel, text,
 	if len(e.output.entries) > maxOutputEntries {
 		drop := len(e.output.entries) - maxOutputEntries
 		e.output.entries = slices.Clone(e.output.entries[drop:])
+	}
+	if source == OutputStdout || source == OutputStderr {
+		e.output.runLines = append(e.output.runLines, text)
+		if len(e.output.runLines) > 512 {
+			e.output.runLines = slices.Clone(e.output.runLines[len(e.output.runLines)-512:])
+		}
+		e.detectPanicFromOutputLocked(projectDir)
 	}
 	e.output.mu.Unlock()
 }
@@ -503,12 +517,14 @@ func OutputPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 		return ed.OutputPanelOpen()
 	})
 	type snapshot struct {
-		entries        []OutputEntry
-		totalCount     int
-		errorCount     int
-		errorsOnly     bool
-		running        bool
-		assetsBuilding bool
+		entries          []OutputEntry
+		totalCount       int
+		errorCount       int
+		errorsOnly       bool
+		running          bool
+		assetsBuilding   bool
+		panicReport      *PanicReport
+		panicRuntimeOpen bool
 	}
 	state := core.NewMemoFunc(cx, func() snapshot {
 		_ = rev.Get()
@@ -520,25 +536,47 @@ func OutputPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 			}
 		}
 		return snapshot{
-			entries:        ed.FilteredOutputEntries(),
-			totalCount:     len(all),
-			errorCount:     errCount,
-			errorsOnly:     ed.OutputErrorsOnly(),
-			running:        ed.GameRunning(),
-			assetsBuilding: ed.AssetsBuilding(),
+			entries:          ed.FilteredOutputEntries(),
+			totalCount:       len(all),
+			errorCount:       errCount,
+			errorsOnly:       ed.OutputErrorsOnly(),
+			running:          ed.GameRunning(),
+			assetsBuilding:   ed.AssetsBuilding(),
+			panicReport:      ed.OutputPanic(),
+			panicRuntimeOpen: ed.OutputPanicRuntimeExpanded(),
 		}
 	}, func(a, b snapshot) bool {
-		return a.totalCount == b.totalCount &&
-			a.errorCount == b.errorCount &&
-			a.errorsOnly == b.errorsOnly &&
-			a.running == b.running &&
-			a.assetsBuilding == b.assetsBuilding &&
-			slices.Equal(a.entries, b.entries)
+		if a.totalCount != b.totalCount ||
+			a.errorCount != b.errorCount ||
+			a.errorsOnly != b.errorsOnly ||
+			a.running != b.running ||
+			a.assetsBuilding != b.assetsBuilding ||
+			a.panicRuntimeOpen != b.panicRuntimeOpen ||
+			!slices.Equal(a.entries, b.entries) {
+			return false
+		}
+		if (a.panicReport == nil) != (b.panicReport == nil) {
+			return false
+		}
+		if a.panicReport != nil {
+			if a.panicReport.RunNumber != b.panicReport.RunNumber ||
+				a.panicReport.Frame != b.panicReport.Frame ||
+				a.panicReport.Message != b.panicReport.Message ||
+				a.panicReport.ReplayPath != b.panicReport.ReplayPath ||
+				!slices.Equal(a.panicReport.Frames, b.panicReport.Frames) {
+				return false
+			}
+		}
+		return true
 	})
 
 	list := core.Dynamic(func(cx *core.Scope) core.Node {
 		s := state.Get()
-		if len(s.entries) == 0 {
+		var children []core.Node
+		if s.panicReport != nil {
+			children = append(children, outputPanicCardView(cx, ed, s.panicReport, s.panicRuntimeOpen))
+		}
+		if len(s.entries) == 0 && s.panicReport == nil {
 			msg := ed.T("output.empty")
 			if s.errorsOnly {
 				msg = ed.T("output.emptyErrors")
@@ -549,7 +587,6 @@ func OutputPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 				Style:   core.Style{FontSize: 11, Color: colors.Muted()},
 			}
 		}
-		rows := make([]core.Node, 0, len(s.entries))
 		for i, item := range s.entries {
 			entry := item
 			textColor := colors.Text()
@@ -562,7 +599,7 @@ func OutputPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 					ed.report(ed.OpenOutputEntry(entry))
 				}
 			}
-			rows = append(rows, core.View{
+			children = append(children, core.View{
 				TestID: fmt.Sprintf("output-row-%d", i),
 				Style: core.Style{
 					Direction:    core.Row,
@@ -589,7 +626,7 @@ func OutputPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 				},
 			})
 		}
-		return core.View{Style: core.Style{Gap: 2}, Children: rows}
+		return core.View{Style: core.Style{Gap: 4}, Children: children}
 	})
 
 	return core.Show{
@@ -598,12 +635,17 @@ func OutputPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 			return core.View{
 				TestID: "output-panel",
 				Style: core.Style{
-					Height:      core.Pt(140),
 					Background:  colors.Inset(),
 					Borders:     core.Edges{Top: 1},
 					BorderColor: colors.Line(),
 					Padding:     core.All(8),
 					Gap:         6,
+				},
+				StyleFunc: func() core.Style {
+					if state.Get().panicReport != nil {
+						return core.Style{Height: core.Pt(236)}
+					}
+					return core.Style{Height: core.Pt(140)}
 				},
 				Children: []core.Node{
 					ui.HStack{

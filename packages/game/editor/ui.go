@@ -64,28 +64,34 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 		}
 	})
 	cx.OnKeyWith("mod+shift+p", core.KeyOptions{When: core.KeyNotEditing}, func() {
-		if !ed.RemoteConnected() {
+		if ed.RemoteConnected() {
+			snap := ed.remoteSnapshotShared()
+			paused := snap.Loop != nil && snap.Loop.Paused
+			ed.dispatchRemoteAction(cx, func() error {
+				if paused {
+					return ed.RemoteResume()
+				}
+				return ed.RemotePause()
+			})
 			return
 		}
-		snap := ed.remoteSnapshotShared()
-		paused := snap.Loop != nil && snap.Loop.Paused
-		ed.dispatchRemoteAction(cx, func() error {
-			if paused {
-				return ed.RemoteResume()
-			}
-			return ed.RemotePause()
-		})
+		if ed.Playing() {
+			ed.SetPlayPaused(!ed.PlayPaused())
+		}
 	})
 	cx.OnKeyWith(".", core.KeyOptions{When: core.KeyNotEditing}, func() {
-		if !ed.RemoteConnected() {
+		if ed.RemoteConnected() {
+			snap := ed.remoteSnapshotShared()
+			if snap.Loop != nil && snap.Loop.Paused {
+				ed.dispatchRemoteAction(cx, func() error {
+					_, err := ed.RemoteStep(1)
+					return err
+				})
+			}
 			return
 		}
-		snap := ed.remoteSnapshotShared()
-		if snap.Loop != nil && snap.Loop.Paused {
-			ed.dispatchRemoteAction(cx, func() error {
-				_, err := ed.RemoteStep(1)
-				return err
-			})
+		if ed.Playing() && ed.PlayPaused() {
+			ed.StepPlay(1)
 		}
 	})
 	cx.Cleanup(func() {
@@ -276,6 +282,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 																					Children: []core.Node{
 																						toolbarView(cx, ed, rev, sceneFileButtons(cx, ed, rev, dirty, pathMode, pathTarget)),
 																						remotePlayBarView(cx, ed, rev),
+																						playModeBarView(cx, ed, rev),
 																						diskWatchBannerView(cx, ed, rev),
 																						core.Show{
 																							When: func() bool {
@@ -381,6 +388,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 		},
 		Children: []core.Node{
 			workspace,
+			playAskFrozenFrameDialog(cx, ed, rev),
 			core.Show{
 				When: topLevelSettingsOpen,
 				Then: func(cx *core.Scope) core.Node {
