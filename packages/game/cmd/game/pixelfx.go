@@ -62,7 +62,7 @@ func definePixelfx(a *app, fs *flag.FlagSet) func() error {
 			return usagef("expected one effect, such as fire/torch; game pixelfx -list lists them")
 		}
 		if *fps < 0 {
-			return usagef("-fps must be above 0")
+			return usagef("-fps must not be negative (0 uses the effect's own)")
 		}
 		id := fs.Arg(0)
 		e, ok := pixelfx.Lookup(id)
@@ -88,6 +88,8 @@ func definePixelfx(a *app, fs *flag.FlagSet) func() error {
 		base := *name
 		if base == "" {
 			_, base, _ = strings.Cut(id, "/")
+		} else if base == "." || base == ".." || strings.ContainsAny(base, `/\`) || filepath.Base(base) != base {
+			return usagef("-name %q must be a file name, without a directory", base)
 		}
 		var fr *pixelfx.Frames
 		if *act {

@@ -2,7 +2,10 @@
 
 package pixelfx
 
-import "math"
+import (
+	"math"
+	"slices"
+)
 
 // A stock character to try effects on: status effects wrap its silhouette, hits land on it, auras sit behind it. Previews draw it; effects only read its mask through Options.Actor.
 
@@ -143,14 +146,14 @@ type Actor struct {
 	Eyes   [][2]float64
 }
 
-// StockActor returns the stock actor at scale k: 1 is 12 x 19 px, 2 is 24 x 38 px (any other k is 1).
+// StockActor returns the stock actor at scale k: 1 is 12 x 19 px, 2 is 24 x 38 px (any other k is 1). Each call returns a copy of its mask and pixels, so the caller may change them.
 func StockActor(k int) *Actor {
 	if k != 2 {
 		k = 1
 	}
-	m := actorMasks[k]
+	m := &Mask{W: actorMasks[k].W, H: actorMasks[k].H, Data: slices.Clone(actorMasks[k].Data)}
 	x, y := -math.Floor(float64(m.W)/2), -float64(m.H)
-	a := &Actor{Mask: m, Pixels: actorPixels[k], X: x, Y: y, W: m.W, H: m.H, K: k, Head: [2]float64{0, y}, Chest: [2]float64{0, y + 11}}
+	a := &Actor{Mask: m, Pixels: slices.Clone(actorPixels[k]), X: x, Y: y, W: m.W, H: m.H, K: k, Head: [2]float64{0, y}, Chest: [2]float64{0, y + 11}}
 	if k == 2 {
 		a.Chest = [2]float64{0, -26}
 		a.Eyes = [][2]float64{{13, 3}, {15, 3}}

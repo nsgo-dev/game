@@ -1,7 +1,10 @@
 package pixelfx_test
 
 import (
+	"math"
 	"slices"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/nsgo-dev/game/packages/game/pixelfx"
@@ -91,7 +94,7 @@ func TestValuesRoundTripThroughText(t *testing.T) {
 	for _, bad := range []struct {
 		k pixelfx.ValueKind
 		s string
-	}{{pixelfx.KindNumber, "fast"}, {pixelfx.KindNumber, "NaN"}, {pixelfx.KindBool, "yes"}, {pixelfx.KindRamp, "#000,#zz"}, {pixelfx.KindNone, "x"}} {
+	}{{pixelfx.KindNumber, "fast"}, {pixelfx.KindNumber, "NaN"}, {pixelfx.KindNumber, "4abc"}, {pixelfx.KindNumber, "1 2"}, {pixelfx.KindNumber, "1,2"}, {pixelfx.KindNumber, "1e999"}, {pixelfx.KindNumbers, "1,2x"}, {pixelfx.KindColor, "fff"}, {pixelfx.KindBool, "yes"}, {pixelfx.KindRamp, "#000,#zz"}, {pixelfx.KindNone, "x"}} {
 		if _, err := pixelfx.ParseValue(bad.k, bad.s); err == nil {
 			t.Errorf("ParseValue(%s, %q) succeeded", bad.k, bad.s)
 		}
@@ -107,6 +110,15 @@ func FuzzParseValue(f *testing.F) {
 		v, err := pixelfx.ParseValue(pixelfx.ValueKind(kind%7), s)
 		if err != nil {
 			return
+		}
+		if v.Kind() == pixelfx.KindNumber {
+			x, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+			if err != nil {
+				t.Fatalf("%q read as the number %s, but is not one: %v", s, v.String(), err)
+			}
+			if pixelfx.Num(x).String() != v.String() {
+				t.Fatalf("%q read as %s, not %v", s, v.String(), x)
+			}
 		}
 		again, err := pixelfx.ParseValue(v.Kind(), v.String())
 		if err != nil {
@@ -161,5 +173,65 @@ func TestShiftKeysAndHits(t *testing.T) {
 	}
 	if hits := pixelfx.ShiftHits([]pixelfx.Hit{{T: 0.2}}, 0.5); hits[0].T != 0.7 {
 		t.Fatalf("shifted hit at %v", hits[0].T)
+	}
+}
+
+func TestOptionsKeepDefaultsForValuesTheyCannotUse(t *testing.T) {
+	var n int
+	for _, c := range []struct {
+		name string
+		v    pixelfx.Value
+	}{{"empty ramp", pixelfx.RampOf(nil)}, {"empty palette", pixelfx.Palette()}, {"text for a ramp", pixelfx.Text("x")}, {"number for a ramp", pixelfx.Num(2)}} {
+		p := pixelfx.NewPlayer(dot(&n), pixelfx.Options{}.Set("palette", c.v))
+		if got := p.Options.Palette(); len(got) != 3 || pixelfx.ToHex(got[2]) != "#ffffff" {
+			t.Errorf("%s: palette %v, want the default", c.name, got)
+		}
+		p.Draw(pixelfx.NewFrame(8, 8, 0, 0), pixelfx.LayerBoth)
+	}
+	p := pixelfx.NewPlayer(dot(&n), pixelfx.Options{}.Set("seed", pixelfx.Text("x")))
+	if got := p.Options.Seed(); got != 3 {
+		t.Errorf("text for the seed gives seed %v, want the default 3", got)
+	}
+	p = pixelfx.NewPlayer(dot(&n), pixelfx.Options{}.Set("palette", pixelfx.Color("#ff0000")))
+	if got := p.Options.Palette(); len(got) != 3 || pixelfx.ToHex(got[0]) != "#ff0000" || pixelfx.ToHex(got[2]) != "#ff0000" {
+		t.Errorf("a color for the palette gives %v, want a ramp of 3 of that color", got)
+	}
+	p = pixelfx.NewPlayer(dot(&n), pixelfx.Options{}.Set("extra", pixelfx.Text("kept")))
+	if got := p.Options.Text("extra"); got != "kept" {
+		t.Errorf("an option the meta does not name gives %q, want it kept", got)
+	}
+}
+
+func TestUpdateIgnoresBadSteps(t *testing.T) {
+	var n int
+	p := pixelfx.NewPlayer(dot(&n), pixelfx.Options{})
+	for _, dt := range []float64{math.NaN(), -1, math.Inf(1), math.Inf(-1)} {
+		p.Update(dt)
+	}
+	if p.T() != 0 || n != 0 {
+		t.Fatalf("after bad steps T is %v and %d updates ran, want 0 and 0", p.T(), n)
+	}
+	p.Update(0.05)
+	if p.T() != 0.05 || n != 6 {
+		t.Fatalf("after 0.05 s T is %v and %d updates ran, want 0.05 and 6", p.T(), n)
+	}
+}
+
+func TestValueKindStringNamesUnknownKinds(t *testing.T) {
+	if got := pixelfx.KindNumbers.String(); got != "numbers" {
+		t.Errorf("KindNumbers is %q", got)
+	}
+	if got := pixelfx.ValueKind(9).String(); got != "ValueKind(9)" {
+		t.Errorf("ValueKind(9) is %q", got)
+	}
+}
+
+func TestStockActorIsACopy(t *testing.T) {
+	a := pixelfx.StockActor(2)
+	a.Pixels[0]++
+	a.Mask.Data[0]++
+	b := pixelfx.StockActor(2)
+	if b.Pixels[0] == a.Pixels[0] || b.Mask.Data[0] == a.Mask.Data[0] {
+		t.Fatal("changing one stock actor changed the next")
 	}
 }

@@ -86,7 +86,13 @@ func TestPixelfxRefusesWhatItCannotRender(t *testing.T) {
 		{[]string{"pixelfx", "-set", "speed=3", "fire/torch"}, `has no option "speed"; it has iron, palette, seed, wood`},
 		{[]string{"pixelfx", "-set", "seed=fast", "fire/torch"}, "is not a number"},
 		{[]string{"pixelfx", "-set", "seed", "fire/torch"}, "is not name=value"},
-		{[]string{"pixelfx", "-fps", "-2", "fire/torch"}, "-fps must be above 0"},
+		{[]string{"pixelfx", "-fps", "-2", "fire/torch"}, "-fps must not be negative"},
+		{[]string{"pixelfx", "-set", "seed=4abc", "fire/torch"}, `"4abc" is not a number`},
+		{[]string{"pixelfx", "-set", "seed=1 2", "fire/torch"}, `"1 2" is not a number`},
+		{[]string{"pixelfx", "-set", "palette=fff", "fire/torch"}, `color "fff" is not`},
+		{[]string{"pixelfx", "-name", "../x", "fire/torch"}, "must be a file name"},
+		{[]string{"pixelfx", "-name", "a/b", "fire/torch"}, "must be a file name"},
+		{[]string{"pixelfx", "-name", "..", "fire/torch"}, "must be a file name"},
 	} {
 		a, _, stderr := newTestApp(t)
 		if code := run(c.args, a); code != 2 || !strings.Contains(stderr.String(), c.want) {

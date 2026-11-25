@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -63,7 +64,10 @@ const (
 
 // String names the kind as the game pixelfx command and its errors do.
 func (k ValueKind) String() string {
-	return [...]string{"none", "number", "bool", "color", "ramp", "text", "numbers"}[min(int(k), 6)]
+	if k > KindNumbers {
+		return fmt.Sprintf("ValueKind(%d)", int(k))
+	}
+	return [...]string{"none", "number", "bool", "color", "ramp", "text", "numbers"}[k]
 }
 
 // Value is an option's value: a number, a bool, a color, a ramp of colors, text or a list of numbers.
@@ -87,7 +91,7 @@ func Bool(b bool) Value {
 	return v
 }
 
-// Color returns a color value from "#rgb" or "#rrggbb", panicking on anything else as Hex does.
+// Color returns a color value from "#rgb", "#rrggbb" or "#rrggbbaa" (alpha ignored), panicking on anything else as Hex does.
 func Color(hex string) Value { return Value{kind: KindColor, colors: []uint32{Hex(hex)}} }
 
 // ColorOf returns a color value.
@@ -140,13 +144,13 @@ func (v Value) String() string {
 
 func formatNum(x float64) string { return fmt.Sprint(x) }
 
-// ParseValue reads s as a value of kind, as Value.String writes it: a color may be #rgb or #rrggbb, and a ramp's colors are separated by commas.
+// ParseValue reads s as a value of kind, as Value.String writes it: a number must be the whole of s (surrounding space aside), a color is #rgb, #rrggbb or #rrggbbaa (whose alpha is ignored), and a ramp's colors and a list's numbers are separated by commas.
 func ParseValue(kind ValueKind, s string) (Value, error) {
 	s = strings.TrimSpace(s)
 	switch kind {
 	case KindNumber:
-		var x float64
-		if _, err := fmt.Sscan(s, &x); err != nil || math.IsNaN(x) || math.IsInf(x, 0) {
+		x, err := strconv.ParseFloat(s, 64)
+		if err != nil || math.IsNaN(x) || math.IsInf(x, 0) {
 			return Value{}, fmt.Errorf("%q is not a number", s)
 		}
 		return Num(x), nil
@@ -200,7 +204,7 @@ type Options struct {
 	Values map[string]Value
 }
 
-// Set returns o with the option called name set to v.
+// Set returns o with the option called name set to v. Set checks nothing: when the effect is played, a value of a kind its meta does not take for that option, or an empty ramp, is ignored and the default kept, and a name its meta does not give is passed on as it is. Check a value against Meta.Default first to report a mistake.
 func (o Options) Set(name string, v Value) Options {
 	m := make(map[string]Value, len(o.Values)+1)
 	for k, x := range o.Values {
@@ -262,7 +266,7 @@ func (o *Options) Seed() float64 { return o.Num("seed") }
 // Palette returns the palette option.
 func (o *Options) Palette() []uint32 { return o.Ramp("palette") }
 
-// resolve returns an effect's options: its defaults with o on top. Any ramp of a different length than its default is resampled to the default's length, so effects can index steps by number whatever a caller passes.
+// resolve returns an effect's options: its defaults with o on top. A value for an option the meta names replaces the default only when it is of the default's kind, a number standing for a bool, or a color standing for a ramp (as a ramp of that one color); otherwise, and for an empty ramp, the default stays, so an effect never reads a zero where its meta promises a value. Any ramp of a different length than its default is resampled to the default's length, so effects can index steps by number whatever a caller passes. Values under names the meta does not give are kept as they are.
 func resolve(meta *Meta, o Options) *Options {
 	out := o
 	out.Values = make(map[string]Value, len(meta.Options)+len(o.Values))
@@ -270,8 +274,23 @@ func resolve(meta *Meta, o Options) *Options {
 		out.Values[d.Name] = d.Default
 	}
 	for k, v := range o.Values {
-		if d, ok := meta.Default(k); ok && d.kind == KindRamp && v.kind == KindRamp && len(v.colors) != len(d.colors) {
-			v = Value{kind: KindRamp, colors: Fit(v.colors, len(d.colors))}
+		if d, ok := meta.Default(k); ok {
+			switch {
+			case v.kind == d.kind:
+			case d.kind == KindBool && v.kind == KindNumber:
+			case d.kind == KindRamp && v.kind == KindColor:
+				v = Value{kind: KindRamp, colors: v.colors}
+			default:
+				continue
+			}
+			if d.kind == KindRamp {
+				if len(v.colors) == 0 {
+					continue
+				}
+				if len(v.colors) != len(d.colors) {
+					v = Value{kind: KindRamp, colors: Fit(v.colors, len(d.colors))}
+				}
+			}
 		}
 		out.Values[k] = v
 	}
@@ -387,7 +406,7 @@ type Player struct {
 	t, stopAt float64
 }
 
-// NewPlayer starts playing e with o.
+// NewPlayer starts playing e with o, over the defaults its meta gives: see Options.Set for which values it takes.
 func NewPlayer(e *Effect, o Options) *Player {
 	opts := resolve(&e.Meta, o)
 	return &Player{Effect: e, Options: opts, inst: e.New(opts), stopAt: math.Inf(1)}
@@ -396,8 +415,11 @@ func NewPlayer(e *Effect, o Options) *Player {
 // T returns how long it has played, in seconds.
 func (f *Player) T() float64 { return f.t }
 
-// Update moves it on by dt seconds. Simulations step at 120 Hz or finer whatever the caller's frame rate, so they look the same everywhere.
+// Update moves it on by dt seconds. Simulations step at 120 Hz or finer whatever the caller's frame rate, so they look the same everywhere. A negative, NaN or infinite dt does nothing. Every 1/120 s of dt costs a step, so a caller resuming after a long pause should clamp dt first.
 func (f *Player) Update(dt float64) {
+	if !(dt >= 0) || math.IsInf(dt, 1) {
+		return
+	}
 	f.t += dt
 	n := int(math.Max(1, math.Ceil(dt*120-1e-9)))
 	for range n {

@@ -12,11 +12,13 @@ package pixelfxtest
 import (
 	"bytes"
 	"fmt"
+	"hash/fnv"
 	"image"
 	"image/png"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -222,21 +224,78 @@ func dump(t *testing.T, e *pixelfx.Effect, f Frame) {
 	}
 }
 
-// CheckDeterministic renders e twice with the same options, and acted out twice when it has an act, and fails t unless every frame is the same to the byte.
+// CheckDeterministic renders every frame of e twice for each of its cases and fails t unless the two passes are the same to the byte. The cases are its default options, Flip, and, when its meta has them, a seed other than the default's and its palette reversed; an effect a character acts out is also performed twice with the default options and with that seed and palette.
 func CheckDeterministic(t *testing.T, e *pixelfx.Effect) {
 	t.Helper()
-	a, b := Render(e), Render(e)
-	if len(a) != len(b) {
-		t.Fatalf("%s: %d frames, then %d", e.ID, len(a), len(b))
+	varied := variedOptions(e)
+	cases := []struct {
+		name string
+		o    pixelfx.Options
+	}{{"default", pixelfx.Options{}}, {"flip", pixelfx.Options{Flip: true}}}
+	if varied.Values != nil {
+		cases = append(cases, struct {
+			name string
+			o    pixelfx.Options
+		}{"varied", varied})
 	}
-	for i := range a {
-		if a[i].Name() != b[i].Name() || !bytes.Equal(a[i].Pix, b[i].Pix) {
-			t.Errorf("%s: %s differs between two renders with the same options", e.ID, a[i].Name())
+	for _, c := range cases {
+		a, b := hashFrames(e, c.o, false), hashFrames(e, c.o, false)
+		compareHashes(t, e, c.name, a, b)
+		if e.Act != nil && !c.o.Flip {
+			a, b := hashFrames(e, c.o, true), hashFrames(e, c.o, true)
+			compareHashes(t, e, c.name+" acted", a, b)
 		}
 	}
 }
 
-// BenchmarkFrames measures playing e at its frame rate: each iteration updates it by one frame and draws the frame, so the allocations reported are per frame. It starts over when a one-shot ends.
+// variedOptions returns options that move e off its defaults: its seed plus 7 and its palette reversed, as far as its meta has them. Values is nil when it has neither.
+func variedOptions(e *pixelfx.Effect) pixelfx.Options {
+	var o pixelfx.Options
+	if d, ok := e.Meta.Default("seed"); ok && d.Kind() == pixelfx.KindNumber {
+		if x, err := strconv.ParseFloat(d.String(), 64); err == nil {
+			o = o.Set("seed", pixelfx.Num(x+7))
+		}
+	}
+	if d, ok := e.Meta.Default("palette"); ok && d.Kind() == pixelfx.KindRamp {
+		colors := strings.Split(d.String(), ",")
+		slices.Reverse(colors)
+		if v, err := pixelfx.ParseValue(pixelfx.KindRamp, strings.Join(colors, ",")); err == nil {
+			o = o.Set("palette", v)
+		}
+	}
+	return o
+}
+
+// hashFrames renders every frame of e with o, acted out when acted, and returns each frame's hash.
+func hashFrames(e *pixelfx.Effect, o pixelfx.Options, acted bool) []uint64 {
+	var out []uint64
+	add := func(f *pixelfx.Frame) {
+		h := fnv.New64a()
+		h.Write(pixelfx.Composite(f, nil, nil, 1))
+		out = append(out, h.Sum64())
+	}
+	if acted {
+		pixelfx.EachActFrame(e, o, ActFPS, func(_ int, _, _, _ float64, f *pixelfx.Frame) { add(f) })
+	} else {
+		pixelfx.EachFrame(e, o, 0, func(_ int, f *pixelfx.Frame) { add(f) })
+	}
+	return out
+}
+
+func compareHashes(t *testing.T, e *pixelfx.Effect, name string, a, b []uint64) {
+	t.Helper()
+	if len(a) != len(b) {
+		t.Errorf("%s %s: %d frames, then %d", e.ID, name, len(a), len(b))
+		return
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			t.Errorf("%s %s: frame %d differs between two renders with the same options", e.ID, name, i)
+		}
+	}
+}
+
+// BenchmarkFrames measures playing e at its frame rate: each iteration updates it by one frame and draws the frame, so the allocations reported are per frame. It starts over when a one-shot ends, with the timer stopped, so starting a player is not counted.
 func BenchmarkFrames(b *testing.B, e *pixelfx.Effect) {
 	m := &e.Meta
 	frame := pixelfx.NewFrame(m.Size[0], m.Size[1], 0, 0)
@@ -247,7 +306,9 @@ func BenchmarkFrames(b *testing.B, e *pixelfx.Effect) {
 	b.ResetTimer()
 	for b.Loop() {
 		if p.Done() {
+			b.StopTimer()
 			p = pixelfx.NewPlayer(e, o)
+			b.StartTimer()
 		}
 		p.Update(dt)
 		frame.Clear()
@@ -255,7 +316,7 @@ func BenchmarkFrames(b *testing.B, e *pixelfx.Effect) {
 	}
 }
 
-// BenchmarkActFrames measures performing e at ActFPS with the stock character and its target: each iteration updates the performance by one frame and draws it, so the allocations reported are per frame. It starts over when the performance ends.
+// BenchmarkActFrames measures performing e at ActFPS with the stock character and its target: each iteration updates the performance by one frame and draws it, so the allocations reported are per frame. It starts over when the performance ends, with the timer stopped, so starting a performance is not counted.
 func BenchmarkActFrames(b *testing.B, e *pixelfx.Effect) {
 	rig := pixelfx.NewRig()
 	w, h, x, y := pixelfx.ActFrameSize(e, rig)
@@ -266,7 +327,9 @@ func BenchmarkActFrames(b *testing.B, e *pixelfx.Effect) {
 	b.ResetTimer()
 	for b.Loop() {
 		if pf.Done() {
+			b.StopTimer()
 			pf = pixelfx.Perform(e, o, rig)
+			b.StartTimer()
 		}
 		pf.Update(1.0 / ActFPS)
 		frame.Clear()

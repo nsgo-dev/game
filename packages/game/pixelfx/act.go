@@ -661,8 +661,11 @@ func (pf *Performance) poseNow() Pose {
 	return q
 }
 
-// Update moves the performance on by dt seconds.
+// Update moves the performance on by dt seconds; a negative, NaN or infinite dt does nothing.
 func (pf *Performance) Update(dt float64) {
+	if !(dt >= 0) || math.IsInf(dt, 1) {
+		return
+	}
 	if pf.shakeT > 0 {
 		pf.shakeT -= dt
 	}

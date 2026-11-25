@@ -45,7 +45,7 @@ func DrawScaled(d *core.Drawing, src core.ImageSource, x, y, scale float32) {
 	d.Save().SetImageSmoothing(false).DrawImageIn(src, x, y, w, h).Restore()
 }
 
-// View is a canvas that draws an effect's frames scaled up without smoothing: Source returns the picture to show (an Image's, usually), read again whenever a signal it reads changes, and Scale is how many points each pixel takes (1 when 0).
+// View is a canvas that draws an effect's frames scaled up without smoothing: Source returns the picture to show (an Image's, usually), read again whenever a signal it reads changes, and Scale is how many points each pixel takes (1 when 0): any scale works, and a whole number keeps every pixel the same size.
 type View struct {
 	Source func() core.ImageSource
 	Scale  float32

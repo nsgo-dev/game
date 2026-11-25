@@ -25,23 +25,30 @@ func Green(c uint32) uint32 { return (c >> 8) & 255 }
 // Blue returns c's blue channel.
 func Blue(c uint32) uint32 { return (c >> 16) & 255 }
 
-// ParseHex reads "#rgb", "#rrggbb" or "#rrggbbaa" (whose alpha it ignores) as an opaque color.
+// ParseHex reads "#rgb", "#rrggbb" or "#rrggbbaa" as an opaque color: the alpha of "#rrggbbaa" must be hex digits but is ignored, since every color here is opaque.
 func ParseHex(h string) (uint32, error) {
-	s := strings.TrimPrefix(h, "#")
+	bad := fmt.Errorf("color %q is not #rgb, #rrggbb or #rrggbbaa (alpha ignored)", h)
+	s, ok := strings.CutPrefix(h, "#")
+	if !ok {
+		return 0, bad
+	}
 	if len(s) == 3 {
 		s = string([]byte{s[0], s[0], s[1], s[1], s[2], s[2]})
 	}
 	if len(s) != 6 && len(s) != 8 {
-		return 0, fmt.Errorf("color %q is not #rgb, #rrggbb or #rrggbbaa", h)
+		return 0, bad
 	}
-	v, err := strconv.ParseUint(s[:6], 16, 32)
+	v, err := strconv.ParseUint(s, 16, 32)
 	if err != nil {
-		return 0, fmt.Errorf("color %q is not #rgb, #rrggbb or #rrggbbaa", h)
+		return 0, bad
+	}
+	if len(s) == 8 {
+		v >>= 8
 	}
 	return RGB(float64(v>>16&255), float64(v>>8&255), float64(v&255)), nil
 }
 
-// Hex reads "#rgb" or "#rrggbb" as an opaque color, as ParseHex does, and panics on anything else: use it for colors written in code.
+// Hex reads a color as ParseHex does ("#rgb", "#rrggbb", or "#rrggbbaa" with its alpha ignored) and panics on anything else: use it for colors written in code.
 func Hex(h string) uint32 {
 	c, err := ParseHex(h)
 	if err != nil {
@@ -81,10 +88,13 @@ func Ramp(list ...string) []uint32 {
 	return out
 }
 
-// Fit resamples ramp r to exactly n steps, keeping its ends (the darkest and brightest stay put), so an effect can index steps by number whatever length of palette a caller passes. It returns r itself when it already has n steps.
+// Fit resamples ramp r to exactly n steps, keeping its ends (the darkest and brightest stay put), so an effect can index steps by number whatever length of palette a caller passes. It returns r itself when it already has n steps, and nil when r is empty, since there is nothing to resample.
 func Fit(r []uint32, n int) []uint32 {
 	if len(r) == n {
 		return r
+	}
+	if len(r) == 0 {
+		return nil
 	}
 	out := make([]uint32, n)
 	d := float64(max(1, n-1))
