@@ -612,6 +612,7 @@ func (e *Editor) afterMutate() {
 func (e *Editor) Rebuild() {
 	defer e.refreshClipPreview()
 	defer e.refreshStatesPreview()
+	e.syncRemoteDocObjectIDs()
 	if e.drag3D.kind != drag3DGizmo {
 		e.s3d.stale = true
 	}

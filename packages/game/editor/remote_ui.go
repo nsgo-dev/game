@@ -1,7 +1,6 @@
 package editor
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -15,6 +14,18 @@ import (
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
 )
+
+func newRemoteSnapMemo(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) (*core.Memo[uint64], *core.Memo[*RemoteSnapshot]) {
+	tick := core.NewMemo(cx, func() uint64 {
+		_ = rev.Get()
+		return ed.remoteSeq()
+	})
+	snap := core.NewMemo(cx, func() *RemoteSnapshot {
+		_ = tick.Get()
+		return ed.remoteSnapshotShared()
+	})
+	return tick, snap
+}
 
 type remoteTreeNodeKind int
 
@@ -35,10 +46,11 @@ type remoteTreeKey struct {
 // It provides the live/paused status pill, Pause/Resume, Step 1, Step N, Time Scale segmented controls, Refresh, and Disconnect.
 func remotePlayBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	colors := ui.ColorsOf(cx)
+	remoteTick, snapMemo := newRemoteSnapMemo(cx, ed, rev)
 	return core.Show{
 		When: func() bool {
-			_ = rev.Get()
-			return ed.RemoteConnected() || ed.RemoteConnecting()
+			snap := snapMemo.Get()
+			return snap.Connected || snap.Connecting
 		},
 		Then: func(cx *core.Scope) core.Node {
 			scaleBtn := func(scale float64, label string) core.Node {
@@ -48,18 +60,18 @@ func remotePlayBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 					Text:   label,
 					Label:  fmt.Sprintf("Set remote time scale to %s", label),
 					Disabled: func() bool {
-						_ = rev.Get()
-						snap := ed.RemoteSnapshot()
+						snap := snapMemo.Get()
 						return !snap.Connected || snap.Loop == nil
 					},
 					On: func() bool {
-						_ = rev.Get()
-						snap := ed.RemoteSnapshot()
+						snap := snapMemo.Get()
 						return snap.Loop != nil && math.Abs(snap.Loop.TimeScale-scale) < 1e-6
 					},
 					OnChange: func(on bool) {
 						if on {
-							ed.report(ed.RemoteSetTimeScale(scale))
+							ed.dispatchRemoteAction(cx, func() error {
+								return ed.RemoteSetTimeScale(scale)
+							})
 						}
 					},
 				}
@@ -77,8 +89,7 @@ func remotePlayBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 					Borders:        core.Edges{Bottom: 1},
 				},
 				StyleFunc: func() core.Style {
-					_ = rev.Get()
-					snap := ed.RemoteSnapshot()
+					snap := snapMemo.Get()
 					if snap.Loop != nil && snap.Loop.Paused {
 						return core.Style{
 							Background:  ui.Alpha(colors.Warn(), 0.08),
@@ -105,8 +116,7 @@ func remotePlayBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 									Borders:      core.Edges{Top: 1, Right: 1, Bottom: 1, Left: 1},
 								},
 								StyleFunc: func() core.Style {
-									_ = rev.Get()
-									snap := ed.RemoteSnapshot()
+									snap := snapMemo.Get()
 									if snap.Loop != nil && snap.Loop.Paused {
 										return core.Style{
 											Background:  ui.Alpha(colors.Warn(), 0.14),
@@ -122,8 +132,7 @@ func remotePlayBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 									core.View{
 										Style: core.Style{Width: core.Pt(6), Height: core.Pt(6), CornerRadius: 3},
 										StyleFunc: func() core.Style {
-											_ = rev.Get()
-											snap := ed.RemoteSnapshot()
+											snap := snapMemo.Get()
 											if snap.Loop != nil && snap.Loop.Paused {
 												return core.Style{Background: colors.Warn()}
 											}
@@ -133,8 +142,7 @@ func remotePlayBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 									core.Text{
 										TestID: "remote-status-pill-text",
 										ContentFunc: func() string {
-											_ = rev.Get()
-											snap := ed.RemoteSnapshot()
+											snap := snapMemo.Get()
 											if snap.Connecting && !snap.Connected {
 												return "Connecting…"
 											}
@@ -161,16 +169,14 @@ func remotePlayBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 							ui.Button{
 								TestID: "remote-pause-resume",
 								TextFunc: func() string {
-									_ = rev.Get()
-									snap := ed.RemoteSnapshot()
+									snap := snapMemo.Get()
 									if snap.Loop != nil && snap.Loop.Paused {
 										return "Resume"
 									}
 									return "Pause"
 								},
 								LabelFunc: func() string {
-									_ = rev.Get()
-									snap := ed.RemoteSnapshot()
+									snap := snapMemo.Get()
 									if snap.Loop != nil && snap.Loop.Paused {
 										return "Resume running game (" + cx.KeyLabel("mod+shift+p") + ")"
 									}
@@ -179,17 +185,18 @@ func remotePlayBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 								Size:    ui.SizeSmall,
 								Variant: ui.ButtonSecondary,
 								Disabled: func() bool {
-									_ = rev.Get()
-									snap := ed.RemoteSnapshot()
+									snap := snapMemo.Get()
 									return !snap.Connected || snap.Loop == nil
 								},
 								OnPress: func() {
-									snap := ed.RemoteSnapshot()
-									if snap.Loop != nil && snap.Loop.Paused {
-										ed.report(ed.RemoteResume())
-									} else {
-										ed.report(ed.RemotePause())
-									}
+									snap := ed.remoteSnapshotShared()
+									paused := snap.Loop != nil && snap.Loop.Paused
+									ed.dispatchRemoteAction(cx, func() error {
+										if paused {
+											return ed.RemoteResume()
+										}
+										return ed.RemotePause()
+									})
 								},
 							},
 							ui.Button{
@@ -199,13 +206,14 @@ func remotePlayBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 								Size:    ui.SizeSmall,
 								Variant: ui.ButtonSecondary,
 								Disabled: func() bool {
-									_ = rev.Get()
-									snap := ed.RemoteSnapshot()
+									snap := snapMemo.Get()
 									return !snap.Connected || snap.Loop == nil
 								},
 								OnPress: func() {
-									_, err := ed.RemoteStep(1)
-									ed.report(err)
+									ed.dispatchRemoteAction(cx, func() error {
+										_, err := ed.RemoteStep(1)
+										return err
+									})
 								},
 							},
 							ui.NumberInput{
@@ -216,12 +224,11 @@ func remotePlayBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 								Step:   1,
 								Style:  core.Style{Width: core.Pt(86)},
 								Disabled: func() bool {
-									_ = rev.Get()
-									snap := ed.RemoteSnapshot()
+									snap := snapMemo.Get()
 									return !snap.Connected || snap.Loop == nil
 								},
 								Value: func() float64 {
-									_ = rev.Get()
+									_ = remoteTick.Get()
 									return float64(ed.remoteStepCount())
 								},
 								OnChange: func(v float64) {
@@ -235,13 +242,15 @@ func remotePlayBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 								Size:    ui.SizeSmall,
 								Variant: ui.ButtonSecondary,
 								Disabled: func() bool {
-									_ = rev.Get()
-									snap := ed.RemoteSnapshot()
+									snap := snapMemo.Get()
 									return !snap.Connected || snap.Loop == nil
 								},
 								OnPress: func() {
-									_, err := ed.RemoteStep(ed.remoteStepCount())
-									ed.report(err)
+									n := ed.remoteStepCount()
+									ed.dispatchRemoteAction(cx, func() error {
+										_, err := ed.RemoteStep(n)
+										return err
+									})
 								},
 							},
 							ui.ToggleGroup{
@@ -266,11 +275,12 @@ func remotePlayBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 								Size:    ui.SizeSmall,
 								Variant: ui.ButtonGhost,
 								Disabled: func() bool {
-									_ = rev.Get()
-									return !ed.RemoteConnected()
+									return !snapMemo.Get().Connected
 								},
 								OnPress: func() {
-									ed.report(ed.RefreshRemote())
+									ed.dispatchRemoteAction(cx, func() error {
+										return ed.RefreshRemote()
+									})
 								},
 							},
 							ui.Button{
@@ -290,6 +300,102 @@ func remotePlayBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 	}
 }
 
+type remoteTreeIndex struct {
+	snap             *RemoteSnapshot
+	byLayer          map[string][]gamemcp.EntitySummary
+	spawned          []gamemcp.EntitySummary
+	childrenByParent map[string][]gamemcp.EntitySummary
+	byRef            map[string]gamemcp.EntitySummary
+	layerByName      map[string]gamemcp.LayerInfo
+	takenByLayer     map[string][]RemoteTakenEntity
+	takenByID        map[string]RemoteTakenEntity
+	entityLayer      map[string]string
+	layerOrder       []string
+}
+
+func buildRemoteTreeIndex(snap *RemoteSnapshot, docIDs map[string]struct{}) *remoteTreeIndex {
+	idx := &remoteTreeIndex{
+		snap:             snap,
+		byLayer:          make(map[string][]gamemcp.EntitySummary),
+		childrenByParent: make(map[string][]gamemcp.EntitySummary),
+		byRef:            make(map[string]gamemcp.EntitySummary, len(snap.Entities)),
+		layerByName:      make(map[string]gamemcp.LayerInfo, len(snap.Layers)),
+		takenByLayer:     make(map[string][]RemoteTakenEntity),
+		takenByID:        make(map[string]RemoteTakenEntity, len(snap.Taken)),
+		entityLayer:      make(map[string]string, len(snap.Entities)),
+	}
+	if !snap.Connected {
+		return idx
+	}
+	for _, ent := range snap.Entities {
+		idx.byRef[ent.Ref] = ent
+	}
+	seenLayer := make(map[string]bool, len(snap.Layers))
+	for _, l := range snap.Layers {
+		if l.Name != "" {
+			idx.layerByName[l.Name] = l
+			if !seenLayer[l.Name] {
+				seenLayer[l.Name] = true
+				idx.layerOrder = append(idx.layerOrder, l.Name)
+			}
+		}
+	}
+	for _, ent := range snap.Entities {
+		if ent.Parent != "" {
+			if _, ok := idx.byRef[ent.Parent]; ok {
+				idx.childrenByParent[ent.Parent] = append(idx.childrenByParent[ent.Parent], ent)
+				continue
+			}
+		}
+		_, inDoc := docIDs[ent.Name]
+		isSceneEntity := ent.Layer != "" || slices.Contains(ent.Components, "object_ref") || inDoc
+		if !isSceneEntity && len(snap.Layers) > 0 {
+			idx.spawned = append(idx.spawned, ent)
+			idx.entityLayer[ent.Ref] = ""
+			continue
+		}
+		layerName := ent.Layer
+		if layerName == "" {
+			layerName = "world"
+		}
+		if !seenLayer[layerName] {
+			seenLayer[layerName] = true
+			idx.layerOrder = append(idx.layerOrder, layerName)
+		}
+		idx.byLayer[layerName] = append(idx.byLayer[layerName], ent)
+		idx.entityLayer[ent.Ref] = layerName
+	}
+	// Propagate root ancestor layer down to child entities so tree key lookup is O(1).
+	var assignChildLayers func(parentRef, layerName string)
+	assignChildLayers = func(parentRef, layerName string) {
+		for _, child := range idx.childrenByParent[parentRef] {
+			idx.entityLayer[child.Ref] = layerName
+			assignChildLayers(child.Ref, layerName)
+		}
+	}
+	for layerName, roots := range idx.byLayer {
+		for _, ent := range roots {
+			assignChildLayers(ent.Ref, layerName)
+		}
+	}
+	for _, ent := range idx.spawned {
+		assignChildLayers(ent.Ref, "")
+	}
+	for _, t := range snap.Taken {
+		idx.takenByID[t.ObjectID] = t
+		layerName := t.Layer
+		if layerName == "" {
+			layerName = "world"
+		}
+		if !seenLayer[layerName] {
+			seenLayer[layerName] = true
+			idx.layerOrder = append(idx.layerOrder, layerName)
+		}
+		idx.takenByLayer[layerName] = append(idx.takenByLayer[layerName], t)
+	}
+	return idx
+}
+
 // remoteSceneTreeView renders the Remote tab beside the local Scene Tree:
 // active scenes, layers in draw order, live entity hierarchy (with Spawned at Runtime and Taken scene entities).
 func remoteSceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
@@ -297,6 +403,11 @@ func remoteSceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 	selection := ui.NewSelection(cx, false)
 	open := map[remoteTreeKey]bool{}
 	openRev := core.NewSignal(cx, 0)
+	_, snapMemo := newRemoteSnapMemo(cx, ed, rev)
+	treeIdx := core.NewMemo(cx, func() *remoteTreeIndex {
+		return buildRemoteTreeIndex(snapMemo.Get(), ed.remoteDocObjectIDs())
+	})
+	pendingSelectRef := ""
 
 	expanded := func(k remoteTreeKey) bool {
 		_ = openRev.Get()
@@ -314,104 +425,46 @@ func remoteSceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 		openRev.Set(openRev.GetUntracked() + 1)
 	}
 
-	classifyEntities := func(snap RemoteSnapshot) (byLayer map[string][]gamemcp.EntitySummary, spawned []gamemcp.EntitySummary, childrenByParent map[string][]gamemcp.EntitySummary, byRef map[string]gamemcp.EntitySummary, layerOrder []string) {
-		byLayer = make(map[string][]gamemcp.EntitySummary)
-		childrenByParent = make(map[string][]gamemcp.EntitySummary)
-		byRef = make(map[string]gamemcp.EntitySummary, len(snap.Entities))
-		for _, ent := range snap.Entities {
-			byRef[ent.Ref] = ent
-		}
-		seenLayer := make(map[string]bool)
-		for _, l := range snap.Layers {
-			if l.Name != "" && !seenLayer[l.Name] {
-				seenLayer[l.Name] = true
-				layerOrder = append(layerOrder, l.Name)
-			}
-		}
-		for _, ent := range snap.Entities {
-			if ent.Parent != "" {
-				if _, ok := byRef[ent.Parent]; ok {
-					childrenByParent[ent.Parent] = append(childrenByParent[ent.Parent], ent)
-					continue
-				}
-			}
-			isSceneEntity := ent.Layer != "" || slices.Contains(ent.Components, "object_ref") || ed.docHasObjectID(ent.Name)
-			if !isSceneEntity && len(snap.Layers) > 0 {
-				spawned = append(spawned, ent)
-				continue
-			}
-			layerName := ent.Layer
-			if layerName == "" {
-				layerName = "world"
-			}
-			if !seenLayer[layerName] {
-				seenLayer[layerName] = true
-				layerOrder = append(layerOrder, layerName)
-			}
-			byLayer[layerName] = append(byLayer[layerName], ent)
-		}
-		for _, t := range snap.Taken {
-			layerName := t.Layer
-			if layerName == "" {
-				layerName = "world"
-			}
-			if !seenLayer[layerName] {
-				seenLayer[layerName] = true
-				layerOrder = append(layerOrder, layerName)
-			}
-		}
-		return
-	}
-
 	roots := func() []any {
-		_ = rev.Get()
-		snap := ed.RemoteSnapshot()
-		if !snap.Connected {
+		idx := treeIdx.Get()
+		if !idx.snap.Connected {
 			return nil
 		}
-		_, spawned, _, _, layerOrder := classifyEntities(snap)
-		out := make([]any, 0, len(layerOrder)+1)
-		for _, name := range layerOrder {
+		out := make([]any, 0, len(idx.layerOrder)+1)
+		for _, name := range idx.layerOrder {
 			out = append(out, remoteTreeKey{kind: remoteNodeLayer, id: name, layer: name})
 		}
-		if len(spawned) > 0 {
+		if len(idx.spawned) > 0 {
 			out = append(out, remoteTreeKey{kind: remoteNodeSpawnedHeader, id: "__spawned__"})
 		}
 		return out
 	}
 
 	children := func(k remoteTreeKey) []any {
-		_ = rev.Get()
-		snap := ed.RemoteSnapshot()
-		if !snap.Connected {
+		idx := treeIdx.Get()
+		if !idx.snap.Connected {
 			return nil
 		}
-		byLayer, spawned, childrenByParent, _, _ := classifyEntities(snap)
 		switch k.kind {
 		case remoteNodeLayer:
-			ents := byLayer[k.layer]
-			var out []any
+			ents := idx.byLayer[k.layer]
+			taken := idx.takenByLayer[k.layer]
+			out := make([]any, 0, len(ents)+len(taken))
 			for _, ent := range ents {
 				out = append(out, remoteTreeKey{kind: remoteNodeEntity, id: ent.Ref, layer: k.layer})
 			}
-			for _, t := range snap.Taken {
-				tLayer := t.Layer
-				if tLayer == "" {
-					tLayer = "world"
-				}
-				if tLayer == k.layer {
-					out = append(out, remoteTreeKey{kind: remoteNodeTaken, id: t.ObjectID, layer: k.layer})
-				}
+			for _, t := range taken {
+				out = append(out, remoteTreeKey{kind: remoteNodeTaken, id: t.ObjectID, layer: k.layer})
 			}
 			return out
 		case remoteNodeSpawnedHeader:
-			out := make([]any, len(spawned))
-			for i, ent := range spawned {
+			out := make([]any, len(idx.spawned))
+			for i, ent := range idx.spawned {
 				out[i] = remoteTreeKey{kind: remoteNodeEntity, id: ent.Ref}
 			}
 			return out
 		case remoteNodeEntity:
-			kids := childrenByParent[k.id]
+			kids := idx.childrenByParent[k.id]
 			out := make([]any, len(kids))
 			for i, ent := range kids {
 				out[i] = remoteTreeKey{kind: remoteNodeEntity, id: ent.Ref, layer: k.layer}
@@ -422,16 +475,21 @@ func remoteSceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 		}
 	}
 
-	// Sync tree cursor -> Editor.SelectRemoteEntity.
+	// Sync tree cursor -> Editor.SelectRemoteEntity (dispatched off the UI goroutine).
 	cx.Effect(func() {
 		cur, _ := selection.Cursor().(remoteTreeKey)
 		cx.Untrack(func() {
 			if !ed.RemoteConnected() {
+				pendingSelectRef = ""
 				return
 			}
 			if cur.kind == remoteNodeEntity && cur.id != "" && selection.Has(cur) {
-				if ed.SelectedRemoteEntity() != cur.id {
-					ed.report(ed.SelectRemoteEntity(cur.id))
+				if ed.SelectedRemoteEntity() != cur.id && pendingSelectRef != cur.id {
+					targetRef := cur.id
+					pendingSelectRef = targetRef
+					ed.dispatchRemoteAction(cx, func() error {
+						return ed.SelectRemoteEntity(targetRef)
+					})
 				}
 			}
 		})
@@ -439,11 +497,20 @@ func remoteSceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 
 	// Sync Editor.SelectedRemoteEntity -> tree selection.
 	cx.Effect(func() {
-		_ = rev.Get()
+		idx := treeIdx.Get()
 		cx.Untrack(func() {
-			sel := ed.SelectedRemoteEntity()
+			sel := idx.snap.SelectedRef
 			cur, _ := selection.Cursor().(remoteTreeKey)
+			if !idx.snap.Connected {
+				pendingSelectRef = ""
+			}
+			if sel != "" && sel == pendingSelectRef {
+				pendingSelectRef = ""
+			}
 			if sel == "" {
+				if pendingSelectRef != "" && cur.kind == remoteNodeEntity && cur.id == pendingSelectRef && selection.Has(cur) {
+					return
+				}
 				if selection.Len() > 0 {
 					selection.Clear()
 				}
@@ -455,17 +522,7 @@ func remoteSceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 			if cur.kind == remoteNodeEntity && cur.id == sel && selection.Has(cur) {
 				return
 			}
-			snap := ed.RemoteSnapshot()
-			layerName := ""
-			for _, ent := range snap.Entities {
-				if ent.Ref == sel {
-					layerName = ent.Layer
-					if layerName == "" && (slices.Contains(ent.Components, "object_ref") || ed.docHasObjectID(ent.Name) || len(snap.Layers) == 0) {
-						layerName = "world"
-					}
-					break
-				}
-			}
+			layerName := idx.entityLayer[sel]
 			selection.Set(remoteTreeKey{kind: remoteNodeEntity, id: sel, layer: layerName})
 		})
 	})
@@ -485,15 +542,11 @@ func remoteSceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 						},
 						core.Text{
 							ContentFunc: func() string {
-								_ = rev.Get()
-								snap := ed.RemoteSnapshot()
-								for _, l := range snap.Layers {
-									if l.Name == k.layer {
-										if !l.Visible {
-											return l.Space + " · hidden"
-										}
-										return l.Space
+								if l, ok := treeIdx.Get().layerByName[k.layer]; ok {
+									if !l.Visible {
+										return l.Space + " · hidden"
 									}
+									return l.Space
 								}
 								return ""
 							},
@@ -518,12 +571,8 @@ func remoteSceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 						},
 						core.Text{
 							ContentFunc: func() string {
-								_ = rev.Get()
-								snap := ed.RemoteSnapshot()
-								for _, t := range snap.Taken {
-									if t.ObjectID == k.id {
-										return fmt.Sprintf("taken @%d", t.TakenAtStep)
-									}
+								if t, ok := treeIdx.Get().takenByID[k.id]; ok {
+									return fmt.Sprintf("taken @%d", t.TakenAtStep)
 								}
 								return "taken"
 							},
@@ -540,15 +589,11 @@ func remoteSceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 						core.Text{
 							TestID: "remote-entity-label-" + ref,
 							ContentFunc: func() string {
-								_ = rev.Get()
-								snap := ed.RemoteSnapshot()
-								for _, ent := range snap.Entities {
-									if ent.Ref == ref {
-										if ent.Name != "" {
-											return ent.Name
-										}
-										return ent.Ref
+								if ent, ok := treeIdx.Get().byRef[ref]; ok {
+									if ent.Name != "" {
+										return ent.Name
 									}
+									return ent.Ref
 								}
 								return ref
 							},
@@ -556,15 +601,11 @@ func remoteSceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 						},
 						core.Text{
 							ContentFunc: func() string {
-								_ = rev.Get()
-								snap := ed.RemoteSnapshot()
-								for _, ent := range snap.Entities {
-									if ent.Ref == ref {
-										if len(ent.Tags) > 0 {
-											return ent.Tags[0]
-										}
-										return ent.Ref
+								if ent, ok := treeIdx.Get().byRef[ref]; ok {
+									if len(ent.Tags) > 0 {
+										return ent.Tags[0]
 									}
+									return ent.Ref
 								}
 								return ""
 							},
@@ -582,8 +623,7 @@ func remoteSceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 		Children: []core.Node{
 			core.Show{
 				When: func() bool {
-					_ = rev.Get()
-					return !ed.RemoteConnected()
+					return !snapMemo.Get().Connected
 				},
 				Then: func(cx *core.Scope) core.Node {
 					return core.View{
@@ -592,8 +632,7 @@ func remoteSceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 						Children: []core.Node{
 							core.Text{
 								ContentFunc: func() string {
-									_ = rev.Get()
-									snap := ed.RemoteSnapshot()
+									snap := snapMemo.Get()
 									if snap.Connecting {
 										return "Connecting to running game over MCP…"
 									}
@@ -607,7 +646,7 @@ func remoteSceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 							ui.ToggleButton{
 								TestID: "remote-run-automation",
 								Text:   "Auto-connect on Run",
-								Label:  "Pass -automation to go tool game dev and connect automatically",
+								Label:  "Pass -automation to nsgo game dev and connect automatically",
 								Disabled: func() bool {
 									_ = rev.Get()
 									return ed.Project == nil || ed.GameRunning()
@@ -627,14 +666,10 @@ func remoteSceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 								Variant: ui.ButtonSecondary,
 								Disabled: func() bool {
 									_ = rev.Get()
-									return ed.Project == nil || ed.RemoteConnecting()
+									return ed.Project == nil || snapMemo.Get().Connecting
 								},
 								OnPress: func() {
-									go func() {
-										if err := ed.ConnectRemoteCommand(context.Background(), ""); err != nil {
-											ed.postRemoteStatus("Remote connect failed: " + err.Error())
-										}
-									}()
+									ed.startRemoteCommandConnect()
 								},
 							},
 						},
@@ -651,8 +686,7 @@ func remoteSceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 								Children: []core.Node{
 									core.Text{
 										ContentFunc: func() string {
-											_ = rev.Get()
-											snap := ed.RemoteSnapshot()
+											snap := snapMemo.Get()
 											if snap.ActiveScene != "" {
 												return fmt.Sprintf("SCENE · %s (%d)", snap.ActiveScene, len(snap.Scenes.Scenes))
 											}
@@ -661,8 +695,7 @@ func remoteSceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 										Style: core.Style{FontSize: 10, FontWeight: 700, Color: colors.Muted()},
 									},
 									core.Dynamic(func(cx *core.Scope) core.Node {
-										_ = rev.Get()
-										snap := ed.RemoteSnapshot()
+										snap := snapMemo.Get()
 										if len(snap.Scenes.Scenes) <= 1 {
 											return nil
 										}
@@ -677,12 +710,13 @@ func remoteSceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 												TestID: "remote-scene-btn-" + name,
 												Text:   label,
 												On: func() bool {
-													_ = rev.Get()
-													return ed.RemoteSnapshot().ActiveScene == name
+													return snapMemo.Get().ActiveScene == name
 												},
 												OnChange: func(on bool) {
 													if on {
-														ed.report(ed.SelectRemoteScene(name))
+														ed.dispatchRemoteAction(cx, func() error {
+															return ed.SelectRemoteScene(name)
+														})
 													}
 												},
 											})
@@ -695,13 +729,11 @@ func remoteSceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 							core.Text{
 								TestID: "remote-entities-header",
 								ContentFunc: func() string {
-									_ = rev.Get()
-									snap := ed.RemoteSnapshot()
-									_, spawned, _, _, _ := classifyEntities(snap)
-									if len(spawned) > 0 {
-										return fmt.Sprintf("LIVE ENTITIES · %d · %d spawned", len(snap.Entities), len(spawned))
+									idx := treeIdx.Get()
+									if len(idx.spawned) > 0 {
+										return fmt.Sprintf("LIVE ENTITIES · %d · %d spawned", len(idx.snap.Entities), len(idx.spawned))
 									}
-									return fmt.Sprintf("LIVE ENTITIES · %d", len(snap.Entities))
+									return fmt.Sprintf("LIVE ENTITIES · %d", len(idx.snap.Entities))
 								},
 								Style: core.Style{FontSize: 10, FontWeight: 700, Color: colors.Muted()},
 							},
@@ -749,12 +781,11 @@ func shouldShowRemoteInspector(ed *Editor) bool {
 	if ed.SceneTreeTab() != SceneTreeRemote {
 		return false
 	}
-	return ed.RemoteConnected() || ed.RemoteConnecting() || len(ed.RemoteLiveChanges()) > 0
+	return ed.RemoteConnected() || ed.RemoteConnecting() || ed.hasRemoteLiveChanges()
 }
 
 // remoteInspectorSchemaKey computes a stable structural signature for the Remote Inspector so editing values does not remount inputs and steal focus.
-func remoteInspectorSchemaKey(ed *Editor) string {
-	snap := ed.RemoteSnapshot()
+func remoteInspectorSchemaKey(ed *Editor, snap *RemoteSnapshot) string {
 	var b strings.Builder
 	b.WriteString("remote:")
 	if snap.Connected {
@@ -832,15 +863,49 @@ func isRemoteComponentReadOnly(name string) bool {
 	return name == "world_transform2d" || name == "object_ref"
 }
 
+type remoteInspectorData struct {
+	snap            *RemoteSnapshot
+	changesByKey    map[remoteChangeKey]RemoteLiveChange
+	inspectedFields map[string]map[string]any
+	tunablesByName  map[string]any
+}
+
 // remoteInspectorView renders the live Remote Inspector inside InspectorView:
 // selected live entity components (with game_component_set editing and "was X" indicators),
 // LIVE CHANGES tray (per-row revert, Keep in scene, Discard),
 // TUNABLES (game_tunable_set), and CONSOLE (game_console_exec).
 func remoteInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	colors := ui.ColorsOf(cx)
+	remoteTick, snapMemo := newRemoteSnapMemo(cx, ed, rev)
+	dataMemo := core.NewMemo(cx, func() *remoteInspectorData {
+		_ = remoteTick.Get()
+		snap := snapMemo.Get()
+		d := &remoteInspectorData{
+			snap:         snap,
+			changesByKey: ed.remoteLiveChangesByKey(),
+		}
+		if snap.Inspected != nil && len(snap.Inspected.Components) > 0 {
+			fields := make(map[string]map[string]any, len(snap.Inspected.Components))
+			for cn, raw := range snap.Inspected.Components {
+				var m map[string]any
+				if json.Unmarshal(raw, &m) == nil && m != nil {
+					fields[cn] = m
+				}
+			}
+			d.inspectedFields = fields
+		}
+		if len(snap.Tunables) > 0 {
+			tuns := make(map[string]any, len(snap.Tunables))
+			for _, t := range snap.Tunables {
+				tuns[t.Name] = t.Value
+			}
+			d.tunablesByName = tuns
+		}
+		return d
+	})
 	schema := core.NewMemo(cx, func() string {
-		_ = rev.Get()
-		return remoteInspectorSchemaKey(ed)
+		_ = remoteTick.Get()
+		return remoteInspectorSchemaKey(ed, snapMemo.Get())
 	})
 	consoleDraft := core.NewSignal(cx, "")
 
@@ -850,8 +915,10 @@ func remoteInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 			return
 		}
 		consoleDraft.Set("")
-		_, err := ed.RemoteExecConsole(cmd)
-		ed.report(err)
+		ed.dispatchRemoteAction(cx, func() error {
+			_, err := ed.RemoteExecConsole(cmd)
+			return err
+		})
 	}
 
 	return core.View{
@@ -860,13 +927,12 @@ func remoteInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 		Children: []core.Node{
 			core.Dynamic(func(cx *core.Scope) core.Node {
 				_ = schema.Get()
-				return remoteInspectorDynamicBody(cx, ed, rev)
+				return remoteInspectorDynamicBody(cx, ed, snapMemo, dataMemo)
 			}),
 			// Console section stays outside the dynamic schema block so typing never loses focus on refresh.
 			core.Show{
 				When: func() bool {
-					_ = rev.Get()
-					snap := ed.RemoteSnapshot()
+					snap := snapMemo.Get()
 					return snap.Connected && snap.HasConsole
 				},
 				Then: func(cx *core.Scope) core.Node {
@@ -928,7 +994,7 @@ func remoteInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 								},
 								Children: []core.Node{
 									core.Dynamic(func(cx *core.Scope) core.Node {
-										_ = rev.Get()
+										_ = remoteTick.Get()
 										hist := ed.RemoteConsoleHistory()
 										if len(hist) == 0 {
 											return core.Text{
@@ -972,9 +1038,14 @@ func remoteInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 	}
 }
 
-func remoteInspectorDynamicBody(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+func remoteInspectorDynamicBody(
+	cx *core.Scope,
+	ed *Editor,
+	snapMemo *core.Memo[*RemoteSnapshot],
+	dataMemo *core.Memo[*remoteInspectorData],
+) core.Node {
 	colors := ui.ColorsOf(cx)
-	snap := ed.RemoteSnapshot()
+	snap := ed.remoteSnapshotShared()
 
 	sectionHeader := func(title, tag string) core.Node {
 		children := []core.Node{
@@ -1011,7 +1082,9 @@ func remoteInspectorDynamicBody(cx *core.Scope, ed *Editor, rev *core.Signal[uin
 				title = ins.Ref
 			}
 			_, objectID := remoteEntityIdentity(ins, ins.Ref)
-			isSpawned := objectID == "" && !ed.docHasObjectID(ins.Name)
+			docIDs := ed.remoteDocObjectIDs()
+			_, inDoc := docIDs[ins.Name]
+			isSpawned := objectID == "" && !inDoc
 			badgeText := "live"
 			if isSpawned {
 				badgeText = "spawned"
@@ -1068,12 +1141,12 @@ func remoteInspectorDynamicBody(cx *core.Scope, ed *Editor, rev *core.Signal[uin
 					for _, fk := range sortedMapKeys(fieldMap) {
 						fieldKey := fk
 						sample := fieldMap[fieldKey]
-						nodes = append(nodes, remoteFieldRow(cx, ed, rev, ins.Ref, compName, fieldKey, sample, readOnlyComp))
+						nodes = append(nodes, remoteFieldRow(cx, ed, dataMemo, ins.Ref, compName, fieldKey, sample, readOnlyComp))
 					}
 				} else {
 					var scalar any
 					_ = json.Unmarshal(raw, &scalar)
-					nodes = append(nodes, remoteScalarComponentRow(cx, ed, rev, ins.Ref, compName, scalar, readOnlyComp))
+					nodes = append(nodes, remoteScalarComponentRow(cx, ed, snapMemo, ins.Ref, compName, scalar, readOnlyComp))
 				}
 			}
 
@@ -1087,11 +1160,11 @@ func remoteInspectorDynamicBody(cx *core.Scope, ed *Editor, rev *core.Signal[uin
 	}
 
 	// LIVE CHANGES tray (kept even after stopping/disconnecting so the author can Keep in scene or Discard).
-	nodes = append(nodes, remoteLiveChangesSection(cx, ed, rev))
+	nodes = append(nodes, remoteLiveChangesSection(cx, ed))
 
 	// TUNABLES section.
 	if snap.Connected && len(snap.Tunables) > 0 {
-		nodes = append(nodes, remoteTunablesSection(cx, ed, rev, snap.Tunables))
+		nodes = append(nodes, remoteTunablesSection(cx, ed, dataMemo, snap.Tunables))
 	}
 
 	return core.View{
@@ -1100,23 +1173,34 @@ func remoteInspectorDynamicBody(cx *core.Scope, ed *Editor, rev *core.Signal[uin
 	}
 }
 
-func remoteFieldRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], ref, compName, fieldKey string, sample any, readOnly bool) core.Node {
+func remoteFieldRow(
+	cx *core.Scope,
+	ed *Editor,
+	dataMemo *core.Memo[*remoteInspectorData],
+	ref, compName, fieldKey string,
+	sample any,
+	readOnly bool,
+) core.Node {
 	colors := ui.ColorsOf(cx)
 	testID := "remote-comp-" + compName + "-" + fieldKey
+	changeKey := remoteChangeKey{entityRef: ref, component: compName, field: fieldKey}
 
 	getVal := func() any {
-		_ = rev.Get()
-		snap := ed.RemoteSnapshot()
-		if snap.Inspected == nil || snap.Inspected.Ref != ref {
+		d := dataMemo.Get()
+		if d.snap.Inspected == nil || d.snap.Inspected.Ref != ref {
 			return sample
 		}
-		return extractComponentFieldValue(snap.Inspected, compName, fieldKey)
+		if d.inspectedFields != nil {
+			if m := d.inspectedFields[compName]; m != nil {
+				return m[fieldKey]
+			}
+		}
+		return nil
 	}
 
 	wasText := func() string {
-		_ = rev.Get()
-		for _, c := range ed.RemoteLiveChanges() {
-			if c.EntityRef == ref && c.Component == compName && c.Field == fieldKey {
+		if d := dataMemo.Get(); d.changesByKey != nil {
+			if c, ok := d.changesByKey[changeKey]; ok {
 				return "was " + formatRemoteValue(c.From)
 			}
 		}
@@ -1143,7 +1227,9 @@ func remoteFieldRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], ref, c
 					return b
 				},
 				OnChange: func(checked bool) {
-					ed.report(ed.SetRemoteComponentField(ref, compName, fieldKey, checked))
+					ed.dispatchRemoteAction(cx, func() error {
+						return ed.SetRemoteComponentField(ref, compName, fieldKey, checked)
+					})
 				},
 			}
 		case float64, int, int64:
@@ -1182,11 +1268,13 @@ func remoteFieldRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], ref, c
 					return f
 				},
 				OnChange: func(v float64) {
+					val := any(v)
 					if isIntField {
-						ed.report(ed.SetRemoteComponentField(ref, compName, fieldKey, int(math.Round(v))))
-						return
+						val = int(math.Round(v))
 					}
-					ed.report(ed.SetRemoteComponentField(ref, compName, fieldKey, v))
+					ed.dispatchRemoteAction(cx, func() error {
+						return ed.SetRemoteComponentField(ref, compName, fieldKey, val)
+					})
 				},
 			}
 		case string:
@@ -1200,7 +1288,9 @@ func remoteFieldRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], ref, c
 					return ""
 				},
 				OnChange: func(text string) {
-					ed.report(ed.SetRemoteComponentField(ref, compName, fieldKey, text))
+					ed.dispatchRemoteAction(cx, func() error {
+						return ed.SetRemoteComponentField(ref, compName, fieldKey, text)
+					})
 				},
 			}
 		default:
@@ -1238,12 +1328,11 @@ func remoteFieldRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], ref, c
 	}
 }
 
-func remoteScalarComponentRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], ref, compName string, sample any, readOnly bool) core.Node {
+func remoteScalarComponentRow(cx *core.Scope, ed *Editor, snapMemo *core.Memo[*RemoteSnapshot], ref, compName string, sample any, readOnly bool) core.Node {
 	colors := ui.ColorsOf(cx)
 	testID := "remote-comp-" + compName
 	getVal := func() any {
-		_ = rev.Get()
-		snap := ed.RemoteSnapshot()
+		snap := snapMemo.Get()
 		if snap.Inspected == nil || snap.Inspected.Ref != ref {
 			return sample
 		}
@@ -1265,7 +1354,9 @@ func remoteScalarComponentRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 			Label:   compName,
 			Checked: func() bool { b, _ := getVal().(bool); return b },
 			OnChange: func(checked bool) {
-				ed.report(ed.SetRemoteComponentValue(ref, compName, checked, true))
+				ed.dispatchRemoteAction(cx, func() error {
+					return ed.SetRemoteComponentValue(ref, compName, checked, true)
+				})
 			},
 		}
 	case float64, int, int64:
@@ -1275,7 +1366,9 @@ func remoteScalarComponentRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 			Step:   1,
 			Value:  func() float64 { f, _ := asFloat64(getVal()); return f },
 			OnChange: func(v float64) {
-				ed.report(ed.SetRemoteComponentValue(ref, compName, v, true))
+				ed.dispatchRemoteAction(cx, func() error {
+					return ed.SetRemoteComponentValue(ref, compName, v, true)
+				})
 			},
 		}
 	case string:
@@ -1284,7 +1377,9 @@ func remoteScalarComponentRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 			Label:  compName,
 			Value:  func() string { return fmt.Sprint(getVal()) },
 			OnChange: func(text string) {
-				ed.report(ed.SetRemoteComponentValue(ref, compName, text, true))
+				ed.dispatchRemoteAction(cx, func() error {
+					return ed.SetRemoteComponentValue(ref, compName, text, true)
+				})
 			},
 		}
 	default:
@@ -1296,7 +1391,7 @@ func remoteScalarComponentRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 	}
 }
 
-func remoteLiveChangesSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+func remoteLiveChangesSection(cx *core.Scope, ed *Editor) core.Node {
 	colors := ui.ColorsOf(cx)
 	changes := ed.RemoteLiveChanges()
 
@@ -1325,6 +1420,7 @@ func remoteLiveChangesSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 	} else {
 		for i, c := range changes {
 			idx := i
+			ref, comp, field := c.EntityRef, c.Component, c.Field
 			path := c.Component
 			if c.Field != "" {
 				path += "." + c.Field
@@ -1362,7 +1458,9 @@ func remoteLiveChangesSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 						Size:    ui.SizeSmall,
 						Variant: ui.ButtonGhost,
 						OnPress: func() {
-							ed.report(ed.RevertRemoteLiveChange(idx))
+							ed.dispatchRemoteAction(cx, func() error {
+								return ed.revertRemoteLiveChangeByKey(ref, comp, field)
+							})
 						},
 					},
 				},
@@ -1388,7 +1486,9 @@ func remoteLiveChangesSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 					Size:    ui.SizeSmall,
 					Variant: ui.ButtonOutline,
 					OnPress: func() {
-						ed.report(ed.DiscardRemoteLiveChanges())
+						ed.dispatchRemoteAction(cx, func() error {
+							return ed.DiscardRemoteLiveChanges()
+						})
 					},
 				},
 			},
@@ -1411,7 +1511,7 @@ func remoteLiveChangesSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 	}
 }
 
-func remoteTunablesSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], tunables []gamemcp.TunableResult) core.Node {
+func remoteTunablesSection(cx *core.Scope, ed *Editor, dataMemo *core.Memo[*remoteInspectorData], tunables []gamemcp.TunableResult) core.Node {
 	colors := ui.ColorsOf(cx)
 	rows := []core.Node{
 		core.Text{
@@ -1424,11 +1524,9 @@ func remoteTunablesSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64],
 		tun := t
 		testID := "remote-tunable-" + tun.Name
 		getVal := func() any {
-			_ = rev.Get()
-			snap := ed.RemoteSnapshot()
-			for _, cur := range snap.Tunables {
-				if cur.Name == tun.Name {
-					return cur.Value
+			if d := dataMemo.Get(); d.tunablesByName != nil {
+				if v, ok := d.tunablesByName[tun.Name]; ok {
+					return v
 				}
 			}
 			return tun.Value
@@ -1445,8 +1543,10 @@ func remoteTunablesSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64],
 					return b
 				},
 				OnChange: func(checked bool) {
-					_, err := ed.RemoteSetTunable(tun.Name, checked, false)
-					ed.report(err)
+					ed.dispatchRemoteAction(cx, func() error {
+						_, err := ed.RemoteSetTunable(tun.Name, checked, false)
+						return err
+					})
 				},
 			}
 		case "int":
@@ -1462,8 +1562,11 @@ func remoteTunablesSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64],
 					return f
 				},
 				OnChange: func(v float64) {
-					_, err := ed.RemoteSetTunable(tun.Name, int(math.Round(v)), true)
-					ed.report(err)
+					iv := int(math.Round(v))
+					ed.dispatchRemoteAction(cx, func() error {
+						_, err := ed.RemoteSetTunable(tun.Name, iv, true)
+						return err
+					})
 				},
 			}
 		case "float":
@@ -1480,8 +1583,10 @@ func remoteTunablesSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64],
 					return f
 				},
 				OnChange: func(v float64) {
-					_, err := ed.RemoteSetTunable(tun.Name, v, true)
-					ed.report(err)
+					ed.dispatchRemoteAction(cx, func() error {
+						_, err := ed.RemoteSetTunable(tun.Name, v, true)
+						return err
+					})
 				},
 			}
 		default:
@@ -1495,8 +1600,10 @@ func remoteTunablesSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64],
 					return ""
 				},
 				OnChange: func(text string) {
-					_, err := ed.RemoteSetTunable(tun.Name, text, false)
-					ed.report(err)
+					ed.dispatchRemoteAction(cx, func() error {
+						_, err := ed.RemoteSetTunable(tun.Name, text, false)
+						return err
+					})
 				},
 			}
 		}
@@ -1560,17 +1667,16 @@ func formatRemoteValue(v any) string {
 
 func remoteStatusView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	colors := ui.ColorsOf(cx)
+	_, snapMemo := newRemoteSnapMemo(cx, ed, rev)
 	return core.Show{
 		When: func() bool {
-			_ = rev.Get()
-			return ed.RemoteConnected()
+			return snapMemo.Get().Connected
 		},
 		Then: func(cx *core.Scope) core.Node {
 			return core.Text{
 				TestID: "status-remote",
 				ContentFunc: func() string {
-					_ = rev.Get()
-					snap := ed.RemoteSnapshot()
+					snap := snapMemo.Get()
 					var parts []string
 					if snap.Loop != nil {
 						if snap.Loop.Paused {

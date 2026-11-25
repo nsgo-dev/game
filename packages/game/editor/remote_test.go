@@ -221,6 +221,21 @@ func (g *fixtureRemoteGame) startInMemoryServer(t *testing.T) sdkmcp.Transport {
 	return clientTransport
 }
 
+func settleRemoteUntil(t *testing.T, app *nsgotest.App, desc string, pred func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		app.Settle()
+		if pred() {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", desc)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
 // #911 Acceptance 1 + 2 + Live Changes + Keep in scene / Undo + Tunables + Console:
 // Runs a fixture game with the MCP bridge attached, lists its scenes, layers, and
 // entities (including hierarchy and runtime-spawned entities) in the Remote tab,
@@ -292,51 +307,51 @@ func TestRemoteSceneTreeInspectorStepAndLiveChanges(t *testing.T) {
 		t.Fatalf("spawned dust row %s not visible in remote tree", dustRef)
 	}
 
-	// Select knight in the Remote tab UI.
+	// Select knight in the Remote tab UI (dispatched off the UI goroutine).
 	app.Press("id:remote-entity-label-" + knightRef)
-	app.Settle()
-	if ed.SelectedRemoteEntity() != knightRef {
-		t.Fatalf("SelectedRemoteEntity = %q, want %q", ed.SelectedRemoteEntity(), knightRef)
-	}
+	settleRemoteUntil(t, app, "select knight", func() bool {
+		return ed.SelectedRemoteEntity() == knightRef && app.Exists("id:remote-inspector-entity-name")
+	})
 	if got := app.Find("id:remote-inspector-entity-name").Text; got != "knight" {
 		t.Fatalf("remote inspector entity name = %q, want knight", got)
 	}
 
 	// Acceptance 2: Pause and Step N in the editor advance the game by exactly N fixed updates.
 	app.Press("id:remote-pause-resume")
-	app.Settle()
-	if got := ed.RemoteSnapshot().Loop; got == nil || !got.Paused {
-		t.Fatalf("expected paused loop after Pause press, got %+v", got)
-	}
+	settleRemoteUntil(t, app, "pause loop", func() bool {
+		got := ed.RemoteSnapshot().Loop
+		return got != nil && got.Paused
+	})
 
 	// Change motion.speed from 10 to 25 via the Remote Inspector control (game_component_set).
 	app.Clear("id:remote-comp-motion-speed")
 	app.Type("id:remote-comp-motion-speed", "25\n")
-	app.Settle()
+	settleRemoteUntil(t, app, "motion.speed = 25", func() bool {
+		fg.mu.Lock()
+		m, _ := entities.Get[remoteMotionComp](fg.world, fg.knight)
+		fg.mu.Unlock()
+		return m.Speed == 25
+	})
 
 	// Also change jump.jump_speed from 420 to 460 for the scene Keep test.
 	app.Clear("id:remote-comp-jump-jump_speed")
 	app.Type("id:remote-comp-jump-jump_speed", "460\n")
-	app.Settle()
-
-	// Verify live change was applied in the running game world immediately.
-	fg.mu.Lock()
-	gotMotion, _ := entities.Get[remoteMotionComp](fg.world, fg.knight)
-	gotJump, _ := entities.Get[remoteJumpComp](fg.world, fg.knight)
-	fg.mu.Unlock()
-	if gotMotion.Speed != 25 {
-		t.Fatalf("game motion.speed = %v, want 25", gotMotion.Speed)
-	}
-	if gotJump.JumpSpeed != 460 {
-		t.Fatalf("game jump.jump_speed = %v, want 460", gotJump.JumpSpeed)
-	}
+	settleRemoteUntil(t, app, "jump.jump_speed = 460", func() bool {
+		fg.mu.Lock()
+		j, _ := entities.Get[remoteJumpComp](fg.world, fg.knight)
+		fg.mu.Unlock()
+		return j.JumpSpeed == 460 && len(ed.RemoteLiveChanges()) == 2
+	})
 
 	// Step by N = 5 fixed updates using the Step N UI controls.
 	app.Clear("id:remote-step-count")
 	app.Type("id:remote-step-count", "5\n")
 	app.Settle()
 	app.Press("id:remote-step-n")
-	app.Settle()
+	settleRemoteUntil(t, app, "step 5 updates", func() bool {
+		got := ed.RemoteSnapshot().Loop
+		return got != nil && got.Steps == 5
+	})
 
 	fg.mu.Lock()
 	stepsAfter5 := fg.updateCount
@@ -357,52 +372,49 @@ func TestRemoteSceneTreeInspectorStepAndLiveChanges(t *testing.T) {
 
 	// Step 1 more via the `.` keyboard shortcut while paused -> exactly 6 updates total.
 	app.Key(".")
-	app.Settle()
+	settleRemoteUntil(t, app, "'.' step to 6", func() bool {
+		got := ed.RemoteSnapshot().Loop
+		return got != nil && got.Steps == 6
+	})
 	fg.mu.Lock()
 	stepsAfterDot := fg.updateCount
 	fg.mu.Unlock()
 	if stepsAfterDot != 6 {
 		t.Fatalf("game updateCount after '.' step = %d, want 6", stepsAfterDot)
 	}
-	if got := ed.RemoteSnapshot().Loop.Steps; got != 6 {
-		t.Fatalf("remote snapshot loop steps = %d, want 6", got)
-	}
 
 	// Time scale control via UI button.
 	app.Press("id:remote-timescale-0.5")
-	app.Settle()
-	fg.mu.Lock()
-	gotScale := fg.loop.EffectiveTimeScale()
-	fg.mu.Unlock()
-	if gotScale != 0.5 {
-		t.Fatalf("game loop TimeScale = %v, want 0.5", gotScale)
-	}
+	settleRemoteUntil(t, app, "time scale 0.5", func() bool {
+		fg.mu.Lock()
+		got := fg.loop.EffectiveTimeScale()
+		fg.mu.Unlock()
+		return got == 0.5
+	})
 
 	// Tunables: edit physics.gravity and player.god_mode live through UI controls.
 	app.Clear("id:remote-tunable-physics.gravity")
 	app.Type("id:remote-tunable-physics.gravity", "1600\n")
-	app.Settle()
 	app.Press("id:remote-tunable-player.god_mode")
-	app.Settle()
-	fg.mu.Lock()
-	gotGrav, gotGod := fg.gravity, fg.godMode
-	fg.mu.Unlock()
-	if gotGrav != 1600 || !gotGod {
-		t.Fatalf("tunables after UI edit: gravity=%v godMode=%v, want 1600, true", gotGrav, gotGod)
-	}
+	settleRemoteUntil(t, app, "tunables gravity=1600 god_mode=true", func() bool {
+		fg.mu.Lock()
+		g, god := fg.gravity, fg.godMode
+		fg.mu.Unlock()
+		return g == 1600 && god
+	})
 
 	// Console command execution via UI input + Run button.
 	app.Type("id:remote-console-input", "heal 25")
 	app.Press("id:remote-console-run")
-	app.Settle()
+	settleRemoteUntil(t, app, "console heal 25", func() bool {
+		hist := ed.RemoteConsoleHistory()
+		return len(hist) == 1 && hist[0].OK && strings.Contains(hist[0].Output, "healed +25")
+	})
 	fg.mu.Lock()
 	gotHealed := fg.healed
 	fg.mu.Unlock()
 	if gotHealed != 25 {
 		t.Fatalf("console heal result = %d, want 25", gotHealed)
-	}
-	if hist := ed.RemoteConsoleHistory(); len(hist) != 1 || !hist[0].OK || !strings.Contains(hist[0].Output, "healed +25") {
-		t.Fatalf("console history = %+v", hist)
 	}
 
 	// Destroy coin_01 in the game and refresh -> appears as a Taken entity in the Remote tree.
@@ -599,5 +611,214 @@ func TestRunGameWithAutomationConnectsOverPipeAndRevertsOrDiscardsLiveChanges(t 
 	}
 	if !fakeProc.Stopped() {
 		t.Fatal("expected fake game process stopped")
+	}
+}
+
+// Regression test for BLOCKER #1: background remotePollLoop must never read e.Doc
+// concurrently with UI-goroutine scene mutations (tested under -race).
+func TestRemotePollLoopConcurrentDocMutationRace(t *testing.T) {
+	fg, doc := newFixtureRemoteGame(t)
+	ed, err := editor.New(doc, testResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ed.RemoteRefreshInterval = 5 * time.Millisecond
+	t.Cleanup(func() { _ = ed.Close() })
+
+	if err := ed.ConnectRemote(context.Background(), fg.startInMemoryServer(t)); err != nil {
+		t.Fatalf("ConnectRemote: %v", err)
+	}
+
+	// Mutate ed.Doc aggressively on the caller goroutine while remotePollLoop ticks at 5ms.
+	for i := range 25 {
+		id := fmt.Sprintf("prop_%d", i)
+		if _, err := ed.PlaceObject("actors", sceneformat.ObjectDoc{ID: id, X: float32(i * 4), Y: 10}); err != nil {
+			t.Fatalf("PlaceObject(%s): %v", id, err)
+		}
+		if err := ed.MoveObject(id, float32(i*4+2), 20); err != nil {
+			t.Fatalf("MoveObject(%s): %v", id, err)
+		}
+		if i == 10 {
+			fg.mu.Lock()
+			fg.world.Destroy(fg.coin)
+			fg.mu.Unlock()
+		}
+		if err := ed.DeleteObject(id); err != nil {
+			t.Fatalf("DeleteObject(%s): %v", id, err)
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+
+	// Verify background polling still detected coin_01 as taken using the snapshotted docObjectIDs.
+	waitForCondition(t, 3*time.Second, "coin_01 taken detected during concurrent edits", func() bool {
+		for _, tk := range ed.RemoteSnapshot().Taken {
+			if tk.ObjectID == "coin_01" {
+				return true
+			}
+		}
+		return false
+	})
+}
+
+// Regression test for BLOCKER #2 + #3: DisconnectRemote cancels in-flight RPCs promptly
+// instead of hanging until remoteCallTimeout, and a stale RPC completing after reconnect
+// never clobbers the new session's snapshot.
+func TestRemoteDisconnectCancelsInFlightRPCAndGuardsStaleSession(t *testing.T) {
+	fg1, doc := newFixtureRemoteGame(t)
+	fg2, _ := newFixtureRemoteGame(t)
+
+	ed, err := editor.New(doc, testResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ed.RemoteRefreshInterval = 5 * time.Second
+	t.Cleanup(func() { _ = ed.Close() })
+
+	// Server 1 blocks on game_loop_pause once enabled, honoring ctx.Done() or release.
+	var blockMu sync.Mutex
+	blockPause := false
+	pauseEntered := make(chan struct{}, 2)
+	releasePause := make(chan struct{})
+
+	srv1 := editor.NewRemoteBridgeServer(fg1.bridge, func(fn func()) {
+		fg1.mu.Lock()
+		defer fg1.mu.Unlock()
+		fn()
+	})
+	// Override game_loop_pause with a controllable blocking tool.
+	srv1.AddTool(&sdkmcp.Tool{
+		Name:        gamemcp.ToolLoopPause,
+		Description: "blocking pause for test",
+		InputSchema: map[string]any{"type": "object"},
+	}, func(ctx context.Context, req *sdkmcp.CallToolRequest) (*sdkmcp.CallToolResult, error) {
+		blockMu.Lock()
+		shouldBlock := blockPause
+		blockMu.Unlock()
+		if shouldBlock {
+			select {
+			case pauseEntered <- struct{}{}:
+			default:
+			}
+			select {
+			case <-ctx.Done():
+				r := &sdkmcp.CallToolResult{}
+				r.SetError(ctx.Err())
+				return r, nil
+			case <-releasePause:
+			}
+		}
+		return &sdkmcp.CallToolResult{
+			Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: `{"paused":true,"steps":999,"time_scale":1}`}},
+		}, nil
+	})
+
+	c1, s1 := sdkmcp.NewInMemoryTransports()
+	srvCtx, srvCancel := context.WithCancel(context.Background())
+	srvDone := make(chan struct{})
+	go func() {
+		defer close(srvDone)
+		_ = srv1.Run(srvCtx, s1)
+	}()
+	t.Cleanup(func() {
+		srvCancel()
+		<-srvDone
+	})
+
+	if err := ed.ConnectRemote(context.Background(), c1); err != nil {
+		t.Fatalf("ConnectRemote(1): %v", err)
+	}
+
+	// Start a blocking RemotePause RPC, then immediately DisconnectRemote.
+	blockMu.Lock()
+	blockPause = true
+	blockMu.Unlock()
+
+	rpcErrCh := make(chan error, 1)
+	go func() {
+		rpcErrCh <- ed.RemotePause()
+	}()
+	select {
+	case <-pauseEntered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for RemotePause to reach server")
+	}
+
+	start := time.Now()
+	_ = ed.DisconnectRemote()
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("DisconnectRemote took %v, expected prompt cancellation", elapsed)
+	}
+	select {
+	case err := <-rpcErrCh:
+		if err == nil {
+			t.Fatal("expected cancelled/not-connected error from in-flight RemotePause")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("in-flight RemotePause did not abort after DisconnectRemote")
+	}
+	close(releasePause)
+
+	// Reconnect to a fresh session (fg2) and verify fg1's steps=999 did NOT clobber fg2's snapshot.
+	if err := ed.ConnectRemote(context.Background(), fg2.startInMemoryServer(t)); err != nil {
+		t.Fatalf("ConnectRemote(2): %v", err)
+	}
+	if snap := ed.RemoteSnapshot(); snap.Loop == nil || snap.Loop.Paused || snap.Loop.Steps != 0 {
+		t.Fatalf("fresh session snapshot clobbered: loop=%+v", snap.Loop)
+	}
+}
+
+// Regression test for BLOCKER #2: KeepRemoteLiveChangesInScene removes applied entries
+// by (EntityRef, Component, Field) key instead of stale slice indices, preserving
+// concurrent additions or newer edits made while applying the history group.
+func TestKeepRemoteLiveChangesInSceneKeyMatching(t *testing.T) {
+	fg, doc := newFixtureRemoteGame(t)
+	ed, err := editor.New(doc, testResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ed.RemoteRefreshInterval = 5 * time.Second
+	t.Cleanup(func() { _ = ed.Close() })
+
+	if err := ed.ConnectRemote(context.Background(), fg.startInMemoryServer(t)); err != nil {
+		t.Fatalf("ConnectRemote: %v", err)
+	}
+
+	knightRef := gamemcp.FormatEntityRef(fg.knight)
+	dustRef := gamemcp.FormatEntityRef(fg.spawnedDust)
+
+	// Record a runtime-spawned entity change (index 0, not in scene) and a scene-backed change (index 1).
+	if err := ed.SetRemoteComponentField(dustRef, "transform2d", "x", 333.0); err != nil {
+		t.Fatalf("SetRemoteComponentField dust: %v", err)
+	}
+	if err := ed.SetRemoteComponentField(knightRef, "jump", "jump_speed", 480.0); err != nil {
+		t.Fatalf("SetRemoteComponentField knight jump_speed: %v", err)
+	}
+
+	// While KeepRemoteLiveChangesInScene runs History.Group, shift indices in liveChanges
+	// (reverting index 0 moves jump_speed from index 1 -> 0, and adding motion.speed puts it at index 1).
+	// Index-based deletion (appliedSet[1]) would wrongly delete motion.speed and leave jump_speed!
+	injected := false
+	unsub := ed.Subscribe(func() {
+		if injected {
+			return
+		}
+		injected = true
+		_ = ed.RevertRemoteLiveChange(0)
+		_ = ed.SetRemoteComponentField(knightRef, "motion", "speed", 99.0)
+	})
+	defer unsub()
+
+	kept, err := ed.KeepRemoteLiveChangesInScene()
+	if err != nil {
+		t.Fatalf("KeepRemoteLiveChangesInScene: %v", err)
+	}
+	if kept != 1 {
+		t.Fatalf("kept = %d, want 1", kept)
+	}
+
+	// Only the newly added motion.speed change must remain; jump.jump_speed must be removed.
+	remaining := ed.RemoteLiveChanges()
+	if len(remaining) != 1 || remaining[0].Component != "motion" || remaining[0].Field != "speed" {
+		t.Fatalf("remaining live changes = %+v, want only [knight motion.speed]", remaining)
 	}
 }
