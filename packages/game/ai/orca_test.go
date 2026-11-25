@@ -686,6 +686,69 @@ func TestORCAEdgeCases(t *testing.T) {
 	if math.IsNaN(float64(vPost.X)) || math.IsNaN(float64(vPost.Y)) {
 		t.Fatalf("degenerate obstacle produced NaN: %v", vPost)
 	}
+
+	// Non-finite Priority (+Inf, -Inf, NaN) is treated identically to Priority 0.
+	basePair := []ai.ORCAAgent{
+		{ID: 1, Pos: math2d.V2(-1.5, 0), Vel: math2d.V2(3, 0), PrefVel: math2d.V2(3, 0), Radius: 0.5, MaxSpeed: 4, Priority: 0},
+		{ID: 2, Pos: math2d.V2(1.5, 0), Vel: math2d.V2(-3, 0), PrefVel: math2d.V2(-3, 0), Radius: 0.5, MaxSpeed: 4, Priority: 1},
+	}
+	wantPrio := s.Solve(nil, basePair, nil, orcaStep)
+	for _, badPrio := range []float32{float32(math.Inf(1)), float32(math.Inf(-1)), nan, -5} {
+		pair := append([]ai.ORCAAgent(nil), basePair...)
+		pair[0].Priority = badPrio
+		got := s.Solve(nil, pair, nil, orcaStep)
+		if got[0] != wantPrio[0] || got[1] != wantPrio[1] {
+			t.Fatalf("Priority=%v gave %v, want identical to Priority=0 (%v)", badPrio, got, wantPrio)
+		}
+	}
+
+	// Non-finite agent fields preserve Solve vs SolveAgent parity and order-independent determinism.
+	nanSolver := ai.NewORCASolver(ai.ORCAConfig{TimeHorizon: 2.0, MaxNeighbors: 3})
+	nanAgents := []ai.ORCAAgent{
+		{ID: 1, Pos: math2d.V2(0, 0), Vel: math2d.V2(2, 0), PrefVel: math2d.V2(3, 0), Radius: 0.5, MaxSpeed: 4},
+		{ID: 2, Pos: math2d.V2(nan, 0), Vel: math2d.V2(-1, 0), Radius: 0.5, MaxSpeed: 4, Priority: nan},
+		{ID: 3, Pos: math2d.V2(inf, 0), Vel: math2d.V2(nan, 1), Radius: 0.5, MaxSpeed: 4},
+		{ID: 4, Pos: math2d.V2(0.8, 0), Vel: math2d.V2(-2, 0), Radius: 0.5, MaxSpeed: 4, Priority: 1},
+		{ID: 5, Pos: math2d.V2(0, 0.8), Vel: math2d.V2(0, -2), Radius: 0.5, MaxSpeed: 4, Priority: nan},
+	}
+	refBatch := nanSolver.Solve(nil, nanAgents, nil, orcaStep)[0]
+	refSingle := nanSolver.SolveAgent(nanAgents[0], nanAgents[1:], nil, orcaStep)
+	if math.Float32bits(refBatch.X) != math.Float32bits(refSingle.X) || math.Float32bits(refBatch.Y) != math.Float32bits(refSingle.Y) {
+		t.Fatalf("Solve (%v) and SolveAgent (%v) disagreed with non-finite neighbor positions", refBatch, refSingle)
+	}
+	rng := rand.New(rand.NewPCG(11, 22))
+	for trial := range 20 {
+		perm := append([]ai.ORCAAgent(nil), nanAgents...)
+		rng.Shuffle(len(perm), func(i, j int) { perm[i], perm[j] = perm[j], perm[i] })
+		gotAll := nanSolver.Solve(nil, perm, nil, orcaStep)
+		for i, a := range perm {
+			if a.ID == 1 {
+				if math.Float32bits(gotAll[i].X) != math.Float32bits(refBatch.X) || math.Float32bits(gotAll[i].Y) != math.Float32bits(refBatch.Y) {
+					t.Fatalf("trial %d: NaN neighbor shuffle diverged: got %v, want %v", trial, gotAll[i], refBatch)
+				}
+			}
+		}
+	}
+
+	// Coordinates that would overflow int64 cell indices fall back cleanly instead of culling neighbors.
+	overflowSolver := ai.NewORCASolver(ai.ORCAConfig{TimeHorizon: 2.0, CellSize: 1e-15})
+	farPair := []ai.ORCAAgent{
+		{ID: 1, Pos: math2d.V2(1e5, 0), Vel: math2d.V2(4, 0), PrefVel: math2d.V2(4, 0), Radius: 0.5, MaxSpeed: 4},
+		{ID: 2, Pos: math2d.V2(1e5+2, 0), Vel: math2d.V2(-4, 0), PrefVel: math2d.V2(-4, 0), Radius: 0.5, MaxSpeed: 4},
+	}
+	farVels := overflowSolver.Solve(nil, farPair, nil, orcaStep)
+	farSingle := overflowSolver.SolveAgent(farPair[0], farPair[1:], nil, orcaStep)
+	if farVels[0] != farSingle || farVels[0] == farPair[0].PrefVel {
+		t.Fatalf("large-cell-index pair failed to avoid: batch=%v single=%v pref=%v", farVels[0], farSingle, farPair[0].PrefVel)
+	}
+
+	// Very large finite TimeHorizonObst does not underflow cutoffLenSq to NaN.
+	hugeTauSolver := ai.NewORCASolver(ai.ORCAConfig{TimeHorizonObst: 1e30})
+	wall := []ai.ORCAObstacle{{A: math2d.V2(2, -2), B: math2d.V2(2, 2)}}
+	vHuge := hugeTauSolver.SolveAgent(ai.ORCAAgent{Pos: math2d.V2(0, 0), Vel: math2d.V2(4, 0), PrefVel: math2d.V2(4, 0), Radius: 0.5, MaxSpeed: 4}, nil, wall, orcaStep)
+	if math.IsNaN(float64(vHuge.X)) || math.IsNaN(float64(vHuge.Y)) || math.IsInf(float64(vHuge.X), 0) || math.IsInf(float64(vHuge.Y), 0) {
+		t.Fatalf("huge TimeHorizonObst produced non-finite velocity: %v", vHuge)
+	}
 }
 
 func make1000Agents() ([]ai.ORCAAgent, []math2d.Vec2) {
