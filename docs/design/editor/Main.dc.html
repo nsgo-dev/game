@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Editor: AI-first scene</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#101216}
+a{color:#8fb3ff}a:hover{color:#b9cfff}
+.vp{background-color:#15181d;background-image:radial-gradient(circle,#2a2f38 1px,transparent 1.2px);background-size:16px 16px}
+button{font:inherit;cursor:pointer}
+input,textarea{font:inherit}
+</style>
+</helmet>
+<div style="height: 900px; display: flex; flex-direction: column; font-family: Inter, system-ui, sans-serif; font-size: 12.5px; color: #d9dde5; background: #101216; overflow: hidden">
+
+  <div style="height: 44px; display: flex; align-items: center; gap: 12px; padding: 0 12px; border-bottom: 1px solid #1f232a">
+    <div style="display: flex; align-items: center; gap: 8px">
+      <div style="width: 22px; height: 22px; border-radius: 6px; background: {{ accent }}; display: flex; align-items: center; justify-content: center">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.5" aria-hidden="true"><path d="M5 19 12 5l7 14"></path></svg>
+      </div>
+      <span style="font-weight: 600; color: #ffffff">dungeon-run</span>
+      <span style="color: #8b92a0">/</span>
+      <span style="color: #b4bac6">level_01</span>
+      <span style="width: 6px; height: 6px; border-radius: 3px; background: #e9a84a" aria-label="unsaved changes"></span>
+    </div>
+    <div style="flex: 1"></div>
+    <div style="display: flex; gap: 2px; padding: 3px; border-radius: 9px; background: #171a1f; border: 1px solid #22262d">
+      <sc-for list="{{ tools }}" as="t" hint-placeholder-count="5">
+        <button aria-label="{{ t.label }}" title="{{ t.label }} · {{ t.key }}" onClick="{{ t.pick }}" style="{{ t.style }}">
+          <sc-if value="{{ t.isSelect }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M5 3l14 8-6 2-2 6z"></path></svg></sc-if>
+          <sc-if value="{{ t.isMove }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"></path></svg></sc-if>
+          <sc-if value="{{ t.isRotate }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-3-6.2"></path><path d="M20 4v5h-5"></path></svg></sc-if>
+          <sc-if value="{{ t.isScale }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="4" y="10" width="10" height="10" rx="1.5"></rect><path d="M13 4h7v7M20 4l-8 8"></path></svg></sc-if>
+          <sc-if value="{{ t.isPan }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V12M11 11.5v-7a1.5 1.5 0 0 1 3 0V12M14 12V6.5a1.5 1.5 0 0 1 3 0V13M8 13l-1.6-1.6a1.6 1.6 0 0 0-2.3 2.3L8 18c1.3 1.6 3 2.5 5 2.5h1a5 5 0 0 0 5-5V9.5a1.5 1.5 0 0 0-3 0"></path></svg></sc-if>
+        </button>
+      </sc-for>
+    </div>
+    <div style="display: flex; gap: 2px; padding: 3px; border-radius: 9px; background: #171a1f; border: 1px solid #22262d">
+      <button onClick="{{ setMode2D }}" style="{{ mode2DStyle }}">2D</button>
+      <button onClick="{{ setMode3D }}" style="{{ mode3DStyle }}">3D</button>
+    </div>
+    <div style="flex: 1"></div>
+    <button aria-label="History" title="History" style="width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; border-radius: 8px; border: 1px solid #22262d; background: #171a1f; color: #8b92a0">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"></path><path d="M3 4v5h5"></path><path d="M12 8v4l3 2"></path></svg>
+    </button>
+    <button style="height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-radius: 8px; border: 1px solid #22262d; background: #171a1f; color: #8b92a0">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+      <span>Search</span>
+      <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8b92a0">⌘K</span>
+    </button>
+    <button aria-label="Play" style="height: 30px; display: flex; align-items: center; gap: 7px; padding: 0 14px; border-radius: 8px; border: 0; background: #ffffff; color: #101216; font-weight: 600">
+      <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 4l14 8-14 8z"></path></svg>Play
+    </button>
+  </div>
+
+  <div style="flex: 1; display: grid; grid-template-columns: 232px minmax(0, 1fr) 380px; min-height: 0">
+
+    <div style="display: flex; flex-direction: column; border-right: 1px solid #1f232a; min-height: 0">
+      <div style="height: 36px; display: flex; align-items: center; justify-content: space-between; padding: 0 14px; color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">
+        <span>SCENE</span>
+        <span style="font-weight: 500; letter-spacing: 0; color: #8b92a0">10 nodes</span>
+      </div>
+      <div style="flex: 1; padding: 0 6px; overflow: hidden">
+        <sc-for list="{{ tree }}" as="n" hint-placeholder-count="11">
+          <button onClick="{{ n.pick }}" style="{{ n.style }}">
+            <span style="{{ n.indent }}"></span>
+            <span style="{{ n.dot }}"></span>
+            <span style="flex: 1; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ n.name }}</span>
+            <sc-if value="{{ n.isNew }}" hint-placeholder-val="{{ false }}"><span style="font-size: 10px; font-weight: 600; color: #4fd38a">NEW</span></sc-if>
+            <span style="color: #8b92a0; font-size: 11px">{{ n.kind }}</span>
+          </button>
+        </sc-for>
+      </div>
+      <div style="padding: 10px; border-top: 1px solid #1f232a; display: flex; flex-direction: column; gap: 6px">
+        <div style="color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; padding: 0 4px">FILES</div>
+        <div style="height: 26px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 6px; color: #b4bac6"><span style="width: 6px; height: 6px; border-radius: 2px; background: #4f8cff"></span>scenes/level_01.scene.yaml</div>
+        <div style="height: 26px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 6px; color: #b4bac6"><span style="width: 6px; height: 6px; border-radius: 2px; background: #9b7bff"></span>prefabs/slime.prefab.yaml</div>
+        <div style="height: 26px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 6px; color: #b4bac6"><span style="width: 6px; height: 6px; border-radius: 2px; background: #6f7684"></span>game.yaml</div>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; min-width: 0">
+      <div class="vp" style="flex: 1; position: relative; overflow: hidden">
+        <div style="position: absolute; left: 56px; top: 64px; width: 704px; height: 396px; border-radius: 4px; box-shadow: 0 0 0 1px #2c3240, 0 24px 60px rgba(0,0,0,0.45); background: linear-gradient(180deg,#1c2230 0%,#1a1f2a 70%,#181c24 100%)"></div>
+        <div style="position: absolute; left: 56px; top: 42px; font-size: 11px; color: #8b92a0">Camera · 640 × 360</div>
+        <div style="position: absolute; left: 56px; top: 396px; width: 704px; height: 64px; background: #2a2f3a; border-top: 3px solid #3b4250"></div>
+        <div style="position: absolute; left: 400px; top: 320px; width: 176px; height: 14px; border-radius: 2px; background: #333a47"></div>
+        <div style="position: absolute; left: 140px; top: 350px; width: 26px; height: 46px; border-radius: 6px; background: #4f8cff"></div>
+        <div style="position: absolute; left: 640px; top: 356px; width: 30px; height: 40px; border-radius: 4px; background: #6b5a45"></div>
+
+        <div style="position: absolute; left: 452px; top: 286px; width: 24px; height: 34px; border-radius: 5px; background: #e9a84a"></div>
+        <div style="position: absolute; left: 446px; top: 280px; width: 36px; height: 46px; border-radius: 6px; box-shadow: 0 0 0 1.5px {{ accent }}"></div>
+        <div style="position: absolute; left: 442px; top: 276px; width: 8px; height: 8px; border-radius: 2px; background: #ffffff; box-shadow: 0 0 0 1.5px {{ accent }}"></div>
+        <div style="position: absolute; left: 478px; top: 276px; width: 8px; height: 8px; border-radius: 2px; background: #ffffff; box-shadow: 0 0 0 1.5px {{ accent }}"></div>
+        <div style="position: absolute; left: 442px; top: 322px; width: 8px; height: 8px; border-radius: 2px; background: #ffffff; box-shadow: 0 0 0 1.5px {{ accent }}"></div>
+        <div style="position: absolute; left: 478px; top: 322px; width: 8px; height: 8px; border-radius: 2px; background: #ffffff; box-shadow: 0 0 0 1.5px {{ accent }}"></div>
+        <div style="position: absolute; left: 440px; top: 252px; height: 18px; display: flex; align-items: center; padding: 0 6px; border-radius: 5px; background: {{ accent }}; color: #101216; font-size: 10.5px; font-weight: 500">Knight</div>
+
+        <sc-if value="{{ showProposed }}" hint-placeholder-val="{{ true }}">
+          <div style="position: absolute; left: 236px; top: 376px; width: 30px; height: 20px; border-radius: 10px 10px 4px 4px; background: rgba(79,211,138,0.35); outline: 1.5px dashed #4fd38a; outline-offset: 3px"></div>
+          <div style="position: absolute; left: 300px; top: 376px; width: 30px; height: 20px; border-radius: 10px 10px 4px 4px; background: rgba(79,211,138,0.35); outline: 1.5px dashed #4fd38a; outline-offset: 3px"></div>
+          <div style="position: absolute; left: 520px; top: 300px; width: 30px; height: 20px; border-radius: 10px 10px 4px 4px; background: rgba(79,211,138,0.35); outline: 1.5px dashed #4fd38a; outline-offset: 3px"></div>
+          <div style="position: absolute; left: 230px; top: 404px; width: 108px; height: 0; border-top: 1.5px dashed rgba(79,211,138,0.6)"></div>
+          <div style="position: absolute; left: 520px; top: 288px; display: flex; gap: 14px">
+            <span style="width: 8px; height: 8px; border-radius: 4px; background: rgba(242,208,75,0.55); outline: 1.5px dashed #f2d04b; outline-offset: 2px"></span>
+            <span style="width: 8px; height: 8px; border-radius: 4px; background: rgba(242,208,75,0.55); outline: 1.5px dashed #f2d04b; outline-offset: 2px"></span>
+            <span style="width: 8px; height: 8px; border-radius: 4px; background: rgba(242,208,75,0.55); outline: 1.5px dashed #f2d04b; outline-offset: 2px"></span>
+          </div>
+          <div style="position: absolute; left: 228px; top: 346px; height: 20px; display: flex; align-items: center; gap: 6px; padding: 0 8px; border-radius: 10px; background: rgba(16,18,22,0.92); box-shadow: 0 0 0 1px #2c3240; color: #4fd38a; font-size: 11px">
+            <span style="width: 6px; height: 6px; border-radius: 3px; background: #4fd38a"></span>3 slimes · patrol
+          </div>
+        </sc-if>
+
+        <div style="position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: 10px; background: rgba(23,26,31,0.92); box-shadow: 0 0 0 1px #262a32, 0 10px 30px rgba(0,0,0,0.4)">
+          <button aria-label="Zoom out" style="width: 28px; height: 26px; border: 0; border-radius: 6px; background: none; color: #b4bac6">−</button>
+          <span style="width: 52px; text-align: center; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #b4bac6">200%</span>
+          <button aria-label="Zoom in" style="width: 28px; height: 26px; border: 0; border-radius: 6px; background: none; color: #b4bac6">+</button>
+          <span style="width: 1px; height: 16px; background: #2c3240; margin: 0 4px"></span>
+          <button onClick="{{ toggleSnap }}" style="{{ snapStyle }}">Snap</button>
+          <button style="height: 26px; padding: 0 10px; border: 0; border-radius: 6px; background: none; color: #b4bac6">Fit</button>
+        </div>
+      </div>
+      <div style="height: 32px; display: flex; align-items: center; gap: 18px; padding: 0 14px; border-top: 1px solid #1f232a; color: #8b92a0; font-size: 11.5px">
+        <span>Layer Actors</span><span>424, 238</span><span>{{ toolLabel }}</span>
+        <div style="flex: 1"></div>
+        <span style="display: flex; align-items: center; gap: 6px"><span style="width: 6px; height: 6px; border-radius: 3px; background: #4fd38a"></span>No problems</span>
+        <span>Output</span><span>Debugger</span>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; border-left: 1px solid #1f232a; min-height: 0; background: #12141a">
+      <div style="height: 44px; display: flex; align-items: center; gap: 4px; padding: 0 10px; border-bottom: 1px solid #1f232a">
+        <button onClick="{{ showAgentTab }}" style="{{ agentTabStyle }}">Agent</button>
+        <button onClick="{{ showInspectorTab }}" style="{{ inspectorTabStyle }}">Inspector</button>
+        <div style="flex: 1"></div>
+        <span style="display: flex; align-items: center; gap: 6px; color: #8b92a0; font-size: 11.5px"><span style="width: 6px; height: 6px; border-radius: 3px; background: #4fd38a"></span>Connected · MCP</span>
+      </div>
+
+      <sc-if value="{{ agentTab }}" hint-placeholder-val="{{ true }}">
+        <div style="flex: 1; display: flex; flex-direction: column; min-height: 0">
+          <div style="flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 14px; overflow: hidden">
+            <div style="align-self: flex-end; max-width: 300px; padding: 10px 12px; border-radius: 12px 12px 4px 12px; background: #1c2130; color: #e6e9ef; line-height: 1.5">Put three slimes patrolling the lower floor and a short coin trail toward the door.</div>
+            <div style="display: flex; flex-direction: column; gap: 8px">
+              <div style="display: flex; align-items: center; gap: 8px; color: #8b92a0"><span style="width: 14px; height: 14px; border-radius: 7px; background: #1f3a2b; display: flex; align-items: center; justify-content: center"><svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#4fd38a" stroke-width="4" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg></span>Read level_01.scene.yaml and slime.prefab.yaml</div>
+              <div style="display: flex; align-items: center; gap: 8px; color: #8b92a0"><span style="width: 14px; height: 14px; border-radius: 7px; background: #1f3a2b; display: flex; align-items: center; justify-content: center"><svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#4fd38a" stroke-width="4" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg></span>Placed 3 slimes and 3 coins on layer Actors</div>
+              <div style="display: flex; align-items: center; gap: 8px; color: #8b92a0"><span style="width: 14px; height: 14px; border-radius: 7px; background: #1f3a2b; display: flex; align-items: center; justify-content: center"><svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#4fd38a" stroke-width="4" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg></span>Ran game check · no problems</div>
+              <div style="display: flex; align-items: center; gap: 8px; color: #8b92a0"><span style="width: 14px; height: 14px; border-radius: 7px; background: #1f3a2b; display: flex; align-items: center; justify-content: center"><svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#4fd38a" stroke-width="4" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg></span>Played 10 s headless · slimes stay on the floor</div>
+            </div>
+            <div style="color: #d9dde5; line-height: 1.55">Done. The slimes walk the floor between x 220 and 340, and one guards the plank. The coins lead to the door; I left the door untouched.</div>
+
+            <sc-if value="{{ pending }}" hint-placeholder-val="{{ true }}">
+              <div style="border-radius: 12px; background: #171a21; box-shadow: 0 0 0 1px #262b35; overflow: hidden">
+                <div style="height: 38px; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; border-bottom: 1px solid #222731">
+                  <span style="color: #ffffff; font-weight: 500">6 changes · 1 file</span>
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px"><span style="color: #4fd38a">+38</span> <span style="color: #8b92a0">−0</span></span>
+                </div>
+                <div style="padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; font-size: 12px">
+                  <div style="display: flex; gap: 8px; color: #b4bac6"><span style="color: #4fd38a; width: 10px">+</span>slime_01, slime_02, slime_03 · patrol</div>
+                  <div style="display: flex; gap: 8px; color: #b4bac6"><span style="color: #4fd38a; width: 10px">+</span>coin_01, coin_02, coin_03</div>
+                </div>
+                <div style="display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid #222731">
+                  <button onClick="{{ keep }}" style="flex: 1; height: 30px; border-radius: 8px; border: 0; background: {{ accent }}; color: #101216; font-weight: 500">Keep</button>
+                  <button style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #22262f; color: #d9dde5">Review</button>
+                  <button onClick="{{ revert }}" style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #22262f; color: #d9dde5">Revert</button>
+                </div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ kept }}" hint-placeholder-val="{{ false }}">
+              <div style="color: #8b92a0; font-size: 12px">Kept · one undo step (⌘Z)</div>
+            </sc-if>
+            <sc-if value="{{ reverted }}" hint-placeholder-val="{{ false }}">
+              <div style="color: #8b92a0; font-size: 12px">Reverted · the scene is as it was before this request</div>
+            </sc-if>
+          </div>
+
+          <div style="padding: 12px; border-top: 1px solid #1f232a">
+            <div style="border-radius: 12px; background: #171a21; box-shadow: 0 0 0 1px #262b35; padding: 10px 12px; display: flex; flex-direction: column; gap: 10px">
+              <div style="display: flex; gap: 6px; flex-wrap: wrap">
+                <span style="height: 22px; display: flex; align-items: center; gap: 5px; padding: 0 8px; border-radius: 6px; background: #20252f; color: #b4bac6; font-size: 11.5px"><span style="width: 6px; height: 6px; border-radius: 2px; background: #e9a84a"></span>Knight</span>
+                <span style="height: 22px; display: flex; align-items: center; gap: 5px; padding: 0 8px; border-radius: 6px; background: #20252f; color: #b4bac6; font-size: 11.5px">level_01</span>
+                <span style="height: 22px; display: flex; align-items: center; gap: 5px; padding: 0 8px; border-radius: 6px; background: #20252f; color: #b4bac6; font-size: 11.5px">Viewport image</span>
+              </div>
+              <label for="prompt" style="position: absolute; left: -9999px">Ask the agent</label>
+              <textarea id="prompt" rows="2" placeholder="Describe a change… e.g. make the knight jump higher" style="resize: none; border: 0; outline: none; background: none; color: #e6e9ef; line-height: 1.5"></textarea>
+              <div style="display: flex; align-items: center; gap: 8px">
+                <span style="color: #8b92a0; font-size: 11.5px">Edits stay unsaved until you keep them</span>
+                <div style="flex: 1"></div>
+                <button aria-label="Send" style="width: 30px; height: 30px; border-radius: 8px; border: 0; background: #ffffff; color: #101216; display: flex; align-items: center; justify-content: center">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"></path></svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ inspectorTab }}" hint-placeholder-val="{{ false }}">
+        <div style="flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 16px; overflow: hidden">
+          <div style="display: flex; align-items: center; gap: 10px">
+            <span style="width: 32px; height: 32px; border-radius: 8px; background: #e9a84a"></span>
+            <div><div style="color: #ffffff; font-weight: 600">{{ selectedName }}</div><div style="color: #8b92a0; font-size: 11.5px">Sprite · layer Actors</div></div>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <div style="color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">TRANSFORM</div>
+            <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+              <div style="height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-radius: 8px; background: #181b22; box-shadow: 0 0 0 1px #242833"><span style="color: #ff7b7b; font-size: 11px">X</span>452</div>
+              <div style="height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-radius: 8px; background: #181b22; box-shadow: 0 0 0 1px #242833"><span style="color: #4fd38a; font-size: 11px">Y</span>286</div>
+              <div style="height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-radius: 8px; background: #181b22; box-shadow: 0 0 0 1px #242833"><span style="color: #8b92a0; font-size: 11px">R</span>0°</div>
+              <div style="height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-radius: 8px; background: #181b22; box-shadow: 0 0 0 1px #242833"><span style="color: #8b92a0; font-size: 11px">S</span>1.00</div>
+            </div>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <div style="color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">HEALTH</div>
+            <div style="display: flex; align-items: center; gap: 10px"><div style="flex: 1; height: 6px; border-radius: 3px; background: #242833"><div style="width: 70%; height: 6px; border-radius: 3px; background: #4fd38a"></div></div><span>7 / 10</span></div>
+          </div>
+          <div style="color: #8b92a0; line-height: 1.6">Everything else about this object is in its YAML. Ask the agent, or open the file.</div>
+        </div>
+      </sc-if>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#3b7bff","options":["#3b7bff","#7c5cff","#16a394","#e0782b"]},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { tool: 'select', node: 'knight', snap: true, mode: '2d', tab: 'agent', review: 'pending' };
+  }
+  renderVals() {
+    const accent = this.props.accent ?? '#3b7bff';
+    const s = this.state;
+    const defs = [
+      { id: 'select', label: 'Select', key: 'V' },
+      { id: 'move', label: 'Move', key: 'W' },
+      { id: 'rotate', label: 'Rotate', key: 'E' },
+      { id: 'scale', label: 'Scale', key: 'R' },
+      { id: 'pan', label: 'Pan', key: 'Space' },
+    ];
+    const tools = defs.map((t) => ({
+      ...t,
+      isSelect: t.id === 'select', isMove: t.id === 'move', isRotate: t.id === 'rotate', isScale: t.id === 'scale', isPan: t.id === 'pan',
+      style: 'width: 32px; height: 28px; border-radius: 6px; border: 0; display: flex; align-items: center; justify-content: center; ' + (s.tool === t.id ? 'background: #2a2f3a; color: #ffffff' : 'background: none; color: #8b92a0'),
+      pick: () => this.setState({ tool: t.id }),
+    }));
+    const proposed = s.review === 'pending';
+    const nodes = [
+      { id: 'bg', name: 'Background', kind: 'tiles', depth: 0, color: '#4f8cff' },
+      { id: 'world', name: 'World', kind: 'tiles', depth: 0, color: '#4f8cff' },
+      { id: 'actors', name: 'Actors', kind: 'layer', depth: 0, color: '#6f7684' },
+      { id: 'player', name: 'Player', kind: 'prefab', depth: 1, color: '#4f8cff' },
+      { id: 'knight', name: 'Knight', kind: 'sprite', depth: 1, color: '#e9a84a' },
+      { id: 'door', name: 'Door', kind: 'trigger', depth: 1, color: '#6b5a45' },
+      { id: 's1', name: 'slime_01', kind: 'prefab', depth: 1, color: '#4fd38a', isNew: true },
+      { id: 's2', name: 'slime_02', kind: 'prefab', depth: 1, color: '#4fd38a', isNew: true },
+      { id: 's3', name: 'slime_03', kind: 'prefab', depth: 1, color: '#4fd38a', isNew: true },
+      { id: 'coins', name: 'coins', kind: 'group', depth: 1, color: '#f2d04b', isNew: true },
+      { id: 'hud', name: 'HUD', kind: 'screen', depth: 0, color: '#6f7684' },
+    ].filter((n) => !n.isNew || s.review !== 'reverted');
+    const tree = nodes.map((n) => ({
+      ...n,
+      isNew: !!n.isNew && proposed,
+      style: 'width: 100%; height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 0; border-radius: 6px; ' + (s.node === n.id ? 'background: #1c2638; color: #ffffff' : 'background: none; color: #b4bac6'),
+      indent: 'width: ' + (n.depth * 14) + 'px; flex: none',
+      dot: 'width: 7px; height: 7px; border-radius: 2px; flex: none; background: ' + n.color,
+      pick: () => this.setState({ node: n.id, tab: 'inspector' }),
+    }));
+    const sel = nodes.find((n) => n.id === s.node) || nodes[4];
+    const seg = (on) => 'height: 28px; padding: 0 12px; border-radius: 6px; border: 0; font-weight: 500; ' + (on ? 'background: #2a2f3a; color: #ffffff' : 'background: none; color: #8b92a0');
+    const tab = (on) => 'height: 30px; padding: 0 12px; border-radius: 8px; border: 0; font-weight: 500; ' + (on ? 'background: #1c2130; color: #ffffff' : 'background: none; color: #8b92a0');
+    return {
+      accent, tools, tree,
+      toolLabel: (defs.find((t) => t.id === s.tool) || defs[0]).label,
+      selectedName: sel.name,
+      mode2DStyle: seg(s.mode === '2d'), mode3DStyle: seg(s.mode === '3d'),
+      setMode2D: () => this.setState({ mode: '2d' }), setMode3D: () => this.setState({ mode: '3d' }),
+      snapStyle: 'height: 26px; padding: 0 10px; border: 0; border-radius: 6px; ' + (s.snap ? 'background: #2a2f3a; color: #ffffff' : 'background: none; color: #8b92a0'),
+      toggleSnap: () => this.setState({ snap: !s.snap }),
+      agentTab: s.tab === 'agent', inspectorTab: s.tab === 'inspector',
+      agentTabStyle: tab(s.tab === 'agent'), inspectorTabStyle: tab(s.tab === 'inspector'),
+      showAgentTab: () => this.setState({ tab: 'agent' }), showInspectorTab: () => this.setState({ tab: 'inspector' }),
+      pending: proposed, kept: s.review === 'kept', reverted: s.review === 'reverted',
+      showProposed: s.review !== 'reverted',
+      keep: () => this.setState({ review: 'kept' }), revert: () => this.setState({ review: 'reverted' }),
+    };
+  }
+}
+</script>
+</body>
+</html>

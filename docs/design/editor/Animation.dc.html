@@ -1,0 +1,763 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Animation</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#101216}
+a{color:#8fb3ff}a:hover{color:#b9cfff}
+.vp{background-color:#15181d;background-image:radial-gradient(circle,#2a2f38 1px,transparent 1.2px);background-size:16px 16px}
+.ck{background-color:#171a21;background-image:conic-gradient(#1c2028 25%,transparent 0 50%,#1c2028 0 75%,transparent 0);background-size:8px 8px}
+button{font:inherit;cursor:pointer}
+input,textarea{font:inherit}
+</style>
+</helmet>
+<div style="width: 2960px; height: 900px; display: flex; gap: 80px; font-family: Inter, system-ui, sans-serif; font-size: 12.5px; color: #d9dde5; background: #101216">
+
+  <!-- ============ Screen 1: clips and state machine ============ -->
+  <div style="width: 1440px; height: 900px; flex: none; display: flex; flex-direction: column; overflow: hidden; background: #101216; box-shadow: 0 0 0 1px #1f232a">
+    <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 12px; border-bottom: 1px solid #1f232a">
+      <div style="display: flex; align-items: center; gap: 8px">
+        <div style="width: 22px; height: 22px; border-radius: 6px; background: #3b7bff; display: flex; align-items: center; justify-content: center">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.5" aria-hidden="true"><path d="M5 19 12 5l7 14"></path></svg>
+        </div>
+        <span style="font-weight: 600; color: #ffffff">dungeon-run</span>
+        <span style="color: #8b92a0">/</span>
+        <span style="color: #b4bac6">anim</span>
+        <span style="color: #8b92a0">/</span>
+        <span style="color: #b4bac6">knight.states.yaml</span>
+        <span style="width: 6px; height: 6px; border-radius: 3px; background: #e9a84a" aria-label="unsaved changes"></span>
+      </div>
+      <div style="flex: 1"></div>
+      <button style="height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-radius: 8px; border: 0; background: #171a21; box-shadow: 0 0 0 1px #262b35; color: #8b92a0">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+        <span>Search</span>
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px">⌘K</span>
+      </button>
+      <button style="height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 14px; border-radius: 8px; border: 0; background: #ffffff; color: #101216; font-weight: 600">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 4l14 8-14 8z"></path></svg>Play
+      </button>
+    </div>
+
+    <div style="flex: 1; display: grid; grid-template-columns: 232px minmax(0, 1fr) 380px; min-height: 0">
+
+      <div style="display: flex; flex-direction: column; border-right: 1px solid #1f232a; min-height: 0">
+        <div style="height: 36px; display: flex; align-items: center; justify-content: space-between; padding: 0 14px; color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">
+          <span>KNIGHT</span><span style="font-weight: 500; letter-spacing: 0">anim/knight.*</span>
+        </div>
+        <div style="padding: 0 6px; display: flex; flex-direction: column">
+          <div style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 6px; background: #1c2638; color: #ffffff">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true" style="flex: none"><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="6" r="3"></circle><circle cx="18" cy="18" r="3"></circle><path d="M9 11l6-4M9 13l6 4"></path></svg>
+            <span style="flex: 1">State machine</span>
+            <span style="font-size: 11px; font-weight: 600; color: #4fd38a">NEW</span>
+          </div>
+          <sc-for list="{{ clipList }}" as="c" hint-placeholder-count="6">
+            <button onClick="{{ c.pick }}" style="{{ c.style }}">
+              <span style="width: 14px; flex: none"></span>
+              <span class="ck" style="width: 20px; height: 20px; flex: none; border-radius: 4px; display: flex; align-items: center; justify-content: center"><span style="{{ c.spr.box }}"><span style="{{ c.spr.dot }}"></span></span></span>
+              <span style="flex: 1; text-align: left">{{ c.name }}</span>
+              <span style="color: #8b92a0; font-size: 11px">{{ c.meta }}</span>
+            </button>
+          </sc-for>
+        </div>
+        <div style="padding: 16px 14px 4px; color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">OTHER CLIPS</div>
+        <div style="padding: 0 6px; display: flex; flex-direction: column">
+          <div style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; color: #b4bac6"><span style="flex: 1">slime.clips.yaml</span><span style="color: #8b92a0; font-size: 11px">3 clips</span></div>
+          <div style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; color: #b4bac6"><span style="flex: 1">coin.clips.yaml</span><span style="color: #8b92a0; font-size: 11px">1 clip</span></div>
+        </div>
+        <div style="padding: 16px 14px 4px; color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">CUTSCENES</div>
+        <div style="padding: 0 6px; display: flex; flex-direction: column">
+          <div style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; color: #b4bac6"><span style="flex: 1">floor1_intro</span><span style="color: #e9a84a; font-size: 11px">in review</span></div>
+          <div style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; color: #b4bac6"><span style="flex: 1">lever_reveal</span><span style="color: #8b92a0; font-size: 11px">6.5 s</span></div>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; min-width: 0; min-height: 0">
+        <div class="vp" style="flex: 1; position: relative; overflow: hidden; min-height: 0">
+          <div style="position: absolute; left: 24px; top: 16px; display: flex; align-items: center; gap: 8px">
+            <span style="color: #ffffff; font-weight: 600">knight.states.yaml</span>
+            <span style="color: #8b92a0">· 6 states · 11 transitions · built by the agent</span>
+          </div>
+          <div style="position: absolute; right: 16px; top: 12px; display: flex; align-items: center; gap: 8px">
+            <sc-if value="{{ driving }}" hint-placeholder-val="{{ false }}">
+              <div style="display: flex; gap: 4px">
+                <sc-for list="{{ keys }}" as="k" hint-placeholder-count="4">
+                  <button onClick="{{ k.press }}" aria-label="{{ k.aria }}" style="{{ k.style }}">{{ k.label }}</button>
+                </sc-for>
+              </div>
+            </sc-if>
+            <button role="switch" aria-checked="{{ drivingAria }}" onClick="{{ toggleDrive }}" style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 10px 0 6px; border-radius: 8px; border: 0; background: rgba(23,26,33,0.94); box-shadow: 0 0 0 1px #262b35; color: #d9dde5">
+              <span style="{{ driveTrack }}"><span style="{{ driveKnob }}"></span></span>Drive with keys
+            </button>
+          </div>
+
+          <svg width="828" height="560" viewBox="0 0 828 560" aria-hidden="true" style="position: absolute; left: 0; top: 0; overflow: visible">
+            <defs>
+              <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 1 9 5 0 9z" fill="#4a5262"></path></marker>
+              <marker id="ahA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 1 9 5 0 9z" fill="#3b7bff"></path></marker>
+            </defs>
+            <path d="M188 250 L330 250" fill="none" style="{{ edge.idleRun }}"></path>
+            <path d="M330 268 L188 268" fill="none" style="{{ edge.runIdle }}"></path>
+            <path d="M150 230 L215 126" fill="none" style="{{ edge.idleJump }}"></path>
+            <path d="M370 230 L305 126" fill="none" style="{{ edge.runJump }}"></path>
+            <path d="M338 98 L430 98" fill="none" style="{{ edge.jumpFall }}"></path>
+            <path d="M504 126 L440 230" fill="none" style="{{ edge.fallRun }}"></path>
+            <path d="M150 286 L215 400" fill="none" style="{{ edge.idleAttack }}"></path>
+            <path d="M370 286 L305 400" fill="none" style="{{ edge.runAttack }}"></path>
+            <path d="M190 444 L100 444 L100 286" fill="none" style="{{ edge.attackIdle }}"></path>
+            <path d="M650 428 L578 428" fill="none" style="{{ edge.anyHurt }}"></path>
+            <path d="M504 456 L504 500 L60 500 L60 286" fill="none" style="{{ edge.hurtIdle }}"></path>
+          </svg>
+
+          <sc-for list="{{ edgeLabels }}" as="el" hint-placeholder-count="9">
+            <span style="{{ el.style }}">{{ el.text }}</span>
+          </sc-for>
+
+          <div style="position: absolute; left: 650px; top: 414px; height: 28px; display: flex; align-items: center; padding: 0 10px; border-radius: 14px; border: 1px dashed #4a5262; color: #8b92a0; font-size: 11.5px; box-sizing: border-box">Any state</div>
+
+          <sc-for list="{{ nodes }}" as="n" hint-placeholder-count="6">
+            <button onClick="{{ n.pick }}" aria-label="{{ n.aria }}" style="{{ n.style }}">
+              <span class="ck" style="width: 40px; height: 40px; flex: none; border-radius: 8px; display: flex; align-items: center; justify-content: center"><span style="{{ n.spr.box }}"><span style="{{ n.spr.dot }}"></span></span></span>
+              <span style="display: flex; flex-direction: column; gap: 2px; text-align: left; min-width: 0">
+                <span style="{{ n.nameStyle }}">{{ n.name }}</span>
+                <span style="color: #8b92a0; font-size: 11.5px; white-space: nowrap">{{ n.meta }}</span>
+              </span>
+            </button>
+          </sc-for>
+
+          <div style="position: absolute; right: 16px; top: 56px; width: 200px; border-radius: 12px; overflow: hidden; background: #12141a; box-shadow: 0 0 0 1px #262b35, 0 10px 30px rgba(0,0,0,0.4)">
+            <div style="height: 120px; position: relative; background: linear-gradient(180deg,#1c2230 0%,#181c24 100%)">
+              <div style="position: absolute; left: 0; right: 0; bottom: 0; height: 26px; background-color: #2a2f3a; background-image: linear-gradient(#1f232a 0 2px, transparent 2px), linear-gradient(90deg, #1f232a 0 2px, transparent 2px); background-size: 24px 24px"></div>
+              <div style="{{ prevPos }}"><div style="{{ prevSpr.box }}"><div style="{{ prevSpr.dot }}"></div></div></div>
+            </div>
+            <div style="height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 12px; font-size: 11.5px">
+              <span style="width: 6px; height: 6px; border-radius: 3px; background: #3b7bff"></span>
+              <span style="color: #ffffff">{{ state }}</span>
+              <span style="color: #8b92a0; flex: 1; text-align: right">Player · level_01</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- tuning drawer -->
+        <div style="height: 300px; flex: none; display: flex; flex-direction: column; border-top: 1px solid #1f232a; background: #12141a">
+          <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 12px; border-bottom: 1px solid #1f232a">
+            <span style="color: #ffffff; font-size: 14px; font-weight: 600">{{ state }}</span>
+            <span style="color: #8b92a0; white-space: nowrap">{{ clipMeta }}</span>
+            <button role="switch" aria-checked="{{ loopAria }}" onClick="{{ toggleLoop }}" style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 6px; border: 0; background: none; color: #d9dde5">
+              <span style="{{ loopTrack }}"><span style="{{ loopKnob }}"></span></span>Loop
+            </button>
+            <span style="width: 1px; height: 20px; background: #262b35"></span>
+            <span style="color: #b4bac6; white-space: nowrap">Frame {{ frameNo }}</span>
+            <div style="display: flex; align-items: center; border-radius: 8px; background: #171a21; box-shadow: 0 0 0 1px #262b35">
+              <button aria-label="Shorter by 10 ms" onClick="{{ shorter }}" style="width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border: 0; background: none; color: #d9dde5"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"></path></svg></button>
+              <span style="{{ durStyle }}">{{ frameMs }} ms</span>
+              <button aria-label="Longer by 10 ms" onClick="{{ longer }}" style="width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border: 0; background: none; color: #d9dde5"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></button>
+            </div>
+            <div style="flex: 1"></div>
+            <span style="color: #8b92a0; font-size: 11.5px; white-space: nowrap">Drag a frame's right edge to retime it</span>
+          </div>
+
+          <div style="flex: 1; padding: 12px; display: flex; flex-direction: column; gap: 4px; min-height: 0; position: relative">
+            <div style="display: flex; height: 20px; align-items: flex-end">
+              <span style="width: 112px; flex: none"></span>
+              <div style="position: relative; flex: 1; height: 20px">
+                <sc-for list="{{ ticks }}" as="t" hint-placeholder-count="7">
+                  <span style="{{ t.style }}">{{ t.label }}</span>
+                </sc-for>
+              </div>
+            </div>
+            <div style="display: flex; height: 52px; align-items: center">
+              <span style="width: 112px; flex: none; color: #b4bac6">Frames</span>
+              <div style="position: relative; flex: 1; height: 52px">
+                <sc-for list="{{ frames }}" as="f" hint-placeholder-count="6">
+                  <button onClick="{{ f.pick }}" aria-label="{{ f.aria }}" class="ck" style="{{ f.style }}">
+                    <span style="{{ f.spr.box }}"><span style="{{ f.spr.dot }}"></span></span>
+                    <span style="{{ f.handle }}"></span>
+                  </button>
+                </sc-for>
+              </div>
+            </div>
+            <div style="display: flex; height: 32px; align-items: center">
+              <span style="width: 112px; flex: none; color: #b4bac6">Events</span>
+              <div style="position: relative; flex: 1; height: 32px; border-radius: 6px; background: #171a21">
+                <sc-for list="{{ events }}" as="ev" hint-placeholder-count="2">
+                  <span style="{{ ev.style }}"><span style="width: 8px; height: 8px; flex: none; transform: rotate(45deg); background: #f2c14e"></span>{{ ev.name }}</span>
+                </sc-for>
+                <sc-if value="{{ noEvents }}" hint-placeholder-val="{{ false }}"><span style="position: absolute; left: 12px; top: 8px; color: #8b92a0; font-size: 11.5px">No events in this clip</span></sc-if>
+              </div>
+            </div>
+            <div style="display: flex; height: 32px; align-items: center">
+              <span style="width: 112px; flex: none; color: #b4bac6; font-family: 'JetBrains Mono', monospace; font-size: 11.5px">{{ propName }}</span>
+              <div style="position: relative; flex: 1; height: 32px; border-radius: 6px; background: #171a21">
+                <sc-if value="{{ hasProp }}" hint-placeholder-val="{{ true }}"><span style="{{ propLine }}"></span></sc-if>
+                <sc-for list="{{ propKeys }}" as="pk" hint-placeholder-count="4">
+                  <button onClick="{{ pk.pick }}" aria-label="{{ pk.aria }}" style="{{ pk.style }}"></button>
+                </sc-for>
+                <sc-if value="{{ noProp }}" hint-placeholder-val="{{ false }}"><span style="position: absolute; left: 12px; top: 8px; color: #8b92a0; font-size: 11.5px">No property tracks in this clip</span></sc-if>
+              </div>
+            </div>
+            <sc-if value="{{ hasKey }}" hint-placeholder-val="{{ true }}">
+              <div style="display: flex; height: 40px; align-items: center; gap: 12px; padding-top: 4px">
+                <span style="width: 100px; flex: none; color: #b4bac6">Easing</span>
+                <div style="display: flex; gap: 2px; padding: 3px; border-radius: 8px; background: #171a21; box-shadow: 0 0 0 1px #262b35">
+                  <sc-for list="{{ eases }}" as="e" hint-placeholder-count="5">
+                    <button aria-pressed="{{ e.pressed }}" onClick="{{ e.pick }}" style="{{ e.style }}">{{ e.label }}</button>
+                  </sc-for>
+                </div>
+                <span style="color: #8b92a0; white-space: nowrap">{{ keyLabel }}</span>
+              </div>
+            </sc-if>
+            <div style="{{ playhead }}"></div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; border-left: 1px solid #1f232a; background: #12141a; min-height: 0">
+        <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 16px; border-bottom: 1px solid #1f232a">
+          <span style="color: #ffffff; font-weight: 500">Agent</span>
+          <div style="flex: 1"></div>
+          <span style="display: flex; align-items: center; gap: 6px; color: #8b92a0; font-size: 11.5px"><span style="width: 6px; height: 6px; border-radius: 3px; background: #4fd38a"></span>Connected · MCP</span>
+        </div>
+        <div style="flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 12px; min-height: 0; overflow: hidden">
+          <div style="align-self: flex-end; max-width: 300px; padding: 8px 12px; border-radius: 12px 12px 4px 12px; background: #1c2130; color: #e6e9ef; line-height: 1.5">Set up the knight's animations from knight.aseprite. Running should feel snappy.</div>
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <sc-for list="{{ steps }}" as="st" hint-placeholder-count="4">
+              <div style="display: flex; align-items: center; gap: 8px; color: #8b92a0"><span style="width: 14px; height: 14px; flex: none; border-radius: 7px; background: #1f3a2b; display: flex; align-items: center; justify-content: center"><svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#4fd38a" stroke-width="4" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg></span>{{ st.text }}</div>
+            </sc-for>
+          </div>
+          <div style="line-height: 1.55">Run uses 100 ms frames. Attack fires its hit event on frame 3, when the sword is fully out, so the hitbox matches what you see.</div>
+
+          <sc-if value="{{ reviewPending }}" hint-placeholder-val="{{ true }}">
+            <div style="border-radius: 12px; background: #171a21; box-shadow: 0 0 0 1px #262b35; overflow: hidden">
+              <div style="height: 36px; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; border-bottom: 1px solid #222731">
+                <span style="color: #ffffff; font-weight: 500">3 files</span>
+                <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px"><span style="color: #4fd38a">+112</span> <span style="color: #8b92a0">−1</span></span>
+              </div>
+              <div style="padding: 8px 12px; display: flex; flex-direction: column; gap: 4px; font-size: 12px">
+                <div style="display: flex; gap: 8px; color: #b4bac6"><span style="color: #4fd38a; width: 10px">+</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px">anim/knight.clips.yaml</span><span style="color: #8b92a0">6 clips</span></div>
+                <div style="display: flex; gap: 8px; color: #b4bac6"><span style="color: #4fd38a; width: 10px">+</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px">anim/knight.states.yaml</span><span style="color: #8b92a0">graph</span></div>
+                <div style="display: flex; gap: 8px; color: #b4bac6"><span style="color: #e9a84a; width: 10px">~</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px">prefabs/player.prefab.yaml</span><span style="color: #8b92a0">animator</span></div>
+              </div>
+              <div style="display: flex; gap: 8px; padding: 8px 12px 12px">
+                <button onClick="{{ keep }}" style="flex: 1; height: 30px; border-radius: 8px; border: 0; background: #3b7bff; color: #ffffff; font-weight: 500">Keep</button>
+                <button style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #22262f; color: #d9dde5">Review</button>
+                <button onClick="{{ revert }}" style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #22262f; color: #d9dde5">Revert</button>
+              </div>
+            </div>
+          </sc-if>
+          <sc-if value="{{ reviewDone }}" hint-placeholder-val="{{ false }}">
+            <div style="color: #8b92a0; font-size: 12px">{{ reviewText }}</div>
+          </sc-if>
+
+          <div style="display: flex; flex-direction: column; gap: 4px; padding-top: 4px">
+            <div style="color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; padding-bottom: 4px">LEAVING {{ stateUpper }}</div>
+            <sc-for list="{{ outgoing }}" as="o" hint-placeholder-count="3">
+              <div style="height: 28px; display: flex; align-items: center; gap: 8px; color: #b4bac6">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#8b92a0" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>
+                <span style="color: #ffffff; width: 52px">{{ o.to }}</span>
+                <span>{{ o.when }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+        <div style="padding: 12px; border-top: 1px solid #1f232a">
+          <div style="border-radius: 12px; background: #171a21; box-shadow: 0 0 0 1px #262b35; padding: 8px 12px; display: flex; flex-direction: column; gap: 8px">
+            <label for="animprompt" style="position: absolute; left: -9999px">Ask the agent</label>
+            <textarea id="animprompt" rows="2" placeholder="e.g. add a wall slide when the knight touches a wall in the air" style="resize: none; border: 0; outline: none; background: none; color: #e6e9ef; line-height: 1.5"></textarea>
+            <div style="display: flex; align-items: center; gap: 8px">
+              <span style="height: 22px; display: flex; align-items: center; padding: 0 8px; border-radius: 6px; background: #20252f; color: #b4bac6; font-size: 11.5px">{{ state }} state</span>
+              <div style="flex: 1"></div>
+              <button aria-label="Send" style="width: 30px; height: 30px; border-radius: 8px; border: 0; background: #ffffff; color: #101216; display: flex; align-items: center; justify-content: center">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"></path></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ Screen 2: cutscene review ============ -->
+  <div style="width: 1440px; height: 900px; flex: none; display: flex; flex-direction: column; overflow: hidden; background: #101216; box-shadow: 0 0 0 1px #1f232a">
+    <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 12px; border-bottom: 1px solid #1f232a">
+      <div style="display: flex; align-items: center; gap: 8px">
+        <div style="width: 22px; height: 22px; border-radius: 6px; background: #3b7bff; display: flex; align-items: center; justify-content: center">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.5" aria-hidden="true"><path d="M5 19 12 5l7 14"></path></svg>
+        </div>
+        <span style="font-weight: 600; color: #ffffff">dungeon-run</span>
+        <span style="color: #8b92a0">/</span>
+        <span style="color: #b4bac6">cutscenes</span>
+        <span style="color: #8b92a0">/</span>
+        <span style="color: #b4bac6">floor1_intro.cutscene.yaml</span>
+      </div>
+      <div style="flex: 1"></div>
+      <span style="color: #8b92a0">from “make the floor 1 intro reveal a slime and hint at the lever”</span>
+      <div style="display: flex; gap: 2px; padding: 3px; border-radius: 8px; background: #171a21; box-shadow: 0 0 0 1px #262b35">
+        <button aria-pressed="{{ beforePressed }}" onClick="{{ showBefore }}" style="{{ beforeStyle }}">Before</button>
+        <button aria-pressed="{{ afterPressed }}" onClick="{{ showAfter }}" style="{{ afterStyle }}">After</button>
+      </div>
+      <span style="color: #8b92a0; font-family: 'JetBrains Mono', monospace; font-size: 11px">hold B to peek</span>
+      <span style="width: 1px; height: 22px; background: #262b35"></span>
+      <button onClick="{{ revertAll }}" style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #22262f; color: #e6e9ef">Revert all</button>
+      <button onClick="{{ keepAll }}" style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #3b7bff; color: #ffffff; font-weight: 500">Keep {{ keptCount }} of 5</button>
+    </div>
+
+    <div style="flex: 1; display: grid; grid-template-columns: 232px minmax(0, 1fr) 380px; min-height: 0">
+      <div style="display: flex; flex-direction: column; border-right: 1px solid #1f232a; min-height: 0">
+        <div style="height: 36px; display: flex; align-items: center; padding: 0 14px; color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">CUTSCENES</div>
+        <div style="padding: 0 6px; display: flex; flex-direction: column">
+          <div style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 6px; background: #1c2638; color: #ffffff"><span style="flex: 1">floor1_intro</span><span style="color: #8b92a0; font-size: 11px">12.0 s</span></div>
+          <div style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; color: #b4bac6"><span style="flex: 1">lever_reveal</span><span style="color: #8b92a0; font-size: 11px">6.5 s</span></div>
+          <div style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; color: #b4bac6"><span style="flex: 1">floor3_boss</span><span style="color: #8b92a0; font-size: 11px">video · 18 s</span></div>
+        </div>
+        <div style="padding: 16px 14px 4px; color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">LINES · loc/en.yaml</div>
+        <div style="padding: 0 14px; display: flex; flex-direction: column; gap: 12px">
+          <sc-for list="{{ lines }}" as="ln" hint-placeholder-count="2">
+            <div style="display: flex; flex-direction: column; gap: 2px">
+              <span style="{{ ln.idStyle }}">{{ ln.id }}</span>
+              <span style="color: #d9dde5; line-height: 1.45">{{ ln.en }}</span>
+              <span style="color: #8b92a0; line-height: 1.45">{{ ln.zh }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; min-width: 0; min-height: 0">
+        <div class="vp" style="flex: 1; position: relative; overflow: hidden; min-height: 0">
+          <div style="position: absolute; left: 32px; top: 12px; font-size: 11px; color: #8b92a0">{{ camLabel }}</div>
+          <div style="position: absolute; left: 32px; top: 32px; width: 640px; height: 360px; border-radius: 4px; overflow: hidden; box-shadow: 0 0 0 1px #2c3240, 0 24px 60px rgba(0,0,0,0.45); background: linear-gradient(180deg,#1c2230 0%,#1a1f2a 70%,#181c24 100%)">
+            <div style="{{ world }}">
+              <div style="position: absolute; left: 0; top: 300px; width: 1400px; height: 60px; background-color: #2a2f3a; background-image: linear-gradient(#1f232a 0 2px, transparent 2px), linear-gradient(90deg, #1f232a 0 2px, transparent 2px); background-size: 48px 48px"></div>
+              <div style="position: absolute; left: 30px; top: 222px; width: 54px; height: 78px; border-radius: 6px 6px 0 0; background: #6b5a45; box-shadow: inset 0 0 0 3px #4d3f30"></div>
+              <div style="position: absolute; left: 160px; top: 120px; width: 200px; height: 200px; border-radius: 100px; background: radial-gradient(circle, rgba(233,168,74,0.22) 0%, transparent 70%)"></div>
+              <div style="position: absolute; left: 254px; top: 196px; width: 8px; height: 22px; border-radius: 2px; background: #8a5a3a"></div>
+              <div style="position: absolute; left: 251px; top: 184px; width: 14px; height: 14px; border-radius: 7px 7px 4px 4px; background: #e9a84a"></div>
+              <div style="position: absolute; left: 520px; top: 238px; width: 220px; height: 16px; border-radius: 2px; background: #333a47"></div>
+              <div style="position: absolute; left: 900px; top: 250px; width: 8px; height: 50px; background: #4a5262"></div>
+              <div style="position: absolute; left: 892px; top: 238px; width: 24px; height: 14px; border-radius: 3px; background: #8a5a3a"></div>
+              <div style="{{ knightPos }}"><div style="{{ knightSpr.box }}"><div style="{{ knightSpr.dot }}"></div></div></div>
+              <sc-if value="{{ slimeShown }}" hint-placeholder-val="{{ true }}"><div style="{{ slimePos }}"><div style="{{ slimeSpr.box }}"><div style="{{ slimeSpr.dot }}"></div></div></div></sc-if>
+            </div>
+            <sc-if value="{{ subtitle }}" hint-placeholder-val="{{ true }}">
+              <div style="position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%); max-width: 480px; padding: 8px 16px; border-radius: 8px; background: rgba(16,18,22,0.85); color: #ffffff; font-size: 14px; text-align: center; line-height: 1.45">{{ subtitleText }}</div>
+            </sc-if>
+          </div>
+          <sc-if value="{{ isBefore }}" hint-placeholder-val="{{ false }}">
+            <div style="position: absolute; left: 352px; top: 46px; transform: translateX(-50%); height: 26px; display: flex; align-items: center; padding: 0 12px; border-radius: 13px; background: rgba(16,18,22,0.92); box-shadow: 0 0 0 1px #262b35; color: #b4bac6">Showing the cutscene before this request</div>
+          </sc-if>
+          <div style="position: absolute; left: 696px; top: 32px; display: flex; flex-direction: column; gap: 8px; font-size: 11.5px; color: #8b92a0">
+            <span style="display: flex; align-items: center; gap: 8px"><span style="width: 10px; height: 10px; border-radius: 2px; outline: 1.5px dashed #4fd38a; outline-offset: -1.5px"></span>added</span>
+            <span style="display: flex; align-items: center; gap: 8px"><span style="width: 10px; height: 10px; border-radius: 2px; outline: 1.5px dashed #e9a84a; outline-offset: -1.5px"></span>changed</span>
+            <span style="display: flex; align-items: center; gap: 8px"><span style="width: 10px; height: 10px; border-radius: 2px; outline: 1.5px solid #3b7bff; outline-offset: -1.5px"></span>selected</span>
+          </div>
+        </div>
+
+        <div style="height: 404px; flex: none; display: flex; flex-direction: column; border-top: 1px solid #1f232a; background: #12141a">
+          <div style="height: 40px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 12px; border-bottom: 1px solid #1f232a">
+            <button aria-label="{{ playLabel }}" onClick="{{ togglePlay }}" style="width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; border-radius: 8px; border: 0; background: #22262f; color: #ffffff">
+              <sc-if value="{{ playing }}" hint-placeholder-val="{{ false }}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M8 5v14M16 5v14"></path></svg></sc-if>
+              <sc-if value="{{ paused }}" hint-placeholder-val="{{ true }}"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 4l14 8-14 8z"></path></svg></sc-if>
+            </button>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #ffffff">{{ timeLabel }}</span>
+            <span style="color: #8b92a0">/ 12.0 s</span>
+            <div style="flex: 1"></div>
+            <span style="color: #8b92a0; font-size: 11.5px">Click the strip to scrub</span>
+          </div>
+          <div style="flex: 1; padding: 8px 12px 12px; position: relative; min-height: 0; overflow: hidden">
+            <div style="display: flex; height: 40px; gap: 0">
+              <span style="width: 120px; flex: none"></span>
+              <div style="display: flex; gap: 2px">
+                <sc-for list="{{ thumbs }}" as="th" hint-placeholder-count="24">
+                  <button aria-label="{{ th.aria }}" onClick="{{ th.pick }}" style="{{ th.style }}"><span style="{{ th.knight }}"></span><span style="{{ th.slime }}"></span></button>
+                </sc-for>
+              </div>
+            </div>
+            <div style="display: flex; height: 20px; align-items: flex-end">
+              <span style="width: 120px; flex: none"></span>
+              <div style="position: relative; width: 648px; height: 20px">
+                <sc-for list="{{ secs }}" as="sx" hint-placeholder-count="13">
+                  <span style="{{ sx.style }}">{{ sx.label }}</span>
+                </sc-for>
+              </div>
+            </div>
+            <sc-for list="{{ tracks }}" as="tr" hint-placeholder-count="6">
+              <div style="display: flex; height: 36px; align-items: center; border-bottom: 1px solid #1a1d24">
+                <span style="width: 120px; flex: none; color: #b4bac6">{{ tr.label }}</span>
+                <div style="position: relative; width: 648px; height: 36px"></div>
+              </div>
+            </sc-for>
+            <sc-for list="{{ blocks }}" as="b" hint-placeholder-count="12">
+              <button onClick="{{ b.pick }}" aria-label="{{ b.aria }}" style="{{ b.style }}">{{ b.label }}</button>
+            </sc-for>
+            <div style="{{ cutHead }}"></div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; border-left: 1px solid #1f232a; background: #12141a; min-height: 0">
+        <div style="height: 44px; flex: none; display: flex; align-items: center; padding: 0 16px; border-bottom: 1px solid #1f232a; color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">5 CHANGES · floor1_intro.cutscene.yaml</div>
+        <div style="padding: 12px; display: flex; flex-direction: column; gap: 8px">
+          <sc-for list="{{ changes }}" as="c" hint-placeholder-count="5">
+            <div style="{{ c.card }}">
+              <button onClick="{{ c.focus }}" style="flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; border: 0; background: none; color: inherit; text-align: left; padding: 0">
+                <span style="{{ c.mark }}">{{ c.sign }}</span>
+                <span style="display: flex; flex-direction: column; gap: 2px; min-width: 0">
+                  <span style="{{ c.titleStyle }}">{{ c.title }}</span>
+                  <span style="color: #8b92a0; font-size: 11.5px">{{ c.detail }}</span>
+                </span>
+              </button>
+              <button aria-label="{{ c.toggleLabel }}" onClick="{{ c.toggle }}" style="{{ c.toggleStyle }}">{{ c.toggleText }}</button>
+            </div>
+          </sc-for>
+        </div>
+        <div style="flex: 1; padding: 16px; border-top: 1px solid #1f232a; display: flex; flex-direction: column; gap: 12px; min-height: 0; overflow: hidden">
+          <div style="display: flex; align-items: center; gap: 8px">
+            <span style="color: #ffffff; font-size: 14px; font-weight: 600">{{ selTitle }}</span>
+            <span style="color: #8b92a0">{{ selTrack }}</span>
+          </div>
+          <div style="display: grid; grid-template-columns: 76px minmax(0, 1fr); align-items: center; gap: 8px 12px">
+            <span style="color: #b4bac6">Start</span>
+            <div style="display: flex; align-items: center; gap: 8px">
+              <div style="display: flex; align-items: center; border-radius: 8px; background: #171a21; box-shadow: 0 0 0 1px #262b35">
+                <button aria-label="Start 0.1 s earlier" onClick="{{ startDown }}" style="width: 28px; height: 28px; border: 0; background: none; color: #d9dde5; display: flex; align-items: center; justify-content: center"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"></path></svg></button>
+                <span style="width: 56px; text-align: center; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #ffffff">{{ selStart }} s</span>
+                <button aria-label="Start 0.1 s later" onClick="{{ startUp }}" style="width: 28px; height: 28px; border: 0; background: none; color: #d9dde5; display: flex; align-items: center; justify-content: center"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></button>
+              </div>
+            </div>
+            <span style="color: #b4bac6">Duration</span>
+            <div style="display: flex; align-items: center; gap: 8px">
+              <div style="display: flex; align-items: center; border-radius: 8px; background: #171a21; box-shadow: 0 0 0 1px #262b35">
+                <button aria-label="0.1 s shorter" onClick="{{ durDown }}" style="width: 28px; height: 28px; border: 0; background: none; color: #d9dde5; display: flex; align-items: center; justify-content: center"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"></path></svg></button>
+                <span style="width: 56px; text-align: center; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #ffffff">{{ selDur }} s</span>
+                <button aria-label="0.1 s longer" onClick="{{ durUp }}" style="width: 28px; height: 28px; border: 0; background: none; color: #d9dde5; display: flex; align-items: center; justify-content: center"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></button>
+              </div>
+            </div>
+            <sc-if value="{{ selHasEase }}" hint-placeholder-val="{{ true }}">
+              <span style="color: #b4bac6">Easing</span>
+              <div style="display: flex; gap: 2px; padding: 3px; border-radius: 8px; background: #171a21; box-shadow: 0 0 0 1px #262b35; justify-self: start">
+                <sc-for list="{{ cutEases }}" as="e" hint-placeholder-count="4">
+                  <button aria-pressed="{{ e.pressed }}" onClick="{{ e.pick }}" style="{{ e.style }}">{{ e.label }}</button>
+                </sc-for>
+              </div>
+            </sc-if>
+          </div>
+          <sc-if value="{{ selIsLine }}" hint-placeholder-val="{{ false }}">
+            <div style="border-radius: 12px; background: #171a21; box-shadow: 0 0 0 1px #262b35; padding: 12px; display: flex; flex-direction: column; gap: 8px">
+              <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #8b92a0">{{ selLineId }}</span>
+              <span style="color: #ffffff; line-height: 1.5">{{ selLineEn }}</span>
+              <span style="color: #b4bac6; line-height: 1.5">{{ selLineZh }}</span>
+              <span style="color: #8b92a0; font-size: 11.5px">Text lives in loc/en.yaml and loc/zh.yaml; the cutscene stores only the id.</span>
+            </div>
+          </sc-if>
+          <sc-if value="{{ selEdited }}" hint-placeholder-val="{{ false }}">
+            <div style="color: #e9a84a; font-size: 11.5px">Your edit joins this review · ⌘Z undoes it</div>
+          </sc-if>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":2960,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { st: 'run', prev: 'idle', frame: 2, drive: true, loops: {}, durs: {}, key: 1, eases: {}, review: 'pending', view: 'after', off: {}, t: 4.5, playing: false, block: 'cam2', edits: {}, cutEase: {} };
+  }
+  renderVals() {
+    const s = this.state;
+    const PAL = { o: '#191b22', L: '#d7deea', S: '#9aa5ba', D: '#5e677c', V: '#0f1116', P: '#e9a84a', Q: '#b8742a', B: '#6b4a33', W: '#e6ebf2', G: '#5fbf7a', H: '#b4efc2', E: '#3b8a55' };
+    const FLASH = Object.fromEntries(Object.keys(PAL).map((k) => [k, k === 'o' ? PAL.o : '#f4f6fb']));
+    const spr = (rows, p, pal) => {
+      const P = pal || PAL; const sh = []; let w = 0;
+      rows.forEach((r, y) => { w = Math.max(w, r.length); for (let x = 0; x < r.length; x++) { const c = P[r[x]]; if (c) sh.push(((x + 1) * p) + 'px ' + ((y + 1) * p) + 'px 0 0 ' + c); } });
+      return { box: 'position: relative; display: block; flex: none; width: ' + (w * p) + 'px; height: ' + (rows.length * p) + 'px', dot: 'position: absolute; display: block; left: ' + (-p) + 'px; top: ' + (-p) + 'px; width: ' + p + 'px; height: ' + p + 'px; box-shadow: ' + sh.join(', ') };
+    };
+    const KT = ['....PP......', '...PQP......', '..oooooo....', '.oLLLSSo....', '.oLSVVVo....', '.oLSSSSo....', '..oooooo..W.', '.oLLSSSDo.W.', 'oLLSSSSDDoW.', 'oSSBBBBDDooo', '.oDSSSSDo.o.'];
+    const KA = ['..oooooo....', '.oLLSSSDo...', 'oLLSSSSDDoWWWW', 'oSSBBBBDDo..'];
+    const LEGS = { stand: ['..oDo.oDo...', '..oBo.oBo...', '..ooo.ooo...'], stride: ['.oDo...oDo..', '.oBo...oBo..', '.ooo...ooo..'], pass: ['...oDDo.....', '...oBBo.....', '...oooo.....'], tuck: ['..oDDDDo....', '..oBo.oBo...', '............'] };
+    const knight = (legs, bob, atk) => {
+      let top = KT.slice();
+      if (atk) top = top.slice(0, 6).concat(KA, top.slice(10));
+      const rows = top.concat(LEGS[legs]);
+      return bob ? rows.concat(['']) : [''].concat(rows);
+    };
+    const SL = ['....ooo....', '..ooGGGoo..', '.oGHHGGGGo.', '.oGHGGVGVo.', 'oGGGGGGGGGo', 'oGGGGGGGGGo', 'oEEEEEEEEEo', '.ooooooooo.'];
+    const CLIPS = {
+      idle: { ms: 150, loop: true, f: [['stand', 0], ['stand', 1], ['stand', 0], ['stand', 1]], ev: [], prop: { name: 'offset.y', keys: [[0, 0], [1, -1], [2, 0], [3, -1]], ease: 'Hold' } },
+      run: { ms: 100, loop: true, f: [['stride', 0], ['pass', 1], ['stand', 0], ['stride', 0], ['pass', 1], ['stand', 0]], ev: [[1, 'footstep'], [4, 'footstep']], prop: { name: 'offset.y', keys: [[0, 0], [1, -1], [3, 0], [4, -1]], ease: 'Hold' } },
+      jump: { ms: 120, loop: false, f: [['tuck', 1], ['tuck', 0]], ev: [[0, 'jump_dust']], prop: { name: 'scale.y', keys: [[0, 1.15], [1, 1]], ease: 'Ease out' } },
+      fall: { ms: 120, loop: true, f: [['stride', 0], ['stride', 1]], ev: [], prop: null },
+      attack: { ms: 80, loop: false, f: [['stand', 0], ['stand', 0, 1], ['stand', 0, 1], ['stand', 0]], ev: [[1, 'swing_sfx'], [2, 'hit']], prop: { name: 'hitbox.sword', keys: [[2, 'on'], [3, 'off']], ease: 'Hold' } },
+      hurt: { ms: 90, loop: false, f: [['stand', 0, 0, 1], ['stand', 0]], ev: [[0, 'flash']], prop: null },
+    };
+    const names = Object.keys(CLIPS);
+    const st = CLIPS[s.st] ? s.st : 'run';
+    const clip = CLIPS[st];
+    const frameRows = clip.f.map((f) => ({ rows: knight(f[0], f[1], f[2]), pal: f[3] ? FLASH : PAL }));
+    const durs = s.durs[st] || clip.f.map(() => clip.ms);
+    const fi = Math.min(s.frame, frameRows.length - 1);
+    const loop = st in s.loops ? s.loops[st] : clip.loop;
+    const total = durs.reduce((a, b) => a + b, 0);
+    const pxms = Math.min(1.5, Math.max(0.9, 540 / total));
+
+    const clipList = names.map((n) => ({ name: n, meta: CLIPS[n].f.length + ' f', spr: spr(knight(CLIPS[n].f[0][0], 0, CLIPS[n].f[0][2]), 1), style: 'width: 100%; height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 0; border-radius: 6px; ' + (n === st ? 'background: #171a21; color: #ffffff; box-shadow: 0 0 0 1px #262b35' : 'background: none; color: #b4bac6'), pick: () => this.setState({ st: n, prev: st, frame: 0, key: 0 }) }));
+
+    const POS = { idle: [40, 230], run: [330, 230], jump: [190, 70], fall: [430, 70], attack: [190, 400], hurt: [430, 400] };
+    const nodes = names.map((n) => {
+      const on = n === st;
+      const c = CLIPS[n];
+      return {
+        name: n, aria: 'State ' + n + (on ? ', playing' : ''),
+        meta: c.f.length + ' frames · ' + ((n in s.loops ? s.loops[n] : c.loop) ? 'loop' : 'once'),
+        spr: spr(on ? frameRows[fi].rows : knight(c.f[0][0], c.f[0][1], c.f[0][2]), 2, on ? frameRows[fi].pal : PAL),
+        nameStyle: 'color: ' + (on ? '#ffffff' : '#d9dde5') + '; font-weight: 600',
+        style: 'position: absolute; left: ' + POS[n][0] + 'px; top: ' + POS[n][1] + 'px; width: 148px; height: 56px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 0; border-radius: 12px; box-sizing: border-box; background: ' + (on ? '#1a2030' : '#171a21') + '; box-shadow: 0 0 0 ' + (on ? '1.5px #3b7bff, 0 10px 30px rgba(0,0,0,0.35)' : '1px #262b35'),
+        pick: () => this.setState({ st: n, prev: st, frame: 0, key: 0 }),
+      };
+    });
+    const E = (id, from, to) => {
+      const on = from === s.prev && to === st;
+      return [id, 'stroke: ' + (on ? '#3b7bff' : '#4a5262') + '; stroke-width: ' + (on ? 2 : 1.5) + '; marker-end: url(#' + (on ? 'ahA' : 'ah') + ')'];
+    };
+    const edge = Object.fromEntries([
+      E('idleRun', 'idle', 'run'), E('runIdle', 'run', 'idle'), E('idleJump', 'idle', 'jump'), E('runJump', 'run', 'jump'), E('jumpFall', 'jump', 'fall'), E('fallRun', 'fall', 'run'),
+      E('idleAttack', 'idle', 'attack'), E('runAttack', 'run', 'attack'), E('attackIdle', 'attack', 'idle'), E('anyHurt', '*', 'hurt'), E('hurtIdle', 'hurt', 'idle'),
+    ]);
+    if (st === 'hurt') edge.anyHurt = 'stroke: #3b7bff; stroke-width: 2; marker-end: url(#ahA)';
+    const lab = (x, y, text, hot) => ({ text, style: 'position: absolute; left: ' + x + 'px; top: ' + y + 'px; transform: translateX(-50%); height: 20px; display: flex; align-items: center; padding: 0 6px; border-radius: 6px; background: rgba(16,18,22,0.92); white-space: nowrap; font-size: 11.5px; color: ' + (hot ? '#b9cfff' : '#b4bac6') });
+    const hot = (a, b) => s.prev === a && st === b;
+    const edgeLabels = [
+      lab(259, 220, 'moving', hot('idle', 'run')),
+      lab(259, 276, 'stopped', hot('run', 'idle')),
+      lab(264, 166, 'jump pressed, on floor', hot('idle', 'jump') || hot('run', 'jump')),
+      lab(384, 72, 'falling', hot('jump', 'fall')),
+      lab(520, 170, 'lands', hot('fall', 'run')),
+      lab(264, 334, 'attack pressed', hot('idle', 'attack') || hot('run', 'attack')),
+      lab(145, 452, 'clip ends', hot('attack', 'idle')),
+      lab(614, 382, 'took damage', st === 'hurt'),
+      lab(282, 508, 'clip ends', hot('hurt', 'idle')),
+    ];
+    const OUT = {
+      idle: [['run', 'moving: |move.x| > 0.1'], ['jump', 'jump pressed while on floor'], ['attack', 'attack pressed']],
+      run: [['idle', 'stopped: |move.x| ≤ 0.1'], ['jump', 'jump pressed while on floor'], ['attack', 'attack pressed']],
+      jump: [['fall', 'falling: velocity.y > 0']],
+      fall: [['run', 'lands on floor; idle follows if stopped']],
+      attack: [['idle', 'when the clip ends']],
+      hurt: [['idle', 'when the clip ends']],
+    };
+    const outgoing = OUT[st].map(([to, when]) => ({ to, when })).concat(st === 'hurt' ? [] : [{ to: 'hurt', when: 'took damage, from any state' }]);
+
+    const go = (n) => () => this.setState({ st: n, prev: st, frame: 0, key: 0 });
+    const keyStyle = 'height: 28px; min-width: 28px; padding: 0 8px; border-radius: 6px; border: 0; background: #171a21; box-shadow: 0 0 0 1px #262b35, inset 0 -2px 0 #262b35; color: #ffffff; font-family: \'JetBrains Mono\', monospace; font-size: 11.5px';
+    const keys = [
+      { label: '← →', aria: 'Hold left or right: run', press: go('run') },
+      { label: 'Space', aria: 'Space: jump', press: go('jump') },
+      { label: 'J', aria: 'J: attack', press: go('attack') },
+      { label: 'Release', aria: 'Release all keys: idle', press: go('idle') },
+    ].map((k) => ({ ...k, style: keyStyle }));
+    const sw = (on) => ({ track: 'width: 28px; height: 16px; flex: none; border-radius: 8px; position: relative; display: inline-block; background: ' + (on ? '#3b7bff' : '#2c3240'), knob: 'position: absolute; top: 2px; left: ' + (on ? 14 : 2) + 'px; width: 12px; height: 12px; border-radius: 6px; background: #ffffff' });
+    const dsw = sw(s.drive), lsw = sw(loop);
+
+    // drawer
+    let acc = 0;
+    const frames = frameRows.map((fr, i) => {
+      const x = acc * pxms; acc += durs[i];
+      const w = durs[i] * pxms - 4;
+      const changed = durs[i] !== clip.ms;
+      return {
+        aria: 'Frame ' + (i + 1) + ', ' + durs[i] + ' ms',
+        spr: spr(fr.rows, 2, fr.pal),
+        handle: 'position: absolute; right: 2px; top: 14px; width: 3px; height: 24px; border-radius: 2px; background: ' + (i === fi ? '#3b7bff' : '#4a5262'),
+        style: 'position: absolute; left: ' + x + 'px; top: 0; width: ' + w + 'px; height: 52px; padding: 0; border: 0; border-radius: 6px; display: flex; align-items: center; justify-content: center; ' + (i === fi ? 'box-shadow: 0 0 0 1.5px #3b7bff' : changed ? 'box-shadow: none; outline: 1.5px dashed #e9a84a; outline-offset: -1.5px' : 'box-shadow: 0 0 0 1px #262b35'),
+        pick: () => this.setState({ frame: i }),
+      };
+    });
+    const startOf = (i) => durs.slice(0, i).reduce((a, b) => a + b, 0);
+    const ticks = [];
+    for (let ms = 0; ms <= total; ms += 100) ticks.push({ label: ms === 0 ? '0' : ms + '', style: 'position: absolute; left: ' + (ms * pxms) + 'px; bottom: 2px; font-family: \'JetBrains Mono\', monospace; font-size: 11px; color: #8b92a0; border-left: 1px solid #262b35; padding-left: 4px; line-height: 1' });
+    const events = clip.ev.map(([i, name]) => ({ name, style: 'position: absolute; left: ' + (startOf(i) * pxms + 6) + 'px; top: 6px; height: 20px; display: flex; align-items: center; gap: 6px; padding: 0 8px 0 6px; border-radius: 6px; background: #2a2414; box-shadow: 0 0 0 1px #4a3f1f; color: #f2c14e; font-size: 11.5px; white-space: nowrap' }));
+    const prop = clip.prop;
+    const ki = prop ? Math.min(s.key, prop.keys.length - 1) : 0;
+    const propKeys = prop ? prop.keys.map(([i, v], j) => ({ aria: prop.name + ' key ' + (j + 1) + ': ' + v, style: 'position: absolute; left: ' + (startOf(i) * pxms + 2) + 'px; top: 9px; width: 14px; height: 14px; padding: 0; border: 0; border-radius: 3px; transform: rotate(45deg); background: ' + (j === ki ? '#3b7bff' : '#b4bac6') + '; box-shadow: 0 0 0 2px #171a21', pick: () => this.setState({ key: j }) })) : [];
+    const easeKey = st + ':' + ki;
+    const curEase = s.eases[easeKey] || (prop ? prop.ease : '');
+    const eases = ['Linear', 'Ease in', 'Ease out', 'Ease in-out', 'Hold'].map((e) => ({ label: e.replace('Ease in-out', 'In-out').replace('Ease in', 'In').replace('Ease out', 'Out'), pressed: e === curEase ? 'true' : 'false', style: 'height: 24px; padding: 0 8px; border-radius: 6px; border: 0; font-size: 12px; white-space: nowrap; ' + (e === curEase ? 'background: #262b35; color: #ffffff' : 'background: none; color: #8b92a0'), pick: () => this.setState({ eases: { ...s.eases, [easeKey]: e } }) }));
+    const setDur = (d) => { const arr = durs.slice(); arr[fi] = Math.max(20, arr[fi] + d); this.setState({ durs: { ...s.durs, [st]: arr } }); };
+    const playheadX = 12 + 112 + (startOf(fi) + durs[fi] / 2) * pxms;
+    const prevRows = frameRows[fi];
+
+    // ---------- screen 2 ----------
+    const SC = 54;
+    const blockDefs = [
+      { id: 'cam1', tr: 'camera', start: 0, dur: 1.6, label: 'Hold on door', chg: 'cam', before: [0, 1.0], ease: 'Hold' },
+      { id: 'cam2', tr: 'camera', start: 1.6, dur: 2.4, label: 'Pan to knight', chg: 'cam', before: [1.0, 2.4], ease: 'Ease in-out' },
+      { id: 'cam3', tr: 'camera', start: 4.0, dur: 8.0, label: 'Follow knight', before: [3.4, 8.6], chg: 'cam', ease: 'Linear' },
+      { id: 'kn1', tr: 'knight', start: 1.0, dur: 2.4, label: 'Walk in · x 60 → 220', ease: 'Ease out' },
+      { id: 'kn2', tr: 'knight', start: 3.4, dur: 4.6, label: 'Idle' },
+      { id: 'kn3', tr: 'knight', start: 8.0, dur: 4.0, label: 'Run right', ease: 'Ease in' },
+      { id: 'sl1', tr: 'slime', start: 6.0, dur: 0.8, label: 'Drop', chg: 'slime', added: true, ease: 'Ease in' },
+      { id: 'sl2', tr: 'slime', start: 6.8, dur: 5.2, label: 'Patrol 420 → 520', chg: 'slime', added: true },
+      { id: 'dl1', tr: 'dialogue', start: 3.6, dur: 2.4, label: 'intro.knight.01', line: 0 },
+      { id: 'dl2', tr: 'dialogue', start: 8.2, dur: 2.2, label: 'intro.knight.02', line: 1, chg: 'line', added: true },
+      { id: 'sx1', tr: 'sfx', start: 0.2, dur: 0.6, label: 'door_slam' },
+      { id: 'sx2', tr: 'sfx', start: 6.0, dur: 0.5, label: 'slime_drop', chg: 'sfx', added: true },
+      { id: 'mu1', tr: 'music', start: 2.0, dur: 10.0, label: 'cellar_theme · fade in 2 s', beforeLabel: 'cellar_theme', chg: 'music', before: [0, 12.0] },
+    ];
+    const changeDefs = [
+      { id: 'cam', sign: '~', title: 'Camera holds on the door longer', detail: 'hold 1.0 → 1.6 s, pan starts later', focus: 'cam1' },
+      { id: 'slime', sign: '+', title: 'slime_01 drops from the ceiling', detail: 'at 6.0 s, then patrols', focus: 'sl1' },
+      { id: 'sfx', sign: '+', title: 'slime_drop sound', detail: 'at 6.0 s, bus sfx', focus: 'sx2' },
+      { id: 'line', sign: '+', title: 'Line intro.knight.02', detail: 'hints at the lever, 8.2 s', focus: 'dl2' },
+      { id: 'music', sign: '~', title: 'Music fades in at 2.0 s', detail: 'was full volume from 0.0 s', focus: 'mu1' },
+    ];
+    const after = s.view === 'after';
+    const live = (b) => after && b.chg && !s.off[b.chg];
+    const tracksDef = [['camera', 'Camera'], ['knight', 'Knight'], ['slime', 'slime_01'], ['dialogue', 'Dialogue'], ['sfx', 'Sound'], ['music', 'Music']];
+    const rowY = (tr) => 8 + 40 + 20 + tracksDef.findIndex((t) => t[0] === tr) * 37;
+    const geo = (b) => {
+      const e = s.edits[b.id];
+      if (e) return e;
+      if (b.chg && !live(b)) return b.before ? { start: b.before[0], dur: b.before[1] } : null;
+      return { start: b.start, dur: b.dur };
+    };
+    const blocks = blockDefs.map((b) => {
+      const g = geo(b);
+      if (!g) return null;
+      const on = s.block === b.id;
+      const edited = !!s.edits[b.id];
+      let deco = 'box-shadow: 0 0 0 1px #2c3240';
+      if (live(b) || edited) deco = 'box-shadow: none; outline: 1.5px dashed ' + (b.added && !edited ? '#4fd38a' : '#e9a84a') + '; outline-offset: -1.5px';
+      if (on) deco = 'box-shadow: 0 0 0 1.5px #3b7bff';
+      const bg = b.tr === 'dialogue' ? '#1f2433' : b.tr === 'sfx' || b.tr === 'music' ? '#1b2422' : '#20252f';
+      return {
+        label: b.chg && !live(b) && b.beforeLabel ? b.beforeLabel : b.label, aria: b.label + ', ' + g.start.toFixed(1) + ' s to ' + (g.start + g.dur).toFixed(1) + ' s',
+        style: 'position: absolute; left: ' + (12 + 120 + g.start * SC) + 'px; top: ' + (rowY(b.tr) + 4) + 'px; width: ' + Math.max(18, g.dur * SC - 3) + 'px; height: 28px; padding: 0 8px; border: 0; border-radius: 6px; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11.5px; color: #d9dde5; background: ' + bg + '; ' + deco + (b.tr === 'dialogue' ? '; font-family: \'JetBrains Mono\', monospace' : ''),
+        pick: () => this.setState({ block: b.id }),
+      };
+    }).filter(Boolean);
+    const tracks = tracksDef.map(([id, label]) => ({ label }));
+    const secs = [];
+    for (let i = 0; i <= 12; i++) secs.push({ label: String(i), style: 'position: absolute; left: ' + (i * SC) + 'px; bottom: 2px; font-family: \'JetBrains Mono\', monospace; font-size: 11px; color: #8b92a0; border-left: 1px solid #262b35; padding-left: 4px; line-height: 1' });
+
+    const camOn = !s.off.cam && after;
+    const holdEnd = camOn ? 1.6 : 1.0, panEnd = camOn ? 4.0 : 3.4;
+    const kx = (t) => t < 1 ? 60 : t < 3.4 ? 60 + (t - 1) / 2.4 * 160 : t < 8 ? 220 : 220 + (t - 8) / 4 * 380;
+    const camX = (t) => {
+      if (t < holdEnd) return 0;
+      if (t < panEnd) { const u = (t - holdEnd) / (panEnd - holdEnd); const e = u < 0.5 ? 2 * u * u : 1 - Math.pow(-2 * u + 2, 2) / 2; return e * 40; }
+      return Math.max(40, kx(t) - 260);
+    };
+    const slimeOn = after && !s.off.slime;
+    const slimeY = (t) => t < 6 ? -40 : t < 6.8 ? -40 + (t - 6) / 0.8 * 316 : 276;
+    const slimeX = (t) => t < 6.8 ? 420 : 420 + Math.min(100, (t - 6.8) * 40);
+    const t = s.t;
+    const thumbs = [];
+    for (let i = 0; i < 24; i++) {
+      const tt = i * 0.5;
+      const cx = camX(tt);
+      const on = Math.abs(tt - t) < 0.01;
+      const scale = 25 / 640;
+      thumbs.push({
+        aria: 'Scrub to ' + tt.toFixed(1) + ' s',
+        style: 'position: relative; width: 25px; height: 40px; flex: none; padding: 0; border: 0; border-radius: 4px; overflow: hidden; background: linear-gradient(180deg,#1c2230 0%,#1c2230 82%,#2a2f3a 82%); box-shadow: 0 0 0 ' + (on ? '1.5px #3b7bff' : '1px #262b35'),
+        knight: 'position: absolute; left: ' + Math.round((kx(tt) - cx + 16) * scale) + 'px; top: 26px; width: 3px; height: 7px; border-radius: 1px; background: #d7deea',
+        slime: slimeOn && tt >= 6 ? 'position: absolute; left: ' + Math.round((slimeX(tt) - cx + 16) * scale) + 'px; top: ' + Math.round(4 + Math.min(1, (tt - 6) / 0.8) * 26) + 'px; width: 4px; height: 3px; border-radius: 2px 2px 0 0; background: #5fbf7a' : 'display: none',
+        pick: () => this.setState({ t: tt }),
+      });
+    }
+    const cx = camX(t);
+    const walking = (t >= 1 && t < 3.4) || t >= 8;
+    const kf = walking ? (Math.floor(t * 10) % 2 ? knight('pass', 1) : knight('stride', 0)) : knight('stand', 0);
+    const LINES = [
+      { id: 'intro.knight.01', en: 'Another floor. Another locked door.', zh: '又一层。又一扇锁着的门。' },
+      { id: 'intro.knight.02', en: 'The lever has to be down here somewhere.', zh: '拉杆一定就在这下面。' },
+    ];
+    const lineOn = (b) => { const g = geo(b); return g && t >= g.start && t < g.start + g.dur; };
+    const activeLine = blockDefs.filter((b) => b.tr === 'dialogue').find(lineOn);
+    const changes = changeDefs.map((c) => {
+      const on = !s.off[c.id];
+      const color = c.sign === '+' ? '#4fd38a' : '#e9a84a';
+      const focused = blockDefs.find((b) => b.id === s.block && b.chg === c.id);
+      return {
+        ...c,
+        card: 'display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 12px; border-radius: 12px; ' + (focused ? 'background: #1a2030; box-shadow: 0 0 0 1.5px #3b7bff' : 'background: #171a21; box-shadow: 0 0 0 1px #262b35') + (on ? '' : '; opacity: 0.55'),
+        mark: 'width: 22px; height: 22px; flex: none; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-weight: 600; background: ' + (c.sign === '+' ? '#173326' : '#33291a') + '; color: ' + color,
+        titleStyle: 'color: #e6e9ef; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; ' + (on ? '' : 'text-decoration: line-through'),
+        toggleText: on ? 'Revert' : 'Restore',
+        toggleLabel: (on ? 'Revert: ' : 'Restore: ') + c.title,
+        toggleStyle: 'height: 28px; flex: none; padding: 0 10px; border-radius: 6px; border: 0; background: #22262f; color: ' + (on ? '#d9dde5' : '#8fb3ff'),
+        toggle: () => this.setState({ off: { ...s.off, [c.id]: on } }),
+        focus: () => this.setState({ block: c.focus, t: Math.min(11.5, Math.floor((blockDefs.find((b) => b.id === c.focus).start) * 2) / 2) }),
+      };
+    });
+    const sb = blockDefs.find((b) => b.id === s.block) || blockDefs[1];
+    const sg = geo(sb) || { start: sb.start, dur: sb.dur };
+    const edit = (ds, dd) => () => { const n = { start: Math.max(0, Math.round((sg.start + ds) * 10) / 10), dur: Math.max(0.1, Math.round((sg.dur + dd) * 10) / 10) }; this.setState({ edits: { ...s.edits, [sb.id]: n } }); };
+    const ce = s.cutEase[sb.id] || sb.ease || 'Linear';
+    const cutEases = ['Linear', 'Ease in', 'Ease out', 'Ease in-out', 'Hold'].map((e) => ({ label: e.replace('Ease in-out', 'In-out').replace('Ease in', 'In').replace('Ease out', 'Out'), pressed: e === ce ? 'true' : 'false', style: 'height: 24px; padding: 0 8px; border-radius: 6px; border: 0; font-size: 12px; white-space: nowrap; ' + (e === ce ? 'background: #262b35; color: #ffffff' : 'background: none; color: #8b92a0'), pick: () => this.setState({ cutEase: { ...s.cutEase, [sb.id]: e } }) }));
+    const trackName = { camera: 'Camera', knight: 'Knight', slime: 'slime_01', dialogue: 'Dialogue', sfx: 'Sound', music: 'Music' };
+    const seg = (on) => 'height: 24px; padding: 0 10px; border-radius: 6px; border: 0; font-size: 12px; font-weight: 500; ' + (on ? 'background: #262b35; color: #ffffff' : 'background: none; color: #8b92a0');
+    const kept = changeDefs.filter((c) => !s.off[c.id]).length;
+
+    return {
+      clipList, nodes, edge, edgeLabels, outgoing, keys,
+      state: st, stateUpper: st.toUpperCase(),
+      driving: s.drive, drivingAria: s.drive ? 'true' : 'false', driveTrack: dsw.track, driveKnob: dsw.knob,
+      toggleDrive: () => this.setState({ drive: !s.drive }),
+      prevSpr: spr(prevRows.rows, 3, prevRows.pal), prevPos: 'position: absolute; left: 82px; top: ' + (120 - 26 - 45) + 'px',
+      clipMeta: clip.f.length + ' frames · ' + total + ' ms',
+      loopAria: loop ? 'true' : 'false', loopTrack: lsw.track, loopKnob: lsw.knob,
+      toggleLoop: () => this.setState({ loops: { ...s.loops, [st]: !loop } }),
+      frameNo: (fi + 1) + ' of ' + frameRows.length, frameMs: durs[fi],
+      durStyle: 'width: 52px; text-align: center; font-family: \'JetBrains Mono\', monospace; font-size: 11.5px; color: ' + (durs[fi] !== clip.ms ? '#e9a84a' : '#ffffff'),
+      shorter: () => setDur(-10), longer: () => setDur(10),
+      frames, ticks, events, noEvents: events.length === 0,
+      propName: prop ? prop.name : 'Properties', hasProp: !!prop, noProp: !prop, propKeys,
+      propLine: 'position: absolute; left: 0; right: 0; top: 15px; height: 1px; background: #262b35',
+      hasKey: !!prop, keyLabel: prop ? 'Key ' + (ki + 1) + ' · ' + prop.name + ' ' + prop.keys[ki][1] : '', eases,
+      playhead: 'position: absolute; left: ' + playheadX + 'px; top: 12px; height: 148px; width: 1.5px; background: #3b7bff; pointer-events: none',
+      steps: [
+        { text: 'Read knight.aseprite · 6 tags, 20 frames' },
+        { text: 'Wrote 6 clips with events and offsets' },
+        { text: 'Built 6 states, 11 transitions from input and physics' },
+        { text: 'Played 8 s of scripted input · no stuck states' },
+      ],
+      reviewPending: s.review === 'pending', reviewDone: s.review !== 'pending',
+      reviewText: s.review === 'kept' ? 'Kept · one undo step (⌘Z)' : 'Reverted · the knight is back to a static sprite',
+      keep: () => this.setState({ review: 'kept' }), revert: () => this.setState({ review: 'reverted' }),
+
+      beforePressed: after ? 'false' : 'true', afterPressed: after ? 'true' : 'false',
+      beforeStyle: seg(!after), afterStyle: seg(after),
+      showBefore: () => this.setState({ view: 'before' }), showAfter: () => this.setState({ view: 'after' }),
+      revertAll: () => this.setState({ off: Object.fromEntries(changeDefs.map((c) => [c.id, true])) }),
+      keepAll: () => this.setState({ off: {} }), keptCount: kept, isBefore: !after,
+      lines: LINES.map((l, i) => ({ ...l, idStyle: 'font-family: \'JetBrains Mono\', monospace; font-size: 11.5px; color: ' + (i === 1 && after && !s.off.line ? '#4fd38a' : '#8b92a0') })),
+      camLabel: 'Camera · ' + (t < holdEnd ? 'hold on door' : t < panEnd ? 'pan to knight' : 'follow knight') + ' · 640 × 360',
+      world: 'position: absolute; left: 0; top: 0; width: 1400px; height: 360px; transform: translateX(' + (-cx) + 'px)',
+      knightSpr: spr(kf, 3), knightPos: 'position: absolute; left: ' + kx(t) + 'px; top: ' + (300 - 45) + 'px',
+      slimeShown: slimeOn && t >= 6, slimeSpr: spr(SL, 3), slimePos: 'position: absolute; left: ' + slimeX(t) + 'px; top: ' + slimeY(t) + 'px',
+      subtitle: !!activeLine, subtitleText: activeLine ? LINES[activeLine.line].en : '',
+      playing: s.playing, paused: !s.playing, playLabel: s.playing ? 'Pause' : 'Play', togglePlay: () => this.setState({ playing: !s.playing }),
+      timeLabel: t.toFixed(1) + ' s',
+      thumbs, secs, tracks, blocks,
+      cutHead: 'position: absolute; left: ' + (12 + 120 + t * SC) + 'px; top: 8px; bottom: 12px; width: 1.5px; background: #3b7bff; pointer-events: none',
+      changes,
+      selTitle: sb.label, selTrack: trackName[sb.tr],
+      selStart: sg.start.toFixed(1), selDur: sg.dur.toFixed(1),
+      startDown: edit(-0.1, 0), startUp: edit(0.1, 0), durDown: edit(0, -0.1), durUp: edit(0, 0.1),
+      selHasEase: !!sb.ease, cutEases,
+      selIsLine: sb.tr === 'dialogue', selLineId: sb.tr === 'dialogue' ? LINES[sb.line].id : '', selLineEn: sb.tr === 'dialogue' ? LINES[sb.line].en : '', selLineZh: sb.tr === 'dialogue' ? LINES[sb.line].zh : '',
+      selEdited: !!s.edits[sb.id] || !!s.cutEase[sb.id],
+    };
+  }
+}
+</script>
+</body>
+</html>

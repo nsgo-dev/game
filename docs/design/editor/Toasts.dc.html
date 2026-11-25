@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Toasts</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#101216}
+a{color:#8fb3ff}a:hover{color:#b9cfff}
+.vp{background-color:#15181d;background-image:radial-gradient(circle,#2a2f38 1px,transparent 1.2px);background-size:16px 16px}
+button{font:inherit;cursor:pointer}
+</style>
+</helmet>
+<div style="height: 900px; box-sizing: border-box; padding: 40px 48px; display: flex; flex-direction: column; gap: 24px; font-family: Inter, system-ui, sans-serif; font-size: 12.5px; line-height: 1.5; color: #d9dde5; background: #101216; overflow: hidden">
+
+  <div style="display: flex; align-items: baseline; gap: 16px">
+    <span style="font-size: 20px; font-weight: 600; color: #ffffff">Toast</span>
+    <span style="color: #8b92a0; font-size: 13px">One component for passing feedback: something finished, was copied, or can be undone. Decisions never go in a toast.</span>
+  </div>
+
+  <div style="flex: 1; min-height: 0; display: grid; grid-template-columns: 472px minmax(0, 1fr); gap: 48px">
+
+    <div style="display: flex; flex-direction: column; gap: 24px">
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <div style="color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">SUCCESS · 4 S, 6 S WITH AN ACTION</div>
+        <div style="align-self: flex-start; display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 4px 0 12px; border-radius: 12px; background: #171a21; box-shadow: 0 0 0 1px #262b35, 0 12px 32px rgba(0,0,0,0.45); white-space: nowrap">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4fd38a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="m8 12.5 2.8 2.8L16.5 9.5"></path></svg>
+          <span style="margin-right: 8px">Kept 6 changes to level_01</span>
+          <button style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-radius: 8px; border: 0; background: #262b35; color: #ffffff; font-weight: 500">Undo<span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8b92a0; font-weight: 400">⌘Z</span></button>
+          <button aria-label="Dismiss" style="width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 6px; border: 0; background: none; color: #8b92a0"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg></button>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <div style="color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">INFO · 4 S</div>
+        <div style="align-self: flex-start; display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 4px 0 12px; border-radius: 12px; background: #171a21; box-shadow: 0 0 0 1px #262b35, 0 12px 32px rgba(0,0,0,0.45); white-space: nowrap">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#b4bac6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v5M12 8h.01"></path></svg>
+          <span style="margin-right: 8px">Copied the MCP config for Claude Code</span>
+          <button aria-label="Dismiss" style="width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 6px; border: 0; background: none; color: #8b92a0"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg></button>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <div style="color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">WARNING · 8 S</div>
+        <div style="align-self: flex-start; display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 4px 0 12px; border-radius: 12px; background: #2a2414; box-shadow: 0 0 0 1px #4a3f1f, 0 12px 32px rgba(0,0,0,0.45); white-space: nowrap">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f2c14e" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4 2.5 20h19z"></path><path d="M12 10v4M12 17h.01"></path></svg>
+          <span style="margin-right: 8px">level_01.scene.yaml changed on disk and was reloaded</span>
+          <button style="height: 28px; display: flex; align-items: center; padding: 0 10px; border-radius: 8px; border: 0; background: #2a2414; box-shadow: inset 0 0 0 1px #4a3f1f; color: #ffffff; font-weight: 500">Show</button>
+          <button aria-label="Dismiss" style="width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 6px; border: 0; background: none; color: #8b92a0"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg></button>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <div style="color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">ERROR · STAYS UNTIL RETRIED OR DISMISSED</div>
+        <div style="align-self: flex-start; display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 4px 0 12px; border-radius: 12px; background: #171a21; box-shadow: 0 0 0 1px #262b35, 0 12px 32px rgba(0,0,0,0.45); white-space: nowrap">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ff6b6b" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7.5V13M12 16.5h.01"></path></svg>
+          <span style="margin-right: 8px">Couldn't save level_01.scene.yaml: the disk is full</span>
+          <button style="height: 28px; display: flex; align-items: center; padding: 0 10px; border-radius: 8px; border: 0; background: #262b35; color: #ffffff; font-weight: 500">Retry</button>
+          <button aria-label="Dismiss" style="width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 6px; border: 0; background: none; color: #8b92a0"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg></button>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <div style="color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">PROGRESS · STAYS UNTIL DONE, THEN BECOMES SUCCESS</div>
+        <div style="position: relative; align-self: flex-start; display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 4px 0 12px; border-radius: 12px; background: #171a21; box-shadow: 0 0 0 1px #262b35, 0 12px 32px rgba(0,0,0,0.45); white-space: nowrap; overflow: hidden">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="#262b35"></circle><path d="M21 12a9 9 0 0 0-9-9" stroke="#b4bac6"></path></svg>
+          <span>Exporting dungeon-run for macOS</span>
+          <span style="margin-right: 8px; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #b4bac6">62%</span>
+          <button style="height: 28px; display: flex; align-items: center; padding: 0 10px; border-radius: 8px; border: 0; background: #262b35; color: #ffffff; font-weight: 500">Cancel</button>
+          <span style="position: absolute; left: 12px; right: 12px; bottom: 0; height: 2px; border-radius: 1px; background: #262b35"><span style="display: block; width: 62%; height: 2px; border-radius: 1px; background: #b4bac6"></span></span>
+        </div>
+        <div style="align-self: flex-start; display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 4px 0 12px; border-radius: 12px; background: #171a21; box-shadow: 0 0 0 1px #262b35, 0 12px 32px rgba(0,0,0,0.45); white-space: nowrap">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4fd38a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="m8 12.5 2.8 2.8L16.5 9.5"></path></svg>
+          <span style="margin-right: 8px">Exported <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px">build/macos/dungeon-run.app</span></span>
+          <button style="height: 28px; display: flex; align-items: center; padding: 0 10px; border-radius: 8px; border: 0; background: #262b35; color: #ffffff; font-weight: 500">Show in Finder</button>
+          <button aria-label="Dismiss" style="width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 6px; border: 0; background: none; color: #8b92a0"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg></button>
+        </div>
+      </div>
+
+      <div style="color: #8b92a0; line-height: 1.6">Raised fill, 12 radius, 40 high, one line. Icon shape tells the kind as well as its color: check, i, triangle, circle with a bar, ring. At most one action, a verb, with its shortcut.</div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 16px; min-width: 0">
+      <div style="color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">PLACEMENT AND QUEUE · TRY IT</div>
+      <div style="position: relative; height: 440px; border-radius: 12px; overflow: hidden; box-shadow: 0 0 0 1px #1f232a; background: #101216">
+        <div style="position: absolute; left: 0; top: 0; bottom: 0; width: 120px; background: #101216; border-right: 1px solid #1f232a; padding: 12px 14px; box-sizing: border-box; color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">SCENE</div>
+        <div style="position: absolute; right: 0; top: 0; bottom: 0; width: 160px; background: #12141a; border-left: 1px solid #1f232a; padding: 12px 14px; box-sizing: border-box; color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">AGENT</div>
+        <div class="vp" style="position: absolute; left: 121px; right: 161px; top: 0; bottom: 0; overflow: hidden">
+          <div style="position: absolute; left: 40px; top: 40px; right: 40px; height: 260px; border-radius: 4px; box-shadow: 0 0 0 1px #2c3240, 0 24px 60px rgba(0,0,0,0.45); background: linear-gradient(180deg,#1c2230,#181c24)"></div>
+          <div style="position: absolute; left: 40px; right: 40px; top: 264px; height: 36px; background: #2a2f3a; border-top: 3px solid #3b4250"></div>
+          <div style="position: absolute; left: 200px; top: 230px; width: 24px; height: 34px; border-radius: 5px; background: #e9a84a"></div>
+          <div style="position: absolute; left: 120px; top: 244px; width: 30px; height: 20px; border-radius: 10px 10px 4px 4px; background: #3f8f63"></div>
+
+          <div style="position: absolute; left: 0; right: 0; bottom: 58px; display: flex; justify-content: center" role="status" aria-live="polite">
+            <sc-if value="{{ hasToast }}" hint-placeholder-val="{{ true }}">
+              <div style="{{ toastStyle }}">
+                <sc-if value="{{ isSuccess }}" hint-placeholder-val="{{ true }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4fd38a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="m8 12.5 2.8 2.8L16.5 9.5"></path></svg></sc-if>
+                <sc-if value="{{ isInfo }}" hint-placeholder-val="{{ false }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#b4bac6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v5M12 8h.01"></path></svg></sc-if>
+                <sc-if value="{{ isWarning }}" hint-placeholder-val="{{ false }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f2c14e" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4 2.5 20h19z"></path><path d="M12 10v4M12 17h.01"></path></svg></sc-if>
+                <sc-if value="{{ isError }}" hint-placeholder-val="{{ false }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ff6b6b" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7.5V13M12 16.5h.01"></path></svg></sc-if>
+                <sc-if value="{{ isProgress }}" hint-placeholder-val="{{ false }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="#262b35"></circle><path d="M21 12a9 9 0 0 0-9-9" stroke="#b4bac6"></path></svg></sc-if>
+                <span style="margin-right: 8px">{{ text }}</span>
+                <sc-if value="{{ hasWaiting }}" hint-placeholder-val="{{ true }}">
+                  <span title="{{ waitingLabel }}" style="height: 20px; display: flex; align-items: center; padding: 0 6px; border-radius: 6px; background: #262b35; color: #b4bac6; font-family: 'JetBrains Mono', monospace; font-size: 11px">{{ waitingText }}</span>
+                </sc-if>
+                <sc-if value="{{ hasAction }}" hint-placeholder-val="{{ true }}">
+                  <button onClick="{{ act }}" style="{{ actionStyle }}">{{ actionLabel }}<sc-if value="{{ hasKey }}" hint-placeholder-val="{{ true }}"><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8b92a0; font-weight: 400">{{ actionKey }}</span></sc-if></button>
+                </sc-if>
+                <sc-if value="{{ canDismiss }}" hint-placeholder-val="{{ true }}">
+                  <button aria-label="Dismiss" onClick="{{ dismiss }}" style="width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 6px; border: 0; background: none; color: #8b92a0"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg></button>
+                </sc-if>
+                <sc-if value="{{ isProgress }}" hint-placeholder-val="{{ false }}">
+                  <span style="position: absolute; left: 12px; right: 12px; bottom: 0; height: 2px; border-radius: 1px; background: #262b35"><span style="display: block; width: 62%; height: 2px; border-radius: 1px; background: #b4bac6"></span></span>
+                </sc-if>
+              </div>
+            </sc-if>
+          </div>
+
+          <div style="position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: 10px; background: rgba(23,26,31,0.92); box-shadow: 0 0 0 1px #262a32, 0 10px 30px rgba(0,0,0,0.4)">
+            <span style="width: 28px; height: 26px; display: flex; align-items: center; justify-content: center; color: #b4bac6"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"></path></svg></span>
+            <span style="width: 52px; text-align: center; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #b4bac6">200%</span>
+            <span style="width: 28px; height: 26px; display: flex; align-items: center; justify-content: center; color: #b4bac6"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14M12 5v14"></path></svg></span>
+            <span style="width: 1px; height: 16px; background: #2c3240; margin: 0 4px"></span>
+            <span style="height: 26px; display: flex; align-items: center; padding: 0 10px; color: #b4bac6">Snap</span>
+            <span style="height: 26px; display: flex; align-items: center; padding: 0 10px; color: #b4bac6">Fit</span>
+          </div>
+          <div style="position: absolute; right: 16px; bottom: 50px; height: 8px; width: 8px; border-top: 1px solid #8b92a0; border-bottom: 1px solid #8b92a0"></div>
+          <div style="position: absolute; right: 30px; bottom: 46px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8b92a0">8 px above the viewport bar</div>
+          <sc-if value="{{ empty }}" hint-placeholder-val="{{ false }}">
+            <div style="position: absolute; left: 0; right: 0; bottom: 66px; text-align: center; color: #8b92a0">Nothing to show. Fire an event below.</div>
+          </sc-if>
+        </div>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap">
+        <span style="color: #8b92a0; margin-right: 4px">Fire</span>
+        <sc-for list="{{ fires }}" as="f" hint-placeholder-count="5">
+          <button onClick="{{ f.fire }}" style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #171a21; box-shadow: inset 0 0 0 1px #262b35; color: #d9dde5">{{ f.label }}</button>
+        </sc-for>
+        <div style="flex: 1"></div>
+        <span style="color: #8b92a0; font-family: 'JetBrains Mono', monospace; font-size: 11.5px">{{ queueText }}</span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 32px; color: #b4bac6; line-height: 1.55">
+        <div><span style="color: #ffffff; font-weight: 600">Where.</span> Bottom center of the viewport, 8 px above its bar; never over the tree, inspector or agent panel. With no viewport on screen (Start, Settings), bottom center of the window, 24 px up.</div>
+        <div><span style="color: #ffffff; font-weight: 600">One at a time.</span> Others wait in order and the visible toast shows how many with “+2”. A repeat of the same event merges into the one waiting; nothing jumps ahead of an error or a running export.</div>
+        <div><span style="color: #ffffff; font-weight: 600">How long.</span> Success and info 4 s, 6 s with an action; warning 8 s; error and progress stay. Hover, keyboard focus or the window going to the background pauses the timer.</div>
+        <div><span style="color: #ffffff; font-weight: 600">Motion.</span> 180 ms in, fading and rising 8 px; 120 ms out. With reduced motion it appears and leaves at once.</div>
+        <div><span style="color: #ffffff; font-weight: 600">Keyboard and screen readers.</span> The container is role status, aria-live polite. Focus never jumps to a toast; F6 reaches it, Tab moves between its buttons, Esc dismisses it.</div>
+        <div><span style="color: #ffffff; font-weight: 600">Not for decisions.</span> Permission asks and questions are cards in the agent panel; check failures go to Problems. The event-to-channel table is on the Spec board.</div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { queue: ['kept', 'copied', 'disk'] };
+  }
+  renderVals() {
+    const s = this.state;
+    const defs = {
+      kept: { kind: 'success', text: 'Kept 6 changes to level_01', action: 'Undo', key: '⌘Z', next: 'reopened' },
+      reopened: { kind: 'info', text: 'Review reopened · 6 changes to level_01', action: 'Review', key: '⌘↵' },
+      copied: { kind: 'info', text: 'Copied the MCP config for Claude Code' },
+      disk: { kind: 'warning', text: 'level_01.scene.yaml changed on disk and was reloaded', action: 'Show' },
+      savefail: { kind: 'error', text: "Couldn't save level_01.scene.yaml: the disk is full", action: 'Retry' },
+      exporting: { kind: 'progress', text: 'Exporting dungeon-run for macOS · 62%', action: 'Cancel', next: 'exported' },
+      exported: { kind: 'success', text: 'Exported build/macos/dungeon-run.app', action: 'Show in Finder' },
+    };
+    const q = s.queue;
+    const cur = q.length ? defs[q[0]] : null;
+    const rest = q.slice(1);
+    const push = (id) => {
+      const queue = this.state.queue;
+      if (queue.indexOf(id) !== -1) return;
+      this.setState({ queue: queue.concat([id]) });
+    };
+    const fires = [
+      { label: 'Keep a review', id: 'kept' },
+      { label: 'Copy config', id: 'copied' },
+      { label: 'File changed on disk', id: 'disk' },
+      { label: 'Save fails', id: 'savefail' },
+      { label: 'Start export', id: 'exporting' },
+    ].map((f) => ({ ...f, fire: () => push(f.id) }));
+    const kind = cur ? cur.kind : 'info';
+    const warn = kind === 'warning';
+    const toastStyle = 'position: relative; display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 4px 0 12px; border-radius: 12px; white-space: nowrap; overflow: hidden; color: #d9dde5; ' +
+      (warn ? 'background: #2a2414; box-shadow: 0 0 0 1px #4a3f1f, 0 12px 32px rgba(0,0,0,0.45)' : 'background: #171a21; box-shadow: 0 0 0 1px #262b35, 0 12px 32px rgba(0,0,0,0.45)');
+    const actionStyle = 'height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-radius: 8px; border: 0; color: #ffffff; font-weight: 500; ' +
+      (warn ? 'background: #2a2414; box-shadow: inset 0 0 0 1px #4a3f1f' : 'background: #262b35');
+    return {
+      hasToast: !!cur, empty: !cur,
+      isSuccess: kind === 'success', isInfo: kind === 'info', isWarning: warn, isError: kind === 'error', isProgress: kind === 'progress',
+      text: cur ? cur.text : '',
+      toastStyle, actionStyle,
+      hasAction: !!(cur && cur.action), actionLabel: cur && cur.action ? cur.action : '',
+      hasKey: !!(cur && cur.key), actionKey: cur && cur.key ? cur.key : '',
+      canDismiss: kind !== 'progress',
+      hasWaiting: rest.length > 0, waitingText: '+' + rest.length, waitingLabel: rest.length + ' more waiting',
+      queueText: q.length ? 'showing 1 · waiting ' + rest.length : 'queue empty',
+      fires,
+      dismiss: () => this.setState({ queue: this.state.queue.slice(1) }),
+      act: () => {
+        const queue = this.state.queue;
+        const d = defs[queue[0]];
+        this.setState({ queue: d && d.next ? [d.next].concat(queue.slice(1)) : queue.slice(1) });
+      },
+    };
+  }
+}
+</script>
+</body>
+</html>

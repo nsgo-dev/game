@@ -1,0 +1,590 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Threads and context</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#101216}
+a{color:#8fb3ff}a:hover{color:#b9cfff}
+.vp{background-color:#15181d;background-image:radial-gradient(circle,#2a2f38 1px,transparent 1.2px);background-size:16px 16px}
+button{font:inherit;cursor:pointer}
+input,textarea{font:inherit}
+input::placeholder,textarea::placeholder{color:#8B92A0}
+</style>
+</helmet>
+<div style="width: 2960px; height: 900px; display: flex; font-family: Inter, system-ui, sans-serif; font-size: 12.5px; color: #D9DDE5; background: #101216; overflow: hidden">
+
+  <div style="width: 1440px; height: 900px; flex: none; display: flex; flex-direction: column; border-right: 1px solid #1F232A">
+
+    <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 12px; border-bottom: 1px solid #1F232A">
+      <div style="display: flex; align-items: center; gap: 8px">
+        <div style="width: 22px; height: 22px; border-radius: 6px; background: #3B7BFF; display: flex; align-items: center; justify-content: center">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.5" aria-hidden="true"><path d="M5 19 12 5l7 14"></path></svg>
+        </div>
+        <span style="font-weight: 600; color: #FFFFFF">dungeon-run</span>
+        <span style="color: #8B92A0">/</span>
+        <span style="color: #B4BAC6">level_01</span>
+        <span style="width: 6px; height: 6px; border-radius: 3px; background: #E9A84A" aria-label="unsaved changes"></span>
+      </div>
+      <div style="flex: 1"></div>
+      <div style="display: flex; gap: 2px; padding: 3px; border-radius: 9px; background: #171A21; box-shadow: 0 0 0 1px #262B35">
+        <button aria-label="Select" title="Select · V" style="width: 32px; height: 28px; border-radius: 6px; border: 0; display: flex; align-items: center; justify-content: center; background: #262B35; color: #FFFFFF"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M5 3l14 8-6 2-2 6z"></path></svg></button>
+        <button aria-label="Move" title="Move · W" style="width: 32px; height: 28px; border-radius: 6px; border: 0; display: flex; align-items: center; justify-content: center; background: none; color: #8B92A0"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"></path></svg></button>
+        <button aria-label="Rotate" title="Rotate · E" style="width: 32px; height: 28px; border-radius: 6px; border: 0; display: flex; align-items: center; justify-content: center; background: none; color: #8B92A0"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-3-6.2"></path><path d="M20 4v5h-5"></path></svg></button>
+        <button aria-label="Scale" title="Scale · R" style="width: 32px; height: 28px; border-radius: 6px; border: 0; display: flex; align-items: center; justify-content: center; background: none; color: #8B92A0"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="4" y="10" width="10" height="10" rx="1.5"></rect><path d="M13 4h7v7M20 4l-8 8"></path></svg></button>
+        <button aria-label="Sketch" title="Sketch · D" style="width: 32px; height: 28px; border-radius: 6px; border: 0; display: flex; align-items: center; justify-content: center; background: none; color: #8B92A0"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20l4.5-1L19 8.5 15.5 5 5 15.5z"></path><path d="M13.5 7l3.5 3.5"></path></svg></button>
+      </div>
+      <div style="flex: 1"></div>
+      <button aria-label="History" title="History" style="width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; border-radius: 8px; border: 0; background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #B4BAC6">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"></path><path d="M3 4v5h5"></path><path d="M12 8v4l3 2"></path></svg>
+      </button>
+      <button style="height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-radius: 8px; border: 0; background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #B4BAC6">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+        <span>Search</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8B92A0">⌘K</span>
+      </button>
+      <button style="height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 14px; border-radius: 8px; border: 0; background: #FFFFFF; color: #101216; font-weight: 600">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 4l14 8-14 8z"></path></svg>Play
+      </button>
+    </div>
+
+    <div style="flex: 1; display: grid; grid-template-columns: 232px minmax(0, 1fr) 380px; min-height: 0">
+
+      <div style="display: flex; flex-direction: column; border-right: 1px solid #1F232A; min-height: 0">
+        <div style="height: 36px; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">
+          <span>SCENE</span><span style="font-weight: 500; letter-spacing: 0">12 nodes</span>
+        </div>
+        <div style="flex: 1; padding: 0 8px; display: flex; flex-direction: column; overflow: hidden">
+          <sc-for list="{{ tree }}" as="n" hint-placeholder-count="12">
+            <div style="{{ n.style }}">
+              <span style="{{ n.indent }}"></span>
+              <span style="{{ n.dot }}"></span>
+              <span style="flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ n.name }}</span>
+              <span style="color: #8B92A0; font-size: 11px">{{ n.kind }}</span>
+            </div>
+          </sc-for>
+        </div>
+        <div style="padding: 12px; border-top: 1px solid #1F232A; display: flex; flex-direction: column; gap: 4px">
+          <div style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; padding: 0 4px 4px">FILES</div>
+          <div style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; color: #B4BAC6"><span style="width: 6px; height: 6px; border-radius: 2px; background: #4f8cff"></span>scenes/level_01.scene.yaml</div>
+          <div style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; color: #B4BAC6"><span style="width: 6px; height: 6px; border-radius: 2px; background: #9B7BFF"></span>prefabs/door.prefab.yaml</div>
+          <div style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; color: #B4BAC6"><span style="width: 6px; height: 6px; border-radius: 2px; background: #8B92A0"></span>brief.yaml</div>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; min-width: 0">
+        <div class="vp" style="flex: 1; position: relative; overflow: hidden">
+          <div style="position: absolute; left: 48px; top: 64px; width: 704px; height: 396px; border-radius: 4px; box-shadow: 0 0 0 1px #2C3240, 0 24px 60px rgba(0,0,0,0.45); background: linear-gradient(180deg,#1c2230 0%,#1a1f2a 70%,#181c24 100%)"></div>
+          <div style="position: absolute; left: 48px; top: 42px; font-size: 11px; color: #8B92A0">Camera · 640 × 360</div>
+          <div style="position: absolute; left: 48px; top: 396px; width: 704px; height: 64px; background: #2a2f3a; border-top: 3px solid #3b4250"></div>
+          <div style="position: absolute; left: 392px; top: 320px; width: 176px; height: 14px; border-radius: 2px; background: #333a47"></div>
+          <div style="position: absolute; left: 132px; top: 350px; width: 26px; height: 46px; border-radius: 6px; background: #4f8cff"></div>
+          <div style="position: absolute; left: 228px; top: 376px; width: 30px; height: 20px; border-radius: 10px 10px 4px 4px; background: #57a87a"></div>
+          <div style="position: absolute; left: 292px; top: 376px; width: 30px; height: 20px; border-radius: 10px 10px 4px 4px; background: #57a87a"></div>
+          <div style="position: absolute; left: 512px; top: 300px; width: 30px; height: 20px; border-radius: 10px 10px 4px 4px; background: #57a87a"></div>
+          <div style="position: absolute; left: 444px; top: 286px; width: 24px; height: 34px; border-radius: 5px; background: #e9a84a"></div>
+          <div style="position: absolute; left: 598px; top: 372px; width: 6px; height: 24px; border-radius: 3px; background: #8a8f99; transform: rotate(18deg)"></div>
+          <div style="position: absolute; left: 600px; top: 366px; width: 10px; height: 10px; border-radius: 5px; background: #c9ccd3"></div>
+          <div style="position: absolute; left: 632px; top: 356px; width: 30px; height: 40px; border-radius: 4px; background: #6b5a45"></div>
+          <div style="position: absolute; left: 626px; top: 350px; width: 42px; height: 52px; border-radius: 6px; box-shadow: 0 0 0 1.5px #3B7BFF"></div>
+          <div style="position: absolute; left: 626px; top: 326px; height: 18px; display: flex; align-items: center; padding: 0 8px; border-radius: 6px; background: #3B7BFF; color: #FFFFFF; font-size: 11px; font-weight: 500">Door</div>
+          <div style="position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); display: flex; align-items: center; gap: 4px; padding: 4px; border-radius: 12px; background: rgba(23,26,33,0.94); box-shadow: 0 0 0 1px #262B35, 0 10px 30px rgba(0,0,0,0.4)">
+            <button aria-label="Zoom out" style="width: 28px; height: 28px; border: 0; border-radius: 6px; background: none; color: #B4BAC6; display: flex; align-items: center; justify-content: center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"></path></svg></button>
+            <span style="width: 48px; text-align: center; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #B4BAC6">200%</span>
+            <button aria-label="Zoom in" style="width: 28px; height: 28px; border: 0; border-radius: 6px; background: none; color: #B4BAC6; display: flex; align-items: center; justify-content: center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14M12 5v14"></path></svg></button>
+          </div>
+        </div>
+        <div style="height: 32px; display: flex; align-items: center; gap: 16px; padding: 0 16px; border-top: 1px solid #1F232A; color: #8B92A0; font-size: 11.5px">
+          <span>Layer Actors</span><span>632, 356</span><span>Select</span>
+          <div style="flex: 1"></div>
+          <span style="display: flex; align-items: center; gap: 8px"><span style="width: 6px; height: 6px; border-radius: 3px; background: #4FD38A"></span>No problems</span>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; border-left: 1px solid #1F232A; min-height: 0; background: #12141A; position: relative">
+        <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 4px; padding: 0 8px; border-bottom: 1px solid #1F232A">
+          <button onClick="{{ toggleThreads }}" aria-expanded="{{ threadsExpanded }}" aria-label="Thread: Door opens after two lever pulls. Switch thread" style="{{ switcherStyle }}">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; color: #8B92A0"><path d="M4 5h16v11H9l-5 4z"></path></svg>
+            <span style="flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left">Door opens after two lever pulls</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; color: #8B92A0"><path d="M6 9l6 6 6-6"></path></svg>
+          </button>
+          <button aria-label="New thread" title="New thread · ⌘N" style="width: 28px; height: 28px; flex: none; display: flex; align-items: center; justify-content: center; border-radius: 6px; border: 0; background: none; color: #B4BAC6"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h8"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"></path></svg></button>
+          <div style="flex: 1"></div>
+          <span title="Connected · Claude Code over MCP" style="display: flex; align-items: center; gap: 8px; padding: 0 8px; color: #8B92A0; font-size: 11.5px"><span style="width: 6px; height: 6px; border-radius: 3px; background: #4FD38A"></span>MCP</span>
+        </div>
+
+        <sc-if value="{{ threadsOpen }}" hint-placeholder-val="{{ false }}">
+          <div style="position: absolute; left: 8px; top: 48px; width: 364px; z-index: 5; border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35, 0 16px 40px rgba(0,0,0,0.5); overflow: hidden">
+            <div style="padding: 8px; border-bottom: 1px solid #262B35">
+              <label for="thread-search-live" style="position: absolute; left: -9999px">Search threads</label>
+              <input id="thread-search-live" type="text" placeholder="Search threads" style="width: 100%; box-sizing: border-box; height: 28px; padding: 0 8px; border: 0; border-radius: 6px; background: #12141A; box-shadow: 0 0 0 1px #262B35; color: #FFFFFF; outline: none">
+            </div>
+            <div style="padding: 4px 4px 8px; display: flex; flex-direction: column">
+              <sc-for list="{{ threadRows }}" as="t" hint-placeholder-count="9">
+                <sc-if value="{{ t.isHead }}" hint-placeholder-val="{{ false }}">
+                  <div style="padding: 12px 8px 4px; color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">{{ t.head }}</div>
+                </sc-if>
+                <sc-if value="{{ t.isItem }}" hint-placeholder-val="{{ true }}">
+                  <button onClick="{{ t.pick }}" style="{{ t.style }}">
+                    <span style="color: #FFFFFF; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ t.title }}</span>
+                    <span style="color: #8B92A0; font-size: 11.5px">{{ t.meta }}</span>
+                  </button>
+                </sc-if>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+
+        <div style="flex: 1; min-height: 0; padding: 12px 16px 16px; display: flex; flex-direction: column; gap: 4px; overflow: hidden; position: relative">
+          <div style="padding: 0 0 4px; color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">4 EARLIER REQUESTS</div>
+          <sc-for list="{{ turns }}" as="r" hint-placeholder-count="4">
+            <button onClick="{{ r.toggle }}" aria-expanded="{{ r.expandedAttr }}" style="{{ r.rowStyle }}">
+              <sc-if value="{{ r.kept }}" hint-placeholder-val="{{ true }}"><span style="width: 16px; height: 16px; flex: none; border-radius: 8px; background: #1f3a2b; display: flex; align-items: center; justify-content: center"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#4FD38A" stroke-width="3.5" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg></span></sc-if>
+              <sc-if value="{{ r.reverted }}" hint-placeholder-val="{{ false }}"><span style="width: 16px; height: 16px; flex: none; border-radius: 8px; background: #262B35; display: flex; align-items: center; justify-content: center"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#B4BAC6" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M9 14L4 9l5-5"></path><path d="M4 9h10a6 6 0 0 1 0 12h-3"></path></svg></span></sc-if>
+              <span style="flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #D9DDE5">{{ r.title }}</span>
+              <span style="color: #8B92A0; font-size: 11.5px; white-space: nowrap">{{ r.meta }} · {{ r.time }}</span>
+            </button>
+            <sc-if value="{{ r.open }}" hint-placeholder-val="{{ false }}">
+              <div style="margin: 0 0 8px 24px; padding: 8px 12px; border-radius: 8px; background: #171A21; box-shadow: 0 0 0 1px #262B35; display: flex; flex-direction: column; gap: 4px; line-height: 1.5">
+                <span style="color: #D9DDE5">{{ r.ask }}</span>
+                <span style="color: #8B92A0; font-size: 11.5px">{{ r.detail }}</span>
+                <a href="#history" style="font-size: 11.5px">Open this step in History</a>
+              </div>
+            </sc-if>
+          </sc-for>
+
+          <div style="height: 1px; background: #1F232A; margin: 8px 0"></div>
+          <div style="display: flex; flex-direction: column; gap: 12px">
+            <div style="align-self: flex-end; max-width: 300px; padding: 8px 12px; border-radius: 12px 12px 4px 12px; background: #1c2130; color: #FFFFFF; line-height: 1.5">Open the door with a short rumble and a small camera shake.</div>
+            <div style="display: flex; flex-direction: column; gap: 8px; color: #8B92A0">
+              <div style="display: flex; align-items: center; gap: 8px"><span style="width: 14px; height: 14px; border-radius: 7px; background: #1f3a2b; display: flex; align-items: center; justify-content: center"><svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#4FD38A" stroke-width="4" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg></span>Read door.prefab.yaml and camera.yaml</div>
+              <div style="display: flex; align-items: center; gap: 8px"><span style="width: 14px; height: 14px; border-radius: 7px; background: #1f3a2b; display: flex; align-items: center; justify-content: center"><svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#4FD38A" stroke-width="4" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg></span>Added door_rumble.wav and a 0.3 s shake on open</div>
+              <div style="display: flex; align-items: center; gap: 8px"><span style="width: 14px; height: 14px; border-radius: 7px; background: #1f3a2b; display: flex; align-items: center; justify-content: center"><svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#4FD38A" stroke-width="4" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg></span>Played 6 s headless · door opens on the second pull</div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 12px; border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35">
+              <span style="flex: 1; color: #FFFFFF">3 changes · 2 files</span>
+              <button style="display: flex; align-items: center; justify-content: center; height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #3B7BFF; color: #FFFFFF; font-weight: 500">Keep</button>
+              <button style="display: flex; align-items: center; justify-content: center; height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #262B35; color: #D9DDE5">Review</button>
+            </div>
+          </div>
+
+          <sc-if value="{{ showJump }}" hint-placeholder-val="{{ true }}">
+            <button onClick="{{ jumpLatest }}" style="position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: 14px; border: 0; background: #262B35; box-shadow: 0 8px 24px rgba(0,0,0,0.45); color: #FFFFFF; font-size: 11.5px">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M6 13l6 6 6-6"></path></svg>Jump to latest
+            </button>
+          </sc-if>
+        </div>
+
+        <div style="padding: 12px; border-top: 1px solid #1F232A; position: relative">
+          <sc-if value="{{ pickerOpen }}" hint-placeholder-val="{{ true }}">
+            <div role="listbox" aria-label="Mention" style="position: absolute; left: 12px; right: 12px; bottom: calc(100% - 4px); z-index: 4; border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35, 0 16px 40px rgba(0,0,0,0.5); overflow: hidden">
+              <div style="height: 36px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-bottom: 1px solid #262B35">
+                <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #8B92A0">@</span>
+                <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #FFFFFF">sli</span>
+                <div style="flex: 1"></div>
+                <span style="color: #8B92A0; font-size: 11.5px">{{ pickerCount }} matches</span>
+              </div>
+              <div style="display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 12px; border-bottom: 1px solid #262B35">
+                <sc-for list="{{ pickerTabs }}" as="g" hint-placeholder-count="9">
+                  <button onClick="{{ g.pick }}" style="{{ g.style }}">{{ g.label }}</button>
+                </sc-for>
+              </div>
+              <div style="height: 236px; padding: 4px; display: flex; flex-direction: column; overflow: hidden">
+                <sc-for list="{{ pickerRows }}" as="p" hint-placeholder-count="9">
+                  <sc-if value="{{ p.isHead }}" hint-placeholder-val="{{ false }}">
+                    <div style="padding: 8px 8px 4px; color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">{{ p.head }}</div>
+                  </sc-if>
+                  <sc-if value="{{ p.isItem }}" hint-placeholder-val="{{ true }}">
+                    <button role="option" onClick="{{ p.pick }}" style="{{ p.style }}">
+                      <span style="width: 24px; height: 24px; flex: none; border-radius: 6px; background: #12141A; box-shadow: 0 0 0 1px #262B35; display: flex; align-items: center; justify-content: center; color: #B4BAC6">
+                        <sc-if value="{{ p.isObj }}" hint-placeholder-val="{{ true }}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="3"></rect></svg></sc-if>
+                        <sc-if value="{{ p.isPrefab }}" hint-placeholder-val="{{ false }}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"></path><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"></path></svg></sc-if>
+                        <sc-if value="{{ p.isThumb }}" hint-placeholder-val="{{ false }}"><span style="width: 16px; height: 11px; border-radius: 6px 6px 2px 2px; background: #57a87a"></span></sc-if>
+                        <sc-if value="{{ p.isSound }}" hint-placeholder-val="{{ false }}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2"></path></svg></sc-if>
+                        <sc-if value="{{ p.isProblem }}" hint-placeholder-val="{{ false }}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#F2C14E" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4l9 16H3z"></path><path d="M12 10v4M12 17v.5"></path></svg></sc-if>
+                        <sc-if value="{{ p.isRun }}" hint-placeholder-val="{{ false }}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M7 5l12 7-12 7z"></path></svg></sc-if>
+                        <sc-if value="{{ p.isHistory }}" hint-placeholder-val="{{ false }}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"></path><path d="M3 4v5h5"></path><path d="M12 8v4l3 2"></path></svg></sc-if>
+                        <sc-if value="{{ p.isRule }}" hint-placeholder-val="{{ false }}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h11l3 3v13H5z"></path><path d="M9 10h6M9 14h6"></path></svg></sc-if>
+                      </span>
+                      <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; text-align: left">
+                        <span style="color: #FFFFFF; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ p.name }}</span>
+                        <span style="color: #8B92A0; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ p.meta }}</span>
+                      </span>
+                    </button>
+                  </sc-if>
+                </sc-for>
+              </div>
+              <div style="height: 30px; display: flex; align-items: center; gap: 12px; padding: 0 12px; border-top: 1px solid #262B35; color: #8B92A0; font-size: 11px">
+                <span><span style="font-family: 'JetBrains Mono', monospace; color: #B4BAC6">↑↓</span> move</span>
+                <span><span style="font-family: 'JetBrains Mono', monospace; color: #B4BAC6">↵</span> add</span>
+                <span><span style="font-family: 'JetBrains Mono', monospace; color: #B4BAC6">Tab</span> next group</span>
+                <span><span style="font-family: 'JetBrains Mono', monospace; color: #B4BAC6">Esc</span> close</span>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ ringOpen }}" hint-placeholder-val="{{ false }}">
+            <div style="position: absolute; right: 12px; bottom: calc(100% - 4px); width: 320px; z-index: 4; border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35, 0 16px 40px rgba(0,0,0,0.5); padding: 12px; display: flex; flex-direction: column; gap: 12px">
+              <div style="display: flex; align-items: baseline; justify-content: space-between"><span style="color: #FFFFFF; font-weight: 600; font-size: 14px">Context · 74% used</span><span style="color: #8B92A0; font-size: 11.5px">148k of 200k</span></div>
+              <div style="display: flex; flex-direction: column; gap: 8px">
+                <sc-for list="{{ usage }}" as="u" hint-placeholder-count="6">
+                  <div style="display: flex; flex-direction: column; gap: 4px">
+                    <div style="display: flex; justify-content: space-between; font-size: 11.5px"><span style="color: #D9DDE5">{{ u.name }}</span><span style="color: #8B92A0; font-family: 'JetBrains Mono', monospace">{{ u.pct }}%</span></div>
+                    <div style="height: 4px; border-radius: 2px; background: #262B35"><div style="{{ u.bar }}"></div></div>
+                  </div>
+                </sc-for>
+              </div>
+              <div style="display: flex; gap: 8px">
+                <button style="flex: 1; height: 30px; display: flex; align-items: center; justify-content: center; padding: 0 8px; border-radius: 8px; border: 0; background: #FFFFFF; color: #101216; font-weight: 500">Compact thread</button>
+                <button style="flex: 1; height: 30px; display: flex; align-items: center; justify-content: center; padding: 0 8px; border-radius: 8px; border: 0; background: #262B35; color: #FFFFFF">Start fresh with summary</button>
+              </div>
+            </div>
+          </sc-if>
+
+          <div style="border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35; padding: 8px 12px; display: flex; flex-direction: column; gap: 8px">
+            <div style="display: flex; gap: 4px; flex-wrap: wrap; align-items: center">
+              <sc-for list="{{ chips }}" as="c" hint-placeholder-count="2">
+                <span style="height: 24px; display: inline-flex; align-items: center; gap: 4px; padding: 0 2px 0 8px; border-radius: 6px; background: #262B35; color: #FFFFFF; font-size: 11.5px">
+                  <span style="{{ c.dot }}"></span>{{ c.name }}
+                  <button aria-label="{{ c.removeLabel }}" onClick="{{ c.remove }}" style="width: 20px; height: 20px; border: 0; border-radius: 4px; background: none; color: #B4BAC6; display: flex; align-items: center; justify-content: center"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17"></path></svg></button>
+                </span>
+              </sc-for>
+              <sc-if value="{{ suggestKnight }}" hint-placeholder-val="{{ true }}">
+                <button onClick="{{ addKnight }}" style="height: 24px; display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; border-radius: 6px; border: 1px dashed #3a4150; background: none; color: #B4BAC6; font-size: 11.5px">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>Knight · selected
+                </button>
+              </sc-if>
+            </div>
+            <div style="display: flex; gap: 4px; align-items: center; flex-wrap: wrap">
+              <span style="color: #8B92A0; font-size: 11px; margin-right: 4px">Always</span>
+              <span title="Read with every request" style="height: 22px; display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; border-radius: 6px; box-shadow: 0 0 0 1px #262B35; color: #8B92A0; font-size: 11.5px"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg>brief.yaml</span>
+              <span title="Read with every request" style="height: 22px; display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; border-radius: 6px; box-shadow: 0 0 0 1px #262B35; color: #8B92A0; font-size: 11.5px"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg>AGENTS.md</span>
+              <span style="height: 22px; display: inline-flex; align-items: center; padding: 0 8px; border-radius: 6px; box-shadow: 0 0 0 1px #262B35; color: #8B92A0; font-size: 11.5px">Viewport image</span>
+            </div>
+            <label for="thread-prompt" style="position: absolute; left: -9999px">Ask the agent</label>
+            <textarea id="thread-prompt" rows="2" style="resize: none; border: 0; outline: none; background: none; color: #FFFFFF; line-height: 1.5; padding: 0">Put one slime in front of the door so it is guarded, the one nearest it: @sli</textarea>
+            <div style="display: flex; align-items: center; gap: 4px">
+              <button onClick="{{ togglePicker }}" aria-label="Mention a file, object or asset" title="Mention · @" style="{{ atStyle }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"></path></svg></button>
+              <button aria-label="Attach an image" title="Attach an image · paste or drop" style="width: 28px; height: 28px; border: 0; border-radius: 6px; background: none; color: #B4BAC6; display: flex; align-items: center; justify-content: center"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"></rect><circle cx="9" cy="10" r="1.5"></circle><path d="M21 16l-5-5-8 8"></path></svg></button>
+              <div style="flex: 1"></div>
+              <button onClick="{{ toggleRing }}" aria-label="Context 74% used. Show breakdown" aria-expanded="{{ ringExpanded }}" title="Context · 74% used" style="height: 28px; display: flex; align-items: center; gap: 4px; padding: 0 8px 0 4px; border: 0; border-radius: 6px; background: {{ ringBg }}; color: #E9A84A; font-size: 11px; font-family: 'JetBrains Mono', monospace">
+                <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7" fill="none" stroke="#262B35" stroke-width="2.5"></circle><circle cx="10" cy="10" r="7" fill="none" stroke="#E9A84A" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="32.5 44" transform="rotate(-90 10 10)"></circle></svg>74%
+              </button>
+              <button aria-label="Send" style="width: 30px; height: 30px; border-radius: 8px; border: 0; background: #FFFFFF; color: #101216; display: flex; align-items: center; justify-content: center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"></path></svg></button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="flex: 1; min-width: 0; padding: 32px 40px; display: flex; flex-direction: column; gap: 24px">
+    <div style="display: flex; align-items: baseline; gap: 16px">
+      <span style="color: #FFFFFF; font-size: 20px; font-weight: 600">Threads and context</span>
+      <span style="color: #B4BAC6">One thread per line of work, grouped by scene. Reviewed requests fold to one line. You always see what the agent is sent.</span>
+    </div>
+    <div style="flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(3, 380px); gap: 48px">
+
+      <div style="display: flex; flex-direction: column; gap: 12px">
+        <div style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">THREAD SWITCHER · ⌘N NEW</div>
+        <div style="border-radius: 12px; background: #12141A; box-shadow: 0 0 0 1px #1F232A; padding-bottom: 8px">
+          <div style="height: 44px; display: flex; align-items: center; gap: 4px; padding: 0 8px; border-bottom: 1px solid #1F232A">
+            <span style="height: 30px; flex: 1; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 8px; background: #262B35; color: #FFFFFF; font-weight: 500">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8B92A0" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"></path></svg>
+              <span style="flex: 1">Door opens after two lever pulls</span>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#8B92A0" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 15l-6-6-6 6"></path></svg>
+            </span>
+          </div>
+          <div style="margin: 8px; border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35, 0 16px 40px rgba(0,0,0,0.5); overflow: hidden">
+            <div style="padding: 8px; border-bottom: 1px solid #262B35; display: flex; gap: 8px">
+              <label for="thread-search" style="position: absolute; left: -9999px">Search threads</label>
+              <input id="thread-search" type="text" placeholder="Search threads" style="flex: 1; min-width: 0; height: 28px; padding: 0 8px; border: 0; border-radius: 6px; background: #12141A; box-shadow: 0 0 0 1px #262B35; color: #FFFFFF; outline: none">
+              <button style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 6px; border: 0; background: #262B35; color: #FFFFFF; font-size: 11.5px">New <span style="font-family: 'JetBrains Mono', monospace; color: #B4BAC6">⌘N</span></button>
+            </div>
+            <div style="padding: 4px 4px 8px; display: flex; flex-direction: column">
+              <sc-for list="{{ threadRows }}" as="t" hint-placeholder-count="9">
+                <sc-if value="{{ t.isHead }}" hint-placeholder-val="{{ false }}">
+                  <div style="padding: 12px 8px 4px; color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">{{ t.head }}</div>
+                </sc-if>
+                <sc-if value="{{ t.isItem }}" hint-placeholder-val="{{ true }}">
+                  <div style="{{ t.staticStyle }}">
+                    <span style="color: #FFFFFF; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ t.title }}</span>
+                    <span style="color: #8B92A0; font-size: 11.5px">{{ t.meta }}</span>
+                  </div>
+                </sc-if>
+              </sc-for>
+            </div>
+            <div style="height: 30px; display: flex; align-items: center; padding: 0 12px; border-top: 1px solid #262B35; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8B92A0">.nsgo/threads/ · ignored by git</div>
+          </div>
+        </div>
+        <div style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; margin-top: 4px">INSPECTOR FOOTER</div>
+        <div style="border-radius: 12px; background: #12141A; box-shadow: 0 0 0 1px #1F232A; padding: 12px; display: flex; flex-direction: column; gap: 8px">
+          <div style="display: flex; justify-content: space-between; color: #B4BAC6"><span>Door · opens_after_pulls</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #FFFFFF">2</span></div>
+          <button style="display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border-radius: 8px; border: 0; background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #B4BAC6; text-align: left; font-size: 11.5px">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M4 5h16v11H9l-5 4z"></path></svg>
+            <span style="flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Changed in <span style="color: #FFFFFF">“Door opens after two lever pulls”</span> · 2 min ago</span>
+          </button>
+        </div>
+        <div style="color: #8B92A0; line-height: 1.55">Threads are named after their first request. Opening a scene enters its most recent thread; switching scenes never carries a thread along. The Inspector links each object to the request that last changed it.</div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 12px">
+        <div style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">NEW PROJECT · EMPTY THREAD</div>
+        <div style="height: 452px; border-radius: 12px; background: #12141A; box-shadow: 0 0 0 1px #1F232A; display: flex; flex-direction: column; overflow: hidden">
+          <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 16px; border-bottom: 1px solid #1F232A; color: #FFFFFF; font-weight: 500">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8B92A0" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"></path></svg>New thread
+          </div>
+          <div style="flex: 1; padding: 24px 16px 16px; display: flex; flex-direction: column; gap: 16px">
+            <div style="display: flex; flex-direction: column; gap: 8px">
+              <div style="color: #D9DDE5; line-height: 1.55">The agent reads these with every request:</div>
+              <div style="display: flex; gap: 4px; flex-wrap: wrap">
+                <span style="height: 22px; display: inline-flex; align-items: center; padding: 0 8px; border-radius: 6px; background: #262B35; color: #FFFFFF; font-size: 11.5px">level_01 · whole scene</span>
+                <span style="height: 22px; display: inline-flex; align-items: center; padding: 0 8px; border-radius: 6px; box-shadow: 0 0 0 1px #262B35; color: #8B92A0; font-size: 11.5px">brief.yaml</span>
+                <span style="height: 22px; display: inline-flex; align-items: center; padding: 0 8px; border-radius: 6px; box-shadow: 0 0 0 1px #262B35; color: #8B92A0; font-size: 11.5px">AGENTS.md</span>
+                <span style="height: 22px; display: inline-flex; align-items: center; padding: 0 8px; border-radius: 6px; box-shadow: 0 0 0 1px #262B35; color: #8B92A0; font-size: 11.5px">Viewport image</span>
+              </div>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 8px">
+              <div style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">FROM YOUR BRIEF</div>
+              <sc-for list="{{ suggestions }}" as="g" hint-placeholder-count="3">
+                <button style="display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 12px; border: 0; background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #D9DDE5; text-align: left; line-height: 1.45">
+                  <span style="flex: 1">{{ g.text }}</span>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8B92A0" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>
+                </button>
+              </sc-for>
+            </div>
+          </div>
+          <div style="padding: 12px; border-top: 1px solid #1F232A">
+            <div style="height: 44px; border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35; padding: 0 8px 0 12px; display: flex; align-items: center; gap: 8px">
+              <label for="empty-prompt" style="position: absolute; left: -9999px">Ask the agent</label>
+              <input id="empty-prompt" type="text" placeholder="Describe a change · @ to mention" style="flex: 1; min-width: 0; height: 28px; border: 0; background: none; color: #FFFFFF; outline: none">
+              <span title="Context · 4% used" style="display: flex"><svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7" fill="none" stroke="#262B35" stroke-width="2.5"></circle><circle cx="10" cy="10" r="7" fill="none" stroke="#B4BAC6" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="1.8 44" transform="rotate(-90 10 10)"></circle></svg></span>
+              <button aria-label="Send" style="width: 30px; height: 30px; border-radius: 8px; border: 0; background: #262B35; color: #8B92A0; display: flex; align-items: center; justify-content: center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"></path></svg></button>
+            </div>
+          </div>
+        </div>
+        <div style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; margin-top: 4px">FIRST 300 MS AFTER SENDING</div>
+        <div style="border-radius: 12px; background: #12141A; box-shadow: 0 0 0 1px #1F232A; padding: 16px; display: flex; flex-direction: column; gap: 12px">
+          <div style="align-self: flex-end; max-width: 300px; padding: 8px 12px; border-radius: 12px 12px 4px 12px; background: #1c2130; color: #FFFFFF; line-height: 1.5">Block out level_01 with three platforms and an exit door.</div>
+          <div style="display: flex; align-items: center; gap: 8px; color: #8B92A0">
+            <span style="width: 14px; height: 14px; border-radius: 7px; border: 2px solid #8B92A0; border-right-color: transparent; box-sizing: border-box"></span>Reading level_01.scene.yaml…
+          </div>
+        </div>
+        <div style="color: #8B92A0; line-height: 1.55">A gray placeholder step shows within 300 ms, before the agent reports its first real step.</div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 12px">
+        <div style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">CONTEXT RING</div>
+        <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px">
+          <div style="height: 56px; border-radius: 12px; background: #12141A; box-shadow: 0 0 0 1px #1F232A; display: flex; align-items: center; gap: 8px; padding: 0 12px">
+            <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7" fill="none" stroke="#262B35" stroke-width="2.5"></circle><circle cx="10" cy="10" r="7" fill="none" stroke="#B4BAC6" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="16.7 44" transform="rotate(-90 10 10)"></circle></svg>
+            <span style="display: flex; flex-direction: column"><span style="color: #FFFFFF; font-family: 'JetBrains Mono', monospace; font-size: 11.5px">38%</span><span style="color: #8B92A0; font-size: 11px">normal</span></span>
+          </div>
+          <div style="height: 56px; border-radius: 12px; background: #12141A; box-shadow: 0 0 0 1px #1F232A; display: flex; align-items: center; gap: 8px; padding: 0 12px">
+            <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7" fill="none" stroke="#262B35" stroke-width="2.5"></circle><circle cx="10" cy="10" r="7" fill="none" stroke="#E9A84A" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="32.5 44" transform="rotate(-90 10 10)"></circle></svg>
+            <span style="display: flex; flex-direction: column"><span style="color: #E9A84A; font-family: 'JetBrains Mono', monospace; font-size: 11.5px">74%</span><span style="color: #8B92A0; font-size: 11px">over 70%</span></span>
+          </div>
+          <div style="height: 56px; border-radius: 12px; background: #2A2414; box-shadow: 0 0 0 1px #4A3F1F; display: flex; align-items: center; gap: 8px; padding: 0 12px">
+            <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7" fill="none" stroke="#4A3F1F" stroke-width="2.5"></circle><circle cx="10" cy="10" r="7" fill="none" stroke="#F2C14E" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="40.9 44" transform="rotate(-90 10 10)"></circle></svg>
+            <span style="display: flex; flex-direction: column"><span style="color: #F2C14E; font-family: 'JetBrains Mono', monospace; font-size: 11.5px">93%</span><span style="color: #F2C14E; font-size: 11px">compact now</span></span>
+          </div>
+        </div>
+        <div style="border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35, 0 16px 40px rgba(0,0,0,0.5); padding: 12px; display: flex; flex-direction: column; gap: 12px">
+          <div style="display: flex; align-items: baseline; justify-content: space-between"><span style="color: #FFFFFF; font-weight: 600; font-size: 14px">Context · 74% used</span><span style="color: #8B92A0; font-size: 11.5px">148k of 200k</span></div>
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <sc-for list="{{ usage }}" as="u" hint-placeholder-count="6">
+              <div style="display: flex; flex-direction: column; gap: 4px">
+                <div style="display: flex; justify-content: space-between; font-size: 11.5px"><span style="color: #D9DDE5">{{ u.name }}</span><span style="color: #8B92A0; font-family: 'JetBrains Mono', monospace">{{ u.pct }}%</span></div>
+                <div style="height: 4px; border-radius: 2px; background: #262B35"><div style="{{ u.bar }}"></div></div>
+              </div>
+            </sc-for>
+          </div>
+          <div style="display: flex; gap: 8px">
+            <button style="flex: 1; height: 30px; display: flex; align-items: center; justify-content: center; padding: 0 8px; border-radius: 8px; border: 0; background: #FFFFFF; color: #101216; font-weight: 500">Compact thread</button>
+            <button style="flex: 1; height: 30px; display: flex; align-items: center; justify-content: center; padding: 0 8px; border-radius: 8px; border: 0; background: #262B35; color: #FFFFFF">Start fresh with summary</button>
+          </div>
+          <div style="color: #8B92A0; font-size: 11.5px; line-height: 1.5">Compact folds the 4 earlier requests into a summary and keeps the last one whole. Start fresh opens a new thread seeded with that summary.</div>
+        </div>
+        <div style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; margin-top: 4px">CHIP HOVER · WHAT IS SENT</div>
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <span style="align-self: flex-start; height: 24px; display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; border-radius: 6px; background: #262B35; box-shadow: 0 0 0 1px #3B7BFF; color: #FFFFFF; font-size: 11.5px"><span style="width: 6px; height: 6px; border-radius: 2px; background: #6b5a45"></span>Door</span>
+          <div style="border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35, 0 16px 40px rgba(0,0,0,0.5); padding: 8px 12px; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; line-height: 1.6; color: #B4BAC6; white-space: pre"><span style="color: #8B92A0"># level_01.scene.yaml · lines 72–78</span>
+- id: door
+  prefab: prefabs/door.prefab.yaml
+  x: 632
+  y: 356
+  locked: true
+  opens_after_pulls: 2</div>
+        </div>
+        <div style="color: #8B92A0; line-height: 1.55">Selecting an object only suggests a chip; nothing joins the request unless you add it. ⌘L with nothing selected attaches the whole scene.</div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":2960,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { threads: false, picker: true, ring: false, tab: 'all', active: 'o3', chips: ['door', 'lever'], expanded: 't1' };
+  }
+  renderVals() {
+    const s = this.state;
+    const treeDefs = [
+      { name: 'Background', kind: 'tiles', depth: 0, color: '#4f8cff' },
+      { name: 'World', kind: 'tiles', depth: 0, color: '#4f8cff' },
+      { name: 'Actors', kind: 'layer', depth: 0, color: '#8B92A0' },
+      { name: 'Player', kind: 'prefab', depth: 1, color: '#4f8cff' },
+      { name: 'Knight', kind: 'sprite', depth: 1, color: '#e9a84a' },
+      { name: 'Door', kind: 'trigger', depth: 1, color: '#6b5a45', sel: true },
+      { name: 'lever_01', kind: 'prefab', depth: 1, color: '#c9ccd3' },
+      { name: 'slime_01', kind: 'prefab', depth: 1, color: '#57a87a' },
+      { name: 'slime_02', kind: 'prefab', depth: 1, color: '#57a87a' },
+      { name: 'slime_03', kind: 'prefab', depth: 1, color: '#57a87a' },
+      { name: 'coins', kind: 'group', depth: 1, color: '#f2d04b' },
+      { name: 'HUD', kind: 'screen', depth: 0, color: '#8B92A0' },
+    ];
+    const tree = treeDefs.map((n) => ({
+      ...n,
+      style: 'height: 28px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 6px; ' + (n.sel ? 'background: #1C2638; color: #FFFFFF' : 'color: #B4BAC6'),
+      indent: 'width: ' + (n.depth * 12) + 'px; flex: none',
+      dot: 'width: 7px; height: 7px; border-radius: 2px; flex: none; background: ' + n.color,
+    }));
+
+    const threadDefs = [
+      { head: 'LEVEL_01 · OPEN SCENE' },
+      { id: 'door', title: 'Door opens after two lever pulls', meta: 'now · 3 changes to review', current: true },
+      { id: 'slimes', title: 'Slimes and a coin trail', meta: '1 h ago · kept 5 of 6' },
+      { id: 'lever', title: 'Spikes under the plank', meta: 'yesterday · reverted' },
+      { head: 'BOSS_ROOM' },
+      { id: 'torch', title: 'Torches around the boss arena', meta: 'yesterday · kept 4 of 4' },
+      { id: 'spawn', title: 'Fix the missing spawn point', meta: 'Mon · kept 1 of 1' },
+      { head: 'PROJECT · NO SCENE' },
+      { id: 'jump', title: 'Double jump for the Knight', meta: 'Mon · game.yaml, knight.prefab.yaml' },
+    ];
+    const rowBase = 'display: flex; flex-direction: column; gap: 2px; padding: 8px; border-radius: 6px; text-align: left; ';
+    const threadRows = threadDefs.map((t) => ({
+      ...t,
+      isHead: !!t.head,
+      isItem: !t.head,
+      style: 'width: 100%; box-sizing: border-box; border: 0; ' + rowBase + (t.current ? 'background: #1C2638' : 'background: none'),
+      staticStyle: rowBase + (t.current ? 'background: #1C2638' : ''),
+      pick: () => this.setState({ threads: false }),
+    }));
+
+    const turnDefs = [
+      { id: 't1', title: 'Door opens after two lever pulls', meta: 'kept 3 of 3', time: '13:40', kept: true, ask: 'Keep the door shut until the lever is pulled twice, then let it open.', detail: 'Door.locked, Door.opens_after_pulls, lever_01.pulls' },
+      { id: 't2', title: 'Click sound on the lever', meta: 'kept 2 of 2', time: '13:52', kept: true, ask: 'Add a click sound when the lever moves.', detail: 'lever_01.sound, audio/sfx/lever_click.wav' },
+      { id: 't3', title: 'Lever glows while in reach', meta: 'kept 1 of 2', time: '14:05', kept: true, ask: 'Make the lever glow while the Knight is within reach.', detail: 'lever_01.glow kept · reach_radius 48 reverted' },
+      { id: 't4', title: 'Door opens over 0.6 s', meta: 'reverted', time: '14:11', kept: false, ask: 'Slow the door opening down to 0.6 s.', detail: 'Door.open_time 0.25 → 0.6' },
+    ];
+    const turns = turnDefs.map((t) => {
+      const open = s.expanded === t.id;
+      return {
+        ...t,
+        reverted: !t.kept,
+        open,
+        expandedAttr: open ? 'true' : 'false',
+        rowStyle: 'height: 28px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 0; border-radius: 6px; text-align: left; ' + (open ? 'background: #171A21' : 'background: none'),
+        toggle: () => this.setState({ expanded: open ? '' : t.id }),
+      };
+    });
+
+    const catalog = {
+      door: { name: 'Door', color: '#6b5a45' },
+      lever: { name: 'lever_01', color: '#c9ccd3' },
+      knight: { name: 'Knight', color: '#e9a84a' },
+    };
+    const pickDefs = [
+      { group: 'objects', head: 'OBJECTS' },
+      { id: 'o3', group: 'objects', icon: 'obj', name: 'slime_03', meta: 'Actors · x 512 · nearest the door', color: '#57a87a' },
+      { id: 'o2', group: 'objects', icon: 'obj', name: 'slime_02', meta: 'Actors · x 292', color: '#57a87a' },
+      { id: 'o1', group: 'objects', icon: 'obj', name: 'slime_01', meta: 'Actors · x 228', color: '#57a87a' },
+      { group: 'prefabs', head: 'PREFABS' },
+      { id: 'pf', group: 'prefabs', icon: 'prefab', name: 'slime.prefab.yaml', meta: 'prefabs/ · used 3 times', color: '#9B7BFF' },
+      { group: 'assets', head: 'ASSETS' },
+      { id: 'a1', group: 'assets', icon: 'thumb', name: 'slime_green.png', meta: 'art/enemies/ · 32 × 24', color: '#57a87a' },
+      { id: 'a2', group: 'assets', icon: 'sound', name: 'slime_squish.wav', meta: 'audio/sfx/ · 0.4 s', color: '#B4BAC6' },
+      { group: 'problems', head: 'PROBLEMS' },
+      { id: 'pr', group: 'problems', icon: 'problem', name: 'slime_03 overlaps coin_02', meta: 'warning · game check 14:20', color: '#F2C14E' },
+      { group: 'playtests', head: 'PLAYTEST RUNS' },
+      { id: 'run', group: 'playtests', icon: 'run', name: 'Run 14:05 · 10 s', meta: 'slime_02 fell off the plank at 6.2 s', color: '#B4BAC6' },
+      { group: 'history', head: 'HISTORY STEPS' },
+      { id: 'h', group: 'history', icon: 'history', name: 'Placed 3 slimes', meta: '13:02 · Slimes and a coin trail', color: '#B4BAC6' },
+      { group: 'rules', head: 'RULES' },
+      { id: 'rl', group: 'rules', icon: 'rule', name: 'rules/enemies.md', meta: 'No enemy within 64 px of the start', color: '#B4BAC6' },
+    ];
+    pickDefs.forEach((p) => { if (p.id) catalog[p.id] = { name: p.name, color: p.color }; });
+    const tabDefs = [
+      { id: 'all', label: 'All' }, { id: 'objects', label: 'Objects' }, { id: 'files', label: 'Files' },
+      { id: 'prefabs', label: 'Prefabs' }, { id: 'assets', label: 'Assets' }, { id: 'problems', label: 'Problems' },
+      { id: 'playtests', label: 'Playtests' }, { id: 'history', label: 'History' }, { id: 'rules', label: 'Rules' },
+    ];
+    const pickerTabs = tabDefs.map((g) => ({
+      ...g,
+      style: 'height: 22px; display: flex; align-items: center; padding: 0 8px; border-radius: 6px; border: 0; font-size: 11.5px; ' + (s.tab === g.id ? 'background: #FFFFFF; color: #101216; font-weight: 500' : 'background: #262B35; color: #B4BAC6'),
+      pick: () => this.setState({ tab: g.id }),
+    }));
+    const filtered = pickDefs.filter((p) => (s.tab === 'all' || p.group === s.tab || (s.tab === 'files' && p.group === 'prefabs')) && !(p.id && s.chips.indexOf(p.id) >= 0));
+    const visible = filtered.filter((p, i) => p.head ? !!filtered[i + 1] && !filtered[i + 1].head : true);
+    const pickerRows = visible.map((p) => ({
+      ...p,
+      isHead: !!p.head,
+      isItem: !p.head,
+      isObj: p.icon === 'obj', isPrefab: p.icon === 'prefab', isThumb: p.icon === 'thumb', isSound: p.icon === 'sound',
+      isProblem: p.icon === 'problem', isRun: p.icon === 'run', isHistory: p.icon === 'history', isRule: p.icon === 'rule',
+      style: 'width: 100%; box-sizing: border-box; flex: none; height: 40px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 0; border-radius: 6px; ' + (s.active === p.id ? 'background: #1C2638' : 'background: none'),
+      pick: () => this.setState({ chips: s.chips.concat([p.id]), picker: false }),
+    }));
+
+    const chips = s.chips.map((id) => ({
+      name: catalog[id].name,
+      dot: 'width: 6px; height: 6px; border-radius: 2px; background: ' + catalog[id].color,
+      removeLabel: 'Remove ' + catalog[id].name + ' from the request',
+      remove: () => this.setState({ chips: s.chips.filter((c) => c !== id) }),
+    }));
+
+    const usage = [
+      { name: 'Conversation · 5 requests', pct: 41 },
+      { name: 'Open scene · level_01', pct: 12 },
+      { name: 'Attached · Door, lever_01', pct: 7 },
+      { name: 'Always · brief.yaml, AGENTS.md', pct: 6 },
+      { name: 'Tools and instructions', pct: 5 },
+      { name: 'Viewport image', pct: 3 },
+    ].map((u) => ({ ...u, bar: 'width: ' + u.pct + '%; height: 4px; border-radius: 2px; background: ' + (u.pct > 30 ? '#E9A84A' : '#B4BAC6') }));
+
+    const suggestions = [
+      { text: 'Block out level_01 with three platforms and an exit door' },
+      { text: 'Add a slime that patrols the floor and costs the Knight one heart' },
+      { text: 'Set up the HUD: three hearts and a coin counter' },
+    ];
+
+    return {
+      tree, threadRows, turns, chips, usage, suggestions, pickerTabs, pickerRows,
+      pickerCount: pickerRows.filter((p) => p.isItem).length,
+      threadsOpen: s.threads,
+      threadsExpanded: s.threads ? 'true' : 'false',
+      switcherStyle: 'height: 30px; min-width: 0; max-width: 268px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 8px; border: 0; color: #FFFFFF; font-weight: 500; ' + (s.threads ? 'background: #262B35' : 'background: none'),
+      toggleThreads: () => this.setState({ threads: !s.threads, picker: false, ring: false }),
+      showJump: s.expanded !== '',
+      jumpLatest: () => this.setState({ expanded: '' }),
+      pickerOpen: s.picker,
+      togglePicker: () => this.setState({ picker: !s.picker, ring: false, threads: false }),
+      atStyle: 'width: 28px; height: 28px; border: 0; border-radius: 6px; display: flex; align-items: center; justify-content: center; ' + (s.picker ? 'background: #262B35; color: #FFFFFF' : 'background: none; color: #B4BAC6'),
+      ringOpen: s.ring,
+      ringExpanded: s.ring ? 'true' : 'false',
+      ringBg: s.ring ? '#262B35' : 'none',
+      toggleRing: () => this.setState({ ring: !s.ring, picker: false, threads: false }),
+      suggestKnight: s.chips.indexOf('knight') < 0,
+      addKnight: () => this.setState({ chips: s.chips.concat(['knight']) }),
+    };
+  }
+}
+</script>
+</body>
+</html>

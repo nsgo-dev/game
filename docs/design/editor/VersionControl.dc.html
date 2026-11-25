@@ -1,0 +1,595 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Version control</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#101216}
+a{color:#8fb3ff}a:hover{color:#b9cfff}
+.vp{background-color:#15181d;background-image:radial-gradient(circle,#2a2f38 1px,transparent 1.2px);background-size:16px 16px}
+button{font:inherit;cursor:pointer}
+button:disabled{cursor:default}
+input,textarea{font:inherit}
+</style>
+</helmet>
+<div style="width: 2960px; height: 960px; display: flex; flex-direction: column; font-family: Inter, system-ui, sans-serif; font-size: 12.5px; color: #D9DDE5; background: #0c0d10">
+
+  <div style="height: 60px; flex: none; display: grid; grid-template-columns: 1440px 1440px; gap: 80px; align-items: center">
+    <div style="display: flex; align-items: baseline; gap: 12px; padding: 0 4px"><span style="color: #FFFFFF; font-size: 14px; font-weight: 600">Changes and commit</span><span style="color: #8B92A0">Status bar › Changes. Each file compares with HEAD in the Review layout; the agent drafts the message.</span></div>
+    <div style="display: flex; align-items: baseline; gap: 12px; padding: 0 4px"><span style="color: #FFFFFF; font-size: 14px; font-weight: 600">Scene merge conflict</span><span style="color: #8B92A0">The scene merge driver joins objects by id; only objects both sides changed reach this screen.</span></div>
+  </div>
+
+  <div style="flex: 1; display: grid; grid-template-columns: 1440px 1440px; gap: 80px; min-height: 0">
+
+    <div style="height: 900px; display: flex; flex-direction: column; background: #101216; overflow: hidden">
+      <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 12px; border-bottom: 1px solid #1F232A">
+        <div style="width: 22px; height: 22px; border-radius: 6px; background: #3B7BFF"></div>
+        <span style="font-weight: 600; color: #FFFFFF">dungeon-run</span><span style="color: #8B92A0">/</span><span style="color: #B4BAC6">level_01</span>
+        <button aria-label="Switch branch, current feat/slime-patrol" style="height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 10px; margin-left: 8px; border-radius: 8px; border: 0; background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #D9DDE5">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="6" cy="5" r="2"></circle><circle cx="6" cy="19" r="2"></circle><circle cx="18" cy="7" r="2"></circle><path d="M6 7v10M18 9c0 5-6 4-11 8"></path></svg>
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px">feat/slime-patrol</span>
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8B92A0">{{ aheadLabel }}</span>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#8B92A0" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
+        </button>
+        <div style="flex: 1"></div>
+        <button style="height: 30px; display: flex; align-items: center; gap: 6px; padding: 0 12px; border-radius: 8px; border: 0; background: #22262f; color: #D9DDE5">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 4v12M6 10l6 6 6-6M5 20h14"></path></svg>Pull</button>
+        <button aria-label="Play" style="height: 30px; display: flex; align-items: center; gap: 7px; padding: 0 14px; border-radius: 8px; border: 0; background: #FFFFFF; color: #101216; font-weight: 600">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 4l14 8-14 8z"></path></svg>Play</button>
+      </div>
+
+      <div style="flex: 1; display: grid; grid-template-columns: 300px minmax(0, 1fr) 400px; min-height: 0">
+        <div style="border-right: 1px solid #1F232A; padding: 8px; display: flex; flex-direction: column; gap: 2px; overflow: hidden">
+          <div style="height: 28px; display: flex; align-items: center; justify-content: space-between; padding: 0 8px; color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em"><span>CHANGES</span><span style="font-weight: 500; letter-spacing: 0; font-family: 'JetBrains Mono', monospace">since a41c9e2</span></div>
+          <sc-for list="{{ fileGroups }}" as="g" hint-placeholder-count="4">
+            <div style="height: 28px; display: flex; align-items: end; padding: 0 8px 4px; color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">{{ g.label }}</div>
+            <sc-for list="{{ g.files }}" as="f" hint-placeholder-count="1">
+              <div style="{{ f.rowStyle }}">
+                <button role="checkbox" aria-checked="{{ f.checkedStr }}" aria-label="{{ f.checkLabel }}" onClick="{{ f.toggle }}" style="{{ f.boxStyle }}">
+                  <sc-if value="{{ f.on }}" hint-placeholder-val="{{ true }}"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg></sc-if>
+                </button>
+                <button onClick="{{ f.pick }}" style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; border: 0; background: none; padding: 6px 0; text-align: left; color: inherit">
+                  <span style="display: flex; align-items: center; gap: 8px; width: 100%"><span style="flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #FFFFFF">{{ f.name }}</span><span style="{{ f.badge }}">{{ f.status }}</span></span>
+                  <span style="color: #8B92A0; font-size: 11.5px">{{ f.detail }}</span>
+                </button>
+              </div>
+            </sc-for>
+          </sc-for>
+        </div>
+
+        <div style="display: flex; flex-direction: column; min-width: 0">
+          <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 16px; border-bottom: 1px solid #1F232A">
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #FFFFFF">{{ cur.name }}</span>
+            <span style="color: #8B92A0">compared with HEAD</span>
+            <div style="flex: 1"></div>
+            <sc-if value="{{ cur.isScene }}" hint-placeholder-val="{{ true }}">
+              <div style="display: flex; gap: 2px; padding: 3px; border-radius: 9px; background: #171A21; box-shadow: 0 0 0 1px #262B35">
+                <button onClick="{{ showHead }}" style="{{ headStyle }}">HEAD</button>
+                <button onClick="{{ showNow }}" style="{{ nowStyle }}">Now</button>
+              </div>
+            </sc-if>
+            <sc-if value="{{ cur.isCode }}" hint-placeholder-val="{{ false }}">
+              <button style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #22262f; color: #D9DDE5">Open in editor</button>
+            </sc-if>
+          </div>
+
+          <sc-if value="{{ cur.isScene }}" hint-placeholder-val="{{ true }}">
+            <div class="vp" style="flex: 1; position: relative; overflow: hidden">
+              <div style="position: absolute; left: 50px; top: 56px; width: 640px; height: 360px; border-radius: 4px; box-shadow: 0 0 0 1px #2c3240, 0 24px 60px rgba(0,0,0,0.45); overflow: visible">
+                <sc-for list="{{ headScene }}" as="o" hint-placeholder-count="12">
+                  <div style="{{ o.style }}"></div>
+                </sc-for>
+              </div>
+              <div style="position: absolute; left: 50px; top: 440px; display: flex; gap: 16px; color: #8B92A0; font-size: 11.5px">
+                <span style="display: flex; align-items: center; gap: 6px"><span style="width: 10px; height: 10px; border-radius: 2px; outline: 1.5px dashed #4FD38A"></span>added · slime_03, 3 coins</span>
+                <span style="display: flex; align-items: center; gap: 6px"><span style="width: 10px; height: 10px; border-radius: 2px; outline: 1.5px dashed #E9A84A"></span>changed · slime_02, Knight, Door</span>
+              </div>
+              <sc-if value="{{ atHead }}" hint-placeholder-val="{{ false }}">
+                <div style="position: absolute; left: 370px; top: 20px; transform: translateX(-50%); height: 26px; display: flex; align-items: center; padding: 0 12px; border-radius: 13px; background: rgba(16,18,22,0.92); box-shadow: 0 0 0 1px #2c3240; color: #B4BAC6">level_01 at a41c9e2</div>
+              </sc-if>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ cur.isText }}" hint-placeholder-val="{{ false }}">
+            <div style="flex: 1; display: flex; flex-direction: column; min-height: 0; background: #12141A">
+              <sc-if value="{{ cur.isCode }}" hint-placeholder-val="{{ false }}">
+                <div style="height: 36px; flex: none; display: flex; align-items: center; gap: 16px; padding: 0 16px; border-bottom: 1px solid #1F232A; color: #B4BAC6">
+                  <span style="display: flex; align-items: center; gap: 6px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4FD38A" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>nsgo check</span>
+                  <span style="display: flex; align-items: center; gap: 6px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4FD38A" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>nsgo test · 42 passed</span>
+                  <span style="color: #8B92A0">ran after the agent’s last edit, 3 min ago</span>
+                </div>
+              </sc-if>
+              <div style="flex: 1; padding: 12px 0; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; line-height: 1.75; overflow: hidden">
+                <sc-for list="{{ diff }}" as="l" hint-placeholder-count="12">
+                  <div style="{{ l.style }}"><span style="width: 34px; color: #8B92A0; text-align: right; flex: none">{{ l.n }}</span><span style="width: 16px; flex: none">{{ l.sign }}</span><span style="white-space: pre">{{ l.text }}</span></div>
+                </sc-for>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ cur.isAudio }}" hint-placeholder-val="{{ false }}">
+            <div style="flex: 1; display: flex; align-items: center; justify-content: center; background: #12141A">
+              <div style="width: 520px; border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35; padding: 16px; display: flex; flex-direction: column; gap: 12px">
+                <div style="display: flex; align-items: center; gap: 12px">
+                  <button aria-label="Play door_creak.ogg" style="width: 32px; height: 32px; border-radius: 8px; border: 0; background: #FFFFFF; color: #101216; display: flex; align-items: center; justify-content: center"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 4l14 8-14 8z"></path></svg></button>
+                  <div><div style="color: #FFFFFF; font-weight: 500">door_creak.ogg</div><div style="color: #8B92A0; font-size: 11.5px">new file · 0.8 s · Vorbis 44.1 kHz · 38 KB</div></div>
+                </div>
+                <div style="height: 56px; display: flex; align-items: center; gap: 2px">
+                  <sc-for list="{{ wave }}" as="w" hint-placeholder-count="60">
+                    <span style="{{ w.style }}"></span>
+                  </sc-for>
+                </div>
+                <div style="color: #8B92A0">Used by Door in level_01 as <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #D9DDE5">open_sfx</span></div>
+              </div>
+            </div>
+          </sc-if>
+
+          <div style="height: 32px; flex: none; display: flex; align-items: center; gap: 18px; padding: 0 14px; border-top: 1px solid #1F232A; color: #8B92A0; font-size: 11.5px">
+            <span>Layer Actors</span><span>Select</span>
+            <div style="flex: 1"></div>
+            <span style="display: flex; align-items: center; gap: 6px"><span style="width: 6px; height: 6px; border-radius: 3px; background: #4FD38A"></span>No problems</span>
+            <button style="{{ changesEntryStyle }}">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="6" cy="5" r="2"></circle><circle cx="6" cy="19" r="2"></circle><circle cx="18" cy="7" r="2"></circle><path d="M6 7v10M18 9c0 5-6 4-11 8"></path></svg>{{ changesEntry }}</button>
+          </div>
+        </div>
+
+        <div style="border-left: 1px solid #1F232A; background: #12141A; display: flex; flex-direction: column; min-height: 0">
+          <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 16px; border-bottom: 1px solid #1F232A">
+            <span style="color: #FFFFFF; font-weight: 600; font-size: 14px">Commit</span>
+            <div style="flex: 1"></div>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8B92A0">feat/slime-patrol</span>
+          </div>
+
+          <sc-if value="{{ drafting }}" hint-placeholder-val="{{ true }}">
+            <div style="flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 12px; min-height: 0">
+              <div style="display: flex; align-items: center; gap: 8px">
+                <span style="height: 24px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border-radius: 12px; background: rgba(155,123,255,0.10); box-shadow: 0 0 0 1px rgba(155,123,255,0.5); color: #D9DDE5; font-size: 11.5px">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#9B7BFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"></path></svg>Drafted from 3 reviews and a playtest</span>
+                <div style="flex: 1"></div>
+                <button style="height: 28px; padding: 0 10px; border-radius: 8px; border: 0; background: none; color: #B4BAC6">Redraft</button>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 6px">
+                <label for="commit-subject" style="color: #B4BAC6">Summary</label>
+                <input id="commit-subject" type="text" value="Add a plank guard and a coin trail to level_01" style="height: 32px; padding: 0 10px; border-radius: 8px; border: 0; outline: none; background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #FFFFFF">
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 6px; flex: 1; min-height: 0">
+                <label for="commit-body" style="color: #B4BAC6">Description</label>
+                <textarea id="commit-body" style="flex: 1; resize: none; padding: 10px; border-radius: 8px; border: 0; outline: none; background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #D9DDE5; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; line-height: 1.7">- slime_03 guards the plank; slime_02 runs at 30
+- Three coins lead to the door; coins score 25
+- Slimes turn at ledges (scripts/slime.go)
+- Door moves to x 560 and creaks on open
+
+Playtest: 10 s, 0 falls, 3 of 3 coins reachable
+Made from 3 agent requests, reviewed and kept</textarea>
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px; color: #8B92A0">
+                <span>{{ includedLabel }}</span>
+                <div style="flex: 1"></div>
+                <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px"><span style="color: #4FD38A">{{ plus }}</span> <span style="color: #FF6B6B">{{ minus }}</span></span>
+              </div>
+              <div style="display: flex; gap: 8px">
+                <button onClick="{{ commit }}" aria-disabled="{{ commitDisabled }}" style="{{ commitStyle }}">{{ commitLabel }}</button>
+                <button onClick="{{ commitPush }}" style="height: 32px; padding: 0 12px; border-radius: 8px; border: 0; background: #22262f; color: #D9DDE5">Commit and push</button>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ committed }}" hint-placeholder-val="{{ false }}">
+            <div style="flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 16px">
+              <div style="border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35; padding: 14px; display: flex; flex-direction: column; gap: 8px">
+                <div style="display: flex; align-items: center; gap: 8px">
+                  <span style="width: 18px; height: 18px; border-radius: 9px; background: #1f3a2b; display: flex; align-items: center; justify-content: center"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#4FD38A" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg></span>
+                  <span style="color: #FFFFFF; font-weight: 500">{{ committedTitle }}</span>
+                </div>
+                <div style="color: #D9DDE5">Add a plank guard and a coin trail to level_01</div>
+                <div style="color: #8B92A0; line-height: 1.55">A milestone in History. Restore to it any time, or compare any later step with it.</div>
+                <sc-if value="{{ notPushed }}" hint-placeholder-val="{{ true }}">
+                  <button onClick="{{ push }}" style="align-self: flex-start; height: 30px; display: flex; align-items: center; gap: 6px; padding: 0 12px; border-radius: 8px; border: 0; background: #3B7BFF; color: #FFFFFF; font-weight: 500"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 20V8M6 14l6-6 6 6M5 4h14"></path></svg>Push 3 commits</button>
+                </sc-if>
+              </div>
+
+              <div style="display: flex; flex-direction: column; gap: 4px">
+                <div style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; padding: 0 4px 4px">SHARE</div>
+                <button style="display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border-radius: 8px; border: 0; background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #D9DDE5; text-align: left">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#B4BAC6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-top: 1px"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path></svg>
+                  <span style="display: flex; flex-direction: column; gap: 2px"><span style="color: #FFFFFF">Copy as PR description</span><span style="color: #8B92A0; font-size: 11.5px; line-height: 1.5">Prompts, the plan, before and after images, playtest numbers</span></span>
+                </button>
+                <button style="display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border-radius: 8px; border: 0; background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #D9DDE5; text-align: left">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#B4BAC6" stroke-width="1.8" stroke-linecap="round" aria-hidden="true" style="margin-top: 1px"><circle cx="6" cy="6" r="2"></circle><circle cx="6" cy="18" r="2"></circle><circle cx="18" cy="18" r="2"></circle><path d="M6 8v8M18 16V9a3 3 0 0 0-3-3h-4M13 4l-2 2 2 2"></path></svg>
+                  <span style="display: flex; flex-direction: column; gap: 2px"><span style="color: #FFFFFF">Open pull request</span><span style="color: #8B92A0; font-size: 11.5px; line-height: 1.5">feat/slime-patrol into main with gh, using the same description</span></span>
+                </button>
+              </div>
+
+              <div style="display: flex; flex-direction: column; gap: 2px">
+                <div style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; padding: 0 4px 4px">HISTORY</div>
+                <div style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 6px; background: #1C2638; color: #FFFFFF"><span style="width: 10px; height: 10px; transform: rotate(45deg); border-radius: 2px; background: #3B7BFF"></span><span style="flex: 1">Commit 9f3c2d1</span><span style="color: #B4BAC6; font-size: 11.5px">now</span></div>
+                <div style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 9px; color: #B4BAC6"><span style="width: 8px; height: 8px; border-radius: 4px; background: #9B7BFF"></span><span style="flex: 1">Slimes turn at ledges</span><span style="color: #8B92A0; font-size: 11.5px">6 min</span></div>
+                <div style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 9px; color: #B4BAC6"><span style="width: 8px; height: 8px; border-radius: 4px; background: #9B7BFF"></span><span style="flex: 1">Door creaks when it opens</span><span style="color: #8B92A0; font-size: 11.5px">11 min</span></div>
+                <div style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; color: #B4BAC6"><span style="width: 10px; height: 10px; transform: rotate(45deg); border-radius: 2px; box-shadow: inset 0 0 0 1.5px #8B92A0"></span><span style="flex: 1">Commit a41c9e2</span><span style="color: #8B92A0; font-size: 11.5px">yesterday</span></div>
+              </div>
+              <button onClick="{{ undoCommit }}" style="align-self: flex-start; height: 28px; padding: 0 10px; border-radius: 8px; border: 0; background: none; color: #B4BAC6">Back to the draft</button>
+            </div>
+          </sc-if>
+        </div>
+      </div>
+    </div>
+
+    <div style="height: 900px; display: flex; flex-direction: column; background: #101216; overflow: hidden">
+      <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 12px; border-bottom: 1px solid #1F232A">
+        <div style="width: 22px; height: 22px; border-radius: 6px; background: #3B7BFF"></div>
+        <span style="font-weight: 600; color: #FFFFFF">dungeon-run</span><span style="color: #8B92A0">/</span><span style="color: #B4BAC6">level_01</span>
+        <div style="flex: 1"></div>
+        <span style="height: 28px; display: inline-flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: 14px; background: #2A2414; box-shadow: 0 0 0 1px #4A3F1F; color: #F2C14E">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="6" cy="5" r="2"></circle><circle cx="6" cy="19" r="2"></circle><circle cx="18" cy="12" r="2"></circle><path d="M6 7v10M6 7c0 4 4 5 10 5"></path></svg>
+          <span>Merging <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px">origin/main</span> into <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px">feat/slime-patrol</span> · {{ mergeProgress }}</span>
+        </span>
+        <div style="flex: 1"></div>
+        <button style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #22262f; color: #D9DDE5">Abort merge</button>
+        <button onClick="{{ finish }}" aria-disabled="{{ finishDisabled }}" style="{{ finishStyle }}">{{ finishLabel }}</button>
+      </div>
+
+      <div style="flex: 1; display: grid; grid-template-columns: 300px minmax(0, 1fr) 400px; min-height: 0">
+        <div style="border-right: 1px solid #1F232A; padding: 8px; display: flex; flex-direction: column; gap: 2px; overflow: hidden">
+          <div style="height: 28px; display: flex; align-items: center; padding: 0 8px; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #FFFFFF">scenes/level_01.scene.yaml</div>
+          <div style="height: 28px; display: flex; align-items: end; justify-content: space-between; padding: 0 8px 4px; color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em"><span>CONFLICTS</span><span style="font-weight: 500; letter-spacing: 0">{{ resolvedCount }} of 3 resolved</span></div>
+          <sc-for list="{{ conflicts }}" as="c" hint-placeholder-count="3">
+            <button onClick="{{ c.focus }}" style="{{ c.style }}">
+              <span style="display: flex; align-items: center; gap: 8px; width: 100%">
+                <span style="{{ c.dot }}"></span>
+                <span style="flex: 1; color: #FFFFFF; font-weight: 500">{{ c.name }}</span>
+                <span style="{{ c.chip }}">{{ c.chipText }}</span>
+              </span>
+              <span style="color: #8B92A0; font-size: 11.5px; line-height: 1.5; padding-left: 15px">{{ c.summary }}</span>
+            </button>
+          </sc-for>
+          <div style="height: 36px; display: flex; align-items: end; justify-content: space-between; padding: 0 8px 4px; color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em"><span>MERGED BY ID</span><span style="font-weight: 500; letter-spacing: 0">5 objects</span></div>
+          <sc-for list="{{ autoMerged }}" as="a" hint-placeholder-count="5">
+            <div style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; color: #B4BAC6">
+              <span style="{{ a.mark }}"></span>
+              <span style="flex: 1">{{ a.name }}</span>
+              <span style="color: #8B92A0; font-size: 11.5px">{{ a.side }}</span>
+            </div>
+          </sc-for>
+          <div style="flex: 1"></div>
+          <button onClick="{{ takeAllAgent }}" style="height: 32px; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 8px; border: 0; background: rgba(155,123,255,0.12); box-shadow: inset 0 0 0 1px rgba(155,123,255,0.5); color: #FFFFFF">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#9B7BFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"></path></svg>Take the agent’s suggestion for all 3</button>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 12px; padding: 16px; min-width: 0; overflow: hidden">
+          <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px">
+            <button onClick="{{ pickMine }}" style="{{ mineCard }}">
+              <span style="display: flex; align-items: center; gap: 8px; width: 100%"><span style="color: #FFFFFF; font-weight: 600; font-size: 11px; letter-spacing: 0.06em">MINE</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #B4BAC6">feat/slime-patrol</span><span style="flex: 1"></span><span style="color: #8B92A0; font-size: 11.5px">you · 9f3c2d1</span></span>
+              <span class="vp" style="position: relative; display: block; width: 320px; height: 180px; margin: 0 auto; border-radius: 4px; box-shadow: 0 0 0 1px #2c3240; overflow: hidden">
+                <sc-for list="{{ mineScene }}" as="o" hint-placeholder-count="10"><span style="{{ o.style }}"></span></sc-for>
+              </span>
+            </button>
+            <button onClick="{{ pickTheirs }}" style="{{ theirsCard }}">
+              <span style="display: flex; align-items: center; gap: 8px; width: 100%"><span style="color: #FFFFFF; font-weight: 600; font-size: 11px; letter-spacing: 0.06em">THEIRS</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #B4BAC6">origin/main</span><span style="flex: 1"></span><span style="color: #8B92A0; font-size: 11.5px">mia · 7c21f0e</span></span>
+              <span class="vp" style="position: relative; display: block; width: 320px; height: 180px; margin: 0 auto; border-radius: 4px; box-shadow: 0 0 0 1px #2c3240; overflow: hidden">
+                <sc-for list="{{ theirsScene }}" as="o" hint-placeholder-count="10"><span style="{{ o.style }}"></span></sc-for>
+              </span>
+            </button>
+          </div>
+          <div style="flex: 1; display: flex; flex-direction: column; gap: 8px; min-height: 0">
+            <div style="display: flex; align-items: center; gap: 8px">
+              <span style="color: #FFFFFF; font-weight: 600; font-size: 11px; letter-spacing: 0.06em">RESULT</span>
+              <span style="color: #8B92A0">what level_01 will be after the merge</span>
+              <div style="flex: 1"></div>
+              <span style="display: flex; align-items: center; gap: 6px; color: #8B92A0; font-size: 11.5px"><span style="width: 10px; height: 10px; border-radius: 2px; outline: 1.5px dashed #E9A84A"></span>unresolved, both positions shown</span>
+            </div>
+            <div class="vp" style="flex: 1; position: relative; border-radius: 12px; box-shadow: 0 0 0 1px #1F232A; overflow: hidden">
+              <div style="position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 640px; height: 360px; box-shadow: 0 0 0 1px #2c3240, 0 24px 60px rgba(0,0,0,0.45); border-radius: 4px">
+                <sc-for list="{{ resultScene }}" as="o" hint-placeholder-count="12"><div style="{{ o.style }}"></div></sc-for>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style="border-left: 1px solid #1F232A; background: #12141A; display: flex; flex-direction: column; min-height: 0">
+          <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 16px; border-bottom: 1px solid #1F232A">
+            <span style="color: #FFFFFF; font-weight: 600; font-size: 14px">{{ focusName }}</span>
+            <span style="color: #8B92A0">{{ focusKind }}</span>
+          </div>
+          <div style="flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 12px; overflow: hidden">
+            <sc-for list="{{ options }}" as="op" hint-placeholder-count="3">
+              <button onClick="{{ op.pick }}" aria-pressed="{{ op.pressed }}" style="{{ op.card }}">
+                <span style="display: flex; align-items: center; gap: 8px; width: 100%">
+                  <span style="{{ op.radio }}"><span style="{{ op.radioDot }}"></span></span>
+                  <span style="color: #FFFFFF; font-weight: 500">{{ op.title }}</span>
+                  <span style="flex: 1"></span>
+                  <span style="color: #8B92A0; font-size: 11.5px">{{ op.meta }}</span>
+                </span>
+                <span style="display: block; width: 100%; box-sizing: border-box; padding: 8px 10px; border-radius: 6px; background: #0f1115; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; line-height: 1.7; color: #D9DDE5; white-space: pre">{{ op.yaml }}</span>
+                <sc-if value="{{ op.hasReason }}" hint-placeholder-val="{{ false }}">
+                  <span style="display: flex; gap: 8px; color: #c9bcff; line-height: 1.55"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#9B7BFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; margin-top: 3px"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"></path></svg><span>{{ op.reason }}</span></span>
+                </sc-if>
+              </button>
+            </sc-for>
+            <button style="align-self: flex-start; height: 28px; padding: 0 10px; border-radius: 8px; border: 0; background: none; color: #B4BAC6">Edit the result YAML by hand</button>
+          </div>
+          <sc-if value="{{ merged }}" hint-placeholder-val="{{ false }}">
+            <div style="margin: 0 16px 16px; border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px">
+              <span style="color: #FFFFFF; font-weight: 500">Merged as 5b0e8a4</span>
+              <span style="color: #8B92A0; line-height: 1.55">The agent ran game check and a 10 s playtest on the result: no problems, 3 of 3 coins reachable.</span>
+            </div>
+          </sc-if>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":2960,"height":960}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = {
+      file: 'scene', view: 'now', off: {}, commit: 'draft',
+      focus: 'door', pick: { door: '', slime: 'theirs', knight: '' }, merged: false,
+    };
+  }
+  renderVals() {
+    const s = this.state;
+    const px = (o, sc, extra) => 'position: absolute; left: ' + (o.x * sc) + 'px; top: ' + (o.y * sc) + 'px; width: ' + (o.w * sc) + 'px; height: ' + (o.h * sc) + 'px; box-sizing: border-box; ' + o.look + (extra ? '; ' + extra : '');
+    const MARK = {
+      added: 'outline: 1.5px dashed #4FD38A; outline-offset: 2px',
+      changed: 'outline: 1.5px dashed #E9A84A; outline-offset: 2px',
+      removed: 'outline: 1.5px solid #FF6B6B; outline-offset: 2px; opacity: 0.9',
+      focus: 'box-shadow: 0 0 0 5px rgba(21,24,29,0.9), 0 0 0 6.5px #3B7BFF',
+    };
+    const L = {
+      sky: 'background: linear-gradient(180deg,#1c2230,#181c24)',
+      floor: 'background: #2a2f3a; border-top: 3px solid #3b4250',
+      plank: 'background: #333a47; border-radius: 2px',
+      knight: 'background: #E9A84A; border-radius: 5px',
+      door: 'background: #6b5a45; border-radius: 4px',
+      slime: 'background: rgba(79,211,138,0.55); border-radius: 10px 10px 4px 4px',
+      coin: 'background: rgba(242,208,75,0.75); border-radius: 5px',
+      lever: 'background: #8a7a62; border-radius: 2px',
+      ghost: 'background: none; border-radius: 10px 10px 4px 4px',
+      ghostDoor: 'background: none; border-radius: 4px',
+    };
+    const base = [
+      { id: 'sky', x: 0, y: 0, w: 640, h: 360, look: L.sky },
+      { id: 'floor', x: 0, y: 300, w: 640, h: 60, look: L.floor },
+      { id: 'plank', x: 344, y: 256, w: 160, h: 12, look: L.plank },
+    ];
+    const knight = { id: 'knight', x: 400, y: 222, w: 24, h: 34, look: L.knight };
+    const slime01 = { id: 'slime01', x: 170, y: 280, w: 30, h: 20, look: L.slime };
+    const slime02 = { id: 'slime', x: 240, y: 280, w: 30, h: 20, look: L.slime };
+    const slime03 = { id: 'slime03', x: 452, y: 236, w: 30, h: 20, look: L.slime };
+    const coins = [496, 516, 536].map((x, i) => ({ id: 'coin' + i, x, y: 282, w: 10, h: 10, look: L.coin }));
+    const lever = { id: 'lever', x: 360, y: 238, w: 8, h: 18, look: L.lever };
+    const doorAt = (x) => ({ id: 'door', x, y: 260, w: 30, h: 40, look: L.door });
+
+    // Changes and commit
+    const files = [
+      { id: 'scene', group: 'SCENES', name: 'level_01.scene.yaml', status: 'M', detail: '2 added · 3 changed objects', plus: 41, minus: 4 },
+      { id: 'data', group: 'DATA', name: 'data/pickups.data.yaml', status: 'M', detail: 'coin score 10 → 25', plus: 1, minus: 1 },
+      { id: 'code', group: 'CODE', name: 'scripts/slime.go', status: 'M', detail: 'turn at ledges · check and tests pass', plus: 7, minus: 4 },
+      { id: 'audio', group: 'ASSETS', name: 'audio/door_creak.ogg', status: 'A', detail: 'new · 38 KB', plus: 0, minus: 0 },
+    ];
+    const groupsOrder = ['SCENES', 'DATA', 'CODE', 'ASSETS'];
+    const fileGroups = groupsOrder.map((g) => ({
+      label: g,
+      files: files.filter((f) => f.group === g).map((f) => {
+        const on = !s.off[f.id];
+        const sel = s.file === f.id;
+        return {
+          ...f, on,
+          checkedStr: on ? 'true' : 'false',
+          checkLabel: 'Include ' + f.name + ' in the commit',
+          rowStyle: 'display: flex; align-items: center; gap: 10px; padding: 0 8px; border-radius: 6px; ' + (sel ? 'background: #1C2638; box-shadow: inset 2px 0 0 #3B7BFF' : ''),
+          boxStyle: 'width: 16px; height: 16px; flex: none; padding: 0; display: flex; align-items: center; justify-content: center; border-radius: 4px; border: 0; ' + (on ? 'background: #3B7BFF' : 'background: none; box-shadow: inset 0 0 0 1.5px #8B92A0'),
+          badge: 'flex: none; width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; font-family: \'JetBrains Mono\', monospace; font-size: 10.5px; font-weight: 500; ' + (f.status === 'A' ? 'background: #173326; color: #4FD38A' : 'background: #33291a; color: #E9A84A'),
+          toggle: () => this.setState({ off: { ...s.off, [f.id]: on } }),
+          pick: () => this.setState({ file: f.id }),
+        };
+      }),
+    }));
+    const curFile = files.find((f) => f.id === s.file) || files[0];
+    const cur = { name: curFile.name, isScene: curFile.id === 'scene', isCode: curFile.id === 'code', isText: curFile.id === 'data' || curFile.id === 'code', isAudio: curFile.id === 'audio' };
+
+    const atHead = s.view === 'head';
+    const headObjs = atHead
+      ? [...base, doorAt(584), knight, slime01, slime02].map((o) => ({ style: px(o, 1) }))
+      : [
+          ...base.map((o) => ({ style: px(o, 1) })),
+          { style: px(doorAt(560), 1, MARK.changed) },
+          { style: px(knight, 1, MARK.changed) },
+          { style: px(slime01, 1) },
+          { style: px(slime02, 1, MARK.changed) },
+          { style: px(slime03, 1, MARK.added) },
+          ...coins.map((c) => ({ style: px(c, 1, MARK.added) })),
+        ];
+
+    const diffs = {
+      data: [
+        { n: 1, text: 'version: 1' }, { n: 2, text: 'table: pickups' }, { n: 3, text: 'rows:' },
+        { n: 4, text: '  - id: coin' }, { n: 5, text: '    sprite: items/coin_spin' },
+        { n: 6, sign: '-', text: '    score: 10', del: true }, { n: 6, sign: '+', text: '    score: 25', add: true },
+        { n: 7, text: '    sound: audio/coin.ogg' }, { n: 8, text: '  - id: heart' }, { n: 9, text: '    heals: 1' },
+      ],
+      code: [
+        { n: 31, text: 'func (p *Patrol) Update(w *game.World, dt float64) {' },
+        { n: 32, sign: '-', text: '\tp.X += p.Dir * p.Speed * dt', del: true },
+        { n: 33, sign: '-', text: '\tif p.X < p.From || p.X > p.To {', del: true },
+        { n: 34, sign: '-', text: '\t\tp.Dir = -p.Dir', del: true },
+        { n: 35, sign: '-', text: '\t}', del: true },
+        { n: 32, sign: '+', text: '\tnext := p.X + p.Dir*p.Speed*dt', add: true },
+        { n: 33, sign: '+', text: '\t// Turn at the patrol bounds or at a ledge, whichever comes first.', add: true },
+        { n: 34, sign: '+', text: '\tif next < p.From || next > p.To || !w.Solid(next+p.Dir*p.HalfW, p.Y+1) {', add: true },
+        { n: 35, sign: '+', text: '\t\tp.Dir = -p.Dir', add: true },
+        { n: 36, sign: '+', text: '\t\treturn', add: true },
+        { n: 37, sign: '+', text: '\t}', add: true },
+        { n: 38, sign: '+', text: '\tp.X = next', add: true },
+        { n: 39, text: '}' },
+      ],
+    };
+    const diff = (diffs[curFile.id] || []).map((l) => ({ n: l.n, sign: l.sign || '', text: l.text, style: 'display: flex; gap: 6px; padding: 0 16px; tab-size: 4; ' + (l.add ? 'background: rgba(79,211,138,0.08); color: #b9f0cf' : l.del ? 'background: rgba(255,107,107,0.08); color: #ffb9b9' : 'color: #B4BAC6') }));
+    const wave = Array.from({ length: 60 }, (_, i) => {
+      const env = i < 6 ? i / 6 : Math.max(0.08, 1 - (i - 6) / 58);
+      const h = Math.round(6 + 44 * env * (0.55 + 0.45 * Math.abs(Math.sin(i * 1.7))));
+      return { style: 'flex: 1; height: ' + h + 'px; border-radius: 2px; background: ' + (i < 22 ? '#B4BAC6' : '#3a404c') };
+    });
+
+    const included = files.filter((f) => !s.off[f.id]);
+    const plus = included.reduce((a, f) => a + f.plus, 0);
+    const minus = included.reduce((a, f) => a + f.minus, 0);
+    const n = included.length;
+    const seg = (on) => 'height: 26px; padding: 0 10px; border-radius: 6px; border: 0; font-weight: 500; ' + (on ? 'background: #2a2f3a; color: #FFFFFF' : 'background: none; color: #8B92A0');
+    const committed = s.commit !== 'draft';
+    const pending = committed ? 0 : files.length;
+
+    // Merge conflict
+    const C = {
+      door: {
+        name: 'Door', kind: 'trigger · prefab door', summary: 'Both moved it: x 560 here, x 600 on main',
+        mine: { meta: 'x 584 → 560', yaml: '- id: door\n  x: 560\n  open_sfx: audio/door_creak.ogg' },
+        theirs: { meta: 'x 584 → 600', yaml: '- id: door\n  x: 600\n  locked_by: lever_01' },
+        agent: { meta: 'fields from both', yaml: '- id: door\n  x: 600                # theirs\n  locked_by: lever_01   # theirs\n  open_sfx: audio/door_creak.ogg  # mine', reason: 'Mia moved the door to fit the lever puzzle; you moved it only to end the coin trail, which still ends 54 px before it. Keep her position and lock, and your sound.' },
+        suggest: 'agent',
+      },
+      slime: {
+        name: 'slime_02', kind: 'prefab slime', summary: 'Your speed change; main deleted it',
+        mine: { meta: 'speed 24 → 30', yaml: '- id: slime_02\n  prefab: prefabs/slime.prefab.yaml\n  patrol: { from: 220, to: 340, speed: 30 }' },
+        theirs: { meta: 'deleted', yaml: '# slime_02 deleted in 7c21f0e\n# “Thin out the lower floor for the lever”' },
+        agent: { meta: 'same as theirs', yaml: '# slime_02 stays deleted', reason: 'Mia removed it so the lever on the plank can be reached; slime_01 and slime_03 still cover the floor and the plank. Your speed change has nothing left to apply to.' },
+        suggest: 'theirs',
+      },
+      knight: {
+        name: 'Knight', kind: 'sprite', summary: 'Both changed z: 12 here, 11 on main',
+        mine: { meta: 'z 10 → 12', yaml: '- id: knight\n  z: 12   # above slimes' },
+        theirs: { meta: 'z 10 → 11', yaml: '- id: knight\n  z: 11   # above torches' },
+        agent: { meta: 'same as mine', yaml: '- id: knight\n  z: 12', reason: 'Torches are z 10 and slimes are z 11, so 12 keeps the Knight above both; both reasons still hold.' },
+        suggest: 'mine',
+      },
+    };
+    const ids = ['door', 'slime', 'knight'];
+    const choice = (id) => s.pick[id];
+    const resolvedCount = ids.filter((id) => !!choice(id)).length;
+    const chipFor = (id) => {
+      const c = choice(id);
+      if (!c) return { text: 'Unresolved', style: 'background: #2A2414; box-shadow: 0 0 0 1px #4A3F1F; color: #F2C14E' };
+      const t = c === 'agent' ? 'Agent' : c === 'mine' ? 'Mine' : 'Theirs';
+      return { text: t, style: 'background: #1F232A; color: #D9DDE5' };
+    };
+    const conflicts = ids.map((id) => {
+      const on = s.focus === id;
+      const chip = chipFor(id);
+      return {
+        name: C[id].name, summary: C[id].summary,
+        chipText: chip.text,
+        chip: 'height: 20px; display: inline-flex; align-items: center; padding: 0 8px; border-radius: 10px; font-size: 11px; ' + chip.style,
+        dot: 'width: 7px; height: 7px; flex: none; border-radius: 2px; background: ' + (choice(id) ? '#8B92A0' : '#E9A84A'),
+        style: 'display: flex; flex-direction: column; gap: 4px; padding: 8px; border-radius: 8px; border: 0; text-align: left; color: inherit; ' + (on ? 'background: #1C2638; box-shadow: inset 0 0 0 1px #2a3a5c' : 'background: none'),
+        focus: () => this.setState({ focus: id }),
+      };
+    });
+    const autoMerged = [
+      { name: 'slime_03', side: 'mine · added', kind: 'added' },
+      { name: 'coin_01 – coin_03', side: 'mine · added', kind: 'added' },
+      { name: 'lever_01', side: 'theirs · added', kind: 'added' },
+      { name: 'torch_02', side: 'theirs · light 48 → 64', kind: 'changed' },
+    ].map((a) => ({ ...a, mark: 'width: 8px; height: 8px; border-radius: 2px; flex: none; outline: 1.5px dashed ' + (a.kind === 'added' ? '#4FD38A' : '#E9A84A') + '; outline-offset: 1px' }));
+
+    const f = s.focus;
+    const ring = (id) => (f === id ? '; ' + MARK.focus : '');
+    const half = 0.5;
+    const mineScene = [
+      ...base.map((o) => ({ style: px(o, half) })),
+      { style: px(doorAt(560), half, MARK.changed + ring('door')) },
+      { style: px(knight, half, MARK.changed + ring('knight')) },
+      { style: px(slime01, half) },
+      { style: px(slime02, half, MARK.changed + ring('slime')) },
+      { style: px(slime03, half) },
+      ...coins.map((c) => ({ style: px(c, half) })),
+    ];
+    const theirsScene = [
+      ...base.map((o) => ({ style: px(o, half) })),
+      { style: px(doorAt(600), half, MARK.changed + ring('door')) },
+      { style: px(knight, half, MARK.changed + ring('knight')) },
+      { style: px(slime01, half) },
+      { style: px({ ...slime02, look: L.ghost }, half, MARK.removed + ring('slime')) },
+      { style: px(lever, half) },
+    ];
+    const doorChoice = choice('door');
+    const slimeChoice = choice('slime');
+    const result = [...base.map((o) => ({ style: px(o, 1) }))];
+    if (!doorChoice) {
+      result.push({ style: px({ ...doorAt(560), look: L.ghostDoor }, 1, MARK.changed + ring('door')) });
+      result.push({ style: px({ ...doorAt(600), look: L.ghostDoor }, 1, MARK.changed) });
+    } else {
+      result.push({ style: px(doorAt(doorChoice === 'mine' ? 560 : 600), 1, ring('door').replace(/^; /, '')) });
+    }
+    result.push({ style: px(knight, 1, choice('knight') ? ring('knight').replace(/^; /, '') : MARK.changed + ring('knight')) });
+    result.push({ style: px(slime01, 1) });
+    if (!slimeChoice) result.push({ style: px({ ...slime02, look: L.ghost }, 1, MARK.changed + ring('slime')) });
+    else if (slimeChoice === 'mine') result.push({ style: px(slime02, 1, ring('slime').replace(/^; /, '')) });
+    result.push({ style: px(slime03, 1) });
+    result.push({ style: px(lever, 1) });
+    coins.forEach((c) => result.push({ style: px(c, 1) }));
+
+    const fc = C[f];
+    const cardStyle = (on, agent) => 'display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 12px; border: 0; text-align: left; color: inherit; ' + (on ? 'background: #171A21; box-shadow: 0 0 0 1.5px #3B7BFF' : agent ? 'background: #15141d; box-shadow: 0 0 0 1px #2c2640' : 'background: #171A21; box-shadow: 0 0 0 1px #262B35');
+    const options = ['agent', 'mine', 'theirs'].map((k) => {
+      const on = choice(f) === k;
+      const o = fc[k];
+      return {
+        title: k === 'agent' ? 'Agent’s suggestion' : k === 'mine' ? 'Mine' : 'Theirs',
+        meta: o.meta, yaml: o.yaml, reason: o.reason || '', hasReason: !!o.reason,
+        pressed: on ? 'true' : 'false',
+        card: cardStyle(on, k === 'agent'),
+        radio: 'width: 16px; height: 16px; flex: none; border-radius: 8px; display: flex; align-items: center; justify-content: center; box-shadow: inset 0 0 0 1.5px ' + (on ? '#3B7BFF' : '#8B92A0'),
+        radioDot: 'width: 8px; height: 8px; border-radius: 4px; background: ' + (on ? '#3B7BFF' : 'transparent'),
+        pick: () => this.setState({ pick: { ...s.pick, [f]: k }, merged: false }),
+      };
+    });
+    const allDone = resolvedCount === 3;
+    const sideCard = (on) => 'display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 12px; border: 0; color: inherit; ' + (on ? 'background: #171A21; box-shadow: 0 0 0 1.5px #3B7BFF' : 'background: #12141A; box-shadow: 0 0 0 1px #1F232A');
+
+    return {
+      aheadLabel: committed ? (s.commit === 'pushed' ? '↑0 ↓0' : '↑3 ↓0') : '↑2 ↓0',
+      fileGroups, cur, headScene: headObjs, atHead, diff, wave,
+      headStyle: seg(atHead), nowStyle: seg(!atHead),
+      showHead: () => this.setState({ view: 'head' }), showNow: () => this.setState({ view: 'now' }),
+      changesEntry: pending ? pending + ' files changed since a41c9e2' : 'No changes since 9f3c2d1',
+      changesEntryStyle: 'height: 24px; display: flex; align-items: center; gap: 6px; padding: 0 8px; border-radius: 6px; border: 0; font-size: 11.5px; ' + (pending ? 'background: #1C2638; color: #FFFFFF' : 'background: none; color: #8B92A0'),
+      drafting: !committed, committed,
+      includedLabel: n + ' of 4 files',
+      plus: '+' + plus, minus: '−' + minus,
+      commitDisabled: n === 0 ? "true" : "false",
+      commitLabel: n === 0 ? 'Pick files to commit' : 'Commit ' + n + (n === 1 ? ' file' : ' files'),
+      commitStyle: 'flex: 1; height: 32px; border-radius: 8px; border: 0; font-weight: 500; ' + (n === 0 ? 'background: #1F232A; color: #8B92A0' : 'background: #3B7BFF; color: #FFFFFF'),
+      commit: () => { if (n > 0) this.setState({ commit: 'committed' }); },
+      commitPush: () => { if (n > 0) this.setState({ commit: 'pushed' }); },
+      push: () => this.setState({ commit: 'pushed' }),
+      notPushed: s.commit === 'committed',
+      committedTitle: s.commit === 'pushed' ? 'Committed 9f3c2d1 and pushed' : 'Committed 9f3c2d1',
+      undoCommit: () => this.setState({ commit: 'draft' }),
+
+      mergeProgress: allDone ? 'ready to finish' : (3 - resolvedCount) + ' of 3 objects need you',
+      resolvedCount, conflicts, autoMerged,
+      mineScene, theirsScene, resultScene: result,
+      mineCard: sideCard(choice(f) === 'mine'), theirsCard: sideCard(choice(f) === 'theirs'),
+      pickMine: () => this.setState({ pick: { ...s.pick, [f]: 'mine' }, merged: false }),
+      pickTheirs: () => this.setState({ pick: { ...s.pick, [f]: 'theirs' }, merged: false }),
+      focusName: fc.name, focusKind: fc.kind, options,
+      takeAllAgent: () => this.setState({ pick: { door: 'agent', slime: 'agent', knight: 'agent' } }),
+      finishDisabled: allDone ? "false" : "true",
+      finishLabel: s.merged ? 'Merged' : allDone ? 'Finish merge' : 'Finish merge · ' + (3 - resolvedCount) + ' left',
+      finishStyle: 'height: 30px; padding: 0 14px; border-radius: 8px; border: 0; font-weight: 500; ' + (allDone ? 'background: #3B7BFF; color: #FFFFFF' : 'background: #1F232A; color: #8B92A0'),
+      finish: () => { if (allDone) this.setState({ merged: true }); },
+      merged: s.merged,
+    };
+  }
+}
+</script>
+</body>
+</html>

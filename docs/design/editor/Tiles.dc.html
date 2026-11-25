@@ -1,0 +1,566 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Editor: tile painting</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#101216}
+a{color:#8fb3ff}a:hover{color:#b9cfff}
+.vp{background-color:#15181d;background-image:radial-gradient(circle,#2a2f38 1px,transparent 1.2px);background-size:16px 16px}
+button{font:inherit;cursor:pointer}
+input,textarea{font:inherit}
+.tc{display:block;width:32px;height:32px;margin:0;padding:0;border:0;cursor:crosshair}
+.tc:hover{background:var(--brush)!important;box-shadow:inset 0 0 0 1.5px var(--brushline)!important}
+.kc{display:inline-flex;align-items:center;height:18px;padding:0 5px;border-radius:4px;background:#20252f;box-shadow:0 0 0 1px #2c3240;color:#d9dde5;font-family:'JetBrains Mono',monospace;font-size:10.5px}
+</style>
+</helmet>
+<div style="height: 900px; display: flex; flex-direction: column; font-family: Inter, system-ui, sans-serif; font-size: 12.5px; color: #d9dde5; background: #101216; overflow: hidden">
+
+  <div style="height: 44px; display: flex; align-items: center; gap: 12px; padding: 0 12px; border-bottom: 1px solid #1f232a">
+    <div style="display: flex; align-items: center; gap: 8px">
+      <div style="width: 22px; height: 22px; border-radius: 6px; background: #3b7bff; display: flex; align-items: center; justify-content: center">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.5" aria-hidden="true"><path d="M5 19 12 5l7 14"></path></svg>
+      </div>
+      <span style="font-weight: 600; color: #ffffff">dungeon-run</span>
+      <span style="color: #8b92a0">/</span>
+      <span style="color: #b4bac6">level_01</span>
+      <sc-if value="{{ dirty }}" hint-placeholder-val="{{ true }}"><span style="width: 6px; height: 6px; border-radius: 3px; background: #e9a84a" aria-label="unsaved changes"></span></sc-if>
+    </div>
+    <div style="flex: 1"></div>
+    <div style="display: flex; gap: 2px; padding: 3px; border-radius: 9px; background: #171a21; border: 1px solid #262b35">
+      <sc-for list="{{ tools }}" as="t" hint-placeholder-count="5">
+        <button aria-label="{{ t.label }}" title="{{ t.label }} · {{ t.key }}" onClick="{{ t.pick }}" style="{{ t.style }}">
+          <sc-if value="{{ t.isSelect }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M5 3l14 8-6 2-2 6z"></path></svg></sc-if>
+          <sc-if value="{{ t.isMove }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"></path></svg></sc-if>
+          <sc-if value="{{ t.isRotate }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-3-6.2"></path><path d="M20 4v5h-5"></path></svg></sc-if>
+          <sc-if value="{{ t.isScale }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="4" y="10" width="10" height="10" rx="1.5"></rect><path d="M13 4h7v7M20 4l-8 8"></path></svg></sc-if>
+          <sc-if value="{{ t.isPan }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V12M11 11.5v-7a1.5 1.5 0 0 1 3 0V12M14 12V6.5a1.5 1.5 0 0 1 3 0V13M8 13l-1.6-1.6a1.6 1.6 0 0 0-2.3 2.3L8 18c1.3 1.6 3 2.5 5 2.5h1a5 5 0 0 0 5-5V9.5a1.5 1.5 0 0 0-3 0"></path></svg></sc-if>
+        </button>
+      </sc-for>
+    </div>
+    <div style="display: flex; gap: 2px; padding: 3px; border-radius: 9px; background: #171a21; border: 1px solid #262b35">
+      <button onClick="{{ setMode2D }}" style="{{ mode2DStyle }}">2D</button>
+      <button onClick="{{ setMode3D }}" style="{{ mode3DStyle }}">3D</button>
+    </div>
+    <div style="flex: 1"></div>
+    <button aria-label="History" title="History" style="width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; border-radius: 8px; border: 1px solid #262b35; background: #171a21; color: #b4bac6">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"></path><path d="M3 4v5h5"></path><path d="M12 8v4l3 2"></path></svg>
+    </button>
+    <button style="height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-radius: 8px; border: 1px solid #262b35; background: #171a21; color: #b4bac6">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+      <span>Search</span>
+      <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8b92a0">⌘K</span>
+    </button>
+    <button style="height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 14px; border-radius: 8px; border: 0; background: #ffffff; color: #101216; font-weight: 600">
+      <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 4l14 8-14 8z"></path></svg>Play
+    </button>
+  </div>
+
+  <div style="flex: 1; display: grid; grid-template-columns: 232px minmax(0, 1fr) 380px; min-height: 0">
+
+    <div style="display: flex; flex-direction: column; border-right: 1px solid #1f232a; min-height: 0">
+      <div style="height: 36px; display: flex; align-items: center; justify-content: space-between; padding: 0 12px 0 16px; color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">
+        <span>SCENE</span>
+        <span style="font-weight: 500; letter-spacing: 0">7 nodes</span>
+      </div>
+      <div style="padding: 0 8px">
+        <sc-for list="{{ tree }}" as="n" hint-placeholder-count="7">
+          <button onClick="{{ n.pick }}" style="{{ n.style }}">
+            <span style="{{ n.indent }}"></span>
+            <span style="{{ n.dot }}"></span>
+            <span style="flex: 1; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ n.name }}</span>
+            <sc-if value="{{ n.painting }}" hint-placeholder-val="{{ false }}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#3b7bff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-label="painting this layer"><path d="M4 20l4-1 11-11-3-3L5 16z"></path></svg></sc-if>
+            <sc-if value="{{ n.edited }}" hint-placeholder-val="{{ false }}"><span style="font-size: 10px; font-weight: 600; letter-spacing: 0.04em; color: #e9a84a">EDITED</span></sc-if>
+            <span style="color: #8b92a0; font-size: 11px">{{ n.kind }}</span>
+          </button>
+        </sc-for>
+      </div>
+      <div style="flex: 1; display: flex; flex-direction: column; gap: 12px; padding: 16px; margin-top: 8px; border-top: 1px solid #1f232a; min-height: 0">
+        <div style="display: flex; align-items: center; justify-content: space-between">
+          <span style="color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">TILESET</span>
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8b92a0">dungeon.tileset.yaml</span>
+        </div>
+        <div role="listbox" aria-label="Tiles" style="display: grid; grid-template-columns: repeat(6, 32px); gap: 4px">
+          <sc-for list="{{ palette }}" as="p" hint-placeholder-count="16">
+            <button role="option" aria-selected="{{ p.selected }}" aria-label="{{ p.name }}" title="{{ p.name }}" onClick="{{ p.pick }}" style="{{ p.style }}"></button>
+          </sc-for>
+        </div>
+        <div style="display: flex; align-items: center; gap: 12px; padding: 8px; border-radius: 12px; background: #171a21; box-shadow: 0 0 0 1px #262b35">
+          <span style="{{ brushSwatch }}"></span>
+          <span style="display: flex; flex-direction: column; gap: 2px; min-width: 0">
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #ffffff">{{ tileName }}</span>
+            <span style="color: #8b92a0; font-size: 11.5px">{{ tileMeta }}</span>
+          </span>
+        </div>
+        <div style="flex: 1"></div>
+        <div style="color: #8b92a0; font-size: 11.5px; line-height: 1.55">Rules for collision, terrain and variants live in the tileset file. Ask the agent to slice more tiles from art/tiles/dungeon.png.</div>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; min-width: 0">
+      <div class="vp" style="flex: 1; position: relative; overflow: hidden">
+        <div style="position: absolute; left: 50%; top: 72px; width: 768px; height: 640px; margin-left: -384px; border-radius: 4px; box-shadow: 0 0 0 1px #2c3240, 0 24px 60px rgba(0,0,0,0.45)">
+          <div style="{{ mapStyle }}">
+            <sc-for list="{{ cells }}" as="c" hint-placeholder-count="48">
+              <button class="tc" aria-label="{{ c.label }}" onClick="{{ c.paint }}" style="{{ c.style }}"></button>
+            </sc-for>
+          </div>
+          <div style="position: absolute; left: 99px; top: 274px; width: 26px; height: 46px; border-radius: 6px; background: #e9a84a; opacity: 0.4; pointer-events: none" aria-hidden="true"></div>
+          <div style="position: absolute; left: 672px; top: 256px; width: 32px; height: 64px; border-radius: 4px; box-shadow: inset 0 0 0 1.5px rgba(139,146,160,0.35); pointer-events: none" aria-hidden="true"></div>
+          <sc-for list="{{ outlines }}" as="o" hint-placeholder-count="4">
+            <div style="{{ o.style }}"></div>
+          </sc-for>
+          <sc-for list="{{ chips }}" as="ch" hint-placeholder-count="3">
+            <div style="{{ ch.style }}"><span style="{{ ch.dot }}"></span>{{ ch.text }}</div>
+          </sc-for>
+        </div>
+
+        <div style="position: absolute; left: 16px; top: 16px; height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: 8px; background: rgba(23,26,33,0.92); box-shadow: 0 0 0 1px #262b35; color: #b4bac6">
+          <span style="width: 7px; height: 7px; border-radius: 2px; background: #4f8cff"></span>
+          <span style="color: #ffffff">World</span>
+          <span>24 × 20 cells · 16 px</span>
+        </div>
+
+        <sc-if value="{{ pending }}" hint-placeholder-val="{{ true }}">
+          <div style="position: absolute; left: 50%; top: 16px; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; padding: 4px 4px 4px 12px; border-radius: 10px; background: rgba(23,26,33,0.92); box-shadow: 0 0 0 1px #262b35, 0 10px 30px rgba(0,0,0,0.4)">
+            <span style="color: #b4bac6">Reviewing</span>
+            <div style="display: flex; gap: 2px">
+              <button onClick="{{ showBefore }}" style="{{ beforeStyle }}">Before</button>
+              <button onClick="{{ showAfter }}" style="{{ afterStyle }}">After</button>
+            </div>
+            <span style="padding-right: 8px; color: #8b92a0; font-size: 11.5px">hold <span class="kc">B</span></span>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ showLegend }}" hint-placeholder-val="{{ true }}">
+          <div style="position: absolute; left: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; padding: 8px 12px; border-radius: 8px; background: rgba(23,26,33,0.92); box-shadow: 0 0 0 1px #262b35; font-size: 11.5px; color: #b4bac6">
+            <span style="display: flex; align-items: center; gap: 8px"><span style="width: 10px; height: 10px; border-radius: 2px; outline: 1.5px dashed #4fd38a"></span>painted</span>
+            <span style="display: flex; align-items: center; gap: 8px"><span style="width: 10px; height: 10px; border-radius: 2px; outline: 1.5px dashed #e9a84a"></span>replaced</span>
+            <span style="display: flex; align-items: center; gap: 8px"><span style="width: 10px; height: 10px; border-radius: 2px; outline: 1.5px solid #ff6b6b"></span>erased</span>
+          </div>
+        </sc-if>
+
+        <div style="position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: 10px; background: rgba(23,26,33,0.92); box-shadow: 0 0 0 1px #262b35, 0 10px 30px rgba(0,0,0,0.4)">
+          <sc-for list="{{ brushes }}" as="b" hint-placeholder-count="4">
+            <button aria-label="{{ b.label }}" title="{{ b.label }} · {{ b.key }}" aria-pressed="{{ b.pressed }}" onClick="{{ b.pick }}" style="{{ b.style }}">
+              <sc-if value="{{ b.isPencil }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20l4-1 11-11-3-3L5 16z"></path><path d="M14 6l3 3"></path></svg></sc-if>
+              <sc-if value="{{ b.isRect }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="1.5"></rect><path d="M4 12h16M12 5v14" stroke-opacity="0.5"></path></svg></sc-if>
+              <sc-if value="{{ b.isFill }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 11.5L11 5l7 7-6.5 6.5a2 2 0 0 1-2.8 0l-4.2-4.2a2 2 0 0 1 0-2.8z"></path><path d="M4.5 12.5h13"></path><path d="M20 15.5s1.5 2 1.5 3a1.5 1.5 0 0 1-3 0c0-1 1.5-3 1.5-3z"></path></svg></sc-if>
+              <sc-if value="{{ b.isErase }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 20h12"></path><path d="M4.6 15.4l9-9a2 2 0 0 1 2.8 0l2.2 2.2a2 2 0 0 1 0 2.8L11 19H8.2z"></path><path d="M9.5 10.5l5 5"></path></svg></sc-if>
+            </button>
+          </sc-for>
+          <span style="width: 1px; height: 16px; background: #2c3240; margin: 0 4px"></span>
+          <span style="height: 26px; display: flex; align-items: center; gap: 8px; padding: 0 8px; color: #d9dde5">
+            <span style="{{ brushChip }}"></span>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px">{{ brushName }}</span>
+          </span>
+          <span style="width: 1px; height: 16px; background: #2c3240; margin: 0 4px"></span>
+          <button aria-label="Zoom out" style="width: 28px; height: 26px; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: none; color: #b4bac6">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"></path></svg>
+          </button>
+          <span style="width: 44px; text-align: center; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #b4bac6">200%</span>
+          <button aria-label="Zoom in" style="width: 28px; height: 26px; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: none; color: #b4bac6">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14M12 5v14"></path></svg>
+          </button>
+          <button onClick="{{ toggleGrid }}" aria-pressed="{{ gridPressed }}" style="{{ gridStyle }}">Grid</button>
+        </div>
+      </div>
+      <div style="height: 32px; display: flex; align-items: center; gap: 16px; padding: 0 16px; border-top: 1px solid #1f232a; color: #8b92a0; font-size: 11.5px">
+        <span>Layer World</span>
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px">{{ cursorText }}</span>
+        <span>{{ hintText }}</span>
+        <div style="flex: 1"></div>
+        <span style="display: flex; align-items: center; gap: 6px"><span style="width: 6px; height: 6px; border-radius: 3px; background: #4fd38a"></span>No problems</span>
+        <span>Output</span><span>Debugger</span>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; border-left: 1px solid #1f232a; min-height: 0; background: #12141a">
+      <div style="height: 44px; display: flex; align-items: center; gap: 4px; padding: 0 12px; border-bottom: 1px solid #1f232a">
+        <button onClick="{{ showAgentTab }}" style="{{ agentTabStyle }}">Agent</button>
+        <button onClick="{{ showInspectorTab }}" style="{{ inspectorTabStyle }}">Inspector</button>
+        <div style="flex: 1"></div>
+        <span style="display: flex; align-items: center; gap: 6px; color: #8b92a0; font-size: 11.5px"><span style="width: 6px; height: 6px; border-radius: 3px; background: #4fd38a"></span>Connected · MCP</span>
+      </div>
+
+      <sc-if value="{{ agentTab }}" hint-placeholder-val="{{ true }}">
+        <div style="flex: 1; display: flex; flex-direction: column; min-height: 0">
+          <div style="flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 12px; overflow: hidden">
+            <div style="align-self: flex-end; max-width: 300px; padding: 8px 12px; border-radius: 12px 12px 4px 12px; background: #1c2130; color: #e6e9ef; line-height: 1.5">Paint a cave floor with some variation in the pocket under the left half, and edge it with the cave autotile. Clear out the placeholder blocks.</div>
+            <div style="display: flex; flex-direction: column; gap: 8px">
+              <sc-for list="{{ steps }}" as="st" hint-placeholder-count="6">
+                <div style="display: flex; align-items: flex-start; gap: 8px; color: #b4bac6; line-height: 1.45">
+                  <span style="width: 14px; height: 14px; margin-top: 2px; flex: none; border-radius: 7px; background: #1f3a2b; display: flex; align-items: center; justify-content: center"><svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#4fd38a" stroke-width="4" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg></span>
+                  <span><span style="color: #d9dde5">{{ st.what }}</span> <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8b92a0">{{ st.tool }}</span></span>
+                </div>
+              </sc-for>
+            </div>
+            <div style="color: #d9dde5; line-height: 1.55">Done. The ladder in column 12 still reaches the new floor, and the Knight can walk it. The pool and the upper ledge are untouched.</div>
+
+            <sc-if value="{{ pending }}" hint-placeholder-val="{{ true }}">
+              <div style="border-radius: 12px; background: #171a21; box-shadow: 0 0 0 1px #262b35; overflow: hidden">
+                <div style="height: 36px; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; border-bottom: 1px solid #1f232a">
+                  <span style="color: #ffffff; font-weight: 500">{{ cardTitle }}</span>
+                  <span style="color: #8b92a0; font-size: 11.5px">level_01.scene.yaml</span>
+                </div>
+                <div style="padding: 8px; display: flex; flex-direction: column; gap: 4px">
+                  <sc-for list="{{ regionRows }}" as="rg" hint-placeholder-count="3">
+                    <div style="{{ rg.row }}">
+                      <button onClick="{{ rg.focus }}" style="flex: 1; display: flex; align-items: center; gap: 8px; padding: 0; border: 0; background: none; color: inherit; text-align: left">
+                        <span style="{{ rg.mark }}">{{ rg.sign }}</span>
+                        <span style="display: flex; flex-direction: column; gap: 2px">
+                          <span style="{{ rg.titleStyle }}">{{ rg.title }} · {{ rg.count }} cells</span>
+                          <span style="color: #8b92a0; font-size: 11.5px">{{ rg.detail }}</span>
+                        </span>
+                      </button>
+                      <button aria-label="{{ rg.toggleLabel }}" onClick="{{ rg.toggle }}" style="{{ rg.toggleStyle }}">{{ rg.toggleText }}</button>
+                    </div>
+                  </sc-for>
+                </div>
+                <div style="display: flex; gap: 8px; padding: 12px; border-top: 1px solid #1f232a">
+                  <button onClick="{{ keep }}" title="Keep · ⌘↵" style="flex: 1; height: 30px; border-radius: 8px; border: 0; background: #3b7bff; color: #ffffff; font-weight: 500">{{ keepText }}</button>
+                  <button onClick="{{ revert }}" title="Revert · ⌘⌫" style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #22262f; color: #d9dde5">Revert all</button>
+                </div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ kept }}" hint-placeholder-val="{{ false }}">
+              <div style="display: flex; align-items: center; gap: 8px; color: #8b92a0; font-size: 12px">{{ keptText }}<button onClick="{{ reset }}" style="height: 24px; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: #8fb3ff">Show review again</button></div>
+            </sc-if>
+            <sc-if value="{{ reverted }}" hint-placeholder-val="{{ false }}">
+              <div style="display: flex; align-items: center; gap: 8px; color: #8b92a0; font-size: 12px">Reverted · the World layer is as it was<button onClick="{{ reset }}" style="height: 24px; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: #8fb3ff">Show review again</button></div>
+            </sc-if>
+          </div>
+
+          <div style="padding: 12px; border-top: 1px solid #1f232a">
+            <div style="border-radius: 12px; background: #171a21; box-shadow: 0 0 0 1px #262b35; padding: 8px 12px; display: flex; flex-direction: column; gap: 8px">
+              <div style="display: flex; gap: 4px; flex-wrap: wrap">
+                <span style="height: 22px; display: flex; align-items: center; gap: 6px; padding: 0 8px; border-radius: 6px; background: #20252f; color: #b4bac6; font-size: 11.5px"><span style="width: 6px; height: 6px; border-radius: 2px; background: #4f8cff"></span>World</span>
+                <span style="height: 22px; display: flex; align-items: center; padding: 0 8px; border-radius: 6px; background: #20252f; color: #b4bac6; font-size: 11.5px">dungeon.tileset.yaml</span>
+                <span style="height: 22px; display: flex; align-items: center; padding: 0 8px; border-radius: 6px; background: #20252f; color: #b4bac6; font-size: 11.5px">Viewport image</span>
+              </div>
+              <label for="prompttiles" style="position: absolute; left: -9999px">Ask the agent</label>
+              <textarea id="prompttiles" rows="2" placeholder="Describe a change… e.g. scatter moss on the cave walls, about one in five" style="resize: none; border: 0; outline: none; background: none; color: #e6e9ef; line-height: 1.5"></textarea>
+              <div style="display: flex; align-items: center; gap: 8px">
+                <span style="color: #8b92a0; font-size: 11.5px">Fills, walls and patterns are faster to ask for</span>
+                <div style="flex: 1"></div>
+                <button aria-label="Send" style="width: 30px; height: 30px; border-radius: 8px; border: 0; background: #ffffff; color: #101216; display: flex; align-items: center; justify-content: center">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"></path></svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ inspectorTab }}" hint-placeholder-val="{{ false }}">
+        <div style="flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 16px; overflow: hidden">
+          <div style="display: flex; align-items: center; gap: 12px">
+            <span style="{{ inspectSwatch }}"></span>
+            <div><div style="font-family: 'JetBrains Mono', monospace; color: #ffffff; font-weight: 500">{{ tileName }}</div><div style="color: #8b92a0; font-size: 11.5px">{{ tileSource }}</div></div>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <div style="color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">COLLISION</div>
+            <div role="radiogroup" aria-label="Collision" style="display: flex; gap: 2px; padding: 3px; border-radius: 9px; background: #171a21; border: 1px solid #262b35">
+              <sc-for list="{{ collOptions }}" as="co" hint-placeholder-count="3">
+                <button role="radio" aria-checked="{{ co.checked }}" onClick="{{ co.pick }}" style="{{ co.style }}">{{ co.label }}</button>
+              </sc-for>
+            </div>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <div style="color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">RULES</div>
+            <div style="border-radius: 12px; background: #171a21; box-shadow: 0 0 0 1px #262b35; overflow: hidden">
+              <sc-for list="{{ ruleRows }}" as="ru" hint-placeholder-count="3">
+                <div style="height: 32px; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; border-bottom: 1px solid #1f232a">
+                  <span style="color: #b4bac6">{{ ru.k }}</span>
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #d9dde5">{{ ru.v }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+          <div style="color: #8b92a0; line-height: 1.6">The agent inferred these rules when it sliced the tileset. Change one here, or ask it to change a whole set.</div>
+        </div>
+      </sc-if>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { tool: 'pencil', tile: 'moss', node: 'world', mode: '2d', tab: 'agent', review: 'pending', off: {}, view: 'after', paint: {}, anchor: null, cursor: null, grid: true, focus: 'floor', coll: {} };
+  }
+  renderVals() {
+    const s = this.state;
+    const COLS = 24, ROWS = 20, CELL = 32;
+    const T = {
+      stone: { bg: 'linear-gradient(180deg,#575d6b 0 2px,#4a4f5c 2px 30px,#3e434e 30px)', coll: 'solid', set: 'stone', at: '0, 0' },
+      ledge_moss: { bg: 'linear-gradient(180deg,#76b57f 0 4px,#5a8f63 4px 7px,#4a4f5c 7px 30px,#3e434e 30px)', coll: 'solid', set: 'stone', at: '1, 0' },
+      brick: { bg: 'linear-gradient(#272b34 0 0) 0 15px/100% 2px no-repeat, linear-gradient(#272b34 0 0) 15px 0/2px 15px no-repeat, linear-gradient(#272b34 0 0) 6px 17px/2px 15px no-repeat, linear-gradient(#272b34 0 0) 24px 17px/2px 15px no-repeat, #363b46', coll: 'solid', set: 'brick', at: '2, 0' },
+      plank: { bg: 'linear-gradient(180deg,#a08767 0 3px,#7a6650 3px 10px,#55473a 10px 12px,transparent 12px)', coll: 'one-way top', set: 'wood', at: '3, 0' },
+      ladder: { bg: 'linear-gradient(#8a7458 0 0) 7px 0/3px 100% no-repeat, linear-gradient(#8a7458 0 0) 22px 0/3px 100% no-repeat, linear-gradient(#8a7458 0 0) 7px 7px/18px 3px no-repeat, linear-gradient(#8a7458 0 0) 7px 22px/18px 3px no-repeat', coll: 'none', set: 'wood', at: '4, 0' },
+      water: { bg: 'linear-gradient(180deg,#5aa0bb 0 3px,#3a6d84 3px 6px,#2f5466 6px)', coll: 'none', set: 'water', at: '5, 0' },
+      door: { bg: 'linear-gradient(#4d4032 0 0) 15px 3px/2px 29px no-repeat, linear-gradient(#4d4032 0 0) 3px 3px/26px 2px no-repeat, linear-gradient(180deg,#7f6a53,#5c4c3b)', coll: 'none', set: 'wood', at: '0, 1' },
+      torch: { bg: 'radial-gradient(circle at 50% 38%,#ffd27a 0 3px,rgba(242,193,78,0.35) 4px 9px,transparent 10px), linear-gradient(#5a4a3a 0 0) 14px 16px/4px 10px no-repeat', coll: 'none', set: 'deco', at: '1, 1' },
+      cave_a: { bg: 'radial-gradient(circle at 25% 70%,#4d473f 0 3px,transparent 4px), linear-gradient(180deg,#5c544a 0 3px,#3d3833 3px)', coll: 'solid', set: 'cave', at: '2, 1' },
+      cave_b: { bg: 'radial-gradient(circle at 70% 55%,#544c43 0 4px,transparent 5px), linear-gradient(180deg,#62594e 0 3px,#45403a 3px)', coll: 'solid', set: 'cave', at: '3, 1' },
+      cave_c: { bg: 'radial-gradient(circle at 38% 42%,#2b2824 0 2px,transparent 3px), radial-gradient(circle at 74% 74%,#2b2824 0 2px,transparent 3px), linear-gradient(180deg,#595248 0 3px,#3a3631 3px)', coll: 'solid', set: 'cave', at: '4, 1' },
+      moss: { bg: 'radial-gradient(circle at 22% 8%,#76b57f 0 3px,transparent 4px), radial-gradient(circle at 58% 4%,#5f9a6a 0 4px,transparent 5px), radial-gradient(circle at 86% 10%,#76b57f 0 2px,transparent 3px), linear-gradient(180deg,#5c544a 0 3px,#3d3833 3px)', coll: 'solid', set: 'cave', at: '5, 1' },
+      cave_wall: { bg: 'linear-gradient(90deg,#3d3833 0 3px,transparent 3px 29px,#3d3833 29px), linear-gradient(180deg,#2e2b27,#272420)', coll: 'solid', set: 'cave edge', at: '0, 2' },
+      cave_ceil: { bg: 'radial-gradient(ellipse at 30% 100%,#3d3833 0 4px,transparent 5px), radial-gradient(ellipse at 74% 100%,#3d3833 0 3px,transparent 4px), linear-gradient(180deg,#272420,#2e2b27 26px,#3d3833 26px)', coll: 'solid', set: 'cave edge', at: '1, 2' },
+      crate: { bg: 'linear-gradient(45deg,transparent 44%,#5a4a3a 44% 56%,transparent 56%) 4px 4px/24px 24px no-repeat, linear-gradient(#7a6650 0 0) 4px 4px/24px 24px no-repeat, linear-gradient(#55473a 0 0) 2px 2px/28px 28px no-repeat', coll: 'solid', set: 'props', at: '2, 2' },
+      spikes: { bg: 'linear-gradient(#5a6170 0 0) 0 26px/100% 6px no-repeat, linear-gradient(45deg,transparent 50%,#b4bac6 50%) 0 12px/8px 14px repeat-x, linear-gradient(-45deg,transparent 50%,#9aa1ab 50%) 0 12px/8px 14px repeat-x', coll: 'hazard', set: 'props', at: '3, 2' },
+      placeholder: { bg: 'repeating-conic-gradient(#8a4f8d 0 25%,#5a3a5c 0 50%) 0 0/16px 16px', coll: 'solid', set: 'debug', at: '' },
+    };
+    const paletteIds = ['stone', 'ledge_moss', 'brick', 'plank', 'ladder', 'water', 'door', 'torch', 'cave_a', 'cave_b', 'cave_c', 'moss', 'cave_wall', 'cave_ceil', 'crate', 'spikes'];
+
+    // The World layer before the agent's request.
+    const before = [];
+    for (let r = 0; r < ROWS; r++) {
+      const row = [];
+      for (let c = 0; c < COLS; c++) {
+        let t = '';
+        if (r === 0 || c === 0 || c === COLS - 1) t = 'brick';
+        else if (r === 10) t = 'ledge_moss';
+        else if (r > 10) t = 'stone';
+        if (r >= 12 && r <= 16 && c >= 2 && c <= 12) t = '';
+        if (r >= 10 && r <= 12 && c >= 16 && c <= 19) t = 'water';
+        if (c === 12 && r >= 10 && r <= 15) t = 'ladder';
+        row.push(t);
+      }
+      before.push(row);
+    }
+    [[8, 6], [9, 6], [10, 6], [11, 6], [15, 7], [16, 7], [17, 7], [18, 7]].forEach(([c, r]) => { before[r][c] = 'plank'; });
+    [[4, 4], [19, 4]].forEach(([c, r]) => { before[r][c] = 'torch'; });
+    before[8][21] = 'door'; before[9][21] = 'door';
+    before[9][6] = 'crate'; before[9][14] = 'spikes';
+    [[6, 13], [7, 13], [9, 14]].forEach(([c, r]) => { before[r][c] = 'placeholder'; });
+
+    // The agent's edit, grouped into regions that can be kept or reverted on their own.
+    const floorSeq = ['cave_a', 'moss', 'cave_b', 'cave_c', 'cave_a', 'cave_b', 'moss', 'cave_c', 'cave_a', 'cave_b', 'cave_c'];
+    const regions = [
+      { id: 'floor', kind: 'added', sign: '+', title: 'Cave floor', detail: 'No two equal neighbours', rects: [[2, 16, 12, 16]], tileAt: (c) => floorSeq[c - 2] },
+      { id: 'edge', kind: 'changed', sign: '~', title: 'Cave edge', detail: 'Stone → cave autotile', rects: [[2, 11, 11, 11], [1, 12, 1, 16], [13, 12, 13, 16]], tileAt: (c, r) => (r === 11 ? 'cave_ceil' : 'cave_wall') },
+      { id: 'junk', kind: 'removed', sign: '−', title: 'Placeholders', detail: 'Leftover placeholder blocks', rects: [[6, 13, 7, 13], [9, 14, 9, 14]], tileAt: () => '' },
+    ];
+    const color = { added: '#4fd38a', changed: '#e9a84a', removed: '#ff6b6b' };
+    regions.forEach((g) => {
+      g.cells = [];
+      g.rects.forEach(([c0, r0, c1, r1]) => { for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) g.cells.push([c, r, g.tileAt(c, r)]); });
+    });
+
+    const rv = s.review;
+    const pending = rv === 'pending';
+    const peek = pending && s.view === 'before';
+    const live = regions.filter((g) => !s.off[g.id] && rv !== 'reverted');
+    const cur = before.map((row) => row.slice());
+    const mark = {};
+    if (!peek) {
+      live.forEach((g) => g.cells.forEach(([c, r, t]) => { cur[r][c] = t; if (pending) mark[c + ',' + r] = g.kind; }));
+      Object.keys(s.paint).forEach((k) => { const [c, r] = k.split(',').map(Number); cur[r][c] = s.paint[k]; delete mark[k]; });
+    }
+
+    const brushIds = ['pencil', 'rect', 'fill', 'erase'];
+    const isBrush = brushIds.indexOf(s.tool) >= 0;
+    const paintTile = s.tool === 'erase' ? '' : s.tile;
+    const setCells = (list) => { const p = { ...s.paint }; list.forEach(([c, r]) => { p[c + ',' + r] = paintTile; }); return p; };
+    const cells = [];
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        const k = c + ',' + r;
+        const t = cur[r][c];
+        const m = mark[k];
+        let style = 'background: ' + (t ? T[t].bg : 'transparent');
+        if (m === 'removed') style = 'background: ' + T.placeholder.bg + '; box-shadow: inset 0 0 0 1.5px #ff6b6b, inset 0 0 0 32px rgba(18,20,26,0.74)';
+        else if (m === 'added') style += '; box-shadow: inset 0 0 0 32px rgba(79,211,138,0.16)';
+        else if (m === 'changed') style += '; box-shadow: inset 0 0 0 32px rgba(233,168,74,0.16)';
+        if (s.anchor === k) style += '; box-shadow: inset 0 0 0 2px #3b7bff, inset 0 0 0 32px rgba(59,123,255,0.18)';
+        cells.push({
+          label: 'Cell ' + c + ', ' + r + (t ? ' · ' + t : ' · empty'),
+          style,
+          paint: (e) => {
+            const at = { cursor: c + ', ' + r + (t ? ' · ' + t : '') };
+            if (e && e.altKey && t) { this.setState({ ...at, tile: t }); return; }
+            if (!isBrush) { this.setState(at); return; }
+            if (s.tool === 'pencil' || s.tool === 'erase') { this.setState({ ...at, paint: setCells([[c, r]]) }); return; }
+            if (s.tool === 'rect') {
+              if (!s.anchor) { this.setState({ ...at, anchor: k }); return; }
+              const [ac, ar] = s.anchor.split(',').map(Number);
+              const list = [];
+              for (let y = Math.min(ar, r); y <= Math.max(ar, r); y++) for (let x = Math.min(ac, c); x <= Math.max(ac, c); x++) list.push([x, y]);
+              this.setState({ ...at, anchor: null, paint: setCells(list) });
+              return;
+            }
+            if (t === paintTile) { this.setState(at); return; }
+            const seen = {}, list = [], todo = [[c, r]];
+            while (todo.length && list.length < 480) {
+              const [x, y] = todo.pop();
+              const kk = x + ',' + y;
+              if (seen[kk] || x < 0 || y < 0 || x >= COLS || y >= ROWS || cur[y][x] !== t) continue;
+              seen[kk] = true; list.push([x, y]);
+              todo.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
+            }
+            this.setState({ ...at, paint: setCells(list) });
+          },
+        });
+      }
+    }
+
+    const outlines = [], chips = [];
+    if (pending && !peek) {
+      live.forEach((g) => {
+        const focused = s.focus === g.id;
+        if (g.kind !== 'removed') {
+          g.rects.forEach(([c0, r0, c1, r1]) => outlines.push({
+            style: 'position: absolute; left: ' + c0 * CELL + 'px; top: ' + r0 * CELL + 'px; width: ' + (c1 - c0 + 1) * CELL + 'px; height: ' + (r1 - r0 + 1) * CELL + 'px; outline: 1.5px dashed ' + color[g.kind] + '; outline-offset: -1px; pointer-events: none' + (focused ? '; box-shadow: 0 0 0 3px rgba(59,123,255,0.45)' : ''),
+          }));
+        } else if (focused) {
+          g.rects.forEach(([c0, r0, c1, r1]) => outlines.push({ style: 'position: absolute; left: ' + c0 * CELL + 'px; top: ' + r0 * CELL + 'px; width: ' + (c1 - c0 + 1) * CELL + 'px; height: ' + (r1 - r0 + 1) * CELL + 'px; box-shadow: 0 0 0 3px rgba(59,123,255,0.45); pointer-events: none' }));
+        }
+        const [c0, r0] = g.rects[0];
+        chips.push({
+          text: g.sign + ' ' + g.cells.length + ' ' + (g.kind === 'added' ? 'painted' : g.kind === 'changed' ? 'replaced' : 'erased'),
+          style: 'position: absolute; left: ' + (c0 * CELL) + 'px; top: ' + (r0 * CELL - 24) + 'px; height: 20px; display: flex; align-items: center; gap: 6px; padding: 0 8px; border-radius: 10px; background: rgba(16,18,22,0.92); box-shadow: 0 0 0 1px ' + color[g.kind] + '73; color: ' + color[g.kind] + '; font-size: 11px; white-space: nowrap; pointer-events: none',
+          dot: 'width: 6px; height: 6px; border-radius: 3px; background: ' + color[g.kind],
+        });
+      });
+    }
+
+    const brushVar = !isBrush ? 'rgba(59,123,255,0.10)' : s.tool === 'erase' ? 'rgba(255,107,107,0.18)' : T[s.tile].bg;
+    const lineVar = s.tool === 'erase' ? '#ff6b6b' : '#3b7bff';
+    const mapStyle = 'position: absolute; left: 0; top: 0; display: grid; grid-template-columns: repeat(' + COLS + ', 32px); grid-auto-rows: 32px; background-color: #13161b; --brush: ' + brushVar + '; --brushline: ' + lineVar +
+      (s.grid ? '; background-image: linear-gradient(#1f232a 1px, transparent 1px), linear-gradient(90deg, #1f232a 1px, transparent 1px); background-size: 32px 32px' : '');
+
+    const defs = [
+      { id: 'select', label: 'Select', key: 'V' },
+      { id: 'move', label: 'Move', key: 'W' },
+      { id: 'rotate', label: 'Rotate', key: 'E' },
+      { id: 'scale', label: 'Scale', key: 'R' },
+      { id: 'pan', label: 'Pan', key: 'Space' },
+    ];
+    const tools = defs.map((t) => ({
+      ...t,
+      isSelect: t.id === 'select', isMove: t.id === 'move', isRotate: t.id === 'rotate', isScale: t.id === 'scale', isPan: t.id === 'pan',
+      style: 'width: 32px; height: 28px; border-radius: 6px; border: 0; display: flex; align-items: center; justify-content: center; ' + (s.tool === t.id ? 'background: #2a2f3a; color: #ffffff' : 'background: none; color: #8b92a0'),
+      pick: () => this.setState({ tool: t.id, anchor: null }),
+    }));
+    const bdefs = [
+      { id: 'pencil', label: 'Pencil', key: '1' },
+      { id: 'rect', label: 'Rectangle', key: '2' },
+      { id: 'fill', label: 'Fill', key: '3' },
+      { id: 'erase', label: 'Erase', key: '4' },
+    ];
+    const brushes = bdefs.map((b) => ({
+      ...b,
+      isPencil: b.id === 'pencil', isRect: b.id === 'rect', isFill: b.id === 'fill', isErase: b.id === 'erase',
+      pressed: s.tool === b.id ? 'true' : 'false',
+      style: 'width: 32px; height: 28px; border-radius: 6px; border: 0; display: flex; align-items: center; justify-content: center; ' + (s.tool === b.id ? 'background: #2a2f3a; color: #ffffff' : 'background: none; color: #b4bac6'),
+      pick: () => this.setState({ tool: b.id, anchor: null }),
+    }));
+
+    const palette = paletteIds.map((id) => ({
+      name: id, selected: s.tile === id ? 'true' : 'false',
+      style: 'width: 32px; height: 32px; padding: 0; border: 0; border-radius: 4px; background: ' + T[id].bg + '; background-color: #1a1d23; ' + (s.tile === id ? 'outline: 2px solid #3b7bff; outline-offset: 2px' : 'box-shadow: inset 0 0 0 1px rgba(255,255,255,0.04)'),
+      pick: () => this.setState({ tile: id, tool: isBrush && s.tool !== 'erase' ? s.tool : 'pencil' }),
+    }));
+    const tcoll = s.coll[s.tile] || T[s.tile].coll;
+    const swatch = (n) => 'width: ' + n + 'px; height: ' + n + 'px; flex: none; border-radius: 6px; background: ' + T[s.tile].bg + '; background-color: #1a1d23; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06)';
+
+    const nodes = [
+      { id: 'bg', name: 'Background', kind: 'tiles', depth: 0, color: '#4f8cff' },
+      { id: 'world', name: 'World', kind: 'tiles', depth: 0, color: '#4f8cff' },
+      { id: 'actors', name: 'Actors', kind: 'layer', depth: 0, color: '#8b92a0' },
+      { id: 'knight', name: 'Knight', kind: 'sprite', depth: 1, color: '#e9a84a' },
+      { id: 'door', name: 'Door', kind: 'trigger', depth: 1, color: '#6b5a45' },
+      { id: 'coins', name: 'coins', kind: 'group', depth: 1, color: '#f2d04b' },
+      { id: 'hud', name: 'HUD', kind: 'screen', depth: 0, color: '#8b92a0' },
+    ];
+    const tree = nodes.map((n) => ({
+      ...n,
+      painting: n.id === 'world' && isBrush,
+      edited: n.id === 'world' && pending,
+      style: 'width: 100%; height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 0; border-radius: 6px; ' + (s.node === n.id ? 'background: #1c2638; color: #ffffff' : 'background: none; color: #b4bac6'),
+      indent: 'width: ' + (n.depth * 14) + 'px; flex: none',
+      dot: 'width: 7px; height: 7px; border-radius: 2px; flex: none; background: ' + n.color,
+      pick: () => this.setState({ node: n.id }),
+    }));
+
+    const steps = [
+      { what: 'Read the World layer and dungeon.tileset.yaml', tool: 'scene.read' },
+      { what: 'Found an 11 × 5 pocket at columns 2–12', tool: 'tiles.query' },
+      { what: 'Painted the floor from 4 cave tiles', tool: 'tiles.paint' },
+      { what: 'Re-edged it with the cave autotile', tool: 'tiles.autotile' },
+      { what: 'Erased 3 placeholder tiles', tool: 'tiles.erase' },
+      { what: 'Ran game check · no problems', tool: 'check' },
+    ];
+    const total = regions.reduce((n, g) => n + g.cells.length, 0);
+    const keptRegions = regions.filter((g) => !s.off[g.id]);
+    const regionRows = regions.map((g) => {
+      const on = !s.off[g.id];
+      return {
+        ...g, count: g.cells.length,
+        row: 'display: flex; align-items: center; gap: 8px; padding: 8px; border-radius: 8px; ' + (s.focus === g.id ? 'background: #1a2030; box-shadow: 0 0 0 1px #2a3a5c' : 'background: none') + (on ? '' : '; opacity: 0.55'),
+        mark: 'width: 22px; height: 22px; flex: none; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-weight: 600; background: ' + (g.kind === 'added' ? '#173326' : g.kind === 'changed' ? '#33291a' : '#3a1d1f') + '; color: ' + color[g.kind],
+        titleStyle: 'color: #e6e9ef; ' + (on ? '' : 'text-decoration: line-through'),
+        toggleText: on ? 'Revert' : 'Restore',
+        toggleLabel: (on ? 'Revert ' : 'Restore ') + g.title,
+        toggleStyle: 'height: 26px; padding: 0 10px; border-radius: 6px; border: 0; background: #22262f; color: ' + (on ? '#d9dde5' : '#8fb3ff'),
+        toggle: () => this.setState({ off: { ...s.off, [g.id]: on } }),
+        focus: () => this.setState({ focus: g.id, view: 'after' }),
+      };
+    });
+
+    const collOptions = ['none', 'solid', 'one-way top'].map((o) => ({
+      label: o === 'one-way top' ? 'One-way' : o === 'none' ? 'None' : 'Solid',
+      checked: tcoll === o ? 'true' : 'false',
+      style: 'flex: 1; height: 28px; border-radius: 6px; border: 0; font-weight: 500; ' + (tcoll === o ? 'background: #2a2f3a; color: #ffffff' : 'background: none; color: #b4bac6'),
+      pick: () => this.setState({ coll: { ...s.coll, [s.tile]: o } }),
+    }));
+    const ruleRows = [
+      { k: 'Terrain set', v: T[s.tile].set },
+      { k: 'Collision', v: tcoll },
+      { k: 'Variant weight', v: T[s.tile].set === 'cave' ? '1 · moss 0.5' : '1' },
+    ];
+
+    const seg = (on) => 'height: 26px; padding: 0 10px; border-radius: 6px; border: 0; font-weight: 500; ' + (on ? 'background: #2a2f3a; color: #ffffff' : 'background: none; color: #b4bac6');
+    const modeSeg = (on) => 'height: 28px; padding: 0 12px; border-radius: 6px; border: 0; font-weight: 500; ' + (on ? 'background: #2a2f3a; color: #ffffff' : 'background: none; color: #8b92a0');
+    const tab = (on) => 'height: 30px; padding: 0 12px; border-radius: 8px; border: 0; font-weight: 500; ' + (on ? 'background: #1c2130; color: #ffffff' : 'background: none; color: #8b92a0');
+    const hint = { pencil: 'Click or drag to paint · Alt picks a tile', rect: s.anchor ? 'Click the opposite corner' : 'Click two corners', fill: 'Fills the touching area of the same tile', erase: 'Click or drag to erase' }[s.tool] || 'Pick a brush below, or press 1–4';
+    return {
+      tools, brushes, palette, tree, cells, outlines, chips, mapStyle, steps, regionRows, collOptions, ruleRows,
+      pending, kept: rv === 'kept', reverted: rv === 'reverted', dirty: rv !== 'reverted' || Object.keys(s.paint).length > 0,
+      showLegend: pending && !peek,
+      cardTitle: regions.length + ' regions · ' + total + ' cells',
+      keepText: keptRegions.length === regions.length ? 'Keep all' : 'Keep ' + keptRegions.length + ' of ' + regions.length,
+      keptText: 'Kept ' + keptRegions.length + ' of ' + regions.length + ' regions · one undo step (⌘Z)',
+      keep: () => this.setState({ review: 'kept', view: 'after' }),
+      revert: () => this.setState({ review: 'reverted', view: 'after' }),
+      reset: () => this.setState({ review: 'pending', off: {} }),
+      beforeStyle: seg(peek), afterStyle: seg(!peek),
+      showBefore: () => this.setState({ view: 'before' }), showAfter: () => this.setState({ view: 'after' }),
+      tileName: s.tile, tileMeta: tcoll + ' · ' + T[s.tile].set,
+      tileSource: 'art/tiles/dungeon.png · cell ' + T[s.tile].at + ' · 16 × 16',
+      brushSwatch: swatch(32), inspectSwatch: swatch(40),
+      brushChip: 'width: 16px; height: 16px; border-radius: 4px; background: ' + (s.tool === 'erase' ? 'none; box-shadow: inset 0 0 0 1.5px #ff6b6b' : T[s.tile].bg + '; background-color: #1a1d23; background-size: 16px 16px'),
+      brushName: s.tool === 'erase' ? 'empty' : s.tile,
+      cursorText: s.cursor ? 'cell ' + s.cursor : 'cell —',
+      hintText: hint,
+      gridPressed: s.grid ? 'true' : 'false', gridStyle: seg(s.grid), toggleGrid: () => this.setState({ grid: !s.grid }),
+      mode2DStyle: modeSeg(s.mode === '2d'), mode3DStyle: modeSeg(s.mode === '3d'),
+      setMode2D: () => this.setState({ mode: '2d' }), setMode3D: () => this.setState({ mode: '3d' }),
+      agentTab: s.tab === 'agent', inspectorTab: s.tab === 'inspector',
+      agentTabStyle: tab(s.tab === 'agent'), inspectorTabStyle: tab(s.tab === 'inspector'),
+      showAgentTab: () => this.setState({ tab: 'agent' }), showInspectorTab: () => this.setState({ tab: 'inspector' }),
+    };
+  }
+}
+</script>
+</body>
+</html>

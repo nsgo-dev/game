@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Connect an agent</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0c0e12}
+a{color:#8fb3ff}a:hover{color:#b9cfff}
+button{font:inherit;cursor:pointer}
+input{font:inherit}
+</style>
+</helmet>
+<div style="height: 900px; display: flex; align-items: center; justify-content: center; font-family: Inter, system-ui, sans-serif; font-size: 13px; color: #d9dde5; background: radial-gradient(1200px 600px at 50% 0%, #161b26, #0c0e12)">
+  <div style="width: 640px; border-radius: 18px; background: #14171d; box-shadow: 0 0 0 1px #242833, 0 40px 100px rgba(0,0,0,0.6); padding: 28px; display: flex; flex-direction: column; gap: 20px">
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <div style="font-size: 20px; font-weight: 600; color: #ffffff">Connect an agent</div>
+      <div style="color: #8b92a0; line-height: 1.55">The editor serves this project over MCP: the agent reads and edits the scene, sees the viewport, runs checks and playtests. Pick how it reaches the agent; you can change this any time.</div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 8px">
+      <sc-for list="{{ options }}" as="o" hint-placeholder-count="3">
+        <button onClick="{{ o.pick }}" style="{{ o.style }}">
+          <span style="{{ o.radio }}"></span>
+          <span style="flex: 1; display: flex; flex-direction: column; gap: 3px; text-align: left">
+            <span style="color: #ffffff; font-weight: 500">{{ o.name }}</span>
+            <span style="color: #8b92a0; font-size: 12px">{{ o.desc }}</span>
+          </span>
+          <span style="{{ o.badgeStyle }}">{{ o.badge }}</span>
+        </button>
+      </sc-for>
+    </div>
+    <sc-if value="{{ isLocal }}" hint-placeholder-val="{{ true }}">
+      <div style="border-radius: 12px; background: #101317; box-shadow: 0 0 0 1px #20242c; padding: 14px; display: flex; flex-direction: column; gap: 10px">
+        <div style="color: #b4bac6">Run this once in the project folder; the agent then finds the editor by itself:</div>
+        <div style="display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 12px; border-radius: 8px; background: #0c0e12; box-shadow: 0 0 0 1px #20242c; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #e6e9ef">
+          <span style="flex: 1">go tool game mcp install</span>
+          <button style="height: 24px; padding: 0 10px; border-radius: 6px; border: 0; background: #22262f; color: #d9dde5; font-family: Inter, sans-serif">Copy</button>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; color: #8b92a0"><span style="width: 7px; height: 7px; border-radius: 4px; background: #e9a84a"></span>Waiting for an agent to connect…</div>
+      </div>
+    </sc-if>
+    <sc-if value="{{ isKey }}" hint-placeholder-val="{{ false }}">
+      <div style="border-radius: 12px; background: #101317; box-shadow: 0 0 0 1px #20242c; padding: 14px; display: flex; flex-direction: column; gap: 10px">
+        <label for="apikey" style="color: #b4bac6">API key</label>
+        <input id="apikey" type="password" placeholder="Paste a key" style="height: 36px; padding: 0 12px; border-radius: 8px; border: 0; background: #0c0e12; box-shadow: 0 0 0 1px #20242c; color: #e6e9ef">
+        <div style="color: #8b92a0; font-size: 12px">Kept in the system keychain, never in the project files.</div>
+      </div>
+    </sc-if>
+    <div style="display: flex; flex-direction: column; gap: 8px">
+      <div style="color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">THE AGENT MAY, WITHOUT ASKING</div>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+        <label style="display: flex; align-items: center; gap: 8px; color: #d9dde5"><input type="checkbox" checked>Edit scenes and data (always reviewable)</label>
+        <label style="display: flex; align-items: center; gap: 8px; color: #d9dde5"><input type="checkbox" checked>Run game check</label>
+        <label style="display: flex; align-items: center; gap: 8px; color: #d9dde5"><input type="checkbox">Run headless playtests</label>
+        <label style="display: flex; align-items: center; gap: 8px; color: #d9dde5"><input type="checkbox">Edit Go code</label>
+      </div>
+    </div>
+    <div style="display: flex; align-items: center; gap: 10px">
+      <span style="color: #8b92a0; font-size: 12px">Anything not ticked asks first.</span>
+      <div style="flex: 1"></div>
+      <button style="height: 36px; padding: 0 16px; border-radius: 9px; border: 0; background: none; color: #b4bac6">Later</button>
+      <button style="height: 36px; padding: 0 18px; border-radius: 9px; border: 0; background: #ffffff; color: #101216; font-weight: 600">Done</button>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { pick: 'local' }; }
+  renderVals() {
+    const s = this.state;
+    const defs = [
+      { id: 'local', name: 'An agent on this computer', desc: 'Claude Code, Codex or any MCP client you already use', badge: 'Recommended' },
+      { id: 'key', name: 'Built in, with your API key', desc: 'The editor talks to the model itself', badge: '' },
+      { id: 'none', name: 'No agent', desc: 'Edit by hand; the Agent panel stays closed', badge: '' },
+    ];
+    const options = defs.map((o) => {
+      const on = s.pick === o.id;
+      return {
+        ...o,
+        style: 'display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-radius: 12px; border: 0; background: ' + (on ? '#1a2233' : '#171a21') + '; box-shadow: 0 0 0 ' + (on ? '1.5px #3b7bff' : '1px #242833') + '; color: inherit',
+        radio: 'width: 16px; height: 16px; border-radius: 8px; flex: none; box-sizing: border-box; ' + (on ? 'border: 5px solid #3b7bff; background: #ffffff' : 'border: 1.5px solid #4a505c'),
+        badgeStyle: o.badge ? 'height: 22px; display: flex; align-items: center; padding: 0 8px; border-radius: 11px; background: #173326; color: #4fd38a; font-size: 11px; font-weight: 500' : 'display: none',
+        pick: () => this.setState({ pick: o.id }),
+      };
+    });
+    return { options, isLocal: s.pick === 'local', isKey: s.pick === 'key' };
+  }
+}
+</script>
+</body>
+</html>

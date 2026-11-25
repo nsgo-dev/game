@@ -1,0 +1,471 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>HUD layout</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#101216}
+a{color:#8fb3ff}a:hover{color:#b9cfff}
+.vp{background-color:#15181d;background-image:radial-gradient(circle,#2a2f38 1px,transparent 1.2px);background-size:16px 16px}
+button{font:inherit;cursor:pointer}
+input,textarea{font:inherit}
+</style>
+</helmet>
+<div style="height: 900px; display: flex; flex-direction: column; font-family: Inter, system-ui, sans-serif; font-size: 12.5px; color: #d9dde5; background: #101216; overflow: hidden">
+
+  <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 12px; border-bottom: 1px solid #1f232a">
+    <div style="display: flex; align-items: center; gap: 8px">
+      <div style="width: 22px; height: 22px; border-radius: 6px; background: #3b7bff; display: flex; align-items: center; justify-content: center">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.5" aria-hidden="true"><path d="M5 19 12 5l7 14"></path></svg>
+      </div>
+      <span style="font-weight: 600; color: #ffffff">dungeon-run</span>
+      <span style="color: #8b92a0">/</span>
+      <span style="color: #b4bac6">screens</span>
+      <span style="color: #8b92a0">/</span>
+      <span style="color: #b4bac6">{{ screenFile }}</span>
+    </div>
+    <div style="flex: 1"></div>
+    <span style="color: #8b92a0">Language</span>
+    <div style="display: flex; gap: 2px; padding: 3px; border-radius: 8px; background: #171a21; box-shadow: 0 0 0 1px #262b35">
+      <button aria-pressed="{{ enPressed }}" onClick="{{ setEn }}" style="{{ enStyle }}">English</button>
+      <button aria-pressed="{{ zhPressed }}" onClick="{{ setZh }}" style="{{ zhStyle }}" lang="zh">中文</button>
+    </div>
+    <div style="flex: 1"></div>
+    <button style="height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-radius: 8px; border: 0; background: #171a21; box-shadow: 0 0 0 1px #262b35; color: #8b92a0">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+      <span>Search</span>
+      <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px">⌘K</span>
+    </button>
+    <button style="height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 14px; border-radius: 8px; border: 0; background: #ffffff; color: #101216; font-weight: 600">
+      <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 4l14 8-14 8z"></path></svg>Play
+    </button>
+  </div>
+
+  <div style="flex: 1; display: grid; grid-template-columns: 232px minmax(0, 1fr) 360px; min-height: 0">
+
+    <div style="display: flex; flex-direction: column; border-right: 1px solid #1f232a; min-height: 0">
+      <div style="height: 36px; display: flex; align-items: center; padding: 0 14px; color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">SCREENS</div>
+      <div style="padding: 0 6px; display: flex; flex-direction: column">
+        <sc-for list="{{ screens }}" as="sc" hint-placeholder-count="4">
+          <button onClick="{{ sc.pick }}" style="{{ sc.style }}">
+            <span style="flex: 1; text-align: left">{{ sc.name }}</span>
+            <span style="{{ sc.metaStyle }}">{{ sc.meta }}</span>
+          </button>
+        </sc-for>
+      </div>
+      <div style="height: 36px; display: flex; align-items: center; justify-content: space-between; padding: 8px 14px 0; color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">
+        <span>NODES</span><span style="font-weight: 500; letter-spacing: 0">{{ screenFile }}</span>
+      </div>
+      <div style="padding: 0 6px; display: flex; flex-direction: column">
+        <sc-for list="{{ tree }}" as="n" hint-placeholder-count="9">
+          <button onClick="{{ n.pick }}" style="{{ n.style }}">
+            <span style="{{ n.indent }}"></span>
+            <span style="flex: 1; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ n.name }}</span>
+            <sc-if value="{{ n.problem }}" hint-placeholder-val="{{ false }}"><span style="width: 6px; height: 6px; border-radius: 3px; background: #ff6b6b" aria-label="has a problem"></span></sc-if>
+            <span style="color: #8b92a0; font-size: 11px; font-family: 'JetBrains Mono', monospace">{{ n.tag }}</span>
+          </button>
+        </sc-for>
+      </div>
+      <div style="flex: 1"></div>
+      <div style="padding: 12px 14px; border-top: 1px solid #1f232a; color: #8b92a0; line-height: 1.5">By hand: order inside a container, spacing, and dragging touch controls. The agent builds the rest.</div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; min-width: 0; min-height: 0">
+      <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 16px; border-bottom: 1px solid #1f232a">
+        <span style="color: #ffffff; font-size: 14px; font-weight: 600">All sizes</span>
+        <span style="color: #8b92a0">designed at 640 × 360 · scaled to fit height</span>
+        <div style="flex: 1"></div>
+        <sc-for list="{{ overlays }}" as="o" hint-placeholder-count="4">
+          <button aria-pressed="{{ o.pressed }}" onClick="{{ o.toggle }}" style="{{ o.style }}"><span style="{{ o.swatch }}"></span>{{ o.label }}</button>
+        </sc-for>
+      </div>
+      <div class="vp" style="flex: 1; position: relative; overflow: hidden; min-height: 0">
+        <div style="position: absolute; left: 24px; top: 16px; width: 800px; height: 600px">
+          <sc-for list="{{ frames }}" as="f" hint-placeholder-count="4">
+            <div style="display: contents">
+            <span style="{{ f.labelStyle }}">{{ f.label }}</span>
+            <div style="{{ f.bezel }}"></div>
+            <div style="{{ f.screen }}">
+              <div style="{{ f.floor }}"></div>
+              <div style="{{ f.knightPos }}"><div style="{{ f.knight.box }}"><div style="{{ f.knight.dot }}"></div></div></div>
+            </div>
+            <div style="{{ f.notch }}"></div>
+            </div>
+          </sc-for>
+          <sc-for list="{{ under }}" as="u" hint-placeholder-count="6">
+            <div style="{{ u.style }}"></div>
+          </sc-for>
+          <sc-for list="{{ els }}" as="e" hint-placeholder-count="24">
+            <button onClick="{{ e.pick }}" aria-label="{{ e.aria }}" style="{{ e.style }}">
+              <span style="{{ e.spr.box }}"><span style="{{ e.spr.dot }}"></span></span>
+              <span style="{{ e.textStyle }}">{{ e.text }}</span>
+            </button>
+          </sc-for>
+          <sc-for list="{{ over }}" as="v" hint-placeholder-count="8">
+            <div style="{{ v.style }}">{{ v.text }}</div>
+          </sc-for>
+          <div style="position: absolute; left: 472px; top: 492px; width: 328px; padding-bottom: 8px; border-radius: 12px; background: #12141a; box-shadow: 0 0 0 1px #262b35">
+            <div style="height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 12px; color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">
+              <span style="flex: 1">TEXT WIDTH, PX</span><span style="width: 40px; text-align: right">BOX</span><span style="width: 56px; text-align: right">EN</span><span style="width: 56px; text-align: right" lang="zh">中文</span>
+            </div>
+            <sc-for list="{{ fitRows }}" as="fr" hint-placeholder-count="3">
+              <button onClick="{{ fr.pick }}" style="{{ fr.rowStyle }}">
+                <span style="flex: 1">{{ fr.name }}</span>
+                <span style="width: 40px; text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #8b92a0">{{ fr.box }}</span>
+                <span style="{{ fr.enStyle }}">{{ fr.en }}</span>
+                <span style="{{ fr.zhStyle }}">{{ fr.zh }}</span>
+              </button>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; border-left: 1px solid #1f232a; background: #12141a; min-height: 0">
+      <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 16px; border-bottom: 1px solid #1f232a">
+        <span style="color: #ffffff; font-size: 14px; font-weight: 600">{{ selName }}</span>
+        <span style="color: #8b92a0">{{ selType }}</span>
+      </div>
+      <div style="flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 16px; min-height: 0; overflow: hidden">
+        <div style="display: flex; gap: 16px">
+          <div style="display: grid; grid-template-columns: repeat(3, 28px); gap: 4px; padding: 4px; border-radius: 8px; background: #171a21; box-shadow: 0 0 0 1px #262b35; flex: none">
+            <sc-for list="{{ anchorGrid }}" as="a" hint-placeholder-count="9">
+              <button aria-label="{{ a.aria }}" aria-pressed="{{ a.pressed }}" onClick="{{ a.pick }}" style="{{ a.style }}"><span style="{{ a.dot }}"></span></button>
+            </sc-for>
+          </div>
+          <div style="flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 0">
+            <div style="color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">ANCHOR</div>
+            <div style="color: #ffffff">{{ anchorText }}</div>
+            <div style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #b4bac6">{{ offsetText }}</div>
+            <button role="checkbox" aria-checked="{{ safeAria }}" onClick="{{ toggleSafe }}" style="display: flex; align-items: center; gap: 8px; padding: 0; border: 0; background: none; color: #d9dde5; text-align: left">
+              <span style="{{ safeBox }}"><sc-if value="{{ safeOn }}" hint-placeholder-val="{{ true }}"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg></sc-if></span>
+              Keep inside the safe area
+            </button>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <div style="color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">SIZE</div>
+          <div style="display: flex; align-items: center; gap: 12px">
+            <span style="width: 52px; color: #b4bac6">Width</span>
+            <sc-if value="{{ canFit }}" hint-placeholder-val="{{ true }}">
+              <div style="display: flex; gap: 2px; padding: 3px; border-radius: 8px; background: #171a21; box-shadow: 0 0 0 1px #262b35">
+                <button aria-pressed="{{ fixedPressed }}" onClick="{{ setFixed }}" style="{{ fixedStyle }}">Fixed {{ fixedW }}</button>
+                <button aria-pressed="{{ fitPressed }}" onClick="{{ setFit }}" style="{{ fitStyle }}">Fit text</button>
+              </div>
+            </sc-if>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #b4bac6">{{ sizeText }}</span>
+          </div>
+        </div>
+
+        <sc-if value="{{ hasText }}" hint-placeholder-val="{{ true }}">
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <div style="display: flex; justify-content: space-between; color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em"><span>TEXT</span><span style="font-family: 'JetBrains Mono', monospace; font-weight: 400; letter-spacing: 0">{{ textKey }}</span></div>
+            <div style="display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 4px 12px; line-height: 1.5">
+              <span style="color: #8b92a0">en</span><span style="color: #ffffff">{{ textEn }}</span>
+              <span style="color: #8b92a0">zh</span><span style="color: #ffffff" lang="zh">{{ textZh }}</span>
+            </div>
+            <sc-if value="{{ showZoom }}" hint-placeholder-val="{{ true }}">
+              <div style="border-radius: 12px; background: #171a21; box-shadow: 0 0 0 1px #262b35; padding: 12px; display: flex; flex-direction: column; gap: 8px">
+                <div style="display: flex; justify-content: space-between; font-size: 11.5px"><span style="color: #8b92a0">Phone · 中文 · 1.5×</span><span style="color: #ff8f8f">{{ zoomOver }}</span></div>
+                <div style="height: 48px; position: relative; border-radius: 8px; background: linear-gradient(180deg,#1c2230,#1a1f2a)">
+                  <div style="{{ zoomBox }}"><span style="{{ zoomText }}" lang="zh">{{ textZh }}</span></div>
+                  <div style="{{ zoomSpill }}"></div>
+                </div>
+              </div>
+            </sc-if>
+          </div>
+        </sc-if>
+
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <div style="display: flex; justify-content: space-between; color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em"><span>GAME CHECK · {{ screenName }}</span><span style="font-weight: 500; letter-spacing: 0">{{ problemCount }}</span></div>
+          <sc-for list="{{ problems }}" as="p" hint-placeholder-count="3">
+            <div style="{{ p.row }}">
+              <span style="width: 6px; height: 6px; flex: none; border-radius: 3px; background: #ff6b6b; margin-top: 6px"></span>
+              <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+                <span style="color: #ffffff">{{ p.title }}</span>
+                <span style="color: #8b92a0; font-size: 11.5px; line-height: 1.45">{{ p.detail }}</span>
+              </span>
+              <button onClick="{{ p.show }}" style="height: 28px; flex: none; padding: 0 10px; border-radius: 6px; border: 0; background: #22262f; color: #d9dde5">Show</button>
+            </div>
+          </sc-for>
+          <sc-if value="{{ noProblems }}" hint-placeholder-val="{{ false }}">
+            <div style="display: flex; align-items: center; gap: 8px; color: #8b92a0"><span style="width: 6px; height: 6px; border-radius: 3px; background: #4fd38a"></span>No problems at any size in this language</div>
+          </sc-if>
+          <sc-if value="{{ hasProblems }}" hint-placeholder-val="{{ true }}">
+            <button style="height: 32px; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 8px; border: 0; background: #3b7bff; color: #ffffff; font-weight: 500">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"></path></svg>Ask the agent to fix {{ problemCount }}
+            </button>
+          </sc-if>
+        </div>
+      </div>
+      <div style="padding: 12px; border-top: 1px solid #1f232a">
+        <div style="height: 40px; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 12px; border-radius: 12px; background: #171a21; box-shadow: 0 0 0 1px #262b35">
+          <label for="hudprompt" style="position: absolute; left: -9999px">Ask the agent</label>
+          <input id="hudprompt" placeholder="e.g. add a boss health bar that only shows on floor 3" style="flex: 1; min-width: 0; border: 0; outline: none; background: none; color: #e6e9ef">
+          <button aria-label="Send" style="width: 28px; height: 28px; flex: none; border-radius: 8px; border: 0; background: #ffffff; color: #101216; display: flex; align-items: center; justify-content: center">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"></path></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { lang: 'zh', screen: 'hud', sel: 'hint', anchors: {}, unsafe: {}, fit: {}, ov: { safe: true, anchors: true, touch: true, focus: true } };
+  }
+  renderVals() {
+    const s = this.state;
+    const PAL = { o: '#191b22', L: '#d7deea', S: '#9aa5ba', D: '#5e677c', V: '#0f1116', P: '#e9a84a', Q: '#b8742a', B: '#6b4a33', W: '#e6ebf2', Y: '#f2c14e', y: '#fff3b8', d: '#b8862a', R: '#ff6b6b', r: '#ffb3b3' };
+    const spr = (rows, p, pal) => {
+      const P = pal || PAL; const sh = []; let w = 0;
+      rows.forEach((r, y) => { w = Math.max(w, r.length); for (let x = 0; x < r.length; x++) { const c = P[r[x]]; if (c) sh.push(((x + 1) * p) + 'px ' + ((y + 1) * p) + 'px 0 0 ' + c); } });
+      return { box: 'position: relative; display: block; flex: none; width: ' + (w * p) + 'px; height: ' + (rows.length * p) + 'px', dot: 'position: absolute; display: block; left: ' + (-p) + 'px; top: ' + (-p) + 'px; width: ' + p + 'px; height: ' + p + 'px; box-shadow: ' + sh.join(', ') };
+    };
+    const NOSPR = { box: 'display: none', dot: 'display: none' };
+    const H1 = ['.oo.oo.', 'oRroRRo', 'oRRRRRo', '.oRRRo.', '..oRo..', '...o...'];
+    const HEARTS = H1.map((r) => r + '.' + r + '.' + r);
+    const COIN = ['.oooo.', 'oYyYYo', 'oYyYdo', 'oYYYdo', 'oYYddo', '.oooo.'];
+    const KNIGHT = ['', '....PP......', '...PQP......', '..oooooo....', '.oLLLSSo....', '.oLSVVVo....', '.oLSSSSo....', '..oooooo..W.', '.oLLSSSDo.W.', 'oLLSSSSDDoW.', 'oSSBBBBDDooo', '.oDSSSSDo.o.', '..oDo.oDo...', '..oBo.oBo...', '..ooo.ooo...'];
+    const zh = s.lang === 'zh';
+
+    const DEV = [
+      { id: 'phone', label: 'Phone · 19.5 : 9 · notch', W: 780, H: 360, safe: { l: 44, r: 44, t: 0, b: 20 }, sc: 0.58, x: 0, y: 24, touch: true },
+      { id: 'tablet', label: 'Tablet · 4 : 3', W: 640, H: 480, safe: { l: 0, r: 0, t: 20, b: 20 }, sc: 0.5, x: 476, y: 24, touch: true },
+      { id: 'desktop', label: 'Desktop · 16 : 9', W: 640, H: 360, safe: { l: 0, r: 0, t: 0, b: 0 }, sc: 0.7, x: 0, y: 320, touch: false },
+      { id: 'ultra', label: 'Ultrawide · 21 : 9', W: 840, H: 360, safe: { l: 0, r: 0, t: 0, b: 0 }, sc: 0.39, x: 472, y: 320, touch: false },
+    ];
+    const EL = {
+      hud: [
+        { id: 'status', name: 'status', type: 'VBox', anchor: 'tl', x: 12, y: 12, w: 52, h: 38, kind: 'group', tag: 'TL', depth: 0, container: true },
+        { id: 'hearts', name: 'hearts', type: 'Sprite row', anchor: 'tl', x: 12, y: 12, w: 52, h: 14, kind: 'hearts', tag: '', depth: 1, inStatus: true },
+        { id: 'coins', name: 'coins', type: 'Label', anchor: 'tl', x: 12, y: 32, w: 52, h: 16, kind: 'coins', text: { en: '× 12', zh: '× 12' }, tag: '', depth: 1, inStatus: true },
+        { id: 'floor', name: 'floor_label', type: 'Label', anchor: 'tc', x: 0, y: 12, w: 'fit', h: 18, kind: 'label', text: { en: 'Floor 1 · The Cellar', zh: '第一层 · 地窖' }, key: 'hud.floor.1', tag: 'TC', depth: 0 },
+        { id: 'pause', name: 'pause_button', type: 'Button', anchor: 'tr', x: 12, y: 12, w: 24, h: 24, kind: 'pausebtn', tag: 'TR', depth: 0 },
+        { id: 'hint', name: 'hint', type: 'Label', anchor: 'bc', x: 0, y: 70, w: 160, h: 22, kind: 'hint', pad: 12, text: { en: 'Jump at levers to pull', zh: '靠近拉杆时按下跳跃键即可拉动' }, key: 'hud.hint.lever', tag: 'BC', depth: 0, canFit: true },
+        { id: 'touch', name: 'touch', type: 'Container · phones, tablets', anchor: 'bl', x: 0, y: 0, w: 0, h: 0, kind: 'group', tag: '', depth: 0, container: true },
+        { id: 'stick', name: 'stick', type: 'Touch stick', anchor: 'bl', x: 24, y: 20, w: 72, h: 72, kind: 'stick', touch: true, hit: 96, tag: 'BL', depth: 1 },
+        { id: 'jump', name: 'jump', type: 'Touch button', anchor: 'br', x: 24, y: 28, w: 52, h: 52, kind: 'tbtn', touch: true, hit: 64, tag: 'BR', depth: 1 },
+        { id: 'attack', name: 'attack', type: 'Touch button', anchor: 'br', x: 92, y: 20, w: 36, h: 36, kind: 'tbtn', touch: true, hit: 36, tag: 'BR', depth: 1 },
+      ],
+      pause: [
+        { id: 'dim', name: 'dim', type: 'ColorRect', anchor: 'fill', x: 0, y: 0, w: 0, h: 0, kind: 'dim', tag: 'FILL', depth: 0 },
+        { id: 'panel', name: 'panel', type: 'VBox', anchor: 'cc', x: 0, y: 4, w: 200, h: 196, kind: 'panel', tag: 'C', depth: 0, container: true },
+        { id: 'ptitle', name: 'title', type: 'Label', anchor: 'cc', x: 0, y: -66, w: 'fit', h: 20, kind: 'title', text: { en: 'Paused', zh: '已暂停' }, key: 'pause.title', tag: '', depth: 1 },
+        { id: 'resume', name: 'resume', type: 'Button', anchor: 'cc', x: 0, y: -30, w: 140, h: 26, kind: 'mbtn', pad: 16, text: { en: 'Resume', zh: '继续' }, key: 'pause.resume', focus: 1, tag: '', depth: 1, canFit: true },
+        { id: 'restart', name: 'restart', type: 'Button', anchor: 'cc', x: 0, y: 4, w: 140, h: 26, kind: 'mbtn', pad: 16, text: { en: 'Restart checkpoint', zh: '从上一个检查点重新开始' }, key: 'pause.restart', focus: 2, tag: '', depth: 1, canFit: true },
+        { id: 'settings', name: 'settings', type: 'Button', anchor: 'cc', x: 0, y: 38, w: 140, h: 26, kind: 'mbtn', pad: 16, text: { en: 'Settings', zh: '设置' }, key: 'pause.settings', focus: 3, tag: '', depth: 1, canFit: true },
+        { id: 'quit', name: 'quit', type: 'Button', anchor: 'cc', x: 0, y: 72, w: 140, h: 26, kind: 'mbtn', pad: 16, text: { en: 'Quit to title', zh: '返回标题画面' }, key: 'pause.quit', focus: 4, tag: '', depth: 1, canFit: true },
+      ],
+    };
+    const screen = EL[s.screen] ? s.screen : 'hud';
+    const defs = EL[screen];
+    const textW = (str) => { let w = 0; for (const ch of str) w += /[　-鿿＀-￯]/.test(ch) ? 12 : ch === ' ' ? 3 : 6; return w; };
+    const anchorOf = (e) => (e.inStatus ? s.anchors.status : s.anchors[e.id]) || e.anchor;
+    const fits = (e) => e.w === 'fit' || !!s.fit[e.id];
+    const metrics = (e, lang) => {
+      if (!e.text) return { tw: 0, w: e.w, over: 0 };
+      const tw = textW(e.text[lang]);
+      const pad = e.pad || 0;
+      if (fits(e)) return { tw, w: tw + pad, over: 0 };
+      return { tw, w: e.w, over: Math.max(0, tw + pad - e.w) };
+    };
+    const place = (e, d) => {
+      if (e.anchor === 'fill') return { l: 0, t: 0, w: d.W, h: d.H };
+      const sf = s.unsafe[e.id] ? { l: 0, r: 0, t: 0, b: 0 } : d.safe;
+      const m = metrics(e, s.lang);
+      const w = m.w, h = e.h;
+      const a = anchorOf(e);
+      const ay = a[0], ax = a[1];
+      const l = ax === 'l' ? sf.l + e.x : ax === 'c' ? (d.W - w) / 2 + e.x : d.W - sf.r - e.x - w;
+      const t = ay === 't' ? sf.t + e.y : ay === 'c' ? (d.H - h) / 2 + e.y : d.H - sf.b - e.y - h;
+      return { l, t, w, h, m, a, sf };
+    };
+
+    const frames = DEV.map((d) => {
+      const W = d.W * d.sc, H = d.H * d.sc;
+      const phone = d.id === 'phone';
+      const bz = phone ? 8 : 4;
+      return {
+        label: d.label + ' · ' + d.W + ' × ' + d.H,
+        labelStyle: 'position: absolute; left: ' + d.x + 'px; top: ' + (d.y - 22) + 'px; font-size: 11.5px; color: #b4bac6; white-space: nowrap',
+        bezel: 'position: absolute; left: ' + (d.x - bz) + 'px; top: ' + (d.y - bz) + 'px; width: ' + (W + bz * 2) + 'px; height: ' + (H + bz * 2) + 'px; border-radius: ' + (phone ? 26 : 10) + 'px; background: #0c0e12; box-shadow: 0 0 0 1px #262b35, 0 16px 40px rgba(0,0,0,0.4)',
+        screen: 'position: absolute; left: ' + d.x + 'px; top: ' + d.y + 'px; width: ' + W + 'px; height: ' + H + 'px; overflow: hidden; border-radius: ' + (phone ? 18 : 4) + 'px; background: linear-gradient(180deg,#1c2230 0%,#1a1f2a 100%)',
+        floor: 'position: absolute; left: 0; right: 0; bottom: 0; height: ' + (48 * d.sc) + 'px; background-color: #2a2f3a; background-image: linear-gradient(#1f232a 0 1px, transparent 1px), linear-gradient(90deg, #1f232a 0 1px, transparent 1px); background-size: ' + (32 * d.sc) + 'px ' + (32 * d.sc) + 'px',
+        knight: spr(KNIGHT, 2 * d.sc),
+        knightPos: 'position: absolute; left: ' + (W * 0.36) + 'px; bottom: ' + (48 * d.sc) + 'px',
+        notch: phone ? 'position: absolute; left: ' + (d.x + 4) + 'px; top: ' + (d.y + H / 2 - 40) + 'px; width: 14px; height: 80px; border-radius: 7px; background: #0c0e12' : 'display: none',
+      };
+    });
+
+    const under = [], over = [], els = [];
+    DEV.forEach((d) => {
+      const S = d.sc;
+      if (s.ov.safe && (d.safe.l || d.safe.r || d.safe.t || d.safe.b)) {
+        const W = d.W * S, H = d.H * S;
+        const strip = (l, t, w, h) => under.push({ style: 'position: absolute; left: ' + l + 'px; top: ' + t + 'px; width: ' + w + 'px; height: ' + h + 'px; background: rgba(242,193,78,0.10); pointer-events: none' });
+        if (d.safe.l) strip(d.x, d.y, d.safe.l * S, H);
+        if (d.safe.r) strip(d.x + W - d.safe.r * S, d.y, d.safe.r * S, H);
+        if (d.safe.t) strip(d.x, d.y, W, d.safe.t * S);
+        if (d.safe.b) strip(d.x, d.y + H - d.safe.b * S, W, d.safe.b * S);
+        under.push({ style: 'position: absolute; left: ' + (d.x + d.safe.l * S) + 'px; top: ' + (d.y + d.safe.t * S) + 'px; width: ' + ((d.W - d.safe.l - d.safe.r) * S) + 'px; height: ' + ((d.H - d.safe.t - d.safe.b) * S) + 'px; outline: 1px dashed rgba(242,193,78,0.7); outline-offset: -1px; pointer-events: none' });
+      }
+      const focusPts = [];
+      defs.forEach((e) => {
+        if (e.kind === 'group') return;
+        if (e.touch && !d.touch) return;
+        const p = place(e, d);
+        const X = d.x + p.l * S, Y = d.y + p.t * S, Wd = p.w * S, Hd = p.h * S;
+        const on = s.sel === e.id || (s.sel === 'status' && e.inStatus) || (s.sel === 'touch' && e.touch) || (s.sel === 'panel' && e.kind === 'mbtn');
+        const overflow = p.m && p.m.over > 0;
+        let look = '', textStyle = 'display: none', spr2 = NOSPR, txt = '';
+        const fs = 12 * S;
+        if (e.kind === 'hearts') { spr2 = spr(HEARTS, 2 * S * 0.6); look = 'background: none'; }
+        if (e.kind === 'coins') { spr2 = spr(COIN, 2 * S); look = 'background: none; gap: ' + (4 * S) + 'px'; txt = e.text[s.lang]; textStyle = 'font-size: ' + fs + 'px; color: #ffffff; white-space: nowrap'; }
+        if (e.kind === 'label') { look = 'background: none; justify-content: center'; txt = e.text[s.lang]; textStyle = 'font-size: ' + fs + 'px; color: #8a7d62; white-space: nowrap'; }
+        if (e.kind === 'pausebtn') { look = 'border-radius: ' + (4 * S) + 'px; background: rgba(16,18,22,0.6) linear-gradient(90deg, transparent 32%, #ffffff 32% 44%, transparent 44% 56%, #ffffff 56% 68%, transparent 68%) center / 100% 45% no-repeat'; }
+        if (e.kind === 'hint' || e.kind === 'mbtn') {
+          look = 'border-radius: ' + (4 * S) + 'px; background: ' + (e.kind === 'hint' ? 'rgba(16,18,22,0.78)' : 'rgba(255,255,255,0.08)') + '; justify-content: ' + (overflow || e.kind === 'hint' ? 'flex-start' : 'center') + '; padding-left: ' + ((e.pad / 2) * S) + 'px';
+          if (e.kind === 'mbtn' && e.focus === 1) look += '; box-shadow: inset 0 0 0 ' + Math.max(1, 1.5 * S) + 'px #f2c14e';
+          txt = e.text[s.lang];
+          textStyle = 'font-size: ' + fs + 'px; color: #ffffff; white-space: nowrap; flex: none; overflow: visible';
+        }
+        if (e.kind === 'title') { look = 'background: none; justify-content: center'; txt = e.text[s.lang]; textStyle = 'font-size: ' + (fs * 1.2) + 'px; font-weight: 600; color: #ffffff; white-space: nowrap'; }
+        if (e.kind === 'stick') look = 'border-radius: 50%; background: radial-gradient(circle, rgba(255,255,255,0.28) 0 30%, rgba(255,255,255,0.06) 31%); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.25)';
+        if (e.kind === 'tbtn') look = 'border-radius: 50%; background: rgba(255,255,255,0.14); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.3)';
+        if (e.kind === 'dim') look = 'background: rgba(10,12,16,0.62); cursor: default';
+        if (e.kind === 'panel') look = 'border-radius: ' + (8 * S) + 'px; background: rgba(23,26,33,0.96); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08)';
+        let ring = '';
+        if (overflow) ring = '; outline: 1.5px solid #ff6b6b; outline-offset: 1px';
+        if (on && e.kind !== 'dim') ring = '; outline: 1.5px solid #3b7bff; outline-offset: ' + (overflow ? 1 : 2) + 'px';
+        els.push({
+          aria: e.name + ' on ' + d.label,
+          spr: spr2, text: txt, textStyle,
+          style: 'position: absolute; left: ' + X + 'px; top: ' + Y + 'px; width: ' + Wd + 'px; height: ' + Hd + 'px; padding: 0; border: 0; display: flex; align-items: center; box-sizing: border-box; font-family: Inter, system-ui, sans-serif; ' + look + ring,
+          pick: () => this.setState({ sel: e.kind === 'dim' ? s.sel : e.id }),
+        });
+        if (overflow) {
+          over.push({ text: '+' + p.m.over, style: 'position: absolute; left: ' + (X + Wd + p.m.over * S + 4) + 'px; top: ' + (Y + Hd / 2 - 8) + 'px; height: 16px; display: flex; align-items: center; padding: 0 4px; border-radius: 4px; background: #ff6b6b; color: #101216; font-size: 11px; font-weight: 600; pointer-events: none' });
+        }
+        if (s.ov.touch && e.touch) {
+          const hit = e.id === 'attack' && s.fit.attackHit ? 44 : e.hit;
+          const dd = hit * S;
+          const bad = hit < 44;
+          over.push({ text: '', style: 'position: absolute; left: ' + (X + Wd / 2 - dd / 2) + 'px; top: ' + (Y + Hd / 2 - dd / 2) + 'px; width: ' + dd + 'px; height: ' + dd + 'px; border-radius: 50%; box-sizing: border-box; border: 1.5px ' + (bad ? 'solid #ff6b6b' : 'dashed #8fb3ff') + '; pointer-events: none' });
+        }
+        if (s.ov.anchors && on && e.anchor !== 'fill' && p.a !== 'cc') {
+          const a = p.a, sf = p.sf;
+          const axp = a[1] === 'l' ? sf.l : a[1] === 'c' ? d.W / 2 : d.W - sf.r;
+          const ayp = a[0] === 't' ? sf.t : a[0] === 'c' ? d.H / 2 : d.H - sf.b;
+          over.push({ text: '', style: 'position: absolute; left: ' + (d.x + axp * S - 4) + 'px; top: ' + (d.y + ayp * S - 4) + 'px; width: 8px; height: 8px; transform: rotate(45deg); background: #3b7bff; box-shadow: 0 0 0 1.5px #101216; pointer-events: none' });
+        }
+        if (e.focus) focusPts.push({ n: e.focus, x: X, y: Y + Hd / 2, h: Hd });
+      });
+      if (s.ov.focus && focusPts.length) {
+        focusPts.sort((a, b) => a.n - b.n);
+        focusPts.forEach((fp, i) => {
+          const r = 7;
+          over.push({ text: String(fp.n), style: 'position: absolute; left: ' + (fp.x - 2 * r - 6) + 'px; top: ' + (fp.y - r) + 'px; width: ' + (2 * r) + 'px; height: ' + (2 * r) + 'px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: #3b7bff; color: #ffffff; font-size: 11px; font-weight: 600; pointer-events: none' });
+          const nx = focusPts[i + 1];
+          if (nx) over.push({ text: '', style: 'position: absolute; left: ' + (fp.x - r - 6.75) + 'px; top: ' + (fp.y + r) + 'px; width: 1.5px; height: ' + (nx.y - fp.y - 2 * r) + 'px; background: #3b7bff; pointer-events: none' });
+        });
+      }
+    });
+
+    // problems
+    const problems = [];
+    defs.forEach((e) => {
+      if (!e.text) return;
+      const m = metrics(e, s.lang);
+      if (m.over > 0) problems.push({ id: e.id, title: e.name + ' · text overflows', detail: (zh ? '中文' : 'English') + ' is ' + m.over + ' px wider than its ' + e.w + ' px box, at every size' });
+    });
+    if (screen === 'hud') {
+      if (!s.fit.attackHit) problems.push({ id: 'attack', title: 'attack · touch area 36 pt', detail: 'under the 44 pt minimum on Phone and Tablet' });
+      problems.push({ id: 'floor', title: 'floor_label · contrast 3.2 : 1', detail: 'under 4.5 : 1 where it crosses the torch light' });
+    }
+    const probRows = problems.map((p) => ({ ...p, row: 'display: flex; align-items: flex-start; gap: 8px; padding: 8px 8px 8px 12px; border-radius: 8px; ' + (s.sel === p.id ? 'background: #1a2030; box-shadow: 0 0 0 1.5px #3b7bff' : 'background: #171a21; box-shadow: 0 0 0 1px #262b35'), show: () => this.setState({ sel: p.id }) }));
+    const probIds = new Set(problems.map((p) => p.id));
+
+    const screens = [
+      { id: 'title', name: 'title', meta: '6 nodes' },
+      { id: 'hud', name: 'hud', meta: screen === 'hud' ? problems.length + (problems.length === 1 ? ' problem' : ' problems') : '' },
+      { id: 'pause', name: 'pause', meta: screen === 'pause' ? problems.length + (problems.length === 1 ? ' problem' : ' problems') : '' },
+      { id: 'game_over', name: 'game_over', meta: '5 nodes' },
+    ].map((x) => {
+      const on = x.id === screen;
+      const live = !!EL[x.id];
+      return { ...x, meta: x.meta || (live ? '' : x.meta), metaStyle: 'font-size: 11px; color: ' + (on && problems.length ? '#ff8f8f' : '#8b92a0'), style: 'width: 100%; height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 0; border-radius: 6px; ' + (on ? 'background: #1c2638; color: #ffffff' : 'background: none; color: ' + (live ? '#b4bac6' : '#8b92a0')), pick: () => { if (live) this.setState({ screen: x.id, sel: x.id === 'hud' ? 'hint' : 'restart' }); } };
+    });
+    const tree = [{ id: '__root', name: screen, tag: 'screen', depth: 0 }].concat(defs.map((e) => ({ ...e, depth: e.depth + 1 }))).map((n) => {
+      const on = s.sel === n.id;
+      const an = s.anchors[n.id] || n.anchor;
+      return { name: n.name, tag: !n.tag ? '' : !n.anchor ? n.tag : n.anchor === 'fill' ? 'FILL' : an === 'cc' ? 'C' : an.toUpperCase(), problem: probIds.has(n.id), indent: 'width: ' + (n.depth * 14) + 'px; flex: none', style: 'width: 100%; height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 0; border-radius: 6px; ' + (on ? 'background: #1c2638; color: #ffffff' : 'background: none; color: #b4bac6'), pick: () => { if (n.id !== '__root') this.setState({ sel: n.id }); } };
+    });
+
+    const sel = defs.find((e) => e.id === s.sel) || defs[0];
+    const selA = anchorOf(sel);
+    const AN = { tl: 'Top left', tc: 'Top centre', tr: 'Top right', cl: 'Centre left', cc: 'Centre', cr: 'Centre right', bl: 'Bottom left', bc: 'Bottom centre', br: 'Bottom right' };
+    const anchorGrid = ['tl', 'tc', 'tr', 'cl', 'cc', 'cr', 'bl', 'bc', 'br'].map((a) => {
+      const on = a === selA;
+      const fixed = sel.anchor === 'fill' || sel.id === 'touch';
+      return { aria: 'Anchor ' + AN[a].toLowerCase(), pressed: on ? 'true' : 'false', style: 'width: 28px; height: 28px; padding: 0; border: 0; border-radius: 6px; display: flex; align-items: center; justify-content: center; background: ' + (on ? '#1c2638' : 'none'), dot: 'width: ' + (on ? 10 : 6) + 'px; height: ' + (on ? 10 : 6) + 'px; border-radius: 2px; background: ' + (on ? '#3b7bff' : '#4a5262'), pick: () => { if (!fixed) this.setState({ anchors: { ...s.anchors, [sel.id]: a } }); } };
+    });
+    const safeOn = !s.unsafe[sel.id];
+    const m = metrics(sel, s.lang);
+    const isFit = fits(sel);
+    const seg = (on) => 'height: 24px; padding: 0 10px; border-radius: 6px; border: 0; font-size: 12px; font-weight: 500; white-space: nowrap; ' + (on ? 'background: #262b35; color: #ffffff' : 'background: none; color: #8b92a0');
+    const zm = metrics(sel, 'zh');
+    const ZS = 1.5;
+    const zoomW = (sel.w === 'fit' ? zm.w : (isFit ? zm.w : sel.w)) * ZS;
+    const ov = { safe: 'Safe areas', anchors: 'Anchors', touch: 'Touch areas', focus: 'Focus order' };
+    const sw = { safe: 'width: 10px; height: 10px; border-radius: 2px; outline: 1px dashed #f2c14e; outline-offset: -1px; background: rgba(242,193,78,0.10)', anchors: 'width: 8px; height: 8px; transform: rotate(45deg); background: #3b7bff', touch: 'width: 10px; height: 10px; border-radius: 50%; border: 1.5px dashed #8fb3ff; box-sizing: border-box', focus: 'width: 12px; height: 12px; border-radius: 50%; background: #3b7bff' };
+    const overlays = Object.keys(ov).map((k) => ({ label: ov[k], pressed: s.ov[k] ? 'true' : 'false', swatch: sw[k] + '; flex: none', style: 'height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-radius: 8px; border: 0; white-space: nowrap; ' + (s.ov[k] ? 'background: #1c2130; color: #ffffff; box-shadow: 0 0 0 1px #262b35' : 'background: none; color: #8b92a0'), toggle: () => this.setState({ ov: { ...s.ov, [k]: !s.ov[k] } }) }));
+
+    return {
+      screenFile: screen + '.screen.yaml', screenName: screen.toUpperCase(),
+      enPressed: zh ? 'false' : 'true', zhPressed: zh ? 'true' : 'false',
+      enStyle: seg(!zh), zhStyle: seg(zh),
+      setEn: () => this.setState({ lang: 'en' }), setZh: () => this.setState({ lang: 'zh' }),
+      screens, tree, overlays, frames, under, over, els,
+      selName: sel.name, selType: sel.type,
+      anchorGrid,
+      anchorText: sel.anchor === 'fill' ? 'Fills the whole screen' : AN[selA] + (safeOn ? ' of the safe area' : ' of the screen'),
+      offsetText: sel.anchor === 'fill' ? 'no offset' : 'x ' + sel.x + ' · y ' + sel.y + ' from the anchor',
+      safeAria: safeOn ? 'true' : 'false', safeOn,
+      safeBox: 'width: 16px; height: 16px; flex: none; border-radius: 4px; display: flex; align-items: center; justify-content: center; box-sizing: border-box; ' + (safeOn ? 'background: #3b7bff' : 'border: 1.5px solid #4a5262'),
+      toggleSafe: () => this.setState({ unsafe: { ...s.unsafe, [sel.id]: safeOn } }),
+      canFit: !!sel.canFit, fixedW: sel.canFit ? sel.w : '',
+      fixedPressed: isFit ? 'false' : 'true', fitPressed: isFit ? 'true' : 'false',
+      fixedStyle: seg(!isFit), fitStyle: seg(isFit),
+      setFixed: () => this.setState({ fit: { ...s.fit, [sel.id]: false } }), setFit: () => this.setState({ fit: { ...s.fit, [sel.id]: true } }),
+      sizeText: sel.anchor === 'fill' ? 'fills the screen' : sel.container ? 'sized by its children' : (sel.text ? (isFit ? 'fits text · ' + m.w : m.w) : sel.w) + ' × ' + sel.h + (sel.hit ? ' · touch ' + (sel.id === 'attack' && s.fit.attackHit ? 44 : sel.hit) + ' pt' : ''),
+      hasText: !!sel.text, textKey: sel.key || '',
+      textEn: sel.text ? sel.text.en : '', textZh: sel.text ? sel.text.zh : '',
+      showZoom: !!sel.text && zm.over > 0,
+      zoomOver: zm.over > 0 ? zm.over + ' px past the box' : '',
+      zoomBox: 'position: absolute; left: 12px; top: ' + (24 - sel.h * ZS / 2) + 'px; width: ' + zoomW + 'px; height: ' + (sel.h * ZS) + 'px; border-radius: 6px; box-sizing: border-box; display: flex; align-items: center; padding-left: ' + ((sel.pad || 0) / 2 * ZS) + 'px; background: ' + (sel.kind === 'hint' ? 'rgba(16,18,22,0.85)' : 'rgba(255,255,255,0.08)') + '; outline: 1.5px solid #ff6b6b; outline-offset: 0',
+      zoomText: 'font-size: ' + (12 * ZS) + 'px; color: #ffffff; white-space: nowrap; flex: none',
+      zoomSpill: 'position: absolute; left: ' + (12 + zoomW) + 'px; top: ' + (24 - sel.h * ZS / 2) + 'px; width: ' + (zm.over * ZS) + 'px; height: ' + (sel.h * ZS) + 'px; background: repeating-linear-gradient(135deg, rgba(255,107,107,0.35) 0 4px, transparent 4px 8px); pointer-events: none',
+      fitRows: defs.filter((e) => e.text).map((e) => {
+        const me = metrics(e, 'en'), mz = metrics(e, 'zh');
+        const box = fits(e) ? 'fits' : String(e.w);
+        const cell = (mm) => 'width: 56px; text-align: right; font-family: \'JetBrains Mono\', monospace; font-size: 11.5px; color: ' + (mm.over > 0 ? '#ff8f8f' : '#b4bac6');
+        return { name: e.name, box, en: String(me.tw + (e.pad || 0)), zh: String(mz.tw + (e.pad || 0)), enStyle: cell(me), zhStyle: cell(mz), rowStyle: 'width: 100%; height: 24px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border: 0; text-align: left; ' + (s.sel === e.id ? 'background: #1c2638; color: #ffffff' : 'background: none; color: #d9dde5'), pick: () => this.setState({ sel: e.id }) };
+      }),
+      problems: probRows, problemCount: problems.length, noProblems: problems.length === 0, hasProblems: problems.length > 0,
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,700 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Editor: 3D courtyard</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#101216}
+a{color:#8fb3ff}a:hover{color:#b9cfff}
+.vp3{background:linear-gradient(180deg,#181c24 0%,#14171d 55%,#121419 100%)}
+button{font:inherit;cursor:pointer}
+input,textarea{font:inherit}
+.num{width:100%;min-width:0;border:0;outline:none;background:none;color:#d9dde5;font-family:'JetBrains Mono',monospace;font-size:11.5px}
+.kc{display:inline-flex;align-items:center;height:18px;padding:0 5px;border-radius:4px;background:#20252f;box-shadow:0 0 0 1px #2c3240;color:#d9dde5;font-family:'JetBrains Mono',monospace;font-size:10.5px}
+</style>
+</helmet>
+<div style="height: 900px; display: flex; flex-direction: column; font-family: Inter, system-ui, sans-serif; font-size: 12.5px; color: #d9dde5; background: #101216; overflow: hidden">
+
+  <div style="height: 44px; display: flex; align-items: center; gap: 12px; padding: 0 12px; border-bottom: 1px solid #1f232a">
+    <div style="display: flex; align-items: center; gap: 8px">
+      <div style="width: 22px; height: 22px; border-radius: 6px; background: #3b7bff; display: flex; align-items: center; justify-content: center">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.5" aria-hidden="true"><path d="M5 19 12 5l7 14"></path></svg>
+      </div>
+      <span style="font-weight: 600; color: #ffffff">dungeon-run</span>
+      <span style="color: #8b92a0">/</span>
+      <span style="color: #b4bac6">courtyard</span>
+      <sc-if value="{{ dirty }}" hint-placeholder-val="{{ true }}"><span style="width: 6px; height: 6px; border-radius: 3px; background: #e9a84a" aria-label="unsaved changes"></span></sc-if>
+    </div>
+    <div style="flex: 1"></div>
+    <div style="display: flex; gap: 2px; padding: 3px; border-radius: 9px; background: #171a21; border: 1px solid #262b35">
+      <sc-for list="{{ tools }}" as="t" hint-placeholder-count="5">
+        <button aria-label="{{ t.label }}" title="{{ t.label }} · {{ t.key }}" onClick="{{ t.pick }}" style="{{ t.style }}">
+          <sc-if value="{{ t.isSelect }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M5 3l14 8-6 2-2 6z"></path></svg></sc-if>
+          <sc-if value="{{ t.isMove }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"></path></svg></sc-if>
+          <sc-if value="{{ t.isRotate }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-3-6.2"></path><path d="M20 4v5h-5"></path></svg></sc-if>
+          <sc-if value="{{ t.isScale }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="4" y="10" width="10" height="10" rx="1.5"></rect><path d="M13 4h7v7M20 4l-8 8"></path></svg></sc-if>
+          <sc-if value="{{ t.isPan }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V12M11 11.5v-7a1.5 1.5 0 0 1 3 0V12M14 12V6.5a1.5 1.5 0 0 1 3 0V13M8 13l-1.6-1.6a1.6 1.6 0 0 0-2.3 2.3L8 18c1.3 1.6 3 2.5 5 2.5h1a5 5 0 0 0 5-5V9.5a1.5 1.5 0 0 0-3 0"></path></svg></sc-if>
+        </button>
+      </sc-for>
+    </div>
+    <div style="display: flex; gap: 2px; padding: 3px; border-radius: 9px; background: #171a21; border: 1px solid #262b35">
+      <button onClick="{{ setMode2D }}" style="{{ mode2DStyle }}">2D</button>
+      <button onClick="{{ setMode3D }}" style="{{ mode3DStyle }}">3D</button>
+    </div>
+    <div style="flex: 1"></div>
+    <button aria-label="History" title="History" style="width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; border-radius: 8px; border: 1px solid #262b35; background: #171a21; color: #b4bac6">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"></path><path d="M3 4v5h5"></path><path d="M12 8v4l3 2"></path></svg>
+    </button>
+    <button style="height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-radius: 8px; border: 1px solid #262b35; background: #171a21; color: #b4bac6">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+      <span>Search</span>
+      <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8b92a0">⌘K</span>
+    </button>
+    <button style="height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 14px; border-radius: 8px; border: 0; background: #ffffff; color: #101216; font-weight: 600">
+      <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 4l14 8-14 8z"></path></svg>Play
+    </button>
+  </div>
+
+  <div style="flex: 1; display: grid; grid-template-columns: 232px minmax(0, 1fr) 380px; min-height: 0">
+
+    <div style="display: flex; flex-direction: column; border-right: 1px solid #1f232a; min-height: 0">
+      <div style="height: 36px; display: flex; align-items: center; justify-content: space-between; padding: 0 12px 0 16px; color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">
+        <span>SCENE</span>
+        <span style="font-weight: 500; letter-spacing: 0">{{ nodeCount }} nodes</span>
+      </div>
+      <div style="flex: 1; padding: 0 8px; overflow: hidden">
+        <sc-for list="{{ tree }}" as="n" hint-placeholder-count="12">
+          <button onClick="{{ n.pick }}" style="{{ n.style }}">
+            <span style="{{ n.indent }}"></span>
+            <span style="{{ n.dot }}"></span>
+            <span style="flex: 1; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ n.name }}</span>
+            <sc-if value="{{ n.hasTag }}" hint-placeholder-val="{{ false }}"><span style="{{ n.tagStyle }}">{{ n.tag }}</span></sc-if>
+            <span style="color: #8b92a0; font-size: 11px">{{ n.kind }}</span>
+          </button>
+        </sc-for>
+      </div>
+      <div style="padding: 12px 8px; border-top: 1px solid #1f232a; display: flex; flex-direction: column; gap: 4px">
+        <div style="color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; padding: 0 8px 4px">FILES</div>
+        <sc-for list="{{ files }}" as="f" hint-placeholder-count="3">
+          <div style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 6px; color: #b4bac6">
+            <span style="{{ f.dot }}"></span>
+            <span style="flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ f.name }}</span>
+            <sc-if value="{{ f.edited }}" hint-placeholder-val="{{ false }}"><span style="font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: #e9a84a" aria-label="edited by the agent">M</span></sc-if>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; min-width: 0">
+      <div class="vp3" style="flex: 1; position: relative; overflow: hidden">
+        <div style="position: absolute; left: 50%; top: 0; width: 828px; height: 736px; margin-left: -414px">
+          <svg width="828" height="736" viewBox="0 0 828 736" style="position: absolute; left: 0; top: 0" aria-hidden="true">
+            <path d="{{ ground.d }}" style="fill: #1d2129"></path>
+            <path d="{{ ground.paving }}" style="fill: #232831"></path>
+            <path d="{{ ground.grid }}" style="fill: none; stroke: #2b313b; stroke-width: 1"></path>
+            <path d="{{ ground.axisX }}" style="fill: none; stroke: rgba(255,107,107,0.45); stroke-width: 1.2"></path>
+            <path d="{{ ground.axisZ }}" style="fill: none; stroke: rgba(59,123,255,0.5); stroke-width: 1.2"></path>
+          </svg>
+          <sc-for list="{{ faces }}" as="f" hint-placeholder-count="40">
+            <svg width="828" height="736" viewBox="0 0 828 736" style="position: absolute; left: 0; top: 0; pointer-events: none" aria-hidden="true">
+              <path d="{{ f.d }}" style="{{ f.base }}"></path>
+              <path d="{{ f.d }}" style="{{ f.over }}"></path>
+            </svg>
+          </sc-for>
+          <sc-if value="{{ gizmo.show }}" hint-placeholder-val="{{ true }}">
+            <svg width="828" height="736" viewBox="0 0 828 736" style="position: absolute; left: 0; top: 0; pointer-events: none" aria-hidden="true">
+              <path d="{{ gizmo.ringX }}" style="fill: none; stroke: #ff6b6b; stroke-width: 2"></path>
+              <path d="{{ gizmo.ringY }}" style="fill: none; stroke: #4fd38a; stroke-width: 2"></path>
+              <path d="{{ gizmo.ringZ }}" style="fill: none; stroke: #3b7bff; stroke-width: 2"></path>
+              <path d="{{ gizmo.lineX }}" style="fill: none; stroke: #ff6b6b; stroke-width: 2.2; stroke-linecap: round"></path>
+              <path d="{{ gizmo.lineY }}" style="fill: none; stroke: #4fd38a; stroke-width: 2.2; stroke-linecap: round"></path>
+              <path d="{{ gizmo.lineZ }}" style="fill: none; stroke: #3b7bff; stroke-width: 2.2; stroke-linecap: round"></path>
+              <path d="{{ gizmo.headX }}" style="fill: #ff6b6b"></path>
+              <path d="{{ gizmo.headY }}" style="fill: #4fd38a"></path>
+              <path d="{{ gizmo.headZ }}" style="fill: #3b7bff"></path>
+              <path d="{{ gizmo.plane }}" style="fill: rgba(79,211,138,0.22); stroke: #4fd38a; stroke-width: 1"></path>
+              <path d="{{ gizmo.center }}" style="fill: #ffffff; stroke: #101216; stroke-width: 1"></path>
+            </svg>
+          </sc-if>
+          <sc-for list="{{ chips }}" as="c" hint-placeholder-count="3">
+            <div style="{{ c.style }}"><span style="{{ c.dot }}"></span>{{ c.text }}</div>
+          </sc-for>
+          <sc-if value="{{ selTag.show }}" hint-placeholder-val="{{ true }}">
+            <div style="{{ selTag.style }}">{{ selTag.name }}</div>
+          </sc-if>
+        </div>
+
+        <div style="position: absolute; left: 16px; top: 16px; display: flex; flex-direction: column; align-items: flex-start; gap: 8px">
+          <div style="display: flex; align-items: center; gap: 4px; padding: 4px; border-radius: 10px; background: rgba(23,26,33,0.92); box-shadow: 0 0 0 1px #262b35, 0 10px 30px rgba(0,0,0,0.4)">
+            <div style="display: flex; gap: 2px">
+              <button onClick="{{ setPersp }}" style="{{ perspStyle }}">Persp</button>
+              <button onClick="{{ setOrtho }}" style="{{ orthoStyle }}">Ortho</button>
+            </div>
+            <span style="width: 1px; height: 16px; background: #2c3240; margin: 0 4px"></span>
+            <button aria-haspopup="menu" style="height: 26px; display: flex; align-items: center; gap: 4px; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: #d9dde5">Lit
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
+            </button>
+            <span style="width: 1px; height: 16px; background: #2c3240; margin: 0 4px"></span>
+            <span style="padding: 0 8px; color: #b4bac6">{{ viewName }}</span>
+            <sc-if value="{{ canReset }}" hint-placeholder-val="{{ false }}">
+              <button onClick="{{ resetView }}" aria-label="Reset view" title="Reset view" style="width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: none; color: #b4bac6">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11l8-7 8 7"></path><path d="M6 9.5V20h12V9.5"></path></svg>
+              </button>
+            </sc-if>
+          </div>
+          <div style="display: flex; align-items: center; gap: 12px; height: 28px; padding: 0 12px; border-radius: 8px; background: rgba(23,26,33,0.85); box-shadow: 0 0 0 1px #262b35; color: #b4bac6; font-size: 11.5px">
+            <span style="display: flex; align-items: center; gap: 6px"><span class="kc">Drag</span>orbit</span>
+            <span style="display: flex; align-items: center; gap: 6px"><span class="kc">Middle</span>pan</span>
+            <span style="display: flex; align-items: center; gap: 6px"><span class="kc">Right</span><span class="kc">WASD</span>fly</span>
+            <span style="display: flex; align-items: center; gap: 6px"><span class="kc">F</span>focus</span>
+          </div>
+        </div>
+
+        <div style="position: absolute; right: 16px; top: 16px; display: flex; flex-direction: column; align-items: center; gap: 8px">
+          <div role="group" aria-label="View orientation" style="position: relative; width: 88px; height: 88px; border-radius: 44px; background: rgba(23,26,33,0.85); box-shadow: 0 0 0 1px #262b35, 0 10px 30px rgba(0,0,0,0.4)">
+            <svg width="88" height="88" viewBox="0 0 88 88" style="position: absolute; left: 0; top: 0" aria-hidden="true">
+              <path d="{{ cube.lineX }}" style="stroke: #ff6b6b; stroke-width: 2; stroke-linecap: round"></path>
+              <path d="{{ cube.lineY }}" style="stroke: #4fd38a; stroke-width: 2; stroke-linecap: round"></path>
+              <path d="{{ cube.lineZ }}" style="stroke: #3b7bff; stroke-width: 2; stroke-linecap: round"></path>
+            </svg>
+            <sc-for list="{{ cube.ends }}" as="e" hint-placeholder-count="5">
+              <button onClick="{{ e.pick }}" aria-label="{{ e.label }}" title="{{ e.label }}" style="{{ e.style }}">{{ e.letter }}</button>
+            </sc-for>
+          </div>
+          <div style="display: flex; gap: 2px; padding: 3px; border-radius: 9px; background: rgba(23,26,33,0.85); box-shadow: 0 0 0 1px #262b35">
+            <button onClick="{{ orbitLeft }}" aria-label="Orbit 15° left" title="Orbit 15° left" style="width: 28px; height: 24px; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: none; color: #b4bac6">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12a8 8 0 0 0 14.5 4.6"></path><path d="M4 12a8 8 0 0 1 14.5-4.6"></path><path d="M4 7v5h5"></path></svg>
+            </button>
+            <button onClick="{{ orbitRight }}" aria-label="Orbit 15° right" title="Orbit 15° right" style="width: 28px; height: 24px; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: none; color: #b4bac6">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 0 1-14.5 4.6"></path><path d="M20 12a8 8 0 0 0-14.5-4.6"></path><path d="M20 7v5h-5"></path></svg>
+            </button>
+          </div>
+        </div>
+
+        <sc-if value="{{ showLegend }}" hint-placeholder-val="{{ true }}">
+          <div style="position: absolute; left: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; padding: 8px 12px; border-radius: 8px; background: rgba(23,26,33,0.85); box-shadow: 0 0 0 1px #262b35; font-size: 11.5px; color: #b4bac6">
+            <span style="display: flex; align-items: center; gap: 8px"><span style="width: 10px; height: 10px; border-radius: 2px; outline: 1.5px dashed #4fd38a"></span>added</span>
+            <span style="display: flex; align-items: center; gap: 8px"><span style="width: 10px; height: 10px; border-radius: 2px; outline: 1.5px dashed #e9a84a"></span>changed</span>
+            <span style="display: flex; align-items: center; gap: 8px"><span style="width: 10px; height: 10px; border-radius: 2px; outline: 1.5px dashed rgba(233,168,74,0.5)"></span>was here</span>
+          </div>
+        </sc-if>
+
+        <div style="position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: 10px; background: rgba(23,26,33,0.92); box-shadow: 0 0 0 1px #262b35, 0 10px 30px rgba(0,0,0,0.4)">
+          <button onClick="{{ setLocal }}" style="{{ localStyle }}">Local</button>
+          <button onClick="{{ setGlobal }}" style="{{ globalStyle }}">Global</button>
+          <span style="width: 1px; height: 16px; background: #2c3240; margin: 0 4px"></span>
+          <button onClick="{{ toggleSnap }}" aria-pressed="{{ snapPressed }}" style="{{ snapStyle }}">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 4v7a6 6 0 0 0 12 0V4"></path><path d="M6 8h4M14 8h4"></path></svg>
+            Snap 0.5 m · 15°
+          </button>
+          <span style="width: 1px; height: 16px; background: #2c3240; margin: 0 4px"></span>
+          <button onClick="{{ focus }}" title="Frame the selection · F" style="height: 26px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border: 0; border-radius: 6px; background: none; color: #d9dde5">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 9V5h4M20 9V5h-4M4 15v4h4M20 15v4h-4"></path><circle cx="12" cy="12" r="2.5"></circle></svg>
+            Focus<span class="kc">F</span>
+          </button>
+        </div>
+      </div>
+
+      <div style="height: 88px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-top: 1px solid #1f232a; background: #12141a">
+        <div style="width: 64px; display: flex; flex-direction: column; gap: 4px">
+          <span style="color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">MODELS</span>
+          <span style="color: #8b92a0; font-size: 11px">drag in</span>
+        </div>
+        <sc-for list="{{ assets }}" as="a" hint-placeholder-count="6">
+          <button draggable="true" title="Drag into the viewport to place {{ a.name }}" style="width: 88px; height: 68px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 4px; padding: 0 0 8px; border: 0; border-radius: 8px; background: #171a21; box-shadow: 0 0 0 1px #262b35; color: #b4bac6; font-size: 11px">
+            <span style="{{ a.thumb }}"></span>
+            <span>{{ a.name }}</span>
+          </button>
+        </sc-for>
+        <button onClick="{{ askForModel }}" style="height: 68px; display: flex; align-items: center; gap: 8px; padding: 0 16px; border: 1px dashed #2c3240; border-radius: 8px; background: none; color: #b4bac6">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9b7bff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"></path><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"></path></svg>
+          Or ask for one
+        </button>
+      </div>
+
+      <div style="height: 32px; display: flex; align-items: center; gap: 16px; padding: 0 16px; border-top: 1px solid #1f232a; color: #8b92a0; font-size: 11.5px">
+        <span>{{ viewName }} · yaw {{ yawText }} · pitch {{ pitchText }}</span>
+        <span>{{ toolLabel }} · {{ spaceLabel }}</span>
+        <div style="flex: 1"></div>
+        <span style="display: flex; align-items: center; gap: 6px"><span style="width: 6px; height: 6px; border-radius: 3px; background: #4fd38a"></span>No problems</span>
+        <span>Output</span><span>Debugger</span>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; border-left: 1px solid #1f232a; min-height: 0; background: #12141a">
+      <div style="height: 44px; display: flex; align-items: center; gap: 4px; padding: 0 12px; border-bottom: 1px solid #1f232a">
+        <button onClick="{{ showAgentTab }}" style="{{ agentTabStyle }}">Agent</button>
+        <button onClick="{{ showInspectorTab }}" style="{{ inspectorTabStyle }}">Inspector</button>
+        <div style="flex: 1"></div>
+        <span style="display: flex; align-items: center; gap: 6px; color: #8b92a0; font-size: 11.5px"><span style="width: 6px; height: 6px; border-radius: 3px; background: #4fd38a"></span>Connected · MCP</span>
+      </div>
+
+      <sc-if value="{{ agentTab }}" hint-placeholder-val="{{ true }}">
+        <div style="flex: 1; display: flex; flex-direction: column; min-height: 0">
+          <div style="flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 12px; overflow: hidden">
+            <div style="align-self: flex-end; max-width: 300px; padding: 8px 12px; border-radius: 12px 12px 4px 12px; background: #1c2130; color: #e6e9ef; line-height: 1.5">Lay out the courtyard: low stone walls with the gate on the south side, benches facing the fountain, lanterns in the corners.</div>
+            <div style="display: flex; flex-direction: column; gap: 8px">
+              <sc-for list="{{ steps }}" as="st" hint-placeholder-count="6">
+                <div style="display: flex; align-items: flex-start; gap: 8px; color: #b4bac6; line-height: 1.45">
+                  <span style="width: 14px; height: 14px; margin-top: 2px; flex: none; border-radius: 7px; background: #1f3a2b; display: flex; align-items: center; justify-content: center"><svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#4fd38a" stroke-width="4" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg></span>
+                  <span><span style="color: #d9dde5">{{ st.what }}</span> <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8b92a0">{{ st.tool }}</span></span>
+                </div>
+              </sc-for>
+            </div>
+            <div style="color: #d9dde5; line-height: 1.55">Done. The walls meet the gate pillars flush, so the arch is untouched, and the benches sit 4.6 m from the centre to clear the 4 m basin.</div>
+
+            <sc-if value="{{ pending }}" hint-placeholder-val="{{ true }}">
+              <div style="border-radius: 12px; background: #171a21; box-shadow: 0 0 0 1px #262b35; overflow: hidden">
+                <div style="height: 36px; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; border-bottom: 1px solid #1f232a">
+                  <span style="color: #ffffff; font-weight: 500">16 changes · 2 files</span>
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px"><span style="color: #4fd38a">+84</span> <span style="color: #ff6b6b">−8</span></span>
+                </div>
+                <div style="padding: 8px 12px; display: flex; flex-direction: column; gap: 4px">
+                  <sc-for list="{{ changeRows }}" as="r" hint-placeholder-count="4">
+                    <button onClick="{{ r.pick }}" style="min-height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 4px; border: 0; border-radius: 6px; background: none; color: #b4bac6; text-align: left">
+                      <span style="{{ r.markStyle }}">{{ r.sign }}</span>
+                      <span style="flex: 1">{{ r.text }}</span>
+                    </button>
+                  </sc-for>
+                </div>
+                <div style="display: flex; gap: 8px; padding: 12px; border-top: 1px solid #1f232a">
+                  <button onClick="{{ keep }}" title="Keep · ⌘↵" style="flex: 1; height: 30px; border-radius: 8px; border: 0; background: #3b7bff; color: #ffffff; font-weight: 500">Keep</button>
+                  <button style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #22262f; color: #d9dde5">Review</button>
+                  <button onClick="{{ revert }}" title="Revert · ⌘⌫" style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #22262f; color: #d9dde5">Revert</button>
+                </div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ kept }}" hint-placeholder-val="{{ false }}">
+              <div style="display: flex; align-items: center; gap: 8px; color: #8b92a0; font-size: 12px">Kept · one undo step (⌘Z)<button onClick="{{ reset }}" style="height: 24px; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: #8fb3ff">Show review again</button></div>
+            </sc-if>
+            <sc-if value="{{ reverted }}" hint-placeholder-val="{{ false }}">
+              <div style="display: flex; align-items: center; gap: 8px; color: #8b92a0; font-size: 12px">Reverted · the courtyard is as it was<button onClick="{{ reset }}" style="height: 24px; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: #8fb3ff">Show review again</button></div>
+            </sc-if>
+          </div>
+
+          <div style="padding: 12px; border-top: 1px solid #1f232a">
+            <div style="border-radius: 12px; background: #171a21; box-shadow: 0 0 0 1px #262b35; padding: 8px 12px; display: flex; flex-direction: column; gap: 8px">
+              <div style="display: flex; gap: 4px; flex-wrap: wrap">
+                <span style="height: 22px; display: flex; align-items: center; gap: 6px; padding: 0 8px; border-radius: 6px; background: #20252f; color: #b4bac6; font-size: 11.5px"><span style="width: 6px; height: 6px; border-radius: 2px; background: #3b7bff"></span>{{ selName }}</span>
+                <span style="height: 22px; display: flex; align-items: center; padding: 0 8px; border-radius: 6px; background: #20252f; color: #b4bac6; font-size: 11.5px">courtyard</span>
+                <span style="height: 22px; display: flex; align-items: center; padding: 0 8px; border-radius: 6px; background: #20252f; color: #b4bac6; font-size: 11.5px">Viewport image</span>
+              </div>
+              <label for="prompt3d" style="position: absolute; left: -9999px">Ask the agent</label>
+              <textarea id="prompt3d" rows="2" placeholder="{{ promptHint }}" style="resize: none; border: 0; outline: none; background: none; color: #e6e9ef; line-height: 1.5"></textarea>
+              <div style="display: flex; align-items: center; gap: 8px">
+                <span style="color: #8b92a0; font-size: 11.5px"><span class="kc">⌘L</span> asks about the selection</span>
+                <div style="flex: 1"></div>
+                <button aria-label="Send" style="width: 30px; height: 30px; border-radius: 8px; border: 0; background: #ffffff; color: #101216; display: flex; align-items: center; justify-content: center">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"></path></svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ inspectorTab }}" hint-placeholder-val="{{ false }}">
+        <div style="flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 16px; overflow: hidden">
+          <div style="display: flex; align-items: center; gap: 12px">
+            <span style="width: 32px; height: 32px; border-radius: 8px; background: linear-gradient(160deg,#a3aab5,#5e6675)"></span>
+            <div><div style="color: #ffffff; font-weight: 600; font-size: 14px">{{ selName }}</div><div style="color: #8b92a0; font-size: 11.5px">{{ selKind }}</div></div>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <div style="color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">TRANSFORM</div>
+            <sc-for list="{{ xform }}" as="row" hint-placeholder-count="3">
+              <div style="display: grid; grid-template-columns: 64px repeat(3, minmax(0, 1fr)); gap: 4px; align-items: center">
+                <span style="color: #b4bac6">{{ row.label }}</span>
+                <label style="height: 28px; display: flex; align-items: center; gap: 6px; padding: 0 8px; border-radius: 6px; background: #171a21; box-shadow: 0 0 0 1px #262b35"><span style="color: #ff6b6b; font-size: 11px">X</span><input class="num" aria-label="{{ row.label }} X" value="{{ row.x }}"></label>
+                <label style="height: 28px; display: flex; align-items: center; gap: 6px; padding: 0 8px; border-radius: 6px; background: #171a21; box-shadow: 0 0 0 1px #262b35"><span style="color: #4fd38a; font-size: 11px">Y</span><input class="num" aria-label="{{ row.label }} Y" value="{{ row.y }}"></label>
+                <label style="height: 28px; display: flex; align-items: center; gap: 6px; padding: 0 8px; border-radius: 6px; background: #171a21; box-shadow: 0 0 0 1px #262b35"><span style="color: #3b7bff; font-size: 11px">Z</span><input class="num" aria-label="{{ row.label }} Z" value="{{ row.z }}"></label>
+              </div>
+            </sc-for>
+            <div style="color: #8b92a0; font-size: 11.5px">Drag a label to scrub · Shift for 0.01 steps</div>
+          </div>
+          <sc-if value="{{ isGroup }}" hint-placeholder-val="{{ false }}">
+            <div style="display: flex; flex-direction: column; gap: 8px">
+              <div style="color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">CHILDREN</div>
+              <div style="padding: 8px 12px; border-radius: 12px; background: #171a21; box-shadow: 0 0 0 1px #262b35; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; line-height: 1.75; color: #b4bac6">{{ selChildren }}</div>
+            </div>
+          </sc-if>
+          <sc-if value="{{ isFountain }}" hint-placeholder-val="{{ true }}">
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <div style="color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">MODEL</div>
+            <div style="display: flex; align-items: center; gap: 12px; padding: 8px; border-radius: 12px; background: #171a21; box-shadow: 0 0 0 1px #262b35">
+              <span style="width: 44px; height: 44px; border-radius: 6px; background: linear-gradient(180deg,#9aa3b2,#5e6675)"></span>
+              <span style="display: flex; flex-direction: column; gap: 2px"><span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #d9dde5">models/fountain.glb</span><span style="color: #8b92a0; font-size: 11.5px">1,284 tris · 2 materials</span></span>
+            </div>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <div style="color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">MATERIAL · stone.material.yaml</div>
+            <label style="display: grid; grid-template-columns: 80px minmax(0, 1fr) 36px; gap: 8px; align-items: center"><span style="color: #b4bac6">Roughness</span><input type="range" min="0" max="1" step="0.05" value="0.8" style="accent-color: #3b7bff"><span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px">0.80</span></label>
+            <label style="display: grid; grid-template-columns: 80px minmax(0, 1fr) 36px; gap: 8px; align-items: center"><span style="color: #b4bac6">Metallic</span><input type="range" min="0" max="1" step="0.05" value="0" style="accent-color: #3b7bff"><span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px">0.00</span></label>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <div style="color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">COLLIDER</div>
+            <div style="height: 28px; display: flex; align-items: center; justify-content: space-between; padding: 0 8px; border-radius: 6px; background: #171a21; box-shadow: 0 0 0 1px #262b35"><span>Convex hull</span><span style="color: #8b92a0; font-size: 11.5px">static</span></div>
+          </div>
+          </sc-if>
+          <button onClick="{{ askToAdd }}" style="height: 32px; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 8px; border: 1px dashed #2c3240; background: none; color: #b4bac6">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#9b7bff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"></path></svg>
+            Ask to add a component…
+          </button>
+          <div style="color: #8b92a0; line-height: 1.6">Everything else is in courtyard.scene.yaml. Ask the agent, or open the file.</div>
+        </div>
+      </sc-if>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { tool: 'move', node: 'fountain', mode: '3d', tab: 'agent', review: 'pending', ortho: false, yaw: 35, pitch: 28, local: true, snap: true, prompt: '' };
+  }
+  renderVals() {
+    const s = this.state;
+    const W = 828, H = 736, CX = 414, CY = 388, DIST = 40, FOCAL = 1150;
+    const rad = Math.PI / 180;
+    const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+    const addv = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+    const mul = (a, k) => [a[0] * k, a[1] * k, a[2] * k];
+    const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    const norm = (a) => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
+    const yaw = s.yaw * rad, pitch = s.pitch * rad;
+    const tgt = [0, 0.8, 0];
+    const cam = [tgt[0] + DIST * Math.cos(pitch) * Math.sin(yaw), tgt[1] + DIST * Math.sin(pitch), tgt[2] + DIST * Math.cos(pitch) * Math.cos(yaw)];
+    const fwd = norm(sub(tgt, cam));
+    const right = norm(cross(fwd, [0, 1, 0]));
+    const up = cross(right, fwd);
+    const proj = (p) => {
+      const d = sub(p, cam);
+      const xc = dot(d, right), yc = dot(d, up), zc = dot(d, fwd);
+      const k = s.ortho ? FOCAL / DIST : FOCAL / Math.max(zc, 0.5);
+      return [CX + xc * k, CY - yc * k, zc];
+    };
+    const f1 = (n) => n.toFixed(1);
+    const poly = (pts) => 'M' + pts.map((p) => f1(p[0]) + ' ' + f1(p[1])).join(' L') + ' Z';
+    const seg = (a, b) => 'M' + f1(a[0]) + ' ' + f1(a[1]) + ' L' + f1(b[0]) + ' ' + f1(b[1]);
+    const L = norm([0.45, 0.85, 0.3]);
+    const shade = (hex, k) => {
+      const n = parseInt(hex.slice(1), 16);
+      const c = (v) => Math.min(255, Math.round(v * k));
+      return 'rgb(' + c((n >> 16) & 255) + ',' + c((n >> 8) & 255) + ',' + c(n & 255) + ')';
+    };
+
+    // Ground, paving and grid.
+    const g0 = 13, pv = 7.7;
+    const ground = {
+      d: poly([[-g0, 0, -g0], [g0, 0, -g0], [g0, 0, g0], [-g0, 0, g0]].map(proj)),
+      paving: poly([[-pv, 0, -pv], [pv, 0, -pv], [pv, 0, pv], [-pv, 0, pv]].map(proj)),
+      grid: '', axisX: seg(proj([-g0, 0, 0]), proj([g0, 0, 0])), axisZ: seg(proj([0, 0, -g0]), proj([0, 0, g0])),
+    };
+    const lines = [];
+    for (let v = -12; v <= 12; v += 2) {
+      if (v === 0) continue;
+      lines.push(seg(proj([v, 0, -g0]), proj([v, 0, g0])));
+      lines.push(seg(proj([-g0, 0, v]), proj([g0, 0, v])));
+    }
+    ground.grid = lines.join(' ');
+
+    // Scene boxes: x, z centre; y base; w, h, d size.
+    const r = s.review;
+    const boxes = [];
+    const box = (g, x, z, y, w, h, d, c, st, plane) => boxes.push({ g, x, z, y, w, h, d, c, st, plane });
+    box('fountain', 0, 0, 0, 4, 0.6, 4, '#8a919c', 'base');
+    box('fountain', 0, 0, 0.6, 3.2, 0.04, 3.2, '#3f7f99', 'base');
+    box('fountain', 0, 0, 0.64, 0.7, 1.6, 0.7, '#9aa1ab', 'base');
+    box('fountain', 0, 0, 2.24, 1.8, 0.22, 1.8, '#8a919c', 'base');
+    box('fountain', 0, 0, 2.46, 0.3, 0.4, 0.3, '#9aa1ab', 'base');
+    const gp = { a: 2, v: 8 };
+    box('gate', -1.9, 8, 0, 0.8, 2.6, 0.8, '#7d8590', 'base', gp);
+    box('gate', 1.9, 8, 0, 0.8, 2.6, 0.8, '#7d8590', 'base', gp);
+    box('gate', 0, 8, 2.6, 4.6, 0.4, 0.8, '#7d8590', 'base', gp);
+    if (r !== 'reverted') {
+      const ws = r === 'pending' ? 'added' : 'base';
+      box('walls', 0, -8, 0, 16.6, 1.2, 0.6, '#6f7682', ws, { a: 2, v: -8 });
+      box('walls', -8, 0, 0, 0.6, 1.2, 15.4, '#6f7682', ws, { a: 0, v: -8 });
+      box('walls', 8, 0, 0, 0.6, 1.2, 15.4, '#6f7682', ws, { a: 0, v: 8 });
+      box('walls', -5.3, 8, 0, 6, 1.2, 0.6, '#6f7682', ws, gp);
+      box('walls', 5.3, 8, 0, 6, 1.2, 0.6, '#6f7682', ws, gp);
+      [[-2.2, -4.6, 2, 0.6], [2.2, -4.6, 2, 0.6], [-4.6, -2.2, 0.6, 2], [-4.6, 2.2, 0.6, 2], [4.6, -2.2, 0.6, 2], [4.6, 2.2, 0.6, 2]].forEach((b) => box('benches', b[0], b[1], 0, b[2], 0.45, b[3], '#8a6f52', ws));
+    }
+    const lantern = (x, z, st) => { box('lanterns', x, z, 0, 0.25, 2.2, 0.25, '#4a505b', st); box('lanterns', x, z, 2.2, 0.5, 0.5, 0.5, '#e9c46a', st); };
+    const oldL = [[-3.4, -3.4], [3.4, -3.4], [-3.4, 3.4], [3.4, 3.4]], newL = [[-7.1, -7.1], [7.1, -7.1], [-7.1, 7.1], [7.1, 7.1]];
+    if (r === 'pending') { newL.forEach((p) => lantern(p[0], p[1], 'changed')); oldL.forEach((p) => lantern(p[0], p[1], 'ghost')); }
+    else if (r === 'kept') newL.forEach((p) => lantern(p[0], p[1], 'base'));
+    else oldL.forEach((p) => lantern(p[0], p[1], 'base'));
+
+    const order = boxes.map((b) => {
+      const c = [b.x, b.y + b.h / 2, b.z];
+      let layer = 1;
+      if (b.plane) layer = (cam[b.plane.a] - b.plane.v) * Math.sign(b.plane.v) > 0 ? 2 : 0;
+      if (b.st === 'ghost') layer = 0.5;
+      return { b, layer, depth: dot(sub(c, cam), fwd) };
+    }).sort((p, q) => (p.layer - q.layer) || (q.depth - p.depth));
+
+    const faces = [];
+    order.forEach(({ b }) => {
+      const x0 = b.x - b.w / 2, x1 = b.x + b.w / 2, y0 = b.y, y1 = b.y + b.h, z0 = b.z - b.d / 2, z1 = b.z + b.d / 2;
+      const quads = [
+        { n: [0, 1, 0], v: [[x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1]] },
+        { n: [1, 0, 0], v: [[x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1]] },
+        { n: [-1, 0, 0], v: [[x0, y0, z0], [x0, y1, z0], [x0, y1, z1], [x0, y0, z1]] },
+        { n: [0, 0, 1], v: [[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]] },
+        { n: [0, 0, -1], v: [[x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0]] },
+      ];
+      const selected = s.node === b.g;
+      quads.forEach((q) => {
+        const fc = mul(q.v.reduce((a, p) => addv(a, p), [0, 0, 0]), 0.25);
+        const visible = s.ortho ? dot(q.n, fwd) < -1e-6 : dot(q.n, sub(cam, fc)) > 1e-6;
+        if (!visible) return;
+        const lit = 0.55 + 0.45 * Math.max(0, dot(q.n, L));
+        let base = 'fill: ' + shade(b.c, lit) + '; stroke: rgba(0,0,0,0.28); stroke-width: 0.75; stroke-linejoin: round';
+        let over = 'display: none';
+        if (b.st === 'ghost') { base = 'fill: none; stroke: rgba(233,168,74,0.5); stroke-width: 1; stroke-dasharray: 3 3'; }
+        else if (selected) over = 'fill: rgba(59,123,255,0.10); stroke: #3b7bff; stroke-width: 1.5; stroke-linejoin: round';
+        else if (b.st === 'added') over = 'fill: rgba(79,211,138,0.16); stroke: #4fd38a; stroke-width: 1.25; stroke-dasharray: 4 3; stroke-linejoin: round';
+        else if (b.st === 'changed') over = 'fill: rgba(233,168,74,0.16); stroke: #e9a84a; stroke-width: 1.25; stroke-dasharray: 4 3; stroke-linejoin: round';
+        faces.push({ d: poly(q.v.map(proj)), base, over });
+      });
+    });
+
+    // Anchors for the selection gizmo and tag.
+    const anchors = {
+      fountain: { o: [0, 1.4, 0], top: [0, 2.9, 0], name: 'Fountain', kind: 'Model · fountain.glb' },
+      walls: { o: [0, 0.6, 0], top: [-8, 1.3, 0], name: 'Walls', kind: 'Group · 5 boxes, box colliders' },
+      benches: { o: [0, 0.3, 0], top: [0, 0.6, -4.6], name: 'Benches', kind: 'Group · 6 × bench.prefab.yaml' },
+      lanterns: { o: [0, 1.3, 0], top: r === 'reverted' ? [3.4, 2.8, -3.4] : [7.1, 2.8, -7.1], name: 'Lanterns', kind: 'Group · 4 × lantern.prefab.yaml' },
+      gate: { o: [0, 1.4, 8], top: [0, 3.1, 8], name: 'Gate', kind: 'Group · 3 boxes' },
+    };
+    const an = anchors[s.node];
+    const hasSel = !!an && !(r === 'reverted' && (s.node === 'walls' || s.node === 'benches'));
+    const gizmo = { show: false, ringX: '', ringY: '', ringZ: '', lineX: '', lineY: '', lineZ: '', headX: '', headY: '', headZ: '', plane: '', center: '' };
+    if (hasSel && (s.tool === 'move' || s.tool === 'rotate' || s.tool === 'scale')) {
+      gizmo.show = true;
+      const po = proj(an.o);
+      const pr = proj(addv(an.o, right));
+      const pxm = Math.hypot(pr[0] - po[0], pr[1] - po[1]) || 1;
+      const axes = { X: [1, 0, 0], Y: [0, 1, 0], Z: [0, 0, 1] };
+      const dirs = {};
+      Object.keys(axes).forEach((k) => {
+        const p2 = proj(addv(an.o, mul(axes[k], 0.5)));
+        const v = [p2[0] - po[0], p2[1] - po[1]];
+        const l = Math.hypot(v[0], v[1]);
+        dirs[k] = l < 2 ? null : [v[0] / l, v[1] / l];
+      });
+      const at = (d, k) => [po[0] + d[0] * k, po[1] + d[1] * k];
+      if (s.tool === 'rotate') {
+        const rw = 64 / pxm;
+        const ring = (a, b) => {
+          const pts = [];
+          for (let i = 0; i <= 48; i++) { const t = (i / 48) * Math.PI * 2; pts.push(proj(addv(an.o, addv(mul(a, Math.cos(t) * rw), mul(b, Math.sin(t) * rw))))); }
+          return 'M' + pts.map((p) => f1(p[0]) + ' ' + f1(p[1])).join(' L');
+        };
+        gizmo.ringX = ring([0, 1, 0], [0, 0, 1]);
+        gizmo.ringY = ring([1, 0, 0], [0, 0, 1]);
+        gizmo.ringZ = ring([1, 0, 0], [0, 1, 0]);
+      } else {
+        Object.keys(dirs).forEach((k) => {
+          const d = dirs[k];
+          if (!d) return;
+          const len = s.tool === 'move' ? 78 : 70;
+          const e = at(d, len);
+          gizmo['line' + k] = seg([po[0] + d[0] * 12, po[1] + d[1] * 12], e);
+          const pp = [-d[1], d[0]];
+          if (s.tool === 'move') {
+            const tip = at(d, len + 15);
+            gizmo['head' + k] = 'M' + f1(e[0] + pp[0] * 5.5) + ' ' + f1(e[1] + pp[1] * 5.5) + ' L' + f1(e[0] - pp[0] * 5.5) + ' ' + f1(e[1] - pp[1] * 5.5) + ' L' + f1(tip[0]) + ' ' + f1(tip[1]) + ' Z';
+          } else {
+            gizmo['head' + k] = 'M' + f1(e[0] - 5) + ' ' + f1(e[1] - 5) + ' h10 v10 h-10 Z';
+          }
+        });
+        if (s.tool === 'move' && dirs.X && dirs.Z) {
+          const a = at(dirs.X, 22), b = [po[0] + (dirs.X[0] + dirs.Z[0]) * 22, po[1] + (dirs.X[1] + dirs.Z[1]) * 22], c = at(dirs.Z, 22);
+          gizmo.plane = 'M' + f1(po[0]) + ' ' + f1(po[1]) + ' L' + f1(a[0]) + ' ' + f1(a[1]) + ' L' + f1(b[0]) + ' ' + f1(b[1]) + ' L' + f1(c[0]) + ' ' + f1(c[1]) + ' Z';
+        }
+      }
+      gizmo.center = 'M' + f1(po[0] - 4) + ' ' + f1(po[1]) + ' a4 4 0 1 0 8 0 a4 4 0 1 0 -8 0';
+    }
+    const tp = hasSel ? proj(an.top) : [0, 0];
+    const selTag = {
+      show: hasSel, name: hasSel ? an.name : '',
+      style: 'position: absolute; left: ' + f1(tp[0]) + 'px; top: ' + f1(tp[1] - 10) + 'px; transform: translate(-50%, -100%); height: 18px; display: flex; align-items: center; padding: 0 6px; border-radius: 5px; background: #3b7bff; color: #ffffff; font-size: 10.5px; font-weight: 500; white-space: nowrap',
+    };
+
+    // Change chips over the viewport while the review is open.
+    const chipAt = (p, color, text, border) => {
+      const q = proj(p);
+      return {
+        text,
+        style: 'position: absolute; left: ' + f1(q[0]) + 'px; top: ' + f1(q[1]) + 'px; transform: translate(-50%, -100%); height: 20px; display: flex; align-items: center; gap: 6px; padding: 0 8px; border-radius: 10px; background: rgba(16,18,22,0.92); box-shadow: 0 0 0 1px ' + border + '; color: ' + color + '; font-size: 11px; white-space: nowrap; pointer-events: none',
+        dot: 'width: 6px; height: 6px; border-radius: 3px; background: ' + color,
+      };
+    };
+    const chips = r === 'pending' ? [
+      chipAt([-8, 2.2, -3], '#4fd38a', '5 walls · box colliders', 'rgba(79,211,138,0.45)'),
+      chipAt([4.6, 1.4, 2.2], '#4fd38a', '6 benches', 'rgba(79,211,138,0.45)'),
+      chipAt([7.1, 3.6, -7.1], '#e9a84a', '4 lanterns moved to the corners', 'rgba(233,168,74,0.45)'),
+    ].filter((c) => s.node !== 'walls' || c.text.indexOf('walls') < 0) : [];
+
+    // Orientation gizmo: each axis end is a button that snaps the view.
+    const oc = 44, orad = 28;
+    const ends = [
+      { k: 'X', a: [1, 0, 0], pos: true, color: '#ff6b6b', label: 'View from +X (right)', yaw: 90, pitch: 0 },
+      { k: 'X', a: [-1, 0, 0], pos: false, color: '#ff6b6b', label: 'View from −X (left)', yaw: -90, pitch: 0 },
+      { k: 'Y', a: [0, 1, 0], pos: true, color: '#4fd38a', label: 'View from +Y (top)', yaw: 0, pitch: 89 },
+      { k: 'Z', a: [0, 0, 1], pos: true, color: '#3b7bff', label: 'View from +Z (front)', yaw: 0, pitch: 0 },
+      { k: 'Z', a: [0, 0, -1], pos: false, color: '#3b7bff', label: 'View from −Z (back)', yaw: 180, pitch: 0 },
+    ];
+    const sp = (a) => [oc + dot(a, right) * orad, oc - dot(a, up) * orad];
+    const cube = {
+      lineX: seg([oc, oc], sp([1, 0, 0])), lineY: seg([oc, oc], sp([0, 1, 0])), lineZ: seg([oc, oc], sp([0, 0, 1])),
+      ends: ends.map((e) => {
+        const p = sp(e.a);
+        const z = Math.round(10 - dot(e.a, fwd) * 5);
+        const size = e.pos ? 18 : 12;
+        return {
+          ...e, letter: e.pos ? e.k : '',
+          style: 'position: absolute; left: ' + f1(p[0] - size / 2) + 'px; top: ' + f1(p[1] - size / 2) + 'px; z-index: ' + z + '; width: ' + size + 'px; height: ' + size + 'px; padding: 0; border-radius: ' + size / 2 + 'px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 600; color: #101216; ' + (e.pos ? 'border: 0; background: ' + e.color : 'border: 1.5px solid ' + e.color + '; background: #171a21'),
+          pick: () => this.setState({ yaw: e.yaw, pitch: e.pitch }),
+        };
+      }),
+    };
+
+    const views = { '90,0': 'Right', '-90,0': 'Left', '0,89': 'Top', '0,0': 'Front', '180,0': 'Back' };
+    const named = views[s.yaw + ',' + s.pitch];
+    const viewName = named ? (s.ortho ? named + ' · ortho' : named) : (s.ortho ? 'User · ortho' : 'Perspective');
+
+    const defs = [
+      { id: 'select', label: 'Select', key: 'V' },
+      { id: 'move', label: 'Move', key: 'W' },
+      { id: 'rotate', label: 'Rotate', key: 'E' },
+      { id: 'scale', label: 'Scale', key: 'R' },
+      { id: 'pan', label: 'Pan', key: 'Space' },
+    ];
+    const tools = defs.map((t) => ({
+      ...t,
+      isSelect: t.id === 'select', isMove: t.id === 'move', isRotate: t.id === 'rotate', isScale: t.id === 'scale', isPan: t.id === 'pan',
+      style: 'width: 32px; height: 28px; border-radius: 6px; border: 0; display: flex; align-items: center; justify-content: center; ' + (s.tool === t.id ? 'background: #2a2f3a; color: #ffffff' : 'background: none; color: #8b92a0'),
+      pick: () => this.setState({ tool: t.id }),
+    }));
+
+    const pending = r === 'pending';
+    const nodes = [
+      { id: 'sun', name: 'Sun', kind: 'light', depth: 0, color: '#f2c14e' },
+      { id: 'env', name: 'Environment', kind: 'sky', depth: 0, color: '#8b92a0' },
+      { id: 'ground', name: 'Ground', kind: 'mesh', depth: 0, color: '#6b7280' },
+      { id: 'fountain', name: 'Fountain', kind: 'model', depth: 0, color: '#9aa1ab' },
+      { id: 'gate', name: 'Gate', kind: 'group', depth: 0, color: '#7d8590' },
+      { id: 'walls', name: 'Walls', kind: 'group', depth: 0, color: '#6f7682', tag: 'NEW', gone: r === 'reverted' },
+      { id: 'benches', name: 'Benches', kind: 'group', depth: 0, color: '#8a6f52', tag: 'NEW', gone: r === 'reverted' },
+      { id: 'lanterns', name: 'Lanterns', kind: 'group', depth: 0, color: '#e9c46a', tag: 'MOVED' },
+      { id: 'navmesh', name: 'NavMesh', kind: 'navmesh', depth: 0, color: '#4f8cff', tag: 'REBAKED' },
+      { id: 'spawn', name: 'Player spawn', kind: 'marker', depth: 0, color: '#8b92a0' },
+      { id: 'camera', name: 'Camera', kind: 'camera', depth: 0, color: '#8b92a0' },
+    ].filter((n) => !n.gone);
+    const tree = nodes.map((n) => ({
+      ...n,
+      hasTag: !!n.tag && pending,
+      tagStyle: 'font-size: 10px; font-weight: 600; letter-spacing: 0.04em; color: ' + (n.tag === 'NEW' ? '#4fd38a' : '#e9a84a'),
+      style: 'width: 100%; height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 0; border-radius: 6px; ' + (s.node === n.id ? 'background: #1c2638; color: #ffffff' : 'background: none; color: #b4bac6'),
+      indent: 'width: ' + (n.depth * 14) + 'px; flex: none',
+      dot: 'width: 7px; height: 7px; border-radius: 2px; flex: none; background: ' + n.color,
+      pick: () => this.setState({ node: n.id }),
+    }));
+    const files = [
+      { name: 'courtyard.scene.yaml', color: '#4f8cff', edited: pending },
+      { name: 'courtyard.navmesh.yaml', color: '#4f8cff', edited: pending },
+      { name: 'stone.material.yaml', color: '#9b7bff', edited: false },
+    ].map((f) => ({ ...f, dot: 'width: 6px; height: 6px; border-radius: 2px; flex: none; background: ' + f.color }));
+
+    const steps = [
+      { what: 'Read courtyard.scene.yaml and the wall, bench and lantern prefabs', tool: 'scene.read' },
+      { what: 'Blocked out 5 walls, 1.2 m high with box colliders, leaving the 3 m gate open', tool: 'blockout' },
+      { what: 'Placed 6 benches facing the fountain', tool: 'place' },
+      { what: 'Moved the 4 lanterns to the inner corners', tool: 'transform' },
+      { what: 'Rebaked the NavMesh; the spawn reaches the fountain through the gate', tool: 'navmesh.bake' },
+      { what: 'Ran game check · no problems', tool: 'check' },
+    ];
+    const mark = (sign) => 'width: 18px; height: 18px; flex: none; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-family: JetBrains Mono, monospace; font-size: 11px; font-weight: 600; ' + (sign === '+' ? 'background: #173326; color: #4fd38a' : 'background: #33291a; color: #e9a84a');
+    const changeRows = [
+      { sign: '+', text: 'wall_n, wall_e, wall_w, wall_s_l, wall_s_r', node: 'walls' },
+      { sign: '+', text: 'bench_01 … bench_06 · face the fountain', node: 'benches' },
+      { sign: '~', text: 'lantern_01 … lantern_04 · to the corners', node: 'lanterns' },
+      { sign: '~', text: 'courtyard.navmesh.yaml · rebaked', node: 'navmesh' },
+    ].map((c) => ({ ...c, markStyle: mark(c.sign), pick: () => this.setState({ node: c.node }) }));
+
+    const sel = nodes.find((n) => n.id === s.node) || nodes[3];
+    const children = {
+      walls: 'wall_n · wall_e · wall_w · wall_s_l · wall_s_r',
+      benches: 'bench_01 … bench_06 · prefabs/bench.prefab.yaml',
+      lanterns: 'lantern_01 … lantern_04 · prefabs/lantern.prefab.yaml',
+      gate: 'pillar_l · pillar_r · lintel',
+    };
+    const xf = {
+      fountain: [['0.00', '0.00', '0.00'], ['0°', '0°', '0°'], ['1.00', '1.00', '1.00']],
+      walls: [['0.00', '0.00', '0.00'], ['0°', '0°', '0°'], ['1.00', '1.00', '1.00']],
+      benches: [['0.00', '0.00', '0.00'], ['0°', '0°', '0°'], ['1.00', '1.00', '1.00']],
+      lanterns: [['0.00', '0.00', '0.00'], ['0°', '0°', '0°'], ['1.00', '1.00', '1.00']],
+      gate: [['0.00', '0.00', '8.00'], ['0°', '0°', '0°'], ['1.00', '1.00', '1.00']],
+    }[s.node] || [['0.00', '0.00', '0.00'], ['0°', '0°', '0°'], ['1.00', '1.00', '1.00']];
+    const xform = ['Position', 'Rotation', 'Scale'].map((label, i) => ({ label, x: xf[i][0], y: xf[i][1], z: xf[i][2] }));
+
+    const thumb = (bg, w, h, rr) => 'width: ' + w + 'px; height: ' + h + 'px; border-radius: ' + rr + '; background: ' + bg;
+    const assets = [
+      { name: 'fountain.glb', thumb: thumb('linear-gradient(180deg,#a3aab5,#5e6675)', 34, 22, '6px 6px 3px 3px') },
+      { name: 'wall_low.glb', thumb: thumb('linear-gradient(180deg,#8a919c,#555c67)', 44, 14, '2px') },
+      { name: 'bench.glb', thumb: thumb('linear-gradient(180deg,#a3896a,#6b5640)', 36, 10, '2px') },
+      { name: 'lantern.glb', thumb: thumb('linear-gradient(180deg,#e9c46a 0 30%,#4a505b 30%)', 10, 30, '2px') },
+      { name: 'hedge.glb', thumb: thumb('linear-gradient(180deg,#5f9a6a,#3b6044)', 40, 18, '8px') },
+      { name: 'gate_arch.glb', thumb: thumb('linear-gradient(180deg,#8a919c,#5e6675)', 30, 30, '15px 15px 2px 2px') },
+    ];
+
+    const segb = (on) => 'height: 26px; padding: 0 10px; border-radius: 6px; border: 0; font-weight: 500; ' + (on ? 'background: #2a2f3a; color: #ffffff' : 'background: none; color: #b4bac6');
+    const modeSeg = (on) => 'height: 28px; padding: 0 12px; border-radius: 6px; border: 0; font-weight: 500; ' + (on ? 'background: #2a2f3a; color: #ffffff' : 'background: none; color: #8b92a0');
+    const tab = (on) => 'height: 30px; padding: 0 12px; border-radius: 8px; border: 0; font-weight: 500; ' + (on ? 'background: #1c2130; color: #ffffff' : 'background: none; color: #8b92a0');
+    const isDefault = s.yaw === 35 && s.pitch === 28;
+    return {
+      tools, tree, files, nodeCount: nodes.length, ground, faces, gizmo, chips, selTag, cube, viewName,
+      canReset: !isDefault, resetView: () => this.setState({ yaw: 35, pitch: 28 }),
+      yawText: ((s.yaw % 360) + 360) % 360 + '°', pitchText: s.pitch + '°',
+      orbitLeft: () => this.setState({ yaw: s.yaw - 15, pitch: s.pitch === 89 ? 60 : s.pitch }),
+      orbitRight: () => this.setState({ yaw: s.yaw + 15, pitch: s.pitch === 89 ? 60 : s.pitch }),
+      perspStyle: segb(!s.ortho), orthoStyle: segb(s.ortho),
+      setPersp: () => this.setState({ ortho: false }), setOrtho: () => this.setState({ ortho: true }),
+      localStyle: segb(s.local), globalStyle: segb(!s.local),
+      setLocal: () => this.setState({ local: true }), setGlobal: () => this.setState({ local: false }),
+      snapPressed: s.snap ? 'true' : 'false',
+      snapStyle: 'height: 26px; display: flex; align-items: center; gap: 6px; padding: 0 10px; border: 0; border-radius: 6px; ' + (s.snap ? 'background: #2a2f3a; color: #ffffff' : 'background: none; color: #b4bac6'),
+      toggleSnap: () => this.setState({ snap: !s.snap }),
+      focus: () => this.setState({ yaw: 35, pitch: 28 }),
+      showLegend: pending,
+      toolLabel: (defs.find((t) => t.id === s.tool) || defs[0]).label,
+      spaceLabel: (s.local ? 'Local' : 'Global') + (s.snap ? ' · snap 0.5 m' : ' · no snap'),
+      mode2DStyle: modeSeg(s.mode === '2d'), mode3DStyle: modeSeg(s.mode === '3d'),
+      setMode2D: () => this.setState({ mode: '2d' }), setMode3D: () => this.setState({ mode: '3d' }),
+      agentTab: s.tab === 'agent', inspectorTab: s.tab === 'inspector',
+      agentTabStyle: tab(s.tab === 'agent'), inspectorTabStyle: tab(s.tab === 'inspector'),
+      showAgentTab: () => this.setState({ tab: 'agent' }), showInspectorTab: () => this.setState({ tab: 'inspector' }),
+      steps, changeRows, pending, kept: r === 'kept', reverted: r === 'reverted', dirty: r !== 'reverted',
+      keep: () => this.setState({ review: 'kept' }), revert: () => this.setState({ review: 'reverted' }), reset: () => this.setState({ review: 'pending' }),
+      selName: sel.name, selKind: (anchors[sel.id] || { kind: sel.kind }).kind, xform, assets,
+      isFountain: sel.id === 'fountain', isGroup: !!children[sel.id], selChildren: children[sel.id] || '',
+      promptHint: s.prompt || 'Describe a change… e.g. add hedges along the inside of the walls',
+      askToAdd: () => this.setState({ tab: 'agent', prompt: 'Add a component to ' + sel.name + '… e.g. a trigger that plays splash.ogg' }),
+      askForModel: () => this.setState({ tab: 'agent', prompt: 'Describe a model… e.g. a low stone planter, 1 × 0.5 m, same stone as the walls' }),
+    };
+  }
+}
+</script>
+</body>
+</html>

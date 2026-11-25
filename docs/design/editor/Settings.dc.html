@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Settings</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#101216}
+a{color:#8fb3ff}a:hover{color:#b9cfff}
+button{font:inherit;cursor:pointer}
+input,textarea,select{font:inherit}
+</style>
+</helmet>
+<div style="height: 900px; display: grid; grid-template-columns: 264px minmax(0, 1fr); font-family: Inter, system-ui, sans-serif; font-size: 12.5px; color: #d9dde5; background: #101216; overflow: hidden">
+
+  <div style="background: #0e1014; border-right: 1px solid #1f232a; padding: 16px 10px; display: flex; flex-direction: column; gap: 2px; overflow: hidden">
+    <div style="display: flex; align-items: center; gap: 8px; padding: 0 10px 14px">
+      <div style="width: 22px; height: 22px; border-radius: 6px; background: #3b7bff"></div>
+      <span style="color: #ffffff; font-weight: 600">Settings</span>
+      <span style="color: #8b92a0">· dungeon-run</span>
+    </div>
+    <div style="padding: 6px 10px 4px; color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">AGENT</div>
+    <sc-for list="{{ agentNav }}" as="n" hint-placeholder-count="7">
+      <button onClick="{{ n.pick }}" style="{{ n.style }}"><span style="flex: 1; text-align: left">{{ n.label }}</span><span style="{{ n.metaStyle }}">{{ n.meta }}</span></button>
+    </sc-for>
+    <div style="padding: 14px 10px 4px; color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">PROJECT · game.yaml</div>
+    <sc-for list="{{ projectNav }}" as="n" hint-placeholder-count="4">
+      <button onClick="{{ n.pick }}" style="{{ n.style }}"><span style="flex: 1; text-align: left">{{ n.label }}</span><span style="{{ n.metaStyle }}">{{ n.meta }}</span></button>
+    </sc-for>
+    <div style="padding: 14px 10px 4px; color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">EDITOR · THIS COMPUTER</div>
+    <sc-for list="{{ editorNav }}" as="n" hint-placeholder-count="3">
+      <button onClick="{{ n.pick }}" style="{{ n.style }}"><span style="flex: 1; text-align: left">{{ n.label }}</span><span style="{{ n.metaStyle }}">{{ n.meta }}</span></button>
+    </sc-for>
+  </div>
+
+  <div style="display: flex; flex-direction: column; min-height: 0">
+    <div style="padding: 14px 28px; border-bottom: 1px solid #1f232a">
+      <div style="height: 40px; display: flex; align-items: center; gap: 10px; padding: 0 14px; border-radius: 10px; background: #171a21; box-shadow: 0 0 0 1px #262b35">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9b7bff" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"></path><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"></path></svg>
+        <span style="flex: 1; color: #8b92a0">Search settings, or tell the agent what you want — “make the game feel harder”, “set up iOS export”</span>
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8b92a0">⌘,</span>
+      </div>
+    </div>
+
+    <div style="flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 300px; min-height: 0">
+      <div style="padding: 22px 28px; display: flex; flex-direction: column; gap: 18px; overflow: hidden">
+        <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 16px">
+          <div>
+            <div style="color: #ffffff; font-size: 18px; font-weight: 600">{{ title }}</div>
+            <div style="color: #8b92a0; margin-top: 4px; max-width: 640px; line-height: 1.55">{{ subtitle }}</div>
+          </div>
+          <span style="{{ scopeStyle }}">{{ scope }}</span>
+        </div>
+
+        <sc-if value="{{ isModels }}" hint-placeholder-val="{{ true }}">
+          <div style="display: flex; flex-direction: column; gap: 16px">
+            <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px">
+              <div style="border-radius: 12px; background: #171a21; box-shadow: 0 0 0 1.5px #3b7bff; padding: 14px; display: flex; flex-direction: column; gap: 6px">
+                <div style="display: flex; align-items: center; gap: 8px"><span style="width: 8px; height: 8px; border-radius: 4px; background: #4fd38a"></span><span style="color: #ffffff; font-weight: 500">Claude Code</span></div>
+                <span style="color: #8b92a0">On this computer · MCP · default</span>
+              </div>
+              <div style="border-radius: 12px; background: #171a21; box-shadow: 0 0 0 1px #242833; padding: 14px; display: flex; flex-direction: column; gap: 6px">
+                <div style="display: flex; align-items: center; gap: 8px"><span style="width: 8px; height: 8px; border-radius: 4px; background: #4fd38a"></span><span style="color: #ffffff; font-weight: 500">Anthropic API</span></div>
+                <span style="color: #8b92a0">Built in · key in keychain</span>
+              </div>
+              <button style="border-radius: 12px; background: none; border: 1px dashed #2c3240; color: #8b92a0; padding: 14px; text-align: left">+ Connect another agent or model</button>
+            </div>
+            <div style="color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">WHO DOES WHAT</div>
+            <div style="border-radius: 12px; background: #13161c; box-shadow: 0 0 0 1px #20242c; overflow: hidden">
+              <sc-for list="{{ routes }}" as="r" hint-placeholder-count="5">
+                <div style="display: grid; grid-template-columns: 220px minmax(0, 1fr) 200px; align-items: center; gap: 12px; padding: 12px 14px; border-bottom: 1px solid #1c2027">
+                  <div><div style="color: #ffffff">{{ r.task }}</div><div style="color: #8b92a0; font-size: 11.5px; margin-top: 2px">{{ r.note }}</div></div>
+                  <div style="height: 32px; display: flex; align-items: center; justify-content: space-between; padding: 0 10px; border-radius: 8px; background: #171a21; box-shadow: 0 0 0 1px #22262d"><span>{{ r.model }}</span><span style="color: #8b92a0">▾</span></div>
+                  <span style="color: #8b92a0; font-size: 11.5px">{{ r.cost }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ isPermissions }}" hint-placeholder-val="{{ false }}">
+          <div style="display: flex; flex-direction: column; gap: 16px">
+            <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px">
+              <sc-for list="{{ profiles }}" as="p" hint-placeholder-count="3">
+                <button onClick="{{ p.pick }}" style="{{ p.style }}">
+                  <span style="color: #ffffff; font-weight: 500">{{ p.name }}</span>
+                  <span style="color: #8b92a0; line-height: 1.5">{{ p.desc }}</span>
+                </button>
+              </sc-for>
+            </div>
+            <div style="color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">RULES · first match wins</div>
+            <div style="border-radius: 12px; background: #13161c; box-shadow: 0 0 0 1px #20242c; overflow: hidden">
+              <div style="display: grid; grid-template-columns: 160px minmax(0, 1fr) 220px; gap: 12px; padding: 10px 14px; color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; border-bottom: 1px solid #1c2027"><span>ACTION</span><span>FILES</span><span>DECISION</span></div>
+              <sc-for list="{{ rules }}" as="r" hint-placeholder-count="7">
+                <div style="display: grid; grid-template-columns: 160px minmax(0, 1fr) 220px; gap: 12px; align-items: center; padding: 8px 14px; border-bottom: 1px solid #1c2027">
+                  <span style="color: #ffffff">{{ r.action }}</span>
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #b4bac6">{{ r.path }}</span>
+                  <div style="display: flex; gap: 2px; padding: 3px; border-radius: 8px; background: #171a21; box-shadow: 0 0 0 1px #22262d">
+                    <span style="{{ r.allow }}">Allow</span><span style="{{ r.ask }}">Ask</span><span style="{{ r.deny }}">Deny</span>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ isBrief }}" hint-placeholder-val="{{ false }}">
+          <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px">
+            <div style="grid-column: span 2; display: flex; flex-direction: column; gap: 6px">
+              <label for="pitch" style="color: #b4bac6">Pitch</label>
+              <textarea id="pitch" rows="2" style="resize: none; padding: 10px 12px; border-radius: 10px; border: 0; background: #171a21; box-shadow: 0 0 0 1px #22262d; color: #e6e9ef; line-height: 1.55">A short, tense dungeon platformer: a knight with one sword and three hearts dives through five floors, each ending in a door that only opens once its lever is found.</textarea>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 6px"><span style="color: #b4bac6">Genre</span><div style="display: flex; gap: 6px; flex-wrap: wrap"><span style="height: 26px; display: flex; align-items: center; padding: 0 10px; border-radius: 13px; background: #1a2233; box-shadow: 0 0 0 1px #2a3a5c; color: #b9cfff">2D platformer</span><span style="height: 26px; display: flex; align-items: center; padding: 0 10px; border-radius: 13px; background: #1a2233; box-shadow: 0 0 0 1px #2a3a5c; color: #b9cfff">action</span><span style="height: 26px; display: flex; align-items: center; padding: 0 10px; border-radius: 13px; box-shadow: 0 0 0 1px #2c3240; color: #8b92a0">+</span></div></div>
+            <div style="display: flex; flex-direction: column; gap: 6px"><span style="color: #b4bac6">Platforms</span><div style="display: flex; gap: 6px; flex-wrap: wrap"><span style="height: 26px; display: flex; align-items: center; padding: 0 10px; border-radius: 13px; background: #1a2233; box-shadow: 0 0 0 1px #2a3a5c; color: #b9cfff">desktop</span><span style="height: 26px; display: flex; align-items: center; padding: 0 10px; border-radius: 13px; background: #1a2233; box-shadow: 0 0 0 1px #2a3a5c; color: #b9cfff">phones, touch</span><span style="height: 26px; display: flex; align-items: center; padding: 0 10px; border-radius: 13px; background: #1a2233; box-shadow: 0 0 0 1px #2a3a5c; color: #b9cfff">web</span></div></div>
+            <div style="display: flex; flex-direction: column; gap: 6px"><span style="color: #b4bac6">Art direction</span><div style="padding: 10px 12px; border-radius: 10px; background: #171a21; box-shadow: 0 0 0 1px #22262d; line-height: 1.55">16 px pixel art, 4-colour shading, cold stone with warm torch light. No outlines on tiles; 1 px dark outline on characters.</div></div>
+            <div style="display: flex; flex-direction: column; gap: 6px"><span style="color: #b4bac6">Feel and difficulty</span><div style="padding: 10px 12px; border-radius: 10px; background: #171a21; box-shadow: 0 0 0 1px #22262d; line-height: 1.55">Snappy, forgiving jumps (coyote time). A first-time player clears floor 1 in under a minute and dies 2–4 times on floor 3.</div></div>
+            <div style="grid-column: span 2; display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 10px; background: #15141d; box-shadow: 0 0 0 1px #2c2640">
+              <span style="width: 8px; height: 8px; border-radius: 4px; background: #9b7bff"></span>
+              <span style="flex: 1; color: #c9bcff">The agent reads this before every request and checks its own work against it, e.g. playtest targets come from “Feel and difficulty”.</span>
+              <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #8b92a0">brief.yaml</span>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ isRules }}" hint-placeholder-val="{{ false }}">
+          <div style="display: flex; flex-direction: column; gap: 12px">
+            <div style="border-radius: 12px; background: #0f1115; box-shadow: 0 0 0 1px #20242c; padding: 14px 16px; font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.8; color: #b4bac6">
+              <div style="color: #8b92a0"># AGENTS.md · how to work on Dungeon Run</div>
+              <div>- Object ids are snake_case and say what the thing is: slime_02, lever_boss.</div>
+              <div>- Never edit files under art/ by hand; regenerate them with game assets.</div>
+              <div>- New enemies are prefab variants of prefabs/enemy.prefab.yaml.</div>
+              <div>- Keep floors under 400 objects; split rooms before that.</div>
+              <div>- Difficulty changes come with a 20-run playtest, before and after.</div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 10px; background: #171a21; box-shadow: 0 0 0 1px #242833">
+              <span style="flex: 1; color: #b4bac6">Suggested from your last 30 reviews: you reverted every change that moved the camera bounds.</span>
+              <button style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #22262f; color: #d9dde5">Add as a rule</button>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ isTools }}" hint-placeholder-val="{{ false }}">
+          <div style="display: flex; flex-direction: column; gap: 14px">
+            <div style="color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">THE EDITOR'S MCP SERVER · 18 TOOLS</div>
+            <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+              <sc-for list="{{ tools }}" as="t" hint-placeholder-count="8">
+                <div style="display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; background: #171a21; box-shadow: 0 0 0 1px #242833">
+                  <div style="flex: 1"><div style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #ffffff">{{ t.name }}</div><div style="color: #8b92a0; font-size: 11.5px; margin-top: 2px">{{ t.desc }}</div></div>
+                  <span style="{{ t.track }}"><span style="{{ t.knob }}"></span></span>
+                </div>
+              </sc-for>
+            </div>
+            <div style="color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">OTHER MCP SERVERS THE AGENT MAY USE</div>
+            <div style="display: flex; flex-direction: column; gap: 8px">
+              <div style="display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; background: #171a21; box-shadow: 0 0 0 1px #242833"><span style="width: 8px; height: 8px; border-radius: 4px; background: #4fd38a"></span><span style="flex: 1; color: #ffffff">Running game · nsgo dev</span><span style="color: #8b92a0">inspect and drive the live game</span></div>
+              <button style="display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; background: none; border: 1px dashed #2c3240; color: #8b92a0">+ Add a server (sprite or sound generation, issue tracker, …)</button>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ isAuto }}" hint-placeholder-val="{{ false }}">
+          <div style="display: flex; flex-direction: column; gap: 10px">
+            <sc-for list="{{ autos }}" as="a" hint-placeholder-count="5">
+              <div style="display: grid; grid-template-columns: 220px 24px minmax(0, 1fr) 44px; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px; background: #171a21; box-shadow: 0 0 0 1px #242833">
+                <div><div style="color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">WHEN</div><div style="color: #ffffff; margin-top: 2px">{{ a.when }}</div></div>
+                <span style="color: #8b92a0">→</span>
+                <div><div style="color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">THE AGENT</div><div style="color: #ffffff; margin-top: 2px">{{ a.then }}</div></div>
+                <span style="{{ a.track }}"><span style="{{ a.knob }}"></span></span>
+              </div>
+            </sc-for>
+            <button style="align-self: flex-start; height: 32px; padding: 0 12px; border-radius: 8px; border: 1px dashed #2c3240; background: none; color: #8b92a0">+ New automation, in words</button>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ isUsage }}" hint-placeholder-val="{{ false }}">
+          <div style="display: flex; flex-direction: column; gap: 16px">
+            <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px">
+              <div style="border-radius: 12px; background: #171a21; box-shadow: 0 0 0 1px #242833; padding: 14px"><div style="color: #8b92a0">This week</div><div style="color: #ffffff; font-size: 24px; font-weight: 600; margin-top: 4px">142 requests</div><div style="margin-top: 10px; height: 6px; border-radius: 3px; background: #242833"><div style="width: 47%; height: 6px; border-radius: 3px; background: #3b7bff"></div></div><div style="color: #8b92a0; margin-top: 6px">47% of the weekly limit you set</div></div>
+              <div style="border-radius: 12px; background: #171a21; box-shadow: 0 0 0 1px #242833; padding: 14px"><div style="color: #8b92a0">Kept</div><div style="color: #ffffff; font-size: 24px; font-weight: 600; margin-top: 4px">86%</div><div style="color: #8b92a0; margin-top: 6px">of agent changes, after review</div></div>
+              <div style="border-radius: 12px; background: #171a21; box-shadow: 0 0 0 1px #242833; padding: 14px"><div style="color: #8b92a0">Playtests</div><div style="color: #ffffff; font-size: 24px; font-weight: 600; margin-top: 4px">380 runs</div><div style="color: #8b92a0; margin-top: 6px">all local, nothing uploaded</div></div>
+            </div>
+            <div style="color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">WHAT MAY LEAVE THIS COMPUTER</div>
+            <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+              <label style="display: flex; align-items: center; gap: 8px"><input type="checkbox" checked>Scene and data files</label>
+              <label style="display: flex; align-items: center; gap: 8px"><input type="checkbox" checked>Viewport images</label>
+              <label style="display: flex; align-items: center; gap: 8px"><input type="checkbox">Go source code</label>
+              <label style="display: flex; align-items: center; gap: 8px"><input type="checkbox">Art and audio files</label>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ isPlain }}" hint-placeholder-val="{{ false }}">
+          <div style="display: flex; flex-direction: column">
+            <sc-for list="{{ plainRows }}" as="r" hint-placeholder-count="5">
+              <div style="display: flex; align-items: center; gap: 16px; padding: 14px 0; border-bottom: 1px solid #1c2027">
+                <div style="flex: 1"><div style="color: #ffffff">{{ r.label }}</div><div style="color: #8b92a0; margin-top: 2px">{{ r.help }}</div></div>
+                <span style="height: 30px; display: flex; align-items: center; padding: 0 10px; border-radius: 8px; background: #171a21; box-shadow: 0 0 0 1px #22262d; color: #e6e9ef">{{ r.value }}</span>
+                <span style="{{ r.agentStyle }}" title="Whether the agent may change this">{{ r.agent }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+      </div>
+
+      <div style="border-left: 1px solid #1f232a; background: #12141a; padding: 18px; display: flex; flex-direction: column; gap: 12px">
+        <div style="display: flex; align-items: center; gap: 8px; color: #c9bcff; font-weight: 500"><span style="width: 7px; height: 7px; border-radius: 4px; background: #9b7bff"></span>Agent on this page</div>
+        <div style="color: #b4bac6; line-height: 1.6">{{ agentNote }}</div>
+        <sc-for list="{{ suggestions }}" as="s" hint-placeholder-count="2">
+          <button style="text-align: left; padding: 10px 12px; border-radius: 10px; border: 0; background: #171a21; box-shadow: 0 0 0 1px #262b35; color: #e6e9ef; line-height: 1.5">{{ s.text }}</button>
+        </sc-for>
+        <div style="flex: 1"></div>
+        <div style="border-radius: 12px; background: #171a21; box-shadow: 0 0 0 1px #262b35; padding: 10px 12px; color: #8b92a0">Ask about {{ title }}…</div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { page: 'models', profile: 'balanced' }; }
+  renderVals() {
+    const s = this.state;
+    const nav = (defs) => defs.map((d) => ({
+      ...d,
+      style: 'height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-radius: 8px; border: 0; ' + (s.page === d.id ? 'background: #1c2130; color: #ffffff' : 'background: none; color: #b4bac6'),
+      metaStyle: 'font-size: 11px; color: ' + (d.warn ? '#e9a84a' : '#8b92a0'),
+      pick: () => this.setState({ page: d.id }),
+    }));
+    const P = {
+      models: ['Models and connections', 'Which agents and models work on this project, and which one handles each kind of task.', 'This computer'],
+      permissions: ['Permissions', 'What the agent may do on its own, per action and per file. Everything it does is still reviewable and undoable.', 'Project · shared'],
+      brief: ['Game brief', 'What this game is meant to be. The agent reads it before every request and judges its own work against it.', 'Project · brief.yaml'],
+      rules: ['Project rules', 'How to work on this project, in your words. The same file Claude Code, Codex and the built-in agent all read.', 'Project · AGENTS.md'],
+      tools: ['Tools', 'What the agent can reach through MCP: the editor itself, the running game and any servers you add.', 'This computer'],
+      automations: ['Automations', 'Work the agent does by itself after you or it change something. Results land in the Agent panel, never unreviewed.', 'Project · shared'],
+      usage: ['Usage and privacy', 'What the agent has done, what it costs, and what may leave this computer.', 'This computer'],
+      project: ['Project', 'Name, ID, window and main scene.', 'Project · game.yaml'],
+      input: ['Input map', 'Actions and what triggers them on keyboard, gamepad and touch.', 'Project · game.yaml'],
+      audio: ['Audio buses', 'Levels and routing for music, effects and voice.', 'Project · game.yaml'],
+      export: ['Export', 'Build presets for each platform.', 'Project · game.yaml'],
+      general: ['General', 'Language, appearance and saving.', 'This computer'],
+      viewport: ['Viewport', 'Snapping, grid and navigation.', 'This computer'],
+      keys: ['Shortcuts', 'Every command, searchable and rebindable.', 'This computer'],
+    };
+    const page = P[s.page] || P.models;
+    const shared = page[2].startsWith('Project');
+    const notes = {
+      models: ['Playtest analysis has been the slowest step this week; a faster model there would cut review waits by about a third.', ['Use a faster model for playtest analysis', 'Show what each task cost last week']],
+      permissions: ['You kept 41 of the last 42 scene edits unchanged. Allowing scene edits without review on scenes/** would skip those waits; Go code would still ask.', ['Relax scenes/** to Allow', 'Explain the current rules in a sentence']],
+      brief: ['Floor 3 playtests average 6.1 deaths, above the 2–4 your brief asks for.', ['Tune floor 3 toward the brief', 'Fill in the missing tone and audio sections']],
+      rules: ['Rules are plain Markdown; I follow them in every request and say when a request would break one.', ['Turn my last week of reverts into rules', 'Check the project against these rules']],
+      tools: ['game_playtest is the tool I call most. game_delete_file is off, so I can only propose deletions.', ['Connect a sprite generator', 'Show the tools a request used']],
+      automations: ['“After a level changes” has run 38 times this week and caught 3 problems before you saw them.', ['Add: before export, check frame time on a phone profile', 'Pause all automations for today']],
+      usage: ['Go code has never left this computer. Turning it on would let me fix gameplay bugs, not only data.', ['Set a daily limit', 'Export this week’s activity']],
+    };
+    const note = notes[s.page] || ['I can change anything on this page for you; describe what you want and review it like any other change.', ['Explain these settings', 'Reset to the template defaults']];
+    const routes = [
+      { task: 'Scene and data edits', note: 'most requests', model: 'Claude Code · default', cost: 'about 2 min a request' },
+      { task: 'Playtest analysis', note: 'reads replays and heatmaps', model: 'Anthropic API · fast', cost: 'about 20 s a report' },
+      { task: 'Problems and fixes', note: 'after game check', model: 'Claude Code · default', cost: 'about 30 s' },
+      { task: 'Ask in place (⌘L)', note: 'small, quick edits', model: 'Anthropic API · fast', cost: 'about 5 s' },
+      { task: 'Art and sound', note: 'needs a generator server', model: 'Not connected', cost: 'Tools → add a server' },
+    ];
+    const prof = [
+      { id: 'cautious', name: 'Cautious', desc: 'Asks before every change, check and playtest.' },
+      { id: 'balanced', name: 'Balanced', desc: 'Edits content and tests on its own; asks before code, config and deletions.' },
+      { id: 'autonomous', name: 'Autonomous', desc: 'Does whole tasks end to end; you review at the end.' },
+    ].map((p) => ({ ...p, style: 'display: flex; flex-direction: column; gap: 6px; padding: 14px; border-radius: 12px; border: 0; text-align: left; background: ' + (s.profile === p.id ? '#1a2233' : '#171a21') + '; box-shadow: 0 0 0 ' + (s.profile === p.id ? '1.5px #3b7bff' : '1px #242833'), pick: () => this.setState({ profile: p.id }) }));
+    const pill = (on, c) => 'height: 24px; display: flex; align-items: center; padding: 0 12px; border-radius: 6px; font-size: 11.5px; ' + (on ? 'background: ' + c + '; color: #ffffff' : 'color: #8b92a0');
+    const ruleDefs = [
+      ['Edit', 'scenes/**  prefabs/**  data/**', 'allow'],
+      ['Run', 'game check  ·  playtests', 'allow'],
+      ['Edit', 'game.yaml  brief.yaml', 'ask'],
+      ['Edit', '**/*.go', s.profile === 'autonomous' ? 'allow' : 'ask'],
+      ['Create', 'anywhere in the project', s.profile === 'cautious' ? 'ask' : 'allow'],
+      ['Delete', 'any file', 'deny'],
+      ['Run', 'shell commands', 'deny'],
+    ];
+    const rules = ruleDefs.map(([action, path, d]) => ({ action, path, allow: pill(d === 'allow', '#1f6b45'), ask: pill(d === 'ask', '#6b5520'), deny: pill(d === 'deny', '#6b2a2a') }));
+    const sw = (on) => ({ track: 'width: 36px; height: 22px; flex: none; border-radius: 11px; position: relative; display: inline-block; background: ' + (on ? '#3b7bff' : '#2c3240'), knob: 'position: absolute; top: 3px; left: ' + (on ? 17 : 3) + 'px; width: 16px; height: 16px; border-radius: 8px; background: #ffffff' });
+    const tools = [
+      ['scene_read', 'Read any scene, prefab or data file', true], ['scene_edit', 'Add, move and change objects; reviewable', true],
+      ['selection_get', 'What you have selected', true], ['viewport_image', 'A picture of the viewport', true],
+      ['game_check', 'Run game check on the project', true], ['game_playtest', 'Headless runs with replays', true],
+      ['code_edit', 'Change Go source', false], ['game_delete_file', 'Delete files', false],
+    ].map(([name, desc, on]) => ({ name, desc, ...sw(on) }));
+    const autos = [
+      ['A level file changes', 'runs game check and 5 playtests, reports only problems', true],
+      ['You keep a review', 'updates the brief’s open questions if the change answers one', true],
+      ['A new prefab is added', 'writes its example scene and a test', true],
+      ['Before export', 'checks frame time and memory on a low-end phone profile', false],
+      ['Every night', 'plays all floors 50 times and leaves a balance report', false],
+    ].map(([when, then, on]) => ({ when, then, ...sw(on) }));
+    const plain = {
+      project: [['Name', 'Shown in title bars and stores', 'Dungeon Run', true], ['ID', 'Bundle and package ID', 'dev.nsgo.dungeonrun', false], ['Window', 'Logical size, scaled by whole pixels', '640 × 360', true], ['Main scene', 'Opened when the game starts', 'scenes/level_01', true]],
+      input: [['move', 'Keyboard · gamepad · touch', 'A D ← → · left stick · left half', true], ['jump', 'Keyboard · gamepad · touch', 'Space · A · right half tap', true], ['attack', 'Keyboard · gamepad · touch', 'J · X · button', true], ['pause', 'Keyboard · gamepad · touch', 'Esc · Start · top right', false]],
+      audio: [['Master', 'Output', '0.0 dB', true], ['Music', 'Into Master, ducked by Voice', '−6.0 dB', true], ['Effects', 'Into Master', '−3.0 dB', true], ['Voice', 'Into Master', '0.0 dB', true]],
+      export: [['macOS', 'Universal, signed', 'Ready', false], ['Windows', 'x64 installer', 'Ready', false], ['Web', 'WebAssembly, compressed', 'Ready', true], ['iOS', 'Needs a team ID', 'Set up', false]],
+      general: [['Language', 'Editor text; the agent answers in it too', '中文', false], ['Appearance', 'Dark, light or system', 'Dark', false], ['Save automatically', 'Kept changes only, after 2 s', 'On', false], ['Interface size', 'Text and controls together', 'Default', false]],
+      viewport: [['Snap', 'Hold ⌘ to ignore', '16 px · 15°', false], ['Grid', 'Dots every snap step', 'On', false], ['Show agent changes', 'Outlines while a review is open', 'On', false], ['3D navigation', 'Mouse mapping', 'Default', false]],
+      keys: [['Ask about the selection', 'Agent', '⌘L', false], ['Keep the review', 'Agent', '⌘↵', false], ['Play', 'Run', '⌘P', false], ['Frame the selection', 'Viewport', 'F', false]],
+    };
+    const plainRows = (plain[s.page] || []).map(([label, help, value, agent]) => ({ label, help, value, agent: agent ? 'Agent may change' : 'You only', agentStyle: 'width: 120px; text-align: right; font-size: 11px; color: ' + (agent ? '#c9bcff' : '#8b92a0') }));
+    return {
+      agentNav: nav([
+        { id: 'models', label: 'Models and connections', meta: '2 on' },
+        { id: 'permissions', label: 'Permissions', meta: 'Balanced' },
+        { id: 'brief', label: 'Game brief', meta: '1 gap', warn: true },
+        { id: 'rules', label: 'Project rules', meta: '5' },
+        { id: 'tools', label: 'Tools', meta: '16 / 18' },
+        { id: 'automations', label: 'Automations', meta: '3 on' },
+        { id: 'usage', label: 'Usage and privacy', meta: '' },
+      ]),
+      projectNav: nav([{ id: 'project', label: 'Project', meta: '' }, { id: 'input', label: 'Input map', meta: '' }, { id: 'audio', label: 'Audio buses', meta: '' }, { id: 'export', label: 'Export', meta: 'iOS', warn: true }]),
+      editorNav: nav([{ id: 'general', label: 'General', meta: '' }, { id: 'viewport', label: 'Viewport', meta: '' }, { id: 'keys', label: 'Shortcuts', meta: '' }]),
+      title: page[0], subtitle: page[1], scope: page[2],
+      scopeStyle: 'height: 24px; display: flex; align-items: center; padding: 0 10px; border-radius: 12px; font-size: 11.5px; white-space: nowrap; ' + (shared ? 'background: #1a2233; color: #b9cfff; box-shadow: 0 0 0 1px #2a3a5c' : 'color: #8b92a0; box-shadow: 0 0 0 1px #2c3240'),
+      isModels: s.page === 'models', isPermissions: s.page === 'permissions', isBrief: s.page === 'brief', isRules: s.page === 'rules',
+      isTools: s.page === 'tools', isAuto: s.page === 'automations', isUsage: s.page === 'usage',
+      isPlain: !!plain[s.page],
+      routes, profiles: prof, rules, tools, autos, plainRows,
+      agentNote: note[0], suggestions: note[1].map((text) => ({ text })),
+    };
+  }
+}
+</script>
+</body>
+</html>

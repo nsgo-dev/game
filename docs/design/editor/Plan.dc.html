@@ -1,0 +1,492 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Plan first</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#101216}
+a{color:#8fb3ff}a:hover{color:#b9cfff}
+.vp{background-color:#15181d;background-image:radial-gradient(circle,#2a2f38 1px,transparent 1.2px);background-size:16px 16px}
+button{font:inherit;cursor:pointer}
+input,textarea{font:inherit}
+</style>
+</helmet>
+<div style="height: 900px; display: flex; flex-direction: column; font-family: Inter, system-ui, sans-serif; font-size: 12.5px; color: #d9dde5; background: #101216; overflow: hidden">
+
+  <div style="height: 44px; display: flex; align-items: center; gap: 12px; padding: 0 12px; border-bottom: 1px solid #1f232a">
+    <div style="display: flex; align-items: center; gap: 8px">
+      <div style="width: 22px; height: 22px; border-radius: 6px; background: #3b7bff; display: flex; align-items: center; justify-content: center">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.5" aria-hidden="true"><path d="M5 19 12 5l7 14"></path></svg>
+      </div>
+      <span style="font-weight: 600; color: #ffffff">dungeon-run</span>
+      <span style="color: #8b92a0">/</span>
+      <span style="color: #b4bac6">level_01</span>
+    </div>
+    <div style="flex: 1"></div>
+    <div style="{{ pillStyle }}">
+      <span style="{{ pillDot }}"></span>
+      <span>{{ pillText }}</span>
+    </div>
+    <div style="flex: 1"></div>
+    <button style="height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: 8px; border: 0; background: #171a21; box-shadow: 0 0 0 1px #262b35; color: #d9dde5">
+      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round" aria-hidden="true"><path d="M6 4l14 8-14 8z"></path></svg>Play
+    </button>
+  </div>
+
+  <div style="flex: 1; display: grid; grid-template-columns: 232px minmax(0, 1fr) 400px; min-height: 0">
+
+    <div style="display: flex; flex-direction: column; border-right: 1px solid #1f232a; min-height: 0">
+      <div style="height: 36px; display: flex; align-items: center; justify-content: space-between; padding: 0 14px; color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">
+        <span>SCENE</span>
+        <span style="font-weight: 500; letter-spacing: 0">{{ plannedNodeCount }} planned</span>
+      </div>
+      <div style="flex: 1; padding: 0 6px; overflow: hidden">
+        <sc-for list="{{ tree }}" as="n" hint-placeholder-count="12">
+          <div style="{{ n.style }}">
+            <span style="{{ n.indent }}"></span>
+            <span style="{{ n.dot }}"></span>
+            <span style="flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ n.name }}</span>
+            <sc-if value="{{ n.planned }}" hint-placeholder-val="{{ false }}"><span style="{{ n.badge }}">{{ n.step }}</span></sc-if>
+            <sc-if value="{{ n.existing }}" hint-placeholder-val="{{ true }}"><span style="color: #8b92a0; font-size: 11px">{{ n.kind }}</span></sc-if>
+          </div>
+        </sc-for>
+      </div>
+      <div style="padding: 12px; border-top: 1px solid #1f232a; display: flex; flex-direction: column; gap: 4px">
+        <div style="display: flex; justify-content: space-between; padding: 0 4px 4px; color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em"><span>FILES IN THIS PLAN</span><span style="font-weight: 500; letter-spacing: 0">{{ fileCount }}</span></div>
+        <sc-for list="{{ files }}" as="f" hint-placeholder-count="3">
+          <div style="{{ f.style }}">
+            <span style="flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ f.path }}</span>
+            <span style="{{ f.tagStyle }}">{{ f.tag }}</span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; min-width: 0">
+      <div class="vp" style="flex: 1; position: relative; overflow: hidden">
+        <div style="position: absolute; left: 32px; top: 18px; display: flex; flex-direction: column; gap: 8px; font-size: 11.5px; color: #b4bac6">
+          <span style="display: flex; align-items: center; gap: 8px"><span style="width: 10px; height: 10px; border-radius: 2px; outline: 1.5px dashed rgba(155,123,255,0.8); background: rgba(155,123,255,0.12)"></span>planned · not in the file yet</span>
+          <sc-if value="{{ running }}" hint-placeholder-val="{{ false }}"><span style="display: flex; align-items: center; gap: 8px"><span style="width: 10px; height: 10px; border-radius: 2px; outline: 1.5px solid #9b7bff"></span>agent working here</span></sc-if>
+        </div>
+        <div style="position: absolute; right: 32px; top: 18px; font-size: 11px; color: #8b92a0">Camera · level_01 · 1280 × 360</div>
+
+        <div style="position: absolute; left: 32px; top: 150px; width: 372px; height: 300px; border-radius: 4px 0 0 4px; box-shadow: 0 0 0 1px #2c3240, 0 24px 60px rgba(0,0,0,0.45); background: linear-gradient(180deg,#1c2230 0%,#1a1f2a 70%,#181c24 100%)"></div>
+        <div style="position: absolute; left: 32px; top: 390px; width: 372px; height: 57px; background: #2a2f3a; border-top: 3px solid #3b4250"></div>
+        <div style="position: absolute; left: 214px; top: 322px; width: 110px; height: 12px; border-radius: 2px; background: #333a47"></div>
+        <div style="position: absolute; left: 76px; top: 356px; width: 22px; height: 34px; border-radius: 5px; background: #e9a84a"></div>
+        <div style="position: absolute; left: 150px; top: 374px; width: 26px; height: 16px; border-radius: 9px 9px 3px 3px; background: #3f8f63"></div>
+        <div style="position: absolute; left: 252px; top: 306px; width: 26px; height: 16px; border-radius: 9px 9px 3px 3px; background: #3f8f63"></div>
+        <div style="position: absolute; left: 370px; top: 350px; width: 26px; height: 40px; border-radius: 4px; background: #6b5a45"></div>
+        <div style="position: absolute; left: 352px; top: 326px; height: 18px; display: flex; align-items: center; padding: 0 6px; border-radius: 5px; background: rgba(16,18,22,0.9); color: #b4bac6; font-size: 10.5px">Door</div>
+
+        <sc-for list="{{ ghosts }}" as="g" hint-placeholder-count="10">
+          <div style="{{ g.style }}"></div>
+        </sc-for>
+        <sc-for list="{{ ghostLabels }}" as="gl" hint-placeholder-count="4">
+          <div style="{{ gl.style }}"><span style="{{ gl.num }}">{{ gl.n }}</span>{{ gl.text }}</div>
+        </sc-for>
+
+        <div style="position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: 10px; background: rgba(23,26,33,0.94); box-shadow: 0 0 0 1px #262b35, 0 10px 30px rgba(0,0,0,0.4)">
+          <button aria-label="Zoom out" style="width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: none; color: #b4bac6"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"></path></svg></button>
+          <span style="width: 52px; text-align: center; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #b4bac6">58%</span>
+          <button aria-label="Zoom in" style="width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: none; color: #b4bac6"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14M12 5v14"></path></svg></button>
+          <span style="width: 1px; height: 16px; background: #2c3240; margin: 0 4px"></span>
+          <button onClick="{{ toggleGhosts }}" aria-pressed="{{ ghostsPressed }}" style="{{ ghostBtnStyle }}">Plan ghosts</button>
+          <button style="height: 28px; padding: 0 10px; border: 0; border-radius: 6px; background: none; color: #b4bac6">Fit</button>
+        </div>
+      </div>
+      <div style="height: 32px; display: flex; align-items: center; gap: 16px; padding: 0 16px; border-top: 1px solid #1f232a; color: #8b92a0; font-size: 11.5px">
+        <span>Layer World</span><span>Select</span>
+        <div style="flex: 1"></div>
+        <span>{{ statusLine }}</span>
+        <span style="display: flex; align-items: center; gap: 6px"><span style="width: 6px; height: 6px; border-radius: 3px; background: #4fd38a"></span>No problems</span>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; border-left: 1px solid #1f232a; min-height: 0; background: #12141a">
+      <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 16px; border-bottom: 1px solid #1f232a">
+        <span style="color: #ffffff; font-weight: 600; font-size: 14px">Agent</span>
+        <span style="color: #8b92a0">· Claude Code via MCP</span>
+        <div style="flex: 1"></div>
+        <span style="display: flex; align-items: center; gap: 6px; color: #8b92a0; font-size: 11.5px"><span style="width: 6px; height: 6px; border-radius: 3px; background: #4fd38a"></span>Connected</span>
+      </div>
+
+      <div style="flex: 1; min-height: 0; overflow: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px">
+        <div style="align-self: flex-end; max-width: 312px; padding: 8px 12px; border-radius: 12px 12px 4px 12px; background: #1c2130; color: #e6e9ef; line-height: 1.5">Build a second room behind the door: a lever that opens a gate, a few slimes and a coin reward.</div>
+
+        <div style="border-radius: 12px; background: #171a21; box-shadow: 0 0 0 1px #262b35; flex: none">
+          <div style="padding: 12px; display: flex; flex-direction: column; gap: 4px; border-bottom: 1px solid #262b35">
+            <div style="display: flex; align-items: center; gap: 8px; color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#9b7bff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"></path><path d="M4 6h.01M4 12h.01M4 18h.01"></path></svg>
+              <span>PLAN</span>
+              <div style="flex: 1"></div>
+              <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 400; letter-spacing: 0">plan_propose</span>
+            </div>
+            <div style="color: #ffffff; font-size: 14px; font-weight: 600">Room 2: a lever gate, slimes and a coin reward</div>
+            <div style="color: #b4bac6">{{ summary }}</div>
+          </div>
+
+          <sc-if value="{{ showQuestions }}" hint-placeholder-val="{{ true }}">
+            <div style="padding: 12px; display: flex; flex-direction: column; gap: 8px; border-bottom: 1px solid #262b35; background: #191c24">
+              <div style="display: flex; align-items: center; gap: 8px">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9b7bff" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6"></path><path d="M12 17h.01"></path></svg>
+                <span style="color: #ffffff; font-weight: 500">{{ questionsTitle }}</span>
+              </div>
+
+              <sc-if value="{{ q1Open }}" hint-placeholder-val="{{ true }}">
+                <div style="display: flex; flex-direction: column; gap: 6px">
+                  <span id="q1" style="color: #d9dde5">Where should the gate stand?</span>
+                  <div role="radiogroup" aria-labelledby="q1" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px">
+                    <sc-for list="{{ q1opts }}" as="o" hint-placeholder-count="3">
+                      <button role="radio" aria-checked="{{ o.checked }}" onClick="{{ o.pick }}" style="{{ o.style }}">
+                        <span style="position: relative; display: block; height: 36px; border-radius: 6px; background: #12141a; overflow: hidden">
+                          <span style="position: absolute; left: 46%; top: 0; right: 0; bottom: 0; background: rgba(155,123,255,0.08)"></span>
+                          <span style="position: absolute; left: 0; right: 0; bottom: 0; height: 8px; background: #2a2f3a"></span>
+                          <span style="position: absolute; left: 10%; bottom: 8px; width: 5px; height: 9px; border-radius: 2px; background: #e9a84a"></span>
+                          <span style="position: absolute; left: 40%; bottom: 8px; width: 6px; height: 12px; border-radius: 1px; background: #6b5a45"></span>
+                          <span style="{{ o.gate }}"></span>
+                          <span style="{{ o.lever }}"></span>
+                        </span>
+                        <span style="display: flex; flex-direction: column; gap: 2px; text-align: left">
+                          <span style="color: #ffffff; font-size: 12px">{{ o.label }}</span>
+                          <span style="{{ o.noteStyle }}">{{ o.note }}</span>
+                        </span>
+                      </button>
+                    </sc-for>
+                  </div>
+                </div>
+              </sc-if>
+              <sc-if value="{{ q1Done }}" hint-placeholder-val="{{ false }}">
+                <div style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 4px 0 8px; border-radius: 6px; background: #12141a">
+                  <span style="color: #8b92a0; width: 44px">Gate</span>
+                  <span style="flex: 1; color: #ffffff">{{ q1Answer }}</span>
+                  <button onClick="{{ reopenQ1 }}" style="height: 24px; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: #8fb3ff">Change</button>
+                </div>
+              </sc-if>
+
+              <sc-if value="{{ q2Open }}" hint-placeholder-val="{{ true }}">
+                <div style="display: flex; flex-direction: column; gap: 6px">
+                  <span id="q2" style="color: #d9dde5">What does the lever do to the gate?</span>
+                  <div role="radiogroup" aria-labelledby="q2" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px">
+                    <sc-for list="{{ q2opts }}" as="o" hint-placeholder-count="3">
+                      <button role="radio" aria-checked="{{ o.checked }}" onClick="{{ o.pick }}" style="{{ o.style }}">
+                        <span style="{{ o.strip }}"></span>
+                        <span style="display: flex; flex-direction: column; gap: 2px; text-align: left">
+                          <span style="color: #ffffff; font-size: 12px">{{ o.label }}</span>
+                          <span style="{{ o.noteStyle }}">{{ o.note }}</span>
+                        </span>
+                      </button>
+                    </sc-for>
+                  </div>
+                </div>
+              </sc-if>
+              <sc-if value="{{ q2Done }}" hint-placeholder-val="{{ false }}">
+                <div style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 4px 0 8px; border-radius: 6px; background: #12141a">
+                  <span style="color: #8b92a0; width: 44px">Lever</span>
+                  <span style="flex: 1; color: #ffffff">{{ q2Answer }}</span>
+                  <button onClick="{{ reopenQ2 }}" style="height: 24px; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: #8fb3ff">Change</button>
+                </div>
+              </sc-if>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ showPicked }}" hint-placeholder-val="{{ false }}">
+            <div style="padding: 8px 12px; border-bottom: 1px solid #262b35; color: #b4bac6; line-height: 1.5">{{ pickedLine }}</div>
+          </sc-if>
+
+          <ol style="list-style: none; margin: 0; padding: 4px 4px; display: flex; flex-direction: column">
+            <sc-for list="{{ steps }}" as="st" hint-placeholder-count="5">
+              <li style="{{ st.row }}">
+                <span style="{{ st.numStyle }}">
+                  <sc-if value="{{ st.showNum }}" hint-placeholder-val="{{ true }}">{{ st.n }}</sc-if>
+                  <sc-if value="{{ st.isActive }}" hint-placeholder-val="{{ false }}"><span style="width: 12px; height: 12px; border-radius: 6px; border: 2px solid #9b7bff; border-right-color: transparent; box-sizing: border-box"></span></sc-if>
+                </span>
+                <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px">
+                  <span style="{{ st.titleStyle }}">{{ st.title }}</span>
+                  <span style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: #8b92a0; font-size: 11.5px">
+                    <span style="display: flex; align-items: center; gap: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #b4bac6"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6v18h12V7z"></path><path d="M14 3v4h4"></path></svg>{{ st.files }}</span>
+                    <span>{{ st.count }}</span>
+                    <sc-if value="{{ st.hasPerm }}" hint-placeholder-val="{{ false }}">
+                      <span style="height: 20px; display: flex; align-items: center; gap: 4px; padding: 0 6px; border-radius: 6px; background: #2a2414; box-shadow: 0 0 0 1px #4a3f1f; color: #f2c14e; font-size: 11px"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg>{{ st.perm }}</span>
+                    </sc-if>
+                  </span>
+                </span>
+                <sc-if value="{{ st.canEdit }}" hint-placeholder-val="{{ true }}">
+                  <span style="display: flex; gap: 2px; flex: none">
+                    <button aria-label="{{ st.editLabel }}" aria-expanded="{{ st.expanded }}" onClick="{{ st.edit }}" style="{{ st.editStyle }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"></path><path d="M13.5 6.5l4 4"></path></svg></button>
+                    <button aria-label="{{ st.removeLabel }}" onClick="{{ st.remove }}" style="width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: none; color: #8b92a0"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"></path></svg></button>
+                  </span>
+                </sc-if>
+                <sc-if value="{{ st.isRemoved }}" hint-placeholder-val="{{ false }}">
+                  <button onClick="{{ st.restore }}" style="height: 28px; flex: none; display: flex; align-items: center; gap: 4px; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: #8fb3ff"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"></path><path d="M4 9h11a5 5 0 0 1 0 10h-3"></path></svg>Restore</button>
+                </sc-if>
+              </li>
+            </sc-for>
+          </ol>
+
+          <sc-if value="{{ editing }}" hint-placeholder-val="{{ false }}">
+            <div style="margin: 0 12px 12px; padding: 12px; border-radius: 8px; background: #12141a; box-shadow: 0 0 0 1px #262b35; display: flex; flex-direction: column; gap: 8px">
+              <div style="color: #8b92a0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">{{ editTitle }}</div>
+              <sc-for list="{{ editRows }}" as="er" hint-placeholder-count="2">
+                <div style="display: flex; align-items: center; gap: 8px">
+                  <span style="width: 56px; color: #b4bac6">{{ er.label }}</span>
+                  <div style="display: flex; gap: 2px; padding: 2px; border-radius: 8px; background: #171a21; box-shadow: 0 0 0 1px #262b35">
+                    <button aria-label="{{ er.lessLabel }}" onClick="{{ er.less }}" style="width: 28px; height: 24px; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: none; color: #d9dde5"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"></path></svg></button>
+                    <span style="width: 28px; display: flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #ffffff">{{ er.value }}</span>
+                    <button aria-label="{{ er.moreLabel }}" onClick="{{ er.more }}" style="width: 28px; height: 24px; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: none; color: #d9dde5"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14M12 5v14"></path></svg></button>
+                  </div>
+                  <span style="color: #8b92a0; font-size: 11.5px">{{ er.hint }}</span>
+                </div>
+              </sc-for>
+              <label for="stepnote" style="position: absolute; left: -9999px">Tell the agent how to change this step</label>
+              <div style="display: flex; gap: 8px">
+                <input id="stepnote" placeholder="{{ editPlaceholder }}" style="flex: 1; min-width: 0; height: 30px; padding: 0 10px; border-radius: 6px; border: 0; background: #171a21; box-shadow: 0 0 0 1px #262b35; color: #e6e9ef; outline: none">
+                <button onClick="{{ closeEdit }}" style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #22262f; color: #ffffff">Done</button>
+              </div>
+            </div>
+          </sc-if>
+
+          <div style="position: sticky; bottom: -16px; z-index: 1; padding: 12px; border-top: 1px solid #262b35; border-radius: 0 0 12px 12px; background: #171a21; box-shadow: 0 -12px 24px rgba(16,18,22,0.6); display: flex; flex-direction: column; gap: 8px">
+            <sc-if value="{{ isDraft }}" hint-placeholder-val="{{ true }}">
+              <div style="display: flex; flex-direction: column; gap: 8px">
+                <div style="display: flex; align-items: center; gap: 8px; color: #b4bac6; font-size: 11.5px">
+                  <span style="flex: 1">Nothing changes until you approve. Planned because it edits Go and {{ fileCount }} files · <a href="#settings-permissions">Permissions</a></span>
+                </div>
+                <div style="display: flex; gap: 8px">
+                  <button onClick="{{ justDoIt }}" title="The agent answers its own questions and starts" style="height: 32px; padding: 0 12px; border-radius: 8px; border: 0; background: #22262f; color: #ffffff">Just do it</button>
+                  <div style="flex: 1"></div>
+                  <button onClick="{{ approve }}" aria-disabled="{{ approveDisabled }}" title="{{ approveTitle }}" style="{{ approveStyle }}">Approve <span style="{{ approveKeyStyle }}">⌘↵</span></button>
+                </div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ running }}" hint-placeholder-val="{{ false }}">
+              <div style="display: flex; align-items: center; gap: 8px">
+                <span style="width: 8px; height: 8px; border-radius: 4px; background: #9b7bff; box-shadow: 0 0 0 4px rgba(155,123,255,0.22)"></span>
+                <span style="flex: 1; color: #ffffff">{{ runningLine }}</span>
+                <button onClick="{{ stop }}" style="height: 30px; display: flex; align-items: center; gap: 6px; padding: 0 12px; border-radius: 8px; border: 0; background: #22262f; color: #ffffff"><span style="width: 9px; height: 9px; border-radius: 2px; background: #ffffff"></span>Stop</button>
+              </div>
+              <div style="color: #8b92a0; font-size: 11.5px">The review will check what was done against this plan.</div>
+            </sc-if>
+            <sc-if value="{{ stopped }}" hint-placeholder-val="{{ false }}">
+              <div style="display: flex; align-items: center; gap: 8px">
+                <span style="flex: 1; color: #b4bac6">Stopped before step 1. Nothing was written.</span>
+                <button onClick="{{ backToDraft }}" style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #22262f; color: #ffffff">Edit plan</button>
+                <button onClick="{{ approve }}" style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #3b7bff; color: #ffffff; font-weight: 500">Run again</button>
+              </div>
+            </sc-if>
+          </div>
+        </div>
+      </div>
+
+      <div style="padding: 12px; border-top: 1px solid #1f232a; flex: none">
+        <div style="border-radius: 12px; background: #171a21; box-shadow: 0 0 0 1px #262b35; padding: 6px 6px 6px 12px; display: flex; align-items: center; gap: 8px">
+          <label for="prompt" style="position: absolute; left: -9999px">Add to the plan</label>
+          <input id="prompt" placeholder="Add to the plan, e.g. make the gate iron, not wood" style="flex: 1; min-width: 0; height: 30px; border: 0; outline: none; background: none; color: #e6e9ef">
+          <button aria-label="Send" style="width: 30px; height: 30px; border-radius: 8px; border: 0; background: #22262f; color: #ffffff; display: flex; align-items: center; justify-content: center">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"></path></svg>
+          </button>
+        </div>
+        <div style="margin-top: 8px; color: #8b92a0; font-size: 11.5px">Small edits with ⌘L skip the plan.</div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { q1: null, q2: null, reopen: null, slimes: 3, coins: 5, removed: {}, editing: null, phase: 'draft', picked: false, ghosts: true };
+  }
+  renderVals() {
+    const s = this.state;
+    const q1defs = [
+      { id: 'door', label: 'Right after the door', note: 'Suggested', gateX: 432, leverX: 330, gp: 50, lp: 28 },
+      { id: 'mid', label: 'Mid-room', note: 'Slimes guard the lever', gateX: 588, leverX: 520, gp: 70, lp: 60 },
+      { id: 'end', label: 'At the end', note: 'Guards the coins', gateX: 714, leverX: 640, gp: 88, lp: 78 },
+    ];
+    const q2defs = [
+      { id: 'open', label: 'Stays open', note: 'Suggested', strip: 'linear-gradient(90deg,#2a2f3a 0 22%,#b4bac6 22% 100%)' },
+      { id: 'timed', label: 'Closes after 5 s', note: 'A short race', strip: 'linear-gradient(90deg,#2a2f3a 0 22%,#b4bac6 22% 60%,#2a2f3a 60% 100%)' },
+      { id: 'toggle', label: 'Toggles each pull', note: 'Slimes can be shut in', strip: 'linear-gradient(90deg,#2a2f3a 0 22%,#b4bac6 22% 50%,#2a2f3a 50% 74%,#b4bac6 74% 100%)' },
+    ];
+    const draft = s.phase === 'draft';
+    const running = s.phase === 'running';
+    const q1 = q1defs.find((o) => o.id === s.q1);
+    const q2 = q2defs.find((o) => o.id === s.q2);
+    const gate = q1 || q1defs[0];
+    const optStyle = (on) => 'display: flex; flex-direction: column; gap: 6px; padding: 6px; border-radius: 8px; border: 0; background: ' + (on ? '#1a2233' : '#171a21') + '; box-shadow: 0 0 0 ' + (on ? '1.5px #3b7bff' : '1px #262b35') + '; color: inherit';
+    const noteStyle = (n) => 'font-size: 11px; color: ' + (n === 'Suggested' ? '#4fd38a' : '#8b92a0');
+    const q1opts = q1defs.map((o) => ({
+      ...o, checked: String(s.q1 === o.id), style: optStyle(s.q1 === o.id), noteStyle: noteStyle(o.note),
+      gate: 'position: absolute; left: ' + o.gp + '%; bottom: 8px; width: 3px; height: 18px; border-radius: 1px; background: rgba(155,123,255,0.25); outline: 1px dashed #9b7bff',
+      lever: 'position: absolute; left: ' + o.lp + '%; bottom: 8px; width: 2px; height: 8px; background: #9b7bff; transform: rotate(-20deg)',
+      pick: () => this.setState({ q1: o.id, reopen: null }),
+    }));
+    const q2opts = q2defs.map((o) => ({
+      ...o, checked: String(s.q2 === o.id), style: optStyle(s.q2 === o.id), noteStyle: noteStyle(o.note),
+      strip: 'display: block; height: 6px; border-radius: 3px; margin: 4px 0; background: ' + o.strip,
+      pick: () => this.setState({ q2: o.id, reopen: null }),
+    }));
+    const behaviour = q2 ? ({ open: 'stays open', timed: 'closes after 5 s', toggle: 'toggles' })[q2.id] : 'opens';
+    const defs = [
+      { n: 1, title: 'Extend the World tiles 640 px past the door', files: 'level_01.scene.yaml', count: '1 layer · 214 tiles', fileList: ['scenes/level_01.scene.yaml'], objects: 0 },
+      { n: 2, title: 'Add a gate ' + ({ door: 'right after the door', mid: 'mid-room', end: 'at the end of room 2' })[gate.id] + ' and a lever', files: 'gate.prefab.yaml · level_01', count: '1 new prefab · 2 objects', fileList: ['prefabs/gate.prefab.yaml', 'scenes/level_01.scene.yaml'], objects: 2, editable: 'gate' },
+      { n: 3, title: 'Place ' + s.slimes + ' slimes and ' + s.coins + ' coins in room 2', files: 'level_01.scene.yaml', count: (s.slimes + s.coins) + ' objects', fileList: ['scenes/level_01.scene.yaml'], objects: s.slimes + s.coins, editable: 'counts' },
+      { n: 4, title: 'Pulling the lever ' + behaviour + ' the gate', files: 'logic/lever.go', count: '1 new function', fileList: ['logic/lever.go'], objects: 0, perm: 'Edit Go' },
+      { n: 5, title: 'Run check and a 15 s headless playtest', files: 'no files', count: 'reports back', fileList: [], objects: 0, perm: 'Run the game' },
+    ];
+    const live = defs.filter((d) => !s.removed[d.n]);
+    const activeN = running ? (live[0] ? live[0].n : 0) : 0;
+    const steps = defs.map((d) => {
+      const removed = !!s.removed[d.n];
+      const active = d.n === activeN;
+      const expanded = s.editing === d.n;
+      return {
+        ...d,
+        hasPerm: !!d.perm && !removed,
+        isRemoved: removed && !running,
+        canEdit: draft && !removed,
+        showNum: !active,
+        isActive: active,
+        expanded: String(expanded),
+        row: 'display: flex; align-items: flex-start; gap: 10px; padding: 8px; border-radius: 8px; ' + (expanded ? 'background: #1a2233' : active ? 'background: rgba(155,123,255,0.08)' : 'background: none') + (removed ? '; opacity: 0.6' : ''),
+        numStyle: 'width: 20px; height: 20px; flex: none; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; ' + (active ? 'background: #241d3a; color: #cbbcff' : 'background: #22262f; color: #d9dde5'),
+        titleStyle: 'line-height: 1.4; color: ' + (removed ? '#8b92a0; text-decoration: line-through' : '#ffffff'),
+        editLabel: 'Edit step ' + d.n,
+        removeLabel: 'Remove step ' + d.n,
+        editStyle: 'width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: ' + (expanded ? '#22262f' : 'none') + '; color: ' + (expanded ? '#ffffff' : '#8b92a0'),
+        edit: () => this.setState({ editing: expanded ? null : d.n }),
+        remove: () => this.setState({ removed: { ...s.removed, [d.n]: true }, editing: s.editing === d.n ? null : s.editing }),
+        restore: () => this.setState({ removed: { ...s.removed, [d.n]: false } }),
+      };
+    });
+    const fileSet = [];
+    live.forEach((d) => d.fileList.forEach((f) => { if (fileSet.indexOf(f) < 0) fileSet.push(f); }));
+    const objects = live.reduce((a, d) => a + d.objects, 0);
+    const files = [
+      { path: 'scenes/level_01.scene.yaml', tag: 'edit' },
+      { path: 'prefabs/gate.prefab.yaml', tag: 'new' },
+      { path: 'logic/lever.go', tag: 'edit' },
+    ].map((f) => {
+      const inPlan = fileSet.indexOf(f.path) >= 0;
+      return {
+        ...f,
+        style: 'height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 6px; font-family: \'JetBrains Mono\', monospace; font-size: 11px; color: ' + (inPlan ? '#d9dde5' : '#8b92a0; text-decoration: line-through'),
+        tagStyle: 'font-family: Inter, sans-serif; font-size: 11px; color: ' + (f.tag === 'new' ? '#4fd38a' : '#e9a84a'),
+      };
+    });
+    const unanswered = (s.q1 ? 0 : 1) + (s.q2 ? 0 : 1);
+    const on = (n) => !s.removed[n] && s.ghosts;
+    const working = (n) => running && activeN === n;
+    const ghostBox = (n, x, y, w, h, r) => ({ style: 'position: absolute; left: ' + x + 'px; top: ' + y + 'px; width: ' + w + 'px; height: ' + h + 'px; border-radius: ' + r + '; box-sizing: border-box; ' + (working(n) ? 'border: 1.5px solid #9b7bff; background: rgba(155,123,255,0.16)' : 'border: 1.5px dashed rgba(155,123,255,0.7); background: rgba(155,123,255,0.10)') });
+    const ghosts = [];
+    if (on(1)) {
+      ghosts.push(ghostBox(1, 404, 150, 372, 300, '0 4px 4px 0'));
+      ghosts.push(ghostBox(1, 404, 390, 372, 60, '0'));
+      ghosts.push(ghostBox(1, 560, 322, 96, 12, '2px'));
+    }
+    if (on(2)) {
+      ghosts.push(ghostBox(2, gate.gateX, 330, 14, 60, '2px'));
+      ghosts.push(ghostBox(2, gate.leverX, 372, 10, 18, '2px'));
+    }
+    if (on(3)) {
+      const span = [452, 760];
+      for (let i = 0; i < s.slimes; i++) {
+        const x = Math.round(span[0] + (i + 0.5) * (span[1] - span[0]) / s.slimes) - 13;
+        ghosts.push(ghostBox(3, x, 372, 26, 16, '9px 9px 3px 3px'));
+      }
+      for (let i = 0; i < s.coins; i++) {
+        ghosts.push(ghostBox(3, 566 + i * 18, 300 - (i % 2) * 8, 10, 10, '5px'));
+      }
+    }
+    const label = (n, x, y, text) => ({
+      n, text,
+      style: 'position: absolute; left: ' + x + 'px; top: ' + y + 'px; height: 20px; display: flex; align-items: center; gap: 6px; padding: 0 8px 0 2px; border-radius: 10px; background: rgba(16,18,22,0.94); box-shadow: 0 0 0 1px ' + (working(n) ? '#9b7bff' : '#3a2f5c') + '; color: #cbbcff; font-size: 11px; white-space: nowrap',
+      num: 'width: 16px; height: 16px; border-radius: 8px; display: flex; align-items: center; justify-content: center; background: #9b7bff; color: #101216; font-size: 10px; font-weight: 600',
+    });
+    const ghostLabels = [];
+    if (on(1)) ghostLabels.push(label(1, 412, 158, working(1) ? 'extending World tiles' : 'World +640 px'));
+    if (on(2)) ghostLabels.push(label(2, gate.gateX - 30, 300, 'gate · lever'));
+    if (on(3)) ghostLabels.push(label(3, 640, 416, s.slimes + ' slimes · ' + s.coins + ' coins'));
+    const tree = [
+      { name: 'Background', kind: 'tiles', depth: 0, color: '#4f8cff' },
+      { name: 'World', kind: 'tiles', depth: 0, color: '#4f8cff', step: 1 },
+      { name: 'Actors', kind: 'layer', depth: 0, color: '#8b92a0' },
+      { name: 'Knight', kind: 'sprite', depth: 1, color: '#e9a84a' },
+      { name: 'Door', kind: 'trigger', depth: 1, color: '#6b5a45' },
+      { name: 'slime_01', kind: 'prefab', depth: 1, color: '#3f8f63' },
+      { name: 'slime_02', kind: 'prefab', depth: 1, color: '#3f8f63' },
+      { name: 'gate', depth: 1, planned: 2 },
+      { name: 'lever', depth: 1, planned: 2 },
+      { name: 'slime_03 … slime_' + String(2 + s.slimes).padStart(2, '0'), depth: 1, planned: 3 },
+      { name: 'coins_room2 · ' + s.coins, depth: 1, planned: 3 },
+      { name: 'HUD', kind: 'screen', depth: 0, color: '#8b92a0' },
+    ].filter((n) => !n.planned || !s.removed[n.planned]).map((n) => {
+      const planned = !!n.planned;
+      const st = n.planned || (n.step && !s.removed[n.step] ? n.step : 0);
+      return {
+        ...n,
+        planned: !!st, existing: !st, step: st,
+        style: 'height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 6px; color: ' + (planned ? '#cbbcff' : '#b4bac6'),
+        indent: 'width: ' + (n.depth * 14) + 'px; flex: none',
+        dot: 'width: 7px; height: 7px; border-radius: 2px; flex: none; box-sizing: border-box; ' + (planned ? 'border: 1px dashed #9b7bff' : 'background: ' + n.color),
+        badge: 'width: 16px; height: 16px; border-radius: 8px; display: flex; align-items: center; justify-content: center; background: #241d3a; color: #cbbcff; font-size: 10px; font-weight: 600',
+      };
+    });
+    const editDef = defs.find((d) => d.n === s.editing);
+    let editRows = [];
+    if (editDef && editDef.editable === 'counts') {
+      editRows = [
+        { label: 'Slimes', value: s.slimes, hint: '1 to 6', lessLabel: 'Fewer slimes', moreLabel: 'More slimes', less: () => this.setState({ slimes: Math.max(1, s.slimes - 1) }), more: () => this.setState({ slimes: Math.min(6, s.slimes + 1) }) },
+        { label: 'Coins', value: s.coins, hint: '0 to 9', lessLabel: 'Fewer coins', moreLabel: 'More coins', less: () => this.setState({ coins: Math.max(0, s.coins - 1) }), more: () => this.setState({ coins: Math.min(9, s.coins + 1) }) },
+      ];
+    }
+    const approveDisabled = unanswered > 0;
+    const summaryParts = live.length + ' steps · ' + fileSet.length + ' files · ' + objects + ' objects · about 2 min · ~35k tokens';
+    return {
+      tree, files, ghosts, ghostLabels, q1opts, q2opts, steps, editRows,
+      plannedNodeCount: tree.filter((n) => n.planned).length,
+      fileCount: fileSet.length,
+      summary: summaryParts,
+      statusLine: 'Plan · ' + live.length + ' steps · ' + objects + ' objects',
+      pillStyle: 'height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: 14px; background: rgba(155,123,255,0.12); box-shadow: 0 0 0 1px #3a2f5c; color: #cbbcff',
+      pillDot: 'width: 7px; height: 7px; border-radius: 4px; background: #9b7bff' + (running ? '; box-shadow: 0 0 0 4px rgba(155,123,255,0.25)' : ''),
+      pillText: running ? 'Agent is working · step 1 of ' + live.length + ' · manual edits to planned objects are paused' : s.phase === 'stopped' ? 'Plan stopped · nothing was written' : 'Agent proposed a plan · waiting for you',
+      showQuestions: draft,
+      questionsTitle: unanswered === 0 ? 'Answers applied to the plan' : unanswered === 1 ? '1 question before I start' : '2 questions before I start',
+      q1Open: !s.q1 || s.reopen === 'q1', q1Done: !!s.q1 && s.reopen !== 'q1',
+      q2Open: !s.q2 || s.reopen === 'q2', q2Done: !!s.q2 && s.reopen !== 'q2',
+      q1Answer: q1 ? q1.label : '', q2Answer: q2 ? q2.label : '',
+      reopenQ1: () => this.setState({ reopen: 'q1' }), reopenQ2: () => this.setState({ reopen: 'q2' }),
+      showPicked: !draft,
+      pickedLine: (s.picked ? 'Picked for you: ' : 'Your answers: ') + 'gate ' + gate.label.toLowerCase() + ', lever ' + (q2 || q2defs[0]).label.toLowerCase() + '.',
+      editing: !!editDef,
+      editTitle: editDef ? 'EDIT STEP ' + editDef.n : '',
+      editPlaceholder: editDef && editDef.editable === 'counts' ? 'Or describe it, e.g. one slime on the ledge' : 'Tell the agent how to change this step',
+      closeEdit: () => this.setState({ editing: null }),
+      isDraft: draft, running, stopped: s.phase === 'stopped',
+      runningLine: 'Running step 1 of ' + live.length + ' · Esc stops',
+      approveDisabled: String(approveDisabled),
+      approveTitle: approveDisabled ? 'Answer the questions, or choose Just do it' : 'Approve and start',
+      approveStyle: 'height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 14px; border-radius: 8px; border: 0; font-weight: 500; ' + (approveDisabled ? 'background: #22262f; color: #8b92a0; cursor: not-allowed' : 'background: #3b7bff; color: #ffffff'),
+      approveKeyStyle: 'font-family: \'JetBrains Mono\', monospace; font-size: 11px; color: ' + (approveDisabled ? '#8b92a0' : 'rgba(255,255,255,0.8)'),
+      approve: () => { if (!approveDisabled || s.phase === 'stopped') this.setState({ phase: 'running', editing: null, reopen: null }); },
+      justDoIt: () => this.setState({ phase: 'running', picked: !s.q1 || !s.q2, q1: s.q1 || 'door', q2: s.q2 || 'open', editing: null, reopen: null }),
+      stop: () => this.setState({ phase: 'stopped' }),
+      backToDraft: () => this.setState({ phase: 'draft', picked: false }),
+      ghostsPressed: String(s.ghosts),
+      ghostBtnStyle: 'height: 28px; padding: 0 10px; border: 0; border-radius: 6px; ' + (s.ghosts ? 'background: #2a2f3a; color: #ffffff' : 'background: none; color: #b4bac6'),
+      toggleGhosts: () => this.setState({ ghosts: !s.ghosts }),
+    };
+  }
+}
+</script>
+</body>
+</html>

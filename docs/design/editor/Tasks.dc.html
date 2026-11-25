@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Background tasks</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#101216}
+a{color:#8fb3ff}a:hover{color:#b9cfff}
+.vp{background-color:#15181d;background-image:radial-gradient(circle,#2a2f38 1px,transparent 1.2px);background-size:16px 16px}
+button{font:inherit;cursor:pointer}
+input,textarea{font:inherit}
+input::placeholder,textarea::placeholder{color:#8B92A0}
+</style>
+</helmet>
+<div style="width: 2960px; height: 900px; display: flex; font-family: Inter, system-ui, sans-serif; font-size: 12.5px; color: #D9DDE5; background: #101216; overflow: hidden">
+
+  <div style="width: 1440px; height: 900px; flex: none; display: flex; flex-direction: column; border-right: 1px solid #1F232A">
+
+    <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 12px; border-bottom: 1px solid #1F232A">
+      <div style="display: flex; align-items: center; gap: 8px">
+        <div style="width: 22px; height: 22px; border-radius: 6px; background: #3B7BFF; display: flex; align-items: center; justify-content: center">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.5" aria-hidden="true"><path d="M5 19 12 5l7 14"></path></svg>
+        </div>
+        <span style="font-weight: 600; color: #FFFFFF">dungeon-run</span>
+        <span style="color: #8B92A0">/</span>
+        <span style="color: #B4BAC6">level_01</span>
+        <span style="width: 6px; height: 6px; border-radius: 3px; background: #E9A84A" aria-label="unsaved changes"></span>
+      </div>
+      <div style="flex: 1"></div>
+      <div style="display: flex; gap: 2px; padding: 3px; border-radius: 9px; background: #171A21; box-shadow: 0 0 0 1px #262B35">
+        <button aria-label="Select" title="Select · V" style="width: 32px; height: 28px; border-radius: 6px; border: 0; display: flex; align-items: center; justify-content: center; background: #262B35; color: #FFFFFF"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M5 3l14 8-6 2-2 6z"></path></svg></button>
+        <button aria-label="Move" title="Move · W" style="width: 32px; height: 28px; border-radius: 6px; border: 0; display: flex; align-items: center; justify-content: center; background: none; color: #8B92A0"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"></path></svg></button>
+        <button aria-label="Rotate" title="Rotate · E" style="width: 32px; height: 28px; border-radius: 6px; border: 0; display: flex; align-items: center; justify-content: center; background: none; color: #8B92A0"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-3-6.2"></path><path d="M20 4v5h-5"></path></svg></button>
+        <button aria-label="Scale" title="Scale · R" style="width: 32px; height: 28px; border-radius: 6px; border: 0; display: flex; align-items: center; justify-content: center; background: none; color: #8B92A0"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="4" y="10" width="10" height="10" rx="1.5"></rect><path d="M13 4h7v7M20 4l-8 8"></path></svg></button>
+        <button aria-label="Sketch" title="Sketch · D" style="width: 32px; height: 28px; border-radius: 6px; border: 0; display: flex; align-items: center; justify-content: center; background: none; color: #8B92A0"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20l4.5-1L19 8.5 15.5 5 5 15.5z"></path><path d="M13.5 7l3.5 3.5"></path></svg></button>
+      </div>
+      <div style="flex: 1"></div>
+      <button aria-label="History" title="History" style="width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; border-radius: 8px; border: 0; background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #B4BAC6">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"></path><path d="M3 4v5h5"></path><path d="M12 8v4l3 2"></path></svg>
+      </button>
+      <button style="height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-radius: 8px; border: 0; background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #B4BAC6">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+        <span>Search</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8B92A0">⌘K</span>
+      </button>
+      <button style="height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 14px; border-radius: 8px; border: 0; background: #FFFFFF; color: #101216; font-weight: 600">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 4l14 8-14 8z"></path></svg>Play
+      </button>
+    </div>
+
+    <div style="flex: 1; display: grid; grid-template-columns: 232px minmax(0, 1fr) 380px; min-height: 0">
+
+      <div style="display: flex; flex-direction: column; border-right: 1px solid #1F232A; min-height: 0">
+        <div style="height: 36px; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">
+          <span>SCENE</span><span style="font-weight: 500; letter-spacing: 0">11 nodes</span>
+        </div>
+        <div style="flex: 1; padding: 0 8px; display: flex; flex-direction: column; overflow: hidden">
+          <sc-for list="{{ tree }}" as="n" hint-placeholder-count="11">
+            <div style="{{ n.style }}">
+              <span style="{{ n.indent }}"></span>
+              <span style="{{ n.dot }}"></span>
+              <span style="flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ n.name }}</span>
+              <sc-if value="{{ n.hasTask }}" hint-placeholder-val="{{ false }}"><span style="{{ n.taskStyle }}">{{ n.task }}</span></sc-if>
+              <sc-if value="{{ n.noTask }}" hint-placeholder-val="{{ true }}"><span style="color: #8B92A0; font-size: 11px">{{ n.kind }}</span></sc-if>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; min-width: 0">
+        <div class="vp" style="flex: 1; position: relative; overflow: hidden">
+          <div style="position: absolute; left: 48px; top: 64px; width: 704px; height: 396px; border-radius: 4px; box-shadow: 0 0 0 1px #2C3240, 0 24px 60px rgba(0,0,0,0.45); background: linear-gradient(180deg,#1c2230 0%,#1a1f2a 70%,#181c24 100%)"></div>
+          <div style="position: absolute; left: 48px; top: 42px; font-size: 11px; color: #8B92A0">Camera · 640 × 360</div>
+          <div style="position: absolute; left: 48px; top: 396px; width: 312px; height: 64px; background: #2a2f3a; border-top: 3px solid #3b4250"></div>
+          <div style="position: absolute; left: 424px; top: 396px; width: 328px; height: 64px; background: #2a2f3a; border-top: 3px solid #3b4250"></div>
+          <div style="position: absolute; left: 470px; top: 320px; width: 150px; height: 14px; border-radius: 2px; background: #333a47"></div>
+          <div style="position: absolute; left: 112px; top: 350px; width: 26px; height: 46px; border-radius: 6px; background: #4f8cff"></div>
+          <div style="position: absolute; left: 652px; top: 356px; width: 30px; height: 40px; border-radius: 4px; background: #6b5a45"></div>
+
+          <svg width="200" height="90" viewBox="0 0 200 90" aria-hidden="true" style="position: absolute; left: 300px; top: 300px"><path d="M8 76 C 40 4, 120 4, 156 76" fill="none" stroke="#9B7BFF" stroke-width="1.8" stroke-dasharray="5 5"></path><path d="M148 70l8 6 2-10" fill="none" stroke="#9B7BFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+          <div style="position: absolute; left: 292px; top: 376px; width: 30px; height: 20px; border-radius: 10px 10px 4px 4px; background: #57a87a; outline: 1.5px solid #9B7BFF; outline-offset: 3px"></div>
+          <div style="position: absolute; left: 248px; top: 270px; height: 22px; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 4px; border-radius: 11px; background: rgba(16,18,22,0.94); box-shadow: 0 0 0 1px #3a2f5c; color: #D9DDE5; font-size: 11px">
+            <span style="width: 16px; height: 16px; border-radius: 8px; background: #9B7BFF; color: #101216; font-weight: 600; display: flex; align-items: center; justify-content: center; font-size: 10px">1</span>placing the jump arc
+          </div>
+
+          <div style="position: absolute; left: 196px; top: 376px; width: 30px; height: 20px; border-radius: 10px 10px 4px 4px; background: #57a87a; outline: 1.5px solid rgba(155,123,255,0.45); outline-offset: 3px"></div>
+          <div style="position: absolute; left: 530px; top: 300px; width: 30px; height: 20px; border-radius: 10px 10px 4px 4px; background: #57a87a; outline: 1.5px solid rgba(155,123,255,0.45); outline-offset: 3px"></div>
+          <div style="position: absolute; left: 496px; top: 262px; height: 22px; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 4px; border-radius: 11px; background: rgba(16,18,22,0.94); box-shadow: 0 0 0 1px #262B35; color: #B4BAC6; font-size: 11px">
+            <span style="width: 16px; height: 16px; border-radius: 8px; box-shadow: inset 0 0 0 1.5px #9B7BFF; color: #D9DDE5; font-weight: 600; display: flex; align-items: center; justify-content: center; font-size: 10px">2</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"></circle><path d="M12 7.5V12l3 2"></path></svg>waiting on slime_02
+          </div>
+
+          <div style="position: absolute; left: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 4px; padding: 8px 12px; border-radius: 12px; background: rgba(18,20,26,0.92); box-shadow: 0 0 0 1px #262B35; font-size: 11.5px; color: #B4BAC6">
+            <span style="display: flex; align-items: center; gap: 8px"><span style="width: 10px; height: 10px; border-radius: 2px; outline: 1.5px solid #9B7BFF"></span>task 1 editing</span>
+            <span style="display: flex; align-items: center; gap: 8px"><span style="width: 10px; height: 10px; border-radius: 2px; outline: 1.5px solid rgba(155,123,255,0.45)"></span>task 2 holding, not editing yet</span>
+          </div>
+        </div>
+        <div style="height: 32px; display: flex; align-items: center; gap: 16px; padding: 0 8px 0 16px; border-top: 1px solid #1F232A; color: #8B92A0; font-size: 11.5px">
+          <span>Layer Actors</span><span>292, 376</span><span>Select</span>
+          <div style="flex: 1"></div>
+          <span style="display: flex; align-items: center; gap: 8px"><span style="width: 6px; height: 6px; border-radius: 3px; background: #4FD38A"></span>No problems</span>
+          <button onClick="{{ toggleList }}" aria-label="{{ statusLabel }}" style="height: 24px; display: flex; align-items: center; gap: 12px; padding: 0 8px; border-radius: 6px; border: 0; background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #D9DDE5; font-size: 11.5px">
+            <span style="display: flex; align-items: center; gap: 4px"><span style="width: 6px; height: 6px; border-radius: 3px; background: #9B7BFF"></span>{{ runningCount }} running</span>
+            <span style="display: flex; align-items: center; gap: 4px; color: #F2C14E"><span style="width: 6px; height: 6px; border-radius: 3px; background: #F2C14E"></span>1 needs you</span>
+            <span style="display: flex; align-items: center; gap: 4px"><span style="width: 6px; height: 6px; border-radius: 3px; background: #3B7BFF"></span>{{ reviewCount }} to review</span>
+          </button>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; border-left: 1px solid #1F232A; min-height: 0; background: #12141A">
+        <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 16px; border-bottom: 1px solid #1F232A">
+          <span style="color: #FFFFFF; font-weight: 500">Agent</span>
+          <div style="flex: 1"></div>
+          <span title="Connected · Claude Code over MCP" style="display: flex; align-items: center; gap: 8px; padding: 0 8px; color: #8B92A0; font-size: 11.5px"><span style="width: 6px; height: 6px; border-radius: 3px; background: #4FD38A"></span>MCP</span>
+        </div>
+
+        <div style="flex: none; border-bottom: 1px solid #1F232A; background: #12141A">
+          <button onClick="{{ toggleList }}" aria-expanded="{{ listExpanded }}" style="width: 100%; box-sizing: border-box; height: 40px; display: flex; align-items: center; gap: 12px; padding: 0 16px; border: 0; background: none; color: #D9DDE5; text-align: left">
+            <span style="color: #FFFFFF; font-weight: 600">Tasks</span>
+            <span style="display: flex; align-items: center; gap: 4px; color: #B4BAC6; font-size: 11.5px"><span style="width: 6px; height: 6px; border-radius: 3px; background: #9B7BFF"></span>{{ runningCount }} running</span>
+            <span style="display: flex; align-items: center; gap: 4px; color: #F2C14E; font-size: 11.5px"><span style="width: 6px; height: 6px; border-radius: 3px; background: #F2C14E"></span>1 needs you</span>
+            <span style="display: flex; align-items: center; gap: 4px; color: #B4BAC6; font-size: 11.5px"><span style="width: 6px; height: 6px; border-radius: 3px; background: #3B7BFF"></span>{{ reviewCount }} to review</span>
+            <div style="flex: 1"></div>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#8B92A0" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="{{ chevronStyle }}"><path d="M6 9l6 6 6-6"></path></svg>
+          </button>
+          <sc-if value="{{ listOpen }}" hint-placeholder-val="{{ true }}">
+            <div style="padding: 0 8px 8px; display: flex; flex-direction: column">
+              <sc-for list="{{ rows }}" as="r" hint-placeholder-count="12">
+                <sc-if value="{{ r.isHead }}" hint-placeholder-val="{{ false }}">
+                  <div style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">
+                    <span style="flex: 1">{{ r.head }}</span>
+                    <sc-if value="{{ r.canDismiss }}" hint-placeholder-val="{{ false }}">
+                      <button onClick="{{ dismiss }}" aria-disabled="{{ dismissDisabled }}" style="{{ dismissStyle }}">Dismiss {{ selectedCount }}</button>
+                    </sc-if>
+                  </div>
+                </sc-if>
+                <sc-if value="{{ r.isItem }}" hint-placeholder-val="{{ true }}">
+                  <div style="{{ r.rowStyle }}">
+                    <sc-if value="{{ r.isReview }}" hint-placeholder-val="{{ false }}">
+                      <button role="checkbox" aria-checked="{{ r.checkedAttr }}" aria-label="{{ r.checkLabel }}" onClick="{{ r.check }}" style="width: 28px; height: 28px; flex: none; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: none">
+                        <span style="{{ r.box }}"><sc-if value="{{ r.checked }}" hint-placeholder-val="{{ true }}"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="3.5" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg></sc-if></span>
+                      </button>
+                    </sc-if>
+                    <button onClick="{{ r.focus }}" style="flex: 1; min-width: 0; height: 44px; display: flex; align-items: center; gap: 8px; padding: 0; border: 0; background: none; color: inherit; text-align: left">
+                      <span style="width: 16px; height: 16px; flex: none; display: flex; align-items: center; justify-content: center">
+                        <sc-if value="{{ r.isRun }}" hint-placeholder-val="{{ true }}"><span style="width: 14px; height: 14px; border-radius: 7px; border: 2px solid #9B7BFF; border-right-color: transparent; box-sizing: border-box"></span></sc-if>
+                        <sc-if value="{{ r.isBlocked }}" hint-placeholder-val="{{ false }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9B7BFF" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"></circle><path d="M12 7.5V12l3 2"></path></svg></sc-if>
+                        <sc-if value="{{ r.isNeeds }}" hint-placeholder-val="{{ false }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#F2C14E" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"></circle><path d="M12 7.5v5M12 16v.5"></path></svg></sc-if>
+                        <sc-if value="{{ r.isReview }}" hint-placeholder-val="{{ false }}"><span style="width: 8px; height: 8px; border-radius: 4px; background: #3B7BFF"></span></sc-if>
+                        <sc-if value="{{ r.isQueued }}" hint-placeholder-val="{{ false }}"><span style="width: 12px; height: 12px; border-radius: 6px; border: 1.5px dashed #8B92A0; box-sizing: border-box"></span></sc-if>
+                        <sc-if value="{{ r.isFailed }}" hint-placeholder-val="{{ false }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FF6B6B" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"></circle><path d="M9 9l6 6M15 9l-6 6"></path></svg></sc-if>
+                      </span>
+                      <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+                        <span style="color: #FFFFFF; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ r.title }}</span>
+                        <span style="{{ r.metaStyle }}">{{ r.meta }}</span>
+                      </span>
+                      <span style="color: #8B92A0; font-family: 'JetBrains Mono', monospace; font-size: 11px; flex: none">{{ r.time }}</span>
+                    </button>
+                    <sc-if value="{{ r.hasAction }}" hint-placeholder-val="{{ false }}">
+                      <button style="{{ r.actionStyle }}">{{ r.action }}</button>
+                    </sc-if>
+                  </div>
+                </sc-if>
+              </sc-for>
+            </div>
+          </sc-if>
+        </div>
+
+        <div style="flex: 1; min-height: 0; padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; overflow: hidden">
+          <div style="display: flex; align-items: center; gap: 8px; color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">
+            <span style="width: 16px; height: 16px; border-radius: 8px; background: #9B7BFF; color: #101216; display: flex; align-items: center; justify-content: center; font-size: 10px; letter-spacing: 0">1</span>{{ focusTitle }}
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px; color: #8B92A0"><span style="width: 14px; height: 14px; border-radius: 7px; background: #1f3a2b; display: flex; align-items: center; justify-content: center"><svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#4FD38A" stroke-width="4" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg></span>Measured the gap: 64 px from x 360 to 424</div>
+          <div style="display: flex; align-items: center; gap: 8px; color: #FFFFFF"><span style="width: 14px; height: 14px; border-radius: 7px; border: 2px solid #9B7BFF; border-right-color: transparent; box-sizing: border-box"></span>Adding a jump to slime_02's patrol · step 2 of 4</div>
+        </div>
+
+        <div style="padding: 12px; border-top: 1px solid #1F232A">
+          <div style="border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35; padding: 8px 8px 8px 12px; display: flex; flex-direction: column; gap: 8px">
+            <label for="task-prompt" style="position: absolute; left: -9999px">New request</label>
+            <textarea id="task-prompt" rows="1" placeholder="Ask for something else · it queues or runs beside task 1" style="height: 28px; resize: none; border: 0; background: none; color: #FFFFFF; outline: none; padding: 0; line-height: 28px">{{ draft }}</textarea>
+            <div style="display: flex; align-items: center; gap: 8px">
+              <div role="radiogroup" aria-label="When to start" style="display: flex; gap: 2px; padding: 2px; border-radius: 8px; background: #12141A; box-shadow: 0 0 0 1px #262B35">
+                <button role="radio" aria-checked="{{ queueChecked }}" onClick="{{ pickQueue }}" style="{{ queueStyle }}">Queue</button>
+                <button role="radio" aria-checked="{{ parallelChecked }}" onClick="{{ pickParallel }}" style="{{ parallelStyle }}">Run in parallel</button>
+              </div>
+              <div style="flex: 1"></div>
+              <button aria-label="Send" onClick="{{ send }}" style="width: 30px; height: 30px; border-radius: 8px; border: 0; background: #FFFFFF; color: #101216; display: flex; align-items: center; justify-content: center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"></path></svg></button>
+            </div>
+          </div>
+          <div style="margin-top: 8px; color: #8B92A0; font-size: 11.5px">{{ modeHint }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="flex: 1; min-width: 0; padding: 32px 40px; display: flex; flex-direction: column; gap: 24px">
+    <div style="display: flex; align-items: baseline; gap: 16px">
+      <span style="color: #FFFFFF; font-size: 20px; font-weight: 600">Background tasks</span>
+      <span style="color: #B4BAC6">Requests, plan steps and automations share one list. Only three events reach you outside the editor.</span>
+    </div>
+    <div style="flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(3, 380px); gap: 48px">
+
+      <div style="display: flex; flex-direction: column; gap: 12px">
+        <div style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">SYSTEM NOTIFICATIONS · ONLY THESE THREE</div>
+        <sc-for list="{{ notes }}" as="o" hint-placeholder-count="3">
+          <div style="border-radius: 18px; background: #171A21; box-shadow: 0 0 0 1px #262B35, 0 16px 40px rgba(0,0,0,0.5); padding: 12px; display: flex; gap: 12px">
+            <div style="width: 36px; height: 36px; flex: none; border-radius: 8px; background: #3B7BFF; display: flex; align-items: center; justify-content: center">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.5" aria-hidden="true"><path d="M5 19 12 5l7 14"></path></svg>
+            </div>
+            <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px">
+              <div style="display: flex; justify-content: space-between; color: #8B92A0; font-size: 11px"><span>NSGo Editor · dungeon-run</span><span>{{ o.when }}</span></div>
+              <div style="{{ o.titleStyle }}">{{ o.title }}</div>
+              <div style="color: #D9DDE5; line-height: 1.45">{{ o.body }}</div>
+              <div style="display: flex; gap: 8px; margin-top: 4px">
+                <button style="display: flex; align-items: center; justify-content: center; height: 28px; padding: 0 12px; border-radius: 8px; border: 0; background: #262B35; color: #FFFFFF; font-size: 11.5px">{{ o.primary }}</button>
+                <button style="display: flex; align-items: center; justify-content: center; height: 28px; padding: 0 12px; border-radius: 8px; border: 0; background: none; color: #B4BAC6; font-size: 11.5px">{{ o.secondary }}</button>
+              </div>
+            </div>
+          </div>
+        </sc-for>
+        <div style="color: #8B92A0; line-height: 1.55">Waiting for permission, ready to review, failed. Nothing else notifies: finished steps, queued starts and agent replies stay in the panel. A click opens the task in its scene, even from another window.</div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 12px">
+        <div style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">DOCK BADGE</div>
+        <div style="height: 112px; border-radius: 12px; background: #12141A; box-shadow: 0 0 0 1px #1F232A; display: flex; align-items: center; gap: 24px; padding: 0 24px">
+          <div style="position: relative; width: 64px; height: 64px; border-radius: 16px; background: linear-gradient(160deg,#4d88ff,#2f62d6); display: flex; align-items: center; justify-content: center; box-shadow: 0 8px 20px rgba(0,0,0,0.4)">
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.5" aria-hidden="true"><path d="M5 19 12 5l7 14"></path></svg>
+            <span style="position: absolute; right: -8px; top: -8px; min-width: 24px; height: 24px; padding: 0 4px; box-sizing: border-box; border-radius: 12px; background: #FF6B6B; color: #FFFFFF; font-weight: 600; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 2px #12141A">4</span>
+          </div>
+          <div style="flex: 1; color: #B4BAC6; line-height: 1.55">1 waiting for permission, 2 ready to review, 1 failed. Running and queued tasks never add to the badge.</div>
+        </div>
+        <div style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; margin-top: 12px">DURING PLAY</div>
+        <div style="position: relative; height: 214px; border-radius: 12px; overflow: hidden; background: linear-gradient(180deg,#1c2230 0%,#1a1f2a 70%,#181c24 100%); box-shadow: 0 0 0 1px #262B35">
+          <div style="position: absolute; left: 0; right: 0; bottom: 0; height: 40px; background: #2a2f3a; border-top: 3px solid #3b4250"></div>
+          <div style="position: absolute; left: 70px; bottom: 40px; width: 16px; height: 28px; border-radius: 4px; background: #4f8cff"></div>
+          <div style="position: absolute; left: 180px; bottom: 40px; width: 20px; height: 13px; border-radius: 7px 7px 3px 3px; background: #57a87a"></div>
+          <div style="position: absolute; left: 12px; top: 12px; display: flex; gap: 4px">
+            <span style="width: 12px; height: 11px; border-radius: 3px; background: #ff6b6b"></span><span style="width: 12px; height: 11px; border-radius: 3px; background: #ff6b6b"></span><span style="width: 12px; height: 11px; border-radius: 3px; background: #3b4250"></span>
+          </div>
+          <span aria-label="1 task needs you" style="position: absolute; right: 12px; top: 12px; width: 8px; height: 8px; border-radius: 4px; background: #F2C14E; box-shadow: 0 0 0 3px rgba(242,193,78,0.25)"></span>
+          <div style="position: absolute; right: 28px; top: 6px; height: 22px; display: flex; align-items: center; padding: 0 8px; border-radius: 6px; background: rgba(16,18,22,0.94); box-shadow: 0 0 0 1px #262B35; color: #D9DDE5; font-size: 11px">1 task needs you · stop Play to open</div>
+        </div>
+        <div style="color: #8B92A0; line-height: 1.55">Nothing pops over a running game. One dot in the corner, in the color of the most urgent state; the label shows only on hover. System notifications wait until Play stops.</div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 12px">
+        <div style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">STATUS BAR INDICATOR</div>
+        <sc-for list="{{ bars }}" as="b" hint-placeholder-count="4">
+          <div style="display: flex; flex-direction: column; gap: 4px">
+            <div style="height: 32px; border-radius: 8px; background: #101216; box-shadow: 0 0 0 1px #1F232A; display: flex; align-items: center; justify-content: flex-end; padding: 0 4px; color: #8B92A0; font-size: 11.5px">
+              <span style="height: 24px; display: flex; align-items: center; gap: 12px; padding: 0 8px; border-radius: 6px; background: #171A21; box-shadow: 0 0 0 1px #262B35">
+                <sc-for list="{{ b.parts }}" as="q" hint-placeholder-count="2">
+                  <span style="display: flex; align-items: center; gap: 4px; color: {{ q.text }}"><span style="width: 6px; height: 6px; border-radius: 3px; background: {{ q.dot }}"></span>{{ q.label }}</span>
+                </sc-for>
+              </span>
+            </div>
+            <div style="color: #8B92A0; font-size: 11.5px">{{ b.note }}</div>
+          </div>
+        </sc-for>
+        <div style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; margin-top: 12px">QUEUE OR PARALLEL</div>
+        <div style="display: flex; flex-direction: column; gap: 8px; color: #B4BAC6; line-height: 1.55">
+          <div><span style="color: #FFFFFF; font-weight: 500">Queue</span> starts the request when the running one is kept or reverted, so it builds on the reviewed scene.</div>
+          <div><span style="color: #FFFFFF; font-weight: 500">Run in parallel</span> starts now with its own numbered overlay. When it needs an object another task is editing, it holds and says which one, then continues by itself.</div>
+          <div><span style="color: #FFFFFF; font-weight: 500">Automations</span> land in Ready to review like any request. Select several to dismiss them together; dismissing reverts nothing that was never kept.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":2960,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { open: true, focus: 't1', picked: ['t4'], gone: [], mode: 'queue', sent: false };
+  }
+  renderVals() {
+    const s = this.state;
+    const treeDefs = [
+      { name: 'World', kind: 'tiles', depth: 0, color: '#4f8cff' },
+      { name: 'Actors', kind: 'layer', depth: 0, color: '#8B92A0' },
+      { name: 'Player', kind: 'prefab', depth: 1, color: '#4f8cff' },
+      { name: 'Knight', kind: 'sprite', depth: 1, color: '#e9a84a' },
+      { name: 'Door', kind: 'trigger', depth: 1, color: '#6b5a45' },
+      { name: 'slime_01', kind: 'prefab', depth: 1, color: '#57a87a', task: '2 · holding', wait: true },
+      { name: 'slime_02', kind: 'prefab', depth: 1, color: '#57a87a', task: '1 · editing', sel: true },
+      { name: 'slime_03', kind: 'prefab', depth: 1, color: '#57a87a', task: '2 · holding', wait: true },
+      { name: 'coins', kind: 'group', depth: 1, color: '#f2d04b' },
+      { name: 'Background', kind: 'tiles', depth: 0, color: '#4f8cff' },
+      { name: 'HUD', kind: 'screen', depth: 0, color: '#8B92A0' },
+    ];
+    const tree = treeDefs.map((n) => ({
+      ...n,
+      hasTask: !!n.task, noTask: !n.task,
+      style: 'height: 28px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 6px; ' + (n.sel ? 'background: rgba(155,123,255,0.10); color: #FFFFFF' : 'color: #B4BAC6'),
+      indent: 'width: ' + (n.depth * 12) + 'px; flex: none',
+      dot: 'width: 7px; height: 7px; border-radius: 2px; flex: none; background: ' + n.color,
+      taskStyle: 'font-size: 11px; color: ' + (n.wait ? '#8B92A0' : '#C9BCFF'),
+    }));
+
+    const defs = [
+      { id: 't3', group: 'needs', title: 'Torches around the boss arena', meta: 'Plan step 2 of 5 · wants to run the game · boss_room', time: '1:12', action: 'Open' },
+      { id: 't1', group: 'running', title: 'slime_02 jumps the gap at x 360', meta: 'You · step 2 of 4 · level_01', time: '0:38' },
+      { id: 't2', group: 'running', title: 'All slimes 20% faster', meta: 'You · parallel · waiting on slime_02', time: '0:12', blocked: true },
+      { id: 't4', group: 'review', title: 'Nightly: fix game check warnings', meta: 'Automation · 3 changes · level_02', time: '02:00' },
+      { id: 't5', group: 'review', title: 'Translate HUD strings to Japanese', meta: 'Automation · 12 changes · locale/ja.yaml', time: '02:10' },
+      { id: 't6', group: 'queued', title: 'Coin pickup sound a little higher', meta: 'You · starts after task 1', time: '' },
+      { id: 't7', group: 'failed', title: 'Bake normals for the cave tiles', meta: 'Automation · asset tool exited with code 1', time: '01:30', action: 'Retry' },
+    ];
+    if (s.sent) {
+      defs.push(s.mode === 'queue'
+        ? { id: 't8', group: 'queued', title: 'Add a lever beside the door', meta: 'You · starts after the coin sound', time: '' }
+        : { id: 't8', group: 'running', title: 'Add a lever beside the door', meta: 'You · parallel · step 1 of 3', time: '0:01' });
+    }
+    const live = defs.filter((d) => s.gone.indexOf(d.id) < 0);
+    const groups = [
+      { id: 'needs', head: 'NEEDS YOU' }, { id: 'running', head: 'RUNNING' }, { id: 'review', head: 'READY TO REVIEW' },
+      { id: 'queued', head: 'QUEUED' }, { id: 'failed', head: 'FAILED' },
+    ];
+    const rows = [];
+    groups.forEach((g) => {
+      const items = live.filter((d) => d.group === g.id);
+      if (!items.length) return;
+      rows.push({ isHead: true, isItem: false, head: g.head + ' · ' + items.length, canDismiss: g.id === 'review' });
+      items.forEach((d) => {
+        const checked = s.picked.indexOf(d.id) >= 0;
+        const focused = s.focus === d.id;
+        rows.push({
+          ...d,
+          isHead: false, isItem: true,
+          isRun: d.group === 'running' && !d.blocked, isBlocked: !!d.blocked, isNeeds: d.group === 'needs',
+          isReview: d.group === 'review', isQueued: d.group === 'queued', isFailed: d.group === 'failed',
+          hasAction: !!d.action,
+          checked, checkedAttr: checked ? 'true' : 'false',
+          checkLabel: 'Select “' + d.title + '”',
+          check: () => this.setState({ picked: checked ? s.picked.filter((x) => x !== d.id) : s.picked.concat([d.id]) }),
+          box: 'width: 14px; height: 14px; border-radius: 4px; display: flex; align-items: center; justify-content: center; box-sizing: border-box; ' + (checked ? 'background: #3B7BFF' : 'box-shadow: inset 0 0 0 1.5px #8B92A0'),
+          rowStyle: 'display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 8px; ' + (d.group === 'review' ? 'padding-left: 0; ' : '') + (focused ? 'background: #1C2638' : ''),
+          metaStyle: 'font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: ' + (d.group === 'needs' ? '#F2C14E' : d.group === 'failed' ? '#FF6B6B' : '#8B92A0'),
+          actionStyle: 'height: 28px; display: flex; align-items: center; padding: 0 12px; flex: none; border-radius: 8px; border: 0; font-size: 11.5px; ' + (d.group === 'needs' ? 'background: #2A2414; box-shadow: 0 0 0 1px #4A3F1F; color: #F2C14E' : 'background: #262B35; color: #FFFFFF'),
+          focus: () => this.setState({ focus: d.id }),
+        });
+      });
+    });
+    const selected = s.picked.filter((id) => s.gone.indexOf(id) < 0);
+    const focusDef = defs.find((d) => d.id === s.focus) || defs[1];
+
+    const notes = [
+      { when: 'now', title: 'Allow the agent to run the game?', body: 'Torches around the boss arena wants to play boss_room headless for 10 s.', primary: 'Allow once', secondary: 'Open', titleStyle: 'color: #F2C14E; font-weight: 600' },
+      { when: '2 min ago', title: 'Ready to review', body: 'Nightly: fix game check warnings · 3 changes in level_02.scene.yaml.', primary: 'Review', secondary: 'Later', titleStyle: 'color: #FFFFFF; font-weight: 600' },
+      { when: '01:30', title: 'Task failed', body: 'Bake normals for the cave tiles · the asset tool exited with code 1 at step 2 of 3. Nothing was changed.', primary: 'Open', secondary: 'Retry', titleStyle: 'color: #FF6B6B; font-weight: 600' },
+    ];
+    const P = (label, dot, text) => ({ label, dot, text: text || '#D9DDE5' });
+    const bars = [
+      { parts: [P('No tasks', '#262B35', '#8B92A0')], note: 'Idle. Click opens the task list anyway.' },
+      { parts: [P('1 running · 0:38', '#9B7BFF')], note: 'One task. Elapsed time instead of counts.' },
+      { parts: [P('2 running', '#9B7BFF'), P('1 needs you', '#F2C14E', '#F2C14E'), P('2 to review', '#3B7BFF')], note: 'Mixed. Most urgent first; zero counts drop out.' },
+      { parts: [P('1 failed', '#FF6B6B', '#FF6B6B'), P('2 to review', '#3B7BFF')], note: 'Failed stays until opened or dismissed.' },
+    ];
+
+    const seg = (on) => 'height: 26px; display: flex; align-items: center; padding: 0 10px; border-radius: 6px; border: 0; font-size: 11.5px; ' + (on ? 'background: #262B35; color: #FFFFFF; font-weight: 500' : 'background: none; color: #B4BAC6');
+    const running = live.filter((d) => d.group === 'running').length;
+    const review = live.filter((d) => d.group === 'review').length;
+    return {
+      tree, rows, notes, bars,
+      runningCount: running, reviewCount: review,
+      statusLabel: running + ' running, 1 needs you, ' + review + ' to review. Show tasks',
+      listOpen: s.open,
+      listExpanded: s.open ? 'true' : 'false',
+      chevronStyle: 'flex: none; transform: rotate(' + (s.open ? '180deg' : '0deg') + ')',
+      toggleList: () => this.setState({ open: !s.open }),
+      selectedCount: selected.length,
+      dismissDisabled: selected.length === 0 ? 'true' : 'false',
+      dismissStyle: 'height: 22px; display: flex; align-items: center; padding: 0 8px; border-radius: 6px; border: 0; font-size: 11px; font-weight: 500; letter-spacing: 0; ' + (selected.length ? 'background: #262B35; color: #FFFFFF' : 'background: none; color: #8B92A0'),
+      dismiss: () => this.setState({ gone: s.gone.concat(selected), picked: [] }),
+      focusTitle: focusDef.title.toUpperCase(),
+      draft: s.sent ? '' : 'Add a lever beside the door',
+      queueChecked: s.mode === 'queue' ? 'true' : 'false',
+      parallelChecked: s.mode === 'parallel' ? 'true' : 'false',
+      queueStyle: seg(s.mode === 'queue'), parallelStyle: seg(s.mode === 'parallel'),
+      pickQueue: () => this.setState({ mode: 'queue' }), pickParallel: () => this.setState({ mode: 'parallel' }),
+      modeHint: s.mode === 'queue' ? 'Starts after task 1 is kept or reverted, behind 1 queued' : 'Starts now beside task 1; holds if it needs slime_02',
+      send: () => this.setState({ sent: true }),
+    };
+  }
+}
+</script>
+</body>
+</html>

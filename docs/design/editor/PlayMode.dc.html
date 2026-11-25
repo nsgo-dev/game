@@ -1,0 +1,606 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Play mode</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#101216}
+a{color:#8fb3ff}a:hover{color:#b9cfff}
+button{font:inherit;cursor:pointer}
+textarea{font:inherit}
+</style>
+</helmet>
+<div style="height: 900px; display: flex; flex-direction: column; font-family: Inter, system-ui, sans-serif; font-size: 12.5px; color: #D9DDE5; background: #101216; overflow: hidden">
+
+  <div style="{{ headerStyle }}">
+    <div style="display: flex; align-items: center; gap: 8px">
+      <div style="width: 22px; height: 22px; border-radius: 6px; background: #3B7BFF; display: flex; align-items: center; justify-content: center">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.5" aria-hidden="true"><path d="M5 19 12 5l7 14"></path></svg>
+      </div>
+      <span style="font-weight: 600; color: #FFFFFF">dungeon-run</span>
+      <span style="color: #8B92A0">/</span>
+      <span style="color: #B4BAC6">level_01</span>
+    </div>
+    <span role="status" style="{{ pillStyle }}"><span style="{{ pillDot }}"></span>{{ pillText }}</span>
+    <div style="flex: 1"></div>
+
+    <div style="display: flex; align-items: center; gap: 2px; padding: 3px; border-radius: 8px; background: #171A21; box-shadow: 0 0 0 1px #262B35">
+      <button aria-label="{{ pauseLabel }}" title="{{ pauseTitle }}" onClick="{{ togglePause }}" style="width: 32px; height: 28px; border-radius: 6px; border: 0; display: flex; align-items: center; justify-content: center; background: none; color: #FFFFFF">
+        <sc-if value="{{ running }}" hint-placeholder-val="{{ true }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"></rect><rect x="14" y="5" width="4" height="14" rx="1"></rect></svg></sc-if>
+        <sc-if value="{{ paused }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M7 5l12 7-12 7z"></path></svg></sc-if>
+      </button>
+      <button aria-label="Step one frame" aria-disabled="{{ stepDisabled }}" title="Step one frame · . while paused" onClick="{{ step }}" style="{{ stepStyle }}">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 5l9 7-9 7z"></path><path d="M18 5v14"></path></svg>
+      </button>
+      <span style="width: 1px; height: 16px; background: #262B35; margin: 0 4px"></span>
+      <span id="time-scale" style="position: absolute; left: -9999px">Time scale</span>
+      <div role="group" aria-labelledby="time-scale" style="display: flex; gap: 2px">
+        <sc-for list="{{ scales }}" as="sc" hint-placeholder-count="4">
+          <button aria-pressed="{{ sc.pressed }}" onClick="{{ sc.pick }}" style="{{ sc.style }}">{{ sc.label }}</button>
+        </sc-for>
+      </div>
+    </div>
+
+    <div style="flex: 1"></div>
+    <button onClick="{{ addMark }}" title="Mark this moment without stopping · ⌥F" style="height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: 8px; border: 0; background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #D9DDE5">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 21V4"></path><path d="M5 4h11l-2 4 2 4H5"></path></svg>
+      Mark
+      <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8B92A0">⌥F</span>
+      <span style="min-width: 18px; height: 18px; padding: 0 4px; box-sizing: border-box; border-radius: 9px; background: #262B35; color: #FFFFFF; font-size: 11px; display: flex; align-items: center; justify-content: center">{{ markCount }}</span>
+    </button>
+    <button aria-label="Pop out the game into its own window" title="Pop out the game window" style="width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; border-radius: 8px; border: 0; background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #B4BAC6">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6"></path><path d="M20 4l-8 8"></path><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"></path></svg>
+    </button>
+    <button title="Stop and return to editing · ⌘P" style="height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: 8px; border: 0; background: #FFFFFF; color: #101216; font-weight: 600">
+      <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"></rect></svg>Stop
+      <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 500; color: rgba(16,18,22,0.6)">⌘P</span>
+    </button>
+  </div>
+
+  <div style="flex: 1; display: grid; grid-template-columns: 232px minmax(0, 1fr) 380px; min-height: 0">
+
+    <div style="display: flex; flex-direction: column; border-right: 1px solid #1F232A; min-height: 0">
+      <div style="height: 36px; flex: none; display: flex; align-items: center; justify-content: space-between; padding: 0 12px">
+        <span style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">LIVE ENTITIES</span>
+        <span style="color: #8B92A0; font-size: 11.5px">40 · 2 spawned</span>
+      </div>
+      <div style="flex: 1; padding: 0 8px; overflow: hidden; display: flex; flex-direction: column">
+        <sc-for list="{{ tree }}" as="n" hint-placeholder-count="16">
+          <sc-if value="{{ n.isHead }}" hint-placeholder-val="{{ false }}">
+            <div style="height: 28px; flex: none; display: flex; align-items: flex-end; padding: 0 8px 4px; color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">{{ n.name }}</div>
+          </sc-if>
+          <sc-if value="{{ n.isNode }}" hint-placeholder-val="{{ true }}">
+            <button onClick="{{ n.pick }}" aria-pressed="{{ n.pressed }}" style="{{ n.style }}">
+              <span style="{{ n.indent }}"></span>
+              <span style="{{ n.dot }}"></span>
+              <span style="{{ n.nameStyle }}">{{ n.name }}</span>
+              <span style="{{ n.metaStyle }}">{{ n.meta }}</span>
+            </button>
+          </sc-if>
+        </sc-for>
+      </div>
+      <div style="flex: none; padding: 12px; border-top: 1px solid #1F232A; display: flex; flex-direction: column; gap: 4px">
+        <div style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">REPLAY</div>
+        <div style="color: #D9DDE5">Last 60 s kept · 3 600 frames</div>
+        <div style="color: #8B92A0; font-size: 11.5px; line-height: 1.5">Saved as an input recording when you mark or ask</div>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #B4BAC6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">replays/level_01-1407.replay.yaml</div>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; min-width: 0; min-height: 0">
+      <div style="flex: 1; position: relative; overflow: hidden; background: #101216">
+        <div style="position: absolute; left: 30px; top: 16px; right: 30px; height: 30px; display: flex; align-items: center; gap: 12px">
+          <span style="color: #8B92A0; font-size: 11.5px">Game view · 640 × 360 at 120%</span>
+          <div style="flex: 1"></div>
+          <button onClick="{{ openAsk }}" style="height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: 8px; border: 0; background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #D9DDE5">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9B7BFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"></path><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"></path></svg>
+            Something looks wrong
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8B92A0">⌘L</span>
+          </button>
+        </div>
+
+        <div style="{{ frameStyle }}">
+          <div style="position: absolute; left: 0; top: 0; right: 0; bottom: 72px; background: linear-gradient(180deg,#1c2230 0%,#1a1f2a 70%,#181c24 100%)"></div>
+          <div style="position: absolute; left: 48px; top: 120px; width: 60px; height: 36px; border-radius: 3px; background: #222836"></div>
+          <div style="position: absolute; left: 560px; top: 84px; width: 84px; height: 48px; border-radius: 3px; background: #222836"></div>
+          <div style="position: absolute; left: 0; right: 0; bottom: 0; height: 72px; background: #2a2f3a; border-top: 3px solid #3b4250"></div>
+          <div style="position: absolute; left: 300px; top: 270px; width: 190px; height: 12px; border-radius: 2px; background: #333a47"></div>
+          <div style="position: absolute; left: 664px; top: 312px; width: 36px; height: 48px; border-radius: 4px; background: #6b5a45"></div>
+          <div style="position: absolute; left: 612px; top: 340px; width: 6px; height: 20px; border-radius: 2px; background: #8a7a5c; transform: rotate(-24deg); transform-origin: bottom center"></div>
+          <div style="position: absolute; left: 604px; top: 354px; width: 20px; height: 6px; border-radius: 2px; background: #4a4438"></div>
+          <div style="position: absolute; left: 96px; top: 340px; width: 30px; height: 20px; border-radius: 10px 10px 4px 4px; background: #5f9e6e"></div>
+          <div style="position: absolute; left: 404px; top: 340px; width: 30px; height: 20px; border-radius: 10px 10px 4px 4px; background: #5f9e6e"></div>
+          <div style="position: absolute; left: 446px; top: 254px; width: 30px; height: 16px; border-radius: 10px 10px 4px 4px; background: #4c7a59"></div>
+          <div style="position: absolute; left: 372px; top: 240px; width: 12px; height: 12px; border-radius: 6px; background: #f2d04b"></div>
+          <div style="position: absolute; left: 520px; top: 196px; width: 12px; height: 12px; border-radius: 6px; background: #f2d04b"></div>
+
+          <sc-if value="{{ showArc }}" hint-placeholder-val="{{ true }}">
+            <svg width="768" height="432" viewBox="0 0 768 432" style="position: absolute; left: 0; top: 0" aria-hidden="true">
+              <path d="{{ baseArc }}" fill="none" stroke="#8B92A0" stroke-width="1.2" stroke-dasharray="2 4"></path>
+              <path d="{{ liveArc }}" fill="none" stroke="#E9A84A" stroke-width="1.5" stroke-dasharray="5 4"></path>
+            </svg>
+            <div style="{{ apexChip }}">apex {{ apexText }} px · plank at 75 px</div>
+          </sc-if>
+
+          <div style="{{ knightStyle }}"></div>
+          <sc-if value="{{ knightSelected }}" hint-placeholder-val="{{ true }}">
+            <div style="{{ knightRing }}"></div>
+            <div style="{{ knightLabel }}">Knight<sc-if value="{{ knightEdited }}" hint-placeholder-val="{{ true }}"><span style="height: 14px; display: inline-flex; align-items: center; padding: 0 4px; margin-left: 4px; border-radius: 4px; outline: 1px dashed #E9A84A; color: #FFFFFF; font-size: 10px">live edit</span></sc-if></div>
+          </sc-if>
+
+          <sc-if value="{{ sent }}" hint-placeholder-val="{{ false }}">
+            <div style="position: absolute; left: 288px; top: 256px; width: 30px; height: 32px; border-radius: 6px; box-shadow: 0 0 0 1.5px #9B7BFF; background: rgba(155,123,255,0.10)"></div>
+            <div style="position: absolute; left: 288px; top: 294px; height: 20px; display: flex; align-items: center; padding: 0 8px; border-radius: 10px; background: rgba(16,18,22,0.92); box-shadow: 0 0 0 1px rgba(155,123,255,0.5); color: #D9DDE5; font-size: 11px; white-space: nowrap">agent stepping frames 4 800–4 812</div>
+          </sc-if>
+
+          <div style="position: absolute; left: 16px; top: 12px; display: flex; align-items: center; gap: 4px">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="#ff6b6b" aria-hidden="true"><path d="M12 21s-7.5-4.6-9.3-9.2C1.4 8.4 3.6 5 7 5c2 0 3.5 1.1 5 3 1.5-1.9 3-3 5-3 3.4 0 5.6 3.4 4.3 6.8C19.5 16.4 12 21 12 21z"></path></svg>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="#ff6b6b" aria-hidden="true"><path d="M12 21s-7.5-4.6-9.3-9.2C1.4 8.4 3.6 5 7 5c2 0 3.5 1.1 5 3 1.5-1.9 3-3 5-3 3.4 0 5.6 3.4 4.3 6.8C19.5 16.4 12 21 12 21z"></path></svg>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6b4a4a" stroke-width="2" aria-hidden="true"><path d="M12 21s-7.5-4.6-9.3-9.2C1.4 8.4 3.6 5 7 5c2 0 3.5 1.1 5 3 1.5-1.9 3-3 5-3 3.4 0 5.6 3.4 4.3 6.8C19.5 16.4 12 21 12 21z"></path></svg>
+            <span style="width: 12px"></span>
+            <span style="width: 12px; height: 12px; border-radius: 6px; background: #f2d04b"></span>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #FFFFFF">× 4</span>
+          </div>
+        </div>
+
+        <div style="{{ hintStyle }}">{{ hintText }}</div>
+
+        <sc-if value="{{ ask }}" hint-placeholder-val="{{ false }}">
+          <div role="dialog" aria-labelledby="ask-title" style="position: absolute; right: 24px; top: 92px; width: 344px; border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35, 0 20px 50px rgba(0,0,0,0.55); padding: 12px; display: flex; flex-direction: column; gap: 12px">
+            <div style="display: flex; align-items: center; gap: 8px">
+              <span id="ask-title" style="flex: 1; color: #FFFFFF; font-weight: 600; font-size: 14px">Ask about frame {{ frameText }}</span>
+              <span style="color: #8B92A0; font-size: 11.5px">game frozen</span>
+            </div>
+            <div style="display: flex; gap: 4px; flex-wrap: wrap">
+              <sc-for list="{{ attachments }}" as="at" hint-placeholder-count="4">
+                <span style="height: 22px; display: flex; align-items: center; gap: 4px; padding: 0 8px; border-radius: 6px; background: #12141A; box-shadow: 0 0 0 1px #262B35; color: #B4BAC6; font-size: 11.5px"><span style="{{ at.dot }}"></span>{{ at.text }}</span>
+              </sc-for>
+            </div>
+            <label for="ask-text" style="position: absolute; left: -9999px">What looks wrong?</label>
+            <textarea id="ask-text" rows="3" placeholder="What looks wrong? e.g. the slime walks through the wall" style="resize: none; padding: 8px 12px; border-radius: 8px; border: 0; outline: none; background: #12141A; box-shadow: 0 0 0 1px #3B7BFF; color: #FFFFFF; line-height: 1.5">The knight snags on the plank's left edge when he lands short, and stops dead.</textarea>
+            <div style="display: flex; align-items: center; gap: 8px">
+              <span style="flex: 1; color: #8B92A0; font-size: 11.5px">A fix comes back as a review</span>
+              <button onClick="{{ closeAsk }}" style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: none; color: #B4BAC6">Cancel</button>
+              <button onClick="{{ sendAsk }}" style="height: 30px; padding: 0 16px; border-radius: 8px; border: 0; background: #3B7BFF; color: #FFFFFF; font-weight: 500">Ask</button>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ out }}" hint-placeholder-val="{{ false }}">
+          <div role="region" aria-label="Output" style="position: absolute; left: 0; right: 0; bottom: 0; height: 276px; background: #12141A; box-shadow: 0 -1px 0 #1F232A, 0 -16px 40px rgba(0,0,0,0.35); display: flex; flex-direction: column">
+            <div style="height: 36px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 16px; border-bottom: 1px solid #1F232A">
+              <span style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">OUTPUT</span>
+              <span style="color: #8B92A0; font-size: 11.5px">run 3 · started 14:06:31</span>
+              <div style="flex: 1"></div>
+              <button aria-label="Close output" onClick="{{ toggleOut }}" style="width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 6px; border: 0; background: none; color: #B4BAC6">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+              </button>
+            </div>
+            <div style="flex: 1; padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; overflow: hidden">
+              <div style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; line-height: 1.7; color: #B4BAC6">
+                <div><span style="color: #8B92A0">14:06:31</span>  level_01 loaded · 38 entities from the scene</div>
+                <div><span style="color: #8B92A0">14:07:12</span>  room_03 tiles streamed in · 11.4 ms</div>
+              </div>
+              <div style="border-radius: 12px; background: rgba(255,107,107,0.06); box-shadow: 0 0 0 1px rgba(255,107,107,0.5); padding: 12px; display: flex; flex-direction: column; gap: 8px">
+                <div style="display: flex; align-items: center; gap: 8px">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FF6B6B" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l9.5 17h-19z"></path><path d="M12 10v4"></path><path d="M12 17.5v.01"></path></svg>
+                  <span style="color: #FFFFFF; font-weight: 500">Run 2 stopped on a panic</span>
+                  <span style="color: #8B92A0; font-size: 11.5px">14:02:17 · frame 2 940</span>
+                </div>
+                <div style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #FF6B6B">panic: runtime error: index out of range [3] with length 3</div>
+                <div style="display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 16px; font-family: 'JetBrains Mono', monospace; font-size: 11.5px">
+                  <span style="color: #D9DDE5">lever.(*System).toggle</span><a href="#game/lever/system.go:83">game/lever/system.go:83</a>
+                  <span style="color: #D9DDE5">lever.(*System).Update</span><a href="#game/lever/system.go:57">game/lever/system.go:57</a>
+                  <span style="color: #8B92A0">4 frames in the game runtime</span><button style="justify-self: end; height: 20px; padding: 0; border: 0; background: none; color: #8fb3ff; font-family: Inter, system-ui, sans-serif; font-size: 11.5px">Show</button>
+                </div>
+                <div style="display: flex; gap: 8px">
+                  <button style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #3B7BFF; color: #FFFFFF; font-weight: 500">Ask the agent to fix</button>
+                  <button style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #D9DDE5">Replay up to the panic</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+
+      <div style="height: 176px; flex: none; box-sizing: border-box; border-top: 1px solid #1F232A; background: #12141A; padding: 12px 16px; display: flex; flex-direction: column; gap: 8px">
+        <div style="height: 20px; display: flex; align-items: center; gap: 12px">
+          <span style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">FRAME TIME · LAST 60 S</span>
+          <span style="color: #D9DDE5">avg 4.1 ms</span>
+          <span style="color: #B4BAC6">p99 6.0 ms</span>
+          <span style="color: #B4BAC6">0 allocs/frame</span>
+          <div style="flex: 1"></div>
+          <span style="display: flex; align-items: center; gap: 4px; color: #8B92A0; font-size: 11.5px"><span style="width: 8px; height: 8px; border-radius: 2px; background: #F2C14E"></span>over 8.3 ms</span>
+          <span style="display: flex; align-items: center; gap: 4px; color: #8B92A0; font-size: 11.5px"><span style="width: 8px; height: 8px; border-radius: 2px; background: #FF6B6B"></span>missed 16.7 ms</span>
+        </div>
+        <div style="position: relative; height: 96px">
+          <div style="position: absolute; left: 0; right: 0; bottom: 66px; height: 0; border-top: 1px solid #262B35"></div>
+          <span style="position: absolute; left: 0; bottom: 68px; font-size: 11px; color: #8B92A0">16.7 ms</span>
+          <div style="position: absolute; left: 0; right: 0; bottom: 0; height: 80px; display: flex; align-items: flex-end; gap: 1px">
+            <sc-for list="{{ bars }}" as="b" hint-placeholder-count="150"><div style="{{ b.style }}"></div></sc-for>
+          </div>
+          <div style="position: absolute; left: 48%; bottom: 76px; height: 18px; display: flex; align-items: center; padding: 0 8px; border-radius: 9px; background: rgba(16,18,22,0.92); box-shadow: 0 0 0 1px rgba(255,107,107,0.5); color: #FF6B6B; font-size: 11px; white-space: nowrap">18.2 ms · first use of torch_glow compiled its shader</div>
+          <sc-for list="{{ markPins }}" as="m" hint-placeholder-count="1">
+            <div style="{{ m.style }}" title="{{ m.title }}">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 21V4"></path><path d="M5 4h11l-2 4 2 4H5"></path></svg>
+            </div>
+          </sc-for>
+          <div style="position: absolute; right: 0; top: 0; bottom: 0; width: 2px; border-radius: 1px; background: #FFFFFF"></div>
+        </div>
+        <div style="display: flex; justify-content: space-between; font-size: 11px; color: #8B92A0">
+          <span>−60 s</span><span>−30 s</span><span>{{ nowLabel }}</span>
+        </div>
+      </div>
+
+      <div style="height: 32px; flex: none; display: flex; align-items: center; gap: 16px; padding: 0 12px; border-top: 1px solid #1F232A; color: #8B92A0; font-size: 11.5px">
+        <span>{{ fpsText }}</span>
+        <span style="font-family: 'JetBrains Mono', monospace">frame {{ frameText }} · {{ timeText }}</span>
+        <span>time {{ scaleText }}</span>
+        <span>40 entities</span>
+        <div style="flex: 1"></div>
+        <button onClick="{{ toggleOut }}" aria-expanded="{{ outExpanded }}" style="height: 24px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 6px; border: 0; background: {{ outBg }}; color: #D9DDE5; font-size: 11.5px">
+          <span style="width: 6px; height: 6px; border-radius: 3px; background: #FF6B6B"></span>Output · 1 panic in run 2
+        </button>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; border-left: 1px solid #1F232A; min-height: 0; background: #12141A">
+      <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 4px; padding: 0 12px; border-bottom: 1px solid #1F232A">
+        <button onClick="{{ showInspector }}" aria-pressed="{{ inspectorPressed }}" style="{{ inspectorTabStyle }}">Inspector</button>
+        <button onClick="{{ showAgent }}" aria-pressed="{{ agentPressed }}" style="{{ agentTabStyle }}">Agent</button>
+        <div style="flex: 1"></div>
+        <span style="{{ agentChip }}"><span style="{{ agentChipDot }}"></span>{{ agentChipText }}</span>
+      </div>
+
+      <sc-if value="{{ inspectorTab }}" hint-placeholder-val="{{ true }}">
+        <div style="flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 4px; overflow: hidden; min-height: 0">
+          <div style="display: flex; align-items: center; gap: 12px; padding-bottom: 8px">
+            <span style="{{ selSwatch }}"></span>
+            <div style="flex: 1; min-width: 0">
+              <div style="color: #FFFFFF; font-weight: 600; font-size: 14px">{{ sel.name }}</div>
+              <div style="color: #8B92A0; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ sel.sub }}</div>
+            </div>
+            <span style="{{ selBadgeStyle }}">{{ selBadge }}</span>
+          </div>
+          <sc-for list="{{ rows }}" as="r" hint-placeholder-count="12">
+            <sc-if value="{{ r.isHead }}" hint-placeholder-val="{{ false }}">
+              <div style="height: 28px; display: flex; align-items: flex-end; gap: 8px; padding-bottom: 4px">
+                <span style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">{{ r.title }}</span>
+                <span style="color: #8B92A0; font-size: 11px">{{ r.tag }}</span>
+              </div>
+            </sc-if>
+            <sc-if value="{{ r.isField }}" hint-placeholder-val="{{ true }}">
+              <div style="height: 32px; display: flex; align-items: center; gap: 8px">
+                <span style="flex: 1; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #B4BAC6">{{ r.label }}</span>
+                <sc-if value="{{ r.changed }}" hint-placeholder-val="{{ false }}"><span style="color: #8B92A0; font-size: 11.5px">was {{ r.was }}</span></sc-if>
+                <sc-if value="{{ r.readOnly }}" hint-placeholder-val="{{ false }}">
+                  <span style="min-width: 120px; height: 28px; box-sizing: border-box; display: flex; align-items: center; justify-content: flex-end; padding: 0 8px; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #D9DDE5">{{ r.value }}</span>
+                </sc-if>
+                <sc-if value="{{ r.editable }}" hint-placeholder-val="{{ true }}">
+                  <div style="{{ r.boxStyle }}">
+                    <button aria-label="{{ r.decLabel }}" onClick="{{ r.dec }}" style="width: 28px; height: 26px; border: 0; border-radius: 6px; background: none; color: #B4BAC6; display: flex; align-items: center; justify-content: center">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"></path></svg>
+                    </button>
+                    <span style="{{ r.valueStyle }}">{{ r.value }}</span>
+                    <button aria-label="{{ r.incLabel }}" onClick="{{ r.inc }}" style="width: 28px; height: 26px; border: 0; border-radius: 6px; background: none; color: #B4BAC6; display: flex; align-items: center; justify-content: center">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+                    </button>
+                  </div>
+                </sc-if>
+              </div>
+            </sc-if>
+            <sc-if value="{{ r.isBar }}" hint-placeholder-val="{{ false }}">
+              <div style="height: 32px; display: flex; align-items: center; gap: 12px">
+                <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #B4BAC6">{{ r.label }}</span>
+                <div style="flex: 1; height: 6px; border-radius: 3px; background: #262B35"><div style="{{ r.fill }}"></div></div>
+                <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px">{{ r.value }}</span>
+              </div>
+            </sc-if>
+          </sc-for>
+          <div style="flex: 1"></div>
+          <div style="color: #8B92A0; line-height: 1.55">{{ sel.note }}</div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ agentTab }}" hint-placeholder-val="{{ false }}">
+        <div style="flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 12px; overflow: hidden; min-height: 0">
+          <sc-if value="{{ notSent }}" hint-placeholder-val="{{ true }}">
+            <div style="color: #B4BAC6; line-height: 1.55">The agent sees the running game through the editor's MCP server: live entities, the last 60 s of replay and your marks. Ask with ⌘L to freeze the frame first.</div>
+            <div style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; padding-top: 8px">MARKS · {{ markCount }}</div>
+            <sc-for list="{{ markRows }}" as="m" hint-placeholder-count="1">
+              <div style="height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: 8px; background: #171A21; box-shadow: 0 0 0 1px #262B35">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 21V4"></path><path d="M5 4h11l-2 4 2 4H5"></path></svg>
+                <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #FFFFFF">{{ m.time }}</span>
+                <span style="flex: 1; color: #8B92A0">frame {{ m.frame }}</span>
+                <span style="color: #8B92A0; font-size: 11.5px">replay attached</span>
+              </div>
+            </sc-for>
+            <div style="color: #8B92A0; font-size: 11.5px; line-height: 1.55">When you stop, all marks go to the agent as one thread.</div>
+            <div><button onClick="{{ sendMarks }}" style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #D9DDE5">Send marks now</button></div>
+          </sc-if>
+          <sc-if value="{{ sent }}" hint-placeholder-val="{{ false }}">
+            <div style="align-self: flex-end; max-width: 300px; display: flex; flex-direction: column; gap: 8px; padding: 8px 12px; border-radius: 12px 12px 4px 12px; background: #1C2130; color: #FFFFFF; line-height: 1.5">
+              <span>{{ question }}</span>
+              <span style="color: #B4BAC6; font-size: 11.5px">{{ questionMeta }}</span>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 8px">
+              <sc-for list="{{ steps }}" as="st" hint-placeholder-count="4">
+                <div style="{{ st.rowStyle }}"><span style="{{ st.iconStyle }}"></span><span style="flex: 1; line-height: 1.5">{{ st.text }}</span></div>
+              </sc-for>
+            </div>
+            <div style="color: #8B92A0; font-size: 11.5px; line-height: 1.55">The game stays paused while the agent steps through the replay. Resume whenever you like; its fix comes back as a review.</div>
+          </sc-if>
+        </div>
+      </sc-if>
+
+      <div style="flex: none; border-top: 1px solid #1F232A; padding: 12px 16px 16px; display: flex; flex-direction: column; gap: 8px">
+        <div style="height: 20px; display: flex; align-items: center; gap: 8px">
+          <span style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">LIVE CHANGES</span>
+          <span style="min-width: 18px; height: 18px; padding: 0 4px; box-sizing: border-box; border-radius: 9px; background: #262B35; color: #FFFFFF; font-size: 11px; display: flex; align-items: center; justify-content: center">{{ editCount }}</span>
+          <div style="flex: 1"></div>
+          <span style="color: #8B92A0; font-size: 11.5px">applied without restart</span>
+        </div>
+        <sc-if value="{{ hasEdits }}" hint-placeholder-val="{{ true }}">
+          <sc-for list="{{ edits }}" as="e" hint-placeholder-count="1">
+            <div style="height: 36px; display: flex; align-items: center; gap: 8px; padding: 0 4px 0 12px; border-radius: 8px; background: #171A21; box-shadow: 0 0 0 1px #262B35">
+              <span style="width: 9px; height: 9px; flex: none; border-radius: 2px; outline: 1.5px dashed #E9A84A"></span>
+              <span style="color: #FFFFFF; flex: none">{{ e.ent }}</span>
+              <span style="flex: 1; min-width: 0; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #B4BAC6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ e.path }}</span>
+              <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #8B92A0; white-space: nowrap">{{ e.from }} → <span style="color: #E9A84A">{{ e.to }}</span></span>
+              <button aria-label="{{ e.undoLabel }}" title="Put back the scene value" onClick="{{ e.undo }}" style="width: 28px; height: 28px; flex: none; display: flex; align-items: center; justify-content: center; border-radius: 6px; border: 0; background: none; color: #B4BAC6">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14L4 9l5-5"></path><path d="M4 9h10a6 6 0 0 1 0 12h-3"></path></svg>
+              </button>
+            </div>
+          </sc-for>
+          <div style="display: flex; gap: 8px">
+            <button onClick="{{ keep }}" style="flex: 1; height: 32px; border-radius: 8px; border: 0; background: #3B7BFF; color: #FFFFFF; font-weight: 500">Keep in scene</button>
+            <button onClick="{{ discard }}" style="height: 32px; padding: 0 12px; border-radius: 8px; border: 0; background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #D9DDE5">Discard</button>
+          </div>
+          <div style="color: #8B92A0; font-size: 11.5px; line-height: 1.5">Stopping keeps this list. Nothing is written until you keep it.</div>
+        </sc-if>
+        <sc-if value="{{ trayEmpty }}" hint-placeholder-val="{{ false }}">
+          <div style="color: #8B92A0; line-height: 1.55">Change a value in the inspector and the running game picks it up at once.</div>
+        </sc-if>
+        <sc-if value="{{ keptNote }}" hint-placeholder-val="{{ false }}">
+          <div style="display: flex; align-items: center; gap: 8px; color: #D9DDE5">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4FD38A" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>
+            <span style="flex: 1">{{ keptText }}</span>
+            <a href="#review" style="text-decoration: none">Open review</a>
+          </div>
+        </sc-if>
+        <sc-if value="{{ discardedNote }}" hint-placeholder-val="{{ false }}">
+          <div style="color: #8B92A0; line-height: 1.55">Discarded · the game is back to the scene's values</div>
+        </sc-if>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { running: true, frame: 4812, scale: 1, sel: 'knight', vals: { 'knight.jump_speed': 460 }, base: {}, note: '', keptCount: 0, ask: false, sent: false, question: '', marks: [3960], out: false, tab: 'inspector' };
+  }
+  renderVals() {
+    const s = this.state;
+    const num = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+    const clock = (f) => { const sec = f / 60; const m = Math.floor(sec / 60); const r = sec - m * 60; return m + ':' + (r < 10 ? '0' : '') + r.toFixed(1); };
+    const paused = !s.running;
+
+    const defs = {
+      knight: { name: 'Knight', kind: 'sprite', color: '#E9A84A', sub: 'level_01 · instance of prefabs/knight.prefab.yaml', note: 'Position and velocity are the simulation’s; pause and step to read them frame by frame. Jump values apply on the next jump.', badge: 'live',
+        fields: [
+          { head: 'TRANSFORM', tag: 'live · read only' }, { k: 'x', live: 'kx' }, { k: 'y', live: 'ky' },
+          { head: 'BODY', tag: 'live · read only' }, { k: 'velocity', ro: '150.0, 0.0' }, { k: 'on_ground', ro: 'false' },
+          { head: 'JUMP', tag: 'game_component_set' }, { k: 'jump_speed', def: 420, step: 20, dec: 0 }, { k: 'gravity', def: 1400, step: 100, dec: 0 }, { k: 'coyote_time', def: 0.08, step: 0.02, dec: 2, unit: ' s' },
+          { head: 'HEALTH', tag: '' }, { k: 'hp', bar: 2, of: 3 },
+        ] },
+      slime_02: { name: 'slime_02', kind: 'prefab', color: '#5f9e6e', sub: 'level_01 · instance of prefabs/slime.prefab.yaml', note: 'Patrol changes apply on the slime’s next turn.', badge: 'live',
+        fields: [
+          { head: 'TRANSFORM', tag: 'live · read only' }, { k: 'x', ro: '336.7' }, { k: 'y', ro: '283.3' },
+          { head: 'PATROL', tag: 'game_component_set' }, { k: 'from', def: 280, step: 10, dec: 0 }, { k: 'to', def: 340, step: 10, dec: 0 }, { k: 'speed', def: 24, step: 4, dec: 0 }, { k: 'state', ro: 'walking left' },
+        ] },
+      dust: { name: 'dust_fx #212', kind: 'particles', color: '#8B92A0', sub: 'Spawned at runtime by Knight · jump', note: 'Spawned while playing, so it is not in level_01.scene.yaml. To change every dust puff, edit prefabs/dust_fx.prefab.yaml or ask the agent.', badge: 'spawned',
+        fields: [
+          { head: 'PARTICLES', tag: 'live · read only' }, { k: 'emitted', ro: '14' }, { k: 'life_left', ro: '0.2 s' }, { k: 'parent', ro: 'Knight' },
+        ] },
+    };
+    const treeDefs = [
+      { head: 'LEVEL_01 · LIVE' },
+      { id: 'bg', name: 'Background', meta: 'tiles', depth: 0, color: '#4f8cff' },
+      { id: 'world', name: 'World', meta: 'tiles', depth: 0, color: '#4f8cff' },
+      { id: 'actors', name: 'Actors', meta: '12', depth: 0, color: '#8B92A0' },
+      { id: 'knight', name: 'Knight', meta: 'airborne', depth: 1, color: '#E9A84A' },
+      { id: 'slime_01', name: 'slime_01', meta: 'walking →', depth: 1, color: '#5f9e6e' },
+      { id: 'slime_02', name: 'slime_02', meta: 'walking ←', depth: 1, color: '#5f9e6e' },
+      { id: 'slime_03', name: 'slime_03', meta: 'stunned', depth: 1, color: '#4c7a59' },
+      { id: 'coin_01', name: 'coin_01', meta: 'taken', depth: 1, color: '#f2d04b', gone: true },
+      { id: 'coin_02', name: 'coin_02', meta: '', depth: 1, color: '#f2d04b' },
+      { id: 'coin_03', name: 'coin_03', meta: '', depth: 1, color: '#f2d04b' },
+      { id: 'lever_01', name: 'lever_01', meta: 'off', depth: 1, color: '#8a7a5c' },
+      { id: 'door', name: 'Door', meta: 'locked', depth: 1, color: '#6b5a45' },
+      { id: 'hud', name: 'HUD', meta: 'screen', depth: 0, color: '#8B92A0' },
+      { head: 'SPAWNED AT RUNTIME' },
+      { id: 'dust', name: 'dust_fx #212', meta: '0.2 s', depth: 0, color: '#8B92A0', spawned: true },
+      { id: 'sword', name: 'sword_arc #214', meta: '0.1 s', depth: 0, color: '#8B92A0', spawned: true },
+    ];
+    const tree = treeDefs.map((n) => n.head ? { isHead: true, isNode: false, name: n.head } : {
+      ...n, isHead: false, isNode: true,
+      pressed: s.sel === n.id ? 'true' : 'false',
+      style: 'width: 100%; height: 28px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 0; border-radius: 6px; ' + (s.sel === n.id ? 'background: rgba(59,123,255,0.16); box-shadow: inset 0 0 0 1px #3B7BFF; color: #FFFFFF' : 'background: none; color: #B4BAC6'),
+      indent: 'width: ' + (n.depth * 12) + 'px; flex: none',
+      dot: 'width: 7px; height: 7px; flex: none; border-radius: ' + (n.spawned ? '4px' : '2px') + '; ' + (n.gone ? 'box-shadow: inset 0 0 0 1.5px ' + n.color : 'background: ' + n.color),
+      nameStyle: 'flex: 1; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; ' + (n.gone ? 'color: #8B92A0; text-decoration: line-through' : ''),
+      metaStyle: 'font-size: 11px; color: #8B92A0; white-space: nowrap',
+      pick: () => this.setState({ sel: n.id, tab: 'inspector' }),
+    });
+
+    const key = (ent, k) => ent + '.' + k;
+    const fieldDef = (ent, k) => (defs[ent].fields.find((f) => f.k === k) || {});
+    const valOf = (ent, k) => { const kk = key(ent, k); return kk in s.vals ? s.vals[kk] : fieldDef(ent, k).def; };
+    const baseOf = (ent, k) => { const kk = key(ent, k); return kk in s.base ? s.base[kk] : fieldDef(ent, k).def; };
+    const fmt = (f, v) => v.toFixed(f.dec) + (f.unit || '');
+    const setVal = (kk, v) => this.setState({ vals: { ...s.vals, [kk]: v }, note: '' });
+
+    const js = valOf('knight', 'jump_speed'), gr = valOf('knight', 'gravity');
+    const bjs = baseOf('knight', 'jump_speed'), bgr = baseOf('knight', 'gravity');
+    const SC = 1.2, SX = 200, FLOOR = 360;
+    const arc = (v, g) => { const apex = (v * v) / (2 * g) * SC, range = (2 * 150 * v) / g * SC; return { apex, range, d: 'M ' + SX + ' ' + FLOOR + ' Q ' + (SX + range / 2).toFixed(1) + ' ' + (FLOOR - 2 * apex).toFixed(1) + ' ' + (SX + range).toFixed(1) + ' ' + FLOOR }; };
+    const live = arc(js, gr), orig = arc(bjs, bgr);
+    const kLeft = SX + live.range / 2 - 14, kTop = FLOOR - live.apex - 41;
+    const liveVals = { kx: ((SX + live.range / 2) / SC).toFixed(1), ky: ((FLOOR - live.apex) / SC).toFixed(1) };
+
+    const node = treeDefs.find((n) => n.id === s.sel) || {};
+    const sel = defs[s.sel] || {
+      name: node.name, kind: '', color: node.color, badge: node.gone ? 'taken' : node.spawned ? 'spawned' : 'live',
+      sub: 'level_01 · ' + (node.spawned ? 'spawned at runtime' : 'from level_01.scene.yaml'),
+      note: node.gone ? 'Taken at frame 4 410. It is still in level_01.scene.yaml and comes back when you stop.' : 'Ask the agent to change it, or pause and open its YAML.',
+      fields: [{ head: 'STATE', tag: 'live · read only' }, { k: 'state', ro: node.meta || 'idle' }],
+    };
+    const rows = sel.fields.map((f) => {
+      if (f.head) return { isHead: true, isField: false, isBar: false, title: f.head, tag: f.tag };
+      if (f.bar) return { isHead: false, isField: false, isBar: true, label: f.k, value: f.bar + ' / ' + f.of, fill: 'width: ' + Math.round((f.bar / f.of) * 100) + '%; height: 6px; border-radius: 3px; background: #4FD38A' };
+      if (f.def === undefined) return { isHead: false, isField: true, isBar: false, readOnly: true, editable: false, changed: false, label: f.k, value: f.live ? liveVals[f.live] : f.ro, was: '' };
+      const kk = key(s.sel, f.k), v = valOf(s.sel, f.k), b = baseOf(s.sel, f.k);
+      const changed = Math.abs(v - b) > 1e-9;
+      const round = (x) => Math.round(x * 1000) / 1000;
+      return {
+        isHead: false, isField: true, isBar: false, readOnly: false, editable: true, changed,
+        label: f.k, value: fmt(f, v), was: fmt(f, b),
+        boxStyle: 'height: 28px; display: flex; align-items: center; border-radius: 6px; background: #171A21; ' + (changed ? 'outline: 1.5px dashed #E9A84A; outline-offset: -1px' : 'box-shadow: 0 0 0 1px #262B35'),
+        valueStyle: 'min-width: 64px; text-align: center; font-family: \'JetBrains Mono\', monospace; font-size: 11.5px; color: ' + (changed ? '#FFFFFF' : '#D9DDE5'),
+        decLabel: 'Decrease ' + f.k, incLabel: 'Increase ' + f.k,
+        dec: () => setVal(kk, Math.max(0, round(v - f.step))),
+        inc: () => setVal(kk, round(v + f.step)),
+      };
+    });
+
+    const edits = [];
+    Object.keys(defs).forEach((ent) => defs[ent].fields.forEach((f) => {
+      if (f.def === undefined) return;
+      const v = valOf(ent, f.k), b = baseOf(ent, f.k);
+      if (Math.abs(v - b) > 1e-9) {
+        const kk = key(ent, f.k);
+        edits.push({ ent: defs[ent].name, path: f.k, from: fmt(f, b), to: fmt(f, v), undoLabel: 'Undo ' + defs[ent].name + ' ' + f.k, undo: () => { const vals = { ...s.vals }; delete vals[kk]; if (kk in s.base) vals[kk] = s.base[kk]; this.setState({ vals }); } });
+      }
+    }));
+    const keep = () => this.setState({ base: { ...s.base, ...s.vals }, note: 'kept', keptCount: edits.length });
+    const discard = () => this.setState({ vals: { ...s.base }, note: 'discarded' });
+
+    let seed = 7;
+    const rnd = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
+    const bars = [];
+    for (let i = 0; i < 150; i++) {
+      let ms = 3.4 + 0.5 * Math.sin(i * 0.7) + 0.3 * Math.sin(i * 2.3 + 1) + rnd() * 0.9;
+      if (i === 72) ms = 18.2;
+      if (i === 73) ms = 7.1;
+      if (i === 118) ms = 11.4;
+      if (i === 119) ms = 6.4;
+      const color = ms > 16.7 ? '#FF6B6B' : ms > 8.3 ? '#F2C14E' : 'rgba(139,146,160,0.45)';
+      bars.push({ style: 'flex: 1; height: ' + Math.max(2, Math.round((ms / 20) * 80)) + 'px; border-radius: 1px; background: ' + color });
+    }
+    const markPins = s.marks.filter((f) => s.frame - f < 3600).map((f) => {
+      const pct = 100 - ((s.frame - f) / 3600) * 100;
+      return { title: 'Mark at ' + clock(f), style: 'position: absolute; left: calc(' + pct.toFixed(2) + '% - 7px); top: 0; width: 14px; height: 14px; display: flex; align-items: center; justify-content: center; border-radius: 4px; background: #262B35' };
+    });
+    const markRows = s.marks.map((f) => ({ time: clock(f), frame: num(f) }));
+
+    const scales = [0.25, 0.5, 1, 2].map((v) => ({
+      label: v + '×', pressed: s.scale === v ? 'true' : 'false',
+      style: 'height: 28px; padding: 0 8px; border-radius: 6px; border: 0; font-family: \'JetBrains Mono\', monospace; font-size: 11px; ' + (s.scale === v ? 'background: #262B35; color: #FFFFFF' : 'background: none; color: #B4BAC6'),
+      pick: () => this.setState({ scale: v }),
+    }));
+
+    const frameText = num(s.frame);
+    const tint = s.running
+      ? { head: 'background: rgba(79,211,138,0.06); border-bottom: 1px solid rgba(79,211,138,0.35)', pill: 'background: rgba(79,211,138,0.12); box-shadow: 0 0 0 1px rgba(79,211,138,0.45); color: #D9DDE5', dot: '#4FD38A' }
+      : { head: 'background: rgba(242,193,78,0.05); border-bottom: 1px solid #4A3F1F', pill: 'background: #2A2414; box-shadow: 0 0 0 1px #4A3F1F; color: #F2C14E', dot: '#F2C14E' };
+    const pillText = s.running ? 'Playing · live' + (s.scale !== 1 ? ' · ' + s.scale + '×' : '') : (s.ask ? 'Frozen for your question · frame ' : 'Paused · frame ') + frameText;
+
+    const tab = (on) => 'height: 30px; padding: 0 12px; border-radius: 8px; border: 0; font-weight: 500; ' + (on ? 'background: #1C2130; color: #FFFFFF' : 'background: none; color: #B4BAC6');
+    const doneIcon = 'width: 14px; height: 14px; flex: none; margin-top: 2px; border-radius: 7px; background: #1f3a2b; box-shadow: inset 0 0 0 1.5px #4FD38A';
+    const steps = [
+      { text: 'Loaded replay frames 4 212–4 812 and the frame image', icon: doneIcon, row: '#B4BAC6' },
+      { text: 'Stepped frames 4 800–4 812 with game_loop_step; the knight stops at x 251 with velocity 0', icon: doneIcon, row: '#B4BAC6' },
+      { text: 'Comparing Knight’s collider with the plank’s left edge', icon: 'width: 14px; height: 14px; flex: none; margin-top: 2px; box-sizing: border-box; border-radius: 7px; border: 2px solid #9B7BFF; border-right-color: transparent', row: '#FFFFFF' },
+      { text: 'Propose a fix as a review', icon: 'width: 14px; height: 14px; flex: none; margin-top: 2px; box-sizing: border-box; border-radius: 7px; border: 1.5px solid #262B35', row: '#8B92A0' },
+    ].map((st) => ({ text: st.text, iconStyle: st.icon, rowStyle: 'display: flex; align-items: flex-start; gap: 8px; color: ' + st.row }));
+
+    const askAttachments = [
+      { text: 'Frame ' + frameText, dot: '#B4BAC6' },
+      { text: 'Replay · last 10 s', dot: '#B4BAC6' },
+      { text: sel.name + ' · live state', dot: sel.color },
+    ];
+    if (edits.length) askAttachments.push({ text: edits.length + ' live change' + (edits.length > 1 ? 's' : ''), dot: '#E9A84A' });
+
+    return {
+      headerStyle: 'height: 44px; flex: none; box-sizing: border-box; display: flex; align-items: center; gap: 12px; padding: 0 12px; ' + tint.head,
+      pillStyle: 'height: 24px; display: inline-flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: 12px; font-size: 11.5px; font-weight: 500; ' + tint.pill,
+      pillDot: 'width: 6px; height: 6px; border-radius: 3px; background: ' + tint.dot + (s.running ? '; box-shadow: 0 0 0 3px rgba(79,211,138,0.25)' : ''),
+      pillText,
+      running: s.running, paused,
+      pauseLabel: s.running ? 'Pause' : 'Resume', pauseTitle: (s.running ? 'Pause' : 'Resume') + ' · ⇧⌘P',
+      togglePause: () => this.setState({ running: !s.running, ask: false }),
+      stepDisabled: s.running ? 'true' : 'false',
+      stepStyle: 'width: 32px; height: 28px; border-radius: 6px; border: 0; display: flex; align-items: center; justify-content: center; background: none; color: ' + (s.running ? '#8B92A0; opacity: 0.45; cursor: default' : '#FFFFFF'),
+      step: () => { if (!s.running) this.setState({ frame: s.frame + 1 }); },
+      scales, scaleText: s.scale + '×',
+      markCount: s.marks.length,
+      addMark: () => this.setState({ marks: [...s.marks, s.frame], frame: s.running ? s.frame + 37 : s.frame }),
+      tree, sel, rows,
+      selSwatch: 'width: 32px; height: 32px; flex: none; border-radius: 8px; background: ' + sel.color,
+      selBadge: sel.badge,
+      selBadgeStyle: 'height: 20px; display: inline-flex; align-items: center; padding: 0 8px; border-radius: 10px; font-size: 11px; font-weight: 600; ' + (sel.badge === 'live' ? 'color: #4FD38A; box-shadow: 0 0 0 1px rgba(79,211,138,0.45)' : 'color: #B4BAC6; box-shadow: 0 0 0 1px #262B35'),
+      frameStyle: 'position: absolute; left: 30px; top: 60px; width: 768px; height: 432px; border-radius: 4px; overflow: hidden; box-shadow: 0 0 0 1px ' + (s.running ? 'rgba(79,211,138,0.35)' : '#4A3F1F') + ', 0 24px 60px rgba(0,0,0,0.45)',
+      knightStyle: 'position: absolute; left: ' + kLeft.toFixed(1) + 'px; top: ' + kTop.toFixed(1) + 'px; width: 28px; height: 41px; border-radius: 6px; background: #E9A84A',
+      knightSelected: s.sel === 'knight',
+      knightRing: 'position: absolute; left: ' + (kLeft - 5).toFixed(1) + 'px; top: ' + (kTop - 5).toFixed(1) + 'px; width: 38px; height: 51px; border-radius: 8px; box-shadow: 0 0 0 1.5px #3B7BFF',
+      knightLabel: 'position: absolute; left: ' + (kLeft - 5).toFixed(1) + 'px; top: ' + (kTop - 29).toFixed(1) + 'px; height: 18px; display: flex; align-items: center; padding: 0 6px; border-radius: 6px; background: #3B7BFF; color: #FFFFFF; font-size: 11px; font-weight: 500; white-space: nowrap',
+      knightEdited: Math.abs(js - bjs) > 1e-9 || Math.abs(gr - bgr) > 1e-9,
+      showArc: s.sel === 'knight',
+      baseArc: orig.d, liveArc: live.d,
+      apexText: (live.apex / SC).toFixed(0),
+      apexChip: 'position: absolute; left: ' + (SX + live.range + 8).toFixed(1) + 'px; top: ' + (FLOOR - 28) + 'px; height: 18px; display: flex; align-items: center; padding: 0 6px; border-radius: 9px; background: rgba(16,18,22,0.92); box-shadow: 0 0 0 1px rgba(233,168,74,0.5); color: #E9A84A; font-size: 11px; white-space: nowrap',
+      hintStyle: 'position: absolute; left: 50%; top: 508px; transform: translateX(-50%); height: 28px; display: flex; align-items: center; padding: 0 12px; border-radius: 14px; background: ' + (s.running ? 'rgba(16,18,22,0.92); box-shadow: 0 0 0 1px #262B35; color: #B4BAC6' : '#2A2414; box-shadow: 0 0 0 1px #4A3F1F; color: #F2C14E') + '; white-space: nowrap',
+      hintText: s.running ? 'Keys go to the game · ⌘ shortcuts stay with the editor' : 'Paused at frame ' + frameText + ' · . steps one frame · ⇧⌘P resumes',
+      ask: s.ask, frameText, timeText: clock(s.frame),
+      attachments: askAttachments.map((a) => ({ text: a.text, dot: 'width: 6px; height: 6px; border-radius: 2px; background: ' + a.dot })),
+      openAsk: () => this.setState({ ask: true, running: false }),
+      closeAsk: () => this.setState({ ask: false }),
+      sendAsk: () => this.setState({ ask: false, sent: true, tab: 'agent', question: 'The knight snags on the plank’s left edge when he lands short, and stops dead.' }),
+      out: s.out, outExpanded: s.out ? 'true' : 'false', outBg: s.out ? '#262B35' : 'none',
+      toggleOut: () => this.setState({ out: !s.out }),
+      bars, markPins, markRows,
+      nowLabel: s.running ? 'now' : 'paused · ' + clock(s.frame),
+      fpsText: s.running ? '60 fps' : 'paused',
+      inspectorTab: s.tab === 'inspector', agentTab: s.tab === 'agent',
+      inspectorPressed: s.tab === 'inspector' ? 'true' : 'false', agentPressed: s.tab === 'agent' ? 'true' : 'false',
+      inspectorTabStyle: tab(s.tab === 'inspector'), agentTabStyle: tab(s.tab === 'agent'),
+      showInspector: () => this.setState({ tab: 'inspector' }), showAgent: () => this.setState({ tab: 'agent' }),
+      agentChip: 'height: 24px; display: inline-flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: 12px; font-size: 11.5px; ' + (s.sent ? 'background: rgba(155,123,255,0.10); box-shadow: 0 0 0 1px rgba(155,123,255,0.5); color: #D9DDE5' : 'box-shadow: 0 0 0 1px #262B35; color: #B4BAC6'),
+      agentChipDot: 'width: 6px; height: 6px; border-radius: 3px; background: ' + (s.sent ? '#9B7BFF; box-shadow: 0 0 0 3px rgba(155,123,255,0.25)' : '#4FD38A'),
+      agentChipText: s.sent ? 'Working · step 3 of 4' : 'Connected · MCP',
+      notSent: !s.sent, sent: s.sent,
+      question: s.question,
+      questionMeta: 'Frame ' + frameText + ' · replay 10 s · ' + sel.name + (edits.length ? ' · ' + edits.length + ' live change' + (edits.length > 1 ? 's' : '') : ''),
+      steps,
+      sendMarks: () => this.setState({ sent: true, tab: 'agent', question: s.marks.length + ' marks from this session: look at what happens around each one.' }),
+      edits, editCount: edits.length, hasEdits: edits.length > 0,
+      trayEmpty: edits.length === 0 && !s.note,
+      keptNote: edits.length === 0 && s.note === 'kept',
+      keptText: s.keptCount + ' change' + (s.keptCount === 1 ? '' : 's') + ' sent to review · level_01.scene.yaml',
+      discardedNote: edits.length === 0 && s.note === 'discarded',
+      keep, discard,
+    };
+  }
+}
+</script>
+</body>
+</html>

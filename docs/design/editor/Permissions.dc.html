@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Permissions</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#101216}
+a{color:#8fb3ff}a:hover{color:#b9cfff}
+button{font:inherit;cursor:pointer}
+input{font:inherit}
+</style>
+</helmet>
+<div style="width: 2960px; height: 880px; box-sizing: border-box; padding: 40px; display: flex; flex-direction: column; gap: 24px; font-family: Inter, system-ui, sans-serif; font-size: 12.5px; color: #D9DDE5; background: #101216">
+
+  <div style="display: flex; align-items: baseline; gap: 16px">
+    <span style="color: #FFFFFF; font-size: 20px; font-weight: 600">Permissions</span>
+    <span style="color: #B4BAC6">What happens after a no, when a rule blocks a step, when the agent wants to delete something, and when it drafts a change to its own permissions.</span>
+  </div>
+
+  <div style="flex: 1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(0, 1.35fr); gap: 24px; min-height: 0">
+
+    <!-- Denied -->
+    <div style="display: flex; flex-direction: column; gap: 12px; min-height: 0">
+      <div><div style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">DENIED</div><div style="color: #B4BAC6; margin-top: 4px">You said no; the agent carries on without that step.</div></div>
+      <div style="flex: 1; border-radius: 12px; background: #12141A; box-shadow: 0 0 0 1px #1F232A; display: flex; flex-direction: column; overflow: hidden; min-height: 0">
+        <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 12px 0 16px; border-bottom: 1px solid #1F232A">
+          <span style="color: #FFFFFF; font-weight: 500">Agent</span><div style="flex: 1"></div>
+          <sc-if value="{{ denyPlaying }}" hint-placeholder-val="{{ false }}">
+            <span style="height: 24px; display: inline-flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: 12px; background: rgba(155,123,255,0.10); box-shadow: 0 0 0 1px rgba(155,123,255,0.5); color: #D9DDE5; font-size: 11.5px"><span style="width: 6px; height: 6px; border-radius: 3px; background: #9B7BFF; box-shadow: 0 0 0 3px rgba(155,123,255,0.25)"></span>Working · playtest</span>
+          </sc-if>
+          <sc-if value="{{ denyIdle }}" hint-placeholder-val="{{ true }}">
+            <span style="height: 24px; display: inline-flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: 12px; box-shadow: 0 0 0 1px #262B35; color: #B4BAC6; font-size: 11.5px"><span style="width: 6px; height: 6px; border-radius: 3px; background: #4FD38A"></span>Connected · MCP</span>
+          </sc-if>
+        </div>
+        <div style="flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 12px; overflow: hidden">
+          <div style="align-self: flex-end; max-width: 320px; padding: 8px 12px; border-radius: 12px 12px 4px 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #FFFFFF; line-height: 1.5">Put three slimes patrolling the lower floor and a short coin trail toward the door.</div>
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <sc-for list="{{ denySteps }}" as="d" hint-placeholder-count="3">
+              <div style="display: flex; gap: 8px; color: #B4BAC6; line-height: 1.45"><span style="width: 16px; height: 16px; flex: none; border-radius: 8px; background: rgba(79,211,138,0.14); color: #4FD38A; display: flex; align-items: center; justify-content: center"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></span>{{ d }}</div>
+            </sc-for>
+            <sc-if value="{{ denyIdle }}" hint-placeholder-val="{{ true }}">
+              <div style="display: flex; align-items: flex-start; gap: 8px; color: #FFFFFF; line-height: 1.45">
+                <span style="width: 16px; height: 16px; flex: none; border-radius: 8px; background: #262B35; color: #B4BAC6; display: flex; align-items: center; justify-content: center"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"></path></svg></span>
+                <span style="flex: 1">You denied the playtest <span style="color: #8B92A0">· continued without it</span></span>
+                <button onClick="{{ allowNow }}" style="height: 28px; flex: none; margin-top: -6px; padding: 0 8px; border-radius: 6px; border: 0; background: none; color: #8FB3FF">Allow now</button>
+              </div>
+            </sc-if>
+            <sc-if value="{{ denyPlaying }}" hint-placeholder-val="{{ false }}">
+              <div style="display: flex; gap: 8px; color: #FFFFFF; line-height: 1.45"><span style="width: 16px; height: 16px; flex: none; border-radius: 8px; border: 2px solid #9B7BFF; border-right-color: transparent; box-sizing: border-box"></span>Playing 10 s headless · allowed once, just now</div>
+            </sc-if>
+          </div>
+          <sc-if value="{{ denyIdle }}" hint-placeholder-val="{{ true }}">
+            <div style="color: #D9DDE5; line-height: 1.55">Done, but not playtested: I couldn't confirm the slimes stay on the floor. Play it yourself with ⌘P, or allow the playtest above.</div>
+          </sc-if>
+          <div style="border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35; overflow: hidden">
+            <div style="height: 40px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-bottom: 1px solid #1F232A">
+              <span style="flex: 1; color: #FFFFFF; font-weight: 500">6 changes · 1 file</span>
+              <sc-if value="{{ denyIdle }}" hint-placeholder-val="{{ true }}">
+                <span style="height: 22px; display: inline-flex; align-items: center; padding: 0 8px; border-radius: 6px; background: #2A2414; box-shadow: 0 0 0 1px #4A3F1F; color: #F2C14E; font-size: 11.5px">Not playtested</span>
+              </sc-if>
+              <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px"><span style="color: #4FD38A">+38</span> <span style="color: #8B92A0">−0</span></span>
+            </div>
+            <div style="display: flex; gap: 8px; padding: 12px">
+              <button style="flex: 1; height: 30px; border-radius: 8px; border: 0; background: #3B7BFF; color: #FFFFFF; font-weight: 500">Keep</button>
+              <button style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #262B35; color: #FFFFFF">Review</button>
+              <button style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #262B35; color: #FFFFFF">Revert</button>
+            </div>
+          </div>
+          <div style="color: #8B92A0; line-height: 1.55">A denial is never retried on its own. The agent may ask again only when you send a new request.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Blocked by a rule -->
+    <div style="display: flex; flex-direction: column; gap: 12px; min-height: 0">
+      <div><div style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">BLOCKED BY A RULE</div><div style="color: #B4BAC6; margin-top: 4px">A Deny rule stops the step before it runs; nothing asks.</div></div>
+      <div style="flex: 1; border-radius: 12px; background: #12141A; box-shadow: 0 0 0 1px #1F232A; display: flex; flex-direction: column; overflow: hidden; min-height: 0">
+        <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 12px 0 16px; border-bottom: 1px solid #1F232A">
+          <span style="color: #FFFFFF; font-weight: 500">Agent</span><div style="flex: 1"></div>
+          <span style="height: 24px; display: inline-flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: 12px; box-shadow: 0 0 0 1px #262B35; color: #B4BAC6; font-size: 11.5px"><span style="width: 6px; height: 6px; border-radius: 3px; background: #4FD38A"></span>Connected · MCP</span>
+        </div>
+        <div style="flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 12px; overflow: hidden">
+          <div style="align-self: flex-end; max-width: 320px; padding: 8px 12px; border-radius: 12px 12px 4px 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #FFFFFF; line-height: 1.5">Add moss variants to the dungeon tiles and rebuild the atlas.</div>
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <div style="display: flex; gap: 8px; color: #B4BAC6; line-height: 1.45"><span style="width: 16px; height: 16px; flex: none; border-radius: 8px; background: rgba(79,211,138,0.14); color: #4FD38A; display: flex; align-items: center; justify-content: center"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></span>Added 6 moss tiles to tiles/dungeon.tileset.yaml</div>
+            <div style="display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35">
+              <div style="display: flex; gap: 8px; color: #FFFFFF; line-height: 1.45">
+                <span style="width: 16px; height: 16px; flex: none; border-radius: 8px; background: #262B35; color: #D9DDE5; display: flex; align-items: center; justify-content: center"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><rect x="6" y="11" width="12" height="9" rx="2"></rect><path d="M9 11V8a3 3 0 0 1 6 0v3"></path></svg></span>
+                <span>Blocked: run <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px">go generate ./assets</span></span>
+              </div>
+              <a href="#settings-permissions-rule-7" style="display: flex; align-items: center; gap: 8px; margin-left: 24px; padding: 8px 12px; border-radius: 8px; background: #101216; text-decoration: none">
+                <span style="flex: 1; display: flex; flex-direction: column; gap: 2px">
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #FFFFFF">Run · shell commands → Deny</span>
+                  <span style="color: #8B92A0; font-size: 11.5px">Settings › Permissions · rule 7 of 7</span>
+                </span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg>
+              </a>
+            </div>
+            <div style="display: flex; gap: 8px; color: #B4BAC6; line-height: 1.45"><span style="width: 16px; height: 16px; flex: none; border-radius: 8px; background: rgba(79,211,138,0.14); color: #4FD38A; display: flex; align-items: center; justify-content: center"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></span>Left art/dungeon_atlas.png as it was</div>
+          </div>
+          <div style="color: #D9DDE5; line-height: 1.55">The tiles are in the tileset, but they won't draw until the atlas is rebuilt. Your rules don't let me run commands, so run this one yourself:</div>
+          <div style="display: flex; align-items: center; gap: 8px; padding: 4px 4px 4px 12px; border-radius: 8px; background: #101216; box-shadow: 0 0 0 1px #262B35">
+            <span style="flex: 1; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #FFFFFF">go generate ./assets</span>
+            <button onClick="{{ copyCmd }}" style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: 6px; border: 0; background: #262B35; color: #FFFFFF">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path></svg>{{ copyLabel }}</button>
+          </div>
+          <div style="flex: 1"></div>
+          <div style="color: #8B92A0; line-height: 1.55">The step links to the rule that stopped it. Changing that rule is yours to do; the agent can only draft it.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Proposed deletion -->
+    <div style="display: flex; flex-direction: column; gap: 12px; min-height: 0">
+      <div><div style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">PROPOSED DELETION</div><div style="color: #B4BAC6; margin-top: 4px">A deletion is never part of Keep all; it has its own confirm.</div></div>
+      <div style="flex: 1; border-radius: 12px; background: #12141A; box-shadow: 0 0 0 1px #1F232A; display: flex; flex-direction: column; overflow: hidden; min-height: 0">
+        <div style="height: 44px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 12px 0 16px; border-bottom: 1px solid #1F232A">
+          <span style="flex: 1; color: #FFFFFF; font-size: 14px; font-weight: 600">Review changes</span>
+          <button style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #262B35; color: #FFFFFF">Revert all</button>
+          <button style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #3B7BFF; color: #FFFFFF; font-weight: 500">{{ keepLabel }}</button>
+        </div>
+        <div style="flex: 1; padding: 12px; display: flex; flex-direction: column; gap: 8px; overflow: hidden">
+          <div style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; padding: 4px 4px">4 CHANGES · 4 FILES · from “clean up the old slime”</div>
+          <sc-for list="{{ reviewRows }}" as="c" hint-placeholder-count="3">
+            <div style="display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 12px; border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35">
+              <span style="{{ c.mark }}">{{ c.sign }}</span>
+              <span style="flex: 1; display: flex; flex-direction: column; gap: 2px"><span style="color: #FFFFFF">{{ c.title }}</span><span style="color: #8B92A0; font-size: 11.5px">{{ c.detail }}</span></span>
+              <button style="height: 28px; padding: 0 12px; border-radius: 6px; border: 0; background: #262B35; color: #FFFFFF">Revert</button>
+            </div>
+          </sc-for>
+          <div role="group" aria-labelledby="del-title" style="{{ delCard }}">
+            <div style="display: flex; align-items: center; gap: 12px">
+              <span style="width: 22px; height: 22px; flex: none; border-radius: 6px; display: flex; align-items: center; justify-content: center; background: rgba(255,107,107,0.14); color: #FF6B6B; font-weight: 600">−</span>
+              <span style="flex: 1; display: flex; flex-direction: column; gap: 2px">
+                <span id="del-title" style="{{ delTitleStyle }}">prefabs/slime_old.prefab.yaml</span>
+                <span style="color: #8B92A0; font-size: 11.5px">Delete file · 41 lines · no scene uses it</span>
+              </span>
+            </div>
+            <sc-if value="{{ delPending }}" hint-placeholder-val="{{ true }}">
+              <div style="color: #D9DDE5; line-height: 1.55; padding-left: 34px">Keep leaves this file alone until you confirm the deletion here. ⌘Z restores it from the checkpoint.</div>
+              <div style="display: flex; gap: 8px; padding-left: 34px">
+                <button onClick="{{ confirmDelete }}" style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: rgba(255,107,107,0.14); box-shadow: 0 0 0 1px #FF6B6B; color: #FFFFFF; font-weight: 500">Delete this file</button>
+                <button onClick="{{ keepFile }}" style="height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #262B35; color: #FFFFFF">Keep the file</button>
+              </div>
+            </sc-if>
+            <sc-if value="{{ delConfirmed }}" hint-placeholder-val="{{ false }}">
+              <div style="display: flex; align-items: center; gap: 8px; padding-left: 34px; color: #D9DDE5"><span style="flex: 1">Deletion confirmed · happens with Keep</span><button onClick="{{ resetDelete }}" style="height: 28px; padding: 0 8px; border-radius: 6px; border: 0; background: none; color: #8FB3FF">Undo</button></div>
+            </sc-if>
+            <sc-if value="{{ delKept }}" hint-placeholder-val="{{ false }}">
+              <div style="display: flex; align-items: center; gap: 8px; padding-left: 34px; color: #D9DDE5"><span style="flex: 1">The file stays · the rest of the review is unchanged</span><button onClick="{{ resetDelete }}" style="height: 28px; padding: 0 8px; border-radius: 6px; border: 0; background: none; color: #8FB3FF">Undo</button></div>
+            </sc-if>
+          </div>
+          <div style="flex: 1"></div>
+          <div style="display: flex; flex-direction: column; gap: 4px; padding: 12px; border-radius: 12px; background: #101216; box-shadow: 0 0 0 1px #1F232A; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; line-height: 1.7">
+            <div style="color: #8B92A0">prefabs/slime_old.prefab.yaml</div>
+            <div style="color: #FFB9B9; background: rgba(255,107,107,0.08); padding: 0 8px">− id: slime_old</div>
+            <div style="color: #FFB9B9; background: rgba(255,107,107,0.08); padding: 0 8px">− sprite: enemies/slime_green_0</div>
+            <div style="color: #FFB9B9; background: rgba(255,107,107,0.08); padding: 0 8px">− components:</div>
+            <div style="color: #8B92A0; padding: 0 8px">  38 more lines</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- You only: settings draft -->
+    <div style="display: flex; flex-direction: column; gap: 12px; min-height: 0">
+      <div><div style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">YOU ONLY · A DRAFT THE AGENT CANNOT APPROVE</div><div style="color: #B4BAC6; margin-top: 4px">Permissions, Tools, Models and Usage take a click from you on each rule.</div></div>
+      <div style="flex: 1; position: relative; border-radius: 12px; background: #101216; box-shadow: 0 0 0 1px #1F232A; overflow: hidden; min-height: 0">
+        <div aria-hidden="true" style="position: absolute; inset: 0; padding: 24px; display: flex; flex-direction: column; gap: 12px; opacity: 0.4">
+          <div style="color: #FFFFFF; font-size: 18px; font-weight: 600">Permissions</div>
+          <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px">
+            <div style="height: 64px; border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1.5px #3B7BFF"></div>
+            <div style="height: 64px; border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35"></div>
+            <div style="height: 64px; border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35"></div>
+          </div>
+          <div style="height: 28px; border-radius: 6px; background: #171A21"></div>
+          <div style="height: 28px; border-radius: 6px; background: #171A21"></div>
+          <div style="height: 28px; border-radius: 6px; background: #171A21"></div>
+          <div style="height: 28px; border-radius: 6px; background: #171A21"></div>
+        </div>
+        <div style="position: absolute; inset: 0; background: rgba(8,9,12,0.6)"></div>
+        <sc-if value="{{ draftOpen }}" hint-placeholder-val="{{ true }}">
+        <div role="dialog" aria-modal="true" aria-labelledby="draft-title" aria-describedby="draft-desc" style="position: absolute; left: 50%; top: 48px; transform: translateX(-50%); width: 620px; border-radius: 18px; background: #171A21; box-shadow: 0 0 0 1px #262B35, 0 24px 64px rgba(0,0,0,0.55); display: flex; flex-direction: column; overflow: hidden">
+          <div style="padding: 24px 24px 16px; display: flex; flex-direction: column; gap: 8px">
+            <div style="display: flex; align-items: center; gap: 12px">
+              <span id="draft-title" style="flex: 1; color: #FFFFFF; font-size: 14px; font-weight: 600">The agent drafted a change to its own permissions</span>
+              <span style="height: 24px; display: inline-flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: 12px; background: #2A2414; box-shadow: 0 0 0 1px #4A3F1F; color: #F2C14E; font-size: 11.5px">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8.5 11V8a3.5 3.5 0 0 1 7 0v3"></path></svg>You only</span>
+            </div>
+            <div id="draft-desc" style="color: #B4BAC6; line-height: 1.55">From your request “stop asking me before every scene edit”. Tick each rule you agree with. ⌘↵, Keep all and automations can't apply this, and no profile lets it through on its own.</div>
+          </div>
+          <div style="margin: 0 24px; border-radius: 12px; background: #101216; box-shadow: 0 0 0 1px #1F232A; overflow: hidden">
+            <div style="display: grid; grid-template-columns: 28px minmax(0, 1fr) 72px 20px 72px; gap: 8px; align-items: center; padding: 8px 12px; color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em"><span></span><span>RULE</span><span>NOW</span><span></span><span>DRAFT</span></div>
+            <sc-for list="{{ draftRules }}" as="r" hint-placeholder-count="3">
+              <div style="display: grid; grid-template-columns: 28px minmax(0, 1fr) 72px 20px 72px; gap: 8px; align-items: center; padding: 8px 12px; border-top: 1px solid #1F232A">
+                <button role="checkbox" aria-checked="{{ r.checked }}" aria-label="{{ r.label }}" onClick="{{ r.toggle }}" style="{{ r.box }}">
+                  <sc-if value="{{ r.on }}" hint-placeholder-val="{{ false }}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></sc-if>
+                </button>
+                <span style="display: flex; flex-direction: column; gap: 2px"><span style="color: #FFFFFF">{{ r.action }}</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #B4BAC6">{{ r.path }}</span></span>
+                <span style="{{ r.fromStyle }}">{{ r.from }}</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8B92A0" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>
+                <span style="{{ r.toStyle }}">{{ r.to }}</span>
+              </div>
+            </sc-for>
+          </div>
+          <div style="margin: 12px 24px 0; padding: 8px 12px; border-radius: 8px; background: #101216; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; line-height: 1.7">
+            <div style="color: #8B92A0">.nsgo/permissions.yaml · if applied</div>
+            <sc-for list="{{ draftYaml }}" as="l" hint-placeholder-count="4">
+              <div style="{{ l.style }}">{{ l.text }}</div>
+            </sc-for>
+            <sc-if value="{{ draftNone }}" hint-placeholder-val="{{ false }}">
+              <div style="color: #8B92A0">No changes ticked</div>
+            </sc-if>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px; padding: 16px 24px 24px">
+            <span style="flex: 1; color: #8B92A0">Applied rules show in History as yours.</span>
+            <button onClick="{{ discard }}" style="height: 32px; padding: 0 16px; border-radius: 8px; border: 0; background: #262B35; color: #FFFFFF">Discard draft</button>
+            <button onClick="{{ apply }}" aria-disabled="{{ applyDisabled }}" style="{{ applyStyle }}">{{ applyLabel }}</button>
+          </div>
+        </div>
+        </sc-if>
+        <sc-if value="{{ draftDone }}" hint-placeholder-val="{{ false }}">
+          <div role="status" style="position: absolute; left: 50%; bottom: 24px; transform: translateX(-50%); height: 40px; display: flex; align-items: center; gap: 12px; padding: 0 8px 0 16px; border-radius: 12px; background: #171A21; box-shadow: 0 0 0 1px #262B35, 0 12px 32px rgba(0,0,0,0.45); white-space: nowrap">
+            <span style="color: #FFFFFF">{{ doneText }}</span>
+            <button onClick="{{ resetDraft }}" style="height: 28px; padding: 0 12px; border-radius: 8px; border: 0; background: #262B35; color: #FFFFFF">Undo</button>
+          </div>
+        </sc-if>
+      </div>
+    </div>
+
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":2960,"height":880}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { allowed: false, copied: false, del: 'pending', ticks: { scenes: true, check: false, del: false }, draft: 'open' };
+  }
+  renderVals() {
+    const s = this.state;
+    const tag = (kind) => 'width: 64px; height: 24px; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; font-size: 11.5px; ' + (kind === 'Allow' ? 'background: rgba(79,211,138,0.14); color: #4FD38A' : kind === 'Ask' ? 'background: #2A2414; color: #F2C14E' : 'background: rgba(255,107,107,0.14); color: #FF6B6B');
+    const defs = [
+      { id: 'scenes', action: 'Edit', path: 'scenes/**  prefabs/**', from: 'Ask', to: 'Allow', yaml: ['- edit: [scenes/**, prefabs/**]', 'ask', 'allow'] },
+      { id: 'check', action: 'Run', path: 'game check', from: 'Ask', to: 'Allow', yaml: ['- run: game check', 'ask', 'allow'] },
+      { id: 'del', action: 'Delete', path: 'prefabs/**', from: 'Deny', to: 'Ask', yaml: ['- delete: [prefabs/**]', 'deny', 'ask'] },
+    ];
+    const draftRules = defs.map((d) => {
+      const on = !!s.ticks[d.id];
+      return {
+        ...d, on, checked: String(on),
+        label: 'Apply ' + d.action + ' ' + d.path + ': ' + d.from + ' to ' + d.to,
+        box: 'width: 20px; height: 20px; padding: 0; border-radius: 6px; border: 0; display: flex; align-items: center; justify-content: center; ' + (on ? 'background: #3B7BFF' : 'background: #171A21; box-shadow: inset 0 0 0 1.5px #8B92A0'),
+        fromStyle: tag(d.from), toStyle: tag(d.to) + (on ? '' : '; opacity: 0.5'),
+        toggle: () => this.setState({ ticks: { ...s.ticks, [d.id]: !on } }),
+      };
+    });
+    const ticked = defs.filter((d) => s.ticks[d.id]);
+    const draftYaml = [];
+    const ln = (text, kind) => ({ text, style: 'white-space: pre; padding: 0 8px; ' + (kind === '+' ? 'color: #B9F0CF; background: rgba(79,211,138,0.08)' : kind === '-' ? 'color: #FFB9B9; background: rgba(255,107,107,0.08)' : 'color: #B4BAC6') });
+    ticked.forEach((d) => { draftYaml.push(ln('  ' + d.yaml[0])); draftYaml.push(ln('-     decision: ' + d.yaml[1], '-')); draftYaml.push(ln('+     decision: ' + d.yaml[2], '+')); });
+    const n = ticked.length;
+    const rows = [
+      { sign: '~', title: 'level_01.scene.yaml', detail: 'slime_02 uses prefabs/slime.prefab.yaml', color: '#E9A84A', bg: 'rgba(233,168,74,0.14)' },
+      { sign: '~', title: 'level_02.scene.yaml', detail: 'slime_05, slime_06 use the new prefab', color: '#E9A84A', bg: 'rgba(233,168,74,0.14)' },
+      { sign: '~', title: 'slime.prefab.yaml', detail: 'patrol speed 24, taken from slime_old', color: '#E9A84A', bg: 'rgba(233,168,74,0.14)' },
+    ].map((r) => ({ ...r, mark: 'width: 22px; height: 22px; flex: none; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-weight: 600; background: ' + r.bg + '; color: ' + r.color }));
+    const d = s.del;
+    return {
+      denyIdle: !s.allowed, denyPlaying: s.allowed,
+      denySteps: ['Placed 3 slimes on the 120 px floor span', 'Placed 3 coins toward the door', 'Ran game check · no problems'],
+      allowNow: () => this.setState({ allowed: true }),
+      copyLabel: s.copied ? 'Copied' : 'Copy',
+      copyCmd: () => this.setState({ copied: true }),
+      reviewRows: rows,
+      keepLabel: d === 'confirmed' ? 'Keep 3 and delete 1' : 'Keep 3 of 3',
+      delPending: d === 'pending', delConfirmed: d === 'confirmed', delKept: d === 'kept',
+      delCard: 'display: flex; flex-direction: column; gap: 12px; padding: 12px; border-radius: 12px; background: ' + (d === 'kept' ? '#171A21; box-shadow: 0 0 0 1px #262B35; opacity: 0.7' : 'rgba(255,107,107,0.06); box-shadow: 0 0 0 1px #FF6B6B'),
+      delTitleStyle: 'color: #FFFFFF; ' + (d === 'kept' ? '' : 'text-decoration: line-through; text-decoration-color: #FF6B6B'),
+      confirmDelete: () => this.setState({ del: 'confirmed' }),
+      keepFile: () => this.setState({ del: 'kept' }),
+      resetDelete: () => this.setState({ del: 'pending' }),
+      draftRules, draftYaml, draftNone: n === 0,
+      applyLabel: n === 0 ? 'Apply' : 'Apply ' + n + (n === 1 ? ' rule' : ' rules'),
+      applyDisabled: String(n === 0),
+      applyStyle: 'height: 32px; padding: 0 16px; border-radius: 8px; border: 0; font-weight: 500; ' + (n === 0 ? 'background: #262B35; color: #8B92A0; cursor: default' : 'background: #3B7BFF; color: #FFFFFF'),
+      apply: () => { if (n > 0) this.setState({ draft: 'applied' }); },
+      discard: () => this.setState({ draft: 'discarded' }),
+      draftDone: s.draft !== 'open', draftOpen: s.draft === 'open',
+      doneText: s.draft === 'applied' ? 'Applied ' + n + (n === 1 ? ' rule' : ' rules') + ' by you · Settings › Permissions' : 'Draft discarded · your rules are unchanged',
+      resetDraft: () => this.setState({ draft: 'open' }),
+    };
+  }
+}
+</script>
+</body>
+</html>

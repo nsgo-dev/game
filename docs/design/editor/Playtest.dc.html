@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Playtest report</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#101216}
+a{color:#8fb3ff}a:hover{color:#b9cfff}
+button{font:inherit;cursor:pointer}
+</style>
+</helmet>
+<div style="height: 900px; display: flex; flex-direction: column; font-family: Inter, system-ui, sans-serif; font-size: 12.5px; color: #D9DDE5; background: #101216; overflow: hidden">
+  <div style="height: 52px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 16px; border-bottom: 1px solid #1F232A">
+    <span style="color: #FFFFFF; font-weight: 600; font-size: 14px">Playtest · {{ g.scope }}</span>
+    <span style="color: #8B92A0">{{ g.proj }} · {{ g.runs }}</span>
+    <div style="flex: 1"></div>
+    <button style="height: 32px; padding: 0 12px; border-radius: 8px; border: 0; background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #D9DDE5">{{ g.watch }}</button>
+    <button style="height: 32px; padding: 0 16px; border-radius: 8px; border: 0; background: #3B7BFF; color: #FFFFFF; font-weight: 500">Ask the agent to tune it</button>
+  </div>
+
+  <div style="flex: none; padding: 12px 16px; border-bottom: 1px solid #1F232A; background: #12141A; display: flex; flex-direction: column; gap: 8px">
+    <div style="display: flex; align-items: center; gap: 12px">
+      <span id="bot-profile-label" style="color: #8B92A0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em">BOT PROFILE</span>
+      <div role="group" aria-labelledby="bot-profile-label" style="display: flex; gap: 2px; padding: 3px; border-radius: 8px; background: #171A21; box-shadow: 0 0 0 1px #262B35">
+        <sc-for list="{{ profiles }}" as="p" hint-placeholder-count="5">
+          <button aria-pressed="{{ p.pressed }}" onClick="{{ p.pick }}" style="{{ p.style }}">{{ p.label }}</button>
+        </sc-for>
+      </div>
+      <div style="flex: 1"></div>
+      <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #B4BAC6">playtest.yaml</span>
+      <span style="color: #8B92A0">from template {{ g.template }}</span>
+      <a href="#playtest.yaml" style="text-decoration: none">Open</a>
+    </div>
+    <div style="height: 28px; display: flex; align-items: center; gap: 12px">
+      <span style="color: #8B92A0">Strategy</span>
+      <span style="color: #B4BAC6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ g.strategy }}</span>
+      <div style="flex: 1"></div>
+      <sc-if value="{{ g.hasProposal }}" hint-placeholder-val="{{ true }}">
+        <span style="height: 28px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 4px 0 12px; border-radius: 8px; background: rgba(155,123,255,0.10); box-shadow: 0 0 0 1px rgba(155,123,255,0.5)">
+          <span style="width: 6px; height: 6px; border-radius: 3px; background: #9B7BFF"></span>
+          <span style="color: #D9DDE5">{{ g.proposal }}</span>
+          <button style="height: 22px; padding: 0 8px; border-radius: 6px; border: 0; background: #171A21; box-shadow: 0 0 0 1px #262B35; color: #D9DDE5; font-size: 11.5px">Review</button>
+        </span>
+      </sc-if>
+    </div>
+  </div>
+
+  <div style="flex: 1; padding: 16px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-template-rows: 132px minmax(0, 1fr); gap: 16px; min-height: 0">
+    <sc-for list="{{ cards }}" as="c" hint-placeholder-count="4">
+      <div style="border-radius: 12px; background: #12141A; box-shadow: 0 0 0 1px #1F232A; padding: 16px; display: flex; flex-direction: column; gap: 4px; min-width: 0">
+        <div style="display: flex; align-items: center; gap: 8px">
+          <span style="flex: 1; color: #8B92A0">{{ c.label }}</span>
+          <span style="{{ c.badgeStyle }}">
+            <sc-if value="{{ c.met }}" hint-placeholder-val="{{ true }}"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg></sc-if>
+            <sc-if value="{{ c.missed }}" hint-placeholder-val="{{ false }}"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></sc-if>
+            {{ c.badge }}
+          </span>
+        </div>
+        <span style="font-size: 28px; font-weight: 600; color: #FFFFFF; line-height: 1.2">{{ c.value }}</span>
+        <span style="color: #8B92A0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ c.foot }}</span>
+        <div style="flex: 1"></div>
+        <div style="display: flex; align-items: center; gap: 8px; font-size: 11.5px; min-width: 0">
+          <span style="color: #B4BAC6; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Goal · {{ c.goal }}</span>
+          <span style="font-family: 'JetBrains Mono', monospace; color: #8B92A0; flex: none">{{ c.src }}</span>
+        </div>
+      </div>
+    </sc-for>
+
+    <div style="grid-column: span 3; border-radius: 12px; background: #12141A; box-shadow: 0 0 0 1px #1F232A; padding: 16px; display: flex; flex-direction: column; gap: 12px; min-height: 0">
+      <div style="display: flex; align-items: center; justify-content: space-between"><span style="color: #FFFFFF; font-weight: 500">{{ g.chartTitle }}</span><span style="color: #8B92A0">{{ g.chartSub }}</span></div>
+
+      <sc-if value="{{ isHeat }}" hint-placeholder-val="{{ true }}">
+        <div style="{{ heatBg }}">
+          <sc-for list="{{ shapes }}" as="sh" hint-placeholder-count="2"><div style="{{ sh.style }}"></div></sc-for>
+          <sc-for list="{{ blobs }}" as="b" hint-placeholder-count="2"><div style="{{ b.style }}"></div></sc-for>
+          <sc-for list="{{ chips }}" as="ch" hint-placeholder-count="1"><div style="{{ ch.style }}">{{ ch.text }}</div></sc-for>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isBars }}" hint-placeholder-val="{{ false }}">
+        <div style="flex: 1; position: relative; border-radius: 8px; background: #101216; box-shadow: inset 0 0 0 1px #1F232A; min-height: 0">
+          <div style="position: absolute; left: 24px; right: 24px; bottom: 40px; height: 380px; display: flex; gap: 12px">
+            <div style="{{ targetLine }}"></div>
+            <div style="{{ targetLabel }}">{{ g.targetText }}</div>
+            <sc-for list="{{ bars }}" as="br" hint-placeholder-count="6">
+              <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 4px; min-width: 0">
+                <span style="{{ br.valueStyle }}">{{ br.value }}</span>
+                <div style="{{ br.style }}"></div>
+              </div>
+            </sc-for>
+          </div>
+          <div style="position: absolute; left: 24px; right: 24px; bottom: 12px; height: 20px; display: flex; gap: 12px">
+            <sc-for list="{{ bars }}" as="br" hint-placeholder-count="6">
+              <span style="{{ br.labelStyle }}">{{ br.label }}</span>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isMatrix }}" hint-placeholder-val="{{ false }}">
+        <div style="flex: 1; border-radius: 8px; background: #101216; box-shadow: inset 0 0 0 1px #1F232A; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; min-height: 0">
+          <div style="display: grid; grid-template-columns: 96px repeat(3, 144px); gap: 8px">
+            <sc-for list="{{ cells }}" as="cl" hint-placeholder-count="16">
+              <div style="{{ cl.style }}"><span style="{{ cl.valueStyle }}">{{ cl.value }}</span><span style="{{ cl.noteStyle }}">{{ cl.note }}</span></div>
+            </sc-for>
+          </div>
+          <div style="color: #8B92A0">Row deck's win rate against the column deck · above 60% is flagged</div>
+        </div>
+      </sc-if>
+    </div>
+
+    <div style="border-radius: 12px; background: #12141A; box-shadow: 0 0 0 1px #1F232A; padding: 16px; display: flex; flex-direction: column; gap: 12px">
+      <span style="color: #FFFFFF; font-weight: 500">Agent's read</span>
+      <div style="line-height: 1.65; color: #D9DDE5">{{ g.read }}</div>
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <sc-for list="{{ suggestions }}" as="sg" hint-placeholder-count="2">
+          <div style="padding: 8px 12px; border-radius: 8px; background: #171A21; box-shadow: 0 0 0 1px #262B35; line-height: 1.5">{{ sg.text }}</div>
+        </sc-for>
+      </div>
+      <div style="flex: 1"></div>
+      <div style="color: #8B92A0; font-size: 11.5px; line-height: 1.6">Runs use the replay system, so any run can be watched frame by frame or turned into a test. Metrics and the bot come from playtest.yaml; the agent proposes new ones with playtest_define and they arrive as a review.</div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { genre: 'platformer' };
+  }
+  renderVals() {
+    const s = this.state;
+    const blob = (left, bottom, w, h, rgb, a) => 'position: absolute; left: ' + left + '; bottom: ' + bottom + '; width: ' + w + 'px; height: ' + h + 'px; border-radius: 50%; background: radial-gradient(closest-side, rgba(' + rgb + ',' + a + '), rgba(' + rgb + ',0))';
+    const chip = (left, bottom, problem) => 'position: absolute; left: ' + left + '; bottom: ' + bottom + '; height: 22px; display: flex; align-items: center; padding: 0 8px; border-radius: 11px; background: rgba(16,18,22,0.92); font-size: 11px; white-space: nowrap; ' + (problem ? 'box-shadow: 0 0 0 1px rgba(255,107,107,0.5); color: #FF6B6B' : 'box-shadow: 0 0 0 1px #262B35; color: #D9DDE5');
+    const RED = '255,107,107', AMBER = '233,168,74';
+    const G = {
+      platformer: {
+        label: 'Platformer runner', proj: 'dungeon-run', scope: 'level_01', template: 'platformer2d',
+        runs: '20 headless runs by the agent · 1 m 40 s', watch: 'Watch run 7',
+        strategy: 'Greedy route to the door, jumps at ledges and gaps, 120–220 ms human reaction jitter, 20 seeds',
+        hasProposal: true, proposal: 'Proposed with playtest_define: deaths per run, from “dies 2–4 times on floor 3”',
+        cards: [
+          ['Finished', '14 / 20', '6 died at the slime pit', 'most first-timers clear floor 1 · ≥ 16', 'brief.yaml', false],
+          ['Median time', '48 s', 'fastest 39 s · slowest 71 s', 'under a minute · 40–60 s', 'brief.yaml', true],
+          ['Frame time', '4.1 ms', 'p99 6.0 ms · 0 allocs/frame', '16.7 ms at 60 Hz', 'game.yaml', true],
+          ['Coins taken', '71%', 'coin_03 never taken', 'every coin on a route · 100%', 'playtest.yaml', false],
+        ],
+        chart: 'heat', chartTitle: 'Where players died', chartSub: 'heat over the level · 20 runs',
+        bg: 'linear-gradient(180deg,#1c2230,#181c24)',
+        shapes: ['position: absolute; left: 0; right: 0; bottom: 0; height: 18%; background: #2a2f3a', 'position: absolute; left: 52%; bottom: 34%; width: 22%; height: 14px; border-radius: 2px; background: #333a47'],
+        blobs: [blob('31%', '14%', 140, 90, RED, 0.65), blob('62%', '30%', 70, 50, AMBER, 0.5)],
+        chips: [{ text: '5 deaths · slime_02 + slime_03 overlap', style: chip('33%', '36%', true) }],
+        read: 'The pit is too hard: slime_02 and slime_03 meet at x 300 and leave no gap to jump through. coin_03 sits above the plank where no route passes.',
+        suggestions: ['Offset slime_03’s patrol by half a cycle', 'Move coin_03 down to the jump arc'],
+      },
+      explorer: {
+        label: 'Top-down explorer', proj: 'moss-keep', scope: 'overworld', template: 'rpg2d',
+        runs: '20 headless runs at 8× speed · 18 m 10 s', watch: 'Watch run 4',
+        strategy: 'Walks to the nearest unseen tile, talks to every NPC once, opens every chest, gives up after 6 minutes',
+        hasProposal: false, proposal: '',
+        cards: [
+          ['Reached the key', '18 / 20', '2 ran out of time in the marsh', 'nearly everyone finds the key · ≥ 18', 'brief.yaml', true],
+          ['Time to the key', '3 m 12 s', 'median · fastest 2 m 05 s', 'a short first outing · 2–4 min', 'brief.yaml', true],
+          ['Map seen', '64%', 'north-east grove never entered', 'poking around pays off · ≥ 80%', 'brief.yaml', false],
+          ['Frame time', '3.2 ms', 'p99 5.1 ms · 0 allocs/frame', '16.7 ms at 60 Hz', 'game.yaml', true],
+        ],
+        chart: 'heat', chartTitle: 'Where the explorer spent its time', chartSub: 'time per tile · 20 runs',
+        bg: 'linear-gradient(180deg,#18221c,#151c18)',
+        shapes: [
+          'position: absolute; left: 0; right: 0; bottom: 10%; height: 22px; background: #1b2733',
+          'position: absolute; left: 6%; bottom: 44%; width: 72%; height: 14px; border-radius: 7px; background: #2b3127',
+          'position: absolute; left: 40%; bottom: 18%; width: 14px; height: 70%; border-radius: 7px; background: #2b3127',
+          'position: absolute; left: 10%; bottom: 52%; width: 96px; height: 64px; border-radius: 6px; background: #2c2a24',
+          'position: absolute; left: 66%; top: 6%; width: 28%; height: 38%; border-radius: 12px; background: repeating-linear-gradient(135deg, rgba(255,107,107,0.10) 0 6px, transparent 6px 12px); box-shadow: inset 0 0 0 1.5px #FF6B6B',
+        ],
+        blobs: [blob('8%', '46%', 170, 120, AMBER, 0.45), blob('20%', '8%', 220, 130, RED, 0.6), blob('36%', '36%', 90, 70, AMBER, 0.4)],
+        chips: [
+          { text: 'never entered · north-east grove', style: chip('67%', '50%', true) },
+          { text: 'marsh · 41% of all time', style: chip('24%', '30%', false) },
+        ],
+        read: 'Nobody enters the north-east grove: grove_gate uses the cliff-edge tile, so it reads as a wall and the explorer never tries it. The marsh eats 41% of the time because its paths loop back on themselves.',
+        suggestions: ['Give grove_gate its own tile and a lantern', 'Cut the marsh loop at the broken bridge'],
+      },
+      shooter: {
+        label: 'Shooter', proj: 'star-lane', scope: 'stage_2', template: 'shmup2d',
+        runs: '20 headless runs · 4 m 30 s', watch: 'Watch run 12',
+        strategy: 'Dodges the nearest bullet with 180 ms reaction, fires constantly, takes power-ups within 80 px',
+        hasProposal: false, proposal: '',
+        cards: [
+          ['Cleared the stage', '11 / 20', '7 lost their last life on wave 4', 'beatable on a second try · ≥ 14', 'brief.yaml', false],
+          ['Hits per run', '4', 'median · 3 lives, 2 shields', 'tense but fair · 3–6', 'brief.yaml', true],
+          ['Power-ups taken', '62%', 'shield_02 spawns under turret fire', 'most power-ups reachable · ≥ 70%', 'playtest.yaml', false],
+          ['Frame time', '5.8 ms', 'p99 9.1 ms · 412 bullets at peak', '16.7 ms at 60 Hz', 'game.yaml', true],
+        ],
+        chart: 'bars', chartTitle: 'Hits taken per wave', chartSub: 'median per run · 20 runs',
+        bars: [['wave 1', 0.2], ['wave 2', 0.4], ['wave 3', 0.7], ['wave 4', 2.6, 'p'], ['wave 5', 0.6], ['wave 6', 0.4]],
+        max: 3, target: 1, targetText: 'goal ≤ 1 per wave · brief.yaml', dec: 1,
+        read: 'Wave 4 is a wall: turret_a and turret_b fire aimed spreads on the same beat, and the gaps close faster than a 180 ms reaction. 7 of the 9 failed runs end there.',
+        suggestions: ['Delay turret_b’s first volley by 0.6 s', 'Spawn shield_02 before wave 4, away from the turrets'],
+      },
+      puzzle: {
+        label: 'Puzzle solver', proj: 'crate-logic', scope: 'pack_1', template: 'puzzle2d',
+        runs: '12 levels · solver plus 20 human-like runs each · 2 m 05 s', watch: 'Watch level_07 solve',
+        strategy: 'Breadth-first search for the shortest solution, up to 2 million states; a human-like player that undoes after 3 bad moves',
+        hasProposal: false, proposal: '',
+        cards: [
+          ['Solvable', '12 / 12', 'every level has a solution', 'no dead ends · 12 / 12', 'playtest.yaml', true],
+          ['Difficulty order', '2 dips', 'after level_07 and level_10', 'each level harder than the last · 0', 'brief.yaml', false],
+          ['Moves over par', '+3', 'median for human-like runs', 'clever, not tedious · ≤ +5', 'brief.yaml', true],
+          ['Unintended solutions', '1', 'level_11 solved in 14 moves', 'one intended trick per level · 0', 'playtest.yaml', false],
+        ],
+        chart: 'bars', chartTitle: 'Shortest solution per level', chartSub: 'moves · should rise left to right',
+        bars: [['01', 6], ['02', 9], ['03', 11], ['04', 14], ['05', 15], ['06', 19], ['07', 38, 'p'], ['08', 19], ['09', 24], ['10', 27], ['11', 14, 'w'], ['12', 31]],
+        max: 40, target: 0, targetText: '', dec: 0,
+        read: 'level_07 needs 38 moves, twice level_08, so the curve dips right after it. level_11 has a 14-move solution that pushes crate_c along the wall and skips the switch trick it was built around.',
+        suggestions: ['Swap level_07 and level_08 in pack_1', 'Put a crate at 5, 3 in level_11 to block the short solution'],
+      },
+      cards: {
+        label: 'Card AI', proj: 'ember-deck', scope: 'mirror matches', template: 'cards2d',
+        runs: '600 matches · 3 decks · 52 s', watch: 'Watch match 38',
+        strategy: 'Two greedy AIs that look one turn ahead play each deck pair 200 times, taking turns to go first',
+        hasProposal: false, proposal: '',
+        cards: [
+          ['First player wins', '61%', 'across all 600 matches', 'going first is a small edge · 45–55%', 'brief.yaml', false],
+          ['Match length', '9 turns', 'median · 6 to 15', 'quick matches · 8–12 turns', 'brief.yaml', true],
+          ['Most lopsided pair', '71%', 'Ember beats Frost', 'no pair above 60%', 'playtest.yaml', false],
+          ['AI think time', '0.4 ms', 'p99 2.1 ms per decision', 'answers in under 50 ms', 'playtest.yaml', true],
+        ],
+        chart: 'matrix', chartTitle: 'Win rate by deck pair', chartSub: '200 matches per pair',
+        decks: ['Ember', 'Frost', 'Thorn'], grid: [[null, 71, 58], [29, null, 49], [42, 51, null]],
+        read: 'Going first is worth too much: the first player plays Kindle on turn 1 and is a full card ahead by turn 3. Ember leans on Kindle the most, which is why it beats Frost 71% of the time.',
+        suggestions: ['Raise Kindle’s cost from 1 to 2', 'Give the second player a Spark on turn 1'],
+      },
+    };
+    const order = ['platformer', 'explorer', 'shooter', 'puzzle', 'cards'];
+    const g = { targetText: '', ...G[s.genre] };
+    const profiles = order.map((id) => ({
+      label: G[id].label,
+      pressed: s.genre === id ? 'true' : 'false',
+      style: 'height: 28px; padding: 0 12px; border-radius: 6px; border: 0; font-weight: 500; white-space: nowrap; ' + (s.genre === id ? 'background: #262B35; color: #FFFFFF' : 'background: none; color: #B4BAC6'),
+      pick: () => this.setState({ genre: id }),
+    }));
+    const cards = g.cards.map(([label, value, foot, goal, src, met]) => ({
+      label, value, foot, goal, src, met, missed: !met, badge: met ? 'Met' : 'Missed',
+      badgeStyle: 'height: 20px; display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; border-radius: 10px; font-size: 11px; font-weight: 600; ' + (met ? 'color: #4FD38A; box-shadow: 0 0 0 1px rgba(79,211,138,0.45)' : 'color: #FF6B6B; background: rgba(255,107,107,0.08); box-shadow: 0 0 0 1px rgba(255,107,107,0.5)'),
+    }));
+    let bars = [];
+    let targetLine = 'display: none', targetLabel = 'display: none';
+    if (g.chart === 'bars') {
+      bars = g.bars.map(([label, v, tone]) => {
+        const color = tone === 'p' ? '#FF6B6B' : tone === 'w' ? '#E9A84A' : '#3B4252';
+        return {
+          label, value: v.toFixed(g.dec),
+          style: 'width: 64%; max-width: 64px; height: ' + Math.round((v / g.max) * 340) + 'px; border-radius: 6px 6px 2px 2px; background: ' + color,
+          valueStyle: 'font-family: \'JetBrains Mono\', monospace; font-size: 11.5px; color: ' + (tone ? color : '#B4BAC6'),
+          labelStyle: 'flex: 1; min-width: 0; text-align: center; font-size: 11.5px; color: ' + (tone ? '#FFFFFF' : '#8B92A0'),
+        };
+      });
+      if (g.target) {
+        const y = Math.round((g.target / g.max) * 340);
+        targetLine = 'position: absolute; left: 0; right: 0; bottom: ' + y + 'px; height: 0; border-top: 1px dashed #8B92A0; pointer-events: none';
+        targetLabel = 'position: absolute; right: 0; bottom: ' + (y + 4) + 'px; font-size: 11px; color: #B4BAC6';
+      }
+    }
+    let cells = [];
+    if (g.chart === 'matrix') {
+      const head = 'height: 32px; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #8B92A0; font-weight: 500';
+      cells.push({ value: '', note: '', style: head, valueStyle: '', noteStyle: 'display: none' });
+      g.decks.forEach((d) => cells.push({ value: 'vs ' + d, note: '', style: head, valueStyle: '', noteStyle: 'display: none' }));
+      g.grid.forEach((row, i) => {
+        cells.push({ value: g.decks[i], note: '', style: 'height: 88px; display: flex; flex-direction: column; justify-content: center; align-items: flex-end; padding-right: 8px; color: #FFFFFF; font-weight: 500', valueStyle: '', noteStyle: 'display: none' });
+        row.forEach((v) => {
+          const hot = v !== null && v > 60, warm = v !== null && v > 55 && !hot;
+          cells.push({
+            value: v === null ? '—' : v + '%',
+            note: v === null ? 'same deck' : hot ? 'above 60%' : warm ? 'watch' : 'balanced',
+            style: 'height: 88px; border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; ' + (v === null ? 'background: #171A21' : hot ? 'background: rgba(255,107,107,0.14); box-shadow: inset 0 0 0 1.5px #FF6B6B' : warm ? 'background: #2A2414; box-shadow: inset 0 0 0 1px #4A3F1F' : 'background: #171A21; box-shadow: inset 0 0 0 1px #262B35'),
+            valueStyle: 'font-size: 20px; font-weight: 600; color: ' + (v === null ? '#8B92A0' : '#FFFFFF'),
+            noteStyle: 'font-size: 11px; color: ' + (hot ? '#FF6B6B' : warm ? '#F2C14E' : '#8B92A0'),
+          });
+        });
+      });
+    }
+    return {
+      g, profiles, cards, bars, cells, targetLine, targetLabel,
+      isHeat: g.chart === 'heat', isBars: g.chart === 'bars', isMatrix: g.chart === 'matrix',
+      heatBg: 'flex: 1; position: relative; border-radius: 8px; overflow: hidden; min-height: 0; box-shadow: inset 0 0 0 1px #262B35; background: ' + (g.bg || '#101216'),
+      shapes: (g.shapes || []).map((style) => ({ style })),
+      blobs: (g.blobs || []).map((style) => ({ style })),
+      chips: g.chips || [],
+      suggestions: g.suggestions.map((text) => ({ text })),
+    };
+  }
+}
+</script>
+</body>
+</html>
