@@ -308,7 +308,7 @@ built.Draw(d)
 
 ### 组件类型
 
-`ComponentRegistry` 用 Go 代码显式声明场景文件可以使用的组件类型，运行时不依赖反射：每个类型的名称和说明，以及每个字段的名称、种类（`FieldBool`、`FieldInt`、`FieldFloat`、`FieldString` 或 `FieldStringList`）、可选的允许取值 `Enum`（用于字符串或字符串列表字段）、默认值、可选的闭区间范围、供检查器使用的可选 `Step` 和说明。`Register` 会拒绝空名称或重复名称、非数值字段上的范围或步长、最小值大于最大值、`FieldInt` 上的小数范围或步长、负步长，以及种类不符或超出范围的默认值。
+`ComponentRegistry` 用 Go 代码显式声明场景文件可以使用的组件类型，运行时不依赖反射：每个类型的名称和说明，以及每个字段的名称、种类（`FieldBool`、`FieldInt`、`FieldFloat`、`FieldString` 或 `FieldStringList`）、可选的允许取值 `Enum`（仅用于 `FieldString` 字段）、默认值、可选的闭区间范围、供检查器使用的可选 `Step` 和说明。`Register` 会拒绝空名称或重复名称、非数值字段上的范围或步长、非 `FieldString` 字段上的 `Enum`、最小值大于最大值、`FieldInt` 上的小数范围或步长、负步长，以及种类不符或超出范围的默认值。
 
 ```go
 reg := sceneformat.NewComponentRegistry()
@@ -341,15 +341,15 @@ scenes/room.scene.yaml:11:13: sceneformat: object "hero" component "body" field 
 
 | 组件 | 维度 | 主要字段 |
 | --- | --- | --- |
-| `body2d` | 2D | `mode`（`static`、`kinematic`、`dynamic`）、`mass`、`gravityScale`、`lockRotation`、`vx`、`vy`、`material`、`friction`、`restitution`、`linearDamping`、`angularDamping` |
-| `collider2d` | 2D | `shape`（`box`、`circle`）、`width`、`height`、`radius`、`offsetX`、`offsetY`、`layer`、`mask`（`[]string`）、`material`、`friction`、`restitution` |
-| `trigger2d` | 2D | `shape`（`box`、`circle`）、`width`、`height`、`radius`、`offsetX`、`offsetY`、`layer`、`mask`（`[]string`）；声明事件 `entered`、`stayed`、`exited` |
-| `body3d` | 3D | `mode`（`static`、`kinematic`、`dynamic`）、`mass`、`gravityScale`、`lockRotation`、`vx`、`vy`、`vz`、`material`、`friction`、`restitution`、`linearDamping`、`angularDamping` |
-| `collider3d` | 3D | `shape`（`box`、`sphere`、`capsule`）、`width`、`height`、`depth`、`radius`、`offsetX`、`offsetY`、`offsetZ`、`layer`、`mask`（`[]string`）、`material`、`friction`、`restitution` |
-| `trigger3d` | 3D | `shape`（`box`、`sphere`、`capsule`）、`width`、`height`、`depth`、`radius`、`offsetX`、`offsetY`、`offsetZ`、`layer`、`mask`（`[]string`）；声明事件 `entered`、`stayed`、`exited` |
+| `body2d` | 2D | `version`（`1`）、`kind`（`static`、`kinematic`、`dynamic`）、`mass`、`gravityScale`、`vx`、`vy`、`friction`、`restitution`、`linearDamping`、`angularDamping`、`material` |
+| `collider2d` | 2D | `version`（`1`）、`shape`（`box`、`circle`）、`width`、`height`、`radius`、`offsetX`、`offsetY`、`layer`、`mask`（`[]string`）、`isTrigger`；声明事件 `enter`、`stay`、`exit` |
+| `trigger2d` | 2D | `version`（`1`）、`shape`（`box`、`circle`）、`width`、`height`、`radius`、`offsetX`、`offsetY`、`layer`、`mask`（`[]string`）；声明事件 `enter`、`stay`、`exit` |
+| `body3d` | 3D | `version`（`1`）、`kind`（`static`、`kinematic`、`dynamic`）、`mass`、`gravityScale`、`vx`、`vy`、`vz`、`friction`、`restitution`、`linearDamping`、`angularDamping`、`lockRotation`、`material` |
+| `collider3d` | 3D | `version`（`1`）、`shape`（`box`、`sphere`、`capsule`）、`width`、`height`、`depth`、`radius`、`offsetX`、`offsetY`、`offsetZ`、`layer`、`mask`（`[]string`）、`isTrigger`；声明事件 `enter`、`stay`、`exit` |
+| `trigger3d` | 3D | `version`（`1`）、`shape`（`box`、`sphere`、`capsule`）、`width`、`height`、`depth`、`radius`、`offsetX`、`offsetY`、`offsetZ`、`layer`、`mask`（`[]string`）；声明事件 `enter`、`stay`、`exit` |
 
 - **具名碰撞层**：`layer` 与 `mask` 直接引用 [`game.yaml`](project.md) 中 `physics.layers` 声明的易读层名，而非原始位掩码。向 `sceneformat.ParseWith` 传入 `ParseOptions{File: ..., PhysicsLayers: proj.PhysicsLayerTable()}`（`project.File.LoadAutoloads` 与 `Editor.OpenProject` 会自动传入）：任何拼错或未知的层名都会加载失败，并返回带有精确文件路径、从 1 开始的行号、列号、字段路径及合法层列表的 `*loaderr.Error`。
-- **构建与步进（`BuildPhysics`）**：`ps, err := sceneformat.BuildPhysics(built, proj.PhysicsSettings(), lib)` 会构造匹配的 `physics.World`、`physics.RigidWorld` 和 `physics3d.World`（应用项目重力、求解器迭代次数、具名 `Layer`/`Mask` 位掩码以及通过 `PhysicsMaterialResolver` 解析的 `*.physicsMaterial.yaml` 资源）。调用 `ps.Step(dt)` 会推进 2D 运动学与刚体、2D 触发器以及 3D 刚体与触发器，将更新后的世界位姿写回 `BuiltObject.Doc`，并把 `PhysicsTriggerEvent`（`TriggerEnter`、`TriggerStay`、`TriggerExit`）派发到 `ps.OnTrigger` 及已连接的 `ps.Signals`（`entered` / `stayed` / `exited`）。
+- **构建与步进（`BuildPhysics`）**：`ps, err := sceneformat.BuildPhysics(built, proj.PhysicsSettings(), lib)` 会构造匹配的 `physics.World`、`physics.RigidWorld` 和 `physics3d.World`（应用项目重力、求解器迭代次数、具名 `Layer`/`Mask` 位掩码以及通过 `PhysicsMaterialResolver` 解析的 `*.physics.yaml` 资源）。调用 `ps.Step(dt)` 会推进 2D 运动学与刚体、2D 触发器以及 3D 刚体与触发器，将更新后的局部坐标位姿写回 `BuiltObject.Doc`，并把 `PhysicsTriggerEvent`（`TriggerEnter`、`TriggerStay`、`TriggerExit`）派发到 `ps.OnTrigger` 及已连接的 `ps.Signals`（`enter` / `stay` / `exit`）。
 - **编辑器内运行与视口调试线框**：`Editor.PlayIn` 会自动构建并步进 `PhysicsScene`（`Editor.PlayPhysics`、`Editor.PlayTriggerEvents`、`Editor.OnPlayTrigger`），因此包含玩家刚体、墙壁碰撞体与金币触发器的场景无需编写碰撞 Go 代码即可直接在编辑器中运行并触发碰撞与触发事件。`Editor.ShowPhysicsDebug` 开启时（默认开启，可用 `SetShowPhysicsDebug` 切换），2D 与 3D 视口均会绘制每个 `collider2d`、`trigger2d`、`collider3d` 和 `trigger3d` 的线框轮廓。
 
 ### 连接（#490）

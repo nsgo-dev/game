@@ -219,8 +219,8 @@ func psPhysicsSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disa
 				return 0
 			}, func(v float64) error {
 				var y float32
-				if p := ed.Project.Physics; p != nil && p.Gravity2D != nil {
-					y = p.Gravity2D.Y
+				if ed.Project != nil && ed.Project.Physics != nil && ed.Project.Physics.Gravity2D != nil {
+					y = ed.Project.Physics.Gravity2D.Y
 				}
 				return ed.SetProjectPhysicsGravity2D(float32(v), y)
 			}),
@@ -231,8 +231,8 @@ func psPhysicsSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disa
 				return 0
 			}, func(v float64) error {
 				var x float32
-				if p := ed.Project.Physics; p != nil && p.Gravity2D != nil {
-					x = p.Gravity2D.X
+				if ed.Project != nil && ed.Project.Physics != nil && ed.Project.Physics.Gravity2D != nil {
+					x = ed.Project.Physics.Gravity2D.X
 				}
 				return ed.SetProjectPhysicsGravity2D(x, float32(v))
 			}),
@@ -243,8 +243,8 @@ func psPhysicsSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disa
 				return 0
 			}, func(v float64) error {
 				var i3 int
-				if p := ed.Project.Physics; p != nil {
-					i3 = p.SolverIterations3D
+				if ed.Project != nil && ed.Project.Physics != nil {
+					i3 = ed.Project.Physics.SolverIterations3D
 				}
 				return ed.SetProjectPhysicsSolverIterations(int(math.Round(v)), i3)
 			}),
@@ -256,8 +256,8 @@ func psPhysicsSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disa
 				return 0
 			}, func(v float64) error {
 				y, z := float32(-9.81), float32(0)
-				if p := ed.Project.Physics; p != nil && p.Gravity3D != nil {
-					y, z = p.Gravity3D.Y, p.Gravity3D.Z
+				if ed.Project != nil && ed.Project.Physics != nil && ed.Project.Physics.Gravity3D != nil {
+					y, z = ed.Project.Physics.Gravity3D.Y, ed.Project.Physics.Gravity3D.Z
 				}
 				return ed.SetProjectPhysicsGravity3D(float32(v), y, z)
 			}),
@@ -268,8 +268,8 @@ func psPhysicsSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disa
 				return -9.81
 			}, func(v float64) error {
 				x, z := float32(0), float32(0)
-				if p := ed.Project.Physics; p != nil && p.Gravity3D != nil {
-					x, z = p.Gravity3D.X, p.Gravity3D.Z
+				if ed.Project != nil && ed.Project.Physics != nil && ed.Project.Physics.Gravity3D != nil {
+					x, z = ed.Project.Physics.Gravity3D.X, ed.Project.Physics.Gravity3D.Z
 				}
 				return ed.SetProjectPhysicsGravity3D(x, float32(v), z)
 			}),
@@ -280,8 +280,8 @@ func psPhysicsSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disa
 				return 0
 			}, func(v float64) error {
 				x, y := float32(0), float32(-9.81)
-				if p := ed.Project.Physics; p != nil && p.Gravity3D != nil {
-					x, y = p.Gravity3D.X, p.Gravity3D.Y
+				if ed.Project != nil && ed.Project.Physics != nil && ed.Project.Physics.Gravity3D != nil {
+					x, y = ed.Project.Physics.Gravity3D.X, ed.Project.Physics.Gravity3D.Y
 				}
 				return ed.SetProjectPhysicsGravity3D(x, y, float32(v))
 			}),
@@ -292,8 +292,8 @@ func psPhysicsSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disa
 				return 0
 			}, func(v float64) error {
 				var i2 int
-				if p := ed.Project.Physics; p != nil {
-					i2 = p.SolverIterations2D
+				if ed.Project != nil && ed.Project.Physics != nil {
+					i2 = ed.Project.Physics.SolverIterations2D
 				}
 				return ed.SetProjectPhysicsSolverIterations(i2, int(math.Round(v)))
 			}),

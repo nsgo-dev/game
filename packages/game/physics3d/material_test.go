@@ -1,6 +1,7 @@
 package physics3d_test
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -113,5 +114,71 @@ func TestBodyApplyMaterialAndSharedDamping(t *testing.T) {
 	}
 	if stored.Vel.X >= 3.0 || stored.AngVel.Y >= 2.0 {
 		t.Fatalf("expected shared material damping to slow body, got vel=%v angVel=%v", stored.Vel, stored.AngVel)
+	}
+}
+
+func TestPhysicsMaterialSnapshotRestoreAndChecksum(t *testing.T) {
+	makeWorld := func(restitution float32) *physics3d.World {
+		w := physics3d.NewWorld()
+		floor := physics3d.NewStaticBody(
+			physics3d.BoxShape(physics3d.Box{HalfExtents: physics3d.Vec3{X: 10, Y: 0.5, Z: 10}}),
+			physics3d.Vec3{Y: -0.5},
+		)
+		w.AddBody(floor)
+		ball := physics3d.NewDynamicBody(
+			physics3d.SphereShape(physics3d.Sphere{Radius: 0.5}),
+			physics3d.Vec3{Y: 4.0},
+			1.0,
+		)
+		ball.Material = &physics3d.PhysicsMaterial{
+			Friction:       0.3,
+			Restitution:    restitution,
+			LinearDamping:  0.02,
+			AngularDamping: 0.04,
+		}
+		w.AddBody(ball)
+		return w
+	}
+
+	wHigh := makeWorld(0.9)
+	wLow := makeWorld(0.1)
+	if wHigh.Checksum() == wLow.Checksum() {
+		t.Fatal("Checksum must distinguish bodies with different PhysicsMaterial values")
+	}
+
+	const dt = time.Second / 60
+	for range 20 {
+		wHigh.Step(dt)
+	}
+	snap := wHigh.Save()
+	snapChecksum := wHigh.Checksum()
+
+	raw, err := json.Marshal(snap)
+	if err != nil {
+		t.Fatalf("json.Marshal snapshot: %v", err)
+	}
+	var decoded physics3d.WorldSnapshot
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("json.Unmarshal snapshot: %v", err)
+	}
+
+	restored := physics3d.NewWorld()
+	if err := restored.Restore(decoded); err != nil {
+		t.Fatalf("Restore: %v", err)
+	}
+	if got := restored.Checksum(); got != snapChecksum {
+		t.Fatalf("restored Checksum = %#x, want %#x", got, snapChecksum)
+	}
+	// Verify restored material is non-nil and produces bit-identical trajectory through bounce.
+	rb := restored.Bodies()[1]
+	if rb.Material == nil || rb.Material.Restitution != 0.9 || rb.Material.Friction != 0.3 {
+		t.Fatalf("restored Material = %+v, want friction=0.3 restitution=0.9", rb.Material)
+	}
+	for range 80 {
+		wHigh.Step(dt)
+		restored.Step(dt)
+	}
+	if wHigh.Checksum() != restored.Checksum() {
+		t.Fatalf("post-bounce checksum mismatch after restore: orig=%#x restored=%#x", wHigh.Checksum(), restored.Checksum())
 	}
 }

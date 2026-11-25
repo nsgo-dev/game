@@ -3,6 +3,7 @@ package sceneformat_test
 import (
 	"bytes"
 	"errors"
+	"math"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -416,5 +417,104 @@ func TestBuildPhysics3DPlayerWallAndTriggerAndMaterial(t *testing.T) {
 	// With restitution 0.85 against the wall at X=5 (left face 4.5), player should have bounced back below X=4.1!
 	if px := built.Object("player").Doc.X; px >= 4.1 {
 		t.Fatalf("3D player X = %v, expected collision and rebound off wall at x=5", px)
+	}
+}
+
+func TestBuildPhysicsParentChildSync2DAnd3D(t *testing.T) {
+	// 2D child under a translated + 90-degree rotated parent.
+	doc2D := &sceneformat.SceneDoc{
+		Version: 2,
+		Layers: []sceneformat.LayerDoc{{
+			Name: "main",
+			Objects: []sceneformat.ObjectDoc{{
+				ID:       "parent2d",
+				X:        100,
+				Y:        50,
+				Rotation: float32(math.Pi / 2),
+				Children: []sceneformat.ObjectDoc{{
+					ID:       "child2d",
+					X:        10,
+					Y:        0,
+					Rotation: 0.25,
+					Components: map[string]any{
+						"body2d":     map[string]any{"version": 1, "kind": "dynamic", "mass": 1.0, "gravityScale": 0.0, "vx": 60.0},
+						"collider2d": map[string]any{"version": 1, "shape": "box", "width": 8.0, "height": 8.0},
+					},
+				}},
+			}},
+		}},
+	}
+	built2D, err := sceneformat.Build(doc2D, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ps2D, err := sceneformat.BuildPhysics(built2D, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rb := ps2D.RigidBodies2D["child2d"]
+	rb.AngularVel = 1.2
+	for range 30 {
+		ps2D.Step(time.Second / 60)
+	}
+	child2D := built2D.Object("child2d")
+	// Re-composing parent.World with child local transform must match simulated world position and angle.
+	gotWorld2D := child2D.World.TransformPoint(math2d.Vec2{})
+	if math.Abs(float64(gotWorld2D.X-rb.X)) > 1e-3 || math.Abs(float64(gotWorld2D.Y-rb.Y)) > 1e-3 {
+		t.Fatalf("2D child world pos = (%v,%v), want (%v,%v)", gotWorld2D.X, gotWorld2D.Y, rb.X, rb.Y)
+	}
+	wantLocalRot := rb.Angle - float32(math.Pi/2)
+	if math.Abs(float64(child2D.Doc.Rotation-wantLocalRot)) > 1e-3 {
+		t.Fatalf("2D child local rotation = %v, want %v (world=%v)", child2D.Doc.Rotation, wantLocalRot, rb.Angle)
+	}
+
+	// 3D child under a translated + 90-degree Y-rotated parent.
+	doc3D := &sceneformat.SceneDoc{
+		Version: 2,
+		Layers: []sceneformat.LayerDoc{{
+			Name: "main",
+			Objects: []sceneformat.ObjectDoc{{
+				ID:   "parent3d",
+				X:    10,
+				Y:    2,
+				PosZ: -4,
+				RotY: float32(math.Pi / 2),
+				Children: []sceneformat.ObjectDoc{{
+					ID:   "child3d",
+					X:    2,
+					Y:    0,
+					PosZ: 0,
+					Components: map[string]any{
+						"body3d":     map[string]any{"version": 1, "kind": "dynamic", "mass": 1.0, "gravityScale": 0.0, "vx": 4.0, "linearDamping": 0.0, "angularDamping": 0.0},
+						"collider3d": map[string]any{"version": 1, "shape": "sphere", "radius": 0.5},
+					},
+				}},
+			}},
+		}},
+	}
+	built3D, err := sceneformat.Build(doc3D, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ps3D, err := sceneformat.BuildPhysics(built3D, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b3 := ps3D.Bodies3D["child3d"]
+	b3.AngVel = physics3d.Vec3{Y: 0.6}
+	for range 30 {
+		ps3D.Step(time.Second / 60)
+	}
+	parentTr := sceneformat.ObjectLocalTransform3D(built3D.Object("parent3d").Doc)
+	childLocalTr := sceneformat.ObjectLocalTransform3D(built3D.Object("child3d").Doc)
+	composed := parentTr.Mul(childLocalTr)
+	if math.Abs(float64(composed.Pos.X-b3.Pos.X)) > 1e-3 ||
+		math.Abs(float64(composed.Pos.Y-b3.Pos.Y)) > 1e-3 ||
+		math.Abs(float64(composed.Pos.Z-b3.Pos.Z)) > 1e-3 {
+		t.Fatalf("3D child composed world pos = %+v, want %+v (local=%+v)", composed.Pos, b3.Pos, childLocalTr.Pos)
+	}
+	dot := math.Abs(float64(composed.Rot.X*b3.Rot.X + composed.Rot.Y*b3.Rot.Y + composed.Rot.Z*b3.Rot.Z + composed.Rot.W*b3.Rot.W))
+	if dot < 0.999 {
+		t.Fatalf("3D child composed world rot = %+v, want %+v (|dot|=%v)", composed.Rot, b3.Rot, dot)
 	}
 }

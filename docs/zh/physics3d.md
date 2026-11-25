@@ -91,7 +91,7 @@ loop := &game.Loop{
 
 ### 物理材质
 
-可以将共享的 `*PhysicsMaterial`（`Friction`、`Restitution`、`LinearDamping`、`AngularDamping`）挂到 `Body.Material` 上，或调用 `Body.ApplyMaterial(mat)` 将其数值复制到刚体上。当 `Body.Material` 非空时，接触求解与速度阻尼直接读取材质经限幅后的表面属性（`Friction >= 0`、`Restitution` 在 `[0, 1]` 内、阻尼非负），因此修改共享材质会立即作用于所有引用它的刚体。来自 [`game/resource`](resources.md#physicsmaterial) 的共享 `*.physicsMaterial.yaml` 文件可通过 `mat.ApplyTo3D(body)` 应用到 3D 刚体。
+可以将共享的 `*PhysicsMaterial`（`Friction`、`Restitution`、`LinearDamping`、`AngularDamping`）挂到 `Body.Material` 上，或调用 `Body.ApplyMaterial(mat)` 将其数值复制到刚体上。当 `Body.Material` 非空时，接触求解与速度阻尼直接读取材质经限幅后的表面属性（`Friction >= 0`、`Restitution` 在 `[0, 1]` 内、阻尼非负），因此修改共享材质会立即作用于所有引用它的刚体。来自 [`game/resource`](resources.md#physicsmaterial) 的共享 `*.physics.yaml` 文件可通过 `mat.ApplyTo3D(body)` 应用到 3D 刚体。
 
 静止的刚体会进入休眠。以下情况会唤醒休眠刚体：运动中的动态刚体或运动学刚体（通过速度运动，或直接设置 `Pos`/`Rot`）碰到它；与它相连的关节另一端在运动；它的某个接触结束（支撑物移开）；附近的 `VoxelCollider` 方块改变实体性或脚下支撑方块消失；以及调用 `Wake`、`WakeInBox`、`ApplyImpulse` 或移除刚体、网格、体素碰撞体、关节时。
 
@@ -272,4 +272,4 @@ _ = hash
 
 ## 在场景文件中编写物理
 
-3D 物理刚体、碰撞体与触发器可以直接在 `*.scene.yaml` 场景文件中使用 [`sceneformat`](editor.md#内置物理组件817) 内置的 `body3d`、`collider3d` 和 `trigger3d` 组件编写，并复用 [`game.yaml`](project.md) `physics:` 小节中定义的 3D 重力、求解器迭代次数和具名碰撞层。`sceneformat.BuildPhysics(built, gameProject.PhysicsSettings(), lib)` 会填充 `physics3d.World`（支持盒体、球体与胶囊体）、解析具名 `layer`/`mask` 列表、应用 `*.physicsMaterial.yaml` 文件，并在运行时和编辑器运行模式中将刚体位姿同步回 `BuiltScene`。
+3D 物理刚体、碰撞体与触发器可以直接在 `*.scene.yaml` 场景文件中使用 [`sceneformat`](editor.md#内置物理组件817) 内置的 `body3d`、`collider3d` 和 `trigger3d` 组件编写，并复用 [`game.yaml`](project.md) `physics:` 小节中定义的 3D 重力、求解器迭代次数和具名碰撞层。`sceneformat.BuildPhysics(built, gameProject.PhysicsSettings(), lib)` 会填充 `physics3d.World`（支持盒体、球体与胶囊体）、解析具名 `layer`/`mask` 列表、应用 `*.physics.yaml` 文件，并在运行时和编辑器运行模式中将刚体位姿同步回 `BuiltScene`。

@@ -13,30 +13,31 @@ const SnapshotVersion = 1
 
 // BodySnapshot captures the complete public and private simulation state of a physics3d.Body.
 type BodySnapshot struct {
-	ID              int          `json:"id"`
-	Tag             string       `json:"tag,omitempty"`
-	Shape           Shape        `json:"shape"`
-	Pos             Vec3         `json:"pos"`
-	Vel             Vec3         `json:"vel"`
-	Rot             Quat         `json:"rot"`
-	AngVel          Vec3         `json:"angVel"`
-	Mass            float32      `json:"mass"`
-	InvMass         float32      `json:"invMass"`
-	InvInertia      float32      `json:"invInertia"`
-	LockRotation    bool         `json:"lockRotation,omitempty"`
-	Restitution     float32      `json:"restitution"`
-	Friction        float32      `json:"friction"`
-	LinearDamping   float32      `json:"linearDamping"`
-	AngularDamping  float32      `json:"angularDamping"`
-	GravityScale    float32      `json:"gravityScale"`
-	GravityScaleSet bool         `json:"gravityScaleSet,omitempty"`
-	Static          bool         `json:"static,omitempty"`
-	Kinematic       bool         `json:"kinematic,omitempty"`
-	Sleeping        bool         `json:"sleeping,omitempty"`
-	Layer           LayerMask    `json:"layer"`
-	Mask            LayerMask    `json:"mask"`
-	IsTrigger       bool         `json:"isTrigger,omitempty"`
-	Area            AreaSettings `json:"area"`
+	ID              int              `json:"id"`
+	Tag             string           `json:"tag,omitempty"`
+	Shape           Shape            `json:"shape"`
+	Pos             Vec3             `json:"pos"`
+	Vel             Vec3             `json:"vel"`
+	Rot             Quat             `json:"rot"`
+	AngVel          Vec3             `json:"angVel"`
+	Mass            float32          `json:"mass"`
+	InvMass         float32          `json:"invMass"`
+	InvInertia      float32          `json:"invInertia"`
+	LockRotation    bool             `json:"lockRotation,omitempty"`
+	Restitution     float32          `json:"restitution"`
+	Friction        float32          `json:"friction"`
+	LinearDamping   float32          `json:"linearDamping"`
+	AngularDamping  float32          `json:"angularDamping"`
+	Material        *PhysicsMaterial `json:"material,omitempty"`
+	GravityScale    float32          `json:"gravityScale"`
+	GravityScaleSet bool             `json:"gravityScaleSet,omitempty"`
+	Static          bool             `json:"static,omitempty"`
+	Kinematic       bool             `json:"kinematic,omitempty"`
+	Sleeping        bool             `json:"sleeping,omitempty"`
+	Layer           LayerMask        `json:"layer"`
+	Mask            LayerMask        `json:"mask"`
+	IsTrigger       bool             `json:"isTrigger,omitempty"`
+	Area            AreaSettings     `json:"area"`
 
 	SleepTimer     float32 `json:"sleepTimer,omitempty"`
 	ResidualDepth  float32 `json:"residualDepth,omitempty"`
@@ -264,6 +265,11 @@ func bodyIDOrZero(b *Body) int {
 }
 
 func snapshotBody3D(b *Body) BodySnapshot {
+	var mat *PhysicsMaterial
+	if b.Material != nil {
+		m := *b.Material
+		mat = &m
+	}
 	return BodySnapshot{
 		ID:              b.ID,
 		Tag:             b.Tag,
@@ -280,6 +286,7 @@ func snapshotBody3D(b *Body) BodySnapshot {
 		Friction:        b.Friction,
 		LinearDamping:   b.LinearDamping,
 		AngularDamping:  b.AngularDamping,
+		Material:        mat,
 		GravityScale:    b.GravityScale,
 		GravityScaleSet: b.gravityScaleSet,
 		Static:          b.Static,
@@ -299,6 +306,11 @@ func snapshotBody3D(b *Body) BodySnapshot {
 }
 
 func applyBody3DSnapshot(dst *Body, src BodySnapshot) {
+	var mat *PhysicsMaterial
+	if src.Material != nil {
+		m := *src.Material
+		mat = &m
+	}
 	*dst = Body{
 		ID:              src.ID,
 		Tag:             src.Tag,
@@ -315,6 +327,7 @@ func applyBody3DSnapshot(dst *Body, src BodySnapshot) {
 		Friction:        src.Friction,
 		LinearDamping:   src.LinearDamping,
 		AngularDamping:  src.AngularDamping,
+		Material:        mat,
 		GravityScale:    src.GravityScale,
 		Static:          src.Static,
 		Kinematic:       src.Kinematic,
@@ -1486,6 +1499,13 @@ func hashBody3D(h *detmath.Hasher, b *Body) {
 	h.WriteFloat32(b.Friction)
 	h.WriteFloat32(b.LinearDamping)
 	h.WriteFloat32(b.AngularDamping)
+	if b.Material != nil {
+		h.WriteBool(true)
+		h.WriteFloat32(b.Material.Friction)
+		h.WriteFloat32(b.Material.Restitution)
+		h.WriteFloat32(b.Material.LinearDamping)
+		h.WriteFloat32(b.Material.AngularDamping)
+	}
 	h.WriteFloat32(b.GravityScale)
 	h.WriteBool(b.gravityScaleSet)
 	h.WriteBool(b.Static)

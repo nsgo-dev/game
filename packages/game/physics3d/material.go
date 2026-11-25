@@ -5,13 +5,13 @@ package physics3d
 // or copy it onto one body with Body.ApplyMaterial.
 type PhysicsMaterial struct {
 	// Friction is the Coulomb friction coefficient (>= 0).
-	Friction float32
+	Friction float32 `json:"friction"`
 	// Restitution is the bounciness in [0, 1].
-	Restitution float32
+	Restitution float32 `json:"restitution"`
 	// LinearDamping reduces linear velocity smoothly over time (>= 0).
-	LinearDamping float32
+	LinearDamping float32 `json:"linearDamping"`
 	// AngularDamping reduces angular velocity smoothly over time (>= 0).
-	AngularDamping float32
+	AngularDamping float32 `json:"angularDamping"`
 }
 
 // ApplyMaterial copies m's surface and damping properties onto b, clamping them

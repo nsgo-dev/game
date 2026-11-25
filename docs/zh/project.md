@@ -176,7 +176,7 @@ func Root(cx *core.Scope) core.Node {
 - `Viewport()` 返回 `display` 对应的 `screen.Viewport`，没有 `display` 时返回 false。
 - `BindInput(actions)` 把输入映射绑定到 `input.Actions`，替换同名动作的绑定，保留其他绑定，例如随代码计算出的布局而定的绑定。`Region(action)` 返回绑定到某个动作的第一个区域，游戏在那里绘制屏幕上的控件。
 - `ConfigureMixer(mixer)` 为 `sound.Mixer` 设置默认主音量、各总线的默认音量（`SetDefaultMaster`、`SetDefaultVolume`）和 DSP 链。玩家设置过并由混音器保存在存储中的音量优先于默认值。没有效果的总线保留游戏在代码中设置的效果链，就像没有绑定的动作保留其绑定一样。
-- `ConfigurePhysicsWorld(world)`、`ConfigureRigidWorld(world)` 与 `ConfigurePhysics3DWorld(world)` 将 `physics.gravity2D`、`physics.gravity3D` 和求解器迭代次数应用到 `physics.World`、`physics.RigidWorld` 与 `physics3d.World`。`PhysicsLayerTable()` 和 `PhysicsSettings()` 将 `physics:` 转换为 `sceneformat.ParseWith` 与 `sceneformat.BuildPhysics` 使用的类型，`LayerBit(name)`、`LayerMask2D(names...)`、`LayerMask3D(names...)` 则便于在 Go 代码中解析具名碰撞层。
+- `ConfigurePhysicsWorld(world)`、`ConfigureRigidWorld(world)` 与 `ConfigurePhysics3DWorld(world)` 将 `physics.gravity2D`、`physics.gravity3D` 和求解器迭代次数应用到 `physics.World`、`physics.RigidWorld` 与 `physics3d.World`。`PhysicsLayerTable()` 和 `PhysicsSettings()` 将 `physics:` 转换为 `sceneformat.ParseWith` 与 `sceneformat.BuildPhysics` 使用的类型，`Physics.LayerBit(name)`、`Physics.LayerMask2D(names...)`、`Physics.LayerMask3D(names...)` 则便于在 Go 代码中解析具名碰撞层。
 - `LoadAutoloads(fsys)` 从以项目根目录为根的 `fs.FS`（例如 `embed.FS`）读取每个自动加载的场景和资源，场景会按场景文档解析并校验（包括对照 `physics.layers` 校验具名物理层）；遇到第一个缺失或无效的文件即返回错误。`Loaded.Main()` 是主场景。
 
 ## game.yaml 与 nsgo.yaml
