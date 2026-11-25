@@ -332,8 +332,8 @@ func newIceSpikes(o *pixelfx.Options) pixelfx.Instance {
 					}
 				}
 			}
-			// while they stand: glints wink on the blades
-			if t > spikesStart+spikesRun && t < spikesTremble && R.Chance(0.09) {
+			// while they stand: glints wink on the blades (a reach too short for any cluster has none to glint on; pixelfx throws there, the port skips the glint)
+			if t > spikesStart+spikesRun && t < spikesTremble && len(clusters) > 0 && R.Chance(0.09) {
 				c := pixelfx.Pick(R, clusters)
 				b := pixelfx.Pick(R, c.blades)
 				s, u := pose(c, b), R.Range(0.3, 0.95)

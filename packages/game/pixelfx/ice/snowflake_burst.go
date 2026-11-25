@@ -144,8 +144,7 @@ func newSnowflakeBurst(o *pixelfx.Options) pixelfx.Instance {
 			endBy(t, burstDuration, ps, nil, nil)
 		},
 		DrawFunc: func(p *pixelfx.Painter, _ float64) {
-			// the gathering: a tiny flake spins up at the heart, faster and brighter
-			// (a count of 0 has no first flake to gather; pixelfx throws there, the port draws no gathering flake)
+			// the gathering: a tiny flake spins up at the heart, faster and brighter (a count of 0 has no first flake to gather; pixelfx throws there, the port draws no gathering flake)
 			if t < burstPop && len(flakes) > 0 {
 				k := t / burstPop
 				snowflake(p, 0, burstY, 1+3.2*k*k, t*20, flakes[0].d, C, flakeOpts{hot: k})
