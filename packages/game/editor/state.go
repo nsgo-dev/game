@@ -27,6 +27,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/game/packages/game/scenemodel"
 	"github.com/nsgo-dev/game/packages/game/tilemap"
+	"github.com/nsgo-dev/game/packages/game/tooling/assetcheck"
 	"github.com/nsgo-dev/game/packages/game/tooling/datatable"
 	"github.com/nsgo-dev/game/packages/game/tooling/library"
 	"github.com/nsgo-dev/nsgo/core"
@@ -369,6 +370,14 @@ type Editor struct {
 	OnSaveScreen func(path string, data []byte) error
 	// OnHUDPrompt, when set, is called when the author submits a prompt from the HUD layout screen's composer or "Ask the agent to fix N" button.
 	OnHUDPrompt func(HUDPromptRequest)
+	// GitRunner invokes git with args in dir for scene merge conflict inspection, commit, and abort; when nil, os/exec runs git.
+	GitRunner func(dir string, args ...string) (string, error)
+	// MergeSuggester generates the agent's suggested resolution and reason for each conflicted scene item; when nil, DefaultMergeSuggestion is used.
+	MergeSuggester func(ctx context.Context, req MergeSuggestRequest) (MergeSuggestion, error)
+	// MergeCheckRunner overrides `game check` during FinishMerge; when nil, runProjectCheck runs over the project directory.
+	MergeCheckRunner func(dir, scenePath string, doc *sceneformat.SceneDoc) ([]assetcheck.Problem, error)
+	// MergePlaytestRunner overrides the short playtest run during FinishMerge; when nil, a deterministic 10 s headless Build/Update/Physics step runs.
+	MergePlaytestRunner func(dir, scenePath string, doc *sceneformat.SceneDoc) (MergePlaytestResult, error)
 
 	playing           bool
 	playSnapshot      []byte
@@ -580,6 +589,8 @@ type Editor struct {
 	lookThroughCamera3D bool
 	// envPanelOpen controls whether the Scene Environment panel is shown.
 	envPanelOpen bool
+	// merge holds the object-by-object Scene Merge Conflict resolution screen state.
+	merge mergeConflictState
 }
 
 // DefaultSceneDoc returns a valid starter SceneDoc suitable for a new editor session.

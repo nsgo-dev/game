@@ -48,6 +48,7 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 	var openedSaved []byte
 	var openedPath string
 	opened := false
+	conflictedScene := ""
 	switch a := f.Autoload; {
 	case withScene:
 		raw, err := os.ReadFile(scene)
@@ -60,13 +61,18 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 			PhysicsLayers: f.PhysicsLayerTable(),
 		})
 		if err != nil {
-			return loaderr.WithFile(err, scene)
+			if isSceneConflictFile(raw) {
+				conflictedScene = scene
+			} else {
+				return loaderr.WithFile(err, scene)
+			}
+		} else {
+			enc, err := sceneformat.Encode(doc)
+			if err != nil {
+				return loaderr.WithFile(err, scene)
+			}
+			openedDoc, openedSaved, openedPath, opened = doc, enc, scene, true
 		}
-		enc, err := sceneformat.Encode(doc)
-		if err != nil {
-			return loaderr.WithFile(err, scene)
-		}
-		openedDoc, openedSaved, openedPath, opened = doc, enc, scene, true
 	case a != nil && a.MainScene != "":
 		for _, s := range a.Scenes {
 			if s.Name == a.MainScene {
@@ -81,13 +87,18 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 					PhysicsLayers: f.PhysicsLayerTable(),
 				})
 				if err != nil {
-					return fmt.Errorf("editor: main scene %q: %w", s.Name, loaderr.WithFile(err, sceneFile))
+					if isSceneConflictFile(raw) {
+						conflictedScene = sceneFile
+					} else {
+						return fmt.Errorf("editor: main scene %q: %w", s.Name, loaderr.WithFile(err, sceneFile))
+					}
+				} else {
+					enc, err := sceneformat.Encode(doc)
+					if err != nil {
+						return fmt.Errorf("editor: main scene %q: %w", s.Name, loaderr.WithFile(err, sceneFile))
+					}
+					openedDoc, openedSaved, openedPath, opened = doc, enc, sceneFile, true
 				}
-				enc, err := sceneformat.Encode(doc)
-				if err != nil {
-					return fmt.Errorf("editor: main scene %q: %w", s.Name, loaderr.WithFile(err, sceneFile))
-				}
-				openedDoc, openedSaved, openedPath, opened = doc, enc, sceneFile, true
 				break
 			}
 		}
@@ -218,6 +229,15 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 	e.Status = "Opened project " + path
 	if missing := e.MissingPlugins(); len(missing) > 0 {
 		e.Status += "; plugins not built into this editor: " + strings.Join(missing, ", ")
+	}
+	e.merge.open = false
+	e.merge.session = nil
+	e.merge.rev++
+	e.refreshDetectedMergeConflicts()
+	if conflictedScene != "" {
+		if merr := e.OpenMergeConflict(conflictedScene); merr != nil {
+			e.Status = "Opened project " + path + "; " + merr.Error()
+		}
 	}
 	e.notify()
 	e.CheckProblems()

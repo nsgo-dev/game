@@ -39,7 +39,7 @@ func TestServerListsToolsAndResources(t *testing.T) {
 		}
 	}
 	slices.Sort(names)
-	want := []string{"cutscene_scrub", "cutscene_write", "game_check", "game_playtest", "playtest_define", "scene_edit", "scene_read", "selection_get", "states_test", "states_write", "viewport_image"}
+	want := []string{"cutscene_scrub", "cutscene_write", "game_check", "game_playtest", "merge_abort", "merge_finish", "merge_resolve", "merge_status", "playtest_define", "scene_edit", "scene_read", "selection_get", "states_test", "states_write", "viewport_image"}
 	if !slices.Equal(names, want) {
 		t.Fatalf("tools = %v, want %v", names, want)
 	}

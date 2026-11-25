@@ -185,6 +185,7 @@ func (e *Editor) OpenDemo() error {
 	e.particles = nil
 	e.lookThroughCamera3D = false
 	e.envPanelOpen = false
+	e.merge = mergeConflictState{}
 	e.selectFile("")
 	e.resetSearchForProject()
 	e.filesRev++

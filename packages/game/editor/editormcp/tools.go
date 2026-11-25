@@ -124,7 +124,7 @@ func builtinTools() []Tool {
 			Action:      ActionRead,
 			Handler:     cutsceneScrub,
 		},
-	}, playtestTools()...)
+	}, append(playtestTools(), mergeTools()...)...)
 }
 
 // projectRoot returns the absolute, symlink-free root of ed's project, or "" without one.

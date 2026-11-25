@@ -73,6 +73,7 @@ const (
 	CmdProfiler              = "project.profiler"
 	CmdCheckProblems         = "project.check"
 	CmdEditorSettings        = "editor.settings"
+	CmdMergeConflicts        = "git.mergeConflicts"
 	// The 3D viewport's axis views and projection: each axis view looks at the camera's Target along a world axis (SetView3D), and the orthographic command switches between perspective and orthographic (SetOrthographic3D).
 	CmdView3DFront        = "view.3d.front"
 	CmdView3DBack         = "view.3d.back"
@@ -258,9 +259,9 @@ func (e *Editor) initBuiltinCommands() {
 	if len(e.commands) > 0 {
 		return
 	}
-	notPlaying := func() bool { return !e.StartScreenOpen() && !e.Playing() }
-	inEditor := func() bool { return !e.StartScreenOpen() }
-	hasProject := func() bool { return !e.StartScreenOpen() && e.Project != nil }
+	notPlaying := func() bool { return !e.StartScreenOpen() && !e.MergeConflictOpen() && !e.Playing() }
+	inEditor := func() bool { return !e.StartScreenOpen() && !e.MergeConflictOpen() }
+	hasProject := func() bool { return !e.StartScreenOpen() && !e.MergeConflictOpen() && e.Project != nil }
 
 	e.commands = []EditorCommand{
 		{
@@ -1077,6 +1078,22 @@ func (e *Editor) initBuiltinCommands() {
 				return nil
 			},
 		},
+		{
+			ID:          CmdMergeConflicts,
+			Label:       "Resolve Scene Merge Conflicts",
+			Description: "Open the object-by-object scene merge conflict resolver for an active Git merge",
+			Category:    "Project",
+			Keywords:    []string{"merge", "conflict", "git", "resolve", "scene", "agent"},
+			Enabled:     func() bool { return !e.Playing() && (e.MergeConflictOpen() || e.Project != nil || e.FilePath != "") },
+			Checked:     func() bool { return e.MergeConflictOpen() },
+			Run: func() error {
+				if e.MergeConflictOpen() {
+					e.CloseMergeConflict()
+					return nil
+				}
+				return e.OpenMergeConflict("")
+			},
+		},
 	}
 }
 
@@ -1224,6 +1241,7 @@ var builtinCommandKeys = map[string][3]string{
 	CmdProfiler:              {"cmd.profiler.label", "cmd.profiler.desc", "cmd.category.project"},
 	CmdCheckProblems:         {"cmd.checkProblems.label", "cmd.checkProblems.desc", "cmd.category.project"},
 	CmdEditorSettings:        {"cmd.editorSettings.label", "cmd.editorSettings.desc", "cmd.category.file"},
+	CmdMergeConflicts:        {"cmd.mergeConflicts.label", "cmd.mergeConflicts.desc", "cmd.category.project"},
 }
 
 // Commands returns all currently active commands in deterministic order:
