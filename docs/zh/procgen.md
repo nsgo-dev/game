@@ -1,8 +1,8 @@
 # procgen
 
-`github.com/nsgo-dev/game/packages/game/procgen` 在瓦片网格上生成 2D 关卡，提供三种生成器：以走廊相连的 BSP 房间、元胞自动机洞穴，以及基于 YAML 规则文件的波函数坍缩。
+`github.com/nsgo-dev/game/packages/game/procgen` 在瓦片网格上生成 2D 关卡，提供四种生成器：以走廊相连的 BSP 房间、元胞自动机洞穴、基于 YAML 规则文件的波函数坍缩，以及在地牢布局图上拼接手工房间模板。
 
-每个生成器都接收一个 [`random.Stream`](determinism.md)，所有随机数都取自它，所以相同的种子与配置在任何操作系统和架构上都生成逐格相同的关卡。BSP 与 Cave 的地面格子总是构成一个 4 连通区域；WFC 也是如此，除非设置了 `AllowDisconnected` 或其规则没有可行走瓦片。
+每个生成器都接收一个 [`random.Stream`](determinism.md)，所有随机数都取自它，所以相同的种子与配置在任何操作系统和架构上都生成逐格相同的关卡。BSP、Cave 与 GenerateRooms 的可行走格子总是构成一个 4 连通区域；WFC 也是如此，除非设置了 `AllowDisconnected` 或其规则没有可行走瓦片。
 
 ## Grid
 
@@ -118,6 +118,92 @@ g, err := procgen.WFC(random.New(seed), procgen.WFCConfig{Width: 32, Height: 24,
 每次坍缩都会重新扫描网格，开启约束时还要重新搜索可行走区域，所以一次求解的开销大约是格子数的平方：32 × 24 需要几十毫秒，64 × 64 约一秒，128 × 128 则超过十秒。因此 `WFC` 至多接受 `procgen.MaxWFCCells`（64 × 64）个格子；更大的地图请用较小的块拼成，或改用 BSP 或 Cave。
 
 `EncodeRules` 以固定的字段顺序把规则集写回 YAML，瓦片与 neighbors 保持原有顺序，所以解析再编码它写出的文件会逐字节还原。
+
+## 基于地牢图的房间模板
+
+`GenerateRooms` 根据生成的 `LayoutGraph`（包含起点、终点、分支、环路以及锁与钥匙的递进关系）拼接手工设计的房间模板，生成肉鸽风格地牢关卡。
+
+房间模板写在带版本号的 YAML 文件中：
+
+```yaml
+version: 1
+rooms:
+  - id: entry
+    weight: 1
+    tags:
+      - start
+    doors:
+      - side: north
+        offset: 3
+      - side: south
+        offset: 3
+      - side: east
+        offset: 2
+      - side: west
+        offset: 2
+    tiles:
+      - '###.###'
+      - '#.....#'
+      - '.......'
+      - '#.....#'
+      - '###.###'
+  - id: boss_vault
+    tags:
+      - goal
+    width: 7
+    height: 5
+    source: rooms/boss_vault.tmj
+    doors:
+      - side: north
+        offset: 3
+      - side: south
+        offset: 3
+```
+
+- `version` 必须为 1（`RoomTemplatesVersion`），未知字段会被拒绝。
+- 每个房间有唯一的 `id`、可选的正数权重 `weight`（默认 1）、可选标签 `tags`（如 `start`、`goal`、`key`、`combat`）、可选的 `allowRotate`（允许按 90° 顺时针旋转）以及至少一个门洞 `doors`（`side` 为 `north`/`south`/`east`/`west`，从 0 开始的 `offset`，可选 `width` 默认为 1，可选 `channel` 限制只有同频道的门洞能对接）。
+- 每个房间必须二选一地指定内联 ASCII `tiles`（`#` 表示 `Wall`，`.` 表示 `Floor`，`a`..`z` 映射为 `2..27`）或外部文件引用 `source`（如 `.tmj` 瓦片地图或场景文件）及 `width`、`height`。
+- `ParseRoomTemplates` 与 `EncodeRoomTemplates` 会校验并按固定字段顺序以 2 空格缩进做无损往返编码。
+
+### 布局图与锁/钥匙递进
+
+可以用 `GenerateGraph` 单独生成 `LayoutGraph`，或用 `GenerateRooms` 一步完成构图与摆放：
+
+| 字段（`GraphConfig`） | 默认值 | 含义 |
+| --- | --- | --- |
+| `CriticalPath` | 5 | 从 `Start` 到 `Goal` 的主路径房间数（至少为 2） |
+| `Branches` | 0 | 从主路径与已有分支延伸出的支路房间数 |
+| `BranchMaxDepth` | 2 | 单条支路的最大延伸深度 |
+| `Loops` | 0 | 在同一锁层级内额外添加的目标环路边数 |
+| `Locks` | 0 | 放置在主路径上的锁/钥匙对数量（必须小于 `CriticalPath`） |
+| `MaxDegree` | 4 | 单个房间最多连接的通道数 |
+
+锁将地牢划分为 `0..Locks` 递进层级。每把锁的钥匙都放在严格早于该锁的层级中，而环路只连接同一层级（且生成树奇偶性相反，保证偶长环）的房间。`graph.VerifyLocks()` 验证从 `Start` 出发无需越过某把锁即可拿到对应的钥匙，且拿到钥匙后可到达 `Goal`。
+
+### 自由拼接与 Spelunky 风格房间网格模式
+
+```go
+templates, err := procgen.ParseRoomTemplates(data)
+lvl, err := procgen.GenerateRooms(random.New(seed), procgen.RoomsConfig{
+	Templates: templates,
+	Mode:      procgen.PlacementGrid, // 或 procgen.PlacementStitch（默认）
+	GridCols:  4,
+	GridRows:  4,
+	Graph: procgen.GraphConfig{
+		CriticalPath: 6,
+		Branches:     4,
+		Loops:        2,
+		Locks:        2,
+	},
+})
+// lvl.Grid（满足 Connected）、lvl.Rooms（TemplateID、Source、Bounds、GridSlot、Rotation、Role、KeyID）、
+// lvl.Doors（FromRoom、ToRoom、Cells、LockID）、lvl.Graph
+```
+
+- `PlacementStitch`（默认）通过对齐匹配的门洞自由拼接不同尺寸的房间且不重叠，并在同层级对齐门洞处闭合环路；若一次尝试受阻则从 `random.Stream` 确定性重试，最多 `Attempts` 次（默认 50），失败时返回 `ErrNoLayout`。
+- `PlacementGrid` 将等尺寸模板摆放在 `GridCols × GridRows` 的粗粒度房间格中（均为 0 时自动估算尺寸），类似 Spelunky 从第 0 行向下展开并让所有图边对齐相邻槽位。
+- `PlaceRooms` 支持将已有的 `LayoutGraph` 按上述任一模式摆放。
+- 对于通过 `source` 引用 `.tmj` 或场景文件的模板，可传入 `ResolveGrid` 回调（配合 `procgen.GridFromTilemap` 与 `tilemap.LoadTiled`）把瓦片写入 `Grid`；未提供 `ResolveGrid` 时会自动生成带外墙与地面内部的默认占位。未使用的门洞会被 `Wall` 封闭，已连接的门洞会被打开，保证 `Grid.Connected` 始终成立。
 
 ## 种子
 

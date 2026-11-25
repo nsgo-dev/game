@@ -1,8 +1,8 @@
 # procgen
 
-`github.com/nsgo-dev/game/packages/game/procgen` generates 2D levels on a tile grid with three generators: BSP rooms joined by corridors, cellular-automata caves, and wave function collapse over a YAML rule file.
+`github.com/nsgo-dev/game/packages/game/procgen` generates 2D levels on a tile grid with four generators: BSP rooms joined by corridors, cellular-automata caves, wave function collapse over a YAML rule file, and hand-made room templates placed on a dungeon layout graph.
 
-Every generator takes a [`random.Stream`](determinism.md) and draws all of its randomness from it, so the same seed and configuration give the same level, cell for cell, on every operating system and architecture. BSP and Cave always leave their floor cells as one 4-connected region, and so does WFC unless `AllowDisconnected` is set or its rules have no walkable tile.
+Every generator takes a [`random.Stream`](determinism.md) and draws all of its randomness from it, so the same seed and configuration give the same level, cell for cell, on every operating system and architecture. BSP, Cave and GenerateRooms always leave their walkable cells as one 4-connected region, and so does WFC unless `AllowDisconnected` is set or its rules have no walkable tile.
 
 ## Grid
 
@@ -118,6 +118,92 @@ While the wave collapses, a path constraint keeps the walkable tiles connected: 
 Each collapse rescans the grid and, with the constraint on, searches the walkable area again, so a solve costs roughly the square of the cell count: tens of milliseconds for 32 by 24, about a second for 64 by 64, and more than ten for 128 by 128. `WFC` therefore accepts at most `procgen.MaxWFCCells` (64 by 64) cells; build a larger map from smaller pieces or use BSP or Cave for it.
 
 `EncodeRules` writes a rule set back as YAML with a fixed field order and the tiles and neighbors in their given order, so parsing and encoding a file it wrote reproduces it byte for byte.
+
+## Room templates on a dungeon graph
+
+`GenerateRooms` builds roguelike levels from authored room templates placed on a generated `LayoutGraph` with a start room, a goal room, side branches, cycles and lock/key progression pairs.
+
+Room templates are defined in a versioned YAML file:
+
+```yaml
+version: 1
+rooms:
+  - id: entry
+    weight: 1
+    tags:
+      - start
+    doors:
+      - side: north
+        offset: 3
+      - side: south
+        offset: 3
+      - side: east
+        offset: 2
+      - side: west
+        offset: 2
+    tiles:
+      - '###.###'
+      - '#.....#'
+      - '.......'
+      - '#.....#'
+      - '###.###'
+  - id: boss_vault
+    tags:
+      - goal
+    width: 7
+    height: 5
+    source: rooms/boss_vault.tmj
+    doors:
+      - side: north
+        offset: 3
+      - side: south
+        offset: 3
+```
+
+- `version` must be 1 (`RoomTemplatesVersion`), and unknown fields are refused.
+- Each room has a unique `id`, an optional positive `weight` (default 1), optional `tags` (such as `start`, `goal`, `key`, `combat`), optional `allowRotate` (enabling 90° clockwise rotations), and one or more `doors` (`side`: `north`/`south`/`east`/`west`, 0-based `offset`, optional `width` defaulting to 1, optional `channel` restricting which sockets can connect).
+- Each room defines either inline ASCII `tiles` (`#` for `Wall`, `.` for `Floor`, `a`..`z` for tile values `2..27`) or an external `source` path (such as a `.tmj` tilemap or scene file) together with `width` and `height`.
+- `ParseRoomTemplates` and `EncodeRoomTemplates` validate and round-trip canonical 2-space YAML byte for byte.
+
+### Layout graph and lock/key progression
+
+`GenerateGraph` builds a `LayoutGraph` standalone, or `GenerateRooms` builds and embeds it in one call:
+
+| Field (`GraphConfig`) | Default | Meaning |
+| --- | --- | --- |
+| `CriticalPath` | 5 | Rooms on the main path from `Start` to `Goal` (at least 2) |
+| `Branches` | 0 | Side rooms attached off the critical path and earlier branches |
+| `BranchMaxDepth` | 2 | Maximum length of a branch chain |
+| `Loops` | 0 | Target count of extra cycle edges added within the same lock tier |
+| `Locks` | 0 | Lock/key pairs placed along the critical path (strictly less than `CriticalPath`) |
+| `MaxDegree` | 4 | Maximum passages per room |
+
+Locks split the graph into progression tiers `0..Locks`. Each lock's key is placed in a room whose tier strictly precedes the lock, and loops only connect rooms in the same tier (and opposite tree parity so cycles have even length). `graph.VerifyLocks()` confirms that every key is reachable from `Start` without crossing its lock and that `Goal` is reachable once keys are collected.
+
+### Stitching and Spelunky-style grid placement
+
+```go
+templates, err := procgen.ParseRoomTemplates(data)
+lvl, err := procgen.GenerateRooms(random.New(seed), procgen.RoomsConfig{
+	Templates: templates,
+	Mode:      procgen.PlacementGrid, // or procgen.PlacementStitch (default)
+	GridCols:  4,
+	GridRows:  4,
+	Graph: procgen.GraphConfig{
+		CriticalPath: 6,
+		Branches:     4,
+		Loops:        2,
+		Locks:        2,
+	},
+})
+// lvl.Grid (Connected holds), lvl.Rooms (TemplateID, Source, Bounds, GridSlot, Rotation, Role, KeyID),
+// lvl.Doors (FromRoom, ToRoom, Cells, LockID), lvl.Graph
+```
+
+- `PlacementStitch` (default) places variable-sized room templates freely by aligning matching door sockets without overlap, closing same-tier loops where aligned sockets meet, and retrying deterministically from the `random.Stream` up to `Attempts` times (default 50) before returning `ErrNoLayout`.
+- `PlacementGrid` lays out uniform-sized templates on a coarse `GridCols × GridRows` Spelunky-style grid of room slots (auto-sized when both are 0), starting on row 0 and aligning every graph edge with adjacent slots.
+- `PlaceRooms` places an already-generated `LayoutGraph` in either mode.
+- For templates that reference a `.tmj` or scene via `source`, pass a `ResolveGrid` callback (using `procgen.GridFromTilemap` for Tiled maps loaded with `tilemap.LoadTiled`) to stamp its tiles into `Grid`; when `ResolveGrid` is nil, a walled floor footprint of `Width × Height` is stamped automatically. Unused door sockets are sealed with `Wall` and connected sockets are opened so `Grid.Connected` always holds.
 
 ## Seeds
 
