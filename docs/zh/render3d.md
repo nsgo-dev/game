@@ -1353,7 +1353,7 @@ _ = stack.SetCamera(cam)
 
 ## 集群前向光照（`ClusteredLightSystem`、`ClusterGrid`）
 
-`LightRig` 最多着色 16 个点光源和 8 个聚光灯。对于有数百个局部光源的场景，`ClusteredLightSystem` 在 `LightGroup` 上取代 `GPULightBuffer`：它在绑定 0 上传同一个 `LightRig`（环境光、方向光以及 rig 自身的点光源和聚光灯），并把任意数量的额外局部光源（`ClusterLight`）分配到由屏幕图块 × 对数深度切片组成的三维网格中（默认 `16 × 9 × 24`，最多 `512` 个可见光源、每个集群 `64` 个）。每个片元只着色自己所在集群的光源，使用与 `shade_pbr` 相同的 Cook-Torrance BRDF 和 glTF `KHR_lights_punctual` 衰减，因此集群光源与 rig 光源的效果完全一致。在不支持存储缓冲区或计算着色器的目标上（WebGL 2、OpenGL ES 3.0，以及使用 `nsgotest.NoGPUCompute` 的无头测试），它回退为单个 uniform 缓冲区，存放 `FallbackMaxLights`（默认 `16`）个最重要的可见光源：
+`LightRig` 最多着色 16 个点光源和 8 个聚光灯。对于有数百个局部光源的场景，`ClusteredLightSystem` 在 `LightGroup` 上取代 `GPULightBuffer`：它在绑定 0 上传同一个 `LightRig`（环境光、方向光以及 rig 自身的点光源和聚光灯），并把任意数量的额外局部光源（`ClusterLight`）分配到由屏幕图块 × 对数深度切片组成的三维网格中（默认 `16 × 9 × 24`，最多 `512` 个可见光源、每个集群 `64` 个）。每个片元只着色自己所在集群的光源，使用与 `shade_pbr` 相同的 Cook-Torrance BRDF 和 glTF `KHR_lights_punctual` 衰减，因此集群光源与 rig 光源的效果完全一致。由于集群分配在 CPU 上完成，该路径只需要片元存储缓冲区（`Features.StorageBuffers` 与 `Limits.MaxStorageBufferBindingSize`），不依赖计算着色器，因此 Apple Metal 设备可以直接运行完整的集群路径。在不支持存储缓冲区的目标上（WebGL 2、OpenGL ES 3.0、Linux `GtkGLArea`，以及使用 `nsgotest.NoGPUCompute` 的无头测试），它回退为单个 uniform 缓冲区，存放 `FallbackMaxLights`（默认 `16`）个最重要的可见光源：
 
 ```go
 sys, err := render3d.NewClusteredLightSystem(cx, dev, render3d.DefaultClusterConfig())
@@ -1388,4 +1388,5 @@ mesh.Draw(pass)
 - **深度切片查找**：着色器在 uniform 切分深度表上做 6 步二分查找来确定片元的深度切片，而不使用 `log2` 和 `exp`，因为 NSGo v0.3.0 的软件 GPU 渲染器会把这些内置函数求值为零。
 - **CPU 参考实现**：`ShadeClusteredPoint` 是 `ShadePoint` 加上所有集群光源，`ShadeClusteredGridPoint` 只使用片元所在集群的光源，与 GPU 完全一致。测试在完整能力和 `NoGPUCompute` 配置下将 GPU 像素与它们比对，包括一个 256 光源的场景。
 - **上限**：`Validate` 将 `MaxLights` 限制在 `MaxClusterLights`（65,536）以内，要求 `MaxLightsPerCluster` 不超过 `MaxLights`，并将索引槽数（`TilesX * TilesY * SlicesZ * MaxLightsPerCluster`）限制在 `MaxClusterIndexEntries` 以内；当某个存储缓冲区超过设备的 `MaxStorageBufferBindingSize` 时，`NewClusteredLightSystem` 返回 `ErrInvalidClusterConfig`。
+- **桌面 GPU 实测性能**：在 MacBook Pro（Apple M4 Pro，Metal 4，macOS arm64，`2560 × 1440` 可绘制表面，120 Hz 显示器）上实测 256 盏动态集群点光源（约 250 盏可见、约 475 个活跃集群）：集群存储缓冲路径持续稳定在 `120.0 fps`，CPU 集群分配与缓冲区上传耗时约 145 µs/帧。
 - **生命周期**：设置 `ClusterConfig.Retained` 可在 GPU 设备丢失后恢复缓冲区；`ByteSize()` 报告 GPU 缓冲区字节数，供 `RenderStats` 和预算使用，`Close()` 立即释放资源。

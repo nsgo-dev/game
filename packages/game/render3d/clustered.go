@@ -979,14 +979,13 @@ func clusterLightRadiance(l ClusterLight, worldPos, n, v math3d.Vec3, mat PBRMat
 	return math3d.Vec3{X: brdf.X * rad.X, Y: brdf.Y * rad.Y, Z: brdf.Z * rad.Z}
 }
 
-// DeviceSupportsClusteredLighting reports whether dev exposes the storage-buffer and compute capabilities needed for the clustered forward shading path. Devices without them (such as WebGL 2, OpenGL ES 3.0, or headless tests under nsgotest.NoGPUCompute) fall back to the uniform-buffer path automatically.
+// DeviceSupportsClusteredLighting reports whether dev exposes the fragment storage-buffer capability and binding size needed for the clustered forward shading path. Because cluster assignment runs on the CPU, compute shaders are not required (so Apple Metal devices exposing StorageBuffers without Compute use the full clustered path). Devices without storage buffers (such as WebGL 2, OpenGL ES 3.0, Linux GtkGLArea, or headless tests under nsgotest.NoGPUCompute) fall back to the uniform-buffer path automatically.
 func DeviceSupportsClusteredLighting(dev *gpu.Device) bool {
 	if dev == nil {
 		return false
 	}
 	caps := dev.Capabilities()
 	return caps.Features.StorageBuffers &&
-		caps.Features.Compute &&
 		caps.Limits.MaxStorageBufferBindingSize >= clusterMinStorageBindingBytes
 }
 
