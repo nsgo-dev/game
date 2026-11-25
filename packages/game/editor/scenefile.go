@@ -63,12 +63,12 @@ func (e *Editor) DataTableDirty() bool {
 	return err != nil || !bytes.Equal(data, e.tableSaved)
 }
 
-// HasUnsavedChanges reports whether the open scene, project, GridMap, terrain, room map, localization workspace, animation clip, data table, or skeletal rig has edits that are not saved, which opening another scene or project, New Scene, and quitting would lose.
+// HasUnsavedChanges reports whether the open scene, project, GridMap, terrain, room map, localization workspace, animation clip, cutscene, data table, or skeletal rig has edits that are not saved, which opening another scene or project, New Scene, and quitting would lose.
 func (e *Editor) HasUnsavedChanges() bool {
 	if e == nil {
 		return false
 	}
-	return e.SceneDirty() || e.ProjectDirty() || e.GridMapDirty() || e.TerrainDirty() || e.RoomsDirty() || e.LocalizationDirty() || e.ClipDirty() || e.DataTableDirty() || e.RigDirty()
+	return e.SceneDirty() || e.ProjectDirty() || e.GridMapDirty() || e.TerrainDirty() || e.RoomsDirty() || e.LocalizationDirty() || e.ClipDirty() || e.CutsceneDirty() || e.DataTableDirty() || e.RigDirty()
 }
 
 // SaveAll persists all currently dirty editors (project, scene, GridMap, terrain, room map, localizations, clip, data table, and skeletal rig) that have a save destination configured.
@@ -106,6 +106,11 @@ func (e *Editor) SaveAll() error {
 			}
 		default:
 			return errors.New("editor: open animation clip has unsaved changes with no file path")
+		}
+	}
+	if e.CutsceneDirty() {
+		if err := e.saveCutsceneFromPanel(); err != nil {
+			return err
 		}
 	}
 	if e.DataTableDirty() {

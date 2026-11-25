@@ -311,6 +311,10 @@ type Editor struct {
 	OnSaveClip func(data []byte) error
 	// OnSaveStates is invoked by the state machine panel's Save button with the encoded *.states.yaml bytes; when nil the button writes to StatesPath.
 	OnSaveStates func(data []byte) error
+	// OnSaveCutscene is invoked by the cutscene timeline panel's Save button with the encoded *.cutscene.yaml bytes; when nil the button writes to CutscenePath.
+	OnSaveCutscene func(data []byte) error
+	// CutsceneCatalog optionally provides localized strings for cutscene dialogue previews when no localization files are loaded from the project.
+	CutsceneCatalog *l10n.Catalog
 	// Clips optionally resolves animation clips for the open sprite state machine when no project directory holds them on disk.
 	Clips animclip.ClipResolver
 	// OnSaveDataTable is invoked by the Data Table panel's Save button with the encoded table YAML; when nil the button writes to DataTablePath.
@@ -394,6 +398,9 @@ type Editor struct {
 
 	// The sprite state machine editor: open *.states.yaml graph, live preview player and Drive with keys state.
 	states statesEditorState
+
+	// The cutscene timeline editor: open *.cutscene.yaml timeline, live preview player, thumbnails and agent review state.
+	cutscene cutsceneEditorState
 
 	// The data table editor: the open table state and registered Go row types per file pattern.
 	table      *dataTableState
@@ -603,6 +610,7 @@ func New(doc *sceneformat.SceneDoc, resolver sceneformat.AssetResolver) (*Editor
 		GridSize:            defaultGridSize2D,
 		terrainBrush:        DefaultTerrainBrush(),
 		selKey:              clipKeyRef{-1, -1},
+		cutscene:            cutsceneEditorState{selTrack: -1, selClip: -1},
 		listeners:           make(map[uint64]func()),
 		output: outputPanelState{
 			open:       false,
@@ -714,6 +722,7 @@ func (e *Editor) afterMutate() {
 func (e *Editor) Rebuild() {
 	defer e.refreshClipPreview()
 	defer e.refreshStatesPreview()
+	defer e.refreshCutscenePreview()
 	e.syncRemoteDocObjectIDs()
 	if e.drag3D.kind != drag3DGizmo {
 		e.s3d.stale = true
@@ -740,6 +749,9 @@ func (e *Editor) Rebuild() {
 func (e *Editor) ActiveScene() *sceneformat.BuiltScene {
 	if e.playing && e.playScene != nil {
 		return e.playScene
+	}
+	if e.cutscene.scene != nil {
+		return e.cutscene.scene
 	}
 	if e.states.scene != nil {
 		return e.states.scene
@@ -1129,10 +1141,21 @@ func writeFileAtomic(path string, data []byte) error {
 	return os.Rename(tmp, path)
 }
 
-// Undo reverts the last edit in History (no-op while playing). A step that fails to revert, such as a file move (MoveFile) that something now on disk blocks, stays in place, and the status bar says why.
+func (e *Editor) canUndo() bool {
+	return e != nil && (e.canUndoCutsceneReviewEdit() || e.History.CanUndo())
+}
+
+func (e *Editor) canRedo() bool {
+	return e != nil && (e.canRedoCutsceneReviewEdit() || e.History.CanRedo())
+}
+
+// Undo reverts the last edit in History (or the last manual edit joined to an open cutscene review; no-op while playing). A step that fails to revert, such as a file move (MoveFile) that something now on disk blocks, stays in place, and the status bar says why.
 func (e *Editor) Undo() bool {
 	if e.playing {
 		return false
+	}
+	if e.undoCutsceneReviewEdit() {
+		return true
 	}
 	// A drag in progress is put back first, so the step undone is the one before it and not the half-dragged object.
 	e.CancelDrag2D()
@@ -1158,10 +1181,13 @@ func (e *Editor) Undo() bool {
 	return ok
 }
 
-// Redo re-applies the last undone edit in History (no-op while playing). A step that fails to re-apply stays undone, and the status bar says why.
+// Redo re-applies the last undone edit in History (or the last undone manual edit in an open cutscene review; no-op while playing). A step that fails to re-apply stays undone, and the status bar says why.
 func (e *Editor) Redo() bool {
 	if e.playing {
 		return false
+	}
+	if e.redoCutsceneReviewEdit() {
+		return true
 	}
 	e.CancelDrag2D()
 	e.CancelShapeDrag2D()

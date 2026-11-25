@@ -108,6 +108,22 @@ func builtinTools() []Tool {
 			Action:      ActionRun,
 			Handler:     statesTest,
 		},
+		{
+			Name:        ToolCutsceneWrite,
+			Title:       "Propose or write a cutscene timeline",
+			Description: "Validate a *.cutscene.yaml file against cutscene.Parse and open an interactive Before/After review on the cutscene timeline without overwriting disk until kept (or write directly when review is false).",
+			InputSchema: []byte(cutsceneWriteSchema),
+			Action:      ActionEdit,
+			Handler:     cutsceneWrite,
+		},
+		{
+			Name:        ToolCutsceneScrub,
+			Title:       "Scrub the cutscene timeline",
+			Description: "Open (when file is given) and scrub the cutscene timeline playhead to a timestamp, returning the posed camera, actors, active localized dialogue subtitle and review state.",
+			InputSchema: []byte(cutsceneScrubSchema),
+			Action:      ActionRead,
+			Handler:     cutsceneScrub,
+		},
 	}, playtestTools()...)
 }
 

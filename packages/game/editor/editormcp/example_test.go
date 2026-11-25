@@ -82,6 +82,8 @@ func ExampleServer_AddTool() {
 	}
 	// Output:
 	// <nil>
+	// cutscene_scrub read
+	// cutscene_write edit
 	// game_check run
 	// game_playtest run
 	// playtest_define edit

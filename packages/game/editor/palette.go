@@ -131,6 +131,14 @@ func (e *Editor) OpenProjectFile(relPath string) error {
 		e.notify()
 		return nil
 	}
+	if isCutsceneFile(relPath) {
+		if err := e.OpenCutsceneProjectFile(relPath); err != nil {
+			return err
+		}
+		e.Status = "Opened " + relPath
+		e.notify()
+		return nil
+	}
 	if relPath == project.FileName {
 		e.SetProjectSettingsOpen(true)
 		e.Status = "Opened " + relPath

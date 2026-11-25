@@ -155,6 +155,8 @@ func (e *Editor) OpenDemo() error {
 	e.clearTileBrushTransient()
 	e.stopClipLoop()
 	e.stopRigLoop()
+	e.stopStatesLoop()
+	e.resetCutsceneState()
 	e.stopFetch()
 	e.stopAudioAudition()
 	e.stopParticlePreviewLoop()

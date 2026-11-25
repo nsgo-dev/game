@@ -293,6 +293,8 @@ claude mcp add game-editor -- nsgo game mcp
 | `playtest_define` | edit | `metric`（必填）、`file`、`rationale`、`replace`（可选） | 校验提议的试玩指标，生成规范的 `playtest.yaml` 差异并作为待审查提案排队（`Server.PlaytestReviews` / `ApplyPlaytestReview` / `DismissPlaytestReview`），在审查确认前不改写磁盘上的 `playtest.yaml`。 |
 | `states_write` | edit | `file`（必填）、`yaml`（必填）、`target`（可选）、`open`（可选，默认 `true`） | 用 `animclip.ParseStateMachine` 校验 `*.states.yaml` 精灵状态机（遇到未知字段、缺失目标状态或无效条件表达式时拒绝且不改动文件），将规范 YAML 写入 `file`，并可选在编辑器的状态机图面板中为 `target` 打开它。 |
 | `states_test` | run | `file`（可选）、`durationSeconds`（可选，默认 `8`）、`rate`（可选，默认 `60`）、`script`（可选） | 通过 `animclip.SimulateStateMachine` 在固定步长下用脚本化输入驱动 `*.states.yaml` 状态机，返回状态切换轨迹、访问过的状态、卡死状态检查和摘要（例如 `Played 8 s of scripted input · no stuck states`）。 |
+| `cutscene_write` | edit | `file`（必填）、`yaml`（必填）、`prompt`（可选）、`review`（可选）、`open`（可选，默认 `true`） | 使用 `cutscene.Parse` 严格校验 `*.cutscene.yaml` 文件（校验失败时不改动磁盘和编辑器），并在过场时间轴中打开交互式 Before/After 审查而不立即覆盖磁盘文件（仅当显式传入 `review: false` 时直接写出规范 YAML）。 |
+| `cutscene_scrub` | read | `file`（可选）、`timeSeconds`（可选）、`view`（可选：`"before"` 或 `"after"`） | 按需打开 `file` 并将过场时间轴播放头拖动到 `timeSeconds`，返回该时刻的相机姿态与标签、角色位置与状态、当前激活的本地化字幕以及审查状态。 |
 
 `scene_edit` 接受的编辑，每项是一个带 `op` 的对象：
 
