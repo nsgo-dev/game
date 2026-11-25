@@ -65,15 +65,17 @@ for _, id := range slices.Sorted(maps.Keys(enemies)) {
 - 不要用 `select` 监听多个同时就绪的 channel 来做玩法决策，因为 Go 会在就绪分支中伪随机选择。
 - 如果后台 goroutine 承担了寻路或区块生成等计算，应在确定的 tick 边界接收结果，并按规范的稳定键排序后再应用，而不要按完成到达顺序应用。
 
-## 5. 保持浮点数计算顺序一致
+## 5. 保持浮点数计算顺序一致（并防止 arm64 FMA 漂移）
 
-IEEE-754 浮点加法和乘法不满足结合律：`(a + b) + c` 与 `a + (b + c)` 在最低位上可能不同。经过几百个 tick 后，1 ULP 的微小偏差就可能跨过碰撞或条件分支的阈值，从而放大成明显分叉。
+IEEE-754 浮点加法和乘法不满足结合律：`(a + b) + c` 与 `a + (b + c)` 在最低位上可能不同。此外，Go 语言规范允许编译器在 arm64 上将 `a*b + c` 收缩为单次舍入的融合乘加指令（`FMADD`/`FMSUB`），而 amd64 执行的是两次独立舍入的乘法与加法。经过几百个 tick 后，即使 arm64 与 amd64 之间仅差 1 ULP，也可能跨过碰撞或条件分支的阈值，从而放大成明显分叉。
 
 - 累加力、速度、得分等浮点值时，始终按固定、确定的实体顺序执行。
+- 在要求跨 amd64 与 arm64 比特完全一致的自定义模拟代码中，用显式类型转换包裹乘积（`float32(a*b) + c` 或 `float64(a*b) + c`）——Go 规范保证显式转换会禁止 FMA 收缩——并避免在步进路径中直接调用在 arm64 上会生成 FMA 的标准库超越函数（`math.Sin`、`math.Cos`、`math.Atan2`、`math.Hypot`）。
+- `packages/game/physics`、`packages/game/physics3d` 和 `packages/game/vehicle` 已在步进模拟路径中全面消除 arm64 FMA 指令，并在 CI 中同时于 Ubuntu amd64 与 macOS arm64 上验证跨架构黄金轨迹哈希。
 - 避免在不同路径中混用 `float32` 和 `float64`。
 - 计数器、计时器、网格坐标和资源数量优先使用整数或定点表示。
 
-## 6. 存档与回放时保存并恢复 PRNG 状态
+## 6. 存档、回放与回滚时保存并恢复 PRNG 与物理状态
 
 `Stream` 的完整状态（初始种子以及 256 位生成器内部状态）可以通过 `State()` 导出，并通过 `SetState(state)` 恢复。`State` 支持直接使用 `encoding/json` 序列化，读档后会无缝续接完全相同的后续随机序列：
 
@@ -89,6 +91,24 @@ if err := json.Unmarshal(data, &saved); err == nil {
 ```
 
 对于单个流，使用 `s.State()` 和 `s.SetState(state)`。回放或重开关卡时，调用 `s.Reset()` 或 `streams.Reset()` 即可把流重置回初始种子起点。
+
+对于物理世界，`physics.World`、`physics.RigidWorld`、`physics3d.World` 以及 `vehicle.Vehicle` 均提供 `Save()`、`Restore(snap)` 和 `Checksum()`，完整捕获所有私有求解器状态（热启动冲量缓存、休眠计时器、上一帧插值姿态、活跃接触/触发器对集合以及关节状态）。快照支持纯文本 JSON 序列化，可直接接入 `net.RollbackSession`（`net.SimState`）：
+
+```go
+// 在 net.SimState 实现中：
+func (s *MatchSim) Save() []byte {
+	data, _ := json.Marshal(s.world.Save())
+	return data
+}
+func (s *MatchSim) Load(b []byte) error {
+	var snap physics3d.WorldSnapshot
+	if err := json.Unmarshal(b, &snap); err != nil {
+		return err
+	}
+	return s.world.Restore(snap)
+}
+func (s *MatchSim) Checksum() uint64 { return s.world.Checksum() }
+```
 
 ## 7. 在 `nsgotest` 测试中验证确定性
 

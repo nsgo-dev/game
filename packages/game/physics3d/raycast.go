@@ -125,7 +125,7 @@ func RaycastSphere(ray Ray, s Sphere) (RaycastHit, bool) {
 
 	m := ray.Origin.Sub(s.Center)
 	b := m.Dot(dir)
-	c := m.Dot(m) - s.Radius*s.Radius
+	c := m.Dot(m) - float32(s.Radius*s.Radius)
 	if c <= 0 {
 		// Origin is inside or on the sphere surface: report it like RaycastBox does, facing the ray (#546).
 		return RaycastHit{
@@ -138,7 +138,7 @@ func RaycastSphere(ray Ray, s Sphere) (RaycastHit, bool) {
 	if b > 0 {
 		return RaycastHit{}, false
 	}
-	discr := b*b - c
+	discr := float32(b*b) - c
 	if discr < 0 {
 		return RaycastHit{}, false
 	}
@@ -204,9 +204,9 @@ func RaycastCapsule(ray Ray, c Capsule) (RaycastHit, bool) {
 	aoPerp := ao.Sub(abNorm.Scale(ao.Dot(abNorm)))
 	qa := dPerp.LenSq()
 	qb := aoPerp.Dot(dPerp)
-	qc := aoPerp.LenSq() - c.Radius*c.Radius
+	qc := aoPerp.LenSq() - float32(c.Radius*c.Radius)
 	if qa > 1e-12 {
-		discr := qb*qb - qa*qc
+		discr := float32(qb*qb) - float32(qa*qc)
 		if discr >= 0 {
 			dist := (-qb - sqrt32(discr)) / qa
 			if dist >= 0 && dist <= bestDist {

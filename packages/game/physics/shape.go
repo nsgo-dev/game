@@ -25,7 +25,7 @@ func (b Box) Bottom() float32 { return b.Y + b.H }
 
 // Center returns the midpoint of b.
 func (b Box) Center() (x, y float32) {
-	return b.X + b.W*0.5, b.Y + b.H*0.5
+	return b.X + float32(b.W*0.5), b.Y + float32(b.H*0.5)
 }
 
 // Contains reports whether (x, y) lies inside or on the boundary of b.
@@ -63,7 +63,7 @@ func (c Circle) Contains(x, y float32) bool {
 	dx := float64(x) - float64(c.X)
 	dy := float64(y) - float64(c.Y)
 	r := float64(c.R)
-	return dx*dx+dy*dy <= r*r
+	return float64(dx*dx)+float64(dy*dy) <= float64(r*r)
 }
 
 // Translated returns a copy of c shifted by (dx, dy).
@@ -232,8 +232,8 @@ func TestCircleCircle(a, b Circle) Contact {
 	dx := float64(a.X) - float64(b.X)
 	dy := float64(a.Y) - float64(b.Y)
 	sumR := float64(a.R) + float64(b.R)
-	distSq := dx*dx + dy*dy
-	if distSq >= sumR*sumR {
+	distSq := float64(dx*dx) + float64(dy*dy)
+	if distSq >= float64(sumR*sumR) {
 		return Contact{}
 	}
 	if distSq == 0 {
@@ -251,14 +251,14 @@ func TestCircleCircle(a, b Circle) Contact {
 	ny := dy / dist
 	depth := sumR - dist
 	// Midpoint between the two penetrating surfaces along the line of centers.
-	midDist := float64(b.R) - depth*0.5
+	midDist := float64(b.R) - float64(depth*0.5)
 	return Contact{
 		Hit:     true,
 		NormalX: float32(nx),
 		NormalY: float32(ny),
 		Depth:   float32(depth),
-		PointX:  float32(float64(b.X) + nx*midDist),
-		PointY:  float32(float64(b.Y) + ny*midDist),
+		PointX:  float32(float64(b.X) + float64(nx*midDist)),
+		PointY:  float32(float64(b.Y) + float64(ny*midDist)),
 	}
 }
 
@@ -277,7 +277,7 @@ func TestCircleBox(a Circle, b Box) Contact {
 	py := min(max(cy, minY), maxY)
 	dx := cx - px
 	dy := cy - py
-	distSq := dx*dx + dy*dy
+	distSq := float64(dx*dx) + float64(dy*dy)
 	if distSq > 0 {
 		if distSq >= r*r {
 			return Contact{}

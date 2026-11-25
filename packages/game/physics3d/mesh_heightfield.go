@@ -67,8 +67,8 @@ func raycastTriangleNorm(origin, dir Vec3, maxDist float32, tri Triangle) (Rayca
 		return RaycastHit{}, false
 	}
 	qvec := tvec.Cross(e1)
-	v := dir.Dot(qvec) * invDet
-	if v < -1e-6 || u+v > 1+1e-6 {
+	v := float32(dir.Dot(qvec) * invDet)
+	if v < -1e-6 || float32(u)+v > 1+1e-6 {
 		return RaycastHit{}, false
 	}
 	dist := e2.Dot(qvec) * invDet
@@ -109,7 +109,7 @@ func closestPointOnTriangle(p, a, b, c Vec3) Vec3 {
 		return b
 	}
 
-	vc := d1*d4 - d3*d2
+	vc := float32(d1*d4) - float32(d3*d2)
 	if vc <= 0 && d1 >= 0 && d3 <= 0 {
 		v := d1 / (d1 - d3)
 		return a.Add(ab.Scale(v))
@@ -122,13 +122,13 @@ func closestPointOnTriangle(p, a, b, c Vec3) Vec3 {
 		return c
 	}
 
-	vb := d5*d2 - d1*d6
+	vb := float32(d5*d2) - float32(d1*d6)
 	if vb <= 0 && d2 >= 0 && d6 <= 0 {
 		w := d2 / (d2 - d6)
 		return a.Add(ac.Scale(w))
 	}
 
-	va := d3*d6 - d5*d4
+	va := float32(d3*d6) - float32(d5*d4)
 	if va <= 0 && (d4-d3) >= 0 && (d5-d6) >= 0 {
 		w := (d4 - d3) / ((d4 - d3) + (d5 - d6))
 		return b.Add(c.Sub(b).Scale(w))
@@ -294,7 +294,7 @@ func TestBoxTriangle(b Box, tri Triangle) Contact {
 		}
 		inv := 1 / sqrt32(ls)
 		n := axis.Scale(inv)
-		r := e.X*abs32(n.X) + e.Y*abs32(n.Y) + e.Z*abs32(n.Z)
+		r := float32(float32(e.X*abs32(n.X))+float32(e.Y*abs32(n.Y))) + float32(e.Z*abs32(n.Z))
 		p0 := v0.Dot(n)
 		p1 := v1.Dot(n)
 		p2 := v2.Dot(n)
@@ -727,9 +727,9 @@ func NewHeightfieldCollider(cols, rows int, cellSize float32, origin Vec3, heigh
 	hf.Bounds = BoxFromMinMax(
 		Vec3{X: origin.X, Y: origin.Y + minY - 0.01, Z: origin.Z},
 		Vec3{
-			X: origin.X + float32(cols-1)*cellSize,
+			X: origin.X + float32(float32(cols-1)*cellSize),
 			Y: origin.Y + maxY + 0.01,
-			Z: origin.Z + float32(rows-1)*cellSize,
+			Z: origin.Z + float32(float32(rows-1)*cellSize),
 		},
 	)
 	return hf
@@ -741,9 +741,9 @@ func (hf *HeightfieldCollider) valid() bool {
 
 func (hf *HeightfieldCollider) vertex(cx, cz int) Vec3 {
 	return Vec3{
-		X: hf.Origin.X + float32(cx)*hf.CellSize,
+		X: hf.Origin.X + float32(float32(cx)*hf.CellSize),
 		Y: hf.Origin.Y + hf.Heights[cz*hf.Cols+cx],
-		Z: hf.Origin.Z + float32(cz)*hf.CellSize,
+		Z: hf.Origin.Z + float32(float32(cz)*hf.CellSize),
 	}
 }
 
@@ -788,10 +788,10 @@ func (hf *HeightfieldCollider) HeightAt(x, z float32) (float32, bool) {
 	var h float32
 	if u >= v {
 		// Triangle (p00, p11, p10)
-		h = h00 + (h10-h00)*u + (h11-h10)*v
+		h = float32(h00+float32((h10-h00)*u)) + float32((h11-h10)*v)
 	} else {
 		// Triangle (p00, p01, p11)
-		h = h00 + (h11-h01)*u + (h01-h00)*v
+		h = float32(h00+float32((h11-h01)*u)) + float32((h01-h00)*v)
 	}
 	return hf.Origin.Y + h, true
 }
@@ -893,11 +893,11 @@ func (hf *HeightfieldCollider) Raycast(ray Ray) (RaycastHit, bool) {
 	if abs32(dir.X) >= 1e-8 {
 		if dir.X > 0 {
 			stepX = 1
-			nextX := hf.Origin.X + float32(cx+1)*hf.CellSize
+			nextX := hf.Origin.X + float32(float32(cx+1)*hf.CellSize)
 			tMaxX = (nextX - ray.Origin.X) / dir.X
 		} else {
 			stepX = -1
-			nextX := hf.Origin.X + float32(cx)*hf.CellSize
+			nextX := hf.Origin.X + float32(float32(cx)*hf.CellSize)
 			tMaxX = (nextX - ray.Origin.X) / dir.X
 		}
 		tDeltaX = hf.CellSize / abs32(dir.X)
@@ -905,11 +905,11 @@ func (hf *HeightfieldCollider) Raycast(ray Ray) (RaycastHit, bool) {
 	if abs32(dir.Z) >= 1e-8 {
 		if dir.Z > 0 {
 			stepZ = 1
-			nextZ := hf.Origin.Z + float32(cz+1)*hf.CellSize
+			nextZ := hf.Origin.Z + float32(float32(cz+1)*hf.CellSize)
 			tMaxZ = (nextZ - ray.Origin.Z) / dir.Z
 		} else {
 			stepZ = -1
-			nextZ := hf.Origin.Z + float32(cz)*hf.CellSize
+			nextZ := hf.Origin.Z + float32(float32(cz)*hf.CellSize)
 			tMaxZ = (nextZ - ray.Origin.Z) / dir.Z
 		}
 		tDeltaZ = hf.CellSize / abs32(dir.Z)
@@ -1018,7 +1018,7 @@ func shapeUnderTriangle(s Shape, tri Triangle, n Vec3) bool {
 // pointInTriangleXZ reports whether p's XZ projection lies inside or on the edge of tri's XZ projection.
 func pointInTriangleXZ(p Vec3, tri Triangle) bool {
 	edge := func(a, b Vec3) float32 {
-		return (b.X-a.X)*(p.Z-a.Z) - (b.Z-a.Z)*(p.X-a.X)
+		return float32((b.X-a.X)*(p.Z-a.Z)) - float32((b.Z-a.Z)*(p.X-a.X))
 	}
 	d0, d1, d2 := edge(tri.A, tri.B), edge(tri.B, tri.C), edge(tri.C, tri.A)
 	const eps = 1e-6
@@ -1041,10 +1041,10 @@ func shapeMinAlong(s Shape, n Vec3) float32 {
 		return min(s.Capsule.A.Dot(n), s.Capsule.B.Dot(n)) - s.Capsule.Radius
 	case ShapeBox:
 		e := s.Box.HalfExtents
-		r := e.X*abs32(n.X) + e.Y*abs32(n.Y) + e.Z*abs32(n.Z)
+		r := float32(float32(e.X*abs32(n.X))+float32(e.Y*abs32(n.Y))) + float32(e.Z*abs32(n.Z))
 		if rot, ok := s.orientedBox(); ok {
 			ax := boxAxes(rot)
-			r = e.X*abs32(ax[0].Dot(n)) + e.Y*abs32(ax[1].Dot(n)) + e.Z*abs32(ax[2].Dot(n))
+			r = float32(float32(e.X*abs32(ax[0].Dot(n)))+float32(e.Y*abs32(ax[1].Dot(n)))) + float32(e.Z*abs32(ax[2].Dot(n)))
 		}
 		return s.Box.Center.Dot(n) - r
 	default:

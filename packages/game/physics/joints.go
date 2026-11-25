@@ -3,6 +3,7 @@ package physics
 import (
 	"math"
 
+	"github.com/nsgo-dev/game/packages/game/internal/detmath"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -49,7 +50,7 @@ func NewDistanceJoint(a, b *RigidBody, anchorA, anchorB core.Point, length float
 	} else if a != nil && b != nil {
 		pA := a.LocalToWorld(anchorA)
 		pB := b.LocalToWorld(anchorB)
-		j.Length = float32(math.Hypot(float64(pB.X-pA.X), float64(pB.Y-pA.Y)))
+		j.Length = float32(detmath.Hypot(float64(pB.X-pA.X), float64(pB.Y-pA.Y)))
 		j.initialized = true
 	}
 	return j
@@ -74,7 +75,7 @@ func (j *DistanceJoint) preStep(dt float64) {
 	pB := j.B.LocalToWorld(j.AnchorB)
 	dx := float64(pB.X) - float64(pA.X)
 	dy := float64(pB.Y) - float64(pA.Y)
-	dist := math.Hypot(dx, dy)
+	dist := detmath.Hypot(dx, dy)
 
 	if !j.initialized && j.Length <= 0 {
 		j.Length = float32(dist)
@@ -92,11 +93,11 @@ func (j *DistanceJoint) preStep(dt float64) {
 	j.rBx = float64(pB.X) - float64(j.B.X)
 	j.rBy = float64(pB.Y) - float64(j.B.Y)
 
-	rnA := j.rAx*j.uy - j.rAy*j.ux
-	rnB := j.rBx*j.uy - j.rBy*j.ux
-	k := float64(j.A.InvMass) + float64(j.B.InvMass) +
-		float64(j.A.InvInertia)*rnA*rnA +
-		float64(j.B.InvInertia)*rnB*rnB
+	rnA := float64(j.rAx*j.uy) - float64(j.rAy*j.ux)
+	rnB := float64(j.rBx*j.uy) - float64(j.rBy*j.ux)
+	k := float64(float64(j.A.InvMass)+float64(j.B.InvMass)) +
+		float64(float64(float64(j.A.InvInertia)*rnA)*rnA) +
+		float64(float64(float64(j.B.InvInertia)*rnB)*rnB)
 
 	alpha := max(0, float64(j.Compliance)) / (dt * dt)
 	denom := k + alpha
@@ -112,17 +113,17 @@ func (j *DistanceJoint) solveVelocity() {
 	if !j.active {
 		return
 	}
-	vAx := float64(j.A.VX) - float64(j.A.AngularVel)*j.rAy
-	vAy := float64(j.A.VY) + float64(j.A.AngularVel)*j.rAx
-	vBx := float64(j.B.VX) - float64(j.B.AngularVel)*j.rBy
-	vBy := float64(j.B.VY) + float64(j.B.AngularVel)*j.rBx
+	vAx := float64(j.A.VX) - float64(float64(j.A.AngularVel)*j.rAy)
+	vAy := float64(j.A.VY) + float64(float64(j.A.AngularVel)*j.rAx)
+	vBx := float64(j.B.VX) - float64(float64(j.B.AngularVel)*j.rBy)
+	vBy := float64(j.B.VY) + float64(float64(j.B.AngularVel)*j.rBx)
 
-	vRel := (vBx-vAx)*j.ux + (vBy-vAy)*j.uy
+	vRel := float64((vBx-vAx)*j.ux) + float64((vBy-vAy)*j.uy)
 	lambda := -vRel * j.effMass * j.effectiveStiffness()
 	if j.Damping > 0 {
 		// Additional viscous damping along the rod axis.
 		damp := min(1.0, float64(j.Damping)*j.dt)
-		lambda *= 1.0 - 0.5*damp
+		lambda *= 1.0 - float64(0.5*damp)
 	}
 	px, py := lambda*j.ux, lambda*j.uy
 	j.A.applyImpulseRaw(-px, -py, j.rAx, j.rAy)
@@ -137,7 +138,7 @@ func (j *DistanceJoint) solvePosition() {
 	pB := j.B.LocalToWorld(j.AnchorB)
 	dx := float64(pB.X) - float64(pA.X)
 	dy := float64(pB.Y) - float64(pA.Y)
-	dist := math.Hypot(dx, dy)
+	dist := detmath.Hypot(dx, dy)
 	err := dist - float64(j.Length)
 	if math.Abs(err) <= 1e-6 {
 		return
@@ -152,11 +153,11 @@ func (j *DistanceJoint) solvePosition() {
 	rBx := float64(pB.X) - float64(j.B.X)
 	rBy := float64(pB.Y) - float64(j.B.Y)
 
-	rnA := rAx*uy - rAy*ux
-	rnB := rBx*uy - rBy*ux
-	k := float64(j.A.InvMass) + float64(j.B.InvMass) +
-		float64(j.A.InvInertia)*rnA*rnA +
-		float64(j.B.InvInertia)*rnB*rnB
+	rnA := float64(rAx*uy) - float64(rAy*ux)
+	rnB := float64(rBx*uy) - float64(rBy*ux)
+	k := float64(float64(j.A.InvMass)+float64(j.B.InvMass)) +
+		float64(float64(float64(j.A.InvInertia)*rnA)*rnA) +
+		float64(float64(float64(j.B.InvInertia)*rnB)*rnB)
 
 	alpha := max(0, float64(j.Compliance)) / (j.dt * j.dt)
 	denom := k + alpha
@@ -167,14 +168,16 @@ func (j *DistanceJoint) solvePosition() {
 	px, py := lambda*ux, lambda*uy
 
 	if !j.A.Static {
-		j.A.X = float32(float64(j.A.X) - px*float64(j.A.InvMass))
-		j.A.Y = float32(float64(j.A.Y) - py*float64(j.A.InvMass))
-		j.A.Angle = float32(float64(j.A.Angle) - (rAx*py-rAy*px)*float64(j.A.InvInertia))
+		j.A.X = float32(float64(j.A.X) - float64(px*float64(j.A.InvMass)))
+		j.A.Y = float32(float64(j.A.Y) - float64(py*float64(j.A.InvMass)))
+		crossA := float64(rAx*py) - float64(rAy*px)
+		j.A.Angle = float32(float64(j.A.Angle) - float64(crossA*float64(j.A.InvInertia)))
 	}
 	if !j.B.Static {
-		j.B.X = float32(float64(j.B.X) + px*float64(j.B.InvMass))
-		j.B.Y = float32(float64(j.B.Y) + py*float64(j.B.InvMass))
-		j.B.Angle = float32(float64(j.B.Angle) + (rBx*py-rBy*px)*float64(j.B.InvInertia))
+		j.B.X = float32(float64(j.B.X) + float64(px*float64(j.B.InvMass)))
+		j.B.Y = float32(float64(j.B.Y) + float64(py*float64(j.B.InvMass)))
+		crossB := float64(rBx*py) - float64(rBy*px)
+		j.B.Angle = float32(float64(j.B.Angle) + float64(crossB*float64(j.B.InvInertia)))
 	}
 }
 
@@ -207,7 +210,7 @@ func NewSpringJoint(a, b *RigidBody, anchorA, anchorB core.Point, restLength, st
 	} else if a != nil && b != nil {
 		pA := a.LocalToWorld(anchorA)
 		pB := b.LocalToWorld(anchorB)
-		j.RestLength = float32(math.Hypot(float64(pB.X-pA.X), float64(pB.Y-pA.Y)))
+		j.RestLength = float32(detmath.Hypot(float64(pB.X-pA.X), float64(pB.Y-pA.Y)))
 		j.initialized = true
 	}
 	return j
@@ -221,7 +224,7 @@ func (j *SpringJoint) preStep(dt float64) {
 	pB := j.B.LocalToWorld(j.AnchorB)
 	dx := float64(pB.X) - float64(pA.X)
 	dy := float64(pB.Y) - float64(pA.Y)
-	dist := math.Hypot(dx, dy)
+	dist := detmath.Hypot(dx, dy)
 
 	if !j.initialized && j.RestLength <= 0 {
 		j.RestLength = float32(dist)
@@ -243,11 +246,11 @@ func (j *SpringJoint) preStep(dt float64) {
 	rBx := float64(pB.X) - float64(j.B.X)
 	rBy := float64(pB.Y) - float64(j.B.Y)
 
-	vAx := float64(j.A.VX) - float64(j.A.AngularVel)*rAy
-	vAy := float64(j.A.VY) + float64(j.A.AngularVel)*rAx
-	vBx := float64(j.B.VX) - float64(j.B.AngularVel)*rBy
-	vBy := float64(j.B.VY) + float64(j.B.AngularVel)*rBx
-	vRel := (vBx-vAx)*ux + (vBy-vAy)*uy
+	vAx := float64(j.A.VX) - float64(float64(j.A.AngularVel)*rAy)
+	vAy := float64(j.A.VY) + float64(float64(j.A.AngularVel)*rAx)
+	vBx := float64(j.B.VX) - float64(float64(j.B.AngularVel)*rBy)
+	vBy := float64(j.B.VY) + float64(float64(j.B.AngularVel)*rBx)
+	vRel := float64((vBx-vAx)*ux) + float64((vBy-vAy)*uy)
 
 	k := max(0, float64(j.Stiffness))
 	c := max(0, float64(j.Damping))
@@ -255,16 +258,16 @@ func (j *SpringJoint) preStep(dt float64) {
 		return
 	}
 
-	rnA := rAx*uy - rAy*ux
-	rnB := rBx*uy - rBy*ux
-	mInv := float64(j.A.InvMass) + float64(j.B.InvMass) +
-		float64(j.A.InvInertia)*rnA*rnA +
-		float64(j.B.InvInertia)*rnB*rnB
+	rnA := float64(rAx*uy) - float64(rAy*ux)
+	rnB := float64(rBx*uy) - float64(rBy*ux)
+	mInv := float64(float64(j.A.InvMass)+float64(j.B.InvMass)) +
+		float64(float64(float64(j.A.InvInertia)*rnA)*rnA) +
+		float64(float64(float64(j.B.InvInertia)*rnB)*rnB)
 
 	// Unconditionally stable implicit spring-damper impulse along the anchor axis.
 	ext := dist - float64(j.RestLength)
-	denom := 1.0 + dt*mInv*(c+dt*k)
-	impulse := -dt * (k*ext + c*vRel) / denom
+	denom := 1.0 + float64(float64(dt*mInv)*(c+float64(dt*k)))
+	impulse := -dt * (float64(k*ext) + float64(c*vRel)) / denom
 
 	px, py := impulse*ux, impulse*uy
 	j.A.applyImpulseRaw(-px, -py, rAx, rAy)
@@ -304,11 +307,11 @@ func revoluteEffMass(a, b *RigidBody, rAx, rAy, rBx, rBy float64) (m11, m12, m22
 	invMA, invIA := float64(a.InvMass), float64(a.InvInertia)
 	invMB, invIB := float64(b.InvMass), float64(b.InvInertia)
 
-	k11 := invMA + invMB + invIA*rAy*rAy + invIB*rBy*rBy
-	k12 := -invIA*rAx*rAy - invIB*rBx*rBy
-	k22 := invMA + invMB + invIA*rAx*rAx + invIB*rBx*rBx
+	k11 := float64(invMA+invMB) + float64(float64(invIA*rAy)*rAy) + float64(float64(invIB*rBy)*rBy)
+	k12 := float64(float64(-invIA*rAx)*rAy) - float64(float64(invIB*rBx)*rBy)
+	k22 := float64(invMA+invMB) + float64(float64(invIA*rAx)*rAx) + float64(float64(invIB*rBx)*rBx)
 
-	det := k11*k22 - k12*k12
+	det := float64(k11*k22) - float64(k12*k12)
 	if math.Abs(det) <= 1e-12 {
 		return 0, 0, 0, false
 	}
@@ -340,15 +343,15 @@ func (j *RevoluteJoint) solveVelocity() {
 	if !j.active {
 		return
 	}
-	vAx := float64(j.A.VX) - float64(j.A.AngularVel)*j.rAy
-	vAy := float64(j.A.VY) + float64(j.A.AngularVel)*j.rAx
-	vBx := float64(j.B.VX) - float64(j.B.AngularVel)*j.rBy
-	vBy := float64(j.B.VY) + float64(j.B.AngularVel)*j.rBx
+	vAx := float64(j.A.VX) - float64(float64(j.A.AngularVel)*j.rAy)
+	vAy := float64(j.A.VY) + float64(float64(j.A.AngularVel)*j.rAx)
+	vBx := float64(j.B.VX) - float64(float64(j.B.AngularVel)*j.rBy)
+	vBy := float64(j.B.VY) + float64(float64(j.B.AngularVel)*j.rBx)
 
 	dvx := vBx - vAx
 	dvy := vBy - vAy
-	px := -(j.m11*dvx + j.m12*dvy)
-	py := -(j.m12*dvx + j.m22*dvy)
+	px := -(float64(j.m11*dvx) + float64(j.m12*dvy))
+	py := -(float64(j.m12*dvx) + float64(j.m22*dvy))
 
 	j.A.applyImpulseRaw(-px, -py, j.rAx, j.rAy)
 	j.B.applyImpulseRaw(px, py, j.rBx, j.rBy)
@@ -362,7 +365,7 @@ func (j *RevoluteJoint) solvePosition() {
 	pB := j.B.LocalToWorld(j.AnchorB)
 	cx := float64(pB.X) - float64(pA.X)
 	cy := float64(pB.Y) - float64(pA.Y)
-	if cx*cx+cy*cy <= 1e-12 {
+	if float64(cx*cx)+float64(cy*cy) <= 1e-12 {
 		return
 	}
 
@@ -375,17 +378,19 @@ func (j *RevoluteJoint) solvePosition() {
 	if !ok {
 		return
 	}
-	px := -(m11*cx + m12*cy)
-	py := -(m12*cx + m22*cy)
+	px := -(float64(m11*cx) + float64(m12*cy))
+	py := -(float64(m12*cx) + float64(m22*cy))
 
 	if !j.A.Static {
-		j.A.X = float32(float64(j.A.X) - px*float64(j.A.InvMass))
-		j.A.Y = float32(float64(j.A.Y) - py*float64(j.A.InvMass))
-		j.A.Angle = float32(float64(j.A.Angle) - (rAx*py-rAy*px)*float64(j.A.InvInertia))
+		j.A.X = float32(float64(j.A.X) - float64(px*float64(j.A.InvMass)))
+		j.A.Y = float32(float64(j.A.Y) - float64(py*float64(j.A.InvMass)))
+		crossA := float64(rAx*py) - float64(rAy*px)
+		j.A.Angle = float32(float64(j.A.Angle) - float64(crossA*float64(j.A.InvInertia)))
 	}
 	if !j.B.Static {
-		j.B.X = float32(float64(j.B.X) + px*float64(j.B.InvMass))
-		j.B.Y = float32(float64(j.B.Y) + py*float64(j.B.InvMass))
-		j.B.Angle = float32(float64(j.B.Angle) + (rBx*py-rBy*px)*float64(j.B.InvInertia))
+		j.B.X = float32(float64(j.B.X) + float64(px*float64(j.B.InvMass)))
+		j.B.Y = float32(float64(j.B.Y) + float64(py*float64(j.B.InvMass)))
+		crossB := float64(rBx*py) - float64(rBy*px)
+		j.B.Angle = float32(float64(j.B.Angle) + float64(crossB*float64(j.B.InvInertia)))
 	}
 }

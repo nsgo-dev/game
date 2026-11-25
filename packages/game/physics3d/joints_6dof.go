@@ -1,6 +1,6 @@
 package physics3d
 
-import "math"
+import "github.com/nsgo-dev/game/packages/game/internal/detmath"
 
 // quatFromBasis constructs a unit quaternion whose rotation matrix has columns
 // (x, y, z), mapping local (1,0,0)->x, (0,1,0)->y, (0,0,1)->z.
@@ -198,7 +198,7 @@ func (j *SwingTwistJoint) decompose() (swing1, swing2, twist float32, worldTB, w
 
 	// Exact swing-twist decomposition around local +X: qRel = qSwing * qTwist.
 	var qTwist Quat
-	twLenSq := qRel.X*qRel.X + qRel.W*qRel.W
+	twLenSq := float32(qRel.X*qRel.X) + float32(qRel.W*qRel.W)
 	if twLenSq > 1e-12 {
 		inv := 1 / sqrt32(twLenSq)
 		qTwist = Quat{X: qRel.X * inv, W: qRel.W * inv}
@@ -210,11 +210,11 @@ func (j *SwingTwistJoint) decompose() (swing1, swing2, twist float32, worldTB, w
 		qSwing = Quat{X: -qSwing.X, Y: -qSwing.Y, Z: -qSwing.Z, W: -qSwing.W}
 	}
 
-	twist = float32(2 * math.Atan2(float64(qTwist.X), float64(qTwist.W)))
+	twist = float32(2 * detmath.Atan2(float64(qTwist.X), float64(qTwist.W)))
 
-	sinHalf := sqrt32(qSwing.Y*qSwing.Y + qSwing.Z*qSwing.Z)
+	sinHalf := sqrt32(float32(qSwing.Y*qSwing.Y) + float32(qSwing.Z*qSwing.Z))
 	if sinHalf > 1e-6 {
-		theta := float32(2 * math.Atan2(float64(sinHalf), float64(qSwing.W)))
+		theta := float32(2 * detmath.Atan2(float64(sinHalf), float64(qSwing.W)))
 		scale := theta / sinHalf
 		swing1 = qSwing.Y * scale
 		swing2 = qSwing.Z * scale
@@ -303,7 +303,7 @@ func (j *SwingTwistJoint) evalSwingLimit(s1, s2 float32) (violated bool, c1, c2,
 	default:
 		u1 := d1 / r1
 		u2 := d2 / r2
-		uSq := u1*u1 + u2*u2
+		uSq := float32(u1*u1) + float32(u2*u2)
 		if uSq <= 1 {
 			return false, s1, s2, 0, 0, false, false
 		}
@@ -312,7 +312,7 @@ func (j *SwingTwistJoint) evalSwingLimit(s1, s2 float32) (violated bool, c1, c2,
 		c2 = o2 + d2/u
 		gx := d1 / (r1 * r1)
 		gy := d2 / (r2 * r2)
-		gLen := sqrt32(gx*gx + gy*gy)
+		gLen := sqrt32(float32(gx*gx) + float32(gy*gy))
 		if gLen > 1e-12 {
 			n1 = gx / gLen
 			n2 = gy / gLen
@@ -648,7 +648,7 @@ func (j *SixDOFJoint) rawSingleAxisAngle(axisIdx int, uA, uB [3]Vec3) float32 {
 	curBProj = curBProj.Norm()
 	sinA := a1.Dot(curA.Cross(curBProj))
 	cosA := curA.Dot(curBProj)
-	return float32(math.Atan2(float64(sinA), float64(cosA)))
+	return float32(detmath.Atan2(float64(sinA), float64(cosA)))
 }
 
 // LinearPosition returns the current relative anchor displacement along the
@@ -773,7 +773,7 @@ func solveSixDOFDriveScalar(st *sixDOFAxisState, cfg AxisConfig, vRel, invEffMas
 	}
 	var dLambda float32
 	if st.driveMode == 1 {
-		dLambda = -((vRel - st.driveVel) + st.driveBias + st.driveGamma*st.driveImpulse) / (invEffMass + st.driveGamma)
+		dLambda = -(float32((vRel-st.driveVel)+st.driveBias) + float32(st.driveGamma*st.driveImpulse)) / (invEffMass + st.driveGamma)
 	} else {
 		dLambda = (st.driveVel - vRel) / invEffMass
 	}
@@ -870,7 +870,7 @@ func (j *SixDOFJoint) SolveVelocity(dt float32) {
 			axis := uA[k]
 			rAxa := rA.Cross(axis)
 			rBxa := rB.Cross(axis)
-			w := invMSum + invIA*rAxa.LenSq() + invIB*rBxa.LenSq()
+			w := float32(invMSum+float32(invIA*rAxa.LenSq())) + float32(invIB*rBxa.LenSq())
 			if w <= 1e-12 {
 				continue
 			}
@@ -1030,7 +1030,7 @@ func (j *SixDOFJoint) SolvePosition(dt float32) {
 			}
 			rAxa := rA.Cross(axis)
 			rBxa := rB.Cross(axis)
-			w := invMSum + invIA*rAxa.LenSq() + invIB*rBxa.LenSq()
+			w := float32(invMSum+float32(invIA*rAxa.LenSq())) + float32(invIB*rBxa.LenSq())
 			if w <= 1e-12 {
 				continue
 			}
@@ -1057,7 +1057,7 @@ func (j *SixDOFJoint) SolvePosition(dt float32) {
 		sinErr := cross.Len()
 		if sinErr > 1e-6 {
 			cosErr := clamp32(a1.Dot(a2), -1, 1)
-			errAngle := float32(math.Atan2(float64(sinErr), float64(cosErr)))
+			errAngle := float32(detmath.Atan2(float64(sinErr), float64(cosErr)))
 			applyAngularPositionCorrection(j.BodyA, j.BodyB, cross.Scale(1/sinErr), errAngle*0.8)
 		}
 		cfg := j.Angular[idx]

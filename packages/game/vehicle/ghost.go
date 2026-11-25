@@ -64,7 +64,7 @@ func (g *Ghost) Pose(step float64) (physics3d.Vec3, physics3d.Quat) {
 	}
 	interval := float64(max(g.Interval, 1))
 	i := min(int(math.Floor(step/interval)), last-1)
-	t0, t1 := float64(i)*interval, float64(i+1)*interval
+	t0, t1 := float64(float64(i)*interval), float64(float64(i+1)*interval)
 	if i+1 == last {
 		// The last frame is at LapSteps, which may fall between Interval samples.
 		t1 = end
@@ -128,7 +128,7 @@ func (g *Ghost) Validate() error {
 			if !finite(c) {
 				return fmt.Errorf("vehicle: ghost frame %d has a non-finite rotation", i)
 			}
-			lenSq += c * c
+			lenSq += float32(c * c)
 		}
 		if lenSq < 1e-6 {
 			return fmt.Errorf("vehicle: ghost frame %d has a zero rotation", i)

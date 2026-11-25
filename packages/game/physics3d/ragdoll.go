@@ -173,7 +173,7 @@ func BuildRagdoll(world *World, joints []SkeletonJoint, rootPos Vec3, rootRot Qu
 			shape = BoxShape(Box{HalfExtents: Vec3{X: radius, Y: max(radius, length*0.5), Z: radius}})
 			centerOffset = Vec3{}
 		} else {
-			halfSeg := length*0.5 - radius
+			halfSeg := float32(length*0.5) - radius
 			if halfSeg < 0 {
 				halfSeg = 0
 			}

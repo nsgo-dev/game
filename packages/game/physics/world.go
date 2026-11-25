@@ -5,6 +5,7 @@ import (
 	"math"
 	"slices"
 
+	"github.com/nsgo-dev/game/packages/game/internal/detmath"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -370,7 +371,7 @@ func raycastBox(fx, fy, dx, dy float64, b Box) (RaycastHit, bool) {
 	}
 	return RaycastHit{
 		T:       float32(tNear),
-		Point:   core.Point{X: core.Points(fx + dx*tNear), Y: core.Points(fy + dy*tNear)},
+		Point:   core.Point{X: core.Points(fx + float64(dx*tNear)), Y: core.Points(fy + float64(dy*tNear))},
 		NormalX: nx,
 		NormalY: ny,
 	}, true
@@ -382,8 +383,8 @@ func raycastCircle(fx, fy, dx, dy float64, c Circle) (RaycastHit, bool) {
 	}
 	cx, cy, r := float64(c.X), float64(c.Y), float64(c.R)
 	ox, oy := fx-cx, fy-cy
-	rSq := r * r
-	distSq := ox*ox + oy*oy
+	rSq := float64(r * r)
+	distSq := float64(ox*ox) + float64(oy*oy)
 
 	if distSq < rSq {
 		return RaycastHit{
@@ -392,7 +393,7 @@ func raycastCircle(fx, fy, dx, dy float64, c Circle) (RaycastHit, bool) {
 		}, true
 	}
 	if distSq == rSq {
-		if (dx == 0 && dy == 0) || ox*dx+oy*dy < 0 {
+		if (dx == 0 && dy == 0) || float64(ox*dx)+float64(oy*dy) < 0 {
 			return RaycastHit{
 				T:       0,
 				Point:   core.Point{X: core.Points(fx), Y: core.Points(fy)},
@@ -403,16 +404,16 @@ func raycastCircle(fx, fy, dx, dy float64, c Circle) (RaycastHit, bool) {
 		return RaycastHit{}, false
 	}
 
-	a := dx*dx + dy*dy
+	a := float64(dx*dx) + float64(dy*dy)
 	if a == 0 {
 		return RaycastHit{}, false
 	}
-	b := ox*dx + oy*dy
+	b := float64(ox*dx) + float64(oy*dy)
 	if b >= 0 {
 		return RaycastHit{}, false
 	}
 	cVal := distSq - rSq
-	disc := b*b - a*cVal
+	disc := float64(b*b) - float64(a*cVal)
 	if disc < 0 {
 		return RaycastHit{}, false
 	}
@@ -420,10 +421,10 @@ func raycastCircle(fx, fy, dx, dy float64, c Circle) (RaycastHit, bool) {
 	if t < 0 || t > 1 {
 		return RaycastHit{}, false
 	}
-	px := fx + dx*t
-	py := fy + dy*t
+	px := fx + float64(dx*t)
+	py := fy + float64(dy*t)
 	nx, ny := px-cx, py-cy
-	if l := math.Hypot(nx, ny); l > 0 {
+	if l := detmath.Hypot(nx, ny); l > 0 {
 		nx /= l
 		ny /= l
 	}
@@ -460,7 +461,7 @@ func raycastTiles(fx, fy, dx, dy float64, grid TileGrid, mask QueryMask, maxT fl
 	} else {
 		inv := 1.0 / dx
 		t1 := (0 - fx) * inv
-		t2 := (gridW - fx) * inv
+		t2 := (float64(gridW) - fx) * inv
 		sign := float32(-1)
 		if t1 > t2 {
 			t1, t2 = t2, t1
@@ -482,7 +483,7 @@ func raycastTiles(fx, fy, dx, dy float64, grid TileGrid, mask QueryMask, maxT fl
 	} else {
 		inv := 1.0 / dy
 		t1 := (0 - fy) * inv
-		t2 := (gridH - fy) * inv
+		t2 := (float64(gridH) - fy) * inv
 		sign := float32(-1)
 		if t1 > t2 {
 			t1, t2 = t2, t1
@@ -501,8 +502,8 @@ func raycastTiles(fx, fy, dx, dy float64, grid TileGrid, mask QueryMask, maxT fl
 		return nil
 	}
 
-	startX := min(max(fx+dx*tStart, 0), gridW)
-	startY := min(max(fy+dy*tStart, 0), gridH)
+	startX := min(max(fx+float64(dx*tStart), 0), gridW)
+	startY := min(max(fy+float64(dy*tStart), 0), gridH)
 	if tStart > 0 {
 		if entryNX < 0 {
 			startX = 0
@@ -599,21 +600,21 @@ func raycastTiles(fx, fy, dx, dy float64, grid TileGrid, mask QueryMask, maxT fl
 	if dx > 0 {
 		stepX = 1
 		invDX = 1.0 / dx
-		tMaxX = (float64(col+1)*tw - fx) * invDX
+		tMaxX = (float64(float64(col+1)*tw) - fx) * invDX
 	} else if dx < 0 {
 		stepX = -1
 		invDX = 1.0 / dx
-		tMaxX = (float64(col)*tw - fx) * invDX
+		tMaxX = (float64(float64(col)*tw) - fx) * invDX
 	}
 
 	if dy > 0 {
 		stepY = 1
 		invDY = 1.0 / dy
-		tMaxY = (float64(row+1)*th - fy) * invDY
+		tMaxY = (float64(float64(row+1)*th) - fy) * invDY
 	} else if dy < 0 {
 		stepY = -1
 		invDY = 1.0 / dy
-		tMaxY = (float64(row)*th - fy) * invDY
+		tMaxY = (float64(float64(row)*th) - fy) * invDY
 	}
 
 	tLimit := min(maxT, tEnd)
@@ -631,10 +632,10 @@ func raycastTiles(fx, fy, dx, dy float64, grid TileGrid, mask QueryMask, maxT fl
 			}
 			if stepX > 0 {
 				hnx = -1
-				tMaxX = (float64(col+1)*tw - fx) * invDX
+				tMaxX = (float64(float64(col+1)*tw) - fx) * invDX
 			} else {
 				hnx = 1
-				tMaxX = (float64(col)*tw - fx) * invDX
+				tMaxX = (float64(float64(col)*tw) - fx) * invDX
 			}
 		} else {
 			if tMaxY > tLimit {
@@ -647,17 +648,17 @@ func raycastTiles(fx, fy, dx, dy float64, grid TileGrid, mask QueryMask, maxT fl
 			}
 			if stepY > 0 {
 				hny = -1
-				tMaxY = (float64(row+1)*th - fy) * invDY
+				tMaxY = (float64(float64(row+1)*th) - fy) * invDY
 			} else {
 				hny = 1
-				tMaxY = (float64(row)*th - fy) * invDY
+				tMaxY = (float64(float64(row)*th) - fy) * invDY
 			}
 		}
 
 		if flags := grid.TileFlagsAt(col, row); tileMatchesRay(flags, mask, hny) {
 			hits = append(hits, RaycastHit{
 				T:         float32(tHit),
-				Point:     core.Point{X: core.Points(ox + fx + dx*tHit), Y: core.Points(oy + fy + dy*tHit)},
+				Point:     core.Point{X: core.Points(ox + fx + float64(dx*tHit)), Y: core.Points(oy + fy + float64(dy*tHit))},
 				NormalX:   hnx,
 				NormalY:   hny,
 				Tile:      true,

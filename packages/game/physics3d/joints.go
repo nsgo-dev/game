@@ -1,6 +1,10 @@
 package physics3d
 
-import "math"
+import (
+	"math"
+
+	"github.com/nsgo-dev/game/packages/game/internal/detmath"
+)
 
 // Joint3D constrains the relative motion of one or two bodies inside a World.
 // Either body may be nil to anchor the constraint directly to the world frame.
@@ -114,7 +118,7 @@ func softSpringParams(stiffness, damping, err, dt float32) (gamma, bias float32,
 	}
 	k := max(stiffness, 0)
 	c := max(damping, 0)
-	denom := c + dt*k
+	denom := c + float32(dt*k)
 	if denom <= 1e-8 {
 		return 0, 0, false
 	}
@@ -207,31 +211,31 @@ type symMat3 struct {
 func pointConstraintMassMatrix(invMA, invIA float32, rA Vec3, invMB, invIB float32, rB Vec3) symMat3 {
 	invM := invMA + invMB
 	return symMat3{
-		a: invM + invIA*(rA.Y*rA.Y+rA.Z*rA.Z) + invIB*(rB.Y*rB.Y+rB.Z*rB.Z),
-		b: invM + invIA*(rA.X*rA.X+rA.Z*rA.Z) + invIB*(rB.X*rB.X+rB.Z*rB.Z),
-		c: invM + invIA*(rA.X*rA.X+rA.Y*rA.Y) + invIB*(rB.X*rB.X+rB.Y*rB.Y),
-		d: -invIA*rA.X*rA.Y - invIB*rB.X*rB.Y,
-		e: -invIA*rA.X*rA.Z - invIB*rB.X*rB.Z,
-		f: -invIA*rA.Y*rA.Z - invIB*rB.Y*rB.Z,
+		a: float32(invM+float32(invIA*(float32(rA.Y*rA.Y)+float32(rA.Z*rA.Z)))) + float32(invIB*(float32(rB.Y*rB.Y)+float32(rB.Z*rB.Z))),
+		b: float32(invM+float32(invIA*(float32(rA.X*rA.X)+float32(rA.Z*rA.Z)))) + float32(invIB*(float32(rB.X*rB.X)+float32(rB.Z*rB.Z))),
+		c: float32(invM+float32(invIA*(float32(rA.X*rA.X)+float32(rA.Y*rA.Y)))) + float32(invIB*(float32(rB.X*rB.X)+float32(rB.Y*rB.Y))),
+		d: float32(float32(-invIA*rA.X)*rA.Y) - float32(float32(invIB*rB.X)*rB.Y),
+		e: float32(float32(-invIA*rA.X)*rA.Z) - float32(float32(invIB*rB.X)*rB.Z),
+		f: float32(float32(-invIA*rA.Y)*rA.Z) - float32(float32(invIB*rB.Y)*rB.Z),
 	}
 }
 
 func (m symMat3) solve(rhs Vec3) Vec3 {
-	c00 := m.b*m.c - m.f*m.f
-	c01 := m.e*m.f - m.d*m.c
-	c02 := m.d*m.f - m.e*m.b
-	c11 := m.a*m.c - m.e*m.e
-	c12 := m.d*m.e - m.a*m.f
-	c22 := m.a*m.b - m.d*m.d
-	det := m.a*c00 + m.d*c01 + m.e*c02
+	c00 := float32(m.b*m.c) - float32(m.f*m.f)
+	c01 := float32(m.e*m.f) - float32(m.d*m.c)
+	c02 := float32(m.d*m.f) - float32(m.e*m.b)
+	c11 := float32(m.a*m.c) - float32(m.e*m.e)
+	c12 := float32(m.d*m.e) - float32(m.a*m.f)
+	c22 := float32(m.a*m.b) - float32(m.d*m.d)
+	det := float32(float32(m.a*c00)+float32(m.d*c01)) + float32(m.e*c02)
 	if abs32(det) <= 1e-12 {
 		return Vec3{}
 	}
 	invDet := 1 / det
 	return Vec3{
-		X: (c00*rhs.X + c01*rhs.Y + c02*rhs.Z) * invDet,
-		Y: (c01*rhs.X + c11*rhs.Y + c12*rhs.Z) * invDet,
-		Z: (c02*rhs.X + c12*rhs.Y + c22*rhs.Z) * invDet,
+		X: (float32(float32(c00*rhs.X)+float32(c01*rhs.Y)) + float32(c02*rhs.Z)) * invDet,
+		Y: (float32(float32(c01*rhs.X)+float32(c11*rhs.Y)) + float32(c12*rhs.Z)) * invDet,
+		Z: (float32(float32(c02*rhs.X)+float32(c12*rhs.Y)) + float32(c22*rhs.Z)) * invDet,
 	}
 }
 
@@ -491,7 +495,7 @@ func (j *DistanceJoint) Prepare(dt float32) {
 	if j.Stiffness > 0 && dt > 0 {
 		k := j.Stiffness
 		c := max(j.Damping, 0)
-		denom := c + dt*k
+		denom := c + float32(dt*k)
 		if denom > 1e-8 {
 			j.gamma = 1 / (dt * denom)
 			beta := (dt * k) / denom
@@ -524,7 +528,7 @@ func (j *DistanceJoint) SolveVelocity(dt float32) {
 
 	rAxn := rA.Cross(n)
 	rBxn := rB.Cross(n)
-	w := invMA + invMB + invIA*rAxn.LenSq() + invIB*rBxn.LenSq()
+	w := float32(float32(invMA+invMB)+float32(invIA*rAxn.LenSq())) + float32(invIB*rBxn.LenSq())
 	if w <= 1e-12 {
 		return
 	}
@@ -535,7 +539,7 @@ func (j *DistanceJoint) SolveVelocity(dt float32) {
 
 	var dLambda float32
 	if j.Stiffness > 0 {
-		dLambda = -(vRelN + j.bias + j.gamma*j.accImpulse) / (w + j.gamma)
+		dLambda = -(float32(vRelN+j.bias) + float32(j.gamma*j.accImpulse)) / (w + j.gamma)
 	} else {
 		dampBias := float32(0)
 		if j.Damping > 0 && dt > 0 {
@@ -605,7 +609,7 @@ func (j *DistanceJoint) SolvePosition(dt float32) {
 	}
 	rAxn := rA.Cross(n)
 	rBxn := rB.Cross(n)
-	w := invMA + invMB + invIA*rAxn.LenSq() + invIB*rBxn.LenSq()
+	w := float32(float32(invMA+invMB)+float32(invIA*rAxn.LenSq())) + float32(invIB*rBxn.LenSq())
 	if w <= 1e-12 {
 		return
 	}
@@ -688,7 +692,7 @@ func (j *BallJoint) SolveVelocity(dt float32) {
 	wA := rotA.RotateVec(axA)
 	wB := rotB.RotateVec(axB)
 	dot := clamp32(wA.Dot(wB), -1, 1)
-	theta := float32(math.Acos(float64(dot)))
+	theta := float32(detmath.Acos(float64(dot)))
 	if theta <= j.ConeLimit {
 		return
 	}
@@ -730,7 +734,7 @@ func (j *BallJoint) SolvePosition(dt float32) {
 	wA := rotA.RotateVec(axA)
 	wB := rotB.RotateVec(axB)
 	dot := clamp32(wA.Dot(wB), -1, 1)
-	theta := float32(math.Acos(float64(dot)))
+	theta := float32(detmath.Acos(float64(dot)))
 	if theta <= j.ConeLimit+1e-5 {
 		return
 	}
@@ -869,7 +873,7 @@ func (j *HingeJoint) rawAngle() float32 {
 	curBProj = curBProj.Norm()
 	sinA := a1.Dot(curA.Cross(curBProj))
 	cosA := curA.Dot(curBProj)
-	return float32(math.Atan2(float64(sinA), float64(cosA)))
+	return float32(detmath.Atan2(float64(sinA), float64(cosA)))
 }
 
 // Prepare initializes the reference frame, wakes motorized or spring-driven bodies, and checks limits.
@@ -957,7 +961,7 @@ func (j *HingeJoint) SolveVelocity(dt float32) {
 		_, _, _, angA, _, _ = bodyKinematics(j.BodyA)
 		_, _, _, angB, _, _ = bodyKinematics(j.BodyB)
 		wAxis := angB.Sub(angA).Dot(a1)
-		dLambda := -(wAxis + j.driveBias + j.driveGamma*j.driveImpulse) / (invISum + j.driveGamma)
+		dLambda := -(float32(wAxis+j.driveBias) + float32(j.driveGamma*j.driveImpulse)) / (invISum + j.driveGamma)
 		newAcc := j.driveImpulse + dLambda
 		if j.DriveMaxTorque > 0 {
 			maxImp := j.DriveMaxTorque * dt
@@ -1019,7 +1023,7 @@ func (j *HingeJoint) SolvePosition(dt float32) {
 	sinErr := cross.Len()
 	if sinErr > 1e-6 {
 		cosErr := clamp32(a1.Dot(a2), -1, 1)
-		errAngle := float32(math.Atan2(float64(sinErr), float64(cosErr)))
+		errAngle := float32(detmath.Atan2(float64(sinErr), float64(cosErr)))
 		applyAngularPositionCorrection(j.BodyA, j.BodyB, cross.Scale(1/sinErr), errAngle*0.8)
 	}
 
@@ -1184,7 +1188,7 @@ func (j *SliderJoint) SolveVelocity(dt float32) {
 		_, _, velB, angB, _, _ = bodyKinematics(j.BodyB)
 		rAxd := rA.Cross(dir)
 		rBxd := rB.Cross(dir)
-		w := invMSum + invIA*rAxd.LenSq() + invIB*rBxd.LenSq()
+		w := float32(invMSum+float32(invIA*rAxd.LenSq())) + float32(invIB*rBxd.LenSq())
 		if w <= 1e-12 {
 			return
 		}
@@ -1227,7 +1231,7 @@ func (j *SliderJoint) SolveVelocity(dt float32) {
 		_, _, velB, angB, _, _ = bodyKinematics(j.BodyB)
 		vRel := velB.Add(angB.Cross(rB)).Sub(velA.Add(angA.Cross(rA)))
 		vAxis := vRel.Dot(axis)
-		dLambda := -(vAxis + j.driveBias + j.driveGamma*j.driveImpulse) / (invMSum + j.driveGamma)
+		dLambda := -(float32(vAxis+j.driveBias) + float32(j.driveGamma*j.driveImpulse)) / (invMSum + j.driveGamma)
 		newAcc := j.driveImpulse + dLambda
 		if j.DriveMaxForce > 0 {
 			maxImp := j.DriveMaxForce * dt

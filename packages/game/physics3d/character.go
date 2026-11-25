@@ -3,6 +3,8 @@ package physics3d
 import (
 	"math"
 	"time"
+
+	"github.com/nsgo-dev/game/packages/game/internal/detmath"
 )
 
 const (
@@ -168,7 +170,7 @@ func (c *CharacterController) Move(world *World, wishMove Vec3, dt time.Duration
 	dtSec := float32(dt.Seconds())
 	c.pushes = c.pushes[:0]
 	maxSlope := c.maxSlopeAngle()
-	minGroundY := float32(math.Cos(float64(maxSlope)))
+	minGroundY := float32(detmath.Cos(float64(maxSlope)))
 
 	// Clear any minor initial overlap before moving.
 	c.Pos = c.depenetrate(world, c.Pos, minGroundY)
@@ -202,11 +204,11 @@ func (c *CharacterController) Move(world *World, wishMove Vec3, dt time.Duration
 
 	c.Vel = c.Vel.Add(effGravity.Scale(dtSec))
 	if eff.FluidLinearDrag > 0 {
-		factor := 1 / (1 + eff.FluidLinearDrag*dtSec)
+		factor := 1 / (1 + float32(eff.FluidLinearDrag*dtSec))
 		c.Vel = eff.FluidVelocity.Add(c.Vel.Sub(eff.FluidVelocity).Scale(factor))
 	}
 	if eff.HasLinearDamping && eff.LinearDamping > 0 {
-		c.Vel = c.Vel.Scale(1 / (1 + eff.LinearDamping*dtSec))
+		c.Vel = c.Vel.Scale(1 / (1 + float32(eff.LinearDamping*dtSec)))
 	}
 	if wasGrounded && !jumping && c.Vel.Y < 0 && effGravity.Y < 0 {
 		// Prevent unbounded negative velocity accumulation while walking on ground.
@@ -226,7 +228,7 @@ func (c *CharacterController) Move(world *World, wishMove Vec3, dt time.Duration
 		// with the slope plane so the controller climbs smoothly at steady speed.
 		if wasGrounded && !jumping && prevGroundNormal.Y >= minGroundY && prevGroundNormal.Y < 0.9999 {
 			if horizDisp.Dot(prevGroundNormal) < 0 {
-				dy := -(horizDisp.X*prevGroundNormal.X + horizDisp.Z*prevGroundNormal.Z) / prevGroundNormal.Y
+				dy := -(float32(horizDisp.X*prevGroundNormal.X) + float32(horizDisp.Z*prevGroundNormal.Z)) / prevGroundNormal.Y
 				moveDisp = Vec3{X: horizDisp.X, Y: dy, Z: horizDisp.Z}.Norm().Scale(horizDist)
 			}
 		}
@@ -286,7 +288,7 @@ func (c *CharacterController) Move(world *World, wishMove Vec3, dt time.Duration
 		// Falling or maintaining contact with walkable ground/slopes.
 		snapped := false
 		if wasGrounded && !jumping {
-			slopeDrop := horizDist*float32(math.Tan(float64(maxSlope))) + 0.05
+			slopeDrop := float32(horizDist*float32(detmath.Tan(float64(maxSlope)))) + 0.05
 			snapDist := max(c.StepHeight+0.05, slopeDrop)
 			if snapPos, snapNormal, hit := c.sweepCapsule(world, c.Pos, Vec3{Y: -snapDist}); hit && snapNormal.Y >= minGroundY {
 				c.Pos = snapPos
@@ -447,9 +449,9 @@ func (c *CharacterController) tryStepUp(world *World, startPos, horizDisp Vec3, 
 	if landNormal.Y < minGroundY {
 		horizDir := Vec3{X: horizDisp.X, Z: horizDisp.Z}.Norm()
 		rayStart := Vec3{
-			X: fwdRes.pos.X + horizDir.X*c.Radius,
+			X: fwdRes.pos.X + float32(horizDir.X*c.Radius),
 			Y: upPos.Y + 0.01,
-			Z: fwdRes.pos.Z + horizDir.Z*c.Radius,
+			Z: fwdRes.pos.Z + float32(horizDir.Z*c.Radius),
 		}
 		rayEnd := Vec3{X: rayStart.X, Y: startPos.Y - 0.05, Z: rayStart.Z}
 		rayHit, ok := c.raycastFirst(world, rayStart, rayEnd)
@@ -569,14 +571,14 @@ func (c *CharacterController) slideVertical(world *World, disp Vec3, dtSec, minG
 		if hitNormal.Y > 1e-4 && c.Vel.Y < 0 {
 			downhill := Vec3{Y: -1}.Sub(hitNormal.Scale(-hitNormal.Y)).Norm()
 			if downhill.Y < -1e-4 {
-				sinSq := 1 - hitNormal.Y*hitNormal.Y
+				sinSq := 1 - float32(hitNormal.Y*hitNormal.Y)
 				if moved.LenSq() > 1e-6 {
 					// Initial impact from free-fall: project vertical velocity onto slope once.
 					c.Vel.Y *= sinSq
 				} else {
 					// Already sliding on the slope: cancel only the normal component of
 					// this tick's gravity so velocity accelerates smoothly downhill.
-					c.Vel.Y -= gravityY * hitNormal.Y * hitNormal.Y * dtSec
+					c.Vel.Y -= float32(float32(float32(gravityY*hitNormal.Y)*hitNormal.Y) * dtSec)
 				}
 				remFrac := float32(1)
 				if totalLen := rem.Len(); totalLen > 1e-6 {

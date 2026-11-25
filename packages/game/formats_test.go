@@ -131,6 +131,8 @@ var formatVersions = map[string]string{
 	"modding.WorkshopMetadataVersion":       "modding#workshop",
 	"net.ReplicationVersion":                "",
 	"particles.FormatVersion":               "particles",
+	"physics.SnapshotVersion":               "",
+	"physics3d.SnapshotVersion":             "",
 	"platformer.CurrentVersion":             "platformer",
 	"procgen.RoomTemplatesVersion":          "procgen#rooms",
 	"procgen.RulesVersion":                  "procgen",
@@ -161,6 +163,7 @@ var formatVersions = map[string]string{
 	"undo.LogVersion":                       "undo",
 	"vehicle.ConfigVersion":                 "vehicle",
 	"vehicle.GhostVersion":                  "vehicle#ghost",
+	"vehicle.SnapshotVersion":               "",
 	"vn.CastVersion":                        "vn",
 	"voxel.FormatVersion":                   "voxel",
 	"world3d.FoliageFormatVersion":          "world3d#foliage",
@@ -176,6 +179,9 @@ var notFormatVersions = map[string]string{
 	"cloudsave/sqlstore.SchemaVersion": "the version of a PostgreSQL schema, which lives in the database",
 	"internal/samplegltf.GLBVersion":   "the version of the binary glTF container, the gltf entry's format, that the sample models are checked against",
 	"net.ReplicationVersion":           "the version of the replication protocol on the wire between a ServerWorld and its ClientWorlds, which no file holds; docs/en/net.md documents it",
+	"physics.SnapshotVersion":          "the version of in-memory/JSON 2D physics world snapshots used by Save/Restore and rollback netcode rather than a standalone file format; docs/en/physics.md documents it",
+	"physics3d.SnapshotVersion":        "the version of in-memory/JSON 3D physics world snapshots used by Save/Restore and rollback netcode rather than a standalone file format; docs/en/physics3d.md documents it",
+	"vehicle.SnapshotVersion":          "the version of in-memory/JSON vehicle simulation snapshots used by Save/Restore and rollback netcode rather than a standalone file format; docs/en/determinism.md documents it",
 }
 
 // readStrict loads data as a T, refusing unknown fields and trailing data, for a type whose own UnmarshalJSON is the format's reader or that a save slot holds as it is.

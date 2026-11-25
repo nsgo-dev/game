@@ -4,6 +4,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/nsgo-dev/game/packages/game/internal/detmath"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -52,7 +53,7 @@ type RigidBody struct {
 // If mass <= 0, the body is created as Static.
 func NewRigidBox(x, y, w, h, mass float32) *RigidBody {
 	b := &RigidBody{
-		Shape:           BoxShape(Box{X: x - w*0.5, Y: y - h*0.5, W: w, H: h}),
+		Shape:           BoxShape(Box{X: x - float32(w*0.5), Y: y - float32(h*0.5), W: w, H: h}),
 		X:               x,
 		Y:               y,
 		Friction:        0.4,
@@ -65,7 +66,7 @@ func NewRigidBox(x, y, w, h, mass float32) *RigidBody {
 	}
 	b.Mass = mass
 	b.InvMass = 1 / mass
-	inertia := float64(mass) * (float64(w)*float64(w) + float64(h)*float64(h)) / 12.0
+	inertia := float64(mass) * (float64(float64(w)*float64(w)) + float64(float64(h)*float64(h))) / 12.0
 	if inertia > 0 {
 		b.Inertia = float32(inertia)
 		b.InvInertia = float32(1.0 / inertia)
@@ -110,24 +111,22 @@ func NewStaticRigidCircle(x, y, r float32) *RigidBody {
 
 // LocalToWorld transforms a local-space point relative to b's center into world coordinates.
 func (b *RigidBody) LocalToWorld(local core.Point) core.Point {
-	c := math.Cos(float64(b.Angle))
-	s := math.Sin(float64(b.Angle))
+	s, c := detmath.Sincos(float64(b.Angle))
 	lx, ly := float64(local.X), float64(local.Y)
 	return core.Point{
-		X: core.Points(float64(b.X) + lx*c - ly*s),
-		Y: core.Points(float64(b.Y) + lx*s + ly*c),
+		X: core.Points(float64(float64(b.X)+float64(lx*c)) - float64(ly*s)),
+		Y: core.Points(float64(float64(b.Y)+float64(lx*s)) + float64(ly*c)),
 	}
 }
 
 // WorldToLocal transforms a world-space point into b's local coordinate frame.
 func (b *RigidBody) WorldToLocal(world core.Point) core.Point {
-	c := math.Cos(float64(b.Angle))
-	s := math.Sin(float64(b.Angle))
+	s, c := detmath.Sincos(float64(b.Angle))
 	dx := float64(world.X) - float64(b.X)
 	dy := float64(world.Y) - float64(b.Y)
 	return core.Point{
-		X: core.Points(dx*c + dy*s),
-		Y: core.Points(-dx*s + dy*c),
+		X: core.Points(float64(dx*c) + float64(dy*s)),
+		Y: core.Points(float64(-dx*s) + float64(dy*c)),
 	}
 }
 
@@ -176,9 +175,10 @@ func (b *RigidBody) applyImpulseRaw(ix, iy, rx, ry float64) {
 	}
 	invM := float64(b.InvMass)
 	invI := float64(b.InvInertia)
-	b.VX = float32(float64(b.VX) + ix*invM)
-	b.VY = float32(float64(b.VY) + iy*invM)
-	b.AngularVel = float32(float64(b.AngularVel) + (rx*iy-ry*ix)*invI)
+	b.VX = float32(float64(b.VX) + float64(ix*invM))
+	b.VY = float32(float64(b.VY) + float64(iy*invM))
+	cross := float64(rx*iy) - float64(ry*ix)
+	b.AngularVel = float32(float64(b.AngularVel) + float64(cross*invI))
 }
 
 func (b *RigidBody) prepareMass() {
@@ -204,7 +204,7 @@ func (b *RigidBody) prepareMass() {
 			switch b.Shape.Kind {
 			case ShapeBox:
 				w, h := float64(b.Shape.Box.W), float64(b.Shape.Box.H)
-				inertia = float64(b.Mass) * (w*w + h*h) / 12.0
+				inertia = float64(b.Mass) * (float64(w*w) + float64(h*h)) / 12.0
 			case ShapeCircle:
 				r := float64(b.Shape.Circle.R)
 				inertia = 0.5 * float64(b.Mass) * r * r
@@ -220,8 +220,8 @@ func (b *RigidBody) prepareMass() {
 func (b *RigidBody) syncShape() {
 	switch b.Shape.Kind {
 	case ShapeBox:
-		b.Shape.Box.X = b.X - b.Shape.Box.W*0.5
-		b.Shape.Box.Y = b.Y - b.Shape.Box.H*0.5
+		b.Shape.Box.X = b.X - float32(b.Shape.Box.W*0.5)
+		b.Shape.Box.Y = b.Y - float32(b.Shape.Box.H*0.5)
 	case ShapeCircle:
 		b.Shape.Circle.X = b.X
 		b.Shape.Circle.Y = b.Y
@@ -237,10 +237,11 @@ func (b *RigidBody) worldAABB() (minX, minY, maxX, maxY float64) {
 	case ShapeBox:
 		hw := float64(b.Shape.Box.W) * 0.5
 		hh := float64(b.Shape.Box.H) * 0.5
-		c := math.Abs(math.Cos(float64(b.Angle)))
-		s := math.Abs(math.Sin(float64(b.Angle)))
-		ex := hw*c + hh*s
-		ey := hw*s + hh*c
+		sinA, cosA := detmath.Sincos(float64(b.Angle))
+		c := math.Abs(cosA)
+		s := math.Abs(sinA)
+		ex := float64(hw*c) + float64(hh*s)
+		ey := float64(hw*s) + float64(hh*c)
 		return cx - ex, cy - ey, cx + ex, cy + ey
 	default:
 		return cx, cy, cx, cy
@@ -363,41 +364,45 @@ func (w *RigidWorld) Step(dt time.Duration) {
 
 		var vx, vy, av float64
 		if len(activeAreas) == 0 {
-			vx = float64(b.VX) + (gx*gScale+b.forceX*invM)*h
-			vy = float64(b.VY) + (gy*gScale+b.forceY*invM)*h
-			av = float64(b.AngularVel) + (b.torque*invI)*h
+			ax := float64(gx*gScale) + float64(b.forceX*invM)
+			ay := float64(gy*gScale) + float64(b.forceY*invM)
+			vx = float64(b.VX) + float64(ax*h)
+			vy = float64(b.VY) + float64(ay*h)
+			av = float64(b.AngularVel) + float64(float64(b.torque*invI)*h)
 
 			if b.LinearDamping > 0 {
-				factor := 1.0 / (1.0 + float64(b.LinearDamping)*h)
+				factor := 1.0 / (1.0 + float64(float64(b.LinearDamping)*h))
 				vx *= factor
 				vy *= factor
 			}
 			if b.AngularDamping > 0 {
-				factor := 1.0 / (1.0 + float64(b.AngularDamping)*h)
+				factor := 1.0 / (1.0 + float64(float64(b.AngularDamping)*h))
 				av *= factor
 			}
 		} else {
 			eff := w.evaluateRigidBodyAreas(b, activeAreas)
-			effGX := (float64(eff.GravityX) + float64(eff.BuoyancyAccelX)) * gScale
-			effGY := (float64(eff.GravityY) + float64(eff.BuoyancyAccelY)) * gScale
-			vx = float64(b.VX) + (effGX+b.forceX*invM)*h
-			vy = float64(b.VY) + (effGY+b.forceY*invM)*h
-			av = float64(b.AngularVel) + (b.torque*invI)*h
+			effGX := float64((float64(eff.GravityX) + float64(eff.BuoyancyAccelX)) * gScale)
+			effGY := float64((float64(eff.GravityY) + float64(eff.BuoyancyAccelY)) * gScale)
+			ax := effGX + float64(b.forceX*invM)
+			ay := effGY + float64(b.forceY*invM)
+			vx = float64(b.VX) + float64(ax*h)
+			vy = float64(b.VY) + float64(ay*h)
+			av = float64(b.AngularVel) + float64(float64(b.torque*invI)*h)
 
 			if eff.FluidLinearDrag > 0 {
 				fvx, fvy := float64(eff.FluidVelX), float64(eff.FluidVelY)
-				factor := 1.0 / (1.0 + float64(eff.FluidLinearDrag)*h)
-				vx = fvx + (vx-fvx)*factor
-				vy = fvy + (vy-fvy)*factor
+				factor := 1.0 / (1.0 + float64(float64(eff.FluidLinearDrag)*h))
+				vx = fvx + float64((vx-fvx)*factor)
+				vy = fvy + float64((vy-fvy)*factor)
 			}
 			if eff.LinearDamping > 0 {
-				factor := 1.0 / (1.0 + float64(eff.LinearDamping)*h)
+				factor := 1.0 / (1.0 + float64(float64(eff.LinearDamping)*h))
 				vx *= factor
 				vy *= factor
 			}
 			angDamp := float64(eff.AngularDamping) + float64(eff.FluidAngularDrag)
 			if angDamp > 0 {
-				factor := 1.0 / (1.0 + angDamp*h)
+				factor := 1.0 / (1.0 + float64(angDamp*h))
 				av *= factor
 			}
 		}
@@ -411,7 +416,7 @@ func (w *RigidWorld) Step(dt time.Duration) {
 	}
 
 	// 2. Detect contact manifolds in deterministic pair order.
-	restitutionThresh := max(1.0, 2.0*math.Hypot(gx, gy)*h)
+	restitutionThresh := max(1.0, 2.0*detmath.Hypot(gx, gy)*h)
 	manifolds := w.detectContacts(restitutionThresh)
 
 	// 3. Pre-step joints (applies spring forces and prepares rigid joint constraint matrices).
@@ -438,9 +443,9 @@ func (w *RigidWorld) Step(dt time.Duration) {
 		if b == nil || b.Static {
 			continue
 		}
-		b.X = float32(float64(b.X) + float64(b.VX)*h)
-		b.Y = float32(float64(b.Y) + float64(b.VY)*h)
-		b.Angle = float32(float64(b.Angle) + float64(b.AngularVel)*h)
+		b.X = float32(float64(b.X) + float64(float64(b.VX)*h))
+		b.Y = float32(float64(b.Y) + float64(float64(b.VY)*h))
+		b.Angle = float32(float64(b.Angle) + float64(float64(b.AngularVel)*h))
 	}
 
 	// 6. Positional slop correction (projection without injecting artificial bounce velocity).
@@ -487,12 +492,12 @@ func (w *RigidWorld) Step(dt time.Duration) {
 				cx := m.nx * corr
 				cy := m.ny * corr
 				if !a.Static {
-					a.X = float32(float64(a.X) - cx*float64(a.InvMass))
-					a.Y = float32(float64(a.Y) - cy*float64(a.InvMass))
+					a.X = float32(float64(a.X) - float64(cx*float64(a.InvMass)))
+					a.Y = float32(float64(a.Y) - float64(cy*float64(a.InvMass)))
 				}
 				if !b.Static {
-					b.X = float32(float64(b.X) + cx*float64(b.InvMass))
-					b.Y = float32(float64(b.Y) + cy*float64(b.InvMass))
+					b.X = float32(float64(b.X) + float64(cx*float64(b.InvMass)))
+					b.Y = float32(float64(b.Y) + float64(cy*float64(b.InvMass)))
 				}
 			}
 		}
@@ -563,26 +568,26 @@ func prepareManifold(m *rigidManifold, restitutionThresh float64) {
 		cp.rBx = cp.px - float64(b.X)
 		cp.rBy = cp.py - float64(b.Y)
 
-		rnA := cp.rAx*ny - cp.rAy*nx
-		rnB := cp.rBx*ny - cp.rBy*nx
-		kNormal := invMA + invMB + invIA*rnA*rnA + invIB*rnB*rnB
+		rnA := float64(cp.rAx*ny) - float64(cp.rAy*nx)
+		rnB := float64(cp.rBx*ny) - float64(cp.rBy*nx)
+		kNormal := float64(invMA+invMB) + float64(float64(invIA*rnA)*rnA) + float64(float64(invIB*rnB)*rnB)
 		if kNormal > 0 {
 			cp.massNormal = 1.0 / kNormal
 		}
 
-		rtA := cp.rAx*ty - cp.rAy*tx
-		rtB := cp.rBx*ty - cp.rBy*tx
-		kTangent := invMA + invMB + invIA*rtA*rtA + invIB*rtB*rtB
+		rtA := float64(cp.rAx*ty) - float64(cp.rAy*tx)
+		rtB := float64(cp.rBx*ty) - float64(cp.rBy*tx)
+		kTangent := float64(invMA+invMB) + float64(float64(invIA*rtA)*rtA) + float64(float64(invIB*rtB)*rtB)
 		if kTangent > 0 {
 			cp.massTangent = 1.0 / kTangent
 		}
 
 		// Relative velocity of B with respect to A at contact point.
-		vAx := float64(a.VX) - float64(a.AngularVel)*cp.rAy
-		vAy := float64(a.VY) + float64(a.AngularVel)*cp.rAx
-		vBx := float64(b.VX) - float64(b.AngularVel)*cp.rBy
-		vBy := float64(b.VY) + float64(b.AngularVel)*cp.rBx
-		vn := (vBx-vAx)*nx + (vBy-vAy)*ny
+		vAx := float64(a.VX) - float64(float64(a.AngularVel)*cp.rAy)
+		vAy := float64(a.VY) + float64(float64(a.AngularVel)*cp.rAx)
+		vBx := float64(b.VX) - float64(float64(b.AngularVel)*cp.rBy)
+		vBy := float64(b.VY) + float64(float64(b.AngularVel)*cp.rBx)
+		vn := float64((vBx-vAx)*nx) + float64((vBy-vAy)*ny)
 
 		if e > 0 && -vn > restitutionThresh {
 			cp.bounceBias = e * vn // negative, so -(vn + bounceBias) boosts separation impulse
@@ -601,13 +606,13 @@ func solveManifoldVelocity(m *rigidManifold) {
 		cp := &m.points[i]
 
 		// Normal impulse.
-		vAx := float64(a.VX) - float64(a.AngularVel)*cp.rAy
-		vAy := float64(a.VY) + float64(a.AngularVel)*cp.rAx
-		vBx := float64(b.VX) - float64(b.AngularVel)*cp.rBy
-		vBy := float64(b.VY) + float64(b.AngularVel)*cp.rBx
-		vn := (vBx-vAx)*nx + (vBy-vAy)*ny
+		vAx := float64(a.VX) - float64(float64(a.AngularVel)*cp.rAy)
+		vAy := float64(a.VY) + float64(float64(a.AngularVel)*cp.rAx)
+		vBx := float64(b.VX) - float64(float64(b.AngularVel)*cp.rBy)
+		vBy := float64(b.VY) + float64(float64(b.AngularVel)*cp.rBx)
+		vn := float64((vBx-vAx)*nx) + float64((vBy-vAy)*ny)
 
-		dPn := cp.massNormal * (-(vn + cp.bounceBias))
+		dPn := float64(cp.massNormal * (-(vn + cp.bounceBias)))
 		oldPn := cp.pn
 		cp.pn = max(oldPn+dPn, 0)
 		dPn = cp.pn - oldPn
@@ -618,13 +623,13 @@ func solveManifoldVelocity(m *rigidManifold) {
 
 		// Friction impulse.
 		if m.friction > 0 {
-			vAx = float64(a.VX) - float64(a.AngularVel)*cp.rAy
-			vAy = float64(a.VY) + float64(a.AngularVel)*cp.rAx
-			vBx = float64(b.VX) - float64(b.AngularVel)*cp.rBy
-			vBy = float64(b.VY) + float64(b.AngularVel)*cp.rBx
-			vt := (vBx-vAx)*tx + (vBy-vAy)*ty
+			vAx = float64(a.VX) - float64(float64(a.AngularVel)*cp.rAy)
+			vAy = float64(a.VY) + float64(float64(a.AngularVel)*cp.rAx)
+			vBx = float64(b.VX) - float64(float64(b.AngularVel)*cp.rBy)
+			vBy = float64(b.VY) + float64(float64(b.AngularVel)*cp.rBx)
+			vt := float64((vBx-vAx)*tx) + float64((vBy-vAy)*ty)
 
-			dPt := cp.massTangent * (-vt)
+			dPt := float64(cp.massTangent * (-vt))
 			maxPt := m.friction * cp.pn
 			oldPt := cp.pt
 			cp.pt = min(max(oldPt+dPt, -maxPt), maxPt)
@@ -668,8 +673,8 @@ func collideRigidCircleCircle(a, b *RigidBody) (rigidManifold, bool) {
 	dy := float64(b.Y) - float64(a.Y)
 	rA, rB := float64(a.Shape.Circle.R), float64(b.Shape.Circle.R)
 	sumR := rA + rB
-	distSq := dx*dx + dy*dy
-	if distSq >= sumR*sumR {
+	distSq := float64(dx*dx) + float64(dy*dy)
+	if distSq >= float64(sumR*sumR) {
 		return rigidManifold{}, false
 	}
 	m := rigidManifold{a: a, b: b, count: 1}
@@ -685,11 +690,11 @@ func collideRigidCircleCircle(a, b *RigidBody) (rigidManifold, bool) {
 	dist := math.Sqrt(distSq)
 	nx, ny := dx/dist, dy/dist
 	depth := sumR - dist
-	mid := rA - depth*0.5
+	mid := rA - float64(depth*0.5)
 	m.nx, m.ny = nx, ny
 	m.points[0] = rigidContactPoint{
-		px:    float64(a.X) + nx*mid,
-		py:    float64(a.Y) + ny*mid,
+		px:    float64(a.X) + float64(nx*mid),
+		py:    float64(a.Y) + float64(ny*mid),
 		depth: depth,
 	}
 	return m, true
@@ -698,29 +703,28 @@ func collideRigidCircleCircle(a, b *RigidBody) (rigidManifold, bool) {
 // collideRigidCircleOBB tests circle a against oriented box b. Normal points from a toward b.
 func collideRigidCircleOBB(a, b *RigidBody) (rigidManifold, bool) {
 	r := float64(a.Shape.Circle.R)
-	hw := float64(b.Shape.Box.W) * 0.5
-	hh := float64(b.Shape.Box.H) * 0.5
+	hw := float64(float64(b.Shape.Box.W) * 0.5)
+	hh := float64(float64(b.Shape.Box.H) * 0.5)
 	if r <= 0 || hw <= 0 || hh <= 0 {
 		return rigidManifold{}, false
 	}
 
-	cosB := math.Cos(float64(b.Angle))
-	sinB := math.Sin(float64(b.Angle))
+	sinB, cosB := detmath.Sincos(float64(b.Angle))
 	relX := float64(a.X) - float64(b.X)
 	relY := float64(a.Y) - float64(b.Y)
 	// Circle center in b's local frame.
-	lx := relX*cosB + relY*sinB
-	ly := -relX*sinB + relY*cosB
+	lx := float64(relX*cosB) + float64(relY*sinB)
+	ly := float64(-relX*sinB) + float64(relY*cosB)
 
 	cx := min(max(lx, -hw), hw)
 	cy := min(max(ly, -hh), hh)
 	dx := lx - cx
 	dy := ly - cy
-	distSq := dx*dx + dy*dy
+	distSq := float64(dx*dx) + float64(dy*dy)
 
 	var lnx, lny, depth float64
 	if distSq > 0 {
-		if distSq >= r*r {
+		if distSq >= float64(r*r) {
 			return rigidManifold{}, false
 		}
 		dist := math.Sqrt(distSq)
@@ -756,10 +760,10 @@ func collideRigidCircleOBB(a, b *RigidBody) (rigidManifold, bool) {
 	}
 
 	// Transform normal and contact point back to world space.
-	wnx := lnx*cosB - lny*sinB
-	wny := lnx*sinB + lny*cosB
-	wpx := float64(b.X) + cx*cosB - cy*sinB
-	wpy := float64(b.Y) + cx*sinB + cy*cosB
+	wnx := float64(lnx*cosB) - float64(lny*sinB)
+	wny := float64(lnx*sinB) + float64(lny*cosB)
+	wpx := float64(float64(b.X)+float64(cx*cosB)) - float64(cy*sinB)
+	wpy := float64(float64(b.Y)+float64(cx*sinB)) + float64(cy*cosB)
 
 	m := rigidManifold{a: a, b: b, nx: wnx, ny: wny, count: 1}
 	m.points[0] = rigidContactPoint{
@@ -772,7 +776,7 @@ func collideRigidCircleOBB(a, b *RigidBody) (rigidManifold, bool) {
 
 type vec2 struct{ x, y float64 }
 
-func dot2(a, b vec2) float64 { return a.x*b.x + a.y*b.y }
+func dot2(a, b vec2) float64 { return float64(a.x*b.x) + float64(a.y*b.y) }
 
 func clipSegmentToLine(in [2]vec2, count int, normal vec2, offset float64) ([2]vec2, int) {
 	var out [2]vec2
@@ -793,8 +797,8 @@ func clipSegmentToLine(in [2]vec2, count int, normal vec2, offset float64) ([2]v
 	if d0*d1 < 0 && outCount < 2 {
 		t := d0 / (d0 - d1)
 		out[outCount] = vec2{
-			x: in[0].x + t*(in[1].x-in[0].x),
-			y: in[0].y + t*(in[1].y-in[0].y),
+			x: in[0].x + float64(t*(in[1].x-in[0].x)),
+			y: in[0].y + float64(t*(in[1].y-in[0].y)),
 		}
 		outCount++
 	}
@@ -804,16 +808,16 @@ func clipSegmentToLine(in [2]vec2, count int, normal vec2, offset float64) ([2]v
 // collideRigidOBBOBB computes a 1- or 2-point contact manifold between oriented boxes a and b
 // using 2D SAT and Sutherland-Hodgman face clipping. Normal points from a toward b.
 func collideRigidOBBOBB(a, b *RigidBody) (rigidManifold, bool) {
-	hAx, hAy := float64(a.Shape.Box.W)*0.5, float64(a.Shape.Box.H)*0.5
-	hBx, hBy := float64(b.Shape.Box.W)*0.5, float64(b.Shape.Box.H)*0.5
+	hAx, hAy := float64(float64(a.Shape.Box.W)*0.5), float64(float64(a.Shape.Box.H)*0.5)
+	hBx, hBy := float64(float64(b.Shape.Box.W)*0.5), float64(float64(b.Shape.Box.H)*0.5)
 	if hAx <= 0 || hAy <= 0 || hBx <= 0 || hBy <= 0 {
 		return rigidManifold{}, false
 	}
 
 	posA := vec2{float64(a.X), float64(a.Y)}
 	posB := vec2{float64(b.X), float64(b.Y)}
-	cosA, sinA := math.Cos(float64(a.Angle)), math.Sin(float64(a.Angle))
-	cosB, sinB := math.Cos(float64(b.Angle)), math.Sin(float64(b.Angle))
+	sinA, cosA := detmath.Sincos(float64(a.Angle))
+	sinB, cosB := detmath.Sincos(float64(b.Angle))
 	uA, vA := vec2{cosA, sinA}, vec2{-sinA, cosA}
 	uB, vB := vec2{cosB, sinB}, vec2{-sinB, cosB}
 
@@ -826,19 +830,19 @@ func collideRigidOBBOBB(a, b *RigidBody) (rigidManifold, bool) {
 	c10 := math.Abs(dot2(vA, uB))
 	c11 := math.Abs(dot2(vA, vB))
 
-	faceAx := math.Abs(dAx) - hAx - (c00*hBx + c01*hBy)
+	faceAx := math.Abs(dAx) - hAx - (float64(c00*hBx) + float64(c01*hBy))
 	if faceAx >= 0 {
 		return rigidManifold{}, false
 	}
-	faceAy := math.Abs(dAy) - hAy - (c10*hBx + c11*hBy)
+	faceAy := math.Abs(dAy) - hAy - (float64(c10*hBx) + float64(c11*hBy))
 	if faceAy >= 0 {
 		return rigidManifold{}, false
 	}
-	faceBx := math.Abs(dBx) - hBx - (c00*hAx + c10*hAy)
+	faceBx := math.Abs(dBx) - hBx - (float64(c00*hAx) + float64(c10*hAy))
 	if faceBx >= 0 {
 		return rigidManifold{}, false
 	}
-	faceBy := math.Abs(dBy) - hBy - (c01*hAx + c11*hAy)
+	faceBy := math.Abs(dBy) - hBy - (float64(c01*hAx) + float64(c11*hAy))
 	if faceBy >= 0 {
 		return rigidManifold{}, false
 	}
@@ -928,17 +932,17 @@ func collideRigidOBBOBB(a, b *RigidBody) (rigidManifold, bool) {
 		if incDotU > 0 {
 			sign = -1.0
 		}
-		fc := vec2{incPos.x + incU.x*sign*incHX, incPos.y + incU.y*sign*incHX}
-		incFace[0] = vec2{fc.x - incV.x*incHY, fc.y - incV.y*incHY}
-		incFace[1] = vec2{fc.x + incV.x*incHY, fc.y + incV.y*incHY}
+		fc := vec2{incPos.x + float64(float64(incU.x*sign)*incHX), incPos.y + float64(float64(incU.y*sign)*incHX)}
+		incFace[0] = vec2{fc.x - float64(incV.x*incHY), fc.y - float64(incV.y*incHY)}
+		incFace[1] = vec2{fc.x + float64(incV.x*incHY), fc.y + float64(incV.y*incHY)}
 	} else {
 		sign := 1.0
 		if incDotV > 0 {
 			sign = -1.0
 		}
-		fc := vec2{incPos.x + incV.x*sign*incHY, incPos.y + incV.y*sign*incHY}
-		incFace[0] = vec2{fc.x - incU.x*incHX, fc.y - incU.y*incHX}
-		incFace[1] = vec2{fc.x + incU.x*incHX, fc.y + incU.y*incHX}
+		fc := vec2{incPos.x + float64(float64(incV.x*sign)*incHY), incPos.y + float64(float64(incV.y*sign)*incHY)}
+		incFace[0] = vec2{fc.x - float64(incU.x*incHX), fc.y - float64(incU.y*incHX)}
+		incFace[1] = vec2{fc.x + float64(incU.x*incHX), fc.y + float64(incU.y*incHX)}
 	}
 
 	// Clip incident face against the two side planes of the reference face.
