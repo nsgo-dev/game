@@ -131,6 +131,19 @@ func (c *Controller) Reset() {
 
 // Step runs one fixed step of dt: it advances the timers, applies horizontal input, starts a buffered ground or wall jump when one is allowed, cuts a rising jump whose button is up, applies gravity with the wall-slide and fall caps, and moves the body against grid, slopes and platforms with CharacterBody.Move. A nil controller or body, or dt <= 0, does nothing.
 func (c *Controller) Step(in Input, grid physics.TileGrid, slopes []physics.Slope, platforms []*physics.MovingPlatform, dt time.Duration) StepResult {
+	return c.stepWith(in, dt, func() physics.MoveResult {
+		return c.Body.Move(grid, slopes, platforms, dt)
+	})
+}
+
+// StepWorld runs one fixed step of dt like Step, moving the body against world (its Bodies, Tiles and static RigidBody colliders in world.RigidWorld) together with slopes and platforms via CharacterBody.MoveWorld.
+func (c *Controller) StepWorld(in Input, world *physics.World, slopes []physics.Slope, platforms []*physics.MovingPlatform, dt time.Duration) StepResult {
+	return c.stepWith(in, dt, func() physics.MoveResult {
+		return c.Body.MoveWorld(world, slopes, platforms, dt)
+	})
+}
+
+func (c *Controller) stepWith(in Input, dt time.Duration, moveFn func() physics.MoveResult) StepResult {
 	if c == nil || c.Body == nil || c.Body.Body == nil || dt <= 0 {
 		return StepResult{}
 	}
@@ -246,7 +259,7 @@ func (c *Controller) Step(in Input, grid physics.TileGrid, slopes []physics.Slop
 		b.VY = cfg.MaxFallSpeed
 	}
 
-	res.Move = c.Body.Move(grid, slopes, platforms, dt)
+	res.Move = moveFn()
 	c.leftVY = b.VY
 	return res
 }

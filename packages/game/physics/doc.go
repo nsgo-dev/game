@@ -13,12 +13,16 @@
 
 // MoveAndSlide advances a Body over a fixed game.Loop step against any TileGrid (or the
 // concrete Grid), resolving solid walls, floors, ceilings and one-way platforms without
-// tunneling at high speeds. CharacterBody builds on this for platformer characters with
-// walkable and steep Slope segments, downhill snapping, and MovingPlatform riding.
+// tunneling at high speeds. World.MoveAndSlide and World.MoveAndSlideWith sweep the body's
+// full shape against static and kinematic bodies (including OneWay bodies), solid and one-way
+// tiles, and static RigidBody colliders, sliding along contact normals for a bounded number
+// of iterations with configurable up direction and floor angle. CharacterBody builds on this
+// for platformer characters with walkable and steep Slope segments, downhill snapping, and
+// MovingPlatform riding.
 //
-// World groups bodies, Trigger areas and an optional TileGrid for deterministic overlap,
-// point, raycast and layer-filtered queries, as well as enter/stay/exit trigger events via
-// StepTriggers.
+// World groups bodies, Trigger areas, an optional TileGrid and an optional RigidWorld for
+// deterministic overlap, point, raycast, layer-filtered queries, MoveAndSlide, and
+// enter/stay/exit trigger events via StepTriggers.
 //
 // RigidWorld and RigidBody implement lightweight, pure-Go deterministic 2D rigid-body
 // dynamics and constraints (DistanceJoint, SpringJoint and RevoluteJoint) directly inside

@@ -624,3 +624,64 @@ func TestSetConfigKeepsElapsedTime(t *testing.T) {
 		}
 	}
 }
+
+func TestControllerStepWorldDoorOneWayAndSlopes(t *testing.T) {
+	const dt = time.Second / 60
+
+	grid := physics.NewGrid(20, 10, 16, 16)
+	grid.FillRect(0, 8, 20, 2, physics.TileSolid) // floor top at Y=128
+
+	w := &physics.World{Tiles: grid, GravityY: 999} // StepWorld must not double-apply World.GravityY when Body.World is nil
+	door := physics.NewBoxBody(96, 80, 8, 48)
+	door.Tag = "door"
+	owPlat := physics.NewBoxBody(24, 104, 40, 8)
+	owPlat.OneWay = true
+	w.Add(door, owPlat)
+
+	cfg := platformer.DefaultConfig()
+	c := newController(t, cfg, 32, 80)
+	w.Add(c.Body.Body)
+
+	// 1. Land on the one-way body.
+	for range 30 {
+		c.StepWorld(platformer.Input{}, w, nil, nil, dt)
+	}
+	if !c.Body.Grounded || !near(c.Body.Body.Shape.Box.Bottom(), 104) {
+		t.Fatalf("failed to land on one-way body: grounded=%v bottom=%v", c.Body.Grounded, c.Body.Body.Shape.Box.Bottom())
+	}
+
+	// 2. Drop through the one-way body onto the tile floor.
+	c.Body.Body.OneWayDrop = true
+	for i := range 30 {
+		if i == 4 {
+			c.Body.Body.OneWayDrop = false
+		}
+		c.StepWorld(platformer.Input{}, w, nil, nil, dt)
+	}
+	if !c.Body.Grounded || !near(c.Body.Body.Shape.Box.Bottom(), 128) {
+		t.Fatalf("failed to drop through one-way body: grounded=%v bottom=%v", c.Body.Grounded, c.Body.Body.Shape.Box.Bottom())
+	}
+
+	// 3. Run right into the closed door body: stopped flush and wall-jump works off it.
+	for range 60 {
+		c.StepWorld(platformer.Input{Move: 1}, w, nil, nil, dt)
+	}
+	if !near(c.Body.Body.Shape.Box.Right(), 96) || !c.Body.Body.OnRightWall {
+		t.Fatalf("controller not stopped by closed door: right=%v onRightWall=%v", c.Body.Body.Shape.Box.Right(), c.Body.Body.OnRightWall)
+	}
+
+	// 4. Remove the door body: controller walks right through it and onto a moving platform.
+	w.Remove(door)
+	plat := &physics.MovingPlatform{
+		Body:   physics.NewBoxBody(120, 128, 48, 8),
+		OneWay: true,
+	}
+	w.Add(plat.Body)
+	for range 45 {
+		plat.DeltaX, plat.DeltaY = 0, 0
+		c.StepWorld(platformer.Input{Move: 1}, w, nil, []*physics.MovingPlatform{plat}, dt)
+	}
+	if c.Body.Body.Shape.Box.X <= 110 {
+		t.Fatalf("controller did not walk through removed door: X=%v", c.Body.Body.Shape.Box.X)
+	}
+}

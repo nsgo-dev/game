@@ -52,13 +52,18 @@ type RaycastHit struct {
 	TileFlags TileFlags
 }
 
-// World holds bodies, triggers and an optional TileGrid for spatial queries.
+// World holds bodies, triggers, an optional TileGrid and an optional RigidWorld for spatial queries and MoveAndSlide.
 type World struct {
 	Bodies   []*Body
 	Triggers []*Trigger
 	Tiles    TileGrid
-	GravityX float32
-	GravityY float32
+	// RigidWorld is an optional RigidWorld whose static RigidBody colliders participate in World.MoveAndSlide.
+	RigidWorld *RigidWorld
+	// TileLayer and TileMask optionally filter tile collisions during World.MoveAndSlide (zero defaults to LayerAll).
+	TileLayer LayerMask
+	TileMask  LayerMask
+	GravityX  float32
+	GravityY  float32
 
 	triggerActive map[*Trigger][]*Body
 }
