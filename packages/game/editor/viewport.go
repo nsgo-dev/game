@@ -757,19 +757,13 @@ func touchStroke(ev core.TouchEvent, begin func(at core.Point, secondary, alt bo
 
 // ViewportView renders the center interactive core.Canvas viewport panel, which fills the panel.
 //
-// In 2D, with the Select or Move tool, a drag on an object moves it, and a drag on the selection's gizmo moves it along one of its axes, turns it with the ring or scales it with a corner or edge handle (Shift keeps the aspect ratio), each recorded as one undoable step when the drag ends; Escape or a cancelled gesture puts the object back (BeginDrag2D). A mouse wheel, a pinch or a touchpad scroll with Control or Command held zooms the 2D view (View2D) about the pointer, and a touchpad's scroll, a mouse wheel's sideways scroll, a middle-button drag, a drag with Space held or a two-finger drag pans it; while the scene plays the view is the scene camera's and does not move; F frames the selection (FrameSelection2D), Home frames everything (FrameAll2D) and Mod+0 returns to the scene camera's view (ResetView2D). With a tile tool a drag with the mouse or one finger is a tile stroke (BeginTileStroke) over every cell it crosses, recorded as one undo step: Paint paints and Erase erases, a right-button drag erases with Paint, Alt with any tile tool picks the tile under the pointer, and Pick picks and hands over to Paint; the cell under the resting mouse is outlined (HoveredTile). In 3D a drag orbits the camera or drags the gizmo and the wheel dollies.
+// In 2D, with the Select or Move tool, a drag on an object moves it, and a drag on the selection's gizmo moves it along one of its axes, turns it with the ring or scales it with a corner or edge handle (Shift keeps the aspect ratio), each recorded as one undoable step when the drag ends; Escape or a cancelled gesture puts the object back (BeginDrag2D). A mouse wheel, a pinch or a touchpad scroll with Control or Command held zooms the 2D view (View2D) about the pointer, and a touchpad's scroll, a mouse wheel's sideways scroll, a middle-button drag, a drag with Space held or a two-finger drag pans it; while the scene plays the view is the scene camera's and does not move; F frames the selection (FrameSelection2D), Home frames everything (FrameAll2D) and Mod+0 returns to the scene camera's view (ResetView2D). With a tile tool a drag with the mouse or one finger is a tile stroke (BeginTileStroke) over every cell it crosses, recorded as one undo step: Paint paints and Erase erases, a right-button drag erases with Paint, Alt with any tile tool picks the tile under the pointer, and Pick picks and hands over to Paint; the cell under the resting mouse is outlined (HoveredTile). In 3D a drag orbits the camera or drags the gizmo; a middle-button drag, a Shift-drag, a touchpad's scroll and a two-finger drag pan it; the wheel and a pinch zoom it; holding the right button flies it, the pointer turning it and W, A, S, D, Q and E moving it (BeginFly3D); F frames the selection; and a bar, an axis widget and the controls' help line over the scene switch the projection, turn to the axis views, orbit by 15 degrees and reset the view.
 func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	colors := ui.ColorsOf(cx)
-	var lastPan core.Point
-	// The 3D gizmo drag starts where the finger (or pointer) went down; pan
-	// events carry only their translation, so the down point is tracked from
-	// touch events on the frame.
-	var pressPos core.Point
-	var hasPress bool
-	// began3D says a pan that began with a press owns a 3D drag to finish;
-	// the touch that ends may be reported before the pan's end event.
-	var began3D bool
 	var g viewportGestures
+	var g3 viewport3DGestures
+	// frame is the view the 3D viewport's flight locks the pointer to.
+	var frame core.Ref
 
 	// The first read of the held keys asks the platform to report every key, so Space is known to be held when a drag begins.
 	spaceHeld := func() bool { return core.Untracked(cx, func() bool { return core.KeyHeld(cx, "space") }) }
@@ -799,7 +793,10 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 		strokeTookPress = mayPress
 	}
 	cx.OnKey("f", func() {
-		if in2D() {
+		switch {
+		case ed.ViewMode == ViewMode3D:
+			ed.FrameSelection()
+		case in2D():
 			ed.FrameSelection2D()
 		}
 	})
@@ -889,20 +886,29 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 			},
 			core.View{
 				TestID: "editor-viewport-frame",
+				Ref:    &frame,
 				Style:  core.Style{FlexGrow: 1},
 				OnWheel: func(ev core.WheelEvent) {
 					if ed.ViewMode == ViewMode3D {
-						ed.HandleViewport3DWheel(float32(ev.Delta.Y))
+						g3.wheel(ed, ev)
 						return
 					}
 					g.wheel(ed, ev)
 				},
 				OnPinch: func(ev core.GestureEvent) {
-					if ed.ViewMode == ViewMode2D {
+					switch ed.ViewMode {
+					case ViewMode2D:
 						g.pinch(ed, ev)
+					case ViewMode3D:
+						g3.pinch(ed, ev)
 					}
 				},
+				OnPointerDelta: func(dx, dy float64) { g3.pointerDelta(ed, dx, dy) },
 				OnMouseDown: func(ev core.MouseButtonEvent) {
+					if ed.ViewMode == ViewMode3D {
+						g3.mouseDown(cx, ed, &frame, ev)
+						return
+					}
 					if ed.ViewMode != ViewMode2D {
 						return
 					}
@@ -935,6 +941,10 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 							return
 						}
 					}
+					if ed.ViewMode == ViewMode3D {
+						g3.mouseMove(ed, ev)
+						return
+					}
 					if ed.ViewMode == ViewMode2D {
 						ed.SetTileHover(float32(ev.Position.X), float32(ev.Position.Y), ev.Modifiers.Alt)
 					}
@@ -957,6 +967,8 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 					g.middleLast = ev.Position
 				},
 				OnMouseUp: func(ev core.MouseButtonEvent) {
+					// A pan or flight that began in 3D ends whatever the view is now.
+					g3.mouseUp(ed, ev)
 					switch ev.Button {
 					case core.MouseButtonMiddle:
 						g.middle = false
@@ -994,57 +1006,14 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 						touchStroke(ev, beginStroke, func(at core.Point) { endStroke(at, true) }, ed)
 						return
 					}
-					switch ev.Phase {
-					case core.TouchStart:
-						for _, t := range ev.Touches {
-							if t.Changed {
-								pressPos = t.Position
-								hasPress = true
-								return
-							}
-						}
-					case core.TouchEnd, core.TouchCancel:
-						hasPress = false
-					}
+					g3.touch(ed, ev)
 				},
 				OnPan: func(ev core.PanEvent) {
 					if ed.ViewMode != ViewMode3D {
 						g.pan(ed, ev, spaceHeld, shiftHeld)
 						return
 					}
-					cw, ch := ed.CanvasSize()
-					switch ev.Phase {
-					case core.GestureBegan:
-						lastPan = ev.Translation
-						began3D = hasPress && !ed.PickingConnectionTarget()
-						if began3D {
-							// A press that turns into a pan first picks a gizmo
-							// handle under the press point, and orbits otherwise.
-							ed.BeginViewport3DDrag(float32(pressPos.X), float32(pressPos.Y), cw, ch, false)
-						}
-					case core.GestureChanged:
-						if began3D && hasPress {
-							ed.UpdateViewport3DDrag(
-								float32(pressPos.X)+float32(ev.Translation.X),
-								float32(pressPos.Y)+float32(ev.Translation.Y),
-							)
-							break
-						}
-						if ed.PickingConnectionTarget() {
-							break
-						}
-						dx := float32(ev.Translation.X - lastPan.X)
-						dy := float32(ev.Translation.Y - lastPan.Y)
-						lastPan = ev.Translation
-						ed.Camera3D.Orbit(-dx*0.01, dy*0.01)
-						ed.notify()
-					case core.GestureEnded, core.GestureCancelled:
-						if began3D {
-							ed.EndViewport3DDrag()
-							began3D = false
-						}
-						lastPan = core.Point{}
-					}
+					g3.pan(ed, ev, shiftHeld)
 				},
 				Children: []core.Node{
 					core.Show{
@@ -1056,10 +1025,17 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 						Then: func(cx *core.Scope) core.Node {
 							return viewport3DView(cx, ed, core.View{
 								Style: core.Style{FlexGrow: 1},
-								Children: []core.Node{
+								Children: append([]core.Node{
 									canvas,
 									viewport3DErrorView(cx, ed, rev),
-								},
+									core.Show{
+										When: func() bool {
+											_ = rev.Get()
+											return ed.Flying3D()
+										},
+										Then: func(cx *core.Scope) core.Node { return flyView3D(cx, ed) },
+									},
+								}, viewport3DOverlay(cx, ed, rev)...),
 							})
 						},
 						Else: func(cx *core.Scope) core.Node { return canvas },
@@ -1089,8 +1065,8 @@ func viewport3DErrorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 				Style: core.Style{
 					Position:     core.Absolute,
 					Left:         core.Pt(8),
-					Top:          core.Pt(8),
-					Right:        core.Pt(8),
+					Top:          core.Pt(44),
+					Right:        core.Pt(96),
 					Padding:      core.Symmetric(4, 8),
 					CornerRadius: 4,
 					FontSize:     12,

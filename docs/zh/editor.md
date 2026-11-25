@@ -575,7 +575,28 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 - **实时编辑**：只有场景的外观变化时（对象的外观、它在树中的位置、实例化的场景或覆盖项，或者项目文件）才会重新构建。变换控件拖动、撤销移动、打开的动画片段在播放头处的姿态，以及运行中游戏的改动，都直接移动已构建的节点，所以拖动时不会重新构建或上传任何网格。对象有几何体时，`ObjectCorners3D` 和 `ObjectAABB3D` 给出的包围盒是其几何体的边界，聚焦选中对象（`f`）也按这个边界取景，所以一米大小的模型会充满视图。
 - **没有 GPU 时**：在不支持 GPU 视图的目标平台上、GPU 视图的第一帧之前以及设备丢失之后，画布改为绘制完整的线框视图：场景背景、网格、每个对象的包围盒（有几何体时为其边界）和变换控件。`Viewport3DOnGPU` 表明当前显示的是哪一种。
 
-`OrbitCamera3D.SceneCamera` 把编辑器的环绕相机转换为 GPU 视图绘制所用的 `scene3d.Camera`，其视点、视场角和裁剪面与画布投影所用的相同，所以叠加层与几何体对齐。
+`OrbitCamera3D.SceneCamera` 把编辑器的环绕相机转换为 GPU 视图绘制所用的 `scene3d.Camera`，其视点、投影和裁剪面与画布投影所用的相同，所以叠加层与几何体对齐。
+
+### 在 3D 视图中导航（#891）
+
+导航只移动编辑器的相机（`Camera3D`，一个 `OrbitCamera3D`）：它从不算作编辑，不进入撤销历史，也不改动场景文件。相机直接跳到目标位置，不播放动画。
+
+| 操作 | 鼠标 | 触控板或触摸屏 | 键盘或按钮 |
+| --- | --- | --- | --- |
+| 绕注视点环绕 | 拖动 | 单指拖动 | 坐标轴控件下方的“向左环绕 15°”和“向右环绕 15°”按钮 |
+| 平移 | 中键拖动，或按住 Shift 拖动 | 双指滚动，或在触摸屏上双指拖动 | |
+| 向注视点缩放 | 滚轮 | 捏合，或按住 Control 或 Command 滚动 | |
+| 飞行 | 按住右键：移动指针环顾，W、A、S、D 移动，Q 和 E 下降和上升，按住 Shift 加速，滚轮调整速度 | | |
+| 聚焦选中对象 | | | `f` 或视图栏的 Focus 按钮，按其边界取景；未选中任何对象时取景整个场景 |
+| 轴向视图 | | 点按右上角坐标轴控件上的轴端 | `1` 前视、`ctrl+1` 后视、`3` 右视、`ctrl+3` 左视、`7` 顶视、`ctrl+7` 底视 |
+| 透视或正交 | | | `5`，或视图栏中的 Persp 与 Ortho |
+| 回到默认视图 | | | 视图栏的 Reset view 按钮 |
+
+- **视图栏与状态栏**显示视图的名称：轴向视图的名称（Front、Top 等）或 Perspective，正交时附加“ · ortho”，不沿任何轴的正交视图为“User · ortho”（`ViewName3D`）。状态栏还会以度为单位显示偏航角和俯仰角。
+- **正交**（`SetOrthographic3D`、`OrbitCamera3D.Orthographic`）以平行投影显示。视图高度为 `OrthoHeight`，即透视视图在注视点处显示的高度，因此切换时位于注视点的物体大小不变，缩放会改变这个高度。`Project`、`ScreenRay`、`SceneCamera`、拾取和变换控件在两种投影下行为一致：正交时每个像素的射线都沿视线方向，因此按下会选中其下方的物体，拖动变换控件时对象沿轴移动的距离等于指针沿该轴移动的距离。正交下的轴向视图就是真正的平面图或立面图。
+- **飞行**（`BeginFly3D`、`FlyLook3D`、`FlyMove3D`、`EndFly3D`）让相机绕视点转动，并让视点和注视点一起移动。飞行期间 W、S 和 E 移动相机而不是切换变换控件模式；平台支持时指针会锁定在视口内。飞行以透视方式观察，所以正交视图会切换为透视。飞行速度 `FlySpeed3D` 以世界单位每秒计，初始为相机到注视点的距离，滚轮每次将其加倍或减半（`AdjustFlySpeed3D`）。
+- **轴向视图**（`SetView3D`，命令 `view.3d.front`、`view.3d.back`、`view.3d.right`、`view.3d.left`、`view.3d.top`、`view.3d.bottom`，以及切换投影的 `view.3d.orthographic`）保持注视点和距离不变。前视沿 -Z 方向看，右视沿 -X 方向看，顶视垂直向下看，视图上方为 -Z。
+- **按场景保存**：项目中的每个场景都会以上次离开时的相机打开。编辑器在打开另一个场景、保存场景和关闭窗口时把视图写入项目中的 `.game/editor.yaml`（`ViewStateFile`，见[文件格式](formats.md)）；以其他方式结束编辑器的应用需先调用 `SaveViewState`。没有保存过视图的场景以 `DefaultOrbitCamera3D` 打开。编辑器创建 `.game` 文件夹时会在其中写入一个忽略整个文件夹的 `.gitignore`，使视图不进入版本控制。
 
 ## 瓦片调色板（#874）
 
@@ -777,7 +798,7 @@ func main() {
 - **跨平台快捷键与文本焦点保护**：快捷键使用 NSGo 的 `"mod"` 修饰键（macOS 为 Command，Windows/Linux 为 Ctrl，可通过 `FormatShortcut` 格式化显示），并全部使用 `core.KeyNotEditing` 和 `core.MenuNotEditing` 绑定，因此当任意文本输入框拥有焦点时（例如检查器的 Name 输入框或搜索框），输入字符或按下 Delete/Backspace/Undo/Save 绝不会误触编辑器快捷键：
   - 文件与编辑：`mod+s`（保存）、`mod+z`（撤销）、`mod+shift+z`（重做）、`mod+d`（复制选中对象）、`delete` / `backspace`（删除选中对象）。
   - 2D 工具：`v`（选择）、`m`（移动）、`p`（放置）、`b`（绘制瓦片）、`e`（擦除瓦片）、`g`（填充瓦片）。
-  - 3D 变换控件与视图：`w`（平移）、`r`（旋转）、`s`（缩放）、`alt+2`（2D 视图）、`alt+3`（3D 视图）、`View > 3D Shading` 下的 Lit、Unlit、Wireframe 三个 3D 着色命令（无快捷键）、`f`（聚焦选中对象：2D 下通过 `FrameSelection2D` 调整独立编辑器视图 `View2D` 而不改动保存的 `Doc.Camera`，3D 下调整 `Camera3D`）、`mod+k`（命令面板）。
+  - 3D 变换控件与视图：`w`（平移）、`r`（旋转）、`s`（缩放）、`alt+2`（2D 视图）、`alt+3`（3D 视图）、`View > 3D Shading` 下的 Lit、Unlit、Wireframe 三个 3D 着色命令（无快捷键）、`f`（聚焦选中对象：2D 下通过 `FrameSelection2D` 调整独立编辑器视图 `View2D` 而不改动保存的 `Doc.Camera`，3D 下调整 `Camera3D`）、`1`、`ctrl+1`、`3`、`ctrl+3`、`7` 和 `ctrl+7`（3D 前视、后视、右视、左视、顶视和底视）以及 `5`（3D 透视或正交），这些只在 3D 视图中生效、`mod+k`（命令面板）。
   - 项目：`f5`（播放 / 停止）、`mod+r`（运行游戏：优先调用 `Editor.OnRunGame`，未配置且已挂载作用域时回退到编辑器内运行）、`mod+,`（项目设置）、`mod+shift+e`（导出与发布）、`mod+shift+b`（检查问题）。
 - **桌面菜单栏**：`EditorView` 通过 `desktop.SetApplicationMenu`（`Editor.ApplicationMenu`）注册原生应用菜单栏（`File`、`Edit`、`View`、`Project`），以实时可用/勾选状态和对应平台的快捷键提示暴露同一套命令；已启用插件的工具列在 `View > Tools` 下，已启用插件的命令列在 `Project > Plugins` 下。
 - **命令面板（`ui.CommandDialog`）**：按 `mod+k`（或点击工具栏 **Commands** 按钮 / `View > Command Palette...`）即可打开 `CommandPaletteView`，支持按子串排序与模糊匹配搜索全部内置与自定义命令、已启用插件命令、已启用插件工具（通过 `SetPluginTool` 激活）、已启用插件面板（通过 `FocusPluginPanel` 聚焦）以及当前项目的场景和文件（通过 `OpenProjectFile` 打开场景或选中文件）。

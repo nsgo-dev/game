@@ -212,6 +212,8 @@ type Editor struct {
 	Shading3D Shading3D
 	// Lights3D are the lights the 3D viewport draws the scene's geometry with, such as the rig the game lights the scene with, over the scene's background color; nil draws it with DefaultLights3D under a gradient sky. Scene files do not hold lights, so an editor built on this package that knows its game's lights sets them with SetLights3D, which redraws the viewport; assigning the field directly does not.
 	Lights3D *render3d.LightRig
+	// FlySpeed3D is how fast the 3D viewport's camera flies (BeginFly3D), in world units a second; the wheel changes it while flying (AdjustFlySpeed3D), and the first flight sets it from the camera's Distance when it is not positive.
+	FlySpeed3D float32
 	// Project is the game's project file (game.yaml) OpenProject opened, nil without one; EditProject changes it undoably and SaveProject writes it.
 	Project *project.File
 	// ProjectPath is the game.yaml path OpenProject opened Project from.
@@ -297,13 +299,15 @@ type Editor struct {
 	commands           []EditorCommand
 	paletteOpen        bool
 	drag3D             drag3DState
-	cameraDrag         cameraDragState
-	bgPreview          bgPreviewState
-	scope              *core.Scope
-	revision           uint64
-	nextID             int
-	nextListener       uint64
-	listeners          map[uint64]func()
+	// fly3D says the 3D viewport's camera is flying (BeginFly3D).
+	fly3D        bool
+	cameraDrag   cameraDragState
+	bgPreview    bgPreviewState
+	scope        *core.Scope
+	revision     uint64
+	nextID       int
+	nextListener uint64
+	listeners    map[uint64]func()
 	// askUnsaved asks the author, through the prompt EditorView shows, whether to save or discard unsaved edits before something loses them; nil without an EditorView.
 	askUnsaved func(proceed, cancel func())
 	// fetch is the library panel's fetch of a pack from a remote library under way, or nil.
@@ -539,6 +543,8 @@ func (e *Editor) SetViewMode(mode ViewMode) {
 	}
 	e.endTileStrokeForChange()
 	e.CancelGizmoDrag3D()
+	e.EndViewport3DDrag()
+	e.endFly3D()
 	e.CancelDrag2D()
 	e.CancelCameraDrag()
 	e.ViewMode = mode
@@ -720,6 +726,8 @@ func (e *Editor) openYAMLWithLayers(data []byte, file string, layers *sceneforma
 	if err != nil {
 		return err
 	}
+	// The scene being replaced keeps its view for when it opens again.
+	e.saveViewStateQuietly()
 	e.drag2D = drag2DState{}
 	e.cameraDrag = cameraDragState{}
 	e.bgPreview = bgPreviewState{}
@@ -778,6 +786,7 @@ func (e *Editor) openFileWithLayers(path string, layers *sceneformat.PhysicsLaye
 	e.FilePath = path
 	e.syncScenePath()
 	e.Status = "Opened " + path
+	e.restoreViewState()
 	e.notify()
 	return nil
 }
@@ -799,6 +808,7 @@ func (e *Editor) SaveFile(path string) error {
 	e.FilePath = path
 	e.sceneSaved = data
 	e.syncScenePath()
+	e.saveViewStateQuietly()
 	e.filesRev++
 	e.invalidateProjectIndex()
 	e.Status = "Saved " + path

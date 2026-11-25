@@ -137,6 +137,8 @@ func sceneFileView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirty *
 	// On macOS the window's close button closes the window, which ends the app as its last window goes, without asking OnQuitRequest, which Windows and Linux ask then too (core.Window.requestClose in NSGo v0.3.0). Asking here covers every platform; once the edits are saved or discarded the window closes without asking again.
 	if w := desktop.CurrentWindow(cx); w != nil {
 		w.OnClosing(cx, func(c *desktop.WindowClosing) {
+			// The view is kept whether or not the edits are, so the scene opens where it was left next time.
+			ed.saveViewStateQuietly()
 			if !ed.HasUnsavedChanges() {
 				return
 			}
@@ -146,6 +148,7 @@ func sceneFileView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirty *
 		})
 	}
 	desktop.OnQuitRequest(cx, func(q *desktop.QuitRequest) {
+		ed.saveViewStateQuietly()
 		if q.Forced() || !ed.HasUnsavedChanges() {
 			return
 		}

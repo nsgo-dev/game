@@ -15,7 +15,7 @@ import (
 // ErrNoProject is returned by EditProject and SaveProject before OpenProject has opened a game.yaml.
 var ErrNoProject = errors.New("editor: no project open")
 
-// OpenProject opens the game's project file: path is a game.yaml or the directory holding one. When the project names a main scene (project.Autoload.MainScene), it opens that scene too, as OpenFile does. It empties the undo history either way, so no step can bring back a project opened before. The registered plugins the project names under editor.plugins turn on, and the status bar names those it lists that this editor was built without (MissingPlugins). On an error it leaves the editor as it was.
+// OpenProject opens the game's project file: path is a game.yaml or the directory holding one. When the project names a main scene (project.Autoload.MainScene), it opens that scene too, as OpenFile does, with the view the project's ViewStateFile keeps for it. It empties the undo history either way, so no step can bring back a project opened before. The registered plugins the project names under editor.plugins turn on, and the status bar names those it lists that this editor was built without (MissingPlugins). On an error it leaves the editor as it was.
 func (e *Editor) OpenProject(path string) error {
 	if info, err := os.Stat(path); err == nil && info.IsDir() {
 		path = filepath.Join(path, project.FileName)
@@ -32,14 +32,20 @@ func (e *Editor) OpenProject(path string) error {
 	if err != nil {
 		return err
 	}
+	opened := false
 	if a := f.Autoload; a != nil && a.MainScene != "" {
 		for _, s := range a.Scenes {
 			if s.Name == a.MainScene {
 				if err := e.openFileWithLayers(filepath.Join(filepath.Dir(path), filepath.FromSlash(s.Path)), f.PhysicsLayerTable()); err != nil {
 					return fmt.Errorf("editor: main scene %q: %w", s.Name, err)
 				}
+				opened = true
 			}
 		}
+	}
+	if !opened {
+		// The scene stays open under the new project, so its view is kept in the project it was shown in.
+		e.saveViewStateQuietly()
 	}
 	e.stopFetch()
 	e.stopAudioAudition()
@@ -54,6 +60,10 @@ func (e *Editor) OpenProject(path string) error {
 	e.selectFile("")
 	e.resetSearchForProject()
 	e.syncScenePath()
+	if opened {
+		// The main scene opened under the project closing, so its view is looked up in the project opening.
+		e.restoreViewState()
+	}
 	e.snapshotAssetOutputs()
 	e.filesRev++
 	e.assetsRev++

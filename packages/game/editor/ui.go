@@ -608,7 +608,7 @@ func statusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 								mode = "Play"
 							}
 							if ed.ViewMode == ViewMode3D {
-								return fmt.Sprintf("Mode: %s | View: 3D (%s) | Layer: %s", mode, ed.GizmoMode.String(), ed.activeLayerReadout())
+								return fmt.Sprintf("Mode: %s | View: 3D %s | Gizmo: %s | Layer: %s", mode, ed.viewStatus3D(), ed.GizmoMode.String(), ed.activeLayerReadout())
 							}
 							status := fmt.Sprintf("Mode: %s | View: 2D %.0f%% | Tool: %s | Layer: %s", mode, ed.View2D().Zoom*100, ed.toolLabel(), ed.activeLayerReadout())
 							// Erase writes no tile, and a layer without tiles to pick keeps an ID the palette does not list, so only a tile Paint or Fill would write is shown.
