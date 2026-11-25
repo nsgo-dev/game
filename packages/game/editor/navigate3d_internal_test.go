@@ -266,3 +266,41 @@ func TestViewport3DTwoFingerTouchPans(t *testing.T) {
 		t.Fatalf("the old target is at (%v, %v) after the fingers moved (20, -10), want (340, 170)", sx, sy)
 	}
 }
+
+// Zoomed out past the far plane, an orthographic view still shows Target and what lies around it: Distance only sets how much the view shows, never how far back the eye sits.
+func TestOrthographicZoomedOutPastFarStillShowsTarget(t *testing.T) {
+	const w, h float32 = 640, 360
+	cam := DefaultOrbitCamera3D()
+	cam.Target = [3]float32{40, 0, -25}
+	cam.SetView(View3DTop)
+	cam.Orthographic = true
+	cam.Distance = maxOrbitDistance
+	if cam.Distance <= cam.Far {
+		t.Fatalf("distance %v does not reach past far %v", cam.Distance, cam.Far)
+	}
+	for _, p := range [][3]float32{cam.Target, {cam.Target[0], 500, cam.Target[2]}, {cam.Target[0] + 1000, -500, cam.Target[2]}} {
+		_, _, depth, vis := cam.Project(p, w, h)
+		if !vis || depth <= cam.Near || depth >= cam.Far {
+			t.Fatalf("%v is at depth %v visible %v with near %v and far %v", p, depth, vis, cam.Near, cam.Far)
+		}
+	}
+	s, _, ok := cam.SceneCamera(w, h).WorldToScreen(math3d.Vec3{X: cam.Target[0], Y: cam.Target[1], Z: cam.Target[2]}, w, h)
+	if !ok || math.Abs(float64(s.X-w/2)) > 0.05 || math.Abs(float64(s.Y-h/2)) > 0.05 {
+		t.Fatalf("the GPU view's camera puts Target at %v, ok %v", s, ok)
+	}
+}
+
+// The camera's navigation refuses a move or turn that is not finite, so a NaN never reaches the camera or the view state.
+func TestCameraNavigationRefusesNonFiniteInput(t *testing.T) {
+	nan, inf := float32(math.NaN()), float32(math.Inf(1))
+	cam := DefaultOrbitCamera3D()
+	want := cam
+	cam.Look(nan, 0)
+	cam.Look(0, inf)
+	cam.Fly(nan, 0, 0)
+	cam.Fly(0, inf, 0)
+	cam.Fly(0, 0, nan)
+	if cam != want {
+		t.Fatalf("non-finite Look and Fly changed the camera to %+v", cam)
+	}
+}
