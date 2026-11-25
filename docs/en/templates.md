@@ -9,6 +9,7 @@ A new project starts from a template: a small, complete game that builds, runs a
 | `starter` | A tap-to-score 2D game: an animated sprite on a fixed-step loop, a native HUD and headless tests, the smallest project to grow from. The default. | `github.com/nsgo-dev/game/template` |
 | `fighting2d` | A one-on-one 2D fighting game: two original fighters with special moves from motion inputs, combos, guards high and low, rounds and a timer, against a CPU opponent or a second player, played with the keyboard, game controllers or touch. [The fighting game template](template-fighting2d.md) describes it. | `github.com/nsgo-dev/game/template/fighting2d` |
 | `puzzle2d` | Spark Slide, a 2D grid puzzle: slide a spark across the board to light every lamp, with levels in YAML, undo and redo, a move limit, stars per level and a level select that saves progress; plays with the keyboard, a game controller, touch and the mouse. | `github.com/nsgo-dev/game/template/puzzle2d` |
+| `rpg2d` | A top-down RPG: a town and a meadow to walk, people with branching dialogue, an inventory with equipment, one quest, turn-based battles and three save slots. [Guide](template-rpg2d.md). | `github.com/nsgo-dev/game/template/rpg2d` |
 
 `go tool game new -list` prints the same list from the command itself, the default first.
 

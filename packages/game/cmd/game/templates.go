@@ -43,6 +43,7 @@ var projectTemplates = []projectTemplate{
 	newProjectTemplate("starter", templateModuleRoot, "A tap-to-score 2D game: an animated sprite on a fixed-step loop, a native HUD and headless tests, the smallest project to grow from"),
 	newProjectTemplate("fighting2d", templateModuleRoot+"/fighting2d", "A one-on-one 2D fighting game: two fighters with special moves from motion inputs, combos, guards, rounds and a timer, against the CPU or a second player"),
 	newProjectTemplate("puzzle2d", templateModuleRoot+"/puzzle2d", "A 2D grid puzzle: slide a spark to light every lamp, with levels in YAML, undo and redo, a move limit, stars per level and a level select that saves progress"),
+	newProjectTemplate("rpg2d", templateModuleRoot+"/rpg2d", "A top-down RPG: a town and a meadow, people with branching dialogue, an inventory with equipment, one quest, turn-based battles and three save slots"),
 }
 
 // repoDir returns the slash-separated directory of this repository that holds t's files, the template directory of its module.

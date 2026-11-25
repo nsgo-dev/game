@@ -1,0 +1,26 @@
+version: 1
+characters:
+  - id: mira
+    name: Mira
+    color: '#7c4dbe'
+    expressions:
+      - name: neutral
+        frame: portrait/mira
+      - name: smile
+        frame: portrait/mira-smile
+  - id: bram
+    name: Bram
+    color: '#8a5a2b'
+    expressions:
+      - name: neutral
+        frame: portrait/bram
+      - name: smile
+        frame: portrait/bram-smile
+  - id: pell
+    name: Pell
+    color: '#b5483c'
+    expressions:
+      - name: neutral
+        frame: portrait/pell
+      - name: smile
+        frame: portrait/pell-smile

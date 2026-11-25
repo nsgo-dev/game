@@ -1,0 +1,35 @@
+version: 1
+stats:
+  - name: maxHP
+    base: 30
+    min: 1
+  - name: attack
+    base: 4
+    min: 0
+  - name: defense
+    base: 1
+    min: 0
+effects:
+  - name: wooden-sword
+    modifiers:
+      - stat: attack
+        op: add
+        value: 1
+  - name: iron-sword
+    modifiers:
+      - stat: attack
+        op: add
+        value: 5
+  - name: leather-vest
+    modifiers:
+      - stat: defense
+        op: add
+        value: 2
+  - name: shrine-charm
+    modifiers:
+      - stat: maxHP
+        op: add
+        value: 10
+      - stat: defense
+        op: add
+        value: 1
