@@ -148,6 +148,8 @@ _ = ok
 
 Inspect mesh geometry with `Contains(p)`, `FindPolygon(p)`, `NearestPolygon(p)`, `Neighbors(index)`, `Polygon(index)`, `PolygonCount()`, and `FindCorridor(start, goal)`. Register off-mesh connections with `AddOffMeshLink(NavOffMeshLink{...})` and flag shared edges with `SetEdgeFlags(fromPoly, toPoly, flags)`.
 
+To cut a level into these polygons, with paths kept an agent's radius away from the walls, bake the mesh from its outline and obstacles or from a tilemap with [navbake](navbake.md).
+
 ### Navigation agents and path corridors (`NavAgent`, `NavAgentGroup`)
 
 `NavAgent` maintains an active polygon corridor over an `ai.NavMesh`, computes the next funnel corner (`NextCorner`) directly from its current position, steers smoothly toward it, slows inside `ArrivalRadius` to stop cleanly within `StoppingDistance`, and exposes explicit state (`NavAgentIdle`, `NavAgentMoving`, `NavAgentArrived`, `NavAgentUnreachable`):

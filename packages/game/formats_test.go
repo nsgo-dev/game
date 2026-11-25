@@ -129,6 +129,7 @@ var formatVersions = map[string]string{
 	"loot.CurrentVersion":                   "loot",
 	"modding.ManifestVersion":               "modding",
 	"modding.WorkshopMetadataVersion":       "modding#workshop",
+	"navbake.FormatVersion":                 "navbake",
 	"net.ReplicationVersion":                "",
 	"particles.FormatVersion":               "particles",
 	"physics.SnapshotVersion":               "",
