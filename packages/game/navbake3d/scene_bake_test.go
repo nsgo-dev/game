@@ -14,6 +14,7 @@ import (
 
 	"github.com/nsgo-dev/game/packages/game/math3d"
 	"github.com/nsgo-dev/game/packages/game/navbake3d"
+	"github.com/nsgo-dev/game/packages/game/scene3d"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 )
 
@@ -351,7 +352,7 @@ boxes:
     tile: stone_floor
 `
 	gfs := fstest.MapFS{
-		"models/tiles.gltf":          &fstest.MapFile{Data: boxGLTF},
+		"models/tiles.gltf":           &fstest.MapFile{Data: boxGLTF},
 		"levels/dungeon.gridmap.yaml": &fstest.MapFile{Data: []byte(gridYAML)},
 	}
 	var gg navbake3d.Geometry
@@ -461,4 +462,111 @@ func buildUnitBoxGLTF(t *testing.T, nodeName string) []byte {
   ]
 }`, nodeName, nodeName, uri, len(bin))
 	return []byte(doc)
+}
+
+func TestAddSceneFileSkipsMovingBodyChildrenAndKeepsNavLinks(t *testing.T) {
+	doc := &sceneformat.SceneDoc{
+		Version: sceneformat.CurrentVersion,
+		Name:    "MovingSubtree",
+		Layers: []sceneformat.LayerDoc{
+			{
+				Name:  "world",
+				Space: sceneformat.SpaceWorld,
+				Objects: []sceneformat.ObjectDoc{
+					{
+						ID:     "floor",
+						X:      5,
+						Y:      -0.25,
+						PosZ:   5,
+						ScaleX: sceneformat.Float32(10),
+						ScaleY: sceneformat.Float32(0.5),
+						ScaleZ: sceneformat.Float32(10),
+						Mesh:   sceneformat.MeshBox,
+					},
+					{
+						// Dynamic parent with uint64 mass whose child mesh+collider sits directly across the center of the floor.
+						ID:   "moving_enemy",
+						X:    5,
+						Y:    1.0,
+						PosZ: 5,
+						Components: map[string]any{
+							sceneformat.Body3DComponentName: map[string]any{
+								"version": 1,
+								"kind":    "dynamic",
+								"mass":    uint64(5),
+							},
+						},
+						Children: []sceneformat.ObjectDoc{
+							{
+								ID:     "enemy_shield",
+								ScaleX: sceneformat.Float32(2),
+								ScaleY: sceneformat.Float32(2),
+								ScaleZ: sceneformat.Float32(10),
+								Mesh:   sceneformat.MeshBox,
+								Components: map[string]any{
+									sceneformat.Collider3DComponentName: map[string]any{
+										"version": 1,
+										"shape":   "box",
+										"width":   2.0,
+										"height":  2.0,
+										"depth":   10.0,
+									},
+								},
+							},
+						},
+					},
+					{
+						// Authored off-mesh link must survive AddSceneFile.
+						ID:   "jump_link",
+						X:    2,
+						Y:    0,
+						PosZ: 2,
+						Components: map[string]any{
+							sceneformat.NavLinkComponentName: map[string]any{
+								"endX":          8.0,
+								"endY":          0.0,
+								"endZ":          8.0,
+								"radius":        0.5,
+								"bidirectional": true,
+								"userData":      "hop",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// 1. AddSceneFile skips moving_enemy and its child enemy_shield, while preserving nav_link.
+	var g navbake3d.Geometry
+	if err := g.AddSceneFile(doc, nil); err != nil {
+		t.Fatalf("AddSceneFile: %v", err)
+	}
+	file, err := navbake3d.Bake(&g, navbake3d.Settings{CellSize: 0.25, CellHeight: 0.1}, []navbake3d.AgentType{{Name: "default", Radius: 0.4}})
+	if err != nil {
+		t.Fatalf("Bake: %v", err)
+	}
+	m := &file.Meshes[0]
+	if len(m.Links) != 1 || m.Links[0].UserData != "hop" {
+		t.Fatalf("expected 1 off-mesh link \"hop\" preserved, got %+v", m.Links)
+	}
+	nm := m.NavMesh()
+	path, ok := nm.FindPath(math3d.Vec3{X: 1, Y: 0, Z: 5}, math3d.Vec3{X: 9, Y: 0, Z: 5})
+	if !ok || len(path) < 2 {
+		t.Fatalf("expected unobstructed path across floor (moving child skipped), got ok=%v path=%v", ok, path)
+	}
+
+	// 2. SceneMeshes also skips descendants of moving body3d nodes.
+	s := scene3d.NewScene()
+	if _, err := sceneformat.BuildNodes3D(doc, s.Root()); err != nil {
+		t.Fatalf("BuildNodes3D: %v", err)
+	}
+	var g2 navbake3d.Geometry
+	if err := g2.AddScene(s, navbake3d.LayerAll, navbake3d.SceneMeshes(nil)); err != nil {
+		t.Fatalf("AddScene(SceneMeshes): %v", err)
+	}
+	// Only the floor box (12 triangles) should be baked; enemy_shield must be excluded.
+	if got := g2.TriangleCount(); got != 12 {
+		t.Fatalf("SceneMeshes baked %d triangles, want 12 (floor only)", got)
+	}
 }

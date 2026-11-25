@@ -262,7 +262,7 @@ func TestEditorNavMesh3DUIPanelBakeAndViewportOverlay(t *testing.T) {
 
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		return editor.EditorView(cx, ed)
-	}, nsgotest.Size(1280, 800))
+	}, nsgotest.Size(1280, 800), nsgotest.NoGPU())
 
 	// Switch to 3D viewport mode.
 	app.Press("id:view-mode-3d")
@@ -461,5 +461,210 @@ func TestEditorNavMesh3DExtraGeometryAndErrors(t *testing.T) {
 	}
 	if err := ed.SetSceneNavMesh("levels/blocked.navmesh.yaml"); !errors.Is(err, editor.ErrPlaying) {
 		t.Fatalf("SetSceneNavMesh while playing = %v, want ErrPlaying", err)
+	}
+}
+
+func TestEditorNavMesh3DOrthographicOverlayAlignment(t *testing.T) {
+	ed := newTest3DEditor(t)
+	ed.Doc = rampSecondFloorSceneDoc()
+	ed.SetNavMeshBakeConfig(editor.NavMeshBakeConfig{
+		AgentName:  "default",
+		Radius:     0.5,
+		Height:     1.8,
+		MaxClimb:   0.4,
+		MaxSlope:   45,
+		CellSize:   0.25,
+		CellHeight: 0.1,
+	})
+	if _, err := ed.BakeNavMesh3D(); err != nil {
+		t.Fatalf("BakeNavMesh3D: %v", err)
+	}
+	ed.Camera3D = editor.OrbitCamera3D{
+		Target:       [3]float32{7, 1, 5},
+		Yaw:          0.4,
+		Pitch:        0.9,
+		Distance:     20,
+		FOV:          float32(math.Pi / 3),
+		Near:         0.2,
+		Far:          500,
+		Orthographic: true,
+	}
+
+	const vw, vh float32 = 640, 360
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return core.Canvas{
+			TestID: "nav-ortho-canvas",
+			Style:  core.Style{Width: core.Pt(core.Points(vw)), Height: core.Pt(core.Points(vh))},
+			Draw: func(d *core.Drawing, size core.Size) {
+				ed.DrawViewport3D(d, size)
+			},
+		}
+	}, nsgotest.Size(640, 360))
+	app.Settle()
+
+	// Collect all navmesh cyan fill vertices emitted in orthographic mode and verify every
+	// vertex matches Camera3D.Project (orthographic) rather than perspective projection.
+	ops := app.Find("id:nav-ortho-canvas").Ops
+	var fillPts [][2]float32
+	inNavFill := false
+	for _, op := range ops {
+		if op.Kind == core.DrawFillColor && op.Color == core.RGBA(0x22D3EE, 0.24) {
+			inNavFill = true
+			continue
+		}
+		if !inNavFill {
+			continue
+		}
+		switch op.Kind {
+		case core.DrawMoveTo, core.DrawLineTo:
+			fillPts = append(fillPts, [2]float32{op.X, op.Y})
+		case core.DrawRestore:
+			inNavFill = false
+		}
+	}
+	if len(fillPts) < 3 {
+		t.Fatalf("expected orthographic navmesh fill vertices, got %d", len(fillPts))
+	}
+
+	// Build expected projected vertices using Camera3D.Project (which uses orthographic projection).
+	mesh := ed.NavMesh3DMesh()
+	const lift float32 = 0.05
+	var wantPts [][2]float32
+	for pi := range mesh.Polygons {
+		p := &mesh.Polygons[pi]
+		for _, tri := range p.Triangles {
+			for _, v := range mesh.TriangleVertices(p, tri) {
+				sx, sy, _, ok := ed.Camera3D.Project([3]float32{v.X, v.Y + lift, v.Z}, vw, vh)
+				if !ok {
+					t.Fatalf("expected vertex %v visible in orthographic camera", v)
+				}
+				wantPts = append(wantPts, [2]float32{sx, sy})
+			}
+		}
+	}
+	if len(fillPts) != len(wantPts) {
+		t.Fatalf("orthographic fill vertex count = %d, want %d", len(fillPts), len(wantPts))
+	}
+	for i := range fillPts {
+		dx := math.Abs(float64(fillPts[i][0] - wantPts[i][0]))
+		dy := math.Abs(float64(fillPts[i][1] - wantPts[i][1]))
+		if dx > 0.05 || dy > 0.05 {
+			t.Fatalf("orthographic fill vertex %d = %v, want %v (misaligned with orthographic camera)", i, fillPts[i], wantPts[i])
+		}
+	}
+}
+
+func TestEditorNavMesh3DOutputPathSecurityAndClear(t *testing.T) {
+	dir := setupNavMeshProjectDir(t)
+	outside := t.TempDir()
+
+	ed, err := editor.New(nil, testResolver())
+	if err != nil {
+		t.Fatalf("editor.New: %v", err)
+	}
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+
+	// 1. Refuse reserved project files (game.yaml, nsgo.yaml, game.index.yaml, go.mod).
+	origGameYAML, err := os.ReadFile(filepath.Join(dir, "game.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, reserved := range []string{"game.yaml", "nsgo.yaml", "game.index.yaml", "go.mod", "sub/game.yaml"} {
+		cfg := editor.DefaultNavMeshBakeConfig()
+		cfg.OutputPath = reserved
+		ed.SetNavMeshBakeConfig(cfg)
+		if _, err := ed.BakeNavMesh3D(); err == nil {
+			t.Fatalf("BakeNavMesh3D accepted reserved output path %q", reserved)
+		}
+	}
+	afterGameYAML, err := os.ReadFile(filepath.Join(dir, "game.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(origGameYAML, afterGameYAML) {
+		t.Fatal("game.yaml was modified by rejected BakeNavMesh3D")
+	}
+
+	// 2. Refuse symlink directory escape out of project root.
+	symDir := filepath.Join(dir, "escape_dir")
+	if err := os.Symlink(outside, symDir); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	cfg := editor.DefaultNavMeshBakeConfig()
+	cfg.OutputPath = "escape_dir/pwn.navmesh.yaml"
+	ed.SetNavMeshBakeConfig(cfg)
+	if _, err := ed.BakeNavMesh3D(); err == nil {
+		t.Fatal("BakeNavMesh3D allowed writing outside project via directory symlink")
+	}
+	if _, err := os.Stat(filepath.Join(outside, "pwn.navmesh.yaml")); err == nil {
+		t.Fatal("symlink escape wrote file outside project")
+	}
+
+	// 3. Refuse symlink target file inside project pointing outside.
+	if err := os.MkdirAll(filepath.Join(dir, "levels"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	symFile := filepath.Join(dir, "levels", "link.navmesh.yaml")
+	if err := os.Symlink(filepath.Join(outside, "target.navmesh.yaml"), symFile); err != nil {
+		t.Fatal(err)
+	}
+	cfg.OutputPath = "levels/link.navmesh.yaml"
+	ed.SetNavMeshBakeConfig(cfg)
+	if _, err := ed.BakeNavMesh3D(); err == nil {
+		t.Fatal("BakeNavMesh3D allowed overwriting a symlink target")
+	}
+
+	// 4. Standalone scene (FilePath set, no project) refuses absolute and traversal paths.
+	standaloneDir := t.TempDir()
+	sceneFile := filepath.Join(standaloneDir, "solo.scene.yaml")
+	sceneBytes, err := sceneformat.Encode(rampSecondFloorSceneDoc())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sceneFile, sceneBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	solo, err := editor.New(nil, testResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := solo.OpenFile(sceneFile); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{filepath.Join(outside, "abs.navmesh.yaml"), "../outside.navmesh.yaml"} {
+		scfg := editor.DefaultNavMeshBakeConfig()
+		scfg.OutputPath = bad
+		solo.SetNavMeshBakeConfig(scfg)
+		if _, err := solo.BakeNavMesh3D(); err == nil {
+			t.Fatalf("standalone BakeNavMesh3D accepted unsafe path %q", bad)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(outside, "abs.navmesh.yaml")); err == nil {
+		t.Fatal("standalone BakeNavMesh3D wrote arbitrary absolute path")
+	}
+
+	// 5. Clearing Doc.NavMesh clears the viewport preview overlay; Undo restores it.
+	cfg = editor.DefaultNavMeshBakeConfig()
+	cfg.OutputPath = "levels/clean.navmesh.yaml"
+	ed.SetNavMeshBakeConfig(cfg)
+	if _, err := ed.BakeNavMesh3D(); err != nil {
+		t.Fatalf("BakeNavMesh3D valid path: %v", err)
+	}
+	if ed.NavMesh3DFile() == nil {
+		t.Fatal("expected NavMesh3DFile after bake")
+	}
+	if err := ed.SetSceneNavMesh(""); err != nil {
+		t.Fatalf("SetSceneNavMesh(\"\"): %v", err)
+	}
+	if ed.NavMesh3DFile() != nil {
+		t.Fatal("expected clearing Doc.NavMesh to clear stale NavMesh3DFile preview")
+	}
+	if !ed.Undo() {
+		t.Fatal("Undo SetSceneNavMesh(\"\") returned false")
+	}
+	if ed.Doc.NavMesh != "levels/clean.navmesh.yaml" || ed.NavMesh3DFile() == nil {
+		t.Fatalf("expected Undo to restore Doc.NavMesh and reload preview, got path=%q file=%v", ed.Doc.NavMesh, ed.NavMesh3DFile())
 	}
 }
