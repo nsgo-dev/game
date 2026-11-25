@@ -6,7 +6,6 @@ import (
 	"errors"
 	"hash/fnv"
 	"image"
-	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -226,22 +225,8 @@ func (e *Editor) geometryBounds3D(id string) (math3d.AABB, bool) {
 
 // pickGeometry3D returns the object of the open scene whose geometry the ray from orig along dir hits first, passing over geometry that belongs to an object hidden or locked in the editor or under one. An object that only an instanced scene adds is reported as the nearest of its ancestors that the open scene holds.
 func (e *Editor) pickGeometry3D(s *scene3DState, orig, dir [3]float64) (id string, ok bool) {
-	if s.world == nil {
-		return "", false
-	}
-	ray := math3d.Ray{Origin: math3d.Vec3{X: float32(orig[0]), Y: float32(orig[1]), Z: float32(orig[2])}, Dir: math3d.Vec3{X: float32(dir[0]), Y: float32(dir[1]), Z: float32(dir[2])}}
-	for _, hit := range s.world.Raycast(ray, math.MaxUint32) {
-		d, found := scene3d.AttachmentAs[*scenemodel.Drawable](hit.Node, scenemodel.AttachmentKey)
-		if !found {
-			continue
-		}
-		owner := e.docObjectFor(d.Object)
-		if owner == "" || e.pickBlocked3D(owner) {
-			continue
-		}
-		return owner, true
-	}
-	return "", false
+	_, id, ok = e.rayGeometry3D(s, orig, dir)
+	return id, ok
 }
 
 // docObjectFor returns id when the open scene holds an object with it, and otherwise the nearest ancestor the scene holds of the instanced object id names ("enemy_1/body" belongs to "enemy_1"), or "" for none.

@@ -1081,6 +1081,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 					}
 				},
 			}),
+			fieldRow("Model", modelField(ed, rev, objID, disabled)),
 		)
 	}
 
