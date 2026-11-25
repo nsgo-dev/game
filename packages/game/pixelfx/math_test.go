@@ -75,6 +75,11 @@ func TestHypotRoundAndInt32FollowJavaScript(t *testing.T) {
 			t.Errorf("Round(%v) = %v, want %v", in, got, want)
 		}
 	}
+	// Regression: on arm64, inlined Round(d*30) must not fuse d*30-floor(d*30) into FMSUBD.
+	d145 := 1.45
+	if got := pixelfx.Round(d145 * float64(30)); got != 44 {
+		t.Errorf("Round(1.45 * 30) = %v, want 44", got)
+	}
 	for in, want := range map[float64]int32{-1.9: -1, 2147483648: -2147483648, 4294967301: 5, math.NaN(): 0, math.Inf(1): 0} {
 		if got := pixelfx.ToInt32(in); got != want {
 			t.Errorf("ToInt32(%v) = %v, want %v", in, got, want)
