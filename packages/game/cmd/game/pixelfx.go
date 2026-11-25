@@ -17,6 +17,7 @@ import (
 	_ "github.com/nsgo-dev/game/packages/game/pixelfx/moves"
 	_ "github.com/nsgo-dev/game/packages/game/pixelfx/pickups"
 	_ "github.com/nsgo-dev/game/packages/game/pixelfx/projectiles"
+	_ "github.com/nsgo-dev/game/packages/game/pixelfx/scifi"
 	_ "github.com/nsgo-dev/game/packages/game/pixelfx/spawn"
 )
 
