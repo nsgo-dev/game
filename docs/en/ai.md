@@ -146,7 +146,36 @@ _ = waypoints
 _ = ok
 ```
 
-Inspect mesh geometry with `Contains(p)`, `FindPolygon(p)`, `NearestPolygon(p)`, `Neighbors(index)`, `Polygon(index)`, and `PolygonCount()`.
+Inspect mesh geometry with `Contains(p)`, `FindPolygon(p)`, `NearestPolygon(p)`, `Neighbors(index)`, `Polygon(index)`, `PolygonCount()`, and `FindCorridor(start, goal)`. Register off-mesh connections with `AddOffMeshLink(NavOffMeshLink{...})` and flag shared edges with `SetEdgeFlags(fromPoly, toPoly, flags)`.
+
+### Navigation agents and path corridors (`NavAgent`, `NavAgentGroup`)
+
+`NavAgent` maintains an active polygon corridor over an `ai.NavMesh`, computes the next funnel corner (`NextCorner`) directly from its current position, steers smoothly toward it, slows inside `ArrivalRadius` to stop cleanly within `StoppingDistance`, and exposes explicit state (`NavAgentIdle`, `NavAgentMoving`, `NavAgentArrived`, `NavAgentUnreachable`):
+
+```go
+agent := ai.NewNavAgent(mesh, core.Point{X: 16, Y: 16}, ai.NavAgentConfig{
+	MaxSpeed:         120,
+	MaxAcceleration:  480,
+	Radius:           10,
+	ArrivalRadius:    40,
+	StoppingDistance: 8,
+	ReplanInterval:   100 * time.Millisecond,
+	OnLink: func(a *ai.NavAgent, ev ai.NavLinkEvent, dt time.Duration) bool {
+		// Return true when custom off-mesh or flagged-edge traversal finishes.
+		return true
+	},
+})
+agent.SetTarget(playerPos)
+
+// Inside game.Loop.Update:
+agent.SetTarget(playerPos)
+agent.Step(dt)
+```
+
+- **Cheap local corridor repair**: when the agent advances, gets pushed off its corridor onto an adjacent polygon (`SetPosition`), or chases a target moving onto a neighboring polygon, `NavAgent` repairs its corridor locally via bounded adjacency bridging (up to `MaxRepairDepth`, default 2) and loop truncation without running a full A* replan. A full replan runs only when the corridor breaks beyond `MaxRepairDepth`, after sustained tail drift, or when the mesh's `Revision()` changes (`AddOffMeshLink`, `SetEdgeFlags`, `BumpRevision`, or `SetMesh`).
+- **Throttled and staggered group replanning**: manage many chasing agents with `NewNavAgentGroup(NavAgentGroupConfig{MaxReplansPerStep: 4, ReplanInterval: 100 * time.Millisecond, StaggerStride: 1})` and call `group.Step(dt)`. Full A* replans are strictly bounded to `MaxReplansPerStep` per step in deterministic round-robin order (optionally staggered by `StaggerStride`) so large crowds never spike a single frame.
+- **Off-mesh and flagged link callbacks**: `OnLink` is invoked each step while traversing an off-mesh link (`NavLinkOffMesh`) or crossing a flagged shared-edge portal (`SetEdgeFlags`); return `false` while driving a custom jump/door transition and `true` to resume normal corridor steering. When `OnLink` is `nil`, off-mesh links traverse linearly at `MaxSpeed`.
+- **Deterministic stepping**: `Step(dt)` uses no background goroutines, no map iteration, and no hidden randomness; replaying identical inputs produces bit-identical positions every step.
 
 ### Polygon areas, runtime flags, and query filters
 

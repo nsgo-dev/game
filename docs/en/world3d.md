@@ -87,7 +87,7 @@ if path, ok := nav.FindPath(startPos, goalPos); ok {
 }
 ```
 
-Use `nav.FindPolygon(p)` to locate the closest walkable polygon vertically within `VerticalTolerance` (supporting stacked floors and overpasses), or `Contains(p)` and `NearestPolygon(p)` for membership and closest-surface queries.
+Use `nav.FindPolygon(p)` to locate the closest walkable polygon vertically within `VerticalTolerance` (supporting stacked floors and overpasses), `Contains(p)` and `NearestPolygon(p)` for membership and closest-surface queries, `FindCorridor(start, goal)` to query polygon corridors, `AddOffMeshLink(NavOffMeshLink{...})` for jumps/ladders/teleports, and `SetEdgeFlags(fromPoly, toPoly, flags)` for special portal edges.
 
 ### Polygon areas, runtime flags, and query filters
 
@@ -135,6 +135,37 @@ queue.Submit(search, 0, func(_ ai.PathRequestID, _ ai.SearchStatus) {
 ```
 
 Stepping `NavMeshSearch` across any positive per-step budget returns the exact same 3D surface path as `FindPathWithOptions`, and partial paths end at the closest reachable 3D point on the explored polygons.
+
+### 3D navigation agents (`NavAgent`, `NavAgentGroup`)
+
+`world3d.NavAgent` follows and locally repairs 3D polygon corridors over a `world3d.NavMesh`, steering smoothly on XZ toward the next funnel corner while tracking exact 3D surface elevation (`NavPoly.HeightAt`) across sloped ramps and multi-level bridges, slowing inside `ArrivalRadius` to stop within `StoppingDistance`, and exposing explicit state (`NavAgentIdle`, `NavAgentMoving`, `NavAgentArrived`, `NavAgentUnreachable`):
+
+```go
+group := world3d.NewNavAgentGroup(world3d.NavAgentGroupConfig{
+	MaxReplansPerStep: 4,
+	ReplanInterval:    100 * time.Millisecond,
+})
+agent := group.Add(nav, startPos, world3d.NavAgentConfig{
+	MaxSpeed:         6,
+	MaxAcceleration:  30,
+	Radius:           0.4,
+	ArrivalRadius:    1.5,
+	StoppingDistance: 0.35,
+	OnLink: func(a *world3d.NavAgent, ev world3d.NavLinkEvent, dt time.Duration) bool {
+		// Drive custom jump/ladder traversal and return true when done.
+		return true
+	},
+})
+agent.SetTarget(goalPos)
+
+// Inside game.Loop.Update:
+agent.SetTarget(movingTargetPos)
+group.Step(dt)
+```
+
+- **Local corridor repair & vertical separation**: `NavAgent` checks connected shared-edge neighbors first so agents on upper bridges never snap down to floors underneath, and repairs pushed start positions (`SetPosition`) or shifted targets locally within `MaxRepairDepth` (default 2) without a full A* replan.
+- **Throttled & staggered replanning**: `NavAgentGroup.Step(dt)` strictly bounds full A* replans to `MaxReplansPerStep` per fixed step in deterministic round-robin order (optionally staggered by `StaggerStride`), and automatically detects mesh changes (including runtime area/flag updates and off-mesh links) via `NavMesh.Revision()`.
+- **Deterministic fixed-step replay**: replaying the same inputs produces bit-identical 3D positions every step.
 
 ## Modular 3D `GridMap`
 

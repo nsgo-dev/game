@@ -56,19 +56,46 @@ type navPoly struct {
 	flags                  NavFlags
 }
 
-// navPortal is a directed shared-edge crossing from fromPoly to toPoly.
-// Looking from inside fromPoly across the portal into toPoly, left is on the counter-clockwise side and right is on the clockwise side so triArea2(apex, right, left) >= 0.
+// NavLinkOffMesh is a link flag marking a portal as an off-mesh connection
+// (such as a jump, drop-down, ladder, or teleport) rather than a shared polygon edge.
+const NavLinkOffMesh uint32 = 1 << 0
+
+// NavOffMeshLink describes a custom off-mesh connection between two points on a 2D NavMesh.
+type NavOffMeshLink struct {
+	// Start and End are the world-space endpoints on the mesh.
+	Start core.Point
+	End   core.Point
+	// Bidirectional adds portals in both Start->End and End->Start directions when true.
+	Bidirectional bool
+	// Flags stores game-defined link flags; NavLinkOffMesh is always set automatically.
+	Flags uint32
+	// ID is an optional game-defined link identifier delivered in NavLinkEvent.LinkID.
+	ID int
+	// Cost overrides the A* traversal cost when positive; <= 0 uses Euclidean distance.
+	Cost float32
+}
+
+// navPortal is a directed crossing from fromPoly to toPoly.
+// For shared-edge portals, looking from inside fromPoly across the portal into toPoly,
+// left is on the counter-clockwise side and right is on the clockwise side so triArea2(apex, right, left) >= 0.
+// For off-mesh links, left and right both hold the entry point and endPos holds the exit point.
 type navPortal struct {
 	fromPoly int
 	toPoly   int
 	left     vec2
 	right    vec2
+	endPos   vec2
+	cost     float64
+	flags    uint32
+	linkID   int
+	offMesh  bool
 }
 
 // NavMesh is a 2D navigation mesh built from convex polygons connected across shared edges.
 type NavMesh struct {
-	polys   []navPoly
-	portals []navPortal
+	polys    []navPoly
+	portals  []navPortal
+	revision uint64
 }
 
 // BuildNavMesh constructs a NavMesh from convex 2D polygons, normalizing winding order and automatically connecting adjacent polygons along shared edges (including partial collinear overlaps).
@@ -90,7 +117,7 @@ func BuildNavMesh(polys [][]core.Point) *NavMesh {
 //
 // Polygons with zero Flags default to NavFlagWalk. Degenerate polygons with fewer than three vertices or near-zero area are skipped.
 func BuildNavMeshWithAreas(polys []NavPolygonInput) *NavMesh {
-	m := &NavMesh{}
+	m := &NavMesh{revision: 1}
 	for _, in := range polys {
 		raw := in.Vertices
 		if len(raw) < 3 {
@@ -265,7 +292,10 @@ func (m *NavMesh) SetPolygonArea(index int, area NavArea) {
 	if m == nil || index < 0 || index >= len(m.polys) {
 		return
 	}
-	m.polys[index].area = area
+	if m.polys[index].area != area {
+		m.polys[index].area = area
+		m.revision++
+	}
 }
 
 // PolygonFlags returns the runtime traversal flags of polygon index, or 0 if index is out of range.
@@ -282,7 +312,10 @@ func (m *NavMesh) SetPolygonFlags(index int, flags NavFlags) {
 	if m == nil || index < 0 || index >= len(m.polys) {
 		return
 	}
-	m.polys[index].flags = flags
+	if m.polys[index].flags != flags {
+		m.polys[index].flags = flags
+		m.revision++
+	}
 }
 
 // AddPolygonFlags sets the bits in flags on polygon index at runtime without rebuilding the mesh.
@@ -291,7 +324,11 @@ func (m *NavMesh) AddPolygonFlags(index int, flags NavFlags) {
 	if m == nil || index < 0 || index >= len(m.polys) {
 		return
 	}
-	m.polys[index].flags |= flags
+	next := m.polys[index].flags | flags
+	if next != m.polys[index].flags {
+		m.polys[index].flags = next
+		m.revision++
+	}
 }
 
 // ClearPolygonFlags clears the bits in flags on polygon index at runtime without rebuilding the mesh.
@@ -300,7 +337,11 @@ func (m *NavMesh) ClearPolygonFlags(index int, flags NavFlags) {
 	if m == nil || index < 0 || index >= len(m.polys) {
 		return
 	}
-	m.polys[index].flags &^= flags
+	next := m.polys[index].flags &^ flags
+	if next != m.polys[index].flags {
+		m.polys[index].flags = next
+		m.revision++
+	}
 }
 
 // FindPolygon returns the lowest index of a polygon containing p (including its edges and vertices), or -1 if p lies outside the mesh.
@@ -413,6 +454,111 @@ type NavPathResult struct {
 	Expansions int  // total number of portal nodes expanded during the search
 }
 
+// Revision returns a monotonically increasing number bumped whenever the mesh topology, area costs/flags, or link flags change.
+func (m *NavMesh) Revision() uint64 {
+	if m == nil {
+		return 0
+	}
+	return m.revision
+}
+
+// BumpRevision increments the mesh revision so NavAgents watching this mesh invalidate cached corridors and replan.
+func (m *NavMesh) BumpRevision() {
+	if m == nil {
+		return
+	}
+	m.revision++
+}
+
+// AddOffMeshLink connects the polygons containing link.Start and link.End with a directed
+// (or bidirectional) off-mesh portal and bumps the mesh revision.
+// Returns false if the mesh is nil or either endpoint lies outside the mesh.
+func (m *NavMesh) AddOffMeshLink(link NavOffMeshLink) bool {
+	if m == nil || len(m.polys) == 0 {
+		return false
+	}
+	fromPoly := m.FindPolygon(link.Start)
+	toPoly := m.FindPolygon(link.End)
+	if fromPoly < 0 || toPoly < 0 || fromPoly == toPoly {
+		return false
+	}
+	sVec := toVec2(link.Start)
+	eVec := toVec2(link.End)
+	cost := float64(link.Cost)
+	if !(cost > 0) || math.IsInf(cost, 0) {
+		cost = dist(sVec, eVec)
+	}
+	flags := link.Flags | NavLinkOffMesh
+
+	pid := len(m.portals)
+	m.portals = append(m.portals, navPortal{
+		fromPoly: fromPoly,
+		toPoly:   toPoly,
+		left:     sVec,
+		right:    sVec,
+		endPos:   eVec,
+		cost:     cost,
+		flags:    flags,
+		linkID:   link.ID,
+		offMesh:  true,
+	})
+	m.polys[fromPoly].outPortals = append(m.polys[fromPoly].outPortals, pid)
+
+	if link.Bidirectional {
+		rpid := len(m.portals)
+		m.portals = append(m.portals, navPortal{
+			fromPoly: toPoly,
+			toPoly:   fromPoly,
+			left:     eVec,
+			right:    eVec,
+			endPos:   sVec,
+			cost:     cost,
+			flags:    flags,
+			linkID:   link.ID,
+			offMesh:  true,
+		})
+		m.polys[toPoly].outPortals = append(m.polys[toPoly].outPortals, rpid)
+	}
+	m.revision++
+	return true
+}
+
+// SetEdgeFlags sets custom flags on the shared-edge portal from fromPoly to toPoly and bumps the mesh revision.
+// Returns false if no shared-edge portal connects fromPoly to toPoly.
+func (m *NavMesh) SetEdgeFlags(fromPoly, toPoly int, flags uint32) bool {
+	if m == nil || fromPoly < 0 || fromPoly >= len(m.polys) || toPoly < 0 || toPoly >= len(m.polys) {
+		return false
+	}
+	changed := false
+	for _, pid := range m.polys[fromPoly].outPortals {
+		p := &m.portals[pid]
+		if !p.offMesh && p.toPoly == toPoly {
+			p.flags = flags
+			changed = true
+		}
+	}
+	if changed {
+		m.revision++
+	}
+	return changed
+}
+
+// FindCorridor finds the sequence of polygon indices from start to goal using DefaultNavFilter and portal-graph A*.
+// Returns (nil, false) if start or goal lies outside traversable polygons or in disconnected regions.
+func (m *NavMesh) FindCorridor(start, goal core.Point) ([]int, bool) {
+	return m.FindCorridorWithFilter(start, goal, DefaultNavFilter())
+}
+
+// FindCorridorWithFilter finds the minimum-cost sequence of polygon indices from start to goal restricted to filter.
+// Returns (nil, false) if start or goal lies outside traversable polygons or in disconnected regions.
+func (m *NavMesh) FindCorridorWithFilter(start, goal core.Point, filter NavFilter) ([]int, bool) {
+	polys, _, ok := m.findCorridorWithFilter(toVec2(start), toVec2(goal), filter)
+	if !ok {
+		return nil, false
+	}
+	return polys, true
+}
+
 // FindPath finds the shortest path inside the navigation mesh from start to goal using DefaultNavFilter, portal-graph A*, and Simple Stupid Funnel Algorithm string-pulling.
 //
 // It returns (nil, false) if start or goal lies outside traversable polygons or in disconnected regions.
@@ -485,6 +631,7 @@ type NavMeshSearch struct {
 	exhausted    bool
 	expansions   int
 	samePoly     bool
+	directPoly   int
 	hasBest      bool
 	bestPortalID int
 	bestPt       vec2
@@ -507,6 +654,7 @@ func NewNavMeshSearchWithFilter(m *NavMesh, start, goal core.Point, filter NavFi
 		gVec:         toVec2(goal),
 		opts:         opts,
 		status:       SearchFailed,
+		directPoly:   -1,
 		bestPortalID: -1,
 	}
 	if m == nil || len(m.polys) == 0 {
@@ -543,6 +691,7 @@ func NewNavMeshSearchWithFilter(m *NavMesh, start, goal core.Point, filter NavFi
 		if inStart && inGoal {
 			if vequal(s.sVec, s.gVec) {
 				s.samePoly = true
+				s.directPoly = i
 				s.status = SearchComplete
 				return s
 			}
@@ -550,6 +699,7 @@ func NewNavMeshSearchWithFilter(m *NavMesh, start, goal core.Point, filter NavFi
 			if dc < directCost {
 				directCost = dc
 				directPossible = true
+				s.directPoly = i
 			}
 		}
 		if inStart {
@@ -625,13 +775,20 @@ func NewNavMeshSearchWithFilter(m *NavMesh, start, goal core.Point, filter NavFi
 			if !allowed[p.toPoly] {
 				continue
 			}
-			pt := bestPortalPoint(s.sVec, s.gVec, p.left, p.right)
-			g := dist(s.sVec, pt) * spCost
+			var g float64
+			var exitPt vec2
+			if p.offMesh {
+				g = dist(s.sVec, p.left)*spCost + p.cost
+				exitPt = p.endPos
+			} else {
+				exitPt = bestPortalPoint(s.sVec, s.gVec, p.left, p.right)
+				g = dist(s.sVec, exitPt) * spCost
+			}
 			if g < s.gScore[pid] {
 				s.gScore[pid] = g
-				s.entryPt[pid] = pt
+				s.entryPt[pid] = exitPt
 				s.parent[pid] = -1
-				h := dist(pt, s.gVec) * minCost
+				h := dist(exitPt, s.gVec) * minCost
 				s.pushOrUpdate(pid, g+h, h)
 			}
 		}
@@ -738,16 +895,23 @@ func (s *NavMeshSearch) step(stepLimit int) (SearchStatus, int) {
 				continue
 			}
 			np := m.portals[npid]
-			if np.toPoly == portal.fromPoly || !s.allowed[np.toPoly] {
+			if (!np.offMesh && np.toPoly == portal.fromPoly) || !s.allowed[np.toPoly] {
 				continue
 			}
-			pt := bestPortalPoint(curPt, s.gVec, np.left, np.right)
-			ng := curG + dist(curPt, pt)*toCost
+			var ng float64
+			var exitPt vec2
+			if np.offMesh {
+				ng = curG + dist(curPt, np.left)*toCost + np.cost
+				exitPt = np.endPos
+			} else {
+				exitPt = bestPortalPoint(curPt, s.gVec, np.left, np.right)
+				ng = curG + dist(curPt, exitPt)*toCost
+			}
 			if ng < s.gScore[npid] {
 				s.gScore[npid] = ng
-				s.entryPt[npid] = pt
+				s.entryPt[npid] = exitPt
 				s.parent[npid] = cur.id
-				h := dist(pt, s.gVec) * s.minCost
+				h := dist(exitPt, s.gVec) * s.minCost
 				s.pushOrUpdate(npid, ng+h, h)
 			}
 		}
@@ -844,6 +1008,35 @@ func (s *NavMeshSearch) Result() NavPathResult {
 	}
 }
 
+func (m *NavMesh) findCorridorWithFilter(sVec, gVec vec2, filter NavFilter) ([]int, []int, bool) {
+	s := NewNavMeshSearchWithFilter(m, toPoint(sVec), toPoint(gVec), filter, PathOptions{})
+	s.step(-1)
+	if s.status != SearchComplete {
+		return nil, nil, false
+	}
+	if s.samePoly || s.parent[s.goalNode] == -1 {
+		dp := s.directPoly
+		if dp < 0 {
+			dp = m.FindPolygonWithFilter(toPoint(sVec), filter)
+		}
+		if dp < 0 {
+			return nil, nil, false
+		}
+		return []int{dp}, nil, true
+	}
+	var portalIDs []int
+	for id := s.parent[s.goalNode]; id != -1; id = s.parent[id] {
+		portalIDs = append(portalIDs, id)
+	}
+	slices.Reverse(portalIDs)
+	polys := make([]int, len(portalIDs)+1)
+	polys[0] = m.portals[portalIDs[0]].fromPoly
+	for i, pid := range portalIDs {
+		polys[i+1] = m.portals[pid].toPoly
+	}
+	return polys, portalIDs, true
+}
+
 func (m *NavMesh) finalizeCorridor(start, end vec2, portalIDs []int) []core.Point {
 	rawPath := m.stringPull(start, end, portalIDs)
 	clean := simplifyCollinear(rawPath)
@@ -852,6 +1045,10 @@ func (m *NavMesh) finalizeCorridor(start, end vec2, portalIDs []int) []core.Poin
 		out[i] = toPoint(v)
 	}
 	return out
+}
+
+func (m *NavMesh) polyClosestPoint(polyIdx int, p vec2) vec2 {
+	return closestPointInPoly(&m.polys[polyIdx], p)
 }
 
 func closestPointInPoly(poly *navPoly, p vec2) vec2 {
@@ -896,8 +1093,50 @@ func bestPortalPoint(from, goal, left, right vec2) vec2 {
 	return left.add(u.scale(s))
 }
 
-// stringPull runs the Simple Stupid Funnel Algorithm across portalIDs from start to goal.
+// stringPull runs the Simple Stupid Funnel Algorithm across portalIDs from start to goal,
+// splitting cleanly across any off-mesh links.
 func (m *NavMesh) stringPull(start, goal vec2, portalIDs []int) []vec2 {
+	hasOffMesh := false
+	for _, pid := range portalIDs {
+		if m.portals[pid].offMesh {
+			hasOffMesh = true
+			break
+		}
+	}
+	if !hasOffMesh {
+		return m.stringPullSegment(start, goal, portalIDs)
+	}
+
+	var out []vec2
+	segStart := start
+	segBegin := 0
+	for i, pid := range portalIDs {
+		p := m.portals[pid]
+		if !p.offMesh {
+			continue
+		}
+		seg := m.stringPullSegment(segStart, p.left, portalIDs[segBegin:i])
+		for _, pt := range seg {
+			if len(out) == 0 || !vequal(out[len(out)-1], pt) {
+				out = append(out, pt)
+			}
+		}
+		if len(out) == 0 || !vequal(out[len(out)-1], p.endPos) {
+			out = append(out, p.endPos)
+		}
+		segStart = p.endPos
+		segBegin = i + 1
+	}
+	tail := m.stringPullSegment(segStart, goal, portalIDs[segBegin:])
+	for _, pt := range tail {
+		if len(out) == 0 || !vequal(out[len(out)-1], pt) {
+			out = append(out, pt)
+		}
+	}
+	return out
+}
+
+func (m *NavMesh) stringPullSegment(start, goal vec2, portalIDs []int) []vec2 {
 	type funnelPortal struct {
 		left, right vec2
 	}
@@ -968,6 +1207,96 @@ func (m *NavMesh) stringPull(start, goal vec2, portalIDs []int) []vec2 {
 		path = append(path, goal)
 	}
 	return path
+}
+
+// nextFunnelCorner returns the first visible funnel corner from pos along portalIDs toward goal.
+// isGoal is true when the returned corner is the final goal with straight line of sight through the corridor.
+// offMeshIdx is the index into portalIDs if the returned corner is an off-mesh link entry point, or -1 otherwise.
+func (m *NavMesh) nextFunnelCorner(pos, goal vec2, portalIDs []int) (corner vec2, isGoal bool, offMeshIdx int) {
+	if len(portalIDs) == 0 {
+		return goal, true, -1
+	}
+	if m.portals[portalIDs[0]].offMesh {
+		return m.portals[portalIDs[0]].left, false, 0
+	}
+
+	endPt := goal
+	endIsGoal := true
+	endOffMesh := -1
+	segLen := len(portalIDs)
+	for i, pid := range portalIDs {
+		if m.portals[pid].offMesh {
+			endPt = m.portals[pid].left
+			endIsGoal = false
+			endOffMesh = i
+			segLen = i
+			break
+		}
+	}
+
+	type funnelPortal struct {
+		left, right vec2
+	}
+	portals := make([]funnelPortal, 0, segLen+2)
+	portals = append(portals, funnelPortal{left: pos, right: pos})
+	for i := range segLen {
+		p := m.portals[portalIDs[i]]
+		portals = append(portals, funnelPortal{left: p.left, right: p.right})
+	}
+	portals = append(portals, funnelPortal{left: endPt, right: endPt})
+
+	const cornerEpsSq = 1e-6 // 1e-3 world units
+	portalApex := pos
+	portalLeft := pos
+	portalRight := pos
+	apexIndex := 0
+	leftIndex := 0
+	rightIndex := 0
+
+	for i := 1; i < len(portals); i++ {
+		left := portals[i].left
+		right := portals[i].right
+
+		if triArea2(portalApex, portalRight, right) >= 0 {
+			if vequal(portalApex, portalRight) || vequal(portalApex, portalLeft) || triArea2(portalApex, portalLeft, right) < 0 {
+				portalRight = right
+				rightIndex = i
+			} else {
+				if distSq(pos, portalLeft) > cornerEpsSq {
+					return portalLeft, false, -1
+				}
+				portalApex = portalLeft
+				apexIndex = leftIndex
+				portalLeft = portalApex
+				portalRight = portalApex
+				leftIndex = apexIndex
+				rightIndex = apexIndex
+				i = apexIndex
+				continue
+			}
+		}
+
+		if triArea2(portalApex, portalLeft, left) <= 0 {
+			if vequal(portalApex, portalLeft) || vequal(portalApex, portalRight) || triArea2(portalApex, portalRight, left) > 0 {
+				portalLeft = left
+				leftIndex = i
+			} else {
+				if distSq(pos, portalRight) > cornerEpsSq {
+					return portalRight, false, -1
+				}
+				portalApex = portalRight
+				apexIndex = rightIndex
+				portalLeft = portalApex
+				portalRight = portalApex
+				leftIndex = apexIndex
+				rightIndex = apexIndex
+				i = apexIndex
+				continue
+			}
+		}
+	}
+
+	return endPt, endIsGoal, endOffMesh
 }
 
 func simplifyCollinear(pts []vec2) []vec2 {

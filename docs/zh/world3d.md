@@ -87,7 +87,7 @@ if path, ok := nav.FindPath(startPos, goalPos); ok {
 }
 ```
 
-`nav.FindPolygon(p)` 会在 `VerticalTolerance` 垂直容差内定位最近的可行走多边形，天然支持上下叠层与立交桥；也可用 `Contains(p)` 与 `NearestPolygon(p)` 检查点是否在网格上或寻找最近表面点。
+`nav.FindPolygon(p)` 会在 `VerticalTolerance` 垂直容差内定位最近的可行走多边形（天然支持上下叠层与立交桥）；也可用 `Contains(p)` 与 `NearestPolygon(p)` 检查点是否在网格上或寻找最近表面点，`FindCorridor(start, goal)` 查询多边形走廊，`AddOffMeshLink(NavOffMeshLink{...})` 注册跳跃、梯子或传送等离网连接，`SetEdgeFlags(fromPoly, toPoly, flags)` 为特殊共享边设置标记。
 
 ### 多边形区域代价、运行时标志与查询过滤器
 
@@ -135,6 +135,37 @@ queue.Submit(search, 0, func(_ ai.PathRequestID, _ ai.SearchStatus) {
 ```
 
 按任意正数步长分帧推进 `NavMeshSearch` 都会得到与 `FindPathWithOptions` 完全一致的 3D 贴地路径，部分路径会终止于已探索多边形上离目标最近的 3D 点。
+
+### 3D 导航智能体（`NavAgent`、`NavAgentGroup`）
+
+`world3d.NavAgent` 在 `world3d.NavMesh` 上维护并局部修复 3D 多边形走廊，在水平 XZ 平面朝下一个漏斗拐角平滑转向，同时沿斜坡与多层桥梁精确跟踪地表高度（`NavPoly.HeightAt`），进入 `ArrivalRadius` 后平滑减速直至停稳于 `StoppingDistance` 内，并暴露明确的导航状态（`NavAgentIdle`、`NavAgentMoving`、`NavAgentArrived`、`NavAgentUnreachable`）：
+
+```go
+group := world3d.NewNavAgentGroup(world3d.NavAgentGroupConfig{
+	MaxReplansPerStep: 4,
+	ReplanInterval:    100 * time.Millisecond,
+})
+agent := group.Add(nav, startPos, world3d.NavAgentConfig{
+	MaxSpeed:         6,
+	MaxAcceleration:  30,
+	Radius:           0.4,
+	ArrivalRadius:    1.5,
+	StoppingDistance: 0.35,
+	OnLink: func(a *world3d.NavAgent, ev world3d.NavLinkEvent, dt time.Duration) bool {
+		// 驱动自定义跳跃或攀爬动作，完成后返回 true。
+		return true
+	},
+})
+agent.SetTarget(goalPos)
+
+// 在 game.Loop.Update 中：
+agent.SetTarget(movingTargetPos)
+group.Step(dt)
+```
+
+- **局部走廊修复与多层高度隔离**：`NavAgent` 优先检查通过共享边相连的邻居，确保桥面上的智能体不会误吸到下方地面；被推离走廊（`SetPosition`）或目标移至邻近多边形时，在 `MaxRepairDepth`（默认 2）跳范围内局部修复走廊，无需执行完整 A* 重规划。
+- **节流与错峰规划**：`NavAgentGroup.Step(dt)` 按确定性轮询顺序（可选配合 `StaggerStride` 错峰）严格将每步完整 A* 重规划次数限制在 `MaxReplansPerStep` 以内，并通过 `NavMesh.Revision()` 自动感知导航网格变更（包含运行时区域/标志修改与离网连接）。
+- **确定性固定步长重放**：重放相同输入序列时，每一步 3D 坐标均按位完全一致。
 
 ## 模块化 3D `GridMap`
 
