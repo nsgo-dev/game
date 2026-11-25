@@ -740,7 +740,7 @@ func (b *tilemapBuilder) singleTileset(layerName string, tm *TilemapDoc) (*tilem
 		if gid == 0 {
 			continue
 		}
-		if gid > count {
+		if gid < 0 || gid > count {
 			return nil, fmt.Errorf("sceneformat: %s row %d column %d places tile %d, but tileset %q has %d tiles", where, i/tm.Width, i%tm.Width, gid-1, tm.TilesetFile, count)
 		}
 		cells[i] = uint32(gid)

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/nsgo-dev/game/packages/game/editor/editormcp"
+	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/game/packages/game/tilemap"
 )
 
@@ -125,5 +126,22 @@ func TestTilesetReadAndEditViaMCP(t *testing.T) {
 	}
 	if !strings.Contains(string(onDisk), "surface: stone") || !strings.Contains(string(onDisk), "weight: 0.5") {
 		t.Fatalf("saved tileset on disk:\n%s", onDisk)
+	}
+
+	// 6. When the Tileset Editor is closed, tileset_read with no file falls back to the active layer's tilesetFile.
+	if err := f.ed.CloseTileset(); err != nil {
+		t.Fatalf("CloseTileset: %v", err)
+	}
+	f.ed.Doc.Layers[0].Tilemap = &sceneformat.TilemapDoc{
+		TileWidth:   16,
+		TileHeight:  16,
+		Width:       2,
+		Height:      1,
+		TilesetFile: tsRel,
+		Data:        []int{1, 0},
+	}
+	fallbackRes := call(t, cs, editormcp.ToolTilesetRead, nil)
+	if text := mustOK(t, fallbackRes); !strings.Contains(text, tsRel) || !strings.Contains(text, "surface: stone") {
+		t.Fatalf("tileset_read active-layer fallback:\n%s", text)
 	}
 }

@@ -424,8 +424,11 @@ type Editor struct {
 	tableTypes *datatable.Registry
 
 	// The tileset editor: the open *.tileset.yaml document, selected terrain/tile, collision/animation/data state, and viewport tile animation loop.
-	tileset      *tilesetEditorState
-	tileAnimStop func()
+	tileset              *tilesetEditorState
+	tileAnimStop         func()
+	tileAnimRev          uint64
+	tileAnimListeners    map[uint64]func()
+	nextTileAnimListener uint64
 
 	// The particle emitter editor: the open emitter config, live preview emitter, and edit-viewport scene emitter loop.
 	particles        *particleEditorState
@@ -678,6 +681,37 @@ func New(doc *sceneformat.SceneDoc, resolver sceneformat.AssetResolver) (*Editor
 // Revision returns a monotonically increasing counter bumped on every state change.
 func (e *Editor) Revision() uint64 {
 	return e.revision
+}
+
+// TileAnimRevision returns a monotonically increasing counter bumped on edit-mode tile animation ticks without bumping Revision.
+func (e *Editor) TileAnimRevision() uint64 {
+	if e == nil {
+		return 0
+	}
+	return e.tileAnimRev
+}
+
+// SubscribeTileAnim registers fn to run on edit-mode tile animation ticks and returns an unsubscribe function.
+func (e *Editor) SubscribeTileAnim(fn func()) func() {
+	if e == nil || fn == nil {
+		return func() {}
+	}
+	e.nextTileAnimListener++
+	id := e.nextTileAnimListener
+	if e.tileAnimListeners == nil {
+		e.tileAnimListeners = make(map[uint64]func())
+	}
+	e.tileAnimListeners[id] = fn
+	return func() {
+		delete(e.tileAnimListeners, id)
+	}
+}
+
+func (e *Editor) notifyTileAnim() {
+	e.tileAnimRev++
+	for _, fn := range e.tileAnimListeners {
+		fn()
+	}
 }
 
 // Subscribe registers fn to run whenever editor state changes and returns an unsubscribe function.

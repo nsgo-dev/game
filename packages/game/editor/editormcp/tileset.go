@@ -196,16 +196,28 @@ func tilesetRead(ctx context.Context, c *Call) (*Result, error) {
 	if err := c.Editor(ctx, func(ed *editor.Editor) error {
 		root = projectRoot(ed)
 		if args.File == "" {
-			if !ed.TilesetOpen() {
-				return errors.New("tileset_read: no tileset is open in the editor; pass file or open a *.tileset.yaml first")
+			if ed.TilesetOpen() {
+				doc = ed.TilesetDoc()
+				rel = ed.TilesetPath()
+				dirty = ed.TilesetDirty()
+				source = "editor"
+				var err error
+				raw, err = tilemap.EncodeTileset(doc)
+				return err
 			}
-			doc = ed.TilesetDoc()
-			rel = ed.TilesetPath()
-			dirty = ed.TilesetDirty()
-			source = "editor"
-			var err error
-			raw, err = tilemap.EncodeTileset(doc)
-			return err
+			activePath := ed.ActiveLayerTilesetPath()
+			if activePath == "" {
+				return errors.New("tileset_read: no tileset is open in the editor and the active layer has no tilesetFile; pass file or open a *.tileset.yaml first")
+			}
+			clean, err := cleanProjectPath(activePath)
+			if err != nil {
+				return fmt.Errorf("tileset_read: %w", err)
+			}
+			rel = clean
+			if root == "" {
+				return fmt.Errorf("tileset_read: %s: no project is open in the editor", clean)
+			}
+			return nil
 		}
 		clean, err := cleanProjectPath(args.File)
 		if err != nil {

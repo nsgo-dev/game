@@ -2,6 +2,7 @@ package editor_test
 
 import (
 	"bytes"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,8 +11,10 @@ import (
 
 	"github.com/nsgo-dev/game/packages/game/editor"
 	"github.com/nsgo-dev/game/packages/game/gametest"
+	"github.com/nsgo-dev/game/packages/game/particles"
 	"github.com/nsgo-dev/game/packages/game/physics"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
+	"github.com/nsgo-dev/game/packages/game/skeletal"
 	"github.com/nsgo-dev/game/packages/game/tilemap"
 	"github.com/nsgo-dev/game/packages/game/tileshape"
 	"github.com/nsgo-dev/nsgo/core"
@@ -426,5 +429,271 @@ func TestTilesetEditorCollisionShapesCustomDataAndUndo(t *testing.T) {
 	again, err := tilemap.EncodeTileset(parsed)
 	if err != nil || !bytes.Equal(again, saved) {
 		t.Fatalf("saved tileset did not round-trip unchanged")
+	}
+}
+
+// Regression for Blocker #1: 60 Hz tile animation ticks must NOT bump Editor.Revision() or remount/disrupt UI inputs.
+func TestTileAnimTicksDoNotBumpRevisionOrRemountInputs(t *testing.T) {
+	dir := t.TempDir()
+	tsRel := "tilesets/water.tileset.yaml"
+	tsPath := filepath.Join(dir, filepath.FromSlash(tsRel))
+	if err := os.MkdirAll(filepath.Dir(tsPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	initial := &tilemap.TilesetDoc{
+		Version:    1,
+		Name:       "water",
+		TileWidth:  16,
+		TileHeight: 16,
+		Image:      "art/tiles/water.png",
+		Columns:    4,
+		TileCount:  4,
+		Tiles: []tilemap.TileDoc{
+			{
+				ID: 0,
+				Animation: []tilemap.TileFrameDoc{
+					{Tile: 0, Duration: 80 * time.Millisecond},
+					{Tile: 1, Duration: 80 * time.Millisecond},
+				},
+			},
+		},
+	}
+	raw, err := tilemap.EncodeTileset(initial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(tsPath, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	doc := &sceneformat.SceneDoc{
+		Version:       sceneformat.CurrentVersion,
+		Name:          "AnimIsolation",
+		VirtualWidth:  160,
+		VirtualHeight: 96,
+		Layers: []sceneformat.LayerDoc{
+			{
+				Name:  "ground",
+				Space: sceneformat.SpaceWorld,
+				Tilemap: &sceneformat.TilemapDoc{
+					TileWidth:   16,
+					TileHeight:  16,
+					Width:       2,
+					Height:      1,
+					TilesetFile: tsRel,
+					Data:        []int{1, 0},
+				},
+			},
+		},
+	}
+	ed, err := editor.New(doc, &sceneformat.FSAssets{FS: os.DirFS(dir)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenTilesetFile(tsPath); err != nil {
+		t.Fatal(err)
+	}
+	ed.SetTilesetTab(editor.TilesetTabAnimation)
+	ed.SetTilesetSelectedTile(0)
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1280, 760), nsgotest.Environment(core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop}))
+
+	// Focus and type into an input while animated tiles are actively ticking.
+	app.Clear("id:tileset-anim-add-duration")
+	app.Type("id:tileset-anim-add-duration", "250")
+
+	revBefore := ed.Revision()
+	animRevBefore := ed.TileAnimRevision()
+
+	app.Advance(100 * time.Millisecond)
+
+	if ed.Revision() != revBefore {
+		t.Fatalf("Editor.Revision() changed during animation ticks: %d -> %d (would remount UI at 60 Hz)", revBefore, ed.Revision())
+	}
+	if ed.TileAnimRevision() <= animRevBefore {
+		t.Fatalf("Editor.TileAnimRevision() did not advance: %d -> %d", animRevBefore, ed.TileAnimRevision())
+	}
+	if ed.TilesetAnimPreviewTile() != 1 {
+		t.Fatalf("preview tile after 100ms = %d, want 1", ed.TilesetAnimPreviewTile())
+	}
+	if draws := gametest.ImageDraws(app.Find("id:editor-viewport").Ops); len(draws) == 0 || draws[0].SX != 16 {
+		t.Fatalf("viewport did not redraw animated tile to SX=16: %+v", draws)
+	}
+	// Typing more into the same input and submitting must still work seamlessly without lost state.
+	app.Type("id:tileset-anim-add-duration", "ms")
+	app.Press("id:tileset-anim-add-frame")
+	info0, _ := ed.TilesetTileInfo(0)
+	if len(info0.Animation) != 3 || info0.Animation[2].Duration != 250*time.Millisecond {
+		t.Fatalf("animation frames after typing across ticks = %+v, want 3rd frame with 250ms", info0.Animation)
+	}
+}
+
+// Regression for Blocker #4 + Minors #1 & #2: TilesetDirty is included in HasUnsavedChanges and SaveAll,
+// SetTilesetTileFlags masks bits 0-1, and SetTilesetTileProperty rejects non-finite float32.
+func TestTilesetDirtyHasUnsavedChangesSaveAllAndFlagsGuards(t *testing.T) {
+	dir := t.TempDir()
+	tsRel := "tilesets/props.tileset.yaml"
+	tsPath := filepath.Join(dir, filepath.FromSlash(tsRel))
+	if err := os.MkdirAll(filepath.Dir(tsPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	initial := &tilemap.TilesetDoc{
+		Version:    1,
+		Name:       "props",
+		TileWidth:  16,
+		TileHeight: 16,
+		Image:      "art/tiles/props.png",
+		Columns:    2,
+		TileCount:  4,
+	}
+	raw, err := tilemap.EncodeTileset(initial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(tsPath, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ed, err := editor.New(nil, &sceneformat.FSAssets{FS: os.DirFS(dir)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenTilesetFile(tsPath); err != nil {
+		t.Fatal(err)
+	}
+	if ed.HasUnsavedChanges() {
+		t.Fatal("freshly opened tileset should not report HasUnsavedChanges")
+	}
+
+	// Minor #1: bits 0 (TileSolid) and 1 (TileOneWay) must be masked out of customFlags.
+	if err := ed.SetTilesetTileFlags(0, false, false, tilemap.TileSolid|tilemap.TileOneWay|tilemap.TileFlags(1<<2)); err != nil {
+		t.Fatalf("SetTilesetTileFlags: %v", err)
+	}
+	info, ok := ed.TilesetTileInfo(0)
+	if !ok {
+		t.Fatal("TilesetTileInfo(0) not found")
+	}
+	if info.Solid || info.OneWay || info.Flags != tilemap.TileFlags(1<<2) {
+		t.Fatalf("tile 0 flags = (solid=%v oneWay=%v flags=%d), want (false, false, 4)", info.Solid, info.OneWay, info.Flags)
+	}
+
+	// Minor #2: non-finite float32 must be rejected upfront.
+	if err := ed.SetTilesetTileProperty(0, "bad", float32(math.NaN())); err == nil {
+		t.Fatal("expected error for float32 NaN property")
+	}
+	if err := ed.SetTilesetTileProperty(0, "badInf", float32(math.Inf(1))); err == nil {
+		t.Fatal("expected error for float32 Inf property")
+	}
+
+	// Blocker #4: HasUnsavedChanges reports dirty tileset and SaveAll persists it.
+	if !ed.TilesetDirty() || !ed.HasUnsavedChanges() {
+		t.Fatalf("expected TilesetDirty=%v and HasUnsavedChanges=%v to be true", ed.TilesetDirty(), ed.HasUnsavedChanges())
+	}
+	if err := ed.SaveAll(); err != nil {
+		t.Fatalf("SaveAll: %v", err)
+	}
+	if ed.TilesetDirty() || ed.HasUnsavedChanges() {
+		t.Fatalf("after SaveAll, TilesetDirty=%v HasUnsavedChanges=%v, want false", ed.TilesetDirty(), ed.HasUnsavedChanges())
+	}
+	saved, err := os.ReadFile(tsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(saved), "flags: 4") {
+		t.Fatalf("SaveAll did not write tileset edits to disk:\n%s", saved)
+	}
+}
+
+type customOptionalResolver struct {
+	*sceneformat.FSAssets
+	particlesCalls int
+	skeletonCalls  int
+}
+
+func (r *customOptionalResolver) Particles(path string) (particles.Config, error) {
+	r.particlesCalls++
+	return particles.Config{MaxParticles: 16}, nil
+}
+
+func (r *customOptionalResolver) Skeleton(path string) (*skeletal.SkeletonData, error) {
+	r.skeletonCalls++
+	return &skeletal.SkeletonData{
+		Bones: []skeletal.BoneData{{Name: "root"}},
+	}, nil
+}
+
+// Regression for Blocker #2: liveResolver preserves optional sceneformat resolver interfaces (ParticlesResolver, SkeletonResolver, etc.) while a tileset is open.
+func TestTilesetLiveResolverPreservesOptionalResolvers(t *testing.T) {
+	dir := t.TempDir()
+	tsRel := "tilesets/world.tileset.yaml"
+	tsPath := filepath.Join(dir, filepath.FromSlash(tsRel))
+	if err := os.MkdirAll(filepath.Dir(tsPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := tilemap.EncodeTileset(&tilemap.TilesetDoc{
+		Version:    1,
+		Name:       "world",
+		TileWidth:  16,
+		TileHeight: 16,
+		Image:      "art/tiles/world.png",
+		Columns:    2,
+		TileCount:  2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(tsPath, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	resolver := &customOptionalResolver{FSAssets: &sceneformat.FSAssets{FS: os.DirFS(dir)}}
+	doc := &sceneformat.SceneDoc{
+		Version:       sceneformat.CurrentVersion,
+		Name:          "OptionalResolvers",
+		VirtualWidth:  320,
+		VirtualHeight: 180,
+		Layers: []sceneformat.LayerDoc{
+			{
+				Name:  "main",
+				Space: sceneformat.SpaceWorld,
+				Objects: []sceneformat.ObjectDoc{
+					{
+						ID:        "fx",
+						Particles: &sceneformat.ParticlesRef{File: "fx/sparks.particles.yaml"},
+					},
+					{
+						ID: "hero",
+						Components: map[string]any{
+							sceneformat.SkeletalComponentName: map[string]any{
+								"version": sceneformat.SkeletalComponentVersion,
+								"rig":     "rigs/hero.skel.yaml",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	ed, err := editor.New(doc, resolver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ed.BuildErr != nil {
+		t.Fatalf("initial BuildErr = %v", ed.BuildErr)
+	}
+	pBefore, sBefore := resolver.particlesCalls, resolver.skeletonCalls
+
+	if err := ed.OpenTilesetFile(tsPath); err != nil {
+		t.Fatal(err)
+	}
+	ed.Rebuild()
+	if ed.BuildErr != nil {
+		t.Fatalf("Rebuild with open tileset failed (optional resolvers stripped?): %v", ed.BuildErr)
+	}
+	if resolver.particlesCalls <= pBefore || resolver.skeletonCalls <= sBefore {
+		t.Fatalf("custom optional resolvers not called while tileset open: particles %d->%d, skeleton %d->%d",
+			pBefore, resolver.particlesCalls, sBefore, resolver.skeletonCalls)
 	}
 }

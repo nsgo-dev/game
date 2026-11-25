@@ -1001,6 +1001,11 @@ func touchStroke(ev core.TouchEvent, begin func(at core.Point, secondary, alt bo
 // In 2D, with the Select or Move tool, a drag on an object moves it, and a drag on the selection's gizmo moves it along one of its axes, turns it with the ring or scales it with a corner or edge handle (Shift keeps the aspect ratio), each recorded as one undoable step when the drag ends; Escape or a cancelled gesture puts the object back (BeginDrag2D). A mouse wheel, a pinch or a touchpad scroll with Control or Command held zooms the 2D view (View2D) about the pointer, and a touchpad's scroll, a mouse wheel's sideways scroll, a middle-button drag, a drag with Space held or a two-finger drag pans it; while the scene plays the view is the scene camera's and does not move; F frames the selection (FrameSelection2D), Home frames everything (FrameAll2D) and Mod+0 returns to the scene camera's view (ResetView2D). With a tile tool a drag with the mouse or one finger is a tile stroke (BeginTileStroke) over every cell it crosses, recorded as one undo step: Paint paints and Erase erases, a right-button drag erases with Paint, Alt with any tile tool picks the tile under the pointer, and Pick picks and hands over to Paint; the cell under the resting mouse is outlined (HoveredTile). In 3D a drag orbits the camera or drags the gizmo; a middle-button drag, a Shift-drag, a touchpad's scroll and a two-finger drag pan it; the wheel and a pinch zoom it; holding the right button flies it, the pointer turning it and W, A, S, D, Q and E moving it (BeginFly3D); F frames the selection; and a bar, an axis widget and the controls' help line over the scene switch the projection, turn to the axis views, orbit by 15 degrees and reset the view.
 func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	colors := ui.ColorsOf(cx)
+	tileAnimRev := core.NewSignal(cx, ed.TileAnimRevision())
+	unsubTileAnim := ed.SubscribeTileAnim(func() {
+		tileAnimRev.Set(ed.TileAnimRevision())
+	})
+	cx.Cleanup(unsubTileAnim)
 	var g viewportGestures
 	var g3 viewport3DGestures
 	// frame is the view the 3D viewport's flight locks the pointer to.
@@ -1111,6 +1116,7 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 		},
 		Draw: func(d *core.Drawing, size core.Size) {
 			_ = rev.Get()
+			_ = tileAnimRev.Get()
 			ed.DrawViewport(d, size)
 		},
 	}

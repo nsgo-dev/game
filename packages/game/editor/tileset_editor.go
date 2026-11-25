@@ -14,10 +14,15 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/packages/game"
+	"github.com/nsgo-dev/game/packages/game/gltf"
+	"github.com/nsgo-dev/game/packages/game/loaderr"
+	"github.com/nsgo-dev/game/packages/game/particles"
 	"github.com/nsgo-dev/game/packages/game/resource"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
+	"github.com/nsgo-dev/game/packages/game/skeletal"
 	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/game/packages/game/tilemap"
+	"github.com/nsgo-dev/game/packages/game/world3d"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -1183,7 +1188,7 @@ func (e *Editor) SetTilesetTileFlags(tileID int, solid, oneWay bool, customFlags
 		t := ensureTileDoc(doc, tileID)
 		t.Solid = solid
 		t.OneWay = oneWay
-		t.Flags = customFlags
+		t.Flags = customFlags &^ (tilemap.TileSolid | tilemap.TileOneWay)
 		pruneTileDoc(doc, tileID)
 		return nil
 	})
@@ -1417,7 +1422,11 @@ func (e *Editor) SetTilesetTileProperty(tileID int, key string, value any) error
 		switch v := value.(type) {
 		case bool, int, string:
 		case float32:
-			value = float64(v)
+			f := float64(v)
+			if math.IsNaN(f) || math.IsInf(f, 0) {
+				return fmt.Errorf("editor: property %q value must be finite", key)
+			}
+			value = f
 		case float64:
 			if math.IsNaN(v) || math.IsInf(v, 0) {
 				return fmt.Errorf("editor: property %q value must be finite", key)
@@ -1494,7 +1503,7 @@ func (e *Editor) StepTileAnimations(dt time.Duration) {
 		changed = true
 	}
 	if changed {
-		e.notify()
+		e.notifyTileAnim()
 	}
 }
 
@@ -1570,7 +1579,33 @@ func (e *Editor) ensureTilesetOpenForPath(relPath string) error {
 	return e.OpenTilesetProjectFile(relPath)
 }
 
-// liveResolver wraps e.Resolver so sceneformat.Build and PlayIn see live unsaved edits made in the Tileset Editor immediately.
+// ActiveLayerTilesetPath returns the active layer's YAML tileset path (TilesetFile), or "" when the active layer does not use a YAML tileset file.
+func (e *Editor) ActiveLayerTilesetPath() string {
+	if e == nil || e.Doc == nil {
+		return ""
+	}
+	li := e.layerIndex(e.ActiveLayer)
+	if li < 0 {
+		return ""
+	}
+	tm := e.inlineTilemapForLayer(&e.Doc.Layers[li])
+	if tm == nil || !tm.HasTilesetFile() {
+		return ""
+	}
+	return tm.TilesetFile
+}
+
+// liveTilesetYAML returns the encoded YAML of the open Tileset Editor document when its path matches p.
+func (e *Editor) liveTilesetYAML(p string) ([]byte, bool, error) {
+	if e == nil || !e.TilesetOpen() || !e.tileset.matchesPath(p) {
+		return nil, false, nil
+	}
+	data, err := tilemap.EncodeTileset(e.tileset.doc)
+	return data, true, err
+}
+
+// liveResolver wraps e.Resolver so sceneformat.Build sees live unsaved edits made in the Tileset Editor immediately,
+// while forwarding every optional sceneformat resolver interface and preserving FileResolver fallbacks.
 func (e *Editor) liveResolver() sceneformat.AssetResolver {
 	if e == nil || !e.TilesetOpen() {
 		return e.Resolver
@@ -1595,8 +1630,8 @@ func (r *liveTilesetResolver) Atlas(name string) (*sprite.Atlas, error) {
 }
 
 func (r *liveTilesetResolver) ReadFile(p string) ([]byte, error) {
-	if r.ed != nil && r.ed.TilesetOpen() && r.ed.tileset.matchesPath(p) {
-		return tilemap.EncodeTileset(r.ed.tileset.doc)
+	if data, ok, err := r.ed.liveTilesetYAML(p); ok {
+		return data, err
 	}
 	if fr, ok := r.inner.(sceneformat.FileResolver); ok {
 		return fr.ReadFile(p)
@@ -1630,6 +1665,67 @@ func (r *liveTilesetResolver) PhysicsMaterial(p string) (*resource.PhysicsMateri
 		return pmr.PhysicsMaterial(p)
 	}
 	return nil, fmt.Errorf("physics material %q requires a PhysicsMaterialResolver", p)
+}
+
+func (r *liveTilesetResolver) Particles(p string) (particles.Config, error) {
+	if pr, ok := r.inner.(sceneformat.ParticlesResolver); ok {
+		return pr.Particles(p)
+	}
+	fr, ok := r.inner.(sceneformat.FileResolver)
+	if !ok {
+		return particles.Config{}, fmt.Errorf("particles %q requires a ParticlesResolver or FileResolver (such as FSAssets)", p)
+	}
+	data, err := fr.ReadFile(p)
+	if err != nil {
+		return particles.Config{}, fmt.Errorf("read particles %q: %w", p, err)
+	}
+	cfg, err := particles.UnmarshalConfigYAML(data)
+	if err != nil {
+		return particles.Config{}, loaderr.WithFile(err, p)
+	}
+	return cfg, nil
+}
+
+func (r *liveTilesetResolver) Skeleton(p string) (*skeletal.SkeletonData, error) {
+	if sr, ok := r.inner.(sceneformat.SkeletonResolver); ok {
+		return sr.Skeleton(p)
+	}
+	fr, ok := r.inner.(sceneformat.FileResolver)
+	if !ok {
+		return nil, fmt.Errorf("skeletal rig %q requires a SkeletonResolver or FileResolver (such as FSAssets)", p)
+	}
+	raw, err := fr.ReadFile(p)
+	if err != nil {
+		return nil, fmt.Errorf("read skeletal rig %q: %w", p, err)
+	}
+	sd, err := skeletal.Load(raw)
+	if err != nil {
+		return nil, loaderr.WithFile(err, p)
+	}
+	return sd, nil
+}
+
+func (r *liveTilesetResolver) Model(p string) (*gltf.Document, error) {
+	if mr, ok := r.inner.(sceneformat.ModelResolver); ok {
+		return mr.Model(p)
+	}
+	fr, ok := r.inner.(sceneformat.FileResolver)
+	if !ok {
+		return nil, fmt.Errorf("model %q requires a ModelResolver or FileResolver", p)
+	}
+	return gltf.LoadFS(editorFileResolverFS{fr: fr}, p)
+}
+
+func (r *liveTilesetResolver) Terrain(p string) (*world3d.Heightmap, error) {
+	if tr, ok := r.inner.(sceneformat.TerrainResolver); ok {
+		return tr.Terrain(p)
+	}
+	fr, ok := r.inner.(sceneformat.FileResolver)
+	if !ok {
+		return nil, fmt.Errorf("terrain %q requires a TerrainResolver or FileResolver", p)
+	}
+	hm, _, err := world3d.LoadTerrainFS(editorFileResolverFS{fr: fr}, p)
+	return hm, err
 }
 
 type liveTilesetWithTilemapResolver struct {

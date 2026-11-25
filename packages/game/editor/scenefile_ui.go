@@ -103,7 +103,7 @@ func unsavedMemo(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) *core.Mem
 				scene:    sceneDirty,
 				anyScene: anySceneDirty,
 				project:  ed.ProjectDirty(),
-				other:    ed.GridMapDirty() || ed.TerrainDirty() || ed.RoomsDirty() || ed.LocalizationDirty() || ed.ClipDirty() || ed.CutsceneDirty() || ed.DataTableDirty() || ed.RigDirty() || ed.MaterialDirty(),
+				other:    ed.GridMapDirty() || ed.TerrainDirty() || ed.RoomsDirty() || ed.TilesetDirty() || ed.LocalizationDirty() || ed.ClipDirty() || ed.CutsceneDirty() || ed.DataTableDirty() || ed.RigDirty() || ed.MaterialDirty(),
 			}
 			computed = true
 		}
