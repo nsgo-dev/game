@@ -193,9 +193,27 @@ tree.Tick(dt)
 
 可用节点类型：
 
-- **组合节点**：`Sequence`、`Selector`（当高优先级分支成功或运行时会自动重置被抢占的低优先级运行中分支）、`Parallel(policy, ...)`（`RequireAll` 或 `RequireOne`）、`UtilitySelector(reasoner, ctx, rng, subtrees)`。
-- **修饰节点**：`Guard(cond, child)`、`Cooldown(d, child)`、`WithAttackToken(pool, agentID, priority, child)`、`Inverter`、`Succeeder`、`Failer`、`Repeater(count, child)`、`UntilFail`。
+- **组合节点**：`Sequence`、`Selector`（当高优先级分支成功或运行时会自动重置被抢占的低优先级运行中分支）、`Parallel(policy, ...)`（`RequireAll` 或 `RequireOne`）、`RandomSelector(stream, ...)`、`RandomSequence(stream, ...)`、`WeightedSelector(stream, options...)`（配合 `WeightedNode{Node, Weight}`）、`UtilitySelector(reasoner, ctx, rng, subtrees)`。
+- **修饰节点**：`Guard(cond, child)`、`Cooldown(d, child)`、`TimeLimit(d, child)`、`Retry(n, child)`、`Service(interval, fn, child)`、`WithAttackToken(pool, agentID, priority, child)`、`Inverter`、`Succeeder`、`Failer`、`Repeater(count, child)`、`UntilFail`。
 - **叶节点**：`Action(fn)`、`Condition(fn)`、`Wait(d)`、`HasAttackToken(pool, agentID)`、`SquadHasOrder(squad, kind)`、`SquadHasRole(squad, agentID, role)`、`SquadStateBool(squad, key)`、`SquadOrderAction(squad, fn)`。
+
+### 超时、重试、确定性随机选择与服务节点
+
+- **`TimeLimit(d, child)`**：在累计游戏时间达到 `d` 且 `child` 仍处于 `StatusRunning` 时调用 `child.Reset()` 并返回 `StatusFailure`。
+- **`Retry(n, child)`**：在子节点失败后最多重试 `n` 次（总计最多 `1+n` 次尝试），每次失败之间返回 `StatusRunning`，一旦成功立即返回 `StatusSuccess`。
+- **`RandomSelector(stream, children...)`** 与 **`RandomSequence(stream, children...)`**：在每次运行开始时使用调用方传入的 `*random.Stream` 打乱子节点顺序，并在子节点返回 `StatusRunning` 期间保持该顺序，直至完成或调用 `Reset()`。
+- **`WeightedSelector(stream, options...)`**：使用 `stream` 按 `WeightedNode.Weight` 权重无放回抽取子节点（自动跳过非正数、`NaN`、无穷大权重或 `nil` 节点），在运行中保持当前子节点，相同种子下多次运行结果完全一致。
+- **`Service(interval, fn, child)`**：在进入 `child` 分支时立即调用 `fn`，之后在 `child` 持续返回 `StatusRunning` 期间每隔 `interval` 游戏时间触发一次；当分支结束或被 `Reset()` 时自动停止。
+
+```go
+rng := random.New(42)
+combat := ai.Service(250*time.Millisecond, refreshTarget,
+	ai.WeightedSelector(rng,
+		ai.WeightedNode{Node: ai.TimeLimit(2*time.Second, chargeAttack), Weight: 2},
+		ai.WeightedNode{Node: ai.Retry(2, rangedShot), Weight: 3},
+	),
+)
+```
 
 ## 效用 AI
 
