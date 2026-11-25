@@ -39,7 +39,7 @@ func TestServerListsToolsAndResources(t *testing.T) {
 		}
 	}
 	slices.Sort(names)
-	want := []string{"cutscene_scrub", "cutscene_write", "game_check", "game_playtest", "merge_abort", "merge_finish", "merge_resolve", "merge_status", "playtest_define", "playtest_report", "refactor_rename", "refs_find", "scene_edit", "scene_read", "selection_get", "states_test", "states_write", "tileset_edit", "tileset_read", "viewport_image"}
+	want := []string{"cutscene_scrub", "cutscene_write", "game_check", "game_playtest", "merge_abort", "merge_finish", "merge_resolve", "merge_status", "playtest_define", "playtest_report", "refactor_rename", "refs_find", "scene_edit", "scene_read", "selection_get", "states_test", "states_write", "tile_autotile", "tile_erase", "tile_paint", "tile_query", "tile_review_keep", "tile_review_restore_region", "tile_review_revert_all", "tile_review_revert_region", "tile_review_status", "tileset_edit", "tileset_read", "viewport_image"}
 	if !slices.Equal(names, want) {
 		t.Fatalf("tools = %v, want %v", names, want)
 	}

@@ -493,6 +493,7 @@ func (e *Editor) DrawViewport(d *core.Drawing, size core.Size) {
 	e.drawSnapGridOverlay(d)
 	e.drawCameraFrameOverlay(d)
 	e.drawTileGridOverlay(d)
+	e.drawTileReviewOverlay(d)
 	e.drawTileHoverOverlay(d)
 	e.drawParticleEmitterOverlays(d, scene)
 	e.drawSelectionOverlay(d, scene)
@@ -1334,13 +1335,19 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 	spec := ed.SpecPalette(cx)
 	return core.View{
 		TestID: "editor-viewport-container",
+		OnKeyDown: func(ev core.KeyEvent) bool {
+			return ed.TileReviewHandleKeyEvent(ev, true)
+		},
+		OnKeyUp: func(ev core.KeyEvent) {
+			ed.TileReviewHandleKeyEvent(ev, false)
+		},
 		Style: core.Style{
 			FlexGrow:   1,
 			Position:   core.Relative,
 			Background: spec.Viewport,
 			Overflow:   core.Hidden,
 		},
-		Children: []core.Node{
+		Children: append([]core.Node{
 			// Bind Escape while a viewport drag, marquee, tile/GridMap/terrain stroke, visible tile selection,
 			// or object selection is active (and Command Palette / connection pick are inactive), using
 			// KeyNotEditing so text inputs (such as Scene Tree rename or Inspector fields) keep Escape.
@@ -1690,8 +1697,7 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 			viewport3DRenderStatsOverlay(cx, ed, rev),
 			viewportOverlaysBarView(cx, ed, rev),
 			viewportOverlayLegendView(cx, ed, rev),
-			ToastView(cx, ed, rev),
-		},
+		}, append(viewportTileOverlays(cx, ed, rev), ToastView(cx, ed, rev))...),
 	}
 }
 

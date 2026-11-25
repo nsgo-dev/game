@@ -300,6 +300,15 @@ claude mcp add game-editor -- nsgo game mcp
 | `tileset_edit` | edit | `ops`（必填）、`file`、`save`（可选） | 按顺序把图块集操作（`set_tile` 设置 `name`/`solid`/`oneWay`/`flags`/`weight`/`shapes`/`animation`/`terrain`/`neighbors`，以及 `set_property`、`remove_property`、`add_terrain`、`remove_terrain`）作为一个原子撤销步骤应用到 YAML 图块集；除非传入 `save: true`，否则改动在保存前保持未保存状态。 |
 | `refs_find` | read | `file`、`open`（可选） | 按场景（含实例覆盖计数）、预制体变体（`inherits`）、数据表行与 Go 代码（经 `go/parser` 查找并标记 `notRewritten` 的字符串常量）分组返回预制体、场景或项目文件的全部引用，并可选择在编辑器中打开查找用法界面。 |
 | `refactor_rename` | edit | `from`、`to`（必填）、`apply`（可选） | 在编辑器中准备仅改写 YAML 的安全重命名审查，返回精确的 `-`/`+` 行差异与未改写 Go 代码警告，在用户点击 Keep 前不写盘（传入 `apply: true` 时通过 `MoveFile` 作为单个撤销步骤应用）。 |
+| `tile_query` | read | `layer`、`tileLayer`、`empty`、`tile`、`tiles`、`tileName`、`tileNames`、`rect`、`minCells`、`diagonal`、`includeCells`（均可选） | 按瓦片 ID、YAML 图块集名称或空单元格查询内联瓦片地图图层中的格子及连通区域/空腔（例如 `"an 11 × 5 pocket at columns 2–12, rows 12–16"`），返回包围盒、格数、摘要与坐标。 |
+| `tile_paint` | edit | `layer`、`tileLayer`、`tile`、`tileName`、`flipH`/`flipV`/`flipD`、`weighted`、`seed`、`noAdjacentDuplicates`、`rect`、`rects`、`cells`、`label`、`review`（默认 `true`） | 在内联瓦片地图图层上绘制显式格子、闭合矩形或带固定种子的确定性加权随机瓦片抽取，记录为一次可撤销编辑，并默认纳入当前按区域瓦片审查。 |
+| `tile_autotile` | edit | `layer`、`tileLayer`、`terrain`、`rect`、`rects`、`cells`、`place`、`label`、`review`（默认 `true`） | 使用分层瓦片地图的 YAML 图块集地形规则（4 位正交或 8 位角门控）重绘或放置指定区域，记录为一次可撤销编辑，并默认纳入当前瓦片审查。 |
+| `tile_erase` | edit | `layer`、`tileLayer`、`rect`、`rects`、`cells`、`label`、`review`（默认 `true`） | 在内联瓦片地图图层上擦除显式格子或闭合矩形，记录为一次可撤销编辑，并默认纳入当前瓦片审查。 |
+| `tile_review_status` | read | `view`（可选：`"before"` 或 `"after"`）、`focus`（可选区域 ID） | 返回当前瓦片编辑审查的分组区域（`painted`、`replaced`、`erased`）、格数、包围盒、还原状态、智能体步骤及 Before/After 视图状态；可选切换视图或聚焦某个区域。 |
+| `tile_review_revert_region` | edit | `id` 或 `index` | 将当前瓦片审查中的单个区域标记为已还原，并立即更新 2D 视口。 |
+| `tile_review_restore_region` | edit | `id` 或 `index` | 恢复当前瓦片审查中已还原的单个区域，并立即更新 2D 视口。 |
+| `tile_review_keep` | edit | 无 | 将当前瓦片审查中所有保留区域合并提交为 `History` 中的单个可撤销步骤，并关闭审查。 |
+| `tile_review_revert_all` | edit | 无 | 丢弃当前瓦片审查中的所有待确认改动，还原到审查前的瓦片地图并关闭审查。 |
 
 `scene_edit` 接受的编辑，每项是一个带 `op` 的对象：
 

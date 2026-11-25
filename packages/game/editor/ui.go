@@ -393,7 +393,18 @@ func mainRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []core.Node {
 					Children: []core.Node{
 						TilePaletteView(cx, ed, rev),
 						GridMapPaletteView(cx, ed, rev),
-						InspectorView(cx, ed, rev),
+						core.Show{
+							When: func() bool {
+								_ = rev.Get()
+								return !ed.Playing() && ed.ViewMode == ViewMode2D && ed.TileReviewOpen()
+							},
+							Then: func(cx *core.Scope) core.Node {
+								return TileReviewPanelView(cx, ed, rev)
+							},
+							Else: func(cx *core.Scope) core.Node {
+								return InspectorView(cx, ed, rev)
+							},
+						},
 						pluginDockView(cx, ed, rev, DockRight),
 					},
 				}

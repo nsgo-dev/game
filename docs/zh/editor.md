@@ -758,6 +758,14 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 
 在 Go 中，`TilePreview()` 返回进行中画笔在松手前的实时预览格子，`TileStamp` / `TileClipboard` / `TileSelection` 管理图案与选区；四种画笔在单网格与分层 YAML 瓦片地图上行为一致，并保持确定性的 YAML 往返保存。
 
+## 智能体瓦片工具与按区域审查瓦片编辑（#1064）
+
+连接到编辑器 MCP 服务器（[MCP](mcp.md#工具)）的智能体可以直接查询并绘制内联或分层瓦片地图，而作者则以连通区域为单位审查改动，无需逐格检查：
+
+- **查询与绘制工具**：`tile_query`（`Editor.QueryTiles`）按瓦片 ID、YAML 图块集 `tileName`、空单元格或子矩形查询格子与连通区域/空腔（例如 `"an 11 × 5 pocket at columns 2–12, rows 12–16"`）；`tile_paint`（`Editor.AgentPaintTiles`）支持显式格子、闭合矩形以及带固定种子的确定性加权随机瓦片抽取（可选 `noAdjacentDuplicates`）；`tile_autotile`（`Editor.AgentAutotile`）使用与 `ToolTerrain` 相同的 4 位 `cardinal` / 8 位 `blob` 规则重绘或放置 YAML 图块集地形；`tile_erase`（`Editor.AgentEraseTiles`）清除指定格子或矩形。每次调用都会作为一个可撤销编辑并默认纳入当前瓦片审查（`review: true`）。
+- **按区域审查（`TileReviewPanelView`）**：待审查的智能体瓦片改动会按类型分组为连通区域——**painted**（`+`，绿色虚线轮廓）、**replaced**（`~`，琥珀色虚线轮廓）和 **erased**（`−`，红色实线轮廓），每项显示格数、包围盒及可读详情（例如 `"from 4 cave tiles"`）。点击区域会在 2D 视口中高亮聚焦，每个区域可独立切换 **Revert** / **Restore**（`SetTileReviewRegionReverted`、`ToggleTileReviewRegion`）；通过 **Before / After** 切换或按住 **`B`** 键（`SetTileReviewViewMode`、`SetTileReviewPeekBefore`、`TileReviewHandleKeyEvent`）可实时预览修改前的瓦片地图。**Keep N of M**（`KeepTileReview`）会将所有保留的区域合并提交为 `History` 中的**单个**可撤销步骤（一次 Undo 即可干净还原到审查前状态），**Revert all**（`RevertAllTileReview`）则立即还原全部改动。智能体与测试也可通过 `tile_review_status`、`tile_review_revert_region`、`tile_review_restore_region`、`tile_review_keep` 与 `tile_review_revert_all` 驱动同一套审查状态。
+- **调色板与视口标题**：在 2D 视图选中含内联瓦片地图的图层时，视口左上角会显示图层尺寸标题（`ActiveTileLayerCaption`，例如 `World · 24 × 20 cells · 16 px`），瓦片调色板顶部显示 `TILESET <file>`，并在底部展示所选瓦片的缩略图、名称、图集单元格坐标、碰撞规则与所属地形集。
+
 ## 场景树（#861）
 
 编辑器左侧的场景树面板（`SceneTreeView`）列出打开场景的各个图层，并在每个图层下列出其对象及嵌套的子对象，相当于 Godot 的 Scene 面板和 Unity 的 Hierarchy。每次编辑和撤销后它都会随之更新。按下对象所在的行会选中该对象；在任一视口中选中对象时，会选中它的行并展开其上层的各行；按下图层的行会把它设为当前图层。所有对象编辑对嵌套子对象与顶层对象一样有效：`FindObject` 和 `SelectObject` 在整棵树中按 ID 查找对象，检查器编辑所选的子对象，其变换在父对象的空间中编辑，因此移动工具会把它的原点放到按下的位置，3D 操纵器沿世界坐标轴移动它。

@@ -208,6 +208,7 @@ func (e *Editor) PlayIn(cx *core.Scope) error {
 	e.stopStatesLoop()
 	e.stopCutsceneLoop()
 	e.SetCutsceneReviewPeekBefore(false)
+	e.SetTileReviewPeekBefore(false)
 	e.stopTileAnimLoop()
 	e.SetStatesDriveWithKeys(false)
 	e.stopParticlePreviewLoop()

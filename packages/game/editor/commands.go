@@ -2111,6 +2111,9 @@ func (e *Editor) bindShortcuts(cx *core.Scope, rev *core.Signal[uint64]) {
 					if !ok {
 						return
 					}
+					if active.ID == CmdToolPaintTile && key == "b" && e.TileReviewOpen() && e.ViewMode == ViewMode2D && !e.Playing() {
+						return
+					}
 					if active.ID == CmdPlayStop && e.Project != nil && e.ProjectPath != "" && !e.Playing() {
 						if !e.GameRunning() {
 							e.report(e.RunGame())
