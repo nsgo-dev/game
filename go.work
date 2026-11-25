@@ -10,6 +10,7 @@ use (
 	./template/platformer2d
 	./template/puzzle2d
 	./template/racing3d
+	./template/rhythm
 	./template/roguelike2d
 	./template/rpg2d
 	./template/rts2d
