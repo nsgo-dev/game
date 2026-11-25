@@ -946,38 +946,40 @@ func (m *sceneMerger) mergeObjectOverrideFields(st *sideTracker, ctx conflictCtx
 		return prefix + "." + sub
 	}
 	return ObjectOverride{
-		Name:       mergePtr(m, st, ctx, fn("name"), b.Name, o.Name, t.Name),
-		Prefab:     mergePtr(m, st, ctx, fn("prefab"), b.Prefab, o.Prefab, t.Prefab),
-		X:          mergePtr(m, st, ctx, fn("x"), b.X, o.X, t.X),
-		Y:          mergePtr(m, st, ctx, fn("y"), b.Y, o.Y, t.Y),
-		PosZ:       mergePtr(m, st, ctx, fn("posZ"), b.PosZ, o.PosZ, t.PosZ),
-		OriginX:    mergePtr(m, st, ctx, fn("originX"), b.OriginX, o.OriginX, t.OriginX),
-		OriginY:    mergePtr(m, st, ctx, fn("originY"), b.OriginY, o.OriginY, t.OriginY),
-		Rotation:   mergePtr(m, st, ctx, fn("rotation"), b.Rotation, o.Rotation, t.Rotation),
-		RotX:       mergePtr(m, st, ctx, fn("rotX"), b.RotX, o.RotX, t.RotX),
-		RotY:       mergePtr(m, st, ctx, fn("rotY"), b.RotY, o.RotY, t.RotY),
-		RotZ:       mergePtr(m, st, ctx, fn("rotZ"), b.RotZ, o.RotZ, t.RotZ),
-		ScaleX:     mergePtr(m, st, ctx, fn("scaleX"), b.ScaleX, o.ScaleX, t.ScaleX),
-		ScaleY:     mergePtr(m, st, ctx, fn("scaleY"), b.ScaleY, o.ScaleY, t.ScaleY),
-		ScaleZ:     mergePtr(m, st, ctx, fn("scaleZ"), b.ScaleZ, o.ScaleZ, t.ScaleZ),
-		Depth:      mergePtr(m, st, ctx, fn("depth"), b.Depth, o.Depth, t.Depth),
-		Mesh:       mergePtr(m, st, ctx, fn("mesh"), b.Mesh, o.Mesh, t.Mesh),
-		Model:      mergePtr(m, st, ctx, fn("model"), b.Model, o.Model, t.Model),
-		ModelNode:  mergePtr(m, st, ctx, fn("modelNode"), b.ModelNode, o.ModelNode, t.ModelNode),
-		ModelMesh:  mergePtr(m, st, ctx, fn("modelMesh"), b.ModelMesh, o.ModelMesh, t.ModelMesh),
-		GridMap:    mergePtr(m, st, ctx, fn("gridMap"), b.GridMap, o.GridMap, t.GridMap),
-		Occluder:   m.mergeOccluder(st, ctx, fn("occluder"), b.Occluder, o.Occluder, t.Occluder),
-		FlipX:      mergePtr(m, st, ctx, fn("flipX"), b.FlipX, o.FlipX, t.FlipX),
-		FlipY:      mergePtr(m, st, ctx, fn("flipY"), b.FlipY, o.FlipY, t.FlipY),
-		Alpha:      mergePtr(m, st, ctx, fn("alpha"), b.Alpha, o.Alpha, t.Alpha),
-		Z:          mergePtr(m, st, ctx, fn("z"), b.Z, o.Z, t.Z),
-		Sprite:     m.mergeSprite(st, ctx, fn("sprite"), b.Sprite, o.Sprite, t.Sprite),
-		Material:   mergePtr(m, st, ctx, fn("material"), b.Material, o.Material, t.Material),
-		Particles:  m.mergeParticles(st, ctx, fn("particles"), b.Particles, o.Particles, t.Particles),
-		Light:      m.mergeLight(st, ctx, fn("light"), b.Light, o.Light, t.Light),
-		Camera:     m.mergeCamera3D(st, ctx, fn("camera"), b.Camera, o.Camera, t.Camera),
-		Components: m.mergeAnyMap(st, ctx, fn("components"), b.Components, o.Components, t.Components),
-		Properties: m.mergeAnyMap(st, ctx, fn("properties"), b.Properties, o.Properties, t.Properties),
+		Name:            mergePtr(m, st, ctx, fn("name"), b.Name, o.Name, t.Name),
+		Prefab:          mergePtr(m, st, ctx, fn("prefab"), b.Prefab, o.Prefab, t.Prefab),
+		X:               mergePtr(m, st, ctx, fn("x"), b.X, o.X, t.X),
+		Y:               mergePtr(m, st, ctx, fn("y"), b.Y, o.Y, t.Y),
+		PosZ:            mergePtr(m, st, ctx, fn("posZ"), b.PosZ, o.PosZ, t.PosZ),
+		OriginX:         mergePtr(m, st, ctx, fn("originX"), b.OriginX, o.OriginX, t.OriginX),
+		OriginY:         mergePtr(m, st, ctx, fn("originY"), b.OriginY, o.OriginY, t.OriginY),
+		Rotation:        mergePtr(m, st, ctx, fn("rotation"), b.Rotation, o.Rotation, t.Rotation),
+		RotX:            mergePtr(m, st, ctx, fn("rotX"), b.RotX, o.RotX, t.RotX),
+		RotY:            mergePtr(m, st, ctx, fn("rotY"), b.RotY, o.RotY, t.RotY),
+		RotZ:            mergePtr(m, st, ctx, fn("rotZ"), b.RotZ, o.RotZ, t.RotZ),
+		ScaleX:          mergePtr(m, st, ctx, fn("scaleX"), b.ScaleX, o.ScaleX, t.ScaleX),
+		ScaleY:          mergePtr(m, st, ctx, fn("scaleY"), b.ScaleY, o.ScaleY, t.ScaleY),
+		ScaleZ:          mergePtr(m, st, ctx, fn("scaleZ"), b.ScaleZ, o.ScaleZ, t.ScaleZ),
+		Depth:           mergePtr(m, st, ctx, fn("depth"), b.Depth, o.Depth, t.Depth),
+		Mesh:            mergePtr(m, st, ctx, fn("mesh"), b.Mesh, o.Mesh, t.Mesh),
+		Model:           mergePtr(m, st, ctx, fn("model"), b.Model, o.Model, t.Model),
+		ModelNode:       mergePtr(m, st, ctx, fn("modelNode"), b.ModelNode, o.ModelNode, t.ModelNode),
+		ModelMesh:       mergePtr(m, st, ctx, fn("modelMesh"), b.ModelMesh, o.ModelMesh, t.ModelMesh),
+		GridMap:         mergePtr(m, st, ctx, fn("gridMap"), b.GridMap, o.GridMap, t.GridMap),
+		Occluder:        m.mergeOccluder(st, ctx, fn("occluder"), b.Occluder, o.Occluder, t.Occluder),
+		FlipX:           mergePtr(m, st, ctx, fn("flipX"), b.FlipX, o.FlipX, t.FlipX),
+		FlipY:           mergePtr(m, st, ctx, fn("flipY"), b.FlipY, o.FlipY, t.FlipY),
+		Alpha:           mergePtr(m, st, ctx, fn("alpha"), b.Alpha, o.Alpha, t.Alpha),
+		Z:               mergePtr(m, st, ctx, fn("z"), b.Z, o.Z, t.Z),
+		Sprite:          m.mergeSprite(st, ctx, fn("sprite"), b.Sprite, o.Sprite, t.Sprite),
+		Material:        mergePtr(m, st, ctx, fn("material"), b.Material, o.Material, t.Material),
+		Particles:       m.mergeParticles(st, ctx, fn("particles"), b.Particles, o.Particles, t.Particles),
+		Light:           m.mergeLight(st, ctx, fn("light"), b.Light, o.Light, t.Light),
+		Camera:          m.mergeCamera3D(st, ctx, fn("camera"), b.Camera, o.Camera, t.Camera),
+		ReflectionProbe: m.mergeReflectionProbe(st, ctx, fn("reflectionProbe"), b.ReflectionProbe, o.ReflectionProbe, t.ReflectionProbe),
+		LightProbeGrid:  m.mergeLightProbeGrid(st, ctx, fn("lightProbeGrid"), b.LightProbeGrid, o.LightProbeGrid, t.LightProbeGrid),
+		Components:      m.mergeAnyMap(st, ctx, fn("components"), b.Components, o.Components, t.Components),
+		Properties:      m.mergeAnyMap(st, ctx, fn("properties"), b.Properties, o.Properties, t.Properties),
 	}
 }
 
@@ -1254,6 +1256,103 @@ func (m *sceneMerger) mergeCamera3D(st *sideTracker, ctx conflictCtx, prefix str
 		Near:        mergePtr(m, st, ctx, prefix+".near", b.Near, ours.Near, theirs.Near),
 		Far:         mergePtr(m, st, ctx, prefix+".far", b.Far, ours.Far, theirs.Far),
 		Current:     mergeScalar(m, st, ctx, prefix+".current", b.Current, ours.Current, theirs.Current),
+	}
+}
+
+func (m *sceneMerger) mergeReflectionProbe(st *sideTracker, ctx conflictCtx, prefix string, base, ours, theirs *ReflectionProbeDoc) *ReflectionProbeDoc {
+	if reflectionProbeEqual(ours, theirs) {
+		if !reflectionProbeEqual(ours, base) {
+			st.mark(true, true)
+		}
+		return ours.Clone()
+	}
+	if reflectionProbeEqual(ours, base) {
+		st.mark(false, true)
+		return theirs.Clone()
+	}
+	if reflectionProbeEqual(theirs, base) {
+		st.mark(true, false)
+		return ours.Clone()
+	}
+	if base != nil && (ours == nil || theirs == nil) {
+		msg := "deleted on ours, modified on theirs"
+		if theirs == nil {
+			msg = "modified on ours, deleted on theirs"
+		}
+		m.addConflict(MergeConflict{
+			Kind:    ConflictDeleteModify,
+			Scope:   ctx.scope,
+			Layer:   ctx.layer,
+			Object:  ctx.object,
+			Target:  ctx.target,
+			Field:   prefix,
+			Message: msg,
+			Base:    toYAMLValue(base),
+			Ours:    toYAMLValue(ours),
+			Theirs:  toYAMLValue(theirs),
+		})
+		return ours.Clone()
+	}
+	b := base
+	if b == nil {
+		b = &ReflectionProbeDoc{}
+	}
+	return &ReflectionProbeDoc{
+		Center:        mergePtr(m, st, ctx, prefix+".center", b.Center, ours.Center, theirs.Center),
+		Size:          mergePtr(m, st, ctx, prefix+".size", b.Size, ours.Size, theirs.Size),
+		BlendDistance: mergeScalar(m, st, ctx, prefix+".blendDistance", b.BlendDistance, ours.BlendDistance, theirs.BlendDistance),
+		Intensity:     mergePtr(m, st, ctx, prefix+".intensity", b.Intensity, ours.Intensity, theirs.Intensity),
+		Priority:      mergeScalar(m, st, ctx, prefix+".priority", b.Priority, ours.Priority, theirs.Priority),
+		BoxProjection: mergePtr(m, st, ctx, prefix+".boxProjection", b.BoxProjection, ours.BoxProjection, theirs.BoxProjection),
+		Resolution:    mergeScalar(m, st, ctx, prefix+".resolution", b.Resolution, ours.Resolution, theirs.Resolution),
+		Cubemap:       mergeScalar(m, st, ctx, prefix+".cubemap", b.Cubemap, ours.Cubemap, theirs.Cubemap),
+	}
+}
+
+func (m *sceneMerger) mergeLightProbeGrid(st *sideTracker, ctx conflictCtx, prefix string, base, ours, theirs *LightProbeGridDoc) *LightProbeGridDoc {
+	if lightProbeGridEqual(ours, theirs) {
+		if !lightProbeGridEqual(ours, base) {
+			st.mark(true, true)
+		}
+		return ours.Clone()
+	}
+	if lightProbeGridEqual(ours, base) {
+		st.mark(false, true)
+		return theirs.Clone()
+	}
+	if lightProbeGridEqual(theirs, base) {
+		st.mark(true, false)
+		return ours.Clone()
+	}
+	if base != nil && (ours == nil || theirs == nil) {
+		msg := "deleted on ours, modified on theirs"
+		if theirs == nil {
+			msg = "modified on ours, deleted on theirs"
+		}
+		m.addConflict(MergeConflict{
+			Kind:    ConflictDeleteModify,
+			Scope:   ctx.scope,
+			Layer:   ctx.layer,
+			Object:  ctx.object,
+			Target:  ctx.target,
+			Field:   prefix,
+			Message: msg,
+			Base:    toYAMLValue(base),
+			Ours:    toYAMLValue(ours),
+			Theirs:  toYAMLValue(theirs),
+		})
+		return ours.Clone()
+	}
+	b := base
+	if b == nil {
+		b = &LightProbeGridDoc{}
+	}
+	return &LightProbeGridDoc{
+		Center:    mergePtr(m, st, ctx, prefix+".center", b.Center, ours.Center, theirs.Center),
+		Size:      mergePtr(m, st, ctx, prefix+".size", b.Size, ours.Size, theirs.Size),
+		Counts:    mergePtr(m, st, ctx, prefix+".counts", b.Counts, ours.Counts, theirs.Counts),
+		Intensity: mergePtr(m, st, ctx, prefix+".intensity", b.Intensity, ours.Intensity, theirs.Intensity),
+		Data:      mergeScalar(m, st, ctx, prefix+".data", b.Data, ours.Data, theirs.Data),
 	}
 }
 func (m *sceneMerger) mergeAnyMap(st *sideTracker, ctx conflictCtx, prefix string, base, ours, theirs map[string]any) map[string]any {
@@ -1825,41 +1924,43 @@ func (m *sceneMerger) mergeLayerMetaFields(st *sideTracker, ctx conflictCtx, b, 
 
 func (m *sceneMerger) mergeObjectFields(st *sideTracker, ctx conflictCtx, b, o, t *ObjectDoc) *ObjectDoc {
 	return &ObjectDoc{
-		ID:         o.ID,
-		Name:       mergeScalar(m, st, ctx, "name", b.Name, o.Name, t.Name),
-		Prefab:     mergeScalar(m, st, ctx, "prefab", b.Prefab, o.Prefab, t.Prefab),
-		X:          mergeScalar(m, st, ctx, "x", b.X, o.X, t.X),
-		Y:          mergeScalar(m, st, ctx, "y", b.Y, o.Y, t.Y),
-		PosZ:       mergeScalar(m, st, ctx, "posZ", b.PosZ, o.PosZ, t.PosZ),
-		OriginX:    mergeScalar(m, st, ctx, "originX", b.OriginX, o.OriginX, t.OriginX),
-		OriginY:    mergeScalar(m, st, ctx, "originY", b.OriginY, o.OriginY, t.OriginY),
-		Rotation:   mergeScalar(m, st, ctx, "rotation", b.Rotation, o.Rotation, t.Rotation),
-		RotX:       mergeScalar(m, st, ctx, "rotX", b.RotX, o.RotX, t.RotX),
-		RotY:       mergeScalar(m, st, ctx, "rotY", b.RotY, o.RotY, t.RotY),
-		RotZ:       mergeScalar(m, st, ctx, "rotZ", b.RotZ, o.RotZ, t.RotZ),
-		ScaleX:     mergePtr(m, st, ctx, "scaleX", b.ScaleX, o.ScaleX, t.ScaleX),
-		ScaleY:     mergePtr(m, st, ctx, "scaleY", b.ScaleY, o.ScaleY, t.ScaleY),
-		ScaleZ:     mergePtr(m, st, ctx, "scaleZ", b.ScaleZ, o.ScaleZ, t.ScaleZ),
-		Depth:      mergeScalar(m, st, ctx, "depth", b.Depth, o.Depth, t.Depth),
-		Mesh:       mergeScalar(m, st, ctx, "mesh", b.Mesh, o.Mesh, t.Mesh),
-		Model:      mergeScalar(m, st, ctx, "model", b.Model, o.Model, t.Model),
-		ModelNode:  mergeScalar(m, st, ctx, "modelNode", b.ModelNode, o.ModelNode, t.ModelNode),
-		ModelMesh:  mergeScalar(m, st, ctx, "modelMesh", b.ModelMesh, o.ModelMesh, t.ModelMesh),
-		GridMap:    mergeScalar(m, st, ctx, "gridMap", b.GridMap, o.GridMap, t.GridMap),
-		Occluder:   m.mergeOccluder(st, ctx, "occluder", b.Occluder, o.Occluder, t.Occluder),
-		FlipX:      mergeScalar(m, st, ctx, "flipX", b.FlipX, o.FlipX, t.FlipX),
-		FlipY:      mergeScalar(m, st, ctx, "flipY", b.FlipY, o.FlipY, t.FlipY),
-		Alpha:      mergePtr(m, st, ctx, "alpha", b.Alpha, o.Alpha, t.Alpha),
-		Z:          mergeScalar(m, st, ctx, "z", b.Z, o.Z, t.Z),
-		Sprite:     m.mergeSprite(st, ctx, "sprite", b.Sprite, o.Sprite, t.Sprite),
-		Material:   mergeScalar(m, st, ctx, "material", b.Material, o.Material, t.Material),
-		Particles:  m.mergeParticles(st, ctx, "particles", b.Particles, o.Particles, t.Particles),
-		Light:      m.mergeLight(st, ctx, "light", b.Light, o.Light, t.Light),
-		Camera:     m.mergeCamera3D(st, ctx, "camera", b.Camera, o.Camera, t.Camera),
-		Components: m.mergeAnyMap(st, ctx, "components", b.Components, o.Components, t.Components),
-		Properties: m.mergeAnyMap(st, ctx, "properties", b.Properties, o.Properties, t.Properties),
-		Scene:      mergeScalar(m, st, ctx, "scene", b.Scene, o.Scene, t.Scene),
-		Overrides:  m.mergeObjectOverrides(st, ctx, "overrides", b.Overrides, o.Overrides, t.Overrides),
+		ID:              o.ID,
+		Name:            mergeScalar(m, st, ctx, "name", b.Name, o.Name, t.Name),
+		Prefab:          mergeScalar(m, st, ctx, "prefab", b.Prefab, o.Prefab, t.Prefab),
+		X:               mergeScalar(m, st, ctx, "x", b.X, o.X, t.X),
+		Y:               mergeScalar(m, st, ctx, "y", b.Y, o.Y, t.Y),
+		PosZ:            mergeScalar(m, st, ctx, "posZ", b.PosZ, o.PosZ, t.PosZ),
+		OriginX:         mergeScalar(m, st, ctx, "originX", b.OriginX, o.OriginX, t.OriginX),
+		OriginY:         mergeScalar(m, st, ctx, "originY", b.OriginY, o.OriginY, t.OriginY),
+		Rotation:        mergeScalar(m, st, ctx, "rotation", b.Rotation, o.Rotation, t.Rotation),
+		RotX:            mergeScalar(m, st, ctx, "rotX", b.RotX, o.RotX, t.RotX),
+		RotY:            mergeScalar(m, st, ctx, "rotY", b.RotY, o.RotY, t.RotY),
+		RotZ:            mergeScalar(m, st, ctx, "rotZ", b.RotZ, o.RotZ, t.RotZ),
+		ScaleX:          mergePtr(m, st, ctx, "scaleX", b.ScaleX, o.ScaleX, t.ScaleX),
+		ScaleY:          mergePtr(m, st, ctx, "scaleY", b.ScaleY, o.ScaleY, t.ScaleY),
+		ScaleZ:          mergePtr(m, st, ctx, "scaleZ", b.ScaleZ, o.ScaleZ, t.ScaleZ),
+		Depth:           mergeScalar(m, st, ctx, "depth", b.Depth, o.Depth, t.Depth),
+		Mesh:            mergeScalar(m, st, ctx, "mesh", b.Mesh, o.Mesh, t.Mesh),
+		Model:           mergeScalar(m, st, ctx, "model", b.Model, o.Model, t.Model),
+		ModelNode:       mergeScalar(m, st, ctx, "modelNode", b.ModelNode, o.ModelNode, t.ModelNode),
+		ModelMesh:       mergeScalar(m, st, ctx, "modelMesh", b.ModelMesh, o.ModelMesh, t.ModelMesh),
+		GridMap:         mergeScalar(m, st, ctx, "gridMap", b.GridMap, o.GridMap, t.GridMap),
+		Occluder:        m.mergeOccluder(st, ctx, "occluder", b.Occluder, o.Occluder, t.Occluder),
+		FlipX:           mergeScalar(m, st, ctx, "flipX", b.FlipX, o.FlipX, t.FlipX),
+		FlipY:           mergeScalar(m, st, ctx, "flipY", b.FlipY, o.FlipY, t.FlipY),
+		Alpha:           mergePtr(m, st, ctx, "alpha", b.Alpha, o.Alpha, t.Alpha),
+		Z:               mergeScalar(m, st, ctx, "z", b.Z, o.Z, t.Z),
+		Sprite:          m.mergeSprite(st, ctx, "sprite", b.Sprite, o.Sprite, t.Sprite),
+		Material:        mergeScalar(m, st, ctx, "material", b.Material, o.Material, t.Material),
+		Particles:       m.mergeParticles(st, ctx, "particles", b.Particles, o.Particles, t.Particles),
+		Light:           m.mergeLight(st, ctx, "light", b.Light, o.Light, t.Light),
+		Camera:          m.mergeCamera3D(st, ctx, "camera", b.Camera, o.Camera, t.Camera),
+		ReflectionProbe: m.mergeReflectionProbe(st, ctx, "reflectionProbe", b.ReflectionProbe, o.ReflectionProbe, t.ReflectionProbe),
+		LightProbeGrid:  m.mergeLightProbeGrid(st, ctx, "lightProbeGrid", b.LightProbeGrid, o.LightProbeGrid, t.LightProbeGrid),
+		Components:      m.mergeAnyMap(st, ctx, "components", b.Components, o.Components, t.Components),
+		Properties:      m.mergeAnyMap(st, ctx, "properties", b.Properties, o.Properties, t.Properties),
+		Scene:           mergeScalar(m, st, ctx, "scene", b.Scene, o.Scene, t.Scene),
+		Overrides:       m.mergeObjectOverrides(st, ctx, "overrides", b.Overrides, o.Overrides, t.Overrides),
 	}
 }
 
@@ -2213,6 +2314,31 @@ func camera3DEqual(a, b *Camera3DDoc) bool {
 		a.Current == b.Current
 }
 
+func reflectionProbeEqual(a, b *ReflectionProbeDoc) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return ptrEqual(a.Center, b.Center) &&
+		ptrEqual(a.Size, b.Size) &&
+		a.BlendDistance == b.BlendDistance &&
+		ptrEqual(a.Intensity, b.Intensity) &&
+		a.Priority == b.Priority &&
+		ptrEqual(a.BoxProjection, b.BoxProjection) &&
+		a.Resolution == b.Resolution &&
+		a.Cubemap == b.Cubemap
+}
+
+func lightProbeGridEqual(a, b *LightProbeGridDoc) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return ptrEqual(a.Center, b.Center) &&
+		ptrEqual(a.Size, b.Size) &&
+		ptrEqual(a.Counts, b.Counts) &&
+		ptrEqual(a.Intensity, b.Intensity) &&
+		a.Data == b.Data
+}
+
 func tilemapEqual(a, b *TilemapDoc) bool {
 	if a == nil || b == nil {
 		return a == b
@@ -2322,6 +2448,8 @@ func objectOverrideEqual(a, b ObjectOverride) bool {
 		particlesEqual(a.Particles, b.Particles) &&
 		lightEqual(a.Light, b.Light) &&
 		camera3DEqual(a.Camera, b.Camera) &&
+		reflectionProbeEqual(a.ReflectionProbe, b.ReflectionProbe) &&
+		lightProbeGridEqual(a.LightProbeGrid, b.LightProbeGrid) &&
 		anyMapEqual(a.Components, b.Components) &&
 		anyMapEqual(a.Properties, b.Properties)
 }
@@ -2361,6 +2489,8 @@ func objectOwnEqual(a, b *ObjectDoc) bool {
 		particlesEqual(a.Particles, b.Particles) &&
 		lightEqual(a.Light, b.Light) &&
 		camera3DEqual(a.Camera, b.Camera) &&
+		reflectionProbeEqual(a.ReflectionProbe, b.ReflectionProbe) &&
+		lightProbeGridEqual(a.LightProbeGrid, b.LightProbeGrid) &&
 		anyMapEqual(a.Components, b.Components) &&
 		anyMapEqual(a.Properties, b.Properties) &&
 		a.Scene == b.Scene &&
@@ -2459,38 +2589,40 @@ func cloneLayerOverride(o LayerOverride) LayerOverride {
 
 func cloneObjectOverride(o ObjectOverride) ObjectOverride {
 	return ObjectOverride{
-		Name:       clonePtr(o.Name),
-		Prefab:     clonePtr(o.Prefab),
-		X:          clonePtr(o.X),
-		Y:          clonePtr(o.Y),
-		PosZ:       clonePtr(o.PosZ),
-		OriginX:    clonePtr(o.OriginX),
-		OriginY:    clonePtr(o.OriginY),
-		Rotation:   clonePtr(o.Rotation),
-		RotX:       clonePtr(o.RotX),
-		RotY:       clonePtr(o.RotY),
-		RotZ:       clonePtr(o.RotZ),
-		ScaleX:     clonePtr(o.ScaleX),
-		ScaleY:     clonePtr(o.ScaleY),
-		ScaleZ:     clonePtr(o.ScaleZ),
-		Depth:      clonePtr(o.Depth),
-		Mesh:       clonePtr(o.Mesh),
-		Model:      clonePtr(o.Model),
-		ModelNode:  clonePtr(o.ModelNode),
-		ModelMesh:  clonePtr(o.ModelMesh),
-		GridMap:    clonePtr(o.GridMap),
-		Occluder:   cloneOccluder(o.Occluder),
-		FlipX:      clonePtr(o.FlipX),
-		FlipY:      clonePtr(o.FlipY),
-		Alpha:      clonePtr(o.Alpha),
-		Z:          clonePtr(o.Z),
-		Sprite:     cloneSprite(o.Sprite),
-		Material:   clonePtr(o.Material),
-		Particles:  cloneParticles(o.Particles),
-		Light:      o.Light.Clone(),
-		Camera:     o.Camera.Clone(),
-		Components: cloneAnyMap(o.Components),
-		Properties: cloneAnyMap(o.Properties),
+		Name:            clonePtr(o.Name),
+		Prefab:          clonePtr(o.Prefab),
+		X:               clonePtr(o.X),
+		Y:               clonePtr(o.Y),
+		PosZ:            clonePtr(o.PosZ),
+		OriginX:         clonePtr(o.OriginX),
+		OriginY:         clonePtr(o.OriginY),
+		Rotation:        clonePtr(o.Rotation),
+		RotX:            clonePtr(o.RotX),
+		RotY:            clonePtr(o.RotY),
+		RotZ:            clonePtr(o.RotZ),
+		ScaleX:          clonePtr(o.ScaleX),
+		ScaleY:          clonePtr(o.ScaleY),
+		ScaleZ:          clonePtr(o.ScaleZ),
+		Depth:           clonePtr(o.Depth),
+		Mesh:            clonePtr(o.Mesh),
+		Model:           clonePtr(o.Model),
+		ModelNode:       clonePtr(o.ModelNode),
+		ModelMesh:       clonePtr(o.ModelMesh),
+		GridMap:         clonePtr(o.GridMap),
+		Occluder:        cloneOccluder(o.Occluder),
+		FlipX:           clonePtr(o.FlipX),
+		FlipY:           clonePtr(o.FlipY),
+		Alpha:           clonePtr(o.Alpha),
+		Z:               clonePtr(o.Z),
+		Sprite:          cloneSprite(o.Sprite),
+		Material:        clonePtr(o.Material),
+		Particles:       cloneParticles(o.Particles),
+		Light:           o.Light.Clone(),
+		Camera:          o.Camera.Clone(),
+		ReflectionProbe: o.ReflectionProbe.Clone(),
+		LightProbeGrid:  o.LightProbeGrid.Clone(),
+		Components:      cloneAnyMap(o.Components),
+		Properties:      cloneAnyMap(o.Properties),
 	}
 }
 
@@ -2508,6 +2640,8 @@ func cloneObjectOwn(o *ObjectDoc) *ObjectDoc {
 	cp.Particles = cloneParticles(o.Particles)
 	cp.Light = o.Light.Clone()
 	cp.Camera = o.Camera.Clone()
+	cp.ReflectionProbe = o.ReflectionProbe.Clone()
+	cp.LightProbeGrid = o.LightProbeGrid.Clone()
 	cp.Components = cloneAnyMap(o.Components)
 	cp.Properties = cloneAnyMap(o.Properties)
 	if len(o.Overrides) > 0 {

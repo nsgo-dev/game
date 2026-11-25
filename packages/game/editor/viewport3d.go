@@ -676,37 +676,45 @@ type drag3DTarget struct {
 }
 
 type drag3DState struct {
-	kind           drag3DKind
-	handle         Handle3DKind
-	objectID       string
-	targets        []drag3DTarget // non-empty when dragging >1 selected objects
-	mode           GizmoMode3D
-	axis           GizmoAxis3D
-	startSX        float32
-	startSY        float32
-	lastSX         float32
-	lastSY         float32
-	vpW            float32
-	vpH            float32
-	gizmoLen       float32
-	startTransform Transform3D
-	startLight     *sceneformat.LightDoc
-	startCamera    *sceneformat.Camera3DDoc
+	kind                 drag3DKind
+	handle               Handle3DKind
+	objectID             string
+	targets              []drag3DTarget // non-empty when dragging >1 selected objects
+	mode                 GizmoMode3D
+	axis                 GizmoAxis3D
+	startSX              float32
+	startSY              float32
+	lastSX               float32
+	lastSY               float32
+	vpW                  float32
+	vpH                  float32
+	gizmoLen             float32
+	startTransform       Transform3D
+	startLight           *sceneformat.LightDoc
+	startCamera          *sceneformat.Camera3DDoc
+	startReflectionProbe *sceneformat.ReflectionProbeDoc
+	startLightProbeGrid  *sceneformat.LightProbeGridDoc
 	// startPos is where the object's origin sat in world space as the drag began, and parentInv maps world space to its parent's space, the identity for a top-level object.
-	startPos      [3]float64
-	parentInv     aff3
-	startAxisT    float64
-	hasAxisT      bool
-	prevRingVec   [3]float64
-	hasRingVec    bool
-	accumAngle    float64
-	handleAxis    [3]float64
-	handleRight   [3]float64
-	handleUp      [3]float64
-	handleFwd     [3]float64
-	handlePlanePt [3]float64
-	handlePlaneN  [3]float64
-	handleBaseLen float64
+	startPos           [3]float64
+	parentInv          aff3
+	startAxisT         float64
+	hasAxisT           bool
+	prevRingVec        [3]float64
+	hasRingVec         bool
+	accumAngle         float64
+	handleAxis         [3]float64
+	handleRight        [3]float64
+	handleUp           [3]float64
+	handleFwd          [3]float64
+	handlePlanePt      [3]float64
+	handlePlaneN       [3]float64
+	handleBaseLen      float64
+	handleBoundsCenter [3]float64
+	handleBoundsSize   [3]float64
+	handleBoundsAxis   int
+	handleBoundsSign   float64
+	handleBoundsScale  float64
+	handleBoundsIsRefl bool
 
 	// Collider size-handle drag state (active when mode == Gizmo3DCollider).
 	colliderComp         string

@@ -94,6 +94,10 @@ type Built struct {
 	Lights []*Light
 	// Cameras are the scene's 3D camera objects in depth-first document order, linked to their scene3d nodes.
 	Cameras []*Camera
+	// ReflectionProbes are the scene's 3D reflection probe objects in depth-first document order, linked to their scene3d nodes and any loaded baked cubemaps.
+	ReflectionProbes []*ReflectionProbe
+	// LightProbeGrids are the scene's 3D light probe grid objects in depth-first document order, linked to their scene3d nodes and any loaded baked SH irradiance grids.
+	LightProbeGrids []*LightProbeGrid
 	// Environment holds the resolved sky, ambient/IBL lighting, fog, tone mapping and exposure from SceneDoc.Environment.
 	Environment Environment
 	// Meshes and Materials count the distinct MeshID and MaterialID values the parts use.
@@ -218,6 +222,12 @@ func (b *builder) object(o *sceneformat.ObjectDoc, n *scene3d.Node) error {
 	}
 	if o.Camera != nil {
 		b.built.Cameras = append(b.built.Cameras, &Camera{Node: n, Object: o.ID, Doc: *o.Camera.Clone()})
+	}
+	if err := b.buildReflectionProbe(o, n); err != nil {
+		return err
+	}
+	if err := b.buildLightProbeGrid(o, n); err != nil {
+		return err
 	}
 	switch {
 	case o.Mesh != "":

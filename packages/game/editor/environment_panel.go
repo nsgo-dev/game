@@ -56,6 +56,20 @@ func EnvironmentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 								Gap: 6,
 								Children: []core.Node{
 									ui.Button{
+										TestID:  "env-bake-probes",
+										Text:    "Bake Probes",
+										Size:    ui.SizeSmall,
+										Variant: ui.ButtonPrimary,
+										Disabled: func() bool {
+											_ = rev.Get()
+											return ed.Playing() || !ed.HasProbes3D()
+										},
+										OnPress: func() {
+											_, err := ed.BakeAllProbes3D()
+											ed.report(err)
+										},
+									},
+									ui.Button{
 										TestID:  "env-clear",
 										Text:    "Reset",
 										Size:    ui.SizeSmall,

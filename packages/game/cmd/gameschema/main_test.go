@@ -17,6 +17,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/particles"
 	"github.com/nsgo-dev/game/packages/game/playtest"
 	"github.com/nsgo-dev/game/packages/game/project"
+	"github.com/nsgo-dev/game/packages/game/render3d"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/game/packages/game/tooling/jsonschema"
 	"github.com/nsgo-dev/game/packages/game/voxel"
@@ -232,13 +233,13 @@ func TestSceneSchemaV4Shape(t *testing.T) {
 		if def == nil {
 			t.Fatalf("version 4 lacks %s", name)
 		}
-		for _, key := range []string{"light", "camera"} {
+		for _, key := range []string{"light", "camera", "reflectionProbe", "lightProbeGrid"} {
 			if p := def.Property(key); p == nil || p.Description == "" {
 				t.Errorf("version 4 %s.%s = %+v, want one with a description", name, key, p)
 			}
 		}
 	}
-	for _, name := range []string{"EnvironmentDoc", "SkyDoc", "FogDoc", "LightDoc", "Camera3DDoc"} {
+	for _, name := range []string{"EnvironmentDoc", "SkyDoc", "FogDoc", "LightDoc", "Camera3DDoc", "ReflectionProbeDoc", "LightProbeGridDoc"} {
 		def := s.Definitions[name]
 		if def == nil || def.Description == "" {
 			t.Fatalf("version 4 definition %s = %+v, want one with a description", name, def)
@@ -580,6 +581,31 @@ func TestNavMeshSchemaShapeAndValidation(t *testing.T) {
 	} {
 		if err := s.ValidateYAML([]byte(bad)); err == nil {
 			t.Fatalf("navmesh schema accepted invalid YAML:\n%s", bad)
+		}
+	}
+}
+
+func TestLightProbeGridSchemaShapeAndValidation(t *testing.T) {
+	s := schemaAt(t, render3d.LightProbeGridSchemaURL)
+	if version := s.Property("version"); version == nil || version.Const != int64(render3d.LightProbeGridVersion) {
+		t.Fatalf("version property = %+v", version)
+	}
+	if b, ok := s.AdditionalProperties.Boolean(); !ok || b {
+		t.Fatal("lightprobes schema accepts unknown top-level keys")
+	}
+	data, err := os.ReadFile(filepath.Join(root, "render3d", "testdata", "room.probes.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ValidateYAML(data); err != nil {
+		t.Fatalf("lightprobes schema refused room.probes.yaml: %v", err)
+	}
+	for _, bad := range []string{
+		"version: 1\nunknownKey: true\n",
+		"version: 2\nboundsMin: [0, 0, 0]\nboundsMax: [1, 1, 1]\ncounts: [1, 1, 1]\nprobes: []\n",
+	} {
+		if err := s.ValidateYAML([]byte(bad)); err == nil {
+			t.Fatalf("lightprobes schema accepted invalid YAML:\n%s", bad)
 		}
 	}
 }

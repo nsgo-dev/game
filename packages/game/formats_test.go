@@ -155,6 +155,7 @@ var formatVersions = map[string]string{
 	"quest.FormatVersion":                     "quest",
 	"quest.SnapshotVersion":                   "quest#snapshot",
 	"refs.IndexVersion":                       "refs",
+	"render3d.LightProbeGridVersion":          "render3d#lightprobes",
 	"replay.FormatVersion":                    "replay",
 	"resource.CurrentVersion":                 "resource",
 	"rhythm.BeatMapVersion":                   "rhythm",

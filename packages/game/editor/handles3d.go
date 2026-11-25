@@ -27,6 +27,18 @@ const (
 	Handle3DCameraFOV
 	// Handle3DCameraFar edits a 3D camera's far clip plane distance.
 	Handle3DCameraFar
+	// Handle3DProbeBoundsPosX edits the +X face of a selected reflection probe or light probe grid's bounds box.
+	Handle3DProbeBoundsPosX
+	// Handle3DProbeBoundsNegX edits the -X face of a selected reflection probe or light probe grid's bounds box.
+	Handle3DProbeBoundsNegX
+	// Handle3DProbeBoundsPosY edits the +Y face of a selected reflection probe or light probe grid's bounds box.
+	Handle3DProbeBoundsPosY
+	// Handle3DProbeBoundsNegY edits the -Y face of a selected reflection probe or light probe grid's bounds box.
+	Handle3DProbeBoundsNegY
+	// Handle3DProbeBoundsPosZ edits the +Z face of a selected reflection probe or light probe grid's bounds box.
+	Handle3DProbeBoundsPosZ
+	// Handle3DProbeBoundsNegZ edits the -Z face of a selected reflection probe or light probe grid's bounds box.
+	Handle3DProbeBoundsNegZ
 )
 
 // String returns a human-readable label for the handle kind.
@@ -44,9 +56,59 @@ func (h Handle3DKind) String() string {
 		return "Camera FOV"
 	case Handle3DCameraFar:
 		return "Camera Far"
+	case Handle3DProbeBoundsPosX:
+		return "Probe Bounds +X"
+	case Handle3DProbeBoundsNegX:
+		return "Probe Bounds -X"
+	case Handle3DProbeBoundsPosY:
+		return "Probe Bounds +Y"
+	case Handle3DProbeBoundsNegY:
+		return "Probe Bounds -Y"
+	case Handle3DProbeBoundsPosZ:
+		return "Probe Bounds +Z"
+	case Handle3DProbeBoundsNegZ:
+		return "Probe Bounds -Z"
 	default:
 		return "None"
 	}
+}
+
+func probeBoundsHandleAxis(kind Handle3DKind) (axis int, sign float64, ok bool) {
+	switch kind {
+	case Handle3DProbeBoundsPosX:
+		return 0, +1, true
+	case Handle3DProbeBoundsNegX:
+		return 0, -1, true
+	case Handle3DProbeBoundsPosY:
+		return 1, +1, true
+	case Handle3DProbeBoundsNegY:
+		return 1, -1, true
+	case Handle3DProbeBoundsPosZ:
+		return 2, +1, true
+	case Handle3DProbeBoundsNegZ:
+		return 2, -1, true
+	default:
+		return 0, 0, false
+	}
+}
+
+func probeLocalBox3D(o *sceneformat.ObjectDoc) (center, size [3]float64, isRefl bool, ok bool) {
+	if o == nil {
+		return center, size, false, false
+	}
+	if o.ReflectionProbe != nil {
+		c := o.ReflectionProbe.EffectiveCenter()
+		s := o.ReflectionProbe.EffectiveSize()
+		return [3]float64{float64(c[0]), float64(c[1]), float64(c[2])},
+			[3]float64{float64(s[0]), float64(s[1]), float64(s[2])}, true, true
+	}
+	if o.LightProbeGrid != nil {
+		c := o.LightProbeGrid.EffectiveCenter()
+		s := o.LightProbeGrid.EffectiveSize()
+		return [3]float64{float64(c[0]), float64(c[1]), float64(c[2])},
+			[3]float64{float64(s[0]), float64(s[1]), float64(s[2])}, false, true
+	}
+	return center, size, false, false
 }
 
 const (
@@ -314,6 +376,20 @@ func (e *Editor) HandlePosition3D(kind Handle3DKind) ([3]float32, bool) {
 		}
 		far := float64(obj.Camera.EffectiveFar())
 		return vec32(add64(pos64, scale64(fwd, far))), true
+
+	case Handle3DProbeBoundsPosX, Handle3DProbeBoundsNegX,
+		Handle3DProbeBoundsPosY, Handle3DProbeBoundsNegY,
+		Handle3DProbeBoundsPosZ, Handle3DProbeBoundsNegZ:
+		axis, sign, _ := probeBoundsHandleAxis(kind)
+		center, size, _, has := probeLocalBox3D(obj)
+		if !has {
+			return [3]float32{}, false
+		}
+		posed := e.posed3D(obj)
+		world := e.parentWorld3D(obj.ID).mul(local3(posed))
+		pt := center
+		pt[axis] += sign * size[axis] * 0.5
+		return vec32(world.point(pt)), true
 	}
 	return [3]float32{}, false
 }
@@ -336,6 +412,13 @@ func (e *Editor) availableHandles3D(obj *sceneformat.ObjectDoc) []Handle3DKind {
 	}
 	if obj.Camera != nil {
 		kinds = append(kinds, Handle3DCameraFOV, Handle3DCameraFar)
+	}
+	if obj.ReflectionProbe != nil || obj.LightProbeGrid != nil {
+		kinds = append(kinds,
+			Handle3DProbeBoundsPosX, Handle3DProbeBoundsNegX,
+			Handle3DProbeBoundsPosY, Handle3DProbeBoundsNegY,
+			Handle3DProbeBoundsPosZ, Handle3DProbeBoundsNegZ,
+		)
 	}
 	return kinds
 }
@@ -430,24 +513,26 @@ func (e *Editor) BeginHandleDragKind3D(kind Handle3DKind, sx, sy, w, h float32) 
 	orig, dir := vec64(orig32), vec64(dir32)
 
 	st := drag3DState{
-		kind:           drag3DHandle,
-		handle:         kind,
-		objectID:       obj.ID,
-		startSX:        sx,
-		startSY:        sy,
-		lastSX:         sx,
-		lastSY:         sy,
-		vpW:            w,
-		vpH:            h,
-		gizmoLen:       e.GizmoLength3D(pos32),
-		startTransform: captureTransform3D(obj),
-		startLight:     obj.Light.Clone(),
-		startCamera:    obj.Camera.Clone(),
-		startPos:       pos64,
-		parentInv:      parentInv,
-		handleRight:    right,
-		handleUp:       up,
-		handleFwd:      fwd,
+		kind:                 drag3DHandle,
+		handle:               kind,
+		objectID:             obj.ID,
+		startSX:              sx,
+		startSY:              sy,
+		lastSX:               sx,
+		lastSY:               sy,
+		vpW:                  w,
+		vpH:                  h,
+		gizmoLen:             e.GizmoLength3D(pos32),
+		startTransform:       captureTransform3D(obj),
+		startLight:           obj.Light.Clone(),
+		startCamera:          obj.Camera.Clone(),
+		startReflectionProbe: obj.ReflectionProbe.Clone(),
+		startLightProbeGrid:  obj.LightProbeGrid.Clone(),
+		startPos:             pos64,
+		parentInv:            parentInv,
+		handleRight:          right,
+		handleUp:             up,
+		handleFwd:            fwd,
 	}
 
 	switch kind {
@@ -498,6 +583,43 @@ func (e *Editor) BeginHandleDragKind3D(kind Handle3DKind, sx, sy, w, h float32) 
 		st.handleAxis = fwd
 		st.handleBaseLen = float64(obj.Camera.EffectiveFar())
 		if t, ok := closestParamOnAxisLine64(pos64, fwd, orig, dir); ok {
+			st.startAxisT = t
+			st.hasAxisT = true
+		}
+
+	case Handle3DProbeBoundsPosX, Handle3DProbeBoundsNegX,
+		Handle3DProbeBoundsPosY, Handle3DProbeBoundsNegY,
+		Handle3DProbeBoundsPosZ, Handle3DProbeBoundsNegZ:
+		axis, sign, _ := probeBoundsHandleAxis(kind)
+		center, size, isRefl, has := probeLocalBox3D(obj)
+		if !has {
+			return false
+		}
+		posed := e.posed3D(obj)
+		world := e.parentWorld3D(obj.ID).mul(local3(posed))
+		var localAxis [3]float64
+		localAxis[axis] = 1
+		worldVec := world.vector(localAxis)
+		axisScale := len64(worldVec)
+		worldAxis := localAxis
+		if axisScale > 1e-6 {
+			worldAxis = normalize64(worldVec)
+		} else {
+			axisScale = 1
+		}
+		faceLocal := center
+		faceLocal[axis] += sign * size[axis] * 0.5
+		faceWorld := world.point(faceLocal)
+		st.handleAxis = worldAxis
+		st.handlePlanePt = faceWorld
+		st.handleBaseLen = math.Max(size[axis]*axisScale, 1)
+		st.handleBoundsCenter = center
+		st.handleBoundsSize = size
+		st.handleBoundsAxis = axis
+		st.handleBoundsSign = sign
+		st.handleBoundsScale = axisScale
+		st.handleBoundsIsRefl = isRefl
+		if t, ok := closestParamOnAxisLine64(faceWorld, worldAxis, orig, dir); ok {
 			st.startAxisT = t
 			st.hasAxisT = true
 		}
@@ -636,6 +758,55 @@ func (e *Editor) UpdateHandleDrag3D(sx, sy float32) {
 		minFar := float64(obj.Camera.EffectiveNear()) + 0.1
 		newFar := clamp64(st.handleBaseLen+delta, minFar, 100000)
 		obj.Camera.Far = sceneformat.Float32(float32(math.Round(newFar*100) / 100))
+
+	case Handle3DProbeBoundsPosX, Handle3DProbeBoundsNegX,
+		Handle3DProbeBoundsPosY, Handle3DProbeBoundsNegY,
+		Handle3DProbeBoundsPosZ, Handle3DProbeBoundsNegZ:
+		deltaWorld := axisDelta(st.handlePlanePt, st.handleAxis)
+		scale := st.handleBoundsScale
+		if scale < 1e-6 {
+			scale = 1
+		}
+		deltaLocal := deltaWorld / scale
+		axis := st.handleBoundsAxis
+		lo := st.handleBoundsCenter[axis] - st.handleBoundsSize[axis]*0.5
+		hi := st.handleBoundsCenter[axis] + st.handleBoundsSize[axis]*0.5
+		if st.handleBoundsSign > 0 {
+			hi = math.Max(lo+0.1, hi+deltaLocal)
+		} else {
+			lo = math.Min(hi-0.1, lo+deltaLocal)
+		}
+		newSize := math.Max(0.1, math.Round((hi-lo)*100)/100)
+		newCenter := math.Round(((lo+hi)*0.5)*100) / 100
+		c3 := [3]float32{
+			float32(st.handleBoundsCenter[0]),
+			float32(st.handleBoundsCenter[1]),
+			float32(st.handleBoundsCenter[2]),
+		}
+		s3 := [3]float32{
+			float32(st.handleBoundsSize[0]),
+			float32(st.handleBoundsSize[1]),
+			float32(st.handleBoundsSize[2]),
+		}
+		c3[axis] = float32(newCenter)
+		s3[axis] = float32(newSize)
+		var cPtr *[3]float32
+		if c3 != ([3]float32{}) {
+			cPtr = &c3
+		}
+		if st.handleBoundsIsRefl {
+			if obj.ReflectionProbe == nil || st.startReflectionProbe == nil {
+				return
+			}
+			obj.ReflectionProbe.Center = cPtr
+			obj.ReflectionProbe.Size = &s3
+		} else {
+			if obj.LightProbeGrid == nil || st.startLightProbeGrid == nil {
+				return
+			}
+			obj.LightProbeGrid.Center = cPtr
+			obj.LightProbeGrid.Size = &s3
+		}
 	}
 
 	st.lastSX = sx
@@ -694,12 +865,34 @@ func (e *Editor) EndHandleDrag3D() bool {
 			return false
 		}
 		return true
+
+	case Handle3DProbeBoundsPosX, Handle3DProbeBoundsNegX,
+		Handle3DProbeBoundsPosY, Handle3DProbeBoundsNegY,
+		Handle3DProbeBoundsPosZ, Handle3DProbeBoundsNegZ:
+		if st.handleBoundsIsRefl {
+			after := obj.ReflectionProbe.Clone()
+			obj.ReflectionProbe = st.startReflectionProbe.Clone()
+			if err := e.SetObjectReflectionProbe(st.objectID, after); err != nil {
+				e.Rebuild()
+				e.notify()
+				return false
+			}
+			return true
+		}
+		after := obj.LightProbeGrid.Clone()
+		obj.LightProbeGrid = st.startLightProbeGrid.Clone()
+		if err := e.SetObjectLightProbeGrid(st.objectID, after); err != nil {
+			e.Rebuild()
+			e.notify()
+			return false
+		}
+		return true
 	}
 	e.notify()
 	return false
 }
 
-// CancelHandleDrag3D aborts any active light/camera handle drag and restores the pre-drag values.
+// CancelHandleDrag3D aborts any active light/camera/probe handle drag and restores the pre-drag values.
 func (e *Editor) CancelHandleDrag3D() {
 	if e == nil || e.drag3D.kind != drag3DHandle {
 		return
@@ -710,6 +903,8 @@ func (e *Editor) CancelHandleDrag3D() {
 		applyTransform3D(obj, st.startTransform)
 		obj.Light = st.startLight.Clone()
 		obj.Camera = st.startCamera.Clone()
+		obj.ReflectionProbe = st.startReflectionProbe.Clone()
+		obj.LightProbeGrid = st.startLightProbeGrid.Clone()
 		e.Rebuild()
 	}
 	e.notify()
@@ -723,15 +918,15 @@ func eulerFromForward64(d [3]float64) (rx, ry float64) {
 	return rx, ry
 }
 
-// isLightOrCameraOnly3D reports whether o has a 3D light or camera and draws no mesh, model or sprite.
+// isLightOrCameraOnly3D reports whether o has a 3D light, camera, reflection probe, or light probe grid and draws no mesh, model or sprite.
 func isLightOrCameraOnly3D(o *sceneformat.ObjectDoc) bool {
-	if o == nil || (o.Light == nil && o.Camera == nil) {
+	if o == nil || (o.Light == nil && o.Camera == nil && o.ReflectionProbe == nil && o.LightProbeGrid == nil) {
 		return false
 	}
 	return o.Mesh == "" && o.Model == "" && o.Sprite == nil && o.Scene == ""
 }
 
-// pickIcon3D checks whether viewport pixel (sx, sy) hits a visible light or 3D camera icon.
+// pickIcon3D checks whether viewport pixel (sx, sy) hits a visible light, 3D camera, or probe icon.
 // Returns the flat 3D object index (Objects3D's) of the closest hit icon.
 func (e *Editor) pickIcon3D(sx, sy, w, h float32) (int, bool) {
 	if e == nil || e.Doc == nil || w <= 0 || h <= 0 {
@@ -754,7 +949,7 @@ func (e *Editor) pickIcon3D(sx, sy, w, h float32) (int, bool) {
 				o := &objs[oi]
 				posed := e.posed3D(o)
 				skipped := skip || e.hidden[o.ID] || e.locked[o.ID]
-				if visible && !skipped && (posed.Light != nil || posed.Camera != nil) && o.ID != activeCamID {
+				if visible && !skipped && (posed.Light != nil || posed.Camera != nil || posed.ReflectionProbe != nil || posed.LightProbeGrid != nil) && o.ID != activeCamID {
 					pos := vec32(parent.point([3]float64{float64(posed.X), float64(posed.Y), float64(posed.PosZ)}))
 					if px, py, depth, vis := vc.project(pos, w, h); vis {
 						if math.Hypot(float64(sx-px), float64(sy-py)) <= float64(icon3DHitRadius) && depth < bestDepth {
@@ -807,6 +1002,18 @@ func (e *Editor) drawSceneLightAndCameraIcons3D(d *core.Drawing, w, h float32) {
 					pos := vec32(world.point([3]float64{0, 0, 0}))
 					if px, py, _, vis := vc.project(pos, w, h); vis {
 						drawCameraIcon2D(d, px, py, posed.Camera, selected)
+					}
+				}
+				if posed.ReflectionProbe != nil {
+					pos := vec32(world.point([3]float64{0, 0, 0}))
+					if px, py, _, vis := vc.project(pos, w, h); vis {
+						drawReflectionProbeIcon2D(d, px, py, posed.ReflectionProbe, selected)
+					}
+				}
+				if posed.LightProbeGrid != nil {
+					pos := vec32(world.point([3]float64{0, 0, 0}))
+					if px, py, _, vis := vc.project(pos, w, h); vis {
+						drawLightProbeGridIcon2D(d, px, py, posed.LightProbeGrid, selected)
 					}
 				}
 				walk(o.Children, world)
@@ -887,8 +1094,44 @@ func drawCameraIcon2D(d *core.Drawing, x, y float32, c *sceneformat.Camera3DDoc,
 		Fill().Restore()
 }
 
+func drawReflectionProbeIcon2D(d *core.Drawing, x, y float32, p *sceneformat.ReflectionProbeDoc, selected bool) {
+	col := core.RGBA(0x22D3EE, 1)
+	if p != nil && p.Cubemap == "" {
+		col = core.RGBA(0x94A3B8, 1)
+	}
+	ring := core.RGBA(0x0F172A, 0.85)
+	if selected {
+		ring = core.RGBA(0x38BDF8, 1)
+	}
+	d.Save().SetFillColor(core.RGBA(0x0F172A, 0.72)).BeginPath().Arc(x, y, 10, 0, float32(2*math.Pi), false).Fill().Restore()
+	d.Save().SetStrokeColor(ring).SetLineWidth(1.75).BeginPath().Arc(x, y, 10, 0, float32(2*math.Pi), false).Stroke().Restore()
+	// Chrome sphere badge with specular highlight dot.
+	d.Save().SetFillColor(col).BeginPath().Arc(x, y, 5.5, 0, float32(2*math.Pi), false).Fill().Restore()
+	d.Save().SetFillColor(core.RGBA(0xFFFFFF, 0.9)).BeginPath().Arc(x-1.8, y-1.8, 1.8, 0, float32(2*math.Pi), false).Fill().Restore()
+}
+
+func drawLightProbeGridIcon2D(d *core.Drawing, x, y float32, g *sceneformat.LightProbeGridDoc, selected bool) {
+	col := core.RGBA(0xF59E0B, 1)
+	if g != nil && g.Data == "" {
+		col = core.RGBA(0xCBD5E1, 1)
+	}
+	ring := core.RGBA(0x0F172A, 0.85)
+	if selected {
+		ring = core.RGBA(0x38BDF8, 1)
+	}
+	d.Save().SetFillColor(core.RGBA(0x0F172A, 0.72)).BeginPath().Arc(x, y, 10, 0, float32(2*math.Pi), false).Fill().Restore()
+	d.Save().SetStrokeColor(ring).SetLineWidth(1.75).BeginPath().Arc(x, y, 10, 0, float32(2*math.Pi), false).Stroke().Restore()
+	// 2x2 warm probe dot grid.
+	for _, ox := range [2]float32{-3.2, 3.2} {
+		for _, oy := range [2]float32{-3.2, 3.2} {
+			d.Save().SetFillColor(col).BeginPath().Arc(x+ox, y+oy, 2, 0, float32(2*math.Pi), false).Fill().Restore()
+		}
+	}
+}
+
 // drawSceneHandles3D draws the wireframe helpers (direction arrow, range sphere, spot cones,
-// camera frustum) and interactive draggable handles for the currently selected light or 3D camera.
+// camera frustum, reflection/light probe bounds) and interactive draggable handles for the
+// currently selected light, 3D camera, reflection probe, or light probe grid.
 func (e *Editor) drawSceneHandles3D(d *core.Drawing, w, h float32) {
 	if e == nil || e.playing || e.SelectionCount() != 1 {
 		return
@@ -897,7 +1140,7 @@ func (e *Editor) drawSceneHandles3D(d *core.Drawing, w, h float32) {
 	if obj == nil || e.viewportFrozen(obj.ID) {
 		return
 	}
-	if obj.Light == nil && obj.Camera == nil {
+	if obj.Light == nil && obj.Camera == nil && obj.ReflectionProbe == nil && obj.LightProbeGrid == nil {
 		return
 	}
 	vc := e.activeView3DCam(w, h)
@@ -1105,6 +1348,104 @@ func (e *Editor) drawSceneHandles3D(d *core.Drawing, w, h float32) {
 		}
 		if farTip, ok := e.HandlePosition3D(Handle3DCameraFar); ok {
 			drawHandleKnob(Handle3DCameraFar, farTip, core.RGBA(0xA855F7, 1))
+		}
+	}
+
+	if obj.ReflectionProbe != nil || obj.LightProbeGrid != nil {
+		posed := e.posed3D(obj)
+		world := e.parentWorld3D(obj.ID).mul(local3(posed))
+		boxEdges := [12][2]int{
+			{0, 1}, {1, 2}, {2, 3}, {3, 0},
+			{4, 5}, {5, 6}, {6, 7}, {7, 4},
+			{0, 4}, {1, 5}, {2, 6}, {3, 7},
+		}
+		drawWireBox := func(center, size [3]float64, col core.Color, lw float32) {
+			var corners [8][3]float32
+			for i, s := range boxSigns3D {
+				p := [3]float64{
+					center[0] + s[0]*size[0]*0.5,
+					center[1] + s[1]*size[1]*0.5,
+					center[2] + s[2]*size[2]*0.5,
+				}
+				corners[i] = vec32(world.point(p))
+			}
+			d.Save().SetStrokeColor(col).SetLineWidth(lw).BeginPath()
+			hasSeg := false
+			for _, edge := range boxEdges {
+				if x0, y0, x1, y1, vis := vc.projectSegment(corners[edge[0]], corners[edge[1]], w, h); vis {
+					d.MoveTo(x0, y0).LineTo(x1, y1)
+					hasSeg = true
+				}
+			}
+			if hasSeg {
+				d.Stroke()
+			}
+			d.Restore()
+		}
+
+		if obj.ReflectionProbe != nil {
+			c := obj.ReflectionProbe.EffectiveCenter()
+			sz := obj.ReflectionProbe.EffectiveSize()
+			c64 := [3]float64{float64(c[0]), float64(c[1]), float64(c[2])}
+			s64 := [3]float64{float64(sz[0]), float64(sz[1]), float64(sz[2])}
+			drawWireBox(c64, s64, core.RGBA(0x22D3EE, 0.95), 1.6)
+			if b := float64(obj.ReflectionProbe.BlendDistance); b > 0 {
+				inner := [3]float64{
+					math.Max(0, s64[0]-2*b),
+					math.Max(0, s64[1]-2*b),
+					math.Max(0, s64[2]-2*b),
+				}
+				if inner[0] > 0 && inner[1] > 0 && inner[2] > 0 {
+					drawWireBox(c64, inner, core.RGBA(0x22D3EE, 0.4), 1)
+				}
+			}
+		}
+
+		if obj.LightProbeGrid != nil {
+			c := obj.LightProbeGrid.EffectiveCenter()
+			sz := obj.LightProbeGrid.EffectiveSize()
+			cnt := obj.LightProbeGrid.EffectiveCounts()
+			c64 := [3]float64{float64(c[0]), float64(c[1]), float64(c[2])}
+			s64 := [3]float64{float64(sz[0]), float64(sz[1]), float64(sz[2])}
+			drawWireBox(c64, s64, core.RGBA(0xF59E0B, 0.95), 1.6)
+			if cnt[0]*cnt[1]*cnt[2] <= 512 {
+				sampleCoord := func(i, n int, mid, span float64) float64 {
+					if n <= 1 {
+						return mid
+					}
+					return (mid - span*0.5) + span*(float64(i)/float64(n-1))
+				}
+				dotCol := core.RGBA(0xFBBF24, 0.85)
+				for iz := range cnt[2] {
+					pz := sampleCoord(iz, cnt[2], c64[2], s64[2])
+					for iy := range cnt[1] {
+						py := sampleCoord(iy, cnt[1], c64[1], s64[1])
+						for ix := range cnt[0] {
+							px := sampleCoord(ix, cnt[0], c64[0], s64[0])
+							wp := vec32(world.point([3]float64{px, py, pz}))
+							if sx, sy, _, vis := vc.project(wp, w, h); vis {
+								d.Save().SetFillColor(dotCol).BeginPath().Arc(sx, sy, 2.5, 0, float32(2*math.Pi), false).Fill().Restore()
+							}
+						}
+					}
+				}
+			}
+		}
+
+		for _, hspec := range []struct {
+			kind Handle3DKind
+			col  core.Color
+		}{
+			{Handle3DProbeBoundsPosX, core.RGBA(0xEF4444, 1)},
+			{Handle3DProbeBoundsNegX, core.RGBA(0xEF4444, 1)},
+			{Handle3DProbeBoundsPosY, core.RGBA(0x22C55E, 1)},
+			{Handle3DProbeBoundsNegY, core.RGBA(0x22C55E, 1)},
+			{Handle3DProbeBoundsPosZ, core.RGBA(0x3B82F6, 1)},
+			{Handle3DProbeBoundsNegZ, core.RGBA(0x3B82F6, 1)},
+		} {
+			if hp, ok := e.HandlePosition3D(hspec.kind); ok {
+				drawHandleKnob(hspec.kind, hp, hspec.col)
+			}
 		}
 	}
 }

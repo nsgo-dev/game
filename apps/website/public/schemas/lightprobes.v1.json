@@ -1,0 +1,80 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://game.nsgo.dev/schemas/lightprobes.v1.json",
+  "title": "NSGo game baked light probe grid (version 1)",
+  "description": "LightProbeGridDoc is the versioned YAML document storing a baked [LightProbeGrid]: its world-space axis-aligned bounds, [nx, ny, nz] lattice counts, and nx*ny*nz per-probe L2 spherical harmonic irradiance entries in (iz*ny + iy)*nx + ix order.",
+  "type": "object",
+  "properties": {
+    "version": {
+      "description": "Version is the schema version; it must be [LightProbeGridVersion] (1).",
+      "type": "integer",
+      "const": 1
+    },
+    "boundsMin": {
+      "description": "BoundsMin is the minimum [x, y, z] corner of the grid's world-space AABB.",
+      "type": "array",
+      "items": {
+        "type": "number",
+        "minimum": -3.4028234663852886e+38,
+        "maximum": 3.4028234663852886e+38
+      }
+    },
+    "boundsMax": {
+      "description": "BoundsMax is the maximum [x, y, z] corner of the grid's world-space AABB.",
+      "type": "array",
+      "items": {
+        "type": "number",
+        "minimum": -3.4028234663852886e+38,
+        "maximum": 3.4028234663852886e+38
+      }
+    },
+    "counts": {
+      "description": "Counts holds the [nx, ny, nz] probe counts along the X, Y, and Z axes (each >= 1).",
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": -9223372036854776000,
+        "maximum": 9223372036854776000
+      }
+    },
+    "probes": {
+      "description": "Probes holds the nx*ny*nz baked irradiance probes in (iz*ny + iy)*nx + ix order.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/LightProbeSHDoc"
+      }
+    }
+  },
+  "required": [
+    "version",
+    "boundsMin",
+    "boundsMax",
+    "counts",
+    "probes"
+  ],
+  "additionalProperties": false,
+  "definitions": {
+    "LightProbeSHDoc": {
+      "description": "LightProbeSHDoc stores the 9 RGB L2 spherical harmonic irradiance coefficients of one baked light probe.",
+      "type": "object",
+      "properties": {
+        "sh": {
+          "description": "SH holds the 9 cosine-convolved L2 spherical harmonic RGB coefficients matching [IrradianceSH.Coeff].",
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "minimum": -3.4028234663852886e+38,
+              "maximum": 3.4028234663852886e+38
+            }
+          }
+        }
+      },
+      "required": [
+        "sh"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

@@ -595,6 +595,50 @@
       ],
       "additionalProperties": false
     },
+    "LightProbeGridDoc": {
+      "description": "LightProbeGridDoc configures a 3D light probe grid attached to an object (ObjectDoc.LightProbeGrid). The grid places Counts[0] x Counts[1] x Counts[2] diffuse L2 spherical harmonic irradiance probes uniformly across the axis-aligned volume defined by Center and Size in local space. Version 4.",
+      "type": "object",
+      "properties": {
+        "center": {
+          "description": "Center is the optional local-space center [x, y, z] of the grid volume relative to the object's origin; nil centers it at [0, 0, 0].",
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": -3.4028234663852886e+38,
+            "maximum": 3.4028234663852886e+38
+          }
+        },
+        "size": {
+          "description": "Size is the local-space [width, height, depth] extents of the grid volume; nil defaults to [10, 6, 10]. When set, every axis must be finite and positive.",
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": -3.4028234663852886e+38,
+            "maximum": 3.4028234663852886e+38
+          }
+        },
+        "counts": {
+          "description": "Counts is the number of probes [nx, ny, nz] along X, Y and Z; nil defaults to [3, 2, 3]. Each axis must be positive and nx*ny*nz at most MaxLightProbesPerGrid (4096).",
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": -9223372036854776000,
+            "maximum": 9223372036854776000
+          }
+        },
+        "intensity": {
+          "description": "Intensity scales the grid's diffuse irradiance contribution; nil defaults to 1. Must be finite and non-negative.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "data": {
+          "description": "Data optionally names the baked light probe YAML file by its slash-separated path from the project root, such as \"probes/room.probes.yaml\".",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
     "NavRegion2DComponent": {
       "description": "2D navigation region polygon (walkable area or obstacle cutout) baked into BuiltScene.NavMesh2D via navbake.",
       "type": "object",
@@ -846,6 +890,22 @@
             }
           ]
         },
+        "reflectionProbe": {
+          "description": "ReflectionProbe optionally attaches a local 3D reflection probe volume to this object, capturing reflections from its world position over its influence box. Version 4.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ReflectionProbeDoc"
+            }
+          ]
+        },
+        "lightProbeGrid": {
+          "description": "LightProbeGrid optionally attaches a regular 3D lattice of diffuse L2 spherical harmonic irradiance probes to this object. Version 4.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/LightProbeGridDoc"
+            }
+          ]
+        },
         "components": {
           "description": "Components holds structured component data keyed by component type name.",
           "type": "object",
@@ -1072,6 +1132,22 @@
             }
           ]
         },
+        "reflectionProbe": {
+          "description": "ReflectionProbe replaces the 3D reflection probe attached to the object. Version 4.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ReflectionProbeDoc"
+            }
+          ]
+        },
+        "lightProbeGrid": {
+          "description": "LightProbeGrid replaces the 3D light probe grid attached to the object. Version 4.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/LightProbeGridDoc"
+            }
+          ]
+        },
         "components": {
           "description": "Components replaces the object's components key by key, keeping the others.",
           "type": "object",
@@ -1142,6 +1218,63 @@
       "required": [
         "file"
       ],
+      "additionalProperties": false
+    },
+    "ReflectionProbeDoc": {
+      "description": "ReflectionProbeDoc configures a local 3D reflection probe attached to an object (ObjectDoc.ReflectionProbe). Its cubemap is captured at the object's 3D world position and blended across the axis-aligned influence box defined by Center and Size in local space. Version 4.",
+      "type": "object",
+      "properties": {
+        "center": {
+          "description": "Center is the optional local-space center [x, y, z] of the influence box relative to the object's origin; nil centers it at [0, 0, 0].",
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": -3.4028234663852886e+38,
+            "maximum": 3.4028234663852886e+38
+          }
+        },
+        "size": {
+          "description": "Size is the local-space [width, height, depth] extents of the influence box; nil defaults to [10, 10, 10]. When set, every axis must be finite and positive.",
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": -3.4028234663852886e+38,
+            "maximum": 3.4028234663852886e+38
+          }
+        },
+        "blendDistance": {
+          "description": "BlendDistance is the inward fade width in world units from the influence box faces; 0 gives a sharp boundary. Must be finite and non-negative.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "intensity": {
+          "description": "Intensity scales the probe's reflected radiance; nil defaults to 1. Must be finite and non-negative.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "priority": {
+          "description": "Priority breaks ties when reflection probes overlap; higher values take precedence.",
+          "type": "integer",
+          "minimum": -9223372036854776000,
+          "maximum": 9223372036854776000
+        },
+        "boxProjection": {
+          "description": "BoxProjection enables parallax-corrected ray-AABB reflection lookup when true; nil defaults to true.",
+          "type": "boolean"
+        },
+        "resolution": {
+          "description": "Resolution is the cubemap face edge length in texels used when baking; 0 defaults to 64. Must be in [0, 1024].",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1024
+        },
+        "cubemap": {
+          "description": "Cubemap optionally names the baked cubemap image file by its slash-separated path from the project root, such as \"probes/room_refl.hdr\" (Radiance .hdr or .pic).",
+          "type": "string"
+        }
+      },
       "additionalProperties": false
     },
     "SkyDoc": {

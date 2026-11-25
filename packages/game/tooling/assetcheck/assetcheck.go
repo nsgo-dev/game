@@ -103,6 +103,8 @@ func CheckWith(fsys fs.FS, opts Options) (*Report, error) {
 		statesDocs:  make(map[string]*animclip.StateMachineDoc),
 		particles:   make(map[string]*particles.Config),
 		hdrs:        make(map[string]bool),
+		reflProbes:  make(map[string]bool),
+		probeGrids:  make(map[string]bool),
 		meshLibs:    make(map[string]*meshLibInfo),
 		models:      make(map[string]*gltf.Document),
 		tilesetDocs: make(map[string]*tilemap.TilesetDoc),
@@ -238,6 +240,10 @@ type checker struct {
 	particles map[string]*particles.Config
 	// hdrs marks the Radiance HDR sky files already checked.
 	hdrs map[string]bool
+	// reflProbes marks the baked reflection probe HDR cubemap files already checked.
+	reflProbes map[string]bool
+	// probeGrids marks the baked light probe grid YAML files already checked.
+	probeGrids map[string]bool
 	// meshLibs caches parsed glTF 2.0 mesh libraries referenced by *.gridmap.yaml files.
 	meshLibs map[string]*meshLibInfo
 	// models holds each glTF model loaded so far, nil for one that does not load.

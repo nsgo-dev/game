@@ -142,6 +142,20 @@ func (a scene3DAssets) HDR(path string) (*render3d.HDRImage, error) {
 	return a.files.HDR(path)
 }
 
+// LightProbeGrid loads the baked light probe grid YAML at path through ModelResolver or Resolver when it is a scenemodel.LightProbeGridResolver, and from the project's files otherwise.
+func (a scene3DAssets) LightProbeGrid(path string) (*render3d.LightProbeGrid, error) {
+	if r, ok := a.models.(scenemodel.LightProbeGridResolver); ok {
+		return r.LightProbeGrid(path)
+	}
+	if r, ok := a.resolver.(scenemodel.LightProbeGridResolver); ok {
+		return r.LightProbeGrid(path)
+	}
+	if a.files == nil {
+		return nil, errNoProjectFiles
+	}
+	return a.files.LightProbeGrid(path)
+}
+
 // Scene3D returns the open scene built in 3D by scenemodel.Build, the geometry and materials the 3D viewport draws and picks by, with its nodes posed as the viewport shows them: by the open animation clip at the playhead, by the running game while playing, and with the objects hidden in the editor (SetObjectHidden) and screen-space layers invisible. It returns nil and the error when the scene does not build, such as when a model it names does not load.
 //
 // Models, material files and images load through the editor's Resolver when it implements scenemodel.ModelResolver, sceneformat.MaterialResolver or scenemodel.ImageResolver, and from the open project's files otherwise. A scene that instances or inherits other scene files is resolved first (sceneformat.Resolve), with the Resolver as its sceneformat.SceneResolver. The scene is built again only when what it looks like changes, not when an object moves, so the result stays the same between such edits and its nodes move in place.
@@ -311,6 +325,28 @@ func (e *Editor) sync3D(s *scene3DState) {
 			}
 		}
 	}
+	for _, rp := range built.ReflectionProbes {
+		if rp == nil {
+			continue
+		}
+		if o, _, _ := e.FindObject(rp.Object); o != nil {
+			posed := e.posed3D(o)
+			if posed.ReflectionProbe != nil {
+				rp.Doc = *posed.ReflectionProbe.Clone()
+			}
+		}
+	}
+	for _, g := range built.LightProbeGrids {
+		if g == nil {
+			continue
+		}
+		if o, _, _ := e.FindObject(g.Object); o != nil {
+			posed := e.posed3D(o)
+			if posed.LightProbeGrid != nil {
+				g.Doc = *posed.LightProbeGrid.Clone()
+			}
+		}
+	}
 }
 
 // geometryBounds3D returns the bounds of the geometry object id draws itself, in its node's space before its transform, when the 3D build gives it any. It reads the build as it stands: the caller brings it up to date (scene3D).
@@ -459,6 +495,15 @@ func lookKey3D(doc *sceneformat.SceneDoc) (key uint64, comparable bool) {
 				}
 				if o.Camera != nil {
 					str("camera3d")
+				}
+				if o.ReflectionProbe != nil {
+					str("reflprobe")
+					str(o.ReflectionProbe.Cubemap)
+					writeJSON(o.ReflectionProbe.Resolution)
+				}
+				if o.LightProbeGrid != nil {
+					str("lightprobegrid")
+					str(o.LightProbeGrid.Data)
 				}
 				writeJSON(o.Overrides)
 				walk(o.Children)

@@ -2135,11 +2135,11 @@ func (c *placeObjectCmd) Undo() {
 	c.ed.setSelectionQuiet(c.prevSelectedIDs, c.prevSelected)
 }
 
-// usesScene3DFeatures reports whether o or any of its descendants carries a 3D light or 3D camera, which needs a version 4 scene.
+// usesScene3DFeatures reports whether o or any of its descendants carries a 3D light, 3D camera, reflection probe, or light probe grid, which needs a version 4 scene.
 func usesScene3DFeatures(o *sceneformat.ObjectDoc) bool {
 	found := false
 	sceneformat.WalkObjects([]sceneformat.ObjectDoc{*o}, func(c, _ *sceneformat.ObjectDoc) bool {
-		found = c.Light != nil || c.Camera != nil
+		found = c.Light != nil || c.Camera != nil || c.ReflectionProbe != nil || c.LightProbeGrid != nil
 		return !found
 	})
 	return found

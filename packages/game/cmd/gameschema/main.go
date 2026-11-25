@@ -27,6 +27,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/particles"
 	"github.com/nsgo-dev/game/packages/game/playtest"
 	"github.com/nsgo-dev/game/packages/game/project"
+	"github.com/nsgo-dev/game/packages/game/render3d"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/game/packages/game/tilemap"
 	"github.com/nsgo-dev/game/packages/game/tooling/importsettings"
@@ -66,7 +67,7 @@ var sceneV2Fields = map[string]bool{"Inherits": true, "LayerOverrides": true, "O
 var sceneV3Fields = map[string]bool{"ParallaxX": true, "ParallaxY": true, "RepeatX": true, "RepeatY": true, "RepeatWidth": true, "RepeatHeight": true, "OffsetX": true, "OffsetY": true}
 
 // sceneV4Fields names the Go fields of the scene document types that scene format version 4 added; older schemas leave them out, since Validate refuses them in versions 1-3.
-var sceneV4Fields = map[string]bool{"Environment": true, "Light": true}
+var sceneV4Fields = map[string]bool{"Environment": true, "Light": true, "ReflectionProbe": true, "LightProbeGrid": true}
 
 // isSceneV4Field reports whether f was added in scene format version 4, including ObjectDoc.Camera and ObjectOverride.Camera (distinct from SceneDoc.Camera, which is version 1).
 func isSceneV4Field(f reflect.StructField) bool {
@@ -201,6 +202,13 @@ var formats = []format{
 		typ:     reflect.TypeFor[navbake3d.File](),
 		pkg:     "navbake3d",
 		version: navbake3d.FormatVersion,
+	},
+	{
+		url:     render3d.LightProbeGridSchemaURL,
+		title:   "NSGo game baked light probe grid (version 1)",
+		typ:     reflect.TypeFor[render3d.LightProbeGridDoc](),
+		pkg:     "render3d",
+		version: render3d.LightProbeGridVersion,
 	},
 	{
 		url:     project.SchemaURL,

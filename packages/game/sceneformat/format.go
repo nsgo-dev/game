@@ -21,7 +21,7 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-// CurrentVersion is the newest scene format schema version, the one new documents are written in. Version 2 adds scene instancing (ObjectDoc.Scene and ObjectDoc.Overrides), inheritance (SceneDoc.Inherits, SceneDoc.Overrides and SceneDoc.LayerOverrides) and glTF models (ObjectDoc.Model, ObjectDoc.ModelNode and ObjectDoc.ModelMesh). Version 3 adds parallax and repeating layers (LayerDoc.ParallaxX, LayerDoc.ParallaxY, LayerDoc.RepeatX, LayerDoc.RepeatY, LayerDoc.RepeatWidth and LayerDoc.RepeatHeight, and the matching fields on LayerOverride) and tilemap offsets (TilemapDoc.OffsetX and TilemapDoc.OffsetY). Version 4 adds 3D lights (ObjectDoc.Light), 3D cameras (ObjectDoc.Camera) and scene environment settings (SceneDoc.Environment).
+// CurrentVersion is the newest scene format schema version, the one new documents are written in. Version 2 adds scene instancing (ObjectDoc.Scene and ObjectDoc.Overrides), inheritance (SceneDoc.Inherits, SceneDoc.Overrides and SceneDoc.LayerOverrides) and glTF models (ObjectDoc.Model, ObjectDoc.ModelNode and ObjectDoc.ModelMesh). Version 3 adds parallax and repeating layers (LayerDoc.ParallaxX, LayerDoc.ParallaxY, LayerDoc.RepeatX, LayerDoc.RepeatY, LayerDoc.RepeatWidth and LayerDoc.RepeatHeight, and the matching fields on LayerOverride) and tilemap offsets (TilemapDoc.OffsetX and TilemapDoc.OffsetY). Version 4 adds 3D lights (ObjectDoc.Light), 3D cameras (ObjectDoc.Camera), 3D reflection probes (ObjectDoc.ReflectionProbe), 3D light probe grids (ObjectDoc.LightProbeGrid) and scene environment settings (SceneDoc.Environment).
 const CurrentVersion = 4
 
 // MinVersion is the oldest scene format schema version this package still reads. A version 1, 2 or 3 document is read and written unchanged, and may not use any field added by a newer version.
@@ -491,6 +491,10 @@ type ObjectDoc struct {
 	Light *LightDoc `yaml:"light,omitempty"`
 	// Camera optionally attaches a perspective or orthographic 3D camera to this object, placed and oriented by its 3D transform (looking down local -Z). Version 4.
 	Camera *Camera3DDoc `yaml:"camera,omitempty"`
+	// ReflectionProbe optionally attaches a local 3D reflection probe volume to this object, capturing reflections from its world position over its influence box. Version 4.
+	ReflectionProbe *ReflectionProbeDoc `yaml:"reflectionProbe,omitempty"`
+	// LightProbeGrid optionally attaches a regular 3D lattice of diffuse L2 spherical harmonic irradiance probes to this object. Version 4.
+	LightProbeGrid *LightProbeGridDoc `yaml:"lightProbeGrid,omitempty"`
 	// Components holds structured component data keyed by component type name.
 	Components map[string]any `yaml:"components,omitempty"`
 	// Properties holds arbitrary custom metadata for gameplay scripts or editors. Encode writes a whole-number float with a decimal point (2.0), so that every value reads back with the kind it was written with.
@@ -565,6 +569,10 @@ type ObjectOverride struct {
 	Light *LightDoc `yaml:"light,omitempty"`
 	// Camera replaces the 3D camera attached to the object. Version 4.
 	Camera *Camera3DDoc `yaml:"camera,omitempty"`
+	// ReflectionProbe replaces the 3D reflection probe attached to the object. Version 4.
+	ReflectionProbe *ReflectionProbeDoc `yaml:"reflectionProbe,omitempty"`
+	// LightProbeGrid replaces the 3D light probe grid attached to the object. Version 4.
+	LightProbeGrid *LightProbeGridDoc `yaml:"lightProbeGrid,omitempty"`
 	// Components replaces the object's components key by key, keeping the others.
 	Components map[string]any `yaml:"components,omitempty"`
 	// Properties replaces the object's custom properties key by key, keeping the others.
@@ -1446,6 +1454,12 @@ func validateObject(version int, path []string, where string, o *ObjectDoc) erro
 		return err
 	}
 	if err := validateCamera3D(version, path, where, o.Camera); err != nil {
+		return err
+	}
+	if err := validateReflectionProbe(version, path, where, o.ReflectionProbe); err != nil {
+		return err
+	}
+	if err := validateLightProbeGrid(version, path, where, o.LightProbeGrid); err != nil {
 		return err
 	}
 	return validateModel(path, where, o)
