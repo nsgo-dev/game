@@ -988,6 +988,36 @@ func view2DToolsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], playi
 					ed.SetSnapToGrid(on)
 				},
 			},
+			ui.ToggleButton{
+				TestID:   "view-navmesh2d-overlay",
+				Icon:     lucide.Waypoints,
+				Label:    ed.T("toolbar.navMesh2dOverlayLabel"),
+				Disabled: playing,
+				On: func() bool {
+					_ = rev.Get()
+					return ed.ShowNavMesh2D
+				},
+				OnChange: func(on bool) {
+					ed.SetShowNavMesh2D(on)
+				},
+			},
+			ui.ToggleButton{
+				TestID:   "tool-nav-test-path",
+				Icon:     lucide.Route,
+				Label:    ed.T("toolbar.navTestPathLabel"),
+				Disabled: playing,
+				On: func() bool {
+					_ = rev.Get()
+					return ed.Tool == ToolNavTestPath
+				},
+				OnChange: func(on bool) {
+					if on {
+						ed.SetTool(ToolNavTestPath)
+					} else if ed.Tool == ToolNavTestPath {
+						ed.SetTool(ToolSelect)
+					}
+				},
+			},
 		},
 	}
 }

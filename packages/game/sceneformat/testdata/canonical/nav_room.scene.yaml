@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/scene.v2.json
+version: 2
+name: Nav Room
+virtualWidth: 320
+virtualHeight: 180
+backgroundColor: '#141824'
+layers:
+  - name: world
+    space: world
+    objects:
+      - id: floor_nav
+        components:
+          navregion2d:
+            agentRadius: 4
+            enabled: true
+            mode: walkable
+            points: [[16, 16], [304, 16], [304, 164], [16, 164]]
+            subtractTileCollision: false
+            version: 1
+      - id: pillar_cutout
+        x: 160
+        "y": 90
+        components:
+          navregion2d:
+            enabled: true
+            mode: obstacle
+            points: [[-20, -40], [20, -40], [20, 40], [-20, 40]]
+            version: 1

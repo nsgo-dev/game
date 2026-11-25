@@ -266,7 +266,7 @@ func canonicalComponentMap(comps map[string]any) map[string]any {
 			var wrapped any
 			if pts, ok := fv.([][2]float64); ok {
 				wrapped = flowPointList(pts)
-			} else if cn == Occluder2DComponentName && fk == "points" && fv != nil {
+			} else if (cn == Occluder2DComponentName || cn == NavRegion2DComponentName) && fk == "points" && fv != nil {
 				if pts, msg := checkPointList(fv); msg == "" {
 					wrapped = flowPointList(pts)
 				}

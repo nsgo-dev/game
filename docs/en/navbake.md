@@ -88,3 +88,7 @@ navbake.Draw(d, mesh, core.RGBA(0x40a0ff, 0.2), core.RGB(0x2060c0), core.RGB(0xf
 ```
 
 The CryptQuest sample game bakes its crypt's mesh with `FromTilemap` and draws it when `N` is pressed.
+
+## Authoring navigation regions in scenes
+
+You can also author walkable and obstacle `navregion2d` polygon components directly in `*.scene.yaml` files (with optional tilemap collision subtraction) and edit them with polygon vertex handles, a live viewport overlay, and the **Test Path** tool in [`game/editor`](editor.md#built-in-2d-navigation-region-components-888). `sceneformat.Build` runs `navbake.Bake` automatically into `BuiltScene.NavBake2D` and `BuiltScene.NavMesh2D` so the editor's path preview and the game share the same `ai.NavMesh`.

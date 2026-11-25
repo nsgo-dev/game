@@ -595,6 +595,71 @@
       ],
       "additionalProperties": false
     },
+    "NavRegion2DComponent": {
+      "description": "2D navigation region polygon (walkable area or obstacle cutout) baked into BuiltScene.NavMesh2D via navbake.",
+      "type": "object",
+      "properties": {
+        "version": {
+          "description": "Component schema version (1).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1
+        },
+        "mode": {
+          "description": "Region role: \"walkable\" (adds walkable area) or \"obstacle\" (cuts a hole out of walkable regions).",
+          "type": "string",
+          "enum": [
+            "walkable",
+            "obstacle"
+          ]
+        },
+        "points": {
+          "description": "Local [x, y] vertices of the closed navigation polygon.",
+          "type": "array",
+          "items": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": {
+              "type": "number"
+            }
+          }
+        },
+        "offsetX": {
+          "description": "Local horizontal offset from the object origin.",
+          "type": "number"
+        },
+        "offsetY": {
+          "description": "Local vertical offset from the object origin.",
+          "type": "number"
+        },
+        "subtractTileCollision": {
+          "description": "When true, subtracts solid tile collision geometry from the scene's tilemaps when baking the 2D navigation mesh.",
+          "type": "boolean"
+        },
+        "tileLayer": {
+          "description": "Scene layer whose tilemap provides subtracted collision (empty uses this object's layer or all visible world-space tilemap layers).",
+          "type": "string"
+        },
+        "tileLayers": {
+          "description": "Optional tile layer names inside the tilemap whose solid collision is subtracted (empty uses all tile layers).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "agentRadius": {
+          "description": "Agent clearance radius in world units (>= 0) used to shrink walkable edges and inflate obstacles during baking.",
+          "type": "number",
+          "minimum": 0
+        },
+        "enabled": {
+          "description": "Includes this navigation region in the built 2D navigation mesh when true.",
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
     "ObjectDoc": {
       "description": "ObjectDoc is one entity or visual object placed on a layer.",
       "type": "object",
@@ -784,6 +849,16 @@
         "components": {
           "description": "Components holds structured component data keyed by component type name.",
           "type": "object",
+          "properties": {
+            "navregion2d": {
+              "description": "2D navigation region polygon (walkable area or obstacle cutout) baked into BuiltScene.NavMesh2D via navbake.",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/NavRegion2DComponent"
+                }
+              ]
+            }
+          },
           "additionalProperties": {}
         },
         "properties": {

@@ -59,6 +59,8 @@ const (
 	ToolStampTile
 	// ToolRandomTile paints a deterministic weighted random pick from selected tiles.
 	ToolRandomTile
+	// ToolNavTestPath sets start and end world points on click to preview the path ai.NavMesh.FindPath finds on the built 2D navigation mesh.
+	ToolNavTestPath
 )
 
 // String returns a human-readable label for the tool.
@@ -90,6 +92,8 @@ func (t Tool) String() string {
 		return "Stamp Tile"
 	case ToolRandomTile:
 		return "Random Tile"
+	case ToolNavTestPath:
+		return "Test Path"
 	default:
 		return "Unknown"
 	}
@@ -287,6 +291,8 @@ type Editor struct {
 	ShowPhysicsDebug bool
 	// ShowLightingPreview controls whether 2D lights, occluder shadows, and ambient darkness draw live in the 2D edit viewport. New initializes it to true.
 	ShowLightingPreview bool
+	// ShowNavMesh2D controls whether the built 2D navigation mesh overlay and authored navregion2d outlines draw in the 2D edit viewport. New initializes it to true.
+	ShowNavMesh2D bool
 	// ShowNavMesh3D controls whether the baked 3D navigation mesh overlay draws in the 3D viewport. New initializes it to true.
 	ShowNavMesh3D bool
 	// OnBakeNavMesh3DGeometry, when set, is called by BakeNavMesh3D after collecting the open scene's static geometry so games can add programmatic terrain, GridMaps, or physics colliders.
@@ -555,6 +561,8 @@ type Editor struct {
 	unsavedPrompt unsavedPromptState
 	// navMesh3D holds the 3D navigation mesh bake settings, panel visibility, and cached preview mesh.
 	navMesh3D navMesh3DState
+	// nav2D holds the 2D navigation test-path preview and cached portal segments for the built 2D NavMesh overlay.
+	nav2D nav2DState
 	// vp3d holds cached 3D render3d.Queue/OcclusionBuffer state, active LOD indices and RenderStats for the 3D viewport.
 	vp3d viewport3DState
 	// remote holds the live remote scene tree, inspector, MCP client session, loop controls, tunables, and console state.
@@ -614,6 +622,7 @@ func New(doc *sceneformat.SceneDoc, resolver sceneformat.AssetResolver) (*Editor
 		Status:              "Ready",
 		ShowPhysicsDebug:    true,
 		ShowLightingPreview: true,
+		ShowNavMesh2D:       true,
 		ShowNavMesh3D:       true,
 		navMesh3D:           navMesh3DState{config: DefaultNavMeshBakeConfig()},
 		ShowLODOverlay:      true,
@@ -747,6 +756,7 @@ func (e *Editor) Rebuild() {
 	if e.Doc == nil {
 		e.Built = nil
 		e.BuildErr = nil
+		e.recomputeNavPath2D()
 		return
 	}
 	e.syncProjectAssets()
@@ -760,6 +770,7 @@ func (e *Editor) Rebuild() {
 	e.Built = built
 	e.BuildErr = nil
 	e.syncSceneEmitterLoop()
+	e.recomputeNavPath2D()
 }
 
 // ActiveScene returns the live play scene when playing, the scene posed by the open state machine or animation clip when previewing, or the edit BuiltScene otherwise.
@@ -1074,6 +1085,7 @@ func (e *Editor) openYAMLWithLayers(data []byte, file string, layers *sceneforma
 		e.ActiveLayer = ""
 	}
 	e.keepTileInPalette()
+	e.nav2D = nav2DState{}
 	e.resetNavMeshForScene()
 	if e.activeTab >= 0 && e.activeTab < len(e.tabs) {
 		e.tabs[e.activeTab].placeholder = false

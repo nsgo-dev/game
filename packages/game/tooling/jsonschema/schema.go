@@ -69,6 +69,8 @@ type Schema struct {
 	MinLength *int
 	// MinItems is the fewest elements an array may have.
 	MinItems *int
+	// MaxItems is the most elements an array may have.
+	MaxItems *int
 	// Items constrains every element of an array.
 	Items *Schema
 	// Properties constrains an object's named properties, in declaration order.
@@ -183,6 +185,9 @@ func (s *Schema) write(buf *bytes.Buffer) error {
 	}
 	if s.MinItems != nil {
 		w.value("minItems", *s.MinItems)
+	}
+	if s.MaxItems != nil {
+		w.value("maxItems", *s.MaxItems)
 	}
 	if s.Items != nil {
 		w.schema("items", s.Items)

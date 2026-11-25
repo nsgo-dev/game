@@ -413,7 +413,7 @@ layers:
 
 | 文件 | 版本 | 读写函数 | 字段 |
 | --- | --- | --- | --- |
-| `*.scene.yaml`，如 `scenes/cave_room.scene.yaml` | `version: 1`、`version: 2`（实例化、继承、glTF 模型、粒子发射器、分层瓦片地图、LDtk 关卡）、`version: 3`（视差与重复图层、瓦片地图偏移）或 `version: 4`（3D 光源、场景环境、3D 相机）；内置物理组件 `version: 1`；内置 2D 光照组件 `version: 1` | `sceneformat.Parse`、`sceneformat.Encode` | [编辑器与场景格式](editor.md)；Schema 为 `https://game.nsgo.dev/schemas/scene.v1.json`、`scene.v2.json`、`scene.v3.json` 和 `scene.v4.json` |
+| `*.scene.yaml`，如 `scenes/cave_room.scene.yaml` | `version: 1`、`version: 2`（实例化、继承、glTF 模型、粒子发射器、分层瓦片地图、LDtk 关卡）、`version: 3`（视差与重复图层、瓦片地图偏移）或 `version: 4`（3D 光源、场景环境、3D 相机）；内置物理组件 `version: 1`；内置 2D 光照组件 `version: 1`；内置 2D 导航区域组件 `version: 1` | `sceneformat.Parse`、`sceneformat.Encode` | [编辑器与场景格式](editor.md)；Schema 为 `https://game.nsgo.dev/schemas/scene.v1.json`、`scene.v2.json`、`scene.v3.json` 和 `scene.v4.json` |
 
 ```yaml
 # yaml-language-server: $schema=https://game.nsgo.dev/schemas/scene.v1.json

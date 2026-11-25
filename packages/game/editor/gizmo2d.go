@@ -58,6 +58,10 @@ const (
 	Handle2DOccluderRectS
 	// Handle2DOccluderRectW is the left edge handle on a selected rect occluder2d: a drag resizes occluder2d.width.
 	Handle2DOccluderRectW
+	// Handle2DNavRegionVertex is a vertex handle on a selected navregion2d polygon: a drag moves that vertex in local space.
+	Handle2DNavRegionVertex
+	// Handle2DNavRegionEdgeMid is an edge-midpoint handle on a selected navregion2d polygon: a drag inserts a new vertex on that edge and moves it.
+	Handle2DNavRegionEdgeMid
 )
 
 // String returns a human-readable label for the handle.
@@ -107,6 +111,10 @@ func (h GizmoHandle2D) String() string {
 		return "Occluder Height S"
 	case Handle2DOccluderRectW:
 		return "Occluder Width W"
+	case Handle2DNavRegionVertex:
+		return "Nav Region Vertex"
+	case Handle2DNavRegionEdgeMid:
+		return "Insert Nav Region Vertex"
 	default:
 		return "None"
 	}
@@ -125,8 +133,15 @@ func (h GizmoHandle2D) IsOccluder() bool {
 	return h >= Handle2DOccluderVertex && h <= Handle2DOccluderRectW
 }
 
-// IsComponentHandle reports whether h edits a component (light2d or occluder2d) rather than the object's 2D transform.
-func (h GizmoHandle2D) IsComponentHandle() bool { return h.IsLight() || h.IsOccluder() }
+// IsNavRegion reports whether h is one of the 2D navigation region polygon vertex or edge-midpoint handles.
+func (h GizmoHandle2D) IsNavRegion() bool {
+	return h == Handle2DNavRegionVertex || h == Handle2DNavRegionEdgeMid
+}
+
+// IsComponentHandle reports whether h edits a component (light2d, occluder2d, or navregion2d) rather than the object's 2D transform.
+func (h GizmoHandle2D) IsComponentHandle() bool {
+	return h.IsLight() || h.IsOccluder() || h.IsNavRegion()
+}
 
 // The 2D gizmo's sizes, in canvas points, which stay the same at any zoom.
 const (
@@ -373,6 +388,9 @@ func (e *Editor) pickGizmo2DWithIndex(x, y float32) (GizmoHandle2D, int) {
 	if lh, idx := e.pickLightingHandle2D(x, y); lh != Handle2DNone {
 		return lh, idx
 	}
+	if nh, idx := e.pickNavRegionHandle2D(x, y); nh != Handle2DNone {
+		return nh, idx
+	}
 	if h := g.pick(p); h != Handle2DNone {
 		return h, -1
 	}
@@ -396,6 +414,9 @@ func (e *Editor) BeginDrag2D(x, y float32) GizmoHandle2D {
 		return Handle2DNone
 	}
 	h, idx := e.pickGizmo2DWithIndex(x, y)
+	if h.IsNavRegion() {
+		return e.beginNavRegionDrag2D(h, idx, x, y)
+	}
 	if h.IsComponentHandle() {
 		return e.beginLightingDrag2D(h, idx, x, y)
 	}
@@ -449,6 +470,10 @@ func (e *Editor) BeginDrag2D(x, y float32) GizmoHandle2D {
 // A scale that would be zero or close to it, or a scale or rotation that would shear a sprite in the object's tree, its ancestors taken into account (as ScaleObject and RotateObject refuse), is not taken: the object keeps its last valid transform and the status bar says why. It does nothing without a drag.
 func (e *Editor) UpdateDrag2D(x, y float32, keepAspect bool) {
 	if e == nil || e.drag2D.handle == Handle2DNone || !isFiniteFloat32(x) || !isFiniteFloat32(y) {
+		return
+	}
+	if e.drag2D.handle.IsNavRegion() {
+		e.updateNavRegionDrag2D(x, y)
 		return
 	}
 	if e.drag2D.handle.IsComponentHandle() {
@@ -716,6 +741,7 @@ func (e *Editor) drawGizmo2D(d *core.Drawing) {
 	}
 	d.Restore()
 	e.drawSelectedLightingHandles2D(d)
+	e.drawSelectedNavRegionHandles2D(d)
 }
 
 func unitVec(v math2d.Vec2) math2d.Vec2 {

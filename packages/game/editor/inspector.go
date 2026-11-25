@@ -294,10 +294,13 @@ var builtinEditorComponents = func() *sceneformat.ComponentRegistry {
 	if err := sceneformat.RegisterSkeletalComponent(reg); err != nil {
 		panic(err)
 	}
+	if err := sceneformat.RegisterNavRegion2DComponent(reg); err != nil {
+		panic(err)
+	}
 	return reg
 }()
 
-// lookupComponentType returns the schema of cn from e.components when set, or from the built-in component registry (physics + animator + 2D lighting + skeletal).
+// lookupComponentType returns the schema of cn from e.components when set, or from the built-in component registry (physics + animator + 2D lighting + skeletal + 2D navigation).
 func (e *Editor) lookupComponentType(cn string) (sceneformat.ComponentType, bool) {
 	if e != nil && e.components != nil {
 		if ct, ok := e.components.Lookup(cn); ok {
@@ -1500,6 +1503,18 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 						},
 						OnPress: func() {
 							ed.report(ed.FitCollider3DToBounds(objID))
+						},
+					})
+				}
+				if cn == sceneformat.NavRegion2DComponentName {
+					nodes = append(nodes, ui.Button{
+						TestID:   "inspector-navregion-init-polygon",
+						Text:     ed.T("inspector.navRegionResetPolygon"),
+						Size:     ui.SizeSmall,
+						Variant:  ui.ButtonSecondary,
+						Disabled: disabled,
+						OnPress: func() {
+							ed.report(ed.InitNavRegionPolygon(objID))
 						},
 					})
 				}

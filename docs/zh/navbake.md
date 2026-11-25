@@ -88,3 +88,7 @@ navbake.Draw(d, mesh, core.RGBA(0x40a0ff, 0.2), core.RGB(0x2060c0), core.RGB(0xf
 ```
 
 示例游戏 CryptQuest 用 `FromTilemap` 烘焙地下墓穴的网格，按 `N` 键时绘制出来。
+
+## 在场景文件中编辑导航区域
+
+你也可以直接在 `*.scene.yaml` 场景文件中为对象声明可行走或障碍物 `navregion2d` 多边形组件（可选扣除瓦片地图实心碰撞），并在 [`game/editor`](editor.md#内置-2d-导航区域组件888) 中通过多边形顶点手柄、实时视口叠加层与 **Test Path** 路径测试工具进行编辑和验证。`sceneformat.Build` 会自动调用 `navbake.Bake` 生成 `BuiltScene.NavBake2D` 与 `BuiltScene.NavMesh2D`，使编辑器预览与游戏使用同一个 `ai.NavMesh`。
