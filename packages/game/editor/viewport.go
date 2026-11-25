@@ -644,15 +644,16 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 	shiftHeld := func() bool { return core.Untracked(cx, func() bool { return core.KeyHeld(cx, "shift") }) }
 	altHeld := func() bool { return core.Untracked(cx, func() bool { return core.KeyHeld(cx, "alt") }) }
 	in2D := func() bool { return ed.ViewMode == ViewMode2D && !ed.Playing() }
-	// strokeTookPress says the tile stroke that a pointer drew has ended, so the press its button or finger completes, which may come after it, edits nothing more.
+	// strokeTookPress says the tile stroke that a pointer drew has ended, so the press its button or finger completes, which may come after it, edits nothing more. Every pointer-down clears it, so a stroke that no press followed, such as a drag the frame's pan took or a right-button drag, cannot swallow the next click.
 	var strokeTookPress bool
 	beginStroke := func(at core.Point, secondary, alt bool) {
+		strokeTookPress = false
 		// A press with Space held navigates rather than edits.
 		if !in2D() || spaceHeld() {
 			return
 		}
-		if mode, ok := ed.toolStrokeMode(secondary, alt || altHeld()); ok && ed.BeginTileStroke(mode, float32(at.X), float32(at.Y)) {
-			strokeTookPress = false
+		if mode, ok := ed.toolStrokeMode(secondary, alt || altHeld()); ok {
+			ed.BeginTileStroke(mode, float32(at.X), float32(at.Y))
 		}
 	}
 	endStroke := func(at core.Point) {

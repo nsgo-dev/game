@@ -194,6 +194,34 @@ func TestPickTile(t *testing.T) {
 	}
 }
 
+// PickTile refuses while the scene plays, as the other tile edits do, and leaves the active tile as it was.
+func TestPickTileRefusedWhilePlaying(t *testing.T) {
+	ed := floorEditor(t)
+	ed.SetActiveTileID(3)
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node { return editor.EditorView(cx, ed) }, nsgotest.Size(1120, 680))
+	app.Post(func() {
+		if err := ed.Play(); err != nil {
+			t.Errorf("Play: %v", err)
+		}
+		if ed.PickTile("floor", 0, 0) || ed.ActiveTileID != 3 {
+			t.Errorf("PickTile while playing picked, ActiveTileID = %d, want 3", ed.ActiveTileID)
+		}
+		_ = ed.Stop()
+	})
+	app.Settle()
+}
+
+// The stroke API does nothing on a nil editor, as the rest of it does.
+func TestTileStrokeOnNilEditor(t *testing.T) {
+	var ed *editor.Editor
+	ed.ContinueTileStroke(1, 1)
+	ed.EndTileStroke()
+	ed.CancelTileStroke()
+	if ed.BeginTileStroke(editor.TileStrokePaint, 1, 1) || ed.PickTile("", 0, 0) {
+		t.Fatal("a nil editor began a stroke or picked a tile")
+	}
+}
+
 // The issue's second acceptance item, through the API: the hover outline follows the mouse, snapped to the cell under it.
 func TestHoveredTileSnapsToCells(t *testing.T) {
 	ed := floorEditor(t)
@@ -455,5 +483,43 @@ func TestSpaceDragDoesNotPaint(t *testing.T) {
 	app.KeyUp("space")
 	if !slices.Equal(floorData(ed), before) || ed.History.Len() != 0 {
 		t.Fatalf("a Space-drag painted: map %v, %d steps", floorData(ed), ed.History.Len())
+	}
+}
+
+// A right-button stroke, which no press follows, leaves the next click to the tool: Fill fills.
+func TestClickAfterRightDragReachesTheTool(t *testing.T) {
+	ed, app := mountFloor(t, "tool-paint")
+	app.MouseDownAt("id:editor-viewport-frame", canvasAt(ed, 3, 56), core.MouseButtonRight)
+	app.HoverAt("id:editor-viewport-frame", canvasAt(ed, 30, 56))
+	app.MouseUpAt("id:editor-viewport-frame", canvasAt(ed, 30, 56), core.MouseButtonRight)
+	app.Press("id:tool-fill")
+	app.Press("id:tile-palette-3")
+	app.PressAt("id:editor-viewport", canvasAt(ed, 24, 24))
+	if got := floorData(ed)[5]; got != 3 {
+		t.Fatalf("after a right-drag and a Fill click (1,1) = %d, want 3", got)
+	}
+}
+
+// A tap that painted a cell leaves the next click to the tool: Select selects the object under it.
+func TestClickAfterPaintTapReachesTheTool(t *testing.T) {
+	ed, app := mountFloor(t, "tool-paint")
+	app.Press("id:tile-palette-2")
+	app.PressAt("id:editor-viewport", canvasAt(ed, 24, 24))
+	if got := floorData(ed)[5]; got != 2 {
+		t.Fatalf("the tap left (1,1) = %d, want 2", got)
+	}
+	app.Press("id:tool-select")
+	app.PressAt("id:editor-viewport", canvasAt(ed, 40, 40))
+	if ed.SelectedID != "hero" {
+		t.Fatalf("after a paint tap and a Select click SelectedID = %q, want hero", ed.SelectedID)
+	}
+	// A Fill click after a tap fills too.
+	app.Press("id:tool-paint")
+	app.PressAt("id:editor-viewport", canvasAt(ed, 40, 40))
+	app.Press("id:tool-fill")
+	app.Press("id:tile-palette-3")
+	app.PressAt("id:editor-viewport", canvasAt(ed, 24, 24))
+	if got := floorData(ed)[5]; got != 3 {
+		t.Fatalf("after a paint tap and a Fill click (1,1) = %d, want 3", got)
 	}
 }
