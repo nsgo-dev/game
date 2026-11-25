@@ -1,6 +1,6 @@
 # voxel
 
-`game/voxel` 为沙盒游戏提供分块 3D 体素世界：致密立方体区块、跨区块逐体素天空光与方块光传播（`0..15`）、直接输出到 [render3d](render3d.md) 缓冲的贪婪网格合并（greedy meshing）、跨区块邻接面剔除与环境光遮蔽（AO）、编辑时的最小脏区块追踪、3D DDA 体素射线拾取，以及确定性的带版本号 YAML 存档格式。
+`game/voxel` 为沙盒游戏提供分块 3D 体素世界：致密立方体区块、跨区块逐体素天空光与方块光传播（`0..15`）、直接输出到 [render3d](render3d.md) 缓冲的贪婪网格合并（greedy meshing）、跨区块邻接面剔除与环境光遮蔽（AO）、编辑时的最小脏区块追踪、3D DDA 体素射线拾取、面向 [physics3d](physics3d.md) 刚体与角色的直接实体方块碰撞（以及分轴 AABB 移动滑行角色控制器），以及确定性的带版本号 YAML 存档格式。
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/voxel"
@@ -102,6 +102,36 @@ if hit, ok := w.Raycast(ray, 64); ok {
 ```
 
 `Raycast` 默认跳过 `NonSolid` 方块（如水）；需要命中任意非空气体素时，向 `RaycastWith` 传入 `RaycastOptions{IncludeNonSolid: true}`。
+
+## 体素碰撞与角色移动
+
+调用 `w.Collider()`（或 `voxel.NewCollider(w)`）可直接将体素世界接入 [physics3d](physics3d.md)，无需生成或重建三角网格：
+
+```go
+phys := physics3d.NewWorld()
+phys.AddVoxelCollider(w.Collider())
+
+crate := phys.AddBody(physics3d.NewDynamicBody(
+	physics3d.BoxShape(physics3d.Box{HalfExtents: physics3d.Vec3{X: 0.4, Y: 0.4, Z: 0.4}}),
+	physics3d.Vec3{X: 4.5, Y: 8.0, Z: 4.5},
+	1.0,
+))
+
+cc := physics3d.NewCharacterController(physics3d.Vec3{X: 1.5, Y: 4.0, Z: 1.5}, 0.3, 1.8)
+cc.StepHeight = w.VoxelSize() + 0.05
+```
+
+- **编辑零重建**：重叠、射线与扫掠查询直接读取 `World.IsSolid`（跳过 `Air` 与水等 `NonSolid` 方块），`SetBlock` 与 `Clear` 立即生效并自动唤醒被编辑方块附近的休眠刚体，挖掉木箱脚下的方块后木箱会立即下落。
+- **不卡接缝**：相邻实体方块之间的内部遮挡面会被自动过滤，滑行的盒体、球体、胶囊与 `CharacterController` 在平整体素地面上不会卡缝，并可顺畅迈上单格台阶。
+
+如果只需简单的体素盒体角色而无需完整的 `physics3d.World`，可直接使用 `MoveAndSlideAABB` 或 `CharacterMover`：
+
+```go
+mover := voxel.NewCharacterMover(math3d.Vec3{X: 1.5, Y: 4.0, Z: 1.5}, 0.3, 1.8)
+mover.StepHeight = w.VoxelSize()
+res := mover.Move(w, math3d.Vec3{X: 4.0}, dt) // 分轴 Y -> X -> Z 扫掠滑行 + 单格自动上台阶
+_ = res
+```
 
 ## YAML 保存与加载
 

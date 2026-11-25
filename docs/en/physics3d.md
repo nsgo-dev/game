@@ -16,7 +16,7 @@ Why pure Go instead of wrapping a C/C++ physics engine (such as Jolt, Bullet, or
 - **No FFI overhead**: Queries, raycasts, rigid-body steps, and character moves operate directly on Go values with zero cgo boundary crossings.
 - **Bit-for-bit determinism**: Stepping a `World` with fixed durations from `game.Loop` runs broadphase, narrowphase, impulse solving, and positional correction in a fixed body and contact order with no map-order iteration or wall-clock input.
 
-The scope is intentionally focused: boxes (axis-aligned or oriented), spheres, and capsules, static triangle meshes (`TriMeshCollider`, added with `World.AddTriMesh`) and heightfields (`HeightfieldCollider`, added with `World.AddHeightfield`) that collide with bodies and the character controller, exact overlap and raycast queries, rigid bodies with linear and angular dynamics, joints, ragdolls, and a capsule character controller. Bodies use a scalar (isotropic) inertia rather than a full inertia tensor, and contacts use one representative point per body pair.
+The scope is intentionally focused: boxes (axis-aligned or oriented), spheres, and capsules, static triangle meshes (`TriMeshCollider`, added with `World.AddTriMesh`), heightfields (`HeightfieldCollider`, added with `World.AddHeightfield`), and voxel grids (`VoxelCollider`, added with `World.AddVoxelCollider`) that collide with bodies and the character controller, exact overlap, raycast, and voxel sweep queries, rigid bodies with linear and angular dynamics, joints, ragdolls, and a capsule character controller. Bodies use a scalar (isotropic) inertia rather than a full inertia tensor, and contacts use one representative point per body pair.
 
 ## Coordinate Convention
 
@@ -64,13 +64,21 @@ loop := &game.Loop{
 
 Contact impulses act at the contact point, so friction makes a sliding sphere roll and a box standing on an edge tips over onto a face. `LockRotation` keeps a dynamic body from rotating. Inputs that are not finite (a NaN velocity or mass) fall back to defaults in `AddBody`, and a kinematic body without mass stays kinematic.
 
-Settled bodies sleep. A sleeping body wakes when a moving dynamic body or a kinematic body (moving by velocity or by setting `Pos`/`Rot` directly) touches it, when a body jointed to it moves, when one of its contacts ends (its support moved away), and on `Wake`, `ApplyImpulse` and the removal of bodies, meshes or joints.
+Settled bodies sleep. A sleeping body wakes when a moving dynamic body or a kinematic body (moving by velocity or by setting `Pos`/`Rot` directly) touches it, when a body jointed to it moves, when one of its contacts ends (its support moved away), when a `VoxelCollider` block near it changes solidity or disappears under it, and on `Wake`, `WakeInBox`, `ApplyImpulse`, and the removal of bodies, meshes, voxel colliders, or joints.
 
 Stacks rest without sinking into each other. After the iterative solver, each step makes one bottom-up pass over the contacts within about 45° of vertical (relative to `-Gravity`) that stops each upper body against the one below and pushes it out until about 1 mm of overlap is left, treating the lower body as immovable (shock propagation). A heavy body on a light one, or a tall stack, settles at that depth instead of the several centimeters iterative solving alone leaves under large mass ratios. A body still sunk more than 5 mm into a neighbor does not fall asleep, and a sleeping body pushed deeper than 1 cm wakes, so sleeping never freezes an overlap in place. With zero gravity there is no "up" and the pass is skipped.
 
 A shape that ends up below a heightfield's surface is pushed out upward, by the depth measured along the upward triangle normal, so it clears the surface in one correction rather than by the shallower distance to the nearest point underneath. A shape beside a cell, such as one at the foot of a step touching the plateau's edge, keeps the depth of its own contact, so it is not lifted onto the plateau.
 
-A dynamic body that moves more than half its smallest dimension in one step is swept in sub-steps against static, kinematic and sleeping bodies, triangle meshes and heightfields, and stops at the first new overlap, so fast bodies do not tunnel through thin geometry. Contacts the body already has when the step begins, such as the floor under a fast sliding or rolling body, do not stop it unless the body sinks clearly deeper into them. Fast dynamic bodies are not swept against each other.
+A dynamic body that moves more than half its smallest dimension in one step is swept in sub-steps against static, kinematic and sleeping bodies, triangle meshes, heightfields, and voxel colliders, and stops at the first new overlap, so fast bodies do not tunnel through thin geometry. Contacts the body already has when the step begins, such as the floor under a fast sliding or rolling body, do not stop it unless the body sinks clearly deeper into them. Fast dynamic bodies are not swept against each other.
+
+## Voxel Colliders
+
+`VoxelCollider` (created with `NewVoxelCollider(grid)` and added with `World.AddVoxelCollider`, or adapted from `game/voxel` via `voxel.NewCollider(w)` / `w.Collider()`) collides bodies, `CharacterController`, CCD, and world raycast/overlap queries directly against any `VoxelGrid` without building a triangle mesh:
+
+- **Direct queries**: `QueryBlocks`, `TestShape`, `CollectContacts`, `Raycast` (3D Amanatides & Woo DDA, accelerated when the grid implements `VoxelBoundsGrid`), and `Sweep` (exact Minkowski-sum swept AABB for axis-aligned boxes; sub-stepped binary-search TOI for spheres, capsules, and oriented boxes) visit solid voxels in deterministic `(y, z, x)` order.
+- **Internal-seam filtering**: faces occluded by adjacent solid blocks are filtered out so crates, spheres, capsules, and characters never snag on flat voxel floor or wall seams.
+- **Instant edit reflection & wakeup**: block changes take effect immediately with zero rebuild. Grids implementing `VoxelEditNotifier` automatically call `NotifyBlockChanged` / `NotifyReset` (which wake nearby sleeping bodies and stacked contacts via `World.WakeInBox`), while plain `VoxelGrid` implementations still wake bodies whose voxel support disappears on the next `World.Step`.
 
 ## Joints and Ragdolls
 

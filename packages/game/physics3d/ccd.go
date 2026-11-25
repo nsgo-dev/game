@@ -94,5 +94,13 @@ func (w *World) sweepOverlaps(b *Body, shape Shape, jointIgnored map[pairKey]str
 			return true
 		}
 	}
+	for _, vc := range w.voxels {
+		if !canCollideMasks(b.Layer, b.Mask, vc.Layer, vc.Mask) {
+			continue
+		}
+		if c := vc.TestShape(shape); c.Hit && visit(vc, c.Depth) {
+			return true
+		}
+	}
 	return false
 }

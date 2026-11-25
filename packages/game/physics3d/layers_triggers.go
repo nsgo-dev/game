@@ -104,7 +104,10 @@ func hitTieOrder(h RaycastHit) (int, int) {
 	if h.Heightfield != nil {
 		return 2, h.Heightfield.ID
 	}
-	return 3, 0
+	if h.Voxel != nil {
+		return 3, h.Voxel.ID
+	}
+	return 4, 0
 }
 
 func compareRaycastHits(a, b RaycastHit) int {
@@ -120,8 +123,8 @@ func compareRaycastHits(a, b RaycastHit) int {
 }
 
 // RaycastLayer casts a segment from from to to against all bodies, triangle
-// meshes, and heightfields whose Layer matches mask, returning hits sorted by
-// ascending T in [0, 1] with deterministic tie-breaking.
+// meshes, heightfields, and voxel colliders whose Layer matches mask, returning
+// hits sorted by ascending T in [0, 1] with deterministic tie-breaking.
 func (w *World) RaycastLayer(from, to Vec3, mask LayerMask) []RaycastHit {
 	delta := to.Sub(from)
 	maxDist := delta.Len()
@@ -158,12 +161,22 @@ func (w *World) RaycastLayer(from, to Vec3, mask LayerMask) []RaycastHit {
 			hits = append(hits, h)
 		}
 	}
+	for _, vc := range w.voxels {
+		if (effectiveLayer(vc.Layer) & mask) == 0 {
+			continue
+		}
+		if h, ok := vc.Raycast(ray); ok {
+			h.Voxel = vc
+			hits = append(hits, h)
+		}
+	}
 	slices.SortStableFunc(hits, compareRaycastHits)
 	return hits
 }
 
 // RaycastFirstLayer casts a segment from from to to against all bodies, triangle
-// meshes, and heightfields whose Layer matches mask, returning the closest hit.
+// meshes, heightfields, and voxel colliders whose Layer matches mask, returning
+// the closest hit.
 func (w *World) RaycastFirstLayer(from, to Vec3, mask LayerMask) (RaycastHit, bool) {
 	delta := to.Sub(from)
 	maxDist := delta.Len()
@@ -208,12 +221,21 @@ func (w *World) RaycastFirstLayer(from, to Vec3, mask LayerMask) (RaycastHit, bo
 			consider(h)
 		}
 	}
+	for _, vc := range w.voxels {
+		if (effectiveLayer(vc.Layer) & mask) == 0 {
+			continue
+		}
+		if h, ok := vc.Raycast(ray); ok {
+			h.Voxel = vc
+			consider(h)
+		}
+	}
 	return best, found
 }
 
-// OverlapLayer returns every body, triangle mesh, and heightfield in w whose
-// Layer matches mask and overlaps shape, in deterministic insertion order.
-// Each hit's Contact.Normal points from the collider toward shape.
+// OverlapLayer returns every body, triangle mesh, heightfield, and voxel
+// collider in w whose Layer matches mask and overlaps shape, in deterministic
+// insertion order. Each hit's Contact.Normal points from the collider toward shape.
 func (w *World) OverlapLayer(shape Shape, mask LayerMask) []OverlapHit {
 	if mask == 0 {
 		return nil
@@ -252,6 +274,14 @@ func (w *World) OverlapLayer(shape Shape, mask LayerMask) []OverlapHit {
 		}
 		if c := hf.TestShape(shape); c.Hit {
 			hits = append(hits, OverlapHit{Heightfield: hf, Contact: c})
+		}
+	}
+	for _, vc := range w.voxels {
+		if (effectiveLayer(vc.Layer) & mask) == 0 {
+			continue
+		}
+		if c := vc.TestShape(shape); c.Hit {
+			hits = append(hits, OverlapHit{Voxel: vc, Contact: c})
 		}
 	}
 	return hits

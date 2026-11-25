@@ -1180,6 +1180,11 @@ func (w *World) colliderIDTaken(id int) bool {
 			return true
 		}
 	}
+	for _, vc := range w.voxels {
+		if vc.ID == id {
+			return true
+		}
+	}
 	return false
 }
 
