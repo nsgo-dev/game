@@ -291,6 +291,8 @@ claude mcp add game-editor -- nsgo game mcp
 | `game_check` | run | 无 | 运行问题面板的检查（使用编辑器组件注册表的 `assetcheck`，以及 `project.Check`），返回其中的问题，每条带文件、行号和消息。它读取磁盘上的文件；打开的场景有检查未看到的未保存编辑时，回复会写出该场景。 |
 | `game_playtest` | run | `file`、`run`、`count`、`seeds`、`out`、`recordings`（均可选） | 校验 `playtest.yaml`，无头运行配置好的机器人试玩并按种子录制 `.replay.yaml` 回放，写出 YAML 报告并返回每项指标的值、目标状态（`met` 或 `missed`）以及热力图坐标数据。 |
 | `playtest_define` | edit | `metric`（必填）、`file`、`rationale`、`replace`（可选） | 校验提议的试玩指标，生成规范的 `playtest.yaml` 差异并作为待审查提案排队（`Server.PlaytestReviews` / `ApplyPlaytestReview` / `DismissPlaytestReview`），在审查确认前不改写磁盘上的 `playtest.yaml`。 |
+| `states_write` | edit | `file`（必填）、`yaml`（必填）、`target`（可选）、`open`（可选，默认 `true`） | 用 `animclip.ParseStateMachine` 校验 `*.states.yaml` 精灵状态机（遇到未知字段、缺失目标状态或无效条件表达式时拒绝且不改动文件），将规范 YAML 写入 `file`，并可选在编辑器的状态机图面板中为 `target` 打开它。 |
+| `states_test` | run | `file`（可选）、`seconds`（可选，默认 `8`）、`rate`（可选，默认 `60`）、`script`（可选） | 通过 `animclip.SimulateStateMachine` 在固定步长下用脚本化输入驱动 `*.states.yaml` 状态机，返回状态切换轨迹、访问过的状态、卡死状态检查和摘要（例如 `Played 8 s of scripted input · no stuck states`）。 |
 
 `scene_edit` 接受的编辑，每项是一个带 `op` 的对象：
 

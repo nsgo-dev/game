@@ -100,7 +100,7 @@ nsgo game editor .
 claude mcp add game-editor -- nsgo game mcp
 ```
 
-一个基于标准输入输出的 MCP 服务器，由 Claude Code、Codex 等智能体在项目目录（或其中任一子目录）里启动，或用 `-project` 指定项目。它找到打开了该项目的编辑器，把编辑器的工具 `scene_read`、`scene_edit`、`selection_get`、`viewport_image`、`game_check`、`game_playtest` 和 `playtest_define` 以及变更流转发给智能体；没有编辑器打开该项目时，每次调用都会说明如何打开它。工具说明见 [mcp](mcp.md#编辑器工具)。
+一个基于标准输入输出的 MCP 服务器，由 Claude Code、Codex 等智能体在项目目录（或其中任一子目录）里启动，或用 `-project` 指定项目。它找到打开了该项目的编辑器，把编辑器的工具 `scene_read`、`scene_edit`、`selection_get`、`viewport_image`、`game_check`、`game_playtest`、`playtest_define`、`states_write` 和 `states_test` 以及变更流转发给智能体；没有编辑器打开该项目时，每次调用都会说明如何打开它。工具说明见 [mcp](mcp.md#编辑器工具)。
 
 ### release
 

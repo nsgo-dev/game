@@ -254,6 +254,10 @@ type Editor struct {
 	PlayRate int
 	// OnSaveClip is invoked by the animation panel's Save button with the encoded clip YAML; when nil the button writes to ClipPath.
 	OnSaveClip func(data []byte) error
+	// OnSaveStates is invoked by the state machine panel's Save button with the encoded *.states.yaml bytes; when nil the button writes to StatesPath.
+	OnSaveStates func(data []byte) error
+	// Clips optionally resolves animation clips for the open sprite state machine when no project directory holds them on disk.
+	Clips animclip.ClipResolver
 	// OnSaveDataTable is invoked by the Data Table panel's Save button with the encoded table YAML; when nil the button writes to DataTablePath.
 	OnSaveDataTable func(data []byte) error
 	// OnSaveGridMap is invoked by SaveGridMap (and Save when a GridMap has unsaved edits) with the encoded canonical .gridmap.yaml bytes; when nil SaveGridMap writes to the GridMap's file path.
@@ -316,6 +320,9 @@ type Editor struct {
 	clipPlayer  *animclip.Player
 	clipErr     error
 	selKey      clipKeyRef
+
+	// The sprite state machine editor: open *.states.yaml graph, live preview player and Drive with keys state.
+	states statesEditorState
 
 	// The data table editor: the open table state and registered Go row types per file pattern.
 	table      *dataTableState
@@ -550,6 +557,7 @@ func (e *Editor) afterMutate() {
 // Rebuild resolves e.Doc against e.Resolver into e.Built. The scene's 3D build (Scene3D) is brought up to date the next time the 3D viewport draws or picks; a 3D gizmo drag in progress changes only the dragged object's transform, which moves its built node in place.
 func (e *Editor) Rebuild() {
 	defer e.refreshClipPreview()
+	defer e.refreshStatesPreview()
 	if e.drag3D.kind != drag3DGizmo {
 		e.s3d.stale = true
 	}
@@ -570,10 +578,13 @@ func (e *Editor) Rebuild() {
 	e.BuildErr = nil
 }
 
-// ActiveScene returns the live play scene when playing, the scene posed by the open animation clip at the playhead when one is open and previews, or the edit BuiltScene otherwise.
+// ActiveScene returns the live play scene when playing, the scene posed by the open state machine or animation clip when previewing, or the edit BuiltScene otherwise.
 func (e *Editor) ActiveScene() *sceneformat.BuiltScene {
 	if e.playing && e.playScene != nil {
 		return e.playScene
+	}
+	if e.states.scene != nil {
+		return e.states.scene
 	}
 	if e.clipScene != nil {
 		return e.clipScene

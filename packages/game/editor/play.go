@@ -123,6 +123,7 @@ func (e *Editor) PlayIn(cx *core.Scope) error {
 	}
 
 	e.stopClipLoop()
+	e.stopStatesLoop()
 	e.stopAudioAudition()
 	e.resetInputMapTransient()
 	e.connPick = nil

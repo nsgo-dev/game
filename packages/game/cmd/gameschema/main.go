@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/packages/game/ai"
+	"github.com/nsgo-dev/game/packages/game/animclip"
 	"github.com/nsgo-dev/game/packages/game/cutscene"
 	"github.com/nsgo-dev/game/packages/game/gameui"
 	"github.com/nsgo-dev/game/packages/game/l10n"
@@ -215,6 +216,13 @@ var formats = []format{
 		pkg:     "gameui",
 		version: gameui.ScreenFormatVersion,
 	},
+	{
+		url:     animclip.StateMachineSchemaURL,
+		title:   "NSGo game sprite animation state machine (version 1)",
+		typ:     reflect.TypeFor[animclip.StateMachineDoc](),
+		pkg:     "animclip",
+		version: animclip.StateMachineVersion,
+	},
 }
 
 // durationTypes maps duration types to their YAML schema forms: time.Duration accepts a Go duration string or integer nanoseconds; cutscene.Duration accepts only Go duration strings such as "1.5s".
@@ -331,6 +339,16 @@ func generate(root string) ([]schemaFile, error) {
 						string(gameui.DeviceTablet),
 						string(gameui.DeviceDesktop),
 						string(gameui.DeviceUltrawide),
+					}
+				}
+			}
+		}
+		if f.url == animclip.StateMachineSchemaURL {
+			if paramDef := s.Definitions["ParamDoc"]; paramDef != nil {
+				if def := paramDef.Property("default"); def != nil {
+					*def = jsonschema.Schema{
+						Description: def.Description,
+						Types:       []jsonschema.Type{jsonschema.TypeBoolean, jsonschema.TypeNumber},
 					}
 				}
 			}

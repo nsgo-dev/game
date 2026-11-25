@@ -84,3 +84,42 @@ bind := func(target string, p animclip.Property) (func(float64), error) {
 	return nil, fmt.Errorf("entity cannot play %s", p.Name)
 }
 ```
+
+## 精灵状态机
+
+精灵状态机保存在 `*.states.yaml` 文件中（版本 1，Schema 为 [`states.v1.json`](schemas.md#已发布的-schema)）：包含指向 `*.animation.yaml` 片段的具名 `states`、带类型的参数 `parameters`（`float`、`bool`、`trigger`）、入口状态 `entry`，以及按顺序求值、由 `when` 条件表达式和/或 `onEnd: true` 保护的 `transitions`。通配符 `from: '*'` 过渡（例如受击中断 `hurt`）会从目标状态以外的任意状态进行检查。
+
+在场景文件中为对象挂载内置的 `animator` 组件（`sceneformat.AnimatorComponentName`）：
+
+```yaml
+components:
+  animator:
+    states: anim/knight.states.yaml
+    startClip: idle
+```
+
+使用 `animclip.NewAnimator`（或配合自定义 `Binder` 的 `animclip.NewStateMachine`）在 `game.Loop` 的固定步长中播放：
+
+```go
+lib := resource.NewLibrary(os.DirFS("."))
+sm, err := animclip.NewAnimator(built, "knight", animclip.FSStates(os.DirFS(".")), lib, components)
+if err != nil {
+	return err
+}
+sm.OnTransition = func(from, to string) { /* ... */ }
+sm.OnEvent = func(name string) { /* ... */ }
+
+// 在 game.Loop.Update(dt) 中：
+sm.SetFloat("move.x", vx)
+sm.SetFloat("velocity.y", vy)
+sm.SetBool("on_floor", onFloor)
+if jumpPressed {
+	sm.Trigger("jump")
+}
+sm.Update(dt)
+```
+
+- **条件表达式**：`when` 支持 `||`/`or`、`&&`/`and`、`!`/`not`、`|param|` / `abs(param)`、一元 `-` 以及比较运算（`==`、`!=`、`<`、`<=`、`>`、`>=`、`≤`、`≥`）。表达式在加载时即对照 `parameters` 解析并做类型检查（`ParseStateMachine`）。
+- **触发器**：`Trigger(name)` 激活触发器参数；当引用它的过渡触发时自动消费，或在当前固定步长结束时清除（`Update`）。
+- **脚本化输入与测试**：`InputDriver` 将项目的 `input.Actions`（如 `move_left`、`move_right`、`jump`、`attack`、`hurt`）映射为运动参数（`move.x`、`velocity.y`、`on_floor`、`jump`、`attack`、`hurt`），`SimulateStateMachine` 在固定步长下确定性地驱动状态机，报告访问过的状态、切换轨迹与卡死状态。
+- **校验与引用**：`game check`（`tooling/assetcheck`）校验每个 `*.states.yaml` 文件与 `animator` 组件，拒绝指向缺失状态的过渡、不存在的片段文件以及没有任何过渡读取的参数，并给出精确的文件与行号。移动文件时，`refs` 会跟踪 `animator.states` 和 `states[].clip` 路径。

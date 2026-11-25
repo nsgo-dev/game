@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/nsgo-dev/game/packages/game/ai"
+	"github.com/nsgo-dev/game/packages/game/animclip"
 	"github.com/nsgo-dev/game/packages/game/cutscene"
 	"github.com/nsgo-dev/game/packages/game/gameui"
 	"github.com/nsgo-dev/game/packages/game/l10n"
@@ -630,7 +631,6 @@ func TestBTSchemaShapeAndValidation(t *testing.T) {
 		}
 	}
 }
-
 func TestCutsceneSchemasShapeAndValidation(t *testing.T) {
 	s1 := schemaAt(t, cutscene.SchemaURL)
 	if s1.Schema != jsonschema.Draft07 || s1.ID != cutscene.SchemaURL {
@@ -815,6 +815,55 @@ func TestScreenSchemaShapeAndValidation(t *testing.T) {
 	for _, bad := range badDocs {
 		if err := s.ValidateYAML([]byte(bad)); err == nil {
 			t.Fatalf("screen schema accepted invalid YAML:\n%s", bad)
+		}
+	}
+}
+
+func TestStatesSchemaShapeAndValidation(t *testing.T) {
+	s := schemaAt(t, animclip.StateMachineSchemaURL)
+	if s.Schema != jsonschema.Draft07 || s.ID != animclip.StateMachineSchemaURL {
+		t.Fatalf("$schema %q, $id %q", s.Schema, s.ID)
+	}
+	if version := s.Property("version"); version == nil || version.Const != int64(animclip.StateMachineVersion) {
+		t.Fatalf("version property = %+v", version)
+	}
+	if b, ok := s.AdditionalProperties.Boolean(); !ok || b {
+		t.Fatal("states schema accepts unknown top-level keys")
+	}
+	for _, p := range s.Properties {
+		if p.Schema.Description == "" {
+			t.Errorf("StateMachineDoc.%s has no description", p.Name)
+		}
+	}
+	for _, defName := range []string{"ParamDoc", "StateDoc", "TransitionDoc"} {
+		def := s.Definitions[defName]
+		if def == nil || def.Description == "" {
+			t.Fatalf("definition %s = %+v, want one with a description", defName, def)
+		}
+		if b, ok := def.AdditionalProperties.Boolean(); !ok || b {
+			t.Fatalf("definition %s accepts unknown keys", defName)
+		}
+		for _, p := range def.Properties {
+			if p.Schema.Description == "" {
+				t.Errorf("%s.%s has no description", defName, p.Name)
+			}
+		}
+	}
+	data, err := os.ReadFile(filepath.Join(root, "animclip", "testdata", "knight.states.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ValidateYAML(data); err != nil {
+		t.Fatalf("states schema refused testdata/knight.states.yaml: %v", err)
+	}
+	badDocs := []string{
+		"version: 1\nentry: idle\nunknownKey: true\nstates:\n  - name: idle\n    clip: a.animation.yaml\n",
+		"version: 1\nentry: idle\nparameters:\n  - name: x\n    type: string\nstates:\n  - name: idle\n    clip: a.animation.yaml\n",
+		"version: 1\nentry: idle\nparameters:\n  - name: x\n    type: float\n    default: nope\nstates:\n  - name: idle\n    clip: a.animation.yaml\n",
+	}
+	for _, bad := range badDocs {
+		if err := s.ValidateYAML([]byte(bad)); err == nil {
+			t.Fatalf("states schema accepted invalid YAML:\n%s", bad)
 		}
 	}
 }

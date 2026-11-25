@@ -87,8 +87,12 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 				},
 				OnPress: func(ev core.PressEvent) {
 					ed.SelectFile(p)
-					if ev.Clicks == 2 && !f.Dir && isProjectScene(ed.Project, p) && p != ed.ScenePath && !ed.Playing() {
-						ed.openSceneAsked(p)
+					if ev.Clicks == 2 && !f.Dir && !ed.Playing() {
+						if isStatesFile(p) {
+							ed.report(ed.OpenStatesProjectFile(p))
+						} else if isProjectScene(ed.Project, p) && p != ed.ScenePath {
+							ed.openSceneAsked(p)
+						}
 					}
 				},
 				Children: []core.Node{core.Text{
@@ -131,11 +135,21 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 								Disabled: func() bool {
 									_ = rev.Get()
 									p := current.Get()
-									return ed.Playing() || p == "" || p == ed.ScenePath || !isProjectScene(ed.Project, p) || slices.ContainsFunc(files.Get().files, func(f ProjectFile) bool { return f.Path == p && f.Dir })
+									if ed.Playing() || p == "" || slices.ContainsFunc(files.Get().files, func(f ProjectFile) bool { return f.Path == p && f.Dir }) {
+										return true
+									}
+									if isStatesFile(p) {
+										return false
+									}
+									return p == ed.ScenePath || !isProjectScene(ed.Project, p)
 								},
 								OnPress: func() {
 									if p := current.Get(); p != "" {
-										ed.openSceneAsked(p)
+										if isStatesFile(p) {
+											ed.report(ed.OpenStatesProjectFile(p))
+										} else {
+											ed.openSceneAsked(p)
+										}
 									}
 								},
 							},

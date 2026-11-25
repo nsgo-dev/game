@@ -32,6 +32,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/nsgo-dev/game/packages/game/animclip"
 	"github.com/nsgo-dev/game/packages/game/gltf"
 	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/game/packages/game/refs"
@@ -67,6 +68,8 @@ type Report struct {
 	Cutscenes int
 	// Screens counts the gameui *.screen.yaml / *.screen.yml files that were checked.
 	Screens int
+	// States counts the sprite animation state machine YAML files (*.states.yaml) that were checked.
+	States int
 	// Problems are the problems found, sorted by file, then line, then message.
 	Problems []Problem
 }
@@ -95,6 +98,8 @@ func CheckWith(fsys fs.FS, opts Options) (*Report, error) {
 		broken:      make(map[string]bool),
 		images:      make(map[string]*imageInfo),
 		materials:   make(map[string]bool),
+		clips:       make(map[string]bool),
+		statesDocs:  make(map[string]*animclip.StateMachineDoc),
 		meshLibs:    make(map[string]*meshLibInfo),
 		models:      make(map[string]*gltf.Document),
 		tilesetDocs: make(map[string]*tilemap.TilesetDoc),
@@ -102,7 +107,7 @@ func CheckWith(fsys fs.FS, opts Options) (*Report, error) {
 		sceneObjs:   make(map[string]map[string]bool),
 		l10nByRoot:  make(map[string]*l10nIndex),
 	}
-	var scenes, cutscenes, screens, gridMaps, terrains, foliages, tiledMaps, tilesets, yamlTilesets, ldtks, jsons, otherYAMLs []string
+	var scenes, cutscenes, screens, statesFiles, gridMaps, terrains, foliages, tiledMaps, tilesets, yamlTilesets, ldtks, jsons, otherYAMLs []string
 	err := fs.WalkDir(fsys, ".", func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			if p == "." {
@@ -127,6 +132,8 @@ func CheckWith(fsys fs.FS, opts Options) (*Report, error) {
 			cutscenes = append(cutscenes, p)
 		case strings.HasSuffix(name, ".screen.yaml"), strings.HasSuffix(name, ".screen.yml"):
 			screens = append(screens, p)
+		case strings.HasSuffix(name, ".states.yaml"), strings.HasSuffix(name, ".states.yml"):
+			statesFiles = append(statesFiles, p)
 		case strings.HasSuffix(name, ".gridmap.yaml"), strings.HasSuffix(name, ".gridmap.yml"):
 			gridMaps = append(gridMaps, p)
 		case strings.HasSuffix(name, ".terrain.yaml"), strings.HasSuffix(name, ".terrain.yml"):
@@ -175,6 +182,9 @@ func CheckWith(fsys fs.FS, opts Options) (*Report, error) {
 	for _, p := range ldtks {
 		c.checkLDtk(p)
 	}
+	for _, p := range statesFiles {
+		c.checkStates(p)
+	}
 	for _, p := range scenes {
 		c.checkScene(p)
 	}
@@ -217,6 +227,10 @@ type checker struct {
 	images map[string]*imageInfo
 	// materials marks the material files already checked.
 	materials map[string]bool
+	// clips marks the animation clip files already checked.
+	clips map[string]bool
+	// statesDocs caches parsed *.states.yaml files (nil when invalid).
+	statesDocs map[string]*animclip.StateMachineDoc
 	// meshLibs caches parsed glTF 2.0 mesh libraries referenced by *.gridmap.yaml files.
 	meshLibs map[string]*meshLibInfo
 	// models holds each glTF model loaded so far, nil for one that does not load.
@@ -467,6 +481,9 @@ func (r *Report) Summary() string {
 	}
 	if r.Screens > 0 {
 		counts += ", " + plural(r.Screens, "screen", "screens")
+	}
+	if r.States > 0 {
+		counts += ", " + plural(r.States, "state machine", "state machines")
 	}
 	if r.OK() {
 		return counts + ": no problems"

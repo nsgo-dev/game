@@ -1,0 +1,158 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://game.nsgo.dev/schemas/states.v1.json",
+  "title": "NSGo game sprite animation state machine (version 1)",
+  "description": "StateMachineDoc is the plain-text YAML schema of a *.states.yaml sprite animation state machine.",
+  "type": "object",
+  "properties": {
+    "version": {
+      "description": "Version is the schema version; it must equal StateMachineVersion (1).",
+      "type": "integer",
+      "const": 1
+    },
+    "uid": {
+      "description": "UID is an optional stable file ID assigned by game index or the editor for safe renames.",
+      "type": "string"
+    },
+    "name": {
+      "description": "Name is an optional human-readable display name for the state machine.",
+      "type": "string"
+    },
+    "entry": {
+      "description": "Entry is the name of the state the machine enters when playback starts or resets.",
+      "type": "string"
+    },
+    "parameters": {
+      "description": "Parameters are the named inputs that transition conditions read.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/ParamDoc"
+      }
+    },
+    "states": {
+      "description": "States are the named animation states, each playing one animation clip.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/StateDoc"
+      }
+    },
+    "transitions": {
+      "description": "Transitions are the directed edges evaluated in declaration order on every fixed Update step.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/TransitionDoc"
+      }
+    }
+  },
+  "required": [
+    "version",
+    "entry",
+    "states"
+  ],
+  "additionalProperties": false,
+  "definitions": {
+    "ParamDoc": {
+      "description": "ParamDoc declares one named parameter of a StateMachineDoc.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Name is the parameter identifier used in transition expressions, such as \"move.x\", \"velocity.y\", \"on_floor\" or \"jump\".",
+          "type": "string"
+        },
+        "type": {
+          "description": "Type is the parameter kind: \"float\", \"bool\" or \"trigger\".",
+          "type": "string",
+          "enum": [
+            "float",
+            "bool",
+            "trigger"
+          ]
+        },
+        "default": {
+          "description": "Default is the optional starting value: a number for \"float\", a boolean for \"bool\", and omitted for \"trigger\".",
+          "type": [
+            "boolean",
+            "number"
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "StateDoc": {
+      "description": "StateDoc declares one state of a StateMachineDoc.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Name is the unique state name within the state machine, such as \"idle\" or \"run\".",
+          "type": "string"
+        },
+        "clip": {
+          "description": "Clip is the project-relative path or resolver key of the animation clip resource played while this state is active.",
+          "type": "string"
+        },
+        "speed": {
+          "description": "Speed is an optional playback speed multiplier (> 0); 0 or omitted plays at 1x speed.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "loop": {
+          "description": "Loop optionally overrides the clip's own loop setting while played in this state.",
+          "type": "boolean"
+        },
+        "x": {
+          "description": "X is an optional horizontal coordinate of this state node in the editor graph.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        },
+        "y": {
+          "description": "Y is an optional vertical coordinate of this state node in the editor graph.",
+          "type": "number",
+          "minimum": -3.4028234663852886e+38,
+          "maximum": 3.4028234663852886e+38
+        }
+      },
+      "required": [
+        "name",
+        "clip"
+      ],
+      "additionalProperties": false
+    },
+    "TransitionDoc": {
+      "description": "TransitionDoc declares one directed transition from From (or \"*\" for any state) to To.",
+      "type": "object",
+      "properties": {
+        "from": {
+          "description": "From is the source state name, or \"*\" (AnyState) to match any state other than To.",
+          "type": "string"
+        },
+        "to": {
+          "description": "To is the target state name; it must name a state in States.",
+          "type": "string"
+        },
+        "label": {
+          "description": "Label is an optional human-readable summary shown on the editor graph edge and LEAVING list.",
+          "type": "string"
+        },
+        "when": {
+          "description": "When is an optional boolean expression over declared parameters, such as \"|move.x| > 0.1\" or \"jump && on_floor\".",
+          "type": "string"
+        },
+        "onEnd": {
+          "description": "OnEnd fires this transition when the source state's clip finishes playing (and When, if set, is also true).",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "from",
+        "to"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

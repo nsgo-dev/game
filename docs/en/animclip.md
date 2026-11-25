@@ -84,3 +84,42 @@ bind := func(target string, p animclip.Property) (func(float64), error) {
 	return nil, fmt.Errorf("entity cannot play %s", p.Name)
 }
 ```
+
+## Sprite state machines
+
+A sprite state machine lives in a `*.states.yaml` file (version 1, schema [`states.v1.json`](schemas.md#published-schemas)): named `states` pointing at `*.animation.yaml` clips, typed `parameters` (`float`, `bool`, `trigger`), an `entry` state, and ordered `transitions` guarded by `when` expressions and/or `onEnd: true`. Wildcard `from: '*'` transitions (such as a `hurt` interrupt) are checked from any state other than the target.
+
+Attach the built-in `animator` component (`sceneformat.AnimatorComponentName`) to an object in a scene file:
+
+```yaml
+components:
+  animator:
+    states: anim/knight.states.yaml
+    startClip: idle
+```
+
+Play it on `game.Loop`'s fixed steps with `animclip.NewAnimator` (or `animclip.NewStateMachine` with a custom `Binder`):
+
+```go
+lib := resource.NewLibrary(os.DirFS("."))
+sm, err := animclip.NewAnimator(built, "knight", animclip.FSStates(os.DirFS(".")), lib, components)
+if err != nil {
+	return err
+}
+sm.OnTransition = func(from, to string) { /* ... */ }
+sm.OnEvent = func(name string) { /* ... */ }
+
+// Inside game.Loop.Update(dt):
+sm.SetFloat("move.x", vx)
+sm.SetFloat("velocity.y", vy)
+sm.SetBool("on_floor", onFloor)
+if jumpPressed {
+	sm.Trigger("jump")
+}
+sm.Update(dt)
+```
+
+- **Condition expressions**: `when` supports `||`/`or`, `&&`/`and`, `!`/`not`, `|param|` / `abs(param)`, unary `-`, and comparisons (`==`, `!=`, `<`, `<=`, `>`, `>=`, `≤`, `≥`). Expressions are parsed and type-checked against `parameters` at load time (`ParseStateMachine`).
+- **Triggers**: `Trigger(name)` arms a trigger parameter; it is automatically consumed when a transition referencing it fires or cleared at the end of the fixed step (`Update`).
+- **Scripted input and testing**: `InputDriver` maps project `input.Actions` (such as `move_left`, `move_right`, `jump`, `attack`, `hurt`) into locomotion parameters (`move.x`, `velocity.y`, `on_floor`, `jump`, `attack`, `hurt`), and `SimulateStateMachine` drives a state machine deterministically across fixed steps to report visited states, transition trace, and stuck states.
+- **Validation and references**: `game check` (`tooling/assetcheck`) validates every `*.states.yaml` file and `animator` component, refusing transitions to missing states, unknown clip files, and parameters no transition reads, with exact file and line numbers. `refs` follows both `animator.states` and `states[].clip` paths when moving files.

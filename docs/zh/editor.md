@@ -685,6 +685,14 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 
 `SaveClipYAML` 和 `SaveClipFile` 输出确定性的 YAML，因此打开后再次保存的片段不会改变。
 
+### 精灵状态机图（#1054）
+
+打开 `*.states.yaml` 文件（通过文件浏览器、命令面板或 `OpenStatesFile` / `OpenStatesYAML` / `OpenStatesProjectFile`）会在视口下方打开**状态机**图面板：
+
+- **状态图与当前状态**：每个状态以节点卡片展示名称、片段元信息（帧数、帧时长、循环/单次）与精灵缩略图，配有带标签的有向过渡箭头以及 `Any state` 通配徽章。预览期间当前状态节点实时高亮，预览卡片显示当前播放帧。
+- **按键驱动（Drive with keys）**：开启 **Drive with keys** 后，预览通过与游戏相同的 `animclip.InputDriver` 和 `animclip.StateMachine` 绑定到项目的输入动作（如 `move_left`、`move_right`、`jump`、`attack`、`hurt`），在 `game.Loop` 的固定步长上推进，使交互预览与运行时播放逐帧一致。
+- **出边列表（`LEAVING <STATE>`）**：选中任意状态即可查看其所有出边过渡（含 `Any state` 中断）及条件表达式；所有图编辑操作（`AddStatesState`、`RemoveStatesState`、`AddStatesTransition`、`RemoveStatesTransition`、`SetStatesTransitionCondition`、`SetStatesEntry`、`SetStatesNodePosition`）均进入编辑器的撤销/重做历史，并以确定性规范 YAML 写回（`SaveStatesYAML` / `SaveStatesFile`）。
+
 ## 编辑器插件（#492）
 
 插件为场景编辑器添加自己的面板、自己组件类型的检查器以及 2D 视口工具，作用与 Godot 的 `EditorPlugin` 相同。Go 无法在所有平台上于运行时加载代码，因此插件是编译进编辑器程序的 Go 代码：编辑器程序用 `Editor.RegisterPlugin` 注册插件，项目在其[项目文件](project.md)中列出插件名即可启用：

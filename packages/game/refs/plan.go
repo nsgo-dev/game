@@ -495,7 +495,7 @@ func PlanIndex(fsys fs.FS, opts IndexOptions) (*Plan, error) {
 	}
 	bad := slices.Clone(p.indexProblems)
 	for _, f := range p.Files {
-		if n := field(f.doc, "uid"); (f.Kind == KindScene || f.Kind == KindResource || f.Kind == KindScreen) && n != nil && f.uid == nil {
+		if n := field(f.doc, "uid"); (f.Kind == KindScene || f.Kind == KindResource || f.Kind == KindScreen || f.Kind == KindStates) && n != nil && f.uid == nil {
 			bad = append(bad, Problem{File: f.Path, Line: n.Line, Message: fmt.Sprintf("uid %q is not a uid; delete the line and run game index again to get a new one", n.Value)})
 		}
 	}
@@ -567,7 +567,7 @@ func PlanIndex(fsys fs.FS, opts IndexOptions) (*Plan, error) {
 		}
 	}
 	for _, f := range p.Files {
-		if (f.Kind != KindScene && f.Kind != KindResource && f.Kind != KindScreen) || f.UID != "" {
+		if (f.Kind != KindScene && f.Kind != KindResource && f.Kind != KindScreen && f.Kind != KindStates) || f.UID != "" {
 			continue
 		}
 		id, err := newUID()

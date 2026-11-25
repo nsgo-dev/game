@@ -1,0 +1,282 @@
+package editormcp
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/nsgo-dev/game/packages/game/animclip"
+	"github.com/nsgo-dev/game/packages/game/editor"
+)
+
+// The names of the sprite state machine tools added to the editor's MCP server.
+const (
+	// ToolStatesWrite validates and writes a *.states.yaml file in the open project and opens it in the editor.
+	ToolStatesWrite = "states_write"
+	// ToolStatesTest plays scripted input against a *.states.yaml file and reports the state trace and any stuck states.
+	ToolStatesTest = "states_test"
+)
+
+const statesWriteSchema = `{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["file"],
+  "properties": {
+    "file": {"type": "string", "description": "Slash-separated path inside the project root ending in .states.yaml, such as anim/knight.states.yaml"},
+    "yaml": {"type": "string", "description": "YAML source of the *.states.yaml document; validated strictly and written in canonical form"},
+    "target": {"type": "string", "description": "Optional scene object ID to preview the state machine on"},
+    "open": {"type": "boolean", "description": "Open the written state machine in the editor graph (default true)"}
+  }
+}`
+
+const statesTestSchema = `{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "file": {"type": "string", "description": "Slash-separated path of a *.states.yaml file from the project root; empty tests the state machine open in the editor"},
+    "durationSeconds": {"type": "number", "minimum": 0.1, "maximum": 60, "description": "Total simulated duration in seconds (default 8)"},
+    "rate": {"type": "integer", "minimum": 1, "maximum": 240, "description": "Fixed simulation step rate in Hz (default 60)"},
+    "script": {
+      "type": "array",
+      "description": "Optional scripted input steps; omitted runs the default 8 s locomotion, jump, attack and hurt script",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "atMs": {"type": "integer", "minimum": 0},
+          "durationMs": {"type": "integer", "minimum": 0},
+          "moveX": {"type": "number"},
+          "jump": {"type": "boolean"},
+          "attack": {"type": "boolean"},
+          "hurt": {"type": "boolean"},
+          "floats": {"type": "object", "additionalProperties": {"type": "number"}},
+          "bools": {"type": "object", "additionalProperties": {"type": "boolean"}},
+          "triggers": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    }
+  }
+}`
+
+// StatesWriteResult is what states_write reports.
+type StatesWriteResult struct {
+	File        string `json:"file"`
+	Entry       string `json:"entry"`
+	States      int    `json:"states"`
+	Transitions int    `json:"transitions"`
+	Opened      bool   `json:"opened"`
+}
+
+// StatesTestResult is what states_test reports.
+type StatesTestResult struct {
+	File            string                     `json:"file,omitempty"`
+	Summary         string                     `json:"summary"`
+	DurationSeconds float64                    `json:"durationSeconds"`
+	Steps           int                        `json:"steps"`
+	Trace           []string                   `json:"trace"`
+	Transitions     []animclip.TransitionEvent `json:"transitions,omitempty"`
+	VisitedStates   []string                   `json:"visitedStates"`
+	UnvisitedStates []string                   `json:"unvisitedStates,omitempty"`
+	StuckStates     []string                   `json:"stuckStates,omitempty"`
+}
+
+type statesWriteArgs struct {
+	File   string `json:"file"`
+	YAML   string `json:"yaml"`
+	Target string `json:"target"`
+	Open   *bool  `json:"open"`
+}
+
+type statesScriptStepArgs struct {
+	AtMs       int                `json:"atMs"`
+	DurationMs int                `json:"durationMs"`
+	MoveX      float64            `json:"moveX"`
+	Jump       bool               `json:"jump"`
+	Attack     bool               `json:"attack"`
+	Hurt       bool               `json:"hurt"`
+	Floats     map[string]float64 `json:"floats"`
+	Bools      map[string]bool    `json:"bools"`
+	Triggers   []string           `json:"triggers"`
+}
+
+type statesTestArgs struct {
+	File            string                 `json:"file"`
+	DurationSeconds float64                `json:"durationSeconds"`
+	Rate            int                    `json:"rate"`
+	Script          []statesScriptStepArgs `json:"script"`
+}
+
+func statesWrite(ctx context.Context, c *Call) (*Result, error) {
+	var args statesWriteArgs
+	if err := c.Decode(&args); err != nil {
+		return nil, fmt.Errorf("states_write: %w", err)
+	}
+	clean, err := cleanProjectPath(args.File)
+	if err != nil {
+		return nil, fmt.Errorf("states_write: %w", err)
+	}
+	lower := strings.ToLower(clean)
+	if !strings.HasSuffix(lower, ".states.yaml") && !strings.HasSuffix(lower, ".states.yml") {
+		return nil, fmt.Errorf("states_write: %s: file name must end with .states.yaml", clean)
+	}
+	if strings.TrimSpace(args.YAML) == "" {
+		return nil, errors.New("states_write: yaml must not be empty")
+	}
+	doc, err := animclip.ParseStateMachine([]byte(args.YAML))
+	if err != nil {
+		return nil, fmt.Errorf("states_write: %s: %w", clean, err)
+	}
+	canonical, err := animclip.EncodeStateMachine(doc)
+	if err != nil {
+		return nil, fmt.Errorf("states_write: %s: %w", clean, err)
+	}
+
+	openInEditor := true
+	if args.Open != nil {
+		openInEditor = *args.Open
+	}
+
+	var res StatesWriteResult
+	if err := c.Editor(ctx, func(ed *editor.Editor) error {
+		root := projectRoot(ed)
+		if root == "" {
+			return errors.New("states_write: no project is open in the editor; open one with go tool game editor <project-dir>")
+		}
+		abs := filepath.Join(root, filepath.FromSlash(clean))
+		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+			return fmt.Errorf("states_write: %s: %w", clean, err)
+		}
+		if err := os.WriteFile(abs, canonical, 0o644); err != nil {
+			return fmt.Errorf("states_write: %s: %w", clean, err)
+		}
+		if openInEditor {
+			target := args.Target
+			if target == "" {
+				target = ed.StatesTarget()
+			}
+			if err := ed.OpenStatesFile(abs, target); err != nil {
+				return fmt.Errorf("states_write: open %s: %w", clean, err)
+			}
+		} else {
+			ed.CheckProblems()
+		}
+		res = StatesWriteResult{
+			File:        clean,
+			Entry:       doc.Entry,
+			States:      len(doc.States),
+			Transitions: len(doc.Transitions),
+			Opened:      openInEditor,
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	text := fmt.Sprintf("Wrote %s (%d states, %d transitions, entry %q).", res.File, res.States, res.Transitions, res.Entry)
+	return &Result{Text: text, Structured: res}, nil
+}
+
+func statesTest(ctx context.Context, c *Call) (*Result, error) {
+	var args statesTestArgs
+	if err := c.Decode(&args); err != nil {
+		return nil, fmt.Errorf("states_test: %w", err)
+	}
+	if args.DurationSeconds < 0 || args.DurationSeconds > 60 {
+		return nil, fmt.Errorf("states_test: durationSeconds %v must be in (0, 60]", args.DurationSeconds)
+	}
+	if args.Rate < 0 || args.Rate > 240 {
+		return nil, fmt.Errorf("states_test: rate %d must be in [1, 240]", args.Rate)
+	}
+
+	var (
+		doc   *animclip.StateMachineDoc
+		clips animclip.ClipResolver
+		file  string
+	)
+	if err := c.Editor(ctx, func(ed *editor.Editor) error {
+		clips = ed.StatesClipResolver()
+		if args.File == "" {
+			doc = ed.States()
+			if doc == nil {
+				return errors.New("states_test: no sprite state machine is open in the editor; pass file or open a *.states.yaml file first")
+			}
+			file = ed.StatesPath()
+			if root := projectRoot(ed); root != "" && file != "" {
+				if rel, err := filepath.Rel(root, file); err == nil && !strings.HasPrefix(rel, "..") {
+					file = filepath.ToSlash(rel)
+				}
+			}
+			return nil
+		}
+		root := projectRoot(ed)
+		if root == "" {
+			return fmt.Errorf("states_test: %s: no project is open in the editor", args.File)
+		}
+		clean, err := cleanProjectPath(args.File)
+		if err != nil {
+			return fmt.Errorf("states_test: %w", err)
+		}
+		data, err := readProjectFile(root, clean)
+		if err != nil {
+			return fmt.Errorf("states_test: %w", err)
+		}
+		parsed, err := animclip.ParseStateMachine(data)
+		if err != nil {
+			return fmt.Errorf("states_test: %s: %w", clean, err)
+		}
+		doc = parsed
+		file = clean
+		if clips == nil {
+			clips = animclip.FSClips{FS: os.DirFS(root)}
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	opts := animclip.SimulationOptions{
+		Rate: args.Rate,
+	}
+	if args.DurationSeconds > 0 {
+		opts.Duration = time.Duration(args.DurationSeconds * float64(time.Second))
+	}
+	if len(args.Script) > 0 {
+		opts.Script = make([]animclip.ScriptStep, len(args.Script))
+		for i, s := range args.Script {
+			opts.Script[i] = animclip.ScriptStep{
+				At:       time.Duration(s.AtMs) * time.Millisecond,
+				Duration: time.Duration(s.DurationMs) * time.Millisecond,
+				MoveX:    s.MoveX,
+				Jump:     s.Jump,
+				Attack:   s.Attack,
+				Hurt:     s.Hurt,
+				Floats:   s.Floats,
+				Bools:    s.Bools,
+				Triggers: s.Triggers,
+			}
+		}
+	}
+
+	report, err := animclip.SimulateStateMachine(doc, clips, nil, nil, opts)
+	if err != nil {
+		return nil, fmt.Errorf("states_test: %w", err)
+	}
+	summary := report.Summary()
+	res := StatesTestResult{
+		File:            file,
+		Summary:         summary,
+		DurationSeconds: report.Duration.Seconds(),
+		Steps:           report.Steps,
+		Trace:           report.Trace,
+		Transitions:     report.Transitions,
+		VisitedStates:   report.VisitedStates,
+		UnvisitedStates: report.UnvisitedStates,
+		StuckStates:     report.StuckStates,
+	}
+	text := summary + "\nTrace: " + strings.Join(report.Trace, " -> ") + "\n"
+	return &Result{Text: text, Structured: res}, nil
+}

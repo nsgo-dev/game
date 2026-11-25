@@ -321,6 +321,9 @@ func (s *sceneCheck) objects(objs []sceneformat.ObjectDoc, steps ...string) {
 		if o.GridMap != "" {
 			s.gridMap(o.GridMap, s.line(append(slices.Clip(op), "gridMap")...))
 		}
+		if o.Components != nil {
+			s.animator(o, op...)
+		}
 		s.objects(o.Children, append(slices.Clip(op), "children")...)
 	}
 }
