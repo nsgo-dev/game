@@ -641,7 +641,10 @@ type Editor struct {
 	randomTiles []WeightedTile
 	randomSeed  uint64
 	// tileReview holds the active region-based agent tile edit review for the open scene, or nil.
-	tileReview *tileReviewState
+	tileReview    *tileReviewState
+	tileReviewSeq uint64
+	// paletteImgCache caches FileResolver-loaded tileset images across TilePalette() calls so 60 Hz rev bumps avoid disk reads.
+	paletteImgCache paletteFileImageCache
 	// inspectAssetFile prefers the selected asset's import settings in InspectorView over SelectedID after selecting an asset in FilesView.
 	inspectAssetFile bool
 	// inspectLayer prefers ActiveLayer's parallax/repeat settings in InspectorView over Scene Settings when no object or asset file is selected (set by SetActiveLayer, cleared by SelectObject or opening a scene).
@@ -1370,6 +1373,7 @@ func (e *Editor) SaveFile(path string) error {
 		e.cancelBackgroundPreview()
 		e.cancelMaterialColorPreview()
 		e.endTileStrokeForChange()
+		e.exitTileReviewBeforePreview()
 		e.endGridMapStrokeForChange()
 	}
 	if err := e.checkDiskConflict(DiskFileScene, path, e.disk.sceneDisk); err != nil {
@@ -1462,7 +1466,14 @@ func (e *Editor) Undo() bool {
 	e.endTileStrokeForChange()
 	e.endGridMapStrokeForChange()
 	e.endTerrainStrokeForChange()
+	canUndo := e.History != nil && e.History.CanUndo()
+	if canUndo {
+		e.prepareTileReviewForHistoryStep()
+	}
 	ok, err := e.History.undo()
+	if canUndo {
+		e.finishTileReviewHistoryStep(ok)
+	}
 	if err != nil {
 		e.reportStatusError("Undo failed: " + err.Error())
 	}
@@ -1496,7 +1507,14 @@ func (e *Editor) Redo() bool {
 	e.endTileStrokeForChange()
 	e.endGridMapStrokeForChange()
 	e.endTerrainStrokeForChange()
+	canRedo := e.History != nil && e.History.CanRedo()
+	if canRedo {
+		e.prepareTileReviewForHistoryStep()
+	}
 	ok, err := e.History.redo()
+	if canRedo {
+		e.finishTileReviewHistoryStep(ok)
+	}
 	if err != nil {
 		e.reportStatusError("Redo failed: " + err.Error())
 	}

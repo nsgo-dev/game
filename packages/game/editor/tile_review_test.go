@@ -675,3 +675,479 @@ func TestTileReviewUIAndScreenshot(t *testing.T) {
 		t.Fatal("toolbar Undo after Keep did not restore original tilemap")
 	}
 }
+
+func TestTileReviewBeforePeekDoesNotCorruptSavePlayOrTabSwitch(t *testing.T) {
+	ed := newDungeonTileEditor(t, false)
+	// Add a second scene file so we can test tab switching while in Before preview.
+	secondScene := &sceneformat.SceneDoc{
+		Version:       2,
+		Name:          "level_02",
+		VirtualWidth:  384,
+		VirtualHeight: 320,
+		Layers:        []sceneformat.LayerDoc{{Name: "World", Space: sceneformat.SpaceWorld}},
+	}
+	secondYAML, err := sceneformat.Encode(secondScene)
+	if err != nil {
+		t.Fatalf("sceneformat.Encode second: %v", err)
+	}
+	secondPath := filepath.Join(filepath.Dir(ed.ProjectPath), "scenes", "level_02.scene.yaml")
+	if err := os.WriteFile(secondPath, secondYAML, 0o644); err != nil {
+		t.Fatalf("WriteFile second: %v", err)
+	}
+
+	if _, err := ed.AgentPaintTiles(editor.AgentTilePaintRequest{
+		Layer:       "World",
+		TileName:    "cave_a",
+		Rects:       []editor.AgentTileRect{{Col0: 2, Row0: 16, Col1: 5, Row1: 16}},
+		Label:       "Cave floor",
+		TrackReview: true,
+	}); err != nil {
+		t.Fatalf("AgentPaintTiles: %v", err)
+	}
+	afterCells := snapshotLayerCells(t, ed, "World")
+
+	// 1. Save() while viewing Before must exit Before preview and persist After cells.
+	ed.SetTileReviewViewMode(editor.TileReviewBefore)
+	if !ed.TileReviewShowingBefore() {
+		t.Fatal("expected Before view active")
+	}
+	if err := ed.Save(); err != nil {
+		t.Fatalf("Save while in Before view: %v", err)
+	}
+	if ed.TileReviewShowingBefore() {
+		t.Fatal("Save did not exit Before preview")
+	}
+	raw, err := os.ReadFile(filepath.Join(filepath.Dir(ed.ProjectPath), filepath.FromSlash(ed.ScenePath)))
+	if err != nil {
+		t.Fatalf("ReadFile saved scene: %v", err)
+	}
+	reloaded, err := sceneformat.Parse(raw)
+	if err != nil {
+		t.Fatalf("sceneformat.Parse saved scene: %v", err)
+	}
+	savedCells, err := reloaded.Layers[0].Tilemap.TileLayers[0].Cells()
+	if err != nil {
+		t.Fatalf("saved Cells: %v", err)
+	}
+	if !slices.Equal(savedCells, afterCells) {
+		t.Fatal("Save while in Before view wrote Before cells to disk instead of After cells")
+	}
+
+	// 2. SaveTab() while peeking Before must also persist After cells.
+	if _, err := ed.AgentPaintTiles(editor.AgentTilePaintRequest{
+		Layer:       "World",
+		TileName:    "cave_b",
+		Cells:       []editor.AgentTileCell{{Col: 6, Row: 16}},
+		TrackReview: true,
+	}); err != nil {
+		t.Fatalf("AgentPaintTiles 2: %v", err)
+	}
+	afterCells2 := snapshotLayerCells(t, ed, "World")
+	ed.SetTileReviewPeekBefore(true)
+	if !ed.TileReviewPeekingBefore() {
+		t.Fatal("expected Before peek active")
+	}
+	if err := ed.SaveTab(ed.ActiveTab()); err != nil {
+		t.Fatalf("SaveTab while peeking Before: %v", err)
+	}
+	if ed.TileReviewShowingBefore() {
+		t.Fatal("SaveTab did not clear Before peek")
+	}
+	raw2, err := os.ReadFile(filepath.Join(filepath.Dir(ed.ProjectPath), filepath.FromSlash(ed.ScenePath)))
+	if err != nil {
+		t.Fatalf("ReadFile saved scene 2: %v", err)
+	}
+	reloaded2, err := sceneformat.Parse(raw2)
+	if err != nil {
+		t.Fatalf("sceneformat.Parse saved scene 2: %v", err)
+	}
+	savedCells2, err := reloaded2.Layers[0].Tilemap.TileLayers[0].Cells()
+	if err != nil {
+		t.Fatalf("saved Cells 2: %v", err)
+	}
+	if !slices.Equal(savedCells2, afterCells2) {
+		t.Fatal("SaveTab while peeking Before wrote Before cells to disk instead of After cells")
+	}
+
+	// 3. PlayIn() while viewing Before must snapshot After cells (not Before), and Stop() restores After.
+	var rootScope *core.Scope
+	nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		rootScope = cx
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(800, 600))
+	ed.SetTileReviewViewMode(editor.TileReviewBefore)
+	if err := ed.PlayIn(rootScope); err != nil {
+		t.Fatalf("PlayIn while in Before view: %v", err)
+	}
+	if !ed.Playing() {
+		t.Fatal("expected editor to be playing")
+	}
+	if !slices.Equal(snapshotLayerCells(t, ed, "World"), afterCells2) {
+		t.Fatal("PlayIn captured Before cells instead of After cells")
+	}
+	if ed.FocusTileReviewRegion(ed.TileReviewRegions()[0].ID) {
+		t.Fatal("FocusTileReviewRegion must return false while playing")
+	}
+	if err := ed.Stop(); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	if !slices.Equal(snapshotLayerCells(t, ed, "World"), afterCells2) {
+		t.Fatal("Stop did not restore After cells")
+	}
+
+	// 4. Tab switch while viewing Before must exit Before preview so the stashed tab keeps After cells.
+	ed.SetTileReviewViewMode(editor.TileReviewBefore)
+	if err := ed.OpenScene("scenes/level_02.scene.yaml"); err != nil {
+		t.Fatalf("OpenScene: %v", err)
+	}
+	if err := ed.SelectTab(0); err != nil {
+		t.Fatalf("SelectTab(0): %v", err)
+	}
+	if !slices.Equal(snapshotLayerCells(t, ed, "World"), afterCells2) {
+		t.Fatal("tab switch while viewing Before stashed Before cells instead of After cells")
+	}
+}
+
+func TestTileReviewUndoRedoAndInterleavedManualEdits(t *testing.T) {
+	ed := newDungeonTileEditor(t, false)
+
+	// Step 1: Paint Region A at (2,16)-(4,16).
+	if _, err := ed.AgentPaintTiles(editor.AgentTilePaintRequest{
+		Layer:       "World",
+		TileName:    "cave_a",
+		Rects:       []editor.AgentTileRect{{Col0: 2, Row0: 16, Col1: 4, Row1: 16}},
+		Label:       "Region A",
+		TrackReview: true,
+	}); err != nil {
+		t.Fatalf("AgentPaintTiles A: %v", err)
+	}
+	// Step 2: Paint disjoint Region B at (10,16)-(12,16).
+	if _, err := ed.AgentPaintTiles(editor.AgentTilePaintRequest{
+		Layer:       "World",
+		TileName:    "cave_b",
+		Rects:       []editor.AgentTileRect{{Col0: 10, Row0: 16, Col1: 12, Row1: 16}},
+		Label:       "Region B",
+		TrackReview: true,
+	}); err != nil {
+		t.Fatalf("AgentPaintTiles B: %v", err)
+	}
+	regions := ed.TileReviewRegions()
+	if len(regions) != 2 {
+		t.Fatalf("expected 2 regions, got %d", len(regions))
+	}
+	regionAID := regions[0].ID
+
+	// Mark Region A reverted and switch to Before view, then press Undo (undoing Step 2 / Region B).
+	if err := ed.SetTileReviewRegionReverted(regionAID, true); err != nil {
+		t.Fatalf("revert Region A: %v", err)
+	}
+	ed.SetTileReviewViewMode(editor.TileReviewBefore)
+	if !ed.Undo() {
+		t.Fatal("Undo returned false")
+	}
+	afterUndoRegs := ed.TileReviewRegions()
+	if len(afterUndoRegs) != 1 || afterUndoRegs[0].ID != regionAID || !afterUndoRegs[0].Reverted {
+		t.Fatalf("after Undo, expected only reverted Region A, got %+v", afterUndoRegs)
+	}
+	// Region A must remain visually reverted (0), and restoring it must bring back cave_a (GID 7).
+	if got := snapshotLayerCells(t, ed, "World")[16*24+2]; got != 0 {
+		t.Fatalf("reverted Region A cell = %d, want 0", got)
+	}
+	if err := ed.SetTileReviewRegionReverted(regionAID, false); err != nil {
+		t.Fatalf("restore Region A: %v", err)
+	}
+	if got := snapshotLayerCells(t, ed, "World")[16*24+2]; got != 7 {
+		t.Fatalf("restored Region A cell = %d, want 7 (cave_a)", got)
+	}
+
+	// Re-revert Region A and Redo Step 2: Region B must re-appear in the open review while Region A stays reverted!
+	if err := ed.SetTileReviewRegionReverted(regionAID, true); err != nil {
+		t.Fatalf("re-revert Region A: %v", err)
+	}
+	if !ed.Redo() {
+		t.Fatal("Redo returned false")
+	}
+	afterRedoRegs := ed.TileReviewRegions()
+	if len(afterRedoRegs) != 2 {
+		t.Fatalf("after Redo, expected 2 regions, got %d: %+v", len(afterRedoRegs), afterRedoRegs)
+	}
+	if !afterRedoRegs[0].Reverted || afterRedoRegs[1].Reverted {
+		t.Fatalf("after Redo, expected Region A reverted and Region B kept, got %+v", afterRedoRegs)
+	}
+	cellsAfterRedo := snapshotLayerCells(t, ed, "World")
+	if cellsAfterRedo[16*24+2] != 0 || cellsAfterRedo[16*24+10] != 8 {
+		t.Fatalf("cells after Redo: A=(%d) B=(%d), want 0 and 8", cellsAfterRedo[16*24+2], cellsAfterRedo[16*24+10])
+	}
+	if err := ed.RevertAllTileReview(); err != nil {
+		t.Fatalf("RevertAllTileReview: %v", err)
+	}
+
+	// Interleaved manual user edit while review is open MUST be preserved across Before/After, Keep, and RevertAll.
+	if _, err := ed.AgentPaintTiles(editor.AgentTilePaintRequest{
+		Layer:       "World",
+		TileName:    "cave_a",
+		Cells:       []editor.AgentTileCell{{Col: 2, Row: 16}},
+		TrackReview: true,
+	}); err != nil {
+		t.Fatalf("AgentPaintTiles interleaved 1: %v", err)
+	}
+	// Manual edit on unrelated cell (12, 16) -> stone (GID 1).
+	if err := ed.PaintTile("World", 12, 16, 1); err != nil {
+		t.Fatalf("PaintTile manual: %v", err)
+	}
+	ed.SetTileReviewViewMode(editor.TileReviewBefore)
+	ed.SetTileReviewViewMode(editor.TileReviewAfter)
+	if got := snapshotLayerCells(t, ed, "World")[16*24+12]; got != 1 {
+		t.Fatalf("Before/After toggle clobbered manual edit at (12,16): got %d, want 1", got)
+	}
+	if err := ed.SetTileReviewRegionReverted(ed.TileReviewRegions()[0].ID, true); err != nil {
+		t.Fatalf("revert agent region: %v", err)
+	}
+	if _, err := ed.KeepTileReview(); err != nil {
+		t.Fatalf("KeepTileReview interleaved: %v", err)
+	}
+	cellsAfterKeep := snapshotLayerCells(t, ed, "World")
+	if cellsAfterKeep[16*24+2] != 0 {
+		t.Fatalf("reverted agent cell (2,16) = %d, want 0", cellsAfterKeep[16*24+2])
+	}
+	if cellsAfterKeep[16*24+12] != 1 {
+		t.Fatalf("KeepTileReview clobbered interleaved manual edit at (12,16): got %d, want 1", cellsAfterKeep[16*24+12])
+	}
+
+	// Repeat interleaved manual edit with RevertAllTileReview.
+	if _, err := ed.AgentPaintTiles(editor.AgentTilePaintRequest{
+		Layer:       "World",
+		TileName:    "cave_a",
+		Cells:       []editor.AgentTileCell{{Col: 3, Row: 16}},
+		TrackReview: true,
+	}); err != nil {
+		t.Fatalf("AgentPaintTiles interleaved 2: %v", err)
+	}
+	if err := ed.PaintTile("World", 11, 16, 2); err != nil {
+		t.Fatalf("PaintTile manual 2: %v", err)
+	}
+	if err := ed.RevertAllTileReview(); err != nil {
+		t.Fatalf("RevertAllTileReview interleaved: %v", err)
+	}
+	cellsAfterRevAll := snapshotLayerCells(t, ed, "World")
+	if cellsAfterRevAll[16*24+3] != 0 {
+		t.Fatalf("reverted agent cell (3,16) = %d, want 0", cellsAfterRevAll[16*24+3])
+	}
+	if cellsAfterRevAll[16*24+11] != 2 {
+		t.Fatalf("RevertAllTileReview clobbered interleaved manual edit at (11,16): got %d, want 2", cellsAfterRevAll[16*24+11])
+	}
+}
+
+func TestTileReviewInvalidCallDoesNotMutateOpenReview(t *testing.T) {
+	ed := newDungeonTileEditor(t, false)
+	// Add a second tilemap layer "Deco".
+	ed.Doc.Layers = append(ed.Doc.Layers, sceneformat.LayerDoc{
+		Name:  "Deco",
+		Space: sceneformat.SpaceWorld,
+		Tilemap: &sceneformat.TilemapDoc{
+			Width:       24,
+			Height:      20,
+			TileWidth:   16,
+			TileHeight:  16,
+			TilesetFile: "dungeon.tileset.yaml",
+			TileLayers:  []sceneformat.TileLayerDoc{{Name: "ground", Rows: buildDungeonTileRows(false)}},
+		},
+	})
+	ed.Rebuild()
+
+	// Start an open review on "World".
+	if _, err := ed.AgentPaintTiles(editor.AgentTilePaintRequest{
+		Layer:       "World",
+		TileName:    "cave_a",
+		Cells:       []editor.AgentTileCell{{Col: 2, Row: 16}},
+		TrackReview: true,
+	}); err != nil {
+		t.Fatalf("AgentPaintTiles World: %v", err)
+	}
+	checkWorldReviewIntact := func(desc string) {
+		t.Helper()
+		if !ed.TileReviewOpen() {
+			t.Fatalf("%s closed open review on World", desc)
+		}
+		layer, _ := ed.TileReviewLayer()
+		if layer != "World" || len(ed.TileReviewRegions()) != 1 {
+			t.Fatalf("%s mutated World review: layer=%q regions=%d", desc, layer, len(ed.TileReviewRegions()))
+		}
+	}
+
+	// Out-of-bounds rect on Deco.
+	if _, err := ed.AgentPaintTiles(editor.AgentTilePaintRequest{
+		Layer:       "Deco",
+		TileName:    "cave_a",
+		Rects:       []editor.AgentTileRect{{Col0: 0, Row0: 0, Col1: 99, Row1: 0}},
+		TrackReview: true,
+	}); err == nil {
+		t.Fatal("expected out-of-bounds paint to fail")
+	}
+	checkWorldReviewIntact("OOB AgentPaintTiles")
+
+	// Negative TileID variants on Deco.
+	negReqs := []editor.AgentTilePaintRequest{
+		{Layer: "Deco", TileID: -1, Cells: []editor.AgentTileCell{{Col: 2, Row: 16}}, TrackReview: true},
+		{Layer: "Deco", TileID: 1, Rects: []editor.AgentTileRect{{Col0: 2, Row0: 16, Col1: 2, Row1: 16, TileID: -1}}, TrackReview: true},
+		{Layer: "Deco", TileID: 1, Cells: []editor.AgentTileCell{{Col: 2, Row: 16, TileID: -1}}, TrackReview: true},
+		{Layer: "Deco", Weighted: []editor.AgentTileWeighted{{TileID: -1, Weight: 1}}, Cells: []editor.AgentTileCell{{Col: 2, Row: 16}}, TrackReview: true},
+	}
+	for i, req := range negReqs {
+		if _, err := ed.AgentPaintTiles(req); err == nil {
+			t.Fatalf("negative TileID case %d unexpectedly succeeded", i)
+		}
+		checkWorldReviewIntact("negative TileID AgentPaintTiles")
+	}
+
+	// Out-of-bounds autotile on Deco.
+	if _, err := ed.AgentAutotile(editor.AgentTileAutotileRequest{
+		Layer:       "Deco",
+		Terrain:     "cave",
+		Rects:       []editor.TileRect{{Col0: -1, Row0: 0, Col1: 1, Row1: 1}},
+		TrackReview: true,
+	}); err == nil {
+		t.Fatal("expected OOB AgentAutotile to fail")
+	}
+	checkWorldReviewIntact("OOB AgentAutotile")
+
+	// Out-of-bounds erase on Deco.
+	if _, err := ed.AgentEraseTiles(editor.AgentTileEraseRequest{
+		Layer:       "Deco",
+		Cells:       []editor.TileCoord{{Col: 50, Row: 50}},
+		TrackReview: true,
+	}); err == nil {
+		t.Fatal("expected OOB AgentEraseTiles to fail")
+	}
+	checkWorldReviewIntact("OOB AgentEraseTiles")
+}
+
+func TestTileReviewLifecycleCapsAndExistingAdjacentNeighbor(t *testing.T) {
+	ed := newDungeonTileEditor(t, false)
+
+	// NoAdjacentDuplicates must consider existing left/top border tiles on the map.
+	// Place cave_a (GID 7) at (2, 16) and cave_b (GID 8) at (3, 15).
+	if err := ed.PaintTile("World", 2, 16, 7); err != nil {
+		t.Fatalf("PaintTile left: %v", err)
+	}
+	if err := ed.PaintTile("World", 3, 15, 8); err != nil {
+		t.Fatalf("PaintTile top: %v", err)
+	}
+	// Paint (3, 16) with 3-tile weighted pool {cave_a, cave_b, cave_c} and NoAdjacentDuplicates:
+	// left is cave_a (7), top is cave_b (8), so (3, 16) MUST pick cave_c (9) regardless of seed!
+	for seed := uint64(1); seed <= 10; seed++ {
+		if err := ed.EraseTile("World", 3, 16); err != nil {
+			t.Fatalf("EraseTile: %v", err)
+		}
+		if _, err := ed.AgentPaintTiles(editor.AgentTilePaintRequest{
+			Layer: "World",
+			Weighted: []editor.AgentTileWeighted{
+				{TileName: "cave_a", Weight: 10},
+				{TileName: "cave_b", Weight: 10},
+				{TileName: "cave_c", Weight: 1},
+			},
+			Seed:                 seed,
+			NoAdjacentDuplicates: true,
+			Cells:                []editor.AgentTileCell{{Col: 3, Row: 16}},
+			TrackReview:          false,
+		}); err != nil {
+			t.Fatalf("AgentPaintTiles seed=%d: %v", seed, err)
+		}
+		if got := snapshotLayerCells(t, ed, "World")[16*24+3]; got != 9 {
+			t.Fatalf("seed=%d: (3,16) = %d, want 9 (cave_c) avoiding existing left=7 and top=8", seed, got)
+		}
+	}
+
+	// Open review, then OpenDemo must clear it cleanly.
+	if _, err := ed.AgentPaintTiles(editor.AgentTilePaintRequest{
+		Layer:       "World",
+		TileName:    "cave_a",
+		Cells:       []editor.AgentTileCell{{Col: 4, Row: 16}},
+		TrackReview: true,
+	}); err != nil {
+		t.Fatalf("AgentPaintTiles: %v", err)
+	}
+	if !ed.TileReviewOpen() {
+		t.Fatal("expected review open")
+	}
+	if err := ed.OpenDemo(); err != nil {
+		t.Fatalf("OpenDemo: %v", err)
+	}
+	if ed.TileReviewOpen() {
+		t.Fatal("OpenDemo must clear stale tile review state")
+	}
+
+	// StartScreen guard blocks agent tile mutations.
+	edStart, err := editor.New(nil, nil)
+	if err != nil {
+		t.Fatalf("editor.New: %v", err)
+	}
+	edStart.SetStartScreenOpen(true)
+	if _, err := edStart.AgentPaintTiles(editor.AgentTilePaintRequest{
+		TileID: 1,
+		Cells:  []editor.AgentTileCell{{Col: 0, Row: 0}},
+	}); err == nil {
+		t.Fatal("expected AgentPaintTiles to be rejected while Start Screen is open")
+	}
+
+	// Caps: oversized cell specs and huge includeCells query are rejected cleanly.
+	edCaps := newDungeonTileEditor(t, false)
+	tooManyCells := make([]editor.AgentTileCell, 65537)
+	if _, err := edCaps.AgentPaintTiles(editor.AgentTilePaintRequest{
+		Layer:  "World",
+		TileID: 1,
+		Cells:  tooManyCells,
+	}); err == nil {
+		t.Fatal("expected >65536 cells spec to be rejected")
+	}
+	tooManyRects := make([]editor.AgentTileRect, 5000)
+	for i := range tooManyRects {
+		tooManyRects[i] = editor.AgentTileRect{Col0: 0, Row0: 0, Col1: 23, Row1: 19, TileID: 1} // 480 * 5000 = 2.4M > 1<<20
+	}
+	if _, err := edCaps.AgentPaintTiles(editor.AgentTilePaintRequest{
+		Layer: "World",
+		Rects: tooManyRects,
+	}); err == nil {
+		t.Fatal("expected >1M cell operations to be rejected")
+	}
+
+	// QueryTiles includeCells cap (>16384 matched cells).
+	bigGrid := make([]int, 200*100) // 20000 empty cells > 16384
+	bigEd, err := editor.New(&sceneformat.SceneDoc{
+		Version:       2,
+		VirtualWidth:  320,
+		VirtualHeight: 240,
+		Layers: []sceneformat.LayerDoc{{
+			Name:  "Big",
+			Space: sceneformat.SpaceWorld,
+			Tilemap: &sceneformat.TilemapDoc{
+				Tileset:    "tiles",
+				Width:      200,
+				Height:     100,
+				TileWidth:  16,
+				TileHeight: 16,
+				Data:       bigGrid,
+			},
+		}},
+	}, nil)
+	if err != nil {
+		t.Fatalf("editor.New big: %v", err)
+	}
+	incTrue := true
+	if _, err := bigEd.QueryTiles(editor.TileQueryOptions{
+		Layer:        "Big",
+		EmptyOnly:    true,
+		IncludeCells: &incTrue,
+	}); err == nil {
+		t.Fatal("expected QueryTiles with includeCells=true and 20000 matched cells to be rejected")
+	}
+	incFalse := false
+	res, err := bigEd.QueryTiles(editor.TileQueryOptions{
+		Layer:        "Big",
+		EmptyOnly:    true,
+		IncludeCells: &incFalse,
+	})
+	if err != nil || res.MatchedCells != 20000 || len(res.Regions) != 1 || len(res.Regions[0].Cells) != 0 {
+		t.Fatalf("QueryTiles with includeCells=false failed: res=%+v err=%v", res, err)
+	}
+}

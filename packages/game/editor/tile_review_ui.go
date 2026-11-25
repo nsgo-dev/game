@@ -3,7 +3,6 @@ package editor
 import (
 	"fmt"
 	"path"
-	"strings"
 
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -290,17 +289,9 @@ func TileReviewPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 }
 
 func tileReviewPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
-	regionsKey := core.NewMemo(cx, func() string {
+	regionsKey := core.NewMemo(cx, func() uint64 {
 		_ = rev.Get()
-		var b strings.Builder
-		focused := ed.TileReviewFocusedRegion()
-		for _, r := range ed.TileReviewRegions() {
-			fmt.Fprintf(&b, "%s:%s:%s:%d:%v:%v|", r.ID, r.Title, r.Detail, len(r.Cells), r.Reverted, r.ID == focused)
-		}
-		for _, st := range ed.TileReviewSteps() {
-			fmt.Fprintf(&b, "s:%s:%s:%d|", st.Tool, st.Summary, st.ChangedCells)
-		}
-		return b.String()
+		return ed.tileReviewUIRev()
 	})
 
 	sceneFileLabel := func() string {

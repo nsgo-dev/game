@@ -10,6 +10,8 @@ import (
 	"github.com/nsgo-dev/game/packages/game/editor"
 	"github.com/nsgo-dev/game/packages/game/editor/editormcp"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
+	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/nsgotest"
 )
 
 const mcpDungeonTilesetYAML = `version: 1
@@ -325,5 +327,62 @@ func TestTileMCPPaintEraseAutotileAndReviewFlow(t *testing.T) {
 	}
 	if !slices.Equal(readWorldCells(t, ed), original) {
 		t.Fatal("tile_review_revert_all did not restore original tilemap")
+	}
+}
+
+func TestTileMCPValidationGuards(t *testing.T) {
+	ed, _ := openTileFixture(t, false)
+	s := editormcp.New(ed, editormcp.Options{})
+	t.Cleanup(func() { _ = s.Close() })
+	cs := connect(t, s, nil)
+
+	// 1. tile_review_status with view/focus must fail when no review is open.
+	if res := call(t, cs, editormcp.ToolTileReviewStatus, map[string]any{"view": "before"}); !res.IsError {
+		t.Fatal("expected tile_review_status(view=before) to fail when no review is open")
+	}
+	if res := call(t, cs, editormcp.ToolTileReviewStatus, map[string]any{"focus": "painted_2_16"}); !res.IsError {
+		t.Fatal("expected tile_review_status(focus=...) to fail when no review is open")
+	}
+
+	// Open a review.
+	mustOK(t, call(t, cs, editormcp.ToolTilePaint, map[string]any{
+		"layer":    "World",
+		"tileName": "cave_a",
+		"cells":    []any{map[string]any{"col": 2, "row": 16}},
+	}))
+	regions := ed.TileReviewRegions()
+	if len(regions) != 1 {
+		t.Fatalf("expected 1 region, got %d", len(regions))
+	}
+
+	// 2. Passing BOTH id and index to tile_review_revert_region / restore_region must fail.
+	if res := call(t, cs, editormcp.ToolTileReviewRevertRegion, map[string]any{
+		"id":    regions[0].ID,
+		"index": 0,
+	}); !res.IsError {
+		t.Fatal("expected tile_review_revert_region with both id and index to fail")
+	}
+	if res := call(t, cs, editormcp.ToolTileReviewRestoreRegion, map[string]any{
+		"id":    regions[0].ID,
+		"index": 0,
+	}); !res.IsError {
+		t.Fatal("expected tile_review_restore_region with both id and index to fail")
+	}
+
+	// 3. tile_review_status with view/focus must fail during Play mode.
+	var rootScope *core.Scope
+	nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		rootScope = cx
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(800, 600))
+	if err := ed.PlayIn(rootScope); err != nil {
+		t.Fatalf("PlayIn: %v", err)
+	}
+	defer func() { _ = ed.Stop() }()
+	if res := call(t, cs, editormcp.ToolTileReviewStatus, map[string]any{"view": "before"}); !res.IsError {
+		t.Fatal("expected tile_review_status(view=before) to fail while playing")
+	}
+	if res := call(t, cs, editormcp.ToolTileReviewStatus, map[string]any{"focus": regions[0].ID}); !res.IsError {
+		t.Fatal("expected tile_review_status(focus=...) to fail while playing")
 	}
 }

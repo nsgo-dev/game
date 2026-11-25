@@ -187,6 +187,7 @@ func (e *Editor) BeginTileStroke(mode TileStrokeMode, x, y float32) bool {
 			e.report(fmt.Errorf("editor: layer %q is hidden", layer))
 			return false
 		}
+		e.exitTileReviewBeforePreview()
 	}
 	if mode == TileStrokeTerrain || mode == TileStrokeEraseTerrain {
 		var rErr error

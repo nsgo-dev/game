@@ -194,10 +194,23 @@ type TileReviewStep struct {
 	ChangedCells int    `json:"changedCells"`
 }
 
+const (
+	// maxAgentTileSpecs caps the total number of rects + cells entries accepted by a single agent tile tool call.
+	maxAgentTileSpecs = 65536
+	// maxAgentTileOps caps the total cell iterations/writes processed by a single agent tile tool call.
+	maxAgentTileOps = 1 << 20
+	// maxQueryIncludeCells caps explicit includeCells: true results in QueryTiles so MCP responses stay bounded.
+	maxQueryIncludeCells = 16384
+)
+
 type tileReviewCellMeta struct {
 	label       string
 	terrainName string
 	tool        string
+}
+
+type tileReviewEdge struct {
+	c0, r0, c1, r1 int
 }
 
 type tileReviewState struct {
@@ -210,14 +223,62 @@ type tileReviewState struct {
 	cellMeta          map[int]tileReviewCellMeta
 	steps             []TileReviewStep
 	regions           []TileReviewRegion
+	perimeters        [][]tileReviewEdge
 	revertedByID      map[string]bool
 	focusedID         string
 	view              TileReviewView
 	peekBefore        bool
 	historyStart      int
 	lastHistoryCursor int
+	maxReviewCursor   int
 	historyOwned      bool
+	inHistoryStep     bool
 	applying          bool
+	uiRev             uint64
+}
+
+func (e *Editor) nextTileReviewUIRev() uint64 {
+	if e == nil {
+		return 0
+	}
+	e.tileReviewSeq++
+	return e.tileReviewSeq
+}
+
+func (e *Editor) tileReviewUIRev() uint64 {
+	if !e.TileReviewOpen() {
+		return 0
+	}
+	return e.tileReview.uiRev
+}
+
+func (e *Editor) checkTileEditAllowed() error {
+	if e == nil {
+		return errors.New("editor: nil editor")
+	}
+	if e.playing {
+		return ErrPlaying
+	}
+	if e.StartScreenOpen() {
+		return errors.New("editor: close the Start Screen before editing tiles")
+	}
+	if e.MergeConflictOpen() {
+		return errors.New("editor: finish or abort the scene merge conflict before editing tiles")
+	}
+	if e.Doc == nil {
+		return errors.New("editor: no scene document is open")
+	}
+	return nil
+}
+
+func validateTileGridDimensions(w, h int) error {
+	if w <= 0 || h <= 0 {
+		return fmt.Errorf("editor: invalid tilemap dimensions %dx%d", w, h)
+	}
+	if int64(w) > maxTilemapCells || int64(h) > maxTilemapCells || int64(w)*int64(h) > maxTilemapCells {
+		return fmt.Errorf("editor: tilemap size %dx%d exceeds %d cells", w, h, maxTilemapCells)
+	}
+	return nil
 }
 
 func (e *Editor) resolveTileGridWithLayer(layer, tileLayer string) (string, string, tileGrid, *tilemap.TilesetDoc, error) {
@@ -357,6 +418,9 @@ func (e *Editor) QueryTiles(opts TileQueryOptions) (TileQueryResult, error) {
 		return TileQueryResult{}, err
 	}
 	w, h := g.tm.Width, g.tm.Height
+	if err := validateTileGridDimensions(w, h); err != nil {
+		return TileQueryResult{}, err
+	}
 	bounds := TileRect{Col0: 0, Row0: 0, Col1: w - 1, Row1: h - 1}
 	if opts.Rect != nil {
 		clamped, ok := clampTileRect(normalizeTileRect(opts.Rect.Col0, opts.Rect.Row0, opts.Rect.Col1, opts.Rect.Row1), w, h)
@@ -523,6 +587,9 @@ func (e *Editor) QueryTiles(opts TileQueryOptions) (TileQueryResult, error) {
 
 	includeCells := totalMatched <= 512
 	if opts.IncludeCells != nil {
+		if *opts.IncludeCells && totalMatched > maxQueryIncludeCells {
+			return TileQueryResult{}, fmt.Errorf("editor: query matched %d cells, exceeding includeCells limit (%d); omit includeCells or narrow rect", totalMatched, maxQueryIncludeCells)
+		}
 		includeCells = *opts.IncludeCells
 	}
 	if !includeCells {
@@ -583,15 +650,15 @@ func startsWithVowelDigit(n int) bool {
 // AgentPaintTiles paints explicit cells, rectangles, or weighted random tile picks in one undoable step.
 // When req.TrackReview is true, the changes are also tracked in the active region-based tile review.
 func (e *Editor) AgentPaintTiles(req AgentTilePaintRequest) (AgentTileEditResult, error) {
-	if e == nil {
-		return AgentTileEditResult{}, errors.New("editor: nil editor")
+	if err := e.checkTileEditAllowed(); err != nil {
+		return AgentTileEditResult{}, err
 	}
-	if e.playing {
-		return AgentTileEditResult{}, ErrPlaying
-	}
-	e.endTileStrokeForChange()
 	layerName, tileLayer, g, tsDoc, err := e.resolveTileGridWithLayer(req.Layer, req.TileLayer)
 	if err != nil {
+		return AgentTileEditResult{}, err
+	}
+	w, h := g.tm.Width, g.tm.Height
+	if err := validateTileGridDimensions(w, h); err != nil {
 		return AgentTileEditResult{}, err
 	}
 	if err := e.checkLayerEditableForTiles(layerName); err != nil {
@@ -600,8 +667,14 @@ func (e *Editor) AgentPaintTiles(req AgentTilePaintRequest) (AgentTileEditResult
 	if len(req.Cells) == 0 && len(req.Rects) == 0 {
 		return AgentTileEditResult{}, errors.New("editor: tile_paint needs at least one cell or rect")
 	}
+	if len(req.Cells)+len(req.Rects) > maxAgentTileSpecs {
+		return AgentTileEditResult{}, fmt.Errorf("editor: tile_paint received %d rect/cell entries, exceeding limit (%d)", len(req.Cells)+len(req.Rects), maxAgentTileSpecs)
+	}
 
-	// Resolve default tile and optional weighted pool.
+	// Resolve default tile and optional weighted pool (explicitly rejecting negative TileIDs).
+	if req.TileID < 0 {
+		return AgentTileEditResult{}, fmt.Errorf("editor: tileID %d must be non-negative", req.TileID)
+	}
 	defaultTileID := 0
 	if req.TileID > 0 || req.TileName != "" {
 		defaultTileID, err = resolveTileSpec(tsDoc, g, req.TileID, req.TileName)
@@ -613,15 +686,21 @@ func (e *Editor) AgentPaintTiles(req AgentTilePaintRequest) (AgentTileEditResult
 	if len(req.Weighted) > 0 {
 		pool = make([]WeightedTile, 0, len(req.Weighted))
 		totalWeight := 0.0
-		for i, w := range req.Weighted {
-			tid, err := resolveTileSpec(tsDoc, g, w.TileID, w.TileName)
+		for i, wt := range req.Weighted {
+			if wt.TileID < 0 {
+				return AgentTileEditResult{}, fmt.Errorf("weighted[%d]: editor: tileID %d must be non-negative", i, wt.TileID)
+			}
+			tid, err := resolveTileSpec(tsDoc, g, wt.TileID, wt.TileName)
 			if err != nil {
 				return AgentTileEditResult{}, fmt.Errorf("weighted[%d]: %w", i, err)
 			}
 			if tid <= 0 {
 				return AgentTileEditResult{}, fmt.Errorf("editor: weighted[%d] tile ID must be positive", i)
 			}
-			weight := w.Weight
+			if _, err := tileValueForGrid(g, tid, req.Flip); err != nil {
+				return AgentTileEditResult{}, fmt.Errorf("weighted[%d]: %w", i, err)
+			}
+			weight := wt.Weight
 			if weight == 0 {
 				weight = 1
 			}
@@ -640,15 +719,99 @@ func (e *Editor) AgentPaintTiles(req AgentTilePaintRequest) (AgentTileEditResult
 		seed = 1
 	}
 
-	// Prepare active review (restoring composed After state if currently peeking Before,
-	// or committing a review on a different layer).
+	// Validate all rects, cells, tile specs, and total cell-op caps BEFORE mutating any open review state.
+	type validatedRect struct {
+		nr     TileRect
+		tileID int
+		flip   uint32
+	}
+	type validatedCell struct {
+		col    int
+		row    int
+		tileID int
+		flip   uint32
+	}
+	var totalOps int64
+	vRects := make([]validatedRect, 0, len(req.Rects))
+	for ri, r := range req.Rects {
+		if r.TileID < 0 {
+			return AgentTileEditResult{}, fmt.Errorf("rects[%d]: editor: tileID %d must be non-negative", ri, r.TileID)
+		}
+		nr := normalizeTileRect(r.Col0, r.Row0, r.Col1, r.Row1)
+		if nr.Col0 < 0 || nr.Row0 < 0 || nr.Col1 >= w || nr.Row1 >= h {
+			return AgentTileEditResult{}, fmt.Errorf("editor: rects[%d] (%d,%d)-(%d,%d) out of bounds (%dx%d)",
+				ri, r.Col0, r.Row0, r.Col1, r.Row1, w, h)
+		}
+		totalOps += int64(nr.Width()) * int64(nr.Height())
+		if totalOps > maxAgentTileOps {
+			return AgentTileEditResult{}, fmt.Errorf("editor: tile_paint exceeds %d cell operations limit", maxAgentTileOps)
+		}
+		rectTile := defaultTileID
+		if r.TileID > 0 || r.TileName != "" {
+			rectTile, err = resolveTileSpec(tsDoc, g, r.TileID, r.TileName)
+			if err != nil {
+				return AgentTileEditResult{}, fmt.Errorf("rects[%d]: %w", ri, err)
+			}
+		}
+		if rectTile <= 0 && len(pool) == 0 {
+			return AgentTileEditResult{}, fmt.Errorf("editor: rects[%d] has no tile, tileName, or weighted pool", ri)
+		}
+		flip := req.Flip
+		if r.Flip != 0 {
+			flip = r.Flip
+		}
+		if rectTile > 0 {
+			if _, err := tileValueForGrid(g, rectTile, flip); err != nil {
+				return AgentTileEditResult{}, fmt.Errorf("rects[%d]: %w", ri, err)
+			}
+		}
+		vRects = append(vRects, validatedRect{nr: nr, tileID: rectTile, flip: flip})
+	}
+	vCells := make([]validatedCell, 0, len(req.Cells))
+	for ci, cell := range req.Cells {
+		if cell.TileID < 0 {
+			return AgentTileEditResult{}, fmt.Errorf("cells[%d]: editor: tileID %d must be non-negative", ci, cell.TileID)
+		}
+		if cell.Col < 0 || cell.Col >= w || cell.Row < 0 || cell.Row >= h {
+			return AgentTileEditResult{}, fmt.Errorf("editor: cells[%d] (%d,%d) out of bounds (%dx%d)",
+				ci, cell.Col, cell.Row, w, h)
+		}
+		totalOps++
+		if totalOps > maxAgentTileOps {
+			return AgentTileEditResult{}, fmt.Errorf("editor: tile_paint exceeds %d cell operations limit", maxAgentTileOps)
+		}
+		tid := defaultTileID
+		if cell.TileID > 0 || cell.TileName != "" {
+			tid, err = resolveTileSpec(tsDoc, g, cell.TileID, cell.TileName)
+			if err != nil {
+				return AgentTileEditResult{}, fmt.Errorf("cells[%d]: %w", ci, err)
+			}
+		}
+		if tid <= 0 && len(pool) == 0 {
+			return AgentTileEditResult{}, fmt.Errorf("editor: cells[%d] has no tile, tileName, or weighted pool", ci)
+		}
+		flip := req.Flip
+		if cell.Flip != 0 {
+			flip = cell.Flip
+		}
+		if tid > 0 {
+			if _, err := tileValueForGrid(g, tid, flip); err != nil {
+				return AgentTileEditResult{}, fmt.Errorf("cells[%d]: %w", ci, err)
+			}
+		}
+		vCells = append(vCells, validatedCell{col: cell.Col, row: cell.Row, tileID: tid, flip: flip})
+	}
+
+	// Only now commit any active stroke and prepare the active review (restoring After or committing another layer's review).
+	e.endTileStrokeForChange()
 	if req.TrackReview {
 		if err := e.prepareTileReviewForEdit(layerName, tileLayer); err != nil {
 			return AgentTileEditResult{}, err
 		}
+	} else {
+		e.exitTileReviewBeforePreview()
 	}
 
-	w, h := g.tm.Width, g.tm.Height
 	values := g.values()
 	// planned tracks cell index -> desired value so later specs override earlier ones deterministically.
 	planned := make(map[int]int64)
@@ -665,14 +828,21 @@ func (e *Editor) AgentPaintTiles(req AgentTilePaintRequest) (AgentTileEditResult
 		if !req.NoAdjacentDuplicates || len(pool) <= 1 {
 			return randomPickTile(seed, col, row, pool)
 		}
-		// Avoid matching already-planned left or top neighbor when alternatives exist.
+		// Avoid matching left or top neighbor (checking already-planned cells first, then existing map tiles).
 		avoid := map[int]bool{}
 		for _, off := range [2][2]int{{-1, 0}, {0, -1}} {
 			nc, nr := col+off[0], row+off[1]
 			if nc >= 0 && nc < w && nr >= 0 && nr < h {
-				if prev, ok := planned[nr*w+nc]; ok {
-					tid, _, _ := tileMetaForGID(tsDoc, g.layer != nil, prev)
-					avoid[tid] = true
+				nidx := nr*w + nc
+				neighborVal := values[nidx]
+				if prev, ok := planned[nidx]; ok {
+					neighborVal = prev
+				}
+				if neighborVal > 0 {
+					tid, _, _ := tileMetaForGID(tsDoc, g.layer != nil, neighborVal)
+					if tid > 0 {
+						avoid[tid] = true
+					}
 				}
 			}
 		}
@@ -688,33 +858,14 @@ func (e *Editor) AgentPaintTiles(req AgentTilePaintRequest) (AgentTileEditResult
 		return randomPickTile(seed, col, row, filtered)
 	}
 
-	for ri, r := range req.Rects {
-		nr := normalizeTileRect(r.Col0, r.Row0, r.Col1, r.Row1)
-		if nr.Col0 < 0 || nr.Row0 < 0 || nr.Col1 >= w || nr.Row1 >= h {
-			return AgentTileEditResult{}, fmt.Errorf("editor: rects[%d] (%d,%d)-(%d,%d) out of bounds (%dx%d)",
-				ri, r.Col0, r.Row0, r.Col1, r.Row1, w, h)
-		}
-		rectTile := defaultTileID
-		if r.TileID > 0 || r.TileName != "" {
-			rectTile, err = resolveTileSpec(tsDoc, g, r.TileID, r.TileName)
-			if err != nil {
-				return AgentTileEditResult{}, fmt.Errorf("rects[%d]: %w", ri, err)
-			}
-		}
-		flip := req.Flip
-		if r.Flip != 0 {
-			flip = r.Flip
-		}
-		for row := nr.Row0; row <= nr.Row1; row++ {
-			for col := nr.Col0; col <= nr.Col1; col++ {
-				tid := rectTile
-				if tid <= 0 && len(pool) > 0 {
+	for _, vr := range vRects {
+		for row := vr.nr.Row0; row <= vr.nr.Row1; row++ {
+			for col := vr.nr.Col0; col <= vr.nr.Col1; col++ {
+				tid := vr.tileID
+				if tid <= 0 {
 					tid = pickWeighted(col, row)
 				}
-				if tid <= 0 {
-					return AgentTileEditResult{}, fmt.Errorf("editor: rects[%d] has no tile, tileName, or weighted pool", ri)
-				}
-				val, err := tileValueForGrid(g, tid, flip)
+				val, err := tileValueForGrid(g, tid, vr.flip)
 				if err != nil {
 					return AgentTileEditResult{}, err
 				}
@@ -723,33 +874,16 @@ func (e *Editor) AgentPaintTiles(req AgentTilePaintRequest) (AgentTileEditResult
 		}
 	}
 
-	for ci, cell := range req.Cells {
-		if cell.Col < 0 || cell.Col >= w || cell.Row < 0 || cell.Row >= h {
-			return AgentTileEditResult{}, fmt.Errorf("editor: cells[%d] (%d,%d) out of bounds (%dx%d)",
-				ci, cell.Col, cell.Row, w, h)
-		}
-		tid := defaultTileID
-		if cell.TileID > 0 || cell.TileName != "" {
-			tid, err = resolveTileSpec(tsDoc, g, cell.TileID, cell.TileName)
-			if err != nil {
-				return AgentTileEditResult{}, fmt.Errorf("cells[%d]: %w", ci, err)
-			}
-		}
-		if tid <= 0 && len(pool) > 0 {
-			tid = pickWeighted(cell.Col, cell.Row)
-		}
+	for _, vc := range vCells {
+		tid := vc.tileID
 		if tid <= 0 {
-			return AgentTileEditResult{}, fmt.Errorf("editor: cells[%d] has no tile, tileName, or weighted pool", ci)
+			tid = pickWeighted(vc.col, vc.row)
 		}
-		flip := req.Flip
-		if cell.Flip != 0 {
-			flip = cell.Flip
-		}
-		val, err := tileValueForGrid(g, tid, flip)
+		val, err := tileValueForGrid(g, tid, vc.flip)
 		if err != nil {
 			return AgentTileEditResult{}, err
 		}
-		recordCell(cell.Col, cell.Row, val)
+		recordCell(vc.col, vc.row, val)
 	}
 
 	var changes []tileChange
@@ -784,13 +918,9 @@ func (e *Editor) AgentPaintTiles(req AgentTilePaintRequest) (AgentTileEditResult
 
 // AgentAutotile re-edges a region (or places terrain and re-edges) using a terrain set from the layer's YAML tileset.
 func (e *Editor) AgentAutotile(req AgentTileAutotileRequest) (AgentTileEditResult, error) {
-	if e == nil {
-		return AgentTileEditResult{}, errors.New("editor: nil editor")
+	if err := e.checkTileEditAllowed(); err != nil {
+		return AgentTileEditResult{}, err
 	}
-	if e.playing {
-		return AgentTileEditResult{}, ErrPlaying
-	}
-	e.endTileStrokeForChange()
 	layerName, tm, err := e.resolveInlineTilemap(req.Layer)
 	if err != nil {
 		return AgentTileEditResult{}, err
@@ -808,6 +938,13 @@ func (e *Editor) AgentAutotile(req AgentTileAutotileRequest) (AgentTileEditResul
 	}
 	if err := e.checkLayerEditableForTiles(layerName); err != nil {
 		return AgentTileEditResult{}, err
+	}
+	w, h := g.tm.Width, g.tm.Height
+	if err := validateTileGridDimensions(w, h); err != nil {
+		return AgentTileEditResult{}, err
+	}
+	if len(req.Rects)+len(req.Cells) > maxAgentTileSpecs {
+		return AgentTileEditResult{}, fmt.Errorf("editor: tile_autotile exceeds %d target specs limit", maxAgentTileSpecs)
 	}
 	doc, err := e.loadTilesetDoc(tm.TilesetFile)
 	if err != nil {
@@ -831,33 +968,52 @@ func (e *Editor) AgentAutotile(req AgentTileAutotileRequest) (AgentTileEditResul
 		return AgentTileEditResult{}, fmt.Errorf("editor: terrain %q has no tiles mapped", terrainName)
 	}
 
-	if req.TrackReview {
-		if err := e.prepareTileReviewForEdit(layerName, tileLayer); err != nil {
-			return AgentTileEditResult{}, err
-		}
-	}
-
-	w, h := g.tm.Width, g.tm.Height
-	values := g.values()
-	targetSet := make(map[int]bool)
-	hasExplicitTargets := len(req.Cells) > 0 || len(req.Rects) > 0
+	// Validate all rects, cells, and total op limits BEFORE mutating any active review state.
+	var totalOps int64
+	normRects := make([]TileRect, 0, len(req.Rects))
 	for ri, r := range req.Rects {
 		nr := normalizeTileRect(r.Col0, r.Row0, r.Col1, r.Row1)
 		if nr.Col0 < 0 || nr.Row0 < 0 || nr.Col1 >= w || nr.Row1 >= h {
 			return AgentTileEditResult{}, fmt.Errorf("editor: rects[%d] (%d,%d)-(%d,%d) out of bounds (%dx%d)",
 				ri, r.Col0, r.Row0, r.Col1, r.Row1, w, h)
 		}
-		for row := nr.Row0; row <= nr.Row1; row++ {
-			for col := nr.Col0; col <= nr.Col1; col++ {
-				targetSet[row*w+col] = true
-			}
+		totalOps += int64(nr.Width()) * int64(nr.Height())
+		if totalOps > maxAgentTileOps {
+			return AgentTileEditResult{}, fmt.Errorf("editor: tile_autotile exceeds %d cell operations limit", maxAgentTileOps)
 		}
+		normRects = append(normRects, nr)
 	}
 	for ci, cell := range req.Cells {
 		if cell.Col < 0 || cell.Col >= w || cell.Row < 0 || cell.Row >= h {
 			return AgentTileEditResult{}, fmt.Errorf("editor: cells[%d] (%d,%d) out of bounds (%dx%d)",
 				ci, cell.Col, cell.Row, w, h)
 		}
+		totalOps++
+		if totalOps > maxAgentTileOps {
+			return AgentTileEditResult{}, fmt.Errorf("editor: tile_autotile exceeds %d cell operations limit", maxAgentTileOps)
+		}
+	}
+
+	e.endTileStrokeForChange()
+	if req.TrackReview {
+		if err := e.prepareTileReviewForEdit(layerName, tileLayer); err != nil {
+			return AgentTileEditResult{}, err
+		}
+	} else {
+		e.exitTileReviewBeforePreview()
+	}
+
+	values := g.values()
+	targetSet := make(map[int]bool)
+	hasExplicitTargets := len(req.Cells) > 0 || len(req.Rects) > 0
+	for _, nr := range normRects {
+		for row := nr.Row0; row <= nr.Row1; row++ {
+			for col := nr.Col0; col <= nr.Col1; col++ {
+				targetSet[row*w+col] = true
+			}
+		}
+	}
+	for _, cell := range req.Cells {
 		targetSet[cell.Row*w+cell.Col] = true
 	}
 
@@ -960,13 +1116,9 @@ func (e *Editor) AgentAutotile(req AgentTileAutotileRequest) (AgentTileEditResul
 
 // AgentEraseTiles clears explicit cells or rectangles on a tile layer in one undoable step.
 func (e *Editor) AgentEraseTiles(req AgentTileEraseRequest) (AgentTileEditResult, error) {
-	if e == nil {
-		return AgentTileEditResult{}, errors.New("editor: nil editor")
+	if err := e.checkTileEditAllowed(); err != nil {
+		return AgentTileEditResult{}, err
 	}
-	if e.playing {
-		return AgentTileEditResult{}, ErrPlaying
-	}
-	e.endTileStrokeForChange()
 	layerName, tileLayer, g, _, err := e.resolveTileGridWithLayer(req.Layer, req.TileLayer)
 	if err != nil {
 		return AgentTileEditResult{}, err
@@ -977,14 +1129,49 @@ func (e *Editor) AgentEraseTiles(req AgentTileEraseRequest) (AgentTileEditResult
 	if len(req.Cells) == 0 && len(req.Rects) == 0 {
 		return AgentTileEditResult{}, errors.New("editor: tile_erase needs at least one cell or rect")
 	}
+	w, h := g.tm.Width, g.tm.Height
+	if err := validateTileGridDimensions(w, h); err != nil {
+		return AgentTileEditResult{}, err
+	}
+	if len(req.Rects)+len(req.Cells) > maxAgentTileSpecs {
+		return AgentTileEditResult{}, fmt.Errorf("editor: tile_erase exceeds %d target specs limit", maxAgentTileSpecs)
+	}
 
+	// Validate all rects, cells, and total op limits BEFORE mutating any active review state.
+	var totalOps int64
+	normRects := make([]TileRect, 0, len(req.Rects))
+	for ri, r := range req.Rects {
+		nr := normalizeTileRect(r.Col0, r.Row0, r.Col1, r.Row1)
+		if nr.Col0 < 0 || nr.Row0 < 0 || nr.Col1 >= w || nr.Row1 >= h {
+			return AgentTileEditResult{}, fmt.Errorf("editor: rects[%d] (%d,%d)-(%d,%d) out of bounds (%dx%d)",
+				ri, r.Col0, r.Row0, r.Col1, r.Row1, w, h)
+		}
+		totalOps += int64(nr.Width()) * int64(nr.Height())
+		if totalOps > maxAgentTileOps {
+			return AgentTileEditResult{}, fmt.Errorf("editor: tile_erase exceeds %d cell operations limit", maxAgentTileOps)
+		}
+		normRects = append(normRects, nr)
+	}
+	for ci, cell := range req.Cells {
+		if cell.Col < 0 || cell.Col >= w || cell.Row < 0 || cell.Row >= h {
+			return AgentTileEditResult{}, fmt.Errorf("editor: cells[%d] (%d,%d) out of bounds (%dx%d)",
+				ci, cell.Col, cell.Row, w, h)
+		}
+		totalOps++
+		if totalOps > maxAgentTileOps {
+			return AgentTileEditResult{}, fmt.Errorf("editor: tile_erase exceeds %d cell operations limit", maxAgentTileOps)
+		}
+	}
+
+	e.endTileStrokeForChange()
 	if req.TrackReview {
 		if err := e.prepareTileReviewForEdit(layerName, tileLayer); err != nil {
 			return AgentTileEditResult{}, err
 		}
+	} else {
+		e.exitTileReviewBeforePreview()
 	}
 
-	w, h := g.tm.Width, g.tm.Height
 	values := g.values()
 	seen := make(map[int]bool)
 	var order []int
@@ -995,23 +1182,14 @@ func (e *Editor) AgentEraseTiles(req AgentTileEraseRequest) (AgentTileEditResult
 			order = append(order, idx)
 		}
 	}
-	for ri, r := range req.Rects {
-		nr := normalizeTileRect(r.Col0, r.Row0, r.Col1, r.Row1)
-		if nr.Col0 < 0 || nr.Row0 < 0 || nr.Col1 >= w || nr.Row1 >= h {
-			return AgentTileEditResult{}, fmt.Errorf("editor: rects[%d] (%d,%d)-(%d,%d) out of bounds (%dx%d)",
-				ri, r.Col0, r.Row0, r.Col1, r.Row1, w, h)
-		}
+	for _, nr := range normRects {
 		for row := nr.Row0; row <= nr.Row1; row++ {
 			for col := nr.Col0; col <= nr.Col1; col++ {
 				addTarget(col, row)
 			}
 		}
 	}
-	for ci, cell := range req.Cells {
-		if cell.Col < 0 || cell.Col >= w || cell.Row < 0 || cell.Row >= h {
-			return AgentTileEditResult{}, fmt.Errorf("editor: cells[%d] (%d,%d) out of bounds (%dx%d)",
-				ci, cell.Col, cell.Row, w, h)
-		}
+	for _, cell := range req.Cells {
 		addTarget(cell.Col, cell.Row)
 	}
 
@@ -1056,11 +1234,7 @@ func (e *Editor) prepareTileReviewForEdit(layerName, tileLayer string) error {
 		return nil
 	}
 	// If the user was peeking Before, restore After display before applying new agent edits.
-	if e.TileReviewShowingBefore() {
-		e.tileReview.view = TileReviewAfter
-		e.tileReview.peekBefore = false
-		e.applyTileReviewDisplay()
-	}
+	e.exitTileReviewBeforePreview()
 	return nil
 }
 
@@ -1073,6 +1247,9 @@ func (e *Editor) commitAgentTileChanges(
 	meta tileReviewCellMeta,
 	trackReview bool,
 ) (AgentTileEditResult, error) {
+	if e.History == nil {
+		e.History = NewHistory()
+	}
 	if !trackReview {
 		e.History.Execute(&tileEditCmd{
 			ed:        e,
@@ -1099,7 +1276,9 @@ func (e *Editor) commitAgentTileChanges(
 			view:              TileReviewAfter,
 			historyStart:      e.History.Index(),
 			lastHistoryCursor: e.History.Index(),
+			maxReviewCursor:   e.History.Index(),
 			historyOwned:      true,
+			uiRev:             e.nextTileReviewUIRev(),
 		}
 		e.tileReview = rev
 	}
@@ -1113,6 +1292,9 @@ func (e *Editor) commitAgentTileChanges(
 		changes:   changes,
 	})
 	rev.lastHistoryCursor = e.History.Index()
+	if rev.historyOwned {
+		rev.maxReviewCursor = rev.lastHistoryCursor
+	}
 
 	for _, ch := range changes {
 		if ch.index >= 0 && ch.index < len(rev.proposed) {
@@ -1161,6 +1343,12 @@ func (e *Editor) recomputeTileReviewRegions() {
 		return
 	}
 	w, h := rev.width, rev.height
+	if err := validateTileGridDimensions(w, h); err != nil || len(rev.base) < w*h || len(rev.proposed) < w*h {
+		rev.regions = nil
+		rev.perimeters = nil
+		rev.uiRev = e.nextTileReviewUIRev()
+		return
+	}
 	layered := g.layer != nil
 	kindAt := make([]TileReviewKind, w*h)
 	for i := range w * h {
@@ -1185,7 +1373,11 @@ func (e *Editor) recomputeTileReviewRegions() {
 		{1, 1}, {1, -1}, {-1, 1}, {-1, -1},
 	}
 	visited := make([]bool, w*h)
-	var regions []TileReviewRegion
+	type regionWithPerim struct {
+		region TileReviewRegion
+		perim  []tileReviewEdge
+	}
+	var items []regionWithPerim
 
 	for row := range h {
 		for col := range w {
@@ -1197,11 +1389,13 @@ func (e *Editor) recomputeTileReviewRegions() {
 			visited[idx] = true
 			queue := []int{idx}
 			var cells []TileReviewCell
+			cellSet := make(map[int]bool)
 			bounds := TileRect{Col0: col, Row0: row, Col1: col, Row1: row}
 			for len(queue) > 0 {
 				cur := queue[0]
 				queue = queue[1:]
 				cc, cr := cur%w, cur/w
+				cellSet[cur] = true
 				cells = append(cells, TileReviewCell{
 					Col:    cc,
 					Row:    cr,
@@ -1239,6 +1433,27 @@ func (e *Editor) recomputeTileReviewRegions() {
 				}
 				return a.Col - b.Col
 			})
+			hasCell := func(cc, cr int) bool {
+				if cc < 0 || cc >= w || cr < 0 || cr >= h {
+					return false
+				}
+				return cellSet[cr*w+cc]
+			}
+			perim := make([]tileReviewEdge, 0, len(cells)*2)
+			for _, c := range cells {
+				if !hasCell(c.Col, c.Row-1) {
+					perim = append(perim, tileReviewEdge{c0: c.Col, r0: c.Row, c1: c.Col + 1, r1: c.Row})
+				}
+				if !hasCell(c.Col, c.Row+1) {
+					perim = append(perim, tileReviewEdge{c0: c.Col, r0: c.Row + 1, c1: c.Col + 1, r1: c.Row + 1})
+				}
+				if !hasCell(c.Col-1, c.Row) {
+					perim = append(perim, tileReviewEdge{c0: c.Col, r0: c.Row, c1: c.Col, r1: c.Row + 1})
+				}
+				if !hasCell(c.Col+1, c.Row) {
+					perim = append(perim, tileReviewEdge{c0: c.Col + 1, r0: c.Row, c1: c.Col + 1, r1: c.Row + 1})
+				}
+			}
 			id := fmt.Sprintf("%s_%d_%d", kind, cells[0].Col, cells[0].Row)
 			title, detail := describeTileReviewRegion(kind, bounds, cells, rev.cellMeta, w, tsDoc, layered)
 			sign := "+"
@@ -1248,15 +1463,18 @@ func (e *Editor) recomputeTileReviewRegions() {
 			case TileReviewErased:
 				sign = "-"
 			}
-			regions = append(regions, TileReviewRegion{
-				ID:       id,
-				Kind:     kind,
-				Sign:     sign,
-				Title:    title,
-				Detail:   detail,
-				Bounds:   bounds,
-				Cells:    cells,
-				Reverted: rev.revertedByID[id],
+			items = append(items, regionWithPerim{
+				region: TileReviewRegion{
+					ID:       id,
+					Kind:     kind,
+					Sign:     sign,
+					Title:    title,
+					Detail:   detail,
+					Bounds:   bounds,
+					Cells:    cells,
+					Reverted: rev.revertedByID[id],
+				},
+				perim: perim,
 			})
 		}
 	}
@@ -1273,20 +1491,28 @@ func (e *Editor) recomputeTileReviewRegions() {
 			return 3
 		}
 	}
-	slices.SortFunc(regions, func(a, b TileReviewRegion) int {
-		if ka, kb := kindOrder(a.Kind), kindOrder(b.Kind); ka != kb {
+	slices.SortFunc(items, func(a, b regionWithPerim) int {
+		if ka, kb := kindOrder(a.region.Kind), kindOrder(b.region.Kind); ka != kb {
 			return ka - kb
 		}
-		if a.Bounds.Row0 != b.Bounds.Row0 {
-			return a.Bounds.Row0 - b.Bounds.Row0
+		if a.region.Bounds.Row0 != b.region.Bounds.Row0 {
+			return a.region.Bounds.Row0 - b.region.Bounds.Row0
 		}
-		if a.Bounds.Col0 != b.Bounds.Col0 {
-			return a.Bounds.Col0 - b.Bounds.Col0
+		if a.region.Bounds.Col0 != b.region.Bounds.Col0 {
+			return a.region.Bounds.Col0 - b.region.Bounds.Col0
 		}
-		return strings.Compare(a.ID, b.ID)
+		return strings.Compare(a.region.ID, b.region.ID)
 	})
 
+	regions := make([]TileReviewRegion, len(items))
+	perimeters := make([][]tileReviewEdge, len(items))
+	for i, it := range items {
+		regions[i] = it.region
+		perimeters[i] = it.perim
+	}
+
 	rev.regions = regions
+	rev.perimeters = perimeters
 	// Prune stale reverted flags and keep focusedID valid.
 	validIDs := make(map[string]bool, len(regions))
 	for _, r := range regions {
@@ -1304,6 +1530,7 @@ func (e *Editor) recomputeTileReviewRegions() {
 			rev.focusedID = ""
 		}
 	}
+	rev.uiRev = e.nextTileReviewUIRev()
 }
 
 func describeTileReviewRegion(
@@ -1478,22 +1705,94 @@ func (e *Editor) applyTileReviewDisplay() {
 	if err != nil {
 		return
 	}
-	var desired []int64
-	if e.TileReviewShowingBefore() {
-		desired = rev.base
-	} else {
-		desired = composeTileReviewValues(rev)
-	}
+	showingBefore := e.TileReviewShowingBefore()
 	cur := g.values()
 	var changes []tileChange
-	for i := range min(len(cur), len(desired)) {
-		if cur[i] != desired[i] {
-			changes = append(changes, tileChange{index: i, oldGID: cur[i], newGID: desired[i]})
+	for _, r := range rev.regions {
+		wantNew := !showingBefore && !r.Reverted
+		for _, c := range r.Cells {
+			idx := c.Row*rev.width + c.Col
+			if idx < 0 || idx >= len(cur) {
+				continue
+			}
+			target := c.OldGID
+			if wantNew {
+				target = c.NewGID
+			}
+			// When non-review commands were interleaved, skip cells the user manually overwrote
+			// to a value outside the review's OldGID/NewGID pair.
+			if !rev.historyOwned && cur[idx] != c.OldGID && cur[idx] != c.NewGID {
+				continue
+			}
+			if cur[idx] != target {
+				changes = append(changes, tileChange{index: idx, oldGID: cur[idx], newGID: target})
+			}
 		}
 	}
 	if len(changes) > 0 {
 		g.apply(changes, false)
 		e.Rebuild()
+	}
+}
+
+// exitTileReviewBeforePreview restores the live tilemap to After view (keeping any per-region reverts)
+// whenever Before/peek preview is active, so Save, Play, tab switch, or manual edits never observe or
+// persist the temporary Before display.
+func (e *Editor) exitTileReviewBeforePreview() {
+	if e == nil || e.tileReview == nil {
+		return
+	}
+	rev := e.tileReview
+	if rev.view != TileReviewBefore && !rev.peekBefore {
+		return
+	}
+	rev.view = TileReviewAfter
+	rev.peekBefore = false
+	rev.uiRev = e.nextTileReviewUIRev()
+	e.applyTileReviewDisplay()
+}
+
+// prepareTileReviewForHistoryStep synchronizes the live tilemap with History's expected state right
+// before History.undo()/redo() executes so Before view or visually reverted regions never corrupt
+// History commands or rev.proposed.
+func (e *Editor) prepareTileReviewForHistoryStep() {
+	if e == nil || e.tileReview == nil {
+		return
+	}
+	rev := e.tileReview
+	rev.inHistoryStep = true
+	if !rev.historyOwned {
+		e.exitTileReviewBeforePreview()
+		return
+	}
+	rev.view = TileReviewAfter
+	rev.peekBefore = false
+	_, _, g, _, err := e.resolveTileGridWithLayer(rev.layerName, rev.tileLayer)
+	if err != nil {
+		return
+	}
+	cur := g.values()
+	var changes []tileChange
+	for i := range min(len(cur), len(rev.proposed)) {
+		if cur[i] != rev.proposed[i] {
+			changes = append(changes, tileChange{index: i, oldGID: cur[i], newGID: rev.proposed[i]})
+		}
+	}
+	if len(changes) > 0 {
+		g.apply(changes, false)
+	}
+}
+
+// finishTileReviewHistoryStep clears the in-progress history step flag and restores the composed
+// display if the undo/redo step was a no-op or failed.
+func (e *Editor) finishTileReviewHistoryStep(ok bool) {
+	if e == nil || e.tileReview == nil {
+		return
+	}
+	rev := e.tileReview
+	rev.inHistoryStep = false
+	if !ok && rev.historyOwned {
+		e.applyTileReviewDisplay()
 	}
 }
 
@@ -1567,7 +1866,7 @@ func (e *Editor) TileReviewFocusedRegion() string {
 
 // FocusTileReviewRegion focuses regionID, switches the view to After, and highlights it in the viewport.
 func (e *Editor) FocusTileReviewRegion(regionID string) bool {
-	if !e.TileReviewOpen() {
+	if e == nil || e.playing || !e.TileReviewOpen() {
 		return false
 	}
 	for _, r := range e.tileReview.regions {
@@ -1578,6 +1877,7 @@ func (e *Editor) FocusTileReviewRegion(regionID string) bool {
 				e.tileReview.peekBefore = false
 				e.applyTileReviewDisplay()
 			}
+			e.tileReview.uiRev = e.nextTileReviewUIRev()
 			e.notify()
 			return true
 		}
@@ -1606,6 +1906,7 @@ func (e *Editor) SetTileReviewViewMode(view TileReviewView) {
 	}
 	e.tileReview.view = view
 	e.tileReview.peekBefore = false
+	e.tileReview.uiRev = e.nextTileReviewUIRev()
 	e.applyTileReviewDisplay()
 	e.notify()
 }
@@ -1622,6 +1923,7 @@ func (e *Editor) SetTileReviewPeekBefore(peeking bool) {
 		return
 	}
 	e.tileReview.peekBefore = peeking
+	e.tileReview.uiRev = e.nextTileReviewUIRev()
 	e.applyTileReviewDisplay()
 	e.notify()
 }
@@ -1648,11 +1950,8 @@ func (e *Editor) TileReviewHandleKeyEvent(ev core.KeyEvent, down bool) bool {
 
 // SetTileReviewRegionReverted marks regionID reverted (true) or kept/restored (false) and updates the live viewport.
 func (e *Editor) SetTileReviewRegionReverted(regionID string, reverted bool) error {
-	if e == nil {
-		return errors.New("editor: nil editor")
-	}
-	if e.playing {
-		return ErrPlaying
+	if err := e.checkTileEditAllowed(); err != nil {
+		return err
 	}
 	if !e.TileReviewOpen() {
 		return ErrNoTileReview
@@ -1676,6 +1975,7 @@ func (e *Editor) SetTileReviewRegionReverted(regionID string, reverted bool) err
 	} else {
 		delete(e.tileReview.revertedByID, regionID)
 	}
+	e.tileReview.uiRev = e.nextTileReviewUIRev()
 	e.applyTileReviewDisplay()
 	e.notify()
 	return nil
@@ -1719,15 +2019,13 @@ func (e *Editor) RestoreTileReviewRegionByIndex(index int) error {
 // KeepTileReview commits all non-reverted regions of the active tile review as ONE undoable step on History
 // and closes the review. Undoing that single step restores the exact pre-review tilemap cleanly.
 func (e *Editor) KeepTileReview() (AgentTileEditResult, error) {
-	if e == nil {
-		return AgentTileEditResult{}, errors.New("editor: nil editor")
-	}
-	if e.playing {
-		return AgentTileEditResult{}, ErrPlaying
+	if err := e.checkTileEditAllowed(); err != nil {
+		return AgentTileEditResult{}, err
 	}
 	if !e.TileReviewOpen() {
 		return AgentTileEditResult{}, ErrNoTileReview
 	}
+	e.exitTileReviewBeforePreview()
 	rev := e.tileReview
 	kept, total := e.TileReviewKeptCount()
 	finalValues := composeTileReviewValues(rev)
@@ -1800,15 +2098,28 @@ func (e *Editor) KeepTileReview() (AgentTileEditResult, error) {
 		}, nil
 	}
 
-	// Fallback when non-review commands were interleaved: commit the delta from current grid to finalValues as one command.
+	// Fallback when non-review commands were interleaved: only commit reverts for regions explicitly
+	// marked reverted whose cells still match the review's values, preserving all unrelated user edits.
 	var delta []tileChange
-	for i := range min(len(cur), len(finalValues)) {
-		if cur[i] != finalValues[i] {
-			delta = append(delta, tileChange{index: i, oldGID: cur[i], newGID: finalValues[i]})
+	for _, r := range rev.regions {
+		if !r.Reverted {
+			continue
+		}
+		for _, c := range r.Cells {
+			idx := c.Row*rev.width + c.Col
+			if idx < 0 || idx >= len(cur) {
+				continue
+			}
+			if cur[idx] == c.NewGID || cur[idx] == c.OldGID {
+				delta = append(delta, tileChange{index: idx, oldGID: c.NewGID, newGID: c.OldGID})
+			}
 		}
 	}
 	label := fmt.Sprintf("Keep %d of %d tile regions on %s", kept, total, layerName)
 	if len(delta) > 0 {
+		if e.History == nil {
+			e.History = NewHistory()
+		}
 		e.History.Execute(&tileEditCmd{
 			ed:        e,
 			layerName: layerName,
@@ -1833,27 +2144,19 @@ func (e *Editor) KeepTileReview() (AgentTileEditResult, error) {
 
 // RevertAllTileReview discards every pending region of the active tile review, restoring the exact pre-review tilemap.
 func (e *Editor) RevertAllTileReview() error {
-	if e == nil {
-		return errors.New("editor: nil editor")
-	}
-	if e.playing {
-		return ErrPlaying
+	if err := e.checkTileEditAllowed(); err != nil {
+		return err
 	}
 	if !e.TileReviewOpen() {
 		return ErrNoTileReview
 	}
+	e.exitTileReviewBeforePreview()
 	rev := e.tileReview
 	_, _, g, _, err := e.resolveTileGridWithLayer(rev.layerName, rev.tileLayer)
 	if err != nil {
 		return err
 	}
 	cur := g.values()
-	var toBase []tileChange
-	for i := range min(len(cur), len(rev.base)) {
-		if cur[i] != rev.base[i] {
-			toBase = append(toBase, tileChange{index: i, oldGID: cur[i], newGID: rev.base[i]})
-		}
-	}
 
 	layerName, tileLayer := rev.layerName, rev.tileLayer
 	historyOwned := rev.historyOwned
@@ -1861,6 +2164,12 @@ func (e *Editor) RevertAllTileReview() error {
 	e.tileReview = nil
 
 	if historyOwned && e.History != nil && historyStart >= 0 && historyStart <= e.History.cursor {
+		var toBase []tileChange
+		for i := range min(len(cur), len(rev.base)) {
+			if cur[i] != rev.base[i] {
+				toBase = append(toBase, tileChange{index: i, oldGID: cur[i], newGID: rev.base[i]})
+			}
+		}
 		clear(e.History.commands[historyStart:])
 		e.History.commands = e.History.commands[:historyStart]
 		e.History.cursor = historyStart
@@ -1872,7 +2181,24 @@ func (e *Editor) RevertAllTileReview() error {
 		return nil
 	}
 
+	// Fallback when non-review commands were interleaved: revert only review cells that still match
+	// the review's values so unrelated manual edits made while the review was open are preserved.
+	var toBase []tileChange
+	for _, r := range rev.regions {
+		for _, c := range r.Cells {
+			idx := c.Row*rev.width + c.Col
+			if idx < 0 || idx >= len(cur) {
+				continue
+			}
+			if cur[idx] == c.NewGID || (r.Reverted && cur[idx] == c.OldGID) {
+				toBase = append(toBase, tileChange{index: idx, oldGID: c.NewGID, newGID: c.OldGID})
+			}
+		}
+	}
 	if len(toBase) > 0 {
+		if e.History == nil {
+			e.History = NewHistory()
+		}
 		e.History.Execute(&tileEditCmd{
 			ed:        e,
 			layerName: layerName,
@@ -1893,8 +2219,8 @@ func (e *Editor) syncTileReviewAfterMutate() {
 	if rev == nil || rev.applying {
 		return
 	}
-	if e.History != nil && rev.historyOwned && e.History.cursor <= rev.historyStart {
-		// All agent steps were undone back to before the review started.
+	if e.History != nil && e.History.cursor <= rev.historyStart {
+		// All steps back to before the review started were undone.
 		e.tileReview = nil
 		return
 	}
@@ -1907,22 +2233,33 @@ func (e *Editor) syncTileReviewAfterMutate() {
 	if e.History != nil {
 		curCursor = e.History.cursor
 	}
-	if curCursor < rev.lastHistoryCursor {
-		// An agent step was undone while review is open: re-sync proposed from live grid.
-		rev.lastHistoryCursor = curCursor
-		rev.proposed = g.values()
-		rev.view = TileReviewAfter
-		rev.peekBefore = false
-		e.recomputeTileReviewRegions()
-		if len(rev.regions) == 0 {
-			e.tileReview = nil
+	if rev.historyOwned {
+		isUndo := curCursor < rev.lastHistoryCursor
+		isReviewRedo := curCursor > rev.lastHistoryCursor && rev.inHistoryStep && curCursor <= rev.maxReviewCursor
+		if isUndo || isReviewRedo {
+			rev.lastHistoryCursor = curCursor
+			rev.proposed = g.values()
+			rev.view = TileReviewAfter
+			rev.peekBefore = false
+			e.recomputeTileReviewRegions()
+			if len(rev.regions) == 0 {
+				e.tileReview = nil
+			} else {
+				e.applyTileReviewDisplay()
+			}
+			return
+		}
+		if curCursor != rev.lastHistoryCursor {
+			// Another non-review command executed while the review was open.
+			rev.historyOwned = false
+			rev.lastHistoryCursor = curCursor
+			rev.uiRev = e.nextTileReviewUIRev()
 		}
 		return
 	}
 	if curCursor != rev.lastHistoryCursor {
-		// Another non-review command executed while the review was open.
-		rev.historyOwned = false
 		rev.lastHistoryCursor = curCursor
+		rev.uiRev = e.nextTileReviewUIRev()
 	}
 }
 
@@ -1954,7 +2291,7 @@ func (e *Editor) drawTileReviewOverlay(d *core.Drawing) {
 
 	d.Save()
 	applyAffine(d, m)
-	for _, r := range rev.regions {
+	for i, r := range rev.regions {
 		if r.Reverted || len(r.Cells) == 0 {
 			continue
 		}
@@ -1976,39 +2313,15 @@ func (e *Editor) drawTileReviewOverlay(d *core.Drawing) {
 			fillColor = core.RGBA(0x3B7BFF, 0.16)
 		}
 
-		cellSet := make(map[int]bool, len(r.Cells))
 		for _, c := range r.Cells {
-			cellSet[c.Row*rev.width+c.Col] = true
 			x := ox + float32(c.Col)*tw
 			y := oy + float32(c.Row)*th
 			d.SetFillColor(fillColor).FillRect(x, y, tw, th)
 		}
 
-		// Collect outer perimeter segments of this region so irregular/L-shaped/edge regions outline cleanly.
-		type seg struct{ x0, y0, x1, y1 float32 }
-		var perimeter []seg
-		has := func(col, row int) bool {
-			if col < 0 || col >= rev.width || row < 0 || row >= rev.height {
-				return false
-			}
-			return cellSet[row*rev.width+col]
-		}
-		for _, c := range r.Cells {
-			x0 := ox + float32(c.Col)*tw
-			y0 := oy + float32(c.Row)*th
-			x1, y1 := x0+tw, y0+th
-			if !has(c.Col, c.Row-1) {
-				perimeter = append(perimeter, seg{x0, y0, x1, y0})
-			}
-			if !has(c.Col, c.Row+1) {
-				perimeter = append(perimeter, seg{x0, y1, x1, y1})
-			}
-			if !has(c.Col-1, c.Row) {
-				perimeter = append(perimeter, seg{x0, y0, x0, y1})
-			}
-			if !has(c.Col+1, c.Row) {
-				perimeter = append(perimeter, seg{x1, y0, x1, y1})
-			}
+		var perimeter []tileReviewEdge
+		if i < len(rev.perimeters) {
+			perimeter = rev.perimeters[i]
 		}
 
 		if r.ID == rev.focusedID && len(perimeter) > 0 {
@@ -2016,7 +2329,8 @@ func (e *Editor) drawTileReviewOverlay(d *core.Drawing) {
 			d.SetStrokeColor(core.RGBA(0x3B7BFF, 0.45)).SetLineWidth(4 / scale)
 			d.BeginPath()
 			for _, s := range perimeter {
-				d.MoveTo(s.x0, s.y0).LineTo(s.x1, s.y1)
+				d.MoveTo(ox+float32(s.c0)*tw, oy+float32(s.r0)*th).
+					LineTo(ox+float32(s.c1)*tw, oy+float32(s.r1)*th)
 			}
 			d.Stroke()
 		}
@@ -2029,7 +2343,8 @@ func (e *Editor) drawTileReviewOverlay(d *core.Drawing) {
 		d.SetStrokeColor(lineColor).SetLineWidth(lw)
 		d.BeginPath()
 		for _, s := range perimeter {
-			d.MoveTo(s.x0, s.y0).LineTo(s.x1, s.y1)
+			d.MoveTo(ox+float32(s.c0)*tw, oy+float32(s.r0)*th).
+				LineTo(ox+float32(s.c1)*tw, oy+float32(s.r1)*th)
 		}
 		d.Stroke()
 	}

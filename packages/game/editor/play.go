@@ -151,6 +151,7 @@ func (e *Editor) PlayIn(cx *core.Scope) error {
 	e.endTileStrokeForChange()
 	e.endGridMapStrokeForChange()
 	e.endTerrainStrokeForChange()
+	e.exitTileReviewBeforePreview()
 
 	// A 2D drag or particle curve drag in progress is put back, so Play and the scene Stop restores start from the last recorded state.
 	e.CancelDrag2D()
@@ -208,7 +209,6 @@ func (e *Editor) PlayIn(cx *core.Scope) error {
 	e.stopStatesLoop()
 	e.stopCutsceneLoop()
 	e.SetCutsceneReviewPeekBefore(false)
-	e.SetTileReviewPeekBefore(false)
 	e.stopTileAnimLoop()
 	e.SetStatesDriveWithKeys(false)
 	e.stopParticlePreviewLoop()
