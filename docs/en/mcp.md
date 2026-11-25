@@ -270,15 +270,15 @@ import "github.com/nsgo-dev/game/packages/game/editor/editormcp"
 
 ### Connecting an agent
 
-`go tool game editor .` serves the open project on a local endpoint of its own: a Unix domain socket that only the user can open, named after a hash of the project's path, in `nsgo-game/editor` under the user's cache directory (`$NSGO_GAME_EDITOR_ENDPOINTS` when set). It is never a network port. When the editor opens another project, the endpoint follows it; a second editor on the same project leaves the first serving and says so on stderr.
+`nsgo game editor .` serves the open project on a local endpoint of its own: a Unix domain socket that only the user can open, named after a hash of the project's path, in `nsgo-game/editor` under the user's cache directory (`$NSGO_GAME_EDITOR_ENDPOINTS` when set). It is never a network port. When the editor opens another project, the endpoint follows it; a second editor on the same project leaves the first serving and says so on stderr.
 
-The agent starts `go tool game mcp` in the project's directory, or in any directory inside it, or names it with `-project`:
+The agent starts `nsgo game mcp` in the project's directory, or in any directory inside it, or names it with `-project`:
 
 ```sh
-claude mcp add game-editor -- go tool game mcp
+claude mcp add game-editor -- nsgo game mcp
 ```
 
-`go tool game mcp` is an MCP server on standard input and output that finds the editor with the project open and forwards every tool call, resource read and subscription to it. It lists the editor's tools, including those other parts of the editor add, and connects again when the editor is closed and opened anew, so the agent's session outlives the editor's. While no editor has the project open, each call answers with an error that says so and how to open it: `no editor has the project open at /path/to/game: open it with go tool game editor /path/to/game and try again`.
+`nsgo game mcp` is an MCP server on standard input and output that finds the editor with the project open and forwards every tool call, resource read and subscription to it. It lists the editor's tools, including those other parts of the editor add, and connects again when the editor is closed and opened anew, so the agent's session outlives the editor's. While no editor has the project open, each call answers with an error that says so and how to open it: `no editor has the project open at /path/to/game: open it with nsgo game editor /path/to/game and try again`.
 
 ### Tools
 

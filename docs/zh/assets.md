@@ -92,7 +92,7 @@ return assets.LoadingScreen{
 
 ## 保存时重新加载
 
-用 [`go tool game dev`](cli.md#dev) 运行游戏，并在它指定的资源目录上启动监视器，Manager 已加载的每个图集、图片和原始字节资源在文件保存后一秒内就会在运行中的游戏里更新：
+用 [`nsgo game dev`](cli.md#dev) 运行游戏，并在它指定的资源目录上启动监视器，Manager 已加载的每个图集、图片和原始字节资源在文件保存后一秒内就会在运行中的游戏里更新：
 
 ```go
 var opts []assets.Option

@@ -6,7 +6,7 @@
 import "github.com/nsgo-dev/game/packages/game/entities"
 ```
 
-`go tool game generate component <name>`、`system <name>` 和 `prefab <name>` 向游戏写入新的组件、系统或预制体，连同其注册和测试；见[命令行](cli.md#generate)。
+`nsgo game generate component <name>`、`system <name>` 和 `prefab <name>` 向游戏写入新的组件、系统或预制体，连同其注册和测试；见[命令行](cli.md#generate)。
 
 ## 架构决策
 

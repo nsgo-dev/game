@@ -270,15 +270,15 @@ import "github.com/nsgo-dev/game/packages/game/editor/editormcp"
 
 ### 连接智能体
 
-`go tool game editor .` 会在项目自己的本地端点上提供所打开的项目：一个只有当前用户能打开的 Unix 域套接字，以项目路径的哈希命名，位于用户缓存目录下的 `nsgo-game/editor` 中（设置了 `$NSGO_GAME_EDITOR_ENDPOINTS` 时位于该目录）。它从不是网络端口。编辑器打开另一个项目时，端点随之切换；在同一项目上再开一个编辑器，第一个编辑器继续提供服务，第二个会在 stderr 上说明原因。
+`nsgo game editor .` 会在项目自己的本地端点上提供所打开的项目：一个只有当前用户能打开的 Unix 域套接字，以项目路径的哈希命名，位于用户缓存目录下的 `nsgo-game/editor` 中（设置了 `$NSGO_GAME_EDITOR_ENDPOINTS` 时位于该目录）。它从不是网络端口。编辑器打开另一个项目时，端点随之切换；在同一项目上再开一个编辑器，第一个编辑器继续提供服务，第二个会在 stderr 上说明原因。
 
-智能体在项目目录（或其中任一子目录）里启动 `go tool game mcp`，或用 `-project` 指定项目：
+智能体在项目目录（或其中任一子目录）里启动 `nsgo game mcp`，或用 `-project` 指定项目：
 
 ```sh
-claude mcp add game-editor -- go tool game mcp
+claude mcp add game-editor -- nsgo game mcp
 ```
 
-`go tool game mcp` 是一个基于标准输入输出的 MCP 服务器，它找到打开了该项目的编辑器，把每次工具调用、资源读取和订阅都转发给它。它列出编辑器的工具，包括编辑器其他部分添加的工具；编辑器关闭后再次打开时，它会重新连接，因此智能体的会话比编辑器活得更久。没有编辑器打开该项目时，每次调用都返回一个错误，说明这一点以及如何打开项目：`no editor has the project open at /path/to/game: open it with go tool game editor /path/to/game and try again`。
+`nsgo game mcp` 是一个基于标准输入输出的 MCP 服务器，它找到打开了该项目的编辑器，把每次工具调用、资源读取和订阅都转发给它。它列出编辑器的工具，包括编辑器其他部分添加的工具；编辑器关闭后再次打开时，它会重新连接，因此智能体的会话比编辑器活得更久。没有编辑器打开该项目时，每次调用都返回一个错误，说明这一点以及如何打开项目：`no editor has the project open at /path/to/game: open it with nsgo game editor /path/to/game and try again`。
 
 ### 工具
 

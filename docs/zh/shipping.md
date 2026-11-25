@@ -99,7 +99,7 @@ go tool nsgo build -channel store -target macos,windows,linux,ios,android
 
 ## 为资源署名
 
-资源采用的多数许可证（包括知识共享署名许可和 SIL 开放字体许可证）都要求随游戏附上作者和许可证。把它们记录在每个资源旁边导入设置附属文件（`hero.png.import.yaml`）的 `credit` 部分；为每个平台运行 `nsgo build` 的 `go tool game release` 随后会在各个包旁边写出 `CREDITS.md`，供商店页面或下载页面使用，并且只要 `game.yaml` 的 `assets` 部分里有资源缺少署名就拒绝构建。`go tool game credits` 不构建，只检查署名并打印该文件；在发布之前运行 `go tool game credits -out resources/CREDITS.md` 还能让每个包内都带上它，因为 `nsgo build` 会把 `resources` 文件夹复制进每个包（见[命令行](cli.md#credits)）。游戏从 `assets` 部分之外加载的资源不会被列出，需要自行署名。
+资源采用的多数许可证（包括知识共享署名许可和 SIL 开放字体许可证）都要求随游戏附上作者和许可证。把它们记录在每个资源旁边导入设置附属文件（`hero.png.import.yaml`）的 `credit` 部分；为每个平台运行 `nsgo build` 的 `nsgo game release` 随后会在各个包旁边写出 `CREDITS.md`，供商店页面或下载页面使用，并且只要 `game.yaml` 的 `assets` 部分里有资源缺少署名就拒绝构建。`nsgo game credits` 不构建，只检查署名并打印该文件；在发布之前运行 `nsgo game credits -out resources/CREDITS.md` 还能让每个包内都带上它，因为 `nsgo build` 会把 `resources` 文件夹复制进每个包（见[命令行](cli.md#credits)）。游戏从 `assets` 部分之外加载的资源不会被列出，需要自行署名。
 
 ## 各目标平台说明
 

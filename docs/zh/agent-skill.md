@@ -1,6 +1,6 @@
 # 智能体技能
 
-本仓库在 [`skills/nsgo-game`](../../skills/nsgo-game/SKILL.md) 发布了一个智能体技能（Agent Skill），让编程智能体了解如何通过 `go tool game` 命令行工具、纯文本 YAML 格式和 `game/mcp` 工具集来创建、构建、测试、检查并驱动 NSGo 游戏。
+本仓库在 [`skills/nsgo-game`](../../skills/nsgo-game/SKILL.md) 发布了一个智能体技能（Agent Skill），让编程智能体了解如何通过 `nsgo game` 命令行工具、纯文本 YAML 格式和 `game/mcp` 工具集来创建、构建、测试、检查并驱动 NSGo 游戏。
 
 ## 安装
 
@@ -26,11 +26,11 @@ claude mcp add nsgo -- go tool nsgo mcp
 
 - **[`SKILL.md`](../../skills/nsgo-game/SKILL.md)**：项目核心规则（纯 Go、带版本号的纯文本 YAML 格式、`go tool nsgo check`/`test`、稳定性分级）、快速上手的 CLI 流程、最小 `game.Loop` + `mcp.Attach` 接入示例，以及确定性 MCP 验证循环。
 - **[`references/packages.md`](../../skills/nsgo-game/references/packages.md)**：`github.com/nsgo-dev/game/packages/game` 下所有包的分组目录、导入路径与稳定性状态，与[API 稳定性](stability.md)保持一致。
-- **[`references/cli-and-formats.md`](../../skills/nsgo-game/references/cli-and-formats.md)**：全部 `go tool game` 子命令（[命令参考](cli-reference.md)）、配套模块工具、YAML 格式契约（[文件格式](formats.md)）、JSON Schema（[YAML 文件的 Schema](schemas.md)）及直接读取的外部工具格式（Tiled、LDtk、Aseprite、TexturePacker、BMFont、glTF、Yarn）。
+- **[`references/cli-and-formats.md`](../../skills/nsgo-game/references/cli-and-formats.md)**：全部 `nsgo game` 子命令（[命令参考](cli-reference.md)）、配套模块工具、YAML 格式契约（[文件格式](formats.md)）、JSON Schema（[YAML 文件的 Schema](schemas.md)）及直接读取的外部工具格式（Tiled、LDtk、Aseprite、TexturePacker、BMFont、glTF、Yarn）。
 - **[`references/mcp-tools.md`](../../skills/nsgo-game/references/mcp-tools.md)**：`mcp.Bridge` 接入方法（[mcp](mcp.md)）与完整工具目录，覆盖场景/实体检查、固定步长循环控制、游戏坐标输入、实时生成与组件编辑、带诊断叠加层的截图、调试控制台可调参数、输入录制与回放、性能读数以及资源热重载。
 
 ## 典型智能体工作流
 
-1. 使用 `go tool game new`、`go tool game generate`、`go tool game assets` 与 `go tool game check` 搭建项目并校验资源和引用。
+1. 使用 `nsgo game new`、`nsgo game generate`、`nsgo game assets` 与 `nsgo game check` 搭建项目并校验资源和引用。
 2. 在游戏的 `*core.Scope` 上挂载 `mcp.Bridge`，并运行 `go tool nsgo dev -automation`（或在测试中使用 `nsgotest.Start`）。
 3. 通过 MCP 执行可复现验证：调用 `game_loop_pause` 暂停、`game_loop_seed` 设定随机种子、注入输入或生成实体、调用 `game_loop_step` 同步推进步数、通过 `game_entities_list` / `game_entity_inspect` / `game_component_get` 检查实体状态，并用 `game_screenshot` 截取叠加层画面。

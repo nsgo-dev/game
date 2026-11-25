@@ -23,7 +23,7 @@
 | `towerdefense2d` | 一个 2D 塔防游戏：在敌人沿着行进的道路旁建造可升级的防御塔，波次写在 YAML 里，有金钱和生命，可用键盘、手柄或触摸操作；[塔防模板](template-towerdefense2d.md)介绍了它。 | `github.com/nsgo-dev/game/template/towerdefense2d` |
 | `visualnovel` | 一部分支短篇视觉小说：两个角色、代码绘制的背景、改变结局的选项、对话记录、自动与快进模式、存档槽和两种语言。 | `github.com/nsgo-dev/game/template/visualnovel` |
 
-`go tool game new -list` 由命令自身打印同样的列表，默认模板排在最前。
+`nsgo game new -list` 由命令自身打印同样的列表，默认模板排在最前。
 
 ### puzzle2d
 
@@ -68,11 +68,13 @@
 ## 用模板创建项目
 
 ```sh
-go run github.com/nsgo-dev/game/packages/game/cmd/game@latest new -list
-go run github.com/nsgo-dev/game/packages/game/cmd/game@latest new -template starter mygame
+nsgo game new -list
+nsgo game new -template starter mygame
 ```
 
-不加 `-template` 时，`game new` 使用 `starter`。不在列表中的名称会被拒绝，并列出现有的模板名。`go tool game` 的 shell 补全（见[命令行](cli.md#completion)）会用同样的名称补全 `-template`。其他参数见[命令行](cli.md#new)。
+在项目之外，`nsgo game` 运行为这个 `nsgo` 发布的游戏层版本（见[命令行](cli.md#安装)）；`go run github.com/nsgo-dev/game/packages/game/cmd/game@latest new` 不经 `nsgo` 运行同一个命令。
+
+不加 `-template` 时，`game new` 使用 `starter`。不在列表中的名称会被拒绝，并列出现有的模板名。`game` 的 shell 补全（见[命令行](cli.md#completion)）会用同样的名称补全 `-template`。其他参数见[命令行](cli.md#new)。
 
 NSGo 自带的命令不需要 `game` 工具，也能从模板的模块写出项目，这需要支持 [Go 模块模板](https://nsgo.dev/zh/docs/getting-started/#来自-go-模块的模板)的 NSGo 命令，例如 `go install github.com/nsgo-dev/nsgo/cmd/nsgo@v0.3.0`：
 

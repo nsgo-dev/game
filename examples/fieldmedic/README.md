@@ -40,7 +40,7 @@ editor:
 
 The editor opens the project's main scene. Select a patient to edit its hit points in the plugin's inspector, press **Heal All** in the Ward panel (one step that one Undo takes back), or choose **Admit** in the tool bar and press the viewport to place a patient. Save writes the scene file in its canonical form.
 
-`go tool game editor .` opens the same project without the plugin: it names `health` in the status bar as a plugin it was built without, and the inspector shows the component's generic fields. `cmd/editor` instead fails to start when `game.yaml` lists a plugin it lacks.
+`nsgo game editor .` opens the same project without the plugin: it names `health` in the status bar as a plugin it was built without, and the inspector shows the component's generic fields. `cmd/editor` instead fails to start when `game.yaml` lists a plugin it lacks.
 
 ## Test
 

@@ -2,14 +2,14 @@
 
 <!-- Code generated from the game command's definitions by `go tool nsgo test ./cmd/game -run TestReference -update` in packages/game. DO NOT EDIT. -->
 
-`go tool game` 的每个子命令及其用法行和参数，由命令定义生成，因此始终与 `game help` 的输出一致；说明文字取自命令自身的英文帮助。如何安装命令、各子命令的用途以及如何设置 shell 补全，见[命令行](cli.md)。
+`nsgo game`（与 `go tool game` 等价）的每个子命令及其用法行和参数，由命令定义生成，因此始终与 `game help` 的输出一致；说明文字取自命令自身的英文帮助。如何安装命令、各子命令的用途以及如何设置 shell 补全，见[命令行](cli.md)。
 
 ## game pack
 
 Pack a folder of PNG images into sprite atlas pages and TexturePacker JSON for sprite.LoadAtlas.
 
 ```sh
-game pack [flags]
+nsgo game pack [flags]
 ```
 
 | 参数 | 默认值 | 说明 |
@@ -29,7 +29,7 @@ game pack [flags]
 Normalize, resample and convert a WAV file to WAV, AAC or MP3.
 
 ```sh
-game audio [flags]
+nsgo game audio [flags]
 ```
 
 | 参数 | 默认值 | 说明 |
@@ -48,7 +48,7 @@ game audio [flags]
 Generate a typed Go asset manifest from a directory of assets, so a missing asset fails the build.
 
 ```sh
-game manifest [flags]
+nsgo game manifest [flags]
 ```
 
 | 参数 | 默认值 | 说明 |
@@ -66,7 +66,7 @@ game manifest [flags]
 Encode a PNG or JPEG texture into a KTX2 container as BC1, BC3, ETC2 or RGBA8, with optional mipmaps.
 
 ```sh
-game tex [flags] [input.png|input.jpg]
+nsgo game tex [flags] [input.png|input.jpg]
 ```
 
 | 参数 | 默认值 | 说明 |
@@ -83,7 +83,7 @@ game tex [flags] [input.png|input.jpg]
 Open the scene editor on a project or a YAML scene, and an animation clip on one of its objects, or on a demo scene when none is named.
 
 ```sh
-game editor [flags] [project-dir | game.yaml | scene.yaml] [clip.animation.yaml [object-id]]
+nsgo game editor [flags] [project-dir | game.yaml | scene.yaml] [clip.animation.yaml [object-id]]
 ```
 
 | 参数 | 默认值 | 说明 |
@@ -95,7 +95,7 @@ game editor [flags] [project-dir | game.yaml | scene.yaml] [clip.animation.yaml 
 Serve the editor's MCP tools on standard input and output for an agent, forwarding each call to the editor that has the project open.
 
 ```sh
-game mcp [flags]
+nsgo game mcp [flags]
 ```
 
 | 参数 | 默认值 | 说明 |
@@ -107,7 +107,7 @@ game mcp [flags]
 Build the game's release packages for macOS, Windows, Linux, web, iOS and Android, or game.yaml's export presets, in one run of nsgo build, with a credits file of its assets' licenses.
 
 ```sh
-game release [flags] [dir]
+nsgo game release [flags] [dir]
 ```
 
 | 参数 | 默认值 | 说明 |
@@ -124,7 +124,7 @@ game release [flags] [dir]
 Check the input recordings under the directories and play them headless through their replay tests, failing on a mismatch.
 
 ```sh
-game replay [flags] [directory ...]
+nsgo game replay [flags] [directory ...]
 ```
 
 | 参数 | 默认值 | 说明 |
@@ -136,7 +136,7 @@ game replay [flags] [directory ...]
 Run the benchmarks headless and fail when one regresses past its stored baseline, or update the baseline.
 
 ```sh
-game bench [flags] [directory ...]
+nsgo game bench [flags] [directory ...]
 ```
 
 | 参数 | 默认值 | 说明 |
@@ -153,7 +153,7 @@ game bench [flags] [directory ...]
 Create a game project in a directory from a template, with its go.mod requiring the game layer and the game and nsgo tools.
 
 ```sh
-game new [flags] <dir>
+nsgo game new [flags] <dir>
 ```
 
 | 参数 | 默认值 | 说明 |
@@ -169,7 +169,7 @@ game new [flags] <dir>
 Run the game with nsgo dev, reloading its assets in the running game when they are saved.
 
 ```sh
-game dev [flags] [dir] [nsgo dev flags]
+nsgo game dev [flags] [dir] [nsgo dev flags]
 ```
 
 | 参数 | 默认值 | 说明 |
@@ -184,7 +184,7 @@ game dev [flags] [dir] [nsgo dev flags]
 Check the scenes, Tiled and LDtk maps and sprite atlases under a directory, and the files they refer to.
 
 ```sh
-game check [flags] [dir]
+nsgo game check [flags] [dir]
 ```
 
 | 参数 | 默认值 | 说明 |
@@ -196,7 +196,7 @@ game check [flags] [dir]
 Pack atlases, encode textures, convert audio, bake fonts, pack models and generate the manifest from game.yaml, rebuilding only what changed.
 
 ```sh
-game assets [flags]
+nsgo game assets [flags]
 ```
 
 | 参数 | 默认值 | 说明 |
@@ -210,7 +210,7 @@ game assets [flags]
 Write a new component, system, scene or prefab into a game project: its Go code and a test, the scene file of a scene or prefab, and its registration.
 
 ```sh
-game generate [flags] component|system|scene|prefab <name>
+nsgo game generate [flags] component|system|scene|prefab <name>
 ```
 
 | 参数 | 默认值 | 说明 |
@@ -224,7 +224,7 @@ game generate [flags] component|system|scene|prefab <name>
 Move or rename a file or directory of a project and rewrite every reference to it, keeping the project index up to date.
 
 ```sh
-game mv [flags] <from> <to>
+nsgo game mv [flags] <from> <to>
 ```
 
 | 参数 | 默认值 | 说明 |
@@ -237,7 +237,7 @@ game mv [flags] <from> <to>
 Give every scene and resource file a uid, point references at files moved without the tools, and write the project index.
 
 ```sh
-game index [flags] [dir]
+nsgo game index [flags] [dir]
 ```
 
 | 参数 | 默认值 | 说明 |
@@ -250,7 +250,7 @@ game index [flags] [dir]
 Find asset, editor plugin and template packs in a library and install them into a project, remove them, or print a pack's digest for the library's index.
 
 ```sh
-game library [flags] list [words] | install <pack>... | remove <pack>... | digest <pack-dir>
+nsgo game library [flags] list [words] | install <pack>... | remove <pack>... | digest <pack-dir>
 ```
 
 | 参数 | 默认值 | 说明 |
@@ -265,7 +265,7 @@ game library [flags] list [words] | install <pack>... | remove <pack>... | diges
 List every asset's author and license from its import settings sidecar as the credits file game release ships, failing when an asset has none.
 
 ```sh
-game credits [flags]
+nsgo game credits [flags]
 ```
 
 | 参数 | 默认值 | 说明 |
@@ -278,7 +278,7 @@ game credits [flags]
 Render a pixelfx effect, or the effect acted out, to a PNG sprite sheet and Aseprite JSON for sprite.LoadAtlas.
 
 ```sh
-game pixelfx [flags] <category/name>
+nsgo game pixelfx [flags] <category/name>
 ```
 
 | 参数 | 默认值 | 说明 |
@@ -296,7 +296,7 @@ game pixelfx [flags] <category/name>
 Bake a scene's glTF level geometry into a navigation mesh per agent type of game.yaml's navigation section, written to the file the scene's navMesh names.
 
 ```sh
-game navmesh [flags] <scene.yaml>
+nsgo game navmesh [flags] <scene.yaml>
 ```
 
 | 参数 | 默认值 | 说明 |
@@ -309,7 +309,7 @@ game navmesh [flags] <scene.yaml>
 Write a shell completion script for zsh, bash or fish.
 
 ```sh
-game completion [flags] zsh|bash|fish
+nsgo game completion [flags] zsh|bash|fish
 ```
 
 没有参数。
@@ -319,7 +319,7 @@ game completion [flags] zsh|bash|fish
 Show the commands, or one command's flags.
 
 ```sh
-game help [command]
+nsgo game help [command]
 ```
 
 没有参数。

@@ -57,7 +57,7 @@ func TestReferenceCoversEveryCommandAndFlag(t *testing.T) {
 			if next := strings.Index(section, "\n## "); next >= 0 {
 				section = section[:next]
 			}
-			if !strings.Contains(section, "```sh\n"+s.usage+"\n```") {
+			if !strings.Contains(section, "```sh\nnsgo "+s.usage+"\n```") {
 				t.Errorf("%s %s section lacks its usage line:\n%s", text.lang, s.name, section)
 			}
 			for _, f := range s.flags {
