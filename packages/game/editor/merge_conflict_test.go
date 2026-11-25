@@ -220,6 +220,11 @@ func setupConflictedGitProject(t *testing.T) (repoDir, mineHeadSHA, theirsHeadSH
 
 	dir := t.TempDir()
 	runTestGit(t, dir, "init", "-b", "main")
+	// Configure repo-local identity and disable GPG signing so both `git merge` and
+	// `FinishMerge` (`git commit --no-edit`) work on CI runners without global git config.
+	runTestGit(t, dir, "config", "user.name", "you")
+	runTestGit(t, dir, "config", "user.email", "you@example.com")
+	runTestGit(t, dir, "config", "commit.gpgsign", "false")
 
 	gameYAML := "version: 1\nname: dungeon-run\nid: dev.example.dungeonrun\nappVersion: 0.1.0\nwindow:\n  width: 640\n  height: 360\nautoload:\n  mainScene: level_01\n  scenes:\n    - name: level_01\n      path: scenes/level_01.scene.yaml\n"
 	if err := os.WriteFile(filepath.Join(dir, project.FileName), []byte(gameYAML), 0o644); err != nil {
@@ -257,9 +262,19 @@ func setupConflictedGitProject(t *testing.T) (repoDir, mineHeadSHA, theirsHeadSH
 	runTestGit(t, dir, "checkout", "feat/slime-patrol")
 	mergeCmd := exec.Command("git", "merge", "main")
 	mergeCmd.Dir = dir
-	mergeCmd.Env = append(os.Environ(), "LC_ALL=C")
-	if out, err := mergeCmd.CombinedOutput(); err == nil {
-		t.Fatalf("expected git merge main to conflict, but it succeeded:\n%s", out)
+	mergeCmd.Env = append(os.Environ(),
+		"LC_ALL=C",
+		"GIT_AUTHOR_NAME=you",
+		"GIT_AUTHOR_EMAIL=you@example.com",
+		"GIT_COMMITTER_NAME=you",
+		"GIT_COMMITTER_EMAIL=you@example.com",
+	)
+	mergeOut, mergeErr := mergeCmd.CombinedOutput()
+	if mergeErr == nil {
+		t.Fatalf("expected git merge main to conflict, but it succeeded:\n%s", mergeOut)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".git", "MERGE_HEAD")); err != nil {
+		t.Fatalf("git merge main failed without starting a merge (missing MERGE_HEAD): %v\n%s", mergeErr, mergeOut)
 	}
 
 	// Write a ConflictDoc YAML into the working tree file, simulating the #1058 merge driver output.
@@ -305,7 +320,7 @@ func TestSceneMergeResolveThreeConflictsAndFinishCreatesMergeCommit(t *testing.T
 		t.Fatalf("OpenProject on conflicted repo: %v", err)
 	}
 	if !ed.MergeConflictOpen() {
-		t.Fatal("expected MergeConflictOpen() == true after opening project with conflicted main scene")
+		t.Fatalf("expected MergeConflictOpen() == true after opening project with conflicted main scene (status=%q)", ed.Status)
 	}
 
 	sess := ed.MergeSession()
