@@ -119,6 +119,7 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 	e.resetCutsceneState()
 	e.stopFetch()
 	e.stopAudioAudition()
+	e.resetAssetDrawerState()
 	e.stopParticlePreviewLoop()
 	e.stopSceneEmitterLoop()
 	e.closeModelPreview()

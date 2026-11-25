@@ -41,6 +41,13 @@ func (p *Project) Paths() []string {
 	return slices.Clone(p.paths)
 }
 
+func dirMatchesPath(dirTarget, cleanPath string) bool {
+	if dirTarget == "." {
+		return cleanPath != "" && cleanPath != "."
+	}
+	return strings.HasPrefix(cleanPath, dirTarget+"/")
+}
+
 // UsedBy returns every non-output reference in p that targets target, in the
 // order Scan recorded them. A directory reference (Ref.Dir) matches every file
 // inside that directory.
@@ -54,7 +61,7 @@ func (p *Project) UsedBy(target string) []Ref {
 		if r.Output || r.Target == "" {
 			continue
 		}
-		if r.Target == clean || (r.Dir && strings.HasPrefix(clean, r.Target+"/")) {
+		if r.Target == clean || (r.Dir && dirMatchesPath(r.Target, clean)) {
 			out = append(out, r)
 		}
 	}
@@ -93,34 +100,64 @@ func (p *Project) UnreferencedAssets() []string {
 	}
 	outputFiles := make(map[string]bool)
 	var outputDirs []string
+	outputRoot := false
+	usedFiles := make(map[string]bool)
+	var usedDirs []string
+	usedRoot := false
 	for _, r := range p.Refs {
-		if !r.Output || r.Target == "" {
+		if r.Target == "" {
+			continue
+		}
+		if r.Output {
+			if r.Dir {
+				if r.Target == "." {
+					outputRoot = true
+				} else {
+					outputDirs = append(outputDirs, r.Target+"/")
+				}
+			} else {
+				outputFiles[r.Target] = true
+			}
 			continue
 		}
 		if r.Dir {
-			outputDirs = append(outputDirs, r.Target+"/")
+			if r.Target == "." {
+				usedRoot = true
+			} else {
+				usedDirs = append(usedDirs, r.Target+"/")
+			}
 		} else {
-			outputFiles[r.Target] = true
+			usedFiles[r.Target] = true
 		}
+	}
+	if outputRoot || usedRoot {
+		return nil
 	}
 	var out []string
 	for _, name := range p.paths {
-		if !IsAssetPath(name) || outputFiles[name] {
+		if !IsAssetPath(name) || outputFiles[name] || usedFiles[name] {
 			continue
 		}
-		inOutDir := false
+		skip := false
 		for _, prefix := range outputDirs {
 			if strings.HasPrefix(name, prefix) {
-				inOutDir = true
+				skip = true
 				break
 			}
 		}
-		if inOutDir {
+		if skip {
 			continue
 		}
-		if len(p.UsedBy(name)) == 0 {
-			out = append(out, name)
+		for _, prefix := range usedDirs {
+			if strings.HasPrefix(name, prefix) {
+				skip = true
+				break
+			}
 		}
+		if skip {
+			continue
+		}
+		out = append(out, name)
 	}
 	slices.Sort(out)
 	return out

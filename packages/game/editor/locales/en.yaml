@@ -5,6 +5,8 @@ strings:
   app.defaultName: NSGo Scene Editor
   assets.empty: No atlas assets loaded
   assets.title: Assets
+  cmd.assetDrawer.desc: Switch the left rail between Scene and Assets drawer mode
+  cmd.assetDrawer.label: Asset Drawer
   cmd.audioMixer.desc: Toggle the Audio Bus Mixer panel
   cmd.audioMixer.label: Audio Bus Mixer
   cmd.bakeNavMesh3d.desc: Bake a 3D navigation mesh from the open scene's static geometry

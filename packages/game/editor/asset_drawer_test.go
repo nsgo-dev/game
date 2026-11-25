@@ -563,3 +563,258 @@ func TestAssetDrawerFoldersKindsFiltersEmptyStatesAndPreviews(t *testing.T) {
 		t.Fatal("expected Keep to dismiss proposed banner")
 	}
 }
+
+func TestAssetDrawerSecurityContainmentAndBounds(t *testing.T) {
+	dir := writeAssetDrawerFixture(t)
+	outside := t.TempDir()
+
+	outsidePNG := filepath.Join(outside, "escaped.png")
+	if err := os.WriteFile(outsidePNG, makeTestPNG(t, 8, 8, color.RGBA{R: 0xFF, A: 0xFF}), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outsideWAV := filepath.Join(outside, "escaped.wav")
+	if err := os.WriteFile(outsideWAV, makeTestWAV(t, 44100, 0.05, 440), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	spacedPNG := filepath.Join(outside, "my hero sprite.png")
+	if err := os.WriteFile(spacedPNG, makeTestPNG(t, 8, 8, color.RGBA{G: 0xFF, A: 0xFF}), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Symlink files & directory escaping project root.
+	if err := os.Symlink(outsidePNG, filepath.Join(dir, "art/props/sym_escape.png")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if err := os.Symlink(outsideWAV, filepath.Join(dir, "audio/sfx/sym_escape.wav")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dir, "art/sym_out_dir")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	// Oversized dimension PNG (5000x5000 exceeds 16M pixel budget) constructed as valid PNG header (compressed tiny).
+	hugePNG := makeTestPNG(t, 4, 4, color.RGBA{B: 0xFF, A: 0xFF})
+	// Patch PNG IHDR width/height to 5000x5000 (bytes 16..23) so image.DecodeConfig sees >16M pixels without allocating 100MB in test.
+	binary.BigEndian.PutUint32(hugePNG[16:20], 5000)
+	binary.BigEndian.PutUint32(hugePNG[20:24], 5000)
+	if err := os.WriteFile(filepath.Join(dir, "art/props/huge_bomb.png"), hugePNG, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ed, err := editor.New(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ed.ProjectAssets = true
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. SetAssetDrawerFolder rejects parent traversal and absolute paths.
+	ed.SetAssetDrawerFolder("art/props")
+	for _, bad := range []string{"../../outside", "/etc", "art/../../escape", "C:/Windows"} {
+		ed.SetAssetDrawerFolder(bad)
+		if got := ed.AssetDrawerFolder(); got != "art/props" {
+			t.Fatalf("SetAssetDrawerFolder(%q) mutated folder to %q", bad, got)
+		}
+	}
+
+	// 2. Scan skips symlinked files/dirs escaping root and refuses decompression-bomb thumbnails.
+	snap := ed.AssetDrawerSnapshot()
+	for _, it := range snap.AllItems {
+		if it.Path == "art/props/sym_escape.png" || it.Path == "audio/sfx/sym_escape.wav" || strings.HasPrefix(it.Path, "art/sym_out_dir/") {
+			t.Fatalf("AssetDrawerSnapshot included symlink escaping root: %q", it.Path)
+		}
+		if it.Path == "art/props/huge_bomb.png" && it.Image.Pixels != nil {
+			t.Fatal("huge_bomb.png should not be decoded into RGBA pixels")
+		}
+	}
+
+	// 3. ToggleAssetAudioPreview refuses symlink escaping root.
+	if err := ed.ToggleAssetAudioPreview("audio/sfx/sym_escape.wav"); err == nil {
+		t.Fatal("ToggleAssetAudioPreview allowed symlink outside project root")
+	}
+
+	// 4. ImportAssetFiles refuses symlinked destination folder and sidecar/hidden/dot names.
+	ed.SetAssetDrawerFolder("art/sym_out_dir")
+	if _, err := ed.ImportAssetFiles([]string{outsidePNG}); err == nil {
+		t.Fatal("ImportAssetFiles wrote through symlinked directory outside project root")
+	}
+	if _, err := os.Stat(filepath.Join(outside, "escaped.png")); err != nil {
+		t.Fatal(err)
+	}
+	ed.SetAssetDrawerFolder("art/props")
+	for _, bad := range []string{".", "..", filepath.Join(outside, ".hidden.png"), filepath.Join(outside, "bad.png.import.yaml")} {
+		if _, err := ed.ImportAssetFiles([]string{bad}); err == nil {
+			t.Fatalf("ImportAssetFiles(%q) succeeded, want error", bad)
+		}
+	}
+
+	// 5. ImportAssetFiles properly decodes file:// URI with percent-encoded spaces and localhost.
+	fileURI := "file://localhost" + strings.ReplaceAll(filepath.ToSlash(spacedPNG), " ", "%20")
+	if !strings.HasPrefix(filepath.ToSlash(spacedPNG), "/") {
+		fileURI = "file://localhost/" + strings.ReplaceAll(filepath.ToSlash(spacedPNG), " ", "%20")
+	}
+	imported, err := ed.ImportAssetFiles([]string{fileURI})
+	if err != nil {
+		t.Fatalf("ImportAssetFiles(%q): %v", fileURI, err)
+	}
+	if len(imported) != 1 || imported[0] != "art/props/my hero sprite.png" {
+		t.Fatalf("imported = %v, want [art/props/my hero sprite.png]", imported)
+	}
+
+	// 6. ReplaceMissingAsset refuses symlink escape on target and parent directory.
+	if err := ed.ReplaceMissingAsset("art/sym_out_dir/target.png", outsidePNG); err == nil {
+		t.Fatal("ReplaceMissingAsset wrote through symlinked parent outside project root")
+	}
+	if _, err := os.Stat(filepath.Join(outside, "target.png")); !os.IsNotExist(err) {
+		t.Fatal("ReplaceMissingAsset created file outside project root")
+	}
+	if err := ed.ReplaceMissingAsset("art/props/sym_escape.png", outsidePNG); err == nil {
+		t.Fatal("ReplaceMissingAsset overwrote symlink target outside project root")
+	}
+}
+
+func TestAssetDrawerLifecycleResetsNaNAndLocale(t *testing.T) {
+	dir1 := writeAssetDrawerFixture(t)
+	dir2 := writeAssetDrawerFixture(t)
+
+	ed, err := editor.New(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ed.ProjectAssets = true
+	if err := ed.OpenProject(dir1); err != nil {
+		t.Fatal(err)
+	}
+	ed.SetLeftRailMode(editor.LeftRailAssets)
+	ed.SetAssetDrawerFolder("art/props")
+	ed.SetAssetDrawerQuery("coin")
+	ed.ProposeAssetImports([]string{"art/props/coin.png"})
+	ed.SelectAssetPath("art/characters/knight.png")
+
+	// NaN / Inf drag & drop coordinates are refused without mutating the scene.
+	if err := ed.BeginAssetDrag("art/props/coin.png"); err != nil {
+		t.Fatalf("BeginAssetDrag: %v", err)
+	}
+	ed.UpdateAssetDrag(float32(math.NaN()), float32(math.Inf(1)))
+	if st := ed.AssetDragState(); st.HoveringViewport {
+		t.Fatal("UpdateAssetDrag accepted NaN/Inf coordinates")
+	}
+	beforeObjs := len(ed.Doc.Layers[0].Objects)
+	if _, _, err := ed.DropAssetAt("art/props/coin.png", float32(math.NaN()), 10); err == nil {
+		t.Fatal("DropAssetAt accepted NaN coordinate")
+	}
+	if len(ed.Doc.Layers[0].Objects) != beforeObjs {
+		t.Fatal("NaN DropAssetAt mutated scene")
+	}
+
+	// Locked layer drop error clears active drag AND notifies listeners.
+	ed.SetLayerLocked(ed.ActiveLayer, true)
+	if err := ed.BeginAssetDrag("art/props/coin.png"); err != nil {
+		t.Fatalf("BeginAssetDrag: %v", err)
+	}
+	cx, cy := ed.WorldToCanvas(500, 500)
+	ed.UpdateAssetDrag(cx, cy)
+	notified := 0
+	unsub := ed.Subscribe(func() { notified++ })
+	if _, _, err := ed.DropAssetAt("art/props/coin.png", cx, cy); err == nil {
+		t.Fatal("DropAssetAt on locked layer succeeded, want error")
+	}
+	unsub()
+	if ed.AssetDragActive() || notified == 0 {
+		t.Fatalf("locked-layer DropAssetAt failed to clear drag or notify: active=%v notified=%d", ed.AssetDragActive(), notified)
+	}
+	ed.SetLayerLocked(ed.ActiveLayer, false)
+
+	// Tab switch cancels active asset drag via cancelTransientInteraction.
+	secondScene := filepath.Join(dir1, "scenes/level_02.scene.yaml")
+	if err := os.WriteFile(secondScene, []byte("version: 2\nlayers:\n  - name: Actors\n    objects: []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenFile(secondScene); err != nil {
+		t.Fatalf("OpenFile(secondScene): %v", err)
+	}
+	if err := ed.BeginAssetDrag("art/props/coin.png"); err != nil {
+		t.Fatalf("BeginAssetDrag: %v", err)
+	}
+	if err := ed.SelectTab(0); err != nil {
+		t.Fatalf("SelectTab(0): %v", err)
+	}
+	if ed.AssetDragActive() {
+		t.Fatal("SelectTab/cancelTransientInteraction did not cancel active asset drag")
+	}
+
+	// PlayIn cancels active asset drag, clip preview loop, and audio preview.
+	if err := ed.BeginAssetDrag("art/props/coin.png"); err != nil {
+		t.Fatalf("BeginAssetDrag: %v", err)
+	}
+	ed.SetAssetPreviewPlaying(true)
+	if err := ed.ToggleAssetAudioPreview("audio/sfx/jump.wav"); err != nil {
+		t.Fatalf("ToggleAssetAudioPreview: %v", err)
+	}
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1280, 720))
+	app.Settle()
+	app.Post(func() {
+		if err := ed.Play(); err != nil {
+			t.Errorf("Play: %v", err)
+		}
+	})
+	app.Settle()
+	if ed.AssetDragActive() || ed.AssetPreviewPlaying() || ed.AssetAudioPlayingPath() != "" {
+		t.Fatalf("PlayIn left asset drawer playback/drag active: drag=%v clip=%v audio=%q",
+			ed.AssetDragActive(), ed.AssetPreviewPlaying(), ed.AssetAudioPlayingPath())
+	}
+	app.Post(func() { _ = ed.Stop() })
+	app.Settle()
+
+	// Switching projects resets assetDrawer filters, selection, proposed badges, and caches.
+	app.Post(func() {
+		ed.SetAssetDrawerFolder("art/props")
+		ed.SetAssetDrawerQuery("coin")
+		ed.ProposeAssetImports([]string{"art/props/coin.png"})
+		if err := ed.OpenProject(dir2); err != nil {
+			t.Errorf("OpenProject(dir2): %v", err)
+		}
+	})
+	app.Settle()
+	if ed.AssetDrawerFolder() != "" || ed.AssetDrawerQuery() != "" || ed.SelectedAssetPath() != "" || ed.AssetDrawerSnapshot().ProposedCount != 0 {
+		t.Fatalf("OpenProject did not reset assetDrawer state: folder=%q query=%q sel=%q proposed=%d",
+			ed.AssetDrawerFolder(), ed.AssetDrawerQuery(), ed.SelectedAssetPath(), ed.AssetDrawerSnapshot().ProposedCount)
+	}
+
+	// OpenDemo also resets assetDrawer state.
+	app.Post(func() {
+		ed.SetAssetDrawerFolder("art/props")
+		ed.SetAssetDrawerQuery("hero")
+		if err := ed.OpenDemo(); err != nil {
+			t.Errorf("OpenDemo: %v", err)
+		}
+	})
+	app.Settle()
+	if ed.AssetDrawerFolder() != "" || ed.AssetDrawerQuery() != "" || ed.SelectedAssetPath() != "" {
+		t.Fatalf("OpenDemo did not reset assetDrawer state: folder=%q query=%q sel=%q",
+			ed.AssetDrawerFolder(), ed.AssetDrawerQuery(), ed.SelectedAssetPath())
+	}
+
+	// CmdToggleAssetsMode localization in EN and ZH.
+	findCmd := func(id string) (editor.EditorCommand, bool) {
+		for _, c := range ed.Commands() {
+			if c.ID == id {
+				return c, true
+			}
+		}
+		return editor.EditorCommand{}, false
+	}
+	_ = ed.SetLanguage(editor.LanguageEnglish)
+	enCmd, ok := findCmd(editor.CmdToggleAssetsMode)
+	if !ok || enCmd.Label != "Asset Drawer" {
+		t.Fatalf("EN CmdToggleAssetsMode = %+v (ok=%v)", enCmd, ok)
+	}
+	_ = ed.SetLanguage(editor.LanguageChinese)
+	zhCmd, ok := findCmd(editor.CmdToggleAssetsMode)
+	if !ok || zhCmd.Label != "资源抽屉" {
+		t.Fatalf("ZH CmdToggleAssetsMode = %+v (ok=%v)", zhCmd, ok)
+	}
+}

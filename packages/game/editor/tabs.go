@@ -212,6 +212,7 @@ func (e *Editor) cancelTransientInteraction() {
 	e.CancelMarquee2D()
 	e.CancelShapeDrag2D()
 	e.CancelPluginDrag2D()
+	e.CancelAssetDrag()
 	e.ClearPluginHover2D()
 	e.CancelCameraDrag()
 	e.CancelCameraBoundsDrag()

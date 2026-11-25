@@ -1515,6 +1515,7 @@ var builtinCommandKeys = map[string][3]string{
 	CmdCheckProblems:         {"cmd.checkProblems.label", "cmd.checkProblems.desc", "cmd.category.project"},
 	CmdEditorSettings:        {"cmd.editorSettings.label", "cmd.editorSettings.desc", "cmd.category.file"},
 	CmdMergeConflicts:        {"cmd.mergeConflicts.label", "cmd.mergeConflicts.desc", "cmd.category.project"},
+	CmdToggleAssetsMode:      {"cmd.assetDrawer.label", "cmd.assetDrawer.desc", "cmd.category.view"},
 }
 
 // Commands returns all currently active commands in deterministic order:

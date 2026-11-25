@@ -157,6 +157,10 @@ func (e *Editor) PlayIn(cx *core.Scope) error {
 	e.CancelMarquee2D()
 	e.CancelShapeDrag2D()
 	e.CancelPluginDrag2D()
+	e.CancelAssetDrag()
+	e.stopAssetPreviewLoop()
+	e.assetDrawer.previewPlaying = false
+	e.stopAssetAudioPreview()
 	e.ClearPluginHover2D()
 	e.CancelGizmoDrag3D()
 	e.CancelComponentGizmoDrag3D()

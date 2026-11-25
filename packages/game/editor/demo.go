@@ -159,6 +159,7 @@ func (e *Editor) OpenDemo() error {
 	e.resetCutsceneState()
 	e.stopFetch()
 	e.stopAudioAudition()
+	e.resetAssetDrawerState()
 	e.stopParticlePreviewLoop()
 	e.stopSceneEmitterLoop()
 	e.closeModelPreview()

@@ -268,33 +268,6 @@ func mainRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []core.Node {
 		return ed.LeftRailMode() == LeftRailAssets
 	})
 
-	sceneLeft := []core.Node{
-		core.View{
-			TestID: "editor-scene-column",
-			Style:  core.Style{Width: core.Pt(220)},
-			Children: []core.Node{
-				LeftRailSwitchView(cx, ed, rev),
-				SceneTreeView(cx, ed, rev),
-				LayersView(cx, ed, rev),
-			},
-		},
-		core.View{
-			TestID: "editor-left",
-			Style:  core.Style{Width: core.Pt(224)},
-			Children: []core.Node{
-				// A row stretches the asset browser to the height it gets, which is all of the column without a project and half of it beside the file browser.
-				core.View{
-					Style:    core.Style{Direction: core.Row, FlexGrow: 1, FlexBasis: core.Pt(0)},
-					Children: []core.Node{AssetBrowserView(cx, ed, rev)},
-				},
-				FilesView(cx, ed, rev),
-			},
-		},
-	}
-	if ed.Library != nil {
-		sceneLeft = append(sceneLeft, LibraryView(cx, ed, rev))
-	}
-
 	return []core.Node{
 		core.Show{
 			When: assetsMode.Get,
@@ -302,9 +275,36 @@ func mainRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []core.Node {
 				return AssetsLeftRailView(cx, ed, rev)
 			},
 			Else: func(cx *core.Scope) core.Node {
+				children := []core.Node{
+					core.View{
+						TestID: "editor-scene-column",
+						Style:  core.Style{Width: core.Pt(220)},
+						Children: []core.Node{
+							LeftRailSwitchView(cx, ed, rev),
+							SceneTreeView(cx, ed, rev),
+							LayersView(cx, ed, rev),
+						},
+					},
+					core.View{
+						TestID: "editor-left",
+						Style:  core.Style{Width: core.Pt(224)},
+						Children: []core.Node{
+							// A row stretches the asset browser to the height it gets, which is all of the column without a project and half of it beside the file browser.
+							core.View{
+								Style:    core.Style{Direction: core.Row, FlexGrow: 1, FlexBasis: core.Pt(0)},
+								Children: []core.Node{AssetBrowserView(cx, ed, rev)},
+							},
+							FilesView(cx, ed, rev),
+						},
+					},
+				}
+				if ed.Library != nil {
+					children = append(children, LibraryView(cx, ed, rev))
+				}
+				children = append(children, pluginDockView(cx, ed, rev, DockLeft))
 				return core.View{
 					Style:    core.Style{Direction: core.Row, FlexShrink: 0},
-					Children: append(sceneLeft, pluginDockView(cx, ed, rev, DockLeft)),
+					Children: children,
 				}
 			},
 		},
