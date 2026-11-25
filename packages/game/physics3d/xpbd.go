@@ -116,19 +116,29 @@ func toVec3d(v Vec3) vec3d { return vec3d{float64(v.X), float64(v.Y), float64(v.
 func (v vec3d) toVec3() Vec3 {
 	return Vec3{X: float32(v.x), Y: float32(v.y), Z: float32(v.z)}
 }
-func (v vec3d) add(b vec3d) vec3d     { return vec3d{v.x + b.x, v.y + b.y, v.z + b.z} }
-func (v vec3d) sub(b vec3d) vec3d     { return vec3d{v.x - b.x, v.y - b.y, v.z - b.z} }
-func (v vec3d) scale(s float64) vec3d { return vec3d{v.x * s, v.y * s, v.z * s} }
-func (v vec3d) dot(b vec3d) float64   { return v.x*b.x + v.y*b.y + v.z*b.z }
+func (v vec3d) add(b vec3d) vec3d {
+	return vec3d{float64(v.x) + float64(b.x), float64(v.y) + float64(b.y), float64(v.z) + float64(b.z)}
+}
+func (v vec3d) sub(b vec3d) vec3d {
+	return vec3d{float64(v.x) - float64(b.x), float64(v.y) - float64(b.y), float64(v.z) - float64(b.z)}
+}
+func (v vec3d) scale(s float64) vec3d {
+	return vec3d{float64(v.x * s), float64(v.y * s), float64(v.z * s)}
+}
+func (v vec3d) dot(b vec3d) float64 {
+	return float64(float64(v.x*b.x)+float64(v.y*b.y)) + float64(v.z*b.z)
+}
 func (v vec3d) cross(b vec3d) vec3d {
 	return vec3d{
-		x: v.y*b.z - v.z*b.y,
-		y: v.z*b.x - v.x*b.z,
-		z: v.x*b.y - v.y*b.x,
+		x: float64(v.y*b.z) - float64(v.z*b.y),
+		y: float64(v.z*b.x) - float64(v.x*b.z),
+		z: float64(v.x*b.y) - float64(v.y*b.x),
 	}
 }
-func (v vec3d) lenSq() float64 { return v.x*v.x + v.y*v.y + v.z*v.z }
-func (v vec3d) len() float64   { return math.Sqrt(v.lenSq()) }
+func (v vec3d) lenSq() float64 {
+	return float64(float64(v.x*v.x)+float64(v.y*v.y)) + float64(v.z*v.z)
+}
+func (v vec3d) len() float64 { return math.Sqrt(v.lenSq()) }
 
 type quatd struct {
 	x, y, z, w float64
