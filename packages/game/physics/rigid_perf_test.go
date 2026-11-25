@@ -7,7 +7,7 @@ import (
 	"github.com/nsgo-dev/nsgo/core"
 )
 
-// perfScene is the 500-body performance scenario, which BenchmarkRigidWorld500Bodies and BenchmarkRigidWorld500BodiesSettled time against the 16.7 ms of a 60 fps frame: a bin 640 px wide with a floor, two walls and a chain ramp, and 500 boxes, circles, rounded hexagons and capsules dropped into it in a grid.
+// perfScene is the 500-body performance scenario, which BenchmarkRigidWorld500Bodies and BenchmarkRigidWorld500BodiesPacked time against the 16.7 ms of a 60 fps frame: a bin 640 px wide with a floor, two walls and a chain ramp, and 500 boxes, circles, rounded hexagons and capsules dropped into it in a grid.
 func perfScene() *physics.RigidWorld {
 	w := &physics.RigidWorld{GravityY: 600}
 	w.AddBody(
@@ -56,7 +56,7 @@ func BenchmarkRigidWorld500Bodies(b *testing.B) {
 	}
 }
 
-func BenchmarkRigidWorld500BodiesSettled(b *testing.B) {
+func BenchmarkRigidWorld500BodiesPacked(b *testing.B) {
 	w := perfScene()
 	for range 600 {
 		w.Step(step)

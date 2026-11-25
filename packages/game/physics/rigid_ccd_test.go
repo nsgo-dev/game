@@ -163,3 +163,114 @@ func TestRigidFastBodyIgnoresFilteredStatic(t *testing.T) {
 		t.Fatalf("ball stopped at x=%v by a wall it does not collide with", ball.X)
 	}
 }
+
+func TestRigidPointBlankShotStopsAtThinWall(t *testing.T) {
+	// A ball fired at a wall it already touches, or nearly touches, has no contact with it yet and must still stop at its face.
+	for _, gap := range []float32{0, 0.05, 0.2} {
+		for _, bullet := range []bool{false, true} {
+			w := &physics.RigidWorld{}
+			wall := physics.NewStaticRigidBox(400, 100, 4, 200)
+			ball := physics.NewRigidCircle(398-6-gap, 100, 6, 1)
+			ball.Bullet = bullet
+			ball.VX = 5000
+			w.AddBody(wall, ball)
+			for i := range 10 {
+				w.Step(step)
+				if ball.X > 398-6+0.5 {
+					t.Fatalf("gap %v bullet %v: ball at x=%v after step %d, past the wall face at 392", gap, bullet, ball.X, i)
+				}
+			}
+			if ball.VX > 1 {
+				t.Fatalf("gap %v bullet %v: ball keeps VX=%v into the wall", gap, bullet, ball.VX)
+			}
+		}
+	}
+}
+
+func TestRigidFastBodySlidesOverSeams(t *testing.T) {
+	// Ground built from many static pieces, like a row of tiles or a flat chain, is as smooth to a swept body as one long box: the sweep never stops it at the seams between the pieces. (A crate much faster than these still catches on tile seams through the regular contacts, swept or not, as it did before continuous collision.)
+	tiles := func() []*physics.RigidBody {
+		var out []*physics.RigidBody
+		for i := range 160 {
+			b := physics.NewStaticRigidBox(float32(16+32*i), 110, 32, 20)
+			b.Friction = 0
+			out = append(out, b)
+		}
+		return out
+	}
+	chain := func() []*physics.RigidBody {
+		pts := make([]core.Point, 400)
+		for i := range pts {
+			pts[i] = core.Point{X: core.Points(-100 + 15*i), Y: 100}
+		}
+		b := physics.NewStaticRigidBody(physics.ChainShape(pts, false))
+		b.Friction = 0
+		return []*physics.RigidBody{b}
+	}
+	crate := func() *physics.RigidBody { return physics.NewRigidBox(100, 90, 20, 20, 1) }
+	ball := func() *physics.RigidBody { return physics.NewRigidCircle(100, 94, 6, 1) }
+	cases := []struct {
+		name   string
+		ground func() []*physics.RigidBody
+		body   func() *physics.RigidBody
+		bullet bool
+		speed  float32
+	}{
+		{"bullet crate on tiles", tiles, crate, true, 400},
+		{"bullet ball on tiles", tiles, ball, true, 2000},
+		{"fast ball on tiles", tiles, ball, false, 2000},
+		{"bullet ball on chain", chain, ball, true, 400},
+		{"fast ball on chain", chain, ball, false, 2000},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			w := &physics.RigidWorld{GravityY: 600}
+			for _, g := range c.ground() {
+				w.AddBody(g)
+			}
+			b := c.body()
+			b.Friction = 0
+			b.Bullet = c.bullet
+			w.AddBody(b)
+			for range 30 {
+				w.Step(step)
+			}
+			restY := b.Y
+			b.VX = c.speed
+			start := b.X
+			for i := range 60 {
+				w.Step(step)
+				if math.Abs(float64(b.Y-restY)) > 1 {
+					t.Fatalf("body left the ground at step %d: y=%v, rested at %v", i, b.Y, restY)
+				}
+			}
+			if got := b.X - start; math.Abs(float64(got-c.speed)) > 0.02*float64(c.speed) {
+				t.Fatalf("body slid %v px in 1 s at %v px/s", got, c.speed)
+			}
+		})
+	}
+}
+
+func TestRigidFastBodyStillStopsAtWallOnTiledFloor(t *testing.T) {
+	// Ignoring the seams of the ground must not ignore a wall standing on it.
+	w := &physics.RigidWorld{GravityY: 600}
+	for i := range 40 {
+		tile := physics.NewStaticRigidBox(float32(16+32*i), 110, 32, 20)
+		tile.Friction = 0
+		w.AddBody(tile)
+	}
+	wall := physics.NewStaticRigidBox(800, 60, 4, 80)
+	crate := physics.NewRigidBox(100, 90, 20, 20, 1)
+	crate.Friction = 0
+	w.AddBody(wall, crate)
+	for range 30 {
+		w.Step(step)
+	}
+	crate.VX = 6000
+	for i := range 60 {
+		w.Step(step)
+		if crate.X+10 > 798+0.5 {
+			t.Fatalf("crate at x=%v after step %d, past the wall face at 798", crate.X, i)
+		}
+	}
+}

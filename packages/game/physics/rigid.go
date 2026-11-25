@@ -45,7 +45,7 @@ type RigidBody struct {
 	Static       bool
 	Layer        LayerMask
 	Mask         LayerMask
-	// Bullet sweeps the body against static bodies on every step and stops it at the first surface it reaches, so it never ends a step inside one. Without it the body is swept only on steps where a point of it moves farther than half its thickness, when it could otherwise pass through a thin wall, and a shallow overlap is left to the regular contacts.
+	// Bullet sweeps the body against static bodies on every step and stops it at the first surface it reaches, so it never passes into one, except that a surface it already touches at the start of a step and is driven into by no more than half its half thickness is left to the regular contacts. Without it the body is swept only on steps where a point of it moves farther than half its thickness, when it could otherwise pass through a thin wall, and a shallow overlap is left to the regular contacts.
 	Bullet   bool
 	UserData any
 
@@ -432,11 +432,11 @@ type RigidWorld struct {
 	SolverIterations int
 	// DisableSleep keeps every body awake. Step wakes bodies that were sleeping when it is set.
 	DisableSleep bool
-	// SleepLinearThreshold is the speed in pixels per second below which a body counts as resting; zero or less means DefaultSleepLinearThreshold.
+	// SleepLinearThreshold is the speed in pixels per second below which a body counts as resting; zero, a negative value, NaN or an infinity means DefaultSleepLinearThreshold.
 	SleepLinearThreshold float32
-	// SleepAngularThreshold is the angular speed in radians per second below which a body counts as resting; zero or less means DefaultSleepAngularThreshold.
+	// SleepAngularThreshold is the angular speed in radians per second below which a body counts as resting; zero, a negative value, NaN or an infinity means DefaultSleepAngularThreshold.
 	SleepAngularThreshold float32
-	// TimeToSleep is how many seconds every body of an island must rest before the island sleeps; zero or less means DefaultTimeToSleep.
+	// TimeToSleep is how many seconds every body of an island must rest before the island sleeps; zero, a negative value, NaN or an infinity means DefaultTimeToSleep.
 	TimeToSleep float32
 	// OnJointBreak is invoked deterministically for each joint broken during Step, in joint insertion order.
 	OnJointBreak func(JointBreakEvent)
@@ -669,7 +669,7 @@ func (w *RigidWorld) Step(dt time.Duration) {
 		b.Angle = float32(float64(b.Angle) + float64(float64(b.AngularVel)*h))
 	}
 	w.scratch.starts = starts
-	w.sweepFastBodies(starts, restitutionThresh)
+	w.sweepFastBodies(starts, manifolds, restitutionThresh)
 
 	// 7. Positional slop correction (projection without injecting artificial bounce velocity).
 	const (
