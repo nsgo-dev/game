@@ -425,36 +425,36 @@ func GLTFTriangles(doc *gltf.Document) []math3d.Vec3 {
 	return g.verts
 }
 
-// IsModelPath reports whether p names a glTF model, a .gltf or .glb file, which SceneMeshes loads for a scene object's mesh.
+// IsModelPath reports whether p names a glTF model, a .gltf or .glb file, as a scene object's model does (sceneformat.IsModelPath).
 func IsModelPath(p string) bool {
 	ext := strings.ToLower(path.Ext(p))
 	return ext == ".gltf" || ext == ".glb"
 }
 
-// SceneMeshes returns the NodeMesh for nodes built by sceneformat.BuildNodes3D: an object whose Mesh names a glTF model in fsys, by its slash-separated path from the project root, bakes that model's triangles, each model loaded once; any other node bakes its *scene3d.MeshCollider.
+// SceneMeshes returns the NodeMesh for nodes built by sceneformat.BuildNodes3D: an object whose Model names a glTF model in fsys, by its slash-separated path from the project root, bakes that model's triangles, each model loaded once; any other node bakes its *scene3d.MeshCollider.
 func SceneMeshes(fsys fs.FS) NodeMesh {
 	models := map[string][]math3d.Vec3{}
 	return func(n *scene3d.Node) ([]math3d.Vec3, error) {
-		if o, ok := n.UserData.(*sceneformat.ObjectDoc); ok && o != nil && IsModelPath(o.Mesh) {
-			if tris, ok := models[o.Mesh]; ok {
+		if o, ok := n.UserData.(*sceneformat.ObjectDoc); ok && o != nil && IsModelPath(o.Model) {
+			if tris, ok := models[o.Model]; ok {
 				return tris, nil
 			}
 			if fsys == nil {
 				return nil, errors.New("navbake3d: no file system to load models from")
 			}
-			doc, err := gltf.LoadFS(fsys, o.Mesh)
+			doc, err := gltf.LoadFS(fsys, o.Model)
 			if err != nil {
 				return nil, err
 			}
 			tris := GLTFTriangles(doc)
-			models[o.Mesh] = tris
+			models[o.Model] = tris
 			return tris, nil
 		}
 		return ColliderMesh(n)
 	}
 }
 
-// AddSceneFile adds the geometry of a sceneformat scene: it resolves the scenes doc instances and inherits from fsys, builds the scene's 3D node tree and adds every object whose Mesh names a glTF model, as SceneMeshes loads it, on scene3d.LayerDefault.
+// AddSceneFile adds the geometry of a sceneformat scene: it resolves the scenes doc instances and inherits from fsys, builds the scene's 3D node tree and adds every object whose Model names a glTF model, as SceneMeshes loads it, on scene3d.LayerDefault.
 func (g *Geometry) AddSceneFile(doc *sceneformat.SceneDoc, fsys fs.FS) error {
 	resolved, err := sceneformat.Resolve(doc, sceneformat.FSScenes{FS: fsys})
 	if err != nil {

@@ -26,7 +26,7 @@ const navGameYAML = assetsProjectHead + `navigation:
 `
 
 // navScene is a 10 by 10 floor with a pillar in the middle, both the unit box model scaled, naming its navigation mesh.
-const navScene = `version: 1
+const navScene = `version: 2
 navMesh: levels/room.navmesh.yaml
 layers:
   - name: level
@@ -38,7 +38,7 @@ layers:
         scaleX: 10
         scaleY: 0.2
         scaleZ: 10
-        mesh: models/box.gltf
+        model: models/box.gltf
       - id: pillar
         x: 5
         "y": 1
@@ -46,7 +46,7 @@ layers:
         scaleX: 1.5
         scaleY: 2
         scaleZ: 1.5
-        mesh: models/box.gltf
+        model: models/box.gltf
 `
 
 // newNavGame writes a project with gameYAML, the box model and navScene as scenes/room.scene.yaml, and returns its directory.
