@@ -17,7 +17,9 @@ func TestShapeMatchGainMatchesPow(t *testing.T) {
 			}
 		}
 	}
-	if got := shapeMatchGain(math.NaN(), 6); got != 0 {
-		t.Fatalf("shapeMatchGain(NaN, 6) = %v, want 0", got)
+	for _, iters := range []int{0, 1, 6} {
+		if got := shapeMatchGain(math.NaN(), iters); got != 0 {
+			t.Fatalf("shapeMatchGain(NaN, %d) = %v, want 0", iters, got)
+		}
 	}
 }
