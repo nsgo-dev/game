@@ -91,6 +91,8 @@ pass.End()
 
 Its shader (`ShaderWGSL`) is render3d's metallic-roughness lighting with a base color texture, alpha cutouts, double-sided surfaces lit from the side the viewer sees, and blending. Moving, hiding or showing a node changes what is drawn from the next `Prepare`; to change what an object looks like, edit the scene or material file and build again. A game that needs its own shader, such as one with fog, reads the parts and uploads them itself, as the Lantern 3D example does.
 
+`SetShading` switches how `Draw` shades the parts: `ShadingLit`, the default, or `ShadingUnlit`, which draws each surface at its textured base color plus its emissive color and ignores the lights, as an editor's unlit view does; its pipelines are created on the first switch to it. The editor's 3D viewport draws a scene's build with a `Renderer` ([Editor](editor.md#3d-viewport-890)).
+
 ## Checking and moving
 
 - `game check` reports a model that is missing or does not load, and a `modelNode` or `modelMesh` the model does not have, at the scene file and line that names it, including what an override of an instanced or inherited scene changes, at the override; a model's load error, or a buffer or image a `.gltf` file names that is missing, is reported against the model file ([CLI](cli.md)).

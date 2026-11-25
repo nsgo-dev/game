@@ -121,6 +121,13 @@ func (e *Editor) ApplicationMenu() []desktop.MenuItem {
 		cmdItem(CmdGizmoScale, "Scale", true),
 	}
 
+	// View > 3D Shading submenu
+	shadingItems := []desktop.MenuItem{
+		cmdItem(CmdShadingLit, "Lit", true),
+		cmdItem(CmdShadingUnlit, "Unlit", true),
+		cmdItem(CmdShadingWire, "Wireframe", true),
+	}
+
 	// View menu
 	viewMenu := desktop.MenuItem{
 		Label: "View",
@@ -133,6 +140,7 @@ func (e *Editor) ApplicationMenu() []desktop.MenuItem {
 			sep,
 			{Label: "Tools", Items: toolItems},
 			{Label: "3D Gizmo", Items: gizmoItems},
+			{Label: "3D Shading", Items: shadingItems},
 		},
 	}
 
@@ -181,7 +189,7 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 	sig := core.NewMemo(cx, func() string {
 		_ = rev.Get()
 		var b strings.Builder
-		fmt.Fprintf(&b, "%v|%v|%v|%v|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v",
+		fmt.Fprintf(&b, "%v|%v|%v|%v|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v",
 			e.Playing(),
 			e.History.CanUndo(),
 			e.History.CanRedo(),
@@ -189,6 +197,7 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 			e.ViewMode,
 			e.Tool,
 			e.GizmoMode,
+			e.Shading3D,
 			e.pluginTool.plugin,
 			e.pluginTool.id,
 			e.Project != nil,

@@ -562,6 +562,18 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 
 在 Go 中，`BeginDrag2D(x, y)` 在画布上的一点开始拖动并返回它取得的手柄（`GizmoHandle2D`），`UpdateDrag2D(x, y, keepAspect)` 跟随指针，`EndDrag2D` 或 `CancelDrag2D` 结束拖动；`PickGizmo2D` 给出画布上某点下的手柄，`Dragging2D` 给出正在拖动的手柄，`Gizmo2DShown` 表示是否绘制控件。
 
+## 3D 视口（#890）
+
+在 3D 模式下，视口按游戏绘制的样子显示场景：一个 `gpu.View` 填满面板，用 render3d 绘制场景的 3D 构建结果，叠在它上面的画布绘制地面网格、原点坐标轴、选中轮廓和变换控件。构建结果来自 `scenemodel.Build`（`Scene3D`）：每个对象的内置图元（`mesh`）或 glTF 模型（`model`、`modelNode`、`modelMesh`）及其材质和纹理，包括实例化场景加入的对象。编辑器的 `Resolver` 实现了 `scenemodel.ModelResolver`、`sceneformat.MaterialResolver` 或 `scenemodel.ImageResolver` 时，模型、材质文件和图片通过它加载，否则从打开的项目的文件中加载。场景无法构建时（例如它引用的模型加载失败），视口角落会有一行文字说明原因（`Viewport3DError`），每个对象仍然显示包围盒。
+
+- **光照与天空**：场景文件不包含光源，所以视口用 `DefaultLights3D`（一道偏冷的环境光和一道偏暖的主光）照亮几何体，背后是渐变天空。基于本包构建、知道自己游戏所用光源的编辑器可以设置 `Editor.Lights3D`，此时几何体由这些光源照亮，背景为场景的 `backgroundColor`。
+- **着色**：工具栏的 3D Shading 组、`View > 3D Shading` 以及命令 `view.shading.lit`、`view.shading.unlit`、`view.shading.wireframe` 切换 `Shading3D`（`SetShading3D`）：Lit（受光）、Unlit（每个表面带纹理的基础色加自发光色，不受光照）和 Wireframe（受光，并在上面画出三角形的边）。着色是视图设置，不可撤销，也不会保存。
+- **拾取**：按下会选中其下方的几何体。绘制网格或模型的对象按其三角形命中，经由构建结果上的 `scene3d` 拾取，所以在球体旁边、但在其包围盒以内按下会穿过它；没有几何体的对象按其包围盒命中，包围盒大小取自精灵帧。按在实例化场景加入的几何体上会选中该实例。隐藏和锁定的对象照旧被跳过。
+- **实时编辑**：只有场景的外观变化时（对象的外观、它在树中的位置、实例化的场景或覆盖项，或者项目文件）才会重新构建。变换控件拖动、撤销移动、打开的动画片段在播放头处的姿态，以及运行中游戏的改动，都直接移动已构建的节点，所以拖动时不会重新构建或上传任何网格。对象有几何体时，`ObjectCorners3D` 和 `ObjectAABB3D` 给出的包围盒是其几何体的边界，聚焦选中对象（`f`）也按这个边界取景，所以一米大小的模型会充满视图。
+- **没有 GPU 时**：在不支持 GPU 视图的目标平台上、GPU 视图的第一帧之前以及设备丢失之后，画布改为绘制完整的线框视图：场景背景、网格、每个对象的包围盒（有几何体时为其边界）和变换控件。`Viewport3DOnGPU` 表明当前显示的是哪一种。
+
+`OrbitCamera3D.SceneCamera` 把编辑器的环绕相机转换为 GPU 视图绘制所用的 `scene3d.Camera`，其视点、视场角和裁剪面与画布投影所用的相同，所以叠加层与几何体对齐。
+
 ## 瓦片调色板（#874）
 
 在 2D 视图中启用 Paint、Erase、Fill 或 Pick 工具时，视口右侧会显示瓦片调色板。它把当前图层瓦片集的瓦片按瓦片 ID 顺序排成网格，每个瓦片按瓦片地图的瓦片尺寸显示（比面板还宽的瓦片会缩小到面板宽度）。这些瓦片是瓦片集图集中名称为瓦片 ID（`"1"`、`"2"`……）的帧，与场景格式查找瓦片的方式一致；其他帧不会列出。点击一个瓦片，或用方向键在瓦片之间移动，即可把它设为 Paint 和 Fill 写入的瓦片（`SetActiveTileID`）；所有方向键都按 ID 顺序逐个移动，左键和上键移到上一个瓦片，右键和下键移到下一个，而不是按网格的行移动。选中的瓦片带有一圈高亮，使用 Paint 或 Fill 时状态栏显示它的 ID。选择瓦片不算编辑，不进入撤销历史；之后的绘制是一个可撤销的步骤。
@@ -589,7 +601,7 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 - **重命名**：F2、双击或上下文菜单中的“Rename”会在所选对象的行内编辑其名称；按回车或离开输入框即保留修改，按 Escape 则放弃。“Change ID”通过 `SetObjectID(oldID, newID)` 编辑其 ID：在同一步中改写场景中引用该对象的连接，以及它实例化的场景中的对象（`enemy_1/body` 变为 `boss/body`），还有打开的动画片段的目标及其各轨道的目标，并拒绝场景已在使用的 ID，包括实例化或继承的场景带来的 ID。实例化或继承本场景、并按旧 ID 覆盖该对象的其他场景文件不会被改写；这类引用请用 `game mv` 移动或手动修改。
 - **眼睛与锁**：行上的眼睛按钮在两个视口中隐藏该对象及其后代，锁按钮使两个视口中的按下操作不再拾取它，按下会落到它下面的对象上（`SetObjectHidden`、`SetObjectLocked`）。两个视口都不会移动隐藏或锁定的对象：不显示它的 3D 操纵器，移动工具也不会移动它。二者都属于编辑会话：它们不是编辑，撤销不会影响它们，也从不写入场景文件；运行（Play）时绘制所有对象，打开另一个场景时会清除它们。隐藏或锁定的对象仍可在场景树中选中，并在检查器中编辑。
 
-3D 视口会绘制并拾取所有对象，包括嵌套的子对象：`Objects3D` 按深度优先列出它们，并给出各自父对象的 ID；子对象的包围盒由其祖先的变换确定位置。
+3D 视口会绘制并拾取所有对象，包括嵌套的子对象：`Objects3D` 按深度优先列出它们，并给出各自父对象的 ID；子对象的几何体和包围盒由其祖先的变换确定位置（[3D 视口](#3d-视口890)）。
 
 ## 场景文件与未保存的修改（#866）
 
@@ -762,7 +774,7 @@ func main() {
 - **跨平台快捷键与文本焦点保护**：快捷键使用 NSGo 的 `"mod"` 修饰键（macOS 为 Command，Windows/Linux 为 Ctrl，可通过 `FormatShortcut` 格式化显示），并全部使用 `core.KeyNotEditing` 和 `core.MenuNotEditing` 绑定，因此当任意文本输入框拥有焦点时（例如检查器的 Name 输入框或搜索框），输入字符或按下 Delete/Backspace/Undo/Save 绝不会误触编辑器快捷键：
   - 文件与编辑：`mod+s`（保存）、`mod+z`（撤销）、`mod+shift+z`（重做）、`mod+d`（复制选中对象）、`delete` / `backspace`（删除选中对象）。
   - 2D 工具：`v`（选择）、`m`（移动）、`p`（放置）、`b`（绘制瓦片）、`e`（擦除瓦片）、`g`（填充瓦片）。
-  - 3D 变换控件与视图：`w`（平移）、`r`（旋转）、`s`（缩放）、`alt+2`（2D 视图）、`alt+3`（3D 视图）、`f`（聚焦选中对象：2D 下通过 `FrameSelection2D` 调整独立编辑器视图 `View2D` 而不改动保存的 `Doc.Camera`，3D 下调整 `Camera3D`）、`mod+k`（命令面板）。
+  - 3D 变换控件与视图：`w`（平移）、`r`（旋转）、`s`（缩放）、`alt+2`（2D 视图）、`alt+3`（3D 视图）、`View > 3D Shading` 下的 Lit、Unlit、Wireframe 三个 3D 着色命令（无快捷键）、`f`（聚焦选中对象：2D 下通过 `FrameSelection2D` 调整独立编辑器视图 `View2D` 而不改动保存的 `Doc.Camera`，3D 下调整 `Camera3D`）、`mod+k`（命令面板）。
   - 项目：`f5`（播放 / 停止）、`mod+r`（运行游戏：优先调用 `Editor.OnRunGame`，未配置且已挂载作用域时回退到编辑器内运行）、`mod+,`（项目设置）、`mod+shift+e`（导出与发布）、`mod+shift+b`（检查问题）。
 - **桌面菜单栏**：`EditorView` 通过 `desktop.SetApplicationMenu`（`Editor.ApplicationMenu`）注册原生应用菜单栏（`File`、`Edit`、`View`、`Project`），以实时可用/勾选状态和对应平台的快捷键提示暴露同一套命令；已启用插件的工具列在 `View > Tools` 下，已启用插件的命令列在 `Project > Plugins` 下。
 - **命令面板（`ui.CommandDialog`）**：按 `mod+k`（或点击工具栏 **Commands** 按钮 / `View > Command Palette...`）即可打开 `CommandPaletteView`，支持按子串排序与模糊匹配搜索全部内置与自定义命令、已启用插件命令、已启用插件工具（通过 `SetPluginTool` 激活）、已启用插件面板（通过 `FocusPluginPanel` 聚焦）以及当前项目的场景和文件（通过 `OpenProjectFile` 打开场景或选中文件）。

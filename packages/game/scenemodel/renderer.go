@@ -16,7 +16,49 @@ import (
 const BaseColorGroup = render3d.PBRDrawGroup + 1
 
 // ShaderWGSL is the shader module Renderer draws with: render3d.LitPBRWGSL's lighting (render3d.LightWGSL's shade_pbr over the scene's render3d.LightRig) with a base color texture. Per draw it reads a render3d.PBRDrawUniform at render3d.PBRDrawGroup: the model and normal matrices, the linear base color factor, metallic in pbr_params.x, roughness in pbr_params.y, the alpha cutoff of a cutout surface in pbr_params.z (0 for none), 1 in pbr_params.w for a double-sided surface, whose back faces it lights with the normal flipped, the emissive color in emissive.rgb, and 1 in emissive.w for a blended surface, whose alpha it writes (1 otherwise). The texture at BaseColorGroup is sampled at the mesh's UVs and multiplies the base color factor.
-const ShaderWGSL = render3d.CameraWGSL + render3d.LightWGSL + `
+const ShaderWGSL = shaderPreludeWGSL + `
+@fragment
+fn fs_main(in: VertexOut, @builtin(front_facing) front_facing: bool) -> @location(0) vec4<f32> {
+	// Sample in uniform control flow, before the cutout's discard.
+	let texel = textureSample(base_tex, base_samp, in.uv);
+	let base = pbr_draw.base_color * texel;
+	if (pbr_draw.pbr_params.z > 0.0 && base.a < pbr_draw.pbr_params.z) {
+		discard;
+	}
+	var n = normalize(in.world_normal);
+	if (pbr_draw.pbr_params.w > 0.5 && !front_facing) {
+		n = -n;
+	}
+	let view_dir = normalize(camera.eye.xyz - in.world_pos * camera.eye.w);
+	let lit = shade_pbr(in.world_pos, n, view_dir, base.rgb, pbr_draw.pbr_params.x, pbr_draw.pbr_params.y) + pbr_draw.emissive.rgb;
+	var alpha = 1.0;
+	if (pbr_draw.emissive.w > 0.5) {
+		alpha = base.a;
+	}
+	return vec4<f32>(linear_to_srgb(lit), alpha);
+}
+`
+
+// unlitShaderWGSL is ShaderWGSL with a fragment stage that writes the textured base color plus the emissive color and ignores the lights, which ShadingUnlit draws with. It is a module of its own because NSGo's software renderer runs a module's first fragment entry point whatever the pipeline names.
+const unlitShaderWGSL = shaderPreludeWGSL + `
+@fragment
+fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
+	// Sample in uniform control flow, before the cutout's discard.
+	let texel = textureSample(base_tex, base_samp, in.uv);
+	let base = pbr_draw.base_color * texel;
+	if (pbr_draw.pbr_params.z > 0.0 && base.a < pbr_draw.pbr_params.z) {
+		discard;
+	}
+	var alpha = 1.0;
+	if (pbr_draw.emissive.w > 0.5) {
+		alpha = base.a;
+	}
+	return vec4<f32>(linear_to_srgb(base.rgb + pbr_draw.emissive.rgb), alpha);
+}
+`
+
+// shaderPreludeWGSL is what ShaderWGSL and unlitShaderWGSL share: the bindings, the vertex stage and render3d's camera and lights.
+const shaderPreludeWGSL = render3d.CameraWGSL + render3d.LightWGSL + `
 struct PBRDrawUniform {
 	model: mat4x4<f32>,
 	normal_matrix: mat4x4<f32>,
@@ -52,27 +94,6 @@ fn vs_main(in: VertexIn) -> VertexOut {
 	out.uv = in.uv;
 	return out;
 }
-
-@fragment
-fn fs_main(in: VertexOut, @builtin(front_facing) front_facing: bool) -> @location(0) vec4<f32> {
-	// Sample in uniform control flow, before the cutout's discard.
-	let texel = textureSample(base_tex, base_samp, in.uv);
-	let base = pbr_draw.base_color * texel;
-	if (pbr_draw.pbr_params.z > 0.0 && base.a < pbr_draw.pbr_params.z) {
-		discard;
-	}
-	var n = normalize(in.world_normal);
-	if (pbr_draw.pbr_params.w > 0.5 && !front_facing) {
-		n = -n;
-	}
-	let view_dir = normalize(camera.eye.xyz - in.world_pos * camera.eye.w);
-	let lit = shade_pbr(in.world_pos, n, view_dir, base.rgb, pbr_draw.pbr_params.x, pbr_draw.pbr_params.y) + pbr_draw.emissive.rgb;
-	var alpha = 1.0;
-	if (pbr_draw.emissive.w > 0.5) {
-		alpha = base.a;
-	}
-	return vec4<f32>(linear_to_srgb(lit), alpha);
-}
 `
 
 // RendererOptions configures NewRenderer.
@@ -87,6 +108,27 @@ type RendererOptions struct {
 	Retained bool
 }
 
+// Shading says how Renderer shades the parts it draws (Renderer.SetShading).
+type Shading uint8
+
+const (
+	// ShadingLit lights every part with the render3d.LightRig given to Prepare. It is a Renderer's shading until SetShading changes it.
+	ShadingLit Shading = iota
+	// ShadingUnlit draws every part at its textured base color plus its emissive color and ignores the lights, as an editor's unlit view shows a scene.
+	ShadingUnlit
+)
+
+// String returns "lit" or "unlit", or "Shading(n)" for any other value.
+func (s Shading) String() string {
+	switch s {
+	case ShadingLit:
+		return "lit"
+	case ShadingUnlit:
+		return "unlit"
+	}
+	return fmt.Sprintf("Shading(%d)", uint8(s))
+}
+
 // Renderer draws a Built scene's drawables on a gpu.Device: every part's mesh lit by a render3d.LightRig and textured with its base color, culled and ordered by a render3d.Queue (opaque surfaces front to back by pipeline, material and mesh, blended ones back to front). Each frame, call Prepare with the camera and lights before the render pass, then Draw inside it. Its GPU resources belong to the scope given to NewRenderer, or are released by Close. Use it from the engine goroutine, like the device.
 type Renderer struct {
 	built *Built
@@ -96,7 +138,13 @@ type Renderer struct {
 	lights     *render3d.GPULightBuffer
 	drawLayout *gpu.BindGroupLayout
 	texLayout  *gpu.BindGroupLayout
-	pipes      [4]*gpu.Pipeline
+	// pipes holds the pipeline of each DrawPipeline ID for each Shading, the unlit ones made on the first SetShading(ShadingUnlit).
+	pipes   [2][4]*gpu.Pipeline
+	shading Shading
+	// cx, label and opts are what the pipelines SetShading makes need.
+	cx    *core.Scope
+	label string
+	opts  RendererOptions
 
 	white    *render3d.GPUTexture
 	textures []*render3d.GPUTexture
@@ -120,7 +168,7 @@ func NewRenderer(cx *core.Scope, dev *gpu.Device, b *Built, opts RendererOptions
 	if b == nil {
 		return nil, errors.New("scenemodel: nil Built")
 	}
-	r := &Renderer{built: b, dev: dev}
+	r := &Renderer{built: b, dev: dev, cx: cx, opts: opts}
 	if err := r.setup(cx, opts); err != nil {
 		_ = r.Close()
 		return nil, err
@@ -135,6 +183,7 @@ func (r *Renderer) setup(cx *core.Scope, opts RendererOptions) error {
 	if label == "" {
 		label = "scenemodel"
 	}
+	r.label = label
 	var err error
 	if r.cam, err = render3d.NewCameraBuffer(cx, dev); err != nil {
 		return fmt.Errorf("scenemodel: camera buffer: %w", err)
@@ -168,7 +217,7 @@ func (r *Renderer) setup(cx *core.Scope, opts RendererOptions) error {
 			r.draws[di][pi] = buf
 		}
 	}
-	return r.createPipelines(cx, label, opts)
+	return r.createPipelines(ShadingLit)
 }
 
 // uploadMaterials uploads every texture the parts use, once each, and a texture bind group per material.
@@ -258,11 +307,16 @@ func (r *Renderer) uploadMeshes(cx *core.Scope, label string, retained bool) err
 	return nil
 }
 
-// createPipelines creates the pipeline of each DrawPipeline ID.
-func (r *Renderer) createPipelines(cx *core.Scope, label string, opts RendererOptions) error {
-	mod, err := gpu.CompileWGSL(ShaderWGSL)
+// createPipelines creates the pipeline of each DrawPipeline ID for shading s.
+func (r *Renderer) createPipelines(s Shading) error {
+	cx, label, opts := r.cx, r.label, r.opts
+	src, suffix := ShaderWGSL, ""
+	if s == ShadingUnlit {
+		src, suffix = unlitShaderWGSL, ".unlit"
+	}
+	mod, err := gpu.CompileWGSL(src)
 	if err != nil {
-		return fmt.Errorf("scenemodel: compile shader: %w", err)
+		return fmt.Errorf("scenemodel: compile %s shader: %w", s, err)
 	}
 	colorFormat := opts.ColorFormat
 	if colorFormat == gpu.FormatUndefined {
@@ -277,7 +331,7 @@ func (r *Renderer) createPipelines(cx *core.Scope, label string, opts RendererOp
 	layouts[render3d.LightGroup] = r.lights.Layout()
 	layouts[render3d.PBRDrawGroup] = r.drawLayout
 	layouts[BaseColorGroup] = r.texLayout
-	for id := range r.pipes {
+	for id := range r.pipes[s] {
 		doubleSided, blend := id&1 != 0, id&2 != 0
 		cull := gpu.CullBack
 		if doubleSided {
@@ -288,7 +342,7 @@ func (r *Renderer) createPipelines(cx *core.Scope, label string, opts RendererOp
 			target.Blend = gpu.BlendAlpha()
 		}
 		pipe, err := r.dev.CreatePipeline(cx, gpu.PipelineDesc{
-			Label:         fmt.Sprintf("%s.pipeline.%d", label, id),
+			Label:         fmt.Sprintf("%s.pipeline.%d%s", label, id, suffix),
 			Layouts:       layouts,
 			Vertex:        gpu.ShaderStage{Module: mod, EntryPoint: "vs_main"},
 			Fragment:      gpu.ShaderStage{Module: mod, EntryPoint: "fs_main"},
@@ -298,11 +352,42 @@ func (r *Renderer) createPipelines(cx *core.Scope, label string, opts RendererOp
 			Targets:       []gpu.ColorTargetState{target},
 		})
 		if err != nil {
-			return fmt.Errorf("scenemodel: pipeline %d: %w", id, err)
+			return fmt.Errorf("scenemodel: %s pipeline %d: %w", s, id, err)
 		}
-		r.pipes[id] = pipe
+		r.pipes[s][id] = pipe
 	}
 	return nil
+}
+
+// SetShading makes Draw shade the parts with s from the next frame on. The first change to ShadingUnlit creates its pipelines, under the scope given to NewRenderer, and returns an error when they cannot be created, leaving the shading as it was; so does an unknown Shading or a closed renderer.
+func (r *Renderer) SetShading(s Shading) error {
+	if r == nil || r.cam == nil {
+		return errors.New("scenemodel: SetShading on a closed renderer")
+	}
+	if s != ShadingLit && s != ShadingUnlit {
+		return fmt.Errorf("scenemodel: unknown shading %d", uint8(s))
+	}
+	if r.pipes[s][0] == nil {
+		if err := r.createPipelines(s); err != nil {
+			for id, p := range r.pipes[s] {
+				if p != nil {
+					_ = p.Close()
+					r.pipes[s][id] = nil
+				}
+			}
+			return err
+		}
+	}
+	r.shading = s
+	return nil
+}
+
+// Shading returns how Draw shades the parts (SetShading).
+func (r *Renderer) Shading() Shading {
+	if r == nil {
+		return ShadingLit
+	}
+	return r.shading
 }
 
 // drawUniform returns the per-draw uniform of part p of drawable d at its node's current world transform.
@@ -362,7 +447,7 @@ func (r *Renderer) Draw(pass *gpu.RenderPass) {
 		di, pi := int(rd.ID>>32), int(uint32(rd.ID))
 		if int(rd.PipelineID) != current {
 			current = int(rd.PipelineID)
-			pass.SetPipeline(r.pipes[current])
+			pass.SetPipeline(r.pipes[r.shading][current])
 		}
 		pass.SetBindGroup(render3d.PBRDrawGroup, r.draws[di][pi].BindGroup())
 		pass.SetBindGroup(BaseColorGroup, r.materials[rd.MaterialID])
@@ -403,9 +488,11 @@ func (r *Renderer) Close() error {
 	for _, s := range r.samplers {
 		err = errors.Join(err, s.Close())
 	}
-	for _, p := range r.pipes {
-		if p != nil {
-			err = errors.Join(err, p.Close())
+	for _, set := range r.pipes {
+		for _, p := range set {
+			if p != nil {
+				err = errors.Join(err, p.Close())
+			}
 		}
 	}
 	for _, l := range []*gpu.BindGroupLayout{r.drawLayout, r.texLayout} {

@@ -764,6 +764,47 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 		}
 	})
 
+	canvas := core.Canvas{
+		TestID: "editor-viewport",
+		Label:  "Scene Viewport",
+		Style: core.Style{
+			FlexGrow: 1,
+		},
+		OnLayout: func(b core.Bounds) {
+			ed.SetCanvasSize(float32(b.Size.Width), float32(b.Size.Height))
+		},
+		OnPress: func(ev core.PressEvent) {
+			if g.suppressPress {
+				g.suppressPress = false
+				return
+			}
+			// A press with Space held ends a Space-drag that did not move, which navigates rather than edits.
+			if ed.ViewMode == ViewMode2D && spaceHeld() {
+				return
+			}
+			if ed.ViewMode == ViewMode2D && !ev.Keyboard {
+				// The mouse button or finger that completes the press drew a stroke already, which edits the cell, or is still drawing one.
+				if _, ok := ed.TileStrokeActive(); ok || strokeTookPress {
+					strokeTookPress = false
+					return
+				}
+			}
+			x, y := float32(ev.Position.X), float32(ev.Position.Y)
+			// A press no pointer drew a stroke for, such as an accessibility action, makes the stroke of one cell unless picking a connection target.
+			if !ed.PickingConnectionTarget() {
+				if mode, ok := ed.toolStrokeMode(false, ev.Modifiers.Alt); ok && ed.ViewMode == ViewMode2D && ed.BeginTileStroke(mode, x, y) {
+					ed.EndTileStroke()
+					return
+				}
+			}
+			ed.HandleCanvasPress(x, y)
+		},
+		Draw: func(d *core.Drawing, size core.Size) {
+			_ = rev.Get()
+			ed.DrawViewport(d, size)
+		},
+	}
+
 	return core.View{
 		TestID: "editor-viewport-container",
 		Style: core.Style{
@@ -956,48 +997,57 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 					}
 				},
 				Children: []core.Node{
-					core.Canvas{
-						TestID: "editor-viewport",
-						Label:  "Scene Viewport",
-						Style: core.Style{
-							FlexGrow: 1,
-						},
-						OnLayout: func(b core.Bounds) {
-							ed.SetCanvasSize(float32(b.Size.Width), float32(b.Size.Height))
-						},
-						OnPress: func(ev core.PressEvent) {
-							if g.suppressPress {
-								g.suppressPress = false
-								return
-							}
-							// A press with Space held ends a Space-drag that did not move, which navigates rather than edits.
-							if ed.ViewMode == ViewMode2D && spaceHeld() {
-								return
-							}
-							if ed.ViewMode == ViewMode2D && !ev.Keyboard {
-								// The mouse button or finger that completes the press drew a stroke already, which edits the cell, or is still drawing one.
-								if _, ok := ed.TileStrokeActive(); ok || strokeTookPress {
-									strokeTookPress = false
-									return
-								}
-							}
-							x, y := float32(ev.Position.X), float32(ev.Position.Y)
-							// A press no pointer drew a stroke for, such as an accessibility action, makes the stroke of one cell unless picking a connection target.
-							if !ed.PickingConnectionTarget() {
-								if mode, ok := ed.toolStrokeMode(false, ev.Modifiers.Alt); ok && ed.ViewMode == ViewMode2D && ed.BeginTileStroke(mode, x, y) {
-									ed.EndTileStroke()
-									return
-								}
-							}
-							ed.HandleCanvasPress(x, y)
-						},
-						Draw: func(d *core.Drawing, size core.Size) {
+					core.Show{
+						When: func() bool {
 							_ = rev.Get()
-							ed.DrawViewport(d, size)
+							return ed.ViewMode == ViewMode3D
 						},
+						// In 3D the canvas draws its overlays over the GPU view that draws the scene's geometry, or the whole wireframe view where the target has no GPU.
+						Then: func(cx *core.Scope) core.Node {
+							return viewport3DView(cx, ed, core.View{
+								Style: core.Style{FlexGrow: 1},
+								Children: []core.Node{
+									canvas,
+									viewport3DErrorView(cx, ed, rev),
+								},
+							})
+						},
+						Else: func(cx *core.Scope) core.Node { return canvas },
 					},
 				},
 			},
+		},
+	}
+}
+
+// viewport3DErrorView shows, in a corner of the 3D viewport, why it cannot show the scene's geometry (Viewport3DError), and nothing when it can.
+func viewport3DErrorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+	colors := ui.ColorsOf(cx)
+	message := func() string {
+		_ = rev.Get()
+		if err := ed.Viewport3DError(); err != nil {
+			return err.Error()
+		}
+		return ""
+	}
+	return core.Show{
+		When: func() bool { return message() != "" },
+		Then: func(cx *core.Scope) core.Node {
+			return core.Text{
+				TestID:      "editor-viewport-3d-error",
+				ContentFunc: message,
+				Style: core.Style{
+					Position:     core.Absolute,
+					Left:         core.Pt(8),
+					Top:          core.Pt(8),
+					Right:        core.Pt(8),
+					Padding:      core.Symmetric(4, 8),
+					CornerRadius: 4,
+					FontSize:     12,
+					Color:        colors.Danger(),
+					Background:   colors.Raised(),
+				},
+			}
 		},
 	}
 }
