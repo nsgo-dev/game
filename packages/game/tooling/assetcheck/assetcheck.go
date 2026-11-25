@@ -102,6 +102,7 @@ func CheckWith(fsys fs.FS, opts Options) (*Report, error) {
 		clips:       make(map[string]bool),
 		statesDocs:  make(map[string]*animclip.StateMachineDoc),
 		particles:   make(map[string]*particles.Config),
+		hdrs:        make(map[string]bool),
 		meshLibs:    make(map[string]*meshLibInfo),
 		models:      make(map[string]*gltf.Document),
 		tilesetDocs: make(map[string]*tilemap.TilesetDoc),
@@ -235,6 +236,8 @@ type checker struct {
 	statesDocs map[string]*animclip.StateMachineDoc
 	// particles caches each particle emitter file checked, nil for one that did not parse.
 	particles map[string]*particles.Config
+	// hdrs marks the Radiance HDR sky files already checked.
+	hdrs map[string]bool
 	// meshLibs caches parsed glTF 2.0 mesh libraries referenced by *.gridmap.yaml files.
 	meshLibs map[string]*meshLibInfo
 	// models holds each glTF model loaded so far, nil for one that does not load.

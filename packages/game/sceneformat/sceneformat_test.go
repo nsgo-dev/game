@@ -394,7 +394,7 @@ func TestValidationErrors(t *testing.T) {
 		{name: "wrong_type", yaml: "version: 1\nlayers:\n  - name: a\n    order: high\n", wantSub: "cannot use", line: 4},
 		{name: "trailing_doc", yaml: "version: 1\n---\nversion: 1\n", wantSub: "trailing", line: 2},
 		{name: "missing_version", yaml: "name: No Version\n", wantSub: "unsupported version", line: 1},
-		{name: "future_version", yaml: "version: 4\n", wantSub: "unsupported version", line: 1},
+		{name: "future_version", yaml: "version: 5\n", wantSub: "unsupported version", line: 1},
 		{name: "half_virtual_size", yaml: "version: 1\nvirtualWidth: 320\n", wantSub: "virtualWidth", line: 2},
 		{name: "negative_virtual_size", yaml: "version: 1\nvirtualWidth: -10\nvirtualHeight: 10\n", wantSub: "non-negative", line: 2},
 		{name: "bad_background_color", yaml: "version: 1\nbackgroundColor: not-a-color\n", wantSub: "backgroundColor", line: 2},
@@ -546,7 +546,7 @@ func TestValidateNamesTheField(t *testing.T) {
 		yaml string
 		want []string
 	}{
-		{"version", "version: 4\n", []string{"version"}},
+		{"version", "version: 5\n", []string{"version"}},
 		{"virtual_size", "version: 1\nvirtualWidth: 320\n", []string{"virtualWidth"}},
 		{"background", "version: 1\nbackgroundColor: nope\n", []string{"backgroundColor"}},
 		{"zoom", "version: 1\ncamera:\n  zoom: -1\n", []string{"camera", "zoom"}},

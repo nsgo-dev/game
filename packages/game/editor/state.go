@@ -560,6 +560,10 @@ type Editor struct {
 	catalog            *l10n.Catalog
 	// hud holds the HUD and menu multi-size layout screen state, active *.screen.yaml document, locale tables, overlays, and touch drag session.
 	hud hudLayoutState
+	// lookThroughCamera3D makes the 3D viewport render and project through the scene's active 3D camera (LookThroughCamera3D) instead of Camera3D.
+	lookThroughCamera3D bool
+	// envPanelOpen controls whether the Scene Environment panel is shown.
+	envPanelOpen bool
 }
 
 // DefaultSceneDoc returns a valid starter SceneDoc suitable for a new editor session.
@@ -1029,6 +1033,7 @@ func (e *Editor) openYAMLWithLayers(data []byte, file string, layers *sceneforma
 	e.connPick = nil
 	// Another scene opens at its own camera's view.
 	e.view2DFree = false
+	e.lookThroughCamera3D = false
 	e.hidden, e.locked, e.layerLocked = nil, nil, nil
 	// The loaded scene did not come from the current path, so a later Save must
 	// not overwrite the previously opened file with unrelated content.
@@ -1898,7 +1903,7 @@ func (c *placeObjectCmd) Do() {
 		return
 	}
 	c.wasNilSlice = c.ed.Doc.Layers[li].Objects == nil
-	if c.ed.Doc.Version < sceneformat.CurrentVersion && (instancesScene(&c.obj) || drawsModel(&c.obj) || hasOccluder(&c.obj) || hasParticles(&c.obj)) {
+	if c.ed.Doc.Version < sceneformat.CurrentVersion && (instancesScene(&c.obj) || drawsModel(&c.obj) || hasOccluder(&c.obj) || hasParticles(&c.obj) || usesScene3DFeatures(&c.obj)) {
 		c.ed.Doc.Version = sceneformat.CurrentVersion
 	}
 	c.ed.Doc.Layers[li].Objects = append(c.ed.Doc.Layers[li].Objects, cloneObjectDoc(c.obj))
@@ -1924,6 +1929,16 @@ func (c *placeObjectCmd) Undo() {
 	c.ed.Doc.Layers[li].Objects = objs
 	c.ed.Doc.Version = c.prevVersion
 	c.ed.SelectedID = c.prevSelected
+}
+
+// usesScene3DFeatures reports whether o or any of its descendants carries a 3D light or 3D camera, which needs a version 4 scene.
+func usesScene3DFeatures(o *sceneformat.ObjectDoc) bool {
+	found := false
+	sceneformat.WalkObjects([]sceneformat.ObjectDoc{*o}, func(c, _ *sceneformat.ObjectDoc) bool {
+		found = c.Light != nil || c.Camera != nil
+		return !found
+	})
+	return found
 }
 
 // drawsModel reports whether o or any of its descendants names a glTF model or GridMap, which needs a version 2 scene.
@@ -2375,7 +2390,13 @@ func validateObjectForEditor(o *sceneformat.ObjectDoc) error {
 	if len(o.Overrides) > 0 && o.Scene == "" {
 		return errors.New("editor: object overrides require a scene")
 	}
-	return sceneformat.CheckObjectModel(o)
+	if err := sceneformat.CheckObjectModel(o); err != nil {
+		return err
+	}
+	if err := sceneformat.CheckObjectLight(o); err != nil {
+		return err
+	}
+	return sceneformat.CheckObjectCamera3D(o)
 }
 
 func cloneObjectDoc(o sceneformat.ObjectDoc) sceneformat.ObjectDoc {

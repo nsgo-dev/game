@@ -428,6 +428,34 @@ func viewport3DOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []c
 					Style: core.Style{FontSize: 12, Color: colors.Text(), Padding: core.Symmetric(0, 6)},
 				},
 				ui.Button{TestID: "view3d-focus", Icon: lucide.Focus, Text: "Focus", Label: "Frame the selection (" + cx.KeyLabel("f") + ")", Size: ui.SizeSmall, Variant: ui.ButtonGhost, OnPress: func() { ed.FrameSelection() }},
+				ui.ToggleButton{
+					TestID: "view3d-camera",
+					Text:   "Camera",
+					Label:  "Look through scene camera (" + cx.KeyLabel("0") + ")",
+					Disabled: func() bool {
+						_ = rev.Get()
+						return !ed.LookThroughCamera3D() && !ed.HasSceneCamera3D()
+					},
+					On: func() bool {
+						_ = rev.Get()
+						return ed.LookThroughCamera3D()
+					},
+					OnChange: func(on bool) {
+						ed.report(ed.SetLookThroughCamera3D(on))
+					},
+				},
+				ui.ToggleButton{
+					TestID: "view3d-env",
+					Text:   "Env",
+					Label:  "Toggle Scene Environment settings",
+					On: func() bool {
+						_ = rev.Get()
+						return ed.EnvironmentPanelOpen()
+					},
+					OnChange: func(on bool) {
+						ed.SetEnvironmentPanelOpen(on)
+					},
+				},
 				iconBtn("view3d-reset", lucide.RefreshCcw, "Reset view", ed.ResetView3D),
 			},
 		},

@@ -145,6 +145,7 @@ func (e *Editor) SetView3D(v View3D) {
 		return
 	}
 	e.endCameraGestures3D()
+	e.lookThroughCamera3D = false
 	e.Camera3D.SetView(v)
 	e.Status = "View: " + e.ViewName3D()
 	e.notify()
@@ -159,10 +160,11 @@ func (e *Editor) SetOrthographic3D(on bool) {
 		// A flight already looks in perspective; asking for it keeps it after the flight ends.
 		e.fly3DOrtho = false
 	}
-	if e.Camera3D.Orthographic == on {
+	if e.Camera3D.Orthographic == on && !e.lookThroughCamera3D {
 		return
 	}
 	e.endCameraGestures3D()
+	e.lookThroughCamera3D = false
 	e.Camera3D.Orthographic = on
 	e.Status = "View: " + e.ViewName3D()
 	e.notify()
@@ -178,6 +180,7 @@ func (e *Editor) OrbitView3D(dyaw, dpitch float32) {
 	if e == nil || !isFiniteFloat32(dyaw) || !isFiniteFloat32(dpitch) || (dyaw == 0 && dpitch == 0) {
 		return
 	}
+	e.lookThroughCamera3D = false
 	e.Camera3D.Orbit(dyaw, dpitch)
 	e.notify()
 }
@@ -188,6 +191,7 @@ func (e *Editor) ResetView3D() {
 		return
 	}
 	e.endCameraGestures3D()
+	e.lookThroughCamera3D = false
 	ortho := e.Camera3D.Orthographic
 	e.Camera3D = DefaultOrbitCamera3D()
 	e.Camera3D.Orthographic = ortho
@@ -200,6 +204,7 @@ func (e *Editor) PanView3D(dx, dy, h float32) {
 	if e == nil || !isFiniteFloat32(dx) || !isFiniteFloat32(dy) || (dx == 0 && dy == 0) {
 		return
 	}
+	e.lookThroughCamera3D = false
 	per := float32(e.Camera3D.worldPerPixel(h))
 	e.Camera3D.Pan(-dx*per, dy*per)
 	e.notify()
@@ -210,14 +215,18 @@ func (e *Editor) ZoomView3D(factor float32) {
 	if e == nil || factor == 1 {
 		return
 	}
+	e.lookThroughCamera3D = false
 	e.Camera3D.ZoomBy(factor)
 	e.notify()
 }
 
-// ViewName3D names the 3D viewport's view as its bar and the status bar show it: the axis view's name (Front, Top, ...) or Perspective, with " · ortho" in orthographic, where a view along no axis is "User · ortho".
+// ViewName3D names the 3D viewport's view as its bar and the status bar show it: the active scene camera when looking through it, the axis view's name (Front, Top, ...) or Perspective, with " · ortho" in orthographic, where a view along no axis is "User · ortho".
 func (e *Editor) ViewName3D() string {
 	if e == nil {
 		return ""
+	}
+	if name, ok := e.cameraViewName3D(); ok {
+		return name
 	}
 	v, axis := e.Camera3D.AxisView()
 	switch {
@@ -256,6 +265,7 @@ func (e *Editor) BeginFly3D() bool {
 	if e.fly3D {
 		return true
 	}
+	e.lookThroughCamera3D = false
 	e.fly3D = true
 	e.fly3DOrtho, e.fly3DMoved = e.Camera3D.Orthographic, false
 	e.Camera3D.Orthographic = false

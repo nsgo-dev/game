@@ -74,6 +74,8 @@ const (
 	CmdView3DTop          = "view.3d.top"
 	CmdView3DBottom       = "view.3d.bottom"
 	CmdView3DOrthographic = "view.3d.orthographic"
+	CmdView3DCamera       = "view.3d.camera"
+	CmdEnvironmentPanel   = "scene.environment"
 )
 
 var (
@@ -798,6 +800,32 @@ func (e *Editor) initBuiltinCommands() {
 			Checked:     func() bool { return e.SnapToGrid },
 			Run: func() error {
 				e.SetSnapToGrid(!e.SnapToGrid)
+				return nil
+			},
+		},
+		{
+			ID:          CmdView3DCamera,
+			Label:       "3D View: Scene Camera",
+			Description: "Look through the scene's active 3D camera",
+			Category:    "View",
+			Keywords:    []string{"camera", "scene", "look", "through", "3d", "preview"},
+			Shortcut:    "0",
+			Enabled:     func() bool { return e.ViewMode == ViewMode3D && (e.LookThroughCamera3D() || e.HasSceneCamera3D()) },
+			Checked:     func() bool { return e.LookThroughCamera3D() },
+			Run: func() error {
+				return e.SetLookThroughCamera3D(!e.LookThroughCamera3D())
+			},
+		},
+		{
+			ID:          CmdEnvironmentPanel,
+			Label:       "Scene Environment",
+			Description: "Toggle the Scene Environment settings panel (sky, ambient, fog, tonemapping)",
+			Category:    "View",
+			Keywords:    []string{"environment", "sky", "fog", "ibl", "tonemapping", "exposure", "lighting", "3d"},
+			Enabled:     func() bool { return e.Doc != nil },
+			Checked:     func() bool { return e.EnvironmentPanelOpen() },
+			Run: func() error {
+				e.SetEnvironmentPanelOpen(!e.EnvironmentPanelOpen())
 				return nil
 			},
 		},

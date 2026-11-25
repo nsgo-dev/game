@@ -21,10 +21,10 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-// CurrentVersion is the newest scene format schema version, the one new documents are written in. Version 2 adds scene instancing (ObjectDoc.Scene and ObjectDoc.Overrides), inheritance (SceneDoc.Inherits, SceneDoc.Overrides and SceneDoc.LayerOverrides) and glTF models (ObjectDoc.Model, ObjectDoc.ModelNode and ObjectDoc.ModelMesh). Version 3 adds parallax and repeating layers (LayerDoc.ParallaxX, LayerDoc.ParallaxY, LayerDoc.RepeatX, LayerDoc.RepeatY, LayerDoc.RepeatWidth and LayerDoc.RepeatHeight, and the matching fields on LayerOverride) and tilemap offsets (TilemapDoc.OffsetX and TilemapDoc.OffsetY).
-const CurrentVersion = 3
+// CurrentVersion is the newest scene format schema version, the one new documents are written in. Version 2 adds scene instancing (ObjectDoc.Scene and ObjectDoc.Overrides), inheritance (SceneDoc.Inherits, SceneDoc.Overrides and SceneDoc.LayerOverrides) and glTF models (ObjectDoc.Model, ObjectDoc.ModelNode and ObjectDoc.ModelMesh). Version 3 adds parallax and repeating layers (LayerDoc.ParallaxX, LayerDoc.ParallaxY, LayerDoc.RepeatX, LayerDoc.RepeatY, LayerDoc.RepeatWidth and LayerDoc.RepeatHeight, and the matching fields on LayerOverride) and tilemap offsets (TilemapDoc.OffsetX and TilemapDoc.OffsetY). Version 4 adds 3D lights (ObjectDoc.Light), 3D cameras (ObjectDoc.Camera) and scene environment settings (SceneDoc.Environment).
+const CurrentVersion = 4
 
-// MinVersion is the oldest scene format schema version this package still reads. A version 1 or version 2 document is read and written unchanged, and may not use any field added by a newer version.
+// MinVersion is the oldest scene format schema version this package still reads. A version 1, 2 or 3 document is read and written unchanged, and may not use any field added by a newer version.
 const MinVersion = 1
 
 // SchemaURL is where the JSON Schema of version 1 scene documents is published. Encode names it in a yaml-language-server comment on the first line of a version 1 document, so editors that run the YAML language server (such as VS Code's YAML extension) and AI tools validate and complete a scene file as it is written.
@@ -45,10 +45,18 @@ const SchemaURLV3 = "https://game.nsgo.dev/schemas/scene.v3.json"
 // SchemaCommentV3 is the first line Encode writes for a version 3 document, pointing a YAML language server at SchemaURLV3.
 const SchemaCommentV3 = "# yaml-language-server: $schema=" + SchemaURLV3
 
-// SchemaCommentFor returns the first line Encode writes for a document of the given version: SchemaComment for version 1, SchemaCommentV2 for version 2, and SchemaCommentV3 for version 3.
+// SchemaURLV4 is where the JSON Schema of version 4 scene documents is published, named by SchemaCommentV4 as SchemaURL is by SchemaComment.
+const SchemaURLV4 = "https://game.nsgo.dev/schemas/scene.v4.json"
+
+// SchemaCommentV4 is the first line Encode writes for a version 4 document, pointing a YAML language server at SchemaURLV4.
+const SchemaCommentV4 = "# yaml-language-server: $schema=" + SchemaURLV4
+
+// SchemaCommentFor returns the first line Encode writes for a document of the given version: SchemaComment for version 1, SchemaCommentV2 for version 2, SchemaCommentV3 for version 3, and SchemaCommentV4 for version 4.
 func SchemaCommentFor(version int) string {
 	switch {
-	case version >= 3:
+	case version >= 4:
+		return SchemaCommentV4
+	case version == 3:
 		return SchemaCommentV3
 	case version == 2:
 		return SchemaCommentV2
@@ -88,6 +96,8 @@ type SceneDoc struct {
 	AmbientColor string `yaml:"ambientColor,omitempty"`
 	// Camera holds the default camera transform for world-space layers. Nil leaves world space untransformed.
 	Camera *CameraDoc `yaml:"camera,omitempty"`
+	// Environment holds 3D sky, ambient/IBL lighting, fog, tone mapping and exposure settings. Version 4.
+	Environment *EnvironmentDoc `yaml:"environment,omitempty"`
 	// Tilemaps defines reusable named tilemaps referenced by layers via TilemapDoc.Ref.
 	Tilemaps map[string]*TilemapDoc `yaml:"tilemaps,omitempty"`
 	// LayerOverrides changes the inherited layers named by its keys; it requires Inherits. Version 2.
@@ -472,6 +482,10 @@ type ObjectDoc struct {
 	Material string `yaml:"material,omitempty"`
 	// Particles optionally binds the object to a 2D particle emitter YAML file (particles.Config) and optional sprite atlas, so Build constructs a live particles.Emitter that BuiltScene.Update steps and BuiltScene.Draw renders at the object's world transform. Version 2.
 	Particles *ParticlesRef `yaml:"particles,omitempty"`
+	// Light optionally attaches a directional, point or spot 3D light to this object, placed and aimed by its 3D transform (local -Z). Version 4.
+	Light *LightDoc `yaml:"light,omitempty"`
+	// Camera optionally attaches a perspective or orthographic 3D camera to this object, placed and oriented by its 3D transform (looking down local -Z). Version 4.
+	Camera *Camera3DDoc `yaml:"camera,omitempty"`
 	// Components holds structured component data keyed by component type name.
 	Components map[string]any `yaml:"components,omitempty"`
 	// Properties holds arbitrary custom metadata for gameplay scripts or editors. Encode writes a whole-number float with a decimal point (2.0), so that every value reads back with the kind it was written with.
@@ -542,6 +556,10 @@ type ObjectOverride struct {
 	Material *string `yaml:"material,omitempty"`
 	// Particles replaces the particle emitter file and optional atlas the object runs.
 	Particles *ParticlesRef `yaml:"particles,omitempty"`
+	// Light replaces the 3D light attached to the object. Version 4.
+	Light *LightDoc `yaml:"light,omitempty"`
+	// Camera replaces the 3D camera attached to the object. Version 4.
+	Camera *Camera3DDoc `yaml:"camera,omitempty"`
 	// Components replaces the object's components key by key, keeping the others.
 	Components map[string]any `yaml:"components,omitempty"`
 	// Properties replaces the object's custom properties key by key, keeping the others.
@@ -1034,6 +1052,9 @@ func Validate(doc *SceneDoc) error {
 			return err
 		}
 	}
+	if err := validateEnvironment(doc.Version, doc.Environment); err != nil {
+		return err
+	}
 	for _, name := range slices.Sorted(maps.Keys(doc.Tilemaps)) {
 		if name == "" {
 			return fieldErr([]string{"tilemaps"}, "sceneformat: tilemaps contains an empty key")
@@ -1045,6 +1066,7 @@ func Validate(doc *SceneDoc) error {
 
 	layerNames := make(map[string]struct{}, len(doc.Layers))
 	objectIDs := make(map[string]struct{})
+	currentCameraID := ""
 	for i := range doc.Layers {
 		l := &doc.Layers[i]
 		lp := []string{"layers", strconv.Itoa(i)}
@@ -1070,15 +1092,15 @@ func Validate(doc *SceneDoc) error {
 				return err
 			}
 		}
-		if err := validateObjects(doc.Version, at(lp, "objects"), l.Name, "", nil, l.Objects, 1, objectIDs); err != nil {
+		if err := validateObjects(doc.Version, at(lp, "objects"), l.Name, "", nil, l.Objects, 1, objectIDs, &currentCameraID); err != nil {
 			return err
 		}
 	}
 	return validateConnections(doc, objectIDs)
 }
 
-// validateObjects checks objs, found at path in the document (the top-level objects of layer when parent is empty, or the children of the object parent, whose world transform is parentWorld), at nesting depth and their descendants, recording every ID in ids.
-func validateObjects(version int, path []string, layer, parent string, parentWorld *math2d.Affine, objs []ObjectDoc, depth int, ids map[string]struct{}) error {
+// validateObjects checks objs, found at path in the document (the top-level objects of layer when parent is empty, or the children of the object parent, whose world transform is parentWorld), at nesting depth and their descendants, recording every ID in ids and tracking any camera marked current.
+func validateObjects(version int, path []string, layer, parent string, parentWorld *math2d.Affine, objs []ObjectDoc, depth int, ids map[string]struct{}, currentCameraID *string) error {
 	if len(objs) > 0 && depth > MaxObjectDepth {
 		return fieldErr(path, "sceneformat: layer %q object %q nests children deeper than %d levels", layer, parent, MaxObjectDepth)
 	}
@@ -1121,8 +1143,14 @@ func validateObjects(version int, path []string, layer, parent string, parentWor
 				return fieldErr(at(op, "occluder"), "sceneformat: %s: occluder needs version 2, not %d", where, version)
 			}
 		}
-		if err := validateObject(op, where, o); err != nil {
+		if err := validateObject(version, op, where, o); err != nil {
 			return err
+		}
+		if o.Camera != nil && o.Camera.Current {
+			if *currentCameraID != "" {
+				return fieldErr(at(op, "camera", "current"), "sceneformat: %s marks a second current 3D camera (%q is already current)", where, *currentCameraID)
+			}
+			*currentCameraID = o.ID
 		}
 		if err := checkModelRefs(op, where, o); err != nil {
 			return err
@@ -1134,7 +1162,7 @@ func validateObjects(version int, path []string, layer, parent string, parentWor
 		if !ok {
 			return fieldErr(op, "sceneformat: layer %q object %q: %w", layer, o.ID, errShearedSprite)
 		}
-		if err := validateObjects(version, at(op, "children"), layer, o.ID, &world, o.Children, depth+1, ids); err != nil {
+		if err := validateObjects(version, at(op, "children"), layer, o.ID, &world, o.Children, depth+1, ids, currentCameraID); err != nil {
 			return err
 		}
 	}
@@ -1356,7 +1384,7 @@ func validateLayeredTilemap(path []string, where string, tm *TilemapDoc) error {
 }
 
 // validateObject checks o's own field values, found at path in the document; where names it in errors, such as `layer "a" object "b"`.
-func validateObject(path []string, where string, o *ObjectDoc) error {
+func validateObject(version int, path []string, where string, o *ObjectDoc) error {
 	transform := []struct {
 		field string
 		v     float32
@@ -1401,6 +1429,12 @@ func validateObject(path []string, where string, o *ObjectDoc) error {
 		if !validFilePath(o.Particles.File) {
 			return fieldErr(at(path, "particles", "file"), "sceneformat: %s particles file %q must be a slash-separated path relative to the project root", where, o.Particles.File)
 		}
+	}
+	if err := validateLight(version, path, where, o.Light); err != nil {
+		return err
+	}
+	if err := validateCamera3D(version, path, where, o.Camera); err != nil {
+		return err
 	}
 	return validateModel(path, where, o)
 }

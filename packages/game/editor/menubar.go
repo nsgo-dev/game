@@ -153,6 +153,8 @@ func (e *Editor) ApplicationMenu() []desktop.MenuItem {
 			sep,
 			cmdItem(CmdView2D, e.T("menu.view2d"), true),
 			cmdItem(CmdView3D, e.T("menu.view3d"), true),
+			cmdItem(CmdView3DCamera, "Look Through Scene Camera", false),
+			cmdItem(CmdEnvironmentPanel, "Scene Environment", false),
 			cmdItem(CmdFrameSelection, e.T("menu.frameSelection"), false),
 			cmdItem(CmdToggleLightingPreview, e.T("menu.lightingPreview"), false),
 			sep,
@@ -216,7 +218,7 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 	sig := core.NewMemo(cx, func() string {
 		_ = rev.Get()
 		var b strings.Builder
-		fmt.Fprintf(&b, "%s|%v|%v|%v|%v|%v|%v|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v",
+		fmt.Fprintf(&b, "%s|%v|%v|%v|%v|%v|%v|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v",
 			e.ResolvedLanguage(),
 			e.EditorSettingsOpen(),
 			e.StartScreenOpen(),
@@ -245,6 +247,9 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 			e.SnapToGrid,
 			e.hasTileSel,
 			!e.tileClipboard.Empty(),
+			e.LookThroughCamera3D(),
+			e.HasSceneCamera3D(),
+			e.EnvironmentPanelOpen(),
 		)
 		for _, p := range e.activePlugins() {
 			b.WriteByte('|')

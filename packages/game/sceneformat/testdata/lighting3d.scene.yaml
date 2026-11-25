@@ -1,0 +1,82 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/scene.v4.json
+version: 4
+name: Sunlit Courtyard
+environment:
+  sky:
+    kind: gradient
+    zenith: '#3d6194'
+    horizon: '#a8b8c7'
+    ground: '#2b2b2e'
+  ambientColor: '#667799'
+  ambientIntensity: 0.3
+  iblIntensity: 0.25
+  fog:
+    mode: linear
+    color: '#8090a8'
+    start: 10
+    end: 60
+    maxOpacity: 0.85
+  tonemapping: aces
+  exposure: 1.1
+layers:
+  - name: world
+    objects:
+      - id: sun
+        name: Sun
+        rotX: -0.9
+        rotY: 0.5
+        light:
+          kind: directional
+          color: '#fff2d6'
+          intensity: 3
+          shadows: true
+      - id: lantern
+        name: Lantern
+        x: 2
+        "y": 1.5
+        posZ: 1
+        light:
+          kind: point
+          color: '#ffaa44'
+          intensity: 4
+          range: 8
+      - id: spotlight
+        name: Spotlight
+        x: -2
+        "y": 3
+        posZ: 2
+        rotX: -0.7
+        light:
+          kind: spot
+          color: '#cceeff'
+          intensity: 6
+          range: 12
+          innerCone: 15
+          outerCone: 32
+          shadows: true
+      - id: main_camera
+        name: Main Camera
+        x: 3
+        "y": 2.5
+        posZ: 5
+        rotX: -0.35
+        rotY: 0.5
+        camera:
+          projection: perspective
+          fov: 50
+          near: 0.1
+          far: 100
+          current: true
+      - id: map_camera
+        name: Map Camera
+        "y": 20
+        rotX: -1.57
+        camera:
+          projection: orthographic
+          orthoHeight: 24
+          near: 0.1
+          far: 100
+      - id: floor
+        scaleX: 8
+        scaleZ: 8
+        mesh: plane
