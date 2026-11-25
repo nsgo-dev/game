@@ -90,6 +90,9 @@ func TestDataFilesAgree(t *testing.T) {
 		{name: "monster drops", dungeonFile: strings.Replace(string(dungeonYAML), "drops: rat", "drops: rats", 1), want: `no loot table "rats"`},
 		{name: "loot item", lootFile: strings.Replace(string(lootYAML), "item: hide-vest", "item: hide-cloak", 1), want: `drops "hide-cloak"`},
 		{name: "ability", abilitiesFile: strings.Replace(string(abilitiesYAML), "id: cleave", "id: sweep", 1), want: "no cleave ability"},
+		{name: "condition", abilitiesFile: strings.Replace(string(abilitiesYAML), "conditions: [hurt]", "conditions: [wounded]", 1), want: `condition "wounded" is not one the game answers`},
+		{name: "negated condition", abilitiesFile: strings.Replace(string(abilitiesYAML), "conditions: [foes-adjacent]", "conditions: ['!cornered']", 1), want: `condition "cornered" is not one the game answers`},
+		{name: "resource", abilitiesFile: strings.Replace(string(abilitiesYAML), "resource: draughts", "resource: potions", 1), want: `resource "potions" is not one the game keeps`},
 		{name: "stat", statsFile: strings.Replace(string(statsYAML), "name: maxHealth", "name: health", 1), want: "no maxHealth stat"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

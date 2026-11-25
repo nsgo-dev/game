@@ -66,8 +66,11 @@ func press(app *nsgotest.App, down, up func()) {
 type keyboard struct{ app *nsgotest.App }
 
 func (k keyboard) perform(a action) {
-	key := map[actionKind]string{actWait: "space", actQuaff: "q", actCleave: "e"}[a.kind]
-	if a.kind == actMove {
+	key := map[string]string{abilityQuaff: "q", abilityCleave: "e"}[a.ability]
+	switch a.kind {
+	case actWait:
+		key = "space"
+	case actMove:
 		key = map[cell]string{{Y: -1}: "up", {Y: 1}: "down", {X: -1}: "left", {X: 1}: "right"}[a.dir]
 	}
 	press(k.app, func() { k.app.KeyDown(key) }, func() { k.app.KeyUp(key) })
@@ -85,7 +88,10 @@ func (c controller) perform(a action) {
 		press(c.app, func() { c.app.SetGamepadAxis(1, axis, v) }, func() { c.app.SetGamepadAxis(1, axis, 0) })
 		return
 	}
-	btn := map[actionKind]gamepad.Button{actWait: gamepad.ButtonSouth, actQuaff: gamepad.ButtonWest, actCleave: gamepad.ButtonNorth}[a.kind]
+	btn := map[string]gamepad.Button{abilityQuaff: gamepad.ButtonWest, abilityCleave: gamepad.ButtonNorth}[a.ability]
+	if a.kind == actWait {
+		btn = gamepad.ButtonSouth
+	}
 	press(c.app, func() { c.app.SetGamepadButton(1, btn, 1) }, func() { c.app.SetGamepadButton(1, btn, 0) })
 }
 
@@ -96,8 +102,11 @@ type touchscreen struct {
 }
 
 func (s touchscreen) perform(a action) {
-	name := map[actionKind]string{actWait: actionWait, actQuaff: actionQuaff, actCleave: actionCleave}[a.kind]
-	if a.kind == actMove {
+	name := map[string]string{abilityQuaff: actionQuaff, abilityCleave: actionCleave}[a.ability]
+	switch a.kind {
+	case actWait:
+		name = actionWait
+	case actMove:
 		name = map[cell]string{{Y: -1}: "up", {Y: 1}: "down", {X: -1}: "left", {X: 1}: "right"}[a.dir]
 	}
 	var finger *nsgotest.Finger
@@ -227,29 +236,35 @@ func TestRestartWaitsForTheEnd(t *testing.T) {
 	}
 }
 
-// TestQuittingResumesOnTheSameFloor plays to the second floor, starts the app again on the storage the first one wrote, and checks that the run comes back on that floor with the same cells, the same player and the same turn count.
-func TestQuittingResumesOnTheSameFloor(t *testing.T) {
+// TestQuittingResumesWhereTheRunStood plays to the second floor and some turns into it, starts the app again on the storage the first one wrote, and checks that the run comes back exactly as it stood, and then plays out exactly as the first one does: quitting neither undoes a turn nor changes the rolls to come.
+func TestQuittingResumesWhereTheRunStood(t *testing.T) {
 	app, g := startGame(t, []uint64{winSeed})
 	r := g.run
-	for r.floor.index == 0 && r.state == playing {
+	for (r.floor.index == 0 || r.turns < 40) && r.state == playing {
 		keyboard{app}.perform(nextAction(r, botClear))
 	}
-	arrived := r.save(1)
+	if r.floor.index != 1 || r.state != playing {
+		t.Fatalf("the bot is on floor %d with the run %v, want floor 2 in play", r.floor.index+1, r.state)
+	}
 	raw, ok := app.Storage().GetItem(runKey)
 	if !ok {
-		t.Fatal("arriving on the second floor did not save the run")
+		t.Fatal("playing did not save the run")
 	}
 
 	again, g2 := startGame(t, []uint64{99}, nsgotest.Storage(map[string]string{runKey: raw}))
 	r2 := g2.run
-	if r2.seed != winSeed || r2.floor.index != 1 || !r2.floor.grid.Equal(r.floor.grid) || r2.pos != r.floor.start {
-		t.Fatalf("resumed on floor %d with seed %d at %v, want floor 2 of seed %d at %v", r2.floor.index+1, r2.seed, r2.pos, winSeed, r.floor.start)
-	}
-	if got := r2.save(1); fmt.Sprint(got) != fmt.Sprint(arrived) {
-		t.Fatalf("resumed run = %+v, want %+v", got, arrived)
+	want, _ := json.Marshal(r.save())
+	if got, _ := json.Marshal(r2.save()); string(got) != string(want) {
+		t.Fatalf("resumed run = %s, want %s", got, want)
 	}
 	again.Find("text:Floor 2/5")
 	again.Find(fmt.Sprintf("text:Lv %d", r.level))
+
+	playRun(r, botClear, 20000)
+	playRun(r2, botClear, 20000)
+	if r.summarize() != r2.summarize() {
+		t.Fatalf("the resumed run ended %+v, the first %+v", r2.summarize(), r.summarize())
+	}
 }
 
 // TestUnreadableSlotsStartAfresh starts the app over a run slot that is not valid and one from a newer version of the game: both start a new run, and only the newer one is left alone.
@@ -261,6 +276,8 @@ func TestUnreadableSlotsStartAfresh(t *testing.T) {
 		{"corrupt", "{not json", false},
 		{"future", `{"version":99,"data":{"seed":1}}`, true},
 		{"mismatched", `{"version":1,"data":{"seed":1,"floor":42,"health":5,"level":1}}`, false},
+		{"huge-level", `{"version":1,"data":{"seed":1,"floor":0,"health":5,"level":1000000000000000000,"weapon":"rusty-pick"}}`, false},
+		{"negative-draughts", `{"version":1,"data":{"seed":1,"floor":0,"health":5,"level":1,"draughts":-3,"weapon":"rusty-pick"}}`, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			app, g := startGame(t, []uint64{winSeed}, nsgotest.Storage(map[string]string{runKey: tc.raw}))
@@ -343,7 +360,7 @@ func TestHoldingADirectionRepeats(t *testing.T) {
 func openStep(r *run) cell {
 	for _, st := range steps {
 		to := cell{X: r.pos.X + st.X, Y: r.pos.Y + st.Y}
-		if r.floor.walkable(to) && r.floor.monsterAt(to) == nil {
+		if _, taken := r.floor.foeAt(to); r.floor.walkable(to) && !taken {
 			return st
 		}
 	}
