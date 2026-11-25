@@ -16,6 +16,7 @@ The port follows pixelfx at commit `5294518ce7c72e48b6100a744596e0acf57f2826` wi
 | Package | What it holds |
 | --- | --- |
 | `game/pixelfx` | The core: frames and compositing, the painter, randomness and noise, particles, the simulation, colors and palettes, the two pixel fonts, the acting system (rig, poses, acts, chains), the effect registry, sprite sheet export and the view helper |
+| `game/pixelfx/arcane` | Arcane magic: arcane beam, arcane missiles, arcane orb, blink in, blink out, magic circle cast, mana burst, portal, rune circle, spell charge, star fall and time stop |
 | `game/pixelfx/fire` | Fire: the torch so far |
 | `game/pixelfx/explosions` | Explosions: barrel explosion, big explosion, cartoon POW, dirt explosion, firework burst, firework rocket, grenade, implosion, nuke, plasma explosion, small explosion and smoke bomb |
 | `game/pixelfx/impacts` | Impacts: blunt hit, bullet impact, critical hit, ground slam, heavy landing, hit flash, hit spark, impact frame, parry, ricochet and shield block |
@@ -34,7 +35,7 @@ The port follows pixelfx at commit `5294518ce7c72e48b6100a744596e0acf57f2826` wi
 | `game/pixelfx/water` | Water: bubbles, drip, fountain, geyser, rain splash, ripples, splash, water jet, water orb, waterfall, wave crash and whirlpool |
 | `game/pixelfx/weather` | Weather loops: aurora, blizzard, cherry blossoms, clouds, falling leaves, fireflies, fog, god rays, rain, shooting stars, snow and storm |
 
-Effects live in one subpackage per category, which registers its effects as `"<category>/<name>"` when it is imported, so a game links only the categories it imports. The other categories of pixelfx (lightning, melee, arcane, holy) follow one change each, as [Porting a category](#porting-a-category) describes.
+Effects live in one subpackage per category, which registers its effects as `"<category>/<name>"` when it is imported, so a game links only the categories it imports. The other categories of pixelfx (lightning, melee, holy) follow one change each, as [Porting a category](#porting-a-category) describes.
 
 ## Playing an effect
 
