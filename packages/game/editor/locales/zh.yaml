@@ -110,13 +110,24 @@ strings:
   dialog.cancel: 取消
   dialog.create: 创建
   dialog.discard: 放弃
+  dialog.diskConflictDesc: '{file} 自打开或上次保存后已在磁盘上被修改。覆盖将会替换磁盘上的更改。'
+  dialog.diskConflictTitle: 文件已在磁盘上更改
   dialog.newScene: 新建场景
+  dialog.overwrite: 覆盖
   dialog.save: 保存
   dialog.saveAs: 场景另存为
   dialog.scenePathDesc: 相对于项目根目录的路径。未带 .yaml 后缀时会自动补全为 .scene.yaml。
   dialog.scenePathLabel: 场景路径
   dialog.unsavedDesc: 场景 {scene} 或项目有未保存的更改。
   dialog.unsavedTitle: 保存更改？
+  disk.compare: 对比
+  disk.disk: 磁盘
+  disk.dismiss: 关闭
+  disk.keepMine: 保留我的版本
+  disk.mine: 我的
+  disk.reload: 从磁盘重新加载
+  disk.showDiff: 查看差异
+  disk.useThese: 应用合并
   files.editMaterial: 编辑材质
   files.editMaterialLabel: 在材质编辑器中打开所选材质文件
   files.findRefs: 查找引用

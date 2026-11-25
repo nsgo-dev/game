@@ -191,6 +191,7 @@ func (e *Editor) OpenDemo() error {
 	e.merge = mergeConflictState{}
 	e.selectFile("")
 	e.resetSearchForProject()
+	e.clearAllDiskState()
 	e.filesRev++
 	e.dropStalePluginTool()
 	e.dropStaleFocusedPluginPanel()

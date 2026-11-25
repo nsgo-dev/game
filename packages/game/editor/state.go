@@ -385,6 +385,8 @@ type Editor struct {
 	WriteClipboard func(text string)
 	// ReadClipboard, when set, overrides reading text from the system clipboard (used by Paste); when nil and a UI scope is attached, core.Scope.ReadClipboard is used.
 	ReadClipboard func(done func(text string))
+	// DiskWatchInterval controls how often the editor polls watched open files (scene, clip, game.yaml) and the project tree for external changes while a UI scope is attached (defaults to 250ms when <= 0).
+	DiskWatchInterval time.Duration
 
 	playing           bool
 	playSnapshot      []byte
@@ -631,6 +633,8 @@ type Editor struct {
 	hasPointer2D bool
 	pointer3D    [2]float32
 	hasPointer3D bool
+	// disk tracks on-disk snapshots, external-change conflicts, save-conflict prompts, and background file watching.
+	disk diskWatchState
 }
 
 // DefaultSceneDoc returns a valid starter SceneDoc suitable for a new editor session.
@@ -773,6 +777,7 @@ func (e *Editor) AttachScope(cx *core.Scope) {
 	}
 	e.startScreen.setScope(cx)
 	e.remote.setScope(cx)
+	e.setDiskWatcherScope(cx)
 	if cx != nil {
 		e.startParticlePreviewLoop()
 		e.syncSceneEmitterLoop()
@@ -1199,6 +1204,7 @@ func (e *Editor) openYAMLWithLayers(data []byte, file string, layers *sceneforma
 	// not overwrite the previously opened file with unrelated content.
 	e.FilePath = ""
 	e.ScenePath = ""
+	e.clearSceneDiskSnapshot()
 	if len(doc.Layers) > 0 {
 		e.ActiveLayer = doc.Layers[0].Name
 	} else {
@@ -1266,6 +1272,8 @@ func (e *Editor) openFileWithLayers(path string, layers *sceneformat.PhysicsLaye
 		}
 	}
 	e.activateNewTab(doc, saved, path)
+	e.recordSceneDiskSnapshot(path, data)
+	e.syncActiveTab()
 	e.notify()
 	return nil
 }
@@ -1285,6 +1293,9 @@ func (e *Editor) SaveFile(path string) error {
 		e.endTileStrokeForChange()
 		e.endGridMapStrokeForChange()
 	}
+	if err := e.checkDiskConflict(DiskFileScene, path, e.disk.sceneDisk); err != nil {
+		return err
+	}
 	data, err := e.SaveYAML()
 	if err != nil {
 		return err
@@ -1297,10 +1308,12 @@ func (e *Editor) SaveFile(path string) error {
 	if e.activeTab >= 0 && e.activeTab < len(e.tabs) {
 		e.tabs[e.activeTab].placeholder = false
 	}
+	e.recordSceneDiskSnapshot(path, data)
 	e.syncScenePath()
 	e.syncActiveTab()
 	e.saveViewStateQuietly()
 	e.filesRev++
+	e.snapshotProjectTree()
 	e.invalidateProjectIndex()
 	e.rebuildDependentTabs(e.activeTabID())
 	e.Status = "Saved " + path

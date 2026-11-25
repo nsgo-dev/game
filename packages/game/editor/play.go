@@ -280,6 +280,7 @@ func (e *Editor) Stop() error {
 		e.Doc = restored
 	}
 	e.Rebuild()
+	e.clearDiskWatchNotified()
 	e.Status = "Stopped"
 	e.notify()
 	return nil

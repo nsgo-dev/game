@@ -345,6 +345,7 @@ func sceneFileDialogs(ed *Editor, rev *core.Signal[uint64], prompt *core.Signal[
 				},
 			},
 		},
+		saveConflictDialog(ed, rev),
 	}
 }
 

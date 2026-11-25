@@ -46,6 +46,7 @@ type sceneTab struct {
 	scenePath           string
 	onSave              func([]byte) error
 	sceneSaved          []byte
+	sceneDisk           diskSnapshot
 	selectedID          string
 	selectedIDs         []string
 	activeLayer         string
@@ -124,6 +125,7 @@ func (e *Editor) syncActiveTab() {
 	t.scenePath = e.ScenePath
 	t.onSave = e.OnSave
 	t.sceneSaved = e.sceneSaved
+	t.sceneDisk = e.disk.sceneDisk
 	t.selectedID = e.SelectedID
 	t.selectedIDs = slices.Clone(e.selectedIDs)
 	t.activeLayer = e.ActiveLayer
@@ -159,6 +161,8 @@ func (e *Editor) loadActiveTab() {
 	e.ScenePath = t.scenePath
 	e.OnSave = t.onSave
 	e.sceneSaved = t.sceneSaved
+	e.disk.sceneDisk = t.sceneDisk
+	e.onActiveSceneTabChanged()
 	e.SelectedID = t.selectedID
 	e.selectedIDs = slices.Clone(t.selectedIDs)
 	e.pasteStreak = 0
@@ -532,6 +536,9 @@ func (e *Editor) SaveTab(index int) error {
 		e.CheckProblems()
 		return nil
 	case t.filePath != "":
+		if err := e.checkTabDiskConflict(t); err != nil {
+			return err
+		}
 		if err := os.MkdirAll(filepath.Dir(t.filePath), 0o755); err != nil {
 			return err
 		}
@@ -539,8 +546,14 @@ func (e *Editor) SaveTab(index int) error {
 			return err
 		}
 		t.sceneSaved = append([]byte(nil), data...)
+		t.sceneDisk = makeDiskSnapshot(t.filePath, data)
 		t.placeholder = false
+		if e.disk.saveConflict != nil && e.disk.saveConflictTabID == t.id {
+			e.disk.saveConflict = nil
+			e.disk.saveConflictTabID = 0
+		}
 		e.filesRev++
+		e.snapshotProjectTree()
 		e.invalidateProjectIndex()
 		e.rebuildDependentTabs(t.id)
 		e.Status = "Saved " + t.filePath
@@ -603,9 +616,14 @@ func (e *Editor) CloseTab(index int) error {
 	}
 
 	if index != e.activeTab {
+		closedID := e.tabs[index].id
 		e.tabs = append(e.tabs[:index], e.tabs[index+1:]...)
 		if index < e.activeTab {
 			e.activeTab--
+		}
+		if e.disk.saveConflict != nil && e.disk.saveConflictTabID == closedID {
+			e.disk.saveConflict = nil
+			e.disk.saveConflictTabID = 0
 		}
 		e.refreshOpenSceneSearch()
 		e.Status = "Closed " + closedLabel

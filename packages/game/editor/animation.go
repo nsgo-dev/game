@@ -57,8 +57,7 @@ func (e *Editor) NewClip(target, name string, length time.Duration) error {
 	if err := e.checkClip(clip, target); err != nil {
 		return err
 	}
-	e.swapClip("New clip", clip, clipMeta{target: target})
-	e.clipSaved = nil
+	e.swapClipWithSaved("New clip", clip, clipMeta{target: target}, nil, diskSnapshot{})
 	return nil
 }
 
@@ -92,7 +91,7 @@ func (e *Editor) NewClipFromAsepriteTag(target, tag string) error {
 	if err := e.checkClip(clip, target); err != nil {
 		return err
 	}
-	e.swapClip("New clip from tag "+tag, clip, clipMeta{target: target})
+	e.swapClipWithSaved("New clip from tag "+tag, clip, clipMeta{target: target}, nil, diskSnapshot{})
 	return nil
 }
 
@@ -130,7 +129,7 @@ func (e *Editor) NewClipFromFrames(target, name string, frames []string, fps flo
 	if err := e.checkClip(clip, target); err != nil {
 		return err
 	}
-	e.swapClip("New sprite clip", clip, clipMeta{target: target})
+	e.swapClipWithSaved("New sprite clip", clip, clipMeta{target: target}, nil, diskSnapshot{})
 	return nil
 }
 
@@ -258,10 +257,12 @@ func (e *Editor) openClip(data []byte, path, target string) error {
 	if path != "" {
 		label += " " + path
 	}
-	e.swapClip(label, clip, clipMeta{path: path, target: target})
-	if saved, err := resource.Encode(clip); err == nil {
-		e.clipSaved = saved
+	saved, _ := resource.Encode(clip)
+	var diskSnap diskSnapshot
+	if path != "" {
+		diskSnap = makeDiskSnapshot(path, data)
 	}
+	e.swapClipWithSaved(label, clip, clipMeta{path: path, target: target}, saved, diskSnap)
 	return nil
 }
 
@@ -273,7 +274,7 @@ func (e *Editor) CloseClip() error {
 	if e.clip == nil {
 		return nil
 	}
-	e.swapClip("Close clip", nil, clipMeta{})
+	e.swapClipWithSaved("Close clip", nil, clipMeta{}, nil, diskSnapshot{})
 	return nil
 }
 
@@ -287,6 +288,9 @@ func (e *Editor) SaveClipYAML() ([]byte, error) {
 
 // SaveClipFile writes the open clip to path, replacing the file atomically, and remembers path as ClipPath.
 func (e *Editor) SaveClipFile(path string) error {
+	if err := e.checkDiskConflict(DiskFileClip, path, e.disk.clipDisk); err != nil {
+		return err
+	}
 	data, err := e.SaveClipYAML()
 	if err != nil {
 		return err
@@ -296,7 +300,9 @@ func (e *Editor) SaveClipFile(path string) error {
 	}
 	e.clipMeta.path = path
 	e.clipSaved = append([]byte(nil), data...)
+	e.recordClipDiskSnapshot(path, data)
 	e.filesRev++
+	e.snapshotProjectTree()
 	e.invalidateProjectIndex()
 	e.Status = "Saved clip " + path
 	e.notify()
@@ -1037,10 +1043,26 @@ func (e *Editor) editClip(label string, fn func(c *resource.Animation) error) er
 	return nil
 }
 
-// swapClip records replacing the open clip, its file and its target as one undoable command.
-func (e *Editor) swapClip(label string, clip *resource.Animation, meta clipMeta) {
+// swapClipWithSaved records replacing the open clip, its file, target, saved encoding, and disk snapshot as one undoable command.
+func (e *Editor) swapClipWithSaved(label string, clip *resource.Animation, meta clipMeta, saved []byte, diskSnap diskSnapshot) {
 	before, after := e.clipMeta, meta
-	e.History.Execute(&clipCmd{ed: e, label: label, before: cloneClip(e.clip), after: cloneClip(clip), beforeMeta: &before, afterMeta: &after})
+	beforeSaved := append([]byte(nil), e.clipSaved...)
+	afterSaved := append([]byte(nil), saved...)
+	beforeDisk := e.disk.clipDisk
+	afterDisk := diskSnap
+	e.History.Execute(&clipCmd{
+		ed:          e,
+		label:       label,
+		before:      cloneClip(e.clip),
+		after:       cloneClip(clip),
+		beforeMeta:  &before,
+		afterMeta:   &after,
+		hasSaved:    true,
+		beforeSaved: beforeSaved,
+		afterSaved:  afterSaved,
+		beforeDisk:  beforeDisk,
+		afterDisk:   afterDisk,
+	})
 }
 
 // clipCmd replaces the open clip's contents, and for a command that opens, closes or retargets a clip also its file and target. Opening and closing a clip, done or undone, stops its playback and puts the playhead back at the start; retargeting keeps both.
@@ -1050,15 +1072,20 @@ type clipCmd struct {
 	before, after         *resource.Animation
 	beforeMeta, afterMeta *clipMeta
 	retarget              bool
+	hasSaved              bool
+	beforeSaved           []byte
+	afterSaved            []byte
+	beforeDisk            diskSnapshot
+	afterDisk             diskSnapshot
 }
 
 func (c *clipCmd) Label() string { return c.label }
 
-func (c *clipCmd) Do() { c.apply(c.after, c.afterMeta) }
+func (c *clipCmd) Do() { c.apply(c.after, c.afterMeta, c.afterSaved, c.afterDisk) }
 
-func (c *clipCmd) Undo() { c.apply(c.before, c.beforeMeta) }
+func (c *clipCmd) Undo() { c.apply(c.before, c.beforeMeta, c.beforeSaved, c.beforeDisk) }
 
-func (c *clipCmd) apply(clip *resource.Animation, meta *clipMeta) {
+func (c *clipCmd) apply(clip *resource.Animation, meta *clipMeta, saved []byte, diskSnap diskSnapshot) {
 	e := c.ed
 	e.clip = cloneClip(clip)
 	if meta != nil {
@@ -1068,6 +1095,18 @@ func (c *clipCmd) apply(clip *resource.Animation, meta *clipMeta) {
 			e.selKey = clipKeyRef{-1, -1}
 		}
 		e.clipMeta = *meta
+	}
+	if c.hasSaved {
+		if len(saved) > 0 {
+			e.clipSaved = append([]byte(nil), saved...)
+		} else {
+			e.clipSaved = nil
+		}
+		if diskSnap.exists {
+			e.recordClipDiskSnapshot(diskSnap.path, diskSnap.raw)
+		} else {
+			e.clearClipDiskSnapshot()
+		}
 	}
 	e.Status = c.label
 }

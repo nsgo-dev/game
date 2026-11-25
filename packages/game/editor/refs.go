@@ -228,6 +228,7 @@ func (e *Editor) followMove(root, from, to string, written []refs.Write) {
 	e.followMaterialMove(moveFile, movePath)
 	e.filesRev++
 	e.assetsRev++
+	e.refreshDiskSnapshotsAfterMove()
 	e.followSearchMove(forth)
 	e.Status = "Moved " + from + " to " + to
 	e.CheckProblems()
