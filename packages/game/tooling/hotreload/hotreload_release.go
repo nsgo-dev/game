@@ -56,6 +56,9 @@ func (w *Watcher) WatchResources(*resource.Library, func(string, error)) {}
 // DevAssetsDir returns "" in release builds, which never run under `game dev`.
 func DevAssetsDir() string { return "" }
 
+// DevScene returns "" in release builds, which never run under `game dev`.
+func DevScene() string { return "" }
+
 // NewDevWatcher returns nil in release builds; Watcher's methods do nothing on nil.
 func NewDevWatcher(*core.Scope, ...Option) *Watcher { return nil }
 

@@ -203,6 +203,24 @@ func TestDevErrors(t *testing.T) {
 	}
 }
 
+func TestDevPassesSceneEnv(t *testing.T) {
+	runs := stubDev(t, nil)
+	dir := newProject(t, "native", "resources")
+
+	a, _, stderr := newTestApp(t)
+	if code := run([]string{"dev", "-scene", "scenes/boss.scene.yaml", dir}, a); code != 0 {
+		t.Fatalf("exit %d (stderr: %s)", code, stderr)
+	}
+	if len(*runs) != 1 {
+		t.Fatalf("%d runs, want 1", len(*runs))
+	}
+	got := (*runs)[0]
+	wantScene := hotreload.SceneEnv + "=scenes/boss.scene.yaml"
+	if !slices.Contains(got.env, wantScene) {
+		t.Fatalf("env = %q, want %q", got.env, wantScene)
+	}
+}
+
 func TestProjectDevTarget(t *testing.T) {
 	if got := projectDevTarget(t.TempDir()); got != "native" {
 		t.Fatalf("no nsgo.yaml: %q, want native", got)

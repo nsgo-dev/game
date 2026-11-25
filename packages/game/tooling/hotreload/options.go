@@ -46,3 +46,6 @@ func WithDebounce(d time.Duration) Option {
 
 // AssetsDirEnv is the environment variable `game dev` sets to the absolute path of the directory a game's "asset:" URIs name, its resources directory by default, for NewDevWatcher to watch.
 const AssetsDirEnv = "NSGO_GAME_ASSETS"
+
+// SceneEnv is the environment variable `game dev -scene` (and the editor's Run command when starting at the open scene) sets to the slash-separated scene path relative to the project root, for DevScene to read.
+const SceneEnv = "NSGO_GAME_SCENE"

@@ -164,6 +164,7 @@ game dev [flags] [dir] [nsgo dev flags]
 | --- | --- | --- |
 | `-assets string` | `resources` | the directory, relative to the project directory, that the running game watches and its assets.Manager reads "asset:" URIs from, given to the game as hotreload.DevAssetsDir |
 | `-fps` |  | show NSGo's performance monitor in the running game |
+| `-scene string` |  | start the game at this scene path relative to the project root, given to the game as hotreload.DevScene |
 | `-target string` |  | the nsgo dev target, nsgo.yaml's dev.target when empty; assets reload on native and tui |
 
 ## game check
