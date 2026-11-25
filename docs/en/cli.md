@@ -503,35 +503,30 @@ nsgo game completion zsh > ~/.zfunc/_game
 
 Writes a completion script for `zsh`, `bash` or `fish` to standard output. It completes the subcommands with their summaries, each subcommand's flags with their descriptions, the values `-format` and `release`'s `-channel` take, the kinds `generate` writes (offered for its name too, since a command's arguments complete alike at every position), the effects `pixelfx` renders, and file paths for `-in`, `-out` and the files and directories the other commands take. The script is generated from the commands' definitions, so after upgrading the game layer, write it again to complete the subcommands and flags the upgrade added.
 
-The script completes a command named `game`. Typed as `nsgo game` or `go tool game`, the shell completes `nsgo` or `go` instead, so either install the command with `go install github.com/nsgo-dev/game/packages/game/cmd/game@latest`, or define `game` as a shell function that runs `nsgo game`, which keeps the version a module's `go.mod` pins inside the module. Save the script to a file once rather than generating it each time a shell starts, since generating it runs the command.
+The script completes both `game` and `nsgo game`: after `nsgo` it offers `game` and `nsgo`'s own commands, and after `nsgo game` whatever it offers after `game`. `go tool game` is not completed, since there the shell completes `go`. `nsgo` has no completion of its own, so the zsh and bash scripts register one for `nsgo` only while it has none: a completion of `nsgo` registered before the script, found by compinit earlier on `$fpath`, or that bash-completion can load, keeps completing `nsgo`, and a `_nsgo` later on `$fpath` still completes `nsgo`'s commands while `nsgo game` completes the game layer's. The fish script adds completions for `nsgo` that hold only after `nsgo game`, beside any of `nsgo`'s own. Save the script to a file once rather than generating it each time a shell starts, since generating it runs the command.
 
-zsh, with the script saved as `_game` in a directory on `$fpath`, in `~/.zshrc`:
+zsh, with the script saved as `_game` in a directory on `$fpath`, which compinit registers for both commands, in `~/.zshrc`:
 
 ```zsh
 fpath=(~/.zfunc $fpath)
 autoload -Uz compinit && compinit
-game() { nsgo game "$@"; }
 ```
 
-bash, in bash-completion's directory, which loads it the first time `game` is completed, or sourced from `~/.bashrc` without bash-completion:
+After replacing a script written before it completed `nsgo game`, delete `~/.zcompdump` so compinit reads the new registration.
+
+bash, in bash-completion's directory, which loads a completion the first time its command is completed, so the script is saved under both names; without bash-completion, source the file from `~/.bashrc`:
 
 ```sh
 mkdir -p ~/.local/share/bash-completion/completions
 nsgo game completion bash > ~/.local/share/bash-completion/completions/game
+ln -s game ~/.local/share/bash-completion/completions/nsgo
 ```
 
-```bash
-game() { nsgo game "$@"; }
-```
-
-fish, in its completions directory:
+fish, in its completions directory, which loads a command's completions from the file named after it:
 
 ```sh
 nsgo game completion fish > ~/.config/fish/completions/game.fish
+ln -s game.fish ~/.config/fish/completions/nsgo.fish
 ```
 
-```fish
-function game
-    nsgo game $argv
-end
-```
+Leave out the `nsgo` link when `nsgo` has a completion of its own there. To type `game` alone, install the command with `go install github.com/nsgo-dev/game/packages/game/cmd/game@latest`, or define `game` as a shell function that runs `nsgo game`, which keeps the version a module's `go.mod` pins inside the module: `game() { nsgo game "$@"; }` in zsh and bash, and `function game; nsgo game $argv; end` in fish.

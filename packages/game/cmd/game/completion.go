@@ -29,6 +29,9 @@ func (c completion) none() bool {
 	return !c.files && len(c.words) == 0
 }
 
+// nsgoCommands are the words completed after nsgo: game, whose commands follow it, and nsgo's own commands, offered as plain words since nsgo has no completion of its own.
+var nsgoCommands = []string{"game", "init", "dev", "mcp", "build", "test", "check", "i18n", "doctor", "keygen", "certify", "publish", "verify", "revoke", "version", "help"}
+
 // shells are the shells game completion writes a script for, in the order its usage names them, each with what writes its script.
 var shells = []struct {
 	name  string
@@ -257,11 +260,11 @@ func valueFlagPattern(specs []commandSpec) string {
 	return strings.Join(alts, "|")
 }
 
-// writeZsh writes the zsh completion script for specs: a #compdef function that works both from a directory on $fpath and sourced after compinit.
+// writeZsh writes the zsh completion script for specs: a #compdef function that works both from a directory on $fpath and sourced after compinit. It completes nsgo too, unless nsgo already has a completion: compinit registers the names after #compdef with compdef -n, which keeps an existing one, and the sourced script checks $_comps.
 func writeZsh(w io.Writer, specs []commandSpec) {
 	var b strings.Builder
-	b.WriteString("#compdef game\n\n")
-	b.WriteString("# zsh completion for game, written by `game completion zsh`. Load it after compinit with `source <(game completion zsh)`, or save it as _game in a directory on $fpath.\n\n")
+	b.WriteString("#compdef game nsgo\n\n")
+	b.WriteString("# zsh completion for game, written by `game completion zsh`, for game and for nsgo game. Load it after compinit with `source <(game completion zsh)`, or save it as _game in a directory on $fpath.\n\n")
 
 	b.WriteString("__game_takes_value() {\n\tcase $1:$2 in\n")
 	if p := valueFlagPattern(specs); p != "" {
@@ -297,7 +300,28 @@ func writeZsh(w io.Writer, specs []commandSpec) {
 	}
 	b.WriteString("\t(*) (( $2 )) && __game_flags $1 ;;\n\tesac\n}\n\n")
 
-	b.WriteString("_game() {\n\tlocal -a commands\n\tcommands=(\n")
+	b.WriteString(`# __game_nsgo completes, after nsgo game, the rest of the line as __game_command does after game. Before that it completes nsgo's commands, or hands the line to a _nsgo of nsgo's own on $fpath: compinit registers this script for nsgo only when nothing came before it on $fpath, and one that comes after it still completes nsgo.
+__game_nsgo() {
+	if (( CURRENT > 2 )) && [[ $words[2] == game ]]; then
+		shift words
+		(( CURRENT-- ))
+		__game_command
+		return
+	fi
+	local -a own
+	own=(${^fpath}/_nsgo(N))
+	if (( $#own )); then
+		autoload -Uz _nsgo
+		_nsgo "$@"
+		return
+	fi
+	if (( CURRENT == 2 )); then
+`)
+	fmt.Fprintf(&b, "\t\tcompadd -- %s\n\telse\n\t\t_files\n\tfi\n}\n\n", quoteAll(nsgoCommands, shQuote, " "))
+
+	b.WriteString("_game() {\n\tif [[ $service == nsgo ]]; then\n\t\t__game_nsgo\n\telse\n\t\t__game_command\n\tfi\n}\n\n")
+
+	b.WriteString("__game_command() {\n\tlocal -a commands\n\tcommands=(\n")
 	for _, s := range specs {
 		fmt.Fprintf(&b, "\t\t%s\n", shQuote(strings.ReplaceAll(s.name, ":", `\:`)+":"+s.summary))
 	}
@@ -343,6 +367,7 @@ if [[ $funcstack[1] == _game ]]; then
 	_game "$@"
 else
 	compdef _game game
+	(( $+_comps[nsgo] )) || compdef _game nsgo
 fi
 `)
 	_, _ = io.WriteString(w, b.String())
@@ -359,7 +384,7 @@ func zshCompletes(c completion) string {
 // writeBash writes the bash completion script for specs, which works in bash 3.2 as macOS ships it, where there is no compopt and the function is registered with -o filenames instead.
 func writeBash(w io.Writer, specs []commandSpec) {
 	var b strings.Builder
-	b.WriteString("# bash completion for game, written by `game completion bash`. Save it as game in bash-completion's completions directory, or save it anywhere and source that file from ~/.bashrc.\n\n")
+	b.WriteString("# bash completion for game, written by `game completion bash`, for game and, unless nsgo already has a completion, for nsgo game. Save it as game and as nsgo in bash-completion's completions directory, or save it anywhere and source that file from ~/.bashrc.\n\n")
 	b.WriteString(`# __game_reply adds each line compgen writes for its arguments to COMPREPLY.
 __game_reply() {
 	local line
@@ -466,10 +491,36 @@ __game_files() {
 	esac
 }
 
+`)
+	fmt.Fprintf(&b, "\n# __game_nsgo completes nsgo's commands after nsgo and, after nsgo game, the rest of the line as _game does after game, by dropping nsgo from COMP_WORDS.\n__game_nsgo() {\n\tlocal cur=${COMP_WORDS[COMP_CWORD]}\n\tCOMPREPLY=()\n\tif [ \"$COMP_CWORD\" -eq 1 ]; then\n\t\t__game_reply -W %s -- \"$cur\"\n\t\treturn\n\tfi\n", shQuote(strings.Join(nsgoCommands, " ")))
+	b.WriteString(`	if [ "${COMP_WORDS[1]}" != game ]; then
+		__game_files "$cur"
+		return
+	fi
+	local words=("${COMP_WORDS[@]:1}") cword=$((COMP_CWORD - 1))
+	local COMP_WORDS COMP_CWORD
+	COMP_WORDS=("${words[@]}")
+	COMP_CWORD=$cword
+	_game
+}
+
+# bash-completion loads a command's completion the first time the command is completed, so before nsgo is registered here, one of nsgo's own that it has not loaded yet is loaded; __game_loading keeps this script, when it is that one, from loading itself again.
+if [ -z "${__game_loading-}" ] && ! complete -p nsgo >/dev/null 2>&1; then
+	__game_loading=1
+	if type _comp_load >/dev/null 2>&1; then
+		_comp_load nsgo >/dev/null 2>&1
+	elif type __load_completion >/dev/null 2>&1; then
+		__load_completion nsgo >/dev/null 2>&1
+	fi
+	unset __game_loading
+fi
+
 if type compopt >/dev/null 2>&1; then
 	complete -F _game game
+	complete -p nsgo >/dev/null 2>&1 || complete -F __game_nsgo nsgo
 else
 	complete -o filenames -F _game game
+	complete -p nsgo >/dev/null 2>&1 || complete -o filenames -F __game_nsgo nsgo
 fi
 `)
 	_, _ = io.WriteString(w, b.String())
@@ -483,16 +534,31 @@ func bashCompletes(c completion, word string) string {
 	return "__game_reply -W " + shQuote(strings.Join(c.words, " ")) + " -- " + word
 }
 
-// writeFish writes the fish completion script for specs.
+// writeFish writes the fish completion script for specs. It completes nsgo game too, with completions for nsgo that each hold only after nsgo game, so a completion of nsgo's own keeps working beside them.
 func writeFish(w io.Writer, specs []commandSpec) {
 	var b strings.Builder
-	b.WriteString("# fish completion for game, written by `game completion fish`. Load it with `game completion fish | source`, or save it as game.fish in ~/.config/fish/completions.\n\n")
-	b.WriteString(`function __game_needs_command
-    test (count (commandline -opc)) -eq 1
+	b.WriteString("# fish completion for game, written by `game completion fish`, for game and for nsgo game. Load it with `game completion fish | source`, or save it as game.fish and as nsgo.fish in ~/.config/fish/completions.\n\n")
+	b.WriteString(`# __game_tokens prints the words before the cursor as game reads them: after nsgo game, nsgo is dropped.
+function __game_tokens
+    set -l tokens (commandline -opc)
+    if test (count $tokens) -ge 2; and test "$tokens[2]" = game
+        set -e tokens[1]
+    end
+    printf '%s\n' $tokens
+end
+
+# __game_after_nsgo succeeds when the line is nsgo game followed by what game would complete.
+function __game_after_nsgo
+    set -l tokens (commandline -opc)
+    test (count $tokens) -ge 2; and test "$tokens[2]" = game
+end
+
+function __game_needs_command
+    test (count (__game_tokens)) -eq 1
 end
 
 function __game_using
-    set -l tokens (commandline -opc)
+    set -l tokens (__game_tokens)
     test (count $tokens) -ge 2; and test "$tokens[2]" = $argv[1]
 end
 
@@ -512,7 +578,7 @@ end
 	b.WriteString("    end\n    return 1\nend\n\n")
 	b.WriteString(`# __game_in_flags succeeds when the command is $argv[1] and the word being completed may still be one of its flags: Go's flag package reads flags up to the first argument that is not one, or --, so it walks the words after the command, skipping a flag's value.
 function __game_in_flags
-    set -l tokens (commandline -opc)
+    set -l tokens (__game_tokens)
     test (count $tokens) -ge 2; and test "$tokens[2]" = $argv[1]; or return 1
     set -l i 3
     while test $i -le (count $tokens)
@@ -528,33 +594,55 @@ function __game_in_flags
     return 0
 end
 
-complete -c game -f
+complete -c nsgo -n 'test (count (commandline -opc)) -eq 1' -a game
 `)
-	for _, s := range specs {
-		fmt.Fprintf(&b, "complete -c game -n __game_needs_command -a %s -d %s\n", fishQuote(s.name), fishQuote(s.summary))
+	// The game completions are written once for game and once for nsgo, where each holds only after nsgo game.
+	for _, c := range []struct{ command, guard string }{{"game", ""}, {"nsgo", "__fish_seen_subcommand_from game; and __game_after_nsgo"}} {
+		writeFishCommand(&b, specs, c.command, c.guard)
+	}
+	_, _ = io.WriteString(w, b.String())
+}
+
+// writeFishCommand writes the completions of specs for command, each holding only when guard, a fish condition, succeeds, or always when guard is empty.
+func writeFishCommand(b *strings.Builder, specs []commandSpec, command, guard string) {
+	when := func(cond string) string {
+		if guard == "" {
+			return fishQuote(cond)
+		}
+		if cond == "" {
+			return fishQuote(guard)
+		}
+		return fishQuote(guard + "; and " + cond)
+	}
+	if guard == "" {
+		fmt.Fprintf(b, "\ncomplete -c %s -f\n", command)
+	} else {
+		fmt.Fprintf(b, "\ncomplete -c %s -n %s -f\n", command, when(""))
 	}
 	for _, s := range specs {
-		cond := fishQuote("__game_using " + s.name)
-		flagCond := fishQuote("__game_in_flags " + s.name)
+		fmt.Fprintf(b, "complete -c %s -n %s -a %s -d %s\n", command, when("__game_needs_command"), fishQuote(s.name), fishQuote(s.summary))
+	}
+	for _, s := range specs {
+		cond := when("__game_using " + s.name)
+		flagCond := when("__game_in_flags " + s.name)
 		for _, f := range s.flags {
-			fmt.Fprintf(&b, "complete -c game -n %s -o %s", flagCond, fishQuote(f.name))
+			fmt.Fprintf(b, "complete -c %s -n %s -o %s", command, flagCond, fishQuote(f.name))
 			switch {
 			case !f.takesValue:
 			case f.value.files:
 				b.WriteString(" -r -F")
 			case len(f.value.words) > 0:
-				fmt.Fprintf(&b, " -x -a %s", fishQuote(strings.Join(f.value.words, " ")))
+				fmt.Fprintf(b, " -x -a %s", fishQuote(strings.Join(f.value.words, " ")))
 			default:
 				b.WriteString(" -x")
 			}
-			fmt.Fprintf(&b, " -d %s\n", fishQuote(f.usage))
+			fmt.Fprintf(b, " -d %s\n", fishQuote(f.usage))
 		}
 		switch {
 		case s.args.files:
-			fmt.Fprintf(&b, "complete -c game -n %s -F\n", cond)
+			fmt.Fprintf(b, "complete -c %s -n %s -F\n", command, cond)
 		case len(s.args.words) > 0:
-			fmt.Fprintf(&b, "complete -c game -n %s -a %s\n", cond, fishQuote(strings.Join(s.args.words, " ")))
+			fmt.Fprintf(b, "complete -c %s -n %s -a %s\n", command, cond, fishQuote(strings.Join(s.args.words, " ")))
 		}
 	}
-	_, _ = io.WriteString(w, b.String())
 }

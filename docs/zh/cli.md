@@ -503,35 +503,30 @@ nsgo game completion zsh > ~/.zfunc/_game
 
 把 `zsh`、`bash` 或 `fish` 的补全脚本写到标准输出。脚本补全子命令（附带其简介）、每个子命令的参数（附带其说明）、`-format` 和 `release` 的 `-channel` 可取的值、`generate` 能生成的种类（由于命令的参数在每个位置的补全方式相同，补全名称时也会提供这些种类）、`pixelfx` 能渲染的特效，以及 `-in`、`-out` 和其他命令接受的文件与目录路径。脚本由命令定义生成，因此升级游戏层后重新生成一次，就能补全升级新增的子命令和参数。
 
-脚本补全的是名为 `game` 的命令。输入 `nsgo game` 或 `go tool game` 时，shell 补全的是 `nsgo` 或 `go`，所以要么用 `go install github.com/nsgo-dev/game/packages/game/cmd/game@latest` 安装命令，要么把 `game` 定义为运行 `nsgo game` 的 shell 函数：在模块内它沿用 `go.mod` 固定的版本。生成脚本要运行命令，所以把脚本保存为文件一次即可，不要在每次启动 shell 时生成。
+脚本同时补全 `game` 和 `nsgo game`：在 `nsgo` 之后提供 `game` 和 `nsgo` 自己的命令，在 `nsgo game` 之后提供与 `game` 之后相同的补全。`go tool game` 不会被补全，因为这时 shell 补全的是 `go`。`nsgo` 自身没有补全，所以 zsh 和 bash 脚本只在 `nsgo` 还没有补全时才为它注册：在脚本之前注册的、compinit 在 `$fpath` 中更靠前的位置找到的、或 bash-completion 能够加载的 `nsgo` 补全会继续补全 `nsgo`；`$fpath` 中更靠后的 `_nsgo` 仍然补全 `nsgo` 的命令，而 `nsgo game` 补全游戏层的命令。fish 脚本为 `nsgo` 添加的补全只在 `nsgo game` 之后生效，与 `nsgo` 自己的补全并存。生成脚本要运行命令，所以把脚本保存为文件一次即可，不要在每次启动 shell 时生成。
 
-zsh：把脚本保存为 `$fpath` 中某个目录下的 `_game`，并在 `~/.zshrc` 中写：
+zsh：把脚本保存为 `$fpath` 中某个目录下的 `_game`，compinit 会为两个命令都注册它，并在 `~/.zshrc` 中写：
 
 ```zsh
 fpath=(~/.zfunc $fpath)
 autoload -Uz compinit && compinit
-game() { nsgo game "$@"; }
 ```
 
-bash：保存到 bash-completion 的目录，它会在第一次补全 `game` 时加载；没有安装 bash-completion 时，在 `~/.bashrc` 中 source 这个文件：
+替换掉在支持 `nsgo game` 之前生成的脚本后，删除 `~/.zcompdump`，让 compinit 读取新的注册。
+
+bash：保存到 bash-completion 的目录。它在第一次补全某个命令时加载该命令的补全，所以脚本要以两个名字保存；没有安装 bash-completion 时，在 `~/.bashrc` 中 source 这个文件：
 
 ```sh
 mkdir -p ~/.local/share/bash-completion/completions
 nsgo game completion bash > ~/.local/share/bash-completion/completions/game
+ln -s game ~/.local/share/bash-completion/completions/nsgo
 ```
 
-```bash
-game() { nsgo game "$@"; }
-```
-
-fish：保存到它的补全目录：
+fish：保存到它的补全目录，fish 从以命令命名的文件中加载该命令的补全：
 
 ```sh
 nsgo game completion fish > ~/.config/fish/completions/game.fish
+ln -s game.fish ~/.config/fish/completions/nsgo.fish
 ```
 
-```fish
-function game
-    nsgo game $argv
-end
-```
+如果那里已有 `nsgo` 自己的补全，就不要创建 `nsgo` 的链接。想单独输入 `game` 时，用 `go install github.com/nsgo-dev/game/packages/game/cmd/game@latest` 安装命令，或者把 `game` 定义为运行 `nsgo game` 的 shell 函数，这样在模块内它沿用 `go.mod` 固定的版本：zsh 和 bash 中写 `game() { nsgo game "$@"; }`，fish 中写 `function game; nsgo game $argv; end`。
