@@ -1,0 +1,85 @@
+version: 1
+scope:
+  project: suit-ladders
+  scene: deck_matchups
+  template: cards2d
+bot:
+  profile: card-ai
+  strategy: Two greedy AIs that look one turn ahead play each deck pair, taking turns to go first
+  params:
+    flagWinRateAbove: 60
+    matchesPerPair: 20
+rate: 60
+speed: 1
+seedCount: 1
+passed: false
+metrics:
+  - name: first_player_wins
+    label: First player wins
+    unit: '%'
+    aggregate: mean
+    value: 55
+    min: 55
+    max: 55
+    goal:
+      summary: going first is a small edge
+      source: brief.yaml
+      min: 45
+      max: 55
+    status: met
+  - name: most_lopsided_pair
+    label: Most lopsided pair
+    unit: '%'
+    aggregate: max
+    value: 70
+    min: 70
+    max: 70
+    goal:
+      summary: no pair above 60%
+      source: playtest.yaml
+      max: 60
+    status: missed
+series:
+  - name: hits_per_wave
+    label: Hits taken per wave
+    unit: hits
+    aggregate: median
+    targetMax: 1
+    entries:
+      - label: wave 1
+        value: 0.2
+      - label: wave 2
+        value: 1.5
+        flag: problem
+        note: above target
+matrices:
+  - name: deck_win_rates
+    label: Win rate by deck pair
+    unit: '%'
+    flagAbove: 60
+    labels:
+      - Ember
+      - Frost
+      - Thorn
+    cells:
+      - - null
+        - 70
+        - 55
+      - - 30
+        - null
+        - 50
+      - - 45
+        - 50
+        - null
+runs:
+  - index: 1
+    seed: 1
+    outcome: finished
+    steps: 120
+    durationSeconds: 2
+    counters:
+      ai_think_ms: 0.4
+      first_player_wins: 33
+      match_turns: 9
+      matches_played: 60
+      max_pair_win_rate: 70

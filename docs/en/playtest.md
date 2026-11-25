@@ -89,7 +89,7 @@ metrics:
 
 - **`scope`**: the `project`, required `scene`, and optional `template`.
 - **`runs`**: `count`, optional explicit `seeds`, `seedStart` (defaults to `1`), fixed `rate` in steps per second (defaults to `60`), `speed` multiplier metadata (defaults to `1`), and `maxDuration` simulated time limit per run (defaults to `60s`).
-- **`bot`**: `profile` (such as `platformer-runner`), optional `strategy` text, `reactionMin` / `reactionMax` human reaction jitter durations, and optional scalar `params`.
+- **`bot`**: `profile` (such as `platformer-runner`, `topdown-explorer`, `shooter`, `puzzle-solver`, or `card-ai`), optional `strategy` text, `reactionMin` / `reactionMax` human reaction jitter durations, and optional scalar `params`.
 - **`metrics`**: each metric has a unique `name`, optional `label` and `unit`, a `measure`, and an optional `goal`:
   - `measure.kind` is `event`, `counter`, `timer`, `outcome`, `ratio` (requiring `denomKey`), or `perf` (`frame_ms`, `update_ms`, `draw_ms`, `p50_frame_ms`, `p95_frame_ms`, `p99_frame_ms`, `max_frame_ms`, `allocs_per_frame`).
   - `measure.aggregate` is `count`, `sum`, `mean`, `median`, `min`, `max`, `p95`, `p99`, or `rate`.
@@ -118,11 +118,19 @@ metrics.Finish() // or metrics.Fail("out of lives")
 
 Frame time comes from the perf readout: pass `FrameStats: stats` and `GC: gcMon` on `playtest.Sim` (or call `metrics.RecordPerf(stats, gcMon)`), which uses the same averaging and percentile calculations as `game/mcp`'s `game_perf_readout`.
 
-## Built-in bot profile: `platformer-runner`
+For bar charts and matchup matrices in `playtest.report.yaml`, call `metrics.ConfigureSeries` / `metrics.AddSeries` / `metrics.SetSeries` / `metrics.FlagSeries` (emitting `report.Series`, such as hits per wave or shortest solution per level) and `metrics.ConfigureMatrix` / `metrics.RecordMatchup` (emitting `report.Matrices`, such as win rate by deck pair).
 
-`platformer-runner` (`playtest.ProfilePlatformerRunner`) runs greedily toward `PlatformerObservation.ExitX` and jumps at ledges, gaps and hazards with deterministic human reaction jitter sampled from the per-run `random.Stream` in `[reactionMin, reactionMax]`. Use `playtest.ObservePlatformerGrid` to build a `PlatformerObservation` from a `physics.TileGrid` and hazard boxes.
+## Built-in bot profiles
 
-Register additional bot profiles with `playtest.RegisterBot(name, factory)`.
+Every built-in profile is deterministic for a given seed and registers itself via `playtest.RegisterBot`:
+
+- **`platformer-runner`** (`playtest.ProfilePlatformerRunner`, template `platformer2d`): runs greedily toward `PlatformerObservation.ExitX` and jumps at ledges, gaps and hazards with deterministic human reaction jitter sampled from the per-run `random.Stream` in `[reactionMin, reactionMax]`. Use `playtest.ObservePlatformerGrid` to build a `PlatformerObservation` from a `physics.TileGrid` and hazard boxes.
+- **`topdown-explorer`** (`playtest.ProfileTopDownExplorer`, template `rpg2d`): walks to the nearest unseen walkable tile via BFS, talks to every NPC once, opens every chest, and stops when finished or when `runs.maxDuration` is reached (configured at `8x` speed in `rpg2d`'s `playtest.yaml`). Supply `ExplorerObservation` and record `goal_time`, `tiles_seen`/`tiles_total`, and `tile_visit` events (`heatMap: true`) for the time-per-tile heat map.
+- **`shooter`** (`playtest.ProfileShooter`, template `shmup2d`): fires constantly, collects power-ups within `powerUpRange` (default `80` px), and dodges predicted incoming bullets through a reaction-delayed perception buffer (fixed `180ms` when `reactionMin == reactionMax == 180ms`). Use `RecordShooterWave`, `RecordShooterHit` and `RecordShooterPowerUp` to report hits per wave (`hits_per_wave` series) and power-ups taken.
+- **`puzzle-solver`** (`playtest.ProfilePuzzleSolver`, template `puzzle2d`): pairs `SolvePuzzleBFS` (exact breadth-first search for the shortest solution up to `stateLimit`, default 2,000,000 states) with a human-like player that undoes after `undoAfterBadMoves` (default `3`) consecutive bad moves. Use `EvaluatePuzzlePack` or `NewPuzzlePackSim` to report solvable levels, moves over par, difficulty order dips, and solutions shorter than intended.
+- **`card-ai`** (`playtest.ProfileCardAI`, template `cards2d`): two greedy 1-turn-lookahead players (`CardAI.ChooseAction`) play every unordered deck pair `matchesPerPair` times, alternating who goes first. Use `RunCardTournament` or `NewCardTournamentSim` to report first-player win rate, median match length, most lopsided pair, deterministic think time, and the `deck_win_rates` matrix.
+
+Register custom bot profiles with `playtest.RegisterBot(name, factory)`. The `rpg2d`, `shmup2d`, `puzzle2d`, and `cards2d` project templates each ship a canonical `playtest.yaml` configured for their matching profile.
 
 ## Running headless and replaying runs
 

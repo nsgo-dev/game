@@ -55,7 +55,7 @@
       "type": "object",
       "properties": {
         "profile": {
-          "description": "Profile names the bot profile, such as \"platformer-runner\".",
+          "description": "Profile names the bot profile, such as \"platformer-runner\", \"topdown-explorer\", \"shooter\", \"puzzle-solver\" or \"card-ai\".",
           "type": "string",
           "minLength": 1
         },

@@ -746,12 +746,20 @@ func TestPlaytestSchemaShapeAndValidation(t *testing.T) {
 			}
 		}
 	}
-	data, err := os.ReadFile(filepath.Join(root, "playtest", "testdata", "platformer.playtest.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := s.ValidateYAML(data); err != nil {
-		t.Fatalf("playtest schema refused platformer.playtest.yaml: %v", err)
+	for _, fixture := range []string{
+		"platformer.playtest.yaml",
+		"rpg2d.playtest.yaml",
+		"shmup2d.playtest.yaml",
+		"puzzle2d.playtest.yaml",
+		"cards2d.playtest.yaml",
+	} {
+		data, err := os.ReadFile(filepath.Join(root, "playtest", "testdata", fixture))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.ValidateYAML(data); err != nil {
+			t.Fatalf("playtest schema refused %s: %v", fixture, err)
+		}
 	}
 	badDocs := []string{
 		"version: 1\nunknownKey: true\nscope: {scene: level_01}\nruns: {count: 1}\nbot: {profile: platformer-runner}\n",

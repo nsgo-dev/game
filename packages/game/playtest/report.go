@@ -20,8 +20,9 @@ const ReportVersion = 1
 const ReportFileName = "playtest.report.yaml"
 
 var (
-	validOutcomes = []string{OutcomeFinished, OutcomeFailed, OutcomeTimeout, OutcomeRunning}
-	validStatuses = []string{StatusMet, StatusMissed, StatusInfo}
+	validOutcomes    = []string{OutcomeFinished, OutcomeFailed, OutcomeTimeout, OutcomeRunning}
+	validStatuses    = []string{StatusMet, StatusMissed, StatusInfo}
+	validSeriesFlags = []string{"", FlagProblem, FlagWarning}
 )
 
 // Report is the deterministic YAML report written after running a playtest batch.
@@ -44,8 +45,56 @@ type Report struct {
 	Metrics []MetricReport `yaml:"metrics,omitempty"`
 	// HeatMaps holds world-space position data collected from positioned events for heat maps.
 	HeatMaps []HeatMap `yaml:"heatMaps,omitempty"`
+	// Series holds labeled bar or per-level numeric series (such as hits per wave or shortest solution per level).
+	Series []SeriesChart `yaml:"series,omitempty"`
+	// Matrices holds labeled row-vs-column numeric matrices (such as deck-pair win rates in percent).
+	Matrices []MatrixChart `yaml:"matrices,omitempty"`
 	// Runs holds per-seed outcomes, durations, counters, timers, positioned events, perf readouts and recording paths.
 	Runs []RunReport `yaml:"runs"`
+}
+
+// SeriesChart holds labeled numeric bars or per-bucket aggregates across runs (such as hits per wave or shortest solution moves per level).
+type SeriesChart struct {
+	// Name uniquely identifies the series (such as "hits_per_wave" or "shortest_solution").
+	Name string `yaml:"name"`
+	// Label is an optional display title (such as "Hits taken per wave").
+	Label string `yaml:"label,omitempty"`
+	// Unit is an optional value unit (such as "hits" or "moves").
+	Unit string `yaml:"unit,omitempty"`
+	// Aggregate is how per-run bucket values were combined (such as "median", "mean", "sum", "min" or "max").
+	Aggregate string `yaml:"aggregate,omitempty"`
+	// TargetMax, when non-nil, is an upper target line for bars; entries above it are flagged.
+	TargetMax *float64 `yaml:"targetMax,omitempty"`
+	// Entries lists each labeled bar in deterministic display order.
+	Entries []SeriesEntry `yaml:"entries,omitempty"`
+}
+
+// SeriesEntry is one labeled value in a SeriesChart.
+type SeriesEntry struct {
+	// Label identifies the bucket (such as "wave 1" or "level_07").
+	Label string `yaml:"label"`
+	// Value is the aggregated value for this bucket.
+	Value float64 `yaml:"value"`
+	// Flag optionally marks a standout bar: "problem" or "warning".
+	Flag string `yaml:"flag,omitempty"`
+	// Note is an optional short annotation for this entry.
+	Note string `yaml:"note,omitempty"`
+}
+
+// MatrixChart holds a labeled row-vs-column numeric matrix (such as deck-pair win rates in percent).
+type MatrixChart struct {
+	// Name uniquely identifies the matrix (such as "deck_win_rates").
+	Name string `yaml:"name"`
+	// Label is an optional display title (such as "Win rate by deck pair").
+	Label string `yaml:"label,omitempty"`
+	// Unit is an optional display unit for cells (such as "%").
+	Unit string `yaml:"unit,omitempty"`
+	// FlagAbove, when non-nil, flags cells whose value exceeds this threshold (such as 60 for >60% win rate).
+	FlagAbove *float64 `yaml:"flagAbove,omitempty"`
+	// Labels lists the row and column names in order (such as deck names).
+	Labels []string `yaml:"labels"`
+	// Cells holds the len(Labels) x len(Labels) grid; nil entries represent diagonal or unplayed pairs.
+	Cells [][]*float64 `yaml:"cells"`
 }
 
 // MetricReport holds the evaluated aggregate value and goal status for one Metric.
@@ -248,6 +297,75 @@ func ValidateReport(r *Report) error {
 			}
 		}
 	}
+	seenSeries := make(map[string]struct{}, len(r.Series))
+	for i, s := range r.Series {
+		at := loaderr.Path("series", i)
+		if strings.TrimSpace(s.Name) == "" {
+			return loaderr.Errorf(loaderr.Join(at, "name"), "give each series a non-empty name", "series name is required")
+		}
+		if _, dup := seenSeries[s.Name]; dup {
+			return loaderr.Errorf(loaderr.Join(at, "name"), "list each series once", "duplicate series %q", s.Name)
+		}
+		seenSeries[s.Name] = struct{}{}
+		if s.Aggregate != "" && !slices.Contains(validAggregates, s.Aggregate) {
+			return loaderr.Errorf(loaderr.Join(at, "aggregate"), "use one of: "+strings.Join(validAggregates, ", "), "unknown series aggregate %q", s.Aggregate)
+		}
+		if s.TargetMax != nil && !isFinite(*s.TargetMax) {
+			return loaderr.Errorf(loaderr.Join(at, "targetMax"), "use a finite targetMax", "series %q targetMax is not finite", s.Name)
+		}
+		for j, e := range s.Entries {
+			eat := loaderr.Join(at, "entries", j)
+			if strings.TrimSpace(e.Label) == "" {
+				return loaderr.Errorf(loaderr.Join(eat, "label"), "give each series entry a non-empty label", "series entry label is required")
+			}
+			if !isFinite(e.Value) {
+				return loaderr.Errorf(loaderr.Join(eat, "value"), "use a finite value", "series entry %q has non-finite value", e.Label)
+			}
+			if !slices.Contains(validSeriesFlags, e.Flag) {
+				return loaderr.Errorf(loaderr.Join(eat, "flag"), "use problem, warning or empty", "unknown series flag %q", e.Flag)
+			}
+		}
+	}
+	seenMatrices := make(map[string]struct{}, len(r.Matrices))
+	for i, m := range r.Matrices {
+		at := loaderr.Path("matrices", i)
+		if strings.TrimSpace(m.Name) == "" {
+			return loaderr.Errorf(loaderr.Join(at, "name"), "give each matrix a non-empty name", "matrix name is required")
+		}
+		if _, dup := seenMatrices[m.Name]; dup {
+			return loaderr.Errorf(loaderr.Join(at, "name"), "list each matrix once", "duplicate matrix %q", m.Name)
+		}
+		seenMatrices[m.Name] = struct{}{}
+		if m.FlagAbove != nil && !isFinite(*m.FlagAbove) {
+			return loaderr.Errorf(loaderr.Join(at, "flagAbove"), "use a finite flagAbove threshold", "matrix %q flagAbove is not finite", m.Name)
+		}
+		if len(m.Labels) == 0 {
+			return loaderr.Errorf(loaderr.Join(at, "labels"), "provide at least one matrix label", "matrix %q has no labels", m.Name)
+		}
+		seenLabels := make(map[string]struct{}, len(m.Labels))
+		for j, lbl := range m.Labels {
+			if strings.TrimSpace(lbl) == "" {
+				return loaderr.Errorf(loaderr.Join(at, "labels", j), "use non-empty matrix labels", "matrix label is empty")
+			}
+			if _, dup := seenLabels[lbl]; dup {
+				return loaderr.Errorf(loaderr.Join(at, "labels", j), "use unique matrix labels", "duplicate matrix label %q", lbl)
+			}
+			seenLabels[lbl] = struct{}{}
+		}
+		if len(m.Cells) != len(m.Labels) {
+			return loaderr.Errorf(loaderr.Join(at, "cells"), "provide one row per label", "matrix %q has %d rows, want %d", m.Name, len(m.Cells), len(m.Labels))
+		}
+		for rIdx, row := range m.Cells {
+			if len(row) != len(m.Labels) {
+				return loaderr.Errorf(loaderr.Join(at, "cells", rIdx), "provide one cell per label", "matrix %q row %d has %d cells, want %d", m.Name, rIdx, len(row), len(m.Labels))
+			}
+			for cIdx, cell := range row {
+				if cell != nil && !isFinite(*cell) {
+					return loaderr.Errorf(loaderr.Join(at, "cells", rIdx, cIdx), "use finite matrix cell values", "matrix %q cell [%d][%d] is not finite", m.Name, rIdx, cIdx)
+				}
+			}
+		}
+	}
 	for i, run := range r.Runs {
 		at := loaderr.Path("runs", i)
 		if run.Index <= 0 {
@@ -330,6 +448,29 @@ func normalizeReport(r *Report) {
 		for j := range r.HeatMaps[i].Points {
 			r.HeatMaps[i].Points[j].X = cleanZero(r.HeatMaps[i].Points[j].X)
 			r.HeatMaps[i].Points[j].Y = cleanZero(r.HeatMaps[i].Points[j].Y)
+		}
+	}
+	for i := range r.Series {
+		if r.Series[i].TargetMax != nil {
+			v := cleanZero(*r.Series[i].TargetMax)
+			r.Series[i].TargetMax = &v
+		}
+		for j := range r.Series[i].Entries {
+			r.Series[i].Entries[j].Value = cleanZero(r.Series[i].Entries[j].Value)
+		}
+	}
+	for i := range r.Matrices {
+		if r.Matrices[i].FlagAbove != nil {
+			v := cleanZero(*r.Matrices[i].FlagAbove)
+			r.Matrices[i].FlagAbove = &v
+		}
+		for rIdx := range r.Matrices[i].Cells {
+			for cIdx := range r.Matrices[i].Cells[rIdx] {
+				if r.Matrices[i].Cells[rIdx][cIdx] != nil {
+					v := cleanZero(*r.Matrices[i].Cells[rIdx][cIdx])
+					r.Matrices[i].Cells[rIdx][cIdx] = &v
+				}
+			}
 		}
 	}
 	for i := range r.Runs {
@@ -426,6 +567,49 @@ func cloneReport(r *Report) *Report {
 				Event:  hm.Event,
 				Points: slices.Clone(hm.Points),
 			}
+		}
+	}
+	if len(r.Series) > 0 {
+		out.Series = make([]SeriesChart, len(r.Series))
+		for i, s := range r.Series {
+			cp := SeriesChart{
+				Name:      s.Name,
+				Label:     s.Label,
+				Unit:      s.Unit,
+				Aggregate: s.Aggregate,
+				Entries:   slices.Clone(s.Entries),
+			}
+			if s.TargetMax != nil {
+				v := *s.TargetMax
+				cp.TargetMax = &v
+			}
+			out.Series[i] = cp
+		}
+	}
+	if len(r.Matrices) > 0 {
+		out.Matrices = make([]MatrixChart, len(r.Matrices))
+		for i, m := range r.Matrices {
+			cp := MatrixChart{
+				Name:   m.Name,
+				Label:  m.Label,
+				Unit:   m.Unit,
+				Labels: slices.Clone(m.Labels),
+				Cells:  make([][]*float64, len(m.Cells)),
+			}
+			if m.FlagAbove != nil {
+				v := *m.FlagAbove
+				cp.FlagAbove = &v
+			}
+			for rIdx, row := range m.Cells {
+				cp.Cells[rIdx] = make([]*float64, len(row))
+				for cIdx, cell := range row {
+					if cell != nil {
+						v := *cell
+						cp.Cells[rIdx][cIdx] = &v
+					}
+				}
+			}
+			out.Matrices[i] = cp
 		}
 	}
 	if len(r.Runs) > 0 {
