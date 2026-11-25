@@ -277,13 +277,13 @@ func ObservePlatformerGrid(grid physics.TileGrid, playerBox physics.Box, vx, vy 
 	if dir < 0 {
 		frontX = playerBox.Left() - 2
 	}
-	probeX := frontX + dir*tw*0.6
+	probeX := frontX + float32(float32(dir*tw)*0.6)
 	footY := playerBox.Bottom() + 2
 	midY := cy
 
 	// Check for a solid wall or step directly ahead within lookahead.
 	for _, dist := range []float32{2, tw * 0.6, lookahead} {
-		px := frontX + dir*dist
+		px := frontX + float32(dir*dist)
 		col := int(math.Floor(float64((px - ox) / tw)))
 		rowMid := int(math.Floor(float64((midY - oy) / th)))
 		rowLow := int(math.Floor(float64((playerBox.Bottom() - 2 - oy) / th)))
@@ -308,8 +308,8 @@ func ObservePlatformerGrid(grid physics.TileGrid, playerBox physics.Box, vx, vy 
 	// Check for a reachable ledge above ahead when the exit is higher than the player.
 	if grounded && exitY < cy-th {
 		for _, dist := range []float32{tw * 0.5, tw * 1.5} {
-			col := int(math.Floor(float64((cx + dir*dist - ox) / tw)))
-			rowUp := int(math.Floor(float64((playerBox.Top() - th*0.8 - oy) / th)))
+			col := int(math.Floor(float64((cx + float32(dir*dist) - ox) / tw)))
+			rowUp := int(math.Floor(float64((playerBox.Top() - float32(th*0.8) - oy) / th)))
 			t := grid.TileFlagsAt(col, rowUp)
 			if t&(physics.TileOneWay|physics.TileSolid) != 0 {
 				obs.LedgeAbove = true

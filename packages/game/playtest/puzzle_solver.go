@@ -15,9 +15,12 @@ const ProfilePuzzleSolver = "puzzle-solver"
 
 const (
 	defaultPuzzleStateLimit    = 2_000_000
+	maxPuzzleStateLimit        = 50_000_000
 	defaultPuzzleUndoAfterBad  = 3
+	maxPuzzleUndoAfterBad      = 1_000
 	defaultPuzzleMistakeRate   = 0.35
 	defaultPuzzleMaxHumanMoves = 200
+	maxPuzzleMaxHumanMoves     = 100_000
 	puzzleModeHuman            = "human"
 	puzzleModeSolver           = "solver"
 )
@@ -248,15 +251,15 @@ func NewPuzzleSolver(cfg BotConfig) (Bot, error) {
 	if cfg.Params != nil {
 		if v, ok := cfg.Params["stateLimit"]; ok {
 			n, ok := asFloat64(v)
-			if !ok || n < 1 {
-				return nil, fmt.Errorf("playtest: puzzle-solver param stateLimit must be a number >= 1")
+			if !ok || n < 1 || n > maxPuzzleStateLimit {
+				return nil, fmt.Errorf("playtest: puzzle-solver param stateLimit must be in [1, %d]", maxPuzzleStateLimit)
 			}
 			b.stateLimit = int(math.Round(n))
 		}
 		if v, ok := cfg.Params["undoAfterBadMoves"]; ok {
 			n, ok := asFloat64(v)
-			if !ok || n < 1 {
-				return nil, fmt.Errorf("playtest: puzzle-solver param undoAfterBadMoves must be a number >= 1")
+			if !ok || n < 1 || n > maxPuzzleUndoAfterBad {
+				return nil, fmt.Errorf("playtest: puzzle-solver param undoAfterBadMoves must be in [1, %d]", maxPuzzleUndoAfterBad)
 			}
 			b.undoAfterBadMoves = int(math.Round(n))
 		}
@@ -276,8 +279,8 @@ func NewPuzzleSolver(cfg BotConfig) (Bot, error) {
 		}
 		if v, ok := cfg.Params["maxHumanMoves"]; ok {
 			n, ok := asFloat64(v)
-			if !ok || n < 1 {
-				return nil, fmt.Errorf("playtest: puzzle-solver param maxHumanMoves must be a number >= 1")
+			if !ok || n < 1 || n > maxPuzzleMaxHumanMoves {
+				return nil, fmt.Errorf("playtest: puzzle-solver param maxHumanMoves must be in [1, %d]", maxPuzzleMaxHumanMoves)
 			}
 			b.maxHumanMoves = int(math.Round(n))
 		}
@@ -601,10 +604,17 @@ func (b *PuzzleSolver) moveInput(mv PuzzleMove) InputState {
 }
 
 func puzzleStateScore(s PuzzleState) float64 {
-	if sc, ok := s.(PuzzleScorer); ok {
-		return sc.ProgressScore()
+	if s == nil {
+		return 0
 	}
-	if s != nil && s.Solved() {
+	if sc, ok := s.(PuzzleScorer); ok {
+		v := sc.ProgressScore()
+		if !isFinite(v) {
+			return 0
+		}
+		return v
+	}
+	if s.Solved() {
 		return 1
 	}
 	return 0
@@ -837,8 +847,9 @@ func NewPuzzlePackSim(levels []PuzzleLevel, botCfg BotConfig) SimFactory {
 		totalUndos := 0
 
 		loadLevel := func(i int) {
-			if i >= len(levels) {
+			if i >= len(levels) || levels[i].Start == nil {
 				history = nil
+				levelSteps = 0
 				return
 			}
 			history = []PuzzleState{levels[i].Start}
@@ -883,6 +894,15 @@ func NewPuzzlePackSim(levels []PuzzleLevel, botCfg BotConfig) SimFactory {
 				return
 			}
 			lvl := levels[lvlIdx]
+			if len(history) == 0 || history[len(history)-1] == nil {
+				lvlIdx++
+				if lvlIdx >= len(levels) {
+					finishPack()
+				} else {
+					loadLevel(lvlIdx)
+				}
+				return
+			}
 			cur := history[len(history)-1]
 			levelSteps++
 

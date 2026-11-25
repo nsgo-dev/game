@@ -11,6 +11,11 @@ import (
 // ProfileTopDownExplorer is the built-in top-down exploration bot profile for RPG and adventure templates (rpg2d).
 const ProfileTopDownExplorer = "topdown-explorer"
 
+const (
+	maxExplorerVisionRadius = 1024
+	maxExplorerGridCells    = 1_000_000
+)
+
 func init() {
 	RegisterBot(ProfileTopDownExplorer, NewTopDownExplorer)
 }
@@ -149,8 +154,8 @@ func NewTopDownExplorer(cfg BotConfig) (Bot, error) {
 	if cfg.Params != nil {
 		if v, ok := cfg.Params["visionRadius"]; ok {
 			n, ok := asFloat64(v)
-			if !ok || n < 1 {
-				return nil, fmt.Errorf("playtest: topdown-explorer param visionRadius must be a number >= 1")
+			if !ok || n < 1 || n > maxExplorerVisionRadius {
+				return nil, fmt.Errorf("playtest: topdown-explorer param visionRadius must be in [1, %d]", maxExplorerVisionRadius)
 			}
 			b.visionRadius = int(math.Round(n))
 		}
@@ -361,6 +366,9 @@ func (b *TopDownExplorer) markSeen(mapID string, obs ExplorerObservation) {
 	if r <= 0 {
 		r = b.visionRadius
 	}
+	if r > maxExplorerVisionRadius {
+		r = maxExplorerVisionRadius
+	}
 	minX := max(0, obs.Player.X-r)
 	maxX := min(obs.Width-1, obs.Player.X+r)
 	minY := max(0, obs.Player.Y-r)
@@ -381,7 +389,7 @@ func (b *TopDownExplorer) markSeen(mapID string, obs ExplorerObservation) {
 }
 
 func (b *TopDownExplorer) chooseNextDir(mapID string, obs ExplorerObservation, rng *random.Stream) string {
-	if obs.Width <= 0 || obs.Height <= 0 {
+	if obs.Width <= 0 || obs.Height <= 0 || obs.Width > maxExplorerGridCells/obs.Height {
 		return ""
 	}
 	blocked := make(map[GridCell]bool, len(obs.NPCs)+len(obs.Chests))
@@ -520,7 +528,7 @@ func (b *TopDownExplorer) chooseNextDir(mapID string, obs ExplorerObservation, r
 	case bestInteractDir != "":
 		return bestInteractDir
 	case bestExitDir != "":
-		if bestExitCell != (GridCell{}) && bestExitScore < math.MaxInt {
+		if bestExitScore < math.MaxInt {
 			if b.exitUseCount[mapID] == nil {
 				b.exitUseCount[mapID] = make(map[GridCell]int)
 			}

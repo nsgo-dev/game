@@ -1311,3 +1311,181 @@ func TestCardAIOneTurnLookaheadAvoidsLethalTrap(t *testing.T) {
 		t.Fatalf("expected positive NodesEvaluated and ThinkMs, got %+v", dec)
 	}
 }
+
+type nanEvalCardState struct {
+	trapCardState
+}
+
+func (n nanEvalCardState) Apply(act playtest.CardAction) playtest.CardGameState {
+	return nanEvalCardState{trapCardState: n.trapCardState.Apply(act).(trapCardState)}
+}
+
+func (n nanEvalCardState) Evaluate(int) float64 { return math.NaN() }
+
+func TestBotProfilesEdgeCasesAndGuards(t *testing.T) {
+	t.Run("nil_puzzle_level_does_not_panic", func(t *testing.T) {
+		levels := fixturePuzzleLevels()
+		pack := []playtest.PuzzleLevel{
+			{ID: "level_nil", Name: "Broken", Par: 1, Start: nil},
+			levels[0],
+		}
+		cfg := &playtest.Config{
+			Version: playtest.CurrentVersion,
+			Scope:   playtest.Scope{Scene: "levels"},
+			Runs:    playtest.Runs{Count: 1, Rate: 60, MaxDuration: 10 * time.Second},
+			Bot:     playtest.BotConfig{Profile: playtest.ProfilePuzzleSolver},
+		}
+		res, err := playtest.Run(cfg, playtest.NewPuzzlePackSim(pack, cfg.Bot), playtest.RunOptions{})
+		if err != nil {
+			t.Fatalf("Run with nil level returned unexpected error: %v", err)
+		}
+		if res.Report.Runs[0].Outcome != playtest.OutcomeFailed {
+			t.Fatalf("outcome = %q, want %q", res.Report.Runs[0].Outcome, playtest.OutcomeFailed)
+		}
+		if got := res.Report.Runs[0].Counters["levels_solved"]; got != 1 {
+			t.Fatalf("levels_solved = %v, want 1", got)
+		}
+	})
+
+	t.Run("nil_card_state_and_invalid_decks_rejected", func(t *testing.T) {
+		botCfg := playtest.BotConfig{
+			Profile: playtest.ProfileCardAI,
+			Params:  map[string]any{"matchesPerPair": 2},
+		}
+		nilFactory := func(_, _ string, _ int, _ uint64) (playtest.CardGameState, error) {
+			return nil, nil
+		}
+		if _, err := playtest.RunCardTournament([]string{"Ember", "Frost"}, nilFactory, botCfg, 1); err == nil {
+			t.Fatal("RunCardTournament accepted nil state from factory")
+		}
+		if _, err := playtest.RunCardTournament([]string{"Ember", "Ember"}, newFixtureCardMatch, botCfg, 1); err == nil {
+			t.Fatal("RunCardTournament accepted duplicate deck names")
+		}
+		if _, err := playtest.RunCardTournament([]string{"", "Frost"}, newFixtureCardMatch, botCfg, 1); err == nil {
+			t.Fatal("RunCardTournament accepted empty deck name")
+		}
+
+		cfg := &playtest.Config{
+			Version: playtest.CurrentVersion,
+			Scope:   playtest.Scope{Scene: "duels"},
+			Runs:    playtest.Runs{Count: 1, Rate: 60, MaxDuration: 10 * time.Second},
+			Bot:     botCfg,
+		}
+		if _, err := playtest.Run(cfg, playtest.NewCardTournamentSim([]string{"Ember", "Frost"}, nilFactory, botCfg), playtest.RunOptions{}); err == nil {
+			t.Fatal("NewCardTournamentSim accepted nil state on initial match")
+		}
+		if _, err := playtest.Run(cfg, playtest.NewCardTournamentSim([]string{"Ember", "Ember"}, newFixtureCardMatch, botCfg), playtest.RunOptions{}); err == nil {
+			t.Fatal("NewCardTournamentSim accepted duplicate deck names")
+		}
+
+		// Nil state on a later match fails the run cleanly instead of stalling to timeout.
+		calls := 0
+		secondNilFactory := func(a, b string, first int, seed uint64) (playtest.CardGameState, error) {
+			calls++
+			if calls == 2 {
+				return nil, nil
+			}
+			return newFixtureCardMatch(a, b, first, seed)
+		}
+		res, err := playtest.Run(cfg, playtest.NewCardTournamentSim([]string{"Ember", "Frost"}, secondNilFactory, botCfg), playtest.RunOptions{})
+		if err != nil {
+			t.Fatalf("Run with second-match nil state returned error: %v", err)
+		}
+		if res.Report.Runs[0].Outcome != playtest.OutcomeFailed {
+			t.Fatalf("second-match nil state outcome = %q, want %q", res.Report.Runs[0].Outcome, playtest.OutcomeFailed)
+		}
+	})
+
+	t.Run("card_ai_nan_evaluate_score_is_finite", func(t *testing.T) {
+		raw, err := playtest.NewCardAI(playtest.BotConfig{Profile: playtest.ProfileCardAI})
+		if err != nil {
+			t.Fatalf("NewCardAI: %v", err)
+		}
+		ai := raw.(*playtest.CardAI)
+		st := nanEvalCardState{trapCardState: trapCardState{active: 0, turn: 1, hp0: 5, hp1: 10}}
+		dec := ai.ChooseAction(st, random.NewStreams(1).Stream("nan"))
+		if math.IsNaN(dec.Score) || math.IsInf(dec.Score, 0) {
+			t.Fatalf("ChooseAction returned non-finite score %v", dec.Score)
+		}
+	})
+
+	t.Run("topdown_explorer_counts_origin_exit_0_0", func(t *testing.T) {
+		raw, err := playtest.NewTopDownExplorer(playtest.BotConfig{
+			Profile: playtest.ProfileTopDownExplorer,
+			Params:  map[string]any{"visionRadius": 5},
+		})
+		if err != nil {
+			t.Fatalf("NewTopDownExplorer: %v", err)
+		}
+		bot := raw.(*playtest.TopDownExplorer)
+		obs := playtest.ExplorerObservation{
+			MapID:        "room",
+			Width:        3,
+			Height:       1,
+			Player:       playtest.GridCell{X: 1, Y: 0},
+			VisionRadius: 5,
+			Exits: []playtest.GridCell{
+				{X: 0, Y: 0},
+				{X: 2, Y: 0},
+			},
+		}
+		// Step 0: both exits have 0 uses and distance 1; explorer picks (0, 0) or (2, 0) and increments its count.
+		// With rng == nil, explorerDirs order is up, right, down, left -> first picks right (2, 0), then picks left (0, 0),
+		// then MUST switch back to right (2, 0) once (0, 0) use count increments!
+		in0 := bot.Decide(0, time.Second/60, obs, nil)
+		in1 := bot.Decide(1, time.Second/60, obs, nil)
+		in2 := bot.Decide(2, time.Second/60, obs, nil)
+		if !in0.Actions["right"] {
+			t.Fatalf("step 0 expected right toward (2,0), got %+v", in0.Actions)
+		}
+		if !in1.Actions["left"] {
+			t.Fatalf("step 1 expected left toward (0,0), got %+v", in1.Actions)
+		}
+		if !in2.Actions["right"] {
+			t.Fatalf("step 2 expected right after (0,0) use count incremented, got %+v", in2.Actions)
+		}
+	})
+
+	t.Run("shooter_nan_observation_produces_finite_axes", func(t *testing.T) {
+		raw, err := playtest.NewShooterBot(playtest.BotConfig{
+			Profile:     playtest.ProfileShooter,
+			ReactionMin: 0,
+			ReactionMax: 0,
+		})
+		if err != nil {
+			t.Fatalf("NewShooterBot: %v", err)
+		}
+		in := raw.Decide(0, time.Second/60, playtest.ShooterObservation{
+			PlayfieldWidth:  math.NaN(),
+			PlayfieldHeight: math.Inf(1),
+			ShipX:           math.NaN(),
+			ShipY:           math.Inf(-1),
+			ShipRadius:      math.NaN(),
+			ShipAlive:       true,
+			Bullets:         []playtest.ShooterBullet{{X: math.NaN(), Y: 10, VX: 0, VY: 100, Radius: 4}},
+			PowerUps:        []playtest.ShooterPowerUp{{X: math.NaN(), Y: 10}},
+		}, random.NewStreams(1).Stream("nan"))
+		if math.IsNaN(in.Axes["moveX"]) || math.IsInf(in.Axes["moveX"], 0) ||
+			math.IsNaN(in.Axes["moveY"]) || math.IsInf(in.Axes["moveY"], 0) {
+			t.Fatalf("ShooterBot produced non-finite axes: %+v", in.Axes)
+		}
+	})
+
+	t.Run("extreme_numeric_params_rejected", func(t *testing.T) {
+		cases := []playtest.BotConfig{
+			{Profile: playtest.ProfileShooter, Params: map[string]any{"lookaheadMs": 1e18}},
+			{Profile: playtest.ProfileTopDownExplorer, Params: map[string]any{"visionRadius": 1e9}},
+			{Profile: playtest.ProfilePuzzleSolver, Params: map[string]any{"stateLimit": 1e12}},
+			{Profile: playtest.ProfilePuzzleSolver, Params: map[string]any{"undoAfterBadMoves": 1e9}},
+			{Profile: playtest.ProfilePuzzleSolver, Params: map[string]any{"maxHumanMoves": 1e18}},
+			{Profile: playtest.ProfileCardAI, Params: map[string]any{"matchesPerPair": 1e9}},
+			{Profile: playtest.ProfileCardAI, Params: map[string]any{"maxTurns": 1e9}},
+			{Profile: playtest.ProfileCardAI, Params: map[string]any{"maxActionsPerTurn": 1e9}},
+		}
+		for _, bc := range cases {
+			if _, err := playtest.NewBot(bc); err == nil {
+				t.Errorf("NewBot(%+v) succeeded, want error for extreme param", bc)
+			}
+		}
+	})
+}

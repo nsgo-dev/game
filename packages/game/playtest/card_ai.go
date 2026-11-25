@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/nsgo-dev/game/packages/game/random"
@@ -15,8 +16,11 @@ const ProfileCardAI = "card-ai"
 
 const (
 	defaultCardMatchesPerPair    = 20
+	maxCardMatchesPerPair        = 10_000
 	defaultCardMaxTurns          = 60
+	maxCardMaxTurns              = 10_000
 	defaultCardMaxActionsPerTurn = 4
+	maxCardMaxActionsPerTurn     = 1_000
 	defaultCardMsPerNode         = 0.02
 	defaultCardFlagWinRateAbove  = 60.0
 	cardActionIndexAxis          = "action_index"
@@ -105,22 +109,22 @@ func NewCardAI(cfg BotConfig) (Bot, error) {
 	if cfg.Params != nil {
 		if v, ok := cfg.Params["matchesPerPair"]; ok {
 			n, ok := asFloat64(v)
-			if !ok || n < 1 {
-				return nil, fmt.Errorf("playtest: card-ai param matchesPerPair must be a number >= 1")
+			if !ok || n < 1 || n > maxCardMatchesPerPair {
+				return nil, fmt.Errorf("playtest: card-ai param matchesPerPair must be in [1, %d]", maxCardMatchesPerPair)
 			}
 			b.matchesPerPair = int(math.Round(n))
 		}
 		if v, ok := cfg.Params["maxTurns"]; ok {
 			n, ok := asFloat64(v)
-			if !ok || n < 1 {
-				return nil, fmt.Errorf("playtest: card-ai param maxTurns must be a number >= 1")
+			if !ok || n < 1 || n > maxCardMaxTurns {
+				return nil, fmt.Errorf("playtest: card-ai param maxTurns must be in [1, %d]", maxCardMaxTurns)
 			}
 			b.maxTurns = int(math.Round(n))
 		}
 		if v, ok := cfg.Params["maxActionsPerTurn"]; ok {
 			n, ok := asFloat64(v)
-			if !ok || n < 1 {
-				return nil, fmt.Errorf("playtest: card-ai param maxActionsPerTurn must be a number >= 1")
+			if !ok || n < 1 || n > maxCardMaxActionsPerTurn {
+				return nil, fmt.Errorf("playtest: card-ai param maxActionsPerTurn must be in [1, %d]", maxCardMaxActionsPerTurn)
 			}
 			b.maxActionsPerTurn = int(math.Round(n))
 		}
@@ -190,6 +194,10 @@ func (b *CardAI) ChooseAction(state CardGameState, rng *random.Stream) CardDecis
 		} else {
 			chosenIdx = bestIndices[0]
 		}
+	}
+
+	if !isFinite(bestScore) {
+		bestScore = 0
 	}
 
 	dec := CardDecision{
@@ -362,10 +370,27 @@ type CardTournamentReport struct {
 	Matches            []CardMatchResult
 }
 
+func validateCardDecks(decks []string) error {
+	if len(decks) < 2 {
+		return fmt.Errorf("playtest: card tournament requires at least 2 decks, got %d", len(decks))
+	}
+	seen := make(map[string]struct{}, len(decks))
+	for i, d := range decks {
+		if strings.TrimSpace(d) == "" {
+			return fmt.Errorf("playtest: card tournament deck %d name must be non-empty", i)
+		}
+		if _, dup := seen[d]; dup {
+			return fmt.Errorf("playtest: card tournament duplicate deck name %q", d)
+		}
+		seen[d] = struct{}{}
+	}
+	return nil
+}
+
 // RunCardTournament runs every unordered pair of decks matchesPerPair times (from cfg.Params["matchesPerPair"]), alternating who goes first, using two greedy 1-turn-lookahead CardAI players seeded deterministically from seed.
 func RunCardTournament(decks []string, factory CardMatchFactory, cfg BotConfig, seed uint64) (*CardTournamentReport, error) {
-	if len(decks) < 2 {
-		return nil, fmt.Errorf("playtest: card tournament requires at least 2 decks, got %d", len(decks))
+	if err := validateCardDecks(decks); err != nil {
+		return nil, err
 	}
 	if factory == nil {
 		return nil, fmt.Errorf("playtest: nil card match factory")
@@ -400,6 +425,9 @@ func RunCardTournament(decks []string, factory CardMatchFactory, cfg BotConfig, 
 				state, err := factory(decks[i], decks[j], firstPlayer, matchSeed)
 				if err != nil {
 					return nil, fmt.Errorf("playtest: match %s vs %s #%d: %w", decks[i], decks[j], m+1, err)
+				}
+				if state == nil {
+					return nil, fmt.Errorf("playtest: match %s vs %s #%d: factory returned nil state", decks[i], decks[j], m+1)
 				}
 				p0AI := &CardAI{
 					maxActionsPerTurn: aiCfg.maxActionsPerTurn,
@@ -528,8 +556,8 @@ func RunCardTournament(decks []string, factory CardMatchFactory, cfg BotConfig, 
 // NewCardTournamentSim returns a SimFactory that executes a round-robin deck-pair tournament inside playtest.Run, recording every AI decision through replay.Recorder and reporting first-player win rate, match length, most lopsided pair, think time, and the win-rate matrix on metrics.
 func NewCardTournamentSim(decks []string, factory CardMatchFactory, botCfg BotConfig) SimFactory {
 	return func(seed uint64, src replay.ActionSource, metrics *Collector) (Sim, error) {
-		if len(decks) < 2 {
-			return Sim{}, fmt.Errorf("playtest: card tournament requires at least 2 decks, got %d", len(decks))
+		if err := validateCardDecks(decks); err != nil {
+			return Sim{}, err
 		}
 		if factory == nil {
 			return Sim{}, fmt.Errorf("playtest: nil card match factory")
@@ -590,6 +618,9 @@ func NewCardTournamentSim(decks []string, factory CardMatchFactory, botCfg BotCo
 			st, err := factory(decks[pm.i], decks[pm.j], pm.firstPlayer, pm.matchSeed)
 			if err != nil {
 				return err
+			}
+			if st == nil {
+				return fmt.Errorf("playtest: match %s vs %s #%d: factory returned nil state", decks[pm.i], decks[pm.j], pm.matchNum+1)
 			}
 			state = st
 			matchActions = 0

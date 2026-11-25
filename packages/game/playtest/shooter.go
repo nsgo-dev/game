@@ -12,6 +12,8 @@ import (
 // ProfileShooter is the built-in shoot-'em-up bot profile for shmup2d templates.
 const ProfileShooter = "shooter"
 
+const maxShooterLookaheadMs = 60_000
+
 func init() {
 	RegisterBot(ProfileShooter, NewShooterBot)
 }
@@ -142,8 +144,8 @@ func NewShooterBot(cfg BotConfig) (Bot, error) {
 		}
 		if v, ok := cfg.Params["lookaheadMs"]; ok {
 			n, ok := asFloat64(v)
-			if !ok || n < 0 {
-				return nil, fmt.Errorf("playtest: shooter param lookaheadMs must be a non-negative number")
+			if !ok || n < 0 || n > maxShooterLookaheadMs {
+				return nil, fmt.Errorf("playtest: shooter param lookaheadMs must be in [0, %d]", maxShooterLookaheadMs)
 			}
 			b.lookahead = time.Duration(n * float64(time.Millisecond))
 		}
@@ -221,7 +223,10 @@ func (b *ShooterBot) Decide(_ int, dt time.Duration, rawObs any, rng *random.Str
 	b.history = append(b.history, snap)
 	maxHist := b.delaySteps + 1
 	if len(b.history) > maxHist {
-		b.history = b.history[len(b.history)-maxHist:]
+		drop := len(b.history) - maxHist
+		copy(b.history, b.history[drop:])
+		clear(b.history[maxHist:])
+		b.history = b.history[:maxHist]
 	}
 
 	if !obs.ShipAlive {
@@ -236,11 +241,23 @@ func (b *ShooterBot) Decide(_ int, dt time.Duration, rawObs any, rng *random.Str
 
 	w := obs.PlayfieldWidth
 	h := obs.PlayfieldHeight
-	if w <= 0 {
+	if !isFinite(w) || w <= 0 {
 		w = 270
 	}
-	if h <= 0 {
+	if !isFinite(h) || h <= 0 {
 		h = 480
+	}
+	shipX := obs.ShipX
+	shipY := obs.ShipY
+	if !isFinite(shipX) {
+		shipX = w / 2
+	}
+	if !isFinite(shipY) {
+		shipY = h * 0.84
+	}
+	shipRadius := obs.ShipRadius
+	if !isFinite(shipRadius) || shipRadius < 0 {
+		shipRadius = 0
 	}
 
 	// Default anchor: center bottom-fifth of the playfield.
@@ -251,7 +268,10 @@ func (b *ShooterBot) Decide(_ int, dt time.Duration, rawObs any, rng *random.Str
 	bestPU := math.Inf(1)
 	foundPU := false
 	for _, pu := range perceived.powerUps {
-		d := math.Hypot(pu.X-obs.ShipX, pu.Y-obs.ShipY)
+		if !isFinite(pu.X) || !isFinite(pu.Y) {
+			continue
+		}
+		d := math.Hypot(pu.X-shipX, pu.Y-shipY)
 		if d <= b.powerUpRange && d < bestPU {
 			bestPU = d
 			tx = pu.X
@@ -264,7 +284,7 @@ func (b *ShooterBot) Decide(_ int, dt time.Duration, rawObs any, rng *random.Str
 	if !foundPU {
 		var boss *ShooterTarget
 		for i := range perceived.enemies {
-			if perceived.enemies[i].IsBoss {
+			if perceived.enemies[i].IsBoss && isFinite(perceived.enemies[i].X) && isFinite(perceived.enemies[i].Y) {
 				boss = &perceived.enemies[i]
 				break
 			}
@@ -274,7 +294,10 @@ func (b *ShooterBot) Decide(_ int, dt time.Duration, rawObs any, rng *random.Str
 		} else {
 			lowestY := -1.0
 			for _, e := range perceived.enemies {
-				if e.Y > lowestY && e.Y < obs.ShipY-32 {
+				if !isFinite(e.X) || !isFinite(e.Y) {
+					continue
+				}
+				if e.Y > lowestY && e.Y < shipY-32 {
 					lowestY = e.Y
 					tx = e.X
 				}
@@ -282,16 +305,19 @@ func (b *ShooterBot) Decide(_ int, dt time.Duration, rawObs any, rng *random.Str
 		}
 	}
 
-	ax := (tx - obs.ShipX) / 40.0
-	ay := (ty - obs.ShipY) / 40.0
+	ax := (tx - shipX) / 40.0
+	ay := (ty - shipY) / 40.0
 
 	// 3. Dodge incoming bullets and ramming enemies from the reaction-delayed snapshot.
 	var rx, ry float64
 	threat := math.Inf(1)
 	push := func(px, py, radius float64) {
-		dx := obs.ShipX - px
-		dy := obs.ShipY - py
-		d := math.Hypot(dx, dy) - radius - obs.ShipRadius
+		if !isFinite(px) || !isFinite(py) || !isFinite(radius) {
+			return
+		}
+		dx := shipX - px
+		dy := shipY - py
+		d := math.Hypot(dx, dy) - radius - shipRadius
 		if d > b.dangerRange {
 			return
 		}
@@ -307,8 +333,9 @@ func (b *ShooterBot) Decide(_ int, dt time.Duration, rawObs any, rng *random.Str
 			dy = 0.25
 		}
 		inv := 65.0 / (d * d)
-		rx += dx * inv
-		ry += dy * inv
+		// Explicit float64 conversions inhibit arm64 FMA contraction for cross-arch determinism.
+		rx += float64(dx * inv)
+		ry += float64(dy * inv)
 	}
 
 	// Advance each perceived bullet by its own velocity over [0, lookahead] to dodge its trajectory.
@@ -321,7 +348,7 @@ func (b *ShooterBot) Decide(_ int, dt time.Duration, rawObs any, rng *random.Str
 		for _, bul := range perceived.bullets {
 			for t := time.Duration(0); t <= b.lookahead; t += sampleStep {
 				secs := t.Seconds()
-				push(bul.X+bul.VX*secs, bul.Y+bul.VY*secs, bul.Radius)
+				push(bul.X+float64(bul.VX*secs), bul.Y+float64(bul.VY*secs), bul.Radius)
 			}
 		}
 	}
@@ -330,8 +357,8 @@ func (b *ShooterBot) Decide(_ int, dt time.Duration, rawObs any, rng *random.Str
 	}
 
 	// Soft playfield wall repulsion prevents cornering during intense bullet patterns.
-	rx += 28.0/max(obs.ShipX-10, 1) - 28.0/max(w-10-obs.ShipX, 1)
-	ry += 28.0/max(obs.ShipY-h*0.45, 1) - 28.0/max(h-10-obs.ShipY, 1)
+	rx += 28.0/max(shipX-10, 1) - 28.0/max(w-10-shipX, 1)
+	ry += 28.0/max(shipY-float64(h*0.45), 1) - 28.0/max(h-10-shipY, 1)
 
 	mx := clampFloat(ax+rx, -1, 1)
 	my := clampFloat(ay+ry, -1, 1)
