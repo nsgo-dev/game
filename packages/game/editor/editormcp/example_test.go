@@ -100,6 +100,15 @@ func ExampleServer_AddTool() {
 	// selection_get read
 	// states_test run
 	// states_write edit
+	// tile_autotile edit
+	// tile_erase edit
+	// tile_paint edit
+	// tile_query read
+	// tile_review_keep edit
+	// tile_review_restore_region edit
+	// tile_review_revert_all edit
+	// tile_review_revert_region edit
+	// tile_review_status read
 	// tileset_edit edit
 	// tileset_read read
 	// viewport_image read

@@ -640,6 +640,8 @@ type Editor struct {
 	// randomTiles and randomSeed configure ToolRandomTile's deterministic weighted picks.
 	randomTiles []WeightedTile
 	randomSeed  uint64
+	// tileReview holds the active region-based agent tile edit review for the open scene, or nil.
+	tileReview *tileReviewState
 	// inspectAssetFile prefers the selected asset's import settings in InspectorView over SelectedID after selecting an asset in FilesView.
 	inspectAssetFile bool
 	// inspectLayer prefers ActiveLayer's parallax/repeat settings in InspectorView over Scene Settings when no object or asset file is selected (set by SetActiveLayer, cleared by SelectObject or opening a scene).
@@ -907,6 +909,7 @@ func (e *Editor) afterMutate() {
 	e.syncAudioMixer()
 	e.syncExportPanel()
 	e.syncHUDAfterMutate()
+	e.syncTileReviewAfterMutate()
 	e.Rebuild()
 	// Ensure SelectedID and selectedIDs still point to existing local, instanced, or inherited objects.
 	e.pruneSelection()
@@ -1264,6 +1267,7 @@ func (e *Editor) openYAMLWithLayers(data []byte, file string, layers *sceneforma
 	e.paletteStampAnchor = 0
 	e.paletteStampRect = TileRect{}
 	e.hasPaletteStampRect = false
+	e.tileReview = nil
 	e.Doc = doc
 	e.sceneSaved = saved
 	e.clearSelectionFields()

@@ -551,7 +551,7 @@ strings:
   tilePalette.paintLayer: Paint tile layer {name}
   tilePalette.setupTilemap: Set Up Tilemap
   tilePalette.tileLabel: Tile {number}
-  tilePalette.title: Tiles
+  tilePalette.title: TILESET
   tool.eraseTile: Erase Tile
   tool.fillTile: Fill Tile
   tool.move: Move

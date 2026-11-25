@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"bytes"
 	"fmt"
 	"slices"
 	"strconv"
@@ -49,6 +50,14 @@ type PaletteTile struct {
 	ID int
 	// Number is the tile's number as the scene file writes it, which the palette and the status bar show: ID for a single grid, and the local ID (ID less 1) for a layered grid.
 	Number int
+	// Name is the tile's human-readable name from the YAML tileset (or atlas frame name), or empty when unnamed.
+	Name string
+	// Col and Row are the tile's 0-based atlas/sheet cell coordinates.
+	Col, Row int
+	// Collision summarizes the tile's collision rule ("solid", "one-way top", "shapes", or "none") for YAML tilesets.
+	Collision string
+	// Terrain names the terrain set this tile belongs to in a YAML tileset, if any.
+	Terrain string
 	// Image is the image the tile is drawn from: the tileset atlas's image, or a YAML tileset's grid image.
 	Image core.ImageSource
 	// Frame is the tile's frame in Image.
@@ -118,7 +127,14 @@ func (e *Editor) TilePalette() TilePalette {
 		if err != nil || id <= 0 || strconv.Itoa(id) != name {
 			continue
 		}
-		p.Tiles = append(p.Tiles, PaletteTile{ID: id, Number: id, Image: atlas.Image, Frame: f})
+		col, row := 0, 0
+		if tm.TileWidth > 0 {
+			col = int(f.X) / tm.TileWidth
+		}
+		if tm.TileHeight > 0 {
+			row = int(f.Y) / tm.TileHeight
+		}
+		p.Tiles = append(p.Tiles, PaletteTile{ID: id, Number: id, Col: col, Row: row, Image: atlas.Image, Frame: f})
 	}
 	slices.SortFunc(p.Tiles, func(a, b PaletteTile) int { return a.ID - b.ID })
 	if len(p.Tiles) == 0 {
@@ -170,10 +186,53 @@ func (e *Editor) layeredPalette(p TilePalette, tm *sceneformat.TilemapDoc) TileP
 			p.Message = fmt.Sprintf("Tileset %q image %q cannot be resolved: %v", tm.TilesetFile, doc.Image, err)
 			return p
 		}
+	} else if fr, ok := e.Resolver.(sceneformat.FileResolver); ok {
+		if data, err := fr.ReadFile(doc.Image); err == nil && len(data) > 0 {
+			img = core.ImageSource{URI: doc.Image, Data: data}
+		}
+	}
+	metaByID := make(map[int]tilemap.TileDoc, len(doc.Tiles))
+	for _, td := range doc.Tiles {
+		metaByID[td.ID] = td
 	}
 	for id := range min(doc.Count(), maxPaletteTiles) {
 		if f, ok := tilemap.TilesetFrame(doc, atlas, id); ok {
-			p.Tiles = append(p.Tiles, PaletteTile{ID: id + 1, Number: id, Image: img, Frame: f})
+			col, row := 0, 0
+			if doc.Columns > 0 {
+				col, row = id%doc.Columns, id/doc.Columns
+			} else {
+				if doc.TileWidth > 0 {
+					col = int(f.X) / doc.TileWidth
+				}
+				if doc.TileHeight > 0 {
+					row = int(f.Y) / doc.TileHeight
+				}
+			}
+			td := metaByID[id]
+			name := td.Name
+			if name == "" && doc.Atlas != "" && id < len(doc.Frames) {
+				name = doc.Frames[id]
+			}
+			coll := "none"
+			switch {
+			case td.OneWay:
+				coll = "one-way top"
+			case td.Solid:
+				coll = "solid"
+			case len(td.Shapes) > 0:
+				coll = "shapes"
+			}
+			p.Tiles = append(p.Tiles, PaletteTile{
+				ID:        id + 1,
+				Number:    id,
+				Name:      name,
+				Col:       col,
+				Row:       row,
+				Collision: coll,
+				Terrain:   td.Terrain,
+				Image:     img,
+				Frame:     f,
+			})
 		}
 	}
 	if len(p.Tiles) == 0 {
@@ -212,7 +271,9 @@ func samePalette(a, b TilePalette) bool {
 		a.ActiveTerrain == b.ActiveTerrain && slices.Equal(a.Terrains, b.Terrains) &&
 		a.TileWidth == b.TileWidth && a.TileHeight == b.TileHeight && a.Columns == b.Columns &&
 		slices.EqualFunc(a.Tiles, b.Tiles, func(x, y PaletteTile) bool {
-			return x.ID == y.ID && x.Frame == y.Frame && sameImage(x.Image, y.Image)
+			return x.ID == y.ID && x.Name == y.Name && x.Col == y.Col && x.Row == y.Row &&
+				x.Collision == y.Collision && x.Terrain == y.Terrain &&
+				x.Frame == y.Frame && sameImage(x.Image, y.Image)
 		})
 }
 
@@ -221,7 +282,7 @@ func sameImage(a, b core.ImageSource) bool {
 	if a.URI != b.URI || a.Version != b.Version || a.Pixels != b.Pixels || a.Offscreen != b.Offscreen || a.Size != b.Size || len(a.Data) != len(b.Data) {
 		return false
 	}
-	return len(a.Data) == 0 || &a.Data[0] == &b.Data[0]
+	return len(a.Data) == 0 || bytes.Equal(a.Data, b.Data)
 }
 
 // paletteWidth is the tile palette panel's width in points, and paletteInner the width its tiles wrap in: the panel less its padding on both sides and its left border, which NSGo lays out inside the panel's box.
@@ -240,7 +301,7 @@ const (
 func TilePaletteView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	shown := core.NewMemo(cx, func() bool {
 		_ = rev.Get()
-		return ed.ViewMode == ViewMode2D && isTileTool(ed.Tool)
+		return ed.ViewMode == ViewMode2D && (isTileTool(ed.Tool) || (!ed.Playing() && ed.TileReviewOpen()))
 	})
 	return core.Show{
 		When: shown.Get,
@@ -445,7 +506,7 @@ func tilePalettePanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 					core.Text{
 						TestID:  "tile-palette-title",
 						Content: ed.T("tilePalette.title"),
-						Style:   core.Style{FontSize: 13, FontWeight: 700, Color: colors.Text(), FlexGrow: 1},
+						Style:   core.Style{FontSize: 11, FontWeight: 600, Color: colors.Muted(), FlexGrow: 1},
 					},
 					core.Text{
 						TestID: "tile-palette-tileset",
@@ -474,6 +535,7 @@ func tilePalettePanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 				Style:    core.Style{FlexGrow: 1},
 				Children: []core.Node{grid},
 			},
+			tilePaletteSelectedCard(cx, palette, active),
 		},
 	}
 }
@@ -842,6 +904,74 @@ func tileLayerControls(ed *Editor, rev *core.Signal[uint64], p TilePalette) core
 		Style:    core.Style{Gap: 6},
 		Children: children,
 	}
+}
+
+// tilePaletteSelectedCard renders the picked tile's swatch, name, atlas cell coordinates, and rules at the bottom of the tile palette.
+func tilePaletteSelectedCard(cx *core.Scope, palette *core.Memo[TilePalette], active *core.Memo[int]) core.Node {
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		p := palette.Get()
+		tile, ok := p.Tile(active.Get())
+		if !ok {
+			return core.View{}
+		}
+		name := tile.Name
+		if name == "" {
+			name = fmt.Sprintf("Tile %d", tile.Number)
+		}
+		var parts []string
+		parts = append(parts, fmt.Sprintf("cell %d, %d", tile.Col, tile.Row))
+		if tile.Collision != "" {
+			parts = append(parts, tile.Collision)
+		}
+		if tile.Terrain != "" {
+			parts = append(parts, tile.Terrain)
+		}
+		meta := strings.Join(parts, " · ")
+
+		return core.View{
+			TestID: "tile-palette-selected",
+			Style: core.Style{
+				Direction:    core.Row,
+				AlignItems:   core.AlignCenter,
+				Gap:          10,
+				Padding:      core.All(8),
+				CornerRadius: 10,
+				Background:   specRaised,
+				BorderWidth:  1,
+				BorderColor:  specLineRaised,
+			},
+			Children: []core.Node{
+				core.Canvas{
+					TestID: "tile-palette-selected-swatch",
+					Style: core.Style{
+						Width:        core.Pt(28),
+						Height:       core.Pt(28),
+						FlexShrink:   0,
+						CornerRadius: 6,
+						Background:   specPanel,
+					},
+					Draw: func(d *core.Drawing, size core.Size) {
+						drawPaletteTile(d, tile, float32(size.Width), float32(size.Height))
+					},
+				},
+				core.View{
+					Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), Gap: 2},
+					Children: []core.Node{
+						core.Text{
+							TestID:  "tile-palette-selected-name",
+							Content: name,
+							Style:   core.Style{FontSize: 11.5, FontWeight: 500, Color: specTextStrong},
+						},
+						core.Text{
+							TestID:  "tile-palette-selected-meta",
+							Content: meta,
+							Style:   core.Style{FontSize: 11, Color: specTextMuted},
+						},
+					},
+				},
+			},
+		}
+	})
 }
 
 // drawPaletteTile draws tile's untrimmed picture fitted to a w by h cell, its trimmed part at its offset inside it.

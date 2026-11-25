@@ -54,6 +54,7 @@ type sceneTab struct {
 	activeTileFlip      uint32
 	tileSel             TileRect
 	hasTileSel          bool
+	tileReview          *tileReviewState
 	view2D              View2D
 	view2DFree          bool
 	camera3D            OrbitCamera3D
@@ -133,6 +134,7 @@ func (e *Editor) syncActiveTab() {
 	t.activeTileFlip = e.ActiveTileFlip
 	t.tileSel = e.tileSel
 	t.hasTileSel = e.hasTileSel
+	t.tileReview = e.tileReview
 	t.view2D = e.view2D
 	t.view2DFree = e.view2DFree
 	t.camera3D = e.Camera3D
@@ -170,6 +172,7 @@ func (e *Editor) loadActiveTab() {
 	e.ActiveTileFlip = t.activeTileFlip
 	e.tileSel = t.tileSel
 	e.hasTileSel = t.hasTileSel
+	e.tileReview = t.tileReview
 	e.view2D = t.view2D
 	e.view2DFree = t.view2DFree
 	e.Camera3D = t.camera3D

@@ -551,7 +551,7 @@ strings:
   tilePalette.paintLayer: 绘制瓦片图层 {name}
   tilePalette.setupTilemap: 设置瓦片地图
   tilePalette.tileLabel: 瓦片 {number}
-  tilePalette.title: 瓦片
+  tilePalette.title: 图块集
   tool.eraseTile: 擦除瓦片
   tool.fillTile: 填充瓦片
   tool.move: 移动
