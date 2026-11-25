@@ -124,6 +124,12 @@ func (s *sceneCheck) sceneRefs(doc *sceneformat.SceneDoc, reg *sceneformat.Compo
 		if o := byID[ov.id]; o != nil && o.GridMap != "" && ov.gridMap != nil {
 			s.gridMap(o.GridMap, s.line(append(slices.Clip(ov.steps), "gridMap")...))
 		}
+		if ov.reflectionProbe != nil && ov.reflectionProbe.Cubemap != "" {
+			s.reflectionProbeCubemap(ov.reflectionProbe.Cubemap, append(slices.Clip(ov.steps), "reflectionProbe", "cubemap")...)
+		}
+		if ov.lightProbeGrid != nil && ov.lightProbeGrid.Data != "" {
+			s.lightProbeGridData(ov.lightProbeGrid.Data, append(slices.Clip(ov.steps), "lightProbeGrid", "data")...)
+		}
 	}
 	missing := false
 	for i, c := range conns {
@@ -224,12 +230,24 @@ type objectOverride struct {
 	id                                   string
 	components                           map[string]any
 	model, modelNode, modelMesh, gridMap *string
+	reflectionProbe                      *sceneformat.ReflectionProbeDoc
+	lightProbeGrid                       *sceneformat.LightProbeGridDoc
 	steps                                []string
 }
 
 // newObjectOverride returns the objectOverride for ov, which changes the object id of the resolved scene and is found at steps in the scene file.
 func newObjectOverride(id string, ov *sceneformat.ObjectOverride, steps []string) objectOverride {
-	return objectOverride{id: id, components: ov.Components, model: ov.Model, modelNode: ov.ModelNode, modelMesh: ov.ModelMesh, gridMap: ov.GridMap, steps: steps}
+	return objectOverride{
+		id:              id,
+		components:      ov.Components,
+		model:           ov.Model,
+		modelNode:       ov.ModelNode,
+		modelMesh:       ov.ModelMesh,
+		gridMap:         ov.GridMap,
+		reflectionProbe: ov.ReflectionProbe,
+		lightProbeGrid:  ov.LightProbeGrid,
+		steps:           steps,
+	}
 }
 
 // overrides returns the overrides doc applies, those of SceneDoc.Overrides first and then those of its instances in document order, each sorted by ID.
@@ -329,6 +347,12 @@ func (s *sceneCheck) objects(objs []sceneformat.ObjectDoc, steps ...string) {
 		}
 		if o.GridMap != "" {
 			s.gridMap(o.GridMap, s.line(append(slices.Clip(op), "gridMap")...))
+		}
+		if o.ReflectionProbe != nil && o.ReflectionProbe.Cubemap != "" {
+			s.reflectionProbeCubemap(o.ReflectionProbe.Cubemap, append(slices.Clip(op), "reflectionProbe", "cubemap")...)
+		}
+		if o.LightProbeGrid != nil && o.LightProbeGrid.Data != "" {
+			s.lightProbeGridData(o.LightProbeGrid.Data, append(slices.Clip(op), "lightProbeGrid", "data")...)
 		}
 		if o.Components != nil {
 			s.animator(o, op...)
@@ -596,6 +620,40 @@ func (s *sceneCheck) skyHDR(ref string, steps ...string) {
 	}
 	if _, err := render3d.DecodeHDR(bytes.NewReader(data)); err != nil {
 		s.problem(p, 0, "%v", err)
+	}
+}
+
+// reflectionProbeCubemap checks that a reflection probe's baked HDR cubemap exists and decodes as a valid cubemap strip or equirectangular HDR image.
+func (s *sceneCheck) reflectionProbeCubemap(ref string, steps ...string) {
+	line := s.line(steps...)
+	p, ok := s.fileRef(s.path, line, s.project, ref, "reflection probe cubemap")
+	if !ok || s.reflProbes[p] {
+		return
+	}
+	s.reflProbes[p] = true
+	data, ok := s.readFile(p)
+	if !ok {
+		return
+	}
+	if _, err := render3d.DecodeCubemapHDR(bytes.NewReader(data)); err != nil {
+		s.problem(p, 0, "%v", err)
+	}
+}
+
+// lightProbeGridData checks that a light probe grid's baked YAML file exists and parses cleanly with render3d.ParseLightProbeGrid.
+func (s *sceneCheck) lightProbeGridData(ref string, steps ...string) {
+	line := s.line(steps...)
+	p, ok := s.fileRef(s.path, line, s.project, ref, "light probe grid")
+	if !ok || s.probeGrids[p] {
+		return
+	}
+	s.probeGrids[p] = true
+	data, ok := s.readFile(p)
+	if !ok {
+		return
+	}
+	if _, err := render3d.ParseLightProbeGrid(data); err != nil {
+		s.yamlError(p, data, err)
 	}
 }
 

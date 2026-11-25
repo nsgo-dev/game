@@ -413,7 +413,7 @@ layers:
 
 | Files | Version | Read and written by | Fields |
 | --- | --- | --- | --- |
-| `*.scene.yaml`, such as `scenes/cave_room.scene.yaml` | `version: 1`, `version: 2` (instancing, inheritance, glTF models, particle emitters, layered tilemaps, LDtk levels), `version: 3` (parallax and repeating layers, tilemap offsets), or `version: 4` (3D lights, scene environment, 3D cameras); built-in physics components `version: 1`; built-in 2D lighting components `version: 1`; built-in 2D navigation region component `version: 1` | `sceneformat.Parse`, `sceneformat.Encode` | [Editor & Scene Format](editor.md); schemas `https://game.nsgo.dev/schemas/scene.v1.json`, `scene.v2.json`, `scene.v3.json` and `scene.v4.json` |
+| `*.scene.yaml`, such as `scenes/cave_room.scene.yaml` | `version: 1`, `version: 2` (instancing, inheritance, glTF models, particle emitters, layered tilemaps, LDtk levels), `version: 3` (parallax and repeating layers, tilemap offsets), or `version: 4` (3D lights, scene environment, 3D cameras, reflection probes, light probe grids); built-in physics components `version: 1`; built-in 2D lighting components `version: 1`; built-in 2D navigation region component `version: 1` | `sceneformat.Parse`, `sceneformat.Encode` | [Editor & Scene Format](editor.md); schemas `https://game.nsgo.dev/schemas/scene.v1.json`, `scene.v2.json`, `scene.v3.json` and `scene.v4.json` |
 
 ```yaml
 # yaml-language-server: $schema=https://game.nsgo.dev/schemas/scene.v1.json
@@ -573,6 +573,42 @@ meshes:
         triangles:
           - [0, 1, 2]
           - [0, 2, 3]
+```
+
+<!-- format: render3d#lightprobes -->
+### Baked light probe grids
+
+| Files | Version | Read and written by | Fields |
+| --- | --- | --- | --- |
+| `*.probes.yaml`, such as `probes/room.probes.yaml`, which a scene object's `lightProbeGrid.data` names | `version: 1` | `render3d.ParseLightProbeGrid`, `render3d.EncodeLightProbeGrid`, `render3d.LoadLightProbeGridFS` | [render3d](render3d.md); schema `https://game.nsgo.dev/schemas/lightprobes.v1.json` |
+
+```yaml
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/lightprobes.v1.json
+version: 1
+boundsMin: [-4, 0, -4]
+boundsMax: [4, 4, 4]
+counts: [2, 1, 1]
+probes:
+  - sh:
+      - [0.5, 0.4, 0.3]
+      - [0.1, 0.05, 0]
+      - [0, 0, 0]
+      - [0.15, 0.02, 0.02]
+      - [0, 0, 0]
+      - [0, 0, 0]
+      - [0, 0, 0]
+      - [0, 0, 0]
+      - [0, 0, 0]
+  - sh:
+      - [0.3, 0.4, 0.5]
+      - [0.05, 0.05, 0.1]
+      - [0, 0, 0]
+      - [-0.02, 0.02, 0.15]
+      - [0, 0, 0]
+      - [0, 0, 0]
+      - [0, 0, 0]
+      - [0, 0, 0]
+      - [0, 0, 0]
 ```
 
 <!-- format: tilemap#tileset -->

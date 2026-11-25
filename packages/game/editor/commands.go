@@ -91,6 +91,9 @@ const (
 	CmdView3DOrthographic = "view.3d.orthographic"
 	CmdView3DCamera       = "view.3d.camera"
 	CmdEnvironmentPanel   = "scene.environment"
+	CmdAddReflectionProbe = "scene.addReflectionProbe"
+	CmdAddLightProbeGrid  = "scene.addLightProbeGrid"
+	CmdBakeProbes3D       = "project.bakeProbes3D"
 )
 
 var (
@@ -1041,6 +1044,42 @@ func (e *Editor) initBuiltinCommands() {
 			Run: func() error {
 				e.SetShowNavMesh2D(!e.ShowNavMesh2D)
 				return nil
+			},
+		},
+		{
+			ID:          CmdAddReflectionProbe,
+			Label:       "Add Reflection Probe",
+			Description: "Place a 3D reflection probe on the active world layer",
+			Category:    "Edit",
+			Keywords:    []string{"reflection", "probe", "cubemap", "ibl", "3d", "bake"},
+			Enabled:     func() bool { return notPlaying() && e.Doc != nil },
+			Run: func() error {
+				_, err := e.AddReflectionProbe3D()
+				return err
+			},
+		},
+		{
+			ID:          CmdAddLightProbeGrid,
+			Label:       "Add Light Probe Grid",
+			Description: "Place a 3D light probe grid on the active world layer",
+			Category:    "Edit",
+			Keywords:    []string{"light", "probe", "grid", "irradiance", "sh", "gi", "3d", "bake"},
+			Enabled:     func() bool { return notPlaying() && e.Doc != nil },
+			Run: func() error {
+				_, err := e.AddLightProbeGrid3D()
+				return err
+			},
+		},
+		{
+			ID:          CmdBakeProbes3D,
+			Label:       "Bake Reflection & Light Probes",
+			Description: "Bake all reflection probe cubemaps and light probe grids in the scene",
+			Category:    "Project",
+			Keywords:    []string{"bake", "reflection", "light", "probe", "cubemap", "sh", "hdr", "ibl", "3d"},
+			Enabled:     func() bool { return notPlaying() && e.HasProbes3D() },
+			Run: func() error {
+				_, err := e.BakeAllProbes3D()
+				return err
 			},
 		},
 		{

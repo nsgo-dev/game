@@ -377,6 +377,16 @@ func inspectorSchemaKey(ed *Editor) string {
 	} else {
 		b.WriteString("|C3:none")
 	}
+	if obj.ReflectionProbe != nil {
+		b.WriteString("|RP:1")
+	} else {
+		b.WriteString("|RP:0")
+	}
+	if obj.LightProbeGrid != nil {
+		b.WriteString("|LP:1")
+	} else {
+		b.WriteString("|LP:0")
+	}
 	if obj.Scene != "" {
 		b.WriteString("|S:")
 		b.WriteString(obj.Scene)
@@ -1391,11 +1401,15 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 		)
 	}
 
-	if o, _, _ := ed.FindObject(objID); ed.ViewMode == ViewMode3D || (o != nil && (o.Light != nil || o.Camera != nil)) {
+	if o, _, _ := ed.FindObject(objID); ed.ViewMode == ViewMode3D || (o != nil && (o.Light != nil || o.Camera != nil || o.ReflectionProbe != nil || o.LightProbeGrid != nil)) {
 		nodes = append(nodes, sectionHeader("LIGHT 3D"))
 		nodes = append(nodes, light3DInspectorFields(ed, rev, objID, disabled, fieldRow)...)
 		nodes = append(nodes, sectionHeader("CAMERA 3D"))
 		nodes = append(nodes, camera3DInspectorFields(ed, rev, objID, disabled, fieldRow)...)
+		nodes = append(nodes, sectionHeader("REFLECTION PROBE"))
+		nodes = append(nodes, reflectionProbeInspectorFields(ed, rev, objID, disabled, fieldRow)...)
+		nodes = append(nodes, sectionHeader("LIGHT PROBE GRID"))
+		nodes = append(nodes, lightProbeGridInspectorFields(ed, rev, objID, disabled, fieldRow)...)
 	}
 
 	nodes = append(nodes, sectionHeader(ed.T("inspector.section.sprite")))

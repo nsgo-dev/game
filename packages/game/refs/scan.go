@@ -70,6 +70,8 @@ const (
 	FieldClip             = "clip"
 	FieldParticles        = "particles"
 	FieldSkyHDR           = "sky hdr"
+	FieldReflectionProbe  = "reflection probe cubemap"
+	FieldLightProbeGrid   = "light probe grid"
 	FieldTilemapSource    = "tilemap source"
 	FieldTilesetFile      = "tileset file"
 	FieldTexture          = "texture"
@@ -644,6 +646,8 @@ func (p *Project) sceneRefs(f *File, doc *yaml.Node) {
 		p.ref(f, field(kv[1], "gridMap"), FieldGridMap)
 		p.animatorRefs(f, field(kv[1], "components"))
 		p.ref(f, field(field(kv[1], "particles"), "file"), FieldParticles)
+		p.ref(f, field(field(kv[1], "reflectionProbe"), "cubemap"), FieldReflectionProbe)
+		p.ref(f, field(field(kv[1], "lightProbeGrid"), "data"), FieldLightProbeGrid)
 		p.skeletalComponentRef(f, kv[1])
 	}
 	for _, l := range items(field(doc, "layers")) {
@@ -706,6 +710,8 @@ func (p *Project) objectRefs(f *File, objs *yaml.Node, depth int) {
 		p.ref(f, field(o, "gridMap"), FieldGridMap)
 		p.animatorRefs(f, field(o, "components"))
 		p.ref(f, field(field(o, "particles"), "file"), FieldParticles)
+		p.ref(f, field(field(o, "reflectionProbe"), "cubemap"), FieldReflectionProbe)
+		p.ref(f, field(field(o, "lightProbeGrid"), "data"), FieldLightProbeGrid)
 		p.skeletalComponentRef(f, o)
 		for _, kv := range pairs(field(o, "overrides")) {
 			p.ref(f, field(kv[1], "material"), FieldMaterial)
@@ -713,6 +719,8 @@ func (p *Project) objectRefs(f *File, objs *yaml.Node, depth int) {
 			p.ref(f, field(kv[1], "gridMap"), FieldGridMap)
 			p.animatorRefs(f, field(kv[1], "components"))
 			p.ref(f, field(field(kv[1], "particles"), "file"), FieldParticles)
+			p.ref(f, field(field(kv[1], "reflectionProbe"), "cubemap"), FieldReflectionProbe)
+			p.ref(f, field(field(kv[1], "lightProbeGrid"), "data"), FieldLightProbeGrid)
 			p.skeletalComponentRef(f, kv[1])
 		}
 		p.objectRefs(f, field(o, "children"), depth+1)

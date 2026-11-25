@@ -631,6 +631,13 @@ func TestObjectOverrideCoversEveryObjectField(t *testing.T) {
 						e.Set(reflect.ValueOf(sceneformat.LightDoc{Kind: sceneformat.LightPoint, Range: 5}))
 					case reflect.TypeFor[sceneformat.Camera3DDoc]():
 						e.Set(reflect.ValueOf(sceneformat.Camera3DDoc{Projection: sceneformat.ProjectionPerspective, FOV: sceneformat.Float32(60)}))
+					case reflect.TypeFor[sceneformat.ReflectionProbeDoc]():
+						sz := [3]float32{8, 4, 8}
+						e.Set(reflect.ValueOf(sceneformat.ReflectionProbeDoc{Size: &sz, Cubemap: "probes/room.hdr"}))
+					case reflect.TypeFor[sceneformat.LightProbeGridDoc]():
+						sz := [3]float32{8, 4, 8}
+						cnt := [3]int{2, 2, 2}
+						e.Set(reflect.ValueOf(sceneformat.LightProbeGridDoc{Size: &sz, Counts: &cnt, Data: "probes/room.probes.yaml"}))
 					default:
 						t.Fatalf("unhandled struct override field type %v", e.Type())
 					}

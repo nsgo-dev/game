@@ -1,0 +1,4 @@
+### Added
+- Support 3D reflection probes (`reflectionProbe`) and light probe grids (`lightProbeGrid`) in version 4 scenes (`sceneformat`, `scene.v4.json`), with baked 6×1 Radiance `.hdr` cubemap strips (`render3d.EncodeCubemapHDR` / `DecodeCubemapHDR`) and versioned canonical light probe YAML files (`*.probes.yaml`, `render3d.ParseLightProbeGrid` / `EncodeLightProbeGrid`, `lightprobes.v1.json`).
+- Load baked reflection probes and light probe grids in `scenemodel.Build` / `scenemodel.Renderer` with unified `render3d` probe IBL shading and offscreen baking (`scenemodel.BakeReflectionProbe` / `BakeLightProbeGrid`).
+- Place, inspect, resize with six undoable 3D face-center bounds handles (with Escape cancel), and bake reflection probes and light probe grids in the editor (`AddReflectionProbe3D`, `AddLightProbeGrid3D`, `BakeReflectionProbe3D`, `BakeLightProbeGrid3D`, `BakeAllProbes3D`), plus reference scanning in `refs` and validation in `tooling/assetcheck`.

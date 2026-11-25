@@ -413,7 +413,7 @@ layers:
 
 | 文件 | 版本 | 读写函数 | 字段 |
 | --- | --- | --- | --- |
-| `*.scene.yaml`，如 `scenes/cave_room.scene.yaml` | `version: 1`、`version: 2`（实例化、继承、glTF 模型、粒子发射器、分层瓦片地图、LDtk 关卡）、`version: 3`（视差与重复图层、瓦片地图偏移）或 `version: 4`（3D 光源、场景环境、3D 相机）；内置物理组件 `version: 1`；内置 2D 光照组件 `version: 1`；内置 2D 导航区域组件 `version: 1` | `sceneformat.Parse`、`sceneformat.Encode` | [编辑器与场景格式](editor.md)；Schema 为 `https://game.nsgo.dev/schemas/scene.v1.json`、`scene.v2.json`、`scene.v3.json` 和 `scene.v4.json` |
+| `*.scene.yaml`，如 `scenes/cave_room.scene.yaml` | `version: 1`、`version: 2`（实例化、继承、glTF 模型、粒子发射器、分层瓦片地图、LDtk 关卡）、`version: 3`（视差与重复图层、瓦片地图偏移）或 `version: 4`（3D 光源、场景环境、3D 相机、反射探针、光照探针网格）；内置物理组件 `version: 1`；内置 2D 光照组件 `version: 1`；内置 2D 导航区域组件 `version: 1` | `sceneformat.Parse`、`sceneformat.Encode` | [编辑器与场景格式](editor.md)；Schema 为 `https://game.nsgo.dev/schemas/scene.v1.json`、`scene.v2.json`、`scene.v3.json` 和 `scene.v4.json` |
 
 ```yaml
 # yaml-language-server: $schema=https://game.nsgo.dev/schemas/scene.v1.json
@@ -573,6 +573,42 @@ meshes:
         triangles:
           - [0, 1, 2]
           - [0, 2, 3]
+```
+
+<!-- format: render3d#lightprobes -->
+### 烘焙光照探针网格
+
+| 文件 | 版本 | 读写函数 | 字段 |
+| --- | --- | --- | --- |
+| `*.probes.yaml`，如 `probes/room.probes.yaml`，由场景对象的 `lightProbeGrid.data` 引用 | `version: 1` | `render3d.ParseLightProbeGrid`、`render3d.EncodeLightProbeGrid`、`render3d.LoadLightProbeGridFS` | [render3d](render3d.md)；Schema 为 `https://game.nsgo.dev/schemas/lightprobes.v1.json` |
+
+```yaml
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/lightprobes.v1.json
+version: 1
+boundsMin: [-4, 0, -4]
+boundsMax: [4, 4, 4]
+counts: [2, 1, 1]
+probes:
+  - sh:
+      - [0.5, 0.4, 0.3]
+      - [0.1, 0.05, 0]
+      - [0, 0, 0]
+      - [0.15, 0.02, 0.02]
+      - [0, 0, 0]
+      - [0, 0, 0]
+      - [0, 0, 0]
+      - [0, 0, 0]
+      - [0, 0, 0]
+  - sh:
+      - [0.3, 0.4, 0.5]
+      - [0.05, 0.05, 0.1]
+      - [0, 0, 0]
+      - [-0.02, 0.02, 0.15]
+      - [0, 0, 0]
+      - [0, 0, 0]
+      - [0, 0, 0]
+      - [0, 0, 0]
+      - [0, 0, 0]
 ```
 
 <!-- format: tilemap#tileset -->

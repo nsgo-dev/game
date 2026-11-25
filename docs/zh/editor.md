@@ -683,6 +683,14 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 - **检查器与创建辅助**：在 3D 视图下（或选中任何带光源/3D 相机的对象时），检查器显示 `LIGHT 3D`（`SetObjectLight`）与 `CAMERA 3D`（`SetObjectCamera3D`，切换 `current` 时在同一步撤销中原子清除其他相机的 `current`）。在 Go 中，`AddLight3D(kind)` 与 `AddCamera3D(proj)` 在当前世界空间图层放置预配置的光源和 3D 相机，`ProjectHDRs()` 列出当前打开项目中的 `.hdr`/`.pic` 天空文件。
 - **透过场景相机观看**：按 `0`、点击 3D 视图栏的 **Camera** 按钮或执行 `CmdView3DCamera`（`SetLookThroughCamera3D` / `ToggleLookThroughCamera3D`）即可透过场景当前的 3D 相机（`ActiveSceneCamera3D`）观察 3D 视口，与游戏第一帧逐像素一致。环绕、平移、缩放、飞行或切换轴向视图会自动退出相机预览模式。
 
+### 反射探针与光照探针网格（#903）
+
+版本 4 场景同时支持局部 3D 反射探针（`ObjectDoc.ReflectionProbe`）和 3D 光照探针网格（`ObjectDoc.LightProbeGrid`），可在编辑器中直接放置、编辑边界并烘焙，使 `scenemodel` 运行时着色与编辑器 3D 视口逐像素一致：
+
+- **放置与检查器**：通过 `AddReflectionProbe3D` / `AddLightProbeGrid3D`（或命令面板 `CmdAddReflectionProbe` / `CmdAddLightProbeGrid`）放置探针，并在检查器（`REFLECTION PROBE` 经由 `SetObjectReflectionProbe`，`LIGHT PROBE GRID` 经由 `SetObjectLightProbeGrid`）中以可撤销步骤编辑局部边界盒（`center`、`size`）、混合距离、强度、优先级、盒投影、立方体贴图分辨率、网格采样数与烘焙文件路径。
+- **视口图标、线框与 3D 边界手柄**：反射探针绘制青色镜面球图标、外层影响范围线框与内层混合线框；光照探针网格绘制琥珀色点阵图标、边界线框与采样点。选中探针后显示 6 个可拖拽的面中心边界手柄（`Handle3DProbeBoundsPosX`..`Handle3DProbeBoundsNegZ`），拖拽时固定对面调整边界并在松手时合并为单个可撤销步骤（`EndHandleDrag3D`），按 Escape 可取消恢复原值（`CancelHandleDrag3D`）。
+- **烘焙**：点击检查器中的 **Bake Cubemap** / **Bake Probes**、场景环境面板中的 **Bake Probes**，或执行 `CmdBakeProbes3D`（`BakeReflectionProbe3D`、`BakeLightProbeGrid3D`、`BakeAllProbes3D`）。反射探针从探针中心渲染 3D 场景并写出 6×1 Radiance `.hdr` 立方体贴图长条（`render3d.EncodeCubemapHDR`）；光照探针网格在每个采样点渲染并把 L2 球谐辐照度系数写出为确定性的带版本 YAML（`*.probes.yaml`，`render3d.EncodeLightProbeGrid`，Schema `https://game.nsgo.dev/schemas/lightprobes.v1.json`）。输出路径校验路径穿越、符号链接与保留文件名后原子写入，以可撤销步骤链接回探针对象，并由 `scenemodel.Build` 与 `scenemodel.Renderer` 加载，使游戏与编辑器着色完全一致。
+
 ## 瓦片调色板（#874）
 
 在 2D 视图中启用 Paint、Erase、Fill、Pick 或 Terrain 工具时，视口右侧会显示瓦片调色板。它把当前图层瓦片集的瓦片按瓦片 ID 顺序排成网格，每个瓦片按瓦片地图的瓦片尺寸显示（比面板还宽的瓦片会缩小到面板宽度）。这些瓦片是瓦片集图集中名称为瓦片 ID（`"1"`、`"2"`……）的帧，与场景格式查找瓦片的方式一致；其他帧不会列出。点击一个瓦片，或用方向键在瓦片之间移动，即可把它设为 Paint 和 Fill 写入的瓦片（`SetActiveTileID`）；所有方向键都按 ID 顺序逐个移动，左键和上键移到上一个瓦片，右键和下键移到下一个，而不是按网格的行移动。选中的瓦片带有一圈高亮，使用 Paint 或 Fill 时状态栏显示它的 ID。选择瓦片不算编辑，不进入撤销历史；之后的绘制是一个可撤销的步骤。

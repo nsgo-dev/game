@@ -458,6 +458,12 @@ func (ov *ObjectOverride) applyTo(o *ObjectDoc) {
 	if ov.Camera != nil {
 		o.Camera = ov.Camera.Clone()
 	}
+	if ov.ReflectionProbe != nil {
+		o.ReflectionProbe = ov.ReflectionProbe.Clone()
+	}
+	if ov.LightProbeGrid != nil {
+		o.LightProbeGrid = ov.LightProbeGrid.Clone()
+	}
 	o.Components = mergeAnyMap(o.Components, ov.Components)
 	o.Properties = mergeAnyMap(o.Properties, ov.Properties)
 }
@@ -636,6 +642,8 @@ func cloneObjectFields(o *ObjectDoc) ObjectDoc {
 	out.Particles = clonePtr(o.Particles)
 	out.Light = o.Light.Clone()
 	out.Camera = o.Camera.Clone()
+	out.ReflectionProbe = o.ReflectionProbe.Clone()
+	out.LightProbeGrid = o.LightProbeGrid.Clone()
 	out.Components = cloneAnyMap(o.Components)
 	out.Properties = cloneAnyMap(o.Properties)
 	out.Overrides = cloneOverrides(o.Overrides)
@@ -680,6 +688,8 @@ func cloneOverrides(ovs map[string]ObjectOverride) map[string]ObjectOverride {
 		c.Particles = clonePtr(ov.Particles)
 		c.Light = ov.Light.Clone()
 		c.Camera = ov.Camera.Clone()
+		c.ReflectionProbe = ov.ReflectionProbe.Clone()
+		c.LightProbeGrid = ov.LightProbeGrid.Clone()
 		c.Components = cloneAnyMap(ov.Components)
 		c.Properties = cloneAnyMap(ov.Properties)
 		out[k] = c

@@ -39,12 +39,17 @@ type ImportSettingsResolver interface {
 	ImportSettings(modelPath string) (*importsettings.File, error)
 }
 
-// HDRResolver loads the Radiance .hdr image at path, a slash-separated path from the project root, for an HDR sky (sceneformat.SkyDoc.HDR).
+// HDRResolver loads the Radiance .hdr image at path, a slash-separated path from the project root, for an HDR sky (sceneformat.SkyDoc.HDR) or a baked reflection probe cubemap (sceneformat.ReflectionProbeDoc.Cubemap).
 type HDRResolver interface {
 	HDR(path string) (*render3d.HDRImage, error)
 }
 
-// Assets loads models, grid maps, material files, images, model import sidecars and Radiance HDR panoramas from a project's files, such as os.DirFS(projectRoot) or an embed.FS, and keeps each one it loaded, so it serves Build as a ModelResolver, a GridMapResolver, a sceneformat.MaterialResolver, an ImageResolver, an ImportSettingsResolver and an HDRResolver. Models load with gltf.LoadFS, so a .gltf file's separate buffers and images are read from beside it; grid maps parse with world3d.ParseGridMapWith; material files load through a resource.Library, which shares one value per path; images decode as PNG or JPEG; sidecars load through importsettings.Parse; HDR skies decode with render3d.DecodeHDR.
+// LightProbeGridResolver loads the baked light probe grid YAML file at path, a slash-separated path from the project root, for a scene object's light probe grid (sceneformat.LightProbeGridDoc.Data).
+type LightProbeGridResolver interface {
+	LightProbeGrid(path string) (*render3d.LightProbeGrid, error)
+}
+
+// Assets loads models, grid maps, material files, images, model import sidecars, Radiance HDR panoramas/cubemaps and baked light probe grids from a project's files, such as os.DirFS(projectRoot) or an embed.FS, and keeps each one it loaded, so it serves Build as a ModelResolver, a GridMapResolver, a sceneformat.MaterialResolver, an ImageResolver, an ImportSettingsResolver, an HDRResolver and a LightProbeGridResolver. Models load with gltf.LoadFS, so a .gltf file's separate buffers and images are read from beside it; grid maps parse with world3d.ParseGridMapWith; material files load through a resource.Library, which shares one value per path; images decode as PNG or JPEG; sidecars load through importsettings.Parse; HDR skies and reflection probes decode with render3d.DecodeHDR; light probe grids load with render3d.LoadLightProbeGridFS.
 //
 // Its methods are safe to call from any goroutine.
 type Assets struct {
@@ -58,6 +63,7 @@ type Assets struct {
 	sidecars      map[string]*importsettings.File
 	sidecarLoaded map[string]bool
 	hdrs          map[string]*render3d.HDRImage
+	lightProbes   map[string]*render3d.LightProbeGrid
 }
 
 // NewAssets returns Assets that read from fsys, rooted at the project root.
@@ -71,6 +77,7 @@ func NewAssets(fsys fs.FS) *Assets {
 		sidecars:      make(map[string]*importsettings.File),
 		sidecarLoaded: make(map[string]bool),
 		hdrs:          make(map[string]*render3d.HDRImage),
+		lightProbes:   make(map[string]*render3d.LightProbeGrid),
 	}
 }
 
@@ -202,6 +209,24 @@ func (a *Assets) HDR(path string) (*render3d.HDRImage, error) {
 	}
 	a.hdrs[path] = img
 	return img, nil
+}
+
+// LightProbeGrid parses the baked light probe grid YAML file at path on first use and returns the same grid after that.
+func (a *Assets) LightProbeGrid(path string) (*render3d.LightProbeGrid, error) {
+	if err := a.check(path); err != nil {
+		return nil, err
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if g, ok := a.lightProbes[path]; ok {
+		return g, nil
+	}
+	g, err := render3d.LoadLightProbeGridFS(a.fsys, path)
+	if err != nil {
+		return nil, fmt.Errorf("scenemodel: lightProbeGrid %s: %w", path, err)
+	}
+	a.lightProbes[path] = g
+	return g, nil
 }
 
 // check returns why a cannot read path, or nil.

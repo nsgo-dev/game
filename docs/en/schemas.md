@@ -13,7 +13,8 @@ import "github.com/nsgo-dev/game/packages/game/tooling/jsonschema"
 | Scene, version 1 | `https://game.nsgo.dev/schemas/scene.v1.json` | `*.scene.yaml`, read by `sceneformat.Parse` |
 | Scene, version 2 | `https://game.nsgo.dev/schemas/scene.v2.json` | `*.scene.yaml` that instance or inherit other scene files, name glTF models, place particle emitters, or hold layered tilemaps or LDtk levels, read by `sceneformat.Parse` |
 | Scene, version 3 | `https://game.nsgo.dev/schemas/scene.v3.json` | `*.scene.yaml` with parallax or repeating layers or tilemap offsets (and all version 2 features), read by `sceneformat.Parse` |
-| Scene, version 4 | `https://game.nsgo.dev/schemas/scene.v4.json` | `*.scene.yaml` with 3D lights, scene environment (sky, ambient/IBL, fog, tonemapping, exposure) or 3D cameras (and all version 3 features), read by `sceneformat.Parse` |
+| Scene, version 4 | `https://game.nsgo.dev/schemas/scene.v4.json` | `*.scene.yaml` with 3D lights, scene environment (sky, ambient/IBL, fog, tonemapping, exposure), 3D cameras, reflection probes, or light probe grids (and all version 3 features), read by `sceneformat.Parse` |
+| Light probe grid, version 1 | `https://game.nsgo.dev/schemas/lightprobes.v1.json` | `*.probes.yaml` baked by the editor and named by `lightProbeGrid.data`, read by `render3d.ParseLightProbeGrid` and `render3d.LoadLightProbeGridFS` |
 | Tileset, version 1 | `https://game.nsgo.dev/schemas/tileset.v1.json` | `*.tileset.yaml`, read by `tilemap.ParseTileset` and `tilemap.LoadTilesetFS` |
 | Import settings, version 1 | `https://game.nsgo.dev/schemas/import.v1.json` | `*.import.yaml` beside an asset, read by `importsettings.Parse`, by `game assets` and, for its credit, by `game release` and `game credits` ([Command Line](cli.md#assets)) |
 | Voxel world, version 1 | `https://game.nsgo.dev/schemas/voxel.v1.json` | `*.voxel.yaml`, read by `voxel.Parse` and `voxel.LoadYAML` |

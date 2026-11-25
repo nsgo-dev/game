@@ -84,9 +84,9 @@ type Environment struct {
 	ToneMap render3d.ToneMapOptions
 }
 
-// HasSceneLighting reports whether the built scene declares any 3D lights or an environment section.
+// HasSceneLighting reports whether the built scene declares any 3D lights, an environment section, or baked reflection/light probes.
 func (b *Built) HasSceneLighting() bool {
-	return b != nil && (len(b.Lights) > 0 || b.Environment.Present)
+	return b != nil && (len(b.Lights) > 0 || b.Environment.Present || b.HasBakedProbes())
 }
 
 // ActiveCameraObject returns the scene's active visible, enabled 3D camera object: the one marked Current, or the first visible, enabled 3D camera in document order when none is marked.
