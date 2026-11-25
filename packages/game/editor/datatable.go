@@ -224,6 +224,9 @@ func (e *Editor) openDataTable(path string, data []byte, fromDisk bool) error {
 		before: e.table.clone(),
 		after:  next,
 	})
+	if saved, err := doc.Marshal(); err == nil {
+		e.tableSaved = saved
+	}
 	return nil
 }
 
@@ -266,6 +269,7 @@ func (e *Editor) SaveDataTableFile(path string) error {
 	e.table.fromDisk = true
 	e.table.rowType = e.DataTableRowTypeFor(path)
 	e.table.lastErr = nil
+	e.tableSaved = append([]byte(nil), data...)
 	e.filesRev++
 	e.invalidateProjectIndex()
 	e.Status = "Saved table " + path
@@ -286,6 +290,7 @@ func (e *Editor) saveDataTableFromPanel() error {
 			return err
 		}
 		e.table.lastErr = nil
+		e.tableSaved = append([]byte(nil), data...)
 		e.Status = "Saved table"
 		e.notify()
 		return nil

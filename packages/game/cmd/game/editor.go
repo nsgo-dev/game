@@ -9,27 +9,23 @@ import (
 	"go/parser"
 	"go/token"
 	"io"
-	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/nsgo-dev/game/packages/game/editor"
 	"github.com/nsgo-dev/game/packages/game/editor/editorcmd"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
-	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/game/packages/game/tooling/library"
-	"github.com/nsgo-dev/nsgo/core"
 )
 
-// editorCommand opens the scene editor on a game's project, as its directory or its game.yaml, which opens the project and its main scene, or on a YAML scene file, which inside a project opens that project too, or on a demo scene when nothing is named. A project's scenes draw its own atlases, which the asset browser lists, and its scene files place as instances. A project with an editor command of its own, which `game generate editor` writes, is opened by running that command with go run, so its component types are checked and its plugins built in. With -library it shows the library panel, which installs packs from that library into the open project. A second argument is an animation clip file the animation panel opens on the object named by the third argument, or on the scene's first object.
+// editorCommand opens the scene editor on a game's project, as its directory or its game.yaml, which opens the project and its main scene, or on a YAML scene file, which inside a project opens that project too, or on the Start Screen when nothing is named. A project's scenes draw its own atlases, which the asset browser lists, and its scene files place as instances. A project with an editor command of its own, which `game generate editor` writes, is opened by running that command with go run, so its component types are checked and its plugins built in. With -library it shows the library panel, which installs packs from that library into the open project. A second argument is an animation clip file the animation panel opens on the object named by the third argument, or on the scene's first object.
 var editorCommand = &command{
 	name:    "editor",
 	args:    "[project-dir | game.yaml | scene.yaml] [clip.animation.yaml [object-id]]",
-	summary: "Open the scene editor on a project or a YAML scene, and an animation clip on one of its objects, with the project's own editor command when it has one, or on a demo scene when none is named",
+	summary: "Open the scene editor on a project or a YAML scene, and an animation clip on one of its objects, with the project's own editor command when it has one, or on the start screen when none is named",
 	define:  defineEditor,
 	complete: map[string]completion{
 		"library": filePaths,
@@ -70,6 +66,7 @@ func defineEditor(a *app, fs *flag.FlagSet) func() error {
 			if ed, err = newDemoEditor(); err != nil {
 				return err
 			}
+			ed.ProjectAssets = true
 			if len(args) > 0 {
 				// A scene outside any project names the files it uses, such as a layered tilemap's YAML tileset or a Tiled or LDtk source, by their paths from its own directory, and draws the demo's atlases.
 				root := filepath.Dir(args[0])
@@ -85,7 +82,10 @@ func defineEditor(a *app, fs *flag.FlagSet) func() error {
 				}
 			}
 		}
-		if err := editorcmd.Open(ed, args); err != nil {
+		configureEditorStartScreen(ed, a)
+		if len(args) == 0 {
+			ed.SetStartScreenOpen(true)
+		} else if err := editorcmd.Open(ed, args); err != nil {
 			return err
 		}
 		a.launch(ed)
@@ -95,6 +95,45 @@ func defineEditor(a *app, fs *flag.FlagSet) func() error {
 
 // gameEditorTag is the build tag that builds a project's package as its editor command, as `game generate editor` writes it.
 const gameEditorTag = "gameeditor"
+
+// configureEditorStartScreen populates ed's Start Screen template list from `game new`'s template registry,
+// connects project creation to `game new`, and loads the per-user recent projects file.
+func configureEditorStartScreen(ed *editor.Editor, a *app) {
+	ed.SetProjectTemplates(editorTemplatesFromRegistry())
+	ed.CreateProject = func(_ context.Context, req editor.CreateProjectRequest, stdout, stderr io.Writer) error {
+		return createProject(createProjectOptions{
+			dir:      req.TargetDir(),
+			name:     req.Name,
+			module:   req.Module,
+			template: req.Template,
+		}, stdout, stderr)
+	}
+	recentPath := ""
+	if a != nil {
+		recentPath = a.recentProjectsPath
+	}
+	if recentPath == "" {
+		if p, err := editor.DefaultRecentProjectsPath(); err == nil {
+			recentPath = p
+		}
+	}
+	if recentPath != "" {
+		_ = ed.SetRecentProjectsPath(recentPath)
+	}
+}
+
+// editorTemplatesFromRegistry builds the Start Screen template cards directly from `game new`'s projectTemplates registry.
+func editorTemplatesFromRegistry() []editor.ProjectTemplate {
+	out := make([]editor.ProjectTemplate, len(projectTemplates))
+	for i, t := range projectTemplates {
+		out[i] = editor.ProjectTemplate{
+			Name:    t.name,
+			Summary: t.summary,
+			Default: i == 0,
+		}
+	}
+	return out
+}
 
 // editorcmdPath is the import path of package editorcmd, whose command line game editor runs a project's editor command with.
 const editorcmdPath = "github.com/nsgo-dev/game/packages/game/editor/editorcmd"
@@ -179,114 +218,7 @@ func runGoIn(dir string, args []string, stdout, stderr io.Writer) error {
 	return cmd.Run()
 }
 
-// newDemoEditor returns an editor on a small demo room, what the editor opens when no scene is named, and what opens a scene outside any project, with the demo's two atlases and its body component.
+// newDemoEditor returns an editor on the built-in demo room, also used to open a scene outside any project with the demo's atlases and physics components.
 func newDemoEditor() (*editor.Editor, error) {
-	resolver := sceneformat.AtlasMap{
-		"tiles": {
-			Image: core.ImageSource{URI: "asset:tiles.png"},
-			Frames: map[string]sprite.Frame{
-				"1": {Name: "1", X: 0, Y: 0, W: 16, H: 16, Width: 16, Height: 16},
-				"2": {Name: "2", X: 16, Y: 0, W: 16, H: 16, Width: 16, Height: 16},
-			},
-		},
-		"actors": {
-			Image: core.ImageSource{URI: "asset:actors.png"},
-			Frames: map[string]sprite.Frame{
-				"hero":  {Name: "hero", X: 0, Y: 0, W: 16, H: 16, Width: 16, Height: 16},
-				"torch": {Name: "torch", X: 16, Y: 0, W: 16, H: 16, Width: 16, Height: 16},
-			},
-		},
-	}
-
-	doc := &sceneformat.SceneDoc{
-		Version:         sceneformat.CurrentVersion,
-		Name:            "Demo Room",
-		VirtualWidth:    320,
-		VirtualHeight:   180,
-		BackgroundColor: "#141824",
-		Layers: []sceneformat.LayerDoc{
-			{
-				Name:  "floor",
-				Space: sceneformat.SpaceWorld,
-				Order: 0,
-				Tilemap: &sceneformat.TilemapDoc{
-					TileWidth:  16,
-					TileHeight: 16,
-					Width:      8,
-					Height:     5,
-					Tileset:    "tiles",
-					Data: []int{
-						1, 1, 1, 1, 1, 1, 1, 1,
-						1, 2, 2, 2, 2, 2, 2, 1,
-						1, 2, 0, 0, 0, 0, 2, 1,
-						1, 2, 2, 2, 2, 2, 2, 1,
-						1, 1, 1, 1, 1, 1, 1, 1,
-					},
-				},
-			},
-			{
-				Name:  "actors",
-				Space: sceneformat.SpaceWorld,
-				Order: 10,
-				Objects: []sceneformat.ObjectDoc{
-					{
-						ID:      "hero",
-						Name:    "Hero",
-						X:       64,
-						Y:       40,
-						OriginX: 8,
-						OriginY: 8,
-						Z:       5,
-						Sprite:  &sceneformat.SpriteRef{Atlas: "actors", Frame: "hero"},
-						Components: map[string]any{
-							sceneformat.Body2DComponentName: map[string]any{
-								"version":      sceneformat.PhysicsComponentVersion,
-								"kind":         "dynamic",
-								"mass":         1.0,
-								"gravityScale": 0.0,
-								"vx":           24.0,
-							},
-							sceneformat.Collider2DComponentName: map[string]any{
-								"version": sceneformat.PhysicsComponentVersion,
-								"shape":   "box",
-								"width":   16.0,
-								"height":  16.0,
-							},
-						},
-						Properties: map[string]any{
-							"hp":     10,
-							"tag":    "player",
-							"active": true,
-						},
-					},
-				},
-			},
-		},
-	}
-
-	ed, err := editor.New(doc, resolver)
-	if err != nil {
-		return nil, err
-	}
-	if err := ed.SetComponentRegistry(demoComponents()); err != nil {
-		return nil, err
-	}
-	ed.SetActiveLayer("actors")
-	ed.SelectObject("hero")
-
-	var elapsed float64
-	ed.OnPlayUpdate = func(scene *sceneformat.BuiltScene, dt time.Duration) {
-		elapsed += dt.Seconds()
-		if hero := scene.Object("hero"); hero != nil && hero.Sprite != nil {
-			dx := float32(math.Cos(elapsed*2) * 20 * dt.Seconds())
-			hero.Sprite.X += dx
-			hero.Doc.X = hero.Sprite.X
-		}
-	}
-	return ed, nil
-}
-
-// demoComponents registers the built-in 2D and 3D physics component types the demo scene and opened files may use, so a misspelled field fails to open with its file and line and the inspector lists every field.
-func demoComponents() *sceneformat.ComponentRegistry {
-	return sceneformat.PhysicsComponentRegistry()
+	return editor.NewDemo()
 }

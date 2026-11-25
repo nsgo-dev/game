@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"io"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -27,6 +28,7 @@ func newTestApp(t *testing.T) (*app, *bytes.Buffer, *bytes.Buffer) {
 			t.Errorf("go %v ran in %s", args, dir)
 			return nil
 		},
+		recentProjectsPath: filepath.Join(t.TempDir(), "recent-projects.yaml"),
 	}, &stdout, &stderr
 }
 

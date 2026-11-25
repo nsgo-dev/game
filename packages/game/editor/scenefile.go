@@ -20,15 +20,100 @@ var ErrNoSceneFile = errors.New("editor: the scene has no file; save it under a 
 // ErrFileExists is returned by NewScene and SaveSceneAs for a path where the project already holds a file, which they never overwrite.
 var ErrFileExists = errors.New("editor: a file already exists at that path")
 
+// markSceneSaved snapshots the current edit scene document as clean for SceneDirty comparisons.
+func (e *Editor) markSceneSaved() {
+	if e == nil || e.Doc == nil {
+		return
+	}
+	if data, err := e.SaveYAML(); err == nil {
+		e.sceneSaved = data
+	}
+}
+
 // SceneDirty reports whether the open scene differs from what it was opened from or last saved to. It compares encodings, as ProjectDirty does, so undoing back to the saved state makes the scene clean again. While playing it compares the scene as it was before Play.
 func (e *Editor) SceneDirty() bool {
+	if e == nil || e.Doc == nil {
+		return false
+	}
 	data, err := e.SaveYAML()
 	return err != nil || !bytes.Equal(data, e.sceneSaved)
 }
 
-// HasUnsavedChanges reports whether the open scene, open project, or open GridMap has edits that are not saved (SceneDirty, ProjectDirty, GridMapDirty), which opening another scene, New Scene and quitting would lose.
+// ClipDirty reports whether the open animation clip differs from when it was opened or last saved.
+func (e *Editor) ClipDirty() bool {
+	if e == nil || e.clip == nil {
+		return false
+	}
+	if len(e.clipSaved) == 0 {
+		return true
+	}
+	data, err := e.SaveClipYAML()
+	return err != nil || !bytes.Equal(data, e.clipSaved)
+}
+
+// DataTableDirty reports whether the open data table differs from when it was opened or last saved.
+func (e *Editor) DataTableDirty() bool {
+	if e == nil || e.table == nil || e.table.doc == nil {
+		return false
+	}
+	if len(e.tableSaved) == 0 {
+		return true
+	}
+	data, err := e.SaveDataTableYAML()
+	return err != nil || !bytes.Equal(data, e.tableSaved)
+}
+
+// HasUnsavedChanges reports whether the open scene, project, GridMap, localization workspace, animation clip, or data table has edits that are not saved, which opening another scene or project, New Scene, and quitting would lose.
 func (e *Editor) HasUnsavedChanges() bool {
-	return e.SceneDirty() || e.ProjectDirty() || e.GridMapDirty()
+	if e == nil {
+		return false
+	}
+	return e.SceneDirty() || e.ProjectDirty() || e.GridMapDirty() || e.LocalizationDirty() || e.ClipDirty() || e.DataTableDirty()
+}
+
+// SaveAll persists all currently dirty editors (project, scene, GridMap, localizations, clip, and data table) that have a save destination configured.
+func (e *Editor) SaveAll() error {
+	if e == nil {
+		return nil
+	}
+	if e.playing {
+		return ErrPlaying
+	}
+	if e.ProjectDirty() || e.SceneDirty() || e.GridMapDirty() {
+		if err := e.Save(); err != nil {
+			return err
+		}
+	}
+	if e.LocalizationDirty() {
+		if err := e.SaveLocalizations(); err != nil {
+			return err
+		}
+	}
+	if e.ClipDirty() {
+		switch {
+		case e.OnSaveClip != nil:
+			data, err := e.SaveClipYAML()
+			if err != nil {
+				return err
+			}
+			if err := e.OnSaveClip(data); err != nil {
+				return err
+			}
+			e.clipSaved = append([]byte(nil), data...)
+		case e.ClipPath() != "":
+			if err := e.SaveClipFile(e.ClipPath()); err != nil {
+				return err
+			}
+		default:
+			return errors.New("editor: open animation clip has unsaved changes with no file path")
+		}
+	}
+	if e.DataTableDirty() {
+		if err := e.saveDataTableFromPanel(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // SceneLabel names the open scene as the toolbar and window title show it: its path from the project root (ScenePath) when it has one, else its file's path (FilePath), else "Untitled".

@@ -15,6 +15,9 @@ import (
 
 // Built-in editor command IDs registered in the unified command registry.
 const (
+	CmdNewProject      = "file.newProject"
+	CmdOpenProject     = "file.openProject"
+	CmdStartScreen     = "file.startScreen"
 	CmdSave            = "file.save"
 	CmdUndo            = "edit.undo"
 	CmdRedo            = "edit.redo"
@@ -227,10 +230,43 @@ func (e *Editor) initBuiltinCommands() {
 	if len(e.commands) > 0 {
 		return
 	}
-	notPlaying := func() bool { return !e.Playing() }
-	hasProject := func() bool { return e.Project != nil }
+	notPlaying := func() bool { return !e.StartScreenOpen() && !e.Playing() }
+	inEditor := func() bool { return !e.StartScreenOpen() }
+	hasProject := func() bool { return !e.StartScreenOpen() && e.Project != nil }
 
 	e.commands = []EditorCommand{
+		{
+			ID:          CmdNewProject,
+			Label:       "New Project...",
+			Description: "Open the Start Screen to create a new project from a template",
+			Category:    "File",
+			Keywords:    []string{"new", "create", "template", "start", "project"},
+			Shortcut:    "mod+n",
+			Run: func() error {
+				e.SetStartScreenOpen(true)
+				return nil
+			},
+		},
+		{
+			ID:          CmdOpenProject,
+			Label:       "Open Project...",
+			Description: "Choose a project folder to open in the editor",
+			Category:    "File",
+			Keywords:    []string{"open", "folder", "project", "switch"},
+			Shortcut:    "mod+o",
+			Run:         func() error { return e.BrowseAndOpenProject() },
+		},
+		{
+			ID:          CmdStartScreen,
+			Label:       "Start Screen",
+			Description: "Show the Start Screen with recent projects, templates, and demo",
+			Category:    "File",
+			Keywords:    []string{"start", "welcome", "recent", "projects", "demo"},
+			Run: func() error {
+				e.SetStartScreenOpen(true)
+				return nil
+			},
+		},
 		{
 			ID:          CmdSave,
 			Label:       "Save",
@@ -248,7 +284,7 @@ func (e *Editor) initBuiltinCommands() {
 			Category:    "Edit",
 			Keywords:    []string{"revert", "history"},
 			Shortcut:    "mod+z",
-			Enabled:     func() bool { return !e.Playing() && e.History.CanUndo() },
+			Enabled:     func() bool { return !e.StartScreenOpen() && !e.Playing() && e.History.CanUndo() },
 			Run: func() error {
 				e.Undo()
 				return nil
@@ -261,7 +297,7 @@ func (e *Editor) initBuiltinCommands() {
 			Category:    "Edit",
 			Keywords:    []string{"repeat", "history"},
 			Shortcut:    "mod+shift+z",
-			Enabled:     func() bool { return !e.Playing() && e.History.CanRedo() },
+			Enabled:     func() bool { return !e.StartScreenOpen() && !e.Playing() && e.History.CanRedo() },
 			Run: func() error {
 				e.Redo()
 				return nil
@@ -275,7 +311,7 @@ func (e *Editor) initBuiltinCommands() {
 			Keywords:           []string{"remove", "object", "erase"},
 			Shortcut:           "delete",
 			AlternateShortcuts: []string{"backspace"},
-			Enabled:            func() bool { return !e.Playing() && e.SelectedID != "" },
+			Enabled:            func() bool { return !e.StartScreenOpen() && !e.Playing() && e.SelectedID != "" },
 			Run:                func() error { return e.DeleteSelected() },
 		},
 		{
@@ -285,7 +321,7 @@ func (e *Editor) initBuiltinCommands() {
 			Category:    "Edit",
 			Keywords:    []string{"clone", "copy", "object"},
 			Shortcut:    "mod+d",
-			Enabled:     func() bool { return !e.Playing() && e.SelectedID != "" },
+			Enabled:     func() bool { return !e.StartScreenOpen() && !e.Playing() && e.SelectedID != "" },
 			Run: func() error {
 				_, err := e.DuplicateSelected()
 				return err
@@ -424,6 +460,7 @@ func (e *Editor) initBuiltinCommands() {
 			Category:    "View",
 			Keywords:    []string{"2d", "viewport", "mode"},
 			Shortcut:    "alt+2",
+			Enabled:     inEditor,
 			Checked:     func() bool { return e.ViewMode == ViewMode2D },
 			Run: func() error {
 				e.SetViewMode(ViewMode2D)
@@ -437,6 +474,7 @@ func (e *Editor) initBuiltinCommands() {
 			Category:    "View",
 			Keywords:    []string{"3d", "viewport", "mode"},
 			Shortcut:    "alt+3",
+			Enabled:     inEditor,
 			Checked:     func() bool { return e.ViewMode == ViewMode3D },
 			Run: func() error {
 				e.SetViewMode(ViewMode3D)
@@ -486,6 +524,7 @@ func (e *Editor) initBuiltinCommands() {
 			Category:    "View",
 			Keywords:    []string{"focus", "camera", "center", "zoom"},
 			Shortcut:    "f",
+			Enabled:     inEditor,
 			Run: func() error {
 				e.FrameSelection()
 				return nil
@@ -530,6 +569,7 @@ func (e *Editor) initBuiltinCommands() {
 			Category:    "Project",
 			Keywords:    []string{"play", "stop", "preview", "simulate"},
 			Shortcut:    "f5",
+			Enabled:     inEditor,
 			Run:         func() error { return e.TogglePlay() },
 		},
 		{
@@ -539,6 +579,7 @@ func (e *Editor) initBuiltinCommands() {
 			Category:    "Project",
 			Keywords:    []string{"run", "launch", "start", "game"},
 			Shortcut:    "mod+r",
+			Enabled:     inEditor,
 			Run:         func() error { return e.runGameCommand() },
 		},
 		{

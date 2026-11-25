@@ -45,6 +45,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 		ed.stopExportBuild()
 		ed.stopAssetsBuild()
 		_ = ed.DisconnectProfiler()
+		ed.cancelCreateProject()
 		_ = ed.StopGame()
 		if ed.Playing() {
 			_ = ed.Stop()
@@ -71,31 +72,50 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 			Background: colors.Surface(),
 		},
 		Children: append([]core.Node{
-			toolbarView(cx, ed, rev, sceneFileButtons(cx, ed, rev, dirty, pathMode, pathTarget)),
-			core.View{
-				// A zero basis gives the row the height left after the toolbar, the animation panel and the status bar, rather than its content's.
-				Style: core.Style{
-					Direction: core.Row,
-					FlexGrow:  1,
-					FlexBasis: core.Pt(0),
-					Overflow:  core.Hidden,
+			core.Show{
+				When: func() bool {
+					_ = rev.Get()
+					return ed.StartScreenOpen()
 				},
-				// One drag area spans the row, so a model dragged from the asset browser drops on the viewport.
-				Children: []core.Node{dragdrop.Area{Children: mainRow(cx, ed, rev)}},
+				Then: func(cx *core.Scope) core.Node {
+					return StartScreenView(cx, ed, rev)
+				},
+				Else: func(cx *core.Scope) core.Node {
+					return core.View{
+						Style: core.Style{
+							Width:  core.Pct(100),
+							Height: core.Pct(100),
+						},
+						Children: []core.Node{
+							toolbarView(cx, ed, rev, sceneFileButtons(cx, ed, rev, dirty, pathMode, pathTarget)),
+							core.View{
+								// A zero basis gives the row the height left after the toolbar, the animation panel and the status bar, rather than its content's.
+								Style: core.Style{
+									Direction: core.Row,
+									FlexGrow:  1,
+									FlexBasis: core.Pt(0),
+									Overflow:  core.Hidden,
+								},
+								// One drag area spans the row, so a model dragged from the asset browser drops on the viewport.
+								Children: []core.Node{dragdrop.Area{Children: mainRow(cx, ed, rev)}},
+							},
+							pluginDockView(cx, ed, rev, DockBottom),
+							DataTablePanelView(cx, ed, rev),
+							AnimationPanelView(cx, ed, rev),
+							ProjectSettingsPanelView(cx, ed, rev),
+							AudioMixerPanelView(cx, ed, rev),
+							InputMapPanelView(cx, ed, rev),
+							LocalizationPanelView(cx, ed, rev),
+							SearchPanelView(cx, ed, rev),
+							ProblemsView(cx, ed, rev),
+							ExportPanelView(cx, ed, rev),
+							ProfilerPanelView(cx, ed, rev),
+							OutputPanelView(cx, ed, rev),
+							statusBarView(cx, ed, rev),
+						},
+					}
+				},
 			},
-			pluginDockView(cx, ed, rev, DockBottom),
-			DataTablePanelView(cx, ed, rev),
-			AnimationPanelView(cx, ed, rev),
-			ProjectSettingsPanelView(cx, ed, rev),
-			AudioMixerPanelView(cx, ed, rev),
-			InputMapPanelView(cx, ed, rev),
-			LocalizationPanelView(cx, ed, rev),
-			SearchPanelView(cx, ed, rev),
-			ProblemsView(cx, ed, rev),
-			ExportPanelView(cx, ed, rev),
-			ProfilerPanelView(cx, ed, rev),
-			OutputPanelView(cx, ed, rev),
-			statusBarView(cx, ed, rev),
 			CommandPaletteView(cx, ed, rev),
 		}, files...),
 	}
