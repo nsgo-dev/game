@@ -33,6 +33,7 @@ Every non-internal package under `github.com/nsgo-dev/game/packages` (shown rela
 | `game/pixelfx/fire` | Experimental | pixelfx fire effects (torch so far) |
 | `game/pixelfx/impacts` | Experimental | pixelfx impacts (ground slam so far) |
 | `game/pixelfx/moves` | Experimental | pixelfx character moves acted out by the rig (ground pound so far) |
+| `game/pixelfx/nature` | Experimental | pixelfx nature effects (acid splash, boulder, earth spike, healing bloom, leaf storm, poison cloud, quake, root snare, spore burst, thorns, tornado, toxic puddle, vine whip) |
 | `game/pixelfx/pickups` | Experimental | pixelfx pickups and loot effects (coin, chest, health, mana, keys, orbs, buffs, drops) |
 | `game/pixelfx/projectiles` | Experimental | pixelfx projectile and muzzle-flash effects (arrow, laser, rocket, missile, tracer, cannonball, disc, flare, plasma, muzzles) |
 | `game/pixelfx/scifi` | Experimental | pixelfx sci-fi effects (EMP blast, energy core, force field, glitch, hologram, jetpack, laser grid, scanner, teleporter pad, tractor beam, warp in/out) |

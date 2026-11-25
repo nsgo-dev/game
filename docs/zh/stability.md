@@ -125,6 +125,7 @@
 | `game/pixelfx/fire` | 实验性 | [pixelfx](pixelfx.md) |
 | `game/pixelfx/impacts` | 实验性 | [pixelfx](pixelfx.md) |
 | `game/pixelfx/moves` | 实验性 | [pixelfx](pixelfx.md) |
+| `game/pixelfx/nature` | 实验性 | [pixelfx](pixelfx.md) |
 | `game/pixelfx/pickups` | 实验性 | [pixelfx](pixelfx.md) |
 | `game/pixelfx/projectiles` | 实验性 | [pixelfx](pixelfx.md) |
 | `game/pixelfx/scifi` | 实验性 | [pixelfx](pixelfx.md) |

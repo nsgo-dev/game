@@ -20,6 +20,7 @@ import (
 | `game/pixelfx/explosions` | 爆炸：目前有小爆炸 |
 | `game/pixelfx/impacts` | 冲击：目前有砸地 |
 | `game/pixelfx/moves` | 由角色表演的招式：目前有落地重击 |
+| `game/pixelfx/nature` | 自然：酸液飞溅、巨石、地刺、治愈花开、落叶风暴、毒云、地震、根须缠绕、孢子爆裂、荆棘、龙卷风、剧毒泥潭与藤鞭 |
 | `game/pixelfx/pickups` | 拾取物：开宝箱、旋转金币、收集爆发、水晶碎片、旋转宝石、红心拾取、钥匙闪光、战利品光柱、药水、能量星和经验球 |
 | `game/pixelfx/projectiles` | 投射物（13 个特效）：`arrow`、`bullet-tracer`、`cannonball`、`energy-disc`、`flare`、`homing-missile`、`laser-bolt`、`magic-missile`、`muzzle-pistol`、`muzzle-shotgun`、`muzzle-smg`、`plasma-shot`、`rocket` |
 | `game/pixelfx/scifi` | 科幻：`emp-blast`、`energy-core`、`force-field`、`glitch`、`hologram`、`jetpack`、`laser-grid`、`scanner`、`teleporter-pad`、`tractor-beam`、`warp-in`、`warp-out` |
@@ -27,7 +28,7 @@ import (
 | `game/pixelfx/spawn` | 出生与死亡：金币掉落、分解消散、灼烧溶解、破壳孵化、噗烟消散、重生光束、冰碎死亡、灵魂升空、召唤传送门和召唤升起 |
 | `game/pixelfx/status` | 角色身上的状态特效：流血、燃烧、魅惑、混乱、诅咒、冰冻、加速、石化、中毒、狂暴、睡眠、减速和眩晕 |
 
-特效按类别各放在一个子包里，子包被导入时把它的特效注册为 `"<类别>/<名字>"`，所以游戏只链接它导入的类别。pixelfx 的其余类别（water、ice、lightning、melee、arcane、holy、nature、weather、ui、transitions、critters）各自在一次改动中跟进，做法见[移植一个类别](#移植一个类别)。
+特效按类别各放在一个子包里，子包被导入时把它的特效注册为 `"<类别>/<名字>"`，所以游戏只链接它导入的类别。pixelfx 的其余类别（water、ice、lightning、melee、arcane、holy、weather、ui、transitions、critters）各自在一次改动中跟进，做法见[移植一个类别](#移植一个类别)。
 
 ## 播放特效
 
