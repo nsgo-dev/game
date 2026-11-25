@@ -42,6 +42,7 @@ Every non-internal package under `github.com/nsgo-dev/game/packages` (shown rela
 | `game/pixelfx/status` | Experimental | pixelfx status effects (bleeding, burning, charmed, confused, cursed, frozen, haste, petrified, poisoned, rage, sleep, slowed, stunned) |
 | `game/pixelfx/transitions` | Experimental | pixelfx 320 x 180 screen transitions (blinds, burn away, CRT off, diamond wipe, glitch wipe, iris, pixel dissolve, shatter wipe, slash wipe, star iris) |
 | `game/pixelfx/ui` | Experimental | pixelfx UI effects (achievement, coin collect, combo counter, confetti, countdown, crit/damage numbers, exclamation, health bar hit, heart lost, level up, quest complete) |
+| `game/pixelfx/water` | Experimental | pixelfx water effects (bubbles, drip, fountain, geyser, rain splash, ripples, splash, water jet, water orb, waterfall, wave crash, whirlpool) |
 | `game/lights2d` | Experimental | 2D ambient darkness, point/cone lights, visibility-polygon shadows, normal-mapped sprites |
 | `game/effects` | Experimental | Chained Kage shader post-processing passes over the game frame |
 | `game/skeletal` | Experimental | 2D bone rigs, IK, skins and YAML rig definitions |

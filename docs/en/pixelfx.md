@@ -29,8 +29,9 @@ The port follows pixelfx at commit `5294518ce7c72e48b6100a744596e0acf57f2826` wi
 | `game/pixelfx/status` | Status effects on a character: bleeding, burning, charmed, confused, cursed, frozen, haste, petrified, poisoned, rage, sleep, slowed and stunned |
 | `game/pixelfx/transitions` | Screen transitions (320 x 180): blinds, burn away, CRT off, diamond wipe, glitch wipe, iris, pixel dissolve, shatter wipe, slash wipe and star iris |
 | `game/pixelfx/ui` | UI: achievement, coin collect, combo counter, confetti, countdown, crit number, damage number, exclamation, health bar hit, heart lost, level up and quest complete |
+| `game/pixelfx/water` | Water: bubbles, drip, fountain, geyser, rain splash, ripples, splash, water jet, water orb, waterfall, wave crash and whirlpool |
 
-Effects live in one subpackage per category, which registers its effects as `"<category>/<name>"` when it is imported, so a game links only the categories it imports. The other categories of pixelfx (water, ice, lightning, melee, arcane, holy, weather, critters) follow one change each, as [Porting a category](#porting-a-category) describes.
+Effects live in one subpackage per category, which registers its effects as `"<category>/<name>"` when it is imported, so a game links only the categories it imports. The other categories of pixelfx (ice, lightning, melee, arcane, holy, weather, critters) follow one change each, as [Porting a category](#porting-a-category) describes.
 
 ## Playing an effect
 
