@@ -123,7 +123,7 @@ type waveDef struct {
 	At time.Duration `yaml:"at"`
 	// Enemy is the name of the kind of enemy it sends.
 	Enemy string `yaml:"enemy"`
-	// Count is how many it sends.
+	// Count is how many it sends, from 1 to maxWaveCount.
 	Count int `yaml:"count"`
 	// Every is the time between two of them.
 	Every time.Duration `yaml:"every,omitempty"`
@@ -339,14 +339,19 @@ func (e *enemyDef) validate() error {
 	return nil
 }
 
+// maxWaveCount is the most enemies one wave may send, which keeps a typo in a count from spawning millions of enemies in one step.
+const maxWaveCount = 1000
+
 func (w *waveDef) validate() error {
 	switch {
 	case w.At < 0:
 		return fmt.Errorf("at %v is negative", w.At)
-	case w.Count < 1:
-		return fmt.Errorf("count %d is not at least 1", w.Count)
+	case w.Count < 1 || w.Count > maxWaveCount:
+		return fmt.Errorf("count %d is not from 1 to %d", w.Count, maxWaveCount)
 	case w.Every < 0:
 		return fmt.Errorf("every %v is negative", w.Every)
+	case w.Count > 1 && w.Every > (math.MaxInt64-w.At)/time.Duration(w.Count-1):
+		return fmt.Errorf("the last of %d enemies every %v from %v comes later than a time can hold", w.Count, w.Every, w.At)
 	case !finite(w.X) || !finite(w.Y) || !finite(w.StepX):
 		return errors.New("x, y or stepX is not a number")
 	}

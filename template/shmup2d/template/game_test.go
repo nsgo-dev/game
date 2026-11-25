@@ -248,6 +248,20 @@ func TestTouchDragsFiresAndBombs(t *testing.T) {
 		t.Fatal("the game did not notice the touch screen, so it hides the bomb button")
 	}
 
+	// A finger that slides onto the bomb button while it drags the ship does not set off a bomb.
+	bombs = s.bombs
+	slide := app.Touch("id:game-view", gameToView(g, 180, 444))
+	for i := 1; i <= 10; i++ {
+		slide.Move(gameToView(g, 180+float32(i)*5, 444))
+		app.Advance(step)
+	}
+	app.Advance(4 * step)
+	slide.Lift()
+	app.Advance(2 * step)
+	if s.bombs != bombs {
+		t.Fatalf("sliding a dragging finger over the bomb button left %d bombs, want %d", s.bombs, bombs)
+	}
+
 	// The HUD's pause button pauses, and Resume resumes.
 	app.Press("id:pause")
 	if !app.Exists("id:pause-menu") {
@@ -284,6 +298,23 @@ func TestMouseDragSteersAndFires(t *testing.T) {
 	app.Advance(500 * time.Millisecond)
 	if g.run.weapon.Shots() != shots {
 		t.Fatal("the ship kept firing after the mouse button came up")
+	}
+}
+
+func TestRestartFromThePauseMenuResumesTheSound(t *testing.T) {
+	app, g := startPlaying(t)
+	app.Key("escape")
+	app.Advance(2 * step)
+	if !app.Exists("id:pause-menu") || !g.sounds.mixer.Paused() {
+		t.Fatal("Escape did not pause the run and its sound")
+	}
+	app.Press("id:restart")
+	app.Advance(2 * fadeTime)
+	if g.phase.GetUntracked() != phasePlaying || g.paused.GetUntracked() || app.Exists("id:pause-menu") {
+		t.Fatal("Restart did not start a new run")
+	}
+	if g.sounds.mixer.Paused() {
+		t.Fatal("the new run after Restart has its sound still paused")
 	}
 }
 

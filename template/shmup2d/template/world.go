@@ -158,14 +158,14 @@ type world struct {
 // newWorld starts a run of stage on a playfield of width by height points, with bullets from patterns drawn from atlas and explosions as explosion configures them. It checks every pattern and frame the stage names.
 func newWorld(stage *stageFile, patterns *bullets.File, atlas *sprite.Atlas, explosion particles.Config, width, height float32) (*world, error) {
 	w := &world{stage: stage, patterns: patterns, atlas: atlas, width: width, height: height}
-	if err := w.check(); err != nil {
-		return nil, err
-	}
 	bounds := math2d.Rect{W: width, H: height}
 	w.shipShots = bullets.NewField(atlas, 256)
 	w.shipShots.Bounds = bounds
 	w.enemyShots = bullets.NewField(atlas, 1024)
 	w.enemyShots.Bounds = bounds
+	if err := w.check(); err != nil {
+		return nil, err
+	}
 	w.explosions = &particles.Emitter{Atlas: atlas}
 	w.explosions.ReloadConfig(explosion)
 	w.waves = make([]waveState, len(stage.Waves))
@@ -180,11 +180,15 @@ func newWorld(stage *stageFile, patterns *bullets.File, atlas *sprite.Atlas, exp
 	return w, nil
 }
 
-// check reports the first bullet pattern or atlas frame the stage names that the pattern file or atlas lacks.
+// check reports the first bullet pattern or atlas frame the stage names that the pattern file or atlas lacks, and the first pattern that names a frame the atlas lacks, so that every emitter the run makes later is sure to be made.
 func (w *world) check() error {
-	pattern := func(what, name string) error {
-		if _, ok := w.patterns.Pattern(name); !ok {
+	pattern := func(what, name string, field *bullets.Field) error {
+		p, ok := w.patterns.Pattern(name)
+		if !ok {
 			return fmt.Errorf("stage: %s names pattern %q, which data/patterns.yaml lacks", what, name)
+		}
+		if _, err := bullets.NewEmitter(field, p, 0); err != nil {
+			return fmt.Errorf("stage: %s: %w", what, err)
 		}
 		return nil
 	}
@@ -200,7 +204,7 @@ func (w *world) check() error {
 		}
 	}
 	for _, name := range w.stage.Ship.Weapons {
-		if err := pattern("the ship", name); err != nil {
+		if err := pattern("the ship", name, w.shipShots); err != nil {
 			return err
 		}
 	}
@@ -209,7 +213,7 @@ func (w *world) check() error {
 			return err
 		}
 		if e.Pattern != "" {
-			if err := pattern("enemy "+e.Name, e.Pattern); err != nil {
+			if err := pattern("enemy "+e.Name, e.Pattern, w.enemyShots); err != nil {
 				return err
 			}
 		}
@@ -219,7 +223,7 @@ func (w *world) check() error {
 	}
 	for _, p := range w.stage.Boss.Phases {
 		for _, name := range p.Patterns {
-			if err := pattern("the boss", name); err != nil {
+			if err := pattern("the boss", name, w.enemyShots); err != nil {
 				return err
 			}
 		}
@@ -230,7 +234,7 @@ func (w *world) check() error {
 // arm gives the ship the emitter of its current weapon.
 func (w *world) arm() {
 	p, _ := w.patterns.Pattern(w.stage.Ship.Weapons[w.ship.weapon])
-	// check found the pattern, so NewEmitter only fails on a pattern Parse would have refused.
+	// check made an emitter of every pattern the stage names into the same field, so neither call can fail here.
 	w.weapon, _ = bullets.NewEmitter(w.shipShots, p, 0)
 	w.weapon.Stopped = true
 }
@@ -280,6 +284,7 @@ func (w *world) spawnWaves() {
 			x := wave.X + float32(st.sent)*wave.StepX
 			e := &enemy{def: def, wave: i, x: x, y: wave.Y, prevX: x, prevY: wave.Y, originX: x, hp: def.HP, sprite: sprite.NewSprite(w.atlas.Frames[def.Frame])}
 			if def.Pattern != "" {
+				// check made an emitter of this pattern into the same field, so neither call can fail here.
 				p, _ := w.patterns.Pattern(def.Pattern)
 				w.spawned++
 				e.emitter, _ = bullets.NewEmitter(w.enemyShots, p, w.stage.Seed*1000+uint64(w.spawned))
@@ -309,6 +314,7 @@ func (w *world) startPhase(i int) {
 	b.phase = i
 	b.emitters = b.emitters[:0]
 	for j, name := range b.def.Phases[i].Patterns {
+		// check made an emitter of this pattern into the same field, so neither call can fail here.
 		p, _ := w.patterns.Pattern(name)
 		e, _ := bullets.NewEmitter(w.enemyShots, p, w.stage.Seed*7919+uint64(i*16+j))
 		e.Stopped = !b.entered
@@ -528,8 +534,12 @@ func (w *world) damageBoss(damage int) {
 		return
 	}
 	w.events = append(w.events, eventHit)
-	next := b.phase + 1
-	if next < len(b.def.Phases) && float32(b.hp) <= b.def.Phases[next].Below*float32(b.def.HP) {
+	// One hit, such as a bomb's, can take the boss past more than one phase's mark; it goes straight to the last of them.
+	next := b.phase
+	for next+1 < len(b.def.Phases) && float32(b.hp) <= b.def.Phases[next+1].Below*float32(b.def.HP) {
+		next++
+	}
+	if next != b.phase {
 		// A new phase starts from a clear screen, as the genre does, so the player sees the new pattern begin.
 		w.enemyShots.Clear()
 		w.startPhase(next)

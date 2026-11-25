@@ -58,8 +58,10 @@ type shooter struct {
 	alpha   float64
 	// sawTouch is whether a finger has touched the game, after which the touch bomb button shows.
 	sawTouch bool
-	bombIcon sprite.Batch
-	bombSpr  sprite.Sprite
+	// viewBounds is the game view's laid-out size, which the canvas draws the playfield into and pointer input maps through.
+	viewBounds core.Size
+	bombIcon   sprite.Batch
+	bombSpr    sprite.Sprite
 
 	// What the native HUD and menus show.
 	phase  *core.Signal[phase]
@@ -131,8 +133,13 @@ func newShooter(cx *core.Scope) (*shooter, error) {
 	return g, nil
 }
 
-// viewSize is the size of the game view, the window's.
-func (g *shooter) viewSize() core.Size { return g.cx.Env().Window() }
+// viewSize is the size of the game view as last laid out, or the window's before the first layout.
+func (g *shooter) viewSize() core.Size {
+	if g.viewBounds.Width > 0 && g.viewBounds.Height > 0 {
+		return g.viewBounds
+	}
+	return g.cx.Env().Window()
+}
 
 // newRun starts a fresh run of the stage.
 func (g *shooter) newRun() error {
@@ -183,7 +190,9 @@ func (g *shooter) start() {
 		return
 	}
 	g.clearInput()
+	// A restart from the pause menu ends the pause the way setPaused would, so the new run is heard.
 	g.paused.Set(false)
+	g.sounds.pause(false)
 	g.result.Set(running)
 	g.phase.Set(phasePlaying)
 	g.scenes.Switch(g.playScene(), scene.Fade(fadeTime, core.RGB(0x02040c)))
@@ -264,7 +273,7 @@ func (g *shooter) endScene() *scene.Controller {
 	}
 }
 
-// drawBombButton draws the touch bomb button where game.yaml binds it, dimmed without bombs.
+// drawBombButton draws the touch bomb button at bombRegion, dimmed without bombs.
 func (g *shooter) drawBombButton(d *core.Drawing) {
 	r := bombRegion
 	cx, cy := float32(r.Origin.X+r.Size.Width/2), float32(r.Origin.Y+r.Size.Height/2)
@@ -282,6 +291,11 @@ func (g *shooter) view() core.Node {
 	gameView := core.View{
 		TestID: "game-view",
 		Style:  core.Style{FlexGrow: 1, FlexShrink: 1, Background: core.RGB(0x02040c)},
+		OnLayout: func(b core.Bounds) {
+			if b.Size.Width > 0 && b.Size.Height > 0 {
+				g.viewBounds = b.Size
+			}
+		},
 		Children: []core.Node{
 			core.Canvas{
 				TestID: "game-canvas",
