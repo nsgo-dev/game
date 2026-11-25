@@ -64,6 +64,8 @@ type SceneDoc struct {
 	Inherits string `yaml:"inherits,omitempty"`
 	// Name is the scene's human-readable name.
 	Name string `yaml:"name,omitempty"`
+	// NavMesh optionally names the scene's baked navigation mesh file by its slash-separated path from the project root, such as "levels/level1.navmesh.yaml": a navbake3d file with one mesh per agent type, which the game navmesh command writes from the scene's geometry. In a scene that inherits another, a NavMesh set replaces the base's. Both versions accept it.
+	NavMesh string `yaml:"navMesh,omitempty"`
 	// VirtualWidth and VirtualHeight are the scene's virtual viewport size in points. Both must be 0 or both positive.
 	VirtualWidth  float32 `yaml:"virtualWidth,omitempty" schema:"minimum=0"`
 	VirtualHeight float32 `yaml:"virtualHeight,omitempty" schema:"minimum=0"`
@@ -630,6 +632,9 @@ func Validate(doc *SceneDoc) error {
 	}
 	if err := validateSceneRefs(doc); err != nil {
 		return err
+	}
+	if doc.NavMesh != "" && !validFilePath(doc.NavMesh) {
+		return fieldErr([]string{"navMesh"}, "sceneformat: navMesh %q must be a slash-separated path relative to the project root", doc.NavMesh)
 	}
 	if !isFinite(doc.VirtualWidth) || !isFinite(doc.VirtualHeight) || doc.VirtualWidth < 0 || doc.VirtualHeight < 0 {
 		field := "virtualHeight"

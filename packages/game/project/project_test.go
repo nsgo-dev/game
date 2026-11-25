@@ -105,6 +105,9 @@ func TestParseReadsEveryField(t *testing.T) {
 	if got := f.Assets.Manifest; got == nil || got.Package != "gameassets" || got.Prefix != "res:" || !got.Embed {
 		t.Fatalf("Assets.Manifest = %+v", got)
 	}
+	if n := f.Navigation; n == nil || n.CellSize != 0.2 || n.MaxVertsPerPoly != 6 || len(n.Agents) != 2 || n.Agents[0] != (project.NavAgent{Name: "humanoid", Radius: 0.4, Height: 1.8, MaxSlope: 40, MaxClimb: 0.4}) || n.Agents[1] != (project.NavAgent{Name: "rat"}) {
+		t.Fatalf("Navigation = %+v", f.Navigation)
+	}
 	tiles := f.FindPack("cave-tiles")
 	if tiles == nil || tiles.Kind != project.PackAsset || tiles.PackVersion != "1.2.0" || !reflect.DeepEqual(tiles.Resources, []string{"cave-tiles"}) {
 		t.Fatalf("FindPack(cave-tiles) = %+v", tiles)
@@ -174,6 +177,16 @@ func TestValidateRefusesInvalidFiles(t *testing.T) {
 		"window appearance":            strings.Replace(head, "height: 360}", "height: 360, appearance: dim}", 1),
 		"window nan":                   strings.Replace(head, "width: 640", "width: .nan", 1),
 		"display size":                 head + "display: {width: 320, height: -1}\n",
+		"navigation cell size":         head + "navigation: {cellSize: -1}\n",
+		"navigation nan":               head + "navigation: {cellHeight: .nan}\n",
+		"navigation detail spacing":    head + "navigation: {cellSize: 0.3, detailSampleDistance: 0.001}\n",
+		"navigation verts":             head + "navigation: {maxVertsPerPoly: 2}\n",
+		"navigation unknown field":     head + "navigation: {agentRadius: 1}\n",
+		"navigation agent name":        head + "navigation: {agents: [{name: ''}]}\n",
+		"navigation agent spaces":      head + "navigation: {agents: [{name: big rat}]}\n",
+		"navigation agent twice":       head + "navigation: {agents: [{name: rat}, {name: rat}]}\n",
+		"navigation agent radius":      head + "navigation: {agents: [{name: rat, radius: -0.1}]}\n",
+		"navigation agent slope":       head + "navigation: {agents: [{name: rat, maxSlope: 90}]}\n",
 		"display mode":                 head + "display: {width: 320, height: 180, mode: zoom}\n",
 		"display bar color":            head + "display: {width: 320, height: 180, barColor: 'not a color'}\n",
 		"action name":                  head + "input: {actions: [{name: ''}]}\n",
@@ -334,6 +347,8 @@ func TestCloneIsDeep(t *testing.T) {
 	*c.Assets.Fonts[0].Padding = 4
 	*c.Assets.Models[0].Animations = true
 	c.Assets.Manifest.Package = "other"
+	c.Navigation.CellSize = 9
+	c.Navigation.Agents[0].Radius = 9
 	c.Packs[0].Files[0] = "other"
 	c.Packs[0].Resources[0] = "other"
 	c.Packs[1].Plugins[0] = "other"

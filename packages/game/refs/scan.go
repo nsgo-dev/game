@@ -43,6 +43,7 @@ const (
 	FieldAutoloadScene    = project.FieldAutoloadScene
 	FieldAutoloadResource = project.FieldAutoloadResource
 	FieldInherits         = "inherits"
+	FieldNavMesh          = "navigation mesh"
 	FieldScene            = "scene"
 	FieldMaterial         = "material"
 	FieldTilemapSource    = "tilemap source"
@@ -422,6 +423,10 @@ func (p *Project) add(f *File) {
 // sceneRefs records the references of the scene document doc.
 func (p *Project) sceneRefs(f *File, doc *yaml.Node) {
 	p.ref(f, field(doc, "inherits"), FieldInherits)
+	// game navmesh writes the navigation mesh file, so it need not exist yet.
+	if r := p.ref(f, field(doc, "navMesh"), FieldNavMesh); r != nil {
+		r.Output = true
+	}
 	for _, kv := range pairs(field(doc, "tilemaps")) {
 		p.ref(f, field(kv[1], "source"), FieldTilemapSource)
 	}

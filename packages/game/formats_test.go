@@ -131,6 +131,7 @@ var formatVersions = map[string]string{
 	"modding.ManifestVersion":               "modding",
 	"modding.WorkshopMetadataVersion":       "modding#workshop",
 	"navbake.FormatVersion":                 "navbake",
+	"navbake3d.FormatVersion":               "navbake3d",
 	"net.ReplicationVersion":                "",
 	"particles.FormatVersion":               "particles",
 	"physics.SnapshotVersion":               "",

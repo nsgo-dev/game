@@ -335,7 +335,7 @@ func TestParseReleaseSettingsAcceptsEveryProjectSection(t *testing.T) {
 	if settings, err := parseReleaseSettings([]byte("version: 1\nname: Demo\nassets: null\n")); err != nil || settings.Assets != nil {
 		t.Fatalf("a null assets section: %+v, %v", settings, err)
 	}
-	want := []string{"version", "name", "id", "appVersion", "window", "display", "input", "audio", "autoload", "export", "editor", "assets", "packs"}
+	want := []string{"version", "name", "id", "appVersion", "window", "display", "input", "audio", "autoload", "export", "editor", "assets", "navigation", "packs"}
 	if !reflect.DeepEqual(gameFileKeys, want) {
 		t.Fatalf("gameFileKeys = %q, want %q", gameFileKeys, want)
 	}

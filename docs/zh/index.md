@@ -84,6 +84,7 @@ game 是用 Go 编写的 [NSGo](https://nsgo.dev/zh/) 应用游戏层。游戏�
 | `scene3d` | `github.com/nsgo-dev/game/packages/game/scene3d` | [scene3d](scene3d.md) | 3D 节点树、插槽/附件、动态胖 AABB/SAH BVH、轨道/FPS/第三人称相机与 3D 拾取 |
 | `anim3d` | `github.com/nsgo-dev/game/packages/game/anim3d` | [anim3d](anim3d.md) | 3D 姿态状态机、1D/2D 混合空间、骨骼遮罩与叠加层、帧事件、IK 与根骨骼运动 |
 | `world3d` | `github.com/nsgo-dev/game/packages/game/world3d` | [world3d](world3d.md) | 高度图地形、多层 3D 导航网格、3D `GridMap`、程序化植被与浮点原点区块流式加载 |
+| `navbake3d` | `github.com/nsgo-dev/game/packages/game/navbake3d` | [navbake3d](navbake3d.md) | 按代理类型从 glTF、地形、`GridMap` 和物理关卡几何体烘焙导航网格，保存为场景引用的 YAML，附调试绘制和 `game navmesh` |
 | `voxel` | `github.com/nsgo-dev/game/packages/game/voxel` | [voxel](voxel.md) | 分块 3D 体素世界：贪婪网格合并、跨区块剔除与 AO、脏区块局部重建、DDA 射线拾取与 YAML 存档 |
 | `render3d` | `github.com/nsgo-dev/game/packages/game/render3d` | [render3d](render3d.md) | GPU 网格缓冲、纹理与采样器、相机 uniform、CPU 视锥裁剪、绘制排序、零分配实例化、LOD 滞回、调试线框/手柄、公告板、3D 条带拖尾与 GPU 预算 |
 | `tooling/jsonschema` | `github.com/nsgo-dev/game/packages/game/tooling/jsonschema` | [YAML 文件的 Schema](schemas.md) | 由 Go 类型生成供编辑器和 AI 工具使用的 JSON Schema、已发布的场景 Schema，以及带 JSON Pointer 路径的校验 |

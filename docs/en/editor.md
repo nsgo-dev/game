@@ -41,6 +41,7 @@ import "github.com/nsgo-dev/game/packages/game/sceneformat"
 | `uid` | `string` | Optional stable ID that stays the same when the file is renamed or moved, written by `go tool game index` (both versions; see [Stable references](project.md#stable-references)). `Resolve` keeps the scene's own uid, not its base's. |
 | `inherits` | `string` | Optional slash-separated path from the project root to a base scene this one inherits (version 2, see Instancing and inheritance below). |
 | `name` | `string` | Optional human-readable scene name. |
+| `navMesh` | `string` | Optional slash-separated path from the project root to the scene's baked [navigation mesh file](navbake3d.md), which `go tool game navmesh` writes (both versions). In a scene that inherits another, it replaces the base's. |
 | `virtualWidth`, `virtualHeight` | `float32` | Virtual viewport size in points. Must both be `0` or both positive. |
 | `backgroundColor` | `string` | Optional CSS color string parsed by `core.ParseColor` (for example `"#141824"`). Filled over `(0, 0, virtualWidth, virtualHeight)` before layers draw. |
 | `camera` | object | Optional default 2D camera for world-space layers (`x`, `y`, `zoom`, `rotation`, optional `bounds`). |

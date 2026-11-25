@@ -119,6 +119,7 @@ func (r *sceneResolver) resolve(doc *SceneDoc, path string) (*SceneDoc, error) {
 	own := &SceneDoc{
 		Version:         doc.Version,
 		Name:            doc.Name,
+		NavMesh:         doc.NavMesh,
 		VirtualWidth:    doc.VirtualWidth,
 		VirtualHeight:   doc.VirtualHeight,
 		BackgroundColor: doc.BackgroundColor,
@@ -174,6 +175,9 @@ func (r *sceneResolver) inherit(doc, own *SceneDoc) (*SceneDoc, error) {
 	out.UID = doc.UID
 	if own.Name != "" {
 		out.Name = own.Name
+	}
+	if own.NavMesh != "" {
+		out.NavMesh = own.NavMesh
 	}
 	if own.VirtualWidth != 0 || own.VirtualHeight != 0 {
 		out.VirtualWidth, out.VirtualHeight = own.VirtualWidth, own.VirtualHeight

@@ -10,6 +10,7 @@ import (
 
 	"github.com/nsgo-dev/game/packages/game/ai"
 	"github.com/nsgo-dev/game/packages/game/l10n"
+	"github.com/nsgo-dev/game/packages/game/navbake3d"
 	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/game/packages/game/tooling/jsonschema"
@@ -466,6 +467,34 @@ func TestWorld3DSchemasShapeAndValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestNavMeshSchemaShapeAndValidation(t *testing.T) {
+	s := schemaAt(t, navbake3d.SchemaURL)
+	if version := s.Property("version"); version == nil || version.Const != int64(navbake3d.FormatVersion) {
+		t.Fatalf("version property = %+v", version)
+	}
+	if b, ok := s.AdditionalProperties.Boolean(); !ok || b {
+		t.Fatal("navmesh schema accepts unknown top-level keys")
+	}
+	data, err := os.ReadFile(filepath.Join(root, "navbake3d", "testdata", "reference.navmesh.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ValidateYAML(data); err != nil {
+		t.Fatalf("navmesh schema refused the reference bake: %v", err)
+	}
+	for _, bad := range []string{
+		"version: 1\nunknownKey: true\n",
+		"version: 2\nsettings: {}\n",
+		"version: 1\nsettings: {cellSize: -1}\n",
+		"version: 1\nmeshes: [{agent: {name: a, maxSlope: 90}}]\n",
+	} {
+		if err := s.ValidateYAML([]byte(bad)); err == nil {
+			t.Fatalf("navmesh schema accepted invalid YAML:\n%s", bad)
+		}
+	}
+}
+
 func TestProjectSchemaShapeAndValidation(t *testing.T) {
 	s := schemaAt(t, project.SchemaURL)
 	if s.Schema != jsonschema.Draft07 || s.ID != project.SchemaURL {

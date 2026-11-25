@@ -279,6 +279,19 @@ game pixelfx [flags] <category/name>
 | `-out directory` | `.` | the directory to write \<name>.png and \<name>.json into |
 | `-set name=value` |  | set one of the effect's options as name=value, such as seed=4 or palette=#102,#215,#fff; repeat it for more |
 
+## game navmesh
+
+Bake a scene's glTF level geometry into a navigation mesh per agent type of game.yaml's navigation section, written to the file the scene's navMesh names.
+
+```sh
+game navmesh [flags] <scene.yaml>
+```
+
+| 参数 | 默认值 | 说明 |
+| --- | --- | --- |
+| `-in string` |  | project directory, whose game.yaml holds the navigation settings and from which the scene's paths start (defaults to the nearest directory at or above the working directory holding game.yaml, nsgo.yaml or go.mod) |
+| `-out file` |  | navigation mesh file to write (defaults to the file the scene's navMesh names) |
+
 ## game completion
 
 Write a shell completion script for zsh, bash or fish.

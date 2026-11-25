@@ -35,6 +35,7 @@ go tool game help
 | `library` | 在库中查找资源、编辑器插件和模板包并安装到项目中，更新或移除它们，或打印包的摘要 |
 | `credits` | 写出 `release` 随发布附带的署名文件：每个资源的作者和许可证，取自它旁边的导入设置附属文件，有资源缺少署名时失败 |
 | `pixelfx` | 把 pixelfx 特效或其表演版本渲染为 PNG 精灵表和供 `sprite.LoadAtlas` 读取的 Aseprite JSON |
+| `navmesh` | 把场景的 glTF 关卡几何体为 `game.yaml` 声明的每种代理类型烘焙成导航网格，写入场景的 `navMesh` 指定的文件 |
 | `completion` | 为 zsh、bash 或 fish 生成补全脚本 |
 | `help` | 列出所有命令，或显示某个命令的参数 |
 
@@ -115,7 +116,7 @@ export:
     - platform: android
 ```
 
-命令读取 `game.yaml` 的 `version`（必须是整数 1）、`export` 部分，以及为署名文件读取的 `assets` 部分。它拒绝项目文件字段（`version`、`name`、`id`、`appVersion`、`window`、`display`、`input`、`audio`、`autoload`、`export`、`editor` 和 `assets`）以外的顶层字段，因此拼错的 `export` 不会被悄悄跳过；在 `export` 里则拒绝未知字段、空的 `presets` 列表、未知的平台和目标、属于其他平台的目标、重复项以及位于项目之外的输出目录；文件的其余部分归项目文件管理。`-channel` 即 `nsgo build` 的同名参数：`store` 构建商店接受的包（Mac App Store 安装包，同时构建两种 macOS 架构时为通用包，以及 Windows MSIX、Flatpak 包和 Android App Bundle），取代直接分发的磁盘映像、安装程序和 APK；`-release-notes` 和 `-jobs` 也原样传给它。签名、公证和上传商店遵循 `nsgo.yaml` 和 `nsgo publish`。
+命令读取 `game.yaml` 的 `version`（必须是整数 1）、`export` 部分，以及为署名文件读取的 `assets` 部分。它拒绝项目文件字段（`version`、`name`、`id`、`appVersion`、`window`、`display`、`input`、`audio`、`autoload`、`export`、`editor`、`assets` 和 `navigation`）以外的顶层字段，因此拼错的 `export` 不会被悄悄跳过；在 `export` 里则拒绝未知字段、空的 `presets` 列表、未知的平台和目标、属于其他平台的目标、重复项以及位于项目之外的输出目录；文件的其余部分归项目文件管理。`-channel` 即 `nsgo build` 的同名参数：`store` 构建商店接受的包（Mac App Store 安装包，同时构建两种 macOS 架构时为通用包，以及 Windows MSIX、Flatpak 包和 Android App Bundle），取代直接分发的磁盘映像、安装程序和 APK；`-release-notes` 和 `-jobs` 也原样传给它。签名、公证和上传商店遵循 `nsgo.yaml` 和 `nsgo publish`。
 
 `game.yaml` 有 `assets` 部分时（此时整个文件都必须通过[项目文件](project.md)的校验），发布会附带一份署名文件：`nsgo build` 成功后，命令把 `CREDITS.md` 写入输出目录、与各个包放在一起，列出该部分涉及的每个资源的作者、许可证和来源，以及许可证要求随资源附带的每段声明，内容取自每个资源的[导入设置附属文件](#资源旁的导入设置)中的 `credit` 部分，与 [`game credits`](#credits) 写出的相同。这些资源是每个图集打包的图片、每个纹理、音频、字体和模型目标的输入、每个模型以相对路径引用并嵌入其 GLB 的缓冲区和图片，以及资源清单在其文件夹里列出的每个文件（例如字体、地图和模型），但不含各目标写出的文件，因为它们由这些输入生成。只要有资源缺少署名，发布就会在构建任何东西之前停止，并列出需要写的附属文件；资源清单列出的文件如果是某个目标在输出改变之前写出的，在 `game assets` 删除它之前仍算作资源。`-dry-run` 同样检查署名，并给出它会写出的文件。没有 `assets` 部分的游戏不生成署名文件，命令会在标准错误上提示这一点。游戏从别处加载的文件，例如 `autoload` 资源或嵌入在资源清单文件夹之外的文件，不会被列出，需要自行署名。
 
@@ -204,7 +205,7 @@ game check: 1 problem
 | Tiled 地图（`.tmj`）和图块集（`.tsj`） | 外部图块集是存在的 JSON 图块集（`.tsj`，或旧版 Tiled 使用的 `.json`；不是 `.tsx`）；图块集图片和图像图层的图片存在，组图层里的也算；地图能用 `tilemap.LoadTiled` 加载 |
 | LDtk 项目（`.ldtk`） | 图块集图片和关卡背景存在；没有关卡保存在单独的 `.ldtkl` 文件中，因为 `tilemap.LoadLDtkAll` 不读取这些文件（在 LDtk 中关闭“Save levels to separate files”）；项目能用 `tilemap.LoadLDtkAll` 加载 |
 | 精灵图集（顶层有 `frames` 和 `meta` 的 JSON，即 TexturePacker 和 Aseprite 导出的格式） | `meta.image` 存在；每一帧都落在图片之内；图集能用 `sprite.LoadAtlas` 加载 |
-| `game.yaml` 以及文件之间的其他所有引用 | `game.yaml` 按[项目文件](project.md)解析并校验通过；每个自动加载的场景和资源都存在，每个 `assets` 目标的 `in`（图集的是文件夹）也存在，上面各行没有覆盖到的其他引用所指的文件同样必须存在：场景 `inherits` 的场景和对象实例化的场景（`scene`，不论其文件名是什么）、覆盖项中以及不以 `*.scene.yaml` 命名的场景中的材质和瓦片地图 `source`，还有材质的 `texture`（无论该材质在哪里被使用）。`game assets` 写出的路径（`out`、`cache`、`manifest.in`）可以暂不存在 |
+| `game.yaml` 以及文件之间的其他所有引用 | `game.yaml` 按[项目文件](project.md)解析并校验通过；每个自动加载的场景和资源都存在，每个 `assets` 目标的 `in`（图集的是文件夹）也存在，上面各行没有覆盖到的其他引用所指的文件同样必须存在：场景 `inherits` 的场景和对象实例化的场景（`scene`，不论其文件名是什么）、覆盖项中以及不以 `*.scene.yaml` 命名的场景中的材质和瓦片地图 `source`，还有材质的 `texture`（无论该材质在哪里被使用）。`game assets` 写出的路径（`out`、`cache`、`manifest.in`）以及场景 `navMesh` 指定、由 `game navmesh` 写出的导航网格文件可以暂不存在 |
 | 项目索引（`game.index.yaml`） | 能够解析，且同一项目中没有两个场景或资源文件共用同一个 `uid`（复制出的文件在 `game index` 给它分配新 uid 之前就是这种情况）；不同的项目（例如由同一模板创建的两个游戏）可以共用 |
 
 地图、图块集和图集里写的路径相对于该文件本身，与 Tiled、LDtk 和纹理打包工具的写法一致。场景的瓦片地图 `source` 和 `material`，以及材质的 `texture`，相对于项目根目录：从场景往上最近一个含有 `game.yaml`、`nsgo.yaml` 或 `go.mod` 的目录，都没有时为被检查的目录。场景按游戏的 `sceneformat.AssetResolver` 的方式用名字指代图集，所以检查按文件名找它：同一项目中去掉 `.json` 后的文件名等于这个名字的图集 JSON（`actors` 即 `art/actors.json`），或者从项目根目录算起的路径等于这个名字的（`art/actors`）。有多个匹配时取离场景最近的一个，距离按从场景往上走到共同目录、再往下走到图集所经过的目录数计算，所以场景旁边的图集优先于子目录里的；两个同样近时报告为有歧义，直到场景用路径指明其中一个。没有图集匹配、但有同名的 JSON 文件无法解析或不是图集时，报告该文件的问题。路径必须是相对路径、使用正斜杠，且不能指到被检查的目录之外。PNG、JPEG 和 GIF 图片必须能解码；其他图片只要存在即可。
@@ -461,6 +462,15 @@ go tool game pixelfx -list
 ```
 
 把命令内置的某个 [pixelfx](pixelfx.md) 特效渲染为 PNG 精灵表及其 Aseprite JSON，即 `-out` 下的 `<name>.png` 和 `<name>.json`，可供 `sprite.LoadAtlas` 读取：每一帧按特效自身的帧率（或 `-fps`）渲染并排成网格，带有每帧的时长和位于特效原点的轴心，以及一个动画标签（循环特效循环播放，一次性特效只播放一次）。名字默认取特效名（`torch`），可用 `-name` 指定，但必须是不带目录的文件名。`-set name=value` 设置特效的一个选项，值可以是数字、`true` 或 `false`、颜色（如 `#4a3f69`，可写作 `#rgb`、`#rrggbb`，或忽略透明度的 `#rrggbbaa`）、用逗号分隔的一串颜色（调色板）或文本；`-flip` 镜像特效。`-act` 改为渲染表演版本：内置角色带着稻草靶表演该特效，除非用 `-fps` 指定，否则帧率为 60，JSON 中带有表演的时间信息，供有自己角色的游戏使用。`-list` 列出所有特效及其尺寸、时长和选项。命令不认识的特效、选项或取值以 2 退出。它能渲染的类别是目前已移植的类别，每个类别移植时会把自己加进来。
+
+### navmesh
+
+```sh
+go tool game navmesh scenes/level1.scene.yaml
+go tool game navmesh -out build/level1.navmesh.yaml scenes/level1.scene.yaml
+```
+
+烘焙一个 3D 场景的[导航网格](navbake3d.md)：它解析该场景实例化和继承的场景，从项目根目录加载每个对象的 `mesh` 指定的 glTF 模型（`.gltf` 或 `.glb`），放在对象的 3D 变换处，再按[项目文件](project.md)中 `navigation` 部分的设置，为其中的每种代理类型各烘焙一次；没有该部分时，用默认设置烘焙一种名为 `default` 的代理类型。它把[导航网格文件](formats.md#3d-导航网格)写到 `-out`，或写到场景的 `navMesh` 从项目根目录指定的文件，并输出该文件以及每种代理类型的多边形数。项目目录为 `-in`，或工作目录及其上级目录中最近一个含有 `game.yaml`、`nsgo.yaml` 或 `go.mod` 的目录，场景必须位于其中。同样的场景和设置总是写出同样的字节，因此该文件应与场景一起纳入版本控制，未改变任何东西的烘焙不会产生差异。场景没有 `navMesh` 且未给出 `-out` 时退出码为 2，没有可烘焙的几何体时退出码为 1。
 
 ### completion
 

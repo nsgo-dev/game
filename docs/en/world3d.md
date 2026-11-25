@@ -138,6 +138,8 @@ queue.Submit(search, 0, func(_ ai.PathRequestID, _ ai.SearchStatus) {
 
 Stepping `NavMeshSearch` across any positive per-step budget returns the exact same 3D surface path as `FindPathWithOptions`, and partial paths end at the closest reachable 3D point on the explored polygons.
 
+To bake the polygons from the level's geometry instead of writing them by hand, use [navbake3d](navbake3d.md): it rasterizes glTF models, terrain, `GridMap`s and physics colliders for each agent type and `Mesh.NavMesh` returns the `NavMesh`.
+
 ### 3D navigation agents (`NavAgent`, `NavAgentGroup`)
 
 `world3d.NavAgent` follows and locally repairs 3D polygon corridors over a `world3d.NavMesh`, steering smoothly on XZ toward the next funnel corner while tracking exact 3D surface elevation (`NavPoly.HeightAt`) across sloped ramps and multi-level bridges, slowing inside `ArrivalRadius` to stop within `StoppingDistance`, and exposing explicit state (`NavAgentIdle`, `NavAgentMoving`, `NavAgentArrived`, `NavAgentUnreachable`):

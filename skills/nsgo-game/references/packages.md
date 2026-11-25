@@ -73,6 +73,7 @@ Every non-internal package under `github.com/nsgo-dev/game/packages` (shown rela
 | `game/anim3d` | Experimental | 3D pose state machines, 1D/2D blend spaces, bone masks, clip events, IK, root motion |
 | `game/physics3d` | Experimental | 3D rigid bodies, shapes, raycasts, sweeps and character movement |
 | `game/world3d` | Experimental | Heightmap terrain, multi-level 3D navmeshes, 3D `GridMap`, foliage, floating-origin streaming |
+| `game/navbake3d` | Experimental | Recast-style navigation mesh baking from glTF, scenes, terrain, GridMaps and static colliders, one mesh per agent type, versioned YAML output, debug draw |
 | `game/voxel` | Experimental | Chunked 3D voxel worlds, greedy meshing, cross-chunk AO, DDA raycasting, YAML saves |
 | `game/gltf` | Experimental | glTF 2.0 (`.gltf`/`.glb`) loader for meshes, materials, skins and animations |
 | `game/vehicle` | Experimental | Raycast cars on `physics3d`, suspension, tire friction, checkpoints, laps and YAML lap ghosts |

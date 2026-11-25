@@ -1,0 +1,210 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://game.nsgo.dev/schemas/navmesh.v1.json",
+  "title": "NSGo game navigation mesh (version 1)",
+  "description": "File is a versioned YAML navigation mesh file, such as levels/level1.navmesh.yaml, that a scene names in its navMesh field: the settings it was baked with and one Mesh per agent type.",
+  "type": "object",
+  "properties": {
+    "version": {
+      "description": "Version is the schema version; it must be FormatVersion (1).",
+      "type": "integer",
+      "const": 1
+    },
+    "settings": {
+      "description": "Settings are the values the meshes were baked with, every field set.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Settings"
+        }
+      ]
+    },
+    "meshes": {
+      "description": "Meshes holds one mesh per agent type, in the order the agent types were baked.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Mesh"
+      }
+    }
+  },
+  "required": [
+    "version"
+  ],
+  "additionalProperties": false,
+  "definitions": {
+    "AgentType": {
+      "description": "AgentType is a named kind of agent a navigation mesh is baked for, such as a humanoid or a large creature. A level bakes one mesh per agent type, as Unity's agent types and Godot's per-agent navigation meshes do.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Name uniquely identifies the agent type, such as \"humanoid\".",
+          "type": "string",
+          "minLength": 1
+        },
+        "radius": {
+          "description": "Radius is how far the mesh keeps from walls and ledges; 0 uses DefaultAgentRadius.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "height": {
+          "description": "Height is the clearance the agent needs; spaces under ceilings lower than it are left out. 0 uses DefaultAgentHeight.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "maxSlope": {
+          "description": "MaxSlope is the steepest surface the agent walks on, in degrees from horizontal, below 90; 0 uses DefaultAgentMaxSlope.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3.4028234663852886e+38,
+          "exclusiveMaximum": 90
+        },
+        "maxClimb": {
+          "description": "MaxClimb is the highest step, such as a stair's riser, the agent walks up or down; 0 uses DefaultAgentMaxClimb.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3.4028234663852886e+38
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "Mesh": {
+      "description": "Mesh is the navigation mesh baked for one agent type: convex polygons over shared vertices, each with triangles that follow the height of the ground under it.",
+      "type": "object",
+      "properties": {
+        "agent": {
+          "description": "Agent is the agent type the mesh was baked for, every field set.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/AgentType"
+            }
+          ]
+        },
+        "vertices": {
+          "description": "Vertices are the polygons' corners in world space, shared between neighbouring polygons.",
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "minimum": -3.4028234663852886e+38,
+              "maximum": 3.4028234663852886e+38
+            }
+          }
+        },
+        "polygons": {
+          "description": "Polygons are the mesh's convex walkable polygons.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Polygon"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "Polygon": {
+      "description": "Polygon is one convex walkable polygon of a Mesh with its height detail.",
+      "type": "object",
+      "properties": {
+        "vertices": {
+          "description": "Vertices index Mesh.Vertices, from 3 to Settings.MaxVertsPerPoly of them, in order around the polygon.",
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": -9223372036854776000,
+            "maximum": 9223372036854776000
+          }
+        },
+        "detail": {
+          "description": "Detail holds the extra vertices sampled on the polygon's edges and inside it where the ground is uneven.",
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "minimum": -3.4028234663852886e+38,
+              "maximum": 3.4028234663852886e+38
+            }
+          }
+        },
+        "triangles": {
+          "description": "Triangles cover the polygon, winding counter-clockwise seen from above. An index below len(Vertices) names that polygon vertex, and index len(Vertices)+i names Detail[i].",
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": -9223372036854776000,
+              "maximum": 9223372036854776000
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "Settings": {
+      "description": "Settings are the voxel resolution and polygon building parameters of a bake, shared by every agent type. A zero field uses its default, and a baked File records every value it was baked with.",
+      "type": "object",
+      "properties": {
+        "cellSize": {
+          "description": "CellSize is the width and depth of one heightfield cell; smaller cells follow the level more closely and take longer to bake. 0 uses DefaultCellSize.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "cellHeight": {
+          "description": "CellHeight is the height of one heightfield cell, the precision of heights, clearances and step heights. 0 uses DefaultCellHeight.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "minRegionArea": {
+          "description": "MinRegionArea is the smallest area of a connected island of walkable surface that is kept, which drops specks on tables and ledges. 0 uses DefaultMinRegionArea.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "maxEdgeLength": {
+          "description": "MaxEdgeLength is the longest a polygon edge along a wall may be before it is split. 0 uses DefaultMaxEdgeLength.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "maxSimplificationError": {
+          "description": "MaxSimplificationError is the farthest a simplified wall outline may stray from the walkable area's cell outline. 0 uses DefaultMaxSimplificationError.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "maxVertsPerPoly": {
+          "description": "MaxVertsPerPoly is the largest number of vertices in one convex polygon, from 3 to MaxVertsPerPolyLimit. 0 uses DefaultMaxVertsPerPoly.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 12
+        },
+        "detailSampleDistance": {
+          "description": "DetailSampleDistance is the spacing of the height samples a polygon's detail triangles follow uneven ground with, at least CellSize. 0 uses DefaultDetailSampleDistance, or CellSize when that is larger.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "detailSampleMaxError": {
+          "description": "DetailSampleMaxError is how far the detail triangles may stray from the sampled height before a sample is added. 0 uses DefaultDetailSampleMaxError.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3.4028234663852886e+38
+        },
+        "layerMask": {
+          "description": "LayerMask selects the geometry baked: a triangle is baked when its layers share a bit with the mask. 0 uses LayerAll.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

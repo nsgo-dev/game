@@ -131,6 +131,17 @@ assets:
     prefix: 'res:'
     embed: true
     embedDir: assets
+navigation:
+  cellSize: 0.2
+  cellHeight: 0.1
+  maxVertsPerPoly: 6
+  agents:
+    - name: humanoid
+      radius: 0.4
+      height: 1.8
+      maxSlope: 40
+      maxClimb: 0.4
+    - name: rat
 packs:
   - name: cave-tiles
     kind: asset
