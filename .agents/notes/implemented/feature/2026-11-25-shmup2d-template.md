@@ -18,13 +18,14 @@ Issue #790 adds a vertical scrolling shooter template under the infrastructure o
 - A shared `packages/game/shmup` package for waves, paths and bosses: it would serve other shooters, but a template is the code a developer copies and changes, and a new library package brings a stability row, an example and an API to keep; the genre logic stays in the template, where it is meant to be edited.
 - An invincibility or assist switch for the win playthrough: it reaches the boss's defeat with certainty, but proves nothing about the stage being winnable by playing it, and adds a feature only the test needs.
 - Replaying a recorded input sequence: a recording that wins on one architecture can lose on another, since `bullets` documents that floating-point results differ across CPUs, while a closed-loop pilot reacts to where the bullets really are.
+- A `touchRegion` binding in `game.yaml` for the touch bomb button: it would keep the button's place in the project file, but an input map's touch region is held by any finger inside it, so the finger steering the ship would set off a bomb as it slid over the button; the drag decides on the finger that goes down instead.
 - Driving the mouse drag from `OnPressDown`: `nsgotest`'s `MouseDownAt` sends only mouse-button events, and a press does not say which button went down, so the left button is read from `OnMouseDown`.
 
 ## Consequences
 
 - A designer changes the stage, patterns and explosion in YAML; the tests check that the files load, stay canonical and that the pilot still clears the stage, so a change that makes it unwinnable for a careful player fails `TestPilotClearsTheStage`.
 - Raising the pin is needed whenever the template starts using a game layer API newer than the pinned commit; CI's templates job builds it with `GOWORK=off` against the pin.
-- `nsgotest` puts down one finger at a time (`App.Touch` always uses finger 1), so dragging while pressing the touch bomb button with a second finger is not covered by a test; the drag follows its own finger ID and the bomb is a `touchRegion` of the input map, which track fingers separately.
+- `nsgotest` puts down one finger at a time (`App.Touch` always uses finger 1), so dragging while pressing the touch bomb button with a second finger is not covered by a test; the drag follows its own finger ID and sets off a bomb for each other finger that goes down on the button.
 
 ## Verification
 

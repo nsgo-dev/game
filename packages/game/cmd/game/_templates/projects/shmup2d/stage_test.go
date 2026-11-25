@@ -70,6 +70,8 @@ func TestParseStageRefusesInvalidStages(t *testing.T) {
 		{"first phase not full", "    - below: 1\n", "    - below: 0.9\n", "want 1"},
 		{"phases not falling", "    - below: 0.33\n", "    - below: 0.7\n", "not under phase 1"},
 		{"unknown move", "move: chase", "move: orbit", `move "orbit"`},
+		{"too many in a wave", "    count: 5\n", "    count: 1001\n", "count 1001"},
+		{"wave past the end of time", "    every: 250ms\n", "    every: 1000000h\n", "later than a time can hold"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			src := valid + tc.new

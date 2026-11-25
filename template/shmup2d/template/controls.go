@@ -16,10 +16,10 @@ const (
 	axisMoveY     = "moveY"
 )
 
-// bombRegion is where the touch bomb button is, in playfield points, as game.yaml binds it.
-var bombRegion, _ = Project.Region(actionBomb)
+// bombRegion is where the touch bomb button is, in playfield points, at the bottom right. It is not a touchRegion of game.yaml's input map, because a touchRegion is held by any finger inside it, and the finger that steers the ship would set off a bomb as it slid over the button.
+var bombRegion = core.Bounds{Origin: core.Point{X: 206, Y: 416}, Size: core.Size{Width: 56, Height: 56}}
 
-// drag steers the ship by dragging anywhere on the playfield, with a finger or with the mouse's left button: the ship moves as far as the pointer does, so a finger never covers it, and its guns fire while the pointer is down. A touch that starts on the bomb button sets off a bomb instead, through the input map.
+// drag steers the ship by dragging anywhere on the playfield, with a finger or with the mouse's left button: the ship moves as far as the pointer does, so a finger never covers it, and its guns fire while the pointer is down. A finger that goes down on the bomb button sets off a bomb instead, and one that slides onto it while dragging does not.
 type drag struct {
 	// toGame maps a point in the game view to the playfield, and false outside it.
 	toGame func(core.Point) (core.Point, bool)
@@ -30,6 +30,8 @@ type drag struct {
 	last     core.Point
 	// dx and dy are how far the pointer moved since the last step.
 	dx, dy float32
+	// bomb is whether a finger went down on the bomb button since the last step.
+	bomb bool
 }
 
 // held reports whether a finger or the mouse is steering the ship.
@@ -42,10 +44,18 @@ func (g *drag) take() (dx, dy float32) {
 	return dx, dy
 }
 
+// takeBomb reports whether a finger went down on the bomb button since the last call.
+func (g *drag) takeBomb() bool {
+	bomb := g.bomb
+	g.bomb = false
+	return bomb
+}
+
 // reset lets go of the pointer, as a scene change or pause does.
 func (g *drag) reset() {
 	g.touching, g.mouse = false, false
 	g.dx, g.dy = 0, 0
+	g.bomb = false
 }
 
 // moveTo moves the pointer to view point p, adding how far it went on the playfield.
@@ -59,27 +69,30 @@ func (g *drag) moveTo(p core.Point) {
 	g.last = q
 }
 
-// start begins a drag at view point p, unless p is off the playfield or on the bomb button.
+// start begins a drag at view point p, unless p is off the playfield. The mouse drags from anywhere, as the bomb button is only for touch and shows only on a touch screen.
 func (g *drag) start(p core.Point) bool {
 	q, ok := g.toGame(p)
-	if !ok || bombRegion.Contains(q) {
+	if !ok {
 		return false
 	}
 	g.last = q
 	return true
 }
 
-// onTouch follows the first finger that goes down on the playfield until it lifts.
+// onTouch follows the first finger that goes down on the playfield until it lifts, and sets off a bomb for each finger that goes down on the bomb button.
 func (g *drag) onTouch(ev core.TouchEvent) {
 	switch ev.Phase {
 	case core.TouchStart:
-		if g.touching {
-			return
-		}
 		for _, t := range ev.Touches {
-			if t.Changed && g.start(t.Position) {
+			if !t.Changed {
+				continue
+			}
+			if q, ok := g.toGame(t.Position); ok && bombRegion.Contains(q) {
+				g.bomb = true
+				continue
+			}
+			if !g.touching && g.start(t.Position) {
 				g.touching, g.finger, g.mouse = true, t.ID, false
-				return
 			}
 		}
 	case core.TouchMove:
@@ -146,6 +159,6 @@ func sample(a *input.Actions, g *drag) controls {
 		DragY: dy,
 		Fire:  a.Pressed(actionFire) || g.held(),
 		Focus: a.Pressed(actionFocus),
-		Bomb:  a.JustPressed(actionBomb),
+		Bomb:  a.JustPressed(actionBomb) || g.takeBomb(),
 	}
 }

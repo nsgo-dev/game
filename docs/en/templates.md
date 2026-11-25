@@ -28,7 +28,7 @@ A spark slides until a wall stops it and lights every lamp it passes; lighting a
 
 ### shmup2d
 
-`shmup2d` is one stage of a vertical shooter on a 270×480 portrait playfield. Enemy waves fly in on dive, weave, cross and hover paths and fire [`bullets`](bullets.md) patterns; destroying a whole wave drops a power, bomb or life item; a boss with three phases ends the stage. Defeating the boss is the win, losing the last life the loss. It plays with the keys or WASD, a controller's stick, D-pad and buttons, and by dragging with a finger or the mouse, with a touch bomb button that `game.yaml`'s input map places.
+`shmup2d` is one stage of a vertical shooter on a 270×480 portrait playfield. Enemy waves fly in on dive, weave, cross and hover paths and fire [`bullets`](bullets.md) patterns; destroying a whole wave drops a power, bomb or life item; a boss with three phases ends the stage. Defeating the boss is the win, losing the last life the loss. It plays with the keys or WASD, a controller's stick, D-pad and buttons, and by dragging with a finger or the mouse, with a bomb button on touch screens.
 
 - `data/stage.yaml` is the stage: the ship's speeds, lives, bombs and weapons, the enemy kinds with their paths and patterns, the waves with their times, places and drops, and the boss with its phases. `stage.go` defines the format, with a version, unknown fields refused and a canonical encoding, which a test and a fuzz test hold to.
 - `data/patterns.yaml` holds every bullet pattern in the `bullets` format and `data/explosion.yaml` the explosion in the [`particles`](particles.md) format.

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -274,6 +275,55 @@ func TestBossChangesPhaseAtItsThresholds(t *testing.T) {
 	w.damageBoss(b.hp)
 	if w.outcome != cleared || !b.dead || w.score < b.def.Score {
 		t.Fatalf("defeating the boss: outcome %d, score %d", w.outcome, w.score)
+	}
+}
+
+func TestABigHitGoesStraightToTheLastPhaseItPasses(t *testing.T) {
+	w := bossFight(t)
+	b := w.boss
+	last := len(b.def.Phases) - 1
+	w.events = w.events[:0]
+	w.damageBoss(b.hp - int(b.def.Phases[last].Below*float32(b.def.HP)))
+	if b.phase != last {
+		t.Fatalf("a hit past every phase's mark left the boss in phase %d, want %d", b.phase, last)
+	}
+	changes := 0
+	for _, ev := range w.events {
+		if ev == eventBossPhase {
+			changes++
+		}
+	}
+	if changes != 1 {
+		t.Fatalf("the hit changed the boss's phase %d times, want once", changes)
+	}
+}
+
+// TestNewWorldRefusesAPatternWithAFrameTheAtlasLacks checks that a pattern naming a frame the atlas does not paint fails as the run starts, for the ship's, an enemy's and the boss's patterns alike, rather than when the pattern is first used.
+func TestNewWorldRefusesAPatternWithAFrameTheAtlasLacks(t *testing.T) {
+	data, err := loadData()
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := map[string]string{"ship": data.stage.Ship.Weapons[len(data.stage.Ship.Weapons)-1]}
+	for _, e := range data.stage.Enemies {
+		if e.Pattern != "" {
+			names["enemy"] = e.Pattern
+		}
+	}
+	phases := data.stage.Boss.Phases
+	names["boss"] = phases[len(phases)-1].Patterns[0]
+	for who, name := range names {
+		t.Run(who, func(t *testing.T) {
+			data, err := loadData()
+			if err != nil {
+				t.Fatal(err)
+			}
+			p, _ := data.patterns.Pattern(name)
+			p.Frame = "unpainted"
+			if _, err := data.newRun(viewport.Width, viewport.Height); err == nil || !strings.Contains(err.Error(), `"unpainted"`) {
+				t.Fatalf("newRun with pattern %q naming an unpainted frame = %v, want an error naming it", name, err)
+			}
+		})
 	}
 }
 

@@ -19,7 +19,7 @@ It shows:
 | Fly | Arrow keys or WASD | Left stick or D-pad | Drag anywhere: the ship moves as far as the finger or the mouse does |
 | Fire | Z, Space or J | South (A) or right trigger | Held while dragging |
 | Focus, a slower ship | Shift | Left shoulder or left trigger | |
-| Bomb | X or K | East (B) | The bomb button at the bottom right |
+| Bomb | X or K | East (B) | On a touch screen, the bomb button at the bottom right; with the mouse, X or K |
 | Pause | Escape or P | Start | The Pause button |
 | Start, play again | Return | Start | The Start and Play again buttons |
 
@@ -67,6 +67,6 @@ go tool nsgo build -target macos_arm64,windows_x64,linux_x64,web
 - **A new item**: add its kind to `stage.go`, its effect to `collectItems` and its frame to `art.go`.
 - **More stages**: load another stage file in `data.go` and start a run of it when one is cleared.
 - **Art and sound**: replace `makeAtlas` with `sprite.LoadAtlas` or a `placeholder.Sheet`, keeping the frame names, and `cues` in `audio.go` with your own sounds under `resources/`.
-- **Controls**: edit the input map in `game.yaml`; the touch bomb button is its `touchRegion`.
+- **Controls**: edit the input map in `game.yaml`. The touch bomb button is `bombRegion` in `controls.go`, outside the input map so that a finger already steering the ship cannot set it off by sliding over it.
 
 `CREDITS.md` lists where the assets come from.
