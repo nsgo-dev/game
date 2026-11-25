@@ -316,7 +316,6 @@ func generate(root string) ([]schemaFile, error) {
 				}
 			}
 		}
-<<<<<<< HEAD
 		if f.url == playtest.SchemaURL {
 			if botDef := s.Definitions["BotConfig"]; botDef != nil {
 				if params := botDef.Property("params"); params != nil {
@@ -324,8 +323,6 @@ func generate(root string) ([]schemaFile, error) {
 				}
 			}
 		}
-||||||| parent of 4d6e38fc (feat(gameui): add *.screen.yaml screen files, safe-area builder, checks, and refs support)
-=======
 		if f.url == gameui.ScreenSchemaURL {
 			if nodeDef := s.Definitions["ScreenNodeDoc"]; nodeDef != nil {
 				if dc := nodeDef.Property("deviceClasses"); dc != nil && dc.Items != nil {
@@ -338,7 +335,6 @@ func generate(root string) ([]schemaFile, error) {
 				}
 			}
 		}
->>>>>>> 4d6e38fc (feat(gameui): add *.screen.yaml screen files, safe-area builder, checks, and refs support)
 		data, err := s.Marshal()
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", f.url, err)
