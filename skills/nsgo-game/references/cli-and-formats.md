@@ -16,7 +16,7 @@ go get -tool github.com/nsgo-dev/game/packages/game/cmd/game@latest
 | `game dev` | `game dev [-assets -fps -target] [dir] [nsgo dev flags]` | Run `nsgo dev` with live asset hot reload (`hotreload.DevAssetsDir`) |
 | `game generate` | `game generate [-in -autoload -main] component\|system\|scene\|prefab <name>` | Generate Go code, tests, `.scene.yaml` files and registrations into a project |
 | `game editor` | `game editor [-library] [project-dir \| game.yaml \| scene.yaml] [clip.animation.yaml [object-id]]` | Open the scene and animation clip editor |
-| `game mcp` | `game mcp [-project dir]` | Serve the open editor's MCP tools (`scene_read`, `scene_edit`, `selection_get`, `viewport_image`, `game_check`) on stdio for an agent, forwarding to the editor that has the project open |
+| `game mcp` | `game mcp [-project dir]` | Serve the open editor's MCP tools (`scene_read`, `scene_edit`, `selection_get`, `viewport_image`, `game_check`, `game_playtest`, `playtest_define`) on stdio for an agent, forwarding to the editor that has the project open |
 | `game check` | `game check [-in] [dir]` | Validate scenes, Tiled/LDtk maps, sprite atlases and every referenced file |
 | `game index` | `game index [-dry-run -in] [dir]` | Assign stable UIDs to scene/resource files and update the project index |
 | `game mv` | `game mv [-dry-run -in] <from> <to>` | Move/rename a file or folder and rewrite every reference in the project |
@@ -40,6 +40,7 @@ go get -tool github.com/nsgo-dev/game/packages/game/cmd/game@latest
 | Command | Usage | Purpose |
 | --- | --- | --- |
 | `game replay` | `game replay [-run Replay] [dir ...]` | Validate YAML input recordings and run their headless replay tests |
+| `game playtest` | `game playtest [-config -out -recordings -run -count -seeds -check] [dir ...]` | Validate `playtest.yaml`, run headless bot playtests with replays, write a YAML report and fail on missed goals |
 | `game bench` | `game bench [-baseline -bench -benchtime -count -in -update] [dir ...]` | Run headless benchmarks and fail on regressions against a YAML baseline |
 | `game release` | `game release [-target -channel -output -jobs -release-notes -dry-run] [dir]` | Build release packages for `game.yaml` export presets via `nsgo build` with credits |
 | `game completion` | `game completion zsh\|bash\|fish` | Output shell completion scripts |
@@ -71,6 +72,7 @@ Every file authored by a human or coding agent is plain-text YAML:
 | `*.tileset.yaml` | `tilemap` | Tilesets: grid image or atlas frames, per-tile properties, collision flags and shapes, animations and terrains, placed by scenes' layered tilemaps (`version: 1`) |
 | `<name>.<type>.yaml`, such as `stone.material.yaml` | `resource` | Shared resources; `type` is `material`, `curve`, `gradient`, `animation`, `theme`, `busLayout` or `physicsMaterial` (`version: 1`) |
 | `*.replay.yaml` | `replay` | Editable deterministic input recordings (seed, step rate, per-step action/axis transitions; `version: 2`) |
+| `playtest.yaml` | `playtest` | Headless bot playtest configuration (scope, seeded runs, bot profile/parameters, metrics and sourced goals; `version: 1`, schema `playtest.v1.json`) |
 | Any `.yaml` or `.yml` file, such as `weapons.yaml` | `tooling/datatable` | Typed game data tables (`version: 1`); `.csv` and `.json` exports load too, without a version |
 | `mod.yaml` | `modding` | Mod metadata, capabilities and dependencies (`manifestVersion: 1`) |
 | Gameplay YAML configs | `particles`, `skeletal`, `cutscene`, `rooms`, `worldmap`, `cards`, `stats`, `ability`, `inventory`, `quest`, `loot`, `achievements`, `leaderboard`, `fighting`, `framedata`, `platformer`, `vehicle`, `bullets`, `rts`, `procgen`, `vn`, `rhythm`, `idle`, `quality`, `voxel` | Domain-specific versioned YAML assets validated by each package's `Parse`/`Encode` |

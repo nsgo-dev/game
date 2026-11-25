@@ -289,6 +289,8 @@ claude mcp add game-editor -- nsgo game mcp
 | `selection_get` | read | 无 | 打开的场景、当前图层、选中的对象及其 YAML 行（行号与 `scene_read` 一致）、文件浏览器中选中的文件、当前工具和视图模式。 |
 | `viewport_image` | read | `scale`（可选，0.25 到 4） | 视口当前样子的 PNG：通过编辑器视图看到的场景，以及相机框、瓦片网格和选择框，尺寸为视口的点尺寸乘以 `scale`。文字和不在内存中的图片会被略去，回复会给出数量。 |
 | `game_check` | run | 无 | 运行问题面板的检查（使用编辑器组件注册表的 `assetcheck`，以及 `project.Check`），返回其中的问题，每条带文件、行号和消息。它读取磁盘上的文件；打开的场景有检查未看到的未保存编辑时，回复会写出该场景。 |
+| `game_playtest` | run | `file`、`run`、`count`、`seeds`、`out`、`recordings`（均可选） | 校验 `playtest.yaml`，无头运行配置好的机器人试玩并按种子录制 `.replay.yaml` 回放，写出 YAML 报告并返回每项指标的值、目标状态（`met` 或 `missed`）以及热力图坐标数据。 |
+| `playtest_define` | edit | `metric`（必填）、`file`、`rationale`、`replace`（可选） | 校验提议的试玩指标，生成规范的 `playtest.yaml` 差异并作为待审查提案排队（`Server.PlaytestReviews` / `ApplyPlaytestReview` / `DismissPlaytestReview`），在审查确认前不改写磁盘上的 `playtest.yaml`。 |
 
 `scene_edit` 接受的编辑，每项是一个带 `op` 的对象：
 

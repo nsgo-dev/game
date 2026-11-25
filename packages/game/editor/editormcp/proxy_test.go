@@ -62,7 +62,7 @@ func TestProxyFindsTheEditor(t *testing.T) {
 		}
 	}}, "")
 
-	if names := listNames(t, cs); !slices.Equal(names, []string{"game_check", "scene_edit", "scene_read", "selection_get", "viewport_image"}) {
+	if names := listNames(t, cs); !slices.Equal(names, []string{"game_check", "game_playtest", "playtest_define", "scene_edit", "scene_read", "selection_get", "viewport_image"}) {
 		t.Fatalf("tools without an editor: %v", names)
 	}
 	res := call(t, cs, editormcp.ToolSceneRead, nil)
@@ -83,16 +83,16 @@ func TestProxyFindsTheEditor(t *testing.T) {
 	if !strings.Contains(out, "id: hero") {
 		t.Fatalf("scene_read through the proxy:\n%s", out)
 	}
-	if err := s.AddTool(editormcp.Tool{Name: "game_playtest", Handler: func(context.Context, *editormcp.Call) (*editormcp.Result, error) {
+	if err := s.AddTool(editormcp.Tool{Name: "custom_action", Handler: func(context.Context, *editormcp.Call) (*editormcp.Result, error) {
 		return &editormcp.Result{Text: "played"}, nil
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	for !slices.Contains(listNames(t, cs), "game_playtest") {
+	for !slices.Contains(listNames(t, cs), "custom_action") {
 		<-changed
 	}
-	if out := mustOK(t, call(t, cs, "game_playtest", nil)); out != "played" {
-		t.Fatalf("game_playtest through the proxy: %q", out)
+	if out := mustOK(t, call(t, cs, "custom_action", nil)); out != "played" {
+		t.Fatalf("custom_action through the proxy: %q", out)
 	}
 
 	// The editor closes: calls fail with how to open the project again, then reach the new editor.
@@ -108,7 +108,7 @@ func TestProxyFindsTheEditor(t *testing.T) {
 		t.Fatal(err)
 	}
 	mustOK(t, call(t, cs, editormcp.ToolSelectionGet, nil))
-	for slices.Contains(listNames(t, cs), "game_playtest") {
+	for slices.Contains(listNames(t, cs), "custom_action") {
 		<-changed
 	}
 }

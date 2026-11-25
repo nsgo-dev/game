@@ -44,7 +44,7 @@ const defaultReadLines = 2000
 
 // builtinTools are the tools New adds.
 func builtinTools() []Tool {
-	return []Tool{
+	return append([]Tool{
 		{
 			Name:        ToolSceneRead,
 			Title:       "Read a file",
@@ -92,7 +92,7 @@ func builtinTools() []Tool {
 			Action:      ActionRun,
 			Handler:     gameCheck,
 		},
-	}
+	}, playtestTools()...)
 }
 
 // projectRoot returns the absolute, symlink-free root of ed's project, or "" without one.

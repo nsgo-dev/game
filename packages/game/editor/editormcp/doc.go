@@ -9,6 +9,8 @@
 //   - selection_get reports what the person has selected.
 //   - viewport_image returns a PNG of the viewport.
 //   - game_check runs the Problems panel's checks and returns its problems.
+//   - game_playtest runs headless bot playtests configured by playtest.yaml with replay recordings and returns the evaluated YAML report.
+//   - playtest_define proposes a new or updated metric in playtest.yaml as a pending review with a diff.
 //
 // Tool handlers run on the server's goroutines and reach the editor through Call.Editor, which runs a function on the editor's goroutine and waits, so a tool may wait for work the editor does elsewhere, such as a project check, and return an image: the two things an app tool registered with NSGo's automation cannot do (nsgo-dev/nsgo#2342, nsgo-dev/nsgo#2343). RegisterAutomation offers the same tools to nsgo mcp as well, for an editor running under go tool nsgo dev -automation.
 //

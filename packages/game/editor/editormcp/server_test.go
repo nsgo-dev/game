@@ -39,11 +39,11 @@ func TestServerListsToolsAndResources(t *testing.T) {
 		}
 	}
 	slices.Sort(names)
-	want := []string{"game_check", "scene_edit", "scene_read", "selection_get", "viewport_image"}
+	want := []string{"game_check", "game_playtest", "playtest_define", "scene_edit", "scene_read", "selection_get", "viewport_image"}
 	if !slices.Equal(names, want) {
 		t.Fatalf("tools = %v, want %v", names, want)
 	}
-	if actions["scene_edit"] != "edit" || actions["scene_read"] != "read" || actions["game_check"] != "run" {
+	if actions["scene_edit"] != "edit" || actions["scene_read"] != "read" || actions["game_check"] != "run" || actions["game_playtest"] != "run" || actions["playtest_define"] != "edit" {
 		t.Fatalf("actions = %v", actions)
 	}
 	var uris []string
@@ -536,7 +536,7 @@ func TestAddTool(t *testing.T) {
 	cs := connect(t, s, &mcp.ClientOptions{ToolListChangedHandler: func(context.Context, *mcp.ToolListChangedRequest) { changed <- struct{}{} }})
 
 	err := s.AddTool(editormcp.Tool{
-		Name:   "game_playtest",
+		Name:   "custom_action",
 		Action: editormcp.ActionRun,
 		Handler: func(ctx context.Context, c *editormcp.Call) (*editormcp.Result, error) {
 			var name string
@@ -553,11 +553,11 @@ func TestAddTool(t *testing.T) {
 		t.Fatal(err)
 	}
 	<-changed
-	if out := mustOK(t, call(t, cs, "game_playtest", nil)); out != "played Room" {
-		t.Fatalf("game_playtest: %q", out)
+	if out := mustOK(t, call(t, cs, "custom_action", nil)); out != "played Room" {
+		t.Fatalf("custom_action: %q", out)
 	}
 	for _, bad := range []editormcp.Tool{
-		{Name: "game_playtest", Handler: func(context.Context, *editormcp.Call) (*editormcp.Result, error) { return nil, nil }},
+		{Name: "custom_action", Handler: func(context.Context, *editormcp.Call) (*editormcp.Result, error) { return nil, nil }},
 		{Name: "bad name", Handler: func(context.Context, *editormcp.Call) (*editormcp.Result, error) { return nil, nil }},
 		{Name: "no_handler"},
 		{Name: "bad_schema", InputSchema: json.RawMessage(`{"type":"array"}`), Handler: func(context.Context, *editormcp.Call) (*editormcp.Result, error) { return nil, nil }},
@@ -566,12 +566,12 @@ func TestAddTool(t *testing.T) {
 			t.Errorf("AddTool(%q) accepted", bad.Name)
 		}
 	}
-	s.RemoveTool("game_playtest")
+	s.RemoveTool("custom_action")
 	<-changed
-	if res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{Name: "game_playtest"}); err == nil && !res.IsError {
+	if res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{Name: "custom_action"}); err == nil && !res.IsError {
 		t.Fatal("removed tool still answers")
 	}
-	if names := toolNames(s.Tools()); slices.Contains(names, "game_playtest") {
+	if names := toolNames(s.Tools()); slices.Contains(names, "custom_action") {
 		t.Fatalf("tools %v", names)
 	}
 }

@@ -289,6 +289,8 @@ claude mcp add game-editor -- nsgo game mcp
 | `selection_get` | read | none | The open scene, the active layer, the selected object with its lines of YAML as `scene_read` numbers them, the file selected in the file browser, the active tool and the view mode. |
 | `viewport_image` | read | `scale` (optional, 0.25 to 4) | A PNG of the viewport as it shows now: the scene through the editor's view, with the camera frame, tile grid and selection outline, at the viewport's size in points times `scale`. Text and images not loaded in memory are left out, and the reply counts them. |
 | `game_check` | run | none | Runs the Problems panel's check (`assetcheck` with the editor's component registry, and `project.Check`) and returns its problems, each with file, line and message. It reads the files on disk; the reply names the open scene when it has unsaved edits the check did not see. |
+| `game_playtest` | run | `file`, `run`, `count`, `seeds`, `out`, `recordings` (all optional) | Validates `playtest.yaml`, runs the configured headless bot playtests with per-seed `.replay.yaml` recordings, writes the YAML report and returns each metric's value, goal status (`met` or `missed`) and heat-map position data. |
+| `playtest_define` | edit | `metric` (required), `file`, `rationale`, `replace` (optional) | Validates a proposed playtest metric, generates the canonical `playtest.yaml` diff and queues it as a pending review (`Server.PlaytestReviews` / `ApplyPlaytestReview` / `DismissPlaytestReview`) without modifying `playtest.yaml` on disk until reviewed. |
 
 The edits `scene_edit` takes, each an object with `op`:
 

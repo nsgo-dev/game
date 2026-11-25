@@ -195,5 +195,7 @@ The tools above reach a running game. The NSGo Game Editor has its own MCP serve
 - `selection_get` `{}`: the open scene, the selected object with its YAML lines, the active layer, tool and view.
 - `viewport_image` `{scale?}`: a PNG of the viewport.
 - `game_check` `{}`: the Problems panel's problems, each with file, line and message.
+- `game_playtest` `{file?, run?, count?, seeds?, out?, recordings?}`: validates `playtest.yaml`, runs headless bot playtests with per-seed `.replay.yaml` recordings, writes the YAML report and returns metric values, goal statuses and heat-map points.
+- `playtest_define` `{metric, file?, rationale?, replace?}`: validates a proposed playtest metric and queues its canonical `playtest.yaml` diff as a pending review without modifying disk until accepted.
 
 Resources `editor://scene` and `editor://selection` carry the change stream: subscribe for a notice on each change, whose `_meta` says whether the person or the agent made it.

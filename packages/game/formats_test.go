@@ -142,6 +142,8 @@ var formatVersions = map[string]string{
 	"physics.SnapshotVersion":               "",
 	"physics3d.SnapshotVersion":             "",
 	"platformer.CurrentVersion":             "platformer",
+	"playtest.CurrentVersion":               "playtest",
+	"playtest.ReportVersion":                "playtest#report",
 	"procgen.RoomTemplatesVersion":          "procgen#rooms",
 	"procgen.RulesVersion":                  "procgen",
 	"project.CurrentVersion":                "project",

@@ -148,6 +148,7 @@ Paths are relative to `github.com/nsgo-dev/game/packages`. The table is checked 
 | `game/pixelfx/weather` | Experimental | [pixelfx](pixelfx.md) |
 | `game/placeholder` | Experimental | [Placeholder Assets](placeholder.md) |
 | `game/platformer` | Experimental | [platformer](platformer.md) |
+| `game/playtest` | Experimental | [playtest](playtest.md) |
 | `game/presence` | Experimental | [presence](presence.md) |
 | `game/procgen` | Experimental | [procgen](procgen.md) |
 | `game/project` | Experimental | [Project File](project.md) |

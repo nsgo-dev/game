@@ -1,0 +1,289 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://game.nsgo.dev/schemas/playtest.v1.json",
+  "title": "NSGo game playtest (version 1)",
+  "description": "Config is the root of a versioned playtest.yaml document describing the scope, seeded runs, bot profile and measured metrics with goals.",
+  "type": "object",
+  "properties": {
+    "version": {
+      "description": "Version is the schema version; it must equal CurrentVersion (1).",
+      "type": "integer",
+      "const": 1
+    },
+    "scope": {
+      "description": "Scope identifies the project and scene this playtest exercises.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Scope"
+        }
+      ]
+    },
+    "runs": {
+      "description": "Runs configures the batch of headless seeded runs.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Runs"
+        }
+      ]
+    },
+    "bot": {
+      "description": "Bot selects the bot profile and configures its behavior parameters.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/BotConfig"
+        }
+      ]
+    },
+    "metrics": {
+      "description": "Metrics declares each measured metric, how it is aggregated, and its optional goal.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Metric"
+      }
+    }
+  },
+  "required": [
+    "version",
+    "scope",
+    "runs",
+    "bot"
+  ],
+  "additionalProperties": false,
+  "definitions": {
+    "BotConfig": {
+      "description": "BotConfig configures the bot profile and parameters driving input during playtest runs.",
+      "type": "object",
+      "properties": {
+        "profile": {
+          "description": "Profile names the bot profile, such as \"platformer-runner\".",
+          "type": "string",
+          "minLength": 1
+        },
+        "strategy": {
+          "description": "Strategy is an optional one-line summary of the bot's behavior for reports.",
+          "type": "string"
+        },
+        "reactionMin": {
+          "description": "ReactionMin is the minimum human reaction jitter duration, such as \"120ms\".",
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "reactionMax": {
+          "description": "ReactionMax is the maximum human reaction jitter duration, such as \"220ms\".",
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "params": {
+          "description": "Params holds optional profile-specific scalar parameters (booleans, finite numbers or strings).",
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "boolean",
+              "number",
+              "string"
+            ]
+          }
+        }
+      },
+      "required": [
+        "profile"
+      ],
+      "additionalProperties": false
+    },
+    "Goal": {
+      "description": "Goal defines the target range or threshold for a Metric and the file the goal comes from.",
+      "type": "object",
+      "properties": {
+        "summary": {
+          "description": "Summary is an optional human-readable description of the goal, such as \"most first-timers clear floor 1\".",
+          "type": "string"
+        },
+        "source": {
+          "description": "Source names the file this goal comes from, such as \"brief.yaml\", \"game.yaml\" or \"playtest.yaml\".",
+          "type": "string",
+          "minLength": 1
+        },
+        "min": {
+          "description": "Min is the inclusive lower bound (value >= Min).",
+          "type": "number"
+        },
+        "max": {
+          "description": "Max is the inclusive upper bound (value <= Max).",
+          "type": "number"
+        },
+        "equal": {
+          "description": "Equal requires value == Equal.",
+          "type": "number"
+        }
+      },
+      "required": [
+        "source"
+      ],
+      "additionalProperties": false
+    },
+    "Measure": {
+      "description": "Measure specifies which telemetry signal a Metric reads and how per-run values combine.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "description": "Kind selects the telemetry source: \"event\", \"counter\", \"timer\", \"outcome\", \"ratio\" or \"perf\".",
+          "type": "string",
+          "enum": [
+            "event",
+            "counter",
+            "timer",
+            "outcome",
+            "ratio",
+            "perf"
+          ]
+        },
+        "key": {
+          "description": "Key names the event kind, counter name, timer name, outcome name or perf field to read.",
+          "type": "string",
+          "minLength": 1
+        },
+        "denomKey": {
+          "description": "DenomKey names the denominator counter for \"ratio\" metrics (required when Kind is \"ratio\").",
+          "type": "string"
+        },
+        "aggregate": {
+          "description": "Aggregate chooses how per-run values combine: \"count\", \"sum\", \"mean\", \"median\", \"min\", \"max\", \"p95\", \"p99\" or \"rate\".",
+          "type": "string",
+          "enum": [
+            "count",
+            "sum",
+            "mean",
+            "median",
+            "min",
+            "max",
+            "p95",
+            "p99",
+            "rate"
+          ]
+        },
+        "heatMap": {
+          "description": "HeatMap records positioned event coordinates for this metric in the report's heatMaps section.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "kind",
+        "key"
+      ],
+      "additionalProperties": false
+    },
+    "Metric": {
+      "description": "Metric defines one measured playtest metric, how it is computed across runs, and its optional goal.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Name uniquely identifies the metric, such as \"finished\", \"median_time\" or \"frame_time\".",
+          "type": "string",
+          "minLength": 1
+        },
+        "label": {
+          "description": "Label is an optional human-readable display name, such as \"Finished\".",
+          "type": "string"
+        },
+        "unit": {
+          "description": "Unit is an optional display unit, such as \"s\", \"ms\", \"%\" or \"runs\".",
+          "type": "string"
+        },
+        "measure": {
+          "description": "Measure specifies how per-run telemetry is read and aggregated across runs.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Measure"
+            }
+          ]
+        },
+        "goal": {
+          "description": "Goal is the optional target threshold or range this metric is checked against.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Goal"
+            }
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "measure"
+      ],
+      "additionalProperties": false
+    },
+    "Runs": {
+      "description": "Runs configures how many seeded runs execute, their seeds, fixed step rate, speed and simulated time limit.",
+      "type": "object",
+      "properties": {
+        "count": {
+          "description": "Count is the number of seeded runs to execute; when 0 and Seeds is non-empty, it defaults to len(Seeds).",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854776000
+        },
+        "seeds": {
+          "description": "Seeds lists explicit per-run random seeds; when fewer than Count, additional seeds are derived sequentially from SeedStart.",
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 18446744073709552000
+          }
+        },
+        "seedStart": {
+          "description": "SeedStart is the starting seed used when generating sequential seeds (defaults to 1 when 0).",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709552000
+        },
+        "rate": {
+          "description": "Rate is the fixed simulation step rate in steps per second (defaults to 60 when 0).",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854776000
+        },
+        "speed": {
+          "description": "Speed is the simulation speed multiplier metadata, such as 1 or 8 for 8x speed (defaults to 1 when 0).",
+          "type": "number",
+          "minimum": 0
+        },
+        "maxDuration": {
+          "description": "MaxDuration is the simulated time limit per run before timing out, such as \"60s\" (defaults to 60s when 0).",
+          "type": [
+            "string",
+            "integer"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "Scope": {
+      "description": "Scope identifies the project, scene and optional template a playtest targets.",
+      "type": "object",
+      "properties": {
+        "project": {
+          "description": "Project is the project name or relative path to the project root.",
+          "type": "string"
+        },
+        "scene": {
+          "description": "Scene names the scene or level the playtest exercises, such as \"level_01\".",
+          "type": "string",
+          "minLength": 1
+        },
+        "template": {
+          "description": "Template names the template the playtest originated from, such as \"platformer2d\".",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scene"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

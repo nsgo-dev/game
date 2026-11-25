@@ -1,0 +1,96 @@
+version: 1
+scope:
+  project: dungeon-run
+  scene: level_01
+  template: platformer2d
+bot:
+  profile: platformer-runner
+  reactionMin: 120ms
+  reactionMax: 220ms
+rate: 60
+speed: 1
+seedCount: 2
+passed: false
+metrics:
+  - name: finished
+    label: Finished
+    aggregate: count
+    value: 1
+    max: 1
+    goal:
+      summary: most first-timers clear floor 1
+      source: brief.yaml
+      min: 2
+    status: missed
+  - name: frame_time
+    label: Frame time
+    unit: ms
+    aggregate: median
+    value: 4.1
+    min: 4
+    max: 4.2
+    goal:
+      summary: 16.7 ms at 60 Hz
+      source: game.yaml
+      max: 16.7
+    status: met
+  - name: deaths
+    label: Deaths
+    aggregate: sum
+    value: 1
+    max: 1
+    status: info
+heatMaps:
+  - metric: deaths
+    event: death
+    points:
+      - seed: 2
+        step: 140
+        x: 300
+        "y": 144
+        tag: slime_pit
+runs:
+  - index: 1
+    seed: 1
+    outcome: finished
+    steps: 240
+    durationSeconds: 4
+    recording: recordings/run_001_seed_1.replay.yaml
+    counters:
+      coins_taken: 3
+      coins_total: 3
+    timers:
+      clear_time: 4
+    perf:
+      sampleCount: 240
+      frameMs: 4
+      updateMs: 3.5
+      p50FrameMs: 4
+      p95FrameMs: 4.5
+      p99FrameMs: 5
+      maxFrameMs: 5.5
+  - index: 2
+    seed: 2
+    outcome: failed
+    reason: out of lives
+    steps: 140
+    durationSeconds: 2.3333333333333335
+    recording: recordings/run_002_seed_2.replay.yaml
+    counters:
+      coins_taken: 1
+      coins_total: 3
+    events:
+      - kind: death
+        step: 140
+        timeSeconds: 2.3333333333333335
+        x: 300
+        "y": 144
+        tag: slime_pit
+    perf:
+      sampleCount: 140
+      frameMs: 4.2
+      updateMs: 3.7
+      p50FrameMs: 4.2
+      p95FrameMs: 4.8
+      p99FrameMs: 5.4
+      maxFrameMs: 6
