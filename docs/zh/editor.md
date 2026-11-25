@@ -1198,3 +1198,16 @@ func main() {
 - **插件自定义叠加层（`ViewportOverlay`）**：插件可通过 `Plugin.Overlays`（或直接在编辑器上调用 `Editor.RegisterViewportOverlay`）注册带 `ID`、`Name`/`NameKey`、可选 `Count` 计数回调与 `Draw func(*Editor, *core.Drawing, *sceneformat.BuiltScene)` 绘制函数的自定义叠加层。启用的插件叠加层会自动出现在弹出层、`View > Overlays` 菜单以及 `editormcp` 的 `viewport_image` 工具中。
 - **用户级持久化**：切换任意叠加层（`SetViewportOverlay`、`ToggleViewportOverlay`、`SetViewportOverlays`）都会把 `viewportOverlays` 写入项目之外的 `Editor.SettingsPath`（`EditorSettings` YAML），绝不改动任何项目或场景文件，重启后保持不变（全部关闭时显式写为 `[]`）。
 - **与 `editormcp` 的 `viewport_image` 共用**：`Editor.DrawViewportWithOverlays(d, size, overlayIDs)` 将完全一致的叠加层渲染进 `viewport_image`。省略 `viewport_overlays` 时默认使用编辑器当前已开启的叠加层；传入名称列表（或 `[]`）时仅覆盖本次截图而不修改编辑器设置。
+
+
+## 分节检查器、字段筛选、拖拽微调、打开 YAML 与请智能体添加（#1038）
+
+对象检查器（`InspectorView`）采用 `docs/design/editor/Spec.dc.html` 设计令牌并对应 `Inspector.dc.html`、`Main.dc.html` 与 `Viewport3D.dc.html`，将对象属性组织为紧凑的可折叠标题分区，同时保持每个控件都对应一个 `Editor` 方法与匹配的 `editormcp` 工具：
+
+- **头部与打开 YAML（Open YAML）**：展示按对象类型着色的色块、对象 ID、类型与图层副标题（如 `Sprite · layer actors`）以及 **Open YAML** 按钮（`FindObjectYAMLLine` / `OpenSelectedObjectYAML`），精确定位对象在场景 YAML 中的 1-based 行号（场景无未保存改动时直接读取磁盘文件以匹配注释与行号，存在未保存改动时匹配 `SaveYAML`），若设置了 `Editor.OnOpenFileAtLine(path, line)` 则直接调用并在状态栏报告 `Opened <path>:<line>`。
+- **字段筛选（`InspectorFilter` / `SetInspectorFilter`）**：顶部的 **Filter fields** 输入框按不区分大小写的子串匹配筛选字段标签、组件名与分区标题（例如输入 `speed` 仅保留匹配 `speed` 的字段与所在分区），筛选期间自动展开匹配分区并隐藏无关分区。
+- **可折叠标题分区与紧凑变换行**：分区标题遵循 Spec 规范样式（大写标题、折叠箭头 `ToggleInspectorSection` 与字段计数徽章，如 `TRANSFORM`、`SPRITE`、`PATROL`、`HEALTH`）；位置与缩放采用紧凑的 `X Y` 行布局（3D 视图含 `Z` 轴以及 3D 旋转 `X Y Z`），并包含透明度与 Z 顺序。
+- **可拖拽微调的数值字段**：拖拽任意数值字段标签（`BeginInspectorScrub`、`UpdateInspectorScrub`、`EndInspectorScrub`、`CancelInspectorScrub`）可在视口实时预览并记录为**单步撤销**；拖拽期间按 `Escape` 会立即取消并还原原值且不写入历史。在 3D 视图中按住 `Shift` 拖拽以 `0.01` 精细步进。聚焦输入框支持 `↑`/`↓` 步进、`Shift` ×10 步进、`Enter` 提交与 `Escape` 还原。
+- **分组“添加组件”与“请智能体添加”**：对象尚未挂载的已注册组件按 `GAMEPLAY`、`PHYSICS` 与 `AUDIO AND VISUAL` 分组展示（`ComponentCategoryOf`、`AddableComponentGroups`）；输入框旁的 **Ask to add**（`AskToAddComponent`、`ComposerDraft`、`SetComposerDraft`、`Editor.OnComposerPrompt`）会在智能体输入框预填 `"Add a component to <object> that "`。
+- **审查提示、问题胶囊与页脚**：处于智能体审查中的字段（`SetInspectorReviewChanges`）会显示琥珀色左侧指示条与 `"was <old> · in review"`；未通过项目检查或范围校验的字段（`SetInspectorFieldProblems` / `Editor.Problems`）会在控件下方与分区标题显示红色问题胶囊；底部页脚提示 `"Everything else about this object is in its YAML. Ask the agent, or open the file."`。
+- **配套 MCP 工具（`editormcp`）**：新增 `object_set_field`（复用 `Editor` 命令以单步撤销修改任意对象字段、组件字段或自定义属性）与 `object_locate_yaml`（返回对象的 1-based YAML 行号与代码片段，可选触发 `OnOpenFileAtLine`），并补齐 `scene_edit` `set` 对 `particles`、`model`、`gridMap`、`occluder`、`light` 与 `camera` 的全量支持。

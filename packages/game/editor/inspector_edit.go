@@ -16,8 +16,18 @@ type spriteChoice struct{ atlas, frame string }
 
 func (c spriteChoice) label() string { return c.atlas + "/" + c.frame }
 
-// spriteFields builds the inspector's sprite rows for objID: the atlas frame, picked from the frames the asset browser lists or taken from its selection, the origin, the flips and the material.
-func spriteFields(ed *Editor, rev *core.Signal[uint64], objID string, disabled func() bool, fieldRow func(string, string, core.Node) core.Node) []core.Node {
+// spriteFieldsFiltered builds the inspector's sprite rows matching filterQuery, using compact
+// scrubbable Origin X/Y boxes while keeping every existing TestID and override indicator intact.
+func spriteFieldsFiltered(
+	cx *core.Scope,
+	ed *Editor,
+	rev *core.Signal[uint64],
+	objID string,
+	filterQuery, sectionTitle string,
+	disabled func() bool,
+	overrideFieldRow func(fieldKey, label string, control core.Node) core.Node,
+	multiAxisRow func(label string, fieldKeys []string, rowTestID string, axes []inspectorNumberFieldCfg) core.Node,
+) []core.Node {
 	object := func() *sceneformat.ObjectDoc {
 		_ = rev.Get()
 		o, _ := ed.FindResolvedObject(objID)
@@ -32,189 +42,208 @@ func spriteFields(ed *Editor, rev *core.Signal[uint64], objID string, disabled f
 	setSprite := func(c spriteChoice) {
 		ed.report(ed.SetObjectSprite(objID, &sceneformat.SpriteRef{Atlas: c.atlas, Frame: c.frame}))
 	}
-	sprite := ui.Select[spriteChoice]{
-		TestID:      "inspector-sprite",
-		Label:       ed.T("inspector.sprite"),
-		Placeholder: ed.T("inspector.none"),
-		Searchable:  true,
-		Disabled:    disabled,
-		Style:       core.Style{Width: core.Pct(100)},
-		OptionsFunc: func() []ui.Option[spriteChoice] {
-			cur := current()
-			var opts []ui.Option[spriteChoice]
-			listed := false
-			for _, a := range ed.Assets() {
-				c := spriteChoice{a.Atlas, a.Frame}
-				listed = listed || c == cur
-				opts = append(opts, ui.Option[spriteChoice]{Value: c, Label: c.label(), Group: a.Atlas})
-			}
-			// A frame the resolver does not list, such as one whose atlas failed to load, still shows as the object's.
-			if cur != (spriteChoice{}) && !listed {
-				opts = append([]ui.Option[spriteChoice]{{Value: cur, Label: cur.label()}}, opts...)
-			}
-			return opts
-		},
-		Value:    current,
-		OnChange: setSprite,
-		OnClear:  func() { ed.report(ed.SetObjectSprite(objID, nil)) },
-	}
-	fromBrowser := ui.IconButton{
-		TestID: "inspector-sprite-use-asset",
-		Icon:   lucide.Crosshair,
-		Label:  ed.T("inspector.useAssetLabel"),
-		Tooltip: func() string {
-			_ = rev.Get()
-			if ed.SelectedAsset == nil {
-				return ed.T("inspector.selectAssetFirst")
-			}
-			return ed.T("inspector.useAsset", l10n.Param("key", ed.SelectedAsset.Key()))
-		},
-		Disabled: func() bool {
-			_ = rev.Get()
-			return ed.Playing() || ed.SelectedAsset == nil
-		},
-		OnPress: func() {
-			if a := ed.SelectedAsset; a != nil {
-				setSprite(spriteChoice{a.Atlas, a.Frame})
-			}
-		},
-	}
 
-	origin := func(testID, label string, y bool) core.Node {
-		return ui.NumberInput{
-			TestID:   testID,
-			Label:    label,
-			Step:     1,
-			Disabled: disabled,
-			Value: func() float64 {
-				o := object()
-				switch {
-				case o == nil:
-					return 0
-				case y:
-					return float64(o.OriginY)
-				default:
-					return float64(o.OriginX)
+	var rows []core.Node
+
+	if matchesInspectorFilter(filterQuery, sectionTitle, "", "sprite", "texture", ed.T("inspector.sprite")) {
+		sprite := ui.Select[spriteChoice]{
+			TestID:      "inspector-sprite",
+			Label:       ed.T("inspector.sprite"),
+			Placeholder: ed.T("inspector.none"),
+			Searchable:  true,
+			Disabled:    disabled,
+			Style:       core.Style{Width: core.Pct(100)},
+			OptionsFunc: func() []ui.Option[spriteChoice] {
+				cur := current()
+				var opts []ui.Option[spriteChoice]
+				listed := false
+				for _, a := range ed.Assets() {
+					c := spriteChoice{a.Atlas, a.Frame}
+					listed = listed || c == cur
+					opts = append(opts, ui.Option[spriteChoice]{Value: c, Label: c.label(), Group: a.Atlas})
 				}
+				if cur != (spriteChoice{}) && !listed {
+					opts = append([]ui.Option[spriteChoice]{{Value: cur, Label: cur.label()}}, opts...)
+				}
+				return opts
 			},
-			OnChange: func(v float64) {
-				o, _ := ed.FindResolvedObject(objID)
-				if o == nil {
-					return
+			Value:    current,
+			OnChange: setSprite,
+			OnClear:  func() { ed.report(ed.SetObjectSprite(objID, nil)) },
+		}
+		fromBrowser := ui.IconButton{
+			TestID: "inspector-sprite-use-asset",
+			Icon:   lucide.Crosshair,
+			Label:  ed.T("inspector.useAssetLabel"),
+			Tooltip: func() string {
+				_ = rev.Get()
+				if ed.SelectedAsset == nil {
+					return ed.T("inspector.selectAssetFirst")
 				}
-				if y {
-					ed.report(ed.SetObjectOrigin(objID, o.OriginX, float32(v)))
-				} else {
-					ed.report(ed.SetObjectOrigin(objID, float32(v), o.OriginY))
+				return ed.T("inspector.useAsset", l10n.Param("key", ed.SelectedAsset.Key()))
+			},
+			Disabled: func() bool {
+				_ = rev.Get()
+				return ed.Playing() || ed.SelectedAsset == nil
+			},
+			OnPress: func() {
+				if a := ed.SelectedAsset; a != nil {
+					setSprite(spriteChoice{a.Atlas, a.Frame})
 				}
 			},
 		}
+		rows = append(rows, overrideFieldRow("sprite", ed.T("inspector.sprite"), withTrailing(sprite, fromBrowser)))
 	}
-	flip := func(testID, label string, y bool) core.Node {
-		return ui.Checkbox{
-			TestID:   testID,
-			Label:    label,
-			Disabled: disabled,
-			Checked: func() bool {
-				o := object()
-				return o != nil && ((y && o.FlipY) || (!y && o.FlipX))
-			},
-			OnChange: func(on bool) {
-				o, _ := ed.FindResolvedObject(objID)
-				if o == nil {
-					return
-				}
-				if y {
-					ed.report(ed.SetObjectFlip(objID, o.FlipX, on))
-				} else {
-					ed.report(ed.SetObjectFlip(objID, on, o.FlipY))
-				}
-			},
+
+	if matchesInspectorFilter(filterQuery, sectionTitle, "", "origin", "originX", "originY", ed.T("inspector.originX"), ed.T("inspector.originY")) {
+		originCfg := func(testID, label, axis, field string, axisColor core.Color, y bool) inspectorNumberFieldCfg {
+			return inspectorNumberFieldCfg{
+				TestID:    testID,
+				Label:     label,
+				AxisLabel: axis,
+				AxisColor: axisColor,
+				Step:      1,
+				Scrub:     InspectorScrubField{ObjectID: objID, Field: field, Step: 1},
+				Disabled:  disabled,
+				Value: func() float64 {
+					o := object()
+					switch {
+					case o == nil:
+						return 0
+					case y:
+						return float64(o.OriginY)
+					default:
+						return float64(o.OriginX)
+					}
+				},
+				OnChange: func(v float64) {
+					o, _ := ed.FindResolvedObject(objID)
+					if o == nil {
+						return
+					}
+					if y {
+						ed.report(ed.SetObjectOrigin(objID, o.OriginX, float32(v)))
+					} else {
+						ed.report(ed.SetObjectOrigin(objID, float32(v), o.OriginY))
+					}
+				},
+			}
 		}
+		rows = append(rows, multiAxisRow(
+			"Origin",
+			[]string{"originX", "originY"},
+			"inspector-origin",
+			[]inspectorNumberFieldCfg{
+				originCfg("inspector-origin-x", ed.T("inspector.originX"), "X", "originX", specProblem, false),
+				originCfg("inspector-origin-y", ed.T("inspector.originY"), "Y", "originY", specAdded, true),
+			},
+		))
 	}
 
-	// The project's material files are listed again only when the editor changes which files the project holds. A resolver that cannot load them gets none, since naming one would leave the scene unable to build; the field then stays enabled only to clear a material the object already names.
-	var materialsKey string
-	var materials []string
-	currentMaterial := func() string {
-		if o := object(); o != nil {
-			return o.Material
+	if matchesInspectorFilter(filterQuery, sectionTitle, "", "flip", "flipX", "flipY", ed.T("inspector.flip")) {
+		flip := func(testID, label string, y bool) core.Node {
+			return ui.Checkbox{
+				TestID:   testID,
+				Label:    label,
+				Disabled: disabled,
+				Checked: func() bool {
+					o := object()
+					return o != nil && ((y && o.FlipY) || (!y && o.FlipX))
+				},
+				OnChange: func(on bool) {
+					o, _ := ed.FindResolvedObject(objID)
+					if o == nil {
+						return
+					}
+					if y {
+						ed.report(ed.SetObjectFlip(objID, o.FlipX, on))
+					} else {
+						ed.report(ed.SetObjectFlip(objID, on, o.FlipY))
+					}
+				},
+			}
 		}
-		return ""
-	}
-	material := ui.Select[string]{
-		TestID:      "inspector-material",
-		Label:       ed.T("inspector.material"),
-		Placeholder: ed.T("inspector.none"),
-		Searchable:  true,
-		Disabled: func() bool {
-			return disabled() || (!ed.canLoadMaterials() && currentMaterial() == "")
-		},
-		Style: core.Style{Width: core.Pct(100)},
-		OptionsFunc: func() []ui.Option[string] {
-			cur := currentMaterial()
-			if key := ed.ProjectPath + "\x00" + strconv.FormatUint(ed.filesRev, 10); key != materialsKey {
-				materialsKey, materials = key, ed.projectMaterials()
-			}
-			var offered []string
-			if ed.canLoadMaterials() {
-				offered = materials
-			}
-			opts := make([]ui.Option[string], 0, len(offered)+1)
-			listed := false
-			for _, m := range offered {
-				listed = listed || m == cur
-				opts = append(opts, ui.Option[string]{Value: m, Label: m})
-			}
-			if cur != "" && !listed {
-				opts = append([]ui.Option[string]{{Value: cur, Label: cur}}, opts...)
-			}
-			return opts
-		},
-		Value:    currentMaterial,
-		OnChange: func(m string) { ed.report(ed.SetObjectMaterial(objID, m)) },
-		OnClear:  func() { ed.report(ed.SetObjectMaterial(objID, "")) },
-	}
-
-	editMaterialBtn := ui.Button{
-		TestID:  "inspector-material-edit",
-		Text:    ed.T("inspector.editMaterial"),
-		Size:    ui.SizeSmall,
-		Variant: ui.ButtonSecondary,
-		Disabled: func() bool {
-			return disabled() || currentMaterial() == ""
-		},
-		OnPress: func() {
-			if m := currentMaterial(); m != "" {
-				ed.report(ed.OpenMaterial(m))
-			}
-		},
-	}
-	newMaterialBtn := ui.Button{
-		TestID:  "inspector-material-new",
-		Text:    ed.T("inspector.newMaterial"),
-		Size:    ui.SizeSmall,
-		Variant: ui.ButtonSecondary,
-		Disabled: func() bool {
-			return disabled() || ed.Project == nil || ed.ProjectPath == ""
-		},
-		OnPress: func() {
-			_, err := ed.CreateObjectMaterial(objID, "")
-			ed.report(err)
-		},
-	}
-
-	return []core.Node{
-		fieldRow("sprite", ed.T("inspector.sprite"), withTrailing(sprite, fromBrowser)),
-		fieldRow("originX", ed.T("inspector.originX"), origin("inspector-origin-x", ed.T("inspector.originX"), false)),
-		fieldRow("originY", ed.T("inspector.originY"), origin("inspector-origin-y", ed.T("inspector.originY"), true)),
-		fieldRow("flipX", ed.T("inspector.flip"), ui.HStack{Gap: 12, Children: []core.Node{
+		rows = append(rows, overrideFieldRow("flipX", ed.T("inspector.flip"), ui.HStack{Gap: 12, Children: []core.Node{
 			flip("inspector-flip-x", "X", false),
 			flip("inspector-flip-y", "Y", true),
-		}}),
-		fieldRow("material", ed.T("inspector.material"), material),
-		ui.HStack{Gap: 6, Children: []core.Node{editMaterialBtn, newMaterialBtn}},
+		}}))
 	}
+
+	if matchesInspectorFilter(filterQuery, sectionTitle, "", "material", ed.T("inspector.material")) {
+		var materialsKey string
+		var materials []string
+		currentMaterial := func() string {
+			if o := object(); o != nil {
+				return o.Material
+			}
+			return ""
+		}
+		material := ui.Select[string]{
+			TestID:      "inspector-material",
+			Label:       ed.T("inspector.material"),
+			Placeholder: ed.T("inspector.none"),
+			Searchable:  true,
+			Disabled: func() bool {
+				return disabled() || (!ed.canLoadMaterials() && currentMaterial() == "")
+			},
+			Style: core.Style{Width: core.Pct(100)},
+			OptionsFunc: func() []ui.Option[string] {
+				cur := currentMaterial()
+				if key := ed.ProjectPath + "\x00" + strconv.FormatUint(ed.filesRev, 10); key != materialsKey {
+					materialsKey, materials = key, ed.projectMaterials()
+				}
+				var offered []string
+				if ed.canLoadMaterials() {
+					offered = materials
+				}
+				opts := make([]ui.Option[string], 0, len(offered)+1)
+				listed := false
+				for _, m := range offered {
+					listed = listed || m == cur
+					opts = append(opts, ui.Option[string]{Value: m, Label: m})
+				}
+				if cur != "" && !listed {
+					opts = append([]ui.Option[string]{{Value: cur, Label: cur}}, opts...)
+				}
+				return opts
+			},
+			Value:    currentMaterial,
+			OnChange: func(m string) { ed.report(ed.SetObjectMaterial(objID, m)) },
+			OnClear:  func() { ed.report(ed.SetObjectMaterial(objID, "")) },
+		}
+		editMaterialBtn := ui.Button{
+			TestID:  "inspector-material-edit",
+			Text:    ed.T("inspector.editMaterial"),
+			Size:    ui.SizeSmall,
+			Variant: ui.ButtonSecondary,
+			Disabled: func() bool {
+				return disabled() || currentMaterial() == ""
+			},
+			OnPress: func() {
+				if m := currentMaterial(); m != "" {
+					ed.report(ed.OpenMaterial(m))
+				}
+			},
+		}
+		newMaterialBtn := ui.Button{
+			TestID:  "inspector-material-new",
+			Text:    ed.T("inspector.newMaterial"),
+			Size:    ui.SizeSmall,
+			Variant: ui.ButtonSecondary,
+			Disabled: func() bool {
+				return disabled() || ed.Project == nil || ed.ProjectPath == ""
+			},
+			OnPress: func() {
+				_, err := ed.CreateObjectMaterial(objID, "")
+				ed.report(err)
+			},
+		}
+		rows = append(rows,
+			overrideFieldRow("material", ed.T("inspector.material"), material),
+			ui.HStack{Gap: 6, Children: []core.Node{editMaterialBtn, newMaterialBtn}},
+		)
+	}
+	return rows
 }
 
 // particlesFields builds the inspector's particles rows for objID: the emitter YAML file, optional atlas override, and a button to open the emitter in the Particle Emitter panel.
@@ -418,7 +447,11 @@ func addPropertyRow(cx *core.Scope, ed *Editor, objID string, disabled func() bo
 	}
 }
 
-// addComponentControl builds the inspector's Add Component control: a field that filters the registered component types objID lacks, a button per type that adds it with its registered defaults, and Enter, which adds the type the field names, or the one type it matches. A refused name, such as a component the object has, is reported in the status bar.
+// addComponentControl builds the inspector's Add Component bar and Ask to add button:
+//   - A search/filter input (`inspector-add-component`) beside an **Ask to add** button
+//     (`inspector-ask-to-add`) that populates the agent composer with
+//     `"Add a component to <object> that "`.
+//   - Registered component types objID lacks grouped under GAMEPLAY, PHYSICS, and AUDIO AND VISUAL.
 func addComponentControl(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], objID string, disabled func() bool) core.Node {
 	query := core.NewSignal(cx, "")
 	add := func(name string) {
@@ -437,37 +470,140 @@ func addComponentControl(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 		}
 		add(name)
 	}
-	return core.View{
-		Style: core.Style{Gap: 6},
+	groupTitle := func(cat ComponentCategory) (string, string) {
+		switch cat {
+		case ComponentCategoryPhysics:
+			return "physics", ed.T("inspector.group.physics")
+		case ComponentCategoryAudioVisual:
+			return "audio-visual", ed.T("inspector.group.audioVisual")
+		default:
+			return "gameplay", ed.T("inspector.group.gameplay")
+		}
+	}
+
+	askBtn := core.View{
+		TestID:   "inspector-ask-to-add",
+		Role:     core.RoleButton,
+		Label:    ed.T("inspector.askToAdd"),
+		Disabled: disabled,
+		Style: core.Style{
+			Direction:    core.Row,
+			AlignItems:   core.AlignCenter,
+			Height:       core.Pt(30),
+			Padding:      core.Symmetric(0, 10),
+			CornerRadius: 8,
+			Background:   specAgentTint,
+			BorderWidth:  1,
+			BorderColor:  specAgentEdge,
+			Gap:          5,
+			FlexShrink:   0,
+			Hover:        &core.Style{Background: specRaised},
+			FocusVisible: specFocusRingStyle,
+		},
+		OnPress: func(core.PressEvent) {
+			if disabled != nil && disabled() {
+				return
+			}
+			ed.AskToAddComponent(objID)
+		},
 		Children: []core.Node{
-			ui.Input{
-				TestID:      "inspector-add-component",
-				Label:       ed.T("inspector.addComponent"),
-				Placeholder: ed.T("inspector.addComponent"),
-				Disabled:    disabled,
-				Value:       query.Get,
-				OnChange:    query.Set,
-				OnSubmit:    submit,
+			ui.Icon(lucide.Sparkles, 12, func() core.Color { return specAgent }),
+			core.Text{
+				Content:  ed.T("inspector.askToAdd"),
+				MaxLines: 1,
+				Style: core.Style{
+					FontSize: 11.5,
+					Color:    specText,
+				},
+			},
+		},
+	}
+
+	return core.View{
+		Style: core.Style{
+			Gap:         8,
+			Padding:     core.Edges{Top: 8},
+			Borders:     core.Edges{Top: 1},
+			BorderColor: specLine,
+		},
+		Children: []core.Node{
+			core.View{
+				Style: core.Style{
+					Direction:  core.Row,
+					AlignItems: core.AlignCenter,
+					Gap:        6,
+				},
+				Children: []core.Node{
+					core.View{
+						Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
+						Children: []core.Node{
+							ui.Input{
+								TestID:      "inspector-add-component",
+								Label:       ed.T("inspector.addComponent"),
+								Placeholder: ed.T("inspector.addComponent"),
+								Disabled:    disabled,
+								Value:       query.Get,
+								OnChange:    query.Set,
+								OnSubmit:    submit,
+							},
+						},
+					},
+					askBtn,
+				},
 			},
 			core.Dynamic(func(cx *core.Scope) core.Node {
 				_ = rev.Get()
-				names := ed.addableComponents(objID, query.Get())
-				buttons := make([]core.Node, len(names))
-				for i, n := range names {
-					button := core.Node(ui.Button{
-						TestID:   "inspector-add-component-" + n,
-						Text:     n,
-						Size:     ui.SizeSmall,
-						Variant:  ui.ButtonSecondary,
-						Disabled: disabled,
-						OnPress:  func() { add(n) },
-					})
-					if t, ok := ed.components.Lookup(n); ok {
-						button = withTooltip(button, t.Doc)
-					}
-					buttons[i] = button
+				groups := ed.AddableComponentGroups(objID, query.Get())
+				if len(groups) == 0 {
+					return nil
 				}
-				return ui.Wrap{Children: buttons}
+				var children []core.Node
+				for _, g := range groups {
+					slug, label := groupTitle(g.Category)
+					buttons := make([]core.Node, len(g.Names))
+					for i, n := range g.Names {
+						name := n
+						button := core.Node(ui.Button{
+							TestID:   "inspector-add-component-" + name,
+							Text:     name,
+							Size:     ui.SizeSmall,
+							Variant:  ui.ButtonSecondary,
+							Disabled: disabled,
+							OnPress:  func() { add(name) },
+						})
+						if t, ok := ed.lookupComponentType(name); ok {
+							button = withTooltip(button, t.Doc)
+						}
+						buttons[i] = button
+					}
+					children = append(children, core.View{
+						TestID: "inspector-add-group-" + slug,
+						Style:  core.Style{Gap: 4},
+						Children: []core.Node{
+							core.Text{
+								Content: label,
+								Style: core.Style{
+									FontSize:      10.5,
+									FontWeight:    core.FontWeightSemibold,
+									LetterSpacing: 0.7,
+									Color:         specTextMuted,
+								},
+							},
+							ui.Wrap{Children: buttons},
+						},
+					})
+				}
+				return core.View{
+					Style: core.Style{
+						Gap:          8,
+						Padding:      core.All(8),
+						CornerRadius: 8,
+						Background:   specRaised,
+						BorderWidth:  1,
+						BorderColor:  specLineRaised,
+					},
+					Children: children,
+				}
 			}),
 		},
 	}

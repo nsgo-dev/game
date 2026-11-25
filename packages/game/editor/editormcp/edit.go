@@ -116,7 +116,7 @@ type EditResult struct {
 }
 
 // objectFields are the object fields set changes, in the order replies list them.
-var objectFields = []string{"id", "name", "x", "y", "z", "rotation", "scaleX", "scaleY", "alpha", "originX", "originY", "flipX", "flipY", "sprite", "material", "posZ", "rotX", "rotY", "rotZ", "scaleZ", "depth", "mesh"}
+var objectFields = []string{"id", "name", "x", "y", "z", "rotation", "scaleX", "scaleY", "alpha", "originX", "originY", "flipX", "flipY", "sprite", "material", "particles", "posZ", "rotX", "rotY", "rotZ", "scaleZ", "depth", "mesh", "model", "gridMap", "occluder", "light", "camera"}
 
 // sceneEdit runs scene_edit.
 func sceneEdit(ctx context.Context, c *Call) (*Result, error) {
@@ -571,6 +571,26 @@ func setObjectFields(ed *editor.Editor, id string, fields map[string]json.RawMes
 			}
 		},
 		func() error {
+			raw, ok := fields["particles"]
+			if !ok {
+				return nil
+			}
+			var ref *sceneformat.ParticlesRef
+			if string(bytes.TrimSpace(raw)) != "null" {
+				var v struct {
+					File  string `json:"file"`
+					Atlas string `json:"atlas"`
+				}
+				dec := json.NewDecoder(bytes.NewReader(raw))
+				dec.DisallowUnknownFields()
+				if err := dec.Decode(&v); err != nil {
+					return refuse("particles", "must be {\"file\": ..., \"atlas\"?: ...} or null", "give particles a file path or null")
+				}
+				ref = &sceneformat.ParticlesRef{File: v.File, Atlas: v.Atlas}
+			}
+			return wrapField("particles", ed.SetObjectParticles(id, ref))
+		},
+		func() error {
 			z, ok, err := num("posZ", obj.PosZ)
 			if err != nil || !ok {
 				return err
@@ -612,6 +632,71 @@ func setObjectFields(ed *editor.Editor, id string, fields map[string]json.RawMes
 			} else {
 				return wrapField("mesh", ed.SetObjectMesh(id, s))
 			}
+		},
+		func() error {
+			if s, ok, err := str("model"); err != nil || !ok {
+				return err
+			} else {
+				return wrapField("model", ed.SetObjectModel(id, s))
+			}
+		},
+		func() error {
+			if s, ok, err := str("gridMap"); err != nil || !ok {
+				return err
+			} else {
+				return wrapField("gridMap", ed.SetObjectGridMap(id, s))
+			}
+		},
+		func() error {
+			raw, ok := fields["occluder"]
+			if !ok {
+				return nil
+			}
+			var occ *sceneformat.OccluderDoc
+			if string(bytes.TrimSpace(raw)) != "null" {
+				var v sceneformat.OccluderDoc
+				dec := json.NewDecoder(bytes.NewReader(raw))
+				dec.DisallowUnknownFields()
+				if err := dec.Decode(&v); err != nil {
+					return refuse("occluder", "must be an occluder object or null", "give occluder {\"mode\": \"model\"|\"box\", ...} or null")
+				}
+				occ = &v
+			}
+			return wrapField("occluder", ed.SetObjectOccluder(id, occ))
+		},
+		func() error {
+			raw, ok := fields["light"]
+			if !ok {
+				return nil
+			}
+			var l *sceneformat.LightDoc
+			if string(bytes.TrimSpace(raw)) != "null" {
+				var v sceneformat.LightDoc
+				dec := json.NewDecoder(bytes.NewReader(raw))
+				dec.DisallowUnknownFields()
+				if err := dec.Decode(&v); err != nil {
+					return refuse("light", "must be a 3D light object or null", "give light {\"kind\": \"point\"|\"directional\"|\"spot\", ...} or null")
+				}
+				l = &v
+			}
+			return wrapField("light", ed.SetObjectLight(id, l))
+		},
+		func() error {
+			raw, ok := fields["camera"]
+			if !ok {
+				return nil
+			}
+			var cam *sceneformat.Camera3DDoc
+			if string(bytes.TrimSpace(raw)) != "null" {
+				var v sceneformat.Camera3DDoc
+				dec := json.NewDecoder(bytes.NewReader(raw))
+				dec.DisallowUnknownFields()
+				if err := dec.Decode(&v); err != nil {
+					return refuse("camera", "must be a 3D camera object or null", "give camera {\"projection\": \"perspective\"|\"orthographic\", ...} or null")
+				}
+				cam = &v
+			}
+			return wrapField("camera", ed.SetObjectCamera3D(id, cam))
 		},
 		// The id changes last, so the steps above find the object by the ID the edit names.
 		func() error {
