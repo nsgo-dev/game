@@ -47,6 +47,8 @@ const (
 	KindGLTF FileKind = "gltf"
 	// KindCutscene is a cutscene file (*.cutscene.yaml or *.cutscene.yml).
 	KindCutscene FileKind = "cutscene"
+	// KindGridMap is a world3d GridMap YAML file (*.gridmap.yaml or *.gridmap.yml), which references a glTF mesh library.
+	KindGridMap FileKind = "gridmap"
 )
 
 // Fields name what a reference is, in Ref.Field and in messages. A reference in game.yaml has the Field project.PathRefs gives it, such as project.FieldAtlasIn; the two autoload ones are repeated here.
@@ -58,6 +60,8 @@ const (
 	FieldScene            = "scene"
 	FieldMaterial         = "material"
 	FieldModel            = "model"
+	FieldGridMap          = "grid map"
+	FieldMeshLibrary      = "mesh library"
 	FieldTilemapSource    = "tilemap source"
 	FieldTilesetFile      = "tileset file"
 	FieldTexture          = "texture"
@@ -264,13 +268,19 @@ func Scan(fsys fs.FS) (*Project, error) {
 			p.readJSON(name, formatAtlas)
 		}
 	}
-	// A YAML file another file names as a scene is a scene, whatever its name; reading it may name more.
+	// A YAML file another file names as a scene or grid map is read as such, whatever its name; reading it may name more.
 	for changed := true; changed; {
 		changed = false
 		for _, r := range p.Refs {
 			if (r.Field == FieldScene || r.Field == FieldInherits || r.Field == FieldAutoloadScene) && slices.Contains(pending, r.Target) {
 				pending = slices.DeleteFunc(pending, func(s string) bool { return s == r.Target })
 				p.readYAML(r.Target, true)
+				changed = true
+				break
+			}
+			if r.Field == FieldGridMap && slices.Contains(pending, r.Target) {
+				pending = slices.DeleteFunc(pending, func(s string) bool { return s == r.Target })
+				p.readGridMapYAML(r.Target)
 				changed = true
 				break
 			}
@@ -395,7 +405,7 @@ func (p *Project) readYAML(name string, asScene bool) bool {
 	}
 	var root yaml.Node
 	if err := yaml.Unmarshal(data, &root); err != nil || root.Kind != yaml.DocumentNode || len(root.Content) == 0 || root.Content[0].Kind != yaml.MappingNode {
-		if asScene || isSceneName(name) || isCutsceneName(name) || isScreenName(name) {
+		if asScene || isSceneName(name) || isCutsceneName(name) || isScreenName(name) || isGridMapName(name) {
 			p.unread = append(p.unread, name)
 		}
 		return false
@@ -435,8 +445,30 @@ func (p *Project) readYAML(name string, asScene bool) bool {
 		p.add(f)
 		p.stringTableKeys(f, doc)
 		return true
+	case isGridMapName(name):
+		f.Kind = KindGridMap
+		p.add(f)
+		p.ref(f, field(doc, "meshLibrary"), FieldMeshLibrary)
+		return true
 	}
 	return false
+}
+
+// readGridMapYAML reads the YAML file at name as a world3d GridMap document referenced by a scene.
+func (p *Project) readGridMapYAML(name string) {
+	data, err := fs.ReadFile(p.fsys, name)
+	if err != nil {
+		return
+	}
+	var root yaml.Node
+	if err := yaml.Unmarshal(data, &root); err != nil || root.Kind != yaml.DocumentNode || len(root.Content) == 0 || root.Content[0].Kind != yaml.MappingNode {
+		p.unread = append(p.unread, name)
+		return
+	}
+	doc := root.Content[0]
+	f := &File{Path: name, Kind: KindGridMap, data: data, starts: lineStarts(data), doc: doc, Root: p.Root(name)}
+	p.add(f)
+	p.ref(f, field(doc, "meshLibrary"), FieldMeshLibrary)
 }
 
 // readProject reads the paths of the game.yaml at name through package project, which owns its schema. A game.yaml that project.Parse refuses is a problem, and its paths are neither checked nor rewritten until it is fixed.
@@ -525,6 +557,12 @@ func isStringTableDoc(doc *yaml.Node) bool {
 	return hasVersion && hasLocale && hasEntries
 }
 
+// isGridMapName reports whether name is a 3D grid map file by its name, *.gridmap.yaml or *.gridmap.yml.
+func isGridMapName(name string) bool {
+	lower := strings.ToLower(name)
+	return strings.HasSuffix(lower, ".gridmap.yaml") || strings.HasSuffix(lower, ".gridmap.yml")
+}
+
 // isResourceKind reports whether n is a scalar naming a resource type.
 func isResourceKind(n *yaml.Node) bool {
 	return n != nil && n.Kind == yaml.ScalarNode && slices.Contains(resource.Kinds(), resource.Kind(n.Value))
@@ -564,6 +602,7 @@ func (p *Project) sceneRefs(f *File, doc *yaml.Node) {
 	for _, kv := range pairs(field(doc, "overrides")) {
 		p.ref(f, field(kv[1], "material"), FieldMaterial)
 		p.ref(f, field(kv[1], "model"), FieldModel)
+		p.ref(f, field(kv[1], "gridMap"), FieldGridMap)
 	}
 	for _, l := range items(field(doc, "layers")) {
 		p.tilemapRefs(f, field(l, "tilemap"))
@@ -595,9 +634,11 @@ func (p *Project) objectRefs(f *File, objs *yaml.Node, depth int) {
 		p.ref(f, field(o, "scene"), FieldScene)
 		p.ref(f, field(o, "material"), FieldMaterial)
 		p.ref(f, field(o, "model"), FieldModel)
+		p.ref(f, field(o, "gridMap"), FieldGridMap)
 		for _, kv := range pairs(field(o, "overrides")) {
 			p.ref(f, field(kv[1], "material"), FieldMaterial)
 			p.ref(f, field(kv[1], "model"), FieldModel)
+			p.ref(f, field(kv[1], "gridMap"), FieldGridMap)
 		}
 		p.objectRefs(f, field(o, "children"), depth+1)
 	}

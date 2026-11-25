@@ -83,6 +83,7 @@ func (e *Editor) PlayIn(cx *core.Scope) error {
 		return errors.New("editor: cannot play nil scene document")
 	}
 	e.endTileStrokeForChange()
+	e.endGridMapStrokeForChange()
 
 	// A 2D drag in progress is put back, so Play and the scene Stop restores start from the scene as last recorded.
 	e.CancelDrag2D()

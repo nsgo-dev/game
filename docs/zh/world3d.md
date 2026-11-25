@@ -237,7 +237,7 @@ group.Step(dt)
 
 ## 模块化 3D `GridMap`
 
-在整数格点 `GridCoord{X, Y, Z}` 上摆放可复用的 3D 网格瓦片，支持 24 种立方体正交朝向（`GridOrientationMat4`）、碰撞盒提取、按区块裁剪的射线检测（沿射线对区块排序，再逐个测试区块中被占用的格子）以及带视锥裁剪的实例化合批：
+在整数格点 `GridCoord{X, Y, Z}` 上摆放可复用的 3D 网格瓦片，支持 24 种立方体正交朝向（`GridOrientationMat4`、`RotateGridOrientation`、`FindGridOrientation`）、碰撞盒提取、按区块裁剪的射线检测（沿射线对区块排序，再逐个测试区块中被占用的格子）、格子遍历（`EachCell`）、按 ID 排序的网格库枚举（`MeshLibrary.Items`）以及带视锥裁剪的实例化合批。`LoadMeshLibraryFromGLTF` 同时支持读取 `.gltf` JSON 和二进制 `.glb` 网格库：
 
 ```go
 lib, err := world3d.LoadMeshLibraryFromGLTF(gltfBytes) // 或使用 world3d.NewMeshLibrary()
@@ -271,7 +271,7 @@ yamlBytes, err := world3d.EncodeGridMap(exported) // 输出确定，ParseGridMap
 _, _ = exported, yamlBytes
 ```
 
-`game check` 会检查所有 `*.gridmap.yaml` 文件，确认其 `meshLibrary` 存在且可加载（对 `.gltf` 文件），并校验 `boxes[*].tile` 与 `cells[*].tile` 中的每个瓦片名称都在该网格库中存在。
+`game check` 会检查所有 `*.gridmap.yaml` 文件（以及场景对象上的 `gridMap` 引用），确认其 `meshLibrary` 存在且可加载（`.gltf` 或 `.glb`），并校验 `boxes[*].tile` 与 `cells[*].tile` 中的每个瓦片名称都在该网格库中存在。场景对象还可以通过 `gridMap` 引用 `.gridmap.yaml` 文件，在 [scenemodel](scenemodel.md) 中自动实例化并在 [3D 编辑器](editor.md#3d-gridmap-绘制899) 中交互式绘制。
 
 ## 程序化植被与视锥裁剪（`FoliageField`）
 

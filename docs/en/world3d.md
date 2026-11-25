@@ -237,7 +237,7 @@ group.Step(dt)
 
 ## Modular 3D `GridMap`
 
-Place reusable 3D mesh tiles on an integer `GridCoord{X, Y, Z}` lattice with 24 axis-aligned cube orientations (`GridOrientationMat4`), fast collision box extraction, chunk-culled raycasting (chunks are sorted along the ray and the occupied cells of each are tested), and frustum-culled instanced batches:
+Place reusable 3D mesh tiles on an integer `GridCoord{X, Y, Z}` lattice with 24 axis-aligned cube orientations (`GridOrientationMat4`, `RotateGridOrientation`, `FindGridOrientation`), fast collision box extraction, chunk-culled raycasting (chunks are sorted along the ray and the occupied cells of each are tested), cell enumeration (`EachCell`), sorted library inspection (`MeshLibrary.Items`), and frustum-culled instanced batches. `LoadMeshLibraryFromGLTF` reads both `.gltf` JSON and binary `.glb` mesh libraries:
 
 ```go
 lib, err := world3d.LoadMeshLibraryFromGLTF(gltfBytes) // or world3d.NewMeshLibrary()
@@ -271,7 +271,7 @@ yamlBytes, err := world3d.EncodeGridMap(exported) // deterministic, refuses unkn
 _, _ = exported, yamlBytes
 ```
 
-`game check` validates every `*.gridmap.yaml` file, checks that its `meshLibrary` exists and loads (for `.gltf`), and verifies that every `boxes[*].tile` and `cells[*].tile` name exists in that library.
+`game check` validates every `*.gridmap.yaml` file (and every scene object `gridMap` reference), checks that its `meshLibrary` exists and loads (`.gltf` or `.glb`), and verifies that every `boxes[*].tile` and `cells[*].tile` name exists in that library. Scene objects can attach a `.gridmap.yaml` file via `gridMap` for automatic instancing in [scenemodel](scenemodel.md) and interactive painting in the [3D editor](editor.md#3d-gridmap-painting-899).
 
 ## Procedural foliage culling (`FoliageField`)
 

@@ -585,11 +585,12 @@ func TestObjectOverrideCoversEveryObjectField(t *testing.T) {
 		t.Errorf("ObjectOverride has %d fields, want %d", len(overrideKeys), ot.NumField()-len(notOverridable))
 	}
 
-	// Setting every override field changes every overridable field of a zero object. The 3D look fields exclude each other (a primitive, or a model narrowed to a node or to a mesh), so each variant sets one valid combination of them, and together they set them all.
+	// Setting every override field changes every overridable field of a zero object. The 3D look fields exclude each other (a primitive, a model narrowed to a node or to a mesh, or a grid map), so each variant sets one valid combination of them, and together they set them all.
 	variants := []map[string]string{
-		{"mesh": "box", "model": "", "modelNode": "", "modelMesh": ""},
-		{"mesh": "", "model": "m.glb", "modelNode": "n", "modelMesh": ""},
-		{"mesh": "", "model": "m.glb", "modelNode": "", "modelMesh": "m"},
+		{"mesh": "box", "model": "", "modelNode": "", "modelMesh": "", "gridMap": ""},
+		{"mesh": "", "model": "m.glb", "modelNode": "n", "modelMesh": "", "gridMap": ""},
+		{"mesh": "", "model": "m.glb", "modelNode": "", "modelMesh": "m", "gridMap": ""},
+		{"mesh": "", "model": "", "modelNode": "", "modelMesh": "", "gridMap": "levels/keep.gridmap.yaml"},
 	}
 	set := make(map[string]bool)
 	for _, look := range variants {

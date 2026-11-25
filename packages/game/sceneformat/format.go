@@ -450,6 +450,8 @@ type ObjectDoc struct {
 	ModelNode string `yaml:"modelNode,omitempty"`
 	// ModelMesh optionally names one mesh of Model, the first with that name in the file, which the object draws at its origin in place of the whole model. It requires Model and cannot be combined with ModelNode. Version 2.
 	ModelMesh string `yaml:"modelMesh,omitempty"`
+	// GridMap optionally names a 3D grid map file (*.gridmap.yaml or *.gridmap.yml) by its slash-separated path from the project root, such as "levels/dungeon.gridmap.yaml". Package scenemodel loads it and instances its tiles with world3d.GridMap.BuildInstances. It cannot be combined with Mesh or Model. Version 2.
+	GridMap string `yaml:"gridMap,omitempty"`
 	// FlipX and FlipY mirror the sprite inside its untrimmed frame box.
 	FlipX bool `yaml:"flipX,omitempty"`
 	FlipY bool `yaml:"flipY,omitempty"`
@@ -513,6 +515,8 @@ type ObjectOverride struct {
 	ModelNode *string `yaml:"modelNode,omitempty"`
 	// ModelMesh replaces the mesh of the model the object draws.
 	ModelMesh *string `yaml:"modelMesh,omitempty"`
+	// GridMap replaces the 3D grid map file the object draws, a slash-separated path from the project root; "" removes it.
+	GridMap *string `yaml:"gridMap,omitempty"`
 	// FlipX replaces whether the sprite is mirrored horizontally.
 	FlipX *bool `yaml:"flipX,omitempty"`
 	// FlipY replaces whether the sprite is mirrored vertically.
@@ -1028,6 +1032,9 @@ func validateObjects(version int, path []string, layer, parent string, parentWor
 				}
 				return fieldErr(at(op, field), "sceneformat: %s: model, modelNode and modelMesh need version 2, not %d", where, version)
 			}
+			if o.GridMap != "" {
+				return fieldErr(at(op, "gridMap"), "sceneformat: %s: gridMap needs version 2, not %d", where, version)
+			}
 			if o.Mesh != "" && !slices.Contains(meshPrimitives, o.Mesh) {
 				// validateModel's hint names model, which version 1 refuses.
 				return fieldErr(at(op, "mesh"), "sceneformat: %s mesh %q is not a built-in primitive (want one of %s); to draw a glTF file, move the scene to version 2 and name the file in model", where, o.Mesh, strings.Join(meshPrimitives, ", "))
@@ -1317,6 +1324,12 @@ func IsModelPath(p string) bool {
 	return slices.Contains(modelExtensions, strings.ToLower(path.Ext(p)))
 }
 
+// IsGridMapPath reports whether p names a 3D grid map file by its extension, .gridmap.yaml or .gridmap.yml in any case, as ObjectDoc.GridMap requires.
+func IsGridMapPath(p string) bool {
+	lower := strings.ToLower(p)
+	return strings.HasSuffix(lower, ".gridmap.yaml") || strings.HasSuffix(lower, ".gridmap.yml")
+}
+
 // validateModel checks the 3D look fields of o, found at path in the document; where names it in errors.
 func validateModel(p []string, where string, o *ObjectDoc) error {
 	if o.Mesh != "" && !slices.Contains(meshPrimitives, o.Mesh) {
@@ -1331,6 +1344,20 @@ func validateModel(p []string, where string, o *ObjectDoc) error {
 		}
 		if o.Mesh != "" {
 			return fieldErr(at(p, "mesh"), "sceneformat: %s names both mesh %q and model %q; keep one", where, o.Mesh, o.Model)
+		}
+	}
+	if o.GridMap != "" {
+		if !validFilePath(o.GridMap) {
+			return fieldErr(at(p, "gridMap"), "sceneformat: %s gridMap %q must be a slash-separated path relative to the project root", where, o.GridMap)
+		}
+		if !IsGridMapPath(o.GridMap) {
+			return fieldErr(at(p, "gridMap"), "sceneformat: %s gridMap %q must be a grid map file ending in .gridmap.yaml or .gridmap.yml", where, o.GridMap)
+		}
+		if o.Mesh != "" {
+			return fieldErr(at(p, "mesh"), "sceneformat: %s names both mesh %q and gridMap %q; keep one", where, o.Mesh, o.GridMap)
+		}
+		if o.Model != "" {
+			return fieldErr(at(p, "model"), "sceneformat: %s names both model %q and gridMap %q; keep one", where, o.Model, o.GridMap)
 		}
 	}
 	if o.ModelNode != "" && o.ModelMesh != "" {

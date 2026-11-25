@@ -415,6 +415,10 @@
           "description": "ModelMesh optionally names one mesh of Model, the first with that name in the file, which the object draws at its origin in place of the whole model. It requires Model and cannot be combined with ModelNode. Version 2.",
           "type": "string"
         },
+        "gridMap": {
+          "description": "GridMap optionally names a 3D grid map file (*.gridmap.yaml or *.gridmap.yml) by its slash-separated path from the project root, such as \"levels/dungeon.gridmap.yaml\". Package scenemodel loads it and instances its tiles with world3d.GridMap.BuildInstances. It cannot be combined with Mesh or Model. Version 2.",
+          "type": "string"
+        },
         "flipX": {
           "description": "FlipX and FlipY mirror the sprite inside its untrimmed frame box.",
           "type": "boolean"
@@ -593,6 +597,10 @@
         },
         "modelMesh": {
           "description": "ModelMesh replaces the mesh of the model the object draws.",
+          "type": "string"
+        },
+        "gridMap": {
+          "description": "GridMap replaces the 3D grid map file the object draws, a slash-separated path from the project root; \"\" removes it.",
           "type": "string"
         },
         "flipX": {

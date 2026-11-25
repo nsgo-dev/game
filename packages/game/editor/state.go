@@ -256,6 +256,10 @@ type Editor struct {
 	OnSaveClip func(data []byte) error
 	// OnSaveDataTable is invoked by the Data Table panel's Save button with the encoded table YAML; when nil the button writes to DataTablePath.
 	OnSaveDataTable func(data []byte) error
+	// OnSaveGridMap is invoked by SaveGridMap (and Save when a GridMap has unsaved edits) with the encoded canonical .gridmap.yaml bytes; when nil SaveGridMap writes to the GridMap's file path.
+	OnSaveGridMap func(data []byte) error
+	// GridMapFS optionally provides a filesystem for loading GridMap files and their glTF mesh libraries when no project is open on disk.
+	GridMapFS fs.FS
 	// ExportCommandRunner runs `go` with args for the Export panel's release builds, streaming output to stdout and stderr; when nil the editor invokes `go` via os/exec.
 	ExportCommandRunner func(ctx context.Context, args []string, stdout, stderr io.Writer) error
 	// OpenOutputFolder opens the release output directory in the OS file manager after a successful non-dry-run build; when nil the editor uses the host platform's default opener.
@@ -394,6 +398,8 @@ type Editor struct {
 	// gpu3D says the 3D viewport's GPU view drew the scene's geometry the last frame (Viewport3DOnGPU), and gpu3DErr why it could not, when it could not.
 	gpu3D    bool
 	gpu3DErr error
+	// gridMap holds the active 3D GridMap editing session, tool, floor height, orientation, stroke and hover state.
+	gridMap gridMapState
 }
 
 // DefaultSceneDoc returns a valid starter SceneDoc suitable for a new editor session.
@@ -574,6 +580,7 @@ func (e *Editor) SetViewMode(mode ViewMode) {
 		return
 	}
 	e.endTileStrokeForChange()
+	e.endGridMapStrokeForChange()
 	e.CancelGizmoDrag3D()
 	e.EndViewport3DDrag()
 	e.endFly3D()
@@ -603,12 +610,14 @@ func (e *Editor) SetLights3D(lights *render3d.LightRig) {
 	e.notify()
 }
 
-// SetGizmoMode3D switches the active 3D transform gizmo mode (Translate, Rotate, or Scale).
+// SetGizmoMode3D switches the active 3D transform gizmo mode (Translate, Rotate, or Scale) and leaves any active GridMap tool.
 func (e *Editor) SetGizmoMode3D(mode GizmoMode3D) {
-	if e.GizmoMode == mode {
+	if e.GizmoMode == mode && e.gridMap.tool == GridMapToolNone {
 		return
 	}
+	e.endGridMapStrokeForChange()
 	e.CancelGizmoDrag3D()
+	e.gridMap.tool = GridMapToolNone
 	e.GizmoMode = mode
 	e.Status = "Gizmo: " + mode.String()
 	e.notify()
@@ -765,6 +774,7 @@ func (e *Editor) openYAMLWithLayers(data []byte, file string, layers *sceneforma
 	e.bgPreview = bgPreviewState{}
 	// A stroke under way edits the scene being replaced, whose history goes with it.
 	e.stroke = nil
+	e.gridMap.stroke = nil
 	e.Doc = doc
 	e.sceneSaved = saved
 	e.SelectedID = ""
@@ -829,6 +839,7 @@ func (e *Editor) SaveFile(path string) error {
 		e.CancelCameraDrag()
 		e.cancelBackgroundPreview()
 		e.endTileStrokeForChange()
+		e.endGridMapStrokeForChange()
 	}
 	data, err := e.SaveYAML()
 	if err != nil {
@@ -888,6 +899,7 @@ func (e *Editor) Undo() bool {
 	e.cancelBackgroundPreview()
 	// A stroke under way is recorded first, so Undo takes it back as a whole.
 	e.endTileStrokeForChange()
+	e.endGridMapStrokeForChange()
 	ok, err := e.History.undo()
 	if err != nil {
 		e.reportStatusError("Undo failed: " + err.Error())
@@ -908,6 +920,7 @@ func (e *Editor) Redo() bool {
 	e.CancelCameraDrag()
 	e.cancelBackgroundPreview()
 	e.endTileStrokeForChange()
+	e.endGridMapStrokeForChange()
 	ok, err := e.History.redo()
 	if err != nil {
 		e.reportStatusError("Redo failed: " + err.Error())
@@ -934,6 +947,13 @@ func (e *Editor) SelectObject(id string) bool {
 	}
 	if obj, _, _ := e.FindObject(id); obj == nil {
 		return false
+	} else if obj.GridMap != "" && e.gridMap.relPath != obj.GridMap && !e.GridMapDirty() {
+		// Selecting an object that names a GridMap loads it automatically when a project or GridMapFS is available.
+		e.SelectedID = id
+		e.Status = "Selected " + id
+		e.autoOpenSceneGridMap()
+		e.notify()
+		return true
 	}
 	if e.SelectedID != id || e.inspectAssetFile || e.inspectLayer || e.connPick != nil {
 		e.CancelCameraDrag()
@@ -1549,6 +1569,9 @@ func (e *Editor) SetObjectMesh(id, mesh string) error {
 	if mesh != "" && obj.Model != "" {
 		return fmt.Errorf("editor: object %q draws model %q; it cannot also draw mesh %q", id, obj.Model, mesh)
 	}
+	if mesh != "" && obj.GridMap != "" {
+		return fmt.Errorf("editor: object %q draws gridMap %q; it cannot also draw mesh %q", id, obj.GridMap, mesh)
+	}
 	e.History.Execute(&meshObjectCmd{
 		ed:      e,
 		id:      id,
@@ -1606,11 +1629,11 @@ func (c *placeObjectCmd) Undo() {
 	c.ed.SelectedID = c.prevSelected
 }
 
-// drawsModel reports whether o or any of its descendants names a glTF model, which needs a version 2 scene.
+// drawsModel reports whether o or any of its descendants names a glTF model or GridMap, which needs a version 2 scene.
 func drawsModel(o *sceneformat.ObjectDoc) bool {
 	found := false
 	sceneformat.WalkObjects([]sceneformat.ObjectDoc{*o}, func(c, _ *sceneformat.ObjectDoc) bool {
-		found = c.Model != ""
+		found = c.Model != "" || c.GridMap != ""
 		return !found
 	})
 	return found
@@ -1972,7 +1995,7 @@ func applyPrefabDefaults(dst *sceneformat.ObjectDoc, pf Prefab) {
 	if dst.Depth == 0 && pf.Depth != 0 {
 		dst.Depth = pf.Depth
 	}
-	if dst.Mesh == "" && dst.Model == "" && pf.Mesh != "" {
+	if dst.Mesh == "" && dst.Model == "" && dst.GridMap == "" && pf.Mesh != "" {
 		dst.Mesh = pf.Mesh
 	}
 	if !dst.FlipX && pf.FlipX {

@@ -5,6 +5,7 @@ import (
 
 	"github.com/nsgo-dev/game/packages/game/math2d"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
+	"github.com/nsgo-dev/game/packages/game/world3d"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
@@ -231,6 +232,12 @@ func (e *Editor) HandleCanvasPress(x, y float32) {
 	}
 	if e.ViewMode == ViewMode3D {
 		cw, ch := e.CanvasSize()
+		if e.gridMap.tool != GridMapToolNone {
+			if e.BeginGridMapStroke(e.gridMap.tool, x, y, cw, ch) {
+				e.EndGridMapStroke()
+			}
+			return
+		}
 		e.HandleViewport3DPress(x, y, cw, ch)
 		return
 	}
@@ -772,7 +779,8 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 	shiftHeld := func() bool { return core.Untracked(cx, func() bool { return core.KeyHeld(cx, "shift") }) }
 	altHeld := func() bool { return core.Untracked(cx, func() bool { return core.KeyHeld(cx, "alt") }) }
 	in2D := func() bool { return ed.ViewMode == ViewMode2D && !ed.Playing() }
-	// strokeTookPress says the tile stroke that a pointer drew has ended, so the press its button or finger completes, which may come after it, edits nothing more. Every pointer-down clears it, so a stroke that no press followed, such as a drag the frame's pan took or a right-button drag, cannot swallow the next click.
+	in3DGridMap := func() bool { return ed.ViewMode == ViewMode3D && ed.GridMapTool() != GridMapToolNone && !ed.Playing() }
+	// strokeTookPress says the tile or GridMap stroke that a pointer drew has ended, so the press its button or finger completes, which may come after it, edits nothing more. Every pointer-down clears it, so a stroke that no press followed, such as a drag the frame's pan took or a right-button drag, cannot swallow the next click.
 	var strokeTookPress bool
 	beginStroke := func(at core.Point, secondary, alt bool) {
 		strokeTookPress = false
@@ -810,7 +818,6 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 			ed.ResetView2D()
 		}
 	})
-
 	canvas := core.Canvas{
 		TestID: "editor-viewport",
 		Label:  "Scene Viewport",
@@ -826,12 +833,18 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 				return
 			}
 			// A press with Space held ends a Space-drag that did not move, which navigates rather than edits.
-			if ed.ViewMode == ViewMode2D && spaceHeld() {
+			if spaceHeld() {
 				return
 			}
 			if ed.ViewMode == ViewMode2D && !ev.Keyboard {
 				// The mouse button or finger that completes the press drew a stroke already, which edits the cell, or is still drawing one.
 				if _, ok := ed.TileStrokeActive(); ok || strokeTookPress {
+					strokeTookPress = false
+					return
+				}
+			}
+			if in3DGridMap() && !ev.Keyboard {
+				if _, ok := ed.GridMapStrokeActive(); ok || strokeTookPress {
 					strokeTookPress = false
 					return
 				}
@@ -843,6 +856,17 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 					ed.EndTileStroke()
 					return
 				}
+				if in3DGridMap() {
+					cw, ch := ed.CanvasSize()
+					tool := ed.GridMapTool()
+					if ev.Modifiers.Alt {
+						tool = GridMapToolPick
+					}
+					if ed.BeginGridMapStroke(tool, x, y, cw, ch) {
+						ed.EndGridMapStroke()
+					}
+					return
+				}
 			}
 			ed.HandleCanvasPress(x, y)
 		},
@@ -851,6 +875,68 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 			ed.DrawViewport(d, size)
 		},
 	}
+	// 3D GridMap floor height and 24-orientation rotation keys, active only while a GridMap tool is chosen in 3D and no text field has focus.
+	gridKey := core.KeyOptions{When: core.KeyNotEditing}
+	cx.OnKeyWith("]", gridKey, func() {
+		if in3DGridMap() {
+			ed.StepGridMapFloor(1)
+		}
+	})
+	cx.OnKeyWith("pageup", gridKey, func() {
+		if in3DGridMap() {
+			ed.StepGridMapFloor(1)
+		}
+	})
+	cx.OnKeyWith("[", gridKey, func() {
+		if in3DGridMap() {
+			ed.StepGridMapFloor(-1)
+		}
+	})
+	cx.OnKeyWith("pagedown", gridKey, func() {
+		if in3DGridMap() {
+			ed.StepGridMapFloor(-1)
+		}
+	})
+	cx.OnKeyWith("x", gridKey, func() {
+		if in3DGridMap() {
+			ed.report(ed.RotateGridMapOrientation(world3d.GridAxisX, 1))
+		}
+	})
+	cx.OnKeyWith("shift+x", gridKey, func() {
+		if in3DGridMap() {
+			ed.report(ed.RotateGridMapOrientation(world3d.GridAxisX, -1))
+		}
+	})
+	cx.OnKeyWith("y", gridKey, func() {
+		if in3DGridMap() {
+			ed.report(ed.RotateGridMapOrientation(world3d.GridAxisY, 1))
+		}
+	})
+	cx.OnKeyWith("shift+y", gridKey, func() {
+		if in3DGridMap() {
+			ed.report(ed.RotateGridMapOrientation(world3d.GridAxisY, -1))
+		}
+	})
+	cx.OnKeyWith("z", gridKey, func() {
+		if in3DGridMap() {
+			ed.report(ed.RotateGridMapOrientation(world3d.GridAxisZ, 1))
+		}
+	})
+	cx.OnKeyWith("shift+z", gridKey, func() {
+		if in3DGridMap() {
+			ed.report(ed.RotateGridMapOrientation(world3d.GridAxisZ, -1))
+		}
+	})
+	cx.OnKeyWith("q", gridKey, func() {
+		if in3DGridMap() {
+			ed.report(ed.StepGridMapOrientation(1))
+		}
+	})
+	cx.OnKeyWith("shift+q", gridKey, func() {
+		if in3DGridMap() {
+			ed.report(ed.StepGridMapOrientation(-1))
+		}
+	})
 
 	return core.View{
 		TestID: "editor-viewport-container",
@@ -860,17 +946,19 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 			Overflow:   core.Hidden,
 		},
 		Children: []core.Node{
-			// Bind Escape only while a 2D viewport drag is active so Escape still
+			// Bind Escape only while a viewport drag or GridMap stroke is active so Escape still
 			// reaches Popover/ColorWell/Menu OnCancel handlers at rest.
 			core.Show{
 				When: func() bool {
 					_ = rev.Get()
-					return ed.Dragging2D() != Handle2DNone || ed.cameraDrag.active
+					_, gmActive := ed.GridMapStrokeActive()
+					return ed.Dragging2D() != Handle2DNone || ed.cameraDrag.active || gmActive
 				},
 				Then: func(cx *core.Scope) core.Node {
 					cx.OnKey("escape", func() {
 						ed.CancelDrag2D()
 						ed.CancelCameraDrag()
+						ed.CancelGridMapStroke()
 						g.cameraDrag = false
 						g.panCamDrag = false
 					})
@@ -907,6 +995,17 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 				OnPointerDelta: func(dx, dy float64) { g3.pointerDelta(ed, dx, dy) },
 				OnMouseDown: func(ev core.MouseButtonEvent) {
 					if ed.ViewMode == ViewMode3D {
+						if in3DGridMap() && ev.Button == core.MouseButtonLeft && !spaceHeld() {
+							strokeTookPress = false
+							cw, ch := ed.CanvasSize()
+							x, y := float32(ev.Position.X), float32(ev.Position.Y)
+							tool := ed.GridMapTool()
+							if ev.Modifiers.Alt || altHeld() {
+								tool = GridMapToolPick
+							}
+							ed.BeginGridMapStroke(tool, x, y, cw, ch)
+							return
+						}
 						g3.mouseDown(cx, ed, &frame, ev)
 						return
 					}
@@ -943,6 +1042,20 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 						}
 					}
 					if ed.ViewMode == ViewMode3D {
+						cw, ch := ed.CanvasSize()
+						x, y := float32(ev.Position.X), float32(ev.Position.Y)
+						if in3DGridMap() {
+							ed.SetGridMapHover(x, y, cw, ch, ev.Modifiers.Alt)
+						}
+						if _, ok := ed.GridMapStrokeActive(); ok {
+							if ev.PressedButton == core.MouseButtonNone {
+								ed.ContinueGridMapStroke(x, y)
+								ed.EndGridMapStroke()
+							} else {
+								ed.ContinueGridMapStroke(x, y)
+							}
+							return
+						}
 						g3.mouseMove(ed, ev)
 						return
 					}
@@ -970,6 +1083,14 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 				OnMouseUp: func(ev core.MouseButtonEvent) {
 					// A pan or flight that began in 3D ends whatever the view is now.
 					g3.mouseUp(ed, ev)
+					if ed.ViewMode == ViewMode3D {
+						if _, ok := ed.GridMapStrokeActive(); ok {
+							ed.ContinueGridMapStroke(float32(ev.Position.X), float32(ev.Position.Y))
+							ed.EndGridMapStroke()
+							strokeTookPress = ev.Button == core.MouseButtonLeft
+						}
+						return
+					}
 					switch ev.Button {
 					case core.MouseButtonMiddle:
 						g.middle = false
@@ -988,6 +1109,7 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 				},
 				OnMouseLeave: func(core.MouseEvent) {
 					ed.ClearTileHover()
+					ed.ClearGridMapHover()
 				},
 				OnTouch: func(ev core.TouchEvent) {
 					if ed.ViewMode != ViewMode3D {
@@ -1012,6 +1134,12 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 				OnPan: func(ev core.PanEvent) {
 					if ed.ViewMode != ViewMode3D {
 						g.pan(ed, ev, spaceHeld, shiftHeld)
+						return
+					}
+					if _, active := ed.GridMapStrokeActive(); active {
+						return
+					}
+					if in3DGridMap() && !spaceHeld() {
 						return
 					}
 					g3.pan(ed, ev, shiftHeld)
