@@ -27,10 +27,19 @@ func assetImportInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 		return ed.Playing() || ed.AssetsBuilding()
 	}
 
-	readInfo := func() AssetImportInfo {
-		_ = rev.Get()
+	type infoSnapshot struct {
+		rev  uint64
+		info AssetImportInfo
+	}
+	infoMemo := core.NewMemoFunc(cx, func() infoSnapshot {
+		r := rev.Get()
 		info, _ := ed.InspectAssetImport(relPath)
-		return info
+		return infoSnapshot{rev: r, info: info}
+	}, func(a, b infoSnapshot) bool {
+		return a.rev == b.rev
+	})
+	readInfo := func() AssetImportInfo {
+		return infoMemo.Get().info
 	}
 
 	sectionHeader := func(title string) core.Node {
@@ -70,7 +79,9 @@ func assetImportInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 			},
 		}
 		if tip != nil {
-			if t := tip(); t != "" {
+			// Evaluate static tooltip text untracked so InspectorView's outer core.Dynamic
+			// does not subscribe to rev and remount this panel (wiping focus and drafts).
+			if t := core.Untracked(cx, tip); t != "" {
 				labelNode = withTooltip(labelNode, t)
 			}
 		}
@@ -361,7 +372,7 @@ func imageImportFields(
 								return 16
 							},
 							OnChange: func(v float64) {
-								updateSlice(func(s *importsettings.Slice) { s.Width = max(1, int(math.Round(v))) })
+								updateSlice(func(s *importsettings.Slice) { s.Width = roundInt(v, 1) })
 							},
 						}, nil),
 						fieldRow("Cell H", nil, ui.NumberInput{
@@ -377,7 +388,7 @@ func imageImportFields(
 								return 16
 							},
 							OnChange: func(v float64) {
-								updateSlice(func(s *importsettings.Slice) { s.Height = max(1, int(math.Round(v))) })
+								updateSlice(func(s *importsettings.Slice) { s.Height = roundInt(v, 1) })
 							},
 						}, nil),
 						fieldRow("Margin", nil, ui.NumberInput{
@@ -393,7 +404,7 @@ func imageImportFields(
 								return 0
 							},
 							OnChange: func(v float64) {
-								updateSlice(func(s *importsettings.Slice) { s.Margin = max(0, int(math.Round(v))) })
+								updateSlice(func(s *importsettings.Slice) { s.Margin = roundInt(v, 0) })
 							},
 						}, nil),
 						fieldRow("Spacing", nil, ui.NumberInput{
@@ -409,7 +420,7 @@ func imageImportFields(
 								return 0
 							},
 							OnChange: func(v float64) {
-								updateSlice(func(s *importsettings.Slice) { s.Spacing = max(0, int(math.Round(v))) })
+								updateSlice(func(s *importsettings.Slice) { s.Spacing = roundInt(v, 0) })
 							},
 						}, nil),
 						fieldRow("Count", nil, ui.NumberInput{
@@ -425,7 +436,7 @@ func imageImportFields(
 								return 0
 							},
 							OnChange: func(v float64) {
-								updateSlice(func(s *importsettings.Slice) { s.Count = max(0, int(math.Round(v))) })
+								updateSlice(func(s *importsettings.Slice) { s.Count = roundInt(v, 0) })
 							},
 						}, nil),
 					},
@@ -506,7 +517,7 @@ func audioImportFields(
 					return float64(v)
 				},
 				OnChange: func(v float64) {
-					ed.report(ed.SetAudioImportRate(relPath, max(0, int(math.Round(v)))))
+					ed.report(ed.SetAudioImportRate(relPath, roundInt(v, 0)))
 				},
 			},
 			resetBtn("import-audio-rate-reset", "Reset sample rate to target default", func() bool {
@@ -554,7 +565,7 @@ func audioImportFields(
 					return float64(v)
 				},
 				OnChange: func(v float64) {
-					ed.report(ed.SetAudioImportBitrate(relPath, max(0, int(math.Round(v)))))
+					ed.report(ed.SetAudioImportBitrate(relPath, roundInt(v, 0)))
 				},
 			},
 			resetBtn("import-audio-bitrate-reset", "Reset bitrate to target default", func() bool {
@@ -668,7 +679,7 @@ func audioImportFields(
 								return 0
 							},
 							OnChange: func(v float64) {
-								updateLoop(func(l *importsettings.Loop) { l.Start = max(0, int(math.Round(v))) })
+								updateLoop(func(l *importsettings.Loop) { l.Start = roundInt(v, 0) })
 							},
 						}, nil),
 						fieldRow("End", nil, ui.NumberInput{
@@ -684,7 +695,7 @@ func audioImportFields(
 								return 0
 							},
 							OnChange: func(v float64) {
-								updateLoop(func(l *importsettings.Loop) { l.End = max(0, int(math.Round(v))) })
+								updateLoop(func(l *importsettings.Loop) { l.End = roundInt(v, 0) })
 							},
 						}, nil),
 					},
@@ -743,7 +754,7 @@ func fontImportFields(
 					return float64(v)
 				},
 				OnChange: func(v float64) {
-					ed.report(ed.SetFontImportSize(relPath, max(1, int(math.Round(v)))))
+					ed.report(ed.SetFontImportSize(relPath, roundInt(v, 1)))
 				},
 			},
 			resetBtn("import-font-size-reset", "Reset font size to target default", func() bool {
@@ -767,7 +778,7 @@ func fontImportFields(
 					return float64(v)
 				},
 				OnChange: func(v float64) {
-					p := max(0, int(math.Round(v)))
+					p := roundInt(v, 0)
 					ed.report(ed.SetFontImportPadding(relPath, &p))
 				},
 			},
@@ -1056,4 +1067,19 @@ func creditImportSection(
 			},
 		},
 	}
+}
+
+// roundInt converts a finite float64 from a NumberInput into an int clamped to [minVal, math.MaxInt32], returning minVal for non-finite inputs.
+func roundInt(v float64, minVal int) int {
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return minVal
+	}
+	r := math.Round(v)
+	if r <= float64(minVal) {
+		return minVal
+	}
+	if r >= math.MaxInt32 {
+		return math.MaxInt32
+	}
+	return int(r)
 }

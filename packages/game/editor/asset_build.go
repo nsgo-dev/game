@@ -379,12 +379,15 @@ func (e *Editor) snapshotAssetOutputs() {
 	if e.Project != nil && e.ProjectPath != "" && e.Project.Assets != nil {
 		root := filepath.Dir(e.ProjectPath)
 		for _, at := range e.Project.Assets.Atlases {
-			if _, _, sum, ok := readAtlasTargetFiles(root, at.Out, at.Name); ok {
-				hashes[path.Join(at.Out, at.Name+".json")] = sum
+			if jsonRel, _, _, _, sum, ok := readAtlasTargetFiles(root, at.Out, at.Name); ok {
+				hashes[jsonRel] = sum
 			}
 		}
 		for _, tex := range e.Project.Assets.Textures {
-			rel := path.Clean(tex.Out)
+			rel, ok := cleanProjectRelPath(tex.Out)
+			if !ok {
+				continue
+			}
 			if data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel))); err == nil {
 				hashes[rel] = sha256.Sum256(data)
 			}
@@ -421,8 +424,7 @@ func (e *Editor) ReloadAssets() (ReloadAssetsResult, error) {
 	e.assetBuild.mu.Unlock()
 
 	for _, at := range e.Project.Assets.Atlases {
-		jsonRel := path.Join(at.Out, at.Name+".json")
-		jsonData, pngData, sum, ok := readAtlasTargetFiles(root, at.Out, at.Name)
+		jsonRel, imgRel, jsonData, pngData, sum, ok := readAtlasTargetFiles(root, at.Out, at.Name)
 		if !ok {
 			continue
 		}
@@ -436,7 +438,6 @@ func (e *Editor) ReloadAssets() (ReloadAssetsResult, error) {
 			continue
 		}
 
-		imgRel := atlasMetaImagePath(at.Out, at.Name, jsonData)
 		ver := e.assetBuild.imageVer.Add(1)
 		imgSrc := core.ImageSource{
 			URI:     "asset:" + imgRel,
@@ -459,7 +460,10 @@ func (e *Editor) ReloadAssets() (ReloadAssetsResult, error) {
 	}
 
 	for _, tex := range e.Project.Assets.Textures {
-		rel := path.Clean(tex.Out)
+		rel, ok := cleanProjectRelPath(tex.Out)
+		if !ok {
+			continue
+		}
 		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
 		if err != nil {
 			continue
@@ -561,39 +565,74 @@ func (e *Editor) storeReloadedAtlas(name, fullPathKey string, loaded *sprite.Atl
 	}
 }
 
-// readAtlasTargetFiles reads an atlas target's primary JSON metadata and its referenced PNG image, returning their bytes and combined SHA-256 digest.
-func readAtlasTargetFiles(root, outDir, name string) (jsonData, pngData []byte, sum [sha256.Size]byte, ok bool) {
-	jsonRel := path.Join(outDir, name+".json")
+// cleanProjectRelPath cleans a slash-separated project-relative file path and reports whether it stays strictly inside the project root.
+func cleanProjectRelPath(p string) (string, bool) {
+	if p == "" || strings.Contains(p, "\\") {
+		return "", false
+	}
+	clean := path.Clean(p)
+	if !fs.ValidPath(clean) || clean == "." {
+		return "", false
+	}
+	return clean, true
+}
+
+// readAtlasTargetFiles reads an atlas target's primary JSON metadata and its referenced PNG image, returning their resolved relative paths, bytes, and combined SHA-256 digest.
+func readAtlasTargetFiles(root, outDir, name string) (jsonRel, imgRel string, jsonData, pngData []byte, sum [sha256.Size]byte, ok bool) {
+	if strings.Contains(outDir, "\\") || strings.Contains(name, "\\") {
+		return "", "", nil, nil, sum, false
+	}
+	primaryRel, valid := cleanProjectRelPath(path.Join(outDir, name+".json"))
+	if !valid {
+		return "", "", nil, nil, sum, false
+	}
+	jsonRel = primaryRel
 	jsonBytes, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(jsonRel)))
 	if err != nil {
 		// Multi-page atlases write name-0.json when split across pages.
-		altRel := path.Join(outDir, name+"-0.json")
+		altRel, altValid := cleanProjectRelPath(path.Join(outDir, name+"-0.json"))
+		if !altValid {
+			return "", "", nil, nil, sum, false
+		}
 		jsonBytes, err = os.ReadFile(filepath.Join(root, filepath.FromSlash(altRel)))
 		if err != nil {
-			return nil, nil, sum, false
+			return "", "", nil, nil, sum, false
 		}
+		jsonRel = altRel
 	}
-	imgRel := atlasMetaImagePath(outDir, name, jsonBytes)
+	imgRel, imgValid := atlasMetaImagePath(outDir, name, jsonBytes)
+	if !imgValid {
+		return "", "", nil, nil, sum, false
+	}
 	pngBytes, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(imgRel)))
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return nil, nil, sum, false
+		return "", "", nil, nil, sum, false
 	}
 	h := sha256.New()
 	_, _ = h.Write(jsonBytes)
 	_, _ = h.Write([]byte{0})
 	_, _ = h.Write(pngBytes)
 	copy(sum[:], h.Sum(nil))
-	return jsonBytes, pngBytes, sum, true
+	return jsonRel, imgRel, jsonBytes, pngBytes, sum, true
 }
 
-func atlasMetaImagePath(outDir, name string, jsonData []byte) string {
+func atlasMetaImagePath(outDir, name string, jsonData []byte) (string, bool) {
+	if strings.Contains(outDir, "\\") || strings.Contains(name, "\\") {
+		return "", false
+	}
+	fallback, ok := cleanProjectRelPath(path.Join(outDir, name+".png"))
 	var doc struct {
 		Meta struct {
 			Image string `json:"image"`
 		} `json:"meta"`
 	}
 	if err := json.Unmarshal(jsonData, &doc); err == nil && doc.Meta.Image != "" {
-		return path.Join(outDir, doc.Meta.Image)
+		// meta.image must itself be a clean relative path with no ".." segments so it stays inside outDir and the project root.
+		if metaClean, valid := cleanProjectRelPath(doc.Meta.Image); valid {
+			if candidate, candValid := cleanProjectRelPath(path.Join(outDir, metaClean)); candValid {
+				return candidate, true
+			}
+		}
 	}
-	return path.Join(outDir, name+".png")
+	return fallback, ok
 }

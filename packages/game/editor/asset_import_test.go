@@ -825,3 +825,192 @@ func slicesContains(ss []string, want string) bool {
 	}
 	return false
 }
+
+// Regression test for BLOCKER #1: unrelated rev bumps must not remount assetImportInspectorView
+// or wipe unsaved credit drafts and validation errors.
+func TestAssetImportInspectorKeepsDraftAndErrorAcrossRevBumps(t *testing.T) {
+	dir := t.TempDir()
+	gameYAML := `version: 1
+name: DraftFixture
+id: dev.example.draftfixture
+appVersion: 1.0.0
+window:
+  width: 640
+  height: 360
+autoload:
+  mainScene: room
+  scenes:
+    - name: room
+      path: scenes/room.scene.yaml
+`
+	roomScene := `version: 2
+name: Room
+layers:
+  - name: actors
+`
+	writeFixtureFiles(t, dir, map[string]string{
+		project.FileName:         gameYAML,
+		project.NSGoFileName:     fixtureNSGoYAML,
+		"scenes/room.scene.yaml": roomScene,
+	}, map[string][]byte{
+		"art/hero.png": encodeTestPNG(t, 16, 16),
+	})
+
+	ed, err := editor.New(nil, testResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+	ed.WaitForProblems()
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1400, 900))
+
+	app.Press("id:files-row-art/hero.png")
+	app.Settle()
+	if !app.Exists("id:inspector-asset-import") {
+		t.Fatal("expected asset import inspector")
+	}
+
+	// Type an author without license and submit so creditDraft and creditErr are populated.
+	app.Focus("id:import-credit-author")
+	app.Type("id:import-credit-author", "Jane Doe")
+	app.Key("enter")
+	app.Settle()
+	if !app.Exists("id:import-credit-error") {
+		t.Fatal("expected credit validation error when license is missing")
+	}
+
+	// Trigger multiple unrelated revision bumps (tool switch + output panel toggle).
+	ed.SetTool(editor.ToolMove)
+	ed.SetOutputPanelOpen(true)
+	app.Settle()
+
+	if got := app.Find("id:import-credit-author").Text; got != "Jane Doe" {
+		t.Fatalf("import-credit-author draft lost after rev bumps: got %q, want %q", got, "Jane Doe")
+	}
+	if !app.Exists("id:import-credit-error") {
+		t.Fatal("import-credit-error was wiped by unrelated rev bumps")
+	}
+}
+
+// Regression test for BLOCKER #2 and MINOR #1:
+//   - meta.image traversal paths like "../../etc/passwd" or "../secret.png" never escape outDir/root
+//     and fall back cleanly to <out>/<name>.png.
+//   - multi-page atlases (name-0.json) report their actual resolved JSON path in changedPaths.
+func TestReloadAssetsRejectsPathTraversalAndTracksMultiPageAtlas(t *testing.T) {
+	parentDir := t.TempDir()
+	projectDir := filepath.Join(parentDir, "proj")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Plant a sentinel file outside the project root that a traversal path would reach if unchecked.
+	outsideSecret := filepath.Join(parentDir, "secret.png")
+	if err := os.WriteFile(outsideSecret, []byte("OUTSIDE-SECRET"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	gameYAML := `version: 1
+name: PathGuardFixture
+id: dev.example.pathguard
+appVersion: 1.0.0
+window:
+  width: 640
+  height: 360
+autoload:
+  mainScene: room
+  scenes:
+    - name: room
+      path: scenes/room.scene.yaml
+assets:
+  atlases:
+    - name: traversal
+      in: art/raw
+      out: build/atlases
+    - name: multipage
+      in: art/multi
+      out: build/atlases
+`
+	roomScene := `version: 2
+name: Room
+layers:
+  - name: actors
+`
+	traversalJSON := `{"frames":{"hero":{"frame":{"x":0,"y":0,"w":8,"h":8},"sourceSize":{"w":8,"h":8}}},"meta":{"image":"../../../secret.png","size":{"w":8,"h":8}}}`
+	multipageJSON := `{"frames":{"tile":{"frame":{"x":0,"y":0,"w":8,"h":8},"sourceSize":{"w":8,"h":8}}},"meta":{"image":"multipage-0.png","size":{"w":8,"h":8}}}`
+	fallbackPNG := encodeTestPNG(t, 8, 8)
+	multiPNG := encodeTestPNG(t, 8, 8)
+
+	writeFixtureFiles(t, projectDir, map[string]string{
+		project.FileName:         gameYAML,
+		project.NSGoFileName:     fixtureNSGoYAML,
+		"scenes/room.scene.yaml": roomScene,
+	}, nil)
+
+	reloader := &recordingReloader{
+		AtlasMap: sceneformat.AtlasMap{
+			"traversal": &sprite.Atlas{},
+			"multipage": &sprite.Atlas{},
+		},
+	}
+	ed, err := editor.New(nil, reloader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenProject(projectDir); err != nil {
+		t.Fatal(err)
+	}
+	ed.WaitForProblems()
+
+	// Write built outputs after OpenProject (simulating an asset build).
+	writeFixtureFiles(t, projectDir, map[string]string{
+		"build/atlases/traversal.json":   traversalJSON,
+		"build/atlases/multipage-0.json": multipageJSON,
+	}, map[string][]byte{
+		"build/atlases/traversal.png":   fallbackPNG,
+		"build/atlases/multipage-0.png": multiPNG,
+	})
+
+	res, err := ed.ReloadAssets()
+	if err != nil {
+		t.Fatalf("ReloadAssets: %v", err)
+	}
+	if !slicesContains(res.Atlases, "traversal") || !slicesContains(res.Atlases, "multipage") {
+		t.Fatalf("reloaded atlases = %v, want traversal and multipage", res.Atlases)
+	}
+
+	// Traversal atlas must fall back to build/atlases/traversal.png, never reading outsideSecret.
+	travAtlas, err := reloader.Atlas("traversal")
+	if err != nil || travAtlas == nil {
+		t.Fatalf("traversal atlas missing: %v", err)
+	}
+	if travAtlas.Image.URI != "asset:build/atlases/traversal.png" {
+		t.Fatalf("traversal Image.URI = %q, want asset:build/atlases/traversal.png", travAtlas.Image.URI)
+	}
+	if bytes.Equal(travAtlas.Image.Data, []byte("OUTSIDE-SECRET")) {
+		t.Fatal("ReloadAssets read a file outside the project root via meta.image traversal")
+	}
+	if !bytes.Equal(travAtlas.Image.Data, fallbackPNG) {
+		t.Fatal("traversal atlas did not load fallback build/atlases/traversal.png bytes")
+	}
+
+	// changedPaths must contain fallback traversal.png and resolved multipage-0.json (not multipage.json).
+	if len(reloader.calls) == 0 {
+		t.Fatal("expected AssetReloader.ReloadAssets to be called")
+	}
+	changed := reloader.calls[len(reloader.calls)-1]
+	for _, p := range changed {
+		if strings.Contains(p, "..") || strings.Contains(p, "secret.png") {
+			t.Fatalf("changedPaths leaked traversal path %q: %v", p, changed)
+		}
+	}
+	if !slicesContains(changed, "build/atlases/multipage-0.json") {
+		t.Fatalf("changedPaths = %v, want build/atlases/multipage-0.json", changed)
+	}
+	if slicesContains(changed, "build/atlases/multipage.json") {
+		t.Fatalf("changedPaths = %v, should not report nonexistent build/atlases/multipage.json", changed)
+	}
+}
