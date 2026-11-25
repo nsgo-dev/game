@@ -68,6 +68,20 @@ func TestGenerateEditorKeepsMainsBuildConstraint(t *testing.T) {
 	}
 }
 
+func TestGenerateEditorLeavesOutAMainFilesOwnHelpers(t *testing.T) {
+	dir := generateProject(t, map[string]string{
+		"main.go": "package main\n\nimport \"os\"\n\nconst title = \"Rocks\"\n\ntype flags struct{ verbose bool }\n\nfunc (f flags) on() bool { return f.verbose }\n\nfunc run(f flags) int {\n\tif f.on() {\n\t\treturn 1\n\t}\n\treturn 0\n}\n\nfunc main() { _ = title; os.Exit(run(flags{})) }\n",
+		// A field called run, declared and read after a dot, is not the main file's run.
+		"game.go": "package main\n\ntype game struct{ run int }\n\nfunc (g game) steps() int { return g.run }\n",
+	})
+	if code, _, stderr := runGenerate(t, dir, "editor"); code != 0 {
+		t.Fatalf("exit %d: %s", code, stderr)
+	}
+	if got := readFile(t, dir, "main.go"); !strings.HasPrefix(got, "//go:build !gameeditor\n") {
+		t.Errorf("main.go:\n%s", got)
+	}
+}
+
 func TestGenerateEditorLeavesOutTheMainOfEveryPlatform(t *testing.T) {
 	dir := generateProject(t, map[string]string{
 		"main.go":         "",
@@ -135,6 +149,11 @@ func TestGenerateEditorRefusals(t *testing.T) {
 		{"tagged already", map[string]string{"main.go": "//go:build !gameeditor\n\npackage main\n\nfunc main() {}\n"}, []string{"editor"}, 1, "already names the gameeditor tag"},
 		{"declared", map[string]string{"plugins.go": "package main\n\nvar editorPlugins = 1\n"}, []string{"editor"}, 1, "already declares editorPlugins"},
 		{"flag", nil, []string{"-main", "editor"}, 2, "-autoload and -main are for a scene"},
+		{"main declares a name another file uses", map[string]string{"main.go": "package main\n\nvar Root = \"root\"\n\nfunc main() {}\n", "game.go": "package main\n\nfunc root() string { return Root }\n"}, []string{"editor"}, 1, "declares main and also Root"},
+		{"main declares a type another file uses", map[string]string{"main.go": "package main\n\ntype level struct{}\n\nfunc main() {}\n", "game.go": "package main\n\nvar _ level\n"}, []string{"editor"}, 1, "declares main and also level"},
+		{"main declares an init function", map[string]string{"main.go": "package main\n\nfunc init() {}\n\nfunc main() {}\n"}, []string{"editor"}, 1, "declares main and also an init function"},
+		{"main declares a method on another file's type", map[string]string{"main.go": "package main\n\nfunc (g *game) Name() string { return \"\" }\n\nfunc main() {}\n", "game.go": "package main\n\ntype game struct{}\n"}, []string{"editor"}, 1, "the method game.Name"},
+		{"a test uses a name main declares", map[string]string{"main.go": "package main\n\nfunc helper() {}\n\nfunc main() { helper() }\n", "main_test.go": "package main\n\nimport \"testing\"\n\nfunc TestHelper(t *testing.T) { helper() }\n"}, []string{"editor"}, 1, "declares main and also helper"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := generateProject(t, tc.files)
@@ -187,6 +206,7 @@ func TestGeneratedEditorChecksTheProjectsComponents(t *testing.T) {
 	writeFiles(t, dir, map[string]string{
 		"scenes/ward.scene.yaml": "version: 2\nname: Ward\nlayers:\n  - name: main\n    objects:\n      - id: ada\n        components:\n          health: {}\n",
 		"scenes/bad.scene.yaml":  "version: 2\nname: Bad\nlayers:\n  - name: main\n    objects:\n      - id: bob\n        components:\n          health: {hp: 3}\n",
+		"scenes/body.scene.yaml": "version: 2\nname: Body\nlayers:\n  - name: main\n    objects:\n      - id: crate\n        components:\n          health: {}\n          body2d: {kind: static}\n",
 		// The test opens both scenes through the editor the project builds, as game editor runs it.
 		"editor_fields_test.go": `//go:build gameeditor
 
@@ -206,6 +226,9 @@ func TestEditorChecksComponentFields(t *testing.T) {
 	}
 	if err := editorcmd.Open(ed, []string{"scenes/bad.scene.yaml"}); err == nil || !strings.Contains(err.Error(), "\"hp\"") {
 		t.Fatalf("opened a scene setting a field health does not declare: %v", err)
+	}
+	if err := editorcmd.Open(ed, []string{"scenes/body.scene.yaml"}); err != nil {
+		t.Fatalf("a scene with a built-in physics body: %v", err)
 	}
 	if err := editorcmd.Open(ed, []string{"scenes/ward.scene.yaml"}); err != nil {
 		t.Fatal(err)

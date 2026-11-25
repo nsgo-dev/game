@@ -29,10 +29,11 @@ type Resolver struct {
 
 // projectFiles is what the Resolvers over one project share: its file system and what has been read from it.
 type projectFiles struct {
-	fsys      fs.FS
-	materials *resource.Library
+	fsys fs.FS
 
 	mu sync.Mutex
+	// materials loads the project's materials and physics materials; Refresh replaces it.
+	materials *resource.Library
 	// listed reports whether atlasPaths holds the walk's result.
 	listed bool
 	// atlasPaths are the project's atlas JSON files, sorted, and listErr is why the walk failed, if it did.
@@ -66,13 +67,14 @@ func (r *Resolver) ForScene(scenePath string) *Resolver {
 	return &Resolver{files: r.files, dir: dir}
 }
 
-// Refresh forgets the atlases r has listed and loaded, so the next request reads the project's files again: call it after the project's atlases change on disk. It is shared with every Resolver ForScene returned. Materials stay loaded, as resource.Library keeps them so every scene shares one value.
+// Refresh forgets the atlases, materials and physics materials r has listed and loaded, so the next request reads the project's files again: call it after the project's atlases or material files change on disk. It is shared with every Resolver ForScene returned. Until then every scene that names one material file gets the same value.
 func (r *Resolver) Refresh() {
 	f := r.files
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.listed, f.atlasPaths, f.listErr = false, nil, nil
 	clear(f.atlases)
+	f.materials = resource.NewLibrary(f.fsys)
 }
 
 // Atlas returns the atlas name names, found as Resolver describes. It fails when no atlas matches, when several match at the same distance (name it by its path from the project root instead), and when the matching file or its image does not load.
@@ -116,19 +118,80 @@ func (r *Resolver) AtlasNames() []string {
 	return slices.Compact(names)
 }
 
-// Scene reads and parses the scene file at p, a slash-separated path from the project root, as sceneformat.FSScenes does.
+// Scene reads and parses the scene file at p, a slash-separated path from the project root, as sceneformat.FSScenes does, and names each atlas it names, by its sprites, its overrides' sprites and its inline tilemaps' tilesets, by the atlas's path from the project root without .json when the name finds one atlas nearest p. sceneformat.Build looks up every atlas of a scene and of the scenes it instances or inherits through one resolver, which finds them nearest the open scene, so without this an instanced scene in another directory would draw the atlas nearest the scene instancing it, not the one `game check` finds nearest the instanced file. A name that finds no atlas, or several, is left as it is, for Atlas to report.
 func (r *Resolver) Scene(p string) (*sceneformat.SceneDoc, error) {
-	return sceneformat.FSScenes{FS: r.files.fsys}.Scene(p)
+	doc, err := sceneformat.FSScenes{FS: r.files.fsys}.Scene(p)
+	if err != nil || doc == nil {
+		return doc, err
+	}
+	f := r.files
+	f.mu.Lock()
+	paths, lerr := f.list()
+	f.mu.Unlock()
+	if lerr != nil {
+		return doc, nil
+	}
+	dir := path.Dir(p)
+	rename := func(name *string) {
+		if m := NearestAtlases(paths, dir, *name); len(m) == 1 {
+			*name = strings.TrimSuffix(m[0], path.Ext(m[0]))
+		}
+	}
+	renameSprite := func(s *sceneformat.SpriteRef) {
+		if s != nil && s.Atlas != "" {
+			rename(&s.Atlas)
+		}
+	}
+	renameOverrides := func(overrides map[string]sceneformat.ObjectOverride) {
+		for id, o := range overrides {
+			if o.Sprite != nil {
+				sp := *o.Sprite
+				renameSprite(&sp)
+				o.Sprite = &sp
+				overrides[id] = o
+			}
+		}
+	}
+	var renameObjects func(objs []sceneformat.ObjectDoc)
+	renameObjects = func(objs []sceneformat.ObjectDoc) {
+		for i := range objs {
+			o := &objs[i]
+			renameSprite(o.Sprite)
+			renameOverrides(o.Overrides)
+			renameObjects(o.Children)
+		}
+	}
+	renameTileset := func(tm *sceneformat.TilemapDoc) {
+		if tm != nil && tm.Tileset != "" {
+			rename(&tm.Tileset)
+		}
+	}
+	for i := range doc.Layers {
+		renameObjects(doc.Layers[i].Objects)
+		renameTileset(doc.Layers[i].Tilemap)
+	}
+	renameOverrides(doc.Overrides)
+	for _, tm := range doc.Tilemaps {
+		renameTileset(tm)
+	}
+	return doc, nil
 }
 
-// Material loads the material file at p, a slash-separated path from the project root, through a resource.Library shared by every Resolver over the project, so every scene that names one file gets the same value.
+// Material loads the material file at p, a slash-separated path from the project root, through a resource.Library shared by every Resolver over the project, so every scene that names one file gets the same value until Refresh.
 func (r *Resolver) Material(p string) (*resource.Material, error) {
-	return r.files.materials.Material(p)
+	return r.files.library().Material(p)
 }
 
 // PhysicsMaterial loads the physics material file at p, a .physics.yaml that a body2d or body3d component names by its path from the project root, through the same resource.Library as Material, so sceneformat.BuildPhysics, which the editor's Play runs, finds the project's physics materials.
 func (r *Resolver) PhysicsMaterial(p string) (*resource.PhysicsMaterial, error) {
-	return r.files.materials.PhysicsMaterial(p)
+	return r.files.library().PhysicsMaterial(p)
+}
+
+// library returns the resource.Library that loads the project's materials, which Refresh replaces.
+func (f *projectFiles) library() *resource.Library {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.materials
 }
 
 // ReadFile reads the file at p, a slash-separated path from the project root, so that sceneformat.Build reads through it the YAML tilesets layered tilemaps name and the Tiled and LDtk maps tilemap sources name, with the tilesets those refer to, and the editor's tile palette lists their tiles, as sceneformat.FSAssets does. Their images are left as URIs, as FSAssets leaves them.
@@ -231,7 +294,7 @@ func (f *projectFiles) loadAtlas(p string) (*sprite.Atlas, error) {
 	}
 	var img core.ImageSource
 	if ref := meta.Meta.Image; ref != "" {
-		imgPath, err := projectPath(path.Dir(p), ref)
+		imgPath, err := ResolveRef(path.Dir(p), ref)
 		if err != nil {
 			return nil, fmt.Errorf("%s: meta.image: %w", p, err)
 		}
@@ -246,16 +309,42 @@ func (f *projectFiles) loadAtlas(p string) (*sprite.Atlas, error) {
 	return a, nil
 }
 
-// projectPath returns ref, a slash-separated path relative to the directory dir of the project, as a path from the project root, refusing one that leaves the project or is absolute.
-func projectPath(dir, ref string) (string, error) {
-	if ref == "" || path.IsAbs(ref) || strings.Contains(ref, ":") || strings.ContainsRune(ref, '\\') {
-		return "", fmt.Errorf("%q is not a slash-separated path inside the project", ref)
+// ResolveRef joins ref, a slash-separated path written in a file of a project, to dir, the slash-separated directory from the project root it is relative to, and returns the path from the project root, or an error saying why ref cannot name a file there: it refuses a path with backslashes, an absolute path or one starting with a Windows drive letter such as C:, a URI with a scheme of two or more letters (HasScheme), and a path that leads outside the root. `game check` (package assetcheck) reads the paths files write with it, and Resolver reads an atlas's meta.image with it, so the two accept the same images.
+func ResolveRef(dir, ref string) (string, error) {
+	switch {
+	case strings.ContainsRune(ref, '\\'):
+		return "", fmt.Errorf("%q uses backslashes; write paths with forward slashes", ref)
+	case path.IsAbs(ref) || hasVolume(ref):
+		return "", fmt.Errorf("%q is an absolute path; write it relative to the file", ref)
+	case HasScheme(ref):
+		return "", fmt.Errorf("%q is a URI, not a path relative to the file", ref)
 	}
 	p := path.Join(dir, ref)
 	if !fs.ValidPath(p) {
-		return "", fmt.Errorf("%q leaves the project", ref)
+		return "", fmt.Errorf("%q leads outside the checked directory", ref)
 	}
 	return p, nil
+}
+
+// hasVolume reports whether ref starts with a Windows drive letter, such as C:.
+func hasVolume(ref string) bool {
+	return len(ref) >= 2 && ref[1] == ':' && ('a' <= ref[0]|0x20 && ref[0]|0x20 <= 'z')
+}
+
+// HasScheme reports whether ref starts with a URI scheme of two or more letters, such as asset: or https:, which ResolveRef refuses as a path.
+func HasScheme(ref string) bool {
+	i := strings.IndexByte(ref, ':')
+	if i < 2 {
+		return false
+	}
+	for j := 0; j < i; j++ {
+		b := ref[j]
+		letter := 'a' <= b|0x20 && b|0x20 <= 'z'
+		if !letter && (j == 0 || !('0' <= b && b <= '9' || b == '+' || b == '-' || b == '.')) {
+			return false
+		}
+	}
+	return true
 }
 
 // NearestAtlases returns which of atlases, the slash-separated paths of a project's atlas JSON files from its root, a scene in the directory from (a path from the root, "." for the root itself) names name, as `game check` and Resolver find them: the files whose path without its extension is name, or whose base name without its extension is name, keeping only those nearest from, counting the directories up from from and down to the file. It returns them sorted; more than one means name is ambiguous there, and none that it names no atlas.

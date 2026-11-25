@@ -42,13 +42,13 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 	if err != nil {
 		return err
 	}
-	prevResolver, prevScene, prevRev := e.Resolver, e.assetsScene, e.assetsFilesRev
+	prevResolver, prevScene, prevRev := e.Resolver, e.assetsScene, e.assetsResolverRev
 	if e.ProjectAssets {
 		// The scene opened next is read against the project's own assets; syncScenePath then finds them nearest it.
 		e.Resolver = project.NewResolver(os.DirFS(filepath.Dir(path)))
-		e.assetsScene, e.assetsFilesRev = "", e.filesRev
+		e.assetsScene, e.assetsResolverRev = "", e.assetsRev
 	}
-	restore := func() { e.Resolver, e.assetsScene, e.assetsFilesRev = prevResolver, prevScene, prevRev }
+	restore := func() { e.Resolver, e.assetsScene, e.assetsResolverRev = prevResolver, prevScene, prevRev }
 	opened := false
 	switch a := f.Autoload; {
 	case withScene:
@@ -96,6 +96,10 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 	e.snapshotAssetOutputs()
 	e.filesRev++
 	e.assetsRev++
+	if e.ProjectAssets {
+		// The resolver was made for this project above and has read nothing that the bump just above could have changed, so it is not refreshed for it.
+		e.assetsResolverRev = e.assetsRev
+	}
 	e.History.Clear()
 	e.dropStalePluginTool()
 	e.dropStaleFocusedPluginPanel()

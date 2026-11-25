@@ -103,7 +103,8 @@ func (e *Editor) scene3D() *scene3DState {
 		return s
 	}
 	if e.ProjectPath != s.projectPath || e.assetsRev != s.assetsRev {
-		// Files the editor moved, installed or rescanned may be what the cached models and materials came from.
+		// Files the editor moved, installed or rescanned may be what the cached models and materials came from, including the materials a project.Resolver serves.
+		e.syncProjectAssets()
 		s.files = nil
 		s.stale = true
 	}

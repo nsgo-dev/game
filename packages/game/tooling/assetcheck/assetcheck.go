@@ -273,42 +273,14 @@ func unwrapPathError(err error) error {
 	return err
 }
 
-// resolve joins ref, a path written in a file, to dir, the directory it is relative to, and returns the slash-separated path in the checked directory, or an error saying why ref cannot name a file there.
+// resolve joins ref, a path written in a file, to dir, the directory it is relative to, and returns the slash-separated path in the checked directory, or an error saying why ref cannot name a file there: project.ResolveRef, the rule project.Resolver reads an atlas's meta.image by too.
 func resolve(dir, ref string) (string, error) {
-	switch {
-	case strings.ContainsRune(ref, '\\'):
-		return "", fmt.Errorf("%q uses backslashes; write paths with forward slashes", ref)
-	case path.IsAbs(ref) || hasVolume(ref):
-		return "", fmt.Errorf("%q is an absolute path; write it relative to the file", ref)
-	case hasScheme(ref):
-		return "", fmt.Errorf("%q is a URI, not a path relative to the file", ref)
-	}
-	p := path.Join(dir, ref)
-	if !fs.ValidPath(p) {
-		return "", fmt.Errorf("%q leads outside the checked directory", ref)
-	}
-	return p, nil
+	return project.ResolveRef(dir, ref)
 }
 
-// hasVolume reports whether ref starts with a Windows drive letter, such as C:.
-func hasVolume(ref string) bool {
-	return len(ref) >= 2 && ref[1] == ':' && ('a' <= ref[0]|0x20 && ref[0]|0x20 <= 'z')
-}
-
-// hasScheme reports whether ref starts with a URI scheme of two or more letters, such as asset: or https:.
+// hasScheme reports whether ref starts with a URI scheme of two or more letters, such as asset: or https: (project.HasScheme).
 func hasScheme(ref string) bool {
-	i := strings.IndexByte(ref, ':')
-	if i < 2 {
-		return false
-	}
-	for j := 0; j < i; j++ {
-		b := ref[j]
-		letter := 'a' <= b|0x20 && b|0x20 <= 'z'
-		if !letter && (j == 0 || !('0' <= b && b <= '9' || b == '+' || b == '-' || b == '.')) {
-			return false
-		}
-	}
-	return true
+	return project.HasScheme(ref)
 }
 
 // errNotFound is why a referenced file that does not exist cannot be read.
