@@ -106,6 +106,8 @@ type State struct {
 
 	owner any
 	seq   uint64
+	// self points at the State that was registered, so Register can tell a struct copy of a registered State from the original.
+	self *State
 }
 
 // Find returns the index of the memory of id, or where it would be inserted.
@@ -136,8 +138,14 @@ func (st *State) Clear() {
 	st.Events = st.Events[:0]
 }
 
-// Release detaches st from the system that owned it.
-func (st *State) Release() { st.owner = nil }
+// Release detaches st from the system that owned it. It keeps the memories but marks none of them visible and drops the last step's events, so a removed agent reports no stale sightings.
+func (st *State) Release() {
+	st.owner = nil
+	st.Events = st.Events[:0]
+	for i := range st.Mems {
+		st.Mems[i].Visible = false
+	}
+}
 
 // Sight is an agent's resolved vision.
 type Sight struct {
@@ -251,8 +259,16 @@ type Engine struct {
 	nextSeq   uint64
 }
 
-// Register claims st for the system owner and gives it the next place in the agent order. It reports false when owner already has st and panics when another system does.
+// Register claims st for the system owner and gives it the next place in the agent order. It reports false when owner already has st and panics when another system does. A struct copy of a registered State is a separate agent: Register gives it its own copy of the memories, no events and no owner before claiming it, so the copy and the original never share backing arrays.
 func (e *Engine) Register(st *State, owner any) bool {
+	if st.self != st {
+		if st.self != nil {
+			st.Mems = slices.Clone(st.Mems)
+			st.Events = nil
+			st.owner = nil
+		}
+		st.self = st
+	}
 	switch st.owner {
 	case owner:
 		return false

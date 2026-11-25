@@ -791,7 +791,7 @@ A ray that starts inside the agent's body or ends inside the target's hits that 
 
 ### Memory and events
 
-Each agent keeps one `Memory` per `StimulusID`, so a target seen and later heard refreshes one memory. A memory holds the last known `Pos` and `Vel` (zero when heard), the `Sense` that last refreshed it, its `Age` since it was last sensed, whether it is `Visible` now, and a `Strength` that is 1 when seen, is raised to at least `1 - distance/reach` when heard (1 for an infinite reach), and falls linearly to 0 over `ForgetAfter`. A memory is forgotten once `Age` reaches `ForgetAfter`. Read memories with `Memories`, `AppendMemories`, `Memory(id)` and `Sees(id)`, and drop them with `Forget(id)` and `Clear`.
+Each agent keeps one `Memory` per `StimulusID`, so a target seen and later heard refreshes one memory. A memory holds the last known `Pos` and `Vel` (zero when heard), the `Sense` that last refreshed it, its `Age` since it was last sensed, whether it is `Visible` now, and a `Strength` that is 1 when seen, is raised to at least `1 - distance/reach` when heard (1 for an infinite reach), and falls linearly to 0 over `ForgetAfter`. A memory is forgotten once `Age` reaches `ForgetAfter`. Read memories with `Memories`, `AppendMemories`, `Memory(id)` and `Sees(id)`, and drop them with `Forget(id)` and `Clear`. `Remove` takes an agent out of the system but keeps its memories, with none of them visible and no events, so `Sees` reports false until the agent is added and stepped again. A copy of a `Perception` that was added, such as a configured prototype, is a separate agent: `Add` gives it its own copy of the memories.
 
 After each `Step`, `Events` lists what changed:
 

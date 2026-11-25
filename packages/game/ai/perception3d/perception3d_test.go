@@ -217,3 +217,28 @@ func TestNonFiniteInputsAndNilLineOfSight(t *testing.T) {
 		t.Fatalf("remembered velocity = %v, want zero", m.Vel)
 	}
 }
+
+func TestCopyAndRemove(t *testing.T) {
+	var sys perception3d.System
+	g1 := guard()
+	sys.Add(g1)
+	target := []perception3d.Target{{ID: 10, Team: teamIntrude, Pos: math3d.Vec3{Y: 1.5, Z: -5}}}
+	sys.Step(step, target)
+
+	// A copy of an added Perception is a separate agent with its own memories.
+	g2 := *g1
+	sys.Add(&g2)
+	if sys.Len() != 2 || !g2.Forget(10) || !g1.Sees(10) || len(g2.Events()) != 0 {
+		t.Fatalf("copy: Len %d, original sees %v, copy events %+v", sys.Len(), g1.Sees(10), g2.Events())
+	}
+
+	// A removed agent keeps its memories but sees nothing and reports no events.
+	sys.Remove(g1)
+	if m, ok := g1.Memory(10); !ok || m.Visible || g1.Sees(10) || len(g1.Events()) != 0 {
+		t.Fatalf("after Remove: memory %+v %v, events %+v", m, ok, g1.Events())
+	}
+	sys.Step(step, target)
+	if !g2.Sees(10) || g1.Sees(10) {
+		t.Fatalf("after a step: copy sees %v, removed original sees %v", g2.Sees(10), g1.Sees(10))
+	}
+}
