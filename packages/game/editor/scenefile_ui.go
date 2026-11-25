@@ -371,15 +371,22 @@ func sceneFileButtons(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirt
 				},
 			},
 		},
-		core.Show{
-			When: func() bool { return dirty.Get().either() },
-			Then: func(cx *core.Scope) core.Node {
-				return core.Text{
-					TestID:  "toolbar-unsaved",
-					Content: "*",
-					Label:   ed.T("toolbar.unsavedLabel"),
-					Style:   core.Style{FontSize: 14, FontWeight: 700, Color: colors.Accent()},
-				}
+		// Reserve a fixed slot for the dirty "*" marker so marking the scene dirty or clean
+		// never widens the toolbar and wraps it onto an extra row mid-interaction.
+		core.View{
+			Style: core.Style{Width: core.Pt(10), AlignItems: core.AlignCenter},
+			Children: []core.Node{
+				core.Show{
+					When: func() bool { return dirty.Get().either() },
+					Then: func(cx *core.Scope) core.Node {
+						return core.Text{
+							TestID:  "toolbar-unsaved",
+							Content: "*",
+							Label:   ed.T("toolbar.unsavedLabel"),
+							Style:   core.Style{FontSize: 14, FontWeight: 700, Color: colors.Accent()},
+						}
+					},
+				},
 			},
 		},
 		ui.Menu{
