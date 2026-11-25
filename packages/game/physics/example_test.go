@@ -47,6 +47,22 @@ func ExampleWorld() {
 	// entered checkpoint
 }
 
+// ShapeCast sweeps a box along a corridor of solid tiles without snagging on the floor or ceiling and reports the first blocking tile.
+func ExampleWorld_ShapeCast() {
+	level := physics.NewGrid(8, 3, 16, 16)
+	level.FillRect(0, 0, 8, 1, physics.TileSolid) // ceiling
+	level.FillRect(0, 2, 8, 1, physics.TileSolid) // floor
+	level.Set(5, 1, physics.TileSolid)            // corridor wall at x=80
+
+	w := &physics.World{Tiles: level}
+	probe := physics.BoxShape(physics.Box{X: 16, Y: 16, W: 16, H: 16})
+	if hit, ok := w.ShapeCast(probe, 96, 0, physics.QueryTiles); ok {
+		fmt.Printf("tile=(%d,%d) frac=%.2f normal=(%.0f,%.0f)\n", hit.Col, hit.Row, hit.Fraction, hit.NormalX, hit.NormalY)
+	}
+	// Output:
+	// tile=(5,1) frac=0.50 normal=(-1,0)
+}
+
 // TestShapes reports whether two shapes overlap and the normal and depth that push them apart.
 func ExampleTestShapes() {
 	a := physics.CircleShape(physics.Circle{X: 0, Y: 0, R: 10})

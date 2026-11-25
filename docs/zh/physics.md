@@ -135,6 +135,23 @@ for _, ground := range m.ObjectLayer("collision").PhysicsBodies() {
 
 各类对象如何映射为形状，见 [tilemap](tilemap.md)。
 
+### 形状投射（Shape Cast）
+
+沿位移 `(dx, dy)` 扫掠 `Box` 或 `Circle`，计算精确解析碰撞时间（针对物体、旋转 `RigidBody` 以及支持 `TileGridOrigin` 的瓦片网格执行闵可夫斯基和扫掠）：
+
+- **`World`**：`ShapeCast(shape, dx, dy, mask)` 返回最早命中的 `ShapeCastHit`（包含 `Fraction`、`Point`、`NormalX`/`NormalY`、`Body` 或 `Tile`/`Col`/`Row`/`TileFlags`），`ShapeCastAll` 按 `Fraction` 升序返回全部命中（相同分数时按 `World.Bodies` 顺序物体优先于按 `(Row, Col)` 行主序排列的瓦片）。使用 `ShapeCastLayer`/`ShapeCastAllLayer` 按 `LayerMask` 过滤，或使用 `ShapeCastWith`/`ShapeCastAllWith`（`ShapeCastOptions`）组合 `QueryMask`、`LayerMask` 与 `IgnoreBody`。
+- **`RigidWorld`**：`ShapeCast(shape, dx, dy, layerMask)`、`ShapeCastAll`、`ShapeCastWith` 与 `ShapeCastAllWith` 针对静态与动态 `*RigidBody`（包含通过 2D 运动分离轴定理精确解算的旋转 OBB）扫掠，并填充 `ShapeCastHit.RigidBody`。
+- **独立接口**：`ShapeCastShape(moving, dx, dy, target)` 直接测试单对形状。初始重叠在 `Fraction == 0` 处返回 `TestShapes` 接触；紧贴墙面或地面平行滑过时不会误卡住。
+
+```go
+// 让 16x16 盒体沿瓦片走廊向前扫掠，不会在地板或天花板处卡住。
+probe := physics.BoxShape(physics.Box{X: 16, Y: 16, W: 16, H: 16})
+if hit, ok := world.ShapeCast(probe, 160, 0, physics.QueryTiles); ok {
+	// hit.Fraction 在 [0, 1] 内，包含 hit.Point、hit.NormalX/Y、hit.Col/Row
+	_ = hit
+}
+```
+
 ## 绳索与软体（XPBD）
 
 `SoftWorld` 提供纯 Go、确定性的 2D 扩展基于位置动力学（XPBD）粒子与约束求解器，适用于绳索、悬挂链条和可变形软体：

@@ -51,6 +51,29 @@ func ExampleWorld_RaycastFirst() {
 	// true crate 4 {0 0 1}
 }
 
+// ShapeCast sweeps a collision sphere along a third-person camera spring arm so the camera pulls forward instead of clipping into a wall.
+func ExampleWorld_ShapeCast() {
+	w := physics3d.NewWorld()
+	w.AddBody(ground())
+	wall := w.AddBody(physics3d.NewStaticBody(
+		physics3d.BoxShape(physics3d.Box{HalfExtents: physics3d.Vec3{X: 5, Y: 3, Z: 0.5}}),
+		physics3d.Vec3{Y: 3, Z: 3.5}, // front face sits at z = 3.0
+	))
+	wall.Tag = "wall"
+
+	pivot := physics3d.Vec3{Y: 1.6, Z: 0}
+	armDelta := physics3d.Vec3{Z: 6} // desired camera boom extends 6 units behind the player
+	cameraProbe := physics3d.SphereShape(physics3d.Sphere{Radius: 0.25})
+
+	cameraPos := pivot.Add(armDelta)
+	if hit, ok := w.ShapeCast(cameraProbe, pivot, physics3d.QuatIdentity(), armDelta); ok {
+		cameraPos = pivot.Add(armDelta.Scale(hit.T))
+		fmt.Printf("pulled in before %s: z=%.2f normal=%v\n", hit.Body.Tag, cameraPos.Z, hit.Normal)
+	}
+	// Output:
+	// pulled in before wall: z=2.75 normal={0 0 -1}
+}
+
 // A CharacterController moves a capsule through the world, sliding along walls and staying on the ground.
 func ExampleCharacterController() {
 	w := physics3d.NewWorld()

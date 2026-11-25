@@ -63,6 +63,23 @@ Overlap tests return a `Contact` whose unit `Normal` points from `B` toward `A` 
 
 Raycasts test a `Ray{Origin, Dir, MaxDist}` against standalone shapes (`RaycastBox`, `RaycastSphere`, `RaycastCapsule`, `RaycastConvexHull`, `RaycastCylinder`, `RaycastShape`) or cast a segment through a world (`world.Raycast(from, to)` and `world.RaycastFirst(from, to)`), returning `RaycastHit` entries sorted by ascending `T` in `[0, 1]` with world-space `Point`, `Distance`, and outward unit `Normal`. A ray that starts inside any shape hits it at `T` 0 with `Point` at the origin and `Normal` facing back along the ray (`-Dir`).
 
+### Shape Casts
+
+Sweep any `Shape` (`Box`, `Sphere`, or `Capsule`) with a `Quat` orientation from `origin` along displacement `delta` against bodies, triangle meshes (`TriMeshCollider`), heightfields (`HeightfieldCollider`), and voxel colliders (`VoxelCollider`):
+
+- `world.ShapeCast(shape, origin, rot, delta)` returns the earliest `RaycastHit` (`Body`/`TriMesh`/`Heightfield`/`Voxel`, `T`, `Distance`, `Point`, `Normal`); `world.ShapeCastAll(...)` returns all hits sorted by ascending `T` with the same deterministic tie-breaking order as `Raycast` (`Body` < `TriMesh` < `Heightfield` < `Voxel`, then ascending ID).
+- Use `world.ShapeCastLayer(shape, origin, rot, delta, mask, ignore)` and `ShapeCastAllLayer` for `LayerMask` filtering and excluding a `*Body`, or `ShapeCastWith` / `ShapeCastAllWith` (`ShapeCastOptions`) to also exclude `IgnoreBodyID` or triggers (`IgnoreTriggers`).
+- Standalone helpers `ShapeCastShape(moving, delta, target)`, `TriMeshCollider.ShapeCast(shape, delta)`, and `HeightfieldCollider.ShapeCast(shape, delta)` test individual colliders directly. Sphere, box/OBB, and box-triangle pairs use exact analytic sweeps (Minkowski sums and moving SAT); capsule-box, capsule-capsule, and capsule-triangle pairs use exact-distance conservative advancement (`<= 1e-4`). Initial overlaps return `T == 0`, `Distance == 0`, and the `TestShapes` separation normal.
+
+```go
+// Third-person camera spring arm that pulls forward before clipping a wall.
+cameraProbe := physics3d.SphereShape(physics3d.Sphere{Radius: 0.25})
+camPos := pivot.Add(armDelta)
+if hit, ok := world.ShapeCastLayer(cameraProbe, pivot, physics3d.QuatIdentity(), armDelta, physics3d.LayerAll, playerBody); ok {
+	camPos = pivot.Add(armDelta.Scale(hit.T))
+}
+```
+
 ## Rigid Bodies
 
 A `World` holds static (`Static: true` or zero mass) and dynamic `Body` values and advances them in `Step(dt)` using symplectic Euler integration, deterministic collision detection, warm-started iterative impulse solving with isotropic 3D Coulomb friction, non-linear Gauss-Seidel positional correction, and automatic sleeping for settled bodies.

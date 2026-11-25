@@ -910,7 +910,7 @@ func (vc *VoxelCollider) sweepGeneral(shape Shape, delta, dir Vec3, dist float32
 		if ct, bx, by, bz, hit := testOpposing(tCur); hit {
 			lo, hi := tPrev, tCur
 			bestC, bestX, bestY, bestZ := ct, bx, by, bz
-			for b := 0; b < 10; b++ {
+			for b := 0; b < 14; b++ {
 				mid := (lo + hi) * 0.5
 				if mct, mx, my, mz, mhit := testOpposing(mid); mhit {
 					hi = mid
