@@ -45,12 +45,12 @@ func (e *Editor) SetCanvasSize(w, h float32) {
 	e.canvasW, e.canvasH = w, h
 }
 
-// View2D returns the 2D viewport's view. Until the author pans or zooms (or after ResetView2D) it is the scene camera's view: the scene's virtual screen centered on the canvas at the camera's zoom and rotation, following the camera as it is edited.
+// View2D returns the 2D viewport's view. Until the author pans or zooms (or after ResetView2D) it is the scene camera's view: the scene's virtual screen centered on the canvas at the camera's zoom (clamped to [MinView2DZoom, MaxView2DZoom]) and rotation, following the camera as it is edited. While the scene plays it is the scene camera's view too, so Play shows the player's frame as the game does; the author's own view comes back on Stop.
 func (e *Editor) View2D() View2D {
 	if e == nil {
 		return View2D{Zoom: 1}
 	}
-	if e.view2DFree {
+	if e.view2DFree && !e.playing {
 		return e.view2D
 	}
 	return e.cameraView2D()
@@ -61,9 +61,9 @@ func (e *Editor) View2DFollowsCamera() bool {
 	return e != nil && !e.view2DFree
 }
 
-// SetView2D sets the 2D viewport's view, its zoom clamped to [MinView2DZoom, MaxView2DZoom]. It reports false, and changes nothing, for a non-finite value or a zoom that is not positive.
+// SetView2D sets the 2D viewport's view, its zoom clamped to [MinView2DZoom, MaxView2DZoom]. It reports false, and changes nothing, for a non-finite value, a zoom that is not positive or while the scene plays, when the view is the scene camera's.
 func (e *Editor) SetView2D(v View2D) bool {
-	if e == nil || !isFiniteFloat32(v.X) || !isFiniteFloat32(v.Y) || !isFiniteFloat32(v.Rotation) || !isFiniteFloat32(v.Zoom) || v.Zoom <= 0 {
+	if e == nil || e.playing || !isFiniteFloat32(v.X) || !isFiniteFloat32(v.Y) || !isFiniteFloat32(v.Rotation) || !isFiniteFloat32(v.Zoom) || v.Zoom <= 0 {
 		return false
 	}
 	v.Zoom = clampView2DZoom(v.Zoom)
@@ -73,19 +73,19 @@ func (e *Editor) SetView2D(v View2D) bool {
 	return true
 }
 
-// ResetView2D returns the 2D view to the scene camera's view, which it then follows as the camera is edited.
-func (e *Editor) ResetView2D() {
-	if e == nil || !e.view2DFree {
-		return
+// ResetView2D returns the 2D view to the scene camera's view, which it then follows as the camera is edited. It reports false when the view already follows the camera or the scene plays.
+func (e *Editor) ResetView2D() bool {
+	if e == nil || e.playing || !e.view2DFree {
+		return false
 	}
 	e.view2DFree = false
-	e.Status = "View: scene camera"
 	e.notify()
+	return true
 }
 
-// PanView2D moves what the 2D viewport shows by (dx, dy) canvas points, as a drag that grabs the world does: a positive dx brings into view what was to the left.
+// PanView2D moves what the 2D viewport shows by (dx, dy) canvas points, as a drag that grabs the world does: a positive dx brings into view what was to the left. It reports false for a zero or non-finite move and while the scene plays.
 func (e *Editor) PanView2D(dx, dy float32) bool {
-	if e == nil || !isFiniteFloat32(dx) || !isFiniteFloat32(dy) || (dx == 0 && dy == 0) {
+	if e == nil || e.playing || !isFiniteFloat32(dx) || !isFiniteFloat32(dy) || (dx == 0 && dy == 0) {
 		return false
 	}
 	v := e.View2D()
@@ -95,9 +95,9 @@ func (e *Editor) PanView2D(dx, dy float32) bool {
 	return e.SetView2D(v)
 }
 
-// ZoomView2DAt multiplies the 2D view's zoom by factor about the canvas point (x, y), which keeps showing the same world point, as a wheel or pinch zooms about the pointer. The zoom stays within [MinView2DZoom, MaxView2DZoom]; it reports false when factor is not positive and finite or the zoom is already at the limit it moves toward.
+// ZoomView2DAt multiplies the 2D view's zoom by factor about the canvas point (x, y), which keeps showing the same world point, as a wheel or pinch zooms about the pointer. The zoom stays within [MinView2DZoom, MaxView2DZoom]; it reports false when factor is not positive and finite, the zoom is already at the limit it moves toward or the scene plays.
 func (e *Editor) ZoomView2DAt(x, y, factor float32) bool {
-	if e == nil || !isFiniteFloat32(x) || !isFiniteFloat32(y) || !isFiniteFloat32(factor) || factor <= 0 {
+	if e == nil || e.playing || !isFiniteFloat32(x) || !isFiniteFloat32(y) || !isFiniteFloat32(factor) || factor <= 0 {
 		return false
 	}
 	v := e.View2D()
@@ -112,9 +112,9 @@ func (e *Editor) ZoomView2DAt(x, y, factor float32) bool {
 	return e.SetView2D(v)
 }
 
-// FrameSelection2D pans and zooms the 2D view to show the selected object whole, centered with a margin, keeping the view's rotation. It frames everything (FrameAll2D) when nothing is selected, and reports false when there is nothing to frame.
+// FrameSelection2D pans and zooms the 2D view to show the selected object whole, centered with a margin, keeping the view's rotation. It frames everything (FrameAll2D) when nothing is selected, and reports false when there is nothing to frame or the scene plays.
 func (e *Editor) FrameSelection2D() bool {
-	if e == nil {
+	if e == nil || e.playing {
 		return false
 	}
 	scene := e.ActiveScene()
@@ -132,9 +132,9 @@ func (e *Editor) FrameSelection2D() bool {
 	return e.frameWorldPoints(e.objectWorldCorners(bo, space, nil))
 }
 
-// FrameAll2D pans and zooms the 2D view to show every object of the visible layers, their inline tilemaps and the scene camera's frame, centered with a margin, keeping the view's rotation.
+// FrameAll2D pans and zooms the 2D view to show every object of the visible layers, their inline tilemaps and the scene camera's frame, centered with a margin, keeping the view's rotation. It reports false while the scene plays.
 func (e *Editor) FrameAll2D() bool {
-	if e == nil {
+	if e == nil || e.playing {
 		return false
 	}
 	pts := e.screenFrameWorldCorners(nil)
@@ -226,14 +226,14 @@ func objectOutline(bo *sceneformat.BuiltObject) (x, y, w, h float32) {
 	return -defaultMarkerHalfSize, -defaultMarkerHalfSize, defaultMarkerHalfSize * 2, defaultMarkerHalfSize * 2
 }
 
-// cameraView2D is the scene camera's view: the virtual screen's center at the canvas's center, at the camera's zoom and rotation.
+// cameraView2D is the scene camera's view: the virtual screen's center at the canvas's center, at the camera's zoom and rotation. The zoom is clamped like any view's, so the first wheel notch or pan from it does not jump the other way.
 func (e *Editor) cameraView2D() View2D {
 	vw, vh := e.ViewportSize()
 	x, y := e.ScreenToWorld(vw/2, vh/2)
 	v := View2D{X: x, Y: y, Zoom: 1}
 	if e.Doc != nil && e.Doc.Camera != nil {
 		if z := e.Doc.Camera.EffectiveZoom(); z > 0 && isFiniteFloat32(z) {
-			v.Zoom = z
+			v.Zoom = clampView2DZoom(z)
 		}
 		v.Rotation = e.Doc.Camera.Rotation
 	}

@@ -441,20 +441,18 @@ type viewportGestures struct {
 	touchLast  core.Point
 }
 
-// wheel pans the 2D view by a touchpad's scroll and zooms it about the pointer by a mouse wheel's turn or a scroll with Control or Command held.
+// wheel pans the 2D view by a touchpad's scroll and zooms it about the pointer by a mouse wheel's turn or a scroll with Control or Command held. A mouse wheel's sideways scroll (Shift+wheel, or a tilting wheel) pans sideways.
 func (g *viewportGestures) wheel(ed *Editor, ev core.WheelEvent) {
 	if ev.Touchpad && !ev.Modifiers.Control && !ev.Modifiers.Platform {
 		ed.PanView2D(float32(ev.Delta.X), float32(ev.Delta.Y))
 		return
 	}
-	dy := float64(ev.Delta.Y)
-	if dy == 0 {
-		dy = float64(ev.Delta.X)
+	if !ev.Touchpad && ev.Delta.X != 0 {
+		ed.PanView2D(float32(ev.Delta.X), 0)
 	}
-	if dy == 0 {
-		return
+	if dy := float64(ev.Delta.Y); dy != 0 {
+		ed.ZoomView2DAt(float32(ev.Position.X), float32(ev.Position.Y), float32(math.Exp2(dy/wheelZoomPoints)))
 	}
-	ed.ZoomView2DAt(float32(ev.Position.X), float32(ev.Position.Y), float32(math.Exp2(dy/wheelZoomPoints)))
 }
 
 // pinch zooms the 2D view about the pinch's center by how much the pinch scaled since its last report.
@@ -494,7 +492,7 @@ func (g *viewportGestures) touch(ed *Editor, ev core.TouchEvent) {
 
 // ViewportView renders the center interactive core.Canvas viewport panel, which fills the panel.
 //
-// In 2D a mouse wheel or a pinch zooms the 2D view (View2D) about the pointer, and a touchpad's scroll, a middle-button drag, a drag with Space held or a two-finger drag pans it; F frames the selection (FrameSelection2D), Home frames everything (FrameAll2D) and Mod+0 returns to the scene camera's view (ResetView2D). In 3D a drag orbits the camera or drags the gizmo and the wheel dollies.
+// In 2D a mouse wheel, a pinch or a touchpad scroll with Control or Command held zooms the 2D view (View2D) about the pointer, and a touchpad's scroll, a mouse wheel's sideways scroll, a middle-button drag, a drag with Space held or a two-finger drag pans it; while the scene plays the view is the scene camera's and does not move; F frames the selection (FrameSelection2D), Home frames everything (FrameAll2D) and Mod+0 returns to the scene camera's view (ResetView2D). In 3D a drag orbits the camera or drags the gizmo and the wheel dollies.
 func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	colors := ui.ColorsOf(cx)
 	var lastPan core.Point

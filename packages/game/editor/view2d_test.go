@@ -136,6 +136,85 @@ func TestSetView2DRefusesBadValuesAndClampsZoom(t *testing.T) {
 	}
 }
 
+// A scene camera zoomed past the view's limits gives a clamped view, so the first zoom or pan does not jump the other way.
+func TestCameraViewZoomIsClamped(t *testing.T) {
+	for _, tc := range []struct {
+		camera, want float32
+	}{
+		{100, editor.MaxView2DZoom},
+		{0.005, editor.MinView2DZoom},
+	} {
+		doc := farSceneDoc()
+		doc.Camera.Zoom = &tc.camera
+		ed, err := editor.New(doc, testResolver())
+		if err != nil {
+			t.Fatalf("editor.New: %v", err)
+		}
+		if z := ed.View2D().Zoom; z != tc.want {
+			t.Fatalf("camera zoom %v: View2D().Zoom = %v, want %v", tc.camera, z, tc.want)
+		}
+		ed.ZoomView2DAt(10, 10, 1.1)
+		if z := ed.View2D().Zoom; z < tc.want {
+			t.Fatalf("camera zoom %v: zooming in lowered the zoom to %v", tc.camera, z)
+		}
+		ed.ResetView2D()
+		ed.ZoomView2DAt(10, 10, 1/1.1)
+		if z := ed.View2D().Zoom; z > tc.want {
+			t.Fatalf("camera zoom %v: zooming out raised the zoom to %v", tc.camera, z)
+		}
+		ed.ResetView2D()
+		if !ed.PanView2D(5, 5) || ed.View2D().Zoom != tc.want {
+			t.Fatalf("camera zoom %v: a pan changed the zoom to %v", tc.camera, ed.View2D().Zoom)
+		}
+	}
+}
+
+// Play shows the player's frame, the scene's virtual screen, centered on the canvas at the camera's view whatever view the author left, and the view does not move until Stop brings the author's view back.
+func TestPlayShowsTheCameraViewWhateverTheFreeView(t *testing.T) {
+	ed := newFarEditor(t)
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1120, 680))
+	cw, ch := ed.CanvasSize()
+	vw, vh := ed.ViewportSize()
+
+	ed.PanView2D(-2000, 0)
+	ed.ZoomView2DAt(cw/2, ch/2, 4)
+	free := ed.View2D()
+
+	app.Post(func() {
+		if err := ed.Play(); err != nil {
+			t.Errorf("Play: %v", err)
+		}
+	})
+	app.Settle()
+	if !ed.Playing() {
+		t.Fatal("the scene is not playing")
+	}
+	for _, c := range [][2]float32{{0, 0}, {vw, vh}} {
+		x, y := ed.ScreenToCanvas(c[0], c[1])
+		if wx, wy := (cw-vw)/2+c[0], (ch-vh)/2+c[1]; !near(x, wx, 1e-3) || !near(y, wy, 1e-3) {
+			t.Fatalf("while playing the screen's corner (%v, %v) is at canvas (%v, %v), want (%v, %v)", c[0], c[1], x, y, wx, wy)
+		}
+	}
+	playing := ed.View2D()
+	app.Wheel("id:editor-viewport-frame", core.Point{Y: 40}, core.Modifiers{})
+	app.TouchpadScroll("id:editor-viewport-frame", core.Point{}, core.Point{X: -30})
+	if ed.PanView2D(10, 0) || ed.FrameAll2D() || ed.ResetView2D() || ed.View2D() != playing {
+		t.Fatalf("the view moved while playing, from %+v to %+v", playing, ed.View2D())
+	}
+
+	app.Post(func() {
+		if err := ed.Stop(); err != nil {
+			t.Errorf("Stop: %v", err)
+		}
+	})
+	app.Settle()
+	if ed.View2D() != free {
+		t.Fatalf("after Stop the view is %+v, want the author's %+v", ed.View2D(), free)
+	}
+}
+
 func TestZoomView2DAtKeepsTheWorldPointUnderThePointer(t *testing.T) {
 	ed := newFarEditor(t)
 	ed.SetCanvasSize(640, 480)
@@ -335,6 +414,25 @@ func TestViewportPansZoomsAndFramesThroughMountedUI(t *testing.T) {
 	app.KeyUp("space")
 	if v := ed.View2D(); !near(v.X, before.X+60, 1e-3) || !near(v.Y, before.Y-5, 1e-3) {
 		t.Fatalf("a Space-drag moved the view from %+v to %+v", before, v)
+	}
+
+	// Navigating with Space held never edits: neither a Space+click nor a Space-drag with the Place tool places an object.
+	ed.SetTool(editor.ToolPlace)
+	objects, history := len(ed.Doc.Layers[1].Objects), ed.History.Len()
+	app.KeyDown("space")
+	app.PressAt("id:editor-viewport", core.Point{X: 120, Y: 80})
+	app.Pan("id:editor-viewport-frame", core.Point{}, core.Point{X: 20, Y: 0})
+	app.KeyUp("space")
+	if n, h := len(ed.Doc.Layers[1].Objects), ed.History.Len(); n != objects || h != history {
+		t.Fatalf("navigating with Space held left %d objects and %d history entries, want %d and %d", n, h, objects, history)
+	}
+	ed.SetTool(editor.ToolSelect)
+
+	// A mouse wheel's sideways scroll pans sideways and does not zoom.
+	before = ed.View2D()
+	app.Wheel("id:editor-viewport-frame", core.Point{X: 40}, core.Modifiers{})
+	if v := ed.View2D(); v.Zoom != before.Zoom || !near(v.X, before.X-40/v.Zoom, 1e-3) || v.Y != before.Y {
+		t.Fatalf("a sideways wheel moved the view from %+v to %+v, want a pan of 40 points", before, v)
 	}
 
 	// F frames the selection, Home everything, and the tool bar does the same.
