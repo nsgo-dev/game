@@ -7,8 +7,13 @@ A new project starts from a template: a small, complete game that builds, runs a
 | Template | What it is | `nsgo init -template` module |
 | --- | --- | --- |
 | `starter` | A tap-to-score 2D game: an animated sprite on a fixed-step loop, a native HUD and headless tests, the smallest project to grow from. The default. | `github.com/nsgo-dev/game/template` |
+| `puzzle2d` | Spark Slide, a 2D grid puzzle: slide a spark across the board to light every lamp, with levels in YAML, undo and redo, a move limit, stars per level and a level select that saves progress; plays with the keyboard, a game controller, touch and the mouse. | `github.com/nsgo-dev/game/template/puzzle2d` |
 
 `go tool game new -list` prints the same list from the command itself, the default first.
+
+### puzzle2d
+
+A spark slides until a wall stops it and lights every lamp it passes; lighting all of a level's lamps within its moves wins the level, and a slide into a void or running out of moves loses it. The template shows how a puzzle game grows: the rules in `board.go`, where each move is an `undo.History` move that undoes and redoes exactly; the levels in `levels.yaml`, a versioned YAML file with unknown fields refused and a canonical form, which `levels.go` reads and writes; the input map in `game.yaml`, bound into `input.Actions` with swipes from `input.GestureRecognizer`; moves animated with `tween` on a fixed-step `game.Loop`; and the stars of each level kept with `save`. To change the game, add or edit levels in `levels.yaml`, whose tests check that every level can be won in its par; rebind the controls in `game.yaml`; add a tile in `board.go` and draw it in `draw.go`. The template's README lists the controls, the level format and every file.
 
 ## Create a project from a template
 

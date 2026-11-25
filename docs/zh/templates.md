@@ -7,8 +7,13 @@
 | 模板 | 内容 | `nsgo init -template` 模块 |
 | --- | --- | --- |
 | `starter` | 一个点击得分的 2D 游戏：固定步长循环上的动画精灵、原生 HUD 和无头测试，是最小的起步项目。默认模板。 | `github.com/nsgo-dev/game/template` |
+| `puzzle2d` | Spark Slide，一个 2D 网格解谜游戏：让火花在棋盘上滑行、点亮每一盏灯，关卡用 YAML 定义，支持撤销和重做、步数上限、每关星级，以及保存进度的选关界面；键盘、手柄、触屏和鼠标都能玩。 | `github.com/nsgo-dev/game/template/puzzle2d` |
 
 `go tool game new -list` 由命令自身打印同样的列表，默认模板排在最前。
+
+### puzzle2d
+
+火花一直滑行到被墙挡住为止，并点亮途经的每一盏灯；在步数用完之前点亮一关的所有灯即过关，滑进虚空或步数用完时仍有灯未亮则失败。这个模板展示解谜游戏如何成长：规则在 `board.go` 中，每一步都是 `undo.History` 的一个操作，可以精确地撤销和重做；关卡在 `levels.yaml` 中，这是一个带版本号、拒绝未知字段并有规范形式的 YAML 文件，由 `levels.go` 读写；输入映射在 `game.yaml` 中，绑定到 `input.Actions`，滑动手势来自 `input.GestureRecognizer`；移动由固定步长 `game.Loop` 上的 `tween` 播放动画；每关的星级用 `save` 保存。要修改游戏，可以在 `levels.yaml` 中增改关卡，测试会检查每一关都能在标准步数内完成；在 `game.yaml` 中重新绑定操作；在 `board.go` 中添加新的格子类型并在 `draw.go` 中绘制它。模板的 README 列出了全部操作、关卡格式和每个文件。
 
 ## 用模板创建项目
 
