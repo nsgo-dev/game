@@ -70,9 +70,30 @@ func checkName(what, name string) error {
 	return nil
 }
 
-// checkConnectionsWith reports whether the scene's connections still bind against the registry once obj also holds component with value. A scene that instances or inherits others is not checked, as SetComponentRegistry does not check it, since its connections bind only once resolved.
+// checkConnectionsWith reports whether the scene's connections still bind against the registry once obj also holds component with value. A scene that instances or inherits others binds its connections only once resolved, the connections of the scenes it refers to included, so it is resolved through the editor's resolver and checked as resolved; it is not checked when the resolver cannot load scene files, or when the scene does not resolve or bind even without the component, a fault the editor reports elsewhere (CheckProblems, Play) and that adding a component neither causes nor fixes.
 func (e *Editor) checkConnectionsWith(obj *sceneformat.ObjectDoc, component string, value map[string]any) error {
-	if len(e.Doc.Connections) == 0 || e.Doc.RefersToScenes() {
+	resolved := e.Doc.RefersToScenes()
+	var scenes sceneformat.SceneResolver
+	if resolved {
+		var ok bool
+		if scenes, ok = e.Resolver.(sceneformat.SceneResolver); !ok {
+			return nil
+		}
+	}
+	bind := func() error {
+		if !resolved {
+			return sceneformat.ValidateConnections(e.Doc, e.components)
+		}
+		doc, err := sceneformat.Resolve(e.Doc, scenes)
+		if err != nil {
+			return err
+		}
+		return sceneformat.ValidateConnections(doc, e.components)
+	}
+	if !resolved && len(e.Doc.Connections) == 0 {
+		return nil
+	}
+	if resolved && bind() != nil {
 		return nil
 	}
 	if obj.Components == nil {
@@ -82,13 +103,13 @@ func (e *Editor) checkConnectionsWith(obj *sceneformat.ObjectDoc, component stri
 		obj.Components[component] = value
 		defer delete(obj.Components, component)
 	}
-	if err := sceneformat.ValidateConnections(e.Doc, e.components); err != nil {
+	if err := bind(); err != nil {
 		return fmt.Errorf("editor: adding component %q to %q would break a connection: %w", component, obj.ID, err)
 	}
 	return nil
 }
 
-// RemoveComponent removes the component named component from objectID through History, together with every connection of the scene that needs it: one from objectID whose event the component declares, or one to objectID whose handler it declares, named either bare ("pressed") or with the component ("button.pressed"). Undo puts the component and those connections back where they were. Removing a component the object does not have is refused.
+// RemoveComponent removes the component named component from objectID through History, together with every connection of the scene that needs it: one from objectID whose event the component declares, or one to objectID whose handler it declares, named either bare ("pressed") or with the component ("button.pressed"). A bare name is attributed to the component through its registered type, so without a component registry, or for a component the registry does not know, only connections that name the component ("button.pressed") are removed. Undo puts the component and those connections back where they were. Removing a component the object does not have is refused.
 func (e *Editor) RemoveComponent(objectID, component string) error {
 	if e.playing {
 		return ErrPlaying
@@ -110,7 +131,7 @@ func (e *Editor) RemoveComponent(objectID, component string) error {
 	return nil
 }
 
-// ComponentConnections returns the indexes, in ascending order, of the scene's connections that need objectID's component: those RemoveComponent removes with it.
+// ComponentConnections returns the indexes, in ascending order, of the scene's connections that need objectID's component: those RemoveComponent removes with it. A connection that names an event or handler bare is listed only when the component's registered type declares it.
 func (e *Editor) ComponentConnections(objectID, component string) []int {
 	var t *sceneformat.ComponentType
 	if ct, ok := e.components.Lookup(component); ok {
@@ -174,6 +195,7 @@ func (e *Editor) AddProperty(objectID, key string, kind sceneformat.FieldKind) e
 		objectID:  objectID,
 		key:       key,
 		label:     "Add property " + key,
+		status:    "Added property " + key,
 		wasNilMap: obj.Properties == nil,
 		newVal:    value,
 	})
