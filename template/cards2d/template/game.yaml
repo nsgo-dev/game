@@ -1,0 +1,71 @@
+version: 1
+name: Suit Ladders
+id: dev.nsgo.suitladders
+appVersion: 0.1.0
+window:
+  width: 450
+  height: 800
+display:
+  width: 360
+  height: 640
+  barColor: '#0b1220'
+input:
+  actions:
+    - name: left
+      bindings:
+        - kind: key
+          key: left
+        - kind: key
+          key: a
+        - kind: gamepadButton
+          button: dpadLeft
+    - name: right
+      bindings:
+        - kind: key
+          key: right
+        - kind: key
+          key: d
+        - kind: gamepadButton
+          button: dpadRight
+    - name: play
+      bindings:
+        - kind: key
+          key: enter
+        - kind: key
+          key: up
+        - kind: gamepadButton
+          button: south
+    - name: discard
+      bindings:
+        - kind: key
+          key: x
+        - kind: key
+          key: down
+        - kind: gamepadButton
+          button: west
+    - name: draw
+      bindings:
+        - kind: key
+          key: space
+        - kind: gamepadButton
+          button: north
+    - name: deal
+      bindings:
+        - kind: key
+          key: "n"
+        - kind: gamepadButton
+          button: start
+export:
+  output: dist
+  presets:
+    - platform: macos
+      targets: [macos_arm64]
+    - platform: windows
+      targets: [windows_x64]
+    - platform: linux
+      targets: [linux_x64]
+    - platform: ios
+      targets: [ios_simulator]
+    - platform: android
+      targets: [android_arm64]
+    - platform: web

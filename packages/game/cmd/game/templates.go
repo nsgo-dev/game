@@ -41,6 +41,7 @@ func newProjectTemplate(name, module, summary string) projectTemplate {
 // projectTemplates are the templates game new offers, the default first and the rest in the order game new -list prints them. Adding a template adds its module under template/<name>, its copy under _templates/projects/<name> and one entry here, as docs/en/templates.md describes; CI finds it from its directory.
 var projectTemplates = []projectTemplate{
 	newProjectTemplate("starter", templateModuleRoot, "A tap-to-score 2D game: an animated sprite on a fixed-step loop, a native HUD and headless tests, the smallest project to grow from"),
+	newProjectTemplate("cards2d", templateModuleRoot+"/cards2d", "A single-player 2D card game: drag and drop, a draw pile, a hand and a discard pile, rules in code and data in YAML, a seeded deal, saves, and a win and a loss played through by tests"),
 	newProjectTemplate("fighting2d", templateModuleRoot+"/fighting2d", "A one-on-one 2D fighting game: two fighters with special moves from motion inputs, combos, guards, rounds and a timer, against the CPU or a second player"),
 	newProjectTemplate("puzzle2d", templateModuleRoot+"/puzzle2d", "A 2D grid puzzle: slide a spark to light every lamp, with levels in YAML, undo and redo, a move limit, stars per level and a level select that saves progress"),
 	newProjectTemplate("racing3d", templateModuleRoot+"/racing3d", "A 3D racer: two laps against racing-line rivals with raycast cars, checkpoints, a countdown, a best-lap ghost and a results screen"),
