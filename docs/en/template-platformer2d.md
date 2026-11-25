@@ -15,7 +15,7 @@ go tool nsgo dev
 - A [`platformer.Controller`](platformer.md) over a `physics.CharacterBody` with variable-height jumps, coyote time, jump buffering, one-way ledges, wall slides and wall jumps, all tuned by `data/player.yaml`.
 - A level drawn as text in `data/level.yaml`, built into a `physics.Grid` to collide with, a `tilemap.Tilemap` to draw and `physics.Trigger` sensors for the spikes, sparks, lamp and beacon.
 - Rooms with their own camera bounds from `data/rooms.yaml`: a [`rooms.Director`](rooms.md) slides the camera from one room to the next, and the player waits until it lands.
-- One input map in `game.yaml` for the keyboard, game controllers, touch and the mouse, bound with `Project.BindInput`, with on-screen controls drawn over the touch regions on phones and tablets, and anywhere once the screen has been touched.
+- One input map in `game.yaml` for the keyboard, game controllers, touch and the mouse, bound with `Project.BindInput`, with on-screen controls drawn over the touch regions on phones and tablets, and anywhere once the game view has been touched or clicked.
 - A 320 by 180 virtual screen scaled by whole multiples, with a native HUD and an end-of-run panel over the canvas.
 - Tests that play the level through to a win with the keyboard, a controller and two-finger touch, run into the spikes until the run is lost, and check the rules, the controller's timing and that every data file is canonical.
 
@@ -27,7 +27,7 @@ go tool nsgo dev
 | Jump (hold to jump higher) | Space, up arrow, W | South button | The arrow at the bottom right |
 | Play again after the run ends | R, Enter | Start | The Play again button |
 
-Holding the left mouse button over an on-screen control plays like touching it.
+Holding the left mouse button over an on-screen control plays like touching it; on a desktop the controls appear after the first click in the game view.
 
 ## How it is organised
 
@@ -67,11 +67,11 @@ tiles: |
 | `G` | The goal beacon, exactly one |
 | `P` | Where the player starts, exactly one |
 
-Every row has the same width. Unknown fields, unknown glyphs and a version other than 1 are refused, and the game writes the file back byte for byte, so a review shows only real edits.
+`name` is shown on the panel at the end of a run. Every row has the same width, and every `P` and `C` has ground or a ledge under it. Unknown fields, unknown glyphs and a version other than 1 are refused, and the game writes the file back byte for byte, so a review shows only real edits.
 
 ## Where to change it
 
-- **A new level**: edit the tiles in `data/level.yaml` and keep `data/rooms.yaml` covering every column; `TestDataFilesAreCanonical` and `TestRoomsCoverTheLevel` report what is wrong. The playthrough test jumps at spikes, pits and walls ahead of the player, so a route that needs more than that needs a change to `obstacleAhead` in `game_test.go`.
+- **A new level**: edit the tiles in `data/level.yaml` and keep `data/rooms.yaml` covering every column; `parseLevel` refuses a start (`P`) or lamp (`C`) with nothing to stand on, and `TestDataFilesAreCanonical` and `TestRoomsCoverTheLevel` report what is wrong. The playthrough test jumps at spikes, pits and walls ahead of the player, so a route that needs more than that needs a change to `obstacleAhead` in `game_test.go`.
 - **How the jump feels**: `data/player.yaml`. A longer `coyote_time` or `jump_buffer` forgives late and early presses, and `wall_jump_speed_y: 0` turns wall jumps off.
 - **A new tile kind**: a glyph in `level.go`, a case in `newWorld` for what it does and one in `newTilemap` for how it looks.
 - **Enemies and moving platforms**: give each a `physics.Body`, move it in `world.step`, pass moving platforms to `Controller.Step`, and add a sensor that sets `hurt`.

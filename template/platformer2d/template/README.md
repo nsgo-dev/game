@@ -19,7 +19,7 @@ It shows:
 | Jump (hold to jump higher) | Space, up arrow, W | South button (A on Xbox, Cross on PlayStation) | The arrow at the bottom right |
 | Play again after the run ends | R, Enter | Start | The Play again button |
 
-The mouse plays like touch: hold the left button over an on-screen control. The controls are drawn on phones and tablets, and anywhere once the screen has been touched.
+The mouse plays like touch: hold the left button over an on-screen control. The controls are drawn on phones and tablets, and anywhere once the game view has been touched or clicked.
 
 ## Running and testing
 
@@ -56,7 +56,7 @@ go run github.com/nsgo-dev/game/packages/game/cmd/gameproject check
 
 ## Where to change it
 
-- Make a level: edit the tiles in `data/level.yaml`, keeping every row the same width with one `P` and one `G`, and keep `data/rooms.yaml` covering every column. `TestDataFilesAreCanonical` and `TestRoomsCoverTheLevel` say what is wrong. If you change the route, change the playthrough's `obstacleAhead` in `game_test.go` too, or give it a list of jumps.
+- Make a level: edit the tiles in `data/level.yaml`, keeping every row the same width with one `P` and one `G`, and ground (`#`) or a ledge (`=`) under every `P` and `C`, and keep `data/rooms.yaml` covering every column. `TestDataFilesAreCanonical` and `TestRoomsCoverTheLevel` say what is wrong. If you change the route, change the playthrough's `obstacleAhead` in `game_test.go` too, or give it a list of jumps.
 - Change how the player feels: `data/player.yaml`. Raise `coyote_time` and `jump_buffer` for a more forgiving jump, set `wall_jump_speed_y: 0` to turn wall jumps off.
 - Add a tile kind: a glyph in `level.go`, a case in `newWorld` for what it does and one in `newTilemap` for how it looks.
 - Add enemies or moving platforms: give each a `physics.Body`, move it in `world.step`, pass moving platforms to `Controller.Step` and add a sensor that sets `w.hurt`.

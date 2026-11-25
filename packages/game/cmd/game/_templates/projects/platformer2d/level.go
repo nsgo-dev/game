@@ -31,11 +31,11 @@ const (
 //	^  spikes (hurt)   o  spark (collect)   C  checkpoint lamp
 //	G  goal beacon     P  where the player starts
 //
-// Every row has the same width, and a level has exactly one P and one G. Parse it with parseLevel and write it with encodeLevel, which gives back the same bytes for a file it wrote.
+// Every row has the same width, a level has exactly one P and one G, and every P and C stands on ground or a ledge. Parse it with parseLevel and write it with encodeLevel, which gives back the same bytes for a file it wrote.
 type Level struct {
 	// Version is the schema version; it must be 1.
 	Version int `yaml:"version"`
-	// Name is the level's display name.
+	// Name is the level's display name, shown when a run ends.
 	Name string `yaml:"name"`
 	// TileSize is the width and height of a tile in world points, from 4 to 64.
 	TileSize int `yaml:"tileSize"`
@@ -112,16 +112,24 @@ func (l *Level) validate() error {
 	if width < 2 {
 		return fmt.Errorf("level: tiles are %d wide, want at least 2", width)
 	}
-	starts, goals := 0, 0
 	for r, row := range rows {
 		if len(row) != width {
 			return fmt.Errorf("level: row %d is %d tiles wide, want %d like row 0", r, len(row), width)
 		}
+	}
+	starts, goals := 0, 0
+	for r, row := range rows {
 		for c := 0; c < len(row); c++ {
 			switch row[c] {
-			case glyphEmpty, glyphGround, glyphLedge, glyphSpikes, glyphSpark, glyphCheckpoint:
-			case glyphStart:
-				starts++
+			case glyphEmpty, glyphGround, glyphLedge, glyphSpikes, glyphSpark:
+			case glyphCheckpoint, glyphStart:
+				// The player starts, and comes back after being hurt, standing here, so there has to be something to stand on.
+				if r+1 >= len(rows) || (rows[r+1][c] != glyphGround && rows[r+1][c] != glyphLedge) {
+					return fmt.Errorf("level: row %d column %d: %q has no ground (#) or ledge (=) under it", r, c, row[c])
+				}
+				if row[c] == glyphStart {
+					starts++
+				}
 			case glyphGoal:
 				goals++
 			default:

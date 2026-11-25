@@ -15,7 +15,7 @@ var (
 	standBy  = platformer.Input{}
 )
 
-// testWorld builds a run of a level made of tiles, in a single room, with the default controller.
+// testWorld builds a run of a level made of tiles, in a single room, with the controller data/player.yaml tunes.
 func testWorld(t *testing.T, tiles string, lives int) *world {
 	t.Helper()
 	l := &Level{Version: levelVersion, Name: "Test", TileSize: 16, Lives: lives, Tiles: tiles}
@@ -24,7 +24,7 @@ func testWorld(t *testing.T, tiles string, lives int) *world {
 	}
 	rows := l.rows()
 	m := &rooms.Map{Version: 1, Rooms: []rooms.Room{{ID: "all", Width: float32(len(rows[0]) * 16), Height: float32(len(rows) * 16)}}}
-	w, err := newWorld(gameData{level: l, rooms: m, player: platformer.DefaultConfig()}, 320, 180)
+	w, err := newWorld(gameData{level: l, rooms: m, player: mustLoadData().player}, 320, 180)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,13 +106,14 @@ func TestReachingTheGoalWinsAndSparksCountOnce(t *testing.T) {
 	}
 }
 
-// TestCoyoteTimeAllowsALateJump walks off a ledge and jumps a few steps later, still within the coyote time player.yaml sets, and then too late.
+// TestCoyoteTimeAllowsALateJump walks off a ledge and jumps halfway through the coyote time data/player.yaml sets, and then a few steps after it.
 func TestCoyoteTimeAllowsALateJump(t *testing.T) {
 	const tiles = "#..........#\n#..........#\n#P.........#\n###.......G#\n###.......##\n###.......##\n############\n"
+	coyote := int(mustLoadData().player.CoyoteTime / step)
 	for _, tc := range []struct {
 		late int
 		want platformer.JumpKind
-	}{{late: 2, want: platformer.JumpGround}, {late: 12, want: platformer.JumpNone}} {
+	}{{late: max(1, coyote/2), want: platformer.JumpGround}, {late: coyote + 3, want: platformer.JumpNone}} {
 		w := testWorld(t, tiles, 3)
 		stepUntil(t, w, platformer.Input{Move: 0.5}, 120, func() bool { return !w.body.Grounded })
 		for range tc.late - 1 {
@@ -125,33 +126,41 @@ func TestCoyoteTimeAllowsALateJump(t *testing.T) {
 	}
 }
 
-// TestJumpBufferJumpsOnLanding presses jump just before the player lands and checks that it jumps as soon as it does.
+// TestJumpBufferJumpsOnLanding presses jump halfway through the jump buffer data/player.yaml sets before the player lands, and checks that it jumps as soon as it does.
 func TestJumpBufferJumpsOnLanding(t *testing.T) {
-	const tiles = "#....#\n#.P..#\n#....#\n#....#\n#....#\n#...G#\n######\n"
-	// Find the step the player lands on when it drops from the start, which is in the air.
-	dry := testWorld(t, tiles, 3)
+	const tiles = "#....#\n#....#\n#....#\n#....#\n#....#\n#P..G#\n######\n"
+	early := max(1, int(mustLoadData().player.JumpBuffer/step)/2)
+	// drop builds the level and puts the player in the air above the floor, stepping once so the body knows it has left the ground.
+	drop := func() *world {
+		w := testWorld(t, tiles, 3)
+		w.placePlayer(w.standingAt(2, 1))
+		w.step(standBy, step)
+		return w
+	}
+	// Find the step the player lands on.
+	dry := drop()
 	landing := 0
 	stepUntil(t, dry, standBy, 120, func() bool {
 		landing++
 		return dry.body.Grounded
 	})
 	landing--
-	if landing < 5 {
-		t.Fatalf("the player landed %d steps after the start, too soon to buffer a jump", landing)
+	if landing <= early {
+		t.Fatalf("the player landed %d steps after the drop, too soon to buffer a jump %d steps early", landing, early)
 	}
 
-	w := testWorld(t, tiles, 3)
-	for range landing - 4 {
+	w := drop()
+	for range landing - early {
 		w.step(standBy, step)
 	}
 	w.step(platformer.Input{JumpPressed: true, JumpHeld: true}, step)
 	jumped := false
-	for range 6 {
+	for range early + 2 {
 		w.step(platformer.Input{JumpHeld: true}, step)
 		jumped = jumped || w.lastJump == platformer.JumpGround
 	}
 	if !jumped {
-		t.Fatal("a jump pressed 4 steps before landing did not jump on landing")
+		t.Fatalf("a jump pressed %d steps before landing did not jump on landing", early)
 	}
 }
 
