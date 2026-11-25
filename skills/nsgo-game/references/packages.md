@@ -38,6 +38,7 @@ Every non-internal package under `github.com/nsgo-dev/game/packages` (shown rela
 | `game/pixelfx/scifi` | Experimental | pixelfx sci-fi effects (EMP blast, energy core, force field, glitch, hologram, jetpack, laser grid, scanner, teleporter pad, tractor beam, warp in/out) |
 | `game/pixelfx/shadow` | Experimental | pixelfx shadow effects (black hole, curse, dark explosion, eclipse, grasping hands, hex sigil, life steal, necro skulls, shadow flames, shadow tendrils, soul drain, void orb) |
 | `game/pixelfx/spawn` | Experimental | pixelfx spawn and death effects (coin drop, disintegrate, dissolve burn, egg hatch, poof, respawn beam, shatter death, soul rise, spawn portal, summon rise) |
+| `game/pixelfx/status` | Experimental | pixelfx status effects (bleeding, burning, charmed, confused, cursed, frozen, haste, petrified, poisoned, rage, sleep, slowed, stunned) |
 | `game/lights2d` | Experimental | 2D ambient darkness, point/cone lights, visibility-polygon shadows, normal-mapped sprites |
 | `game/effects` | Experimental | Chained Kage shader post-processing passes over the game frame |
 | `game/skeletal` | Experimental | 2D bone rigs, IK, skins and YAML rig definitions |
