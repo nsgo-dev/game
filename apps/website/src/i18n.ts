@@ -49,7 +49,16 @@ export function routeLang(param: string): NonDefaultLang {
 // pageHead is a page's title and description, its canonical address, and its address in each language, as nsgo.dev's pages carry them.
 export function pageHead(lang: Lang, path: string, title: string, description: string) {
   return {
-    meta: [{ title }, { name: 'description', content: description }],
+    meta: [
+      { title },
+      { name: 'description', content: description },
+      { property: 'og:title', content: title },
+      { property: 'og:description', content: description },
+      { property: 'og:type', content: 'website' },
+      { property: 'og:url', content: siteUrl(lang, path) },
+      { property: 'og:image', content: siteUrl('en', `share/${lang}.png`) },
+      { name: 'twitter:card', content: 'summary_large_image' },
+    ],
     links: [
       { rel: 'canonical', href: siteUrl(lang, path) },
       { rel: 'alternate', hrefLang: 'x-default', href: siteUrl('en', path) },

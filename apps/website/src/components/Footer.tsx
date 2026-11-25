@@ -1,122 +1,94 @@
 import { copies } from '../copy'
 import { type Lang, useLang } from '../i18n'
-import { CONTRIBUTING_URL, GITHUB_URL, LICENSE_URL, LLMS_FULL, LLMS_INDEX, NSGO_GITHUB_URL, nsgoUrl, PLAN_URL } from '../links'
-import { Logo, SpeedLines } from './Brand'
-import { Icon } from './Icon'
-import { LocaleLink, type SimplePage } from './LocaleLink'
+import { AWESOME_URL, CHANGELOG_URL, CONTRIBUTING_URL, GITHUB_URL, LICENSE_URL, LLMS_FULL, LLMS_INDEX, nsgoUrl, PLAN_URL, TELEGRAM_URL, X_URL } from '../links'
+import { Logo } from './Brand'
+import { LocaleLink, type LocaleTarget } from './LocaleLink'
 
-// A link goes to one of the site's routes, to one of the build's files below the base path (opened in place), or to another site (opened in a new tab).
-type FooterLink = { label: string; page: SimplePage } | { label: string; file: string } | { label: string; href: string }
+// A link goes to one of the site's pages, or to another site, opened in a new tab.
+type FooterLink = { label: string; to: LocaleTarget } | { label: string; href: string }
 
 function columns(lang: Lang): { title: string; links: FooterLink[] }[] {
   const copy = copies[lang]
+  const words = copy.footer
   return [
     {
-      title: copy.footer.columns.project,
+      title: words.columns[0] ?? '',
       links: [
-        { label: copy.nav.home, page: 'home' },
-        { label: copy.nav.docs, page: 'docs' },
-        { label: copy.nav.playground, page: 'playground' },
-        { label: copy.nav.showcase, page: 'showcase' },
-        { label: copy.nav.roadmap, page: 'roadmap' },
-        { label: copy.footer.llms, file: LLMS_INDEX },
-        { label: copy.footer.llmsFull, file: LLMS_FULL },
+        { label: words.gettingStarted, to: { page: 'doc', slug: 'getting-started' } },
+        { label: words.tutorial, to: { page: 'tutorial' } },
+        { label: words.packages, to: { page: 'packages' } },
+        { label: copy.api.nav, to: { page: 'api' } },
+        { label: words.stability, to: { page: 'doc', slug: 'stability' } },
       ],
     },
     {
-      title: copy.footer.columns.nsgo,
+      title: words.columns[1] ?? '',
       links: [
-        { label: copy.footer.website, href: nsgoUrl(lang) },
-        { label: copy.nav.docs, href: nsgoUrl(lang, 'docs/') },
-        { label: copy.footer.plan, href: PLAN_URL },
+        { label: words.playground, to: { page: 'playground' } },
+        { label: words.examples, to: { page: 'examples' } },
+        { label: words.showcase, to: { page: 'showcase' } },
+        { label: words.roadmap, to: { page: 'roadmap' } },
+        { label: 'nsgo#1047', href: PLAN_URL },
+        { label: words.changelog, href: CHANGELOG_URL },
       ],
     },
     {
-      title: copy.footer.columns.community,
+      title: words.columns[2] ?? '',
       links: [
-        { label: copy.nav.github, href: GITHUB_URL },
-        { label: copy.footer.issues, href: `${GITHUB_URL}/issues` },
-        { label: copy.footer.contributing, href: CONTRIBUTING_URL },
-        { label: copy.footer.nsgoGithub, href: NSGO_GITHUB_URL },
+        { label: words.github, href: GITHUB_URL },
+        { label: words.nsgo, href: nsgoUrl(lang) },
+        { label: 'Awesome NSGo', href: AWESOME_URL },
+        { label: 'Telegram', href: TELEGRAM_URL },
+        { label: 'X · 小莫', href: X_URL },
+        { label: words.feedback, href: `${GITHUB_URL}/issues` },
+        { label: words.contributing, href: CONTRIBUTING_URL },
       ],
-    },
-    {
-      title: copy.footer.columns.legal,
-      links: [{ label: copy.footer.license, href: LICENSE_URL }],
     },
   ]
 }
 
-// The call to action nsgo.dev's home page shows above its footer.
-export function Cta() {
-  const lang = useLang()
-  const copy = copies[lang]
-  return (
-    <section className="container cta-wrap">
-      <div className="cta hud">
-        <SpeedLines className="cta__lines" />
-        <div className="cta__copy">
-          <h2>{copy.cta.title}</h2>
-          <p>{copy.cta.body}</p>
-        </div>
-        <div className="cta__actions">
-          <LocaleLink page="docs" lang={lang} className="btn btn--primary btn--large">
-            <Icon name="play" size={14} />
-            {copy.home.docs}
-          </LocaleLink>
-          <a className="btn btn--secondary btn--large" href={GITHUB_URL} target="_blank" rel="noopener noreferrer">
-            {copy.nav.github}
-          </a>
-        </div>
-      </div>
-    </section>
-  )
-}
-
-// nsgo.dev's footer: the brand, then four columns of links.
 export function Footer() {
   const lang = useLang()
-  const copy = copies[lang].footer
+  const words = copies[lang].footer
+  const base = import.meta.env.BASE_URL
   return (
     <footer className="footer">
-      <div className="container">
-        <div className="footer__grid">
+      <div className="container footer__inner">
+        <div className="footer__top">
           <div className="footer__brand">
-            <LocaleLink page="home" lang={lang} className="brand">
+            <LocaleLink page="home" lang={lang} aria-label="NSGo Game">
               <Logo size={26} />
-              <span className="brand__name">NSGo Game</span>
             </LocaleLink>
-            <p>{copy.tagline}</p>
+            <p>{words.tagline}</p>
           </div>
-          {columns(lang).map((column) => (
-            <div key={column.title} className="footer__column">
-              <h3>{column.title}</h3>
-              <ul>
-                {column.links.map((link) => (
-                  <li key={link.label}>
-                    {'page' in link ? (
-                      <LocaleLink page={link.page} lang={lang}>
-                        {link.label}
-                      </LocaleLink>
-                    ) : 'file' in link ? (
-                      <a href={`${import.meta.env.BASE_URL}${link.file}`}>{link.label}</a>
-                    ) : (
-                      <a href={link.href} target="_blank" rel="noopener noreferrer">
-                        {link.label}
-                      </a>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
+          <div className="footer__columns">
+            {columns(lang).map((column) => (
+              <nav key={column.title} className="footer__column" aria-labelledby={`footer-${column.title}`}>
+                <h2 id={`footer-${column.title}`}>{column.title}</h2>
+                {column.links.map((link) =>
+                  'to' in link ? (
+                    <LocaleLink key={link.label} {...link.to} lang={lang}>
+                      {link.label}
+                    </LocaleLink>
+                  ) : (
+                    <a key={link.label} href={link.href} target="_blank" rel="noopener noreferrer">
+                      {link.label}
+                    </a>
+                  ),
+                )}
+              </nav>
+            ))}
+          </div>
         </div>
         <div className="footer__bottom">
-          <span>{copy.bottom}</span>
-          <a href="#top" className="footer__top">
-            {copy.top}
-            <Icon name="arrow-up" size={12} />
+          <a href={LICENSE_URL} target="_blank" rel="noopener noreferrer">
+            {words.license}
           </a>
+          <nav aria-label="llms.txt">
+            <a href={`${base}${LLMS_INDEX}`}>{words.llms}</a>
+            <a href={`${base}${LLMS_FULL}`}>{words.llmsFull}</a>
+            <span>game.nsgo.dev</span>
+          </nav>
         </div>
       </div>
     </footer>

@@ -1,0 +1,36 @@
+import (
+	"time"
+
+	"github.com/nsgo-dev/game/packages/game"
+	"github.com/nsgo-dev/game/packages/game/input"
+	"github.com/nsgo-dev/game/packages/game/sprite"
+	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/gamepad"
+)
+
+func Game(cx *core.Scope) core.Node {
+	atlas, _ := sprite.LoadAtlas(core.Src("asset:sprites.png"), spritesJSON)
+	hero := sprite.NewSprite(atlas.Frames["hero_idle_0"])
+	batch := &sprite.Batch{Atlas: atlas, Sprites: []*sprite.Sprite{&hero}}
+
+	actions := input.NewActions()
+	actions.Bind("left", input.Key("a"), input.GamepadButton(gamepad.ButtonDPadLeft))
+	actions.Bind("right", input.Key("d"), input.GamepadButton(gamepad.ButtonDPadRight))
+	actions.BindAxis("move", "left", "right")
+	actions.WatchKeys(cx)
+
+	frame := core.NewSignal(cx, 0)
+	loop := &game.Loop{
+		Rate: 60,
+		Update: func(dt time.Duration) {
+			actions.Step()
+			hero.X += float32(actions.Axis("move")) * 98 * float32(dt.Seconds())
+		},
+		Draw: func(alpha float64) { frame.Update(func(n int) int { return n + 1 }) },
+	}
+	loop.Run(cx)
+
+	return core.Canvas{
+		Draw: func(d *core.Drawing, _ core.Size) { frame.Get(); batch.Draw(d) },
+	}
+}
