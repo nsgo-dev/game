@@ -56,6 +56,61 @@ func ExampleMachine() {
 	// rest run 1s
 }
 
+// An HSM nests child machines inside parent states so parent transitions apply to every descendant, running Enter outside-in and Exit inside-out.
+func ExampleHSM() {
+	combat := flow.NewHSM("approach")
+	combat.SetHistory(true)
+	combat.AddState("approach", flow.State{
+		Enter: func() { fmt.Println("enter approach") },
+		Exit:  func() { fmt.Println("exit approach") },
+	})
+	combat.AddState("attack", flow.State{
+		Enter: func() { fmt.Println("enter attack") },
+		Exit:  func() { fmt.Println("exit attack") },
+	})
+	combat.AddEventTransition("approach", "attack", "in_range")
+
+	enemy := flow.NewHSM("combat")
+	enemy.AddState("combat", flow.State{
+		Enter: func() { fmt.Println("enter combat") },
+		Exit:  func() { fmt.Println("exit combat") },
+	})
+	enemy.AddChild("combat", combat)
+	enemy.AddState("stunned", flow.State{
+		Enter: func() { fmt.Println("enter stunned") },
+		Exit:  func() { fmt.Println("exit stunned") },
+	})
+	enemy.AddEventTransition("combat", "stunned", "stun")
+	enemy.AddEventTransition("stunned", "combat", "recover")
+
+	enemy.Start()
+	enemy.Send("in_range")
+	enemy.Update(16 * time.Millisecond)
+	fmt.Println("active:", enemy.Current())
+
+	enemy.Send("stun")
+	enemy.Update(16 * time.Millisecond)
+	fmt.Println("active:", enemy.Current())
+
+	enemy.Send("recover")
+	enemy.Update(16 * time.Millisecond)
+	fmt.Println("resumed:", enemy.Current())
+	// Output:
+	// enter combat
+	// enter approach
+	// exit approach
+	// enter attack
+	// active: [combat attack]
+	// exit attack
+	// exit combat
+	// enter stunned
+	// active: [stunned]
+	// exit stunned
+	// enter combat
+	// enter attack
+	// resumed: [combat attack]
+}
+
 // A Runner plays Steps over game time, like a coroutine: here a cutscene that waits, then does two things at once. Each line shows the game time at the end of the update that ran it.
 func ExampleRunner() {
 	var r flow.Runner
