@@ -131,7 +131,7 @@ nav := mesh.NavMesh()
 path, ok := nav.FindPath(start, goal)
 ```
 
-`Mesh.NavMesh` makes each detail triangle a walkable polygon of the `NavMesh`, linked to its neighbours across shared edges, so `FindPath` follows ramps, stairs and terrain at the baked heights and keeps stacked floors apart. Its `VerticalTolerance` is the larger of the agent's height and climb, so `FindPolygon` snaps a point to the surface under or over it within that distance.
+`Mesh.NavMesh` makes each detail triangle a walkable polygon of the `NavMesh`, linked to its neighbours across shared edges, so `FindPath` follows ramps, stairs and terrain at the baked heights and keeps stacked floors apart. Its `VerticalTolerance` is the larger of the agent's height and climb, so `FindPolygon` snaps a point to the surface under or over it within that distance. For dynamic obstacles and chunk streaming, call `Mesh.TiledNavMesh(tileSize)` to build a `*world3d.TiledNavMesh`, or call `navbake3d.BakeTile(g, settings, agent, coord, tileSize, origin)` to voxel-bake a single `*world3d.NavTile` aligned to a `world3d.ChunkCoord` with an erosion border.
 
 ## Debug drawing
 

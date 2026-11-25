@@ -326,6 +326,34 @@ _, _, _, _, _, _, _ = poly, hit, obstructed, moved, onMesh, patrolPt, ok
 - **Deterministic area-weighted sampling**: `RandomPoint` / `RandomPointWithFilter` sample uniformly by polygon area across allowed polygons; `RandomPointAround` / `RandomPointAroundWithFilter` restrict sampling to connected allowed polygons reachable from `center` within `radius` (never returning disconnected islands). Given the same `*random.Stream` seed, results are bit-identical across runs and architectures.
 - **Zero-allocation queries and concurrency**: `mesh.FindPathInto`, `mesh.FindPathWithFilterInto`, `mesh.FindPathWithFilterAndOptionsInto`, and `mesh.FindCorridorInto` reuse generation-stamped scratch buffers for `0` heap allocations after warm-up. Create one `NewNavMeshQuery(mesh)` per worker or goroutine when querying a shared read-only `NavMesh` concurrently (also exposing `MoveAlongSurfaceInto` and buffer-reusing `RandomPointAround`).
 
+### Tiled 2D NavMesh and dynamic obstacles (`TiledNavMesh`)
+
+When doors, placed buildings, destructible walls, or streamed regions change walkable areas at runtime, use `TiledNavMesh`: it partitions 2D polygons into fixed-size square tiles (`NavTileCoord{X, Y}`) that can be baked (`BakeNavTile` / `BakeTile`), added (`AddTile`), replaced (`ReplaceTile` / `SetTile`), removed (`RemoveTile`), and rebuilt (`RebuildTile`) independently, automatically linking polygons across tile borders so paths match an untiled `NavMesh`:
+
+```go
+tm := ai.BuildTiledNavMesh(corridorPolys, 32) // or ai.NewTiledNavMesh(ai.TiledNavMeshConfig{TileSize: 32})
+
+res := tm.FindPathWithOptions(start, goal, ai.PathOptions{})
+watchID := tm.WatchPath(res.TileCoords(), func(ev ai.NavTileChange) {
+	// Only paths crossing ev.Coord are notified when that tile changes.
+	replanPath()
+})
+
+// Carve a box, circle, or (convex/concave) polygon obstacle — rebuilds ONLY the touched tiles:
+obsID, _ := tm.AddObstacle(ai.NavBoxObstacle(minPt, maxPt))
+detour, _ := tm.FindPath(start, goal) // detours around the box; tm.IsPathValid(res) is now false
+
+// Remove the obstacle to restore the original polygons and path:
+tm.RemoveObstacle(obsID)
+tm.UnwatchPath(watchID)
+_, _ = detour, watchID
+```
+
+- **Dynamic obstacle shapes and modes**: `NavBoxObstacle`, `NavOrientedBoxObstacle`, `NavCircleObstacle`, and `NavPolygonObstacle` (supporting both convex and concave footprints plus optional `Margin` inflation) default to `NavObstacleCarve` (exact convex subtraction so paths detour cleanly around obstacles) or can use `NavObstacleMark` to split polygons along the obstacle footprint and apply `NavFlagDisabled` or a custom `Area`/`Flags` (such as `NavAreaMud`). Wrap multi-obstacle frame updates in `tm.Batch(func() { ... })` so each touched tile rebuilds at most once.
+- **Two-level spatial index**: `FindPolygon`, `NearestPoint`, `NearestPolygon`, and `Raycast` use an O(1) tile coordinate lookup (or branch-and-bound over a coarse tile BVH for unbounded queries) plus per-tile flat AABB BVHs, avoiding whole-mesh scans.
+- **Per-tile path invalidation**: `TiledNavPathResult.Tiles` stamps every crossed tile's version so `tm.IsPathValid(res)` detects invalidation in O(crossed tiles); `WatchPath` indexes watchers per tile and notifies only paths whose corridor crossed a modified or removed tile (`AddTileListener` observes all tile events).
+- **Baked bridge**: convert any 2D baked mesh directly into a tiled mesh with `navbake.Mesh.TiledNavMesh(tileSize)`.
+
 ## Bounded, partial, and incremental path searches
 
 Clicking an unreachable target should still move a unit as close as possible, and dozens of simultaneous long searches should never stall a frame. `AStar`, 2D `NavMesh`, and [world3d](world3d.md)'s 3D `NavMesh` share `PathOptions{MaxExpansions, AllowPartial}` and the `IncrementalSearch` interface:

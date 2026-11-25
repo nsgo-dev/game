@@ -235,6 +235,41 @@ group.Step(dt)
 - **节流与错峰规划**：`NavAgentGroup.Step(dt)` 按确定性轮询顺序（可选配合 `StaggerStride` 错峰）严格将每步完整 A* 重规划次数限制在 `MaxReplansPerStep` 以内，并通过 `NavMesh.Revision()` 自动感知导航网格变更（包含运行时区域/标志修改与离网连接）。
 - **确定性固定步长重放**：重放相同输入序列时，每一步 3D 坐标均按位完全一致。
 
+### 分块 3D NavMesh、动态障碍物与区块流式加载（`TiledNavMesh`、`NavTileStreamer`）
+
+针对开放世界、开关门、建造物与可破坏掩体，`world3d.TiledNavMesh` 将 3D 可行走多边形切分为与 `ChunkCoord` 一一对齐的固定尺寸 XZ 瓦片，跨瓦片边界在三维空间精确连接共享边（保持斜坡与上下叠层隔离），动态障碍物变更时仅重建受影响的瓦片，并自动使经过变更或卸载瓦片的路径失效：
+
+```go
+tm := world3d.NewTiledNavMesh(world3d.TiledNavMeshConfig{TileSize: 64})
+
+// 跟随 world3d 区块流式加载：在后台工作协程烘焙瓦片，随区块自动载入与卸载：
+streamer, err := world3d.NewNavTileStreamer(world3d.NavTileStreamerConfig{
+	Mesh:         tm,
+	LoadRadius:   2,
+	UnloadRadius: 3,
+	Workers:      2,
+	Bake: func(ctx context.Context, coord world3d.ChunkCoord, bounds math3d.AABB) (*world3d.NavTile, error) {
+		return bakeChunkNavTile(ctx, coord, bounds) // 例如 world3d.BakeNavTile 或 navbake3d.BakeTile
+	},
+})
+if err != nil {
+	return err
+}
+defer streamer.Close()
+
+streamer.Update(world3d.WorldPos64{X: float64(player.X), Z: float64(player.Z)})
+
+// 放入 3D 盒形、圆柱或拉伸多边形障碍物（仅重建受影响的瓦片）：
+obsID, _ := tm.AddObstacle(world3d.NavBoxObstacle(minPos, maxPos))
+detour, _ := tm.FindPath(startPos, goalPos) // 自动绕开障碍物；按 Y 高度范围隔离，不影响上方桥面
+tm.RemoveObstacle(obsID)                    // 移除后立即恢复原始几何与路径
+_, _ = detour, obsID
+```
+
+- **独立瓦片生命周期**：可通过 `world3d.BakeNavTile`（或通过 `navbake3d.BakeTile` 直接从 `navbake3d.Geometry` 按区块体素烘焙）在后台线程独立烘焙瓦片，再用 `AddTile`、`ReplaceTile`、`SetTile`、`RemoveTile` 或 `RebuildTile` 安装与更新；`BuildTiledNavMesh` / `BuildTiledNavMeshWithAreas` 与 `navbake3d.Mesh.TiledNavMesh(tileSize)` 可直接从已有几何或烘焙网格构建分块网格。
+- **3D 动态障碍物**：`NavBoxObstacle`、`NavOrientedBoxObstacle`、`NavCylinderObstacle` 与 `NavPolygonObstacle` 均按 Y 轴范围判定高度重叠，地面障碍绝不会误挖上方桥面。同时支持 `NavObstacleCarve`（精确平面凸挖空）与 `NavObstacleMark`（沿轮廓切分并设置 `NavFlagDisabled` 或自定义 `Area`/`Flags`）；多障碍物同帧更新可用 `tm.Batch(func() { ... })` 合批。
+- **两级 3D 空间索引与路径失效**：`FindPolygon`、`NearestPoint`、`NearestPolygon` 与 `Raycast` 使用 O(1) XZ 瓦片查找 + 单瓦片扁平 3D BVH（无界最近点查询走粗粒度 3D 瓦片 BVH），无需扫描整张网格。通过 `tm.IsPathValid(res)`（检查 `TiledNavPathResult.Tiles`）判断路径有效性，用 `tm.WatchPath(res.TileCoords(), fn)` 仅订阅经过对应瓦片的失效回调，或用 `tm.AddTileListener` 监听所有瓦片事件。
+
 ## 模块化 3D `GridMap`
 
 在整数格点 `GridCoord{X, Y, Z}` 上摆放可复用的 3D 网格瓦片，支持 24 种立方体正交朝向（`GridOrientationMat4`、`RotateGridOrientation`、`FindGridOrientation`）、碰撞盒提取、按区块裁剪的射线检测（沿射线对区块排序，再逐个测试区块中被占用的格子）、格子遍历（`EachCell`）、按 ID 排序的网格库枚举（`MeshLibrary.Items`）以及带视锥裁剪的实例化合批。`LoadMeshLibraryFromGLTF` 同时支持读取 `.gltf` JSON 和二进制 `.glb` 网格库：

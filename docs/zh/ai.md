@@ -326,6 +326,34 @@ _, _, _, _, _, _, _ = poly, hit, obstructed, moved, onMesh, patrolPt, ok
 - **跨平台确定性面积加权随机点**：`RandomPoint` / `RandomPointWithFilter` 在所有允许通行的多边形上按面积均匀采样；`RandomPointAround` / `RandomPointAroundWithFilter` 仅在从 `center` 可达且位于 `radius` 内的连通多边形上采样，绝不会落入断开的孤岛。使用相同 `*random.Stream` 种子时，跨运行与跨平台结果按位一致。
 - **零堆分配复用与并发只读查询**：`mesh.FindPathInto`、`mesh.FindPathWithFilterInto`、`mesh.FindPathWithFilterAndOptionsInto` 与 `mesh.FindCorridorInto` 使用带代数戳的复用缓冲区，预热后重复调用均为 `0` 堆分配。在多个 goroutine 上并发查询同一只读 `NavMesh` 时，请为每个工作协程创建独立的 `NewNavMeshQuery(mesh)`（同时提供零分配的 `MoveAlongSurfaceInto` 与缓冲区复用的 `RandomPointAround`）。
 
+### 分块 2D NavMesh 与动态障碍物（`TiledNavMesh`）
+
+当门、可破坏墙壁、建造物或流式区域在运行时改变可行走区域时，可使用 `TiledNavMesh`：它将 2D 多边形切分为固定尺寸的正方形瓦片（`NavTileCoord{X, Y}`），支持独立烘焙（`BakeNavTile` / `BakeTile`）、添加（`AddTile`）、替换（`ReplaceTile` / `SetTile`）、移除（`RemoveTile`）与重建（`RebuildTile`），并自动跨瓦片边界连接多边形，使跨边界路径与未分块 `NavMesh` 保持一致：
+
+```go
+tm := ai.BuildTiledNavMesh(corridorPolys, 32) // 或 ai.NewTiledNavMesh(ai.TiledNavMeshConfig{TileSize: 32})
+
+res := tm.FindPathWithOptions(start, goal, ai.PathOptions{})
+watchID := tm.WatchPath(res.TileCoords(), func(ev ai.NavTileChange) {
+	// 仅经过变更瓦片 ev.Coord 的路径会收到失效通知。
+	replanPath()
+})
+
+// 放入盒形、圆形或（凸/凹）多边形障碍物——仅重建受影响的瓦片：
+obsID, _ := tm.AddObstacle(ai.NavBoxObstacle(minPt, maxPt))
+detour, _ := tm.FindPath(start, goal) // 自动绕开障碍物；此时 tm.IsPathValid(res) 为 false
+
+// 移除障碍物后立即恢复原始可行走几何与路径：
+tm.RemoveObstacle(obsID)
+tm.UnwatchPath(watchID)
+_, _ = detour, watchID
+```
+
+- **动态障碍物形状与模式**：支持 `NavBoxObstacle`、`NavOrientedBoxObstacle`、`NavCircleObstacle` 与 `NavPolygonObstacle`（兼容凸/凹多边形及可选 `Margin` 膨胀）；默认采用 `NavObstacleCarve`（精确凸多边形挖空，让路径平滑绕行），也可选 `NavObstacleMark` 沿障碍轮廓切分多边形并赋予 `NavFlagDisabled` 或自定义 `Area`/`Flags`（如 `NavAreaMud`）。同一帧内有多处改动时，可用 `tm.Batch(func() { ... })` 合并批量更新，确保每个受影响瓦片最多重建一次。
+- **两级空间索引**：`FindPolygon`、`NearestPoint`、`NearestPolygon` 与 `Raycast` 结合 O(1) 瓦片网格定位（大范围/无界查询走粗粒度瓦片 BVH 分支定界）与单瓦片扁平 AABB BVH，无需扫描整张导航网格。
+- **按瓦片精准路径失效**：`TiledNavPathResult.Tiles` 记录路径经过的每个瓦片及其版本号，`tm.IsPathValid(res)` 按经过瓦片数 O(K) 判断有效性；`WatchPath` 按瓦片建立反向索引，仅通知经过变更或卸载瓦片的路径（`AddTileListener` 可监听所有瓦片事件）。
+- **烘焙桥接**：调用 `navbake.Mesh.TiledNavMesh(tileSize)` 可直接将 2D 烘焙网格转为支持动态障碍物的分块导航网格。
+
 ## 有界、部分路径与增量寻路
 
 点击不可达目标时单位应尽量走近目标，同时大量并发长寻路也不应拖垮单帧预算。`AStar`、2D `NavMesh` 以及 [world3d](world3d.md) 的 3D `NavMesh` 共享 `PathOptions{MaxExpansions, AllowPartial}` 与 `IncrementalSearch` 接口：
