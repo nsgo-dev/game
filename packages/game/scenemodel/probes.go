@@ -55,9 +55,6 @@ func (p *ReflectionProbe) RuntimeProbe(gpuCube *render3d.GPUCubemap) *render3d.R
 	pos, bmin, bmax := p.WorldBounds()
 	disabled := p.Node != nil && (!p.Node.EffectiveVisible() || !p.Node.EffectiveEnabled())
 	baked := p.Prefiltered != nil && (gpuCube == nil || gpuCube.Valid())
-	if gpuCube != nil {
-		baked = p.Prefiltered != nil && gpuCube.Valid()
-	}
 	return &render3d.ReflectionProbe{
 		ID:            p.Object,
 		Position:      pos,

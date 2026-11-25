@@ -127,11 +127,11 @@ type probeSceneBaker struct {
 
 func newProbeSceneBaker(b *Built, size int, opts ProbeBakeOptions) (*probeSceneBaker, error) {
 	near := opts.Near
-	if near <= 0 {
+	if math.IsNaN(float64(near)) || math.IsInf(float64(near), 0) || near <= 0 {
 		near = defaultProbeBakeNear
 	}
 	far := opts.Far
-	if far <= near {
+	if math.IsNaN(float64(far)) || math.IsInf(float64(far), 0) || far <= near {
 		far = near + defaultProbeBakeFar
 	}
 
@@ -192,7 +192,10 @@ func newProbeSceneBaker(b *Built, size int, opts ProbeBakeOptions) (*probeSceneB
 		}
 	}
 
-	useFallback := opts.FallbackLights != nil && !b.HasSceneLighting()
+	// Probe baking disables existing baked probes (DisableProbes: true), so only explicit 3D lights
+	// or a scene environment count as scene lighting when deciding whether to use FallbackLights.
+	hasDirectLighting := len(b.Lights) > 0 || b.Environment.Present
+	useFallback := opts.FallbackLights != nil && !hasDirectLighting
 	var fallbackRig render3d.LightRig
 	if useFallback {
 		fallbackRig = *opts.FallbackLights
