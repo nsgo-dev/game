@@ -48,6 +48,9 @@ strings:
   line.river_07: 那就慢一点，但别停下。
   line.river_c1: 提着灯笼探身去看
   line.river_c2: 让他划快一点
+  log.close: 关闭
+  log.newer: 较新
+  log.older: 较早
   menu.back: 返回
   menu.language: 语言：中文
   menu.load: 读档
@@ -60,6 +63,7 @@ strings:
   panel.load: 从哪个存档读取？
   panel.save: 存到哪个存档？
   slot.empty: 存档 {slot} · 空
+  slot.overwrite: 覆盖存档 {slot}？
   slot.used: 存档 {slot} · {chapter}
   status.loadFailed: 存档 {slot} 无法读取
   status.saveFailed: 无法存入存档 {slot}

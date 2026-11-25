@@ -16,6 +16,9 @@ strings:
   hud.log: Log
   hud.menu: Menu
   hud.skip: Skip
+  log.close: Close
+  log.newer: Newer
+  log.older: Older
   menu.back: Back
   menu.language: 'Language: English'
   menu.load: Load
@@ -28,6 +31,7 @@ strings:
   panel.load: Load from which slot?
   panel.save: Save to which slot?
   slot.empty: Slot {slot} · Empty
+  slot.overwrite: Overwrite slot {slot}?
   slot.used: Slot {slot} · {chapter}
   status.loadFailed: Slot {slot} could not be loaded
   status.saveFailed: Slot {slot} could not be saved
