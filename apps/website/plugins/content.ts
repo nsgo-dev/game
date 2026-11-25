@@ -79,6 +79,15 @@ export function siteContent(): Plugin {
       }
     },
     configureServer(server) {
+      server.watcher.on('add', (file) => {
+        if (!ctx || path.basename(file) !== 'nsgo.json' || !file.startsWith(path.join(ctx.publicDir, PLAYGROUND_BUILDS))) return
+        cache.delete('virtual:playground')
+        for (const environment of Object.values(server.environments)) {
+          const mod = environment.moduleGraph.getModuleById('\0virtual:playground')
+          if (mod) environment.moduleGraph.invalidateModule(mod)
+        }
+        server.ws.send({ type: 'full-reload' })
+      })
       server.middlewares.use(async (req, res, next) => {
         if (req.url?.split('?')[0] !== `${server.config.base}${API_JSON}`) return next()
         try {
@@ -137,11 +146,12 @@ export function siteContent(): Plugin {
       if (!(name in modules) || !ctx) return undefined
       const moduleId = name as ModuleId
       if (moduleId === 'virtual:playground') {
-        // The line counts follow the sources, and a build made while the dev server runs shows up once its nsgo.json is written.
+        // The line counts follow the sources. A build's nsgo.json is watched only once it exists, because Vite resolves every watched file as an import and fails on a missing one; configureServer reloads the module when a build made while the dev server runs writes its nsgo.json.
         for (const id of PLAYGROUND_IDS) {
           const dir = path.join(ctx.examplesDir, id)
           for (const file of await playgroundFiles(dir)) this.addWatchFile(path.join(dir, file))
-          this.addWatchFile(path.join(ctx.publicDir, PLAYGROUND_BUILDS, id, 'nsgo.json'))
+          const manifest = path.join(ctx.publicDir, PLAYGROUND_BUILDS, id, 'nsgo.json')
+          if (await stat(manifest).then(() => true, () => false)) this.addWatchFile(manifest)
         }
       }
       if (moduleId === 'virtual:site') {
