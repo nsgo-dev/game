@@ -485,6 +485,12 @@ Until the author pans or zooms, and again after `ResetView2D` or opening another
 
 Hit testing, placing, moving, tile painting, the selection outline and plugin tools all go through the view. `CanvasToWorld` and `WorldToCanvas` convert between canvas points and the world; `CanvasToScreen` and `ScreenToCanvas` between canvas points and the scene's virtual screen, where screen-space layers live; `ScreenToWorld` and `WorldToScreen` apply the scene's camera alone, as the game does. `CanvasSize` is the canvas's laid-out size, the scene's virtual size until the viewport lays out (`SetCanvasSize`); the 3D viewport fills the same canvas.
 
+## Tile palette (#874)
+
+While the Paint, Erase or Fill tool is active in 2D, the tile palette shows right of the viewport. It shows the tiles of the active layer's tileset as a grid in tile ID order, each at the tilemap's tile size (a tile wider than the panel is scaled down to fit it). The tiles are the tileset atlas's frames whose names are tile IDs (`"1"`, `"2"`, …), as the scene format looks tiles up; other frames are left out. Pressing a tile, or moving between tiles with the arrow keys, makes it the tile Paint and Fill write (`SetActiveTileID`); the selected tile is ringed, and the status bar shows its ID. Choosing a tile is not an edit and does not go into the undo history; the paint that follows is one undoable step.
+
+The palette follows the active layer: when it changes, the palette shows the new layer's tileset, and if that tileset has no tile with the selected ID, its first tile is selected. A layer with no inline tilemap (none, or an external Tiled map), a tileset the resolver cannot resolve and a tileset without tile frames each show a message saying so instead of an empty grid. In Go, `TilePalette()` returns what the palette shows for the active layer: its tileset, tile size and tiles, or the message.
+
 ## Animation editor
 
 The editor's animation panel keys any registered property on a timeline and saves the clip as an [`animation` resource file](resources.md#animation), played in the game by [animclip](animclip.md) (an AnimationPlayer equivalent). The panel shows below the viewport while a clip is open.
