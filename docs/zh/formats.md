@@ -1861,7 +1861,7 @@ runs:
 
 | 文件 | 读取函数 | 指南 |
 | --- | --- | --- |
-| Tiled JSON 地图（`.tmj`），图块集可内嵌或外置（`.tsj`） | `tilemap.LoadTiled`；`rooms.FromTiledLayer` 从对象层生成房间 | [tilemap](tilemap.md)、[rooms](rooms.md) |
+| Tiled XML（`.tmx`）与 JSON（`.tmj`）地图，图块集可内嵌或外置（`.tsx`、`.tsj`），瓦片数据支持 CSV、XML 或 base64（未压缩、`zlib`、`gzip`） | `tilemap.LoadTiled`；`rooms.FromTiledLayer` 从对象层生成房间 | [tilemap](tilemap.md)、[rooms](rooms.md) |
 
 <!-- format: tilemap#world -->
 ### Tiled 世界文件

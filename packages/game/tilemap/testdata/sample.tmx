@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<map version="1.10" tiledversion="1.11.0" orientation="orthogonal" renderorder="right-down" width="4" height="3" tilewidth="16" tileheight="16" infinite="0">
+ <properties>
+  <property name="title" type="string" value="Cavern"/>
+  <property name="level" type="int" value="3"/>
+  <property name="gravity" type="float" value="9.81"/>
+  <property name="dark" type="bool" value="true"/>
+  <property name="ambient" type="color" value="#80204060"/>
+  <property name="music" type="file" value="audio/cavern.ogg"/>
+  <property name="entry" type="object" value="2"/>
+ </properties>
+ <tileset firstgid="1" name="terrain" tilewidth="16" tileheight="16" spacing="2" margin="1" tilecount="8" columns="4">
+  <image source="terrain.png" width="72" height="36"/>
+  <properties>
+   <property name="biome" type="string" value="stone"/>
+  </properties>
+  <tile id="0">
+   <properties>
+    <property name="solid" type="bool" value="true"/>
+    <property name="friction" type="float" value="0.75"/>
+   </properties>
+  </tile>
+  <tile id="1">
+   <properties>
+    <property name="one-way" type="bool" value="true"/>
+   </properties>
+  </tile>
+  <tile id="2">
+   <animation>
+    <frame tileid="2" duration="100"/>
+    <frame tileid="3" duration="200"/>
+    <frame tileid="4" duration="150"/>
+   </animation>
+  </tile>
+ </tileset>
+ <tileset firstgid="9" source="tilesets/props.tsx"/>
+ <layer id="1" name="ground" width="4" height="3" opacity="1" visible="1">
+  <properties>
+   <property name="kind" type="string" value="collision"/>
+  </properties>
+  <data encoding="csv">
+1,2147483649,1073741825,3221225473,
+2684354561,1610612737,536870913,3758096385,
+2,3,9,10
+</data>
+ </layer>
+ <layer id="2" name="overlay" width="4" height="3" offsetx="4" offsety="-2" opacity="0.5" visible="1">
+  <properties>
+   <property name="parallax" type="float" value="1.25"/>
+  </properties>
+  <data encoding="csv">
+0,0,0,0,
+0,9,0,0,
+0,0,0,0
+</data>
+ </layer>
+ <layer id="3" name="hidden" width="4" height="3" opacity="1" visible="0">
+  <data encoding="csv">
+1,1,1,1,
+0,0,0,0,
+0,0,0,0
+</data>
+ </layer>
+ <objectgroup id="4" name="entities" offsetx="2" offsety="3" opacity="1" visible="1">
+  <properties>
+   <property name="active" type="bool" value="true"/>
+  </properties>
+  <object id="1" name="exit" type="trigger" x="48" y="16" width="16" height="32" rotation="15" visible="1">
+   <properties>
+    <property name="next" type="string" value="level2"/>
+    <property name="delay" type="int" value="500"/>
+    <property name="fade" type="float" value="0.5"/>
+    <property name="locked" type="bool" value="false"/>
+    <property name="glow" type="color" value="#ff8800"/>
+    <property name="script" type="file" value="scripts/exit.lua"/>
+    <property name="linked" type="object" value="2"/>
+   </properties>
+  </object>
+  <object id="2" name="spawn" class="marker" x="8" y="24" visible="1">
+   <point/>
+  </object>
+  <object id="3" name="lamp" type="light" x="20" y="10" width="12" height="8" visible="1">
+   <ellipse/>
+  </object>
+  <object id="4" name="ramp" type="slope" x="16" y="32" visible="1">
+   <polygon points="0,0 16,0 16,-8"/>
+  </object>
+  <object id="5" name="patrol" type="path" x="4" y="8" visible="1">
+   <polyline points="0,0 20,0 20,12"/>
+  </object>
+  <object id="6" name="chest" type="pickup" gid="2147483657" x="32" y="48" width="16" height="16" visible="0"/>
+ </objectgroup>
+</map>

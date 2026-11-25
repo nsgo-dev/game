@@ -353,7 +353,8 @@ func TestLoadTiledGroupLayerAndErrors(t *testing.T) {
 		{"bad chunk tile count", `{"width":0,"height":0,"tilewidth":16,"tileheight":16,"infinite":true,"layers":[{"name":"a","type":"tilelayer","chunks":[{"x":0,"y":0,"width":2,"height":2,"data":[1,2]}]}]}`},
 		{"zero tile size", `{"width":1,"height":1,"tilewidth":0,"tileheight":16}`},
 		{"missing LoadJSON", `{"width":1,"height":1,"tilewidth":16,"tileheight":16,"tilesets":[{"firstgid":1,"source":"ext.tsj"}]}`},
-		{"encoded layer", `{"width":1,"height":1,"tilewidth":16,"tileheight":16,"layers":[{"name":"a","type":"tilelayer","encoding":"base64","data":"AAAA"}]}`},
+		{"unsupported encoding", `{"width":1,"height":1,"tilewidth":16,"tileheight":16,"layers":[{"name":"a","type":"tilelayer","encoding":"bogus","data":"AAAA"}]}`},
+		{"zstd compression", `{"width":1,"height":1,"tilewidth":16,"tileheight":16,"layers":[{"name":"a","type":"tilelayer","encoding":"base64","compression":"zstd","data":"AAAA"}]}`},
 		{"wrong tile count", `{"width":2,"height":2,"tilewidth":16,"tileheight":16,"layers":[{"name":"a","type":"tilelayer","data":[1,2]}]}`},
 		{"negative anim duration", `{"width":1,"height":1,"tilewidth":16,"tileheight":16,"tilesets":[{"firstgid":1,"name":"t","columns":1,"tiles":[{"id":0,"animation":[{"tileid":0,"duration":-10}]}]}]}`},
 	} {

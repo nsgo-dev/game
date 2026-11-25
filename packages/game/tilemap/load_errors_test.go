@@ -21,7 +21,8 @@ func TestLoadTiledErrorsNameFileLineAndFix(t *testing.T) {
 		{"property", `{` + base + `, "properties": [{"name": "n", "type": "int", "value": "x"}]}`, "properties[0].value"},
 		{"tile animation", `{` + base + `, "tilesets": [{"firstgid": 1, "tiles": [{"id": 0, "animation": [{"tileid": 0, "duration": -5}]}]}]}`, "tilesets[0].tiles[0].animation[0].duration"},
 		{"layer data length", `{` + base + `, "layers": [{"type": "tilelayer", "name": "g", "data": [1]}]}`, "layers[0].data"},
-		{"compressed layer", `{` + base + `, "layers": [{"type": "tilelayer", "name": "g", "encoding": "base64"}]}`, "layers[0].encoding"},
+		{"zstd layer", `{` + base + `, "layers": [{"type": "tilelayer", "name": "g", "encoding": "base64", "compression": "zstd", "data": "AAAA"}]}`, "layers[0].compression"},
+		{"unknown encoding", `{` + base + `, "layers": [{"type": "tilelayer", "name": "g", "encoding": "bogus"}]}`, "layers[0].encoding"},
 		{"nested object property", `{` + base + `, "layers": [{"type": "group", "layers": [{"type": "objectgroup", "objects": [{"id": 1, "properties": [{"name": "b", "type": "bool", "value": 3}]}]}]}]}`, "layers[0].layers[0].objects[0].properties[0].value"},
 		{"chunk size", `{` + base + `, "infinite": true, "layers": [{"type": "tilelayer", "chunks": [{"x": 0, "y": 0, "width": 0, "height": 16, "data": []}]}]}`, "layers[0].chunks[0]"},
 	}
