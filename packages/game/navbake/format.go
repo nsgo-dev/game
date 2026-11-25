@@ -157,8 +157,12 @@ func (p Polygon) validate() error {
 		return errors.New("is wound clockwise, want counter-clockwise in a y-up frame")
 	}
 	for i, a := range p {
-		b := p[(i+1)%n]
+		next := (i + 1) % n
+		b := p[next]
 		for k, c := range p {
+			if k == i || k == next {
+				continue
+			}
 			if cross(a, b, c) < 0 {
 				return fmt.Errorf("is not convex: vertex %d lies right of edge %d", k, i)
 			}
@@ -168,8 +172,11 @@ func (p Polygon) validate() error {
 }
 
 // cross returns twice the signed area of triangle (a, b, c), positive when a->b->c turns counter-clockwise in a y-up frame.
+// Explicit float64 conversions disable FMA contraction so arm64 and amd64 agree on collinear vertices.
 func cross(a, b, c core.Point) float64 {
-	return (float64(b.X)-float64(a.X))*(float64(c.Y)-float64(a.Y)) - (float64(b.Y)-float64(a.Y))*(float64(c.X)-float64(a.X))
+	p := float64((float64(b.X) - float64(a.X)) * (float64(c.Y) - float64(a.Y)))
+	q := float64((float64(b.Y) - float64(a.Y)) * (float64(c.X) - float64(a.X)))
+	return p - q
 }
 
 func finite(v core.Points) bool {

@@ -212,63 +212,63 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 						},
 					},
 					ui.HStack{Gap: 6, Children: fileButtons},
-					ui.Toolbar{
-						Label: "Editor Tools",
+				},
+			},
+			ui.Toolbar{
+				Label: "Editor Tools",
+				Children: []core.Node{
+					ui.ToolbarGroup{
+						Label: "View Mode",
 						Children: []core.Node{
-							ui.ToolbarGroup{
-								Label: "View Mode",
+							viewModeBtn("view-mode-2d", "2D", ViewMode2D),
+							viewModeBtn("view-mode-3d", "3D", ViewMode3D),
+						},
+					},
+					core.Show{
+						When: func() bool {
+							_ = rev.Get()
+							return ed.ViewMode == ViewMode3D
+						},
+						Then: func(cx *core.Scope) core.Node {
+							return ui.ToolbarGroup{
+								Label: "3D Gizmo",
 								Children: []core.Node{
-									viewModeBtn("view-mode-2d", "2D", ViewMode2D),
-									viewModeBtn("view-mode-3d", "3D", ViewMode3D),
+									gizmoBtn("gizmo-translate", "Translate", Gizmo3DTranslate),
+									gizmoBtn("gizmo-rotate", "Rotate", Gizmo3DRotate),
+									gizmoBtn("gizmo-scale", "Scale", Gizmo3DScale),
 								},
-							},
-							core.Show{
-								When: func() bool {
-									_ = rev.Get()
-									return ed.ViewMode == ViewMode3D
+							}
+						},
+						Else: func(cx *core.Scope) core.Node {
+							return ui.ToolbarGroup{
+								Label: "Tools",
+								Children: []core.Node{
+									toolBtn("tool-select", "Select", ToolSelect),
+									toolBtn("tool-move", "Move", ToolMove),
+									toolBtn("tool-place", "Place", ToolPlace),
+									toolBtn("tool-paint", "Paint", ToolPaintTile),
+									toolBtn("tool-erase", "Erase", ToolEraseTile),
+									toolBtn("tool-fill", "Fill", ToolFillTile),
 								},
-								Then: func(cx *core.Scope) core.Node {
-									return ui.ToolbarGroup{
-										Label: "3D Gizmo",
-										Children: []core.Node{
-											gizmoBtn("gizmo-translate", "Translate", Gizmo3DTranslate),
-											gizmoBtn("gizmo-rotate", "Rotate", Gizmo3DRotate),
-											gizmoBtn("gizmo-scale", "Scale", Gizmo3DScale),
-										},
-									}
-								},
-								Else: func(cx *core.Scope) core.Node {
-									return ui.ToolbarGroup{
-										Label: "Tools",
-										Children: []core.Node{
-											toolBtn("tool-select", "Select", ToolSelect),
-											toolBtn("tool-move", "Move", ToolMove),
-											toolBtn("tool-place", "Place", ToolPlace),
-											toolBtn("tool-paint", "Paint", ToolPaintTile),
-											toolBtn("tool-erase", "Erase", ToolEraseTile),
-											toolBtn("tool-fill", "Fill", ToolFillTile),
-										},
-									}
-								},
-							},
-							core.Show{
-								When: func() bool {
-									_ = rev.Get()
-									return ed.ViewMode == ViewMode2D
-								},
-								Then: func(cx *core.Scope) core.Node {
-									return pluginToolsView(cx, ed, rev, notPlaying)
-								},
-							},
-							core.Show{
-								When: func() bool {
-									_ = rev.Get()
-									return ed.ViewMode == ViewMode2D
-								},
-								Then: func(cx *core.Scope) core.Node {
-									return view2DToolsView(cx, ed, notPlaying)
-								},
-							},
+							}
+						},
+					},
+					core.Show{
+						When: func() bool {
+							_ = rev.Get()
+							return ed.ViewMode == ViewMode2D
+						},
+						Then: func(cx *core.Scope) core.Node {
+							return pluginToolsView(cx, ed, rev, notPlaying)
+						},
+					},
+					core.Show{
+						When: func() bool {
+							_ = rev.Get()
+							return ed.ViewMode == ViewMode2D
+						},
+						Then: func(cx *core.Scope) core.Node {
+							return view2DToolsView(cx, ed, notPlaying)
 						},
 					},
 				},
