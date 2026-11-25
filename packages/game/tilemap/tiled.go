@@ -261,6 +261,16 @@ func buildTileset(m *Tilemap, firstGID uint32, raw tiledTileset, baseDir string,
 	}
 
 	for ti, tile := range raw.Tiles {
+		if tile.Probability != nil {
+			p := *tile.Probability
+			if p < 0 || math.IsNaN(p) || math.IsInf(p, 0) {
+				return nil, loaderr.Errorf(loaderr.Path("tiles", ti, "probability"), "give the tile a probability of 0 or more in Tiled", "tile %d has invalid probability %v", tile.ID, p)
+			}
+			if ts.TileProbabilities == nil {
+				ts.TileProbabilities = make(map[uint32]float64)
+			}
+			ts.TileProbabilities[tile.ID] = p
+		}
 		if len(tile.Properties) > 0 {
 			tp, err := parseProperties(tile.Properties)
 			if err != nil {
@@ -309,7 +319,145 @@ func buildTileset(m *Tilemap, firstGID uint32, raw tiledTileset, baseDir string,
 			}
 		}
 	}
+	if len(raw.WangSets) > 0 {
+		wsets, err := parseTiledWangSets(raw.WangSets, firstGID, ts.TileProbabilities)
+		if err != nil {
+			return nil, err
+		}
+		ts.WangSets = wsets
+	}
 	return ts, nil
+}
+
+func parseTiledWangSets(raw []tiledWangSet, firstGID uint32, tileProbs map[uint32]float64) ([]WangSet, error) {
+	out := make([]WangSet, len(raw))
+	for wi, rws := range raw {
+		typ, err := parseTiledWangSetType(rws.Type)
+		if err != nil {
+			return nil, &loaderr.Error{
+				Field:    loaderr.Path("wangsets", wi, "type"),
+				Problem:  err.Error(),
+				Expected: `"corner", "edge" or "mixed"`,
+				Fix:      "set the Wang set type to corner, edge or mixed in Tiled",
+				Err:      err,
+			}
+		}
+		if len(rws.Colors) > 255 {
+			return nil, loaderr.Errorf(loaderr.Path("wangsets", wi, "colors"), "keep a Wang set to at most 255 colors in Tiled", "wang set %q has %d colors (max 255)", rws.Name, len(rws.Colors))
+		}
+		wsProps, err := parseProperties(rws.Properties)
+		if err != nil {
+			return nil, nest(err, loaderr.Path("wangsets", wi, "properties"))
+		}
+		wsTile := -1
+		if rws.Tile != nil {
+			wsTile = *rws.Tile
+		}
+		colors := make([]WangColor, len(rws.Colors))
+		for ci, rc := range rws.Colors {
+			var col core.Color
+			if rc.Color != "" {
+				parsed, ok := parseTiledColor(rc.Color)
+				if !ok {
+					return nil, &loaderr.Error{
+						Field:    loaderr.Path("wangsets", wi, "colors", ci, "color"),
+						Problem:  fmt.Sprintf("wang color %q has invalid color %q", rc.Name, rc.Color),
+						Expected: "#RRGGBB or #AARRGGBB",
+						Fix:      "set a valid hex color on the terrain in Tiled",
+					}
+				}
+				col = parsed
+			}
+			prob := 1.0
+			zeroProb := false
+			if rc.Probability != nil {
+				p := *rc.Probability
+				if p < 0 || math.IsNaN(p) || math.IsInf(p, 0) {
+					return nil, loaderr.Errorf(loaderr.Path("wangsets", wi, "colors", ci, "probability"), "give the terrain a probability of 0 or more in Tiled", "wang color %q has invalid probability %v", rc.Name, p)
+				}
+				prob = p
+				zeroProb = p == 0
+			}
+			cProps, err := parseProperties(rc.Properties)
+			if err != nil {
+				return nil, nest(err, loaderr.Path("wangsets", wi, "colors", ci, "properties"))
+			}
+			cTile := -1
+			if rc.Tile != nil {
+				cTile = *rc.Tile
+			}
+			colors[ci] = WangColor{
+				Name:            rc.Name,
+				Color:           col,
+				Tile:            cTile,
+				Probability:     prob,
+				Class:           rc.Class,
+				Properties:      cProps,
+				zeroProbability: zeroProb,
+			}
+		}
+
+		wtiles := make([]WangTile, len(rws.WangTiles))
+		for wti, rwt := range rws.WangTiles {
+			if len(rwt.WangID) != 8 {
+				return nil, &loaderr.Error{
+					Field:    loaderr.Path("wangsets", wi, "wangtiles", wti, "wangid"),
+					Problem:  fmt.Sprintf("wang tile %d has %d wangid entries", rwt.TileID, len(rwt.WangID)),
+					Expected: "8 entries [Top, TopRight, Right, BottomRight, Bottom, BottomLeft, Left, TopLeft]",
+					Fix:      "export the tileset again from Tiled so each wangtile has an 8-element wangid",
+				}
+			}
+			var wid WangID
+			for si, v := range rwt.WangID {
+				if v < 0 || v > 255 {
+					return nil, loaderr.Errorf(loaderr.Path("wangsets", wi, "wangtiles", wti, "wangid"), "use terrain color indices between 0 and 255 in Tiled", "wang tile %d wangid[%d] = %d is out of range 0..255", rwt.TileID, si, v)
+				}
+				if len(colors) > 0 && v > len(colors) {
+					return nil, loaderr.Errorf(loaderr.Path("wangsets", wi, "wangtiles", wti, "wangid"), "keep every wangid index within the Wang set's colors list in Tiled", "wang tile %d wangid[%d] = %d exceeds %d colors", rwt.TileID, si, v, len(colors))
+				}
+				wid[si] = uint8(v)
+			}
+			prob := 1.0
+			zeroProb := false
+			if tileProbs != nil {
+				if p, ok := tileProbs[rwt.TileID]; ok {
+					prob = p
+					zeroProb = p == 0
+				}
+			}
+			wtiles[wti] = WangTile{
+				TileID:          rwt.TileID,
+				WangID:          wid,
+				Probability:     prob,
+				zeroProbability: zeroProb,
+			}
+		}
+
+		out[wi] = WangSet{
+			Name:       rws.Name,
+			Type:       typ,
+			Tile:       wsTile,
+			Class:      rws.Class,
+			FirstGID:   firstGID,
+			Colors:     colors,
+			WangTiles:  wtiles,
+			Properties: wsProps,
+		}
+	}
+	return out, nil
+}
+
+func parseTiledWangSetType(s string) (WangSetType, error) {
+	switch s {
+	case "corner":
+		return WangCorner, nil
+	case "edge":
+		return WangEdge, nil
+	case "mixed":
+		return WangMixed, nil
+	default:
+		return 0, fmt.Errorf("tilemap: tiled: wang set type %q is not supported", s)
+	}
 }
 
 func flagsFromProperties(p Properties) TileFlags {
@@ -873,6 +1021,7 @@ type tiledTileset struct {
 	Margin     float32         `json:"margin"`
 	Properties []tiledProperty `json:"properties"`
 	Tiles      []tiledTile     `json:"tiles"`
+	WangSets   []tiledWangSet  `json:"wangsets"`
 	line       int
 	col        int
 	imageLine  int
@@ -880,15 +1029,40 @@ type tiledTileset struct {
 }
 
 type tiledTile struct {
-	ID         uint32               `json:"id"`
-	Type       string               `json:"type"`
-	Class      string               `json:"class"`
-	Properties []tiledProperty      `json:"properties"`
-	Animation  []tiledAnimFrameJSON `json:"animation"`
-	line       int
-	col        int
+	ID          uint32               `json:"id"`
+	Type        string               `json:"type"`
+	Class       string               `json:"class"`
+	Probability *float64             `json:"probability"`
+	Properties  []tiledProperty      `json:"properties"`
+	Animation   []tiledAnimFrameJSON `json:"animation"`
+	line        int
+	col         int
 	// ObjectGroup is the tile's collision shapes from Tiled's collision editor.
 	ObjectGroup *tiledLayer `json:"objectgroup"`
+}
+
+type tiledWangSet struct {
+	Name       string           `json:"name"`
+	Type       string           `json:"type"`
+	Class      string           `json:"class"`
+	Tile       *int             `json:"tile"`
+	Colors     []tiledWangColor `json:"colors"`
+	WangTiles  []tiledWangTile  `json:"wangtiles"`
+	Properties []tiledProperty  `json:"properties"`
+}
+
+type tiledWangColor struct {
+	Name        string          `json:"name"`
+	Color       string          `json:"color"`
+	Tile        *int            `json:"tile"`
+	Probability *float64        `json:"probability"`
+	Class       string          `json:"class"`
+	Properties  []tiledProperty `json:"properties"`
+}
+
+type tiledWangTile struct {
+	TileID uint32 `json:"tileid"`
+	WangID []int  `json:"wangid"`
 }
 
 type tiledAnimFrameJSON struct {

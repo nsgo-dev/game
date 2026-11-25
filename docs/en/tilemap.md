@@ -57,7 +57,7 @@ Passing `cam` to `m.Draw(d, cam)` or `m.DrawLayer(d, layer, cam)` visits only th
 
 ## Loading Tiled maps
 
-`LoadTiled` parses Tiled XML (`.tmx`) and JSON (`.tmj`) maps into the same `*Tilemap`, auto-detecting the format from the input bytes. It supports embedded and external `.tsx`/`.tsj` tilesets (including cross-format references such as a `.tmx` map using a `.tsj` tileset or a `.tmj` map using a `.tsx` tileset), CSV, legacy XML `<tile>`, and base64 tile data (uncompressed, `zlib`, and `gzip`) on both finite layers and infinite-map chunks, image layers, nested group layers, GID flip bits (`FlipHorizontal`, `FlipVertical`, `FlipDiagonal`), object layers, typed custom properties, animated tiles, and the collision shapes drawn on tiles in Tiled's collision editor. `zstd` compression is refused with a `*loaderr.Error` pointing at the file, line, and fix hint.
+`LoadTiled` parses Tiled XML (`.tmx`) and JSON (`.tmj`) maps into the same `*Tilemap`, auto-detecting the format from the input bytes. It supports embedded and external `.tsx`/`.tsj` tilesets (including cross-format references such as a `.tmx` map using a `.tsj` tileset or a `.tmj` map using a `.tsx` tileset), CSV, legacy XML `<tile>`, and base64 tile data (uncompressed, `zlib`, and `gzip`) on both finite layers and infinite-map chunks, image layers, nested group layers, Tiled Wang sets (`wangsets`) and per-tile probabilities, GID flip bits (`FlipHorizontal`, `FlipVertical`, `FlipDiagonal`), object layers, typed custom properties, animated tiles, and the collision shapes drawn on tiles in Tiled's collision editor. `zstd` compression is refused with a `*loaderr.Error` pointing at the file, line, and fix hint.
 
 ```go
 //go:embed resources/maps/*.tmx resources/maps/*.tsx
@@ -115,6 +115,27 @@ for _, ground := range m.ObjectLayer("collision").PhysicsBodies() {
 
 A missing layer returns no bodies. Like the objects themselves, the bodies are in the map's local coordinates; for a map placed by `Origin`, move each shape with `ground.Shape.Translated(float32(m.Origin.X), float32(m.Origin.Y))`.
 
+## Tiled Wang sets and multi-terrain autotiling
+
+`LoadTiled` parses Tiled `wangsets` (`corner`, `edge`, and `mixed`) from embedded `.tmj` and external `.tsj` tilesets into `Tileset.WangSets`, together with each terrain color (`WangColor`: `Name`, `Color`, `Tile`, `Probability`, `Properties`), each tile's 8-slot clockwise `WangID` (`[Top, TopRight, Right, BottomRight, Bottom, BottomLeft, Left, TopLeft]`), and per-tile selection weights (`Tileset.TileProbabilities` / `Tileset.TileProbability`).
+
+Use `m.SetTerrain` and `m.SetTerrainRect` to paint multi-terrain transitions (such as grass, dirt, water, and cliffs) with Tiled's terrain brush semantics across orthogonal and isometric maps as well as dense and sparse chunked layers:
+
+```go
+ws := m.WangSet("Terrains") // or ts.WangSet("Terrains") / ts.WangSetAt(0)
+grass, _ := ws.ColorIndex("Grass")
+dirt, _ := ws.ColorIndex("Dirt")
+water, _ := ws.ColorIndex("Water")
+
+rng := random.New(42)
+m.SetTerrainRect(0, 0, 0, m.Width, m.Height, ws, grass, rng)
+m.SetTerrain(0, 4, 3, ws, dirt, rng)
+m.SetTerrainRect(0, 6, 2, 3, 3, ws, water, rng)
+```
+
+- **Corner, edge, and mixed sets**: `WangCorner` matches the four tile corners, `WangEdge` matches the four tile edges, and `WangMixed` matches all eight slots. Existing neighbors whose shared corners or edges change are updated automatically, including multi-hop transitions (for example creating a dirt shoreline ring when painting water onto grass in a tileset without direct grass-to-water tiles).
+- **Deterministic probability selection**: when multiple tiles tie for the best match, `SetTerrain` and `SetTerrainRect` choose weighted by tile probability from `*random.Stream` (or any `TerrainRand`, so the same seed always picks the same variants). Pass `rng == nil` for deterministic lowest-`TileID` selection.
+- **Code-defined blobs**: `AutotileSet`, `ApplyAutotile`, and `SetAutotile` remain available for code-defined 4-bit (16-tile) and 8-bit corner-gated (47-tile) single-terrain blobs.
 ## Animated tiles
 
 Tiled tile animations load into `Tileset.Animations`, keyed by 0-based local tile ID. Call `m.Update(dt)` on every `game.Loop.Update` step to advance all animated tiles cleanly across cycles:
