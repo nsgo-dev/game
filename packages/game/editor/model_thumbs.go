@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"image"
 	"math"
+	"os"
+	"path/filepath"
 	"strconv"
 	"sync"
 
@@ -49,7 +51,7 @@ type modelThumbs struct {
 	onReady func()
 }
 
-// ModelThumbnail returns a picture of m, ModelThumbnailSize pixels square: its geometry framed from above, in front and to the right, lit by DefaultLights3D on a transparent background. Thumbnails render off the UI goroutine, through scenemodel on NSGo's software GPU (gpu.SoftwareRenderer), so the first call for a model returns nil and no error and starts rendering it, and the asset browser redraws when it is ready. It returns an error when m's model does not load or draws no geometry. The thumbnails are kept until the open project changes or its built assets reload (ReloadAssets).
+// ModelThumbnail returns a picture of m, ModelThumbnailSize pixels square: its geometry framed from above, in front and to the right, lit by DefaultLights3D on a transparent background. The first call for a model loads it on the calling goroutine, the UI goroutine, as everything the Resolver serves loads, and leaves the rendering, through scenemodel on NSGo's software GPU (gpu.SoftwareRenderer), to a worker goroutine: it returns nil and no error, and the asset browser redraws when the picture is ready. The model loads apart from the 3D build's cache, which keeps only what the scene uses. It returns an error when m's model does not load or draws no geometry. The thumbnails are kept until the open project changes or its built assets reload (ReloadAssets).
 func (e *Editor) ModelThumbnail(m ModelEntry) (*image.RGBA, error) {
 	if e == nil {
 		return nil, errors.New("editor: nil editor")
@@ -72,8 +74,12 @@ func (e *Editor) ModelThumbnail(m ModelEntry) (*image.RGBA, error) {
 	gen := t.gen
 	t.mu.Unlock()
 
-	// The model loads here, on the UI goroutine, as everything the Resolver serves does; only the rendering runs on the worker.
-	built, bounds, err := e.buildModel3D(m)
+	// The model loads here, on the UI goroutine, as everything the Resolver serves does; only the rendering runs on the worker. It loads through files of its own rather than the 3D build's cache, so browsing the list keeps no model the scene does not use, and they are dropped with the build once the thumbnail is rendered.
+	assets := scene3DAssets{resolver: e.Resolver}
+	if e.ProjectPath != "" {
+		assets.files = scenemodel.NewAssets(os.DirFS(filepath.Dir(e.ProjectPath)))
+	}
+	built, bounds, err := buildModelWith3D(m, assets)
 	if err == nil && bounds.Empty() {
 		err = fmt.Errorf("editor: %s draws no geometry", m.Key())
 	}

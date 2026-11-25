@@ -245,13 +245,18 @@ func (e *Editor) ProjectFiles() ([]ProjectFile, error) {
 		if p == "." {
 			return nil
 		}
-		if name := d.Name(); d.IsDir() && (strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") || name == "testdata") {
+		if d.IsDir() && skippedProjectDir(d.Name()) {
 			return fs.SkipDir
 		}
 		out = append(out, ProjectFile{Path: p, Dir: d.IsDir()})
 		return nil
 	})
 	return out, err
+}
+
+// skippedProjectDir reports whether ProjectFiles leaves out a directory named name, with what it holds, as refs.Scan does: one whose name starts with "." or "_", or one named testdata.
+func skippedProjectDir(name string) bool {
+	return strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") || name == "testdata"
 }
 
 // moveProjectPaths applies move to every path f holds to a file or folder of the project: the autoload entries and the assets section's targets, as refs rewrites them on disk.

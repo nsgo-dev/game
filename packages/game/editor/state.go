@@ -210,7 +210,7 @@ type Editor struct {
 	SelectedModel *ModelEntry
 	// PlaceHeight3D is the height of the ground plane, the horizontal plane the Place tool puts a model on in 3D where the pointer's ray hits no geometry (PlacementAt3D).
 	PlaceHeight3D float32
-	// PlaceSnap3D snaps where the Place tool puts a model in 3D to the 3D grid's spacing along X and Z.
+	// PlaceSnap3D snaps where the Place tool puts a model on the ground plane in 3D to the 3D grid's spacing along X and Z; a model placed on the scene's geometry stays where the pointer's ray hits it (PlacementAt3D).
 	PlaceSnap3D bool
 	// PlaceAlign3D turns a model the Place tool puts on the scene's geometry in 3D so that its +Y axis follows the surface's normal.
 	PlaceAlign3D bool

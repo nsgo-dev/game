@@ -162,7 +162,7 @@ type Placement3D struct {
 	OnSurface bool
 }
 
-// PlacementAt3D returns where the Place tool puts a model for viewport pixel (sx, sy) of a viewport w by h: the nearest point where the camera's ray through the pixel (ScreenRay) hits the scene's geometry, passing over the objects hidden or locked in the editor as picking does, or where it crosses the ground plane, the horizontal plane at PlaceHeight3D, when it hits none. With PlaceSnap3D the point's X and Z snap to the 3D grid's spacing, which follows the camera's distance as the grid the viewport draws does. It reports false when the ray hits no geometry and runs parallel to the ground plane or away from it.
+// PlacementAt3D returns where the Place tool puts a model for viewport pixel (sx, sy) of a viewport w by h: the nearest point where the camera's ray through the pixel (ScreenRay) hits the scene's geometry, passing over the objects hidden or locked in the editor as picking does, or where it crosses the ground plane, the horizontal plane at PlaceHeight3D, when it hits none. With PlaceSnap3D a point on the ground plane has its X and Z snapped to the 3D grid's spacing, which follows the camera's distance as the grid the viewport draws does; a point on the scene's geometry is not snapped, since the grid's spacing can far exceed the object under the pointer and a snapped point would leave its surface. It reports false when the ray hits no geometry and runs parallel to the ground plane or away from it.
 func (e *Editor) PlacementAt3D(sx, sy, w, h float32) (Placement3D, bool) {
 	if e == nil || e.Doc == nil || !(w > 0 && h > 0) || !isFiniteFloat32(sx) || !isFiniteFloat32(sy) {
 		return Placement3D{}, false
@@ -190,12 +190,11 @@ func (e *Editor) PlacementAt3D(sx, sy, w, h float32) (Placement3D, bool) {
 		}
 		at := add64(orig, scale64(dir, t))
 		at[1] = height
+		if e.PlaceSnap3D {
+			step, _ := e.gridStep3D()
+			at[0], at[2] = float64(snapTo(float32(at[0]), step)), float64(snapTo(float32(at[2]), step))
+		}
 		p = Placement3D{Point: vec32(at), Normal: [3]float32{0, 1, 0}}
-	}
-	if e.PlaceSnap3D {
-		step, _ := e.gridStep3D()
-		p.Point[0] = snapTo(p.Point[0], step)
-		p.Point[2] = snapTo(p.Point[2], step)
 	}
 	return p, true
 }
@@ -228,7 +227,7 @@ func (e *Editor) rayGeometry3D(s *scene3DState, orig, dir [3]float64) (scene3d.R
 	return scene3d.RayHit{}, "", false
 }
 
-// modelAssets3D returns what the 3D build loads models, material files and images through: the editor's Resolver when it can, and the open project's files otherwise, sharing the 3D build's cache of them while it is current. It does not build the scene, so the asset browser's thumbnails cost a 2D session no 3D build.
+// modelAssets3D returns what the 3D build loads models, material files and images through: the editor's Resolver when it can, and the open project's files otherwise, sharing the 3D build's cache of them while it is current. It does not build the scene, so checking a model for SetObjectModel costs a 2D session no 3D build.
 func (e *Editor) modelAssets3D() scene3DAssets {
 	s := &e.s3d
 	files := s.files
@@ -241,8 +240,13 @@ func (e *Editor) modelAssets3D() scene3DAssets {
 	return scene3DAssets{resolver: e.Resolver, files: files}
 }
 
-// buildModel3D builds m alone, drawn by one object at the origin with no transform, through the 3D build's assets, and returns the build and the bounds of its geometry in the object's space. It fails when m's model does not load.
+// buildModel3D builds m alone, drawn by one object at the origin with no transform, through the 3D build's assets (modelAssets3D), and returns the build and the bounds of its geometry in the object's space. It fails when m's model does not load.
 func (e *Editor) buildModel3D(m ModelEntry) (*scenemodel.Built, math3d.AABB, error) {
+	return buildModelWith3D(m, e.modelAssets3D())
+}
+
+// buildModelWith3D builds m alone as buildModel3D does, loading through assets.
+func buildModelWith3D(m ModelEntry, assets scene3DAssets) (*scenemodel.Built, math3d.AABB, error) {
 	if err := m.valid(); err != nil {
 		return nil, math3d.AABB{}, err
 	}
@@ -253,7 +257,7 @@ func (e *Editor) buildModel3D(m ModelEntry) (*scenemodel.Built, math3d.AABB, err
 		Layers:  []sceneformat.LayerDoc{{Name: "model", Objects: []sceneformat.ObjectDoc{obj}}},
 	}
 	world := scene3d.NewScene()
-	built, err := scenemodel.Build(doc, world.Root(), e.modelAssets3D())
+	built, err := scenemodel.Build(doc, world.Root(), assets)
 	if err != nil {
 		return nil, math3d.AABB{}, err
 	}
@@ -270,7 +274,7 @@ func alignUp3D(n [3]float32) (rotX, rotZ float32) {
 	return float32(math.Asin(clamp64(nz, -1, 1))), float32(math.Atan2(-nx, ny))
 }
 
-// PlaceModel3D adds an object that draws m to the active layer as one undoable step, resting on p: the object is placed so that the bounds of its geometry touch p from the side the surface faces (Placement3D.Normal), raised along the normal by how far the geometry reaches below its origin, so a unit box on the ground sits on it rather than half under it. With PlaceAlign3D and p on the scene's geometry, the object turns so that its +Y axis follows the surface's normal. The object is named after m (ModelEntry.Name), gets a new ID from it and is selected; placing a model in a version 1 scene raises it to version 2, as PlaceObject does. It returns the new object's ID.
+// PlaceModel3D adds an object that draws m to the active layer as one undoable step, resting on p: the object is placed so that the bounds of its geometry touch p from the side the surface faces (Placement3D.Normal), raised along the normal by how far the geometry reaches below its origin, so a unit box on the ground sits on it rather than half under it. With PlaceAlign3D and p on the scene's geometry, the object turns so that its +Y axis follows the surface's normal. The object is named after m (ModelEntry.Name), gets a new ID from it and is selected; placing a glTF model in a version 1 scene raises it to sceneformat.CurrentVersion, as PlaceObject does. It returns the new object's ID.
 //
 // It refuses while playing, when the active layer is locked (SetLayerLocked) or draws in screen space, and when m's model does not load.
 func (e *Editor) PlaceModel3D(m ModelEntry, p Placement3D) (string, error) {
@@ -336,7 +340,7 @@ func (e *Editor) PlaceModelAt3D(m ModelEntry, sx, sy, w, h float32) (string, err
 	return e.PlaceModel3D(m, p)
 }
 
-// DropModelFiles places the glTF files a drop from another app names (core.View.OnFileDrop's URLs) in the 3D viewport, as the Place tool would at viewport pixel (sx, sy) of a viewport w by h, all in one undoable step, and returns the new objects' IDs. Only .gltf and .glb files inside the open project's folder are placed, by their paths from its root; it fails without placing anything when a URL names no such file, such as a file outside the project, a file of another kind or a web drop, which names no path.
+// DropModelFiles places the glTF files a drop from another app names (core.View.OnFileDrop's URLs) in the 3D viewport, as the Place tool would at viewport pixel (sx, sy) of a viewport w by h, all in one undoable step, and returns the new objects' IDs. Only .gltf and .glb files inside the open project's folder, outside the folders ProjectFiles leaves out, are placed, by their paths from its root; it fails without placing anything when a URL names no such file, such as a file outside the project, a file of another kind or a web drop, which names no path.
 func (e *Editor) DropModelFiles(uris []string, sx, sy, w, h float32) ([]string, error) {
 	if e.playing {
 		return nil, ErrPlaying
@@ -383,7 +387,7 @@ func (e *Editor) DropModelFiles(uris []string, sx, sy, w, h float32) ([]string, 
 	return ids, nil
 }
 
-// projectFileOfURL returns the slash-separated path, from the open project's root, of the local file a dropped file's URL names, or an error when it names no local file inside the project.
+// projectFileOfURL returns the slash-separated path, from the open project's root, of the local file a dropped file's URL names, or an error when it names no local file inside the project or one in a folder ProjectFiles leaves out, so a dropped model is one the asset browser lists.
 func (e *Editor) projectFileOfURL(uri string) (string, error) {
 	f, err := core.FileFromURL(uri)
 	if err != nil {
@@ -404,10 +408,17 @@ func (e *Editor) projectFileOfURL(uri string) (string, error) {
 	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
 		return "", fmt.Errorf("editor: dropped file %s lies outside the project; copy it into the project first", f.Path)
 	}
-	return filepath.ToSlash(rel), nil
+	rel = filepath.ToSlash(rel)
+	dirs := strings.Split(rel, "/")
+	for _, d := range dirs[:len(dirs)-1] {
+		if skippedProjectDir(d) {
+			return "", fmt.Errorf("editor: dropped file %s lies in %s, a folder the project does not list (names starting with \".\" or \"_\", and testdata); move it to another folder of the project first", rel, d)
+		}
+	}
+	return rel, nil
 }
 
-// SetObjectModel names the glTF model object id draws in 3D, by its slash-separated path from the project root, such as "models/crate.glb", or with an empty path names none, as one undoable step. A named model must load through the 3D build's assets (the Resolver when it is a scenemodel.ModelResolver, the project's files otherwise). Changing the model clears the object's modelNode and modelMesh, which name parts of the model it drew; naming a model in a version 1 scene raises it to version 2. It refuses a model on an object that draws a built-in primitive, as SetObjectMesh refuses the reverse.
+// SetObjectModel names the glTF model object id draws in 3D, by its slash-separated path from the project root, such as "models/crate.glb", or with an empty path names none, as one undoable step. A named model must load through the 3D build's assets (the Resolver when it is a scenemodel.ModelResolver, the project's files otherwise). Changing the model clears the object's modelNode and modelMesh, which name parts of the model it drew; naming a model in a version 1 scene raises it to version 2, the first that has models, which Undo restores. It refuses a model on an object that draws a built-in primitive, as SetObjectMesh refuses the reverse.
 func (e *Editor) SetObjectModel(id, model string) error {
 	if e.playing {
 		return ErrPlaying
@@ -444,7 +455,10 @@ func (e *Editor) SetObjectModel(id, model string) error {
 // objectModel is what an object's model fields hold.
 type objectModel struct{ model, node, mesh string }
 
-// modelObjectCmd sets an object's model, with its modelNode and modelMesh, and raises a version 1 scene to the version that has models.
+// modelsVersion is the first scene format version whose objects can draw glTF models (sceneformat.ObjectDoc.Model).
+const modelsVersion = 2
+
+// modelObjectCmd sets an object's model, with its modelNode and modelMesh, and raises a version 1 scene to modelsVersion.
 type modelObjectCmd struct {
 	ed          *Editor
 	id          string
@@ -457,8 +471,8 @@ func (c *modelObjectCmd) Label() string { return "Set model of " + c.id }
 func (c *modelObjectCmd) Do() {
 	if obj, _, _ := c.ed.FindObject(c.id); obj != nil {
 		obj.Model, obj.ModelNode, obj.ModelMesh = c.new.model, c.new.node, c.new.mesh
-		if c.new.model != "" && c.ed.Doc.Version < sceneformat.CurrentVersion {
-			c.ed.Doc.Version = sceneformat.CurrentVersion
+		if c.new.model != "" && c.ed.Doc.Version < modelsVersion {
+			c.ed.Doc.Version = modelsVersion
 		}
 		c.ed.Status = c.Label()
 	}
