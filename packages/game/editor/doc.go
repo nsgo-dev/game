@@ -14,5 +14,6 @@
 //   - A file browser that lists the open project's files and moves or renames them with every reference to them rewritten, on disk and in the open scene and project, as one undoable step (ProjectFiles, MoveFile through package refs, FilesView).
 //   - An audio bus mixer over game.yaml's audio section with undoable bus and effect-chain editing and live audition through sound.Mixer (AudioMixerPanelView, AddAudioBus, AddAudioBusEffect, AuditionAudioBus).
 //   - A Problems panel that runs assetcheck.CheckWith (with the editor's component registry) and project.Check over the open project off the UI goroutine on open, save and file move, shows one row per problem with file, line and message, navigates to scenes or selects files on press, and displays the live problem count in the status bar (CheckProblems, Problems, OpenProblem, ProblemsView).
-//   - A native NSGo UI root view (EditorView) combining toolbar, asset browser, file browser, interactive canvas viewport, property inspector, problems panel and the plugins' panels.
+//   - An Export & Release panel over game.yaml's export section with undoable preset and target editing, pre-flight asset credits verification, streaming dry-run and release builds, and automatic output folder opening (ExportPanelView, AddExportPreset, CheckExportCredits, StartExportBuild).
+//   - A native NSGo UI root view (EditorView) combining toolbar, asset browser, file browser, interactive canvas viewport, property inspector, problems panel, export panel and the plugins' panels.
 package editor

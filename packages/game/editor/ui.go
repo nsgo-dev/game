@@ -28,6 +28,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 		unsub()
 		ed.stopClipLoop()
 		ed.cleanupAudioMixerScope(cx)
+		ed.stopExportBuild()
 		if ed.Playing() {
 			_ = ed.Stop()
 		}
@@ -63,6 +64,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 			AudioMixerPanelView(cx, ed, rev),
 			LocalizationPanelView(cx, ed, rev),
 			ProblemsView(cx, ed, rev),
+			ExportPanelView(cx, ed, rev),
 			statusBarView(cx, ed, rev),
 		},
 	}
@@ -154,6 +156,7 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 		TestID: "editor-toolbar",
 		Style: core.Style{
 			Direction:      core.Row,
+			Wrap:           core.Wrap,
 			AlignItems:     core.AlignCenter,
 			JustifyContent: core.JustifySpaceBetween,
 			Padding:        core.Symmetric(8, 12),
@@ -306,6 +309,22 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 							} else {
 								ed.report(ed.CloseLocalizations())
 							}
+						},
+					},
+					ui.ToggleButton{
+						TestID: "toolbar-export",
+						Text:   "Export",
+						Label:  "Toggle the Export & Release Build panel",
+						Disabled: func() bool {
+							_ = rev.Get()
+							return ed.Project == nil
+						},
+						On: func() bool {
+							_ = rev.Get()
+							return ed.ExportPanelOpen()
+						},
+						OnChange: func(on bool) {
+							ed.SetExportPanelOpen(on)
 						},
 					},
 					core.Show{
