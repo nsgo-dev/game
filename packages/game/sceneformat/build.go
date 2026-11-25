@@ -88,6 +88,15 @@ type BuiltLayer struct {
 	Order int
 	// Visible controls whether Draw renders this layer.
 	Visible bool
+	// ParallaxX and ParallaxY are the layer's horizontal and vertical parallax scroll factors, defaulting to 1.
+	ParallaxX float32
+	ParallaxY float32
+	// RepeatX and RepeatY report whether a world-space layer tiles horizontally or vertically across the camera's visible region.
+	RepeatX bool
+	RepeatY bool
+	// RepeatWidth and RepeatHeight are the horizontal and vertical repeat periods in layer points; when RepeatX or RepeatY is true and the document leaves a period 0, Build fills it from the layer's tilemap pixel size or the scene's virtual size.
+	RepeatWidth  float32
+	RepeatHeight float32
 	// Tilemap is the sprite batch for the layer's tilemap when it is a single grid of atlas frames (TilemapDoc.Tileset and Data), or nil.
 	Tilemap *sprite.Batch
 	// Map is the tilemap built from the layer's tilemap when it is a layered grid (TilemapDoc.TileLayers) or a Tiled or LDtk source, or nil. It holds the tileset's flags, properties, shapes, animations and terrains, so in the layer's coordinates it answers FlagsAt, TileProperties, TilesInRect and Raycast and serves tileshape.New; Draw draws only its tiles inside the view, and BuiltScene.Update animates them.
@@ -215,18 +224,37 @@ func Build(doc *SceneDoc, resolver AssetResolver) (*BuiltScene, error) {
 	for _, idx := range order {
 		ld := &doc.Layers[idx]
 		bl := &BuiltLayer{
-			Doc:     ld,
-			Name:    ld.Name,
-			Space:   ld.EffectiveSpace(),
-			Order:   ld.Order,
-			Visible: ld.IsVisible(),
-			Objects: make([]*BuiltObject, 0, len(ld.Objects)),
+			Doc:          ld,
+			Name:         ld.Name,
+			Space:        ld.EffectiveSpace(),
+			Order:        ld.Order,
+			Visible:      ld.IsVisible(),
+			ParallaxX:    ld.EffectiveParallaxX(),
+			ParallaxY:    ld.EffectiveParallaxY(),
+			RepeatX:      ld.RepeatX,
+			RepeatY:      ld.RepeatY,
+			RepeatWidth:  ld.RepeatWidth,
+			RepeatHeight: ld.RepeatHeight,
+			Objects:      make([]*BuiltObject, 0, len(ld.Objects)),
 		}
 
 		if ld.Tilemap != nil {
-			if err := tiles.build(bl, ld.Tilemap); err != nil {
+			tmW, tmH, err := tiles.build(bl, ld.Tilemap)
+			if err != nil {
 				return nil, err
 			}
+			if bl.RepeatX && bl.RepeatWidth == 0 {
+				bl.RepeatWidth = tmW
+			}
+			if bl.RepeatY && bl.RepeatHeight == 0 {
+				bl.RepeatHeight = tmH
+			}
+		}
+		if bl.RepeatX && bl.RepeatWidth == 0 {
+			bl.RepeatWidth = doc.VirtualWidth
+		}
+		if bl.RepeatY && bl.RepeatHeight == 0 {
+			bl.RepeatHeight = doc.VirtualHeight
 		}
 
 		var drawables []*BuiltObject
@@ -344,8 +372,8 @@ type tilemapBuilder struct {
 	tilesets map[string]*tilemap.TilesetDoc
 }
 
-// build builds layer bl's tilemap tm into bl.Tilemap or bl.Map.
-func (b *tilemapBuilder) build(bl *BuiltLayer, tm *TilemapDoc) error {
+// build builds layer bl's tilemap tm into bl.Tilemap or bl.Map and returns the tilemap's pixel width and height.
+func (b *tilemapBuilder) build(bl *BuiltLayer, tm *TilemapDoc) (float32, float32, error) {
 	resolved := tm
 	if resolved.IsRef() {
 		resolved = b.doc.Tilemaps[resolved.Ref]
@@ -356,39 +384,39 @@ func (b *tilemapBuilder) build(bl *BuiltLayer, tm *TilemapDoc) error {
 		if tr, ok := b.resolver.(TilemapResolver); ok && resolved.Level == "" {
 			loaded, err := tr.Tilemap(resolved.Source)
 			if err != nil {
-				return fmt.Errorf("sceneformat: %s: %w", where, err)
+				return 0, 0, fmt.Errorf("sceneformat: %s: %w", where, err)
 			}
 			if loaded == nil {
-				return fmt.Errorf("sceneformat: %s returned nil", where)
+				return 0, 0, fmt.Errorf("sceneformat: %s returned nil", where)
 			}
 			if err := validateInlineTilemap(nil, fmt.Sprintf("layer %q tilemap %q", bl.Name, resolved.Source), loaded); err != nil {
 				// The loaded grid is not part of the document, so its error keeps no path into it.
-				return err.(*FieldError).Err
+				return 0, 0, err.(*FieldError).Err
 			}
 			resolved = loaded
 		} else {
 			m, err := b.external(where, resolved)
 			if err != nil {
-				return err
+				return 0, 0, err
 			}
 			bl.Map = m
-			return nil
+			return float32(m.Width) * m.TileWidth, float32(m.Height) * m.TileHeight, nil
 		}
 	}
 	if resolved.IsLayered() {
 		m, err := b.layered(bl.Name, resolved)
 		if err != nil {
-			return err
+			return 0, 0, err
 		}
 		bl.Map = m
-		return nil
+		return float32(m.Width) * m.TileWidth, float32(m.Height) * m.TileHeight, nil
 	}
-	batch, err := buildTilemapBatch(bl.Name, resolved, b.getAtlas)
+	batch, w, h, err := buildTilemapBatch(bl.Name, resolved, b.getAtlas)
 	if err != nil {
-		return err
+		return 0, 0, err
 	}
 	bl.Tilemap = batch
-	return nil
+	return w, h, nil
 }
 
 // readFile reads the project file at p through the resolver's FileResolver.
@@ -502,10 +530,10 @@ func (b *tilemapBuilder) layered(layerName string, tm *TilemapDoc) (*tilemap.Til
 	return m, nil
 }
 
-func buildTilemapBatch(layerName string, resolved *TilemapDoc, getAtlas func(string) (*sprite.Atlas, error)) (*sprite.Batch, error) {
+func buildTilemapBatch(layerName string, resolved *TilemapDoc, getAtlas func(string) (*sprite.Atlas, error)) (*sprite.Batch, float32, float32, error) {
 	atlas, err := getAtlas(resolved.Tileset)
 	if err != nil {
-		return nil, fmt.Errorf("sceneformat: layer %q tilemap: %w", layerName, err)
+		return nil, 0, 0, fmt.Errorf("sceneformat: layer %q tilemap: %w", layerName, err)
 	}
 	sprites := make([]*sprite.Sprite, 0, len(resolved.Data))
 	for row := 0; row < resolved.Height; row++ {
@@ -517,7 +545,7 @@ func buildTilemapBatch(layerName string, resolved *TilemapDoc, getAtlas func(str
 			key := strconv.Itoa(gid)
 			frame, ok := atlas.Frames[key]
 			if !ok {
-				return nil, fmt.Errorf("sceneformat: layer %q tilemap tileset %q has no frame %q", layerName, resolved.Tileset, key)
+				return nil, 0, 0, fmt.Errorf("sceneformat: layer %q tilemap tileset %q has no frame %q", layerName, resolved.Tileset, key)
 			}
 			sp := sprite.NewSprite(frame)
 			sp.X = float32(col * resolved.TileWidth)
@@ -525,7 +553,7 @@ func buildTilemapBatch(layerName string, resolved *TilemapDoc, getAtlas func(str
 			sprites = append(sprites, &sp)
 		}
 	}
-	return &sprite.Batch{Atlas: atlas, Sprites: sprites}, nil
+	return &sprite.Batch{Atlas: atlas, Sprites: sprites}, float32(resolved.Width * resolved.TileWidth), float32(resolved.Height * resolved.TileHeight), nil
 }
 
 // groupSpriteBatches sorts drawables stably by Z and groups consecutive sprites sharing an atlas into sprite.Batch values, preserving exact Z order even across multiple atlases.
@@ -689,16 +717,28 @@ func (s *BuiltScene) drawWithCamera(d *core.Drawing, vw, vh float32, layer *Buil
 	zoom := cam.EffectiveZoom()
 	cx, cy := vw/2, vh/2
 	camX, camY := clampCamera(cam.X, cam.Y, vw, vh, zoom, cam.Bounds)
+	pcamX, pcamY := camX*layer.ParallaxX, camY*layer.ParallaxY
 
-	// Identity camera needs no Save/Restore wrapper.
-	if zoom == 1 && cam.Rotation == 0 && cx-camX == 0 && cy-camY == 0 {
-		drawLayer(d, layer, view)
+	layerView := view
+	if layerView != nil {
+		pview := *layerView
+		pview.X = pcamX
+		pview.Y = pcamY
+		layerView = &pview
+	}
+	minCol, maxCol, minRow, maxRow, rx, ry := repeatRanges(pcamX, pcamY, vw, vh, zoom, cam.Rotation, layer.RepeatX, layer.RepeatY, layer.RepeatWidth, layer.RepeatHeight)
+
+	// Identity camera without repeat needs no Save/Restore wrapper.
+	if zoom == 1 && cam.Rotation == 0 && cx-pcamX == 0 && cy-pcamY == 0 && !rx && !ry {
+		drawLayer(d, layer, layerView)
 		return
 	}
 
 	d.Save()
 	if zoom == 1 && cam.Rotation == 0 {
-		d.Translate(cx-camX, cy-camY)
+		if cx-pcamX != 0 || cy-pcamY != 0 {
+			d.Translate(cx-pcamX, cy-pcamY)
+		}
 	} else {
 		if cx != 0 || cy != 0 {
 			d.Translate(cx, cy)
@@ -709,12 +749,85 @@ func (s *BuiltScene) drawWithCamera(d *core.Drawing, vw, vh float32, layer *Buil
 		if cam.Rotation != 0 {
 			d.Rotate(-cam.Rotation)
 		}
-		if camX != 0 || camY != 0 {
-			d.Translate(-camX, -camY)
+		if pcamX != 0 || pcamY != 0 {
+			d.Translate(-pcamX, -pcamY)
 		}
 	}
-	drawLayer(d, layer, view)
+	if !rx && !ry {
+		drawLayer(d, layer, layerView)
+	} else {
+		for row := minRow; row <= maxRow; row++ {
+			var ty float32
+			if ry {
+				ty = float32(row) * layer.RepeatHeight
+			}
+			for col := minCol; col <= maxCol; col++ {
+				var tx float32
+				if rx {
+					tx = float32(col) * layer.RepeatWidth
+				}
+				tileView := layerView
+				if tileView != nil && (tx != 0 || ty != 0) {
+					tv := *tileView
+					tv.X -= tx
+					tv.Y -= ty
+					tileView = &tv
+				}
+				if tx != 0 || ty != 0 {
+					d.Save()
+					d.Translate(tx, ty)
+				}
+				drawLayer(d, layer, tileView)
+				if tx != 0 || ty != 0 {
+					d.Restore()
+				}
+			}
+		}
+	}
 	d.Restore()
+}
+
+// repeatRanges computes the tile column and row ranges that cover the visible bounds of a camera at (camX, camY) with viewport (vw, vh), zoom and rotation, matching scene.Layer's repeat tiling.
+func repeatRanges(camX, camY, vw, vh, zoom, rot float32, repeatX, repeatY bool, repeatW, repeatH float32) (minCol, maxCol, minRow, maxRow int, rx, ry bool) {
+	if (!repeatX || repeatW <= 0) && (!repeatY || repeatH <= 0) {
+		return 0, 0, 0, 0, false, false
+	}
+	if zoom <= 0 {
+		zoom = 1
+	}
+	z := float64(zoom)
+	hw := math.Max(0, float64(vw)/2)
+	hh := math.Max(0, float64(vh)/2)
+	halfW, halfH := hw/z, hh/z
+	if rot != 0 {
+		sin, cos := math.Sincos(float64(rot))
+		acos, asin := math.Abs(cos), math.Abs(sin)
+		halfW = (hw*acos + hh*asin) / z
+		halfH = (hw*asin + hh*acos) / z
+	}
+	if repeatX && repeatW > 0 && halfW > 0 {
+		w := float64(repeatW)
+		minX := float64(camX) - halfW
+		maxX := float64(camX) + halfW
+		minCol = int(math.Floor(minX / w))
+		maxCol = int(math.Ceil(maxX/w)) - 1
+		if maxCol < minCol {
+			maxCol = minCol
+		}
+		rx = true
+	}
+	if repeatY && repeatH > 0 && halfH > 0 {
+		h := float64(repeatH)
+		minY := float64(camY) - halfH
+		maxY := float64(camY) + halfH
+		minRow = int(math.Floor(minY / h))
+		maxRow = int(math.Ceil(maxY/h)) - 1
+		if maxRow < minRow {
+			maxRow = minRow
+		}
+		ry = true
+	}
+	return minCol, maxCol, minRow, maxRow, rx, ry
 }
 
 func clampCamera(x, y, vw, vh, zoom float32, b *BoundsDoc) (float32, float32) {

@@ -57,9 +57,20 @@ type format struct {
 // sceneV2Fields names the Go fields of the scene document types that scene format version 2 added; the version 1 schema leaves them out, since Validate refuses them in a version 1 document.
 var sceneV2Fields = map[string]bool{"Inherits": true, "LayerOverrides": true, "Overrides": true, "Scene": true, "Model": true, "ModelNode": true, "ModelMesh": true, "Level": true, "TilesetFile": true, "TileLayers": true}
 
-// sceneV1Field maps a scene document field as jsonschema.YAMLField does, skipping the fields version 2 added.
+// sceneV3Fields names the Go fields of the scene document types that scene format version 3 added; the version 1 and version 2 schemas leave them out, since Validate refuses them in older versions.
+var sceneV3Fields = map[string]bool{"ParallaxX": true, "ParallaxY": true, "RepeatX": true, "RepeatY": true, "RepeatWidth": true, "RepeatHeight": true}
+
+// sceneV1Field maps a scene document field as jsonschema.YAMLField does, skipping the fields versions 2 and 3 added.
 func sceneV1Field(f reflect.StructField) jsonschema.Field {
-	if sceneV2Fields[f.Name] {
+	if sceneV2Fields[f.Name] || sceneV3Fields[f.Name] {
+		return jsonschema.Field{Skip: true}
+	}
+	return jsonschema.YAMLField(f)
+}
+
+// sceneV2Field maps a scene document field as jsonschema.YAMLField does, skipping the fields version 3 added.
+func sceneV2Field(f reflect.StructField) jsonschema.Field {
+	if sceneV3Fields[f.Name] {
 		return jsonschema.Field{Skip: true}
 	}
 	return jsonschema.YAMLField(f)
@@ -76,7 +87,7 @@ func cutsceneV1Field(f reflect.StructField) jsonschema.Field {
 	return jsonschema.YAMLField(f)
 }
 
-// formats lists every format gameschema writes a schema for. A format that gets a typed YAML loader adds its entry here, and a version 2 of a format adds a second entry beside version 1, since files that name the old schema keep naming it.
+// formats lists every format gameschema writes a schema for. A format that gets a typed YAML loader adds its entry here, and a newer version of a format adds a new entry beside earlier ones, since files that name an old schema keep naming it.
 var formats = []format{
 	{
 		url:       sceneformat.SchemaURL,
@@ -87,11 +98,19 @@ var formats = []format{
 		fieldName: sceneV1Field,
 	},
 	{
-		url:     sceneformat.SchemaURLV2,
-		title:   "NSGo game scene (version 2)",
+		url:       sceneformat.SchemaURLV2,
+		title:     "NSGo game scene (version 2)",
+		typ:       reflect.TypeFor[sceneformat.SceneDoc](),
+		pkg:       "sceneformat",
+		version:   2,
+		fieldName: sceneV2Field,
+	},
+	{
+		url:     sceneformat.SchemaURLV3,
+		title:   "NSGo game scene (version 3)",
 		typ:     reflect.TypeFor[sceneformat.SceneDoc](),
 		pkg:     "sceneformat",
-		version: 2,
+		version: 3,
 	},
 	{
 		url:     tilemap.TilesetSchemaURL,

@@ -50,7 +50,11 @@ func schemaAt(t testing.TB, url string) *jsonschema.Schema {
 // sceneSchemas returns the generated scene schemas keyed by the version they describe.
 func sceneSchemas(t testing.TB) map[int]*jsonschema.Schema {
 	t.Helper()
-	return map[int]*jsonschema.Schema{1: schemaAt(t, sceneformat.SchemaURL), 2: schemaAt(t, sceneformat.SchemaURLV2)}
+	return map[int]*jsonschema.Schema{
+		1: schemaAt(t, sceneformat.SchemaURL),
+		2: schemaAt(t, sceneformat.SchemaURLV2),
+		3: schemaAt(t, sceneformat.SchemaURLV3),
+	}
 }
 
 // TestPublishedSchemasMatchGoTypes fails when a format's Go types change without the committed schema being regenerated.
@@ -140,7 +144,7 @@ func TestSceneSchemaShape(t *testing.T) {
 
 func TestSceneSchemaV2Shape(t *testing.T) {
 	s := schemaAt(t, sceneformat.SchemaURLV2)
-	if version := s.Property("version"); version == nil || version.Const != int64(sceneformat.CurrentVersion) {
+	if version := s.Property("version"); version == nil || version.Const != int64(2) {
 		t.Fatalf("version property = %+v", version)
 	}
 	for _, key := range []string{"inherits", "overrides", "layerOverrides"} {
@@ -151,6 +155,14 @@ func TestSceneSchemaV2Shape(t *testing.T) {
 	if obj := s.Definitions["ObjectDoc"]; obj == nil || obj.Property("scene") == nil || obj.Property("overrides") == nil {
 		t.Errorf("version 2 ObjectDoc = %+v, want one with scene and overrides", obj)
 	}
+	for _, name := range []string{"LayerDoc", "LayerOverride"} {
+		def := s.Definitions[name]
+		for _, key := range []string{"parallaxX", "parallaxY", "repeatX", "repeatY", "repeatWidth", "repeatHeight"} {
+			if def != nil && def.Property(key) != nil {
+				t.Errorf("version 2 %s has version 3 key %q", name, key)
+			}
+		}
+	}
 	for _, name := range []string{"ObjectOverride", "LayerOverride"} {
 		def := s.Definitions[name]
 		if def == nil || def.Description == "" {
@@ -159,6 +171,24 @@ func TestSceneSchemaV2Shape(t *testing.T) {
 		for _, p := range def.Properties {
 			if p.Schema.Description == "" {
 				t.Errorf("%s.%s has no description", name, p.Name)
+			}
+		}
+	}
+}
+
+func TestSceneSchemaV3Shape(t *testing.T) {
+	s := schemaAt(t, sceneformat.SchemaURLV3)
+	if version := s.Property("version"); version == nil || version.Const != int64(sceneformat.CurrentVersion) {
+		t.Fatalf("version property = %+v", version)
+	}
+	for _, name := range []string{"LayerDoc", "LayerOverride"} {
+		def := s.Definitions[name]
+		if def == nil || def.Description == "" {
+			t.Fatalf("definition %s = %+v, want one with a description", name, def)
+		}
+		for _, key := range []string{"parallaxX", "parallaxY", "repeatX", "repeatY", "repeatWidth", "repeatHeight"} {
+			if p := def.Property(key); p == nil || p.Description == "" {
+				t.Errorf("version 3 %s.%s = %+v, want one with a description", name, key, p)
 			}
 		}
 	}
@@ -212,7 +242,7 @@ func TestSceneSchemaRefusesWhatParseRefuses(t *testing.T) {
 		"unknown top-level key": {"version: 1\nnmae: x\n", `/nmae: unknown key "nmae"`},
 		"unknown object key":    {"version: 1\nlayers: [{name: a, objects: [{id: o, colour: red}]}]\n", `/layers/0/objects/0/colour: unknown key`},
 		"missing version":       {"name: x\n", `/: missing required key "version"`},
-		"future version":        {"version: 3\n", "/version: 3 is not the allowed value 1"},
+		"future version":        {"version: 4\n", "/version: 4 is not the allowed value 1"},
 		"inherits in version 1": {"version: 1\ninherits: base.scene.yaml\n", `/inherits: unknown key "inherits"`},
 		"layer without name":    {"version: 1\nlayers: [{order: 1}]\n", `/layers/0: missing required key "name"`},
 		"bad space":             {"version: 1\nlayers: [{name: a, space: sky}]\n", `/layers/0/space: "sky" is not one of "world", "screen"`},
@@ -267,6 +297,7 @@ func FuzzSceneSchemaAcceptsEncodedScenes(f *testing.F) {
 	f.Add([]byte("version: 1\nlayers: [{name: a, space: screen, visible: false, objects: [{id: o, alpha: 0, scaleX: -1, components: {c: {k: [1]}}}]}]\n"))
 	f.Add([]byte("version: 1\ncamera: {zoom: 0.5, bounds: {width: 1, height: 2}}\ntilemaps: {g: {tileWidth: 1, tileHeight: 1, width: 1, height: 1, tileset: t, data: [0]}}\nlayers: [{name: a, tilemap: {ref: g}}, {name: b, tilemap: {source: m.tmj}}]\n"))
 	f.Add([]byte("version: 2\ninherits: base.scene.yaml\noverrides: {o: {x: 1, alpha: 0.5}}\nlayerOverrides: {a: {order: 2}}\nlayers: [{name: b, objects: [{id: e, scene: enemy.scene.yaml, overrides: {body: {z: 1}}}]}]\n"))
+	f.Add([]byte("version: 3\ninherits: base.scene.yaml\nlayerOverrides: {sky: {parallaxX: 0.5, parallaxY: 0.25, repeatX: true, repeatWidth: 320}}\nlayers: [{name: clouds, parallaxX: 0.5, parallaxY: 0, repeatX: true, repeatWidth: 160}]\n"))
 	f.Add([]byte("version: 1\nlayers: [{name: a, objects: [{id: b}, {id: d}]}]\nconnections: [{from: b, event: e, to: d, handler: h, args: {s: 2.5, n: x, t: true}, once: true}]\n"))
 	schemas := sceneSchemas(f)
 	f.Fuzz(func(t *testing.T, data []byte) {

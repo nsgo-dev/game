@@ -27,7 +27,7 @@ NSGo 原生编辑器直接读写 `sceneformat.SceneDoc` 文件，聚焦于可视
 
 ---
 
-## 场景格式（`version: 2`）（#160）
+## 场景格式（`version: 3`）（#160）
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/sceneformat"
@@ -37,19 +37,19 @@ import "github.com/nsgo-dev/game/packages/game/sceneformat"
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| `version` | `int` | 必填的格式版本号：`2`（`CurrentVersion`），或者对未使用任何版本 2 新增字段的场景为 `1`。`Encode` 原样写回。 |
-| `uid` | `string` | 可选的稳定 ID，文件改名或移动后保持不变，由 `nsgo game index` 写入（两个版本均可用，见[稳定引用](project.md#稳定引用)）。`Resolve` 保留场景自身的 uid，而不是基础场景的。 |
-| `inherits` | `string` | 可选，从项目根目录起、以斜杠分隔的基础场景路径，本场景继承该场景（版本 2，见下文“实例化与继承”）。 |
+| `version` | `int` | 必填的格式版本号：`3`（`CurrentVersion`），未使用版本 3 视差/重复字段的版本 2 场景为 `2`，未使用版本 2 和版本 3 新增字段的场景为 `1`。`Encode` 原样写回。 |
+| `uid` | `string` | 可选的稳定 ID，文件改名或移动后保持不变，由 `nsgo game index` 写入（所有版本均可用，见[稳定引用](project.md#稳定引用)）。`Resolve` 保留场景自身的 uid，而不是基础场景的。 |
+| `inherits` | `string` | 可选，从项目根目录起、以斜杠分隔的基础场景路径，本场景继承该场景（版本 2 及以上，见下文“实例化与继承”）。 |
 | `name` | `string` | 可选的场景可读名称。 |
-| `navMesh` | `string` | 可选，从项目根目录起、以斜杠分隔的场景烘焙[导航网格文件](navbake3d.md)路径，由 `nsgo game navmesh` 写入（两个版本均可用）。继承其他场景时，它会替换基础场景的值。 |
+| `navMesh` | `string` | 可选，从项目根目录起、以斜杠分隔的场景烘焙[导航网格文件](navbake3d.md)路径，由 `nsgo game navmesh` 写入（所有版本均可用）。继承其他场景时，它会替换基础场景的值。 |
 | `virtualWidth`、`virtualHeight` | `float32` | 虚拟视口尺寸（单位为点）。两者必须同时为 `0` 或同时为正数。 |
 | `backgroundColor` | `string` | 可选的 CSS 颜色字符串，由 `core.ParseColor` 解析（如 `"#141824"`）。在绘制各图层前填充 `(0, 0, virtualWidth, virtualHeight)`。 |
 | `camera` | 对象 | 可选的默认 2D 相机配置，作用于世界空间图层（`x`、`y`、`zoom`、`rotation`，以及可选的 `bounds`）。 |
 | `tilemaps` | 映射 | 可选的命名瓦片地图定义，供图层通过 `tilemap.ref` 引用。 |
-| `layerOverrides` | 映射 | 按名称修改继承来的图层：`space`、`order`、`visible`、`tilemap`（版本 2，需要 `inherits`）。 |
-| `overrides` | 映射 | 按 ID 修改继承来的对象（版本 2，需要 `inherits`）。 |
+| `layerOverrides` | 映射 | 按名称修改继承来的图层：`space`、`order`、`visible`、`tilemap`（版本 2 及以上），以及 `parallaxX`、`parallaxY`、`repeatX`、`repeatY`、`repeatWidth`、`repeatHeight`（版本 3，需要 `inherits`）。 |
+| `overrides` | 映射 | 按 ID 修改继承来的对象（版本 2 及以上，需要 `inherits`）。 |
 | `layers` | 列表 | 有序图层列表，按 `order` 从小到大绘制，`order` 相同时保持文档顺序。 |
-| `connections` | 列表 | 可选，把一个对象的事件连接到另一个对象的处理函数，写在图层之后（两个版本均可用，见[连接](#连接490)）。 |
+| `connections` | 列表 | 可选，把一个对象的事件连接到另一个对象的处理函数，写在图层之后（所有版本均可用，见[连接](#连接490)）。 |
 
 ### 相机（Camera）
 
@@ -110,6 +110,8 @@ layers:
 - `space`：`"world"`（省略时的默认值，受相机变换影响）或 `"screen"`（直接在画布坐标中绘制，忽略相机）
 - `order`：整数绘制顺序（越小越先绘制）
 - `visible`：布尔值，省略时默认为 `true`
+- `parallaxX`、`parallaxY`（版本 3）：可选的有限视差滚动系数，作用于 `"world"` 图层的相机位置，与 `scene.Layer` 一致；省略时默认为 `1`，`0` 使图层固定不随相机平移，`0.5` 以半速滚动，大于 `1` 用于前景层。继承场景可通过 `layerOverrides` 覆盖。
+- `repeatX`、`repeatY`（版本 3）：可选布尔值，使 `"world"` 图层按 `repeatWidth` / `repeatHeight` 在相机可见区域内无缝平铺重复（非负图层点数；为 `0` 时依次回退到图层瓦片地图的像素尺寸或场景的虚拟视口尺寸）。继承场景可通过 `layerOverrides` 覆盖。
 - `tilemap`：可选瓦片地图，绘制在本图层所有对象之下
 - `objects`：放置在本图层中的对象列表
 
@@ -340,11 +342,11 @@ built.Update(dt)
 built.Draw(d)
 ```
 
-`Parse` 会拒绝未知 YAML 字段、多余的 YAML 文档、不支持的版本号、版本 1 场景中的版本 2 字段、不是从项目根目录起以斜杠分隔的场景引用路径、缺少所修改的 `scene` 或 `inherits` 的覆盖、重复的图层名或对象 ID（包括嵌套的子对象）、深度超过 `MaxObjectDepth` 的对象树、非法坐标系、错误颜色值以及非有限或越界的变换参数。`Encode` 会先校验再输出确定性的 2 空格缩进 YAML，通过 `Parse` 可无损往返还原。
+`Parse` 会拒绝未知 YAML 字段、多余的 YAML 文档、不支持的版本号、旧版本场景中的新版本字段（版本 1 中的版本 2 字段、版本 1 和版本 2 中的版本 3 视差/重复字段）、不是从项目根目录起以斜杠分隔的场景引用路径、缺少所修改的 `scene` 或 `inherits` 的覆盖、重复的图层名或对象 ID（包括嵌套的子对象）、深度超过 `MaxObjectDepth` 的对象树、非法坐标系、错误颜色值以及非有限或越界的变换参数、视差系数或重复周期。`Encode` 会先校验再输出确定性的 2 空格缩进 YAML，通过 `Parse` 可无损往返还原。
 
 ### Schema
 
-场景格式的 JSON Schema 发布在 `https://game.nsgo.dev/schemas/scene.v1.json`（`sceneformat.SchemaURL`），实例化或继承其他场景文件、含分层网格或 LDtk 关卡的版本 2 场景则用 `https://game.nsgo.dev/schemas/scene.v2.json`（`sceneformat.SchemaURLV2`）。`Encode` 在每个文件开头写入与其版本对应的 `# yaml-language-server: $schema=…` 这一行（`sceneformat.SchemaCommentFor`），VS Code 的 YAML 扩展以及其他带 YAML 语言服务器的编辑器可借此在编写场景时校验和补全。参见 [YAML 文件的 Schema](schemas.md)。
+场景格式的 JSON Schema 发布在 `https://game.nsgo.dev/schemas/scene.v1.json`（`sceneformat.SchemaURL`）、`https://game.nsgo.dev/schemas/scene.v2.json`（`sceneformat.SchemaURLV2`，用于实例化或继承其他场景文件、引用 glTF 模型、含分层网格或 LDtk 关卡的场景），以及支持视差和重复图层的版本 3 Schema `https://game.nsgo.dev/schemas/scene.v3.json`（`sceneformat.SchemaURLV3`）。`Encode` 在每个文件开头写入与其版本对应的 `# yaml-language-server: $schema=…` 这一行（`sceneformat.SchemaCommentFor`），VS Code 的 YAML 扩展以及其他带 YAML 语言服务器的编辑器可借此在编写场景时校验和补全。参见 [YAML 文件的 Schema](schemas.md)。
 
 ### 组件类型
 
@@ -512,7 +514,8 @@ scenes/level.scene.yaml:12: sceneformat: connection 0 ("lever" held -> "west/doo
 - **属性**：Add Property 接受一个键和一种类型（`string`、`int`、`float` 或 `bool`），添加的属性取该类型的零值（`AddProperty(id, key, kind)`）；该字段会去掉键首尾的空白，空键、首尾带空白的键或对象已有的键会被拒绝。值为整数的浮点属性保存时带小数点（`2.0`），因此再次打开时仍是浮点数。每个属性的删除按钮会删除该属性（`DeleteProperty`）。
 - **组件**：Add Component 字段会筛选对象尚未拥有的已注册类型，按下其中一个即添加该组件，并写入每个已注册字段的默认值，让文件能看出组件的作用（`AddComponent(id, name)`）。按回车会添加字段中写出的类型，或唯一匹配的那个类型。对象已有的组件、注册表不认识的名称，以及首尾带空白或含有 `.`（连接在 `component.event` 中使用它）的名称都会被拒绝；没有注册表时，该字段可以添加任意名称、不含字段的组件。如果新组件声明的事件或处理器被某个连接以裸名称引用，而对象的另一个组件也声明了它，添加也会被拒绝，因为连接将无法说明指的是哪一个：请先把它写成 `component.event`。在实例化或继承其他场景的场景中，这项检查针对通过编辑器的解析器解析后的场景进行，包括它所引用场景的连接；如果解析器无法加载场景文件，或者即使不加新组件场景也无法解析和绑定，则跳过检查。每个组件的移除按钮会移除该组件（`RemoveComponent(id, name)`），连同所有需要它的连接：从该对象发出、事件由该组件声明的连接，以及指向该对象、处理器由该组件声明的连接，无论写成裸名称还是 `component.name`；裸名称通过组件的注册类型来归属，因此没有注册表、或注册表不认识该类型时，只会移除写成 `component.name` 的连接。`ComponentConnections(id, name)` 列出这些连接，撤销会把组件和连接放回原处。没有注册类型的组件仍按文件中的值显示，字段照常可编辑；由于没有结构定义，其字段中值为整数的浮点数保存为 `2`，再次打开时是整数。
 - **连接（#872）**：Connections 区域列出当前选中对象的已注册组件声明的全部事件（`ObjectEvents`），以及所有与该对象相关的发出连接和传入连接（`ObjectConnections`）。点击 **Connect** 会展开内联表单：选择事件、从可搜索的对象列表（`SceneObjectIDs`）选择目标对象或开启拾取模式直接从 2D/3D 视口或场景树点选目标（`BeginConnectionPick` / `CancelConnectionPick`，拾取期间保持当前选中对象不变）、选择目标对象的已注册处理函数（`ObjectHandlers`）、使用组件注册表提供的带类型控件填写参数，并切换 `once`。每条连接都支持跳转到另一端（`JumpToConnectionOtherEnd`）、编辑（`UpdateConnection`）或移除（`RemoveConnection`）。添加、编辑与移除连接（`AddConnection`、`UpdateConnection`、`RemoveConnection`）都是可撤销命令，在进入 `History` 前先用 `sceneformat.Validate` 和 `sceneformat.ValidateConnections` 校验：无效连接（例如目标对象缺少该处理函数、重复连接、参数类型不符或超出范围）会被拒绝并在状态栏报告原因，同时保持场景与撤销历史不变。未设置组件注册表时，已有连接依然可以查看、跳转、编辑和移除。
-- **场景设置（#871）**：没有选中任何对象时（`ShowingSceneSettings`），检查器会显示当前打开场景自身的设置，而不是空白占位：场景 `name`（`SetSceneName`）、虚拟尺寸 `virtualWidth` 与 `virtualHeight`（`SetVirtualSize`）、背景色 `backgroundColor`（结合 NSGo 颜色选择器 `ui.ColorWell`、CSS 十六进制输入框与清除按钮，`SetBackground`），以及默认 2D 相机 `camera`（`SetCamera`、`SetCameraPosition`、`SetCameraZoom`、`SetCameraRotation`）和可开关的限制边界 `bounds`（`SetCameraBounds`、`ClearCameraBounds`）。每次修改都会在改动文档或撤销历史之前通过 `sceneformat.Validate` 校验——非正虚拟尺寸、非正缩放、非正边界或非法颜色字符串会被拒绝并在状态栏报告——实时更新视口，保存与重新加载后保持不变，并完整接入撤销/重做。在 2D 编辑模式下显示场景设置时，视口会高亮绘制相机的初始视口框与虚线边界，并在相机位置绘制可拖拽手柄（`CameraHandleCanvasPos`、`HitTestCameraHandle`、`BeginCameraDrag`、`UpdateCameraDrag`、`EndCameraDrag`、`CancelCameraDrag`），松手时以单个可撤销步骤更新相机的世界坐标 `(x, y)`。
+- **场景设置（#871）**：没有选中对象、图层或资源文件时（`ShowingSceneSettings`），检查器会显示当前打开场景自身的设置，而不是空白占位：场景 `name`（`SetSceneName`）、虚拟尺寸 `virtualWidth` 与 `virtualHeight`（`SetVirtualSize`）、背景色 `backgroundColor`（结合 NSGo 颜色选择器 `ui.ColorWell`、CSS 十六进制输入框与清除按钮，`SetBackground`），以及默认 2D 相机 `camera`（`SetCamera`、`SetCameraPosition`、`SetCameraZoom`、`SetCameraRotation`）和可开关的限制边界 `bounds`（`SetCameraBounds`、`ClearCameraBounds`）。每次修改都会在改动文档或撤销历史之前通过 `sceneformat.Validate` 校验——非正虚拟尺寸、非正缩放、非正边界或非法颜色字符串会被拒绝并在状态栏报告——实时更新视口，保存与重新加载后保持不变，并完整接入撤销/重做。在 2D 编辑模式下显示场景设置时，视口会高亮绘制相机的初始视口框与虚线边界，并在相机位置绘制可拖拽手柄（`CameraHandleCanvasPos`、`HitTestCameraHandle`、`BeginCameraDrag`、`UpdateCameraDrag`、`EndCameraDrag`、`CancelCameraDrag`），松手时以单个可撤销步骤更新相机的世界坐标 `(x, y)`。
+- **图层检查器（#885）**：未选中对象但选中图层时（例如在场景树或图层面板中点击图层行，或调用 `SetActiveLayer`），检查器显示该图层的视差系数（`Parallax X`、`Parallax Y`）与平铺重复设置（`Repeat` X/Y、`Repeat W`、`Repeat H`）。在 Go 中，`SetLayerParallax(layer, x, y)` 与 `SetLayerRepeat(layer, repeatX, repeatY, width, height)` 执行相同的可撤销编辑；当写入非默认视差或重复设置时，会把版本 1 或版本 2 场景升级到版本 3（撤销时恢复）。屏幕空间图层与继承自基础场景的图层会禁用这些控件。
 
 ### 项目
 
@@ -545,7 +548,7 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 
 在作者平移或缩放之前，以及 `ResetView2D` 或打开另一个场景之后，视图就是场景相机的视图：虚拟屏幕以相机的缩放和旋转居中于画布，并随场景变化跟随相机（`View2DFollowsCamera`）。编辑模式下整块画布都填充场景的 `backgroundColor`，远离相机的对象也以游戏的清屏颜色为底显示；画布会描出相机画面（即玩家看到的虚拟屏幕）的轮廓，并以虚线画出相机的 `bounds`。屏幕空间图层绘制在该画面内。在 Play 模式下只显示这个画面，无论作者留下的是什么视图，都按相机的视图居中，与游戏中一致；在 Stop 恢复作者的视图之前，视图不会平移或缩放。
 
-命中测试、放置、移动、瓦片绘制、选中轮廓和插件工具都经过该视图。`CanvasToWorld` 与 `WorldToCanvas` 在画布坐标与世界坐标之间转换；`CanvasToScreen` 与 `ScreenToCanvas` 在画布坐标与场景的虚拟屏幕（屏幕空间图层所在的空间）之间转换；`ScreenToWorld` 与 `WorldToScreen` 只应用场景相机，与游戏中相同。`CanvasSize` 是画布布局后的尺寸，在视口完成布局（`SetCanvasSize`）之前为场景的虚拟尺寸；3D 视口填满同一块画布。
+命中测试、放置、移动、瓦片绘制、选中轮廓和插件工具都经过该视图，并在 2D 视图平移时平滑应用每个世界空间图层的视差偏移（并预览其平铺重复）。`CanvasToWorld` 与 `WorldToCanvas` 在画布坐标与世界坐标之间转换；`CanvasToScreen` 与 `ScreenToCanvas` 在画布坐标与场景的虚拟屏幕（屏幕空间图层所在的空间）之间转换；`ScreenToWorld` 与 `WorldToScreen` 只应用场景相机，与游戏中相同。`CanvasSize` 是画布布局后的尺寸，在视口完成布局（`SetCanvasSize`）之前为场景的虚拟尺寸；3D 视口填满同一块画布。
 
 ### 2D 变换控件（#863）
 

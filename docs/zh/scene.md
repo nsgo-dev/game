@@ -26,6 +26,7 @@ hud.AddDrawable(scene.NewDrawable(func(d *core.Drawing) {
 ```
 
 - **图层项**：通过 `AddTilemap`、`AddTileLayer`、`AddBatch`、`AddDrawable` 或显式 `AddItem(scene.Item{...})` 添加。同一图层内的各项按 `Z` 稳定升序绘制。
+- **视差与平铺重复**：`SpaceWorld` 图层支持 `ParallaxX` / `ParallaxY` 视差滚动系数（`0` 固定不随相机平移，`0.5` 以半速滚动，`1.0` 与相机同步，大于 `1.0` 用于滚动更快的前景层；可通过 `scene.NewParallaxLayer` 或 `Layer.SetParallax` 配置）、`OffsetX` / `OffsetY`，以及通过 `RepeatX` / `RepeatY` 配合 `RepeatWidth` / `RepeatHeight` 实现无缝平铺重复。YAML 场景格式（`game/sceneformat` 版本 3）提供 `parallaxX`、`parallaxY`、`repeatX`、`repeatY`、`repeatWidth` 和 `repeatHeight`，与 `scene.Layer` 具有一致的相机语义（见[编辑器与场景格式](editor.md)）。
 - **Y 轴排序（`DepthSort = scene.SortY`）**：将精灵、自定义 `Drawable` 以及开启了 `YSort: true` 的 `tilemap.TileLayer` 中的可见瓦片合并到同一份稳定绘制列表中按 Y 升序绘制（支持 `SortKey` / `SpriteSortKey` 自定义键以及逐瓦片 `sort_origin_y` 偏移）。位于 Y 排序图层之前的普通瓦片层绘制在精灵后方，位于其后的普通瓦片层（如屋顶）绘制在精灵前方；也可通过 `AddTileLayer(m, layer)` 将单个瓦片层绑定到指定场景图层。
 - **`Drawable`**：封装自定义 `Draw`、`Update`、`Hit`、`OnPress` 和 `OnTouch` 回调，自带 `Z` 与 `Visible` 字段。零值的 `Visible` 为 `false`，建议用 `scene.NewDrawable(fn)` 创建。
 - **`Scene.Update(dt)`** 按图层顺序推进 `Camera`、瓦片地图和自定义 `Drawable`；**`Scene.Draw(d)`** 绘制所有可见图层，并在完成后恢复 `d` 的变换与画笔状态。

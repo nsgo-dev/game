@@ -226,7 +226,7 @@ func (r *sceneResolver) inherit(doc, own *SceneDoc) (*SceneDoc, error) {
 			out.Layers = append(out.Layers, *l)
 			continue
 		}
-		if l.Space != "" || l.Order != 0 || l.Visible != nil || l.Tilemap != nil {
+		if l.Space != "" || l.Order != 0 || l.Visible != nil || l.ParallaxX != nil || l.ParallaxY != nil || l.RepeatX || l.RepeatY || l.RepeatWidth != 0 || l.RepeatHeight != 0 || l.Tilemap != nil {
 			return nil, fmt.Errorf("sceneformat: layer %q extends the layer of base scene %q and may only add objects; change the layer under layerOverrides", l.Name, doc.Inherits)
 		}
 		out.Layers[li].Objects = append(out.Layers[li].Objects, l.Objects...)
@@ -362,6 +362,9 @@ func validateSceneRefs(doc *SceneDoc) error {
 		default:
 			return fieldErr(at(lp, "space"), "sceneformat: layerOverrides %q has invalid space %q (want %q or %q)", name, lo.Space, SpaceWorld, SpaceScreen)
 		}
+		if err := validateLayerOverrideParallax(doc.Version, lp, fmt.Sprintf("layerOverrides %q", name), lo); err != nil {
+			return err
+		}
 		if lo.Tilemap != nil {
 			if err := validateTilemap(doc.Version, at(lp, "tilemap"), fmt.Sprintf("layerOverrides %q tilemap", name), lo.Tilemap, true, doc.Tilemaps, false); err != nil {
 				return err
@@ -440,6 +443,39 @@ func (ov *ObjectOverride) applyTo(o *ObjectDoc) {
 	o.Properties = mergeAnyMap(o.Properties, ov.Properties)
 }
 
+// validateLayerOverrideParallax checks the parallax and repeat fields version 3 added on a LayerOverride at path.
+func validateLayerOverrideParallax(version int, path []string, where string, lo LayerOverride) error {
+	if version < 3 {
+		field := ""
+		switch {
+		case lo.ParallaxX != nil:
+			field = "parallaxX"
+		case lo.ParallaxY != nil:
+			field = "parallaxY"
+		case lo.RepeatX != nil:
+			field = "repeatX"
+		case lo.RepeatY != nil:
+			field = "repeatY"
+		case lo.RepeatWidth != nil:
+			field = "repeatWidth"
+		case lo.RepeatHeight != nil:
+			field = "repeatHeight"
+		}
+		if field != "" {
+			return fieldErr(at(path, field), "sceneformat: %s: parallaxX, parallaxY, repeatX, repeatY, repeatWidth and repeatHeight need version 3, not %d", where, version)
+		}
+		return nil
+	}
+	var rw, rh float32
+	if lo.RepeatWidth != nil {
+		rw = *lo.RepeatWidth
+	}
+	if lo.RepeatHeight != nil {
+		rh = *lo.RepeatHeight
+	}
+	return validateLayerParallax(version, path, where, lo.ParallaxX, lo.ParallaxY, false, false, rw, rh)
+}
+
 // applyTo sets every field of l that lo sets.
 func (lo *LayerOverride) applyTo(l *LayerDoc) {
 	if lo.Space != "" {
@@ -447,6 +483,12 @@ func (lo *LayerOverride) applyTo(l *LayerDoc) {
 	}
 	setValue(&l.Order, lo.Order)
 	setPointer(&l.Visible, lo.Visible)
+	setPointer(&l.ParallaxX, lo.ParallaxX)
+	setPointer(&l.ParallaxY, lo.ParallaxY)
+	setValue(&l.RepeatX, lo.RepeatX)
+	setValue(&l.RepeatY, lo.RepeatY)
+	setValue(&l.RepeatWidth, lo.RepeatWidth)
+	setValue(&l.RepeatHeight, lo.RepeatHeight)
 	if lo.Tilemap != nil {
 		l.Tilemap = cloneTilemap(lo.Tilemap)
 	}
@@ -522,6 +564,12 @@ func (doc *SceneDoc) Clone() *SceneDoc {
 			c := lo
 			c.Order = clonePtr(lo.Order)
 			c.Visible = clonePtr(lo.Visible)
+			c.ParallaxX = clonePtr(lo.ParallaxX)
+			c.ParallaxY = clonePtr(lo.ParallaxY)
+			c.RepeatX = clonePtr(lo.RepeatX)
+			c.RepeatY = clonePtr(lo.RepeatY)
+			c.RepeatWidth = clonePtr(lo.RepeatWidth)
+			c.RepeatHeight = clonePtr(lo.RepeatHeight)
 			c.Tilemap = cloneTilemap(lo.Tilemap)
 			out.LayerOverrides[k] = c
 		}
@@ -613,11 +661,17 @@ func cloneOverrides(ovs map[string]ObjectOverride) map[string]ObjectOverride {
 // cloneLayerFields deep copies l's own fields and leaves its objects nil.
 func cloneLayerFields(l *LayerDoc) LayerDoc {
 	return LayerDoc{
-		Name:    l.Name,
-		Space:   l.Space,
-		Order:   l.Order,
-		Visible: clonePtr(l.Visible),
-		Tilemap: cloneTilemap(l.Tilemap),
+		Name:         l.Name,
+		Space:        l.Space,
+		Order:        l.Order,
+		Visible:      clonePtr(l.Visible),
+		ParallaxX:    clonePtr(l.ParallaxX),
+		ParallaxY:    clonePtr(l.ParallaxY),
+		RepeatX:      l.RepeatX,
+		RepeatY:      l.RepeatY,
+		RepeatWidth:  l.RepeatWidth,
+		RepeatHeight: l.RepeatHeight,
+		Tilemap:      cloneTilemap(l.Tilemap),
 	}
 }
 

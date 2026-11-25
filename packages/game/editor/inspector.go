@@ -281,21 +281,29 @@ func (e *Editor) lookupComponentType(cn string) (sceneformat.ComponentType, bool
 }
 
 // inspectorSchemaKey computes a stable signature of either the selected asset file
-// (when inspecting import settings) or the selected object ID and its
-// property/component field names + kinds so InspectorView only remounts controls when
-// selection or field layout changes (preserving input focus during value edits).
+// (when inspecting import settings), the selected object ID and its
+// property/component field names + kinds, or the active layer (when no object is selected)
+// so InspectorView only remounts controls when selection or field layout changes
+// (preserving input focus during value edits).
 func inspectorSchemaKey(ed *Editor) string {
 	if rel, kind := ed.inspectedImportAsset(); rel != "" {
 		return "asset:" + string(kind) + ":" + rel
 	}
 	obj, layer := ed.SelectedObject()
 	if obj == nil {
+		if ed.inspectLayer {
+			if li := ed.layerIndex(ed.ActiveLayer); li >= 0 {
+				l := &ed.Doc.Layers[li]
+				return "L:" + l.Name + ":" + string(l.EffectiveSpace())
+			}
+		}
 		if ed != nil && ed.Doc != nil {
 			return "scene"
 		}
 		return ""
 	}
 	var b strings.Builder
+	b.WriteString("O:")
 	b.WriteString(ed.ViewMode.String())
 	b.WriteByte(':')
 	b.WriteString(layer)
@@ -365,9 +373,10 @@ func valueKindTag(v any) string {
 	}
 }
 
-// InspectorView renders the right-side Property Inspector panel for the selected object,
-// or the Scene Settings inspector (name, virtual size, background color and camera) when
-// no object is selected. A component that a plugin which is on has an Inspector for is
+// InspectorView renders the right-side Property Inspector panel for the selected asset
+// import settings, the selected object, the selected layer (parallax/repeat settings), or
+// the Scene Settings inspector (name, virtual size, background color and camera) when
+// nothing else is selected. A component that a plugin which is on has an Inspector for is
 // drawn by that inspector instead of the generic fields.
 func InspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	colors := ui.ColorsOf(cx)
@@ -421,6 +430,12 @@ func InspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 							}
 							return nil
 						}
+						if strings.HasPrefix(key, "L:") {
+							if li := ed.layerIndex(ed.ActiveLayer); li >= 0 {
+								return layerInspectorView(cx, ed, rev, ed.Doc.Layers[li].Name)
+							}
+							return nil
+						}
 						if key == "scene" {
 							return sceneInspectorView(cx, ed, rev)
 						}
@@ -433,6 +448,235 @@ func InspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 				},
 			},
 		},
+	}
+}
+
+func layerInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], layerName string) core.Node {
+	colors := ui.ColorsOf(cx)
+	layer := func() *sceneformat.LayerDoc {
+		_ = rev.Get()
+		if li := ed.layerIndex(layerName); li >= 0 {
+			return &ed.Doc.Layers[li]
+		}
+		return nil
+	}
+	isScreen := func() bool {
+		l := layer()
+		return l != nil && l.EffectiveSpace() == sceneformat.SpaceScreen
+	}
+	disabled := func() bool {
+		_ = rev.Get()
+		return ed.Playing() || isScreen()
+	}
+
+	sectionHeader := func(title string) core.Node {
+		return core.Text{
+			Content: title,
+			Style: core.Style{
+				FontSize:   11,
+				FontWeight: 700,
+				Color:      colors.Muted(),
+			},
+		}
+	}
+	fieldRow := func(label string, control core.Node) core.Node {
+		return core.View{
+			Style: core.Style{
+				Direction:  core.Row,
+				AlignItems: core.AlignCenter,
+				Gap:        8,
+			},
+			Children: []core.Node{
+				core.Text{
+					Content: label,
+					Style: core.Style{
+						Width:    core.Pt(76),
+						FontSize: 12,
+						Color:    colors.Text(),
+					},
+				},
+				core.View{
+					Style:    core.Style{FlexGrow: 1},
+					Children: []core.Node{control},
+				},
+			},
+		}
+	}
+
+	spaceText := string(sceneformat.SpaceWorld)
+	if li := ed.layerIndex(layerName); li >= 0 {
+		spaceText = string(ed.Doc.Layers[li].EffectiveSpace())
+	}
+	formatFloat := func(v float64) string { return strconv.FormatFloat(v, 'g', -1, 64) }
+
+	nodes := []core.Node{
+		core.View{
+			Style: core.Style{
+				Direction:      core.Row,
+				AlignItems:     core.AlignCenter,
+				JustifyContent: core.JustifySpaceBetween,
+				Gap:            6,
+			},
+			Children: []core.Node{
+				core.View{
+					Style: core.Style{Gap: 2},
+					Children: []core.Node{
+						core.Text{
+							TestID:  "inspector-layer-name",
+							Content: layerName,
+							Style: core.Style{
+								FontSize:   13,
+								FontWeight: 700,
+								Color:      colors.Text(),
+							},
+						},
+						ui.Badge{
+							Text:    "layer · " + spaceText,
+							Variant: ui.BadgeNeutral,
+						},
+					},
+				},
+			},
+		},
+
+		sectionHeader("PARALLAX"),
+		fieldRow("Parallax X", ui.NumberInput{
+			TestID:   "inspector-layer-parallax-x",
+			Label:    "Parallax X",
+			Step:     0.1,
+			Format:   formatFloat,
+			Disabled: disabled,
+			Value: func() float64 {
+				if l := layer(); l != nil {
+					return float64(l.EffectiveParallaxX())
+				}
+				return 1
+			},
+			OnChange: func(v float64) {
+				if li := ed.layerIndex(layerName); li >= 0 {
+					l := &ed.Doc.Layers[li]
+					ed.report(ed.SetLayerParallax(layerName, float32(v), l.EffectiveParallaxY()))
+				}
+			},
+		}),
+		fieldRow("Parallax Y", ui.NumberInput{
+			TestID:   "inspector-layer-parallax-y",
+			Label:    "Parallax Y",
+			Step:     0.1,
+			Format:   formatFloat,
+			Disabled: disabled,
+			Value: func() float64 {
+				if l := layer(); l != nil {
+					return float64(l.EffectiveParallaxY())
+				}
+				return 1
+			},
+			OnChange: func(v float64) {
+				if li := ed.layerIndex(layerName); li >= 0 {
+					l := &ed.Doc.Layers[li]
+					ed.report(ed.SetLayerParallax(layerName, l.EffectiveParallaxX(), float32(v)))
+				}
+			},
+		}),
+
+		sectionHeader("REPEAT"),
+		fieldRow("Repeat", ui.HStack{
+			Gap: 12,
+			Children: []core.Node{
+				ui.Checkbox{
+					TestID:   "inspector-layer-repeat-x",
+					Label:    "X",
+					Disabled: disabled,
+					Checked: func() bool {
+						l := layer()
+						return l != nil && l.RepeatX
+					},
+					OnChange: func(on bool) {
+						if li := ed.layerIndex(layerName); li >= 0 {
+							l := &ed.Doc.Layers[li]
+							ed.report(ed.SetLayerRepeat(layerName, on, l.RepeatY, l.RepeatWidth, l.RepeatHeight))
+						}
+					},
+				},
+				ui.Checkbox{
+					TestID:   "inspector-layer-repeat-y",
+					Label:    "Y",
+					Disabled: disabled,
+					Checked: func() bool {
+						l := layer()
+						return l != nil && l.RepeatY
+					},
+					OnChange: func(on bool) {
+						if li := ed.layerIndex(layerName); li >= 0 {
+							l := &ed.Doc.Layers[li]
+							ed.report(ed.SetLayerRepeat(layerName, l.RepeatX, on, l.RepeatWidth, l.RepeatHeight))
+						}
+					},
+				},
+			},
+		}),
+		fieldRow("Repeat W", ui.NumberInput{
+			TestID:   "inspector-layer-repeat-width",
+			Label:    "Repeat Width",
+			Min:      0,
+			Step:     1,
+			Format:   formatFloat,
+			Disabled: disabled,
+			Value: func() float64 {
+				if l := layer(); l != nil {
+					return float64(l.RepeatWidth)
+				}
+				return 0
+			},
+			OnChange: func(v float64) {
+				if v < 0 {
+					v = 0
+				}
+				if li := ed.layerIndex(layerName); li >= 0 {
+					l := &ed.Doc.Layers[li]
+					ed.report(ed.SetLayerRepeat(layerName, l.RepeatX, l.RepeatY, float32(v), l.RepeatHeight))
+				}
+			},
+		}),
+		fieldRow("Repeat H", ui.NumberInput{
+			TestID:   "inspector-layer-repeat-height",
+			Label:    "Repeat Height",
+			Min:      0,
+			Step:     1,
+			Format:   formatFloat,
+			Disabled: disabled,
+			Value: func() float64 {
+				if l := layer(); l != nil {
+					return float64(l.RepeatHeight)
+				}
+				return 0
+			},
+			OnChange: func(v float64) {
+				if v < 0 {
+					v = 0
+				}
+				if li := ed.layerIndex(layerName); li >= 0 {
+					l := &ed.Doc.Layers[li]
+					ed.report(ed.SetLayerRepeat(layerName, l.RepeatX, l.RepeatY, l.RepeatWidth, float32(v)))
+				}
+			},
+		}),
+	}
+
+	if spaceText == string(sceneformat.SpaceScreen) {
+		nodes = append(nodes, core.Text{
+			TestID:  "inspector-layer-screen-note",
+			Content: "Screen-space layers ignore camera parallax and repeat.",
+			Style: core.Style{
+				FontSize: 11,
+				Color:    colors.Muted(),
+			},
+		})
+	}
+
+	return core.View{
+		Style:    core.Style{Gap: 8},
+		Children: nodes,
 	}
 }
 
