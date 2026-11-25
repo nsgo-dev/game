@@ -1,0 +1,34 @@
+# Agent Note: The visualnovel template and how its save slots find their line
+
+Status: implemented
+
+## Problem
+
+Issue #801 adds a `visualnovel` template to `game new`: a short branching visual novel with characters, backgrounds, choices that change the ending, a backlog, auto and skip modes, and save and load, built on `vn`, `flow`, `save` and `l10n`, and played with the keyboard, a controller and touch. Three things the packages do not hand over directly shape the template: `flow.DialogueRunner.State` keeps variables and node visits but not where in a node the runner is, so it cannot restore a save made in the middle of a scene; `vn.Cast` gives each character one name plate, with no language; and the template must build against the `packages/game` version its `go.mod.tmpl` pins, which before this change lacked `l10n`'s YAML string tables.
+
+## Decision
+
+- **Layout.** The module `github.com/nsgo-dev/game/template/visualnovel` holds the project in `template/visualnovel/template/`, copied byte for byte to `packages/game/cmd/game/_templates/projects/visualnovel`, registered in `templates.go`, listed in `go.work` and in `docs/{en,zh}/templates.md`. Its story is text: a Yarn script (`story/story.yarn`), a `vn` cast file (`story/cast.yaml`) and one `l10n` YAML string table per language (`strings/en.yaml`, `strings/zh-Hans.yaml`). The template defines no file format of its own; backgrounds and portraits are Go code in `stage.go`.
+- **Save slots replay a path.** A slot is the JSON `{"node", "line", "choices"}`: the node and `#line:` id of the line shown and the `Index` of every option chosen since `Start`. Loading starts a fresh presenter at `Start` and replays the path at once (finishing each line's typewriter, choosing the recorded options) until the recorded options are used up and the recorded line shows, within `maxReplaySteps`. Commands run again on the way, so the background, the portraits, the variables, the backlog and the lines read come back as they were. A path that ends, runs out of options or does not reach its line is `errSaveMismatch`, and the game stays where it was.
+- **Every line has a `#line:` id.** The ids are what slots point at and what the other languages translate (`line.<id>`); English lines are the script's own text, through a `flow.StringResolver` that falls back to it. `story_test.go` fails on any line or option without an id, an id used twice, a translation missing or left over, and a string in one language that another lacks.
+- **Name plates by language.** Script lines name speakers by cast id (`tobin: ...`), which `vn.Cast.Speaker` matches before the name, and the game rewrites each `Character.Name` from `name.<id>` when the language changes, so a name plate follows the language without changing which character speaks.
+- **Player settings.** `save.Settings.Locale` holds the language, and `Settings.Custom` the keys of the lines read (`read`) and the endings found (`endings`), in a settings store apart from the slots, so skip mode knows lines read in every playthrough and the title screen counts endings.
+- **Input.** The actions `advance`, `up`, `down`, `auto`, `skip`, `log`, `menu` and `back` are game.yaml's input map, keyboard and controller. Touch and the mouse press the stage (go on, or the option under the finger through `Presenter.ChoiceAt`) and native buttons. The buttons are `core.View`s with `NoFocus`, so Space and Return reach the game's actions and never press a focused button as well; every button is still a `RoleButton` with a label.
+- **Pin.** `go.mod.tmpl` pins `packages/game` to `v0.0.0-20261125062210-04dfb19bc6b7`, the `main` commit with `l10n.Catalog.LoadYAML`, as the template infrastructure's docs say a template that needs a newer package does.
+
+## Alternatives considered
+
+- **Saving `DialogueRunner.State` and restarting the slot's node** — It is the state `flow` offers and needs no replay, but a node holds a whole scene, so loading would go back to the start of the scene, run its `<<set>>` statements a second time on top of the saved variables (`$trust += 1` twice), and lose the backlog. Replaying from `Start` restores the exact line and runs each statement once.
+- **Counting lines shown instead of keeping the line's id** — Robust to a script without ids, but the count has to be kept from inside `Presenter.Update`, where auto and skip modes go on by themselves, and it says nothing when the script changes under a save. The id is already required for translation, and a slot whose id the path does not reach is refused rather than loaded at the wrong line.
+- **Changing `flow` to save the runner's position, or `vn` to localize name plates** — The right long-term fix for both, but shared packages are out of scope for a template; the template works around them in its own code, and the gaps are recorded below for the framework.
+- **Keeping the pin and loading string tables as JSON** — `Catalog.LoadJSON` exists at the old pin, but the repository's rule is that files a person writes are YAML; bumping the pin to a `main` commit is the documented path.
+
+## Consequences
+
+- **Benefits**: a slot restores the exact line, background, portraits, backlog and variables; `TestSaveSlotsRestoreTheStory` saves after two trusting choices, loses, loads, and reaches the good ending, which only the restored `$trust` allows. Every path through the script is played by `TestEveryPathEndsInAnEnding` (1 path to the dawn ending, 7 to the lost one).
+- **Costs and known limits**: loading costs one pass through the script up to the line, linear in the lines before it. A slot depends on the script: changing the options before a saved line, or removing its id, makes the slot refuse to load. A line shown when the language changes keeps its language; the language can only change on the title screen. The `vn` and `flow` gaps (no runner position in `DialogueState`, one name plate per character) are the signal to revisit: once `flow` saves the position, slots can keep it instead of the path.
+
+## Verification
+
+- From the repository root, `go tool nsgo test ./template/visualnovel/template` plays both endings with the keyboard, a controller and touch, saves and loads, restarts the app with its storage, switches to Chinese, and checks the story files.
+- From `packages/game`, `go tool nsgo test ./cmd/game` checks the copy, the registry, `go.work` and the docs rows, and builds and tests a project made from the template.

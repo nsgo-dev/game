@@ -1,0 +1,73 @@
+version: 1
+name: Lantern Crossing
+id: dev.nsgo.lanterncrossing
+appVersion: 0.1.0
+window:
+  width: 960
+  height: 540
+  minWidth: 480
+  minHeight: 360
+input:
+  actions:
+    - name: advance
+      bindings:
+        - kind: key
+          key: space
+        - kind: key
+          key: enter
+        - kind: gamepadButton
+          button: south
+    - name: up
+      bindings:
+        - kind: key
+          key: up
+        - kind: gamepadButton
+          button: dpadUp
+    - name: down
+      bindings:
+        - kind: key
+          key: down
+        - kind: gamepadButton
+          button: dpadDown
+    - name: auto
+      bindings:
+        - kind: key
+          key: a
+        - kind: gamepadButton
+          button: west
+    - name: skip
+      bindings:
+        - kind: key
+          key: s
+        - kind: gamepadButton
+          button: rightShoulder
+    - name: log
+      bindings:
+        - kind: key
+          key: l
+        - kind: gamepadButton
+          button: leftShoulder
+    - name: menu
+      bindings:
+        - kind: key
+          key: escape
+        - kind: gamepadButton
+          button: start
+    - name: back
+      bindings:
+        - kind: key
+          key: backspace
+        - kind: gamepadButton
+          button: east
+export:
+  output: dist
+  presets:
+    - platform: macos
+      targets: [macos_arm64]
+    - platform: windows
+      targets: [windows_x64]
+    - platform: ios
+      targets: [ios_simulator]
+    - platform: android
+      targets: [android_arm64]
+    - platform: web
