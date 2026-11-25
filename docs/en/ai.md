@@ -1,6 +1,6 @@
 # ai
 
-`game/ai` provides deterministic game AI building blocks stepped cleanly on `game.Loop`: grid `AStar` pathfinding, 2D `NavMesh` navigation with funnel smoothing, steering behaviors, behavior trees, utility AI scoring, and goal-oriented action planning (GOAP).
+`game/ai` provides deterministic game AI building blocks stepped cleanly on `game.Loop`: grid `AStar` pathfinding, 2D `NavMesh` navigation with funnel smoothing, steering behaviors, behavior trees, utility AI scoring, goal-oriented action planning (GOAP), attack token pools, concentric engagement slot assignment, and squad coordination.
 
 ```go
 import "github.com/nsgo-dev/game/packages/game/ai"
@@ -194,8 +194,8 @@ tree.Tick(dt)
 Available nodes:
 
 - **Composites**: `Sequence`, `Selector` (preempts and resets lower-priority running branches when a higher-priority branch succeeds or runs), `Parallel(policy, ...)` (`RequireAll` or `RequireOne`), `UtilitySelector(reasoner, ctx, rng, subtrees)`.
-- **Decorators**: `Guard(cond, child)`, `Cooldown(d, child)`, `Inverter`, `Succeeder`, `Failer`, `Repeater(count, child)`, `UntilFail`.
-- **Leaves**: `Action(fn)`, `Condition(fn)`, `Wait(d)`.
+- **Decorators**: `Guard(cond, child)`, `Cooldown(d, child)`, `WithAttackToken(pool, agentID, priority, child)`, `Inverter`, `Succeeder`, `Failer`, `Repeater(count, child)`, `UntilFail`.
+- **Leaves**: `Action(fn)`, `Condition(fn)`, `Wait(d)`, `HasAttackToken(pool, agentID)`, `SquadHasOrder(squad, kind)`, `SquadHasRole(squad, agentID, role)`, `SquadStateBool(squad, key)`, `SquadOrderAction(squad, fn)`.
 
 ## Utility AI
 
@@ -408,3 +408,86 @@ set, err := ai.BuildGOAP(cfg, ai.GOAPBindings{
 ```
 
 Unknown fields, unsupported versions, undefined fact references, invalid operators, and trailing YAML documents are refused; canonical documents round-trip byte-for-byte unchanged (see [File Formats](formats.md#goap-action-set)).
+
+## Attack tokens, engagement slots, and squads
+
+Coordinate groups of enemies in action games, brawlers, and shooters so only a bounded number attack at once, surrounding enemies spread around moving targets without crossing paths, and squads share state, tactical roles, and orders.
+
+### Attack token pools
+
+`TokenPool` arbitrates a fixed number of attack tokens for one target, and `TokenManager` manages one `TokenPool` per target ID. Agents submit or refresh requests with `Request(agentID, priority)` during a step, and `Step(dt)` advances cooldowns and hold timeouts while resolving pending requests deterministically (highest priority first, breaking ties by lowest `AgentID` regardless of submission order):
+
+```go
+tokens := ai.NewTokenPool(ai.TokenPoolConfig{
+	Capacity:        2,                      // at most 2 attackers at once
+	Cooldown:        400 * time.Millisecond, // pause before a returned token is reused
+	PreemptMargin:   1.5,                    // advantage needed to take a token from another attacker
+	MaxHoldDuration: 3 * time.Second,        // auto-release if an attacker stalls
+})
+
+// Each enemy's behavior tree requests a token and falls back to circling while waiting:
+enemyTree := ai.Selector(
+	ai.WithAttackToken(tokens, enemyID, enemyPriority, attackSequence),
+	circleTargetNode,
+)
+
+// On fixed step: tick behavior trees, then resolve token grants/preemptions:
+enemyTree.Tick(dt)
+tokens.Step(dt)
+
+// When an enemy dies or disengages:
+tokens.Remove(enemyID)
+```
+
+- **Priority preemption**: when no free tokens are available, a waiting requester whose priority beats the weakest holder by at least `PreemptMargin` (or strictly exceeds it when `PreemptMargin <= 0`) takes that holder's token directly without entering cooldown. `WithAttackToken` resets an interrupted child and returns `StatusFailure` on the next tick so a parent `Selector` falls back cleanly.
+- **Per-target pools**: use `NewTokenManager(defaultCfg)` when enemies engage multiple targets; call `ConfigureTarget(targetID, cfg)` for custom limits, `RemoveAgent(agentID)` when an enemy dies across all targets, and `Step(dt)` to step every target deterministically in ascending target ID order.
+
+### Engagement slots
+
+`SlotAssigner` places agents onto concentric `EngagementRing`s around a target using optimal minimum-cost bipartite matching (the Hungarian algorithm):
+
+```go
+assigner := ai.NewSlotAssigner(
+	ai.EngagementRing{Radius: 45, Slots: 4}, // inner melee ring fills first
+	ai.EngagementRing{Radius: 90, Slots: 6}, // outer circling ring
+)
+assigner.StayBias = 10 // world-unit hysteresis suppressing boundary oscillation
+
+var slots []ai.SlotAssignment
+// Inside game.Loop.Update as targetPos moves:
+slots = assigner.Assign(slots, targetPos, []ai.SlotAgent{
+	{ID: 1, Pos: enemy1.Pos},
+	{ID: 2, Pos: enemy2.Pos},
+})
+```
+
+- **Non-crossing & ring priority**: inner rings fill completely before outer rings are used, and minimizing total Euclidean distance prevents straight-line agent-to-slot paths from crossing. When there are more agents than slots, the optimal subset is assigned and extra agents receive `Assigned: false` (`Ring: -1`, `Slot: -1`).
+- **Stability & determinism**: setting `StayBias > 0` gives each agent a cost bonus for keeping its previous slot as the target moves. Input agents are sorted by ascending `ID` internally, so assignments are identical across runs regardless of slice order and reuse internal scratch buffers with zero allocations after warm-up.
+
+### Squads
+
+`Squad` groups enemy IDs in deterministic ascending order with a shared key-value `SquadState`, score-driven tactical roles (`AssignRoles`), and squad-level `SquadOrder`s readable by behavior trees:
+
+```go
+squad := ai.NewSquad(1, 10, 20, 30)
+squad.State().SetBool("player_spotted", true)
+squad.State().SetPoint("last_known_pos", playerPos)
+
+squad.AssignRoles(
+	ai.SquadRoleSpec{Name: "flanker", Count: 1, Score: flankScore},
+	ai.SquadRoleSpec{Name: "suppressor", Count: 2, Score: suppressScore},
+)
+squad.SetOrder(ai.SquadOrder{Kind: "pinch", TargetID: playerID, Position: playerPos})
+
+// Inside a squad member's behavior tree:
+flankBranch := ai.Sequence(
+	ai.SquadStateBool(squad, "player_spotted"),
+	ai.SquadHasOrder(squad, "pinch"),
+	ai.SquadHasRole(squad, memberID, "flanker"),
+	ai.SquadOrderAction(squad, moveToFlank),
+)
+```
+
+- **`AssignRoles`** solves maximum-weight bipartite matching over `SquadRoleSpec`s, maximizing the number of filled eligible roles first and total score second. Return `NaN` or `±Inf` from `Score` to mark a member ineligible for a role.
+- **`SquadOrder.Revision`** increments on every `SetOrder` and `ClearOrder` call so behavior trees can detect newly issued directives even when `Kind` is unchanged.
+- **`SquadState`** provides typed helpers (`Bool`, `Int`, `Float`, `String`, `Point`, `ID`), generic `SquadStateGet[T]`, and deterministic sorted `Keys`.
