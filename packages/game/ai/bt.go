@@ -53,15 +53,35 @@ const (
 //
 // When a child returns StatusRunning, Sequence remembers its position and resumes at that child on the next tick.
 func Sequence(children ...Node) Node {
-	return &sequenceNode{children: slices.Clone(children)}
+	cloned := slices.Clone(children)
+	hasObs := false
+	for _, ch := range cloned {
+		if nodeHasBBObserver(ch) {
+			hasObs = true
+			break
+		}
+	}
+	return &sequenceNode{children: cloned, hasObserver: hasObs}
 }
 
 type sequenceNode struct {
-	children []Node
-	cur      int
+	children    []Node
+	cur         int
+	hasObserver bool
 }
 
 func (s *sequenceNode) Tick(dt time.Duration) Status {
+	if s.hasObserver && s.cur > 0 {
+		for i := 0; i < s.cur; i++ {
+			if sa, ok := s.children[i].(btSelfAbortable); ok && sa.bbSelfAborted() {
+				if running := s.children[s.cur]; running != nil {
+					running.Reset()
+				}
+				s.cur = 0
+				return StatusFailure
+			}
+		}
+	}
 	for s.cur < len(s.children) {
 		ch := s.children[s.cur]
 		if ch == nil {
@@ -94,22 +114,74 @@ func (s *sequenceNode) Reset() {
 // Selector tries children in priority order, returning on the first child that succeeds or runs.
 //
 // If a higher-priority child preempts a lower-priority child that was previously running, Selector resets the interrupted child.
+// Higher-priority children guarded by a [BlackboardCondition] only preempt a running lower-priority branch when their abort mode includes [AbortLower] or [AbortBoth] and their watched key changes.
 func Selector(children ...Node) Node {
-	return &selectorNode{children: slices.Clone(children), running: -1}
+	cloned := slices.Clone(children)
+	hasObs := false
+	for _, ch := range cloned {
+		if nodeHasBBObserver(ch) {
+			hasObs = true
+			break
+		}
+	}
+	return &selectorNode{children: cloned, running: -1, hasObserver: hasObs}
 }
 
 type selectorNode struct {
-	children []Node
-	running  int
+	children    []Node
+	running     int
+	hasObserver bool
 }
 
 func (s *selectorNode) Tick(dt time.Duration) Status {
-	for i, ch := range s.children {
+	start := 0
+	if s.hasObserver && s.running >= 0 {
+		preempted := false
+		for i := 0; i < s.running; i++ {
+			ch := s.children[i]
+			if ch == nil {
+				continue
+			}
+			if obs, ok := ch.(btObserver); ok && obs.hasBBObserver() {
+				if !obs.bbWantsPreempt() {
+					continue
+				}
+				if prev := s.children[s.running]; prev != nil {
+					prev.Reset()
+				}
+				s.running = -1
+				start = i
+				preempted = true
+				break
+			}
+			st := ch.Tick(dt)
+			if st == StatusFailure {
+				continue
+			}
+			if prev := s.children[s.running]; prev != nil {
+				prev.Reset()
+			}
+			if st == StatusRunning {
+				s.running = i
+				return StatusRunning
+			}
+			s.running = -1
+			return StatusSuccess
+		}
+		if !preempted {
+			start = s.running
+		}
+	}
+	for i := start; i < len(s.children); i++ {
+		ch := s.children[i]
 		if ch == nil {
 			continue
 		}
 		st := ch.Tick(dt)
 		if st == StatusFailure {
+			if s.running == i {
+				s.running = -1
+			}
 			continue
 		}
 		if s.running >= 0 && s.running != i {

@@ -264,8 +264,58 @@ tree.Tick(dt)
 Available nodes:
 
 - **Composites**: `Sequence`, `Selector` (preempts and resets lower-priority running branches when a higher-priority branch succeeds or runs), `Parallel(policy, ...)` (`RequireAll` or `RequireOne`), `RandomSelector(stream, ...)`, `RandomSequence(stream, ...)`, `WeightedSelector(stream, options...)` (using `WeightedNode{Node, Weight}`), `UtilitySelector(reasoner, ctx, rng, subtrees)`.
-- **Decorators**: `Guard(cond, child)`, `Cooldown(d, child)`, `TimeLimit(d, child)`, `Retry(n, child)`, `Service(interval, fn, child)`, `WithAttackToken(pool, agentID, priority, child)`, `Inverter`, `Succeeder`, `Failer`, `Repeater(count, child)`, `UntilFail`.
+- **Decorators**: `Guard(cond, child)`, `BlackboardCondition(bb, key, op, value, abort, child)`, `Cooldown(d, child)`, `TimeLimit(d, child)`, `Retry(n, child)`, `Service(interval, fn, child)`, `WithAttackToken(pool, agentID, priority, child)`, `Inverter`, `Succeeder`, `Failer`, `Repeater(count, child)`, `UntilFail`.
 - **Leaves**: `Action(fn)`, `Condition(fn)`, `Wait(d)`, `HasAttackToken(pool, agentID)`, `SquadHasOrder(squad, kind)`, `SquadHasRole(squad, agentID, role)`, `SquadStateBool(squad, key)`, `SquadOrderAction(squad, fn)`.
+
+### Blackboard and observer aborts
+
+`Blackboard` holds typed keys (`bool`, `int`, `float64`, `string`, 2D vectors via `math2d.Vec2` / `core.Point`, 3D vectors via `ai.Vec3`, and `uint64` entity IDs) scoped per agent with an optional shared parent blackboard for a squad or team (`NewChildBlackboard(parent)`). Reads fall back to the parent when a key is not set locally; `Set*` writes locally and `SetShared*` targets the parent. `KeyRevision(key)` and `Revision()` track mutations monotonically without heap allocations, and `Watch(key, fn)` delivers synchronous change notifications (propagating non-shadowed parent updates) with a returned cancel function.
+
+`BlackboardCondition(bb, key, op, value, abort, child)` compares `key` using `BBOpEq`, `BBOpNe`, `BBOpLt`, `BBOpLte`, `BBOpGt`, `BBOpGte`, `BBOpSet`, or `BBOpUnset` (omitting `child` uses it as a condition leaf). Its `AbortMode` controls how key changes interrupt running branches:
+
+- `AbortNone` (`none`): checks the condition only on entry.
+- `AbortSelf` (`self`): resets its own running child (or an enclosing `Sequence`'s later running child when used as a leaf) on the next tick if the watched key changes and the condition becomes false.
+- `AbortLower` (`lower`): aborts a running lower-priority sibling in an enclosing `Selector` on the next tick when the watched key changes and the condition becomes true.
+- `AbortBoth` (`both`): combines `AbortSelf` and `AbortLower`.
+
+```go
+squadBB := ai.NewBlackboard()
+agentBB := ai.NewChildBlackboard(squadBB)
+agentBB.SetBool("enemy_seen", false)
+
+tree := ai.Selector(
+	ai.BlackboardCondition(agentBB, "enemy_seen", ai.BBOpEq, ai.BBBool(true), ai.AbortBoth,
+		ai.Action(chaseTarget),
+	),
+	ai.Action(patrol),
+)
+```
+
+### Behavior trees in YAML
+
+Author behavior trees in versioned `*.bt.yaml` files (`version: 1`, JSON Schema `https://game.nsgo.dev/schemas/bt.v1.json`) with `ParseBehaviorTree` / `ParseBehaviorTreeWith`, `LoadBehaviorTreeFS`, `EncodeBehaviorTree`, `BuildBehaviorTree`, and `BuildBehaviorTreeFS`:
+
+```go
+doc, err := ai.LoadBehaviorTreeFS(assetsFS, "ai/guard.bt.yaml")
+if err != nil {
+	return err
+}
+tree, err := ai.BuildBehaviorTree(doc, ai.BTBindings{
+	Blackboard: agentBB,
+	Stream:     rng,
+	FS:         assetsFS,
+	Actions: map[string]func(ai.BTNodeContext) (ai.Node, error){
+		"attack": func(ctx ai.BTNodeContext) (ai.Node, error) {
+			dmg, _ := ctx.Params.Int("damage")
+			return ai.Action(func(dt time.Duration) ai.Status { return doAttack(dmg) }), nil
+		},
+	},
+})
+```
+
+- Supports every built-in composite and decorator (`sequence`, `selector`, `parallel`, `random_selector`, `random_sequence`, `weighted_selector`, `guard`, `cooldown`, `time_limit`, `retry`, `service`, `inverter`, `succeeder`, `failer`, `repeater`, `until_fail`, `blackboard_condition`), `wait`, game-registered `action` / `condition` leaves with typed `params`, and `subtree` references by `path` with `${param}` parameter substitution and `keys` blackboard key remapping.
+- `ParseBehaviorTreeWith`, `LoadBehaviorTreeFS`, and `BuildBehaviorTree` refuse unknown fields, unknown node types, invalid operators or abort modes, trailing YAML documents, and circular subtree references, reporting file, line, column, field path, and fix hints via `*loaderr.Error`.
+- `EncodeBehaviorTree` writes canonical 2-space YAML prefixed with `BTSchemaComment` in fixed key order so load-and-save round trips change nothing.
 
 ### Timeouts, retries, deterministic random choices, and services
 

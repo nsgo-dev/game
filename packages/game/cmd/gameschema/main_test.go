@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nsgo-dev/game/packages/game/ai"
 	"github.com/nsgo-dev/game/packages/game/l10n"
 	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
@@ -465,7 +466,6 @@ func TestWorld3DSchemasShapeAndValidation(t *testing.T) {
 		})
 	}
 }
-
 func TestProjectSchemaShapeAndValidation(t *testing.T) {
 	s := schemaAt(t, project.SchemaURL)
 	if s.Schema != jsonschema.Draft07 || s.ID != project.SchemaURL {
@@ -509,6 +509,61 @@ func TestProjectSchemaShapeAndValidation(t *testing.T) {
 	} {
 		if err := s.ValidateYAML([]byte(src)); err == nil {
 			t.Fatalf("project schema accepted %s", name)
+		}
+	}
+}
+
+func TestBTSchemaShapeAndValidation(t *testing.T) {
+	s := schemaAt(t, ai.BTSchemaURL)
+	if s.Schema != jsonschema.Draft07 || s.ID != ai.BTSchemaURL {
+		t.Fatalf("$schema %q, $id %q", s.Schema, s.ID)
+	}
+	if version := s.Property("version"); version == nil || version.Const != int64(ai.BTFormatVersion) {
+		t.Fatalf("version property = %+v", version)
+	}
+	if b, ok := s.AdditionalProperties.Boolean(); !ok || b {
+		t.Fatal("bt schema accepts unknown top-level keys")
+	}
+	for _, p := range s.Properties {
+		if p.Schema.Description == "" {
+			t.Errorf("BehaviorTreeDoc.%s has no description", p.Name)
+		}
+	}
+	for _, defName := range []string{"BTBlackboardKeyDoc", "BTNodeDoc"} {
+		def := s.Definitions[defName]
+		if def == nil || def.Description == "" {
+			t.Fatalf("definition %s = %+v, want one with a description", defName, def)
+		}
+		if b, ok := def.AdditionalProperties.Boolean(); !ok || b {
+			t.Fatalf("definition %s accepts unknown keys", defName)
+		}
+		for _, p := range def.Properties {
+			if p.Schema.Description == "" {
+				t.Errorf("%s.%s has no description", defName, p.Name)
+			}
+		}
+	}
+	for _, name := range []string{"guard.bt.yaml", "patrol.bt.yaml"} {
+		p := filepath.Join(root, "ai", "testdata", "bt", name)
+		data, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.ValidateYAML(data); err != nil {
+			t.Fatalf("bt schema refused %s: %v", name, err)
+		}
+	}
+	badDocs := []string{
+		"version: 1\nunknownKey: true\nroot:\n  type: wait\n  duration: 1s\n",
+		"version: 1\nroot:\n  type: teleport\n",
+		"version: 1\nroot:\n  type: blackboard_condition\n  key: alert\n  op: approx\n  value: true\n",
+		"version: 1\nroot:\n  type: blackboard_condition\n  key: alert\n  op: eq\n  value: true\n  abort: always\n",
+		"version: 1\nblackboard:\n  - key: hp\n    type: map\nroot:\n  type: wait\n  duration: 1s\n",
+		"version: 1\nroot:\n  type: action\n  action: attack\n  params:\n    nested:\n      a: 1\n",
+	}
+	for _, bad := range badDocs {
+		if err := s.ValidateYAML([]byte(bad)); err == nil {
+			t.Fatalf("bt schema accepted invalid YAML:\n%s", bad)
 		}
 	}
 }

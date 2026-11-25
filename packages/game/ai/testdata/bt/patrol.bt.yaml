@@ -1,0 +1,20 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/bt.v1.json
+version: 1
+name: patrol
+params:
+  wait: 300ms
+blackboard:
+  - key: home
+    type: vec2
+    default:
+      - 0
+      - 0
+root:
+  type: sequence
+  children:
+    - type: action
+      action: move_patrol
+    - type: wait
+      duration: ${wait}
+    - type: action
+      action: look_around

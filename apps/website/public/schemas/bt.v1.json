@@ -1,0 +1,274 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://game.nsgo.dev/schemas/bt.v1.json",
+  "title": "NSGo game behavior tree (version 1)",
+  "description": "BehaviorTreeDoc is the root of a versioned YAML behavior tree document (*.bt.yaml).",
+  "type": "object",
+  "properties": {
+    "version": {
+      "description": "Version is the schema version; must equal BTFormatVersion (1).",
+      "type": "integer",
+      "const": 1
+    },
+    "name": {
+      "description": "Name is an optional human-readable identifier for this behavior tree.",
+      "type": "string"
+    },
+    "params": {
+      "description": "Params declares optional default parameter values substituted for \"${name}\" references in this tree.",
+      "type": "object",
+      "additionalProperties": {
+        "type": [
+          "boolean",
+          "number",
+          "string",
+          "array"
+        ],
+        "items": {
+          "type": "number"
+        }
+      }
+    },
+    "blackboard": {
+      "description": "Blackboard declares typed blackboard keys and optional initial defaults used by this tree.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/BTBlackboardKeyDoc"
+      }
+    },
+    "root": {
+      "description": "Root is the root node of the behavior tree.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/BTNodeDoc"
+        }
+      ]
+    }
+  },
+  "required": [
+    "version",
+    "root"
+  ],
+  "additionalProperties": false,
+  "definitions": {
+    "BTBlackboardKeyDoc": {
+      "description": "BTBlackboardKeyDoc declares one typed blackboard key and its optional initial default value.",
+      "type": "object",
+      "properties": {
+        "key": {
+          "description": "Key is the blackboard key name.",
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "description": "Type is the value kind: bool, int, float, string, vec2, vec3, or entity.",
+          "type": "string",
+          "enum": [
+            "bool",
+            "int",
+            "float",
+            "string",
+            "vec2",
+            "vec3",
+            "entity"
+          ]
+        },
+        "shared": {
+          "description": "Shared targets the parent (squad or team) blackboard instead of the agent's local blackboard when seeding Default.",
+          "type": "boolean"
+        },
+        "default": {
+          "description": "Default is an optional initial value matching Type (scalar, [x, y] for vec2, or [x, y, z] for vec3).",
+          "type": [
+            "boolean",
+            "number",
+            "string",
+            "array"
+          ],
+          "items": {
+            "type": "number"
+          }
+        }
+      },
+      "required": [
+        "key",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "BTNodeDoc": {
+      "description": "BTNodeDoc describes one composite, decorator, leaf, or subtree reference node in a [BehaviorTreeDoc].",
+      "type": "object",
+      "properties": {
+        "type": {
+          "description": "Type selects the behavior tree node kind.",
+          "type": "string",
+          "enum": [
+            "sequence",
+            "selector",
+            "parallel",
+            "random_selector",
+            "random_sequence",
+            "weighted_selector",
+            "guard",
+            "cooldown",
+            "time_limit",
+            "retry",
+            "service",
+            "inverter",
+            "succeeder",
+            "failer",
+            "repeater",
+            "until_fail",
+            "blackboard_condition",
+            "wait",
+            "action",
+            "condition",
+            "subtree"
+          ]
+        },
+        "name": {
+          "description": "Name is an optional label for authoring and debugging.",
+          "type": "string"
+        },
+        "weight": {
+          "description": "Weight is the positive relative selection weight when this node is a direct child of weighted_selector.",
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "policy": {
+          "description": "Policy selects the completion policy for parallel nodes: require_all (default) or require_one.",
+          "type": "string",
+          "enum": [
+            "require_all",
+            "require_one"
+          ]
+        },
+        "action": {
+          "description": "Action names the game-registered action factory for action leaf nodes.",
+          "type": "string"
+        },
+        "condition": {
+          "description": "Condition names the game-registered condition factory for condition leaves and guard decorators.",
+          "type": "string"
+        },
+        "service": {
+          "description": "Service names the game-registered service factory for service decorators.",
+          "type": "string"
+        },
+        "duration": {
+          "description": "Duration is a Go duration string (such as \"500ms\" or \"1.5s\") or \"${param}\" reference for wait, cooldown, and time_limit nodes.",
+          "type": "string"
+        },
+        "interval": {
+          "description": "Interval is a Go duration string or \"${param}\" reference controlling periodic ticks of a service decorator (omitted or \"0s\" runs every tick).",
+          "type": "string"
+        },
+        "count": {
+          "description": "Count is the iteration or retry count for repeater (0 repeats indefinitely) and retry (0 disables retries) decorators.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854776000
+        },
+        "key": {
+          "description": "Key is the blackboard key inspected by a blackboard_condition node.",
+          "type": "string"
+        },
+        "op": {
+          "description": "Op is the comparison operator for a blackboard_condition node: eq, ne, lt, lte, gt, gte, set, or unset.",
+          "type": "string",
+          "enum": [
+            "eq",
+            "ne",
+            "lt",
+            "lte",
+            "gt",
+            "gte",
+            "set",
+            "unset"
+          ]
+        },
+        "value": {
+          "description": "Value is the comparison operand for a blackboard_condition node (required for eq, ne, lt, lte, gt, gte; omitted for set and unset).",
+          "type": [
+            "boolean",
+            "number",
+            "string",
+            "array"
+          ],
+          "items": {
+            "type": "number"
+          }
+        },
+        "valueType": {
+          "description": "ValueType optionally specifies the blackboard type of Value (bool, int, float, string, vec2, vec3, or entity) when disambiguation is needed.",
+          "type": "string",
+          "enum": [
+            "bool",
+            "int",
+            "float",
+            "string",
+            "vec2",
+            "vec3",
+            "entity"
+          ]
+        },
+        "abort": {
+          "description": "Abort controls observer abort behavior for a blackboard_condition node: none (default), self, lower, or both.",
+          "type": "string",
+          "enum": [
+            "none",
+            "self",
+            "lower",
+            "both"
+          ]
+        },
+        "path": {
+          "description": "Path is the relative or filesystem path to another *.bt.yaml file for a subtree node.",
+          "type": "string"
+        },
+        "params": {
+          "description": "Params supplies typed parameters to action, condition, guard, service, or subtree nodes.",
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "boolean",
+              "number",
+              "string",
+              "array"
+            ],
+            "items": {
+              "type": "number"
+            }
+          }
+        },
+        "keys": {
+          "description": "Keys maps subtree-local blackboard key names to caller blackboard key names for a subtree node.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "child": {
+          "description": "Child is the wrapped child node for decorator nodes (optional on blackboard_condition).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/BTNodeDoc"
+            }
+          ]
+        },
+        "children": {
+          "description": "Children are the ordered child nodes for composite nodes.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/BTNodeDoc"
+          }
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false
+    }
+  }
+}
