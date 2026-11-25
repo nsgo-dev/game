@@ -511,6 +511,7 @@ scenes/level.scene.yaml:12: sceneformat: connection 0 ("lever" held -> "west/doo
 - **精灵**：Sprite 字段从资源浏览器列出的图集帧（`Assets`）中选取一帧，按图集分组并可搜索，清除按钮会解除绑定；旁边的按钮使用资源浏览器中选中的帧。`SetObjectSprite(id, ref)` 要求同时给出图集和帧，设置了解析器时图集必须能解析并包含该帧；`ref` 为 nil 时解除精灵绑定。
 - **原点与翻转**：精灵帧内的枢轴点 `originX` 与 `originY` 用 `SetObjectOrigin(id, x, y)` 设置，它拒绝非有限值；`flipX` 与 `flipY` 用 `SetObjectFlip(id, flipX, flipY)` 设置。
 - **材质**：Material 字段从当前打开项目的 `*.material.yaml` 文件中选取一个，清除按钮则不指定材质；`SetObjectMaterial(id, path)` 接受相对项目根目录、以斜杠分隔的路径，或空路径。材质必须能通过编辑器的解析器加载，因此解析器必须实现 `sceneformat.MaterialResolver`（`resource.Library` 即实现了它），否则场景无法构建；使用其他解析器时，该字段不列出任何文件，只在对象已指定材质时保持可用，以便清除它。
+- **模型（#893）**：在 3D 模式下，Model 字段从当前打开项目的 glTF 模型中选取一个（`ProjectModels`：项目中的 `.gltf` 和 `.glb` 文件，以及 `game.yaml` 资源部分中模型目标的输出），可搜索，清除按钮则不指定模型。`SetObjectModel(id, path)` 拒绝无法加载的模型，也拒绝为绘制内置基本形体的对象指定模型，正如对象绘制模型时 Mesh 字段不可用；更换模型会清除 `modelNode` 和 `modelMesh`，因为它们指向旧模型的部件；指定模型会把版本 1 的场景提升到版本 2（第一个支持模型的版本），更高版本的场景保持不变。撤销会恢复这三个字段和版本。
 - **属性**：Add Property 接受一个键和一种类型（`string`、`int`、`float` 或 `bool`），添加的属性取该类型的零值（`AddProperty(id, key, kind)`）；该字段会去掉键首尾的空白，空键、首尾带空白的键或对象已有的键会被拒绝。值为整数的浮点属性保存时带小数点（`2.0`），因此再次打开时仍是浮点数。每个属性的删除按钮会删除该属性（`DeleteProperty`）。
 - **组件**：Add Component 字段会筛选对象尚未拥有的已注册类型，按下其中一个即添加该组件，并写入每个已注册字段的默认值，让文件能看出组件的作用（`AddComponent(id, name)`）。按回车会添加字段中写出的类型，或唯一匹配的那个类型。对象已有的组件、注册表不认识的名称，以及首尾带空白或含有 `.`（连接在 `component.event` 中使用它）的名称都会被拒绝；没有注册表时，该字段可以添加任意名称、不含字段的组件。如果新组件声明的事件或处理器被某个连接以裸名称引用，而对象的另一个组件也声明了它，添加也会被拒绝，因为连接将无法说明指的是哪一个：请先把它写成 `component.event`。在实例化或继承其他场景的场景中，这项检查针对通过编辑器的解析器解析后的场景进行，包括它所引用场景的连接；如果解析器无法加载场景文件，或者即使不加新组件场景也无法解析和绑定，则跳过检查。每个组件的移除按钮会移除该组件（`RemoveComponent(id, name)`），连同所有需要它的连接：从该对象发出、事件由该组件声明的连接，以及指向该对象、处理器由该组件声明的连接，无论写成裸名称还是 `component.name`；裸名称通过组件的注册类型来归属，因此没有注册表、或注册表不认识该类型时，只会移除写成 `component.name` 的连接。`ComponentConnections(id, name)` 列出这些连接，撤销会把组件和连接放回原处。没有注册类型的组件仍按文件中的值显示，字段照常可编辑；由于没有结构定义，其字段中值为整数的浮点数保存为 `2`，再次打开时是整数。
 - **连接（#872）**：Connections 区域列出当前选中对象的已注册组件声明的全部事件（`ObjectEvents`），以及所有与该对象相关的发出连接和传入连接（`ObjectConnections`）。点击 **Connect** 会展开内联表单：选择事件、从可搜索的对象列表（`SceneObjectIDs`）选择目标对象或开启拾取模式直接从 2D/3D 视口或场景树点选目标（`BeginConnectionPick` / `CancelConnectionPick`，拾取期间保持当前选中对象不变）、选择目标对象的已注册处理函数（`ObjectHandlers`）、使用组件注册表提供的带类型控件填写参数，并切换 `once`。每条连接都支持跳转到另一端（`JumpToConnectionOtherEnd`）、编辑（`UpdateConnection`）或移除（`RemoveConnection`）。添加、编辑与移除连接（`AddConnection`、`UpdateConnection`、`RemoveConnection`）都是可撤销命令，在进入 `History` 前先用 `sceneformat.Validate` 和 `sceneformat.ValidateConnections` 校验：无效连接（例如目标对象缺少该处理函数、重复连接、参数类型不符或超出范围）会被拒绝并在状态栏报告原因，同时保持场景与撤销历史不变。未设置组件注册表时，已有连接依然可以查看、跳转、编辑和移除。
@@ -575,7 +576,37 @@ if err := editor.RegisterDataTableType[Enemy](ed, "data/enemies/*.yaml"); err !=
 - **实时编辑**：只有场景的外观变化时（对象的外观、它在树中的位置、实例化的场景或覆盖项，或者项目文件）才会重新构建。变换控件拖动、撤销移动、打开的动画片段在播放头处的姿态，以及运行中游戏的改动，都直接移动已构建的节点，所以拖动时不会重新构建或上传任何网格。对象有几何体时，`ObjectCorners3D` 和 `ObjectAABB3D` 给出的包围盒是其几何体的边界，聚焦选中对象（`f`）也按这个边界取景，所以一米大小的模型会充满视图。
 - **没有 GPU 时**：在不支持 GPU 视图的目标平台上、GPU 视图的第一帧之前以及设备丢失之后，画布改为绘制完整的线框视图：场景背景、网格、每个对象的包围盒（有几何体时为其边界）和变换控件。`Viewport3DOnGPU` 表明当前显示的是哪一种。
 
-`OrbitCamera3D.SceneCamera` 把编辑器的环绕相机转换为 GPU 视图绘制所用的 `scene3d.Camera`，其视点、视场角和裁剪面与画布投影所用的相同，所以叠加层与几何体对齐。
+`OrbitCamera3D.SceneCamera` 把编辑器的环绕相机转换为 GPU 视图绘制所用的 `scene3d.Camera`，其视点、投影和裁剪面与画布投影所用的相同，所以叠加层与几何体对齐。
+
+### 在 3D 视图中导航（#891）
+
+导航只移动编辑器的相机（`Camera3D`，一个 `OrbitCamera3D`）：它从不算作编辑，不进入撤销历史，也不改动场景文件。相机直接跳到目标位置，不播放动画。
+
+| 操作 | 鼠标 | 触控板或触摸屏 | 键盘或按钮 |
+| --- | --- | --- | --- |
+| 绕注视点环绕 | 拖动 | 单指拖动 | 坐标轴控件下方的“向左环绕 15°”和“向右环绕 15°”按钮 |
+| 平移 | 中键拖动，或按住 Shift 拖动 | 双指滚动，或在触摸屏上双指拖动 | |
+| 向注视点缩放 | 滚轮 | 捏合，或按住 Control 或 Command 滚动 | |
+| 飞行 | 按住右键：移动指针环顾，W、A、S、D 移动，Q 和 E 下降和上升，按住 Shift 加速，滚轮调整速度 | | |
+| 聚焦选中对象 | | | `f` 或视图栏的 Focus 按钮，按其边界取景；未选中任何对象时取景整个场景 |
+| 轴向视图 | | 点按右上角坐标轴控件上的轴端 | `1` 前视、`ctrl+1` 后视、`3` 右视、`ctrl+3` 左视、`7` 顶视、`ctrl+7` 底视 |
+| 透视或正交 | | | `5`，或视图栏中的 Persp 与 Ortho |
+| 回到默认视图 | | | 视图栏的 Reset view 按钮 |
+
+- **视图栏与状态栏**显示视图的名称：轴向视图的名称（Front、Top 等）或 Perspective，正交时附加“ · ortho”，不沿任何轴的正交视图为“User · ortho”（`ViewName3D`）。状态栏还会以度为单位显示偏航角和俯仰角。
+- **正交**（`SetOrthographic3D`、`OrbitCamera3D.Orthographic`）以平行投影显示。视图高度为 `OrthoHeight`，即透视视图在注视点处显示的高度，因此切换时位于注视点的物体大小不变，缩放会改变这个高度。`Project`、`ScreenRay`、`SceneCamera`、拾取和变换控件在两种投影下行为一致：正交时每个像素的射线都沿视线方向，因此按下会选中其下方的物体，拖动变换控件时对象沿轴移动的距离等于指针沿该轴移动的距离。正交下的轴向视图就是真正的平面图或立面图。
+- **飞行**（`BeginFly3D`、`FlyLook3D`、`FlyMove3D`、`EndFly3D`）让相机绕视点转动，并让视点和注视点一起移动。飞行期间 W、A、S、D、Q、E（无论是否按住 Shift）移动相机，而不执行它们平时的快捷键（变换控件的 W 和 S、擦除瓦片的 E）；平台支持时指针会锁定在视口内。飞行以透视方式观察，所以正交视图会切换为透视；既没有转动也没有移动相机的一次右键点击会保持正交。飞行速度 `FlySpeed3D` 以世界单位每秒计，初始为相机到注视点的距离，滚轮每次将其加倍或减半（`AdjustFlySpeed3D`）。
+- **轴向视图**（`SetView3D`，命令 `view.3d.front`、`view.3d.back`、`view.3d.right`、`view.3d.left`、`view.3d.top`、`view.3d.bottom`，以及切换投影的 `view.3d.orthographic`）保持注视点和距离不变。前视沿 -Z 方向看，右视沿 -X 方向看，顶视垂直向下看，视图上方为 -Z。
+- **按场景保存**：项目中的每个场景都会以上次离开时的相机打开。编辑器在打开另一个场景、保存场景和关闭窗口时把视图写入项目中的 `.game/editor.yaml`（`ViewStateFile`，见[文件格式](formats.md)）；以其他方式结束编辑器的应用需先调用 `SaveViewState`。没有保存过视图的场景以 `DefaultOrbitCamera3D` 打开。编辑器创建 `.game` 文件夹时会在其中写入一个忽略整个文件夹的 `.gitignore`，使视图不进入版本控制。较新版本编辑器写出的文件（`version` 更高）既不会被读取，也不会被覆盖。
+
+### 在 3D 中放置模型（#893）
+
+资源浏览器在图集下方列出可放到 3D 中的模型（`Models`）：先是内置基本形体，然后按路径列出当前打开项目的 glTF 模型，`game assets` 模型目标的输出即使尚未构建也会列出（`ModelEntry.Output`）。每个模型都有一张离屏渲染的缩略图（`ModelThumbnail`）：只有模型本身，从前上方取景，由 `DefaultLights3D` 照明，经由 scenemodel 在 NSGo 的软件 GPU 上绘制。每个模型在其缩略图第一次绘制时于 UI goroutine 上加载，与编辑器 `Resolver` 提供的一切资源相同，且不进入场景自身的模型缓存；渲染在 UI goroutine 之外进行，所以列表立即显示，图片随后补上。无法加载的模型没有缩略图。
+
+- **放置工具**：按下一个模型会选中它（`SelectModel`、`SelectedModel`），在 3D 中还会启用放置工具，3D 工具栏在 Select 旁边显示 Place。之后在 3D 中按下，就会添加一个绘制该模型、以它命名的对象：位置是指针射线命中场景几何体的地方；没有命中时，是射线与地平面（高度为 `PlaceHeight3D` 的水平面）相交的地方（`PlacementAt3D`、`PlaceModelAt3D`）。对象落在该点上：它沿表面法线抬高其几何体在原点以下延伸的距离，所以放在地面上的单位立方体是立在地面上，而不是一半埋在地下。隐藏和锁定的对象会被跳过，与拾取相同。
+- **吸附与对齐**：工具栏的 Snap 让地平面上的点的 X 和 Z 吸附到视口所绘网格的间距（`PlaceSnap3D`）；场景几何体上的点不吸附，因为网格间距可能比指针下的对象还宽；Align 让放在场景几何体上的模型转动，使其 +Y 轴与表面法线一致（`PlaceAlign3D`），地面高度字段设置 `PlaceHeight3D`。它们是视图设置，不是编辑（`SetPlaceOptions3D`）。
+- **拖放**：把模型从资源浏览器拖到 3D 视口上，会按放置工具的规则把它放在落下的位置，不论当前是哪个工具。从其他应用拖到视口上的 `.gltf` 或 `.glb` 文件，只要位于项目文件夹内、且不在资源浏览器略过的文件夹中（名称以 `.` 或 `_` 开头的文件夹，以及 `testdata`），就会被放置（`DropModelFiles`），多个文件算作一步；项目之外的文件、其他类型的文件以及来自网页、没有路径的文件会被拒绝，原因显示在状态栏中。文件拖放不带位置，所以拖入的文件落在视图中心所指的地方。
+- **一步操作**：每次放置都是一个可撤销的步骤，撤销会取回，重做会再次放置。播放时、当前图层被锁定或位于屏幕空间时，以及模型无法加载时，放置会被拒绝；在版本 1 的场景中放置模型会把场景提升到当前版本，与 `PlaceObject` 相同。
 
 ## 瓦片调色板（#874）
 
@@ -777,7 +808,7 @@ func main() {
 - **跨平台快捷键与文本焦点保护**：快捷键使用 NSGo 的 `"mod"` 修饰键（macOS 为 Command，Windows/Linux 为 Ctrl，可通过 `FormatShortcut` 格式化显示），并全部使用 `core.KeyNotEditing` 和 `core.MenuNotEditing` 绑定，因此当任意文本输入框拥有焦点时（例如检查器的 Name 输入框或搜索框），输入字符或按下 Delete/Backspace/Undo/Save 绝不会误触编辑器快捷键：
   - 文件与编辑：`mod+s`（保存）、`mod+z`（撤销）、`mod+shift+z`（重做）、`mod+d`（复制选中对象）、`delete` / `backspace`（删除选中对象）。
   - 2D 工具：`v`（选择）、`m`（移动）、`p`（放置）、`b`（绘制瓦片）、`e`（擦除瓦片）、`g`（填充瓦片）。
-  - 3D 变换控件与视图：`w`（平移）、`r`（旋转）、`s`（缩放）、`alt+2`（2D 视图）、`alt+3`（3D 视图）、`View > 3D Shading` 下的 Lit、Unlit、Wireframe 三个 3D 着色命令（无快捷键）、`f`（聚焦选中对象：2D 下通过 `FrameSelection2D` 调整独立编辑器视图 `View2D` 而不改动保存的 `Doc.Camera`，3D 下调整 `Camera3D`）、`mod+k`（命令面板）。
+  - 3D 变换控件与视图：`w`（平移）、`r`（旋转）、`s`（缩放）、`alt+2`（2D 视图）、`alt+3`（3D 视图）、`View > 3D Shading` 下的 Lit、Unlit、Wireframe 三个 3D 着色命令（无快捷键）、`f`（聚焦选中对象：2D 下通过 `FrameSelection2D` 调整独立编辑器视图 `View2D` 而不改动保存的 `Doc.Camera`，3D 下调整 `Camera3D`）、`1`、`ctrl+1`、`3`、`ctrl+3`、`7` 和 `ctrl+7`（3D 前视、后视、右视、左视、顶视和底视）以及 `5`（3D 透视或正交），这些只在 3D 视图中生效、`mod+k`（命令面板）。
   - 项目：`f5`（播放 / 停止）、`mod+r`（运行游戏：优先调用 `Editor.OnRunGame`，未配置且已挂载作用域时回退到编辑器内运行）、`mod+,`（项目设置）、`mod+shift+e`（导出与发布）、`mod+shift+b`（检查问题）。
 - **桌面菜单栏**：`EditorView` 通过 `desktop.SetApplicationMenu`（`Editor.ApplicationMenu`）注册原生应用菜单栏（`File`、`Edit`、`View`、`Project`），以实时可用/勾选状态和对应平台的快捷键提示暴露同一套命令；已启用插件的工具列在 `View > Tools` 下，已启用插件的命令列在 `Project > Plugins` 下。
 - **命令面板（`ui.CommandDialog`）**：按 `mod+k`（或点击工具栏 **Commands** 按钮 / `View > Command Palette...`）即可打开 `CommandPaletteView`，支持按子串排序与模糊匹配搜索全部内置与自定义命令、已启用插件命令、已启用插件工具（通过 `SetPluginTool` 激活）、已启用插件面板（通过 `FocusPluginPanel` 聚焦）以及当前项目的场景和文件（通过 `OpenProjectFile` 打开场景或选中文件）。

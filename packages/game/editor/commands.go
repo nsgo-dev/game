@@ -43,6 +43,14 @@ const (
 	CmdLocalization    = "project.l10n"
 	CmdExport          = "project.export"
 	CmdCheckProblems   = "project.check"
+	// The 3D viewport's axis views and projection: each axis view looks at the camera's Target along a world axis (SetView3D), and the orthographic command switches between perspective and orthographic (SetOrthographic3D).
+	CmdView3DFront        = "view.3d.front"
+	CmdView3DBack         = "view.3d.back"
+	CmdView3DRight        = "view.3d.right"
+	CmdView3DLeft         = "view.3d.left"
+	CmdView3DTop          = "view.3d.top"
+	CmdView3DBottom       = "view.3d.bottom"
+	CmdView3DOrthographic = "view.3d.orthographic"
 )
 
 var (
@@ -313,12 +321,12 @@ func (e *Editor) initBuiltinCommands() {
 		{
 			ID:          CmdToolPlace,
 			Label:       "Tool: Place",
-			Description: "Switch to the Place object viewport tool",
+			Description: "Switch to the Place viewport tool: an object in 2D, the selected model in 3D",
 			Category:    "Tools",
-			Keywords:    []string{"place", "spawn", "add", "object", "2d"},
+			Keywords:    []string{"place", "spawn", "add", "object", "model", "2d", "3d"},
 			Shortcut:    "p",
 			Enabled:     notPlaying,
-			Checked:     func() bool { return e.ViewMode == ViewMode2D && e.Tool == ToolPlace },
+			Checked:     func() bool { return e.Tool == ToolPlace },
 			Run: func() error {
 				e.SetTool(ToolPlace)
 				return nil
@@ -479,6 +487,26 @@ func (e *Editor) initBuiltinCommands() {
 			Shortcut:    "f",
 			Run: func() error {
 				e.FrameSelection()
+				return nil
+			},
+		},
+		view3DCommand(e, CmdView3DFront, View3DFront, "1", "front"),
+		view3DCommand(e, CmdView3DBack, View3DBack, "ctrl+1", "back", "rear"),
+		view3DCommand(e, CmdView3DRight, View3DRight, "3", "right", "side"),
+		view3DCommand(e, CmdView3DLeft, View3DLeft, "ctrl+3", "left", "side"),
+		view3DCommand(e, CmdView3DTop, View3DTop, "7", "top", "plan"),
+		view3DCommand(e, CmdView3DBottom, View3DBottom, "ctrl+7", "bottom", "under"),
+		{
+			ID:          CmdView3DOrthographic,
+			Label:       "3D View: Orthographic",
+			Description: "Switch the 3D viewport between perspective and orthographic projection",
+			Category:    "View",
+			Keywords:    []string{"orthographic", "ortho", "perspective", "projection", "3d"},
+			Shortcut:    "5",
+			Enabled:     func() bool { return e.ViewMode == ViewMode3D },
+			Checked:     func() bool { return e.Camera3D.Orthographic },
+			Run: func() error {
+				e.SetOrthographic3D(!e.Camera3D.Orthographic)
 				return nil
 			},
 		},
@@ -895,6 +923,7 @@ func (e *Editor) FrameSelection() bool {
 }
 
 func (e *Editor) frameSelection3D() bool {
+	e.endFly3D()
 	e.scene3D()
 	if obj, _ := e.SelectedObject(); obj != nil {
 		bmin, bmax := e.objectAABB3D(obj)
@@ -939,11 +968,21 @@ func (e *Editor) frameAABB3D(bmin, bmax [3]float32) {
 	dz := float64(bmax[2] - bmin[2])
 	radius := 0.5 * math.Sqrt(dx*dx+dy*dy+dz*dz)
 	_, fov, _, _ := e.Camera3D.effectiveParams()
-	sinHalf := math.Sin(fov * 0.5)
-	if sinHalf < 0.1 {
-		sinHalf = 0.5
+	var dist float32
+	if e.Camera3D.Orthographic {
+		// The orthographic view is OrthoHeight high whatever the eye's distance, so the distance is the one whose height holds the bounds' sphere, with the same margin, across the narrower side of the view.
+		halfH := radius * 1.4
+		if w, h := e.CanvasSize(); w > 0 && h > 0 && w < h {
+			halfH *= float64(h / w)
+		}
+		dist = float32(halfH / math.Tan(fov*0.5))
+	} else {
+		sinHalf := math.Sin(fov * 0.5)
+		if sinHalf < 0.1 {
+			sinHalf = 0.5
+		}
+		dist = float32((radius / sinHalf) * 1.4)
 	}
-	dist := float32((radius / sinHalf) * 1.4)
 	if dist < 60 {
 		dist = 60
 	}
@@ -952,6 +991,27 @@ func (e *Editor) frameAABB3D(bmin, bmax [3]float32) {
 	}
 	e.Camera3D.Target = center
 	e.Camera3D.Distance = dist
+}
+
+// view3DCommand is the command that turns the 3D viewport to the axis view v, bound to shortcut; it runs only in the 3D view.
+func view3DCommand(e *Editor, id string, v View3D, shortcut string, keywords ...string) EditorCommand {
+	return EditorCommand{
+		ID:          id,
+		Label:       "3D View: " + v.String(),
+		Description: "Look at the 3D viewport's target from the " + strings.ToLower(v.String()),
+		Category:    "View",
+		Keywords:    append([]string{"axis", "view", "camera", "3d"}, keywords...),
+		Shortcut:    shortcut,
+		Enabled:     func() bool { return e.ViewMode == ViewMode3D },
+		Checked: func() bool {
+			cur, ok := e.Camera3D.AxisView()
+			return ok && cur == v
+		},
+		Run: func() error {
+			e.SetView3D(v)
+			return nil
+		},
+	}
 }
 
 // bindShortcuts registers NSGo keyboard bindings for every active command in EditorView.

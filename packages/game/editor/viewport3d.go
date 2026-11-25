@@ -10,6 +10,7 @@ import (
 )
 
 const (
+	// maxOrbitPitch is how far Orbit tilts the camera above or below the horizon, short of straight down or up so a drag never flips the view; the axis views (SetView) look straight down or up.
 	maxOrbitPitch    float32 = float32(math.Pi/2) - 0.01
 	minOrbitDistance float32 = 0.5
 	maxOrbitDistance float32 = 50000
@@ -17,7 +18,7 @@ const (
 	gizmoRingSteps           = 32
 )
 
-// OrbitCamera3D is a pure-Go right-handed (Y-up) perspective orbit camera for the 3D scene view.
+// OrbitCamera3D is a pure-Go right-handed (Y-up) orbit camera for the 3D scene view: it looks at Target from Distance away, turned by Yaw about the vertical axis and tilted by Pitch, through a perspective projection or, with Orthographic, a parallel one.
 type OrbitCamera3D struct {
 	Target   [3]float32
 	Yaw      float32
@@ -26,6 +27,8 @@ type OrbitCamera3D struct {
 	FOV      float32
 	Near     float32
 	Far      float32
+	// Orthographic projects the view in parallel instead of in perspective. The view is OrthoHeight high, the height the perspective view shows at Target, so switching keeps what lies at Target the same size; Distance still zooms it, and the eye moves back along the view so the clip planes take in the scene in front of Target and behind it.
+	Orthographic bool
 }
 
 // DefaultOrbitCamera3D returns a perspective orbit camera framed on the world origin.
@@ -61,15 +64,43 @@ func (c OrbitCamera3D) effectiveParams() (dist, fov, near, far float64) {
 	return dist, fov, near, far
 }
 
-// Eye returns the camera's world-space position derived from Target, Yaw, Pitch, and Distance.
+// OrthoHeight returns the world height the view shows at Target: the whole height of the orthographic view, and the height of the perspective view's slice through Target.
+func (c OrbitCamera3D) OrthoHeight() float32 {
+	return float32(c.halfHeight64() * 2)
+}
+
+func (c OrbitCamera3D) halfHeight64() float64 {
+	dist, fov, _, _ := c.effectiveParams()
+	return dist * math.Tan(fov*0.5)
+}
+
+// eyeDistance64 returns how far the eye sits from Target: Distance in perspective, and in orthographic halfway between the near and far planes whatever Distance is, so Target stays inside the clip range however far the view zooms out; in orthographic Distance only sets how much the view shows (OrthoHeight).
+func (c OrbitCamera3D) eyeDistance64() float64 {
+	dist, _, near, far := c.effectiveParams()
+	if c.Orthographic {
+		return (near + far) * 0.5
+	}
+	return dist
+}
+
+// pitch64 returns Pitch limited to straight up or down.
+func (c OrbitCamera3D) pitch64() float64 {
+	p := float64(c.Pitch)
+	if math.IsNaN(p) {
+		return 0
+	}
+	return clamp64(p, -math.Pi/2, math.Pi/2)
+}
+
+// Eye returns the camera's world-space position derived from Target, Yaw, Pitch and Distance, moved back along the view in orthographic (Orthographic).
 func (c OrbitCamera3D) Eye() [3]float32 {
 	eye := c.eye64()
 	return [3]float32{float32(eye[0]), float32(eye[1]), float32(eye[2])}
 }
 
 func (c OrbitCamera3D) eye64() [3]float64 {
-	dist, _, _, _ := c.effectiveParams()
-	pitch := clamp64(float64(c.Pitch), -float64(maxOrbitPitch), float64(maxOrbitPitch))
+	dist := c.eyeDistance64()
+	pitch := c.pitch64()
 	yaw := float64(c.Yaw)
 	cosP := math.Cos(pitch)
 	sinP := math.Sin(pitch)
@@ -88,18 +119,13 @@ func (c OrbitCamera3D) Basis() (right, up, forward [3]float32) {
 	return vec32(r), vec32(u), vec32(f)
 }
 
+// basis64 derives the basis from the angles, not from the eye and Target, so it holds when the view looks straight down or up: right lies in the ground plane, turned by Yaw.
 func (c OrbitCamera3D) basis64() (right, up, forward [3]float64) {
-	eye := c.eye64()
-	target := vec64(c.Target)
-	forward = normalize64(sub64(target, eye))
-	if len64(forward) == 0 {
-		forward = [3]float64{0, 0, -1}
-	}
-	worldUp := [3]float64{0, 1, 0}
-	right = normalize64(cross64(forward, worldUp))
-	if len64(right) == 0 {
-		right = [3]float64{1, 0, 0}
-	}
+	pitch := c.pitch64()
+	sinY, cosY := math.Sincos(float64(c.Yaw))
+	sinP, cosP := math.Sincos(pitch)
+	forward = [3]float64{-cosP * sinY, -sinP, -cosP * cosY}
+	right = [3]float64{cosY, 0, -sinY}
 	up = normalize64(cross64(right, forward))
 	return right, up, forward
 }
@@ -140,7 +166,23 @@ func (c *OrbitCamera3D) Zoom(delta float32) {
 		c.Distance = 240
 	}
 	c.Distance -= delta
-	if c.Distance < minOrbitDistance {
+	c.clampDistance()
+}
+
+// ZoomBy divides Distance by factor, so a factor of 2 shows the view twice as large, clamped as Zoom clamps it. A factor that is not positive and finite changes nothing.
+func (c *OrbitCamera3D) ZoomBy(factor float32) {
+	if c == nil || !(factor > 0) || math.IsInf(float64(factor), 0) {
+		return
+	}
+	if c.Distance <= 0 {
+		c.Distance = 240
+	}
+	c.Distance /= factor
+	c.clampDistance()
+}
+
+func (c *OrbitCamera3D) clampDistance() {
+	if c.Distance < minOrbitDistance || math.IsNaN(float64(c.Distance)) {
 		c.Distance = minOrbitDistance
 	}
 	if c.Distance > maxOrbitDistance {
@@ -148,48 +190,71 @@ func (c *OrbitCamera3D) Zoom(delta float32) {
 	}
 }
 
-// Project transforms a world-space 3D point into viewport pixel coordinates (sx, sy) and camera depth.
+// worldPerPixel returns the world distance one pixel of a viewport h pixels high spans at Target.
+func (c OrbitCamera3D) worldPerPixel(h float32) float64 {
+	hh := float64(h)
+	if hh <= 0 {
+		hh = 360
+	}
+	return 2 * c.halfHeight64() / hh
+}
+
+// toCamera returns world point p in camera space: along right, up and forward from the eye.
+func toCamera64(p, eye, right, up, forward [3]float64) [3]float64 {
+	rel := sub64(p, eye)
+	return [3]float64{dot64(rel, right), dot64(rel, up), dot64(rel, forward)}
+}
+
+// screen64 returns where camera-space point p falls on a viewport w by h pixels, dividing by its depth in perspective.
+func (c OrbitCamera3D) screen64(p [3]float64, w, h float32) (sx, sy float32) {
+	_, fov, _, _ := c.effectiveParams()
+	aspect := float64(w) / float64(h)
+	var ndcX, ndcY float64
+	if c.Orthographic {
+		halfH := c.halfHeight64()
+		ndcX = p[0] / (halfH * aspect)
+		ndcY = p[1] / halfH
+	} else {
+		tanHalf := math.Tan(fov * 0.5)
+		ndcX = p[0] / (p[2] * tanHalf * aspect)
+		ndcY = p[1] / (p[2] * tanHalf)
+	}
+	return float32((ndcX + 1) * 0.5 * float64(w)), float32((1 - ndcY) * 0.5 * float64(h))
+}
+
+// Project transforms a world-space 3D point into viewport pixel coordinates (sx, sy) and camera depth, in perspective or in orthographic (Orthographic).
 // visible is true when the point lies strictly between Near and Far in front of the camera.
 func (c OrbitCamera3D) Project(world [3]float32, w, h float32) (sx, sy, depth float32, visible bool) {
 	if w <= 0 || h <= 0 {
 		return 0, 0, 0, false
 	}
-	_, fov, near, far := c.effectiveParams()
-	eye := c.eye64()
+	_, _, near, far := c.effectiveParams()
 	right, up, forward := c.basis64()
-	rel := sub64(vec64(world), eye)
-
-	cx := dot64(rel, right)
-	cy := dot64(rel, up)
-	cz := dot64(rel, forward)
-	if cz <= near || cz >= far {
-		return 0, 0, float32(cz), false
+	p := toCamera64(vec64(world), c.eye64(), right, up, forward)
+	if p[2] <= near || p[2] >= far {
+		return 0, 0, float32(p[2]), false
 	}
-
-	tanHalf := math.Tan(fov * 0.5)
-	aspect := float64(w) / float64(h)
-	ndcX := cx / (cz * tanHalf * aspect)
-	ndcY := cy / (cz * tanHalf)
-	sx = float32((ndcX + 1) * 0.5 * float64(w))
-	sy = float32((1 - ndcY) * 0.5 * float64(h))
-	return sx, sy, float32(cz), true
+	sx, sy = c.screen64(p, w, h)
+	return sx, sy, float32(p[2]), true
 }
 
-// ScreenRay returns the world-space ray (origin, unit direction) passing through viewport pixel (sx, sy).
+// ScreenRay returns the world-space ray (origin, unit direction) passing through viewport pixel (sx, sy). In perspective every ray starts at the eye; in orthographic (Orthographic) every ray runs along the view's forward direction from the point of the eye's plane under the pixel.
 func (c OrbitCamera3D) ScreenRay(sx, sy, w, h float32) (origin, dir [3]float32) {
 	eye := c.eye64()
+	right, up, forward := c.basis64()
 	if w <= 0 || h <= 0 {
-		_, _, forward := c.basis64()
 		return vec32(eye), vec32(forward)
 	}
 	_, fov, _, _ := c.effectiveParams()
-	right, up, forward := c.basis64()
-	tanHalf := math.Tan(fov * 0.5)
 	aspect := float64(w) / float64(h)
-
 	ndcX := (float64(sx)/float64(w))*2 - 1
 	ndcY := 1 - (float64(sy)/float64(h))*2
-
+	if c.Orthographic {
+		halfH := c.halfHeight64()
+		o := add64(eye, add64(scale64(right, ndcX*halfH*aspect), scale64(up, ndcY*halfH)))
+		return vec32(o), vec32(forward)
+	}
+	tanHalf := math.Tan(fov * 0.5)
 	d := add64(
 		add64(scale64(right, ndcX*tanHalf*aspect), scale64(up, ndcY*tanHalf)),
 		forward,
@@ -387,7 +452,7 @@ func aabbOfCorners3D(corners [8][3]float32) (boxMin, boxMax [3]float32) {
 	return boxMin, boxMax
 }
 
-// Pick3D casts a perspective ray through viewport pixel (sx, sy) and returns the flat index (Objects3D's) of the closest visible scene object it hits, nested children included. An object that draws a mesh or model in the scene's 3D build (Scene3D) is hit on the triangles of its geometry, through the build's scene3d picking, and any other object on its world-space 3D AABB (ObjectAABB3D); an object an instanced scene adds is picked as its instance. A press that hits geometry picks the geometry's object even when the box of an object without geometry is nearer, since such boxes are a fixed size whatever the scene's scale and may enclose the camera or the whole level; the boxes are picked only where no geometry is hit. Objects hidden or locked in the editor (SetObjectHidden, SetObjectLocked), with their descendants, and the objects of hidden and locked layers (SetLayerVisible, SetLayerLocked) are passed over.
+// Pick3D casts the camera's ray (ScreenRay), in perspective or in orthographic, through viewport pixel (sx, sy) and returns the flat index (Objects3D's) of the closest visible scene object it hits, nested children included. An object that draws a mesh or model in the scene's 3D build (Scene3D) is hit on the triangles of its geometry, through the build's scene3d picking, and any other object on its world-space 3D AABB (ObjectAABB3D); an object an instanced scene adds is picked as its instance. A press that hits geometry picks the geometry's object even when the box of an object without geometry is nearer, since such boxes are a fixed size whatever the scene's scale and may enclose the camera or the whole level; the boxes are picked only where no geometry is hit. Objects hidden or locked in the editor (SetObjectHidden, SetObjectLocked), with their descendants, and the objects of hidden and locked layers (SetLayerVisible, SetLayerLocked) are passed over.
 func (e *Editor) Pick3D(sx, sy, w, h float32) (objectIndex int, ok bool) {
 	if e == nil || e.Doc == nil || w <= 0 || h <= 0 {
 		return -1, false
@@ -471,7 +536,11 @@ func (e *Editor) GizmoLength3D(pos [3]float32) float32 {
 	if e == nil {
 		return 32
 	}
-	dist := len64(sub64(vec64(pos), e.Camera3D.eye64()))
+	// In orthographic a gizmo's size on screen does not change with its distance from the eye, so it is sized by the view's zoom instead, as large as a perspective view shows it at Target.
+	dist, _, _, _ := e.Camera3D.effectiveParams()
+	if !e.Camera3D.Orthographic {
+		dist = len64(sub64(vec64(pos), e.Camera3D.eye64()))
+	}
 	l := float32(dist * 0.18)
 	if l < 2 {
 		l = 2
@@ -858,7 +927,7 @@ func (e *Editor) CancelGizmoDrag3D() {
 	e.notify()
 }
 
-// HandleViewport3DPress handles a click/tap in the 3D viewport: picks the closest 3D object or clears selection.
+// HandleViewport3DPress handles a click/tap in the 3D viewport: with the Place tool and a model selected in the asset browser (SelectedModel) it places the model where the press lands (PlaceModelAt3D), reporting in the status bar why it could not; otherwise it picks the closest 3D object or clears selection.
 func (e *Editor) HandleViewport3DPress(sx, sy, w, h float32) {
 	if e == nil || e.playing {
 		return
@@ -869,16 +938,20 @@ func (e *Editor) HandleViewport3DPress(sx, sy, w, h float32) {
 		}
 		return
 	}
+	if e.Tool == ToolPlace && e.SelectedModel != nil {
+		_, err := e.PlaceModelAt3D(*e.SelectedModel, sx, sy, w, h)
+		e.report(err)
+		return
+	}
 	if e.PickGizmo3D(sx, sy, w, h) != Axis3DNone {
 		return
 	}
 	e.Select3DAt(sx, sy, w, h)
 }
 
-// BeginViewport3DDrag starts either a 3D gizmo drag (if a handle is under the cursor and !pan)
-// or a camera orbit/pan drag.
+// BeginViewport3DDrag starts either a 3D gizmo drag (if a handle is under the cursor and !pan) or a camera orbit/pan drag. It does nothing while the camera flies (BeginFly3D).
 func (e *Editor) BeginViewport3DDrag(sx, sy, w, h float32, pan bool) {
-	if e == nil {
+	if e == nil || e.fly3D {
 		return
 	}
 	if !pan && !e.playing {
@@ -921,14 +994,7 @@ func (e *Editor) UpdateViewport3DDrag(sx, sy float32) {
 		dy := sy - e.drag3D.lastSY
 		e.drag3D.lastSX = sx
 		e.drag3D.lastSY = sy
-		dist, fov, _, _ := e.Camera3D.effectiveParams()
-		h := float64(e.drag3D.vpH)
-		if h <= 0 {
-			h = 360
-		}
-		worldPerPx := float32((2 * dist * math.Tan(fov*0.5)) / h)
-		e.Camera3D.Pan(-dx*worldPerPx, dy*worldPerPx)
-		e.notify()
+		e.PanView3D(dx, dy, e.drag3D.vpH)
 	}
 }
 
@@ -944,9 +1010,13 @@ func (e *Editor) EndViewport3DDrag() {
 	e.drag3D = drag3DState{}
 }
 
-// HandleViewport3DWheel zooms the 3D orbit camera proportionally to deltaY.
+// HandleViewport3DWheel zooms the 3D orbit camera proportionally to deltaY, or while the camera flies (Flying3D) changes its fly speed (AdjustFlySpeed3D).
 func (e *Editor) HandleViewport3DWheel(deltaY float32) {
 	if e == nil || deltaY == 0 {
+		return
+	}
+	if e.fly3D {
+		e.AdjustFlySpeed3D(deltaY)
 		return
 	}
 	dist, _, _, _ := e.Camera3D.effectiveParams()
@@ -1321,19 +1391,16 @@ func drawArrowHead2D(d *core.Drawing, x0, y0, x1, y1 float32, color core.Color) 
 		Fill().Restore()
 }
 
-// projectSegment clips a 3D world segment against the camera's near plane before projecting to 2D.
+// projectSegment clips a 3D world segment against the camera's near plane before projecting to 2D, in perspective or in orthographic.
 func (c OrbitCamera3D) projectSegment(a, b [3]float32, w, h float32) (x0, y0, x1, y1 float32, visible bool) {
 	if w <= 0 || h <= 0 {
 		return 0, 0, 0, 0, false
 	}
-	_, fov, near, far := c.effectiveParams()
+	_, _, near, far := c.effectiveParams()
 	eye := c.eye64()
 	right, up, forward := c.basis64()
-
-	ra := sub64(vec64(a), eye)
-	rb := sub64(vec64(b), eye)
-	ca := [3]float64{dot64(ra, right), dot64(ra, up), dot64(ra, forward)}
-	cb := [3]float64{dot64(rb, right), dot64(rb, up), dot64(rb, forward)}
+	ca := toCamera64(vec64(a), eye, right, up, forward)
+	cb := toCamera64(vec64(b), eye, right, up, forward)
 
 	clipNear := near + 1e-3
 	if (ca[2] <= clipNear && cb[2] <= clipNear) || (ca[2] >= far && cb[2] >= far) {
@@ -1347,16 +1414,8 @@ func (c OrbitCamera3D) projectSegment(a, b [3]float32, w, h float32) (x0, y0, x1
 		cb = lerp64(cb, ca, t)
 	}
 
-	tanHalf := math.Tan(fov * 0.5)
-	aspect := float64(w) / float64(h)
-
-	proj := func(p [3]float64) (float32, float32) {
-		ndcX := p[0] / (p[2] * tanHalf * aspect)
-		ndcY := p[1] / (p[2] * tanHalf)
-		return float32((ndcX + 1) * 0.5 * float64(w)), float32((1 - ndcY) * 0.5 * float64(h))
-	}
-	x0, y0 = proj(ca)
-	x1, y1 = proj(cb)
+	x0, y0 = c.screen64(ca, w, h)
+	x1, y1 = c.screen64(cb, w, h)
 	return x0, y0, x1, y1, true
 }
 

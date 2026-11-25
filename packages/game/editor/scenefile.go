@@ -64,7 +64,7 @@ func (e *Editor) windowTitle(unsaved bool) string {
 	return label + " - " + name
 }
 
-// Save saves what has unsaved edits, as the toolbar's Save button and Mod+S do. An edited project file is saved first (SaveProject), whether or not the scene can be; an unedited one is left as written, comments included. An edited scene then goes to OnSave when it is set, else to FilePath (SaveFile), and an unedited one is left as written too, unless FilePath names no file yet. A scene with neither OnSave nor FilePath returns ErrNoSceneFile, unless it is unedited. It refuses while playing (ErrPlaying).
+// Save saves what has unsaved edits, as the toolbar's Save button and Mod+S do, and records the open scene's view in the project's ViewStateFile (SaveViewState). An edited project file is saved first (SaveProject), whether or not the scene can be; an unedited one is left as written, comments included. An edited scene then goes to OnSave when it is set, else to FilePath (SaveFile), and an unedited one is left as written too, unless FilePath names no file yet. A scene with neither OnSave nor FilePath returns ErrNoSceneFile, unless it is unedited. It refuses while playing (ErrPlaying).
 func (e *Editor) Save() error {
 	if e.playing {
 		return ErrPlaying
@@ -74,6 +74,8 @@ func (e *Editor) Save() error {
 	e.CancelCameraDrag()
 	e.cancelBackgroundPreview()
 	e.endTileStrokeForChange()
+	// The view is kept beside the project rather than in the scene, so saving records it whether or not the scene has edits.
+	e.saveViewStateQuietly()
 	projectSaved := false
 	if e.ProjectDirty() {
 		if err := e.SaveProject(); err != nil {

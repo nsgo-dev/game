@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/nsgo-dev/nsgo/base/dragdrop"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -59,6 +60,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 	pathMode := core.NewSignal(cx, pathNone)
 	pathTarget := core.NewSignal(cx, "")
 	files := sceneFileView(cx, ed, rev, dirty, pathMode, pathTarget)
+	dragAreaKey.Provide(cx, true)
 
 	return core.View{
 		TestID: "scene-editor",
@@ -77,7 +79,8 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 					FlexBasis: core.Pt(0),
 					Overflow:  core.Hidden,
 				},
-				Children: mainRow(cx, ed, rev),
+				// One drag area spans the row, so a model dragged from the asset browser drops on the viewport.
+				Children: []core.Node{dragdrop.Area{Children: mainRow(cx, ed, rev)}},
 			},
 			pluginDockView(cx, ed, rev, DockBottom),
 			DataTablePanelView(cx, ed, rev),
@@ -254,6 +257,7 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 							return ui.HStack{
 								Gap: 6,
 								Children: []core.Node{
+									place3DToolsView(rev, ed, notPlaying),
 									ui.ToolbarGroup{
 										Label: "3D Gizmo",
 										Children: []core.Node{
@@ -608,7 +612,7 @@ func statusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 								mode = "Play"
 							}
 							if ed.ViewMode == ViewMode3D {
-								return fmt.Sprintf("Mode: %s | View: 3D (%s) | Layer: %s", mode, ed.GizmoMode.String(), ed.activeLayerReadout())
+								return fmt.Sprintf("Mode: %s | View: 3D %s | Gizmo: %s | Layer: %s", mode, ed.viewStatus3D(), ed.GizmoMode.String(), ed.activeLayerReadout())
 							}
 							status := fmt.Sprintf("Mode: %s | View: 2D %.0f%% | Tool: %s | Layer: %s", mode, ed.View2D().Zoom*100, ed.toolLabel(), ed.activeLayerReadout())
 							// Erase writes no tile, and a layer without tiles to pick keeps an ID the palette does not list, so only a tile Paint or Fill would write is shown.

@@ -1646,6 +1646,30 @@ boards:
 
 A program writes these for itself, but they are YAML for the same reasons: a person can read one, review its diff and, when needed, edit it.
 
+<!-- format: editor -->
+### Editor view state
+
+| Files | Version | Read and written by | Fields |
+| --- | --- | --- | --- |
+| `.game/editor.yaml` (`editor.ViewStateFile`) | `version: 1` | The editor (`Editor.SaveViewState`, and opening a scene) | [Editor](editor.md#navigating-the-3d-view-891) |
+
+`scenes` lists each scene the editor has shown, sorted by `path`, the scene file's slash-separated path from the project's root. `camera3D` is the 3D viewport's camera when the scene was last left, saved or closed: the point it looks at (`target`), its `yaw` and `pitch` in radians, its `distance` from the target, its vertical field of view `fov` in radians, its `near` and `far` clip planes and, when set, `orthographic`. A scene listed twice, a path outside the project and a value that is not finite are refused; a file that does not parse is written afresh, while one with a newer `version` is left as it is. A camera holding a value that is not finite is saved as the default camera.
+
+```yaml
+version: 1
+scenes:
+  - path: levels/courtyard.scene.yaml
+    camera3D:
+      target: [12, 0, -40]
+      yaw: 0.61
+      pitch: 0.49
+      distance: 320
+      fov: 1.0471976
+      near: 0.5
+      far: 10000
+      orthographic: true
+```
+
 <!-- format: tooling/assetbuild -->
 ### Asset build cache
 
