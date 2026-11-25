@@ -67,12 +67,9 @@ func TestRigidPyramidSleepsWithinThreeSeconds(t *testing.T) {
 	if !allSleeping(boxes) {
 		t.Fatal("pyramid woke without a disturbance")
 	}
-	for i, b := range boxes {
-		if b.Sleeping() && (b.VX != 0 || b.VY != 0) {
-			t.Fatalf("box %d moves while asleep", i)
-		}
+	if after := w.Checksum(); after != before {
+		t.Fatalf("sleeping pyramid changed: checksum %x, was %x", after, before)
 	}
-	_ = before
 }
 
 func TestRigidSleepingIslandWakesOnImpulse(t *testing.T) {
@@ -271,5 +268,39 @@ func TestRigidSleepSurvivesSaveRestore(t *testing.T) {
 	bad.Contacts = []physics.RigidContactSnapshot{{BodyAIndex: 0, BodyBIndex: len(snap.Bodies)}}
 	if err := fresh.Restore(bad); err == nil {
 		t.Fatal("Restore accepted a contact with an out-of-range body")
+	}
+}
+
+func TestRigidNonFiniteSleepSettingsMeanDefaults(t *testing.T) {
+	nan, inf := float32(math.NaN()), float32(math.Inf(1))
+	settings := []struct {
+		name string
+		set  func(w *physics.RigidWorld, v float32)
+	}{
+		{"SleepLinearThreshold", func(w *physics.RigidWorld, v float32) { w.SleepLinearThreshold = v }},
+		{"SleepAngularThreshold", func(w *physics.RigidWorld, v float32) { w.SleepAngularThreshold = v }},
+		{"TimeToSleep", func(w *physics.RigidWorld, v float32) { w.TimeToSleep = v }},
+	}
+	for _, s := range settings {
+		for _, v := range []float32{nan, inf, -inf} {
+			t.Run(s.name, func(t *testing.T) {
+				// A falling ball never rests, and a crate on the floor sleeps within the default time.
+				w := &physics.RigidWorld{GravityY: 600}
+				s.set(w, v)
+				floor := physics.NewStaticRigidBox(500, 110, 2000, 20)
+				crate := physics.NewRigidBox(100, 90, 20, 20, 1)
+				ball := physics.NewRigidCircle(600, -2000, 6, 1)
+				w.AddBody(floor, crate, ball)
+				for i := range 90 {
+					w.Step(step)
+					if ball.Sleeping() {
+						t.Fatalf("%v = %v: falling ball slept at step %d", s.name, v, i)
+					}
+				}
+				if !crate.Sleeping() {
+					t.Fatalf("%v = %v: resting crate still awake after 1.5 s", s.name, v)
+				}
+			})
+		}
 	}
 }

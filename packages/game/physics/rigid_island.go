@@ -54,6 +54,9 @@ type rigidScratch struct {
 	pairManifolds []rigidManifold
 	starts        []rigidPose
 	statics       []int
+	ccdContacts   []ccdContact
+	ccdCandidates []ccdCandidate
+	ccdSupports   []ccdSupport
 	joints        []Joint
 	contacts      []rigidCachedManifold
 	contactIndex  map[rigidPairKey]int
@@ -391,15 +394,15 @@ func (w *RigidWorld) updateSleep(manifolds []rigidManifold, joints []Joint, area
 		return
 	}
 	linTol := float64(w.SleepLinearThreshold)
-	if linTol <= 0 {
+	if !(linTol > 0) || math.IsInf(linTol, 0) {
 		linTol = DefaultSleepLinearThreshold
 	}
 	angTol := float64(w.SleepAngularThreshold)
-	if angTol <= 0 {
+	if !(angTol > 0) || math.IsInf(angTol, 0) {
 		angTol = DefaultSleepAngularThreshold
 	}
 	timeToSleep := float64(w.TimeToSleep)
-	if timeToSleep <= 0 {
+	if !(timeToSleep > 0) || math.IsInf(timeToSleep, 0) {
 		timeToSleep = DefaultTimeToSleep
 	}
 	linTolSq := float64(linTol * linTol)
