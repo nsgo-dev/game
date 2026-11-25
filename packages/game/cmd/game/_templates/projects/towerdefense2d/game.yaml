@@ -1,0 +1,152 @@
+version: 1
+name: Bramble Gate
+id: dev.nsgo.bramblegate
+appVersion: 0.1.0
+window:
+  width: 960
+  height: 800
+  minWidth: 360
+  minHeight: 480
+display:
+  width: 480
+  height: 320
+  mode: fit
+  barColor: '#14201a'
+input:
+  actions:
+    - name: left
+      bindings:
+        - kind: key
+          key: left
+        - kind: key
+          key: a
+        - kind: gamepadButton
+          button: dpadLeft
+    - name: right
+      bindings:
+        - kind: key
+          key: right
+        - kind: key
+          key: d
+        - kind: gamepadButton
+          button: dpadRight
+    - name: up
+      bindings:
+        - kind: key
+          key: up
+        - kind: key
+          key: w
+        - kind: gamepadButton
+          button: dpadUp
+    - name: down
+      bindings:
+        - kind: key
+          key: down
+        - kind: key
+          key: s
+        - kind: gamepadButton
+          button: dpadDown
+    - name: build
+      bindings:
+        - kind: key
+          key: enter
+        - kind: key
+          key: space
+        - kind: gamepadButton
+          button: south
+    - name: upgrade
+      bindings:
+        - kind: key
+          key: u
+        - kind: gamepadButton
+          button: north
+    - name: sell
+      bindings:
+        - kind: key
+          key: x
+        - kind: key
+          key: backspace
+        - kind: gamepadButton
+          button: west
+    - name: nextTower
+      bindings:
+        - kind: key
+          key: e
+        - kind: gamepadButton
+          button: rightShoulder
+    - name: prevTower
+      bindings:
+        - kind: key
+          key: q
+        - kind: gamepadButton
+          button: leftShoulder
+    - name: tower1
+      bindings:
+        - kind: key
+          key: "1"
+    - name: tower2
+      bindings:
+        - kind: key
+          key: "2"
+    - name: tower3
+      bindings:
+        - kind: key
+          key: "3"
+    - name: wave
+      bindings:
+        - kind: key
+          key: "n"
+        - kind: gamepadButton
+          button: start
+    - name: speed
+      bindings:
+        - kind: key
+          key: f
+        - kind: gamepadButton
+          button: rightTrigger
+    - name: pause
+      bindings:
+        - kind: key
+          key: p
+        - kind: key
+          key: escape
+        - kind: gamepadButton
+          button: back
+    - name: restart
+      bindings:
+        - kind: key
+          key: r
+  axes:
+    - name: cursorX
+      negative: left
+      positive: right
+    - name: cursorY
+      negative: up
+      positive: down
+  gamepadAxes:
+    - name: cursorX
+      axis: leftX
+    - name: cursorY
+      axis: leftY
+autoload:
+  resources:
+    - name: level
+      path: data/level.yaml
+    - name: towers
+      path: data/towers.yaml
+    - name: projectiles
+      path: data/projectiles.yaml
+export:
+  output: dist
+  presets:
+    - platform: macos
+      targets: [macos_arm64]
+    - platform: windows
+      targets: [windows_x64]
+    - platform: linux
+      targets: [linux_x64]
+    - platform: ios
+      targets: [ios_simulator]
+    - platform: android
+      targets: [android_arm64]
+    - platform: web
