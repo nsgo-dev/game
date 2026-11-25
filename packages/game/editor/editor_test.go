@@ -637,13 +637,13 @@ func TestToolbarToolsCanvasTilePaintAndSaveCallback(t *testing.T) {
 		return editor.EditorView(cx, ed)
 	}, nsgotest.Size(1120, 680))
 
-	// Switch to Fill tool via toolbar and click interior tile (1, 1), at world (24, 24).
-	tx, ty := ed.WorldToCanvas(24, 24)
-	tile := core.Point{X: core.Points(tx), Y: core.Points(ty)}
+	// Switch to Fill tool via toolbar and click interior tile (1, 1), at world (24, 24). The tile palette that a tile tool shows narrows the viewport, so the canvas point is taken after the tool changes.
 	app.Press("id:tool-fill")
 	if ed.Tool != editor.ToolFillTile {
 		t.Fatalf("Tool = %v, want ToolFillTile", ed.Tool)
 	}
+	tx, ty := ed.WorldToCanvas(24, 24)
+	tile := core.Point{X: core.Points(tx), Y: core.Points(ty)}
 	app.PressAt("id:editor-viewport", tile)
 	if got := ed.Doc.Layers[0].Tilemap.Data[1*4+1]; got != 2 {
 		t.Fatalf("filled tile (1,1) = %d, want 2", got)
