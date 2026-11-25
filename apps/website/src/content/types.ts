@@ -17,6 +17,13 @@ export interface DocPage {
   packages: DocPackage[]
 }
 
+// A page as the sidebar and the pager list it, without its content.
+export interface DocSummary {
+  slug: string
+  title: string
+  fallback: boolean
+}
+
 export type PackageStatus = 'stable' | 'experimental'
 
 // A package and its stability status, such as game/sprite, stable.
@@ -33,7 +40,7 @@ export interface DocHeading {
 }
 
 export interface Snippet {
-  id: 'loop' | 'sprite' | 'sound'
+  id: 'game' | 'loop' | 'sprite' | 'sound'
   html: string
 }
 
@@ -173,3 +180,56 @@ export interface ApiSummary {
 }
 
 export type ApiIndex = { status: 'ok'; packages: ApiSummary[] } | { status: 'unavailable'; reason: string }
+
+// ---- The site's own pages (plugins/site.ts) ----
+
+// The languages the docs are written in, Traditional Chinese converted from Simplified; every other language shows English.
+export type DocsLang = 'en' | 'zh' | 'zh-tw'
+
+export type PackageCategory = 'core' | 'play' | 'ui' | 'tools' | 'online' | '3d'
+
+// A package of the catalog, from docs/en/stability.md, with what it holds from the docs' index or its guide.
+export interface CatalogPackage {
+  // path is relative to github.com/nsgo-dev/game/packages, such as game/sprite.
+  path: string
+  // name is the path below game, such as sprite, or game for the root package.
+  name: string
+  stable: boolean
+  category: PackageCategory
+  // guide is the slug of the docs page that is its guide.
+  guide?: string
+  // description is empty in a language whose docs say nothing of the package.
+  description: Record<DocsLang, string>
+}
+
+export interface TutorialChapter {
+  n: number
+  title: string
+  // slug is the chapter's docs page.
+  slug: string
+  adds: string
+  packages: string
+  // dir is the chapter's directory under examples/tutorial.
+  dir: string
+}
+
+// A file of the tutorial's game and what it does, from "How the game is built".
+export interface TutorialPart {
+  file: string
+  text: string
+}
+
+export interface TutorialContent {
+  title: string
+  intro: string[]
+  chapters: TutorialChapter[]
+  partsTitle: string
+  parts: TutorialPart[]
+}
+
+export interface SiteContent {
+  packages: CatalogPackage[]
+  tutorial: Record<DocsLang, TutorialContent>
+  // featured are the packages each featured example imports, in the catalog's order.
+  featured: Record<import('./featured').FeaturedId, string[]>
+}
