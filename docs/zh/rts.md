@@ -27,6 +27,22 @@ dir, ok := field.Sample(unitPos) // 单位向量，由 unitPos 周围四格混�
 
 `FieldCache` 在一张网格上保留最近使用的流场，以目标集合为键，让前往相同目标的单位共用一个流场。它的 `Rebuild` 就地重新积分所有缓存的流场，并丢弃目标已全部不可通行的流场。`Crowd` 自带一个缓存：改动网格后（造了墙、炸了桥）调用 `Crowd` 的 `Rebuild`，它还会重建那些已被缓存腾出空间时丢弃、但仍有单位在沿用的流场，因此每个单位在下一步都会看到变化。命令所指的格子已全部被阻挡的单位会原地停下。`Builds` 统计搜索次数，测试或性能分析可据此判断流场是否被共用。
 
+### 分区域流场（`SectorFlowField`）
+
+在 1024×1024 等超大型地图上，即便部队只穿过一条狭长走廊，整图 `FlowField` 仍需扫描全部格子。`SectorFlowField` 将 Dijkstra 积分与方向场计算限制在选定的方形分区域（簇）集合内，通常直接使用 `ai.HPA.FindClusters` 返回的簇走廊：
+
+```go
+hpa := ai.NewHPA(grid, ai.HPAOptions{ClusterSize: 32, Diagonal: true})
+sf := rts.NewSectorFlowField(math2d.Vec2{}, 16)
+sf.BuildAlongHPA(hpa, startCell, goalCell, 1) // padding=1 在走廊外扩一圈邻簇
+
+dir, ok := sf.Sample(unitPos) // 与 FlowField 相同的 Cost、Reachable、Direction、Sample 接口
+```
+
+- 可使用 `BuildSectors(grid, sectorSize, sectors, goals...)` 手动传入 `ai.ClusterID` 分区域集合与多个目标格。
+- 非活动分区域外的格子返回 `Unreachable`，`Sample` 会自动忽略非活动分区域，不会把单位拉出走廊。
+- 内部缓冲区在多次重建间复用，扩容完成后零堆分配。
+
 ## 单位群与移动命令
 
 `Crowd` 在网格上移动单位。用 `Add` 添加单位，用 `Move` 下令，并在循环的 `Update` 里调用 `Step`：
