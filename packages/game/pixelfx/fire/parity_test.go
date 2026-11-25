@@ -50,3 +50,14 @@ func BenchmarkTorch(b *testing.B) { pixelfxtest.BenchmarkFrames(b, fire.Torch) }
 func BenchmarkCampfire(b *testing.B) { pixelfxtest.BenchmarkFrames(b, fire.Campfire) }
 
 func BenchmarkMeteor(b *testing.B) { pixelfxtest.BenchmarkFrames(b, fire.Meteor) }
+
+// TestFireRingOddReach checks that a reach too small for any flame, or far past the canvas, still plays to the end.
+func TestFireRingOddReach(t *testing.T) {
+	for _, reach := range []float64{-1e6, -5, 0, 1, 5, 8, 1e6} {
+		frames := 0
+		pixelfx.EachFrame(fire.FireRing, pixelfx.Options{}.Set("reach", pixelfx.Num(reach)), 0, func(int, *pixelfx.Frame) { frames++ })
+		if frames == 0 {
+			t.Errorf("reach %v: no frames", reach)
+		}
+	}
+}
