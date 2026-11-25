@@ -234,3 +234,7 @@ For a complete runnable game that switches between a 2D courtyard overworld (`sc
 ## Physics in scene files
 
 Scenes authored in YAML with [`game/sceneformat`](editor.md#built-in-physics-components-817) can declare 2D (`body2d`, `collider2d`, `trigger2d`) and 3D (`body3d`, `collider3d`, `trigger3d`) physics components directly on objects, using named collision layers from [`game.yaml`](project.md). Pass a built scene to `sceneformat.BuildPhysics` to instantiate its `physics.World`, `physics.RigidWorld`, and `physics3d.World` and step them each fixed tick alongside your scene.
+
+## 2D lighting in scene files
+
+YAML scenes can also set `ambientColor` and attach built-in `light2d` and `occluder2d` components (rect, polygon, or tilemap collision). `sceneformat.Build` constructs `BuiltScene.Lights2D` (`*lights2d.Scene`) automatically so `BuiltScene.Draw` renders the same 2D lights and shadows in the game and in the editor's lighting preview ([`game/editor`](editor.md#built-in-2d-lighting-and-occluder-components-887)).

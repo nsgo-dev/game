@@ -250,6 +250,8 @@ type Editor struct {
 	OnPlayTrigger func(ev sceneformat.PhysicsTriggerEvent)
 	// ShowPhysicsDebug controls whether 2D and 3D physics collider and trigger outlines draw in the viewport. New initializes it to true.
 	ShowPhysicsDebug bool
+	// ShowLightingPreview controls whether 2D lights, occluder shadows, and ambient darkness draw live in the 2D edit viewport. New initializes it to true.
+	ShowLightingPreview bool
 	// PlayRate is the fixed update rate in Hz during Play mode and clip playback (defaults to 60 when <= 0).
 	PlayRate int
 	// OnSaveClip is invoked by the animation panel's Save button with the encoded clip YAML; when nil the button writes to ClipPath.
@@ -456,19 +458,20 @@ func New(doc *sceneformat.SceneDoc, resolver sceneformat.AssetResolver) (*Editor
 		return nil, err
 	}
 	ed := &Editor{
-		Doc:              doc,
-		History:          NewHistory(),
-		Resolver:         resolver,
-		Prefabs:          make(map[string]Prefab),
-		Tool:             ToolSelect,
-		ViewMode:         ViewMode2D,
-		GizmoMode:        Gizmo3DTranslate,
-		Camera3D:         DefaultOrbitCamera3D(),
-		ActiveTileID:     1,
-		Status:           "Ready",
-		ShowPhysicsDebug: true,
-		selKey:           clipKeyRef{-1, -1},
-		listeners:        make(map[uint64]func()),
+		Doc:                 doc,
+		History:             NewHistory(),
+		Resolver:            resolver,
+		Prefabs:             make(map[string]Prefab),
+		Tool:                ToolSelect,
+		ViewMode:            ViewMode2D,
+		GizmoMode:           Gizmo3DTranslate,
+		Camera3D:            DefaultOrbitCamera3D(),
+		ActiveTileID:        1,
+		Status:              "Ready",
+		ShowPhysicsDebug:    true,
+		ShowLightingPreview: true,
+		selKey:              clipKeyRef{-1, -1},
+		listeners:           make(map[uint64]func()),
 		output: outputPanelState{
 			open:       false,
 			lastStatus: "Ready",
@@ -2134,6 +2137,8 @@ func cloneAny(v any) any {
 		}
 		return out
 	case []string:
+		return slices.Clone(x)
+	case [][2]float64:
 		return slices.Clone(x)
 	default:
 		return v

@@ -84,6 +84,8 @@ type SceneDoc struct {
 	VirtualHeight float32 `yaml:"virtualHeight,omitempty" schema:"minimum=0"`
 	// BackgroundColor is an optional CSS color string parsed with core.ParseColor.
 	BackgroundColor string `yaml:"backgroundColor,omitempty"`
+	// AmbientColor is an optional CSS color string parsed with core.ParseColor (for example "rgba(12, 16, 30, 0.85)" or "#0c101ed8") that sets the 2D lighting ambient darkness tint (lights2d.Scene.Ambient). Both versions accept it.
+	AmbientColor string `yaml:"ambientColor,omitempty"`
 	// Camera holds the default camera transform for world-space layers. Nil leaves world space untransformed.
 	Camera *CameraDoc `yaml:"camera,omitempty"`
 	// Tilemaps defines reusable named tilemaps referenced by layers via TilemapDoc.Ref.
@@ -835,7 +837,7 @@ func Encode(doc *SceneDoc) ([]byte, error) {
 	buf.WriteString(SchemaCommentFor(doc.Version) + "\n")
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
-	if err := enc.Encode(canonicalTilemaps(floatKinds(doc))); err != nil {
+	if err := enc.Encode(canonicalComponents(canonicalTilemaps(floatKinds(doc)))); err != nil {
 		_ = enc.Close()
 		return nil, fmt.Errorf("sceneformat: encode: %w", err)
 	}
@@ -952,6 +954,11 @@ func Validate(doc *SceneDoc) error {
 	if doc.BackgroundColor != "" {
 		if _, err := core.ParseColor(doc.BackgroundColor); err != nil {
 			return fieldErr([]string{"backgroundColor"}, "sceneformat: backgroundColor %q: %w", doc.BackgroundColor, err)
+		}
+	}
+	if doc.AmbientColor != "" {
+		if _, err := core.ParseColor(doc.AmbientColor); err != nil {
+			return fieldErr([]string{"ambientColor"}, "sceneformat: ambientColor %q: %w", doc.AmbientColor, err)
 		}
 	}
 	if doc.Camera != nil {

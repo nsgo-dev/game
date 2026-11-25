@@ -162,6 +162,7 @@ var formatVersions = map[string]string{
 	"rts.FormationsVersion":                 "rts",
 	"sceneformat.ConflictVersion":           "sceneformat#conflict",
 	"sceneformat.CurrentVersion":            "sceneformat",
+	"sceneformat.Lights2DComponentVersion":  "sceneformat",
 	"sceneformat.MinVersion":                "sceneformat",
 	"sceneformat.PhysicsComponentVersion":   "sceneformat",
 	"skeletal.FormatVersion":                "skeletal",

@@ -123,6 +123,7 @@ func (r *sceneResolver) resolve(doc *SceneDoc, path string) (*SceneDoc, error) {
 		VirtualWidth:    doc.VirtualWidth,
 		VirtualHeight:   doc.VirtualHeight,
 		BackgroundColor: doc.BackgroundColor,
+		AmbientColor:    doc.AmbientColor,
 		Camera:          cloneCamera(doc.Camera),
 		Tilemaps:        cloneTilemaps(doc.Tilemaps),
 	}
@@ -184,6 +185,9 @@ func (r *sceneResolver) inherit(doc, own *SceneDoc) (*SceneDoc, error) {
 	}
 	if own.BackgroundColor != "" {
 		out.BackgroundColor = own.BackgroundColor
+	}
+	if own.AmbientColor != "" {
+		out.AmbientColor = own.AmbientColor
 	}
 	if own.Camera != nil {
 		out.Camera = own.Camera
@@ -753,6 +757,8 @@ func cloneAny(v any) any {
 		}
 		return out
 	case []string:
+		return slices.Clone(x)
+	case [][2]float64:
 		return slices.Clone(x)
 	default:
 		return v

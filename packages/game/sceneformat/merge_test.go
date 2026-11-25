@@ -608,6 +608,7 @@ func TestMergeTilemapsCameraAndOverrides(t *testing.T) {
 	ours := cloneDoc(t, base)
 	theirs := cloneDoc(t, base)
 
+	ours.AmbientColor = "#101824cc"
 	ours.Camera.X = 50
 	ours.Camera.Bounds.Width = 200
 	ours.Tilemaps["ground"].Source = "maps/v2.tmj"
@@ -634,6 +635,9 @@ func TestMergeTilemapsCameraAndOverrides(t *testing.T) {
 	}
 	if res.HasConflicts() {
 		t.Fatalf("unexpected conflicts: %+v", res.Conflicts)
+	}
+	if res.Doc.AmbientColor != "#101824cc" {
+		t.Errorf("ambientColor = %q, want #101824cc", res.Doc.AmbientColor)
 	}
 	if res.Doc.Camera.X != 50 || res.Doc.Camera.Y != 60 || res.Doc.Camera.Bounds.Width != 200 || res.Doc.Camera.Bounds.Height != 150 {
 		t.Errorf("camera = %+v, bounds = %+v", res.Doc.Camera, res.Doc.Camera.Bounds)
@@ -673,7 +677,7 @@ func TestMergeInvalidInputsReturnError(t *testing.T) {
 // SceneDoc or its sub-structs without updating Merge.
 func TestMergeCoversAllDocumentFields(t *testing.T) {
 	wantCounts := map[reflect.Type]int{
-		reflect.TypeFor[sceneformat.SceneDoc]():       14,
+		reflect.TypeFor[sceneformat.SceneDoc]():       15,
 		reflect.TypeFor[sceneformat.CameraDoc]():      5,
 		reflect.TypeFor[sceneformat.BoundsDoc]():      4,
 		reflect.TypeFor[sceneformat.LayerDoc]():       12,

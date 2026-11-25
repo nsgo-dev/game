@@ -200,6 +200,87 @@ func sceneInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 		},
 	}
 
+	ambientDraft := core.NewSignal(cx, "")
+	ambientDirty := core.NewSignal(cx, false)
+	ambientSynced := core.NewMemo(cx, func() string {
+		_ = rev.Get()
+		return ed.AmbientColor()
+	})
+	cx.Effect(func() {
+		cur := ambientSynced.Get()
+		cx.Untrack(func() {
+			ambientDraft.Set(cur)
+			ambientDirty.Set(false)
+		})
+	})
+
+	commitAmbientText := func(raw string) {
+		ambientDirty.Set(false)
+		trimmed := strings.TrimSpace(raw)
+		if err := ed.SetAmbientColor(trimmed); err != nil {
+			ed.report(err)
+			ambientDraft.Set(ed.AmbientColor())
+			return
+		}
+		ambientDraft.Set(trimmed)
+	}
+
+	ambientInput := ui.Input{
+		TestID:      "inspector-scene-ambient-color",
+		Label:       "Ambient Color",
+		Placeholder: "rgba(12, 16, 30, 0.85)",
+		Disabled:    disabled,
+		Value: func() string {
+			_ = rev.Get()
+			if ambientDirty.Get() {
+				return ambientDraft.Get()
+			}
+			return ed.AmbientColor()
+		},
+		OnFocus: func() {
+			if !ambientDirty.Get() {
+				ambientDraft.Set(ed.AmbientColor())
+			}
+		},
+		OnChange: func(text string) {
+			ambientDraft.Set(text)
+			ambientDirty.Set(true)
+		},
+		OnSubmit: func(text string) {
+			ambientDraft.Set(text)
+			commitAmbientText(text)
+		},
+		OnBlur: func() {
+			if ambientDirty.Get() {
+				commitAmbientText(ambientDraft.Get())
+			}
+		},
+	}
+
+	ambientClear := removeButton("inspector-scene-ambient-clear", "Clear ambient color", func() bool {
+		if disabled() {
+			return true
+		}
+		return ed.AmbientColor() == ""
+	}, func() {
+		ed.report(ed.SetAmbientColor(""))
+	})
+
+	ambientControl := core.View{
+		Style: core.Style{
+			Direction:  core.Row,
+			AlignItems: core.AlignCenter,
+			Gap:        4,
+		},
+		Children: []core.Node{
+			core.View{
+				Style:    core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
+				Children: []core.Node{ambientInput},
+			},
+			ambientClear,
+		},
+	}
+
 	floatFormat := func(v float64) string {
 		return strconv.FormatFloat(v, 'g', -1, 64)
 	}
@@ -339,6 +420,9 @@ func sceneInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 			},
 		}),
 		fieldRow("Background", bgControl),
+
+		sectionHeader("SCENE LIGHTING"),
+		fieldRow("Ambient", ambientControl),
 
 		sectionHeader("CAMERA"),
 		fieldRow("X", ui.NumberInput{

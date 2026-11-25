@@ -42,6 +42,10 @@
       "description": "BackgroundColor is an optional CSS color string parsed with core.ParseColor.",
       "type": "string"
     },
+    "ambientColor": {
+      "description": "AmbientColor is an optional CSS color string parsed with core.ParseColor (for example \"rgba(12, 16, 30, 0.85)\" or \"#0c101ed8\") that sets the 2D lighting ambient darkness tint (lights2d.Scene.Ambient). Both versions accept it.",
+      "type": "string"
+    },
     "camera": {
       "description": "Camera holds the default camera transform for world-space layers. Nil leaves world space untransformed.",
       "allOf": [

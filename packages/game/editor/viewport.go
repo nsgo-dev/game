@@ -220,9 +220,12 @@ func hitTestBuiltObject(bo *sceneformat.BuiltObject, lx, ly float32) bool {
 		return u >= 0 && u <= bo.Sprite.Frame.Width && v >= 0 && v <= bo.Sprite.Frame.Height
 	}
 
-	// Non-sprite marker object: default centered hit box.
-	return dx >= -defaultMarkerHalfSize && dx <= defaultMarkerHalfSize &&
-		dy >= -defaultMarkerHalfSize && dy <= defaultMarkerHalfSize
+	// Non-sprite marker object: default centered hit box, or inside an occluder2d shape.
+	if dx >= -defaultMarkerHalfSize && dx <= defaultMarkerHalfSize &&
+		dy >= -defaultMarkerHalfSize && dy <= defaultMarkerHalfSize {
+		return true
+	}
+	return hitTestOccluder2D(o, dx, dy)
 }
 
 // HandleCanvasPress dispatches a click/tap at canvas coordinates (x, y) according to the active ViewMode and Tool. On a locked active layer (SetLayerLocked) the Place, Paint, Erase and Fill tools change nothing and the status bar says why. With the Pick tool, a press on a painted cell makes its tile the active tile and Paint the active tool.
@@ -348,7 +351,7 @@ func (e *Editor) DrawViewport(d *core.Drawing, size core.Size) {
 			scene.Draw(d)
 			d.Restore()
 		} else {
-			e.drawEditScene(d, scene)
+			e.drawEditScene(d, scene, size)
 		}
 	}
 	if scene == nil {
@@ -358,6 +361,7 @@ func (e *Editor) DrawViewport(d *core.Drawing, size core.Size) {
 	if e.playing {
 		return
 	}
+	e.drawLightingOverlays2D(d, scene)
 	e.drawCameraFrameOverlay(d)
 	e.drawTileGridOverlay(d)
 	e.drawTileHoverOverlay(d)
@@ -477,8 +481,8 @@ func (e *Editor) drawTileGridOverlay(d *core.Drawing) {
 	d.Stroke().Restore()
 }
 
-// drawEditScene renders scene into d in edit mode: materials are synced, editor-hidden objects are suppressed, and each visible layer draws through the 2D view with its parallax factors and repeat tiling applied.
-func (e *Editor) drawEditScene(d *core.Drawing, scene *sceneformat.BuiltScene) {
+// drawEditScene renders scene into d in edit mode: materials are synced, editor-hidden objects are suppressed, each visible layer draws through the 2D view with its parallax factors and repeat tiling applied, and when ShowLightingPreview is enabled, scene.Lights2D renders after the last visible world-space layer using the visible 2D canvas bounds.
+func (e *Editor) drawEditScene(d *core.Drawing, scene *sceneformat.BuiltScene, size core.Size) {
 	scene.SyncMaterials()
 	type faded struct {
 		bo    *sceneformat.BuiltObject
@@ -501,51 +505,80 @@ func (e *Editor) drawEditScene(d *core.Drawing, scene *sceneformat.BuiltScene) {
 			walk(layer.Objects, false)
 		}
 	}
+
+	lastWorld := -1
+	for i, layer := range scene.Layers {
+		if layer.Visible && layer.Space == sceneformat.SpaceWorld {
+			lastWorld = i
+		}
+	}
+	lightsDrawn := false
+	drawLights := func() {
+		if lightsDrawn || !e.ShowLightingPreview || scene.SkipLights2D || scene.Lights2D == nil {
+			return
+		}
+		lightsDrawn = true
+		lb := e.editorLightingBounds(size)
+		if lb.Size.Width <= 0 || lb.Size.Height <= 0 {
+			return
+		}
+		d.Save()
+		applyAffine(d, e.layerAffine(sceneformat.SpaceWorld))
+		scene.Lights2D.Draw(d, lb)
+		d.Restore()
+	}
+	if lastWorld < 0 {
+		drawLights()
+	}
+
 	v := e.View2D()
 	cw, ch := e.CanvasSize()
-	for _, layer := range scene.Layers {
+	for i, layer := range scene.Layers {
 		if !layer.Visible {
 			continue
 		}
-		if layer.Tilemap == nil && layer.Map == nil && len(layer.Batches) == 0 {
-			continue
-		}
-		m := e.layerAffineFor(layer.Space, layer.ParallaxX, layer.ParallaxY)
-		d.Save()
-		applyAffine(d, m)
-		if layer.Space == sceneformat.SpaceWorld && (layer.RepeatX || layer.RepeatY) {
-			minCol, maxCol, minRow, maxRow, rx, ry := layer.RepeatTileRanges(
-				v.X*layer.ParallaxX, v.Y*layer.ParallaxY, cw, ch, v.Zoom, v.Rotation,
-			)
-			if !rx && !ry {
-				drawBuiltLayer(d, layer)
-			} else {
-				for row := minRow; row <= maxRow; row++ {
-					var ty float32
-					if ry {
-						ty = float32(row) * layer.RepeatHeight
-					}
-					for col := minCol; col <= maxCol; col++ {
-						var tx float32
-						if rx {
-							tx = float32(col) * layer.RepeatWidth
+		if layer.Tilemap != nil || layer.Map != nil || len(layer.Batches) > 0 {
+			m := e.layerAffineFor(layer.Space, layer.ParallaxX, layer.ParallaxY)
+			d.Save()
+			applyAffine(d, m)
+			if layer.Space == sceneformat.SpaceWorld && (layer.RepeatX || layer.RepeatY) {
+				minCol, maxCol, minRow, maxRow, rx, ry := layer.RepeatTileRanges(
+					v.X*layer.ParallaxX, v.Y*layer.ParallaxY, cw, ch, v.Zoom, v.Rotation,
+				)
+				if !rx && !ry {
+					drawBuiltLayer(d, layer)
+				} else {
+					for row := minRow; row <= maxRow; row++ {
+						var ty float32
+						if ry {
+							ty = float32(row) * layer.RepeatHeight
 						}
-						if tx != 0 || ty != 0 {
-							d.Save()
-							d.Translate(tx, ty)
-						}
-						drawBuiltLayer(d, layer)
-						if tx != 0 || ty != 0 {
-							d.Restore()
+						for col := minCol; col <= maxCol; col++ {
+							var tx float32
+							if rx {
+								tx = float32(col) * layer.RepeatWidth
+							}
+							if tx != 0 || ty != 0 {
+								d.Save()
+								d.Translate(tx, ty)
+							}
+							drawBuiltLayer(d, layer)
+							if tx != 0 || ty != 0 {
+								d.Restore()
+							}
 						}
 					}
 				}
+			} else {
+				drawBuiltLayer(d, layer)
 			}
-		} else {
-			drawBuiltLayer(d, layer)
+			d.Restore()
 		}
-		d.Restore()
+		if i == lastWorld {
+			drawLights()
+		}
 	}
+	drawLights()
 	for _, f := range restore {
 		f.bo.Sprite.Alpha = f.alpha
 	}

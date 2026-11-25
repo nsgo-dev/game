@@ -177,6 +177,9 @@ func (e *Editor) PlayIn(cx *core.Scope) error {
 			}
 			// Animated tiles of the scene's tilemaps advance as they do in the game.
 			e.playScene.Update(dt)
+			if e.playScene.Lights2D != nil {
+				_ = e.playScene.SyncLights2D()
+			}
 			if e.OnPlayUpdate != nil {
 				tok := playProf.Begin("update")
 				e.OnPlayUpdate(e.playScene, dt)

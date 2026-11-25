@@ -68,7 +68,7 @@ func (e *Editor) DeleteProperty(objectID, key string) error {
 	return nil
 }
 
-// SetComponentField sets a typed field inside objectID.Components[componentName][field] through History. With a component registry set, or for a built-in physics component (sceneformat.PhysicsComponentRegistry) without one, the field must be registered and value of its kind and within its range; it is stored normalized to bool, int, float64 or string.
+// SetComponentField sets a typed field inside objectID.Components[componentName][field] through History. With a component registry set, or for a built-in physics or 2D lighting component without one, the field must be registered and value of its kind and within its range; it is stored normalized to bool, int, float64, string, []string, or [][2]float64.
 func (e *Editor) SetComponentField(objectID, componentName, field string, value any) error {
 	if e.playing {
 		return ErrPlaying
@@ -78,7 +78,7 @@ func (e *Editor) SetComponentField(objectID, componentName, field string, value 
 	}
 	reg := e.components
 	if _, builtin := builtinEditorComponents.Lookup(componentName); reg == nil && builtin {
-		// Without a registry components are free-form, but the built-in components (physics + animator) keep their schema, as the inspector shows it (lookupComponentType).
+		// Without a registry components are free-form, but the built-in components (physics + animator + 2D lighting) keep their schema, as the inspector shows it (lookupComponentType).
 		reg = builtinEditorComponents
 	}
 	if reg != nil {
@@ -277,11 +277,16 @@ func (c *setComponentFieldCmd) Undo() {
 
 var builtinEditorComponents = func() *sceneformat.ComponentRegistry {
 	reg := sceneformat.PhysicsComponentRegistry()
-	_ = sceneformat.RegisterAnimatorComponent(reg)
+	if err := sceneformat.RegisterAnimatorComponent(reg); err != nil {
+		panic(err)
+	}
+	if err := sceneformat.RegisterLights2DComponents(reg); err != nil {
+		panic(err)
+	}
 	return reg
 }()
 
-// lookupComponentType returns the schema of cn from e.components when set, or from the built-in component registry (physics + animator) when e.components is nil.
+// lookupComponentType returns the schema of cn from e.components when set, or from the built-in component registry (physics + animator + 2D lighting).
 func (e *Editor) lookupComponentType(cn string) (sceneformat.ComponentType, bool) {
 	if e != nil && e.components != nil {
 		if ct, ok := e.components.Lookup(cn); ok {
@@ -389,6 +394,8 @@ func valueKindTag(v any) string {
 		return "float"
 	case []string, []any:
 		return "stringlist"
+	case [][2]float64:
+		return "pointlist"
 	default:
 		return "string"
 	}
@@ -1224,12 +1231,33 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 						return field.Default
 					}
 					ctrl := registeredFieldControl("inspector-comp-"+cn+"-"+field.Name, cn+"."+field.Name, field, disabled, get, func(val any) {
+						if cn == sceneformat.Occluder2DComponentName && field.Name == "shape" {
+							if s, ok := val.(string); ok && s == "polygon" {
+								if err := ed.ConvertOccluderToPolygon(objID); err != nil {
+									ed.Status = err.Error()
+									ed.notify()
+								}
+								return
+							}
+						}
 						if err := ed.SetComponentField(objID, cn, field.Name, val); err != nil {
 							ed.Status = err.Error()
 							ed.notify()
 						}
 					})
 					nodes = append(nodes, describedRow(field.Name, "inspector-comp-"+cn+"-"+field.Name+"-label", fieldTooltip(field), ctrl))
+				}
+				if cn == sceneformat.Occluder2DComponentName {
+					nodes = append(nodes, ui.Button{
+						TestID:   "inspector-occluder-to-polygon",
+						Text:     "Convert to Polygon",
+						Size:     ui.SizeSmall,
+						Variant:  ui.ButtonSecondary,
+						Disabled: disabled,
+						OnPress: func() {
+							ed.report(ed.ConvertOccluderToPolygon(objID))
+						},
+					})
 				}
 				continue
 			}
@@ -1391,7 +1419,85 @@ func formatFieldValue(v any) string {
 	if ss, ok := v.([]string); ok {
 		return "[" + strings.Join(ss, ", ") + "]"
 	}
+	if pts, ok := v.([][2]float64); ok {
+		return formatPointListInput(pts)
+	}
 	return fmt.Sprint(v)
+}
+
+func pointListFromAny(v any) [][2]float64 {
+	switch xs := v.(type) {
+	case [][2]float64:
+		return xs
+	case []any:
+		out := make([][2]float64, 0, len(xs))
+		for _, elem := range xs {
+			pair, ok := elem.([]any)
+			if !ok || len(pair) != 2 {
+				continue
+			}
+			x, okX := anyToFloat64(pair[0])
+			y, okY := anyToFloat64(pair[1])
+			if okX && okY {
+				out = append(out, [2]float64{x, y})
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func anyToFloat64(v any) (float64, bool) {
+	switch n := v.(type) {
+	case float64:
+		return n, true
+	case float32:
+		return float64(n), true
+	case int:
+		return float64(n), true
+	case int64:
+		return float64(n), true
+	default:
+		return 0, false
+	}
+}
+
+func formatPointListInput(pts [][2]float64) string {
+	if len(pts) == 0 {
+		return ""
+	}
+	parts := make([]string, len(pts))
+	for i, p := range pts {
+		parts[i] = strconv.FormatFloat(p[0], 'g', -1, 64) + "," + strconv.FormatFloat(p[1], 'g', -1, 64)
+	}
+	return strings.Join(parts, "; ")
+}
+
+func parsePointListInput(text string) ([][2]float64, bool) {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return nil, true
+	}
+	var out [][2]float64
+	for part := range strings.SplitSeq(trimmed, ";") {
+		p := strings.TrimSpace(part)
+		if p == "" {
+			continue
+		}
+		p = strings.Trim(p, "[]()")
+		xy := strings.Split(p, ",")
+		if len(xy) != 2 {
+			return nil, false
+		}
+		x, errX := strconv.ParseFloat(strings.TrimSpace(xy[0]), 64)
+		y, errY := strconv.ParseFloat(strings.TrimSpace(xy[1]), 64)
+		if errX != nil || errY != nil || math.IsNaN(x) || math.IsInf(x, 0) || math.IsNaN(y) || math.IsInf(y, 0) {
+			return nil, false
+		}
+		out = append(out, [2]float64{x, y})
+	}
+	return out, true
 }
 
 func stringSliceFromAny(v any) []string {
@@ -1500,6 +1606,21 @@ func registeredFieldControl(
 				return strings.Join(stringSliceFromAny(get()), ", ")
 			},
 			OnChange: func(text string) { set(parseStringListInput(text)) },
+		}
+	case sceneformat.FieldPointList:
+		return ui.Input{
+			TestID:      testID,
+			Label:       label,
+			Placeholder: "-16,-16; 16,-16; 16,16; -16,16",
+			Disabled:    disabled,
+			Value: func() string {
+				return formatPointListInput(pointListFromAny(get()))
+			},
+			OnSubmit: func(text string) {
+				if pts, ok := parsePointListInput(text); ok {
+					set(pts)
+				}
+			},
 		}
 	default:
 		if len(f.Enum) > 0 {

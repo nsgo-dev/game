@@ -15,38 +15,39 @@ import (
 
 // Built-in editor command IDs registered in the unified command registry.
 const (
-	CmdNewProject      = "file.newProject"
-	CmdOpenProject     = "file.openProject"
-	CmdStartScreen     = "file.startScreen"
-	CmdSave            = "file.save"
-	CmdUndo            = "edit.undo"
-	CmdRedo            = "edit.redo"
-	CmdDelete          = "edit.delete"
-	CmdDuplicate       = "edit.duplicate"
-	CmdToolSelect      = "tool.select"
-	CmdToolMove        = "tool.move"
-	CmdToolPlace       = "tool.place"
-	CmdToolPaintTile   = "tool.paint"
-	CmdToolEraseTile   = "tool.erase"
-	CmdToolFillTile    = "tool.fill"
-	CmdGizmoTranslate  = "gizmo.translate"
-	CmdGizmoRotate     = "gizmo.rotate"
-	CmdGizmoScale      = "gizmo.scale"
-	CmdView2D          = "view.mode2d"
-	CmdView3D          = "view.mode3d"
-	CmdShadingLit      = "view.shading.lit"
-	CmdShadingUnlit    = "view.shading.unlit"
-	CmdShadingWire     = "view.shading.wireframe"
-	CmdFrameSelection  = "view.frame"
-	CmdCommandPalette  = "view.palette"
-	CmdPlayStop        = "project.play"
-	CmdRunGame         = "project.run"
-	CmdProjectSettings = "project.settings"
-	CmdAudioMixer      = "project.mixer"
-	CmdLocalization    = "project.l10n"
-	CmdExport          = "project.export"
-	CmdProfiler        = "project.profiler"
-	CmdCheckProblems   = "project.check"
+	CmdNewProject            = "file.newProject"
+	CmdOpenProject           = "file.openProject"
+	CmdStartScreen           = "file.startScreen"
+	CmdSave                  = "file.save"
+	CmdUndo                  = "edit.undo"
+	CmdRedo                  = "edit.redo"
+	CmdDelete                = "edit.delete"
+	CmdDuplicate             = "edit.duplicate"
+	CmdToolSelect            = "tool.select"
+	CmdToolMove              = "tool.move"
+	CmdToolPlace             = "tool.place"
+	CmdToolPaintTile         = "tool.paint"
+	CmdToolEraseTile         = "tool.erase"
+	CmdToolFillTile          = "tool.fill"
+	CmdGizmoTranslate        = "gizmo.translate"
+	CmdGizmoRotate           = "gizmo.rotate"
+	CmdGizmoScale            = "gizmo.scale"
+	CmdView2D                = "view.mode2d"
+	CmdView3D                = "view.mode3d"
+	CmdShadingLit            = "view.shading.lit"
+	CmdShadingUnlit          = "view.shading.unlit"
+	CmdShadingWire           = "view.shading.wireframe"
+	CmdFrameSelection        = "view.frame"
+	CmdToggleLightingPreview = "view.lighting"
+	CmdCommandPalette        = "view.palette"
+	CmdPlayStop              = "project.play"
+	CmdRunGame               = "project.run"
+	CmdProjectSettings       = "project.settings"
+	CmdAudioMixer            = "project.mixer"
+	CmdLocalization          = "project.l10n"
+	CmdExport                = "project.export"
+	CmdProfiler              = "project.profiler"
+	CmdCheckProblems         = "project.check"
 	// The 3D viewport's axis views and projection: each axis view looks at the camera's Target along a world axis (SetView3D), and the orthographic command switches between perspective and orthographic (SetOrthographic3D).
 	CmdView3DFront        = "view.3d.front"
 	CmdView3DBack         = "view.3d.back"
@@ -547,6 +548,19 @@ func (e *Editor) initBuiltinCommands() {
 			Checked:     func() bool { return e.Camera3D.Orthographic },
 			Run: func() error {
 				e.SetOrthographic3D(!e.Camera3D.Orthographic)
+				return nil
+			},
+		},
+		{
+			ID:          CmdToggleLightingPreview,
+			Label:       "Toggle 2D Lighting Preview",
+			Description: "Show or hide live 2D lights, occluder shadows, and ambient darkness in the 2D viewport",
+			Category:    "View",
+			Keywords:    []string{"light", "lighting", "shadow", "ambient", "occluder", "preview", "2d"},
+			Enabled:     func() bool { return !e.Playing() && e.ViewMode == ViewMode2D },
+			Checked:     func() bool { return e.ShowLightingPreview },
+			Run: func() error {
+				e.SetShowLightingPreview(!e.ShowLightingPreview)
 				return nil
 			},
 		},

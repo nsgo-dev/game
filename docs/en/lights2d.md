@@ -74,3 +74,7 @@ knight.Draw(d, lighting)
 ```
 
 `NormalSprite` caches the CPU-shaded pixel buffer and only re-shades when the sprite position, `LightZ`, ambient color, or affecting lights/occluders change. Call `knight.Invalidate()` if you mutate `Diffuse` or `NormalMap` pixels in place, or use `ShadeNormalMap`, `ShadeNormalMapWithOccluders`, and `scene.ShadeNormalMap` directly when baking custom buffers.
+
+## Authoring lights and occluders in scenes
+
+You can also declare `ambientColor`, `light2d` point/spot lights, and `occluder2d` rect/polygon/tilemap shadow casters directly in `*.scene.yaml` files and preview them live with interactive viewport handles in [`game/editor`](editor.md#built-in-2d-lighting-and-occluder-components-887). `sceneformat.Build` turns them into `BuiltScene.Lights2D`, which renders the same shadows in the editor preview and in the game.

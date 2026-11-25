@@ -378,7 +378,7 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 							return ed.ViewMode == ViewMode2D
 						},
 						Then: func(cx *core.Scope) core.Node {
-							return view2DToolsView(cx, ed, notPlaying)
+							return view2DToolsView(cx, ed, rev, notPlaying)
 						},
 					},
 				},
@@ -646,8 +646,8 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 	}
 }
 
-// view2DToolsView is the tool bar's group of icon buttons that frame the 2D view on the selection or on everything, or return it to the scene camera's view; each label names its shortcut as the platform shows it.
-func view2DToolsView(cx *core.Scope, ed *Editor, playing func() bool) core.Node {
+// view2DToolsView is the tool bar's group of controls for the 2D view: framing, returning to the scene camera, and toggling live 2D lighting preview.
+func view2DToolsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], playing func() bool) core.Node {
 	btn := func(testID string, icon func() *core.SVG, label string, fn func()) core.Node {
 		return ui.Button{
 			TestID:   testID,
@@ -665,6 +665,19 @@ func view2DToolsView(cx *core.Scope, ed *Editor, playing func() bool) core.Node 
 			btn("view-frame-selection", lucide.Focus, "Frame Selection ("+cx.KeyLabel("f")+")", func() { ed.FrameSelection2D() }),
 			btn("view-frame-all", lucide.Maximize, "Frame All ("+cx.KeyLabel("home")+")", func() { ed.FrameAll2D() }),
 			btn("view-reset", lucide.Video, "Scene Camera View ("+cx.KeyLabel("mod+0")+")", func() { ed.ResetView2D() }),
+			ui.ToggleButton{
+				TestID:   "view-lighting-preview",
+				Icon:     lucide.Lightbulb,
+				Label:    "Toggle 2D lighting preview",
+				Disabled: playing,
+				On: func() bool {
+					_ = rev.Get()
+					return ed.ShowLightingPreview
+				},
+				OnChange: func(on bool) {
+					ed.SetShowLightingPreview(on)
+				},
+			},
 		},
 	}
 }
