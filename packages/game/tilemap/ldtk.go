@@ -9,9 +9,23 @@ import (
 	"github.com/nsgo-dev/nsgo/core"
 )
 
+// LevelNeighbour describes one adjacent or overlapping level in a multi-level world (such as an LDtk project).
+type LevelNeighbour struct {
+	// Identifier is the neighbour level's identifier, resolved from the world's level list when available.
+	Identifier string
+	// IID is the neighbour level's LDtk instance ID (levelIid), when present.
+	IID string
+	// UID is the neighbour level's numeric LDtk UID (levelUid), when present.
+	UID int
+	// Dir is the direction from this level to the neighbour:
+	// "n", "s", "e", "w", "ne", "nw", "se", "sw", "o" (overlapping), "<" (lower depth), or ">" (higher depth).
+	Dir string
+}
+
 // LoadLDtk parses an LDtk JSON project and builds a Tilemap for the level matching levelIdentifier (or the first level when levelIdentifier is empty).
 //
 // Tiles (gridTiles), AutoLayer (autoLayerTiles), IntGrid (intGridCsv mapped to TileSolid/TileFlags plus optional autoLayerTiles), and Entities (entityInstances mapped to ObjectLayer with fieldInstances properties) are supported, including LDtk flip bits (bit 0 = FlipHorizontal, bit 1 = FlipVertical).
+// For Free and GridVania layouts, the returned Tilemap's Origin is set from the level's (worldX, worldY) and its Neighbours are populated from __neighbours.
 //
 // Its errors are *loaderr.Error values that give the line and field of the problem and how to fix it; a caller that read data from a file names it with loaderr.WithFile.
 func LoadLDtk(data []byte, levelIdentifier string, resolveImage func(relPath string) core.ImageSource) (*Tilemap, error) {
@@ -27,27 +41,41 @@ func loadLDtk(data []byte, levelIdentifier string, resolveImage func(relPath str
 	if err := json.Unmarshal(data, &proj); err != nil {
 		return nil, err
 	}
-	if len(proj.Levels) == 0 {
-		return nil, loaderr.Errorf("levels", "add a level to the project in LDtk", "project contains no levels")
-	}
-
-	index := 0
-	if levelIdentifier != "" {
-		index = -1
-		for i := range proj.Levels {
-			if proj.Levels[i].Identifier == levelIdentifier {
-				index = i
-				break
+	if len(proj.Levels) > 0 {
+		index := 0
+		if levelIdentifier != "" {
+			index = -1
+			for i := range proj.Levels {
+				if proj.Levels[i].Identifier == levelIdentifier {
+					index = i
+					break
+				}
+			}
+			if index < 0 {
+				return nil, loaderr.Errorf("levels", "pass the identifier of a level in the project, or an empty one for the first level", "level %q not found", levelIdentifier)
 			}
 		}
-		if index < 0 {
-			return nil, loaderr.Errorf("levels", "pass the identifier of a level in the project, or an empty one for the first level", "level %q not found", levelIdentifier)
+		return buildLDtkLevel(&proj, proj.Levels, proj.WorldLayout, "levels", index, resolveImage)
+	}
+	if len(proj.Worlds) > 0 {
+		for wi := range proj.Worlds {
+			w := &proj.Worlds[wi]
+			for li := range w.Levels {
+				if levelIdentifier == "" || w.Levels[li].Identifier == levelIdentifier {
+					return buildLDtkLevel(&proj, w.Levels, w.WorldLayout, loaderr.Path("worlds", wi, "levels"), li, resolveImage)
+				}
+			}
+		}
+		if levelIdentifier != "" {
+			return nil, loaderr.Errorf("worlds", "pass the identifier of a level in the project, or an empty one for the first level", "level %q not found", levelIdentifier)
 		}
 	}
-	return buildLDtkLevel(&proj, index, resolveImage)
+	return nil, loaderr.Errorf("levels", "add a level to the project in LDtk", "project contains no levels")
 }
 
-// LoadLDtkAll parses an LDtk JSON project and builds a Tilemap for every level, keyed by level identifier. Its errors are *loaderr.Error values, as LoadLDtk's are.
+// LoadLDtkAll parses an LDtk JSON project and builds a Tilemap for every level, keyed by level identifier.
+// For Free and GridVania layouts, each Tilemap carries its world Origin (worldX, worldY) and Neighbours list.
+// Its errors are *loaderr.Error values, as LoadLDtk's are.
 func LoadLDtkAll(data []byte, resolveImage func(relPath string) core.ImageSource) (map[string]*Tilemap, error) {
 	out, err := loadLDtkAll(data, resolveImage)
 	return out, loaderr.Locate(err, "", data, fixLDtk)
@@ -58,21 +86,191 @@ func loadLDtkAll(data []byte, resolveImage func(relPath string) core.ImageSource
 	if err := json.Unmarshal(data, &proj); err != nil {
 		return nil, err
 	}
-	out := make(map[string]*Tilemap, len(proj.Levels))
-	for i := range proj.Levels {
-		m, err := buildLDtkLevel(&proj, i, resolveImage)
-		if err != nil {
-			return nil, err
+	if len(proj.Levels) > 0 {
+		out := make(map[string]*Tilemap, len(proj.Levels))
+		for i := range proj.Levels {
+			m, err := buildLDtkLevel(&proj, proj.Levels, proj.WorldLayout, "levels", i, resolveImage)
+			if err != nil {
+				return nil, err
+			}
+			out[proj.Levels[i].Identifier] = m
 		}
-		out[proj.Levels[i].Identifier] = m
+		return out, nil
+	}
+	out := make(map[string]*Tilemap)
+	for wi := range proj.Worlds {
+		w := &proj.Worlds[wi]
+		levelsPath := loaderr.Path("worlds", wi, "levels")
+		for li := range w.Levels {
+			m, err := buildLDtkLevel(&proj, w.Levels, w.WorldLayout, levelsPath, li, resolveImage)
+			if err != nil {
+				return nil, err
+			}
+			out[w.Levels[li].Identifier] = m
+		}
 	}
 	return out, nil
 }
 
-// buildLDtkLevel builds proj.Levels[index].
-func buildLDtkLevel(proj *ldtkProject, index int, resolveImage func(relPath string) core.ImageSource) (*Tilemap, error) {
-	lvl := &proj.Levels[index]
-	at := loaderr.Path("levels", index)
+// LoadLDtkWorld parses an LDtk JSON project (.ldtk) into a LevelWorld whose levels carry their world Origin, pixel Bounds, WorldDepth, and Neighbours list, and load lazily into *Tilemap values on demand.
+//
+// An empty worldIdentifier selects the project's top-level levels (or the sole world when multi-worlds has one entry); a multi-world project with multiple worlds names the world by its identifier.
+// The world's layout must be Free or GridVania (or omitted, defaulting to Free); LinearHorizontal and LinearVertical layouts are refused because they assign no 2D world coordinates.
+//
+// Its errors are *loaderr.Error values, as LoadLDtk's are.
+func LoadLDtkWorld(data []byte, worldIdentifier string, resolveImage func(relPath string) core.ImageSource) (*LevelWorld, error) {
+	w, err := loadLDtkWorld(data, worldIdentifier, resolveImage)
+	return w, loaderr.Locate(err, "", data, fixLDtk)
+}
+
+func loadLDtkWorld(data []byte, worldIdentifier string, resolveImage func(relPath string) core.ImageSource) (*LevelWorld, error) {
+	var proj ldtkProject
+	if err := json.Unmarshal(data, &proj); err != nil {
+		return nil, err
+	}
+
+	var (
+		worldName   string
+		layout      *string
+		levels      []ldtkLevel
+		levelsPath  string
+		layoutField string
+	)
+
+	if worldIdentifier == "" && len(proj.Levels) > 0 {
+		layout = proj.WorldLayout
+		levels = proj.Levels
+		levelsPath = "levels"
+		layoutField = "worldLayout"
+	} else if len(proj.Worlds) > 0 {
+		wi := -1
+		if worldIdentifier == "" {
+			if len(proj.Worlds) == 1 {
+				wi = 0
+			} else {
+				return nil, loaderr.Errorf("worlds", "pass the identifier of one of the project's worlds to LoadLDtkWorld", "LDtk project has %d worlds; name one", len(proj.Worlds))
+			}
+		} else {
+			for i := range proj.Worlds {
+				if proj.Worlds[i].Identifier == worldIdentifier {
+					wi = i
+					break
+				}
+			}
+			if wi < 0 {
+				return nil, loaderr.Errorf("worlds", "pass the identifier of a world defined in the LDtk project", "world %q not found", worldIdentifier)
+			}
+		}
+		worldName = proj.Worlds[wi].Identifier
+		layout = proj.Worlds[wi].WorldLayout
+		levels = proj.Worlds[wi].Levels
+		levelsPath = loaderr.Path("worlds", wi, "levels")
+		layoutField = loaderr.Path("worlds", wi, "worldLayout")
+	} else if worldIdentifier != "" {
+		return nil, loaderr.Errorf("worlds", "pass an empty world identifier for a single-world LDtk project, or enable multi-worlds in LDtk", "world %q not found", worldIdentifier)
+	} else {
+		return nil, loaderr.Errorf("levels", "add a level to the project in LDtk", "project contains no levels")
+	}
+
+	if !hasLDtkWorldPositions(layout) {
+		return nil, &loaderr.Error{
+			Field:    layoutField,
+			Problem:  fmt.Sprintf("LDtk world layout %q gives levels no 2D world positions", *layout),
+			Expected: `"Free" or "GridVania"`,
+			Fix:      "set the world layout to Free or GridVania in LDtk",
+		}
+	}
+	if len(levels) == 0 {
+		return nil, loaderr.Errorf(levelsPath, "add a level to the world in LDtk", "world contains no levels")
+	}
+
+	layoutName := "Free"
+	if layout != nil && *layout != "" {
+		layoutName = *layout
+	}
+
+	rawCopy := append([]byte(nil), data...)
+	world := &LevelWorld{
+		Name:   worldName,
+		Layout: layoutName,
+		Levels: make([]WorldLevel, len(levels)),
+	}
+	for i := range levels {
+		lvl := &levels[i]
+		origin := core.Point{X: core.Points(lvl.WorldX), Y: core.Points(lvl.WorldY)}
+		neighbours := resolveLDtkNeighbours(levels, lvl)
+		idx := i
+		world.Levels[i] = WorldLevel{
+			ID:         lvl.Identifier,
+			IID:        lvl.IID,
+			UID:        lvl.UID,
+			Origin:     origin,
+			Bounds:     core.Bounds{Origin: origin, Size: core.Size{Width: core.Points(lvl.PxWid), Height: core.Points(lvl.PxHei)}},
+			WorldDepth: lvl.WorldDepth,
+			Neighbours: neighbours,
+			Load: func() (*Tilemap, error) {
+				m, err := buildLDtkLevel(&proj, levels, layout, levelsPath, idx, resolveImage)
+				return m, loaderr.Locate(err, "", rawCopy, fixLDtk)
+			},
+		}
+	}
+	return world, nil
+}
+
+func hasLDtkWorldPositions(layout *string) bool {
+	if layout == nil || *layout == "" || *layout == "Free" || *layout == "GridVania" {
+		return true
+	}
+	return false
+}
+
+func resolveLDtkNeighbours(levels []ldtkLevel, lvl *ldtkLevel) []LevelNeighbour {
+	if len(lvl.Neighbours) == 0 {
+		return nil
+	}
+	byIID := make(map[string]*ldtkLevel, len(levels))
+	byUID := make(map[int]*ldtkLevel, len(levels))
+	for i := range levels {
+		l := &levels[i]
+		if l.IID != "" {
+			byIID[l.IID] = l
+		}
+		byUID[l.UID] = l
+	}
+	out := make([]LevelNeighbour, len(lvl.Neighbours))
+	for i, n := range lvl.Neighbours {
+		ln := LevelNeighbour{
+			IID: n.LevelIID,
+			Dir: n.Dir,
+		}
+		if n.LevelUID != nil {
+			ln.UID = *n.LevelUID
+		}
+		var target *ldtkLevel
+		if n.LevelIID != "" {
+			target = byIID[n.LevelIID]
+		}
+		if target == nil && n.LevelUID != nil {
+			target = byUID[*n.LevelUID]
+		}
+		if target != nil {
+			ln.Identifier = target.Identifier
+			if ln.IID == "" {
+				ln.IID = target.IID
+			}
+			if n.LevelUID == nil {
+				ln.UID = target.UID
+			}
+		}
+		out[i] = ln
+	}
+	return out
+}
+
+// buildLDtkLevel builds levels[index].
+func buildLDtkLevel(proj *ldtkProject, levels []ldtkLevel, layout *string, levelsPath string, index int, resolveImage func(relPath string) core.ImageSource) (*Tilemap, error) {
+	lvl := &levels[index]
+	at := loaderr.Join(levelsPath, index)
 	gridSize := proj.DefaultGridSize
 	if gridSize <= 0 {
 		for _, li := range lvl.LayerInstances {
@@ -102,12 +300,18 @@ func buildLDtkLevel(proj *ldtkProject, index int, resolveImage func(relPath stri
 		return nil, err
 	}
 
+	var origin core.Point
+	if hasLDtkWorldPositions(layout) {
+		origin = core.Point{X: core.Points(lvl.WorldX), Y: core.Points(lvl.WorldY)}
+	}
 	m := &Tilemap{
 		Width:      mapW,
 		Height:     mapH,
 		TileWidth:  float32(gridSize),
 		TileHeight: float32(gridSize),
+		Origin:     origin,
 		Properties: props,
+		Neighbours: resolveLDtkNeighbours(levels, lvl),
 	}
 
 	// Build tilesets from defs.tilesets with sequential non-overlapping FirstGIDs.
@@ -460,8 +664,17 @@ func parseLDtkFields(fields []ldtkFieldInstance, at string) (Properties, error) 
 
 type ldtkProject struct {
 	DefaultGridSize int         `json:"defaultGridSize"`
+	WorldLayout     *string     `json:"worldLayout"`
 	Defs            ldtkDefs    `json:"defs"`
 	Levels          []ldtkLevel `json:"levels"`
+	Worlds          []ldtkWorld `json:"worlds"`
+}
+
+type ldtkWorld struct {
+	Identifier  string      `json:"identifier"`
+	IID         string      `json:"iid"`
+	WorldLayout *string     `json:"worldLayout"`
+	Levels      []ldtkLevel `json:"levels"`
 }
 
 type ldtkDefs struct {
@@ -498,13 +711,22 @@ type ldtkIntGridValue struct {
 
 type ldtkLevel struct {
 	Identifier     string              `json:"identifier"`
+	IID            string              `json:"iid"`
 	UID            int                 `json:"uid"`
 	WorldX         int                 `json:"worldX"`
 	WorldY         int                 `json:"worldY"`
+	WorldDepth     int                 `json:"worldDepth"`
 	PxWid          int                 `json:"pxWid"`
 	PxHei          int                 `json:"pxHei"`
+	Neighbours     []ldtkNeighbour     `json:"__neighbours"`
 	FieldInstances []ldtkFieldInstance `json:"fieldInstances"`
 	LayerInstances []ldtkLayerInstance `json:"layerInstances"`
+}
+
+type ldtkNeighbour struct {
+	LevelIID string `json:"levelIid"`
+	LevelUID *int   `json:"levelUid"`
+	Dir      string `json:"dir"`
 }
 
 type ldtkLayerInstance struct {

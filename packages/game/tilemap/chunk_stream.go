@@ -292,8 +292,8 @@ func (s *ChunkStream) CenterChunk(worldPos core.Point) ChunkCoord {
 	chunkW := float64(g.size) * float64(m.TileWidth)
 	chunkH := float64(g.size) * float64(m.TileHeight)
 	return ChunkCoord{
-		X: int(math.Floor(float64(worldPos.X) / chunkW)),
-		Y: int(math.Floor(float64(worldPos.Y) / chunkH)),
+		X: int(math.Floor(float64(worldPos.X-m.Origin.X) / chunkW)),
+		Y: int(math.Floor(float64(worldPos.Y-m.Origin.Y) / chunkH)),
 	}
 }
 

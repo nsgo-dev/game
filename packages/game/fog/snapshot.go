@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/nsgo-dev/game/packages/game/tilemap"
+	"github.com/nsgo-dev/nsgo/core"
 )
 
 // FormatVersion is the snapshot schema version MarshalJSON writes and the newest UnmarshalJSON reads.
@@ -34,6 +35,8 @@ type snapshot struct {
 	Height        int          `json:"height"`
 	TileWidth     float32      `json:"tileWidth"`
 	TileHeight    float32      `json:"tileHeight"`
+	OriginX       float32      `json:"originX,omitempty"`
+	OriginY       float32      `json:"originY,omitempty"`
 	Orientation   string       `json:"orientation,omitempty"`
 	StaggerAxis   string       `json:"staggerAxis,omitempty"`
 	StaggerIndex  string       `json:"staggerIndex,omitempty"`
@@ -69,6 +72,8 @@ func (f Fog) MarshalJSON() ([]byte, error) {
 		Height:     f.height,
 		TileWidth:  f.TileWidth,
 		TileHeight: f.TileHeight,
+		OriginX:    float32(f.Origin.X),
+		OriginY:    float32(f.Origin.Y),
 		NextSource: f.nextID,
 	}
 	switch f.Orientation {
@@ -179,7 +184,12 @@ func (f *Fog) UnmarshalJSON(data []byte) error {
 	if s.HexSideLength < 0 || math.IsNaN(float64(s.HexSideLength)) || math.IsInf(float64(s.HexSideLength), 0) {
 		return fmt.Errorf("%w: invalid hexSideLength %v", ErrInvalidSnapshot, s.HexSideLength)
 	}
+	if math.IsNaN(float64(s.OriginX)) || math.IsInf(float64(s.OriginX), 0) ||
+		math.IsNaN(float64(s.OriginY)) || math.IsInf(float64(s.OriginY), 0) {
+		return fmt.Errorf("%w: invalid origin (%v, %v)", ErrInvalidSnapshot, s.OriginX, s.OriginY)
+	}
 	n := New(s.Width, s.Height, s.TileWidth, s.TileHeight)
+	n.Origin = core.Point{X: core.Points(s.OriginX), Y: core.Points(s.OriginY)}
 	n.Orientation = orient
 	n.StaggerAxis = axis
 	n.StaggerIndex = index

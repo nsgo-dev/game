@@ -66,6 +66,8 @@ type Source struct {
 type Fog struct {
 	// TileWidth and TileHeight are a cell's size in world points, used by Draw and CellAt.
 	TileWidth, TileHeight float32
+	// Origin is the world-space position of cell (0, 0)'s origin, copied from Tilemap.Origin by NewFromTilemap.
+	Origin core.Point
 	// Orientation selects how cells are arranged for visibility, CellAt and Draw.
 	// The zero value (tilemap.OrientationOrthogonal) preserves orthogonal behavior.
 	Orientation tilemap.Orientation
@@ -114,9 +116,10 @@ func New(width, height int, tileWidth, tileHeight float32) *Fog {
 	}
 }
 
-// NewFromTilemap returns a Fog matching m's grid size, tile size and projection (Orientation, StaggerAxis, StaggerIndex, HexSideLength) in which every cell whose tilemap flags include any bit of mask is opaque; a zero mask makes no cell opaque.
+// NewFromTilemap returns a Fog matching m's grid size, tile size, world Origin and projection (Orientation, StaggerAxis, StaggerIndex, HexSideLength) in which every cell whose tilemap flags include any bit of mask is opaque; a zero mask makes no cell opaque.
 func NewFromTilemap(m *tilemap.Tilemap, mask tilemap.TileFlags) *Fog {
 	f := New(m.Width, m.Height, m.TileWidth, m.TileHeight)
+	f.Origin = m.Origin
 	f.Orientation = m.Orientation
 	f.StaggerAxis = m.StaggerAxis
 	f.StaggerIndex = m.StaggerIndex
@@ -140,6 +143,7 @@ func (f *Fog) projectionMap() tilemap.Tilemap {
 		Height:        f.height,
 		TileWidth:     f.TileWidth,
 		TileHeight:    f.TileHeight,
+		Origin:        f.Origin,
 		Orientation:   f.Orientation,
 		StaggerAxis:   f.StaggerAxis,
 		StaggerIndex:  f.StaggerIndex,
@@ -427,19 +431,22 @@ func (f *Fog) cellAt(p core.Point) (col, row int) {
 		return -1, -1
 	}
 	px, py := float64(p.X), float64(p.Y)
-	if math.IsNaN(px) || math.IsNaN(py) || math.IsInf(px, 0) || math.IsInf(py, 0) {
+	ox, oy := float64(f.Origin.X), float64(f.Origin.Y)
+	if math.IsNaN(px) || math.IsNaN(py) || math.IsInf(px, 0) || math.IsInf(py, 0) ||
+		math.IsNaN(ox) || math.IsNaN(oy) || math.IsInf(ox, 0) || math.IsInf(oy, 0) {
 		return -1, -1
 	}
+	lx, ly := px-ox, py-oy
 	if f.Orientation == tilemap.OrientationOrthogonal {
-		x := math.Floor(px / float64(f.TileWidth))
-		y := math.Floor(py / float64(f.TileHeight))
+		x := math.Floor(lx / float64(f.TileWidth))
+		y := math.Floor(ly / float64(f.TileHeight))
 		if x < -1 || y < -1 || x > float64(f.width) || y > float64(f.height) {
 			return -1, -1
 		}
 		return int(x), int(y)
 	}
 	maxCoord := float64(f.width+f.height+2) * float64(max(f.TileWidth, f.TileHeight)) * 2
-	if math.Abs(px) > maxCoord || math.Abs(py) > maxCoord {
+	if math.Abs(lx) > maxCoord || math.Abs(ly) > maxCoord {
 		return -1, -1
 	}
 	m := f.projectionMap()

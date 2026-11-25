@@ -91,6 +91,7 @@ var codeFormats = map[string]codeFormat{
 	"tooling/apiref":               {decl: "Unmarshal", lang: "json", read: readAPIReference},
 	"flow":                         {decl: "ParseYarn", lang: "yarn", read: readYarn},
 	"tilemap":                      {decl: "LoadTiled"},
+	"tilemap#world":                {decl: "ParseTiledWorld"},
 	"tilemap#ldtk":                 {decl: "LoadLDtk"},
 	"sprite":                       {decl: "LoadAtlas"},
 	"text":                         {decl: "LoadBMFont"},

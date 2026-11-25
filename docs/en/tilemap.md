@@ -207,3 +207,41 @@ defer stream.Close()
 // Inside your update loop:
 stream.Update(playerPos)
 ```
+
+## Multi-level worlds (LDtk and Tiled `.world`)
+
+Place multiple tilemaps into one shared world coordinate space using `Tilemap.Origin`, LDtk world layouts, Tiled `.world` files, and region-based streaming with `WorldStream`:
+
+- **World origin (`Tilemap.Origin`)**: every `Tilemap` carries `Origin core.Point` (defaulting to `(0, 0)` with zero overhead). `Draw`, `DrawLayer`, `DrawImageLayer`, `CacheStaticLayer`, `AppendYSortTiles`, `WorldBounds`, `TileOrigin`, `TileToWorld`, `WorldToTile`, `TilesInRect`, and `Raycast` all honor `Origin`, as do `fog.NewFromTilemap` (`fog.Fog.Origin`) and `physics.TileGrid` adapters implementing the optional `physics.TileGridOrigin` interface (`GridOrigin() (x, y float32)`).
+- **LDtk multi-level worlds**: `LoadLDtk` and `LoadLDtkAll` populate each level's `Origin` from `(worldX, worldY)` (for `Free` and `GridVania` layouts) and its `Neighbours` list (`[]LevelNeighbour`, resolving `Identifier`, `IID`, `UID`, and direction `n`/`s`/`e`/`w`/`ne`/`nw`/`se`/`sw`/`o`/`<`/`>`). `LoadLDtkWorld(data, worldIdentifier, resolveImage)` returns a lazy `*LevelWorld` supporting both single-world and multi-world `.ldtk` projects (refusing `LinearHorizontal` and `LinearVertical` layouts that assign no 2D world coordinates).
+- **Tiled `.world` files**: `ParseTiledWorld(data)` parses Tiled `.world` JSON files — both explicit `maps` entries (`fileName`, `x`, `y`, optional `width`/`height`) and regex `patterns` (`regexp`, `multiplierX`, `multiplierY`, `offsetX`, `offsetY`, `mapWidth`, `mapHeight`) — returning `*loaderr.Error` with line, field, and fix guidance on malformed JSON or invalid patterns. `TiledWorld.Resolve(fileNames)` expands patterns deterministically without duplicating explicit entries, and `LoadTiledWorld(data, loader)` builds a lazy `*LevelWorld` that sets each loaded `.tmj`'s `Origin` to its `.world` placement.
+- **Region-based level streaming (`WorldStream`)**: keeps only the levels overlapping a camera or query rectangle (expanded by `LoadMargin`) loaded at their world origins and unloads levels outside `UnloadMargin`, firing `OnEnter`/`OnLeave` and returning `[]WorldStreamEvent` in deterministic world order. `WorldStream` also provides seamless multi-level `Draw`, `UpdateAnimations`, `LevelAt`, `FlagsAtWorld`, `TilesInRect`, `Raycast`, and uniform-grid accessors (`TileSize`, `GridSize`, `GridOrigin`, `GridFlagsAt`) so a `physics.Body` or `physics.CharacterBody` walks across seams between adjacent levels without snagging.
+
+```go
+world, err := tilemap.LoadLDtkWorld(ldtkBytes, "", func(relPath string) core.ImageSource {
+	return core.Src("asset:" + relPath)
+})
+if err != nil {
+	return err
+}
+
+stream := tilemap.NewWorldStream(tilemap.WorldStreamConfig{
+	World:        world,
+	LoadMargin:   64,
+	UnloadMargin: 128,
+	OnEnter: func(lvl *tilemap.WorldLevel, m *tilemap.Tilemap) {
+		// Spawn entities or attach fog for lvl.ID...
+	},
+	OnLeave: func(lvl *tilemap.WorldLevel, m *tilemap.Tilemap) {
+		// Clean up entities belonging to lvl.ID...
+	},
+})
+defer stream.Close()
+
+// Inside update:
+stream.UpdateCamera(cam)
+stream.UpdateAnimations(dt)
+
+// Inside draw (after cam.Apply(d)):
+stream.Draw(d, cam)
+```
