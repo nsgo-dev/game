@@ -39,3 +39,8 @@ func (b *RigidBody) driveKinematic(h float64) {
 		b.targetDriven = false
 	}
 }
+
+// kinematicMovedFrom reports whether b is a kinematic body whose pose this step differs from start, the pose it began the step's position integration with.
+func kinematicMovedFrom(b *RigidBody, start rigidPose) bool {
+	return b.Kinematic && !b.Static && (b.X != start.x || b.Y != start.y || b.Angle != start.angle)
+}

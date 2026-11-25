@@ -43,7 +43,7 @@ type RigidBody struct {
 	// is called or GravityScale is modified after AddBody.
 	GravityScale float32
 	Static       bool
-	// Kinematic makes the body move only as it is told: by VX, VY and AngularVel, which Step integrates with no gravity, force, damping or area effect, or by SetTargetPose. The solver treats it as having infinite mass, so it pushes and carries the dynamic bodies it touches and nothing it touches moves it; it never collides with static or other kinematic bodies or tiles, and never sleeps. Step zeroes InvMass and InvInertia while it is set and derives them again from Mass and Inertia once it is cleared. Static takes precedence: a body with both set is static.
+	// Kinematic makes the body move only as it is told: by VX, VY and AngularVel, which Step integrates with no gravity, force, damping or area effect, or by SetTargetPose. The solver treats it as having infinite mass, so it pushes and carries the dynamic bodies it touches and nothing it touches moves it; it never collides with static or other kinematic bodies or tiles, and never sleeps. Step zeroes InvMass and InvInertia while it is set and derives them again from Mass and Inertia once it is cleared. Static takes precedence: a body with both set is static. A kinematic body never uses Mass, but NewRigidBox, NewRigidCircle and NewRigidBody make a body static when its mass is not positive, so build it with a positive mass or clear Static after building it with zero.
 	Kinematic bool
 	// Sensor makes the body detect overlaps instead of colliding: it takes part in no contact, is not hit by continuous collision, and reports a SensorEvent when a body that is not a sensor starts or stops overlapping it. A sensor moves as its kind (static, kinematic or dynamic) says, and never detects another sensor.
 	Sensor bool
@@ -750,8 +750,10 @@ func (w *RigidWorld) Step(dt time.Duration) {
 	pairManifolds := w.scratch.pairManifolds[:0]
 	for range posIterations {
 		for _, key := range w.broadphase() {
-			a, b := w.Bodies[int(key>>32)], w.Bodies[int(uint32(key))]
-			if (!a.awakeDynamic() && !b.awakeDynamic()) || a.Sensor || b.Sensor {
+			ia, ib := int(key>>32), int(uint32(key))
+			a, b := w.Bodies[ia], w.Bodies[ib]
+			// A kinematic body that moved into a sleeping one this step wakes it here, because a body that stops where its target landed it has neither a velocity nor a hand-made move for the next step's wakeTouched to notice.
+			if (!a.awakeDynamic() && !b.awakeDynamic() && !(b.sleeping && kinematicMovedFrom(a, starts[ia])) && !(a.sleeping && kinematicMovedFrom(b, starts[ib]))) || a.Sensor || b.Sensor {
 				continue
 			}
 			if ignoredPairs != nil {
