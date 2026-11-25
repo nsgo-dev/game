@@ -228,7 +228,7 @@ func hitTestBuiltObject(bo *sceneformat.BuiltObject, lx, ly float32) bool {
 		dy >= -defaultMarkerHalfSize && dy <= defaultMarkerHalfSize
 }
 
-// HandleCanvasPress dispatches a click/tap at canvas coordinates (x, y) according to the active ViewMode and Tool. On a locked active layer (SetLayerLocked) the Place, Paint, Erase and Fill tools change nothing and the status bar says why.
+// HandleCanvasPress dispatches a click/tap at canvas coordinates (x, y) according to the active ViewMode and Tool. On a locked active layer (SetLayerLocked) the Place, Paint, Erase and Fill tools change nothing and the status bar says why. With the Pick tool, a press on a painted cell makes its tile the active tile and Paint the active tool.
 func (e *Editor) HandleCanvasPress(x, y float32) {
 	if e == nil || e.playing {
 		return
@@ -263,6 +263,10 @@ func (e *Editor) HandleCanvasPress(x, y float32) {
 			return
 		}
 		e.pressActiveLayer(x, y)
+	case ToolPickTile:
+		if col, row, ok := e.CanvasToTile(e.ActiveLayer, x, y); ok && e.PickTile(e.ActiveLayer, col, row) {
+			e.SetTool(ToolPaintTile)
+		}
 	case ToolPlugin:
 		if t := e.activePluginTool(); t != nil {
 			t.Press(e, x, y)
@@ -347,6 +351,7 @@ func (e *Editor) DrawViewport(d *core.Drawing, size core.Size) {
 	}
 	e.drawCameraFrameOverlay(d)
 	e.drawTileGridOverlay(d)
+	e.drawTileHoverOverlay(d)
 	e.drawSelectionOverlay(d, scene)
 	e.drawGizmo2D(d)
 	if t := e.activePluginTool(); t != nil && t.Draw != nil {
@@ -400,7 +405,7 @@ func (e *Editor) drawCameraFrameOverlay(d *core.Drawing) {
 }
 
 func (e *Editor) drawTileGridOverlay(d *core.Drawing) {
-	if e.Tool != ToolPaintTile && e.Tool != ToolEraseTile && e.Tool != ToolFillTile {
+	if !isTileTool(e.Tool) {
 		return
 	}
 	layerName, tm, err := e.resolveInlineTilemap(e.ActiveLayer)
@@ -594,9 +599,31 @@ func (g *viewportGestures) touch(ed *Editor, ev core.TouchEvent) {
 	g.touchLast = c
 }
 
+// touchStroke draws a tile stroke with one finger: it begins as the finger goes down, follows it and ends as it lifts. A second finger turns the touch into a two-finger pan, so the stroke is cancelled and its cells put back, as is a stroke whose touches the system takes.
+func touchStroke(ev core.TouchEvent, begin func(at core.Point, secondary, alt bool), end func(at core.Point), ed *Editor) {
+	_, active := ed.TileStrokeActive()
+	if len(ev.Touches) != 1 {
+		if active && len(ev.Touches) > 1 {
+			ed.CancelTileStroke()
+		}
+		return
+	}
+	at := ev.Touches[0].Position
+	switch ev.Phase {
+	case core.TouchStart:
+		begin(at, false, false)
+	case core.TouchMove:
+		ed.ContinueTileStroke(float32(at.X), float32(at.Y))
+	case core.TouchEnd:
+		end(at)
+	case core.TouchCancel:
+		ed.CancelTileStroke()
+	}
+}
+
 // ViewportView renders the center interactive core.Canvas viewport panel, which fills the panel.
 //
-// In 2D, with the Select or Move tool, a drag on an object moves it, and a drag on the selection's gizmo moves it along one of its axes, turns it with the ring or scales it with a corner or edge handle (Shift keeps the aspect ratio), each recorded as one undoable step when the drag ends; Escape or a cancelled gesture puts the object back (BeginDrag2D). A mouse wheel, a pinch or a touchpad scroll with Control or Command held zooms the 2D view (View2D) about the pointer, and a touchpad's scroll, a mouse wheel's sideways scroll, a middle-button drag, a drag with Space held or a two-finger drag pans it; while the scene plays the view is the scene camera's and does not move; F frames the selection (FrameSelection2D), Home frames everything (FrameAll2D) and Mod+0 returns to the scene camera's view (ResetView2D). In 3D a drag orbits the camera or drags the gizmo and the wheel dollies.
+// In 2D, with the Select or Move tool, a drag on an object moves it, and a drag on the selection's gizmo moves it along one of its axes, turns it with the ring or scales it with a corner or edge handle (Shift keeps the aspect ratio), each recorded as one undoable step when the drag ends; Escape or a cancelled gesture puts the object back (BeginDrag2D). A mouse wheel, a pinch or a touchpad scroll with Control or Command held zooms the 2D view (View2D) about the pointer, and a touchpad's scroll, a mouse wheel's sideways scroll, a middle-button drag, a drag with Space held or a two-finger drag pans it; while the scene plays the view is the scene camera's and does not move; F frames the selection (FrameSelection2D), Home frames everything (FrameAll2D) and Mod+0 returns to the scene camera's view (ResetView2D). With a tile tool a drag with the mouse or one finger is a tile stroke (BeginTileStroke) over every cell it crosses, recorded as one undo step: Paint paints and Erase erases, a right-button drag erases with Paint, Alt with any tile tool picks the tile under the pointer, and Pick picks and hands over to Paint; the cell under the resting mouse is outlined (HoveredTile). In 3D a drag orbits the camera or drags the gizmo and the wheel dollies.
 func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	colors := ui.ColorsOf(cx)
 	var lastPan core.Point
@@ -615,7 +642,27 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 	spaceHeld()
 	// A pan event carries no modifiers, so Shift, which keeps the aspect ratio while scaling, is read from the held keys.
 	shiftHeld := func() bool { return core.Untracked(cx, func() bool { return core.KeyHeld(cx, "shift") }) }
+	altHeld := func() bool { return core.Untracked(cx, func() bool { return core.KeyHeld(cx, "alt") }) }
 	in2D := func() bool { return ed.ViewMode == ViewMode2D && !ed.Playing() }
+	// strokeTookPress says the tile stroke that a pointer drew has ended, so the press its button or finger completes, which may come after it, edits nothing more.
+	var strokeTookPress bool
+	beginStroke := func(at core.Point, secondary, alt bool) {
+		// A press with Space held navigates rather than edits.
+		if !in2D() || spaceHeld() {
+			return
+		}
+		if mode, ok := ed.toolStrokeMode(secondary, alt || altHeld()); ok && ed.BeginTileStroke(mode, float32(at.X), float32(at.Y)) {
+			strokeTookPress = false
+		}
+	}
+	endStroke := func(at core.Point) {
+		if _, ok := ed.TileStrokeActive(); !ok {
+			return
+		}
+		ed.ContinueTileStroke(float32(at.X), float32(at.Y))
+		ed.EndTileStroke()
+		strokeTookPress = true
+	}
 	cx.OnKey("f", func() {
 		if in2D() {
 			ed.FrameSelection2D()
@@ -657,11 +704,28 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 					}
 				},
 				OnMouseDown: func(ev core.MouseButtonEvent) {
-					if ed.ViewMode == ViewMode2D && ev.Button == core.MouseButtonMiddle {
+					if ed.ViewMode != ViewMode2D {
+						return
+					}
+					switch ev.Button {
+					case core.MouseButtonMiddle:
 						g.middle, g.middleLast = true, ev.Position
+					case core.MouseButtonLeft, core.MouseButtonRight:
+						beginStroke(ev.Position, ev.Button == core.MouseButtonRight, ev.Modifiers.Alt)
 					}
 				},
 				OnMouseMove: func(ev core.MouseEvent) {
+					if ed.ViewMode == ViewMode2D {
+						ed.SetTileHover(float32(ev.Position.X), float32(ev.Position.Y), ev.Modifiers.Alt)
+					}
+					if _, ok := ed.TileStrokeActive(); ok {
+						if ev.PressedButton == core.MouseButtonNone {
+							// The button came up where the viewport did not hear it.
+							endStroke(ev.Position)
+						} else {
+							ed.ContinueTileStroke(float32(ev.Position.X), float32(ev.Position.Y))
+						}
+					}
 					if !g.middle {
 						return
 					}
@@ -673,13 +737,20 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 					g.middleLast = ev.Position
 				},
 				OnMouseUp: func(ev core.MouseButtonEvent) {
-					if ev.Button == core.MouseButtonMiddle {
+					switch ev.Button {
+					case core.MouseButtonMiddle:
 						g.middle = false
+					case core.MouseButtonLeft, core.MouseButtonRight:
+						endStroke(ev.Position)
 					}
+				},
+				OnMouseLeave: func(core.MouseEvent) {
+					ed.ClearTileHover()
 				},
 				OnTouch: func(ev core.TouchEvent) {
 					if ed.ViewMode != ViewMode3D {
 						g.touch(ed, ev)
+						touchStroke(ev, beginStroke, endStroke, ed)
 						return
 					}
 					switch ev.Phase {
@@ -746,7 +817,20 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 							if ed.ViewMode == ViewMode2D && spaceHeld() {
 								return
 							}
-							ed.HandleCanvasPress(float32(ev.Position.X), float32(ev.Position.Y))
+							if ed.ViewMode == ViewMode2D && !ev.Keyboard {
+								// The mouse button or finger that completes the press drew a stroke already, which edits the cell, or is still drawing one.
+								if _, ok := ed.TileStrokeActive(); ok || strokeTookPress {
+									strokeTookPress = false
+									return
+								}
+							}
+							x, y := float32(ev.Position.X), float32(ev.Position.Y)
+							// A press no pointer drew a stroke for, such as an accessibility action, makes the stroke of one cell.
+							if mode, ok := ed.toolStrokeMode(false, ev.Modifiers.Alt); ok && ed.ViewMode == ViewMode2D && ed.BeginTileStroke(mode, x, y) {
+								ed.EndTileStroke()
+								return
+							}
+							ed.HandleCanvasPress(x, y)
 						},
 						Draw: func(d *core.Drawing, size core.Size) {
 							_ = rev.Get()

@@ -97,6 +97,38 @@ func ExampleEditor_TilePalette() {
 	// [0 10 0]
 }
 
+// A drag across the map, from the first cell to the last, paints every cell it crosses as one undo step.
+func ExampleEditor_BeginTileStroke() {
+	tiles := sceneformat.AtlasMap{"cave": &sprite.Atlas{
+		Image:  core.ImageSource{URI: "asset:cave.png"},
+		Frames: map[string]sprite.Frame{"1": {Name: "1", W: 16, H: 16, Width: 16, Height: 16}},
+	}}
+	doc := &sceneformat.SceneDoc{
+		Version: sceneformat.CurrentVersion,
+		Name:    "cave",
+		Layers: []sceneformat.LayerDoc{{Name: "ground", Space: sceneformat.SpaceWorld, Tilemap: &sceneformat.TilemapDoc{
+			TileWidth: 16, TileHeight: 16, Width: 5, Height: 1, Tileset: "cave", Data: []int{0, 0, 0, 0, 0},
+		}}},
+	}
+	ed, err := editor.New(doc, tiles)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	ed.SetTool(editor.ToolPaintTile)
+	x0, y0 := ed.WorldToCanvas(8, 8)
+	x1, y1 := ed.WorldToCanvas(72, 8)
+	ed.BeginTileStroke(editor.TileStrokePaint, x0, y0)
+	ed.ContinueTileStroke(x1, y1)
+	ed.EndTileStroke()
+	fmt.Println(ed.Doc.Layers[0].Tilemap.Data, ed.History.UndoLabel())
+	ed.Undo()
+	fmt.Println(ed.Doc.Layers[0].Tilemap.Data)
+	// Output:
+	// [1 1 1 1 1] Paint 5 tiles
+	// [0 0 0 0 0]
+}
+
 // rename is a Command that changes a string and can change it back.
 type rename struct {
 	target   *string

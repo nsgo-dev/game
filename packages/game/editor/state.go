@@ -39,6 +39,8 @@ const (
 	ToolFillTile
 	// ToolPlugin is a plugin's tool, chosen with Editor.SetPluginTool; SetTool(ToolPlugin) is ignored.
 	ToolPlugin
+	// ToolPickTile takes the tile under the pointer as the active tile (Editor.PickTile), then hands over to ToolPaintTile.
+	ToolPickTile
 )
 
 // String returns a human-readable label for the tool.
@@ -58,6 +60,8 @@ func (t Tool) String() string {
 		return "Fill Tile"
 	case ToolPlugin:
 		return "Plugin"
+	case ToolPickTile:
+		return "Pick Tile"
 	default:
 		return "Unknown"
 	}
@@ -298,6 +302,10 @@ type Editor struct {
 	gameRun gameRunState
 	// drag2D is the 2D viewport's drag of an object or a gizmo handle in progress (BeginDrag2D).
 	drag2D drag2DState
+	// stroke is the tile stroke under way (BeginTileStroke), or nil.
+	stroke *tileStroke
+	// hover is where the mouse rests over the viewport (SetTileHover).
+	hover tileHover
 }
 
 // DefaultSceneDoc returns a valid starter SceneDoc suitable for a new editor session.
@@ -448,6 +456,7 @@ func (e *Editor) SetTool(t Tool) {
 		return
 	}
 	e.CancelDrag2D()
+	e.endTileStrokeForChange()
 	e.Tool = t
 	e.pluginTool = pluginToolRef{}
 	e.Status = "Tool: " + t.String()
@@ -459,6 +468,7 @@ func (e *Editor) SetViewMode(mode ViewMode) {
 	if e.ViewMode == mode {
 		return
 	}
+	e.endTileStrokeForChange()
 	e.CancelGizmoDrag3D()
 	e.CancelDrag2D()
 	e.ViewMode = mode
@@ -481,6 +491,9 @@ func (e *Editor) SetGizmoMode3D(mode GizmoMode3D) {
 func (e *Editor) SetActiveLayer(name string) bool {
 	if e.layerIndex(name) < 0 {
 		return false
+	}
+	if name != e.ActiveLayer {
+		e.endTileStrokeForChange()
 	}
 	e.ActiveLayer = name
 	e.keepTileInPalette()
@@ -596,6 +609,8 @@ func (e *Editor) openYAMLWithLayers(data []byte, file string, layers *sceneforma
 		return err
 	}
 	e.drag2D = drag2DState{}
+	// A stroke under way edits the scene being replaced, whose history goes with it.
+	e.stroke = nil
 	e.Doc = doc
 	e.sceneSaved = saved
 	e.SelectedID = ""
@@ -705,6 +720,8 @@ func (e *Editor) Undo() bool {
 	}
 	// A drag in progress is put back first, so the step undone is the one before it and not the half-dragged object.
 	e.CancelDrag2D()
+	// A stroke under way is recorded first, so Undo takes it back as a whole.
+	e.endTileStrokeForChange()
 	ok, err := e.History.undo()
 	if err != nil {
 		e.reportStatusError("Undo failed: " + err.Error())
@@ -722,6 +739,7 @@ func (e *Editor) Redo() bool {
 		return false
 	}
 	e.CancelDrag2D()
+	e.endTileStrokeForChange()
 	ok, err := e.History.redo()
 	if err != nil {
 		e.reportStatusError("Redo failed: " + err.Error())

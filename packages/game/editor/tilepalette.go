@@ -81,9 +81,9 @@ func (e *Editor) TilePalette() TilePalette {
 	return p
 }
 
-// isTileTool reports whether t paints, erases or fills tiles.
+// isTileTool reports whether t paints, erases, fills or picks tiles.
 func isTileTool(t Tool) bool {
-	return t == ToolPaintTile || t == ToolEraseTile || t == ToolFillTile
+	return t == ToolPaintTile || t == ToolEraseTile || t == ToolFillTile || t == ToolPickTile
 }
 
 // keepTileInPalette selects the first tile of the active layer's palette when the active tile ID is not one of its tiles, so the palette follows a layer whose tileset lacks the tile that was selected. It leaves the ID alone when the palette has no tiles.
@@ -124,7 +124,7 @@ const (
 	paletteTileLimit = paletteInner - 2*(paletteBorder+paletteTilePadding)
 )
 
-// TilePaletteView renders the tile palette panel, shown right of the viewport while a tile tool (Paint, Erase or Fill) is active in 2D: the active layer's tileset (Editor.TilePalette) as a grid of its tiles in ID order at the tilemap's tile size, scaled down only when a tile is wider than the panel. Pressing a tile, or moving between tiles with the arrow keys, makes it the tile Paint and Fill use (Editor.SetActiveTileID); as in base.RadioGroup, every arrow key steps through the tiles in ID order rather than by rows. The selected tile is ringed. A layer without tiles to pick shows why instead of an empty grid.
+// TilePaletteView renders the tile palette panel, shown right of the viewport while a tile tool (Paint, Erase, Fill or Pick) is active in 2D: the active layer's tileset (Editor.TilePalette) as a grid of its tiles in ID order at the tilemap's tile size, scaled down only when a tile is wider than the panel. Pressing a tile, or moving between tiles with the arrow keys, makes it the tile Paint and Fill use (Editor.SetActiveTileID); as in base.RadioGroup, every arrow key steps through the tiles in ID order rather than by rows. The selected tile is ringed. A layer without tiles to pick shows why instead of an empty grid.
 func TilePaletteView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	shown := core.NewMemo(cx, func() bool {
 		_ = rev.Get()
