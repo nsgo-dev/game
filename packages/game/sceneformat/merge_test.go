@@ -681,7 +681,7 @@ func TestMergeCoversAllDocumentFields(t *testing.T) {
 		reflect.TypeFor[sceneformat.CameraDoc]():      5,
 		reflect.TypeFor[sceneformat.BoundsDoc]():      4,
 		reflect.TypeFor[sceneformat.LayerDoc]():       12,
-		reflect.TypeFor[sceneformat.TilemapDoc]():     11,
+		reflect.TypeFor[sceneformat.TilemapDoc]():     13,
 		reflect.TypeFor[sceneformat.TileLayerDoc]():   4,
 		reflect.TypeFor[sceneformat.ObjectDoc]():      34,
 		reflect.TypeFor[sceneformat.OccluderDoc]():    4,

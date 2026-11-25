@@ -335,9 +335,9 @@ func inspectorSchemaKey(ed *Editor) string {
 							space = eff[i].EffectiveSpace()
 						}
 					}
-					return "L:" + l.Name + ":" + string(space) + ":inherited"
+					return "L:" + l.Name + ":" + string(space) + ":inherited:" + layerTilemapSchemaTag(ed, l)
 				}
-				return "L:" + l.Name + ":" + string(space)
+				return "L:" + l.Name + ":" + string(space) + ":" + layerTilemapSchemaTag(ed, l)
 			}
 		}
 		if ed != nil && ed.Doc != nil {
@@ -547,6 +547,10 @@ func layerInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], la
 		_ = rev.Get()
 		return ed.Playing() || isScreen() || isInherited()
 	}
+	tilemapDisabled := func() bool {
+		_ = rev.Get()
+		return ed.Playing() || isInherited()
+	}
 
 	sectionHeader := func(title string) core.Node {
 		return core.Text{
@@ -748,6 +752,8 @@ func layerInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], la
 			},
 		}),
 	}
+
+	nodes = append(nodes, layerTilemapSection(cx, ed, rev, layerName, layer, tilemapDisabled, sectionHeader, fieldRow)...)
 
 	if spaceText == string(sceneformat.SpaceScreen) {
 		nodes = append(nodes, core.Text{

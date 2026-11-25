@@ -508,6 +508,8 @@ func (m *sceneMerger) mergeTilemap(st *sideTracker, ctx conflictCtx, prefix stri
 		Ref:         mergeScalar(m, st, ctx, fieldName("ref"), b.Ref, ours.Ref, theirs.Ref),
 		Source:      mergeScalar(m, st, ctx, fieldName("source"), b.Source, ours.Source, theirs.Source),
 		Level:       mergeScalar(m, st, ctx, fieldName("level"), b.Level, ours.Level, theirs.Level),
+		OffsetX:     mergeScalar(m, st, ctx, fieldName("offsetX"), b.OffsetX, ours.OffsetX, theirs.OffsetX),
+		OffsetY:     mergeScalar(m, st, ctx, fieldName("offsetY"), b.OffsetY, ours.OffsetY, theirs.OffsetY),
 		TileWidth:   mergeScalar(m, st, ctx, fieldName("tileWidth"), b.TileWidth, ours.TileWidth, theirs.TileWidth),
 		TileHeight:  mergeScalar(m, st, ctx, fieldName("tileHeight"), b.TileHeight, ours.TileHeight, theirs.TileHeight),
 		Width:       mergeScalar(m, st, ctx, fieldName("width"), b.Width, ours.Width, theirs.Width),
@@ -1868,6 +1870,7 @@ func tilemapEqual(a, b *TilemapDoc) bool {
 		return a == b
 	}
 	return a.Ref == b.Ref && a.Source == b.Source && a.Level == b.Level &&
+		a.OffsetX == b.OffsetX && a.OffsetY == b.OffsetY &&
 		a.TileWidth == b.TileWidth && a.TileHeight == b.TileHeight &&
 		a.Width == b.Width && a.Height == b.Height &&
 		a.Tileset == b.Tileset && a.TilesetFile == b.TilesetFile &&

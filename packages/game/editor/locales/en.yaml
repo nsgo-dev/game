@@ -192,6 +192,7 @@ strings:
   layers.empty: No layers
   layers.hide: Hide Layer
   layers.hideNamed: Hide layer {name}
+  layers.inspectLayer: Inspect Layer
   layers.lock: Lock Layer
   layers.lockNamed: Lock layer {name}
   layers.moveDown: Move Layer Down
@@ -359,6 +360,7 @@ strings:
   tilePalette.flipVert: Flip vertically
   tilePalette.gridLabel: Tiles of {tileset}
   tilePalette.paintLayer: Paint tile layer {name}
+  tilePalette.setupTilemap: Set Up Tilemap
   tilePalette.tileLabel: Tile {number}
   tilePalette.title: Tiles
   tool.eraseTile: Erase Tile
