@@ -172,8 +172,8 @@ func (m *Tilemap) CacheStaticChunk(layerIndex int, coord ChunkCoord, images map[
 		}
 		col, row := baseCol+lc, baseRow+lr
 		tx, ty := m.tileOrigin(col, row)
-		dstX := tx
-		dstY := ty + m.TileHeight - th
+		dstX := tx + ts.TileOffsetX
+		dstY := ty + m.TileHeight - th + ts.TileOffsetY
 
 		if !hasBounds {
 			minX, minY = float64(dstX), float64(dstY)
@@ -358,8 +358,8 @@ func (m *Tilemap) CacheStaticLayer(layerIndex int, images map[string]image.Image
 			return fmt.Errorf("tilemap: cache: missing image for tileset %q (URI %q)", ts.Name, imgSrc.URI)
 		}
 		tx, ty := m.tileOrigin(col, row)
-		dstX := tx
-		dstY := ty + m.TileHeight - th
+		dstX := tx + ts.TileOffsetX
+		dstY := ty + m.TileHeight - th + ts.TileOffsetY
 
 		minX = min(minX, float64(dstX))
 		minY = min(minY, float64(dstY))
@@ -605,8 +605,10 @@ func (m *Tilemap) drawCachedLayer(d *core.Drawing, layer *TileLayer, cache *Laye
 	}
 
 	if layer.Opacity < 1 {
-		d.Save().SetAlpha(layer.Opacity).DrawImageFrom(cache.Source, sx, sy, sw, sh, dstX, dstY, sw, sh).Restore()
+		d.Save().SetAlpha(layer.Opacity)
+		drawTileImage(d, cache.Source, layer.TintColor, sx, sy, sw, sh, dstX, dstY, sw, sh)
+		d.Restore()
 		return
 	}
-	d.DrawImageFrom(cache.Source, sx, sy, sw, sh, dstX, dstY, sw, sh)
+	drawTileImage(d, cache.Source, layer.TintColor, sx, sy, sw, sh, dstX, dstY, sw, sh)
 }

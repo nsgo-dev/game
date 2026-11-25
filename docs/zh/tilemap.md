@@ -57,10 +57,10 @@ d.Restore()
 
 ## 加载 Tiled 地图
 
-`LoadTiled` 会根据输入字节自动识别并解析 Tiled XML（`.tmx`）与 JSON（`.tmj`）地图到同一个 `*Tilemap`。它支持内嵌及外部 `.tsx`/`.tsj` 图块集（包括 `.tmx` 引用 `.tsj` 或 `.tmj` 引用 `.tsx` 的跨格式组合），支持有限图层与无限地图分块的 CSV、XML `<tile>` 以及 base64 瓦片数据（未压缩、`zlib` 与 `gzip`），同时支持图像层、嵌套图层组、Tiled JSON Wang 地形集（`.tmj`/`.tsj` 中的 `wangsets`）与逐瓦片概率、GID 翻转位（`FlipHorizontal`、`FlipVertical`、`FlipDiagonal`）、对象层、带类型的自定义属性、动画瓦片，以及在 Tiled 碰撞编辑器中为瓦片绘制的碰撞形状。对于 `zstd` 压缩，加载器会返回带有文件、行号与修复提示的 `*loaderr.Error` 明确拒绝。
+`LoadTiled` 会根据输入字节自动识别并解析 Tiled XML（`.tmx`）与 JSON（`.tmj`）地图到同一个 `*Tilemap`。它支持内嵌及外部 `.tsx`/`.tsj` 网格图块集与图片集合图块集（包含逐瓦片图片、可选子矩形、`tileoffset`、`objectalignment`，以及 `.tmx` 引用 `.tsj` 或 `.tmj` 引用 `.tsx` 的跨格式组合），支持有限图层与无限地图分块的 CSV、XML `<tile>` 以及 base64 瓦片数据（未压缩、`zlib` 与 `gzip`），同时支持图像层、嵌套图层组、图层着色 `tintcolor`（嵌套组间通道相乘）、Tiled JSON Wang 地形集（`.tmj`/`.tsj` 中的 `wangsets`）与逐瓦片概率、GID 翻转位（`FlipHorizontal`、`FlipVertical`、`FlipDiagonal`）、对象层（包含可绘制的图块对象、作为数据加载的文本对象以及外部 `.tx`/`.tj` 对象模板）、带类型的自定义属性、动画瓦片，以及在 Tiled 碰撞编辑器中为瓦片绘制的碰撞形状。对于 `zstd` 压缩，加载器会返回带有文件、行号与修复提示的 `*loaderr.Error` 明确拒绝。
 
 ```go
-//go:embed resources/maps/*.tmx resources/maps/*.tsx
+//go:embed resources/maps/*.tmx resources/maps/*.tsx resources/maps/*.tx
 var mapFS embed.FS
 
 raw, err := mapFS.ReadFile("resources/maps/level1.tmx")
@@ -70,6 +70,9 @@ if err != nil {
 
 m, err := tilemap.LoadTiled(raw, tilemap.TilesetLoader{
 	LoadTileset: func(source string) ([]byte, error) {
+		return mapFS.ReadFile("resources/maps/" + source)
+	},
+	LoadTemplate: func(source string) ([]byte, error) {
 		return mapFS.ReadFile("resources/maps/" + source)
 	},
 	LoadImage: func(imagePath string) (core.ImageSource, error) {
@@ -82,6 +85,13 @@ if err != nil {
 ```
 
 当 `LoadTileset` 为 nil 时，沿用 `TilesetLoader.LoadJSON` 的旧调用方仍可同时加载 `.tsj` 与 `.tsx` 外部图块集。
+
+### 图片集合图块集、图块对象、对象模板与文本对象
+
+- **图片集合图块集**：带有逐瓦片 `<image>` 的图块集会加载到 `Tileset.TileImages`（`map[uint32]TileImage`，以 0 起始的本地瓦片 ID 为键），保留每个瓦片自身的宽高和可选子矩形（`X`、`Y`、`Width`、`Height`），路径相对外部图块集目录解析。`Tileset.TileOffsetX`/`TileOffsetY` 会作用于瓦片层与图块对象绘制；`Tileset.ObjectAlignment`（`ObjectAlignmentUnspecified`、`TopLeft`、`Top`、`TopRight`、`Left`、`Center`、`Right`、`BottomLeft`、`Bottom`、`BottomRight`）控制图块对象的锚点（正交/交错/六边形地图默认 `BottomLeft`，等距地图默认 `Bottom`）。
+- **绘制图块对象与图层着色**：`m.Draw(d, cam)` 会按 Tiled 的原始图层顺序穿插绘制瓦片层、图像层与对象层，通过 `m.DrawObjectLayer(d, layer, cam)` 绘制每个可见的 `ObjectTile`，完整应用图层可见性、不透明度、`TintColor`、偏移、视差、对象尺寸、顺时针旋转 `Rotation`、GID 翻转位、`tileoffset`、`objectalignment` 以及相机视锥裁剪。设置 `TileLayer.TintColor`、`ImageLayer.TintColor` 或 `ObjectLayer.TintColor` 后，绘制时会对该层像素乘以对应着色。
+- **对象模板（`.tx` / `.tj`）**：当对象引用外部模板时，`LoadTiled` 通过 `TilesetLoader.LoadTemplate` 读取并按路径缓存模板，将模板的字段、几何形状与自定义属性和对象实例上的覆盖值合并，并把模板引用的图块集 GID 重映射到地图图块集中（若与地图已有外部图块集规范路径一致则直接复用）。
+- **文本对象**：Tiled 的 `<text>` / `"text"` 对象会以 `Shape == ObjectText` 和 `Object.Text`（`*TextObject`，包含 `Text`、`FontFamily`、`PixelSize`、`Wrap`、`Color`、`Bold`、`Italic`、`Underline`、`Strikeout`、`Kerning`、`HAlign`、`VAlign`）作为结构化数据加载，供游戏侧自行排版绘制。
 
 ### 用代码构建瓦片地图
 

@@ -16,17 +16,19 @@ import (
 	"github.com/nsgo-dev/nsgo/core"
 )
 
-// TilesetLoader resolves external tileset files and tileset images referenced by a Tiled map.
+// TilesetLoader resolves external tileset files, object template files, and images referenced by a Tiled map.
 //
-// Either tileset callback may be nil: LoadTileset (or LoadJSON as a fallback) is only needed when the map references an external .tsx or .tsj tileset, and LoadImage defaults to core.ImageSource{URI: imagePath}.
+// Any callback may be nil: LoadTileset (or LoadJSON as a fallback) is only needed when the map or a template references an external .tsx or .tsj tileset, LoadTemplate is only needed when an object references an external .tx or .tj template, and LoadImage defaults to core.ImageSource{URI: imagePath}.
 type TilesetLoader struct {
-	// LoadTileset reads the raw bytes of an external tileset file (.tsx or .tsj) given its source path in the map.
+	// LoadTileset reads the raw bytes of an external tileset file (.tsx or .tsj) given its source path in the map (or resolved relative to a template's directory).
 	// When nil, LoadTiled falls back to LoadJSON.
 	LoadTileset func(source string) ([]byte, error)
 	// LoadJSON reads the raw bytes of an external tileset file (.tsj or .tsx) given its source path in the map.
 	// Kept for compatibility with existing callers; used when LoadTileset is nil.
 	LoadJSON func(source string) ([]byte, error)
-	// LoadImage returns the ImageSource for a tileset's image path (resolved relative to the external tileset's directory when loaded from a .tsx or .tsj).
+	// LoadTemplate reads the raw bytes of an external object template file (.tx or .tj) given its source path in the map.
+	LoadTemplate func(source string) ([]byte, error)
+	// LoadImage returns the ImageSource for a tileset, tile, or image-layer image path (resolved relative to the external tileset's or template's directory when loaded from one).
 	LoadImage func(imagePath string) (core.ImageSource, error)
 }
 
@@ -37,11 +39,11 @@ func (l TilesetLoader) loadTilesetFn() func(string) ([]byte, error) {
 	return l.LoadJSON
 }
 
-// LoadTiled parses a Tiled map — either JSON (.tmj) or XML (.tmx) — into a Tilemap, loading any external .tsx or .tsj tilesets and resolving tileset and image-layer images through resolve.
+// LoadTiled parses a Tiled map — either JSON (.tmj) or XML (.tmx) — into a Tilemap, loading any external .tsx or .tsj tilesets and .tx or .tj object templates and resolving tileset, collection-tile, and image-layer images through resolve.
 //
-// Orthogonal, isometric, staggered, and hexagonal maps, infinite chunked maps, CSV, XML, and base64 tile data (uncompressed, zlib, and gzip), image layers, nested group layers, embedded and external tilesets (including cross-format TMX/TSJ and TMJ/TSX references), GID flip flags, object layers, custom properties, tile animations and the collision shapes Tiled's collision editor draws on tiles (into Tileset.Shapes) are supported. zstd compression is refused with an actionable fix hint.
+// Orthogonal, isometric, staggered, and hexagonal maps, infinite chunked maps, CSV, XML, and base64 tile data (uncompressed, zlib, and gzip), image layers, nested group layers, layer tint colors, embedded and external grid and image-collection tilesets (with tileoffset, objectalignment, and cross-format TMX/TSJ and TMJ/TSX references), GID flip flags, object layers (including tile objects, text objects, and .tx/.tj templates), custom properties, tile animations and the collision shapes Tiled's collision editor draws on tiles (into Tileset.Shapes) are supported. zstd compression is refused with an actionable fix hint.
 //
-// Its errors are *loaderr.Error values that give the line and field of the problem and how to fix it. An error in an external tileset names that tileset's source; for one in the map itself, a caller that read data from a file names it with loaderr.WithFile.
+// Its errors are *loaderr.Error values that give the line and field of the problem and how to fix it. An error in an external tileset or template names that file's source; for one in the map itself, a caller that read data from a file names it with loaderr.WithFile.
 func LoadTiled(data []byte, resolve TilesetLoader) (*Tilemap, error) {
 	if isXML(data) {
 		raw, err := parseTMX(data)
@@ -60,7 +62,202 @@ func LoadTiled(data []byte, resolve TilesetLoader) (*Tilemap, error) {
 }
 
 // fixTiled is the fix for a Tiled JSON map error that has no more specific one.
-const fixTiled = "correct the map in Tiled and export it again as JSON (.tmj)"
+const (
+	fixTiled        = "correct the map in Tiled and export it again as JSON (.tmj)"
+	fixTilesetJSON  = "correct the tileset in Tiled and export it again as JSON (.tsj)"
+	fixTemplateJSON = "correct the template in Tiled and export it again as JSON (.tj)"
+)
+
+type sourceTilesetEntry struct {
+	source string
+	ts     *Tileset
+}
+
+type loadedTemplate struct {
+	source       string
+	obj          tiledObject
+	props        Properties
+	ts           *Tileset
+	tmplFirstGID uint32
+}
+
+type tiledLoadCtx struct {
+	m         *Tilemap
+	resolve   TilesetLoader
+	budget    int64
+	rawTS     []tiledTilesetRef
+	sourceTS  []sourceTilesetEntry
+	templates []loadedTemplate
+}
+
+func (c *tiledLoadCtx) findSourceTileset(cleanSource string) *Tileset {
+	for i := range c.sourceTS {
+		if c.sourceTS[i].source == cleanSource {
+			return c.sourceTS[i].ts
+		}
+	}
+	for i := range c.rawTS {
+		if c.rawTS[i].Source != "" && path.Clean(c.rawTS[i].Source) == cleanSource {
+			if ts, _ := c.m.TilesetForGID(c.rawTS[i].FirstGID); ts != nil && ts.FirstGID == c.rawTS[i].FirstGID {
+				return ts
+			}
+		}
+	}
+	return nil
+}
+
+func joinTiledPath(baseDir, rel string) string {
+	if baseDir != "" && baseDir != "." && !path.IsAbs(rel) && !strings.Contains(rel, ":") {
+		return path.Join(baseDir, rel)
+	}
+	return rel
+}
+
+func resolveTiledImage(rawPath, baseDir string, resolve TilesetLoader, line, col int, field, prefix, fix string) (core.ImageSource, error) {
+	imgPath := joinTiledPath(baseDir, rawPath)
+	if resolve.LoadImage == nil {
+		return core.ImageSource{URI: imgPath}, nil
+	}
+	img, err := resolve.LoadImage(imgPath)
+	if err != nil {
+		return core.ImageSource{}, &loaderr.Error{
+			Line: line, Column: col, Field: field,
+			Problem: prefix + "load image " + strconv.Quote(imgPath) + ": " + err.Error(),
+			Fix:     fix, Err: err,
+		}
+	}
+	return img, nil
+}
+
+func loadExternalTileset(m *Tilemap, firstGID uint32, source string, line, col int, field string, resolve TilesetLoader) (*Tileset, error) {
+	loadExternal := resolve.loadTilesetFn()
+	if loadExternal == nil {
+		return nil, &loaderr.Error{
+			Line: line, Column: col, Field: field,
+			Problem: "external tileset " + strconv.Quote(source) + " requires TilesetLoader.LoadTileset (or LoadJSON)",
+			Fix:     "set TilesetLoader.LoadTileset (or LoadJSON), or embed the tileset in the map in Tiled",
+		}
+	}
+	ext, err := loadExternal(source)
+	if err != nil {
+		return nil, &loaderr.Error{
+			Line: line, Column: col, Field: field,
+			Problem: "load tileset " + strconv.Quote(source) + ": " + err.Error(),
+			Fix:     "check that the tileset file exists next to the map at this path",
+			Err:     err,
+		}
+	}
+	var tsRaw tiledTileset
+	var extLocData []byte
+	extFix := fixTilesetJSON
+	if isXML(ext) {
+		extFix = fixTilesetXML
+		tsRaw, err = parseTSX(ext)
+		if err != nil {
+			return nil, loaderr.LocateJSON(err, source, nil, extFix)
+		}
+	} else {
+		extLocData = ext
+		if err := json.Unmarshal(ext, &tsRaw); err != nil {
+			return nil, loaderr.LocateJSON(err, source, ext, "export the tileset again from Tiled as JSON (.tsj)")
+		}
+	}
+	ts, err := buildTileset(m, firstGID, tsRaw, path.Dir(source), resolve)
+	if err != nil {
+		return nil, loaderr.LocateJSON(err, source, extLocData, extFix)
+	}
+	return ts, nil
+}
+
+func (c *tiledLoadCtx) loadTemplate(source string, line, col int, field string) (loadedTemplate, error) {
+	for i := range c.templates {
+		if c.templates[i].source == source {
+			return c.templates[i], nil
+		}
+	}
+	if c.resolve.LoadTemplate == nil {
+		return loadedTemplate{}, &loaderr.Error{
+			Line: line, Column: col, Field: field,
+			Problem: "object template " + strconv.Quote(source) + " requires TilesetLoader.LoadTemplate",
+			Fix:     "set TilesetLoader.LoadTemplate, or detach the object from its template in Tiled",
+		}
+	}
+	rawBytes, err := c.resolve.LoadTemplate(source)
+	if err != nil {
+		return loadedTemplate{}, &loaderr.Error{
+			Line: line, Column: col, Field: field,
+			Problem: "load template " + strconv.Quote(source) + ": " + err.Error(),
+			Fix:     "check that the template file exists at this path",
+			Err:     err,
+		}
+	}
+
+	var tmpl tiledTemplate
+	var locData []byte
+	fix := fixTemplateJSON
+	if isXML(rawBytes) {
+		fix = fixTemplateXML
+		tmpl, err = parseTX(rawBytes)
+		if err != nil {
+			return loadedTemplate{}, loaderr.LocateJSON(err, source, nil, fix)
+		}
+	} else {
+		locData = rawBytes
+		if err := json.Unmarshal(rawBytes, &tmpl); err != nil {
+			return loadedTemplate{}, loaderr.LocateJSON(err, source, rawBytes, fix)
+		}
+	}
+	if tmpl.Object == nil {
+		return loadedTemplate{}, loaderr.LocateJSON(&loaderr.Error{
+			Field: "object", Problem: "template has no object definition", Fix: fix,
+		}, source, locData, fix)
+	}
+
+	lt := loadedTemplate{source: source, obj: *tmpl.Object}
+	if len(tmpl.Object.Properties) > 0 {
+		props, err := parseProperties(tmpl.Object.Properties)
+		if err != nil {
+			return loadedTemplate{}, loaderr.LocateJSON(nest(err, "object.properties"), source, locData, fix)
+		}
+		lt.props = props
+	}
+	if tmpl.Tileset != nil {
+		ref := tmpl.Tileset
+		fg := ref.FirstGID
+		if fg == 0 {
+			fg = 1
+		}
+		lt.tmplFirstGID = fg
+		tmplDir := path.Dir(source)
+		if ref.Source != "" {
+			resolvedSrc := path.Clean(joinTiledPath(tmplDir, ref.Source))
+			if existing := c.findSourceTileset(resolvedSrc); existing != nil {
+				lt.ts = existing
+			} else {
+				ts, err := loadExternalTileset(c.m, c.m.nextFirstGID(), resolvedSrc, ref.line, ref.col, "tileset.source", c.resolve)
+				if err != nil {
+					if le, ok := err.(*loaderr.Error); ok && le.File == "" {
+						return loadedTemplate{}, loaderr.LocateJSON(err, source, locData, fix)
+					}
+					return loadedTemplate{}, err
+				}
+				c.m.Tilesets = append(c.m.Tilesets, ts)
+				c.sourceTS = append(c.sourceTS, sourceTilesetEntry{source: resolvedSrc, ts: ts})
+				lt.ts = ts
+			}
+		} else {
+			ts, err := buildTileset(c.m, c.m.nextFirstGID(), ref.tiledTileset, tmplDir, c.resolve)
+			if err != nil {
+				return loadedTemplate{}, loaderr.LocateJSON(nest(err, "tileset"), source, locData, fix)
+			}
+			c.m.Tilesets = append(c.m.Tilesets, ts)
+			lt.ts = ts
+		}
+	}
+
+	c.templates = append(c.templates, lt)
+	return lt, nil
+}
 
 //go:noinline
 func idxPath(prefix string, i int, suffix string) string {
@@ -130,45 +327,27 @@ func buildTiledMap(raw tiledMap, resolve TilesetLoader) (*Tilemap, error) {
 		Properties:    props,
 	}
 
-	loadExternal := resolve.loadTilesetFn()
+	ctx := tiledLoadCtx{
+		m:       m,
+		resolve: resolve,
+		budget:  maxMapDecompressedBytes,
+		rawTS:   raw.Tilesets,
+	}
+
 	for i, ref := range raw.Tilesets {
 		if ref.FirstGID == 0 {
 			return nil, tiledErr(ref.line, ref.col, idxPath("tilesets", i, "firstgid"), "tileset "+strconv.Itoa(i)+" has firstgid 0", "", "save or export the map again from Tiled; a tileset's firstgid is 1 or more", nil)
 		}
-		var tsRaw tiledTileset
 		if ref.Source != "" {
-			if loadExternal == nil {
-				return nil, tiledErr(ref.line, ref.col, idxPath("tilesets", i, "source"), "external tileset "+ref.Source+" requires TilesetLoader.LoadTileset (or LoadJSON)", "", "set TilesetLoader.LoadTileset (or LoadJSON), or embed the tileset in the map in Tiled", nil)
-			}
-			ext, err := loadExternal(ref.Source)
+			ts, err := loadExternalTileset(m, ref.FirstGID, ref.Source, ref.line, ref.col, idxPath("tilesets", i, "source"), resolve)
 			if err != nil {
-				return nil, tiledErr(ref.line, ref.col, idxPath("tilesets", i, "source"), "load tileset "+ref.Source+": "+err.Error(), "", "check that the tileset file exists next to the map at this path", err)
-			}
-			var extLocData []byte
-			extFix := "correct the tileset in Tiled and export it again as JSON (.tsj)"
-			if isXML(ext) {
-				extFix = fixTilesetXML
-				tsRaw, err = parseTSX(ext)
-				if err != nil {
-					return nil, loaderr.LocateJSON(err, ref.Source, nil, extFix)
-				}
-			} else {
-				extLocData = ext
-				if err := json.Unmarshal(ext, &tsRaw); err != nil {
-					return nil, loaderr.LocateJSON(err, ref.Source, ext, "export the tileset again from Tiled as JSON (.tsj)")
-				}
-			}
-			ts, err := buildTileset(m, ref.FirstGID, tsRaw, path.Dir(ref.Source), resolve)
-			if err != nil {
-				// The error is about the tileset's own file.
-				return nil, loaderr.LocateJSON(err, ref.Source, extLocData, extFix)
+				return nil, err
 			}
 			m.Tilesets = append(m.Tilesets, ts)
 			continue
 		}
-		tsRaw = ref.tiledTileset
 
-		ts, err := buildTileset(m, ref.FirstGID, tsRaw, "", resolve)
+		ts, err := buildTileset(m, ref.FirstGID, ref.tiledTileset, "", resolve)
 		if err != nil {
 			return nil, nest(err, idxPath("tilesets", i, ""))
 		}
@@ -178,8 +357,7 @@ func buildTiledMap(raw tiledMap, resolve TilesetLoader) (*Tilemap, error) {
 		return cmp.Compare(a.FirstGID, b.FirstGID)
 	})
 
-	budget := maxMapDecompressedBytes
-	if err := loadTiledLayers(m, raw.Layers, 0, 0, 1, 1, 1, true, resolve, &budget); err != nil {
+	if err := loadTiledLayers(&ctx, raw.Layers, 0, 0, 1, 1, 1, 0, true); err != nil {
 		return nil, nest(err, "layers")
 	}
 	return m, nil
@@ -222,8 +400,46 @@ func parseTiledStaggerIndex(s string) (StaggerIndex, error) {
 	}
 }
 
+func parseObjectAlignment(s string) (ObjectAlignment, bool) {
+	switch s {
+	case "", "unspecified":
+		return ObjectAlignmentUnspecified, true
+	case "topleft":
+		return ObjectAlignmentTopLeft, true
+	case "top":
+		return ObjectAlignmentTop, true
+	case "topright":
+		return ObjectAlignmentTopRight, true
+	case "left":
+		return ObjectAlignmentLeft, true
+	case "center":
+		return ObjectAlignmentCenter, true
+	case "right":
+		return ObjectAlignmentRight, true
+	case "bottomleft":
+		return ObjectAlignmentBottomLeft, true
+	case "bottom":
+		return ObjectAlignmentBottom, true
+	case "bottomright":
+		return ObjectAlignmentBottomRight, true
+	default:
+		return 0, false
+	}
+}
+
 // buildTileset builds the tileset raw. The fields its errors name are relative to the tileset.
 func buildTileset(m *Tilemap, firstGID uint32, raw tiledTileset, baseDir string, resolve TilesetLoader) (*Tileset, error) {
+	align, ok := parseObjectAlignment(raw.ObjectAlignment)
+	if !ok {
+		return nil, &loaderr.Error{
+			Line:     raw.line,
+			Column:   raw.col,
+			Field:    "objectalignment",
+			Problem:  fmt.Sprintf("unknown objectalignment %q", raw.ObjectAlignment),
+			Expected: `"unspecified", "topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom" or "bottomright"`,
+			Fix:      "set the tileset's Object Alignment in Tiled to one of the supported values",
+		}
+	}
 	tw, th := raw.TileWidth, raw.TileHeight
 	if tw <= 0 {
 		tw = m.TileWidth
@@ -242,22 +458,14 @@ func buildTileset(m *Tilemap, firstGID uint32, raw tiledTileset, baseDir string,
 
 	var img core.ImageSource
 	if raw.Image != "" {
-		imgPath := raw.Image
-		if baseDir != "" && baseDir != "." && !path.IsAbs(imgPath) && !strings.Contains(imgPath, ":") {
-			imgPath = path.Join(baseDir, imgPath)
+		imgLine, imgCol := raw.imageLine, raw.imageCol
+		if imgLine == 0 {
+			imgLine, imgCol = raw.line, raw.col
 		}
-		if resolve.LoadImage != nil {
-			var err error
-			img, err = resolve.LoadImage(imgPath)
-			if err != nil {
-				imgLine, imgCol := raw.imageLine, raw.imageCol
-				if imgLine == 0 {
-					imgLine, imgCol = raw.line, raw.col
-				}
-				return nil, tiledErr(imgLine, imgCol, "image", "load image "+imgPath+": "+err.Error(), "", "check that the tileset image exists at this path, relative to the tileset", err)
-			}
-		} else {
-			img = core.ImageSource{URI: imgPath}
+		var err error
+		img, err = resolveTiledImage(raw.Image, baseDir, resolve, imgLine, imgCol, "image", "", "check that the tileset image exists at this path, relative to the tileset")
+		if err != nil {
+			return nil, err
 		}
 	}
 
@@ -266,17 +474,24 @@ func buildTileset(m *Tilemap, firstGID uint32, raw tiledTileset, baseDir string,
 		return nil, nest(err, "properties")
 	}
 
+	var offX, offY float32
+	if raw.TileOffset != nil {
+		offX, offY = raw.TileOffset.X, raw.TileOffset.Y
+	}
 	ts := &Tileset{
-		Name:       raw.Name,
-		FirstGID:   firstGID,
-		Image:      img,
-		TileWidth:  tw,
-		TileHeight: th,
-		Columns:    cols,
-		TileCount:  raw.TileCount,
-		Spacing:    raw.Spacing,
-		Margin:     raw.Margin,
-		Properties: props,
+		Name:            raw.Name,
+		FirstGID:        firstGID,
+		Image:           img,
+		TileWidth:       tw,
+		TileHeight:      th,
+		TileOffsetX:     offX,
+		TileOffsetY:     offY,
+		ObjectAlignment: align,
+		Columns:         cols,
+		TileCount:       raw.TileCount,
+		Spacing:         raw.Spacing,
+		Margin:          raw.Margin,
+		Properties:      props,
 	}
 
 	for ti, tile := range raw.Tiles {
@@ -289,6 +504,33 @@ func buildTileset(m *Tilemap, firstGID uint32, raw tiledTileset, baseDir string,
 				ts.TileProbabilities = make(map[uint32]float64)
 			}
 			ts.TileProbabilities[tile.ID] = p
+		}
+		if tile.Image != "" {
+			imgLine, imgCol := tile.imageLine, tile.imageCol
+			if imgLine == 0 {
+				imgLine, imgCol = tile.line, tile.col
+			}
+			timg, err := resolveTiledImage(tile.Image, baseDir, resolve, imgLine, imgCol, idxPath("tiles", ti, "image"), "", "check that the tile image exists at this path, relative to the tileset")
+			if err != nil {
+				return nil, err
+			}
+			w, h := tile.Width, tile.Height
+			if w <= 0 {
+				w = tile.ImageWidth
+			}
+			if h <= 0 {
+				h = tile.ImageHeight
+			}
+			if ts.TileImages == nil {
+				ts.TileImages = make(map[uint32]TileImage)
+			}
+			ts.TileImages[tile.ID] = TileImage{
+				Image:  timg,
+				X:      tile.X,
+				Y:      tile.Y,
+				Width:  w,
+				Height: h,
+			}
 		}
 		if len(tile.Properties) > 0 {
 			tp, err := parseProperties(tile.Properties)
@@ -478,8 +720,122 @@ func ySortFromProperties(p Properties) bool {
 	return false
 }
 
-// loadTiledLayers adds layers to m. The fields its errors name are relative to the array of layers, as in "[2].data".
-func loadTiledLayers(m *Tilemap, layers []tiledLayer, parentOX, parentOY, parentPX, parentPY, parentOpacity float32, parentVisible bool, resolve TilesetLoader, budget *int64) error {
+func parseTiledText(rt *tiledText) (*TextObject, error) {
+	if rt == nil {
+		return nil, nil
+	}
+	col := core.RGB(0x000000)
+	if rt.Color != "" {
+		c, ok := parseTiledColor(rt.Color)
+		if !ok {
+			return nil, &loaderr.Error{
+				Line:     rt.line,
+				Column:   rt.col,
+				Field:    "color",
+				Problem:  fmt.Sprintf("invalid text color %q", rt.Color),
+				Expected: `"#RRGGBB" or "#AARRGGBB"`,
+				Fix:      "set a valid hex color on the text object in Tiled",
+			}
+		}
+		col = c
+	}
+	halign := rt.HAlign
+	if halign == "" {
+		halign = "left"
+	}
+	switch halign {
+	case "left", "center", "right", "justify":
+	default:
+		return nil, &loaderr.Error{Line: rt.line, Column: rt.col, Field: "halign", Problem: fmt.Sprintf("invalid halign %q", halign), Expected: `"left", "center", "right" or "justify"`, Fix: "set a valid horizontal alignment on the text object in Tiled"}
+	}
+	valign := rt.VAlign
+	if valign == "" {
+		valign = "top"
+	}
+	switch valign {
+	case "top", "center", "bottom":
+	default:
+		return nil, &loaderr.Error{Line: rt.line, Column: rt.col, Field: "valign", Problem: fmt.Sprintf("invalid valign %q", valign), Expected: `"top", "center" or "bottom"`, Fix: "set a valid vertical alignment on the text object in Tiled"}
+	}
+	font := rt.FontFamily
+	if font == "" {
+		font = "sans-serif"
+	}
+	px := rt.PixelSize
+	if px <= 0 {
+		px = 16
+	}
+	kerning := true
+	if rt.Kerning != nil {
+		kerning = *rt.Kerning
+	}
+	return &TextObject{
+		Text:       rt.Text,
+		FontFamily: font,
+		PixelSize:  px,
+		Wrap:       rt.Wrap,
+		Color:      col,
+		Bold:       rt.Bold,
+		Italic:     rt.Italic,
+		Underline:  rt.Underline,
+		Strikeout:  rt.Strikeout,
+		Kerning:    kerning,
+		HAlign:     halign,
+		VAlign:     valign,
+	}, nil
+}
+
+func mergeTiledText(base, over *tiledText) *tiledText {
+	if over == nil {
+		return base
+	}
+	if base == nil {
+		return over
+	}
+	m := *base
+	if over.Text != "" {
+		m.Text = over.Text
+	}
+	if over.FontFamily != "" {
+		m.FontFamily = over.FontFamily
+	}
+	if over.PixelSize > 0 {
+		m.PixelSize = over.PixelSize
+	}
+	if over.Wrap {
+		m.Wrap = true
+	}
+	if over.Color != "" {
+		m.Color = over.Color
+	}
+	if over.Bold {
+		m.Bold = true
+	}
+	if over.Italic {
+		m.Italic = true
+	}
+	if over.Underline {
+		m.Underline = true
+	}
+	if over.Strikeout {
+		m.Strikeout = true
+	}
+	if over.Kerning != nil {
+		m.Kerning = over.Kerning
+	}
+	if over.HAlign != "" {
+		m.HAlign = over.HAlign
+	}
+	if over.VAlign != "" {
+		m.VAlign = over.VAlign
+	}
+	m.line, m.col = over.line, over.col
+	return &m
+}
+
+// loadTiledLayers adds layers to ctx.m. The fields its errors name are relative to the array of layers, as in "[2].data".
+func loadTiledLayers(ctx *tiledLoadCtx, layers []tiledLayer, parentOX, parentOY, parentPX, parentPY, parentOpacity float32, parentTint core.Color, parentVisible bool) error {
+	m := ctx.m
 	for li, raw := range layers {
 		visible := parentVisible
 		if raw.Visible != nil {
@@ -499,6 +855,21 @@ func loadTiledLayers(m *Tilemap, layers []tiledLayer, parentOX, parentOY, parent
 		if raw.ParallaxY != nil {
 			py *= *raw.ParallaxY
 		}
+		tint := parentTint
+		if raw.TintColor != "" {
+			c, ok := parseTiledColor(raw.TintColor)
+			if !ok {
+				return &loaderr.Error{
+					Line:     raw.line,
+					Column:   raw.col,
+					Field:    loaderr.Path(li, "tintcolor"),
+					Problem:  fmt.Sprintf("layer %q has invalid tintcolor %q", raw.Name, raw.TintColor),
+					Expected: `"#RRGGBB" or "#AARRGGBB"`,
+					Fix:      "set a valid hex tint color on the layer in Tiled",
+				}
+			}
+			tint = multiplyTint(tint, c)
+		}
 
 		props, err := parseProperties(raw.Properties)
 		if err != nil {
@@ -511,7 +882,7 @@ func loadTiledLayers(m *Tilemap, layers []tiledLayer, parentOX, parentOY, parent
 				return err
 			}
 			if m.Infinite || len(raw.Chunks) > 0 {
-				layer, err := buildChunkedTileLayer(raw, li, ox, oy, px, py, opacity, visible, props, budget)
+				layer, err := buildChunkedTileLayer(raw, li, ox, oy, px, py, opacity, tint, visible, props, &ctx.budget)
 				if err != nil {
 					return err
 				}
@@ -545,7 +916,7 @@ func loadTiledLayers(m *Tilemap, layers []tiledLayer, parentOX, parentOY, parent
 				return tiledErr(raw.line, raw.col, idxPath("", li, "width"), fmt.Sprintf("layer %q size %dx%d overflows", raw.Name, lw, lh), "", "make the layer smaller", nil)
 			}
 
-			data, err := decodeFiniteLayerData(raw, li, lw, lh, budget)
+			data, err := decodeFiniteLayerData(raw, li, lw, lh, &ctx.budget)
 			if err != nil {
 				return err
 			}
@@ -561,6 +932,7 @@ func loadTiledLayers(m *Tilemap, layers []tiledLayer, parentOX, parentOY, parent
 				ParallaxX:  px,
 				ParallaxY:  py,
 				Opacity:    opacity,
+				TintColor:  tint,
 				Visible:    visible,
 				YSort:      ySortFromProperties(props),
 				Properties: props,
@@ -569,17 +941,13 @@ func loadTiledLayers(m *Tilemap, layers []tiledLayer, parentOX, parentOY, parent
 		case "imagelayer":
 			var img core.ImageSource
 			if raw.Image != "" {
-				if resolve.LoadImage != nil {
-					img, err = resolve.LoadImage(raw.Image)
-					if err != nil {
-						imgLine, imgCol := raw.imageLine, raw.imageCol
-						if imgLine == 0 {
-							imgLine, imgCol = raw.line, raw.col
-						}
-						return tiledErr(imgLine, imgCol, idxPath("", li, "image"), "image layer "+raw.Name+" load image "+raw.Image+": "+err.Error(), "", "check that the layer's image exists at this path", err)
-					}
-				} else {
-					img = core.ImageSource{URI: raw.Image}
+				imgLine, imgCol := raw.imageLine, raw.imageCol
+				if imgLine == 0 {
+					imgLine, imgCol = raw.line, raw.col
+				}
+				img, err = resolveTiledImage(raw.Image, "", ctx.resolve, imgLine, imgCol, idxPath("", li, "image"), "image layer "+raw.Name+" ", "check that the layer's image exists at this path")
+				if err != nil {
+					return err
 				}
 			}
 			m.addImageLayer(ImageLayer{
@@ -594,6 +962,7 @@ func loadTiledLayers(m *Tilemap, layers []tiledLayer, parentOX, parentOY, parent
 				RepeatX:    raw.RepeatX,
 				RepeatY:    raw.RepeatY,
 				Opacity:    opacity,
+				TintColor:  tint,
 				Visible:    visible,
 				Properties: props,
 			})
@@ -605,33 +974,104 @@ func loadTiledLayers(m *Tilemap, layers []tiledLayer, parentOX, parentOY, parent
 				if err != nil {
 					return nest(err, idxPath2("", li, "objects", i, "properties"))
 				}
+				var tmpl loadedTemplate
+				hasTmpl := ro.Template != ""
+				if hasTmpl {
+					tmpl, err = ctx.loadTemplate(ro.Template, ro.line, ro.col, loaderr.Path(li, "objects", i, "template"))
+					if err != nil {
+						return err
+					}
+					if len(tmpl.props) > 0 {
+						merged := make(Properties, len(tmpl.props)+len(op))
+						for k, v := range tmpl.props {
+							merged[k] = v
+						}
+						for k, v := range op {
+							merged[k] = v
+						}
+						op = merged
+					}
+				}
+
 				objVisible := true
+				if hasTmpl && tmpl.obj.Visible != nil {
+					objVisible = *tmpl.obj.Visible
+				}
 				if ro.Visible != nil {
 					objVisible = *ro.Visible
+				}
+
+				name := ro.Name
+				if name == "" && hasTmpl {
+					name = tmpl.obj.Name
 				}
 				typ := ro.Type
 				if typ == "" {
 					typ = ro.Class
 				}
+				if typ == "" && hasTmpl {
+					typ = tmpl.obj.Type
+					if typ == "" {
+						typ = tmpl.obj.Class
+					}
+				}
+				w, h, rot := ro.Width, ro.Height, ro.Rotation
+				if hasTmpl {
+					if w == 0 {
+						w = tmpl.obj.Width
+					}
+					if h == 0 {
+						h = tmpl.obj.Height
+					}
+					if rot == 0 {
+						rot = tmpl.obj.Rotation
+					}
+				}
+				gid := ro.GID
+				if gid == 0 && hasTmpl && tmpl.obj.GID != 0 {
+					gid = tmpl.obj.GID
+					if tmpl.ts != nil {
+						flags := gid & FlipMask
+						rawID := gid & TileIDMask
+						if rawID >= tmpl.tmplFirstGID {
+							gid = flags | (tmpl.ts.FirstGID + (rawID - tmpl.tmplFirstGID))
+						}
+					}
+				}
+
+				var rawText *tiledText
+				if hasTmpl {
+					rawText = mergeTiledText(tmpl.obj.Text, ro.Text)
+				} else {
+					rawText = ro.Text
+				}
+
 				obj := Object{
 					ID:         ro.ID,
-					Name:       ro.Name,
+					Name:       name,
 					Type:       typ,
 					X:          ro.X,
 					Y:          ro.Y,
-					Width:      ro.Width,
-					Height:     ro.Height,
-					Rotation:   ro.Rotation,
-					GID:        ro.GID,
+					Width:      w,
+					Height:     h,
+					Rotation:   rot,
+					GID:        gid,
 					Visible:    objVisible,
 					Properties: op,
 				}
 				switch {
-				case ro.GID != 0:
+				case gid != 0:
 					obj.Shape = ObjectTile
-				case ro.Point:
+				case rawText != nil:
+					txt, err := parseTiledText(rawText)
+					if err != nil {
+						return nest(err, loaderr.Path(li, "objects", i, "text"))
+					}
+					obj.Shape = ObjectText
+					obj.Text = txt
+				case ro.Point || (hasTmpl && tmpl.obj.Point):
 					obj.Shape = ObjectPoint
-				case ro.Ellipse:
+				case ro.Ellipse || (hasTmpl && tmpl.obj.Ellipse):
 					obj.Shape = ObjectEllipse
 				case len(ro.Polygon) > 0:
 					obj.Shape = ObjectPolygon
@@ -639,23 +1079,32 @@ func loadTiledLayers(m *Tilemap, layers []tiledLayer, parentOX, parentOY, parent
 				case len(ro.Polyline) > 0:
 					obj.Shape = ObjectPolyline
 					obj.Points = convertPoints(ro.Polyline)
+				case hasTmpl && len(tmpl.obj.Polygon) > 0:
+					obj.Shape = ObjectPolygon
+					obj.Points = convertPoints(tmpl.obj.Polygon)
+				case hasTmpl && len(tmpl.obj.Polyline) > 0:
+					obj.Shape = ObjectPolyline
+					obj.Points = convertPoints(tmpl.obj.Polyline)
 				default:
 					obj.Shape = ObjectRect
 				}
 				objs[i] = obj
 			}
-			m.Objects = append(m.Objects, ObjectLayer{
+			m.addObjectLayer(ObjectLayer{
 				Name:       raw.Name,
 				OffsetX:    ox,
 				OffsetY:    oy,
+				ParallaxX:  px,
+				ParallaxY:  py,
 				Opacity:    opacity,
+				TintColor:  tint,
 				Visible:    visible,
 				Objects:    objs,
 				Properties: props,
 			})
 
 		case "group":
-			if err := loadTiledLayers(m, raw.Layers, ox, oy, px, py, opacity, visible, resolve, budget); err != nil {
+			if err := loadTiledLayers(ctx, raw.Layers, ox, oy, px, py, opacity, tint, visible); err != nil {
 				return nest(err, idxPath("", li, "layers"))
 			}
 		}
@@ -745,7 +1194,7 @@ func decodeTiledTileData(encoding, compression string, isXML, hasXMLData bool, x
 
 // buildChunkedTileLayer loads an infinite Tiled map's tile layer raw directly into a sparse chunked TileLayer,
 // preserving true negative and positive chunk coordinates without flattening into a dense array.
-func buildChunkedTileLayer(raw tiledLayer, li int, ox, oy, px, py, opacity float32, visible bool, props Properties, budget *int64) (TileLayer, error) {
+func buildChunkedTileLayer(raw tiledLayer, li int, ox, oy, px, py, opacity float32, tint core.Color, visible bool, props Properties, budget *int64) (TileLayer, error) {
 	type parsedChunk struct {
 		x, y, w, h int
 		data       []uint32
@@ -818,6 +1267,7 @@ func buildChunkedTileLayer(raw tiledLayer, li int, ox, oy, px, py, opacity float
 	layer.ParallaxX = px
 	layer.ParallaxY = py
 	layer.Opacity = opacity
+	layer.TintColor = tint
 	layer.Visible = visible
 	layer.YSort = ySortFromProperties(props)
 	layer.Properties = props
@@ -935,10 +1385,10 @@ func parseProperties(raw []tiledProperty) (Properties, error) {
 	return props, nil
 }
 
-// nest returns err with the field path base put in front of the field it names, when err is an *loaderr.Error, so a helper can name fields relative to the value it was handed and the full path is built only for an error.
+// nest returns err with the field path base put in front of the field it names, when err is an *loaderr.Error belonging to the current file, so a helper can name fields relative to the value it was handed and errors from external tilesets or templates keep their own file-relative field paths.
 func nest(err error, base string) error {
 	e, ok := err.(*loaderr.Error)
-	if !ok || e == nil {
+	if !ok || e == nil || e.File != "" {
 		return err
 	}
 	c := *e
@@ -987,22 +1437,24 @@ type tiledTilesetRef struct {
 }
 
 type tiledTileset struct {
-	Name       string          `json:"name"`
-	Image      string          `json:"image"`
-	ImageWidth float32         `json:"imagewidth"`
-	TileWidth  float32         `json:"tilewidth"`
-	TileHeight float32         `json:"tileheight"`
-	Columns    int             `json:"columns"`
-	TileCount  int             `json:"tilecount"`
-	Spacing    float32         `json:"spacing"`
-	Margin     float32         `json:"margin"`
-	Properties []tiledProperty `json:"properties"`
-	Tiles      []tiledTile     `json:"tiles"`
-	WangSets   []tiledWangSet  `json:"wangsets"`
-	line       int
-	col        int
-	imageLine  int
-	imageCol   int
+	Name            string          `json:"name"`
+	Image           string          `json:"image"`
+	ImageWidth      float32         `json:"imagewidth"`
+	TileWidth       float32         `json:"tilewidth"`
+	TileHeight      float32         `json:"tileheight"`
+	TileOffset      *tiledPoint     `json:"tileoffset"`
+	ObjectAlignment string          `json:"objectalignment"`
+	Columns         int             `json:"columns"`
+	TileCount       int             `json:"tilecount"`
+	Spacing         float32         `json:"spacing"`
+	Margin          float32         `json:"margin"`
+	Properties      []tiledProperty `json:"properties"`
+	Tiles           []tiledTile     `json:"tiles"`
+	WangSets        []tiledWangSet  `json:"wangsets"`
+	line            int
+	col             int
+	imageLine       int
+	imageCol        int
 }
 
 type tiledTile struct {
@@ -1010,10 +1462,19 @@ type tiledTile struct {
 	Type        string               `json:"type"`
 	Class       string               `json:"class"`
 	Probability *float64             `json:"probability"`
+	Image       string               `json:"image"`
+	ImageWidth  float32              `json:"imagewidth"`
+	ImageHeight float32              `json:"imageheight"`
+	X           float32              `json:"x"`
+	Y           float32              `json:"y"`
+	Width       float32              `json:"width"`
+	Height      float32              `json:"height"`
 	Properties  []tiledProperty      `json:"properties"`
 	Animation   []tiledAnimFrameJSON `json:"animation"`
 	line        int
 	col         int
+	imageLine   int
+	imageCol    int
 	// ObjectGroup is the tile's collision shapes from Tiled's collision editor.
 	ObjectGroup *tiledLayer `json:"objectgroup"`
 }
@@ -1042,6 +1503,28 @@ type tiledWangTile struct {
 	WangID []int  `json:"wangid"`
 }
 
+type tiledTemplate struct {
+	Type    string           `json:"type"`
+	Tileset *tiledTilesetRef `json:"tileset"`
+	Object  *tiledObject     `json:"object"`
+}
+
+type tiledText struct {
+	Text       string `json:"text"`
+	FontFamily string `json:"fontfamily"`
+	PixelSize  int    `json:"pixelsize"`
+	Wrap       bool   `json:"wrap"`
+	Color      string `json:"color"`
+	Bold       bool   `json:"bold"`
+	Italic     bool   `json:"italic"`
+	Underline  bool   `json:"underline"`
+	Strikeout  bool   `json:"strikeout"`
+	Kerning    *bool  `json:"kerning"`
+	HAlign     string `json:"halign"`
+	VAlign     string `json:"valign"`
+	line       int
+	col        int
+}
 type tiledAnimFrameJSON struct {
 	TileID   uint32 `json:"tileid"`
 	Duration int    `json:"duration"`
@@ -1074,6 +1557,7 @@ type tiledLayer struct {
 	ParallaxX   *float32        `json:"parallaxx"`
 	ParallaxY   *float32        `json:"parallaxy"`
 	Opacity     *float32        `json:"opacity"`
+	TintColor   string          `json:"tintcolor"`
 	Visible     *bool           `json:"visible"`
 	Encoding    string          `json:"encoding"`
 	Compression string          `json:"compression"`
@@ -1104,6 +1588,7 @@ type tiledObject struct {
 	Name       string          `json:"name"`
 	Type       string          `json:"type"`
 	Class      string          `json:"class"`
+	Template   string          `json:"template"`
 	X          float32         `json:"x"`
 	Y          float32         `json:"y"`
 	Width      float32         `json:"width"`
@@ -1115,6 +1600,7 @@ type tiledObject struct {
 	Ellipse    bool            `json:"ellipse"`
 	Polygon    []tiledPoint    `json:"polygon"`
 	Polyline   []tiledPoint    `json:"polyline"`
+	Text       *tiledText      `json:"text"`
 	Properties []tiledProperty `json:"properties"`
 	line       int
 	col        int

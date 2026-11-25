@@ -16,10 +16,11 @@ import (
 )
 
 const (
-	fixTiledXML   = "correct the map in Tiled and save it again as TMX (.tmx)"
-	fixTilesetXML = "correct the tileset in Tiled and save it again as TSX (.tsx)"
-	fixEncoding   = `in Tiled's map properties, set "Tile Layer Format" to CSV, Base64 (uncompressed), Base64 (zlib compressed), or Base64 (gzip compressed), and save again`
-	fixZstd       = `in Tiled's map properties, change "Tile Layer Format" from zstd to Base64 (zlib compressed), Base64 (gzip compressed), Base64 (uncompressed), or CSV, and save again`
+	fixTiledXML    = "correct the map in Tiled and save it again as TMX (.tmx)"
+	fixTilesetXML  = "correct the tileset in Tiled and save it again as TSX (.tsx)"
+	fixTemplateXML = "correct the template in Tiled and save it again as TX (.tx)"
+	fixEncoding    = `in Tiled's map properties, set "Tile Layer Format" to CSV, Base64 (uncompressed), Base64 (zlib compressed), or Base64 (gzip compressed), and save again`
+	fixZstd        = `in Tiled's map properties, change "Tile Layer Format" from zstd to Base64 (zlib compressed), Base64 (gzip compressed), Base64 (uncompressed), or CSV, and save again`
 
 	// maxTiledLayerTiles caps a single tile layer or normalized chunk grid at 16,777,216 tiles (64 MiB of uint32 GIDs).
 	maxTiledLayerTiles = 16 << 20
@@ -238,6 +239,35 @@ func parseTSX(data []byte) (tiledTileset, error) {
 	return ref.tiledTileset, nil
 }
 
+// parseTX parses an external Tiled XML object template (.tx) into the shared tiledTemplate representation with element line/column numbers.
+func parseTX(data []byte) (tiledTemplate, error) {
+	r, _, line, col, err := parseXMLRoot(data, "template", "empty TX document", fixTemplateXML)
+	if err != nil {
+		return tiledTemplate{}, err
+	}
+	var tmpl tiledTemplate
+	err = r.walkChildren(line, col, "", "template", nil, func(t xmlStartElement, cl, cc int) (bool, error) {
+		switch t.Name.Local {
+		case "tileset":
+			ref, err := parseXMLTileset(r, t, cl, cc, true)
+			if err != nil {
+				return true, nest(err, "tileset")
+			}
+			tmpl.Tileset = &ref
+			return true, nil
+		case "object":
+			obj, err := parseXMLObject(r, t, cl, cc, fixTemplateXML)
+			if err != nil {
+				return true, nest(err, "object")
+			}
+			tmpl.Object = &obj
+			return true, nil
+		}
+		return false, nil
+	})
+	return tmpl, err
+}
+
 func parseXMLMap(r *xmlReader, start xmlStartElement, line, col int) (tiledMap, error) {
 	m := tiledMap{line: line, col: col}
 	for _, a := range start.Attr {
@@ -315,6 +345,8 @@ func parseXMLTileset(r *xmlReader, start xmlStartElement, line, col int, embedde
 			ref.TileCount, err = parseXMLInt(a.Value, line, col, "tilecount", fix)
 		case "columns":
 			ref.Columns, err = parseXMLInt(a.Value, line, col, "columns", fix)
+		case "objectalignment":
+			ref.ObjectAlignment = a.Value
 		}
 		if err != nil {
 			return tiledTilesetRef{}, err
@@ -323,6 +355,22 @@ func parseXMLTileset(r *xmlReader, start xmlStartElement, line, col int, embedde
 
 	err := r.walkChildren(line, col, "", "tileset", nil, func(t xmlStartElement, cl, cc int) (bool, error) {
 		switch t.Name.Local {
+		case "tileoffset":
+			var off tiledPoint
+			for _, a := range t.Attr {
+				var err error
+				switch a.Name.Local {
+				case "x":
+					off.X, err = parseXMLFloat32(a.Value, cl, cc, "tileoffset.x", fix)
+				case "y":
+					off.Y, err = parseXMLFloat32(a.Value, cl, cc, "tileoffset.y", fix)
+				}
+				if err != nil {
+					return true, err
+				}
+			}
+			ref.TileOffset = &off
+			return true, r.skip()
 		case "image":
 			return true, parseXMLImageElem(r, t, cl, cc, fix, &ref.Image, &ref.ImageWidth, nil, &ref.imageLine, &ref.imageCol)
 		case "properties":
@@ -354,6 +402,14 @@ func parseXMLTile(r *xmlReader, start xmlStartElement, line, col int, fix string
 			tile.Type = a.Value
 		case "class":
 			tile.Class = a.Value
+		case "x":
+			tile.X, err = parseXMLFloat32(a.Value, line, col, "x", fix)
+		case "y":
+			tile.Y, err = parseXMLFloat32(a.Value, line, col, "y", fix)
+		case "width":
+			tile.Width, err = parseXMLFloat32(a.Value, line, col, "width", fix)
+		case "height":
+			tile.Height, err = parseXMLFloat32(a.Value, line, col, "height", fix)
 		}
 		if err != nil {
 			return tiledTile{}, err
@@ -365,6 +421,8 @@ func parseXMLTile(r *xmlReader, start xmlStartElement, line, col int, fix string
 
 	err := r.walkChildren(line, col, "", "tile", nil, func(t xmlStartElement, cl, cc int) (bool, error) {
 		switch t.Name.Local {
+		case "image":
+			return true, parseXMLImageElem(r, t, cl, cc, fix, &tile.Image, &tile.ImageWidth, &tile.ImageHeight, &tile.imageLine, &tile.imageCol)
 		case "properties":
 			return true, parseXMLPropsChild(r, cl, cc, &tile.Properties)
 		case "animation":
@@ -482,6 +540,8 @@ func parseXMLLayerCommon(attrs []xmlAttr, line, col int, l *tiledLayer) error {
 			var v float32
 			v, err = parseXMLFloat32(a.Value, line, col, "opacity", fixTiledXML)
 			l.Opacity = &v
+		case "tintcolor":
+			l.TintColor = a.Value
 		case "visible":
 			var b bool
 			b, err = parseXMLBoolAttr(a.Value, line, col, "visible", fixTiledXML)
@@ -529,7 +589,7 @@ func parseXMLLayer(r *xmlReader, start xmlStartElement, line, col, depth int) (t
 		case "objectgroup":
 			if t.Name.Local == "object" {
 				oi := len(l.Objects)
-				obj, err := parseXMLObject(r, t, cl, cc)
+				obj, err := parseXMLObject(r, t, cl, cc, fixTiledXML)
 				if err != nil {
 					return true, nest(err, idxPath("objects", oi, ""))
 				}
@@ -614,34 +674,36 @@ func parseXMLChunk(r *xmlReader, start xmlStartElement, line, col int) (tiledChu
 	return ch, err
 }
 
-func parseXMLObject(r *xmlReader, start xmlStartElement, line, col int) (tiledObject, error) {
+func parseXMLObject(r *xmlReader, start xmlStartElement, line, col int, fix string) (tiledObject, error) {
 	obj := tiledObject{line: line, col: col}
 	for _, a := range start.Attr {
 		var err error
 		switch a.Name.Local {
 		case "id":
-			obj.ID, err = parseXMLInt(a.Value, line, col, "id", fixTiledXML)
+			obj.ID, err = parseXMLInt(a.Value, line, col, "id", fix)
 		case "name":
 			obj.Name = a.Value
 		case "type":
 			obj.Type = a.Value
 		case "class":
 			obj.Class = a.Value
+		case "template":
+			obj.Template = a.Value
 		case "x":
-			obj.X, err = parseXMLFloat32(a.Value, line, col, "x", fixTiledXML)
+			obj.X, err = parseXMLFloat32(a.Value, line, col, "x", fix)
 		case "y":
-			obj.Y, err = parseXMLFloat32(a.Value, line, col, "y", fixTiledXML)
+			obj.Y, err = parseXMLFloat32(a.Value, line, col, "y", fix)
 		case "width":
-			obj.Width, err = parseXMLFloat32(a.Value, line, col, "width", fixTiledXML)
+			obj.Width, err = parseXMLFloat32(a.Value, line, col, "width", fix)
 		case "height":
-			obj.Height, err = parseXMLFloat32(a.Value, line, col, "height", fixTiledXML)
+			obj.Height, err = parseXMLFloat32(a.Value, line, col, "height", fix)
 		case "rotation":
-			obj.Rotation, err = parseXMLFloat32(a.Value, line, col, "rotation", fixTiledXML)
+			obj.Rotation, err = parseXMLFloat32(a.Value, line, col, "rotation", fix)
 		case "gid":
-			obj.GID, err = parseXMLUint32(a.Value, line, col, "gid", fixTiledXML)
+			obj.GID, err = parseXMLUint32(a.Value, line, col, "gid", fix)
 		case "visible":
 			var b bool
-			b, err = parseXMLBoolAttr(a.Value, line, col, "visible", fixTiledXML)
+			b, err = parseXMLBoolAttr(a.Value, line, col, "visible", fix)
 			obj.Visible = &b
 		}
 		if err != nil {
@@ -667,10 +729,60 @@ func parseXMLObject(r *xmlReader, start xmlStartElement, line, col int) (tiledOb
 			pts, err := parseXMLPointsElem(r, t, "polyline", cl, cc)
 			obj.Polyline = pts
 			return true, err
+		case "text":
+			txt, err := parseXMLText(r, t, cl, cc, fix)
+			if err != nil {
+				return true, nest(err, "text")
+			}
+			obj.Text = txt
+			return true, nil
 		}
 		return false, nil
 	})
 	return obj, err
+}
+
+func parseXMLText(r *xmlReader, start xmlStartElement, line, col int, fix string) (*tiledText, error) {
+	txt := &tiledText{line: line, col: col}
+	for _, a := range start.Attr {
+		var err error
+		switch a.Name.Local {
+		case "fontfamily":
+			txt.FontFamily = a.Value
+		case "pixelsize":
+			txt.PixelSize, err = parseXMLInt(a.Value, line, col, "pixelsize", fix)
+		case "wrap":
+			txt.Wrap, err = parseXMLBoolAttr(a.Value, line, col, "wrap", fix)
+		case "color":
+			txt.Color = a.Value
+		case "bold":
+			txt.Bold, err = parseXMLBoolAttr(a.Value, line, col, "bold", fix)
+		case "italic":
+			txt.Italic, err = parseXMLBoolAttr(a.Value, line, col, "italic", fix)
+		case "underline":
+			txt.Underline, err = parseXMLBoolAttr(a.Value, line, col, "underline", fix)
+		case "strikeout":
+			txt.Strikeout, err = parseXMLBoolAttr(a.Value, line, col, "strikeout", fix)
+		case "kerning":
+			var b bool
+			b, err = parseXMLBoolAttr(a.Value, line, col, "kerning", fix)
+			txt.Kerning = &b
+		case "halign":
+			txt.HAlign = a.Value
+		case "valign":
+			txt.VAlign = a.Value
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	var body strings.Builder
+	err := r.walkChildren(line, col, "", "text", func(b xmlCharData) { body.Write(b) }, nil)
+	if err != nil {
+		return nil, err
+	}
+	txt.Text = body.String()
+	return txt, nil
 }
 
 func parseXMLPoints(raw, field string, line, col int) ([]tiledPoint, error) {

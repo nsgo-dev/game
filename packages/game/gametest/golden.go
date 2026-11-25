@@ -226,7 +226,7 @@ func RenderOps(width, height int, ops []core.DrawOp, opts ...RenderOptions) *ima
 			if dw == 0 && dh == 0 {
 				dw, dh = sw, sh
 			}
-			drawTransformedImage(dst, cur.m, img, sx, sy, sw, sh, dx, dy, dw, dh, cur.alpha)
+			drawTransformedImage(dst, cur.m, img, sx, sy, sw, sh, dx, dy, dw, dh, cur.alpha, op.Tinted, op.Color)
 		case core.DrawAtlas:
 			if cur.alpha <= 0 || op.Atlas == nil {
 				continue
@@ -247,7 +247,7 @@ func RenderOps(width, height int, ops []core.DrawOp, opts ...RenderOptions) *ima
 					e: float64(t.TX), f: float64(t.TY),
 				})
 				sw, sh := float64(s.Rect.Size.Width), float64(s.Rect.Size.Height)
-				drawTransformedImage(dst, m, img, float64(s.Rect.Origin.X), float64(s.Rect.Origin.Y), sw, sh, 0, 0, sw, sh, alpha)
+				drawTransformedImage(dst, m, img, float64(s.Rect.Origin.X), float64(s.Rect.Origin.Y), sw, sh, 0, 0, sw, sh, alpha, false, 0)
 			}
 		}
 	}
@@ -565,7 +565,7 @@ func clearTransformedRect(dst *image.RGBA, m affine, x, y, w, h float64) {
 	}
 }
 
-func drawTransformedImage(dst *image.RGBA, m affine, src image.Image, sx, sy, sw, sh, dx, dy, dw, dh, alpha float64) {
+func drawTransformedImage(dst *image.RGBA, m affine, src image.Image, sx, sy, sw, sh, dx, dy, dw, dh, alpha float64, tinted bool, tint core.Color) {
 	if sw == 0 || sh == 0 || dw == 0 || dh == 0 {
 		return
 	}
@@ -578,6 +578,16 @@ func drawTransformedImage(dst *image.RGBA, m affine, src image.Image, sx, sy, sw
 	minX, minY, maxX, maxY, visible := transformedBounds(m, nx, ny, nw, nh, db.Dx(), db.Dy())
 	if !visible {
 		return
+	}
+	var tr, tg, tb, ta float64 = 1, 1, 1, 1
+	if tinted && tint != 0 && tint != core.RGB(0xffffff) {
+		tr = float64(tint>>24&0xff) / 255
+		tg = float64(tint>>16&0xff) / 255
+		tb = float64(tint>>8&0xff) / 255
+		ta = float64(tint&0xff) / 255
+		if ta <= 0 {
+			return
+		}
 	}
 	sb := src.Bounds()
 	for py := minY; py < maxY; py++ {
@@ -598,10 +608,11 @@ func drawTransformedImage(dst *image.RGBA, m affine, src image.Image, sx, sy, sw
 			if a16 == 0 {
 				continue
 			}
-			sr := (float64(r16) / 65535) * alpha
-			sg := (float64(g16) / 65535) * alpha
-			sbVal := (float64(b16) / 65535) * alpha
-			sa := (float64(a16) / 65535) * alpha
+			effA := alpha * ta
+			sr := (float64(r16) / 65535) * tr * effA
+			sg := (float64(g16) / 65535) * tg * effA
+			sbVal := (float64(b16) / 65535) * tb * effA
+			sa := (float64(a16) / 65535) * effA
 			blendOver(dst, px, py, sr, sg, sbVal, sa)
 		}
 	}

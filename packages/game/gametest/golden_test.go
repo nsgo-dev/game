@@ -202,3 +202,23 @@ func TestCompareGoldenUpdateAndRoundTrip(t *testing.T) {
 		t.Fatalf("round-trip compare got mismatched=%d err=%v, want 0, nil", mismatched, err)
 	}
 }
+
+func TestRenderOpsAppliesImageTint(t *testing.T) {
+	white := image.NewRGBA(image.Rect(0, 0, 4, 4))
+	for y := range 4 {
+		for x := range 4 {
+			white.SetRGBA(x, y, color.RGBA{R: 200, G: 200, B: 200, A: 255})
+		}
+	}
+	src := core.ImageSource{Pixels: white}
+	var d core.Drawing
+	d.DrawTintedImageFrom(src, core.RGBA(0x80ff00, 0.5), 0, 0, 4, 4, 0, 0, 4, 4)
+	out := gametest.RenderOps(4, 4, d.Ops, gametest.RenderOptions{
+		Background: color.RGBA{R: 0, G: 0, B: 0, A: 255},
+	})
+	px := out.RGBAAt(2, 2)
+	// Expected: src=(200/255) * tint=(128/255, 255/255, 0) * alpha=(128/255) over black -> ~(50, 100, 0, 255).
+	if px.R < 48 || px.R > 52 || px.G < 98 || px.G > 102 || px.B != 0 || px.A != 255 {
+		t.Fatalf("tinted pixel = %+v, want approx {50, 100, 0, 255}", px)
+	}
+}

@@ -204,20 +204,51 @@ func (a *TileAnimation) Reset() {
 	a.index, a.elapsed = 0, 0
 }
 
-// Tileset maps global tile IDs starting at FirstGID to rectangles of a grid image or frames of a sprite.Atlas.
+// ObjectAlignment controls which point of a tile object sits at its (X, Y) position and acts as its rotation pivot.
+type ObjectAlignment int
+
+const (
+	// ObjectAlignmentUnspecified uses bottom-left in orthogonal/staggered/hexagonal maps and bottom in isometric maps, matching Tiled.
+	ObjectAlignmentUnspecified ObjectAlignment = iota
+	ObjectAlignmentTopLeft
+	ObjectAlignmentTop
+	ObjectAlignmentTopRight
+	ObjectAlignmentLeft
+	ObjectAlignmentCenter
+	ObjectAlignmentRight
+	ObjectAlignmentBottomLeft
+	ObjectAlignmentBottom
+	ObjectAlignmentBottomRight
+)
+
+// TileImage is one tile's image and source rectangle in an image-collection tileset.
+type TileImage struct {
+	Image  core.ImageSource
+	X      float32
+	Y      float32
+	Width  float32
+	Height float32
+}
+
+// Tileset maps global tile IDs starting at FirstGID to rectangles of a grid image, frames of a sprite.Atlas, or per-tile images of an image-collection tileset.
 type Tileset struct {
-	Name       string
-	FirstGID   uint32
-	Image      core.ImageSource
-	Atlas      *sprite.Atlas
-	Frames     []sprite.Frame
-	TileWidth  float32
-	TileHeight float32
-	Columns    int
-	TileCount  int
-	Spacing    float32
-	Margin     float32
-	Properties Properties
+	Name     string
+	FirstGID uint32
+	Image    core.ImageSource
+	Atlas    *sprite.Atlas
+	Frames   []sprite.Frame
+	// TileImages holds per-tile images for image-collection tilesets, keyed by 0-based local tile ID.
+	TileImages      map[uint32]TileImage
+	TileWidth       float32
+	TileHeight      float32
+	TileOffsetX     float32
+	TileOffsetY     float32
+	ObjectAlignment ObjectAlignment
+	Columns         int
+	TileCount       int
+	Spacing         float32
+	Margin          float32
+	Properties      Properties
 	// TileProperties holds custom properties keyed by 0-based local tile ID.
 	TileProperties map[uint32]Properties
 	// TileProbabilities holds per-tile random selection weights keyed by 0-based local tile ID (unset defaults to 1).
@@ -313,11 +344,45 @@ func NewGridTileset(firstGID uint32, img core.ImageSource, tileWidth, tileHeight
 	}
 }
 
+func imageSourceSize(src core.ImageSource) (w, h float32) {
+	w, h = float32(src.Size.Width), float32(src.Size.Height)
+	if (w <= 0 || h <= 0) && src.Pixels != nil {
+		b := src.Pixels.Bounds()
+		if w <= 0 {
+			w = float32(b.Dx())
+		}
+		if h <= 0 {
+			h = float32(b.Dy())
+		}
+	}
+	return w, h
+}
+
 func (ts *Tileset) tileSource(localID uint32) (img core.ImageSource, sx, sy, sw, sh, ox, oy, tw, th float32, ok bool) {
 	if ts.Animations != nil {
 		if anim, found := ts.Animations[localID]; found && anim != nil && len(anim.Frames) > 0 {
 			localID = anim.CurrentTileID()
 		}
+	}
+	if len(ts.TileImages) > 0 {
+		ti, found := ts.TileImages[localID]
+		if !found {
+			return core.ImageSource{}, 0, 0, 0, 0, 0, 0, 0, 0, false
+		}
+		w, h := ti.Width, ti.Height
+		if w <= 0 || h <= 0 {
+			iw, ih := imageSourceSize(ti.Image)
+			if w <= 0 {
+				w = iw
+			}
+			if h <= 0 {
+				h = ih
+			}
+		}
+		if w <= 0 || h <= 0 {
+			return core.ImageSource{}, 0, 0, 0, 0, 0, 0, 0, 0, false
+		}
+		return ti.Image, ti.X, ti.Y, w, h, 0, 0, w, h, true
 	}
 	if len(ts.Frames) > 0 {
 		if int(localID) >= len(ts.Frames) {
@@ -370,6 +435,7 @@ type TileLayer struct {
 	ParallaxX float32
 	ParallaxY float32
 	Opacity   float32
+	TintColor core.Color
 	Visible   bool
 	// YSort enables per-tile Y-sorting for this layer. When true, visible tiles sort by
 	// their bottom edge (plus any per-tile PropSortOriginY property offset) and join a
@@ -393,6 +459,7 @@ type ImageLayer struct {
 	RepeatX    bool
 	RepeatY    bool
 	Opacity    float32
+	TintColor  core.Color
 	Visible    bool
 	Properties Properties
 }
@@ -402,6 +469,7 @@ type layerKind uint8
 const (
 	layerKindTile layerKind = iota
 	layerKindImage
+	layerKindObject
 )
 
 type layerRef struct {
@@ -434,21 +502,40 @@ const (
 	ObjectPolygon
 	ObjectPolyline
 	ObjectTile
+	ObjectText
 )
+
+// TextObject holds the text content and styling of a Tiled text object.
+type TextObject struct {
+	Text       string
+	FontFamily string
+	PixelSize  int
+	Wrap       bool
+	Color      core.Color
+	Bold       bool
+	Italic     bool
+	Underline  bool
+	Strikeout  bool
+	Kerning    bool
+	HAlign     string
+	VAlign     string
+}
 
 // Object is one object from a Tiled objectgroup layer.
 type Object struct {
-	ID         int
-	Name       string
-	Type       string
-	Shape      ObjectShape
-	X, Y       float32
-	Width      float32
-	Height     float32
-	Rotation   float32
-	GID        uint32
-	Visible    bool
-	Points     []core.Point
+	ID       int
+	Name     string
+	Type     string
+	Shape    ObjectShape
+	X, Y     float32
+	Width    float32
+	Height   float32
+	Rotation float32
+	GID      uint32
+	Visible  bool
+	Points   []core.Point
+	// Text holds the text content and styling when Shape is ObjectText, or nil otherwise.
+	Text       *TextObject
 	Properties Properties
 }
 
@@ -478,7 +565,10 @@ type ObjectLayer struct {
 	Name       string
 	OffsetX    float32
 	OffsetY    float32
+	ParallaxX  float32
+	ParallaxY  float32
 	Opacity    float32
+	TintColor  core.Color
 	Visible    bool
 	Objects    []Object
 	Properties Properties
@@ -519,6 +609,7 @@ type Tilemap struct {
 	ysortDrawer YSortDrawer
 	drawnTile   []bool
 	drawnImage  []bool
+	drawnObject []bool
 }
 
 // New constructs an empty Tilemap of width by height tiles sized tileWidth by tileHeight points.
@@ -616,6 +707,56 @@ func (m *Tilemap) addImageLayer(l ImageLayer) {
 	m.layerOrder = append(m.layerOrder, layerRef{kind: layerKindImage, index: idx})
 }
 
+func (m *Tilemap) addObjectLayer(l ObjectLayer) {
+	idx := len(m.Objects)
+	m.Objects = append(m.Objects, l)
+	m.layerOrder = append(m.layerOrder, layerRef{kind: layerKindObject, index: idx})
+}
+
+func (m *Tilemap) nextFirstGID() uint32 {
+	var next uint32 = 1
+	for _, ts := range m.Tilesets {
+		if ts == nil {
+			continue
+		}
+		fg := ts.FirstGID
+		if fg == 0 {
+			fg = 1
+		}
+		var span uint32 = 1
+		if ts.TileCount > 0 && uint32(ts.TileCount) > span {
+			span = uint32(ts.TileCount)
+		}
+		if uint32(len(ts.Frames)) > span {
+			span = uint32(len(ts.Frames))
+		}
+		for id := range ts.TileImages {
+			if id+1 > span {
+				span = id + 1
+			}
+		}
+		for id := range ts.TileProperties {
+			if id+1 > span {
+				span = id + 1
+			}
+		}
+		for id := range ts.Animations {
+			if id+1 > span {
+				span = id + 1
+			}
+		}
+		for id := range ts.Shapes {
+			if id+1 > span {
+				span = id + 1
+			}
+		}
+		if end := fg + span; end > next {
+			next = end
+		}
+	}
+	return next
+}
+
 // TilesetForGID finds the tileset owning gid and returns it along with the 0-based local tile ID.
 func (m *Tilemap) TilesetForGID(gid uint32) (*Tileset, uint32) {
 	id := gid & TileIDMask
@@ -669,17 +810,203 @@ func (m *Tilemap) Update(dt time.Duration) {
 	}
 }
 
-// Draw draws every visible tile layer and image layer into d in map layer order, culling to cam's visible world region when cam is non-nil.
+var untinted = core.RGB(0xffffff)
+
+func isTinted(c core.Color) bool { return c != 0 && c != untinted }
+
+func isInvisibleTint(c core.Color) bool { return isTinted(c) && c&0xff == 0 }
+
+func multiplyTint(a, b core.Color) core.Color {
+	if !isTinted(a) {
+		return b
+	}
+	if !isTinted(b) {
+		return a
+	}
+	ar, ag, ab, aa := uint32(a>>24&0xff), uint32(a>>16&0xff), uint32(a>>8&0xff), uint32(a&0xff)
+	br, bg, bb, ba := uint32(b>>24&0xff), uint32(b>>16&0xff), uint32(b>>8&0xff), uint32(b&0xff)
+	return core.Color(((ar*br+127)/255)<<24 | ((ag*bg+127)/255)<<16 | ((ab*bb+127)/255)<<8 | (aa*ba+127)/255)
+}
+
+func drawTileImage(d *core.Drawing, img core.ImageSource, tint core.Color, sx, sy, sw, sh, dx, dy, dw, dh float32) {
+	if isTinted(tint) {
+		d.DrawTintedImageFrom(img, tint, sx, sy, sw, sh, dx, dy, dw, dh)
+		return
+	}
+	d.DrawImageFrom(img, sx, sy, sw, sh, dx, dy, dw, dh)
+}
+
+func drawPlacedTile(d *core.Drawing, img core.ImageSource, tint core.Color, sx, sy, sw, sh, ox, oy, dstX, dstY, tw, th float32, flags uint32) {
+	if flags == 0 {
+		drawTileImage(d, img, tint, sx, sy, sw, sh, dstX+ox, dstY+oy, sw, sh)
+		return
+	}
+	a, b, c, dd, e, f := flipMatrix(flags, dstX, dstY, tw, th)
+	d.Save().Transform(a, b, c, dd, e, f)
+	drawTileImage(d, img, tint, sx, sy, sw, sh, ox, oy, sw, sh)
+	d.Restore()
+}
+
+// Draw draws every visible tile layer, image layer, and object layer (tile objects) into d in map layer order, culling to cam's visible world region when cam is non-nil.
 //
 // Draw draws in world coordinates: call cam.Apply(d) before Draw (and any world-space sprites) to position the view.
 func (m *Tilemap) Draw(d *core.Drawing, cam *Camera) {
-	m.VisitLayers(func(tl *TileLayer, il *ImageLayer) {
+	m.visitAllLayers(func(tl *TileLayer, il *ImageLayer, ol *ObjectLayer) {
 		if tl != nil {
 			m.DrawLayer(d, tl, cam)
 		} else if il != nil {
 			m.DrawImageLayer(d, il, cam)
+		} else if ol != nil {
+			m.DrawObjectLayer(d, ol, cam)
 		}
 	})
+}
+
+func (m *Tilemap) objectAlignmentOffset(align ObjectAlignment, w, h float32) (float32, float32) {
+	if align == ObjectAlignmentUnspecified {
+		if m.Orientation == OrientationIsometric {
+			align = ObjectAlignmentBottom
+		} else {
+			align = ObjectAlignmentBottomLeft
+		}
+	}
+	switch align {
+	case ObjectAlignmentTopLeft:
+		return 0, 0
+	case ObjectAlignmentTop:
+		return -w / 2, 0
+	case ObjectAlignmentTopRight:
+		return -w, 0
+	case ObjectAlignmentLeft:
+		return 0, -h / 2
+	case ObjectAlignmentCenter:
+		return -w / 2, -h / 2
+	case ObjectAlignmentRight:
+		return -w, -h / 2
+	case ObjectAlignmentBottom:
+		return -w / 2, -h
+	case ObjectAlignmentBottomRight:
+		return -w, -h
+	default: // ObjectAlignmentBottomLeft
+		return 0, -h
+	}
+}
+
+// DrawObjectLayer draws every visible tile object in layer into d in object order, applying layer visibility, opacity, tint, offset, parallax, object size, rotation, flip flags, tileset tileoffset, and tileset objectalignment, culling to cam.VisibleBounds() when cam is non-nil.
+func (m *Tilemap) DrawObjectLayer(d *core.Drawing, layer *ObjectLayer, cam *Camera) {
+	if layer == nil || !layer.Visible || layer.Opacity <= 0 || isInvisibleTint(layer.TintColor) || len(layer.Objects) == 0 {
+		return
+	}
+	offX, offY := effectiveLayerOffset(float32(m.Origin.X)+layer.OffsetX, float32(m.Origin.Y)+layer.OffsetY, layer.ParallaxX, layer.ParallaxY, cam)
+
+	hasCam := cam != nil
+	var vbMinX, vbMinY, vbMaxX, vbMaxY float64
+	if hasCam {
+		vb := cam.VisibleBounds()
+		if vb.Size.Width <= 0 || vb.Size.Height <= 0 {
+			return
+		}
+		vbMinX = float64(vb.Origin.X)
+		vbMinY = float64(vb.Origin.Y)
+		vbMaxX = vbMinX + float64(vb.Size.Width)
+		vbMaxY = vbMinY + float64(vb.Size.Height)
+	}
+
+	savedLayer := false
+	for i := range layer.Objects {
+		o := &layer.Objects[i]
+		if o.Shape != ObjectTile || !o.Visible || o.GID == 0 {
+			continue
+		}
+		ts, localID := m.TilesetForGID(o.GID)
+		if ts == nil {
+			continue
+		}
+		img, sx, sy, sw, sh, ox, oy, tw, th, ok := ts.tileSource(localID)
+		if !ok {
+			continue
+		}
+		dw, dh := o.Width, o.Height
+		if dw <= 0 {
+			dw = tw
+		}
+		if dh <= 0 {
+			dh = th
+		}
+		if dw <= 0 || dh <= 0 {
+			continue
+		}
+
+		ax, ay := m.objectAlignmentOffset(ts.ObjectAlignment, dw, dh)
+		ax += ts.TileOffsetX
+		ay += ts.TileOffsetY
+		px, py := offX+o.X, offY+o.Y
+		flags := o.GID & FlipMask
+		rotDeg := math.Mod(float64(o.Rotation), 360)
+
+		var fa, fb, fc, fd, fe, ff float32
+		if flags&FlipDiagonal == 0 {
+			fa, fe = dw/tw, ax
+			if flags&FlipHorizontal != 0 {
+				fa, fe = -fa, ax+dw
+			}
+			fd, ff = dh/th, ay
+			if flags&FlipVertical != 0 {
+				fd, ff = -fd, ay+dh
+			}
+		} else {
+			fc, fe = dw/th, ax
+			if flags&FlipHorizontal != 0 {
+				fc, fe = -fc, ax+dw
+			}
+			fb, ff = dh/tw, ay
+			if flags&FlipVertical != 0 {
+				fb, ff = -fb, ay+dh
+			}
+		}
+
+		var cos, sin float32 = 1, 0
+		if rotDeg != 0 {
+			s64, c64 := math.Sincos(rotDeg * math.Pi / 180)
+			sin, cos = float32(s64), float32(c64)
+		}
+		ma := cos*fa - sin*fb
+		mb := sin*fa + cos*fb
+		mc := cos*fc - sin*fd
+		md := sin*fc + cos*fd
+		me := cos*fe - sin*ff + px
+		mf := sin*fe + cos*ff + py
+
+		if hasCam {
+			x0, y0 := float64(ma*ox+mc*oy+me), float64(mb*ox+md*oy+mf)
+			x1, y1 := float64(ma*(ox+sw)+mc*oy+me), float64(mb*(ox+sw)+md*oy+mf)
+			x2, y2 := float64(ma*ox+mc*(oy+sh)+me), float64(mb*ox+md*(oy+sh)+mf)
+			x3, y3 := float64(ma*(ox+sw)+mc*(oy+sh)+me), float64(mb*(ox+sw)+md*(oy+sh)+mf)
+			minX := min(min(x0, x1), min(x2, x3))
+			maxX := max(max(x0, x1), max(x2, x3))
+			minY := min(min(y0, y1), min(y2, y3))
+			maxY := max(max(y0, y1), max(y2, y3))
+			if maxX <= vbMinX || minX >= vbMaxX || maxY <= vbMinY || minY >= vbMaxY {
+				continue
+			}
+		}
+
+		if layer.Opacity < 1 && !savedLayer {
+			d.Save().SetAlpha(layer.Opacity)
+			savedLayer = true
+		}
+		if flags == 0 && rotDeg == 0 {
+			scaleX, scaleY := dw/tw, dh/th
+			drawTileImage(d, img, layer.TintColor, sx, sy, sw, sh, px+ax+ox*scaleX, py+ay+oy*scaleY, sw*scaleX, sh*scaleY)
+		} else {
+			d.Save().Transform(ma, mb, mc, md, me, mf)
+			drawTileImage(d, img, layer.TintColor, sx, sy, sw, sh, ox, oy, sw, sh)
+			d.Restore()
+		}
+	}
+	if savedLayer {
+		d.Restore()
+	}
 }
 
 func effectiveLayerOffset(ox, oy, px, py float32, cam *Camera) (float32, float32) {
@@ -697,9 +1024,9 @@ func effectiveLayerOffset(ox, oy, px, py float32, cam *Camera) (float32, float32
 	return ox, oy
 }
 
-// DrawImageLayer draws one image layer into d, applying its visibility, opacity, offset, parallax factor, and repeat flags.
+// DrawImageLayer draws one image layer into d, applying its visibility, opacity, tint, offset, parallax factor, and repeat flags.
 func (m *Tilemap) DrawImageLayer(d *core.Drawing, layer *ImageLayer, cam *Camera) {
-	if layer == nil || !layer.Visible || layer.Opacity <= 0 {
+	if layer == nil || !layer.Visible || layer.Opacity <= 0 || isInvisibleTint(layer.TintColor) {
 		return
 	}
 	if layer.Image.URI == "" && len(layer.Image.Data) == 0 && layer.Image.Pixels == nil {
@@ -707,24 +1034,27 @@ func (m *Tilemap) DrawImageLayer(d *core.Drawing, layer *ImageLayer, cam *Camera
 	}
 	ox, oy := effectiveLayerOffset(float32(m.Origin.X)+layer.OffsetX, float32(m.Origin.Y)+layer.OffsetY, layer.ParallaxX, layer.ParallaxY, cam)
 
-	w := layer.Width
-	if w <= 0 {
-		w = float32(layer.Image.Size.Width)
-	}
-	if w <= 0 && layer.Image.Pixels != nil {
-		w = float32(layer.Image.Pixels.Bounds().Dx())
-	}
-	h := layer.Height
-	if h <= 0 {
-		h = float32(layer.Image.Size.Height)
-	}
-	if h <= 0 && layer.Image.Pixels != nil {
-		h = float32(layer.Image.Pixels.Bounds().Dy())
+	w, h := layer.Width, layer.Height
+	if w <= 0 || h <= 0 {
+		iw, ih := imageSourceSize(layer.Image)
+		if w <= 0 {
+			w = iw
+		}
+		if h <= 0 {
+			h = ih
+		}
 	}
 
+	tinted := isTinted(layer.TintColor)
 	drawOne := func(x, y float32) {
 		if w > 0 && h > 0 {
-			d.DrawImageIn(layer.Image, x, y, w, h)
+			if tinted {
+				d.DrawTintedImageIn(layer.Image, layer.TintColor, x, y, w, h)
+			} else {
+				d.DrawImageIn(layer.Image, x, y, w, h)
+			}
+		} else if tinted {
+			d.DrawTintedImage(layer.Image, layer.TintColor, x, y)
 		} else {
 			d.DrawImage(layer.Image, x, y)
 		}
@@ -771,36 +1101,52 @@ func (m *Tilemap) DrawImageLayer(d *core.Drawing, layer *ImageLayer, cam *Camera
 	}
 }
 
-func (m *Tilemap) maxExtraTileSize() (extraW, extraH float64) {
+func (m *Tilemap) maxTilePadding() (extraLeft, extraRight, extraTop, extraBottom float64) {
+	consider := func(tw, th, ox, oy float32) {
+		if el := float64(-ox); el > extraLeft {
+			extraLeft = el
+		}
+		if er := float64(tw + ox - m.TileWidth); er > extraRight {
+			extraRight = er
+		}
+		if et := float64(th - m.TileHeight - oy); et > extraTop {
+			extraTop = et
+		}
+		if eb := float64(oy); eb > extraBottom {
+			extraBottom = eb
+		}
+	}
 	for _, ts := range m.Tilesets {
 		if ts == nil {
 			continue
 		}
-		if ew := float64(ts.TileWidth - m.TileWidth); ew > extraW {
-			extraW = ew
-		}
-		if eh := float64(ts.TileHeight - m.TileHeight); eh > extraH {
-			extraH = eh
-		}
+		consider(ts.TileWidth, ts.TileHeight, ts.TileOffsetX, ts.TileOffsetY)
 		for i := range ts.Frames {
 			f := ts.Frames[i]
-			fw := f.Width
+			fw, fh := f.Width, f.Height
 			if fw <= 0 {
 				fw = f.W
 			}
-			fh := f.Height
 			if fh <= 0 {
 				fh = f.H
 			}
-			if ew := float64(fw - m.TileWidth); ew > extraW {
-				extraW = ew
+			consider(fw, fh, ts.TileOffsetX, ts.TileOffsetY)
+		}
+		for _, ti := range ts.TileImages {
+			fw, fh := ti.Width, ti.Height
+			if fw <= 0 || fh <= 0 {
+				iw, ih := imageSourceSize(ti.Image)
+				if fw <= 0 {
+					fw = iw
+				}
+				if fh <= 0 {
+					fh = ih
+				}
 			}
-			if eh := float64(fh - m.TileHeight); eh > extraH {
-				extraH = eh
-			}
+			consider(fw, fh, ts.TileOffsetX, ts.TileOffsetY)
 		}
 	}
-	return extraW, extraH
+	return extraLeft, extraRight, extraTop, extraBottom
 }
 
 // DrawLayer draws one tile layer into d, visiting only the visible tiles overlapping cam.VisibleBounds() when cam is non-nil.
@@ -808,7 +1154,7 @@ func (m *Tilemap) maxExtraTileSize() (extraW, extraH float64) {
 // When layer.YSort is true, visible tiles are sorted in stable ascending SortY order (respecting per-tile PropSortOriginY offsets) and drawn individually without using any static layer cache.
 // Otherwise, when the layer has a clean static cache created via CacheStaticLayer, DrawLayer draws it in a single DrawImageFrom operation.
 func (m *Tilemap) DrawLayer(d *core.Drawing, layer *TileLayer, cam *Camera) {
-	if layer == nil || !layer.Visible || layer.Opacity <= 0 {
+	if layer == nil || !layer.Visible || layer.Opacity <= 0 || isInvisibleTint(layer.TintColor) {
 		return
 	}
 	if layer.YSort {
@@ -852,17 +1198,17 @@ func (m *Tilemap) DrawLayer(d *core.Drawing, layer *TileLayer, cam *Camera) {
 		if vb.Size.Width <= 0 || vb.Size.Height <= 0 {
 			return
 		}
-		extraW, extraH := m.maxExtraTileSize()
+		extraL, extraR, extraT, extraB := m.maxTilePadding()
 		tw, th := float64(m.TileWidth), float64(m.TileHeight)
 		minX := float64(vb.Origin.X) - float64(offX)
 		maxX := minX + float64(vb.Size.Width)
 		minY := float64(vb.Origin.Y) - float64(offY)
 		maxY := minY + float64(vb.Size.Height)
 
-		minCol = max(0, int(math.Floor((minX-extraW)/tw)))
-		maxCol = min(lw-1, int(math.Ceil(maxX/tw))-1)
-		minRow = max(0, int(math.Floor(minY/th)))
-		maxRow = min(lh-1, int(math.Ceil((maxY+extraH)/th))-1)
+		minCol = max(0, int(math.Floor((minX-extraR)/tw)))
+		maxCol = min(lw-1, int(math.Ceil((maxX+extraL)/tw))-1)
+		minRow = max(0, int(math.Floor((minY-extraB)/th)))
+		maxRow = min(lh-1, int(math.Ceil((maxY+extraT)/th))-1)
 		if minCol > maxCol || minRow > maxRow {
 			return
 		}
@@ -892,15 +1238,9 @@ func (m *Tilemap) DrawLayer(d *core.Drawing, layer *TileLayer, cam *Camera) {
 				d.Save().SetAlpha(layer.Opacity)
 				savedLayer = true
 			}
-			dstX := offX + float32(col)*m.TileWidth
-			dstY := offY + float32(row+1)*m.TileHeight - th
-			flags := gid & FlipMask
-			if flags == 0 {
-				d.DrawImageFrom(img, sx, sy, sw, sh, dstX+ox, dstY+oy, sw, sh)
-			} else {
-				a, b, c, dd, e, f := flipMatrix(flags, dstX, dstY, tw, th)
-				d.Save().Transform(a, b, c, dd, e, f).DrawImageFrom(img, sx, sy, sw, sh, ox, oy, sw, sh).Restore()
-			}
+			dstX := offX + float32(col)*m.TileWidth + ts.TileOffsetX
+			dstY := offY + float32(row+1)*m.TileHeight - th + ts.TileOffsetY
+			drawPlacedTile(d, img, layer.TintColor, sx, sy, sw, sh, ox, oy, dstX, dstY, tw, th, gid&FlipMask)
 		}
 	}
 	if savedLayer {
@@ -961,15 +1301,9 @@ func (m *Tilemap) drawChunkedLayer(d *core.Drawing, layer *TileLayer, cam *Camer
 					savedLayer = true
 				}
 				col := baseCol + lc
-				dstX := offX + float32(col)*m.TileWidth
-				dstY := offY + float32(row+1)*m.TileHeight - th
-				flags := gid & FlipMask
-				if flags == 0 {
-					d.DrawImageFrom(img, sx, sy, sw, sh, dstX+ox, dstY+oy, sw, sh)
-				} else {
-					a, b, c, dd, e, f := flipMatrix(flags, dstX, dstY, tw, th)
-					d.Save().Transform(a, b, c, dd, e, f).DrawImageFrom(img, sx, sy, sw, sh, ox, oy, sw, sh).Restore()
-				}
+				dstX := offX + float32(col)*m.TileWidth + ts.TileOffsetX
+				dstY := offY + float32(row+1)*m.TileHeight - th + ts.TileOffsetY
+				drawPlacedTile(d, img, layer.TintColor, sx, sy, sw, sh, ox, oy, dstX, dstY, tw, th, gid&FlipMask)
 			}
 		}
 	}
@@ -979,17 +1313,17 @@ func (m *Tilemap) drawChunkedLayer(d *core.Drawing, layer *TileLayer, cam *Camer
 		if vb.Size.Width <= 0 || vb.Size.Height <= 0 {
 			return
 		}
-		extraW, extraH := m.maxExtraTileSize()
+		extraL, extraR, extraT, extraB := m.maxTilePadding()
 		tw, th := float64(m.TileWidth), float64(m.TileHeight)
 		minX := float64(vb.Origin.X) - float64(offX)
 		maxX := minX + float64(vb.Size.Width)
 		minY := float64(vb.Origin.Y) - float64(offY)
 		maxY := minY + float64(vb.Size.Height)
 
-		minCol := int(math.Floor((minX - extraW) / tw))
-		maxCol := int(math.Ceil(maxX/tw)) - 1
-		minRow := int(math.Floor(minY / th))
-		maxRow := int(math.Ceil((maxY+extraH)/th)) - 1
+		minCol := int(math.Floor((minX - extraR) / tw))
+		maxCol := int(math.Ceil((maxX+extraL)/tw)) - 1
+		minRow := int(math.Floor((minY - extraB) / th))
+		maxRow := int(math.Ceil((maxY+extraT)/th)) - 1
 		if minCol > maxCol || minRow > maxRow {
 			return
 		}

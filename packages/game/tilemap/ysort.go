@@ -29,29 +29,33 @@ type YSortTile struct {
 	// LayerIndex is the index of the source TileLayer in Tilemap.Layers, or -1 if not attached.
 	LayerIndex int
 
-	ts      *Tileset
-	sx, sy  float32
-	sw, sh  float32
-	ox, oy  float32
-	dstX    float32
-	dstY    float32
-	tw, th  float32
-	opacity float32
-	flags   uint32
+	ts           *Tileset
+	frameLocalID uint32
+	sx, sy       float32
+	sw, sh       float32
+	ox, oy       float32
+	dstX         float32
+	dstY         float32
+	tw, th       float32
+	opacity      float32
+	tint         core.Color
+	flags        uint32
 }
 
-// Draw draws this single tile into d, applying its layer opacity and flip flags while leaving d's state unchanged.
+// Draw draws this single tile into d, applying its layer opacity, tint, and flip flags while leaving d's state unchanged.
 func (t *YSortTile) Draw(d *core.Drawing) {
-	if d == nil || t == nil || t.ts == nil || t.opacity <= 0 {
+	if d == nil || t == nil || t.ts == nil || t.opacity <= 0 || isInvisibleTint(t.tint) {
 		return
 	}
 	img := t.imageSource()
 	if t.flags == 0 {
 		if t.opacity < 1 {
-			d.Save().SetAlpha(t.opacity).DrawImageFrom(img, t.sx, t.sy, t.sw, t.sh, t.dstX+t.ox, t.dstY+t.oy, t.sw, t.sh).Restore()
+			d.Save().SetAlpha(t.opacity)
+			drawTileImage(d, img, t.tint, t.sx, t.sy, t.sw, t.sh, t.dstX+t.ox, t.dstY+t.oy, t.sw, t.sh)
+			d.Restore()
 			return
 		}
-		d.DrawImageFrom(img, t.sx, t.sy, t.sw, t.sh, t.dstX+t.ox, t.dstY+t.oy, t.sw, t.sh)
+		drawTileImage(d, img, t.tint, t.sx, t.sy, t.sw, t.sh, t.dstX+t.ox, t.dstY+t.oy, t.sw, t.sh)
 		return
 	}
 	a, b, c, dd, e, f := flipMatrix(t.flags, t.dstX, t.dstY, t.tw, t.th)
@@ -59,10 +63,17 @@ func (t *YSortTile) Draw(d *core.Drawing) {
 	if t.opacity < 1 {
 		d.SetAlpha(t.opacity)
 	}
-	d.Transform(a, b, c, dd, e, f).DrawImageFrom(img, t.sx, t.sy, t.sw, t.sh, t.ox, t.oy, t.sw, t.sh).Restore()
+	d.Transform(a, b, c, dd, e, f)
+	drawTileImage(d, img, t.tint, t.sx, t.sy, t.sw, t.sh, t.ox, t.oy, t.sw, t.sh)
+	d.Restore()
 }
 
 func (t *YSortTile) imageSource() core.ImageSource {
+	if len(t.ts.TileImages) > 0 {
+		if ti, ok := t.ts.TileImages[t.frameLocalID]; ok {
+			return ti.Image
+		}
+	}
 	img := t.ts.Image
 	if t.ts.Atlas != nil && img.URI == "" && len(img.Data) == 0 && img.Pixels == nil {
 		img = t.ts.Atlas.Image
@@ -89,15 +100,15 @@ type YSortDrawer struct {
 
 // Push queues tile t into d, flushing any incompatible run first.
 func (dr *YSortDrawer) Push(d *core.Drawing, t *YSortTile) {
-	if d == nil || t == nil || t.ts == nil || t.opacity <= 0 {
+	if d == nil || t == nil || t.ts == nil || t.opacity <= 0 || isInvisibleTint(t.tint) {
 		return
 	}
-	if t.flags != 0 {
+	if t.flags != 0 || isTinted(t.tint) {
 		dr.Flush(d)
 		t.Draw(d)
 		return
 	}
-	if len(dr.rects) > 0 && (dr.ts != t.ts || dr.opacity != t.opacity) {
+	if len(dr.rects) > 0 && (dr.ts != t.ts || dr.opacity != t.opacity || (len(t.ts.TileImages) > 0 && dr.lone.frameLocalID != t.frameLocalID)) {
 		dr.Flush(d)
 	}
 	if len(dr.rects) == 0 {
@@ -225,70 +236,86 @@ func (m *Tilemap) VisitLayers(fn func(tile *TileLayer, img *ImageLayer)) {
 	if m == nil || fn == nil {
 		return
 	}
+	m.visitAllLayers(func(tl *TileLayer, il *ImageLayer, _ *ObjectLayer) {
+		if tl != nil || il != nil {
+			fn(tl, il)
+		}
+	})
+}
+
+func (m *Tilemap) visitAllLayers(fn func(tile *TileLayer, img *ImageLayer, obj *ObjectLayer)) {
+	if m == nil || fn == nil {
+		return
+	}
 	if len(m.layerOrder) == 0 {
 		for i := range m.ImageLayers {
-			fn(nil, &m.ImageLayers[i])
+			fn(nil, &m.ImageLayers[i], nil)
 		}
 		for i := range m.Layers {
-			fn(&m.Layers[i], nil)
+			fn(&m.Layers[i], nil, nil)
+		}
+		for i := range m.Objects {
+			fn(nil, nil, &m.Objects[i])
 		}
 		return
 	}
 
 	var stackTile [64]bool
 	var stackImage [64]bool
-	var drawnTile []bool
-	var drawnImage []bool
+	var stackObj [64]bool
+	var drawnTile, drawnImage, drawnObj []bool
 
-	if n := len(m.Layers); n > 0 {
-		if n <= len(stackTile) {
-			drawnTile = stackTile[:n]
-		} else {
-			if cap(m.drawnTile) < n {
-				m.drawnTile = make([]bool, n)
-			} else {
-				m.drawnTile = m.drawnTile[:n]
-				clear(m.drawnTile)
-			}
-			drawnTile = m.drawnTile
+	prep := func(n int, stack []bool, heap *[]bool) []bool {
+		if n == 0 {
+			return nil
 		}
-	}
-	if n := len(m.ImageLayers); n > 0 {
-		if n <= len(stackImage) {
-			drawnImage = stackImage[:n]
-		} else {
-			if cap(m.drawnImage) < n {
-				m.drawnImage = make([]bool, n)
-			} else {
-				m.drawnImage = m.drawnImage[:n]
-				clear(m.drawnImage)
-			}
-			drawnImage = m.drawnImage
+		if n <= len(stack) {
+			return stack[:n]
 		}
+		if cap(*heap) < n {
+			*heap = make([]bool, n)
+		} else {
+			*heap = (*heap)[:n]
+			clear(*heap)
+		}
+		return *heap
 	}
+	drawnTile = prep(len(m.Layers), stackTile[:], &m.drawnTile)
+	drawnImage = prep(len(m.ImageLayers), stackImage[:], &m.drawnImage)
+	drawnObj = prep(len(m.Objects), stackObj[:], &m.drawnObject)
 
 	for _, ref := range m.layerOrder {
 		switch ref.kind {
 		case layerKindTile:
 			if ref.index >= 0 && ref.index < len(m.Layers) && !drawnTile[ref.index] {
 				drawnTile[ref.index] = true
-				fn(&m.Layers[ref.index], nil)
+				fn(&m.Layers[ref.index], nil, nil)
 			}
 		case layerKindImage:
 			if ref.index >= 0 && ref.index < len(m.ImageLayers) && !drawnImage[ref.index] {
 				drawnImage[ref.index] = true
-				fn(nil, &m.ImageLayers[ref.index])
+				fn(nil, &m.ImageLayers[ref.index], nil)
+			}
+		case layerKindObject:
+			if ref.index >= 0 && ref.index < len(m.Objects) && !drawnObj[ref.index] {
+				drawnObj[ref.index] = true
+				fn(nil, nil, &m.Objects[ref.index])
 			}
 		}
 	}
 	for i := range m.ImageLayers {
 		if !drawnImage[i] {
-			fn(nil, &m.ImageLayers[i])
+			fn(nil, &m.ImageLayers[i], nil)
 		}
 	}
 	for i := range m.Layers {
 		if !drawnTile[i] {
-			fn(&m.Layers[i], nil)
+			fn(&m.Layers[i], nil, nil)
+		}
+	}
+	for i := range m.Objects {
+		if !drawnObj[i] {
+			fn(nil, nil, &m.Objects[i])
 		}
 	}
 }
@@ -333,7 +360,7 @@ func (m *Tilemap) AppendYSortTiles(dst []YSortTile, layer *TileLayer, cam *Camer
 	}
 
 	offX, offY := effectiveLayerOffset(float32(m.Origin.X)+layer.OffsetX, float32(m.Origin.Y)+layer.OffsetY, layer.ParallaxX, layer.ParallaxY, cam)
-	extraW, extraH := m.maxExtraTileSize()
+	extraL, extraR, extraT, extraB := m.maxTilePadding()
 	layerIdx := m.layerIndexFor(layer)
 
 	hasCam := cam != nil
@@ -378,8 +405,8 @@ func (m *Tilemap) AppendYSortTiles(dst []YSortTile, layer *TileLayer, cam *Camer
 			return
 		}
 		tx, ty := m.tileOrigin(col, row)
-		dstX := offX + tx
-		dstY := offY + ty + m.TileHeight - th
+		dstX := offX + tx + ts.TileOffsetX
+		dstY := offY + ty + m.TileHeight - th + ts.TileOffsetY
 		if hasCam {
 			rx0 := float64(dstX + ox)
 			ry0 := float64(dstY + oy)
@@ -392,24 +419,26 @@ func (m *Tilemap) AppendYSortTiles(dst []YSortTile, layer *TileLayer, cam *Camer
 			sortOff, _ = tileSortOriginOffset(ts, frameLocalID)
 		}
 		dst = append(dst, YSortTile{
-			SortY:      offY + ty + m.TileHeight + sortOff,
-			Col:        col,
-			Row:        row,
-			GID:        gid,
-			LayerIndex: layerIdx,
-			ts:         ts,
-			sx:         sx,
-			sy:         sy,
-			sw:         sw,
-			sh:         sh,
-			ox:         ox,
-			oy:         oy,
-			dstX:       dstX,
-			dstY:       dstY,
-			tw:         tw,
-			th:         th,
-			opacity:    layer.Opacity,
-			flags:      gid & FlipMask,
+			SortY:        offY + ty + m.TileHeight + sortOff,
+			Col:          col,
+			Row:          row,
+			GID:          gid,
+			LayerIndex:   layerIdx,
+			ts:           ts,
+			frameLocalID: frameLocalID,
+			sx:           sx,
+			sy:           sy,
+			sw:           sw,
+			sh:           sh,
+			ox:           ox,
+			oy:           oy,
+			dstX:         dstX,
+			dstY:         dstY,
+			tw:           tw,
+			th:           th,
+			opacity:      layer.Opacity,
+			tint:         layer.TintColor,
+			flags:        gid & FlipMask,
 		})
 	}
 
@@ -426,10 +455,10 @@ func (m *Tilemap) AppendYSortTiles(dst []YSortTile, layer *TileLayer, cam *Camer
 			lx1 := vbMaxX - float64(offX)
 			ly0 := vbMinY - float64(offY)
 			ly1 := vbMaxY - float64(offY)
-			dMin = (lx0 - tw - extraW) / (tw / 2)
-			dMax = lx1 / (tw / 2)
-			sMin = (ly0 - th) / (th / 2)
-			sMax = (ly1 + extraH) / (th / 2)
+			dMin = (lx0 - tw - extraR) / (tw / 2)
+			dMax = (lx1 + extraL) / (tw / 2)
+			sMin = (ly0 - th - extraB) / (th / 2)
+			sMax = (ly1 + extraT) / (th / 2)
 			minCol = max(boundMinCol, int(math.Floor((sMin+dMin)/2)))
 			maxCol = min(boundMaxCol, int(math.Ceil((sMax+dMax)/2)))
 			minRow = max(boundMinRow, int(math.Floor((sMin-dMax)/2)))
@@ -478,15 +507,15 @@ func (m *Tilemap) AppendYSortTiles(dst []YSortTile, layer *TileLayer, cam *Camer
 			ly0 := vbMinY - float64(offY)
 			ly1 := vbMaxY - float64(offY)
 			if m.StaggerAxis == StaggerX {
-				minCol = max(boundMinCol, int(math.Floor((lx0-tw-extraW)/stepX)))
-				maxCol = min(boundMaxCol, int(math.Ceil(lx1/stepX)))
-				minRow = max(boundMinRow, int(math.Floor((ly0-th*1.5)/stepY)))
-				maxRow = min(boundMaxRow, int(math.Ceil((ly1+extraH)/stepY)))
+				minCol = max(boundMinCol, int(math.Floor((lx0-tw-extraR)/stepX)))
+				maxCol = min(boundMaxCol, int(math.Ceil((lx1+extraL)/stepX)))
+				minRow = max(boundMinRow, int(math.Floor((ly0-th*1.5-extraB)/stepY)))
+				maxRow = min(boundMaxRow, int(math.Ceil((ly1+extraT)/stepY)))
 			} else {
-				minCol = max(boundMinCol, int(math.Floor((lx0-tw*1.5-extraW)/stepX)))
-				maxCol = min(boundMaxCol, int(math.Ceil(lx1/stepX)))
-				minRow = max(boundMinRow, int(math.Floor((ly0-th)/stepY)))
-				maxRow = min(boundMaxRow, int(math.Ceil((ly1+extraH)/stepY)))
+				minCol = max(boundMinCol, int(math.Floor((lx0-tw*1.5-extraR)/stepX)))
+				maxCol = min(boundMaxCol, int(math.Ceil((lx1+extraL)/stepX)))
+				minRow = max(boundMinRow, int(math.Floor((ly0-th-extraB)/stepY)))
+				maxRow = min(boundMaxRow, int(math.Ceil((ly1+extraT)/stepY)))
 			}
 		}
 		if minCol <= maxCol && minRow <= maxRow {
@@ -520,10 +549,10 @@ func (m *Tilemap) AppendYSortTiles(dst []YSortTile, layer *TileLayer, cam *Camer
 			maxX := vbMaxX - float64(offX)
 			minY := vbMinY - float64(offY)
 			maxY := vbMaxY - float64(offY)
-			minCol = max(boundMinCol, int(math.Floor((minX-extraW)/tw)))
-			maxCol = min(boundMaxCol, int(math.Ceil(maxX/tw))-1)
-			minRow = max(boundMinRow, int(math.Floor(minY/th)))
-			maxRow = min(boundMaxRow, int(math.Ceil((maxY+extraH)/th))-1)
+			minCol = max(boundMinCol, int(math.Floor((minX-extraR)/tw)))
+			maxCol = min(boundMaxCol, int(math.Ceil((maxX+extraL)/tw))-1)
+			minRow = max(boundMinRow, int(math.Floor((minY-extraB)/th)))
+			maxRow = min(boundMaxRow, int(math.Ceil((maxY+extraT)/th))-1)
 		}
 		if minCol <= maxCol && minRow <= maxRow {
 			for row := minRow; row <= maxRow; row++ {

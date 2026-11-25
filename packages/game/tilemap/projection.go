@@ -418,7 +418,7 @@ func (m *Tilemap) drawProjectedLayer(d *core.Drawing, layer *TileLayer, cam *Cam
 		boundMinCol, boundMinRow = 0, 0
 		boundMaxCol, boundMaxRow = lw-1, lh-1
 	}
-	extraW, extraH := m.maxExtraTileSize()
+	extraL, extraR, extraT, extraB := m.maxTilePadding()
 
 	hasCam := cam != nil
 	var vbMinX, vbMinY, vbMaxX, vbMaxY float64
@@ -457,8 +457,8 @@ func (m *Tilemap) drawProjectedLayer(d *core.Drawing, layer *TileLayer, cam *Cam
 			return
 		}
 		tx, ty := m.tileOrigin(col, row)
-		dstX := offX + tx
-		dstY := offY + ty + m.TileHeight - th
+		dstX := offX + tx + ts.TileOffsetX
+		dstY := offY + ty + m.TileHeight - th + ts.TileOffsetY
 		if hasCam {
 			rx0 := float64(dstX + ox)
 			ry0 := float64(dstY + oy)
@@ -470,13 +470,7 @@ func (m *Tilemap) drawProjectedLayer(d *core.Drawing, layer *TileLayer, cam *Cam
 			d.Save().SetAlpha(layer.Opacity)
 			savedLayer = true
 		}
-		flags := gid & FlipMask
-		if flags == 0 {
-			d.DrawImageFrom(img, sx, sy, sw, sh, dstX+ox, dstY+oy, sw, sh)
-		} else {
-			a, b, c, dd, e, f := flipMatrix(flags, dstX, dstY, tw, th)
-			d.Save().Transform(a, b, c, dd, e, f).DrawImageFrom(img, sx, sy, sw, sh, ox, oy, sw, sh).Restore()
-		}
+		drawPlacedTile(d, img, layer.TintColor, sx, sy, sw, sh, ox, oy, dstX, dstY, tw, th, gid&FlipMask)
 	}
 
 	tw, th := float64(m.TileWidth), float64(m.TileHeight)
@@ -492,10 +486,10 @@ func (m *Tilemap) drawProjectedLayer(d *core.Drawing, layer *TileLayer, cam *Cam
 			lx1 := vbMaxX - float64(offX)
 			ly0 := vbMinY - float64(offY)
 			ly1 := vbMaxY - float64(offY)
-			dMin = (lx0 - tw - extraW) / (tw / 2)
-			dMax = lx1 / (tw / 2)
-			sMin = (ly0 - th) / (th / 2)
-			sMax = (ly1 + extraH) / (th / 2)
+			dMin = (lx0 - tw - extraR) / (tw / 2)
+			dMax = (lx1 + extraL) / (tw / 2)
+			sMin = (ly0 - th - extraB) / (th / 2)
+			sMax = (ly1 + extraT) / (th / 2)
 			minCol = max(boundMinCol, int(math.Floor((sMin+dMin)/2)))
 			maxCol = min(boundMaxCol, int(math.Ceil((sMax+dMax)/2)))
 			minRow = max(boundMinRow, int(math.Floor((sMin-dMax)/2)))
@@ -546,15 +540,15 @@ func (m *Tilemap) drawProjectedLayer(d *core.Drawing, layer *TileLayer, cam *Cam
 			ly0 := vbMinY - float64(offY)
 			ly1 := vbMaxY - float64(offY)
 			if m.StaggerAxis == StaggerX {
-				minCol = max(boundMinCol, int(math.Floor((lx0-tw-extraW)/stepX)))
-				maxCol = min(boundMaxCol, int(math.Ceil(lx1/stepX)))
-				minRow = max(boundMinRow, int(math.Floor((ly0-th*1.5)/stepY)))
-				maxRow = min(boundMaxRow, int(math.Ceil((ly1+extraH)/stepY)))
+				minCol = max(boundMinCol, int(math.Floor((lx0-tw-extraR)/stepX)))
+				maxCol = min(boundMaxCol, int(math.Ceil((lx1+extraL)/stepX)))
+				minRow = max(boundMinRow, int(math.Floor((ly0-th*1.5-extraB)/stepY)))
+				maxRow = min(boundMaxRow, int(math.Ceil((ly1+extraT)/stepY)))
 			} else {
-				minCol = max(boundMinCol, int(math.Floor((lx0-tw*1.5-extraW)/stepX)))
-				maxCol = min(boundMaxCol, int(math.Ceil(lx1/stepX)))
-				minRow = max(boundMinRow, int(math.Floor((ly0-th)/stepY)))
-				maxRow = min(boundMaxRow, int(math.Ceil((ly1+extraH)/stepY)))
+				minCol = max(boundMinCol, int(math.Floor((lx0-tw*1.5-extraR)/stepX)))
+				maxCol = min(boundMaxCol, int(math.Ceil((lx1+extraL)/stepX)))
+				minRow = max(boundMinRow, int(math.Floor((ly0-th-extraB)/stepY)))
+				maxRow = min(boundMaxRow, int(math.Ceil((ly1+extraT)/stepY)))
 			}
 		}
 		if minCol <= maxCol && minRow <= maxRow {
