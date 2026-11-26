@@ -9,7 +9,6 @@ import (
 	"image/jpeg"
 	"image/png"
 	"io/fs"
-	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -21,6 +20,7 @@ import (
 	"go.yaml.in/yaml/v3"
 	"golang.org/x/image/webp"
 
+	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -31,6 +31,8 @@ const (
 	maxAgentRefImageBytes  = 16 << 20 // 16 MiB per attached or pinned reference image
 	maxAgentRefImageDim    = 4096     // max width or height in pixels
 	maxAgentRefImagePixels = 16 << 20 // 16M pixels cap
+	maxAgentAttachedImages = 8        // max one-shot reference images attached to a single request
+	maxAgentBriefRefImages = 16       // max pinned reference images loaded from brief.yaml
 	maxAgentBriefYAMLBytes = 1 << 20  // 1 MiB cap for brief.yaml
 	agentRefFolderRel      = "art/reference"
 )
@@ -152,6 +154,23 @@ type cachedBriefRefImage struct {
 	modTime time.Time
 	size    int64
 	img     AgentReferenceImage
+}
+
+type cachedBriefMeta struct {
+	valid   bool
+	path    string
+	exists  bool
+	modTime time.Time
+	size    int64
+	refs    []BriefReference
+}
+
+func (e *Editor) invalidateBriefReferenceCaches() {
+	if e == nil {
+		return
+	}
+	e.agent.briefMeta = cachedBriefMeta{}
+	clear(e.agent.briefRefCache)
 }
 
 // DecodeAgentReferenceImage validates that data is a well-formed PNG, JPEG, or WebP image within safe bounds
@@ -423,6 +442,13 @@ func (e *Editor) AttachAgentReferenceBytes(name string, data []byte) (AgentRefer
 	if e.agent.mode == AgentModeNone {
 		return AgentReferenceImage{}, errors.New("editor: agent is disabled")
 	}
+	if len(e.agent.attachedImages) >= maxAgentAttachedImages {
+		err := fmt.Errorf("cannot attach more than %d reference images to one request", maxAgentAttachedImages)
+		e.agent.attachErr = err.Error()
+		e.Status = err.Error()
+		e.notify()
+		return AgentReferenceImage{}, err
+	}
 	img, err := DecodeAgentReferenceImage(name, data)
 	if err != nil {
 		e.agent.attachErr = err.Error()
@@ -480,6 +506,22 @@ func (e *Editor) AttachAgentReferenceFile(pathOrURI string) (AgentReferenceImage
 		e.notify()
 		return AgentReferenceImage{}, err
 	}
+	// Refuse directories and special files (FIFOs, sockets, device nodes) before opening so a pipe cannot block the UI thread.
+	info, statErr := os.Stat(localPath)
+	if statErr != nil {
+		refErr := fmt.Errorf("cannot attach %q: %w", base, statErr)
+		e.agent.attachErr = refErr.Error()
+		e.Status = refErr.Error()
+		e.notify()
+		return AgentReferenceImage{}, refErr
+	}
+	if !info.Mode().IsRegular() {
+		refErr := formatRefAttachError(base, "not a regular file", "only PNG, JPEG, or WebP images are supported")
+		e.agent.attachErr = refErr.Error()
+		e.Status = refErr.Error()
+		e.notify()
+		return AgentReferenceImage{}, refErr
+	}
 	data, err := readFileLimited(localPath, maxAgentRefImageBytes)
 	if err != nil {
 		refErr := fmt.Errorf("cannot attach %q: %w", base, err)
@@ -492,19 +534,23 @@ func (e *Editor) AttachAgentReferenceFile(pathOrURI string) (AgentReferenceImage
 }
 
 func resolveReferenceFileInput(raw string) (string, error) {
-	if strings.HasPrefix(strings.ToLower(raw), "file://") {
-		if f, err := core.FileFromURL(raw); err == nil && f.Path != "" {
+	trimmed := strings.TrimSpace(raw)
+	if idx := strings.Index(trimmed, "://"); idx > 0 {
+		scheme := strings.ToLower(trimmed[:idx])
+		if scheme != "file" {
+			return "", fmt.Errorf("cannot attach %q: unsupported URI scheme %q (only local PNG, JPEG, or WebP files are supported)", trimmed, scheme)
+		}
+		// Always validate host (reject non-localhost remote hosts) and normalize Windows drive paths first.
+		p, err := parseLocalFileInput(trimmed)
+		if err != nil {
+			return "", fmt.Errorf("cannot attach %q: %w", trimmed, err)
+		}
+		if f, ferr := core.FileFromURL(trimmed); ferr == nil && f.Path != "" {
 			return f.Path, nil
 		}
-		u, err := url.Parse(raw)
-		if err != nil {
-			return "", fmt.Errorf("cannot attach %q: invalid file URL", raw)
-		}
-		if u.Path != "" {
-			return u.Path, nil
-		}
+		return p, nil
 	}
-	return parseLocalFileInput(raw)
+	return parseLocalFileInput(trimmed)
 }
 
 // DropAgentReferenceFiles attaches one or more dropped file paths or file:// URLs onto the Agent composer.
@@ -517,6 +563,10 @@ func (e *Editor) DropAgentReferenceFiles(uris []string) ([]AgentReferenceImage, 
 	if e.playing {
 		e.notify()
 		return nil, ErrPlaying
+	}
+	if e.agent.mode == AgentModeNone {
+		e.notify()
+		return nil, errors.New("editor: agent is disabled")
 	}
 	var attached []AgentReferenceImage
 	var errs []string
@@ -553,6 +603,9 @@ func (e *Editor) HandleAgentComposerPaste(ev core.PasteEvent) ([]AgentReferenceI
 	}
 	if e.playing {
 		return nil, true, ErrPlaying
+	}
+	if e.agent.mode == AgentModeNone {
+		return nil, false, errors.New("editor: agent is disabled")
 	}
 	var attached []AgentReferenceImage
 	var errs []string
@@ -639,7 +692,11 @@ func (e *Editor) PasteAgentReferenceImage() ([]AgentReferenceImage, bool, error)
 		}
 	}
 	if cx := e.agent.getScope(); cx != nil && !cx.Disposed() {
+		startRoot := e.agentProjectRoot()
 		cx.ReadClipboardImage(func(img core.ClipboardImage, ok bool, err error) {
+			if cx.Disposed() || e.playing || e.agent.mode == AgentModeNone || e.agentProjectRoot() != startRoot {
+				return
+			}
 			if err != nil {
 				e.agent.attachErr = err.Error()
 				e.Status = err.Error()
@@ -651,6 +708,9 @@ func (e *Editor) PasteAgentReferenceImage() ([]AgentReferenceImage, bool, error)
 				return
 			}
 			cx.ReadClipboardFiles(func(uris []string) {
+				if cx.Disposed() || e.playing || e.agent.mode == AgentModeNone || e.agentProjectRoot() != startRoot {
+					return
+				}
 				if len(uris) > 0 {
 					_, _ = e.DropAgentReferenceFiles(uris)
 				}
@@ -688,7 +748,7 @@ func (e *Editor) PickAndAttachAgentReferenceImages() {
 		Button:    "Attach",
 		Start:     startDir,
 	}, func(files []core.File, err error) {
-		if err != nil || len(files) == 0 {
+		if err != nil || len(files) == 0 || cx.Disposed() || e.playing || e.agent.mode == AgentModeNone || e.agentProjectRoot() != startDir {
 			return
 		}
 		uris := make([]string, 0, len(files))
@@ -738,31 +798,68 @@ func (e *Editor) ClearAgentAttachedImages() {
 	e.notify()
 }
 
-// BriefFileExists reports whether brief.yaml exists at the open project root.
-func (e *Editor) BriefFileExists() bool {
+// verifyBriefReadPath ensures absPath is lexically inside rootDir, traverses no symlinks
+// anywhere below rootDir (file or intermediate directories), and resolves within rootDir.
+func verifyBriefReadPath(rootDir, absPath, relLabel string) error {
+	if err := verifyAssetGenWritePath(rootDir, absPath, relLabel); err != nil {
+		return err
+	}
+	return verifyFileWithinRoot(rootDir, absPath, relLabel)
+}
+
+func (e *Editor) readBriefMeta() (exists bool, refs []BriefReference) {
 	root := e.agentProjectRoot()
 	if root == "" {
-		return false
+		return false, nil
 	}
-	info, err := os.Stat(filepath.Join(root, "brief.yaml"))
-	return err == nil && !info.IsDir()
+	briefAbs := filepath.Join(root, project.BriefFileName)
+	info, err := os.Lstat(briefAbs)
+	if err != nil {
+		e.agent.briefMeta = cachedBriefMeta{valid: true, path: briefAbs, exists: false}
+		return false, nil
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		e.agent.briefMeta = cachedBriefMeta{valid: true, path: briefAbs, exists: false}
+		return false, nil
+	}
+	if e.agent.briefMeta.valid &&
+		e.agent.briefMeta.path == briefAbs &&
+		e.agent.briefMeta.exists &&
+		e.agent.briefMeta.size == info.Size() &&
+		e.agent.briefMeta.modTime.Equal(info.ModTime()) {
+		return true, slices.Clone(e.agent.briefMeta.refs)
+	}
+	if err := verifyBriefReadPath(root, briefAbs, project.BriefFileName); err != nil {
+		e.agent.briefMeta = cachedBriefMeta{valid: true, path: briefAbs, exists: false}
+		return false, nil
+	}
+	data, err := readFileLimited(briefAbs, maxAgentBriefYAMLBytes)
+	if err != nil {
+		e.agent.briefMeta = cachedBriefMeta{valid: true, path: briefAbs, exists: true, modTime: info.ModTime(), size: info.Size()}
+		return true, nil
+	}
+	parsed := parseBriefReferencesYAML(data)
+	e.agent.briefMeta = cachedBriefMeta{
+		valid:   true,
+		path:    briefAbs,
+		exists:  true,
+		modTime: info.ModTime(),
+		size:    info.Size(),
+		refs:    slices.Clone(parsed),
+	}
+	return true, parsed
+}
+
+// BriefFileExists reports whether brief.yaml exists as a regular confined file at the open project root.
+func (e *Editor) BriefFileExists() bool {
+	exists, _ := e.readBriefMeta()
+	return exists
 }
 
 // BriefReferences reads the list of pinned reference images under art.references in <projectRoot>/brief.yaml.
 func (e *Editor) BriefReferences() []BriefReference {
-	root := e.agentProjectRoot()
-	if root == "" {
-		return nil
-	}
-	briefAbs := filepath.Join(root, "brief.yaml")
-	if err := verifyFileWithinRoot(root, briefAbs, "brief.yaml"); err != nil {
-		return nil
-	}
-	data, err := readFileLimited(briefAbs, maxAgentBriefYAMLBytes)
-	if err != nil {
-		return nil
-	}
-	return parseBriefReferencesYAML(data)
+	_, refs := e.readBriefMeta()
+	return refs
 }
 
 func parseBriefReferencesYAML(data []byte) []BriefReference {
@@ -854,16 +951,19 @@ func (e *Editor) BriefReferenceImages() []AgentReferenceImage {
 	var out []AgentReferenceImage
 	seen := make(map[string]bool, len(refs))
 	for _, ref := range refs {
+		if len(out) >= maxAgentBriefRefImages {
+			break
+		}
 		if seen[ref.Path] {
 			continue
 		}
 		seen[ref.Path] = true
 		abs := filepath.Join(root, filepath.FromSlash(ref.Path))
-		if err := verifyFileWithinRoot(root, abs, ref.Path); err != nil {
+		if err := verifyBriefReadPath(root, abs, ref.Path); err != nil {
 			continue
 		}
-		info, err := os.Stat(abs)
-		if err != nil || info.IsDir() || info.Size() <= 0 || info.Size() > maxAgentRefImageBytes {
+		info, err := os.Lstat(abs)
+		if err != nil || !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > maxAgentRefImageBytes {
 			continue
 		}
 		if cached, ok := e.agent.briefRefCache[ref.Path]; ok && cached.size == info.Size() && cached.modTime.Equal(info.ModTime()) {
@@ -895,6 +995,11 @@ func (e *Editor) BriefReferenceImages() []AgentReferenceImage {
 		}
 		out = append(out, decoded)
 	}
+	for k := range e.agent.briefRefCache {
+		if !seen[k] {
+			delete(e.agent.briefRefCache, k)
+		}
+	}
 	return out
 }
 
@@ -907,6 +1012,12 @@ func (e *Editor) PinAgentReferenceImage(id, note string) (BriefPinNotice, error)
 	}
 	if e.playing {
 		return BriefPinNotice{}, ErrPlaying
+	}
+	if e.MergeConflictOpen() {
+		return BriefPinNotice{}, ErrMergeConflictInProgress
+	}
+	if e.HistoryPreviewActive() {
+		return BriefPinNotice{}, ErrHistoryPreview
 	}
 	root := e.agentProjectRoot()
 	if root == "" {
@@ -947,14 +1058,17 @@ func (e *Editor) PinAgentReferenceImage(id, note string) (BriefPinNotice, error)
 	_, errRef := os.Stat(refDirAbs)
 	refDirExisted := errRef == nil
 
-	briefAbs := filepath.Join(root, "brief.yaml")
-	if err := verifyProjectWritePath(root, briefAbs, "brief.yaml"); err != nil {
+	briefAbs := filepath.Join(root, project.BriefFileName)
+	if err := verifyAssetGenWritePath(root, briefAbs, project.BriefFileName); err != nil {
 		return BriefPinNotice{}, err
 	}
 	var beforeBrief []byte
 	briefExisted := false
-	if _, statErr := os.Stat(briefAbs); statErr == nil {
-		if err := verifyFileWithinRoot(root, briefAbs, "brief.yaml"); err != nil {
+	if fi, statErr := os.Lstat(briefAbs); statErr == nil {
+		if !fi.Mode().IsRegular() {
+			return BriefPinNotice{}, fmt.Errorf("editor: %s is not a regular file", project.BriefFileName)
+		}
+		if err := verifyBriefReadPath(root, briefAbs, project.BriefFileName); err != nil {
 			return BriefPinNotice{}, err
 		}
 		beforeBrief, err = readFileLimited(briefAbs, maxAgentBriefYAMLBytes)
@@ -966,7 +1080,7 @@ func (e *Editor) PinAgentReferenceImage(id, note string) (BriefPinNotice, error)
 		return BriefPinNotice{}, statErr
 	}
 
-	trimmedNote := strings.TrimSpace(note)
+	trimmedNote := sanitizeSingleLineMeta(note)
 	afterBrief, err := appendBriefReferenceYAML(beforeBrief, relPath, trimmedNote)
 	if err != nil {
 		return BriefPinNotice{}, err
@@ -982,6 +1096,7 @@ func (e *Editor) PinAgentReferenceImage(id, note string) (BriefPinNotice, error)
 
 	cmd := &pinReferenceImageCmd{
 		ed:            e,
+		rootDir:       root,
 		label:         fmt.Sprintf("Pin %s to brief", notice.Name),
 		imageID:       id,
 		relPath:       relPath,
@@ -1004,9 +1119,22 @@ func (e *Editor) PinAgentReferenceImage(id, note string) (BriefPinNotice, error)
 	return *e.AgentLastPinNotice(), nil
 }
 
-// UndoLastBriefPin undoes the Pin to brief step via Editor.Undo().
+// CanUndoLastBriefPin reports whether the most recent Pin to brief command is currently at the top
+// of Editor.History and can be undone safely without reverting unrelated later edits.
+func (e *Editor) CanUndoLastBriefPin() bool {
+	if e == nil || e.playing || e.MergeConflictOpen() || e.HistoryPreviewActive() {
+		return false
+	}
+	if e.agent.lastPinCmd == nil || e.History == nil {
+		return false
+	}
+	return e.History.topUndoCmd() == e.agent.lastPinCmd
+}
+
+// UndoLastBriefPin undoes the Pin to brief step via Editor.Undo() only when it is still the latest
+// command in Editor.History, never silently undoing unrelated later edits.
 func (e *Editor) UndoLastBriefPin() bool {
-	if e == nil {
+	if !e.CanUndoLastBriefPin() {
 		return false
 	}
 	return e.Undo()
@@ -1026,13 +1154,24 @@ func resolvePinImageTarget(root, name string, data []byte) (relPath, absPath str
 		}
 		rel := path.Join(agentRefFolderRel, candidate)
 		abs := filepath.Join(root, filepath.FromSlash(rel))
-		if err := verifyProjectWritePath(root, abs, rel); err != nil {
+		if err := verifyAssetGenWritePath(root, abs, rel); err != nil {
 			return "", "", false, err
 		}
-		existing, rerr := os.ReadFile(abs)
-		if errors.Is(rerr, fs.ErrNotExist) {
+		fi, lerr := os.Lstat(abs)
+		if errors.Is(lerr, fs.ErrNotExist) {
 			return rel, abs, false, nil
 		}
+		if lerr != nil {
+			return "", "", false, lerr
+		}
+		if fi.Mode()&os.ModeSymlink != 0 {
+			return "", "", false, fmt.Errorf("editor: asset path %q refuses symlink file", rel)
+		}
+		if !fi.Mode().IsRegular() || fi.Size() != int64(len(data)) {
+			// Different size or directory: allocate a distinct suffixed filename without reading it.
+			continue
+		}
+		existing, rerr := readFileLimited(abs, maxAgentRefImageBytes)
 		if rerr != nil {
 			return "", "", false, rerr
 		}
@@ -1044,14 +1183,23 @@ func resolvePinImageTarget(root, name string, data []byte) (relPath, absPath str
 }
 
 // appendBriefReferenceYAML parses existing brief.yaml (if non-empty) and appends an entry under art.references,
-// preserving all existing keys, ordering, and comments.
+// preserving all existing keys, ordering, and comments. When creating a new brief.yaml, it emits a canonical
+// version 1 header with BriefSchemaComment so project.ParseBrief accepts it cleanly.
 func appendBriefReferenceYAML(existing []byte, relPath, note string) ([]byte, error) {
 	var doc yaml.Node
-	if len(bytes.TrimSpace(existing)) == 0 {
+	fresh := len(bytes.TrimSpace(existing)) == 0
+	if fresh {
 		doc = yaml.Node{
 			Kind: yaml.DocumentNode,
 			Content: []*yaml.Node{
-				{Kind: yaml.MappingNode, Tag: "!!map"},
+				{
+					Kind: yaml.MappingNode,
+					Tag:  "!!map",
+					Content: []*yaml.Node{
+						{Kind: yaml.ScalarNode, Tag: "!!str", Value: "version"},
+						{Kind: yaml.ScalarNode, Tag: "!!int", Value: fmt.Sprintf("%d", project.BriefVersion)},
+					},
+				},
 			},
 		}
 	} else {
@@ -1059,10 +1207,18 @@ func appendBriefReferenceYAML(existing []byte, relPath, note string) ([]byte, er
 			return nil, fmt.Errorf("editor: parse brief.yaml: %w", err)
 		}
 		if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 {
+			fresh = true
 			doc = yaml.Node{
 				Kind: yaml.DocumentNode,
 				Content: []*yaml.Node{
-					{Kind: yaml.MappingNode, Tag: "!!map"},
+					{
+						Kind: yaml.MappingNode,
+						Tag:  "!!map",
+						Content: []*yaml.Node{
+							{Kind: yaml.ScalarNode, Tag: "!!str", Value: "version"},
+							{Kind: yaml.ScalarNode, Tag: "!!int", Value: fmt.Sprintf("%d", project.BriefVersion)},
+						},
+					},
 				},
 			}
 		}
@@ -1097,7 +1253,7 @@ func appendBriefReferenceYAML(existing []byte, relPath, note string) ([]byte, er
 	// Check if relPath is already present; if so, update note if requested and avoid duplicating the entry.
 	for _, item := range refsNode.Content {
 		if item.Kind == yaml.ScalarNode && cleanBriefRefPath(item.Value) == relPath {
-			return encodeBriefYAMLNode(&doc)
+			return encodeBriefYAMLNode(&doc, fresh)
 		}
 		if item.Kind == yaml.MappingNode {
 			if pNode := yamlMapValue(item, "path"); pNode != nil && cleanBriefRefPath(pNode.Value) == relPath {
@@ -1111,7 +1267,7 @@ func appendBriefReferenceYAML(existing []byte, relPath, note string) ([]byte, er
 						)
 					}
 				}
-				return encodeBriefYAMLNode(&doc)
+				return encodeBriefYAMLNode(&doc, fresh)
 			}
 		}
 	}
@@ -1131,11 +1287,15 @@ func appendBriefReferenceYAML(existing []byte, relPath, note string) ([]byte, er
 		)
 	}
 	refsNode.Content = append(refsNode.Content, entry)
-	return encodeBriefYAMLNode(&doc)
+	return encodeBriefYAMLNode(&doc, fresh)
 }
 
-func encodeBriefYAMLNode(doc *yaml.Node) ([]byte, error) {
+func encodeBriefYAMLNode(doc *yaml.Node, withSchemaComment bool) ([]byte, error) {
 	var buf bytes.Buffer
+	if withSchemaComment {
+		buf.WriteString(project.BriefSchemaComment)
+		buf.WriteByte('\n')
+	}
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
 	if err := enc.Encode(doc); err != nil {
@@ -1193,6 +1353,7 @@ func splitBriefDiffLines(data []byte) []string {
 // in one atomic, undoable Editor.History step.
 type pinReferenceImageCmd struct {
 	ed            *Editor
+	rootDir       string
 	label         string
 	imageID       string
 	relPath       string
@@ -1215,9 +1376,19 @@ func (c *pinReferenceImageCmd) Do()           { c.ed.report(c.do()) }
 func (c *pinReferenceImageCmd) Undo()         { c.ed.report(c.undo()) }
 
 func (c *pinReferenceImageCmd) do() error {
+	// Re-verify symlink containment on every Do/Redo to guard against TOCTOU symlink swaps.
+	if err := verifyAssetGenWritePath(c.rootDir, c.absImagePath, c.relPath); err != nil {
+		return err
+	}
+	if err := verifyAssetGenWritePath(c.rootDir, c.briefAbs, project.BriefFileName); err != nil {
+		return err
+	}
 	if !c.fileExisted {
 		if err := os.MkdirAll(filepath.Dir(c.absImagePath), 0o755); err != nil {
 			return fmt.Errorf("editor: create %s: %w", agentRefFolderRel, err)
+		}
+		if err := verifyAssetGenWritePath(c.rootDir, c.absImagePath, c.relPath); err != nil {
+			return err
 		}
 		if err := writeFileAtomic(c.absImagePath, c.imageBytes); err != nil {
 			return fmt.Errorf("editor: write %s: %w", c.relPath, err)
@@ -1242,6 +1413,15 @@ func (c *pinReferenceImageCmd) do() error {
 }
 
 func (c *pinReferenceImageCmd) undo() error {
+	// Re-verify symlink containment before restoring or removing files on Undo.
+	if err := verifyAssetGenWritePath(c.rootDir, c.briefAbs, project.BriefFileName); err != nil {
+		return err
+	}
+	if !c.fileExisted {
+		if err := verifyAssetGenWritePath(c.rootDir, c.absImagePath, c.relPath); err != nil {
+			return err
+		}
+	}
 	if c.briefExisted {
 		if err := writeFileAtomic(c.briefAbs, c.beforeBrief); err != nil {
 			return fmt.Errorf("editor: restore brief.yaml: %w", err)
@@ -1278,16 +1458,26 @@ func (c *pinReferenceImageCmd) setAttachmentPinned(pinned bool, relPath string) 
 }
 
 func (c *pinReferenceImageCmd) cleanupEmptyRefDirs() {
+	removeIfSafeEmptyDir := func(absDir, rel string) {
+		if err := verifyAssetGenWritePath(c.rootDir, absDir, rel); err != nil {
+			return
+		}
+		if fi, err := os.Lstat(absDir); err != nil || !fi.IsDir() || fi.Mode()&os.ModeSymlink != 0 {
+			return
+		}
+		_ = os.Remove(absDir) // succeeds only if empty
+	}
 	if !c.refDirExisted {
-		_ = os.Remove(c.refDirAbs) // succeeds only if empty
+		removeIfSafeEmptyDir(c.refDirAbs, agentRefFolderRel)
 	}
 	if !c.artDirExisted {
-		_ = os.Remove(c.artDirAbs) // succeeds only if empty
+		removeIfSafeEmptyDir(c.artDirAbs, "art")
 	}
 }
 
 func (c *pinReferenceImageCmd) refreshProjectAfterPin() {
-	delete(c.ed.agent.briefRefCache, c.relPath)
+	c.ed.invalidateBriefReferenceCaches()
+	c.ed.reloadBriefFromDisk()
 	c.ed.filesRev++
 	c.ed.assetsRev++
 	c.ed.invalidateProjectIndex()

@@ -74,7 +74,14 @@ func (r *CLIAgentRunner) Run(ctx context.Context, req AgentRequest, emit func(Ag
 	if err != nil {
 		return err
 	}
-	args, err := buildCLIArgs(kind, req)
+	ephemeralFiles, cleanup, err := materializeEphemeralCLIImages(req.Images)
+	if err != nil {
+		return err
+	}
+	if cleanup != nil {
+		defer cleanup()
+	}
+	args, err := buildCLIArgsWithEphemeral(kind, req, ephemeralFiles)
 	if err != nil {
 		return err
 	}
@@ -177,29 +184,119 @@ func validateCLISessionID(id string) error {
 	return nil
 }
 
+type cliRefImage struct {
+	absPath string
+	display string
+	note    string
+}
+
+func materializeEphemeralCLIImages(images []AgentReferenceImage) ([]cliRefImage, func(), error) {
+	var ephemeral []AgentReferenceImage
+	for _, img := range images {
+		if img.Path == "" && len(img.Data) > 0 {
+			ephemeral = append(ephemeral, img)
+		}
+	}
+	if len(ephemeral) == 0 {
+		return nil, nil, nil
+	}
+	tmpDir, err := os.MkdirTemp("", "nsgo-agent-ref-*")
+	if err != nil {
+		return nil, nil, fmt.Errorf("agent runner: create temp dir for reference images: %w", err)
+	}
+	cleanup := func() {
+		_ = os.RemoveAll(tmpDir)
+	}
+	out := make([]cliRefImage, 0, len(ephemeral))
+	for i, img := range ephemeral {
+		format := img.Format
+		if format == "" {
+			format = AgentImagePNG
+		}
+		cleanName := sanitizeReferenceFileName(img.Name, format)
+		fileName := fmt.Sprintf("%02d_%s", i+1, cleanName)
+		absPath := filepath.Join(tmpDir, fileName)
+		if err := os.WriteFile(absPath, img.Data, 0o600); err != nil {
+			cleanup()
+			return nil, nil, fmt.Errorf("agent runner: write temp reference image: %w", err)
+		}
+		out = append(out, cliRefImage{
+			absPath: absPath,
+			display: absPath,
+			note:    sanitizeSingleLineMeta(img.Note),
+		})
+	}
+	return out, cleanup, nil
+}
+
 func buildCLIArgs(kind ExternalAgentKind, req AgentRequest) ([]string, error) {
+	return buildCLIArgsWithEphemeral(kind, req, nil)
+}
+
+func buildCLIArgsWithEphemeral(kind ExternalAgentKind, req AgentRequest, ephemeral []cliRefImage) ([]string, error) {
 	if err := validateCLISessionID(req.SessionID); err != nil {
 		return nil, err
 	}
 	prompt := req.Prompt
-	var refPaths []string
+	var refs []cliRefImage
 	if len(req.Images) > 0 && req.ProjectRoot != "" {
 		for _, img := range req.Images {
-			if img.Path != "" && !strings.HasPrefix(img.Path, "-") {
-				refPaths = append(refPaths, filepath.Join(req.ProjectRoot, filepath.FromSlash(img.Path)))
+			if img.Path == "" {
+				continue
 			}
+			cleanRel := cleanBriefRefPath(img.Path)
+			if cleanRel == "" || strings.HasPrefix(cleanRel, "-") {
+				continue
+			}
+			abs := filepath.Join(req.ProjectRoot, filepath.FromSlash(cleanRel))
+			if strings.HasPrefix(abs, "-") {
+				continue
+			}
+			if err := verifyAssetGenWritePath(req.ProjectRoot, abs, cleanRel); err != nil {
+				continue
+			}
+			refs = append(refs, cliRefImage{
+				absPath: abs,
+				display: cleanRel,
+				note:    sanitizeSingleLineMeta(img.Note),
+			})
 		}
 	}
+	for _, eph := range ephemeral {
+		if eph.absPath != "" && !strings.HasPrefix(eph.absPath, "-") {
+			refs = append(refs, eph)
+		}
+	}
+
+	appendRefPrompt := func(base string) string {
+		if len(refs) == 0 {
+			return base
+		}
+		var b strings.Builder
+		b.WriteString(base)
+		b.WriteString("\n\nReference images:")
+		for _, ref := range refs {
+			b.WriteString("\n- ")
+			b.WriteString(ref.display)
+			if ref.note != "" {
+				b.WriteString(" (")
+				b.WriteString(ref.note)
+				b.WriteByte(')')
+			}
+		}
+		return b.String()
+	}
+
 	if kind == ExternalAgentCodex {
 		if req.SessionID != "" {
-			return []string{"exec", "resume", "--json", "--", req.SessionID, prompt}, nil
+			return []string{"exec", "resume", "--json", "--", req.SessionID, appendRefPrompt(prompt)}, nil
 		}
 		args := []string{"exec", "--json"}
 		if req.ProjectRoot != "" {
 			args = append(args, "-C", req.ProjectRoot)
 		}
-		for _, p := range refPaths {
-			args = append(args, "-i", p)
+		for _, ref := range refs {
+			args = append(args, "-i", ref.absPath)
 		}
 		return append(args, "--", prompt), nil
 	}
@@ -213,23 +310,6 @@ func buildCLIArgs(kind ExternalAgentKind, req AgentRequest) ([]string, error) {
 	if req.SessionID != "" {
 		args = append(args, "--resume", req.SessionID)
 	}
-	if len(refPaths) > 0 {
-		var b strings.Builder
-		b.WriteString(prompt)
-		b.WriteString("\n\nReference images:")
-		for _, img := range req.Images {
-			if img.Path == "" {
-				continue
-			}
-			b.WriteString("\n- ")
-			b.WriteString(img.Path)
-			if img.Note != "" {
-				b.WriteString(" (")
-				b.WriteString(img.Note)
-				b.WriteByte(')')
-			}
-		}
-		prompt = b.String()
-	}
+	prompt = appendRefPrompt(prompt)
 	return append(args, "--", prompt), nil
 }
