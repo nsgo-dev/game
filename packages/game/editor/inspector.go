@@ -1774,7 +1774,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 		}
 
 		if ed.ViewMode == ViewMode3D {
-			nodes = append(nodes, inspectorModel3DSections(cx, ed, rev, objID, disabled, overrideFieldRow("model", ed.T("inspector.model"), modelField(ed, rev, objID, disabled)))...)
+			nodes = append(nodes, inspectorModel3DSections(cx, ed, rev, objID, q, disabled, overrideFieldRow("model", ed.T("inspector.model"), modelField(ed, rev, objID, disabled)))...)
 		}
 
 		// TRANSFORM titled section with compact Position/Rotation/Scale X Y (and Z in 3D), Alpha, Z order.

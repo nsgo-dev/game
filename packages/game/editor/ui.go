@@ -546,7 +546,7 @@ func mainRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []core.Node {
 				core.Show{
 					When: func() bool {
 						_ = rev.Get()
-						return ed.ViewMode == ViewMode3D && !assetsMode.Get()
+						return ed.ViewMode == ViewMode3D && !assetsMode.Get() && !ed.Playing()
 					},
 					Then: func(cx *core.Scope) core.Node {
 						return Viewport3DModelsStripView(cx, ed, rev)

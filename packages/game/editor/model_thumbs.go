@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"image"
 	"math"
-	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"sync"
 
@@ -74,9 +74,14 @@ func (t *modelThumbs) subscribe(fn func()) func() {
 
 func (t *modelThumbs) notifyReady() {
 	t.mu.Lock()
-	fns := make([]func(), 0, len(t.listeners))
-	for _, fn := range t.listeners {
-		fns = append(fns, fn)
+	ids := make([]uint64, 0, len(t.listeners))
+	for id := range t.listeners {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+	fns := make([]func(), 0, len(ids))
+	for _, id := range ids {
+		fns = append(fns, t.listeners[id])
 	}
 	t.mu.Unlock()
 	for _, fn := range fns {
@@ -110,7 +115,7 @@ func (e *Editor) ModelThumbnail(m ModelEntry) (*image.RGBA, error) {
 	// The model loads here, on the UI goroutine, as everything the Resolver serves does; only the rendering runs on the worker. It loads through files of its own rather than the 3D build's cache, so browsing the list keeps no model the scene does not use, and they are dropped with the build once the thumbnail is rendered.
 	assets := scene3DAssets{models: e.ModelResolver, resolver: e.Resolver}
 	if e.ProjectPath != "" {
-		assets.files = scenemodel.NewAssets(os.DirFS(filepath.Dir(e.ProjectPath)))
+		assets.files = scenemodel.NewAssets(newConfinedProjectDirFS(filepath.Dir(e.ProjectPath)))
 	}
 	built, bounds, err := buildModelWith3D(m, assets)
 	if err == nil && bounds.Empty() {

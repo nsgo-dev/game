@@ -570,6 +570,7 @@ type Editor struct {
 	fly3DMoved       bool
 	agentPrompt3D    viewport3DAgentPromptState
 	lastAgentReq3D   *Viewport3DAgentRequest
+	modelStats3D     modelStatsCache3D
 	cameraDrag       cameraDragState
 	cameraBoundsDrag cameraBoundsDragState
 	rooms            *roomMapState
@@ -1082,6 +1083,9 @@ func (e *Editor) SetViewMode(mode ViewMode) {
 	}
 	e.endTileStrokeForChange()
 	e.endGridMapStrokeForChange()
+	if mode == ViewMode2D {
+		e.resetViewport3DAgentPrompt(false)
+	}
 	e.endTerrainStrokeForChange()
 	e.CancelGizmoDrag3D()
 	e.CancelComponentGizmoDrag3D()

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io/fs"
 	"math"
-	"os"
 	"path"
 	"path/filepath"
 	"slices"
@@ -281,7 +280,12 @@ func (e *Editor) modelAssets3D() scene3DAssets {
 	if files == nil || s.projectPath != e.ProjectPath || s.assetsRev != e.assetsRev {
 		files = nil
 		if e.ProjectPath != "" {
-			files = scenemodel.NewAssets(os.DirFS(filepath.Dir(e.ProjectPath)))
+			key := e.ProjectPath + "\x00" + strconv.FormatUint(e.assetsRev, 10)
+			if e.modelStats3D.assetsKey != key || e.modelStats3D.assets == nil {
+				e.modelStats3D.assetsKey = key
+				e.modelStats3D.assets = scenemodel.NewAssets(newConfinedProjectDirFS(filepath.Dir(e.ProjectPath)))
+			}
+			files = e.modelStats3D.assets
 		}
 	}
 	return scene3DAssets{models: e.ModelResolver, resolver: e.Resolver, files: files}
@@ -589,27 +593,80 @@ func (s ObjectModelSummary3D) StatsText() string {
 	return fmt.Sprintf("%s %s · %s %s", formatThousands(s.Triangles), triWord, formatThousands(s.MaterialCount), matWord)
 }
 
-// formatThousands formats a non-negative integer with comma thousands separators (e.g. 1284 -> "1,284").
+// formatThousands formats an integer with comma thousands separators (e.g. 1284 -> "1,284").
 func formatThousands(n int) string {
-	if n < 0 {
-		return "-" + formatThousands(-n)
+	neg := n < 0
+	var mag uint64
+	if neg {
+		mag = uint64(-(n + 1)) + 1
+	} else {
+		mag = uint64(n)
 	}
-	s := strconv.Itoa(n)
+	s := strconv.FormatUint(mag, 10)
 	if len(s) <= 3 {
+		if neg {
+			return "-" + s
+		}
 		return s
 	}
 	var b strings.Builder
+	if neg {
+		b.WriteByte('-')
+	}
 	rem := len(s) % 3
 	if rem > 0 {
 		b.WriteString(s[:rem])
 	}
 	for i := rem; i < len(s); i += 3 {
-		if b.Len() > 0 {
+		if i > 0 {
 			b.WriteByte(',')
 		}
 		b.WriteString(s[i : i+3])
 	}
 	return b.String()
+}
+
+type cachedModelStats3D struct {
+	tris      int
+	matCount  int
+	roughness float32
+	metallic  float32
+	hasMat    bool
+	ok        bool
+}
+
+type modelStatsCache3D struct {
+	assetsKey string
+	assets    *scenemodel.Assets
+	statsKey  string
+	entries   map[string]cachedModelStats3D
+}
+
+func (e *Editor) standaloneModelStats3D(entry ModelEntry) cachedModelStats3D {
+	cacheKey := e.ProjectPath + "\x00" + strconv.FormatUint(e.assetsRev, 10)
+	if e.modelStats3D.statsKey != cacheKey || e.modelStats3D.entries == nil {
+		e.modelStats3D.statsKey = cacheKey
+		e.modelStats3D.entries = make(map[string]cachedModelStats3D)
+	}
+	mk := entry.Key()
+	if cached, ok := e.modelStats3D.entries[mk]; ok {
+		return cached
+	}
+	var res cachedModelStats3D
+	if built, _, err := e.buildModel3D(entry); err == nil && built != nil {
+		res.tris, res.matCount = drawablesStats3D(built.Drawables, "")
+		res.ok = true
+		for _, d := range built.Drawables {
+			if len(d.Parts) > 0 {
+				res.roughness = clampUnit32(d.Parts[0].Material.Roughness)
+				res.metallic = clampUnit32(d.Parts[0].Material.Metallic)
+				res.hasMat = true
+				break
+			}
+		}
+	}
+	e.modelStats3D.entries[mk] = res
+	return res
 }
 
 // ObjectModelSummary3D returns the model path or primitive name, total triangle count, and distinct material count for object id, or false when id has no 3D model or mesh.
@@ -627,8 +684,8 @@ func (e *Editor) ObjectModelSummary3D(id string) (ObjectModelSummary3D, bool) {
 	}
 	tris, matCount, found := e.objectDrawableStats3D(id)
 	if !found {
-		if built, _, err := e.buildModel3D(summary.Entry()); err == nil && built != nil {
-			tris, matCount = drawablesStats3D(built.Drawables, "")
+		if st := e.standaloneModelStats3D(summary.Entry()); st.ok {
+			tris, matCount = st.tris, st.matCount
 		}
 	}
 	summary.Triangles = tris
@@ -720,16 +777,12 @@ func (e *Editor) ObjectMaterialSummary3D(id string) (ObjectMaterialSummary3D, bo
 			}
 		}
 	}
-	if built, _, err := e.buildModel3D(ModelEntry{Mesh: obj.Mesh, Path: obj.Model}); err == nil && built != nil {
-		for _, d := range built.Drawables {
-			if len(d.Parts) > 0 {
-				return ObjectMaterialSummary3D{
-					Roughness: clampUnit32(d.Parts[0].Material.Roughness),
-					Metallic:  clampUnit32(d.Parts[0].Material.Metallic),
-					HasValues: true,
-				}, true
-			}
-		}
+	if st := e.standaloneModelStats3D(ModelEntry{Mesh: obj.Mesh, Path: obj.Model}); st.hasMat {
+		return ObjectMaterialSummary3D{
+			Roughness: st.roughness,
+			Metallic:  st.metallic,
+			HasValues: true,
+		}, true
 	}
 	return ObjectMaterialSummary3D{}, false
 }
@@ -917,9 +970,21 @@ type viewport3DAgentPromptState struct {
 	objectID string
 }
 
+// resetViewport3DAgentPrompt clears the 3D inline agent prompt (and, on project/demo switch, the last request and standalone stats cache).
+func (e *Editor) resetViewport3DAgentPrompt(clearLast bool) {
+	if e == nil {
+		return
+	}
+	e.agentPrompt3D = viewport3DAgentPromptState{}
+	if clearLast {
+		e.lastAgentReq3D = nil
+		e.modelStats3D = modelStatsCache3D{}
+	}
+}
+
 // OpenModelAgentPrompt opens the 3D viewport's inline agent prompt to describe and request a new model ("Or ask for one").
 func (e *Editor) OpenModelAgentPrompt() {
-	if e == nil {
+	if e == nil || e.playing || e.MergeConflictOpen() {
 		return
 	}
 	e.agentPrompt3D = viewport3DAgentPromptState{kind: Viewport3DAgentPromptModel}
@@ -929,7 +994,7 @@ func (e *Editor) OpenModelAgentPrompt() {
 
 // OpenComponentAgentPrompt opens the 3D viewport's inline agent prompt to add a component to objectID ("Ask to add a component…").
 func (e *Editor) OpenComponentAgentPrompt(objectID string) {
-	if e == nil {
+	if e == nil || e.playing || e.MergeConflictOpen() {
 		return
 	}
 	if objectID == "" {
@@ -996,6 +1061,12 @@ func (e *Editor) Viewport3DAgentPromptPlaceholder() string {
 func (e *Editor) SubmitViewport3DAgentPrompt(text string) (Viewport3DAgentRequest, error) {
 	if e == nil {
 		return Viewport3DAgentRequest{}, errors.New("editor: nil editor")
+	}
+	if e.playing {
+		return Viewport3DAgentRequest{}, ErrPlaying
+	}
+	if e.MergeConflictOpen() {
+		return Viewport3DAgentRequest{}, errors.New("editor: resolve merge conflicts before submitting a 3D agent prompt")
 	}
 	trimmed := strings.TrimSpace(text)
 	if trimmed == "" {
