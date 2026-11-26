@@ -872,6 +872,7 @@ func (e *Editor) OpenAgentTask(id string) error {
 		opened = turnTask
 	}
 
+	e.revealPanelIfHiddenOrInactive(PanelInspector)
 	e.closeTaskSystemNotification(opened.ID)
 	if e.OnOpenAgentTask != nil {
 		e.OnOpenAgentTask(opened)

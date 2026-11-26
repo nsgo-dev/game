@@ -25,6 +25,15 @@ const LayoutVersion = 1
 // LayoutFileName is the filename of the per-user editor dock layout stored in the OS user config directory.
 const LayoutFileName = "layout.yaml"
 
+const (
+	// maxLayoutFileBytes caps the layout YAML file size read or parsed to guard against malformed/oversized inputs.
+	maxLayoutFileBytes = 1 << 20 // 1 MiB
+	// maxLayoutDepth caps split-tree nesting depth to guard against stack exhaustion on crafted YAML.
+	maxLayoutDepth = 64
+	// maxLayoutSize caps region and split sizes in points to prevent float32 rounding overflow or layout collapse.
+	maxLayoutSize = 100000
+)
+
 // Built-in dock panel keys stored in LayoutFile and used by ui.DockArea.
 const (
 	PanelViewport     = "viewport"
@@ -222,6 +231,9 @@ func defaultDockBlueprint() dock.Layout {
 // ParseLayout strictly decodes and validates a versioned editor dock layout YAML document,
 // refusing unknown fields, duplicate keys, trailing YAML documents, invalid nodes, and unsupported versions.
 func ParseLayout(data []byte) (*LayoutFile, error) {
+	if len(data) > maxLayoutFileBytes {
+		return nil, fmt.Errorf("editor: layout: document exceeds %d bytes", maxLayoutFileBytes)
+	}
 	if len(bytes.TrimSpace(data)) == 0 {
 		return nil, errors.New("editor: layout: empty document (missing version)")
 	}
@@ -235,7 +247,7 @@ func ParseLayout(data []byte) (*LayoutFile, error) {
 	if err := checkDuplicateYAMLKeys(root.Content[0]); err != nil {
 		return nil, fmt.Errorf("editor: layout: %w", err)
 	}
-	if err := checkNoLayoutYAMLReferences(root.Content[0]); err != nil {
+	if err := checkNoLayoutYAMLReferences(root.Content[0], 0); err != nil {
 		return nil, fmt.Errorf("editor: layout: %w", err)
 	}
 	hasVersion := false
@@ -277,7 +289,7 @@ func ValidateLayout(f *LayoutFile) error {
 		return fmt.Errorf("editor: layout: unsupported version %d (want %d)", f.Version, LayoutVersion)
 	}
 	seenPanels := make(map[string]bool)
-	if err := validateLayoutNode("center", &f.Center, seenPanels); err != nil {
+	if err := validateLayoutNode("center", &f.Center, seenPanels, 0); err != nil {
 		return err
 	}
 	for _, r := range []struct {
@@ -294,7 +306,7 @@ func ValidateLayout(f *LayoutFile) error {
 		if err := validateFiniteNonNegative(r.name+".size", r.reg.Size); err != nil {
 			return err
 		}
-		if err := validateLayoutNode(r.name+".root", &r.reg.Root, seenPanels); err != nil {
+		if err := validateLayoutNode(r.name+".root", &r.reg.Root, seenPanels, 0); err != nil {
 			return err
 		}
 	}
@@ -314,7 +326,10 @@ func ValidateLayout(f *LayoutFile) error {
 	return nil
 }
 
-func validateLayoutNode(path string, n *LayoutNode, seen map[string]bool) error {
+func validateLayoutNode(path string, n *LayoutNode, seen map[string]bool, depth int) error {
+	if depth > maxLayoutDepth {
+		return fmt.Errorf("editor: layout: %s: nesting depth exceeds %d", path, maxLayoutDepth)
+	}
 	hasTabs := len(n.Panels) > 0
 	hasSplit := n.Axis != "" || len(n.Children) > 0 || len(n.Sizes) > 0
 	switch {
@@ -337,6 +352,9 @@ func validateLayoutNode(path string, n *LayoutNode, seen map[string]bool) error 
 		}
 		return nil
 	default:
+		if n.Active != 0 {
+			return fmt.Errorf("editor: layout: %s.active: only valid on tab groups", path)
+		}
 		if n.Axis != "horizontal" && n.Axis != "vertical" {
 			return fmt.Errorf("editor: layout: %s.axis: unsupported axis %q (want \"horizontal\" or \"vertical\")", path, n.Axis)
 		}
@@ -352,7 +370,7 @@ func validateLayoutNode(path string, n *LayoutNode, seen map[string]bool) error 
 			}
 		}
 		for i := range n.Children {
-			if err := validateLayoutNode(fmt.Sprintf("%s.children[%d]", path, i), &n.Children[i], seen); err != nil {
+			if err := validateLayoutNode(fmt.Sprintf("%s.children[%d]", path, i), &n.Children[i], seen, depth+1); err != nil {
 				return err
 			}
 		}
@@ -370,7 +388,10 @@ func validateLayoutPanelKey(field, k string) error {
 	return nil
 }
 
-func checkNoLayoutYAMLReferences(n *yaml.Node) error {
+func checkNoLayoutYAMLReferences(n *yaml.Node, depth int) error {
+	if depth > maxLayoutDepth*4 {
+		return fmt.Errorf("line %d: YAML nesting depth exceeds limit", n.Line)
+	}
 	if n.Kind == yaml.AliasNode {
 		return fmt.Errorf("line %d: YAML aliases are not allowed", n.Line)
 	}
@@ -381,7 +402,7 @@ func checkNoLayoutYAMLReferences(n *yaml.Node) error {
 		if n.Kind == yaml.MappingNode && i%2 == 0 && c.Tag == "!!merge" {
 			return fmt.Errorf("line %d: YAML merge keys are not allowed", c.Line)
 		}
-		if err := checkNoLayoutYAMLReferences(c); err != nil {
+		if err := checkNoLayoutYAMLReferences(c, depth+1); err != nil {
 			return err
 		}
 	}
@@ -390,8 +411,8 @@ func checkNoLayoutYAMLReferences(n *yaml.Node) error {
 
 func validateFiniteNonNegative(field string, v float32) error {
 	f := float64(v)
-	if math.IsNaN(f) || math.IsInf(f, 0) || f < 0 {
-		return fmt.Errorf("editor: layout: %s must be finite and non-negative (got %v)", field, v)
+	if math.IsNaN(f) || math.IsInf(f, 0) || f < 0 || f > maxLayoutSize {
+		return fmt.Errorf("editor: layout: %s must be finite and in [0, %d] (got %v)", field, maxLayoutSize, v)
 	}
 	return nil
 }
@@ -485,10 +506,36 @@ func roundLayoutPoints(v float32) float32 {
 	return float32(math.Round(f*2) / 2)
 }
 
+func readLayoutFileBounded(path string) ([]byte, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("editor: layout: %q is not a regular file", path)
+	}
+	if info.Size() > maxLayoutFileBytes {
+		return nil, fmt.Errorf("editor: layout: file exceeds %d bytes", maxLayoutFileBytes)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	data, err := io.ReadAll(io.LimitReader(f, maxLayoutFileBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxLayoutFileBytes {
+		return nil, fmt.Errorf("editor: layout: file exceeds %d bytes", maxLayoutFileBytes)
+	}
+	return data, nil
+}
+
 // LoadLayoutFile reads and parses the layout YAML file at path.
 // When the file does not exist, it returns DefaultLayoutFile() and a nil error.
 func LoadLayoutFile(path string) (*LayoutFile, error) {
-	data, err := os.ReadFile(path)
+	data, err := readLayoutFileBounded(path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return DefaultLayoutFile(), nil
@@ -520,44 +567,80 @@ func sanitizeDockPoints(p core.Points) core.Points {
 	if math.IsNaN(f) || math.IsInf(f, 0) || f <= 0 {
 		return 0
 	}
+	if f > maxLayoutSize {
+		return core.Points(maxLayoutSize)
+	}
 	return p
 }
 
-func sanitizeDockNode(n dock.Node) dock.Node {
+func sanitizeDockNode(n dock.Node, seen map[string]bool) (dock.Node, bool) {
 	if n.Tabs {
-		if n.Active < 0 || n.Active >= len(n.Panels) {
-			n.Active = 0
+		activeKey := ""
+		if n.Active >= 0 && n.Active < len(n.Panels) {
+			activeKey = n.Panels[n.Active]
 		}
-		return n
-	}
-	if len(n.Sizes) > 0 {
-		if len(n.Sizes) != len(n.Children) {
-			n.Sizes = nil
+		kept := make([]string, 0, len(n.Panels))
+		for _, k := range n.Panels {
+			if k == "" || seen[k] {
+				continue
+			}
+			seen[k] = true
+			kept = append(kept, k)
+		}
+		if len(kept) == 0 {
+			return dock.Node{}, false
+		}
+		active := 0
+		if idx := slices.Index(kept, activeKey); idx >= 0 {
+			active = idx
+		} else if n.Active >= 0 && n.Active < len(kept) {
+			active = n.Active
 		} else {
-			sizes := make([]core.Points, len(n.Sizes))
-			anyPos := false
-			for i, s := range n.Sizes {
-				sz := sanitizeDockPoints(s)
-				sizes[i] = sz
-				if sz > 0 {
-					anyPos = true
-				}
-			}
-			if anyPos {
-				n.Sizes = sizes
-			} else {
-				n.Sizes = nil
+			active = len(kept) - 1
+		}
+		n.Panels = kept
+		n.Active = active
+		return n, true
+	}
+	hasSizes := len(n.Sizes) == len(n.Children)
+	children := make([]dock.Node, 0, len(n.Children))
+	sizes := make([]core.Points, 0, len(n.Children))
+	anyPos := false
+	for i := range n.Children {
+		c, ok := sanitizeDockNode(n.Children[i], seen)
+		if !ok {
+			continue
+		}
+		children = append(children, c)
+		if hasSizes {
+			sz := sanitizeDockPoints(n.Sizes[i])
+			sizes = append(sizes, sz)
+			if sz > 0 {
+				anyPos = true
 			}
 		}
 	}
-	for i := range n.Children {
-		n.Children[i] = sanitizeDockNode(n.Children[i])
+	if len(children) == 0 {
+		return dock.Node{}, false
 	}
-	return n
+	if len(children) == 1 {
+		return children[0], true
+	}
+	n.Children = children
+	if hasSizes && anyPos {
+		n.Sizes = sizes
+	} else {
+		n.Sizes = nil
+	}
+	return n, true
 }
 
-func sanitizeDockRegion(r *dock.Region, fallback core.Points) *dock.Region {
+func sanitizeDockRegion(r *dock.Region, fallback core.Points, seen map[string]bool) *dock.Region {
 	if r == nil {
+		return nil
+	}
+	root, ok := sanitizeDockNode(r.Root, seen)
+	if !ok {
 		return nil
 	}
 	cp := *r
@@ -566,15 +649,21 @@ func sanitizeDockRegion(r *dock.Region, fallback core.Points) *dock.Region {
 	} else {
 		cp.Size = fallback
 	}
-	cp.Root = sanitizeDockNode(cp.Root)
+	cp.Root = root
 	return &cp
 }
 
 func sanitizeDockLayout(l dock.Layout) dock.Layout {
-	l.Center = sanitizeDockNode(l.Center)
-	l.Left = sanitizeDockRegion(l.Left, defaultLeftDockSize)
-	l.Right = sanitizeDockRegion(l.Right, defaultRightDockSize)
-	l.Bottom = sanitizeDockRegion(l.Bottom, defaultBottomDockSize)
+	seen := make(map[string]bool)
+	if c, ok := sanitizeDockNode(l.Center, seen); ok {
+		l.Center = c
+	} else {
+		l.Center = dock.Tabs(PanelViewport)
+		seen[PanelViewport] = true
+	}
+	l.Left = sanitizeDockRegion(l.Left, defaultLeftDockSize, seen)
+	l.Right = sanitizeDockRegion(l.Right, defaultRightDockSize, seen)
+	l.Bottom = sanitizeDockRegion(l.Bottom, defaultBottomDockSize, seen)
 	return l
 }
 
@@ -1017,7 +1106,7 @@ func (e *Editor) LoadLayout() error {
 	if e.LayoutPath == "" {
 		return nil
 	}
-	data, err := os.ReadFile(e.LayoutPath)
+	data, err := readLayoutFileBounded(e.LayoutPath)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil
@@ -1213,10 +1302,10 @@ func (e *Editor) SetDockLayout(l dock.Layout) {
 	e.notify()
 }
 
-// MovePanel moves panel key into the same tab group as targetPanel (or into a region if targetPanel is empty),
+// MovePanel moves panel key into the same tab group as targetPanel,
 // updates and persists the layout, and returns whether the move succeeded.
 func (e *Editor) MovePanel(key, targetPanel string) bool {
-	if e == nil || key == "" || key == targetPanel || !e.isKnownPanel(key) {
+	if e == nil || key == "" || key == PanelViewport || targetPanel == "" || key == targetPanel || !e.isKnownPanel(key) {
 		return false
 	}
 	e.ensureDockLayout()
@@ -1278,7 +1367,7 @@ func (e *Editor) SetPanelVisible(key string, visible bool) {
 	e.ensureDockLayout()
 	if spec, ok := builtinSpec(key); ok && !spec.persistent {
 		e.setToggleablePanelOpen(key, visible)
-		if visible {
+		if visible && e.availablePanels()[key] {
 			e.ensurePanelInBlueprint(key)
 			activatePanelInLayout(&e.dock.blueprint, key)
 		}
@@ -1312,6 +1401,23 @@ func (e *Editor) TogglePanel(key string) {
 		return
 	}
 	e.SetPanelVisible(key, !e.PanelVisible(key))
+}
+
+// revealPanelIfHiddenOrInactive ensures panel key is shown and active in its tab group
+// without rewriting the layout when it is already visible and selected.
+func (e *Editor) revealPanelIfHiddenOrInactive(key string) {
+	if e == nil || !e.dock.initialized {
+		return
+	}
+	if !e.PanelVisible(key) {
+		e.SetPanelVisible(key, true)
+		return
+	}
+	if _, g := findDockPanel(&e.dock.lastActive, key); g != nil {
+		if idx := slices.Index(g.Panels, key); idx >= 0 && g.Active != idx {
+			e.SetPanelVisible(key, true)
+		}
+	}
 }
 
 // Panels returns the list of user-toggleable dock panels (built-in panels and active plugin panels) in menu order.
@@ -1654,9 +1760,15 @@ func (e *Editor) syncDockLayout(onRegister bool) {
 	if !onRegister && len(e.dock.pluginHints) == 0 && e.dock.lastSyncKey == syncKey {
 		return
 	}
-	// Restore any plugin hints for plugins registered after LoadLayout.
+	// Restore any plugin hints for plugins registered after LoadLayout in deterministic key order.
 	if len(e.dock.pluginHints) > 0 {
-		for k, hint := range e.dock.pluginHints {
+		hintKeys := make([]string, 0, len(e.dock.pluginHints))
+		for k := range e.dock.pluginHints {
+			hintKeys = append(hintKeys, k)
+		}
+		slices.Sort(hintKeys)
+		for _, k := range hintKeys {
+			hint := e.dock.pluginHints[k]
 			if e.isKnownPanel(k) {
 				if !dockLayoutHasPanel(&e.dock.blueprint, k) {
 					insertPluginFromHint(&e.dock.blueprint, k, hint)
@@ -1906,6 +2018,9 @@ func stripEmptyRegions(l dock.Layout) dock.Layout {
 
 // reinsertPreservedPanel keeps an inactive or hidden panel's position in dst from old.
 func reinsertPreservedPanel(dst, old *dock.Layout, key string) {
+	if dockLayoutHasPanel(dst, key) {
+		return
+	}
 	p, oldGroup := findDockPanel(old, key)
 	if oldGroup == nil {
 		return

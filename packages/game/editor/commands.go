@@ -1446,6 +1446,7 @@ func (e *Editor) initBuiltinCommands() {
 			Checked: func() bool { return e.RightRailTab() == RightTabAgent },
 			Run: func() error {
 				e.SetRightRailTab(RightTabAgent)
+				e.revealPanelIfHiddenOrInactive(PanelInspector)
 				return nil
 			},
 		},
@@ -1463,6 +1464,7 @@ func (e *Editor) initBuiltinCommands() {
 			Checked: func() bool { return e.RightRailTab() == RightTabInspector },
 			Run: func() error {
 				e.SetRightRailTab(RightTabInspector)
+				e.revealPanelIfHiddenOrInactive(PanelInspector)
 				return nil
 			},
 		},
@@ -1517,6 +1519,9 @@ func (e *Editor) initBuiltinCommands() {
 			Checked:     func() bool { return e.TasksPanelOpen() },
 			Run: func() error {
 				e.ToggleTasksPanel()
+				if e.TasksPanelOpen() {
+					e.revealPanelIfHiddenOrInactive(PanelInspector)
+				}
 				return nil
 			},
 		},
@@ -1532,6 +1537,9 @@ func (e *Editor) initBuiltinCommands() {
 			Checked:     func() bool { return e.HistoryPanelOpen() },
 			Run: func() error {
 				e.ToggleHistoryPanel()
+				if e.HistoryPanelOpen() {
+					e.revealPanelIfHiddenOrInactive(PanelInspector)
+				}
 				return nil
 			},
 		},
@@ -2241,6 +2249,9 @@ func (e *Editor) initBuiltinCommands() {
 			Checked:     func() bool { return e.SketchActive() },
 			Run: func() error {
 				e.ToggleSketch()
+				if e.SketchPanelOpen() {
+					e.revealPanelIfHiddenOrInactive(PanelInspector)
+				}
 				return nil
 			},
 		},
