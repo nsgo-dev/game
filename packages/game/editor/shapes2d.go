@@ -945,17 +945,17 @@ func normZero(v float64) float64 {
 
 // --- 2D Viewport Drawing ---
 
-func shapeBaseRGB(compName string) uint32 {
+func shapeBaseColor(p SpecPalette, compName string) core.Color {
 	lc := strings.ToLower(compName)
 	switch {
 	case strings.Contains(lc, "trigger"), strings.Contains(lc, "sensor"), strings.Contains(lc, "area"):
-		return 0xF59E0B // amber
+		return p.Warning.Fg
 	case strings.Contains(lc, "nav"), strings.Contains(lc, "path"), strings.Contains(lc, "spawn"):
-		return 0x10B981 // emerald
+		return p.Added.Fg
 	case strings.Contains(lc, "light"), strings.Contains(lc, "occlud"), strings.Contains(lc, "shadow"):
-		return 0xA855F7 // violet
+		return p.Agent.Fg
 	default:
-		return 0x22D3EE // cyan
+		return p.Accent.Fg
 	}
 }
 
@@ -1013,7 +1013,7 @@ func (e *Editor) drawComponentShapes2D(d *core.Drawing, scene *sceneformat.Built
 			d.Save()
 			saved = true
 		}
-		rgb := shapeBaseRGB(s.Component)
+		base := shapeBaseColor(e.activeSpecPalette(), s.Component)
 		strokeAlpha := float32(0.55)
 		fillAlpha := float32(0.07)
 		lineW := float32(1.25)
@@ -1022,8 +1022,8 @@ func (e *Editor) drawComponentShapes2D(d *core.Drawing, scene *sceneformat.Built
 			fillAlpha = 0.15
 			lineW = 1.75
 		}
-		stroke := core.RGBA(rgb, strokeAlpha)
-		fill := core.RGBA(rgb, fillAlpha)
+		stroke := specAlpha(base, strokeAlpha)
+		fill := specAlpha(base, fillAlpha)
 		d.SetLineWidth(lineW)
 		switch s.Kind {
 		case sceneformat.FieldPoint:
@@ -1058,6 +1058,7 @@ func (e *Editor) drawComponentShapeHandles2D(d *core.Drawing) {
 	active, hasActive := e.ActiveShapeHandle2D()
 	d.Save()
 	d.SetLineWidth(1.5)
+	spec := e.activeSpecPalette()
 	for _, h := range handles {
 		isActive := hasActive &&
 			h.ObjectID == active.ObjectID &&
@@ -1065,17 +1066,16 @@ func (e *Editor) drawComponentShapeHandles2D(d *core.Drawing) {
 			h.Field == active.Field &&
 			h.Kind == active.Kind &&
 			h.Index == active.Index
-		rgb := shapeBaseRGB(h.Component)
-		stroke := core.RGBA(rgb, 1)
-		fill := core.RGBA(0xF8FAFC, 1)
+		stroke := shapeBaseColor(spec, h.Component)
+		fill := spec.TextPrimary
 		if isActive {
-			fill = gizmoColorActive
-			stroke = core.RGBA(0x0F172A, 1)
+			fill = spec.Warning.Fg
+			stroke = spec.Bg
 		}
 		p := h.Pos
 		switch h.Kind {
 		case ShapeHandlePolygonMidpoint:
-			d.SetFillColor(core.RGBA(0x0F172A, 0.75))
+			d.SetFillColor(specAlpha(spec.Bg, 0.75))
 			d.SetStrokeColor(stroke)
 			d.BeginPath().Ellipse(p.X, p.Y, shapeMidHalf, shapeMidHalf).Fill().Stroke()
 		case ShapeHandlePolygonVertex, ShapeHandlePoint, ShapeHandleCircleRadius, ShapeHandleCircleCenter:

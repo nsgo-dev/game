@@ -264,13 +264,13 @@ func (h GizmoHandle3D) referencePoint() math3d.Vec3 {
 
 func (h GizmoHandle3D) effectiveColor(active bool) core.Color {
 	if active {
-		return core.RGBA(0xFACC15, 1)
+		return darkSpecPalette.Warning.Fg
 	}
 	var zero core.Color
 	if h.Color != zero {
 		return h.Color
 	}
-	return core.RGBA(0x38BDF8, 1)
+	return darkSpecPalette.Accent.Fg
 }
 
 // ComponentGizmo3D registers 3D viewport handles and drag editing for one component type.
@@ -578,7 +578,7 @@ func drawGizmoHandle3D(d *core.Drawing, proj Projection3D, mat math3d.Mat4, h Gi
 		}
 		d.Save()
 		d.SetFillColor(col).BeginPath().Arc(sx, sy, r, 0, float32(2*math.Pi), false).Fill()
-		d.SetStrokeColor(core.RGBA(0x0F172A, 0.9)).SetLineWidth(1.25).BeginPath().Arc(sx, sy, r, 0, float32(2*math.Pi), false).Stroke()
+		d.SetStrokeColor(specAlpha(darkSpecPalette.Bg, 0.9)).SetLineWidth(1.25).BeginPath().Arc(sx, sy, r, 0, float32(2*math.Pi), false).Stroke()
 		if active && h.Label != "" {
 			d.SetFillColor(col).FillText(h.Label, sx+r+4, sy+3, core.Font{Size: 10})
 		}
@@ -682,9 +682,10 @@ func newPhysicsCollider3DGizmo(component string, alwaysTrigger bool) *ComponentG
 			cy := float32(readFloat(ed, objectID, "offsetY", 0))
 			cz := float32(readFloat(ed, objectID, "offsetZ", 0))
 			center := math3d.Vec3{X: cx, Y: cy, Z: cz}
-			col := core.RGBA(0x38BDF8, 1)
+			spec := ed.activeSpecPalette()
+			col := spec.Accent.Fg
 			if isTrigger(ed, objectID) {
-				col = core.RGBA(0xF59E0B, 1)
+				col = spec.Warning.Fg
 			}
 
 			switch shape {

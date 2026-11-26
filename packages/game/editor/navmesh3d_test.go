@@ -16,6 +16,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/world3d"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
+	"github.com/nsgo-dev/nsgo/ui"
 )
 
 const navMeshTestProjectYAML = `version: 1
@@ -507,8 +508,9 @@ func TestEditorNavMesh3DOrthographicOverlayAlignment(t *testing.T) {
 	ops := app.Find("id:nav-ortho-canvas").Ops
 	var fillPts [][2]float32
 	inNavFill := false
+	wantNavFill := ui.Alpha(ed.SpecPalette(nil).Accent.Fg, 0.24)
 	for _, op := range ops {
-		if op.Kind == core.DrawFillColor && op.Color == core.RGBA(0x22D3EE, 0.24) {
+		if op.Kind == core.DrawFillColor && op.Color == wantNavFill {
 			inNavFill = true
 			continue
 		}

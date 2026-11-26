@@ -13,13 +13,13 @@ import (
 
 // Additional Spec color tokens for docs/design/editor/Animation.dc.html (shared specPanel/specRaised/etc. live in profiler_ui.go).
 var (
-	specBG          = core.RGBA(0x101216, 1)
-	specActiveNode  = core.RGBA(0x1A2030, 1)
-	specViewportBG  = core.RGBA(0x15181D, 1)
-	specViewportDot = core.RGBA(0x2A2F38, 1)
-	specEdgeLine    = core.RGBA(0x4A5262, 1)
-	specAccentText  = core.RGBA(0xB9CFFF, 1)
-	specFloorFill   = core.RGBA(0x2A2F3A, 1)
+	specBG          = darkSpecPalette.Bg
+	specActiveNode  = CompositeOver(specAlpha(darkSpecPalette.Accent.Fg, 0.12), darkSpecPalette.Raised)
+	specViewportBG  = darkSpecPalette.Viewport
+	specViewportDot = darkSpecPalette.ViewportDot
+	specEdgeLine    = CompositeOver(specAlpha(darkSpecPalette.TextFaint, 0.45), darkSpecPalette.Viewport)
+	specAccentText  = CompositeOver(specAlpha(darkSpecPalette.TextPrimary, 0.62), darkSpecPalette.Accent.Fg)
+	specFloorFill   = darkSpecPalette.LineRaised
 )
 
 const (

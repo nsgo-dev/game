@@ -11,14 +11,14 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// Spec-derived alpha tints for agent-accented cards and buttons (base color is Spec.dc.html `agent` #9B7BFF).
+// Spec-derived alpha tints for agent-accented cards and buttons from spec_theme.yaml.
 var (
-	specAgentTint     = core.RGBA(0x9B7BFF, 0.12)
-	specAgentCardTint = core.RGBA(0x9B7BFF, 0.06)
-	specAgentEdge     = core.RGBA(0x9B7BFF, 0.45)
-	specAccentEdge    = core.RGBA(0x3B7BFF, 0.55)
-	specChangedTint   = core.RGBA(0xE9A84A, 0.18)
-	specProblemTint   = core.RGBA(0xFF6B6B, 0.14)
+	specAgentTint     = specAlpha(darkSpecPalette.Agent.Fg, 0.12)
+	specAgentCardTint = specAlpha(darkSpecPalette.Agent.Fg, 0.06)
+	specAgentEdge     = specAlpha(darkSpecPalette.Agent.Fg, 0.45)
+	specAccentEdge    = specAlpha(darkSpecPalette.Accent.Fg, 0.55)
+	specChangedTint   = specAlpha(darkSpecPalette.Changed.Fg, 0.18)
+	specProblemTint   = specAlpha(darkSpecPalette.Removed.Fg, 0.14)
 )
 
 // MergeConflictView renders the full-window Scene Merge Conflict screen matching
@@ -1613,10 +1613,10 @@ func drawMergeObjectBlock(d *core.Drawing, o *sceneformat.ObjectDoc, wx, wy floa
 		fill = specChanged
 		radius = 5
 	case strings.Contains(lower, "slime") || strings.Contains(lower, "enemy"):
-		fill = core.RGBA(0x4FD38A, 0.55)
+		fill = specAlpha(darkSpecPalette.Added.Fg, 0.55)
 		radius = 6
 	case strings.Contains(lower, "coin") || strings.Contains(lower, "pickup"):
-		fill = core.RGBA(0xF2C14E, 0.80)
+		fill = specAlpha(darkSpecPalette.Warning.Fg, 0.80)
 		radius = 5
 	case strings.Contains(lower, "door"):
 		fill = specTextMuted
@@ -1626,7 +1626,7 @@ func drawMergeObjectBlock(d *core.Drawing, o *sceneformat.ObjectDoc, wx, wy floa
 		radius = 2
 	}
 	if ghost {
-		fill = core.RGBA(0x8B92A0, 0.18)
+		fill = specAlpha(darkSpecPalette.TextFaint, 0.18)
 	}
 	d.Save()
 	d.SetFillColor(fill)

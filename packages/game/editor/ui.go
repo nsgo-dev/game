@@ -807,9 +807,9 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 							return ed.T("scene.untitledScene")
 						},
 						Style: core.Style{
-							FontSize:   14,
-							FontWeight: 700,
-							Color:      colors.Text(),
+							FontSize:   SpecFontTitleSize,
+							FontWeight: SpecFontTitleWeight,
+							Color:      ed.SpecPalette(cx).TextPrimary,
 						},
 					},
 					ui.HStack{Gap: 6, Children: fileButtons},

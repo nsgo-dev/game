@@ -12,19 +12,19 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// Spec-derived alpha tints strictly from Spec.dc.html color tokens (never introducing off-spec hex values).
+// Spec-derived alpha tints strictly from spec_theme.yaml color tokens.
 var (
-	specPlaytestMissedFill   = core.RGBA(0xFF6B6B, 0.08)
-	specPlaytestHeatRedHigh  = core.RGBA(0xFF6B6B, 0.56)
-	specPlaytestHeatRedMid   = core.RGBA(0xFF6B6B, 0.28)
-	specPlaytestHeatRedSoft  = core.RGBA(0xFF6B6B, 0.12)
-	specPlaytestHeatAmberHi  = core.RGBA(0xE9A84A, 0.48)
-	specPlaytestHeatAmberMid = core.RGBA(0xE9A84A, 0.22)
-	specPlaytestHeatAmberLow = core.RGBA(0xE9A84A, 0.10)
-	specPlaytestLineArea     = core.RGBA(0x3B7BFF, 0.14)
-	specPlaytestGridLine     = core.RGBA(0x8B92A0, 0.16)
-	specPlaytestAgentBanner  = core.RGBA(0x9B7BFF, 0.10)
-	specPlaytestAgentBorder  = core.RGBA(0x9B7BFF, 0.50)
+	specPlaytestMissedFill   = specAlpha(darkSpecPalette.Removed.Fg, 0.08)
+	specPlaytestHeatRedHigh  = specAlpha(darkSpecPalette.Removed.Fg, 0.56)
+	specPlaytestHeatRedMid   = specAlpha(darkSpecPalette.Removed.Fg, 0.28)
+	specPlaytestHeatRedSoft  = specAlpha(darkSpecPalette.Removed.Fg, 0.12)
+	specPlaytestHeatAmberHi  = specAlpha(darkSpecPalette.Changed.Fg, 0.48)
+	specPlaytestHeatAmberMid = specAlpha(darkSpecPalette.Changed.Fg, 0.22)
+	specPlaytestHeatAmberLow = specAlpha(darkSpecPalette.Changed.Fg, 0.10)
+	specPlaytestLineArea     = specAlpha(darkSpecPalette.Accent.Fg, 0.14)
+	specPlaytestGridLine     = specAlpha(darkSpecPalette.TextFaint, 0.16)
+	specPlaytestAgentBanner  = specAlpha(darkSpecPalette.Agent.Fg, 0.10)
+	specPlaytestAgentBorder  = specAlpha(darkSpecPalette.Agent.Fg, 0.50)
 )
 
 // PlaytestReportView renders the full-window Playtest Report screen matching docs/design/editor/Playtest.dc.html

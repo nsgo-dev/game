@@ -875,7 +875,7 @@ func (e *Editor) RenderModelPreview(relPath string, width, height int) (*image.R
 		ColorAttachments: []gpu.ColorAttachment{{
 			LoadOp:     gpu.LoadClear,
 			StoreOp:    gpu.StoreStore,
-			ClearColor: core.RGB(0x1E293B),
+			ClearColor: e.activeSpecPalette().Viewport,
 		}},
 		DepthStencil: &gpu.DepthStencilAttachment{
 			DepthLoadOp:  gpu.LoadClear,
@@ -912,7 +912,8 @@ func (e *Editor) DrawModelPreview(d *core.Drawing, size core.Size, relPath strin
 	if !isFiniteFloat32(cw) || !isFiniteFloat32(ch) || cw <= 0 || ch <= 0 {
 		return
 	}
-	d.SetFillColor(core.RGB(0x1E293B)).FillRect(0, 0, cw, ch)
+	spec := e.activeSpecPalette()
+	d.SetFillColor(spec.Viewport).FillRect(0, 0, cw, ch)
 	if e == nil {
 		return
 	}
@@ -928,10 +929,10 @@ func (e *Editor) DrawModelPreview(d *core.Drawing, size core.Size, relPath strin
 		Version: ver,
 	}, 0, 0, iw, ih, 0, 0, cw, ch)
 
-	drawModelPreviewTriad(d, e.ModelPreviewCamera(), cw, ch)
+	drawModelPreviewTriad(d, e.ModelPreviewCamera(), cw, ch, spec)
 }
 
-func drawModelPreviewTriad(d *core.Drawing, cam OrbitCamera3D, cw, ch float32) {
+func drawModelPreviewTriad(d *core.Drawing, cam OrbitCamera3D, cw, ch float32, spec SpecPalette) {
 	if cw < 48 || ch < 48 {
 		return
 	}
@@ -942,9 +943,9 @@ func drawModelPreviewTriad(d *core.Drawing, cam OrbitCamera3D, cw, ch float32) {
 		dir   [3]float32
 		color core.Color
 	}{
-		{[3]float32{1, 0, 0}, core.RGB(0xEF4444)},
-		{[3]float32{0, 1, 0}, core.RGB(0x22C55E)},
-		{[3]float32{0, 0, 1}, core.RGB(0x3B82F6)},
+		{[3]float32{1, 0, 0}, spec.AxisX},
+		{[3]float32{0, 1, 0}, spec.AxisY},
+		{[3]float32{0, 0, 1}, spec.AxisZ},
 	}
 	for _, a := range axes {
 		px := a.dir[0]*right[0] + a.dir[1]*right[1] + a.dir[2]*right[2]

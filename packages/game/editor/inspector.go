@@ -564,14 +564,11 @@ func valueKindTag(v any) string {
 // nothing else is selected. A component that a plugin which is on has an Inspector for is
 // drawn by that inspector instead of the generic fields.
 func InspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
-	return inspectorThemeScope{
-		build: func(cx *core.Scope) core.Node {
-			return renderInspectorView(cx, ed, rev)
-		},
-	}
+	return renderInspectorView(cx, ed, rev)
 }
 
 func renderInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+	spec := ed.SpecPalette(cx)
 	schema := core.NewMemo(cx, func() string {
 		_ = rev.Get()
 		return inspectorSchemaKey(ed)
@@ -596,6 +593,7 @@ func renderInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 			return !shouldShowRemoteInspector(ed) && ed.Doc != nil
 		},
 		Then: func(cx *core.Scope) core.Node {
+			btnSpec := ed.SpecPalette(cx)
 			return core.View{
 				TestID: "inspector-open-yaml",
 				Role:   core.RoleButton,
@@ -607,20 +605,20 @@ func renderInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 					Padding:      core.Symmetric(0, 8),
 					CornerRadius: 6,
 					Gap:          5,
-					Hover:        &core.Style{Background: specRaised},
-					FocusVisible: specFocusRingStyle,
+					Hover:        &core.Style{Background: btnSpec.Raised},
+					FocusVisible: btnSpec.FocusRing(2),
 				},
 				OnPress: func(core.PressEvent) {
 					ed.report(ed.OpenSelectedObjectYAML())
 				},
 				Children: []core.Node{
-					ui.Icon(lucide.FileCode, 13, func() core.Color { return specTextSecondary }),
+					ui.Icon(lucide.FileCode, 13, func() core.Color { return btnSpec.TextMuted }),
 					core.Text{
 						Content:  ed.T("inspector.openYAML"),
 						MaxLines: 1,
 						Style: core.Style{
 							FontSize: 11.5,
-							Color:    specTextSecondary,
+							Color:    btnSpec.TextMuted,
 						},
 					},
 				},
@@ -634,9 +632,9 @@ func renderInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 			Width:       core.Pt(272),
 			FlexGrow:    1,
 			FlexBasis:   core.Pt(0),
-			Background:  specPanel,
+			Background:  spec.Panel,
 			Borders:     core.Edges{Left: 1},
-			BorderColor: specLine,
+			BorderColor: spec.Line,
 			Gap:         0,
 		}),
 		Children: []core.Node{
@@ -650,6 +648,7 @@ func renderInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 					return playInspectorTabBarView(cx, ed, rev)
 				},
 				Else: func(cx *core.Scope) core.Node {
+					hdrSpec := ed.SpecPalette(cx)
 					return core.View{
 						Style: core.Style{
 							Direction:      core.Row,
@@ -658,7 +657,7 @@ func renderInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 							Height:         core.Pt(38),
 							Padding:        core.Symmetric(0, 12),
 							Borders:        core.Edges{Bottom: 1},
-							BorderColor:    specLine,
+							BorderColor:    hdrSpec.Line,
 							Gap:            8,
 							FlexShrink:     0,
 						},
@@ -675,7 +674,7 @@ func renderInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 								Style: core.Style{
 									FontSize:   13,
 									FontWeight: core.FontWeightSemibold,
-									Color:      specTextStrong,
+									Color:      hdrSpec.TextPrimary,
 								},
 							},
 							openYAMLBtn,
@@ -714,7 +713,7 @@ func renderInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 										Content: ed.T("inspector.empty"),
 										Style: core.Style{
 											FontSize: 12,
-											Color:    specTextMuted,
+											Color:    ed.SpecPalette(cx).TextFaint,
 										},
 									}
 								}
@@ -1166,6 +1165,7 @@ func layerInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], la
 
 func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], objID, layerName string) core.Node {
 	colors := ui.ColorsOf(cx)
+	spec := ed.SpecPalette(cx)
 	info := ed.ObjectOverrideInfo(objID)
 	isLocal := info.Origin == ObjectLocal
 	disabled := func() bool {
@@ -1180,7 +1180,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 				FontSize:      11,
 				FontWeight:    core.FontWeightSemibold,
 				LetterSpacing: 0.7,
-				Color:         specTextMuted,
+				Color:         spec.TextFaint,
 			},
 		}
 	}
@@ -1255,7 +1255,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 				Width:      core.Pt(68),
 				FlexShrink: 0,
 				FontSize:   12,
-				Color:      specTextSecondary,
+				Color:      spec.TextMuted,
 			},
 		}, tip)
 	}
@@ -1308,7 +1308,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 			Style: core.Style{
 				FlexShrink: 1,
 				FontSize:   12,
-				Color:      specTextSecondary,
+				Color:      spec.TextMuted,
 			},
 		}, tip)
 		var labelCell core.Node
@@ -1350,7 +1350,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 				Style: core.Style{
 					FlexShrink: 1,
 					FontSize:   12,
-					Color:      specTextSecondary,
+					Color:      spec.TextMuted,
 				},
 			}, "")),
 			controlWithRevert(overrideKey, label, control),
@@ -1386,7 +1386,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 				MaxLines: 1,
 				Style: core.Style{
 					FontSize: 12,
-					Color:    specTextSecondary,
+					Color:    spec.TextMuted,
 				},
 			},
 		)
@@ -1463,7 +1463,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 								overrideDot(key),
 								core.Text{
 									Content: axisName,
-									Style:   core.Style{FontSize: 10.5, Color: specTextMuted},
+									Style:   core.Style{FontSize: 10.5, Color: spec.TextFaint},
 								},
 								overrideRevertBtn(key, axisName),
 							},
@@ -1534,7 +1534,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 							Height:       core.Pt(28),
 							CornerRadius: 7,
 							FlexShrink:   0,
-							Background:   objectSwatchColor(objInit),
+							Background:   objectSwatchColor(spec, objInit),
 						},
 					},
 					core.View{
@@ -1552,7 +1552,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 								Style: core.Style{
 									FontSize:   13.5,
 									FontWeight: core.FontWeightSemibold,
-									Color:      specTextStrong,
+									Color:      spec.TextPrimary,
 								},
 							},
 							core.Text{
@@ -1568,7 +1568,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 								MaxLines: 1,
 								Style: core.Style{
 									FontSize: 11.5,
-									Color:    specTextMuted,
+									Color:    spec.TextFaint,
 								},
 							},
 						},
@@ -1598,13 +1598,13 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 			Height:       core.Pt(28),
 			Padding:      core.Symmetric(0, 8),
 			CornerRadius: 6,
-			Background:   specRaised,
+			Background:   spec.Raised,
 			BorderWidth:  1,
-			BorderColor:  specLineRaised,
+			BorderColor:  spec.LineRaised,
 			Gap:          6,
 		},
 		Children: []core.Node{
-			ui.Icon(lucide.Search, 12, func() core.Color { return specTextMuted }),
+			ui.Icon(lucide.Search, 12, func() core.Color { return spec.TextFaint }),
 			core.Input{
 				TestID:      "inspector-field-filter",
 				Label:       ed.T("inspector.filterFields"),
@@ -1623,9 +1623,9 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 					MinWidth:         core.Pt(0),
 					Height:           core.Pt(26),
 					FontSize:         12,
-					Color:            specTextStrong,
-					PlaceholderColor: specTextMuted,
-					CaretColor:       specAccent,
+					Color:            spec.TextPrimary,
+					PlaceholderColor: spec.TextFaint,
+					CaretColor:       spec.Accent.Fg,
 				},
 			},
 			core.Show{
@@ -1673,7 +1673,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 					Style: core.Style{
 						FlexShrink: 1,
 						FontSize:   12,
-						Color:      specTextSecondary,
+						Color:      spec.TextMuted,
 					},
 				}, "")),
 				controlWithRevert("name", ed.T("inspector.name"), specInputField(cx, ed, ui.Input{
@@ -1781,9 +1781,9 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 						Gap:          6,
 						Padding:      core.All(8),
 						CornerRadius: 6,
-						Background:   specRaised,
+						Background:   spec.Raised,
 						BorderWidth:  1,
-						BorderColor:  specLineRaised,
+						BorderColor:  spec.LineRaised,
 					},
 					Children: []core.Node{
 						core.View{
@@ -1794,7 +1794,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 									TestID:   "inspector-object-scene",
 									Content:  info.SourceScene,
 									MaxLines: 1,
-									Style:    core.Style{FontSize: 11, Color: specText, FlexGrow: 1, FlexShrink: 1},
+									Style:    core.Style{FontSize: 11, Color: spec.TextSecondary, FlexGrow: 1, FlexShrink: 1},
 								},
 							},
 						},
@@ -1809,7 +1809,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 								}
 								return ed.T("overrides.overrideCount", l10n.Param("count", ovCount))
 							},
-							Style: core.Style{FontSize: 11, Color: specTextMuted},
+							Style: core.Style{FontSize: 11, Color: spec.TextFaint},
 						},
 						ui.Wrap{Children: actionBtns},
 					},
@@ -1834,7 +1834,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 						TestID:    "inspector-x",
 						Label:     "X",
 						AxisLabel: "X",
-						AxisColor: specProblem,
+						AxisColor: spec.AxisX,
 						Step:      1,
 						Scrub:     InspectorScrubField{ObjectID: objID, Field: "x", Step: 1},
 						Disabled:  disabled,
@@ -1855,7 +1855,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 						TestID:    "inspector-y",
 						Label:     "Y",
 						AxisLabel: "Y",
-						AxisColor: specAdded,
+						AxisColor: spec.AxisY,
 						Step:      1,
 						Scrub:     InspectorScrubField{ObjectID: objID, Field: "y", Step: 1},
 						Disabled:  disabled,
@@ -1879,7 +1879,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 						TestID:    "inspector-pos-z",
 						Label:     ed.T("inspector.posZ"),
 						AxisLabel: "Z",
-						AxisColor: specAccent,
+						AxisColor: spec.AxisZ,
 						Step:      1,
 						Scrub:     InspectorScrubField{ObjectID: objID, Field: "posZ", Step: 1},
 						Disabled:  disabled,
@@ -1909,7 +1909,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 							TestID:    "inspector-rot-x",
 							Label:     ed.T("inspector.rotX"),
 							AxisLabel: "X",
-							AxisColor: specProblem,
+							AxisColor: spec.AxisX,
 							Step:      0.1,
 							Scrub:     InspectorScrubField{ObjectID: objID, Field: "rotX", Step: 0.1},
 							Disabled:  disabled,
@@ -1930,7 +1930,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 							TestID:    "inspector-rot-y",
 							Label:     ed.T("inspector.rotY"),
 							AxisLabel: "Y",
-							AxisColor: specAdded,
+							AxisColor: spec.AxisY,
 							Step:      0.1,
 							Scrub:     InspectorScrubField{ObjectID: objID, Field: "rotY", Step: 0.1},
 							Disabled:  disabled,
@@ -1951,7 +1951,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 							TestID:    "inspector-rot-z",
 							Label:     ed.T("inspector.rotZ"),
 							AxisLabel: "Z",
-							AxisColor: specAccent,
+							AxisColor: spec.AxisZ,
 							Step:      0.1,
 							Scrub:     InspectorScrubField{ObjectID: objID, Field: "rotZ", Step: 0.1},
 							Disabled:  disabled,
@@ -2002,7 +2002,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 						TestID:    "inspector-scale-x",
 						Label:     ed.T("inspector.scaleX"),
 						AxisLabel: "X",
-						AxisColor: specProblem,
+						AxisColor: spec.AxisX,
 						Step:      0.1,
 						Scrub:     InspectorScrubField{ObjectID: objID, Field: "scaleX", Step: 0.1},
 						Disabled:  disabled,
@@ -2023,7 +2023,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 						TestID:    "inspector-scale-y",
 						Label:     ed.T("inspector.scaleY"),
 						AxisLabel: "Y",
-						AxisColor: specAdded,
+						AxisColor: spec.AxisY,
 						Step:      0.1,
 						Scrub:     InspectorScrubField{ObjectID: objID, Field: "scaleY", Step: 0.1},
 						Disabled:  disabled,
@@ -2047,7 +2047,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 						TestID:    "inspector-scale-z",
 						Label:     ed.T("inspector.scaleZ"),
 						AxisLabel: "Z",
-						AxisColor: specAccent,
+						AxisColor: spec.AxisZ,
 						Step:      0.1,
 						Scrub:     InspectorScrubField{ObjectID: objID, Field: "scaleZ", Step: 0.1},
 						Disabled:  disabled,
@@ -2129,7 +2129,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 						Content: ed.T("inspector.scrubHint3D"),
 						Style: core.Style{
 							FontSize: 11,
-							Color:    specTextMuted,
+							Color:    spec.TextFaint,
 						},
 					})
 				}
@@ -2296,7 +2296,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 									}
 									return fmt.Sprintf("Culled (%d levels)", count)
 								},
-								Style: core.Style{FontSize: 12, Color: specText},
+								Style: core.Style{FontSize: 12, Color: spec.TextSecondary},
 							})
 						},
 					},
@@ -2523,7 +2523,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 						lblInner := inspectorScrubHandle(
 							ed, cfg.TestID+"-scrub", "", cfg.Scrub, disabled,
 							core.Style{Height: core.Pt(28), FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
-							core.Text{Content: key, MaxLines: 1, Style: core.Style{FontSize: 12, Color: specTextSecondary}},
+							core.Text{Content: key, MaxLines: 1, Style: core.Style{FontSize: 12, Color: spec.TextMuted}},
 						)
 						lbl := labelWithOverride(ovKey, lblInner)
 						if isLocal {
@@ -2561,7 +2561,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 						lblInner := inspectorScrubHandle(
 							ed, cfg.TestID+"-scrub", "", cfg.Scrub, disabled,
 							core.Style{Height: core.Pt(28), FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
-							core.Text{Content: key, MaxLines: 1, Style: core.Style{FontSize: 12, Color: specTextSecondary}},
+							core.Text{Content: key, MaxLines: 1, Style: core.Style{FontSize: 12, Color: spec.TextMuted}},
 						)
 						lbl := labelWithOverride(ovKey, lblInner)
 						if isLocal {
@@ -2591,7 +2591,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 						lbl := labelWithOverride(ovKey, withTooltip(core.Text{
 							Content:  key,
 							MaxLines: 1,
-							Style:    core.Style{FlexShrink: 1, FontSize: 12, Color: specTextSecondary},
+							Style:    core.Style{FlexShrink: 1, FontSize: 12, Color: spec.TextMuted},
 						}, ""))
 						if isLocal {
 							lbl = plainLabel(key, "", "")
@@ -2740,7 +2740,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 							TestID:   labelID,
 							Content:  field.Name,
 							MaxLines: 1,
-							Style:    core.Style{FlexShrink: 1, FontSize: 12, Color: specTextSecondary},
+							Style:    core.Style{FlexShrink: 1, FontSize: 12, Color: spec.TextMuted},
 						}, tip))
 						if isLocal {
 							lbl = plainLabel(field.Name, labelID, tip)
@@ -2912,7 +2912,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 							TestID:   labelID,
 							Content:  fk,
 							MaxLines: 1,
-							Style:    core.Style{FlexShrink: 1, FontSize: 12, Color: specTextSecondary},
+							Style:    core.Style{FlexShrink: 1, FontSize: 12, Color: spec.TextMuted},
 						}, ""))
 						if isLocal {
 							lbl = plainLabel(fk, labelID, "")
@@ -2965,7 +2965,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 		Style: core.Style{
 			FontSize:   11.5,
 			LineHeight: 16.5,
-			Color:      specTextMuted,
+			Color:      spec.TextFaint,
 			Padding:    core.Edges{Top: 6},
 		},
 	}

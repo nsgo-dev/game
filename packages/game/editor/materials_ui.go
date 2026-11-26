@@ -137,7 +137,7 @@ func materialEditorPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 				Style: core.Style{
 					Width:        core.Pt(232),
 					Height:       core.Pt(156),
-					Background:   core.RGB(0x141824),
+					Background:   ed.SpecPalette(cx).Viewport,
 					CornerRadius: 6,
 					BorderWidth:  1,
 					BorderColor:  colors.Line(),
@@ -430,7 +430,7 @@ func materialEditorPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 				ed.T("material.field.baseColor"),
 				"#ffffff",
 				false,
-				core.RGB(0xffffff),
+				colorFromRGBA8(255, 255, 255, 255),
 				func() string { return currentMat().BaseColor },
 				ed.SetMaterialBaseColor,
 			)),
@@ -439,7 +439,7 @@ func materialEditorPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 				ed.T("material.field.emissiveLabel"),
 				"#000000",
 				true,
-				core.RGB(0x000000),
+				colorFromRGBA8(0, 0, 0, 255),
 				func() string { return currentMat().Emissive },
 				ed.SetMaterialEmissive,
 			)),
@@ -536,13 +536,14 @@ func drawMaterialPreviewCanvas(d *core.Drawing, size core.Size, ed *Editor) {
 	if w <= 0 || h <= 0 {
 		return
 	}
+	spec := ed.activeSpecPalette()
 	// Draw transparency checkerboard so opacity and blend modes are legible.
 	const cell float32 = 12
 	for y := float32(0); y < h; y += cell {
 		for x := float32(0); x < w; x += cell {
-			col := core.RGB(0x1e2433)
+			col := spec.Viewport
 			if (int(x/cell)+int(y/cell))%2 == 1 {
-				col = core.RGB(0x283044)
+				col = spec.LineRaised
 			}
 			d.SetFillColor(col).FillRect(x, y, min(cell, w-x), min(cell, h-y))
 		}
@@ -552,7 +553,7 @@ func drawMaterialPreviewCanvas(d *core.Drawing, size core.Size, ed *Editor) {
 	if shape != MaterialPreviewSprite {
 		img, err := ed.MaterialPreviewImage(MaterialPreviewSize)
 		if err != nil {
-			d.SetFillColor(core.RGB(0xf87171)).FillText("Preview error", 8, 20, core.Font{Size: 11})
+			d.SetFillColor(spec.Removed.Fg).FillText("Preview error", 8, 20, core.Font{Size: 11})
 			return
 		}
 		if img != nil {
@@ -609,7 +610,7 @@ func drawMaterialPreviewCanvas(d *core.Drawing, size core.Size, ed *Editor) {
 		label = path.Base(ed.material.relPath)
 	}
 	d.Save()
-	d.SetFillColor(core.RGBA(0x0f172a, 0.72)).FillRect(4, h-18, w-8, 14)
-	d.SetFillColor(core.RGB(0xe2e8f0)).FillText(label, 8, h-7, core.Font{Size: 10})
+	d.SetFillColor(specAlpha(spec.PillBg, 0.85)).FillRect(4, h-18, w-8, 14)
+	d.SetFillColor(spec.TextSecondary).FillText(label, 8, h-7, core.Font{Size: 10})
 	d.Restore()
 }

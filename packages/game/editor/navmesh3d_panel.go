@@ -298,7 +298,7 @@ func NavMeshPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 								},
 								Style: core.Style{
 									FontSize: 11,
-									Color:    core.RGBA(0xF87171, 1),
+									Color:    ed.SpecPalette(cx).Removed.Fg,
 								},
 							}
 						},

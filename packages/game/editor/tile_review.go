@@ -2325,20 +2325,21 @@ func (e *Editor) drawTileReviewOverlay(d *core.Drawing) {
 		}
 		var lineColor, fillColor core.Color
 		dashed := true
+		pal := e.activeSpecPalette()
 		switch r.Kind {
 		case TileReviewPainted:
-			lineColor = specAdded
-			fillColor = core.RGBA(0x4FD38A, 0.16)
+			lineColor = pal.Added.Fg
+			fillColor = specAlpha(pal.Added.Fg, 0.16)
 		case TileReviewReplaced:
-			lineColor = specChanged
-			fillColor = core.RGBA(0xE9A84A, 0.16)
+			lineColor = pal.Changed.Fg
+			fillColor = specAlpha(pal.Changed.Fg, 0.16)
 		case TileReviewErased:
-			lineColor = specProblem
-			fillColor = core.RGBA(0xFF6B6B, 0.18)
+			lineColor = pal.Removed.Fg
+			fillColor = specAlpha(pal.Removed.Fg, 0.18)
 			dashed = false
 		default:
-			lineColor = specAccent
-			fillColor = core.RGBA(0x3B7BFF, 0.16)
+			lineColor = pal.Accent.Fg
+			fillColor = specAlpha(pal.Accent.Fg, 0.16)
 		}
 
 		for _, c := range r.Cells {
@@ -2354,7 +2355,7 @@ func (e *Editor) drawTileReviewOverlay(d *core.Drawing) {
 
 		if r.ID == rev.focusedID && len(perimeter) > 0 {
 			d.SetLineDash()
-			d.SetStrokeColor(core.RGBA(0x3B7BFF, 0.45)).SetLineWidth(4 / scale)
+			d.SetStrokeColor(specAlpha(pal.Accent.Fg, 0.45)).SetLineWidth(4 / scale)
 			d.BeginPath()
 			for _, s := range perimeter {
 				d.MoveTo(ox+float32(s.c0)*tw, oy+float32(s.r0)*th).

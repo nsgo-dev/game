@@ -1,9 +1,17 @@
 package editor_test
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"io/fs"
 	"math"
+	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nsgo-dev/game/packages/game/editor"
 	"github.com/nsgo-dev/nsgo/core"
@@ -82,6 +90,15 @@ func TestSpecThemeParsesAndMapsAllRoles(t *testing.T) {
 		}
 		if tc.p.Surface != tc.spec.Panel {
 			t.Errorf("%s Palette.Surface = #%08X, want #%08X", tc.name, uint32(tc.p.Surface), uint32(tc.spec.Panel))
+		}
+		if raised, ok := tc.p.Color("raised"); !ok || raised != tc.spec.Raised {
+			t.Errorf("%s Palette.Color(raised) = #%08X (ok=%v), want #%08X", tc.name, uint32(raised), ok, uint32(tc.spec.Raised))
+		}
+		if line, ok := tc.p.Color("line"); !ok || line != tc.spec.Line {
+			t.Errorf("%s Palette.Color(line) = #%08X (ok=%v), want #%08X", tc.name, uint32(line), ok, uint32(tc.spec.Line))
+		}
+		if tc.p.Border != tc.spec.LineRaised {
+			t.Errorf("%s Palette.Border = #%08X, want #%08X", tc.name, uint32(tc.p.Border), uint32(tc.spec.LineRaised))
 		}
 		if tc.p.Text != tc.spec.TextSecondary {
 			t.Errorf("%s Palette.Text = #%08X, want #%08X", tc.name, uint32(tc.p.Text), uint32(tc.spec.TextSecondary))
@@ -593,4 +610,297 @@ func TestSpecLightChromeOverlaysAndMarqueeContrast(t *testing.T) {
 			t.Errorf("%s: marquee/selection Accent.Edge contrast %.2f:1, want >= 3.0:1", tc.name, ratio)
 		}
 	}
+}
+
+func TestSpecDesignTokenConstantsAndReducedMotion(t *testing.T) {
+	if editor.SpecFontFamilySans != "Inter" || editor.SpecFontFamilyMono != "JetBrains Mono" {
+		t.Fatalf("font families = (%q, %q), want (Inter, JetBrains Mono)", editor.SpecFontFamilySans, editor.SpecFontFamilyMono)
+	}
+	if editor.SpecFontTitleSize != 14 || editor.SpecFontTitleWeight != core.FontWeightSemibold {
+		t.Fatalf("title type = %v/%v, want 14/600", editor.SpecFontTitleSize, editor.SpecFontTitleWeight)
+	}
+	if editor.SpecFontBodySize != 12.5 || editor.SpecFontBodyWeight != core.FontWeightNormal {
+		t.Fatalf("body type = %v/%v, want 12.5/400", editor.SpecFontBodySize, editor.SpecFontBodyWeight)
+	}
+	if editor.SpecFontSectionSize != 11 || editor.SpecFontSectionWeight != core.FontWeightSemibold || math.Abs(float64(editor.SpecFontSectionTrack)-0.66) > 1e-6 {
+		t.Fatalf("section type = %v/%v/+%v, want 11/600/+0.66 (+6%%)", editor.SpecFontSectionSize, editor.SpecFontSectionWeight, editor.SpecFontSectionTrack)
+	}
+	if editor.SpecFontCodeSize != 11.5 || editor.SpecFontCodeWeight != core.FontWeightNormal {
+		t.Fatalf("code type = %v/%v, want 11.5/400", editor.SpecFontCodeSize, editor.SpecFontCodeWeight)
+	}
+	if editor.SpecSpace4 != 4 || editor.SpecSpace8 != 8 || editor.SpecSpace12 != 12 || editor.SpecSpace16 != 16 || editor.SpecSpace24 != 24 {
+		t.Fatalf("spacing scale = %v,%v,%v,%v,%v, want 4,8,12,16,24",
+			editor.SpecSpace4, editor.SpecSpace8, editor.SpecSpace12, editor.SpecSpace16, editor.SpecSpace24)
+	}
+	if editor.SpecRadiusControl != 6 || editor.SpecRadiusButton != 8 || editor.SpecRadiusCard != 12 || editor.SpecRadiusDialog != 18 {
+		t.Fatalf("radii = %v,%v,%v,%v, want 6,8,12,18",
+			editor.SpecRadiusControl, editor.SpecRadiusButton, editor.SpecRadiusCard, editor.SpecRadiusDialog)
+	}
+	if editor.SpecRowHeight != 28 || editor.SpecMinHitSize != 28 || editor.SpecButtonHeight != 30 || editor.SpecButtonTallHeight != 32 || editor.SpecHeaderHeight != 44 {
+		t.Fatalf("heights = row:%v hit:%v btn:%v btnTall:%v header:%v",
+			editor.SpecRowHeight, editor.SpecMinHitSize, editor.SpecButtonHeight, editor.SpecButtonTallHeight, editor.SpecHeaderHeight)
+	}
+	if editor.SpecBorderWidth != 1 || editor.SpecIconSize != 15 || math.Abs(float64(editor.SpecIconStrokeWidth)-1.8) > 1e-6 {
+		t.Fatalf("border/icon = border:%v icon:%v stroke:%v", editor.SpecBorderWidth, editor.SpecIconSize, editor.SpecIconStrokeWidth)
+	}
+	if editor.SpecMotionHover != 120*time.Millisecond ||
+		editor.SpecMotionPanel != 180*time.Millisecond ||
+		editor.SpecMotionOverlay != 240*time.Millisecond ||
+		editor.SpecMotionAgentPulse != 1600*time.Millisecond {
+		t.Fatalf("motion = hover:%v panel:%v overlay:%v pulse:%v",
+			editor.SpecMotionHover, editor.SpecMotionPanel, editor.SpecMotionOverlay, editor.SpecMotionAgentPulse)
+	}
+
+	// Verify 3D axis tokens match docs/design/editor/Viewport3D.dc.html.
+	dark := editor.DarkSpecPalette()
+	if dark.AxisX != core.RGB(0xFF6B6B) || dark.AxisY != core.RGB(0x4FD38A) || dark.AxisZ != core.RGB(0x3B7BFF) {
+		t.Fatalf("dark 3D axes = (#%06X, #%06X, #%06X), want (#FF6B6B, #4FD38A, #3B7BFF)",
+			uint32(dark.AxisX)>>8, uint32(dark.AxisY)>>8, uint32(dark.AxisZ)>>8)
+	}
+
+	// Verify motion disables cleanly under Env.ReduceMotion.
+	var normalHover, reducedHover time.Duration
+	var normalMidPulse, reducedMidPulse float32
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		cx.Effect(func() {
+			if cx.Env().ReduceMotion() {
+				reducedHover = editor.SpecMotionDuration(cx, editor.SpecMotionHover)
+				reducedMidPulse = editor.SpecAgentPulseOpacity(cx, editor.SpecMotionAgentPulse/2)
+			} else {
+				normalHover = editor.SpecMotionDuration(cx, editor.SpecMotionHover)
+				normalMidPulse = editor.SpecAgentPulseOpacity(cx, editor.SpecMotionAgentPulse/2)
+			}
+		})
+		return core.View{}
+	}, nsgotest.Environment(core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop, Dark: true, ReduceMotion: false}))
+
+	if normalHover != 120*time.Millisecond {
+		t.Fatalf("normal SpecMotionDuration(Hover) = %v, want 120ms", normalHover)
+	}
+	if math.Abs(float64(normalMidPulse-0.45)) > 0.01 {
+		t.Fatalf("normal SpecAgentPulseOpacity(800ms) = %v, want 0.45", normalMidPulse)
+	}
+
+	app.SetEnvironment(core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop, Dark: true, ReduceMotion: true})
+	if reducedHover != 0 {
+		t.Fatalf("ReduceMotion SpecMotionDuration(Hover) = %v, want 0", reducedHover)
+	}
+	if reducedMidPulse != 1.0 {
+		t.Fatalf("ReduceMotion SpecAgentPulseOpacity(800ms) = %v, want 1.0", reducedMidPulse)
+	}
+}
+
+// #1002 Acceptance 1: Setting dark text_muted back to the retired #6F7684 causes the
+// theme-file WCAG 2.2 contrast table check to fail below 4.5:1.
+func TestSpecContrastTableRejectsRetiredMutedColor(t *testing.T) {
+	raw := string(editor.SpecThemeYAML())
+	mutated := strings.Replace(raw, `specTextFaint: "#8B92A0"`, `specTextFaint: "#6F7684"`, 1)
+	if mutated == raw {
+		t.Fatal("failed to locate dark specTextFaint in spec_theme.yaml")
+	}
+	th, err := core.ParseTheme([]byte(mutated))
+	if err != nil {
+		t.Fatalf("core.ParseTheme(mutated): %v", err)
+	}
+	retired, ok := th.Dark.Color("specTextFaint")
+	if !ok || retired != core.RGB(0x6F7684) {
+		t.Fatalf("mutated specTextFaint = #%06X (ok=%v), want #6F7684", uint32(retired)>>8, ok)
+	}
+
+	pal := editor.DarkSpecPalette()
+	pal.TextFaint = retired
+
+	failed := 0
+	for _, row := range editor.SpecContrastTable(pal) {
+		if row.Ratio() < row.MinRatio {
+			failed++
+		}
+	}
+	if failed == 0 {
+		t.Fatal("expected SpecContrastTable to fail when dark text_muted is reverted to #6F7684")
+	}
+}
+
+// #1002 Acceptance 2: Every non-test Go file in packages/game/editor outside spec_theme.go
+// must use Spec theme tokens instead of core.RGB, core.RGBA, or hardcoded UI hex color literals.
+// Scene content defaults (such as scene.BackgroundColor, sky/fog/light defaults, and hex input
+// placeholders) stay scene data and are explicitly allowlisted below.
+func TestSpecNoHardcodedColorLiteralsInEditor(t *testing.T) {
+	hexStringRe := regexp.MustCompile(`^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$`)
+
+	// Explicit minimal allowlist for scene-content data defaults & hex input placeholders (never UI chrome).
+	allowedHexStringFiles := map[string]bool{
+		"demo.go":              true, // default demo scene BackgroundColor
+		"environment_panel.go": true, // default 3D sky/fog/directional-light scene data and hex placeholders
+		"first_run.go":         true, // first-run starter scene BackgroundColor
+		"inspector_room.go":    true, // room transition tint hex field placeholder
+		"inspector_scene.go":   true, // scene BackgroundColor hex field placeholder
+		"materials_ui.go":      true, // material albedo/emissive hex field placeholders
+		"scene3d_edit.go":      true, // default 3D light scene data colors
+		"state.go":             true, // default new scene BackgroundColor
+	}
+	allowedCoreColorHexFiles := map[string]bool{
+		"particles.go":    true, // default particle emitter ramp stop data
+		"particles_ui.go": true, // default new particle color stop data
+	}
+
+	fset := token.NewFileSet()
+	var violations []string
+
+	err := filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if d.Name() == "testdata" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		name := d.Name()
+		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			return nil
+		}
+		if filepath.Clean(path) == "spec_theme.go" {
+			return nil
+		}
+
+		file, parseErr := parser.ParseFile(fset, path, nil, 0)
+		if parseErr != nil {
+			t.Errorf("parse %s: %v", path, parseErr)
+			return nil
+		}
+
+		ast.Inspect(file, func(n ast.Node) bool {
+			switch node := n.(type) {
+			case *ast.CallExpr:
+				if sel, ok := node.Fun.(*ast.SelectorExpr); ok {
+					if ident, ok := sel.X.(*ast.Ident); ok && ident.Name == "core" {
+						switch sel.Sel.Name {
+						case "RGB", "RGBA":
+							pos := fset.Position(node.Pos())
+							violations = append(violations, pos.String()+": forbidden core."+sel.Sel.Name+" call outside spec_theme.go")
+						case "ParseColor":
+							if len(node.Args) == 1 {
+								if lit, ok := node.Args[0].(*ast.BasicLit); ok && lit.Kind == token.STRING {
+									if s, err := strconv.Unquote(lit.Value); err == nil && hexStringRe.MatchString(s) {
+										pos := fset.Position(node.Pos())
+										violations = append(violations, pos.String()+": forbidden core.ParseColor("+lit.Value+") literal outside spec_theme.go")
+									}
+								}
+							}
+						case "Color":
+							if !allowedCoreColorHexFiles[filepath.ToSlash(path)] && len(node.Args) == 1 {
+								if lit, ok := node.Args[0].(*ast.BasicLit); ok && lit.Kind == token.INT && strings.HasPrefix(strings.ToLower(lit.Value), "0x") && lit.Value != "0x0" {
+									pos := fset.Position(node.Pos())
+									violations = append(violations, pos.String()+": forbidden core.Color("+lit.Value+") literal outside spec_theme.go")
+								}
+							}
+						}
+					}
+				}
+			case *ast.BasicLit:
+				if node.Kind == token.STRING && !allowedHexStringFiles[filepath.ToSlash(path)] {
+					if s, err := strconv.Unquote(node.Value); err == nil && hexStringRe.MatchString(s) {
+						pos := fset.Position(node.Pos())
+						violations = append(violations, pos.String()+": forbidden hex color literal "+node.Value+" outside spec_theme.go")
+					}
+				}
+			}
+			return true
+		})
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("WalkDir: %v", err)
+	}
+	if len(violations) > 0 {
+		t.Fatalf("found %d hardcoded color literal(s) outside spec_theme.go:\n%s", len(violations), strings.Join(violations, "\n"))
+	}
+}
+
+// #1002 Acceptance 3: Toolbar, panels, inspector, viewport surround, and status bar render in
+// Spec bg, panel, raised, and line tokens, toolbar title is 14/600, and the selection outline is accent.
+func TestSpecEditorChromeRegionsAndSelectionOutline(t *testing.T) {
+	ed := newTestEditor(t)
+	ed.SelectObject("hero")
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1280, 800), nsgotest.Environment(core.Environment{
+		OS:     core.OSMacOS,
+		Idiom:  core.IdiomDesktop,
+		Dark:   true,
+		Locale: "en-US",
+	}))
+
+	verifyMode := func(label string, want editor.SpecPalette) {
+		t.Helper()
+		if got := app.Find("id:scene-editor").Style.Background; got != want.Bg {
+			t.Errorf("%s: root bg = #%06X, want Bg #%06X", label, uint32(got)>>8, uint32(want.Bg)>>8)
+		}
+		tb := app.Find("id:editor-toolbar").Style
+		if tb.Background != want.Raised || tb.BorderColors.Bottom != want.Line {
+			t.Errorf("%s: toolbar bg=#%06X bottomBorder=#%06X, want Raised=#%06X Line=#%06X",
+				label, uint32(tb.Background)>>8, uint32(tb.BorderColors.Bottom)>>8, uint32(want.Raised)>>8, uint32(want.Line)>>8)
+		}
+		title := app.Find("id:toolbar-scene-name").TextStyle
+		if title.Font.Size != editor.SpecFontTitleSize || title.Font.Weight != editor.SpecFontTitleWeight || title.Color != want.TextPrimary {
+			t.Errorf("%s: toolbar title = %v/%v/#%06X, want 14/600/#%06X",
+				label, title.Font.Size, title.Font.Weight, uint32(title.Color)>>8, uint32(want.TextPrimary)>>8)
+		}
+		if got := app.Find("id:editor-viewport-container").Style.Background; got != want.Viewport {
+			t.Errorf("%s: viewport surround = #%06X, want Viewport #%06X", label, uint32(got)>>8, uint32(want.Viewport)>>8)
+		}
+		st := app.Find("id:scene-tree-panel").Style
+		if st.Background != want.Panel || st.BorderColors.Right != want.Line {
+			t.Errorf("%s: scene-tree-panel bg=#%06X rightBorder=#%06X, want Panel=#%06X Line=#%06X",
+				label, uint32(st.Background)>>8, uint32(st.BorderColors.Right)>>8, uint32(want.Panel)>>8, uint32(want.Line)>>8)
+		}
+		lp := app.Find("id:layers-panel").Style
+		if lp.Background != want.Panel || lp.BorderColors.Top != want.Line || lp.BorderColors.Right != want.Line {
+			t.Errorf("%s: layers-panel bg=#%06X topBorder=#%06X rightBorder=#%06X, want Panel=#%06X Line=#%06X",
+				label, uint32(lp.Background)>>8, uint32(lp.BorderColors.Top)>>8, uint32(lp.BorderColors.Right)>>8, uint32(want.Panel)>>8, uint32(want.Line)>>8)
+		}
+		ab := app.Find("id:asset-browser").Style
+		if ab.Background != want.Panel || ab.BorderColors.Right != want.Line {
+			t.Errorf("%s: asset-browser bg=#%06X rightBorder=#%06X, want Panel=#%06X Line=#%06X",
+				label, uint32(ab.Background)>>8, uint32(ab.BorderColors.Right)>>8, uint32(want.Panel)>>8, uint32(want.Line)>>8)
+		}
+		insp := app.Find("id:editor-inspector").Style
+		if insp.Background != want.Panel || insp.BorderColors.Left != want.Line {
+			t.Errorf("%s: editor-inspector bg=#%06X leftBorder=#%06X, want Panel=#%06X Line=#%06X",
+				label, uint32(insp.Background)>>8, uint32(insp.BorderColors.Left)>>8, uint32(want.Panel)>>8, uint32(want.Line)>>8)
+		}
+		sb := app.Find("id:editor-status").Style
+		if sb.Background != want.Raised || sb.BorderColors.Top != want.Line {
+			t.Errorf("%s: status bar bg=#%06X topBorder=#%06X, want Raised=#%06X Line=#%06X",
+				label, uint32(sb.Background)>>8, uint32(sb.BorderColors.Top)>>8, uint32(want.Raised)>>8, uint32(want.Line)>>8)
+		}
+
+		// Verify the 2D selection outline strokes in Spec Accent.Edge.
+		cw, ch := ed.CanvasSize()
+		d := &core.Drawing{}
+		ed.DrawViewport(d, core.Size{Width: core.Points(cw), Height: core.Points(ch)})
+		foundAccentStroke := false
+		for _, op := range d.Ops {
+			if op.Kind == core.DrawStrokeColor && op.Color == want.Accent.Edge {
+				foundAccentStroke = true
+				break
+			}
+		}
+		if !foundAccentStroke {
+			t.Errorf("%s: 2D viewport selection did not stroke with Accent.Edge #%06X", label, uint32(want.Accent.Edge)>>8)
+		}
+	}
+
+	verifyMode("dark", editor.DarkSpecPalette())
+
+	app.SetEnvironment(core.Environment{
+		OS:     core.OSMacOS,
+		Idiom:  core.IdiomDesktop,
+		Dark:   false,
+		Locale: "en-US",
+	})
+	verifyMode("light", editor.LightSpecPalette())
 }

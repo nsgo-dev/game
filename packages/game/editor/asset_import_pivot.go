@@ -510,10 +510,11 @@ func (e *Editor) DrawImageImportPreview(d *core.Drawing, size core.Size, relPath
 		return
 	}
 
+	spec := e.activeSpecPalette()
 	// Draw alpha checkerboard background.
-	d.SetFillColor(core.RGB(0x1E293B)).FillRect(0, 0, cw, ch)
+	d.SetFillColor(spec.Viewport).FillRect(0, 0, cw, ch)
 	const tile float32 = 8
-	d.SetFillColor(core.RGB(0x273449))
+	d.SetFillColor(spec.LineRaised)
 	for y := float32(0); y < ch; y += tile {
 		row := int(y / tile)
 		for x := float32(0); x < cw; x += tile {
@@ -537,7 +538,7 @@ func (e *Editor) DrawImageImportPreview(d *core.Drawing, size core.Size, relPath
 	}
 	dw, dh := float32(imgW)*scale, float32(imgH)*scale
 	d.DrawImageFrom(core.ImageSource{Pixels: rgba}, 0, 0, float32(imgW), float32(imgH), ox, oy, dw, dh)
-	d.SetStrokeColor(core.RGBA(0x94A3B8, 0.5)).SetLineWidth(1).StrokeRect(ox, oy, dw, dh)
+	d.SetStrokeColor(specAlpha(spec.TextFaint, 0.5)).SetLineWidth(1).StrokeRect(ox, oy, dw, dh)
 
 	info, err := e.InspectAssetImport(relPath)
 	if err != nil {
@@ -559,7 +560,7 @@ func (e *Editor) DrawImageImportPreview(d *core.Drawing, size core.Size, relPath
 		if n > maxImportPreviewCells {
 			// Dense grids skip drawing millions of cell outlines/markers and show only the selected cell.
 			if sr, ok := s.CellRect(bounds, cols, sel); ok {
-				d.SetStrokeColor(core.RGBA(0x38BDF8, 1)).SetLineWidth(1.5).StrokeRect(
+				d.SetStrokeColor(spec.Accent.Edge).SetLineWidth(1.5).StrokeRect(
 					ox+float32(sr.Min.X)*scale,
 					oy+float32(sr.Min.Y)*scale,
 					float32(sr.Dx())*scale,
@@ -571,7 +572,7 @@ func (e *Editor) DrawImageImportPreview(d *core.Drawing, size core.Size, relPath
 					pt = drag.livePivot
 				}
 				mx, my := previewPivotCanvasPos(ox, oy, scale, sr, pt)
-				drawPivotMarker(d, mx, my, overridden, true, draggingCell)
+				drawPivotMarker(d, spec, mx, my, overridden, true, draggingCell)
 			}
 			return
 		}
@@ -588,10 +589,10 @@ func (e *Editor) DrawImageImportPreview(d *core.Drawing, size core.Size, relPath
 			if i == sel {
 				continue
 			}
-			d.SetStrokeColor(core.RGBA(0x38BDF8, 0.65)).SetLineWidth(1).StrokeRect(rx, ry, rw, rh)
+			d.SetStrokeColor(specAlpha(spec.Accent.Edge, 0.65)).SetLineWidth(1).StrokeRect(rx, ry, rw, rh)
 		}
 		sr := rects[sel]
-		d.SetStrokeColor(core.RGBA(0x38BDF8, 1)).SetLineWidth(1.5).StrokeRect(
+		d.SetStrokeColor(spec.Accent.Edge).SetLineWidth(1.5).StrokeRect(
 			ox+float32(sr.Min.X)*scale,
 			oy+float32(sr.Min.Y)*scale,
 			float32(sr.Dx())*scale,
@@ -606,7 +607,7 @@ func (e *Editor) DrawImageImportPreview(d *core.Drawing, size core.Size, relPath
 				pt = drag.livePivot
 			}
 			mx, my := previewPivotCanvasPos(ox, oy, scale, r, pt)
-			drawPivotMarker(d, mx, my, overridden, i == sel, draggingCell)
+			drawPivotMarker(d, spec, mx, my, overridden, i == sel, draggingCell)
 		}
 		return
 	}
@@ -618,16 +619,16 @@ func (e *Editor) DrawImageImportPreview(d *core.Drawing, size core.Size, relPath
 		pt = drag.livePivot
 	}
 	mx, my := previewPivotCanvasPos(ox, oy, scale, bounds, pt)
-	drawPivotMarker(d, mx, my, explicit, true, draggingDefault)
+	drawPivotMarker(d, spec, mx, my, explicit, true, draggingDefault)
 }
 
-func drawPivotMarker(d *core.Drawing, x, y float32, overridden, selected, dragging bool) {
-	fill := core.RGB(0xF59E0B) // amber for inherited/default pivot
+func drawPivotMarker(d *core.Drawing, spec SpecPalette, x, y float32, overridden, selected, dragging bool) {
+	fill := spec.Warning.Fg // amber for inherited/default pivot
 	if overridden {
-		fill = core.RGB(0x22D3EE) // cyan for per-cell override or explicit default
+		fill = spec.Accent.Fg // accent for per-cell override or explicit default
 	}
 	if dragging {
-		fill = core.RGB(0xF43F5E) // rose while dragging
+		fill = spec.Removed.Fg // red while dragging
 	}
 	r := importPivotMarkRadius
 	cross := importPivotCrossRadius
@@ -637,16 +638,16 @@ func drawPivotMarker(d *core.Drawing, x, y float32, overridden, selected, draggi
 	}
 
 	// Contrast dark crosshair halo then colored crosshair lines.
-	d.SetStrokeColor(core.RGBA(0x0F172A, 0.9)).SetLineWidth(2.5)
+	d.SetStrokeColor(specAlpha(spec.Bg, 0.9)).SetLineWidth(2.5)
 	d.BeginPath().MoveTo(x-cross, y).LineTo(x+cross, y).MoveTo(x, y-cross).LineTo(x, y+cross).Stroke()
 	d.SetStrokeColor(fill).SetLineWidth(1.25)
 	d.BeginPath().MoveTo(x-cross, y).LineTo(x+cross, y).MoveTo(x, y-cross).LineTo(x, y+cross).Stroke()
 
 	// Circle marker with dark outline and colored center.
 	d.SetFillColor(fill).BeginPath().Arc(x, y, r, 0, float32(2*math.Pi), false).Fill()
-	stroke := core.RGB(0x0F172A)
+	stroke := spec.Bg
 	if selected || dragging {
-		stroke = core.RGB(0xFFFFFF)
+		stroke = spec.TextPrimary
 	}
 	d.SetStrokeColor(stroke).SetLineWidth(1.25).BeginPath().Arc(x, y, r, 0, float32(2*math.Pi), false).Stroke()
 }

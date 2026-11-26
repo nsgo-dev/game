@@ -263,7 +263,7 @@ func AssetBrowserView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 		TestID: "asset-browser",
 		Style: dockedStyle(cx, core.Style{
 			Width:       core.Pt(224),
-			Background:  colors.Inset(),
+			Background:  colors.Surface(),
 			Borders:     core.Edges{Right: 1},
 			BorderColor: colors.Line(),
 			Padding:     core.All(10),

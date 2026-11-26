@@ -101,7 +101,7 @@ func LayersView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node 
 		Style: dockedStyle(cx, core.Style{
 			Height:      core.Pt(200),
 			FlexShrink:  0,
-			Background:  colors.Inset(),
+			Background:  colors.Surface(),
 			Borders:     core.Edges{Top: 1, Right: 1},
 			BorderColor: colors.Line(),
 			Padding:     core.All(8),
@@ -285,7 +285,7 @@ func layerPanelRow(cx *core.Scope, ed *Editor, layers func() []LayerInfo, name s
 		Style:  core.Style{Direction: core.Row, AlignItems: core.AlignCenter, FlexGrow: 1, MinWidth: core.Pt(0), Gap: 2},
 		StyleFunc: func() core.Style {
 			h := hint.Get()
-			s := core.Style{Borders: core.Edges{Top: 2, Bottom: 2}, BorderColor: colors.Inset()}
+			s := core.Style{Borders: core.Edges{Top: 2, Bottom: 2}, BorderColor: colors.Surface()}
 			if h.on && h.name == name {
 				if h.before {
 					s.BorderColors = core.EdgeColors{Top: colors.Accent()}

@@ -1582,23 +1582,24 @@ func (e *Editor) ClearTerrainHover() {
 	e.notify()
 }
 
-// terrainLayerPreviewColors gives distinct visual tints for up to 8 terrain layers
+// terrainLayerPreviewColors gives distinct visual tints from spec_theme.yaml for up to 8 terrain layers
 // in the 3D viewport wireframe when a layer has no explicit RGB tint.
 var terrainLayerPreviewColors = [8]core.Color{
-	core.RGBA(0x4ADE80, 0.85), // grass green
-	core.RGBA(0xB45309, 0.85), // dirt brown
-	core.RGBA(0x94A3B8, 0.85), // rock slate
-	core.RGBA(0xF8FAFC, 0.90), // snow white
-	core.RGBA(0xFBBF24, 0.85), // sand amber
-	core.RGBA(0x78716C, 0.85), // mud warm gray
-	core.RGBA(0xA8A29E, 0.85), // gravel
-	core.RGBA(0x38BDF8, 0.85), // ice sky
+	specAlpha(darkSpecPalette.Added.Fg, 0.85),
+	specAlpha(darkSpecPalette.Changed.Fg, 0.85),
+	specAlpha(darkSpecPalette.TextFaint, 0.85),
+	specAlpha(darkSpecPalette.TextPrimary, 0.90),
+	specAlpha(darkSpecPalette.Warning.Fg, 0.85),
+	specAlpha(darkSpecPalette.TextMuted, 0.85),
+	specAlpha(darkSpecPalette.Agent.Fg, 0.85),
+	specAlpha(darkSpecPalette.Accent.Fg, 0.85),
 }
 
 func (e *Editor) drawTerrain3D(d *core.Drawing, w, h float32) {
 	if !e.TerrainOpen() {
 		return
 	}
+	spec := e.activeSpecPalette()
 	t := e.terrain
 	hm := t.hm
 	if hm.Cols < 2 || hm.Rows < 2 {
@@ -1612,10 +1613,10 @@ func (e *Editor) drawTerrain3D(d *core.Drawing, w, h float32) {
 	layerColors := make([]core.Color, len(t.doc.Layers))
 	for i, l := range t.doc.Layers {
 		if l.Color != nil {
-			r := uint32(clamp01f32(l.Color[0]) * 255)
-			g := uint32(clamp01f32(l.Color[1]) * 255)
-			b := uint32(clamp01f32(l.Color[2]) * 255)
-			layerColors[i] = core.RGBA(r<<16|g<<8|b, 0.85)
+			r := uint8(clamp01f32(l.Color[0]) * 255)
+			g := uint8(clamp01f32(l.Color[1]) * 255)
+			b := uint8(clamp01f32(l.Color[2]) * 255)
+			layerColors[i] = specAlpha(colorFromRGBA8(r, g, b, 255), 0.85)
 		} else {
 			layerColors[i] = terrainLayerPreviewColors[i%len(terrainLayerPreviewColors)]
 		}
@@ -1675,7 +1676,7 @@ func (e *Editor) drawTerrain3D(d *core.Drawing, w, h float32) {
 					if dens, ok := hm.FoliageDensityAt(flName, p[0], p[2]); ok && dens > 0.05 {
 						if sx, sy, _, vis := e.Camera3D.Project(p, w, h); vis {
 							rad := float32(1.5 + 2.5*dens)
-							d.Save().SetFillColor(core.RGBA(0x22C55E, float32(0.35+0.6*dens))).
+							d.Save().SetFillColor(specAlpha(spec.Added.Fg, float32(0.35+0.6*dens))).
 								BeginPath().Arc(sx, sy, rad, 0, float32(2*math.Pi), false).Fill().Restore()
 						}
 					}
@@ -1689,14 +1690,14 @@ func (e *Editor) drawTerrain3D(d *core.Drawing, w, h float32) {
 		const ringSteps = 32
 		radius := e.terrainBrush.effectiveRadius()
 		center := t.hoverPos
-		ringColor := core.RGBA(0x38BDF8, 0.95)
+		ringColor := specAlpha(spec.Accent.Fg, 0.95)
 		switch e.terrainBrush.Mode {
 		case TerrainBrushLower:
-			ringColor = core.RGBA(0xF87171, 0.95)
+			ringColor = specAlpha(spec.Removed.Fg, 0.95)
 		case TerrainBrushPaintFoliage:
-			ringColor = core.RGBA(0x22C55E, 0.95)
+			ringColor = specAlpha(spec.Added.Fg, 0.95)
 		case TerrainBrushPaintLayer:
-			ringColor = core.RGBA(0xFBBF24, 0.95)
+			ringColor = specAlpha(spec.Warning.Fg, 0.95)
 		}
 		ringPt := func(i int) [3]float32 {
 			a := (2 * math.Pi * float64(i)) / ringSteps

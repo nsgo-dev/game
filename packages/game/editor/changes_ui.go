@@ -10,13 +10,13 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// Spec-derived alpha tints for diff lines and status badges (base colors are Spec.dc.html `added` #4FD38A, `changed` #E9A84A, `problem` #FF6B6B).
+// Spec-derived alpha tints for diff lines and status badges from spec_theme.yaml.
 var (
-	specDiffAddBg  = core.RGBA(0x4FD38A, 0.08)
-	specDiffDelBg  = core.RGBA(0xFF6B6B, 0.08)
-	specBadgeAddBg = core.RGBA(0x4FD38A, 0.14)
-	specBadgeModBg = core.RGBA(0xE9A84A, 0.16)
-	specBadgeDelBg = core.RGBA(0xFF6B6B, 0.14)
+	specDiffAddBg  = specAlpha(darkSpecPalette.Added.Fg, 0.08)
+	specDiffDelBg  = specAlpha(darkSpecPalette.Removed.Fg, 0.08)
+	specBadgeAddBg = specAlpha(darkSpecPalette.Added.Fg, 0.14)
+	specBadgeModBg = specAlpha(darkSpecPalette.Changed.Fg, 0.16)
+	specBadgeDelBg = specAlpha(darkSpecPalette.Removed.Fg, 0.14)
 )
 
 // ChangesPanelView renders the full-window Changes & Commit screen matching

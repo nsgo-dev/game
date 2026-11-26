@@ -11,8 +11,8 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// Spec-derived checker tint using exclusively Spec.dc.html base tokens.
-var specCheckerAlt = core.RGBA(0x262B35, 0.36)
+// Spec-derived checker tint using exclusively spec_theme.yaml base tokens.
+var specCheckerAlt = specAlpha(darkSpecPalette.LineRaised, 0.36)
 
 type versionedAssetSnap struct {
 	key  assetDrawerRailKey

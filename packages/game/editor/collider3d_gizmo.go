@@ -480,16 +480,17 @@ func (e *Editor) drawColliderGizmo3D(d *core.Drawing, obj *sceneformat.ObjectDoc
 		activeSign = e.drag3D.colliderSign
 	}
 
+	spec := e.activeSpecPalette()
 	axisColor := func(ax GizmoAxis3D) core.Color {
 		switch ax {
 		case Axis3DX:
-			return core.RGBA(0xEF4444, 1)
+			return spec.AxisX
 		case Axis3DY:
-			return core.RGBA(0x22C55E, 1)
+			return spec.AxisY
 		case Axis3DZ:
-			return core.RGBA(0x3B82F6, 1)
+			return spec.AxisZ
 		default:
-			return core.RGBA(0xFACC15, 1)
+			return spec.Warning.Fg
 		}
 	}
 
@@ -498,14 +499,14 @@ func (e *Editor) drawColliderGizmo3D(d *core.Drawing, obj *sceneformat.ObjectDoc
 		half := colliderHandleHalfSize
 		active := hh.Axis == activeAxis && (activeSign == 0 || hh.Sign == activeSign)
 		if active {
-			col = core.RGBA(0xFACC15, 1)
+			col = spec.Warning.Fg
 			half += 1.5
 		}
 		if x0, y0, x1, y1, vis := e.Camera3D.projectSegment(center, hh.Pos, w, h); vis {
 			d.Save().SetStrokeColor(col.Faded(0.55)).SetLineWidth(1.25).BeginPath().MoveTo(x0, y0).LineTo(x1, y1).Stroke().Restore()
 		}
 		if px, py, _, vis := e.Camera3D.Project(hh.Pos, w, h); vis {
-			d.Save().SetFillColor(col).SetStrokeColor(core.RGBA(0x0F172A, 0.95)).SetLineWidth(1.25).
+			d.Save().SetFillColor(col).SetStrokeColor(specAlpha(spec.Bg, 0.95)).SetLineWidth(1.25).
 				BeginPath().
 				MoveTo(px, py-half).
 				LineTo(px+half, py).

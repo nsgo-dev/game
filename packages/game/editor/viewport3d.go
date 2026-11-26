@@ -2283,9 +2283,9 @@ func (e *Editor) DrawViewport3D(d *core.Drawing, size core.Size) {
 	}
 }
 
-// background3D returns the scene's background color, or the editor's dark default when it sets none or one that does not parse.
+// background3D returns the scene's background color, or the Spec viewport surround token when none is set.
 func (e *Editor) background3D() core.Color {
-	bg := core.RGBA(0x141824, 1)
+	bg := e.activeSpecPalette().Viewport
 	if e.Doc != nil && e.Doc.BackgroundColor != "" {
 		if parsed, err := core.ParseColor(e.Doc.BackgroundColor); err == nil {
 			bg = parsed
@@ -2352,8 +2352,7 @@ func (e *Editor) drawGrid3D(d *core.Drawing, w, h float32) {
 	extent := step * float32(half)
 	vc := e.activeView3DCam(w, h)
 
-	spec := e.SpecPalette(nil)
-	d.Save().SetStrokeColor(ui.Alpha(spec.TextFaint, 0.24)).SetLineWidth(1).BeginPath()
+	d.Save().SetStrokeColor(specAlpha(e.activeSpecPalette().TextFaint, 0.25)).SetLineWidth(1).BeginPath()
 	hasSegments := false
 	for i := -half; i <= half; i++ {
 		coord := float32(i) * step
@@ -2391,9 +2390,9 @@ func (e *Editor) drawOriginAxes3D(d *core.Drawing, w, h float32) {
 		end   [3]float32
 		color core.Color
 	}{
-		{[3]float32{axisLen, 0, 0}, ui.Alpha(spec.Problem().Fg, 0.9)},
-		{[3]float32{0, axisLen, 0}, ui.Alpha(spec.Added.Fg, 0.9)},
-		{[3]float32{0, 0, axisLen}, ui.Alpha(spec.Accent.Fg, 0.9)},
+		{[3]float32{axisLen, 0, 0}, specAlpha(spec.AxisX, 0.9)},
+		{[3]float32{0, axisLen, 0}, specAlpha(spec.AxisY, 0.9)},
+		{[3]float32{0, 0, axisLen}, specAlpha(spec.AxisZ, 0.9)},
 	}
 	for _, ax := range axes {
 		x0, y0, x1, y1, vis := vc.projectSegment(origin, ax.end, w, h)
@@ -2501,7 +2500,7 @@ func (e *Editor) drawSceneObjects3D(d *core.Drawing, w, h float32, overlay bool)
 			if occluded {
 				color = ui.Alpha(spec.TextFaint, 0.35)
 			} else if e.ShowLODOverlay && hasLOD {
-				color = lodColor3D(lod)
+				color = lodColor3D(spec, lod)
 			}
 			if item.selected && selVisible {
 				color = spec.Accent.Edge
@@ -2610,6 +2609,14 @@ func (e *Editor) drawGizmo3D(d *core.Drawing, w, h float32) {
 				continue
 			}
 			col := seg.Color
+			switch seg.Axis {
+			case render3d.AxisX:
+				col = spec.AxisX
+			case render3d.AxisY:
+				col = spec.AxisY
+			case render3d.AxisZ:
+				col = spec.AxisZ
+			}
 			lw := float32(2.0)
 			if isActive {
 				col = activeCol
@@ -2659,14 +2666,9 @@ func drawTranslatePlaneFills3D(d *core.Drawing, proj Projection3D, gizmoMat math
 		u, v  math3d.Vec3
 		color core.Color
 	}{
-		{Axis3DXY, math3d.Vec3UnitX(), math3d.Vec3UnitY(), core.RGBA(0xB45309, fillAlpha)},
-		{Axis3DXZ, math3d.Vec3UnitX(), math3d.Vec3UnitZ(), core.RGBA(0xA21CAF, fillAlpha)},
-		{Axis3DYZ, math3d.Vec3UnitY(), math3d.Vec3UnitZ(), core.RGBA(0x0E7490, fillAlpha)},
-	}
-	if spec.Dark {
-		planes[0].color = core.RGBA(0xEAB308, fillAlpha)
-		planes[1].color = core.RGBA(0xD946EF, fillAlpha)
-		planes[2].color = core.RGBA(0x06B6D4, fillAlpha)
+		{Axis3DXY, math3d.Vec3UnitX(), math3d.Vec3UnitY(), specAlpha(spec.Warning.Fg, fillAlpha)},
+		{Axis3DXZ, math3d.Vec3UnitX(), math3d.Vec3UnitZ(), specAlpha(spec.Agent.Fg, fillAlpha)},
+		{Axis3DYZ, math3d.Vec3UnitY(), math3d.Vec3UnitZ(), specAlpha(spec.Accent.Fg, fillAlpha)},
 	}
 	for _, pl := range planes {
 		corner := func(a, b float32) (float32, float32, bool) {

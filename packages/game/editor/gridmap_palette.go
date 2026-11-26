@@ -110,17 +110,16 @@ func buildGridMapThumbnail(doc *gltf.Document, def world3d.MeshTileDef) []gridMa
 }
 
 func rgbColor(r, g, b float64) core.Color {
-	clamp := func(v float64) uint32 {
+	clamp := func(v float64) uint8 {
 		if v <= 0 {
 			return 0
 		}
 		if v >= 1 {
 			return 255
 		}
-		return uint32(math.Round(v * 255))
+		return uint8(math.Round(v * 255))
 	}
-	hex := (clamp(r) << 16) | (clamp(g) << 8) | clamp(b)
-	return core.RGBA(hex, 1)
+	return colorFromRGBA8(clamp(r), clamp(g), clamp(b), 255)
 }
 
 func extractGLTFThumbTris(doc *gltf.Document, meshIdx int, tileID uint16) []gridMapThumbTri {
@@ -302,7 +301,7 @@ func drawGridMapThumbnail(d *core.Drawing, item GridMapPaletteItem, orient uint8
 			ClosePath().Fill()
 	}
 	// Subtle wireframe accent on top of shaded thumbnail for crisp legibility at small sizes.
-	d.SetStrokeColor(core.RGBA(0x0F172A, 0.35)).SetLineWidth(0.75)
+	d.SetStrokeColor(specAlpha(darkSpecPalette.Bg, 0.35)).SetLineWidth(0.75)
 	for _, pt := range projected {
 		d.BeginPath().MoveTo(pt.x0, pt.y0).LineTo(pt.x1, pt.y1).LineTo(pt.x2, pt.y2).ClosePath().Stroke()
 	}

@@ -1190,6 +1190,7 @@ func (e *Editor) drawRoomsOverlay(d *core.Drawing) {
 		}
 	}
 
+	spec := e.activeSpecPalette()
 	for i := range e.rooms.doc.Rooms {
 		r := &e.rooms.doc.Rooms[i]
 		selected := r.ID == e.rooms.selectedRoomID
@@ -1197,9 +1198,9 @@ func (e *Editor) drawRoomsOverlay(d *core.Drawing) {
 
 		// Fill room rectangle.
 		if selected {
-			d.SetFillColor(core.RGBA(0x14B8A6, 0.20))
+			d.SetFillColor(specAlpha(spec.Added.Fg, 0.20))
 		} else {
-			d.SetFillColor(core.RGBA(0x14B8A6, 0.10))
+			d.SetFillColor(specAlpha(spec.Added.Fg, 0.10))
 		}
 		d.BeginPath().MoveTo(pts[0].X, pts[0].Y)
 		for _, p := range pts[1:] {
@@ -1209,9 +1210,9 @@ func (e *Editor) drawRoomsOverlay(d *core.Drawing) {
 
 		// Stroke room border.
 		if selected {
-			d.SetStrokeColor(core.RGBA(0x5EEAD4, 1)).SetLineWidth(2)
+			d.SetStrokeColor(spec.Added.Edge).SetLineWidth(2)
 		} else {
-			d.SetStrokeColor(core.RGBA(0x2DD4BF, 0.85)).SetLineWidth(1.5)
+			d.SetStrokeColor(specAlpha(spec.Added.Edge, 0.85)).SetLineWidth(1.5)
 		}
 		strokePolygon(d, pts)
 
@@ -1227,30 +1228,30 @@ func (e *Editor) drawRoomsOverlay(d *core.Drawing) {
 			label += " (" + string(tr.Kind) + ")"
 		}
 		lx, ly := e.WorldToCanvas(r.X, r.Y)
-		d.SetFillColor(core.RGBA(0x0F172A, 0.78))
+		d.SetFillColor(specAlpha(spec.PillBg, 0.88))
 		badgeW := float32(len(label))*6.5 + 10
 		d.FillRect(lx+4, ly+4, badgeW, 18)
-		d.SetFillColor(core.RGBA(0xCCFBF1, 1)).
+		d.SetFillColor(spec.Added.Fg).
 			SetTextAlign(core.TextAlignLeft).
 			SetTextBaseline(core.BaselineTop).
 			FillText(label, lx+9, ly+7, font)
 
 		// Draw 8 resize handles on the selected room.
 		if selected && (e.Tool == ToolSelect || e.Tool == ToolMove) && !e.rooms.createMode {
-			drawWorldRectHandles(e, d, r.X, r.Y, r.Width, r.Height, e.roomDrag.handle, core.RGBA(0xFFFFFF, 1), core.RGBA(0x14B8A6, 1), core.RGBA(0x5EEAD4, 1))
+			drawWorldRectHandles(e, d, r.X, r.Y, r.Width, r.Height, e.roomDrag.handle, spec.TextPrimary, spec.Added.Edge, spec.Added.Fg)
 		}
 	}
 
 	// Draw live creation preview rectangle while dragging in Draw Room mode.
 	if e.roomDrag.active && e.roomDrag.creating && e.roomDrag.moved {
 		pts := worldRectCanvasCorners(e, e.roomDrag.previewX, e.roomDrag.previewY, e.roomDrag.previewW, e.roomDrag.previewH)
-		d.SetFillColor(core.RGBA(0x14B8A6, 0.22))
+		d.SetFillColor(specAlpha(spec.Added.Fg, 0.22))
 		d.BeginPath().MoveTo(pts[0].X, pts[0].Y)
 		for _, p := range pts[1:] {
 			d.LineTo(p.X, p.Y)
 		}
 		d.ClosePath().Fill()
-		d.SetStrokeColor(core.RGBA(0x5EEAD4, 1)).SetLineWidth(1.5).SetLineDash(5, 3)
+		d.SetStrokeColor(spec.Added.Edge).SetLineWidth(1.5).SetLineDash(5, 3)
 		strokePolygon(d, pts)
 		d.SetLineDash()
 	}
@@ -1295,7 +1296,7 @@ func (e *Editor) drawRoomSnapGrid(d *core.Drawing, gw, gh float32) {
 		return
 	}
 	d.Save()
-	d.SetStrokeColor(core.RGBA(0x5EEAD4, 0.16)).SetLineWidth(1)
+	d.SetStrokeColor(specAlpha(e.activeSpecPalette().Added.Edge, 0.16)).SetLineWidth(1)
 	d.BeginPath()
 	for x, n := startX, 0; x <= maxX && n <= 258; x, n = x+gw, n+1 {
 		x0, y0 := e.WorldToCanvas(x, minY)

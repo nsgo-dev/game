@@ -2124,7 +2124,7 @@ func buildWebQRCardView(ed *Editor, spec SpecPalette, ws WebBuildServerSnapshot,
 					Width:        core.Pt(160),
 					Height:       core.Pt(160),
 					CornerRadius: 8,
-					Background:   core.RGB(0xFFFFFF),
+					Background:   lightSpecPalette.Raised,
 					BorderWidth:  qrBorderW,
 					BorderColor:  qrBorderCol,
 					Overflow:     core.Hidden,
@@ -2256,7 +2256,7 @@ func drawQRCode(d *core.Drawing, sz core.Size, code *qrcode.Code) {
 	if d == nil || code == nil || code.Size <= 0 || math.IsNaN(w) || math.IsInf(w, 0) || math.IsNaN(h) || math.IsInf(h, 0) || w <= 0 || h <= 0 {
 		return
 	}
-	d.SetFillColor(core.RGB(0xFFFFFF)).FillRect(0, 0, float32(w), float32(h))
+	d.SetFillColor(lightSpecPalette.Raised).FillRect(0, 0, float32(w), float32(h))
 
 	qz := code.QuietZone()
 	totalModules := code.Size + 2*qz
@@ -2269,7 +2269,7 @@ func drawQRCode(d *core.Drawing, sz core.Size, code *qrcode.Code) {
 	ox := math.Floor((w - gridSide) / 2)
 	oy := math.Floor((h - gridSide) / 2)
 
-	d.SetFillColor(core.RGB(0x101216))
+	d.SetFillColor(darkSpecPalette.Bg)
 	cellF := float32(cell)
 	for y := range code.Size {
 		py := float32(oy + float64(qz+y)*cell)

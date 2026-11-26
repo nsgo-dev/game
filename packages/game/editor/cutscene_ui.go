@@ -21,14 +21,14 @@ const (
 	cutscenePreviewH float32 = 324
 )
 
-// Spec-derived translucent fills using exclusively Spec.dc.html token hues.
+// Spec-derived translucent fills from spec_theme.yaml.
 var (
-	specChangedFill  = core.RGBA(0xE9A84A, 0.14)
-	specRemovedFill  = core.RGBA(0xFF6B6B, 0.14)
-	specAccentFill   = core.RGBA(0x3B7BFF, 0.16)
-	specDialogueFill = core.RGBA(0x3B7BFF, 0.10)
-	specAudioFill    = core.RGBA(0x4FD38A, 0.10)
-	specSubtitleBg   = core.RGBA(0x101216, 0.88)
+	specChangedFill  = specAlpha(darkSpecPalette.Changed.Fg, 0.14)
+	specRemovedFill  = specAlpha(darkSpecPalette.Removed.Fg, 0.14)
+	specAccentFill   = specAlpha(darkSpecPalette.Accent.Fg, 0.16)
+	specDialogueFill = specAlpha(darkSpecPalette.Accent.Fg, 0.10)
+	specAudioFill    = specAlpha(darkSpecPalette.Added.Fg, 0.10)
+	specSubtitleBg   = specAlpha(darkSpecPalette.Bg, 0.88)
 )
 
 // CutscenePanelView renders the full-workspace cutscene timeline and agent review screen (matching docs/design/editor/Animation.dc.html Screen 2 and Spec.dc.html tokens) whenever a cutscene is open and Play mode is not active.

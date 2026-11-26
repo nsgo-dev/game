@@ -786,11 +786,11 @@ func (e *Editor) cancelLightingDrag2D() bool {
 }
 
 var (
-	lightOverlayColor        = core.RGBA(0xFBBF24, 0.85)
-	lightOverlaySubtleColor  = core.RGBA(0xFBBF24, 0.45)
-	occluderOverlayColor     = core.RGBA(0xC084FC, 0.9)
-	occluderOverlaySubtle    = core.RGBA(0xC084FC, 0.45)
-	occluderEdgeMidFillColor = core.RGBA(0xE9D5FF, 0.95)
+	lightOverlayColor        = specAlpha(darkSpecPalette.Warning.Fg, 0.85)
+	lightOverlaySubtleColor  = specAlpha(darkSpecPalette.Warning.Fg, 0.45)
+	occluderOverlayColor     = specAlpha(darkSpecPalette.Agent.Fg, 0.9)
+	occluderOverlaySubtle    = specAlpha(darkSpecPalette.Agent.Fg, 0.45)
+	occluderEdgeMidFillColor = CompositeOver(specAlpha(darkSpecPalette.TextPrimary, 0.65), darkSpecPalette.Agent.Fg)
 )
 
 // drawLightingOverlays2D draws light origin markers and occluder outlines for all visible objects in edit mode so lights and occluders without sprites remain easy to locate and select.

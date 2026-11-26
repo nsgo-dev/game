@@ -8,20 +8,20 @@ import (
 )
 
 const (
-	specSpace4  core.Points = 4
-	specSpace8  core.Points = 8
-	specSpace12 core.Points = 12
-	specSpace16 core.Points = 16
-	specSpace24 core.Points = 24
+	specSpace4  = SpecSpace4
+	specSpace8  = SpecSpace8
+	specSpace12 = SpecSpace12
+	specSpace16 = SpecSpace16
+	specSpace24 = SpecSpace24
 
-	specRadiusControl core.Points = 6
-	specRadiusButton  core.Points = 8
-	specRadiusCard    core.Points = 12
+	specRadiusControl = SpecRadiusControl
+	specRadiusButton  = SpecRadiusButton
+	specRadiusCard    = SpecRadiusCard
 
-	specRowHeight    core.Points = 28
-	specButtonHeight core.Points = 30
-	specHeaderHeight core.Points = 44
-	specIconSize     core.Points = 15
+	specRowHeight    = SpecRowHeight
+	specButtonHeight = SpecButtonHeight
+	specHeaderHeight = SpecHeaderHeight
+	specIconSize     = SpecIconSize
 )
 
 type specButtonVariant uint8
@@ -79,24 +79,15 @@ type specPanelRowButtonSpec struct {
 }
 
 func specHoverOverlay(p SpecPalette) core.Color {
-	if p.Dark {
-		return core.RGBA(0xFFFFFF, 0.06)
-	}
-	return core.RGBA(0x000000, 0.05)
+	return p.HoverOverlay
 }
 
 func specActiveOverlay(p SpecPalette) core.Color {
-	if p.Dark {
-		return core.RGBA(0xFFFFFF, 0.10)
-	}
-	return core.RGBA(0x000000, 0.09)
+	return p.ActiveOverlay
 }
 
 func specPrimaryHover(p SpecPalette) core.Color {
-	if p.Dark {
-		return core.RGB(0xD9DDE5)
-	}
-	return core.RGB(0x2B303B)
+	return p.PrimaryHover
 }
 
 // specShortcutTip formats a Spec tooltip string ("Name · shortcut") when shortcut is non-empty.
@@ -381,7 +372,7 @@ func specPanelButton(p SpecPalette, b specPanelButtonSpec) core.Node {
 func specButtonColors(p SpecPalette, v specButtonVariant) (bg, hover, active, fg, border core.Color) {
 	hov := specHoverOverlay(p)
 	act := specActiveOverlay(p)
-	transparent := core.RGBA(0x000000, 0)
+	transparent := core.Color(0)
 	switch v {
 	case specBtnPrimary:
 		// Spec contrast table: 18.75:1 AAA in Dark (#101216 on #FFFFFF) and Light (#FFFFFF on #101216).
