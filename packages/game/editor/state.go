@@ -596,6 +596,8 @@ type Editor struct {
 	OnCompactAgentThread func(earlier, kept []AgentThreadTurn) (summary string, usage *AgentTokenUsage, err error)
 	// OnStartFreshAgentThread, when set, is called when StartFreshAgentThread starts a new thread seeded with summary.
 	OnStartFreshAgentThread func(summary string) error
+	// OnPlanDecision, when set, is called whenever the author approves, chooses Just do it on, or stops an agent-proposed plan.
+	OnPlanDecision func(AgentPlanDecision)
 	// ProblemCheckDebounce controls the debounce delay before live problem checks run after edits (defaults to 80ms when <= 0).
 	ProblemCheckDebounce time.Duration
 	// OnAskAboutProblem, when set, is called when the author submits a question from "Ask about this problem…" with the problem attached.
@@ -1037,6 +1039,8 @@ type Editor struct {
 	libraryPanelOpen bool
 	// proposedNewObjects records object IDs proposed by a pending review for the left rail NEW badge.
 	proposedNewObjects map[string]bool
+	// plan holds the active agent-proposed plan, clarifying question answers, step edits, ghosts, and MCP waiters.
+	plan agentPlanState
 }
 
 // DefaultSceneDoc returns a valid starter SceneDoc suitable for a new editor session.
@@ -2280,6 +2284,9 @@ func (e *Editor) DeleteObject(id string) error {
 	if err := e.checkAgentTouchLockSubtree(id); err != nil {
 		return err
 	}
+	if e.IsObjectPausedByPlan(id) {
+		return fmt.Errorf("editor: manual edits to %q are paused while the agent runs its plan", id)
+	}
 	// A drag in progress is put back first, so Undo of the delete restores the object as it was before the drag.
 	e.CancelDrag2D()
 	e.CancelMarquee2D()
@@ -2322,6 +2329,9 @@ func (e *Editor) MoveObject(id string, x, y float32) error {
 	}
 	if err := e.checkAgentTouchLock(id); err != nil {
 		return err
+	}
+	if e.IsObjectPausedByPlan(id) {
+		return fmt.Errorf("editor: manual edits to %q are paused while the agent runs its plan", id)
 	}
 	if !isFiniteFloat32(x) || !isFiniteFloat32(y) {
 		return errors.New("editor: position must be finite")

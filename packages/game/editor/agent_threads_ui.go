@@ -505,6 +505,7 @@ func agentThreadConversationBody(
 	openReq *AgentOpenRequest,
 	openReqRef, cardRef, allowOnceRef, allowAlwaysRef, denyRef *core.Ref,
 	hoveredTurnID, focusedTurnID *core.Signal[string],
+	activePlan *AgentPlan,
 ) core.Node {
 	expandedID := ed.ExpandedAgentRequestID()
 	var nodes []core.Node
@@ -932,7 +933,7 @@ func agentThreadConversationBody(
 		Children: latestNodes,
 	})
 	for ti, turn := range turns {
-		nodes = append(nodes, agentTurnView(ed, rev, ti, turn, p, osKind, hoveredTurnID, focusedTurnID))
+		nodes = append(nodes, agentTurnView(ed, rev, ti, turn, activePlan, p, osKind, hoveredTurnID, focusedTurnID))
 	}
 	if ed.HasAgentPanelCard() {
 		nodes = append(nodes, agentReviewPanelCards(ed, p, turns)...)
@@ -954,11 +955,14 @@ func agentThreadConversationBody(
 	}
 	if pendingAsk != nil {
 		nodes = append(nodes, agentPermissionCardView(p, ed, *pendingAsk, osKind, cardRef, allowOnceRef, allowAlwaysRef, denyRef))
-	} else if openReq != nil && !strings.HasSuffix(openReq.ID, "-stuck") && !strings.HasSuffix(openReq.ID, "-reconnect-ask") {
+	} else if openReq != nil && !strings.HasSuffix(openReq.ID, "-stuck") && !strings.HasSuffix(openReq.ID, "-reconnect-ask") && (activePlan == nil || openReq.ID != activePlan.ID) {
 		nodes = append(nodes, agentOpenRequestCard(ed, openReq, openReqRef, p))
 	}
 	if !limitReached && len(limitQueued) > 0 {
 		nodes = append(nodes, agentQueuedRequestsView(ed, limitQueued, limitReached, p))
+	}
+	if activePlan != nil {
+		nodes = append(nodes, agentPlanCardView(cx, ed, rev, p))
 	}
 
 	bodyChildren := []core.Node{

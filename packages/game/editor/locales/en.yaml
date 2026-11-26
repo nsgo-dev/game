@@ -1012,6 +1012,38 @@ strings:
   permissions.toastShow: Show
   permissions.toastUndo: Undo
   permissions.youOnlyDomains: Permissions, Tools, Models and Usage are You only — the agent can draft, never write.
+  plan.action.approve: Approve
+  plan.action.editPlan: Edit plan
+  plan.action.justDoIt: Just do it
+  plan.action.runAgain: Run again
+  plan.action.stop: Stop
+  plan.badge: PLAN
+  plan.filesHeader: FILES IN THIS PLAN
+  plan.footer.nothingChanges: Nothing changes until you approve.
+  plan.footer.permissionsLink: Permissions
+  plan.ghostsToggle: Plan ghosts
+  plan.ghostsToggleLabel: Toggle planned ghosts in the viewport
+  plan.legend.planned: planned · not in the file yet
+  plan.legend.working: agent working here
+  plan.plannedCount: '{count} planned'
+  plan.question.change: Change
+  plan.questions.applied: Answers applied to the plan
+  plan.questions.many: '{count} questions before I start'
+  plan.questions.one: 1 question before I start
+  plan.review.doneCount: '{done} of {total} done'
+  plan.review.title: PLAN STEPS
+  plan.running.line: Running step {step} of {total} · Esc stops
+  plan.running.reviewNote: The review will check what was done against this plan.
+  plan.step.done: Done
+  plan.step.editHeading: EDIT STEP {n}
+  plan.step.editLabel: Edit step {n}
+  plan.step.noteLabel: Tell the agent how to change this step
+  plan.step.notePlaceholder: Tell the agent how to change this step
+  plan.step.notePrefix: 'Note: {note}'
+  plan.step.removeLabel: Remove step {n}
+  plan.step.restore: Restore
+  plan.stopped.nothingWritten: Stopped before step 1. Nothing was written.
+  plan.stopped.partial: Stopped after {done} of {total} steps.
   problems.agentHeader: Agent
   problems.agentNote: Problems are found the moment a file changes, by you or the agent; the agent only offers a fix, it never applies one without you.
   problems.applyFix: Apply fix

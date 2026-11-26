@@ -1,0 +1,578 @@
+package editor_test
+
+import (
+	"bytes"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/nsgo-dev/game/packages/game/editor"
+	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/nsgotest"
+)
+
+func float32Ptr(v float32) *float32 { return &v }
+
+// sampleRoom2Plan builds the 5-step, 2-question Room 2 plan matching docs/design/editor/Plan.dc.html.
+func sampleRoom2Plan() editor.AgentPlan {
+	return editor.AgentPlan{
+		Prompt: "Build a second room behind the door: a lever that opens a gate, a few slimes and a coin reward.",
+		Title:  "Room 2: a lever gate, slimes and a coin reward",
+		Estimate: editor.PlanEstimate{
+			Duration: "about 2 min",
+			Tokens:   "~35k tokens",
+		},
+		Files: []editor.PlanFile{
+			{Path: "scenes/level_01.scene.yaml", Tag: editor.PlanFileEdit},
+			{Path: "prefabs/gate.prefab.yaml", Tag: editor.PlanFileNew},
+			{Path: "logic/lever.go", Tag: editor.PlanFileEdit},
+		},
+		Questions: []editor.PlanQuestion{
+			{
+				ID:     "q1",
+				Label:  "Gate",
+				Prompt: "Where should the gate stand?",
+				Options: []editor.PlanOption{
+					{
+						ID:        "door",
+						Label:     "Right after the door",
+						Note:      "Suggested",
+						Suggested: true,
+						Preview:   &editor.PlanOptionPreview{Kind: "room", GatePercent: 50, LeverPercent: 28},
+						StepTitleOverrides: map[int]string{
+							2: "Add a gate right after the door and a lever",
+						},
+						GhostOverrides: []editor.PlanGhostOverride{
+							{Step: 2, GhostID: "gate", X: float32Ptr(432), LabelX: float32Ptr(402)},
+							{Step: 2, GhostID: "lever", X: float32Ptr(330)},
+						},
+					},
+					{
+						ID:      "mid",
+						Label:   "Mid-room",
+						Note:    "Slimes guard the lever",
+						Preview: &editor.PlanOptionPreview{Kind: "room", GatePercent: 70, LeverPercent: 60},
+						StepTitleOverrides: map[int]string{
+							2: "Add a gate mid-room and a lever",
+						},
+						GhostOverrides: []editor.PlanGhostOverride{
+							{Step: 2, GhostID: "gate", X: float32Ptr(588), LabelX: float32Ptr(558)},
+							{Step: 2, GhostID: "lever", X: float32Ptr(520)},
+						},
+					},
+					{
+						ID:      "end",
+						Label:   "At the end",
+						Note:    "Guards the coins",
+						Preview: &editor.PlanOptionPreview{Kind: "room", GatePercent: 88, LeverPercent: 78},
+						StepTitleOverrides: map[int]string{
+							2: "Add a gate at the end of room 2 and a lever",
+						},
+						GhostOverrides: []editor.PlanGhostOverride{
+							{Step: 2, GhostID: "gate", X: float32Ptr(714), LabelX: float32Ptr(684)},
+							{Step: 2, GhostID: "lever", X: float32Ptr(640)},
+						},
+					},
+				},
+			},
+			{
+				ID:     "q2",
+				Label:  "Lever",
+				Prompt: "What does the lever do to the gate?",
+				Options: []editor.PlanOption{
+					{
+						ID:        "open",
+						Label:     "Stays open",
+						Note:      "Suggested",
+						Suggested: true,
+						Preview: &editor.PlanOptionPreview{
+							Kind: "strip",
+							Segments: []editor.PlanStripSegment{
+								{From: 22, To: 100, Active: true},
+							},
+						},
+						StepTitleOverrides: map[int]string{
+							4: "Pulling the lever stays open the gate",
+						},
+					},
+					{
+						ID:    "timed",
+						Label: "Closes after 5 s",
+						Note:  "A short race",
+						Preview: &editor.PlanOptionPreview{
+							Kind: "strip",
+							Segments: []editor.PlanStripSegment{
+								{From: 22, To: 60, Active: true},
+							},
+						},
+						StepTitleOverrides: map[int]string{
+							4: "Pulling the lever closes after 5 s the gate",
+						},
+					},
+					{
+						ID:    "toggle",
+						Label: "Toggles each pull",
+						Note:  "Slimes can be shut in",
+						Preview: &editor.PlanOptionPreview{
+							Kind: "strip",
+							Segments: []editor.PlanStripSegment{
+								{From: 22, To: 50, Active: true},
+								{From: 74, To: 100, Active: true},
+							},
+						},
+						StepTitleOverrides: map[int]string{
+							4: "Pulling the lever toggles the gate",
+						},
+					},
+				},
+			},
+		},
+		Steps: []editor.PlanStep{
+			{
+				Number:     1,
+				Title:      "Extend the World tiles 640 px past the door",
+				Files:      []string{"scenes/level_01.scene.yaml"},
+				FilesLabel: "level_01.scene.yaml",
+				Adds:       "1 layer · 214 tiles",
+				Ghosts: []editor.PlanGhost{
+					{ID: "room2", X: 404, Y: 150, Width: 372, Height: 300, Label: "World +640 px", ActiveLabel: "extending World tiles", LabelX: float32Ptr(412), LabelY: float32Ptr(158)},
+					{ID: "floor2", X: 404, Y: 390, Width: 372, Height: 60},
+					{ID: "ledge2", X: 560, Y: 322, Width: 96, Height: 12},
+				},
+				Nodes: []editor.PlanTreeNode{
+					{Name: "main", Existing: true},
+				},
+			},
+			{
+				Number:     2,
+				Title:      "Add a gate right after the door and a lever",
+				Files:      []string{"prefabs/gate.prefab.yaml", "scenes/level_01.scene.yaml"},
+				FilesLabel: "gate.prefab.yaml · level_01",
+				Adds:       "1 new prefab · 2 objects",
+				Objects:    2,
+				Ghosts: []editor.PlanGhost{
+					{ID: "gate", X: 432, Y: 330, Width: 14, Height: 60, Label: "gate · lever", LabelX: float32Ptr(402), LabelY: float32Ptr(300), ObjectID: "hero"},
+					{ID: "lever", X: 330, Y: 372, Width: 10, Height: 18},
+				},
+				Nodes: []editor.PlanTreeNode{
+					{Name: "gate", Layer: "main"},
+					{Name: "lever", Layer: "main"},
+				},
+			},
+			{
+				Number:          3,
+				Title:           "Place {slimes} slimes and {coins} coins in room 2",
+				Files:           []string{"scenes/level_01.scene.yaml"},
+				FilesLabel:      "level_01.scene.yaml",
+				NotePlaceholder: "Or describe it, e.g. one slime on the ledge",
+				Fields: []editor.PlanStepField{
+					{Key: "slimes", Label: "Slimes", Value: 3, Min: 1, Max: 6, Step: 1, Hint: "1 to 6", CountsObjects: true},
+					{Key: "coins", Label: "Coins", Value: 5, Min: 0, Max: 9, Step: 1, Hint: "0 to 9", CountsObjects: true},
+				},
+				Ghosts: []editor.PlanGhost{
+					{ID: "slimes", X: 452, Y: 372, Width: 26, Height: 16, RepeatField: "slimes", SpanWidth: 308, Label: "{slimes} slimes · {coins} coins", LabelX: float32Ptr(640), LabelY: float32Ptr(416)},
+					{ID: "coins", X: 566, Y: 300, Width: 10, Height: 10, RepeatField: "coins", StepX: 18, StaggerY: -8},
+				},
+				Nodes: []editor.PlanTreeNode{
+					{Name: "slime_03 … slime_{slimes+2:02d}", Layer: "main"},
+					{Name: "coins_room2 · {coins}", Layer: "main"},
+				},
+			},
+			{
+				Number:           4,
+				Title:            "Pulling the lever opens the gate",
+				Files:            []string{"logic/lever.go"},
+				FilesLabel:       "logic/lever.go",
+				Adds:             "1 new function",
+				Permission:       "Edit Go",
+				PermissionAction: editor.PermissionActionCode,
+				PermissionTarget: "logic/lever.go",
+			},
+			{
+				Number:           5,
+				Title:            "Run check and a 15 s headless playtest",
+				FilesLabel:       "no files",
+				Adds:             "reports back",
+				Permission:       "Run the game",
+				PermissionAction: editor.PermissionActionRun,
+				PermissionTarget: editor.PermissionRunPlaytests,
+			},
+		},
+	}
+}
+
+// #1035 Acceptance: Ghosts follow an answer change (the gate moves) and hide with the toggle;
+// nothing is written before approval.
+func TestPlanGhostsFollowAnswerChangeAndToggleNothingWrittenBeforeApproval(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "scenes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	scenePath := filepath.Join(dir, "scenes", "level_01.scene.yaml")
+	initialScene := `version: 4
+name: level_01
+virtualWidth: 640
+virtualHeight: 360
+backgroundColor: "#141824"
+layers:
+  - name: main
+    space: world
+    objects:
+      - id: hero
+        name: Knight
+        x: 76
+        y: 356
+`
+	if err := os.WriteFile(filepath.Join(dir, "game.yaml"), []byte("version: 1\nname: dungeon-run\nid: com.example.dungeonrun\nappVersion: 0.1.0\nwindow:\n  width: 640\n  height: 360\nautoload:\n  mainScene: level_01\n  scenes:\n    - name: level_01\n      path: scenes/level_01.scene.yaml\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(scenePath, []byte(initialScene), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ed, err := editor.New(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+	beforeYAML, err := ed.SaveYAML()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := ed.ProposeAgentPlan(sampleRoom2Plan()); err != nil {
+		t.Fatalf("ProposeAgentPlan: %v", err)
+	}
+
+	findGateX := func() (float32, bool) {
+		for _, g := range ed.ResolvedPlanGhosts() {
+			if g.ID == "gate" {
+				return g.X, true
+			}
+		}
+		return 0, false
+	}
+
+	// Default suggested gate position is x=432.
+	x0, ok := findGateX()
+	if !ok || x0 != 432 {
+		t.Fatalf("initial gate ghost x = %v (ok=%v), want 432", x0, ok)
+	}
+
+	// Answer q1 with "mid" -> gate moves to 588.
+	if err := ed.AnswerPlanQuestion("q1", "mid"); err != nil {
+		t.Fatalf("AnswerPlanQuestion(q1, mid): %v", err)
+	}
+	x1, ok := findGateX()
+	if !ok || x1 != 588 {
+		t.Fatalf("gate ghost x after 'mid' = %v (ok=%v), want 588", x1, ok)
+	}
+
+	// Reopen and switch to "end" -> gate moves to 714.
+	if err := ed.ReopenPlanQuestion("q1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.AnswerPlanQuestion("q1", "end"); err != nil {
+		t.Fatal(err)
+	}
+	x2, ok := findGateX()
+	if !ok || x2 != 714 {
+		t.Fatalf("gate ghost x after 'end' = %v (ok=%v), want 714", x2, ok)
+	}
+
+	// Changing slimes count from 3 to 5 updates slime ghost count in viewport.
+	countSlimeGhosts := func() int {
+		n := 0
+		for _, g := range ed.ResolvedPlanGhosts() {
+			if g.ID == "slimes" {
+				n++
+			}
+		}
+		return n
+	}
+	if got := countSlimeGhosts(); got != 3 {
+		t.Fatalf("initial slime ghosts = %d, want 3", got)
+	}
+	if err := ed.SetPlanStepField(3, "slimes", 5); err != nil {
+		t.Fatal(err)
+	}
+	if got := countSlimeGhosts(); got != 5 {
+		t.Fatalf("slime ghosts after edit = %d, want 5", got)
+	}
+
+	// Toggle Plan ghosts off -> ResolvedPlanGhosts is empty; toggle back on -> restored.
+	ed.TogglePlanGhosts()
+	if ed.PlanGhostsVisible() {
+		t.Fatal("PlanGhostsVisible should be false after toggle")
+	}
+	if got := len(ed.ResolvedPlanGhosts()); got != 0 {
+		t.Fatalf("ResolvedPlanGhosts when toggled off = %d, want 0", got)
+	}
+	ed.TogglePlanGhosts()
+	if !ed.PlanGhostsVisible() || len(ed.ResolvedPlanGhosts()) == 0 {
+		t.Fatal("PlanGhostsVisible should restore ghosts on second toggle")
+	}
+
+	// Verify nothing was written to disk or the open scene before approval.
+	diskBytes, err := os.ReadFile(scenePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(diskBytes) != initialScene {
+		t.Fatalf("scene file on disk changed before approval")
+	}
+	afterYAML, err := ed.SaveYAML()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(beforeYAML, afterYAML) {
+		t.Fatalf("open scene YAML changed before approval")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "prefabs", "gate.prefab.yaml")); !os.IsNotExist(err) {
+		t.Fatalf("prefabs/gate.prefab.yaml should not exist before approval")
+	}
+}
+
+// #1035 Acceptance: Stop before step 1 leaves every file unchanged and offers Edit plan and Run again.
+// Also verifies Just do it ("Picked for you: ..."), manual edit pause on planned objects while running,
+// permission reason evaluation, and step removal/restore striking out exclusive files.
+func TestPlanJustDoItStopBeforeStep1EditAndRunAgain(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "scenes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	scenePath := filepath.Join(dir, "scenes", "level_01.scene.yaml")
+	initialScene := `version: 4
+name: level_01
+virtualWidth: 640
+virtualHeight: 360
+backgroundColor: "#141824"
+layers:
+  - name: main
+    space: world
+    objects:
+      - id: hero
+        name: Knight
+        x: 76
+        y: 356
+`
+	if err := os.WriteFile(filepath.Join(dir, "game.yaml"), []byte("version: 1\nname: dungeon-run\nid: com.example.dungeonrun\nappVersion: 0.1.0\nwindow:\n  width: 640\n  height: 360\nautoload:\n  mainScene: level_01\n  scenes:\n    - name: level_01\n      path: scenes/level_01.scene.yaml\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(scenePath, []byte(initialScene), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ed, err := editor.New(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := ed.ProposeAgentPlan(sampleRoom2Plan()); err != nil {
+		t.Fatal(err)
+	}
+
+	// Permission reason matches Balanced profile editing Go + 3 files.
+	permSum := ed.EvaluatePlanPermissions(ed.ActivePlan())
+	if !permSum.Needed || !permSum.EditsGo || permSum.FileCount != 3 {
+		t.Fatalf("EvaluatePlanPermissions = %+v, want Needed=true EditsGo=true FileCount=3", permSum)
+	}
+	if !strings.Contains(permSum.Reason, "edits Go") || !strings.Contains(permSum.Reason, "3 files") {
+		t.Fatalf("permission reason = %q, want edits Go and 3 files", permSum.Reason)
+	}
+
+	// Removing step 4 strikes logic/lever.go out of FILES IN THIS PLAN; restoring brings it back.
+	if err := ed.RemovePlanStep(4); err != nil {
+		t.Fatal(err)
+	}
+	leverInPlan := func() bool {
+		for _, f := range ed.ResolvedPlanFiles() {
+			if f.Path == "logic/lever.go" {
+				return f.InPlan
+			}
+		}
+		return false
+	}
+	if leverInPlan() {
+		t.Fatal("logic/lever.go should be struck out when step 4 is removed")
+	}
+	if err := ed.RestorePlanStep(4); err != nil {
+		t.Fatal(err)
+	}
+	if !leverInPlan() {
+		t.Fatal("logic/lever.go should be active again after restoring step 4")
+	}
+
+	// Just do it picks suggested options and starts Running at step 1 of 5.
+	dec, err := ed.JustDoItAgentPlan()
+	if err != nil {
+		t.Fatalf("JustDoItAgentPlan: %v", err)
+	}
+	if dec.Decision != "approved" || !dec.PickedForYou {
+		t.Fatalf("JustDoIt decision = %+v, want approved + PickedForYou", dec)
+	}
+	if !strings.HasPrefix(ed.PlanPickedLine(), "Picked for you:") {
+		t.Fatalf("PlanPickedLine = %q, want prefix 'Picked for you:'", ed.PlanPickedLine())
+	}
+	if pill := ed.PlanHeaderPillText(); !strings.Contains(pill, "step 1 of 5") || !strings.Contains(pill, "manual edits to planned objects are paused") {
+		t.Fatalf("running header pill = %q", pill)
+	}
+
+	// While running, manual edits to planned object "hero" are paused, whereas agent edits are allowed.
+	if !ed.IsObjectPausedByPlan("hero") {
+		t.Fatal("IsObjectPausedByPlan(hero) = false while plan running")
+	}
+	if err := ed.MoveObject("hero", 99, 99); err == nil {
+		t.Fatal("manual MoveObject on planned object should be paused while running")
+	}
+
+	// Active step (step 1) ghosts turn solid (Active == true); later step ghosts stay dashed (Active == false).
+	sawActive1, sawInactive2 := false, false
+	for _, g := range ed.ResolvedPlanGhosts() {
+		if g.Step == 1 && g.Active {
+			sawActive1 = true
+		}
+		if g.Step == 2 && !g.Active {
+			sawInactive2 = true
+		}
+	}
+	if !sawActive1 || !sawInactive2 {
+		t.Fatalf("ghost active flags: step1=%v step2Inactive=%v", sawActive1, sawInactive2)
+	}
+
+	// Stop before step 1 completes -> NothingWritten, every file unchanged, Edit plan & Run again available.
+	stopDec, err := ed.StopAgentPlan()
+	if err != nil {
+		t.Fatalf("StopAgentPlan: %v", err)
+	}
+	if stopDec.Decision != "stopped" || !stopDec.NothingWritten {
+		t.Fatalf("stopDec = %+v, want stopped + NothingWritten", stopDec)
+	}
+	if cur := ed.ActivePlan(); cur == nil || cur.Phase != editor.PlanPhaseStopped || !cur.NothingWritten {
+		t.Fatalf("active plan after stop = %+v", cur)
+	}
+	diskBytes, err := os.ReadFile(scenePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(diskBytes) != initialScene {
+		t.Fatal("scene file on disk changed after Stop before step 1")
+	}
+
+	// Edit plan returns to draft; Run again restarts Running.
+	if err := ed.EditStoppedPlan(); err != nil {
+		t.Fatalf("EditStoppedPlan: %v", err)
+	}
+	if cur := ed.ActivePlan(); cur == nil || cur.Phase != editor.PlanPhaseDraft {
+		t.Fatalf("expected Draft after EditStoppedPlan, got %+v", cur)
+	}
+	if _, err := ed.ApproveAgentPlan(); err != nil {
+		t.Fatalf("Approve after EditStoppedPlan: %v", err)
+	}
+	if _, err := ed.StopAgentPlan(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ed.RunStoppedPlanAgain(); err != nil {
+		t.Fatalf("RunStoppedPlanAgain: %v", err)
+	}
+	if !ed.IsPlanRunning() {
+		t.Fatal("expected Running after RunStoppedPlanAgain")
+	}
+}
+
+// #1035 UI & Screenshots: renders the full EditorView with the Plan card, clarifying questions,
+// inline step editor, planned ghosts in viewport, planned nodes + FILES IN THIS PLAN in Scene Tree,
+// Running state, Stopped state, and Permissions link in Dark and Light appearances.
+func TestAgentPlanUIAndScreenshots(t *testing.T) {
+	ed := newTestEditor(t)
+	ed.SetAppearance(editor.AppearanceDark)
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1440, 900), nsgotest.Environment(core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop, Dark: true, Locale: "en-US"}))
+
+	app.Post(func() {
+		if _, _, err := ed.ProposeAgentPlan(sampleRoom2Plan()); err != nil {
+			t.Errorf("ProposeAgentPlan: %v", err)
+		}
+	})
+	app.Settle()
+
+	if !app.Exists("id:agent-plan-card") {
+		t.Fatal("agent-plan-card did not render")
+	}
+	if !app.Exists("id:plan-header-pill") {
+		t.Fatal("plan-header-pill did not render")
+	}
+	if !app.Exists("id:plan-files-panel") {
+		t.Fatal("plan-files-panel did not render")
+	}
+	if !app.Exists("id:viewport-plan-ghosts-toggle") {
+		t.Fatal("viewport-plan-ghosts-toggle did not render")
+	}
+	if !app.Exists("id:plan-viewport-legend") {
+		t.Fatal("plan-viewport-legend did not render")
+	}
+
+	// 1. Draft state (2 unanswered questions, ghosts visible, Approve disabled).
+	app.Screenshot("plan-draft-dark")
+
+	// Answer Q1 (Mid-room) via UI press -> collapses Q1 with Change button.
+	app.Press("id:plan-q-q1-opt-mid")
+	if !app.Exists("id:plan-q-q1-summary") || !app.Exists("id:plan-q-q1-change") {
+		t.Fatal("Q1 did not collapse to summary with Change button")
+	}
+
+	// Expand step 3 editor, bump slimes, type a note without losing input focus/mount.
+	app.Press("id:plan-step-edit-3")
+	if !app.Exists("id:plan-step-editor") {
+		t.Fatal("plan-step-editor did not open")
+	}
+	app.Press("id:plan-field-slimes-inc")
+	app.Type("id:plan-step-note-input", "one slime on the ledge")
+	app.Screenshot("plan-step-edit-dark")
+	app.Press("id:plan-step-edit-done")
+
+	// Verify note persisted on step 3.
+	if pl := ed.ActivePlan(); pl == nil || pl.Steps[2].Note != "one slime on the ledge" {
+		t.Fatalf("step 3 note = %+v", pl)
+	}
+
+	// Answer Q2 and approve via UI button -> Running state with solid step 1 ghost + Stop button.
+	app.Press("id:plan-q-q2-opt-open")
+	app.Press("id:plan-approve")
+	if !ed.IsPlanRunning() {
+		t.Fatal("Approve button did not transition plan to Running")
+	}
+	if !app.Exists("id:plan-stop") || !app.Exists("id:plan-legend-working") {
+		t.Fatal("Running UI (Stop button + working legend) did not render")
+	}
+	app.Screenshot("plan-running-dark")
+
+	// Press Stop before step 1 completes -> Stopped state with Edit plan and Run again.
+	app.Press("id:plan-stop")
+	if !app.Exists("id:plan-stopped-line") || !app.Exists("id:plan-edit-again") || !app.Exists("id:plan-run-again") {
+		t.Fatal("Stopped UI (Edit plan + Run again) did not render")
+	}
+	app.Screenshot("plan-stopped-dark")
+
+	// Switch to Spec Light and return to Draft to verify Light palette parity and Permissions link.
+	app.Press("id:plan-edit-again")
+	app.Post(func() {
+		ed.SetAppearance(editor.AppearanceLight)
+	})
+	app.Settle()
+	app.Screenshot("plan-draft-light")
+
+	// Clicking Permissions footer link opens Settings › Permissions.
+	app.Press("id:plan-permissions-link")
+	if !ed.SettingsOpen() || ed.SettingsPage() != editor.SettingsPagePermissions {
+		t.Fatalf("SettingsOpen=%v Page=%q, want SettingsPagePermissions", ed.SettingsOpen(), ed.SettingsPage())
+	}
+}

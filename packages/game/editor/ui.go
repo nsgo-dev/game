@@ -60,6 +60,9 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 			ed.report(ed.StopAgentTurn())
 		}
 		ed.StopRunningTasks()
+		if ed.IsPlanRunning() {
+			_, _ = ed.StopAgentPlan()
+		}
 		ed.StopAgent()
 	})
 	cx.OnKeyWith("mod+enter", core.KeyOptions{When: core.KeyNotEditing}, func() {
@@ -857,6 +860,7 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 							},
 						},
 					},
+					planHeaderPillView(cx, ed, rev),
 				},
 			},
 			toolbarAgentPillView(cx, ed, rev),
@@ -1854,6 +1858,26 @@ func statusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 					FlexShrink: 0,
 				},
 				Children: []core.Node{
+					core.Show{
+						When: func() bool {
+							_ = rev.Get()
+							return ed.ActivePlan() != nil
+						},
+						Then: func(cx *core.Scope) core.Node {
+							spec := ed.SpecPalette(cx)
+							return core.Text{
+								TestID: "status-plan-summary",
+								ContentFunc: func() string {
+									_ = rev.Get()
+									return ed.PlanStatusBarLine()
+								},
+								Style: core.Style{
+									FontSize: 11,
+									Color:    spec.Agent.Fg,
+								},
+							}
+						},
+					},
 					core.Text{
 						TestID: "editor-status-message",
 						ContentFunc: func() string {

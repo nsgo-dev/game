@@ -1012,6 +1012,38 @@ strings:
   permissions.toastShow: 查看
   permissions.toastUndo: 撤销
   permissions.youOnlyDomains: 权限、工具、模型与用量均为“仅限用户”——智能体只能提交草案，绝不能直接写入。
+  plan.action.approve: 批准执行
+  plan.action.editPlan: 编辑计划
+  plan.action.justDoIt: 直接执行
+  plan.action.runAgain: 重新运行
+  plan.action.stop: 停止
+  plan.badge: 计划
+  plan.filesHeader: 本计划涉及的文件
+  plan.footer.nothingChanges: 批准前不会更改任何文件。
+  plan.footer.permissionsLink: 权限设置
+  plan.ghostsToggle: 计划虚影
+  plan.ghostsToggleLabel: 切换视口中的计划虚影
+  plan.legend.planned: 已规划 · 尚未写入文件
+  plan.legend.working: 智能体正在此处工作
+  plan.plannedCount: '{count} 项规划'
+  plan.question.change: 修改
+  plan.questions.applied: 已将回答应用到计划
+  plan.questions.many: 开始前有 {count} 个问题
+  plan.questions.one: 开始前有 1 个问题
+  plan.review.doneCount: 已完成 {done}/{total}
+  plan.review.title: 计划步骤
+  plan.running.line: 正在执行第 {step}/{total} 步 · 按 Esc 停止
+  plan.running.reviewNote: 审查阶段将对照此计划核对已完成的内容。
+  plan.step.done: 完成
+  plan.step.editHeading: 编辑第 {n} 步
+  plan.step.editLabel: 编辑第 {n} 步
+  plan.step.noteLabel: 告诉智能体如何修改这一步
+  plan.step.notePlaceholder: 告诉智能体如何修改这一步
+  plan.step.notePrefix: 备注：{note}
+  plan.step.removeLabel: 移除第 {n} 步
+  plan.step.restore: 恢复
+  plan.stopped.nothingWritten: 已在第 1 步前停止，未写入任何内容。
+  plan.stopped.partial: 已在完成 {done}/{total} 步后停止。
   problems.agentHeader: 智能体
   problems.agentNote: 文件一有改动就会立即发现问题，无论来自你还是智能体；智能体只提出修复方案，绝不会未经你同意自动应用。
   problems.applyFix: 应用修复

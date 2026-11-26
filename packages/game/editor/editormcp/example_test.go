@@ -116,6 +116,8 @@ func ExampleServer_AddTool() {
 	// object_set_field edit
 	// object_visibility edit
 	// permissions_draft read
+	// plan_propose read
+	// plan_step_update read
 	// play_frozen_context read
 	// play_replay_step run
 	// playtest_define edit
