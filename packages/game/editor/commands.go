@@ -355,7 +355,14 @@ func (e *Editor) initBuiltinCommands() {
 			Keywords:    []string{"write", "persist", "yaml"},
 			Shortcut:    "mod+s",
 			Enabled:     notPlaying,
-			Run:         func() error { return e.Save() },
+			Run: func() error {
+				if err := e.Save(); err != nil {
+					e.notifyExplicitSaveFailure(e.SceneLabel(), err, e.Save)
+					return err
+				}
+				e.clearExplicitSaveFailedToast()
+				return nil
+			},
 		},
 		{
 			ID:          CmdCloseTab,

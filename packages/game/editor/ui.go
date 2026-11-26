@@ -34,6 +34,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 	focusCtrl := newFocusRegionController(cx)
 	ed.focus.ctrl = focusCtrl
 	rev := core.NewSignal(cx, ed.Revision())
+	ed.bindToastLifecycle(cx, rev)
 	unsub := ed.Subscribe(func() {
 		rev.Set(ed.Revision())
 	})
@@ -444,6 +445,8 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 			},
 			PermissionsWorkspaceOverlayView(cx, ed, rev),
 			PermissionsToastView(cx, ed, rev),
+			WindowToastView(cx, ed, rev),
+			toastEscapeKeyView(ed, rev),
 			AgentReviewPanelView(cx, ed, rev),
 			PermissionsDraftCardView(cx, ed, rev),
 			ShortcutsSheetView(cx, ed, rev),

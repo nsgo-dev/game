@@ -1053,6 +1053,11 @@ func (e *Editor) CopyFirstRunDiagnostics() string {
 	}
 	text := b.String()
 	e.writeClipboardText(text)
+	e.EmitToastEvent(ToastEvent{
+		Kind:    ToastEventCopied,
+		Target:  "first-run-diagnostics",
+		Message: "Copied diagnostics to clipboard",
+	})
 	e.notify()
 	return text
 }

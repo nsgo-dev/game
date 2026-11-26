@@ -874,6 +874,11 @@ func (e *Editor) CopyConnectInstallCommand() {
 		e.notify()
 	})
 	e.Status = "Copied " + AgentInstallCommand
+	e.EmitToastEvent(ToastEvent{
+		Kind:    ToastEventCopied,
+		Target:  "agent-install",
+		Message: e.Status,
+	})
 	e.notify()
 }
 

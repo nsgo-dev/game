@@ -1237,8 +1237,32 @@ func (e *Editor) PollDiskChanges() DiskPollResult {
 
 func (e *Editor) setReloadNotice(n DiskReloadNotice) {
 	cp := n
+	cp.Diffs = slices.Clone(n.Diffs)
 	e.disk.reloadNotice = &cp
 	e.disk.showDiffOpen = false
+	label := cp.Label
+	if label == "" {
+		label = filepath.Base(cp.Path)
+	}
+	target := cp.Path
+	if target == "" {
+		target = label
+	}
+	e.EmitToastEvent(ToastEvent{
+		Kind:        ToastEventDiskChanged,
+		Target:      target,
+		Message:     fmt.Sprintf("%s changed on disk and was reloaded", label),
+		ActionLabel: "Show",
+		OnAction: func() {
+			if len(cp.Diffs) > 0 {
+				e.SetDiskReloadDiffOpen(true)
+			} else if rel, ok := e.projectRel(cp.Path); ok {
+				e.SelectFile(rel)
+			} else if label != "" {
+				e.SelectFile(label)
+			}
+		},
+	})
 }
 
 func formatReloadSummary(label, source string, objectCount int) string {

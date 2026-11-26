@@ -1373,3 +1373,34 @@ func main() {
 - **权限草案卡片（`permissions_draft` / `PermissionsDraftCardView`）**：智能体只能通过 `permissions_draft`（`Editor.SubmitPermissionsDraft`）提交草案。草案以带焦点限制与关闭恢复的独立模态 `ui.Dialog` 打开，展示每条规则的 `NOW → DRAFT` 决策、实时 `permissions.yaml · if applied` YAML 差异预览、**默认全部不勾选**的逐条复选框、**丢弃草案**与**应用 n 条规则**按钮。`⌘↵`、**全部保留**、自动化流程及任意配置档（含 `Autonomous`）都无法应用该草案；已应用的规则在历史记录（`History`）中归属于用户本人（`HistoryActorPerson`），且可用 `⌘Z` 逐字节撤销。
 - **外部磁盘变更的收紧生效与放宽暂挂（`ReconcileExternalPermissions`）**：当 `permissions.yaml` 在编辑器外部被修改（如克隆仓库、`git pull` 或其他工具编辑）时，**收紧的配置档与规则会立即生效**；而**放宽的配置档或规则**（例如将 `Balanced` 改为 `Autonomous`、将 `Deny` 改为 `Allow`，或删掉一条 `Deny` 规则）会被暂挂且不会启用，直到用户在 **设置 › 权限** 中逐条确认（`ConfirmHeldPermissionLoosening`）或保持更严格规则（`RejectHeldPermissionLoosening`）。
 - **“全部保留”永不自动执行的提议删除（`game_delete_file` / `AgentReviewPanelView`）**：`game_delete_file` 默认关闭（`Editor.ToolEnabled("game_delete_file") == false`），调用后始终只在**审查更改**面板中提议删除（`Editor.ProposeFileDeletion`），展示文件精确行数（或二进制摘要）、红色差异预览以及是否有场景引用该文件（基于 `Editor.FindUsages`），并拒绝符号链接、`.git/**`、`game.yaml`、已打开的场景标签页及大于 1 MiB 的文件。执行**全部保留**（`Editor.KeepAllReviewChanges` / `⌘↵`）会保留其他改动并将待确认删除的文件原样留在磁盘上；用户就地点击**删除此文件**（`Editor.ConfirmProposedDeletion`）后会通过带检查点的可逆命令（`deleteFileCmd`）删除文件，按 **`⌘Z`（`Editor.Undo`）** 可从检查点逐字节恢复原文件。
+
+## 轻提示 Toast 与反馈通道（#1004）
+
+编辑器中的瞬时反馈统一使用同一个符合 Spec 规范的 Toast 组件（`ToastView`、`WindowToastView` 与 `SpecToastCard`，对应 `docs/design/editor/Toasts.dc.html` 与 `Spec.dc.html`，严格仅使用 `SpecPalette` 令牌）。需要用户做决定的事项绝不放入 Toast：权限请求与提问留在智能体面板卡片中，检查失败进入 Problems 面板，完成的智能体回合打开审查流。
+
+- **五种语义类型，统一 40 px 高、12 圆角、单行胶囊**：
+  - `ToastSuccess`（圆圈对勾图标，`Added.Fg`）、`ToastInfo`（圆圈 `i` 图标，`TextMuted`）、`ToastWarning`（三角感叹图标，`Warning.Fg`，置于 `Warning.Fill` 与 `Warning.Edge` 表面上）、`ToastError`（带竖杠圆圈图标，`Removed.Fg`）以及 `ToastProgress`（进度环 + 底部 2 px 进度条 + 实时百分比）。
+  - 最多包含一个动词操作按钮（可附带快捷键提示，例如 `Undo ⌘Z`）；除 `ToastProgress` 外，所有类型都提供关闭按钮。
+- **规范事件 API（`Editor.EmitToastEvent`、`ToastHandle`、`SpecFeedbackChannels`）**：各页面通过强类型的 `ToastEvent`（`ToastEventReviewKept`、`ToastEventReviewReverted`、`ToastEventFixApplied`、`ToastEventAgentStopped`、`ToastEventPermissionSaved`、`ToastEventCopied`、`ToastEventDiskChanged`、`ToastEventSaveFailed`、`ToastEventExportRunning`、`ToastEventExportFailed`）发出提示，不再各自编造色调、时长或去重键。`EmitToastEvent` 返回 `*ToastHandle`，使 `export_panel.go` 导出等长耗时任务可以原地更新百分比（`SetProgress`）、完成后原地转为成功提示（`Complete`，如 `"Exported <path>"` 附带 **Show in Finder**）或持久化错误提示（`Fail` 附带 **Retry**），以及取消正在进行的工作（`Cancel`）。
+- **定位规则**：当视口在屏幕上可见时，锚定在视口底部居中、距视口工具条上方 8 px，绝不遮挡场景树、检查器或智能体面板；当没有视口在屏幕上时（启动页、设置、导出及其他全窗口页面），`WindowToastView` 锚定在窗口底部居中、距底边 24 px 处。
+- **队列、`+N` 等待计数、重复合并与顺序**：同一时间只显示一条 Toast，其余按 FIFO 顺序排队并在当前 Toast 上显示 `+N` 等待计数徽章。重复的同一事件会原地合并到等待条目中而不改变队列顺序，且任何新事件都不会插队到错误提示或运行中的进度提示之前。
+- **时长、暂停、动效与无障碍**：
+  - `ToastDuration` 严格执行规范时长：成功与信息为 4 秒（带操作按钮时为 6 秒），警告为 8 秒，错误与进度保持显示直到重试、关闭、取消或完成。鼠标悬停、触摸、键盘聚焦在 `RegionToast` 内，或窗口离开 `core.LifecycleActive`（退到后台）时都会暂停倒计时（`Editor.ToastTimerPaused`、`Editor.ToastRemaining`）。
+  - 入场动效为 180 ms 淡入并向上浮起 8 px，退场为 120 ms 淡出；开启减少动态效果（`ReduceMotion`）后立即出现与消失，无淡入淡出和位移。
+  - 两个 Toast 宿主容器均为礼貌实时区域（`core.RoleStatus`、`core.LiveRegionPolite`）。弹出 Toast 绝不抢占焦点；`F6` / `Shift-F6` 可切换进入 `RegionToast`，`Tab` 在操作与关闭按钮间移动，聚焦时按 `Esc` 关闭该 Toast 并将焦点还原回进入 Toast 前的控件。
+- **Spec 反馈通道映射表（`SpecFeedbackChannels`）**：
+
+| 事件 | 通道 | 操作 / 说明 |
+| --- | --- | --- |
+| 保留或撤销审查（Review kept or reverted） | Toast | `Undo ⌘Z` |
+| 从 Problems 应用修复（Fix applied from Problems） | Toast | `Undo ⌘Z` |
+| 用 `⌘.` 停止智能体（Agent stopped with `⌘.`） | Toast | `Review` |
+| 保存“始终允许”权限规则（“Always” permission rule saved） | Toast | `Show` |
+| 复制配置、路径或代码片段（Copied a config, path or snippet） | Toast | 信息提示（已接入连接命令、复制 YAML、复制对象、Web 预览链接、PR 描述与诊断信息） |
+| 磁盘文件在编辑器外被修改（A file changed on disk outside the editor） | Toast | 警告 · `Show`（已接入磁盘监视器重载） |
+| 保存或导出失败（Save or export failed） | Toast | 错误 · `Retry`，持续停留（仅显式 `⌘S`/保存与导出失败弹出 Toast；自动保存失败按 `Checkpoints.dc.html` 留在状态栏中，从不弹 Toast） |
+| 导出进行中（Export running） | Progress toast | `Cancel`，完成后原地转为 `"Exported <path>"` 与 `Show in Finder` |
+| 智能体请求权限或提问（Agent asks permission or a question） | Agent panel card | 绝不使用 Toast |
+| 智能体完成请求（Agent finished a request） | Review opens | 绝不使用 Toast |
+| 检查失败或损坏引用（Check failed, broken reference） | Problems | 绝不使用 Toast |
+| 编辑器在后台时智能体提问、完成或停止 | + System notification | 与编辑器内通道配合 |

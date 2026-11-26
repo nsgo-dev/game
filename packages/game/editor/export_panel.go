@@ -6,11 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -63,6 +65,10 @@ type exportBuildRun struct {
 	doneOnce  sync.Once
 	dryRun    bool
 	outputDir string
+	canceled  bool
+	toast     *ToastHandle
+	progress  float32
+	linesSeen int
 }
 
 func (r *exportBuildRun) finish() {
@@ -792,6 +798,7 @@ func (e *Editor) StartExportBuild(opts ExportBuildOptions) error {
 		Notes:   notes,
 	}
 	plan, err := releaseplan.Build(dir, planOpts, releaseplan.SettingsFromProject(e.Project))
+	projectName := exportProjectDisplayName(e.Project, dir)
 	if err != nil {
 		e.exportPanel.mu.Lock()
 		e.exportPanel.output = []string{"game release: " + err.Error()}
@@ -799,6 +806,18 @@ func (e *Editor) StartExportBuild(opts ExportBuildOptions) error {
 		e.exportPanel.lastCommandLine = ""
 		e.exportPanel.mu.Unlock()
 		e.Status = "Export blocked: " + err.Error()
+		if !opts.DryRun {
+			retryOpts := opts
+			e.EmitToastEvent(ToastEvent{
+				Kind:        ToastEventExportFailed,
+				ID:          "toast:export",
+				Message:     fmt.Sprintf("Couldn't export %s: %s", projectName, err.Error()),
+				ActionLabel: "Retry",
+				OnAction: func() {
+					_ = e.StartExportBuild(retryOpts)
+				},
+			})
+		}
 		e.notify()
 		return err
 	}
@@ -828,6 +847,20 @@ func (e *Editor) StartExportBuild(opts ExportBuildOptions) error {
 		e.Status = "Running dry-run release…"
 	} else {
 		e.Status = "Building release…"
+		targetLabel := exportToastTargetLabel(opts.Targets, e.EffectiveExportTargets())
+		msg := fmt.Sprintf("Exporting %s", projectName)
+		if targetLabel != "" {
+			msg = fmt.Sprintf("Exporting %s for %s", projectName, targetLabel)
+		}
+		run.toast = e.EmitToastEvent(ToastEvent{
+			Kind:        ToastEventExportRunning,
+			ID:          "toast:export",
+			Message:     msg,
+			ActionLabel: "Cancel",
+			OnCancel: func() {
+				e.CancelExportBuild()
+			},
+		})
 	}
 	e.notify()
 
@@ -840,19 +873,47 @@ func (e *Editor) StartExportBuild(opts ExportBuildOptions) error {
 		opener = defaultOpenOutputFolder
 	}
 	scope := e.scope
+	retryOpts := opts
+	displayOut := plan.OutputDir
+	if rel, rerr := filepath.Rel(dir, plan.OutputDir); rerr == nil && rel != "" && rel != "." && !strings.HasPrefix(rel, "..") {
+		displayOut = filepath.ToSlash(rel)
+	}
 
 	go func() {
 		defer cancel()
 		var runErr error
 		stream := newExportStreamWriter(func(line string) {
 			e.postExportUI(scope, func() {
+				var nextProgress float32
+				var updateToast bool
 				e.exportPanel.mu.Lock()
 				active := e.exportPanel.run == run
 				if active {
 					e.exportPanel.output = append(e.exportPanel.output, line)
+					if run.toast != nil {
+						run.linesSeen++
+						if parsed, ok := parseExportProgressPercent(line); ok {
+							if parsed > run.progress {
+								run.progress = parsed
+							}
+						} else {
+							estimated := float32(1.0 - math.Pow(0.82, float64(run.linesSeen)))
+							if estimated > 0.90 {
+								estimated = 0.90
+							}
+							if estimated > run.progress {
+								run.progress = estimated
+							}
+						}
+						nextProgress = run.progress
+						updateToast = true
+					}
 				}
 				e.exportPanel.mu.Unlock()
 				if active {
+					if updateToast && run.toast != nil {
+						run.toast.SetProgress(nextProgress, "")
+					}
 					e.notify()
 				}
 			})
@@ -896,6 +957,7 @@ func (e *Editor) StartExportBuild(opts ExportBuildOptions) error {
 		e.postExportUI(scope, func() {
 			e.exportPanel.mu.Lock()
 			active := e.exportPanel.run == run
+			wasCanceled := run.canceled || errors.Is(runErr, context.Canceled)
 			if active {
 				e.exportPanel.run = nil
 				e.exportPanel.lastErr = runErr
@@ -908,12 +970,37 @@ func (e *Editor) StartExportBuild(opts ExportBuildOptions) error {
 				switch {
 				case runErr != nil:
 					e.Status = "Export failed: " + runErr.Error()
+					if !opts.DryRun && run.toast != nil {
+						if wasCanceled {
+							run.toast.Dismiss()
+						} else {
+							run.toast.Fail(fmt.Sprintf("Couldn't export %s: %s", projectName, runErr.Error()), "Retry", func() {
+								_ = e.StartExportBuild(retryOpts)
+							})
+						}
+					}
 				case opts.DryRun:
 					e.Status = "Dry-run release complete"
 				case openErr != nil:
 					e.Status = "Release built to " + plan.OutputDir + " (could not open folder: " + openErr.Error() + ")"
+					if run.toast != nil {
+						outDir := plan.OutputDir
+						run.toast.Complete("Exported "+displayOut, e.revealInFileManagerLabel(), "", func() {
+							if opener != nil {
+								_ = opener(outDir)
+							}
+						})
+					}
 				default:
 					e.Status = "Release built to " + plan.OutputDir
+					if run.toast != nil {
+						outDir := plan.OutputDir
+						run.toast.Complete("Exported "+displayOut, e.revealInFileManagerLabel(), "", func() {
+							if opener != nil {
+								_ = opener(outDir)
+							}
+						})
+					}
 				}
 				e.notify()
 			}
@@ -924,6 +1011,67 @@ func (e *Editor) StartExportBuild(opts ExportBuildOptions) error {
 	return nil
 }
 
+// ExportToastHandle returns the active export build's *ToastHandle, or nil when no non-dry-run export is running.
+func (e *Editor) ExportToastHandle() *ToastHandle {
+	if e == nil {
+		return nil
+	}
+	e.exportPanel.mu.Lock()
+	defer e.exportPanel.mu.Unlock()
+	if e.exportPanel.run == nil {
+		return nil
+	}
+	return e.exportPanel.run.toast
+}
+
+func exportProjectDisplayName(proj *project.File, dir string) string {
+	if proj != nil && strings.TrimSpace(proj.Name) != "" {
+		return strings.TrimSpace(proj.Name)
+	}
+	if base := filepath.Base(dir); base != "" && base != "." && base != string(filepath.Separator) {
+		return base
+	}
+	return "project"
+}
+
+func exportToastTargetLabel(explicit, effective []string) string {
+	targets := explicit
+	if len(targets) == 0 {
+		targets = effective
+	}
+	if len(targets) == 0 {
+		return ""
+	}
+	var names []string
+	for _, t := range targets {
+		plat := t
+		if idx := strings.IndexByte(t, '_'); idx > 0 {
+			plat = t[:idx]
+		}
+		name := exportPlatformDisplayName(plat)
+		if !slices.Contains(names, name) {
+			names = append(names, name)
+		}
+	}
+	return strings.Join(names, ", ")
+}
+
+func parseExportProgressPercent(line string) (float32, bool) {
+	for _, tok := range strings.Fields(line) {
+		trimmed := strings.Trim(tok, "()[].,;:")
+		if !strings.HasSuffix(trimmed, "%") {
+			continue
+		}
+		numStr := strings.TrimSuffix(trimmed, "%")
+		v, err := strconv.ParseFloat(numStr, 32)
+		if err != nil || v < 0 || v > 100 {
+			continue
+		}
+		return clampToastProgress(float32(v / 100.0)), true
+	}
+	return 0, false
+}
+
 // CancelExportBuild cancels an in-flight release build, if any.
 func (e *Editor) CancelExportBuild() {
 	if e == nil {
@@ -931,6 +1079,9 @@ func (e *Editor) CancelExportBuild() {
 	}
 	e.exportPanel.mu.Lock()
 	run := e.exportPanel.run
+	if run != nil {
+		run.canceled = true
+	}
 	e.exportPanel.mu.Unlock()
 	if run != nil {
 		run.cancel()
@@ -979,9 +1130,15 @@ func (e *Editor) stopExportBuild() {
 	e.exportPanel.mu.Lock()
 	run := e.exportPanel.run
 	e.exportPanel.run = nil
+	if run != nil {
+		run.canceled = true
+	}
 	e.exportPanel.mu.Unlock()
 	if run != nil {
 		run.cancel()
+		if run.toast != nil {
+			run.toast.Dismiss()
+		}
 		run.finish()
 	}
 }

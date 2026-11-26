@@ -48,17 +48,21 @@ func (e *Editor) whenSaved(proceed, cancel func()) {
 	}
 }
 
-// saveFromUI saves as the toolbar's Save button does, putting an error in the status bar, and reports whether it saved.
+// saveFromUI saves as the toolbar's Save button does, putting an error in the status bar
+// and showing a persistent Spec error toast with Retry on explicit save failure, and reports whether it saved.
 func (e *Editor) saveFromUI() bool {
 	if err := e.Save(); err != nil {
 		e.Status = "Save error: " + err.Error()
+		e.notifyExplicitSaveFailure(e.SceneLabel(), err, e.Save)
 		e.notify()
 		return false
 	}
+	e.clearExplicitSaveFailedToast()
 	return true
 }
 
-// saveTabByIDFromUI saves the scene in tabID, putting an error in the status bar, and reports whether it saved.
+// saveTabByIDFromUI saves the scene in tabID, putting an error in the status bar
+// and showing a persistent Spec error toast with Retry on explicit save failure, and reports whether it saved.
 func (e *Editor) saveTabByIDFromUI(tabID uint64) bool {
 	idx := e.findTabByID(tabID)
 	if idx < 0 {
@@ -66,19 +70,37 @@ func (e *Editor) saveTabByIDFromUI(tabID uint64) bool {
 	}
 	if err := e.SaveTab(idx); err != nil {
 		e.Status = "Save error: " + err.Error()
+		label := e.SceneLabel()
+		if idx < len(e.tabs) && e.tabs[idx] != nil {
+			if p := tabFullPath(e.tabs[idx]); p != "" {
+				label = p
+			}
+		}
+		e.notifyExplicitSaveFailure(label, err, func() error {
+			i := e.findTabByID(tabID)
+			if i < 0 {
+				return nil
+			}
+			return e.SaveTab(i)
+		})
 		e.notify()
 		return false
 	}
+	e.clearExplicitSaveFailedToast()
 	return true
 }
 
-// saveAllFromUI saves every dirty editor (project, all dirty scene tabs, GridMap, localizations, clip, data table), putting an error in the status bar, and reports whether it saved.
+// saveAllFromUI saves every dirty editor (project, all dirty scene tabs, GridMap, localizations, clip, data table),
+// putting an error in the status bar and showing a persistent Spec error toast with Retry on explicit save failure,
+// and reports whether it saved.
 func (e *Editor) saveAllFromUI() bool {
 	if err := e.SaveAll(); err != nil {
 		e.Status = "Save error: " + err.Error()
+		e.notifyExplicitSaveFailure(e.SceneLabel(), err, e.SaveAll)
 		e.notify()
 		return false
 	}
+	e.clearExplicitSaveFailedToast()
 	return true
 }
 

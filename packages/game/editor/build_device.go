@@ -1295,6 +1295,11 @@ func (e *Editor) CopyWebBuildURL() (string, error) {
 		e.scope.SetClipboard(urlStr)
 	}
 	e.Status = "Copied " + urlStr
+	e.EmitToastEvent(ToastEvent{
+		Kind:    ToastEventCopied,
+		Target:  "web-preview-url",
+		Message: e.Status,
+	})
 	e.notify()
 	return urlStr, nil
 }

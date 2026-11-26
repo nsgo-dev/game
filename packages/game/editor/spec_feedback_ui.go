@@ -3,126 +3,36 @@ package editor
 import (
 	"fmt"
 	"math"
+	"strings"
+	"time"
 
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// ToastKind identifies the visual tone and semantic icon of an editor toast (docs/design/editor/Toasts.dc.html).
-type ToastKind string
-
-const (
-	ToastSuccess  ToastKind = "success"
-	ToastInfo     ToastKind = "info"
-	ToastWarning  ToastKind = "warning"
-	ToastError    ToastKind = "error"
-	ToastProgress ToastKind = "progress"
+// Spec toast motion tokens (docs/design/editor/Toasts.dc.html):
+// 180 ms in, fading and rising 8 px; 120 ms out. Reduced motion skips both.
+var (
+	toastEnterMotion = core.MotionSpec{
+		Timing: core.KeyframeTiming{
+			Duration: 180 * time.Millisecond,
+			Easing:   core.BezierEasing(core.EaseOut),
+		},
+		Tracks: []core.MotionTrack{
+			{Channel: core.MotionOpacity, Stops: core.Stops(0, 1)},
+			{Channel: core.MotionTranslateY, Stops: core.Stops(8, 0)},
+		},
+	}
+	toastExitMotion = core.MotionSpec{
+		Timing: core.KeyframeTiming{
+			Duration: 120 * time.Millisecond,
+			Easing:   core.BezierEasing(core.EaseIn),
+		},
+		Tracks: []core.MotionTrack{
+			{Channel: core.MotionOpacity, Stops: core.Stops(1, 0)},
+		},
+	}
 )
-
-// Toast describes a transient feedback message shown at the bottom center of the editor viewport
-// (docs/design/editor/Toasts.dc.html). Decisions never go in a toast; at most one action button is shown.
-type Toast struct {
-	// ID optionally deduplicates repeated identical events in the toast queue.
-	ID string
-	// Kind selects the icon shape and surface styling (ToastWarning uses Spec Warning.Fill and Warning.Edge).
-	Kind ToastKind
-	// Message is the single-line feedback text.
-	Message string
-	// ActionLabel is an optional short verb button label (for example "Undo", "Show", or "Retry").
-	ActionLabel string
-	// ActionShortcut is an optional keyboard shortcut hint shown next to ActionLabel (for example "⌘Z").
-	ActionShortcut string
-	// OnAction runs when the user activates the toast's action button.
-	OnAction func()
-	// Progress is the 0..1 completion fraction for ToastProgress toasts.
-	Progress float32
-	// Dismissible reports whether a Dismiss button is shown; defaults to true when Kind != ToastProgress.
-	Dismissible *bool
-}
-
-func (t Toast) canDismiss() bool {
-	if t.Dismissible != nil {
-		return *t.Dismissible
-	}
-	return t.Kind != ToastProgress
-}
-
-func clampToastProgress(p float32) float32 {
-	if math.IsNaN(float64(p)) || math.IsInf(float64(p), 0) || p < 0 {
-		return 0
-	}
-	if p > 1 {
-		return 1
-	}
-	return p
-}
-
-// ShowToast appends t to the editor's FIFO toast queue, merging duplicates with the same non-empty ID
-// into the existing queued entry, and repaints the editor.
-func (e *Editor) ShowToast(t Toast) {
-	if e == nil || t.Message == "" {
-		return
-	}
-	if t.Kind == "" {
-		t.Kind = ToastInfo
-	}
-	if t.ID != "" {
-		for i := range e.toasts {
-			if e.toasts[i].ID == t.ID {
-				e.toasts[i] = t
-				e.toastSeq++
-				e.notify()
-				return
-			}
-		}
-	}
-	e.toasts = append(e.toasts, t)
-	e.toastSeq++
-	e.notify()
-}
-
-// DismissToast removes the currently visible toast and advances the queue.
-func (e *Editor) DismissToast() {
-	if e == nil || len(e.toasts) == 0 {
-		return
-	}
-	e.toasts = e.toasts[1:]
-	e.toastSeq++
-	e.notify()
-}
-
-// ClearToasts removes all active and queued toasts.
-func (e *Editor) ClearToasts() {
-	if e == nil || len(e.toasts) == 0 {
-		return
-	}
-	e.toasts = nil
-	e.toastSeq++
-	e.notify()
-}
-
-// ActiveToast returns the currently visible toast at the head of the queue, if any.
-func (e *Editor) ActiveToast() (Toast, bool) {
-	if e == nil || len(e.toasts) == 0 {
-		return Toast{}, false
-	}
-	return e.toasts[0], true
-}
-
-// HasActiveToast reports whether a toast is currently shown and therefore part of
-// the F6 region cycle (RegionToast).
-func (e *Editor) HasActiveToast() bool {
-	_, ok := e.ActiveToast()
-	return ok
-}
-
-// QueuedToastCount returns how many additional toasts are waiting behind the visible toast.
-func (e *Editor) QueuedToastCount() int {
-	if e == nil || len(e.toasts) <= 1 {
-		return 0
-	}
-	return len(e.toasts) - 1
-}
 
 // OverlayLegendOpen reports whether the compact viewport overlay legend is visible.
 func (e *Editor) OverlayLegendOpen() bool {
@@ -138,115 +48,547 @@ func (e *Editor) SetOverlayLegendOpen(open bool) {
 	e.notify()
 }
 
-// ToastView renders the editor's active toast at the bottom center of the viewport using exclusively
-// SpecPalette tokens (matching docs/design/editor/Toasts.dc.html) in both Dark and Light appearances.
+// ToastView renders the editor's active toast at the bottom center of the viewport (8 px above
+// the viewport bar in edit mode, never over the scene tree, inspector, or agent panel) while
+// the viewport is on screen, using exclusively SpecPalette tokens (docs/design/editor/Toasts.dc.html).
 func ToastView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
-	type toastViewKey struct {
-		dark       bool
-		editingBar bool
-		seq        uint64
-		active     bool
-	}
-	toastKey := core.NewMemo(cx, func() toastViewKey {
-		_ = rev.Get()
-		_, ok := ed.ActiveToast()
-		var seq uint64
-		var editingBar bool
-		if ed != nil {
-			seq = ed.toastSeq
-			editingBar = !ed.Playing()
-		}
-		return toastViewKey{
-			dark:       cx.Dark(),
-			editingBar: editingBar,
-			seq:        seq,
-			active:     ok,
-		}
-	})
+	return toastHostView(cx, ed, rev, true)
+}
+
+// WindowToastView renders the editor's active toast at the bottom center of the window, 24 px up,
+// whenever no viewport is on screen (Start screen, Settings, Export, and other full-window screens),
+// using exclusively SpecPalette tokens (docs/design/editor/Toasts.dc.html).
+func WindowToastView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+	return toastHostView(cx, ed, rev, false)
+}
+
+// toastEscapeKeyView binds Escape to dismiss the focused toast and restore prior keyboard focus
+// strictly while focus is inside RegionToast and a toast is active.
+func toastEscapeKeyView(ed *Editor, rev *core.Signal[uint64]) core.Node {
 	return core.Show{
 		When: func() bool {
-			return toastKey.Get().active
+			_ = rev.Get()
+			if ed == nil || !ed.HasActiveToast() || ed.focus.ctrl == nil || ed.focus.ctrl.toastFocused == nil {
+				return false
+			}
+			return ed.focus.ctrl.toastFocused.Get()
 		},
 		Then: func(cx *core.Scope) core.Node {
-			return core.Dynamic(func(cx *core.Scope) core.Node {
-				k := toastKey.Get()
-				t, ok := ed.ActiveToast()
-				if !ok {
-					return core.View{}
+			cx.OnKeyWith("escape", core.KeyOptions{When: core.KeyNotEditing}, func() {
+				if ed.shortcutCaptureActive {
+					return
 				}
-				p := SpecPaletteFor(k.dark)
-				waiting := ed.QueuedToastCount()
-				bottom := core.Pt(16)
-				if k.editingBar {
-					// Sit cleanly above the bottom-center 2D overlay bar and 3D navigation bar (Bottom: 12–16, height ~36).
-					bottom = core.Pt(60)
-				}
-				actionRef := &core.Ref{}
-				dismissRef := &core.Ref{}
-				var toastRootRef *core.Ref
-				if ed != nil && ed.focus.ctrl != nil {
-					toastRootRef = ed.focus.ctrl.rootRef(RegionToast)
-					ed.focus.ctrl.registerCandidate(cx, RegionToast, actionRef, func() bool {
-						cur, ok := ed.ActiveToast()
-						return ok && cur.ActionLabel != ""
-					})
-					ed.focus.ctrl.registerCandidate(cx, RegionToast, dismissRef, func() bool {
-						cur, ok := ed.ActiveToast()
-						return ok && cur.canDismiss()
-					})
-				}
-				toastRegion := core.View{
-					Ref:        toastRootRef,
-					TestID:     "editor-region-toast",
-					Role:       core.RoleRegion,
-					Label:      ed.T("region.toast"),
-					LiveRegion: core.LiveRegionPolite,
-					Focusable: func() bool {
-						return ed != nil && ed.focus.ctrl != nil && ed.focus.ctrl.fallbackRegion.Get() == RegionToast
-					},
-					OnFocusIn: func() {
-						if ed != nil && ed.focus.ctrl != nil {
-							ed.focus.ctrl.onRegionFocusIn(RegionToast)
-						}
-					},
-					OnFocusOut: func() {
-						if ed != nil && ed.focus.ctrl != nil {
-							ed.focus.ctrl.onRegionFocusOut(RegionToast)
-						}
-					},
-					StyleFunc: func() core.Style {
-						base := core.Style{
-							CornerRadius: 12,
-							MaxWidth:     core.Pct(100),
-							FlexShrink:   1,
-							MinWidth:     core.Pt(0),
-						}
-						if ed == nil || ed.focus.ctrl == nil {
-							return base
-						}
-						return ed.focus.ctrl.regionOutlineStyle(RegionToast, base)
-					},
-					Children: []core.Node{
-						specToastCardWithRefs(p, t, waiting, ed.DismissToast, actionRef, dismissRef),
-					},
-				}
-				return core.View{
-					TestID:        "editor-toast-host",
-					Role:          core.RoleStatus,
-					PointerEvents: core.PointerEventsBoxNone,
-					Style: core.Style{
-						Position:       core.Absolute,
-						Left:           core.Pt(12),
-						Right:          core.Pt(12),
-						Bottom:         bottom,
-						Direction:      core.Row,
-						JustifyContent: core.JustifyCenter,
-					},
-					Children: []core.Node{
-						toastRegion,
-					},
-				}
+				ed.dismissFocusedToast()
 			})
+			return core.View{
+				PointerEvents: core.PointerEventsNone,
+				Style: core.Style{
+					Position: core.Absolute,
+					Width:    core.Pt(0),
+					Height:   core.Pt(0),
+				},
+			}
+		},
+	}
+}
+
+func toastHostView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], inViewport bool) core.Node {
+	activeInst := core.NewMemo(cx, func() uint64 {
+		_ = rev.Get()
+		if ed == nil || ed.viewportVisibleOnScreen() != inViewport {
+			return 0
+		}
+		return ed.activeToastInstanceID()
+	})
+
+	bottomOffset := core.NewMemo(cx, func() core.Points {
+		_ = rev.Get()
+		if !inViewport {
+			// Spec (Toasts.dc.html): with no viewport on screen (Start, Settings), bottom center of window, 24 px up.
+			return 24
+		}
+		if ed != nil && !ed.Playing() {
+			// Spec (Toasts.dc.html): 8 px above the bottom-center viewport bar (Bottom 12–16, height ~36–40).
+			return 60
+		}
+		return 16
+	})
+
+	return core.View{
+		TestID:        toastHostTestID(inViewport),
+		Role:          core.RoleStatus,
+		LiveRegion:    core.LiveRegionPolite,
+		PointerEvents: core.PointerEventsBoxNone,
+		StyleFunc: func() core.Style {
+			return core.Style{
+				Position:       core.Absolute,
+				Left:           core.Pt(12),
+				Right:          core.Pt(12),
+				Bottom:         core.Pt(bottomOffset.Get()),
+				Direction:      core.Row,
+				JustifyContent: core.JustifyCenter,
+			}
+		},
+		Children: []core.Node{
+			core.PresenceOf[uint64]{
+				Key:        activeInst.Get,
+				Wait:       true,
+				MaxLeaving: 1,
+				Content: func(cx *core.Scope, instID uint64) core.Node {
+					if instID == 0 {
+						return nil
+					}
+					return toastAnimatedBranch(cx, ed, rev, instID, inViewport)
+				},
+			},
+		},
+	}
+}
+
+func toastHostTestID(inViewport bool) string {
+	if inViewport {
+		return "editor-toast-host"
+	}
+	return "editor-window-toast-host"
+}
+
+func toastAnimatedBranch(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], instID uint64, inViewport bool) core.Node {
+	var motion *core.Motion
+	if core.Untracked(cx, cx.Env().ReduceMotion) {
+		motion = core.NewMotion(cx, nil)
+	} else {
+		motion = core.NewMotion(cx, &toastEnterMotion)
+	}
+	cx.OnExit(func(done func()) {
+		// Leave immediately under ReduceMotion, or when transferring between viewport and
+		// window host (for example opening Settings while a toast is showing) so two hosts
+		// never display duplicate toast nodes at once.
+		if core.Untracked(cx, cx.Env().ReduceMotion) || (ed != nil && ed.viewportVisibleOnScreen() != inViewport) {
+			done()
+			return
+		}
+		motion.Play(toastExitMotion, func(bool) { done() })
+	})
+
+	// Snapshot the last known toast state for this instance so exit animations keep
+	// displaying the departing toast's content smoothly even after e.toasts advances.
+	var lastSnap Toast
+	var lastWaiting int
+	if ed != nil && ed.activeToastInstanceID() == instID {
+		if t, ok := ed.ActiveToast(); ok {
+			lastSnap = t
+			lastWaiting = ed.QueuedToastCount()
+		}
+	}
+
+	readToast := func() (Toast, int) {
+		_ = rev.Get()
+		if ed != nil && ed.activeToastInstanceID() == instID {
+			if t, ok := ed.ActiveToast(); ok {
+				lastSnap = t
+				lastWaiting = ed.QueuedToastCount()
+			}
+		}
+		return lastSnap, lastWaiting
+	}
+
+	type toastStructKey struct {
+		dark           bool
+		kind           ToastKind
+		actionLabel    string
+		actionShortcut string
+		canDismiss     bool
+	}
+	structKey := core.NewMemo(cx, func() toastStructKey {
+		t, _ := readToast()
+		return toastStructKey{
+			dark:           cx.Dark(),
+			kind:           t.Kind,
+			actionLabel:    t.ActionLabel,
+			actionShortcut: t.ActionShortcut,
+			canDismiss:     t.canDismiss(),
+		}
+	})
+
+	actionRef := &core.Ref{}
+	dismissRef := &core.Ref{}
+	var toastRootRef *core.Ref
+	if ed != nil && ed.focus.ctrl != nil {
+		toastRootRef = ed.focus.ctrl.rootRef(RegionToast)
+		ed.focus.ctrl.registerCandidate(cx, RegionToast, actionRef, func() bool {
+			cur, ok := ed.ActiveToast()
+			return ok && cur.ActionLabel != ""
+		})
+		ed.focus.ctrl.registerCandidate(cx, RegionToast, dismissRef, func() bool {
+			cur, ok := ed.ActiveToast()
+			return ok && cur.canDismiss()
+		})
+	}
+
+	toastRegion := core.View{
+		Ref:        toastRootRef,
+		TestID:     "editor-region-toast",
+		Role:       core.RoleRegion,
+		Label:      ed.T("region.toast"),
+		LiveRegion: core.LiveRegionPolite,
+		Focusable: func() bool {
+			return ed != nil && ed.focus.ctrl != nil && ed.focus.ctrl.fallbackRegion.Get() == RegionToast
+		},
+		OnFocusIn: func() {
+			if ed != nil && ed.focus.ctrl != nil {
+				ed.focus.ctrl.onRegionFocusIn(RegionToast)
+			}
+		},
+		OnFocusOut: func() {
+			if ed != nil && ed.focus.ctrl != nil {
+				ed.focus.ctrl.onRegionFocusOut(RegionToast)
+			}
+		},
+		StyleFunc: func() core.Style {
+			base := core.Style{
+				CornerRadius: 12,
+				MaxWidth:     core.Pct(100),
+				FlexShrink:   1,
+				MinWidth:     core.Pt(0),
+			}
+			if ed == nil || ed.focus.ctrl == nil {
+				return base
+			}
+			return ed.focus.ctrl.regionOutlineStyle(RegionToast, base)
+		},
+		Children: []core.Node{
+			core.Dynamic(func(cx *core.Scope) core.Node {
+				sk := structKey.Get()
+				p := SpecPaletteFor(sk.dark)
+				return specLiveToastCard(p, sk.kind, sk.actionLabel, sk.actionShortcut, sk.canDismiss, readToast, ed, actionRef, dismissRef)
+			}),
+		},
+	}
+
+	return core.View{
+		TestID:        "editor-toast-motion",
+		PointerEvents: core.PointerEventsBoxNone,
+		Style: core.Style{
+			MaxWidth:   core.Pct(100),
+			FlexShrink: 1,
+			MinWidth:   core.Pt(0),
+			Animated:   motion.Style(),
+		},
+		Children: []core.Node{toastRegion},
+	}
+}
+
+func toastProgressPercentText(t Toast) string {
+	if t.Kind != ToastProgress || strings.Contains(t.Message, "%") {
+		return ""
+	}
+	pct := int(math.Round(float64(clampToastProgress(t.Progress) * 100)))
+	return fmt.Sprintf("%d%%", pct)
+}
+
+func specLiveToastCard(
+	p SpecPalette,
+	kind ToastKind,
+	actionLabel, actionShortcut string,
+	canDismiss bool,
+	readToast func() (Toast, int),
+	ed *Editor,
+	actionRef, dismissRef *core.Ref,
+) core.Node {
+	bg, border, actionBg, actionBorder, shadowAlpha := specToastSurfaceTokens(p, kind)
+
+	badgeBg := p.LineRaised
+	badgeFg := p.TextMuted
+	if kind == ToastWarning {
+		badgeBg = p.Warning.Edge
+		badgeFg = p.TextPrimary
+	}
+
+	children := []core.Node{
+		specToastIcon(p, kind),
+		core.Text{
+			TestID: "editor-toast-message",
+			ContentFunc: func() string {
+				t, _ := readToast()
+				return t.Message
+			},
+			MaxLines: 1,
+			Style: core.Style{
+				FontSize:   12.5,
+				FontWeight: 400,
+				Color:      p.TextSecondary,
+				FlexShrink: 1,
+				MinWidth:   core.Pt(0),
+				Margin:     core.Edges{Right: 6},
+			},
+		},
+	}
+
+	if kind == ToastProgress {
+		children = append(children, core.Show{
+			When: func() bool {
+				t, _ := readToast()
+				return toastProgressPercentText(t) != ""
+			},
+			Then: func(cx *core.Scope) core.Node {
+				return core.Text{
+					TestID: "editor-toast-progress-pct",
+					ContentFunc: func() string {
+						t, _ := readToast()
+						return toastProgressPercentText(t)
+					},
+					MaxLines: 1,
+					Style: core.Style{
+						FontFamily: core.FontMonospace,
+						FontSize:   11.5,
+						FontWeight: 400,
+						Color:      p.TextMuted,
+						FlexShrink: 0,
+						Margin:     core.Edges{Right: 4},
+					},
+				}
+			},
+		})
+	}
+
+	children = append(children, core.Show{
+		When: func() bool {
+			_, w := readToast()
+			return w > 0
+		},
+		Then: func(cx *core.Scope) core.Node {
+			return core.View{
+				TestID: "editor-toast-waiting",
+				Style: core.Style{
+					Height:         core.Pt(20),
+					FlexShrink:     0,
+					Padding:        core.Symmetric(0, 6),
+					CornerRadius:   6,
+					Background:     badgeBg,
+					AlignItems:     core.AlignCenter,
+					JustifyContent: core.JustifyCenter,
+				},
+				Children: []core.Node{
+					core.Text{
+						ContentFunc: func() string {
+							_, w := readToast()
+							return fmt.Sprintf("+%d", w)
+						},
+						MaxLines: 1,
+						Style: core.Style{
+							FontFamily: core.FontMonospace,
+							FontSize:   11,
+							FontWeight: 500,
+							Color:      badgeFg,
+						},
+					},
+				},
+			}
+		},
+	})
+
+	if actionLabel != "" {
+		children = append(children, specToastActionButton(p, actionLabel, actionShortcut, actionBg, actionBorder, actionRef, func() {
+			t, _ := readToast()
+			if t.OnAction != nil {
+				t.OnAction()
+			}
+		}))
+	}
+
+	if canDismiss {
+		children = append(children, specToastDismissButton(p, dismissRef, func() {
+			if ed == nil {
+				return
+			}
+			wasFocused := ed.focus.ctrl != nil && ed.focus.ctrl.toastFocused != nil && ed.focus.ctrl.toastFocused.GetUntracked()
+			ed.DismissToast()
+			if wasFocused && !ed.HasActiveToast() && ed.focus.ctrl != nil {
+				ed.focus.ctrl.restoreFocusFromToast()
+			}
+		}))
+	}
+
+	if kind == ToastProgress {
+		children = append(children, core.View{
+			TestID:        "editor-toast-progress-track",
+			PointerEvents: core.PointerEventsNone,
+			Style: core.Style{
+				Position:     core.Absolute,
+				Left:         core.Pt(12),
+				Right:        core.Pt(12),
+				Bottom:       core.Pt(0),
+				Height:       core.Pt(2),
+				CornerRadius: 1,
+				Background:   p.LineRaised,
+				Overflow:     core.Hidden,
+			},
+			Children: []core.Node{
+				core.View{
+					TestID: "editor-toast-progress-bar",
+					StyleFunc: func() core.Style {
+						t, _ := readToast()
+						frac := clampToastProgress(t.Progress)
+						return core.Style{
+							Width:        core.Pct(frac * 100),
+							Height:       core.Pt(2),
+							CornerRadius: 1,
+							Background:   p.TextMuted,
+						}
+					},
+				},
+			},
+		})
+	}
+
+	return core.View{
+		TestID: "editor-toast",
+		OnMouseEnter: func(core.MouseEvent) {
+			if ed != nil {
+				ed.setToastHovered(true)
+			}
+		},
+		OnMouseLeave: func(core.MouseEvent) {
+			if ed != nil {
+				ed.setToastHovered(false)
+			}
+		},
+		OnTouch: func(ev core.TouchEvent) {
+			if ed == nil {
+				return
+			}
+			switch ev.Phase {
+			case core.TouchStart:
+				ed.setToastTouched(true)
+			case core.TouchEnd, core.TouchCancel:
+				ed.setToastTouched(false)
+			}
+		},
+		Style: core.Style{
+			Position:     core.Relative,
+			Direction:    core.Row,
+			AlignItems:   core.AlignCenter,
+			Gap:          8,
+			MaxWidth:     core.Pct(100),
+			Height:       core.Pt(40),
+			Padding:      core.Edges{Left: 12, Right: 6},
+			CornerRadius: 12,
+			Background:   bg,
+			BorderWidth:  1,
+			BorderColor:  border,
+			Overflow:     core.Hidden,
+			Shadows: []core.BoxShadow{
+				ui.Shadow(0, 10, 28, 0, ui.Black(shadowAlpha)),
+			},
+		},
+		Children: children,
+	}
+}
+
+func specToastSurfaceTokens(p SpecPalette, kind ToastKind) (bg, border, actionBg, actionBorder core.Color, shadowAlpha float32) {
+	bg = p.Raised
+	border = p.LineRaised
+	actionBg = p.LineRaised
+	actionBorder = core.Transparent
+	if kind == ToastWarning {
+		bg = p.Warning.Fill
+		border = p.Warning.Edge
+		actionBg = p.Warning.Fill
+		actionBorder = p.Warning.Edge
+	}
+	shadowAlpha = 0.42
+	if !p.Dark {
+		shadowAlpha = 0.14
+	}
+	return bg, border, actionBg, actionBorder, shadowAlpha
+}
+
+func specToastActionButton(p SpecPalette, label, shortcut string, bg, border core.Color, ref *core.Ref, onPress func()) core.Node {
+	actionChildren := []core.Node{
+		core.Text{
+			Content:  label,
+			MaxLines: 1,
+			Style: core.Style{
+				FontSize:   12.5,
+				FontWeight: 500,
+				Color:      p.TextPrimary,
+			},
+		},
+	}
+	if shortcut != "" {
+		actionChildren = append(actionChildren, core.Text{
+			TestID:   "editor-toast-action-shortcut",
+			Content:  shortcut,
+			MaxLines: 1,
+			Style: core.Style{
+				FontFamily: core.FontMonospace,
+				FontSize:   11,
+				FontWeight: 400,
+				Color:      p.TextFaint,
+			},
+		})
+	}
+	actionStyle := core.Style{
+		Direction:      core.Row,
+		AlignItems:     core.AlignCenter,
+		FlexShrink:     0,
+		Gap:            6,
+		Height:         core.Pt(28),
+		Padding:        core.Symmetric(0, 10),
+		CornerRadius:   8,
+		Background:     bg,
+		FocusVisible:   p.FocusRing(2),
+		JustifyContent: core.JustifyCenter,
+	}
+	if border != core.Transparent {
+		actionStyle.BorderWidth = 1
+		actionStyle.BorderColor = border
+	}
+	return core.View{
+		Ref:       ref,
+		TestID:    "editor-toast-action",
+		Role:      core.RoleButton,
+		Label:     label,
+		Focusable: func() bool { return true },
+		Style:     actionStyle,
+		OnPress: func(core.PressEvent) {
+			if onPress != nil {
+				onPress()
+			}
+		},
+		Children: actionChildren,
+	}
+}
+
+func specToastDismissButton(p SpecPalette, ref *core.Ref, onDismiss func()) core.Node {
+	return core.View{
+		Ref:       ref,
+		TestID:    "editor-toast-dismiss",
+		Role:      core.RoleButton,
+		Label:     "Dismiss",
+		Focusable: func() bool { return true },
+		Style: core.Style{
+			Width:          core.Pt(28),
+			Height:         core.Pt(28),
+			FlexShrink:     0,
+			CornerRadius:   6,
+			AlignItems:     core.AlignCenter,
+			JustifyContent: core.JustifyCenter,
+			FocusVisible:   p.FocusRing(2),
+		},
+		OnPress: func(core.PressEvent) {
+			if onDismiss != nil {
+				onDismiss()
+			}
+		},
+		Children: []core.Node{
+			core.Canvas{
+				Style: core.Style{Width: core.Pt(14), Height: core.Pt(14)},
+				Draw: func(d *core.Drawing, _ core.Size) {
+					d.SetStrokeColor(p.TextFaint).SetLineWidth(1.6).SetLineCap(core.CapRound)
+					d.BeginPath().MoveTo(3.5, 3.5).LineTo(10.5, 10.5).MoveTo(10.5, 3.5).LineTo(3.5, 10.5).Stroke()
+				},
+			},
 		},
 	}
 }
@@ -259,27 +601,14 @@ func SpecToastCard(p SpecPalette, t Toast, waiting int, onDismiss func()) core.N
 }
 
 func specToastCardWithRefs(p SpecPalette, t Toast, waiting int, onDismiss func(), actionRef, dismissRef *core.Ref) core.Node {
-	bg := p.Raised
-	border := p.LineRaised
-	actionBg := p.LineRaised
-	actionBorder := core.Transparent
-	if t.Kind == ToastWarning {
-		bg = p.Warning.Fill
-		border = p.Warning.Edge
-		actionBg = p.Warning.Fill
-		actionBorder = p.Warning.Edge
-	}
-
-	shadowAlpha := float32(0.42)
-	if !p.Dark {
-		shadowAlpha = 0.14
-	}
+	bg, border, actionBg, actionBorder, shadowAlpha := specToastSurfaceTokens(p, t.Kind)
 
 	children := []core.Node{
 		specToastIcon(p, t.Kind),
 		core.Text{
-			TestID:  "editor-toast-message",
-			Content: t.Message,
+			TestID:   "editor-toast-message",
+			Content:  t.Message,
+			MaxLines: 1,
 			Style: core.Style{
 				FontSize:   12.5,
 				FontWeight: 400,
@@ -289,6 +618,22 @@ func specToastCardWithRefs(p SpecPalette, t Toast, waiting int, onDismiss func()
 				Margin:     core.Edges{Right: 6},
 			},
 		},
+	}
+
+	if pct := toastProgressPercentText(t); pct != "" {
+		children = append(children, core.Text{
+			TestID:   "editor-toast-progress-pct",
+			Content:  pct,
+			MaxLines: 1,
+			Style: core.Style{
+				FontFamily: core.FontMonospace,
+				FontSize:   11.5,
+				FontWeight: 400,
+				Color:      p.TextMuted,
+				FlexShrink: 0,
+				Margin:     core.Edges{Right: 4},
+			},
+		})
 	}
 
 	if waiting > 0 {
@@ -313,7 +658,8 @@ func specToastCardWithRefs(p SpecPalette, t Toast, waiting int, onDismiss func()
 			},
 			Children: []core.Node{
 				core.Text{
-					Content: fmt.Sprintf("+%d", waiting),
+					Content:  fmt.Sprintf("+%d", waiting),
+					MaxLines: 1,
 					Style: core.Style{
 						FontFamily: core.FontMonospace,
 						FontSize:   11,
@@ -326,95 +672,17 @@ func specToastCardWithRefs(p SpecPalette, t Toast, waiting int, onDismiss func()
 	}
 
 	if t.ActionLabel != "" {
-		actionChildren := []core.Node{
-			core.Text{
-				Content: t.ActionLabel,
-				Style: core.Style{
-					FontSize:   12.5,
-					FontWeight: 500,
-					Color:      p.TextPrimary,
-				},
-			},
-		}
-		if t.ActionShortcut != "" {
-			actionChildren = append(actionChildren, core.Text{
-				Content: t.ActionShortcut,
-				Style: core.Style{
-					FontFamily: core.FontMonospace,
-					FontSize:   11,
-					FontWeight: 400,
-					Color:      p.TextFaint,
-				},
-			})
-		}
-		actionStyle := core.Style{
-			Direction:      core.Row,
-			AlignItems:     core.AlignCenter,
-			FlexShrink:     0,
-			Gap:            6,
-			Height:         core.Pt(28),
-			Padding:        core.Symmetric(0, 10),
-			CornerRadius:   8,
-			Background:     actionBg,
-			FocusVisible:   p.FocusRing(2),
-			JustifyContent: core.JustifyCenter,
-		}
-		if actionBorder != core.Transparent {
-			actionStyle.BorderWidth = 1
-			actionStyle.BorderColor = actionBorder
-		}
-		children = append(children, core.View{
-			Ref:       actionRef,
-			TestID:    "editor-toast-action",
-			Role:      core.RoleButton,
-			Label:     t.ActionLabel,
-			Focusable: func() bool { return true },
-			Style:     actionStyle,
-			OnPress: func(core.PressEvent) {
-				if t.OnAction != nil {
-					t.OnAction()
-				}
-			},
-			Children: actionChildren,
-		})
+		children = append(children, specToastActionButton(p, t.ActionLabel, t.ActionShortcut, actionBg, actionBorder, actionRef, t.OnAction))
 	}
 
 	if t.canDismiss() {
-		children = append(children, core.View{
-			Ref:       dismissRef,
-			TestID:    "editor-toast-dismiss",
-			Role:      core.RoleButton,
-			Label:     "Dismiss",
-			Focusable: func() bool { return true },
-			Style: core.Style{
-				Width:          core.Pt(28),
-				Height:         core.Pt(28),
-				FlexShrink:     0,
-				CornerRadius:   6,
-				AlignItems:     core.AlignCenter,
-				JustifyContent: core.JustifyCenter,
-				FocusVisible:   p.FocusRing(2),
-			},
-			OnPress: func(core.PressEvent) {
-				if onDismiss != nil {
-					onDismiss()
-				}
-			},
-			Children: []core.Node{
-				core.Canvas{
-					Style: core.Style{Width: core.Pt(14), Height: core.Pt(14)},
-					Draw: func(d *core.Drawing, _ core.Size) {
-						d.SetStrokeColor(p.TextFaint).SetLineWidth(1.6).SetLineCap(core.CapRound)
-						d.BeginPath().MoveTo(3.5, 3.5).LineTo(10.5, 10.5).MoveTo(10.5, 3.5).LineTo(3.5, 10.5).Stroke()
-					},
-				},
-			},
-		})
+		children = append(children, specToastDismissButton(p, dismissRef, onDismiss))
 	}
 
 	if t.Kind == ToastProgress {
 		frac := clampToastProgress(t.Progress)
 		children = append(children, core.View{
+			TestID:        "editor-toast-progress-track",
 			PointerEvents: core.PointerEventsNone,
 			Style: core.Style{
 				Position:     core.Absolute,
@@ -428,6 +696,7 @@ func specToastCardWithRefs(p SpecPalette, t Toast, waiting int, onDismiss func()
 			},
 			Children: []core.Node{
 				core.View{
+					TestID: "editor-toast-progress-bar",
 					Style: core.Style{
 						Width:        core.Pct(frac * 100),
 						Height:       core.Pt(2),
@@ -464,7 +733,8 @@ func specToastCardWithRefs(p SpecPalette, t Toast, waiting int, onDismiss func()
 
 func specToastIcon(p SpecPalette, kind ToastKind) core.Node {
 	return core.Canvas{
-		Style: core.Style{Width: core.Pt(16), Height: core.Pt(16), FlexShrink: 0},
+		TestID: "editor-toast-icon-" + string(kind),
+		Style:  core.Style{Width: core.Pt(16), Height: core.Pt(16), FlexShrink: 0},
 		Draw: func(d *core.Drawing, _ core.Size) {
 			d.SetLineWidth(1.6).SetLineCap(core.CapRound).SetLineJoin(core.JoinRound)
 			switch kind {

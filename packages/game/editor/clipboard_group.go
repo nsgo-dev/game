@@ -392,6 +392,11 @@ func (e *Editor) CopyObjects(ids ...string) (string, error) {
 	} else {
 		e.Status = fmt.Sprintf("Copied %d objects", len(roots))
 	}
+	e.EmitToastEvent(ToastEvent{
+		Kind:    ToastEventCopied,
+		Target:  "objects",
+		Message: e.Status,
+	})
 	e.notify()
 	return text, nil
 }

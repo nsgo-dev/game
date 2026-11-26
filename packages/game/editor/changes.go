@@ -3125,6 +3125,11 @@ func (e *Editor) CopyPRDescription() (string, error) {
 	sess.LastErr = ""
 	sess.LastNotice = "Copied PR description to clipboard"
 	e.Status = sess.LastNotice
+	e.EmitToastEvent(ToastEvent{
+		Kind:    ToastEventCopied,
+		Target:  "pr-description",
+		Message: sess.LastNotice,
+	})
 	e.changes.rev++
 	e.notify()
 	return desc, nil
