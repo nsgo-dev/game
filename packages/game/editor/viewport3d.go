@@ -400,19 +400,15 @@ func (e *Editor) objectCorners3DUnder(o *sceneformat.ObjectDoc, parent aff3) [8]
 		return corners
 	}
 	bw, bh, bd := e.objectBaseExtents3D(o)
-	hx := float64(bw) * 0.5 * math.Abs(float64(o.EffectiveScaleX()))
-	hy := float64(bh) * 0.5 * math.Abs(float64(o.EffectiveScaleY()))
-	hz := float64(bd) * 0.5 * math.Abs(float64(o.EffectiveScaleZ()))
-	pos := [3]float64{float64(o.X), float64(o.Y), float64(o.PosZ)}
-	rx, ry, rz := float64(o.RotX), float64(o.RotY), float64(o.RotZ)
+	hx := float64(bw) * 0.5
+	hy := float64(bh) * 0.5
+	hz := float64(bd) * 0.5
+	world := local3(o)
+	if parent != ident3 {
+		world = parent.mul(world)
+	}
 	for i, s := range boxSigns3D {
-		local := [3]float64{s[0] * hx, s[1] * hy, s[2] * hz}
-		rot := rotateEulerXYZ64(local, rx, ry, rz)
-		wpt := add64(pos, rot)
-		if parent != ident3 {
-			wpt = parent.point(wpt)
-		}
-		corners[i] = vec32(wpt)
+		corners[i] = vec32(world.point([3]float64{s[0] * hx, s[1] * hy, s[2] * hz}))
 	}
 	return corners
 }
@@ -456,7 +452,7 @@ func aabbOfCorners3D(corners [8][3]float32) (boxMin, boxMax [3]float32) {
 	return boxMin, boxMax
 }
 
-// Pick3D casts the camera's ray (ScreenRay), in perspective or in orthographic, through viewport pixel (sx, sy) and returns the flat index (Objects3D's) of the closest visible scene object it hits, nested children included. An object that draws a mesh or model in the scene's 3D build (Scene3D) is hit on the triangles of its geometry, through the build's scene3d picking, and any other object on its world-space 3D AABB (ObjectAABB3D); an object an instanced scene adds is picked as its instance. A press that hits geometry picks the geometry's object even when the box of an object without geometry is nearer, since such boxes are a fixed size whatever the scene's scale and may enclose the camera or the whole level; the boxes are picked only where no geometry is hit. Objects hidden or locked in the editor (SetObjectHidden, SetObjectLocked), with their descendants, and the objects of hidden and locked layers (SetLayerVisible, SetLayerLocked) are passed over.
+// Pick3D casts the camera's ray (ScreenRay), in perspective or in orthographic, through viewport pixel (sx, sy) and returns the flat index (Objects3D's) of the deepest closest visible scene object it hits, nested and instanced children included. An object that draws a mesh or model in the scene's 3D build (Scene3D) is hit on the triangles of its geometry, through the build's scene3d picking, and any other object on its world-space 3D AABB (ObjectAABB3D); when a ray hits both an ancestor and one of its descendants without a nearer unrelated object between them, the deepest hit descendant wins. A press that hits geometry picks the geometry's object even when the box of an object without geometry is nearer, since such boxes are a fixed size whatever the scene's scale and may enclose the camera or the whole level; the boxes are picked only where no geometry is hit. Objects hidden or locked in the editor (SetObjectHidden, SetObjectLocked), with their descendants, and the objects of hidden and locked layers (SetLayerVisible, SetLayerLocked) are passed over.
 func (e *Editor) Pick3D(sx, sy, w, h float32) (objectIndex int, ok bool) {
 	if e == nil || e.Doc == nil || w <= 0 || h <= 0 {
 		return -1, false
@@ -475,9 +471,17 @@ func (e *Editor) Pick3D(sx, sy, w, h float32) (objectIndex int, ok bool) {
 	if doc == nil {
 		return -1, false
 	}
-	meshIdx, boxIdx := -1, -1
-	boxT := math.Inf(1)
+	type boxHit3D struct {
+		idx       int
+		id        string
+		depth     int
+		t         float64
+		ancestors []string
+	}
+	meshIdx := -1
+	var boxHits []boxHit3D
 	idx := 0
+	var ancStack []string
 	for li := range doc.Layers {
 		layer := &doc.Layers[li]
 		// Screen-space layers hold HUD and menu objects at canvas coordinates,
@@ -497,13 +501,20 @@ func (e *Editor) Pick3D(sx, sy, w, h float32) (objectIndex int, ok bool) {
 				}
 				if _, geometry := e.geometryBounds3D(o.ID); !meshHit && visible && !skipped && !geometry {
 					bmin, bmax := aabbOfCorners3D(e.objectCorners3DUnder(posed, parent))
-					if t, hit := intersectRayAABB64(orig, dir, vec64(bmin), vec64(bmax)); hit && t < boxT {
-						boxT = t
-						boxIdx = idx
+					if t, hit := intersectRayAABB64(orig, dir, vec64(bmin), vec64(bmax)); hit {
+						boxHits = append(boxHits, boxHit3D{
+							idx:       idx,
+							id:        o.ID,
+							depth:     len(ancStack),
+							t:         t,
+							ancestors: slices.Clone(ancStack),
+						})
 					}
 				}
 				idx++
+				ancStack = append(ancStack, o.ID)
 				walk(o.Children, parent.mul(local3(posed)), skipped)
+				ancStack = ancStack[:len(ancStack)-1]
 			}
 		}
 		walk(layer.Objects, ident3, false)
@@ -511,13 +522,49 @@ func (e *Editor) Pick3D(sx, sy, w, h float32) (objectIndex int, ok bool) {
 	if meshIdx >= 0 {
 		return meshIdx, true
 	}
-	if boxIdx < 0 {
+	if len(boxHits) == 0 {
 		return -1, false
 	}
-	return boxIdx, true
+	const tieEps = 1e-6
+	best := boxHits[0]
+	for _, h := range boxHits[1:] {
+		if h.t < best.t-tieEps || (math.Abs(h.t-best.t) <= tieEps && h.depth > best.depth) {
+			best = h
+		}
+	}
+	// Descend along hit ancestor-descendant chains so a press picks the deepest hit child
+	// even when its parent's scaled or enclosing box was entered earlier along the ray,
+	// unless a nearer unrelated object sits in front of the descendant.
+	for {
+		minUnrelatedT := math.Inf(1)
+		for _, h := range boxHits {
+			if h.idx == best.idx || slices.Contains(h.ancestors, best.id) || slices.Contains(best.ancestors, h.id) {
+				continue
+			}
+			if h.t < minUnrelatedT {
+				minUnrelatedT = h.t
+			}
+		}
+		nextIdx := -1
+		for i, h := range boxHits {
+			if !slices.Contains(h.ancestors, best.id) || h.t > minUnrelatedT+tieEps {
+				continue
+			}
+			if nextIdx < 0 ||
+				h.t < boxHits[nextIdx].t-tieEps ||
+				(math.Abs(h.t-boxHits[nextIdx].t) <= tieEps && h.depth > boxHits[nextIdx].depth) {
+				nextIdx = i
+			}
+		}
+		if nextIdx < 0 {
+			break
+		}
+		best = boxHits[nextIdx]
+	}
+	return best.idx, true
 }
 
-// Pick3DObject returns the ID of the closest visible 3D object hit at viewport pixel (sx, sy).
+// Pick3DObject returns the ID of the deepest closest visible 3D object hit at viewport pixel (sx, sy).
 func (e *Editor) Pick3DObject(sx, sy, w, h float32) (string, bool) {
 	idx, ok := e.Pick3D(sx, sy, w, h)
 	if !ok {
@@ -530,25 +577,99 @@ func (e *Editor) Pick3DObject(sx, sy, w, h float32) (string, bool) {
 	return refs[idx].ID, true
 }
 
-// Select3DAt picks the closest 3D object under (sx, sy) and selects it, or clears selection on empty space.
-func (e *Editor) Select3DAt(sx, sy, w, h float32) bool {
-	return e.Select3DAtWith(sx, sy, w, h, false, false)
+// resolveHierarchicalPick3D resolves the target object for a 3D viewport press hitting hitID:
+//   - with alt held, selects the owning scene instance root for an instanced child or the immediate
+//     parent for a locally nested child (or hitID itself when top-level);
+//   - on a repeated plain press (alt == false) whose sole current selection already lies in hitID's
+//     ancestor chain, walks up one level to that object's parent (reaching the instance root and
+//     eventually cycling back to hitID from the top-level ancestor).
+func (e *Editor) resolveHierarchicalPick3D(hitID string, alt bool) string {
+	if e == nil || hitID == "" {
+		return ""
+	}
+	if alt {
+		if info := e.ObjectOverrideInfo(hitID); info.Origin == ObjectInstanced && info.InstanceID != "" {
+			return info.InstanceID
+		}
+		path := e.resolvedObjectPath(hitID)
+		if len(path) >= 2 {
+			return path[len(path)-2].ID
+		}
+		return hitID
+	}
+	if e.SelectionCount() == 1 && e.SelectedID != "" {
+		path := e.resolvedObjectPath(hitID)
+		if len(path) >= 2 {
+			for i := len(path) - 1; i >= 0; i-- {
+				if path[i].ID == e.SelectedID {
+					if i > 0 {
+						return path[i-1].ID
+					}
+					return hitID
+				}
+			}
+		}
+	}
+	return hitID
 }
 
-// Select3DAtWith picks the closest 3D object under (sx, sy) and applies selection with
+// isHierarchicalCyclePress3D reports whether a plain press at (sx, sy) hits a nested child whose
+// ancestor chain already contains the sole selected object, so the press should step selection up
+// the hierarchy instead of being absorbed by the gizmo sitting at the selected object's origin.
+func (e *Editor) isHierarchicalCyclePress3D(sx, sy, w, h float32) bool {
+	if e == nil || e.SelectionCount() != 1 || e.SelectedID == "" {
+		return false
+	}
+	hit, ok := e.Pick3DObject(sx, sy, w, h)
+	if !ok || hit == "" {
+		return false
+	}
+	path := e.resolvedObjectPath(hit)
+	if len(path) < 2 {
+		return false
+	}
+	for _, anc := range path {
+		if anc.ID == e.SelectedID {
+			return true
+		}
+	}
+	return false
+}
+
+// Select3DAt picks the deepest closest 3D object under (sx, sy) and selects it (stepping up to its
+// parent or instance root on a second press when already selected), or clears selection on empty space.
+func (e *Editor) Select3DAt(sx, sy, w, h float32) bool {
+	return e.Select3DAtWithModifiers(sx, sy, w, h, false, false, false)
+}
+
+// Select3DAtWith picks the deepest closest 3D object under (sx, sy) and applies selection with
 // optional Shift (add) and Mod (toggle) modifiers.
 func (e *Editor) Select3DAtWith(sx, sy, w, h float32, shift, mod bool) bool {
+	return e.Select3DAtWithModifiers(sx, sy, w, h, shift, mod, false)
+}
+
+// Select3DAtWithModifiers picks the deepest closest 3D object under (sx, sy) and applies selection
+// with optional Shift (add), Mod (toggle), and Alt/Option (pick parent or owning scene instance root)
+// modifiers. A repeated plain press on an already-selected nested child steps selection up to its
+// parent (and instance root) before cycling back to the child.
+func (e *Editor) Select3DAtWithModifiers(sx, sy, w, h float32, shift, mod, alt bool) bool {
 	if e == nil {
 		return false
 	}
 	if id, ok := e.Pick3DObject(sx, sy, w, h); ok {
+		target := id
+		if alt {
+			target = e.resolveHierarchicalPick3D(id, true)
+		} else if !shift && !mod {
+			target = e.resolveHierarchicalPick3D(id, false)
+		}
 		switch {
 		case mod:
-			e.ToggleSelection(id)
+			e.ToggleSelection(target)
 		case shift:
-			e.AddToSelection(id)
+			e.AddToSelection(target)
 		default:
-			e.SelectObject(id)
+			e.SelectObject(target)
 		}
 		return true
 	}
@@ -567,7 +688,7 @@ func (e *Editor) gizmo3DOrigin() ([3]float32, bool) {
 		return [3]float32{}, false
 	}
 	if len(draggable) == 1 {
-		obj, _, _ := e.FindObject(draggable[0])
+		obj, _ := e.FindResolvedObject(draggable[0])
 		if obj == nil {
 			return [3]float32{}, false
 		}
@@ -576,7 +697,7 @@ func (e *Editor) gizmo3DOrigin() ([3]float32, bool) {
 	hasAny := false
 	var bmin, bmax [3]float32
 	for _, id := range draggable {
-		obj, _, _ := e.FindObject(id)
+		obj, _ := e.FindResolvedObject(id)
 		if obj == nil {
 			continue
 		}
@@ -905,11 +1026,16 @@ const (
 )
 
 type drag3DTarget struct {
-	id             string
-	startTransform Transform3D
-	startPos       [3]float64
-	parentInv      aff3
-	parentRot      mat3
+	id              string
+	startTransform  Transform3D
+	startPos        [3]float64
+	parentInv       aff3
+	parentRot       mat3
+	overrideInfo    ObjectOverrideInfo
+	overrideOld     sceneformat.ObjectOverride
+	overrideHadOld  bool
+	overrideWasNil  bool
+	overridePrevVer int
 }
 
 type drag3DState struct {
@@ -1107,9 +1233,28 @@ func (e *Editor) BeginGizmoDragAxis3D(axis GizmoAxis3D, sx, sy, w, h float32) bo
 	} else {
 		targets := make([]drag3DTarget, 0, len(draggable))
 		for _, id := range draggable {
-			obj, _, _ := e.FindObject(id)
+			obj, _ := e.FindResolvedObject(id)
 			if obj == nil || e.viewportFrozen(id) {
 				continue
+			}
+			info := e.ObjectOverrideInfo(id)
+			var (
+				oldOv     sceneformat.ObjectOverride
+				hadOld    bool
+				wasNilMap bool
+				prevVer   int
+			)
+			if info.Origin != ObjectLocal {
+				if e.BuildErr != nil {
+					e.report(e.BuildErr)
+					return false
+				}
+				var ok bool
+				oldOv, hadOld, wasNilMap, ok = e.currentOverrideFor(e.Doc, info)
+				if !ok {
+					continue
+				}
+				prevVer = e.Doc.Version
 			}
 			parentWorld := e.parentWorld3D(id)
 			parentInv, ok := parentWorld.invert()
@@ -1117,11 +1262,16 @@ func (e *Editor) BeginGizmoDragAxis3D(axis GizmoAxis3D, sx, sy, w, h float32) bo
 				continue
 			}
 			targets = append(targets, drag3DTarget{
-				id:             id,
-				startTransform: captureTransform3D(obj),
-				startPos:       vec64(e.worldPosition3D(obj)),
-				parentInv:      parentInv,
-				parentRot:      parentRotation3D(parentWorld),
+				id:              id,
+				startTransform:  captureTransform3D(obj),
+				startPos:        vec64(e.worldPosition3D(obj)),
+				parentInv:       parentInv,
+				parentRot:       parentRotation3D(parentWorld),
+				overrideInfo:    info,
+				overrideOld:     oldOv,
+				overrideHadOld:  hadOld,
+				overrideWasNil:  wasNilMap,
+				overridePrevVer: prevVer,
 			})
 		}
 		if len(targets) == 0 {
@@ -1321,27 +1471,8 @@ func (e *Editor) UpdateGizmoDrag3D(sx, sy float32) {
 	}
 
 	if st.overrideInfo.Origin != ObjectLocal {
-		nextOv := cloneResolvedObjectOverride(st.overrideOld)
-		switch st.mode {
-		case Gizmo3DTranslate:
-			nextOv.X = sceneformat.Float32(next.X)
-			nextOv.Y = sceneformat.Float32(next.Y)
-			nextOv.PosZ = sceneformat.Float32(next.PosZ)
-		case Gizmo3DRotate:
-			nextOv.RotX = sceneformat.Float32(next.RotX)
-			nextOv.RotY = sceneformat.Float32(next.RotY)
-			nextOv.RotZ = sceneformat.Float32(next.RotZ)
-		case Gizmo3DScale:
-			switch st.axis {
-			case Axis3DX:
-				nextOv.ScaleX = cloneFloat32Ptr(next.ScaleX)
-			case Axis3DY:
-				nextOv.ScaleY = cloneFloat32Ptr(next.ScaleY)
-			case Axis3DZ:
-				nextOv.ScaleZ = cloneFloat32Ptr(next.ScaleZ)
-			}
-		}
-		if e.Doc.Version < 2 {
+		nextOv := applyTransform3DOverride(st.overrideOld, st.mode, st.axis, st.startTransform, next)
+		if e.Doc.Version < 2 && !isEmptyObjectOverride(nextOv) {
 			e.Doc.Version = 2
 		}
 		setOverrideOnDoc(e.Doc, st.overrideInfo, nextOv, !isEmptyObjectOverride(nextOv), st.overrideWasNil)
@@ -1353,6 +1484,50 @@ func (e *Editor) UpdateGizmoDrag3D(sx, sy float32) {
 	st.lastSY = sy
 	e.Rebuild()
 	e.notify()
+}
+
+// applyTransform3DOverride merges the fields changed by a 3D gizmo drag from start to next into
+// base without spuriously overriding unchanged coordinates.
+func applyTransform3DOverride(base sceneformat.ObjectOverride, mode GizmoMode3D, axis GizmoAxis3D, start, next Transform3D) sceneformat.ObjectOverride {
+	nextOv := cloneResolvedObjectOverride(base)
+	switch mode {
+	case Gizmo3DTranslate:
+		if next.X != start.X {
+			nextOv.X = sceneformat.Float32(next.X)
+		}
+		if next.Y != start.Y {
+			nextOv.Y = sceneformat.Float32(next.Y)
+		}
+		if next.PosZ != start.PosZ {
+			nextOv.PosZ = sceneformat.Float32(next.PosZ)
+		}
+	case Gizmo3DRotate:
+		if next.RotX != start.RotX {
+			nextOv.RotX = sceneformat.Float32(next.RotX)
+		}
+		if next.RotY != start.RotY {
+			nextOv.RotY = sceneformat.Float32(next.RotY)
+		}
+		if next.RotZ != start.RotZ {
+			nextOv.RotZ = sceneformat.Float32(next.RotZ)
+		}
+	case Gizmo3DScale:
+		switch axis {
+		case Axis3DX:
+			if !equalFloat32Ptr(next.ScaleX, start.ScaleX) {
+				nextOv.ScaleX = cloneFloat32Ptr(next.ScaleX)
+			}
+		case Axis3DY:
+			if !equalFloat32Ptr(next.ScaleY, start.ScaleY) {
+				nextOv.ScaleY = cloneFloat32Ptr(next.ScaleY)
+			}
+		case Axis3DZ:
+			if !equalFloat32Ptr(next.ScaleZ, start.ScaleZ) {
+				nextOv.ScaleZ = cloneFloat32Ptr(next.ScaleZ)
+			}
+		}
+	}
+	return nextOv
 }
 
 func (e *Editor) updateMultiGizmoDrag3D(sx, sy float32) {
@@ -1373,7 +1548,7 @@ func (e *Editor) updateMultiGizmoDrag3D(sx, sy float32) {
 	objs := make([]*sceneformat.ObjectDoc, len(st.targets))
 	nexts := make([]Transform3D, len(st.targets))
 	for i, t := range st.targets {
-		obj, _, _ := e.FindObject(t.id)
+		obj, _ := e.FindResolvedObject(t.id)
 		if obj == nil {
 			e.drag3D = drag3DState{}
 			return
@@ -1534,7 +1709,16 @@ func (e *Editor) updateMultiGizmoDrag3D(sx, sy float32) {
 		}
 	}
 	for i, obj := range objs {
-		applyTransform3D(obj, nexts[i])
+		t := st.targets[i]
+		if t.overrideInfo.Origin != ObjectLocal {
+			nextOv := applyTransform3DOverride(t.overrideOld, st.mode, st.axis, t.startTransform, nexts[i])
+			if e.Doc.Version < 2 && !isEmptyObjectOverride(nextOv) {
+				e.Doc.Version = 2
+			}
+			setOverrideOnDoc(e.Doc, t.overrideInfo, nextOv, !isEmptyObjectOverride(nextOv), t.overrideWasNil)
+		} else {
+			applyTransform3D(obj, nexts[i])
+		}
 	}
 
 	st.lastSX = sx
@@ -1598,44 +1782,86 @@ func (e *Editor) EndGizmoDrag3D() bool {
 	}
 	if len(st.targets) > 0 {
 		type pending struct {
-			id    string
-			obj   *sceneformat.ObjectDoc
-			start Transform3D
-			after Transform3D
+			target   drag3DTarget
+			obj      *sceneformat.ObjectDoc
+			after    Transform3D
+			afterOv  sceneformat.ObjectOverride
+			hasAfter bool
+			nextVer  int
 		}
 		var changed []pending
 		for _, t := range st.targets {
+			if t.overrideInfo.Origin != ObjectLocal {
+				afterOv, hasAfter, _, ok := e.currentOverrideFor(e.Doc, t.overrideInfo)
+				e.Doc.Version = t.overridePrevVer
+				setOverrideOnDoc(e.Doc, t.overrideInfo, t.overrideOld, t.overrideHadOld, t.overrideWasNil)
+				if ok && !(t.overrideHadOld == hasAfter && reflect.DeepEqual(t.overrideOld, afterOv)) {
+					nextVer := t.overridePrevVer
+					if hasAfter && nextVer < 2 {
+						nextVer = 2
+					}
+					changed = append(changed, pending{target: t, afterOv: afterOv, hasAfter: hasAfter, nextVer: nextVer})
+				}
+				continue
+			}
 			obj, _, _ := e.FindObject(t.id)
 			if obj == nil {
 				continue
 			}
 			after := captureTransform3D(obj)
 			if !equalTransform3D(t.startTransform, after) {
-				changed = append(changed, pending{id: t.id, obj: obj, start: t.startTransform, after: after})
+				changed = append(changed, pending{target: t, obj: obj, after: after})
 			}
 		}
 		if len(changed) == 0 {
+			e.Rebuild()
 			e.notify()
 			return false
 		}
 		for _, p := range changed {
-			applyTransform3D(p.obj, p.start)
-		}
-		for _, p := range changed {
-			if e.checkTransformEdit(p.id, func(o *sceneformat.ObjectDoc) { applyTransform3D(o, p.after) }) != nil {
-				e.Rebuild()
-				e.notify()
-				return false
+			if p.target.overrideInfo.Origin == ObjectLocal {
+				applyTransform3D(p.obj, p.target.startTransform)
 			}
+		}
+		candidate := e.Doc.Clone()
+		for _, p := range changed {
+			if p.target.overrideInfo.Origin != ObjectLocal {
+				if p.hasAfter && candidate.Version < p.nextVer {
+					candidate.Version = p.nextVer
+				}
+				setOverrideOnDoc(candidate, p.target.overrideInfo, p.afterOv, p.hasAfter, p.target.overrideWasNil)
+			} else if loc := locateObject(candidate, p.target.id); loc.obj != nil {
+				applyTransform3D(loc.obj, p.after)
+			}
+		}
+		if _, err := e.checkCandidateScene(candidate); err != nil {
+			e.Rebuild()
+			e.notify()
+			return false
 		}
 		label := fmt.Sprintf("%s 3D %d objects (%s)", st.mode.String(), len(changed), st.axis.String())
 		_ = e.History.Group(label, func() error {
 			for _, p := range changed {
+				if p.target.overrideInfo.Origin != ObjectLocal {
+					e.History.Execute(&objectOverrideCmd{
+						ed:          e,
+						info:        p.target.overrideInfo,
+						label:       st.mode.String() + " 3D " + p.target.id + " (" + st.axis.String() + ")",
+						oldOv:       p.target.overrideOld,
+						hadOld:      p.target.overrideHadOld,
+						wasNilMap:   p.target.overrideWasNil,
+						newOv:       p.afterOv,
+						hasNew:      p.hasAfter,
+						prevVersion: p.target.overridePrevVer,
+						nextVersion: p.nextVer,
+					})
+					continue
+				}
 				e.History.Execute(&transform3DCmd{
 					ed:     e,
-					id:     p.id,
-					label:  st.mode.String() + " 3D " + p.id + " (" + st.axis.String() + ")",
-					before: p.start,
+					id:     p.target.id,
+					label:  st.mode.String() + " 3D " + p.target.id + " (" + st.axis.String() + ")",
+					before: p.target.startTransform,
 					after:  p.after,
 				})
 			}
@@ -1732,6 +1958,12 @@ func (e *Editor) CancelGizmoDrag3D() {
 	if len(st.targets) > 0 {
 		restored := false
 		for _, t := range st.targets {
+			if t.overrideInfo.Origin != ObjectLocal {
+				e.Doc.Version = t.overridePrevVer
+				setOverrideOnDoc(e.Doc, t.overrideInfo, t.overrideOld, t.overrideHadOld, t.overrideWasNil)
+				restored = true
+				continue
+			}
 			if obj, _, _ := e.FindObject(t.id); obj != nil {
 				applyTransform3D(obj, t.startTransform)
 				restored = true
@@ -1757,14 +1989,20 @@ func (e *Editor) CancelGizmoDrag3D() {
 	e.notify()
 }
 
-// HandleViewport3DPress handles a click/tap in the 3D viewport: with a terrain brush active it applies a dab, with an active 3D plugin tool it calls Press3D with the camera pick ray, with the Place tool and a model selected in the asset browser (SelectedModel) it places the model where the press lands (PlaceModelAt3D), otherwise it picks the closest 3D object or clears selection.
+// HandleViewport3DPress handles a click/tap in the 3D viewport: with a terrain brush active it applies a dab, with an active 3D plugin tool it calls Press3D with the camera pick ray, with the Place tool and a model selected in the asset browser (SelectedModel) it places the model where the press lands (PlaceModelAt3D), otherwise it picks the deepest closest 3D object (stepping up to parent/instance root on a repeated press) or clears selection.
 func (e *Editor) HandleViewport3DPress(sx, sy, w, h float32) {
-	e.HandleViewport3DPressWith(sx, sy, w, h, false, false)
+	e.HandleViewport3DPressWithModifiers(sx, sy, w, h, false, false, false)
 }
 
 // HandleViewport3DPressWith handles a click/tap in the 3D viewport with optional Shift (add)
 // and Mod (toggle) modifiers.
 func (e *Editor) HandleViewport3DPressWith(sx, sy, w, h float32, shift, mod bool) {
+	e.HandleViewport3DPressWithModifiers(sx, sy, w, h, shift, mod, false)
+}
+
+// HandleViewport3DPressWithModifiers handles a click/tap in the 3D viewport with optional Shift (add),
+// Mod (toggle), and Alt/Option (pick parent or owning scene instance root) modifiers.
+func (e *Editor) HandleViewport3DPressWithModifiers(sx, sy, w, h float32, shift, mod, alt bool) {
 	if e == nil || e.playing {
 		return
 	}
@@ -1793,18 +2031,18 @@ func (e *Editor) HandleViewport3DPressWith(sx, sy, w, h float32, shift, mod bool
 		e.report(err)
 		return
 	}
-	if !shift && !mod {
+	if !shift && !mod && !alt {
 		if e.PickHandle3D(sx, sy, w, h) != Handle3DNone {
 			return
 		}
 		if _, hit := e.PickComponentGizmo3D(sx, sy, w, h); hit {
 			return
 		}
-		if e.PickGizmo3D(sx, sy, w, h) != Axis3DNone {
+		if e.PickGizmo3D(sx, sy, w, h) != Axis3DNone && !e.isHierarchicalCyclePress3D(sx, sy, w, h) {
 			return
 		}
 	}
-	e.Select3DAtWith(sx, sy, w, h, shift, mod)
+	e.Select3DAtWithModifiers(sx, sy, w, h, shift, mod, alt)
 }
 
 // BeginViewport3DDrag starts a terrain brush stroke (if a terrain brush is active and hits the terrain and !pan), an active 3D plugin tool drag (if OnDragBegin3D claims it and !pan), a light/camera handle drag, a 3D component gizmo handle drag, a 3D transform gizmo drag, or a camera orbit/pan drag. It does nothing while the camera flies (BeginFly3D).
@@ -2271,7 +2509,8 @@ func (e *Editor) drawSceneObjects3D(d *core.Drawing, w, h float32, overlay bool)
 		}
 
 		if item.selected {
-			if cx, cy, _, vis := vc.project(e.worldPosition3D(item.obj), w, h); vis {
+			pos := vec32(item.parent.point([3]float64{float64(item.obj.X), float64(item.obj.Y), float64(item.obj.PosZ)}))
+			if cx, cy, _, vis := vc.project(pos, w, h); vis {
 				d.Save().SetFillColor(core.RGBA(0x38BDF8, 1)).BeginPath().Arc(cx, cy, 3, 0, float32(2*math.Pi), false).Fill().Restore()
 			}
 		}

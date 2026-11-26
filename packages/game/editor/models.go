@@ -214,24 +214,37 @@ func snapTo(v, step float32) float32 {
 	return float32(math.Round(float64(v)/float64(step))) * step
 }
 
-// rayGeometry3D returns the nearest hit of the ray from orig along dir on the geometry of the 3D build s and the object of the open scene it belongs to, passing over the geometry of objects hidden or locked in the editor or under one. An object that only an instanced scene adds is reported as the nearest of its ancestors that the open scene holds.
+// rayGeometry3D returns the nearest hit of the ray from orig along dir on the geometry of the 3D build s and the resolved scene object it belongs to, passing over the geometry of objects hidden or locked in the editor or under one. When multiple drawables tie at the same hit distance, the deepest object in the hierarchy wins.
 func (e *Editor) rayGeometry3D(s *scene3DState, orig, dir [3]float64) (scene3d.RayHit, string, bool) {
 	if s.world == nil {
 		return scene3d.RayHit{}, "", false
 	}
 	ray := math3d.Ray{Origin: math3d.Vec3{X: float32(orig[0]), Y: float32(orig[1]), Z: float32(orig[2])}, Dir: math3d.Vec3{X: float32(dir[0]), Y: float32(dir[1]), Z: float32(dir[2])}}
+	var (
+		bestHit   scene3d.RayHit
+		bestOwner string
+		bestDepth int
+		found     bool
+	)
+	const tieEps float32 = 1e-4
 	for _, hit := range s.world.Raycast(ray, math.MaxUint32) {
-		d, found := scene3d.AttachmentAs[*scenemodel.Drawable](hit.Node, scenemodel.AttachmentKey)
-		if !found {
+		if found && hit.T > bestHit.T+tieEps {
+			break
+		}
+		d, ok := scene3d.AttachmentAs[*scenemodel.Drawable](hit.Node, scenemodel.AttachmentKey)
+		if !ok {
 			continue
 		}
 		owner := e.docObjectFor(d.Object)
 		if owner == "" || e.pickBlocked3D(owner) {
 			continue
 		}
-		return hit, owner, true
+		depth := len(e.resolvedObjectPath(owner))
+		if !found || depth > bestDepth {
+			bestHit, bestOwner, bestDepth, found = hit, owner, depth, true
+		}
 	}
-	return scene3d.RayHit{}, "", false
+	return bestHit, bestOwner, found
 }
 
 // modelAssets3D returns what the 3D build loads models, material files and images through: the editor's Resolver when it can, and the open project's files otherwise, sharing the 3D build's cache of them while it is current. It does not build the scene, so checking a model for SetObjectModel costs a 2D session no 3D build.

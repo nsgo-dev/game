@@ -140,8 +140,12 @@ func (e *Editor) drawPhysicsDebug3D(d *core.Drawing, w, h float32) {
 			}
 		}
 	}
-	for li := range e.Doc.Layers {
-		layer := &e.Doc.Layers[li]
+	doc := e.resolvedDoc()
+	if doc == nil {
+		return
+	}
+	for li := range doc.Layers {
+		layer := &doc.Layers[li]
 		if !layer.IsVisible() || layer.EffectiveSpace() == sceneformat.SpaceScreen {
 			continue
 		}

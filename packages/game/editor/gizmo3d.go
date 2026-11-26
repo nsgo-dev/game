@@ -959,7 +959,7 @@ func (e *Editor) objectWorldMat3D(id string) (math3d.Mat4, bool) {
 			return m, true
 		}
 	}
-	path := objectPath(e.Doc, id)
+	path := e.resolvedObjectPath(id)
 	if len(path) == 0 {
 		return math3d.Mat4Identity(), false
 	}
@@ -985,7 +985,7 @@ func (e *Editor) ComponentGizmoHandles3D(objectID string) []PickedComponentGizmo
 	if e == nil || e.Doc == nil || objectID == "" {
 		return nil
 	}
-	obj, _, _ := e.FindObject(objectID)
+	obj, _ := e.FindResolvedObject(objectID)
 	if obj == nil || len(obj.Components) == 0 {
 		return nil
 	}
@@ -1140,7 +1140,7 @@ func (e *Editor) UpdateComponentGizmoDrag3D(sx, sy float32) {
 		return
 	}
 	st := &e.compGizmoDrag
-	if obj, _, _ := e.FindObject(st.objectID); obj == nil {
+	if obj, _ := e.FindResolvedObject(st.objectID); obj == nil {
 		e.CancelComponentGizmoDrag3D()
 		return
 	}
@@ -1302,8 +1302,12 @@ func (e *Editor) drawComponentGizmos3D(d *core.Drawing, proj Projection3D) {
 
 	var selectedObj *sceneformat.ObjectDoc
 	var selectedMat math3d.Mat4
-	for li := range e.Doc.Layers {
-		layer := &e.Doc.Layers[li]
+	doc := e.resolvedDoc()
+	if doc == nil {
+		return
+	}
+	for li := range doc.Layers {
+		layer := &doc.Layers[li]
 		if !layer.IsVisible() || layer.EffectiveSpace() == sceneformat.SpaceScreen {
 			continue
 		}
