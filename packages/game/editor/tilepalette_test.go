@@ -211,7 +211,7 @@ func TestTilePaletteChoosesTheTilePaintSaves(t *testing.T) {
 	if app.Exists("id:tile-palette") {
 		t.Fatal("tile palette shows with the Select tool")
 	}
-	app.Press("id:tool-paint")
+	runEditorCommand(t, app, ed, editor.CmdToolPaintTile)
 	if !app.Exists("id:tile-palette") {
 		t.Fatal("tile palette does not show with the Paint tool")
 	}
@@ -255,7 +255,7 @@ func TestTilePaletteChoosesTheTilePaintSaves(t *testing.T) {
 	if got := ed.Doc.Layers[0].Tilemap.Data[1*4+1]; got != 3 {
 		t.Fatalf("painted tile (1,1) = %d, want 3", got)
 	}
-	app.Press("id:toolbar-save")
+	saveInUI(app, ed)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
@@ -269,7 +269,7 @@ func TestTilePaletteChoosesTheTilePaintSaves(t *testing.T) {
 	}
 
 	// The paint is one undoable step; picking a tile is not an edit.
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	if got := ed.Doc.Layers[0].Tilemap.Data[1*4+1]; got != 0 {
 		t.Fatalf("tile (1,1) after Undo = %d, want 0", got)
 	}
@@ -287,7 +287,7 @@ func TestTilePaletteFollowsTheActiveLayer(t *testing.T) {
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		return editor.EditorView(cx, ed)
 	}, nsgotest.Size(1280, 680))
-	app.Press("id:tool-fill")
+	runEditorCommand(t, app, ed, editor.CmdToolFillTile)
 	if !app.Exists("id:tile-palette-3") || app.Exists("id:tile-palette-10") {
 		t.Fatal("palette should show the floor layer's tiles")
 	}
@@ -329,7 +329,7 @@ func TestTilePaletteFollowsTheActiveLayer(t *testing.T) {
 	if got := app.Find("id:editor-status-mode").Text; !strings.HasSuffix(got, "| Tile: 2") {
 		t.Fatalf("status = %q, want the selected walls tile 2 with Fill", got)
 	}
-	app.Press("id:tool-erase")
+	runEditorCommand(t, app, ed, editor.CmdToolEraseTile)
 	if got := app.Find("id:editor-status-mode").Text; strings.Contains(got, "Tile:") {
 		t.Fatalf("status = %q shows a tile with Erase, which writes none", got)
 	}

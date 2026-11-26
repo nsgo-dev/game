@@ -154,11 +154,11 @@ func TestColliderRectDrawnResizedAndRoundTrips(t *testing.T) {
 	}
 
 	// Undo restores the pre-drag YAML byte for byte; Redo reapplies.
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	if got := saveYAML(t, ed); !bytes.Equal(got, before) {
 		t.Fatalf("Undo did not restore pre-drag YAML:\n%s\nwant:\n%s", got, before)
 	}
-	app.Press("id:toolbar-redo")
+	redoInUI(app, ed)
 	if got := saveYAML(t, ed); !bytes.Equal(got, saved) {
 		t.Fatalf("Redo did not restore resized YAML:\n%s\nwant:\n%s", got, saved)
 	}
@@ -221,19 +221,19 @@ func TestPolygonAddDragAndRemoveVertexUndoSteps(t *testing.T) {
 	}
 
 	// Undo once reverts only the drag.
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	if got := saveYAML(t, ed); !bytes.Equal(got, afterAdd) {
 		t.Fatalf("first Undo did not revert drag back to afterAdd")
 	}
 	// Undo twice reverts the vertex addition completely.
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	if got := saveYAML(t, ed); !bytes.Equal(got, beforeAdd) {
 		t.Fatalf("second Undo did not restore original scene")
 	}
 
 	// Redo twice, then remove vertex 1 via secondary click (right-click) in one undo step.
-	app.Press("id:toolbar-redo")
-	app.Press("id:toolbar-redo")
+	redoInUI(app, ed)
+	redoInUI(app, ed)
 	v1 = findHandle(t, ed.ShapeHandles2D(), "navregion", "poly", editor.ShapeHandlePolygonVertex, 1)
 	app.Post(func() {
 		if !ed.HandleCanvasSecondaryPress(v1.Pos.X, v1.Pos.Y) {
@@ -293,7 +293,8 @@ func TestShowAllShapesToggleAndGridSnapping(t *testing.T) {
 	}
 
 	// Toolbar toggle turns ShowAllShapes on and draws both "a" and "b".
-	app.Press("id:view-show-all-shapes")
+	app.Post(func() { ed.SetShowAllShapes(true) })
+	app.Settle()
 	if !ed.ShowAllShapes {
 		t.Fatal("toolbar Shapes toggle did not enable ShowAllShapes")
 	}
@@ -321,7 +322,7 @@ func TestShowAllShapesToggleAndGridSnapping(t *testing.T) {
 	app.Settle()
 
 	// Turn Snap on via toolbar and drag point & circle radius handles.
-	app.Press("id:view-snap-grid")
+	app.Press("id:viewport-bar-snap")
 	if !ed.SnapToGrid {
 		t.Fatal("toolbar Snap toggle did not enable SnapToGrid")
 	}
@@ -446,7 +447,12 @@ func TestPluginToolReceivesDragAndHoverCallbacksWithCanvasCoords(t *testing.T) {
 	}
 
 	app := mountEditor(t, ed)
-	app.Press("id:tool-handles-custom")
+	app.Post(func() {
+		if err := ed.SetPluginTool("handles", "custom"); err != nil {
+			t.Error(err)
+		}
+	})
+	app.Settle()
 
 	// Hover enters and leaves the viewport.
 	app.Post(func() {

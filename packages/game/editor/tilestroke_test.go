@@ -346,7 +346,20 @@ func mountFloor(t *testing.T, tool string) (*editor.Editor, *nsgotest.App) {
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		return editor.EditorView(cx, ed)
 	}, nsgotest.Size(1280, 680))
-	app.Press("id:" + tool)
+	switch tool {
+	case "tool-paint":
+		runEditorCommand(t, app, ed, editor.CmdToolPaintTile)
+	case "tool-erase":
+		runEditorCommand(t, app, ed, editor.CmdToolEraseTile)
+	case "tool-fill":
+		runEditorCommand(t, app, ed, editor.CmdToolFillTile)
+	case "tool-rect":
+		runEditorCommand(t, app, ed, editor.CmdToolRectTile)
+	case "tool-line":
+		runEditorCommand(t, app, ed, editor.CmdToolLineTile)
+	default:
+		app.Press("id:" + tool)
+	}
 	return ed, app
 }
 
@@ -365,7 +378,7 @@ func TestMouseDragPaintsARowAndOneUndoRemovesIt(t *testing.T) {
 	if ed.History.Len() != 1 {
 		t.Fatalf("the drag recorded %d steps, want 1", ed.History.Len())
 	}
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	if !slices.Equal(floorData(ed), before) {
 		t.Fatalf("after one Undo the map is %v, want %v", floorData(ed), before)
 	}
@@ -456,7 +469,8 @@ func TestPickingMakesTheTileActiveInThePalette(t *testing.T) {
 	app.Press("id:tile-palette-2")
 	app.PressAt("id:editor-viewport", canvasAt(ed, 24, 24))
 	app.Press("id:tile-palette-3")
-	app.Press("id:tool-pick")
+	app.Post(func() { ed.SetTool(editor.ToolPickTile) })
+	app.Settle()
 	if !app.Exists("id:tile-palette") {
 		t.Fatal("the palette hides with the Pick tool")
 	}
@@ -468,7 +482,8 @@ func TestPickingMakesTheTileActiveInThePalette(t *testing.T) {
 		t.Fatalf("Tool = %v after a pick, want Paint", ed.Tool)
 	}
 	// Picking an empty cell keeps the Pick tool and the active tile.
-	app.Press("id:tool-pick")
+	app.Post(func() { ed.SetTool(editor.ToolPickTile) })
+	app.Settle()
 	app.PressAt("id:editor-viewport", canvasAt(ed, 40, 40))
 	if ed.ActiveTileID != 2 || ed.Tool != editor.ToolPickTile {
 		t.Fatalf("after picking an empty cell ActiveTileID = %d and Tool = %v, want 2 and Pick", ed.ActiveTileID, ed.Tool)
@@ -496,7 +511,7 @@ func TestClickAfterRightDragReachesTheTool(t *testing.T) {
 	app.MouseDownAt("id:editor-viewport-frame", canvasAt(ed, 3, 56), core.MouseButtonRight)
 	app.HoverAt("id:editor-viewport-frame", canvasAt(ed, 30, 56))
 	app.MouseUpAt("id:editor-viewport-frame", canvasAt(ed, 30, 56), core.MouseButtonRight)
-	app.Press("id:tool-fill")
+	runEditorCommand(t, app, ed, editor.CmdToolFillTile)
 	app.Press("id:tile-palette-3")
 	app.PressAt("id:editor-viewport", canvasAt(ed, 24, 24))
 	if got := floorData(ed)[5]; got != 3 {
@@ -518,9 +533,9 @@ func TestClickAfterPaintTapReachesTheTool(t *testing.T) {
 		t.Fatalf("after a paint tap and a Select click SelectedID = %q, want hero", ed.SelectedID)
 	}
 	// A Fill click after a tap fills too.
-	app.Press("id:tool-paint")
+	runEditorCommand(t, app, ed, editor.CmdToolPaintTile)
 	app.PressAt("id:editor-viewport", canvasAt(ed, 40, 40))
-	app.Press("id:tool-fill")
+	runEditorCommand(t, app, ed, editor.CmdToolFillTile)
 	app.Press("id:tile-palette-3")
 	app.PressAt("id:editor-viewport", canvasAt(ed, 24, 24))
 	if got := floorData(ed)[5]; got != 3 {

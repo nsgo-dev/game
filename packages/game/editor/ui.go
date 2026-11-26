@@ -372,7 +372,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 																												Height: core.Pct(100),
 																											},
 																											Children: []core.Node{
-																												toolbarView(cx, ed, rev, sceneFileButtons(cx, ed, rev, dirty, pathMode, pathTarget)),
+																												mainHeaderView(cx, ed, rev, dirty, pathMode, pathTarget),
 																												remotePlayBarView(cx, ed, rev),
 																												playModeBarView(cx, ed, rev),
 																												diskWatchBannerView(cx, ed, rev),
@@ -441,7 +441,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 																														}
 																													},
 																												},
-																												statusBarView(cx, ed, rev),
+																												mainStatusBarView(cx, ed, rev),
 																											},
 																										}
 																									},
@@ -547,30 +547,70 @@ func mainRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []core.Node {
 					},
 					Else: func(cx *core.Scope) core.Node {
 						children := []core.Node{
-							core.View{
-								TestID: "editor-scene-column",
-								Style:  core.Style{Width: core.Pt(220)},
-								Children: []core.Node{
-									LeftRailSwitchView(cx, ed, rev),
-									SceneTreeView(cx, ed, rev),
-									LayersView(cx, ed, rev),
+							leftRailSceneView(cx, ed, rev),
+							core.Show{
+								When: func() bool {
+									_ = rev.Get()
+									return ed.LayersPanelOpen()
+								},
+								Then: func(cx *core.Scope) core.Node {
+									return core.View{
+										Style: core.Style{
+											Width:       core.Pt(220),
+											FlexShrink:  0,
+											Borders:     core.Edges{Right: 1},
+											BorderColor: ed.SpecPalette(cx).Line,
+										},
+										Children: []core.Node{LayersView(cx, ed, rev)},
+									}
 								},
 							},
-							core.View{
-								TestID: "editor-left",
-								Style:  core.Style{Width: core.Pt(224)},
-								Children: []core.Node{
-									// A row stretches the asset browser to the height it gets, which is all of the column without a project and half of it beside the file browser.
-									core.View{
-										Style:    core.Style{Direction: core.Row, FlexGrow: 1, FlexBasis: core.Pt(0)},
-										Children: []core.Node{AssetBrowserView(cx, ed, rev)},
-									},
-									FilesView(cx, ed, rev),
+							core.Show{
+								When: func() bool {
+									_ = rev.Get()
+									return ed.AssetBrowserOpen() || ed.FileBrowserOpen()
+								},
+								Then: func(cx *core.Scope) core.Node {
+									return core.View{
+										TestID: "editor-left",
+										Style:  core.Style{Width: core.Pt(224), FlexShrink: 0},
+										Children: []core.Node{
+											core.Show{
+												When: func() bool {
+													_ = rev.Get()
+													return ed.AssetBrowserOpen()
+												},
+												Then: func(cx *core.Scope) core.Node {
+													return core.View{
+														Style:    core.Style{Direction: core.Row, FlexGrow: 1, FlexBasis: core.Pt(0)},
+														Children: []core.Node{AssetBrowserView(cx, ed, rev)},
+													}
+												},
+											},
+											core.Show{
+												When: func() bool {
+													_ = rev.Get()
+													return ed.FileBrowserOpen()
+												},
+												Then: func(cx *core.Scope) core.Node {
+													return FilesView(cx, ed, rev)
+												},
+											},
+										},
+									}
 								},
 							},
 						}
 						if ed.Library != nil {
-							children = append(children, LibraryView(cx, ed, rev))
+							children = append(children, core.Show{
+								When: func() bool {
+									_ = rev.Get()
+									return ed.LibraryPanelOpen()
+								},
+								Then: func(cx *core.Scope) core.Node {
+									return LibraryView(cx, ed, rev)
+								},
+							})
 						}
 						children = append(children, pluginDockView(cx, ed, rev, DockLeft))
 						return core.View{

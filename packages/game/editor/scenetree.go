@@ -148,7 +148,10 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 	// A press on a row selects its object(s) in the editor (supporting Shift/Mod multi-selection), or makes its layer the active one.
 	// While connection target pick mode is active, pressing an object row picks it as the target without changing SelectedID, and pressing a layer row is ignored so pick mode and SelectedID stay intact.
 	var ignorePickKey sceneTreeKey
+	var syncingFromEditor bool
 	syncTreeToEditor := func() {
+		syncingFromEditor = true
+		defer func() { syncingFromEditor = false }()
 		ids := ed.SelectedIDs()
 		if len(ids) == 0 {
 			selection.Clear()
@@ -176,6 +179,9 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 		keys := selection.Keys()
 		chosen := selection.Has(cur)
 		cx.Untrack(func() {
+			if syncingFromEditor {
+				return
+			}
 			if ed.PickingConnectionTarget() {
 				if cur == (sceneTreeKey{}) {
 					return
@@ -202,10 +208,13 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 			if cur.layer != "" && cur.id == "" && chosen {
 				// A layer's row is selected in place of any object selection.
 				if selection.Len() != 1 {
+					syncingFromEditor = true
 					selection.Set(cur)
+					syncingFromEditor = false
 				}
 				ed.ClearSelection()
 				ed.SetActiveLayer(cur.layer)
+				ed.SetRightRailTab(RightTabInspector)
 				return
 			}
 			objIDs := make([]string, 0, len(keys))
@@ -222,6 +231,7 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 				if ed.SelectedID != primary || !sameIDSet(ed.SelectedIDs(), objIDs) {
 					ed.SelectObjectsWithPrimary(objIDs, primary)
 				}
+				ed.SetRightRailTab(RightTabInspector)
 				return
 			}
 			if cur.id != "" && !chosen && ed.SelectionCount() > 0 {
@@ -248,8 +258,10 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 					}
 				}
 				if cur, _ := selection.Cursor().(sceneTreeKey); hasObj || cur.id != "" {
+					syncingFromEditor = true
 					selection.Clear()
 					selection.SetCursor(nil)
+					syncingFromEditor = false
 				}
 				return
 			}
@@ -280,6 +292,7 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 			if len(wantKeys) == 0 {
 				return
 			}
+			syncingFromEditor = true
 			selection.Set(wantKeys...)
 			if pk.id != "" {
 				selection.SetCursor(pk)
@@ -287,6 +300,7 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 					listRef.ScrollToIndexAt(row, 0.5, 0, false)
 				}
 			}
+			syncingFromEditor = false
 		})
 	})
 
@@ -331,63 +345,72 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 
 	return core.View{
 		TestID: "scene-tree-panel",
-		Style: core.Style{
-			Width:       core.Pt(220),
-			FlexGrow:    1,
-			FlexBasis:   core.Pt(0),
-			Background:  colors.Inset(),
-			Borders:     core.Edges{Right: 1},
-			BorderColor: colors.Line(),
-			Padding:     core.All(8),
-			Gap:         6,
+		StyleFunc: func() core.Style {
+			cur := ed.SpecPalette(cx)
+			return core.Style{
+				FlexGrow:   1,
+				FlexBasis:  core.Pt(0),
+				MinHeight:  core.Pt(0),
+				Background: cur.Bg,
+				Padding:    core.Symmetric(0, specSpace4),
+				Gap:        specSpace4,
+			}
 		},
 		Children: []core.Node{
-			ui.HStack{
-				Gap: 4,
-				Children: []core.Node{
-					ui.ToggleButton{
-						TestID: "scene-tree-tab-local",
-						Text:   ed.T("sceneTree.title"),
-						On: func() bool {
-							_ = rev.Get()
-							return ed.SceneTreeTab() == SceneTreeLocal
-						},
-						OnChange: func(on bool) {
-							if on {
-								ed.SetSceneTreeTab(SceneTreeLocal)
-							}
-						},
-					},
-					ui.ToggleButton{
-						TestID: "scene-tree-tab-remote",
-						Text:   ed.T("sceneTree.remote"),
-						On: func() bool {
-							_ = rev.Get()
-							return ed.SceneTreeTab() == SceneTreeRemote
-						},
-						OnChange: func(on bool) {
-							if on {
-								ed.SetSceneTreeTab(SceneTreeRemote)
-							}
-						},
-					},
-					core.Show{
-						When: func() bool {
-							_ = rev.Get()
-							return ed.RemoteConnected()
-						},
-						Then: func(cx *core.Scope) core.Node {
-							return core.View{
-								TestID: "scene-tree-remote-live-dot",
-								Style: core.Style{
-									Width:        core.Pt(7),
-									Height:       core.Pt(7),
-									CornerRadius: 4,
-									Background:   colors.Up(),
+			core.Show{
+				When: func() bool {
+					_ = rev.Get()
+					return ed.RemoteConnected() || ed.SceneTreeTab() == SceneTreeRemote
+				},
+				Then: func(cx *core.Scope) core.Node {
+					return ui.HStack{
+						Gap: 4,
+						Children: []core.Node{
+							ui.ToggleButton{
+								TestID: "scene-tree-tab-local",
+								Text:   ed.T("sceneTree.title"),
+								On: func() bool {
+									_ = rev.Get()
+									return ed.SceneTreeTab() == SceneTreeLocal
 								},
-							}
+								OnChange: func(on bool) {
+									if on {
+										ed.SetSceneTreeTab(SceneTreeLocal)
+									}
+								},
+							},
+							ui.ToggleButton{
+								TestID: "scene-tree-tab-remote",
+								Text:   ed.T("sceneTree.remote"),
+								On: func() bool {
+									_ = rev.Get()
+									return ed.SceneTreeTab() == SceneTreeRemote
+								},
+								OnChange: func(on bool) {
+									if on {
+										ed.SetSceneTreeTab(SceneTreeRemote)
+									}
+								},
+							},
+							core.Show{
+								When: func() bool {
+									_ = rev.Get()
+									return ed.RemoteConnected()
+								},
+								Then: func(cx *core.Scope) core.Node {
+									return core.View{
+										TestID: "scene-tree-remote-live-dot",
+										Style: core.Style{
+											Width:        core.Pt(7),
+											Height:       core.Pt(7),
+											CornerRadius: 4,
+											Background:   colors.Up(),
+										},
+									}
+								},
+							},
 						},
-					},
+					}
 				},
 			},
 			core.Show{
@@ -400,7 +423,7 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 				},
 				Else: func(cx *core.Scope) core.Node {
 					return core.View{
-						Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), Gap: 4},
+						Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), MinHeight: core.Pt(0), Gap: 4},
 						Children: []core.Node{
 							dragdrop.Area{Children: []core.Node{ui.Tree{
 								TestID:   "scene-tree",
@@ -440,15 +463,13 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 									FocusVisible: ed.SpecPalette(cx).FocusRing(-2),
 								},
 								RowStyle: core.Style{
+									MinHeight:    core.Pt(specRowHeight),
+									Height:       core.Pt(specRowHeight),
+									CornerRadius: specRadiusControl,
 									FocusVisible: ed.SpecPalette(cx).FocusRing(-2),
 								},
 							}}},
 							sceneTreeSketchSectionView(cx, ed, rev),
-							core.Text{
-								TestID:  "scene-tree-hint",
-								Content: ed.T("sceneTree.hint"),
-								Style:   core.Style{FontSize: 10, Color: colors.Muted()},
-							},
 						},
 					}
 				},
@@ -513,27 +534,51 @@ func dropStyle(cx *core.Scope, hint *core.Signal[treeHint], k sceneTreeKey) core
 }
 
 func layerRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTreeKey, hint *core.Signal[treeHint]) core.Node {
-	colors := ui.ColorsOf(cx)
 	setHint := func(on bool) { hint.Set(treeHint{key: k, place: DropInto, on: on}) }
 	return dragdrop.Target{
 		View: core.View{
 			TestID:    "scene-tree-layer-" + k.layer,
-			Style:     core.Style{Direction: core.Row, AlignItems: core.AlignCenter, FlexGrow: 1, Gap: 6},
+			Style:     core.Style{Direction: core.Row, AlignItems: core.AlignCenter, FlexGrow: 1, MinWidth: core.Pt(0), Gap: specSpace8},
 			StyleFunc: func() core.Style { return dropStyle(cx, hint, k) },
 			Children: []core.Node{
-				core.Text{
-					Content: k.layer,
-					Style:   core.Style{FontSize: 12, FontWeight: 700, Color: colors.Text(), FlexGrow: 1},
+				core.View{
+					TestID: "scene-tree-layer-dot-" + k.layer,
+					StyleFunc: func() core.Style {
+						_ = rev.Get()
+						return core.Style{
+							Width:        core.Pt(7),
+							Height:       core.Pt(7),
+							CornerRadius: 2,
+							Background:   ed.LayerKindColor(ed.SpecPalette(cx), k.layer),
+							FlexShrink:   0,
+						}
+					},
 				},
 				core.Text{
+					Content:       k.layer,
+					MaxLines:      1,
+					EllipsizeMode: core.EllipsizeTail,
+					StyleFunc: func() core.Style {
+						_ = rev.Get()
+						cur := ed.SpecPalette(cx)
+						col := cur.TextMuted
+						weight := core.FontWeightMedium
+						if ed.ActiveLayer == k.layer {
+							col = cur.TextPrimary
+							weight = core.FontWeightSemibold
+						}
+						return core.Style{FontSize: 12.5, FontWeight: weight, Color: col, FlexGrow: 1, FlexShrink: 1}
+					},
+				},
+				core.Text{
+					TestID: "scene-tree-layer-kind-" + k.layer,
 					ContentFunc: func() string {
 						_ = rev.Get()
-						if ed.ActiveLayer == k.layer {
-							return ed.T("sceneTree.active")
-						}
-						return ""
+						return ed.LayerKindLabel(k.layer)
 					},
-					Style: core.Style{FontSize: 10, Color: colors.Muted()},
+					StyleFunc: func() core.Style {
+						return core.Style{FontSize: 11, Color: ed.SpecPalette(cx).TextFaint, FlexShrink: 0}
+					},
 				},
 			},
 		},
@@ -626,8 +671,21 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 		},
 		Else: func(cx *core.Scope) core.Node {
 			return core.View{
-				Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, FlexGrow: 1, MinWidth: core.Pt(0)},
+				Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: specSpace8, FlexGrow: 1, MinWidth: core.Pt(0)},
 				Children: []core.Node{
+					core.View{
+						TestID: "scene-tree-dot-" + id,
+						StyleFunc: func() core.Style {
+							_ = rev.Get()
+							return core.Style{
+								Width:        core.Pt(7),
+								Height:       core.Pt(7),
+								CornerRadius: 2,
+								Background:   ed.ObjectKindColor(ed.SpecPalette(cx), id),
+								FlexShrink:   0,
+							}
+						},
+					},
 					core.Show{
 						When: func() bool {
 							_ = rev.Get()
@@ -655,13 +713,39 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 							}
 							return id
 						},
-						Style: core.Style{FontSize: 12, Color: colors.Text(), FlexShrink: 1},
+						MaxLines:      1,
+						EllipsizeMode: core.EllipsizeTail,
+						Style:         core.Style{FontSize: 12.5, FlexGrow: 1, FlexShrink: 1},
 						StyleFunc: func() core.Style {
 							_ = rev.Get()
+							cur := ed.SpecPalette(cx)
 							if pathFlagged(ed.hidden, ed.resolvedObjectPath(id)) || ed.ObjectOrigin(id) != ObjectLocal {
-								return core.Style{Color: colors.Muted()}
+								return core.Style{Color: cur.TextFaint}
 							}
-							return core.Style{}
+							if ed.IsSelected(id) {
+								return core.Style{Color: cur.TextPrimary, FontWeight: core.FontWeightMedium}
+							}
+							return core.Style{Color: cur.TextMuted}
+						},
+					},
+					core.Show{
+						When: func() bool {
+							_ = rev.Get()
+							return ed.IsObjectProposedNew(id)
+						},
+						Then: func(cx *core.Scope) core.Node {
+							return core.Text{
+								TestID:  "scene-tree-new-" + id,
+								Content: "NEW",
+								StyleFunc: func() core.Style {
+									return core.Style{
+										FontSize:   10,
+										FontWeight: core.FontWeightSemibold,
+										Color:      ed.SpecPalette(cx).Added.Fg,
+										FlexShrink: 0,
+									}
+								},
+							}
 						},
 					},
 					core.Show{
@@ -681,14 +765,14 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 						},
 					},
 					core.Text{
+						TestID: "scene-tree-kind-" + id,
 						ContentFunc: func() string {
 							_ = rev.Get()
-							if obj, _ := ed.FindResolvedObject(id); obj != nil && obj.Name != "" && obj.Name != id {
-								return id
-							}
-							return ""
+							return ed.SceneRailObjectKind(id)
 						},
-						Style: core.Style{FontSize: 10, Color: colors.Muted(), FlexShrink: 1},
+						StyleFunc: func() core.Style {
+							return core.Style{FontSize: 11, Color: ed.SpecPalette(cx).TextFaint, FlexShrink: 0}
+						},
 					},
 					core.Show{
 						When: func() bool {

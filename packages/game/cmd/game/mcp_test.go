@@ -220,7 +220,7 @@ func TestGameMCPEditsTheOpenEditor(t *testing.T) {
 	}
 	app.Screenshot("editormcp/placed-by-agent")
 
-	app.Press("id:toolbar-undo")
+	app.Post(func() { ed.Undo() })
 	app.Settle()
 	if app.Exists("id:scene-tree-label-slime_1") {
 		t.Fatal("Undo left the object in the scene tree")

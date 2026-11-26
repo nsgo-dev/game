@@ -515,15 +515,16 @@ func TestViewportPansZoomsAndFramesThroughMountedUI(t *testing.T) {
 	}
 	app.Key("home")
 	all := ed.View2D()
-	app.Press("id:view-frame-selection")
+	runEditorCommand(t, app, ed, editor.CmdFrameSelection)
 	if v := ed.View2D(); !near(v.X, 2080, 1e-3) {
-		t.Fatalf("the Frame button framed %+v, want the far object", v)
+		t.Fatalf("FrameSelection framed %+v, want the far object", v)
 	}
-	app.Press("id:view-frame-all")
+	app.Press("id:viewport-bar-fit")
 	if ed.View2D() != all {
-		t.Fatalf("the Frame All button framed %+v, want %+v", ed.View2D(), all)
+		t.Fatalf("the Fit button framed %+v, want %+v", ed.View2D(), all)
 	}
-	app.Press("id:view-reset")
+	app.Post(func() { ed.ResetView2D() })
+	app.Settle()
 	if !ed.View2DFollowsCamera() {
 		t.Fatal("the Camera View button did not return to the camera's view")
 	}
@@ -562,9 +563,9 @@ func TestPanToAFarObjectSelectAndMoveKeepsTheSavedCamera(t *testing.T) {
 	if x, _ := ed.WorldToCanvas(2080, 60); x < cw {
 		t.Fatalf("the far object is already in view at canvas x %v of %v", x, cw)
 	}
-	// Pan right by touchpad scrolls until the far object is in view.
+	// Pan right by touchpad scrolls until the far object and its target point (2150, 90) are well in view.
 	for range 20 {
-		if x, _ := ed.WorldToCanvas(2080, 60); x < cw-40 {
+		if x, _ := ed.WorldToCanvas(2080, 60); x < cw-100 {
 			break
 		}
 		app.TouchpadScroll("id:editor-viewport-frame", core.Point{}, core.Point{X: -200})
@@ -588,7 +589,7 @@ func TestPanToAFarObjectSelectAndMoveKeepsTheSavedCamera(t *testing.T) {
 		t.Fatalf("the far object moved to (%v, %v), want (2150, 90)", far.X, far.Y)
 	}
 
-	app.Press("id:toolbar-save")
+	saveInUI(app, ed)
 	doc, err := sceneformat.Parse(saved)
 	if err != nil {
 		t.Fatalf("Parse the saved scene: %v", err)
@@ -601,7 +602,7 @@ func TestPanToAFarObjectSelectAndMoveKeepsTheSavedCamera(t *testing.T) {
 	}
 
 	// The move is the one edit to undo; the view's pans are not edits.
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	if far, _, _ := ed.FindObject("far"); far.X != 2080 || far.Y != 60 {
 		t.Fatalf("Undo left the far object at (%v, %v)", far.X, far.Y)
 	}

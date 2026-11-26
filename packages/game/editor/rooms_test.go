@@ -77,11 +77,11 @@ func TestViewportCameraBoundsDragSavesReloadsAndUndoes(t *testing.T) {
 	}
 
 	// Undo restores the original bounds; Redo restores the resized bounds.
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	if ed.Doc.Camera.Bounds == nil || *ed.Doc.Camera.Bounds != origBounds {
 		t.Fatalf("bounds after Undo = %+v, want %+v", ed.Doc.Camera.Bounds, origBounds)
 	}
-	app.Press("id:toolbar-redo")
+	redoInUI(app, ed)
 	if ed.Doc.Camera.Bounds == nil || *ed.Doc.Camera.Bounds != wantAfterResize {
 		t.Fatalf("bounds after Redo = %+v, want %+v", ed.Doc.Camera.Bounds, wantAfterResize)
 	}
@@ -230,6 +230,7 @@ func TestRoomsOpenRoundTripUnchangedAndProjectBrowser(t *testing.T) {
 		return editor.EditorView(cx, projEd)
 	}, nsgotest.Size(1280, 800))
 
+	openFileBrowserInUI(app, projEd)
 	app.DoublePress("id:files-row-scenes/castle.rooms.yaml")
 	app.Settle()
 	if projEd.Rooms() == nil || len(projEd.Rooms().Rooms) != 2 {
@@ -418,7 +419,7 @@ func TestRoomsViewportCreateMoveResizeSnapDeleteAndUndo(t *testing.T) {
 	if ed.Rooms().Room("room_2") != nil || len(ed.Rooms().Rooms) != 1 {
 		t.Fatalf("expected room_2 deleted, got %+v", ed.Rooms().Rooms)
 	}
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	if r := ed.Rooms().Room("room_2"); r == nil || r.X != 208 || r.Width != 192 {
 		t.Fatalf("expected Undo to restore room_2, got %+v", r)
 	}

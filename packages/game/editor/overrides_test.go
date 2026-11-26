@@ -119,6 +119,7 @@ func TestAcceptance1MoveInstancedChildWritesOverrideAndReverts(t *testing.T) {
 	app := startEditorView(t, ed)
 
 	// Place a scene instance via the File Browser quick-place button.
+	openFileBrowserInUI(app, ed)
 	app.Press("id:files-place-scenes/slime.scene.yaml")
 	if ed.BuildErr != nil {
 		t.Fatalf("BuildErr after placing scene from file browser: %v", ed.BuildErr)
@@ -531,6 +532,7 @@ func TestPlacePrefabFromAssetBrowserAndCanvas(t *testing.T) {
 	ed.SetActiveLayer("actors")
 
 	app := startEditorView(t, ed)
+	openAssetBrowserInUI(app, ed)
 	app.Find("id:prefab-list")
 	app.Press("id:prefab-place-coin")
 	if ed.SelectedID == "" {
@@ -632,6 +634,7 @@ func TestFileBrowserPlaceSceneButton(t *testing.T) {
 	}, nsgotest.Size(1120, 680))
 
 	// Select slime scene in File Browser, then press the header Place button.
+	openFileBrowserInUI(app, ed)
 	app.Press("id:files-row-scenes/slime.scene.yaml")
 	if !app.Enabled("id:files-place-scene") {
 		t.Fatal("files-place-scene should be enabled when another scene file is selected")

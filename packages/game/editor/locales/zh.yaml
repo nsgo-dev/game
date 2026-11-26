@@ -524,10 +524,12 @@ strings:
   files.openTableLabel: 在数据表编辑器中打开选中的 YAML 文件
   files.placeScene: 放置
   files.placeSceneLabel: 在当前图层放置此场景的实例
+  files.railEmpty: 未打开文件
   files.refresh: 刷新
   files.renameSafely: 安全重命名…
   files.search: 搜索
   files.searchLabel: 切换项目搜索与引用面板
+  files.sectionTitle: 文件
   files.title: 文件
   gizmo.rotate: 旋转
   gizmo.scale: 缩放
@@ -762,6 +764,7 @@ strings:
   menu.openProject: 打开项目…
   menu.overlays: 叠加层
   menu.paintTile: 绘制瓦片
+  menu.pan: 平移
   menu.particleEditor: 粒子发射器编辑器
   menu.paste: 粘贴
   menu.pasteInto: 粘贴为子级
@@ -953,6 +956,7 @@ strings:
   problems.fixProposed: 已有修复建议
   problems.foundBanner: game check 发现一个问题
   problems.ignore: 忽略
+  problems.none: 没有问题
   problems.openPanelLabel: 切换智能体问题面板
   problems.retry: 重试
   problems.showMe: 定位查看
@@ -1005,6 +1009,8 @@ strings:
   sceneTree.moveDown: 下移
   sceneTree.moveToLayer: 移至图层 {name}
   sceneTree.moveUp: 上移
+  sceneTree.nodeCount: '{count} 个节点'
+  sceneTree.nodeCountOne: 1 个节点
   sceneTree.objectID: 对象 ID
   sceneTree.objectName: 对象名称
   sceneTree.outdent: 移出父级
@@ -1012,6 +1018,7 @@ strings:
   sceneTree.pasteInto: 粘贴为子级
   sceneTree.remote: 远程
   sceneTree.rename: 重命名
+  sceneTree.sectionTitle: 场景
   sceneTree.show: 在视口中显示
   sceneTree.showNamed: 显示 {id}
   sceneTree.title: 场景
@@ -1327,9 +1334,14 @@ strings:
   snap.scaleStep: 缩放步进
   snap.showGrid: 显示 2D 网格叠加层
   snap.title: 吸附设置
+  status.activeLayerLabel: 当前图层：{layer}
   status.buildError: 构建错误：{error}
   status.changes: 变更
   status.changesCount: 变更：{count}
+  status.debugger: 调试器
+  status.debuggerLabel: 切换调试器与性能分析面板
+  status.layerReadout: 图层 {layer}
+  status.mergeConflictsLabel: 打开场景合并冲突
   status.mode2d: 模式：{mode} | 视图：2D {zoom}% | 工具：{tool} | 图层：{layer}
   status.mode3d: 模式：{mode} | 视图：3D {view} | 操纵杆：{gizmo} · {space} | 图层：{layer}
   status.mode3dGridMap: 模式：{mode} | 视图：3D {view}（GridMap {tool}，Y={floor}，朝向={orient}/24）| 图层：{layer}
@@ -1429,9 +1441,12 @@ strings:
   tool.move: 移动
   tool.navTestPath: 测试路径
   tool.paintTile: 绘制瓦片
+  tool.pan: 平移
   tool.pickTile: 吸取瓦片
   tool.place: 放置
   tool.plugin: 插件
+  tool.rotate: 旋转
+  tool.scale: 缩放
   tool.select: 选择
   toolbar.animate: 动画
   toolbar.animateLabel: 在新动画片段中为选中对象制作动画
@@ -1472,6 +1487,7 @@ strings:
   toolbar.output: 输出
   toolbar.outputLabel: 切换输出日志面板
   toolbar.paint: 绘制
+  toolbar.pan: 平移
   toolbar.pick: 吸取
   toolbar.place: 放置
   toolbar.play: 播放
@@ -1486,6 +1502,8 @@ strings:
   toolbar.saveAs: 另存为…
   toolbar.scale: 缩放
   toolbar.sceneCameraView: 场景相机视图（{key}）
+  toolbar.search: 搜索
+  toolbar.searchLabel: 搜索文件、节点和命令
   toolbar.select: 选择
   toolbar.shadingLit: 光照
   toolbar.shadingUnlit: 无光照
@@ -1501,6 +1519,24 @@ strings:
   toolbar.undo: 撤销
   toolbar.unsavedFailedLabel: 未保存的更改 · 保存失败
   toolbar.unsavedLabel: 未保存的更改
+  workspace.dismiss: 关闭
+  workspace.loadingProject: 正在加载项目…
+  workspace.loadingShort: 加载中…
+  workspace.noProjectDesc: 打开现有游戏项目或新建项目，即可开始编辑场景并与智能体协作。
+  workspace.noProjectInspectorHint: 打开项目以检查场景与对象属性。
+  workspace.noProjectRailHint: 打开项目以查看场景树与文件。
+  workspace.noProjectTitle: 未打开项目
+  workspace.noSceneDesc: 打开项目中的场景文件或新建场景以开始编辑。
+  workspace.noSceneInspectorHint: 打开场景以检查属性。
+  workspace.noSceneRailHint: 打开或新建场景以查看节点。
+  workspace.noSceneTitle: 未打开场景
+  workspace.openAnotherScene: 打开其他场景
+  workspace.openProject: 打开项目
+  workspace.retry: 重试
+  workspace.sceneErrorShort: 场景打开失败
+  workspace.sceneErrorTitle: 无法打开场景
+  workspace.searchFiles: 搜索文件
+  workspace.startScreen: 开始界面
 plurals:
   agent.playDot.failed:
     other: '{count} 个任务失败'

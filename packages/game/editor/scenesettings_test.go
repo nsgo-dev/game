@@ -413,11 +413,11 @@ func TestViewportCameraHandleDragUpdatesCameraAndIsUndoable(t *testing.T) {
 	}
 
 	// Undo restores pre-drag camera position; Redo restores dragged position.
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	if !near(ed.Doc.Camera.X, beforeCam.X, 1e-2) || !near(ed.Doc.Camera.Y, beforeCam.Y, 1e-2) {
 		t.Fatalf("camera after Undo = (%v, %v), want (%v, %v)", ed.Doc.Camera.X, ed.Doc.Camera.Y, beforeCam.X, beforeCam.Y)
 	}
-	app.Press("id:toolbar-redo")
+	redoInUI(app, ed)
 	if !near(ed.Doc.Camera.X, beforeCam.X+60, 1e-2) || !near(ed.Doc.Camera.Y, beforeCam.Y+30, 1e-2) {
 		t.Fatalf("camera after Redo = (%v, %v), want (%v, %v)", ed.Doc.Camera.X, ed.Doc.Camera.Y, beforeCam.X+60, beforeCam.Y+30)
 	}

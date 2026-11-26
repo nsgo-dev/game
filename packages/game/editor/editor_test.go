@@ -568,7 +568,8 @@ func TestAssetBrowserListsFramesAndDropDrawsInViewport(t *testing.T) {
 		return editor.EditorView(cx, ed)
 	}, nsgotest.Size(1120, 680))
 
-	// Verify Asset Browser renders entries in the UI tree.
+	// Verify Asset Browser renders entries in the UI tree when opened.
+	openAssetBrowserInUI(app, ed)
 	app.Find("id:asset-browser")
 	app.Find("id:asset-actors-slime")
 
@@ -611,12 +612,12 @@ func TestAssetBrowserListsFramesAndDropDrawsInViewport(t *testing.T) {
 		t.Fatalf("expected dropped slime drawn at (%v,%v) in viewport ops: %+v", px, py, ops)
 	}
 
-	// Also verify direct DropAtlasFrame + Undo via toolbar Undo button.
-	app.Press("id:toolbar-undo")
+	// Also verify direct DropAtlasFrame + Undo/Redo.
+	undoInUI(app, ed)
 	if obj, _, _ := ed.FindObject(droppedObj.ID); obj != nil {
 		t.Fatalf("expected toolbar Undo to remove dropped object %q", droppedObj.ID)
 	}
-	app.Press("id:toolbar-redo")
+	redoInUI(app, ed)
 	if obj, _, _ := ed.FindObject(droppedObj.ID); obj == nil {
 		t.Fatalf("expected toolbar Redo to restore dropped object %q", droppedObj.ID)
 	}
@@ -637,8 +638,8 @@ func TestToolbarToolsCanvasTilePaintAndSaveCallback(t *testing.T) {
 		return editor.EditorView(cx, ed)
 	}, nsgotest.Size(1120, 680))
 
-	// Switch to Fill tool via toolbar and click interior tile (1, 1), at world (24, 24). The tile palette that a tile tool shows narrows the viewport, so the canvas point is taken after the tool changes.
-	app.Press("id:tool-fill")
+	// Switch to Fill tool via command and click interior tile (1, 1), at world (24, 24). The tile palette that a tile tool shows narrows the viewport, so the canvas point is taken after the tool changes.
+	runEditorCommand(t, app, ed, editor.CmdToolFillTile)
 	if ed.Tool != editor.ToolFillTile {
 		t.Fatalf("Tool = %v, want ToolFillTile", ed.Tool)
 	}
@@ -653,7 +654,7 @@ func TestToolbarToolsCanvasTilePaintAndSaveCallback(t *testing.T) {
 	}
 
 	// Switch to Erase tool and click tile (1, 1).
-	app.Press("id:tool-erase")
+	runEditorCommand(t, app, ed, editor.CmdToolEraseTile)
 	app.PressAt("id:editor-viewport", tile)
 	if got := ed.Doc.Layers[0].Tilemap.Data[1*4+1]; got != 0 {
 		t.Fatalf("erased tile (1,1) = %d, want 0", got)
@@ -662,14 +663,14 @@ func TestToolbarToolsCanvasTilePaintAndSaveCallback(t *testing.T) {
 	// Switch to Paint tool and click tile (1, 1) with tile 3.
 	app.Post(func() { ed.SetActiveTileID(3) })
 	app.Settle()
-	app.Press("id:tool-paint")
+	runEditorCommand(t, app, ed, editor.CmdToolPaintTile)
 	app.PressAt("id:editor-viewport", tile)
 	if got := ed.Doc.Layers[0].Tilemap.Data[1*4+1]; got != 3 {
 		t.Fatalf("painted tile (1,1) = %d, want 3", got)
 	}
 
-	// Click Save in toolbar and verify OnSave received valid YAML matching the edits.
-	app.Press("id:toolbar-save")
+	// Save via File menu and verify OnSave received valid YAML matching the edits.
+	saveInUI(app, ed)
 	if len(savedBytes) == 0 {
 		t.Fatal("expected OnSave to receive encoded YAML bytes")
 	}

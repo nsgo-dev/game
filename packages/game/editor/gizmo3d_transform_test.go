@@ -632,13 +632,18 @@ func TestGizmo3DShortcutsSpaceToggleStatusDeltaUndoAndYAML(t *testing.T) {
 		t.Fatalf("key w in 3D: GizmoMode = %v, want Translate", ed.GizmoMode)
 	}
 
-	// Verify 2D Erase Tile still owns E in 2D view (scoped shortcuts!).
+	// Verify E activates Rotate in 2D view and B activates Paint Tile (scoped shortcuts!).
 	app.Key("alt+2")
 	app.Key("e")
-	if ed.Tool != editor.ToolEraseTile {
-		t.Fatalf("key e in 2D: Tool = %v, want ToolEraseTile", ed.Tool)
+	if ed.Tool != editor.ToolRotate {
+		t.Fatalf("key e in 2D: Tool = %v, want ToolRotate", ed.Tool)
+	}
+	app.Key("b")
+	if ed.Tool != editor.ToolPaintTile {
+		t.Fatalf("key b in 2D: Tool = %v, want ToolPaintTile", ed.Tool)
 	}
 	app.Key("alt+3")
+	app.Key("w")
 
 	// 2. Local / Global toggle via 3D bottom bar button, shortcut T, command registry, and status bar readout.
 	if got := app.Find("id:editor-status-mode").Text; !strings.Contains(got, "Translate · Global") {

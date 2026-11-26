@@ -524,10 +524,12 @@ strings:
   files.openTableLabel: Open the selected YAML file in the Data Table editor
   files.placeScene: Place
   files.placeSceneLabel: Place an instance of this scene in the active layer
+  files.railEmpty: No files open
   files.refresh: Refresh
   files.renameSafely: Rename Safely…
   files.search: Search
   files.searchLabel: Toggle the Project Search and References panel
+  files.sectionTitle: Files
   files.title: Files
   gizmo.rotate: Rotate
   gizmo.scale: Scale
@@ -762,6 +764,7 @@ strings:
   menu.openProject: Open Project...
   menu.overlays: Overlays
   menu.paintTile: Paint Tile
+  menu.pan: Pan
   menu.particleEditor: Particle Emitter Editor
   menu.paste: Paste
   menu.pasteInto: Paste as Child
@@ -953,6 +956,7 @@ strings:
   problems.fixProposed: Fix proposed
   problems.foundBanner: game check found a problem
   problems.ignore: Ignore
+  problems.none: No problems
   problems.openPanelLabel: Toggle Agent problem panel
   problems.retry: Retry
   problems.showMe: Show me
@@ -1005,6 +1009,8 @@ strings:
   sceneTree.moveDown: Move Down
   sceneTree.moveToLayer: Move to Layer {name}
   sceneTree.moveUp: Move Up
+  sceneTree.nodeCount: '{count} nodes'
+  sceneTree.nodeCountOne: 1 node
   sceneTree.objectID: Object ID
   sceneTree.objectName: Object Name
   sceneTree.outdent: Move Out of Parent
@@ -1012,6 +1018,7 @@ strings:
   sceneTree.pasteInto: Paste as Child
   sceneTree.remote: Remote
   sceneTree.rename: Rename
+  sceneTree.sectionTitle: Scene
   sceneTree.show: Show in Viewport
   sceneTree.showNamed: Show {id}
   sceneTree.title: Scene
@@ -1327,9 +1334,14 @@ strings:
   snap.scaleStep: Scale step
   snap.showGrid: Show 2D grid overlay
   snap.title: Snapping
+  status.activeLayerLabel: 'Active layer: {layer}'
   status.buildError: 'Build error: {error}'
   status.changes: Changes
   status.changesCount: 'Changes: {count}'
+  status.debugger: Debugger
+  status.debuggerLabel: Toggle Debugger and Profiler panel
+  status.layerReadout: Layer {layer}
+  status.mergeConflictsLabel: Open Scene Merge Conflicts
   status.mode2d: 'Mode: {mode} | View: 2D {zoom}% | Tool: {tool} | Layer: {layer}'
   status.mode3d: 'Mode: {mode} | View: 3D {view} | Gizmo: {gizmo} · {space} | Layer: {layer}'
   status.mode3dGridMap: 'Mode: {mode} | View: 3D {view} (GridMap {tool}, Y={floor}, Orient={orient}/24) | Layer: {layer}'
@@ -1429,9 +1441,12 @@ strings:
   tool.move: Move
   tool.navTestPath: Test Path
   tool.paintTile: Paint Tile
+  tool.pan: Pan
   tool.pickTile: Pick Tile
   tool.place: Place
   tool.plugin: Plugin
+  tool.rotate: Rotate
+  tool.scale: Scale
   tool.select: Select
   toolbar.animate: Animate
   toolbar.animateLabel: Animate the selected object in a new clip
@@ -1472,6 +1487,7 @@ strings:
   toolbar.output: Output
   toolbar.outputLabel: Toggle the Output log panel
   toolbar.paint: Paint
+  toolbar.pan: Pan
   toolbar.pick: Pick
   toolbar.place: Place
   toolbar.play: Play
@@ -1486,6 +1502,8 @@ strings:
   toolbar.saveAs: Save As…
   toolbar.scale: Scale
   toolbar.sceneCameraView: Scene Camera View ({key})
+  toolbar.search: Search
+  toolbar.searchLabel: Search files, nodes and commands
   toolbar.select: Select
   toolbar.shadingLit: Lit
   toolbar.shadingUnlit: Unlit
@@ -1500,7 +1518,25 @@ strings:
   toolbar.translate: Translate
   toolbar.undo: Undo
   toolbar.unsavedFailedLabel: Unsaved changes · save failed
-  toolbar.unsavedLabel: Unsaved changes
+  toolbar.unsavedLabel: unsaved changes
+  workspace.dismiss: Dismiss
+  workspace.loadingProject: Loading project…
+  workspace.loadingShort: Loading…
+  workspace.noProjectDesc: Open an existing game project or create a new one to start editing scenes and collaborating with the agent.
+  workspace.noProjectInspectorHint: Open a project to inspect scene and object properties.
+  workspace.noProjectRailHint: Open a project to view its scene tree and files.
+  workspace.noProjectTitle: No project open
+  workspace.noSceneDesc: Open a scene file from the project or create a new scene to start editing.
+  workspace.noSceneInspectorHint: Open a scene to inspect properties.
+  workspace.noSceneRailHint: Open or create a scene to view its nodes.
+  workspace.noSceneTitle: No scene open
+  workspace.openAnotherScene: Open another scene
+  workspace.openProject: Open project
+  workspace.retry: Retry
+  workspace.sceneErrorShort: Scene failed to open
+  workspace.sceneErrorTitle: Couldn't open scene
+  workspace.searchFiles: Search files
+  workspace.startScreen: Start screen
 plurals:
   agent.playDot.failed:
     one: '{count} task failed'

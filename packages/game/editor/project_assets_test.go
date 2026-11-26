@@ -72,6 +72,7 @@ func TestProjectAssetsDrawTheProjectsAtlasesInTheEditor(t *testing.T) {
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		return editor.EditorView(cx, ed)
 	}, nsgotest.Size(1120, 680))
+	openAssetBrowserInUI(app, ed)
 	app.Find("id:asset-actors-hero")
 	app.Find("id:asset-actors-crate")
 	drawn := func() int {
@@ -99,7 +100,7 @@ func TestProjectAssetsDrawTheProjectsAtlasesInTheEditor(t *testing.T) {
 	if n := drawn(); n != 2 {
 		t.Fatalf("after placing the crate the viewport draws the project's image %d times, want 2", n)
 	}
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	if obj, _, _ := ed.FindObject(id); obj != nil {
 		t.Fatalf("Undo left the instance %q", id)
 	}

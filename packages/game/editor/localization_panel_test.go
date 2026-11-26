@@ -254,7 +254,7 @@ func TestLocalizationPanelUIAddRemoveLocaleAndKey(t *testing.T) {
 	}, nsgotest.Size(1280, 900))
 
 	// Open panel via toolbar Strings toggle.
-	app.Press("id:toolbar-l10n")
+	runEditorCommand(t, app, ed, editor.CmdLocalization)
 	if !app.Exists("id:l10n-panel") {
 		t.Fatal("toolbar-l10n did not open l10n-panel")
 	}

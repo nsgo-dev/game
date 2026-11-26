@@ -122,6 +122,7 @@ layers:
 	}, nsgotest.Size(1400, 900))
 
 	// Select art/hero.png in the file browser.
+	openFileBrowserInUI(app, ed)
 	app.Press("id:files-row-art/hero.png")
 	app.Settle()
 
@@ -221,8 +222,7 @@ layers:
 
 	// Undo every edit back to before the sidecar existed: Undo removes the newly created sidecar!
 	for ed.History.CanUndo() {
-		app.Press("id:toolbar-undo")
-		app.Settle()
+		undoInUI(app, ed)
 	}
 	if _, err := os.Stat(sidecarPath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("expected sidecar removed after undoing back to creation, stat err = %v", err)
@@ -230,8 +230,7 @@ layers:
 
 	// Redo brings the exact sidecar back.
 	for ed.History.CanRedo() {
-		app.Press("id:toolbar-redo")
-		app.Settle()
+		redoInUI(app, ed)
 	}
 	afterRedo, err := os.ReadFile(sidecarPath)
 	if err != nil {
@@ -399,6 +398,8 @@ layers:
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		return editor.EditorView(cx, ed)
 	}, nsgotest.Size(1400, 900))
+	openAssetBrowserInUI(app, ed)
+	openFileBrowserInUI(app, ed)
 
 	if !app.Exists("id:asset-actors-hero.png") {
 		t.Fatal("expected asset browser to list initial unsliced frame hero.png")
@@ -461,14 +462,15 @@ layers:
 		t.Fatalf("AssetReloader calls = %+v, want assets/atlases/actors.json", reloader.calls)
 	}
 
-	// Edit texture filter on art/albedo.png and press toolbar Build Assets.
+	// Edit texture filter on art/albedo.png and run Build Assets.
+	openFileBrowserInUI(app, ed)
 	app.Press("id:files-row-art/albedo.png")
 	app.Settle()
 	app.Press("id:import-image-filter")
 	app.Press("role:option nearest")
 	app.Settle()
 
-	app.Press("id:toolbar-build-assets")
+	runEditorCommand(t, app, ed, editor.CmdBuildAssets)
 	app.WaitUntil(5*time.Second, func() bool { return !ed.AssetsBuilding() })
 	if err := ed.AssetsBuildLastError(); err != nil {
 		t.Fatalf("Build Assets failed: %v", err)
@@ -567,6 +569,7 @@ layers:
 	}, nsgotest.Size(1400, 900))
 
 	// 1. Audio kind.
+	openFileBrowserInUI(app, ed)
 	app.Press("id:files-row-audio/jump.wav")
 	app.Settle()
 	for _, id := range []string{
@@ -775,6 +778,7 @@ layers:
 	}
 
 	// Selecting an image switches inspector to asset import settings.
+	openFileBrowserInUI(app, ed)
 	app.Press("id:files-row-art/icon.png")
 	app.Settle()
 	if !app.Exists("id:inspector-asset-import") {
@@ -870,6 +874,7 @@ layers:
 		return editor.EditorView(cx, ed)
 	}, nsgotest.Size(1400, 900))
 
+	openFileBrowserInUI(app, ed)
 	app.Press("id:files-row-art/hero.png")
 	app.Settle()
 	if !app.Exists("id:inspector-asset-import") {
@@ -1071,6 +1076,7 @@ layers:
 	}, nsgotest.Size(1400, 900))
 
 	// Select the sprite sheet in the file browser.
+	openFileBrowserInUI(app, ed)
 	app.Press("id:files-row-art/sprites/hero.png")
 	app.Settle()
 

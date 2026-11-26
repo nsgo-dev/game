@@ -398,6 +398,7 @@ func TestPressModelIn2DLeavesThePlaceToolOff(t *testing.T) {
 	ed.SetViewMode(editor.ViewMode2D)
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node { return editor.EditorView(cx, ed) }, nsgotest.Size(1200, 900), nsgotest.NoGPU())
 	before := saveYAML(t, ed)
+	openAssetBrowserInUI(app, ed)
 	app.Press("id:model-mesh-box")
 	if ed.SelectedModel == nil || *ed.SelectedModel != boxModel {
 		t.Fatalf("selected model %+v, want the box", ed.SelectedModel)
@@ -414,13 +415,11 @@ func TestPressModelIn2DLeavesThePlaceToolOff(t *testing.T) {
 // In the editor's window: pressing a model in the asset browser picks it for the Place tool, a press on the 3D viewport places it, the toolbar's Undo and Redo take it back and make it again; dragging a primitive from the browser onto the viewport places it there, a file dropped from another app lands too, and the inspector's Model field picks one of the project's models.
 func TestPlaceModelsInTheEditorWindow(t *testing.T) {
 	ed := editor.OpenCourtyard(t)
-	app := nsgotest.Start(t, func(cx *core.Scope) core.Node { return editor.EditorView(cx, ed) }, nsgotest.Size(1200, 900), nsgotest.NoGPU())
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node { return editor.EditorView(cx, ed) }, nsgotest.Size(1440, 900), nsgotest.NoGPU())
+	openAssetBrowserInUI(app, ed)
 	app.Press("id:model-models-crate-glb")
 	if ed.SelectedModel == nil || *ed.SelectedModel != crateModel || ed.Tool != editor.ToolPlace {
 		t.Fatalf("after pressing the crate: model %+v, tool %v", ed.SelectedModel, ed.Tool)
-	}
-	if !app.Find("id:tool3d-place").Props.Pressed {
-		t.Fatal("the 3D toolbar's Place is off with the Place tool on")
 	}
 
 	vw, vh := ed.CanvasSize()
@@ -433,16 +432,16 @@ func TestPlaceModelsInTheEditorWindow(t *testing.T) {
 	if len(crates) != 3 {
 		t.Fatalf("crates after the press = %v", crates)
 	}
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	if len(objectsWith(ed, crateModel)) != 2 {
 		t.Fatal("Undo did not take the placed crate back")
 	}
-	app.Press("id:toolbar-redo")
+	redoInUI(app, ed)
 	if got := objectsWith(ed, crateModel); !slices.Equal(got, crates) {
 		t.Fatalf("crates after Redo = %v, want %v", got, crates)
 	}
 
-	app.Press("id:tool3d-select")
+	app.Press("id:tool-select")
 	// The drop lands on the frame's middle, where the view points.
 	want, ok := ed.PlacementAt3D(vw/2, vh/2, vw, vh)
 	if !ok {
@@ -475,7 +474,7 @@ func TestPlaceModelsInTheEditorWindow(t *testing.T) {
 	if marker.Model != crateModel.Path {
 		t.Fatalf("marker after picking the crate = %+v", marker)
 	}
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	if marker, _, _ = ed.FindObject("marker"); marker.Model != "" {
 		t.Fatalf("Undo left the marker's model %q", marker.Model)
 	}
@@ -619,11 +618,11 @@ func TestViewport3DModelsStripAndInspectorDetails(t *testing.T) {
 	if len(afterDrag) != beforeCount+1 {
 		t.Fatalf("dragging from MODELS strip left %d crates, want %d", len(afterDrag), beforeCount+1)
 	}
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	if len(objectsWith(ed, crateModel)) != beforeCount {
 		t.Fatal("Undo did not remove model dragged from MODELS strip")
 	}
-	app.Press("id:toolbar-redo")
+	redoInUI(app, ed)
 	if got := objectsWith(ed, crateModel); !slices.Equal(got, afterDrag) {
 		t.Fatalf("Redo after MODELS strip drag = %v, want %v", got, afterDrag)
 	}

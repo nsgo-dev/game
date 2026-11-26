@@ -435,7 +435,7 @@ func TestAnimationPanelKeysAndEditsThroughTheUI(t *testing.T) {
 		t.Fatal("the animation panel shows with no clip open")
 	}
 
-	app.Press("id:toolbar-animate")
+	runEditorCommand(t, app, ed, editor.CmdAnimate)
 	if ed.Clip() == nil || ed.ClipTarget() != "hero" || !app.Exists("id:anim-panel") {
 		t.Fatalf("Animate opened clip %+v on %q, panel shown %t", ed.Clip(), ed.ClipTarget(), app.Exists("id:anim-panel"))
 	}
@@ -484,7 +484,7 @@ func TestAnimationPanelKeysAndEditsThroughTheUI(t *testing.T) {
 	if got := len(ed.Clip().Tracks[0].Keys); got != 1 {
 		t.Fatalf("keys after deleting one = %d", got)
 	}
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	if got := len(ed.Clip().Tracks[0].Keys); got != 2 {
 		t.Fatalf("keys after undoing the delete = %d", got)
 	}
@@ -607,7 +607,7 @@ func TestEventLaneFollowsAnOpenedClip(t *testing.T) {
 	if app.Exists("label:Event land") || !app.Exists("label:Event jump") {
 		t.Fatalf("event markers after opening the other clip: land %t jump %t", app.Exists("label:Event land"), app.Exists("label:Event jump"))
 	}
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	if !app.Exists("label:Event land") || app.Exists("label:Event jump") {
 		t.Fatal("undoing the open left the other clip's event marker")
 	}

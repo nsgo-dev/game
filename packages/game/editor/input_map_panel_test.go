@@ -35,7 +35,7 @@ func TestInputMapPanelAddActionCaptureKeySaveAndUndo(t *testing.T) {
 	}
 
 	// Open the Input Map panel from the toolbar.
-	app.Press("id:toolbar-input-map")
+	runEditorCommand(t, app, ed, editor.CmdInputMap)
 	app.Settle()
 	if !app.Exists("id:input-map-panel") {
 		t.Fatal("pressing toolbar-input-map did not open the panel")
@@ -67,7 +67,7 @@ func TestInputMapPanelAddActionCaptureKeySaveAndUndo(t *testing.T) {
 	}
 
 	// Save via toolbar Save and read the binding back from game.yaml on disk.
-	app.Press("id:toolbar-save")
+	saveInUI(app, ed)
 	app.Settle()
 	saved, err := project.Check(os.DirFS(dir))
 	if err != nil {
@@ -92,20 +92,20 @@ func TestInputMapPanelAddActionCaptureKeySaveAndUndo(t *testing.T) {
 	}
 
 	// Undo removes the binding, then removes the action (and prunes empty input section).
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	app.Settle()
 	if got := ed.InputActions(); len(got) != 1 || len(got[0].Bindings) != 0 {
 		t.Fatalf("after 1st undo: %+v, want jump with 0 bindings", got)
 	}
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	app.Settle()
 	if ed.Project.Input != nil {
 		t.Fatalf("after 2nd undo: Project.Input = %+v, want nil", ed.Project.Input)
 	}
 
 	// Redo brings both the action and the captured key binding back.
-	app.Press("id:toolbar-redo")
-	app.Press("id:toolbar-redo")
+	redoInUI(app, ed)
+	redoInUI(app, ed)
 	app.Settle()
 	if got := ed.InputActions(); len(got) != 1 || len(got[0].Bindings) != 1 || got[0].Bindings[0].Key != "space" {
 		t.Fatalf("after Redo: %+v, want jump bound to space", got)
@@ -316,7 +316,7 @@ func TestInputMapPanelRegionsMotionAndGamepadAxes(t *testing.T) {
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		return editor.EditorView(cx, ed)
 	}, nsgotest.Size(1280, 900))
-	app.Press("id:toolbar-input-map")
+	runEditorCommand(t, app, ed, editor.CmdInputMap)
 	app.Settle()
 	if !app.Exists("id:input-region-canvas") {
 		t.Fatal("input-region-canvas not rendered")

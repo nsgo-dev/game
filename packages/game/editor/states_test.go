@@ -364,7 +364,7 @@ func TestStatesGraphUIAndDriveWithKeysAndScreenshot(t *testing.T) {
 	if !app.Exists("id:states-node-dash") {
 		t.Fatal("added state node 'dash' did not appear")
 	}
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	if app.Exists("id:states-node-dash") {
 		t.Fatal("undo did not remove added state node 'dash'")
 	}

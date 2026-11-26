@@ -33,6 +33,7 @@ const (
 // AgentReviewChange is one non-deletion file change listed in the Review changes panel.
 type AgentReviewChange struct {
 	ID       string                `json:"id"`
+	ObjectID string                `json:"object_id,omitempty"`
 	Path     string                `json:"path"`
 	Kind     AgentReviewChangeKind `json:"kind"`
 	Title    string                `json:"title"`

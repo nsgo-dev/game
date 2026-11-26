@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/base/dragdrop"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
@@ -61,32 +62,40 @@ func LeftRailSwitchView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 		if mode == LeftRailScene {
 			ref = sceneTabRef
 		}
-		return core.View{
+		return base.Radio{
 			Ref:    ref,
 			TestID: testID,
-			Role:   core.RoleButton,
 			Label:  label,
+			Checked: func() bool {
+				_ = rev.Get()
+				return ed.LeftRailMode() == mode
+			},
+			OnChange: func(checked bool) {
+				if checked {
+					ed.SetLeftRailMode(mode)
+				}
+			},
 			StyleFunc: func() core.Style {
 				_ = rev.Get()
 				cur := ed.SpecPalette(cx)
 				active := ed.LeftRailMode() == mode
-				var bg core.Color
+				bg := core.Transparent
 				if active {
 					bg = cur.LineRaised
 				}
 				return core.Style{
 					FlexGrow:       1,
 					FlexBasis:      core.Pt(0),
-					Height:         core.Pt(28),
-					CornerRadius:   6,
+					Height:         core.Pt(specRowHeight),
+					MinHeight:      core.Pt(specRowHeight),
+					MinWidth:       core.Pt(specRowHeight),
+					CornerRadius:   specRadiusControl,
 					AlignItems:     core.AlignCenter,
 					JustifyContent: core.JustifyCenter,
 					Background:     bg,
+					Cursor:         core.CursorPointer,
 					FocusVisible:   cur.FocusRing(2),
 				}
-			},
-			OnPress: func(core.PressEvent) {
-				ed.SetLeftRailMode(mode)
 			},
 			Children: []core.Node{
 				core.Text{
@@ -111,24 +120,29 @@ func LeftRailSwitchView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 
 	return core.View{
 		TestID: "left-rail-switch",
-		Style: core.Style{
-			Height:      core.Pt(44),
-			FlexShrink:  0,
-			Direction:   core.Row,
-			AlignItems:  core.AlignCenter,
-			Padding:     core.Symmetric(0, 8),
-			Background:  p.Bg,
-			Borders:     core.Edges{Bottom: 1},
-			BorderColor: p.Line,
+		StyleFunc: func() core.Style {
+			cur := ed.SpecPalette(cx)
+			return core.Style{
+				Height:      core.Pt(specHeaderHeight),
+				FlexShrink:  0,
+				Direction:   core.Row,
+				AlignItems:  core.AlignCenter,
+				Padding:     core.Symmetric(0, specSpace8),
+				Background:  cur.Bg,
+				Borders:     core.Edges{Bottom: 1},
+				BorderColor: cur.Line,
+			}
 		},
 		Children: []core.Node{
-			core.View{
+			base.RadioGroup{
+				TestID: "left-rail-mode-group",
+				Label:  ed.T("region.sceneTree"),
 				Style: core.Style{
 					FlexGrow:     1,
 					Direction:    core.Row,
 					Gap:          2,
 					Padding:      core.All(3),
-					CornerRadius: 8,
+					CornerRadius: specRadiusButton,
 					Background:   p.Raised,
 					BorderWidth:  1,
 					BorderColor:  p.LineRaised,

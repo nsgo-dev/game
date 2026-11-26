@@ -70,6 +70,12 @@ const (
 	ToolRandomTile
 	// ToolNavTestPath sets start and end world points on click to preview the path ai.NavMesh.FindPath finds on the built 2D navigation mesh.
 	ToolNavTestPath
+	// ToolRotate rotates the selected object in 2D (and sets 3D Gizmo3DRotate).
+	ToolRotate
+	// ToolScale scales the selected object in 2D (and sets 3D Gizmo3DScale).
+	ToolScale
+	// ToolPan pans the viewport camera on drag.
+	ToolPan
 )
 
 // String returns a human-readable label for the tool.
@@ -79,6 +85,12 @@ func (t Tool) String() string {
 		return "Select"
 	case ToolMove:
 		return "Move"
+	case ToolRotate:
+		return "Rotate"
+	case ToolScale:
+		return "Scale"
+	case ToolPan:
+		return "Pan"
 	case ToolPlace:
 		return "Place"
 	case ToolPaintTile:
@@ -993,6 +1005,22 @@ type Editor struct {
 	stagedFiles map[string]*stagedFileEntry
 	// pendingTurnPrompt tracks a blocked close/scene-switch/project-switch waiting on Keep, Revert, or Cancel.
 	pendingTurnPrompt pendingTurnPromptState
+	// pointerRev and pointerListeners broadcast viewport pointer coordinate updates to the status bar without bumping full Revision.
+	pointerRev          uint64
+	nextPointerListener uint64
+	pointerListeners    map[uint64]func()
+	// projectLoading tracks an in-progress project open so every workspace region shows its designed loading state.
+	projectLoading     bool
+	projectLoadingPath string
+	// sceneOpenErr records the last failed scene open (missing file, malformed YAML, etc.) so every workspace region shows its designed error state instead of a blank viewport.
+	sceneOpenErr *SceneOpenError
+	// layersPanelOpen, fileBrowserOpen, assetBrowserOpen, and libraryPanelOpen toggle auxiliary docked panels moved off the default AI-first chrome.
+	layersPanelOpen  bool
+	fileBrowserOpen  bool
+	assetBrowserOpen bool
+	libraryPanelOpen bool
+	// proposedNewObjects records object IDs proposed by a pending review for the left rail NEW badge.
+	proposedNewObjects map[string]bool
 }
 
 // DefaultSceneDoc returns a valid starter SceneDoc suitable for a new editor session.
@@ -1308,6 +1336,14 @@ func (e *Editor) SetTool(t Tool) {
 	e.CancelRoomDrag()
 	e.endTileStrokeForChange()
 	e.Tool = t
+	switch t {
+	case ToolMove:
+		e.GizmoMode = Gizmo3DTranslate
+	case ToolRotate:
+		e.GizmoMode = Gizmo3DRotate
+	case ToolScale:
+		e.GizmoMode = Gizmo3DScale
+	}
 	if isTileTool(t) {
 		e.inspectLayer = false
 	}
@@ -1709,7 +1745,9 @@ func (e *Editor) openFileWithLayers(path string, layers *sceneformat.PhysicsLaye
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return loaderr.Locate(err, path, nil, "check that the scene exists at this path and can be read")
+		openErr := loaderr.Locate(err, path, nil, "check that the scene exists at this path and can be read")
+		e.recordSceneOpenError(path, openErr)
+		return openErr
 	}
 	doc, err := sceneformat.ParseWith(data, sceneformat.ParseOptions{
 		File:          path,
@@ -1717,17 +1755,22 @@ func (e *Editor) openFileWithLayers(path string, layers *sceneformat.PhysicsLaye
 		PhysicsLayers: layers,
 	})
 	if err != nil {
-		return loaderr.WithFile(err, path)
+		openErr := loaderr.WithFile(err, path)
+		e.recordSceneOpenError(path, openErr)
+		return openErr
 	}
 	saved, err := sceneformat.Encode(doc)
 	if err != nil {
-		return loaderr.WithFile(err, path)
+		openErr := loaderr.WithFile(err, path)
+		e.recordSceneOpenError(path, openErr)
+		return openErr
 	}
 	if e.playing {
 		if err := e.Stop(); err != nil {
 			return err
 		}
 	}
+	e.sceneOpenErr = nil
 	e.activateNewTab(doc, saved, path)
 	e.recordSceneDiskSnapshot(path, data)
 	e.syncActiveTab()

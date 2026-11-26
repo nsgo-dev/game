@@ -545,6 +545,7 @@ func TestRigPanelUIWorkflow(t *testing.T) {
 	}, nsgotest.Size(1280, 820))
 
 	// Select runner.skel.yaml in FilesView and press Open Rig.
+	openFileBrowserInUI(app, ed)
 	app.Press("id:files-row-rigs/runner.skel.yaml")
 	app.Press("id:files-open-rig")
 	if !ed.RigOpen() {

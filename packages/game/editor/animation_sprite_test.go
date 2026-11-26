@@ -73,7 +73,7 @@ func TestFourFrameClipKeyedInEditorPlaysAsFlipbookAndRoundTrips(t *testing.T) {
 	ed, atlas := spriteFlipbookEditor(t)
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node { return editor.EditorView(cx, ed) }, nsgotest.Size(1280, 900))
 
-	app.Press("id:toolbar-animate")
+	runEditorCommand(t, app, ed, editor.CmdAnimate)
 	app.Post(func() {
 		if err := ed.SetClipName("Hero Walk"); err != nil {
 			t.Errorf("SetClipName: %v", err)
@@ -205,7 +205,7 @@ func TestFourFrameClipKeyedInEditorPlaysAsFlipbookAndRoundTrips(t *testing.T) {
 func TestNewClipFromAsepriteTagMatchesTagFramesAndDurations(t *testing.T) {
 	ed, atlas := spriteFlipbookEditor(t)
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node { return editor.EditorView(cx, ed) }, nsgotest.Size(1280, 900))
-	app.Press("id:toolbar-animate")
+	runEditorCommand(t, app, ed, editor.CmdAnimate)
 
 	if !app.Exists("id:anim-aseprite-tag") || !app.Exists("id:anim-from-tag") {
 		t.Fatal("Aseprite tag controls did not appear for an atlas with tags")
@@ -244,7 +244,7 @@ func TestNewClipFromAsepriteTagMatchesTagFramesAndDurations(t *testing.T) {
 	}
 
 	// Undo/Redo restores previous clip state.
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	if dur, _ := ed.FrameDuration(0, 1); dur != 110*time.Millisecond {
 		t.Fatalf("after undo -10ms: frame 1 duration = %v, want 110ms", dur)
 	}

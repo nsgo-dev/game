@@ -84,25 +84,25 @@ func TestKeyboardShortcutsUndoRedoSaveDeleteAndTextFieldGuard(t *testing.T) {
 			})
 			appBtn.Settle()
 
-			// Save via shortcut vs toolbar-save button.
+			// Save via shortcut vs File menu Save.
 			appKey.Key(plat.mod + "+s")
-			appBtn.Press("id:toolbar-save")
+			saveInUI(appBtn, edBtn)
 			if len(keySaves) != 1 || len(btnSaves) != 1 || !bytes.Equal(keySaves[0], btnSaves[0]) {
 				t.Fatalf("Save shortcut bytes != button bytes (key=%d, btn=%d)", len(keySaves), len(btnSaves))
 			}
 
-			// Undo via shortcut vs toolbar-undo button.
+			// Undo via shortcut vs CmdUndo command.
 			appKey.Key(plat.mod + "+z")
-			appBtn.Press("id:toolbar-undo")
+			runEditorCommand(t, appBtn, edBtn, editor.CmdUndo)
 			heroKey, _, _ := edKey.FindObject("hero")
 			heroBtn, _, _ := edBtn.FindObject("hero")
 			if heroKey.X != 40 || heroKey.Y != 40 || heroKey.X != heroBtn.X || heroKey.Y != heroBtn.Y {
 				t.Fatalf("after Undo: key=(%v,%v), btn=(%v,%v), want (40,40)", heroKey.X, heroKey.Y, heroBtn.X, heroBtn.Y)
 			}
 
-			// Redo via shortcut vs toolbar-redo button.
+			// Redo via shortcut vs CmdRedo command.
 			appKey.Key(plat.mod + "+shift+z")
-			appBtn.Press("id:toolbar-redo")
+			runEditorCommand(t, appBtn, edBtn, editor.CmdRedo)
 			heroKey, _, _ = edKey.FindObject("hero")
 			heroBtn, _, _ = edBtn.FindObject("hero")
 			if heroKey.X != 120 || heroKey.Y != 88 || heroKey.X != heroBtn.X || heroKey.Y != heroBtn.Y {
@@ -370,12 +370,12 @@ func TestDesktopMenuBarMatchesRegistryAndExecutesActions(t *testing.T) {
 		{[]string{"Edit", "Delete"}, "delete"},
 		{[]string{"View", "Command Palette..."}, "mod+k"},
 		{[]string{"View", "Frame Selection"}, "f"},
-		{[]string{"View", "Tools", "Move"}, "m"},
+		{[]string{"View", "Tools", "Move"}, "w"},
 		{[]string{"View", "3D Gizmo", "Translate"}, "w"},
 		{[]string{"View", "3D Gizmo", "Rotate"}, "e"},
 		{[]string{"View", "3D Gizmo", "Scale"}, "r"},
 		{[]string{"View", "3D Gizmo", "3D Gizmo: Local / Global Space"}, "t"},
-		{[]string{"Project", "Play"}, "f5"},
+		{[]string{"Project", "Play"}, "mod+p"},
 		{[]string{"Project", "Run Game"}, "mod+r"},
 		{[]string{"Project", "Plugins", "Ping Plugin"}, "mod+shift+p"},
 	}

@@ -90,7 +90,7 @@ func TestTilesetEditorSolidTileCollidesInGameWithMoveAndSlide(t *testing.T) {
 	}, nsgotest.Size(1280, 760), nsgotest.Environment(core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop}))
 
 	// Open Tileset Editor from the Tile Palette, switch to Collision tab, mark tile 0 solid, and save.
-	app.Press("id:tool-paint")
+	runEditorCommand(t, app, ed, editor.CmdToolPaintTile)
 	app.Press("id:tile-palette-edit-tileset")
 	app.Press("id:tileset-tab-collision")
 	app.Press("id:tileset-tile-0")
@@ -202,7 +202,7 @@ func TestTilesetEditorAnimatedTileAnimatesInViewportAndGame(t *testing.T) {
 		return editor.EditorView(cx, ed)
 	}, nsgotest.Size(1280, 760), nsgotest.Environment(core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop}))
 
-	app.Press("id:tool-paint")
+	runEditorCommand(t, app, ed, editor.CmdToolPaintTile)
 	app.Press("id:tile-palette-edit-tileset")
 	app.Press("id:tileset-tab-animation")
 	app.Press("id:tileset-tile-0")
@@ -314,7 +314,7 @@ func TestTilesetEditorCollisionShapesCustomDataAndUndo(t *testing.T) {
 	}, nsgotest.Size(1280, 760), nsgotest.Environment(core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop}))
 
 	// Switching to Paint tool shows the right-side Tile Inspector (matching Tiles.dc.html).
-	app.Press("id:tool-paint")
+	runEditorCommand(t, app, ed, editor.CmdToolPaintTile)
 	if !app.Exists("id:inspector-tile") {
 		t.Fatal("expected right-side Tile Inspector when Paint tool is active on a YAML tileset layer")
 	}
@@ -331,7 +331,7 @@ func TestTilesetEditorCollisionShapesCustomDataAndUndo(t *testing.T) {
 	if !info0.OneWay || info0.Solid {
 		t.Fatalf("tile 0 after inspector one-way = %+v", info0)
 	}
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	info0, _ = ed.TilesetTileInfo(0)
 	if info0.OneWay || info0.Solid {
 		t.Fatalf("tile 0 after undo = %+v, want neither solid nor one-way", info0)
@@ -364,7 +364,7 @@ func TestTilesetEditorCollisionShapesCustomDataAndUndo(t *testing.T) {
 	if len(info0.Shapes) != 1 {
 		t.Fatalf("shapes after remove = %d, want 1", len(info0.Shapes))
 	}
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	info0, _ = ed.TilesetTileInfo(0)
 	if len(info0.Shapes) != 2 {
 		t.Fatalf("shapes after undo = %d, want 2", len(info0.Shapes))
@@ -407,7 +407,7 @@ func TestTilesetEditorCollisionShapesCustomDataAndUndo(t *testing.T) {
 	if _, exists := info0.Properties["damage"]; exists {
 		t.Fatal("damage property was not deleted")
 	}
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	info0, _ = ed.TilesetTileInfo(0)
 	if info0.Properties["damage"] != 2 {
 		t.Fatalf("damage property after undo = %v, want 2", info0.Properties["damage"])

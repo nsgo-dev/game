@@ -439,6 +439,7 @@ func TestFileBrowserMovesAFile(t *testing.T) {
 	})
 	app.Settle()
 
+	openFileBrowserInUI(app, ed)
 	if app.Enabled("id:files-move") {
 		t.Fatal("Move is enabled with nothing selected")
 	}
@@ -458,7 +459,7 @@ func TestFileBrowserMovesAFile(t *testing.T) {
 		t.Fatal("the file list does not show the new name")
 	}
 
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	app.Settle()
 	if data, err := os.ReadFile(other); err != nil || !strings.Contains(string(data), "material: materials/stone.material.yaml") {
 		t.Fatalf("other.scene.yaml after undo (%v):\n%s", err, data)

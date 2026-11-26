@@ -247,7 +247,7 @@ func TestTerrainEraseFixesNeighborsAndOneUndoRestoresStroke(t *testing.T) {
 		return editor.EditorView(cx, ed)
 	}, nsgotest.Size(1280, 680))
 
-	app.Press("id:tool-terrain")
+	runEditorCommand(t, app, ed, editor.CmdToolTerrain)
 	if ed.Tool != editor.ToolTerrain {
 		t.Fatalf("Tool = %v, want ToolTerrain", ed.Tool)
 	}
@@ -302,12 +302,12 @@ func TestTerrainEraseFixesNeighborsAndOneUndoRestoresStroke(t *testing.T) {
 	}
 
 	// ONE Undo restores BOTH the erased cells AND every neighbor's previous tile ID.
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	if got := readEditorCells(t, ed); !slices.Equal(got, beforeErase) {
 		t.Fatalf("after one Undo cells =\n%v\nwant exact pre-erase blob =\n%v", got, beforeErase)
 	}
 	// Redo re-applies the erase and neighbor updates.
-	app.Press("id:toolbar-redo")
+	redoInUI(app, ed)
 	if got := readEditorCells(t, ed); !slices.Equal(got, wantAfterErase) {
 		t.Fatalf("after Redo cells =\n%v\nwant post-erase =\n%v", got, wantAfterErase)
 	}
@@ -492,7 +492,7 @@ func TestTilesetEditorAssignsEdgesAndCornersAndSaves(t *testing.T) {
 	if got := ed.TilesetDoc().Terrain("moss", 1).Autotile.Tile(tilemap.MaskEast); got != 4 {
 		t.Fatalf("after reassign, mask E -> GID %d, want 4 (tile 3)", got)
 	}
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	if got := ed.TilesetDoc().Terrain("moss", 1).Autotile.Tile(tilemap.MaskEast); got != 2 {
 		t.Fatalf("after undo of reassign, mask E -> GID %d, want 2 (tile 1)", got)
 	}

@@ -110,6 +110,9 @@ func (e *Editor) ApplicationMenu() []desktop.MenuItem {
 	toolItems := []desktop.MenuItem{
 		cmdItem(CmdToolSelect, e.T("menu.select"), true),
 		cmdItem(CmdToolMove, e.T("menu.move"), true),
+		cmdItem(CmdToolRotate, e.T("menu.rotate"), true),
+		cmdItem(CmdToolScale, e.T("menu.scale"), true),
+		cmdItem(CmdToolPan, e.T("menu.pan"), true),
 		cmdItem(CmdToolPlace, e.T("menu.place"), true),
 		cmdItem(CmdToolPaintTile, e.T("menu.paintTile"), true),
 		cmdItem(CmdToolEraseTile, e.T("menu.eraseTile"), true),
@@ -265,6 +268,7 @@ func (e *Editor) ApplicationMenu() []desktop.MenuItem {
 		cmdItem(CmdProfiler, e.T("menu.profiler"), false),
 		cmdItem(CmdParticleEditor, e.T("menu.particleEditor"), false),
 		cmdItem(CmdMaterialEditor, e.T("menu.materialEditor"), false),
+		cmdItem(CmdTerrainEditor, "3D Terrain Editor", false),
 		cmdItem(CmdBuildRelease, e.T("menu.buildRelease"), false),
 		sep,
 		cmdItem(CmdFindUsages, e.T("menu.findUsages"), false),

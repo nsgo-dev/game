@@ -145,7 +145,8 @@ func TestViewport3DDrawsTheSceneOnTheGPUView(t *testing.T) {
 		t.Fatal("the mounted canvas does not draw the overlay DrawViewport draws")
 	}
 
-	app.Press("id:shading-unlit")
+	app.Post(func() { ed.SetShading3D(editor.Shading3DUnlit) })
+	app.Settle()
 	app.Advance(20 * time.Millisecond)
 	if ed.Shading3D != editor.Shading3DUnlit {
 		t.Fatalf("shading %v after pressing Unlit", ed.Shading3D)

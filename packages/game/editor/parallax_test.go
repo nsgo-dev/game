@@ -191,7 +191,7 @@ func TestLayerInspectorEditsParallaxAndRepeatUndoably(t *testing.T) {
 
 	// Undo all 3 edits (repeatY toggle, SetLayerRepeat, SetLayerParallax) and verify byte-for-byte restoration of the v2 YAML!
 	for range 3 {
-		app.Press("id:toolbar-undo")
+		undoInUI(app, ed)
 	}
 	if ed.Doc.Version != 2 {
 		t.Fatalf("Doc.Version after Undo = %d, want 2", ed.Doc.Version)
@@ -206,7 +206,7 @@ func TestLayerInspectorEditsParallaxAndRepeatUndoably(t *testing.T) {
 
 	// Redo brings parallax and version 3 back cleanly.
 	for range 3 {
-		app.Press("id:toolbar-redo")
+		redoInUI(app, ed)
 	}
 	if ed.Doc.Version != sceneformat.CurrentVersion || ed.Doc.Layers[0].EffectiveParallaxX() != 0.5 || !ed.Doc.Layers[0].RepeatY {
 		t.Fatalf("after Redo: version=%d layer=%+v", ed.Doc.Version, ed.Doc.Layers[0])

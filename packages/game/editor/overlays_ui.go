@@ -204,37 +204,58 @@ func viewportOverlaysBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 								OnPress: func() { zoomBy(1.25) },
 							},
 							barDivider(),
-							ui.Button{
+							base.Switch{
 								TestID: "viewport-bar-snap",
-								TextFunc: func() string {
+								Label:  ed.T("overlays.snapLabel"),
+								Checked: func() bool {
 									_ = rev.Get()
-									return ed.T("overlays.snap")
+									return ed.SnapToGrid
 								},
-								LabelFunc: func() string {
-									_ = rev.Get()
-									return ed.T("overlays.snapLabel")
+								OnChange: func(on bool) {
+									ed.SetSnapToGrid(on)
 								},
-								Size:    ui.SizeSmall,
-								Variant: ui.ButtonGhost,
-								Color: func() core.Color {
+								StyleFunc: func() core.Style {
 									_ = rev.Get()
+									cur := ed.SpecPalette(cx)
+									bg := core.Transparent
 									if ed.SnapToGrid {
-										return p.LineRaised
+										bg = cur.LineRaised
 									}
-									return core.Transparent
+									return core.Style{
+										Direction:      core.Row,
+										AlignItems:     core.AlignCenter,
+										JustifyContent: core.JustifyCenter,
+										Height:         core.Pt(specRowHeight),
+										MinHeight:      core.Pt(specRowHeight),
+										MinWidth:       core.Pt(specRowHeight),
+										Padding:        core.Symmetric(0, specSpace8),
+										CornerRadius:   specRadiusControl,
+										Background:     bg,
+										Cursor:         core.CursorPointer,
+										Hover:          &core.Style{Background: cur.LineRaised},
+										FocusVisible:   cur.FocusRing(2),
+									}
 								},
-								TextStyle: core.Style{
-									FontSize:   12,
-									FontWeight: 500,
-									Color:      p.TextSecondary,
-								},
-								Style: core.Style{
-									Height:       core.Pt(28),
-									Padding:      core.Symmetric(0, 8),
-									CornerRadius: 6,
-								},
-								OnPress: func() {
-									ed.SetSnapToGrid(!ed.SnapToGrid)
+								Children: []core.Node{
+									core.Text{
+										ContentFunc: func() string {
+											_ = rev.Get()
+											return ed.T("overlays.snap")
+										},
+										StyleFunc: func() core.Style {
+											_ = rev.Get()
+											cur := ed.SpecPalette(cx)
+											col := cur.TextFaint
+											if ed.SnapToGrid {
+												col = cur.TextPrimary
+											}
+											return core.Style{
+												FontSize:   12,
+												FontWeight: core.FontWeightMedium,
+												Color:      col,
+											}
+										},
+									},
 								},
 							},
 							ui.Button{
@@ -255,7 +276,9 @@ func viewportOverlaysBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 									Color:      p.TextMuted,
 								},
 								Style: core.Style{
-									Height:       core.Pt(28),
+									Height:       core.Pt(specRowHeight),
+									MinHeight:    core.Pt(specRowHeight),
+									MinWidth:     core.Pt(specRowHeight),
 									Padding:      core.Symmetric(0, 8),
 									CornerRadius: 6,
 								},

@@ -35,6 +35,9 @@ const (
 	CmdUngroup                = "edit.ungroup"
 	CmdToolSelect             = "tool.select"
 	CmdToolMove               = "tool.move"
+	CmdToolRotate             = "tool.rotate"
+	CmdToolScale              = "tool.scale"
+	CmdToolPan                = "tool.pan"
 	CmdToolPlace              = "tool.place"
 	CmdToolPaintTile          = "tool.paint"
 	CmdToolEraseTile          = "tool.erase"
@@ -82,6 +85,7 @@ const (
 	CmdRunGame                = "project.run"
 	CmdProjectSettings        = "project.settings"
 	CmdAudioMixer             = "project.mixer"
+	CmdInputMap               = "project.inputMap"
 	CmdLocalization           = "project.l10n"
 	CmdParticleEditor         = "project.particles"
 	CmdHUDLayout              = "project.hud"
@@ -89,6 +93,19 @@ const (
 	CmdExport                 = "project.export"
 	CmdBuildRelease           = "project.buildRelease"
 	CmdProfiler               = "project.profiler"
+	CmdOutputPanel            = "view.output"
+	CmdProblemsPanel          = "view.problems"
+	CmdSearchPanel            = "view.search"
+	CmdDataTable              = "project.dataTable"
+	CmdLibraryPanel           = "view.library"
+	CmdAnimate                = "project.animate"
+	CmdBuildAssets            = "project.buildAssets"
+	CmdStopGame               = "project.stopGame"
+	CmdRunOpenScene           = "project.runOpenScene"
+	CmdLayersPanel            = "view.layers"
+	CmdFileBrowser            = "view.fileBrowser"
+	CmdAssetBrowser           = "view.assetBrowser"
+	CmdTerrainEditor          = "project.terrain"
 	CmdCheckProblems          = "project.check"
 	CmdFindUsages             = "project.findUsages"
 	CmdEditorSettings         = "editor.settings"
@@ -701,17 +718,63 @@ func (e *Editor) initBuiltinCommands() {
 			},
 		},
 		{
-			ID:          CmdToolMove,
-			Label:       "Tool: Move",
-			Description: "Switch to the Move viewport tool",
-			Category:    "Tools",
-			Keywords:    []string{"move", "translate", "drag", "2d"},
-			Scope:       ScopeViewport,
-			Shortcut:    "m",
-			Enabled:     notPlaying,
-			Checked:     func() bool { return e.ViewMode == ViewMode2D && e.Tool == ToolMove },
+			ID:                 CmdToolMove,
+			Label:              "Tool: Move",
+			Description:        "Switch to the Move viewport tool",
+			Category:           "Tools",
+			Keywords:           []string{"move", "translate", "drag", "2d", "3d"},
+			Scope:              ScopeViewport,
+			Shortcut:           "w",
+			AlternateShortcuts: []string{"m"},
+			Enabled:            notPlaying,
+			Checked:            func() bool { return e.Tool == ToolMove },
 			Run: func() error {
 				e.SetTool(ToolMove)
+				return nil
+			},
+		},
+		{
+			ID:          CmdToolRotate,
+			Label:       "Tool: Rotate",
+			Description: "Switch to the Rotate viewport tool",
+			Category:    "Tools",
+			Keywords:    []string{"rotate", "turn", "angle", "2d", "3d"},
+			Scope:       ScopeViewport,
+			Shortcut:    "e",
+			Enabled:     notPlaying,
+			Checked:     func() bool { return e.Tool == ToolRotate },
+			Run: func() error {
+				e.SetTool(ToolRotate)
+				return nil
+			},
+		},
+		{
+			ID:          CmdToolScale,
+			Label:       "Tool: Scale",
+			Description: "Switch to the Scale viewport tool",
+			Category:    "Tools",
+			Keywords:    []string{"scale", "resize", "size", "2d", "3d"},
+			Scope:       ScopeViewport,
+			Shortcut:    "r",
+			Enabled:     notPlaying,
+			Checked:     func() bool { return e.Tool == ToolScale },
+			Run: func() error {
+				e.SetTool(ToolScale)
+				return nil
+			},
+		},
+		{
+			ID:          CmdToolPan,
+			Label:       "Tool: Pan",
+			Description: "Switch to the Pan viewport camera tool (or hold Space)",
+			Category:    "Tools",
+			Keywords:    []string{"pan", "hand", "camera", "drag", "2d", "3d"},
+			Scope:       ScopeViewport,
+			Shortcut:    "space",
+			Enabled:     notPlaying,
+			Checked:     func() bool { return e.Tool == ToolPan },
+			Run: func() error {
+				e.SetTool(ToolPan)
 				return nil
 			},
 		},
@@ -1460,15 +1523,16 @@ func (e *Editor) initBuiltinCommands() {
 			},
 		},
 		{
-			ID:          CmdPlayStop,
-			Label:       "Play / Stop",
-			Description: "Toggle play-in-editor simulation",
-			Category:    "Project",
-			Keywords:    []string{"play", "stop", "preview", "simulate"},
-			Scope:       ScopePlay,
-			Shortcut:    "f5",
-			Enabled:     inEditor,
-			Run:         func() error { return e.TogglePlay() },
+			ID:                 CmdPlayStop,
+			Label:              "Play / Stop",
+			Description:        "Toggle play-in-editor simulation",
+			Category:           "Project",
+			Keywords:           []string{"play", "stop", "preview", "simulate"},
+			Scope:              ScopePlay,
+			Shortcut:           "mod+p",
+			AlternateShortcuts: []string{"f5"},
+			Enabled:            inEditor,
+			Run:                func() error { return e.TogglePlay() },
 		},
 		{
 			ID:          CmdPlayMark,
@@ -1531,6 +1595,200 @@ func (e *Editor) initBuiltinCommands() {
 			Run: func() error {
 				e.SetAudioMixerOpen(!e.AudioMixerOpen())
 				return nil
+			},
+		},
+		{
+			ID:          CmdInputMap,
+			Label:       "Input Map",
+			Description: "Toggle the Input Map settings page",
+			Category:    "Project",
+			Keywords:    []string{"input", "controls", "keys", "gamepad", "bindings", "actions", "panel"},
+			Scope:       ScopeGlobal,
+			Enabled:     hasProject,
+			Checked:     func() bool { return e.InputMapOpen() },
+			Run: func() error {
+				e.SetInputMapOpen(!e.InputMapOpen())
+				return nil
+			},
+		},
+		{
+			ID:          CmdOutputPanel,
+			Label:       "Output",
+			Description: "Toggle the Output log panel",
+			Category:    "View",
+			Keywords:    []string{"output", "log", "logs", "console", "panel"},
+			Scope:       ScopeGlobal,
+			Checked:     func() bool { return e.OutputPanelOpen() },
+			Run: func() error {
+				e.SetOutputPanelOpen(!e.OutputPanelOpen())
+				return nil
+			},
+		},
+		{
+			ID:          CmdProblemsPanel,
+			Label:       "Problems",
+			Description: "Toggle the Problems panel",
+			Category:    "View",
+			Keywords:    []string{"problems", "errors", "warnings", "diagnostics", "panel"},
+			Scope:       ScopeGlobal,
+			Enabled:     hasProject,
+			Checked:     func() bool { return e.ProblemAgentPanelOpen() },
+			Run: func() error {
+				e.SetProblemAgentPanelOpen(!e.ProblemAgentPanelOpen())
+				return nil
+			},
+		},
+		{
+			ID:          CmdSearchPanel,
+			Label:       "Project Search & References",
+			Description: "Toggle the Project Search and References panel",
+			Category:    "View",
+			Keywords:    []string{"search", "find", "references", "grep", "project", "panel"},
+			Scope:       ScopeGlobal,
+			Shortcut:    "mod+shift+f",
+			Enabled:     hasProject,
+			Checked:     func() bool { return e.SearchOpen() },
+			Run: func() error {
+				e.SetSearchOpen(!e.SearchOpen())
+				return nil
+			},
+		},
+		{
+			ID:          CmdDataTable,
+			Label:       "Data Table",
+			Description: "Open or toggle the Data Table editor panel",
+			Category:    "Project",
+			Keywords:    []string{"data", "table", "yaml", "spreadsheet", "rows", "panel"},
+			Scope:       ScopeGlobal,
+			Enabled:     notPlaying,
+			Checked:     func() bool { return e.DataTable() != nil },
+			Run: func() error {
+				if e.DataTable() != nil {
+					return e.CloseDataTable()
+				}
+				return e.OpenDataTableYAML("data/table.yaml", []byte("version: 1\nrows: []\n"))
+			},
+		},
+		{
+			ID:          CmdLibraryPanel,
+			Label:       "Library",
+			Description: "Toggle the Asset Pack Library panel",
+			Category:    "View",
+			Keywords:    []string{"library", "packs", "assets", "store", "panel"},
+			Scope:       ScopeGlobal,
+			Enabled:     func() bool { return e.Library != nil },
+			Checked:     func() bool { return e.LibraryPanelOpen() },
+			Run: func() error {
+				e.SetLibraryPanelOpen(!e.LibraryPanelOpen())
+				return nil
+			},
+		},
+		{
+			ID:          CmdAnimate,
+			Label:       "Animate",
+			Description: "Create or open an animation clip for the selected object",
+			Category:    "Project",
+			Keywords:    []string{"animate", "animation", "clip", "timeline", "keyframes"},
+			Scope:       ScopeGlobal,
+			Enabled:     func() bool { return notPlaying() && e.SelectedID != "" && e.clip == nil },
+			Run: func() error {
+				return e.NewClip("", "New clip", time.Second)
+			},
+		},
+		{
+			ID:          CmdBuildAssets,
+			Label:       "Build Assets",
+			Description: "Run go tool game assets for the open project and reload changed atlases",
+			Category:    "Project",
+			Keywords:    []string{"build", "assets", "atlas", "textures", "sprites"},
+			Scope:       ScopeGlobal,
+			Enabled:     func() bool { return hasProject() && notPlaying() && !e.AssetsBuilding() },
+			Run:         func() error { return e.BuildAssets() },
+		},
+		{
+			ID:          CmdStopGame,
+			Label:       "Stop Game",
+			Description: "Stop the running game process",
+			Category:    "Project",
+			Keywords:    []string{"stop", "kill", "game", "run"},
+			Scope:       ScopePlay,
+			Enabled:     func() bool { return e.GameRunning() },
+			Run:         func() error { return e.StopGame() },
+		},
+		{
+			ID:          CmdRunOpenScene,
+			Label:       "Run From Open Scene",
+			Description: "Toggle launching the game directly at the currently open scene",
+			Category:    "Project",
+			Keywords:    []string{"run", "current", "scene", "open"},
+			Scope:       ScopePlay,
+			Enabled:     func() bool { return hasProject() && !e.GameRunning() },
+			Checked:     func() bool { return e.RunStartAtOpenScene() },
+			Run: func() error {
+				e.SetRunStartAtOpenScene(!e.RunStartAtOpenScene())
+				return nil
+			},
+		},
+		{
+			ID:          CmdLayersPanel,
+			Label:       "Layers Panel",
+			Description: "Toggle the Layers panel for managing scene layers",
+			Category:    "View",
+			Keywords:    []string{"layers", "parallax", "order", "panel"},
+			Scope:       ScopeGlobal,
+			Enabled:     inEditor,
+			Checked:     func() bool { return e.LayersPanelOpen() },
+			Run: func() error {
+				e.SetLayersPanelOpen(!e.LayersPanelOpen())
+				return nil
+			},
+		},
+		{
+			ID:          CmdFileBrowser,
+			Label:       "Project Files Browser",
+			Description: "Toggle the full Project Files browser panel",
+			Category:    "View",
+			Keywords:    []string{"files", "browser", "project", "move", "rename", "panel"},
+			Scope:       ScopeGlobal,
+			Enabled:     hasProject,
+			Checked:     func() bool { return e.FileBrowserOpen() },
+			Run: func() error {
+				e.SetFileBrowserOpen(!e.FileBrowserOpen())
+				return nil
+			},
+		},
+		{
+			ID:          CmdAssetBrowser,
+			Label:       "Asset Browser",
+			Description: "Toggle the Asset Browser panel",
+			Category:    "View",
+			Keywords:    []string{"assets", "sprites", "prefabs", "browser", "panel"},
+			Scope:       ScopeGlobal,
+			Enabled:     inEditor,
+			Checked:     func() bool { return e.AssetBrowserOpen() },
+			Run: func() error {
+				e.SetAssetBrowserOpen(!e.AssetBrowserOpen())
+				return nil
+			},
+		},
+		{
+			ID:          CmdTerrainEditor,
+			Label:       "3D Terrain Editor",
+			Description: "Toggle the 3D terrain sculpting and painting panel",
+			Category:    "Project",
+			Keywords:    []string{"terrain", "heightmap", "sculpt", "foliage", "3d", "panel"},
+			Scope:       ScopeViewport3D,
+			Enabled:     notPlaying,
+			Checked:     func() bool { return e.TerrainOpen() },
+			Run: func() error {
+				if e.TerrainOpen() {
+					e.CloseTerrain()
+					return nil
+				}
+				if e.ViewMode != ViewMode3D {
+					e.SetViewMode(ViewMode3D)
+				}
+				return e.NewTerrain(NewTerrainOptions{})
 			},
 		},
 		{
@@ -2820,8 +3078,14 @@ func (e *Editor) bindShortcuts(cx *core.Scope, rev *core.Signal[uint64]) {
 				}
 				seen[sc] = struct{}{}
 				key := sc
+				// Space is held in the viewport to pan (viewport.go spaceHeld) and activates
+				// focused buttons, switches, checkboxes, and radios across the UI; never bind
+				// a root-scope OnKey("space") that consumes Space before focused controls see it.
+				if key == "space" {
+					continue
+				}
 				cx.OnKeyWith(key, core.KeyOptions{When: core.KeyNotEditing}, func() {
-					if e.shortcutCaptureActive {
+					if e.shortcutCaptureActive || e.CapturingKey() {
 						return
 					}
 					active, ok := e.resolveShortcutCommand(key)

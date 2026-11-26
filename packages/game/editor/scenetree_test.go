@@ -99,7 +99,7 @@ func TestSceneTreeDragMakesAChildAndUndoRestoresIt(t *testing.T) {
 		t.Fatal("the drop target did not open to show its new child")
 	}
 
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	if after := mustSave(t, ed); !bytes.Equal(after, before) {
 		t.Fatalf("Undo did not restore the scene:\n%s\nwant:\n%s", after, before)
 	}
@@ -178,7 +178,7 @@ func TestSceneTreeContextMenuTogglesAndReveal(t *testing.T) {
 		t.Fatalf("box after Move to Layer ui is on layer %d", li)
 	}
 	for ed.History.CanUndo() {
-		app.Press("id:toolbar-undo")
+		undoInUI(app, ed)
 	}
 	if after := mustSave(t, ed); !bytes.Equal(after, saved) {
 		t.Fatalf("undoing the menu's edits did not restore the scene:\n%s\nwant:\n%s", after, saved)

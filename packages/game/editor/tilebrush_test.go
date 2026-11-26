@@ -440,7 +440,7 @@ func TestTileBrushesMountedUIEscapeCancelAndClipboard(t *testing.T) {
 	}
 
 	// 2. Rect drag cancelled with Escape before MouseUp leaves map & history untouched.
-	app.Press("id:tool-rect")
+	runEditorCommand(t, app, ed, editor.CmdToolRectTile)
 	app.Press("id:tile-palette-4")
 	before := slices.Clone(gridData(ed))
 	app.MouseDownAt("id:editor-viewport-frame", canvasAt(ed, 8, 8), core.MouseButtonLeft)
@@ -467,7 +467,7 @@ func TestTileBrushesMountedUIEscapeCancelAndClipboard(t *testing.T) {
 	}
 
 	// 4. Stamp tool: right-drag selects a 2x2 region on the map, Cmd+C copies, hover at (3,3) and Cmd+V pastes!
-	app.Press("id:tool-stamp")
+	runEditorCommand(t, app, ed, editor.CmdToolStampTile)
 	if !app.Exists("id:tile-stamp-controls") {
 		t.Fatal("stamp controls missing when ToolStampTile is active")
 	}
@@ -499,7 +499,7 @@ func TestTileBrushesMountedUIEscapeCancelAndClipboard(t *testing.T) {
 	}
 
 	// 5. Random tool UI: toggle tiles 1 and 2, adjust weight, set seed via text field.
-	app.Press("id:tool-random")
+	runEditorCommand(t, app, ed, editor.CmdToolRandomTile)
 	if !app.Exists("id:tile-random-controls") {
 		t.Fatal("random controls missing when ToolRandomTile is active")
 	}

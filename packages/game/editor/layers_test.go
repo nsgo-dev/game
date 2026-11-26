@@ -29,6 +29,7 @@ func TestLayersPanelAddsALayerThatTakesPlacedObjects(t *testing.T) {
 		t.Fatalf("editor.New: %v", err)
 	}
 	app := startEditorView(t, ed)
+	openLayersPanelInUI(app, ed)
 
 	app.Press("id:layers-add")
 	if got := layerNames(ed); !slices.Equal(got, []string{"main", "layer_2"}) {
@@ -49,18 +50,18 @@ func TestLayersPanelAddsALayerThatTakesPlacedObjects(t *testing.T) {
 	if ed.ActiveLayer != "main" {
 		t.Fatalf("pressing main made %q active", ed.ActiveLayer)
 	}
-	if got := app.Find("id:editor-status-mode").Text; !strings.Contains(got, "Layer: main") {
-		t.Fatalf("the status bar reads %q, want Layer: main", got)
+	if got := allText(app.Find("id:status-active-layer")); !strings.Contains(got, "Layer main") {
+		t.Fatalf("the status bar reads %q, want Layer main", got)
 	}
 	app.Press("id:layers-row-actors")
 	if ed.ActiveLayer != "actors" {
 		t.Fatalf("pressing actors made %q active", ed.ActiveLayer)
 	}
-	if got := app.Find("id:editor-status-mode").Text; !strings.Contains(got, "Layer: actors") {
-		t.Fatalf("the status bar reads %q, want Layer: actors", got)
+	if got := allText(app.Find("id:status-active-layer")); !strings.Contains(got, "Layer actors") {
+		t.Fatalf("the status bar reads %q, want Layer actors", got)
 	}
 
-	app.Press("id:tool-place")
+	runEditorCommand(t, app, ed, editor.CmdToolPlace)
 	px, py := ed.WorldToCanvas(100, 60)
 	app.Touch("id:editor-viewport", core.Point{X: core.Points(px), Y: core.Points(py)}).Lift()
 	if ed.SelectedID == "" {
@@ -103,6 +104,7 @@ func TestLayersPanelHideShowAndRemoveRoundTrip(t *testing.T) {
 	ed.History.Clear()
 	opened := mustSave(t, ed)
 	app := startEditorView(t, ed)
+	openLayersPanelInUI(app, ed)
 
 	app.Press("id:layers-eye-actors")
 	if info := layerInfoOf(t, ed, "actors"); info.Visible {
@@ -111,7 +113,7 @@ func TestLayersPanelHideShowAndRemoveRoundTrip(t *testing.T) {
 	if hidden := mustSave(t, ed); !bytes.Contains(hidden, []byte("visible: false")) {
 		t.Fatalf("hiding the layer did not write visible: false:\n%s", hidden)
 	}
-	if got := app.Find("id:editor-status-mode").Text; !strings.Contains(got, "Layer: actors (hidden)") {
+	if got := allText(app.Find("id:status-active-layer")); !strings.Contains(got, "Layer actors (hidden)") {
 		t.Fatalf("the status bar reads %q, want the active layer marked hidden", got)
 	}
 	app.Press("id:layers-eye-actors")
@@ -135,19 +137,19 @@ func TestLayersPanelHideShowAndRemoveRoundTrip(t *testing.T) {
 	}
 	removed := mustSave(t, ed)
 
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	if after := mustSave(t, ed); !bytes.Equal(after, opened) {
 		t.Fatalf("Undo did not restore the removed layer:\n%s\nwant:\n%s", after, opened)
 	}
 	if ed.ActiveLayer != "actors" {
 		t.Fatalf("Undo left %q active, want actors", ed.ActiveLayer)
 	}
-	app.Press("id:toolbar-redo")
+	redoInUI(app, ed)
 	if after := mustSave(t, ed); !bytes.Equal(after, removed) {
 		t.Fatalf("Redo did not remove the layer again:\n%s\nwant:\n%s", after, removed)
 	}
 	for ed.History.CanUndo() {
-		app.Press("id:toolbar-undo")
+		undoInUI(app, ed)
 	}
 	if after := mustSave(t, ed); !bytes.Equal(after, opened) {
 		t.Fatalf("undoing every edit did not restore the scene:\n%s\nwant:\n%s", after, opened)
@@ -170,6 +172,7 @@ func TestLayersPanelDragReordersAndMenuSetsSpace(t *testing.T) {
 	ed := newNestedEditor(t)
 	opened := mustSave(t, ed)
 	app := startEditorView(t, ed)
+	openLayersPanelInUI(app, ed)
 
 	drag(app, "id:layers-name-ui", "id:layers-row-floor", 0.1)
 	if got := layerNames(ed); !slices.Equal(got, []string{"ui", "floor", "actors"}) {
@@ -188,7 +191,7 @@ func TestLayersPanelDragReordersAndMenuSetsSpace(t *testing.T) {
 		t.Fatalf("floor's row reads %q", got)
 	}
 	for ed.History.CanUndo() {
-		app.Press("id:toolbar-undo")
+		undoInUI(app, ed)
 	}
 	if after := mustSave(t, ed); !bytes.Equal(after, opened) {
 		t.Fatalf("undoing the drags and the space did not restore the scene:\n%s\nwant:\n%s", after, opened)
@@ -200,6 +203,7 @@ func TestLockedLayerIsNotPickedOrPainted(t *testing.T) {
 	ed := newNestedEditor(t)
 	opened := mustSave(t, ed)
 	app := startEditorView(t, ed)
+	openLayersPanelInUI(app, ed)
 
 	app.Press("id:layers-lock-actors")
 	if !ed.LayerLocked("actors") {
@@ -229,7 +233,7 @@ func TestLockedLayerIsNotPickedOrPainted(t *testing.T) {
 
 	app.Press("id:layers-row-floor")
 	app.Press("id:layers-lock-floor")
-	app.Press("id:tool-paint")
+	runEditorCommand(t, app, ed, editor.CmdToolPaintTile)
 	tx, ty := ed.WorldToCanvas(24, 24)
 	paint := func() {
 		app.Touch("id:editor-viewport", core.Point{X: core.Points(tx), Y: core.Points(ty)}).Lift()
@@ -238,7 +242,7 @@ func TestLockedLayerIsNotPickedOrPainted(t *testing.T) {
 	if !bytes.Equal(mustSave(t, ed), opened) || ed.History.CanUndo() {
 		t.Fatal("tools changed the scene on locked layers")
 	}
-	if got := app.Find("id:editor-status-mode").Text; !strings.Contains(got, "Layer: floor (locked)") {
+	if got := allText(app.Find("id:status-active-layer")); !strings.Contains(got, "Layer floor (locked)") {
 		t.Fatalf("the status bar reads %q, want the active layer marked locked", got)
 	}
 	app.Press("id:layers-lock-floor")
@@ -633,6 +637,7 @@ layers:
 		t.Fatalf("editor.New: %v", err)
 	}
 	app := startEditorView(t, ed)
+	openLayersPanelInUI(app, ed)
 
 	if !app.Enabled("id:layers-eye-ground") || !app.Enabled("id:layers-eye-hud") {
 		t.Fatal("the eye button should be enabled for both inherited (via layerOverrides) and own layers")

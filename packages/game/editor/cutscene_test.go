@@ -816,7 +816,7 @@ func TestCutsceneTimelineUIAndScreenshot(t *testing.T) {
 	if got := app.Find("id:cutscene-start-value").Text; got != "8.3 s" {
 		t.Fatalf("start value after +0.1s = %q, want '8.3 s'", got)
 	}
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	if app.Exists("id:cutscene-review-edited-hint") {
 		t.Fatal("edited hint should clear after Undo")
 	}

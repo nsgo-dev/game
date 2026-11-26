@@ -279,6 +279,7 @@ func TestDataTableRegisteredRowTypeRefusesInvalidEditsInGrid(t *testing.T) {
 	}
 
 	// Open the table from the file browser.
+	openFileBrowserInUI(app, ed)
 	app.Press("id:files-row-" + tableRel)
 	app.Settle()
 	app.Press("id:files-open-table")
@@ -365,7 +366,7 @@ func TestDataTableRegisteredRowTypeRefusesInvalidEditsInGrid(t *testing.T) {
 	if v, _ := ed.DataTable().Cell(0, "is_boss"); v.Text != "true" {
 		t.Fatalf("is_boss after toggle = %+v", v)
 	}
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	app.Settle()
 	if v, _ := ed.DataTable().Cell(0, "is_boss"); v.Text != "false" {
 		t.Fatalf("is_boss after undo = %+v", v)
@@ -420,7 +421,7 @@ func TestDataTableRegisteredRowTypeRefusesInvalidEditsInGrid(t *testing.T) {
 	if app.Exists("id:datatable-panel") || ed.DataTable() != nil {
 		t.Fatal("Close did not close Data Table panel")
 	}
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	app.Settle()
 	if !app.Exists("id:datatable-panel") || ed.DataTable() == nil {
 		t.Fatal("Undo did not reopen Data Table panel")

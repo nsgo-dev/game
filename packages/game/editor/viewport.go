@@ -263,7 +263,7 @@ func (e *Editor) HandleCanvasPressWithModifiers(x, y float32, shift, mod, alt bo
 		return
 	}
 	switch e.Tool {
-	case ToolSelect:
+	case ToolSelect, ToolRotate, ToolScale:
 		if !shift && !mod && e.SelectionCount() <= 1 && e.handleShapePress2D(x, y, false) {
 			return
 		}
@@ -283,6 +283,9 @@ func (e *Editor) HandleCanvasPressWithModifiers(x, y float32, shift, mod, alt bo
 				e.ClearSelection()
 			}
 		}
+	case ToolPan:
+		// Pan tool drags the camera; bare clicks do not alter selection.
+		return
 	case ToolMove:
 		if !shift && !mod && e.SelectionCount() <= 1 && e.handleShapePress2D(x, y, false) {
 			return
@@ -1027,7 +1030,7 @@ func (g *viewportGestures) pan(ed *Editor, ev core.PanEvent, spaceHeld, shiftHel
 	invert := func() bool { return g.snapInvert != nil && g.snapInvert() }
 	switch ev.Phase {
 	case core.GestureBegan:
-		g.spacePan = spaceHeld()
+		g.spacePan = spaceHeld() || ed.Tool == ToolPan
 		g.panLast = ev.Translation
 		g.panCamDrag = false
 		g.panBoundsDrag = false
@@ -2080,6 +2083,7 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 			},
 			assetDragViewportOverlay(cx, ed, rev),
 			viewport3DRenderStatsOverlay(cx, ed, rev),
+			viewportCameraCaptionView(cx, ed, rev),
 			viewportOverlaysBarView(cx, ed, rev),
 			viewportOverlayLegendView(cx, ed, rev),
 			playViewportOverlaysView(cx, ed, rev),
@@ -2089,6 +2093,7 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 			PlayTaskDotView(cx, ed, rev),
 			viewportSketchOverlayView(cx, ed, rev),
 			viewportAgentPointingOverlay(cx, ed, rev),
+			viewportWorkspaceStateOverlay(cx, ed, rev),
 		}, append(viewportTileOverlays(cx, ed, rev), ToastView(cx, ed, rev))...),
 	}
 }

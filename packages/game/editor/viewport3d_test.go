@@ -620,19 +620,19 @@ func TestEditor3DViewportUIRenderingAndControls(t *testing.T) {
 		}
 	}
 
-	app.Press("id:gizmo-translate")
+	app.Press("id:tool-move")
 	if ed.GizmoMode != editor.Gizmo3DTranslate {
 		t.Fatalf("GizmoMode = %v, want Translate", ed.GizmoMode)
 	}
 	checkDrawOps("3D Translate")
 
-	app.Press("id:gizmo-rotate")
+	app.Press("id:tool-rotate")
 	if ed.GizmoMode != editor.Gizmo3DRotate {
 		t.Fatalf("GizmoMode = %v, want Rotate", ed.GizmoMode)
 	}
 	checkDrawOps("3D Rotate")
 
-	app.Press("id:gizmo-scale")
+	app.Press("id:tool-scale")
 	if ed.GizmoMode != editor.Gizmo3DScale {
 		t.Fatalf("GizmoMode = %v, want Scale", ed.GizmoMode)
 	}
