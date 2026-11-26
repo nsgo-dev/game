@@ -68,6 +68,8 @@ const (
 	HistoryEntryEdit HistoryEntryKind = "edit"
 	// HistoryEntrySaved is a saved-point marker recorded when files are persisted to disk or OnSave.
 	HistoryEntrySaved HistoryEntryKind = "saved"
+	// HistoryEntryCheckpoint is a persistent per-turn, task, or automation checkpoint stored under .nsgo/checkpoints/.
+	HistoryEntryCheckpoint HistoryEntryKind = "checkpoint"
 )
 
 // HistoryFilter filters which entries the History panel or MCP history_list returns.
@@ -106,6 +108,12 @@ type HistoryEntry struct {
 	Undone bool
 	// RestoredFromID is non-zero when this step was created by restoring an earlier HistoryEntry.
 	RestoredFromID uint64
+	// CheckpointID is non-empty when this entry is backed by or belongs to a persistent checkpoint under .nsgo/checkpoints/.
+	CheckpointID string
+	// CheckpointKind identifies why a persistent checkpoint was created ("turn", "task", or "automation").
+	CheckpointKind CheckpointKind
+	// Persistent reports whether this entry is stored in .nsgo/checkpoints/ and survives editor restarts.
+	Persistent bool
 }
 
 // Clone returns a deep copy of e so callers cannot mutate History's internal slice.
@@ -195,6 +203,8 @@ type History struct {
 	onChange func()
 	// beforeExecute optionally rejects mutations (for example while read-only History preview is active).
 	beforeExecute func() error
+	// beforeCommand optionally runs right before a command mutates state (for example to snapshot touched files into an active checkpoint).
+	beforeCommand func(Command)
 	// onRecord enriches a newly recorded timeline entry with scene/file snapshots and editor context.
 	onRecord func(cmd Command, rec *historyRecord)
 	// onClear runs when Clear empties the stack.
@@ -524,6 +534,9 @@ func (h *History) execute(cmd Command) error {
 		if err := h.beforeExecute(); err != nil {
 			return err
 		}
+	}
+	if h.beforeCommand != nil {
+		h.beforeCommand(cmd)
 	}
 	if f, ok := cmd.(fallibleCommand); ok {
 		if err := f.do(); err != nil {

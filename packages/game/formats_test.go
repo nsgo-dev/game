@@ -124,6 +124,7 @@ var formatVersions = map[string]string{
 	"editor.AgentThreadFileVersion":             "editor#agent-thread",
 	"editor.AgentThreadVersion":                 "editor#thread",
 	"editor.AutomationsVersion":                 "editor#automations",
+	"editor.CheckpointVersion":                  "editor#checkpoint",
 	"editor.PermissionsVersion":                 "editor#permissions",
 	"editor.RecentProjectsVersion":              "editor",
 	"editor.SettingsVersion":                    "editor",

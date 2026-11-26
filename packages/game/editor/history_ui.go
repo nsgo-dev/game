@@ -16,19 +16,20 @@ type historyThemeKey struct {
 }
 
 type historyPreviewBannerKey struct {
-	id   uint64
-	ago  string
-	dark bool
-	lang string
+	id           uint64
+	checkpointID string
+	ago          string
+	dark         bool
+	lang         string
 }
 
 func (e *Editor) historyListDigest(dark bool, lang string) string {
 	filter := e.HistoryFilter()
-	entries := e.FilteredHistoryEntries(filter)
+	entries := e.UnifiedHistoryEntries(filter)
 	previewEntry, previewing := e.HistoryPreviewEntry()
 	dirty := e.HasUnsavedChanges()
 	var b strings.Builder
-	fmt.Fprintf(&b, "%t|%s|%s|%t|%d|%d|", dark, lang, filter, dirty, previewEntry.ID, len(entries))
+	fmt.Fprintf(&b, "%t|%s|%s|%t|%d|%s|%d|", dark, lang, filter, dirty, previewEntry.ID, previewEntry.CheckpointID, len(entries))
 	if previewing {
 		b.WriteByte('1')
 	} else {
@@ -40,7 +41,7 @@ func (e *Editor) historyListDigest(dark bool, lang string) string {
 	for _, entry := range entries {
 		ago := e.FormatHistoryRelativeTime(entry.Timestamp)
 		day := e.FormatHistoryDayLabel(entry.Timestamp)
-		fmt.Fprintf(&b, ";%d:%s:%s:%t:%s:%s", entry.ID, entry.Kind, entry.Author, entry.Undone, day, ago)
+		fmt.Fprintf(&b, ";%d:%s:%s:%s:%t:%s:%s", entry.ID, entry.CheckpointID, entry.Kind, entry.Author, entry.Undone, day, ago)
 	}
 	return b.String()
 }
@@ -77,10 +78,11 @@ func HistoryPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 			return historyPreviewBannerKey{dark: tk.dark, lang: tk.lang}
 		}
 		return historyPreviewBannerKey{
-			id:   entry.ID,
-			ago:  ed.FormatHistoryRelativeTime(entry.Timestamp),
-			dark: tk.dark,
-			lang: tk.lang,
+			id:           entry.ID,
+			checkpointID: entry.CheckpointID,
+			ago:          ed.FormatHistoryRelativeTime(entry.Timestamp),
+			dark:         tk.dark,
+			lang:         tk.lang,
 		}
 	})
 	listKeyMemo := core.NewMemo(cx, func() string {
@@ -237,7 +239,8 @@ func HistoryPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 
 	previewBar := core.Show{
 		When: func() bool {
-			return previewMemo.Get().id != 0
+			pk := previewMemo.Get()
+			return pk.id != 0 || pk.checkpointID != ""
 		},
 		Then: func(cx *core.Scope) core.Node {
 			return core.View{
@@ -307,8 +310,8 @@ func HistoryPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 									}
 								},
 								OnPress: func(core.PressEvent) {
-									if entry, ok := ed.HistoryPreviewEntry(); ok {
-										ed.report(ed.RestoreHistoryEntry(entry.ID))
+									if ed.HistoryPreviewActive() {
+										ed.report(ed.RestorePreviewedHistory())
 									}
 								},
 								Children: []core.Node{
@@ -397,7 +400,7 @@ func HistoryPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 				_ = listKeyMemo.Get()
 				p := pal()
 				filter := ed.HistoryFilter()
-				entries := ed.FilteredHistoryEntries(filter)
+				entries := ed.UnifiedHistoryEntries(filter)
 				previewEntry, previewing := ed.HistoryPreviewEntry()
 				dirty := ed.HasUnsavedChanges()
 
@@ -511,9 +514,16 @@ func HistoryPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 								},
 							})
 						}
-						isSelected := previewing && previewEntry.ID == entry.ID
+						var isSelected bool
+						if previewing {
+							if entry.Kind == HistoryEntryCheckpoint && entry.CheckpointID != "" {
+								isSelected = previewEntry.CheckpointID == entry.CheckpointID
+							} else if entry.ID > 0 {
+								isSelected = previewEntry.CheckpointID == "" && previewEntry.ID == entry.ID
+							}
+						}
 						hasMore := i < len(entries)-1
-						listRows = append(listRows, historyEntryRowView(ed, p, entry, isSelected, hasMore))
+						listRows = append(listRows, historyEntryRowView(ed, p, entry, i, isSelected, hasMore))
 					}
 				}
 
@@ -613,12 +623,32 @@ func historyEntryBadgeColors(p SpecPalette, entry HistoryEntry) (label string, d
 	}
 }
 
-func historyEntryRowView(ed *Editor, p SpecPalette, entry HistoryEntry, selected bool, hasMore bool) core.Node {
+func historyEntryRowView(ed *Editor, p SpecPalette, entry HistoryEntry, rowIdx int, selected bool, hasMore bool) core.Node {
 	badgeLabel, dotColor, badgeBg, badgeFg := historyEntryBadgeColors(p, entry)
 	relTime := ed.FormatHistoryRelativeTime(entry.Timestamp)
 	headline := FormatHistoryEntryHeadline(entry)
 	subtitle := FormatHistoryEntrySubtitle(entry, relTime)
 	clockStr := entry.Timestamp.Format("15:04")
+
+	isCheckpoint := entry.Kind == HistoryEntryCheckpoint && entry.CheckpointID != ""
+	var rowTestID, titleTestID, subtitleTestID, filesTestID string
+	switch {
+	case isCheckpoint:
+		rowTestID = "history-row-cp:" + entry.CheckpointID
+		titleTestID = "history-row-title-cp:" + entry.CheckpointID
+		subtitleTestID = "history-row-subtitle-cp:" + entry.CheckpointID
+		filesTestID = "history-row-files-cp:" + entry.CheckpointID
+	case entry.ID > 0:
+		rowTestID = fmt.Sprintf("history-row-%d", entry.ID)
+		titleTestID = fmt.Sprintf("history-row-title-%d", entry.ID)
+		subtitleTestID = fmt.Sprintf("history-row-subtitle-%d", entry.ID)
+		filesTestID = fmt.Sprintf("history-row-files-%d", entry.ID)
+	default:
+		rowTestID = fmt.Sprintf("history-row-git-%d", rowIdx)
+		titleTestID = fmt.Sprintf("history-row-title-git-%d", rowIdx)
+		subtitleTestID = fmt.Sprintf("history-row-subtitle-git-%d", rowIdx)
+		filesTestID = fmt.Sprintf("history-row-files-git-%d", rowIdx)
+	}
 
 	rowStyle := core.Style{
 		Direction:    core.Row,
@@ -666,6 +696,29 @@ func historyEntryRowView(ed *Editor, p SpecPalette, entry HistoryEntry, selected
 			},
 		},
 	}
+	if isCheckpoint {
+		metaChildren = append(metaChildren, core.View{
+			Style: core.Style{
+				Height:         core.Pt(18),
+				Padding:        core.Symmetric(0, 6),
+				CornerRadius:   5,
+				Background:     p.LineRaised,
+				AlignItems:     core.AlignCenter,
+				JustifyContent: core.JustifyCenter,
+				FlexShrink:     0,
+			},
+			Children: []core.Node{
+				core.Text{
+					Content: ed.T("history.checkpoint"),
+					Style: core.Style{
+						FontSize:   10,
+						FontWeight: 500,
+						Color:      p.TextSecondary,
+					},
+				},
+			},
+		})
+	}
 	if entry.Undone {
 		metaChildren = append(metaChildren, core.Text{
 			Content: ed.T("history.undone"),
@@ -686,7 +739,7 @@ func historyEntryRowView(ed *Editor, p SpecPalette, entry HistoryEntry, selected
 			Children: metaChildren,
 		},
 		core.Text{
-			TestID:  fmt.Sprintf("history-row-title-%d", entry.ID),
+			TestID:  titleTestID,
 			Content: headline,
 			Style: core.Style{
 				FontSize:   12.5,
@@ -695,7 +748,7 @@ func historyEntryRowView(ed *Editor, p SpecPalette, entry HistoryEntry, selected
 			},
 		},
 		core.Text{
-			TestID:  fmt.Sprintf("history-row-subtitle-%d", entry.ID),
+			TestID:  subtitleTestID,
 			Content: subtitle,
 			Style: core.Style{
 				FontSize: 11.5,
@@ -712,7 +765,7 @@ func historyEntryRowView(ed *Editor, p SpecPalette, entry HistoryEntry, selected
 		filesLine := strings.Join(bases, " · ")
 		if filesLine != "" && filesLine != entry.Detail {
 			bodyChildren = append(bodyChildren, core.Text{
-				TestID:  fmt.Sprintf("history-row-files-%d", entry.ID),
+				TestID:  filesTestID,
 				Content: filesLine,
 				Style: core.Style{
 					FontFamily: core.FontMonospace,
@@ -723,16 +776,11 @@ func historyEntryRowView(ed *Editor, p SpecPalette, entry HistoryEntry, selected
 		}
 	}
 
-	entryID := entry.ID
-	return core.View{
-		TestID:    fmt.Sprintf("history-row-%d", entry.ID),
-		Role:      core.RoleButton,
-		Label:     headline + " · " + subtitle,
-		Focusable: func() bool { return true },
-		Style:     rowStyle,
-		OnPress: func(core.PressEvent) {
-			ed.report(ed.PreviewHistoryEntry(entryID))
-		},
+	interactive := isCheckpoint || entry.ID > 0
+	row := core.View{
+		TestID: rowTestID,
+		Label:  headline + " · " + subtitle,
+		Style:  rowStyle,
 		Children: []core.Node{
 			historyTimelineRail(p, dotColor, false, hasMore),
 			core.View{
@@ -745,6 +793,22 @@ func historyEntryRowView(ed *Editor, p SpecPalette, entry HistoryEntry, selected
 			},
 		},
 	}
+	if interactive {
+		row.Role = core.RoleButton
+		row.Focusable = func() bool { return true }
+		if isCheckpoint {
+			cpID := entry.CheckpointID
+			row.OnPress = func(core.PressEvent) {
+				ed.report(ed.PreviewCheckpoint(cpID))
+			}
+		} else {
+			entryID := entry.ID
+			row.OnPress = func(core.PressEvent) {
+				ed.report(ed.PreviewHistoryEntry(entryID))
+			}
+		}
+	}
+	return row
 }
 
 // viewportHistoryPreviewBannerView renders the floating read-only preview banner at the top of the
@@ -772,10 +836,11 @@ func viewportHistoryPreviewBannerView(cx *core.Scope, ed *Editor, rev *core.Sign
 					return historyPreviewBannerKey{dark: dark, lang: lang}
 				}
 				return historyPreviewBannerKey{
-					id:   entry.ID,
-					ago:  ed.FormatHistoryRelativeTime(entry.Timestamp),
-					dark: dark,
-					lang: lang,
+					id:           entry.ID,
+					checkpointID: entry.CheckpointID,
+					ago:          ed.FormatHistoryRelativeTime(entry.Timestamp),
+					dark:         dark,
+					lang:         lang,
 				}
 			})
 			pal := func() SpecPalette {
@@ -845,8 +910,8 @@ func viewportHistoryPreviewBannerView(cx *core.Scope, ed *Editor, rev *core.Sign
 									}
 								},
 								OnPress: func(core.PressEvent) {
-									if entry, ok := ed.HistoryPreviewEntry(); ok {
-										ed.report(ed.RestoreHistoryEntry(entry.ID))
+									if ed.HistoryPreviewActive() {
+										ed.report(ed.RestorePreviewedHistory())
 									}
 								},
 								Children: []core.Node{

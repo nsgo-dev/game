@@ -600,6 +600,8 @@ type Editor struct {
 	OnSendSketch func(SketchAgentRequest)
 	// OnReplySketchReading, when set, is called when the author answers an agent sketch reading card (Go ahead, Correct a mark, or a text reply).
 	OnReplySketchReading func(SketchReadingReply)
+	// CheckpointMaxBytes caps the total disk size under .nsgo/checkpoints/ before the oldest checkpoints are pruned (defaults to DefaultCheckpointMaxBytes when <= 0).
+	CheckpointMaxBytes int64
 
 	playing            bool
 	playPaused         bool
@@ -953,6 +955,8 @@ type Editor struct {
 	agentReview agentReviewState
 	// review holds the change-by-change agent turn review state, pending overlays, and right-rail Agent card state.
 	review turnReviewState
+	// checkpoints holds the open project's persistent .nsgo/checkpoints/ state and any active turn.
+	checkpoints checkpointState
 }
 
 // DefaultSceneDoc returns a valid starter SceneDoc suitable for a new editor session.

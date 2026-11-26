@@ -2131,6 +2131,36 @@ requests:
         status: done
 ```
 
+<!-- format: editor#checkpoint -->
+### Editor turn checkpoints
+
+| Files | Version | Read and written by | Fields |
+| --- | --- | --- | --- |
+| `.nsgo/checkpoints/<id>/manifest.yaml` (`editor.CheckpointsDir`, `editor.CheckpointManifestFile`), with saved pre-turn file contents stored verbatim under `.nsgo/checkpoints/<id>/files/<path>` and ignored by Git | `version: 1` | `editor.ParseCheckpointManifest`, `editor.EncodeCheckpointManifest`, `Editor.BeginCheckpointTurn`, `Editor.RestoreCheckpoint` | [Editor & Scene Format](editor.md#persistent-per-turn-checkpoints-1018) |
+
+Each agent turn, autonomous task, or automation records the pre-turn bytes of every project file before its first write (scenes, prefabs, data tables, `game.yaml`, Go code, and binary media alike). `files` is sorted by slash-separated `path` relative to the project root. When `existed` is `true`, `size` and `sha256` describe the raw bytes stored under `files/<path>`, with optional 4-digit octal `mode` when non-default; when `existed` is `false`, restoring deletes the file that the turn created. A size cap (`Editor.CheckpointMaxBytes`, defaulting to 128 MiB) drops the oldest completed checkpoints.
+
+```yaml
+version: 1
+id: 20261126T144100Z-0001
+createdAt: "2026-11-26T14:41:00Z"
+who: agent
+kind: turn
+title: Coin spin, bob and sparkle
+detail: 2 files
+files:
+  - path: fx/sparkle.particles.yaml
+    existed: false
+  - path: prefabs/coin.prefab.yaml
+    existed: true
+    size: 142
+    sha256: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  - path: scenes/level_01.scene.yaml
+    existed: true
+    size: 512
+    sha256: fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210
+```
+
 <!-- format: tooling/assetbuild -->
 ### Asset build cache
 

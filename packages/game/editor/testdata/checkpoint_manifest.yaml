@@ -1,0 +1,18 @@
+version: 1
+id: 20261126T144100Z-0001
+createdAt: "2026-11-26T14:41:00Z"
+who: agent
+kind: turn
+title: Coin spin, bob and sparkle
+detail: 2 files
+files:
+  - path: fx/sparkle.particles.yaml
+    existed: false
+  - path: prefabs/coin.prefab.yaml
+    existed: true
+    size: 142
+    sha256: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  - path: scenes/level_01.scene.yaml
+    existed: true
+    size: 512
+    sha256: fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210

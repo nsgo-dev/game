@@ -42,10 +42,11 @@ type AgentTurnOptions struct {
 }
 
 type historyPreviewState struct {
-	entryID uint64
-	entry   HistoryEntry
-	doc     *sceneformat.SceneDoc
-	scene   *sceneformat.BuiltScene
+	entryID      uint64
+	checkpointID string
+	entry        HistoryEntry
+	doc          *sceneformat.SceneDoc
+	scene        *sceneformat.BuiltScene
 }
 
 type historyPanelState struct {
@@ -60,29 +61,29 @@ type historyPanelState struct {
 }
 
 // SetHistoryClock sets the clock used to timestamp History timeline entries across all open tabs.
-// Passing nil restores time.Now.
+// Passing nil restores Editor.Now or time.Now.
 func (e *Editor) SetHistoryClock(fn func() time.Time) {
 	if e == nil {
 		return
 	}
 	e.historyPanel.clock = fn
 	if e.History != nil {
-		e.History.SetClock(fn)
+		e.History.SetClock(e.HistoryNow)
 	}
 	for _, t := range e.tabs {
 		if t != nil && t.history != nil {
-			t.history.SetClock(fn)
+			t.history.SetClock(e.HistoryNow)
 		}
 	}
 }
 
-// HistoryNow returns the current time according to the editor's configured History clock (or time.Now).
+// HistoryNow returns the current time according to the editor's configured History clock, Editor.Now, or time.Now.
 func (e *Editor) HistoryNow() time.Time {
 	if e != nil && e.historyPanel.clock != nil {
 		return e.historyPanel.clock()
 	}
-	if e != nil && e.History != nil {
-		return e.History.now()
+	if e != nil && e.Now != nil {
+		return e.Now()
 	}
 	return time.Now()
 }
@@ -124,6 +125,7 @@ func (e *Editor) resetHistoryPanelForProject() {
 	e.historyPanel.pendingMeta = nil
 	e.historyPanel.savingDepth = 0
 	e.historyPanel.savedFiles = nil
+	e.resetCheckpointsForProject()
 }
 
 // SetHistoryPanelOpen opens or closes the History timeline panel.
@@ -140,6 +142,9 @@ func (e *Editor) SetHistoryPanelOpen(open bool) {
 	}
 	changed := e.historyPanel.open != open
 	e.historyPanel.open = open
+	if open && e.Project != nil && e.ProjectPath != "" {
+		_, _ = e.LoadCheckpoints()
+	}
 	if !open && e.historyPanel.preview != nil {
 		e.historyPanel.preview = nil
 		e.s3d.stale = true
@@ -221,6 +226,29 @@ func (e *Editor) HistoryPreviewEntry() (HistoryEntry, bool) {
 		return HistoryEntry{}, false
 	}
 	return e.historyPanel.preview.entry.Clone(), true
+}
+
+// HistoryPreviewCheckpointID returns the checkpoint ID currently being previewed read-only, or "".
+func (e *Editor) HistoryPreviewCheckpointID() string {
+	if e == nil || e.historyPanel.preview == nil {
+		return ""
+	}
+	return e.historyPanel.preview.checkpointID
+}
+
+// RestorePreviewedHistory restores whichever History entry or persistent checkpoint is currently
+// being previewed as ONE undoable step.
+func (e *Editor) RestorePreviewedHistory() error {
+	if e == nil {
+		return errors.New("editor: nil editor")
+	}
+	if e.historyPanel.preview == nil {
+		return errors.New("editor: no history entry is currently previewed")
+	}
+	if cpID := e.historyPanel.preview.checkpointID; cpID != "" {
+		return e.RestoreCheckpoint(cpID)
+	}
+	return e.RestoreHistoryEntry(e.historyPanel.preview.entryID)
 }
 
 // HistoryPreviewDoc returns the read-only SceneDoc currently being previewed, or nil when not previewing.
@@ -866,6 +894,15 @@ func (e *Editor) recordHistoryStep(cmd Command, rec *historyRecord) {
 		rec.entry.Summary = strings.TrimSpace(strings.TrimPrefix(rec.entry.Summary, "Agent:"))
 		if rec.entry.Summary == "" {
 			rec.entry.Summary = strings.TrimSpace(cmd.Label())
+		}
+	}
+	if turn := e.checkpoints.active; turn != nil {
+		if _, isRestore := cmd.(*checkpointRestoreCmd); !isRestore {
+			rec.entry.CheckpointID = turn.manifest.ID
+			rec.entry.CheckpointKind = turn.manifest.Kind
+			if turn.manifest.Who == HistoryAuthorAgent && rec.entry.Author == HistoryAuthorYou {
+				rec.entry.Author = HistoryAuthorAgent
+			}
 		}
 	}
 

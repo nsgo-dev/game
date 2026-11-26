@@ -887,13 +887,54 @@ func (s *Server) callWithSession(ctx context.Context, t Tool, args json.RawMessa
 	if err = s.checkPrivacyPre(ctx, t, args, onEditor); err != nil {
 		return nil, err
 	}
-	res, err = t.Handler(ctx, &Call{
+	c := &Call{
 		Args:     args,
 		s:        s,
 		onEditor: onEditor,
 		session:  session,
 		taskID:   s.sessionTaskID(session),
-	})
+	}
+	startedTurn := false
+	if t.Action == ActionEdit &&
+		t.Name != ToolCheckpointRestore &&
+		t.Name != ToolAgentTurnReply &&
+		t.Name != ToolTasksSubmit &&
+		t.Name != ToolTasksControl &&
+		t.Name != ToolPermissionsDraft &&
+		t.Name != ToolGameDeleteFile {
+		kind := editor.CheckpointKindTurn
+		if onEditor {
+			kind = editor.CheckpointKindAutomation
+		}
+		_ = c.Editor(ctx, func(ed *editor.Editor) error {
+			if ed.Project != nil && ed.ProjectPath != "" && ed.ActiveTurnID() == "" {
+				if _, berr := ed.BeginCheckpointTurnWith(editor.CheckpointOptions{
+					Who:   editor.HistoryAuthorAgent,
+					Kind:  kind,
+					Title: checkpointTitleForTool(t),
+				}); berr == nil {
+					startedTurn = true
+				}
+			}
+			return nil
+		})
+	}
+	finished := false
+	if startedTurn {
+		defer func() {
+			cleanupCtx := context.WithoutCancel(ctx)
+			_ = c.Editor(cleanupCtx, func(ed *editor.Editor) error {
+				if !finished || err != nil {
+					_, _ = ed.FinishCheckpointTurnOnError("interrupted")
+				} else {
+					_, _ = ed.EndCheckpointTurn("")
+				}
+				return nil
+			})
+		}()
+	}
+	res, err = t.Handler(ctx, c)
+	finished = true
 	if err == nil {
 		if perr := s.checkPrivacyPost(ctx, t, res, onEditor); perr != nil {
 			res, err = nil, perr

@@ -1452,6 +1452,13 @@ func (e *Editor) launchTaskRunner(taskID string) {
 	if !ok {
 		return
 	}
+	if e.Project != nil && e.ProjectPath != "" && e.ActiveTurnID() == "" {
+		if task.Source == TaskSourceAutomation {
+			_, _ = e.TakeCheckpointBeforeAutomation(task.Title)
+		} else {
+			_, _ = e.TakeCheckpointBeforeTask(task.Title)
+		}
+	}
 	runner := e.AgentTaskRunner
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTaskRunnerTimeout)
 	e.tasks.mu.Lock()

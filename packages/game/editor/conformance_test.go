@@ -15,3 +15,12 @@ func TestRecentProjectsFormatConformance(t *testing.T) {
 		Doc:    "editor#recent",
 	})
 }
+
+func TestCheckpointManifestFormatConformance(t *testing.T) {
+	formattest.Run(t, formattest.Format[*editor.CheckpointManifest]{
+		Decode: editor.ParseCheckpointManifest,
+		Encode: editor.EncodeCheckpointManifest,
+		Files:  []string{"testdata/checkpoint_manifest.yaml"},
+		Doc:    "editor#checkpoint",
+	})
+}

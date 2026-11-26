@@ -85,6 +85,8 @@ func ExampleServer_AddTool() {
 	// agent_turn_get read
 	// agent_turn_reply edit
 	// brief_edit edit
+	// checkpoint_list read
+	// checkpoint_restore edit
 	// cutscene_scrub read
 	// cutscene_write edit
 	// datatable_review_checks edit
