@@ -409,6 +409,7 @@ strings:
   gizmo.spaceLocal: Local
   gizmo.translate: Translate
   history.back: Back
+  history.checkpoint: Checkpoint
   history.close: Close History
   history.empty: No edits yet. Your edits and the agent's turns appear here on one timeline.
   history.emptyAgent: No agent turns recorded yet.
@@ -417,7 +418,7 @@ strings:
   history.filter.all: All
   history.filter.you: You
   history.filterLabel: Show
-  history.footer: Click a step to preview the scene at that point; Restore rolls back to it as one new step, so nothing is ever lost.
+  history.footer: Stored in .nsgo/checkpoints, ignored by git. Click a step to preview read-only; Restore rolls back as one undoable step.
   history.now: Now
   history.previewing: Previewing %s · editing is off
   history.restore: Restore

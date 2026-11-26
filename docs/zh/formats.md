@@ -2131,6 +2131,36 @@ requests:
         status: done
 ```
 
+<!-- format: editor#checkpoint -->
+### 编辑器回合检查点
+
+| 文件 | 版本 | 读写函数 | 字段 |
+| --- | --- | --- | --- |
+| `.nsgo/checkpoints/<id>/manifest.yaml`（`editor.CheckpointsDir`、`editor.CheckpointManifestFile`），写入前的原始文件内容按原样保存在 `.nsgo/checkpoints/<id>/files/<path>` 下并由 Git 忽略 | `version: 1` | `editor.ParseCheckpointManifest`、`editor.EncodeCheckpointManifest`、`Editor.BeginCheckpointTurn`、`Editor.RestoreCheckpoint` | [编辑器与场景格式](editor.md#持久化回合检查点1018) |
+
+每个智能体回合、自主任务或自动化在首次写入任何项目文件之前都会记录其原始字节（场景、预制体、数据表、`game.yaml`、Go 代码与二进制媒体一视同仁）。`files` 按相对项目根目录的斜杠路径 `path` 排序。当 `existed` 为 `true` 时，`size` 与 `sha256` 描述保存在 `files/<path>` 下的原始字节，非默认权限通过 4 位八进制 `mode` 记录；当 `existed` 为 `false` 时，恢复操作会删除该回合新建的文件。容量上限（`Editor.CheckpointMaxBytes`，默认 128 MiB）会自动清理最旧的已完成检查点。
+
+```yaml
+version: 1
+id: 20261126T144100Z-0001
+createdAt: "2026-11-26T14:41:00Z"
+who: agent
+kind: turn
+title: Coin spin, bob and sparkle
+detail: 2 files
+files:
+  - path: fx/sparkle.particles.yaml
+    existed: false
+  - path: prefabs/coin.prefab.yaml
+    existed: true
+    size: 142
+    sha256: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  - path: scenes/level_01.scene.yaml
+    existed: true
+    size: 512
+    sha256: fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210
+```
+
 <!-- format: tooling/assetbuild -->
 ### 资源构建缓存
 

@@ -409,6 +409,7 @@ strings:
   gizmo.spaceLocal: 局部
   gizmo.translate: 平移
   history.back: 返回
+  history.checkpoint: 检查点
   history.close: 关闭历史面板
   history.empty: 暂无编辑记录。你的编辑与智能体的回合会按同一条时间线显示在这里。
   history.emptyAgent: 暂无智能体回合记录。
@@ -417,7 +418,7 @@ strings:
   history.filter.all: 全部
   history.filter.you: 你
   history.filterLabel: 显示
-  history.footer: 点击任意步骤即可只读预览当时的场景；“恢复”会将其作为一个新的可撤销步骤回滚，不会丢失后续历史。
+  history.footer: 保存在 .nsgo/checkpoints 中并被 git 忽略。点击任意步骤可只读预览；“恢复”会作为单个可撤销步骤回滚。
   history.now: 现在
   history.previewing: 正在预览 %s · 编辑已关闭
   history.restore: 恢复

@@ -1401,6 +1401,16 @@ func main() {
 - **非破坏性恢复（`RestoreHistoryEntry`）**：点击 **Restore** 会将当前场景、项目以及期间改动的全部额外文件作为**一个新的可撤销步骤**回滚到该时间点；后续历史步骤全部保留且仍可预览或恢复，执行一次 `Undo` 即可立即回到恢复前的最新状态。
 - **智能体读取接口（`editormcp`）**：只读工具 `history_list`（`ActionRead`）向已连接的智能体暴露同一份按最新优先排列的历史列表，支持 `author`（`all`、`you`、`agent`）与 `limit` 筛选以及未保存和当前预览状态。
 
+## 持久化回合检查点（#1018）
+
+智能体回合、自主后台任务与自动化流程的检查点会持久化在项目的 `.nsgo/checkpoints/` 目录中，重启编辑器后仍可保留，并与当前会话编辑一同显示在统一历史面板（`⌘Y`，`CmdHistoryPanel`）中：
+
+- **首次写入前快照（`.nsgo/checkpoints/`）**：在智能体回合（`BeginCheckpointTurn` / `RunCheckpointTurn`，或任意会修改文件的 `editormcp` `ActionEdit` 工具调用）首次修改项目文件——包括场景、预制体、数据表、`game.yaml`、Go 代码及按原字节保存的二进制媒体——之前，编辑器会将其修改前的字节原样保存到 `.nsgo/checkpoints/<id>/files/<path>`，并写入严格版本化的 YAML 清单（`manifest.yaml`，`editor.CheckpointVersion = 1`，JSON Schema `https://game.nsgo.dev/schemas/checkpoint.v1.json`）。回合新建的文件记为 `existed: false`，恢复时会将其删除。编辑器会自动写入 `.nsgo/checkpoints/.gitignore` 与 `.nsgo/.gitignore` 以保持被 Git 忽略，并在总占用超过 `Editor.CheckpointMaxBytes`（默认 `128 MiB`）时自动清理最旧的已完成检查点。
+- **后台任务与自动化**：自主后台任务（`TakeCheckpointBeforeTask`、`RunTaskWithCheckpoint` 及 `SubmitTask` 启动的执行器）与自动化流程（`TakeCheckpointBeforeAutomation`、`RunAutomationWithCheckpoint`、`game_playtest` 及自动化模式下的 MCP 编辑）在开始前总会先持久化创建一个检查点。
+- **安全与完整性保护**：检查点的记录、写入与恢复严格排除 `.git/`、`.nsgo/` 以及全部仅限用户配置文件（`MatchYouOnlyPath` / `CheckYouOnlyTarget`），拒绝路径上任何层级的符号链接，限制清单与单文件大小上限（`2 MiB` / `32 MiB`），并在恢复写入前同时校验文件字节数与 SHA-256 摘要。
+- **统一历史预览与单步可撤销恢复**：`OpenProject` 会将已持久化的检查点重新载入 `HistoryPanelView`（`UnifiedHistoryEntries`）。点击任意检查点可只读预览该时刻的场景快照（`PreviewCheckpoint`），点击 **恢复（Restore）**（`RestoreCheckpoint`）会原子恢复所有受影响文件、同步打开的标签页与 `game.yaml`，并将其作为单个可撤销步骤（`checkpointRestoreCmd`）记入 `History`，按一次 `Undo`（`⌘Z`）即可逐字节还原整个回合。
+- **配套 MCP 工具（`editormcp`）**：`checkpoint_list`（`ActionRead`）列出统一历史与持久化检查点；`checkpoint_restore`（`ActionEdit`）会先针对检查点清单中记录的每一个文件评估权限规则（`edit`、`code`、`delete`）及仅限用户边界，通过后再作为单个可撤销步骤执行恢复。
+
 ## 仅限用户信任边界与提议删除（#1015）
 
 控制 AI 智能体行为边界的四项设置——**权限**（`permissions.yaml`）、**工具**（`tools.yaml` / `mcp.yaml`）、**模型**（`models.yaml`）与**用量**（`usage.yaml`）——严格遵循**仅限用户（You only）规则**（对应 `docs/design/editor/Permissions.dc.html`、`Settings.dc.html`）：

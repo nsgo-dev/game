@@ -90,13 +90,14 @@ func (e *Editor) nextTabID() uint64 {
 
 func (e *Editor) newTabHistory() *History {
 	h := NewHistory()
-	h.clock = e.historyPanel.clock
+	h.clock = e.HistoryNow
 	h.beforeExecute = func() error {
 		if e.HistoryPreviewActive() {
 			return ErrHistoryPreview
 		}
 		return nil
 	}
+	h.beforeCommand = e.beforeHistoryExecute
 	h.onRecord = func(cmd Command, rec *historyRecord) {
 		e.recordHistoryStep(cmd, rec)
 	}

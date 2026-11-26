@@ -310,6 +310,13 @@ var formats = []format{
 		pkg:     "editor",
 		version: editor.AgentThreadFileVersion,
 	},
+	{
+		url:     editor.CheckpointSchemaURL,
+		title:   "NSGo game editor checkpoint manifest (version 1)",
+		typ:     reflect.TypeFor[editor.CheckpointManifest](),
+		pkg:     "editor",
+		version: editor.CheckpointVersion,
+	},
 }
 
 // durationTypes maps duration types to their YAML schema forms: time.Duration accepts a Go duration string or integer nanoseconds; cutscene.Duration accepts only Go duration strings such as "1.5s".

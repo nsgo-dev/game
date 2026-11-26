@@ -308,6 +308,16 @@ func gamePlaytest(ctx context.Context, c *Call) (*Result, error) {
 		Pattern:        pattern,
 	}
 
+	// Always take a pre-start checkpoint before an autonomous playtest runs.
+	_ = c.Editor(ctx, func(ed *editor.Editor) error {
+		if ed.ActiveTurnID() == "" {
+			_, _ = ed.TakeCheckpointBeforeAutomation("Playtest · "+cleanCfg, cleanOut)
+		} else {
+			_ = ed.RecordCheckpointFile(cleanOut)
+		}
+		return nil
+	})
+
 	runner := c.s.runPlaytest
 	if runner == nil {
 		runner = defaultRunPlaytest

@@ -1,0 +1,77 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://game.nsgo.dev/schemas/checkpoint.v1.json",
+  "title": "NSGo game editor checkpoint manifest (version 1)",
+  "description": "CheckpointManifest is the strict versioned YAML manifest stored at .nsgo/checkpoints/<id>/manifest.yaml.",
+  "type": "object",
+  "properties": {
+    "version": {
+      "description": "Version is the schema version; it must equal CheckpointVersion (1).",
+      "type": "integer",
+      "const": 1
+    },
+    "id": {
+      "description": "ID is the unique checkpoint directory name (for example \"20261126T144100Z-0001\").",
+      "type": "string"
+    },
+    "createdAt": {
+      "description": "CreatedAt is the RFC3339 UTC timestamp when the checkpoint was started.",
+      "type": "string"
+    },
+    "who": {
+      "description": "Who identifies who initiated the checkpoint (\"agent\", \"you\", or \"git\").",
+      "type": "string"
+    },
+    "kind": {
+      "description": "Kind identifies why the checkpoint was taken (\"turn\", \"task\", or \"automation\").",
+      "type": "string"
+    },
+    "title": {
+      "description": "Title is the short human-readable summary shown in the History panel.",
+      "type": "string"
+    },
+    "detail": {
+      "description": "Detail is optional secondary context (such as change counts or trigger details).",
+      "type": "string"
+    },
+    "files": {
+      "description": "Files lists every project file captured before its first write in this checkpoint, sorted by path.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/CheckpointFile"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "CheckpointFile": {
+      "description": "CheckpointFile records one project file captured before its first write in a checkpoint.",
+      "type": "object",
+      "properties": {
+        "path": {
+          "description": "Path is the slash-separated path from the project root (for example \"scenes/level_01.scene.yaml\").",
+          "type": "string"
+        },
+        "existed": {
+          "description": "Existed reports whether the file existed before the turn wrote it; false means restoring deletes the file.",
+          "type": "boolean"
+        },
+        "size": {
+          "description": "Size is the saved file size in bytes when Existed is true.",
+          "type": "integer",
+          "minimum": -9223372036854776000,
+          "maximum": 9223372036854776000
+        },
+        "sha256": {
+          "description": "SHA256 is the lowercase hex SHA-256 digest of the saved bytes when Existed is true.",
+          "type": "string"
+        },
+        "mode": {
+          "description": "Mode is the optional 4-digit octal Unix file mode (for example \"0755\") when non-default.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

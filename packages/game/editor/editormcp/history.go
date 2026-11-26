@@ -31,6 +31,8 @@ type HistoryEntryView struct {
 	ChangeCount  int      `json:"changeCount,omitempty"`
 	KeptCount    int      `json:"keptCount,omitempty"`
 	Undone       bool     `json:"undone,omitempty"`
+	CheckpointID string   `json:"checkpointId,omitempty"`
+	Persistent   bool     `json:"persistent,omitempty"`
 }
 
 // HistoryListResult is the structured payload returned by history_list.
@@ -114,6 +116,8 @@ func historyList(ctx context.Context, c *Call) (*Result, error) {
 				ChangeCount:  entry.ChangeCount,
 				KeptCount:    entry.KeptCount,
 				Undone:       entry.Undone,
+				CheckpointID: entry.CheckpointID,
+				Persistent:   entry.Persistent,
 			})
 		}
 		return nil
