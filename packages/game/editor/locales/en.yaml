@@ -783,6 +783,7 @@ strings:
   scope.animation: Animation
   scope.global: Global
   scope.play: Play
+  scope.review: Review
   scope.sceneTree: Scene Tree
   scope.tile: Tile
   scope.viewport: Viewport

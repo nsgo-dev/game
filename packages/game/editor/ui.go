@@ -202,6 +202,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 	fullWindowScreenOpen := func() bool {
 		return ed.StartScreenOpen() ||
 			ed.FirstRunFullScreenOpen() ||
+			ed.ReviewOpen() ||
 			ed.MergeConflictOpen() ||
 			ed.ChangesOpen() ||
 			ed.BuildReleaseScreenOpen() ||
@@ -260,11 +261,20 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 								return core.Show{
 									When: func() bool {
 										_ = rev.Get()
-										return ed.MergeConflictOpen()
+										return ed.ReviewOpen()
 									},
 									Then: func(cx *core.Scope) core.Node {
-										return MergeConflictView(cx, ed, rev)
+										return ReviewScreenView(cx, ed, rev)
 									},
+									Else: func(cx *core.Scope) core.Node {
+										return core.Show{
+											When: func() bool {
+												_ = rev.Get()
+												return ed.MergeConflictOpen()
+											},
+											Then: func(cx *core.Scope) core.Node {
+												return MergeConflictView(cx, ed, rev)
+											},
 									Else: func(cx *core.Scope) core.Node {
 										return core.Show{
 											When: func() bool {
@@ -415,7 +425,9 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 							},
 						}
 					},
-				},
+				}
+			},
+		},
 				CommandPaletteView(cx, ed, rev),
 			}, files...),
 		}

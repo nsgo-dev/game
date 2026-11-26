@@ -783,6 +783,7 @@ strings:
   scope.animation: 动画
   scope.global: 全局
   scope.play: 运行
+  scope.review: 审核
   scope.sceneTree: 场景树
   scope.tile: 瓦片
   scope.viewport: 视口

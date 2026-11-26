@@ -517,6 +517,7 @@ func (e *Editor) resetAgentForProject() {
 	}
 	e.stopAgentTimers()
 	e.CloseAskInPlace()
+	e.review = agentReviewState{}
 	e.agent.activeRunID++
 	e.agent.clients = nil
 	e.agent.lastClient = AgentClientInfo{}

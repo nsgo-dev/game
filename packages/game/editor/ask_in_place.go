@@ -77,7 +77,7 @@ const (
 func (e *Editor) askInPlaceBlocked() bool {
 	return e == nil || e.Doc == nil || e.playing || e.shortcutCaptureActive ||
 		e.AgentMode() == AgentModeNone ||
-		e.StartScreenOpen() || e.MergeConflictOpen() || e.PlaytestReportOpen() ||
+		e.StartScreenOpen() || e.ReviewOpen() || e.MergeConflictOpen() || e.PlaytestReportOpen() ||
 		e.UsagesScreenOpen() || e.ChangesOpen() || e.HUDLayoutOpen() ||
 		e.SettingsOpen() || e.ShortcutsSheetOpen() || e.BuildReleaseScreenOpen() ||
 		e.ConnectDialogOpen() || e.AssetGeneratorOpen() || e.CutsceneOpen()
@@ -85,7 +85,7 @@ func (e *Editor) askInPlaceBlocked() bool {
 
 func (e *Editor) askInPlaceKeyBlocked() bool {
 	return e == nil || e.playing || e.shortcutCaptureActive ||
-		e.StartScreenOpen() || e.MergeConflictOpen() || e.PlaytestReportOpen() ||
+		e.StartScreenOpen() || e.ReviewOpen() || e.MergeConflictOpen() || e.PlaytestReportOpen() ||
 		e.UsagesScreenOpen() || e.ChangesOpen() || e.HUDLayoutOpen() ||
 		e.SettingsOpen() || e.ShortcutsSheetOpen() || e.BuildReleaseScreenOpen() ||
 		e.ConnectDialogOpen() || e.AssetGeneratorOpen() || e.CommandPaletteOpen()

@@ -222,6 +222,9 @@ func (e *Editor) HasOpenReview() bool {
 	if e.autosave.reviewOpen {
 		return true
 	}
+	if e.HasPendingReview() {
+		return true
+	}
 	if e.HasOpenTaskReview() {
 		return true
 	}

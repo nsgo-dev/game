@@ -21,6 +21,7 @@ const (
 	ScopeTile       = "tile"
 	ScopeAnimation  = "animation"
 	ScopePlay       = "play"
+	ScopeReview     = "review"
 )
 
 // scopeDisplayOrder lists built-in scopes in presentation order for Settings › Shortcuts and the ⌘/ sheet.
@@ -31,6 +32,7 @@ var scopeDisplayOrder = []string{
 	ScopeViewport3D,
 	ScopeTile,
 	ScopeSceneTree,
+	ScopeReview,
 	ScopeAnimation,
 	ScopePlay,
 }
@@ -77,6 +79,8 @@ func (e *Editor) CommandScopeLabel(scope string) string {
 		return e.T("scope.animation")
 	case ScopePlay:
 		return e.T("scope.play")
+	case ScopeReview:
+		return e.T("scope.review")
 	default:
 		return normalizeCommandScope(scope)
 	}
@@ -103,6 +107,8 @@ func (e *Editor) commandScopeSearchTerms(scope string) []string {
 		terms = append(terms, "animation", "timeline")
 	case ScopePlay:
 		terms = append(terms, "play", "run")
+	case ScopeReview:
+		terms = append(terms, "review", "agent", "diff", "keep", "revert")
 	}
 	return terms
 }
@@ -476,6 +482,14 @@ func (e *Editor) FilterShortcutCommands(query string, targetOS core.OS) []Editor
 // Higher scores win when two enabled commands in different scopes share a key.
 func (e *Editor) shortcutScopePriority(scope string) int {
 	switch normalizeCommandScope(scope) {
+	case ScopeReview:
+		if e.ReviewOpen() && !e.ReviewRevertAllDialogOpen() {
+			return 5
+		}
+		if e.HasPendingReview() && !e.ReviewRevertAllDialogOpen() {
+			return 3
+		}
+		return 0
 	case ScopeViewport3D:
 		if e.ViewMode == ViewMode3D {
 			return 4
