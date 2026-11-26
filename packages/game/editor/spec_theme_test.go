@@ -1220,11 +1220,14 @@ func TestSpecColorLiteralASTGuardrailCatchesPatterns(t *testing.T) {
 	}
 }
 
-// #1002 Acceptance 3: Toolbar, panels, inspector, viewport surround, and status bar render in
-// Spec bg, panel, raised, and line tokens, toolbar title is 14/600, and the selection outline is accent.
+// #1002 Acceptance 3: Header, left rail, panels, inspector, viewport surround, and status bar render in
+// Spec bg, panel, viewport, and line tokens, section headings use Spec 11/600 typography, and the
+// selection outline strokes in Spec Accent.Edge.
 func TestSpecEditorChromeRegionsAndSelectionOutline(t *testing.T) {
 	ed := newTestEditor(t)
 	ed.SelectObject("hero")
+	ed.SetLayersPanelOpen(true)
+	ed.SetAssetBrowserOpen(true)
 
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		return editor.EditorView(cx, ed)
@@ -1240,23 +1243,36 @@ func TestSpecEditorChromeRegionsAndSelectionOutline(t *testing.T) {
 		if got := app.Find("id:scene-editor").Style.Background; got != want.Bg {
 			t.Errorf("%s: root bg = #%06X, want Bg #%06X", label, uint32(got)>>8, uint32(want.Bg)>>8)
 		}
-		tb := app.Find("id:editor-toolbar").Style
-		if tb.Background != want.Raised || tb.BorderColors.Bottom != want.Line {
-			t.Errorf("%s: toolbar bg=#%06X bottomBorder=#%06X, want Raised=#%06X Line=#%06X",
-				label, uint32(tb.Background)>>8, uint32(tb.BorderColors.Bottom)>>8, uint32(want.Raised)>>8, uint32(want.Line)>>8)
+		tbView := app.Find("id:editor-toolbar")
+		tb := tbView.Style
+		if tb.Background != want.Bg || tb.BorderColors.Bottom != want.Line {
+			t.Errorf("%s: header bg=#%06X bottomBorder=#%06X, want Bg=#%06X Line=#%06X",
+				label, uint32(tb.Background)>>8, uint32(tb.BorderColors.Bottom)>>8, uint32(want.Bg)>>8, uint32(want.Line)>>8)
 		}
-		title := app.Find("id:toolbar-scene-name").TextStyle
-		if title.Font.Size != editor.SpecFontTitleSize || title.Font.Weight != editor.SpecFontTitleWeight || title.Color != want.TextPrimary {
-			t.Errorf("%s: toolbar title = %v/%v/#%06X, want 14/600/#%06X",
-				label, title.Font.Size, title.Font.Weight, uint32(title.Color)>>8, uint32(want.TextPrimary)>>8)
+		if h := tbView.Bounds().Size.Height; h != editor.SpecHeaderHeight {
+			t.Errorf("%s: header height = %v, want SpecHeaderHeight %v", label, h, editor.SpecHeaderHeight)
+		}
+		if got := app.Find("id:header-brand-mark").Style.Background; got != want.Accent.Fg {
+			t.Errorf("%s: header-brand-mark bg = #%06X, want Accent.Fg #%06X", label, uint32(got)>>8, uint32(want.Accent.Fg)>>8)
+		}
+		sectionTitle := app.Find("id:scene-rail-title").TextStyle
+		if sectionTitle.Font.Size != editor.SpecFontSectionSize || sectionTitle.Font.Weight != editor.SpecFontSectionWeight || sectionTitle.Color != want.TextFaint {
+			t.Errorf("%s: scene-rail-title = %v/%v/#%06X, want %v/%v/#%06X",
+				label, sectionTitle.Font.Size, sectionTitle.Font.Weight, uint32(sectionTitle.Color)>>8,
+				editor.SpecFontSectionSize, editor.SpecFontSectionWeight, uint32(want.TextFaint)>>8)
 		}
 		if got := app.Find("id:editor-viewport-container").Style.Background; got != want.Viewport {
 			t.Errorf("%s: viewport surround = #%06X, want Viewport #%06X", label, uint32(got)>>8, uint32(want.Viewport)>>8)
 		}
+		col := app.Find("id:editor-scene-column").Style
+		if col.Background != want.Bg || col.BorderColors.Right != want.Line {
+			t.Errorf("%s: editor-scene-column bg=#%06X rightBorder=#%06X, want Bg=#%06X Line=#%06X",
+				label, uint32(col.Background)>>8, uint32(col.BorderColors.Right)>>8, uint32(want.Bg)>>8, uint32(want.Line)>>8)
+		}
 		st := app.Find("id:scene-tree-panel").Style
-		if st.Background != want.Panel || st.BorderColors.Right != want.Line {
-			t.Errorf("%s: scene-tree-panel bg=#%06X rightBorder=#%06X, want Panel=#%06X Line=#%06X",
-				label, uint32(st.Background)>>8, uint32(st.BorderColors.Right)>>8, uint32(want.Panel)>>8, uint32(want.Line)>>8)
+		if st.Background != want.Bg {
+			t.Errorf("%s: scene-tree-panel bg=#%06X, want Bg=#%06X",
+				label, uint32(st.Background)>>8, uint32(want.Bg)>>8)
 		}
 		lp := app.Find("id:layers-panel").Style
 		if lp.Background != want.Panel || lp.BorderColors.Top != want.Line || lp.BorderColors.Right != want.Line {
@@ -1274,9 +1290,9 @@ func TestSpecEditorChromeRegionsAndSelectionOutline(t *testing.T) {
 				label, uint32(insp.Background)>>8, uint32(insp.BorderColors.Left)>>8, uint32(want.Panel)>>8, uint32(want.Line)>>8)
 		}
 		sb := app.Find("id:editor-status").Style
-		if sb.Background != want.Raised || sb.BorderColors.Top != want.Line {
-			t.Errorf("%s: status bar bg=#%06X topBorder=#%06X, want Raised=#%06X Line=#%06X",
-				label, uint32(sb.Background)>>8, uint32(sb.BorderColors.Top)>>8, uint32(want.Raised)>>8, uint32(want.Line)>>8)
+		if sb.Background != want.Bg || sb.BorderColors.Top != want.Line {
+			t.Errorf("%s: status bar bg=#%06X topBorder=#%06X, want Bg=#%06X Line=#%06X",
+				label, uint32(sb.Background)>>8, uint32(sb.BorderColors.Top)>>8, uint32(want.Bg)>>8, uint32(want.Line)>>8)
 		}
 
 		// Verify the 2D selection outline strokes in Spec Accent.Edge.
