@@ -160,9 +160,9 @@ type agentLiveState struct {
 }
 
 const (
-	agentPulsePeriod   = 1600 * time.Millisecond
-	agentPulseMinAlpha = 0.45
-	agentPulseMaxAlpha = 1.0
+	agentPulsePeriod   = SpecMotionAgentPulse
+	agentPulseMinAlpha = SpecAgentPulseMinOpacity
+	agentPulseMaxAlpha = SpecAgentPulseMaxOpacity
 )
 
 // RunAsAgent executes fn while marking edits as originating from the agent rather than manual UI input,
@@ -678,8 +678,8 @@ func (e *Editor) AgentPulseOpacity() float32 {
 		return agentPulseMaxAlpha
 	}
 	// Smooth cosine oscillation between 1.0 and 0.45 over 1.6 s.
-	mid := (agentPulseMaxAlpha + agentPulseMinAlpha) * 0.5
-	amp := (agentPulseMaxAlpha - agentPulseMinAlpha) * 0.5
+	mid := (float64(agentPulseMaxAlpha) + float64(agentPulseMinAlpha)) * 0.5
+	amp := (float64(agentPulseMaxAlpha) - float64(agentPulseMinAlpha)) * 0.5
 	return float32(mid + amp*math.Cos(2*math.Pi*e.agentLive.pulsePhase))
 }
 

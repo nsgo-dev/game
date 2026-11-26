@@ -124,6 +124,15 @@ func TestSpecThemeParsesAndMapsAllRoles(t *testing.T) {
 		if tc.p.Focus != tc.spec.Accent.Edge {
 			t.Errorf("%s Palette.Focus = #%08X, want #%08X", tc.name, uint32(tc.p.Focus), uint32(tc.spec.Accent.Edge))
 		}
+		if ring, ok := tc.p.Color("ring"); !ok || ring != tc.spec.Accent.Edge {
+			t.Errorf("%s Palette.Color(ring) = #%08X (ok=%v), want #%08X (declared in spec_theme.yaml)", tc.name, uint32(ring), ok, uint32(tc.spec.Accent.Edge))
+		}
+		if tc.spec.AccentHover == 0 || tc.spec.AccentHover != tc.p.AccentHover {
+			t.Errorf("%s SpecPalette.AccentHover = #%08X, want #%08X", tc.name, uint32(tc.spec.AccentHover), uint32(tc.p.AccentHover))
+		}
+		if tc.spec.AccentPressed == 0 || tc.spec.AccentPressed != tc.p.AccentPressed {
+			t.Errorf("%s SpecPalette.AccentPressed = #%08X, want #%08X", tc.name, uint32(tc.spec.AccentPressed), uint32(tc.p.AccentPressed))
+		}
 	}
 }
 
@@ -721,29 +730,321 @@ func TestSpecContrastTableRejectsRetiredMutedColor(t *testing.T) {
 	}
 }
 
+var (
+	specHexColorStringRe = regexp.MustCompile(`^#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$`)
+	specRGBColorStringRe = regexp.MustCompile(`(?i)^rgba?\s*\(\s*[0-9.+%\s,-]+\)$`)
+)
+
+func isSpecColorStringLiteral(s string) bool {
+	return specHexColorStringRe.MatchString(s) || specRGBColorStringRe.MatchString(s)
+}
+
+func exprTypeName(expr ast.Expr) string {
+	switch t := expr.(type) {
+	case *ast.Ident:
+		return t.Name
+	case *ast.SelectorExpr:
+		if pkg, ok := t.X.(*ast.Ident); ok {
+			return pkg.Name + "." + t.Sel.Name
+		}
+		return t.Sel.Name
+	case *ast.StarExpr:
+		return exprTypeName(t.X)
+	}
+	return ""
+}
+
+// evalConstInt evaluates constant integer expressions (including hex/decimal literals,
+// unary ops, integer casts like uint32(...), and constant arithmetic/bitwise ops).
+func evalConstInt(expr ast.Expr) (uint64, bool) {
+	switch e := expr.(type) {
+	case *ast.ParenExpr:
+		return evalConstInt(e.X)
+	case *ast.BasicLit:
+		if e.Kind != token.INT {
+			return 0, false
+		}
+		v, err := strconv.ParseUint(strings.ReplaceAll(e.Value, "_", ""), 0, 64)
+		if err != nil {
+			return 0, false
+		}
+		return v, true
+	case *ast.UnaryExpr:
+		v, ok := evalConstInt(e.X)
+		if !ok {
+			return 0, false
+		}
+		switch e.Op {
+		case token.ADD:
+			return v, true
+		case token.SUB:
+			return uint64(-int64(v)), true
+		case token.XOR:
+			return ^v, true
+		}
+		return 0, false
+	case *ast.BinaryExpr:
+		lv, lok := evalConstInt(e.X)
+		rv, rok := evalConstInt(e.Y)
+		if !lok || !rok {
+			return 0, false
+		}
+		switch e.Op {
+		case token.OR:
+			return lv | rv, true
+		case token.AND:
+			return lv & rv, true
+		case token.XOR:
+			return lv ^ rv, true
+		case token.SHL:
+			return lv << rv, true
+		case token.SHR:
+			return lv >> rv, true
+		case token.ADD:
+			return lv + rv, true
+		case token.SUB:
+			return lv - rv, true
+		case token.MUL:
+			return lv * rv, true
+		case token.QUO:
+			if rv == 0 {
+				return 0, false
+			}
+			return lv / rv, true
+		}
+		return 0, false
+	case *ast.CallExpr:
+		if len(e.Args) == 1 {
+			if id, ok := e.Fun.(*ast.Ident); ok {
+				switch id.Name {
+				case "uint", "uint8", "uint16", "uint32", "uint64", "uintptr", "int", "int8", "int16", "int32", "int64", "byte":
+					return evalConstInt(e.Args[0])
+				}
+			}
+		}
+		return 0, false
+	}
+	return 0, false
+}
+
+// isConstNumericExpr reports whether expr is composed strictly of numeric literals,
+// numeric casts, and constant arithmetic/bitwise operators (no runtime variables or calls).
+func isConstNumericExpr(expr ast.Expr) bool {
+	switch e := expr.(type) {
+	case *ast.ParenExpr:
+		return isConstNumericExpr(e.X)
+	case *ast.BasicLit:
+		return e.Kind == token.INT || e.Kind == token.FLOAT
+	case *ast.UnaryExpr:
+		return isConstNumericExpr(e.X)
+	case *ast.BinaryExpr:
+		return isConstNumericExpr(e.X) && isConstNumericExpr(e.Y)
+	case *ast.CallExpr:
+		if len(e.Args) == 1 {
+			if id, ok := e.Fun.(*ast.Ident); ok {
+				switch id.Name {
+				case "uint", "uint8", "uint16", "uint32", "uint64", "uintptr", "int", "int8", "int16", "int32", "int64", "float32", "float64", "byte":
+					return isConstNumericExpr(e.Args[0])
+				}
+			}
+		}
+		return false
+	}
+	return false
+}
+
+// allowedColorStringInContext returns true only for the explicitly narrowed scene-content
+// data defaults and hex input placeholders (never UI chrome like core.Style).
+func allowedColorStringInContext(relPath string, stack []ast.Node) bool {
+	if len(stack) < 2 {
+		return false
+	}
+	// Check immediate parent.
+	parent := stack[len(stack)-2]
+	if kv, ok := parent.(*ast.KeyValueExpr); ok {
+		keyIdent, ok := kv.Key.(*ast.Ident)
+		if !ok {
+			return false
+		}
+		key := keyIdent.Name
+		var structType string
+		if len(stack) >= 3 {
+			if cl, ok := stack[len(stack)-3].(*ast.CompositeLit); ok {
+				structType = exprTypeName(cl.Type)
+			}
+		}
+		switch relPath {
+		case "demo.go", "first_run.go", "state.go":
+			return key == "BackgroundColor" && structType == "sceneformat.SceneDoc"
+		case "inspector_room.go", "inspector_scene.go":
+			return key == "Placeholder" && structType == "ui.Input"
+		case "environment_panel.go":
+			if key == "Placeholder" && structType == "ui.Input" {
+				return true
+			}
+			switch structType {
+			case "sceneformat.SkyDoc":
+				return key == "Color" || key == "Zenith" || key == "Horizon" || key == "Ground"
+			case "sceneformat.FogDoc", "sceneformat.LightDoc":
+				return key == "Color"
+			}
+		case "scene3d_edit.go":
+			return key == "Color" && structType == "sceneformat.LightDoc"
+		}
+		return false
+	}
+	// materials_ui.go passes "#ffffff" / "#000000" as the placeholder argument to colorControl(...).
+	if relPath == "materials_ui.go" {
+		if call, ok := parent.(*ast.CallExpr); ok {
+			if id, ok := call.Fun.(*ast.Ident); ok && id.Name == "colorControl" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// allowedCoreColorConstInContext returns true only for particle data default ramp/trail stops.
+func allowedCoreColorConstInContext(relPath string, stack []ast.Node) bool {
+	switch relPath {
+	case "particles.go":
+		// Allowed only inside particles.ColorCurve or particles.TrailConfig Color field.
+		if len(stack) >= 3 {
+			if kv, ok := stack[len(stack)-2].(*ast.KeyValueExpr); ok {
+				if keyIdent, ok := kv.Key.(*ast.Ident); ok && keyIdent.Name == "Color" {
+					if cl, ok := stack[len(stack)-3].(*ast.CompositeLit); ok {
+						st := exprTypeName(cl.Type)
+						if st == "particles.TrailConfig" {
+							return true
+						}
+						if st == "" && len(stack) >= 4 {
+							if outer, ok := stack[len(stack)-4].(*ast.CompositeLit); ok && exprTypeName(outer.Type) == "particles.ColorCurve" {
+								return true
+							}
+						}
+					}
+				}
+			}
+		}
+	case "particles_ui.go":
+		for i := len(stack) - 1; i >= 0; i-- {
+			if fn, ok := stack[i].(*ast.FuncDecl); ok {
+				return fn.Name.Name == "particleCurveWidgetView"
+			}
+		}
+	}
+	return false
+}
+
+func checkSpecColorLiteralsInFile(fset *token.FileSet, relPath string, file *ast.File) []string {
+	coreAliases := map[string]bool{}
+	coreDotImported := false
+	for _, imp := range file.Imports {
+		importPath, err := strconv.Unquote(imp.Path.Value)
+		if err != nil || importPath != "github.com/nsgo-dev/nsgo/core" {
+			continue
+		}
+		if imp.Name == nil {
+			coreAliases["core"] = true
+		} else if imp.Name.Name == "." {
+			coreDotImported = true
+		} else if imp.Name.Name != "_" {
+			coreAliases[imp.Name.Name] = true
+		}
+	}
+
+	var violations []string
+	var stack []ast.Node
+
+	var walk func(ast.Node)
+	walk = func(n ast.Node) {
+		if n == nil {
+			return
+		}
+		stack = append(stack, n)
+		defer func() { stack = stack[:len(stack)-1] }()
+
+		switch node := n.(type) {
+		case *ast.CallExpr:
+			var coreFunc string
+			switch fn := node.Fun.(type) {
+			case *ast.SelectorExpr:
+				if ident, ok := fn.X.(*ast.Ident); ok && coreAliases[ident.Name] {
+					coreFunc = fn.Sel.Name
+				}
+			case *ast.Ident:
+				if coreDotImported {
+					switch fn.Name {
+					case "RGB", "RGBA", "ParseColor", "Color":
+						coreFunc = fn.Name
+					}
+				}
+				if fn.Name == "colorFromRGBA8" && len(node.Args) > 0 {
+					allConst := true
+					for _, arg := range node.Args {
+						if !isConstNumericExpr(arg) {
+							allConst = false
+							break
+						}
+					}
+					if allConst {
+						pos := fset.Position(node.Pos())
+						violations = append(violations, pos.String()+": forbidden colorFromRGBA8 call with all-constant arguments outside spec_theme.go")
+					}
+				}
+			}
+
+			switch coreFunc {
+			case "RGB", "RGBA":
+				pos := fset.Position(node.Pos())
+				violations = append(violations, pos.String()+": forbidden core."+coreFunc+" call outside spec_theme.go")
+			case "ParseColor":
+				if len(node.Args) == 1 {
+					if lit, ok := node.Args[0].(*ast.BasicLit); ok && lit.Kind == token.STRING {
+						if s, err := strconv.Unquote(lit.Value); err == nil && isSpecColorStringLiteral(s) {
+							pos := fset.Position(node.Pos())
+							violations = append(violations, pos.String()+": forbidden core.ParseColor("+lit.Value+") literal outside spec_theme.go")
+						}
+					}
+				}
+			case "Color":
+				if len(node.Args) == 1 {
+					if val, ok := evalConstInt(node.Args[0]); ok && val != 0 && !allowedCoreColorConstInContext(relPath, stack) {
+						pos := fset.Position(node.Pos())
+						violations = append(violations, pos.String()+": forbidden non-zero constant core.Color(...) literal outside spec_theme.go")
+					}
+				}
+			}
+
+		case *ast.BasicLit:
+			if node.Kind == token.STRING {
+				if s, err := strconv.Unquote(node.Value); err == nil && isSpecColorStringLiteral(s) {
+					if !allowedColorStringInContext(relPath, stack) {
+						pos := fset.Position(node.Pos())
+						violations = append(violations, pos.String()+": forbidden color string literal "+node.Value+" outside spec_theme.go")
+					}
+				}
+			}
+		}
+
+		ast.Inspect(n, func(child ast.Node) bool {
+			if child == n || child == nil {
+				return child == n
+			}
+			walk(child)
+			return false
+		})
+	}
+	walk(file)
+	return violations
+}
+
 // #1002 Acceptance 2: Every non-test Go file in packages/game/editor outside spec_theme.go
-// must use Spec theme tokens instead of core.RGB, core.RGBA, or hardcoded UI hex color literals.
-// Scene content defaults (such as scene.BackgroundColor, sky/fog/light defaults, and hex input
-// placeholders) stay scene data and are explicitly allowlisted below.
+// must use Spec theme tokens instead of core.RGB, core.RGBA, constant core.Color/colorFromRGBA8,
+// or hardcoded UI hex/rgb/rgba color literals. Scene content defaults (such as scene.BackgroundColor,
+// sky/fog/light defaults, and hex input placeholders) stay scene data and are narrowed by exact
+// struct field / call site context.
 func TestSpecNoHardcodedColorLiteralsInEditor(t *testing.T) {
-	hexStringRe := regexp.MustCompile(`^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$`)
-
-	// Explicit minimal allowlist for scene-content data defaults & hex input placeholders (never UI chrome).
-	allowedHexStringFiles := map[string]bool{
-		"demo.go":              true, // default demo scene BackgroundColor
-		"environment_panel.go": true, // default 3D sky/fog/directional-light scene data and hex placeholders
-		"first_run.go":         true, // first-run starter scene BackgroundColor
-		"inspector_room.go":    true, // room transition tint hex field placeholder
-		"inspector_scene.go":   true, // scene BackgroundColor hex field placeholder
-		"materials_ui.go":      true, // material albedo/emissive hex field placeholders
-		"scene3d_edit.go":      true, // default 3D light scene data colors
-		"state.go":             true, // default new scene BackgroundColor
-	}
-	allowedCoreColorHexFiles := map[string]bool{
-		"particles.go":    true, // default particle emitter ramp stop data
-		"particles_ui.go": true, // default new particle color stop data
-	}
-
 	fset := token.NewFileSet()
 	var violations []string
 
@@ -761,7 +1062,8 @@ func TestSpecNoHardcodedColorLiteralsInEditor(t *testing.T) {
 		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
 			return nil
 		}
-		if filepath.Clean(path) == "spec_theme.go" {
+		rel := filepath.ToSlash(filepath.Clean(path))
+		if rel == "spec_theme.go" {
 			return nil
 		}
 
@@ -770,45 +1072,7 @@ func TestSpecNoHardcodedColorLiteralsInEditor(t *testing.T) {
 			t.Errorf("parse %s: %v", path, parseErr)
 			return nil
 		}
-
-		ast.Inspect(file, func(n ast.Node) bool {
-			switch node := n.(type) {
-			case *ast.CallExpr:
-				if sel, ok := node.Fun.(*ast.SelectorExpr); ok {
-					if ident, ok := sel.X.(*ast.Ident); ok && ident.Name == "core" {
-						switch sel.Sel.Name {
-						case "RGB", "RGBA":
-							pos := fset.Position(node.Pos())
-							violations = append(violations, pos.String()+": forbidden core."+sel.Sel.Name+" call outside spec_theme.go")
-						case "ParseColor":
-							if len(node.Args) == 1 {
-								if lit, ok := node.Args[0].(*ast.BasicLit); ok && lit.Kind == token.STRING {
-									if s, err := strconv.Unquote(lit.Value); err == nil && hexStringRe.MatchString(s) {
-										pos := fset.Position(node.Pos())
-										violations = append(violations, pos.String()+": forbidden core.ParseColor("+lit.Value+") literal outside spec_theme.go")
-									}
-								}
-							}
-						case "Color":
-							if !allowedCoreColorHexFiles[filepath.ToSlash(path)] && len(node.Args) == 1 {
-								if lit, ok := node.Args[0].(*ast.BasicLit); ok && lit.Kind == token.INT && strings.HasPrefix(strings.ToLower(lit.Value), "0x") && lit.Value != "0x0" {
-									pos := fset.Position(node.Pos())
-									violations = append(violations, pos.String()+": forbidden core.Color("+lit.Value+") literal outside spec_theme.go")
-								}
-							}
-						}
-					}
-				}
-			case *ast.BasicLit:
-				if node.Kind == token.STRING && !allowedHexStringFiles[filepath.ToSlash(path)] {
-					if s, err := strconv.Unquote(node.Value); err == nil && hexStringRe.MatchString(s) {
-						pos := fset.Position(node.Pos())
-						violations = append(violations, pos.String()+": forbidden hex color literal "+node.Value+" outside spec_theme.go")
-					}
-				}
-			}
-			return true
-		})
+		violations = append(violations, checkSpecColorLiteralsInFile(fset, rel, file)...)
 		return nil
 	})
 	if err != nil {
@@ -816,6 +1080,143 @@ func TestSpecNoHardcodedColorLiteralsInEditor(t *testing.T) {
 	}
 	if len(violations) > 0 {
 		t.Fatalf("found %d hardcoded color literal(s) outside spec_theme.go:\n%s", len(violations), strings.Join(violations, "\n"))
+	}
+}
+
+func TestSpecColorLiteralASTGuardrailCatchesPatterns(t *testing.T) {
+	parseAndCheck := func(relPath, src string) []string {
+		t.Helper()
+		fset := token.NewFileSet()
+		file, err := parser.ParseFile(fset, relPath, src, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", relPath, err)
+		}
+		return checkSpecColorLiteralsInFile(fset, relPath, file)
+	}
+
+	mustReject := []struct {
+		name    string
+		relPath string
+		src     string
+	}{
+		{
+			name:    "3-digit hex string",
+			relPath: "panel.go",
+			src:     `package editor; var s = "#fff"`,
+		},
+		{
+			name:    "4-digit hex string",
+			relPath: "panel.go",
+			src:     `package editor; var s = "#1234"`,
+		},
+		{
+			name:    "6-digit hex in UI style inside allowlisted file",
+			relPath: "environment_panel.go",
+			src:     `package editor; import "github.com/nsgo-dev/nsgo/core"; var s = core.Style{Color: "#112233"}`,
+		},
+		{
+			name:    "rgb string literal",
+			relPath: "panel.go",
+			src:     `package editor; var s = "rgb(255, 128, 0)"`,
+		},
+		{
+			name:    "rgba string literal outside ui.Input Placeholder",
+			relPath: "inspector_scene.go",
+			src:     `package editor; var s = "rgba(12, 16, 30, 0.85)"`,
+		},
+		{
+			name:    "decimal core.Color literal",
+			relPath: "panel.go",
+			src:     `package editor; import "github.com/nsgo-dev/nsgo/core"; var c = core.Color(123456)`,
+		},
+		{
+			name:    "core.Color(uint32(hex)) literal",
+			relPath: "panel.go",
+			src:     `package editor; import "github.com/nsgo-dev/nsgo/core"; var c = core.Color(uint32(0x112233ff))`,
+		},
+		{
+			name:    "core.Color(uint32(decimal)) literal",
+			relPath: "panel.go",
+			src:     `package editor; import "github.com/nsgo-dev/nsgo/core"; var c = core.Color(uint32(987654))`,
+		},
+		{
+			name:    "aliased core import RGB",
+			relPath: "panel.go",
+			src:     `package editor; import c "github.com/nsgo-dev/nsgo/core"; var col = c.RGB(0x112233)`,
+		},
+		{
+			name:    "aliased core import RGBA",
+			relPath: "panel.go",
+			src:     `package editor; import c "github.com/nsgo-dev/nsgo/core"; var col = c.RGBA(0x112233, 0.5)`,
+		},
+		{
+			name:    "aliased core import ParseColor 3-digit hex",
+			relPath: "panel.go",
+			src:     `package editor; import c "github.com/nsgo-dev/nsgo/core"; var col, _ = c.ParseColor("#abc")`,
+		},
+		{
+			name:    "aliased core import Color constant",
+			relPath: "panel.go",
+			src:     `package editor; import c "github.com/nsgo-dev/nsgo/core"; var col = c.Color(uint32(0xff0000ff))`,
+		},
+		{
+			name:    "colorFromRGBA8 with all-constant arguments",
+			relPath: "panel.go",
+			src:     `package editor; var col = colorFromRGBA8(255, 255, 255, 255)`,
+		},
+		{
+			name:    "colorFromRGBA8 with constant hex expressions",
+			relPath: "panel.go",
+			src:     `package editor; var col = colorFromRGBA8(0x10, 0x20, 0x30, uint8(0xff))`,
+		},
+	}
+
+	for _, tc := range mustReject {
+		t.Run("reject/"+tc.name, func(t *testing.T) {
+			if got := parseAndCheck(tc.relPath, tc.src); len(got) == 0 {
+				t.Fatalf("expected AST guardrail to reject %q, but got 0 violations", tc.name)
+			}
+		})
+	}
+
+	mustAllow := []struct {
+		name    string
+		relPath string
+		src     string
+	}{
+		{
+			name:    "transparent core.Color(0)",
+			relPath: "panel.go",
+			src:     `package editor; import "github.com/nsgo-dev/nsgo/core"; var col = core.Color(0)`,
+		},
+		{
+			name:    "dynamic colorFromRGBA8 raster pixel",
+			relPath: "terrain.go",
+			src:     `package editor; func f(r, g, b uint8) { _ = colorFromRGBA8(r, g, b, 255) }`,
+		},
+		{
+			name:    "dynamic core.Color(uint32(v))",
+			relPath: "particles.go",
+			src:     `package editor; import "github.com/nsgo-dev/nsgo/core"; func f(v uint32) { _ = core.Color(uint32(v)) }`,
+		},
+		{
+			name:    "allowlisted ui.Input Placeholder",
+			relPath: "inspector_scene.go",
+			src:     `package editor; import "github.com/nsgo-dev/nsgo/ui"; var _ = ui.Input{Placeholder: "rgba(12, 16, 30, 0.85)"}`,
+		},
+		{
+			name:    "allowlisted sceneformat.LightDoc Color",
+			relPath: "scene3d_edit.go",
+			src:     `package editor; var _ = sceneformat.LightDoc{Color: "#ffffff"}`,
+		},
+	}
+
+	for _, tc := range mustAllow {
+		t.Run("allow/"+tc.name, func(t *testing.T) {
+			if got := parseAndCheck(tc.relPath, tc.src); len(got) > 0 {
+				t.Fatalf("expected AST guardrail to allow %q, got violations: %v", tc.name, got)
+			}
+		})
 	}
 }
 
@@ -903,4 +1304,151 @@ func TestSpecEditorChromeRegionsAndSelectionOutline(t *testing.T) {
 		Locale: "en-US",
 	})
 	verifyMode("light", editor.LightSpecPalette())
+}
+
+func TestSpecLightModePlayUIAndTilePaletteContrast(t *testing.T) {
+	ed := newTestEditor(t)
+	light := editor.LightSpecPalette()
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1280, 800), nsgotest.Environment(core.Environment{
+		OS:     core.OSMacOS,
+		Idiom:  core.IdiomDesktop,
+		Dark:   false,
+		Locale: "en-US",
+	}))
+
+	// 1. Enter Play mode in Light appearance and verify Play bar, Inspector|Agent tabs, and Agent panel use Spec Light tokens.
+	app.Post(func() {
+		if err := ed.Play(); err != nil {
+			t.Errorf("Play: %v", err)
+		}
+	})
+	app.Settle()
+
+	tabs := app.Find("id:play-inspector-tabs").Style
+	if tabs.Background != light.Panel || tabs.BorderColor != light.Line {
+		t.Fatalf("light play-inspector-tabs bg=#%06X border=#%06X, want Panel=#%06X Line=#%06X",
+			uint32(tabs.Background)>>8, uint32(tabs.BorderColor)>>8, uint32(light.Panel)>>8, uint32(light.Line)>>8)
+	}
+	var findTextViews func(v *nsgotest.View, text string) []*nsgotest.View
+	findTextViews = func(v *nsgotest.View, text string) []*nsgotest.View {
+		if v == nil {
+			return nil
+		}
+		var out []*nsgotest.View
+		if v.Text == text {
+			out = append(out, v)
+		}
+		for _, ch := range v.Children {
+			out = append(out, findTextViews(ch, text)...)
+		}
+		return out
+	}
+
+	tabInsp := app.Find("id:play-tab-inspector")
+	foundLightTabText := false
+	for _, n := range findTextViews(tabInsp, "Inspector") {
+		if n.TextStyle.Color != light.TextPrimary {
+			t.Fatalf("light play-tab-inspector text = #%06X, want TextPrimary #%06X",
+				uint32(n.TextStyle.Color)>>8, uint32(light.TextPrimary)>>8)
+		}
+		if r := editor.ContrastRatio(n.TextStyle.Color, light.Panel); r < 4.5 {
+			t.Fatalf("light play-tab-inspector contrast = %.2f:1, want >= 4.5:1", r)
+		}
+		foundLightTabText = true
+	}
+	if !foundLightTabText {
+		t.Fatal("could not find Inspector text node inside play-tab-inspector")
+	}
+
+	stopBtn := app.Find("id:play-stop-btn")
+	if stopBtn.Style.Background != light.TextPrimary {
+		t.Fatalf("light play-stop-btn bg = #%06X, want TextPrimary #%06X",
+			uint32(stopBtn.Style.Background)>>8, uint32(light.TextPrimary)>>8)
+	}
+	foundStopText := false
+	for _, n := range findTextViews(stopBtn, "Stop") {
+		if n.TextStyle.Color != light.OnTextPrimary {
+			t.Fatalf("light play-stop-btn text = #%06X, want OnTextPrimary #%06X",
+				uint32(n.TextStyle.Color)>>8, uint32(light.OnTextPrimary)>>8)
+		}
+		foundStopText = true
+	}
+	if !foundStopText {
+		t.Fatal("could not find Stop text node inside play-stop-btn")
+	}
+
+	app.Press("id:play-tab-agent")
+	marksHdr := app.Find("id:play-marks-header")
+	if marksHdr.TextStyle.Color != light.TextFaint {
+		t.Fatalf("light play-marks-header color = #%06X, want TextFaint #%06X",
+			uint32(marksHdr.TextStyle.Color)>>8, uint32(light.TextFaint)>>8)
+	}
+
+	app.Post(func() {
+		_ = ed.Stop()
+	})
+	app.Settle()
+
+	// 2. Open TilePaletteView in Light appearance and verify selected tile card uses Spec Light tokens.
+	app.Post(func() {
+		ed.SetActiveLayer("floor")
+		ed.SetTool(editor.ToolPaintTile)
+	})
+	app.Settle()
+
+	selCard := app.Find("id:tile-palette-selected").Style
+	if selCard.Background != light.Raised || selCard.BorderColor != light.LineRaised {
+		t.Fatalf("light tile-palette-selected bg=#%06X border=#%06X, want Raised=#%06X LineRaised=#%06X",
+			uint32(selCard.Background)>>8, uint32(selCard.BorderColor)>>8, uint32(light.Raised)>>8, uint32(light.LineRaised)>>8)
+	}
+	selName := app.Find("id:tile-palette-selected-name")
+	if selName.TextStyle.Color != light.TextPrimary {
+		t.Fatalf("light tile-palette-selected-name color = #%06X, want TextPrimary #%06X",
+			uint32(selName.TextStyle.Color)>>8, uint32(light.TextPrimary)>>8)
+	}
+	selMeta := app.Find("id:tile-palette-selected-meta")
+	if selMeta.TextStyle.Color != light.TextFaint {
+		t.Fatalf("light tile-palette-selected-meta color = #%06X, want TextFaint #%06X",
+			uint32(selMeta.TextStyle.Color)>>8, uint32(light.TextFaint)>>8)
+	}
+}
+
+func TestSpecViewport3DGridUsesActiveSpecPalette(t *testing.T) {
+	ed := newTestEditor(t)
+	ed.SetViewMode(editor.ViewMode3D)
+
+	for _, tc := range []struct {
+		name       string
+		appearance editor.Appearance
+		want       editor.SpecPalette
+	}{
+		{"dark", editor.AppearanceDark, editor.DarkSpecPalette()},
+		{"light", editor.AppearanceLight, editor.LightSpecPalette()},
+	} {
+		if err := ed.SetAppearance(tc.appearance); err != nil {
+			t.Fatalf("SetAppearance(%s): %v", tc.name, err)
+		}
+		d := &core.Drawing{}
+		ed.DrawViewport3D(d, core.Size{Width: 640, Height: 360})
+
+		wantGround := ui.Alpha(tc.want.Viewport3DGround, 0.55)
+		foundGrid, foundGround := false, false
+		for _, op := range d.Ops {
+			if op.Kind == core.DrawStrokeColor && op.Color == tc.want.Viewport3DGrid {
+				foundGrid = true
+			}
+			if op.Kind == core.DrawFillColor && op.Color == wantGround {
+				foundGround = true
+			}
+		}
+		if !foundGrid {
+			t.Errorf("%s: DrawViewport3D did not stroke grid with Viewport3DGrid #%06X", tc.name, uint32(tc.want.Viewport3DGrid)>>8)
+		}
+		if !foundGround {
+			t.Errorf("%s: DrawViewport3D did not fill ground plane with Viewport3DGround #%06X", tc.name, uint32(tc.want.Viewport3DGround)>>8)
+		}
+	}
 }

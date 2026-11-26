@@ -378,8 +378,8 @@ func specButtonColors(p SpecPalette, v specButtonVariant) (bg, hover, active, fg
 		// Spec contrast table: 18.75:1 AAA in Dark (#101216 on #FFFFFF) and Light (#FFFFFF on #101216).
 		return p.TextPrimary, specPrimaryHover(p), p.TextSecondary, p.OnTextPrimary, p.TextPrimary
 	case specBtnAccent:
-		// Spec contrast table: OnFill ink on Accent fill meets WCAG AA in both Dark and Light.
-		return p.Accent.Fg, p.Accent.Fg, p.Accent.Fg, p.Accent.OnFill, p.Accent.Fg
+		// Spec contrast table: OnFill ink on Accent fill (and hover/pressed) meets WCAG AA in both Dark and Light.
+		return p.Accent.Fg, p.AccentHover, p.AccentPressed, p.Accent.OnFill, p.Accent.Fg
 	case specBtnSecondary:
 		return p.LineRaised, hov.Over(p.LineRaised), act.Over(p.LineRaised), p.TextSecondary, p.LineRaised
 	case specBtnGhost:

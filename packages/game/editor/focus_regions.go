@@ -980,15 +980,11 @@ func (s SpecSwitch) Render(cx *core.Scope) core.Node {
 			if checked() {
 				tx = 14
 			}
-			knob := colors.Knob()
-			if knob == 0 {
-				knob = lightSpecPalette.Raised
-			}
 			return core.Style{
 				Width:        core.Pt(14),
 				Height:       core.Pt(14),
 				CornerRadius: 7,
-				Background:   knob,
+				Background:   colors.Knob(),
 				Transform:    core.Transform{TranslateX: tx},
 			}
 		},

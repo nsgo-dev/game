@@ -785,19 +785,16 @@ func (e *Editor) cancelLightingDrag2D() bool {
 	return true
 }
 
-var (
-	lightOverlayColor        = specAlpha(darkSpecPalette.Warning.Fg, 0.85)
-	lightOverlaySubtleColor  = specAlpha(darkSpecPalette.Warning.Fg, 0.45)
-	occluderOverlayColor     = specAlpha(darkSpecPalette.Agent.Fg, 0.9)
-	occluderOverlaySubtle    = specAlpha(darkSpecPalette.Agent.Fg, 0.45)
-	occluderEdgeMidFillColor = CompositeOver(specAlpha(darkSpecPalette.TextPrimary, 0.65), darkSpecPalette.Agent.Fg)
-)
-
 // drawLightingOverlays2D draws light origin markers and occluder outlines for all visible objects in edit mode so lights and occluders without sprites remain easy to locate and select.
 func (e *Editor) drawLightingOverlays2D(d *core.Drawing, scene *sceneformat.BuiltScene) {
 	if d == nil || scene == nil || e.playing {
 		return
 	}
+	pal := e.activeSpecPalette()
+	lightOverlayColor := specAlpha(pal.Warning.Fg, 0.85)
+	lightOverlaySubtleColor := specAlpha(pal.Warning.Fg, 0.45)
+	occluderOverlayColor := specAlpha(pal.Agent.Fg, 0.9)
+	occluderOverlaySubtle := specAlpha(pal.Agent.Fg, 0.45)
 	for _, layer := range scene.Layers {
 		if !layer.Visible || layer.Space != sceneformat.SpaceWorld {
 			continue
@@ -858,6 +855,15 @@ func (e *Editor) drawLightingOverlays2D(d *core.Drawing, scene *sceneformat.Buil
 
 // drawSelectedLightingHandles2D draws the interactive light radius/spot-angle handles and occluder rect/polygon shape handles for the currently selected object.
 func (e *Editor) drawSelectedLightingHandles2D(d *core.Drawing) {
+	pal := e.activeSpecPalette()
+	lightOverlayColor := specAlpha(pal.Warning.Fg, 0.85)
+	lightOverlaySubtleColor := specAlpha(pal.Warning.Fg, 0.45)
+	occluderOverlayColor := specAlpha(pal.Agent.Fg, 0.9)
+	occluderEdgeMidFillColor := CompositeOver(specAlpha(pal.TextPrimary, 0.65), pal.Agent.Fg)
+	gizmoColorRing := specAlpha(pal.Accent.Edge, 0.8)
+	gizmoColorCenter := pal.TextPrimary
+	gizmoColorActive := pal.Warning.Fg
+
 	active := e.drag2D.handle
 	pick := func(h GizmoHandle2D, c core.Color) core.Color {
 		if h == active {

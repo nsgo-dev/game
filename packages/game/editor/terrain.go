@@ -1584,15 +1584,17 @@ func (e *Editor) ClearTerrainHover() {
 
 // terrainLayerPreviewColors gives distinct visual tints from spec_theme.yaml for up to 8 terrain layers
 // in the 3D viewport wireframe when a layer has no explicit RGB tint.
-var terrainLayerPreviewColors = [8]core.Color{
-	specAlpha(darkSpecPalette.Added.Fg, 0.85),
-	specAlpha(darkSpecPalette.Changed.Fg, 0.85),
-	specAlpha(darkSpecPalette.TextFaint, 0.85),
-	specAlpha(darkSpecPalette.TextPrimary, 0.90),
-	specAlpha(darkSpecPalette.Warning.Fg, 0.85),
-	specAlpha(darkSpecPalette.TextMuted, 0.85),
-	specAlpha(darkSpecPalette.Agent.Fg, 0.85),
-	specAlpha(darkSpecPalette.Accent.Fg, 0.85),
+func terrainLayerPreviewColors(spec SpecPalette) [8]core.Color {
+	return [8]core.Color{
+		specAlpha(spec.Added.Fg, 0.85),
+		specAlpha(spec.Changed.Fg, 0.85),
+		specAlpha(spec.TextFaint, 0.85),
+		specAlpha(spec.TextPrimary, 0.90),
+		specAlpha(spec.Warning.Fg, 0.85),
+		specAlpha(spec.TextMuted, 0.85),
+		specAlpha(spec.Agent.Fg, 0.85),
+		specAlpha(spec.Accent.Fg, 0.85),
+	}
 }
 
 func (e *Editor) drawTerrain3D(d *core.Drawing, w, h float32) {
@@ -1600,6 +1602,7 @@ func (e *Editor) drawTerrain3D(d *core.Drawing, w, h float32) {
 		return
 	}
 	spec := e.activeSpecPalette()
+	previewColors := terrainLayerPreviewColors(spec)
 	t := e.terrain
 	hm := t.hm
 	if hm.Cols < 2 || hm.Rows < 2 {
@@ -1618,7 +1621,7 @@ func (e *Editor) drawTerrain3D(d *core.Drawing, w, h float32) {
 			b := uint8(clamp01f32(l.Color[2]) * 255)
 			layerColors[i] = specAlpha(colorFromRGBA8(r, g, b, 255), 0.85)
 		} else {
-			layerColors[i] = terrainLayerPreviewColors[i%len(terrainLayerPreviewColors)]
+			layerColors[i] = previewColors[i%len(previewColors)]
 		}
 	}
 
@@ -1635,7 +1638,7 @@ func (e *Editor) drawTerrain3D(d *core.Drawing, w, h float32) {
 		for c := 0; c < hm.Cols; c += stepC {
 			nextC := min(c+stepC, hm.Cols-1)
 			p0 := samplePos(c, r)
-			col := terrainLayerPreviewColors[0]
+			col := previewColors[0]
 			if len(layerColors) > 0 {
 				if sample, ok := hm.LayerAt(p0[0], p0[2]); ok && sample.Dominant < len(layerColors) {
 					col = layerColors[sample.Dominant]

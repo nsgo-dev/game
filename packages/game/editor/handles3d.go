@@ -985,6 +985,7 @@ func (e *Editor) drawSceneLightAndCameraIcons3D(d *core.Drawing, w, h float32) {
 	if e.LookThroughCamera3D() {
 		_, activeCamID, _ = e.ActiveSceneCamera3D(w, h)
 	}
+	pal := e.activeSpecPalette()
 	for li := range doc.Layers {
 		layer := &doc.Layers[li]
 		if !layer.IsVisible() || layer.EffectiveSpace() == sceneformat.SpaceScreen {
@@ -1003,25 +1004,25 @@ func (e *Editor) drawSceneLightAndCameraIcons3D(d *core.Drawing, w, h float32) {
 				if posed.Light != nil {
 					pos := vec32(world.point([3]float64{0, 0, 0}))
 					if px, py, _, vis := vc.project(pos, w, h); vis {
-						drawLightIcon2D(d, px, py, posed.Light, selected)
+						drawLightIcon2D(d, pal, px, py, posed.Light, selected)
 					}
 				}
 				if posed.Camera != nil && o.ID != activeCamID {
 					pos := vec32(world.point([3]float64{0, 0, 0}))
 					if px, py, _, vis := vc.project(pos, w, h); vis {
-						drawCameraIcon2D(d, px, py, posed.Camera, selected)
+						drawCameraIcon2D(d, pal, px, py, posed.Camera, selected)
 					}
 				}
 				if posed.ReflectionProbe != nil {
 					pos := vec32(world.point([3]float64{0, 0, 0}))
 					if px, py, _, vis := vc.project(pos, w, h); vis {
-						drawReflectionProbeIcon2D(d, px, py, posed.ReflectionProbe, selected)
+						drawReflectionProbeIcon2D(d, pal, px, py, posed.ReflectionProbe, selected)
 					}
 				}
 				if posed.LightProbeGrid != nil {
 					pos := vec32(world.point([3]float64{0, 0, 0}))
 					if px, py, _, vis := vc.project(pos, w, h); vis {
-						drawLightProbeGridIcon2D(d, px, py, posed.LightProbeGrid, selected)
+						drawLightProbeGridIcon2D(d, pal, px, py, posed.LightProbeGrid, selected)
 					}
 				}
 				walk(o.Children, world)
@@ -1031,18 +1032,17 @@ func (e *Editor) drawSceneLightAndCameraIcons3D(d *core.Drawing, w, h float32) {
 	}
 }
 
-func lightIconColor(l *sceneformat.LightDoc) core.Color {
+func lightIconColor(pal SpecPalette, l *sceneformat.LightDoc) core.Color {
 	if l != nil && l.Color != "" {
 		if c, err := core.ParseColor(l.Color); err == nil {
 			return c
 		}
 	}
-	return darkSpecPalette.Warning.Fg
+	return pal.Warning.Fg
 }
 
-func drawLightIcon2D(d *core.Drawing, x, y float32, l *sceneformat.LightDoc, selected bool) {
-	pal := darkSpecPalette
-	col := lightIconColor(l)
+func drawLightIcon2D(d *core.Drawing, pal SpecPalette, x, y float32, l *sceneformat.LightDoc, selected bool) {
+	col := lightIconColor(pal, l)
 	ring := specAlpha(pal.Bg, 0.85)
 	if selected {
 		ring = pal.Accent.Edge
@@ -1080,8 +1080,7 @@ func drawLightIcon2D(d *core.Drawing, x, y float32, l *sceneformat.LightDoc, sel
 	}
 }
 
-func drawCameraIcon2D(d *core.Drawing, x, y float32, c *sceneformat.Camera3DDoc, selected bool) {
-	pal := darkSpecPalette
+func drawCameraIcon2D(d *core.Drawing, pal SpecPalette, x, y float32, c *sceneformat.Camera3DDoc, selected bool) {
 	col := pal.TextSecondary
 	if c != nil && c.Current {
 		col = pal.Accent.Fg
@@ -1104,8 +1103,7 @@ func drawCameraIcon2D(d *core.Drawing, x, y float32, c *sceneformat.Camera3DDoc,
 		Fill().Restore()
 }
 
-func drawReflectionProbeIcon2D(d *core.Drawing, x, y float32, p *sceneformat.ReflectionProbeDoc, selected bool) {
-	pal := darkSpecPalette
+func drawReflectionProbeIcon2D(d *core.Drawing, pal SpecPalette, x, y float32, p *sceneformat.ReflectionProbeDoc, selected bool) {
 	col := pal.Accent.Fg
 	if p != nil && p.Cubemap == "" {
 		col = pal.TextFaint
@@ -1121,8 +1119,7 @@ func drawReflectionProbeIcon2D(d *core.Drawing, x, y float32, p *sceneformat.Ref
 	d.Save().SetFillColor(specAlpha(pal.TextPrimary, 0.9)).BeginPath().Arc(x-1.8, y-1.8, 1.8, 0, float32(2*math.Pi), false).Fill().Restore()
 }
 
-func drawLightProbeGridIcon2D(d *core.Drawing, x, y float32, g *sceneformat.LightProbeGridDoc, selected bool) {
-	pal := darkSpecPalette
+func drawLightProbeGridIcon2D(d *core.Drawing, pal SpecPalette, x, y float32, g *sceneformat.LightProbeGridDoc, selected bool) {
 	col := pal.Warning.Fg
 	if g != nil && g.Data == "" {
 		col = pal.TextMuted
@@ -1203,7 +1200,7 @@ func (e *Editor) drawSceneHandles3D(d *core.Drawing, w, h float32) {
 	}
 
 	if obj.Light != nil {
-		col := lightIconColor(obj.Light)
+		col := lightIconColor(spec, obj.Light)
 		soft := col.Faded(0.65)
 		switch obj.Light.Kind {
 		case sceneformat.LightDirectional:

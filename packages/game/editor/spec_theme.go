@@ -104,8 +104,6 @@ func loadSpecTheme() (*core.Theme, SpecPalette, SpecPalette) {
 	}
 	dark := extractSpecPalette(&th.Dark, true)
 	light := extractSpecPalette(&th.Light, false)
-	th.Dark.SetColor("ring", dark.Accent.Edge)
-	th.Light.SetColor("ring", light.Accent.Edge)
 	return th, dark, light
 }
 
@@ -161,6 +159,8 @@ type SpecPalette struct {
 	HoverOverlay     core.Color // Subtle hover wash over surfaces (`surfaceHover`).
 	ActiveOverlay    core.Color // Subtle pressed wash over surfaces (`surfacePressed`).
 	PrimaryHover     core.Color // Hover fill for solid TextPrimary buttons (`specPrimaryHover`).
+	AccentHover      core.Color // Hover fill for solid Accent buttons (`accentHover`).
+	AccentPressed    core.Color // Pressed fill for solid Accent buttons (`accentPressed`).
 	Viewport3DGround core.Color // 3D viewport ground plane (`specViewport3DGround`).
 	Viewport3DGrid   core.Color // 3D viewport grid line (`specViewport3DGrid`).
 	AxisX            core.Color // 3D X axis token (`specAxisX`, #FF6B6B dark / #C92A2A light).
@@ -253,6 +253,8 @@ func extractSpecPalette(p *core.Palette, dark bool) SpecPalette {
 			OnFill: mustPaletteColor(p, prefix+"OnFill"),
 		}
 	}
+	// Ensure ring focus token is declared directly in spec_theme.yaml.
+	_ = mustPaletteColor(p, "ring")
 	return SpecPalette{
 		Dark:             dark,
 		Bg:               mustPaletteColor(p, "specBg"),
@@ -278,6 +280,8 @@ func extractSpecPalette(p *core.Palette, dark bool) SpecPalette {
 		HoverOverlay:     p.SurfaceHover,
 		ActiveOverlay:    p.SurfacePressed,
 		PrimaryHover:     mustPaletteColor(p, "specPrimaryHover"),
+		AccentHover:      p.AccentHover,
+		AccentPressed:    p.AccentPressed,
 		Viewport3DGround: mustPaletteColor(p, "specViewport3DGround"),
 		Viewport3DGrid:   mustPaletteColor(p, "specViewport3DGrid"),
 		AxisX:            mustPaletteColor(p, "specAxisX"),
@@ -371,8 +375,14 @@ func SpecContrastTable(p SpecPalette) []SpecContrastPair {
 
 		// Filled primary and accent buttons & tags.
 		{Name: "onAccent on accent", Foreground: p.Accent.OnFill, Background: p.Accent.Fg, MinRatio: 4.5, Usage: "Keep button, Allow once, selection name tag; weight 600"},
+		{Name: "onAccent on accentHover", Foreground: p.Accent.OnFill, Background: p.AccentHover, MinRatio: 4.5, Usage: "Hovered accent button fill"},
+		{Name: "onAccent on accentPressed", Foreground: p.Accent.OnFill, Background: p.AccentPressed, MinRatio: 4.5, Usage: "Pressed accent button fill"},
 		{Name: "onTextStrong on text strong", Foreground: p.OnTextPrimary, Background: p.TextPrimary, MinRatio: 4.5, Usage: "Primary buttons: Play, Send, Create"},
+		{Name: "onTextStrong on primaryHover", Foreground: p.OnTextPrimary, Background: p.PrimaryHover, MinRatio: 4.5, Usage: "Hovered primary button fill"},
 		{Name: "onAgent on agent", Foreground: p.Agent.OnFill, Background: p.Agent.Fg, MinRatio: 4.5, Usage: "Text on solid agent fill"},
+		{Name: "onAdded on added", Foreground: p.Added.OnFill, Background: p.Added.Fg, MinRatio: 4.5, Usage: "Text on solid added fill"},
+		{Name: "onChanged on changed", Foreground: p.Changed.OnFill, Background: p.Changed.Fg, MinRatio: 4.5, Usage: "Text on solid changed fill"},
+		{Name: "onWarning on warning", Foreground: p.Warning.OnFill, Background: p.Warning.Fg, MinRatio: 4.5, Usage: "Text on solid warning fill"},
 		{Name: "onProblem on problem", Foreground: p.Removed.OnFill, Background: p.Removed.Fg, MinRatio: 4.5, Usage: "Problem filled pill on live object"},
 
 		// Warning card & toast surface.

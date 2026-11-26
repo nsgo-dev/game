@@ -10,8 +10,7 @@ import (
 	"github.com/nsgo-dev/nsgo/core"
 )
 
-func physicsDebugColor(isTrigger bool, bodyKind string) core.Color {
-	pal := darkSpecPalette
+func physicsDebugColor(pal SpecPalette, isTrigger bool, bodyKind string) core.Color {
 	if isTrigger {
 		return specAlpha(pal.Warning.Fg, 0.95)
 	}
@@ -73,18 +72,19 @@ func (e *Editor) drawPhysicsDebug2D(d *core.Drawing, scene *sceneformat.BuiltSce
 		} else {
 			applyAffine(d, e.layerAffineFor(layer.Space, layer.ParallaxX, layer.ParallaxY))
 		}
+		pal := e.activeSpecPalette()
 		for _, item := range shapes {
-			drawPhysicsShape2D(d, item)
+			drawPhysicsShape2D(d, pal, item)
 		}
 		d.Restore()
 	}
 }
 
-func drawPhysicsShape2D(d *core.Drawing, item sceneformat.PhysicsDebugShape2D) {
+func drawPhysicsShape2D(d *core.Drawing, pal SpecPalette, item sceneformat.PhysicsDebugShape2D) {
 	if item.Shape.Empty() {
 		return
 	}
-	col := physicsDebugColor(item.IsTrigger, item.BodyKind)
+	col := physicsDebugColor(pal, item.IsTrigger, item.BodyKind)
 	d.Save()
 	d.SetStrokeColor(col).SetLineWidth(1.5)
 	switch item.Shape.Kind {
@@ -186,7 +186,7 @@ func (e *Editor) drawPhysicsShape3D(d *core.Drawing, item sceneformat.PhysicsDeb
 	if len(edges) == 0 {
 		return
 	}
-	col := physicsDebugColor(item.IsTrigger, item.BodyKind)
+	col := physicsDebugColor(e.activeSpecPalette(), item.IsTrigger, item.BodyKind)
 	d.Save().SetStrokeColor(col).SetLineWidth(1.5).BeginPath()
 	hasSeg := false
 	for _, seg := range edges {

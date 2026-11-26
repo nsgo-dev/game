@@ -948,12 +948,6 @@ func (e *Editor) TilePreview() []TilePreviewCell {
 	return out
 }
 
-// Spec token colors for brush preview and selection overlays.
-var (
-	previewAccentColor = darkSpecPalette.Accent.Fg
-	previewEraseColor  = darkSpecPalette.Removed.Fg
-)
-
 // drawTileSelectionOverlay draws a dashed marquee around the active TileSelection (or in-progress region select stroke).
 func (e *Editor) drawTileSelectionOverlay(d *core.Drawing) {
 	var rect TileRect
@@ -1046,6 +1040,7 @@ func (e *Editor) drawStampHoverOverlay(d *core.Drawing, tm *sceneformat.TilemapD
 		p := e.TilePalette()
 		pal = &p
 	}
+	spec := e.activeSpecPalette()
 	hasFlips := len(stamp.Flips) == len(stamp.Tiles)
 	for dy := range stamp.Height {
 		mr := row + dy
@@ -1063,7 +1058,7 @@ func (e *Editor) drawStampHoverOverlay(d *core.Drawing, tm *sceneformat.TilemapD
 			}
 			x, y := float32(mc)*tw, float32(mr)*th
 			if tid == 0 {
-				d.SetFillColor(specAlpha(e.activeSpecPalette().Removed.Fg, 0.18)).FillRect(x, y, tw, th)
+				d.SetFillColor(specAlpha(spec.Removed.Fg, 0.18)).FillRect(x, y, tw, th)
 			} else {
 				e.drawGhostTileID(d, tm, tid, flip, x, y, pal)
 			}
@@ -1071,7 +1066,7 @@ func (e *Editor) drawStampHoverOverlay(d *core.Drawing, tm *sceneformat.TilemapD
 	}
 	// Outline the clamped stamp footprint.
 	if r, ok := clampTileRect(TileRect{Col0: col, Row0: row, Col1: col + stamp.Width - 1, Row1: row + stamp.Height - 1}, tm.Width, tm.Height); ok {
-		d.SetStrokeColor(hoverPaintColor).SetLineWidth(lw).StrokeRect(
+		d.SetStrokeColor(spec.Accent.Fg).SetLineWidth(lw).StrokeRect(
 			float32(r.Col0)*tw, float32(r.Row0)*th,
 			float32(r.Width())*tw, float32(r.Height())*th,
 		)

@@ -1343,7 +1343,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 			return fieldRow(label, control)
 		}
 		return inspectorFieldRow(
-			ed, rev, objID, "", overrideKey, "inspector-"+overrideKey,
+			cx, ed, rev, objID, "", overrideKey, "inspector-"+overrideKey,
 			labelWithOverride(overrideKey, withTooltip(core.Text{
 				Content:  label,
 				MaxLines: 1,
@@ -1405,7 +1405,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 			}
 		}
 		ctrl := controlWithRevert(overrideKey, label, inspectorNumberBox(cx, ed, cfg))
-		return inspectorFieldRow(ed, rev, objID, component, fieldKey, cfg.TestID, lbl, ctrl)
+		return inspectorFieldRow(cx, ed, rev, objID, component, fieldKey, cfg.TestID, lbl, ctrl)
 	}
 
 	// multiAxisRow renders a compact X Y (or X Y Z in 3D) row with inline scrubbable axis labels,
@@ -1496,6 +1496,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 			}
 		}
 		return inspectorFieldRowKeys(
+			cx,
 			ed,
 			rev,
 			objID,
@@ -1666,7 +1667,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 				})
 			}
 			nodes = append(nodes, inspectorFieldRow(
-				ed, rev, objID, "", "name", "inspector-name",
+				cx, ed, rev, objID, "", "name", "inspector-name",
 				labelWithOverride("name", withTooltip(core.Text{
 					Content:  ed.T("inspector.name"),
 					MaxLines: 1,
@@ -2532,7 +2533,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 								Children: []core.Node{lblInner},
 							}
 						}
-						propRows = append(propRows, inspectorFieldRow(ed, rev, objID, "", "prop:"+key, cfg.TestID, lbl, controlWithRevert(ovKey, key, withTrailing(inspectorNumberBox(cx, ed, cfg), del))))
+						propRows = append(propRows, inspectorFieldRow(cx, ed, rev, objID, "", "prop:"+key, cfg.TestID, lbl, controlWithRevert(ovKey, key, withTrailing(inspectorNumberBox(cx, ed, cfg), del))))
 					case float64, float32:
 						cfg := inspectorNumberFieldCfg{
 							TestID:   "inspector-prop-" + key,
@@ -2570,7 +2571,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 								Children: []core.Node{lblInner},
 							}
 						}
-						propRows = append(propRows, inspectorFieldRow(ed, rev, objID, "", "prop:"+key, cfg.TestID, lbl, controlWithRevert(ovKey, key, withTrailing(inspectorNumberBox(cx, ed, cfg), del))))
+						propRows = append(propRows, inspectorFieldRow(cx, ed, rev, objID, "", "prop:"+key, cfg.TestID, lbl, controlWithRevert(ovKey, key, withTrailing(inspectorNumberBox(cx, ed, cfg), del))))
 					default:
 						ctrl := typedFieldControl(
 							"inspector-prop-"+key,
@@ -2596,7 +2597,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 						if isLocal {
 							lbl = plainLabel(key, "", "")
 						}
-						propRows = append(propRows, inspectorFieldRow(ed, rev, objID, "", "prop:"+key, "inspector-prop-"+key, lbl, controlWithRevert(ovKey, key, withTrailing(ctrl, del))))
+						propRows = append(propRows, inspectorFieldRow(cx, ed, rev, objID, "", "prop:"+key, "inspector-prop-"+key, lbl, controlWithRevert(ovKey, key, withTrailing(ctrl, del))))
 					}
 				}
 			}
@@ -2745,7 +2746,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 						if isLocal {
 							lbl = plainLabel(field.Name, labelID, tip)
 						}
-						compRows = append(compRows, inspectorFieldRow(ed, rev, objID, cn, field.Name, testID, lbl, controlWithRevert(ovKey, field.Name, ctrl)))
+						compRows = append(compRows, inspectorFieldRow(cx, ed, rev, objID, cn, field.Name, testID, lbl, controlWithRevert(ovKey, field.Name, ctrl)))
 					}
 					matchedFields := len(compRows)
 					if matchedFields > 0 {
@@ -2917,7 +2918,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 						if isLocal {
 							lbl = plainLabel(fk, labelID, "")
 						}
-						compRows = append(compRows, inspectorFieldRow(ed, rev, objID, cn, fk, testID, lbl, controlWithRevert(ovKey, fk, ctrl)))
+						compRows = append(compRows, inspectorFieldRow(cx, ed, rev, objID, cn, fk, testID, lbl, controlWithRevert(ovKey, fk, ctrl)))
 					}
 				}
 				if len(compRows) > 0 || (!filtering && len(m) == 0) || (filtering && matchesInspectorFilter(q, compTitle, cn)) {
