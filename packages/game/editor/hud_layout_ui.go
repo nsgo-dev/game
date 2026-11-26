@@ -36,17 +36,18 @@ func HUDLayoutView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 	canvasH := core.NewSignal(cx, float32(812))
 
 	// Pause heavy left-rail / text-width-table / inspector rebuilds (which run gameui.CheckScreen
-	// across project screens) while a touch drag streams mouse moves; selection changes on drag
-	// start and completion/cancel still update immediately.
+	// across project screens) while a touch drag streams mouse moves, and gate rebuilds on HUD
+	// state revisions so unrelated background editor notifications (such as async CheckProblems
+	// completions or disk-watch ticks) never remount HUD inspector buttons mid-press.
 	type hudStableKey struct {
 		rev uint64
 		sel string
 	}
 	var lastNonDragRev uint64
 	stableRev := core.NewMemo(cx, func() hudStableKey {
-		r := rev.Get()
+		_ = rev.Get()
 		if !ed.HUDTouchDragActive() {
-			lastNonDragRev = r
+			lastNonDragRev = ed.hud.rev
 		}
 		return hudStableKey{rev: lastNonDragRev, sel: ed.HUDSelectedNodeID()}
 	})

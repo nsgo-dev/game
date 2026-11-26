@@ -645,6 +645,16 @@ func TestHUDLayoutAnchorSafeAreaSpacingReorderAndComposer(t *testing.T) {
 		t.Fatalf("expected all overlays off after toggling, got %+v", ov)
 	}
 
+	// Unrelated background notifications (such as async CheckProblems completions triggered
+	// by HUD saves) must not remount inspector buttons mid-press.
+	fixBtnID := app.Find("id:hud-ask-agent-fix").ID
+	ed.CheckProblems()
+	ed.WaitForProblems()
+	app.Settle()
+	if gotID := app.Find("id:hud-ask-agent-fix").ID; gotID != fixBtnID {
+		t.Fatalf("hud-ask-agent-fix remounted on background CheckProblems: id %v -> %v", fixBtnID, gotID)
+	}
+
 	// Test "Ask the agent to fix N" button and composer submission.
 	app.Press("id:hud-ask-agent-fix")
 	app.Settle()

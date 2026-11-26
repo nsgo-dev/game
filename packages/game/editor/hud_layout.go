@@ -147,6 +147,7 @@ type hudDragState struct {
 
 type hudLayoutState struct {
 	open           bool
+	rev            uint64
 	session        uint64
 	screens        []hudScreenRecord
 	activePath     string
@@ -275,6 +276,7 @@ func (e *Editor) SetHUDLayoutOpen(open bool) {
 		e.CancelHUDTouchDrag()
 	}
 	e.hud.open = open
+	e.hud.rev++
 	if open {
 		e.Status = "Opened HUD & menu layout"
 	} else {
@@ -308,6 +310,7 @@ func (e *Editor) ensureHUDDefaults() {
 func (e *Editor) resetHUDForProject() {
 	e.CancelHUDTouchDrag()
 	e.hud.session++
+	e.hud.rev++
 	e.hud.screens = nil
 	e.hud.activePath = ""
 	e.hud.selectedNodeID = ""
@@ -459,6 +462,7 @@ func (e *Editor) refreshHUDScreensInternal(keepActive bool) error {
 		e.hud.activePath = ""
 	}
 	e.ensureHUDDefaults()
+	e.hud.rev++
 	return nil
 }
 
@@ -607,6 +611,7 @@ func (e *Editor) OpenHUDScreen(relPath string) error {
 	e.hud.selectedNodeID = ""
 	e.ensureHUDDefaults()
 	e.selectFirstInterestingHUDNode()
+	e.hud.rev++
 	e.Status = "Opened screen " + e.hud.activePath
 	e.notify()
 	return e.hud.screens[idx].loadErr
@@ -658,6 +663,7 @@ func (e *Editor) OpenHUDScreenFile(absPath string) error {
 	e.hud.selectedNodeID = ""
 	e.ensureHUDDefaults()
 	e.selectFirstInterestingHUDNode()
+	e.hud.rev++
 	e.Status = "Opened screen " + filepath.Base(abs)
 	e.notify()
 	return e.HUDLoadErr()
@@ -725,6 +731,7 @@ func (e *Editor) OpenHUDScreenDoc(name string, doc *gameui.ScreenDoc, locales ma
 	e.hud.selectedNodeID = ""
 	e.ensureHUDDefaults()
 	e.selectFirstInterestingHUDNode()
+	e.hud.rev++
 	e.Status = "Opened screen " + rec.name
 	e.notify()
 	return nil
@@ -865,6 +872,7 @@ func (e *Editor) SetHUDLocale(locale string) {
 		locale = found
 	}
 	e.hud.locale = locale
+	e.hud.rev++
 	e.Status = "HUD language: " + hudLocaleLabel(locale)
 	e.notify()
 }
@@ -957,6 +965,7 @@ func (e *Editor) SelectHUDNode(id string) {
 		return
 	}
 	e.hud.selectedNodeID = id
+	e.hud.rev++
 	e.notify()
 }
 
@@ -1529,6 +1538,7 @@ func (c *hudScreenCmd) applyState(doc *gameui.ScreenDoc, raw []byte, sel string)
 		c.ed.hud.activePath = c.path
 		c.ed.hud.selectedNodeID = sel
 	}
+	c.ed.hud.rev++
 	if c.writeDiskFile && c.absPath != "" {
 		c.ed.invalidateProjectIndex()
 		c.ed.CheckProblems()
@@ -1874,6 +1884,7 @@ func (e *Editor) EndHUDTouchDrag() error {
 	}
 	if !drag.moved {
 		rec.doc = drag.beforeDoc.Clone()
+		e.hud.rev++
 		e.notify()
 		return nil
 	}
@@ -1881,6 +1892,7 @@ func (e *Editor) EndHUDTouchDrag() error {
 	afterRaw, err := gameui.EncodeScreen(afterDoc)
 	if err != nil {
 		rec.doc = drag.beforeDoc.Clone()
+		e.hud.rev++
 		e.notify()
 		return err
 	}
@@ -1918,6 +1930,7 @@ func (e *Editor) CancelHUDTouchDrag() {
 	if rec := e.activeHUDScreenRecord(); rec != nil && drag.beforeDoc != nil {
 		rec.doc = drag.beforeDoc.Clone()
 	}
+	e.hud.rev++
 	e.notify()
 }
 
