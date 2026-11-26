@@ -295,6 +295,9 @@ func (e *Editor) StartAgentRequest(prompt string) uint64 {
 	e.agent.liveDeniedKeys = make(map[string]bool)
 	e.agent.liveQueuedFollowUps = nil
 	e.agent.liveActivity = "Agent is working · manual edits stay available"
+	e.agent.rewindOpenTurnID = ""
+	e.agent.lastRewind = nil
+	e.agent.composerHighlighted = false
 	e.agent.status = AgentStatusWorking
 	e.agent.workingStep = 1
 	e.agent.workingTotal = 0
@@ -852,6 +855,7 @@ func (e *Editor) CompleteAgentRequest(summary string) {
 			turn.Mismatch = CheckAgentSummaryAgainstDiff(turn.Summary, turn.Review, turn.mutations)
 		}
 		turn.PendingReview = e.buildTurnPendingReviewLocked(turn, summary, false)
+		e.finalizeTurnCheckpoint(turn.ID)
 	}
 	e.agent.turnChangeSeq++
 	e.restoreIdleAgentStatus()
