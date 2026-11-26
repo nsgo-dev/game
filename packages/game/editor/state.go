@@ -596,6 +596,10 @@ type Editor struct {
 	OnFocusWindow func()
 	// OnOpenAgentTask, when set, is called after OpenAgentTask opens a task's scene and switches to the Tasks or Agent panel.
 	OnOpenAgentTask func(task AgentTask)
+	// OnSendSketch, when set, is called when the author sends a viewport sketch to the agent (SendSketch).
+	OnSendSketch func(SketchAgentRequest)
+	// OnReplySketchReading, when set, is called when the author answers an agent sketch reading card (Go ahead, Correct a mark, or a text reply).
+	OnReplySketchReading func(SketchReadingReply)
 
 	playing            bool
 	playPaused         bool
@@ -808,6 +812,8 @@ type Editor struct {
 	// tileReview holds the active region-based agent tile edit review for the open scene, or nil.
 	tileReview    *tileReviewState
 	tileReviewSeq uint64
+	// sketch holds the session-only viewport sketch layer, confirmation hold, reading card, and post-sketch review state.
+	sketch sketchState
 	// paletteImgCache caches FileResolver-loaded tileset images across TilePalette() calls so 60 Hz rev bumps avoid disk reads.
 	paletteImgCache paletteFileImageCache
 	// inspectAssetFile prefers the selected asset's import settings in InspectorView over SelectedID after selecting an asset in FilesView.

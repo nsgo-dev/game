@@ -172,11 +172,15 @@ func (e *Editor) SetViewportPointer2D(canvasX, canvasY float32) {
 		return
 	}
 	pos := math2d.Vec2{X: canvasX, Y: canvasY}
-	if !e.hasPointer2D || e.pointer2D != pos {
+	changed := !e.hasPointer2D || e.pointer2D != pos
+	if changed {
 		e.pasteStreak = 0
 	}
 	e.pointer2D = pos
 	e.hasPointer2D = true
+	if changed && e.SketchActive() {
+		e.notify()
+	}
 }
 
 // SetViewportPointer3D records the mouse pointer's canvas position over the 3D viewport

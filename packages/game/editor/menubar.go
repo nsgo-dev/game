@@ -205,6 +205,31 @@ func (e *Editor) ApplicationMenu() []desktop.MenuItem {
 			cmdItem(CmdToggleLightingPreview, e.T("menu.lightingPreview"), false),
 			cmdItem(CmdToggleNavMesh2D, e.T("menu.navMesh2dOverlay"), false),
 			{Label: e.T("menu.overlays"), Items: overlayMenuItems},
+			{
+				Label: e.T("menu.sketch"),
+				Items: []desktop.MenuItem{
+					cmdItem(CmdSketchToggle, "", false),
+					sep,
+					cmdItem(CmdSketchToolPen, "", true),
+					cmdItem(CmdSketchToolArrow, "", true),
+					cmdItem(CmdSketchToolBox, "", true),
+					cmdItem(CmdSketchToolText, "", true),
+					cmdItem(CmdSketchAddMarkAtCursor, "", false),
+					sep,
+					cmdItem(CmdSketchUndoMark, "", false),
+					cmdItem(CmdSketchToggleMarks, "", false),
+					cmdItem(CmdSketchClear, "", false),
+					cmdItem(CmdSketchDone, "", false),
+					sep,
+					cmdItem(CmdSketchSend, "", false),
+					cmdItem(CmdSketchApproveReading, "", false),
+					cmdItem(CmdSketchCorrectMark, "", false),
+					sep,
+					cmdItem(CmdSketchToggleReviewOverlay, "", false),
+					cmdItem(CmdSketchKeepReview, "", false),
+					cmdItem(CmdSketchRevertReview, "", false),
+				},
+			},
 			sep,
 			cmdItem(CmdNavMeshOverlay, e.T("menu.navMeshOverlay"), false),
 			cmdItem(CmdNavMeshPanel, e.T("menu.navMeshPanel"), false),
@@ -296,7 +321,7 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 			}
 		}
 		var b strings.Builder
-		fmt.Fprintf(&b, "%s|%v|%s|%v|%d|%v|%v|%v|%v|%v|%v|%v|%v|%s|%v|%v|%v|%v|%v|%v|%d|%v|%v|%v|%d|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%d|%d|%v|%v|%v|%d|%s|%v|%v|%v|%s|%v|%v|%d",
+		fmt.Fprintf(&b, "%s|%v|%s|%v|%d|%v|%v|%v|%v|%v|%v|%v|%v|%s|%v|%v|%v|%v|%v|%v|%d|%v|%v|%v|%d|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%d|%d|%v|%v|%v|%d|%s|%v|%v|%v|%s|%v|%v|%d|%v|%s|%d|%v|%s|%v|%v",
 			e.ResolvedLanguage(),
 			e.SettingsOpen(),
 			e.SettingsPage(),
@@ -366,6 +391,13 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 			e.AskInPlaceOpen(),
 			e.TasksPanelOpen(),
 			e.FirstRunStage(),
+			e.SketchActive(),
+			e.SketchTool(),
+			e.SketchMarkCount(),
+			e.SketchMarksHidden(),
+			e.SketchHoldState(),
+			e.SketchReviewOpen(),
+			e.SketchReviewOverlayVisible(),
 		)
 		for _, ov := range e.ViewportOverlays() {
 			b.WriteByte('|')

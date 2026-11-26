@@ -127,6 +127,8 @@ func ExampleServer_AddTool() {
 	// scene_name read
 	// scene_read read
 	// selection_get read
+	// sketch_read read
+	// sketch_reading edit
 	// states_test run
 	// states_write edit
 	// tasks_control edit

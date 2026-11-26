@@ -597,6 +597,9 @@ func tilePaint(ctx context.Context, c *Call) (*Result, error) {
 	}
 	var res editor.AgentTileEditResult
 	if err := c.Editor(ctx, func(ed *editor.Editor) error {
+		if holdErr := sketchHoldEditError(ed, sceneName(ed, projectRoot(ed))); holdErr != nil {
+			return holdErr
+		}
 		var err error
 		res, err = ed.AgentPaintTiles(req)
 		return err
@@ -661,6 +664,9 @@ func tileAutotile(ctx context.Context, c *Call) (*Result, error) {
 	}
 	var res editor.AgentTileEditResult
 	if err := c.Editor(ctx, func(ed *editor.Editor) error {
+		if holdErr := sketchHoldEditError(ed, sceneName(ed, projectRoot(ed))); holdErr != nil {
+			return holdErr
+		}
 		var err error
 		res, err = ed.AgentAutotile(req)
 		return err
@@ -721,6 +727,9 @@ func tileErase(ctx context.Context, c *Call) (*Result, error) {
 	}
 	var res editor.AgentTileEditResult
 	if err := c.Editor(ctx, func(ed *editor.Editor) error {
+		if holdErr := sketchHoldEditError(ed, sceneName(ed, projectRoot(ed))); holdErr != nil {
+			return holdErr
+		}
 		var err error
 		res, err = ed.AgentEraseTiles(req)
 		return err

@@ -233,6 +233,38 @@ strings:
   cmd.shortcutsSettings.label: 'Settings: Keyboard Shortcuts'
   cmd.shortcutsSheet.desc: Show the keyboard shortcuts reference sheet grouped by scope
   cmd.shortcutsSheet.label: Keyboard Shortcuts
+  cmd.sketchAddMark.desc: Place a numbered sketch mark at the current cursor or viewport center
+  cmd.sketchAddMark.label: 'Sketch: Add Mark at Cursor'
+  cmd.sketchApproveReading.desc: Approve the agent's sketch reading and release the scene_edit confirmation hold
+  cmd.sketchApproveReading.label: 'Sketch: Go Ahead'
+  cmd.sketchClear.desc: Clear all sketch marks from the viewport sketch layer
+  cmd.sketchClear.label: 'Sketch: Clear Marks'
+  cmd.sketchCorrectMark.desc: Reopen sketch mode with the targeted mark selected to correct it
+  cmd.sketchCorrectMark.label: 'Sketch: Correct a Mark'
+  cmd.sketchDone.desc: Leave sketch drawing mode while keeping drawn marks until sent or cleared
+  cmd.sketchDone.label: 'Sketch: Finish Sketch Mode'
+  cmd.sketchKeepReview.desc: Keep the agent's post-sketch scene edits and clear the viewport sketch layer
+  cmd.sketchKeepReview.label: 'Review: Keep Changes and Clear Sketch'
+  cmd.sketchRevertReview.desc: Revert the agent's post-sketch scene edits while keeping the sketch marks to send again
+  cmd.sketchRevertReview.label: 'Review: Revert Changes and Keep Sketch'
+  cmd.sketchReviewOverlay.desc: Lay the sent sketch faintly over the reviewed result in the 2D viewport
+  cmd.sketchReviewOverlay.label: 'Review: Toggle Sketch Overlay'
+  cmd.sketchSend.desc: Send the viewport sketch marks in scene coordinates and rendered PNG to the agent
+  cmd.sketchSend.label: 'Sketch: Send to Agent'
+  cmd.sketchToggle.desc: Toggle the session-only viewport sketch layer for the agent
+  cmd.sketchToggle.label: Sketch on Viewport
+  cmd.sketchToggleMarks.desc: Temporarily hide or show sketch marks on the viewport without clearing them
+  cmd.sketchToggleMarks.label: 'Sketch: Hide / Show Marks'
+  cmd.sketchToolArrow.desc: Draw a directed arrow mark on the viewport sketch layer
+  cmd.sketchToolArrow.label: 'Sketch Tool: Arrow'
+  cmd.sketchToolBox.desc: Draw a rectangular area mark on the viewport sketch layer
+  cmd.sketchToolBox.label: 'Sketch Tool: Box'
+  cmd.sketchToolPen.desc: Draw a freehand polyline mark on the viewport sketch layer
+  cmd.sketchToolPen.label: 'Sketch Tool: Pen'
+  cmd.sketchToolText.desc: Place a labelled text mark on the viewport sketch layer
+  cmd.sketchToolText.label: 'Sketch Tool: Text'
+  cmd.sketchUndoMark.desc: Undo the most recent change to the viewport sketch layer
+  cmd.sketchUndoMark.label: 'Sketch: Undo Last Mark'
   cmd.startScreen.desc: Show the Start Screen with recent projects, templates, and demo
   cmd.startScreen.label: Start Screen
   cmd.tasks.desc: Toggle the Agent background task list panel
@@ -629,6 +661,7 @@ strings:
   menu.shadingWireframe: Wireframe
   menu.shortcutsSettings: Keyboard Shortcuts...
   menu.shortcutsSheet: Keyboard Shortcuts
+  menu.sketch: Sketch
   menu.startScreen: Start Screen
   menu.stop: Stop
   menu.tasks: Background Tasks
@@ -857,6 +890,7 @@ strings:
   scope.play: Play
   scope.review: Review
   scope.sceneTree: Scene Tree
+  scope.sketch: Sketch
   scope.tile: Tile
   scope.viewport: Viewport
   scope.viewport2d: 2D Viewport
@@ -1136,6 +1170,17 @@ strings:
   shortcutsSheet.subtitleMac: macOS keys. Rebind any command in Settings › Shortcuts.
   shortcutsSheet.subtitleOther: Windows and Linux keys. Rebind any command in Settings › Shortcuts.
   shortcutsSheet.title: Keyboard Shortcuts
+  sketch.clear: Clear
+  sketch.done: Done
+  sketch.hideMarks: Hide marks
+  sketch.showMarks: Show marks
+  sketch.statusHint: Esc finishes the sketch · marks stay until sent or cleared
+  sketch.tool.arrow: Arrow
+  sketch.tool.box: Box
+  sketch.tool.pen: Pen
+  sketch.tool.text: Text
+  sketch.toolbarLabel: Sketch tools
+  sketch.undoMark: Undo last mark
   snap.auto: Auto
   snap.autoLabel: Follow the active layer's tilemap tile size
   snap.grid: Grid

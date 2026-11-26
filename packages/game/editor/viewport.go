@@ -514,6 +514,7 @@ func (e *Editor) DrawViewport(d *core.Drawing, size core.Size) {
 	e.drawComponentShapes2D(d, scene)
 	e.drawViewportOverlays(d, scene)
 	e.drawProblemOverlays2D(d, scene)
+	e.drawSketchOverlay(d)
 	e.drawGizmo2D(d)
 	e.drawComponentShapeHandles2D(d)
 	e.drawMarqueeOverlay(d)
@@ -1031,6 +1032,7 @@ type viewportGestures struct {
 	cameraDrag    bool
 	boundsDrag    bool
 	roomDrag      bool
+	sketchDrag    bool
 	touchCamPos   core.Point
 	hasTouchCam   bool
 	panCamDrag    bool
@@ -1071,7 +1073,7 @@ func (g *viewportGestures) pan(ed *Editor, ev core.PanEvent, spaceHeld, shiftHel
 		g.panCamDrag = false
 		g.panBoundsDrag = false
 		g.panRoomDrag = false
-		if g.spacePan || g.middle || g.touchPan || g.cameraDrag || g.boundsDrag || g.roomDrag || ed.PickingConnectionTarget() {
+		if g.spacePan || g.middle || g.touchPan || g.cameraDrag || g.boundsDrag || g.roomDrag || g.sketchDrag || ed.SketchActive() || ed.PickingConnectionTarget() {
 			return
 		}
 		if g.hasTouchCam {
@@ -1269,12 +1271,14 @@ func (g *viewportGestures) touch(ed *Editor, ev core.TouchEvent) {
 		ed.CancelCameraDrag()
 		ed.CancelCameraBoundsDrag()
 		ed.CancelRoomDrag()
+		ed.CancelSketchDrag()
 		g.panCamDrag = false
 		g.cameraDrag = false
 		g.panBoundsDrag = false
 		g.boundsDrag = false
 		g.panRoomDrag = false
 		g.roomDrag = false
+		g.sketchDrag = false
 	}
 	if ev.Phase == core.TouchCancel {
 		// The system took the touches: a drag of an object or handle they made is put back, whether or not the pan reports its own cancel. nsgotest's Finger.Cancel (nsgo v0.3.0 nsgotest/pointer.go:259) reports only the touch cancel and no GestureCancelled to an active OnPan, so the touch cancel is the one this drag can rely on in tests.
@@ -1461,6 +1465,19 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 				}
 			}
 			x, y := float32(ev.Position.X), float32(ev.Position.Y)
+			if ed.SketchActive() {
+				if ed.SketchTool() == SketchToolText {
+					if hit := ed.HitTestSketchMark(x, y); hit > 0 {
+						ed.SelectSketchMark(hit)
+					} else {
+						wx, wy := ed.CanvasToWorld(x, y)
+						ed.AddSketchText(wx, wy, "")
+					}
+				} else if hit := ed.HitTestSketchMark(x, y); hit > 0 {
+					ed.SelectSketchMark(hit)
+				}
+				return
+			}
 			if ev.Modifiers.Alt && ed.ViewMode == ViewMode2D && !ed.Playing() && !ed.PickingConnectionTarget() {
 				if ed.handleShapePress2D(x, y, true) {
 					return
@@ -1595,11 +1612,20 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 					_, strokeActive := ed.TileStrokeActive()
 					selVisible := ed.ViewMode == ViewMode2D && isTileTool(ed.Tool) && ed.hasTileSel
 					navPreview := ed.Tool == ToolNavTestPath && (ed.nav2D.preview.HasStart || ed.nav2D.preview.HasEnd)
-					activeOp := ed.Dragging2D() != Handle2DNone || ed.MarqueeActive() || ed.AssetDragActive() || ed.DraggingGizmo3D() || ed.DraggingHandle3D() || ed.DraggingComponentGizmo3D() || ed.PluginDragging3D() || ed.DraggingShape2D() || ed.PluginDragging2D() || ed.cameraDrag.active || ed.cameraBoundsDrag.active || ed.roomDrag.active || gmActive || (ed.terrain != nil && ed.terrain.stroke != nil) || strokeActive || selVisible || navPreview
-					return activeOp || (!ed.Playing() && ed.SelectionCount() > 0)
+					activeOp := ed.Dragging2D() != Handle2DNone || ed.MarqueeActive() || ed.AssetDragActive() || ed.DraggingGizmo3D() || ed.DraggingHandle3D() || ed.DraggingComponentGizmo3D() || ed.PluginDragging3D() || ed.DraggingShape2D() || ed.PluginDragging2D() || ed.cameraDrag.active || ed.cameraBoundsDrag.active || ed.roomDrag.active || ed.SketchDragging() || gmActive || (ed.terrain != nil && ed.terrain.stroke != nil) || strokeActive || selVisible || navPreview
+					return activeOp || ed.SketchActive() || (!ed.Playing() && ed.SelectionCount() > 0)
 				},
 				Then: func(cx *core.Scope) core.Node {
 					cx.OnKeyWith("escape", core.KeyOptions{When: core.KeyNotEditing}, func() {
+						if ed.SketchDragging() {
+							ed.CancelSketchDrag()
+							g.sketchDrag = false
+							return
+						}
+						if ed.SketchActive() {
+							ed.FinishSketch()
+							return
+						}
 						_, gmActive := ed.GridMapStrokeActive()
 						_, strokeActive := ed.TileStrokeActive()
 						selVisible := ed.ViewMode == ViewMode2D && isTileTool(ed.Tool) && ed.hasTileSel
@@ -1762,6 +1788,11 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 							}
 							px, py := float32(ev.Position.X), float32(ev.Position.Y)
 							if !spaceHeld() && !ed.PickingConnectionTarget() {
+								if ed.SketchActive() && ed.BeginSketchDrag(px, py) {
+									g.sketchDrag = true
+									g.suppressPress = true
+									return
+								}
 								if ed.RoomCreateMode() && ed.BeginRoomDrag(px, py) {
 									g.roomDrag = true
 									return
@@ -1802,6 +1833,20 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 					},
 					OnMouseMove: func(ev core.MouseEvent) {
 						lastPointer, lastPointerMode, hasPointer = ev.Position, ed.ViewMode, true
+						if g.sketchDrag {
+							if !ed.SketchDragging() {
+								g.sketchDrag = false
+							} else if ev.PressedButton != core.MouseButtonLeft || ed.ViewMode != ViewMode2D {
+								g.sketchDrag = false
+								ed.EndSketchDrag()
+								g.suppressPress = true
+								return
+							} else {
+								ed.SetViewportPointer2D(float32(ev.Position.X), float32(ev.Position.Y))
+								ed.UpdateSketchDrag(float32(ev.Position.X), float32(ev.Position.Y))
+								return
+							}
+						}
 						if g.cameraDrag {
 							if !ed.cameraDrag.active {
 								g.cameraDrag = false
@@ -1906,6 +1951,12 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 						case core.MouseButtonMiddle:
 							g.middle = false
 						case core.MouseButtonLeft:
+							if g.sketchDrag {
+								g.sketchDrag = false
+								ed.EndSketchDrag()
+								g.suppressPress = true
+								return
+							}
 							if g.cameraDrag {
 								g.cameraDrag = false
 								if ed.EndCameraDrag() {
@@ -2024,6 +2075,7 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 			viewportTaskLegendOverlay(cx, ed, rev),
 			viewportHistoryPreviewBannerView(cx, ed, rev),
 			PlayTaskDotView(cx, ed, rev),
+			viewportSketchOverlayView(cx, ed, rev),
 		}, append(viewportTileOverlays(cx, ed, rev), ToastView(cx, ed, rev))...),
 	}
 }

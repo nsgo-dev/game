@@ -19,6 +19,7 @@ const (
 	ScopeViewport3D = "viewport3d"
 	ScopeSceneTree  = "sceneTree"
 	ScopeTile       = "tile"
+	ScopeSketch     = "sketch"
 	ScopeAnimation  = "animation"
 	ScopePlay       = "play"
 	ScopeReview     = "review"
@@ -32,6 +33,7 @@ var scopeDisplayOrder = []string{
 	ScopeViewport2D,
 	ScopeViewport3D,
 	ScopeTile,
+	ScopeSketch,
 	ScopeSceneTree,
 	ScopeReview,
 	ScopeAnimation,
@@ -77,6 +79,8 @@ func (e *Editor) CommandScopeLabel(scope string) string {
 		return e.T("scope.sceneTree")
 	case ScopeTile:
 		return e.T("scope.tile")
+	case ScopeSketch:
+		return e.T("scope.sketch")
 	case ScopeAnimation:
 		return e.T("scope.animation")
 	case ScopePlay:
@@ -107,6 +111,8 @@ func (e *Editor) commandScopeSearchTerms(scope string) []string {
 		terms = append(terms, "scene tree", "scenetree", "tree")
 	case ScopeTile:
 		terms = append(terms, "tile", "tilemap")
+	case ScopeSketch:
+		terms = append(terms, "sketch", "draw", "annotate", "agent")
 	case ScopeAnimation:
 		terms = append(terms, "animation", "timeline")
 	case ScopePlay:
@@ -494,6 +500,11 @@ func (e *Editor) shortcutScopePriority(scope string) int {
 		}
 		if e.reviewKeepShortcutAllowed() {
 			return 3
+		}
+		return 0
+	case ScopeSketch:
+		if e.ViewMode == ViewMode2D && !e.Playing() && e.SketchActive() && !e.ReviewOpen() && !e.SettingsOpen() {
+			return 5
 		}
 		return 0
 	case ScopeViewport3D:
