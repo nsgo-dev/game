@@ -65,6 +65,7 @@ strings:
   agent.revert: 还原
   agent.status.disconnected: 已断开
   agent.status.limitShort: 已达上限
+  agent.status.offline: 离线
   agent.status.reconnectingShort: 重连中
   agent.status.waitingShort: 等待你
   agent.status.workingShort: 处理中

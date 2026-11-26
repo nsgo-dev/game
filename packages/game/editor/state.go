@@ -562,6 +562,10 @@ type Editor struct {
 	OnSendAgentRequest func(thread *AgentThread, req AgentThreadRequest)
 	// OnOpenHistoryStep, when set, is called when the author clicks "Open this step in History" on a folded request or step.
 	OnOpenHistoryStep func(sel AgentHistorySelection)
+	// OnAgentPointPicked, when set, is called when the user clicks a world coordinate in the viewport during Partial "Let me point".
+	OnAgentPointPicked func(turnID, target string, worldX, worldY float32)
+	// OnOpenAgentReview, when set, is called when the user opens a turn's Review from Partial, Lost, Stopped, or Mismatch cards.
+	OnOpenAgentReview func(review AgentTurnReview)
 	// ProblemCheckDebounce controls the debounce delay before live problem checks run after edits (defaults to 80ms when <= 0).
 	ProblemCheckDebounce time.Duration
 	// OnAskAboutProblem, when set, is called when the author submits a question from "Ask about this problem…" with the problem attached.

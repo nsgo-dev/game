@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -66,6 +67,8 @@ const (
 	AgentStatusDisconnected AgentStatus = "disconnected"
 	// AgentStatusLimitReached indicates the weekly request limit set on Usage and privacy has been reached and requests queue until reset or until the person raises it.
 	AgentStatusLimitReached AgentStatus = "limit_reached"
+	// AgentStatusOffline indicates there is no network connection and requests wait in a queue.
+	AgentStatusOffline AgentStatus = "offline"
 )
 
 // ConnectStep identifies a specific step inside the Connect an agent dialog so Troubleshoot reopens directly at the step that failed.
@@ -217,11 +220,13 @@ func (p AgentPermissions) Rules() []AgentPermissionRule {
 type AgentStepStatus string
 
 const (
-	AgentStepPending AgentStepStatus = "pending"
-	AgentStepRunning AgentStepStatus = "running"
-	AgentStepDone    AgentStepStatus = "done"
-	AgentStepWaiting AgentStepStatus = "waiting"
-	AgentStepFailed  AgentStepStatus = "failed"
+	AgentStepPending     AgentStepStatus = "pending"
+	AgentStepRunning     AgentStepStatus = "running"
+	AgentStepDone        AgentStepStatus = "done"
+	AgentStepWaiting     AgentStepStatus = "waiting"
+	AgentStepWarning     AgentStepStatus = "warning"
+	AgentStepInterrupted AgentStepStatus = "interrupted"
+	AgentStepFailed      AgentStepStatus = "failed"
 )
 
 // AgentStep is a single visible step in an agent turn's progress list.
@@ -271,12 +276,19 @@ type AgentTurn struct {
 	Route          AgentModelRoute       `json:"route,omitempty"`
 	Model          string                `json:"model,omitempty"`
 	Steps          []AgentStep           `json:"steps,omitempty"`
+	PlannedSteps   []string              `json:"plannedSteps,omitempty"`
 	Summary        string                `json:"summary,omitempty"`
 	Reply          string                `json:"reply,omitempty"`
 	Error          string                `json:"error,omitempty"`
 	ModelError     *AgentModelErrorState `json:"modelError,omitempty"`
 	Stopped        bool                  `json:"stopped,omitempty"`
 	Done           bool                  `json:"done,omitempty"`
+	Partial        *AgentPartialState    `json:"partial,omitempty"`
+	Stuck          *AgentStuckState      `json:"stuck,omitempty"`
+	Lost           *AgentLostState       `json:"lost,omitempty"`
+	StoppedState   *AgentStoppedState    `json:"stoppedState,omitempty"`
+	Mismatch       *AgentMismatchReport  `json:"mismatch,omitempty"`
+	Review         *AgentTurnReview      `json:"review,omitempty"`
 	InputTokens    int                   `json:"inputTokens,omitempty"`
 	OutputTokens   int                   `json:"outputTokens,omitempty"`
 	CreatedAt      time.Time             `json:"createdAt"`
@@ -289,6 +301,15 @@ type AgentTurn struct {
 	TriggerSummary string                `json:"triggerSummary,omitempty"` // concrete trigger description, e.g. "File changed · scenes/level_01.scene.yaml"
 	CheckpointID   string                `json:"checkpointId,omitempty"`   // checkpoint captured before the automation started
 	ReviewState    AgentReviewState      `json:"reviewState,omitempty"`    // lifecycle state for Ready to review / Kept / Dismissed / Failed
+
+	baselineDoc         *sceneformat.SceneDoc
+	baselineYAML        string
+	baselineFile        string
+	historyStart        int
+	lastSeenIDs         map[string]struct{}
+	mutations           []agentObjectMutation
+	consecutiveFailTool string
+	consecutiveFails    []AgentFailedCall
 }
 
 // AgentOpenRequest represents a pending permission prompt or question waiting on the user.
@@ -320,6 +341,13 @@ type AgentRequest struct {
 	AttachedImages []AgentReferenceImage // one-shot reference images dropped or pasted for this request only
 	BriefImages    []AgentReferenceImage // project-wide reference images joined through brief.yaml's Always chip
 	Images         []AgentReferenceImage // deduplicated union of AttachedImages and BriefImages sent with this request
+	ResumeFromStep int
+	CompletedSteps []string
+	RemainingSteps []string
+	Hint           string
+	PointedWorld   *[2]float32
+	PointedTarget  string
+	TryAnotherWay  bool
 }
 
 // AgentEventKind classifies one streamed event from an AgentRunner.
@@ -346,6 +374,10 @@ type AgentEvent struct {
 	StepIndex    int
 	StepTotal    int
 	ToolName     string
+	CallSummary  string
+	PlannedSteps []string
+	Partial      *AgentPartialState
+	Lost         *AgentLostState
 	Text         string
 	InputTokens  int
 	OutputTokens int
@@ -434,6 +466,16 @@ type agentState struct {
 	builtInKeyChecked bool
 	builtInKeyPresent bool
 	notify            agentNotifyState
+
+	// Failure states, offline queue, viewport pointing, and turn review tracking.
+	offline              bool
+	pointingTurnID       string
+	openReviewTurnID     string
+	externalBaselineDoc  *sceneformat.SceneDoc
+	externalBaselineYAML string
+	externalBaselineFile string
+	externalHistoryStart int
+	externalBaselineIDs  map[string]struct{}
 }
 
 func (a *agentState) setScope(cx *core.Scope) {
@@ -590,6 +632,14 @@ func (e *Editor) resetAgentForProject() {
 	e.agent.workingStep = 0
 	e.agent.workingTotal = 0
 	e.agent.openRequest = nil
+	e.agent.offline = false
+	e.agent.pointingTurnID = ""
+	e.agent.openReviewTurnID = ""
+	e.agent.externalBaselineDoc = nil
+	e.agent.externalBaselineYAML = ""
+	e.agent.externalBaselineFile = ""
+	e.agent.externalHistoryStart = 0
+	e.agent.externalBaselineIDs = nil
 	if e.agent.mode == AgentModeAPIKey && e.HasAgentAPIKey(DefaultAgentAPIKeyAccount) {
 		if e.AgentWeeklyLimitReached() {
 			e.agent.status = AgentStatusLimitReached
@@ -786,6 +836,8 @@ func (e *Editor) updateAgentAnnouncement() {
 		e.agent.liveAnnouncement = "Agent disconnected"
 	case AgentStatusLimitReached:
 		e.agent.liveAnnouncement = fmt.Sprintf("Weekly agent limit reached, resets at %s", e.AgentUsageResetLabel())
+	case AgentStatusOffline:
+		e.agent.liveAnnouncement = "Agent disconnected, offline"
 	default:
 		e.agent.liveAnnouncement = "No agent connected"
 	}
@@ -1073,9 +1125,13 @@ func (e *Editor) NotifyAgentMCPConnected(client AgentClientInfo) {
 	if e.agent.mode == AgentModeUnconfigured {
 		e.agent.mode = AgentModeLocal
 	}
+	if e.agent.offline {
+		e.agent.offline = false
+	}
 	if e.agent.status != AgentStatusWorking && e.agent.status != AgentStatusWaitingForYou {
 		e.agent.status = AgentStatusConnected
 	}
+	e.markLostTurnReconnected()
 	e.updateAgentAnnouncement()
 	e.notify()
 }
@@ -1112,6 +1168,7 @@ func (e *Editor) NotifyAgentMCPDisconnected(clientID, reason string) {
 	} else {
 		e.agent.failedCause = fmt.Sprintf("%s stopped answering over MCP.", e.AgentStatusTooltip())
 	}
+	e.markActiveTurnLost(reason)
 	e.startAgentReconnect()
 }
 
@@ -1436,9 +1493,41 @@ func cloneAgentTurn(t AgentTurn) AgentTurn {
 		}
 		t.Images = imgs
 	}
+	t.PlannedSteps = slices.Clone(t.PlannedSteps)
 	t.Context.SelectionIDs = slices.Clone(t.Context.SelectionIDs)
 	t.Context.SelectionNames = slices.Clone(t.Context.SelectionNames)
 	t.Context.ViewportPNG = slices.Clone(t.Context.ViewportPNG)
+	if t.Partial != nil {
+		p := *t.Partial
+		t.Partial = &p
+	}
+	if t.Stuck != nil {
+		s := *t.Stuck
+		s.Failures = slices.Clone(t.Stuck.Failures)
+		t.Stuck = &s
+	}
+	if t.Lost != nil {
+		l := *t.Lost
+		t.Lost = &l
+	}
+	if t.StoppedState != nil {
+		st := *t.StoppedState
+		t.StoppedState = &st
+	}
+	if t.Mismatch != nil {
+		m := *t.Mismatch
+		m.Rows = slices.Clone(t.Mismatch.Rows)
+		t.Mismatch = &m
+	}
+	if t.Review != nil {
+		t.Review = t.Review.Clone()
+	}
+	t.baselineDoc = nil
+	t.baselineYAML = ""
+	t.baselineFile = ""
+	t.lastSeenIDs = nil
+	t.mutations = nil
+	t.consecutiveFails = nil
 	if t.Status == "" {
 		switch {
 		case t.Stopped:
@@ -1575,58 +1664,13 @@ func (e *Editor) AgentWorking() bool {
 
 // RecordExternalAgentToolCall records a tool call executed by a terminal-started MCP session so its work appears as an agent turn in the panel.
 func (e *Editor) RecordExternalAgentToolCall(clientName, toolName, summary string, isErr bool) {
-	if e == nil || e.agent.mode == AgentModeNone {
-		return
-	}
-	// If a composer request is actively running, the CLI stream owns that turn's steps.
-	if e.agent.activeRunCancel != nil {
-		return
-	}
-	title := summary
-	if strings.TrimSpace(title) == "" {
-		title = toolName
-	}
-	status := AgentStepDone
-	if isErr {
-		status = AgentStepFailed
-	}
-	now := e.nowTime()
-	// Append to the most recent external turn if it's recent (within 60s), otherwise start a new external turn.
-	if n := len(e.agent.turns); n > 0 && e.agent.turns[n-1].External && now.Sub(e.agent.turns[n-1].FinishedAt) <= 60*time.Second {
-		t := &e.agent.turns[n-1]
-		t.Steps = append(t.Steps, AgentStep{
-			ID:       fmt.Sprintf("%s-step-%d", t.ID, len(t.Steps)+1),
-			Title:    title,
-			ToolName: toolName,
-			Status:   status,
-		})
-		t.FinishedAt = now
-		e.notify()
-		return
-	}
-	e.agent.turnSeq++
-	e.agent.turnChangeSeq++
-	id := fmt.Sprintf("turn-%d", e.agent.turnSeq)
-	name := FriendlyAgentName(clientName)
-	e.agent.turns = append(e.agent.turns, AgentTurn{
-		ID:        id,
-		Source:    "external",
-		Status:    "done",
-		External:  true,
-		AgentName: name,
-		Steps: []AgentStep{{
-			ID:       id + "-step-1",
-			Title:    title,
-			ToolName: toolName,
-			Status:   status,
-		}},
-		Done:       true,
-		CreatedAt:  now,
-		StartedAt:  now,
-		FinishedAt: now,
+	e.RecordAgentToolCall(AgentToolCallRecord{
+		ClientName:  clientName,
+		ToolName:    toolName,
+		StepTitle:   summary,
+		CallSummary: summary,
+		IsError:     isErr,
 	})
-	e.RecordAgentRequest(1)
-	e.notify()
 }
 
 // SubmitAgentPrompt submits prompt (or the current composer text when prompt is empty) to the agent routed for Scene and data edits and streams its steps into the Agent panel.
@@ -1634,7 +1678,8 @@ func (e *Editor) SubmitAgentPrompt(prompt string) error {
 	return e.SubmitAgentTaskPrompt(AgentTaskSceneEdit, prompt)
 }
 
-// StopAgentRun cancels the currently running composer request, keeping completed steps visible.
+// StopAgentRun cancels the currently running composer request, keeping completed steps visible,
+// recording done and not-done steps for Resume, and leaving changes unkept until reviewed.
 func (e *Editor) StopAgentRun() {
 	if e == nil || e.agent.activeRunCancel == nil {
 		return
@@ -1644,6 +1689,7 @@ func (e *Editor) StopAgentRun() {
 		e.agent.activeRetryCancel = nil
 	}
 	e.agent.activeRetryNow = nil
+	e.agent.activeRunID++
 	cancel := e.agent.activeRunCancel
 	stoppedTurnID := e.agent.activeTurnID
 	e.agent.activeRunCancel = nil
@@ -1655,13 +1701,15 @@ func (e *Editor) StopAgentRun() {
 		e.clearWaitingTurnTaskID()
 	}
 	if n := len(e.agent.turns); n > 0 && !e.agent.turns[n-1].Done {
-		e.agent.turns[n-1].Stopped = true
-		e.agent.turns[n-1].Done = true
-		e.agent.turns[n-1].Status = "stopped"
-		e.agent.turns[n-1].FinishedAt = e.nowTime()
-		if e.agent.turns[n-1].ModelError != nil {
-			e.agent.turns[n-1].ModelError.Retrying = false
+		turn := &e.agent.turns[n-1]
+		turn.Stopped = true
+		turn.Done = true
+		turn.Status = "stopped"
+		turn.FinishedAt = e.nowTime()
+		if turn.ModelError != nil {
+			turn.ModelError.Retrying = false
 		}
+		e.populateStoppedTurnState(turn)
 	}
 	e.agent.turnChangeSeq++
 	e.restoreIdleAgentStatus()
@@ -1688,6 +1736,20 @@ func (e *Editor) applyAgentEventForRun(runID uint64, turnID string, ev AgentEven
 	turn := e.findAgentTurn(turnID)
 	if turn == nil || turn.Done {
 		return
+	}
+	if len(ev.PlannedSteps) > 0 {
+		turn.PlannedSteps = slices.Clone(ev.PlannedSteps)
+	}
+	if ev.Partial != nil {
+		cp := *ev.Partial
+		turn.Partial = &cp
+	}
+	if ev.Lost != nil {
+		cp := *ev.Lost
+		if cp.LostAt.IsZero() {
+			cp.LostAt = e.nowTime()
+		}
+		turn.Lost = &cp
 	}
 	switch ev.Kind {
 	case AgentEventSession:
@@ -1739,6 +1801,27 @@ func (e *Editor) applyAgentEventForRun(runID uint64, turnID string, ev AgentEven
 		if ev.StepTotal > 0 {
 			e.agent.workingTotal = ev.StepTotal
 		}
+		e.observeTurnSceneMutations(turn, max(1, e.agent.workingStep))
+		e.refreshTurnReview(turn)
+		if stepStatus == AgentStepFailed {
+			toolName := normalizeMCPToolName(ev.ToolName)
+			if toolName != "" {
+				callSum := ev.CallSummary
+				if callSum == "" {
+					callSum = ev.StepTitle
+				}
+				errMsg := ev.Err
+				if errMsg == "" {
+					errMsg = ev.StepDetail
+				}
+				if e.recordConsecutiveToolFailure(turn, toolName, callSum, errMsg) {
+					return
+				}
+			}
+		} else if stepStatus == AgentStepDone && ev.ToolName != "" {
+			turn.consecutiveFailTool = ""
+			turn.consecutiveFails = nil
+		}
 		if stepStatus == AgentStepWaiting {
 			e.SetAgentWaitingForYou(AgentOpenRequest{
 				ID:    ev.StepID,
@@ -1761,7 +1844,7 @@ func (e *Editor) applyAgentEventForRun(runID uint64, turnID string, ev AgentEven
 		turn.InputTokens += ev.InputTokens
 		turn.OutputTokens += ev.OutputTokens
 	case AgentEventError:
-		if ev.Err != "" {
+		if ev.Err != "" && turn.Lost == nil {
 			turn.Error = ev.Err
 		}
 	case AgentEventModelRecovered:
@@ -1775,6 +1858,11 @@ func (e *Editor) applyAgentEventForRun(runID uint64, turnID string, ev AgentEven
 		turn.Done = true
 		turn.Status = "done"
 		turn.FinishedAt = e.nowTime()
+		e.observeTurnSceneMutations(turn, max(1, len(turn.Steps)))
+		e.refreshTurnReview(turn)
+		if turn.Summary != "" {
+			turn.Mismatch = CheckAgentSummaryAgainstDiff(turn.Summary, turn.Review, turn.mutations)
+		}
 	}
 	e.agent.turnChangeSeq++
 	e.updateAgentAnnouncement()
@@ -1807,9 +1895,10 @@ func (e *Editor) finishAgentRun(runID uint64, turnID string, err error, canceled
 			if turn.ModelError != nil {
 				turn.ModelError.Retrying = false
 			}
+			e.populateStoppedTurnState(turn)
 		} else {
 			turn.Status = "done"
-			if err != nil && turn.Error == "" {
+			if err != nil && turn.Error == "" && turn.Lost == nil {
 				turn.Error = err.Error()
 			}
 			if turn.ModelError != nil {
@@ -1818,12 +1907,19 @@ func (e *Editor) finishAgentRun(runID uint64, turnID string, err error, canceled
 		}
 		for i := range turn.Steps {
 			if turn.Steps[i].Status == AgentStepRunning {
-				if canceled || err != nil {
+				if canceled {
+					turn.Steps[i].Status = AgentStepPending
+				} else if err != nil {
 					turn.Steps[i].Status = AgentStepFailed
 				} else {
 					turn.Steps[i].Status = AgentStepDone
 				}
 			}
+		}
+		e.observeTurnSceneMutations(turn, max(1, len(turn.Steps)))
+		e.refreshTurnReview(turn)
+		if turn.Summary != "" && turn.Mismatch == nil {
+			turn.Mismatch = CheckAgentSummaryAgainstDiff(turn.Summary, turn.Review, turn.mutations)
 		}
 	}
 	if e.agent.openRequest != nil && turnID != "" &&
@@ -1868,12 +1964,13 @@ func (e *Editor) finishAgentRun(runID uint64, turnID string, err error, canceled
 func (e *Editor) restoreIdleAgentStatus() {
 	e.agent.workingStep = 0
 	e.agent.workingTotal = 0
-	if e.agent.mode != AgentModeNone && e.AgentWeeklyLimitReached() {
+	if e.agent.offline {
+		e.agent.status = AgentStatusOffline
+	} else if e.agent.mode != AgentModeNone && e.AgentWeeklyLimitReached() {
 		e.agent.status = AgentStatusLimitReached
 		e.updateAgentAnnouncement()
 		return
-	}
-	if e.agent.openRequest != nil {
+	} else if e.agent.openRequest != nil {
 		e.agent.status = AgentStatusWaitingForYou
 	} else if len(e.agent.clients) > 0 || (e.agent.mode == AgentModeAPIKey && e.HasAgentAPIKey(DefaultAgentAPIKeyAccount)) {
 		e.agent.status = AgentStatusConnected

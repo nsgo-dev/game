@@ -65,6 +65,7 @@ strings:
   agent.revert: Revert
   agent.status.disconnected: Disconnected
   agent.status.limitShort: Limit
+  agent.status.offline: Offline
   agent.status.reconnectingShort: Reconnecting
   agent.status.waitingShort: Waiting
   agent.status.workingShort: Working

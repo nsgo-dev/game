@@ -841,10 +841,19 @@ func (s *Server) Close() error {
 func (s *Server) handler(t Tool) mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var sess *mcp.ServerSession
+		var rawArgs json.RawMessage
 		if req != nil {
 			sess = req.Session
+			if req.Params != nil {
+				rawArgs = req.Params.Arguments
+			}
 		}
-		res, err := s.callWithSession(ctx, t, req.Params.Arguments, false, sess)
+		if t.Action == ActionEdit {
+			s.notifyEditor(func(ed *editor.Editor) {
+				ed.PrepareExternalAgentBaseline()
+			})
+		}
+		res, err := s.callWithSession(ctx, t, rawArgs, false, sess)
 		clientName := ""
 		if sess != nil {
 			s.mu.Lock()
@@ -853,15 +862,85 @@ func (s *Server) handler(t Tool) mcp.ToolHandler {
 			}
 			s.mu.Unlock()
 		}
-		summary := t.Title
-		if summary == "" {
-			summary = t.Name
+		stepTitle := t.Title
+		if stepTitle == "" {
+			stepTitle = t.Name
 		}
+		callSummary := formatMCPCallSummary(t.Name, rawArgs, stepTitle)
+		errText := formatMCPErrorSummary(err)
 		s.notifyEditor(func(ed *editor.Editor) {
-			ed.RecordExternalAgentToolCall(clientName, t.Name, summary, err != nil)
+			ed.RecordAgentToolCall(editor.AgentToolCallRecord{
+				ClientName:  clientName,
+				ToolName:    t.Name,
+				StepTitle:   stepTitle,
+				CallSummary: callSummary,
+				ErrorText:   errText,
+				IsError:     err != nil,
+			})
 		})
 		return sdkResult(res, err), nil
 	}
+}
+
+func formatMCPCallSummary(toolName string, rawArgs json.RawMessage, fallback string) string {
+	if toolName != ToolSceneEdit || len(rawArgs) == 0 {
+		return fallback
+	}
+	var args sceneEditArgs
+	if err := json.Unmarshal(rawArgs, &args); err != nil || len(args.Edits) == 0 {
+		return fallback
+	}
+	e := args.Edits[0]
+	switch e.Op {
+	case "add_component":
+		if e.ID != "" && e.Component != "" {
+			return fmt.Sprintf("add %s.%s", e.ID, e.Component)
+		}
+	case "remove_component":
+		if e.ID != "" && e.Component != "" {
+			return fmt.Sprintf("remove %s.%s", e.ID, e.Component)
+		}
+	case "set":
+		if e.ID != "" && len(e.Fields) > 0 {
+			for _, k := range sortedKeys(e.Fields) {
+				v := strings.TrimSpace(string(e.Fields[k]))
+				if e.Component != "" {
+					return fmt.Sprintf("set %s.%s.%s: %s", e.ID, e.Component, k, v)
+				}
+				return fmt.Sprintf("set %s.%s: %s", e.ID, k, v)
+			}
+		}
+	case "move":
+		if e.ID != "" && e.X != nil && e.Y != nil {
+			return fmt.Sprintf("move %s to (%g, %g)", e.ID, *e.X, *e.Y)
+		}
+	case "add":
+		var obj struct {
+			ID string `json:"id"`
+		}
+		_ = json.Unmarshal(e.Object, &obj)
+		if obj.ID != "" {
+			return fmt.Sprintf("add %s", obj.ID)
+		}
+	case "remove":
+		if e.ID != "" {
+			return fmt.Sprintf("remove %s", e.ID)
+		}
+	}
+	if e.Op != "" && e.ID != "" {
+		return fmt.Sprintf("%s %s", e.Op, e.ID)
+	}
+	return fallback
+}
+
+func formatMCPErrorSummary(err error) string {
+	if err == nil {
+		return ""
+	}
+	if edErr, ok := errors.AsType[*EditError](err); ok && strings.TrimSpace(edErr.Problem) != "" {
+		return strings.TrimSpace(edErr.Problem)
+	}
+	return strings.TrimSpace(err.Error())
 }
 
 // call runs t with args after checking the editor's permission rules, recovering a panic as an error; onEditor says the caller is on the editor's goroutine.

@@ -1338,7 +1338,8 @@ func main() {
   - `Working · step n of m`（紫色圆点以 `1.2 s` 周期脉动，开启减弱动态效果时保持静止）
   - `Waiting for you · m:ss`（点击聚焦当前待处理请求卡片）
   - `Reconnecting · try n of 5`（按 `1、2、4、8、16 s` 指数退避重试，可通过 `Editor.AgentScheduleAfter` 注入调度器以确定性测试）
-  - `Disconnected` 及 **Reconnect** 与 **Troubleshoot** 按钮（点击 **Troubleshoot** 直接在失败的步骤重新打开连接对话框，而非回到起始步）。
+  - `Disconnected` 及 **Reconnect** 与 **Troubleshoot** 按钮（点击 **Troubleshoot** 直接在失败的步骤重新打开连接对话框，而非回到起始步）
+  - 离线时显示 `Disconnected · offline`。
 
 ## 运行模式标记、滚动回放与冻结帧智能体提问（#1042）
 
@@ -1531,7 +1532,6 @@ func main() {
 - **折叠较早请求、跳转历史记录与跳到最新**：已审查的较早请求折叠为单行（`N 条较早请求`），点击展开显示完整提示词、变更明细、步骤列表以及**在历史记录中打开此步骤**（`OpenHistoryStep`）链接，点击后在统一历史时间线中高亮该步骤；展开较早请求时底部浮现**跳到最新**按钮（`JumpToLatestAgentRequest`）。
 - **空白线程视图（`AgentAlwaysReadItems`、`AgentBriefSuggestions`）**：空白线程会列出智能体每次请求必读的上下文（`<场景> · 整个场景`、`brief.yaml`、`AGENTS.md`、`视口图像`），并安全读取项目 `brief.yaml` 中的建议提示（`来自项目简报`）。
 - **检查器页脚来源链接（`LastAgentChangeForObject`、`OpenAgentRequest`）**：当选中对象曾被未还原的智能体请求修改（无论是通过 `SendAgentRequestWith`、`RecordAgentStep` 还是 `editormcp` 的 `scene_edit`），检查器页脚会显示“修改自“<请求标题>” · <时间>”，点击即可打开对应线程并定位/展开该请求。
-
 ## 面向智能体的视口草图层（#1025）
 
 在 2D 视口上直接绘制会话级编号草图，指向关卡中尚不存在对象的区域再交给智能体构建（对应 `docs/design/editor/Sketch.dc.html`，严格使用 `docs/design/editor/Spec.dc.html` 令牌）：
@@ -1550,7 +1550,6 @@ func main() {
 - **带悬停预览的单次请求标签**：每张附加的图片都会显示为包含缩略图、文件名、**Pin to brief** 按钮与 **×** 移除按钮的标签（`RemoveAgentReferenceImage`）。悬停或聚焦标签会在输入框上方弹出预览卡片，展示解码后的图片、格式、尺寸及作用范围（仅随本次请求发送）。发送请求（`SubmitAgentPrompt`）会将附加图片随 `AgentRequest.AttachedImages` 与 `AgentRequest.Images` 传入（并在 `AgentTurn.Images` 中记录缩略图），随后立即清空单次附加标签，确保下一次请求不再携带。
 - **固定到简报（`PinAgentReferenceImage`）**：点击 **Pin to brief** 会将图片复制到 `art/reference/<name>`（存在不同内容同名文件时自动去重而不覆盖），并通过 YAML AST 编辑在 `brief.yaml` 的 `art.references` 下新增一条记录（完整保留原有字段与注释），整个操作作为 `Editor.History` 中的**单个原子可撤销步骤**执行。两个文件会立即出现在审查/变更列表（`RefreshChanges`）中，确认卡片会展示带 `+` 高亮的 YAML 差异及 **Undo** 按钮（`UndoLastBriefPin`）；执行一次撤销即可同时移除复制的图片文件与新增的 YAML 行（若 `brief.yaml` 与空 `art/reference/` 目录是本次创建的也会一并清理）。
 - **始终附带标签（`brief.yaml`）**：只要项目存在 `brief.yaml`，输入框中就会显示 **Always** 行及带锁图标的 `brief.yaml` 标签（有固定参考图时显示数量）。悬停或点击该标签可预览全部已固定参考图，后续每次智能体请求都会通过 `AgentRequest.BriefImages` 与 `AgentRequest.Images` 自动携带这些图片。
-
 ## 智能体回合：跨文件待确认改动与单步撤销（#1011）
 
 智能体在一次请求起止之间（从右侧 Agent 面板发起，或通过 MCP 的 `turn_start` 开启、`turn_end` 结束）经由编辑器 MCP 服务器所做的全部编辑，都会归入**同一个待确认智能体回合**，统一涵盖它触及的所有文件——场景、预制体、数据表、`game.yaml` 与动画片段：
@@ -1565,3 +1564,14 @@ func main() {
 - **右侧 Agent 标签页与摘要卡片（`RightRailView` / `AgentPanelView`）**：右侧栏顶部支持在 **Agent**（`mod+1` / `CmdAgentTab`）与 **Inspector**（`mod+2` / `CmdInspectorTab`）之间切换，并显示待确认状态点与 MCP 连接状态。界面严格使用 `Spec.dc.html` 令牌并对应 `Main.dc.html` 布局（完整支持中英文界面），展示请求气泡、进度步骤、工作中的 **Stop（`⌘.`）** 按钮、完成摘要、精简摘要卡片（`"6 changes · 1 file · +38 −0"`、按类型展示的变更列表与单条/按文件还原恢复按钮、**Keep** / **Review** / **Revert**）、已保留/已还原状态（`"one undo step (⌘Z)"`）以及带 `"Edits stay unsaved until you keep them"` 提示的输入框。
 - **切换场景/标签页/项目、关闭与安全边界保护**：存在待确认回合时，打开其他场景（`RequestOpenScene`）、切换场景标签页（`RequestSelectTab`）、切换项目（`RequestOpenProject`）、关闭窗口或退出应用都会弹出 **Keep / Revert / Cancel** 确认框（`pendingTurnDialog`），与未保存修改的行为保持一致。所有暂存文件均强制校验项目根目录符号链接包含性、拒绝 `.git/**` 与“仅限本人”配置文件、限制单文件 2 MiB 上限，并在 `OpenProject` 与 `OpenDemo` 时彻底重置状态。
 - **MCP 工具（`editormcp`）**：提供 `turn_start`、`turn_end`、`turn_status`（只读，如实报告已还原的变更）和 `file_edit`（在内存中校验并编辑 `game.yaml`、数据表、动画片段、预制体与场景），并为 `scene_edit` 与 `object_set_field` 增加 `why` 参数；按设计不提供可由智能体调用的保留或还原回合工具。
+
+## 智能体面板的失败、恢复与离线状态（#1024）
+
+当智能体请求未能直接成功完成时，`AgentPanelView` 会严格使用 `SpecPalette` 设计 Token（支持深浅外观）渲染 `docs/design/editor/AgentStates.dc.html` 定义的六种状态卡片，并且在所有状态下保持选择、移动、检视器、`CheckProblems` 与 Play 等手动编辑工具正常工作：
+
+- **部分完成（`AgentPartialState`）**：展示 `Done N of M · couldn't place <target>` 与原因说明，提供 **Keep these**（以可撤销修改保留已完成部分）、**Let me point**（`ToggleAgentPointing`，在 2D 视口点击通过 `PickAgentPointWorld` 选取世界坐标，按 `Esc` 取消）与 **Try another way**（`TryAnotherWayAgentTurn`），并在下方展示变更统计条（`N changes · 1 file | +X −Y | Review`）。
+- **卡住暂停（`AgentStuckState`）**：当同一 MCP 工具（如 `scene_edit`）连续失败三次（`AgentStuckFailureThreshold = 3`）时，编辑器会立即暂停并取消当前请求而不再盲目重试，将状态胶囊切换为 `Waiting for you`，以等宽日志列出三次被拒绝的调用及其错误，并提供 **Hint for the agent** 输入框与 **Continue with hint**（`ContinueAgentWithHint`）或 **Stop here**（`StopStuckAgentTurn`，被拒编辑未触碰场景或磁盘文件）。
+- **连接断开或模型失败（`AgentLostState`）**：当 MCP 连接或模型 API 在请求中途失败时，已完成的步骤保留在未采纳的 `AgentTurnReview` 中，中断步骤标记为 `cut off, nothing written` 且磁盘上不留半成品文件，卡片显示断开时间与所在步骤，并提供 **Reconnect**、**Review N changes** 与 **Troubleshoot**（模型错误如 529 过载时提供 **Retry now** 与 **Use Claude Code** 等回退切换）。重新连接后智能体不会自动继续，而是先询问用户是否从下一步接续（`ConfirmResumeLostAgentTurn` / `DismissResumeLostAgentTurn`）。
+- **已停止（`AgentStoppedState`）**：停止运行中的请求后，卡片分区列出 `DONE` 与 `NOT DONE` 步骤，提供 **Resume**（`ResumeAgentTurn`，从首个未完成步骤开始继续，跳过已完成步骤不重复执行）与 **Review N changes**；已生成的改动在审查采纳前保持未保留状态。
+- **摘要与差异不一致（`AgentMismatchReport`）**：编辑器会自动将每条智能体摘要与实际 diff 比对（`CheckAgentSummaryAgainstDiff`），当两者不一致时展示 `WHAT · SUMMARY · REVIEW` 对比表与已知原因（例如某对象在第 3 步被添加、第 5 步被移除），并提供 **Ask why**（`AskAgentWhyMismatch`）与 **Open review**（`OpenAgentTurnReview`）。点击 **Keep** 始终仅采纳实际审查差异，绝不采纳摘要中的虚构数量。
+- **离线队列（`AgentStatusOffline`、`SetAgentOffline`）**：展示 `"You're offline"`，并在保持选择、移动、检视器、游戏检查与 Play 全部可用的同时，将提交的请求连同时间戳加入队列（`AgentQueuedRequests`、`QueueAgentRequest`、`RemoveQueuedAgentRequest`）。恢复联网后队列中的请求不会自动执行，而是逐条等待用户手动点击 **Send**（`SendQueuedAgentRequest`）发送。
