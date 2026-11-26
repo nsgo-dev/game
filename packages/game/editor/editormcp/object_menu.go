@@ -190,8 +190,53 @@ func objectPasteYAML(ctx context.Context, c *Call) (*Result, error) {
 	if err := c.Decode(&args); err != nil {
 		return nil, fmt.Errorf("object_paste_yaml: %w", err)
 	}
+	committed := false
+	if !c.onEditor {
+		var holdTargets []string
+		if strings.TrimSpace(args.YAML) != "" {
+			for _, line := range strings.Split(args.YAML, "\n") {
+				if strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t") {
+					continue
+				}
+				if rest, ok := strings.CutPrefix(line, "id:"); ok {
+					id := strings.Trim(strings.TrimSpace(rest), `"'`)
+					if id != "" {
+						holdTargets = append(holdTargets, id)
+					}
+					break
+				}
+			}
+		}
+		if len(holdTargets) == 0 {
+			layerKey := args.Layer
+			if layerKey == "" {
+				_ = c.Editor(ctx, func(ed *editor.Editor) error {
+					layerKey = ed.ActiveLayer
+					return nil
+				})
+			}
+			if layerKey == "" {
+				layerKey = "default"
+			}
+			holdTargets = append(holdTargets, "layer:"+layerKey)
+		}
+		rollback, err := c.s.acquireObjectHolds(ctx, c.taskID, holdTargets)
+		if err != nil {
+			return nil, err
+		}
+		defer func() {
+			if !committed {
+				rollback()
+			}
+		}()
+	}
 	var out ObjectPasteYAMLResult
+	var sceneFile string
 	err := c.Editor(ctx, func(ed *editor.Editor) error {
+		sceneFile = sceneName(ed, projectRoot(ed))
+		if c.taskID != "" {
+			c.s.captureTaskBeforeYAML(c.taskID, ed)
+		}
 		var (
 			id  string
 			err error
@@ -209,6 +254,10 @@ func objectPasteYAML(ctx context.Context, c *Call) (*Result, error) {
 	})
 	if err != nil {
 		return nil, fmt.Errorf("object_paste_yaml: %w", err)
+	}
+	committed = true
+	if c.taskID != "" {
+		c.s.recordTaskObjectChange(c.taskID, sceneFile, out.ID, "added", "paste "+out.ID)
 	}
 	return &Result{
 		Text:       fmt.Sprintf("Pasted object %s.", out.ID),
@@ -230,8 +279,34 @@ func objectDuplicate(ctx context.Context, c *Call) (*Result, error) {
 	if err := c.Decode(&args); err != nil {
 		return nil, fmt.Errorf("object_duplicate: %w", err)
 	}
+	committed := false
+	if !c.onEditor {
+		holdTarget := args.ID
+		if holdTarget == "" {
+			_ = c.Editor(ctx, func(ed *editor.Editor) error {
+				holdTarget = ed.SelectedID
+				return nil
+			})
+		}
+		if holdTarget != "" {
+			rollback, err := c.s.acquireObjectHolds(ctx, c.taskID, []string{holdTarget})
+			if err != nil {
+				return nil, err
+			}
+			defer func() {
+				if !committed {
+					rollback()
+				}
+			}()
+		}
+	}
 	var out ObjectDuplicateResult
+	var sceneFile string
 	err := c.Editor(ctx, func(ed *editor.Editor) error {
+		sceneFile = sceneName(ed, projectRoot(ed))
+		if c.taskID != "" {
+			c.s.captureTaskBeforeYAML(c.taskID, ed)
+		}
 		src := args.ID
 		if src == "" {
 			src = ed.SelectedID
@@ -245,6 +320,10 @@ func objectDuplicate(ctx context.Context, c *Call) (*Result, error) {
 	})
 	if err != nil {
 		return nil, fmt.Errorf("object_duplicate: %w", err)
+	}
+	committed = true
+	if c.taskID != "" {
+		c.s.recordTaskObjectChange(c.taskID, sceneFile, out.ID, "added", "duplicate "+out.SourceID+" -> "+out.ID)
 	}
 	return &Result{
 		Text:       fmt.Sprintf("Duplicated %s as %s.", out.SourceID, out.ID),
@@ -267,8 +346,34 @@ func objectGroup(ctx context.Context, c *Call) (*Result, error) {
 	if err := c.Decode(&args); err != nil {
 		return nil, fmt.Errorf("object_group: %w", err)
 	}
+	committed := false
+	if !c.onEditor {
+		holdTargets := args.IDs
+		if len(holdTargets) == 0 {
+			_ = c.Editor(ctx, func(ed *editor.Editor) error {
+				holdTargets = ed.SelectedIDs()
+				return nil
+			})
+		}
+		if len(holdTargets) > 0 {
+			rollback, err := c.s.acquireObjectHolds(ctx, c.taskID, holdTargets)
+			if err != nil {
+				return nil, err
+			}
+			defer func() {
+				if !committed {
+					rollback()
+				}
+			}()
+		}
+	}
 	var out ObjectGroupResult
+	var sceneFile string
 	err := c.Editor(ctx, func(ed *editor.Editor) error {
+		sceneFile = sceneName(ed, projectRoot(ed))
+		if c.taskID != "" {
+			c.s.captureTaskBeforeYAML(c.taskID, ed)
+		}
 		ids := args.IDs
 		if len(ids) == 0 {
 			ids = ed.SelectedIDs()
@@ -298,6 +403,13 @@ func objectGroup(ctx context.Context, c *Call) (*Result, error) {
 	if err != nil {
 		return nil, fmt.Errorf("object_group: %w", err)
 	}
+	committed = true
+	if c.taskID != "" {
+		c.s.recordTaskObjectChange(c.taskID, sceneFile, out.GroupID, "added", "group "+out.GroupID)
+		for _, cid := range out.Children {
+			c.s.recordTaskObjectChange(c.taskID, sceneFile, cid, "changed", "group member "+cid)
+		}
+	}
 	return &Result{
 		Text:       fmt.Sprintf("Grouped %d object(s) under %s.", len(out.Children), out.GroupID),
 		Structured: out,
@@ -322,7 +434,36 @@ func objectMoveUnder(ctx context.Context, c *Call) (*Result, error) {
 	if err := c.Decode(&args); err != nil {
 		return nil, fmt.Errorf("object_move_under: %w", err)
 	}
+	committed := false
+	if !c.onEditor && !args.ListCandidates {
+		targetID := args.ID
+		if targetID == "" {
+			_ = c.Editor(ctx, func(ed *editor.Editor) error {
+				targetID = ed.SelectedID
+				return nil
+			})
+		}
+		var holdTargets []string
+		if targetID != "" {
+			holdTargets = append(holdTargets, targetID)
+		}
+		if args.Parent != "" {
+			holdTargets = append(holdTargets, args.Parent)
+		}
+		if len(holdTargets) > 0 {
+			rollback, err := c.s.acquireObjectHolds(ctx, c.taskID, holdTargets)
+			if err != nil {
+				return nil, err
+			}
+			defer func() {
+				if !committed {
+					rollback()
+				}
+			}()
+		}
+	}
 	var out ObjectMoveUnderResult
+	var sceneFile string
 	err := c.Editor(ctx, func(ed *editor.Editor) error {
 		id := args.ID
 		if id == "" {
@@ -332,6 +473,10 @@ func objectMoveUnder(ctx context.Context, c *Call) (*Result, error) {
 			cands := ed.MoveUnderCandidates(id)
 			out = ObjectMoveUnderResult{ID: id, Candidates: cands, Revision: ed.Revision()}
 			return nil
+		}
+		sceneFile = sceneName(ed, projectRoot(ed))
+		if c.taskID != "" {
+			c.s.captureTaskBeforeYAML(c.taskID, ed)
 		}
 		if err := ed.MoveObjectUnder(id, args.Parent); err != nil {
 			return err
@@ -346,6 +491,10 @@ func objectMoveUnder(ctx context.Context, c *Call) (*Result, error) {
 	})
 	if err != nil {
 		return nil, fmt.Errorf("object_move_under: %w", err)
+	}
+	committed = true
+	if !args.ListCandidates && c.taskID != "" {
+		c.s.recordTaskObjectChange(c.taskID, sceneFile, out.ID, "changed", "move_under "+out.ID)
 	}
 	if args.ListCandidates {
 		return &Result{
@@ -410,6 +559,27 @@ func objectVisibility(ctx context.Context, c *Call) (*Result, error) {
 	if err := c.Decode(&args); err != nil {
 		return nil, fmt.Errorf("object_visibility: %w", err)
 	}
+	committed := false
+	if !c.onEditor {
+		holdTarget := args.ID
+		if holdTarget == "" {
+			_ = c.Editor(ctx, func(ed *editor.Editor) error {
+				holdTarget = ed.SelectedID
+				return nil
+			})
+		}
+		if holdTarget != "" {
+			rollback, err := c.s.acquireObjectHolds(ctx, c.taskID, []string{holdTarget})
+			if err != nil {
+				return nil, err
+			}
+			defer func() {
+				if !committed {
+					rollback()
+				}
+			}()
+		}
+	}
 	var out ObjectVisibilityResult
 	err := c.Editor(ctx, func(ed *editor.Editor) error {
 		id := args.ID
@@ -439,6 +609,7 @@ func objectVisibility(ctx context.Context, c *Call) (*Result, error) {
 	if err != nil {
 		return nil, fmt.Errorf("object_visibility: %w", err)
 	}
+	committed = true
 	return &Result{
 		Text:       fmt.Sprintf("Object %s: hidden=%v, locked=%v.", out.ID, out.Hidden, out.Locked),
 		Structured: out,

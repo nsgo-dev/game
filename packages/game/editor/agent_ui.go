@@ -15,6 +15,10 @@ import (
 // keeping InspectorView active by default at 272 pt and showing AgentPanelView (380 pt) when the Agent tab is selected.
 // When AgentModeNone is chosen, the Agent panel stays closed and only InspectorView renders.
 func RightRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+	tasksOpenMemo := core.NewMemo(cx, func() bool {
+		_ = rev.Get()
+		return !ed.Playing() && ed.TasksPanelOpen()
+	})
 	modeMemo := core.NewMemo(cx, func() AgentMode {
 		_ = rev.Get()
 		return ed.AgentMode()
@@ -29,45 +33,53 @@ func RightRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 	})
 
 	return core.Show{
-		When: func() bool {
-			return modeMemo.Get() == AgentModeNone
-		},
+		When: tasksOpenMemo.Get,
 		Then: func(cx *core.Scope) core.Node {
-			return InspectorView(cx, ed, rev)
+			return TasksPanelView(cx, ed, rev)
 		},
 		Else: func(cx *core.Scope) core.Node {
 			return core.Show{
 				When: func() bool {
-					return tabMemo.Get() == RightTabAgent
+					return modeMemo.Get() == AgentModeNone
 				},
 				Then: func(cx *core.Scope) core.Node {
-					return AgentPanelView(cx, ed, rev)
+					return InspectorView(cx, ed, rev)
 				},
 				Else: func(cx *core.Scope) core.Node {
-					return core.Dynamic(func(cx *core.Scope) core.Node {
-						p := SpecPaletteFor(darkMemo.Get())
-						return core.View{
-							TestID: "right-rail-inspector-wrap",
-							Style: core.Style{
-								Width:       core.Pt(272),
-								FlexShrink:  0,
-								Background:  p.Panel,
-								Borders:     core.Edges{Left: 1},
-								BorderColor: p.Line,
-							},
-							Children: []core.Node{
-								rightRailTabBar(cx, ed, rev, p, false),
-								core.View{
+					return core.Show{
+						When: func() bool {
+							return tabMemo.Get() == RightTabAgent
+						},
+						Then: func(cx *core.Scope) core.Node {
+							return AgentPanelView(cx, ed, rev)
+						},
+						Else: func(cx *core.Scope) core.Node {
+							return core.Dynamic(func(cx *core.Scope) core.Node {
+								p := SpecPaletteFor(darkMemo.Get())
+								return core.View{
+									TestID: "right-rail-inspector-wrap",
 									Style: core.Style{
-										FlexGrow:  1,
-										FlexBasis: core.Pt(0),
-										Overflow:  core.Hidden,
+										Width:       core.Pt(272),
+										FlexShrink:  0,
+										Background:  p.Panel,
+										Borders:     core.Edges{Left: 1},
+										BorderColor: p.Line,
 									},
-									Children: []core.Node{InspectorView(cx, ed, rev)},
-								},
-							},
-						}
-					})
+									Children: []core.Node{
+										rightRailTabBar(cx, ed, rev, p, false),
+										core.View{
+											Style: core.Style{
+												FlexGrow:  1,
+												FlexBasis: core.Pt(0),
+												Overflow:  core.Hidden,
+											},
+											Children: []core.Node{InspectorView(cx, ed, rev)},
+										},
+									},
+								}
+							})
+						},
+					}
 				},
 			}
 		},

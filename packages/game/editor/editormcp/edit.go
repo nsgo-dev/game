@@ -124,13 +124,18 @@ func sceneEdit(ctx context.Context, c *Call) (*Result, error) {
 	if err := c.Decode(&args); err != nil {
 		return nil, &EditError{File: "the open scene", Problem: err.Error(), Fix: "pass {\"edits\": [{\"op\": ..., ...}]} with the fields the tool's schema lists"}
 	}
+	committed := false
 	if !c.onEditor {
 		targets := targetObjectIDs(args.Edits)
-		release, err := c.s.acquireObjectHolds(ctx, c.taskID, targets)
+		rollback, err := c.s.acquireObjectHolds(ctx, c.taskID, targets)
 		if err != nil {
 			return nil, err
 		}
-		defer release()
+		defer func() {
+			if !committed {
+				rollback()
+			}
+		}()
 	}
 	var res EditResult
 	err := c.Editor(ctx, func(ed *editor.Editor) error {
@@ -175,6 +180,7 @@ func sceneEdit(ctx context.Context, c *Call) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
+	committed = true
 	if c.taskID != "" {
 		c.s.recordTaskEdits(c.taskID, res.File, args.Edits, res.Objects)
 	}

@@ -108,6 +108,36 @@ rules:
     decision: deny
 ```
 
+<!-- format: editor#thread -->
+### 智能体后台任务线程
+
+| 文件 | 版本 | 读写函数 | 字段 |
+| --- | --- | --- | --- |
+| 项目根目录下的 `.nsgo/threads/<id>.thread.yaml`（默认 `default.thread.yaml`） | `version: 1` | `editor.ParseAgentThread`、`editor.EncodeAgentThread` | [编辑器](editor.md#后台任务列表排队与并行智能体请求1022) |
+
+```yaml
+version: 1
+id: default
+scene: scenes/level_01.scene.yaml
+tasks:
+  - id: task-1
+    number: 1
+    title: slime_02 jumps the gap at x 360
+    source: you
+    startMode: queue
+    state: running
+    scene: scenes/level_01.scene.yaml
+    stepSummary: placing the jump arc
+    editingObjects:
+      - slime_02
+  - id: task-2
+    number: 2
+    title: Coin pickup sound a little higher
+    source: you
+    startMode: queue
+    state: queued
+    startsAfterTaskId: task-1
+```
 <!-- format: tooling/importsettings -->
 ### 导入设置旁注文件
 

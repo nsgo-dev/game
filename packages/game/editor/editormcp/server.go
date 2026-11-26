@@ -460,6 +460,7 @@ func (s *Server) registerOrUpdateSession(ss *mcp.ServerSession, defaultTransport
 }
 
 func (s *Server) dropSession(ss *mcp.ServerSession) {
+	s.unbindSessionTask(ss)
 	s.mu.Lock()
 	ts, ok := s.sessions[ss]
 	delete(s.sessions, ss)

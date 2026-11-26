@@ -679,7 +679,6 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 							return ok
 						},
 						Then: func(cx *core.Scope) core.Node {
-							spec := ed.SpecPalette(cx)
 							return core.Text{
 								TestID: "scene-tree-task-" + id,
 								ContentFunc: func() string {
@@ -700,6 +699,7 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 								},
 								StyleFunc: func() core.Style {
 									_ = rev.Get()
+									spec := ed.SpecPalette(cx)
 									ov, ok := ed.ObjectTaskBadge(id)
 									if ok && !ov.Holding {
 										return core.Style{Color: spec.Agent.Fg}

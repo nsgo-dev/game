@@ -195,6 +195,19 @@ func refactorRename(ctx context.Context, c *Call) (*Result, error) {
 		}
 	}
 
+	committed := false
+	if !c.onEditor && args.Apply {
+		rollback, err := c.s.acquireObjectHolds(ctx, c.taskID, []string{"file:" + fromClean, "file:" + toRaw})
+		if err != nil {
+			return nil, err
+		}
+		defer func() {
+			if !committed {
+				rollback()
+			}
+		}()
+	}
+
 	var out RefactorRenameResult
 	err = c.Editor(ctx, func(ed *editor.Editor) error {
 		plan, perr := ed.PreviewSafeRename(fromClean, toRaw)
@@ -237,6 +250,7 @@ func refactorRename(ctx context.Context, c *Call) (*Result, error) {
 	if err != nil {
 		return nil, fmt.Errorf("refactor_rename: %w", err)
 	}
+	committed = true
 
 	var b strings.Builder
 	if out.Applied {

@@ -1046,6 +1046,7 @@ func (e *Editor) AttachScope(cx *core.Scope) {
 		e.syncTileAnimLoop()
 		cx.SetAppearance(e.Appearance().CoreAppearance())
 	} else {
+		e.stopAllTaskRunners()
 		e.stopParticlePreviewLoop()
 		e.stopSceneEmitterLoop()
 		e.stopModelPreviewLoop()

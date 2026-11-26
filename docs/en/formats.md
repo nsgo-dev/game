@@ -108,6 +108,36 @@ rules:
     decision: deny
 ```
 
+<!-- format: editor#thread -->
+### Agent background task thread
+
+| Files | Version | Read and written by | Fields |
+| --- | --- | --- | --- |
+| `.nsgo/threads/<id>.thread.yaml` under a project root (default `default.thread.yaml`) | `version: 1` | `editor.ParseAgentThread`, `editor.EncodeAgentThread` | [Editor](editor.md#background-task-list-with-queued-and-parallel-agent-requests-1022) |
+
+```yaml
+version: 1
+id: default
+scene: scenes/level_01.scene.yaml
+tasks:
+  - id: task-1
+    number: 1
+    title: slime_02 jumps the gap at x 360
+    source: you
+    startMode: queue
+    state: running
+    scene: scenes/level_01.scene.yaml
+    stepSummary: placing the jump arc
+    editingObjects:
+      - slime_02
+  - id: task-2
+    number: 2
+    title: Coin pickup sound a little higher
+    source: you
+    startMode: queue
+    state: queued
+    startsAfterTaskId: task-1
+```
 <!-- format: tooling/importsettings -->
 ### Import settings sidecar
 

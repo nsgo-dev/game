@@ -488,6 +488,27 @@ func tileQuery(ctx context.Context, c *Call) (*Result, error) {
 	return &Result{Text: b.String(), Structured: res}, nil
 }
 
+func tileHoldKey(ctx context.Context, c *Call, layer string) string {
+	if layer == "" {
+		_ = c.Editor(ctx, func(ed *editor.Editor) error {
+			layer = ed.ActiveLayer
+			if layer == "" && ed.Doc != nil {
+				for i := range ed.Doc.Layers {
+					if ed.Doc.Layers[i].Tilemap != nil {
+						layer = ed.Doc.Layers[i].Name
+						break
+					}
+				}
+			}
+			return nil
+		})
+	}
+	if layer == "" {
+		layer = "default"
+	}
+	return "layer:" + layer
+}
+
 func tilePaint(ctx context.Context, c *Call) (*Result, error) {
 	var args struct {
 		Layer                string             `json:"layer"`
@@ -562,6 +583,18 @@ func tilePaint(ctx context.Context, c *Call) (*Result, error) {
 			Flip:     packFlipBits(cell.FlipH, cell.FlipV, cell.FlipD),
 		})
 	}
+	committed := false
+	if !c.onEditor {
+		rollback, err := c.s.acquireObjectHolds(ctx, c.taskID, []string{tileHoldKey(ctx, c, args.Layer)})
+		if err != nil {
+			return nil, err
+		}
+		defer func() {
+			if !committed {
+				rollback()
+			}
+		}()
+	}
 	var res editor.AgentTileEditResult
 	if err := c.Editor(ctx, func(ed *editor.Editor) error {
 		var err error
@@ -570,6 +603,7 @@ func tilePaint(ctx context.Context, c *Call) (*Result, error) {
 	}); err != nil {
 		return nil, fmt.Errorf("tile_paint: %w", err)
 	}
+	committed = true
 	text := fmt.Sprintf("Painted %d cells on %s.", res.ChangedCells, res.Layer)
 	if res.ReviewOpen {
 		text += fmt.Sprintf(" Active tile review now has %d region(s) (%d cells).", res.RegionCount, res.ReviewCells)
@@ -613,6 +647,18 @@ func tileAutotile(ctx context.Context, c *Call) (*Result, error) {
 	for _, cell := range args.Cells {
 		req.Cells = append(req.Cells, editor.TileCoord{Col: cell.Col, Row: cell.Row})
 	}
+	committed := false
+	if !c.onEditor {
+		rollback, err := c.s.acquireObjectHolds(ctx, c.taskID, []string{tileHoldKey(ctx, c, args.Layer)})
+		if err != nil {
+			return nil, err
+		}
+		defer func() {
+			if !committed {
+				rollback()
+			}
+		}()
+	}
 	var res editor.AgentTileEditResult
 	if err := c.Editor(ctx, func(ed *editor.Editor) error {
 		var err error
@@ -621,6 +667,7 @@ func tileAutotile(ctx context.Context, c *Call) (*Result, error) {
 	}); err != nil {
 		return nil, fmt.Errorf("tile_autotile: %w", err)
 	}
+	committed = true
 	text := fmt.Sprintf("Autotiled %d cells on %s.", res.ChangedCells, res.Layer)
 	if res.ReviewOpen {
 		text += fmt.Sprintf(" Active tile review now has %d region(s) (%d cells).", res.RegionCount, res.ReviewCells)
@@ -660,6 +707,18 @@ func tileErase(ctx context.Context, c *Call) (*Result, error) {
 	for _, cell := range args.Cells {
 		req.Cells = append(req.Cells, editor.TileCoord{Col: cell.Col, Row: cell.Row})
 	}
+	committed := false
+	if !c.onEditor {
+		rollback, err := c.s.acquireObjectHolds(ctx, c.taskID, []string{tileHoldKey(ctx, c, args.Layer)})
+		if err != nil {
+			return nil, err
+		}
+		defer func() {
+			if !committed {
+				rollback()
+			}
+		}()
+	}
 	var res editor.AgentTileEditResult
 	if err := c.Editor(ctx, func(ed *editor.Editor) error {
 		var err error
@@ -668,6 +727,7 @@ func tileErase(ctx context.Context, c *Call) (*Result, error) {
 	}); err != nil {
 		return nil, fmt.Errorf("tile_erase: %w", err)
 	}
+	committed = true
 	text := fmt.Sprintf("Erased %d cells on %s.", res.ChangedCells, res.Layer)
 	if res.ReviewOpen {
 		text += fmt.Sprintf(" Active tile review now has %d region(s) (%d cells).", res.RegionCount, res.ReviewCells)
