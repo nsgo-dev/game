@@ -1964,7 +1964,7 @@ func playReplayBannerView(ed *Editor, rev *core.Signal[uint64]) core.Node {
 func (e *Editor) handleGlobalModEnter() {
 	// Trust boundary (#1015): ⌘↵ NEVER applies a You-only permissions draft, and must not fire over full-screen modes, modals, or a focused permission card.
 	if e.shortcutCaptureActive || e.CapturingKey() || e.PermissionsDraftOpen() || e.PendingAgentPermissionCardFocused() ||
-		e.StartScreenOpen() || e.FirstRunFullScreenOpen() || e.ReviewOpen() || e.MergeConflictOpen() ||
+		e.StartScreenOpen() || e.FirstRunFullScreenOpen() || e.ReviewOpen() || e.CodeReviewOpen() || e.MergeConflictOpen() ||
 		e.DataTableReviewOpen() || e.UsagesScreenOpen() || e.SettingsOpen() || e.AssetGeneratorOpen() ||
 		e.ConnectDialogOpen() || e.PendingTurnPromptOpen() || e.BuildReleaseScreenOpen() {
 		return

@@ -369,7 +369,7 @@ func (e *Editor) composerKeysBlocked() bool {
 		e.AskInPlaceOpen() || e.contextMenu.open ||
 		e.PermissionsDraftOpen() ||
 		e.StartScreenOpen() || e.MergeConflictOpen() || e.PlaytestReportOpen() ||
-		e.UsagesScreenOpen() || e.ChangesOpen() || e.HUDLayoutOpen() ||
+		e.UsagesScreenOpen() || e.ChangesOpen() || e.CodeReviewOpen() || e.HUDLayoutOpen() ||
 		e.SettingsOpen() || e.ShortcutsSheetOpen() || e.BuildReleaseScreenOpen() ||
 		e.ConnectDialogOpen() || e.AssetGeneratorOpen() || e.CommandPaletteOpen() ||
 		e.PendingTurnPromptOpen()

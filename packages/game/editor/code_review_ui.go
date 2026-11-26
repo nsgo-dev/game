@@ -15,43 +15,46 @@ import (
 // using exclusively SpecPalette tokens (Dark & Light).
 func CodeReviewView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	keyOpt := core.KeyOptions{When: core.KeyNotEditing}
+	keysActive := func() bool {
+		return ed.CodeReviewOpen() && !ed.CommandPaletteOpen() && !ed.SettingsOpen() && !ed.PermissionsDraftOpen()
+	}
 	cx.OnKeyWith("escape", keyOpt, func() {
-		if ed.CodeReviewOpen() {
+		if keysActive() {
 			ed.CloseCodeReview()
 		}
 	})
 	cx.OnKeyWith("mod+enter", keyOpt, func() {
-		if ed.CodeReviewOpen() {
+		if keysActive() {
 			ed.report(ed.KeepCodeReview())
 		}
 	})
 	cx.OnKeyWith("mod+backspace", keyOpt, func() {
-		if ed.CodeReviewOpen() {
+		if keysActive() {
 			ed.report(ed.RevertCodeReview())
 		}
 	})
 	cx.OnKeyWith("j", keyOpt, func() {
-		if ed.CodeReviewOpen() {
+		if keysActive() {
 			ed.StepCodeReviewFile(+1)
 		}
 	})
 	cx.OnKeyWith("k", keyOpt, func() {
-		if ed.CodeReviewOpen() {
+		if keysActive() {
 			ed.StepCodeReviewFile(-1)
 		}
 	})
 	cx.OnKeyWith("u", keyOpt, func() {
-		if ed.CodeReviewOpen() {
+		if keysActive() {
 			ed.SetCodeReviewLayout(CodeReviewDiffUnified)
 		}
 	})
 	cx.OnKeyWith("s", keyOpt, func() {
-		if ed.CodeReviewOpen() {
+		if keysActive() {
 			ed.SetCodeReviewLayout(CodeReviewDiffSplit)
 		}
 	})
 	cx.OnKeyWith("r", keyOpt, func() {
-		if ed.CodeReviewOpen() {
+		if keysActive() {
 			ed.report(ed.RunCodeReviewChecksAsync())
 		}
 	})

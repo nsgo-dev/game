@@ -239,8 +239,11 @@ func TestCodeReviewMCPFailFixConfirmKeepAndUndo(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.ed.CodeReviewCheckRunner = mcpOverlayCheckRunner
+	if err := f.ed.SetAgentPrivacy(editor.PrivacyGoSource, true); err != nil {
+		t.Fatalf("SetAgentPrivacy(GoSource): %v", err)
+	}
 
-	s := editormcp.New(f.ed, editormcp.Options{})
+	s := editormcp.New(f.ed, editormcp.Options{OnPermissionAsk: allowAsk})
 	t.Cleanup(func() { _ = s.Close() })
 	cs := connect(t, s, nil)
 
@@ -344,5 +347,113 @@ func TestCodeReviewMCPFailFixConfirmKeepAndUndo(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(f.dir, "gameplay/patrol_test.go")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("one Undo did not remove patrol_test.go: %v", err)
+	}
+}
+
+func TestCodeReviewMCPPermissionsAndYouOnlyBoundary(t *testing.T) {
+	f := openFixture(t)
+	if err := os.MkdirAll(filepath.Join(f.dir, "gameplay"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(f.dir, "gameplay/patrol.go"), []byte(mcpPatrolOrig), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f.ed.CodeReviewCheckRunner = func(_ context.Context, req editor.CodeReviewCheckRequest, _ func(editor.CodeReviewCheckProgress)) (editor.CodeReviewCheckResult, error) {
+		return editor.CodeReviewCheckResult{
+			Phase:       editor.CodeReviewChecksPassed,
+			CheckPassed: true,
+			TestPassed:  true,
+			PassedCount: 1,
+			TotalCount:  1,
+			Packages:    req.Packages,
+		}, nil
+	}
+
+	// Default Balanced profile without OnPermissionAsk:
+	// 1. Proposing Go code must hit Code **/*.go -> Ask (not silently fall back to scenes/**).
+	s := editormcp.New(f.ed, editormcp.Options{})
+	t.Cleanup(func() { _ = s.Close() })
+	cs := connect(t, s, nil)
+
+	askRes := call(t, cs, editormcp.ToolCodeReviewPropose, map[string]any{
+		"files": []map[string]any{
+			{"path": "gameplay/patrol.go", "content": mcpPatrolFixed},
+		},
+	})
+	if !askRes.IsError || !strings.Contains(text(askRes), "permission required") {
+		t.Fatalf("expected Balanced profile to ask on Go code_review_propose, got isErr=%v text=%q", askRes.IsError, text(askRes))
+	}
+
+	// 2. Proposing a deletion must hit Delete ** -> Deny.
+	delRes := call(t, cs, editormcp.ToolCodeReviewPropose, map[string]any{
+		"files": []map[string]any{
+			{"path": "gameplay/patrol.go", "delete": true},
+		},
+	})
+	if !delRes.IsError || !strings.Contains(text(delRes), "permission denied") {
+		t.Fatalf("expected Balanced profile to deny delete in code_review_propose, got isErr=%v text=%q", delRes.IsError, text(delRes))
+	}
+
+	// 3. Under Autonomous, You-only files and .git metadata must STILL be refused, and delete remains denied.
+	if err := f.ed.SelectPermissionProfile(editor.PermissionProfileAutonomous); err != nil {
+		t.Fatalf("SelectPermissionProfile(Autonomous): %v", err)
+	}
+	for _, target := range []string{"permissions.yaml", "tools.yaml", ".nsgo/permissions.yaml"} {
+		res := call(t, cs, editormcp.ToolCodeReviewPropose, map[string]any{
+			"files": []map[string]any{
+				{"path": target, "content": "version: 1\n"},
+			},
+		})
+		if !res.IsError || !strings.Contains(text(res), "You only") {
+			t.Fatalf("expected You-only refusal for %q under Autonomous, got isErr=%v text=%q", target, res.IsError, text(res))
+		}
+	}
+	gitRes := call(t, cs, editormcp.ToolCodeReviewPropose, map[string]any{
+		"files": []map[string]any{
+			{"path": ".git/hooks/pre-commit", "content": "#!/bin/sh\necho pwn\n"},
+		},
+	})
+	if !gitRes.IsError {
+		t.Fatalf("expected .git path to be refused in code_review_propose, got %q", text(gitRes))
+	}
+
+	// 4. Default PrivacyGoSource=false refuses code_review_* even under Autonomous until the person enables Go source.
+	for _, tc := range []struct {
+		tool string
+		args map[string]any
+	}{
+		{editormcp.ToolCodeReviewPropose, map[string]any{"files": []map[string]any{{"path": "gameplay/patrol.go", "content": mcpPatrolFixed}}}},
+		{editormcp.ToolCodeReviewStatus, map[string]any{}},
+		{editormcp.ToolCodeReviewRunChecks, map[string]any{}},
+	} {
+		privRes := call(t, cs, tc.tool, tc.args)
+		if !privRes.IsError || !strings.Contains(text(privRes), "Go source") {
+			t.Fatalf("expected PrivacyGoSource=false to refuse %s, got isErr=%v text=%q", tc.tool, privRes.IsError, text(privRes))
+		}
+	}
+
+	// 5. After enabling Go source privacy under Autonomous, proposing Go code succeeds; denying Run game check blocks code_review_run_checks.
+	if err := f.ed.SetAgentPrivacy(editor.PrivacyGoSource, true); err != nil {
+		t.Fatalf("SetAgentPrivacy(GoSource): %v", err)
+	}
+	okRes := call(t, cs, editormcp.ToolCodeReviewPropose, map[string]any{
+		"files": []map[string]any{
+			{"path": "gameplay/patrol.go", "content": mcpPatrolFixed},
+		},
+	})
+	_ = mustOK(t, okRes)
+
+	perms := f.ed.Permissions()
+	perms.Rules = append([]editor.PermissionRule{{
+		Action:   editor.PermissionActionRun,
+		Patterns: []string{editor.PermissionRunGameCheck},
+		Decision: editor.PermissionDeny,
+	}}, perms.Rules...)
+	if err := f.ed.SetPermissions(perms); err != nil {
+		t.Fatalf("SetPermissions: %v", err)
+	}
+	denyRun := call(t, cs, editormcp.ToolCodeReviewRunChecks, map[string]any{})
+	if !denyRun.IsError || !strings.Contains(text(denyRun), "permission denied") {
+		t.Fatalf("expected Run game check deny rule to block code_review_run_checks, got isErr=%v text=%q", denyRun.IsError, text(denyRun))
 	}
 }

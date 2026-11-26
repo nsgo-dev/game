@@ -266,6 +266,10 @@ func (e *Editor) startPlaySession(cx *core.Scope, playback *replay.Recording, st
 	}
 	e.CloseAskInPlace()
 	e.closeComposerPopovers()
+	if e.CodeReviewOpen() {
+		// Pause the review screen so Play runs in the viewport on the untouched old code on disk.
+		e.CloseCodeReview()
+	}
 	e.endTileStrokeForChange()
 	e.endGridMapStrokeForChange()
 	e.endTerrainStrokeForChange()

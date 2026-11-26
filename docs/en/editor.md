@@ -1451,6 +1451,7 @@ Passing feedback in the editor uses one Spec-styled toast component (`ToastView`
 | Agent finished a request | Review opens | Never a toast |
 | Check failed, broken reference | Problems | Never a toast |
 | Agent asks, finishes or stops while the editor is in the background | + System notification | Paired with its in-editor channel |
+
 ## Agent automations (#1029)
 
 Project automations (`automations.yaml` beside `game.yaml`, schema `https://game.nsgo.dev/schemas/automations.v1.json`) let the agent run follow-up checks and tasks after a change while keeping every result reviewable (`docs/design/editor/Settings.dc.html`, `Tasks.dc.html`, `Checkpoints.dc.html`):
@@ -1522,6 +1523,7 @@ While an agent edits a scene through `editormcp` or an active agent turn (`Edito
 - **Scene tree markers**: added nodes show a `NEW` badge, changed nodes show a `MOD` badge, removed nodes remain visible as struck-through ghost rows with a `DEL` badge, and currently touched nodes display a violet agent-working dot until **Keep** or **Revert**.
 - **Header pill**: follows the agent's state (`Editor.SetAgentState` / `Editor.AgentState`): violet working pill (`"Agent is <activity> · manual edits stay available"`), warning waiting pill (`"Waiting for you · <detail>"`), pending-review pill with **Keep** (`KeepAgentTurn`, collapsing the turn into one undo step) and **Revert** (`RevertAgentTurn`, undoing the turn and restoring removed objects), and hidden while idle.
 - **Interactive top-left Overlay Legend**: appears automatically whenever live overlays are active (or when `OverlayLegendOpen` is true). Each row (**Selection**, **Agent working**, **Added**, **Changed**, **Removed**, **Problem**) is a `RoleSwitch` toggle (`ToggleOverlayLegendKind` / `SetOverlayLegendKind`) persisted per-user in `EditorSettings.HiddenOverlayKinds` (`hiddenOverlayKinds` in `editor.yaml`, schema `editor-settings.v1.json`) without modifying project files.
+
 ## Agent threads per line of work, grouped by scene (#1019)
 
 The right rail (`RightRailView`) switches between **Agent** (`AgentPanelView` / `AgentThreadsView`), **Inspector** (`InspectorView`, the default tab), and **History** (`AgentHistoryView`), using `docs/design/editor/Spec.dc.html` tokens matching `Threads.dc.html` across Dark and Light appearances:

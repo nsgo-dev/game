@@ -870,6 +870,7 @@ func (e *Editor) viewportVisibleOnScreen() bool {
 		e.MergeConflictOpen() ||
 		e.DataTableReviewOpen() ||
 		e.ChangesOpen() ||
+		e.CodeReviewOpen() ||
 		e.BuildReleaseScreenOpen() ||
 		e.UsagesScreenOpen() ||
 		e.PlaytestReportOpen() ||

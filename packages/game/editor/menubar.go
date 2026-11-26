@@ -370,7 +370,7 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 			}
 		}
 		var b strings.Builder
-		fmt.Fprintf(&b, "%s|%v|%s|%v|%d|%v|%v|%v|%v|%v|%v|%v|%v|%s|%v|%v|%v|%v|%v|%v|%d|%v|%v|%v|%d|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%d|%d|%v|%v|%v|%d|%s|%v|%v|%v|%s|%v|%v|%d|%v|%s|%d|%v|%s|%v|%v|%v|%v|%v|%d|%d|%v|%v|%v|%v|%v|%v|%v",
+		fmt.Fprintf(&b, "%s|%v|%s|%v|%d|%v|%v|%v|%v|%v|%v|%v|%v|%v|%s|%v|%v|%v|%v|%v|%v|%d|%v|%v|%v|%d|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%d|%d|%v|%v|%v|%d|%s|%v|%v|%v|%s|%v|%v|%d|%v|%s|%d|%v|%s|%v|%v|%v|%v|%v|%d|%d|%v|%v|%v|%v|%v|%v|%v",
 			e.ResolvedLanguage(),
 			e.SettingsOpen(),
 			e.SettingsPage(),
@@ -381,6 +381,7 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 			e.HistoryPanelOpen(),
 			e.StartScreenOpen(),
 			e.ChangesOpen(),
+			e.CodeReviewOpen(),
 			e.MergeConflictOpen(),
 			e.PlaytestReportOpen(),
 			e.UsagesScreenOpen(),

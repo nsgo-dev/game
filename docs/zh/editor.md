@@ -1451,6 +1451,7 @@ func main() {
 | 智能体完成请求（Agent finished a request） | Review opens | 绝不使用 Toast |
 | 检查失败或损坏引用（Check failed, broken reference） | Problems | 绝不使用 Toast |
 | 编辑器在后台时智能体提问、完成或停止 | + System notification | 与编辑器内通道配合 |
+
 ## 智能体自动化（#1029）
 
 项目自动化（位于 `game.yaml` 旁的 `automations.yaml`，JSON Schema 为 `https://game.nsgo.dev/schemas/automations.v1.json`）允许智能体在更改发生后自动执行后续检查与任务，同时确保每项结果均经过人工审查（对应 `docs/design/editor/Settings.dc.html`、`Tasks.dc.html`、`Checkpoints.dc.html`）：
@@ -1522,6 +1523,7 @@ func main() {
 - **场景树标记**：新增节点显示 `NEW` 徽章，修改节点显示 `MOD` 徽章，被移除节点以带删除线的虚影行与 `DEL` 徽章保留在树中，智能体正在操作的节点显示紫色圆点，直至执行 **Keep** 或 **Revert**。
 - **顶栏状态胶囊**：随智能体状态自动切换（`Editor.SetAgentState` / `Editor.AgentState`）：工作中显示紫色胶囊（`"Agent is <activity> · manual edits stay available"`），等待确认显示警告胶囊（`"Waiting for you · <detail>"`），待审查状态显示改动数量与 **Keep**（`KeepAgentTurn`，将整个回合合并为单步撤销）/**Revert**（`RevertAgentTurn`，回滚回合改动并还原已删除对象）按钮，空闲时自动隐藏。
 - **左上角可交互叠加层图例**：当存在任意实时叠加层（或 `OverlayLegendOpen` 为真）时自动显示。图例中的每一行（**Selection**、**Agent working**、**Added**、**Changed**、**Removed**、**Problem**）都是可点击的 `RoleSwitch` 开关（`ToggleOverlayLegendKind` / `SetOverlayLegendKind`），隐藏项按用户持久化到项目之外的 `EditorSettings.HiddenOverlayKinds`（`editor.yaml` 中的 `hiddenOverlayKinds`，Schema 为 `editor-settings.v1.json`），绝不污染项目文件。
+
 ## 按工作线与场景分组的智能体线程（#1019）
 
 右侧栏（`RightRailView`）可在**智能体**（`AgentPanelView` / `AgentThreadsView`）、**检查器**（`InspectorView`，默认标签）与**历史记录**（`AgentHistoryView`）之间切换，全部使用 `docs/design/editor/Spec.dc.html` 的深浅双主题规范令牌并对应 `Threads.dc.html`：

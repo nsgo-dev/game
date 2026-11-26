@@ -334,6 +334,26 @@ func (s *Server) checkPrivacyPre(ctx context.Context, t Tool, args json.RawMessa
 		if !policy.SceneAndData {
 			return editor.PrivacyRefusalError(editor.PrivacySceneAndData, ToolDataTableReviewPropose)
 		}
+	case ToolCodeReviewPropose:
+		if !policy.GoSource {
+			return editor.PrivacyRefusalError(editor.PrivacyGoSource, ToolCodeReviewPropose)
+		}
+		var a struct {
+			Files []struct {
+				Path string `json:"path"`
+			} `json:"files"`
+		}
+		_ = json.Unmarshal(args, &a)
+		for _, f := range a.Files {
+			if err := checkPathPrivacy(policy, root, f.Path); err != nil {
+				return err
+			}
+		}
+	case ToolCodeReviewStatus,
+		ToolCodeReviewRunChecks:
+		if !policy.GoSource {
+			return editor.PrivacyRefusalError(editor.PrivacyGoSource, t.Name)
+		}
 	case ToolSelectionGet,
 		ToolSceneEdit,
 		ToolDataTableReviewChecks,
