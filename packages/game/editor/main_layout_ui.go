@@ -2139,10 +2139,10 @@ func mainStatusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 						TestID: "status-pointer-coords",
 						ContentFunc: func() string {
 							_ = rev.Get()
-							_ = pointerRev.Get()
-							if ed.WorkspaceState() != WorkspaceReady {
+							if ed.WorkspaceState() != WorkspaceReady || (!ed.Playing() && ed.ViewMode == ViewMode2D && ed.SketchActive()) {
 								return ""
 							}
+							_ = pointerRev.Get()
 							if ed.ViewMode == ViewMode2D {
 								if wx, wy, ok := ed.ViewportPointer2DWorld(); ok {
 									return fmt.Sprintf("%d, %d", int(math.Round(float64(wx))), int(math.Round(float64(wy))))
@@ -2179,6 +2179,15 @@ func mainStatusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 									s += " · " + ed.toolLabel()
 								}
 								return s
+							}
+							if !ed.Playing() && ed.SketchActive() {
+								_ = pointerRev.Get()
+								sx, sy := ed.SketchStatusSceneCoords()
+								return fmt.Sprintf("Sketch layer · scene %d, %d · Sketch · %s",
+									int(math.Round(float64(sx))),
+									int(math.Round(float64(sy))),
+									ed.SketchTool().String(),
+								)
 							}
 							tool := ed.toolLabel()
 							switch ed.Tool {
@@ -2218,6 +2227,9 @@ func mainStatusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 							}
 							if ed.BuildErr != nil {
 								return ed.T("status.buildError", l10n.Param("error", ed.BuildErr.Error()))
+							}
+							if !ed.Playing() && ed.ViewMode == ViewMode2D && ed.SketchActive() {
+								return ed.T("sketch.statusHint")
 							}
 							if ed.Status == "" || ed.Status == "Ready" {
 								return ""
