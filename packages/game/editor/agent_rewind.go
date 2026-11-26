@@ -682,9 +682,16 @@ func (e *Editor) RewindAgentTurn(turnID string, mode AgentRewindMode) error {
 	}
 
 	if restoreConv {
-		if e.agent.checkpoints != nil {
-			for j := idx; j < len(e.agent.turns); j++ {
-				delete(e.agent.checkpoints, e.agent.turns[j].ID)
+		for j := idx; j < len(e.agent.turns); j++ {
+			id := e.agent.turns[j].ID
+			if e.agent.checkpoints != nil {
+				delete(e.agent.checkpoints, id)
+			}
+			if e.agent.pointingTurnID == id {
+				e.agent.pointingTurnID = ""
+			}
+			if e.agent.openReviewTurnID == id {
+				e.agent.openReviewTurnID = ""
 			}
 		}
 		e.agent.turns = e.agent.turns[:idx]

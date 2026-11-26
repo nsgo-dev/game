@@ -2019,6 +2019,7 @@ func (e *Editor) queueAgentTaskRequest(task AgentTaskKind, prompt string, offlin
 	if fromComposer || text == strings.TrimSpace(e.composerDraft) || text == strings.TrimSpace(e.agent.composerText) {
 		e.composerDraft = ""
 		e.agent.composerText = ""
+		e.agent.composerHighlighted = false
 		e.agentComposer.pickerOpen = false
 		e.agentComposer.pickerOpenedByAt = false
 		e.agentComposer.pickerQuery = ""
