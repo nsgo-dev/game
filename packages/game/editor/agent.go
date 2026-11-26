@@ -280,47 +280,50 @@ type AgentTurnContext struct {
 // AgentTurn is one user request (in-place ⌘L, Agent panel composer, terminal-initiated MCP turn, or background automation run)
 // and its attached context, streamed steps, follow-ups, pending review, and reply.
 type AgentTurn struct {
-	ID             string                `json:"id"`
-	Prompt         string                `json:"prompt"`
-	Images         []AgentReferenceImage `json:"-"`                  // reference images sent with this turn (one-shot attachments and pinned brief references)
-	Source         string                `json:"source,omitempty"`   // "in_place", "panel", "external", or "automation"
-	SkipPlan       bool                  `json:"skipPlan,omitempty"` // true for small in-place ⌘L edits per Plan.dc.html
-	Status         string                `json:"status,omitempty"`   // "pending", "running", "done", "stopped"
-	External       bool                  `json:"external,omitempty"` // true for turns started by a terminal MCP client rather than the composer
-	AgentName      string                `json:"agentName,omitempty"`
-	Task           AgentTaskKind         `json:"task,omitempty"`
-	Route          AgentModelRoute       `json:"route,omitempty"`
-	Model          string                `json:"model,omitempty"`
-	Steps          []AgentStep           `json:"steps,omitempty"`
-	PlannedSteps   []string              `json:"plannedSteps,omitempty"`
-	FollowUps      []AgentFollowUp       `json:"followUps,omitempty"`
-	NotChecked     []string              `json:"notChecked,omitempty"`
-	StoppedBefore  string                `json:"stoppedBefore,omitempty"`
-	PendingReview  *AgentPendingReview   `json:"pendingReview,omitempty"`
-	Summary        string                `json:"summary,omitempty"`
-	Reply          string                `json:"reply,omitempty"`
-	Error          string                `json:"error,omitempty"`
-	ModelError     *AgentModelErrorState `json:"modelError,omitempty"`
-	Stopped        bool                  `json:"stopped,omitempty"`
-	Done           bool                  `json:"done,omitempty"`
-	Partial        *AgentPartialState    `json:"partial,omitempty"`
-	Stuck          *AgentStuckState      `json:"stuck,omitempty"`
-	Lost           *AgentLostState       `json:"lost,omitempty"`
-	StoppedState   *AgentStoppedState    `json:"stoppedState,omitempty"`
-	Mismatch       *AgentMismatchReport  `json:"mismatch,omitempty"`
-	Review         *AgentTurnReview      `json:"review,omitempty"`
-	InputTokens    int                   `json:"inputTokens,omitempty"`
-	OutputTokens   int                   `json:"outputTokens,omitempty"`
-	CreatedAt      time.Time             `json:"createdAt"`
-	StartedAt      time.Time             `json:"startedAt"`
-	FinishedAt     time.Time             `json:"finishedAt"`
-	Context        AgentTurnContext      `json:"context"`
-	Automation     bool                  `json:"automation,omitempty"`     // true for turns started by an automation trigger
-	AutomationID   string                `json:"automationId,omitempty"`   // rule ID from automations.yaml when Automation is true
-	AutomationName string                `json:"automationName,omitempty"` // WHEN summary of the triggering automation rule
-	TriggerSummary string                `json:"triggerSummary,omitempty"` // concrete trigger description, e.g. "File changed · scenes/level_01.scene.yaml"
-	CheckpointID   string                `json:"checkpointId,omitempty"`   // checkpoint captured before the automation started
-	ReviewState    AgentReviewState      `json:"reviewState,omitempty"`    // lifecycle state for Ready to review / Kept / Dismissed / Failed
+	ID              string                `json:"id"`
+	Prompt          string                `json:"prompt"`
+	Images          []AgentReferenceImage `json:"-"`                  // reference images sent with this turn (one-shot attachments and pinned brief references)
+	Source          string                `json:"source,omitempty"`   // "in_place", "panel", "external", or "automation"
+	SkipPlan        bool                  `json:"skipPlan,omitempty"` // true for small in-place ⌘L edits per Plan.dc.html
+	Status          string                `json:"status,omitempty"`   // "pending", "running", "done", "stopped"
+	External        bool                  `json:"external,omitempty"` // true for turns started by a terminal MCP client rather than the composer
+	AgentName       string                `json:"agentName,omitempty"`
+	Task            AgentTaskKind         `json:"task,omitempty"`
+	Route           AgentModelRoute       `json:"route,omitempty"`
+	Model           string                `json:"model,omitempty"`
+	Steps           []AgentStep           `json:"steps,omitempty"`
+	PlannedSteps    []string              `json:"plannedSteps,omitempty"`
+	FollowUps       []AgentFollowUp       `json:"followUps,omitempty"`
+	NotChecked      []string              `json:"notChecked,omitempty"`
+	StoppedBefore   string                `json:"stoppedBefore,omitempty"`
+	PendingReview   *AgentPendingReview   `json:"pendingReview,omitempty"`
+	Summary         string                `json:"summary,omitempty"`
+	Reply           string                `json:"reply,omitempty"`
+	Error           string                `json:"error,omitempty"`
+	ModelError      *AgentModelErrorState `json:"modelError,omitempty"`
+	Stopped         bool                  `json:"stopped,omitempty"`
+	Done            bool                  `json:"done,omitempty"`
+	Partial         *AgentPartialState    `json:"partial,omitempty"`
+	Stuck           *AgentStuckState      `json:"stuck,omitempty"`
+	Lost            *AgentLostState       `json:"lost,omitempty"`
+	StoppedState    *AgentStoppedState    `json:"stoppedState,omitempty"`
+	Mismatch        *AgentMismatchReport  `json:"mismatch,omitempty"`
+	Review          *AgentTurnReview      `json:"review,omitempty"`
+	InputTokens     int                   `json:"inputTokens,omitempty"`
+	OutputTokens    int                   `json:"outputTokens,omitempty"`
+	CreatedAt       time.Time             `json:"createdAt"`
+	StartedAt       time.Time             `json:"startedAt"`
+	FinishedAt      time.Time             `json:"finishedAt"`
+	Context         AgentTurnContext      `json:"context"`
+	ChangedFiles    []string              `json:"changedFiles,omitempty"`
+	SessionIDBefore string                `json:"sessionIdBefore,omitempty"`
+	SessionIDAfter  string                `json:"sessionIdAfter,omitempty"`
+	Automation      bool                  `json:"automation,omitempty"`     // true for turns started by an automation trigger
+	AutomationID    string                `json:"automationId,omitempty"`   // rule ID from automations.yaml when Automation is true
+	AutomationName  string                `json:"automationName,omitempty"` // WHEN summary of the triggering automation rule
+	TriggerSummary  string                `json:"triggerSummary,omitempty"` // concrete trigger description, e.g. "File changed · scenes/level_01.scene.yaml"
+	CheckpointID    string                `json:"checkpointId,omitempty"`   // checkpoint captured before the automation started
+	ReviewState     AgentReviewState      `json:"reviewState,omitempty"`    // lifecycle state for Ready to review / Kept / Dismissed / Failed
 
 	turnStartHistoryIdx int
 	baselineDoc         *sceneformat.SceneDoc
@@ -358,6 +361,7 @@ type AgentRequest struct {
 	Task             AgentTaskKind
 	Route            AgentModelRoute
 	Model            string
+	PriorTurns       []AgentTurnSummary
 	AutomationID     string
 	AutomationName   string
 	TriggerKind      AutomationTriggerKind
@@ -498,7 +502,6 @@ type agentState struct {
 	builtInKeyChecked bool
 	builtInKeyPresent bool
 	notify            agentNotifyState
-
 	// Failure states, offline queue, viewport pointing, and turn review tracking.
 	offline              bool
 	pointingTurnID       string
@@ -508,7 +511,6 @@ type agentState struct {
 	externalBaselineFile string
 	externalHistoryStart int
 	externalBaselineIDs  map[string]struct{}
-
 	// Live MCP request streaming, permission card, follow-up, and Stop state (#1012).
 	liveRequestID       uint64
 	liveRequestActive   bool
@@ -523,6 +525,13 @@ type agentState struct {
 	liveFocusCardSeq    uint64
 	liveFocusReviewSeq  uint64
 	livePermCardFocused bool
+
+	// Per-turn checkpoints and rewind / redo state.
+	checkpoints         map[string]*agentTurnCheckpoint
+	rewindOpenTurnID    string
+	rewindMode          AgentRewindMode
+	lastRewind          *agentRewindRecord
+	composerHighlighted bool
 }
 
 func (a *agentState) setScope(cx *core.Scope) {
@@ -557,6 +566,7 @@ func (a *agentState) initDefaults() {
 	a.threadID = "thread-1"
 	a.reconnectTotal = len(AgentReconnectDelays)
 	a.notify.initDefaults()
+	a.rewindMode = AgentRewindBoth
 }
 
 func (e *Editor) nowTime() time.Time {
@@ -706,6 +716,11 @@ func (e *Editor) resetAgentForProject() {
 	e.agent.liveQueuedFollowUps = nil
 	e.agent.liveActivity = ""
 	e.agent.livePermCardFocused = false
+	e.agent.checkpoints = nil
+	e.agent.rewindOpenTurnID = ""
+	e.agent.rewindMode = AgentRewindBoth
+	e.agent.lastRewind = nil
+	e.agent.composerHighlighted = false
 	if e.agent.mode == AgentModeAPIKey && e.HasAgentAPIKey(DefaultAgentAPIKeyAccount) {
 		if e.AgentWeeklyLimitReached() {
 			e.agent.status = AgentStatusLimitReached
@@ -1544,9 +1559,11 @@ func (e *Editor) AgentComposerText() string {
 
 // SetAgentComposerText updates the multi-line draft in the Agent composer.
 func (e *Editor) SetAgentComposerText(text string) {
-	if e == nil || e.composerDraft == text {
+	if e == nil || (e.composerDraft == text && !e.agent.composerHighlighted) {
 		return
 	}
+	e.agent.composerText = text
+	e.agent.composerHighlighted = false
 	e.updateComposerDraftFromInput(text)
 }
 
@@ -1555,7 +1572,10 @@ func (e *Editor) InsertAgentComposerNewline() {
 	if e == nil {
 		return
 	}
-	e.updateComposerDraftFromInput(e.composerDraft + "\n")
+	next := e.composerDraft + "\n"
+	e.agent.composerText = next
+	e.agent.composerHighlighted = false
+	e.updateComposerDraftFromInput(next)
 }
 
 func cloneAgentTurn(t AgentTurn) AgentTurn {
@@ -1657,7 +1677,9 @@ func (e *Editor) AgentTurns() []AgentTurn {
 	}
 	out := make([]AgentTurn, len(e.agent.turns))
 	for i := range e.agent.turns {
-		out[i] = cloneAgentTurn(e.agent.turns[i])
+		cp := cloneAgentTurn(e.agent.turns[i])
+		cp.ChangedFiles = slices.Clone(e.agent.turns[i].ChangedFiles)
+		out[i] = cp
 	}
 	return out
 }
@@ -2030,6 +2052,7 @@ func (e *Editor) finishAgentRun(runID uint64, turnID string, err error, canceled
 		e.clearWaitingTurnTaskID()
 	}
 	e.agent.turnChangeSeq++
+	e.finalizeTurnCheckpoint(turnID)
 	e.restoreIdleAgentStatus()
 	if !e.HasUnkeptAgentTurnReview() && !e.HasPendingAgentTurnReview() {
 		e.scheduleAutoSaveIfNeeded()

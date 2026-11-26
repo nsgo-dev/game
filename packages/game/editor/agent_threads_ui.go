@@ -504,6 +504,7 @@ func agentThreadConversationBody(
 	pendingAsk *AgentPermissionPrompt,
 	openReq *AgentOpenRequest,
 	openReqRef, cardRef, allowOnceRef, allowAlwaysRef, denyRef *core.Ref,
+	hoveredTurnID, focusedTurnID *core.Signal[string],
 ) core.Node {
 	expandedID := ed.ExpandedAgentRequestID()
 	var nodes []core.Node
@@ -931,7 +932,7 @@ func agentThreadConversationBody(
 		Children: latestNodes,
 	})
 	for ti, turn := range turns {
-		nodes = append(nodes, agentTurnView(ed, rev, ti, turn, p, osKind))
+		nodes = append(nodes, agentTurnView(ed, rev, ti, turn, p, osKind, hoveredTurnID, focusedTurnID))
 	}
 	if ed.HasAgentPanelCard() {
 		nodes = append(nodes, agentReviewPanelCards(ed, p, turns)...)

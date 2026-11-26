@@ -1451,7 +1451,6 @@ func main() {
 | 智能体完成请求（Agent finished a request） | Review opens | 绝不使用 Toast |
 | 检查失败或损坏引用（Check failed, broken reference） | Problems | 绝不使用 Toast |
 | 编辑器在后台时智能体提问、完成或停止 | + System notification | 与编辑器内通道配合 |
-
 ## 智能体自动化（#1029）
 
 项目自动化（位于 `game.yaml` 旁的 `automations.yaml`，JSON Schema 为 `https://game.nsgo.dev/schemas/automations.v1.json`）允许智能体在更改发生后自动执行后续检查与任务，同时确保每项结果均经过人工审查（对应 `docs/design/editor/Settings.dc.html`、`Tasks.dc.html`、`Checkpoints.dc.html`）：
@@ -1507,7 +1506,6 @@ func main() {
 - **点击通知回到对应场景中的任务**：`cx.OnNotificationPress`（经由 `Editor.HandleNotificationPress` / `Editor.OpenAgentTask`）将编辑器窗口置前（并触发可选的 `Editor.OnFocusWindow` 钩子）、若在播放中先停止播放、关闭遮挡面板（设置、历史、问题智能体面板、就地提问、资源模式）、切换到或严格在项目根目录内打开该任务所在的场景标签页（拒绝路径遍历与符号链接逃逸）、打开任务或智能体面板并聚焦对应任务及待处理请求卡片。
 - **Dock 图标角标（`cx.SetBadge`）**：`Editor.AgentDockBadgeCount` 仅统计等待中（`TaskNeedsYou`）、待审查（`TaskReadyToReview`）与失败（`TaskFailed`）任务的总数（`AgentTaskCounts.BadgeCount()`）；运行中与排队中的任务绝不计入角标，归零或在作用域清理时自动清除。
 - **播放模式角落提示点与延后通知（`PlayTaskDotView`）**：在播放模式（`Editor.Playing()`）期间，运行中的游戏上方不会弹出任何智能体任务通知，系统通知会暂存（`Editor.HeldAgentNotifications`）直至 `Editor.Stop()` 停止播放后才对仍需处理的任务发出。视口右上角稳定挂载一个带 3 pt 光晕的 8 pt 圆点，颜色取当前最紧急状态的 Spec 令牌色（**失败** `Removed.Fg` > **等待处理** `Warning.Fg` > **待审查** `Accent.Fg`），仅在悬停或键盘聚焦时显示提示胶囊（例如 `"1 task needs you · stop Play to open"`）。
-
 ## 在视口与场景树中实时显示智能体编辑（#1013）
 
 当智能体通过 `editormcp` 或待定智能体回合（`Editor.BeginAgentTurn` / `Editor.RunAsAgent`）编辑场景时，编辑器会在视口与场景树中实时呈现其未确认改动（对应 `docs/design/editor/Working.dc.html`、`Main.dc.html` 与 `Spec.dc.html`），且绝不会替智能体移动 2D 或 3D 视口相机：
@@ -1641,3 +1639,14 @@ func main() {
 - **检查状态条、失败测试卡片与同回合第 2 轮修复**：状态条（`RoleStatus` + `LiveRegionPolite`）展示 `nsgo check`、`nsgo test` 通过/失败计数、耗时与包路径、**Run again**（`r`）以及运行中的实时进度（`"nsgo test running · M of N"` / `"Agent is fixing · nsgo test running · M of N"` 及 `"Agent edited <file>:<line>"` 徽章）。失败测试卡片会展示测试名、`file:line` 错误输出和智能体的原因说明，并提供 **Ask the agent to fix**（`AskAgentToFixCodeReview`、`Editor.OnAskCodeReviewFix`，在同一回合内作为 Round 2 修复并重新运行检查）与 **Open the test**（`OpenCodeReviewTestFile`）。
 - **逐文件确认、保留、等待卡片与单步撤销**：在最新待定代码通过 `nsgo check` 和 `nsgo test` 之前，**Confirm `<file>`**（`ConfirmCodeReviewFile`）保持禁用并返回 `ErrCodeReviewChecksNotPassed`；检查通过后解锁，确认后切换为 **Confirmed · undo**。**Keep**（`KeepCodeReview` / `⌘↵`）会将保留的 YAML 文件与**已确认**的 Go 文件作为 `Editor.History` 中的**单个撤销步骤**原子写入磁盘，一次 `Editor.Undo()` 即可还原旧 YAML/Go 文件并移除新建的 Go 文件。若保留时仍有未确认的 Go 文件，则仅写入 YAML 更改并在 **Agent** 面板保留一张等待卡片（说明哪些文件等待确认及其在运行模式中的影响，并附带 **Review** 按钮直接回到未确认的 Go 文件）。按 `Esc`（`CloseCodeReview`）可暂停审查而不丢弃更改，**Revert all**（`RevertCodeReview` / `⌘⌫`）则直接丢弃待定更改且不触碰磁盘。
 - **命令与 MCP 工具**：命令 `CmdReviewCode`（`agent.reviewCode`）用于打开或恢复进行中的 Go 审查。`editormcp` 提供 `code_review_propose`、`code_review_status` 与 `code_review_run_checks`，使智能体可在不阻塞 UI goroutine 的情况下提交待审 Go 代码、读取失败详情、在同一回合提交 Round 2 修复并重新运行覆盖层检查。
+
+## 回退智能体对话线程（#1021）
+
+可将智能体对话回退到任意已发送消息之前（对应 `docs/design/editor/Checkpoints.dc.html`，全部界面仅使用 `docs/design/editor/Spec.dc.html` 设计 Token）：
+
+- **每轮文件与场景检查点**：每次通过输入框发送请求（`SubmitAgentPrompt`）前，编辑器会为项目磁盘文件（跳过 `.git`、`.nsgo`、`node_modules` 与符号链接）以及当前打开的场景与 `game.yaml` 拍摄前快照，并在回合结束或停止时压缩为差异检查点（`AgentTurn.ChangedFiles`、`AgentTurn.SessionIDBefore`、`AgentTurn.SessionIDAfter`）。
+- **悬停或聚焦显示“回退到此处”与三种选项**：在 `AgentPanelView` 中悬停或键盘聚焦任意已发送的用户消息即可显示 **Rewind to here** / **回退到此处**（`OpenAgentRewindPopover` / `ToggleAgentRewindPopover`），打开“回退到此消息之前”弹层（`AgentRewindPreview`），提供三个选项（`AgentRewindMode`）、**Cancel** / **取消**（或按 `Esc`）与 **Rewind** / **回退**（`ConfirmAgentRewind` / `RewindAgentTurn`）：
+  - **文件与对话（`AgentRewindBoth`）**：从检查点还原目标回合及之后所有受影响的文件（并同步刷新当前场景、其他打开的场景标签页、`game.yaml` 与文件树），从对话中移除后续请求与回复，并将 `AgentSessionID` 恢复至 `SessionIDBefore`，使下一次提问直接从该消息之前继续会话。
+  - **仅文件（`AgentRewindFilesOnly`）**：从回合检查点还原文件，同时保持对话记录与会话不变。
+  - **仅对话（`AgentRewindConversationOnly`）**：移除目标及后续回合与会话推进，同时保持磁盘文件现状不变。
+- **回退横幅、重做与消息回到输入框**：回退完成后，被回退的消息会重新填入输入框并以规范强调色边框高亮（`AgentComposerRewound`），方便修改后重新发送；输入框上方会显示状态横幅（`AgentRewindBanner`）说明已回退的范围，并提供 **Redo** / **重做** 按钮（`RedoAgentRewind` / `CanRedoAgentRewind`）一键恢复文件、对话回合、会话 ID 与原有输入框草稿。
