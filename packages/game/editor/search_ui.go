@@ -31,6 +31,7 @@ func SearchPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 		refs       []refs.Ref
 		loading    bool
 		errMsg     string
+		dark       bool
 	}
 	snap := core.NewMemoFunc(cx, func() searchSnapshot {
 		_ = rev.Get()
@@ -46,6 +47,7 @@ func SearchPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 			refs:       ed.References(),
 			loading:    ed.SearchLoading(),
 			errMsg:     errMsg,
+			dark:       cx.Dark(),
 		}
 	}, func(a, b searchSnapshot) bool {
 		return a.tab == b.tab &&
@@ -53,17 +55,19 @@ func SearchPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 			a.refsTarget == b.refsTarget &&
 			a.loading == b.loading &&
 			a.errMsg == b.errMsg &&
+			a.dark == b.dark &&
 			slices.Equal(a.results, b.results) &&
 			slices.Equal(a.refs, b.refs)
 	})
 
 	body := core.Dynamic(func(cx *core.Scope) core.Node {
 		s := snap.Get()
+		p := ed.SpecPalette(cx)
 		if s.loading {
-			return specLoadingState("search-loading", ed.T("search.loading"))
+			return specLoadingState(p, "search-loading", ed.T("search.loading"))
 		}
 		if s.errMsg != "" {
-			retryBtn := specPanelButton(specPanelButtonSpec{
+			retryBtn := specPanelButton(p, specPanelButtonSpec{
 				TestID:     "search-error-retry",
 				Text:       ed.T("search.retry"),
 				Icon:       lucide.RefreshCw,
@@ -76,21 +80,22 @@ func SearchPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 					ed.report(ed.RefreshSearch())
 				},
 			})
-			return specStatusBanner("search-error", false, s.errMsg, nil, retryBtn)
+			return specStatusBanner(p, "search-error", false, s.errMsg, nil, retryBtn)
 		}
 		if s.tab == SearchTabReferences {
-			return searchRefsList(cx, ed, s.refsTarget, s.refs)
+			return searchRefsList(p, ed, s.refsTarget, s.refs)
 		}
-		return searchResultsList(cx, ed, s.query, s.results)
+		return searchResultsList(p, ed, s.query, s.results)
 	})
 
 	return core.Show{
 		When: visible.Get,
 		Then: func(cx *core.Scope) core.Node {
-			header := specPanelHeader(
-				specPanelToggleGroup(
+			p := ed.SpecPalette(cx)
+			header := specPanelHeader(p,
+				specPanelToggleGroup(p,
 					ed.T("search.search"),
-					specPanelToggle(specPanelToggleSpec{
+					specPanelToggle(p, specPanelToggleSpec{
 						TestID:  "search-tab-search",
 						Text:    ed.T("search.search"),
 						Icon:    lucide.Search,
@@ -105,7 +110,7 @@ func SearchPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 							}
 						},
 					}),
-					specPanelToggle(specPanelToggleSpec{
+					specPanelToggle(p, specPanelToggleSpec{
 						TestID:  "search-tab-refs",
 						Text:    ed.T("search.references"),
 						Icon:    lucide.Link2,
@@ -130,7 +135,7 @@ func SearchPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 						TestID:      "project-search-input",
 						Label:       ed.T("search.inputLabel"),
 						Placeholder: ed.T("search.placeholder"),
-						Style:       specInputStyle(),
+						Style:       specInputStyle(p),
 						Value: func() string {
 							_ = rev.Get()
 							return ed.SearchQuery()
@@ -158,11 +163,11 @@ func SearchPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 					Style: core.Style{
 						FontFamily: core.FontMonospace,
 						FontSize:   11.5,
-						Color:      specTextMuted,
+						Color:      p.TextFaint,
 						FlexShrink: 0,
 					},
 				},
-				specPanelButton(specPanelButtonSpec{
+				specPanelButton(p, specPanelButtonSpec{
 					TestID:  "search-refresh",
 					Text:    ed.T("search.refresh"),
 					Icon:    lucide.RefreshCw,
@@ -174,7 +179,7 @@ func SearchPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 						ed.report(ed.RefreshSearch())
 					},
 				}),
-				specPanelButton(specPanelButtonSpec{
+				specPanelButton(p, specPanelButtonSpec{
 					TestID:  "search-close",
 					Icon:    lucide.X,
 					Label:   ed.T("search.closeLabel"),
@@ -196,7 +201,7 @@ func SearchPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 				Children: []core.Node{body},
 			}
 
-			return specPanelContainer("search-panel", ed.T("search.search"), 204, header, scroll)
+			return specPanelContainer(p, "search-panel", ed.T("search.search"), 204, header, scroll)
 		},
 	}
 }
@@ -218,12 +223,12 @@ func searchKindIcon(kind SearchKind) func() *core.SVG {
 	}
 }
 
-func searchResultsList(cx *core.Scope, ed *Editor, query string, results []SearchResult) core.Node {
+func searchResultsList(p SpecPalette, ed *Editor, query string, results []SearchResult) core.Node {
 	if strings.TrimSpace(query) == "" {
-		return specEmptyState("search-empty", lucide.Search, specTextMuted, ed.T("search.emptyPrompt"), "", nil)
+		return specEmptyState(p, "search-empty", lucide.Search, p.TextFaint, ed.T("search.emptyPrompt"), "", nil)
 	}
 	if len(results) == 0 {
-		return specEmptyState("search-empty", lucide.SearchX, specTextMuted, ed.T("search.noMatches"), "", nil)
+		return specEmptyState(p, "search-empty", lucide.SearchX, p.TextFaint, ed.T("search.noMatches"), "", nil)
 	}
 	rows := make([]core.Node, 0, len(results))
 	for i, res := range results {
@@ -236,7 +241,7 @@ func searchResultsList(cx *core.Scope, ed *Editor, query string, results []Searc
 		if r.Detail != "" {
 			aria += " — " + r.Detail
 		}
-		rows = append(rows, specPanelRowButton(specPanelRowButtonSpec{
+		rows = append(rows, specPanelRowButton(p, specPanelRowButtonSpec{
 			TestID:  fmt.Sprintf("search-result-%d", i),
 			Label:   aria,
 			Tooltip: "Open " + primary,
@@ -244,15 +249,15 @@ func searchResultsList(cx *core.Scope, ed *Editor, query string, results []Searc
 				ed.report(ed.OpenSearchResult(r))
 			},
 			Children: []core.Node{
-				specIcon(searchKindIcon(r.Kind), specIconSize, specTextSecondary),
+				specIcon(searchKindIcon(r.Kind), specIconSize, p.TextMuted),
 				core.View{
 					Style: core.Style{
 						Height:         core.Pt(20),
 						Padding:        core.Symmetric(0, specSpace8),
 						CornerRadius:   specRadiusControl,
-						Background:     specPanel,
+						Background:     p.Panel,
 						BorderWidth:    1,
-						BorderColor:    specLineRaised,
+						BorderColor:    p.LineRaised,
 						AlignItems:     core.AlignCenter,
 						JustifyContent: core.JustifyCenter,
 						FlexShrink:     0,
@@ -263,7 +268,7 @@ func searchResultsList(cx *core.Scope, ed *Editor, query string, results []Searc
 							Style: core.Style{
 								FontSize:   11,
 								FontWeight: core.FontWeightSemibold,
-								Color:      specTextMuted,
+								Color:      p.TextFaint,
 							},
 						},
 					},
@@ -274,7 +279,7 @@ func searchResultsList(cx *core.Scope, ed *Editor, query string, results []Searc
 						FontFamily: core.FontMonospace,
 						FontSize:   11.5,
 						FontWeight: core.FontWeightSemibold,
-						Color:      specTextStrong,
+						Color:      p.TextPrimary,
 						FlexShrink: 0,
 					},
 				},
@@ -282,7 +287,7 @@ func searchResultsList(cx *core.Scope, ed *Editor, query string, results []Searc
 					Content: r.Detail,
 					Style: core.Style{
 						FontSize:   12.5,
-						Color:      specTextSecondary,
+						Color:      p.TextMuted,
 						FlexGrow:   1,
 						FlexShrink: 1,
 					},
@@ -293,12 +298,12 @@ func searchResultsList(cx *core.Scope, ed *Editor, query string, results []Searc
 	return core.View{TestID: "search-results", Style: core.Style{Gap: specSpace4}, Children: rows}
 }
 
-func searchRefsList(cx *core.Scope, ed *Editor, target string, found []refs.Ref) core.Node {
+func searchRefsList(p SpecPalette, ed *Editor, target string, found []refs.Ref) core.Node {
 	if target == "" {
-		return specEmptyState("refs-empty", lucide.Link2, specTextMuted, ed.T("search.refsPrompt"), "", nil)
+		return specEmptyState(p, "refs-empty", lucide.Link2, p.TextFaint, ed.T("search.refsPrompt"), "", nil)
 	}
 	if len(found) == 0 {
-		return specEmptyState("refs-empty", lucide.Link2, specTextMuted, ed.T("search.noRefs", l10n.Param("target", target)), "", nil)
+		return specEmptyState(p, "refs-empty", lucide.Link2, p.TextFaint, ed.T("search.noRefs", l10n.Param("target", target)), "", nil)
 	}
 	rows := make([]core.Node, 0, len(found))
 	for i, ref := range found {
@@ -312,7 +317,7 @@ func searchRefsList(cx *core.Scope, ed *Editor, target string, found []refs.Ref)
 			detail += " = " + r.Value
 		}
 		aria := fmt.Sprintf("Reference %s — %s", loc, detail)
-		rows = append(rows, specPanelRowButton(specPanelRowButtonSpec{
+		rows = append(rows, specPanelRowButton(p, specPanelRowButtonSpec{
 			TestID:  fmt.Sprintf("refs-row-%d", i),
 			Label:   aria,
 			Tooltip: "Open " + loc,
@@ -320,14 +325,14 @@ func searchRefsList(cx *core.Scope, ed *Editor, target string, found []refs.Ref)
 				ed.report(ed.OpenReference(r))
 			},
 			Children: []core.Node{
-				specIcon(lucide.Link2, specIconSize, specTextSecondary),
+				specIcon(lucide.Link2, specIconSize, p.TextMuted),
 				core.Text{
 					Content: loc,
 					Style: core.Style{
 						FontFamily: core.FontMonospace,
 						FontSize:   11.5,
 						FontWeight: core.FontWeightSemibold,
-						Color:      specTextStrong,
+						Color:      p.TextPrimary,
 						FlexShrink: 0,
 					},
 				},
@@ -336,7 +341,7 @@ func searchRefsList(cx *core.Scope, ed *Editor, target string, found []refs.Ref)
 					Style: core.Style{
 						FontFamily: core.FontMonospace,
 						FontSize:   11.5,
-						Color:      specTextSecondary,
+						Color:      p.TextMuted,
 						FlexGrow:   1,
 						FlexShrink: 1,
 					},

@@ -1106,6 +1106,7 @@ func (c *clipCmd) apply(clip *resource.Animation, meta *clipMeta, saved []byte, 
 		if !c.retarget {
 			e.stopClipLoop()
 			e.clipTime = 0
+			e.clipLoading = false
 			e.selKey = clipKeyRef{-1, -1}
 		}
 		e.clipMeta = *meta

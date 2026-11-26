@@ -464,3 +464,281 @@ func TestProblemsPanelSpecKeyboardActivation(t *testing.T) {
 		t.Fatal("problems-refresh did not take keyboard focus")
 	}
 }
+
+// #1063 + #1192 regression: all five bottom panels must follow Spec Light and Dark palettes live.
+func TestBottomPanelsSpecLightThemeParity(t *testing.T) {
+	dir := writeSearchFixture(t)
+	ed, err := editor.New(nil, testResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(ed.WaitForProblems)
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1440, 1200), nsgotest.Environment(core.Environment{
+		OS:     core.OSMacOS,
+		Idiom:  core.IdiomDesktop,
+		Dark:   false,
+		Locale: "en-US",
+	}))
+
+	app.Post(func() {
+		if err := ed.OpenProject(dir); err != nil {
+			t.Error(err)
+			return
+		}
+		ed.SetSearchOpen(true)
+		if err := ed.OpenDataTableYAML("data/items.yaml", []byte("version: 1\nrows:\n  - name: Sword\n    hp: 10\n")); err != nil {
+			t.Error(err)
+			return
+		}
+		if err := ed.NewLocalizations("", "en"); err != nil {
+			t.Error(err)
+			return
+		}
+		if err := ed.AddLocalizationKey("menu.play", false); err != nil {
+			t.Error(err)
+			return
+		}
+		if err := ed.NewClip("hero", "Idle", time.Second); err != nil {
+			t.Error(err)
+			return
+		}
+	})
+	app.Settle()
+
+	assertPalette := func(label string, want editor.SpecPalette) {
+		t.Helper()
+		for _, id := range []string{"problems-panel", "search-panel", "datatable-panel", "l10n-panel", "anim-panel"} {
+			v := app.Find("id:" + id)
+			if v.Style.Background != want.Panel {
+				t.Fatalf("%s: %s background = #%08X, want #%08X", label, id, uint32(v.Style.Background), uint32(want.Panel))
+			}
+			if v.Style.BorderColors.Top != want.Line {
+				t.Fatalf("%s: %s top border = #%08X, want #%08X", label, id, uint32(v.Style.BorderColors.Top), uint32(want.Line))
+			}
+		}
+		playBtn := app.Find("id:anim-play")
+		if playBtn.Style.Background != want.TextPrimary {
+			t.Fatalf("%s: anim-play background = #%08X, want #%08X", label, uint32(playBtn.Style.Background), uint32(want.TextPrimary))
+		}
+	}
+
+	assertPalette("light", editor.LightSpecPalette())
+
+	app.SetEnvironment(core.Environment{
+		OS:     core.OSMacOS,
+		Idiom:  core.IdiomDesktop,
+		Dark:   true,
+		Locale: "en-US",
+	})
+	app.Settle()
+	assertPalette("dark", editor.DarkSpecPalette())
+}
+
+// #1063 regression: anim-play and datatable column sort icons must be memoized so unrelated rev ticks cause 0 icon remounts.
+func TestBottomPanelsMemoizedIconsNoRemountOnUnrelatedTicks(t *testing.T) {
+	ed := animatedEditor(t)
+	if err := ed.OpenDataTableYAML("data/enemies.yaml", []byte(sampleEnemiesTable)); err != nil {
+		t.Fatal(err)
+	}
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1440, 1200), desktopEnv())
+	app.Settle()
+
+	firstIconID := func(buttonID string) uint64 {
+		t.Helper()
+		btn := app.Find("id:" + buttonID)
+		var findIcon func(v *nsgotest.View) (uint64, bool)
+		findIcon = func(v *nsgotest.View) (uint64, bool) {
+			if v.Kind == nsgotest.KindCanvas || v.Kind == nsgotest.KindImage {
+				return uint64(v.ID), true
+			}
+			for _, ch := range v.Children {
+				if id, ok := findIcon(ch); ok {
+					return id, true
+				}
+			}
+			return 0, false
+		}
+		id, ok := findIcon(btn)
+		if !ok {
+			t.Fatalf("no icon child found under %s", buttonID)
+		}
+		return id
+	}
+
+	playIconBefore := firstIconID("anim-play")
+	colIconBefore := firstIconID("datatable-col-hp")
+
+	// Unrelated rev ticks (seeking playhead, editing clip name, editing a cell) must not remount either icon.
+	app.Post(func() {
+		ed.SeekClip(250 * time.Millisecond)
+		_ = ed.SetClipName("Renamed")
+		_ = ed.SetDataTableCellText(0, "hp", "42")
+	})
+	app.Settle()
+
+	if got := firstIconID("anim-play"); got != playIconBefore {
+		t.Fatalf("anim-play icon remounted on unrelated rev ticks: id %d -> %d", playIconBefore, got)
+	}
+	if got := firstIconID("datatable-col-hp"); got != colIconBefore {
+		t.Fatalf("datatable-col-hp icon remounted on unrelated rev ticks: id %d -> %d", colIconBefore, got)
+	}
+
+	// Changing the memoized state (playing clip, sorting column) updates the icons as expected.
+	app.Post(func() {
+		_ = ed.PlayClip()
+		ed.SetDataTableSort("hp", editor.SortAsc)
+	})
+	app.Settle()
+	if !ed.ClipPlaying() {
+		t.Fatal("expected ClipPlaying() to be true")
+	}
+	if got := firstIconID("anim-play"); got == playIconBefore {
+		t.Fatal("expected anim-play icon to update when ClipPlaying changed")
+	}
+	if got := firstIconID("datatable-col-hp"); got == colIconBefore {
+		t.Fatal("expected datatable-col-hp icon to update when sort order changed")
+	}
+	app.Post(ed.PauseClip)
+	app.Settle()
+}
+
+// #1063 regression: ClipLoading and SearchLoading reset on transitions, and Play mode disables anim-save & anim-scrub.
+func TestBottomPanelsLoadingResetsAndPlayModeGuards(t *testing.T) {
+	dir := writeSearchFixture(t)
+	ed, err := editor.New(nil, testResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(ed.WaitForProblems)
+	ed.ProjectAssets = true
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	// ClipLoading clears on NewClip, CloseClip, and OpenDemo.
+	if err := ed.NewClip("hero", "Walk", time.Second); err != nil {
+		t.Fatal(err)
+	}
+	ed.SetClipLoading(true)
+	if !ed.ClipLoading() {
+		t.Fatal("expected ClipLoading() == true")
+	}
+	if err := ed.CloseClip(); err != nil {
+		t.Fatal(err)
+	}
+	if ed.ClipLoading() {
+		t.Fatal("expected ClipLoading() cleared on CloseClip")
+	}
+	if err := ed.NewClip("hero", "Walk", time.Second); err != nil {
+		t.Fatal(err)
+	}
+	ed.SetClipLoading(true)
+	if err := ed.NewClip("hero", "Run", time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if ed.ClipLoading() {
+		t.Fatal("expected ClipLoading() cleared on NewClip")
+	}
+
+	// SearchLoading clears when SetSearchQuery, RefreshSearch, or ShowReferences finishes.
+	ed.SetSearchOpen(true)
+	ed.SetSearchLoading(true)
+	if err := ed.SetSearchQuery("goblin_king"); err != nil {
+		t.Fatal(err)
+	}
+	if ed.SearchLoading() {
+		t.Fatal("expected SearchLoading() cleared after SetSearchQuery")
+	}
+	ed.SetSearchLoading(true)
+	if err := ed.RefreshSearch(); err != nil {
+		t.Fatal(err)
+	}
+	if ed.SearchLoading() {
+		t.Fatal("expected SearchLoading() cleared after RefreshSearch")
+	}
+	ed.SetSearchLoading(true)
+	if _, err := ed.ShowReferences("materials/stone.material.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	if ed.SearchLoading() {
+		t.Fatal("expected SearchLoading() cleared after ShowReferences")
+	}
+
+	// Play mode disables anim-save and anim-scrub.
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1440, 900), desktopEnv())
+	app.Settle()
+
+	if !app.Enabled("id:anim-save") || !app.Enabled("id:anim-scrub") {
+		t.Fatal("expected anim-save and anim-scrub enabled while not playing")
+	}
+	app.Post(func() {
+		if err := ed.Play(); err != nil {
+			t.Error(err)
+		}
+	})
+	app.Settle()
+	if app.Enabled("id:anim-save") {
+		t.Fatal("expected anim-save disabled during Play mode")
+	}
+	if app.Enabled("id:anim-scrub") {
+		t.Fatal("expected anim-scrub disabled during Play mode")
+	}
+	app.Post(func() { _ = ed.Stop() })
+	app.Settle()
+
+	// Switching to a demo clears both clipLoading and searchLoading.
+	app.Post(func() {
+		ed.SetClipLoading(true)
+		ed.SetSearchLoading(true)
+		if err := ed.OpenDemo(); err != nil {
+			t.Error(err)
+		}
+	})
+	app.Settle()
+	if ed.ClipLoading() || ed.SearchLoading() {
+		t.Fatalf("expected OpenDemo to clear loading flags: clip=%t search=%t", ed.ClipLoading(), ed.SearchLoading())
+	}
+}
+
+// #1063 regression: typing/clearing a filter on a 0-row Data Table updates datatable-empty between "No rows yet" and "No matching rows".
+func TestDataTableZeroRowFilterEmptyStateToggle(t *testing.T) {
+	ed := newTestEditor(t)
+	if err := ed.OpenDataTableYAML("data/empty.yaml", []byte("version: 1\nrows: []\n")); err != nil {
+		t.Fatal(err)
+	}
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1440, 900), desktopEnv())
+	app.Settle()
+
+	if got := allText(app.Find("id:datatable-empty")); !strings.Contains(got, "No rows yet") {
+		t.Fatalf("0-row unfiltered empty state = %q, want 'No rows yet'", got)
+	}
+	if !app.Exists("id:datatable-empty-add") {
+		t.Fatal("expected datatable-empty-add when 0-row table is unfiltered")
+	}
+
+	app.Post(func() { ed.SetDataTableFilter("dragon") })
+	app.Settle()
+	if got := allText(app.Find("id:datatable-empty")); !strings.Contains(got, "No matching rows") {
+		t.Fatalf("0-row filtered empty state = %q, want 'No matching rows'", got)
+	}
+	if !app.Exists("id:datatable-clear-filter") {
+		t.Fatal("expected datatable-clear-filter when 0-row table is filtered")
+	}
+
+	app.Press("id:datatable-clear-filter")
+	app.Settle()
+	if got := allText(app.Find("id:datatable-empty")); !strings.Contains(got, "No rows yet") {
+		t.Fatalf("0-row cleared-filter empty state = %q, want 'No rows yet'", got)
+	}
+}

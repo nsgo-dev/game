@@ -181,6 +181,7 @@ func (e *Editor) OpenDemo() error {
 	e.clipMeta = clipMeta{}
 	e.clipScene = nil
 	e.clipPlayer = nil
+	e.clipLoading = false
 	e.clipErr = nil
 	e.clipSaved = nil
 	e.table = nil
