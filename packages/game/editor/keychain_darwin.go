@@ -4,8 +4,8 @@ package editor
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -20,21 +20,20 @@ func platformKeychain() Keychain {
 // Set stores a generic password in the macOS login keychain using `security -i` over stdin
 // with hex-encoded secret (`-X`) so the secret never appears in command-line arguments.
 func (darwinKeychain) Set(service, account, secret string) error {
-	service = strings.TrimSpace(service)
-	account = strings.TrimSpace(account)
-	if service == "" || account == "" {
-		return errors.New("editor: keychain service and account must be non-empty")
+	var err error
+	service, account, err = validateKeychainKey(service, account)
+	if err != nil {
+		return err
 	}
-	if secret == "" {
-		return errors.New("editor: keychain secret must be non-empty")
-	}
-	if strings.ContainsAny(service, "\r\n\"") || strings.ContainsAny(account, "\r\n\"") {
-		return errors.New("editor: invalid characters in keychain service or account")
+	if err := validateKeychainSecret(secret); err != nil {
+		return err
 	}
 	hexSecret := hex.EncodeToString([]byte(secret))
 	script := fmt.Sprintf("add-generic-password -U -s %q -a %q -X %s\n", service, account, hexSecret)
 
-	cmd := exec.Command("/usr/bin/security", "-i")
+	ctx, cancel := context.WithTimeout(context.Background(), keychainCommandTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "/usr/bin/security", "-i")
 	cmd.Stdin = strings.NewReader(script)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -50,12 +49,15 @@ func (darwinKeychain) Set(service, account, secret string) error {
 
 // Get reads a generic password from the macOS login keychain.
 func (darwinKeychain) Get(service, account string) (string, error) {
-	service = strings.TrimSpace(service)
-	account = strings.TrimSpace(account)
-	if service == "" || account == "" {
+	var err error
+	service, account, err = validateKeychainKey(service, account)
+	if err != nil {
 		return "", ErrCredentialNotFound
 	}
-	cmd := exec.Command("/usr/bin/security", "find-generic-password", "-s", service, "-a", account, "-w")
+	ctx, cancel := context.WithTimeout(context.Background(), keychainCommandTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "/usr/bin/security", "find-generic-password", "-s", service, "-a", account, "-w")
+	cmd.Stdin = nil
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -70,20 +72,20 @@ func (darwinKeychain) Get(service, account string) (string, error) {
 		return "", fmt.Errorf("editor: macOS keychain get failed: %w", err)
 	}
 	raw := strings.TrimSuffix(stdout.String(), "\n")
-	if decoded, err := hex.DecodeString(raw); err == nil && len(raw)%2 == 0 && len(raw) > 0 && isLikelyHexPayload(raw) {
-		return string(decoded), nil
-	}
-	return raw, nil
+	return decodeDarwinKeychainPayload(raw), nil
 }
 
 // Delete removes a generic password from the macOS login keychain.
 func (darwinKeychain) Delete(service, account string) error {
-	service = strings.TrimSpace(service)
-	account = strings.TrimSpace(account)
-	if service == "" || account == "" {
-		return nil
+	var err error
+	service, account, err = validateKeychainKey(service, account)
+	if err != nil {
+		return err
 	}
-	cmd := exec.Command("/usr/bin/security", "delete-generic-password", "-s", service, "-a", account)
+	ctx, cancel := context.WithTimeout(context.Background(), keychainCommandTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "/usr/bin/security", "delete-generic-password", "-s", service, "-a", account)
+	cmd.Stdin = nil
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
@@ -99,9 +101,24 @@ func (darwinKeychain) Delete(service, account string) error {
 	return nil
 }
 
-func isLikelyHexPayload(s string) bool {
-	// `security add-generic-password -X` stores raw bytes, and `find-generic-password -w`
-	// returns plain UTF-8 when printable or hex when non-UTF-8; check only if the caller
-	// stored binary or security emitted a 0x-prefixed hex dump.
-	return strings.HasPrefix(s, "0x")
+// decodeDarwinKeychainPayload decodes 0x-prefixed hex dumps emitted by `security find-generic-password -w`
+// when a stored generic password contains non-printable or multiline bytes, returning plain payloads unchanged.
+func decodeDarwinKeychainPayload(raw string) string {
+	var hexPart string
+	switch {
+	case strings.HasPrefix(raw, "0x"):
+		hexPart = raw[2:]
+	case strings.HasPrefix(raw, "0X"):
+		hexPart = raw[2:]
+	default:
+		return raw
+	}
+	if len(hexPart) == 0 || len(hexPart)%2 != 0 {
+		return raw
+	}
+	decoded, err := hex.DecodeString(hexPart)
+	if err != nil {
+		return raw
+	}
+	return string(decoded)
 }

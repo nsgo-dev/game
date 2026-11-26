@@ -627,6 +627,15 @@ func (e *Editor) SetReleaseNotesText(notes string) {
 	if e == nil {
 		return
 	}
+	if err := validateReleaseNotesContent(notes); err != nil {
+		e.buildRelease.mu.Lock()
+		e.buildRelease.lastErr = err
+		e.buildRelease.rev++
+		e.buildRelease.mu.Unlock()
+		e.Status = "Save release notes failed: " + err.Error()
+		e.notify()
+		return
+	}
 	e.buildRelease.mu.Lock()
 	if e.buildRelease.releaseNotes == notes && e.buildRelease.notesInitialized {
 		e.buildRelease.mu.Unlock()
@@ -2271,6 +2280,7 @@ func (e *Editor) stopReleaseBuild() {
 	if e == nil {
 		return
 	}
+	e.CancelReleaseUpload()
 	e.buildRelease.mu.Lock()
 	run := e.buildRelease.run
 	e.buildRelease.run = nil
@@ -2390,7 +2400,7 @@ func (e *Editor) refreshBuildReleaseMetadata() {
 		loaded := false
 		if dir != "" {
 			if abs, err := e.ReleaseNotesAbsPath(); err == nil {
-				if data, rerr := os.ReadFile(abs); rerr == nil && strings.TrimSpace(string(data)) != "" {
+				if data, rerr := readBoundedTextFile(abs, maxReleaseNotesBytes); rerr == nil && strings.TrimSpace(string(data)) != "" {
 					prov := formatReleaseNotesProvenance(commitsCount, sinceRef, len(kept))
 					e.buildRelease.mu.Lock()
 					e.buildRelease.releaseNotes = strings.TrimRight(string(data), "\r\n")

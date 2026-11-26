@@ -5,7 +5,7 @@ package editor
 import (
 	"errors"
 	"fmt"
-	"strings"
+	"runtime"
 	"syscall"
 	"unsafe"
 )
@@ -13,6 +13,7 @@ import (
 const (
 	winCredTypeGeneric         = 1
 	winCredPersistLocalMachine = 2
+	winCredMaxBlobBytes        = 2560 // Windows CRED_MAX_CREDENTIAL_BLOB_SIZE (5 * 512)
 	winErrNotFound             = syscall.Errno(1168)
 )
 
@@ -51,13 +52,17 @@ func winTargetName(service, account string) string {
 
 // Set stores secret in the Windows Credential Manager using CredWriteW.
 func (windowsKeychain) Set(service, account, secret string) error {
-	service = strings.TrimSpace(service)
-	account = strings.TrimSpace(account)
-	if service == "" || account == "" {
-		return errors.New("editor: keychain service and account must be non-empty")
+	var err error
+	service, account, err = validateKeychainKey(service, account)
+	if err != nil {
+		return err
 	}
-	if secret == "" {
-		return errors.New("editor: keychain secret must be non-empty")
+	if err := validateKeychainSecret(secret); err != nil {
+		return err
+	}
+	blob := []byte(secret)
+	if len(blob) > winCredMaxBlobBytes {
+		return fmt.Errorf("editor: windows credential secret exceeds maximum size (%d bytes)", winCredMaxBlobBytes)
 	}
 	targetPtr, err := syscall.UTF16PtrFromString(winTargetName(service, account))
 	if err != nil {
@@ -67,7 +72,6 @@ func (windowsKeychain) Set(service, account, secret string) error {
 	if err != nil {
 		return err
 	}
-	blob := []byte(secret)
 	cred := winCredential{
 		Type:               winCredTypeGeneric,
 		TargetName:         targetPtr,
@@ -77,6 +81,10 @@ func (windowsKeychain) Set(service, account, secret string) error {
 		UserName:           userPtr,
 	}
 	r1, _, callErr := procCredWrite.Call(uintptr(unsafe.Pointer(&cred)), 0)
+	runtime.KeepAlive(targetPtr)
+	runtime.KeepAlive(userPtr)
+	runtime.KeepAlive(blob)
+	runtime.KeepAlive(&cred)
 	if r1 == 0 {
 		return fmt.Errorf("editor: windows credential manager write failed: %w", callErr)
 	}
@@ -85,9 +93,9 @@ func (windowsKeychain) Set(service, account, secret string) error {
 
 // Get reads secret from the Windows Credential Manager using CredReadW.
 func (windowsKeychain) Get(service, account string) (string, error) {
-	service = strings.TrimSpace(service)
-	account = strings.TrimSpace(account)
-	if service == "" || account == "" {
+	var err error
+	service, account, err = validateKeychainKey(service, account)
+	if err != nil {
 		return "", ErrCredentialNotFound
 	}
 	targetPtr, err := syscall.UTF16PtrFromString(winTargetName(service, account))
@@ -96,6 +104,7 @@ func (windowsKeychain) Get(service, account string) (string, error) {
 	}
 	var credPtr *winCredential
 	r1, _, callErr := procCredRead.Call(uintptr(unsafe.Pointer(targetPtr)), winCredTypeGeneric, 0, uintptr(unsafe.Pointer(&credPtr)))
+	runtime.KeepAlive(targetPtr)
 	if r1 == 0 {
 		if errors.Is(callErr, winErrNotFound) {
 			return "", ErrCredentialNotFound
@@ -112,16 +121,17 @@ func (windowsKeychain) Get(service, account string) (string, error) {
 
 // Delete removes secret from the Windows Credential Manager using CredDeleteW.
 func (windowsKeychain) Delete(service, account string) error {
-	service = strings.TrimSpace(service)
-	account = strings.TrimSpace(account)
-	if service == "" || account == "" {
-		return nil
+	var err error
+	service, account, err = validateKeychainKey(service, account)
+	if err != nil {
+		return err
 	}
 	targetPtr, err := syscall.UTF16PtrFromString(winTargetName(service, account))
 	if err != nil {
 		return err
 	}
 	r1, _, callErr := procCredDel.Call(uintptr(unsafe.Pointer(targetPtr)), winCredTypeGeneric, 0)
+	runtime.KeepAlive(targetPtr)
 	if r1 == 0 && !errors.Is(callErr, winErrNotFound) {
 		return fmt.Errorf("editor: windows credential manager delete failed: %w", callErr)
 	}

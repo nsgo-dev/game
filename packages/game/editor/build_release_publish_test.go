@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -673,5 +674,286 @@ func TestBuildReleaseCredentialsStayInKeychainNeverInProjectFiles(t *testing.T) 
 	}
 	if ed.HasPublishCredential(editor.PublishDestItchIO) {
 		t.Fatal("HasPublishCredential(itch.io) still true after delete")
+	}
+}
+
+func TestBuildReleasePublishSecurityLifecycleFocusAndSpecLight(t *testing.T) {
+	dir := writeBuildReleaseProject(t, `export:
+  presets:
+    - platform: web
+    - platform: android
+`)
+
+	// 1. Keychain rejects flag/control characters; release notes reject NUL and >256 KiB; unsafe -tag ignored.
+	kc := editor.NewMemoryKeychain()
+	if err := kc.Set("-bad-service", "acc", "secret"); err == nil {
+		t.Fatal("expected keychain to reject leading '-' service")
+	}
+	if err := kc.Set(editor.KeychainServiceName, "acc\nnewline", "secret"); err == nil {
+		t.Fatal("expected keychain to reject newline in account")
+	}
+	if err := editor.ValidateReleaseNotes("hello\x00world"); err == nil {
+		t.Fatal("expected ValidateReleaseNotes to reject NUL byte")
+	}
+	if err := editor.ValidateReleaseNotes(strings.Repeat("a", (256<<10)+1)); err == nil {
+		t.Fatal("expected ValidateReleaseNotes to reject oversized markdown")
+	}
+
+	ed, err := editor.New(nil, testResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ed.Keychain = kc
+	ed.ReleaseCheckRunner = func(context.Context, string) ([]assetcheck.Problem, time.Duration, error) {
+		return nil, time.Millisecond, nil
+	}
+	ed.ReleaseReadinessInspector = func(platform, _ string, _ *project.File) []editor.BuildReadinessItem {
+		return nil
+	}
+	ed.ExportCommandRunner = func(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+		return nil
+	}
+	ed.ReleaseMeasureRunner = func(ctx context.Context, platform string, plan *releaseplan.Plan) (editor.BuildArtifactResult, error) {
+		name := "game-0.4.0-" + platform + ".zip"
+		return editor.BuildArtifactResult{
+			ArtifactPath: filepath.Join(plan.OutputDir, name),
+			ArtifactName: name,
+			SizeBytes:    mbBytes(12.5),
+		}, nil
+	}
+	ed.GitRunner = func(_ string, args ...string) (string, error) {
+		if strings.Join(args, " ") == "describe --tags --abbrev=0" {
+			return "--malicious-flag\n", nil
+		}
+		if strings.Join(args, " ") == "rev-list --count HEAD" {
+			return "1\n", nil
+		}
+		if strings.Join(args, " ") == "log --pretty=format:%s -n 32 HEAD" {
+			return "feat: safe commit\n", nil
+		}
+		return "", nil
+	}
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.StorePublishCredential(editor.PublishDestItchIO, "studio", "itch-secret-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.StorePublishCredential(editor.PublishDestGooglePlay, "studio", "play-secret-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenBuildReleaseScreen(); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.StartReleaseBuild(editor.BuildReleaseOptions{DryRun: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.WaitReleaseBuild(); err != nil {
+		t.Fatal(err)
+	}
+	// Unsafe -tag must fall back to initial commit rather than passing --malicious-flag..HEAD.
+	if snap := ed.BuildReleaseSnapshot(); snap.ReleaseNotesSinceRef == "--malicious-flag" {
+		t.Fatalf("unsafe git tag was accepted as ReleaseNotesSinceRef: %q", snap.ReleaseNotesSinceRef)
+	}
+
+	// 2. NaN / +Inf / -Inf upload progress is clamped safely to [0, 1].
+	ed.ReleaseUploader = editor.ReleaseUploaderFunc(func(_ context.Context, req editor.ReleaseUploadRequest, progress func(editor.ReleaseUploadProgress)) (editor.ReleaseUploadResult, error) {
+		progress(editor.ReleaseUploadProgress{Fraction: math.NaN(), Message: "nan"})
+		progress(editor.ReleaseUploadProgress{Fraction: math.Inf(-1), Message: "neg"})
+		progress(editor.ReleaseUploadProgress{Fraction: math.Inf(1), Message: "pos"})
+		return editor.ReleaseUploadResult{Destination: req.Destination, Platform: req.Platform, Version: req.Version, Message: "Uploaded"}, nil
+	})
+	if err := ed.ReviewReleaseUploads(); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.ConfirmReleaseUploads(ed.BuildReleaseSnapshot().UploadReview.SessionID); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.WaitReleaseUpload(); err != nil {
+		t.Fatalf("WaitReleaseUpload with NaN/Inf progress: %v", err)
+	}
+	for _, it := range ed.BuildReleaseSnapshot().UploadReview.Items {
+		if math.IsNaN(it.Progress) || math.IsInf(it.Progress, 0) || it.Progress < 0 || it.Progress > 1 {
+			t.Fatalf("item %s invalid progress after NaN/Inf clamp: %v", it.Platform, it.Progress)
+		}
+	}
+	ed.CloseReviewUploads()
+
+	// 3. CancelReleaseUpload fires automatically on Editor.Close() and OpenDemo() without racing on e.Project.
+	started := make(chan struct{}, 1)
+	cancelled := make(chan struct{}, 1)
+	ed.ReleaseUploader = editor.ReleaseUploaderFunc(func(ctx context.Context, _ editor.ReleaseUploadRequest, _ func(editor.ReleaseUploadProgress)) (editor.ReleaseUploadResult, error) {
+		select {
+		case started <- struct{}{}:
+		default:
+		}
+		<-ctx.Done()
+		select {
+		case cancelled <- struct{}{}:
+		default:
+		}
+		return editor.ReleaseUploadResult{}, ctx.Err()
+	})
+	if err := ed.ReviewReleaseUploads(); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.ConfirmReleaseUploads(ed.BuildReleaseSnapshot().UploadReview.SessionID); err != nil {
+		t.Fatal(err)
+	}
+	<-started
+	// Switching to demo cancels the in-flight upload cleanly with no race on e.Project.
+	if err := ed.OpenDemo(); err != nil {
+		t.Fatalf("OpenDemo during active upload: %v", err)
+	}
+	select {
+	case <-cancelled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("OpenDemo did not cancel in-flight release upload")
+	}
+
+	// Re-open project on a fresh editor, start upload, and verify Editor.Close() cancels it cleanly too.
+	edClose, err := editor.New(nil, testResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	edClose.Keychain = kc
+	edClose.ReleaseCheckRunner = ed.ReleaseCheckRunner
+	edClose.ReleaseReadinessInspector = ed.ReleaseReadinessInspector
+	edClose.ExportCommandRunner = ed.ExportCommandRunner
+	edClose.ReleaseMeasureRunner = ed.ReleaseMeasureRunner
+	edClose.GitRunner = ed.GitRunner
+	edClose.ReleaseUploader = ed.ReleaseUploader
+	if err := edClose.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := edClose.OpenBuildReleaseScreen(); err != nil {
+		t.Fatal(err)
+	}
+	if err := edClose.StartReleaseBuild(editor.BuildReleaseOptions{DryRun: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := edClose.WaitReleaseBuild(); err != nil {
+		t.Fatal(err)
+	}
+	if err := edClose.ReviewReleaseUploads(); err != nil {
+		t.Fatal(err)
+	}
+	if err := edClose.ConfirmReleaseUploads(edClose.BuildReleaseSnapshot().UploadReview.SessionID); err != nil {
+		t.Fatal(err)
+	}
+	<-started
+	if err := edClose.Close(); err != nil {
+		t.Fatalf("Editor.Close during active upload: %v", err)
+	}
+	select {
+	case <-cancelled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Editor.Close did not cancel in-flight release upload")
+	}
+	_ = ed.Close()
+
+	// 4. UI test: Spec Light palette on Review uploads, keychain input survives brRev ticks without focus loss,
+	// and Esc closes Review uploads, scrubs kcSecret, and restores focus to build-release-review-uploads.
+	edUI, err := editor.New(nil, testResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = edUI.Close() })
+	edUI.Keychain = editor.NewMemoryKeychain()
+	edUI.ReleaseCheckRunner = func(context.Context, string) ([]assetcheck.Problem, time.Duration, error) {
+		return nil, time.Millisecond, nil
+	}
+	edUI.ReleaseReadinessInspector = func(platform, _ string, _ *project.File) []editor.BuildReadinessItem {
+		return nil
+	}
+	edUI.ExportCommandRunner = func(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+		return nil
+	}
+	edUI.ReleaseMeasureRunner = func(ctx context.Context, platform string, plan *releaseplan.Plan) (editor.BuildArtifactResult, error) {
+		name := "game-0.4.0-" + platform + ".zip"
+		return editor.BuildArtifactResult{
+			ArtifactPath: filepath.Join(plan.OutputDir, name),
+			ArtifactName: name,
+			SizeBytes:    mbBytes(12.5),
+		}, nil
+	}
+	edUI.GitRunner = func(_ string, _ ...string) (string, error) { return "", nil }
+	_ = edUI.SetAppearance(editor.AppearanceLight)
+	if err := edUI.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := edUI.OpenBuildReleaseScreen(); err != nil {
+		t.Fatal(err)
+	}
+	if err := edUI.StartReleaseBuild(editor.BuildReleaseOptions{DryRun: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := edUI.WaitReleaseBuild(); err != nil {
+		t.Fatal(err)
+	}
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, edUI)
+	}, nsgotest.Environment(core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop, Dark: false}), nsgotest.Size(1440, 900))
+	app.Settle()
+
+	// Open Review uploads via build-release-review-uploads.
+	app.Focus("id:build-release-review-uploads")
+	app.Settle()
+	app.Press("id:build-release-review-uploads")
+	app.Settle()
+	if !app.Exists("id:build-review-uploads-dialog") {
+		t.Fatal("Review uploads dialog did not open")
+	}
+
+	// Verify Spec Light palette surface on Review uploads dialog.
+	dlg := app.Find("id:build-review-uploads-dialog")
+	lightRaised := editor.LightSpecPalette().Raised
+	if dlg.Style.Background != lightRaised {
+		t.Fatalf("Spec Light Review uploads background = %v, want %v", dlg.Style.Background, lightRaised)
+	}
+
+	// Open keychain drawer, focus secret input, type, trigger brRev bump, and verify input node/focus survived!
+	app.Post(func() {
+		edUI.OpenKeychainCredentialEditor(editor.PublishDestItchIO)
+	})
+	app.Settle()
+	app.Focus("id:build-keychain-secret")
+	app.Type("id:build-keychain-secret", "ephemeral-secret")
+	app.Settle()
+	secBefore := app.Find("id:build-keychain-secret")
+	if !secBefore.Focused {
+		t.Fatal("build-keychain-secret did not hold focus before brRev bump")
+	}
+	app.Post(func() {
+		_ = edUI.SetReleaseUploadItemIncluded("web", false)
+		_ = edUI.SetReleaseUploadItemIncluded("web", true)
+	})
+	app.Settle()
+	secAfter := app.Find("id:build-keychain-secret")
+	if secAfter.ID != secBefore.ID || !secAfter.Focused {
+		t.Fatalf("brRev bump remounted or stole focus from build-keychain-secret (ID %d -> %d, focused=%v)", secBefore.ID, secAfter.ID, secAfter.Focused)
+	}
+
+	// Press Esc -> closes Review uploads, restores focus to build-release-review-uploads, and scrubs typed secret.
+	app.Key("escape")
+	app.Advance(250 * time.Millisecond)
+	app.Settle()
+	if edUI.BuildReleaseSnapshot().UploadReview.Open {
+		t.Fatal("Esc did not close Review uploads dialog")
+	}
+	if btn := app.Find("id:build-release-review-uploads"); !btn.Focused {
+		t.Fatal("Esc closing Review uploads did not restore focus to build-release-review-uploads")
+	}
+
+	// Re-open Review uploads + keychain drawer: typed secret must have been scrubbed to "".
+	app.Press("id:build-release-review-uploads")
+	app.Settle()
+	app.Post(func() {
+		edUI.OpenKeychainCredentialEditor(editor.PublishDestItchIO)
+	})
+	app.Settle()
+	if got := app.Find("id:build-keychain-secret").Text; got != "" {
+		t.Fatalf("keychain secret retained %q after dialog close, want empty", got)
 	}
 }

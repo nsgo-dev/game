@@ -323,6 +323,8 @@ claude mcp add game-editor -- nsgo game mcp
 | `object_select_same_prefab` | read | `id`（可选） | 选中当前场景中与目标对象共享同一 `prefab` 或实例化 `scene` 引用的全部对象，并返回 `selectedIds`。 |
 | `object_visibility` | edit | `id`、`hidden`、`locked`（可选） | 设置本地或解析对象的会话级隐藏与/或锁定状态，不修改场景文件。 |
 | `object_find_usages` | read | `id`（可选） | 在打开的项目中查找对象的实例化场景、预制体或 ID 的引用与搜索匹配（对场景/预制体路径打开查找用法界面，对普通 ID 打开搜索面板）。 |
+| `release_notes_draft` | edit | `markdown`、`kept_reviews`（均可选） | 根据自上一发布标签（无标签时自初始提交）以来的 git 提交、已保留的审查摘要及 `changelog.d` 片段起草面向玩家的 Markdown 发布说明（或直接保存经校验的 `markdown`，上限 256 KiB），并仅原子写入 `game release -release-notes` 读取的同一文件。 |
+| `release_review_uploads` | run | 无 | 打开构建与发布界面的 **Review uploads** 确认对话框，列出每个产物的名称、体积、目标商店（`itch.io`、`Google Play · internal testing`、`TestFlight`）与版本号。绝不启动上传：无论权限配置如何，商店上传始终需要开发者本人显式确认。 |
 
 `scene_edit` 接受的编辑，每项是一个带 `op` 的对象：
 
