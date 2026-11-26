@@ -839,6 +839,7 @@ func (e *Editor) OpenAgentTask(id string) error {
 	e.CloseAskInPlace()
 	e.SetProblemAgentPanelOpen(false)
 	e.SetHistoryPanelOpen(false)
+	e.FinishSketch()
 	if e.LeftRailMode() == LeftRailAssets {
 		e.SetLeftRailMode(LeftRailScene)
 	}

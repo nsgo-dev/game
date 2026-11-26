@@ -531,7 +531,8 @@ func (e *Editor) reviewKeepShortcutAllowed() bool {
 		!e.PlaytestReportOpen() &&
 		!e.AssetGeneratorOpen() &&
 		!e.HUDLayoutOpen() &&
-		!e.CutsceneOpen()
+		!e.CutsceneOpen() &&
+		!e.SketchActive()
 }
 
 func (e *Editor) validateReviewRelPath(raw string) (string, error) {
