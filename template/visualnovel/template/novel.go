@@ -213,9 +213,10 @@ func newNovel(cx *core.Scope) *novel {
 	n.actions.WatchGamepads(cx)
 
 	loop := &game.Loop{
-		Rate:   60,
-		Update: n.update,
-		Draw:   func(float64) { n.frame.Update(func(f uint64) uint64 { return f + 1 }) },
+		Rate:     60,
+		OnDemand: true,
+		Update:   n.update,
+		Draw:     func(float64) { n.frame.Update(func(f uint64) uint64 { return f + 1 }) },
 	}
 	loop.Run(cx)
 
