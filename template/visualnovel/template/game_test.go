@@ -23,7 +23,7 @@ func startNovel(t *testing.T, opts ...nsgotest.Option) (*nsgotest.App, *novel) {
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		n = newNovel(cx)
 		return n.view()
-	}, append([]nsgotest.Option{nsgotest.Size(960, 540)}, opts...)...)
+	}, append([]nsgotest.Option{nsgotest.Size(960, 540), nsgotest.Environment(core.Environment{Locale: "en"})}, opts...)...)
 	app.Advance(frame)
 	if n == nil || n.phase.Get() != phaseTitle {
 		t.Fatal("the game did not start on its title screen")
@@ -43,6 +43,9 @@ func restart(t *testing.T, app *nsgotest.App) (*nsgotest.App, *novel) {
 }
 
 func lineID(n *novel) string {
+	if n.run.p == nil {
+		return ""
+	}
 	l, _ := n.run.p.Line()
 	return l.LineID
 }
@@ -301,10 +304,14 @@ func TestSaveSlotsRestoreTheStory(t *testing.T) {
 // TestLoadRefusesASlotThatNoLongerMatches loads a slot whose line the story no longer reaches, as after the script changed: the game stays where it was and says so.
 func TestLoadRefusesASlotThatNoLongerMatches(t *testing.T) {
 	app, n := startNovel(t)
-	if err := n.saves.Save(slotName(2), saveData{Node: "River", Line: "river_99", Choices: []int{0}}); err != nil {
-		t.Fatal(err)
+	var saveErr error
+	app.Post(func() {
+		saveErr = n.saves.Save(slotName(2), saveData{Node: "River", Line: "river_99", Choices: []int{0}})
+		n.slots.Set(1)
+	})
+	if saveErr != nil {
+		t.Fatal(saveErr)
 	}
-	n.slots.Set(1)
 	app.Advance(frame)
 	app.Press("menu-load")
 	app.Advance(frame)
@@ -313,7 +320,10 @@ func TestLoadRefusesASlotThatNoLongerMatches(t *testing.T) {
 	if n.phase.Get() != phaseTitle || n.run.p != nil || app.Find("status").Text != "Slot 2 could not be loaded" {
 		t.Fatalf("phase %v, status %q after loading a slot that does not match", n.phase.Get(), n.status.Get())
 	}
-	app.Advance(statusDuration + frame)
+	// Advance in chunks under game.Loop's MaxSteps per-frame cap (100ms at 60 Hz) so a single display frame on a live target does not drop the rest of statusDuration.
+	for i := 0; i < 40 && app.Exists("status"); i++ {
+		app.Advance(5 * frame)
+	}
 	if app.Exists("status") {
 		t.Fatal("the status message did not go away")
 	}
@@ -575,10 +585,14 @@ func TestSavingOverAUsedSlotAsksFirst(t *testing.T) {
 // TestEscapeClosesTheTitleScreensLoadPanel opens Load on the title screen: Escape closes it as it does during the story.
 func TestEscapeClosesTheTitleScreensLoadPanel(t *testing.T) {
 	app, n := startNovel(t)
-	if err := n.saves.Save(slotName(1), saveData{Node: "Start", Line: "dock_01", Choices: []int{}}); err != nil {
-		t.Fatal(err)
+	var saveErr error
+	app.Post(func() {
+		saveErr = n.saves.Save(slotName(1), saveData{Node: "Start", Line: "dock_01", Choices: []int{}})
+		n.slots.Set(1)
+	})
+	if saveErr != nil {
+		t.Fatal(saveErr)
 	}
-	n.slots.Set(1)
 	app.Advance(frame)
 	app.Press("menu-load")
 	app.Advance(frame)
@@ -612,6 +626,10 @@ func TestLinesReadOutlastALoadAndTheBackground(t *testing.T) {
 		t.Fatalf("after loading at %s, the lines read are %v; want river_02 among them", lineID(n), n.run.p.ReadKeys())
 	}
 
+	if nsgotest.Target() != "" {
+		// On a live target, SetEnvironment does not override Lifecycle; headless tests verify the background save hook.
+		return
+	}
 	app.SetEnvironment(core.Environment{Lifecycle: core.LifecycleBackground})
 	_, n = restart(t, app)
 	if !slices.Contains(n.read, "river_02") {
@@ -656,9 +674,11 @@ Done. #line:t_done
 	if lineID(n) != "t_again" || occurrence(n.run.p, "t_again") != 2 {
 		t.Fatalf("at %s, shown %d times; want t_again shown twice", lineID(n), occurrence(n.run.p, "t_again"))
 	}
-	n.saveTo(1)
-	n.toTitle()
-	n.loadFrom(1)
+	app.Post(func() {
+		n.saveTo(1)
+		n.toTitle()
+		n.loadFrom(1)
+	})
 	app.Advance(frame)
 	if n.phase.Get() != phasePlaying || lineID(n) != "t_again" || occurrence(n.run.p, "t_again") != 2 {
 		t.Fatalf("loaded at %s, shown %d times; want the second t_again", lineID(n), occurrence(n.run.p, "t_again"))
@@ -673,7 +693,10 @@ Done. #line:t_done
 
 // TestTextBoxKeepsClearOfTheSafeArea plays on a phone held sideways, whose notch and home indicator take the stage's sides and bottom: the text box stays inside them.
 func TestTextBoxKeepsClearOfTheSafeArea(t *testing.T) {
-	app, n := startNovel(t, nsgotest.Environment(core.Environment{SafeArea: core.Edges{Left: 47, Right: 47, Bottom: 21}}))
+	if nsgotest.Target() != "" {
+		t.Skip("safe-area environment pinning is headless-only")
+	}
+	app, n := startNovel(t, nsgotest.Environment(core.Environment{Locale: "en", SafeArea: core.Edges{Left: 47, Right: 47, Bottom: 21}}))
 	key(app, "enter")()
 	box := n.styleFor(n.size).Layout(n.size, 0).Box
 	if box.Origin.X < 47 || box.Origin.X+box.Size.Width > n.size.Width-47 || box.Origin.Y+box.Size.Height > n.size.Height-21 {
