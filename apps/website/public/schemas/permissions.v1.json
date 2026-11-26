@@ -1,0 +1,78 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://game.nsgo.dev/schemas/permissions.v1.json",
+  "title": "NSGo game editor MCP permissions (version 1)",
+  "description": "PermissionsFile is the versioned YAML document stored in permissions.yaml beside game.yaml. Rules are evaluated from top to bottom and the first matching rule decides. A file looks like this:\n\n# yaml-language-server: $schema=https://game.nsgo.dev/schemas/permissions.v1.json version: 1 profile: balanced rules: - action: edit patterns: - scenes/** - prefabs/** - data/** decision: allow",
+  "type": "object",
+  "properties": {
+    "version": {
+      "description": "Version is the schema version; it must equal PermissionsVersion (1).",
+      "type": "integer",
+      "const": 1
+    },
+    "profile": {
+      "description": "Profile names the base preset (\"cautious\", \"balanced\", or \"autonomous\"). Editing individual rules keeps Profile so the editor can mark the profile as changed from its preset.",
+      "type": "string",
+      "enum": [
+        "cautious",
+        "balanced",
+        "autonomous"
+      ]
+    },
+    "rules": {
+      "description": "Rules is the ordered first-match-wins permission table checked before every mutating or running MCP tool call.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/PermissionRule"
+      }
+    }
+  },
+  "required": [
+    "version",
+    "profile",
+    "rules"
+  ],
+  "additionalProperties": false,
+  "definitions": {
+    "PermissionRule": {
+      "description": "PermissionRule is one row in the first-match-wins permission rule table.",
+      "type": "object",
+      "properties": {
+        "action": {
+          "description": "Action is the kind of operation this rule matches (\"edit\", \"create\", \"delete\", \"run\", or \"code\").",
+          "type": "string",
+          "enum": [
+            "edit",
+            "create",
+            "delete",
+            "run",
+            "code"
+          ]
+        },
+        "patterns": {
+          "description": "Patterns lists slash-separated file globs (such as \"scenes/**\", \"game.yaml\", \"**/*.go\", \"**\") or run targets (such as \"game check\", \"playtests\", \"shell\").",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        },
+        "decision": {
+          "description": "Decision is what happens when this rule is the first match (\"allow\", \"ask\", or \"deny\").",
+          "type": "string",
+          "enum": [
+            "allow",
+            "ask",
+            "deny"
+          ]
+        }
+      },
+      "required": [
+        "action",
+        "patterns",
+        "decision"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

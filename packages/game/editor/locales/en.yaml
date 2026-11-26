@@ -112,6 +112,8 @@ strings:
   cmd.paste.label: Paste
   cmd.pasteInto.desc: Paste objects from the clipboard as children of the selected object
   cmd.pasteInto.label: Paste as Child
+  cmd.permissionsSettings.desc: Configure agent MCP permission profiles and first-match-wins rules
+  cmd.permissionsSettings.label: Permissions
   cmd.playMark.desc: Add a mark at the current Play frame with the rolling 60 s input replay attached
   cmd.playMark.label: Mark Play Moment
   cmd.playStop.desc: Toggle play-in-editor simulation
@@ -448,6 +450,7 @@ strings:
   menu.particleEditor: Particle Emitter Editor
   menu.paste: Paste
   menu.pasteInto: Paste as Child
+  menu.permissions: Permissions...
   menu.place: Place
   menu.play: Play
   menu.playMark: Mark Play Moment
@@ -544,6 +547,56 @@ strings:
   palette.pluginToolDesc: Plugin tool ({plugin})
   palette.projectFile: Project file
   palette.searchLabel: Search commands
+  permissions.action.code: Code
+  permissions.action.create: Create
+  permissions.action.delete: Delete
+  permissions.action.edit: Edit
+  permissions.action.run: Run
+  permissions.addRule: Add rule
+  permissions.agentRailSummary: '{allow} allow · {ask} ask · {deny} deny rules active in permissions.yaml. Rules govern the editor''s MCP tools only; external edits appear via the disk watcher.'
+  permissions.agentRailTitle: Agent on this page
+  permissions.allow: Allow
+  permissions.allowAlways: Always allow
+  permissions.allowOnce: Allow once
+  permissions.ask: Ask
+  permissions.askTitle: Allow the agent to {summary}?
+  permissions.backToEditor: Back to editor
+  permissions.blockedHeader: BLOCKED BY A RULE
+  permissions.blockedPrefix: 'Blocked: {summary}'
+  permissions.changed: Changed
+  permissions.colAction: ACTION
+  permissions.colDecision: DECISION
+  permissions.colFiles: FILES / TARGET
+  permissions.colOrder: ORDER
+  permissions.deny: Deny
+  permissions.emptyRules: No custom rules; the selected profile default decides.
+  permissions.mcpOnlyNote: Rules govern the editor's MCP server only. External agent file edits show via the disk watcher.
+  permissions.moveDown: Move rule down
+  permissions.moveUp: Move rule up
+  permissions.navExport: Export
+  permissions.navGeneral: General
+  permissions.navInputMap: Input map
+  permissions.noProject: No project
+  permissions.profile.autonomous: Autonomous
+  permissions.profile.autonomousDesc: Does whole tasks end to end; you review at the end.
+  permissions.profile.balanced: Balanced
+  permissions.profile.balancedDesc: Edits content and tests on its own; asks before code, config and deletions.
+  permissions.profile.cautious: Cautious
+  permissions.profile.cautiousDesc: Asks before every change, check and playtest.
+  permissions.removeRule: Remove rule
+  permissions.resetPreset: Reset to preset
+  permissions.rulesHeader: RULES · FIRST MATCH WINS
+  permissions.scopeShared: Project · permissions.yaml
+  permissions.searchHint: Settings › Permissions · project rules enforced by the editor's MCP server
+  permissions.sectionAgent: AGENT
+  permissions.sectionEditor: EDITOR · THIS COMPUTER
+  permissions.sectionProject: PROJECT · game.yaml
+  permissions.settingsTitle: Settings
+  permissions.subtitle: What the agent may do on its own, per action and per file. Everything it does is still reviewable and undoable.
+  permissions.title: Permissions
+  permissions.toastSaved: Always permission rule saved
+  permissions.toastShow: Show
+  permissions.toastUndo: Undo
   problems.agentHeader: Agent
   problems.agentNote: Problems are found the moment a file changes, by you or the agent; the agent only offers a fix, it never applies one without you.
   problems.applyFix: Apply fix

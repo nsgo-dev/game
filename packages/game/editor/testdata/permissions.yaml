@@ -1,0 +1,36 @@
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/permissions.v1.json
+version: 1
+profile: balanced
+rules:
+  - action: edit
+    patterns:
+      - scenes/**
+      - prefabs/**
+      - data/**
+    decision: allow
+  - action: run
+    patterns:
+      - game check
+      - playtests
+    decision: allow
+  - action: edit
+    patterns:
+      - game.yaml
+      - brief.yaml
+    decision: ask
+  - action: code
+    patterns:
+      - '**/*.go'
+    decision: ask
+  - action: create
+    patterns:
+      - '**'
+    decision: ask
+  - action: delete
+    patterns:
+      - '**'
+    decision: deny
+  - action: run
+    patterns:
+      - shell
+    decision: deny

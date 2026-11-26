@@ -356,7 +356,17 @@ The server has two resources: `editor://scene`, the open scene's YAML as the edi
 
 ### Adding tools
 
-The tools are a registry that other parts of the editor join with `Server.AddTool`, so that every action with a button or a shortcut has a tool. A `Tool` has a name, a description, a JSON Schema for its arguments, an `Action` (`ActionRead`, `ActionEdit` or `ActionRun`, which the editor's permission rules decide on) and a handler. The handler runs on one of the server's goroutines and reaches the editor with `Call.Editor`, which runs a function on the editor's goroutine and waits for it, so a tool may wait for work done elsewhere and return an image. Clients are told the tool list changed.
+The tools are a registry that other parts of the editor join with `Server.AddTool`, so that every action with a button or a shortcut has a tool. A `Tool` has a name, a description, a JSON Schema for its arguments, an `Action` (`ActionRead`, `ActionEdit`, `ActionCreate`, `ActionDelete`, `ActionRun`, or `ActionCode`, which the editor's permission rules decide on), an optional `Target` resolver, and a handler. The handler runs on one of the server's goroutines and reaches the editor with `Call.Editor`, which runs a function on the editor's goroutine and waits for it, so a tool may wait for work done elsewhere and return an image. Clients are told the tool list changed.
+
+### Permissions enforcement
+
+Before running any mutating or running tool call (every action other than `ActionRead`), `editormcp.Server` evaluates the call against the open project's `permissions.yaml` (`editor.PermissionsFile`, defaulting to the `Balanced` profile when the file is absent) from top to bottom using first-match-wins rules:
+
+- **`allow`**: runs the tool immediately.
+- **`ask`**: invokes `Options.OnPermissionAsk` when configured, or queues a pending permission request on `Editor` (`PendingPermissionRequests`) and returns a structured `*editormcp.PermissionError` with `decision: "ask"` without running the tool. Answering **Always** (`PermissionAnswerAllowAlways` / `Editor.ApproveAlwaysPermission`) inserts an `allow` rule ahead of the matching rule, persists `permissions.yaml`, and shows the `"Always permission rule saved"` toast with **Show** and **Undo**.
+- **`deny`**: records a blocked step on `Editor` (`BlockedPermissions`), returns a structured `*editormcp.PermissionError` naming the exact rule index, rule summary, base profile, and Settings link (for example `"Settings › Permissions · rule 7 of 7"`), and never calls the underlying tool handler.
+
+Rules govern the editor's MCP server tools only. Files modified directly by an external agent outside MCP continue to surface through the editor's disk watcher.
 
 ```go
 s := editormcp.New(ed, editormcp.Options{Run: cx.Post})

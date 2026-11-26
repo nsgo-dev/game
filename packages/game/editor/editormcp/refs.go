@@ -52,6 +52,7 @@ func refsTools() []Tool {
 			Description: "Prepare a safe YAML-only rename review in the editor's References screen showing the moved file, every exact -/+ YAML line diff with instance overrides preserved, and any Go code references that are intentionally not rewritten. Without apply: true, no file is written to disk so the person can review and click Keep; with apply: true, applies the rename through MoveFile as one undoable step.",
 			InputSchema: []byte(refactorRenameSchema),
 			Action:      ActionEdit,
+			Target:      refactorRenameTarget,
 			Handler:     refactorRename,
 		},
 	}

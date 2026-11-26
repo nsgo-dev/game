@@ -870,6 +870,8 @@ type Editor struct {
 	agent agentState
 	// autosave tracks debounced automatic saving of kept changes, the 300 ms Saving… threshold, and persistent status-bar save errors.
 	autosave autoSaveState
+	// perms holds the project's MCP permission profile/rules (permissions.yaml), Settings › Permissions state, blocked steps, pending asks, and the Always saved toast.
+	perms permissionsState
 }
 
 // DefaultSceneDoc returns a valid starter SceneDoc suitable for a new editor session.
@@ -929,7 +931,13 @@ func New(doc *sceneformat.SceneDoc, resolver sceneformat.AssetResolver) (*Editor
 			lastStatus: "Ready",
 		},
 		settings: DefaultEditorSettings(),
-		catalog:  defaultEditorCatalog,
+		perms: permissionsState{
+			file:          DefaultPermissions(),
+			initialized:   true,
+			focusedRule:   -1,
+			activeSection: "permissions",
+		},
+		catalog: defaultEditorCatalog,
 		hud: hudLayoutState{
 			overlays: DefaultHUDOverlays(),
 		},

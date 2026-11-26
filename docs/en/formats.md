@@ -62,6 +62,52 @@ shortcuts:
   view.frame: g
 ```
 
+<!-- format: editor#permissions -->
+### Editor MCP permissions
+
+| Files | Version | Read and written by | Fields |
+| --- | --- | --- | --- |
+| `permissions.yaml` beside `game.yaml` (tracked in Git and shared across the team) | `version: 1` | `editor.ParsePermissions`, `editor.EncodePermissions` | [Editor](editor.md#permissions-and-mcp-enforcement-1010); schema `https://game.nsgo.dev/schemas/permissions.v1.json` |
+
+```yaml
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/permissions.v1.json
+version: 1
+profile: balanced
+rules:
+  - action: edit
+    patterns:
+      - scenes/**
+      - prefabs/**
+      - data/**
+    decision: allow
+  - action: run
+    patterns:
+      - game check
+      - playtests
+    decision: allow
+  - action: edit
+    patterns:
+      - game.yaml
+      - brief.yaml
+    decision: ask
+  - action: code
+    patterns:
+      - '**/*.go'
+    decision: ask
+  - action: create
+    patterns:
+      - '**'
+    decision: ask
+  - action: delete
+    patterns:
+      - '**'
+    decision: deny
+  - action: run
+    patterns:
+      - shell
+    decision: deny
+```
+
 <!-- format: tooling/importsettings -->
 ### Import settings sidecar
 

@@ -356,7 +356,17 @@ claude mcp add game-editor -- nsgo game mcp
 
 ### 添加工具
 
-工具是一个注册表，编辑器的其他部分通过 `Server.AddTool` 加入，使每个带按钮或快捷键的操作都有对应的工具。`Tool` 有名称、描述、参数的 JSON Schema、`Action`（`ActionRead`、`ActionEdit` 或 `ActionRun`，编辑器的权限规则据此判断）以及处理函数。处理函数运行在服务器的某个 goroutine 上，通过 `Call.Editor` 访问编辑器：它把一个函数交给编辑器的 goroutine 执行并等待完成，因此工具可以等待别处的工作，也可以返回图片。工具列表变化时会通知客户端。
+工具是一个注册表，编辑器的其他部分通过 `Server.AddTool` 加入，使每个带按钮或快捷键的操作都有对应的工具。`Tool` 有名称、描述、参数的 JSON Schema、`Action`（`ActionRead`、`ActionEdit`、`ActionCreate`、`ActionDelete`、`ActionRun` 或 `ActionCode`，编辑器的权限规则据此判断）、可选的 `Target` 目标解析函数以及处理函数。处理函数运行在服务器的某个 goroutine 上，通过 `Call.Editor` 访问编辑器：它把一个函数交给编辑器的 goroutine 执行并等待完成，因此工具可以等待别处的工作，也可以返回图片。工具列表变化时会通知客户端。
+
+### 权限规则强制执行
+
+在执行任何修改类或运行类工具调用（除 `ActionRead` 之外的所有操作）之前，`editormcp.Server` 都会依据当前项目的 `permissions.yaml`（`editor.PermissionsFile`，文件不存在时默认使用 `Balanced` 方案）自上而下按**首条匹配生效**原则进行判定：
+
+- **`allow`（允许）**：立即执行工具。
+- **`ask`（询问）**：若配置了 `Options.OnPermissionAsk` 则调用回调，否则在 `Editor` 上记录待处理请求（`PendingPermissionRequests`）并直接返回带 `decision: "ask"` 的结构化 `*editormcp.PermissionError`，不会执行工具。选择**始终允许**（`PermissionAnswerAllowAlways` / `Editor.ApproveAlwaysPermission`）会在匹配规则之前插入一条 `allow` 规则、保存到 `permissions.yaml`，并显示带 **查看（Show）** 和 **撤销（Undo）** 按钮的 `"Always permission rule saved"` 提示条。
+- **`deny`（拒绝）**：在 `Editor` 上记录已拦截步骤（`BlockedPermissions`），返回写明具体规则序号、规则摘要、方案名称及设置跳转路径（如 `"Settings › Permissions · rule 7 of 7"`）的结构化 `*editormcp.PermissionError`，绝不调用底层工具处理函数。
+
+权限规则仅约束编辑器的 MCP 服务器工具；外部智能体直接修改磁盘文件仍会通过编辑器的磁盘监视器提示。
 
 ```go
 s := editormcp.New(ed, editormcp.Options{Run: cx.Post})

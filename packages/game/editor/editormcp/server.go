@@ -40,8 +40,14 @@ const (
 	ActionRead Action = "read"
 	// ActionEdit changes the open project through editor commands.
 	ActionEdit Action = "edit"
-	// ActionRun runs work over the project, such as game check or a playtest, and changes no file.
+	// ActionCreate creates new files in the open project.
+	ActionCreate Action = "create"
+	// ActionDelete deletes files from the open project.
+	ActionDelete Action = "delete"
+	// ActionRun runs work over the project, such as game check, playtests, or shell commands.
 	ActionRun Action = "run"
+	// ActionCode changes Go source files in the open project.
+	ActionCode Action = "code"
 )
 
 // Tool is one tool of the editor's server: the five this package adds (scene_read, scene_edit, selection_get, viewport_image and game_check) and those other parts of the editor add with Server.AddTool, so that every editor action with a button or a shortcut has a tool.
@@ -56,6 +62,8 @@ type Tool struct {
 	InputSchema json.RawMessage
 	// Action is what the tool does to the project.
 	Action Action
+	// Target optionally derives the permission action and project-relative file path or run target from args and ed before permission rules are evaluated. When nil, the server infers the target from common argument fields (file, path, from, command) or the open scene.
+	Target func(args json.RawMessage, ed *editor.Editor) (editor.PermissionAction, string)
 	// Handler runs the tool on a goroutine of the server, never the editor's: it reaches the editor through Call.Editor, which runs a function on the editor's goroutine, so it may wait for work the editor does elsewhere, such as a project check, without stopping the editor.
 	Handler func(ctx context.Context, c *Call) (*Result, error)
 }
@@ -120,20 +128,28 @@ type Options struct {
 	Run func(fn func())
 	// RunPlaytest optionally overrides how game_playtest executes a playtest request, for tests or in-process runners. When nil, game_playtest runs `go tool nsgo test` in the project root.
 	RunPlaytest func(ctx context.Context, req PlaytestRunRequest) (*playtest.Report, error)
+	// OnPermissionAsk is invoked when a tool call matches an Ask rule. When nil (or returning PermissionAnswerPending), the server queues the pending request on the Editor and returns a *PermissionError with Decision == editor.PermissionAsk without invoking the tool handler.
+	OnPermissionAsk func(ctx context.Context, eval editor.PermissionEvaluation) (PermissionPromptAnswer, error)
+	// OnPermissionDecision, when non-nil, is called with every permission evaluation produced for a mutating or running tool call (Allow, Ask, or Deny).
+	OnPermissionDecision func(eval editor.PermissionEvaluation)
 }
 
 // Server is the editor's MCP server. It serves the project open in an Editor on the project's local endpoint (Open), or on any MCP transport (Connect), with a registry of tools that the editor's parts join (AddTool), and a stream of changes to the open scene and the selection as resource notifications.
 type Server struct {
-	ed          *editor.Editor
-	run         func(func())
-	runPlaytest func(ctx context.Context, req PlaytestRunRequest) (*playtest.Report, error)
-	sdk         *mcp.Server
+	ed             *editor.Editor
+	run            func(func())
+	runPlaytest    func(ctx context.Context, req PlaytestRunRequest) (*playtest.Report, error)
+	onPermAsk      func(ctx context.Context, eval editor.PermissionEvaluation) (PermissionPromptAnswer, error)
+	onPermDecision func(eval editor.PermissionEvaluation)
+	sdk            *mcp.Server
 
 	// inline serializes the calls run inline when Options.Run is nil.
 	inline sync.Mutex
 
 	mu              sync.Mutex
 	tools           map[string]Tool
+	lastPermEval    editor.PermissionEvaluation
+	hasLastPermEval bool
 	nextReviewID    int
 	playtestReviews []storedPlaytestReview
 	// subs holds the resource URIs each session subscribes to. A session that ends without unsubscribing is dropped the next time changed looks (subscribed), so its subscriptions stop costing the editor anything.
@@ -175,16 +191,18 @@ type trackedSession struct {
 // New returns a server for ed with the built-in tools. Call it on the editor's goroutine, which is the one Options.Run hands functions to.
 func New(ed *editor.Editor, opts Options) *Server {
 	s := &Server{
-		ed:          ed,
-		run:         opts.Run,
-		runPlaytest: opts.RunPlaytest,
-		tools:       map[string]Tool{},
-		subs:        map[*mcp.ServerSession]map[string]bool{},
-		conns:       map[net.Conn]struct{}{},
-		sessions:    map[*mcp.ServerSession]trackedSession{},
-		done:        make(chan struct{}),
-		pending:     map[string]mcp.Meta{},
-		wake:        make(chan struct{}, 1),
+		ed:             ed,
+		run:            opts.Run,
+		runPlaytest:    opts.RunPlaytest,
+		onPermAsk:      opts.OnPermissionAsk,
+		onPermDecision: opts.OnPermissionDecision,
+		tools:          map[string]Tool{},
+		subs:           map[*mcp.ServerSession]map[string]bool{},
+		conns:          map[net.Conn]struct{}{},
+		sessions:       map[*mcp.ServerSession]trackedSession{},
+		done:           make(chan struct{}),
+		pending:        map[string]mcp.Meta{},
+		wake:           make(chan struct{}, 1),
 	}
 	s.sdk = mcp.NewServer(&mcp.Implementation{Name: ServerName, Title: "NSGo Game Editor"}, &mcp.ServerOptions{
 		Instructions:       instructions,
@@ -671,7 +689,7 @@ func (s *Server) handler(t Tool) mcp.ToolHandler {
 	}
 }
 
-// call runs t with args, recovering a panic as an error; onEditor says the caller is on the editor's goroutine.
+// call runs t with args after checking the editor's permission rules, recovering a panic as an error; onEditor says the caller is on the editor's goroutine.
 func (s *Server) call(ctx context.Context, t Tool, args json.RawMessage, onEditor bool) (res *Result, err error) {
 	if len(args) == 0 || string(args) == "null" {
 		args = json.RawMessage(`{}`)
@@ -681,6 +699,9 @@ func (s *Server) call(ctx context.Context, t Tool, args json.RawMessage, onEdito
 			res, err = nil, fmt.Errorf("editormcp: tool %s failed: %v", t.Name, failure)
 		}
 	}()
+	if err := s.checkPermission(ctx, t, args, onEditor); err != nil {
+		return nil, err
+	}
 	res, err = t.Handler(ctx, &Call{Args: args, s: s, onEditor: onEditor})
 	if warn := s.saveFailureWarning(ctx, onEditor); warn != nil {
 		if err != nil {
@@ -736,7 +757,7 @@ func (s *Server) saveFailureWarning(ctx context.Context, onEditor bool) *SaveWar
 // sdkTool is t as the SDK lists it.
 func sdkTool(t Tool) *mcp.Tool {
 	readOnly := t.Action == ActionRead
-	destructive := false
+	destructive := t.Action == ActionDelete
 	return &mcp.Tool{
 		Name:        t.Name,
 		Title:       t.Title,
@@ -758,6 +779,8 @@ func sdkResult(res *Result, err error) *mcp.CallToolResult {
 		r := &mcp.CallToolResult{}
 		if d, ok := errors.AsType[*EditError](err); ok {
 			r.StructuredContent = map[string]any{"error": d}
+		} else if p, ok := errors.AsType[*PermissionError](err); ok {
+			r.StructuredContent = map[string]any{"error": p}
 		}
 		r.SetError(err)
 		if warn != nil {

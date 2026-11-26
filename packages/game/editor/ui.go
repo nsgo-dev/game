@@ -415,6 +415,8 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 					return SettingsView(cx, ed, rev)
 				},
 			},
+			PermissionsWorkspaceOverlayView(cx, ed, rev),
+			PermissionsToastView(cx, ed, rev),
 			ShortcutsSheetView(cx, ed, rev),
 			ConnectAgentDialogView(cx, ed, rev),
 			dialogFocusTrapView(ed),

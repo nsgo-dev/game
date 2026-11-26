@@ -1,0 +1,2 @@
+### Added
+- Add tracked project `permissions.yaml` (version 1 + JSON Schema `permissions.v1.json`) with Cautious, Balanced, and Autonomous presets and first-match-wins `(action, patterns) -> allow | ask | deny` rules enforced before every mutating or running `editormcp` tool call, plus the Settings › Permissions UI, blocked-step rule links, and "Always permission rule saved" toast with Show and Undo (#1010).

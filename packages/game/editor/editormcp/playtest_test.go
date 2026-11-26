@@ -47,6 +47,7 @@ func TestGamePlaytestTool(t *testing.T) {
 
 	var gotReq editormcp.PlaytestRunRequest
 	s := editormcp.New(f.ed, editormcp.Options{
+		OnPermissionAsk: allowAsk,
 		RunPlaytest: func(_ context.Context, req editormcp.PlaytestRunRequest) (*playtest.Report, error) {
 			gotReq = req
 			return &playtest.Report{
@@ -114,7 +115,7 @@ func TestPlaytestDefineArrivesAsReview(t *testing.T) {
 	if err := os.WriteFile(ptPath, []byte(fixturePlaytestYAML), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	s := editormcp.New(f.ed, editormcp.Options{})
+	s := editormcp.New(f.ed, editormcp.Options{OnPermissionAsk: allowAsk})
 	t.Cleanup(func() { _ = s.Close() })
 	cs := connect(t, s, nil)
 
@@ -218,6 +219,7 @@ func TestPlaytestReportToolAndEditorSync(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := editormcp.New(f.ed, editormcp.Options{
+		OnPermissionAsk: allowAsk,
 		RunPlaytest: func(_ context.Context, req editormcp.PlaytestRunRequest) (*playtest.Report, error) {
 			return &playtest.Report{
 				Version:   playtest.ReportVersion,

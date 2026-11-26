@@ -11,6 +11,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/ai"
 	"github.com/nsgo-dev/game/packages/game/animclip"
 	"github.com/nsgo-dev/game/packages/game/cutscene"
+	"github.com/nsgo-dev/game/packages/game/editor"
 	"github.com/nsgo-dev/game/packages/game/gameui"
 	"github.com/nsgo-dev/game/packages/game/l10n"
 	"github.com/nsgo-dev/game/packages/game/navbake3d"
@@ -1001,6 +1002,50 @@ func TestParticlesSchemaShapeAndValidation(t *testing.T) {
 	} {
 		if err := s.ValidateYAML([]byte(bad)); err == nil {
 			t.Fatalf("particles schema accepted invalid YAML:\n%s", bad)
+		}
+	}
+}
+
+func TestPermissionsSchemaShapeAndValidation(t *testing.T) {
+	s := schemaAt(t, editor.PermissionsSchemaURL)
+	if s.Schema != jsonschema.Draft07 || s.ID != editor.PermissionsSchemaURL {
+		t.Fatalf("$schema %q, $id %q", s.Schema, s.ID)
+	}
+	if version := s.Property("version"); version == nil || version.Const != int64(editor.PermissionsVersion) {
+		t.Fatalf("version property = %+v", version)
+	}
+	if b, ok := s.AdditionalProperties.Boolean(); !ok || b {
+		t.Fatal("permissions schema accepts unknown top-level keys")
+	}
+	for _, p := range s.Properties {
+		if p.Schema.Description == "" {
+			t.Errorf("PermissionsFile.%s has no description", p.Name)
+		}
+	}
+	ruleDef := s.Definitions["PermissionRule"]
+	if ruleDef == nil || ruleDef.Description == "" {
+		t.Fatalf("definition PermissionRule = %+v, want one with description", ruleDef)
+	}
+	if b, ok := ruleDef.AdditionalProperties.Boolean(); !ok || b {
+		t.Fatal("definition PermissionRule accepts unknown keys")
+	}
+	data, err := os.ReadFile(filepath.Join(root, "editor", "testdata", "permissions.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ValidateYAML(data); err != nil {
+		t.Fatalf("permissions schema refused testdata/permissions.yaml: %v", err)
+	}
+	for _, bad := range []string{
+		"version: 1\nprofile: balanced\nunknownKey: true\nrules: []\n",
+		"version: 2\nprofile: balanced\nrules: []\n",
+		"version: 1\nprofile: reckless\nrules: []\n",
+		"version: 1\nprofile: balanced\nrules:\n  - action: explode\n    patterns: ['**']\n    decision: deny\n",
+		"version: 1\nprofile: balanced\nrules:\n  - action: edit\n    patterns: []\n    decision: allow\n",
+		"version: 1\nprofile: balanced\nrules:\n  - action: edit\n    patterns: ['**']\n    decision: maybe\n",
+	} {
+		if err := s.ValidateYAML([]byte(bad)); err == nil {
+			t.Fatalf("permissions schema accepted invalid YAML:\n%s", bad)
 		}
 	}
 }
