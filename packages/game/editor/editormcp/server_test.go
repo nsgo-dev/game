@@ -530,7 +530,7 @@ func TestEndedSessionDropsItsSubscriptions(t *testing.T) {
 // Tools other parts of the editor add join the list, and clients hear the list changed; the server refuses a duplicate or malformed one.
 func TestAddTool(t *testing.T) {
 	f := openFixture(t)
-	s := editormcp.New(f.ed, editormcp.Options{})
+	s := editormcp.New(f.ed, editormcp.Options{OnPermissionAsk: allowAsk})
 	t.Cleanup(func() { _ = s.Close() })
 	changed := make(chan struct{}, 4)
 	cs := connect(t, s, &mcp.ClientOptions{ToolListChangedHandler: func(context.Context, *mcp.ToolListChangedRequest) { changed <- struct{}{} }})

@@ -96,6 +96,11 @@ type fixture struct {
 	ed  *editor.Editor
 }
 
+// allowAsk approves Ask permission prompts once for unit tests exercising non-Balanced tool mechanics.
+func allowAsk(_ context.Context, _ editor.PermissionEvaluation) (editormcp.PermissionPromptAnswer, error) {
+	return editormcp.PermissionAnswerAllowOnce, nil
+}
+
 // scenePath is the path of the project's main scene file.
 func (f fixture) scenePath() string { return filepath.Join(f.dir, "scenes", "room.scene.yaml") }
 

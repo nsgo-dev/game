@@ -72,6 +72,7 @@ func mergeTools() []Tool {
 			Description: "Focus a conflicted scene object, update the agent's suggestion (YAML and reason), pick Agent/Mine/Theirs, apply custom YAML, or take the agent's suggestion for all conflicts.",
 			InputSchema: []byte(mergeResolveSchema),
 			Action:      ActionEdit,
+			Target:      mergeResolveTarget,
 			Handler:     mergeResolve,
 		},
 		{
@@ -80,6 +81,7 @@ func mergeTools() []Tool {
 			Description: "Write the resolved scene, run game check and a short playtest on the result, and stage and commit the Git merge once every conflict is resolved.",
 			InputSchema: []byte(mergeEmptySchema),
 			Action:      ActionRun,
+			Target:      mergeFinishTarget,
 			Handler:     mergeFinish,
 		},
 		{
@@ -88,6 +90,7 @@ func mergeTools() []Tool {
 			Description: "Abort the active Git merge, restoring the branch and working tree as they were, and close the conflict resolver.",
 			InputSchema: []byte(mergeEmptySchema),
 			Action:      ActionRun,
+			Target:      mergeAbortTarget,
 			Handler:     mergeAbort,
 		},
 	}

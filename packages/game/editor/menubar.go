@@ -73,6 +73,7 @@ func (e *Editor) ApplicationMenu() []desktop.MenuItem {
 			sep,
 			cmdItem(CmdEditorSettings, e.T("menu.editorSettings"), false),
 			cmdItem(CmdShortcutsSettings, e.T("menu.shortcutsSettings"), false),
+			cmdItem(CmdPermissionsSettings, e.T("menu.permissions"), false),
 			sep,
 			cmdItem(CmdExport, e.T("menu.export"), false),
 		},
@@ -279,13 +280,14 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 			}
 		}
 		var b strings.Builder
-		fmt.Fprintf(&b, "%s|%v|%s|%v|%d|%v|%v|%v|%v|%v|%v|%s|%v|%v|%v|%v|%v|%v|%d|%v|%v|%v|%d|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%d|%d|%v|%v|%v|%d|%s|%v|%v|%v|%s",
+		fmt.Fprintf(&b, "%s|%v|%s|%v|%d|%v|%v|%v|%v|%v|%v|%v|%s|%v|%v|%v|%v|%v|%v|%d|%v|%v|%v|%d|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%d|%d|%v|%v|%v|%d|%s|%v|%v|%v|%s",
 			e.ResolvedLanguage(),
 			e.SettingsOpen(),
 			e.SettingsPage(),
 			e.EditorSettingsOpen(),
 			e.EditorSettingsTab(),
 			e.ShortcutsSheetOpen(),
+			e.PermissionsSettingsOpen(),
 			e.StartScreenOpen(),
 			e.ChangesOpen(),
 			e.MergeConflictOpen(),

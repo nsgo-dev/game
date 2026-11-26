@@ -256,6 +256,7 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 	e.resetContextMenuForProject()
 	e.resetAssetGenForProject()
 	e.resetViewport3DAgentPrompt(true)
+	e.resetPermissionsForProject()
 	e.resetTextInputFocus()
 	e.resetProblemsForProject()
 	e.Status = "Opened project " + path

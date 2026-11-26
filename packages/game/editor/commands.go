@@ -100,6 +100,7 @@ const (
 	CmdAgentPanel             = "view.agent"
 	CmdPlayMark               = "play.mark"
 	CmdAskFrozenFrame         = "play.askFrozenFrame"
+	CmdPermissionsSettings    = "settings.permissions"
 	// The 3D viewport's axis views and projection: each axis view looks at the camera's Target along a world axis (SetView3D), and the orthographic command switches between perspective and orthographic (SetOrthographic3D).
 	CmdView3DFront        = "view.3d.front"
 	CmdView3DBack         = "view.3d.back"
@@ -1564,6 +1565,18 @@ func (e *Editor) initBuiltinCommands() {
 			},
 		},
 		{
+			ID:          CmdPermissionsSettings,
+			Label:       "Permissions",
+			Description: "Configure agent MCP permission profiles and first-match-wins rules",
+			Category:    "Project",
+			Keywords:    []string{"permissions", "rules", "profile", "cautious", "balanced", "autonomous", "mcp", "agent", "settings"},
+			Checked:     func() bool { return e.PermissionsSettingsOpen() },
+			Run: func() error {
+				e.SetPermissionsSettingsOpen(!e.PermissionsSettingsOpen())
+				return nil
+			},
+		},
+		{
 			ID:          CmdChanges,
 			Label:       "Changes & Commit",
 			Description: "Compare modified scenes, data, code, and assets against HEAD and commit with a drafted message",
@@ -1856,6 +1869,7 @@ var builtinCommandKeys = map[string][3]string{
 	CmdShortcutsSettings:     {"cmd.shortcutsSettings.label", "cmd.shortcutsSettings.desc", "cmd.category.file"},
 	CmdConnectAgent:          {"cmd.connectAgent.label", "cmd.connectAgent.desc", "cmd.category.project"},
 	CmdAgentPanel:            {"cmd.agentPanel.label", "cmd.agentPanel.desc", "cmd.category.view"},
+	CmdPermissionsSettings:   {"cmd.permissionsSettings.label", "cmd.permissionsSettings.desc", "cmd.category.project"},
 	CmdMergeConflicts:        {"cmd.mergeConflicts.label", "cmd.mergeConflicts.desc", "cmd.category.project"},
 	CmdToggleAssetsMode:      {"cmd.assetDrawer.label", "cmd.assetDrawer.desc", "cmd.category.view"},
 }

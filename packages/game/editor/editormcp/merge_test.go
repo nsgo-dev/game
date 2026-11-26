@@ -109,7 +109,7 @@ layers:
 		t.Fatalf("OpenMergeConflictSession: %v", err)
 	}
 
-	s := editormcp.New(f.ed, editormcp.Options{})
+	s := editormcp.New(f.ed, editormcp.Options{OnPermissionAsk: allowAsk})
 	t.Cleanup(func() { _ = s.Close() })
 	cs := connect(t, s, nil)
 

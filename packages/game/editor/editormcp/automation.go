@@ -37,6 +37,10 @@ func (s *Server) RegisterAutomation(cx *core.Scope) error {
 					if errors.As(err, &edit) {
 						return nil, edit
 					}
+					var perm *PermissionError
+					if errors.As(err, &perm) {
+						return nil, perm
+					}
 					return nil, err
 				}
 				out := AutomationResult{Text: res.Text, Structured: res.Structured, SaveWarning: res.SaveWarning}

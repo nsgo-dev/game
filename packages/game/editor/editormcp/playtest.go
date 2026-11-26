@@ -159,6 +159,7 @@ func playtestTools() []Tool {
 			Description: "Validate playtest.yaml and run the configured headless bot playtests with input recordings, writing a YAML report and returning each metric's value, goal status (met or missed) and heat-map position data.",
 			InputSchema: []byte(gamePlaytestSchema),
 			Action:      ActionRun,
+			Target:      gamePlaytestTarget,
 			Handler:     gamePlaytest,
 		},
 		{
@@ -167,6 +168,7 @@ func playtestTools() []Tool {
 			Description: "Propose adding or updating a metric in playtest.yaml. Validates the metric against the playtest schema, builds the canonical YAML diff, and queues it as a pending review of playtest.yaml without modifying the file on disk until the person accepts it.",
 			InputSchema: []byte(playtestDefineSchema),
 			Action:      ActionEdit,
+			Target:      playtestDefineTarget,
 			Handler:     playtestDefine,
 		},
 		{
@@ -175,6 +177,7 @@ func playtestTools() []Tool {
 			Description: "Open or inspect the editor's Playtest Report screen, load a playtest.report.yaml file, attach the agent's read and actionable suggestions, or watch a recorded run in Play mode.",
 			InputSchema: []byte(playtestReportSchema),
 			Action:      ActionEdit,
+			Target:      playtestReportTarget,
 			Handler:     playtestReportTool,
 		},
 	}

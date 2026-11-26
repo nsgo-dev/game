@@ -62,6 +62,52 @@ shortcuts:
   view.frame: g
 ```
 
+<!-- format: editor#permissions -->
+### 编辑器 MCP 权限规则
+
+| 文件 | 版本 | 读写函数 | 字段 |
+| --- | --- | --- | --- |
+| 位于 `game.yaml` 旁的 `permissions.yaml`（纳入 Git 追踪并与团队共享） | `version: 1` | `editor.ParsePermissions`、`editor.EncodePermissions` | [编辑器](editor.md#权限方案与-mcp-规则强制执行1010)；Schema 为 `https://game.nsgo.dev/schemas/permissions.v1.json` |
+
+```yaml
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/permissions.v1.json
+version: 1
+profile: balanced
+rules:
+  - action: edit
+    patterns:
+      - scenes/**
+      - prefabs/**
+      - data/**
+    decision: allow
+  - action: run
+    patterns:
+      - game check
+      - playtests
+    decision: allow
+  - action: edit
+    patterns:
+      - game.yaml
+      - brief.yaml
+    decision: ask
+  - action: code
+    patterns:
+      - '**/*.go'
+    decision: ask
+  - action: create
+    patterns:
+      - '**'
+    decision: ask
+  - action: delete
+    patterns:
+      - '**'
+    decision: deny
+  - action: run
+    patterns:
+      - shell
+    decision: deny
+```
+
 <!-- format: tooling/importsettings -->
 ### 导入设置旁注文件
 

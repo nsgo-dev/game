@@ -282,6 +282,13 @@ var formats = []format{
 		pkg:     "editor",
 		version: editor.SettingsVersion,
 	},
+	{
+		url:     editor.PermissionsSchemaURL,
+		title:   "NSGo game editor MCP permissions (version 1)",
+		typ:     reflect.TypeFor[editor.PermissionsFile](),
+		pkg:     "editor",
+		version: editor.PermissionsVersion,
+	},
 }
 
 // durationTypes maps duration types to their YAML schema forms: time.Duration accepts a Go duration string or integer nanoseconds; cutscene.Duration accepts only Go duration strings such as "1.5s".

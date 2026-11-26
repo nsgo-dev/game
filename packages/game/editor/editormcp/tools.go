@@ -66,6 +66,7 @@ func builtinTools() []Tool {
 				"reparent {id, parent?, index?} moves an object under another, or to the top of its layer without parent, keeping where it is drawn; move_to_layer {id, layer, index?}.",
 			InputSchema: []byte(sceneEditSchema),
 			Action:      ActionEdit,
+			Target:      sceneEditTarget,
 			Handler:     sceneEdit,
 		},
 		{
@@ -90,6 +91,7 @@ func builtinTools() []Tool {
 			Description: "Run game check over the open project, as the Problems panel does (assetcheck with the editor's component registry, and project.Check, including open unsaved documents in the editor), and return the visible problems with file, line, column and message.",
 			InputSchema: []byte(`{"type":"object","additionalProperties":false,"properties":{}}`),
 			Action:      ActionRun,
+			Target:      gameCheckTarget,
 			Handler:     gameCheck,
 		},
 		{
@@ -98,6 +100,7 @@ func builtinTools() []Tool {
 			Description: "Validate and write a *.states.yaml sprite animation state machine file inside the open project in canonical YAML form, and open it in the editor's state machine graph as an undoable edit.",
 			InputSchema: []byte(statesWriteSchema),
 			Action:      ActionEdit,
+			Target:      statesWriteTarget,
 			Handler:     statesWrite,
 		},
 		{
@@ -106,6 +109,7 @@ func builtinTools() []Tool {
 			Description: "Run deterministic fixed-step scripted input against a *.states.yaml file (or the state machine open in the editor) and report its visited state trace, transitions and any stuck states, such as \"Played 8 s of scripted input · no stuck states\".",
 			InputSchema: []byte(statesTestSchema),
 			Action:      ActionRun,
+			Target:      statesTestTarget,
 			Handler:     statesTest,
 		},
 		{
@@ -114,6 +118,7 @@ func builtinTools() []Tool {
 			Description: "Validate a *.cutscene.yaml file against cutscene.Parse and open an interactive Before/After review on the cutscene timeline without overwriting disk until kept (or write directly when review is false).",
 			InputSchema: []byte(cutsceneWriteSchema),
 			Action:      ActionEdit,
+			Target:      cutsceneWriteTarget,
 			Handler:     cutsceneWrite,
 		},
 		{
@@ -138,6 +143,7 @@ func builtinTools() []Tool {
 			Description: "Edit a *.tileset.yaml tileset through the editor's undoable tileset commands in one atomic undo step: set_tile (name, solid, oneWay, flags, weight, shapes, animation, terrain, neighbors), set_property, remove_property, add_terrain, remove_terrain, with optional save.",
 			InputSchema: []byte(tilesetEditSchema),
 			Action:      ActionEdit,
+			Target:      tilesetEditTarget,
 			Handler:     tilesetEdit,
 		},
 	}, append(append(append(append(append(append(append(append(playtestTools(), mergeTools()...), refsTools()...), tileTools()...), inspectorTools()...), objectMenuTools()...), releaseTools()...), problemTools()...), playFrozenTools()...)...)

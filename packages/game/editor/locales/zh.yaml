@@ -112,6 +112,8 @@ strings:
   cmd.paste.label: 粘贴
   cmd.pasteInto.desc: 将剪贴板中的对象粘贴为当前选中对象的子级
   cmd.pasteInto.label: 粘贴为子级
+  cmd.permissionsSettings.desc: 配置智能体 MCP 权限方案与首条匹配生效规则
+  cmd.permissionsSettings.label: 权限
   cmd.playMark.desc: 在当前运行帧添加标记并附上最近 60 秒输入回放
   cmd.playMark.label: 标记运行瞬间
   cmd.playStop.desc: 切换编辑器内运行预览
@@ -448,6 +450,7 @@ strings:
   menu.particleEditor: 粒子发射器编辑器
   menu.paste: 粘贴
   menu.pasteInto: 粘贴为子级
+  menu.permissions: 权限…
   menu.place: 放置
   menu.play: 播放
   menu.playMark: 标记运行瞬间
@@ -544,6 +547,56 @@ strings:
   palette.pluginToolDesc: 插件工具（{plugin}）
   palette.projectFile: 项目文件
   palette.searchLabel: 搜索命令
+  permissions.action.code: 代码
+  permissions.action.create: 创建
+  permissions.action.delete: 删除
+  permissions.action.edit: 编辑
+  permissions.action.run: 运行
+  permissions.addRule: 添加规则
+  permissions.agentRailSummary: permissions.yaml 中当前有 {allow} 条允许、{ask} 条询问、{deny} 条拒绝规则。规则仅约束编辑器的 MCP 工具；外部文件编辑会通过磁盘监视器显示。
+  permissions.agentRailTitle: 此页上的智能体
+  permissions.allow: 允许
+  permissions.allowAlways: 始终允许
+  permissions.allowOnce: 仅允许一次
+  permissions.ask: 询问
+  permissions.askTitle: 允许智能体执行 {summary} 吗？
+  permissions.backToEditor: 返回编辑器
+  permissions.blockedHeader: 已被规则拦截
+  permissions.blockedPrefix: 已拦截：{summary}
+  permissions.changed: 已修改
+  permissions.colAction: 操作
+  permissions.colDecision: 决策
+  permissions.colFiles: 文件 / 目标
+  permissions.colOrder: 顺序
+  permissions.deny: 拒绝
+  permissions.emptyRules: 暂无规则；将按所选方案的默认策略决定。
+  permissions.mcpOnlyNote: 规则仅约束编辑器的 MCP 服务器。外部智能体对文件的编辑仍会通过磁盘监视器提示。
+  permissions.moveDown: 下移规则
+  permissions.moveUp: 上移规则
+  permissions.navExport: 导出
+  permissions.navGeneral: 通用
+  permissions.navInputMap: 输入映射
+  permissions.noProject: 未打开项目
+  permissions.profile.autonomous: 自主
+  permissions.profile.autonomousDesc: 端到端完成整个任务，你在最后统一审查。
+  permissions.profile.balanced: 平衡
+  permissions.profile.balancedDesc: 自行编辑内容与运行检查测试；修改代码、配置和删除前先询问。
+  permissions.profile.cautious: 谨慎
+  permissions.profile.cautiousDesc: 每次修改、检查和试玩前都会先询问。
+  permissions.removeRule: 删除规则
+  permissions.resetPreset: 恢复预设
+  permissions.rulesHeader: 规则 · 首条匹配生效
+  permissions.scopeShared: 项目 · permissions.yaml
+  permissions.searchHint: 设置 › 权限 · 编辑器 MCP 服务器强制执行的项目规则
+  permissions.sectionAgent: 智能体
+  permissions.sectionEditor: 编辑器 · 此计算机
+  permissions.sectionProject: 项目 · game.yaml
+  permissions.settingsTitle: 设置
+  permissions.subtitle: 智能体按操作与文件可自主执行的内容。它所做的一切依然可审查、可撤销。
+  permissions.title: 权限
+  permissions.toastSaved: 已保存“始终允许”权限规则
+  permissions.toastShow: 查看
+  permissions.toastUndo: 撤销
   problems.agentHeader: 智能体
   problems.agentNote: 文件一有改动就会立即发现问题，无论来自你还是智能体；智能体只提出修复方案，绝不会未经你同意自动应用。
   problems.applyFix: 应用修复
