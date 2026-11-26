@@ -146,7 +146,7 @@ func builtinTools() []Tool {
 			Target:      tilesetEditTarget,
 			Handler:     tilesetEdit,
 		},
-	}, append(append(append(append(append(append(append(append(append(append(playtestTools(), mergeTools()...), refsTools()...), tileTools()...), inspectorTools()...), objectMenuTools()...), releaseTools()...), problemTools()...), playFrozenTools()...), agentTools()...), taskTools()...)...)
+	}, append(append(append(append(append(append(append(append(append(append(append(playtestTools(), mergeTools()...), refsTools()...), tileTools()...), inspectorTools()...), objectMenuTools()...), releaseTools()...), problemTools()...), playFrozenTools()...), agentTools()...), taskTools()...), contextTools()...)...)
 }
 
 // projectRoot returns the absolute, symlink-free root of ed's project, or "" without one.
@@ -305,6 +305,14 @@ func sceneRead(ctx context.Context, c *Call) (*Result, error) {
 				return err
 			}
 			text, info.File, info.Source, info.Unsaved, info.hasFile = data, clean, "editor", true, true
+		case clean == project.BriefFileName && ed.BriefDirty():
+			data, err := ed.BriefYAML()
+			if err != nil {
+				return err
+			}
+			text, info.File, info.Source, info.Unsaved, info.hasFile = data, clean, "editor", true, true
+		case clean == editor.ProjectRulesFileName && ed.ProjectRulesDirty():
+			text, info.File, info.Source, info.Unsaved, info.hasFile = []byte(ed.ProjectRules()), clean, "editor", true, true
 		case ed.TilesetOpen() && ed.TilesetPath() == clean && ed.TilesetDirty():
 			data, err := ed.SaveTilesetYAML()
 			if err != nil {

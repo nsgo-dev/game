@@ -749,13 +749,48 @@ strings:
   search.refsPrompt: Select a file in the file browser and press Find Refs
   search.retry: Retry
   search.search: Search
+  settings.agentAskPlaceholder: Ask about {page}…
+  settings.agentOnPage: Agent on this page
+  settings.agentSend: Ask
+  settings.agentSent: 'Sent to Agent panel: {prompt}'
   settings.appearance: Appearance
   settings.appearanceHelp: Dark, light, or follow the system.
   settings.autoSave: Save automatically
   settings.autoSaveHelp: Kept changes only, after 2 s.
+  settings.brief: Game brief
+  settings.briefAddTarget: Add target
+  settings.briefAgentCompleteNote: Your brief is complete. The agent reads brief.yaml before every request and checks its work against it.
+  settings.briefAgentDraftAsk: Draft brief.yaml from the open project
+  settings.briefAgentEmptyNote: This project does not have a brief.yaml yet. Fill in the pitch and targets, or ask the agent to draft one.
+  settings.briefAgentFooter: The agent reads this before every request and checks its own work against it, e.g. playtest targets come from "Feel and difficulty".
+  settings.briefAgentTargetsAsk: Derive playtest.yaml goals from the brief
+  settings.briefAgentTuneAsk: Tune levels toward the brief
+  settings.briefArtDirection: Art direction
+  settings.briefArtPlaceholder: Pixel size, palette, outlines, lighting rules…
+  settings.briefEmptyBadge: Empty
+  settings.briefEmptyState: This project has no brief.yaml yet. Fill in any section below and save to create it.
+  settings.briefFeel: Feel and difficulty
+  settings.briefFeelPlaceholder: Jump feel, pacing, clear time and death targets…
+  settings.briefGapTag: Missing
+  settings.briefGenre: Genre
+  settings.briefGenrePlaceholder: Add genre…
+  settings.briefHelp: What this game is meant to be. The agent reads it before every request and judges its own work against it.
+  settings.briefManyGaps: '{count} gaps'
+  settings.briefOneGap: 1 gap
+  settings.briefPitch: Pitch
+  settings.briefPitchPlaceholder: One or two sentences describing what the game is meant to be…
+  settings.briefPlatforms: Platforms
+  settings.briefPlatformsPlaceholder: Add platform…
+  settings.briefPlaytestTargets: PLAYTEST TARGETS · FROM FEEL AND DIFFICULTY
+  settings.briefSave: Save brief
+  settings.briefTags: Tags
+  settings.briefTagsPlaceholder: Comma-separated tags (e.g. dungeon, pixel-art)
+  settings.briefToneAudio: Tone and audio
+  settings.briefTonePlaceholder: Mood, music, and sound direction…
   settings.connectAnother: + Connect another agent or model
   settings.dark: Dark
   settings.description: Language, appearance, and keyboard shortcuts for this computer.
+  settings.dismiss: Dismiss
   settings.done: Done
   settings.general: General
   settings.generalHelp: Language, appearance, and saving.
@@ -784,11 +819,28 @@ strings:
   settings.page.projectSubtitle: Name, ID, window and main scene.
   settings.policyAgent: Agent may change
   settings.policyYouOnly: You only
+  settings.reload: Reload
+  settings.reviewKeep: Keep
+  settings.reviewPending: 'Review pending: {summary}'
+  settings.reviewRevert: Revert
+  settings.rules: Project rules
+  settings.rulesAddSuggested: Add as a rule
+  settings.rulesAgentCheckAsk: Check the project against these rules
+  settings.rulesAgentNote: Rules are plain Markdown; I follow them in every request and say when a request would break one.
+  settings.rulesAgentRevertsAsk: Turn my last week of reverts into rules
+  settings.rulesHelp: How to work on this project, in your words. The same file Claude Code, Codex and the built-in agent all read.
+  settings.rulesMarkdownHint: Plain Markdown · shared with Claude Code & Codex
+  settings.rulesPlaceholder: '# AGENTS.md · how to work on this project'
+  settings.rulesSave: Save rules
+  settings.scopeBrief: Project · brief.yaml
   settings.scopeComputer: This computer
   settings.scopeProject: Project · game.yaml
+  settings.scopeRules: Project · AGENTS.md
+  settings.searchAskAgent: 'Ask agent: {query}'
   settings.searchClear: Clear
-  settings.searchLabel: Search settings
-  settings.searchPlaceholder: Search settings — project, input, audio, export, shortcuts, language…
+  settings.searchLabel: Search settings or ask the agent
+  settings.searchPlaceholder: Search settings, or tell the agent what you want — "make the game feel harder", "set up iOS export"
+  settings.sectionAgent: AGENT
   settings.sectionEditor: EDITOR · THIS COMPUTER
   settings.sectionProject: PROJECT · game.yaml
   settings.shortcuts: Shortcuts

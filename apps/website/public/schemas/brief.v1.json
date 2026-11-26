@@ -1,0 +1,118 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://game.nsgo.dev/schemas/brief.v1.json",
+  "title": "NSGo game brief (version 1)",
+  "description": "Brief is the root of a versioned brief.yaml file at a game project's root. The agent reads it before every request and checks its work against it, and playtests can read structured targets from Feel.Targets.",
+  "type": "object",
+  "properties": {
+    "version": {
+      "description": "Version is the schema version; it must equal BriefVersion (1).",
+      "type": "integer",
+      "const": 1
+    },
+    "pitch": {
+      "description": "Pitch describes what the game is meant to be in a sentence or two.",
+      "type": "string"
+    },
+    "genre": {
+      "description": "Genre lists the game's primary genre labels, such as \"2D platformer\" and \"action\".",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "tags": {
+      "description": "Tags lists optional extra keywords or sub-genre tags describing the game.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "platforms": {
+      "description": "Platforms lists the target platforms and control styles, such as \"desktop\", \"phones, touch\", and \"web\".",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "artDirection": {
+      "description": "ArtDirection describes visual style, resolution, palette, and silhouette rules.",
+      "type": "string"
+    },
+    "toneAndAudio": {
+      "description": "ToneAndAudio describes mood, music, and sound direction.",
+      "type": "string"
+    },
+    "feel": {
+      "description": "Feel describes game feel, difficulty pacing, and structured playtest targets.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/BriefFeel"
+        }
+      ]
+    }
+  },
+  "required": [
+    "version"
+  ],
+  "additionalProperties": false,
+  "definitions": {
+    "BriefFeel": {
+      "description": "BriefFeel describes game feel, difficulty expectations, and machine-readable playtest targets.",
+      "type": "object",
+      "properties": {
+        "summary": {
+          "description": "Summary describes target game feel, controls responsiveness, and difficulty pacing in plain language.",
+          "type": "string"
+        },
+        "targets": {
+          "description": "Targets lists structured playtest targets readable by playtest runners and the editor.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/BriefPlaytestTarget"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "BriefPlaytestTarget": {
+      "description": "BriefPlaytestTarget declares one measurable playtest target in brief.yaml's feel and difficulty section.",
+      "type": "object",
+      "properties": {
+        "metric": {
+          "description": "Metric is the playtest metric name this target constrains, such as \"median_time\", \"deaths\", or \"finished\".",
+          "type": "string",
+          "minLength": 1
+        },
+        "scene": {
+          "description": "Scene optionally restricts this target to a specific scene or level name, such as \"floor_01\".",
+          "type": "string"
+        },
+        "summary": {
+          "description": "Summary is an optional human-readable description of the target, such as \"2–4 deaths on floor 3\".",
+          "type": "string"
+        },
+        "unit": {
+          "description": "Unit is an optional display unit, such as \"s\", \"ms\", or \"%\".",
+          "type": "string"
+        },
+        "min": {
+          "description": "Min is the inclusive lower bound (value >= Min).",
+          "type": "number"
+        },
+        "max": {
+          "description": "Max is the inclusive upper bound (value <= Max).",
+          "type": "number"
+        },
+        "equal": {
+          "description": "Equal requires value == Equal.",
+          "type": "number"
+        }
+      },
+      "required": [
+        "metric"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

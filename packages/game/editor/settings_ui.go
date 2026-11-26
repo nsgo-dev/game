@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/nsgo-dev/game/packages/game/l10n"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/ui"
 )
@@ -324,15 +325,166 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 					}
 				},
 			},
-			// AGENT · permissions.yaml group (always available; persists to permissions.yaml when a project is open)
+			// AGENT group (Game brief, Project rules, Permissions)
 			core.View{
-				TestID: "settings-nav-group-permissions",
+				TestID: "settings-nav-group-agent",
 				Style:  core.Style{Gap: 4, Padding: core.Edges{Top: 12}},
 				Children: []core.Node{
 					settingsSectionLabelDynamic(p, func() string {
 						_ = langMemo.Get()
-						return ed.T("permissions.sectionAgent")
+						return ed.T("settings.sectionAgent")
 					}),
+					core.View{
+						TestID: "settings-nav-row-brief",
+						StyleFunc: func() core.Style {
+							active := activePage.Get() == SettingsPageBrief
+							bg := p.Panel
+							if active {
+								bg = activeNav
+							}
+							return core.Style{
+								Direction:    core.Row,
+								AlignItems:   core.AlignCenter,
+								Height:       core.Pt(32),
+								CornerRadius: 8,
+								Background:   bg,
+								Gap:          4,
+							}
+						},
+						Children: []core.Node{
+							ui.Button{
+								TestID:  "editor-settings-tab-brief",
+								Variant: ui.ButtonGhost,
+								Size:    ui.SizeSmall,
+								Flex:    1,
+								TextFunc: func() string {
+									_ = langMemo.Get()
+									return ed.T("settings.brief")
+								},
+								Color: func() core.Color {
+									if activePage.Get() == SettingsPageBrief {
+										return activeNav
+									}
+									return p.Panel
+								},
+								TextStyle: core.Style{
+									FontSize:   12.5,
+									FontWeight: 500,
+									Color:      p.TextSecondary,
+									FlexGrow:   1,
+									TextAlign:  core.TextAlignLeft,
+								},
+								Style: core.Style{
+									Height:       core.Pt(32),
+									CornerRadius: 8,
+									Padding:      core.Symmetric(0, 8),
+									FocusVisible: focusRing,
+								},
+								OnPress: func() {
+									ed.OpenSettingsPage(SettingsPageBrief)
+								},
+							},
+							core.Text{
+								TestID: "editor-settings-tab-brief-meta",
+								ContentFunc: func() string {
+									_ = rev.Get()
+									_ = langMemo.Get()
+									if !ed.BriefExists() {
+										return ed.T("settings.briefEmptyBadge")
+									}
+									gaps := len(ed.BriefGaps())
+									if gaps == 0 {
+										return ""
+									}
+									if gaps == 1 {
+										return ed.T("settings.briefOneGap")
+									}
+									return ed.T("settings.briefManyGaps", l10n.Param("count", gaps))
+								},
+								StyleFunc: func() core.Style {
+									_ = rev.Get()
+									c := p.TextFaint
+									if !ed.BriefExists() || len(ed.BriefGaps()) > 0 {
+										c = p.Changed.Fg
+									}
+									return core.Style{
+										FontSize:   11,
+										FontWeight: 600,
+										Color:      c,
+										Padding:    core.Edges{Right: 8},
+									}
+								},
+							},
+						},
+					},
+					core.View{
+						TestID: "settings-nav-row-rules",
+						StyleFunc: func() core.Style {
+							active := activePage.Get() == SettingsPageRules
+							bg := p.Panel
+							if active {
+								bg = activeNav
+							}
+							return core.Style{
+								Direction:    core.Row,
+								AlignItems:   core.AlignCenter,
+								Height:       core.Pt(32),
+								CornerRadius: 8,
+								Background:   bg,
+								Gap:          4,
+							}
+						},
+						Children: []core.Node{
+							ui.Button{
+								TestID:  "editor-settings-tab-rules",
+								Variant: ui.ButtonGhost,
+								Size:    ui.SizeSmall,
+								Flex:    1,
+								TextFunc: func() string {
+									_ = langMemo.Get()
+									return ed.T("settings.rules")
+								},
+								Color: func() core.Color {
+									if activePage.Get() == SettingsPageRules {
+										return activeNav
+									}
+									return p.Panel
+								},
+								TextStyle: core.Style{
+									FontSize:   12.5,
+									FontWeight: 500,
+									Color:      p.TextSecondary,
+									FlexGrow:   1,
+									TextAlign:  core.TextAlignLeft,
+								},
+								Style: core.Style{
+									Height:       core.Pt(32),
+									CornerRadius: 8,
+									Padding:      core.Symmetric(0, 8),
+									FocusVisible: focusRing,
+								},
+								OnPress: func() {
+									ed.OpenSettingsPage(SettingsPageRules)
+								},
+							},
+							core.Text{
+								TestID: "editor-settings-tab-rules-meta",
+								ContentFunc: func() string {
+									_ = rev.Get()
+									if n := ed.ProjectRulesCount(); n > 0 {
+										return fmt.Sprintf("%d", n)
+									}
+									return ""
+								},
+								Style: core.Style{
+									FontSize:   11,
+									FontWeight: 600,
+									Color:      p.TextFaint,
+									Padding:    core.Edges{Right: 8},
+								},
+							},
+						},
+					},
 					navRow(SettingsPagePermissions, "permissions.title", "Permissions", func() (string, bool) {
 						_ = rev.Get()
 						_ = langMemo.Get()
@@ -456,6 +608,10 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 			return ed.T("settings.page.export"), ed.T("settings.page.exportSubtitle"), ed.T("settings.scopeProject"), true
 		case SettingsPagePermissions:
 			return ed.T("permissions.title"), ed.T("permissions.subtitle"), PermissionsFileName, true
+		case SettingsPageBrief:
+			return ed.T("settings.brief"), ed.T("settings.briefHelp"), ed.T("settings.scopeBrief"), true
+		case SettingsPageRules:
+			return ed.T("settings.rules"), ed.T("settings.rulesHelp"), ed.T("settings.scopeRules"), true
 		case SettingsPageShortcuts:
 			return ed.T("settings.shortcuts"), ed.T("settings.shortcutsHelp"), ed.T("settings.scopeComputer"), false
 		default:
@@ -488,6 +644,11 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 						OnSubmit: func(q string) {
 							if target, ok := matchSettingsPageQuery(q, ed.Project != nil); ok {
 								ed.OpenSettingsPage(target)
+								return
+							}
+							if trimmed := strings.TrimSpace(q); trimmed != "" {
+								ed.AskAgentFromSettings("search", trimmed)
+								searchQuery.Set("")
 							}
 						},
 					},
@@ -498,9 +659,20 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 					return strings.TrimSpace(searchQuery.Get()) != ""
 				},
 				Then: func(cx *core.Scope) core.Node {
-					return settingsSpecButton(p, "settings-search-clear", ed.T("settings.searchClear"), ed.T("settings.searchClear"), false, nil, func() {
-						searchQuery.Set("")
-					})
+					return core.View{
+						Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8},
+						Children: []core.Node{
+							settingsSpecButton(p, "settings-search-ask", ed.T("settings.searchAskAgent", l10n.Param("query", strings.TrimSpace(searchQuery.Get()))), ed.T("settings.searchAskAgent", l10n.Param("query", strings.TrimSpace(searchQuery.Get()))), true, nil, func() {
+								if trimmed := strings.TrimSpace(searchQuery.Get()); trimmed != "" {
+									ed.AskAgentFromSettings("search", trimmed)
+									searchQuery.Set("")
+								}
+							}),
+							settingsSpecButton(p, "settings-search-clear", ed.T("settings.searchClear"), ed.T("settings.searchClear"), false, nil, func() {
+								searchQuery.Set("")
+							}),
+						},
+					}
 				},
 			},
 		},
@@ -654,6 +826,36 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 					return exportPanel(cx, ed, rev)
 				case SettingsPagePermissions:
 					return permissionsSettingsPageBody(cx, ed, rev)
+				case SettingsPageBrief:
+					return core.View{
+						TestID: "editor-settings-brief-wrap",
+						Style:  core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), Overflow: core.Hidden},
+						Children: []core.Node{
+							core.View{
+								Style: core.Style{Direction: core.Row, FlexGrow: 1, FlexBasis: core.Pt(0), Gap: 16, Overflow: core.Hidden},
+								Children: []core.Node{
+									briefSettingsPageView(cx, ed, rev),
+									settingsAgentCardView(cx, ed, rev, EditorSettingsTabBrief, ed.T("settings.brief")),
+								},
+							},
+							editorSettingsDoneFooter(),
+						},
+					}
+				case SettingsPageRules:
+					return core.View{
+						TestID: "editor-settings-rules-wrap",
+						Style:  core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), Overflow: core.Hidden},
+						Children: []core.Node{
+							core.View{
+								Style: core.Style{Direction: core.Row, FlexGrow: 1, FlexBasis: core.Pt(0), Gap: 16, Overflow: core.Hidden},
+								Children: []core.Node{
+									rulesSettingsPageView(cx, ed, rev),
+									settingsAgentCardView(cx, ed, rev, EditorSettingsTabRules, ed.T("settings.rules")),
+								},
+							},
+							editorSettingsDoneFooter(),
+						},
+					}
 				case SettingsPageShortcuts:
 					return core.View{
 						TestID: "editor-settings-shortcuts-wrap",
@@ -711,8 +913,17 @@ func matchSettingsPageQuery(q string, hasProject bool) (SettingsPage, bool) {
 	if strings.Contains(q, "shortcut") || strings.Contains(q, "keymap") || strings.Contains(q, "hotkey") || strings.Contains(q, "rebind") || strings.Contains(q, "快捷键") {
 		return SettingsPageShortcuts, true
 	}
-	if strings.Contains(q, "permission") || strings.Contains(q, "mcp") || strings.Contains(q, "agent") || strings.Contains(q, "rule") || strings.Contains(q, "cautious") || strings.Contains(q, "balanced") || strings.Contains(q, "autonomous") || strings.Contains(q, "权限") {
+	if strings.Contains(q, "brief") || strings.Contains(q, "pitch") || strings.Contains(q, "简报") {
+		return SettingsPageBrief, true
+	}
+	if strings.Contains(q, "agents.md") || strings.Contains(q, "project rule") || strings.Contains(q, "规则") {
+		return SettingsPageRules, true
+	}
+	if strings.Contains(q, "permission") || strings.Contains(q, "mcp") || strings.Contains(q, "agent") || strings.Contains(q, "cautious") || strings.Contains(q, "balanced") || strings.Contains(q, "autonomous") || strings.Contains(q, "权限") {
 		return SettingsPagePermissions, true
+	}
+	if strings.Contains(q, "rule") {
+		return SettingsPageRules, true
 	}
 	if hasProject {
 		switch {

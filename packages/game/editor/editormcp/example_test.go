@@ -84,6 +84,7 @@ func ExampleServer_AddTool() {
 	// <nil>
 	// agent_turn_get read
 	// agent_turn_reply edit
+	// brief_edit edit
 	// cutscene_scrub read
 	// cutscene_write edit
 	// game_check run
@@ -107,10 +108,12 @@ func ExampleServer_AddTool() {
 	// playtest_define edit
 	// playtest_report edit
 	// problem_propose_fix read
+	// project_context read
 	// refactor_rename edit
 	// refs_find read
 	// release_notes_draft edit
 	// release_review_uploads run
+	// rules_edit edit
 	// scene_edit edit
 	// scene_name read
 	// scene_read read

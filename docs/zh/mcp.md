@@ -333,6 +333,9 @@ claude mcp add game-editor -- nsgo game mcp
 | `tasks_list` | read | `include_dismissed`（可选，默认 `false`） | 列出需要确认、运行中、待审查、排队中与失败五个分组中的后台智能体任务（`include_dismissed` 为 `true` 时同时包含已忽略/已完成任务），并返回当前对象持有锁与 `TaskSummary` 徽章计数（`dockBadge = needsYou + readyToReview + failed`）。 |
 | `tasks_submit` | edit | `prompt`（必填）、`title`、`mode`（`"queue"` 或 `"parallel"`，默认 `"queue"`）、`scene`（可选） | 向编辑器后台任务列表提交请求：`"queue"` 排在当前运行或待审查回合之后，仅在该回合被保留或还原后启动；`"parallel"` 在并发上限内立即作为独立会话启动，并带有自己的编号叠加层。 |
 | `tasks_control` | edit | `action`（必填：`"keep"`、`"revert"`、`"dismiss"`、`"stop"`、`"retry"`、`"open"`、`"focus"`、`"allow"` 或 `"deny"`）、`task_id`、`task_ids`（用于批量忽略） | 控制后台智能体任务：保留或安全还原单个回合（保留其他并行/已保留修改）、批量忽略待审查或失败任务而不还原已保留修改、停止或重试任务、聚焦或打开任务对应场景（严格限制在项目根目录内），或响应权限请求。 |
+| `project_context` | read | 无 | 返回智能体每次请求前读取的共享项目上下文：`brief.yaml`（规范 YAML、解析字段、缺失栏目缺口与结构化试玩目标）与 `AGENTS.md`（纯 Markdown 项目规则与条数），以及待审阅文档变更。 |
+| `brief_edit` | edit | `yaml` 或结构化字段（`pitch`、`genre`、`tags`、`platforms`、`artDirection`、`toneAndAudio`、`feel`）、`summary`、`rationale` | 严格校验提议的 `brief.yaml` 修改（未知字段带行号拒绝），并排队为可审查的 `DocReview` 差异卡片，在用户保留前不改动磁盘。 |
+| `rules_edit` | edit | `markdown` 或 `appendRule`、`summary`、`rationale` | 为 `AGENTS.md` 提议整段修改或追加单条规则，作为可审查的 `DocReview` 差异卡片排队，在用户保留前不改动磁盘。 |
 
 `scene_edit` 接受的编辑，每项是一个带 `op` 的对象：
 
@@ -357,7 +360,13 @@ claude mcp add game-editor -- nsgo game mcp
 
 ### 变更流
 
+<<<<<<< HEAD
 服务器有三个资源：`editor://scene` 是编辑器当前持有的打开场景的 YAML，`editor://selection` 是 `selection_get` 所报告的选择内容（JSON），`editor://agent/turn` 是通过 `⌘L` 就地提问框或智能体面板发起的最新请求（包含 `selectionIds`、`scenePath`、`sceneYaml` 与 `skipPlan` 的 JSON 载荷，以及捕获的 `image/png` 视口二进制图像）。订阅它们的客户端会在每次变化时收到通知，通知的 `_meta` 说明是谁做的改动：工具调用为 `"nsgo.dev/by": "agent"`，编辑器自身的控件为 `"person"`，编辑器的修订号在 `"nsgo.dev/revision"` 下（`editor://agent/turn` 通知还会附带 `"nsgo.dev/turnId"` 与 `"nsgo.dev/skipPlan"`）。一连串变化可能合并为一条通知。
+||||||| parent of 41731645 (feat(editor,project,playtest,editormcp): add Settings pages for game brief and project rules)
+服务器有两个资源：`editor://scene` 是编辑器当前持有的打开场景的 YAML，`editor://selection` 是 `selection_get` 所报告的选择内容（JSON）。订阅它们的客户端会在每次变化时收到通知，通知的 `_meta` 说明是谁做的改动：工具调用为 `"nsgo.dev/by": "agent"`，编辑器自身的控件为 `"person"`，编辑器的修订号在 `"nsgo.dev/revision"` 下。一连串变化可能合并为一条通知。
+=======
+服务器暴露五个资源：`editor://scene`（编辑器当前持有的打开场景 YAML）、`editor://selection`（`selection_get` 报告的选择内容 JSON）、`editor://brief`（当前项目的 `brief.yaml` 规范 YAML）、`editor://rules`（当前项目的 `AGENTS.md` 纯 Markdown）以及 `editor://context`（与 `project_context` 一致的综合 JSON 项目上下文）。订阅它们的客户端会在每次变化时收到通知，通知的 `_meta` 说明是谁做的改动：工具调用为 `"nsgo.dev/by": "agent"`，编辑器自身的控件为 `"person"`，编辑器的修订号在 `"nsgo.dev/revision"` 下。一连串变化可能合并为一条通知。
+>>>>>>> 41731645 (feat(editor,project,playtest,editormcp): add Settings pages for game brief and project rules)
 
 ### 添加工具
 

@@ -152,6 +152,7 @@ var formatVersions = map[string]string{
 	"playtest.ReportVersion":                    "playtest#report",
 	"procgen.RoomTemplatesVersion":              "procgen#rooms",
 	"procgen.RulesVersion":                      "procgen",
+	"project.BriefVersion":                      "project#brief",
 	"project.CurrentVersion":                    "project",
 	"quality.FormatVersion":                     "quality",
 	"quest.FormatVersion":                       "quest",

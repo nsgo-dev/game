@@ -27,9 +27,11 @@ const ServerName = "nsgo-game-editor"
 // instructions is what the server tells clients when they connect.
 const instructions = `Reads and edits the game project open in the NSGo Game Editor, as the person using the editor does: through the same editor commands as its inspector, scene tree and viewport, so every edit is one undo step the person can see and take back.
 
+Before every request, read project_context (or resources editor://context, editor://brief, and editor://rules) so your edits follow the game brief (brief.yaml) and project rules (AGENTS.md). Propose edits to either file through brief_edit or rules_edit so they go through review like any other change.
+
 Start with selection_get for what the person has selected and the scene open in the editor, and scene_read for any scene, prefab, data or project file, with line numbers. Change the open scene with scene_edit: add, move, set and remove objects, components and properties, all of one call kept as one undo step or, when the editor refuses any of them, none at all. Edits stay unsaved in the editor until the person saves. viewport_image is a PNG of the viewport, game_check runs the checks of the Problems panel over the project including unsaved open documents, and problem_propose_fix proposes a fix for a problem without applying it.
 
-Resources editor://scene and editor://selection hold the open scene and the selection; subscribe to them to hear of each change, whose _meta says whether the person or the agent made it.`
+Resources editor://scene, editor://selection, editor://brief, editor://rules, and editor://context hold the open scene, selection, game brief, project rules, and combined agent context; subscribe to them to hear of each change, whose _meta says whether the person or the agent made it.`
 
 // Action is what a tool does to the project, which the editor's permission rules decide on: reading changes nothing, editing changes files the person can review and undo, and running starts work such as a check or a playtest.
 type Action string

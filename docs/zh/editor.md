@@ -1299,7 +1299,6 @@ func main() {
   - `Waiting for you · m:ss`（点击聚焦当前待处理请求卡片）
   - `Reconnecting · try n of 5`（按 `1、2、4、8、16 s` 指数退避重试，可通过 `Editor.AgentScheduleAfter` 注入调度器以确定性测试）
   - `Disconnected` 及 **Reconnect** 与 **Troubleshoot** 按钮（点击 **Troubleshoot** 直接在失败的步骤重新打开连接对话框，而非回到起始步）。
-
 ## 运行模式标记、滚动回放与冻结帧智能体提问（#1042）
 
 在运行模式（`Play`、`PlayIn`、`StepPlay`、`PlayTick`）或连接运行中游戏期间，编辑器会持续保留最近 60 秒的滚动输入回放，支持在不中断运行的情况下打标记、冻结任意帧向智能体提问，并在输出面板提供崩溃堆栈卡片与一键回放到崩溃前一帧（对应 `docs/design/editor/PlayMode.dc.html`，严格采用 `Spec.dc.html` 设计令牌）：
@@ -1320,7 +1319,6 @@ func main() {
 - **设置 › 权限（`PermissionsSettingsView`）**：可通过 `文件 > 权限…`、命令面板（`CmdPermissionsSettings`）或被拦截步骤的链接打开。页面包含三张方案卡片（修改规则后保留当前方案名并显示 **已修改** 标记）、可上下排序和增删的规则表、每行支持方向键切换的 **允许 / 询问 / 拒绝** 单选组，以及右侧的拦截步骤与待审批卡片栏。
 - **拦截步骤跳转与“始终允许”提示条**：`deny` 规则绝不会调用底层 MCP 工具，并会记录被拦截步骤，点击其链接（如 `"Settings › Permissions · rule 7 of 7"`）会直接打开 **设置 › 权限** 并聚焦到对应规则行。在 `ask` 请求卡片上选择 **始终允许** 会在询问规则之前插入一条 `allow` 规则、保存到 `permissions.yaml`，并显示带 **查看（Show）** 和 **撤销（Undo）** 按钮的 `"Always permission rule saved"` 提示条。
 - **仅作用于编辑器 MCP**：规则仅约束编辑器的 MCP 服务器工具；外部智能体直接写入磁盘的文件仍通过磁盘监视器提示。
-
 ## 使用 `⌘L` 就地向智能体提问与智能体面板（#1037）
 
 在任意文本输入框之外按 `⌘L`（Windows/Linux 为 `Ctrl+L`，在 `ScopeGlobal` 中注册为 `CmdAskAgent` 并受 `core.KeyNotEditing` 保护）会在视口选中对象旁打开锚定就地提问框（`AskInPlaceComposerView`，严格遵循 `docs/design/editor/Spec.dc.html` 设计令牌并对应 `AskInPlace.dc.html`）：
@@ -1329,7 +1327,6 @@ func main() {
 - **可播报选区标签、多行输入与上下文建议**：顶部以 `RoleStatus` / `LiveRegionPolite` 标签播报选区数量与对象名称（例如 `"已选中 2 项 · slime_01, slime_02"`）；主体为带无障碍标签的真实多行输入框（`⇧↵` 插入换行，`↵` 或 `⌘↵` 发送）；下方提供最多两条上下文建议（如多选时的“将它们做成预制体变体”与“均匀排列它们”），可用方向键与 `↵` 选取且绝不阻塞自由输入；视口左下角显示本地化提示 `"⌘L 询问选中内容 · ⌘K 搜索 · 右键“向智能体询问此项”"`。
 - **右键菜单联动**：视口右键菜单与场景树右键菜单中的**向智能体询问此项**（`AskAgentAboutObject`）都会打开同一个锚定就地提问框（目标对象属于多选时自动带入整个选区）。
 - **智能体面板与 MCP 上下文投递**：发送后会创建标记为 `SkipPlan: true` 的 `AgentTurn`（遵循 `Plan.dc.html`：“使用 ⌘L 发起的小修改会跳过计划”），附带选中对象 ID 与名称、打开的场景文件路径与 YAML 以及实时渲染的视口 PNG（`RenderViewportPNG`），将右侧栏（`RightRailView` / `RightRailTab`，可通过 `⌘1` / `⌘2` 切换）切至**智能体**标签页（`AgentPanelView`）展示该条对话与上下文标签，并通过 `editormcp` 的 `editor://agent/turn` 资源与 `agent_turn_get` / `agent_turn_reply` 工具推送给已连接的 MCP 客户端。
-
 ## 后台任务列表：排队与并行智能体请求（#1022）
 
 请求、计划步骤与自动化任务共享智能体面板中的同一个后台任务列表（`TasksPanelView`，严格使用 `docs/design/editor/Spec.dc.html` 令牌并对应 `Tasks.dc.html`），可通过状态栏任务指示器（`status-tasks`）、`View > 后台任务` 菜单或 `CmdToggleTasks`（`mod+shift+t`）打开：
@@ -1342,3 +1339,12 @@ func main() {
 - **视口与场景树编号叠加层**：运行中任务会在正在编辑的对象周围绘制实线紫色（`SpecPalette.Agent`）描边与编号胶囊（如 `1 placing the jump arc`），在等待持有的对象周围绘制 45% 不透明度的虚线描边、时钟图标与 `"2 waiting on slime_02"` 胶囊，并在视口左下角显示紧凑图例，在场景树行右侧显示 `"1 · editing"` / `"2 · holding"` 标记（`ObjectTaskBadge`、`SceneTaskOverlays`）。
 - **批量忽略与摘要徽章计数**：可在 **待审查** 分组中勾选多项任务（`ToggleTaskDismissSelection`）并一键批量忽略（`DismissSelectedTasks` / `DismissTasks`），绝不还原任何已保留的修改。`TaskSummary` 与 `TaskDockBadgeCount` 提供 `NeedsYou`、`Running`、`Blocked`、`ReadyToReview`、`Queued`、`Failed`、`MostUrgent` 及 `DockBadge = NeedsYou + ReadyToReview + Failed`（运行中与排队中绝不计入徽章），供状态栏（`No tasks`、`1 running · 0:38`、按紧急程度排序的混合计数与持久化的 `Failed`）及后续系统通知/程序坞徽章（#1023）直接复用。
 - **配套 MCP 工具（`editormcp`）**：提供 `tasks_list`（查询任务、对象持有锁与摘要计数）、`tasks_submit`（排队或并行提交任务）与 `tasks_control`（执行 `keep`、`revert`、`dismiss`、`stop`、`retry`、`open`、`focus`、`allow`、`deny`）。
+
+## 游戏简报与项目规则（#1026）
+
+设置界面（`EditorSettingsDialogView`，对应 `docs/design/editor/Settings.dc.html` 并严格使用 `Spec.dc.html` 设计令牌）在 **智能体（AGENT）** 分组下新增两个智能体每次请求前都会读取的共享项目页面：
+
+- **游戏简报（`brief.yaml`，`OpenBriefSettings`）**：以带标签的表单编辑项目根目录的版本化 `brief.yaml`（`project.Brief`、`project.ParseBrief`、`project.EncodeBrief`，JSON Schema 为 `https://game.nsgo.dev/schemas/brief.v1.json`），包含 **核心简介（Pitch）**、**类型（Genre）**、**标签（Tags）**、**平台（Platforms）**、**美术方向（Art direction）**、**手感与难度（Feel and difficulty）**（含可供 `playtest.TargetsFromBrief` / `playtest.ApplyBriefTargets` / `Editor.BriefPlaytestTargets` 直接读取的结构化试玩目标）以及 **氛围与音频（Tone and audio）**。缺少 `brief.yaml` 的项目显示空状态；填写保存后写出可按字节无损往返的规范 `brief.yaml`，未知字段会连同 1-based 行号被拒绝（`loaderr`），缺失栏目在侧栏显示 `"1 gap"` / `"N gaps"`（中文为 `"1 项缺口"` / `"{count} 项缺口"`），且每次编辑均为 `Editor.History` 中的可撤销步骤（`EditBrief`）。
+- **项目规则（`AGENTS.md`，`OpenRulesSettings`）**：在等宽代码输入框中以纯 Markdown 编辑项目根目录的 `AGENTS.md`（Claude Code、Codex 与内置智能体共同读取的同一份文件），所有编辑均为可撤销步骤（`SetProjectRules`），并在侧栏显示规则条数（`ProjectRulesCount`）。根据近期审查中被反复撤销的模式（`RecordReviewOutcome` / `SuggestedProjectRules`）生成规则建议（例如 `"Suggested from your last 30 reviews: you reverted every change that moved the camera bounds."`）；点击 **添加为规则（Add as a rule）**（`ProposeSuggestedRule`）会以可审查差异卡片（**保留** / **撤销**）呈现，在确认保留前不会改写磁盘上的 `AGENTS.md`。
+- **智能体编辑走审查流**：智能体通过 `editormcp` 的 `brief_edit` 与 `rules_edit` 提出的修改会排队为待审阅的 `DocReview` 卡片（`ProposeBriefReview` / `ProposeProjectRulesReview`、`KeepDocReview` / `RevertDocReview`），确认保留前绝不改写磁盘；保留后会作为单个可撤销步骤记入 `Editor.History`。
+- **本页智能体卡片与设置搜索栏**：两个智能体页面右侧均显示 **本页智能体（Agent on this page）** 卡片，包含上下文提示、可点击的建议提问与内联输入框；点击建议提问或在顶部设置搜索栏提交需求会调用 `AskAgentFromSettings`，将带当前页面上下文的请求写入 `ComposerDraft` 并触发 `Editor.OnSettingsAgentRequest`（及 `Editor.OnComposerPrompt`）。

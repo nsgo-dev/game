@@ -124,6 +124,10 @@ const (
 	EditorSettingsTabGeneral EditorSettingsTab = iota
 	// EditorSettingsTabShortcuts shows searchable, scope-aware shortcut rebinding.
 	EditorSettingsTabShortcuts
+	// EditorSettingsTabBrief shows the Agent › Game brief (brief.yaml) page.
+	EditorSettingsTabBrief
+	// EditorSettingsTabRules shows the Agent › Project rules (AGENTS.md) page.
+	EditorSettingsTabRules
 )
 
 // DefaultEditorSettings returns the default per-user editor settings: version 1, following the system language and appearance.
@@ -612,12 +616,16 @@ const (
 	SettingsPageGeneral SettingsPage = "general"
 	// SettingsPageShortcuts edits per-computer command keyboard shortcuts within a scope.
 	SettingsPageShortcuts SettingsPage = "shortcuts"
+	// SettingsPageBrief edits the project's brief.yaml game brief read by the agent.
+	SettingsPageBrief SettingsPage = "brief"
+	// SettingsPageRules edits the project's AGENTS.md rules read by the agent.
+	SettingsPageRules SettingsPage = "rules"
 )
 
 // Valid reports whether p is a recognized Settings page.
 func (p SettingsPage) Valid() bool {
 	switch p {
-	case SettingsPageProject, SettingsPageInput, SettingsPageAudio, SettingsPageExport, SettingsPagePermissions, SettingsPageGeneral, SettingsPageShortcuts:
+	case SettingsPageProject, SettingsPageInput, SettingsPageAudio, SettingsPageExport, SettingsPagePermissions, SettingsPageGeneral, SettingsPageShortcuts, SettingsPageBrief, SettingsPageRules:
 		return true
 	default:
 		return false
@@ -670,10 +678,15 @@ func (e *Editor) OpenSettingsPage(page SettingsPage) {
 	e.shortcutsSheetOpen = false
 	e.settingsOpen = true
 	e.settingsPage = page
-	if page == SettingsPageShortcuts {
+	switch page {
+	case SettingsPageShortcuts:
 		e.editorSettingsTab = EditorSettingsTabShortcuts
-	} else if page == SettingsPageGeneral {
+	case SettingsPageGeneral:
 		e.editorSettingsTab = EditorSettingsTabGeneral
+	case SettingsPageBrief:
+		e.editorSettingsTab = EditorSettingsTabBrief
+	case SettingsPageRules:
+		e.editorSettingsTab = EditorSettingsTabRules
 	}
 	switch page {
 	case SettingsPageProject:
@@ -729,9 +742,9 @@ func (e *Editor) SetSettingsOpen(open bool) {
 	e.OpenSettingsPage(page)
 }
 
-// EditorSettingsOpen reports whether the Settings view is currently open on the General or Shortcuts (editor preferences) page.
+// EditorSettingsOpen reports whether the Settings view is currently open on an Editor or Agent page (General, Shortcuts, Game brief, or Project rules).
 func (e *Editor) EditorSettingsOpen() bool {
-	return e != nil && e.settingsOpen && (e.settingsPage == SettingsPageGeneral || e.settingsPage == SettingsPageShortcuts)
+	return e != nil && e.settingsOpen && (e.settingsPage == SettingsPageGeneral || e.settingsPage == SettingsPageShortcuts || e.settingsPage == SettingsPageBrief || e.settingsPage == SettingsPageRules)
 }
 
 // SetEditorSettingsOpen opens the Settings view on the General page, or closes Settings when open is false and an editor preferences page is active.
@@ -779,12 +792,18 @@ func (e *Editor) SetEditorSettingsTab(tab EditorSettingsTab) {
 		e.shortcutCaptureActive = false
 	}
 	if e.settingsOpen {
-		if tab == EditorSettingsTabShortcuts {
+		switch tab {
+		case EditorSettingsTabShortcuts:
 			e.OpenSettingsPage(SettingsPageShortcuts)
 			return
-		}
-		if tab == EditorSettingsTabGeneral {
+		case EditorSettingsTabGeneral:
 			e.OpenSettingsPage(SettingsPageGeneral)
+			return
+		case EditorSettingsTabBrief:
+			e.OpenSettingsPage(SettingsPageBrief)
+			return
+		case EditorSettingsTabRules:
+			e.OpenSettingsPage(SettingsPageRules)
 			return
 		}
 	}
@@ -799,6 +818,22 @@ func (e *Editor) OpenShortcutsSettings() {
 		return
 	}
 	e.OpenSettingsPage(SettingsPageShortcuts)
+}
+
+// OpenBriefSettings opens the Settings view directly to Agent › Game brief (brief.yaml).
+func (e *Editor) OpenBriefSettings() {
+	if e == nil {
+		return
+	}
+	e.OpenSettingsPage(SettingsPageBrief)
+}
+
+// OpenRulesSettings opens the Settings view directly to Agent › Project rules (AGENTS.md).
+func (e *Editor) OpenRulesSettings() {
+	if e == nil {
+		return
+	}
+	e.OpenSettingsPage(SettingsPageRules)
 }
 
 // ShortcutsSheetOpen reports whether the ⌘/ Keyboard Shortcuts reference sheet is open.
