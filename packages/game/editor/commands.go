@@ -1946,7 +1946,7 @@ func (e *Editor) initBuiltinCommands() {
 			Keywords:    []string{"sketch", "draw", "annotate", "agent", "viewport", "marks"},
 			Scope:       ScopeViewport2D,
 			Shortcut:    "d",
-			Enabled:     func() bool { return notPlaying() && e.ViewMode == ViewMode2D },
+			Enabled:     func() bool { return !e.sketchBlockedByScreen() && e.ViewMode == ViewMode2D },
 			Checked:     func() bool { return e.SketchActive() },
 			Run: func() error {
 				e.ToggleSketch()
@@ -1961,7 +1961,7 @@ func (e *Editor) initBuiltinCommands() {
 			Keywords:    []string{"sketch", "pen", "freehand", "line", "polyline"},
 			Scope:       ScopeSketch,
 			Shortcut:    "p",
-			Enabled:     func() bool { return notPlaying() && e.ViewMode == ViewMode2D && e.SketchActive() },
+			Enabled:     func() bool { return !e.sketchBlockedByScreen() && e.ViewMode == ViewMode2D && e.SketchActive() },
 			Checked:     func() bool { return e.SketchActive() && e.SketchTool() == SketchToolPen },
 			Run: func() error {
 				e.SetSketchTool(SketchToolPen)
@@ -1976,7 +1976,7 @@ func (e *Editor) initBuiltinCommands() {
 			Keywords:    []string{"sketch", "arrow", "pointer", "direction"},
 			Scope:       ScopeSketch,
 			Shortcut:    "a",
-			Enabled:     func() bool { return notPlaying() && e.ViewMode == ViewMode2D && e.SketchActive() },
+			Enabled:     func() bool { return !e.sketchBlockedByScreen() && e.ViewMode == ViewMode2D && e.SketchActive() },
 			Checked:     func() bool { return e.SketchActive() && e.SketchTool() == SketchToolArrow },
 			Run: func() error {
 				e.SetSketchTool(SketchToolArrow)
@@ -1991,7 +1991,7 @@ func (e *Editor) initBuiltinCommands() {
 			Keywords:    []string{"sketch", "box", "rect", "rectangle", "area"},
 			Scope:       ScopeSketch,
 			Shortcut:    "b",
-			Enabled:     func() bool { return notPlaying() && e.ViewMode == ViewMode2D && e.SketchActive() },
+			Enabled:     func() bool { return !e.sketchBlockedByScreen() && e.ViewMode == ViewMode2D && e.SketchActive() },
 			Checked:     func() bool { return e.SketchActive() && e.SketchTool() == SketchToolBox },
 			Run: func() error {
 				e.SetSketchTool(SketchToolBox)
@@ -2006,7 +2006,7 @@ func (e *Editor) initBuiltinCommands() {
 			Keywords:    []string{"sketch", "text", "label", "note", "callout"},
 			Scope:       ScopeSketch,
 			Shortcut:    "t",
-			Enabled:     func() bool { return notPlaying() && e.ViewMode == ViewMode2D && e.SketchActive() },
+			Enabled:     func() bool { return !e.sketchBlockedByScreen() && e.ViewMode == ViewMode2D && e.SketchActive() },
 			Checked:     func() bool { return e.SketchActive() && e.SketchTool() == SketchToolText },
 			Run: func() error {
 				e.SetSketchTool(SketchToolText)
@@ -2021,7 +2021,7 @@ func (e *Editor) initBuiltinCommands() {
 			Keywords:    []string{"sketch", "add", "insert", "mark", "keyboard"},
 			Scope:       ScopeSketch,
 			Shortcut:    "i",
-			Enabled:     func() bool { return notPlaying() && e.ViewMode == ViewMode2D && e.SketchActive() },
+			Enabled:     func() bool { return !e.sketchBlockedByScreen() && e.ViewMode == ViewMode2D && e.SketchActive() },
 			Run: func() error {
 				e.AddSketchMarkAtCursor("")
 				return nil
@@ -2036,7 +2036,7 @@ func (e *Editor) initBuiltinCommands() {
 			Scope:       ScopeSketch,
 			Shortcut:    "mod+z",
 			Enabled: func() bool {
-				return notPlaying() && e.ViewMode == ViewMode2D && e.SketchActive() && e.CanUndoSketchMark()
+				return !e.sketchBlockedByScreen() && e.ViewMode == ViewMode2D && e.SketchActive() && e.CanUndoSketchMark()
 			},
 			Run: func() error {
 				e.UndoLastSketchMark()
@@ -2052,7 +2052,7 @@ func (e *Editor) initBuiltinCommands() {
 			Scope:       ScopeSketch,
 			Shortcut:    "h",
 			Enabled: func() bool {
-				return notPlaying() && e.ViewMode == ViewMode2D && (e.SketchActive() || e.SketchMarkCount() > 0)
+				return !e.sketchBlockedByScreen() && e.ViewMode == ViewMode2D && (e.SketchActive() || e.SketchMarkCount() > 0)
 			},
 			Checked: func() bool { return e.SketchMarksHidden() },
 			Run: func() error {
@@ -2068,7 +2068,7 @@ func (e *Editor) initBuiltinCommands() {
 			Keywords:    []string{"sketch", "clear", "delete", "marks"},
 			Scope:       ScopeSketch,
 			Shortcut:    "mod+shift+backspace",
-			Enabled:     func() bool { return notPlaying() && e.ViewMode == ViewMode2D && e.SketchMarkCount() > 0 },
+			Enabled:     func() bool { return !e.sketchBlockedByScreen() && e.ViewMode == ViewMode2D && e.SketchMarkCount() > 0 },
 			Run: func() error {
 				e.ClearSketch()
 				return nil
@@ -2082,7 +2082,7 @@ func (e *Editor) initBuiltinCommands() {
 			Keywords:    []string{"sketch", "done", "finish", "exit"},
 			Scope:       ScopeSketch,
 			Shortcut:    "shift+d",
-			Enabled:     func() bool { return notPlaying() && e.ViewMode == ViewMode2D && e.SketchActive() },
+			Enabled:     func() bool { return !e.sketchBlockedByScreen() && e.ViewMode == ViewMode2D && e.SketchActive() },
 			Run: func() error {
 				e.FinishSketch()
 				return nil
@@ -2097,7 +2097,7 @@ func (e *Editor) initBuiltinCommands() {
 			Scope:       ScopeSketch,
 			Shortcut:    "mod+enter",
 			Enabled: func() bool {
-				return notPlaying() && e.ViewMode == ViewMode2D && e.SketchMarkCount() > 0 && !e.SketchHoldActive()
+				return !e.sketchBlockedByScreen() && e.ViewMode == ViewMode2D && e.SketchAttached() && e.SketchMarkCount() > 0 && !e.SketchHoldActive()
 			},
 			Run: func() error {
 				_, err := e.SendSketch(e.SketchPromptDraft())
@@ -2113,7 +2113,7 @@ func (e *Editor) initBuiltinCommands() {
 			Scope:       ScopeViewport2D,
 			Shortcut:    "mod+enter",
 			Enabled: func() bool {
-				return notPlaying() && e.ViewMode == ViewMode2D && e.SketchHoldActive() && e.SketchReading() != nil
+				return !e.sketchBlockedByScreen() && e.ViewMode == ViewMode2D && e.SketchHoldActive() && e.SketchReading() != nil
 			},
 			Run: func() error { return e.ApproveSketchReading() },
 		},
@@ -2126,7 +2126,7 @@ func (e *Editor) initBuiltinCommands() {
 			Scope:       ScopeViewport2D,
 			Shortcut:    "shift+m",
 			Enabled: func() bool {
-				return notPlaying() && e.ViewMode == ViewMode2D && e.SketchReading() != nil && e.SketchMarkCount() > 0
+				return !e.sketchBlockedByScreen() && e.ViewMode == ViewMode2D && e.SketchReading() != nil && e.SketchMarkCount() > 0
 			},
 			Run: func() error {
 				target := e.SelectedSketchMark()
@@ -2145,7 +2145,7 @@ func (e *Editor) initBuiltinCommands() {
 			Scope:       ScopeViewport2D,
 			Shortcut:    "o",
 			Enabled: func() bool {
-				return notPlaying() && e.ViewMode == ViewMode2D && (e.SketchReviewOpen() || e.TileReviewOpen()) && e.SketchMarkCount() > 0
+				return !e.sketchBlockedByScreen() && e.ViewMode == ViewMode2D && (e.SketchReviewOpen() || e.TileReviewOpen()) && e.SketchMarkCount() > 0
 			},
 			Checked: func() bool { return e.SketchReviewOverlayVisible() },
 			Run: func() error {
@@ -2161,7 +2161,7 @@ func (e *Editor) initBuiltinCommands() {
 			Keywords:    []string{"sketch", "review", "keep", "accept", "clear"},
 			Scope:       ScopeViewport2D,
 			Shortcut:    "mod+shift+enter",
-			Enabled:     func() bool { return notPlaying() && e.ViewMode == ViewMode2D && e.SketchReviewOpen() },
+			Enabled:     func() bool { return !e.sketchBlockedByScreen() && e.ViewMode == ViewMode2D && e.SketchReviewOpen() },
 			Run:         func() error { return e.KeepSketchReview() },
 		},
 		{
@@ -2172,7 +2172,7 @@ func (e *Editor) initBuiltinCommands() {
 			Keywords:    []string{"sketch", "review", "revert", "undo", "keep marks"},
 			Scope:       ScopeViewport2D,
 			Shortcut:    "mod+backspace",
-			Enabled:     func() bool { return notPlaying() && e.ViewMode == ViewMode2D && e.SketchReviewOpen() },
+			Enabled:     func() bool { return !e.sketchBlockedByScreen() && e.ViewMode == ViewMode2D && e.SketchReviewOpen() },
 			Run:         func() error { return e.RevertSketchReview() },
 		},
 	}

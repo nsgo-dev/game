@@ -17,343 +17,349 @@ func viewportSketchOverlayView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 		_ = rev.Get()
 		return ed.SketchActive()
 	})
+	darkMemo := core.NewMemo(cx, func() bool {
+		_ = rev.Get()
+		return ed.SpecPalette(cx).Dark
+	})
 	return core.Show{
 		When: active.Get,
 		Then: func(cx *core.Scope) core.Node {
-			p := ed.SpecPalette(cx)
-			divider := func() core.Node {
+			return core.Dynamic(func(cx *core.Scope) core.Node {
+				p := SpecPaletteFor(darkMemo.Get())
+				divider := func() core.Node {
+					return core.View{
+						Style: core.Style{
+							Width:      core.Pt(1),
+							Height:     core.Pt(16),
+							Background: p.LineRaised,
+							Margin:     core.Symmetric(0, 4),
+						},
+					}
+				}
+
+				toolBtn := func(testID string, tool SketchTool, label string, key string, icon func() *core.SVG, textFallback string) core.Node {
+					t := tool
+					btn := ui.Button{
+						TestID:  testID,
+						Label:   fmt.Sprintf("%s · %s", label, key),
+						Size:    ui.SizeSmall,
+						Variant: ui.ButtonGhost,
+						Color: func() core.Color {
+							_ = rev.Get()
+							if ed.SketchTool() == t {
+								return p.LineRaised
+							}
+							return core.Transparent
+						},
+						Tint: func() core.Color {
+							_ = rev.Get()
+							if ed.SketchTool() == t {
+								return p.TextPrimary
+							}
+							return p.TextMuted
+						},
+						TextStyle: core.Style{
+							FontSize:   12,
+							FontWeight: 600,
+							Color:      p.TextSecondary,
+						},
+						Style: core.Style{
+							Width:        core.Pt(32),
+							Height:       core.Pt(28),
+							CornerRadius: 6,
+							FocusVisible: p.FocusRing(2),
+						},
+						OnPress: func() {
+							ed.SetSketchTool(t)
+						},
+					}
+					if icon != nil {
+						btn.Icon = icon
+						btn.IconSize = 15
+					} else {
+						btn.Text = textFallback
+					}
+					return btn
+				}
+
+				selectedMarkKey := core.NewMemo(cx, func() int {
+					_ = rev.Get()
+					return ed.SelectedSketchMark()
+				})
+
 				return core.View{
+					TestID:        "viewport-sketch-overlay-wrap",
+					PointerEvents: core.PointerEventsBoxNone,
 					Style: core.Style{
-						Width:      core.Pt(1),
-						Height:     core.Pt(16),
-						Background: p.LineRaised,
-						Margin:     core.Symmetric(0, 4),
+						Position:   core.Absolute,
+						Left:       core.Pt(0),
+						Right:      core.Pt(0),
+						Top:        core.Pt(14),
+						AlignItems: core.AlignCenter,
+						Gap:        8,
 					},
-				}
-			}
-
-			toolBtn := func(testID string, tool SketchTool, label string, key string, icon func() *core.SVG, textFallback string) core.Node {
-				t := tool
-				btn := ui.Button{
-					TestID:  testID,
-					Label:   fmt.Sprintf("%s · %s", label, key),
-					Size:    ui.SizeSmall,
-					Variant: ui.ButtonGhost,
-					Color: func() core.Color {
-						_ = rev.Get()
-						if ed.SketchTool() == t {
-							return p.LineRaised
-						}
-						return core.Transparent
-					},
-					Tint: func() core.Color {
-						_ = rev.Get()
-						if ed.SketchTool() == t {
-							return p.TextPrimary
-						}
-						return p.TextMuted
-					},
-					TextStyle: core.Style{
-						FontSize:   12,
-						FontWeight: 600,
-						Color:      p.TextSecondary,
-					},
-					Style: core.Style{
-						Width:        core.Pt(32),
-						Height:       core.Pt(28),
-						CornerRadius: 6,
-						FocusVisible: p.FocusRing(2),
-					},
-					OnPress: func() {
-						ed.SetSketchTool(t)
-					},
-				}
-				if icon != nil {
-					btn.Icon = icon
-					btn.IconSize = 15
-				} else {
-					btn.Text = textFallback
-				}
-				return btn
-			}
-
-			selectedMarkKey := core.NewMemo(cx, func() int {
-				_ = rev.Get()
-				return ed.SelectedSketchMark()
-			})
-
-			return core.View{
-				TestID:        "viewport-sketch-overlay-wrap",
-				PointerEvents: core.PointerEventsBoxNone,
-				Style: core.Style{
-					Position:   core.Absolute,
-					Left:       core.Pt(0),
-					Right:      core.Pt(0),
-					Top:        core.Pt(14),
-					AlignItems: core.AlignCenter,
-					Gap:        8,
-				},
-				Children: []core.Node{
-					// Main floating sketch toolbar matching Sketch.dc.html.
-					core.View{
-						TestID: "viewport-sketch-toolbar",
-						Role:   core.RoleToolbar,
-						Label:  ed.T("sketch.toolbarLabel"),
-						Style: core.Style{
-							Direction:    core.Row,
-							AlignItems:   core.AlignCenter,
-							Gap:          2,
-							Padding:      core.All(4),
-							CornerRadius: 12,
-							Background:   ui.Alpha(p.Raised, 0.96),
-							BorderWidth:  1,
-							BorderColor:  p.LineRaised,
-						},
-						Children: []core.Node{
-							toolBtn("sketch-tool-pen", SketchToolPen, ed.T("sketch.tool.pen"), "P", lucide.Pencil, ""),
-							toolBtn("sketch-tool-arrow", SketchToolArrow, ed.T("sketch.tool.arrow"), "A", lucide.ArrowUpRight, ""),
-							toolBtn("sketch-tool-box", SketchToolBox, ed.T("sketch.tool.box"), "B", lucide.Square, ""),
-							toolBtn("sketch-tool-text", SketchToolText, ed.T("sketch.tool.text"), "T", nil, "T"),
-							divider(),
-							ui.Button{
-								TestID:   "sketch-undo-mark",
-								Icon:     lucide.RotateCcw,
-								IconSize: 15,
-								Label:    ed.T("sketch.undoMark"),
-								Size:     ui.SizeSmall,
-								Variant:  ui.ButtonGhost,
-								Side:     28,
-								Disabled: func() bool {
-									_ = rev.Get()
-									return !ed.CanUndoSketchMark()
-								},
-								Tint: func() core.Color { return p.TextMuted },
-								Style: core.Style{
-									Width:        core.Pt(32),
-									Height:       core.Pt(28),
-									CornerRadius: 6,
-									FocusVisible: p.FocusRing(2),
-								},
-								OnPress: func() {
-									ed.UndoLastSketchMark()
-								},
+					Children: []core.Node{
+						// Main floating sketch toolbar matching Sketch.dc.html.
+						core.View{
+							TestID: "viewport-sketch-toolbar",
+							Role:   core.RoleToolbar,
+							Label:  ed.T("sketch.toolbarLabel"),
+							Style: core.Style{
+								Direction:    core.Row,
+								AlignItems:   core.AlignCenter,
+								Gap:          2,
+								Padding:      core.All(4),
+								CornerRadius: 12,
+								Background:   ui.Alpha(p.Raised, 0.96),
+								BorderWidth:  1,
+								BorderColor:  p.LineRaised,
 							},
-							ui.Button{
-								TestID:   "sketch-toggle-marks",
-								Icon:     lucide.Eye,
-								IconSize: 15,
-								LabelFunc: func() string {
-									_ = rev.Get()
-									if ed.SketchMarksHidden() {
-										return ed.T("sketch.showMarks")
-									}
-									return ed.T("sketch.hideMarks")
-								},
-								Size:    ui.SizeSmall,
-								Variant: ui.ButtonGhost,
-								Color: func() core.Color {
-									_ = rev.Get()
-									if ed.SketchMarksHidden() {
-										return p.LineRaised
-									}
-									return core.Transparent
-								},
-								Tint: func() core.Color {
-									_ = rev.Get()
-									if ed.SketchMarksHidden() {
-										return p.TextPrimary
-									}
-									return p.TextMuted
-								},
-								Style: core.Style{
-									Width:        core.Pt(32),
-									Height:       core.Pt(28),
-									CornerRadius: 6,
-									FocusVisible: p.FocusRing(2),
-								},
-								OnPress: func() {
-									ed.ToggleSketchMarksHidden()
-								},
-							},
-							core.Text{
-								TestID: "sketch-bar-count",
-								ContentFunc: func() string {
-									_ = rev.Get()
-									return ed.SketchBarCountLabel()
-								},
-								Style: core.Style{
-									FontSize: 11.5,
-									Color:    p.TextFaint,
-									Padding:  core.Symmetric(0, 6),
-								},
-							},
-							ui.Button{
-								TestID:  "sketch-clear",
-								Text:    ed.T("sketch.clear"),
-								Label:   ed.T("sketch.clear"),
-								Size:    ui.SizeSmall,
-								Variant: ui.ButtonGhost,
-								Disabled: func() bool {
-									_ = rev.Get()
-									return ed.SketchMarkCount() == 0
-								},
-								TextStyle: core.Style{
-									FontSize:   12,
-									FontWeight: 500,
-									Color:      p.TextMuted,
-								},
-								Style: core.Style{
-									Height:       core.Pt(28),
-									Padding:      core.Symmetric(0, 8),
-									CornerRadius: 6,
-									FocusVisible: p.FocusRing(2),
-								},
-								OnPress: func() {
-									ed.ClearSketch()
-								},
-							},
-							divider(),
-							ui.Button{
-								TestID:  "sketch-done",
-								Text:    ed.T("sketch.done"),
-								Label:   ed.T("sketch.done"),
-								Size:    ui.SizeSmall,
-								Variant: ui.ButtonGhost,
-								Color:   func() core.Color { return p.TextPrimary },
-								TextStyle: core.Style{
-									FontSize:   12,
-									FontWeight: 600,
-									Color:      p.OnTextPrimary,
-								},
-								Style: core.Style{
-									Height:       core.Pt(28),
-									Padding:      core.Symmetric(0, 12),
-									CornerRadius: 6,
-									FocusVisible: p.FocusRing(2),
-								},
-								OnPress: func() {
-									ed.FinishSketch()
-								},
-							},
-						},
-					},
-
-					// Active tool hint pill.
-					core.View{
-						TestID:        "sketch-tool-hint-pill",
-						PointerEvents: core.PointerEventsNone,
-						Style: core.Style{
-							Height:         core.Pt(22),
-							Padding:        core.Symmetric(0, 8),
-							CornerRadius:   6,
-							Background:     ui.Alpha(p.PillBg, 0.92),
-							AlignItems:     core.AlignCenter,
-							JustifyContent: core.JustifyCenter,
-						},
-						Children: []core.Node{
-							core.Text{
-								TestID: "sketch-tool-hint",
-								ContentFunc: func() string {
-									_ = rev.Get()
-									return ed.SketchTool().Hint()
-								},
-								Style: core.Style{
-									FontSize: 11.5,
-									Color:    p.TextMuted,
-								},
-							},
-						},
-					},
-
-					// Selected mark inline label editor (shown whenever a mark is selected, including after Correct a mark).
-					core.Show{
-						When: func() bool {
-							return selectedMarkKey.Get() > 0
-						},
-						Then: func(cx *core.Scope) core.Node {
-							return core.Dynamic(func(cx *core.Scope) core.Node {
-								num := selectedMarkKey.Get()
-								m, ok := ed.SketchMarkByNumber(num)
-								if !ok {
-									return core.View{}
-								}
-								pal := ed.SpecPalette(cx)
-								return core.View{
-									TestID: "sketch-mark-label-bar",
-									Style: core.Style{
-										Direction:    core.Row,
-										AlignItems:   core.AlignCenter,
-										Gap:          8,
-										Padding:      core.Edges{Top: 4, Bottom: 4, Left: 8, Right: 6},
-										CornerRadius: 10,
-										Background:   ui.Alpha(pal.Raised, 0.96),
-										BorderWidth:  1,
-										BorderColor:  pal.Accent.Edge,
+							Children: []core.Node{
+								toolBtn("sketch-tool-pen", SketchToolPen, ed.T("sketch.tool.pen"), "P", lucide.Pencil, ""),
+								toolBtn("sketch-tool-arrow", SketchToolArrow, ed.T("sketch.tool.arrow"), "A", lucide.ArrowUpRight, ""),
+								toolBtn("sketch-tool-box", SketchToolBox, ed.T("sketch.tool.box"), "B", lucide.Square, ""),
+								toolBtn("sketch-tool-text", SketchToolText, ed.T("sketch.tool.text"), "T", nil, "T"),
+								divider(),
+								ui.Button{
+									TestID:   "sketch-undo-mark",
+									Icon:     lucide.RotateCcw,
+									IconSize: 15,
+									Label:    ed.T("sketch.undoMark"),
+									Size:     ui.SizeSmall,
+									Variant:  ui.ButtonGhost,
+									Side:     28,
+									Disabled: func() bool {
+										_ = rev.Get()
+										return !ed.CanUndoSketchMark()
 									},
-									Children: []core.Node{
-										core.View{
-											TestID: "sketch-selected-mark-badge",
-											Style: core.Style{
-												Width:          core.Pt(18),
-												Height:         core.Pt(18),
-												CornerRadius:   9,
-												Background:     pal.Accent.Fg,
-												AlignItems:     core.AlignCenter,
-												JustifyContent: core.JustifyCenter,
-											},
-											Children: []core.Node{
-												core.Text{
-													Content: strconv.Itoa(m.Number),
-													Style: core.Style{
-														FontSize:   11,
-														FontWeight: 600,
-														Color:      pal.Accent.OnFill,
+									Tint: func() core.Color { return p.TextMuted },
+									Style: core.Style{
+										Width:        core.Pt(32),
+										Height:       core.Pt(28),
+										CornerRadius: 6,
+										FocusVisible: p.FocusRing(2),
+									},
+									OnPress: func() {
+										ed.UndoLastSketchMark()
+									},
+								},
+								ui.Button{
+									TestID:   "sketch-toggle-marks",
+									Icon:     lucide.Eye,
+									IconSize: 15,
+									LabelFunc: func() string {
+										_ = rev.Get()
+										if ed.SketchMarksHidden() {
+											return ed.T("sketch.showMarks")
+										}
+										return ed.T("sketch.hideMarks")
+									},
+									Size:    ui.SizeSmall,
+									Variant: ui.ButtonGhost,
+									Color: func() core.Color {
+										_ = rev.Get()
+										if ed.SketchMarksHidden() {
+											return p.LineRaised
+										}
+										return core.Transparent
+									},
+									Tint: func() core.Color {
+										_ = rev.Get()
+										if ed.SketchMarksHidden() {
+											return p.TextPrimary
+										}
+										return p.TextMuted
+									},
+									Style: core.Style{
+										Width:        core.Pt(32),
+										Height:       core.Pt(28),
+										CornerRadius: 6,
+										FocusVisible: p.FocusRing(2),
+									},
+									OnPress: func() {
+										ed.ToggleSketchMarksHidden()
+									},
+								},
+								core.Text{
+									TestID: "sketch-bar-count",
+									ContentFunc: func() string {
+										_ = rev.Get()
+										return ed.SketchBarCountLabel()
+									},
+									Style: core.Style{
+										FontSize: 11.5,
+										Color:    p.TextFaint,
+										Padding:  core.Symmetric(0, 6),
+									},
+								},
+								ui.Button{
+									TestID:  "sketch-clear",
+									Text:    ed.T("sketch.clear"),
+									Label:   ed.T("sketch.clear"),
+									Size:    ui.SizeSmall,
+									Variant: ui.ButtonGhost,
+									Disabled: func() bool {
+										_ = rev.Get()
+										return ed.SketchMarkCount() == 0
+									},
+									TextStyle: core.Style{
+										FontSize:   12,
+										FontWeight: 500,
+										Color:      p.TextMuted,
+									},
+									Style: core.Style{
+										Height:       core.Pt(28),
+										Padding:      core.Symmetric(0, 8),
+										CornerRadius: 6,
+										FocusVisible: p.FocusRing(2),
+									},
+									OnPress: func() {
+										ed.ClearSketch()
+									},
+								},
+								divider(),
+								ui.Button{
+									TestID:  "sketch-done",
+									Text:    ed.T("sketch.done"),
+									Label:   ed.T("sketch.done"),
+									Size:    ui.SizeSmall,
+									Variant: ui.ButtonGhost,
+									Color:   func() core.Color { return p.TextPrimary },
+									TextStyle: core.Style{
+										FontSize:   12,
+										FontWeight: 600,
+										Color:      p.OnTextPrimary,
+									},
+									Style: core.Style{
+										Height:       core.Pt(28),
+										Padding:      core.Symmetric(0, 12),
+										CornerRadius: 6,
+										FocusVisible: p.FocusRing(2),
+									},
+									OnPress: func() {
+										ed.FinishSketch()
+									},
+								},
+							},
+						},
+
+						// Active tool hint pill.
+						core.View{
+							TestID:        "sketch-tool-hint-pill",
+							PointerEvents: core.PointerEventsNone,
+							Style: core.Style{
+								Height:         core.Pt(22),
+								Padding:        core.Symmetric(0, 8),
+								CornerRadius:   6,
+								Background:     ui.Alpha(p.PillBg, 0.92),
+								AlignItems:     core.AlignCenter,
+								JustifyContent: core.JustifyCenter,
+							},
+							Children: []core.Node{
+								core.Text{
+									TestID: "sketch-tool-hint",
+									ContentFunc: func() string {
+										_ = rev.Get()
+										return ed.SketchTool().Hint()
+									},
+									Style: core.Style{
+										FontSize: 11.5,
+										Color:    p.TextMuted,
+									},
+								},
+							},
+						},
+
+						// Selected mark inline label editor (shown whenever a mark is selected, including after Correct a mark).
+						core.Show{
+							When: func() bool {
+								return selectedMarkKey.Get() > 0
+							},
+							Then: func(cx *core.Scope) core.Node {
+								return core.Dynamic(func(cx *core.Scope) core.Node {
+									num := selectedMarkKey.Get()
+									m, ok := ed.SketchMarkByNumber(num)
+									if !ok {
+										return core.View{}
+									}
+									pal := ed.SpecPalette(cx)
+									return core.View{
+										TestID: "sketch-mark-label-bar",
+										Style: core.Style{
+											Direction:    core.Row,
+											AlignItems:   core.AlignCenter,
+											Gap:          8,
+											Padding:      core.Edges{Top: 4, Bottom: 4, Left: 8, Right: 6},
+											CornerRadius: 10,
+											Background:   ui.Alpha(pal.Raised, 0.96),
+											BorderWidth:  1,
+											BorderColor:  pal.Accent.Edge,
+										},
+										Children: []core.Node{
+											core.View{
+												TestID: "sketch-selected-mark-badge",
+												Style: core.Style{
+													Width:          core.Pt(18),
+													Height:         core.Pt(18),
+													CornerRadius:   9,
+													Background:     pal.Accent.Fg,
+													AlignItems:     core.AlignCenter,
+													JustifyContent: core.JustifyCenter,
+												},
+												Children: []core.Node{
+													core.Text{
+														Content: strconv.Itoa(m.Number),
+														Style: core.Style{
+															FontSize:   11,
+															FontWeight: 600,
+															Color:      pal.Accent.OnFill,
+														},
 													},
 												},
 											},
+											specInputField(cx, ed, ui.Input{
+												TestID:      "sketch-mark-label-input",
+												Label:       fmt.Sprintf("Label for mark %d", m.Number),
+												Placeholder: "Add label (e.g. 3 spikes)...",
+												Value: func() string {
+													_ = rev.Get()
+													if cur, ok := ed.SketchMarkByNumber(num); ok {
+														return cur.Label
+													}
+													return ""
+												},
+												OnChange: func(v string) {
+													ed.SetSketchMarkLabel(num, v)
+												},
+												Style: core.Style{
+													Width: core.Pt(200),
+												},
+											}),
+											ui.Button{
+												TestID:   "sketch-mark-delete",
+												Icon:     lucide.Trash,
+												IconSize: 13,
+												Label:    fmt.Sprintf("Delete mark %d", m.Number),
+												Size:     ui.SizeSmall,
+												Variant:  ui.ButtonGhost,
+												Side:     26,
+												Tint:     func() core.Color { return pal.TextMuted },
+												Style: core.Style{
+													CornerRadius: 6,
+													FocusVisible: pal.FocusRing(2),
+												},
+												OnPress: func() {
+													ed.DeleteSketchMark(num)
+												},
+											},
 										},
-										ui.Input{
-											TestID:      "sketch-mark-label-input",
-											Label:       fmt.Sprintf("Label for mark %d", m.Number),
-											Placeholder: "Add label (e.g. 3 spikes)...",
-											Value: func() string {
-												_ = rev.Get()
-												if cur, ok := ed.SketchMarkByNumber(num); ok {
-													return cur.Label
-												}
-												return ""
-											},
-											OnChange: func(v string) {
-												ed.SetSketchMarkLabel(num, v)
-											},
-											Style: core.Style{
-												Width: core.Pt(200),
-											},
-										},
-										ui.Button{
-											TestID:   "sketch-mark-delete",
-											Icon:     lucide.Trash,
-											IconSize: 13,
-											Label:    fmt.Sprintf("Delete mark %d", m.Number),
-											Size:     ui.SizeSmall,
-											Variant:  ui.ButtonGhost,
-											Side:     26,
-											Tint:     func() core.Color { return pal.TextMuted },
-											Style: core.Style{
-												CornerRadius: 6,
-												FocusVisible: pal.FocusRing(2),
-											},
-											OnPress: func() {
-												ed.DeleteSketchMark(num)
-											},
-										},
-									},
-								}
-							})
+									}
+								})
+							},
 						},
 					},
-				},
-			}
+				}
+			})
 		},
 	}
 }
@@ -365,73 +371,79 @@ func sceneTreeSketchSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uin
 		_ = rev.Get()
 		return !ed.Playing() && (ed.SketchActive() || ed.SketchMarkCount() > 0)
 	})
+	darkMemo := core.NewMemo(cx, func() bool {
+		_ = rev.Get()
+		return ed.SpecPalette(cx).Dark
+	})
 	return core.Show{
 		When: shown.Get,
 		Then: func(cx *core.Scope) core.Node {
-			p := ed.SpecPalette(cx)
-			return core.View{
-				TestID: "scene-tree-sketch-section",
-				Style: core.Style{
-					Padding:     core.Edges{Top: 8, Bottom: 4, Left: 4, Right: 4},
-					Borders:     core.Edges{Top: 1},
-					BorderColor: p.Line,
-					Gap:         4,
-				},
-				Children: []core.Node{
-					core.Text{
-						Content: "SKETCH LAYER",
-						Style: core.Style{
-							FontSize:      11,
-							FontWeight:    600,
-							LetterSpacing: 0.6,
-							Color:         p.TextFaint,
-							Padding:       core.Symmetric(0, 4),
-						},
+			return core.Dynamic(func(cx *core.Scope) core.Node {
+				p := SpecPaletteFor(darkMemo.Get())
+				return core.View{
+					TestID: "scene-tree-sketch-section",
+					Style: core.Style{
+						Padding:     core.Edges{Top: 8, Bottom: 4, Left: 4, Right: 4},
+						Borders:     core.Edges{Top: 1},
+						BorderColor: p.Line,
+						Gap:         4,
 					},
-					core.View{
-						TestID: "scene-tree-sketch-layer",
-						Role:   core.RoleButton,
-						Label:  "Sketch layer",
-						OnPress: func(core.PressEvent) {
-							ed.StartSketch()
-						},
-						Style: core.Style{
-							Height:       core.Pt(28),
-							Direction:    core.Row,
-							AlignItems:   core.AlignCenter,
-							Gap:          8,
-							Padding:      core.Symmetric(0, 6),
-							CornerRadius: 6,
-							FocusVisible: p.FocusRing(-2),
-						},
-						Children: []core.Node{
-							core.Text{
-								TestID: "scene-tree-sketch-count",
-								ContentFunc: func() string {
-									_ = rev.Get()
-									n := ed.SketchMarkCount()
-									if n == 1 {
-										return "1 mark"
-									}
-									return fmt.Sprintf("%d marks", n)
-								},
-								Style: core.Style{
-									FlexGrow: 1,
-									FontSize: 12,
-									Color:    p.TextMuted,
-								},
-							},
-							core.Text{
-								Content: "not saved",
-								Style: core.Style{
-									FontSize: 11,
-									Color:    p.TextFaint,
-								},
+					Children: []core.Node{
+						core.Text{
+							Content: "SKETCH LAYER",
+							Style: core.Style{
+								FontSize:      11,
+								FontWeight:    600,
+								LetterSpacing: 0.6,
+								Color:         p.TextFaint,
+								Padding:       core.Symmetric(0, 4),
 							},
 						},
+						core.View{
+							TestID: "scene-tree-sketch-layer",
+							Role:   core.RoleButton,
+							Label:  "Sketch layer",
+							OnPress: func(core.PressEvent) {
+								ed.StartSketch()
+							},
+							Style: core.Style{
+								Height:       core.Pt(28),
+								Direction:    core.Row,
+								AlignItems:   core.AlignCenter,
+								Gap:          8,
+								Padding:      core.Symmetric(0, 6),
+								CornerRadius: 6,
+								FocusVisible: p.FocusRing(-2),
+							},
+							Children: []core.Node{
+								core.Text{
+									TestID: "scene-tree-sketch-count",
+									ContentFunc: func() string {
+										_ = rev.Get()
+										n := ed.SketchMarkCount()
+										if n == 1 {
+											return "1 mark"
+										}
+										return fmt.Sprintf("%d marks", n)
+									},
+									Style: core.Style{
+										FlexGrow: 1,
+										FontSize: 12,
+										Color:    p.TextMuted,
+									},
+								},
+								core.Text{
+									Content: "not saved",
+									Style: core.Style{
+										FontSize: 11,
+										Color:    p.TextFaint,
+									},
+								},
+							},
+						},
 					},
-				},
-			}
+				}
+			})
 		},
 	}
 }
@@ -493,246 +505,253 @@ func SketchPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 		}
 	})
 
-	p := ed.SpecPalette(cx)
-	return core.View{
-		TestID: "sketch-agent-panel",
-		Role:   core.RoleRegion,
-		Label:  "Agent Sketch",
-		Style: core.Style{
-			Width:       core.Pt(360),
-			FlexShrink:  0,
-			Background:  p.Panel,
-			Borders:     core.Edges{Left: 1},
-			BorderColor: p.Line,
-			Overflow:    core.Hidden,
-		},
-		Children: []core.Node{
-			// Panel Header ("Agent" + MCP dot + Inspector toggle).
-			core.View{
-				Style: core.Style{
-					Height:      core.Pt(44),
-					FlexShrink:  0,
-					Direction:   core.Row,
-					AlignItems:  core.AlignCenter,
-					Gap:         8,
-					Padding:     core.Edges{Left: 16, Right: 8},
-					Borders:     core.Edges{Bottom: 1},
-					BorderColor: p.Line,
-				},
-				Children: []core.Node{
-					core.Text{
-						Content: "Agent",
-						Style: core.Style{
-							FontSize:   13,
-							FontWeight: 600,
-							Color:      p.TextPrimary,
-							FlexGrow:   1,
-						},
-					},
-					core.View{
-						Style: core.Style{
-							Direction:  core.Row,
-							AlignItems: core.AlignCenter,
-							Gap:        6,
-							Padding:    core.Symmetric(0, 6),
-						},
-						Children: []core.Node{
-							core.View{
-								Style: core.Style{
-									Width:        core.Pt(6),
-									Height:       core.Pt(6),
-									CornerRadius: 3,
-									Background:   p.Added.Fg,
-								},
-							},
-							core.Text{
-								Content: "MCP",
-								Style: core.Style{
-									FontSize: 11.5,
-									Color:    p.TextFaint,
-								},
-							},
-						},
-					},
-					ui.Button{
-						TestID:  "sketch-panel-close",
-						Icon:    lucide.X,
-						Label:   "Show Inspector",
-						Size:    ui.SizeSmall,
-						Variant: ui.ButtonGhost,
-						Side:    28,
-						Tint:    func() core.Color { return p.TextMuted },
-						Style: core.Style{
-							CornerRadius: 6,
-							FocusVisible: p.FocusRing(2),
-						},
-						OnPress: func() {
-							ed.SetSketchPanelOpen(false)
-						},
-					},
-				},
+	darkMemo := core.NewMemo(cx, func() bool {
+		_ = rev.Get()
+		return ed.SpecPalette(cx).Dark
+	})
+
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		p := SpecPaletteFor(darkMemo.Get())
+		return core.View{
+			TestID: "sketch-agent-panel",
+			Role:   core.RoleRegion,
+			Label:  "Agent Sketch",
+			Style: core.Style{
+				Width:       core.Pt(360),
+				FlexShrink:  0,
+				Background:  p.Panel,
+				Borders:     core.Edges{Left: 1},
+				BorderColor: p.Line,
+				Overflow:    core.Hidden,
 			},
-
-			// Scrollable body: Review card / Reading card / Marks list.
-			ui.ScrollView{
-				Style: core.Style{
-					FlexGrow:  1,
-					FlexBasis: core.Pt(0),
-				},
-				Children: []core.Node{
-					core.Dynamic(func(cx *core.Scope) core.Node {
-						_ = stateKey.Get()
-						pal := ed.SpecPalette(cx)
-						var items []core.Node
-
-						// 1. Post-sketch Review card (Sketch overlay toggle + Keep / Revert).
-						if ed.SketchReviewOpen() {
-							items = append(items, sketchReviewCardView(ed, pal))
-						}
-
-						// 2. Agent Reading card ("I read your sketch as:" + assumptions + Go ahead / Correct a mark).
-						if rd := ed.SketchReading(); rd != nil {
-							items = append(items, sketchReadingCardView(ed, pal, rd))
-						} else if ed.SketchHoldState() == SketchHoldPending {
-							items = append(items, core.View{
-								TestID: "sketch-waiting-reading",
-								Style: core.Style{
-									CornerRadius: 12,
-									Background:   pal.Warning.Fill,
-									BorderWidth:  1,
-									BorderColor:  pal.Warning.Edge,
-									Padding:      core.Symmetric(10, 12),
-									Gap:          4,
-								},
-								Children: []core.Node{
-									core.Text{
-										Content: "Waiting for the agent to read your sketch",
-										Style:   core.Style{FontSize: 12, FontWeight: 600, Color: pal.Warning.Fg},
-									},
-									core.Text{
-										Content: "Scene edits are held until the agent restates each mark and you choose Go ahead.",
-										Style:   core.Style{FontSize: 11.5, Color: pal.TextSecondary},
-									},
-								},
-							})
-						}
-
-						// 3. Active marks list when not in review and no reading card.
-						marks := ed.SketchMarks()
-						if len(marks) > 0 && !ed.SketchReviewOpen() && ed.SketchReading() == nil {
-							sel := ed.SelectedSketchMark()
-							rows := make([]core.Node, 0, len(marks))
-							for _, mk := range marks {
-								m := mk
-								isSel := m.Number == sel
-								rowBg := pal.Raised
-								rowBorder := pal.LineRaised
-								if isSel {
-									rowBorder = pal.Accent.Edge
-								}
-								rows = append(rows, core.View{
-									TestID: fmt.Sprintf("sketch-panel-mark-%d", m.Number),
-									Role:   core.RoleButton,
-									Label:  fmt.Sprintf("Mark %d %s", m.Number, m.Kind.String()),
-									OnPress: func(core.PressEvent) {
-										ed.SelectSketchMark(m.Number)
-										if !ed.SketchActive() {
-											ed.StartSketch()
-										}
-									},
+			Children: []core.Node{
+				// Panel Header ("Agent" + MCP dot + Inspector toggle).
+				core.View{
+					Style: core.Style{
+						Height:      core.Pt(44),
+						FlexShrink:  0,
+						Direction:   core.Row,
+						AlignItems:  core.AlignCenter,
+						Gap:         8,
+						Padding:     core.Edges{Left: 16, Right: 8},
+						Borders:     core.Edges{Bottom: 1},
+						BorderColor: p.Line,
+					},
+					Children: []core.Node{
+						core.Text{
+							Content: "Agent",
+							Style: core.Style{
+								FontSize:   13,
+								FontWeight: 600,
+								Color:      p.TextPrimary,
+								FlexGrow:   1,
+							},
+						},
+						core.View{
+							Style: core.Style{
+								Direction:  core.Row,
+								AlignItems: core.AlignCenter,
+								Gap:        6,
+								Padding:    core.Symmetric(0, 6),
+							},
+							Children: []core.Node{
+								core.View{
 									Style: core.Style{
-										Direction:    core.Row,
-										AlignItems:   core.AlignCenter,
-										Gap:          8,
-										Padding:      core.Symmetric(8, 10),
-										CornerRadius: 8,
-										Background:   rowBg,
+										Width:        core.Pt(6),
+										Height:       core.Pt(6),
+										CornerRadius: 3,
+										Background:   p.Added.Fg,
+									},
+								},
+								core.Text{
+									Content: "MCP",
+									Style: core.Style{
+										FontSize: 11.5,
+										Color:    p.TextFaint,
+									},
+								},
+							},
+						},
+						ui.Button{
+							TestID:  "sketch-panel-close",
+							Icon:    lucide.X,
+							Label:   "Show Inspector",
+							Size:    ui.SizeSmall,
+							Variant: ui.ButtonGhost,
+							Side:    28,
+							Tint:    func() core.Color { return p.TextMuted },
+							Style: core.Style{
+								CornerRadius: 6,
+								FocusVisible: p.FocusRing(2),
+							},
+							OnPress: func() {
+								ed.SetSketchPanelOpen(false)
+							},
+						},
+					},
+				},
+
+				// Scrollable body: Review card / Reading card / Marks list.
+				ui.ScrollView{
+					Style: core.Style{
+						FlexGrow:  1,
+						FlexBasis: core.Pt(0),
+					},
+					Children: []core.Node{
+						core.Dynamic(func(cx *core.Scope) core.Node {
+							_ = stateKey.Get()
+							pal := ed.SpecPalette(cx)
+							var items []core.Node
+
+							// 1. Post-sketch Review card (Sketch overlay toggle + Keep / Revert).
+							if ed.SketchReviewOpen() {
+								items = append(items, sketchReviewCardView(ed, pal))
+							}
+
+							// 2. Agent Reading card ("I read your sketch as:" + assumptions + Go ahead / Correct a mark).
+							if rd := ed.SketchReading(); rd != nil {
+								items = append(items, sketchReadingCardView(ed, pal, rd))
+							} else if ed.SketchHoldState() == SketchHoldPending {
+								items = append(items, core.View{
+									TestID: "sketch-waiting-reading",
+									Style: core.Style{
+										CornerRadius: 12,
+										Background:   pal.Warning.Fill,
 										BorderWidth:  1,
-										BorderColor:  rowBorder,
-										FocusVisible: pal.FocusRing(-2),
+										BorderColor:  pal.Warning.Edge,
+										Padding:      core.Symmetric(10, 12),
+										Gap:          4,
 									},
 									Children: []core.Node{
-										core.View{
-											Style: core.Style{
-												Width:          core.Pt(18),
-												Height:         core.Pt(18),
-												FlexShrink:     0,
-												CornerRadius:   9,
-												Background:     pal.TextPrimary,
-												AlignItems:     core.AlignCenter,
-												JustifyContent: core.JustifyCenter,
-											},
-											Children: []core.Node{
-												core.Text{
-													Content: strconv.Itoa(m.Number),
-													Style:   core.Style{FontSize: 11, FontWeight: 600, Color: pal.OnTextPrimary},
-												},
-											},
+										core.Text{
+											Content: "Waiting for the agent to read your sketch",
+											Style:   core.Style{FontSize: 12, FontWeight: 600, Color: pal.Warning.Fg},
 										},
-										core.View{
-											Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), Gap: 2},
-											Children: []core.Node{
-												core.Text{
-													Content: m.GeometrySummary(),
-													Style: core.Style{
-														FontFamily: core.FontMonospace,
-														FontSize:   11.5,
-														Color:      pal.TextMuted,
-													},
-												},
-												core.Show{
-													When: func() bool { return m.Label != "" },
-													Then: func(cx *core.Scope) core.Node {
-														return core.Text{
-															Content: fmt.Sprintf("“%s”", m.Label),
-															Style:   core.Style{FontSize: 11.5, Color: pal.TextSecondary},
-														}
-													},
-												},
-											},
+										core.Text{
+											Content: "Scene edits are held until the agent restates each mark and you choose Go ahead.",
+											Style:   core.Style{FontSize: 11.5, Color: pal.TextSecondary},
 										},
 									},
 								})
 							}
-							items = append(items, core.View{
-								TestID:   "sketch-panel-marks-list",
-								Style:    core.Style{Gap: 6},
-								Children: rows,
-							})
-						}
 
-						// 4. "Sent with this request" scene-coordinates preview card.
-						if ed.SketchPreviewOpen() {
-							items = append(items, sketchPreviewCardView(ed, pal))
-						}
+							// 3. Active marks list when not in review and no reading card.
+							marks := ed.SketchMarks()
+							if len(marks) > 0 && !ed.SketchReviewOpen() && ed.SketchReading() == nil {
+								sel := ed.SelectedSketchMark()
+								rows := make([]core.Node, 0, len(marks))
+								for _, mk := range marks {
+									m := mk
+									isSel := m.Number == sel
+									rowBg := pal.Raised
+									rowBorder := pal.LineRaised
+									if isSel {
+										rowBorder = pal.Accent.Edge
+									}
+									rows = append(rows, core.View{
+										TestID: fmt.Sprintf("sketch-panel-mark-%d", m.Number),
+										Role:   core.RoleButton,
+										Label:  fmt.Sprintf("Mark %d %s", m.Number, m.Kind.String()),
+										OnPress: func(core.PressEvent) {
+											ed.SelectSketchMark(m.Number)
+											if !ed.SketchActive() {
+												ed.StartSketch()
+											}
+										},
+										Style: core.Style{
+											Direction:    core.Row,
+											AlignItems:   core.AlignCenter,
+											Gap:          8,
+											Padding:      core.Symmetric(8, 10),
+											CornerRadius: 8,
+											Background:   rowBg,
+											BorderWidth:  1,
+											BorderColor:  rowBorder,
+											FocusVisible: pal.FocusRing(-2),
+										},
+										Children: []core.Node{
+											core.View{
+												Style: core.Style{
+													Width:          core.Pt(18),
+													Height:         core.Pt(18),
+													FlexShrink:     0,
+													CornerRadius:   9,
+													Background:     pal.TextPrimary,
+													AlignItems:     core.AlignCenter,
+													JustifyContent: core.JustifyCenter,
+												},
+												Children: []core.Node{
+													core.Text{
+														Content: strconv.Itoa(m.Number),
+														Style:   core.Style{FontSize: 11, FontWeight: 600, Color: pal.OnTextPrimary},
+													},
+												},
+											},
+											core.View{
+												Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), Gap: 2},
+												Children: []core.Node{
+													core.Text{
+														Content: m.GeometrySummary(),
+														Style: core.Style{
+															FontFamily: core.FontMonospace,
+															FontSize:   11.5,
+															Color:      pal.TextMuted,
+														},
+													},
+													core.Show{
+														When: func() bool { return m.Label != "" },
+														Then: func(cx *core.Scope) core.Node {
+															return core.Text{
+																Content: fmt.Sprintf("“%s”", m.Label),
+																Style:   core.Style{FontSize: 11.5, Color: pal.TextSecondary},
+															}
+														},
+													},
+												},
+											},
+										},
+									})
+								}
+								items = append(items, core.View{
+									TestID:   "sketch-panel-marks-list",
+									Style:    core.Style{Gap: 6},
+									Children: rows,
+								})
+							}
 
-						if len(items) == 0 {
-							items = append(items, core.Text{
-								TestID:  "sketch-panel-empty",
-								Content: "Draw on the viewport with Pen, Arrow, Box or Text. Marks stay in scene coordinates and are never written to the scene file.",
+							// 4. "Sent with this request" scene-coordinates preview card.
+							if ed.SketchPreviewOpen() {
+								items = append(items, sketchPreviewCardView(ed, pal))
+							}
+
+							if len(items) == 0 {
+								items = append(items, core.Text{
+									TestID:  "sketch-panel-empty",
+									Content: "Draw on the viewport with Pen, Arrow, Box or Text. Marks stay in scene coordinates and are never written to the scene file.",
+									Style: core.Style{
+										FontSize:   12,
+										LineHeight: 18,
+										Color:      pal.TextFaint,
+									},
+								})
+							}
+
+							return core.View{
 								Style: core.Style{
-									FontSize:   12,
-									LineHeight: 18,
-									Color:      pal.TextFaint,
+									Padding: core.All(12),
+									Gap:     12,
 								},
-							})
-						}
-
-						return core.View{
-							Style: core.Style{
-								Padding: core.All(12),
-								Gap:     12,
-							},
-							Children: items,
-						}
-					}),
+								Children: items,
+							}
+						}),
+					},
 				},
-			},
 
-			// Composer footer with "Sketch · N marks" chip and Send button.
-			sketchComposerView(cx, ed, rev),
-		},
-	}
+				// Composer footer with "Sketch · N marks" chip and Send button.
+				sketchComposerView(cx, ed, rev, p),
+			},
+		}
+	})
 }
 
 func sketchReadingCardView(ed *Editor, p SpecPalette, rd *SketchReading) core.Node {
@@ -1192,15 +1211,14 @@ func sketchPreviewCardView(ed *Editor, p SpecPalette) core.Node {
 	}
 }
 
-func sketchComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
-	p := ed.SpecPalette(cx)
+func sketchComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p SpecPalette) core.Node {
 	submit := func() {
 		text := strings.TrimSpace(ed.SketchPromptDraft())
 		if ed.SketchHoldState() == SketchHoldReading && text != "" {
 			ed.report(ed.ReplyToSketchReading(text))
 			return
 		}
-		if ed.SketchMarkCount() > 0 {
+		if ed.SketchAttached() && ed.SketchMarkCount() > 0 {
 			if _, err := ed.SendSketch(text); err != nil {
 				ed.report(err)
 			}
@@ -1309,7 +1327,7 @@ func sketchComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 							}
 						},
 					},
-					ui.Input{
+					specInputField(cx, ed, ui.Input{
 						TestID:      "sketch-composer-input",
 						Label:       "Ask the agent",
 						Placeholder: "Build what I sketched...",
@@ -1323,7 +1341,7 @@ func sketchComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 						OnSubmit: func(string) {
 							submit()
 						},
-					},
+					}),
 					core.View{
 						Style: core.Style{
 							Direction:  core.Row,
@@ -1375,7 +1393,7 @@ func sketchComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 									if ed.SketchHoldState() == SketchHoldReading {
 										return strings.TrimSpace(ed.SketchPromptDraft()) == ""
 									}
-									return ed.SketchMarkCount() == 0
+									return !ed.SketchAttached() || ed.SketchMarkCount() == 0
 								},
 								Color: func() core.Color { return p.TextPrimary },
 								Tint:  func() core.Color { return p.OnTextPrimary },

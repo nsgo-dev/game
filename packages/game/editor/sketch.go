@@ -290,37 +290,82 @@ type sketchReviewState struct {
 }
 
 type sketchState struct {
-	active        bool
-	panelOpen     bool
-	tool          SketchTool
-	marks         []SketchMark
-	undoStack     [][]SketchMark
-	nextSeq       uint64
-	selectedMark  int
-	marksHidden   bool
-	attached      bool
-	previewOpen   bool
-	promptDraft   string
-	hold          SketchHoldState
-	reading       *SketchReading
-	lastRequest   *SketchAgentRequest
-	draft         *sketchDraftDrag
-	review        *sketchReviewState
-	forcePNGMarks bool
+	active         bool
+	panelOpen      bool
+	panelDismissed bool
+	tool           SketchTool
+	marks          []SketchMark
+	undoStack      [][]SketchMark
+	nextSeq        uint64
+	selectedMark   int
+	marksHidden    bool
+	attached       bool
+	previewOpen    bool
+	promptDraft    string
+	hold           SketchHoldState
+	reading        *SketchReading
+	lastRequest    *SketchAgentRequest
+	draft          *sketchDraftDrag
+	review         *sketchReviewState
+	forcePNGMarks  bool
 }
 
 const (
-	maxSketchMarks       = 200
-	maxSketchUndoDepth   = 64
-	maxSketchPenPoints   = 2048
-	sketchBadgeRadiusPt  = 9.0
-	sketchDragMinDistPt  = 3.0
-	sketchPenStepMinPt   = 3.0
-	sketchDefaultBoxW    = 96.0
-	sketchDefaultBoxH    = 40.0
-	sketchDefaultArrowDX = 84.0
-	sketchDefaultArrowDY = 36.0
+	maxSketchMarks              = 200
+	maxSketchUndoDepth          = 64
+	maxSketchPenPoints          = 2048
+	maxSketchLabelRunes         = 256
+	maxSketchReadingItems       = maxSketchMarks
+	maxSketchReadingAssumptions = 32
+	maxSketchReadingTextRunes   = 2048
+	maxSketchPNGDim             = 2048
+	maxSketchPNGPixels          = 4_000_000
+	sketchBadgeRadiusPt         = 9.0
+	sketchDragMinDistPt         = 3.0
+	sketchPenStepMinPt          = 3.0
+	sketchDefaultBoxW           = 96.0
+	sketchDefaultBoxH           = 40.0
+	sketchDefaultArrowDX        = 84.0
+	sketchDefaultArrowDY        = 36.0
 )
+
+func clampSketchRunes(s string, maxRunes int) string {
+	s = strings.TrimSpace(s)
+	if maxRunes <= 0 || len(s) <= maxRunes {
+		return s
+	}
+	n := 0
+	for i := range s {
+		if n == maxRunes {
+			return s[:i]
+		}
+		n++
+	}
+	return s
+}
+
+func (e *Editor) resetSketchForProject() {
+	if e == nil {
+		return
+	}
+	e.sketch = sketchState{}
+}
+
+func (e *Editor) sketchBlockedByScreen() bool {
+	if e == nil {
+		return true
+	}
+	return e.playing ||
+		e.StartScreenOpen() ||
+		e.SettingsOpen() ||
+		e.MergeConflictOpen() ||
+		e.ChangesOpen() ||
+		e.BuildReleaseScreenOpen() ||
+		e.UsagesScreenOpen() ||
+		e.PlaytestReportOpen() ||
+		e.AssetGeneratorOpen() ||
+		e.HUDLayoutOpen()
+}
 
 var (
 	// ErrSketchEmpty is returned when sending or reading a sketch with no marks.
@@ -409,6 +454,9 @@ func (e *Editor) SetSketchActive(on bool) {
 	if e == nil || e.playing {
 		return
 	}
+	if on && e.sketchBlockedByScreen() {
+		return
+	}
 	if on && e.ViewMode != ViewMode2D {
 		e.SetViewMode(ViewMode2D)
 	}
@@ -417,6 +465,7 @@ func (e *Editor) SetSketchActive(on bool) {
 		e.cancelActiveObjectDrags()
 		e.sketch.active = true
 		e.sketch.panelOpen = true
+		e.sketch.panelDismissed = false
 		e.sketch.marksHidden = false
 		if len(e.sketch.marks) > 0 {
 			e.sketch.attached = true
@@ -456,6 +505,9 @@ func (e *Editor) SketchPanelOpen() bool {
 	if e == nil || e.playing || e.ViewMode != ViewMode2D {
 		return false
 	}
+	if e.sketch.panelDismissed && !e.sketch.active {
+		return false
+	}
 	return e.sketch.panelOpen || e.sketch.active || e.sketch.reading != nil || e.SketchReviewOpen()
 }
 
@@ -467,6 +519,9 @@ func (e *Editor) SetSketchPanelOpen(open bool) {
 	if !open {
 		e.sketch.active = false
 		e.sketch.draft = nil
+		e.sketch.panelDismissed = true
+	} else {
+		e.sketch.panelDismissed = false
 	}
 	e.sketch.panelOpen = open
 	e.notify()
@@ -681,6 +736,7 @@ func (e *Editor) appendSketchMark(m SketchMark) SketchMark {
 	if m.ID == "" {
 		m.ID = fmt.Sprintf("mark_%d", e.sketch.nextSeq)
 	}
+	m.Label = clampSketchRunes(m.Label, maxSketchLabelRunes)
 	m.Number = len(e.sketch.marks) + 1
 	if len(e.sketch.marks) >= maxSketchMarks {
 		e.sketch.marks = e.sketch.marks[1:]
@@ -692,13 +748,17 @@ func (e *Editor) appendSketchMark(m SketchMark) SketchMark {
 	e.sketch.attached = true
 	e.sketch.marksHidden = false
 	e.sketch.panelOpen = true
+	e.sketch.panelDismissed = false
 	e.notify()
 	return added.Clone()
 }
 
 // AddSketchBox adds a numbered Box mark strictly in scene coordinates without mutating SceneDoc or History.
 func (e *Editor) AddSketchBox(x, y, width, height float32, label string) SketchMark {
-	if e == nil {
+	if e == nil || e.playing {
+		return SketchMark{}
+	}
+	if !isFiniteFloat32(x) || !isFiniteFloat32(y) || !isFiniteFloat32(width) || !isFiniteFloat32(height) {
 		return SketchMark{}
 	}
 	if width < 0 {
@@ -709,24 +769,30 @@ func (e *Editor) AddSketchBox(x, y, width, height float32, label string) SketchM
 		y += height
 		height = -height
 	}
+	if !isFiniteFloat32(x) || !isFiniteFloat32(y) || !isFiniteFloat32(width) || !isFiniteFloat32(height) {
+		return SketchMark{}
+	}
 	r := SketchRect{X: x, Y: y, Width: width, Height: height}
 	return e.appendSketchMark(SketchMark{
 		Kind:  SketchToolBox,
-		Label: strings.TrimSpace(label),
+		Label: clampSketchRunes(label, maxSketchLabelRunes),
 		Rect:  &r,
 	})
 }
 
 // AddSketchArrow adds a numbered Arrow mark strictly in scene coordinates without mutating SceneDoc or History.
 func (e *Editor) AddSketchArrow(x0, y0, x1, y1 float32, label string) SketchMark {
-	if e == nil {
+	if e == nil || e.playing {
+		return SketchMark{}
+	}
+	if !isFiniteFloat32(x0) || !isFiniteFloat32(y0) || !isFiniteFloat32(x1) || !isFiniteFloat32(y1) {
 		return SketchMark{}
 	}
 	s := SketchPoint{X: x0, Y: y0}
 	t := SketchPoint{X: x1, Y: y1}
 	return e.appendSketchMark(SketchMark{
 		Kind:  SketchToolArrow,
-		Label: strings.TrimSpace(label),
+		Label: clampSketchRunes(label, maxSketchLabelRunes),
 		Start: &s,
 		End:   &t,
 	})
@@ -734,7 +800,7 @@ func (e *Editor) AddSketchArrow(x0, y0, x1, y1 float32, label string) SketchMark
 
 // AddSketchPen adds a numbered Pen polyline mark strictly in scene coordinates without mutating SceneDoc or History.
 func (e *Editor) AddSketchPen(points []SketchPoint, label string) SketchMark {
-	if e == nil || len(points) == 0 {
+	if e == nil || e.playing || len(points) == 0 {
 		return SketchMark{}
 	}
 	clean := make([]SketchPoint, 0, min(len(points), maxSketchPenPoints))
@@ -751,20 +817,23 @@ func (e *Editor) AddSketchPen(points []SketchPoint, label string) SketchMark {
 	}
 	return e.appendSketchMark(SketchMark{
 		Kind:   SketchToolPen,
-		Label:  strings.TrimSpace(label),
+		Label:  clampSketchRunes(label, maxSketchLabelRunes),
 		Points: clean,
 	})
 }
 
 // AddSketchText adds a numbered Text mark strictly in scene coordinates without mutating SceneDoc or History.
 func (e *Editor) AddSketchText(x, y float32, label string) SketchMark {
-	if e == nil {
+	if e == nil || e.playing {
+		return SketchMark{}
+	}
+	if !isFiniteFloat32(x) || !isFiniteFloat32(y) {
 		return SketchMark{}
 	}
 	at := SketchPoint{X: x, Y: y}
 	return e.appendSketchMark(SketchMark{
 		Kind:  SketchToolText,
-		Label: strings.TrimSpace(label),
+		Label: clampSketchRunes(label, maxSketchLabelRunes),
 		At:    &at,
 	})
 }
@@ -797,10 +866,10 @@ func (e *Editor) AddSketchMarkAtCursor(label string) SketchMark {
 
 // SetSketchMarkLabel updates the optional text label on the 1-based sketch mark.
 func (e *Editor) SetSketchMarkLabel(number int, label string) bool {
-	if e == nil || number < 1 || number > len(e.sketch.marks) {
+	if e == nil || e.playing || number < 1 || number > len(e.sketch.marks) {
 		return false
 	}
-	clean := strings.TrimSpace(label)
+	clean := clampSketchRunes(label, maxSketchLabelRunes)
 	if e.sketch.marks[number-1].Label == clean {
 		return true
 	}
@@ -811,7 +880,7 @@ func (e *Editor) SetSketchMarkLabel(number int, label string) bool {
 
 // NudgeSelectedSketchMark translates the selected sketch mark by (dx, dy) in scene coordinates.
 func (e *Editor) NudgeSelectedSketchMark(dx, dy float32) bool {
-	if e == nil || !isFiniteFloat32(dx) || !isFiniteFloat32(dy) || (dx == 0 && dy == 0) {
+	if e == nil || e.playing || !isFiniteFloat32(dx) || !isFiniteFloat32(dy) || (dx == 0 && dy == 0) {
 		return false
 	}
 	sel := e.SelectedSketchMark()
@@ -851,7 +920,7 @@ func (e *Editor) NudgeSelectedSketchMark(dx, dy float32) bool {
 
 // DeleteSketchMark removes the 1-based mark and renumbers remaining marks sequentially.
 func (e *Editor) DeleteSketchMark(number int) bool {
-	if e == nil || number < 1 || number > len(e.sketch.marks) {
+	if e == nil || e.playing || number < 1 || number > len(e.sketch.marks) {
 		return false
 	}
 	e.pushSketchUndo()
@@ -868,7 +937,7 @@ func (e *Editor) CanUndoSketchMark() bool {
 
 // UndoLastSketchMark restores the previous sketch mark list without touching SceneDoc or Editor.History.
 func (e *Editor) UndoLastSketchMark() bool {
-	if e == nil || len(e.sketch.undoStack) == 0 {
+	if e == nil || e.playing || len(e.sketch.undoStack) == 0 {
 		return false
 	}
 	prev := e.sketch.undoStack[len(e.sketch.undoStack)-1]
@@ -882,7 +951,7 @@ func (e *Editor) UndoLastSketchMark() bool {
 // ClearSketch clears all sketch marks, any pending reading card, and any active confirmation hold.
 // It never modifies SceneDoc or Editor.History.
 func (e *Editor) ClearSketch() {
-	if e == nil {
+	if e == nil || e.playing {
 		return
 	}
 	if len(e.sketch.marks) > 0 {
@@ -945,6 +1014,9 @@ func (e *Editor) BeginSketchDrag(canvasX, canvasY float32) bool {
 	tool := e.ensureSketchTool()
 	hit := e.HitTestSketchMark(canvasX, canvasY)
 	wx, wy := e.CanvasToWorld(canvasX, canvasY)
+	if !isFiniteFloat32(wx) || !isFiniteFloat32(wy) {
+		return false
+	}
 	start := SketchPoint{X: wx, Y: wy}
 	e.sketch.draft = &sketchDraftDrag{
 		tool:       tool,
@@ -964,6 +1036,9 @@ func (e *Editor) UpdateSketchDrag(canvasX, canvasY float32) bool {
 	}
 	dr := e.sketch.draft
 	wx, wy := e.CanvasToWorld(canvasX, canvasY)
+	if !isFiniteFloat32(wx) || !isFiniteFloat32(wy) {
+		return false
+	}
 	pt := SketchPoint{X: wx, Y: wy}
 	sx, sy := e.WorldToCanvas(dr.startWorld.X, dr.startWorld.Y)
 	if math.Hypot(float64(canvasX-sx), float64(canvasY-sy)) >= sketchDragMinDistPt {
@@ -1046,6 +1121,9 @@ func (e *Editor) RenderSketchViewportPNG(scale float32) ([]byte, int, int, error
 	if e == nil {
 		return nil, 0, 0, errors.New("editor: nil editor")
 	}
+	if e.ViewMode != ViewMode2D {
+		return nil, 0, 0, errors.New("editor: viewport sketch PNG requires 2D view mode")
+	}
 	if scale <= 0 {
 		scale = 1
 	}
@@ -1053,6 +1131,22 @@ func (e *Editor) RenderSketchViewportPNG(scale float32) ([]byte, int, int, error
 		return nil, 0, 0, fmt.Errorf("editor: sketch render scale %v must be between 0.25 and 4", scale)
 	}
 	w, h := e.CanvasSize()
+	if !isFiniteFloat32(w) || !isFiniteFloat32(h) || w <= 0 || h <= 0 {
+		return nil, 0, 0, fmt.Errorf("editor: invalid viewport canvas size %vx%v", w, h)
+	}
+	// Cap rendered dimensions to prevent OOM on ultra-high-DPI / oversized viewports.
+	pw := max(int(math.Round(float64(w*scale))), 1)
+	ph := max(int(math.Round(float64(h*scale))), 1)
+	if pw > maxSketchPNGDim || ph > maxSketchPNGDim || int64(pw)*int64(ph) > maxSketchPNGPixels {
+		fit := math.Min(float64(maxSketchPNGDim)/float64(w), float64(maxSketchPNGDim)/float64(h))
+		areaFit := math.Sqrt(float64(maxSketchPNGPixels) / (float64(w) * float64(h)))
+		scale = float32(math.Min(float64(scale), math.Min(fit, areaFit)))
+		if scale < 0.25 {
+			scale = 0.25
+		}
+		pw = min(max(int(math.Round(float64(w*scale))), 1), maxSketchPNGDim)
+		ph = min(max(int(math.Round(float64(h*scale))), 1), maxSketchPNGDim)
+	}
 	var d core.Drawing
 	d.Scale(scale, scale)
 	size := core.Size{Width: core.Points(w), Height: core.Points(h)}
@@ -1062,8 +1156,6 @@ func (e *Editor) RenderSketchViewportPNG(scale float32) ([]byte, int, int, error
 	e.DrawViewport(&d, size)
 	e.sketch.forcePNGMarks = prevForce
 
-	pw := max(int(math.Round(float64(w*scale))), 1)
-	ph := max(int(math.Round(float64(h*scale))), 1)
 	res, err := gamemcp.RenderPNG(d.Ops, pw, ph, e.SpecPalette(nil).Viewport)
 	if err != nil {
 		return nil, 0, 0, err
@@ -1082,7 +1174,10 @@ func (e *Editor) SendSketch(prompt string) (SketchAgentRequest, error) {
 	if e == nil {
 		return SketchAgentRequest{}, errors.New("editor: nil editor")
 	}
-	if len(e.sketch.marks) == 0 {
+	if e.playing {
+		return SketchAgentRequest{}, ErrPlaying
+	}
+	if len(e.sketch.marks) == 0 || !e.sketch.attached {
 		return SketchAgentRequest{}, ErrSketchEmpty
 	}
 	if strings.TrimSpace(prompt) == "" {
@@ -1119,6 +1214,7 @@ func (e *Editor) SendSketch(prompt string) (SketchAgentRequest, error) {
 	e.sketch.draft = nil
 	e.sketch.previewOpen = false
 	e.sketch.panelOpen = true
+	e.sketch.panelDismissed = false
 	e.sketch.hold = SketchHoldPending
 	e.sketch.reading = nil
 	e.sketch.promptDraft = ""
@@ -1178,31 +1274,43 @@ func (e *Editor) PostSketchReading(reading SketchReading) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
 	}
+	if e.playing {
+		return ErrPlaying
+	}
 	if len(e.sketch.marks) == 0 {
 		return ErrSketchEmpty
 	}
 	if len(reading.Items) == 0 {
 		return errors.New("editor: sketch reading must include at least one item")
 	}
-	if strings.TrimSpace(reading.Summary) == "" {
-		reading.Summary = "I read your sketch as:"
+	if len(reading.Items) > maxSketchReadingItems {
+		return fmt.Errorf("editor: sketch reading has %d items, max %d", len(reading.Items), maxSketchReadingItems)
+	}
+	if len(reading.Assumptions) > maxSketchReadingAssumptions {
+		return fmt.Errorf("editor: sketch reading has %d assumptions, max %d", len(reading.Assumptions), maxSketchReadingAssumptions)
+	}
+	summary := clampSketchRunes(reading.Summary, maxSketchReadingTextRunes)
+	if summary == "" {
+		summary = "I read your sketch as:"
 	}
 	items := make([]SketchReadingItem, len(reading.Items))
 	for i, it := range reading.Items {
 		if it.Number < 1 || it.Number > len(e.sketch.marks) {
 			return fmt.Errorf("editor: sketch reading item number %d out of range (1..%d)", it.Number, len(e.sketch.marks))
 		}
-		if strings.TrimSpace(it.Text) == "" {
+		it.Text = clampSketchRunes(it.Text, maxSketchReadingTextRunes)
+		if it.Text == "" {
 			return fmt.Errorf("editor: sketch reading item %d has empty text", it.Number)
 		}
-		if strings.TrimSpace(it.Mark) == "" {
+		it.Mark = clampSketchRunes(it.Mark, maxSketchLabelRunes)
+		if it.Mark == "" {
 			it.Mark = e.sketch.marks[it.Number-1].ReadingHeading()
 		}
 		items[i] = it
 	}
 	assumptions := make([]string, 0, len(reading.Assumptions))
 	for _, a := range reading.Assumptions {
-		if s := strings.TrimSpace(a); s != "" {
+		if s := clampSketchRunes(a, maxSketchReadingTextRunes); s != "" {
 			assumptions = append(assumptions, s)
 		}
 	}
@@ -1211,13 +1319,14 @@ func (e *Editor) PostSketchReading(reading SketchReading) error {
 		now = e.Now()
 	}
 	e.sketch.reading = &SketchReading{
-		Summary:     strings.TrimSpace(reading.Summary),
+		Summary:     summary,
 		Items:       items,
 		Assumptions: assumptions,
 		PostedAt:    now,
 	}
 	e.sketch.hold = SketchHoldReading
 	e.sketch.panelOpen = true
+	e.sketch.panelDismissed = false
 	e.Status = "Agent posted sketch reading · choose Go ahead or Correct a mark"
 	e.notify()
 	return nil
@@ -1228,6 +1337,9 @@ func (e *Editor) PostSketchReading(reading SketchReading) error {
 func (e *Editor) ApproveSketchReading() error {
 	if e == nil {
 		return errors.New("editor: nil editor")
+	}
+	if e.playing {
+		return ErrPlaying
 	}
 	if len(e.sketch.marks) == 0 {
 		return ErrSketchEmpty
@@ -1244,6 +1356,7 @@ func (e *Editor) ApproveSketchReading() error {
 	e.sketch.active = false
 	e.sketch.draft = nil
 	e.sketch.panelOpen = true
+	e.sketch.panelDismissed = false
 	e.sketch.review = &sketchReviewState{
 		open:           false,
 		overlayVisible: true,
@@ -1265,6 +1378,9 @@ func (e *Editor) CorrectSketchMark(number int) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
 	}
+	if e.playing {
+		return ErrPlaying
+	}
 	if len(e.sketch.marks) == 0 {
 		return ErrSketchEmpty
 	}
@@ -1278,6 +1394,7 @@ func (e *Editor) CorrectSketchMark(number int) error {
 	e.sketch.tool = e.sketch.marks[number-1].Kind
 	e.sketch.active = true
 	e.sketch.panelOpen = true
+	e.sketch.panelDismissed = false
 	e.sketch.marksHidden = false
 	e.sketch.attached = true
 	e.sketch.hold = SketchHoldPending
@@ -1295,6 +1412,9 @@ func (e *Editor) CorrectSketchMark(number int) error {
 func (e *Editor) ReplyToSketchReading(message string) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
+	}
+	if e.playing {
+		return ErrPlaying
 	}
 	msg := strings.TrimSpace(message)
 	if msg == "" {
@@ -1314,6 +1434,7 @@ func (e *Editor) ReplyToSketchReading(message string) error {
 	e.sketch.hold = SketchHoldApproved
 	e.sketch.promptDraft = ""
 	e.sketch.panelOpen = true
+	e.sketch.panelDismissed = false
 	if e.sketch.review == nil {
 		e.sketch.review = &sketchReviewState{
 			open:           false,
@@ -1421,6 +1542,7 @@ func (e *Editor) RecordSketchReviewEdits(label string, addedIDs, changedIDs, rem
 		rv.changes = append(rv.changes, SketchReviewChange{Kind: SketchChangeChanged, ID: label})
 	}
 	e.sketch.panelOpen = true
+	e.sketch.panelDismissed = false
 	e.notify()
 }
 
@@ -1465,12 +1587,33 @@ func (e *Editor) RevertSketchReview() error {
 			return fmt.Errorf("editor: revert sketch review: %w", err)
 		}
 		e.Doc = doc
-		if e.History != nil && rv.historyStart >= 0 && rv.historyStart <= len(e.History.commands) {
-			clear(e.History.commands[rv.historyStart:])
-			e.History.commands = e.History.commands[:rv.historyStart]
-			e.History.cursor = rv.historyStart
+		if e.History != nil && rv.historyStart >= 0 {
+			cut := min(rv.historyStart, len(e.History.commands))
+			clear(e.History.commands[cut:])
+			e.History.commands = e.History.commands[:cut]
+			if e.History.cursor > cut {
+				e.History.cursor = cut
+			}
 		}
 		e.Rebuild()
+		// Drop any selection IDs that pointed at agent-added objects removed by Revert.
+		if e.SelectedID != "" {
+			if o, _, _ := e.FindObject(e.SelectedID); o == nil {
+				e.SelectedID = ""
+			}
+		}
+		if len(e.selectedIDs) > 0 {
+			kept := make([]string, 0, len(e.selectedIDs))
+			for _, id := range e.selectedIDs {
+				if o, _, _ := e.FindObject(id); o != nil {
+					kept = append(kept, id)
+				}
+			}
+			e.selectedIDs = kept
+			if e.SelectedID == "" && len(kept) > 0 {
+				e.SelectedID = kept[len(kept)-1]
+			}
+		}
 	}
 	e.keepSketchOnReviewRevert()
 	e.Status = "Reverted agent changes · sketch kept to send again"
@@ -1494,6 +1637,7 @@ func (e *Editor) clearSketchOnReviewKeep() {
 	e.sketch.reading = nil
 	e.sketch.lastRequest = nil
 	e.sketch.panelOpen = false
+	e.sketch.panelDismissed = false
 }
 
 // keepSketchOnReviewRevert preserves the sketch marks ready to send again when an agent review is Reverted.
@@ -1509,6 +1653,7 @@ func (e *Editor) keepSketchOnReviewRevert() {
 		e.sketch.attached = true
 		e.sketch.marksHidden = false
 		e.sketch.panelOpen = true
+		e.sketch.panelDismissed = false
 	}
 }
 
@@ -1638,6 +1783,9 @@ func (e *Editor) drawSketchDraft(d *core.Drawing, spec SpecPalette, dr *sketchDr
 
 func (e *Editor) drawSketchMark(d *core.Drawing, spec SpecPalette, m SketchMark, selected, reviewDotted bool, alpha float32) {
 	haloColor := core.RGBA(0x000000, 0.55*alpha)
+	if !spec.Dark {
+		haloColor = ui.Alpha(spec.Bg, 0.72*alpha)
+	}
 	haloWidth := float32(5)
 	if selected {
 		haloColor = ui.Alpha(spec.Accent.Edge, 0.75)

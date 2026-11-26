@@ -262,6 +262,9 @@ func objectPasteYAML(ctx context.Context, c *Call) (*Result, error) {
 		if err != nil {
 			return err
 		}
+		if ed.SketchApproved() {
+			ed.RecordSketchReviewEdits("Agent: paste "+id, []string{id}, nil, nil)
+		}
 		out = ObjectPasteYAMLResult{ID: id, Revision: ed.Revision()}
 		return nil
 	})
@@ -340,6 +343,9 @@ func objectDuplicate(ctx context.Context, c *Call) (*Result, error) {
 		id, err := ed.DuplicateObject(src)
 		if err != nil {
 			return err
+		}
+		if ed.SketchApproved() {
+			ed.RecordSketchReviewEdits("Agent: duplicate "+src, []string{id}, nil, nil)
 		}
 		out = ObjectDuplicateResult{SourceID: src, ID: id, Revision: ed.Revision()}
 		return nil
@@ -435,6 +441,9 @@ func objectGroup(ctx context.Context, c *Call) (*Result, error) {
 		}
 		if err != nil {
 			return err
+		}
+		if ed.SketchApproved() {
+			ed.RecordSketchReviewEdits("Agent: group "+gid, []string{gid}, ids, nil)
 		}
 		out = ObjectGroupResult{GroupID: gid, Children: ids, Revision: ed.Revision()}
 		return nil
@@ -532,6 +541,9 @@ func objectMoveUnder(ctx context.Context, c *Call) (*Result, error) {
 		}
 		if err := ed.MoveObjectUnder(id, args.Parent); err != nil {
 			return err
+		}
+		if ed.SketchApproved() {
+			ed.RecordSketchReviewEdits("Agent: move "+id, nil, []string{id}, nil)
 		}
 		out = ObjectMoveUnderResult{
 			ID:       id,

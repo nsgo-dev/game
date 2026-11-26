@@ -799,6 +799,9 @@ func tileReviewToggleRegion(ctx context.Context, c *Call, toolName string, rever
 	}
 	var st TileReviewStatusResult
 	if err := c.Editor(ctx, func(ed *editor.Editor) error {
+		if holdErr := sketchHoldEditError(ed, sceneName(ed, projectRoot(ed))); holdErr != nil {
+			return holdErr
+		}
 		var err error
 		if args.ID != "" {
 			err = ed.SetTileReviewRegionReverted(args.ID, revert)
@@ -833,6 +836,9 @@ func tileReviewKeep(ctx context.Context, c *Call) (*Result, error) {
 	}
 	var res editor.AgentTileEditResult
 	if err := c.Editor(ctx, func(ed *editor.Editor) error {
+		if holdErr := sketchHoldEditError(ed, sceneName(ed, projectRoot(ed))); holdErr != nil {
+			return holdErr
+		}
 		var err error
 		res, err = ed.KeepTileReview()
 		return err
@@ -851,6 +857,9 @@ func tileReviewRevertAll(ctx context.Context, c *Call) (*Result, error) {
 	}
 	var layer string
 	if err := c.Editor(ctx, func(ed *editor.Editor) error {
+		if holdErr := sketchHoldEditError(ed, sceneName(ed, projectRoot(ed))); holdErr != nil {
+			return holdErr
+		}
 		layer, _ = ed.TileReviewLayer()
 		return ed.RevertAllTileReview()
 	}); err != nil {

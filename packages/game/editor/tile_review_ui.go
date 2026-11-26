@@ -435,9 +435,10 @@ func tileReviewPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 												},
 												StyleFunc: func() core.Style {
 													_ = rev.Get()
+													p := ed.SpecPalette(cx)
 													bg := core.Transparent
 													if ed.SketchReviewOverlayVisible() {
-														bg = specLineRaised
+														bg = p.LineRaised
 													}
 													return core.Style{
 														Height:         core.Pt(24),
@@ -446,7 +447,7 @@ func tileReviewPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 														Background:     bg,
 														AlignItems:     core.AlignCenter,
 														JustifyContent: core.JustifyCenter,
-														FocusVisible:   specFocusRingStyle,
+														FocusVisible:   p.FocusRing(2),
 													}
 												},
 												Children: []core.Node{
@@ -454,9 +455,10 @@ func tileReviewPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 														Content: "Sketch overlay",
 														StyleFunc: func() core.Style {
 															_ = rev.Get()
-															col := specTextSecondary
+															p := ed.SpecPalette(cx)
+															col := p.TextMuted
 															if ed.SketchReviewOverlayVisible() {
-																col = specTextStrong
+																col = p.TextPrimary
 															}
 															return core.Style{FontSize: 11, FontWeight: 500, Color: col}
 														},

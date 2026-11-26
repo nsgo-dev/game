@@ -231,7 +231,12 @@ func drawSketchBitmapString(dst *image.RGBA, x, y int, text string, col core.Col
 
 	bounds := dst.Bounds()
 	cx := x
+	drawn := 0
 	for _, ch := range text {
+		if drawn >= 256 {
+			break
+		}
+		drawn++
 		glyph, ok := sketchBitmapGlyph5x7[ch]
 		if !ok {
 			if ch >= 'a' && ch <= 'z' {

@@ -5,6 +5,7 @@ import (
 	"image/png"
 	"math"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -192,5 +193,75 @@ func TestSketchMCPReadReadingHoldGateAndKeepRevert(t *testing.T) {
 	}
 	if strings.Contains(string(keptYAML), "locked until the lever") || strings.Contains(string(keptYAML), "sketch") {
 		t.Fatalf("kept scene YAML contains sketch data:\n%s", string(keptYAML))
+	}
+}
+
+func TestSketchHoldGateBlocksAllMutatingToolsRecordsObjectReviewAndIsRaceFree(t *testing.T) {
+	f := openFixture(t)
+	f.ed.SetCanvasSize(640, 360)
+	s := editormcp.New(f.ed, editormcp.Options{OnPermissionAsk: allowAsk})
+	t.Cleanup(func() { _ = s.Close() })
+	cs := connect(t, s, nil)
+
+	f.ed.AddSketchBox(80, 120, 60, 40, "spikes")
+	if _, err := f.ed.SendSketch("build spikes"); err != nil {
+		t.Fatalf("SendSketch: %v", err)
+	}
+
+	// Verify ALL mutating MCP tools respect the active sketch hold gate.
+	blockedCalls := []struct {
+		name string
+		args map[string]any
+	}{
+		{editormcp.ToolRefactorRename, map[string]any{"from": "scenes/main.scene.yaml", "to": "scenes/renamed.scene.yaml"}},
+		{editormcp.ToolTilesetEdit, map[string]any{"ops": []map[string]any{{"op": "set_tile", "id": 0, "solid": true}}}},
+		{editormcp.ToolStatesWrite, map[string]any{"file": "hero.states.yaml", "yaml": "version: 1\nentry: idle\nstates:\n  - name: idle\n    clip: anim/idle.animation.yaml\n"}},
+		{editormcp.ToolCutsceneWrite, map[string]any{"file": "intro.cutscene.yaml", "yaml": "version: 2\nkind: timeline\nscene: scenes/main.scene.yaml\nlength: 2s\ntracks:\n  - id: cam\n    kind: camera\n    clips:\n      - id: c1\n        start: 0s\n        duration: 2s\n        action: hold\n        target: hero\n"}},
+		{editormcp.ToolMergeResolve, map[string]any{"allAgent": true}},
+		{editormcp.ToolTileReviewKeep, map[string]any{}},
+		{editormcp.ToolTileReviewRevertAll, map[string]any{}},
+		{editormcp.ToolObjectSetField, map[string]any{"id": "hero", "field": "x", "value": 99}},
+		{editormcp.ToolObjectDuplicate, map[string]any{"id": "hero"}},
+	}
+	for _, tc := range blockedCalls {
+		res := call(t, cs, tc.name, tc.args)
+		if !res.IsError {
+			t.Errorf("%s succeeded while sketch hold was active, want hold error", tc.name)
+			continue
+		}
+		if got := text(res); !strings.Contains(got, "waiting for the person to confirm") {
+			t.Errorf("%s error = %q, want sketch hold refusal", tc.name, got)
+		}
+	}
+
+	// Exercise concurrent sketch_read and sketch_reading calls under -race.
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			mustOK(t, call(t, cs, editormcp.ToolSketchRead, map[string]any{"includeImage": false}))
+		}()
+		go func() {
+			defer wg.Done()
+			mustOK(t, call(t, cs, editormcp.ToolSketchReading, map[string]any{
+				"summary": "I read your sketch as:",
+				"items":   []map[string]any{{"number": 1, "text": "Place spikes"}},
+			}))
+		}()
+	}
+	wg.Wait()
+
+	// Approving allows object_set_field and records it into the post-sketch review card.
+	if err := f.ed.ApproveSketchReading(); err != nil {
+		t.Fatalf("ApproveSketchReading: %v", err)
+	}
+	mustOK(t, call(t, cs, editormcp.ToolObjectSetField, map[string]any{"id": "hero", "field": "x", "value": 123}))
+	if !f.ed.SketchReviewOpen() {
+		t.Fatal("expected SketchReviewOpen() == true after approved object_set_field")
+	}
+	changes := f.ed.SketchReviewChanges()
+	if len(changes) == 0 || changes[0].ID != "hero" {
+		t.Fatalf("SketchReviewChanges = %+v, want hero recorded", changes)
 	}
 }
