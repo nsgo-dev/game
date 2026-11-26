@@ -1,2 +1,0 @@
-### Added
-- Editor: added a Particle Emitter Editor panel (`ParticleEditorPanelView`) with live preview (`Play/Pause`, `Restart`, `Step`, `Burst`, optional floor collider), interactive curve widget, atlas frame picker, full Undo/Redo, and scheduled `Bursts` + `particles.v1.json` schema support, plus scene placement (`ObjectDoc.Particles` in scene format v2) supported in `sceneformat.Build`, the editor viewport, Play mode, `refs`, and `assetcheck` (#883).

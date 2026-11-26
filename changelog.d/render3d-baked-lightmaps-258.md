@@ -1,4 +1,0 @@
-### Added
-
-- `game/gltf`: add `MaterialLightmap`, `PrimitiveLightmapUVs`, `Document.LightmapTexCoords`, and `LightmapRef` to extract baked lightmap bindings (`MOZ_lightmap`, `EXT_lightmap`, `extras.lightmap`, `KHR_texture_transform` scale and offset, and `TEXCOORD_1` with `TEXCOORD_0` fallback), and accept `MOZ_lightmap` and `EXT_lightmap` in `extensionsRequired` (#258).
-- `game/render3d`: add baked lightmap rendering (`LightmapVertex`, `LightmapMesh`, `GPULightmapMesh`, `UploadLightmapMesh`, `LightmapMaterial`, `UVTransform`, `LightmapRenderer`, `UploadLightmapRGBA16F`, and RGBM/RGBD HDR encode/decode helpers) supporting dual UV sets, shared lightmap atlases, linear/sRGB/RGBM/RGBD encodings, ambient fallback, and an additive `DirectionalLight`, with output encoded to sRGB like the lit PBR pipelines (#258).

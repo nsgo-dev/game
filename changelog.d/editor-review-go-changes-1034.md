@@ -1,4 +1,0 @@
-### Added
-
-- `game/editor`: add file-by-file Go code review (`CodeReviewView`, `ProposeCodeReviewFiles`, `RunCodeReviewChecks`, `ConfirmCodeReviewFile`, `KeepCodeReview`, `RevertCodeReview`, and `CmdReviewCode`) that holds agent-proposed Go changes off disk until confirmed, verifies them via a Go build overlay (`BuildGoOverlay`) with `nsgo check` and `nsgo test -json`, supports Unified and Split diffs with line tags (`fails test`, `agent edited`, `round 2`), failed-test fix requests inside the same turn, single-step atomic Undo on Keep, and an Agent panel waiting card when YAML changes are kept while Go files still need confirmation (#1034).
-- `game/editor/editormcp`: add `code_review_propose`, `code_review_status`, and `code_review_run_checks` MCP tools so connected agents can stage pending Go edits, inspect failing test details, submit Round 2 fixes in the same turn, and rerun build-overlay checks off the UI goroutine (#1034).

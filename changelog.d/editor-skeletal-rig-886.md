@@ -1,4 +1,0 @@
-### Added
-
-- `game/sceneformat`, `game/refs`: add the built-in version-1 `skeletal` component (`SkeletalComponent`, `SkeletonResolver`, `BuiltObject.Skeleton`, `BuiltLayer.Skeletons`, `BuiltLayer.DrawObjects`) so `.skel.yaml` rigs with a chosen atlas, skin, and animation build, draw in Z order, advance in `BuiltScene.Update`, and track file references (`refs.FieldSkeletalRig`) (#886).
-- `game/editor`: add the 2D skeletal rig editor (`RigPanelView`, `OpenRigFile`, `OpenRigProjectFile`, `NewRig`, `SaveRigYAML`, `SaveRigFile`) with interactive bone move/rotate/length handles and attachment origin handles, bone/slot/skin/attachment authoring, timeline keying with runtime `skeletal` playback and crossfade preview (`PlayRig`, `StepRig`, `CrossfadeRig`), scene placement (`PlaceRig`, `PlaceOpenRig`), full `History` undo/redo, and byte-identical open-and-save round-tripping (#886).

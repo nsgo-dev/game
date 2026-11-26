@@ -1,3 +1,0 @@
-### Added
-
-- `game/render3d`: linear floating-point HDR environment cubemaps (`HDRCubemap`, `HDRImage`, `DecodeHDR`, `EncodeHDR`, `CubemapFromHDR`, `CubemapFromHDREquirectangular`, `GradientSkyHDRCubemap`, `HDRCubemapFromCubemap`, `ComputeIrradianceSHHDR`, `PrefilterEnvironmentHDR`, `EvaluateIBLHDR`, `UploadCubemapHDR` uploading `gpu.FormatRGBA16Float`), optional tone-mapped skybox output (`SkyboxPipelineDesc.ToneMap`, `SkyboxToneMapWGSL`), textured glTF PBR material IBL rendering (`MaterialIBLGroup`, `MaterialIBLWGSL`, `MaterialIBLLinearWGSL`, `NewMaterialIBLPipeline`, `EvaluateMaterialIBL`), and Khronos `DamagedHelmet` HDR skybox & IBL reference tests across full and `NoGPUCompute` profiles (#253).

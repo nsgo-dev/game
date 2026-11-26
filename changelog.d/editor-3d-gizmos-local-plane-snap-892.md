@@ -1,4 +1,0 @@
-### Added
-
-- `game/editor`: 3D transform gizmos now support Global and Local space (`Editor.GizmoSpace3D`, `GizmoSpaceGlobal`/`GizmoSpaceLocal`, `SetGizmoSpace3D`, `ToggleGizmoSpace3D`, `GizmoOrientation3D`, `CmdGizmoSpace3D` on `t`), exact rotation about the drawn ring axis (including nested children under rotated or scaled parents), XY/XZ/YZ plane handles and a screen-space center handle on Translate, a proportional uniform center handle on Scale, snapping with modifier inversion, `W`/`E`/`R` scoped mode shortcuts, Spec Light contrast styling, and live drag deltas in the status bar (#892).
-- `game/render3d`: `Gizmo` now draws and picks the screen-space center translate handle (`AxisAll`), prefers nearer plane handles and edge-on rotation rings during ray picking, and guards grazing-angle plane drags (#892).

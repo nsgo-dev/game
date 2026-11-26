@@ -1,3 +1,0 @@
-### Changed
-
-- `game/editor`: replace the legacy toolbar shell with the AI-first main layout featuring a 44 px header (breadcrumb with unsaved dot, Select/Move/Rotate/Scale/Pan tool radio group, 2D/3D segmented radio, History, Search ⌘K, and Play), 232 px left rail (`SCENE · N nodes` with kind dots, `NEW` review tags, and bottom `FILES` list), viewport camera caption and bottom bar (`Snap` switch, zoom, Fit, Overlays), 380 px right panel (`Agent`/`Inspector` tabs with MCP connection chip), 32 px muted status bar (active layer, pointer coords, tool, Problems, Output, Debugger), and designed empty/loading/scene-error states across all regions (#1007).
