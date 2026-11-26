@@ -87,6 +87,7 @@ Paths are relative to `github.com/nsgo-dev/game/packages`. The table is checked 
 | `game/cmd/gameapi` | Experimental | |
 | `game/cmd/gameproject` | Experimental | [Project File](project.md) |
 | `game/cmd/gameschema` | Experimental | [Schemas for YAML files](schemas.md) |
+| `game/cmd/nsgo-game` | Experimental | [Command Line](cli.md) |
 | `game/cmd/sizecheck` | Experimental | [Package Size Budgets](package-size-budgets.md) |
 | `game/cmd/wasmprobe` | Experimental | [Package Size Budgets](package-size-budgets.md) |
 | `game/cutscene` | Experimental | [cutscene](cutscene.md) |

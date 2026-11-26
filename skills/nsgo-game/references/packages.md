@@ -165,6 +165,7 @@ Every non-internal package under `github.com/nsgo-dev/game/packages` (shown rela
 | `game/cmd/gameapi` | Experimental | Generates API reference JSON from package doc comments |
 | `game/cmd/gameproject` | Experimental | Formats and checks `game.yaml` against `nsgo.yaml` |
 | `game/cmd/gameschema` | Experimental | Generates and checks published JSON Schemas for YAML formats |
+| `game/cmd/nsgo-game` | Experimental | The `nsgo-game` PATH extension binary for running `nsgo game` outside a module |
 | `game/cmd/sizecheck` | Experimental | Verifies WebAssembly and mobile package size budgets |
 | `game/cmd/wasmprobe` | Experimental | Probe app used to measure WebAssembly binary size per package |
 | `game/tooling/apiref` | Experimental | Go doc parser powering `cmd/gameapi` |

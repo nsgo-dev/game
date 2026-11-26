@@ -21,7 +21,7 @@ cd mygame
 go tool nsgo dev
 ```
 
-`go run github.com/nsgo-dev/game/packages/game/cmd/game@latest new mygame` 不经 `nsgo` 做同样的事。
+在项目之外，`nsgo game` 使用 `PATH` 上的 `nsgo-game` 扩展二进制（用 `go install github.com/nsgo-dev/game/packages/game/cmd/nsgo-game@latest` 安装一次），也可以直接运行 `go run github.com/nsgo-dev/game/packages/game/cmd/game@latest new mygame`，无需预先安装。在创建好的项目内，`nsgo game` 会自动运行模块固定的 `game` 工具。
 
 起手模板包含精灵动画、点击得分和测试。它的设置都在[项目文件](project.md) `game.yaml` 中，`nsgo.yaml` 与之保持一致。`new` 用目录名作为这两个文件里的 `name` 和 `id`，以及模块路径；`-name` 和 `-module` 可以另行指定，例如 `-module example.com/mygame`。所有参数见[命令行](cli.md#new)；`-template` 可以从其他[项目模板](templates.md)开始，`new -list` 会列出它们。发布游戏之前，把应用标识改成你自己的：在 `game.yaml` 中修改游戏名称和应用标识，然后运行 `go run github.com/nsgo-dev/game/packages/game/cmd/gameproject sync` 把它们写入 `nsgo.yaml`。
 

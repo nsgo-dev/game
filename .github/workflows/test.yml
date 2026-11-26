@@ -84,7 +84,7 @@ jobs:
           CLOUDSAVE_POSTGRES_DSN: postgres://postgres:accounts-ci@127.0.0.1:5432/postgres?sslmode=disable
         run: go tool nsgo test ./cloudsave/sqlstore/...
 
-  # Lists one matrix entry per template game new offers, from the template directories on disk: starter in template/template and every other template in template/<name>/template, which TestTemplatesMatchTemplateModules keeps the same as the registry in packages/game/cmd/game/templates.go. Adding a template therefore needs no edit here.
+  # Lists one matrix entry per template game new offers, from the template directories on disk: starter in template/template and every other template in template/<name>/template, which TestTemplatesMatchTemplateModules keeps the same as the registry in packages/game/internal/gamecli/templates.go. Adding a template therefore needs no edit here.
   template-list:
     name: List the templates
     runs-on: depot-ubuntu-24.04

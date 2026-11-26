@@ -4,16 +4,23 @@
 
 ## 安装
 
-以 `nsgo game` 运行这个命令，它是 NSGo 自带的 `nsgo` 从 v0.3.3 起提供的命令（nsgo-dev/nsgo#2366）。`nsgo` 只需安装一次：用 Homebrew（`brew install nsgo-dev/tap/nsgo`），在 macOS 和 Linux 上用安装脚本（`curl -fsSL https://nsgo.dev/install.sh | sh`），或在任何系统上用 Go（`go install github.com/nsgo-dev/nsgo/cmd/nsgo@latest`），见 [NSGo 的安装说明](https://nsgo.dev/zh/docs/getting-started/#安装-nsgo)。在项目中，`nsgo game` 运行模块的 `go.mod` 所声明的 `game` 工具：
+通过 NSGo 的扩展机制（自 NSGo v0.3.3 起）以 `nsgo game` 运行这个命令。`nsgo` 只需安装一次：用 Homebrew（`brew install nsgo-dev/tap/nsgo`），在 macOS 和 Linux 上用安装脚本（`curl -fsSL https://nsgo.dev/install.sh | sh`），或在任何系统上用 Go（`go install github.com/nsgo-dev/nsgo/cmd/nsgo@latest`），见 [NSGo 的安装说明](https://nsgo.dev/zh/docs/getting-started/#安装-nsgo)。在 `go.mod` 声明了 `game` 工具的项目中，`nsgo game` 会自动运行该模块固定的工具（`go tool github.com/nsgo-dev/game/packages/game/cmd/game`）：
 
 ```sh
 go get -tool github.com/nsgo-dev/game/packages/game/cmd/game
 nsgo game help
 ```
 
-`go.mod` 里的 `tool` 一行把命令固定在模块所用的游戏层版本上，参与这个游戏的每个人运行的都是同一个命令。用 [`game new`](#new) 创建的项目已经包含这一行。版本与项目 `go.mod` 所固定版本不同的 `nsgo` 会改为运行项目自己的 `nsgo`，所以项目的 `nsgo` 工具也需要 v0.3.3 或更新版本；每个模板的 `go.mod` 和游戏层本身都要求 v0.3.4，这是第一个软件渲染器和窗口深度缓冲都能正确绘制 3D 场景的版本。在项目之外，例如创建项目时，`nsgo game` 用 `go run` 运行为这个 `nsgo` 发布的游戏层版本，无需另外安装任何东西。
+`go.mod` 里的 `tool` 一行把命令固定在模块所用的游戏层版本上，参与这个游戏的每个人运行的都是同一个命令。用 [`game new`](#new) 创建的项目已经包含这一行。版本与项目 `go.mod` 所固定版本不同的 `nsgo` 会改为运行项目自己的 `nsgo`，所以项目的 `nsgo` 工具也需要 v0.3.3 或更新版本；每个模板的 `go.mod` 和游戏层本身都要求 v0.3.4，这是第一个软件渲染器和窗口深度缓冲都能正确绘制 3D 场景的版本。
 
-在项目中，`go tool game` 不经 `nsgo` 运行同一个命令；在任何地方，`go run github.com/nsgo-dev/game/packages/game/cmd/game@latest` 也可以。
+在项目之外（例如先用 `nsgo game new` 创建项目之前），把 `nsgo-game` 扩展二进制安装一次到 `PATH` 上，`nsgo game` 就能自动找到它：
+
+```sh
+go install github.com/nsgo-dev/game/packages/game/cmd/nsgo-game@latest
+nsgo game new mygame
+```
+
+也可以在任何地方直接运行 `go run github.com/nsgo-dev/game/packages/game/cmd/game@latest`，无需预先安装。在项目中，`go tool game` 不经 `nsgo` 同样运行这个命令。
 
 ## 命令
 
@@ -193,7 +200,7 @@ nsgo game new -list
 
 用一个模板生成项目并写入指定目录，目录不存在时会创建，并打印每个文件的路径。随后在该目录运行 `go get -tool github.com/nsgo-dev/game/packages/game/cmd/game@<version>` 和 `go mod tidy`，这两步需要访问 Go 模块代理。这样项目依赖该版本的游戏层，`game` 工具与 `nsgo` 工具并列，无需修改即可用 `go tool nsgo dev` 构建运行。
 
-游戏名称默认取目录名，`-name` 可以另行指定（字母、数字、空格、`-` 和 `_`，以字母开头）。名称写入 `game.yaml` 和 `nsgo.yaml` 的 `name`，`id` 由它派生为 `dev.nsgo.<去掉空格和标点的小写名称>`。模块路径默认是小写名称、单词之间用 `-` 连接，`-module` 可以另行指定。与标准库包同名的模块路径（例如名为 Time 的游戏得到的 `time`）会被拒绝，因为这样的项目无法构建，此时需要用 `-module` 指定，例如 `-module example.com/time`。`-version` 是要依赖的游戏层版本，例如 `v0.4.0`、某个提交或 `latest`；默认是正在运行的命令自身的版本，所以 `go run …@v0.4.0 new`，或在项目之外设置 `NSGO_GAME_VERSION=v0.4.0` 运行的 `nsgo game new`，创建的项目使用 `v0.4.0`，而从本仓库的检出构建的命令则使用 `latest`。`-template` 选择模板，默认是 `starter`；未知的模板名会被拒绝，并列出现有的模板名。`-list` 打印每个模板的名称（标出默认模板）和一行说明，不创建任何文件。[项目模板](templates.md)列出了所有模板以及 `nsgo init -template` 对应的模块，并说明模板的目录结构和如何新增模板。
+游戏名称默认取目录名，`-name` 可以另行指定（字母、数字、空格、`-` 和 `_`，以字母开头）。名称写入 `game.yaml` 和 `nsgo.yaml` 的 `name`，`id` 由它派生为 `dev.nsgo.<去掉空格和标点的小写名称>`。模块路径默认是小写名称、单词之间用 `-` 连接，`-module` 可以另行指定。与标准库包同名的模块路径（例如名为 Time 的游戏得到的 `time`）会被拒绝，因为这样的项目无法构建，此时需要用 `-module` 指定，例如 `-module example.com/time`。`-version` 是要依赖的游戏层版本，例如 `v0.4.0`、某个提交或 `latest`；默认是正在运行的命令自身的版本，所以 `go run …@v0.4.0 new` 或以 `v0.4.0` 安装的 `nsgo-game` 创建的项目使用 `v0.4.0`，而从本仓库的检出构建的命令则使用 `latest`。`-template` 选择模板，默认是 `starter`；未知的模板名会被拒绝，并列出现有的模板名。`-list` 打印每个模板的名称（标出默认模板）和一行说明，不创建任何文件。[项目模板](templates.md)列出了所有模板以及 `nsgo init -template` 对应的模块，并说明模板的目录结构和如何新增模板。
 
 只要目录中已经存在任何一个将要写入的文件，`new` 就什么也不写，并以 1 退出。每个模板都包含把 `*.scene.yaml` 和 `*.scene.yml` 注册给 `nsgo-scene` 合并驱动的 `.gitattributes`，若目标目录中已存在 `.git` 仓库，`new` 还会自动写入本地 Git 配置（否则在 `git init` 后运行一次 `go tool game merge -setup`）。`go get` 或 `go mod tidy` 失败时（例如没有网络），已写入的文件会保留，错误信息会列出还需在该目录运行的命令以完成项目：`go get` 失败时是 `go get -tool …` 和 `go mod tidy` 两条，`go mod tidy` 失败时只有它一条。
 
