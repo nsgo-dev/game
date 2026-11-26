@@ -402,8 +402,13 @@ func tilePalettePanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 								return ed.Playing()
 							},
 							OnPress: func() {
+								if ed.activeTab >= 0 && ed.activeTab < len(ed.tabs) {
+									ed.tabs[ed.activeTab].placeholder = false
+								}
 								ed.SelectObject("")
 								ed.SetActiveLayer(p.Layer)
+								ed.SetRightRailTab(RightTabInspector)
+								ed.notify()
 							},
 						},
 					},

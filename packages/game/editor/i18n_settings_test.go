@@ -282,8 +282,11 @@ func TestEditorUIChineseAndLiveSwitchWithoutRestart(t *testing.T) {
 	}, nsgotest.Size(1440, 900), nsgotest.Environment(core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop, Locale: "en-US"}))
 
 	// Initially English.
-	if got := allText(app.Find("id:editor-toolbar")); !strings.Contains(got, "Select") || !strings.Contains(got, "Save") {
-		t.Fatalf("initial English toolbar missing Select/Save: %q", got)
+	openFileBrowserInUI(app, ed)
+	openAssetBrowserInUI(app, ed)
+	openLayersPanelInUI(app, ed)
+	if got := allText(app.Find("id:editor-toolbar")); !strings.Contains(got, "Search") || !strings.Contains(got, "Play") {
+		t.Fatalf("initial English toolbar missing Search/Play: %q", got)
 	}
 	if got := allText(app.Find("id:file-browser")); !strings.Contains(got, "Files") || !strings.Contains(got, "Refresh") {
 		t.Fatalf("initial English file browser missing Files/Refresh: %q", got)
@@ -291,17 +294,17 @@ func TestEditorUIChineseAndLiveSwitchWithoutRestart(t *testing.T) {
 	if got := allText(app.Find("id:editor-inspector")); !strings.Contains(got, "Inspector") || !strings.Contains(got, "TRANSFORM") {
 		t.Fatalf("initial English inspector missing Inspector/TRANSFORM: %q", got)
 	}
-	if got := app.Find("id:editor-status-mode").Text; !strings.Contains(got, "Mode: Edit") || !strings.Contains(got, "Tool: Select") {
+	if got := app.Find("id:editor-status-mode").Text; !strings.Contains(got, "Select") {
 		t.Fatalf("initial English status bar = %q", got)
 	}
 	if len(app.Menu) != 5 || app.Menu[0].Label != "File" || app.Menu[1].Label != "Edit" || app.Menu[4].Label != "Help" {
 		t.Fatalf("initial English menu = %v", app.Menu)
 	}
 
-	// Open Editor Settings via toolbar button and switch to Chinese live.
-	app.Press("id:toolbar-editor-settings")
+	// Open Editor Settings via command and switch to Chinese live.
+	runEditorCommand(t, app, ed, editor.CmdEditorSettings)
 	if !ed.EditorSettingsOpen() {
-		t.Fatal("toolbar-editor-settings did not open Editor Settings dialog")
+		t.Fatal("CmdEditorSettings did not open Editor Settings dialog")
 	}
 	app.Press("id:editor-settings-lang-zh")
 	if ed.Language() != editor.LanguageChinese || ed.ResolvedLanguage() != "zh" {
@@ -309,7 +312,7 @@ func TestEditorUIChineseAndLiveSwitchWithoutRestart(t *testing.T) {
 	}
 
 	// Verify toolbar, file browser, asset browser, scene tree, layers, inspector, status bar, and menu bar are Chinese.
-	if got := allText(app.Find("id:editor-toolbar")); !strings.Contains(got, "选择") || !strings.Contains(got, "移动") || !strings.Contains(got, "撤销") || !strings.Contains(got, "保存") {
+	if got := allText(app.Find("id:editor-toolbar")); !strings.Contains(got, "搜索") || !strings.Contains(got, "播放") {
 		t.Fatalf("Chinese toolbar = %q", got)
 	}
 	if got := allText(app.Find("id:file-browser")); !strings.Contains(got, "文件") || !strings.Contains(got, "打开") || !strings.Contains(got, "刷新") || !strings.Contains(got, "移动") {
@@ -318,8 +321,8 @@ func TestEditorUIChineseAndLiveSwitchWithoutRestart(t *testing.T) {
 	if got := allText(app.Find("id:asset-browser")); !strings.Contains(got, "资源") {
 		t.Fatalf("Chinese asset browser = %q", got)
 	}
-	if got := allText(app.Find("id:scene-tree-panel")); !strings.Contains(got, "场景") {
-		t.Fatalf("Chinese scene tree = %q", got)
+	if got := allText(app.Find("id:scene-rail-title")); !strings.Contains(got, "场景") {
+		t.Fatalf("Chinese scene rail title = %q", got)
 	}
 	if got := allText(app.Find("id:layers-panel")); !strings.Contains(got, "图层") {
 		t.Fatalf("Chinese layers panel = %q", got)
@@ -327,10 +330,13 @@ func TestEditorUIChineseAndLiveSwitchWithoutRestart(t *testing.T) {
 	if got := allText(app.Find("id:editor-inspector")); !strings.Contains(got, "检查器") || !strings.Contains(got, "名称") || !strings.Contains(got, "变换") || !strings.Contains(got, "删除") {
 		t.Fatalf("Chinese inspector = %q", got)
 	}
-	if got := app.Find("id:editor-status-mode").Text; !strings.Contains(got, "模式：编辑") || !strings.Contains(got, "工具：选择") || !strings.Contains(got, "图层：") {
+	if got := app.Find("id:editor-status-mode").Text; !strings.Contains(got, "选择") {
 		t.Fatalf("Chinese status bar mode = %q", got)
 	}
-	if got := app.Find("id:status-problems").Text; !strings.Contains(got, "问题：") {
+	if got := allText(app.Find("id:status-active-layer")); !strings.Contains(got, "图层") {
+		t.Fatalf("Chinese status bar layer = %q", got)
+	}
+	if got := app.Find("id:status-problems").Text; !strings.Contains(got, "无问题") && !strings.Contains(got, "问题") {
 		t.Fatalf("Chinese status bar problems = %q", got)
 	}
 	if len(app.Menu) != 5 || app.Menu[0].Label != "文件" || app.Menu[1].Label != "编辑" || app.Menu[2].Label != "视图" || app.Menu[3].Label != "项目" || app.Menu[4].Label != "帮助" {
@@ -342,7 +348,7 @@ func TestEditorUIChineseAndLiveSwitchWithoutRestart(t *testing.T) {
 	if ed.Language() != editor.LanguageEnglish || ed.ResolvedLanguage() != "en" {
 		t.Fatalf("after switching back to English: Language=%q Resolved=%q", ed.Language(), ed.ResolvedLanguage())
 	}
-	if got := allText(app.Find("id:editor-toolbar")); !strings.Contains(got, "Select") || !strings.Contains(got, "Save") {
+	if got := allText(app.Find("id:editor-toolbar")); !strings.Contains(got, "Search") || !strings.Contains(got, "Play") {
 		t.Fatalf("switched-back English toolbar = %q", got)
 	}
 	if got := allText(app.Find("id:file-browser")); !strings.Contains(got, "Files") || !strings.Contains(got, "Open") {
@@ -351,7 +357,7 @@ func TestEditorUIChineseAndLiveSwitchWithoutRestart(t *testing.T) {
 	if got := allText(app.Find("id:editor-inspector")); !strings.Contains(got, "Inspector") || !strings.Contains(got, "TRANSFORM") {
 		t.Fatalf("switched-back English inspector = %q", got)
 	}
-	if got := app.Find("id:editor-status-mode").Text; !strings.Contains(got, "Mode: Edit") || !strings.Contains(got, "Tool: Select") {
+	if got := app.Find("id:editor-status-mode").Text; !strings.Contains(got, "Select") {
 		t.Fatalf("switched-back English status bar = %q", got)
 	}
 	if app.Menu[0].Label != "File" {
@@ -374,8 +380,11 @@ func TestEditorLanguageFollowsSystemLocale(t *testing.T) {
 	if ed.Language() != editor.LanguageSystem || ed.ResolvedLanguage() != "zh" {
 		t.Fatalf("system zh-CN: Language=%q Resolved=%q", ed.Language(), ed.ResolvedLanguage())
 	}
-	if got := allText(app.Find("id:editor-toolbar")); !strings.Contains(got, "选择") || !strings.Contains(got, "保存") {
+	if got := allText(app.Find("id:editor-toolbar")); !strings.Contains(got, "搜索") || !strings.Contains(got, "播放") {
 		t.Fatalf("system zh-CN toolbar = %q", got)
+	}
+	if got := app.Find("id:tool-select").Props.Label; got != "选择" {
+		t.Fatalf("system zh-CN tool-select label = %q, want 选择", got)
 	}
 }
 
@@ -489,10 +498,7 @@ strings:
 	if got := app.Find("id:health-localized-inspector").Text; got != "Current HP" {
 		t.Fatalf("English plugin inspector = %q, want Current HP", got)
 	}
-	if got := allText(app.Find("id:tool-health-spawn")); !strings.Contains(got, "Spawn Unit") {
-		t.Fatalf("English plugin tool = %q", got)
-	}
-	if got := app.Find("id:editor-status-mode").Text; !strings.Contains(got, "Tool: Spawn Unit") {
+	if got := app.Find("id:editor-status-mode").Text; !strings.Contains(got, "Spawn Unit") {
 		t.Fatalf("English status bar with plugin tool = %q", got)
 	}
 	if _, ok := findMenuItem(app.Menu, "Project", "Plugins", "Heal All Units"); !ok {
@@ -513,10 +519,7 @@ strings:
 	if got := app.Find("id:health-localized-inspector").Text; got != "当前生命值" {
 		t.Fatalf("Chinese plugin inspector = %q, want 当前生命值", got)
 	}
-	if got := allText(app.Find("id:tool-health-spawn")); !strings.Contains(got, "生成单位") {
-		t.Fatalf("Chinese plugin tool = %q", got)
-	}
-	if got := app.Find("id:editor-status-mode").Text; !strings.Contains(got, "工具：生成单位") {
+	if got := app.Find("id:editor-status-mode").Text; !strings.Contains(got, "生成单位") {
 		t.Fatalf("Chinese status bar with plugin tool = %q", got)
 	}
 	if _, ok := findMenuItem(app.Menu, "项目", "插件", "治疗所有单位"); !ok {
@@ -567,7 +570,7 @@ func TestEditorAppearanceDarkOnLightSystemSurvivesRestart(t *testing.T) {
 	}
 
 	// Open Editor Settings and choose Dark while system remains light.
-	app.Press("id:toolbar-editor-settings")
+	runEditorCommand(t, app, ed, editor.CmdEditorSettings)
 	app.Press("id:editor-settings-appearance-dark")
 
 	if ed.Appearance() != editor.AppearanceDark {

@@ -136,9 +136,8 @@ func TestDiskWatchReloadsCleanSceneAndRefusesOverwriteWhenDirty(t *testing.T) {
 		t.Fatalf("after Cancel: hero=%+v, want X=77", obj)
 	}
 
-	// Pressing toolbar Save asks again; confirming Overwrite writes editor's version.
-	app.Press("id:toolbar-save")
-	app.Settle()
+	// Saving via File menu asks again; confirming Overwrite writes editor's version.
+	saveInUI(app, ed)
 	if !app.Exists("id:save-conflict-dialog") {
 		t.Fatal("pressing toolbar Save over conflict did not ask")
 	}
@@ -505,6 +504,7 @@ func TestDiskWatchClipProjectAndFileBrowser(t *testing.T) {
 
 	// File browser refreshes automatically when a new file appears in the project tree.
 	app := startEditorApp(t, ed)
+	openFileBrowserInUI(app, ed)
 	newScene := testSceneDoc()
 	newScene.Name = "Brand New"
 	newSceneBytes, err := sceneformat.Encode(newScene)

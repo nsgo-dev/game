@@ -31,18 +31,20 @@ func TestShortcutsRebindFramePersistsAcrossRestartAndUpdatesEverySurface(t *test
 		return editor.EditorView(cx, ed)
 	}, nsgotest.Size(1440, 900), macEnv)
 
-	// Initially Frame Selection is bound to "f" and its toolbar button label shows "(F)".
+	// Initially Frame Selection is bound to "f" and Move tool tooltip shows "Move · W".
 	if got := ed.EffectiveShortcut(editor.CmdFrameSelection); got != "f" {
 		t.Fatalf("initial EffectiveShortcut(Frame) = %q, want f", got)
 	}
-	if lbl := app.Find("id:view-frame-selection").Props.Label; !strings.Contains(lbl, "(F)") {
-		t.Fatalf("initial view-frame-selection label = %q, want (F)", lbl)
+	app.Hover("id:tool-move")
+	app.Advance(time.Second)
+	if !app.Exists("text:Move · W") {
+		t.Fatal("initial tool-move tooltip did not show \"Move · W\"")
 	}
 
 	// Open Editor Settings -> Shortcuts tab, search for Frame, press its binding button, and press "g".
 	// "g" is used by Tool: Fill Tile in ScopeTile (a DIFFERENT scope from ScopeViewport),
 	// so rebinding Frame to "g" must succeed immediately without a conflict prompt.
-	app.Press("id:toolbar-editor-settings")
+	runEditorCommand(t, app, ed, editor.CmdEditorSettings)
 	app.Press("id:editor-settings-tab-shortcuts")
 	app.Type("id:shortcuts-search", "Frame")
 	app.Press("id:shortcut-bind-" + editor.CmdFrameSelection)
@@ -65,17 +67,7 @@ func TestShortcutsRebindFramePersistsAcrossRestartAndUpdatesEverySurface(t *test
 	// Close Editor Settings dialog and verify every UI surface reflects G immediately.
 	app.Press("id:editor-settings-close")
 
-	// 1. Tooltip / accessible label on the toolbar Frame button.
-	if lbl := app.Find("id:view-frame-selection").Props.Label; !strings.Contains(lbl, "(G)") {
-		t.Fatalf("after rebinding, view-frame-selection label = %q, want (G)", lbl)
-	}
-	app.Hover("id:view-frame-selection")
-	app.Advance(time.Second)
-	if !app.Exists("text:Frame Selection (G)") {
-		t.Fatal("after rebinding, hovering view-frame-selection did not show tooltip \"Frame Selection (G)\"")
-	}
-
-	// 2. Desktop menu bar.
+	// 1. Desktop menu bar.
 	if item, ok := findMenuItem(app.Menu, "View", "Frame Selection"); !ok || item.Shortcut != "g" {
 		t.Fatalf("menu View > Frame Selection = (%+v, %v), want shortcut g", item, ok)
 	}
@@ -152,9 +144,6 @@ func TestShortcutsRebindFramePersistsAcrossRestartAndUpdatesEverySurface(t *test
 
 	if got := restarted.EffectiveShortcut(editor.CmdFrameSelection); got != "g" {
 		t.Fatalf("after restart, EffectiveShortcut(Frame) = %q, want g", got)
-	}
-	if lbl := app2.Find("id:view-frame-selection").Props.Label; !strings.Contains(lbl, "(G)") {
-		t.Fatalf("after restart, view-frame-selection label = %q, want (G)", lbl)
 	}
 	if item, ok := findMenuItem(app2.Menu, "View", "Frame Selection"); !ok || item.Shortcut != "g" {
 		t.Fatalf("after restart, menu View > Frame Selection = (%+v, %v), want shortcut g", item, ok)
@@ -236,16 +225,16 @@ func TestShortcutsSameScopeConflictSwapAndDifferentScopeAllowed(t *testing.T) {
 		t.Fatalf("swapped Frame key v did not frame hero: View2D=%+v", v)
 	}
 
-	// Different-scope binding: Frame (ScopeViewport) -> "w" (3D Gizmo: Translate, ScopeViewport3D) binds immediately!
+	// Different-scope binding: Frame (ScopeViewport) -> "1" (3D View: Front, ScopeViewport3D) binds immediately!
 	app.Post(func() { ed.OpenShortcutsSettings() })
 	app.Settle()
 	app.Press("id:shortcut-bind-" + editor.CmdFrameSelection)
-	app.Key("w")
+	app.Key("1")
 	if app.Exists("id:shortcut-conflict-" + editor.CmdFrameSelection) {
-		t.Fatal("binding Frame (viewport) to W (viewport3d) unexpectedly flagged a conflict")
+		t.Fatal("binding Frame (viewport) to 1 (viewport3d) unexpectedly flagged a conflict")
 	}
-	if ed.EffectiveShortcut(editor.CmdFrameSelection) != "w" || ed.EffectiveShortcut(editor.CmdGizmoTranslate) != "w" {
-		t.Fatalf("cross-scope bindings: frame=%q translate=%q, want w and w", ed.EffectiveShortcut(editor.CmdFrameSelection), ed.EffectiveShortcut(editor.CmdGizmoTranslate))
+	if ed.EffectiveShortcut(editor.CmdFrameSelection) != "1" || ed.EffectiveShortcut(editor.CmdView3DFront) != "1" {
+		t.Fatalf("cross-scope bindings: frame=%q front3d=%q, want 1 and 1", ed.EffectiveShortcut(editor.CmdFrameSelection), ed.EffectiveShortcut(editor.CmdView3DFront))
 	}
 
 	// Per-row Reset restores Frame Selection back to "f" (and swaps Tool: Select if it held "f").

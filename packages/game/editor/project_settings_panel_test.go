@@ -97,7 +97,7 @@ func TestProjectSettingsPanelEditSaveSyncAndUndo(t *testing.T) {
 	}
 
 	// Open the Project Settings panel via the toolbar button.
-	app.Press("id:toolbar-project-settings")
+	runEditorCommand(t, app, ed, editor.CmdProjectSettings)
 	app.Settle()
 	if !app.Exists("id:project-settings-panel") {
 		t.Fatal("pressing toolbar-project-settings did not open the panel")
@@ -172,7 +172,7 @@ func TestProjectSettingsPanelEditSaveSyncAndUndo(t *testing.T) {
 	}
 
 	// Save via toolbar Save and read back game.yaml and nsgo.yaml from disk.
-	app.Press("id:toolbar-save")
+	saveInUI(app, ed)
 	app.Settle()
 
 	// Canonical save notice disappears after the first save.
@@ -211,50 +211,50 @@ func TestProjectSettingsPanelEditSaveSyncAndUndo(t *testing.T) {
 
 	// Undo each change one by one and verify each restores cleanly:
 	// 1. Undo plugin toggle
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	app.Settle()
 	if ed.PluginEnabled("tools") {
 		t.Fatal("Undo did not restore plugin 'tools' to off")
 	}
 	// 2. Undo mainScene change
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	app.Settle()
 	if ed.Project.Autoload.MainScene != "room" {
 		t.Fatalf("Undo did not restore mainScene: got %q, want room", ed.Project.Autoload.MainScene)
 	}
 	// 3. Undo display height
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	app.Settle()
 	if ed.Project.Display == nil || ed.Project.Display.Height != 360 {
 		t.Fatalf("Undo did not restore display height: got %+v", ed.Project.Display)
 	}
 	// 4. Undo display width
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	app.Settle()
 	if ed.Project.Display == nil || ed.Project.Display.Width != 640 {
 		t.Fatalf("Undo did not restore display width: got %+v", ed.Project.Display)
 	}
 	// 5. Undo display enabled
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	app.Settle()
 	if ed.Project.Display != nil {
 		t.Fatalf("Undo did not restore Display to nil: got %+v", ed.Project.Display)
 	}
 	// 6. Undo window appearance
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	app.Settle()
 	if ed.Project.Window.Appearance != "" {
 		t.Fatalf("Undo did not restore Window.Appearance: got %q", ed.Project.Window.Appearance)
 	}
 	// 7. Undo project name
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	app.Settle()
 	if ed.Project.Name != "Demo" {
 		t.Fatalf("Undo did not restore Project.Name: got %q, want Demo", ed.Project.Name)
 	}
 
 	// Saving after full Undo writes restored values to both game.yaml and nsgo.yaml.
-	app.Press("id:toolbar-save")
+	saveInUI(app, ed)
 	app.Settle()
 	restored, err := project.Check(os.DirFS(dir))
 	if err != nil {
@@ -287,7 +287,7 @@ func TestProjectSettingsPanelRefusesInvalidValuesWithoutMutatingProject(t *testi
 		return editor.EditorView(cx, ed)
 	}, nsgotest.Size(1280, 900))
 
-	app.Press("id:toolbar-project-settings")
+	runEditorCommand(t, app, ed, editor.CmdProjectSettings)
 	app.Settle()
 
 	// Enter an invalid ID containing spaces.
@@ -466,7 +466,7 @@ func TestProjectSettingsWindowDisplayAutoloadAndPluginsAllFields(t *testing.T) {
 		return editor.EditorView(cx, ed)
 	}, nsgotest.Size(1280, 900))
 
-	app.Press("id:toolbar-project-settings")
+	runEditorCommand(t, app, ed, editor.CmdProjectSettings)
 	app.Press("id:project-settings-tab-autoload")
 	app.Settle()
 
@@ -509,7 +509,7 @@ func TestProjectSettingsWindowDisplayAutoloadAndPluginsAllFields(t *testing.T) {
 	}
 
 	// Save, verify ProjectCanonicalSavePending becomes false, then reopen and verify it resets to true.
-	app.Press("id:toolbar-save")
+	saveInUI(app, ed)
 	app.Settle()
 	if ed.ProjectCanonicalSavePending() {
 		t.Fatal("ProjectCanonicalSavePending should be false after Save")

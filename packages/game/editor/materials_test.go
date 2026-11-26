@@ -606,6 +606,7 @@ func TestInspectorCreatesAndOpensMaterialAndIntegratesWithFilesAndPalette(t *tes
 	}
 
 	// File Browser Open button opens a selected material file.
+	openFileBrowserInUI(app, ed)
 	app.Press("id:files-row-materials/metal.material.yaml")
 	app.Press("id:files-open")
 	if !ed.MaterialOpen() || ed.MaterialRelPath() != "materials/metal.material.yaml" {

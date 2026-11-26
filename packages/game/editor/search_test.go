@@ -161,6 +161,7 @@ func TestSearchOpensClosedSceneAndSelectsObject(t *testing.T) {
 	if ed.FilePath != roomPath || ed.Doc.Name != "Entrance Room" {
 		t.Fatalf("after OpenProject: FilePath=%q Name=%q", ed.FilePath, ed.Doc.Name)
 	}
+	openFileBrowserInUI(app, ed)
 	if !app.Exists("id:files-search") {
 		t.Fatal("files-search missing with project open")
 	}
@@ -242,6 +243,7 @@ func TestFindReferencesOnMaterialMatchesRefsScan(t *testing.T) {
 	})
 	app.Settle()
 
+	openFileBrowserInUI(app, ed)
 	if app.Enabled("id:files-find-refs") {
 		t.Fatal("files-find-refs enabled with no file selected")
 	}

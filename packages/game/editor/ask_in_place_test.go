@@ -264,11 +264,11 @@ func TestAskInPlaceInspectorTextFieldGuardAndEscapeRestoresFocus(t *testing.T) {
 		t.Fatal("meta+l opened the in-place composer while focus was in inspector-name")
 	}
 
-	// 2. Focus a non-text control (toolbar-editor-settings), press ⌘L -> opens composer;
+	// 2. Focus a non-text control (toolbar-history), press ⌘L -> opens composer;
 	// type text, press Esc -> closes WITHOUT sending, keeps selection, and restores focus!
-	app.Focus("id:toolbar-editor-settings")
-	if !app.Find("id:toolbar-editor-settings").Focused {
-		t.Fatal("toolbar-editor-settings did not gain focus")
+	app.Focus("id:toolbar-history")
+	if !app.Find("id:toolbar-history").Focused {
+		t.Fatal("toolbar-history did not gain focus")
 	}
 	app.Key("meta+l")
 	if !ed.AskInPlaceOpen() || !app.Find("id:ask-in-place-input").Focused {
@@ -286,8 +286,8 @@ func TestAskInPlaceInspectorTextFieldGuardAndEscapeRestoresFocus(t *testing.T) {
 	if ed.SelectedID != "slime_01" {
 		t.Fatalf("Esc cleared selection: SelectedID=%q, want slime_01", ed.SelectedID)
 	}
-	if !app.Find("id:toolbar-editor-settings").Focused {
-		t.Fatal("Esc did not return focus to the previously focused control (toolbar-editor-settings)")
+	if !app.Find("id:toolbar-history").Focused {
+		t.Fatal("Esc did not return focus to the previously focused control (toolbar-history)")
 	}
 }
 

@@ -534,7 +534,7 @@ func (e *Editor) shortcutScopePriority(scope string) int {
 		return 0
 	case ScopeTile:
 		if e.ViewMode == ViewMode2D && isTileTool(e.Tool) {
-			return 3
+			return 4
 		}
 		if e.ViewMode == ViewMode2D {
 			return 1

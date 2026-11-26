@@ -32,29 +32,28 @@ func TestSettingsPagesNavigationAndToolbarTriggers(t *testing.T) {
 		t.Fatal("settings view should start closed")
 	}
 
-	// Toolbar triggers open the matching Settings pages instead of bottom panels.
+	// Commands open the matching Settings pages instead of bottom panels.
 	cases := []struct {
-		btnID     string
+		cmdID     string
 		page      editor.SettingsPage
 		panelID   string
 		wantTitle string
 		wantScope string
 	}{
-		{"toolbar-project-settings", editor.SettingsPageProject, "project-settings-panel", "Project", "Project · game.yaml"},
-		{"toolbar-input-map", editor.SettingsPageInput, "input-map-panel", "Input map", "Project · game.yaml"},
-		{"toolbar-audio-mixer", editor.SettingsPageAudio, "audio-mixer-panel", "Audio buses", "Project · game.yaml"},
-		{"toolbar-export", editor.SettingsPageExport, "export-panel", "Export", "Project · game.yaml"},
-		{"toolbar-editor-settings", editor.SettingsPageGeneral, "editor-settings-dialog", "General", "This computer"},
+		{editor.CmdProjectSettings, editor.SettingsPageProject, "project-settings-panel", "Project", "Project · game.yaml"},
+		{editor.CmdInputMap, editor.SettingsPageInput, "input-map-panel", "Input map", "Project · game.yaml"},
+		{editor.CmdAudioMixer, editor.SettingsPageAudio, "audio-mixer-panel", "Audio buses", "Project · game.yaml"},
+		{editor.CmdExport, editor.SettingsPageExport, "export-panel", "Export", "Project · game.yaml"},
+		{editor.CmdEditorSettings, editor.SettingsPageGeneral, "editor-settings-dialog", "General", "This computer"},
 	}
 
 	for _, tc := range cases {
-		app.Press("id:" + tc.btnID)
-		app.Settle()
+		runEditorCommand(t, app, ed, tc.cmdID)
 		if !ed.SettingsOpen() || ed.SettingsPage() != tc.page {
-			t.Fatalf("pressing %s: open=%v page=%q, want true/%q", tc.btnID, ed.SettingsOpen(), ed.SettingsPage(), tc.page)
+			t.Fatalf("running %s: open=%v page=%q, want true/%q", tc.cmdID, ed.SettingsOpen(), ed.SettingsPage(), tc.page)
 		}
 		if !app.Exists("id:settings-view") || !app.Exists("id:"+tc.panelID) {
-			t.Fatalf("pressing %s: missing settings-view or %s", tc.btnID, tc.panelID)
+			t.Fatalf("running %s: missing settings-view or %s", tc.cmdID, tc.panelID)
 		}
 		if got := app.Find("id:settings-page-title").Text; got != tc.wantTitle {
 			t.Fatalf("page title for %s = %q, want %q", tc.page, got, tc.wantTitle)
@@ -120,7 +119,7 @@ func TestSettingsPagesEditSaveAndUndoAcrossAllFourPages(t *testing.T) {
 	}, nsgotest.Size(1440, 900), nsgotest.Environment(core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop, Dark: true}))
 
 	// 1. Project page: change project Name -> Save writes both game.yaml and nsgo.yaml -> Undo restores both.
-	app.Press("id:toolbar-project-settings")
+	runEditorCommand(t, app, ed, editor.CmdProjectSettings)
 	app.Settle()
 	app.Clear("id:project-settings-name")
 	app.Type("id:project-settings-name", "Dungeon Run")
@@ -174,7 +173,7 @@ func TestSettingsPagesEditSaveAndUndoAcrossAllFourPages(t *testing.T) {
 	app.Settle()
 
 	// Save writes game.yaml and synced nsgo.yaml.
-	app.Press("id:toolbar-save")
+	saveInUI(app, ed)
 	app.Settle()
 
 	saved, err := project.Check(os.DirFS(dir))
@@ -203,7 +202,7 @@ func TestSettingsPagesEditSaveAndUndoAcrossAllFourPages(t *testing.T) {
 
 	// Undo all 8 edits (export preset, audio vol, audio bus, key binding, input action, main scene, window width, project name).
 	for range 8 {
-		app.Press("id:toolbar-undo")
+		undoInUI(app, ed)
 	}
 	app.Settle()
 
@@ -215,7 +214,7 @@ func TestSettingsPagesEditSaveAndUndoAcrossAllFourPages(t *testing.T) {
 	}
 
 	// Save after Undo writes restored name back to both game.yaml and nsgo.yaml.
-	app.Press("id:toolbar-save")
+	saveInUI(app, ed)
 	app.Settle()
 	nsgoRestored, err := os.ReadFile(filepath.Join(dir, project.NSGoFileName))
 	if err != nil {
@@ -251,7 +250,7 @@ func TestSettingsExportReadinessAndInlineValidation(t *testing.T) {
 		return editor.EditorView(cx, ed)
 	}, nsgotest.Size(1440, 900), nsgotest.Environment(core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop, Dark: true}))
 
-	app.Press("id:toolbar-export")
+	runEditorCommand(t, app, ed, editor.CmdExport)
 	app.Settle()
 
 	if got := strings.TrimSpace(allText(app.Find("id:export-preset-readiness-macos"))); got != "Ready" {

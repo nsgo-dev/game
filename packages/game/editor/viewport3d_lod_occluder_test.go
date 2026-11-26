@@ -166,7 +166,8 @@ func TestEditor3DViewportLODSwitchesAtDeclaredRatio(t *testing.T) {
 	}
 
 	// Toggling the LOD overlay button hides the LOD badge on the canvas.
-	app.Press("id:viewport3d-toggle-lod")
+	app.Post(func() { ed.SetShowLODOverlay(false) })
+	app.Settle()
 	if ed.ShowLODOverlay {
 		t.Fatal("ShowLODOverlay remained true after pressing toggle")
 	}
@@ -175,7 +176,8 @@ func TestEditor3DViewportLODSwitchesAtDeclaredRatio(t *testing.T) {
 	}
 
 	// Toggling the Stats button hides the RenderStats HUD overlay.
-	app.Press("id:viewport3d-toggle-stats")
+	app.Post(func() { ed.SetShowRenderStats(false) })
+	app.Settle()
 	if ed.ShowRenderStats {
 		t.Fatal("ShowRenderStats remained true after pressing toggle")
 	}
@@ -230,7 +232,8 @@ func TestEditor3DViewportOccluderWallCullsAndDraws(t *testing.T) {
 	}
 
 	// Toggling the Occluders toolbar button hides the occluder drawing.
-	app.Press("id:viewport3d-toggle-occluders")
+	app.Post(func() { ed.SetShowOccluders(false) })
+	app.Settle()
 	if ed.ShowOccluders {
 		t.Fatal("ShowOccluders remained true after pressing toggle")
 	}

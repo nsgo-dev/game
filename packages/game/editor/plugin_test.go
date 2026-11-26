@@ -258,7 +258,7 @@ func TestSamplePluginAddsAPanelAnInspectorAndATool(t *testing.T) {
 	if got := intField(ed, "hero", "hp"); got != 12 {
 		t.Fatalf("hp after Heal All = %d, want 12", got)
 	}
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	if got := intField(ed, "hero", "hp"); got != 7 {
 		t.Fatalf("hp after Undo = %d, want 7", got)
 	}
@@ -266,15 +266,20 @@ func TestSamplePluginAddsAPanelAnInspectorAndATool(t *testing.T) {
 		t.Fatalf("hp field after Undo shows %q, want 7", got)
 	}
 
-	// The plugin's tool sits in the tool bar, places an object where the viewport is pressed and names itself in the status bar.
+	// The plugin's tool activates via SetPluginTool/command palette, places an object where the viewport is pressed and names itself in the status bar.
 	if draws != 0 {
 		t.Fatalf("the tool drew %d times before it was chosen", draws)
 	}
-	app.Press("id:tool-health-spawn")
+	app.Post(func() {
+		if err := ed.SetPluginTool("health", "spawn"); err != nil {
+			t.Error(err)
+		}
+	})
+	app.Settle()
 	if plugin, id, ok := ed.PluginTool(); !ok || plugin != "health" || id != "spawn" || ed.Tool != editor.ToolPlugin {
 		t.Fatalf("PluginTool = %q %q %v, Tool %v", plugin, id, ok, ed.Tool)
 	}
-	if got := allText(app.Find("id:editor-status")); !strings.Contains(got, "Tool: Spawn") {
+	if got := allText(app.Find("id:editor-status")); !strings.Contains(got, "Spawn") {
 		t.Fatalf("status = %q, want it to name the Spawn tool", got)
 	}
 	if draws == 0 {
@@ -290,7 +295,7 @@ func TestSamplePluginAddsAPanelAnInspectorAndATool(t *testing.T) {
 	if wx, wy := ed.CanvasToWorld(100, 60); spawned.X != wx || spawned.Y != wy || intField(ed, spawned.ID, "hp") != 5 {
 		t.Fatalf("spawned %+v, want at (%v, %v) with 5 hp", spawned, wx, wy)
 	}
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	if got := healthObjects(ed); len(got) != before {
 		t.Fatalf("Undo left the spawned object: %v", got)
 	}
@@ -313,8 +318,8 @@ func TestPluginsFollowTheProjectsEditorPlugins(t *testing.T) {
 		return editor.EditorView(cx, ed)
 	}, nsgotest.Size(1400, 900))
 
-	// A registered plugin the project does not name stays off: no panel, no tool, the generic fields.
-	if app.Exists("id:plugin-panel-health-overview") || app.Exists("id:tool-health-spawn") || app.Exists("id:inspector-plugin-health-health") {
+	// A registered plugin the project does not name stays off: no panel, no inspector, the generic fields.
+	if app.Exists("id:plugin-panel-health-overview") || app.Exists("id:inspector-plugin-health-health") {
 		t.Fatal("a plugin the project does not name is on")
 	}
 	if !app.Exists("id:inspector-comp-health-hp") {
@@ -331,23 +336,28 @@ func TestPluginsFollowTheProjectsEditorPlugins(t *testing.T) {
 	if !ed.PluginEnabled("health") || ed.Project.Editor == nil || !reflect.DeepEqual(ed.Project.Editor.Plugins, []string{"health"}) {
 		t.Fatalf("after turning it on: enabled %v, project editor %+v", ed.PluginEnabled("health"), ed.Project.Editor)
 	}
-	if !app.Exists("id:plugin-panel-health-overview") || !app.Exists("id:tool-health-spawn") || !app.Exists("id:inspector-plugin-health-health") {
-		t.Fatal("turning the plugin on did not bring in its panel, tool and inspector")
+	if !app.Exists("id:plugin-panel-health-overview") || !app.Exists("id:inspector-plugin-health-health") {
+		t.Fatal("turning the plugin on did not bring in its panel and inspector")
 	}
 	if got := ed.History.UndoLabel(); got != "Turn on plugin health" {
 		t.Fatalf("UndoLabel = %q", got)
 	}
-	app.Press("id:tool-health-spawn")
+	app.Post(func() {
+		if err := ed.SetPluginTool("health", "spawn"); err != nil {
+			t.Error(err)
+		}
+	})
+	app.Settle()
 
 	// Undo turns it off again, ends its tool and restores the generic fields.
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	if ed.PluginEnabled("health") || ed.Project.Editor != nil {
 		t.Fatalf("after Undo: enabled %v, project editor %+v", ed.PluginEnabled("health"), ed.Project.Editor)
 	}
 	if ed.Tool != editor.ToolSelect {
 		t.Fatalf("Tool after its plugin turned off = %v, want ToolSelect", ed.Tool)
 	}
-	if app.Exists("id:plugin-panel-health-overview") || app.Exists("id:tool-health-spawn") || !app.Exists("id:inspector-comp-health-hp") {
+	if app.Exists("id:plugin-panel-health-overview") || !app.Exists("id:inspector-comp-health-hp") {
 		t.Fatal("Undo left the plugin's views in place")
 	}
 	if ed.ProjectDirty() {
@@ -355,8 +365,8 @@ func TestPluginsFollowTheProjectsEditorPlugins(t *testing.T) {
 	}
 
 	// Save writes the plugin into game.yaml, where the next OpenProject finds it.
-	app.Press("id:toolbar-redo")
-	app.Press("id:toolbar-save")
+	redoInUI(app, ed)
+	saveInUI(app, ed)
 	f, err := project.Check(os.DirFS(dir))
 	if err != nil || f.Editor == nil || !reflect.DeepEqual(f.Editor.Plugins, []string{"health"}) {
 		t.Fatalf("saved project: %+v, %v", f, err)
@@ -628,17 +638,19 @@ func TestPluginToolIsIdleWhilePlayingAndIn3D(t *testing.T) {
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		return editor.EditorView(cx, ed)
 	}, nsgotest.Size(1400, 900))
-	app.Press("id:tool-health-spawn")
+	app.Post(func() {
+		if err := ed.SetPluginTool("health", "spawn"); err != nil {
+			t.Error(err)
+		}
+	})
+	app.Settle()
 	if draws == 0 {
 		t.Fatal("the active tool did not draw in 2D")
 	}
 	before := len(healthObjects(ed))
 
-	// In 3D the plugin tools leave the tool bar, the tool does not draw and a press does not reach it.
+	// In 3D the 2D-only plugin tool does not draw and a press does not reach it.
 	app.Press("id:view-mode-3d")
-	if app.Exists("id:tool-health-spawn") {
-		t.Fatal("the plugin tool is in the tool bar in 3D")
-	}
 	draws = 0
 	app.Post(func() { ed.HandleCanvasPress(100, 60) })
 	app.Settle()
@@ -649,8 +661,8 @@ func TestPluginToolIsIdleWhilePlayingAndIn3D(t *testing.T) {
 		t.Fatalf("a press in 3D spawned: %d health objects, want %d", got, before)
 	}
 	app.Press("id:view-mode-2d")
-	if !app.Exists("id:tool-health-spawn") || draws == 0 {
-		t.Fatalf("back in 2D: tool shown %v, draws %d", app.Exists("id:tool-health-spawn"), draws)
+	if draws == 0 {
+		t.Fatalf("back in 2D: draws %d, want > 0", draws)
 	}
 
 	// While playing the tool does not draw, a press does not reach it, and the plugin's inspector controls are off. The press in 3D picked empty space, so the hero is selected again first.
@@ -732,7 +744,7 @@ func TestPluginPanelsStayMountedWhileOthersComeAndGo(t *testing.T) {
 	if app.Exists("id:stats-main") || !app.Exists("id:notes-main") {
 		t.Fatal("turning stats off did not leave only notes' panel")
 	}
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	if !app.Exists("id:notes-main") || !app.Exists("id:stats-main") {
 		t.Fatal("undoing stats' removal did not bring its panel back")
 	}

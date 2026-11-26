@@ -50,7 +50,7 @@ func TestNewSceneGetsPaintedTilemapFromUI(t *testing.T) {
 	}, nsgotest.Size(1280, 900))
 
 	// Switch to Paint tool on the new scene's layer (which has no tilemap yet), then press Set Up Tilemap.
-	app.Press("id:tool-paint")
+	runEditorCommand(t, app, ed, editor.CmdToolPaintTile)
 	if !app.Exists("id:tile-palette-setup-layer") {
 		t.Fatal("expected Set Up Tilemap button in empty tile palette for a layer with no tilemap")
 	}
@@ -85,7 +85,7 @@ func TestNewSceneGetsPaintedTilemapFromUI(t *testing.T) {
 	}
 
 	// Frame the new tilemap in the 2D viewport, pick tile 2 in the palette, and paint cell (2, 1).
-	app.Press("id:view-frame-all")
+	app.Press("id:viewport-bar-fit")
 	app.Press("id:tile-palette-2")
 	cx, cy := ed.WorldToCanvas(2*16+8, 1*16+8)
 	app.PressAt("id:editor-viewport", core.Point{X: core.Points(cx), Y: core.Points(cy)})
@@ -109,8 +109,8 @@ func TestNewSceneGetsPaintedTilemapFromUI(t *testing.T) {
 	}
 
 	// Undoing paint and add restores the original scene byte-for-byte.
-	app.Press("id:toolbar-undo")
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
+	undoInUI(app, ed)
 	if after := mustSave(t, ed); !bytes.Equal(after, initialYAML) {
 		t.Fatalf("Undo did not restore new scene:\ngot:\n%s\nwant:\n%s", after, initialYAML)
 	}
@@ -255,7 +255,7 @@ func TestExtractAndInlineLayerTilemap(t *testing.T) {
 	if top := ed.Doc.Tilemaps["floor_grid"]; top.Width != 5 || top.OffsetX != -16 {
 		t.Fatalf("top-level after resize = width %d offsetX %v, want 5 and -16", top.Width, top.OffsetX)
 	}
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 
 	// Move back inline via UI: removes unreferenced top-level entry and matches original YAML byte-for-byte.
 	app.Press("id:inspector-layer-tilemap-inline")

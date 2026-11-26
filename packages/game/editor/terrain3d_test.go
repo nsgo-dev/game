@@ -498,7 +498,7 @@ func TestTerrainPanelAndViewport3DInteraction(t *testing.T) {
 	app.Resize(1280, 800)
 
 	// Toggle Terrain button in 3D toolbar opens a new terrain and mounts TerrainPanelView.
-	app.Press("id:toolbar-terrain")
+	runEditorCommand(t, app, ed, editor.CmdTerrainEditor)
 	if !ed.TerrainOpen() {
 		t.Fatalf("expected TerrainOpen() after pressing toolbar-terrain")
 	}

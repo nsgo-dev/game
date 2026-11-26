@@ -630,6 +630,9 @@ func (e *Editor) OpenProblem(p assetcheck.Problem) error {
 		return nil
 	}
 	e.selectFile(p.File)
+	if !isProjectScene(e.Project, p.File) {
+		e.fileBrowserOpen = true
+	}
 	e.Status = "Selected " + loc
 	e.notify()
 	return nil

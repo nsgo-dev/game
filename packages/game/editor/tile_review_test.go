@@ -670,7 +670,7 @@ func TestTileReviewUIAndScreenshot(t *testing.T) {
 	}
 
 	// Undo once -> restores original tilemap cleanly!
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	if !slices.Equal(snapshotLayerCells(t, ed, "World"), original) {
 		t.Fatal("toolbar Undo after Keep did not restore original tilemap")
 	}

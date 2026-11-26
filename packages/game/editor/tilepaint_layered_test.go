@@ -148,7 +148,7 @@ func TestTilePaletteShowsALayeredGridsTileset(t *testing.T) {
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		return editor.EditorView(cx, ed)
 	}, nsgotest.Size(1280, 680))
-	app.Press("id:tool-paint")
+	runEditorCommand(t, app, ed, editor.CmdToolPaintTile)
 	if !app.Exists("id:tile-layer-controls") {
 		t.Fatal("the palette of a layered grid shows no tile layer controls")
 	}

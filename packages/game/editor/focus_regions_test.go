@@ -94,12 +94,12 @@ func TestToolbarTabFocusRingKeyboardOnlyVsClick(t *testing.T) {
 	toolbar := app.Find("id:editor-toolbar")
 
 	// Clicking a toolbar button with the mouse must NOT draw a focus ring.
-	app.Press("id:toolbar-output")
+	app.Press("id:toolbar-history")
 	app.Settle()
-	if v := app.Find("id:toolbar-output"); v.Style.Outline.Width != 0 {
-		t.Fatalf("mouse click drew focus ring on toolbar-output: %+v", v.Style.Outline)
+	if v := app.Find("id:toolbar-history"); v.Style.Outline.Width != 0 {
+		t.Fatalf("mouse click drew focus ring on toolbar-history: %+v", v.Style.Outline)
 	}
-	app.Press("id:toolbar-output") // restore
+	app.Press("id:toolbar-history") // restore
 	app.Settle()
 
 	// Tab through toolbar controls and verify every focused toolbar control shows the
@@ -138,12 +138,12 @@ func TestToolbarTabFocusRingKeyboardOnlyVsClick(t *testing.T) {
 	}
 
 	// Mouse click clears keyboard focus ring on toolbar controls.
-	app.Press("id:toolbar-output")
+	app.Press("id:toolbar-history")
 	app.Settle()
-	if v := app.Find("id:toolbar-output"); v.Style.Outline.Width != 0 {
-		t.Fatalf("mouse click after Tab drew focus ring on toolbar-output: %+v", v.Style.Outline)
+	if v := app.Find("id:toolbar-history"); v.Style.Outline.Width != 0 {
+		t.Fatalf("mouse click after Tab drew focus ring on toolbar-history: %+v", v.Style.Outline)
 	}
-	for _, id := range []string{"toolbar-editor-settings", "toolbar-save", "toolbar-play", "toolbar-palette"} {
+	for _, id := range []string{"toolbar-history", "toolbar-play", "toolbar-palette", "tool-select"} {
 		if app.Exists("id:" + id) {
 			if v := app.Find("id:" + id); v.Style.Outline.Width != 0 {
 				t.Fatalf("stale focus ring remained on %q after mouse click: %+v", id, v.Style.Outline)
@@ -215,48 +215,48 @@ func TestF6CyclesRegionsInSpecOrderAndRestoresLastControl(t *testing.T) {
 		app.Settle()
 		assertRegionRing("F6(no-toast)["+string(want)+"]", want)
 		if i == 0 {
-			// Inside Header: tab to toolbar-editor-settings so we can verify restoration later.
-			app.Focus("id:toolbar-editor-settings")
+			// Inside Header: focus toolbar-history so we can verify restoration later.
+			app.Focus("id:toolbar-history")
 			app.Settle()
 		}
 		if i == 1 {
-			// Inside Scene tree: focus scene-tree-tab-remote so we can verify restoration later.
-			app.Focus("id:scene-tree-tab-remote")
+			// Inside Scene tree: focus scene-tree-eye-hero so we can verify restoration later.
+			app.Focus("id:scene-tree-eye-hero")
 			app.Settle()
 		}
 	}
 
-	// Returning to Header via F6 must restore focus to toolbar-editor-settings.
-	if fv := focusedView(app); fv == nil || fv.Props.TestID != "toolbar-editor-settings" {
+	// Returning to Header via F6 must restore focus to toolbar-history.
+	if fv := focusedView(app); fv == nil || fv.Props.TestID != "toolbar-history" {
 		gotID := "<nil>"
 		if fv != nil {
 			gotID = fv.Props.TestID
 		}
-		t.Fatalf("after F6 wrap to Header, focused = %q, want toolbar-editor-settings", gotID)
+		t.Fatalf("after F6 wrap to Header, focused = %q, want toolbar-history", gotID)
 	}
 
-	// Moving forward into SceneTree must restore focus to scene-tree-tab-remote.
+	// Moving forward into SceneTree must restore focus to scene-tree-eye-hero.
 	app.Key("f6")
 	app.Settle()
 	assertRegionRing("F6-restore-scene-tree", editor.RegionSceneTree)
-	if fv := focusedView(app); fv == nil || fv.Props.TestID != "scene-tree-tab-remote" {
+	if fv := focusedView(app); fv == nil || fv.Props.TestID != "scene-tree-eye-hero" {
 		gotID := "<nil>"
 		if fv != nil {
 			gotID = fv.Props.TestID
 		}
-		t.Fatalf("after F6 to SceneTree, focused = %q, want scene-tree-tab-remote", gotID)
+		t.Fatalf("after F6 to SceneTree, focused = %q, want scene-tree-eye-hero", gotID)
 	}
 
 	// Shift-F6 walks backwards in exact reverse order and restores Header's remembered control.
 	app.Key("shift+f6")
 	app.Settle()
 	assertRegionRing("Shift-F6-back-to-header", editor.RegionHeader)
-	if fv := focusedView(app); fv == nil || fv.Props.TestID != "toolbar-editor-settings" {
+	if fv := focusedView(app); fv == nil || fv.Props.TestID != "toolbar-history" {
 		gotID := "<nil>"
 		if fv != nil {
 			gotID = fv.Props.TestID
 		}
-		t.Fatalf("after Shift-F6 to Header, focused = %q, want toolbar-editor-settings", gotID)
+		t.Fatalf("after Shift-F6 to Header, focused = %q, want toolbar-history", gotID)
 	}
 
 	// Show a toast: must NOT steal focus from Header, and must now appear after StatusBar in F6 order.
@@ -266,8 +266,8 @@ func TestF6CyclesRegionsInSpecOrderAndRestoresLastControl(t *testing.T) {
 		ActionLabel: "Undo",
 	})
 	app.Settle()
-	if fv := focusedView(app); fv == nil || fv.Props.TestID != "toolbar-editor-settings" {
-		t.Fatalf("ShowToast stole focus from toolbar-editor-settings: got %v", fv)
+	if fv := focusedView(app); fv == nil || fv.Props.TestID != "toolbar-history" {
+		t.Fatalf("ShowToast stole focus from toolbar-history: got %v", fv)
 	}
 
 	// Shift-F6 from Header wraps directly to Toast (the last region while shown).
@@ -386,8 +386,8 @@ func TestDialogTrapsFocusAndEscRestoresOpener(t *testing.T) {
 	}, focusDesktopEnv, nsgotest.Size(1440, 900))
 	app.Settle()
 
-	// 1. Open Keyboard Shortcuts modal (⌘/) while focused on toolbar-editor-settings.
-	app.Focus("id:toolbar-editor-settings")
+	// 1. Open Keyboard Shortcuts modal (⌘/) while focused on toolbar-history.
+	app.Focus("id:toolbar-history")
 	app.Settle()
 	app.Key("meta+/")
 	app.Settle()
@@ -421,26 +421,26 @@ func TestDialogTrapsFocusAndEscRestoresOpener(t *testing.T) {
 		t.Fatalf("mod+. behind dialog ran OnStopAgent %d times, want 1", agentStopped)
 	}
 
-	// Closing with Esc must return focus to toolbar-editor-settings.
+	// Closing with Esc must return focus to toolbar-history.
 	app.Key("escape")
 	app.Advance(250 * time.Millisecond)
 	app.Settle()
 	if ed.ShortcutsSheetOpen() {
 		t.Fatal("expected Esc to close Shortcuts Sheet dialog")
 	}
-	if fv := focusedView(app); fv == nil || fv.Props.TestID != "toolbar-editor-settings" {
+	if fv := focusedView(app); fv == nil || fv.Props.TestID != "toolbar-history" {
 		gotID := "<nil>"
 		if fv != nil {
 			gotID = fv.Props.TestID
 		}
-		t.Fatalf("after Esc closed Shortcuts Sheet, focus = %q, want toolbar-editor-settings", gotID)
+		t.Fatalf("after Esc closed Shortcuts Sheet, focus = %q, want toolbar-history", gotID)
 	}
 
-	// 2. Open unified Settings view via Enter on toolbar-editor-settings, verify F6 is blocked, and Esc restores toolbar-editor-settings.
-	app.Key("enter")
+	// 2. Open unified Settings view via Cmd+Shift+, while focused on toolbar-history, verify F6 is blocked, and Esc restores toolbar-history.
+	app.Key("meta+shift+,")
 	app.Settle()
 	if !ed.SettingsOpen() {
-		t.Fatal("expected Settings view to open on Enter")
+		t.Fatal("expected Settings view to open on Cmd+Shift+,")
 	}
 	app.Key("f6")
 	app.Settle()
@@ -453,12 +453,12 @@ func TestDialogTrapsFocusAndEscRestoresOpener(t *testing.T) {
 	if ed.SettingsOpen() {
 		t.Fatal("expected Esc to close Settings view")
 	}
-	if fv := focusedView(app); fv == nil || fv.Props.TestID != "toolbar-editor-settings" {
+	if fv := focusedView(app); fv == nil || fv.Props.TestID != "toolbar-history" {
 		gotID := "<nil>"
 		if fv != nil {
 			gotID = fv.Props.TestID
 		}
-		t.Fatalf("after Esc closed Settings view, focus = %q, want toolbar-editor-settings", gotID)
+		t.Fatalf("after Esc closed Settings view, focus = %q, want toolbar-history", gotID)
 	}
 
 	// 3. Open Command Palette via mouse click on toolbar-palette, close with Esc -> returns focus to toolbar-palette.
@@ -1065,18 +1065,18 @@ func TestFocusSpecLightCaptureGuardsUnmountTypingAndScrub(t *testing.T) {
 	app.Advance(250 * time.Millisecond)
 	app.Settle()
 
-	app.Focus("id:toolbar-editor-settings")
+	app.Focus("id:toolbar-history")
 	app.Settle()
 	app.Key("meta+/")
 	app.Settle()
 	app.Key("escape")
 	app.Advance(250 * time.Millisecond)
 	app.Settle()
-	if fv := focusedView(app); fv == nil || fv.Props.TestID != "toolbar-editor-settings" {
+	if fv := focusedView(app); fv == nil || fv.Props.TestID != "toolbar-history" {
 		gotID := "<nil>"
 		if fv != nil {
 			gotID = fv.Props.TestID
 		}
-		t.Fatalf("after chrome remount + ShortcutsSheet Esc, focus = %q, want toolbar-editor-settings", gotID)
+		t.Fatalf("after chrome remount + ShortcutsSheet Esc, focus = %q, want toolbar-history", gotID)
 	}
 }

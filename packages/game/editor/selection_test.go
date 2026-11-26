@@ -89,11 +89,11 @@ func TestMarqueeSelectFiveObjectsAndDragMovesAllInOneUndoStep(t *testing.T) {
 	}
 
 	after := saveYAML(t, ed)
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	if got := saveYAML(t, ed); !bytes.Equal(got, before) {
 		t.Fatalf("one Undo did not restore all five objects:\n%s\nwant:\n%s", got, before)
 	}
-	app.Press("id:toolbar-redo")
+	redoInUI(app, ed)
 	if got := saveYAML(t, ed); !bytes.Equal(got, after) {
 		t.Fatalf("one Redo did not re-apply move of all five objects")
 	}
@@ -200,7 +200,7 @@ func TestMultiSelectInspectorSetsSharedComponentFieldAndOneUndoRestoresEach(t *t
 	}
 
 	// One Undo restores each object's own original value (10, 25, 42.5).
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	wantSpeed := map[string]float64{"e1": 10.0, "e2": 25.0, "e3": 42.5}
 	for id, want := range wantSpeed {
 		obj, _, _ := ed.FindObject(id)
@@ -214,7 +214,7 @@ func TestMultiSelectInspectorSetsSharedComponentFieldAndOneUndoRestoresEach(t *t
 	}
 
 	// Redo writes all three back to 80.
-	app.Press("id:toolbar-redo")
+	redoInUI(app, ed)
 	for _, id := range []string{"e1", "e2", "e3"} {
 		obj, _, _ := ed.FindObject(id)
 		if got := obj.Components["enemy"].(map[string]any)["speed"]; got != 80.0 {
@@ -349,7 +349,7 @@ func TestMultiSelectRotateScaleAndDeleteOneUndoStep(t *testing.T) {
 	if ed.History.Len() != 1 {
 		t.Fatalf("History.Len() after multi-rotate = %d, want 1", ed.History.Len())
 	}
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	if got := saveYAML(t, ed); !bytes.Equal(got, beforeRot) {
 		t.Fatalf("Undo did not restore multi-rotate")
 	}
@@ -375,7 +375,7 @@ func TestMultiSelectRotateScaleAndDeleteOneUndoStep(t *testing.T) {
 	if ed.History.Len() != 1 {
 		t.Fatalf("History.Len() after multi-scale = %d, want 1", ed.History.Len())
 	}
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	if got := saveYAML(t, ed); !bytes.Equal(got, beforeScale) {
 		t.Fatalf("Undo did not restore multi-scale")
 	}
@@ -393,7 +393,7 @@ func TestMultiSelectRotateScaleAndDeleteOneUndoStep(t *testing.T) {
 	if ed.History.Len() != 1 {
 		t.Fatalf("History.Len() after multi-delete = %d, want 1", ed.History.Len())
 	}
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	if got := saveYAML(t, ed); !bytes.Equal(got, beforeDel) {
 		t.Fatalf("Undo did not restore deleted objects")
 	}
@@ -539,11 +539,6 @@ func TestMultiSelectGizmo3DTranslateRotateScale(t *testing.T) {
 func TestSceneTreeFollowsAndDrivesMultiSelection(t *testing.T) {
 	ed := newMultiSelectEditor(t)
 	app := startEditorView(t, ed)
-
-	// Verify hint is shown under the scene tree.
-	if !app.Exists("id:scene-tree-hint") {
-		t.Fatal("expected scene-tree-hint under the scene tree")
-	}
 
 	// Click p1, then Mod+click p3 in the scene tree -> both selected in editor and inspector shows "2 selected".
 	app.Press("id:scene-tree-label-p1")

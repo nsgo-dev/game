@@ -148,31 +148,24 @@ func TestRunFixtureGameDevStreamsOutputAndStopsCleanly(t *testing.T) {
 		return editor.EditorView(cx, ed)
 	}, nsgotest.Size(1400, 900))
 
-	if !app.Exists("id:toolbar-run") {
-		t.Fatal("expected toolbar-run button before running")
-	}
 	if !app.Exists("id:toolbar-play") {
 		t.Fatal("expected existing toolbar-play button to remain untouched")
 	}
-	// Output panel starts collapsed so it does not crowd other docked panels, and opens via the toolbar button or Run.
+	// Output panel starts collapsed so it does not crowd other docked panels, and opens via the status bar Output button or Run.
 	if app.Exists("id:output-panel") {
 		t.Fatal("expected Output panel collapsed before toggling Output or running the game")
 	}
-	app.Press("id:toolbar-output")
+	app.Press("id:status-output")
 	app.Settle()
 	if !app.Exists("id:output-panel") {
 		t.Fatal("expected Output panel docked below the viewport after toggling Output")
 	}
 
-	// Launch real `go tool game dev` via the toolbar Run button.
-	app.Press("id:toolbar-run")
-	app.Settle()
+	// Launch real `go tool game dev` via CmdRunGame.
+	runEditorCommand(t, app, ed, editor.CmdRunGame)
 
 	if !ed.GameRunning() {
 		t.Fatalf("expected game to be running; output=%+v", ed.OutputEntries())
-	}
-	if !app.Exists("id:toolbar-stop-game") {
-		t.Fatal("expected toolbar-stop-game button while game is running")
 	}
 
 	// Wait for streamed stdout, stderr, and both parent + grandchild PID files.
@@ -212,15 +205,11 @@ func TestRunFixtureGameDevStreamsOutputAndStopsCleanly(t *testing.T) {
 		t.Fatalf("output panel missing stderr line:\n%s", panelText)
 	}
 
-	// Stop the game via the toolbar Stop Game button.
-	app.Press("id:toolbar-stop-game")
-	app.Settle()
+	// Stop the game via CmdStopGame.
+	runEditorCommand(t, app, ed, editor.CmdStopGame)
 
 	if ed.GameRunning() {
-		t.Fatal("expected GameRunning() == false after pressing Stop Game")
-	}
-	if !app.Exists("id:toolbar-run") {
-		t.Fatal("expected toolbar-run button to return after stopping")
+		t.Fatal("expected GameRunning() == false after stopping game")
 	}
 
 	// Verify neither the `game dev` process nor its grandchild process survived.
@@ -359,10 +348,9 @@ func TestRunGameShortcutF5AndStartAtOpenScene(t *testing.T) {
 	if err := ed.OpenFile(filepath.Join(dir, "scenes", "other.scene.yaml")); err != nil {
 		t.Fatal(err)
 	}
-	app.Press("id:toolbar-run-open-scene")
-	app.Settle()
+	runEditorCommand(t, app, ed, editor.CmdRunOpenScene)
 	if !ed.RunStartAtOpenScene() {
-		t.Fatal("expected toolbar-run-open-scene to enable RunStartAtOpenScene")
+		t.Fatal("expected CmdRunOpenScene to enable RunStartAtOpenScene")
 	}
 	app.Key("f5")
 	app.Settle()
@@ -458,8 +446,8 @@ func TestOutputPanelKeepsTwoEditorErrorsFilterClearAndFileLineNav(t *testing.T) 
 		t.Fatalf("OutputEntries after repeated identical error = %d, want 4", got)
 	}
 
-	// Open the Output panel via the toolbar toggle; errors recorded while closed must be present.
-	app.Press("id:toolbar-output")
+	// Open the Output panel via the status bar toggle; errors recorded while closed must be present.
+	app.Press("id:status-output")
 	app.Settle()
 	panelText := allText(app.Find("id:output-panel"))
 	if !strings.Contains(panelText, "first editor error") || !strings.Contains(panelText, "second editor error") {

@@ -511,7 +511,7 @@ func TestParticleEditorUI(t *testing.T) {
 	}
 
 	// Open via toolbar button.
-	app.Press("id:toolbar-particles")
+	runEditorCommand(t, app, ed, editor.CmdParticleEditor)
 	app.Settle()
 	if !app.Exists("id:particles-panel") || !ed.ParticleEmitterOpen() {
 		t.Fatalf("Particle Emitter panel did not open; status=%q", ed.Status)

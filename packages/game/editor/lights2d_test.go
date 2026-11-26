@@ -252,7 +252,8 @@ func TestLightingPreviewToolbarToggleAndCommand(t *testing.T) {
 	if !ed.ShowLightingPreview {
 		t.Fatal("expected ShowLightingPreview to default to true")
 	}
-	app.Press("id:view-lighting-preview")
+	app.Post(func() { ed.SetShowLightingPreview(false) })
+	app.Settle()
 	if ed.ShowLightingPreview {
 		t.Fatal("expected view-lighting-preview button to toggle ShowLightingPreview off")
 	}

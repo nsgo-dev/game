@@ -42,6 +42,7 @@ func TestLibraryPanelInstallsAndRemovesAPack(t *testing.T) {
 		t.Fatal(err)
 	}
 	ed.Library = openLibrary(t, repoLibrary)
+	ed.SetLibraryPanelOpen(true)
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		return editor.EditorView(cx, ed)
 	}, nsgotest.Size(1400, 900))
@@ -224,6 +225,7 @@ func TestLibraryPanelFetchesARemotePack(t *testing.T) {
 		t.Fatal("a library over http is not remote")
 	}
 	ed.Library = lib
+	ed.SetLibraryPanelOpen(true)
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		return editor.EditorView(cx, ed)
 	}, nsgotest.Size(1400, 900))
@@ -263,6 +265,7 @@ func TestLibraryPanelReportsAFailedFetch(t *testing.T) {
 	lib, release, _ := remoteLibrary(t, "tiles.png")
 	release()
 	ed.Library = lib
+	ed.SetLibraryPanelOpen(true)
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		return editor.EditorView(cx, ed)
 	}, nsgotest.Size(1400, 900))
@@ -290,6 +293,7 @@ func TestOpeningAProjectCancelsAFetch(t *testing.T) {
 	}
 	lib, release, cancelled := remoteLibrary(t, "")
 	ed.Library = lib
+	ed.SetLibraryPanelOpen(true)
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		return editor.EditorView(cx, ed)
 	}, nsgotest.Size(1400, 900))

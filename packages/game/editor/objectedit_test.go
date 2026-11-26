@@ -550,6 +550,7 @@ func TestInspectorSetsSpriteOriginFlipAndMaterial(t *testing.T) {
 	app.Post(func() {
 		ed.Resolver = materialResolver{testResolver(), resource.NewLibrary(os.DirFS(dir))}
 	})
+	openAssetBrowserInUI(app, ed)
 	app.Press("id:asset-actors-slime")
 	app.Press("id:inspector-sprite-use-asset")
 	hero, _, _ := ed.FindObject("hero")

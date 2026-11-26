@@ -70,7 +70,7 @@ func TestAudioMixerPanelAddBusReverbSaveAndUndo(t *testing.T) {
 	}
 
 	// Open the Audio Mixer panel from the toolbar.
-	app.Press("id:toolbar-audio-mixer")
+	runEditorCommand(t, app, ed, editor.CmdAudioMixer)
 	app.Settle()
 	if !app.Exists("id:audio-mixer-panel") {
 		t.Fatal("pressing toolbar-audio-mixer did not open the panel")
@@ -105,7 +105,7 @@ func TestAudioMixerPanelAddBusReverbSaveAndUndo(t *testing.T) {
 	app.Settle()
 
 	// Save via toolbar Save and read back from game.yaml on disk.
-	app.Press("id:toolbar-save")
+	saveInUI(app, ed)
 	app.Settle()
 	saved, err := project.Check(os.DirFS(dir))
 	if err != nil {
@@ -125,7 +125,7 @@ func TestAudioMixerPanelAddBusReverbSaveAndUndo(t *testing.T) {
 
 	// Undo edits: 3 param edits + 1 add reverb + 1 add bus = 5 undos restore game.yaml to no audio section.
 	for range 5 {
-		app.Press("id:toolbar-undo")
+		undoInUI(app, ed)
 	}
 	app.Settle()
 	if ed.Project.Audio != nil {
@@ -136,7 +136,7 @@ func TestAudioMixerPanelAddBusReverbSaveAndUndo(t *testing.T) {
 	}
 
 	// Saving after Undo writes game.yaml back without the bus or reverb.
-	app.Press("id:toolbar-save")
+	saveInUI(app, ed)
 	app.Settle()
 	reverted, err := project.Check(os.DirFS(dir))
 	if err != nil {
@@ -148,7 +148,7 @@ func TestAudioMixerPanelAddBusReverbSaveAndUndo(t *testing.T) {
 
 	// Redo brings the bus and reverb back.
 	for range 5 {
-		app.Press("id:toolbar-redo")
+		redoInUI(app, ed)
 	}
 	app.Settle()
 	if got := ed.AudioBuses(); len(got) != 1 || got[0].Name != "cave" || len(got[0].Effects) != 1 || got[0].Effects[0].Reverb == nil || math.Abs(got[0].Effects[0].Reverb.Wet-0.6) > 1e-6 {
@@ -361,7 +361,7 @@ func TestAudioMixerBusAndEffectChainOperationsAndValidation(t *testing.T) {
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		return editor.EditorView(cx, ed)
 	}, nsgotest.Size(1280, 900))
-	app.Press("id:toolbar-audio-mixer")
+	runEditorCommand(t, app, ed, editor.CmdAudioMixer)
 	app.Type("id:mixer-new-bus-name", "alpha")
 	app.Press("id:mixer-add-bus")
 	app.Type("id:mixer-new-bus-name", "beta")
@@ -490,7 +490,7 @@ func TestAudioMixerAuditionAppliesBusVolumeAndEffectsLikeRuntime(t *testing.T) {
 	})
 
 	// Open the Audio Mixer panel, pick audio/impulse.wav, and press Audition.
-	app.Press("id:toolbar-audio-mixer")
+	runEditorCommand(t, app, ed, editor.CmdAudioMixer)
 	app.Press("id:mixer-audition-file")
 	app.Press("role:option " + audioRel)
 	app.Press("id:mixer-audition-play")
@@ -597,7 +597,7 @@ func TestAudioMixerAuditionAppliesBusVolumeAndEffectsLikeRuntime(t *testing.T) {
 	}
 
 	// Undo while auditioning reverts the LowPass and immediately restores the Reverb-only playback.
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	app.Settle()
 	if len(app.Players) != 3 {
 		t.Fatalf("len(app.Players) after Undo = %d, want 3", len(app.Players))

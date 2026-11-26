@@ -81,19 +81,23 @@ func RightRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 									})
 								},
 								Else: func(cx *core.Scope) core.Node {
+									wsMemo := core.NewMemo(cx, func() string {
+										_ = rev.Get()
+										return ed.workspaceStateKey()
+									})
 									return core.Dynamic(func(cx *core.Scope) core.Node {
 										p := SpecPaletteFor(darkMemo.Get())
 										return core.View{
 											TestID: "right-rail-inspector-wrap",
 											Style: core.Style{
-												Width:       core.Pt(272),
+												Width:       core.Pt(380),
 												FlexShrink:  0,
 												Background:  p.Panel,
 												Borders:     core.Edges{Left: 1},
 												BorderColor: p.Line,
 											},
 											Children: []core.Node{
-												rightRailTabBar(cx, ed, rev, p, false),
+												rightRailTabBar(cx, ed, rev, p, true),
 												core.View{
 													Style: core.Style{
 														Direction: core.Row,
@@ -102,7 +106,15 @@ func RightRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 														MinHeight: core.Pt(0),
 														Overflow:  core.Hidden,
 													},
-													Children: []core.Node{InspectorView(cx, ed, rev)},
+													Children: []core.Node{
+														core.Dynamic(func(cx *core.Scope) core.Node {
+															_ = wsMemo.Get()
+															if stateNode := inspectorWorkspaceStateView(cx, ed, ed.WorkspaceState()); stateNode != nil {
+																return stateNode
+															}
+															return InspectorView(cx, ed, rev)
+														}),
+													},
 												},
 											},
 										}
@@ -119,19 +131,32 @@ func RightRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 
 // rightRailTabBar renders the 44 pt Agent / Inspector header bar matching docs/design/editor/Main.dc.html and AgentStates.dc.html.
 func rightRailTabBar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p SpecPalette, showFullChip bool) core.Node {
-	tabBtn := func(testID, label string, tab RightRailTab) core.Node {
+	agentTabRef := &core.Ref{}
+	inspectorTabRef := &core.Ref{}
+	if ed.focus.ctrl != nil {
+		ed.focus.ctrl.registerCandidate(cx, RegionInspector, agentTabRef, nil)
+		ed.focus.ctrl.registerCandidate(cx, RegionInspector, inspectorTabRef, nil)
+	}
+	shortcutTip := func(name, cmdID string) string {
+		if sc := ed.EffectiveShortcut(cmdID); sc != "" {
+			return specShortcutTip(name, FormatShortcut(sc, cx.Env().OS()))
+		}
+		return name
+	}
+	tabBtn := func(ref *core.Ref, testID, label, cmdID string, tab RightRailTab) core.Node {
 		children := []core.Node{
 			core.Text{
 				Content: label,
 				StyleFunc: func() core.Style {
 					_ = rev.Get()
-					col := p.TextFaint
+					cur := ed.SpecPalette(cx)
+					col := cur.TextFaint
 					if ed.RightRailTab() == tab {
-						col = p.TextPrimary
+						col = cur.TextPrimary
 					}
 					return core.Style{
 						FontSize:   12.5,
-						FontWeight: 500,
+						FontWeight: core.FontWeightMedium,
 						Color:      col,
 					}
 				},
@@ -147,11 +172,13 @@ func rightRailTabBar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p Spe
 					return core.View{
 						TestID: "agent-tab-pending-dot",
 						Label:  ed.T("agentTurn.reviewWaiting"),
-						Style: core.Style{
-							Width:        core.Pt(6),
-							Height:       core.Pt(6),
-							CornerRadius: 3,
-							Background:   p.Accent.Fg,
+						StyleFunc: func() core.Style {
+							return core.Style{
+								Width:        core.Pt(6),
+								Height:       core.Pt(6),
+								CornerRadius: 3,
+								Background:   ed.SpecPalette(cx).Accent.Fg,
+							}
 						},
 					}
 				},
@@ -175,31 +202,43 @@ func rightRailTabBar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p Spe
 				},
 			})
 		}
-		return core.View{
-			TestID: testID,
-			Role:   core.RoleButton,
-			Label:  label,
+		return base.Radio{
+			Ref:     ref,
+			TestID:  testID,
+			Label:   label,
+			Tooltip: specTooltipNode(p, shortcutTip(label, cmdID)),
+			Checked: func() bool {
+				_ = rev.Get()
+				return ed.RightRailTab() == tab
+			},
+			OnChange: func(checked bool) {
+				if checked {
+					ed.SetRightRailTab(tab)
+				}
+			},
 			StyleFunc: func() core.Style {
 				_ = rev.Get()
+				cur := ed.SpecPalette(cx)
 				active := ed.RightRailTab() == tab
-				var bg core.Color
+				bg := core.Transparent
 				if active {
-					bg = p.Raised
+					bg = cur.Raised
 				}
 				return core.Style{
 					Direction:      core.Row,
 					Gap:            6,
-					Height:         core.Pt(30),
-					Padding:        core.Symmetric(0, 12),
-					CornerRadius:   8,
+					Height:         core.Pt(specButtonHeight),
+					MinHeight:      core.Pt(specRowHeight),
+					MinWidth:       core.Pt(specRowHeight),
+					Padding:        core.Symmetric(0, specSpace12),
+					CornerRadius:   specRadiusButton,
 					AlignItems:     core.AlignCenter,
 					JustifyContent: core.JustifyCenter,
 					Background:     bg,
-					FocusVisible:   p.FocusRing(2),
+					Cursor:         core.CursorPointer,
+					Hover:          &core.Style{Background: cur.Raised},
+					FocusVisible:   cur.FocusRing(2),
 				}
-			},
-			OnPress: func(core.PressEvent) {
-				ed.SetRightRailTab(tab)
 			},
 			Children: children,
 		}
@@ -254,28 +293,30 @@ func rightRailTabBar(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p Spe
 	return core.View{
 		TestID: "right-rail-header",
 		Style: core.Style{
-			MinHeight:   core.Pt(44),
+			MinHeight:   core.Pt(specHeaderHeight),
 			FlexShrink:  0,
 			Direction:   core.Row,
 			Wrap:        core.Wrap,
 			AlignItems:  core.AlignCenter,
-			Gap:         6,
-			Padding:     core.Symmetric(7, 10),
+			Gap:         specSpace8,
+			Padding:     core.Symmetric(7, specSpace12),
 			Background:  p.Panel,
 			Borders:     core.Edges{Bottom: 1},
 			BorderColor: p.Line,
 		},
 		Children: []core.Node{
-			core.View{
+			base.RadioGroup{
+				TestID: "right-rail-tabs",
+				Label:  ed.T("region.inspector"),
 				Style: core.Style{
 					Direction:  core.Row,
 					AlignItems: core.AlignCenter,
-					Gap:        4,
+					Gap:        specSpace4,
 					FlexShrink: 0,
 				},
 				Children: []core.Node{
-					tabBtn("right-tab-agent", ed.T("agent.tab"), RightTabAgent),
-					tabBtn("right-tab-inspector", ed.T("inspector.title"), RightTabInspector),
+					tabBtn(agentTabRef, "right-tab-agent", ed.T("agent.tab"), CmdAgentTab, RightTabAgent),
+					tabBtn(inspectorTabRef, "right-tab-inspector", ed.T("inspector.title"), CmdInspectorTab, RightTabInspector),
 				},
 			},
 			core.View{Style: core.Style{FlexGrow: 1}},
@@ -297,10 +338,12 @@ func compactAgentChip(ed *Editor, rev *core.Signal[uint64], p SpecPalette) core.
 		Style: core.Style{
 			Direction:    core.Row,
 			AlignItems:   core.AlignCenter,
-			Height:       core.Pt(24),
+			Height:       core.Pt(specRowHeight),
+			MinHeight:    core.Pt(specRowHeight),
+			MinWidth:     core.Pt(specRowHeight),
 			Padding:      core.Symmetric(0, 8),
 			Gap:          6,
-			CornerRadius: 12,
+			CornerRadius: 14,
 			BorderWidth:  1,
 			BorderColor:  p.LineRaised,
 			FocusVisible: p.FocusRing(2),
@@ -455,7 +498,9 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 				Style: core.Style{
 					Direction:    core.Row,
 					AlignItems:   core.AlignCenter,
-					Height:       core.Pt(24),
+					Height:       core.Pt(specRowHeight),
+					MinHeight:    core.Pt(specRowHeight),
+					MinWidth:     core.Pt(specRowHeight),
 					Padding:      core.Symmetric(0, 10),
 					Gap:          6,
 					CornerRadius: 12,
@@ -582,10 +627,12 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 				Style: core.Style{
 					Direction:    core.Row,
 					AlignItems:   core.AlignCenter,
-					Height:       core.Pt(24),
+					Height:       core.Pt(specRowHeight),
+					MinHeight:    core.Pt(specRowHeight),
+					MinWidth:     core.Pt(specRowHeight),
 					Padding:      core.Symmetric(0, 10),
 					Gap:          6,
-					CornerRadius: 12,
+					CornerRadius: 14,
 					Background:   p.Warning.Fill,
 					BorderWidth:  1,
 					BorderColor:  p.Warning.Edge,
@@ -703,7 +750,9 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 						Role:   core.RoleButton,
 						Label:  "Reconnect",
 						Style: core.Style{
-							Height:         core.Pt(24),
+							Height:         core.Pt(specRowHeight),
+							MinHeight:      core.Pt(specRowHeight),
+							MinWidth:       core.Pt(specRowHeight),
 							Padding:        core.Symmetric(0, 8),
 							CornerRadius:   6,
 							AlignItems:     core.AlignCenter,
@@ -731,7 +780,9 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 						Role:   core.RoleButton,
 						Label:  "Troubleshoot",
 						Style: core.Style{
-							Height:         core.Pt(24),
+							Height:         core.Pt(specRowHeight),
+							MinHeight:      core.Pt(specRowHeight),
+							MinWidth:       core.Pt(specRowHeight),
 							Padding:        core.Symmetric(0, 8),
 							CornerRadius:   6,
 							AlignItems:     core.AlignCenter,
@@ -864,7 +915,9 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 				Style: core.Style{
 					Direction:    core.Row,
 					AlignItems:   core.AlignCenter,
-					Height:       core.Pt(24),
+					Height:       core.Pt(specRowHeight),
+					MinHeight:    core.Pt(specRowHeight),
+					MinWidth:     core.Pt(specRowHeight),
 					Padding:      core.Symmetric(0, 10),
 					Gap:          6,
 					CornerRadius: 12,

@@ -41,11 +41,11 @@ func checkOneUndoStep(t *testing.T, app *nsgotest.App, ed *editor.Editor, before
 	if bytes.Equal(after, before) {
 		t.Fatal("the drag left the scene as it was")
 	}
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	if got := saveYAML(t, ed); !bytes.Equal(got, before) {
 		t.Fatalf("Undo left the scene\n%s\nwant\n%s", got, before)
 	}
-	app.Press("id:toolbar-redo")
+	redoInUI(app, ed)
 	if got := saveYAML(t, ed); !bytes.Equal(got, after) {
 		t.Fatalf("Redo made the scene\n%s\nwant\n%s", got, after)
 	}
@@ -574,7 +574,7 @@ func TestTopLeftPivotKeepsTheMoveSquare(t *testing.T) {
 		t.Fatalf("a drag of the move square left the hero at (%v, %v) scale (%v, %v), want (45, 42) unscaled", h.X, h.Y, h.ScaleX, h.ScaleY)
 	}
 	checkOneUndoStep(t, app, ed, before)
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	cx, cy := ed.WorldToCanvas(56, 56)
 	app.DragAt("id:editor-viewport", pt(cx, cy), pt(32, 32))
 	h, _, _ = ed.FindObject("hero")

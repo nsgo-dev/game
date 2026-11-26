@@ -362,8 +362,11 @@ func TestUnsavedMarkerAndModS(t *testing.T) {
 	if app.Exists("id:toolbar-unsaved") || app.Title != "scenes/room.yaml - NSGo Scene Editor" {
 		t.Fatalf("a clean scene shows the marker (%v), title %q", app.Exists("id:toolbar-unsaved"), app.Title)
 	}
-	if got := app.Find("id:toolbar-scene-path").Text; got != "scenes/room.yaml" {
-		t.Fatalf("the toolbar shows %q, want the scene's path", got)
+	if got := strings.TrimSpace(allText(app.Find("id:toolbar-file"))); got != "room" {
+		t.Fatalf("the header breadcrumb shows %q, want room", got)
+	}
+	if got := strings.TrimSpace(allText(app.Find("id:rail-file-scene"))); got != "scenes/room.yaml" {
+		t.Fatalf("the left rail FILES shows %q, want scenes/room.yaml", got)
 	}
 	app.Press("id:toolbar-file")
 	app.Settle()
@@ -382,13 +385,11 @@ func TestUnsavedMarkerAndModS(t *testing.T) {
 	if !app.Exists("id:toolbar-unsaved") || app.Title != "scenes/room.yaml* - NSGo Scene Editor" {
 		t.Fatalf("an edit shows no marker (%v), title %q", app.Exists("id:toolbar-unsaved"), app.Title)
 	}
-	app.Press("id:toolbar-undo")
-	app.Settle()
+	undoInUI(app, ed)
 	if app.Exists("id:toolbar-unsaved") || strings.Contains(app.Title, "*") {
 		t.Fatalf("undoing back to the saved state keeps the marker, title %q", app.Title)
 	}
-	app.Press("id:toolbar-redo")
-	app.Settle()
+	redoInUI(app, ed)
 	if !app.Exists("id:toolbar-unsaved") {
 		t.Fatal("redoing the edit shows no marker")
 	}
@@ -424,8 +425,7 @@ func TestUnsavedMarkerAndModS(t *testing.T) {
 	if obj, _, _ := ed.FindObject("hero"); obj.X != 70 || app.Exists("id:toolbar-unsaved") {
 		t.Fatalf("after Revert hero is at %v, marker %v", obj.X, app.Exists("id:toolbar-unsaved"))
 	}
-	app.Press("id:toolbar-undo")
-	app.Settle()
+	undoInUI(app, ed)
 	if obj, _, _ := ed.FindObject("hero"); obj.X != 1 || !app.Exists("id:toolbar-unsaved") {
 		t.Fatalf("after undoing Revert hero is at %v, marker %v", obj.X, app.Exists("id:toolbar-unsaved"))
 	}
@@ -436,6 +436,7 @@ func TestOpenFromTheFileBrowserOpensTabs(t *testing.T) {
 	ed, dir := openTestProject(t)
 	_ = ed.SetAutoSave(false)
 	app := startEditorApp(t, ed)
+	openFileBrowserInUI(app, ed)
 	edit := func(x float32) {
 		app.Post(func() {
 			if err := ed.MoveObject("hero", x, x); err != nil {
@@ -540,8 +541,8 @@ func TestNewSceneAndSaveAsFromTheToolbar(t *testing.T) {
 	app.Settle()
 	app.Press("id:scene-path-confirm")
 	app.Settle()
-	if ed.ScenePath != "levels/first.scene.yaml" || app.Find("id:toolbar-scene-path").Text != "levels/first.scene.yaml" {
-		t.Fatalf("after New: ScenePath %q, status %q", ed.ScenePath, ed.Status)
+	if got := strings.TrimSpace(allText(app.Find("id:toolbar-file"))); ed.ScenePath != "levels/first.scene.yaml" || got != "first" {
+		t.Fatalf("after New: ScenePath %q, toolbar-file %q, status %q", ed.ScenePath, got, ed.Status)
 	}
 	app.Post(func() {
 		if _, err := ed.PlaceObject("main", sceneformat.ObjectDoc{ID: "door", X: 10, Y: 20}); err != nil {
@@ -549,8 +550,7 @@ func TestNewSceneAndSaveAsFromTheToolbar(t *testing.T) {
 		}
 	})
 	app.Settle()
-	app.Press("id:toolbar-save")
-	app.Settle()
+	saveInUI(app, ed)
 	if ed.SceneDirty() {
 		t.Fatalf("Save left the new scene dirty, status %q", ed.Status)
 	}
@@ -825,6 +825,7 @@ func TestSearchResultOpensAnotherSceneInATab(t *testing.T) {
 		}
 	})
 	app.Settle()
+	openFileBrowserInUI(app, ed)
 	app.Press("id:files-search")
 	app.Settle()
 	app.Type("id:project-search-input", "goblin_king")

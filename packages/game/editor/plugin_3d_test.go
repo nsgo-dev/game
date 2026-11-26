@@ -196,7 +196,7 @@ func TestPluginTool3DDrawsAndReceivesPressRay(t *testing.T) {
 	var withPlugin, withoutPlugin core.Drawing
 	cw, ch := ed.CanvasSize()
 	ed.DrawViewport(&withPlugin, core.Size{Width: core.Points(cw), Height: core.Points(ch)})
-	app.Press("id:tool3d-select")
+	app.Press("id:tool-select")
 	ed.DrawViewport(&withoutPlugin, core.Size{Width: core.Points(cw), Height: core.Points(ch)})
 	if len(withPlugin.Ops) <= len(withoutPlugin.Ops) {
 		t.Fatalf("expected 3D plugin tool to emit draw ops: with=%d without=%d", len(withPlugin.Ops), len(withoutPlugin.Ops))

@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"math"
 	"slices"
 	"strings"
 
@@ -167,33 +166,20 @@ func (e *Editor) ToggleSelectObject(id string) bool {
 }
 
 // SetViewportPointer2D records the mouse pointer's canvas position over the 2D viewport
-// so Paste can place copied objects at the pointer.
+// so Paste can place copied objects at the pointer and the status bar can display live coordinates.
 func (e *Editor) SetViewportPointer2D(canvasX, canvasY float32) {
 	if e == nil || !isFiniteFloat32(canvasX) || !isFiniteFloat32(canvasY) {
 		return
 	}
 	pos := math2d.Vec2{X: canvasX, Y: canvasY}
-	prevHas := e.hasPointer2D
-	prevPos := e.pointer2D
-	changed := !prevHas || prevPos != pos
+	changed := !e.hasPointer2D || e.pointer2D != pos
 	if changed {
 		e.pasteStreak = 0
 	}
 	e.pointer2D = pos
 	e.hasPointer2D = true
-	if changed && e.SketchActive() {
-		// Only notify when the rounded integer scene coordinates shown in the status bar change,
-		// avoiding 120 Hz rev storms across the whole editor on sub-pixel mouse movement.
-		wx, wy := e.CanvasToWorld(pos.X, pos.Y)
-		rx, ry := int(math.Round(float64(wx))), int(math.Round(float64(wy)))
-		if !prevHas {
-			e.notify()
-		} else {
-			pwx, pwy := e.CanvasToWorld(prevPos.X, prevPos.Y)
-			if rx != int(math.Round(float64(pwx))) || ry != int(math.Round(float64(pwy))) {
-				e.notify()
-			}
-		}
+	if changed {
+		e.notifyPointer()
 	}
 }
 
@@ -204,11 +190,15 @@ func (e *Editor) SetViewportPointer3D(canvasX, canvasY float32) {
 		return
 	}
 	pos := [2]float32{canvasX, canvasY}
-	if !e.hasPointer3D || e.pointer3D != pos {
+	changed := !e.hasPointer3D || e.pointer3D != pos
+	if changed {
 		e.pasteStreak = 0
 	}
 	e.pointer3D = pos
 	e.hasPointer3D = true
+	if changed {
+		e.notifyPointer()
+	}
 }
 
 // ClearViewportPointer clears any recorded viewport pointer position.
@@ -216,8 +206,52 @@ func (e *Editor) ClearViewportPointer() {
 	if e == nil {
 		return
 	}
+	changed := e.hasPointer2D || e.hasPointer3D
 	e.hasPointer2D = false
 	e.hasPointer3D = false
+	if changed {
+		e.notifyPointer()
+	}
+}
+
+// PointerRevision returns a counter incremented whenever the viewport pointer position changes.
+func (e *Editor) PointerRevision() uint64 {
+	if e == nil {
+		return 0
+	}
+	return e.pointerRev
+}
+
+// SubscribePointer registers fn to run when the viewport pointer coordinate changes and returns an unsubscribe func.
+func (e *Editor) SubscribePointer(fn func()) func() {
+	if e == nil || fn == nil {
+		return func() {}
+	}
+	e.nextPointerListener++
+	id := e.nextPointerListener
+	if e.pointerListeners == nil {
+		e.pointerListeners = make(map[uint64]func())
+	}
+	e.pointerListeners[id] = fn
+	return func() {
+		delete(e.pointerListeners, id)
+	}
+}
+
+func (e *Editor) notifyPointer() {
+	e.pointerRev++
+	for _, fn := range e.pointerListeners {
+		fn()
+	}
+}
+
+// ViewportPointer2DWorld returns the current 2D viewport pointer coordinates in world space, or (0, 0, false) when none.
+func (e *Editor) ViewportPointer2DWorld() (x, y float32, ok bool) {
+	if e == nil || !e.hasPointer2D {
+		return 0, 0, false
+	}
+	wx, wy := e.CanvasToWorld(e.pointer2D.X, e.pointer2D.Y)
+	return wx, wy, true
 }
 
 func (e *Editor) cancelActiveObjectDrags() {

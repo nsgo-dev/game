@@ -380,8 +380,7 @@ func TestToastProgressHandleAndExportIntegration(t *testing.T) {
 		}, nsgotest.Size(1440, 900), nsgotest.Environment(toastDesktopEnv(true, true)))
 
 		// Open Settings > Export (no viewport on screen -> toast anchors at window bottom center, 24 px up).
-		app.Press("id:toolbar-export")
-		app.Settle()
+		runEditorCommand(t, app, ed, editor.CmdExport)
 
 		app.Post(func() {
 			if err := ed.StartExportBuild(editor.ExportBuildOptions{Targets: []string{"macos_arm64"}}); err != nil {
@@ -549,10 +548,10 @@ func TestToastKeyboardEscFocusReturnAndMotion(t *testing.T) {
 		}, nsgotest.Size(1440, 900), nsgotest.Environment(toastDesktopEnv(true, true)), nsgotest.ManualFrames())
 
 		// Focus a specific control in Header.
-		app.Focus("id:toolbar-editor-settings")
+		app.Focus("id:toolbar-history")
 		app.Settle()
-		if fv := focusedView(app); fv == nil || fv.Props.TestID != "toolbar-editor-settings" {
-			t.Fatalf("initial focus = %v, want toolbar-editor-settings", fv)
+		if fv := focusedView(app); fv == nil || fv.Props.TestID != "toolbar-history" {
+			t.Fatalf("initial focus = %v, want toolbar-history", fv)
 		}
 
 		// Showing a toast must NEVER steal focus, and mounts inside a polite role="status" live region.
@@ -569,7 +568,7 @@ func TestToastKeyboardEscFocusReturnAndMotion(t *testing.T) {
 		if host.Props.Role != core.RoleStatus || host.Props.LiveRegion != core.LiveRegionPolite {
 			t.Fatalf("editor-toast-host Role=%v LiveRegion=%v, want RoleStatus + LiveRegionPolite", host.Props.Role, host.Props.LiveRegion)
 		}
-		if fv := focusedView(app); fv == nil || fv.Props.TestID != "toolbar-editor-settings" {
+		if fv := focusedView(app); fv == nil || fv.Props.TestID != "toolbar-history" {
 			t.Fatalf("showing toast stole focus: got %v", fv)
 		}
 
@@ -589,17 +588,17 @@ func TestToastKeyboardEscFocusReturnAndMotion(t *testing.T) {
 			t.Fatalf("Tab inside toast focused %v, want editor-toast-dismiss", fv)
 		}
 
-		// Pressing Esc dismisses the focused toast and returns focus to toolbar-editor-settings!
+		// Pressing Esc dismisses the focused toast and returns focus to toolbar-history!
 		app.Key("escape")
 		if ed.HasActiveToast() || app.Exists("id:editor-toast") {
 			t.Fatal("Esc did not dismiss focused toast")
 		}
-		if fv := focusedView(app); fv == nil || fv.Props.TestID != "toolbar-editor-settings" {
+		if fv := focusedView(app); fv == nil || fv.Props.TestID != "toolbar-history" {
 			gotID := "<nil>"
 			if fv != nil {
 				gotID = fv.Props.TestID
 			}
-			t.Fatalf("after Esc dismissed toast, focus = %q, want toolbar-editor-settings", gotID)
+			t.Fatalf("after Esc dismissed toast, focus = %q, want toolbar-history", gotID)
 		}
 	})
 

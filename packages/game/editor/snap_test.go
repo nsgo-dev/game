@@ -531,18 +531,19 @@ func TestSnapToolbarPopoverAndCompactLayout(t *testing.T) {
 	ed := newTestEditor(t)
 	app := mountEditor(t, ed)
 
-	// Verify snap controls sit on the same row as the existing 2D view buttons and don't add a new toolbar row at 1120x680.
-	snapToggle := app.Find("id:view-snap-grid")
-	snapBtn := app.Find("id:view-snap-settings")
-	if snapToggle == nil || snapBtn == nil {
-		t.Fatal("snap toolbar controls not found")
+	// Verify 2D viewport bar Snap switch works and header stays 44 pt single-row at 1120x680.
+	snapToggle := app.Find("id:viewport-bar-snap")
+	if snapToggle == nil {
+		t.Fatal("viewport-bar-snap control not found")
 	}
-	if math.Abs(float64(snapToggle.Bounds().Origin.Y-snapBtn.Bounds().Origin.Y)) > 16 {
-		t.Fatalf("view-snap-settings wrapped onto a different row than view-snap-grid (%v vs %v)", snapBtn.Bounds().Origin.Y, snapToggle.Bounds().Origin.Y)
+	if h := app.Find("id:editor-toolbar").Bounds().Size.Height; math.Abs(float64(h-44)) > 1 {
+		t.Fatalf("editor-toolbar height = %v, want 44", h)
 	}
 
-	// Open the Snap Settings popover and toggle every setting via UI.
-	app.Press("id:view-snap-settings")
+	// Switch to 3D where the Snap Settings popover lives and toggle every setting via UI.
+	app.Press("id:view-mode-3d")
+	app.Settle()
+	app.Press("id:view3d-snap-settings")
 	app.Press("id:snap-show-grid")
 	app.Press("id:snap-grid-toggle")
 	app.Press("id:snap-pixel-toggle")

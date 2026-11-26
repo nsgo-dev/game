@@ -400,7 +400,7 @@ func TestNavRegionUIWorkflowOverlayToggleAndTestPathTool(t *testing.T) {
 	if !ed.ShowNavMesh2D {
 		t.Fatal("expected ShowNavMesh2D true by default")
 	}
-	app.Press("id:view-navmesh2d-overlay")
+	runEditorCommand(t, app, ed, editor.CmdToggleNavMesh2D)
 	if ed.ShowNavMesh2D {
 		t.Fatal("expected ShowNavMesh2D false after pressing overlay toggle")
 	}
@@ -408,7 +408,7 @@ func TestNavRegionUIWorkflowOverlayToggleAndTestPathTool(t *testing.T) {
 	if len(opsOff) >= len(opsOn) {
 		t.Fatalf("expected disabling 2D navmesh overlay to reduce canvas draw ops: on=%d off=%d", len(opsOn), len(opsOff))
 	}
-	app.Press("id:view-navmesh2d-overlay")
+	runEditorCommand(t, app, ed, editor.CmdToggleNavMesh2D)
 	if !ed.ShowNavMesh2D {
 		t.Fatal("expected ShowNavMesh2D true after pressing overlay toggle again")
 	}
@@ -425,8 +425,9 @@ func TestNavRegionUIWorkflowOverlayToggleAndTestPathTool(t *testing.T) {
 	}
 	checkOneUndoStep(t, app, ed, before)
 
-	// Activate Test Path tool via toolbar button, click start and end, then clear with Escape.
-	app.Press("id:tool-nav-test-path")
+	// Activate Test Path tool, click start and end, then clear with Escape.
+	app.Post(func() { ed.SetTool(editor.ToolNavTestPath) })
+	app.Settle()
 	if ed.Tool != editor.ToolNavTestPath {
 		t.Fatalf("Tool = %v, want ToolNavTestPath", ed.Tool)
 	}

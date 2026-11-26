@@ -135,8 +135,8 @@ func TestProblemsPanelMissingAtlasFrameFixAndSave(t *testing.T) {
 	if app.Exists("id:problems-panel") {
 		t.Fatal("problems panel shown before a project is open")
 	}
-	if app.Exists("id:status-problems") {
-		t.Fatal("status-problems shown before a project is open")
+	if got := strings.TrimSpace(allText(app.Find("id:status-problems"))); got != "No problems" {
+		t.Fatalf("status-problems before project open = %q, want No problems", got)
 	}
 
 	app.Post(func() {
@@ -200,7 +200,7 @@ func TestProblemsPanelMissingAtlasFrameFixAndSave(t *testing.T) {
 		ed.Rebuild()
 	})
 	app.Settle()
-	app.Press("id:toolbar-save")
+	saveInUI(app, ed)
 	app.WaitUntil(10*time.Second, func() bool {
 		return !ed.CheckingProblems() && ed.ProblemCount() == 0
 	})
@@ -209,8 +209,8 @@ func TestProblemsPanelMissingAtlasFrameFixAndSave(t *testing.T) {
 	if len(ed.Problems()) != 0 {
 		t.Fatalf("problems after fix and save = %+v, want empty", ed.Problems())
 	}
-	if got := strings.TrimSpace(allText(app.Find("id:status-problems"))); got != "Problems: 0" {
-		t.Fatalf("status-problems after fix = %q, want %q", got, "Problems: 0")
+	if got := strings.TrimSpace(allText(app.Find("id:status-problems"))); got != "No problems" {
+		t.Fatalf("status-problems after fix = %q, want %q", got, "No problems")
 	}
 	if !app.Exists("id:problems-empty") {
 		t.Fatal("problems-empty not shown after clearing all problems")

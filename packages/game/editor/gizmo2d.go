@@ -249,9 +249,13 @@ func (g gizmo2D) scaleShown(h GizmoHandle2D) bool {
 	return h.IsScale() && g.scale[h-Handle2DScaleN]
 }
 
-// Gizmo2DShown reports whether the 2D viewport shows the transform gizmo: on the selected object(s), nested children included, in 2D, with the Select or Move tool, outside Play. Objects hidden or locked in the editor (SetObjectHidden, SetObjectLocked), or under one that is, have no gizmo.
+func isTransformTool2D(t Tool) bool {
+	return t == ToolSelect || t == ToolMove || t == ToolRotate || t == ToolScale
+}
+
+// Gizmo2DShown reports whether the 2D viewport shows the transform gizmo: on the selected object(s), nested children included, in 2D, with the Select, Move, Rotate, or Scale tool, outside Play. Objects hidden or locked in the editor (SetObjectHidden, SetObjectLocked), or under one that is, have no gizmo.
 func (e *Editor) Gizmo2DShown() bool {
-	if e == nil || e.playing || e.ViewMode != ViewMode2D || (e.Tool != ToolSelect && e.Tool != ToolMove) {
+	if e == nil || e.playing || e.ViewMode != ViewMode2D || !isTransformTool2D(e.Tool) {
 		return false
 	}
 	if len(e.draggableSelectedIDs()) == 0 {
@@ -522,7 +526,7 @@ func (e *Editor) Dragging2D() GizmoHandle2D {
 
 // BeginDrag2D starts a drag in the 2D viewport at the canvas point (x, y), where the pointer went down, with the Select or Move tool: on a handle of the selected object's gizmo (PickGizmo2D) it takes that handle, and on another object it selects that object and moves it. A nested child is dragged in its parent's space, so it follows the pointer under a turned or scaled parent. It returns the handle taken, Handle2DNone when the press is on nothing, another drag is under way, the tool or view mode is another, the scene plays, or the object is hidden or locked in the editor or under one that is. The drag changes the object as UpdateDrag2D says and is recorded by EndDrag2D as one undoable step.
 func (e *Editor) BeginDrag2D(x, y float32) GizmoHandle2D {
-	if e == nil || e.playing || e.HistoryPreviewActive() || e.ViewMode != ViewMode2D || (e.Tool != ToolSelect && e.Tool != ToolMove) || e.drag2D.handle != Handle2DNone || !isFiniteFloat32(x) || !isFiniteFloat32(y) {
+	if e == nil || e.playing || e.HistoryPreviewActive() || e.ViewMode != ViewMode2D || !isTransformTool2D(e.Tool) || e.drag2D.handle != Handle2DNone || !isFiniteFloat32(x) || !isFiniteFloat32(y) {
 		return Handle2DNone
 	}
 	h, idx := e.pickGizmo2DWithIndex(x, y)

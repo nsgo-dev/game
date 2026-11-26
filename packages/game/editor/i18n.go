@@ -153,6 +153,12 @@ func (e *Editor) localizedToolName(t Tool) string {
 		return e.T("tool.select")
 	case ToolMove:
 		return e.T("tool.move")
+	case ToolRotate:
+		return e.T("tool.rotate")
+	case ToolScale:
+		return e.T("tool.scale")
+	case ToolPan:
+		return e.T("tool.pan")
 	case ToolPlace:
 		return e.T("tool.place")
 	case ToolPaintTile:

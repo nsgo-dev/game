@@ -128,7 +128,8 @@ func TestPluginAddsTheWardPanelTheInspectorAndTheAdmitTool(t *testing.T) {
 	if ed.History.Index() != undos+1 || ed.History.UndoLabel() != "Heal All" {
 		t.Fatalf("Heal All added %d steps, labeled %q", ed.History.Index()-undos, ed.History.UndoLabel())
 	}
-	app.Press("id:toolbar-undo")
+	app.Post(func() { ed.Undo() })
+	app.Settle()
 	if got, want := app.Find("id:health-ward").Text, "ada 8/10\nbram 9/12\ncleo 9/10\ndov 4/8"; got != want {
 		t.Fatalf("Ward panel after Undo = %q, want %q", got, want)
 	}
@@ -147,7 +148,8 @@ func TestPluginAddsTheWardPanelTheInspectorAndTheAdmitTool(t *testing.T) {
 	if wx, wy := ed.CanvasToWorld(120, 80); admitted.X != wx || admitted.Y != wy || hp(ed, admitted.ID) != healthplugin.AdmitHP {
 		t.Fatalf("admitted %+v, want at (%v, %v) with %d hp", admitted, wx, wy, healthplugin.AdmitHP)
 	}
-	app.Press("id:toolbar-undo")
+	app.Post(func() { ed.Undo() })
+	app.Settle()
 	if got := health.Objects(ed.Doc); len(got) != 4 {
 		t.Fatalf("Undo left the admitted patient: %v", got)
 	}

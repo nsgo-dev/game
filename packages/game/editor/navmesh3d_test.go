@@ -274,7 +274,7 @@ func TestEditorNavMesh3DUIPanelBakeAndViewportOverlay(t *testing.T) {
 	if app.Exists("id:navmesh-panel") {
 		t.Fatal("navmesh-panel should start closed")
 	}
-	app.Press("id:toolbar-navmesh-panel")
+	runEditorCommand(t, app, ed, editor.CmdNavMeshPanel)
 	if !ed.NavMeshPanelOpen() || !app.Exists("id:navmesh-panel") {
 		t.Fatal("expected navmesh-panel to open after pressing toolbar-navmesh-panel")
 	}
@@ -381,8 +381,8 @@ func TestEditorNavMesh3DUIPanelBakeAndViewportOverlay(t *testing.T) {
 			baseFills, baseStrokes, baseLines, withFills, withStrokes, withLines)
 	}
 
-	// Toggle the 3D navmesh overlay OFF via toolbar button and confirm overlay draw ops disappear.
-	app.Press("id:toolbar-navmesh-overlay")
+	// Toggle the 3D navmesh overlay OFF and confirm overlay draw ops disappear.
+	app.Post(func() { ed.SetShowNavMesh3D(false) })
 	app.Settle()
 	if ed.ShowNavMesh3D {
 		t.Fatal("expected ShowNavMesh3D false after toggling toolbar-navmesh-overlay")

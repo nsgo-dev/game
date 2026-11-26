@@ -471,8 +471,9 @@ layers:
 		return editor.EditorView(cx, ed)
 	}, nsgotest.Size(1200, 1400))
 
-	// Press toolbar Collider gizmo button and verify GizmoMode switches to Gizmo3DCollider.
-	app.Press("id:gizmo-collider")
+	// Switch GizmoMode to Gizmo3DCollider.
+	app.Post(func() { ed.SetGizmoMode3D(editor.Gizmo3DCollider) })
+	app.Settle()
 	if ed.GizmoMode != editor.Gizmo3DCollider {
 		t.Fatalf("GizmoMode = %v, want Gizmo3DCollider", ed.GizmoMode)
 	}

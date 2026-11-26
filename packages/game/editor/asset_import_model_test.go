@@ -306,6 +306,7 @@ layers:
 	}, nsgotest.Size(1400, 900))
 
 	// Select models/ship.glb in the file browser.
+	openFileBrowserInUI(app, ed)
 	app.Press("id:files-row-models/ship.glb")
 	app.Settle()
 
@@ -554,6 +555,7 @@ layers:
 	}, nsgotest.Size(1400, 900))
 
 	// Select models/ship.glb in the file browser; verify game.yaml target is shown.
+	openFileBrowserInUI(app, ed)
 	app.Press("id:files-row-models/ship.glb")
 	app.Settle()
 	if got := allText(app.Find("id:import-asset-target")); !strings.Contains(got, "Model: assets/ship.glb") {

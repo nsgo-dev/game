@@ -173,7 +173,7 @@ func TestToolbarSaveWritesAnEditedProjectOnly(t *testing.T) {
 	}, nsgotest.Size(1120, 680))
 
 	// Saving the scene leaves an unedited game.yaml as written, its comment included.
-	app.Press("id:toolbar-save")
+	saveInUI(app, ed)
 	data, err := os.ReadFile(filepath.Join(dir, project.FileName))
 	if err != nil {
 		t.Fatal(err)
@@ -188,7 +188,7 @@ func TestToolbarSaveWritesAnEditedProjectOnly(t *testing.T) {
 		}
 	})
 	app.Settle()
-	app.Press("id:toolbar-save")
+	saveInUI(app, ed)
 	f, err := project.Check(os.DirFS(dir))
 	if err != nil || f.AppVersion != "1.1.0" {
 		t.Fatalf("after Save: %+v, %v", f, err)
@@ -245,7 +245,7 @@ func TestToolbarSaveWritesAProjectWithoutAMainScene(t *testing.T) {
 		}
 	})
 	app.Settle()
-	app.Press("id:toolbar-save")
+	saveInUI(app, ed)
 	f, err := project.Check(os.DirFS(dir))
 	if err != nil || f.AppVersion != "1.1.0" {
 		t.Fatalf("after Save: %+v, %v", f, err)

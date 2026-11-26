@@ -53,7 +53,9 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 	case withScene:
 		raw, err := os.ReadFile(scene)
 		if err != nil {
-			return loaderr.Locate(err, scene, nil, "check that the scene exists at this path and can be read")
+			openErr := loaderr.Locate(err, scene, nil, "check that the scene exists at this path and can be read")
+			e.recordSceneOpenError(scene, openErr)
+			return openErr
 		}
 		doc, err := sceneformat.ParseWith(raw, sceneformat.ParseOptions{
 			File:          scene,
@@ -64,12 +66,16 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 			if isSceneConflictFile(raw) {
 				conflictedScene = scene
 			} else {
-				return loaderr.WithFile(err, scene)
+				openErr := loaderr.WithFile(err, scene)
+				e.recordSceneOpenError(scene, openErr)
+				return openErr
 			}
 		} else {
 			enc, err := sceneformat.Encode(doc)
 			if err != nil {
-				return loaderr.WithFile(err, scene)
+				openErr := loaderr.WithFile(err, scene)
+				e.recordSceneOpenError(scene, openErr)
+				return openErr
 			}
 			openedDoc, openedSaved, openedPath, opened = doc, enc, scene, true
 		}
@@ -79,7 +85,9 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 				sceneFile := filepath.Join(filepath.Dir(path), filepath.FromSlash(s.Path))
 				raw, err := os.ReadFile(sceneFile)
 				if err != nil {
-					return fmt.Errorf("editor: main scene %q: %w", s.Name, loaderr.Locate(err, sceneFile, nil, "check that the scene exists at this path and can be read"))
+					openErr := fmt.Errorf("editor: main scene %q: %w", s.Name, loaderr.Locate(err, sceneFile, nil, "check that the scene exists at this path and can be read"))
+					e.recordSceneOpenError(sceneFile, openErr)
+					return openErr
 				}
 				doc, err := sceneformat.ParseWith(raw, sceneformat.ParseOptions{
 					File:          sceneFile,
@@ -90,12 +98,16 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 					if isSceneConflictFile(raw) {
 						conflictedScene = sceneFile
 					} else {
-						return fmt.Errorf("editor: main scene %q: %w", s.Name, loaderr.WithFile(err, sceneFile))
+						openErr := fmt.Errorf("editor: main scene %q: %w", s.Name, loaderr.WithFile(err, sceneFile))
+						e.recordSceneOpenError(sceneFile, openErr)
+						return openErr
 					}
 				} else {
 					enc, err := sceneformat.Encode(doc)
 					if err != nil {
-						return fmt.Errorf("editor: main scene %q: %w", s.Name, loaderr.WithFile(err, sceneFile))
+						openErr := fmt.Errorf("editor: main scene %q: %w", s.Name, loaderr.WithFile(err, sceneFile))
+						e.recordSceneOpenError(sceneFile, openErr)
+						return openErr
 					}
 					openedDoc, openedSaved, openedPath, opened = doc, enc, sceneFile, true
 				}
@@ -103,6 +115,9 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 			}
 		}
 	}
+	e.sceneOpenErr = nil
+	e.projectLoading = false
+	e.projectLoadingPath = ""
 	// Save the views of the project closing before replacing tabs.
 	e.saveViewStateQuietly()
 	if e.playing {

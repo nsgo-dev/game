@@ -68,7 +68,7 @@ func TestExportPanelAddPresetSaveGameProjectTargetsAndUndo(t *testing.T) {
 	}
 
 	// Open the Export panel from the toolbar.
-	app.Press("id:toolbar-export")
+	runEditorCommand(t, app, ed, editor.CmdExport)
 	app.Settle()
 	if !app.Exists("id:export-panel") {
 		t.Fatal("pressing toolbar-export did not open the panel")
@@ -106,7 +106,7 @@ func TestExportPanelAddPresetSaveGameProjectTargetsAndUndo(t *testing.T) {
 	app.Settle()
 
 	// Save via toolbar Save.
-	app.Press("id:toolbar-save")
+	saveInUI(app, ed)
 	app.Settle()
 
 	saved, err := project.Check(os.DirFS(dir))
@@ -130,7 +130,7 @@ func TestExportPanelAddPresetSaveGameProjectTargetsAndUndo(t *testing.T) {
 
 	// Undo every edit (6 steps: set output, add macos, toggle macos_arm64, add windows, toggle windows_x64, add web).
 	for range 6 {
-		app.Press("id:toolbar-undo")
+		undoInUI(app, ed)
 	}
 	app.Settle()
 	if ed.Project.Export != nil {
@@ -141,7 +141,7 @@ func TestExportPanelAddPresetSaveGameProjectTargetsAndUndo(t *testing.T) {
 	}
 
 	// Save after Undo and verify `gameproject targets` prints nothing.
-	app.Press("id:toolbar-save")
+	saveInUI(app, ed)
 	app.Settle()
 	stdout, _ = runBuiltTool(t, gameprojectBin, "targets", dir)
 	if got := strings.TrimSpace(stdout); got != "" {
@@ -150,7 +150,7 @@ func TestExportPanelAddPresetSaveGameProjectTargetsAndUndo(t *testing.T) {
 
 	// Redo brings the presets and output directory back.
 	for range 6 {
-		app.Press("id:toolbar-redo")
+		redoInUI(app, ed)
 	}
 	app.Settle()
 	if got := ed.Project.BuildTargets(); !reflect.DeepEqual(got, wantTargets) {
@@ -220,7 +220,7 @@ assets:
 		return editor.EditorView(cx, ed)
 	}, nsgotest.Size(1400, 900))
 
-	app.Press("id:toolbar-export")
+	runEditorCommand(t, app, ed, editor.CmdExport)
 	app.Settle()
 
 	// Configure channel=store, release notes, and Dry Run via the panel controls.
@@ -326,7 +326,7 @@ assets:
 	}, nsgotest.Size(1400, 900))
 
 	// Opening the Export panel runs the credits pre-flight automatically.
-	app.Press("id:toolbar-export")
+	runEditorCommand(t, app, ed, editor.CmdExport)
 	app.Settle()
 
 	report := ed.ExportCredits()
@@ -488,7 +488,7 @@ func TestExportPanelStreamingCancelFailureAndValidation(t *testing.T) {
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		return editor.EditorView(cx, ed)
 	}, nsgotest.Size(1400, 900))
-	app.Press("id:toolbar-export")
+	runEditorCommand(t, app, ed, editor.CmdExport)
 	app.Settle()
 
 	app.Press("id:export-build")

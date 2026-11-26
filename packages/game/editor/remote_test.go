@@ -471,7 +471,7 @@ func TestRemoteSceneTreeInspectorStepAndLiveChanges(t *testing.T) {
 	}
 
 	// One Undo restores the scene document byte-for-byte!
-	app.Press("id:toolbar-undo")
+	undoInUI(app, ed)
 	app.Settle()
 	afterUndo, err := sceneformat.Encode(ed.Doc)
 	if err != nil {
