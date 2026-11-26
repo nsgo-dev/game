@@ -321,8 +321,7 @@ func renderDockedPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], key
 				return ed.focus.ctrl.regionOutlineStyle(RegionSceneTree, base)
 			},
 			Children: []core.Node{
-				LeftRailSwitchView(cx, ed, rev),
-				SceneTreeView(cx, ed, rev),
+				leftRailSceneView(cx, ed, rev),
 			},
 		}
 	case PanelLayers:

@@ -225,6 +225,10 @@ func (e *Editor) SetLayersPanelOpen(open bool) {
 		return
 	}
 	e.layersPanelOpen = open
+	if open {
+		delete(e.dock.hidden, PanelLayers)
+		delete(e.dock.restoredAux, PanelLayers)
+	}
 	e.notify()
 }
 
@@ -237,6 +241,10 @@ func (e *Editor) SetFileBrowserOpen(open bool) {
 		return
 	}
 	e.fileBrowserOpen = open
+	if open {
+		delete(e.dock.hidden, PanelFiles)
+		delete(e.dock.restoredAux, PanelFiles)
+	}
 	e.notify()
 }
 
@@ -249,6 +257,10 @@ func (e *Editor) SetAssetBrowserOpen(open bool) {
 		return
 	}
 	e.assetBrowserOpen = open
+	if open {
+		delete(e.dock.hidden, PanelAssets)
+		delete(e.dock.restoredAux, PanelAssets)
+	}
 	e.notify()
 }
 
@@ -261,6 +273,10 @@ func (e *Editor) SetLibraryPanelOpen(open bool) {
 		return
 	}
 	e.libraryPanelOpen = open
+	if open {
+		delete(e.dock.hidden, PanelLibrary)
+		delete(e.dock.restoredAux, PanelLibrary)
+	}
 	e.notify()
 }
 
@@ -1323,7 +1339,7 @@ func leftRailSceneView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 		TestID: "editor-scene-column",
 		StyleFunc: func() core.Style {
 			cur := ed.SpecPalette(cx)
-			return core.Style{
+			return dockedStyle(cx, core.Style{
 				Width:       core.Pt(232),
 				FlexShrink:  0,
 				Background:  cur.Bg,
@@ -1331,7 +1347,7 @@ func leftRailSceneView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 				BorderColor: cur.Line,
 				MinHeight:   core.Pt(0),
 				Overflow:    core.Hidden,
-			}
+			})
 		},
 		Children: []core.Node{
 			LeftRailSwitchView(cx, ed, rev),

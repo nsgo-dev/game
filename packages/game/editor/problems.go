@@ -632,6 +632,9 @@ func (e *Editor) OpenProblem(p assetcheck.Problem) error {
 	e.selectFile(p.File)
 	if !isProjectScene(e.Project, p.File) {
 		e.fileBrowserOpen = true
+		delete(e.dock.hidden, PanelFiles)
+		delete(e.dock.restoredAux, PanelFiles)
+		e.revealPanelIfHiddenOrInactive(PanelFiles)
 	}
 	e.Status = "Selected " + loc
 	e.notify()
