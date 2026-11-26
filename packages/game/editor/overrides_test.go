@@ -1072,3 +1072,39 @@ layers:
 		t.Fatal("expected repeatY override to be cleared after pressing Repeat revert button")
 	}
 }
+
+// A live problem check finishing (here forced with CheckProblems) notifies without changing the layer, so the layer inspector keeps its rows instead of rebuilding them under the author's pointer.
+func TestLayerInspectorKeepsRowsAcrossProblemCheck(t *testing.T) {
+	_, ed := setupOverrideProject(t, map[string]string{
+		"scenes/level.scene.yaml": `version: 3
+inherits: scenes/base.scene.yaml
+layers:
+  - name: ground
+`,
+	})
+	if err := ed.SetLayerRepeat("sky", false, true, 0, 0); err != nil {
+		t.Fatalf("SetLayerRepeat: %v", err)
+	}
+	ed.SelectObject("")
+	if !ed.SetActiveLayer("sky") {
+		t.Fatal("SetActiveLayer(sky) returned false")
+	}
+	app := startEditorView(t, ed)
+	ed.WaitForProblems()
+	app.Settle()
+
+	ids := []string{"id:inspector-layer-name", "id:inspector-layer-parallax-x", "id:inspector-layer-repeat-x", "id:inspector-layer-revert-repeatX"}
+	before := make([]any, len(ids))
+	for i, sel := range ids {
+		before[i] = app.Find(sel).ID
+	}
+	app.Post(func() { ed.CheckProblems() })
+	app.Settle()
+	ed.WaitForProblems()
+	app.Settle()
+	for i, sel := range ids {
+		if got := app.Find(sel).ID; got != before[i] {
+			t.Errorf("%s was rebuilt by a problem check: view %v became %v", sel, before[i], got)
+		}
+	}
+}

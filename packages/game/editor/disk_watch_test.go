@@ -162,6 +162,8 @@ func TestDiskWatchReloadsCleanSceneAndRefusesOverwriteWhenDirty(t *testing.T) {
 func TestDiskConflictReloadAndKeepMine(t *testing.T) {
 	ed, dir := openTestProject(t)
 	ed.DiskWatchInterval = 20 * time.Millisecond
+	// Autosave saves kept edits after AutoSaveDelay; push it past the test so a slow runner never saves the dirty scene between steps.
+	ed.AutoSaveDelay = time.Hour
 	app := startEditorApp(t, ed)
 	scenePath := filepath.Join(dir, "scenes", "room.yaml")
 
@@ -191,6 +193,13 @@ func TestDiskConflictReloadAndKeepMine(t *testing.T) {
 	}
 
 	// Keep mine keeps editor edits, records disk version in History, and lets Save succeed.
+	keepID := app.Find("id:disk-conflict-keep").ID
+	// The live problem check the edit and the disk change started finishes now; the banner must stay mounted so the press lands.
+	ed.WaitForProblems()
+	app.Settle()
+	if got := app.Find("id:disk-conflict-keep").ID; got != keepID {
+		t.Fatalf("a problem check rebuilt the disk conflict banner: Keep mine view %v became %v", keepID, got)
+	}
 	app.Press("id:disk-conflict-keep")
 	app.Settle()
 	if app.Exists("id:disk-conflict-bar") || !ed.SceneDirty() {

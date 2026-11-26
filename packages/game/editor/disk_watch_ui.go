@@ -2,6 +2,7 @@ package editor
 
 import (
 	"fmt"
+	"reflect"
 
 	"github.com/nsgo-dev/game/packages/game/l10n"
 	"github.com/nsgo-dev/nsgo/base"
@@ -23,18 +24,38 @@ func diskWatchBannerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 			return ok
 		},
 		Then: func(cx *core.Scope) core.Node {
-			return core.Dynamic(func(cx *core.Scope) core.Node {
+			// Rebuild the banner only when what it shows changes, not on every notify: a live problem check or autosave finishing while the author presses Keep mine or Reload would otherwise remount the button under the press and drop it.
+			state := core.NewMemoFunc(cx, func() diskBannerState {
 				_ = rev.Get()
-				if conflict, ok := ed.PrimaryDiskConflict(); ok {
-					return diskConflictBarView(cx, ed, rev, conflict, colors)
+				var s diskBannerState
+				s.conflict, s.hasConflict = ed.PrimaryDiskConflict()
+				s.compareOpen = ed.DiskCompareOpen()
+				s.notice, s.hasNotice = ed.DiskReloadNotice()
+				s.diffOpen = ed.DiskReloadDiffOpen()
+				return s
+			}, func(a, b diskBannerState) bool { return reflect.DeepEqual(a, b) })
+			return core.Dynamic(func(cx *core.Scope) core.Node {
+				s := state.Get()
+				if s.hasConflict {
+					return diskConflictBarView(cx, ed, rev, s.conflict, colors)
 				}
-				if notice, ok := ed.DiskReloadNotice(); ok {
-					return diskReloadNoticeView(cx, ed, rev, notice, colors)
+				if s.hasNotice {
+					return diskReloadNoticeView(cx, ed, rev, s.notice, colors)
 				}
 				return core.View{}
 			})
 		},
 	}
+}
+
+// diskBannerState is everything diskWatchBannerView's banner is built from.
+type diskBannerState struct {
+	conflict    DiskConflict
+	hasConflict bool
+	compareOpen bool
+	notice      DiskReloadNotice
+	hasNotice   bool
+	diffOpen    bool
 }
 
 func diskConflictBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], conflict DiskConflict, colors ui.Colors) core.Node {

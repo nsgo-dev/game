@@ -77,7 +77,8 @@ func layerTilemapSection(
 		})
 	}
 
-	lNow := layer()
+	// Read the layer untracked: the enclosing inspector Dynamic already rebuilds when the tilemap's shape changes (inspectorSchemaKey includes layerTilemapSchemaTag), and tracking rev here would rebuild the whole layer inspector on every notify, such as a live problem check finishing, remounting its rows under a press and resetting the add-tilemap form.
+	lNow := core.Untracked(cx, layer)
 	if lNow == nil || lNow.Tilemap == nil {
 		tileset := core.NewSignal(cx, ed.defaultTileAtlas())
 		tileW := core.NewSignal(cx, 16)
