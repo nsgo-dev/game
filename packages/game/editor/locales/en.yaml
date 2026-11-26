@@ -86,6 +86,7 @@ strings:
   agent.rewind.modeBoth: files and conversation
   agent.rewind.modeConv: conversation only
   agent.rewind.modeFiles: files only
+  agent.rewind.redidStatus: Redid rewind
   agent.rewind.redo: Redo
   agent.rewind.title: Rewind to before this message
   agent.rewind.trigger: Rewind to here

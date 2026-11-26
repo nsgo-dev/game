@@ -86,6 +86,7 @@ strings:
   agent.rewind.modeBoth: 文件与对话
   agent.rewind.modeConv: 仅对话
   agent.rewind.modeFiles: 仅文件
+  agent.rewind.redidStatus: 已重做回退
   agent.rewind.redo: 重做
   agent.rewind.title: 回退到此消息之前
   agent.rewind.trigger: 回退到此处

@@ -270,6 +270,7 @@ func (e *Editor) startPlaySession(cx *core.Scope, playback *replay.Recording, st
 		// Pause the review screen so Play runs in the viewport on the untouched old code on disk.
 		e.CloseCodeReview()
 	}
+	e.CloseAgentRewindPopover()
 	e.endTileStrokeForChange()
 	e.endGridMapStrokeForChange()
 	e.endTerrainStrokeForChange()

@@ -5,7 +5,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -428,13 +430,23 @@ func TestAgentRewindContinuesSessionRebuildsOpenSceneAndGuards(t *testing.T) {
 	_, ed, sceneFile, _, _ := setupRewindProject(t)
 	defer ed.Close()
 
+	var mu sync.Mutex
 	var received []editor.AgentRequest
 	ed.AgentRunner = editor.AgentRunnerFunc(func(_ context.Context, req editor.AgentRequest, emit func(editor.AgentEvent)) error {
+		mu.Lock()
 		received = append(received, req)
+		mu.Unlock()
 		switch req.Prompt {
 		case "Add slime":
 			emit(editor.AgentEvent{Kind: editor.AgentEventSession, SessionID: "sess-1"})
-			doc := ed.Doc.Clone()
+			raw, err := os.ReadFile(sceneFile)
+			if err != nil {
+				return err
+			}
+			doc, err := sceneformat.Parse(raw)
+			if err != nil {
+				return err
+			}
 			doc.Layers[0].Objects = append(doc.Layers[0].Objects, sceneformat.ObjectDoc{ID: "slime_1", Name: "Slime", X: 120, Y: 180})
 			b, err := sceneformat.Encode(doc)
 			if err != nil {
@@ -443,13 +455,17 @@ func TestAgentRewindContinuesSessionRebuildsOpenSceneAndGuards(t *testing.T) {
 			if err := os.WriteFile(sceneFile, b, 0o644); err != nil {
 				return err
 			}
-			ed.Post(func() {
-				_ = ed.ReloadFromDisk(editor.DiskFileScene)
-			})
 			emit(editor.AgentEvent{Kind: editor.AgentEventDone, Text: "Added slime_1."})
 		case "Add boss":
 			emit(editor.AgentEvent{Kind: editor.AgentEventSession, SessionID: "sess-2"})
-			doc := ed.Doc.Clone()
+			raw, err := os.ReadFile(sceneFile)
+			if err != nil {
+				return err
+			}
+			doc, err := sceneformat.Parse(raw)
+			if err != nil {
+				return err
+			}
 			doc.Layers[0].Objects = append(doc.Layers[0].Objects, sceneformat.ObjectDoc{ID: "boss_1", Name: "Boss", X: 300, Y: 180})
 			b, err := sceneformat.Encode(doc)
 			if err != nil {
@@ -458,9 +474,6 @@ func TestAgentRewindContinuesSessionRebuildsOpenSceneAndGuards(t *testing.T) {
 			if err := os.WriteFile(sceneFile, b, 0o644); err != nil {
 				return err
 			}
-			ed.Post(func() {
-				_ = ed.ReloadFromDisk(editor.DiskFileScene)
-			})
 			emit(editor.AgentEvent{Kind: editor.AgentEventDone, Text: "Added boss_1."})
 		case "Add gentle slime instead":
 			emit(editor.AgentEvent{Kind: editor.AgentEventSession, SessionID: "sess-3"})
@@ -531,14 +544,17 @@ func TestAgentRewindContinuesSessionRebuildsOpenSceneAndGuards(t *testing.T) {
 	}
 	waitAgentIdleWithTurns(t, app, ed, 2)
 
-	if len(received) != 3 {
-		t.Fatalf("received %d requests, want 3", len(received))
+	mu.Lock()
+	gotReceived := append([]editor.AgentRequest(nil), received...)
+	mu.Unlock()
+	if len(gotReceived) != 3 {
+		t.Fatalf("received %d requests, want 3", len(gotReceived))
 	}
-	if received[2].SessionID != "sess-1" {
-		t.Fatalf("continued SessionID = %q, want sess-1", received[2].SessionID)
+	if gotReceived[2].SessionID != "sess-1" {
+		t.Fatalf("continued SessionID = %q, want sess-1", gotReceived[2].SessionID)
 	}
-	if len(received[2].PriorTurns) != 1 || received[2].PriorTurns[0].Prompt != "Add slime" {
-		t.Fatalf("continued PriorTurns = %+v, want [Add slime]", received[2].PriorTurns)
+	if len(gotReceived[2].PriorTurns) != 1 || gotReceived[2].PriorTurns[0].Prompt != "Add slime" {
+		t.Fatalf("continued PriorTurns = %+v, want [Add slime]", gotReceived[2].PriorTurns)
 	}
 	if ed.CanRedoAgentRewind() {
 		t.Fatal("sending a new prompt should clear previous rewind Redo state")
@@ -642,4 +658,307 @@ func TestAgentRewindScreenshots(t *testing.T) {
 		t.Fatalf("light rewind banner bg = %#x, want %#x", uint32(got), uint32(light.Raised))
 	}
 	app.Screenshot("agent/rewind-after-light")
+}
+
+func TestAgentRewindRespectsYouOnlyFilesAndSymlinkGuards(t *testing.T) {
+	dir, ed, _, coinFile, sparkleFile := setupRewindProject(t)
+	defer ed.Close()
+
+	permsFile := filepath.Join(dir, "permissions.yaml")
+	initialPerms := "version: 1\nprofile: balanced\n"
+	tightenedPerms := "version: 1\nprofile: cautious\n"
+	if err := os.WriteFile(permsFile, []byte(initialPerms), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	toolsFile := filepath.Join(dir, "tools.yaml")
+	if err := os.WriteFile(toolsFile, []byte("version: 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ed.AgentRunner = editor.AgentRunnerFunc(func(_ context.Context, req editor.AgentRequest, emit func(editor.AgentEvent)) error {
+		switch req.Prompt {
+		case "Touch coin and permissions":
+			if err := os.WriteFile(coinFile, []byte("version: 1\nname: coin\nspin: true\nbob: false\n"), 0o644); err != nil {
+				return err
+			}
+			// Simulate user/external tightening permissions.yaml & tools.yaml during the turn:
+			// checkpoints must ignore You-only files so rewind/redo can never silently loosen them.
+			if err := os.WriteFile(permsFile, []byte(tightenedPerms), 0o644); err != nil {
+				return err
+			}
+			if err := os.WriteFile(toolsFile, []byte("version: 1\ndisabled: [game_delete_file]\n"), 0o644); err != nil {
+				return err
+			}
+			if err := os.MkdirAll(filepath.Dir(sparkleFile), 0o755); err != nil {
+				return err
+			}
+			if err := os.WriteFile(sparkleFile, []byte("version: 1\nname: sparkle\n"), 0o644); err != nil {
+				return err
+			}
+			emit(editor.AgentEvent{Kind: editor.AgentEventDone, Text: "Updated coin."})
+		}
+		return nil
+	})
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1280, 820))
+
+	if err := ed.SubmitAgentPrompt("Touch coin and permissions"); err != nil {
+		t.Fatal(err)
+	}
+	waitAgentIdleWithTurns(t, app, ed, 1)
+
+	turn := ed.AgentTurns()[0]
+	for _, f := range turn.ChangedFiles {
+		if strings.Contains(f, "permissions.yaml") || strings.Contains(f, "tools.yaml") {
+			t.Fatalf("You-only file %q leaked into turn ChangedFiles: %v", f, turn.ChangedFiles)
+		}
+	}
+
+	// Rewind must restore coin.prefab.yaml and remove sparkle.particles.yaml,
+	// while leaving tightened permissions.yaml and tools.yaml completely untouched.
+	if err := ed.RewindAgentTurn(turn.ID, editor.AgentRewindBoth); err != nil {
+		t.Fatalf("RewindAgentTurn: %v", err)
+	}
+	gotPerms, err := os.ReadFile(permsFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(gotPerms) != tightenedPerms {
+		t.Fatalf("permissions.yaml was altered by rewind: got %q, want %q", gotPerms, tightenedPerms)
+	}
+	gotTools, err := os.ReadFile(toolsFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(gotTools), "game_delete_file") {
+		t.Fatalf("tools.yaml was altered by rewind: got %q", gotTools)
+	}
+
+	// Redo restores coin & sparkle, still without touching permissions.yaml.
+	if err := ed.RedoAgentRewind(); err != nil {
+		t.Fatalf("RedoAgentRewind: %v", err)
+	}
+
+	// Replace sparkle.particles.yaml with a directory -> rewind must refuse without deleting the directory or truncating turns.
+	if err := os.Remove(sparkleFile); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(sparkleFile, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.RewindAgentTurn(turn.ID, editor.AgentRewindBoth); err == nil {
+		t.Fatal("expected RewindAgentTurn to refuse when checkpoint file path is now a directory")
+	}
+	if fi, err := os.Lstat(sparkleFile); err != nil || !fi.IsDir() {
+		t.Fatalf("directory at sparkle path should still exist: fi=%v err=%v", fi, err)
+	}
+	if len(ed.AgentTurns()) != 1 {
+		t.Fatalf("failed rewind should not truncate turns, got %d", len(ed.AgentTurns()))
+	}
+
+	// Replace coin.prefab.yaml with a symlink -> rewind must refuse without mutating symlink target or turns.
+	if runtime.GOOS != "windows" {
+		if err := os.RemoveAll(sparkleFile); err != nil {
+			t.Fatal(err)
+		}
+		outside := filepath.Join(t.TempDir(), "outside.yaml")
+		if err := os.WriteFile(outside, []byte("secret"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Remove(coinFile); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(outside, coinFile); err != nil {
+			t.Fatal(err)
+		}
+		if err := ed.RewindAgentTurn(turn.ID, editor.AgentRewindBoth); err == nil {
+			t.Fatal("expected RewindAgentTurn to refuse symlink at checkpoint path")
+		}
+		gotOutside, err := os.ReadFile(outside)
+		if err != nil || string(gotOutside) != "secret" {
+			t.Fatalf("outside symlink target altered: %q err=%v", gotOutside, err)
+		}
+		if len(ed.AgentTurns()) != 1 {
+			t.Fatalf("symlink-rejected rewind should not truncate turns, got %d", len(ed.AgentTurns()))
+		}
+	}
+}
+
+func TestAgentRewindSceneSwitchStopAndLifecycleGuards(t *testing.T) {
+	dir, ed, _, coinFile, _ := setupRewindProject(t)
+	defer ed.Close()
+
+	// Create a second scene so we can test switching scenes between turns and rewind.
+	scene2Doc := &sceneformat.SceneDoc{
+		Version:       sceneformat.CurrentVersion,
+		Name:          "level_02",
+		VirtualWidth:  640,
+		VirtualHeight: 360,
+		Layers: []sceneformat.LayerDoc{{
+			Name: "main",
+			Objects: []sceneformat.ObjectDoc{
+				{ID: "boss_door", Name: "Boss Door", X: 400, Y: 180},
+			},
+		}},
+	}
+	scene2Bytes, err := sceneformat.Encode(scene2Doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scene2File := filepath.Join(dir, "scenes", "level_02.scene.yaml")
+	if err := os.WriteFile(scene2File, scene2Bytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	turnStarted := make(chan struct{})
+	turnDone := make(chan struct{})
+	ed.AgentRunner = editor.AgentRunnerFunc(func(ctx context.Context, req editor.AgentRequest, emit func(editor.AgentEvent)) error {
+		switch req.Prompt {
+		case "Edit open scene in memory":
+			ed.Post(func() {
+				_, _ = ed.PlaceObject("main", sceneformat.ObjectDoc{ID: "temp_slime", Name: "Temp Slime", X: 140, Y: 180})
+			})
+			emit(editor.AgentEvent{Kind: editor.AgentEventDone, Text: "Placed temp_slime."})
+		case "Long running turn":
+			_ = os.WriteFile(coinFile, []byte("version: 1\nname: coin\nspin: true\nbob: true\n"), 0o644)
+			emit(editor.AgentEvent{Kind: editor.AgentEventStep, StepID: "s1", StepTitle: "Editing coin", StepStatus: editor.AgentStepRunning})
+			close(turnStarted)
+			<-ctx.Done()
+			// Late event emitted after StopAgentRun must be ignored.
+			emit(editor.AgentEvent{Kind: editor.AgentEventMessage, Text: "Late stray message"})
+			close(turnDone)
+			return ctx.Err()
+		}
+		return nil
+	})
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1280, 820))
+
+	// 1. Turn 1 modifies level_01 in memory (unsaved). Then switch to level_02 and rewind Turn 1:
+	// level_02 must NOT be overwritten with level_01's document!
+	if err := ed.SubmitAgentPrompt("Edit open scene in memory"); err != nil {
+		t.Fatal(err)
+	}
+	waitAgentIdleWithTurns(t, app, ed, 1)
+	if err := ed.OpenScene("scenes/level_02.scene.yaml"); err != nil {
+		t.Fatalf("OpenScene level_02: %v", err)
+	}
+	turn0ID := ed.AgentTurns()[0].ID
+	if err := ed.RewindAgentTurn(turn0ID, editor.AgentRewindBoth); err != nil {
+		t.Fatalf("RewindAgentTurn after scene switch: %v", err)
+	}
+	if ed.Doc.Name != "level_02" {
+		t.Fatalf("open scene was corrupted by rewind from another scene: got %q, want level_02", ed.Doc.Name)
+	}
+	if obj, _, _ := ed.FindObject("boss_door"); obj == nil {
+		t.Fatal("boss_door missing from level_02 after rewinding level_01 turn")
+	}
+
+	// 2. Stopping an in-flight turn finalizes its checkpoint, marks Status="stopped", ignores late events,
+	// and allows rewinding the partial file write.
+	if err := ed.SubmitAgentPrompt("Long running turn"); err != nil {
+		t.Fatal(err)
+	}
+	<-turnStarted
+	app.Settle()
+	if err := ed.RewindAgentTurn(ed.AgentTurns()[0].ID, editor.AgentRewindBoth); err == nil {
+		t.Fatal("expected rewind to fail while agent is working")
+	}
+	ed.StopAgentRun()
+	<-turnDone
+	app.Settle()
+
+	turns := ed.AgentTurns()
+	if len(turns) != 1 || turns[0].Status != "stopped" || !turns[0].Stopped {
+		t.Fatalf("stopped turn state = %+v, want Status=stopped", turns)
+	}
+	if strings.Contains(turns[0].Summary, "Late stray message") {
+		t.Fatalf("late event leaked into stopped turn: %q", turns[0].Summary)
+	}
+	if err := ed.RewindAgentTurn(turns[0].ID, editor.AgentRewindBoth); err != nil {
+		t.Fatalf("RewindAgentTurn(stopped turn): %v", err)
+	}
+	gotCoin, err := os.ReadFile(coinFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(gotCoin), "spin: false") {
+		t.Fatalf("rewinding stopped turn did not restore coin.prefab.yaml: %q", gotCoin)
+	}
+
+	// 3. Lifecycle guards: switching away from Agent tab or entering Play closes the rewind popover.
+	if err := ed.RedoAgentRewind(); err != nil {
+		t.Fatalf("RedoAgentRewind: %v", err)
+	}
+	stoppedID := ed.AgentTurns()[0].ID
+	if !ed.OpenAgentRewindPopover(stoppedID) {
+		t.Fatal("OpenAgentRewindPopover failed")
+	}
+	ed.SetRightRailTab(editor.RightTabInspector)
+	if ed.AgentRewindOpenTurnID() != "" {
+		t.Fatal("switching away from Agent tab should close rewind popover")
+	}
+	ed.SetRightRailTab(editor.RightTabAgent)
+	if !ed.OpenAgentRewindPopover(stoppedID) {
+		t.Fatal("reopening rewind popover failed")
+	}
+	if err := ed.Play(); err != nil {
+		t.Fatalf("Play: %v", err)
+	}
+	if ed.AgentRewindOpenTurnID() != "" {
+		t.Fatal("entering Play should close rewind popover")
+	}
+	if err := ed.Stop(); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+
+	// 4. Rewinding files while HistoryPreview is active exits HistoryPreview cleanly.
+	if _, err := ed.PlaceObject("main", sceneformat.ObjectDoc{ID: "hist_obj", Name: "HistObj", X: 20, Y: 20}); err != nil {
+		t.Fatal(err)
+	}
+	entries := ed.HistoryEntries()
+	if len(entries) > 0 {
+		if err := ed.PreviewHistoryEntry(entries[len(entries)-1].ID); err != nil {
+			t.Fatalf("PreviewHistoryEntry: %v", err)
+		}
+		if !ed.HistoryPreviewActive() {
+			t.Fatal("expected HistoryPreviewActive == true")
+		}
+		if err := ed.RewindAgentTurn(stoppedID, editor.AgentRewindFilesOnly); err != nil {
+			t.Fatalf("RewindAgentTurn during HistoryPreview: %v", err)
+		}
+		if ed.HistoryPreviewActive() {
+			t.Fatal("rewinding files should exit HistoryPreview")
+		}
+	}
+
+	// 5. Radio option switching inside popover updates Checked & Expanded in-place without losing popover mount.
+	app.Settle()
+	app.Hover("id:agent-turn-prompt-0")
+	app.Settle()
+	if app.Find("id:agent-rewind-trigger-0").Props.Expanded {
+		t.Fatal("expected rewind trigger Expanded=false before opening popover")
+	}
+	app.Press("id:agent-rewind-trigger-0")
+	app.Settle()
+	if !app.Find("id:agent-rewind-trigger-0").Props.Expanded {
+		t.Fatal("expected rewind trigger Expanded=true while popover is open")
+	}
+	if !app.Find("id:agent-rewind-opt-both").Props.Checked {
+		t.Fatal("expected Files and conversation radio option Checked=true initially")
+	}
+	app.Press("id:agent-rewind-opt-files")
+	app.Settle()
+	if !app.Find("id:agent-rewind-opt-files").Props.Checked || app.Find("id:agent-rewind-opt-both").Props.Checked {
+		t.Fatal("expected Files only radio option Checked=true after press")
+	}
+	app.Press("id:agent-rewind-cancel")
+	app.Settle()
+	if app.Exists("id:agent-rewind-popover") {
+		t.Fatal("expected popover to close on Cancel")
+	}
 }
