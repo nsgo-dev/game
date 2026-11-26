@@ -215,7 +215,12 @@ func ToastView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 						}
 					},
 					StyleFunc: func() core.Style {
-						base := core.Style{CornerRadius: 12}
+						base := core.Style{
+							CornerRadius: 12,
+							MaxWidth:     core.Pct(100),
+							FlexShrink:   1,
+							MinWidth:     core.Pt(0),
+						}
 						if ed == nil || ed.focus.ctrl == nil {
 							return base
 						}
