@@ -437,6 +437,7 @@ func (e *Editor) SelectTab(index int) error {
 	if e.playing {
 		return ErrPlaying
 	}
+	e.CloseAskInPlace()
 	e.ensureTabs()
 	if index < 0 || index >= len(e.tabs) {
 		return fmt.Errorf("editor: tab index %d out of range", index)

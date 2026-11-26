@@ -264,6 +264,7 @@ func (e *Editor) startPlaySession(cx *core.Scope, playback *replay.Recording, st
 	if e.Doc == nil {
 		return errors.New("editor: cannot play nil scene document")
 	}
+	e.CloseAskInPlace()
 	e.endTileStrokeForChange()
 	e.endGridMapStrokeForChange()
 	e.endTerrainStrokeForChange()

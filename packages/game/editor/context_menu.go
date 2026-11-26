@@ -789,7 +789,8 @@ func (e *Editor) contextMenuBlocked() bool {
 		e.AskInPlaceOpen() ||
 		e.StartScreenOpen() || e.MergeConflictOpen() || e.PlaytestReportOpen() ||
 		e.UsagesScreenOpen() || e.ChangesOpen() || e.HUDLayoutOpen() ||
-		e.EditorSettingsOpen() || e.ShortcutsSheetOpen() || e.BuildReleaseScreenOpen()
+		e.SettingsOpen() || e.ShortcutsSheetOpen() || e.BuildReleaseScreenOpen() ||
+		e.ConnectDialogOpen() || e.AssetGeneratorOpen()
 }
 
 // OpenObjectContextMenu opens the viewport/keyboard object context menu targeting object id

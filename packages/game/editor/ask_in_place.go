@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/nsgo-dev/game/packages/game/l10n"
 	"github.com/nsgo-dev/game/packages/game/math2d"
@@ -15,16 +14,6 @@ import (
 	gamemcp "github.com/nsgo-dev/game/packages/game/mcp"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
-)
-
-// RightPanelTab selects which tab is shown in the editor's right-hand panel.
-type RightPanelTab int
-
-const (
-	// RightPanelInspector shows the Property Inspector (default).
-	RightPanelInspector RightPanelTab = iota
-	// RightPanelAgent shows the Agent conversation thread and composer.
-	RightPanelAgent
 )
 
 // AskInPlaceSuggestion is one contextual suggestion chip shown under the ⌘L in-place composer.
@@ -63,34 +52,6 @@ type AskInPlaceSnapshot struct {
 	Placement          AskInPlacePlacement
 }
 
-// AgentTurnContext captures the editor context attached to an agent request:
-// the selection (object IDs and names), the open scene (path, name, and YAML), and a rendered viewport PNG.
-type AgentTurnContext struct {
-	ScenePath      string   `json:"scenePath,omitempty"`
-	SceneName      string   `json:"sceneName,omitempty"`
-	SceneYAML      string   `json:"sceneYaml,omitempty"`
-	SelectionIDs   []string `json:"selectionIds,omitempty"`
-	SelectionNames []string `json:"selectionNames,omitempty"`
-	Layer          string   `json:"layer,omitempty"`
-	ViewportPNG    []byte   `json:"-"`
-	ViewportWidth  int      `json:"viewportWidth,omitempty"`
-	ViewportHeight int      `json:"viewportHeight,omitempty"`
-	ViewMode       string   `json:"viewMode,omitempty"`
-}
-
-// AgentTurn is one user request sent to the agent from the in-place ⌘L composer or the Agent panel,
-// recorded in the Agent panel's thread and exposed over editormcp.
-type AgentTurn struct {
-	ID        string           `json:"id"`
-	Prompt    string           `json:"prompt"`
-	Source    string           `json:"source"`   // "in_place" or "panel"
-	SkipPlan  bool             `json:"skipPlan"` // true for small in-place ⌘L edits per Plan.dc.html
-	Status    string           `json:"status"`   // "pending", "running", "done", "stopped"
-	CreatedAt time.Time        `json:"createdAt"`
-	Context   AgentTurnContext `json:"context"`
-	Reply     string           `json:"reply,omitempty"`
-}
-
 type askInPlaceState struct {
 	open               bool
 	seq                uint64
@@ -104,42 +65,30 @@ type askInPlaceState struct {
 	measuredH          float32
 }
 
-type agentPanelState struct {
-	turns   []AgentTurn
-	turnSeq uint64
-	draft   string
-}
-
 const (
 	askInPlaceDefaultWidth  float32 = 420
 	askInPlaceMinWidth      float32 = 220
 	askInPlaceDefaultHeight float32 = 152
 	askInPlaceMargin        float32 = 12
 	askInPlaceAnchorGap     float32 = 14
+	maxViewportPNGDim               = 1280
 )
 
-// RightPanelTab returns the currently active right-side panel tab (Inspector by default, or Agent).
-func (e *Editor) RightPanelTab() RightPanelTab {
-	if e == nil {
-		return RightPanelInspector
-	}
-	return e.rightPanelTab
-}
-
-// SetRightPanelTab switches the right-side panel between Inspector and Agent.
-func (e *Editor) SetRightPanelTab(tab RightPanelTab) {
-	if e == nil || e.rightPanelTab == tab {
-		return
-	}
-	e.rightPanelTab = tab
-	e.notify()
-}
-
 func (e *Editor) askInPlaceBlocked() bool {
-	return e == nil || e.Doc == nil || e.playing ||
+	return e == nil || e.Doc == nil || e.playing || e.shortcutCaptureActive ||
+		e.AgentMode() == AgentModeNone ||
 		e.StartScreenOpen() || e.MergeConflictOpen() || e.PlaytestReportOpen() ||
 		e.UsagesScreenOpen() || e.ChangesOpen() || e.HUDLayoutOpen() ||
-		e.EditorSettingsOpen() || e.ShortcutsSheetOpen() || e.BuildReleaseScreenOpen()
+		e.SettingsOpen() || e.ShortcutsSheetOpen() || e.BuildReleaseScreenOpen() ||
+		e.ConnectDialogOpen() || e.AssetGeneratorOpen() || e.CutsceneOpen()
+}
+
+func (e *Editor) askInPlaceKeyBlocked() bool {
+	return e == nil || e.playing || e.shortcutCaptureActive ||
+		e.StartScreenOpen() || e.MergeConflictOpen() || e.PlaytestReportOpen() ||
+		e.UsagesScreenOpen() || e.ChangesOpen() || e.HUDLayoutOpen() ||
+		e.SettingsOpen() || e.ShortcutsSheetOpen() || e.BuildReleaseScreenOpen() ||
+		e.ConnectDialogOpen() || e.AssetGeneratorOpen() || e.CommandPaletteOpen()
 }
 
 // AskInPlaceOpen reports whether the anchored ⌘L in-place agent composer is currently open.
@@ -238,7 +187,7 @@ func (e *Editor) CloseAskInPlace() {
 	e.askInPlace.returnFocus = nil
 	e.askInPlace.seq++
 	e.notify()
-	if ret != nil {
+	if ret != nil && refMounted(ret) && !e.IsDragging() {
 		ret.Focus()
 	}
 }
@@ -343,41 +292,6 @@ func (e *Editor) SubmitAskInPlace() (AgentTurn, error) {
 	return e.submitAgentTurn(prompt, "in_place", true, e.askInPlace.targetIDs)
 }
 
-// SetAgentPanelDraft updates the draft text in the Agent panel's composer.
-func (e *Editor) SetAgentPanelDraft(text string) {
-	if e == nil || e.agentPanel.draft == text {
-		return
-	}
-	e.agentPanel.draft = text
-	e.notify()
-}
-
-// AgentPanelDraft returns the current draft text in the Agent panel's composer.
-func (e *Editor) AgentPanelDraft() string {
-	if e == nil {
-		return ""
-	}
-	return e.agentPanel.draft
-}
-
-// SubmitAgentPanelPrompt starts an agent turn from the Agent panel composer with the current selection,
-// open scene, and rendered viewport image attached as context.
-func (e *Editor) SubmitAgentPanelPrompt(prompt string) (AgentTurn, error) {
-	if e == nil || e.Doc == nil {
-		return AgentTurn{}, errors.New("editor: no scene open")
-	}
-	prompt = strings.TrimSpace(prompt)
-	if prompt == "" {
-		return AgentTurn{}, errors.New("editor: enter a request for the agent")
-	}
-	turn, err := e.submitAgentTurn(prompt, "panel", false, e.SelectedIDs())
-	if err == nil {
-		e.agentPanel.draft = ""
-		e.notify()
-	}
-	return turn, err
-}
-
 func (e *Editor) submitAgentTurn(prompt, source string, skipPlan bool, targetIDs []string) (AgentTurn, error) {
 	if e == nil || e.Doc == nil {
 		return AgentTurn{}, errors.New("editor: no scene open")
@@ -414,19 +328,17 @@ func (e *Editor) submitAgentTurn(prompt, source string, skipPlan bool, targetIDs
 
 	pngBytes, pw, ph, _ := e.RenderViewportPNG(1)
 
-	now := time.Now()
-	if e.Now != nil {
-		now = e.Now()
-	}
-
-	e.agentPanel.turnSeq++
+	now := e.nowTime()
+	e.agent.turnSeq++
+	e.agent.turnChangeSeq++
 	turn := AgentTurn{
-		ID:        fmt.Sprintf("turn_%d", e.agentPanel.turnSeq),
+		ID:        fmt.Sprintf("turn_%d", e.agent.turnSeq),
 		Prompt:    prompt,
 		Source:    source,
 		SkipPlan:  skipPlan,
 		Status:    "pending",
 		CreatedAt: now,
+		StartedAt: now,
 		Context: AgentTurnContext{
 			ScenePath:      scenePath,
 			SceneName:      sceneName,
@@ -441,13 +353,16 @@ func (e *Editor) submitAgentTurn(prompt, source string, skipPlan bool, targetIDs
 		},
 	}
 
-	e.agentPanel.turns = append(e.agentPanel.turns, cloneAgentTurn(turn))
+	e.agent.turns = append(e.agent.turns, cloneAgentTurn(turn))
+	e.trimAgentTurnAttachments()
 	e.askInPlace.open = false
 	e.askInPlace.draft = ""
 	e.askInPlace.selectedSuggestion = -1
 	e.askInPlace.returnFocus = nil
 	e.askInPlace.seq++
-	e.rightPanelTab = RightPanelAgent
+	if e.agent.mode != AgentModeNone {
+		e.agent.rightTab = RightTabAgent
+	}
 	e.Status = e.T("askInPlace.statusSent", l10n.Param("prompt", prompt))
 	if e.OnAgentTurn != nil {
 		e.OnAgentTurn(cloneAgentTurn(turn))
@@ -476,117 +391,40 @@ func (e *Editor) effectiveScenePath() string {
 }
 
 // RenderViewportPNG renders the editor's current viewport (2D or 3D) into a PNG image at scale pixels per point,
-// returning the encoded PNG bytes and its pixel dimensions.
+// clamping non-finite scales and oversized pixel dimensions (max 1280 px on the longest edge),
+// and returning the encoded PNG bytes and its pixel dimensions.
 func (e *Editor) RenderViewportPNG(scale float64) ([]byte, int, int, error) {
 	if e == nil || e.Doc == nil {
 		return nil, 0, 0, errors.New("editor: no scene open")
 	}
-	if scale <= 0 {
+	if math.IsNaN(scale) || math.IsInf(scale, 0) || scale <= 0 {
 		scale = 1
 	}
+	if scale > 4 {
+		scale = 4
+	}
 	w, h := e.CanvasSize()
-	if w <= 0 || h <= 0 {
+	if !isFiniteFloat32(w) || !isFiniteFloat32(h) || w <= 0 || h <= 0 {
 		w, h = e.ViewportSize()
 	}
-	if w <= 0 || h <= 0 {
+	if !isFiniteFloat32(w) || !isFiniteFloat32(h) || w <= 0 || h <= 0 {
 		w, h = 640, 360
 	}
+	effScale := scale
+	maxDim := max(float64(w)*effScale, float64(h)*effScale)
+	if maxDim > maxViewportPNGDim {
+		effScale *= float64(maxViewportPNGDim) / maxDim
+	}
 	var d core.Drawing
-	d.Scale(float32(scale), float32(scale))
+	d.Scale(float32(effScale), float32(effScale))
 	e.DrawViewport(&d, core.Size{Width: core.Points(w), Height: core.Points(h)})
-	pw := max(1, int(math.Round(float64(w)*scale)))
-	ph := max(1, int(math.Round(float64(h)*scale)))
+	pw := max(1, min(maxViewportPNGDim, int(math.Round(float64(w)*effScale))))
+	ph := max(1, min(maxViewportPNGDim, int(math.Round(float64(h)*effScale))))
 	r, err := gamemcp.RenderPNG(d.Ops, pw, ph, 0)
 	if err != nil {
 		return nil, 0, 0, err
 	}
 	return r.PNG, r.Width, r.Height, nil
-}
-
-// AgentTurns returns a copy of all agent turns recorded in this editor session, oldest first.
-func (e *Editor) AgentTurns() []AgentTurn {
-	if e == nil || len(e.agentPanel.turns) == 0 {
-		return nil
-	}
-	out := make([]AgentTurn, len(e.agentPanel.turns))
-	for i := range e.agentPanel.turns {
-		out[i] = cloneAgentTurn(e.agentPanel.turns[i])
-	}
-	return out
-}
-
-// LatestAgentTurn returns the most recent agent turn and true, or zero and false when none exists.
-func (e *Editor) LatestAgentTurn() (AgentTurn, bool) {
-	if e == nil || len(e.agentPanel.turns) == 0 {
-		return AgentTurn{}, false
-	}
-	return cloneAgentTurn(e.agentPanel.turns[len(e.agentPanel.turns)-1]), true
-}
-
-// AgentTurn returns the recorded turn matching id, or false when not found.
-func (e *Editor) AgentTurn(id string) (AgentTurn, bool) {
-	if e == nil || id == "" {
-		return AgentTurn{}, false
-	}
-	for i := range e.agentPanel.turns {
-		if e.agentPanel.turns[i].ID == id {
-			return cloneAgentTurn(e.agentPanel.turns[i]), true
-		}
-	}
-	return AgentTurn{}, false
-}
-
-// AgentTurnSeq returns a monotonically increasing sequence number bumped whenever an agent turn is added or updated.
-func (e *Editor) AgentTurnSeq() uint64 {
-	if e == nil {
-		return 0
-	}
-	return e.agentPanel.turnSeq
-}
-
-// ReplyAgentTurn records an agent reply and/or status ("pending", "running", "done", "stopped") on turnID
-// (defaulting to the latest turn when turnID is empty) so the Agent panel's thread updates live.
-func (e *Editor) ReplyAgentTurn(turnID, reply, status string) error {
-	if e == nil || len(e.agentPanel.turns) == 0 {
-		return errors.New("editor: no agent turn")
-	}
-	idx := len(e.agentPanel.turns) - 1
-	if turnID != "" {
-		idx = -1
-		for i := range e.agentPanel.turns {
-			if e.agentPanel.turns[i].ID == turnID {
-				idx = i
-				break
-			}
-		}
-		if idx < 0 {
-			return fmt.Errorf("editor: agent turn %q not found", turnID)
-		}
-	}
-	if status != "" {
-		switch status {
-		case "pending", "running", "done", "stopped":
-			e.agentPanel.turns[idx].Status = status
-		default:
-			return fmt.Errorf("editor: invalid agent turn status %q", status)
-		}
-	}
-	if reply != "" {
-		e.agentPanel.turns[idx].Reply = reply
-		if status == "" && e.agentPanel.turns[idx].Status == "pending" {
-			e.agentPanel.turns[idx].Status = "done"
-		}
-	}
-	e.agentPanel.turnSeq++
-	e.notify()
-	return nil
-}
-
-func cloneAgentTurn(t AgentTurn) AgentTurn {
-	t.Context.SelectionIDs = slices.Clone(t.Context.SelectionIDs)
-	t.Context.SelectionNames = slices.Clone(t.Context.SelectionNames)
-	t.Context.ViewportPNG = slices.Clone(t.Context.ViewportPNG)
-	return t
 }
 
 func (e *Editor) buildAskInPlaceSuggestions(ids []string) []AskInPlaceSuggestion {
@@ -754,24 +592,33 @@ func (e *Editor) SelectionViewportBounds(ids ...string) ([4]float32, bool) {
 // flipping above the selection if there is not enough room below, and clamping strictly inside
 // [margin, vw-margin] x [margin, vh-margin] so it stays on screen and never overlaps the right panel.
 func ComputeAskInPlacePlacement(vw, vh float32, selBounds [4]float32, hasSel bool, cardW, cardH float32) AskInPlacePlacement {
-	if vw <= 0 {
+	if !isFiniteFloat32(vw) || vw <= 0 {
 		vw = 640
 	}
-	if vh <= 0 {
+	if !isFiniteFloat32(vh) || vh <= 0 {
 		vh = 360
+	}
+	if hasSel {
+		for _, v := range selBounds {
+			if !isFiniteFloat32(v) {
+				hasSel = false
+				selBounds = [4]float32{}
+				break
+			}
+		}
 	}
 	margin := askInPlaceMargin
 	if vw < 2*margin+askInPlaceMinWidth {
 		margin = max(4, (vw-askInPlaceMinWidth)/2)
 	}
-	if cardW <= 0 {
+	if !isFiniteFloat32(cardW) || cardW <= 0 {
 		cardW = askInPlaceDefaultWidth
 	}
 	maxW := max(120, vw-2*margin)
 	if cardW > maxW {
 		cardW = maxW
 	}
-	if cardH <= 0 {
+	if !isFiniteFloat32(cardH) || cardH <= 0 {
 		cardH = askInPlaceDefaultHeight
 	}
 	// Reserve room at the bottom for the viewport overlay bar and hint pill when possible.

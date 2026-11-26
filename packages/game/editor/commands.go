@@ -1318,9 +1318,12 @@ func (e *Editor) initBuiltinCommands() {
 			Keywords:    []string{"agent", "ai", "chat", "thread", "panel", "mcp"},
 			Scope:       ScopeGlobal,
 			Shortcut:    "mod+1",
-			Checked:     func() bool { return e.RightPanelTab() == RightPanelAgent },
+			Enabled: func() bool {
+				return inEditor() && !e.Playing() && !e.SettingsOpen() && !e.AssetGeneratorOpen() && !e.ConnectDialogOpen() && e.AgentMode() != AgentModeNone
+			},
+			Checked: func() bool { return e.RightRailTab() == RightTabAgent },
 			Run: func() error {
-				e.SetRightPanelTab(RightPanelAgent)
+				e.SetRightRailTab(RightTabAgent)
 				return nil
 			},
 		},
@@ -1332,9 +1335,12 @@ func (e *Editor) initBuiltinCommands() {
 			Keywords:    []string{"inspector", "properties", "panel"},
 			Scope:       ScopeGlobal,
 			Shortcut:    "mod+2",
-			Checked:     func() bool { return e.RightPanelTab() == RightPanelInspector },
+			Enabled: func() bool {
+				return inEditor() && !e.Playing() && !e.SettingsOpen() && !e.AssetGeneratorOpen() && !e.ConnectDialogOpen()
+			},
+			Checked: func() bool { return e.RightRailTab() == RightTabInspector },
 			Run: func() error {
-				e.SetRightPanelTab(RightPanelInspector)
+				e.SetRightRailTab(RightTabInspector)
 				return nil
 			},
 		},
@@ -1382,6 +1388,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Add a mark at the current Play frame with the rolling 60 s input replay attached",
 			Category:    "Project",
 			Keywords:    []string{"play", "mark", "flag", "replay", "moment"},
+			Scope:       ScopePlay,
 			Shortcut:    "alt+f",
 			Enabled:     func() bool { return inEditor() && (e.Playing() || e.RemoteConnected()) },
 			Run: func() error {
@@ -1395,6 +1402,7 @@ func (e *Editor) initBuiltinCommands() {
 			Description: "Pause Play mode and ask the agent about the frozen frame with replay and live state attached",
 			Category:    "Project",
 			Keywords:    []string{"play", "ask", "agent", "freeze", "frozen", "frame", "bug", "replay"},
+			Scope:       ScopePlay,
 			Shortcut:    "mod+l",
 			Enabled:     func() bool { return inEditor() && (e.Playing() || e.RemoteConnected()) },
 			Run:         func() error { return e.OpenAskFrozenFrame() },

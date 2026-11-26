@@ -398,6 +398,7 @@ func (e *Editor) SetAssetGeneratorOpen(open bool) {
 	}
 	e.assetGen.mu.Unlock()
 	if open {
+		e.CloseAskInPlace()
 		e.LoadAssetStyleBrief()
 		e.RefreshGeneratedAssetLicenses()
 	} else {

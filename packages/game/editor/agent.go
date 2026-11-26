@@ -224,21 +224,51 @@ type AgentStep struct {
 	Status   AgentStepStatus
 }
 
-// AgentTurn is one user request (or terminal-initiated MCP turn) and its streamed steps and reply.
+const (
+	// maxRetainedTurnAttachments limits how many recent turns retain full ViewportPNG and SceneYAML payloads
+	// in memory so long editor sessions do not grow unboundedly.
+	maxRetainedTurnAttachments = 8
+	// maxAgentTurnReplyBytes caps reply text stored on an agent turn (e.g. via editormcp agent_turn_reply).
+	maxAgentTurnReplyBytes = 256 << 10
+)
+
+// AgentTurnContext captures the editor context attached to an agent request:
+// the selection (object IDs and names), the open scene (path, name, and YAML), and a rendered viewport PNG.
+type AgentTurnContext struct {
+	ScenePath      string   `json:"scenePath,omitempty"`
+	SceneName      string   `json:"sceneName,omitempty"`
+	SceneYAML      string   `json:"sceneYaml,omitempty"`
+	SelectionIDs   []string `json:"selectionIds,omitempty"`
+	SelectionNames []string `json:"selectionNames,omitempty"`
+	Layer          string   `json:"layer,omitempty"`
+	ViewportPNG    []byte   `json:"-"`
+	ViewportWidth  int      `json:"viewportWidth,omitempty"`
+	ViewportHeight int      `json:"viewportHeight,omitempty"`
+	ViewMode       string   `json:"viewMode,omitempty"`
+}
+
+// AgentTurn is one user request (in-place ⌘L, Agent panel composer, or terminal-initiated MCP turn)
+// and its attached context, streamed steps, and reply.
 type AgentTurn struct {
-	ID           string
-	Prompt       string
-	External     bool // true for turns started by a terminal MCP client rather than the composer
-	AgentName    string
-	Steps        []AgentStep
-	Summary      string
-	Error        string
-	Stopped      bool
-	Done         bool
-	InputTokens  int
-	OutputTokens int
-	StartedAt    time.Time
-	FinishedAt   time.Time
+	ID           string           `json:"id"`
+	Prompt       string           `json:"prompt"`
+	Source       string           `json:"source,omitempty"`   // "in_place", "panel", or "external"
+	SkipPlan     bool             `json:"skipPlan,omitempty"` // true for small in-place ⌘L edits per Plan.dc.html
+	Status       string           `json:"status,omitempty"`   // "pending", "running", "done", "stopped"
+	External     bool             `json:"external,omitempty"` // true for turns started by a terminal MCP client rather than the composer
+	AgentName    string           `json:"agentName,omitempty"`
+	Steps        []AgentStep      `json:"steps,omitempty"`
+	Summary      string           `json:"summary,omitempty"`
+	Reply        string           `json:"reply,omitempty"`
+	Error        string           `json:"error,omitempty"`
+	Stopped      bool             `json:"stopped,omitempty"`
+	Done         bool             `json:"done,omitempty"`
+	InputTokens  int              `json:"inputTokens,omitempty"`
+	OutputTokens int              `json:"outputTokens,omitempty"`
+	CreatedAt    time.Time        `json:"createdAt"`
+	StartedAt    time.Time        `json:"startedAt"`
+	FinishedAt   time.Time        `json:"finishedAt"`
+	Context      AgentTurnContext `json:"context"`
 }
 
 // AgentOpenRequest represents a pending permission prompt or question waiting on the user.
@@ -351,6 +381,7 @@ type agentState struct {
 	focusRequestCalled int
 	liveAnnouncement   string
 	turnSeq            int
+	turnChangeSeq      uint64
 }
 
 func (a *agentState) setScope(cx *core.Scope) {
@@ -468,6 +499,7 @@ func (e *Editor) resetAgentForProject() {
 		return
 	}
 	e.stopAgentTimers()
+	e.CloseAskInPlace()
 	e.agent.activeRunID++
 	e.agent.clients = nil
 	e.agent.lastClient = AgentClientInfo{}
@@ -714,6 +746,7 @@ func (e *Editor) OpenConnectDialog() {
 	if e == nil {
 		return
 	}
+	e.CloseAskInPlace()
 	choice := e.agent.mode
 	if choice == AgentModeUnconfigured {
 		choice = AgentModeLocal
@@ -732,6 +765,7 @@ func (e *Editor) OpenConnectDialogAt(step ConnectStep) {
 	if e == nil {
 		return
 	}
+	e.CloseAskInPlace()
 	if step == "" {
 		step = ConnectStepWaiting
 	}
@@ -1228,18 +1262,130 @@ func (e *Editor) InsertAgentComposerNewline() {
 	e.notify()
 }
 
-// AgentTurns returns a deep-enough copy of the turns in the active Agent panel thread.
+func cloneAgentTurn(t AgentTurn) AgentTurn {
+	t.Steps = slices.Clone(t.Steps)
+	t.Context.SelectionIDs = slices.Clone(t.Context.SelectionIDs)
+	t.Context.SelectionNames = slices.Clone(t.Context.SelectionNames)
+	t.Context.ViewportPNG = slices.Clone(t.Context.ViewportPNG)
+	if t.Status == "" {
+		switch {
+		case t.Stopped:
+			t.Status = "stopped"
+		case t.Done:
+			t.Status = "done"
+		default:
+			t.Status = "pending"
+		}
+	}
+	if t.Reply == "" && t.Summary != "" {
+		t.Reply = t.Summary
+	}
+	return t
+}
+
+func (e *Editor) trimAgentTurnAttachments() {
+	if e == nil || len(e.agent.turns) <= maxRetainedTurnAttachments {
+		return
+	}
+	cutoff := len(e.agent.turns) - maxRetainedTurnAttachments
+	for i := 0; i < cutoff; i++ {
+		e.agent.turns[i].Context.ViewportPNG = nil
+		e.agent.turns[i].Context.SceneYAML = ""
+	}
+}
+
+// AgentTurns returns a deep-enough copy of the turns in the active Agent panel thread, oldest first.
 func (e *Editor) AgentTurns() []AgentTurn {
-	if e == nil {
+	if e == nil || len(e.agent.turns) == 0 {
 		return nil
 	}
 	out := make([]AgentTurn, len(e.agent.turns))
-	for i, t := range e.agent.turns {
-		cp := t
-		cp.Steps = slices.Clone(t.Steps)
-		out[i] = cp
+	for i := range e.agent.turns {
+		out[i] = cloneAgentTurn(e.agent.turns[i])
 	}
 	return out
+}
+
+// LatestAgentTurn returns the most recent agent turn and true, or zero and false when none exists.
+func (e *Editor) LatestAgentTurn() (AgentTurn, bool) {
+	if e == nil || len(e.agent.turns) == 0 {
+		return AgentTurn{}, false
+	}
+	return cloneAgentTurn(e.agent.turns[len(e.agent.turns)-1]), true
+}
+
+// AgentTurn returns the recorded turn matching id, or false when not found.
+func (e *Editor) AgentTurn(id string) (AgentTurn, bool) {
+	if e == nil || id == "" {
+		return AgentTurn{}, false
+	}
+	for i := range e.agent.turns {
+		if e.agent.turns[i].ID == id {
+			return cloneAgentTurn(e.agent.turns[i]), true
+		}
+	}
+	return AgentTurn{}, false
+}
+
+// AgentTurnSeq returns a monotonically increasing sequence number bumped whenever an agent turn is added or updated.
+func (e *Editor) AgentTurnSeq() uint64 {
+	if e == nil {
+		return 0
+	}
+	return e.agent.turnChangeSeq
+}
+
+// ReplyAgentTurn records an agent reply and/or status ("pending", "running", "done", "stopped") on turnID
+// (defaulting to the latest turn when turnID is empty) so the Agent panel's thread updates live.
+func (e *Editor) ReplyAgentTurn(turnID, reply, status string) error {
+	if e == nil || len(e.agent.turns) == 0 {
+		return errors.New("editor: no agent turn")
+	}
+	if len(reply) > maxAgentTurnReplyBytes {
+		return fmt.Errorf("editor: agent turn reply exceeds maximum size (%d bytes)", maxAgentTurnReplyBytes)
+	}
+	if strings.IndexByte(reply, 0) >= 0 {
+		return errors.New("editor: agent turn reply must not contain NUL bytes")
+	}
+	idx := len(e.agent.turns) - 1
+	if turnID != "" {
+		idx = -1
+		for i := range e.agent.turns {
+			if e.agent.turns[i].ID == turnID {
+				idx = i
+				break
+			}
+		}
+		if idx < 0 {
+			return fmt.Errorf("editor: agent turn %q not found", turnID)
+		}
+	}
+	turn := &e.agent.turns[idx]
+	if status != "" {
+		switch status {
+		case "pending", "running", "done", "stopped":
+			turn.Status = status
+			turn.Done = status == "done" || status == "stopped"
+			turn.Stopped = status == "stopped"
+			if turn.Done && turn.FinishedAt.IsZero() {
+				turn.FinishedAt = e.nowTime()
+			}
+		default:
+			return fmt.Errorf("editor: invalid agent turn status %q", status)
+		}
+	}
+	if reply != "" {
+		turn.Reply = reply
+		turn.Summary = reply
+		if status == "" && (turn.Status == "" || turn.Status == "pending") {
+			turn.Status = "done"
+			turn.Done = true
+			turn.FinishedAt = e.nowTime()
+		}
+	}
+	e.agent.turnChangeSeq++
+	e.notify()
+	return nil
 }
 
 // AgentSessionID returns the external CLI session ID tracked for the current thread.
@@ -1287,10 +1433,13 @@ func (e *Editor) RecordExternalAgentToolCall(clientName, toolName, summary strin
 		return
 	}
 	e.agent.turnSeq++
+	e.agent.turnChangeSeq++
 	id := fmt.Sprintf("turn-%d", e.agent.turnSeq)
 	name := FriendlyAgentName(clientName)
 	e.agent.turns = append(e.agent.turns, AgentTurn{
 		ID:        id,
+		Source:    "external",
+		Status:    "done",
 		External:  true,
 		AgentName: name,
 		Steps: []AgentStep{{
@@ -1300,6 +1449,7 @@ func (e *Editor) RecordExternalAgentToolCall(clientName, toolName, summary strin
 			Status:   status,
 		}},
 		Done:       true,
+		CreatedAt:  now,
 		StartedAt:  now,
 		FinishedAt: now,
 	})
@@ -1338,6 +1488,7 @@ func (e *Editor) SubmitAgentPrompt(prompt string) error {
 
 	e.agent.composerText = ""
 	e.agent.turnSeq++
+	e.agent.turnChangeSeq++
 	turnID := fmt.Sprintf("turn-%d", e.agent.turnSeq)
 	clientName := ""
 	agentKind := ExternalAgentAuto
@@ -1345,11 +1496,15 @@ func (e *Editor) SubmitAgentPrompt(prompt string) error {
 		clientName = c.DisplayName
 		agentKind = DetectExternalAgentKind(c.Name)
 	}
+	now := e.nowTime()
 	e.agent.turns = append(e.agent.turns, AgentTurn{
 		ID:        turnID,
 		Prompt:    text,
+		Source:    "panel",
+		Status:    "running",
 		AgentName: clientName,
-		StartedAt: e.nowTime(),
+		CreatedAt: now,
+		StartedAt: now,
 	})
 
 	e.agent.activeRunID++
@@ -1498,10 +1653,13 @@ func (e *Editor) applyAgentEventForRun(runID uint64, turnID string, ev AgentEven
 	case AgentEventDone:
 		if ev.Text != "" && turn.Summary == "" {
 			turn.Summary = ev.Text
+			turn.Reply = ev.Text
 		}
 		turn.Done = true
+		turn.Status = "done"
 		turn.FinishedAt = e.nowTime()
 	}
+	e.agent.turnChangeSeq++
 	e.updateAgentAnnouncement()
 	e.notify()
 }
@@ -1519,8 +1677,12 @@ func (e *Editor) finishAgentRun(runID uint64, turnID string, err error, canceled
 		turn.FinishedAt = e.nowTime()
 		if canceled {
 			turn.Stopped = true
-		} else if err != nil && turn.Error == "" {
-			turn.Error = err.Error()
+			turn.Status = "stopped"
+		} else {
+			turn.Status = "done"
+			if err != nil && turn.Error == "" {
+				turn.Error = err.Error()
+			}
 		}
 		for i := range turn.Steps {
 			if turn.Steps[i].Status == AgentStepRunning {
@@ -1532,6 +1694,7 @@ func (e *Editor) finishAgentRun(runID uint64, turnID string, err error, canceled
 			}
 		}
 	}
+	e.agent.turnChangeSeq++
 	e.restoreIdleAgentStatus()
 	e.notify()
 }

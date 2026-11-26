@@ -127,7 +127,7 @@ layers:
 
 	// 2. Send request -> Agent panel shows the turn with selection, scene, viewport image, and skip-plan badge.
 	app.Key("enter")
-	if !app.Exists("id:editor-agent-panel") {
+	if !app.Exists("id:agent-panel") {
 		t.Fatal("Agent panel not shown after sending in-place request")
 	}
 	app.Screenshot("ask-in-place-agent-panel")

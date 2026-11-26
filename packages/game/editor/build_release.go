@@ -410,6 +410,7 @@ func (e *Editor) OpenBuildReleaseScreen() error {
 	if e.playing {
 		return ErrPlaying
 	}
+	e.CloseAskInPlace()
 	e.hud.open = false
 	e.playtest.open = false
 	if e.usages.open {

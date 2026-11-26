@@ -678,6 +678,11 @@ func AgentStatusChipView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	composerFocused := core.NewSignal(cx, false)
 	openReqRef := new(core.Ref)
+	panelRef := new(core.Ref)
+	ed.SetAgentPanelRef(panelRef)
+	cx.Cleanup(func() {
+		ed.SetAgentPanelRef(nil)
+	})
 
 	// Shift+Enter inserts a newline while the composer is focused; plain Enter submits via SubmitBehaviorSubmit.
 	cx.OnKeyWith("shift+enter", core.KeyOptions{When: core.KeyAlways}, func() {
@@ -699,9 +704,9 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 	threadKey := core.NewMemo(cx, func() string {
 		_ = rev.Get()
 		var b strings.Builder
-		fmt.Fprintf(&b, "%s|%d|", ed.AgentStatus(), len(ed.agent.turns))
+		fmt.Fprintf(&b, "%s|%d|%d|", ed.AgentStatus(), len(ed.agent.turns), ed.AgentTurnSeq())
 		for _, t := range ed.agent.turns {
-			fmt.Fprintf(&b, "%s:%d:%v:%v:%d:%d|", t.ID, len(t.Steps), t.Done, t.Stopped, len(t.Summary), len(t.Error))
+			fmt.Fprintf(&b, "%s:%s:%d:%v:%v:%v:%d:%d:%d|", t.ID, t.Status, len(t.Steps), t.Done, t.Stopped, t.SkipPlan, len(t.Summary), len(t.Reply), len(t.Error))
 			for _, st := range t.Steps {
 				fmt.Fprintf(&b, "%s=%s;", st.ID, st.Status)
 			}
@@ -746,6 +751,7 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 
 		return core.View{
 			TestID: "agent-panel",
+			Ref:    panelRef,
 			Role:   core.RoleRegion,
 			Label:  "Agent panel",
 			Style: core.Style{
@@ -858,6 +864,27 @@ func agentTurnView(ed *Editor, turnIdx int, turn AgentTurn, p SpecPalette) core.
 			},
 		})
 	} else if turn.Prompt != "" {
+		promptChildren := []core.Node{
+			core.Text{
+				Content: turn.Prompt,
+				Style: core.Style{
+					FontSize: 12.5,
+					Color:    p.TextSecondary,
+				},
+			},
+		}
+		chips := agentTurnContextChips(ed, turn, p)
+		if len(chips) > 0 {
+			promptChildren = append(promptChildren, core.View{
+				Style: core.Style{
+					Direction:  core.Row,
+					Wrap:       core.Wrap,
+					AlignItems: core.AlignCenter,
+					Gap:        4,
+				},
+				Children: chips,
+			})
+		}
 		children = append(children, core.View{
 			TestID: fmt.Sprintf("agent-turn-prompt-%d", turnIdx),
 			Style: core.Style{
@@ -868,16 +895,9 @@ func agentTurnView(ed *Editor, turnIdx int, turn AgentTurn, p SpecPalette) core.
 				Background:   p.Raised,
 				BorderWidth:  1,
 				BorderColor:  p.LineRaised,
+				Gap:          6,
 			},
-			Children: []core.Node{
-				core.Text{
-					Content: turn.Prompt,
-					Style: core.Style{
-						FontSize: 12.5,
-						Color:    p.TextSecondary,
-					},
-				},
-			},
+			Children: promptChildren,
 		})
 	}
 
@@ -895,13 +915,53 @@ func agentTurnView(ed *Editor, turnIdx int, turn AgentTurn, p SpecPalette) core.
 		})
 	}
 
-	if turn.Summary != "" {
-		children = append(children, core.Text{
-			TestID:  fmt.Sprintf("agent-turn-summary-%d", turnIdx),
-			Content: turn.Summary,
+	replyText := turn.Summary
+	if replyText == "" {
+		replyText = turn.Reply
+	}
+	if replyText != "" {
+		children = append(children, core.View{
+			TestID: "agent-turn-reply-" + turn.ID,
+			Children: []core.Node{
+				core.Text{
+					TestID:  fmt.Sprintf("agent-turn-summary-%d", turnIdx),
+					Content: replyText,
+					Style: core.Style{
+						FontSize: 12.5,
+						Color:    p.TextSecondary,
+					},
+				},
+			},
+		})
+	} else if turn.Source == "in_place" && !turn.Done && !turn.Stopped && turn.Error == "" {
+		statusText := ed.T("agentPanel.statusPending")
+		if turn.Status == "running" {
+			statusText = ed.T("agentPanel.statusRunning")
+		}
+		children = append(children, core.View{
+			TestID: "agent-turn-status-" + turn.ID,
 			Style: core.Style{
-				FontSize: 12.5,
-				Color:    p.TextSecondary,
+				Direction:  core.Row,
+				AlignItems: core.AlignCenter,
+				Gap:        6,
+			},
+			Children: []core.Node{
+				core.View{
+					Style: core.Style{
+						Width:        core.Pt(7),
+						Height:       core.Pt(7),
+						CornerRadius: 4,
+						Background:   p.Agent.Fg,
+						FlexShrink:   0,
+					},
+				},
+				core.Text{
+					Content: statusText,
+					Style: core.Style{
+						FontSize: 11.5,
+						Color:    p.TextFaint,
+					},
+				},
 			},
 		})
 	}
@@ -981,6 +1041,97 @@ func agentTurnView(ed *Editor, turnIdx int, turn AgentTurn, p SpecPalette) core.
 			Gap: 10,
 		},
 		Children: children,
+	}
+}
+
+func agentTurnContextChips(ed *Editor, t AgentTurn, p SpecPalette) []core.Node {
+	var chips []core.Node
+	if len(t.Context.SelectionIDs) > 0 {
+		selLabel := strings.Join(t.Context.SelectionNames, ", ")
+		if selLabel == "" {
+			selLabel = strings.Join(t.Context.SelectionIDs, ", ")
+		}
+		if len(t.Context.SelectionIDs) > 1 {
+			selLabel = fmt.Sprintf("%d · %s", len(t.Context.SelectionIDs), selLabel)
+		}
+		chips = append(chips, agentContextChip(p, "agent-turn-selection-"+t.ID, p.Added.Fg, selLabel))
+	}
+	sceneChip := t.Context.ScenePath
+	if sceneChip == "" {
+		sceneChip = t.Context.SceneName
+	}
+	if sceneChip != "" {
+		chips = append(chips, agentContextChip(p, "agent-turn-scene-"+t.ID, p.Accent.Fg, sceneChip))
+	}
+	if len(t.Context.ViewportPNG) > 0 {
+		imgLabel := ed.T("agentPanel.viewportImage")
+		if t.Context.ViewportWidth > 0 && t.Context.ViewportHeight > 0 {
+			imgLabel = fmt.Sprintf("%s · %d×%d", imgLabel, t.Context.ViewportWidth, t.Context.ViewportHeight)
+		}
+		chips = append(chips, agentContextChip(p, "agent-turn-image-"+t.ID, p.TextMuted, imgLabel))
+	}
+	if t.SkipPlan {
+		chips = append(chips, core.View{
+			TestID: "agent-turn-skip-plan-" + t.ID,
+			Style: core.Style{
+				Height:         core.Pt(20),
+				Padding:        core.Symmetric(0, 6),
+				CornerRadius:   6,
+				Background:     p.Agent.Fill,
+				BorderWidth:    1,
+				BorderColor:    p.Agent.Edge,
+				AlignItems:     core.AlignCenter,
+				JustifyContent: core.JustifyCenter,
+			},
+			Children: []core.Node{
+				core.Text{
+					Content:  ed.T("agentPanel.skipPlanBadge"),
+					MaxLines: 1,
+					Style: core.Style{
+						FontSize:   10.5,
+						FontWeight: core.FontWeightMedium,
+						Color:      p.Agent.Fg,
+					},
+				},
+			},
+		})
+	}
+	return chips
+}
+
+func agentContextChip(p SpecPalette, testID string, dotColor core.Color, label string) core.Node {
+	return core.View{
+		TestID: testID,
+		Style: core.Style{
+			Direction:    core.Row,
+			AlignItems:   core.AlignCenter,
+			Gap:          5,
+			Height:       core.Pt(20),
+			Padding:      core.Symmetric(0, 6),
+			CornerRadius: 6,
+			Background:   p.Inset,
+			BorderWidth:  1,
+			BorderColor:  p.LineRaised,
+		},
+		Children: []core.Node{
+			core.View{
+				Style: core.Style{
+					Width:        core.Pt(6),
+					Height:       core.Pt(6),
+					CornerRadius: 2,
+					Background:   dotColor,
+					FlexShrink:   0,
+				},
+			},
+			core.Text{
+				Content:  label,
+				MaxLines: 1,
+				Style: core.Style{
+					FontSize: 11,
+					Color:    p.TextMuted,
+				},
+			},
+		},
 	}
 }
 
