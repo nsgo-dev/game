@@ -1597,12 +1597,14 @@ func statusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 							return ed.Project != nil && ed.ProjectPath != ""
 						},
 						Then: func(cx *core.Scope) core.Node {
-							spec := ed.SpecPalette(cx)
 							return core.View{
-								TestID:    "status-problems-pill",
-								Role:      core.RoleButton,
-								Label:     ed.T("problems.openPanelLabel"),
-								Focusable: func() bool { return true },
+								TestID: "status-problems-pill",
+								Role:   core.RoleButton,
+								Label:  ed.T("problems.openPanelLabel"),
+								Focusable: func() bool {
+									_ = rev.Get()
+									return !ed.Playing()
+								},
 								Style: core.Style{
 									Direction:    core.Row,
 									AlignItems:   core.AlignCenter,
@@ -1610,21 +1612,25 @@ func statusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 									Height:       core.Pt(22),
 									Padding:      core.Symmetric(0, 8),
 									CornerRadius: 11,
-									FocusVisible: spec.FocusRing(2),
 								},
 								StyleFunc: func() core.Style {
 									_ = rev.Get()
-									if ed.ProblemCount() > 0 {
-										p := ed.SpecPalette(cx)
-										return core.Style{
-											Background:  p.Problem().Fill,
-											BorderWidth: 1,
-											BorderColor: p.Problem().Edge,
-										}
+									p := ed.SpecPalette(cx)
+									st := core.Style{FocusVisible: p.FocusRing(2)}
+									if ed.Playing() {
+										st.Opacity = core.Alpha(0.5)
 									}
-									return core.Style{}
+									if ed.ProblemCount() > 0 {
+										st.Background = p.Problem().Fill
+										st.BorderWidth = 1
+										st.BorderColor = p.Problem().Edge
+									}
+									return st
 								},
 								OnPress: func(core.PressEvent) {
+									if ed.Playing() || ed.StartScreenOpen() || ed.MergeConflictOpen() {
+										return
+									}
 									ed.SetProblemAgentPanelOpen(!ed.ProblemAgentPanelOpen())
 								},
 								Children: []core.Node{
@@ -1634,7 +1640,7 @@ func statusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 											return ed.ProblemCount() > 0
 										},
 										Then: func(cx *core.Scope) core.Node {
-											return problemAlertIcon(ed.SpecPalette(cx).Problem().Fg, 12)
+											return problemAlertIconFunc(func() core.Color { return ed.SpecPalette(cx).Problem().Fg }, 12)
 										},
 									},
 									core.Text{

@@ -65,6 +65,15 @@ type sceneTab struct {
 	inspectLayer        bool
 	// placeholder is true only for a pristine untitled tab created automatically by New(nil, ...) or by closing the last open tab.
 	placeholder bool
+
+	// Lightweight per-tab live YAML snapshot cache for inactive tabs so Rebuild()/liveResolver()
+	// and unsavedProjectFiles() never re-encode untouched tabs on every edit or 60 Hz scrub.
+	liveYAMLValid    bool
+	liveYAMLDirty    bool
+	liveYAML         []byte
+	liveYAMLDoc      *sceneformat.SceneDoc
+	liveYAMLSaved    []byte
+	liveYAMLFilesRev uint64
 }
 
 func (e *Editor) nextTabID() uint64 {
@@ -143,6 +152,8 @@ func (e *Editor) syncActiveTab() {
 	t.locked = e.locked
 	t.layerLocked = e.layerLocked
 	t.inspectLayer = e.inspectLayer
+	t.liveYAMLValid = false
+	t.liveYAML = nil
 }
 
 // loadActiveTab copies e.tabs[e.activeTab] into the live active-scene fields on Editor.

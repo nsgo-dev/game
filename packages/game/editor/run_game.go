@@ -331,6 +331,7 @@ func (e *Editor) Close() error {
 	e.stopReleaseBuild()
 	e.CancelReleaseUpload()
 	e.stopAssetsBuild()
+	e.stopProblemCheckTimer()
 	e.stopDiskWatcher()
 	e.stopAgentTimers()
 	e.cancelCreateProject()

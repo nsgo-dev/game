@@ -720,7 +720,6 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 					return ed.ObjectProblemCount(id) > 0
 				},
 				Then: func(cx *core.Scope) core.Node {
-					spec := ed.SpecPalette(cx)
 					return core.View{
 						TestID: "scene-tree-problem-" + id,
 						Style: core.Style{
@@ -729,13 +728,18 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 							Gap:          3,
 							Padding:      core.Symmetric(1, 5),
 							CornerRadius: 6,
-							Background:   spec.Problem().Fill,
 							BorderWidth:  1,
-							BorderColor:  spec.Problem().Edge,
 							FlexShrink:   0,
 						},
+						StyleFunc: func() core.Style {
+							p := ed.SpecPalette(cx)
+							return core.Style{
+								Background:  p.Problem().Fill,
+								BorderColor: p.Problem().Edge,
+							}
+						},
 						Children: []core.Node{
-							problemAlertIcon(spec.Problem().Fg, 11),
+							problemAlertIconFunc(func() core.Color { return ed.SpecPalette(cx).Problem().Fg }, 11),
 							core.Text{
 								ContentFunc: func() string {
 									_ = rev.Get()
@@ -744,7 +748,9 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 								Style: core.Style{
 									FontSize:   10.5,
 									FontWeight: 600,
-									Color:      spec.Problem().Fg,
+								},
+								StyleFunc: func() core.Style {
+									return core.Style{Color: ed.SpecPalette(cx).Problem().Fg}
 								},
 							},
 						},

@@ -223,6 +223,8 @@ func (e *Editor) followMove(root, from, to string, written []refs.Write, skipDoc
 			}
 		}
 		movePath(&t.scenePath)
+		t.liveYAMLValid = false
+		t.liveYAML = nil
 	}
 	e.loadActiveTab()
 	e.syncProjectAssets()

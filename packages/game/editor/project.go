@@ -255,6 +255,7 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 	e.resetAssetGenForProject()
 	e.resetViewport3DAgentPrompt(true)
 	e.resetTextInputFocus()
+	e.resetProblemsForProject()
 	e.Status = "Opened project " + path
 	if missing := e.MissingPlugins(); len(missing) > 0 {
 		e.Status += "; plugins not built into this editor: " + strings.Join(missing, ", ")
