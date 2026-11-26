@@ -137,8 +137,8 @@ func TestViewport3DDrawsTheSceneOnTheGPUView(t *testing.T) {
 	cw, ch := ed.CanvasSize()
 	overlay := &core.Drawing{}
 	ed.DrawViewport(overlay, core.Size{Width: core.Points(cw), Height: core.Points(ch)})
-	bg, _ := core.ParseColor("#141824")
-	if canvasBackgroundFilled(overlay, cw, ch, bg) || canvasBackgroundFilled(overlay, cw, ch, core.RGBA(0x141824, 1)) {
+	bg := editor.SpecPaletteFor(ed.Dark()).Viewport
+	if canvasBackgroundFilled(overlay, cw, ch, bg) {
 		t.Fatal("the canvas over the GPU view paints a background over the scene")
 	}
 	if got := fmt.Sprint(app.Find("id:editor-viewport").Ops); got != fmt.Sprint(overlay.Ops) {
@@ -203,11 +203,8 @@ func TestViewport3DWithoutAGPUDrawsTheWireframeView(t *testing.T) {
 	cw, ch := ed.CanvasSize()
 	d := &core.Drawing{}
 	ed.DrawViewport(d, core.Size{Width: core.Points(cw), Height: core.Points(ch)})
-	if !canvasBackgroundFilled(d, cw, ch, core.RGBA(0x141824, 1)) {
-		bg, _ := core.ParseColor("#141824")
-		if !canvasBackgroundFilled(d, cw, ch, bg) {
-			t.Fatal("the wireframe view does not fill the scene's background")
-		}
+	if !canvasBackgroundFilled(d, cw, ch, editor.SpecPaletteFor(ed.Dark()).Viewport) {
+		t.Fatal("the wireframe view does not fill the scene's background")
 	}
 	if got := fmt.Sprint(app.Find("id:editor-viewport").Ops); got != fmt.Sprint(d.Ops) {
 		t.Fatal("the mounted canvas does not draw the wireframe view")
