@@ -12,47 +12,50 @@ import (
 
 // Additional Spec.dc.html color tokens used by the Start Screen (shared tokens live in profiler_ui.go).
 var (
-	specAccentTint = core.RGBA(0x3B7BFF, 0.18)
-	specRemoved    = mustSpecColor("#FF6B6B")
+	specAccentTint = specAlpha(darkSpecPalette.Accent.Fg, 0.18)
+	specRemoved    = darkSpecPalette.Removed.Fg
 )
 
-func mustSpecColor(hex string) core.Color {
-	c, err := core.ParseColor(hex)
-	if err != nil {
-		panic(err)
-	}
-	return c
-}
-
-// templateSwatchColor returns a restrained, dark-theme card preview tint derived from the template name.
+// templateSwatchColor returns a restrained, dark-theme card preview tint composed strictly from Spec tokens.
 func templateSwatchColor(name string) core.Color {
-	swatches := map[string]string{
-		"starter":        "#262B35",
-		"platformer2d":   "#253856",
-		"rpg2d":          "#2D4533",
-		"shmup2d":        "#482A3E",
-		"fighting2d":     "#543329",
-		"racing3d":       "#294156",
-		"fps3d":          "#3D334D",
-		"action3d":       "#31423F",
-		"puzzle2d":       "#4A432D",
-		"cards2d":        "#422E2E",
-		"rts2d":          "#2B3F34",
-		"roguelike2d":    "#342D45",
-		"towerdefense2d": "#423F29",
-		"idle":           "#284242",
-		"visualnovel":    "#4A3342",
-		"rhythm":         "#2D384B",
+	base := darkSpecPalette.Raised
+	swatch := func(role core.Color, alpha float32) core.Color {
+		return CompositeOver(specAlpha(role, alpha), base)
 	}
-	if hex, ok := swatches[strings.ToLower(name)]; ok {
-		return mustSpecColor(hex)
+	swatches := map[string]core.Color{
+		"starter":        darkSpecPalette.LineRaised,
+		"platformer2d":   swatch(darkSpecPalette.Accent.Fg, 0.24),
+		"rpg2d":          swatch(darkSpecPalette.Added.Fg, 0.22),
+		"shmup2d":        swatch(darkSpecPalette.Removed.Fg, 0.22),
+		"fighting2d":     swatch(darkSpecPalette.Changed.Fg, 0.24),
+		"racing3d":       swatch(darkSpecPalette.Accent.Fg, 0.20),
+		"fps3d":          swatch(darkSpecPalette.Agent.Fg, 0.22),
+		"action3d":       swatch(darkSpecPalette.Added.Fg, 0.18),
+		"puzzle2d":       swatch(darkSpecPalette.Warning.Fg, 0.20),
+		"cards2d":        swatch(darkSpecPalette.Removed.Fg, 0.18),
+		"rts2d":          swatch(darkSpecPalette.Added.Fg, 0.20),
+		"roguelike2d":    swatch(darkSpecPalette.Agent.Fg, 0.18),
+		"towerdefense2d": swatch(darkSpecPalette.Warning.Fg, 0.18),
+		"idle":           swatch(darkSpecPalette.Added.Fg, 0.16),
+		"visualnovel":    swatch(darkSpecPalette.Agent.Fg, 0.24),
+		"rhythm":         swatch(darkSpecPalette.Accent.Fg, 0.18),
 	}
-	palette := []string{"#262B35", "#253856", "#2D4533", "#3D334D", "#31423F", "#4A432D"}
+	if col, ok := swatches[strings.ToLower(name)]; ok {
+		return col
+	}
+	palette := []core.Color{
+		darkSpecPalette.LineRaised,
+		swatch(darkSpecPalette.Accent.Fg, 0.24),
+		swatch(darkSpecPalette.Added.Fg, 0.22),
+		swatch(darkSpecPalette.Agent.Fg, 0.22),
+		swatch(darkSpecPalette.Changed.Fg, 0.20),
+		swatch(darkSpecPalette.Warning.Fg, 0.20),
+	}
 	sum := 0
 	for i := range len(name) {
 		sum += int(name[i])
 	}
-	return mustSpecColor(palette[sum%len(palette)])
+	return palette[sum%len(palette)]
 }
 
 // StartScreenView renders the editor's Start Screen matching Start.dc.html, step 1 of FirstRun.dc.html,

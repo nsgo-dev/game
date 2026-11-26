@@ -15,19 +15,19 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// Spec-derived alpha tints strictly from docs/design/editor/Spec.dc.html color tokens (never introducing off-spec hex values).
+// Spec-derived alpha tints strictly from spec_theme.yaml color tokens.
 var (
-	specAssetGenSelectedBg  = core.RGBA(0x3B7BFF, 0.14)
-	specAssetGenPillBg      = core.RGBA(0x9B7BFF, 0.14)
-	specAssetGenPillBorder  = core.RGBA(0x9B7BFF, 0.42)
-	specAssetGenBtnSec      = core.RGBA(0xD9DDE5, 0.08)
-	specAssetGenCheckerTile = core.RGBA(0xD9DDE5, 0.05)
-	specAssetGenFloorTile   = core.RGBA(0xD9DDE5, 0.09)
-	specAssetGenTorchGlow   = core.RGBA(0xE9A84A, 0.18)
-	specAssetGenWavePass    = core.RGBA(0x3B7BFF, 0.72)
-	specAssetGenWaveFail    = core.RGBA(0xFF6B6B, 0.85)
-	specAssetGenApprovedRow = core.RGBA(0x4FD38A, 0.10)
-	specAssetGenProblemText = core.RGB(0xFF6B6B)
+	specAssetGenSelectedBg  = specAlpha(darkSpecPalette.Accent.Fg, 0.14)
+	specAssetGenPillBg      = specAlpha(darkSpecPalette.Agent.Fg, 0.14)
+	specAssetGenPillBorder  = specAlpha(darkSpecPalette.Agent.Fg, 0.42)
+	specAssetGenBtnSec      = specAlpha(darkSpecPalette.TextSecondary, 0.08)
+	specAssetGenCheckerTile = specAlpha(darkSpecPalette.TextSecondary, 0.05)
+	specAssetGenFloorTile   = specAlpha(darkSpecPalette.TextSecondary, 0.09)
+	specAssetGenTorchGlow   = specAlpha(darkSpecPalette.Changed.Fg, 0.18)
+	specAssetGenWavePass    = specAlpha(darkSpecPalette.Accent.Fg, 0.72)
+	specAssetGenWaveFail    = specAlpha(darkSpecPalette.Removed.Fg, 0.85)
+	specAssetGenApprovedRow = specAlpha(darkSpecPalette.Added.Fg, 0.10)
+	specAssetGenProblemText = darkSpecPalette.Removed.Fg
 )
 
 // AssetGeneratorView renders the full-window Generated Assets screen matching docs/design/editor/Assets.dc.html
@@ -1976,8 +1976,7 @@ func drawCrispPixels(d *core.Drawing, rgba *image.RGBA, x, y, maxW, maxH float32
 				if c.A == 0 {
 					continue
 				}
-				rgb := uint32(c.R)<<16 | uint32(c.G)<<8 | uint32(c.B)
-				col := core.RGBA(rgb, float32(c.A)/255.0)
+				col := colorFromRGBA8(c.R, c.G, c.B, c.A)
 				d.SetFillColor(col).FillRect(ox+float32(px)*scale, oy+float32(py)*scale, scale, scale)
 			}
 		}

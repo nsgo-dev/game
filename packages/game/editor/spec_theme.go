@@ -4,29 +4,109 @@ import (
 	_ "embed"
 	"fmt"
 	"math"
+	"time"
 
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/ui"
 )
 
 //go:embed spec_theme.yaml
 var specThemeYAML []byte
 
-var (
-	parsedSpecTheme  *core.Theme
-	darkSpecPalette  SpecPalette
-	lightSpecPalette SpecPalette
+// Typography tokens from docs/design/editor/Spec.dc.html ("Type, space, shape").
+const (
+	SpecFontFamilySans = "Inter"
+	SpecFontFamilyMono = "JetBrains Mono"
+
+	SpecFontTitleSize     core.Points     = 14
+	SpecFontTitleWeight   core.FontWeight = core.FontWeightSemibold // 600
+	SpecFontBodySize      core.Points     = 12.5
+	SpecFontBodyWeight    core.FontWeight = core.FontWeightNormal // 400
+	SpecFontSectionSize   core.Points     = 11
+	SpecFontSectionWeight core.FontWeight = core.FontWeightSemibold // 600
+	SpecFontSectionTrack  core.Points     = 0.66                    // +6% tracking on 11 px
+	SpecFontCodeSize      core.Points     = 11.5
+	SpecFontCodeWeight    core.FontWeight = core.FontWeightNormal // 400
 )
 
-func init() {
+// Spacing scale tokens from docs/design/editor/Spec.dc.html: 4, 8, 12, 16, 24 px only.
+const (
+	SpecSpace4  core.Points = 4
+	SpecSpace8  core.Points = 8
+	SpecSpace12 core.Points = 12
+	SpecSpace16 core.Points = 16
+	SpecSpace24 core.Points = 24
+)
+
+// Corner radius tokens from docs/design/editor/Spec.dc.html.
+const (
+	SpecRadiusControl core.Points = 6  // Controls, inputs, tree rows, pills
+	SpecRadiusButton  core.Points = 8  // Buttons
+	SpecRadiusCard    core.Points = 12 // Cards, popovers, toasts
+	SpecRadiusDialog  core.Points = 18 // Dialogs
+)
+
+// Height, border, and icon geometry tokens from docs/design/editor/Spec.dc.html.
+const (
+	SpecRowHeight        core.Points = 28 // Rows and tool buttons
+	SpecMinHitSize       core.Points = 28 // Minimum interactive hit area (28 x 28)
+	SpecButtonHeight     core.Points = 30 // Standard button height (30-32 px)
+	SpecButtonTallHeight core.Points = 32 // Tall button height (30-32 px)
+	SpecHeaderHeight     core.Points = 44 // Header / toolbar height
+	SpecBorderWidth      core.Points = 1  // 1 px inner borders in Line or LineRaised
+	SpecIconSize         core.Points = 15 // Inline stroke icon size
+	SpecIconStrokeWidth  float32     = 1.8
+)
+
+// Motion tokens from docs/design/editor/Spec.dc.html ("Motion").
+// All durations drop to 0 under Env.ReduceMotion (see SpecMotionDuration).
+const (
+	SpecMotionHover      = 120 * time.Millisecond  // Hover and press transitions
+	SpecMotionPanel      = 180 * time.Millisecond  // Panels, popovers, and toasts
+	SpecMotionOverlay    = 240 * time.Millisecond  // Agent change overlays fading in
+	SpecMotionAgentPulse = 1600 * time.Millisecond // Agent outline pulse (100% <-> 45% opacity)
+
+	SpecAgentPulseMinOpacity float32 = 0.45
+	SpecAgentPulseMaxOpacity float32 = 1.0
+)
+
+// SpecMotionDuration returns d when motion is enabled, or 0 when cx is non-nil and
+// cx.Env().ReduceMotion() is true.
+func SpecMotionDuration(cx *core.Scope, d time.Duration) time.Duration {
+	if cx != nil && cx.Env().ReduceMotion() {
+		return 0
+	}
+	return d
+}
+
+// SpecAgentPulseOpacity returns the Spec agent-working outline opacity in [0.45, 1.0]
+// for elapsed time since the pulse began. Under Env.ReduceMotion it stays solid at 1.0.
+func SpecAgentPulseOpacity(cx *core.Scope, elapsed time.Duration) float32 {
+	if cx != nil && cx.Env().ReduceMotion() {
+		return SpecAgentPulseMaxOpacity
+	}
+	if SpecMotionAgentPulse <= 0 {
+		return SpecAgentPulseMaxOpacity
+	}
+	phase := float64(elapsed%SpecMotionAgentPulse) / float64(SpecMotionAgentPulse)
+	t := 0.5 * (1 + math.Cos(2*math.Pi*phase))
+	return SpecAgentPulseMinOpacity + float32(t)*(SpecAgentPulseMaxOpacity-SpecAgentPulseMinOpacity)
+}
+
+var (
+	parsedSpecTheme, darkSpecPalette, lightSpecPalette = loadSpecTheme()
+)
+
+func loadSpecTheme() (*core.Theme, SpecPalette, SpecPalette) {
 	th, err := core.ParseTheme(specThemeYAML)
 	if err != nil {
 		panic(fmt.Sprintf("editor: parse embedded spec_theme.yaml: %v", err))
 	}
-	parsedSpecTheme = th
-	darkSpecPalette = extractSpecPalette(&th.Dark, true)
-	lightSpecPalette = extractSpecPalette(&th.Light, false)
-	th.Dark.SetColor("ring", darkSpecPalette.Accent.Edge)
-	th.Light.SetColor("ring", lightSpecPalette.Accent.Edge)
+	dark := extractSpecPalette(&th.Dark, true)
+	light := extractSpecPalette(&th.Light, false)
+	th.Dark.SetColor("ring", dark.Accent.Edge)
+	th.Light.SetColor("ring", light.Accent.Edge)
+	return th, dark, light
 }
 
 // SpecRole holds the coordinated colors for a semantic Spec token role
@@ -76,6 +156,16 @@ type SpecPalette struct {
 	Changed SpecRole // Edited objects and values; dashed.
 	Removed SpecRole // Deleted objects and problems/errors; solid.
 	Warning SpecRole // Permission asks, waiting, warning toasts (with dedicated Fill and Edge).
+
+	// Surface interaction overlays and 3D viewport / axis tokens (docs/design/editor/Viewport3D.dc.html).
+	HoverOverlay     core.Color // Subtle hover wash over surfaces (`surfaceHover`).
+	ActiveOverlay    core.Color // Subtle pressed wash over surfaces (`surfacePressed`).
+	PrimaryHover     core.Color // Hover fill for solid TextPrimary buttons (`specPrimaryHover`).
+	Viewport3DGround core.Color // 3D viewport ground plane (`specViewport3DGround`).
+	Viewport3DGrid   core.Color // 3D viewport grid line (`specViewport3DGrid`).
+	AxisX            core.Color // 3D X axis token (`specAxisX`, #FF6B6B dark / #C92A2A light).
+	AxisY            core.Color // 3D Y axis token (`specAxisY`, #4FD38A dark / #0D7A43 light).
+	AxisZ            core.Color // 3D Z axis token (`specAxisZ`, #3B7BFF dark / #1D5CE6 light).
 }
 
 // Problem returns the semantic role shared by removed objects and problems/errors (Spec `removed · problem`).
@@ -125,7 +215,25 @@ func (e *Editor) SpecPalette(cx *core.Scope) SpecPalette {
 	if cx != nil {
 		return SpecPaletteFor(cx.Dark())
 	}
+	return e.activeSpecPalette()
+}
+
+// activeSpecPalette returns the active SpecPalette for e, defaulting to dark when e is nil.
+func (e *Editor) activeSpecPalette() SpecPalette {
+	if e == nil {
+		return darkSpecPalette
+	}
 	return SpecPaletteFor(e.Dark())
+}
+
+// specAlpha returns c with opacity a clamped to [0, 1].
+func specAlpha(c core.Color, a float32) core.Color {
+	return ui.Alpha(c, a)
+}
+
+// colorFromRGBA8 packs dynamic raster pixel or computed data channels into a core.Color.
+func colorFromRGBA8(r, g, b, a uint8) core.Color {
+	return core.Color(uint32(r)<<24 | uint32(g)<<16 | uint32(b)<<8 | uint32(a))
 }
 
 func mustPaletteColor(p *core.Palette, name string) core.Color {
@@ -146,27 +254,35 @@ func extractSpecPalette(p *core.Palette, dark bool) SpecPalette {
 		}
 	}
 	return SpecPalette{
-		Dark:          dark,
-		Bg:            mustPaletteColor(p, "specBg"),
-		Panel:         mustPaletteColor(p, "specPanel"),
-		Raised:        mustPaletteColor(p, "specRaised"),
-		Inset:         mustPaletteColor(p, "specInset"),
-		Viewport:      mustPaletteColor(p, "specViewport"),
-		ViewportDot:   mustPaletteColor(p, "specViewportDot"),
-		PillBg:        mustPaletteColor(p, "specPillBg"),
-		Line:          mustPaletteColor(p, "specLine"),
-		LineRaised:    mustPaletteColor(p, "specLineRaised"),
-		TextPrimary:   mustPaletteColor(p, "specTextPrimary"),
-		TextSecondary: mustPaletteColor(p, "specTextSecondary"),
-		TextMuted:     mustPaletteColor(p, "specTextMuted"),
-		TextFaint:     mustPaletteColor(p, "specTextFaint"),
-		OnTextPrimary: mustPaletteColor(p, "specOnTextPrimary"),
-		Accent:        role("specAccent"),
-		Agent:         role("specAgent"),
-		Added:         role("specAdded"),
-		Changed:       role("specChanged"),
-		Removed:       role("specRemoved"),
-		Warning:       role("specWarning"),
+		Dark:             dark,
+		Bg:               mustPaletteColor(p, "specBg"),
+		Panel:            mustPaletteColor(p, "specPanel"),
+		Raised:           mustPaletteColor(p, "specRaised"),
+		Inset:            mustPaletteColor(p, "specInset"),
+		Viewport:         mustPaletteColor(p, "specViewport"),
+		ViewportDot:      mustPaletteColor(p, "specViewportDot"),
+		PillBg:           mustPaletteColor(p, "specPillBg"),
+		Line:             mustPaletteColor(p, "specLine"),
+		LineRaised:       mustPaletteColor(p, "specLineRaised"),
+		TextPrimary:      mustPaletteColor(p, "specTextPrimary"),
+		TextSecondary:    mustPaletteColor(p, "specTextSecondary"),
+		TextMuted:        mustPaletteColor(p, "specTextMuted"),
+		TextFaint:        mustPaletteColor(p, "specTextFaint"),
+		OnTextPrimary:    mustPaletteColor(p, "specOnTextPrimary"),
+		Accent:           role("specAccent"),
+		Agent:            role("specAgent"),
+		Added:            role("specAdded"),
+		Changed:          role("specChanged"),
+		Removed:          role("specRemoved"),
+		Warning:          role("specWarning"),
+		HoverOverlay:     p.SurfaceHover,
+		ActiveOverlay:    p.SurfacePressed,
+		PrimaryHover:     mustPaletteColor(p, "specPrimaryHover"),
+		Viewport3DGround: mustPaletteColor(p, "specViewport3DGround"),
+		Viewport3DGrid:   mustPaletteColor(p, "specViewport3DGrid"),
+		AxisX:            mustPaletteColor(p, "specAxisX"),
+		AxisY:            mustPaletteColor(p, "specAxisY"),
+		AxisZ:            mustPaletteColor(p, "specAxisZ"),
 	}
 }
 
@@ -289,5 +405,10 @@ func SpecContrastTable(p SpecPalette) []SpecContrastPair {
 		{Name: "added edge on viewport", Foreground: p.Added.Edge, Background: p.Viewport, MinRatio: 3.0, Usage: "Added dashed outline on viewport surround"},
 		{Name: "changed edge on viewport", Foreground: p.Changed.Edge, Background: p.Viewport, MinRatio: 3.0, Usage: "Changed dashed outline on viewport surround"},
 		{Name: "removed edge on viewport", Foreground: p.Removed.Edge, Background: p.Viewport, MinRatio: 3.0, Usage: "Removed/problem outline on viewport surround"},
+
+		// 3D viewport axis tokens from docs/design/editor/Viewport3D.dc.html (WCAG 2.2 3:1).
+		{Name: "3D axis X on viewport", Foreground: p.AxisX, Background: p.Viewport, MinRatio: 3.0, Usage: "3D X gizmo, axis widget, and transform X label"},
+		{Name: "3D axis Y on viewport", Foreground: p.AxisY, Background: p.Viewport, MinRatio: 3.0, Usage: "3D Y gizmo, axis widget, and transform Y label"},
+		{Name: "3D axis Z on viewport", Foreground: p.AxisZ, Background: p.Viewport, MinRatio: 3.0, Usage: "3D Z gizmo, axis widget, and transform Z label"},
 	}
 }

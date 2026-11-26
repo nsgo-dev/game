@@ -656,9 +656,10 @@ func (e *Editor) DrawRigViewport(d *core.Drawing, size core.Size) {
 	cw, ch := float32(size.Width), float32(size.Height)
 	e.SetRigCanvasSize(cw, ch)
 
+	spec := e.activeSpecPalette()
 	// Background and subtle grid.
 	d.Save()
-	d.SetFillColor(core.RGBA(0x111827, 1)).FillRect(0, 0, cw, ch)
+	d.SetFillColor(spec.Viewport).FillRect(0, 0, cw, ch)
 
 	ox, oy := e.RigWorldToCanvas(0, 0)
 	z := e.rigZoom()
@@ -666,7 +667,7 @@ func (e *Editor) DrawRigViewport(d *core.Drawing, size core.Size) {
 	if step < 8 {
 		step = 8
 	}
-	d.SetStrokeColor(core.RGBA(0xFFFFFF, 0.06)).SetLineWidth(1)
+	d.SetStrokeColor(spec.HoverOverlay).SetLineWidth(1)
 	d.BeginPath()
 	for x := ox - float32(math.Ceil(float64(ox/step)))*step; x <= cw; x += step {
 		d.MoveTo(x, 0).LineTo(x, ch)
@@ -677,9 +678,9 @@ func (e *Editor) DrawRigViewport(d *core.Drawing, size core.Size) {
 	d.Stroke()
 
 	// Origin axes.
-	d.SetStrokeColor(core.RGBA(0xEF4444, 0.35)).SetLineWidth(1)
+	d.SetStrokeColor(specAlpha(spec.AxisX, 0.35)).SetLineWidth(1)
 	d.BeginPath().MoveTo(0, oy).LineTo(cw, oy).Stroke()
-	d.SetStrokeColor(core.RGBA(0x22C55E, 0.35)).SetLineWidth(1)
+	d.SetStrokeColor(specAlpha(spec.AxisY, 0.35)).SetLineWidth(1)
 	d.BeginPath().MoveTo(ox, 0).LineTo(ox, ch).Stroke()
 
 	// Draw live runtime skeletal attachments.
@@ -703,18 +704,18 @@ func (e *Editor) DrawRigViewport(d *core.Drawing, size core.Size) {
 			if b.Parent != "" {
 				if pw, pok := e.rig.skel.WorldBone(b.Parent); pok {
 					px, py := e.RigWorldToCanvas(pw.X, pw.Y)
-					d.SetStrokeColor(core.RGBA(0x94A3B8, 0.45)).SetLineWidth(1).SetLineDash(3, 3)
+					d.SetStrokeColor(specAlpha(spec.TextFaint, 0.45)).SetLineWidth(1).SetLineDash(3, 3)
 					d.BeginPath().MoveTo(px, py).LineTo(bx, by).Stroke()
 					d.SetLineDash()
 				}
 			}
 
 			selected := b.Name == e.rig.selectedBone
-			fill := core.RGBA(0x38BDF8, 0.25)
-			stroke := core.RGBA(0x38BDF8, 0.85)
+			fill := specAlpha(spec.Accent.Fg, 0.25)
+			stroke := specAlpha(spec.Accent.Fg, 0.85)
 			if selected {
-				fill = core.RGBA(0xFBBF24, 0.35)
-				stroke = core.RGBA(0xFBBF24, 1)
+				fill = specAlpha(spec.Warning.Fg, 0.35)
+				stroke = spec.Warning.Fg
 			}
 
 			origin, tip, _, _ := e.RigBoneHandlePos(b.Name)
@@ -740,7 +741,7 @@ func (e *Editor) DrawRigViewport(d *core.Drawing, size core.Size) {
 				d.BeginPath().MoveTo(origin.X, origin.Y).LineTo(tip.X, tip.Y).Stroke()
 			}
 			// Joint circle.
-			d.SetFillColor(core.RGBA(0x0F172A, 1)).SetStrokeColor(stroke).SetLineWidth(1.5)
+			d.SetFillColor(spec.Bg).SetStrokeColor(stroke).SetLineWidth(1.5)
 			d.BeginPath().Ellipse(origin.X, origin.Y, 4.5, 4.5).Fill().Stroke()
 		}
 
@@ -748,26 +749,26 @@ func (e *Editor) DrawRigViewport(d *core.Drawing, size core.Size) {
 		if e.rig.selectedBone != "" {
 			if origin, tip, ring, ok := e.RigBoneHandlePos(e.rig.selectedBone); ok {
 				active := e.rig.drag.handle
-				ringCol := core.RGBA(0x38BDF8, 0.75)
+				ringCol := specAlpha(spec.Accent.Fg, 0.75)
 				if active == RigHandleBoneRotate {
-					ringCol = core.RGBA(0xFBBF24, 1)
+					ringCol = spec.Warning.Fg
 				}
 				d.SetStrokeColor(ringCol).SetLineWidth(1.5)
 				d.BeginPath().Arc(origin.X, origin.Y, ring, 0, 2*math.Pi, false).Stroke()
 
-				moveCol := core.RGBA(0xF8FAFC, 1)
+				moveCol := spec.TextPrimary
 				if active == RigHandleBoneMove {
-					moveCol = core.RGBA(0xFBBF24, 1)
+					moveCol = spec.Warning.Fg
 				}
-				d.SetFillColor(moveCol).SetStrokeColor(core.RGBA(0x0F172A, 1)).SetLineWidth(1.5)
+				d.SetFillColor(moveCol).SetStrokeColor(spec.Bg).SetLineWidth(1.5)
 				d.BeginPath().Ellipse(origin.X, origin.Y, 5.5, 5.5).Fill().Stroke()
 
-				tipCol := core.RGBA(0x22C55E, 1)
+				tipCol := spec.Added.Fg
 				if active == RigHandleBoneLength {
-					tipCol = core.RGBA(0xFBBF24, 1)
+					tipCol = spec.Warning.Fg
 				}
 				const r float32 = 5
-				d.SetFillColor(tipCol).SetStrokeColor(core.RGBA(0x0F172A, 1)).SetLineWidth(1.5)
+				d.SetFillColor(tipCol).SetStrokeColor(spec.Bg).SetLineWidth(1.5)
 				d.BeginPath().
 					MoveTo(tip.X, tip.Y-r).
 					LineTo(tip.X+r, tip.Y).
@@ -795,15 +796,15 @@ func (e *Editor) DrawRigViewport(d *core.Drawing, size core.Size) {
 							px, py := e.RigWorldToCanvas(pt.X, pt.Y)
 							pts[i] = math2d.Vec2{X: px, Y: py}
 						}
-						d.SetStrokeColor(core.RGBA(0xA855F7, 0.85)).SetLineWidth(1).SetLineDash(4, 3)
+						d.SetStrokeColor(specAlpha(spec.Agent.Fg, 0.85)).SetLineWidth(1).SetLineDash(4, 3)
 						strokePolygon(d, pts)
 						d.SetLineDash()
 					}
 				}
 				px, py := e.RigWorldToCanvas(wt.X, wt.Y)
-				origCol := core.RGBA(0xE879F9, 1)
+				origCol := spec.Agent.Fg
 				if e.rig.drag.handle == RigHandleAttachmentOrigin {
-					origCol = core.RGBA(0xFBBF24, 1)
+					origCol = spec.Warning.Fg
 				}
 				const arm float32 = 8
 				d.SetStrokeColor(origCol).SetLineWidth(1.5)

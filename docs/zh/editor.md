@@ -1561,7 +1561,6 @@ func main() {
 - **右侧 Agent 标签页与摘要卡片（`RightRailView` / `AgentPanelView`）**：右侧栏顶部支持在 **Agent**（`mod+1` / `CmdAgentTab`）与 **Inspector**（`mod+2` / `CmdInspectorTab`）之间切换，并显示待确认状态点与 MCP 连接状态。界面严格使用 `Spec.dc.html` 令牌并对应 `Main.dc.html` 布局（完整支持中英文界面），展示请求气泡、进度步骤、工作中的 **Stop（`⌘.`）** 按钮、完成摘要、精简摘要卡片（`"6 changes · 1 file · +38 −0"`、按类型展示的变更列表与单条/按文件还原恢复按钮、**Keep** / **Review** / **Revert**）、已保留/已还原状态（`"one undo step (⌘Z)"`）以及带 `"Edits stay unsaved until you keep them"` 提示的输入框。
 - **切换场景/标签页/项目、关闭与安全边界保护**：存在待确认回合时，打开其他场景（`RequestOpenScene`）、切换场景标签页（`RequestSelectTab`）、切换项目（`RequestOpenProject`）、关闭窗口或退出应用都会弹出 **Keep / Revert / Cancel** 确认框（`pendingTurnDialog`），与未保存修改的行为保持一致。所有暂存文件均强制校验项目根目录符号链接包含性、拒绝 `.git/**` 与“仅限本人”配置文件、限制单文件 2 MiB 上限，并在 `OpenProject` 与 `OpenDemo` 时彻底重置状态。
 - **MCP 工具（`editormcp`）**：提供 `turn_start`、`turn_end`、`turn_status`（只读，如实报告已还原的变更）和 `file_edit`（在内存中校验并编辑 `game.yaml`、数据表、动画片段、预制体与场景），并为 `scene_edit` 与 `object_set_field` 增加 `why` 参数；按设计不提供可由智能体调用的保留或还原回合工具。
-
 ## 智能体面板的失败、恢复与离线状态（#1024）
 
 当智能体请求未能直接成功完成时，`AgentPanelView` 会严格使用 `SpecPalette` 设计 Token（支持深浅外观）渲染 `docs/design/editor/AgentStates.dc.html` 定义的六种状态卡片，并且在所有状态下保持选择、移动、检视器、`CheckProblems` 与 Play 等手动编辑工具正常工作：
@@ -1572,7 +1571,6 @@ func main() {
 - **已停止（`AgentStoppedState`）**：停止运行中的请求后，卡片分区列出 `DONE` 与 `NOT DONE` 步骤，提供 **Resume**（`ResumeAgentTurn`，从首个未完成步骤开始继续，跳过已完成步骤不重复执行）与 **Review N changes**；已生成的改动在审查采纳前保持未保留状态。
 - **摘要与差异不一致（`AgentMismatchReport`）**：编辑器会自动将每条智能体摘要与实际 diff 比对（`CheckAgentSummaryAgainstDiff`），当两者不一致时展示 `WHAT · SUMMARY · REVIEW` 对比表与已知原因（例如某对象在第 3 步被添加、第 5 步被移除），并提供 **Ask why**（`AskAgentWhyMismatch`）与 **Open review**（`OpenAgentTurnReview`）。点击 **Keep** 始终仅采纳实际审查差异，绝不采纳摘要中的虚构数量。
 - **离线队列（`AgentStatusOffline`、`SetAgentOffline`）**：展示 `"You're offline"`，并在保持选择、移动、检视器、游戏检查与 Play 全部可用的同时，将提交的请求连同时间戳加入队列（`AgentQueuedRequests`、`QueueAgentRequest`、`RemoveQueuedAgentRequest`）。恢复联网后队列中的请求不会自动执行，而是逐条等待用户手动点击 **Send**（`SendQueuedAgentRequest`）发送。
-
 ## 规范视口叠加层与可切换图例（#1006）
 
 2D 与 3D 视口中的所有语义叠加层都通过统一绘制辅助函数 `DrawObjectOverlay` 绘制，完全使用 `SpecPalette` 令牌（对应 `docs/design/editor/Spec.dc.html` 中的 “Overlay legend”），且每一种类型都配备非颜色的第二视觉线索（角点手柄、胶囊图标/前缀、灰色幽灵填充、删除线或实心警告徽章），在灰度下依然彼此可辨：
@@ -1647,7 +1645,6 @@ func main() {
   - **仅文件（`AgentRewindFilesOnly`）**：从回合检查点还原文件，同时保持对话记录与会话不变。
   - **仅对话（`AgentRewindConversationOnly`）**：移除目标及后续回合与会话推进，同时保持磁盘文件现状不变。
 - **回退横幅、重做与消息回到输入框**：回退完成后，被回退的消息会重新填入输入框并以规范强调色边框高亮（`AgentComposerRewound`），方便修改后重新发送；输入框上方会显示状态横幅（`AgentRewindBanner`）说明已回退的范围，并提供 **Redo** / **重做** 按钮（`RedoAgentRewind` / `CanRedoAgentRewind`）一键恢复文件、对话回合、会话 ID 与原有输入框草稿。
-
 ## 智能体执行前提出计划、澄清问题与规划虚影（#1035）
 
 对于较大规模的修改（例如依据项目 `permissions.yaml` 规则会修改 Go 代码、新建文件或跨多个文件的操作，`EvaluatePlanPermissions`、`PlanNeededForEdit`），智能体会在修改任何场景或文件前先提出结构化计划（对应 `docs/design/editor/Plan.dc.html`，严格遵循 `Spec.dc.html` 深色与浅色令牌）：
@@ -1664,3 +1661,21 @@ func main() {
   - 进入执行态（`PlanPhaseRunning`）后，顶部标题栏显示状态胶囊（`"Agent is working · step k of N · manual edits to planned objects are paused"`），当前活动步骤的虚影变为实线，并暂停对被规划对象的手动修改（`IsObjectPausedByPlan`）。
   - 在第 1 步写入任何内容前点击**停止**、按 `Esc` 或 `⌘.`（`StopAgentPlan`），所有文件保持原样（`NothingWritten: true`），底部显示“已在第 1 步前停止，未写入任何内容”并提供**编辑计划**（`EditStoppedPlan`）与**重新运行**（`RunStoppedPlanAgain`）。
   - 计划完成后（`CompleteAgentPlan` 或 `plan_step_update` 传入 `complete: true`），该回合的审查视图（`AgentTurn.Plan`、`agentTurnPlanReviewView`）会列出计划的全部步骤并标明已完成或已跳过的条目。使用 `⌘L` 发起的小修改仍通过 `SkipPlan: true` 跳过计划。
+
+## 设计令牌（#1002）
+
+编辑器中的每一处色彩、字号、间距阶梯、圆角、高度与动效时长都统一来自嵌入的 YAML 主题文件与常量定义（`packages/game/editor/spec_theme.yaml` 与 `packages/game/editor/spec_theme.go`），与 `docs/design/editor/Spec.dc.html` 及 `docs/design/editor/Viewport3D.dc.html` 保持一致：
+
+- **嵌入 YAML 主题（`spec_theme.yaml`、`SpecTheme`、`SpecPalette`）**：通过 `core.ParseTheme` 解析并在 `EditorView` 根作用域通过 `cx.SetTheme(SpecTheme())` 生效。NSGo 的所有 `core.Palette` 与 `ui.ColorsOf` 角色（`Background`、`Surface`、`Raised`、`Line`、`Border`、`Text`、`TextMuted`、`Accent`、`AccentText`、`Success`、`Warning`、`Danger`、`Focus`）均在深色与浅色外观下直接映射到规范调色板；`Editor.SpecPalette(cx)`（以及 `DarkSpecPalette()`、`LightSpecPalette()`、`SpecPaletteFor(dark)`）同时提供 NSGo 未命名的规范角色（`TextPrimary` / 强文本、`TextSecondary` / 正文、`TextMuted` / 次级文本、`TextFaint` / 弱化文本、`OnTextPrimary`、`Viewport`、`ViewportDot`、`PillBg`、`HoverOverlay`、`ActiveOverlay`、`PrimaryHover`、`Viewport3DGround`、`Viewport3DGrid`、`Accent`、`Agent`、`Added`、`Changed`、`Removed`/`Problem`、含专用 `Fill` 与 `Edge` 的 `Warning`，以及 3D 坐标轴令牌 `AxisX`、`AxisY`、`AxisZ`）。
+- **深色模式色彩令牌（`Spec.dc.html` 与 `Viewport3D.dc.html`）**：
+  - 表面与边框：`bg #101216`、`panel #12141A`、`raised #171A21`、`line #1F232A`、`line raised #262B35`、`viewport #15181D`、`viewportDot #2A2F38`。
+  - 四级文本：`text strong #FFFFFF`、`text #D9DDE5`、`text secondary #B4BAC6`、`text muted #8B92A0`。已退役的 `#6F7684`、`#5D6472` 与 `#4A505C` 不再用于文本。
+  - 语义角色：`accent #3B7BFF`（填充上的文字使用 `#101216` 且字重 600，绝不在深色强调色或智能体色填充上使用 `#FFFFFF`）、`agent #9B7BFF`、`added #4FD38A`、`changed #E9A84A`、`removed · problem #FF6B6B`、`warning #F2C14E`（填充 `#2A2414`、描边 `#4A3F1F`）。
+  - 3D 坐标轴（`Viewport3D.dc.html`）：`axisX #FF6B6B`、`axisY #4FD38A`、`axisZ #3B7BFF`（浅色模式对应通过 WCAG 校验的 `#C92A2A`、`#0D7A43`、`#1D5CE6`）。
+- **实测 WCAG 2.2 对比度表（`SpecContrastTable`、`ContrastRatio`）**：`TestSpecContrastTableDarkAndLight` 直接从 `spec_theme.yaml` 计算深色与浅色两套主题中每一组前景/背景、实心填充文字、警告卡片、胶囊标签、视口叠加层与 3D 坐标轴的 WCAG 2.2 亮度对比度；常规文本及填充文字低于 `4.5:1`、UI 边界与叠加层低于 `3.0:1` 即报错，并包含回归测试验证将深色 `text_muted` 退回 `#6F7684` 时测试必然失败。
+- **排版、间距、圆角、高度与动效常量**：
+  - 排版：Inter 标题 `14 / 600`（`SpecFontTitleSize`、`SpecFontTitleWeight`）、正文 `12.5 / 400`（`SpecFontBodySize`、`SpecFontBodyWeight`）、分区标题 `11 / 600` 加 `+6%` 字距（`SpecFontSectionSize`、`SpecFontSectionWeight`、`SpecFontSectionTrack`）、代码 JetBrains Mono `11.5`（`SpecFontCodeSize`、`SpecFontFamilyMono`）。
+  - 间距：仅使用 `4`、`8`、`12`、`16`、`24` px（`SpecSpace4`–`SpecSpace24`）。
+  - 圆角与几何：控件 `6`（`SpecRadiusControl`）、按钮 `8`（`SpecRadiusButton`）、卡片与轻提示 `12`（`SpecRadiusCard`）、对话框 `18`（`SpecRadiusDialog`）；行与工具按钮高 `28`（`SpecRowHeight`，最小命中热区 `SpecMinHitSize = 28`）、按钮高 `30`–`32`（`SpecButtonHeight`、`SpecButtonTallHeight`）、顶栏高 `44`（`SpecHeaderHeight`）；`1` px 内描边（`SpecBorderWidth`）。
+  - 动效：悬停与按压 `120 ms`（`SpecMotionHover`）、面板/浮层/轻提示 `180 ms`（`SpecMotionPanel`）、智能体叠加层淡入 `240 ms`（`SpecMotionOverlay`）、智能体脉冲 `1.6 s`（`SpecMotionAgentPulse`，透明度 `100%` ↔ `45%`）。开启 `Env.ReduceMotion` 时，`SpecMotionDuration` 返回 `0`，`SpecAgentPulseOpacity` 保持 `1.0` 不闪烁。
+- **禁止硬编码 UI 颜色字面量**：`packages/game/editor` 中除 `spec_theme.go` 外的所有非测试 `.go` 文件在绘制界面元素、操纵杆、叠加层与调试视图时仅使用 `SpecPalette` 令牌（场景内容数据如 `scene.BackgroundColor` 保留为场景数据）。`TestSpecNoHardcodedColorLiteralsInEditor` 通过 AST 静态扫描整个编辑器包，一旦在 `spec_theme.go` 之外出现任何 `core.RGB`/`core.RGBA` 调用或硬编码 UI 十六进制颜色即令测试失败。

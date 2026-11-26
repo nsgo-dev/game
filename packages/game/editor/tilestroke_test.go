@@ -284,21 +284,16 @@ func drawn(ed *editor.Editor) *core.Drawing {
 	return d
 }
 
-var (
-	skyOutline   = core.RGBA(0x38BDF8, 1)
-	redOutline   = core.RGBA(0xF87171, 1)
-	amberOutline = core.RGBA(0xFBBF24, 1)
-)
-
 // The viewport outlines the hovered cell on its grid lines, wherever in the cell the mouse is, in the color of what a press would do, and draws the tile Paint would write faded inside it.
 func TestHoverOutlineIsDrawnOnTheCell(t *testing.T) {
 	ed := floorEditor(t)
+	pal := ed.SpecPalette(nil)
 	ed.SetTool(editor.ToolPaintTile)
 	ed.SetActiveTileID(2)
 	for _, at := range [][2]float32{{33, 17}, {47, 31}} {
 		x, y := ed.WorldToCanvas(at[0], at[1])
 		ed.SetTileHover(x, y, false)
-		r, ok := hoverRect(drawn(ed).Ops, skyOutline)
+		r, ok := hoverRect(drawn(ed).Ops, pal.Accent.Fg)
 		if !ok || r.X != 32 || r.Y != 16 || r.W != 16 || r.H != 16 {
 			t.Fatalf("hover at world %v outlines %+v (%v), want the cell (2,1) at 32,16 16x16", at, r, ok)
 		}
@@ -307,16 +302,16 @@ func TestHoverOutlineIsDrawnOnTheCell(t *testing.T) {
 		t.Fatal("no faded tile is drawn in the hovered cell")
 	}
 	ed.SetTool(editor.ToolEraseTile)
-	if _, ok := hoverRect(drawn(ed).Ops, redOutline); !ok {
+	if _, ok := hoverRect(drawn(ed).Ops, pal.Removed.Fg); !ok {
 		t.Fatal("Erase does not outline the hovered cell in red")
 	}
 	x, y := ed.WorldToCanvas(33, 17)
 	ed.SetTileHover(x, y, true)
-	if _, ok := hoverRect(drawn(ed).Ops, amberOutline); !ok {
+	if _, ok := hoverRect(drawn(ed).Ops, pal.Warning.Fg); !ok {
 		t.Fatal("Alt does not outline the hovered cell in amber")
 	}
 	ed.ClearTileHover()
-	if _, ok := hoverRect(drawn(ed).Ops, amberOutline); ok {
+	if _, ok := hoverRect(drawn(ed).Ops, pal.Warning.Fg); ok {
 		t.Fatal("a cell is outlined after the mouse left")
 	}
 }
@@ -430,7 +425,7 @@ func TestHoverOutlineFollowsTheMouse(t *testing.T) {
 	if col, row, ok := ed.HoveredTile(); !ok || col != 3 || row != 0 {
 		t.Fatalf("HoveredTile = (%d, %d, %v), want (3, 0)", col, row, ok)
 	}
-	r, ok := hoverRect(app.Find("id:editor-viewport").Ops, skyOutline)
+	r, ok := hoverRect(app.Find("id:editor-viewport").Ops, ed.SpecPalette(nil).Accent.Fg)
 	if !ok || r.X != 48 || r.Y != 0 || r.W != 16 || r.H != 16 {
 		t.Fatalf("the canvas outlines %+v (%v), want the cell (3,0)", r, ok)
 	}

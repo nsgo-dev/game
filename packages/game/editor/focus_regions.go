@@ -982,7 +982,7 @@ func (s SpecSwitch) Render(cx *core.Scope) core.Node {
 			}
 			knob := colors.Knob()
 			if knob == 0 {
-				knob = core.RGB(0xFFFFFF)
+				knob = lightSpecPalette.Raised
 			}
 			return core.Style{
 				Width:        core.Pt(14),

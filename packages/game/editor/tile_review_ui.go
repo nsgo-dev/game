@@ -9,13 +9,13 @@ import (
 )
 
 var (
-	tileReviewOverlayBg   = core.RGBA(0x171A21, 0.92)
-	tileReviewCardFocusBg = core.RGB(0x1A2030)
-	tileReviewFocusEdge   = core.RGB(0x2A3A5C)
-	tileReviewKeycapBg    = core.RGB(0x20252F)
-	tileReviewKeycapEdge  = core.RGB(0x2C3240)
-	tileReviewSegActiveBg = core.RGB(0x2A2F3A)
-	tileReviewStepDotBg   = core.RGB(0x1F3A2B)
+	tileReviewOverlayBg   = specAlpha(darkSpecPalette.Raised, 0.92)
+	tileReviewCardFocusBg = CompositeOver(specAlpha(darkSpecPalette.Accent.Fg, 0.12), darkSpecPalette.Raised)
+	tileReviewFocusEdge   = CompositeOver(specAlpha(darkSpecPalette.Accent.Fg, 0.35), darkSpecPalette.LineRaised)
+	tileReviewKeycapBg    = CompositeOver(specAlpha(darkSpecPalette.TextFaint, 0.08), darkSpecPalette.Raised)
+	tileReviewKeycapEdge  = darkSpecPalette.LineRaised
+	tileReviewSegActiveBg = darkSpecPalette.LineRaised
+	tileReviewStepDotBg   = darkSpecPalette.Added.Fill
 )
 
 // viewportTileOverlays returns the 2D viewport floating overlays:

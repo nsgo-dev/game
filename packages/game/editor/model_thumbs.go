@@ -220,7 +220,7 @@ func renderModelThumbnail(built *scenemodel.Built, bounds math3d.AABB) (*image.R
 	enc := dev.BeginEncoder()
 	pass := enc.BeginRenderPass(gpu.RenderPassDesc{
 		Label:            "editor.thumbnail",
-		ColorAttachments: []gpu.ColorAttachment{{LoadOp: gpu.LoadClear, StoreOp: gpu.StoreStore, ClearColor: core.RGBA(0x000000, 0)}},
+		ColorAttachments: []gpu.ColorAttachment{{LoadOp: gpu.LoadClear, StoreOp: gpu.StoreStore, ClearColor: core.Color(0)}},
 		DepthStencil:     &gpu.DepthStencilAttachment{DepthLoadOp: gpu.LoadClear, DepthStoreOp: gpu.StoreDiscard, ClearDepth: 1},
 	})
 	r.Draw(pass)

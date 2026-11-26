@@ -583,7 +583,7 @@ func drawWorldRectHandles(e *Editor, d *core.Drawing, x, y, w, h float32, active
 		if handle == active {
 			half = rectHandleHalf + 1
 			f = activeFill
-			s = core.RGBA(0xFFFFFF, 1)
+			s = e.activeSpecPalette().TextPrimary
 		}
 		d.SetFillColor(f).FillRect(cx-half, cy-half, 2*half, 2*half)
 		d.SetStrokeColor(s).StrokeRect(cx-half, cy-half, 2*half, 2*half)

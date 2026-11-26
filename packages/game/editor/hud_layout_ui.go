@@ -11,21 +11,21 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// Additional alpha derivatives strictly from Spec color tokens (docs/design/editor/Spec.dc.html).
+// Additional alpha derivatives strictly from spec_theme.yaml color tokens.
 var (
-	specSelectedRowFill = core.RGBA(0x3B7BFF, 0.14)
-	specSafeStripFill   = core.RGBA(0xF2C14E, 0.10)
-	specSafeDashStroke  = core.RGBA(0xF2C14E, 0.72)
-	specTouchDashStroke = core.RGBA(0x3B7BFF, 0.80)
-	specProblemHatch    = core.RGBA(0xFF6B6B, 0.35)
-	specTouchFill       = core.RGBA(0xFFFFFF, 0.14)
-	specTouchBase       = core.RGBA(0xFFFFFF, 0.08)
-	specTouchKnob       = core.RGBA(0xFFFFFF, 0.28)
-	specTouchBorder     = core.RGBA(0xFFFFFF, 0.30)
-	specHintFill        = core.RGBA(0x101216, 0.80)
-	specMenuBtnFill     = core.RGBA(0xFFFFFF, 0.08)
-	specDimOverlay      = core.RGBA(0x101216, 0.62)
-	specPanelBackdrop   = core.RGBA(0x171A21, 0.96)
+	specSelectedRowFill = specAlpha(darkSpecPalette.Accent.Fg, 0.14)
+	specSafeStripFill   = specAlpha(darkSpecPalette.Warning.Fg, 0.10)
+	specSafeDashStroke  = specAlpha(darkSpecPalette.Warning.Fg, 0.72)
+	specTouchDashStroke = specAlpha(darkSpecPalette.Accent.Fg, 0.80)
+	specProblemHatch    = specAlpha(darkSpecPalette.Removed.Fg, 0.35)
+	specTouchFill       = specAlpha(darkSpecPalette.TextPrimary, 0.14)
+	specTouchBase       = specAlpha(darkSpecPalette.TextPrimary, 0.08)
+	specTouchKnob       = specAlpha(darkSpecPalette.TextPrimary, 0.28)
+	specTouchBorder     = specAlpha(darkSpecPalette.TextPrimary, 0.30)
+	specHintFill        = specAlpha(darkSpecPalette.Bg, 0.80)
+	specMenuBtnFill     = specAlpha(darkSpecPalette.TextPrimary, 0.08)
+	specDimOverlay      = specAlpha(darkSpecPalette.Bg, 0.62)
+	specPanelBackdrop   = specAlpha(darkSpecPalette.Raised, 0.96)
 )
 
 // HUDLayoutView renders the full-window HUD and menu layout screen matching docs/design/editor/HUDLayout.dc.html
@@ -2609,7 +2609,7 @@ func drawHUDZoomOverflow(d *core.Drawing, size core.Size, n *gameui.ScreenNodeDo
 	if sw > 0 {
 		d.Save()
 		d.BeginPath().Rect(bx+bw, by, sw, boxH).Clip()
-		d.SetFillColor(core.RGBA(0xFF6B6B, 0.14)).FillRect(bx+bw, by, sw, boxH)
+		d.SetFillColor(specAlpha(darkSpecPalette.Removed.Fg, 0.14)).FillRect(bx+bw, by, sw, boxH)
 		d.SetStrokeColor(specProblemHatch).SetLineWidth(2)
 		for hx := bx + bw - boxH; hx < bx+bw+sw+boxH; hx += 8 {
 			d.BeginPath().MoveTo(hx, by+boxH).LineTo(hx+boxH, by).Stroke()

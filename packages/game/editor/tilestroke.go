@@ -892,12 +892,12 @@ func (e *Editor) toolStrokeMode(secondary, alt bool) (TileStrokeMode, bool) {
 	return 0, false
 }
 
-// The hover outline's colors: sky for painting and filling, emerald for terrain, red for erasing, amber for picking.
+// The hover outline's colors from spec_theme.yaml: accent for painting and filling, added for terrain, removed for erasing, warning for picking.
 var (
-	hoverPaintColor   = core.RGBA(0x38BDF8, 1)
-	hoverTerrainColor = core.RGBA(0x34D399, 1)
-	hoverEraseColor   = core.RGBA(0xF87171, 1)
-	hoverPickColor    = core.RGBA(0xFBBF24, 1)
+	hoverPaintColor   = darkSpecPalette.Accent.Fg
+	hoverTerrainColor = darkSpecPalette.Added.Fg
+	hoverEraseColor   = darkSpecPalette.Removed.Fg
+	hoverPickColor    = darkSpecPalette.Warning.Fg
 )
 
 // drawTileHoverOverlay draws the active tile selection marquee, any live brush preview under way,
@@ -928,7 +928,8 @@ func (e *Editor) drawTileHoverOverlay(d *core.Drawing) {
 		d.Restore()
 		return
 	}
-	color := hoverPaintColor
+	spec := e.activeSpecPalette()
+	color := spec.Accent.Fg
 	switch mode {
 	case TileStrokePaint:
 		if e.Tool == ToolRandomTile {
@@ -939,13 +940,13 @@ func (e *Editor) drawTileHoverOverlay(d *core.Drawing) {
 			e.drawGhostTile(d, tm, x, y)
 		}
 	case TileStrokeTerrain:
-		color = hoverTerrainColor
+		color = spec.Added.Fg
 		e.drawGhostTerrainTile(d, layer, col, row, x, y)
 	case TileStrokeErase, TileStrokeEraseTerrain:
-		color = hoverEraseColor
-		d.SetFillColor(core.RGBA(0xF87171, 0.25)).FillRect(x, y, w, h)
+		color = spec.Removed.Fg
+		d.SetFillColor(specAlpha(spec.Removed.Fg, 0.25)).FillRect(x, y, w, h)
 	case TileStrokePick:
-		color = hoverPickColor
+		color = spec.Warning.Fg
 	}
 	d.SetStrokeColor(color).SetLineWidth(lw).StrokeRect(x, y, w, h)
 	d.Restore()

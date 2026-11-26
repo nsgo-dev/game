@@ -17,62 +17,6 @@ const (
 	inspectorDragTip3D = "Drag a label to scrub · Shift for 0.01 steps · ↑↓ steps, ⇧ ×10 · ↵ commits, Esc restores"
 )
 
-// specInspectorTheme scopes Spec dark-surface tokens to the Inspector subtree so every standard
-// ui.Button, ui.Input, ui.Select, ui.Checkbox, and plugin view inherits readable Spec dark colors
-// regardless of the host OS's light/dark appearance.
-var specInspectorTheme = newSpecInspectorTheme()
-
-func newSpecInspectorTheme() *core.Theme {
-	t := core.DefaultTheme().Clone()
-	p := t.Dark
-	p.Background = specBg
-	p.Surface = specPanel
-	p.SurfaceHover = specRaised
-	p.SurfacePressed = specLineRaised
-	p.Border = specLineRaised
-	p.Text = specText
-	p.TextMuted = specTextMuted
-	p.Accent = specAccent
-	p.AccentHover = specAccent
-	p.AccentPressed = specAccent
-	p.AccentText = specBg
-	p.Danger = specProblem
-	p.Warning = specChanged
-	p.Success = specAdded
-	p.Selection = core.RGBA(0x3B7BFF, 0.24)
-	p.Focus = core.RGBA(0x3B7BFF, 0.85)
-	p.Scrollbar = specTextMuted
-	p.SetColor("inset", specRaised)
-	p.SetColor("raised", specRaised)
-	p.SetColor("field", specBg)
-	p.SetColor("fieldBorder", specLineRaised)
-	p.SetColor("line", specLine)
-	p.SetColor("faint", specTextMuted)
-	p.SetColor("accentFill", specAccent)
-	p.SetColor("light", specTextStrong)
-	p.SetColor("onLight", specBg)
-	p.SetColor("track", specLineRaised)
-	p.SetColor("knob", specTextStrong)
-	p.SetColor("code", specText)
-	p.SetColor("info", specAccent)
-	p.SetColor("down", specProblem)
-	t.Dark = p
-	t.Light = p
-	return t.Clone()
-}
-
-// inspectorThemeScope establishes a child scope with Spec dark appearance and palette for the
-// Inspector subtree without affecting sibling editor panels.
-type inspectorThemeScope struct {
-	build func(*core.Scope) core.Node
-}
-
-func (s inspectorThemeScope) Render(cx *core.Scope) core.Node {
-	cx.SetSubtreeAppearance(core.AppearanceDark)
-	cx.SetTheme(specInspectorTheme)
-	return s.build(cx)
-}
-
 // inspectorNumberFieldCfg configures a Spec-styled scrubbable numeric input in the inspector.
 type inspectorNumberFieldCfg struct {
 	TestID    string
@@ -234,11 +178,12 @@ func inspectorNumberBox(cx *core.Scope, ed *Editor, cfg inspectorNumberFieldCfg)
 		}
 	}
 
+	spec := ed.SpecPalette(cx)
 	var prefix core.Node
 	if cfg.AxisLabel != "" {
 		axisColor := cfg.AxisColor
 		if axisColor == 0 {
-			axisColor = specTextMuted
+			axisColor = spec.TextFaint
 		}
 		prefix = inspectorScrubHandle(
 			ed,
@@ -279,7 +224,7 @@ func inspectorNumberBox(cx *core.Scope, ed *Editor, cfg inspectorNumberFieldCfg)
 					MaxLines: 1,
 					Style: core.Style{
 						FontSize: 10.5,
-						Color:    specTextMuted,
+						Color:    spec.TextFaint,
 					},
 				},
 			},
@@ -341,15 +286,15 @@ func inspectorNumberBox(cx *core.Scope, ed *Editor, cfg inspectorNumberFieldCfg)
 			Overflow:     core.Hidden,
 		},
 		StyleFunc: func() core.Style {
-			border := specLineRaised
+			border := spec.LineRaised
 			width := core.Points(1)
 			if cfg.Invalid != nil && cfg.Invalid() {
-				border = specProblem
+				border = spec.Removed.Fg
 				width = 1.5
 			} else if focused.Get() {
-				border = specAccent
+				border = spec.Accent.Fg
 			}
-			bg := specRaised
+			bg := spec.Raised
 			op := core.Alpha(1)
 			if cfg.Disabled != nil && cfg.Disabled() {
 				op = core.Alpha(0.55)
@@ -368,7 +313,7 @@ func inspectorNumberBox(cx *core.Scope, ed *Editor, cfg inspectorNumberFieldCfg)
 			Height:     core.Pt(26),
 			FontFamily: core.FontMonospace,
 			FontSize:   11.5,
-			Color:      specTextStrong,
+			Color:      spec.TextPrimary,
 			Padding:    core.Symmetric(0, 6),
 		},
 		InputStyleFunc: func() core.Style {
@@ -377,9 +322,9 @@ func inspectorNumberBox(cx *core.Scope, ed *Editor, cfg inspectorNumberFieldCfg)
 				padLeft = 2
 			}
 			return core.Style{
-				Color:            specTextStrong,
-				PlaceholderColor: specTextMuted,
-				CaretColor:       specAccent,
+				Color:            spec.TextPrimary,
+				PlaceholderColor: spec.TextFaint,
+				CaretColor:       spec.Accent.Fg,
 				Padding:          core.Edges{Left: padLeft, Right: 6},
 			}
 		},
@@ -488,6 +433,7 @@ func inspectorTitledSection(
 		return ed.T("inspector.fieldCountOther", l10n.Param("count", fieldCount))
 	}
 
+	spec := ed.SpecPalette(cx)
 	var titleNode core.Node = core.Text{
 		TestID:   titleTestID,
 		Content:  title,
@@ -496,7 +442,7 @@ func inspectorTitledSection(
 			FontSize:      11,
 			FontWeight:    core.FontWeightSemibold,
 			LetterSpacing: 0.7,
-			Color:         specTextMuted,
+			Color:         spec.TextFaint,
 		},
 	}
 	if titleTip != "" {
@@ -506,6 +452,7 @@ func inspectorTitledSection(
 	metaBadge := core.Dynamic(func(cx *core.Scope) core.Node {
 		m := metaMemo.Get()
 		probs, reviews := m.probs, m.reviews
+		dynSpec := ed.SpecPalette(cx)
 		if probs > 0 {
 			label := ed.T("inspector.problemCountOther", l10n.Param("count", probs))
 			if probs == 1 {
@@ -517,9 +464,9 @@ func inspectorTitledSection(
 					Height:         core.Pt(18),
 					Padding:        core.Symmetric(0, 6),
 					CornerRadius:   9,
-					Background:     specProblemTint,
+					Background:     dynSpec.Removed.Fill,
 					BorderWidth:    1,
-					BorderColor:    specProblemEdge,
+					BorderColor:    dynSpec.Removed.Edge,
 					AlignItems:     core.AlignCenter,
 					JustifyContent: core.JustifyCenter,
 				},
@@ -530,7 +477,7 @@ func inspectorTitledSection(
 						Style: core.Style{
 							FontSize:   10.5,
 							FontWeight: core.FontWeightMedium,
-							Color:      specProblem,
+							Color:      dynSpec.Removed.Fg,
 						},
 					},
 				},
@@ -543,7 +490,7 @@ func inspectorTitledSection(
 				MaxLines: 1,
 				Style: core.Style{
 					FontSize: 11,
-					Color:    specChanged,
+					Color:    dynSpec.Changed.Fg,
 				},
 			}
 		}
@@ -553,7 +500,7 @@ func inspectorTitledSection(
 			MaxLines: 1,
 			Style: core.Style{
 				FontSize: 11,
-				Color:    specTextMuted,
+				Color:    dynSpec.TextFaint,
 			},
 		}
 	})
@@ -575,8 +522,8 @@ func inspectorTitledSection(
 			Padding:      core.Symmetric(0, 4),
 			CornerRadius: 6,
 			Gap:          5,
-			Hover:        &core.Style{Background: specRaised},
-			FocusVisible: specRowFocusRingStyle,
+			Hover:        &core.Style{Background: spec.Raised},
+			FocusVisible: spec.FocusRing(-2),
 		},
 		OnPress: func(core.PressEvent) {
 			if !forceExpanded {
@@ -589,7 +536,7 @@ func inspectorTitledSection(
 				if !isOpen() {
 					icon = lucide.ChevronRight
 				}
-				return ui.Icon(icon, 12, func() core.Color { return specTextMuted })
+				return ui.Icon(icon, 12, func() core.Color { return ed.SpecPalette(cx).TextFaint })
 			}),
 			core.View{
 				Style:    core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
@@ -616,7 +563,7 @@ func inspectorTitledSection(
 			Gap:         6,
 			Padding:     core.Edges{Top: 6},
 			Borders:     core.Edges{Top: 1},
-			BorderColor: specLine,
+			BorderColor: spec.Line,
 		},
 		Children: []core.Node{
 			headerRow,
@@ -711,7 +658,7 @@ func inspectorFieldRowKeys(
 			if _, ok := reviewsText(); ok {
 				return core.Style{
 					Borders:     core.Edges{Left: 2},
-					BorderColor: specChanged,
+					BorderColor: ed.activeSpecPalette().Changed.Fg,
 					Padding:     core.Edges{Left: 6},
 				}
 			}
@@ -732,6 +679,7 @@ func inspectorFieldRowKeys(
 			return ok
 		},
 		Then: func(cx *core.Scope) core.Node {
+			spec := ed.SpecPalette(cx)
 			return core.View{
 				TestID: fieldTestID + "-review",
 				Style: core.Style{
@@ -746,7 +694,7 @@ func inspectorFieldRowKeys(
 							Width:        core.Pt(6),
 							Height:       core.Pt(6),
 							CornerRadius: 3,
-							Background:   specChanged,
+							Background:   spec.Changed.Fg,
 						},
 					},
 					core.Text{
@@ -756,7 +704,7 @@ func inspectorFieldRowKeys(
 						},
 						Style: core.Style{
 							FontSize: 11,
-							Color:    specTextMuted,
+							Color:    spec.TextFaint,
 						},
 					},
 				},
@@ -770,6 +718,7 @@ func inspectorFieldRowKeys(
 			return ok
 		},
 		Then: func(cx *core.Scope) core.Node {
+			spec := ed.SpecPalette(cx)
 			return core.View{
 				Style: core.Style{
 					Direction:  core.Row,
@@ -785,12 +734,12 @@ func inspectorFieldRowKeys(
 							Gap:          5,
 							Padding:      core.Symmetric(2, 8),
 							CornerRadius: 9,
-							Background:   specProblemTint,
+							Background:   spec.Removed.Fill,
 							BorderWidth:  1,
-							BorderColor:  specProblemEdge,
+							BorderColor:  spec.Removed.Edge,
 						},
 						Children: []core.Node{
-							ui.Icon(lucide.CircleAlert, 11, func() core.Color { return specProblem }),
+							ui.Icon(lucide.CircleAlert, 11, func() core.Color { return spec.Removed.Fg }),
 							core.Text{
 								ContentFunc: func() string {
 									msg, _ := problemsText()
@@ -798,7 +747,7 @@ func inspectorFieldRowKeys(
 								},
 								Style: core.Style{
 									FontSize: 11,
-									Color:    specProblem,
+									Color:    spec.Removed.Fg,
 								},
 							},
 						},

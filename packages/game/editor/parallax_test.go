@@ -9,6 +9,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/gametest"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/ui"
 )
 
 func parallaxSceneDoc() *sceneformat.SceneDoc {
@@ -304,7 +305,7 @@ func TestEditorParallaxAlignsGizmoTileHoverAndPhysicsDebug(t *testing.T) {
 		defer ed.SetShowPhysicsDebug(false)
 		d := &core.Drawing{}
 		ed.DrawViewport(d, size)
-		x, y, ok := findStrokedRectCanvasPos(d.Ops, core.RGBA(0x60A5FA, 0.9), 16, 16)
+		x, y, ok := findStrokedRectCanvasPos(d.Ops, ui.Alpha(editor.DarkSpecPalette().Accent.Fg, 0.9), 16, 16)
 		if !ok {
 			t.Fatal("physics debug StrokeRect not found")
 		}
@@ -357,7 +358,7 @@ func TestEditorParallaxAlignsGizmoTileHoverAndPhysicsDebug(t *testing.T) {
 	}
 	d := &core.Drawing{}
 	ed.DrawViewport(d, size)
-	hx, hy, foundHover := findStrokedRectCanvasPos(d.Ops, core.RGBA(0x38BDF8, 1), 16, 16)
+	hx, hy, foundHover := findStrokedRectCanvasPos(d.Ops, ed.SpecPalette(nil).Accent.Fg, 16, 16)
 	if !foundHover {
 		t.Fatal("tile hover StrokeRect not found")
 	}

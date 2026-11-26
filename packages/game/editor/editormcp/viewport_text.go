@@ -7,6 +7,7 @@ import (
 	"image/png"
 	"math"
 
+	"github.com/nsgo-dev/game/packages/game/editor"
 	"github.com/nsgo-dev/nsgo/core"
 )
 
@@ -149,7 +150,7 @@ func renderOverlayTextPNG(pngBytes []byte, ops []core.DrawOp) ([]byte, bool) {
 	}
 	cur := state{
 		m:     textAffine{a: 1, d: 1},
-		color: core.RGB(0xFFFFFF),
+		color: editor.DarkSpecPalette().TextPrimary,
 		alpha: 1,
 	}
 	var stack []state

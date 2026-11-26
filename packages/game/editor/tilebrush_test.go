@@ -91,7 +91,7 @@ func TestTileBrushRectangleFillErasePreviewAndUndo(t *testing.T) {
 	if !slices.Equal(gridData(ed), before) || ed.History.Len() != 0 {
 		t.Fatalf("rect preview mutated map or history before release: hist=%d", ed.History.Len())
 	}
-	if _, ok := hoverRect(drawn(ed).Ops, core.RGBA(0x3B7BFF, 1)); !ok {
+	if _, ok := hoverRect(drawn(ed).Ops, ed.SpecPalette(nil).Accent.Edge); !ok {
 		t.Fatal("rect preview did not draw accent outline in viewport")
 	}
 
@@ -126,7 +126,7 @@ func TestTileBrushRectangleFillErasePreviewAndUndo(t *testing.T) {
 	if got := ed.TilePreview(); len(got) != 4 || !got[0].Erase {
 		t.Fatalf("rect erase preview = %+v, want 4 erase cells", got)
 	}
-	if _, ok := hoverRect(drawn(ed).Ops, core.RGBA(0xFF6B6B, 1)); !ok {
+	if _, ok := hoverRect(drawn(ed).Ops, ed.SpecPalette(nil).Removed.Edge); !ok {
 		t.Fatal("rect erase preview did not draw red outline in viewport")
 	}
 	ed.EndTileStroke()

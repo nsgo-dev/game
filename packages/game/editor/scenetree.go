@@ -563,7 +563,7 @@ func shownRow(roots []any, children func(sceneTreeKey) []any, expanded func(scen
 func dropStyle(cx *core.Scope, hint *core.Signal[treeHint], k sceneTreeKey) core.Style {
 	colors := ui.ColorsOf(cx)
 	h := hint.Get()
-	s := core.Style{Borders: core.Edges{Top: 2, Bottom: 2}, BorderColor: colors.Inset()}
+	s := core.Style{Borders: core.Edges{Top: 2, Bottom: 2}, BorderColor: colors.Surface()}
 	if !h.on || h.key != k {
 		return s
 	}

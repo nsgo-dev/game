@@ -1165,25 +1165,25 @@ func inspectorObjectKindLabel(obj *sceneformat.ObjectDoc) string {
 
 // objectSwatchColor returns a Spec token swatch color identifying the object's kind in the
 // inspector header.
-func objectSwatchColor(obj *sceneformat.ObjectDoc) core.Color {
+func objectSwatchColor(spec SpecPalette, obj *sceneformat.ObjectDoc) core.Color {
 	if obj == nil {
-		return specTextMuted
+		return spec.TextFaint
 	}
 	switch {
 	case obj.Prefab != "" || obj.Scene != "":
-		return specAgent
+		return spec.Agent.Fg
 	case obj.Light != nil:
-		return specWarning
+		return spec.Warning.Fg
 	case obj.Camera != nil:
-		return specAccent
+		return spec.Accent.Fg
 	case obj.ReflectionProbe != nil || obj.LightProbeGrid != nil:
-		return specAccent
+		return spec.Accent.Fg
 	case obj.Model != "" || obj.Mesh != "" || obj.GridMap != "":
-		return specAdded
+		return spec.Added.Fg
 	case obj.Sprite != nil:
-		return specChanged
+		return spec.Changed.Fg
 	default:
-		return specTextMuted
+		return spec.TextFaint
 	}
 }
 

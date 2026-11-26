@@ -12,30 +12,30 @@ import (
 )
 
 // Spec color tokens from docs/design/editor/Spec.dc.html and docs/design/editor/PlayMode.dc.html.
-// Every color used by the Play-mode frame time strip and the full Profiler panel comes exclusively from this table.
+// Every color used by the Play-mode frame time strip and the full Profiler panel comes exclusively from spec_theme.yaml.
 var (
-	specBg            = core.RGB(0x101216)
-	specBgOverlay     = core.RGBA(0x101216, 0.92)
-	specPanel         = core.RGB(0x12141A)
-	specRaised        = core.RGB(0x171A21)
-	specLine          = core.RGB(0x1F232A)
-	specLineRaised    = core.RGB(0x262B35)
-	specTextStrong    = core.RGB(0xFFFFFF)
-	specText          = core.RGB(0xD9DDE5)
-	specTextSecondary = core.RGB(0xB4BAC6)
-	specTextMuted     = core.RGB(0x8B92A0)
-	specBarNormal     = core.RGBA(0x8B92A0, 0.45)
-	specAccent        = core.RGB(0x3B7BFF)
-	specAgent         = core.RGB(0x9B7BFF)
-	specAdded         = core.RGB(0x4FD38A)
-	specAddedFill     = core.RGBA(0x4FD38A, 0.12)
-	specAddedEdge     = core.RGBA(0x4FD38A, 0.45)
-	specChanged       = core.RGB(0xE9A84A)
-	specProblem       = core.RGB(0xFF6B6B)
-	specProblemEdge   = core.RGBA(0xFF6B6B, 0.50)
-	specWarning       = core.RGB(0xF2C14E)
-	specWarningFill   = core.RGB(0x2A2414)
-	specWarningEdge   = core.RGB(0x4A3F1F)
+	specBg            = darkSpecPalette.Bg
+	specBgOverlay     = specAlpha(darkSpecPalette.Bg, 0.92)
+	specPanel         = darkSpecPalette.Panel
+	specRaised        = darkSpecPalette.Raised
+	specLine          = darkSpecPalette.Line
+	specLineRaised    = darkSpecPalette.LineRaised
+	specTextStrong    = darkSpecPalette.TextPrimary
+	specText          = darkSpecPalette.TextSecondary
+	specTextSecondary = darkSpecPalette.TextMuted
+	specTextMuted     = darkSpecPalette.TextFaint
+	specBarNormal     = specAlpha(darkSpecPalette.TextFaint, 0.45)
+	specAccent        = darkSpecPalette.Accent.Fg
+	specAgent         = darkSpecPalette.Agent.Fg
+	specAdded         = darkSpecPalette.Added.Fg
+	specAddedFill     = specAlpha(darkSpecPalette.Added.Fg, 0.12)
+	specAddedEdge     = specAlpha(darkSpecPalette.Added.Fg, 0.45)
+	specChanged       = darkSpecPalette.Changed.Fg
+	specProblem       = darkSpecPalette.Removed.Fg
+	specProblemEdge   = specAlpha(darkSpecPalette.Removed.Fg, 0.50)
+	specWarning       = darkSpecPalette.Warning.Fg
+	specWarningFill   = darkSpecPalette.Warning.Fill
+	specWarningEdge   = darkSpecPalette.Warning.Edge
 )
 
 // ProfilerStripView renders the Play-mode "FRAME TIME · LAST 60 S" strip directly below the game view while Play mode is active or a running game is connected to the profiler, matching docs/design/editor/PlayMode.dc.html. Pressing the strip's Profiler button opens the full Profiler panel.

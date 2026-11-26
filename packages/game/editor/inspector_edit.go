@@ -129,13 +129,14 @@ func spriteFieldsFiltered(
 				},
 			}
 		}
+		spec := ed.SpecPalette(cx)
 		rows = append(rows, multiAxisRow(
 			"Origin",
 			[]string{"originX", "originY"},
 			"inspector-origin",
 			[]inspectorNumberFieldCfg{
-				originCfg("inspector-origin-x", ed.T("inspector.originX"), "X", "originX", specProblem, false),
-				originCfg("inspector-origin-y", ed.T("inspector.originY"), "Y", "originY", specAdded, true),
+				originCfg("inspector-origin-x", ed.T("inspector.originX"), "X", "originX", spec.AxisX, false),
+				originCfg("inspector-origin-y", ed.T("inspector.originY"), "Y", "originY", spec.AxisY, true),
 			},
 		))
 	}
@@ -481,6 +482,7 @@ func addComponentControl(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 		}
 	}
 
+	spec := ed.SpecPalette(cx)
 	askBtn := core.View{
 		TestID:   "inspector-ask-to-add",
 		Role:     core.RoleButton,
@@ -492,13 +494,13 @@ func addComponentControl(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 			Height:       core.Pt(30),
 			Padding:      core.Symmetric(0, 10),
 			CornerRadius: 8,
-			Background:   specAgentTint,
+			Background:   spec.Agent.Fill,
 			BorderWidth:  1,
-			BorderColor:  specAgentEdge,
+			BorderColor:  spec.Agent.Edge,
 			Gap:          5,
 			FlexShrink:   0,
-			Hover:        &core.Style{Background: specRaised},
-			FocusVisible: specFocusRingStyle,
+			Hover:        &core.Style{Background: spec.Raised},
+			FocusVisible: spec.FocusRing(2),
 		},
 		OnPress: func(core.PressEvent) {
 			if disabled != nil && disabled() {
@@ -507,13 +509,13 @@ func addComponentControl(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 			ed.AskToAddComponent(objID)
 		},
 		Children: []core.Node{
-			ui.Icon(lucide.Sparkles, 12, func() core.Color { return specAgent }),
+			ui.Icon(lucide.Sparkles, 12, func() core.Color { return spec.Agent.Fg }),
 			core.Text{
 				Content:  ed.T("inspector.askToAdd"),
 				MaxLines: 1,
 				Style: core.Style{
 					FontSize: 11.5,
-					Color:    specText,
+					Color:    spec.TextSecondary,
 				},
 			},
 		},
@@ -524,7 +526,7 @@ func addComponentControl(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 			Gap:         8,
 			Padding:     core.Edges{Top: 8},
 			Borders:     core.Edges{Top: 1},
-			BorderColor: specLine,
+			BorderColor: spec.Line,
 		},
 		Children: []core.Node{
 			core.View{
@@ -553,6 +555,7 @@ func addComponentControl(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 			},
 			core.Dynamic(func(cx *core.Scope) core.Node {
 				_ = rev.Get()
+				dynSpec := ed.SpecPalette(cx)
 				groups := ed.AddableComponentGroups(objID, query.Get())
 				if len(groups) == 0 {
 					return nil
@@ -586,7 +589,7 @@ func addComponentControl(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 									FontSize:      10.5,
 									FontWeight:    core.FontWeightSemibold,
 									LetterSpacing: 0.7,
-									Color:         specTextMuted,
+									Color:         dynSpec.TextFaint,
 								},
 							},
 							ui.Wrap{Children: buttons},
@@ -598,9 +601,9 @@ func addComponentControl(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 						Gap:          8,
 						Padding:      core.All(8),
 						CornerRadius: 8,
-						Background:   specRaised,
+						Background:   dynSpec.Raised,
 						BorderWidth:  1,
-						BorderColor:  specLineRaised,
+						BorderColor:  dynSpec.LineRaised,
 					},
 					Children: children,
 				}

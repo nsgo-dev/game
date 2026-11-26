@@ -11,16 +11,17 @@ import (
 )
 
 func physicsDebugColor(isTrigger bool, bodyKind string) core.Color {
+	pal := darkSpecPalette
 	if isTrigger {
-		return core.RGBA(0xF59E0B, 0.95)
+		return specAlpha(pal.Warning.Fg, 0.95)
 	}
 	switch bodyKind {
 	case "dynamic":
-		return core.RGBA(0x22C55E, 0.95)
+		return specAlpha(pal.Added.Fg, 0.95)
 	case "kinematic":
-		return core.RGBA(0x38BDF8, 0.95)
+		return specAlpha(pal.Agent.Fg, 0.95)
 	default:
-		return core.RGBA(0x60A5FA, 0.9)
+		return specAlpha(pal.Accent.Fg, 0.9)
 	}
 }
 

@@ -10,14 +10,14 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// Spec-derived composite tints for Play mode header and panic card (all derived strictly from Spec.dc.html tokens).
+// Spec-derived composite tints for Play mode header and panic card (all derived strictly from spec_theme.yaml tokens).
 var (
-	specPlayRunBg      = core.RGB(0x16221F) // #101216 + 6% #4FD38A
-	specPlayRunBorder  = core.RGBA(0x4FD38A, 0.35)
-	specPlayPauseBg    = core.RGB(0x1E1D19) // #101216 + 5% #F2C14E
-	specPanicCardBg    = core.RGB(0x211A21) // #171A21 + 6% #FF6B6B
-	specAgentBubbleBg  = core.RGB(0x1C2130)
-	specAgentStepDoneB = core.RGB(0x1F3A2B)
+	specPlayRunBg      = CompositeOver(specAlpha(darkSpecPalette.Added.Fg, 0.06), darkSpecPalette.Bg)
+	specPlayRunBorder  = specAlpha(darkSpecPalette.Added.Fg, 0.35)
+	specPlayPauseBg    = CompositeOver(specAlpha(darkSpecPalette.Warning.Fg, 0.05), darkSpecPalette.Bg)
+	specPanicCardBg    = CompositeOver(specAlpha(darkSpecPalette.Removed.Fg, 0.06), darkSpecPalette.Raised)
+	specAgentBubbleBg  = CompositeOver(specAlpha(darkSpecPalette.Accent.Fg, 0.08), darkSpecPalette.Raised)
+	specAgentStepDoneB = darkSpecPalette.Added.Fill
 )
 
 // playModeBarView renders the Play Mode control bar below the main toolbar while local Play mode is active
@@ -42,7 +42,7 @@ func playModeBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 						if math.Abs(ed.PlayTimeScale()-scale) < 1e-6 {
 							return specLineRaised
 						}
-						return core.RGBA(0, 0)
+						return core.Color(0)
 					},
 					TextStyle: core.Style{
 						FontSize:   11,
@@ -777,7 +777,7 @@ func playInspectorTabBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 				if ed.PlayInspectorTab() == target {
 					return specAgentBubbleBg
 				}
-				return core.RGBA(0, 0)
+				return core.Color(0)
 			},
 			TextStyle: core.Style{
 				FontSize:   12,
@@ -932,7 +932,7 @@ func playAgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 				})
 			}
 			for i, st := range steps {
-				dotFill := core.RGBA(0, 0)
+				dotFill := core.Color(0)
 				dotBorder := specLineRaised
 				textColor := specTextMuted
 				switch st.Status {

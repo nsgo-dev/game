@@ -559,19 +559,19 @@ func (e *Editor) updateNavRegionDrag2D(x, y float32) {
 }
 
 var (
-	navMesh2DFillColor        = core.RGBA(0x22D3EE, 0.2)
-	navMesh2DEdgeColor        = core.RGBA(0x06B6D4, 0.78)
-	navMesh2DPortalColor      = core.RGBA(0x38BDF8, 0.45)
-	navRegionWalkableColor    = core.RGBA(0x14B8A6, 0.92)
-	navRegionWalkableSubtle   = core.RGBA(0x14B8A6, 0.5)
-	navRegionObstacleColor    = core.RGBA(0xFB7185, 0.92)
-	navRegionObstacleSubtle   = core.RGBA(0xFB7185, 0.5)
-	navRegionEdgeMidFillColor = core.RGBA(0x99F6E4, 0.95)
-	navRegionObstacleMidFill  = core.RGBA(0xFECDD3, 0.95)
-	navPathLineColor          = core.RGBA(0xFACC15, 0.95)
-	navPathBlockedColor       = core.RGBA(0xEF4444, 0.85)
-	navPathStartColor         = core.RGBA(0x22C55E, 1)
-	navPathEndColor           = core.RGBA(0xF97316, 1)
+	navMesh2DFillColor        = specAlpha(darkSpecPalette.Accent.Fg, 0.2)
+	navMesh2DEdgeColor        = specAlpha(darkSpecPalette.Accent.Edge, 0.78)
+	navMesh2DPortalColor      = specAlpha(darkSpecPalette.Agent.Fg, 0.45)
+	navRegionWalkableColor    = specAlpha(darkSpecPalette.Added.Fg, 0.92)
+	navRegionWalkableSubtle   = specAlpha(darkSpecPalette.Added.Fg, 0.5)
+	navRegionObstacleColor    = specAlpha(darkSpecPalette.Removed.Fg, 0.92)
+	navRegionObstacleSubtle   = specAlpha(darkSpecPalette.Removed.Fg, 0.5)
+	navRegionEdgeMidFillColor = CompositeOver(specAlpha(darkSpecPalette.TextPrimary, 0.6), darkSpecPalette.Added.Fg)
+	navRegionObstacleMidFill  = CompositeOver(specAlpha(darkSpecPalette.TextPrimary, 0.6), darkSpecPalette.Removed.Fg)
+	navPathLineColor          = specAlpha(darkSpecPalette.Warning.Fg, 0.95)
+	navPathBlockedColor       = specAlpha(darkSpecPalette.Removed.Fg, 0.85)
+	navPathStartColor         = darkSpecPalette.Added.Fg
+	navPathEndColor           = darkSpecPalette.Changed.Fg
 )
 
 // drawNavMesh2DOverlay draws the baked 2D navigation mesh polygons and portals, authored navregion2d outlines, and the active test-path preview in the 2D edit viewport.

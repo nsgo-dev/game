@@ -931,9 +931,10 @@ func (e *Editor) DrawInputRegionCanvas(d *core.Drawing, size core.Size) {
 	sx := cw / dw
 	sy := ch / dh
 
+	spec := e.activeSpecPalette()
 	// Background and display bounds border.
-	d.SetFillColor(core.RGB(0x0F172A)).FillRect(0, 0, cw, ch)
-	d.SetStrokeColor(core.RGBA(0x94A3B8, 0.25)).SetLineWidth(1)
+	d.SetFillColor(spec.Viewport).FillRect(0, 0, cw, ch)
+	d.SetStrokeColor(specAlpha(spec.TextFaint, 0.25)).SetLineWidth(1)
 	d.BeginPath()
 	d.MoveTo(cw/2, 0).LineTo(cw/2, ch)
 	d.MoveTo(0, ch/2).LineTo(cw, ch/2)
@@ -954,26 +955,26 @@ func (e *Editor) DrawInputRegionCanvas(d *core.Drawing, size core.Size) {
 					r = e.inputMap.dragPreview
 				}
 				selected := act.Name == selAct && bi == selBind
-				drawInputRegionBox(d, r, sx, sy, b.Kind, selected)
+				drawInputRegionBox(d, spec, r, sx, sy, b.Kind, selected)
 			}
 		}
 	}
 
 	if e.inputMap.dragMode == regionDragCreate && e.inputMap.dragChanged {
-		drawInputRegionBox(d, e.inputMap.dragPreview, sx, sy, e.InputMapRegionDrawKind(), true)
+		drawInputRegionBox(d, spec, e.inputMap.dragPreview, sx, sy, e.InputMapRegionDrawKind(), true)
 	}
 
-	d.SetStrokeColor(core.RGBA(0xCBD5E1, 0.6)).SetLineWidth(1).StrokeRect(0.5, 0.5, cw-1, ch-1)
+	d.SetStrokeColor(spec.LineRaised).SetLineWidth(1).StrokeRect(0.5, 0.5, cw-1, ch-1)
 }
 
-func drawInputRegionBox(d *core.Drawing, r project.Rect, sx, sy float32, kind string, selected bool) {
+func drawInputRegionBox(d *core.Drawing, spec SpecPalette, r project.Rect, sx, sy float32, kind string, selected bool) {
 	rx := r.X * sx
 	ry := r.Y * sy
 	rw := r.Width * sx
 	rh := r.Height * sy
-	baseHex := uint32(0x38BDF8) // touchRegion: sky blue
+	base := spec.Accent.Fg // touchRegion: Spec accent
 	if kind == project.KindMouseRegion {
-		baseHex = 0xF59E0B // mouseRegion: amber
+		base = spec.Warning.Fg // mouseRegion: Spec warning
 	}
 	fillAlpha := float32(0.18)
 	strokeWidth := float32(1)
@@ -981,11 +982,11 @@ func drawInputRegionBox(d *core.Drawing, r project.Rect, sx, sy float32, kind st
 		fillAlpha = 0.34
 		strokeWidth = 2
 	}
-	d.SetFillColor(core.RGBA(baseHex, fillAlpha)).FillRect(rx, ry, rw, rh)
-	d.SetStrokeColor(core.RGBA(baseHex, 0.95)).SetLineWidth(strokeWidth).StrokeRect(rx, ry, rw, rh)
+	d.SetFillColor(specAlpha(base, fillAlpha)).FillRect(rx, ry, rw, rh)
+	d.SetStrokeColor(specAlpha(base, 0.95)).SetLineWidth(strokeWidth).StrokeRect(rx, ry, rw, rh)
 	if selected {
 		const hs float32 = 6
-		d.SetFillColor(core.RGB(baseHex)).FillRect(rx+rw-hs, ry+rh-hs, hs, hs)
+		d.SetFillColor(base).FillRect(rx+rw-hs, ry+rh-hs, hs, hs)
 	}
 }
 

@@ -12,13 +12,13 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// Spec-derived alpha tints for ReferencesScreenView (every base color comes from Spec.dc.html).
+// Spec-derived alpha tints for ReferencesScreenView from spec_theme.yaml.
 var (
-	specRefRowActiveBg = core.RGBA(0x3B7BFF, 0.16)
-	specRefHitBg       = core.RGBA(0x3B7BFF, 0.18)
-	specRefHitDimBg    = core.RGBA(0x3B7BFF, 0.08)
-	specRefDelBg       = core.RGBA(0xFF6B6B, 0.10)
-	specRefAddBg       = core.RGBA(0x4FD38A, 0.10)
+	specRefRowActiveBg = specAlpha(darkSpecPalette.Accent.Fg, 0.16)
+	specRefHitBg       = specAlpha(darkSpecPalette.Accent.Fg, 0.18)
+	specRefHitDimBg    = specAlpha(darkSpecPalette.Accent.Fg, 0.08)
+	specRefDelBg       = specAlpha(darkSpecPalette.Removed.Fg, 0.10)
+	specRefAddBg       = specAlpha(darkSpecPalette.Added.Fg, 0.10)
 	specRefMonoFamily  = "JetBrains Mono, Menlo, monospace"
 )
 

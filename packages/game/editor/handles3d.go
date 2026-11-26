@@ -1037,17 +1037,18 @@ func lightIconColor(l *sceneformat.LightDoc) core.Color {
 			return c
 		}
 	}
-	return core.RGBA(0xFDE047, 1)
+	return darkSpecPalette.Warning.Fg
 }
 
 func drawLightIcon2D(d *core.Drawing, x, y float32, l *sceneformat.LightDoc, selected bool) {
+	pal := darkSpecPalette
 	col := lightIconColor(l)
-	ring := core.RGBA(0x0F172A, 0.85)
+	ring := specAlpha(pal.Bg, 0.85)
 	if selected {
-		ring = core.RGBA(0x38BDF8, 1)
+		ring = pal.Accent.Edge
 	}
 	// Backing disc for contrast over any sky or geometry.
-	d.Save().SetFillColor(core.RGBA(0x0F172A, 0.72)).BeginPath().Arc(x, y, 10, 0, float32(2*math.Pi), false).Fill().Restore()
+	d.Save().SetFillColor(specAlpha(pal.Bg, 0.72)).BeginPath().Arc(x, y, 10, 0, float32(2*math.Pi), false).Fill().Restore()
 	d.Save().SetStrokeColor(ring).SetLineWidth(1.75).BeginPath().Arc(x, y, 10, 0, float32(2*math.Pi), false).Stroke().Restore()
 
 	switch l.Kind {
@@ -1080,15 +1081,16 @@ func drawLightIcon2D(d *core.Drawing, x, y float32, l *sceneformat.LightDoc, sel
 }
 
 func drawCameraIcon2D(d *core.Drawing, x, y float32, c *sceneformat.Camera3DDoc, selected bool) {
-	col := core.RGBA(0xE2E8F0, 1)
+	pal := darkSpecPalette
+	col := pal.TextSecondary
 	if c != nil && c.Current {
-		col = core.RGBA(0x38BDF8, 1)
+		col = pal.Accent.Fg
 	}
-	ring := core.RGBA(0x0F172A, 0.85)
+	ring := specAlpha(pal.Bg, 0.85)
 	if selected {
-		ring = core.RGBA(0x38BDF8, 1)
+		ring = pal.Accent.Edge
 	}
-	d.Save().SetFillColor(core.RGBA(0x0F172A, 0.72)).BeginPath().Arc(x, y, 10, 0, float32(2*math.Pi), false).Fill().Restore()
+	d.Save().SetFillColor(specAlpha(pal.Bg, 0.72)).BeginPath().Arc(x, y, 10, 0, float32(2*math.Pi), false).Fill().Restore()
 	d.Save().SetStrokeColor(ring).SetLineWidth(1.75).BeginPath().Arc(x, y, 10, 0, float32(2*math.Pi), false).Stroke().Restore()
 
 	// Camera body + lens trapezoid.
@@ -1103,31 +1105,33 @@ func drawCameraIcon2D(d *core.Drawing, x, y float32, c *sceneformat.Camera3DDoc,
 }
 
 func drawReflectionProbeIcon2D(d *core.Drawing, x, y float32, p *sceneformat.ReflectionProbeDoc, selected bool) {
-	col := core.RGBA(0x22D3EE, 1)
+	pal := darkSpecPalette
+	col := pal.Accent.Fg
 	if p != nil && p.Cubemap == "" {
-		col = core.RGBA(0x94A3B8, 1)
+		col = pal.TextFaint
 	}
-	ring := core.RGBA(0x0F172A, 0.85)
+	ring := specAlpha(pal.Bg, 0.85)
 	if selected {
-		ring = core.RGBA(0x38BDF8, 1)
+		ring = pal.Accent.Edge
 	}
-	d.Save().SetFillColor(core.RGBA(0x0F172A, 0.72)).BeginPath().Arc(x, y, 10, 0, float32(2*math.Pi), false).Fill().Restore()
+	d.Save().SetFillColor(specAlpha(pal.Bg, 0.72)).BeginPath().Arc(x, y, 10, 0, float32(2*math.Pi), false).Fill().Restore()
 	d.Save().SetStrokeColor(ring).SetLineWidth(1.75).BeginPath().Arc(x, y, 10, 0, float32(2*math.Pi), false).Stroke().Restore()
 	// Chrome sphere badge with specular highlight dot.
 	d.Save().SetFillColor(col).BeginPath().Arc(x, y, 5.5, 0, float32(2*math.Pi), false).Fill().Restore()
-	d.Save().SetFillColor(core.RGBA(0xFFFFFF, 0.9)).BeginPath().Arc(x-1.8, y-1.8, 1.8, 0, float32(2*math.Pi), false).Fill().Restore()
+	d.Save().SetFillColor(specAlpha(pal.TextPrimary, 0.9)).BeginPath().Arc(x-1.8, y-1.8, 1.8, 0, float32(2*math.Pi), false).Fill().Restore()
 }
 
 func drawLightProbeGridIcon2D(d *core.Drawing, x, y float32, g *sceneformat.LightProbeGridDoc, selected bool) {
-	col := core.RGBA(0xF59E0B, 1)
+	pal := darkSpecPalette
+	col := pal.Warning.Fg
 	if g != nil && g.Data == "" {
-		col = core.RGBA(0xCBD5E1, 1)
+		col = pal.TextMuted
 	}
-	ring := core.RGBA(0x0F172A, 0.85)
+	ring := specAlpha(pal.Bg, 0.85)
 	if selected {
-		ring = core.RGBA(0x38BDF8, 1)
+		ring = pal.Accent.Edge
 	}
-	d.Save().SetFillColor(core.RGBA(0x0F172A, 0.72)).BeginPath().Arc(x, y, 10, 0, float32(2*math.Pi), false).Fill().Restore()
+	d.Save().SetFillColor(specAlpha(pal.Bg, 0.72)).BeginPath().Arc(x, y, 10, 0, float32(2*math.Pi), false).Fill().Restore()
 	d.Save().SetStrokeColor(ring).SetLineWidth(1.75).BeginPath().Arc(x, y, 10, 0, float32(2*math.Pi), false).Stroke().Restore()
 	// 2x2 warm probe dot grid.
 	for _, ox := range [2]float32{-3.2, 3.2} {
@@ -1151,6 +1155,7 @@ func (e *Editor) drawSceneHandles3D(d *core.Drawing, w, h float32) {
 	if obj.Light == nil && obj.Camera == nil && obj.ReflectionProbe == nil && obj.LightProbeGrid == nil {
 		return
 	}
+	spec := e.activeSpecPalette()
 	vc := e.activeView3DCam(w, h)
 	activeHandle := e.ActiveHandle3D()
 	pos64, right, up, fwd := e.objectWorldFrame3D(obj)
@@ -1165,10 +1170,10 @@ func (e *Editor) drawSceneHandles3D(d *core.Drawing, w, h float32) {
 		fill := col
 		if activeHandle == kind {
 			radius = 7
-			fill = core.RGBA(0xFACC15, 1)
+			fill = spec.Warning.Fg
 		}
 		d.Save().SetFillColor(fill).BeginPath().Arc(px, py, radius, 0, float32(2*math.Pi), false).Fill().Restore()
-		d.Save().SetStrokeColor(core.RGBA(0x0F172A, 0.9)).SetLineWidth(1.5).BeginPath().Arc(px, py, radius, 0, float32(2*math.Pi), false).Stroke().Restore()
+		d.Save().SetStrokeColor(specAlpha(spec.Bg, 0.9)).SetLineWidth(1.5).BeginPath().Arc(px, py, radius, 0, float32(2*math.Pi), false).Stroke().Restore()
 	}
 
 	drawCircle3D := func(center, uAxis, vAxis [3]float64, radius float64, col core.Color, lw float32) {
@@ -1248,7 +1253,7 @@ func (e *Editor) drawSceneHandles3D(d *core.Drawing, w, h float32) {
 
 			// Inner cone ring.
 			if innerRad > 1e-3 {
-				drawCircle3D(center, right, up, innerRad, core.RGBA(0xFDE68A, 0.75), 1.25)
+				drawCircle3D(center, right, up, innerRad, specAlpha(spec.Warning.Fg, 0.75), 1.25)
 			}
 			// Direction axis shaft.
 			if dirTip, ok := e.HandlePosition3D(Handle3DLightDirection); ok {
@@ -1261,10 +1266,10 @@ func (e *Editor) drawSceneHandles3D(d *core.Drawing, w, h float32) {
 				drawHandleKnob(Handle3DLightRange, rangeTip, col)
 			}
 			if outerTip, ok := e.HandlePosition3D(Handle3DLightOuterCone); ok {
-				drawHandleKnob(Handle3DLightOuterCone, outerTip, core.RGBA(0x38BDF8, 1))
+				drawHandleKnob(Handle3DLightOuterCone, outerTip, spec.Accent.Fg)
 			}
 			if innerTip, ok := e.HandlePosition3D(Handle3DLightInnerCone); ok {
-				drawHandleKnob(Handle3DLightInnerCone, innerTip, core.RGBA(0xFDE68A, 1))
+				drawHandleKnob(Handle3DLightInnerCone, innerTip, spec.Warning.Fg)
 			}
 		}
 	}
@@ -1302,7 +1307,7 @@ func (e *Editor) drawSceneHandles3D(d *core.Drawing, w, h float32) {
 
 		nearR := planeRect(near)
 		prevR := planeRect(previewDist)
-		col := core.RGBA(0x38BDF8, 0.95)
+		col := specAlpha(spec.Accent.Fg, 0.95)
 		d.Save().SetStrokeColor(col).SetLineWidth(1.5).BeginPath()
 		hasSeg := false
 		seg := func(a, b [3]float32) {
@@ -1355,7 +1360,7 @@ func (e *Editor) drawSceneHandles3D(d *core.Drawing, w, h float32) {
 			drawHandleKnob(Handle3DCameraFOV, fovTip, col)
 		}
 		if farTip, ok := e.HandlePosition3D(Handle3DCameraFar); ok {
-			drawHandleKnob(Handle3DCameraFar, farTip, core.RGBA(0xA855F7, 1))
+			drawHandleKnob(Handle3DCameraFar, farTip, spec.Agent.Fg)
 		}
 	}
 
@@ -1396,7 +1401,7 @@ func (e *Editor) drawSceneHandles3D(d *core.Drawing, w, h float32) {
 			sz := obj.ReflectionProbe.EffectiveSize()
 			c64 := [3]float64{float64(c[0]), float64(c[1]), float64(c[2])}
 			s64 := [3]float64{float64(sz[0]), float64(sz[1]), float64(sz[2])}
-			drawWireBox(c64, s64, core.RGBA(0x22D3EE, 0.95), 1.6)
+			drawWireBox(c64, s64, specAlpha(spec.Accent.Fg, 0.95), 1.6)
 			if b := float64(obj.ReflectionProbe.BlendDistance); b > 0 {
 				inner := [3]float64{
 					math.Max(0, s64[0]-2*b),
@@ -1404,7 +1409,7 @@ func (e *Editor) drawSceneHandles3D(d *core.Drawing, w, h float32) {
 					math.Max(0, s64[2]-2*b),
 				}
 				if inner[0] > 0 && inner[1] > 0 && inner[2] > 0 {
-					drawWireBox(c64, inner, core.RGBA(0x22D3EE, 0.4), 1)
+					drawWireBox(c64, inner, specAlpha(spec.Accent.Fg, 0.4), 1)
 				}
 			}
 		}
@@ -1415,7 +1420,7 @@ func (e *Editor) drawSceneHandles3D(d *core.Drawing, w, h float32) {
 			cnt := obj.LightProbeGrid.EffectiveCounts()
 			c64 := [3]float64{float64(c[0]), float64(c[1]), float64(c[2])}
 			s64 := [3]float64{float64(sz[0]), float64(sz[1]), float64(sz[2])}
-			drawWireBox(c64, s64, core.RGBA(0xF59E0B, 0.95), 1.6)
+			drawWireBox(c64, s64, specAlpha(spec.Warning.Fg, 0.95), 1.6)
 			if cnt[0]*cnt[1]*cnt[2] <= 512 {
 				sampleCoord := func(i, n int, mid, span float64) float64 {
 					if n <= 1 {
@@ -1423,7 +1428,7 @@ func (e *Editor) drawSceneHandles3D(d *core.Drawing, w, h float32) {
 					}
 					return (mid - span*0.5) + span*(float64(i)/float64(n-1))
 				}
-				dotCol := core.RGBA(0xFBBF24, 0.85)
+				dotCol := specAlpha(spec.Changed.Fg, 0.85)
 				for iz := range cnt[2] {
 					pz := sampleCoord(iz, cnt[2], c64[2], s64[2])
 					for iy := range cnt[1] {
@@ -1444,12 +1449,12 @@ func (e *Editor) drawSceneHandles3D(d *core.Drawing, w, h float32) {
 			kind Handle3DKind
 			col  core.Color
 		}{
-			{Handle3DProbeBoundsPosX, core.RGBA(0xEF4444, 1)},
-			{Handle3DProbeBoundsNegX, core.RGBA(0xEF4444, 1)},
-			{Handle3DProbeBoundsPosY, core.RGBA(0x22C55E, 1)},
-			{Handle3DProbeBoundsNegY, core.RGBA(0x22C55E, 1)},
-			{Handle3DProbeBoundsPosZ, core.RGBA(0x3B82F6, 1)},
-			{Handle3DProbeBoundsNegZ, core.RGBA(0x3B82F6, 1)},
+			{Handle3DProbeBoundsPosX, spec.AxisX},
+			{Handle3DProbeBoundsNegX, spec.AxisX},
+			{Handle3DProbeBoundsPosY, spec.AxisY},
+			{Handle3DProbeBoundsNegY, spec.AxisY},
+			{Handle3DProbeBoundsPosZ, spec.AxisZ},
+			{Handle3DProbeBoundsNegZ, spec.AxisZ},
 		} {
 			if hp, ok := e.HandlePosition3D(hspec.kind); ok {
 				drawHandleKnob(hspec.kind, hp, hspec.col)

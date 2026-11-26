@@ -950,8 +950,8 @@ func (e *Editor) TilePreview() []TilePreviewCell {
 
 // Spec token colors for brush preview and selection overlays.
 var (
-	previewAccentColor = core.RGBA(0x3B7BFF, 1)
-	previewEraseColor  = core.RGBA(0xFF6B6B, 1)
+	previewAccentColor = darkSpecPalette.Accent.Fg
+	previewEraseColor  = darkSpecPalette.Removed.Fg
 )
 
 // drawTileSelectionOverlay draws a dashed marquee around the active TileSelection (or in-progress region select stroke).
@@ -984,10 +984,11 @@ func (e *Editor) drawTileSelectionOverlay(d *core.Drawing) {
 	y := float32(rect.Row0 * tm.TileHeight)
 	w := float32(rect.Width() * tm.TileWidth)
 	h := float32(rect.Height() * tm.TileHeight)
+	spec := e.activeSpecPalette()
 	d.Save()
 	applyAffine(d, m)
-	d.SetFillColor(core.RGBA(0x3B7BFF, 0.14)).FillRect(x, y, w, h)
-	d.SetStrokeColor(previewAccentColor).SetLineWidth(1.5/strokeScale(m)).SetLineDash(4/strokeScale(m), 3/strokeScale(m)).StrokeRect(x, y, w, h)
+	d.SetFillColor(specAlpha(spec.Accent.Fg, 0.14)).FillRect(x, y, w, h)
+	d.SetStrokeColor(spec.Accent.Edge).SetLineWidth(1.5/strokeScale(m)).SetLineDash(4/strokeScale(m), 3/strokeScale(m)).StrokeRect(x, y, w, h)
 	d.Restore()
 }
 
@@ -1016,16 +1017,17 @@ func (e *Editor) drawTilePreviewOverlay(d *core.Drawing) bool {
 		p := e.TilePalette()
 		pal = &p
 	}
+	spec := e.activeSpecPalette()
 	d.Save()
 	applyAffine(d, m)
 	for _, cell := range s.preview {
 		x, y := float32(cell.Col)*tw, float32(cell.Row)*th
 		if cell.Erase || cell.Tile == 0 {
-			d.SetFillColor(core.RGBA(0xFF6B6B, 0.25)).FillRect(x, y, tw, th)
-			d.SetStrokeColor(previewEraseColor).SetLineWidth(lw).StrokeRect(x, y, tw, th)
+			d.SetFillColor(specAlpha(spec.Removed.Fg, 0.25)).FillRect(x, y, tw, th)
+			d.SetStrokeColor(spec.Removed.Edge).SetLineWidth(lw).StrokeRect(x, y, tw, th)
 		} else {
 			e.drawGhostTileID(d, tm, cell.Tile, cell.Flip, x, y, pal)
-			d.SetStrokeColor(previewAccentColor).SetLineWidth(lw).StrokeRect(x, y, tw, th)
+			d.SetStrokeColor(spec.Accent.Edge).SetLineWidth(lw).StrokeRect(x, y, tw, th)
 		}
 	}
 	d.Restore()
@@ -1061,7 +1063,7 @@ func (e *Editor) drawStampHoverOverlay(d *core.Drawing, tm *sceneformat.TilemapD
 			}
 			x, y := float32(mc)*tw, float32(mr)*th
 			if tid == 0 {
-				d.SetFillColor(core.RGBA(0xFF6B6B, 0.18)).FillRect(x, y, tw, th)
+				d.SetFillColor(specAlpha(e.activeSpecPalette().Removed.Fg, 0.18)).FillRect(x, y, tw, th)
 			} else {
 				e.drawGhostTileID(d, tm, tid, flip, x, y, pal)
 			}

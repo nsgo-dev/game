@@ -1816,8 +1816,9 @@ func (e *Editor) drawParticleEmitterOverlays(d *core.Drawing, scene *sceneformat
 			}
 			p := m.TransformPoint(math2d.Vec2{X: bo.Emitter.X, Y: bo.Emitter.Y})
 			cx, cy := p.X, p.Y
+			spec := e.activeSpecPalette()
 			d.Save()
-			d.SetStrokeColor(core.RGBA(0xF59E0B, 0.9)).SetLineWidth(1.5)
+			d.SetStrokeColor(specAlpha(spec.Warning.Fg, 0.9)).SetLineWidth(1.5)
 			// Draw small diamond origin marker.
 			const r float32 = 6
 			d.BeginPath().
@@ -1829,7 +1830,7 @@ func (e *Editor) drawParticleEmitterOverlays(d *core.Drawing, scene *sceneformat
 			// Draw spawn shape preview scaled by view zoom.
 			zoom := strokeScale(m)
 			sh := bo.Emitter.Shape
-			d.SetStrokeColor(core.RGBA(0xF59E0B, 0.45)).SetLineDash(4, 3).SetLineWidth(1)
+			d.SetStrokeColor(specAlpha(spec.Warning.Fg, 0.45)).SetLineDash(4, 3).SetLineWidth(1)
 			switch sh.Kind() {
 			case "circle", "ring":
 				if rad := sh.Radius() * zoom; rad > 1 {

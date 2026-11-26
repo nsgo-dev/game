@@ -131,9 +131,9 @@ func DefaultAssetStyleBrief() AssetStyleBrief {
 		MaxPeakDB:     -0.5,
 		LoudnessTolDB: 3.0,
 		Backgrounds: []AssetPreviewBackground{
-			{ID: "floor3", Label: "Floor 3", Color: core.RGB(0x1A2130)},
-			{ID: "floor1", Label: "Floor 1", Color: core.RGB(0x231D1C)},
-			{ID: "checker", Label: "Checker", Color: core.RGB(0x171A21), Checker: true},
+			{ID: "floor3", Label: "Floor 3", Color: CompositeOver(specAlpha(darkSpecPalette.Accent.Fg, 0.12), darkSpecPalette.Raised)},
+			{ID: "floor1", Label: "Floor 1", Color: CompositeOver(specAlpha(darkSpecPalette.Changed.Fg, 0.08), darkSpecPalette.Raised)},
+			{ID: "checker", Label: "Checker", Color: darkSpecPalette.Raised, Checker: true},
 		},
 	}
 }
@@ -592,7 +592,7 @@ func parseBriefStyleYAML(data []byte, base AssetStyleBrief) AssetStyleBrief {
 			if strings.TrimSpace(bg.ID) == "" {
 				continue
 			}
-			c := core.RGB(0x1A2130)
+			c := CompositeOver(specAlpha(darkSpecPalette.Accent.Fg, 0.12), darkSpecPalette.Raised)
 			if parsedCol, err := core.ParseColor(strings.TrimSpace(bg.Color)); err == nil {
 				c = parsedCol
 			}

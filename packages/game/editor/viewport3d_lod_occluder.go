@@ -430,18 +430,18 @@ func hasOccluder(o *sceneformat.ObjectDoc) bool {
 	return false
 }
 
-// lodColor3D returns a distinct color for each LOD index so level transitions
+// lodColor3D returns a distinct Spec token color for each LOD index so level transitions
 // stand out clearly in the 3D viewport.
-func lodColor3D(level int) core.Color {
+func lodColor3D(spec SpecPalette, level int) core.Color {
 	switch level {
 	case 0:
-		return core.RGBA(0x22C55E, 0.95) // green: LOD0 (finest)
+		return specAlpha(spec.Added.Fg, 0.95) // green: LOD0 (finest)
 	case 1:
-		return core.RGBA(0xF59E0B, 0.95) // amber: LOD1
+		return specAlpha(spec.Warning.Fg, 0.95) // warning: LOD1
 	case 2:
-		return core.RGBA(0xF97316, 0.95) // orange: LOD2
+		return specAlpha(spec.Changed.Fg, 0.95) // amber: LOD2
 	default:
-		return core.RGBA(0xEF4444, 0.95) // red: LOD3+
+		return specAlpha(spec.Removed.Fg, 0.95) // red: LOD3+
 	}
 }
 
@@ -457,10 +457,11 @@ func (e *Editor) drawObjectLODBadge3D(d *core.Drawing, obj *sceneformat.ObjectDo
 	if !vis {
 		return
 	}
+	spec := e.activeSpecPalette()
 	label := fmt.Sprintf("LOD%d", lod)
-	col := lodColor3D(lod)
+	col := lodColor3D(spec, lod)
 	d.Save().
-		SetFillColor(core.RGBA(0x0F172A, 0.78)).
+		SetFillColor(specAlpha(spec.PillBg, 0.88)).
 		FillRect(sx-18, sy-15, 36, 14).
 		SetFillColor(col).
 		FillText(label, sx-14, sy-4, core.Font{Size: 10}).
@@ -468,13 +469,14 @@ func (e *Editor) drawObjectLODBadge3D(d *core.Drawing, obj *sceneformat.ObjectDo
 }
 
 // drawOccluders3D draws visible occluder volumes (boxes and model occluder
-// triangle wireframes) in magenta so authors can inspect occlusion walls.
+// triangle wireframes) in the Spec agent violet token so authors can inspect occlusion walls.
 func (e *Editor) drawOccluders3D(d *core.Drawing, w, h float32) {
 	if !e.ShowOccluders || d == nil || e.Doc == nil {
 		return
 	}
-	occColor := core.RGBA(0xD946EF, 0.95)
-	occLabelBg := core.RGBA(0x2E1065, 0.78)
+	spec := e.activeSpecPalette()
+	occColor := specAlpha(spec.Agent.Fg, 0.95)
+	occLabelBg := specAlpha(spec.Agent.Fill, 0.90)
 
 	// Track which object IDs were drawn from built scenemodel.Occluders so
 	// fallback doc walking does not double-draw them.

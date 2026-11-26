@@ -211,7 +211,7 @@ func FilesView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 				Style: dockedStyle(cx, core.Style{
 					FlexGrow:    1,
 					FlexBasis:   core.Pt(0),
-					Background:  colors.Inset(),
+					Background:  colors.Surface(),
 					Borders:     core.Edges{Top: 1},
 					BorderColor: colors.Line(),
 					Padding:     core.All(6),

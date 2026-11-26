@@ -1427,28 +1427,29 @@ func (e *Editor) drawGridMap3D(d *core.Drawing, w, h float32) {
 		return
 	}
 
+	spec := e.activeSpecPalette()
 	// 3. Box Fill drag preview, or hovered cell preview under the pointer.
 	if minC, maxC, ok := e.GridMapBoxPreview(); ok {
 		bmin := gm.CellBounds(minC).Min
 		bmax := gm.CellBounds(maxC).Max
-		e.drawAABBWireframe3D(d, bmin, bmax, toWorld, hoverPaintColor, 2.2, w, h)
-		e.fillCellFloorQuad3D(d, bmin, bmax, toWorld, core.RGBA(0x38BDF8, 0.22), w, h)
+		e.drawAABBWireframe3D(d, bmin, bmax, toWorld, spec.Accent.Fg, 2.2, w, h)
+		e.fillCellFloorQuad3D(d, bmin, bmax, toWorld, specAlpha(spec.Accent.Fg, 0.22), w, h)
 		return
 	}
 	if hc, ok := e.HoveredGridMapCell(); ok {
-		col := hoverPaintColor
-		fill := core.RGBA(0x38BDF8, 0.22)
+		col := spec.Accent.Fg
+		fill := specAlpha(spec.Accent.Fg, 0.22)
 		mode := e.gridMap.tool
 		if e.gridMap.hover.picking {
 			mode = GridMapToolPick
 		}
 		switch mode {
 		case GridMapToolErase:
-			col = hoverEraseColor
-			fill = core.RGBA(0xF87171, 0.25)
+			col = spec.Removed.Fg
+			fill = specAlpha(spec.Removed.Fg, 0.25)
 		case GridMapToolPick:
-			col = hoverPickColor
-			fill = core.RGBA(0xFBBF24, 0.22)
+			col = spec.Warning.Fg
+			fill = specAlpha(spec.Warning.Fg, 0.22)
 		}
 		cb := gm.CellBounds(hc)
 		e.fillCellFloorQuad3D(d, cb.Min, cb.Max, toWorld, fill, w, h)
@@ -1472,7 +1473,7 @@ func (e *Editor) drawGridMapFloor3D(d *core.Drawing, gm *world3d.GridMap, toWorl
 	zMin := gm.Origin.Z + float32(centerZ-half)*gm.CellSize.Z
 	zMax := gm.Origin.Z + float32(centerZ+half)*gm.CellSize.Z
 
-	d.Save().SetStrokeColor(core.RGBA(0x38BDF8, 0.32)).SetLineWidth(1).BeginPath()
+	d.Save().SetStrokeColor(specAlpha(e.activeSpecPalette().Accent.Fg, 0.32)).SetLineWidth(1).BeginPath()
 	hasSeg := false
 	for i := centerX - half; i <= centerX+half; i++ {
 		x := gm.Origin.X + float32(i)*gm.CellSize.X
@@ -1596,23 +1597,23 @@ func (e *Editor) fillCellFloorQuad3D(d *core.Drawing, bmin, bmax math3d.Vec3, to
 		ClosePath().Fill().Restore()
 }
 
-var gridMapPaletteSwatches = []uint32{
-	0x60A5FA, // blue
-	0x34D399, // emerald
-	0xFBBF24, // amber
-	0xF472B6, // pink
-	0xA78BFA, // violet
-	0xFB923C, // orange
-	0x2DD4BF, // teal
-	0xE879F9, // fuchsia
+var gridMapPaletteSwatches = []core.Color{
+	darkSpecPalette.Accent.Fg,
+	darkSpecPalette.Added.Fg,
+	darkSpecPalette.Warning.Fg,
+	darkSpecPalette.Removed.Fg,
+	darkSpecPalette.Agent.Fg,
+	darkSpecPalette.Changed.Fg,
+	darkSpecPalette.TextMuted,
+	darkSpecPalette.TextSecondary,
 }
 
 func gridMapTileColor(tileID uint16, alpha float32) core.Color {
 	if tileID == 0 {
-		return core.RGBA(0x94A3B8, alpha)
+		return specAlpha(darkSpecPalette.TextFaint, alpha)
 	}
-	rgb := gridMapPaletteSwatches[int(tileID-1)%len(gridMapPaletteSwatches)]
-	return core.RGBA(rgb, alpha)
+	base := gridMapPaletteSwatches[int(tileID-1)%len(gridMapPaletteSwatches)]
+	return specAlpha(base, alpha)
 }
 
 // --- Scene Object GridMap setter ---
