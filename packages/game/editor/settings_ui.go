@@ -745,6 +745,13 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 					},
 				},
 			},
+			core.Show{
+				When: func() bool { return activePage.Get() == SettingsPagePermissions },
+				Then: func(*core.Scope) core.Node {
+					_ = langMemo.Get()
+					return specYouOnlyPill(p, "settings-page-you-only", ed.T("settings.policyYouOnly"))
+				},
+			},
 			core.View{
 				TestID: "settings-page-scope",
 				StyleFunc: func() core.Style {

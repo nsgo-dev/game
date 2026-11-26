@@ -643,8 +643,20 @@ strings:
   permissions.colDecision: 决策
   permissions.colFiles: 文件 / 目标
   permissions.colOrder: 顺序
+  permissions.confirmRule: 确认
+  permissions.deleteToolOff: 工具（仅限用户）：game_delete_file 已关闭，智能体只能提议删除文件。
+  permissions.deleteToolOn: 工具（仅限用户）：game_delete_file 仍需在审查中逐个确认删除。
   permissions.deny: 拒绝
+  permissions.draft.apply: 应用
+  permissions.draft.descNoRequest: 请勾选你同意的每一条规则。⌘↵、全部保留和自动化均无法应用此草案，任何配置档也都不会自动放行。
+  permissions.draft.discard: 丢弃草案
+  permissions.draft.historyHint: 已应用的规则在历史记录中归属于你。
+  permissions.draft.noChangesTicked: 未勾选任何更改
+  permissions.draft.title: 智能体起草了一项针对其自身权限的更改
   permissions.emptyRules: 暂无规则；将按所选方案的默认策略决定。
+  permissions.heldDesc: 磁盘中收紧的规则已立即生效；放宽的规则会暂挂，直到你逐条确认。
+  permissions.heldTitle: 来自磁盘的放宽权限规则已暂挂
+  permissions.keepStricter: 保持更严格
   permissions.mcpOnlyNote: 规则仅约束编辑器的 MCP 服务器。外部智能体对文件的编辑仍会通过磁盘监视器提示。
   permissions.moveDown: 下移规则
   permissions.moveUp: 上移规则
@@ -676,6 +688,7 @@ strings:
   permissions.toastSaved: 已保存“始终允许”权限规则
   permissions.toastShow: 查看
   permissions.toastUndo: 撤销
+  permissions.youOnlyDomains: 权限、工具、模型与用量均为“仅限用户”——智能体只能提交草案，绝不能直接写入。
   problems.agentHeader: 智能体
   problems.agentNote: 文件一有改动就会立即发现问题，无论来自你还是智能体；智能体只提出修复方案，绝不会未经你同意自动应用。
   problems.applyFix: 应用修复
@@ -705,6 +718,10 @@ strings:
   region.statusBar: 状态栏
   region.toast: 通知
   region.viewport: 视口
+  review.deleteThisFile: 删除此文件
+  review.keepTheFile: 保留该文件
+  review.revertAll: 全部还原
+  review.title: 审查更改
   saveStatus.errDiskFull: 无法保存：磁盘已满
   saveStatus.errDiskFullFree: 无法保存：磁盘已满 · 剩余 {free}
   saveStatus.errOther: 无法保存：{reason}

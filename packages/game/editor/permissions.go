@@ -158,6 +158,20 @@ func (d PermissionDecision) DisplayName() string {
 	}
 }
 
+// Strictness ranks decisions from loosest (0 = Allow) to strictest (2 = Deny; invalid = 3 fail-closed).
+func (d PermissionDecision) Strictness() int {
+	switch d {
+	case PermissionAllow:
+		return 0
+	case PermissionAsk:
+		return 1
+	case PermissionDeny:
+		return 2
+	default:
+		return 3
+	}
+}
+
 // Well-known run target names matched by PermissionActionRun rules.
 const (
 	PermissionRunGameCheck = "game check"
@@ -631,6 +645,9 @@ type PermissionEvaluation struct {
 	Reason string `json:"reason"`
 	// Link is the Settings navigation label for this decision, such as "Settings › Permissions · rule 7 of 7".
 	Link string `json:"link"`
+	// HeldByDisk reports that an external permissions.yaml change tried to loosen this rule or profile,
+	// and the editor is holding the stricter decision until the person confirms it in Settings › Permissions.
+	HeldByDisk bool `json:"heldByDisk,omitempty"`
 	// Tool, Action, and Target echo the evaluated request.
 	Tool   string           `json:"tool,omitempty"`
 	Action PermissionAction `json:"action"`
@@ -1064,15 +1081,22 @@ type permissionsState struct {
 	initialized   bool
 	path          string
 	loadErr       error
+	diskFile      *PermissionsFile
+	diskSnap      diskSnapshot
+	hasFileOnDisk bool
+	held          []HeldPermissionLoosening
+	draft         *PermissionsDraft
+	draftSeq      uint64
+	toolEnabled   map[string]bool
 	focusedRule   int
 	focusSeq      uint64
+	focusPending  bool
 	nextID        int
 	blocked       []BlockedPermissionStep
 	pending       []PendingPermissionRequest
 	toast         *PermissionToast
 	rulesRev      uint64
 	rev           uint64
-	focusPending  bool
 	searchQuery   string
 	activeSection string // "permissions" (default)
 }
@@ -1085,7 +1109,10 @@ func (e *Editor) ensurePermissionsInit() {
 		e.perms.file = DefaultPermissions()
 		e.perms.focusedRule = -1
 		e.perms.activeSection = "permissions"
+		e.perms.toolEnabled = defaultToolEnabledMap()
 		e.perms.initialized = true
+	} else if e.perms.toolEnabled == nil {
+		e.perms.toolEnabled = defaultToolEnabledMap()
 	}
 }
 
@@ -1251,15 +1278,27 @@ func (e *Editor) SetPermissions(f PermissionsFile) error {
 	}
 	next := f.Clone()
 	if p := e.PermissionsPath(); p != "" {
-		if err := SavePermissions(p, &next); err != nil {
+		encoded, err := EncodePermissions(&next)
+		if err != nil {
 			return err
 		}
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			return fmt.Errorf("editor: create permissions directory: %w", err)
+		}
+		if err := writeFileAtomic(p, encoded); err != nil {
+			return err
+		}
+		e.perms.hasFileOnDisk = true
+		e.perms.diskSnap = makeDiskSnapshot(p, encoded)
+		cp := next.Clone()
+		e.perms.diskFile = &cp
 	}
 	e.perms.file = next
 	e.perms.loadErr = nil
 	if e.perms.focusedRule >= len(e.perms.file.Rules) {
 		e.perms.focusedRule = len(e.perms.file.Rules) - 1
 	}
+	e.syncDiskWatchTargets()
 	e.bumpPermissionsRulesRev()
 	return nil
 }
@@ -1437,8 +1476,13 @@ func (e *Editor) LoadProjectPermissions(path string) error {
 	e.ensurePermissionsInit()
 	e.perms.path = path
 	e.perms.loadErr = nil
+	e.perms.held = nil
 	if strings.TrimSpace(path) == "" {
 		e.perms.file = DefaultPermissions()
+		e.perms.hasFileOnDisk = false
+		e.perms.diskSnap = diskSnapshot{}
+		e.perms.diskFile = nil
+		e.syncDiskWatchTargets()
 		e.bumpPermissionsRulesRev()
 		return nil
 	}
@@ -1446,15 +1490,31 @@ func (e *Editor) LoadProjectPermissions(path string) error {
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			e.perms.file = DefaultPermissions()
+			e.perms.hasFileOnDisk = false
+			e.perms.diskSnap = diskSnapshot{path: filepath.Clean(path), exists: false}
+			e.perms.diskFile = nil
+			e.syncDiskWatchTargets()
 			e.bumpPermissionsRulesRev()
 			return nil
 		}
+		if raw, rerr := readBoundedPermissionsFile(path); rerr == nil {
+			e.perms.hasFileOnDisk = true
+			e.perms.diskSnap = makeDiskSnapshot(path, raw)
+		}
 		e.perms.loadErr = err
 		e.perms.file = PermissionPreset(PermissionProfileCautious)
+		e.syncDiskWatchTargets()
 		e.bumpPermissionsRulesRev()
 		return err
 	}
+	if raw, rerr := readBoundedPermissionsFile(path); rerr == nil {
+		e.perms.hasFileOnDisk = true
+		e.perms.diskSnap = makeDiskSnapshot(path, raw)
+	}
+	cp := f.Clone()
+	e.perms.diskFile = &cp
 	e.perms.file = f.Clone()
+	e.syncDiskWatchTargets()
 	e.bumpPermissionsRulesRev()
 	return nil
 }
@@ -1479,10 +1539,16 @@ func (e *Editor) resetPermissionsForProject() {
 	e.perms.blocked = nil
 	e.perms.pending = nil
 	e.perms.toast = nil
+	e.perms.draft = nil
+	e.perms.held = nil
+	e.perms.diskFile = nil
+	e.perms.diskSnap = diskSnapshot{}
+	e.perms.hasFileOnDisk = false
+	e.perms.toolEnabled = defaultToolEnabledMap()
 	e.perms.focusedRule = -1
 	e.perms.loadErr = nil
 	if e.ProjectPath != "" {
-		_ = e.LoadProjectPermissions(PermissionsFilePath(filepath.Dir(e.ProjectPath)))
+		e.loadProjectPermissionsOnOpen(filepath.Dir(e.ProjectPath))
 	} else {
 		e.perms.path = ""
 		e.perms.file = DefaultPermissions()
@@ -1493,7 +1559,7 @@ func (e *Editor) resetPermissionsForProject() {
 	}
 }
 
-// EvaluatePermission evaluates req against the editor's current permission rules.
+// EvaluatePermission evaluates req against the editor's current permission rules (including held external loosenings).
 // If the project's permissions.yaml failed to load, EvaluatePermission fails closed with PermissionDeny.
 func (e *Editor) EvaluatePermission(req PermissionRequest) PermissionEvaluation {
 	if e != nil && e.perms.loadErr != nil {
@@ -1513,7 +1579,11 @@ func (e *Editor) EvaluatePermission(req PermissionRequest) PermissionEvaluation 
 			Target:    strings.TrimSpace(req.Target),
 		}
 	}
-	return e.Permissions().Evaluate(req)
+	eval := e.Permissions().Evaluate(req)
+	if e != nil && len(e.perms.held) > 0 {
+		e.annotateHeldEvaluation(&eval)
+	}
+	return eval
 }
 
 // RecordBlockedPermission records a step blocked by a Deny rule so the UI can show it and link directly to its rule in Settings › Permissions.
@@ -1814,13 +1884,24 @@ func (e *Editor) UndoPermissionToast() error {
 	prev := toast.previous.Clone()
 	if p := e.PermissionsPath(); p != "" {
 		if toast.hadFile {
-			if err := SavePermissions(p, &prev); err != nil {
+			encoded, err := EncodePermissions(&prev)
+			if err != nil {
 				return err
 			}
+			if err := writeFileAtomic(p, encoded); err != nil {
+				return err
+			}
+			e.perms.hasFileOnDisk = true
+			e.perms.diskSnap = makeDiskSnapshot(p, encoded)
+			cp := prev.Clone()
+			e.perms.diskFile = &cp
 		} else {
 			if rerr := os.Remove(p); rerr != nil && !errors.Is(rerr, fs.ErrNotExist) {
 				return rerr
 			}
+			e.perms.hasFileOnDisk = false
+			e.perms.diskSnap = diskSnapshot{path: filepath.Clean(p), exists: false}
+			e.perms.diskFile = nil
 		}
 	}
 	e.perms.toast = nil
@@ -1828,6 +1909,7 @@ func (e *Editor) UndoPermissionToast() error {
 	if e.perms.focusedRule >= len(e.perms.file.Rules) {
 		e.perms.focusedRule = len(e.perms.file.Rules) - 1
 	}
+	e.syncDiskWatchTargets()
 	e.bumpPermissionsRulesRev()
 	return nil
 }

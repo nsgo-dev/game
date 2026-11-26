@@ -949,6 +949,127 @@ func permissionsMainPaneView(
 			})
 		}
 
+		if held := ed.HeldPermissionLoosenings(); len(held) > 0 {
+			heldRows := []core.Node{
+				core.View{
+					Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8},
+					Children: []core.Node{
+						core.Text{
+							TestID:  "perm-held-title",
+							Content: ed.T("permissions.heldTitle"),
+							Style:   core.Style{FontSize: 13, FontWeight: 600, Color: p.Warning.Fg, FlexGrow: 1},
+						},
+					},
+				},
+				core.Text{
+					Content: ed.T("permissions.heldDesc"),
+					Style:   core.Style{FontSize: 12, Color: p.TextSecondary},
+				},
+			}
+			for i, h := range held {
+				hID := h.ID
+				src := heldSourceLabel(h.Source)
+				title := fmt.Sprintf("%s · %s", h.Action.DisplayName(), FormatPermissionPatterns(h.Action, h.Patterns))
+				sub := fmt.Sprintf("%s → %s · %s", h.CurrentDecision.DisplayName(), h.IncomingDecision.DisplayName(), src)
+				if h.Kind == HeldLooseningProfileRelaxed {
+					title = fmt.Sprintf("Profile · %s → %s", h.CurrentProfile.DisplayName(), h.IncomingProfile.DisplayName())
+					sub = fmt.Sprintf("Default preset loosened · %s", src)
+				}
+				heldRows = append(heldRows, core.View{
+					TestID: fmt.Sprintf("perm-held-row-%d", i),
+					Style: core.Style{
+						Direction:    core.Row,
+						AlignItems:   core.AlignCenter,
+						Gap:          10,
+						Padding:      core.Symmetric(8, 12),
+						CornerRadius: 10,
+						Background:   p.Inset,
+						BorderWidth:  1,
+						BorderColor:  p.Line,
+					},
+					Children: []core.Node{
+						core.View{
+							Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 2},
+							Children: []core.Node{
+								core.Text{
+									Content: title,
+									Style:   core.Style{FontSize: 12.5, FontWeight: 600, Color: p.TextPrimary},
+								},
+								core.Text{
+									Content: sub,
+									Style:   core.Style{FontSize: 11.5, Color: p.TextMuted},
+								},
+							},
+						},
+						specDecisionBadge(p, h.CurrentDecision, false),
+						core.Text{
+							Content: "→",
+							Style:   core.Style{FontSize: 12, Color: p.TextFaint},
+						},
+						specDecisionBadge(p, h.IncomingDecision, false),
+						ui.Button{
+							TestID:  fmt.Sprintf("perm-held-reject-%d", i),
+							Variant: ui.ButtonGhost,
+							Size:    ui.SizeSmall,
+							Text:    ed.T("permissions.keepStricter"),
+							Label:   ed.T("permissions.keepStricter"),
+							Color:   func() core.Color { return p.LineRaised },
+							TextStyle: core.Style{
+								FontSize:   11.5,
+								FontWeight: 500,
+								Color:      p.TextPrimary,
+							},
+							Style: core.Style{
+								Height:       core.Pt(28),
+								Padding:      core.Symmetric(0, 10),
+								CornerRadius: 6,
+								FocusVisible: focusRing,
+							},
+							OnPress: func() {
+								ed.report(ed.RejectHeldPermissionLoosening(hID))
+							},
+						},
+						ui.Button{
+							TestID:  fmt.Sprintf("perm-held-confirm-%d", i),
+							Variant: ui.ButtonGhost,
+							Size:    ui.SizeSmall,
+							Text:    ed.T("permissions.confirmRule"),
+							Label:   ed.T("permissions.confirmRule"),
+							Color:   func() core.Color { return p.Accent.Fg },
+							TextStyle: core.Style{
+								FontSize:   11.5,
+								FontWeight: 600,
+								Color:      p.Accent.OnFill,
+							},
+							Style: core.Style{
+								Height:       core.Pt(28),
+								Padding:      core.Symmetric(0, 10),
+								CornerRadius: 6,
+								FocusVisible: focusRing,
+							},
+							OnPress: func() {
+								ed.report(ed.ConfirmHeldPermissionLoosening(hID))
+							},
+						},
+					},
+				})
+			}
+			bodyChildren = append(bodyChildren, core.View{
+				TestID: "perm-held-card",
+				Role:   core.RoleRegion,
+				Label:  ed.T("permissions.heldTitle"),
+				Style: core.Style{
+					Padding:      core.All(14),
+					Gap:          10,
+					CornerRadius: 12,
+					Background:   p.Warning.Fill,
+					BorderWidth:  1,
+					BorderColor:  p.Warning.Edge,
+				},
+				Children: heldRows,
+			})
+		}
+
 		bodyChildren = append(bodyChildren,
 			core.View{
 				TestID: "perm-profiles-row",
@@ -993,6 +1114,42 @@ func permissionsMainPaneView(
 				},
 				Children: rows,
 			},
+		)
+		delStatus := ed.T("permissions.deleteToolOff")
+		if ed.ToolEnabled("game_delete_file") {
+			delStatus = ed.T("permissions.deleteToolOn")
+		}
+		bodyChildren = append(bodyChildren,
+			core.View{
+				TestID: "perm-you-only-summary",
+				Style: core.Style{
+					Direction:    core.Row,
+					AlignItems:   core.AlignCenter,
+					Gap:          12,
+					Padding:      core.Symmetric(10, 14),
+					CornerRadius: 12,
+					Background:   p.Raised,
+					BorderWidth:  1,
+					BorderColor:  p.LineRaised,
+				},
+				Children: []core.Node{
+					specYouOnlyPill(p, "perm-you-only-domains-badge", ed.T("settings.policyYouOnly")),
+					core.View{
+						Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 2},
+						Children: []core.Node{
+							core.Text{
+								Content: ed.T("permissions.youOnlyDomains"),
+								Style:   core.Style{FontSize: 12, FontWeight: 500, Color: p.TextPrimary},
+							},
+							core.Text{
+								TestID:  "perm-delete-tool-status",
+								Content: delStatus,
+								Style:   core.Style{FontSize: 11.5, Color: p.TextMuted},
+							},
+						},
+					},
+				},
+			},
 			core.Text{
 				Content: ed.T("permissions.mcpOnlyNote"),
 				Style:   core.Style{Color: p.TextFaint, FontSize: 11.5, LineHeight: 18},
@@ -1000,6 +1157,7 @@ func permissionsMainPaneView(
 		)
 
 		return core.Scroll{
+			TestID: "permissions-settings-panel",
 			Style: core.Style{
 				FlexGrow:  1,
 				FlexBasis: core.Pt(0),

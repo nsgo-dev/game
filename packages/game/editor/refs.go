@@ -3,6 +3,7 @@ package editor
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io/fs"
 	"maps"
 	"os"
@@ -25,6 +26,14 @@ func (e *Editor) MoveFile(from, to string) error {
 	}
 	if e.Project == nil || e.ProjectPath == "" {
 		return ErrNoProject
+	}
+	if e.AgentActorActive() {
+		if dom, ok := e.CheckYouOnlyTarget(from); ok {
+			return fmt.Errorf("editor: refused (You only): %s is protected under %s and cannot be moved by the agent", from, dom.DisplayName())
+		}
+		if dom, ok := e.CheckYouOnlyTarget(to); ok {
+			return fmt.Errorf("editor: refused (You only): %s is protected under %s and cannot be written by the agent", to, dom.DisplayName())
+		}
 	}
 	return e.History.execute(&moveFileCmd{ed: e, from: from, to: to, root: filepath.Dir(e.ProjectPath)})
 }

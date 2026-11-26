@@ -26,9 +26,10 @@ const defaultDiskWatchInterval = 250 * time.Millisecond
 type DiskFileKind string
 
 const (
-	DiskFileScene   DiskFileKind = "scene"
-	DiskFileProject DiskFileKind = "project"
-	DiskFileClip    DiskFileKind = "clip"
+	DiskFileScene       DiskFileKind = "scene"
+	DiskFileProject     DiskFileKind = "project"
+	DiskFileClip        DiskFileKind = "clip"
+	DiskFilePermissions DiskFileKind = "permissions"
 )
 
 // ErrDiskConflict is returned by Save, SaveFile, SaveProject, and SaveClipFile when the target file on disk changed since the editor opened or last saved it, refusing to overwrite external changes until the user confirms.
@@ -158,6 +159,11 @@ type diskWatchMirrored struct {
 	notifiedProjectHas  bool
 	notifiedClipHash    [sha256.Size]byte
 	notifiedClipHas     bool
+	permPath            string
+	permHash            [sha256.Size]byte
+	permHas             bool
+	notifiedPermHash    [sha256.Size]byte
+	notifiedPermHas     bool
 }
 
 type diskWatchState struct {
@@ -423,6 +429,12 @@ func (e *Editor) syncDiskWatchTargets() {
 		m.notifiedClipHas = false
 	}
 	m.projectDir = projectDir
+	m.permPath = e.PermissionsPath()
+	m.permHash = e.perms.diskSnap.hash
+	m.permHas = e.perms.diskSnap.exists
+	if !m.permHas || (m.notifiedPermHas && m.notifiedPermHash == m.permHash) {
+		m.notifiedPermHas = false
+	}
 	m.treeFiles = treeCopy
 	m.interval = interval
 	e.disk.mu.Unlock()
@@ -503,14 +515,14 @@ func (e *Editor) diskWatchTick() {
 	if m.scope == nil {
 		return
 	}
-	if !m.sceneHas && !m.projectHas && !m.clipHas && m.projectDir == "" {
+	if !m.sceneHas && !m.projectHas && !m.clipHas && m.permPath == "" && m.projectDir == "" {
 		return
 	}
 
 	changed := false
-	var newSceneHash, newProjectHash, newClipHash [sha256.Size]byte
-	var sceneTriggered, projectTriggered, clipTriggered bool
-	var sceneReverted, projectReverted, clipReverted bool
+	var newSceneHash, newProjectHash, newClipHash, newPermHash [sha256.Size]byte
+	var sceneTriggered, projectTriggered, clipTriggered, permTriggered bool
+	var sceneReverted, projectReverted, clipReverted, permReverted bool
 
 	if m.sceneHas && m.scenePath != "" {
 		if data, err := os.ReadFile(m.scenePath); err == nil {
@@ -561,6 +573,24 @@ func (e *Editor) diskWatchTick() {
 			}
 		}
 	}
+	if m.permPath != "" {
+		if data, err := readBoundedPermissionsFile(m.permPath); err == nil {
+			sum := sha256.Sum256(data)
+			if m.permHas && sum == m.permHash {
+				if m.notifiedPermHas {
+					changed = true
+					permReverted = true
+				}
+			} else if !m.notifiedPermHas || sum != m.notifiedPermHash {
+				changed = true
+				permTriggered = true
+				newPermHash = sum
+			}
+		} else if errors.Is(err, fs.ErrNotExist) && m.permHas {
+			changed = true
+			permReverted = true
+		}
+	}
 	if m.projectDir != "" {
 		if curTree, err := listProjectTree(m.projectDir); err == nil {
 			if !slices.Equal(curTree, treeCopy) {
@@ -591,6 +621,12 @@ func (e *Editor) diskWatchTick() {
 		e.disk.mirrored.notifiedClipHas = true
 	} else if clipReverted {
 		e.disk.mirrored.notifiedClipHas = false
+	}
+	if permTriggered {
+		e.disk.mirrored.notifiedPermHash = newPermHash
+		e.disk.mirrored.notifiedPermHas = true
+	} else if permReverted {
+		e.disk.mirrored.notifiedPermHas = false
 	}
 	scope := e.disk.mirrored.scope
 	e.disk.mu.Unlock()
@@ -1185,6 +1221,11 @@ func (e *Editor) PollDiskChanges() DiskPollResult {
 		} else {
 			_ = applyClean()
 		}
+	}
+
+	// 5. Check permissions.yaml for external edits (tightened rules apply immediately; loosened rules/profiles are held until confirmed).
+	if e.checkPermissionsDiskChanges(source) {
+		res.Reloaded = append(res.Reloaded, DiskFilePermissions)
 	}
 
 	if res.TreeChanged || len(res.Reloaded) > 0 || hadConflictUpdate {

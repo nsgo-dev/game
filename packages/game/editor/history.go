@@ -7,6 +7,23 @@ import (
 	"time"
 )
 
+// HistoryActor identifies whether a History step was initiated by the person using the editor or by an AI agent.
+type HistoryActor string
+
+const (
+	// HistoryActorPerson attributes a command to the person using the editor.
+	HistoryActorPerson HistoryActor = "person"
+	// HistoryActorAgent attributes a command to an AI agent.
+	HistoryActorAgent HistoryActor = "agent"
+)
+
+// authoredCommand is an optional Command extension declaring who initiated the command.
+// Commands that do not implement authoredCommand default to HistoryActorPerson.
+type authoredCommand interface {
+	Command
+	Actor() HistoryActor
+}
+
 // ErrHistoryPreview is returned when an edit is attempted while read-only History point-in-time preview is active.
 var ErrHistoryPreview = errors.New("editor: cannot edit while previewing history")
 
@@ -156,7 +173,6 @@ type historyRecord struct {
 type historyMetaCommand interface {
 	historyMeta() HistoryMeta
 }
-
 // Command is a reversible edit executed through History: a change to the open scene, project or clip, or a move of the project's files (MoveFile).
 type Command interface {
 	Do()
@@ -650,6 +666,24 @@ func (h *History) UndoLabel() string {
 		return ""
 	}
 	return h.commands[h.cursor-1].Label()
+}
+
+// UndoActor returns who initiated the next command Undo would revert, or "" when nothing can be undone.
+func (h *History) UndoActor() HistoryActor {
+	if !h.CanUndo() {
+		return ""
+	}
+	return commandActor(h.commands[h.cursor-1])
+}
+
+func commandActor(cmd Command) HistoryActor {
+	if cmd == nil {
+		return HistoryActorPerson
+	}
+	if a, ok := cmd.(authoredCommand); ok && a.Actor() != "" {
+		return a.Actor()
+	}
+	return HistoryActorPerson
 }
 
 // RedoLabel returns the label of the next command Redo would re-apply, or "".
