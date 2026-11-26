@@ -32,6 +32,7 @@ func diskWatchBannerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 				s.compareOpen = ed.DiskCompareOpen()
 				s.notice, s.hasNotice = ed.DiskReloadNotice()
 				s.diffOpen = ed.DiskReloadDiffOpen()
+				s.lang = ed.ResolvedLanguage()
 				return s
 			}, func(a, b diskBannerState) bool { return reflect.DeepEqual(a, b) })
 			return core.Dynamic(func(cx *core.Scope) core.Node {
@@ -56,6 +57,7 @@ type diskBannerState struct {
 	notice      DiskReloadNotice
 	hasNotice   bool
 	diffOpen    bool
+	lang        string
 }
 
 func diskConflictBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], conflict DiskConflict, colors ui.Colors) core.Node {
