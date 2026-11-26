@@ -24,33 +24,16 @@ const (
 
 var localShadowTestClear = core.RGB(0x0c1018)
 
-// localShadowTestSubdividedQuad builds a grid of subdivisions x subdivisions triangles spanning center +/- uAxis*halfU +/- vAxis*halfV with outward normal. Subdividing large floors and walls ensures triangles never straddle w <= 0 of a point light's cube-face frustum in the software rasterizer (nsgo-dev/nsgo#2344).
-func localShadowTestSubdividedQuad(center, uAxis, vAxis, normal math3d.Vec3, halfU, halfV float32, subdiv int) render3d.Mesh {
-	var m render3d.Mesh
+// localShadowTestQuad builds two triangles spanning center +/- uAxis*halfU +/- vAxis*halfV with outward normal.
+func localShadowTestQuad(center, uAxis, vAxis, normal math3d.Vec3, halfU, halfV float32) render3d.Mesh {
 	n := normal.Norm()
-	for iy := range subdiv {
-		v0 := -halfV + 2*halfV*float32(iy)/float32(subdiv)
-		v1 := -halfV + 2*halfV*float32(iy+1)/float32(subdiv)
-		for ix := range subdiv {
-			u0 := -halfU + 2*halfU*float32(ix)/float32(subdiv)
-			u1 := -halfU + 2*halfU*float32(ix+1)/float32(subdiv)
-			p00 := center.Add(uAxis.Scale(u0)).Add(vAxis.Scale(v0))
-			p10 := center.Add(uAxis.Scale(u1)).Add(vAxis.Scale(v0))
-			p11 := center.Add(uAxis.Scale(u1)).Add(vAxis.Scale(v1))
-			p01 := center.Add(uAxis.Scale(u0)).Add(vAxis.Scale(v1))
-			base := uint32(len(m.Positions))
-			m.Positions = append(m.Positions, p00, p10, p11, p01)
-			m.Normals = append(m.Normals, n, n, n, n)
-			m.UVs = append(m.UVs,
-				math3d.Vec2{X: 0, Y: 0},
-				math3d.Vec2{X: 1, Y: 0},
-				math3d.Vec2{X: 1, Y: 1},
-				math3d.Vec2{X: 0, Y: 1},
-			)
-			m.Indices = append(m.Indices, base, base+1, base+2, base, base+2, base+3)
-		}
+	u, v := uAxis.Scale(halfU), vAxis.Scale(halfV)
+	return render3d.Mesh{
+		Positions: []math3d.Vec3{center.Sub(u).Sub(v), center.Add(u).Sub(v), center.Add(u).Add(v), center.Sub(u).Add(v)},
+		Normals:   []math3d.Vec3{n, n, n, n},
+		UVs:       []math3d.Vec2{{X: 0, Y: 0}, {X: 1, Y: 0}, {X: 1, Y: 1}, {X: 0, Y: 1}},
+		Indices:   []uint32{0, 1, 2, 0, 2, 3},
 	}
-	return m
 }
 
 // localShadowTestBoxMesh builds a CCW outward-facing box mesh centered at center with half extents half.
@@ -574,7 +557,7 @@ func localShadowTestRenderSpotScene(t *testing.T, filter render3d.LocalShadowFil
 	}
 	t.Cleanup(func() { _ = spotShadow.Close() })
 
-	floor := localShadowUpload(t, nil, dev, "floor", localShadowTestSubdividedQuad(math3d.Vec3Zero(), math3d.Vec3{X: 1}, math3d.Vec3{Z: -1}, math3d.Vec3Up(), 4.5, 4.5, 6), false)
+	floor := localShadowUpload(t, nil, dev, "floor", localShadowTestQuad(math3d.Vec3Zero(), math3d.Vec3{X: 1}, math3d.Vec3{Z: -1}, math3d.Vec3Up(), 4.5, 4.5), false)
 	unitBox := localShadowUpload(t, nil, dev, "unit-box", localShadowTestBoxMesh(math3d.Vec3Zero(), math3d.Vec3{X: 0.5, Y: 0.5, Z: 0.5}), false)
 	pillar1Model := math3d.Translate(math3d.Vec3{X: -0.2, Y: 0.9, Z: 0.1}).Mul(math3d.Scale(math3d.Vec3{X: 0.9, Y: 1.8, Z: 0.9}))
 	pillar2Model := math3d.Translate(math3d.Vec3{X: 1.15, Y: 0.65, Z: -0.95}).Mul(math3d.Scale(math3d.Vec3{X: 0.7, Y: 1.3, Z: 0.7}))
@@ -732,9 +715,9 @@ func localShadowTestRenderPointScene(t *testing.T, filter render3d.LocalShadowFi
 	}
 	t.Cleanup(func() { _ = pointShadow.Close() })
 
-	floor := localShadowTestSubdividedQuad(math3d.Vec3Zero(), math3d.Vec3{X: 1}, math3d.Vec3{Z: -1}, math3d.Vec3Up(), 3.2, 3.2, 8)
-	backWall := localShadowTestSubdividedQuad(math3d.Vec3{Y: 2.0, Z: -3.0}, math3d.Vec3{X: 1}, math3d.Vec3{Y: 1}, math3d.Vec3{Z: 1}, 3.2, 2.0, 6)
-	rightWall := localShadowTestSubdividedQuad(math3d.Vec3{X: 3.0, Y: 2.0}, math3d.Vec3{Z: 1}, math3d.Vec3{Y: 1}, math3d.Vec3{X: -1}, 3.2, 2.0, 6)
+	floor := localShadowTestQuad(math3d.Vec3Zero(), math3d.Vec3{X: 1}, math3d.Vec3{Z: -1}, math3d.Vec3Up(), 3.2, 3.2)
+	backWall := localShadowTestQuad(math3d.Vec3{Y: 2.0, Z: -3.0}, math3d.Vec3{X: 1}, math3d.Vec3{Y: 1}, math3d.Vec3{Z: 1}, 3.2, 2.0)
+	rightWall := localShadowTestQuad(math3d.Vec3{X: 3.0, Y: 2.0}, math3d.Vec3{Z: 1}, math3d.Vec3{Y: 1}, math3d.Vec3{X: -1}, 3.2, 2.0)
 	room := localShadowUpload(t, nil, dev, "room", localShadowTestMergeMeshes(floor, backWall, rightWall), false)
 	unitBox := localShadowUpload(t, nil, dev, "unit-box", localShadowTestBoxMesh(math3d.Vec3Zero(), math3d.Vec3{X: 0.5, Y: 0.5, Z: 0.5}), false)
 
@@ -927,7 +910,7 @@ func TestLocalShadowWGSLComposesWithLightRig(t *testing.T) {
 		t.Fatalf("CreatePipeline(spot at 3, point at 2): %v", err)
 	}
 	t.Cleanup(func() { _ = pipe.Close() })
-	floor := localShadowUpload(t, nil, dev, "floor", localShadowTestSubdividedQuad(math3d.Vec3Zero(), math3d.Vec3{X: 1}, math3d.Vec3{Z: -1}, math3d.Vec3Up(), 3, 3, 2), false)
+	floor := localShadowUpload(t, nil, dev, "floor", localShadowTestQuad(math3d.Vec3Zero(), math3d.Vec3{X: 1}, math3d.Vec3{Z: -1}, math3d.Vec3Up(), 3, 3), false)
 	cam := scene3d.NewPerspectiveCamera(math3d.Vec3{Y: 5, Z: 5}, math3d.DegToRad(50), 1, 0.1, 30)
 	cam.LookAt(math3d.Vec3Zero(), math3d.Vec3Up())
 	camBuf.WriteCamera(cam)
@@ -1148,7 +1131,7 @@ func localShadowTestStartGPUView(t *testing.T, retained bool, usePoint bool, ext
 	cam := scene3d.NewPerspectiveCamera(math3d.Vec3{X: 0, Y: 4.5, Z: 4.5}, math3d.DegToRad(50), 1.0, 0.1, 30)
 	cam.LookAt(math3d.Vec3Zero(), math3d.Vec3Up())
 
-	floorMesh := localShadowTestSubdividedQuad(math3d.Vec3Zero(), math3d.Vec3{X: 1}, math3d.Vec3{Z: -1}, math3d.Vec3Up(), 4.0, 4.0, 6)
+	floorMesh := localShadowTestQuad(math3d.Vec3Zero(), math3d.Vec3{X: 1}, math3d.Vec3{Z: -1}, math3d.Vec3Up(), 4.0, 4.0)
 	pillarMesh := localShadowTestBoxMesh(math3d.Vec3Zero(), math3d.Vec3{X: 0.5, Y: 0.5, Z: 0.5})
 	pillarModel := math3d.Translate(math3d.Vec3{Y: 0.9}).Mul(math3d.Scale(math3d.Vec3{X: 0.9, Y: 1.8, Z: 0.9}))
 

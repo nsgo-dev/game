@@ -12,6 +12,7 @@ The game layer requires NSGo v0.3.4 (#1126) and drops each workaround:
 
 - **Skybox depth**: `SkyboxWGSL` and `SkyboxToneMapWGSL` (`packages/game/render3d/skybox.go`, `ibl_hdr.go`) and the scene renderer's skybox (`packages/game/scenemodel/renderer.go`) emit depth `1.0`, the far plane, instead of `1 - 2^-24`. With `CompareLessEqual` and depth writes off, the sky passes only where the depth buffer still holds its clear value, so it paints over no geometry nearer than the far plane. This supersedes the depth choice in [skybox and IBL](../feature/2026-11-24-render3d-skybox-and-ibl.md).
 - **The fps3d template's floor**: `levelMeshes` (`template/fps3d/template/render.go` and its copy under `packages/game/cmd/game/_templates/projects/fps3d`) bakes the floor as one slab inside the border walls instead of one tile per open cell, which only kept every floor triangle in front of the camera ([fps3d template](../feature/2026-11-25-fps3d-template.md)). The slab runs under the inner walls and crates, whose boxes hide it.
+- **Local shadow test meshes**: `packages/game/render3d/local_shadows_test.go` builds its floors and walls as one quad each (`localShadowTestQuad`) instead of a grid of up to 8 x 8 cells, which only kept every triangle in front of each cube face of a point light's shadow map.
 
 ## Alternatives considered
 
@@ -20,9 +21,9 @@ The game layer requires NSGo v0.3.4 (#1126) and drops each workaround:
 
 ## Consequences
 
-- **Benefits**: the skybox uses the textbook far-plane depth; the fps3d floor is 12 triangles instead of 12 per open cell.
+- **Benefits**: the skybox uses the textbook far-plane depth; the fps3d floor is 12 triangles instead of 12 per open cell; the local shadow tests draw their scenes as they read.
 - **Costs and known limits**: the game layer and every template require NSGo v0.3.4; on an older NSGo, headless tests show clear-colour dots in the sky and lose the fps3d floor near the camera.
 
 ## Verification
 
-`go tool nsgo test ./render3d` from `packages/game`: `TestSkyboxKeepsGeometryNearFarPlane` checks that geometry 5 units inside the far plane survives the sky, and the IBL scene tests (`assertNoClearPixels`) check that no clear-colour pixel shows through the sky. The fps3d template's `TestLevelMeshesCoverTheFloorWallsAndCrates` checks the slab's triangles and extent, and its `GPUReadPixels` test checks the floor fills the bottom of the frame.
+`go tool nsgo test ./render3d` from `packages/game`: `TestSkyboxKeepsGeometryNearFarPlane` checks that geometry 5 units inside the far plane survives the sky, and the IBL scene tests (`assertNoClearPixels`) check that no clear-colour pixel shows through the sky. The fps3d template's `TestLevelMeshesCoverTheFloorWallsAndCrates` checks the slab's triangles and extent, and its `GPUReadPixels` test checks the floor fills the bottom of the frame. The local shadow golden tests (`go tool nsgo test -run Shadow ./render3d`) match their references with one quad per surface.
