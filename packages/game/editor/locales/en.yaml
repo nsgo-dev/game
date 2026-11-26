@@ -184,6 +184,8 @@ strings:
   cmd.shortcutsSheet.label: Keyboard Shortcuts
   cmd.startScreen.desc: Show the Start Screen with recent projects, templates, and demo
   cmd.startScreen.label: Start Screen
+  cmd.tasks.desc: Toggle the Agent background task list panel
+  cmd.tasks.label: Background Tasks
   cmd.toolEraseTile.desc: Switch to the Erase Tile tool
   cmd.toolEraseTile.label: 'Tool: Erase Tile'
   cmd.toolFillTile.desc: Switch to the Flood Fill Tile tool
@@ -521,6 +523,7 @@ strings:
   menu.shortcutsSheet: Keyboard Shortcuts
   menu.startScreen: Start Screen
   menu.stop: Stop
+  menu.tasks: Background Tasks
   menu.terrain: Terrain
   menu.toggleAllShapes: Show All Component Shapes
   menu.toggleShowGrid: Show Snap Grid
@@ -835,6 +838,32 @@ strings:
   status.terrainSuffix: ' | Terrain: {terrain}'
   status.tileSuffix: ' | Tile: {tile}'
   status.toolSuffix: ' | Tool: {tool}'
+  tasks.action.allowOnce: Allow once
+  tasks.action.cancel: Cancel
+  tasks.action.deny: Deny
+  tasks.action.dismiss: Dismiss
+  tasks.action.keep: Keep
+  tasks.action.moveUp: Move up
+  tasks.action.open: Open
+  tasks.action.retry: Retry
+  tasks.action.revert: Revert
+  tasks.action.review: Review
+  tasks.action.stop: Stop
+  tasks.close: Close Agent panel
+  tasks.composerPlaceholder: Ask for something else · it queues or runs beside task 1
+  tasks.empty: No background tasks yet. Queue a request or run one in parallel below.
+  tasks.group.failed: FAILED
+  tasks.group.needsYou: NEEDS YOU
+  tasks.group.queued: QUEUED
+  tasks.group.readyToReview: READY TO REVIEW
+  tasks.group.running: RUNNING
+  tasks.mode.parallel: Run in parallel
+  tasks.mode.queue: Queue
+  tasks.newRequest: New request
+  tasks.panelTitle: Agent
+  tasks.sectionTitle: Tasks
+  tasks.send: Send
+  tasks.whenToStart: When to start
   tilePalette.flipDiag: Flip diagonally
   tilePalette.flipHoriz: Flip horizontally
   tilePalette.flipVert: Flip vertically

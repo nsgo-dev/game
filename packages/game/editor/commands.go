@@ -76,6 +76,7 @@ const (
 	CmdInspectorTab           = "view.inspectorTab"
 	CmdCommandPalette         = "view.palette"
 	CmdShortcutsSheet         = "view.shortcuts"
+	CmdToggleTasks            = "agent.tasks"
 	CmdPlayStop               = "project.play"
 	CmdRunGame                = "project.run"
 	CmdProjectSettings        = "project.settings"
@@ -1372,6 +1373,21 @@ func (e *Editor) initBuiltinCommands() {
 			},
 		},
 		{
+			ID:          CmdToggleTasks,
+			Label:       "Background Tasks",
+			Description: "Toggle the Agent background task list panel",
+			Category:    "View",
+			Keywords:    []string{"agent", "tasks", "queue", "parallel", "background", "review"},
+			Scope:       ScopeGlobal,
+			Shortcut:    "mod+shift+t",
+			Enabled:     notPlaying,
+			Checked:     func() bool { return e.TasksPanelOpen() },
+			Run: func() error {
+				e.ToggleTasksPanel()
+				return nil
+			},
+		},
+		{
 			ID:          CmdPlayStop,
 			Label:       "Play / Stop",
 			Description: "Toggle play-in-editor simulation",
@@ -1913,6 +1929,7 @@ var builtinCommandKeys = map[string][3]string{
 	CmdInspectorTab:          {"cmd.inspectorTab.label", "cmd.inspectorTab.desc", "cmd.category.view"},
 	CmdCommandPalette:        {"cmd.commandPalette.label", "cmd.commandPalette.desc", "cmd.category.view"},
 	CmdShortcutsSheet:        {"cmd.shortcutsSheet.label", "cmd.shortcutsSheet.desc", "cmd.category.view"},
+	CmdToggleTasks:           {"cmd.tasks.label", "cmd.tasks.desc", "cmd.category.view"},
 	CmdPlayStop:              {"cmd.playStop.label", "cmd.playStop.desc", "cmd.category.project"},
 	CmdPlayMark:              {"cmd.playMark.label", "cmd.playMark.desc", "cmd.category.project"},
 	CmdAskFrozenFrame:        {"cmd.askFrozenFrame.label", "cmd.askFrozenFrame.desc", "cmd.category.project"},

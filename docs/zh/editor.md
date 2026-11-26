@@ -1329,3 +1329,16 @@ func main() {
 - **可播报选区标签、多行输入与上下文建议**：顶部以 `RoleStatus` / `LiveRegionPolite` 标签播报选区数量与对象名称（例如 `"已选中 2 项 · slime_01, slime_02"`）；主体为带无障碍标签的真实多行输入框（`⇧↵` 插入换行，`↵` 或 `⌘↵` 发送）；下方提供最多两条上下文建议（如多选时的“将它们做成预制体变体”与“均匀排列它们”），可用方向键与 `↵` 选取且绝不阻塞自由输入；视口左下角显示本地化提示 `"⌘L 询问选中内容 · ⌘K 搜索 · 右键“向智能体询问此项”"`。
 - **右键菜单联动**：视口右键菜单与场景树右键菜单中的**向智能体询问此项**（`AskAgentAboutObject`）都会打开同一个锚定就地提问框（目标对象属于多选时自动带入整个选区）。
 - **智能体面板与 MCP 上下文投递**：发送后会创建标记为 `SkipPlan: true` 的 `AgentTurn`（遵循 `Plan.dc.html`：“使用 ⌘L 发起的小修改会跳过计划”），附带选中对象 ID 与名称、打开的场景文件路径与 YAML 以及实时渲染的视口 PNG（`RenderViewportPNG`），将右侧栏（`RightRailView` / `RightRailTab`，可通过 `⌘1` / `⌘2` 切换）切至**智能体**标签页（`AgentPanelView`）展示该条对话与上下文标签，并通过 `editormcp` 的 `editor://agent/turn` 资源与 `agent_turn_get` / `agent_turn_reply` 工具推送给已连接的 MCP 客户端。
+
+## 后台任务列表：排队与并行智能体请求（#1022）
+
+请求、计划步骤与自动化任务共享智能体面板中的同一个后台任务列表（`TasksPanelView`，严格使用 `docs/design/editor/Spec.dc.html` 令牌并对应 `Tasks.dc.html`），可通过状态栏任务指示器（`status-tasks`）、`View > 后台任务` 菜单或 `CmdToggleTasks`（`mod+shift+t`）打开：
+
+- **任务模型与纯文本线程持久化（`AgentTask`、`AgentThreadDoc`）**：任务在五个可见分组之间流转——**需要确认**（`TaskNeedsYou`）、**运行中**（`TaskRunning`）、**待审查**（`TaskReadyToReview`）、**排队中**（`TaskQueued`）与**失败**（`TaskFailed`），并记录已完成（`TaskDone`）与已停止/已还原（`TaskStopped`）状态。项目将任务列表以纯文本 YAML 持久化在 `.nsgo/threads/<id>.thread.yaml`（`AgentThreadVersion = 1`，确定性键序输出，`ParseAgentThread` / `EncodeAgentThread` 拒绝未知字段与重复键，读写往返逐字节无损）。
+- **排队（Queue）与并行运行（Run in parallel，`SubmitTask`）**：
+  - **排队**（`TaskStartQueue`）：排在当前运行中或未审查的请求之后，**仅在**前一个回合被保留（`KeepTask`）或还原（`RevertTask`）之后才自动启动，确保后续请求始终建立在已审查的场景之上。
+  - **并行运行**（`TaskStartParallel`）：立即作为独立的智能体会话启动，并在视口与场景树中拥有自己的编号叠加层（`1`、`2`……）。
+- **`editormcp` 对象持有锁（`Server.ConnectTask`、`CompleteTaskTurn`、`ReleaseTaskHolds`）**：每个并行任务绑定到独立的 MCP 会话。会话通过 `scene_edit`、`object_set_field`、对象菜单工具或瓦片编辑工具编辑对象时会持有该对象直到当前回合结束；另一个并行会话若尝试编辑同一对象，会按 FIFO 顺序自动等待，在面板、视口和场景树中显示 `"waiting on <object>"` 并标注持有它的任务编号，待前一个任务释放持有后自动继续完成，并为两个回合分别生成独立的 `TaskReview`。
+- **视口与场景树编号叠加层**：运行中任务会在正在编辑的对象周围绘制实线紫色（`SpecPalette.Agent`）描边与编号胶囊（如 `1 placing the jump arc`），在等待持有的对象周围绘制 45% 不透明度的虚线描边、时钟图标与 `"2 waiting on slime_02"` 胶囊，并在视口左下角显示紧凑图例，在场景树行右侧显示 `"1 · editing"` / `"2 · holding"` 标记（`ObjectTaskBadge`、`SceneTaskOverlays`）。
+- **批量忽略与摘要徽章计数**：可在 **待审查** 分组中勾选多项任务（`ToggleTaskDismissSelection`）并一键批量忽略（`DismissSelectedTasks` / `DismissTasks`），绝不还原任何已保留的修改。`TaskSummary` 与 `TaskDockBadgeCount` 提供 `NeedsYou`、`Running`、`Blocked`、`ReadyToReview`、`Queued`、`Failed`、`MostUrgent` 及 `DockBadge = NeedsYou + ReadyToReview + Failed`（运行中与排队中绝不计入徽章），供状态栏（`No tasks`、`1 running · 0:38`、按紧急程度排序的混合计数与持久化的 `Failed`）及后续系统通知/程序坞徽章（#1023）直接复用。
+- **配套 MCP 工具（`editormcp`）**：提供 `tasks_list`（查询任务、对象持有锁与摘要计数）、`tasks_submit`（排队或并行提交任务）与 `tasks_control`（执行 `keep`、`revert`、`dismiss`、`stop`、`retry`、`open`、`focus`、`allow`、`deny`）。

@@ -108,6 +108,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 		ed.cleanupAssetDrawerScope(cx)
 		ed.cleanupChangedAudioScope(cx)
 		ed.cancelChangesOps()
+		ed.stopAllTaskRunners()
 		ed.stopExportBuild()
 		ed.stopReleaseBuild()
 		ed.StopAndroidDeviceRun()
@@ -1871,6 +1872,7 @@ func statusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 						},
 					},
 					saveStatusBarView(cx, ed, rev),
+					tasksStatusIndicatorView(cx, ed, rev),
 				},
 			},
 		},

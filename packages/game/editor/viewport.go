@@ -504,6 +504,7 @@ func (e *Editor) DrawViewport(d *core.Drawing, size core.Size) {
 	e.drawTileHoverOverlay(d)
 	e.drawParticleEmitterOverlays(d, scene)
 	e.drawSelectionOverlay(d, scene)
+	e.drawAgentTaskOverlays(d, scene)
 	e.drawComponentShapes2D(d, scene)
 	e.drawViewportOverlays(d, scene)
 	e.drawProblemOverlays2D(d, scene)
@@ -836,6 +837,167 @@ func (e *Editor) drawSelectionOverlay(d *core.Drawing, scene *sceneformat.BuiltS
 	if drawn > 1 {
 		d.SetStrokeColor(ui.Alpha(spec.Accent.Edge, 0.55)).SetLineWidth(1).SetLineDash(4, 3)
 		d.StrokeRect(minX, minY, maxX-minX, maxY-minY)
+	}
+	d.Restore()
+}
+
+// drawAgentTaskOverlays draws numbered violet overlays (editing solid, holding at 45% opacity
+// with clock glyph and "waiting on <object>" pill) for active background agent tasks on the open scene,
+// following docs/design/editor/Tasks.dc.html and Spec.dc.html.
+func (e *Editor) drawAgentTaskOverlays(d *core.Drawing, scene *sceneformat.BuiltScene) {
+	ovs := e.SceneTaskOverlays()
+	if len(ovs) == 0 || scene == nil {
+		return
+	}
+	spec := e.SpecPalette(nil)
+	d.Save()
+	fontNum := core.Font{Size: 10, Weight: 600}
+	fontLbl := core.Font{Size: 11, Weight: 500}
+
+	type objBox struct {
+		ov         ObjectTaskOverlay
+		minX, minY float32
+		maxX, maxY float32
+		pad        float32
+	}
+	var boxes []objBox
+	for _, ov := range ovs {
+		bo := scene.Object(ov.ObjectID)
+		if bo == nil || bo.Doc == nil || viewFlagged(e.hidden, bo) {
+			continue
+		}
+		space := sceneformat.SpaceWorld
+		var px, py float32 = 1, 1
+		if layer := scene.Layer(bo.Layer); layer != nil {
+			if !layer.Visible {
+				continue
+			}
+			space = layer.Space
+			px, py = layer.ParallaxX, layer.ParallaxY
+		}
+		m := e.layerAffineFor(space, px, py).Mul(bo.World)
+		rx, ry, rw, rh := objectOutline(bo)
+		corners := []math2d.Vec2{
+			m.TransformPoint(math2d.Vec2{X: rx, Y: ry}),
+			m.TransformPoint(math2d.Vec2{X: rx + rw, Y: ry}),
+			m.TransformPoint(math2d.Vec2{X: rx + rw, Y: ry + rh}),
+			m.TransformPoint(math2d.Vec2{X: rx, Y: ry + rh}),
+		}
+		minX, maxX := corners[0].X, corners[0].X
+		minY, maxY := corners[0].Y, corners[0].Y
+		for _, c := range corners[1:] {
+			minX, maxX = min(minX, c.X), max(maxX, c.X)
+			minY, maxY = min(minY, c.Y), max(maxY, c.Y)
+		}
+		pad := float32(3)
+		if e.IsSelected(ov.ObjectID) {
+			pad = 6
+		}
+		outlineColor := spec.Agent.Edge
+		if ov.Holding {
+			outlineColor = ui.Alpha(spec.Agent.Edge, 0.45)
+			d.SetLineDash(4, 3)
+		} else {
+			d.SetLineDash()
+		}
+		d.SetStrokeColor(outlineColor).SetLineWidth(1.5)
+		d.BeginPath().RoundRect(minX-pad, minY-pad, (maxX-minX)+pad*2, (maxY-minY)+pad*2, 4).Stroke()
+		d.SetLineDash()
+		boxes = append(boxes, objBox{ov: ov, minX: minX, minY: minY, maxX: maxX, maxY: maxY, pad: pad})
+	}
+
+	// Pick one anchor box per (taskID, holding) group — preferring the highest object so holding
+	// pills sit cleanly above upper targets — and stagger any pills that would otherwise overlap.
+	type pillGroupKey struct {
+		taskID  string
+		holding bool
+	}
+	var groupOrder []pillGroupKey
+	anchorByGroup := make(map[pillGroupKey]objBox)
+	for _, b := range boxes {
+		k := pillGroupKey{taskID: b.ov.TaskID, holding: b.ov.Holding}
+		prev, exists := anchorByGroup[k]
+		if !exists {
+			groupOrder = append(groupOrder, k)
+			anchorByGroup[k] = b
+		} else if b.minY < prev.minY {
+			anchorByGroup[k] = b
+		}
+	}
+
+	type rectF struct{ x, y, w, h float32 }
+	overlapsAny := func(r rectF, placed []rectF) bool {
+		for _, o := range placed {
+			if r.x < o.x+o.w+6 && r.x+r.w+6 > o.x && r.y < o.y+o.h+4 && r.y+r.h+4 > o.y {
+				return true
+			}
+		}
+		return false
+	}
+	var placed []rectF
+
+	for _, k := range groupOrder {
+		b := anchorByGroup[k]
+		ov := b.ov
+		label := ov.Label
+		numStr := fmt.Sprintf("%d", ov.TaskNumber)
+		clockW := float32(0)
+		if ov.Holding {
+			clockW = 16
+		}
+		textW := float32(len([]rune(label))) * 6.2
+		pillW := 4 + 16 + 6 + clockW + textW + 8
+		const pillH float32 = 22
+		cx := (b.minX + b.maxX) * 0.5
+		pillX := cx - pillW*0.5
+		pillY := b.minY - b.pad - pillH - 8
+		if pillY < 8 {
+			pillY = b.maxY + b.pad + 8
+		}
+		for range 8 {
+			if !overlapsAny(rectF{pillX, pillY, pillW, pillH}, placed) {
+				break
+			}
+			pillY -= pillH + 6
+		}
+		placed = append(placed, rectF{pillX, pillY, pillW, pillH})
+
+		pillBorder := spec.Agent.Edge
+		if ov.Holding {
+			pillBorder = spec.LineRaised
+		}
+		d.SetFillColor(ui.Alpha(spec.PillBg, 0.94))
+		d.BeginPath().RoundRect(pillX, pillY, pillW, pillH, 11).Fill()
+		d.SetStrokeColor(pillBorder).SetLineWidth(1)
+		d.BeginPath().RoundRect(pillX, pillY, pillW, pillH, 11).Stroke()
+
+		// Number circle badge.
+		badgeCX := pillX + 12
+		badgeCY := pillY + pillH*0.5
+		if ov.Holding {
+			d.SetStrokeColor(spec.Agent.Edge).SetLineWidth(1.5)
+			d.BeginPath().Ellipse(badgeCX, badgeCY, 7.5, 7.5).Stroke()
+			d.SetFillColor(spec.TextSecondary).FillText(numStr, badgeCX-3, badgeCY+3.5, fontNum)
+		} else {
+			d.SetFillColor(spec.Agent.Fg).BeginPath().Ellipse(badgeCX, badgeCY, 8, 8).Fill()
+			d.SetFillColor(spec.Agent.OnFill).FillText(numStr, badgeCX-3, badgeCY+3.5, fontNum)
+		}
+
+		curX := pillX + 26
+		if ov.Holding {
+			// Clock glyph beside task number (never hue-only).
+			ccx := curX + 5
+			ccy := pillY + pillH*0.5
+			d.SetStrokeColor(spec.TextMuted).SetLineWidth(1.4).SetLineCap(core.CapRound)
+			d.BeginPath().Ellipse(ccx, ccy, 5, 5).Stroke()
+			d.BeginPath().MoveTo(ccx, ccy-2.5).LineTo(ccx, ccy).LineTo(ccx+2.2, ccy+1.4).Stroke()
+			curX += clockW
+		}
+		txtColor := spec.TextSecondary
+		if ov.Holding {
+			txtColor = spec.TextMuted
+		}
+		d.SetFillColor(txtColor).FillText(label, curX, pillY+14.5, fontLbl)
 	}
 	d.Restore()
 }
@@ -1835,6 +1997,7 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 			viewportOverlayLegendView(cx, ed, rev),
 			playViewportOverlaysView(cx, ed, rev),
 			AskInPlaceComposerView(cx, ed, rev),
+			viewportTaskLegendOverlay(cx, ed, rev),
 		}, append(viewportTileOverlays(cx, ed, rev), ToastView(cx, ed, rev))...),
 	}
 }

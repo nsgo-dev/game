@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"fmt"
 	"slices"
 	"strconv"
 
@@ -671,6 +672,43 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 						},
 						Style: core.Style{FontSize: 10, Color: colors.Muted(), FlexShrink: 1},
 					},
+					core.Show{
+						When: func() bool {
+							_ = rev.Get()
+							_, ok := ed.ObjectTaskBadge(id)
+							return ok
+						},
+						Then: func(cx *core.Scope) core.Node {
+							spec := ed.SpecPalette(cx)
+							return core.Text{
+								TestID: "scene-tree-task-" + id,
+								ContentFunc: func() string {
+									_ = rev.Get()
+									ov, ok := ed.ObjectTaskBadge(id)
+									if !ok {
+										return ""
+									}
+									if ov.Holding {
+										return fmt.Sprintf("%d · holding", ov.TaskNumber)
+									}
+									return fmt.Sprintf("%d · editing", ov.TaskNumber)
+								},
+								Style: core.Style{
+									FontSize:   10.5,
+									FontWeight: 500,
+									FlexShrink: 0,
+								},
+								StyleFunc: func() core.Style {
+									_ = rev.Get()
+									ov, ok := ed.ObjectTaskBadge(id)
+									if ok && !ov.Holding {
+										return core.Style{Color: spec.Agent.Fg}
+									}
+									return core.Style{Color: spec.TextFaint}
+								},
+							}
+						},
+					},
 				},
 			}
 		},
@@ -708,8 +746,13 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 		StyleFunc: func() core.Style {
 			_ = rev.Get()
 			st := dropStyle(cx, hint, k)
-			if ed.ObjectProblemCount(id) > 0 && st.Background == 0 {
-				st.Background = ed.SpecPalette(cx).Problem().Fill
+			if st.Background == 0 {
+				spec := ed.SpecPalette(cx)
+				if ed.ObjectProblemCount(id) > 0 {
+					st.Background = spec.Problem().Fill
+				} else if ov, ok := ed.ObjectTaskBadge(id); ok && !ov.Holding {
+					st.Background = ui.Alpha(spec.Agent.Fg, 0.12)
+				}
 			}
 			return st
 		},
