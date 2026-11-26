@@ -118,10 +118,11 @@ func planHeaderPillView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 // whenever an agent plan is active ("planned · not in the file yet", plus "agent working here" while running).
 func planViewportLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	type legendKey struct {
-		dark    bool
-		active  bool
-		running bool
-		lang    string
+		dark          bool
+		active        bool
+		running       bool
+		overlayLegend bool
+		lang          string
 	}
 	keyMemo := core.NewMemo(cx, func() legendKey {
 		_ = rev.Get()
@@ -132,11 +133,13 @@ func planViewportLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 		if pl == nil {
 			return legendKey{}
 		}
+		overlayLegend := ed.OverlayLegendOpen() && !(ed.SketchActive() && !ed.sketchBlockedByScreen())
 		return legendKey{
-			dark:    ed.SpecPalette(cx).Dark,
-			active:  true,
-			running: pl.Phase == PlanPhaseRunning,
-			lang:    ed.ResolvedLanguage(),
+			dark:          ed.SpecPalette(cx).Dark,
+			active:        true,
+			running:       pl.Phase == PlanPhaseRunning,
+			overlayLegend: overlayLegend,
+			lang:          ed.ResolvedLanguage(),
 		}
 	})
 	return core.Show{
@@ -184,13 +187,20 @@ func planViewportLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 						},
 					})
 				}
+				leftPt := core.Pt(16)
+				topPt := core.Pt(14)
+				if k.overlayLegend {
+					// Sit cleanly below viewport-overlay-legend (Left: 10, Top: 8, height ~28 pt).
+					leftPt = core.Pt(10)
+					topPt = core.Pt(44)
+				}
 				return core.View{
 					TestID:        "plan-viewport-legend",
 					PointerEvents: core.PointerEventsNone,
 					Style: core.Style{
 						Position:     core.Absolute,
-						Left:         core.Pt(16),
-						Top:          core.Pt(14),
+						Left:         leftPt,
+						Top:          topPt,
 						Padding:      core.Symmetric(6, 10),
 						CornerRadius: 8,
 						Background:   ui.Alpha(p.PillBg, 0.88),
