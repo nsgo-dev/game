@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/nsgo-dev/game/packages/game/editor"
+	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
 )
@@ -597,4 +598,230 @@ func TestFirstRunReviewPlanDeviationsBeforeHoldBTipsPersistenceAndHelpReplay(t *
 	if toast, ok := ed.ActiveToast(); !ok || !strings.Contains(toast.Message, "Kept 6 of 6") {
 		t.Fatalf("expected Kept toast after finishing review, got ok=%v toast=%+v", ok, toast)
 	}
+}
+
+// Regression tests covering PR #1220 blockers:
+// 1. Typing into first-run-api-key-input keeps focus without remounting and persists key to Keychain + #1200 AgentMode.
+// 2. Atomic os.Mkdir existing-dir guard, SceneName/TargetDir traversal rejection, and valid project.Check scaffold.
+// 3. Handshake bounded timeout under -race, #1200 MCP agent sync, #1206 HasOpenReview autosave pause, and Spec Light Start screen.
+func TestFirstRunSecurityFocusConcurrencySpecLightAndIntegrations(t *testing.T) {
+	t.Run("api_key_input_typing_focus_and_keychain_sync", func(t *testing.T) {
+		parentDir := t.TempDir()
+		kc := editor.NewMemoryKeychain()
+		ed, err := editor.NewDemo()
+		if err != nil {
+			t.Fatal(err)
+		}
+		ed.Keychain = kc
+		ed.SetStartProjectParentDir(parentDir)
+		ed.SetStartProjectName("key-focus-game")
+		ed.SetStartProjectIdea("A puzzle game")
+		ed.SetStartScreenOpen(true)
+		ed.FirstRunDetectAgents = func() []editor.FirstRunAgentOption {
+			return []editor.FirstRunAgentOption{
+				{Kind: "claude", Name: "Claude Code", Description: "Not installed", Detected: false},
+				{Kind: "apikey", Name: "An API key", Description: "The editor calls the model itself", Detected: true},
+			}
+		}
+		ed.FirstRunValidateAPIKey = func(ctx context.Context, key string) editor.FirstRunAPIKeyStatus {
+			// Verify validation does not hold firstRun.mu (re-entrant read must not deadlock) and has a deadline.
+			if _, ok := ctx.Deadline(); !ok {
+				t.Error("expected bounded context deadline in FirstRunValidateAPIKey")
+			}
+			_ = ed.FirstRunSelectedAgent()
+			if strings.HasPrefix(key, "sk-valid") {
+				return editor.FirstRunAPIKeyWorks
+			}
+			return editor.FirstRunAPIKeyNotAccepted
+		}
+
+		app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+			return editor.EditorView(cx, ed)
+		}, nsgotest.Size(1280, 800))
+
+		app.Press("id:start-ai-btn")
+		app.Settle()
+
+		// Focus and type character-by-character into the masked API key input; it must never lose focus/remount!
+		app.Type("id:first-run-api-key-input", "sk-valid-123456")
+		app.Settle()
+		if !ed.IsTyping() {
+			t.Fatal("expected first-run-api-key-input to remain focused (IsTyping() == true) after typing")
+		}
+
+		if got := ed.FirstRunAPIKey(); got != "sk-valid-123456" {
+			t.Fatalf("typed API key = %q, want %q (input likely remounted during typing)", got, "sk-valid-123456")
+		}
+		if ed.FirstRunConnectStatus() != editor.FirstRunConnectKeyValid {
+			t.Fatalf("connect status = %v, want key_valid", ed.FirstRunConnectStatus())
+		}
+		if !app.Enabled("id:first-run-connect-done") {
+			t.Fatal("Done button should be enabled for valid API key")
+		}
+
+		// Finishing Connect syncs #1200 AgentModeAPIKey and saves the key to Editor.Keychain.
+		app.Press("id:first-run-connect-done")
+		app.Settle()
+		if ed.AgentMode() != editor.AgentModeAPIKey {
+			t.Fatalf("AgentMode() = %q, want %q", ed.AgentMode(), editor.AgentModeAPIKey)
+		}
+		stored, err := kc.Get(editor.FirstRunAPIKeyKeychainService, editor.FirstRunAPIKeyKeychainAccount)
+		if err != nil || stored != "sk-valid-123456" {
+			t.Fatalf("Keychain.Get = (%q, %v), want (%q, nil)", stored, err, "sk-valid-123456")
+		}
+		if !ed.FirstRunAPIKeyStoredInKeychain() {
+			t.Fatal("expected FirstRunAPIKeyStoredInKeychain() = true")
+		}
+	})
+
+	t.Run("path_traversal_atomic_mkdir_and_default_builder_check", func(t *testing.T) {
+		parentDir := t.TempDir()
+		ed, err := editor.NewDemo()
+		if err != nil {
+			t.Fatal(err)
+		}
+		ed.SetFirstRunAgentConnected(true, "claude", "Claude Code", 18)
+		ed.SetStartProjectParentDir(parentDir)
+		ed.SetStartProjectName("safe-game")
+		ed.SetStartProjectIdea("A dungeon platformer")
+
+		// 1. Planner attempting SceneName traversal must be rejected.
+		ed.FirstRunPlanner = func(_ context.Context, req editor.FirstRunPlanRequest) (*editor.FirstRunPlan, error) {
+			p := editor.DefaultFirstRunPlan(req)
+			p.SceneName = "../../escape"
+			return p, nil
+		}
+		if err := ed.OpenFirstRunPlan(); err == nil {
+			t.Fatal("expected OpenFirstRunPlan to reject SceneName path traversal")
+		}
+
+		// 2. Planner attempting TargetDir hijack must be rejected.
+		ed.FirstRunPlanner = func(_ context.Context, req editor.FirstRunPlanRequest) (*editor.FirstRunPlan, error) {
+			p := editor.DefaultFirstRunPlan(req)
+			p.TargetDir = filepath.Join(parentDir, "other-dir")
+			return p, nil
+		}
+		if err := ed.OpenFirstRunPlan(); err == nil {
+			t.Fatal("expected OpenFirstRunPlan to reject mismatched planner TargetDir")
+		}
+
+		// 3. Atomic os.Mkdir refuses a folder created between Plan and Approve without claiming ownership.
+		ed.FirstRunPlanner = nil
+		if err := ed.OpenFirstRunPlan(); err != nil {
+			t.Fatalf("OpenFirstRunPlan: %v", err)
+		}
+		targetDir := filepath.Join(parentDir, "safe-game")
+		if err := os.Mkdir(targetDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		sentinel := filepath.Join(targetDir, "preexisting.txt")
+		if err := os.WriteFile(sentinel, []byte("keep"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := ed.JustDoItFirstRunPlan(); err == nil {
+			t.Fatal("expected ApproveFirstRunPlan to refuse pre-existing directory")
+		}
+		if ed.CanDeleteFirstRunFolder() {
+			t.Fatal("CanDeleteFirstRunFolder must be false when pre-existing folder was refused")
+		}
+		if got, err := os.ReadFile(sentinel); err != nil || string(got) != "keep" {
+			t.Fatalf("pre-existing folder modified: err=%v data=%q", err, got)
+		}
+
+		// 4. Default pure-Go builder writes valid project.File game.yaml passing project.Check and enters Review.
+		ed.SetStartProjectName("valid-scaffold")
+		if err := ed.StartWithAI(); err != nil {
+			t.Fatalf("StartWithAI: %v", err)
+		}
+		if err := ed.JustDoItFirstRunPlan(); err != nil {
+			t.Fatalf("JustDoItFirstRunPlan: %v", err)
+		}
+		ed.WaitForFirstRunBuild()
+		if ed.FirstRunStage() != editor.FirstRunStageReview {
+			t.Fatalf("defaultFirstRunBuilder stage = %v, want review (outcome=%v)", ed.FirstRunStage(), ed.FirstRunBuildState().Outcome)
+		}
+		builtDir := filepath.Join(parentDir, "valid-scaffold")
+		if _, err := project.Check(os.DirFS(builtDir)); err != nil {
+			t.Fatalf("project.Check on defaultFirstRunBuilder output failed: %v", err)
+		}
+		// #1206 Autosave guard: HasOpenReview() must be true during First Review and false after Keep.
+		if !ed.HasOpenReview() {
+			t.Fatal("HasOpenReview() = false during FirstRunStageReview, want true")
+		}
+		if err := ed.KeepFirstRunReview(); err != nil {
+			t.Fatalf("KeepFirstRunReview: %v", err)
+		}
+		if ed.HasOpenReview() {
+			t.Fatal("HasOpenReview() = true after KeepFirstRunReview, want false")
+		}
+	})
+
+	t.Run("mcp_agent_sync_handshake_timeout_and_spec_light_start_screen", func(t *testing.T) {
+		parentDir := t.TempDir()
+		ed, err := editor.NewDemo()
+		if err != nil {
+			t.Fatal(err)
+		}
+		ed.SetStartProjectParentDir(parentDir)
+		ed.SetStartProjectName("mcp-sync-game")
+		ed.SetStartScreenOpen(true)
+
+		// #1200 MCP client connected -> Start with AI sees it as already connected and skips Connect in place.
+		ed.NotifyAgentMCPConnected(editor.AgentClientInfo{Name: "claude-code", DisplayName: "Claude Code"})
+		if !ed.FirstRunAgentConnected() {
+			t.Fatal("expected FirstRunAgentConnected() = true when #1200 MCP client is connected")
+		}
+		if kind, name, _ := ed.FirstRunConnectedAgent(); kind != "claude" || name != "Claude Code" {
+			t.Fatalf("FirstRunConnectedAgent() = (%q, %q), want (claude, Claude Code)", kind, name)
+		}
+
+		// Handshake timeout triggers FirstRunConnectTimeout cleanly without leaking goroutines under -race.
+		ed2, err := editor.NewDemo()
+		if err != nil {
+			t.Fatal(err)
+		}
+		ed2.SetStartProjectParentDir(parentDir)
+		ed2.SetStartProjectName("timeout-game")
+		ed2.SetStartScreenOpen(true)
+		ed2.FirstRunConnectTimeout = 40 * time.Millisecond
+		ed2.FirstRunDetectAgents = func() []editor.FirstRunAgentOption {
+			return []editor.FirstRunAgentOption{
+				{Kind: "claude", Name: "Claude Code", Detected: true},
+				{Kind: "apikey", Name: "An API key", Detected: true},
+			}
+		}
+		ed2.FirstRunConnectAgent = func(ctx context.Context, _, _ string) (int, error) {
+			<-ctx.Done()
+			return 0, ctx.Err()
+		}
+
+		// Mount in Spec Light mode to verify Start Screen uses light SpecPalette tokens everywhere.
+		_ = ed2.SetAppearance(editor.AppearanceLight)
+		app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+			return editor.EditorView(cx, ed2)
+		}, nsgotest.Size(1280, 800), nsgotest.Environment(core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop, Dark: false}))
+
+		light := editor.SpecPaletteFor(false)
+		if got := app.Find("id:editor-start-screen").Style.Background; got != light.Bg {
+			t.Fatalf("Spec Light editor-start-screen background = %v, want %v", got, light.Bg)
+		}
+		if got := app.Find("id:start-sidebar").Style.Background; got != light.Panel {
+			t.Fatalf("Spec Light start-sidebar background = %v, want %v", got, light.Panel)
+		}
+		if got := app.Find("id:start-templates-empty").Style.Background; got != light.Raised {
+			t.Fatalf("Spec Light start-templates-empty background = %v, want %v", got, light.Raised)
+		}
+		if got := app.Find("id:start-templates-empty").Style.BorderColor; got != light.LineRaised {
+			t.Fatalf("Spec Light start-templates-empty border color = %v, want %v", got, light.LineRaised)
+		}
+
+		app.Press("id:start-ai-btn")
+		app.WaitUntil(2*time.Second, func() bool {
+			return ed2.FirstRunConnectStatus() == editor.FirstRunConnectTimeout
+		})
+		app.Settle()
+		if !app.Exists("id:first-run-connect-timeout") {
+			t.Fatal("expected timeout alert after FirstRunConnectTimeout elapsed")
+		}
+	})
 }

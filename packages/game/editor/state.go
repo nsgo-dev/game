@@ -572,6 +572,8 @@ type Editor struct {
 	FirstRunPlanner func(ctx context.Context, req FirstRunPlanRequest) (*FirstRunPlan, error)
 	// FirstRunBuilder overrides executing the approved first-run plan after the project folder is created.
 	FirstRunBuilder func(ctx context.Context, req FirstRunBuildRequest, emit func(FirstRunBuildEvent)) (*FirstRunBuildResult, error)
+	// FirstRunConnectTimeout bounds the Start with AI agent handshake before showing the no-answer checklist (defaults to 30s when <= 0).
+	FirstRunConnectTimeout time.Duration
 
 	playing            bool
 	playPaused         bool
@@ -1054,6 +1056,7 @@ func (e *Editor) AttachScope(cx *core.Scope) {
 		e.stopProfilerPoller()
 	}
 	e.startScreen.setScope(cx)
+	e.firstRun.setScope(cx)
 	e.remote.setScope(cx)
 	e.agent.setScope(cx)
 	e.buildRelease.setScope(cx)

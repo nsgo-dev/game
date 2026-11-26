@@ -26,10 +26,12 @@ func FirstRunScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 			}
 		}
 	})
-	// Track held B key on a stable scope so holding B in Step 5 peeks Before without remounting on rev ticks.
+	// Track held B key on a stable scope so holding B in Step 5 peeks Before without remounting on rev ticks,
+	// while ignoring B whenever typing or a modal/command palette is open.
 	prevHeldB := false
 	cx.Effect(func() {
-		held := core.KeyHeld(cx, "b")
+		blocked := ed.IsTyping() || ed.SettingsOpen() || ed.paletteOpen || ed.ShortcutsSheetOpen()
+		held := !blocked && core.KeyHeld(cx, "b")
 		if held != prevHeldB {
 			prevHeldB = held
 			if ed.FirstRunStage() == FirstRunStageReview || !held {
@@ -43,9 +45,13 @@ func FirstRunScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 		}
 	})
 
-	return core.Dynamic(func(cx *core.Scope) core.Node {
+	stageMemo := core.NewMemo(cx, func() FirstRunStage {
 		_ = rev.Get()
-		switch ed.FirstRunStage() {
+		return ed.FirstRunStage()
+	})
+
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		switch stageMemo.Get() {
 		case FirstRunStagePlan:
 			return firstRunPlanView(cx, ed, rev)
 		case FirstRunStageBuilding:
@@ -370,83 +376,100 @@ func firstRunConnectInPlaceView(cx *core.Scope, ed *Editor, rev *core.Signal[uin
 							Children: rows,
 						}
 					}),
-					// Status body: checklist steps, timeout checklist, or API key input + instant verification.
-					core.Dynamic(func(cx *core.Scope) core.Node {
-						_ = rev.Get()
-						st := ed.FirstRunConnectStatus()
-						sel := ed.FirstRunSelectedAgent()
-
-						if sel == "apikey" {
-							return firstRunAPIKeySection(p, ed, rev, st)
+					// Status body: keyed on (selectedAgent, isTimeout) so the API key input stays stably
+					// mounted across every keystroke instead of remounting on rev bumps.
+					func() core.Node {
+						type connectBodyMode struct {
+							sel     string
+							timeout bool
 						}
-						if st == FirstRunConnectTimeout {
-							return firstRunConnectTimeoutView(p, ed, sel)
-						}
-						steps := ed.FirstRunConnectSteps()
-						if len(steps) == 0 {
-							return core.View{}
-						}
-						rows := make([]core.Node, 0, len(steps))
-						for i, s := range steps {
-							var indicator core.Node
-							if s.Done {
-								indicator = core.View{
-									Style: core.Style{
-										Width:          core.Pt(16),
-										Height:         core.Pt(16),
-										CornerRadius:   8,
-										Background:     p.Added.Fill,
-										AlignItems:     core.AlignCenter,
-										JustifyContent: core.JustifyCenter,
-										FlexShrink:     0,
-									},
-									Children: []core.Node{specIcon(lucide.Check, 10, p.Added.Fg)},
-								}
-							} else {
-								indicator = core.View{
-									Style: core.Style{
-										Width:        core.Pt(14),
-										Height:       core.Pt(14),
-										CornerRadius: 7,
-										BorderWidth:  2,
-										BorderColor:  p.Accent.Fg,
-										FlexShrink:   0,
-									},
-								}
+						bodyMode := core.NewMemo(cx, func() connectBodyMode {
+							_ = rev.Get()
+							return connectBodyMode{
+								sel:     ed.FirstRunSelectedAgent(),
+								timeout: ed.FirstRunConnectStatus() == FirstRunConnectTimeout,
 							}
-							txtColor := p.TextSecondary
-							weight := core.FontWeight(400)
-							if s.Strong {
-								txtColor = p.TextPrimary
-								weight = core.FontWeightMedium
+						})
+						return core.Dynamic(func(cx *core.Scope) core.Node {
+							m := bodyMode.Get()
+							if m.sel == "apikey" {
+								return firstRunAPIKeySection(cx, p, ed, rev)
 							}
-							rows = append(rows, core.View{
-								TestID: fmt.Sprintf("first-run-connect-step-%d", i),
-								Style: core.Style{
-									MinHeight:  core.Pt(28),
-									Direction:  core.Row,
-									AlignItems: core.AlignCenter,
-									Gap:        8,
-								},
-								Children: []core.Node{
-									indicator,
-									core.Text{
-										Content: s.Text,
+							if m.timeout {
+								return core.Dynamic(func(cx *core.Scope) core.Node {
+									_ = rev.Get()
+									return firstRunConnectTimeoutView(p, ed, ed.FirstRunSelectedAgent())
+								})
+							}
+							return core.Dynamic(func(cx *core.Scope) core.Node {
+								_ = rev.Get()
+								steps := ed.FirstRunConnectSteps()
+								if len(steps) == 0 {
+									return core.View{}
+								}
+								rows := make([]core.Node, 0, len(steps))
+								for i, s := range steps {
+									var indicator core.Node
+									if s.Done {
+										indicator = core.View{
+											Style: core.Style{
+												Width:          core.Pt(16),
+												Height:         core.Pt(16),
+												CornerRadius:   8,
+												Background:     p.Added.Fill,
+												AlignItems:     core.AlignCenter,
+												JustifyContent: core.JustifyCenter,
+												FlexShrink:     0,
+											},
+											Children: []core.Node{specIcon(lucide.Check, 10, p.Added.Fg)},
+										}
+									} else {
+										indicator = core.View{
+											Style: core.Style{
+												Width:        core.Pt(14),
+												Height:       core.Pt(14),
+												CornerRadius: 7,
+												BorderWidth:  2,
+												BorderColor:  p.Accent.Fg,
+												FlexShrink:   0,
+											},
+										}
+									}
+									txtColor := p.TextSecondary
+									weight := core.FontWeight(400)
+									if s.Strong {
+										txtColor = p.TextPrimary
+										weight = core.FontWeightMedium
+									}
+									rows = append(rows, core.View{
+										TestID: fmt.Sprintf("first-run-connect-step-%d", i),
 										Style: core.Style{
-											FontSize:   12.5,
-											FontWeight: weight,
-											Color:      txtColor,
+											MinHeight:  core.Pt(28),
+											Direction:  core.Row,
+											AlignItems: core.AlignCenter,
+											Gap:        8,
 										},
-									},
-								},
+										Children: []core.Node{
+											indicator,
+											core.Text{
+												Content: s.Text,
+												Style: core.Style{
+													FontSize:   12.5,
+													FontWeight: weight,
+													Color:      txtColor,
+												},
+											},
+										},
+									})
+								}
+								return core.View{
+									TestID:   "first-run-connect-steps",
+									Style:    core.Style{Padding: core.Symmetric(4, 0), Gap: 2},
+									Children: rows,
+								}
 							})
-						}
-						return core.View{
-							TestID:   "first-run-connect-steps",
-							Style:    core.Style{Padding: core.Symmetric(4, 0), Gap: 2},
-							Children: rows,
-						}
-					}),
+						})
+					}(),
 					// Footer: Later + Done.
 					core.View{
 						Style: core.Style{
@@ -558,111 +581,135 @@ func firstRunConnectTimeoutView(p SpecPalette, ed *Editor, kind string) core.Nod
 	}
 }
 
-func firstRunAPIKeySection(p SpecPalette, ed *Editor, rev *core.Signal[uint64], st FirstRunConnectStatus) core.Node {
-	borderColor := p.LineRaised
-	statusText := "Paste an API key to check it immediately."
-	statusColor := p.TextMuted
-	var badgeText string
-	var badgeFg, badgeBg, badgeEdge core.Color
-	switch st {
-	case FirstRunConnectKeyValid:
-		borderColor = p.Added.Edge
-		statusText = "Key works · checked just now · kept in the system keychain"
-		statusColor = p.TextSecondary
-		badgeText = "Key works"
-		badgeFg, badgeBg, badgeEdge = p.Added.Fg, p.Added.Fill, p.Added.Edge
-	case FirstRunConnectKeyInvalid:
-		borderColor = p.Removed.Edge
-		statusText = "Key not accepted — check that the full key was pasted."
-		statusColor = p.Removed.Fg
-		badgeText = "Key not accepted"
-		badgeFg, badgeBg, badgeEdge = p.Removed.Fg, p.Removed.Fill, p.Removed.Edge
-	case FirstRunConnectKeyNoNetwork:
-		borderColor = p.Warning.Edge
-		statusText = "No network — reconnect to verify this API key."
-		statusColor = p.Warning.Fg
-		badgeText = "No network"
-		badgeFg, badgeBg, badgeEdge = p.Warning.Fg, p.Warning.Fill, p.Warning.Edge
-	case FirstRunConnectKeyNoQuota:
-		borderColor = p.Warning.Edge
-		statusText = "No quota left on this API key."
-		statusColor = p.Warning.Fg
-		badgeText = "No quota left"
-		badgeFg, badgeBg, badgeEdge = p.Warning.Fg, p.Warning.Fill, p.Warning.Edge
-	}
-
-	children := []core.Node{
-		core.Text{
-			Content: "API key",
-			Style:   core.Style{FontSize: 12, Color: p.TextMuted},
-		},
-		ui.Input{
-			TestID:      "first-run-api-key-input",
-			Label:       "API key",
-			Masked:      true,
-			Placeholder: "sk-…",
-			Value: func() string {
-				_ = rev.Get()
-				return ed.FirstRunAPIKey()
+func firstRunAPIKeySection(cx *core.Scope, p SpecPalette, ed *Editor, rev *core.Signal[uint64]) core.Node {
+	return core.View{
+		TestID: "first-run-api-key-section",
+		Style:  core.Style{Gap: 8},
+		Children: []core.Node{
+			core.Text{
+				Content: "API key",
+				Style:   core.Style{FontSize: 12, Color: p.TextMuted},
 			},
-			OnChange: func(v string) {
-				ed.SetFirstRunAPIKey(v)
-			},
-			Style: core.Style{
-				Width:        core.Pct(100),
-				Height:       core.Pt(32),
-				Background:   p.Panel,
-				BorderWidth:  1.5,
-				BorderColor:  borderColor,
-				CornerRadius: specRadiusControl,
-				Color:        p.TextPrimary,
-				FontFamily:   core.FontMonospace,
-				FontSize:     12,
-			},
-		},
-	}
-	statusRow := []core.Node{}
-	if badgeText != "" {
-		statusRow = append(statusRow, core.View{
-			TestID: "first-run-api-key-badge",
-			Style: core.Style{
-				Height:         core.Pt(22),
-				Padding:        core.Symmetric(0, 8),
-				CornerRadius:   specRadiusControl,
-				Background:     badgeBg,
-				BorderWidth:    1,
-				BorderColor:    badgeEdge,
-				AlignItems:     core.AlignCenter,
-				JustifyContent: core.JustifyCenter,
-			},
-			Children: []core.Node{
-				core.Text{
-					Content: badgeText,
-					Style: core.Style{
-						FontSize:   11.5,
-						FontWeight: core.FontWeightMedium,
-						Color:      badgeFg,
-					},
+			// Reactive border wrapper keeps the inner specInputField stably mounted across keystrokes.
+			core.View{
+				Style: core.Style{
+					Width:        core.Pct(100),
+					Background:   p.Panel,
+					BorderWidth:  1.5,
+					BorderColor:  p.LineRaised,
+					CornerRadius: specRadiusControl,
+					Overflow:     core.Hidden,
+				},
+				StyleFunc: func() core.Style {
+					_ = rev.Get()
+					borderColor := p.LineRaised
+					switch ed.FirstRunConnectStatus() {
+					case FirstRunConnectKeyValid:
+						borderColor = p.Added.Edge
+					case FirstRunConnectKeyInvalid:
+						borderColor = p.Removed.Edge
+					case FirstRunConnectKeyNoNetwork, FirstRunConnectKeyNoQuota:
+						borderColor = p.Warning.Edge
+					}
+					return core.Style{BorderColor: borderColor}
+				},
+				Children: []core.Node{
+					specInputField(cx, ed, ui.Input{
+						TestID:      "first-run-api-key-input",
+						Label:       "API key",
+						Masked:      true,
+						Placeholder: "sk-…",
+						Value: func() string {
+							_ = rev.Get()
+							return ed.FirstRunAPIKey()
+						},
+						OnChange: func(v string) {
+							ed.SetFirstRunAPIKey(v)
+						},
+						Style: core.Style{
+							Width:      core.Pct(100),
+							Height:     core.Pt(32),
+							Background: core.Transparent,
+							Color:      p.TextPrimary,
+							FontFamily: core.FontMonospace,
+							FontSize:   12,
+						},
+					}),
 				},
 			},
-		})
-	}
-	statusRow = append(statusRow, core.Text{
-		TestID:  "first-run-api-key-status",
-		Content: statusText,
-		Style: core.Style{
-			FontSize: 12,
-			Color:    statusColor,
+			core.Dynamic(func(cx *core.Scope) core.Node {
+				_ = rev.Get()
+				st := ed.FirstRunConnectStatus()
+				statusText := "Paste an API key to check it immediately."
+				statusColor := p.TextMuted
+				var badgeText string
+				var badgeFg, badgeBg, badgeEdge core.Color
+				switch st {
+				case FirstRunConnectKeyValid:
+					if ed.Keychain != nil || ed.FirstRunAPIKeyStoredInKeychain() {
+						statusText = "Key works · checked just now · kept in the system keychain"
+					} else {
+						statusText = "Key works · checked just now · kept in memory for this session"
+					}
+					statusColor = p.TextSecondary
+					badgeText = "Key works"
+					badgeFg, badgeBg, badgeEdge = p.Added.Fg, p.Added.Fill, p.Added.Edge
+				case FirstRunConnectKeyInvalid:
+					statusText = "Key not accepted — check that the full key was pasted."
+					statusColor = p.Removed.Fg
+					badgeText = "Key not accepted"
+					badgeFg, badgeBg, badgeEdge = p.Removed.Fg, p.Removed.Fill, p.Removed.Edge
+				case FirstRunConnectKeyNoNetwork:
+					statusText = "No network — reconnect to verify this API key."
+					statusColor = p.Warning.Fg
+					badgeText = "No network"
+					badgeFg, badgeBg, badgeEdge = p.Warning.Fg, p.Warning.Fill, p.Warning.Edge
+				case FirstRunConnectKeyNoQuota:
+					statusText = "No quota left on this API key."
+					statusColor = p.Warning.Fg
+					badgeText = "No quota left"
+					badgeFg, badgeBg, badgeEdge = p.Warning.Fg, p.Warning.Fill, p.Warning.Edge
+				}
+				statusRow := []core.Node{}
+				if badgeText != "" {
+					statusRow = append(statusRow, core.View{
+						TestID: "first-run-api-key-badge",
+						Style: core.Style{
+							Height:         core.Pt(22),
+							Padding:        core.Symmetric(0, 8),
+							CornerRadius:   specRadiusControl,
+							Background:     badgeBg,
+							BorderWidth:    1,
+							BorderColor:    badgeEdge,
+							AlignItems:     core.AlignCenter,
+							JustifyContent: core.JustifyCenter,
+						},
+						Children: []core.Node{
+							core.Text{
+								Content: badgeText,
+								Style: core.Style{
+									FontSize:   11.5,
+									FontWeight: core.FontWeightMedium,
+									Color:      badgeFg,
+								},
+							},
+						},
+					})
+				}
+				statusRow = append(statusRow, core.Text{
+					TestID:  "first-run-api-key-status",
+					Content: statusText,
+					Style: core.Style{
+						FontSize: 12,
+						Color:    statusColor,
+					},
+				})
+				return core.View{
+					Style:    core.Style{Direction: core.Row, Wrap: core.Wrap, AlignItems: core.AlignCenter, Gap: 8},
+					Children: statusRow,
+				}
+			}),
 		},
-	})
-	children = append(children, core.View{
-		Style:    core.Style{Direction: core.Row, Wrap: core.Wrap, AlignItems: core.AlignCenter, Gap: 8},
-		Children: statusRow,
-	})
-	return core.View{
-		TestID:   "first-run-api-key-section",
-		Style:    core.Style{Gap: 8},
-		Children: children,
 	}
 }
 
@@ -670,338 +717,277 @@ func firstRunAPIKeySection(p SpecPalette, ed *Editor, rev *core.Signal[uint64], 
 // and the Agent panel with the plan card, clarifying question, numbered steps, Just do it, and Approve ⌘↵ on the right.
 func firstRunPlanView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	p := ed.SpecPalette(cx)
-	plan := ed.FirstRunPlan()
-	if plan == nil {
-		return core.View{}
-	}
-	_, agentName, _ := ed.FirstRunConnectedAgent()
-	if agentName == "" {
-		agentName = "Claude Code"
-	}
-
-	pillText := "Plan ready · waiting for you"
-	if plan.Approved {
-		pillText = "Plan approved · building"
-	}
-	approveEnabled := ed.FirstRunPlanCanApprove()
 	approveShortcut := FormatShortcut("mod+enter", cx.Env().OS())
 
-	// Render template preview shapes + planned ghosts inside a centered schematic stage.
-	var stageChildren []core.Node
-	for _, sh := range plan.TemplateShapes {
-		stageChildren = append(stageChildren, firstRunPreviewShapeNode(p, sh))
-	}
-	for _, g := range plan.Ghosts {
-		stageChildren = append(stageChildren, firstRunGhostNode(p, g))
-	}
-	vpChildren := []core.Node{
-		core.View{
-			Style: core.Style{
-				Width:  core.Pt(360),
-				Height: core.Pt(320),
-			},
-			Children: stageChildren,
-		},
-		core.View{
-			TestID: "first-run-plan-readonly-pill",
-			Style: core.Style{
-				Position:       core.Absolute,
-				Left:           core.Pt(12),
-				Top:            core.Pt(12),
-				Height:         core.Pt(24),
-				Padding:        core.Symmetric(0, 8),
-				CornerRadius:   specRadiusControl,
-				Background:     p.PillBg,
-				BorderWidth:    1,
-				BorderColor:    p.LineRaised,
-				AlignItems:     core.AlignCenter,
-				JustifyContent: core.JustifyCenter,
-			},
-			Children: []core.Node{
-				core.Text{
-					Content: "Template preview · read-only",
-					Style:   core.Style{FontSize: 11.5, Color: p.TextMuted},
-				},
-			},
-		},
-		core.View{
-			Style: core.Style{
-				Position:   core.Absolute,
-				Left:       core.Pt(12),
-				Bottom:     core.Pt(12),
-				Direction:  core.Row,
-				AlignItems: core.AlignCenter,
-				Gap:        8,
-			},
-			Children: []core.Node{
-				core.View{
-					Style: core.Style{
-						Width:        core.Pt(10),
-						Height:       core.Pt(10),
-						CornerRadius: 2,
-						Background:   p.Agent.Fill,
-						BorderWidth:  1.5,
-						BorderColor:  p.Agent.Edge,
-					},
-				},
-				core.Text{
-					Content: "planned",
-					Style:   core.Style{FontSize: 11.5, Color: p.TextMuted},
-				},
-			},
-		},
-	}
+	planCard := func(cx *core.Scope) core.Node {
+		_ = rev.Get()
+		plan := ed.FirstRunPlan()
+		if plan == nil {
+			return core.View{}
+		}
+		approveEnabled := ed.FirstRunPlanCanApprove()
 
-	// Plan card children.
-	cardChildren := []core.Node{
-		core.View{
-			Style: core.Style{
-				Padding:     core.All(12),
-				Gap:         4,
-				Borders:     core.Edges{Bottom: 1},
-				BorderColor: p.LineRaised,
-			},
-			Children: []core.Node{
-				core.View{
-					Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6},
-					Children: []core.Node{
-						specIcon(lucide.ListChecks, 13, p.Agent.Fg),
-						specSectionLabel(p, "PLAN"),
-					},
-				},
-				core.Text{
-					TestID:  "first-run-plan-title",
-					Content: "New project: " + plan.ProjectName,
-					Style: core.Style{
-						FontSize:   14,
-						FontWeight: core.FontWeightSemibold,
-						Color:      p.TextPrimary,
-					},
-				},
-				core.Text{
-					Content: fmt.Sprintf("%d steps · %d files · %d objects · about %d min",
-						len(plan.Steps), plan.EstimatedFiles, plan.EstimatedObjects, max(plan.EstimatedMinutes, 1)),
-					Style: core.Style{
-						FontSize: 12,
-						Color:    p.TextMuted,
-					},
-				},
-			},
-		},
-	}
-
-	// Clarifying question card when present.
-	if plan.Question != nil && len(plan.Question.Options) > 0 && !plan.Approved {
-		var optNodes []core.Node
-		for _, o := range plan.Question.Options {
-			opt := o
-			picked := plan.SelectedAnswer == opt.ID
-			bg := p.Raised
-			border := p.LineRaised
-			borderW := core.Points(1)
-			if picked {
-				bg = p.Accent.Fill
-				border = p.Accent.Edge
-				borderW = 1.5
-			}
-			noteColor := p.TextMuted
-			if opt.Suggested {
-				noteColor = p.Added.Fg
-			}
-			optNodes = append(optNodes, core.View{
-				TestID: "first-run-plan-answer-" + opt.ID,
-				Role:   core.RoleRadio,
-				Label:  opt.Label,
+		cardChildren := []core.Node{
+			core.View{
 				Style: core.Style{
-					FlexGrow:     1,
-					FlexBasis:    core.Pt(0),
-					Padding:      core.All(8),
-					CornerRadius: specRadiusButton,
-					Background:   bg,
-					BorderWidth:  borderW,
-					BorderColor:  border,
-					Gap:          4,
-				},
-				OnPress: func(core.PressEvent) {
-					ed.SelectFirstRunPlanAnswer(opt.ID)
+					Padding:     core.All(12),
+					Gap:         4,
+					Borders:     core.Edges{Bottom: 1},
+					BorderColor: p.LineRaised,
 				},
 				Children: []core.Node{
+					core.View{
+						Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6},
+						Children: []core.Node{
+							specIcon(lucide.ListChecks, 13, p.Agent.Fg),
+							specSectionLabel(p, "PLAN"),
+						},
+					},
 					core.Text{
-						Content: opt.Label,
+						TestID:  "first-run-plan-title",
+						Content: "New project: " + plan.ProjectName,
 						Style: core.Style{
-							FontSize:   12,
-							FontWeight: core.FontWeightMedium,
+							FontSize:   14,
+							FontWeight: core.FontWeightSemibold,
 							Color:      p.TextPrimary,
 						},
 					},
 					core.Text{
-						Content: opt.Note,
+						Content: fmt.Sprintf("%d steps · %d files · %d objects · about %d min",
+							len(plan.Steps), plan.EstimatedFiles, plan.EstimatedObjects, max(plan.EstimatedMinutes, 1)),
 						Style: core.Style{
-							FontSize: 11,
-							Color:    noteColor,
+							FontSize: 12,
+							Color:    p.TextMuted,
+						},
+					},
+				},
+			},
+		}
+
+		// Clarifying question card when present.
+		if plan.Question != nil && len(plan.Question.Options) > 0 && !plan.Approved {
+			var optNodes []core.Node
+			for _, o := range plan.Question.Options {
+				opt := o
+				picked := plan.SelectedAnswer == opt.ID
+				bg := p.Raised
+				border := p.LineRaised
+				borderW := core.Points(1)
+				if picked {
+					bg = p.Accent.Fill
+					border = p.Accent.Edge
+					borderW = 1.5
+				}
+				noteColor := p.TextMuted
+				if opt.Suggested {
+					noteColor = p.Added.Fg
+				}
+				optNodes = append(optNodes, core.View{
+					TestID: "first-run-plan-answer-" + opt.ID,
+					Role:   core.RoleRadio,
+					Label:  opt.Label,
+					Style: core.Style{
+						FlexGrow:     1,
+						FlexBasis:    core.Pt(0),
+						Padding:      core.All(8),
+						CornerRadius: specRadiusButton,
+						Background:   bg,
+						BorderWidth:  borderW,
+						BorderColor:  border,
+						Gap:          4,
+					},
+					OnPress: func(core.PressEvent) {
+						ed.SelectFirstRunPlanAnswer(opt.ID)
+					},
+					Children: []core.Node{
+						core.Text{
+							Content: opt.Label,
+							Style: core.Style{
+								FontSize:   12,
+								FontWeight: core.FontWeightMedium,
+								Color:      p.TextPrimary,
+							},
+						},
+						core.Text{
+							Content: opt.Note,
+							Style: core.Style{
+								FontSize: 11,
+								Color:    noteColor,
+							},
+						},
+					},
+				})
+			}
+			cardChildren = append(cardChildren, core.View{
+				TestID: "first-run-plan-question",
+				Style: core.Style{
+					Padding:     core.All(12),
+					Gap:         8,
+					Background:  p.Panel,
+					Borders:     core.Edges{Bottom: 1},
+					BorderColor: p.LineRaised,
+				},
+				Children: []core.Node{
+					core.Text{
+						Content: plan.Question.Prompt,
+						Style: core.Style{
+							FontSize:   12.5,
+							FontWeight: core.FontWeightMedium,
+							Color:      p.TextPrimary,
+						},
+					},
+					core.View{
+						Role:     core.RoleRadioGroup,
+						Label:    plan.Question.Prompt,
+						Style:    core.Style{Direction: core.Row, Gap: 8},
+						Children: optNodes,
+					},
+				},
+			})
+		}
+
+		// Numbered steps list.
+		var stepNodes []core.Node
+		for _, st := range plan.Steps {
+			metaChildren := []core.Node{
+				core.Text{
+					Content: st.FilesLabel,
+					Style: core.Style{
+						FontSize:   11,
+						FontFamily: core.FontMonospace,
+						Color:      p.TextMuted,
+					},
+				},
+			}
+			if st.Permission != "" {
+				metaChildren = append(metaChildren, core.View{
+					Style: core.Style{
+						Height:       core.Pt(20),
+						Padding:      core.Symmetric(0, 6),
+						CornerRadius: specRadiusControl,
+						Background:   p.Warning.Fill,
+						BorderWidth:  1,
+						BorderColor:  p.Warning.Edge,
+						Direction:    core.Row,
+						AlignItems:   core.AlignCenter,
+						Gap:          4,
+					},
+					Children: []core.Node{
+						specIcon(lucide.Lock, 10, p.Warning.Fg),
+						core.Text{
+							Content: st.Permission,
+							Style:   core.Style{FontSize: 11, Color: p.Warning.Fg},
+						},
+					},
+				})
+			}
+			stepNodes = append(stepNodes, core.View{
+				TestID: fmt.Sprintf("first-run-plan-step-%d", st.Number),
+				Style: core.Style{
+					Direction:  core.Row,
+					AlignItems: core.AlignStart,
+					Gap:        8,
+					Padding:    core.All(8),
+				},
+				Children: []core.Node{
+					core.View{
+						Style: core.Style{
+							Width:          core.Pt(20),
+							Height:         core.Pt(20),
+							CornerRadius:   10,
+							Background:     p.LineRaised,
+							AlignItems:     core.AlignCenter,
+							JustifyContent: core.JustifyCenter,
+							FlexShrink:     0,
+						},
+						Children: []core.Node{
+							core.Text{
+								Content: fmt.Sprintf("%d", st.Number),
+								Style: core.Style{
+									FontSize:   11,
+									FontWeight: core.FontWeightSemibold,
+									Color:      p.TextSecondary,
+								},
+							},
+						},
+					},
+					core.View{
+						Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), Gap: 4},
+						Children: []core.Node{
+							core.Text{
+								Content: st.Title,
+								Style:   core.Style{FontSize: 12.5, Color: p.TextPrimary},
+							},
+							core.View{
+								Style:    core.Style{Direction: core.Row, Wrap: core.Wrap, AlignItems: core.AlignCenter, Gap: 8},
+								Children: metaChildren,
+							},
 						},
 					},
 				},
 			})
 		}
 		cardChildren = append(cardChildren, core.View{
-			TestID: "first-run-plan-question",
+			Style:    core.Style{Padding: core.All(4), Gap: 2},
+			Children: stepNodes,
+		})
+
+		// Approval footer.
+		cardChildren = append(cardChildren, core.View{
 			Style: core.Style{
 				Padding:     core.All(12),
-				Gap:         8,
-				Background:  p.Panel,
-				Borders:     core.Edges{Bottom: 1},
+				Borders:     core.Edges{Top: 1},
 				BorderColor: p.LineRaised,
+				Gap:         8,
 			},
 			Children: []core.Node{
 				core.Text{
-					Content: plan.Question.Prompt,
-					Style: core.Style{
-						FontSize:   12.5,
-						FontWeight: core.FontWeightMedium,
-						Color:      p.TextPrimary,
-					},
+					Content: "Nothing changes until you approve.",
+					Style:   core.Style{FontSize: 12.5, Color: p.TextPrimary},
 				},
 				core.View{
-					Role:     core.RoleRadioGroup,
-					Label:    plan.Question.Prompt,
-					Style:    core.Style{Direction: core.Row, Gap: 8},
-					Children: optNodes,
-				},
-			},
-		})
-	}
-
-	// Numbered steps list.
-	var stepNodes []core.Node
-	for _, st := range plan.Steps {
-		metaChildren := []core.Node{
-			core.Text{
-				Content: st.FilesLabel,
-				Style: core.Style{
-					FontSize:   11,
-					FontFamily: core.FontMonospace,
-					Color:      p.TextMuted,
-				},
-			},
-		}
-		if st.Permission != "" {
-			metaChildren = append(metaChildren, core.View{
-				Style: core.Style{
-					Height:       core.Pt(20),
-					Padding:      core.Symmetric(0, 6),
-					CornerRadius: specRadiusControl,
-					Background:   p.Warning.Fill,
-					BorderWidth:  1,
-					BorderColor:  p.Warning.Edge,
-					Direction:    core.Row,
-					AlignItems:   core.AlignCenter,
-					Gap:          4,
-				},
-				Children: []core.Node{
-					specIcon(lucide.Lock, 10, p.Warning.Fg),
-					core.Text{
-						Content: st.Permission,
-						Style:   core.Style{FontSize: 11, Color: p.Warning.Fg},
-					},
-				},
-			})
-		}
-		stepNodes = append(stepNodes, core.View{
-			TestID: fmt.Sprintf("first-run-plan-step-%d", st.Number),
-			Style: core.Style{
-				Direction:  core.Row,
-				AlignItems: core.AlignStart,
-				Gap:        8,
-				Padding:    core.All(8),
-			},
-			Children: []core.Node{
-				core.View{
 					Style: core.Style{
-						Width:          core.Pt(20),
-						Height:         core.Pt(20),
-						CornerRadius:   10,
-						Background:     p.LineRaised,
+						Direction:      core.Row,
 						AlignItems:     core.AlignCenter,
-						JustifyContent: core.JustifyCenter,
-						FlexShrink:     0,
+						JustifyContent: core.JustifySpaceBetween,
+						Gap:            8,
 					},
 					Children: []core.Node{
-						core.Text{
-							Content: fmt.Sprintf("%d", st.Number),
-							Style: core.Style{
-								FontSize:   11,
-								FontWeight: core.FontWeightSemibold,
-								Color:      p.TextSecondary,
+						specPanelButton(p, specPanelButtonSpec{
+							TestID:  "first-run-plan-just-do-it",
+							Text:    "Just do it",
+							Variant: specBtnQuiet,
+							OnPress: func() {
+								ed.report(ed.JustDoItFirstRunPlan())
 							},
-						},
-					},
-				},
-				core.View{
-					Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), Gap: 4},
-					Children: []core.Node{
-						core.Text{
-							Content: st.Title,
-							Style:   core.Style{FontSize: 12.5, Color: p.TextPrimary},
-						},
-						core.View{
-							Style:    core.Style{Direction: core.Row, Wrap: core.Wrap, AlignItems: core.AlignCenter, Gap: 8},
-							Children: metaChildren,
-						},
+						}),
+						specPanelButton(p, specPanelButtonSpec{
+							TestID:  "first-run-plan-approve",
+							Text:    "Approve " + approveShortcut,
+							Variant: specBtnAccent,
+							Disabled: func() bool {
+								return !approveEnabled
+							},
+							OnPress: func() {
+								ed.report(ed.ApproveFirstRunPlan())
+							},
+						}),
 					},
 				},
 			},
 		})
-	}
-	cardChildren = append(cardChildren, core.View{
-		Style:    core.Style{Padding: core.All(4), Gap: 2},
-		Children: stepNodes,
-	})
 
-	// Approval footer.
-	cardChildren = append(cardChildren, core.View{
-		Style: core.Style{
-			Padding:     core.All(12),
-			Borders:     core.Edges{Top: 1},
-			BorderColor: p.LineRaised,
-			Gap:         8,
-		},
-		Children: []core.Node{
-			core.Text{
-				Content: "Nothing changes until you approve.",
-				Style:   core.Style{FontSize: 12.5, Color: p.TextPrimary},
+		return core.View{
+			Style: core.Style{
+				CornerRadius: specRadiusCard,
+				Background:   p.Raised,
+				BorderWidth:  1,
+				BorderColor:  p.LineRaised,
+				Overflow:     core.Hidden,
 			},
-			core.View{
-				Style: core.Style{
-					Direction:      core.Row,
-					AlignItems:     core.AlignCenter,
-					JustifyContent: core.JustifySpaceBetween,
-					Gap:            8,
-				},
-				Children: []core.Node{
-					specPanelButton(p, specPanelButtonSpec{
-						TestID:  "first-run-plan-just-do-it",
-						Text:    "Just do it",
-						Variant: specBtnQuiet,
-						OnPress: func() {
-							ed.report(ed.JustDoItFirstRunPlan())
-						},
-					}),
-					specPanelButton(p, specPanelButtonSpec{
-						TestID:  "first-run-plan-approve",
-						Text:    "Approve " + approveShortcut,
-						Variant: specBtnAccent,
-						Disabled: func() bool {
-							return !approveEnabled
-						},
-						OnPress: func() {
-							ed.report(ed.ApproveFirstRunPlan())
-						},
-					}),
-				},
-			},
-		},
-	})
+			Children: cardChildren,
+		}
+	}
 
 	return core.View{
 		TestID: "first-run-plan",
@@ -1040,7 +1026,13 @@ func firstRunPlanView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 								},
 							}),
 							core.Text{
-								Content: plan.ProjectName,
+								ContentFunc: func() string {
+									_ = rev.Get()
+									if plan := ed.FirstRunPlan(); plan != nil {
+										return plan.ProjectName
+									}
+									return ""
+								},
 								Style: core.Style{
 									FontSize:   14,
 									FontWeight: core.FontWeightSemibold,
@@ -1072,8 +1064,14 @@ func firstRunPlanView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 								},
 							},
 							core.Text{
-								Content: pillText,
-								Style:   core.Style{FontSize: 12, Color: p.Agent.Fg, FontWeight: core.FontWeightMedium},
+								ContentFunc: func() string {
+									_ = rev.Get()
+									if plan := ed.FirstRunPlan(); plan != nil && plan.Approved {
+										return "Plan approved · building"
+									}
+									return "Plan ready · waiting for you"
+								},
+								Style: core.Style{FontSize: 12, Color: p.Agent.Fg, FontWeight: core.FontWeightMedium},
 							},
 						},
 					},
@@ -1098,7 +1096,76 @@ func firstRunPlanView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 							JustifyContent: core.JustifyCenter,
 							Overflow:       core.Hidden,
 						},
-						Children: vpChildren,
+						Children: []core.Node{
+							core.Dynamic(func(cx *core.Scope) core.Node {
+								_ = rev.Get()
+								plan := ed.FirstRunPlan()
+								var stageChildren []core.Node
+								if plan != nil {
+									for _, sh := range plan.TemplateShapes {
+										stageChildren = append(stageChildren, firstRunPreviewShapeNode(p, sh))
+									}
+									for _, g := range plan.Ghosts {
+										stageChildren = append(stageChildren, firstRunGhostNode(p, g))
+									}
+								}
+								return core.View{
+									Style: core.Style{
+										Width:  core.Pt(360),
+										Height: core.Pt(320),
+									},
+									Children: stageChildren,
+								}
+							}),
+							core.View{
+								TestID: "first-run-plan-readonly-pill",
+								Style: core.Style{
+									Position:       core.Absolute,
+									Left:           core.Pt(12),
+									Top:            core.Pt(12),
+									Height:         core.Pt(24),
+									Padding:        core.Symmetric(0, 8),
+									CornerRadius:   specRadiusControl,
+									Background:     p.PillBg,
+									BorderWidth:    1,
+									BorderColor:    p.LineRaised,
+									AlignItems:     core.AlignCenter,
+									JustifyContent: core.JustifyCenter,
+								},
+								Children: []core.Node{
+									core.Text{
+										Content: "Template preview · read-only",
+										Style:   core.Style{FontSize: 11.5, Color: p.TextMuted},
+									},
+								},
+							},
+							core.View{
+								Style: core.Style{
+									Position:   core.Absolute,
+									Left:       core.Pt(12),
+									Bottom:     core.Pt(12),
+									Direction:  core.Row,
+									AlignItems: core.AlignCenter,
+									Gap:        8,
+								},
+								Children: []core.Node{
+									core.View{
+										Style: core.Style{
+											Width:        core.Pt(10),
+											Height:       core.Pt(10),
+											CornerRadius: 2,
+											Background:   p.Agent.Fill,
+											BorderWidth:  1.5,
+											BorderColor:  p.Agent.Edge,
+										},
+									},
+									core.Text{
+										Content: "planned",
+										Style:   core.Style{FontSize: 11.5, Color: p.TextMuted},
+									},
+								},
+							},
+						},
 					},
 					core.View{
 						TestID: "first-run-plan-agent-panel",
@@ -1134,8 +1201,15 @@ func firstRunPlanView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 												},
 											},
 											core.Text{
-												Content: "· " + agentName,
-												Style:   core.Style{FontSize: 12.5, Color: p.TextFaint},
+												ContentFunc: func() string {
+													_ = rev.Get()
+													_, agentName, _ := ed.FirstRunConnectedAgent()
+													if agentName == "" {
+														agentName = "Claude Code"
+													}
+													return "· " + agentName
+												},
+												Style: core.Style{FontSize: 12.5, Color: p.TextFaint},
 											},
 										},
 									},
@@ -1163,16 +1237,7 @@ func firstRunPlanView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 								ContentStyle: core.Style{Padding: core.All(12)},
 								EdgeColor:    func() core.Color { return p.Panel },
 								Children: []core.Node{
-									core.View{
-										Style: core.Style{
-											CornerRadius: specRadiusCard,
-											Background:   p.Raised,
-											BorderWidth:  1,
-											BorderColor:  p.LineRaised,
-											Overflow:     core.Hidden,
-										},
-										Children: cardChildren,
-									},
+									core.Dynamic(planCard),
 								},
 							},
 						},
@@ -1188,368 +1253,415 @@ func firstRunPlanView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 // and check-failure proposed fix card.
 func firstRunBuildingView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	p := ed.SpecPalette(cx)
-	snap := ed.FirstRunBuildState()
 
-	pillBg, pillEdge, pillFg := p.Agent.Fill, p.Agent.Edge, p.Agent.Fg
-	if snap.Outcome == FirstRunBuildCheckFailed {
-		pillBg, pillEdge, pillFg = p.Removed.Fill, p.Removed.Edge, p.Removed.Fg
-	} else if snap.Outcome == FirstRunBuildStoppedKept || snap.Outcome == FirstRunBuildStoppedDeleted {
-		pillBg, pillEdge, pillFg = p.Raised, p.LineRaised, p.TextMuted
+	buildStageBar := func(cx *core.Scope) core.Node {
+		_ = rev.Get()
+		snap := ed.FirstRunBuildState()
+		var stageNodes []core.Node
+		for i, name := range FirstRunBuildStageNames {
+			st := snap.Stages[i]
+			var dot core.Node
+			labelColor := p.TextMuted
+			weight := core.FontWeight(400)
+			switch st {
+			case FirstRunBuildStageDone:
+				labelColor = p.TextSecondary
+				dot = core.View{
+					Style: core.Style{
+						Width:          core.Pt(16),
+						Height:         core.Pt(16),
+						CornerRadius:   8,
+						Background:     p.Added.Fill,
+						AlignItems:     core.AlignCenter,
+						JustifyContent: core.JustifyCenter,
+					},
+					Children: []core.Node{specIcon(lucide.Check, 10, p.Added.Fg)},
+				}
+			case FirstRunBuildStageFail:
+				labelColor = p.Removed.Fg
+				dot = core.View{
+					Style: core.Style{
+						Width:          core.Pt(16),
+						Height:         core.Pt(16),
+						CornerRadius:   8,
+						Background:     p.Removed.Fill,
+						BorderWidth:    1,
+						BorderColor:    p.Removed.Edge,
+						AlignItems:     core.AlignCenter,
+						JustifyContent: core.JustifyCenter,
+					},
+					Children: []core.Node{specIcon(lucide.X, 10, p.Removed.Fg)},
+				}
+			case FirstRunBuildStageActive:
+				labelColor = p.TextPrimary
+				weight = core.FontWeightMedium
+				dot = core.View{
+					Style: core.Style{
+						Width:        core.Pt(14),
+						Height:       core.Pt(14),
+						CornerRadius: 7,
+						BorderWidth:  2,
+						BorderColor:  p.Agent.Fg,
+					},
+				}
+			default:
+				dot = core.View{
+					Style: core.Style{
+						Width:        core.Pt(14),
+						Height:       core.Pt(14),
+						CornerRadius: 7,
+						BorderWidth:  1.5,
+						BorderColor:  p.LineRaised,
+					},
+				}
+			}
+			stageNodes = append(stageNodes, core.View{
+				TestID: fmt.Sprintf("first-run-build-stage-%d", i),
+				Style: core.Style{
+					Direction:  core.Row,
+					AlignItems: core.AlignCenter,
+					Gap:        6,
+				},
+				Children: []core.Node{
+					dot,
+					core.Text{
+						Content: name,
+						Style: core.Style{
+							FontSize:   12,
+							FontWeight: weight,
+							Color:      labelColor,
+						},
+					},
+				},
+			})
+			if i < len(FirstRunBuildStageNames)-1 {
+				stageNodes = append(stageNodes, core.View{
+					Style: core.Style{
+						Width:      core.Pt(16),
+						Height:     core.Pt(1),
+						Background: p.LineRaised,
+					},
+				})
+			}
+		}
+		return core.View{
+			Style: core.Style{
+				Direction:  core.Row,
+				AlignItems: core.AlignCenter,
+				Gap:        8,
+			},
+			Children: stageNodes,
+		}
 	}
 
-	// 5-stage bar: Template, Project, First scene, Check, Playtest.
-	var stageNodes []core.Node
-	for i, name := range FirstRunBuildStageNames {
-		st := snap.Stages[i]
-		var dot core.Node
-		labelColor := p.TextMuted
-		weight := core.FontWeight(400)
-		switch st {
-		case FirstRunBuildStageDone:
-			labelColor = p.TextSecondary
-			dot = core.View{
+	buildViewport := func(cx *core.Scope) core.Node {
+		_ = rev.Get()
+		snap := ed.FirstRunBuildState()
+		stageChildren := []core.Node{
+			core.View{
 				Style: core.Style{
-					Width:          core.Pt(16),
-					Height:         core.Pt(16),
-					CornerRadius:   8,
-					Background:     p.Added.Fill,
+					Position:     core.Absolute,
+					Left:         core.Pt(16),
+					Top:          core.Pt(68),
+					Width:        core.Pt(340),
+					Height:       core.Pt(220),
+					CornerRadius: 4,
+					Background:   p.Panel,
+					BorderWidth:  1,
+					BorderColor:  p.LineRaised,
+				},
+			},
+		}
+		for _, sh := range snap.Shapes {
+			stageChildren = append(stageChildren, firstRunPreviewShapeNode(p, sh))
+		}
+		if snap.Outcome == FirstRunBuildRunning && snap.PlacingLabel != "" {
+			stageChildren = append(stageChildren, core.View{
+				TestID: "first-run-build-placing-pill",
+				Style: core.Style{
+					Position:       core.Absolute,
+					Left:           core.Pt(196),
+					Top:            core.Pt(188),
+					Height:         core.Pt(22),
+					Padding:        core.Symmetric(0, 8),
+					CornerRadius:   11,
+					Background:     p.PillBg,
+					BorderWidth:    1,
+					BorderColor:    p.Agent.Edge,
 					AlignItems:     core.AlignCenter,
 					JustifyContent: core.JustifyCenter,
 				},
-				Children: []core.Node{specIcon(lucide.Check, 10, p.Added.Fg)},
-			}
-		case FirstRunBuildStageFail:
-			labelColor = p.Removed.Fg
-			dot = core.View{
+				Children: []core.Node{
+					core.Text{
+						Content: snap.PlacingLabel,
+						Style:   core.Style{FontSize: 11, Color: p.Agent.Fg},
+					},
+				},
+			})
+		}
+		if snap.Outcome == FirstRunBuildCheckFailed && snap.CheckFailure != nil && snap.CheckFailure.ObjectBadge != "" {
+			stageChildren = append(stageChildren, core.View{
+				TestID: "first-run-build-problem-pill",
 				Style: core.Style{
-					Width:          core.Pt(16),
-					Height:         core.Pt(16),
-					CornerRadius:   8,
-					Background:     p.Removed.Fill,
+					Position:       core.Absolute,
+					Left:           core.Pt(164),
+					Top:            core.Pt(256),
+					Height:         core.Pt(22),
+					Padding:        core.Symmetric(0, 8),
+					CornerRadius:   11,
+					Background:     p.PillBg,
 					BorderWidth:    1,
 					BorderColor:    p.Removed.Edge,
 					AlignItems:     core.AlignCenter,
 					JustifyContent: core.JustifyCenter,
 				},
-				Children: []core.Node{specIcon(lucide.X, 10, p.Removed.Fg)},
-			}
-		case FirstRunBuildStageActive:
-			labelColor = p.TextPrimary
-			weight = core.FontWeightMedium
-			dot = core.View{
-				Style: core.Style{
-					Width:        core.Pt(14),
-					Height:       core.Pt(14),
-					CornerRadius: 7,
-					BorderWidth:  2,
-					BorderColor:  p.Agent.Fg,
-				},
-			}
-		default:
-			dot = core.View{
-				Style: core.Style{
-					Width:        core.Pt(14),
-					Height:       core.Pt(14),
-					CornerRadius: 7,
-					BorderWidth:  1.5,
-					BorderColor:  p.LineRaised,
-				},
-			}
-		}
-		stageNodes = append(stageNodes, core.View{
-			TestID: fmt.Sprintf("first-run-build-stage-%d", i),
-			Style: core.Style{
-				Direction:  core.Row,
-				AlignItems: core.AlignCenter,
-				Gap:        6,
-			},
-			Children: []core.Node{
-				dot,
-				core.Text{
-					Content: name,
-					Style: core.Style{
-						FontSize:   12,
-						FontWeight: weight,
-						Color:      labelColor,
+				Children: []core.Node{
+					core.Text{
+						Content: snap.CheckFailure.ObjectBadge,
+						Style:   core.Style{FontSize: 11, Color: p.Removed.Fg},
 					},
-				},
-			},
-		})
-		if i < len(FirstRunBuildStageNames)-1 {
-			stageNodes = append(stageNodes, core.View{
-				Style: core.Style{
-					Width:      core.Pt(16),
-					Height:     core.Pt(1),
-					Background: p.LineRaised,
 				},
 			})
 		}
-	}
-
-	// Build viewport preview centered in the viewport.
-	stageChildren := []core.Node{
-		core.View{
-			Style: core.Style{
-				Position:     core.Absolute,
-				Left:         core.Pt(16),
-				Top:          core.Pt(68),
-				Width:        core.Pt(340),
-				Height:       core.Pt(220),
-				CornerRadius: 4,
-				Background:   p.Panel,
-				BorderWidth:  1,
-				BorderColor:  p.LineRaised,
-			},
-		},
-	}
-	for _, sh := range snap.Shapes {
-		stageChildren = append(stageChildren, firstRunPreviewShapeNode(p, sh))
-	}
-	if snap.Outcome == FirstRunBuildRunning && snap.PlacingLabel != "" {
-		stageChildren = append(stageChildren, core.View{
-			TestID: "first-run-build-placing-pill",
-			Style: core.Style{
-				Position:       core.Absolute,
-				Left:           core.Pt(196),
-				Top:            core.Pt(188),
-				Height:         core.Pt(22),
-				Padding:        core.Symmetric(0, 8),
-				CornerRadius:   11,
-				Background:     p.PillBg,
-				BorderWidth:    1,
-				BorderColor:    p.Agent.Edge,
-				AlignItems:     core.AlignCenter,
-				JustifyContent: core.JustifyCenter,
-			},
-			Children: []core.Node{
-				core.Text{
-					Content: snap.PlacingLabel,
-					Style:   core.Style{FontSize: 11, Color: p.Agent.Fg},
-				},
-			},
-		})
-	}
-	if snap.Outcome == FirstRunBuildCheckFailed && snap.CheckFailure != nil && snap.CheckFailure.ObjectBadge != "" {
-		stageChildren = append(stageChildren, core.View{
-			TestID: "first-run-build-problem-pill",
-			Style: core.Style{
-				Position:       core.Absolute,
-				Left:           core.Pt(164),
-				Top:            core.Pt(256),
-				Height:         core.Pt(22),
-				Padding:        core.Symmetric(0, 8),
-				CornerRadius:   11,
-				Background:     p.PillBg,
-				BorderWidth:    1,
-				BorderColor:    p.Removed.Edge,
-				AlignItems:     core.AlignCenter,
-				JustifyContent: core.JustifyCenter,
-			},
-			Children: []core.Node{
-				core.Text{
-					Content: snap.CheckFailure.ObjectBadge,
-					Style:   core.Style{FontSize: 11, Color: p.Removed.Fg},
-				},
-			},
-		})
-	}
-	vpChildren := []core.Node{
-		core.View{
+		return core.View{
 			Style: core.Style{
 				Width:  core.Pt(372),
 				Height: core.Pt(310),
 			},
 			Children: stageChildren,
-		},
+		}
 	}
 
-	// Agent panel log + optional Cancel dialog / Check failed fix card / Stopped card.
-	var panelBody []core.Node
-	for i, l := range snap.Log {
-		var icon core.Node
-		titleColor := p.TextPrimary
-		weight := core.FontWeight(400)
-		switch l.Status {
-		case FirstRunBuildStageDone:
-			icon = core.View{
-				Style: core.Style{
-					Width:          core.Pt(16),
-					Height:         core.Pt(16),
-					CornerRadius:   8,
-					Background:     p.Added.Fill,
-					AlignItems:     core.AlignCenter,
-					JustifyContent: core.JustifyCenter,
-					FlexShrink:     0,
-				},
-				Children: []core.Node{specIcon(lucide.Check, 10, p.Added.Fg)},
+	buildPanelBody := func(cx *core.Scope) core.Node {
+		_ = rev.Get()
+		snap := ed.FirstRunBuildState()
+		var panelBody []core.Node
+		for i, l := range snap.Log {
+			var icon core.Node
+			titleColor := p.TextPrimary
+			weight := core.FontWeight(400)
+			switch l.Status {
+			case FirstRunBuildStageDone:
+				icon = core.View{
+					Style: core.Style{
+						Width:          core.Pt(16),
+						Height:         core.Pt(16),
+						CornerRadius:   8,
+						Background:     p.Added.Fill,
+						AlignItems:     core.AlignCenter,
+						JustifyContent: core.JustifyCenter,
+						FlexShrink:     0,
+					},
+					Children: []core.Node{specIcon(lucide.Check, 10, p.Added.Fg)},
+				}
+			case FirstRunBuildStageActive:
+				weight = core.FontWeightMedium
+				icon = core.View{
+					Style: core.Style{
+						Width:        core.Pt(14),
+						Height:       core.Pt(14),
+						CornerRadius: 7,
+						BorderWidth:  2,
+						BorderColor:  p.Agent.Fg,
+						FlexShrink:   0,
+					},
+				}
+			case FirstRunBuildStageFail:
+				titleColor = p.Removed.Fg
+				icon = core.View{
+					Style: core.Style{
+						Width:          core.Pt(16),
+						Height:         core.Pt(16),
+						CornerRadius:   8,
+						Background:     p.Removed.Fill,
+						BorderWidth:    1,
+						BorderColor:    p.Removed.Edge,
+						AlignItems:     core.AlignCenter,
+						JustifyContent: core.JustifyCenter,
+						FlexShrink:     0,
+					},
+					Children: []core.Node{specIcon(lucide.X, 10, p.Removed.Fg)},
+				}
+			default:
+				titleColor = p.TextMuted
+				icon = core.View{
+					Style: core.Style{
+						Width:        core.Pt(14),
+						Height:       core.Pt(14),
+						CornerRadius: 7,
+						BorderWidth:  1.5,
+						BorderColor:  p.LineRaised,
+						FlexShrink:   0,
+					},
+				}
 			}
-		case FirstRunBuildStageActive:
-			weight = core.FontWeightMedium
-			icon = core.View{
-				Style: core.Style{
-					Width:        core.Pt(14),
-					Height:       core.Pt(14),
-					CornerRadius: 7,
-					BorderWidth:  2,
-					BorderColor:  p.Agent.Fg,
-					FlexShrink:   0,
+			textCols := []core.Node{
+				core.Text{
+					Content: l.Title,
+					Style: core.Style{
+						FontSize:   12.5,
+						FontWeight: weight,
+						Color:      titleColor,
+					},
+				},
+				core.Text{
+					TestID:  fmt.Sprintf("first-run-build-log-sub-%d", i),
+					Content: l.Subtitle,
+					Style: core.Style{
+						FontSize: 11.5,
+						Color:    p.TextMuted,
+					},
 				},
 			}
-		case FirstRunBuildStageFail:
-			titleColor = p.Removed.Fg
-			icon = core.View{
-				Style: core.Style{
-					Width:          core.Pt(16),
-					Height:         core.Pt(16),
-					CornerRadius:   8,
-					Background:     p.Removed.Fill,
-					BorderWidth:    1,
-					BorderColor:    p.Removed.Edge,
-					AlignItems:     core.AlignCenter,
-					JustifyContent: core.JustifyCenter,
-					FlexShrink:     0,
-				},
-				Children: []core.Node{specIcon(lucide.X, 10, p.Removed.Fg)},
-			}
-		default:
-			titleColor = p.TextMuted
-			icon = core.View{
-				Style: core.Style{
-					Width:        core.Pt(14),
-					Height:       core.Pt(14),
-					CornerRadius: 7,
-					BorderWidth:  1.5,
-					BorderColor:  p.LineRaised,
-					FlexShrink:   0,
-				},
-			}
-		}
-		textCols := []core.Node{
-			core.Text{
-				Content: l.Title,
-				Style: core.Style{
-					FontSize:   12.5,
-					FontWeight: weight,
-					Color:      titleColor,
-				},
-			},
-			core.Text{
-				TestID:  fmt.Sprintf("first-run-build-log-sub-%d", i),
-				Content: l.Subtitle,
-				Style: core.Style{
-					FontSize: 11.5,
-					Color:    p.TextMuted,
-				},
-			},
-		}
-		if l.Status == FirstRunBuildStageActive && l.TotalCount > 0 {
-			pct := float64(l.DoneCount) / float64(l.TotalCount) * 100
-			if pct < 5 {
-				pct = 5
-			}
-			if pct > 100 {
-				pct = 100
-			}
-			textCols = append(textCols, core.View{
-				Style: core.Style{
-					Height:       core.Pt(4),
-					CornerRadius: 2,
-					Background:   p.LineRaised,
-					Overflow:     core.Hidden,
-				},
-				Children: []core.Node{
-					core.View{
-						Style: core.Style{
-							Width:      core.Pct(float32(pct)),
-							Height:     core.Pt(4),
-							Background: p.Agent.Fg,
+			if l.Status == FirstRunBuildStageActive && l.TotalCount > 0 {
+				pct := float64(l.DoneCount) / float64(l.TotalCount) * 100
+				if pct < 5 {
+					pct = 5
+				}
+				if pct > 100 {
+					pct = 100
+				}
+				textCols = append(textCols, core.View{
+					Style: core.Style{
+						Height:       core.Pt(4),
+						CornerRadius: 2,
+						Background:   p.LineRaised,
+						Overflow:     core.Hidden,
+					},
+					Children: []core.Node{
+						core.View{
+							Style: core.Style{
+								Width:      core.Pct(float32(pct)),
+								Height:     core.Pt(4),
+								Background: p.Agent.Fg,
+							},
 						},
+					},
+				})
+			}
+			panelBody = append(panelBody, core.View{
+				Style: core.Style{Direction: core.Row, AlignItems: core.AlignStart, Gap: 8, Padding: core.Symmetric(4, 0)},
+				Children: []core.Node{
+					icon,
+					core.View{
+						Style:    core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), Gap: 2},
+						Children: textCols,
 					},
 				},
 			})
 		}
-		panelBody = append(panelBody, core.View{
-			Style: core.Style{Direction: core.Row, AlignItems: core.AlignStart, Gap: 8, Padding: core.Symmetric(4, 0)},
-			Children: []core.Node{
-				icon,
-				core.View{
-					Style:    core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), Gap: 2},
-					Children: textCols,
-				},
-			},
-		})
-	}
 
-	switch snap.Outcome {
-	case FirstRunBuildCancelPrompt:
-		var dialogChildren []core.Node
-		dialogChildren = append(dialogChildren,
-			core.Text{
-				Content: "Stop building?",
-				Style:   core.Style{FontSize: 13, FontWeight: core.FontWeightSemibold, Color: p.TextPrimary},
-			},
-		)
-		if snap.CanDeleteFolder {
-			dialogChildren = append(dialogChildren, core.Text{
-				Content: fmt.Sprintf("%s was created %d s ago and holds only what the agent made.", snap.DisplayPath, snap.CreatedAgeSeconds),
-				Style:   core.Style{FontSize: 12, Color: p.TextMuted},
-			})
-		} else {
-			dialogChildren = append(dialogChildren, core.Text{
-				Content: "You can keep building or stop and review the files written so far.",
-				Style:   core.Style{FontSize: 12, Color: p.TextMuted},
-			})
-		}
-		dialogChildren = append(dialogChildren,
-			specPanelButton(p, specPanelButtonSpec{
-				TestID:  "first-run-cancel-keep-building",
-				Text:    "Keep building",
-				Variant: specBtnQuiet,
-				Style:   core.Style{Width: core.Pct(100)},
-				OnPress: func() {
-					ed.KeepBuildingFirstRun()
+		switch snap.Outcome {
+		case FirstRunBuildCancelPrompt:
+			var dialogChildren []core.Node
+			dialogChildren = append(dialogChildren,
+				core.Text{
+					Content: "Stop building?",
+					Style:   core.Style{FontSize: 13, FontWeight: core.FontWeightSemibold, Color: p.TextPrimary},
 				},
-			}),
-			specPanelButton(p, specPanelButtonSpec{
-				TestID:  "first-run-cancel-stop-keep",
-				Text:    "Stop, keep the files",
-				Variant: specBtnQuiet,
-				Style:   core.Style{Width: core.Pct(100)},
-				OnPress: func() {
-					ed.StopFirstRunKeepFiles()
-				},
-			}),
-		)
-		if snap.CanDeleteFolder {
-			dialogChildren = append(dialogChildren, specPanelButton(p, specPanelButtonSpec{
-				TestID:  "first-run-cancel-stop-delete",
-				Text:    "Stop and delete the folder",
-				Variant: specBtnDanger,
-				Style:   core.Style{Width: core.Pct(100)},
-				OnPress: func() {
-					ed.report(ed.StopFirstRunDeleteFolder())
-				},
-			}))
-		}
-		panelBody = append(panelBody, core.View{
-			TestID: "first-run-cancel-dialog",
-			Role:   core.RoleDialog,
-			Label:  "Stop building?",
-			Style: core.Style{
-				CornerRadius: specRadiusCard,
-				Background:   p.Raised,
-				BorderWidth:  1,
-				BorderColor:  p.LineRaised,
-				Padding:      core.All(12),
-				Gap:          8,
-			},
-			Children: dialogChildren,
-		})
-
-	case FirstRunBuildCheckFailed:
-		if snap.CheckFailure != nil {
+			)
+			if snap.CanDeleteFolder {
+				dialogChildren = append(dialogChildren, core.Text{
+					Content: fmt.Sprintf("%s was created %d s ago and holds only what the agent made.", snap.DisplayPath, snap.CreatedAgeSeconds),
+					Style:   core.Style{FontSize: 12, Color: p.TextMuted},
+				})
+			} else {
+				dialogChildren = append(dialogChildren, core.Text{
+					Content: "You can keep building or stop and review the files written so far.",
+					Style:   core.Style{FontSize: 12, Color: p.TextMuted},
+				})
+			}
+			dialogChildren = append(dialogChildren,
+				specPanelButton(p, specPanelButtonSpec{
+					TestID:  "first-run-cancel-keep-building",
+					Text:    "Keep building",
+					Variant: specBtnQuiet,
+					Style:   core.Style{Width: core.Pct(100)},
+					OnPress: func() {
+						ed.KeepBuildingFirstRun()
+					},
+				}),
+				specPanelButton(p, specPanelButtonSpec{
+					TestID:  "first-run-cancel-stop-keep",
+					Text:    "Stop, keep the files",
+					Variant: specBtnQuiet,
+					Style:   core.Style{Width: core.Pct(100)},
+					OnPress: func() {
+						ed.StopFirstRunKeepFiles()
+					},
+				}),
+			)
+			if snap.CanDeleteFolder {
+				dialogChildren = append(dialogChildren, specPanelButton(p, specPanelButtonSpec{
+					TestID:  "first-run-cancel-stop-delete",
+					Text:    "Stop and delete the folder",
+					Variant: specBtnDanger,
+					Style:   core.Style{Width: core.Pct(100)},
+					OnPress: func() {
+						ed.report(ed.StopFirstRunDeleteFolder())
+					},
+				}))
+			}
 			panelBody = append(panelBody, core.View{
-				TestID: "first-run-check-failed-card",
+				TestID: "first-run-cancel-dialog",
+				Role:   core.RoleDialog,
+				Label:  "Stop building?",
+				Style: core.Style{
+					CornerRadius: specRadiusCard,
+					Background:   p.Raised,
+					BorderWidth:  1,
+					BorderColor:  p.LineRaised,
+					Padding:      core.All(12),
+					Gap:          8,
+				},
+				Children: dialogChildren,
+			})
+
+		case FirstRunBuildCheckFailed:
+			if snap.CheckFailure != nil {
+				panelBody = append(panelBody, core.View{
+					TestID: "first-run-check-failed-card",
+					Style: core.Style{
+						CornerRadius: specRadiusCard,
+						Background:   p.Raised,
+						BorderWidth:  1,
+						BorderColor:  p.LineRaised,
+						Padding:      core.All(12),
+						Gap:          8,
+					},
+					Children: []core.Node{
+						core.Text{
+							Content: snap.CheckFailure.FixDescription,
+							Style:   core.Style{FontSize: 12.5, Color: p.TextPrimary},
+						},
+						core.View{
+							Style: core.Style{Direction: core.Row, Gap: 8},
+							Children: []core.Node{
+								specPanelButton(p, specPanelButtonSpec{
+									TestID:  "first-run-check-fix-it",
+									Text:    "Fix it",
+									Variant: specBtnAccent,
+									OnPress: func() {
+										ed.report(ed.ApplyFirstRunFix())
+									},
+								}),
+								specPanelButton(p, specPanelButtonSpec{
+									TestID:  "first-run-check-review-as-is",
+									Text:    "Review as is",
+									Variant: specBtnQuiet,
+									OnPress: func() {
+										ed.ReviewFirstRunAsIs()
+									},
+								}),
+							},
+						},
+					},
+				})
+			}
+
+		case FirstRunBuildStoppedKept:
+			panelBody = append(panelBody, core.View{
+				TestID: "first-run-stopped-kept-card",
 				Style: core.Style{
 					CornerRadius: specRadiusCard,
 					Background:   p.Raised,
@@ -1560,149 +1672,52 @@ func firstRunBuildingView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 				},
 				Children: []core.Node{
 					core.Text{
-						Content: snap.CheckFailure.FixDescription,
+						Content: fmt.Sprintf("Stopped. The %d objects built so far are ready to review.", snap.ObjectsDone),
 						Style:   core.Style{FontSize: 12.5, Color: p.TextPrimary},
 					},
-					core.View{
-						Style: core.Style{Direction: core.Row, Gap: 8},
-						Children: []core.Node{
-							specPanelButton(p, specPanelButtonSpec{
-								TestID:  "first-run-check-fix-it",
-								Text:    "Fix it",
-								Variant: specBtnAccent,
-								OnPress: func() {
-									ed.report(ed.ApplyFirstRunFix())
-								},
-							}),
-							specPanelButton(p, specPanelButtonSpec{
-								TestID:  "first-run-check-review-as-is",
-								Text:    "Review as is",
-								Variant: specBtnQuiet,
-								OnPress: func() {
-									ed.ReviewFirstRunAsIs()
-								},
-							}),
+					specPanelButton(p, specPanelButtonSpec{
+						TestID:  "first-run-stopped-review",
+						Text:    "Review them",
+						Variant: specBtnQuiet,
+						OnPress: func() {
+							ed.OpenFirstRunReviewFromStopped()
 						},
+					}),
+				},
+			})
+
+		case FirstRunBuildStoppedDeleted:
+			panelBody = append(panelBody, core.View{
+				TestID: "first-run-stopped-deleted-card",
+				Style: core.Style{
+					CornerRadius: specRadiusCard,
+					Background:   p.Raised,
+					BorderWidth:  1,
+					BorderColor:  p.LineRaised,
+					Padding:      core.All(12),
+					Gap:          8,
+				},
+				Children: []core.Node{
+					core.Text{
+						Content: fmt.Sprintf("Stopped. %s was deleted; your idea is still on the Start screen.", snap.DisplayPath),
+						Style:   core.Style{FontSize: 12.5, Color: p.TextPrimary},
 					},
+					specPanelButton(p, specPanelButtonSpec{
+						TestID:  "first-run-stopped-back-start",
+						Text:    "Back to Start",
+						Variant: specBtnQuiet,
+						OnPress: func() {
+							ed.ReturnToStartFromFirstRun()
+						},
+					}),
 				},
 			})
 		}
 
-	case FirstRunBuildStoppedKept:
-		panelBody = append(panelBody, core.View{
-			TestID: "first-run-stopped-kept-card",
-			Style: core.Style{
-				CornerRadius: specRadiusCard,
-				Background:   p.Raised,
-				BorderWidth:  1,
-				BorderColor:  p.LineRaised,
-				Padding:      core.All(12),
-				Gap:          8,
-			},
-			Children: []core.Node{
-				core.Text{
-					Content: fmt.Sprintf("Stopped. The %d objects built so far are ready to review.", snap.ObjectsDone),
-					Style:   core.Style{FontSize: 12.5, Color: p.TextPrimary},
-				},
-				specPanelButton(p, specPanelButtonSpec{
-					TestID:  "first-run-stopped-review",
-					Text:    "Review them",
-					Variant: specBtnQuiet,
-					OnPress: func() {
-						ed.OpenFirstRunReviewFromStopped()
-					},
-				}),
-			},
-		})
-
-	case FirstRunBuildStoppedDeleted:
-		panelBody = append(panelBody, core.View{
-			TestID: "first-run-stopped-deleted-card",
-			Style: core.Style{
-				CornerRadius: specRadiusCard,
-				Background:   p.Raised,
-				BorderWidth:  1,
-				BorderColor:  p.LineRaised,
-				Padding:      core.All(12),
-				Gap:          8,
-			},
-			Children: []core.Node{
-				core.Text{
-					Content: fmt.Sprintf("Stopped. %s was deleted; your idea is still on the Start screen.", snap.DisplayPath),
-					Style:   core.Style{FontSize: 12.5, Color: p.TextPrimary},
-				},
-				specPanelButton(p, specPanelButtonSpec{
-					TestID:  "first-run-stopped-back-start",
-					Text:    "Back to Start",
-					Variant: specBtnQuiet,
-					OnPress: func() {
-						ed.ReturnToStartFromFirstRun()
-					},
-				}),
-			},
-		})
-	}
-
-	elapsedSec := int(snap.Elapsed.Seconds())
-	elapsedText := fmt.Sprintf("%d:%02d", elapsedSec/60, elapsedSec%60)
-
-	rightPanelChildren := []core.Node{
-		core.View{
-			Style: core.Style{
-				Height:         core.Pt(specHeaderHeight),
-				FlexShrink:     0,
-				Direction:      core.Row,
-				AlignItems:     core.AlignCenter,
-				JustifyContent: core.JustifySpaceBetween,
-				Padding:        core.Symmetric(0, 12),
-				Borders:        core.Edges{Bottom: 1},
-				BorderColor:    p.Line,
-			},
-			Children: []core.Node{
-				core.Text{
-					Content: "Agent",
-					Style:   core.Style{FontSize: 14, FontWeight: core.FontWeightSemibold, Color: p.TextPrimary},
-				},
-				core.Text{
-					Content: elapsedText,
-					Style:   core.Style{FontSize: 11, FontFamily: core.FontMonospace, Color: p.TextFaint},
-				},
-			},
-		},
-		ui.ScrollView{
-			Style:        core.Style{FlexGrow: 1, FlexBasis: core.Pt(0)},
-			ContentStyle: core.Style{Padding: core.All(12), Gap: 10},
-			EdgeColor:    func() core.Color { return p.Panel },
-			Children:     panelBody,
-		},
-	}
-	if snap.Outcome == FirstRunBuildRunning {
-		rightPanelChildren = append(rightPanelChildren, core.View{
-			Style: core.Style{
-				Padding:        core.All(12),
-				Borders:        core.Edges{Top: 1},
-				BorderColor:    p.Line,
-				Direction:      core.Row,
-				AlignItems:     core.AlignCenter,
-				JustifyContent: core.JustifySpaceBetween,
-				FlexShrink:     0,
-			},
-			Children: []core.Node{
-				core.Text{
-					Content: "Esc",
-					Style:   core.Style{FontSize: 11.5, FontFamily: core.FontMonospace, Color: p.TextMuted},
-				},
-				specPanelButton(p, specPanelButtonSpec{
-					TestID:  "first-run-build-cancel",
-					Text:    "Cancel",
-					Icon:    lucide.Square,
-					Variant: specBtnQuiet,
-					OnPress: func() {
-						ed.RequestCancelFirstRunBuild()
-					},
-				}),
-			},
-		})
+		return core.View{
+			Style:    core.Style{Gap: 10},
+			Children: panelBody,
+		}
 	}
 
 	return core.View{
@@ -1731,47 +1746,63 @@ func firstRunBuildingView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 						Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6},
 						Children: []core.Node{
 							core.Text{
-								Content: snap.ProjectName,
-								Style:   core.Style{FontSize: 14, FontWeight: core.FontWeightSemibold, Color: p.TextPrimary},
+								ContentFunc: func() string {
+									_ = rev.Get()
+									return ed.FirstRunBuildState().ProjectName
+								},
+								Style: core.Style{FontSize: 14, FontWeight: core.FontWeightSemibold, Color: p.TextPrimary},
 							},
 							core.Text{
 								Content: "/",
 								Style:   core.Style{FontSize: 13, Color: p.TextFaint},
 							},
 							core.Text{
-								Content: snap.SceneName,
-								Style:   core.Style{FontSize: 13, Color: p.TextMuted},
+								ContentFunc: func() string {
+									_ = rev.Get()
+									return ed.FirstRunBuildState().SceneName
+								},
+								Style: core.Style{FontSize: 13, Color: p.TextMuted},
 							},
 						},
 					},
-					core.View{
-						TestID: "first-run-build-pill",
-						Style: core.Style{
-							Height:       core.Pt(28),
-							Padding:      core.Symmetric(0, 12),
-							CornerRadius: 14,
-							Background:   pillBg,
-							BorderWidth:  1,
-							BorderColor:  pillEdge,
-							Direction:    core.Row,
-							AlignItems:   core.AlignCenter,
-							Gap:          8,
-						},
-						Children: []core.Node{
-							core.View{
-								Style: core.Style{
-									Width:        core.Pt(7),
-									Height:       core.Pt(7),
-									CornerRadius: 4,
-									Background:   pillFg,
+					core.Dynamic(func(cx *core.Scope) core.Node {
+						_ = rev.Get()
+						snap := ed.FirstRunBuildState()
+						pillBg, pillEdge, pillFg := p.Agent.Fill, p.Agent.Edge, p.Agent.Fg
+						if snap.Outcome == FirstRunBuildCheckFailed {
+							pillBg, pillEdge, pillFg = p.Removed.Fill, p.Removed.Edge, p.Removed.Fg
+						} else if snap.Outcome == FirstRunBuildStoppedKept || snap.Outcome == FirstRunBuildStoppedDeleted {
+							pillBg, pillEdge, pillFg = p.Raised, p.LineRaised, p.TextMuted
+						}
+						return core.View{
+							TestID: "first-run-build-pill",
+							Style: core.Style{
+								Height:       core.Pt(28),
+								Padding:      core.Symmetric(0, 12),
+								CornerRadius: 14,
+								Background:   pillBg,
+								BorderWidth:  1,
+								BorderColor:  pillEdge,
+								Direction:    core.Row,
+								AlignItems:   core.AlignCenter,
+								Gap:          8,
+							},
+							Children: []core.Node{
+								core.View{
+									Style: core.Style{
+										Width:        core.Pt(7),
+										Height:       core.Pt(7),
+										CornerRadius: 4,
+										Background:   pillFg,
+									},
+								},
+								core.Text{
+									Content: snap.StatusPill,
+									Style:   core.Style{FontSize: 12, Color: pillFg, FontWeight: core.FontWeightMedium},
 								},
 							},
-							core.Text{
-								Content: snap.StatusPill,
-								Style:   core.Style{FontSize: 12, Color: pillFg, FontWeight: core.FontWeightMedium},
-							},
-						},
-					},
+						}
+					}),
 				},
 			},
 			// 5-stage progress bar.
@@ -1788,7 +1819,7 @@ func firstRunBuildingView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 					Borders:     core.Edges{Bottom: 1},
 					BorderColor: p.Line,
 				},
-				Children: stageNodes,
+				Children: []core.Node{core.Dynamic(buildStageBar)},
 			},
 			// Body: live viewport + Agent panel.
 			core.View{
@@ -1809,7 +1840,7 @@ func firstRunBuildingView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 							JustifyContent: core.JustifyCenter,
 							Overflow:       core.Hidden,
 						},
-						Children: vpChildren,
+						Children: []core.Node{core.Dynamic(buildViewport)},
 					},
 					core.View{
 						TestID: "first-run-build-agent-panel",
@@ -1820,7 +1851,74 @@ func firstRunBuildingView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 							Borders:     core.Edges{Left: 1},
 							BorderColor: p.Line,
 						},
-						Children: rightPanelChildren,
+						Children: []core.Node{
+							core.View{
+								Style: core.Style{
+									Height:         core.Pt(specHeaderHeight),
+									FlexShrink:     0,
+									Direction:      core.Row,
+									AlignItems:     core.AlignCenter,
+									JustifyContent: core.JustifySpaceBetween,
+									Padding:        core.Symmetric(0, 12),
+									Borders:        core.Edges{Bottom: 1},
+									BorderColor:    p.Line,
+								},
+								Children: []core.Node{
+									core.Text{
+										Content: "Agent",
+										Style:   core.Style{FontSize: 14, FontWeight: core.FontWeightSemibold, Color: p.TextPrimary},
+									},
+									core.Text{
+										ContentFunc: func() string {
+											_ = rev.Get()
+											elapsedSec := int(ed.FirstRunBuildState().Elapsed.Seconds())
+											return fmt.Sprintf("%d:%02d", elapsedSec/60, elapsedSec%60)
+										},
+										Style: core.Style{FontSize: 11, FontFamily: core.FontMonospace, Color: p.TextFaint},
+									},
+								},
+							},
+							ui.ScrollView{
+								Style:        core.Style{FlexGrow: 1, FlexBasis: core.Pt(0)},
+								ContentStyle: core.Style{Padding: core.All(12)},
+								EdgeColor:    func() core.Color { return p.Panel },
+								Children:     []core.Node{core.Dynamic(buildPanelBody)},
+							},
+							core.Show{
+								When: func() bool {
+									_ = rev.Get()
+									return ed.FirstRunBuildState().Outcome == FirstRunBuildRunning
+								},
+								Then: func(cx *core.Scope) core.Node {
+									return core.View{
+										Style: core.Style{
+											Padding:        core.All(12),
+											Borders:        core.Edges{Top: 1},
+											BorderColor:    p.Line,
+											Direction:      core.Row,
+											AlignItems:     core.AlignCenter,
+											JustifyContent: core.JustifySpaceBetween,
+											FlexShrink:     0,
+										},
+										Children: []core.Node{
+											core.Text{
+												Content: "Esc",
+												Style:   core.Style{FontSize: 11.5, FontFamily: core.FontMonospace, Color: p.TextMuted},
+											},
+											specPanelButton(p, specPanelButtonSpec{
+												TestID:  "first-run-build-cancel",
+												Text:    "Cancel",
+												Icon:    lucide.Square,
+												Variant: specBtnQuiet,
+												OnPress: func() {
+													ed.RequestCancelFirstRunBuild()
+												},
+											}),
+										},
+									}
+								},
+							},
+						},
 					},
 				},
 			},
@@ -1833,7 +1931,6 @@ func firstRunBuildingView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 // in Before mode or when holding B), and the three one-time onboarding tips shown one at a time.
 func firstRunReviewView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	p := ed.SpecPalette(cx)
-	snap := ed.FirstRunReviewState()
 
 	segBtn := func(testID, label string, active bool, onPress func()) core.Node {
 		bg := core.Transparent
@@ -1862,227 +1959,265 @@ func firstRunReviewView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 		}
 	}
 
-	// Plan summary bar on top of review.
-	planBarChildren := []core.Node{
-		specIcon(lucide.Check, 13, p.Added.Fg),
-		core.Text{
-			TestID:  "first-run-review-plan-steps",
-			Content: fmt.Sprintf("Plan: %d of %d steps", snap.PlanStepsDone, snap.PlanStepsTotal),
-			Style:   core.Style{FontSize: 12.5, Color: p.TextPrimary, FontWeight: core.FontWeightMedium},
-		},
-	}
-	for i, dev := range snap.Deviations {
-		planBarChildren = append(planBarChildren,
-			core.Text{
-				Content: "·",
-				Style:   core.Style{FontSize: 12.5, Color: p.TextFaint},
+	reviewHeaderRight := func(cx *core.Scope) core.Node {
+		_ = rev.Get()
+		snap := ed.FirstRunReviewState()
+		headerRight := []core.Node{}
+		if snap.ActiveTipIndex < 0 {
+			headerRight = append(headerRight, specPanelButton(p, specPanelButtonSpec{
+				TestID:  "first-run-review-replay-tips",
+				Text:    "Replay tips",
+				Variant: specBtnQuiet,
+				Compact: true,
+				OnPress: func() {
+					ed.report(ed.ReplayTips())
+				},
+			}))
+		}
+		headerRight = append(headerRight,
+			core.View{
+				Style: core.Style{
+					Direction:    core.Row,
+					Gap:          2,
+					Padding:      core.All(2),
+					CornerRadius: specRadiusButton,
+					Background:   p.Raised,
+					BorderWidth:  1,
+					BorderColor:  p.LineRaised,
+				},
+				Children: []core.Node{
+					segBtn("first-run-review-before", "Before", snap.ShowingBefore, func() {
+						ed.SetFirstRunReviewBefore(true)
+					}),
+					segBtn("first-run-review-after", "After", !snap.ShowingBefore, func() {
+						ed.SetFirstRunReviewBefore(false)
+					}),
+				},
 			},
-			core.Text{
-				TestID:  fmt.Sprintf("first-run-review-deviation-%d", i),
-				Content: dev.Summary,
-				Style:   core.Style{FontSize: 12.5, Color: p.Changed.Fg, FontWeight: core.FontWeightMedium},
-			},
+			specPanelButton(p, specPanelButtonSpec{
+				TestID:  "first-run-review-revert-all",
+				Text:    "Revert all",
+				Variant: specBtnQuiet,
+				OnPress: func() {
+					ed.RevertAllFirstRunReview()
+				},
+			}),
+			specPanelButton(p, specPanelButtonSpec{
+				TestID:  "first-run-review-keep",
+				Text:    fmt.Sprintf("Keep %d of %d", snap.KeptCount, snap.TotalCount),
+				Variant: specBtnAccent,
+				OnPress: func() {
+					ed.report(ed.KeepFirstRunReview())
+				},
+			}),
 		)
+		return core.View{
+			Style:    core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8},
+			Children: headerRight,
+		}
 	}
 
-	// Left change list.
-	revertedMap := make(map[string]bool, len(snap.Changes))
-	var changeRows []core.Node
-	for _, c := range snap.Changes {
-		ch := c
-		revertedMap[ch.ID] = ch.Reverted
-		rowBg := core.Transparent
-		if ch.ID == "tpl" {
-			rowBg = p.Raised
+	reviewPlanBar := func(cx *core.Scope) core.Node {
+		_ = rev.Get()
+		snap := ed.FirstRunReviewState()
+		planBarChildren := []core.Node{
+			specIcon(lucide.Check, 13, p.Added.Fg),
+			core.Text{
+				TestID:  "first-run-review-plan-steps",
+				Content: fmt.Sprintf("Plan: %d of %d steps", snap.PlanStepsDone, snap.PlanStepsTotal),
+				Style:   core.Style{FontSize: 12.5, Color: p.TextPrimary, FontWeight: core.FontWeightMedium},
+			},
 		}
-		opacity := core.Alpha(1.0)
-		toggleIcon := lucide.Undo2
-		toggleLabel := "Revert " + ch.Title
-		if ch.Reverted {
-			opacity = core.Alpha(0.55)
-			toggleIcon = lucide.Redo2
-			toggleLabel = "Restore " + ch.Title
+		for i, dev := range snap.Deviations {
+			planBarChildren = append(planBarChildren,
+				core.Text{
+					Content: "·",
+					Style:   core.Style{FontSize: 12.5, Color: p.TextFaint},
+				},
+				core.Text{
+					TestID:  fmt.Sprintf("first-run-review-deviation-%d", i),
+					Content: dev.Summary,
+					Style:   core.Style{FontSize: 12.5, Color: p.Changed.Fg, FontWeight: core.FontWeightMedium},
+				},
+			)
 		}
-		changeRows = append(changeRows, core.View{
-			TestID: "first-run-review-change-" + ch.ID,
+		return core.View{
 			Style: core.Style{
-				MinHeight:    core.Pt(44),
-				Direction:    core.Row,
-				AlignItems:   core.AlignCenter,
-				Gap:          8,
-				Padding:      core.Symmetric(4, 8),
-				CornerRadius: specRadiusButton,
-				Background:   rowBg,
-				Opacity:      opacity,
+				Direction:  core.Row,
+				Wrap:       core.Wrap,
+				AlignItems: core.AlignCenter,
+				Gap:        8,
 			},
-			Children: []core.Node{
-				core.View{
-					Style: core.Style{
-						Width:          core.Pt(20),
-						Height:         core.Pt(20),
-						CornerRadius:   specRadiusControl,
-						Background:     p.Added.Fill,
-						AlignItems:     core.AlignCenter,
-						JustifyContent: core.JustifyCenter,
-						FlexShrink:     0,
-					},
-					Children: []core.Node{
-						core.Text{
-							Content: ch.Sign,
-							Style:   core.Style{FontSize: 12, FontWeight: core.FontWeightSemibold, Color: p.Added.Fg},
-						},
-					},
-				},
-				core.View{
-					Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), Gap: 2},
-					Children: []core.Node{
-						core.Text{
-							Content:  ch.Title,
-							MaxLines: 1,
-							Style: core.Style{
-								FontSize:   12.5,
-								FontWeight: core.FontWeightMedium,
-								Color:      p.TextPrimary,
-							},
-						},
-						core.Text{
-							Content:  ch.Detail,
-							MaxLines: 1,
-							Style: core.Style{
-								FontSize: 11,
-								Color:    p.TextMuted,
-							},
-						},
-					},
-				},
-				specPanelButton(p, specPanelButtonSpec{
-					TestID:  "first-run-review-toggle-" + ch.ID,
-					Icon:    toggleIcon,
-					Label:   toggleLabel,
-					Variant: specBtnGhost,
-					Compact: true,
-					Style:   core.Style{BorderWidth: 0},
-					OnPress: func() {
-						ed.ToggleFirstRunReviewChange(ch.ID)
-					},
-				}),
-			},
-		})
+			Children: planBarChildren,
+		}
 	}
 
-	// Center review viewport with centered schematic scene.
-	stageChildren := []core.Node{
-		core.View{
-			Style: core.Style{
-				Position:     core.Absolute,
-				Left:         core.Pt(16),
-				Top:          core.Pt(68),
-				Width:        core.Pt(340),
-				Height:       core.Pt(220),
-				CornerRadius: 4,
-				Background:   p.Panel,
-				BorderWidth:  1,
-				BorderColor:  p.LineRaised,
-			},
-		},
-	}
-	if !snap.ShowingBefore {
-		for _, sh := range snap.Shapes {
-			if sh.ChangeID != "" && revertedMap[sh.ChangeID] {
-				continue
+	reviewChangeList := func(cx *core.Scope) core.Node {
+		_ = rev.Get()
+		snap := ed.FirstRunReviewState()
+		var changeRows []core.Node
+		for _, c := range snap.Changes {
+			ch := c
+			rowBg := core.Transparent
+			if ch.ID == "tpl" {
+				rowBg = p.Raised
 			}
-			stageChildren = append(stageChildren, firstRunPreviewShapeNode(p, sh))
+			opacity := core.Alpha(1.0)
+			toggleIcon := lucide.Undo2
+			toggleLabel := "Revert " + ch.Title
+			if ch.Reverted {
+				opacity = core.Alpha(0.55)
+				toggleIcon = lucide.Redo2
+				toggleLabel = "Restore " + ch.Title
+			}
+			changeRows = append(changeRows, core.View{
+				TestID: "first-run-review-change-" + ch.ID,
+				Style: core.Style{
+					MinHeight:    core.Pt(44),
+					Direction:    core.Row,
+					AlignItems:   core.AlignCenter,
+					Gap:          8,
+					Padding:      core.Symmetric(4, 8),
+					CornerRadius: specRadiusButton,
+					Background:   rowBg,
+					Opacity:      opacity,
+				},
+				Children: []core.Node{
+					core.View{
+						Style: core.Style{
+							Width:          core.Pt(20),
+							Height:         core.Pt(20),
+							CornerRadius:   specRadiusControl,
+							Background:     p.Added.Fill,
+							AlignItems:     core.AlignCenter,
+							JustifyContent: core.JustifyCenter,
+							FlexShrink:     0,
+						},
+						Children: []core.Node{
+							core.Text{
+								Content: ch.Sign,
+								Style:   core.Style{FontSize: 12, FontWeight: core.FontWeightSemibold, Color: p.Added.Fg},
+							},
+						},
+					},
+					core.View{
+						Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), Gap: 2},
+						Children: []core.Node{
+							core.Text{
+								Content:  ch.Title,
+								MaxLines: 1,
+								Style: core.Style{
+									FontSize:   12.5,
+									FontWeight: core.FontWeightMedium,
+									Color:      p.TextPrimary,
+								},
+							},
+							core.Text{
+								Content:  ch.Detail,
+								MaxLines: 1,
+								Style: core.Style{
+									FontSize: 11,
+									Color:    p.TextMuted,
+								},
+							},
+						},
+					},
+					specPanelButton(p, specPanelButtonSpec{
+						TestID:  "first-run-review-toggle-" + ch.ID,
+						Icon:    toggleIcon,
+						Label:   toggleLabel,
+						Variant: specBtnGhost,
+						Compact: true,
+						Style:   core.Style{BorderWidth: 0},
+						OnPress: func() {
+							ed.ToggleFirstRunReviewChange(ch.ID)
+						},
+					}),
+				},
+			})
+		}
+		return core.View{
+			Style:    core.Style{Gap: 4},
+			Children: changeRows,
 		}
 	}
-	vpChildren := []core.Node{
-		core.View{
-			Style: core.Style{
-				Width:  core.Pt(372),
-				Height: core.Pt(310),
+
+	reviewViewport := func(cx *core.Scope) core.Node {
+		_ = rev.Get()
+		snap := ed.FirstRunReviewState()
+		revertedMap := make(map[string]bool, len(snap.Changes))
+		for _, c := range snap.Changes {
+			revertedMap[c.ID] = c.Reverted
+		}
+		stageChildren := []core.Node{
+			core.View{
+				Style: core.Style{
+					Position:     core.Absolute,
+					Left:         core.Pt(16),
+					Top:          core.Pt(68),
+					Width:        core.Pt(340),
+					Height:       core.Pt(220),
+					CornerRadius: 4,
+					Background:   p.Panel,
+					BorderWidth:  1,
+					BorderColor:  p.LineRaised,
+				},
 			},
-			Children: stageChildren,
-		},
-	}
-	if snap.ShowingBefore {
-		vpChildren = append(vpChildren, core.View{
-			TestID: "first-run-review-before-pill",
+		}
+		if !snap.ShowingBefore {
+			for _, sh := range snap.Shapes {
+				if sh.ChangeID != "" && revertedMap[sh.ChangeID] {
+					continue
+				}
+				stageChildren = append(stageChildren, firstRunPreviewShapeNode(p, sh))
+			}
+		}
+		vpChildren := []core.Node{
+			core.View{
+				Style: core.Style{
+					Width:  core.Pt(372),
+					Height: core.Pt(310),
+				},
+				Children: stageChildren,
+			},
+		}
+		if snap.ShowingBefore {
+			vpChildren = append(vpChildren, core.View{
+				TestID: "first-run-review-before-pill",
+				Style: core.Style{
+					Position:       core.Absolute,
+					Left:           core.Pt(24),
+					Top:            core.Pt(16),
+					Height:         core.Pt(26),
+					Padding:        core.Symmetric(0, 12),
+					CornerRadius:   13,
+					Background:     p.PillBg,
+					BorderWidth:    1,
+					BorderColor:    p.LineRaised,
+					AlignItems:     core.AlignCenter,
+					JustifyContent: core.JustifyCenter,
+				},
+				Children: []core.Node{
+					core.Text{
+						Content: "Before: an empty folder",
+						Style:   core.Style{FontSize: 12, Color: p.TextMuted},
+					},
+				},
+			})
+		}
+		if snap.ActiveTipIndex >= 0 && snap.ActiveTipIndex < 3 {
+			vpChildren = append(vpChildren, firstRunReviewTipPopover(cx, p, ed, snap.ActiveTipIndex))
+		}
+		return core.View{
 			Style: core.Style{
-				Position:       core.Absolute,
-				Left:           core.Pt(24),
-				Top:            core.Pt(16),
-				Height:         core.Pt(26),
-				Padding:        core.Symmetric(0, 12),
-				CornerRadius:   13,
-				Background:     p.PillBg,
-				BorderWidth:    1,
-				BorderColor:    p.LineRaised,
+				Width:          core.Pct(100),
+				Height:         core.Pct(100),
 				AlignItems:     core.AlignCenter,
 				JustifyContent: core.JustifyCenter,
 			},
-			Children: []core.Node{
-				core.Text{
-					Content: "Before: an empty folder",
-					Style:   core.Style{FontSize: 12, Color: p.TextMuted},
-				},
-			},
-		})
+			Children: vpChildren,
+		}
 	}
-
-	// One-at-a-time onboarding tip popover (persisted in EditorSettings.SeenTips).
-	if snap.ActiveTipIndex >= 0 && snap.ActiveTipIndex < 3 {
-		vpChildren = append(vpChildren, firstRunReviewTipPopover(cx, p, ed, snap.ActiveTipIndex))
-	}
-
-	// Header right controls.
-	headerRight := []core.Node{}
-	if snap.ActiveTipIndex < 0 {
-		headerRight = append(headerRight, specPanelButton(p, specPanelButtonSpec{
-			TestID:  "first-run-review-replay-tips",
-			Text:    "Replay tips",
-			Variant: specBtnQuiet,
-			Compact: true,
-			OnPress: func() {
-				ed.report(ed.ReplayTips())
-			},
-		}))
-	}
-	headerRight = append(headerRight,
-		core.View{
-			Style: core.Style{
-				Direction:    core.Row,
-				Gap:          2,
-				Padding:      core.All(2),
-				CornerRadius: specRadiusButton,
-				Background:   p.Raised,
-				BorderWidth:  1,
-				BorderColor:  p.LineRaised,
-			},
-			Children: []core.Node{
-				segBtn("first-run-review-before", "Before", snap.ShowingBefore, func() {
-					ed.SetFirstRunReviewBefore(true)
-				}),
-				segBtn("first-run-review-after", "After", !snap.ShowingBefore, func() {
-					ed.SetFirstRunReviewBefore(false)
-				}),
-			},
-		},
-		specPanelButton(p, specPanelButtonSpec{
-			TestID:  "first-run-review-revert-all",
-			Text:    "Revert all",
-			Variant: specBtnQuiet,
-			OnPress: func() {
-				ed.RevertAllFirstRunReview()
-			},
-		}),
-		specPanelButton(p, specPanelButtonSpec{
-			TestID:  "first-run-review-keep",
-			Text:    fmt.Sprintf("Keep %d of %d", snap.KeptCount, snap.TotalCount),
-			Variant: specBtnAccent,
-			OnPress: func() {
-				ed.report(ed.KeepFirstRunReview())
-			},
-		}),
-	)
 
 	return core.View{
 		TestID: "first-run-review",
@@ -2119,10 +2254,7 @@ func firstRunReviewView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 							},
 						},
 					},
-					core.View{
-						Style:    core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8},
-						Children: headerRight,
-					},
+					core.Dynamic(reviewHeaderRight),
 				},
 			},
 			// Plan summary bar on top of review.
@@ -2140,7 +2272,7 @@ func firstRunReviewView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 					Borders:     core.Edges{Bottom: 1},
 					BorderColor: p.Line,
 				},
-				Children: planBarChildren,
+				Children: []core.Node{core.Dynamic(reviewPlanBar)},
 			},
 			// Body: left change list + center viewport with one-at-a-time tip callout.
 			core.View{
@@ -2160,9 +2292,9 @@ func firstRunReviewView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 							Borders:     core.Edges{Right: 1},
 							BorderColor: p.Line,
 						},
-						ContentStyle: core.Style{Padding: core.All(8), Gap: 4},
+						ContentStyle: core.Style{Padding: core.All(8)},
 						EdgeColor:    func() core.Color { return p.Bg },
-						Children:     changeRows,
+						Children:     []core.Node{core.Dynamic(reviewChangeList)},
 					},
 					core.View{
 						TestID: "first-run-review-viewport",
@@ -2174,7 +2306,7 @@ func firstRunReviewView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 							JustifyContent: core.JustifyCenter,
 							Overflow:       core.Hidden,
 						},
-						Children: vpChildren,
+						Children: []core.Node{core.Dynamic(reviewViewport)},
 					},
 				},
 			},

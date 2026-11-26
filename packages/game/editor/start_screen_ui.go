@@ -56,11 +56,12 @@ func templateSwatchColor(name string) core.Color {
 }
 
 // StartScreenView renders the editor's Start Screen matching Start.dc.html, step 1 of FirstRun.dc.html,
-// and the Spec.dc.html design tokens: left sidebar with navigation and conditional RECENT list,
+// and the Spec.dc.html design tokens (Dark & Light): left sidebar with navigation and conditional RECENT list,
 // right pane with "What do you want to make?", dynamically populated template cards with filter chips,
 // live-validated New Project bar with a single primary Create button, and streaming `game new` output.
 func StartScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	ed.ensureStartScreenInit()
+	p := ed.SpecPalette(cx)
 
 	return core.View{
 		TestID: "editor-start-screen",
@@ -68,7 +69,7 @@ func StartScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 			Direction:  core.Row,
 			Width:      core.Pct(100),
 			Height:     core.Pct(100),
-			Background: specBg,
+			Background: p.Bg,
 		},
 		Children: []core.Node{
 			startSidebarView(cx, ed, rev),
@@ -78,12 +79,13 @@ func StartScreenView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 }
 
 func startSidebarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+	p := ed.SpecPalette(cx)
 	navBtn := func(testID, label string, active bool, icon func() *core.SVG, onPress func()) core.Node {
 		var bg core.Color
-		fg := specTextSecondary
+		fg := p.TextSecondary
 		if active {
-			bg = specAccentTint
-			fg = specTextStrong
+			bg = p.Accent.Fill
+			fg = p.TextPrimary
 		}
 		return ui.Button{
 			TestID:  testID,
@@ -124,9 +126,9 @@ func startSidebarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 		Style: core.Style{
 			Width:       core.Pt(280),
 			Height:      core.Pct(100),
-			Background:  specPanel,
+			Background:  p.Panel,
 			Borders:     core.Edges{Right: 1},
-			BorderColor: specLine,
+			BorderColor: p.Line,
 			Padding:     core.All(24),
 			Gap:         16,
 		},
@@ -145,7 +147,7 @@ func startSidebarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 						Style: core.Style{
 							FontSize:   18,
 							FontWeight: 600,
-							Color:      specTextStrong,
+							Color:      p.TextPrimary,
 						},
 					},
 					core.Show{
@@ -160,10 +162,10 @@ func startSidebarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 								Label:   "Return to open editor",
 								Variant: ui.ButtonGhost,
 								Size:    ui.SizeSmall,
-								Color:   func() core.Color { return specLineRaised },
+								Color:   func() core.Color { return p.LineRaised },
 								TextStyle: core.Style{
 									FontSize: 12,
-									Color:    specText,
+									Color:    p.TextPrimary,
 								},
 								Style: core.Style{
 									Height:       core.Pt(28),
@@ -207,7 +209,7 @@ func startSidebarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 							core.View{
 								Style: core.Style{
 									Height:     core.Pt(1),
-									Background: specLine,
+									Background: p.Line,
 								},
 							},
 							core.Text{
@@ -217,14 +219,14 @@ func startSidebarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 									FontSize:      11,
 									FontWeight:    600,
 									LetterSpacing: 0.7,
-									Color:         specTextMuted,
+									Color:         p.TextMuted,
 								},
 							},
 							ui.ScrollView{
 								TestID:       "start-recent-scroll",
 								Style:        core.Style{FlexGrow: 1, FlexBasis: core.Pt(0)},
 								ContentStyle: core.Style{Gap: 4},
-								EdgeColor:    func() core.Color { return specPanel },
+								EdgeColor:    func() core.Color { return p.Panel },
 								Children: []core.Node{
 									core.Dynamic(func(cx *core.Scope) core.Node {
 										_ = recentRevMemo.Get()
@@ -232,7 +234,7 @@ func startSidebarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 										now := ed.now()
 										rows := make([]core.Node, 0, len(entries))
 										for i, entry := range entries {
-											rows = append(rows, startRecentRow(ed, i, entry, now))
+											rows = append(rows, startRecentRow(p, ed, i, entry, now))
 										}
 										return core.View{
 											TestID:   "start-recent-list",
@@ -250,13 +252,13 @@ func startSidebarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 	}
 }
 
-func startRecentRow(ed *Editor, index int, entry RecentProjectEntry, now time.Time) core.Node {
+func startRecentRow(p SpecPalette, ed *Editor, index int, entry RecentProjectEntry, now time.Time) core.Node {
 	relTime := formatRelativeTime(entry.LastOpened, now)
 	shortPath := shortenHomePath(entry.Path)
 	meta := shortPath + " · " + relTime
-	nameColor := specTextStrong
+	nameColor := p.TextPrimary
 	if entry.Missing {
-		nameColor = specTextSecondary
+		nameColor = p.TextSecondary
 	}
 	entryPath := entry.Path
 	entryMissing := entry.Missing
@@ -308,9 +310,9 @@ func startRecentRow(ed *Editor, index int, entry RecentProjectEntry, now time.Ti
 									return core.View{
 										TestID: fmt.Sprintf("start-recent-missing-%d", index),
 										Style: core.Style{
-											Background:   specWarningFill,
+											Background:   p.Warning.Fill,
 											BorderWidth:  1,
-											BorderColor:  specWarningEdge,
+											BorderColor:  p.Warning.Edge,
 											CornerRadius: 4,
 											Padding:      core.Symmetric(1, 6),
 										},
@@ -320,7 +322,7 @@ func startRecentRow(ed *Editor, index int, entry RecentProjectEntry, now time.Ti
 												Style: core.Style{
 													FontSize:   10,
 													FontWeight: 600,
-													Color:      specWarning,
+													Color:      p.Warning.Fg,
 												},
 											},
 										},
@@ -333,7 +335,7 @@ func startRecentRow(ed *Editor, index int, entry RecentProjectEntry, now time.Ti
 						Content: meta,
 						Style: core.Style{
 							FontSize: 11,
-							Color:    specTextMuted,
+							Color:    p.TextMuted,
 						},
 					},
 				},
@@ -348,7 +350,7 @@ func startRecentRow(ed *Editor, index int, entry RecentProjectEntry, now time.Ti
 						Variant: ui.ButtonGhost,
 						Size:    ui.SizeSmall,
 						Side:    28,
-						Tint:    func() core.Color { return specTextMuted },
+						Tint:    func() core.Color { return p.TextMuted },
 						OnPress: func() {
 							ed.report(ed.RemoveRecentProject(entryPath))
 						},
@@ -423,7 +425,7 @@ func startIdeaSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 					Gap:          12,
 				},
 				Children: []core.Node{
-					ui.Input{
+					specInputField(cx, ed, ui.Input{
 						TestID:      "start-idea-input",
 						Label:       "Describe your game",
 						Multiline:   true,
@@ -441,10 +443,10 @@ func startIdeaSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 							BorderWidth:  1,
 							BorderColor:  p.LineRaised,
 							CornerRadius: 6,
-							Color:        p.TextSecondary,
+							Color:        p.TextPrimary,
 							FontSize:     13,
 						},
-					},
+					}),
 					core.View{
 						Style: core.Style{
 							Direction:      core.Row,
@@ -515,6 +517,7 @@ func startIdeaSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 }
 
 func startTemplatesSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+	p := ed.SpecPalette(cx)
 	filterChip := func(id, label string) core.Node {
 		return ui.Button{
 			TestID:  "start-filter-" + id,
@@ -524,21 +527,21 @@ func startTemplatesSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 			Color: func() core.Color {
 				_ = rev.Get()
 				if ed.StartTemplateFilter() == id {
-					return specAccentTint
+					return p.Accent.Fill
 				}
-				return specRaised
+				return p.Raised
 			},
 			TextStyle: core.Style{
 				FontSize:   12,
 				FontWeight: 500,
-				Color:      specText,
+				Color:      p.TextPrimary,
 			},
 			Style: core.Style{
 				Height:       core.Pt(28),
 				CornerRadius: 6,
 				Padding:      core.Symmetric(0, 12),
 				BorderWidth:  1,
-				BorderColor:  specLineRaised,
+				BorderColor:  p.LineRaised,
 			},
 			OnPress: func() {
 				ed.SetStartTemplateFilter(id)
@@ -566,14 +569,14 @@ func startTemplatesSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 								Style: core.Style{
 									FontSize:   14,
 									FontWeight: 600,
-									Color:      specTextStrong,
+									Color:      p.TextPrimary,
 								},
 							},
 							core.Text{
 								Content: "Each one is a small, playable game you grow into your own.",
 								Style: core.Style{
 									FontSize: 12.5,
-									Color:    specTextMuted,
+									Color:    p.TextMuted,
 								},
 							},
 						},
@@ -596,9 +599,9 @@ func startTemplatesSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 					return core.View{
 						TestID: "start-templates-empty",
 						Style: core.Style{
-							Background:   specRaised,
+							Background:   p.Raised,
 							BorderWidth:  1,
-							BorderColor:  specLineRaised,
+							BorderColor:  p.LineRaised,
 							CornerRadius: 12,
 							Padding:      core.All(16),
 							Direction:    core.Row,
@@ -610,7 +613,7 @@ func startTemplatesSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 								Content: "No templates match the active filter.",
 								Style: core.Style{
 									FontSize: 12.5,
-									Color:    specTextSecondary,
+									Color:    p.TextSecondary,
 								},
 							},
 							ui.Button{
@@ -618,10 +621,10 @@ func startTemplatesSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 								Text:    "Show all",
 								Variant: ui.ButtonSecondary,
 								Size:    ui.SizeSmall,
-								Color:   func() core.Color { return specLineRaised },
+								Color:   func() core.Color { return p.LineRaised },
 								TextStyle: core.Style{
 									FontSize: 12,
-									Color:    specText,
+									Color:    p.TextPrimary,
 								},
 								Style: core.Style{
 									Height:       core.Pt(28),
@@ -640,10 +643,10 @@ func startTemplatesSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 				for _, t := range tmpls {
 					tmpl := t
 					isSelected := tmpl.Name == selected
-					borderColor := specLineRaised
+					borderColor := p.LineRaised
 					borderWidth := core.Points(1)
 					if isSelected {
-						borderColor = specAccent
+						borderColor = p.Accent.Edge
 						borderWidth = 2
 					}
 					cards = append(cards, core.View{
@@ -652,7 +655,7 @@ func startTemplatesSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 						Label:  "Select template " + tmpl.DisplayTitle(),
 						Style: core.Style{
 							Width:        core.Pt(220),
-							Background:   specRaised,
+							Background:   p.Raised,
 							BorderWidth:  borderWidth,
 							BorderColor:  borderColor,
 							CornerRadius: 12,
@@ -673,9 +676,9 @@ func startTemplatesSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 								Children: []core.Node{
 									core.View{
 										Style: core.Style{
-											Background:   specPanel,
+											Background:   p.Panel,
 											BorderWidth:  1,
-											BorderColor:  specLineRaised,
+											BorderColor:  p.LineRaised,
 											CornerRadius: 4,
 											Padding:      core.Symmetric(2, 6),
 										},
@@ -685,7 +688,7 @@ func startTemplatesSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 												Style: core.Style{
 													FontSize:   10,
 													FontWeight: 600,
-													Color:      specTextSecondary,
+													Color:      p.TextSecondary,
 												},
 											},
 										},
@@ -703,14 +706,14 @@ func startTemplatesSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 										Style: core.Style{
 											FontSize:   13,
 											FontWeight: 600,
-											Color:      specTextStrong,
+											Color:      p.TextPrimary,
 										},
 									},
 									core.Text{
 										Content: tmpl.Summary,
 										Style: core.Style{
 											FontSize: 12,
-											Color:    specTextMuted,
+											Color:    p.TextMuted,
 										},
 									},
 								},
@@ -734,11 +737,12 @@ func startTemplatesSectionView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 }
 
 func startCreateFormView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+	p := ed.SpecPalette(cx)
 	return core.View{
 		TestID: "start-create-form",
 		Style: core.Style{
 			Borders:     core.Edges{Top: 1},
-			BorderColor: specLine,
+			BorderColor: p.Line,
 			Padding:     core.Edges{Top: 16},
 			Gap:         12,
 		},
@@ -757,9 +761,9 @@ func startCreateFormView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 						Children: []core.Node{
 							core.Text{
 								Content: "Name",
-								Style:   core.Style{FontSize: 12, Color: specTextSecondary},
+								Style:   core.Style{FontSize: 12, Color: p.TextSecondary},
 							},
-							ui.Input{
+							specInputField(cx, ed, ui.Input{
 								TestID:      "start-new-name",
 								Label:       "Project name",
 								Placeholder: "my-game",
@@ -773,13 +777,13 @@ func startCreateFormView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 								Style: core.Style{
 									Width:        core.Pct(100),
 									Height:       core.Pt(32),
-									Background:   specPanel,
+									Background:   p.Panel,
 									BorderWidth:  1,
-									BorderColor:  specLineRaised,
+									BorderColor:  p.LineRaised,
 									CornerRadius: 6,
-									Color:        specText,
+									Color:        p.TextPrimary,
 								},
-							},
+							}),
 						},
 					},
 					core.View{
@@ -787,12 +791,12 @@ func startCreateFormView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 						Children: []core.Node{
 							core.Text{
 								Content: "Folder",
-								Style:   core.Style{FontSize: 12, Color: specTextSecondary},
+								Style:   core.Style{FontSize: 12, Color: p.TextSecondary},
 							},
 							core.View{
 								Style: core.Style{Direction: core.Row, Gap: 6, AlignItems: core.AlignCenter},
 								Children: []core.Node{
-									ui.Input{
+									specInputField(cx, ed, ui.Input{
 										TestID:      "start-new-folder",
 										Label:       "Parent folder",
 										Placeholder: "~/games",
@@ -807,22 +811,22 @@ func startCreateFormView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 											FlexGrow:     1,
 											FlexBasis:    core.Pt(0),
 											Height:       core.Pt(32),
-											Background:   specPanel,
+											Background:   p.Panel,
 											BorderWidth:  1,
-											BorderColor:  specLineRaised,
+											BorderColor:  p.LineRaised,
 											CornerRadius: 6,
-											Color:        specText,
+											Color:        p.TextPrimary,
 										},
-									},
+									}),
 									ui.Button{
 										TestID:  "start-new-folder-browse",
 										Text:    "Browse…",
 										Variant: ui.ButtonSecondary,
 										Size:    ui.SizeSmall,
-										Color:   func() core.Color { return specLineRaised },
+										Color:   func() core.Color { return p.LineRaised },
 										TextStyle: core.Style{
 											FontSize: 12,
-											Color:    specText,
+											Color:    p.TextPrimary,
 										},
 										Style: core.Style{
 											Height:       core.Pt(32),
@@ -842,9 +846,9 @@ func startCreateFormView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 						Children: []core.Node{
 							core.Text{
 								Content: "Module path (optional)",
-								Style:   core.Style{FontSize: 12, Color: specTextSecondary},
+								Style:   core.Style{FontSize: 12, Color: p.TextSecondary},
 							},
-							ui.Input{
+							specInputField(cx, ed, ui.Input{
 								TestID:      "start-new-module",
 								Label:       "Go module path",
 								Placeholder: "example.com/my-game",
@@ -858,13 +862,13 @@ func startCreateFormView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 								Style: core.Style{
 									Width:        core.Pct(100),
 									Height:       core.Pt(32),
-									Background:   specPanel,
+									Background:   p.Panel,
 									BorderWidth:  1,
-									BorderColor:  specLineRaised,
+									BorderColor:  p.LineRaised,
 									CornerRadius: 6,
-									Color:        specText,
+									Color:        p.TextPrimary,
 								},
-							},
+							}),
 						},
 					},
 				},
@@ -891,7 +895,7 @@ func startCreateFormView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 										Content: st.Message,
 										Style: core.Style{
 											FontSize: 12,
-											Color:    specAdded,
+											Color:    p.Added.Fg,
 										},
 									},
 								},
@@ -902,7 +906,7 @@ func startCreateFormView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 								Content: st.Message,
 								Style: core.Style{
 									FontSize: 12,
-									Color:    specRemoved,
+									Color:    p.Removed.Fg,
 								},
 							},
 						}
@@ -915,10 +919,10 @@ func startCreateFormView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 									Text:    "Open it",
 									Variant: ui.ButtonSecondary,
 									Size:    ui.SizeSmall,
-									Color:   func() core.Color { return specLineRaised },
+									Color:   func() core.Color { return p.LineRaised },
 									TextStyle: core.Style{
 										FontSize: 12,
-										Color:    specTextStrong,
+										Color:    p.TextPrimary,
 									},
 									Style: core.Style{
 										Height:       core.Pt(28),
@@ -934,10 +938,10 @@ func startCreateFormView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 									Text:    "Use " + suggested,
 									Variant: ui.ButtonSecondary,
 									Size:    ui.SizeSmall,
-									Color:   func() core.Color { return specLineRaised },
+									Color:   func() core.Color { return p.LineRaised },
 									TextStyle: core.Style{
 										FontSize: 12,
-										Color:    specTextStrong,
+										Color:    p.TextPrimary,
 									},
 									Style: core.Style{
 										Height:       core.Pt(28),
@@ -985,22 +989,22 @@ func startCreateFormView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 								},
 								Style: core.Style{
 									FontSize: 12.5,
-									Color:    specTextSecondary,
+									Color:    p.TextSecondary,
 								},
 							},
-							// Single primary button on the screen: #101216 on #FFFFFF (18.75:1 AAA in Spec.dc.html).
+							// Single primary button on the screen: inverted Spec TextPrimary/Bg (AAA in both Dark and Light).
 							ui.Button{
 								TestID:    "start-create",
 								Text:      "Create",
 								BusyLabel: "Creating…",
 								Variant:   ui.ButtonPrimary,
 								Size:      ui.SizeSmall,
-								Color:     func() core.Color { return specTextStrong },
-								Tint:      func() core.Color { return specBg },
+								Color:     func() core.Color { return p.TextPrimary },
+								Tint:      func() core.Color { return p.Bg },
 								TextStyle: core.Style{
 									FontSize:   13,
 									FontWeight: 600,
-									Color:      specBg,
+									Color:      p.Bg,
 								},
 								Style: core.Style{
 									Height:       core.Pt(32),
@@ -1028,6 +1032,7 @@ func startCreateFormView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 }
 
 func startCreateOutputView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+	p := ed.SpecPalette(cx)
 	return core.Show{
 		When: func() bool {
 			_ = rev.Get()
@@ -1037,9 +1042,9 @@ func startCreateOutputView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 			return core.View{
 				TestID: "start-create-output",
 				Style: core.Style{
-					Background:   specPanel,
+					Background:   p.Panel,
 					BorderWidth:  1,
-					BorderColor:  specLineRaised,
+					BorderColor:  p.LineRaised,
 					CornerRadius: 12,
 					Padding:      core.All(12),
 					Gap:          8,
@@ -1060,7 +1065,7 @@ func startCreateOutputView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 							FontSize:      11,
 							FontWeight:    600,
 							LetterSpacing: 0.7,
-							Color:         specTextMuted,
+							Color:         p.TextMuted,
 						},
 					},
 					core.Show{
@@ -1080,7 +1085,7 @@ func startCreateOutputView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 								},
 								Style: core.Style{
 									FontSize: 12,
-									Color:    specRemoved,
+									Color:    p.Removed.Fg,
 								},
 							}
 						},
@@ -1093,7 +1098,7 @@ func startCreateOutputView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 						},
 						Style: core.Style{
 							FontSize: 11.5,
-							Color:    specTextSecondary,
+							Color:    p.TextSecondary,
 						},
 					},
 				},

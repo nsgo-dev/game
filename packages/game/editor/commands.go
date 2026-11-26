@@ -1695,7 +1695,7 @@ func (e *Editor) initBuiltinCommands() {
 			Keywords:    []string{"agent", "chat", "composer", "mcp", "inspector"},
 			Scope:       ScopeGlobal,
 			Enabled: func() bool {
-				return !e.StartScreenOpen() && !e.SettingsOpen() && !e.AssetGeneratorOpen() && !e.MergeConflictOpen() && !e.ChangesOpen() && !e.BuildReleaseScreenOpen() && !e.UsagesScreenOpen() && !e.PlaytestReportOpen() && !e.HUDLayoutOpen() && e.AgentMode() != AgentModeNone
+				return !e.StartScreenOpen() && !e.FirstRunFullScreenOpen() && !e.SettingsOpen() && !e.AssetGeneratorOpen() && !e.MergeConflictOpen() && !e.ChangesOpen() && !e.BuildReleaseScreenOpen() && !e.UsagesScreenOpen() && !e.PlaytestReportOpen() && !e.HUDLayoutOpen() && e.AgentMode() != AgentModeNone
 			},
 			Checked: func() bool { return e.AgentPanelOpen() },
 			Run: func() error {

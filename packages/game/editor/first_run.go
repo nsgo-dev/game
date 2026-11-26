@@ -389,8 +389,16 @@ func (r *firstRunBuildRun) waitIfPaused(ctx context.Context) error {
 	}
 }
 
+// First-run API key system keychain service and account identifiers (never written to YAML).
+const (
+	FirstRunAPIKeyKeychainService = "dev.nsgo.game.agent"
+	FirstRunAPIKeyKeychainAccount = "api_key"
+)
+
 type firstRunState struct {
-	mu sync.Mutex
+	mu         sync.Mutex
+	headlessMu sync.Mutex
+	scope      *core.Scope
 
 	stage FirstRunStage
 
@@ -401,15 +409,17 @@ type firstRunState struct {
 	agentTools     int
 
 	// Connect in place state.
-	agentOptions      []FirstRunAgentOption
-	selectedAgent     string
-	connectStatus     FirstRunConnectStatus
-	connectStartedAt  time.Time
-	connectErr        string
-	diagnosticsCopied bool
-	apiKey            string
-	connectCancel     context.CancelFunc
-	connectSeq        uint64
+	agentOptions           []FirstRunAgentOption
+	selectedAgent          string
+	connectStatus          FirstRunConnectStatus
+	connectStartedAt       time.Time
+	connectErr             string
+	diagnosticsCopied      bool
+	apiKey                 string
+	apiKeySeq              uint64
+	apiKeyStoredInKeychain bool
+	connectCancel          context.CancelFunc
+	connectSeq             uint64
 
 	// Plan state (no project folder created until Approve).
 	plan *FirstRunPlan
@@ -563,24 +573,80 @@ func (e *Editor) FirstRunFullScreenOpen() bool {
 	return st == FirstRunStagePlan || st == FirstRunStageBuilding || st == FirstRunStageReview
 }
 
-// FirstRunAgentConnected reports whether an agent is currently connected for Start with AI.
-func (e *Editor) FirstRunAgentConnected() bool {
+func (s *firstRunState) setScope(cx *core.Scope) {
+	s.mu.Lock()
+	s.scope = cx
+	s.mu.Unlock()
+}
+
+// FirstRunAPIKeyStoredInKeychain reports whether the validated Start with AI API key was persisted to Editor.Keychain.
+func (e *Editor) FirstRunAPIKeyStoredInKeychain() bool {
 	if e == nil {
 		return false
 	}
 	e.firstRun.mu.Lock()
 	defer e.firstRun.mu.Unlock()
-	return e.firstRun.agentConnected
+	return e.firstRun.apiKeyStoredInKeychain
 }
 
-// FirstRunConnectedAgent returns the connected agent's kind, display name, and tool count.
+// FirstRunAgentConnected reports whether an agent is currently connected for Start with AI,
+// including an active MCP client or configured API-key mode from the editor's Connect an agent flow.
+func (e *Editor) FirstRunAgentConnected() bool {
+	if e == nil {
+		return false
+	}
+	e.firstRun.mu.Lock()
+	connected := e.firstRun.agentConnected
+	e.firstRun.mu.Unlock()
+	if connected {
+		return true
+	}
+	if e.AgentStatus() == AgentStatusConnected || len(e.AgentClients()) > 0 {
+		return true
+	}
+	return e.AgentMode() == AgentModeAPIKey
+}
+
+// FirstRunConnectedAgent returns the connected agent's kind, display name, and tool count,
+// reflecting both Start with AI Connect and active #1200 Agent/MCP connections.
 func (e *Editor) FirstRunConnectedAgent() (kind, name string, tools int) {
 	if e == nil {
 		return "", "", 0
 	}
 	e.firstRun.mu.Lock()
-	defer e.firstRun.mu.Unlock()
-	return e.firstRun.agentKind, e.firstRun.agentName, e.firstRun.agentTools
+	if e.firstRun.agentConnected {
+		kind, name, tools = e.firstRun.agentKind, e.firstRun.agentName, e.firstRun.agentTools
+		e.firstRun.mu.Unlock()
+		return kind, name, tools
+	}
+	e.firstRun.mu.Unlock()
+
+	if e.AgentStatus() == AgentStatusConnected || len(e.AgentClients()) > 0 {
+		client, ok := e.AgentPrimaryClient()
+		display := "Agent"
+		inferredKind := "claude"
+		if ok {
+			if client.DisplayName != "" {
+				display = client.DisplayName
+			} else if client.Name != "" {
+				display = FriendlyAgentName(client.Name)
+			}
+			lower := strings.ToLower(client.Name + " " + display)
+			switch {
+			case strings.Contains(lower, "codex"):
+				inferredKind = "codex"
+			case strings.Contains(lower, "claude"):
+				inferredKind = "claude"
+			default:
+				inferredKind = "local"
+			}
+		}
+		return inferredKind, display, 18
+	}
+	if e.AgentMode() == AgentModeAPIKey {
+		return "apikey", firstRunAgentDisplayName("apikey"), 18
+	}
+	return "", "", 0
 }
 
 // SetFirstRunAgentConnected configures whether an agent is already connected (for example when
@@ -709,6 +775,8 @@ func (e *Editor) StartWithAI() error {
 	}
 
 	e.cancelFirstRunConnect()
+	var existingKey string
+	var keySeq uint64
 	e.firstRun.mu.Lock()
 	e.firstRun.stage = FirstRunStageConnect
 	e.firstRun.agentOptions = slices.Clone(opts)
@@ -716,16 +784,24 @@ func (e *Editor) StartWithAI() error {
 	e.firstRun.diagnosticsCopied = false
 	e.firstRun.connectErr = ""
 	if selected == "apikey" {
-		if e.firstRun.apiKey != "" {
-			e.firstRun.connectStatus = e.connectStatusForAPIKey(e.firstRun.apiKey)
-		} else {
-			e.firstRun.connectStatus = FirstRunConnectKeyIdle
-		}
+		existingKey = e.firstRun.apiKey
+		e.firstRun.apiKeySeq++
+		keySeq = e.firstRun.apiKeySeq
+		e.firstRun.connectStatus = FirstRunConnectKeyIdle
 	} else {
 		e.firstRun.connectStatus = FirstRunConnectConnecting
 		e.firstRun.connectStartedAt = e.now()
 	}
 	e.firstRun.mu.Unlock()
+
+	if selected == "apikey" && existingKey != "" {
+		st := e.connectStatusForAPIKey(existingKey)
+		e.firstRun.mu.Lock()
+		if e.firstRun.selectedAgent == "apikey" && e.firstRun.apiKeySeq == keySeq {
+			e.firstRun.connectStatus = st
+		}
+		e.firstRun.mu.Unlock()
+	}
 
 	e.SetStartScreenOpen(true)
 	if selected != "apikey" {
@@ -835,12 +911,19 @@ func (e *Editor) SelectFirstRunAgent(kind string) error {
 	e.firstRun.diagnosticsCopied = false
 	e.firstRun.connectErr = ""
 	if kind == "apikey" {
-		if e.firstRun.apiKey != "" {
-			e.firstRun.connectStatus = e.connectStatusForAPIKey(e.firstRun.apiKey)
-		} else {
-			e.firstRun.connectStatus = FirstRunConnectKeyIdle
-		}
+		existingKey := e.firstRun.apiKey
+		e.firstRun.apiKeySeq++
+		keySeq := e.firstRun.apiKeySeq
+		e.firstRun.connectStatus = FirstRunConnectKeyIdle
 		e.firstRun.mu.Unlock()
+		if existingKey != "" {
+			st := e.connectStatusForAPIKey(existingKey)
+			e.firstRun.mu.Lock()
+			if e.firstRun.selectedAgent == "apikey" && e.firstRun.apiKeySeq == keySeq {
+				e.firstRun.connectStatus = st
+			}
+			e.firstRun.mu.Unlock()
+		}
 		e.notify()
 		return nil
 	}
@@ -865,7 +948,11 @@ func (e *Editor) cancelFirstRunConnect() {
 }
 
 func (e *Editor) startFirstRunConnectHandshake(kind, displayPath string) {
-	ctx, cancel := context.WithCancel(context.Background())
+	timeout := e.FirstRunConnectTimeout
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	e.firstRun.mu.Lock()
 	e.firstRun.connectSeq++
 	seq := e.firstRun.connectSeq
@@ -878,6 +965,7 @@ func (e *Editor) startFirstRunConnectHandshake(kind, displayPath string) {
 	}
 
 	go func() {
+		defer cancel()
 		tools, err := connector(ctx, kind, displayPath)
 		apply := func() {
 			e.firstRun.mu.Lock()
@@ -989,15 +1077,22 @@ func (e *Editor) FirstRunAPIKey() string {
 	return e.firstRun.apiKey
 }
 
-// SetFirstRunAPIKey updates the in-memory API key and immediately validates it.
+// SetFirstRunAPIKey updates the in-memory API key and immediately validates it without holding firstRun.mu.
 func (e *Editor) SetFirstRunAPIKey(key string) {
 	if e == nil {
 		return
 	}
-	st := e.connectStatusForAPIKey(key)
 	e.firstRun.mu.Lock()
 	e.firstRun.apiKey = key
-	if e.firstRun.selectedAgent == "apikey" {
+	e.firstRun.apiKeyStoredInKeychain = false
+	e.firstRun.apiKeySeq++
+	seq := e.firstRun.apiKeySeq
+	e.firstRun.mu.Unlock()
+
+	st := e.connectStatusForAPIKey(key)
+
+	e.firstRun.mu.Lock()
+	if e.firstRun.apiKeySeq == seq && e.firstRun.selectedAgent == "apikey" {
 		e.firstRun.connectStatus = st
 	}
 	e.firstRun.mu.Unlock()
@@ -1012,7 +1107,9 @@ func (e *Editor) connectStatusForAPIKey(key string) FirstRunConnectStatus {
 	validator := e.FirstRunValidateAPIKey
 	var res FirstRunAPIKeyStatus
 	if validator != nil {
-		res = validator(context.Background(), trimmed)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		res = validator(ctx, trimmed)
 	} else {
 		res = defaultValidateAPIKey(trimmed)
 	}
@@ -1063,6 +1160,7 @@ func (e *Editor) DeferFirstRunConnect() {
 }
 
 // FinishFirstRunConnect completes Connect in place once an agent has answered or an API key is verified,
+// syncs the #1200 Agent mode (and persists a validated API key via Editor.Keychain when available),
 // and immediately opens Step 3 (The first plan) without creating any project folder on disk.
 func (e *Editor) FinishFirstRunConnect() error {
 	if e == nil {
@@ -1074,6 +1172,7 @@ func (e *Editor) FinishFirstRunConnect() error {
 	e.firstRun.mu.Lock()
 	kind := e.firstRun.selectedAgent
 	tools := e.firstRun.agentTools
+	apiKey := strings.TrimSpace(e.firstRun.apiKey)
 	if tools <= 0 {
 		tools = 18
 	}
@@ -1082,6 +1181,24 @@ func (e *Editor) FinishFirstRunConnect() error {
 	e.firstRun.agentName = firstRunAgentDisplayName(kind)
 	e.firstRun.agentTools = tools
 	e.firstRun.mu.Unlock()
+
+	if kind == "apikey" {
+		e.agent.mode = AgentModeAPIKey
+		stored := false
+		if e.Keychain != nil && apiKey != "" {
+			if err := e.Keychain.Set(FirstRunAPIKeyKeychainService, FirstRunAPIKeyKeychainAccount, apiKey); err == nil {
+				stored = true
+			}
+		}
+		e.firstRun.mu.Lock()
+		e.firstRun.apiKeyStoredInKeychain = stored
+		e.firstRun.mu.Unlock()
+	} else {
+		e.agent.mode = AgentModeLocal
+		if e.agent.status == AgentStatusNotConnected {
+			e.agent.status = AgentStatusConnected
+		}
+	}
 
 	return e.OpenFirstRunPlan()
 }
@@ -1118,7 +1235,9 @@ func (e *Editor) OpenFirstRunPlan() error {
 	var plan *FirstRunPlan
 	var err error
 	if planner != nil {
-		plan, err = planner(context.Background(), req)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		plan, err = planner(ctx, req)
+		cancel()
 		if err != nil {
 			return err
 		}
@@ -1131,6 +1250,8 @@ func (e *Editor) OpenFirstRunPlan() error {
 	}
 	if plan.TargetDir == "" {
 		plan.TargetDir = v.TargetDir
+	} else if filepath.Clean(plan.TargetDir) != filepath.Clean(v.TargetDir) {
+		return fmt.Errorf("editor: planner target directory %q does not match validated path %q", plan.TargetDir, v.TargetDir)
 	}
 	if plan.DisplayPath == "" {
 		plan.DisplayPath = v.DisplayPath
@@ -1140,6 +1261,9 @@ func (e *Editor) OpenFirstRunPlan() error {
 	}
 	if plan.SceneName == "" {
 		plan.SceneName = "level_01"
+	}
+	if err := validateFirstRunSceneName(plan.SceneName); err != nil {
+		return err
 	}
 
 	e.firstRun.mu.Lock()
@@ -1390,26 +1514,38 @@ func (e *Editor) ApproveFirstRunPlan() error {
 		return errors.New("editor: no first-run plan active")
 	}
 
+	if err := validateFirstRunSceneName(plan.SceneName); err != nil {
+		return err
+	}
 	targetDir := filepath.Clean(plan.TargetDir)
 	if targetDir == "" || targetDir == "." {
 		return errors.New("editor: empty project target directory")
 	}
-	// Safety invariant: refuse to claim or overwrite an existing folder.
-	if _, err := os.Stat(targetDir); err == nil {
-		return fmt.Errorf("editor: folder %s already exists", shortenHomePath(targetDir))
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
+	absTarget, err := filepath.Abs(targetDir)
+	if err != nil {
+		return fmt.Errorf("editor: resolve project target directory: %w", err)
 	}
-
-	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+	if !isSafeOwnedProjectDir(absTarget) {
+		return fmt.Errorf("editor: refusing unsafe project target directory %s", shortenHomePath(absTarget))
+	}
+	if err := os.MkdirAll(filepath.Dir(absTarget), 0o755); err != nil {
+		return fmt.Errorf("editor: create parent folder: %w", err)
+	}
+	// Safety invariant: create the target directory atomically with os.Mkdir so a pre-existing
+	// directory or symlink can never be claimed as createdByFlow (eliminates TOCTOU).
+	if err := os.Mkdir(absTarget, 0o755); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return fmt.Errorf("editor: folder %s already exists", shortenHomePath(absTarget))
+		}
 		return fmt.Errorf("editor: create project folder: %w", err)
 	}
-	absDir, err := filepath.Abs(targetDir)
-	if err != nil {
-		absDir = targetDir
-	}
-	if realDir, err := filepath.EvalSymlinks(absDir); err == nil {
+	absDir := absTarget
+	if realDir, err := filepath.EvalSymlinks(absTarget); err == nil {
 		absDir = realDir
+	}
+	if !isSafeOwnedProjectDir(absDir) {
+		_ = os.Remove(absTarget)
+		return fmt.Errorf("editor: refusing unsafe project target directory %s", shortenHomePath(absDir))
 	}
 
 	now := e.now()
@@ -1644,14 +1780,26 @@ func (e *Editor) defaultFirstRunBuilder(ctx context.Context, req FirstRunBuildRe
 	}
 	// Stage 1: Project scaffold.
 	if e.CreateProject != nil {
-		// Remove empty dir first if CreateProject expects to create it itself, then recreate cleanly on error.
 		createReq := CreateProjectRequest{
 			Name:     req.Plan.ProjectName,
 			Dir:      req.ProjectDir,
 			Module:   req.Plan.Module,
 			Template: req.Plan.Template,
 		}
-		if err := e.CreateProject(ctx, createReq, io.Discard, io.Discard); err != nil {
+		err := e.CreateProject(ctx, createReq, io.Discard, io.Discard)
+		if err != nil && ctx.Err() == nil {
+			// ApproveFirstRunPlan atomically reserved req.ProjectDir as an empty directory;
+			// if game new refused an existing empty folder, release the empty dir and retry once.
+			if entries, readErr := os.ReadDir(req.ProjectDir); readErr == nil && len(entries) == 0 {
+				if rmErr := os.Remove(req.ProjectDir); rmErr == nil {
+					err = e.CreateProject(ctx, createReq, io.Discard, io.Discard)
+					if _, statErr := os.Stat(req.ProjectDir); errors.Is(statErr, os.ErrNotExist) {
+						_ = os.Mkdir(req.ProjectDir, 0o755)
+					}
+				}
+			}
+		}
+		if err != nil {
 			// Fall back to minimal pure-Go scaffold only if game.yaml wasn't written yet and ctx isn't cancelled.
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
@@ -1755,7 +1903,38 @@ func (e *Editor) defaultFirstRunBuilder(ctx context.Context, req FirstRunBuildRe
 	return res, nil
 }
 
+func validateFirstRunSceneName(name string) error {
+	if name == "" || name == "." || name == ".." {
+		return fmt.Errorf("editor: invalid first-run scene name %q", name)
+	}
+	for _, r := range name {
+		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-') {
+			return fmt.Errorf("editor: invalid first-run scene name %q", name)
+		}
+	}
+	return nil
+}
+
+func safeJoinUnderDir(baseDir, rel string) (string, error) {
+	if rel == "" || filepath.IsAbs(rel) {
+		return "", fmt.Errorf("editor: path %q must be relative to project root", rel)
+	}
+	cleanBase, err := filepath.Abs(filepath.Clean(baseDir))
+	if err != nil {
+		return "", err
+	}
+	full := filepath.Clean(filepath.Join(cleanBase, rel))
+	r, err := filepath.Rel(cleanBase, full)
+	if err != nil || r == "." || r == ".." || strings.HasPrefix(r, ".."+string(filepath.Separator)) || filepath.IsAbs(r) {
+		return "", fmt.Errorf("editor: path %q escapes project directory", rel)
+	}
+	return full, nil
+}
+
 func scaffoldFirstRunProject(dir string, plan FirstRunPlan) error {
+	if err := validateFirstRunSceneName(plan.SceneName); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Join(dir, "scenes"), 0o755); err != nil {
 		return err
 	}
@@ -1764,15 +1943,34 @@ func scaffoldFirstRunProject(dir string, plan FirstRunPlan) error {
 	if idSlug == "" {
 		idSlug = "mygame"
 	}
-	gameYAML := fmt.Sprintf("version: 1\nname: %s\nid: dev.nsgo.%s\nappVersion: 0.1.0\nmainScene: %s\nwindow:\n  width: 640\n  height: 360\n",
-		plan.ProjectName, idSlug, sceneRel)
-	if err := os.WriteFile(filepath.Join(dir, project.FileName), []byte(gameYAML), 0o644); err != nil {
+	pf := &project.File{
+		Version:    project.CurrentVersion,
+		Name:       plan.ProjectName,
+		ID:         "dev.nsgo." + idSlug,
+		AppVersion: "0.1.0",
+		Window: project.Window{
+			Width:  640,
+			Height: 360,
+		},
+	}
+	gameYAML, err := project.Encode(pf)
+	if err != nil {
+		return err
+	}
+	if err := writeFileAtomic(filepath.Join(dir, project.FileName), gameYAML); err != nil {
 		return err
 	}
 	return writeFirstRunScene(dir, sceneRel, plan)
 }
 
 func writeFirstRunScene(dir, sceneRel string, plan FirstRunPlan) error {
+	if err := validateFirstRunSceneName(plan.SceneName); err != nil {
+		return err
+	}
+	full, err := safeJoinUnderDir(dir, filepath.FromSlash(sceneRel))
+	if err != nil {
+		return err
+	}
 	doc := &sceneformat.SceneDoc{
 		Version:         sceneformat.CurrentVersion,
 		Name:            plan.SceneName,
@@ -1811,11 +2009,10 @@ func writeFirstRunScene(dir, sceneRel string, plan FirstRunPlan) error {
 	if err != nil {
 		return err
 	}
-	full := filepath.Join(dir, filepath.FromSlash(sceneRel))
 	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(full, data, 0o644)
+	return writeFileAtomic(full, data)
 }
 
 func defaultFirstRunBuildResult(plan *FirstRunPlan) *FirstRunBuildResult {
@@ -2091,16 +2288,25 @@ func (e *Editor) StopFirstRunDeleteFolder() error {
 		select {
 		case <-run.done:
 		case <-time.After(2 * time.Second):
+			e.firstRun.mu.Lock()
+			if e.firstRun.buildOutcome == FirstRunBuildStoppedDeleted {
+				e.firstRun.buildOutcome = FirstRunBuildStoppedKept
+			}
+			e.firstRun.mu.Unlock()
+			e.notify()
+			return errors.New("editor: build did not stop in time; folder was not deleted")
 		}
 	}
 
-	// Detach project if the editor had opened it inside dirToDelete.
+	// Detach project and stop watchers/autosave if the editor had opened it inside dirToDelete.
 	if e.ProjectPath != "" {
 		projRoot := filepath.Dir(e.ProjectPath)
 		if realProj, err := filepath.EvalSymlinks(projRoot); err == nil {
 			projRoot = realProj
 		}
 		if filepath.Clean(projRoot) == filepath.Clean(dirToDelete) {
+			e.stopDiskWatcher()
+			e.stopAutoSave()
 			e.Project = nil
 			e.ProjectPath = ""
 			e.FilePath = ""
@@ -2384,6 +2590,7 @@ func (e *Editor) KeepFirstRunReview() error {
 		}
 	}
 	e.setStartScreenEntered()
+	e.scheduleAutoSaveIfNeeded()
 	e.ShowToast(Toast{
 		ID:      "first-run-kept",
 		Kind:    ToastSuccess,
@@ -2391,6 +2598,20 @@ func (e *Editor) KeepFirstRunReview() error {
 	})
 	e.notify()
 	return nil
+}
+
+func (e *Editor) resetFirstRunFlow() {
+	if e == nil {
+		return
+	}
+	e.cancelFirstRunOps()
+	e.firstRun.mu.Lock()
+	e.firstRun.stage = FirstRunStageNone
+	e.firstRun.plan = nil
+	e.firstRun.buildCheckFailure = nil
+	e.firstRun.buildPendingRes = nil
+	e.firstRun.reviewPeekBefore = false
+	e.firstRun.mu.Unlock()
 }
 
 func (e *Editor) cancelFirstRunOps() {
@@ -2411,16 +2632,20 @@ func (e *Editor) firstRunPostOrRun(fn func()) {
 	if fn == nil {
 		return
 	}
-	e.startScreen.mu.Lock()
-	scope := e.startScreen.scope
-	e.startScreen.mu.Unlock()
+	e.firstRun.mu.Lock()
+	scope := e.firstRun.scope
+	e.firstRun.mu.Unlock()
 	if scope == nil {
-		scope = e.scope
+		e.startScreen.mu.Lock()
+		scope = e.startScreen.scope
+		e.startScreen.mu.Unlock()
 	}
 	if scope != nil {
 		scope.Post(fn)
 		return
 	}
+	e.firstRun.headlessMu.Lock()
+	defer e.firstRun.headlessMu.Unlock()
 	fn()
 }
 
