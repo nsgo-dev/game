@@ -550,6 +550,12 @@ type Editor struct {
 	SaveFileWriter func(path string, data []byte) error
 	// FreeSpaceBytes optionally overrides available-disk-space lookup for path when formatting disk-full save errors (for example "Couldn't save: disk is full · 12 MB free"). When nil, the OS filesystem free space is queried.
 	FreeSpaceBytes func(path string) (uint64, bool)
+	// AgentTaskRunner, when set, executes each background agent task started by SubmitTask or the queue scheduler in its own goroutine.
+	AgentTaskRunner func(ctx context.Context, task AgentTask) error
+	// OnTaskPermissionDecision, when set, is called when the user clicks Allow once or Deny on a TaskNeedsYou task.
+	OnTaskPermissionDecision func(taskID string, allow bool)
+	// ThreadsDir optionally overrides where *.thread.yaml background task files are persisted; when empty, <projectDir>/.nsgo/threads is used while a project is open.
+	ThreadsDir string
 
 	playing            bool
 	playPaused         bool
@@ -876,6 +882,8 @@ type Editor struct {
 	perms permissionsState
 	// askInPlace holds the anchored ⌘L in-place composer state, contextual suggestions, and return focus.
 	askInPlace askInPlaceState
+	// tasks holds the background agent task list, queue/parallel scheduling, and thread persistence state.
+	tasks agentTasksState
 }
 
 // DefaultSceneDoc returns a valid starter SceneDoc suitable for a new editor session.
@@ -1029,6 +1037,7 @@ func (e *Editor) AttachScope(cx *core.Scope) {
 	e.remote.setScope(cx)
 	e.agent.setScope(cx)
 	e.buildRelease.setScope(cx)
+	e.tasks.setScope(cx)
 	e.setDiskWatcherScope(cx)
 	e.setAutoSaveScope(cx)
 	if cx != nil {

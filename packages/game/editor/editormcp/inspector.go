@@ -91,6 +91,22 @@ func objectSetField(ctx context.Context, c *Call) (*Result, error) {
 	if args.Component != "" && args.Property {
 		return nil, errors.New("object_set_field: component and property cannot both be set")
 	}
+	if !c.onEditor {
+		holdTarget := args.ID
+		if holdTarget == "" {
+			_ = c.Editor(ctx, func(ed *editor.Editor) error {
+				holdTarget = ed.SelectedID
+				return nil
+			})
+		}
+		if holdTarget != "" {
+			release, err := c.s.acquireObjectHolds(ctx, c.taskID, []string{holdTarget})
+			if err != nil {
+				return nil, err
+			}
+			defer release()
+		}
+	}
 	var res ObjectFieldResult
 	err := c.Editor(ctx, func(ed *editor.Editor) error {
 		root := projectRoot(ed)
@@ -108,6 +124,9 @@ func objectSetField(ctx context.Context, c *Call) (*Result, error) {
 		}
 		if obj, _, _ := ed.FindObject(targetID); obj == nil {
 			return &EditError{File: name, Object: targetID, Field: args.Field, Problem: "the open scene has no object " + quote(targetID), Fix: "use an object ID present in the open scene"}
+		}
+		if c.taskID != "" {
+			c.s.captureTaskBeforeYAML(c.taskID, ed)
 		}
 		res.Object = targetID
 		res.Component = args.Component
@@ -152,6 +171,9 @@ func objectSetField(ctx context.Context, c *Call) (*Result, error) {
 	})
 	if err != nil {
 		return nil, err
+	}
+	if c.taskID != "" {
+		c.s.recordTaskObjectFieldEdit(c.taskID, res.File, res.Object, res.Field)
 	}
 	if err := c.Editor(ctx, func(ed *editor.Editor) error {
 		res.Undo = ed.History.UndoLabel()

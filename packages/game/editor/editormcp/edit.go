@@ -124,6 +124,14 @@ func sceneEdit(ctx context.Context, c *Call) (*Result, error) {
 	if err := c.Decode(&args); err != nil {
 		return nil, &EditError{File: "the open scene", Problem: err.Error(), Fix: "pass {\"edits\": [{\"op\": ..., ...}]} with the fields the tool's schema lists"}
 	}
+	if !c.onEditor {
+		targets := targetObjectIDs(args.Edits)
+		release, err := c.s.acquireObjectHolds(ctx, c.taskID, targets)
+		if err != nil {
+			return nil, err
+		}
+		defer release()
+	}
 	var res EditResult
 	err := c.Editor(ctx, func(ed *editor.Editor) error {
 		root := projectRoot(ed)
@@ -144,6 +152,9 @@ func sceneEdit(ctx context.Context, c *Call) (*Result, error) {
 		if ed.Playing() {
 			return &EditError{File: name, Problem: "the scene is playing in the editor, which refuses edits", Fix: "ask the person to stop playing, then edit"}
 		}
+		if c.taskID != "" {
+			c.s.captureTaskBeforeYAML(c.taskID, ed)
+		}
 		label := args.Label
 		if label == "" {
 			label = editLabel(args.Edits)
@@ -163,6 +174,9 @@ func sceneEdit(ctx context.Context, c *Call) (*Result, error) {
 	})
 	if err != nil {
 		return nil, err
+	}
+	if c.taskID != "" {
+		c.s.recordTaskEdits(c.taskID, res.File, args.Edits, res.Objects)
 	}
 	err = c.Editor(ctx, func(ed *editor.Editor) error {
 		res.Undo = ed.History.UndoLabel()

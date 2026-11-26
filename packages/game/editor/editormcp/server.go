@@ -87,6 +87,9 @@ type Call struct {
 	s    *Server
 	// onEditor reports that the call runs on the editor's goroutine already, as an automation tool's handler does.
 	onEditor bool
+	// session and taskID identify the calling MCP session and its bound background task, if any.
+	session *mcp.ServerSession
+	taskID  string
 }
 
 // Editor runs fn on the editor's goroutine and returns its error; see Server.Editor.
@@ -192,6 +195,7 @@ type Server struct {
 	pendingMu sync.Mutex
 	pending   map[string]mcp.Meta
 	wake      chan struct{}
+	holds     *objectHoldManager
 }
 
 type trackedSession struct {
@@ -215,6 +219,7 @@ func New(ed *editor.Editor, opts Options) *Server {
 		done:           make(chan struct{}),
 		pending:        map[string]mcp.Meta{},
 		wake:           make(chan struct{}, 1),
+		holds:          newObjectHoldManager(),
 	}
 	s.sdk = mcp.NewServer(&mcp.Implementation{Name: ServerName, Title: "NSGo Game Editor"}, &mcp.ServerOptions{
 		Instructions:       instructions,
@@ -237,6 +242,7 @@ func New(ed *editor.Editor, opts Options) *Server {
 	if ed.AgentReconnectProbe == nil {
 		ed.AgentReconnectProbe = s.probeClient
 	}
+	ed.SetTaskHoldReleaseHook(s.ReleaseTaskHolds)
 	s.wg.Add(1)
 	go s.sendNotices()
 	return s
@@ -675,6 +681,7 @@ func (s *Server) Close() error {
 		s.unsub = nil
 	}
 	if s.ed != nil {
+		s.ed.SetTaskHoldReleaseHook(nil)
 		s.ed.CancelAgentReconnect()
 		s.ed.AgentReconnectProbe = nil
 	}
@@ -684,11 +691,15 @@ func (s *Server) Close() error {
 // handler adapts t to the SDK's tool handler: a tool's error is a tool result the agent reads, never a protocol error.
 func (s *Server) handler(t Tool) mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		res, err := s.call(ctx, t, req.Params.Arguments, false)
+		var sess *mcp.ServerSession
+		if req != nil {
+			sess = req.Session
+		}
+		res, err := s.callWithSession(ctx, t, req.Params.Arguments, false, sess)
 		clientName := ""
-		if req != nil && req.Session != nil {
+		if sess != nil {
 			s.mu.Lock()
-			if ts, ok := s.sessions[req.Session]; ok {
+			if ts, ok := s.sessions[sess]; ok {
 				clientName = ts.info.DisplayName
 			}
 			s.mu.Unlock()
@@ -706,6 +717,10 @@ func (s *Server) handler(t Tool) mcp.ToolHandler {
 
 // call runs t with args after checking the editor's permission rules, recovering a panic as an error; onEditor says the caller is on the editor's goroutine.
 func (s *Server) call(ctx context.Context, t Tool, args json.RawMessage, onEditor bool) (res *Result, err error) {
+	return s.callWithSession(ctx, t, args, onEditor, nil)
+}
+
+func (s *Server) callWithSession(ctx context.Context, t Tool, args json.RawMessage, onEditor bool, session *mcp.ServerSession) (res *Result, err error) {
 	if len(args) == 0 || string(args) == "null" {
 		args = json.RawMessage(`{}`)
 	}
@@ -717,7 +732,13 @@ func (s *Server) call(ctx context.Context, t Tool, args json.RawMessage, onEdito
 	if err := s.checkPermission(ctx, t, args, onEditor); err != nil {
 		return nil, err
 	}
-	res, err = t.Handler(ctx, &Call{Args: args, s: s, onEditor: onEditor})
+	res, err = t.Handler(ctx, &Call{
+		Args:     args,
+		s:        s,
+		onEditor: onEditor,
+		session:  session,
+		taskID:   s.sessionTaskID(session),
+	})
 	if warn := s.saveFailureWarning(ctx, onEditor); warn != nil {
 		if err != nil {
 			err = &saveWarningError{err: err, warning: warn}

@@ -117,6 +117,9 @@ func ExampleServer_AddTool() {
 	// selection_get read
 	// states_test run
 	// states_write edit
+	// tasks_control edit
+	// tasks_list read
+	// tasks_submit edit
 	// tile_autotile edit
 	// tile_erase edit
 	// tile_paint edit
