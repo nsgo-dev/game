@@ -61,11 +61,11 @@ const (
 )
 
 const (
-	defaultLeftDockSize   core.Points = 444
-	defaultSceneColSize   core.Points = 220
+	defaultLeftDockSize   core.Points = 232
+	defaultSceneColSize   core.Points = 232
 	defaultAssetsColSize  core.Points = 224
-	defaultLayersSize     core.Points = 200
-	defaultInspectorSize  core.Points = 272
+	defaultLayersSize     core.Points = 220
+	defaultInspectorSize  core.Points = 380
 	defaultRightDockSize  core.Points = 224
 	defaultBottomDockSize core.Points = 140
 	defaultPluginSize     core.Points = 224
@@ -157,10 +157,10 @@ type builtinPanelSpec struct {
 var builtinPanelSpecs = []builtinPanelSpec{
 	{key: PanelViewport, title: "Viewport", defaultDock: DockLeft, persistent: true, closable: false},
 	{key: PanelSceneTree, title: "Scene", defaultDock: DockLeft, persistent: true, closable: true},
-	{key: PanelLayers, title: "Layers", defaultDock: DockLeft, persistent: true, closable: true},
-	{key: PanelAssets, title: "Assets", defaultDock: DockLeft, persistent: true, closable: true},
-	{key: PanelFiles, title: "Files", defaultDock: DockLeft, persistent: true, closable: true},
-	{key: PanelLibrary, title: "Library", defaultDock: DockLeft, persistent: true, closable: true},
+	{key: PanelLayers, title: "Layers", defaultDock: DockLeft, persistent: false, closable: true},
+	{key: PanelAssets, title: "Assets", defaultDock: DockLeft, persistent: false, closable: true},
+	{key: PanelFiles, title: "Files", defaultDock: DockLeft, persistent: false, closable: true},
+	{key: PanelLibrary, title: "Library", defaultDock: DockLeft, persistent: false, closable: true},
 	{key: PanelInspector, title: "Inspector", defaultDock: DockRight, persistent: true, closable: true},
 	{key: PanelProblems, title: "Problems", defaultDock: DockBottom, persistent: true, closable: true},
 	{key: PanelOutput, title: "Output", defaultDock: DockBottom, persistent: false, closable: true},
@@ -203,21 +203,13 @@ func DefaultLayoutFile() *LayoutFile {
 }
 
 func defaultDockBlueprint() dock.Layout {
-	sceneCol := dock.Split(base.Vertical, dock.Tabs(PanelSceneTree), dock.Tabs(PanelLayers))
-	sceneCol.Sizes = []core.Points{0, defaultLayersSize}
-
-	assetsCol := dock.Split(base.Vertical, dock.Tabs(PanelAssets), dock.Tabs(PanelFiles))
-
-	leftRoot := dock.Split(base.Horizontal, sceneCol, assetsCol)
-	leftRoot.Sizes = []core.Points{defaultSceneColSize, defaultAssetsColSize}
-
 	centerRoot := dock.Split(base.Horizontal, dock.Tabs(PanelViewport), dock.Tabs(PanelInspector))
 	centerRoot.Sizes = []core.Points{0, defaultInspectorSize}
 
 	return dock.Layout{
 		Center: centerRoot,
 		Left: &dock.Region{
-			Root: leftRoot,
+			Root: dock.Tabs(PanelSceneTree),
 			Size: defaultLeftDockSize,
 		},
 		Bottom: &dock.Region{
@@ -1011,17 +1003,79 @@ type savedPluginHint struct {
 
 type dockLayoutState struct {
 	initialized        bool
+	userSizedLeft      bool
 	userSizedBottom    bool
 	userSizedInspector bool
 	userClosedRegion   map[dock.Placement]bool
 	blueprint          dock.Layout
 	hidden             map[string]bool
+	restoredAux        map[string]bool
 	pluginHints        map[string]savedPluginHint
 	lastAvailable      map[string]bool
 	lastActive         dock.Layout
 	lastSyncKey        string
 	rev                uint64
 	areaRef            *dock.AreaRef
+}
+
+func isAuxiliaryPanel(key string) bool {
+	switch key {
+	case PanelLayers, PanelAssets, PanelFiles, PanelLibrary:
+		return true
+	default:
+		return false
+	}
+}
+
+func (e *Editor) auxiliaryPanelOpen(key string) bool {
+	switch key {
+	case PanelLayers:
+		return e.LayersPanelOpen()
+	case PanelAssets:
+		return e.AssetBrowserOpen()
+	case PanelFiles:
+		return e.FileBrowserOpen()
+	case PanelLibrary:
+		return e.LibraryPanelOpen()
+	default:
+		return false
+	}
+}
+
+func preferredLeftColumnWidth(n dock.Node) core.Points {
+	if n.Tabs {
+		for _, k := range n.Panels {
+			if k == PanelSceneTree {
+				return defaultSceneColSize
+			}
+		}
+		for _, k := range n.Panels {
+			if k == PanelLayers {
+				return defaultLayersSize
+			}
+		}
+		return defaultAssetsColSize
+	}
+	if n.Axis == base.Horizontal {
+		var total core.Points
+		for _, c := range n.Children {
+			total += preferredLeftColumnWidth(c)
+		}
+		if total > 0 {
+			return total
+		}
+		return defaultLeftDockSize
+	}
+	var maxW core.Points
+	for _, c := range n.Children {
+		if w := preferredLeftColumnWidth(c); w > maxW {
+			maxW = w
+		}
+	}
+	if maxW > 0 {
+		return maxW
+	}
+	return defaultLeftDockSize
 }
 
 func (e *Editor) preferredInspectorWidth() core.Points {
@@ -1154,12 +1208,29 @@ func (e *Editor) applyLoadedLayoutFile(f *LayoutFile) {
 	}
 	prunedHidden := map[string]bool{}
 	for k, h := range hidden {
-		if h && k != PanelViewport && e.isKnownPanel(k) {
-			prunedHidden[k] = true
+		if !h || k == PanelViewport || !e.isKnownPanel(k) {
+			continue
 		}
+		if spec, ok := builtinSpec(k); ok && !spec.persistent {
+			continue
+		}
+		prunedHidden[k] = true
 	}
 	e.dock.blueprint = pruned
 	e.dock.hidden = prunedHidden
+	e.dock.restoredAux = map[string]bool{}
+	auxOpen := func(key string) bool {
+		open := dockLayoutHasPanel(&pruned, key) && !hidden[key]
+		if open {
+			e.dock.restoredAux[key] = true
+		}
+		return open
+	}
+	e.layersPanelOpen = auxOpen(PanelLayers)
+	e.assetBrowserOpen = auxOpen(PanelAssets)
+	e.fileBrowserOpen = auxOpen(PanelFiles)
+	e.libraryPanelOpen = auxOpen(PanelLibrary)
+	e.dock.userSizedLeft = pruned.Left != nil && pruned.Left.Size > 0 && pruned.Left.Size != defaultLeftDockSize
 	e.dock.userSizedBottom = pruned.Bottom != nil && pruned.Bottom.Size > 0
 	if sz, ok := inspectorSplitSize(&pruned); ok && sz > 0 && sz != defaultInspectorSize {
 		e.dock.userSizedInspector = true
@@ -1196,7 +1267,18 @@ func (e *Editor) LayoutFile() *LayoutFile {
 	if !dockLayoutHasPanel(&pruned, PanelViewport) {
 		pruned.Center = insertSplitOrTab(pruned.Center, PanelViewport, base.Horizontal, true, 0)
 	}
-	return layoutFileFromDock(pruned, e.dock.hidden)
+	hidden := make(map[string]bool, len(e.dock.hidden))
+	for k, h := range e.dock.hidden {
+		if h {
+			hidden[k] = true
+		}
+	}
+	for _, k := range dockLayoutPanels(&pruned) {
+		if isAuxiliaryPanel(k) && !e.auxiliaryPanelOpen(k) {
+			hidden[k] = true
+		}
+	}
+	return layoutFileFromDock(pruned, hidden)
 }
 
 // DockLayout returns the effective dock.Layout currently displayed by ui.DockArea.
@@ -1223,14 +1305,20 @@ func (e *Editor) ResetLayout() {
 		return
 	}
 	e.dock.initialized = true
+	e.dock.userSizedLeft = false
 	e.dock.userSizedBottom = false
 	e.dock.userSizedInspector = false
 	e.dock.userClosedRegion = nil
 	e.dock.blueprint = defaultDockBlueprint()
 	e.dock.hidden = map[string]bool{}
+	e.dock.restoredAux = nil
 	e.dock.pluginHints = nil
 	e.dock.lastAvailable = nil
 	e.dock.lastSyncKey = ""
+	e.layersPanelOpen = false
+	e.assetBrowserOpen = false
+	e.fileBrowserOpen = false
+	e.libraryPanelOpen = false
 	e.dock.rev++
 	e.syncDockLayout(false)
 	_ = e.SaveLayout()
@@ -1275,6 +1363,9 @@ func (e *Editor) SetDockLayout(l dock.Layout) {
 		reinsertPreservedPanel(&nextBlueprint, &oldBlueprint, k)
 	}
 
+	if oldActive.Left != nil && l.Left != nil && oldActive.Left.Size != l.Left.Size {
+		e.dock.userSizedLeft = true
+	}
 	if oldActive.Bottom != nil && l.Bottom != nil && oldActive.Bottom.Size != l.Bottom.Size {
 		e.dock.userSizedBottom = true
 	}
@@ -1327,6 +1418,10 @@ func (e *Editor) MovePanel(key, targetPanel string) bool {
 		}
 	}
 	delete(e.dock.hidden, key)
+	delete(e.dock.restoredAux, key)
+	if isAuxiliaryPanel(key) {
+		e.setToggleablePanelOpen(key, true)
+	}
 	e.dock.blueprint = next
 	e.dock.lastSyncKey = ""
 	e.dock.rev++
@@ -1366,6 +1461,10 @@ func (e *Editor) SetPanelVisible(key string, visible bool) {
 	}
 	e.ensureDockLayout()
 	if spec, ok := builtinSpec(key); ok && !spec.persistent {
+		if visible {
+			delete(e.dock.hidden, key)
+			delete(e.dock.restoredAux, key)
+		}
 		e.setToggleablePanelOpen(key, visible)
 		if visible && e.availablePanels()[key] {
 			e.ensurePanelInBlueprint(key)
@@ -1475,6 +1574,14 @@ func (e *Editor) handleClosedDockPanel(key string) {
 
 func (e *Editor) setToggleablePanelOpen(key string, open bool) {
 	switch key {
+	case PanelLayers:
+		e.SetLayersPanelOpen(open)
+	case PanelAssets:
+		e.SetAssetBrowserOpen(open)
+	case PanelFiles:
+		e.SetFileBrowserOpen(open)
+	case PanelLibrary:
+		e.SetLibraryPanelOpen(open)
 	case PanelOutput:
 		e.SetOutputPanelOpen(open)
 	case PanelProfiler:
@@ -1671,6 +1778,18 @@ func (e *Editor) dockSyncKey() string {
 	if e.MaterialOpen() {
 		mask |= 1 << 15
 	}
+	if e.LayersPanelOpen() {
+		mask |= 1 << 16
+	}
+	if e.AssetBrowserOpen() {
+		mask |= 1 << 17
+	}
+	if e.FileBrowserOpen() {
+		mask |= 1 << 18
+	}
+	if e.LibraryPanelOpen() {
+		mask |= 1 << 19
+	}
 	fmt.Fprintf(&b, "%d:%x:%d", e.dock.rev, mask, int(e.preferredInspectorWidth()))
 	for _, p := range e.activePlugins() {
 		for _, pn := range p.Panels {
@@ -1688,15 +1807,21 @@ func (e *Editor) availablePanels() map[string]bool {
 	avail := map[string]bool{
 		PanelViewport:  true,
 		PanelSceneTree: true,
-		PanelLayers:    true,
-		PanelAssets:    true,
 		PanelInspector: true,
 	}
+	if e.LayersPanelOpen() {
+		avail[PanelLayers] = true
+	}
+	if e.AssetBrowserOpen() {
+		avail[PanelAssets] = true
+	}
 	if e.Project != nil && e.ProjectPath != "" {
-		avail[PanelFiles] = true
+		if e.FileBrowserOpen() {
+			avail[PanelFiles] = true
+		}
 		avail[PanelProblems] = true
 	}
-	if e.Library != nil {
+	if e.Library != nil && e.LibraryPanelOpen() {
 		avail[PanelLibrary] = true
 	}
 	if e.OutputPanelOpen() {
@@ -1798,7 +1923,14 @@ func (e *Editor) syncDockLayout(onRegister bool) {
 			}
 		} else if newlyAvailable && !onRegister && !e.dock.hidden[k] {
 			spec, isBuiltin := builtinSpec(k)
-			if isBuiltin && !spec.persistent {
+			if e.dock.restoredAux[k] {
+				delete(e.dock.restoredAux, k)
+				if p, _ := findDockPanel(&e.dock.blueprint, k); p != dock.Center {
+					if r := e.dock.blueprint.Region(p); r != nil && r.Closed && !e.dock.userClosedRegion[p] {
+						r.Closed = false
+					}
+				}
+			} else if isBuiltin && !spec.persistent {
 				activatePanelInLayout(&e.dock.blueprint, k)
 			} else if p, _ := findDockPanel(&e.dock.blueprint, k); p != dock.Center {
 				if r := e.dock.blueprint.Region(p); r != nil && r.Closed && !e.dock.userClosedRegion[p] {
@@ -1816,6 +1948,11 @@ func (e *Editor) syncDockLayout(onRegister bool) {
 		}
 		return avail[k] && !e.dock.hidden[k]
 	})
+	// When the user has not explicitly sized the Left dock, match the AI-first 232 pt left rail
+	// and expand cleanly when auxiliary left panels (Layers, Assets, Files, Library) are opened.
+	if !e.dock.userSizedLeft && active.Left != nil && !active.Left.Closed {
+		active.Left.Size = preferredLeftColumnWidth(active.Left.Root)
+	}
 	// When the user has not explicitly sized the Bottom dock, adapt its height to the active bottom panel's preferred height.
 	if !e.dock.userSizedBottom && active.Bottom != nil && !active.Bottom.Closed {
 		want := defaultBottomDockSize
@@ -1868,17 +2005,35 @@ func (e *Editor) ensurePanelInBlueprint(key string) {
 		e.dock.blueprint.Center = insertSplitOrTab(e.dock.blueprint.Center, key, base.Horizontal, true, 0)
 	case PanelInspector:
 		e.dock.blueprint.Center = insertSplitOrTab(e.dock.blueprint.Center, key, base.Horizontal, false, defaultInspectorSize)
+	case PanelSceneTree:
+		if e.dock.blueprint.Left == nil {
+			e.dock.blueprint.Left = &dock.Region{Root: dock.Tabs(key), Size: defaultLeftDockSize}
+		} else {
+			e.dock.blueprint.Left.Root = insertSplitOrTab(e.dock.blueprint.Left.Root, key, base.Horizontal, true, defaultSceneColSize)
+		}
+	case PanelLayers:
+		if e.dock.blueprint.Left == nil {
+			e.dock.blueprint.Left = &dock.Region{Root: dock.Tabs(key), Size: defaultLayersSize}
+		} else {
+			e.dock.blueprint.Left.Root = insertSplitOrTab(e.dock.blueprint.Left.Root, key, base.Horizontal, false, defaultLayersSize)
+		}
+	case PanelAssets:
+		if e.dock.blueprint.Left == nil {
+			e.dock.blueprint.Left = &dock.Region{Root: dock.Tabs(key), Size: defaultAssetsColSize}
+		} else if !splitBesidePanel(&e.dock.blueprint.Left.Root, PanelFiles, key, base.Vertical, 0) {
+			e.dock.blueprint.Left.Root = insertSplitOrTab(e.dock.blueprint.Left.Root, key, base.Horizontal, false, defaultAssetsColSize)
+		}
+	case PanelFiles:
+		if e.dock.blueprint.Left == nil {
+			e.dock.blueprint.Left = &dock.Region{Root: dock.Tabs(key), Size: defaultAssetsColSize}
+		} else if !splitBesidePanel(&e.dock.blueprint.Left.Root, PanelAssets, key, base.Vertical, 0) {
+			e.dock.blueprint.Left.Root = insertSplitOrTab(e.dock.blueprint.Left.Root, key, base.Horizontal, false, defaultAssetsColSize)
+		}
 	case PanelLibrary:
 		if e.dock.blueprint.Left == nil {
 			e.dock.blueprint.Left = &dock.Region{Root: dock.Tabs(key), Size: defaultAssetsColSize}
 		} else {
 			e.dock.blueprint.Left.Root = insertSplitOrTab(e.dock.blueprint.Left.Root, key, base.Horizontal, false, defaultAssetsColSize)
-		}
-	case PanelSceneTree, PanelLayers, PanelAssets, PanelFiles:
-		if e.dock.blueprint.Left == nil {
-			e.dock.blueprint.Left = &dock.Region{Root: dock.Tabs(key), Size: defaultAssetsColSize}
-		} else {
-			addTabToFirstGroup(&e.dock.blueprint.Left.Root, key)
 		}
 	default:
 		switch spec.defaultDock {

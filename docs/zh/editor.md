@@ -1601,6 +1601,7 @@ func main() {
 - **上下文标签与精确悬停预览**：输入框上方依次展示已附加标签（点击 `×` 通过 `RemoveComposerChip` 移除，或在空输入框中按 `⌫` 通过 `RemoveLastComposerChip` 移除）、**始终附加**标签（项目根目录中的 `brief.yaml` 与 `AGENTS.md`）以及可开关的 **视口图像** 标签（`SetViewportImageIncluded` / `ToggleViewportImage`）。在视口或场景树中选中对象只会显示虚线建议标签 `+ <名称> · 已选中`（`SuggestedChip`），除非主动添加（`AcceptSuggestedChip`），否则绝不会随请求发送；`TriggerAskAgentShortcut` 会在选中对象时附加该对象，未选中任何对象时附加整个打开的场景（`AttachWholeSceneChip`）并聚焦输入框。悬停任意标签（`SetHoveredChip` / `HoveredChipPayload`）都会通过 `ResolveChipPayload` 显示实际发送的精确头部（如 `# level_01.scene.yaml · lines 72–78`）及对应的 YAML 文本或图像。
 - **单一数据源的请求组装**：`AssembleAgentRequest` 仅从当前生效的标签组装 `AgentRequest`（调用与悬停预览完全相同的 `ResolveChipPayload`），并统一供 `SendComposerPrompt`（`Editor.OnSendAgentComposerRequest`）与 `SubmitAgentPrompt`（`Editor.AgentRunner`）使用。
 - **上下文计量环、明细、压缩与新开线程**：20×20 环形进度指示器根据智能体回报的 token 用量（`SetAgentTokenUsage` 或 `AgentResponse.Usage`）呈现三种规范状态（正常 `≤ 70%`、超过 70% 警告 `71–89%`、以及 `≥ 90%` 的“立即压缩”状态）。点击计量环可展开 6 项明细（**Conversation**、**Open scene**、**Attached**、**Always**、**Tools and instructions**、**Viewport image**），并提供 **压缩线程**（`CompactAgentThread`，将较早请求折叠为摘要并完整保留最后一条请求，同时降低计量环占比）与 **使用摘要新开**（`StartFreshAgentThread`，以该摘要启动新线程）。
+
 ## AI 优先的主界面布局（#1007）
 
 编辑器主窗口（`main_layout_ui.go`、`ui.go`、`agent_ui.go`、`overlays_ui.go`、`scenetree.go`）按 `docs/design/editor/Main.dc.html` 实现 AI 优先工作区，并严格使用 `docs/design/editor/Spec.dc.html` 的颜色令牌、尺寸比例与无障碍控件：

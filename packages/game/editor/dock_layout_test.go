@@ -76,6 +76,7 @@ func TestDockLayoutMoveInspectorWithFilesAndRestart(t *testing.T) {
 	if err := ed1.OpenProject(dir); err != nil {
 		t.Fatalf("OpenProject: %v", err)
 	}
+	ed1.SetFileBrowserOpen(true)
 
 	app1 := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		return editor.EditorView(cx, ed1)
@@ -150,6 +151,7 @@ func TestDockLayoutPluginPanelDefaultDockThenRememberedMove(t *testing.T) {
 	if err := ed1.SetLayoutPath(layoutFile); err != nil {
 		t.Fatalf("SetLayoutPath: %v", err)
 	}
+	ed1.SetFileBrowserOpen(true)
 	app1 := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		return editor.EditorView(cx, ed1)
 	}, nsgotest.Size(1400, 900), nsgotest.Environment(core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop}))
@@ -233,6 +235,18 @@ func TestDockLayoutMenuShowHideResizeAndReset(t *testing.T) {
 		t.Fatal("View > Panels > Inspector did not restore inspector")
 	}
 
+	// Show auxiliary Files and Layers panels via View > Panels.
+	app.ChooseMenu("View", "Panels", "Files")
+	app.Settle()
+	app.ChooseMenu("View", "Panels", "Layers")
+	app.Settle()
+	if !app.Exists("id:file-browser") || !ed.FileBrowserOpen() {
+		t.Fatal("View > Panels > Files did not open file browser")
+	}
+	if !app.Exists("id:layers-panel") || !ed.LayersPanelOpen() {
+		t.Fatal("View > Panels > Layers did not open layers panel")
+	}
+
 	// Resize Left dock through AreaRef and verify the new size persists across restart.
 	app.Post(func() {
 		ed.DockAreaRef().SetDockSize(dock.Left, 360)
@@ -257,15 +271,18 @@ func TestDockLayoutMenuShowHideResizeAndReset(t *testing.T) {
 	app.ChooseMenu("View", "Panels", "Reset Layout")
 	app.Settle()
 
-	if !app.Exists("id:layers-panel") || !app.Exists("id:editor-inspector") || !app.Exists("id:file-browser") {
+	if !app.Exists("id:editor-scene-column") || !app.Exists("id:editor-inspector") {
 		t.Fatal("Reset Layout did not restore default panels")
+	}
+	if app.Exists("id:layers-panel") || app.Exists("id:file-browser") {
+		t.Fatal("Reset Layout should restore AI-first default with auxiliary panels closed")
 	}
 	p, g := findGroupInLayout(ed.DockLayout(), editor.PanelInspector)
 	if p != dock.Center || g == nil || !slices.Equal(g.Panels, []string{editor.PanelInspector}) {
 		t.Fatalf("after Reset Layout: inspector placement=%v group=%+v, want Center [inspector]", p, g)
 	}
-	if got := ed.DockLayout().Left.Size; got != 444 {
-		t.Fatalf("after Reset Layout: Left dock size = %v, want 444", got)
+	if got := ed.DockLayout().Left.Size; got != 232 {
+		t.Fatalf("after Reset Layout: Left dock size = %v, want 232", got)
 	}
 }
 

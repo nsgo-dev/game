@@ -1656,6 +1656,9 @@ func (e *Editor) initBuiltinCommands() {
 			Checked:     func() bool { return e.ProblemAgentPanelOpen() },
 			Run: func() error {
 				e.SetProblemAgentPanelOpen(!e.ProblemAgentPanelOpen())
+				if e.ProblemAgentPanelOpen() {
+					e.revealPanelIfHiddenOrInactive(PanelInspector)
+				}
 				return nil
 			},
 		},
