@@ -52,6 +52,7 @@ type dataTableState struct {
 	sortCol   string
 	sortOrder SortOrder
 	filter    string
+	loading   bool
 	lastErr   error
 }
 
@@ -159,6 +160,29 @@ func (e *Editor) DataTableError() error {
 		return nil
 	}
 	return e.table.lastErr
+}
+
+// ClearDataTableError clears the open data table's validation error banner.
+func (e *Editor) ClearDataTableError() {
+	if e == nil || e.table == nil || e.table.lastErr == nil {
+		return
+	}
+	e.table.lastErr = nil
+	e.notify()
+}
+
+// DataTableLoading reports whether the Data Table panel is currently loading.
+func (e *Editor) DataTableLoading() bool {
+	return e != nil && e.table != nil && e.table.loading
+}
+
+// SetDataTableLoading updates the open data table's loading state and notifies listeners.
+func (e *Editor) SetDataTableLoading(loading bool) {
+	if e == nil || e.table == nil || e.table.loading == loading {
+		return
+	}
+	e.table.loading = loading
+	e.notify()
 }
 
 // OpenDataTableFile reads the YAML data table at path and opens it in the Data Table panel

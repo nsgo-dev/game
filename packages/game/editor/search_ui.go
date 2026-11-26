@@ -9,6 +9,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/l10n"
 	"github.com/nsgo-dev/game/packages/game/refs"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
@@ -17,7 +18,6 @@ import (
 // FilesView's Search or Find Refs buttons, SetSearchOpen, SetSearchQuery, or
 // ShowReferences).
 func SearchPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
-	colors := ui.ColorsOf(cx)
 	visible := core.NewMemo(cx, func() bool {
 		_ = rev.Get()
 		return ed.Project != nil && ed.ProjectPath != "" && ed.SearchOpen()
@@ -29,6 +29,7 @@ func SearchPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 		results    []SearchResult
 		refsTarget string
 		refs       []refs.Ref
+		loading    bool
 		errMsg     string
 	}
 	snap := core.NewMemoFunc(cx, func() searchSnapshot {
@@ -43,12 +44,14 @@ func SearchPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 			results:    ed.SearchResults(),
 			refsTarget: ed.ReferencesTarget(),
 			refs:       ed.References(),
+			loading:    ed.SearchLoading(),
 			errMsg:     errMsg,
 		}
 	}, func(a, b searchSnapshot) bool {
 		return a.tab == b.tab &&
 			a.query == b.query &&
 			a.refsTarget == b.refsTarget &&
+			a.loading == b.loading &&
 			a.errMsg == b.errMsg &&
 			slices.Equal(a.results, b.results) &&
 			slices.Equal(a.refs, b.refs)
@@ -56,12 +59,24 @@ func SearchPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 
 	body := core.Dynamic(func(cx *core.Scope) core.Node {
 		s := snap.Get()
+		if s.loading {
+			return specLoadingState("search-loading", ed.T("search.loading"))
+		}
 		if s.errMsg != "" {
-			return core.Text{
-				TestID:  "search-error",
-				Content: s.errMsg,
-				Style:   core.Style{FontSize: 11, Color: colors.Muted()},
-			}
+			retryBtn := specPanelButton(specPanelButtonSpec{
+				TestID:     "search-error-retry",
+				Text:       ed.T("search.retry"),
+				Icon:       lucide.RefreshCw,
+				Label:      ed.T("search.refreshLabel"),
+				Tooltip:    ed.T("search.refreshLabel"),
+				Variant:    specBtnQuiet,
+				Compact:    true,
+				InsetFocus: true,
+				OnPress: func() {
+					ed.report(ed.RefreshSearch())
+				},
+			})
+			return specStatusBanner("search-error", false, s.errMsg, nil, retryBtn)
 		}
 		if s.tab == SearchTabReferences {
 			return searchRefsList(cx, ed, s.refsTarget, s.refs)
@@ -72,126 +87,143 @@ func SearchPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 	return core.Show{
 		When: visible.Get,
 		Then: func(cx *core.Scope) core.Node {
-			return core.View{
-				TestID: "search-panel",
-				Style: core.Style{
-					Height:      core.Pt(180),
-					Background:  colors.Inset(),
-					Borders:     core.Edges{Top: 1},
-					BorderColor: colors.Line(),
-					Padding:     core.All(8),
-					Gap:         6,
-				},
-				Children: []core.Node{
-					ui.HStack{
-						Gap: 8,
-						Children: []core.Node{
-							ui.ToggleButton{
-								TestID: "search-tab-search",
-								Text:   ed.T("search.search"),
-								On: func() bool {
-									return snap.Get().tab == SearchTabSearch
-								},
-								OnChange: func(on bool) {
-									if on {
-										ed.SetSearchTab(SearchTabSearch)
-									}
-								},
-							},
-							ui.ToggleButton{
-								TestID: "search-tab-refs",
-								Text:   ed.T("search.references"),
-								Disabled: func() bool {
-									return snap.Get().refsTarget == ""
-								},
-								On: func() bool {
-									return snap.Get().tab == SearchTabReferences
-								},
-								OnChange: func(on bool) {
-									if on {
-										ed.SetSearchTab(SearchTabReferences)
-									}
-								},
-							},
-							core.View{
-								Style: core.Style{FlexGrow: 1},
-								Children: []core.Node{ui.Input{
-									TestID:      "project-search-input",
-									Label:       ed.T("search.inputLabel"),
-									Placeholder: ed.T("search.placeholder"),
-									Value: func() string {
-										_ = rev.Get()
-										return ed.SearchQuery()
-									},
-									OnChange: func(v string) {
-										ed.report(ed.SetSearchQuery(v))
-									},
-								}},
-							},
-							core.Text{
-								TestID: "search-count",
-								ContentFunc: func() string {
-									s := snap.Get()
-									if s.tab == SearchTabReferences {
-										if s.refsTarget == "" {
-											return ""
-										}
-										return fmt.Sprintf("%s (%d)", s.refsTarget, len(s.refs))
-									}
-									if strings.TrimSpace(s.query) == "" {
-										return ""
-									}
-									return ed.T("search.matchCount", l10n.Param("count", len(s.results)))
-								},
-								Style: core.Style{FontSize: 11, Color: colors.Muted()},
-							},
-							ui.Button{
-								TestID:  "search-refresh",
-								Text:    ed.T("search.refresh"),
-								Label:   ed.T("search.refreshLabel"),
-								Size:    ui.SizeSmall,
-								Variant: ui.ButtonSecondary,
-								OnPress: func() {
-									ed.report(ed.RefreshSearch())
-								},
-							},
-							ui.Button{
-								TestID:  "search-close",
-								Text:    ed.T("search.close"),
-								Label:   ed.T("search.closeLabel"),
-								Size:    ui.SizeSmall,
-								Variant: ui.ButtonGhost,
-								OnPress: func() {
-									ed.SetSearchOpen(false)
-								},
-							},
+			header := specPanelHeader(
+				specPanelToggleGroup(
+					ed.T("search.search"),
+					specPanelToggle(specPanelToggleSpec{
+						TestID:  "search-tab-search",
+						Text:    ed.T("search.search"),
+						Icon:    lucide.Search,
+						Label:   ed.T("search.search"),
+						Tooltip: ed.T("search.search"),
+						On: func() bool {
+							return snap.Get().tab == SearchTabSearch
 						},
+						OnChange: func(on bool) {
+							if on {
+								ed.SetSearchTab(SearchTabSearch)
+							}
+						},
+					}),
+					specPanelToggle(specPanelToggleSpec{
+						TestID:  "search-tab-refs",
+						Text:    ed.T("search.references"),
+						Icon:    lucide.Link2,
+						Label:   ed.T("search.references"),
+						Tooltip: ed.T("search.references"),
+						Disabled: func() bool {
+							return snap.Get().refsTarget == ""
+						},
+						On: func() bool {
+							return snap.Get().tab == SearchTabReferences
+						},
+						OnChange: func(on bool) {
+							if on {
+								ed.SetSearchTab(SearchTabReferences)
+							}
+						},
+					}),
+				),
+				core.View{
+					Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(200)},
+					Children: []core.Node{ui.Input{
+						TestID:      "project-search-input",
+						Label:       ed.T("search.inputLabel"),
+						Placeholder: ed.T("search.placeholder"),
+						Style:       specInputStyle(),
+						Value: func() string {
+							_ = rev.Get()
+							return ed.SearchQuery()
+						},
+						OnChange: func(v string) {
+							ed.report(ed.SetSearchQuery(v))
+						},
+					}},
+				},
+				core.Text{
+					TestID: "search-count",
+					ContentFunc: func() string {
+						s := snap.Get()
+						if s.tab == SearchTabReferences {
+							if s.refsTarget == "" {
+								return ""
+							}
+							return fmt.Sprintf("%s (%d)", s.refsTarget, len(s.refs))
+						}
+						if strings.TrimSpace(s.query) == "" {
+							return ""
+						}
+						return ed.T("search.matchCount", l10n.Param("count", len(s.results)))
 					},
-					ui.ScrollView{
-						Style:    core.Style{FlexGrow: 1},
-						Children: []core.Node{body},
+					Style: core.Style{
+						FontFamily: core.FontMonospace,
+						FontSize:   11.5,
+						Color:      specTextMuted,
+						FlexShrink: 0,
 					},
 				},
+				specPanelButton(specPanelButtonSpec{
+					TestID:  "search-refresh",
+					Text:    ed.T("search.refresh"),
+					Icon:    lucide.RefreshCw,
+					Label:   ed.T("search.refreshLabel"),
+					Tooltip: ed.T("search.refreshLabel"),
+					Variant: specBtnQuiet,
+					Compact: true,
+					OnPress: func() {
+						ed.report(ed.RefreshSearch())
+					},
+				}),
+				specPanelButton(specPanelButtonSpec{
+					TestID:  "search-close",
+					Icon:    lucide.X,
+					Label:   ed.T("search.closeLabel"),
+					Tooltip: specShortcutTip(ed.T("search.closeLabel"), "Esc"),
+					Variant: specBtnGhost,
+					Compact: true,
+					OnPress: func() {
+						ed.SetSearchOpen(false)
+					},
+				}),
+			)
+
+			scroll := ui.ScrollView{
+				Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0)},
+				ContentStyle: core.Style{
+					Padding: core.Symmetric(specSpace8, specSpace16),
+					Gap:     specSpace8,
+				},
+				Children: []core.Node{body},
 			}
+
+			return specPanelContainer("search-panel", ed.T("search.search"), 204, header, scroll)
 		},
 	}
 }
 
+func searchKindIcon(kind SearchKind) func() *core.SVG {
+	switch kind {
+	case SearchUID:
+		return lucide.Hash
+	case SearchObject:
+		return lucide.Box
+	case SearchComponent:
+		return lucide.Component
+	case SearchPrefab:
+		return lucide.Layers
+	case SearchSceneRef:
+		return lucide.Clapperboard
+	default:
+		return lucide.FileText
+	}
+}
+
 func searchResultsList(cx *core.Scope, ed *Editor, query string, results []SearchResult) core.Node {
-	colors := ui.ColorsOf(cx)
 	if strings.TrimSpace(query) == "" {
-		return core.Text{
-			TestID:  "search-empty",
-			Content: ed.T("search.emptyPrompt"),
-			Style:   core.Style{FontSize: 11, Color: colors.Muted()},
-		}
+		return specEmptyState("search-empty", lucide.Search, specTextMuted, ed.T("search.emptyPrompt"), "", nil)
 	}
 	if len(results) == 0 {
-		return core.Text{
-			TestID:  "search-empty",
-			Content: ed.T("search.noMatches"),
-			Style:   core.Style{FontSize: 11, Color: colors.Muted()},
-		}
+		return specEmptyState("search-empty", lucide.SearchX, specTextMuted, ed.T("search.noMatches"), "", nil)
 	}
 	rows := make([]core.Node, 0, len(results))
 	for i, res := range results {
@@ -200,53 +232,73 @@ func searchResultsList(cx *core.Scope, ed *Editor, query string, results []Searc
 		if r.ObjectID != "" {
 			primary = r.ObjectID + " — " + r.File
 		}
-		rows = append(rows, core.View{
-			TestID: fmt.Sprintf("search-result-%d", i),
-			Style: core.Style{
-				Direction:    core.Row,
-				AlignItems:   core.AlignCenter,
-				Gap:          8,
-				Padding:      core.Symmetric(3, 6),
-				CornerRadius: 4,
-				Background:   colors.Surface(),
-			},
-			OnPress: func(core.PressEvent) {
+		aria := fmt.Sprintf("[%s] %s", r.Kind, primary)
+		if r.Detail != "" {
+			aria += " — " + r.Detail
+		}
+		rows = append(rows, specPanelRowButton(specPanelRowButtonSpec{
+			TestID:  fmt.Sprintf("search-result-%d", i),
+			Label:   aria,
+			Tooltip: "Open " + primary,
+			OnPress: func() {
 				ed.report(ed.OpenSearchResult(r))
 			},
 			Children: []core.Node{
-				core.Text{
-					Content: "[" + string(r.Kind) + "]",
-					Style:   core.Style{FontSize: 10, FontWeight: 700, Color: colors.Muted()},
+				specIcon(searchKindIcon(r.Kind), specIconSize, specTextSecondary),
+				core.View{
+					Style: core.Style{
+						Height:         core.Pt(20),
+						Padding:        core.Symmetric(0, specSpace8),
+						CornerRadius:   specRadiusControl,
+						Background:     specPanel,
+						BorderWidth:    1,
+						BorderColor:    specLineRaised,
+						AlignItems:     core.AlignCenter,
+						JustifyContent: core.JustifyCenter,
+						FlexShrink:     0,
+					},
+					Children: []core.Node{
+						core.Text{
+							Content: string(r.Kind),
+							Style: core.Style{
+								FontSize:   11,
+								FontWeight: core.FontWeightSemibold,
+								Color:      specTextMuted,
+							},
+						},
+					},
 				},
 				core.Text{
 					Content: primary,
-					Style:   core.Style{FontSize: 11, FontWeight: 600, Color: colors.Text()},
+					Style: core.Style{
+						FontFamily: core.FontMonospace,
+						FontSize:   11.5,
+						FontWeight: core.FontWeightSemibold,
+						Color:      specTextStrong,
+						FlexShrink: 0,
+					},
 				},
 				core.Text{
 					Content: r.Detail,
-					Style:   core.Style{FontSize: 11, Color: colors.Muted(), FlexGrow: 1},
+					Style: core.Style{
+						FontSize:   12.5,
+						Color:      specTextSecondary,
+						FlexGrow:   1,
+						FlexShrink: 1,
+					},
 				},
 			},
-		})
+		}))
 	}
-	return core.View{TestID: "search-results", Style: core.Style{Gap: 2}, Children: rows}
+	return core.View{TestID: "search-results", Style: core.Style{Gap: specSpace4}, Children: rows}
 }
 
 func searchRefsList(cx *core.Scope, ed *Editor, target string, found []refs.Ref) core.Node {
-	colors := ui.ColorsOf(cx)
 	if target == "" {
-		return core.Text{
-			TestID:  "refs-empty",
-			Content: ed.T("search.refsPrompt"),
-			Style:   core.Style{FontSize: 11, Color: colors.Muted()},
-		}
+		return specEmptyState("refs-empty", lucide.Link2, specTextMuted, ed.T("search.refsPrompt"), "", nil)
 	}
 	if len(found) == 0 {
-		return core.Text{
-			TestID:  "refs-empty",
-			Content: ed.T("search.noRefs", l10n.Param("target", target)),
-			Style:   core.Style{FontSize: 11, Color: colors.Muted()},
-		}
+		return specEmptyState("refs-empty", lucide.Link2, specTextMuted, ed.T("search.noRefs", l10n.Param("target", target)), "", nil)
 	}
 	rows := make([]core.Node, 0, len(found))
 	for i, ref := range found {
@@ -259,30 +311,38 @@ func searchRefsList(cx *core.Scope, ed *Editor, target string, found []refs.Ref)
 		if r.Value != "" {
 			detail += " = " + r.Value
 		}
-		rows = append(rows, core.View{
-			TestID: fmt.Sprintf("refs-row-%d", i),
-			Style: core.Style{
-				Direction:    core.Row,
-				AlignItems:   core.AlignCenter,
-				Gap:          8,
-				Padding:      core.Symmetric(3, 6),
-				CornerRadius: 4,
-				Background:   colors.Surface(),
-			},
-			OnPress: func(core.PressEvent) {
+		aria := fmt.Sprintf("Reference %s — %s", loc, detail)
+		rows = append(rows, specPanelRowButton(specPanelRowButtonSpec{
+			TestID:  fmt.Sprintf("refs-row-%d", i),
+			Label:   aria,
+			Tooltip: "Open " + loc,
+			OnPress: func() {
 				ed.report(ed.OpenReference(r))
 			},
 			Children: []core.Node{
+				specIcon(lucide.Link2, specIconSize, specTextSecondary),
 				core.Text{
 					Content: loc,
-					Style:   core.Style{FontSize: 11, FontWeight: 600, Color: colors.Text()},
+					Style: core.Style{
+						FontFamily: core.FontMonospace,
+						FontSize:   11.5,
+						FontWeight: core.FontWeightSemibold,
+						Color:      specTextStrong,
+						FlexShrink: 0,
+					},
 				},
 				core.Text{
 					Content: detail,
-					Style:   core.Style{FontSize: 11, Color: colors.Muted(), FlexGrow: 1},
+					Style: core.Style{
+						FontFamily: core.FontMonospace,
+						FontSize:   11.5,
+						Color:      specTextSecondary,
+						FlexGrow:   1,
+						FlexShrink: 1,
+					},
 				},
 			},
-		})
+		}))
 	}
-	return core.View{TestID: "refs-results", Style: core.Style{Gap: 2}, Children: rows}
+	return core.View{TestID: "refs-results", Style: core.Style{Gap: specSpace4}, Children: rows}
 }

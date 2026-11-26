@@ -14,6 +14,7 @@ import (
 	"github.com/nsgo-dev/game/packages/game/l10n"
 	"github.com/nsgo-dev/game/packages/game/loaderr"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
@@ -39,7 +40,9 @@ type localizationState struct {
 	strings map[string]map[string]string
 	plurals map[string]map[string]l10n.PluralForms
 	// saved records the last opened or saved canonical YAML bytes per locale, used for dirty checks and removing deleted locale files on save.
-	saved map[string][]byte
+	saved   map[string][]byte
+	loading bool
+	lastErr error
 }
 
 func newLocalizationState(dir string) *localizationState {
@@ -134,6 +137,9 @@ func (c *l10nCmd) Do()           { c.ed.l10n = c.after.clone() }
 func (c *l10nCmd) Undo()         { c.ed.l10n = c.before.clone() }
 
 func (e *Editor) swapLocalization(label string, next *localizationState) {
+	if next != nil {
+		next.lastErr = nil
+	}
 	e.History.Execute(&l10nCmd{
 		ed:     e,
 		label:  label,
@@ -167,6 +173,47 @@ func (e *Editor) LocalizationDir() string {
 		return ""
 	}
 	return e.l10n.dir
+}
+
+// LocalizationError returns the most recent error encountered in the Localization panel, or nil.
+func (e *Editor) LocalizationError() error {
+	if e == nil || e.l10n == nil {
+		return nil
+	}
+	return e.l10n.lastErr
+}
+
+// ClearLocalizationError clears any error banner currently displayed in the Localization panel.
+func (e *Editor) ClearLocalizationError() {
+	if e == nil || e.l10n == nil || e.l10n.lastErr == nil {
+		return
+	}
+	e.l10n.lastErr = nil
+	e.notify()
+}
+
+// LocalizationLoading reports whether the Localization panel is currently loading tables.
+func (e *Editor) LocalizationLoading() bool {
+	return e != nil && e.l10n != nil && e.l10n.loading
+}
+
+// SetLocalizationLoading updates the Localization panel's loading state and notifies listeners.
+func (e *Editor) SetLocalizationLoading(loading bool) {
+	if e == nil || e.l10n == nil || e.l10n.loading == loading {
+		return
+	}
+	e.l10n.loading = loading
+	e.notify()
+}
+
+func (e *Editor) reportLocalizationError(err error) {
+	if err == nil {
+		return
+	}
+	if e.l10n != nil {
+		e.l10n.lastErr = err
+	}
+	e.report(err)
 }
 
 // NewLocalizations opens a fresh localization workspace targeting dir with the given BCP-47 locales (sorted and deduplicated) as an undoable command.
@@ -694,6 +741,7 @@ func (e *Editor) SaveLocalizationsTo(dir string) error {
 	}
 	e.l10n.dir = dir
 	e.l10n.saved = encoded
+	e.l10n.lastErr = nil
 	e.filesRev++
 	e.invalidateProjectIndex()
 	e.Status = fmt.Sprintf("Saved %d locale file(s) to %s", len(e.l10n.locales), dir)
@@ -745,23 +793,26 @@ func LocalizationPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64])
 }
 
 func localizationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
-	colors := ui.ColorsOf(cx)
 	newKey := core.NewSignal(cx, "")
 	newKeyPlural := core.NewSignal(cx, false)
 	newLocale := core.NewSignal(cx, "")
+	saveShortcut := FormatShortcut("mod+s", cx.Env().OS())
 
 	disabled := func() bool {
 		_ = rev.Get()
 		return ed.Playing()
 	}
 
-	// structure changes when locales, keys, or key plural modes change, so the table remounts then and not on every keystroke inside a translation input.
+	// structure changes when locales, keys, loading state, or key plural modes change, so the table remounts then and not on every keystroke inside a translation input.
 	structure := core.NewMemo(cx, func() string {
 		_ = rev.Get()
 		if !ed.LocalizationOpen() {
 			return ""
 		}
 		var b strings.Builder
+		if ed.LocalizationLoading() {
+			b.WriteString("loading|")
+		}
 		b.WriteString("L:")
 		for _, loc := range ed.LocalizationLocales() {
 			b.WriteString(loc)
@@ -780,13 +831,46 @@ func localizationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 		return b.String()
 	})
 
-	header := ui.HStack{
-		Gap: 8,
+	missingPill := core.View{
+		StyleFunc: func() core.Style {
+			_ = rev.Get()
+			bg := specAddedFill
+			border := specAddedEdge
+			if ed.LocalizationMissingCount() > 0 {
+				bg = specWarningFill
+				border = specWarningEdge
+			}
+			return core.Style{
+				Direction:    core.Row,
+				AlignItems:   core.AlignCenter,
+				Gap:          specSpace4,
+				Height:       core.Pt(24),
+				Padding:      core.Symmetric(0, specSpace8),
+				CornerRadius: specRadiusControl,
+				Background:   bg,
+				BorderWidth:  1,
+				BorderColor:  border,
+				FlexShrink:   0,
+			}
+		},
 		Children: []core.Node{
-			core.Text{
-				Content: "Localization",
-				Style:   core.Style{FontSize: 13, FontWeight: 700, Color: colors.Text()},
-			},
+			specDynamicIcon(
+				func() *core.SVG {
+					_ = rev.Get()
+					if ed.LocalizationMissingCount() > 0 {
+						return lucide.TriangleAlert()
+					}
+					return lucide.CircleCheck()
+				},
+				13,
+				func() core.Color {
+					_ = rev.Get()
+					if ed.LocalizationMissingCount() > 0 {
+						return specWarning
+					}
+					return specAdded
+				},
+			),
 			core.Text{
 				TestID: "l10n-missing-count",
 				ContentFunc: func() string {
@@ -799,119 +883,171 @@ func localizationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 				},
 				StyleFunc: func() core.Style {
 					_ = rev.Get()
-					col := colors.Muted()
+					col := specAdded
 					if ed.LocalizationMissingCount() > 0 {
-						col = colors.Warn()
+						col = specWarning
 					}
-					return core.Style{FontSize: 11, FontWeight: 600, Color: col}
+					return core.Style{FontSize: 11.5, FontWeight: core.FontWeightSemibold, Color: col}
 				},
-			},
-			core.View{
-				Style: core.Style{Width: core.Pt(140)},
-				Children: []core.Node{ui.Input{
-					TestID:      "l10n-add-key-input",
-					Label:       "New Key",
-					Placeholder: "menu.play",
-					Disabled:    disabled,
-					Value:       newKey.Get,
-					OnChange:    newKey.Set,
-				}},
-			},
-			ui.ToggleButton{
-				TestID:   "l10n-add-key-plural",
-				Text:     "Plural",
-				Disabled: disabled,
-				On:       newKeyPlural.Get,
-				OnChange: newKeyPlural.Set,
-			},
-			ui.Button{
-				TestID:  "l10n-add-key",
-				Text:    "Add Key",
-				Size:    ui.SizeSmall,
-				Variant: ui.ButtonSecondary,
-				Disabled: func() bool {
-					return disabled() || strings.TrimSpace(newKey.Get()) == ""
-				},
-				OnPress: func() {
-					if err := ed.AddLocalizationKey(newKey.Get(), newKeyPlural.Get()); err != nil {
-						ed.report(err)
-						return
-					}
-					newKey.Set("")
-					newKeyPlural.Set(false)
-				},
-			},
-			core.View{
-				Style: core.Style{Width: core.Pt(90)},
-				Children: []core.Node{ui.Input{
-					TestID:      "l10n-add-locale-input",
-					Label:       "New Locale",
-					Placeholder: "ja",
-					Disabled:    disabled,
-					Value:       newLocale.Get,
-					OnChange:    newLocale.Set,
-				}},
-			},
-			ui.Button{
-				TestID:  "l10n-add-locale",
-				Text:    "Add Locale",
-				Size:    ui.SizeSmall,
-				Variant: ui.ButtonSecondary,
-				Disabled: func() bool {
-					return disabled() || strings.TrimSpace(newLocale.Get()) == ""
-				},
-				OnPress: func() {
-					if err := ed.AddLocalizationLocale(newLocale.Get()); err != nil {
-						ed.report(err)
-						return
-					}
-					newLocale.Set("")
-				},
-			},
-			core.View{Style: core.Style{FlexGrow: 1}},
-			ui.Button{
-				TestID:   "l10n-save",
-				Text:     "Save Strings",
-				Size:     ui.SizeSmall,
-				Variant:  ui.ButtonOutline,
-				Disabled: disabled,
-				OnPress:  func() { ed.report(ed.SaveLocalizations()) },
-			},
-			ui.Button{
-				TestID:   "l10n-close",
-				Text:     "Close",
-				Size:     ui.SizeSmall,
-				Variant:  ui.ButtonGhost,
-				Disabled: disabled,
-				OnPress:  func() { ed.report(ed.CloseLocalizations()) },
 			},
 		},
 	}
 
+	header := specPanelHeader(
+		specPanelTitle("", lucide.Languages, "Localization", nil),
+		missingPill,
+		core.View{
+			Style: core.Style{Width: core.Pt(144)},
+			Children: []core.Node{ui.Input{
+				TestID:      "l10n-add-key-input",
+				Label:       "New Key",
+				Placeholder: "menu.play",
+				Style:       specInputStyle(),
+				Disabled:    disabled,
+				Value:       newKey.Get,
+				OnChange:    newKey.Set,
+			}},
+		},
+		specPanelToggle(specPanelToggleSpec{
+			TestID:   "l10n-add-key-plural",
+			Text:     "Plural",
+			Label:    "CLDR plural key",
+			Tooltip:  "Create a CLDR plural key (zero, one, two, few, many, other)",
+			Disabled: disabled,
+			On:       newKeyPlural.Get,
+			OnChange: newKeyPlural.Set,
+		}),
+		specPanelButton(specPanelButtonSpec{
+			TestID:  "l10n-add-key",
+			Text:    "Add Key",
+			Icon:    lucide.Plus,
+			Label:   "Add Key",
+			Tooltip: "Add translation key row",
+			Variant: specBtnSecondary,
+			Compact: true,
+			Disabled: func() bool {
+				return disabled() || strings.TrimSpace(newKey.Get()) == ""
+			},
+			OnPress: func() {
+				if err := ed.AddLocalizationKey(newKey.Get(), newKeyPlural.Get()); err != nil {
+					ed.reportLocalizationError(err)
+					return
+				}
+				newKey.Set("")
+				newKeyPlural.Set(false)
+			},
+		}),
+		core.View{
+			Style: core.Style{Width: core.Pt(88)},
+			Children: []core.Node{ui.Input{
+				TestID:      "l10n-add-locale-input",
+				Label:       "New Locale",
+				Placeholder: "ja",
+				Style:       specInputStyle(),
+				Disabled:    disabled,
+				Value:       newLocale.Get,
+				OnChange:    newLocale.Set,
+			}},
+		},
+		specPanelButton(specPanelButtonSpec{
+			TestID:  "l10n-add-locale",
+			Text:    "Add Locale",
+			Icon:    lucide.Globe,
+			Label:   "Add Locale",
+			Tooltip: "Add BCP-47 locale column",
+			Variant: specBtnSecondary,
+			Compact: true,
+			Disabled: func() bool {
+				return disabled() || strings.TrimSpace(newLocale.Get()) == ""
+			},
+			OnPress: func() {
+				if err := ed.AddLocalizationLocale(newLocale.Get()); err != nil {
+					ed.reportLocalizationError(err)
+					return
+				}
+				newLocale.Set("")
+			},
+		}),
+		core.View{Style: core.Style{FlexGrow: 1}},
+		specPanelButton(specPanelButtonSpec{
+			TestID:   "l10n-save",
+			Text:     "Save Strings",
+			Icon:     lucide.Save,
+			Label:    "Save Strings",
+			Tooltip:  specShortcutTip("Save Strings", saveShortcut),
+			Variant:  specBtnQuiet,
+			Compact:  true,
+			Disabled: disabled,
+			OnPress:  func() { ed.reportLocalizationError(ed.SaveLocalizations()) },
+		}),
+		specPanelButton(specPanelButtonSpec{
+			TestID:   "l10n-close",
+			Icon:     lucide.X,
+			Label:    "Close Localization",
+			Tooltip:  specShortcutTip("Close Localization", "Esc"),
+			Variant:  specBtnGhost,
+			Compact:  true,
+			Disabled: disabled,
+			OnPress:  func() { ed.reportLocalizationError(ed.CloseLocalizations()) },
+		}),
+	)
+
+	errorBanner := core.Show{
+		When: func() bool {
+			_ = rev.Get()
+			return ed.LocalizationError() != nil
+		},
+		Then: func(cx *core.Scope) core.Node {
+			dismissBtn := specPanelButton(specPanelButtonSpec{
+				TestID:  "l10n-error-dismiss",
+				Icon:    lucide.X,
+				Label:   "Dismiss localization error",
+				Tooltip: "Dismiss error",
+				Variant: specBtnGhost,
+				Compact: true,
+				OnPress: ed.ClearLocalizationError,
+			})
+			return core.View{
+				Style: core.Style{Padding: core.Edges{Top: specSpace8, Left: specSpace16, Right: specSpace16}, FlexShrink: 0},
+				Children: []core.Node{
+					specStatusBanner("l10n-error", false, "", func() string {
+						_ = rev.Get()
+						if err := ed.LocalizationError(); err != nil {
+							return err.Error()
+						}
+						return ""
+					}, dismissBtn),
+				},
+			}
+		},
+	}
+
 	table := ui.ScrollView{
-		Style:        core.Style{FlexGrow: 1},
-		ContentStyle: core.Style{Gap: 4},
+		Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0)},
+		ContentStyle: core.Style{
+			Padding: core.Symmetric(specSpace8, specSpace16),
+			Gap:     specSpace8,
+		},
 		Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
 			if structure.Get() == "" {
 				return nil
 			}
+			if ed.LocalizationLoading() {
+				return specLoadingState("l10n-loading", "Loading localization tables…")
+			}
 			locales := ed.LocalizationLocales()
 			keys := ed.LocalizationKeys()
 			if len(locales) == 0 && len(keys) == 0 {
-				return core.Text{
-					Content: "Add a locale and key to begin editing translations.",
-					Style:   core.Style{FontSize: 12, Color: colors.Muted()},
-				}
+				return specEmptyState("l10n-empty", lucide.Languages, specTextMuted, "No locales or keys yet", "Add a locale and key above to begin editing translations.", nil)
 			}
 
 			// Column headers: Key + one column per locale.
 			colHeaders := make([]core.Node, 0, len(locales)+1)
 			colHeaders = append(colHeaders, core.View{
-				Style: core.Style{Width: core.Pt(180), Padding: core.Symmetric(2, 4)},
-				Children: []core.Node{core.Text{
-					Content: "KEY",
-					Style:   core.Style{FontSize: 11, FontWeight: 700, Color: colors.Muted()},
-				}},
+				Style: core.Style{Width: core.Pt(188), Padding: core.Symmetric(0, specSpace4)},
+				Children: []core.Node{
+					specSectionLabel("KEY"),
+				},
 			})
 			for _, locale := range locales {
 				loc := locale
@@ -919,43 +1055,61 @@ func localizationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 					TestID: "l10n-col-" + loc,
 					Style: core.Style{
 						FlexGrow:       1,
-						FlexBasis:      core.Pt(180),
+						FlexBasis:      core.Pt(188),
 						Direction:      core.Row,
 						AlignItems:     core.AlignCenter,
 						JustifyContent: core.JustifySpaceBetween,
-						Padding:        core.Symmetric(2, 6),
-						Gap:            4,
+						Padding:        core.Symmetric(0, specSpace8),
+						Gap:            specSpace8,
 					},
 					Children: []core.Node{
-						core.Text{
-							Content: loc,
-							Style:   core.Style{FontSize: 11, FontWeight: 700, Color: colors.Text()},
+						core.View{
+							Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: specSpace4},
+							Children: []core.Node{
+								specIcon(lucide.Globe, 13, specTextMuted),
+								core.Text{
+									Content: loc,
+									Style: core.Style{
+										FontFamily: core.FontMonospace,
+										FontSize:   11.5,
+										FontWeight: core.FontWeightSemibold,
+										Color:      specTextStrong,
+									},
+								},
+							},
 						},
-						ui.Button{
-							TestID:   "l10n-remove-locale-" + loc,
-							Text:     "×",
-							Label:    "Remove locale " + loc,
-							Size:     ui.SizeSmall,
-							Variant:  ui.ButtonGhost,
-							Disabled: disabled,
-							OnPress:  func() { ed.report(ed.RemoveLocalizationLocale(loc)) },
-						},
+						specPanelButton(specPanelButtonSpec{
+							TestID:     "l10n-remove-locale-" + loc,
+							Icon:       lucide.X,
+							Label:      "Remove locale " + loc,
+							Tooltip:    "Remove locale " + loc,
+							Variant:    specBtnGhost,
+							Compact:    true,
+							InsetFocus: true,
+							Disabled:   disabled,
+							OnPress:    func() { ed.reportLocalizationError(ed.RemoveLocalizationLocale(loc)) },
+						}),
 					},
 				})
 			}
 
-			rows := make([]core.Node, 0, len(keys)+1)
+			rows := make([]core.Node, 0, len(keys)+2)
 			rows = append(rows, core.View{
 				Style: core.Style{
 					Direction:   core.Row,
 					AlignItems:  core.AlignCenter,
-					Gap:         6,
+					Gap:         specSpace8,
 					Borders:     core.Edges{Bottom: 1},
-					BorderColor: colors.Line(),
-					Padding:     core.Edges{Bottom: 4},
+					BorderColor: specLine,
+					Padding:     core.Edges{Bottom: specSpace4},
 				},
 				Children: colHeaders,
 			})
+
+			if len(keys) == 0 {
+				rows = append(rows, specEmptyState("l10n-empty", lucide.Languages, specTextMuted, "No translation keys yet", "Enter a key above and press Add Key to start translating.", nil))
+				return core.View{Style: core.Style{Gap: specSpace8}, Children: rows}
+			}
 
 			for _, keyName := range keys {
 				k := keyName
@@ -965,30 +1119,62 @@ func localizationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 				keyLabelNodes := []core.Node{
 					core.Text{
 						Content: k,
-						Style:   core.Style{FontSize: 12, FontWeight: 600, Color: colors.Text()},
+						Style: core.Style{
+							FontFamily: core.FontMonospace,
+							FontSize:   11.5,
+							FontWeight: core.FontWeightSemibold,
+							Color:      specTextStrong,
+						},
 					},
 				}
 				if isPlural {
-					keyLabelNodes = append(keyLabelNodes, ui.Badge{Text: "plural", Variant: ui.BadgeNeutral})
+					keyLabelNodes = append(keyLabelNodes, core.View{
+						Style: core.Style{
+							Height:         core.Pt(20),
+							Padding:        core.Symmetric(0, specSpace8),
+							CornerRadius:   specRadiusControl,
+							Background:     specRaised,
+							BorderWidth:    1,
+							BorderColor:    specLineRaised,
+							AlignItems:     core.AlignCenter,
+							JustifyContent: core.JustifyCenter,
+						},
+						Children: []core.Node{
+							core.Text{
+								Content: "plural",
+								Style: core.Style{
+									FontSize:   11,
+									FontWeight: core.FontWeightSemibold,
+									Color:      specTextMuted,
+								},
+							},
+						},
+					})
 				}
 				cells = append(cells, core.View{
 					Style: core.Style{
-						Width:      core.Pt(180),
-						Padding:    core.Symmetric(4, 4),
-						Gap:        4,
+						Width:      core.Pt(188),
+						Padding:    core.Symmetric(specSpace4, specSpace4),
+						Gap:        specSpace8,
 						AlignItems: core.AlignStart,
 					},
 					Children: []core.Node{
-						ui.HStack{Gap: 4, Children: keyLabelNodes},
-						ui.Button{
-							TestID:   "l10n-remove-key-" + k,
-							Text:     "Remove",
-							Label:    "Remove key " + k,
-							Size:     ui.SizeSmall,
-							Variant:  ui.ButtonGhost,
-							Disabled: disabled,
-							OnPress:  func() { ed.report(ed.RemoveLocalizationKey(k)) },
+						core.View{
+							Style:    core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: specSpace8, Wrap: core.Wrap},
+							Children: keyLabelNodes,
 						},
+						specPanelButton(specPanelButtonSpec{
+							TestID:     "l10n-remove-key-" + k,
+							Text:       "Remove",
+							Icon:       lucide.Trash,
+							Label:      "Remove key " + k,
+							Tooltip:    "Remove key " + k,
+							Variant:    specBtnGhost,
+							Compact:    true,
+							InsetFocus: true,
+							Disabled:   disabled,
+							OnPress:    func() { ed.reportLocalizationError(ed.RemoveLocalizationKey(k)) },
+						}),
 					},
 				})
 
@@ -1002,49 +1188,62 @@ func localizationPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 					Style: core.Style{
 						Direction:   core.Row,
 						AlignItems:  core.AlignStart,
-						Gap:         6,
-						Padding:     core.Symmetric(4, 0),
+						Gap:         specSpace8,
+						Padding:     core.Symmetric(specSpace8, 0),
 						Borders:     core.Edges{Bottom: 1},
-						BorderColor: colors.Line(),
+						BorderColor: specLine,
 					},
 					Children: cells,
 				})
 			}
 
-			return core.View{Style: core.Style{Gap: 2}, Children: rows}
+			return core.View{Style: core.Style{Gap: specSpace4}, Children: rows}
 		})},
 	}
 
-	return core.View{
-		TestID: "l10n-panel",
-		Style: core.Style{
-			Height:      core.Pt(260),
-			Padding:     core.Symmetric(6, 12),
-			Gap:         6,
-			Background:  colors.Inset(),
-			Borders:     core.Edges{Top: 1},
-			BorderColor: colors.Line(),
-		},
-		Children: []core.Node{
-			header,
-			table,
-		},
-	}
+	return specPanelContainer("l10n-panel", "Localization", 272, header, errorBanner, table)
 }
 
 func localizationCell(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], loc, key string, isPlural bool, disabled func() bool) core.Node {
-	colors := ui.ColorsOf(cx)
 	isMissing := func() bool {
 		_ = rev.Get()
 		return ed.LocalizationIsMissing(loc, key)
 	}
 
-	var editors []core.Node
+	// Missing translation badge placed at the top of the cell with warning token + alert icon (never color alone).
+	editors := []core.Node{
+		core.Show{
+			When: isMissing,
+			Then: func(cx *core.Scope) core.Node {
+				return core.View{
+					TestID: "l10n-missing-" + loc + "-" + key,
+					Style: core.Style{
+						Direction:  core.Row,
+						AlignItems: core.AlignCenter,
+						Gap:        specSpace4,
+					},
+					Children: []core.Node{
+						specIcon(lucide.TriangleAlert, 13, specWarning),
+						core.Text{
+							Content: "Missing translation",
+							Style: core.Style{
+								FontSize:   11,
+								FontWeight: core.FontWeightSemibold,
+								Color:      specWarning,
+							},
+						},
+					},
+				}
+			},
+		},
+	}
+
 	if !isPlural {
 		editors = append(editors, ui.Input{
 			TestID:      "l10n-input-" + loc + "-" + key,
 			Label:       fmt.Sprintf("%s (%s)", key, loc),
 			Placeholder: "Missing translation",
+			Style:       specInputStyle(),
 			Disabled:    disabled,
 			Value: func() string {
 				_ = rev.Get()
@@ -1052,7 +1251,7 @@ func localizationCell(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], loc,
 				return v
 			},
 			OnChange: func(text string) {
-				ed.report(ed.SetLocalizationString(loc, key, text))
+				ed.reportLocalizationError(ed.SetLocalizationString(loc, key, text))
 			},
 		})
 	} else {
@@ -1062,12 +1261,18 @@ func localizationCell(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], loc,
 				Style: core.Style{
 					Direction:  core.Row,
 					AlignItems: core.AlignCenter,
-					Gap:        4,
+					Gap:        specSpace8,
 				},
 				Children: []core.Node{
 					core.Text{
 						Content: cat,
-						Style:   core.Style{Width: core.Pt(38), FontSize: 10, FontWeight: 600, Color: colors.Muted()},
+						Style: core.Style{
+							Width:      core.Pt(40),
+							FontFamily: core.FontMonospace,
+							FontSize:   11,
+							FontWeight: core.FontWeightSemibold,
+							Color:      specTextMuted,
+						},
 					},
 					core.View{
 						Style: core.Style{FlexGrow: 1},
@@ -1075,6 +1280,7 @@ func localizationCell(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], loc,
 							TestID:      fmt.Sprintf("l10n-plural-%s-%s-%s", loc, key, cat),
 							Label:       fmt.Sprintf("%s %s (%s)", key, cat, loc),
 							Placeholder: cat,
+							Style:       specInputStyle(),
 							Disabled:    disabled,
 							Value: func() string {
 								_ = rev.Get()
@@ -1082,7 +1288,7 @@ func localizationCell(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], loc,
 								return pluralFormField(forms, cat)
 							},
 							OnChange: func(text string) {
-								ed.report(ed.SetLocalizationPluralForm(loc, key, cat, text))
+								ed.reportLocalizationError(ed.SetLocalizationPluralForm(loc, key, cat, text))
 							},
 						}},
 					},
@@ -1091,33 +1297,24 @@ func localizationCell(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], loc,
 		}
 	}
 
-	editors = append(editors, core.Show{
-		When: isMissing,
-		Then: func(cx *core.Scope) core.Node {
-			return core.Text{
-				TestID:  "l10n-missing-" + loc + "-" + key,
-				Content: "Missing",
-				Style:   core.Style{FontSize: 10, FontWeight: 600, Color: colors.Warn()},
-			}
-		},
-	})
-
 	return core.View{
 		TestID: "l10n-cell-" + loc + "-" + key,
 		StyleFunc: func() core.Style {
-			border := colors.Line()
+			bg := specRaised
+			border := specLineRaised
 			if isMissing() {
-				border = colors.Warn()
+				bg = specWarningFill
+				border = specWarningEdge
 			}
 			return core.Style{
 				FlexGrow:     1,
-				FlexBasis:    core.Pt(180),
-				Padding:      core.All(4),
-				Gap:          3,
-				CornerRadius: 4,
+				FlexBasis:    core.Pt(188),
+				Padding:      core.All(specSpace8),
+				Gap:          specSpace4,
+				CornerRadius: specRadiusButton,
 				BorderWidth:  1,
 				BorderColor:  border,
-				Background:   colors.Surface(),
+				Background:   bg,
 			}
 		},
 		Children: editors,

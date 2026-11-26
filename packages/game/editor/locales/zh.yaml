@@ -479,11 +479,14 @@ strings:
   problems.checkLabel: 重新运行项目与资源检查
   problems.checking: 正在检查项目…
   problems.empty: 没有问题
+  problems.error: 错误
+  problems.retry: 重试
   problems.statusChecking: 问题：检查中…
   problems.statusCount: 问题：{count}
   problems.statusError: 问题：错误
   problems.title: 问题（{count}）
   problems.titleChecking: 问题（检查中…）
+  problems.warning: 警告
   scene.untitled: 未命名
   scene.untitledScene: 未命名场景
   sceneTree.active: 当前
@@ -533,6 +536,7 @@ strings:
   search.closeLabel: 关闭搜索面板
   search.emptyPrompt: 输入以搜索项目文件、UID、场景对象、组件、预制体与场景引用
   search.inputLabel: 搜索项目文件、UID、对象、组件、预制体与场景引用
+  search.loading: 正在搜索项目…
   search.matchCount: '{count} 条匹配'
   search.noMatches: 没有匹配项
   search.noRefs: 没有对 {target} 的引用
@@ -541,6 +545,7 @@ strings:
   search.refresh: 刷新
   search.refreshLabel: 重新扫描项目索引与引用
   search.refsPrompt: 在文件浏览器中选择一个文件后点击“查找引用”
+  search.retry: 重试
   search.search: 搜索
   settings.appearance: 外观
   settings.appearanceHelp: 深色、浅色或跟随系统。
