@@ -1480,6 +1480,14 @@ func splitLinesForDiff(s string) []string {
 // for the active Settings page.
 func (e *Editor) SettingsPageContext() (pageID, title, scope, file string) {
 	switch e.SettingsPage() {
+	case SettingsPageModels:
+		return "models", e.T("settings.page.models"), e.T("settings.scopeComputer"), ""
+	case SettingsPageTools:
+		return "tools", e.T("settings.page.tools"), e.T("settings.scopeComputer"), ""
+	case SettingsPageAutomations:
+		return "automations", e.T("settings.page.automations"), e.T("settings.scopeAutomations"), AutomationsFileName
+	case SettingsPageUsage:
+		return "usage", e.T("settings.page.usage"), e.T("settings.scopeComputer"), ""
 	case SettingsPageProject:
 		return "project", e.T("settings.page.project"), e.T("settings.scopeProject"), project.FileName
 	case SettingsPageInput:

@@ -602,6 +602,18 @@ func (e *Editor) InterfaceScale() float32 {
 	return e.InterfaceSize().Scale()
 }
 
+func (e *Editor) normalizeSettingsLocked() {
+	if e.settings.Version == 0 {
+		e.settings.Version = SettingsVersion
+	}
+	if !e.settings.Language.Valid() {
+		e.settings.Language = LanguageSystem
+	}
+	if !e.settings.Appearance.Valid() {
+		e.settings.Appearance = AppearanceSystem
+	}
+}
+
 // SetInterfaceSize updates the per-user editor interface size live. When SettingsPath is non-empty, the updated settings are persisted to SettingsPath.
 func (e *Editor) SetInterfaceSize(size InterfaceSize) error {
 	if e == nil {
@@ -610,19 +622,17 @@ func (e *Editor) SetInterfaceSize(size InterfaceSize) error {
 	if !size.Valid() {
 		return loaderr.Errorf("interfaceSize", fixSettingsUISize, "editor: invalid settings interfaceSize %q (want compact, default, or large)", size)
 	}
-	cur := e.Settings()
-	if cur.EffectiveInterfaceSize() == size && cur.InterfaceSize == size {
+	e.settingsMu.Lock()
+	e.normalizeSettingsLocked()
+	if e.settings.EffectiveInterfaceSize() == size && e.settings.InterfaceSize == size {
+		e.settingsMu.Unlock()
 		return nil
 	}
-	cur.InterfaceSize = size
-	e.settingsMu.Lock()
-	e.settings = cur
+	e.settings.InterfaceSize = size
 	e.settingsMu.Unlock()
-	if e.SettingsPath != "" {
-		if err := SaveEditorSettings(e.SettingsPath, &cur); err != nil {
-			e.notify()
-			return err
-		}
+	if err := e.persistEditorSettings(); err != nil {
+		e.notify()
+		return err
 	}
 	e.notify()
 	return nil
@@ -638,21 +648,18 @@ func (e *Editor) SetShowAgentChanges(show bool) error {
 	if e == nil {
 		return nil
 	}
-	cur := e.Settings()
-	changed := cur.ShowAgentChanges == nil || *cur.ShowAgentChanges != show
-	v := show
-	cur.ShowAgentChanges = &v
 	e.settingsMu.Lock()
-	e.settings = cur
+	e.normalizeSettingsLocked()
+	changed := e.settings.ShowAgentChanges == nil || *e.settings.ShowAgentChanges != show
+	v := show
+	e.settings.ShowAgentChanges = &v
 	e.settingsMu.Unlock()
 	if !changed {
 		return nil
 	}
-	if e.SettingsPath != "" {
-		if err := SaveEditorSettings(e.SettingsPath, &cur); err != nil {
-			e.notify()
-			return err
-		}
+	if err := e.persistEditorSettings(); err != nil {
+		e.notify()
+		return err
 	}
 	e.notify()
 	return nil
@@ -671,19 +678,17 @@ func (e *Editor) SetNavigation3D(mode Navigation3D) error {
 	if !mode.Valid() {
 		return loaderr.Errorf("navigation3D", fixSettingsNav3D, "editor: invalid settings navigation3D %q (want default, blender, or maya)", mode)
 	}
-	cur := e.Settings()
-	if cur.EffectiveNavigation3D() == mode && cur.Navigation3D == mode {
+	e.settingsMu.Lock()
+	e.normalizeSettingsLocked()
+	if e.settings.EffectiveNavigation3D() == mode && e.settings.Navigation3D == mode {
+		e.settingsMu.Unlock()
 		return nil
 	}
-	cur.Navigation3D = mode
-	e.settingsMu.Lock()
-	e.settings = cur
+	e.settings.Navigation3D = mode
 	e.settingsMu.Unlock()
-	if e.SettingsPath != "" {
-		if err := SaveEditorSettings(e.SettingsPath, &cur); err != nil {
-			e.notify()
-			return err
-		}
+	if err := e.persistEditorSettings(); err != nil {
+		e.notify()
+		return err
 	}
 	e.notify()
 	return nil
@@ -694,12 +699,12 @@ func (e *Editor) persistSnapToSettings() {
 	if e == nil || e.SettingsPath == "" {
 		return
 	}
-	cur := e.Settings()
-	cur.Snap = e.SnapSettings().normalizedForViewState()
+	snap := e.SnapSettings().normalizedForViewState()
 	e.settingsMu.Lock()
-	e.settings = cur
+	e.normalizeSettingsLocked()
+	e.settings.Snap = snap
 	e.settingsMu.Unlock()
-	if err := SaveEditorSettings(e.SettingsPath, &cur); err != nil {
+	if err := e.persistEditorSettings(); err != nil {
 		e.report(err)
 	}
 }
@@ -709,12 +714,11 @@ func (e *Editor) SetAutoSave(enabled bool) error {
 	if e == nil {
 		return nil
 	}
-	cur := e.Settings()
-	changed := cur.AutoSave == nil || *cur.AutoSave != enabled
-	v := enabled
-	cur.AutoSave = &v
 	e.settingsMu.Lock()
-	e.settings = cur
+	e.normalizeSettingsLocked()
+	changed := e.settings.AutoSave == nil || *e.settings.AutoSave != enabled
+	v := enabled
+	e.settings.AutoSave = &v
 	e.settingsMu.Unlock()
 	if enabled {
 		e.scheduleAutoSaveIfNeeded()
@@ -724,11 +728,9 @@ func (e *Editor) SetAutoSave(enabled bool) error {
 	if !changed {
 		return nil
 	}
-	if e.SettingsPath != "" {
-		if err := SaveEditorSettings(e.SettingsPath, &cur); err != nil {
-			e.notify()
-			return err
-		}
+	if err := e.persistEditorSettings(); err != nil {
+		e.notify()
+		return err
 	}
 	e.notify()
 	return nil
@@ -753,19 +755,17 @@ func (e *Editor) SetLanguage(lang Language) error {
 	if !lang.Valid() {
 		return loaderr.Errorf("language", fixSettingsLanguage, "editor: invalid settings language %q (want system, en, or zh)", lang)
 	}
-	cur := e.Settings()
-	if cur.Language == lang {
+	e.settingsMu.Lock()
+	e.normalizeSettingsLocked()
+	if e.settings.Language == lang {
+		e.settingsMu.Unlock()
 		return nil
 	}
-	cur.Language = lang
-	e.settingsMu.Lock()
-	e.settings = cur
+	e.settings.Language = lang
 	e.settingsMu.Unlock()
-	if e.SettingsPath != "" {
-		if err := SaveEditorSettings(e.SettingsPath, &cur); err != nil {
-			e.notify()
-			return err
-		}
+	if err := e.persistEditorSettings(); err != nil {
+		e.notify()
+		return err
 	}
 	e.notify()
 	return nil
@@ -779,11 +779,10 @@ func (e *Editor) SetAppearance(appearance Appearance) error {
 	if !appearance.Valid() {
 		return loaderr.Errorf("appearance", fixSettingsAppear, "editor: invalid settings appearance %q (want system, light, or dark)", appearance)
 	}
-	cur := e.Settings()
-	changed := cur.Appearance != appearance
-	cur.Appearance = appearance
 	e.settingsMu.Lock()
-	e.settings = cur
+	e.normalizeSettingsLocked()
+	changed := e.settings.Appearance != appearance
+	e.settings.Appearance = appearance
 	e.settingsMu.Unlock()
 	if e.scope != nil {
 		e.scope.SetAppearance(appearance.CoreAppearance())
@@ -791,11 +790,9 @@ func (e *Editor) SetAppearance(appearance Appearance) error {
 	if !changed {
 		return nil
 	}
-	if e.SettingsPath != "" {
-		if err := SaveEditorSettings(e.SettingsPath, &cur); err != nil {
-			e.notify()
-			return err
-		}
+	if err := e.persistEditorSettings(); err != nil {
+		e.notify()
+		return err
 	}
 	e.notify()
 	return nil
@@ -852,8 +849,8 @@ func (e *Editor) ApplySettings(s EditorSettings) error {
 	s.Agent = cloneAgentSettings(s.Agent)
 	e.settingsMu.Lock()
 	e.settings = s
-	e.settingsMu.Unlock()
 	e.agent.builtInKeyChecked = false
+	e.settingsMu.Unlock()
 	e.applyViewStateSnap(s.Snap)
 	e.syncOverlaysFromSettings()
 	if s.AutoSaveEnabled() {

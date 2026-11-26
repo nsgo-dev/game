@@ -279,12 +279,8 @@ func (e *Editor) restoreProjectSnapState() {
 		return
 	}
 	v, err := e.loadViewState()
-	if err != nil {
-		e.applyViewStateSnap(e.settings.Snap)
-		return
-	}
-	if v.Snap == nil {
-		e.applyViewStateSnap(e.settings.Snap)
+	if err != nil || v.Snap == nil {
+		e.applyViewStateSnap(e.Settings().Snap)
 		return
 	}
 	e.applyViewStateSnap(v.Snap)
