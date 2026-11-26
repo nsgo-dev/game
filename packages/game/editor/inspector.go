@@ -23,6 +23,9 @@ func (e *Editor) SetProperty(objectID, key string, value any) error {
 	if e.playing {
 		return ErrPlaying
 	}
+	if err := e.checkAgentTouchLock(objectID); err != nil {
+		return err
+	}
 	if key == "" {
 		return fmt.Errorf("editor: property key must not be empty")
 	}
@@ -65,6 +68,9 @@ func (e *Editor) DeleteProperty(objectID, key string) error {
 	if e.playing {
 		return ErrPlaying
 	}
+	if err := e.checkAgentTouchLock(objectID); err != nil {
+		return err
+	}
 	obj, _, _ := e.FindObject(objectID)
 	if obj == nil {
 		if info := e.ObjectOverrideInfo(objectID); info.Origin != ObjectLocal {
@@ -99,6 +105,9 @@ func (e *Editor) DeleteProperty(objectID, key string) error {
 func (e *Editor) SetComponentField(objectID, componentName, field string, value any) error {
 	if e.playing {
 		return ErrPlaying
+	}
+	if err := e.checkAgentTouchLock(objectID); err != nil {
+		return err
 	}
 	if componentName == "" || field == "" {
 		return fmt.Errorf("editor: component name and field must not be empty")
@@ -1148,7 +1157,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 	isLocal := info.Origin == ObjectLocal
 	disabled := func() bool {
 		_ = rev.Get()
-		return ed.Playing()
+		return ed.Playing() || ed.AgentTouchingObject(objID)
 	}
 
 	sectionHeader := func(title string) core.Node {
@@ -2952,6 +2961,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 		Style: core.Style{Gap: 10},
 		Children: []core.Node{
 			header,
+			inspectorAgentWorkingBannerView(cx, ed, rev, objID),
 			filterBar,
 			sectionsNode,
 			addComponentControl(cx, ed, rev, objID, disabled),

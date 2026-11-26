@@ -967,7 +967,7 @@ func (e *Editor) BeginComponentGizmoDrag3D(sx, sy, w, h float32) (PickedComponen
 		return PickedComponentGizmo3D{}, false
 	}
 	picked, ok := e.PickComponentGizmo3D(sx, sy, w, h)
-	if !ok {
+	if !ok || e.checkAgentTouchLock(picked.ObjectID) != nil {
 		return PickedComponentGizmo3D{}, false
 	}
 	g := e.componentGizmo3D(picked.Component)

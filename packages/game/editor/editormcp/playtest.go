@@ -228,11 +228,19 @@ func gamePlaytest(ctx context.Context, c *Call) (*Result, error) {
 		return nil, errors.New("game_playtest: count must be positive")
 	}
 
-	var root string
+	var (
+		root       string
+		sceneTitle string
+	)
 	if err := c.Editor(ctx, func(ed *editor.Editor) error {
 		root = projectRoot(ed)
 		if root == "" {
 			return errors.New("game_playtest: no project is open in the editor; open one with go tool game editor <project-dir>")
+		}
+		if ed.Doc != nil && ed.Doc.Name != "" {
+			sceneTitle = ed.Doc.Name
+		} else {
+			sceneTitle = sceneName(ed, root)
 		}
 		return nil
 	}); err != nil {
@@ -304,6 +312,21 @@ func gamePlaytest(ctx context.Context, c *Call) (*Result, error) {
 	if runner == nil {
 		runner = defaultRunPlaytest
 	}
+	playActivity := "playing " + sceneTitle + " headless"
+	_ = c.Editor(ctx, func(ed *editor.Editor) error {
+		if !c.s.explicitStep {
+			ed.SetAgentState(editor.AgentStateWorking, playActivity)
+		}
+		return nil
+	})
+	defer func() {
+		_ = c.Editor(context.Background(), func(ed *editor.Editor) error {
+			if !c.s.explicitStep {
+				ed.EndAgentStep()
+			}
+			return nil
+		})
+	}()
 	rep, err := runner(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("game_playtest: %w", err)

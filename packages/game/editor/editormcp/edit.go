@@ -137,7 +137,11 @@ func sceneEdit(ctx context.Context, c *Call) (*Result, error) {
 			}
 		}()
 	}
-	var res EditResult
+	var (
+		res        EditResult
+		openedTurn bool
+		autoStep   bool
+	)
 	err := c.Editor(ctx, func(ed *editor.Editor) error {
 		root := projectRoot(ed)
 		name := sceneName(ed, root)
@@ -164,11 +168,21 @@ func sceneEdit(ctx context.Context, c *Call) (*Result, error) {
 		if label == "" {
 			label = editLabel(args.Edits)
 		}
+		if !ed.AgentTurnPending() {
+			ed.BeginAgentTurn(label)
+			openedTurn = true
+		}
+		touched := touchedEditIDs(args.Edits)
+		activity := stepActivityLabel(args.Label, args.Edits)
+		if !c.s.explicitStep {
+			ed.BeginAgentStep(touched, activity)
+			autoStep = true
+		}
 		title := strings.TrimSpace(strings.TrimPrefix(label, "Agent:"))
 		if title == "" {
 			title = label
 		}
-		return ed.RecordAgentTurn(editor.AgentTurnOptions{
+		err := ed.RecordAgentTurn(editor.AgentTurnOptions{
 			Title:       title,
 			UndoLabel:   label,
 			ChangeCount: len(args.Edits),
@@ -185,6 +199,20 @@ func sceneEdit(ctx context.Context, c *Call) (*Result, error) {
 			}
 			return nil
 		})
+		if err != nil {
+			if autoStep {
+				ed.EndAgentStep()
+				autoStep = false
+			}
+			if openedTurn {
+				ed.DiscardEmptyAgentTurn()
+			}
+			return err
+		}
+		if autoStep && len(res.Objects) > 0 {
+			ed.BeginAgentStep(append(touched, res.Objects...), activity)
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -196,6 +224,9 @@ func sceneEdit(ctx context.Context, c *Call) (*Result, error) {
 	err = c.Editor(ctx, func(ed *editor.Editor) error {
 		res.Undo = ed.History.UndoLabel()
 		res.Revision = ed.Revision()
+		if autoStep && !c.s.explicitStep {
+			ed.EndAgentStep()
+		}
 		return nil
 	})
 	if err != nil {
@@ -229,6 +260,72 @@ func editLabel(edits []editArgs) string {
 		return "Agent: " + strings.ReplaceAll(e.Op, "_", " ")
 	}
 	return fmt.Sprintf("Agent: %d scene edits", len(edits))
+}
+
+// touchedEditIDs returns the unique object IDs named by edits, preserving first-seen order.
+func touchedEditIDs(edits []editArgs) []string {
+	var out []string
+	seen := make(map[string]bool, len(edits))
+	addID := func(id string) {
+		if id == "" || seen[id] {
+			return
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	for _, e := range edits {
+		if e.ID != "" {
+			addID(e.ID)
+		}
+		if e.Op == "add" && len(e.Object) > 0 {
+			var obj struct {
+				ID string `json:"id"`
+			}
+			_ = json.Unmarshal(e.Object, &obj)
+			addID(obj.ID)
+		}
+	}
+	return out
+}
+
+// stepActivityLabel formats a concise present-participle pill label for an active agent step
+// (for example "placing slime_02", "moving knight", or "editing knight").
+func stepActivityLabel(label string, edits []editArgs) string {
+	if s := strings.TrimSpace(label); s != "" {
+		return s
+	}
+	if len(edits) == 1 {
+		e := edits[0]
+		target := e.ID
+		if e.Op == "add" {
+			var obj struct {
+				ID   string `json:"id"`
+				Name string `json:"name"`
+			}
+			_ = json.Unmarshal(e.Object, &obj)
+			if obj.ID != "" {
+				target = obj.ID
+			} else {
+				target = obj.Name
+			}
+		}
+		verb := "editing"
+		switch e.Op {
+		case "add":
+			verb = "placing"
+		case "move":
+			verb = "moving"
+		case "remove":
+			verb = "removing"
+		case "reparent", "move_to_layer":
+			verb = "moving"
+		}
+		if target != "" {
+			return verb + " " + target
+		}
+		return verb + " scene"
+	}
+	return fmt.Sprintf("editing %d objects", len(edits))
 }
 
 // refusal is an edit's refusal before it reaches an editor method: what is wrong, the field it is about, and the fix.

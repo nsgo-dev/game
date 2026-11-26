@@ -767,30 +767,51 @@ func specToastIcon(p SpecPalette, kind ToastKind) core.Node {
 	}
 }
 
-// viewportOverlayLegendView renders the compact Spec overlay legend pill in the top-left of the viewport
-// when Editor.OverlayLegendOpen is true (matching Spec.dc.html's line-style legend).
+// viewportOverlayLegendView renders the compact interactive Spec overlay legend in the top-left of the
+// viewport when Editor.OverlayLegendOpen is true or live agent overlays are active (matching Spec.dc.html's
+// line-style legend). Each row toggles its overlay kind on or off and persists the choice per user in
+// EditorSettings.HiddenOverlayKinds.
 func viewportOverlayLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	return core.Show{
 		When: func() bool {
 			_ = rev.Get()
-			return ed.OverlayLegendOpen()
+			return ed.OverlayLegendOpen() || ed.HasAgentLiveOverlays()
 		},
 		Then: func(cx *core.Scope) core.Node {
 			p := ed.SpecPalette(cx)
-			row := func(testID, label string, col core.Color, dashed bool) core.Node {
+			row := func(testID string, kind OverlayLegendKind, labelKey string, col core.Color, dashed bool) core.Node {
+				k := kind
+				isOn := func() bool {
+					_ = rev.Get()
+					return ed.OverlayLegendKindEnabled(k)
+				}
 				return core.View{
-					TestID: testID,
+					TestID:    testID,
+					Role:      core.RoleSwitch,
+					LabelFunc: func() string { _ = rev.Get(); return ed.T(labelKey) },
+					Checked:   isOn,
+					Focusable: func() bool { return true },
 					Style: core.Style{
-						Direction:  core.Row,
-						AlignItems: core.AlignCenter,
-						Gap:        8,
-						Height:     core.Pt(22),
+						Direction:    core.Row,
+						AlignItems:   core.AlignCenter,
+						Gap:          8,
+						Height:       core.Pt(28),
+						Padding:      core.Symmetric(0, 6),
+						CornerRadius: 6,
+						FocusVisible: p.FocusRing(2),
+					},
+					OnPress: func(core.PressEvent) {
+						ed.report(ed.ToggleOverlayLegendKind(k))
 					},
 					Children: []core.Node{
 						core.Canvas{
 							Style: core.Style{Width: core.Pt(18), Height: core.Pt(10), FlexShrink: 0},
 							Draw: func(d *core.Drawing, _ core.Size) {
-								d.SetStrokeColor(col).SetLineWidth(1.8)
+								c := col
+								if !ed.OverlayLegendKindEnabled(k) {
+									c = ui.Alpha(p.TextFaint, 0.45)
+								}
+								d.SetStrokeColor(c).SetLineWidth(1.8)
 								if dashed {
 									d.SetLineDash(4, 2.5)
 								}
@@ -798,11 +819,23 @@ func viewportOverlayLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 							},
 						},
 						core.Text{
-							Content: label,
+							ContentFunc: func() string {
+								_ = rev.Get()
+								return ed.T(labelKey)
+							},
 							Style: core.Style{
 								FontSize:   11.5,
 								FontWeight: 500,
 								Color:      p.TextSecondary,
+							},
+							StyleFunc: func() core.Style {
+								if !isOn() {
+									return core.Style{
+										Color:          p.TextFaint,
+										TextDecoration: core.TextDecorationLineThrough,
+									}
+								}
+								return core.Style{Color: p.TextSecondary}
 							},
 						},
 					},
@@ -814,8 +847,8 @@ func viewportOverlayLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 					Position:     core.Absolute,
 					Left:         core.Pt(12),
 					Top:          core.Pt(12),
-					Padding:      core.Symmetric(8, 12),
-					Gap:          2,
+					Padding:      core.Symmetric(8, 10),
+					Gap:          0,
 					CornerRadius: 10,
 					Background:   p.Raised,
 					BorderWidth:  1,
@@ -823,21 +856,24 @@ func viewportOverlayLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 				},
 				Children: []core.Node{
 					core.Text{
-						Content: "OVERLAYS",
+						ContentFunc: func() string {
+							_ = rev.Get()
+							return ed.T("agent.legendTitle")
+						},
 						Style: core.Style{
 							FontSize:      10.5,
 							FontWeight:    600,
 							LetterSpacing: 0.6,
 							Color:         p.TextFaint,
-							Margin:        core.Edges{Bottom: 2},
+							Padding:       core.Edges{Left: 6, Right: 6, Bottom: 4},
 						},
 					},
-					row("legend-selection", "Selection", p.Accent.Edge, false),
-					row("legend-agent", "Agent working", p.Agent.Edge, false),
-					row("legend-added", "Added", p.Added.Edge, true),
-					row("legend-changed", "Changed", p.Changed.Edge, true),
-					row("legend-removed", "Removed", p.Removed.Edge, false),
-					row("legend-problem", "Problem", p.Problem().Edge, false),
+					row("legend-selection", OverlayLegendSelection, "agent.legendSelection", p.Accent.Edge, false),
+					row("legend-agent", OverlayLegendAgent, "agent.legendAgent", p.Agent.Edge, false),
+					row("legend-added", OverlayLegendAdded, "agent.legendAdded", p.Added.Edge, true),
+					row("legend-changed", OverlayLegendChanged, "agent.legendChanged", p.Changed.Edge, true),
+					row("legend-removed", OverlayLegendRemoved, "agent.legendRemoved", p.Removed.Edge, false),
+					row("legend-problem", OverlayLegendProblem, "agent.legendProblem", p.Problem().Edge, false),
 				},
 			}
 		},

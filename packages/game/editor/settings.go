@@ -174,6 +174,9 @@ type EditorSettings struct {
 	// ViewportOverlays lists the enabled 2D viewport overlay IDs in canonical sorted order.
 	// When omitted, the editor uses DefaultViewportOverlays(); an empty list disables all overlays.
 	ViewportOverlays *[]string `yaml:"viewportOverlays,omitempty"`
+	// HiddenOverlayKinds lists Spec overlay legend kinds toggled off by the user
+	// ("selection", "agent", "added", "changed", "removed", "problem") in canonical sorted order.
+	HiddenOverlayKinds []string `yaml:"hiddenOverlayKinds,omitempty"`
 	// Shortcuts overrides default command shortcuts keyed by command ID (for example "view.frame": "g"). An empty string explicitly unbinds a command.
 	Shortcuts map[string]string `yaml:"shortcuts,omitempty"`
 	// SeenTips lists the onboarding tip IDs already seen or skipped by this user in canonical sorted order.
@@ -382,6 +385,18 @@ func ValidateEditorSettings(s *EditorSettings) error {
 			seen[id] = struct{}{}
 		}
 	}
+	if len(s.HiddenOverlayKinds) > 0 {
+		seen := make(map[string]struct{}, len(s.HiddenOverlayKinds))
+		for i, raw := range s.HiddenOverlayKinds {
+			if !OverlayLegendKind(raw).Valid() {
+				return loaderr.Errorf(fmt.Sprintf("hiddenOverlayKinds[%d]", i), "use selection, agent, added, changed, removed, or problem", "editor: invalid hidden overlay kind %q", raw)
+			}
+			if _, dup := seen[raw]; dup {
+				return loaderr.Errorf(fmt.Sprintf("hiddenOverlayKinds[%d]", i), "remove duplicate hidden overlay kinds", "editor: duplicate hidden overlay kind %q", raw)
+			}
+			seen[raw] = struct{}{}
+		}
+	}
 	for _, cmdID := range slices.Sorted(maps.Keys(s.Shortcuts)) {
 		raw := s.Shortcuts[cmdID]
 		if err := validateCommandID(cmdID); err != nil {
@@ -475,6 +490,11 @@ func EncodeEditorSettings(s *EditorSettings) ([]byte, error) {
 		slices.Sort(sorted)
 		out.ViewportOverlays = &sorted
 	}
+	if len(s.HiddenOverlayKinds) > 0 {
+		hidden := slices.Clone(s.HiddenOverlayKinds)
+		slices.Sort(hidden)
+		out.HiddenOverlayKinds = hidden
+	}
 	var buf bytes.Buffer
 	buf.WriteString(SettingsSchemaComment + "\n")
 	enc := yaml.NewEncoder(&buf)
@@ -560,6 +580,11 @@ func (e *Editor) Settings() EditorSettings {
 			cp = []string{}
 		}
 		s.ViewportOverlays = &cp
+	}
+	if len(s.HiddenOverlayKinds) > 0 {
+		s.HiddenOverlayKinds = slices.Clone(s.HiddenOverlayKinds)
+	} else {
+		s.HiddenOverlayKinds = nil
 	}
 	if len(s.Shortcuts) > 0 {
 		s.Shortcuts = maps.Clone(s.Shortcuts)
@@ -825,6 +850,13 @@ func (e *Editor) ApplySettings(s EditorSettings) error {
 		}
 		slices.Sort(cp)
 		s.ViewportOverlays = &cp
+	}
+	if len(s.HiddenOverlayKinds) > 0 {
+		cp := slices.Clone(s.HiddenOverlayKinds)
+		slices.Sort(cp)
+		s.HiddenOverlayKinds = cp
+	} else {
+		s.HiddenOverlayKinds = nil
 	}
 	if len(s.Shortcuts) > 0 {
 		normalized := make(map[string]string, len(s.Shortcuts))

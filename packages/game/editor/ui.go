@@ -123,6 +123,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 		ed.stopCutsceneLoop()
 		ed.closeModelPreview()
 		ed.stopTileAnimLoop()
+		ed.stopAgentPulseLoop()
 		ed.cleanupAudioMixerScope(cx)
 		ed.cleanupAssetDrawerScope(cx)
 		ed.cleanupChangedAudioScope(cx)
@@ -970,6 +971,7 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 					},
 				},
 			},
+			toolbarAgentPillView(cx, ed, rev),
 			ui.Toolbar{
 				Label: ed.T("toolbar.label"),
 				Style: core.Style{

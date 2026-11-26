@@ -193,9 +193,10 @@ type Server struct {
 	wg sync.WaitGroup
 
 	// The rest belong to the editor's goroutine.
-	agent  int
-	unsub  func()
-	opened bool
+	agent        int
+	explicitStep bool
+	unsub        func()
+	opened       bool
 	// projectPath is the editor's ProjectPath when follow last looked, so a change elsewhere does not search for the project again.
 	projectPath string
 	stream      changeStream
@@ -394,7 +395,29 @@ func (s *Server) asAgent(fn func(ed *editor.Editor) error) (err error) {
 		}
 	}()
 	return s.ed.WithAgentActor(func() error {
-		return fn(s.ed)
+		return s.ed.RunAsAgent(func() error {
+			return fn(s.ed)
+		})
+	})
+}
+
+// BeginStep marks objectIDs as currently touched by the agent's active step with the pill label activity
+// until EndStep is called or the next BeginStep moves the agent onto different objects. While a step is
+// active, manual edits to those objects are refused in the editor while MCP tool edits remain allowed.
+func (s *Server) BeginStep(ctx context.Context, objectIDs []string, activity string) error {
+	return s.Editor(ctx, func(ed *editor.Editor) error {
+		s.explicitStep = true
+		ed.BeginAgentStep(objectIDs, activity)
+		return nil
+	})
+}
+
+// EndStep releases any objects marked by BeginStep so manual edits to them are allowed again.
+func (s *Server) EndStep(ctx context.Context) error {
+	return s.Editor(ctx, func(ed *editor.Editor) error {
+		s.explicitStep = false
+		ed.EndAgentStep()
+		return nil
 	})
 }
 

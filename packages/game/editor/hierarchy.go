@@ -283,6 +283,9 @@ func (e *Editor) ReorderObject(id string, index int) error {
 
 // relocate checks and executes the move of the object id to slot.
 func (e *Editor) relocate(id string, to objectSlot, label string) error {
+	if err := e.checkAgentTouchLockSubtree(id); err != nil {
+		return err
+	}
 	loc := locateObject(e.Doc, id)
 	if loc.obj == nil {
 		return fmt.Errorf("editor: object %q not found", id)
@@ -640,6 +643,9 @@ func (m aff3) decompose(mirrored [3]bool) (pos, rot, scale [3]float64, ok bool) 
 func (e *Editor) SetObjectID(oldID, newID string) error {
 	if e.playing {
 		return ErrPlaying
+	}
+	if err := e.checkAgentTouchLock(oldID); err != nil {
+		return err
 	}
 	obj, _, _ := e.FindObject(oldID)
 	if obj == nil {

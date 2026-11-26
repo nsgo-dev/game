@@ -528,7 +528,7 @@ func (e *Editor) BeginShapeDrag2D(x, y float32) (ShapeHandle2D, bool) {
 		return ShapeHandle2D{}, false
 	}
 	obj, li, _ := e.FindObject(h.ObjectID)
-	if obj == nil || li < 0 {
+	if obj == nil || li < 0 || e.checkAgentTouchLock(h.ObjectID) != nil {
 		return ShapeHandle2D{}, false
 	}
 	ct, ok := e.lookupComponentType(h.Component)

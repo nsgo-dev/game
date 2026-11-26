@@ -474,6 +474,9 @@ func (e *Editor) SetObjectModel(id, model string) error {
 	if e.playing {
 		return ErrPlaying
 	}
+	if err := e.checkAgentTouchLock(id); err != nil {
+		return err
+	}
 	obj, _, _ := e.FindObject(id)
 	if obj == nil {
 		if info := e.ObjectOverrideInfo(id); info.Origin != ObjectLocal {

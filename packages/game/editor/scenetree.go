@@ -13,10 +13,12 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
-// sceneTreeKey is a row of the scene tree: a layer when id is empty, else the object id.
+// sceneTreeKey is a row of the scene tree: a layer when id is empty, else the object id
+// (with removed set for objects deleted during a pending agent turn).
 type sceneTreeKey struct {
-	layer string
-	id    string
+	layer   string
+	id      string
+	removed bool
 }
 
 // sceneTreeDrag is what a row of the scene tree carries while it is dragged.
@@ -85,6 +87,9 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 	}
 	children := func(k sceneTreeKey) []any {
 		_ = rev.Get()
+		if k.removed {
+			return nil
+		}
 		doc := ed.resolvedDoc()
 		if doc == nil {
 			return nil
@@ -93,9 +98,13 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 			for i := range doc.Layers {
 				if doc.Layers[i].Name == k.layer {
 					objs := doc.Layers[i].Objects
-					out := make([]any, len(objs))
+					rem := ed.AgentRemovedNodes(k.layer, "")
+					out := make([]any, 0, len(objs)+len(rem))
 					for j := range objs {
-						out[j] = sceneTreeKey{layer: k.layer, id: objs[j].ID}
+						out = append(out, sceneTreeKey{layer: k.layer, id: objs[j].ID})
+					}
+					for _, r := range rem {
+						out = append(out, sceneTreeKey{layer: k.layer, id: r.ObjectID, removed: true})
 					}
 					return out
 				}
@@ -106,9 +115,14 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 		if loc.obj == nil {
 			return nil
 		}
-		out := make([]any, len(loc.obj.Children))
+		layerName := doc.Layers[loc.layer].Name
+		rem := ed.AgentRemovedNodes(layerName, k.id)
+		out := make([]any, 0, len(loc.obj.Children)+len(rem))
 		for i := range loc.obj.Children {
-			out[i] = sceneTreeKey{layer: doc.Layers[loc.layer].Name, id: loc.obj.Children[i].ID}
+			out = append(out, sceneTreeKey{layer: layerName, id: loc.obj.Children[i].ID})
+		}
+		for _, r := range rem {
+			out = append(out, sceneTreeKey{layer: layerName, id: r.ObjectID, removed: true})
 		}
 		return out
 	}
@@ -196,7 +210,7 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 			}
 			objIDs := make([]string, 0, len(keys))
 			for _, raw := range keys {
-				if tk, ok := raw.(sceneTreeKey); ok && tk.id != "" && !slices.Contains(objIDs, tk.id) {
+				if tk, ok := raw.(sceneTreeKey); ok && tk.id != "" && !tk.removed && !slices.Contains(objIDs, tk.id) {
 					objIDs = append(objIDs, tk.id)
 				}
 			}
@@ -277,7 +291,7 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 	})
 
 	startEdit := func(k sceneTreeKey, f treeField) {
-		if k.id == "" || ed.Playing() {
+		if k.id == "" || k.removed || ed.Playing() || ed.AgentTouchingObject(k.id) {
 			return
 		}
 		editing.Set(treeEdit{key: k, field: f})
@@ -307,6 +321,9 @@ func SceneTreeView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 			k, _ := item.Key().(sceneTreeKey)
 			if k.id == "" {
 				return layerRow(cx, ed, rev, k, hint)
+			}
+			if k.removed {
+				return removedObjectRow(cx, ed, rev, k)
 			}
 			return objectRow(cx, ed, rev, k, editing, hint, startEdit, setOpen, renamed)
 		})
@@ -709,6 +726,74 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 							}
 						},
 					},
+					core.Show{
+						When: func() bool {
+							_ = rev.Get()
+							return ed.AgentTouchingObject(id)
+						},
+						Then: func(cx *core.Scope) core.Node {
+							return core.View{
+								TestID: "scene-tree-agent-working-" + id,
+								Style: core.Style{
+									Width:        core.Pt(7),
+									Height:       core.Pt(7),
+									CornerRadius: 4,
+									FlexShrink:   0,
+								},
+								StyleFunc: func() core.Style {
+									return core.Style{Background: ed.SpecPalette(cx).Agent.Fg}
+								},
+							}
+						},
+					},
+					core.Show{
+						When: func() bool {
+							_ = rev.Get()
+							ch, ok := ed.AgentObjectChange(id)
+							return ok && (ch.Kind == AgentChangeAdded || ch.Kind == AgentChangeChanged)
+						},
+						Then: func(cx *core.Scope) core.Node {
+							return core.View{
+								Style: core.Style{
+									Padding:      core.Symmetric(1, 5),
+									CornerRadius: 4,
+									FlexShrink:   0,
+								},
+								StyleFunc: func() core.Style {
+									_ = rev.Get()
+									p := ed.SpecPalette(cx)
+									if ch, ok := ed.AgentObjectChange(id); ok && ch.Kind == AgentChangeChanged {
+										return core.Style{Background: p.Changed.Fill}
+									}
+									return core.Style{Background: p.Added.Fill}
+								},
+								Children: []core.Node{
+									core.Text{
+										TestID: "scene-tree-agent-badge-" + id,
+										ContentFunc: func() string {
+											_ = rev.Get()
+											if ch, ok := ed.AgentObjectChange(id); ok && ch.Kind == AgentChangeChanged {
+												return ed.T("agent.treeChanged")
+											}
+											return ed.T("agent.treeNew")
+										},
+										Style: core.Style{
+											FontSize:   10,
+											FontWeight: 600,
+										},
+										StyleFunc: func() core.Style {
+											_ = rev.Get()
+											p := ed.SpecPalette(cx)
+											if ch, ok := ed.AgentObjectChange(id); ok && ch.Kind == AgentChangeChanged {
+												return core.Style{Color: p.Changed.Fg}
+											}
+											return core.Style{Color: p.Added.Fg}
+										},
+									},
+								},
+							}
+						},
+					},
 				},
 			}
 		},
@@ -806,7 +891,7 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 		},
 	}
 
-	editsOff := func() bool { _ = rev.Get(); return ed.Playing() }
+	editsOff := func() bool { _ = rev.Get(); return ed.Playing() || ed.AgentTouchingObject(id) }
 	structOff := func() bool { return editsOff() || isForeign() }
 	menuOpen := core.NewSignal(cx, false)
 	cx.Effect(func() {
@@ -894,6 +979,64 @@ func objectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTree
 					},
 				}))
 			}),
+		},
+	}
+}
+
+func removedObjectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], k sceneTreeKey) core.Node {
+	p := ed.SpecPalette(cx)
+	id := k.id
+	return core.View{
+		TestID: "scene-tree-row-removed-" + id,
+		Style: core.Style{
+			Direction:  core.Row,
+			AlignItems: core.AlignCenter,
+			FlexGrow:   1,
+			MinWidth:   core.Pt(0),
+			Gap:        6,
+			Padding:    core.Symmetric(2, 0),
+		},
+		Children: []core.Node{
+			core.Text{
+				TestID: "scene-tree-label-" + id,
+				ContentFunc: func() string {
+					_ = rev.Get()
+					if ch, ok := ed.AgentObjectChange(id); ok && ch.Name != "" {
+						return ch.Name
+					}
+					return id
+				},
+				Style: core.Style{
+					FontSize:       12,
+					Color:          p.Removed.Fg,
+					TextDecoration: core.TextDecorationLineThrough,
+					FlexGrow:       1,
+					FlexShrink:     1,
+					MinWidth:       core.Pt(0),
+				},
+			},
+			core.View{
+				Style: core.Style{
+					Padding:      core.Symmetric(1, 5),
+					CornerRadius: 4,
+					Background:   p.Removed.Fill,
+					FlexShrink:   0,
+				},
+				Children: []core.Node{
+					core.Text{
+						TestID: "scene-tree-agent-badge-" + id,
+						ContentFunc: func() string {
+							_ = rev.Get()
+							return ed.T("agent.treeRemoved")
+						},
+						Style: core.Style{
+							FontSize:   10,
+							FontWeight: 600,
+							Color:      p.Removed.Fg,
+						},
+					},
+				},
+			},
 		},
 	}
 }

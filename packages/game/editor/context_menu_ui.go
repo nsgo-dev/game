@@ -32,7 +32,7 @@ func objectContextMenuItems(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 	p := ed.SpecPalette(cx)
 	displayName := contextObjectDisplayName(obj)
 	subtitle := ed.ObjectContextSubtitle(id)
-	editsOff := func() bool { _ = rev.Get(); return ed.Playing() }
+	editsOff := func() bool { _ = rev.Get(); return ed.Playing() || ed.AgentTouchingObject(id) }
 	structOff := func() bool { return editsOff() || isForeign }
 	hidden := func() bool { _ = rev.Get(); return ed.ObjectHidden(id) }
 	locked := func() bool { _ = rev.Get(); return ed.ObjectLocked(id) }
