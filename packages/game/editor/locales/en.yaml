@@ -852,6 +852,39 @@ strings:
   settings.metaReady: Ready
   settings.metaSetUp: Set up
   settings.metaUnsaved: Unsaved
+  settings.models.apiKeyCancel: Cancel
+  settings.models.apiKeyEdit: Update key
+  settings.models.apiKeyHint: Kept in the system keychain, never in editor.yaml or any project file.
+  settings.models.apiKeyLabel: Built-in API key
+  settings.models.apiKeyPlaceholder: Paste your API key
+  settings.models.apiKeyRemove: Remove
+  settings.models.apiKeySave: Save key
+  settings.models.apiKeySet: Set key
+  settings.models.builtInMissing: Built in · no key stored
+  settings.models.builtInStored: Built in · key in keychain
+  settings.models.localDefault: On this computer · MCP · default
+  settings.models.localDisconnected: Disconnected
+  settings.models.localIdle: Not connected yet
+  settings.models.localNone: No agent
+  settings.models.localNoneDesc: Agent panel stays closed
+  settings.models.localTitle: Local MCP agent
+  settings.models.metaOn: '{n} on'
+  settings.models.routeArtSound: Art and sound
+  settings.models.routeArtSoundCost: Tools → add a server
+  settings.models.routeArtSoundNote: needs a generator server
+  settings.models.routeAskInPlace: Ask in place (⌘L)
+  settings.models.routeAskInPlaceCost: about 5 s
+  settings.models.routeAskInPlaceNote: small, quick edits
+  settings.models.routePlaytest: Playtest analysis
+  settings.models.routePlaytestCost: about 20 s a report
+  settings.models.routePlaytestNote: reads replays and heatmaps
+  settings.models.routeProblems: Problems and fixes
+  settings.models.routeProblemsCost: about 30 s
+  settings.models.routeProblemsNote: after game check
+  settings.models.routeSceneEdits: Scene and data edits
+  settings.models.routeSceneEditsCost: about 2 min a request
+  settings.models.routeSceneEditsNote: most requests
+  settings.models.whoDoesWhat: WHO DOES WHAT
   settings.modelsTitle: Models and connections
   settings.navTitle: Settings
   settings.noProjectBody: Open a game.yaml project to configure Project, Input map, Audio buses, and Export settings.
@@ -864,10 +897,26 @@ strings:
   settings.page.generalSubtitle: Language and appearance for this computer.
   settings.page.input: Input map
   settings.page.inputSubtitle: Actions and what triggers them on keyboard, gamepad and touch.
+  settings.page.models: Models and connections
+  settings.page.modelsSubtitle: Which agents and models work on this project, and which one handles each kind of task.
   settings.page.project: Project
   settings.page.projectSubtitle: Name, ID, window and main scene.
+  settings.page.tools: Tools
+  settings.page.toolsSubtitle: 'What the agent can reach through MCP: the editor itself, the running game and any servers you add.'
+  settings.page.usage: Usage and privacy
+  settings.page.usageSubtitle: What the agent has done, what it costs, and what may leave this computer.
   settings.policyAgent: Agent may change
   settings.policyYouOnly: You only
+  settings.privacy.artAndAudio: Art and audio files
+  settings.privacy.artAndAudioHelp: Atlases, materials, sprites, models, and audio metadata
+  settings.privacy.goSource: Go source code
+  settings.privacy.goSourceHelp: Go source files (.go) and module manifests
+  settings.privacy.heading: WHAT MAY LEAVE THIS COMPUTER
+  settings.privacy.note: The MCP server refuses, with the reason, every tool call whose result would carry switched-off content, for every agent.
+  settings.privacy.sceneAndData: Scene and data files
+  settings.privacy.sceneAndDataHelp: Scenes, prefabs, data tables, tilesets, and game.yaml
+  settings.privacy.viewportImages: Viewport images
+  settings.privacy.viewportImagesHelp: PNG screenshots from viewport_image and frozen Play frames
   settings.reload: Reload
   settings.reviewKeep: Keep
   settings.reviewPending: 'Review pending: {summary}'
@@ -909,8 +958,38 @@ strings:
   settings.thisComputer: This computer
   settings.title: Editor Settings
   settings.tools: Tools · MCP Generators
+  settings.tools.addArgs: Arguments
+  settings.tools.addArgsPlaceholder: tool my-server --stdio
+  settings.tools.addButton: + Add a server (sprite or sound generation, issue tracker, …)
+  settings.tools.addCancel: Cancel
+  settings.tools.addCommand: Command
+  settings.tools.addCommandPlaceholder: go
+  settings.tools.addDesc: Description
+  settings.tools.addDescPlaceholder: sprite or sound generation
+  settings.tools.addName: Server name
+  settings.tools.addNamePlaceholder: sprite-gen
+  settings.tools.addSubmit: Add server
+  settings.tools.editorServerHeader: THE EDITOR'S MCP SERVER · {n} TOOLS
+  settings.tools.filterLabel: Filter tools
+  settings.tools.filterPlaceholder: Filter tools by name…
+  settings.tools.otherServersHeader: OTHER MCP SERVERS THE AGENT MAY USE
+  settings.tools.removeServer: Remove
   settings.toolsHelp: Configured MCP servers for image and sound generation.
   settings.toolsNone: None configured
+  settings.usage.keptCaption: of agent changes, after review
+  settings.usage.keptEmpty: no reviewed changes yet
+  settings.usage.keptLabel: Kept
+  settings.usage.limitApply: Apply
+  settings.usage.limitHelp: Weekly request budget shown in the progress bar (0 disables the limit).
+  settings.usage.limitInvalid: Enter a whole number 0 or greater.
+  settings.usage.limitLabel: Weekly request limit
+  settings.usage.limitNone: No weekly limit set
+  settings.usage.limitPercent: '{pct}% of the weekly limit you set'
+  settings.usage.playtestsCaption: all local, nothing uploaded
+  settings.usage.playtestsLabel: Playtests
+  settings.usage.playtestsValue: '{n} runs'
+  settings.usage.thisWeekLabel: This week
+  settings.usage.thisWeekValue: '{n} requests'
   shortcutsSheet.customize: Customize Shortcuts…
   shortcutsSheet.subtitleMac: macOS keys. Rebind any command in Settings › Shortcuts.
   shortcutsSheet.subtitleOther: Windows and Linux keys. Rebind any command in Settings › Shortcuts.

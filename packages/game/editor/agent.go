@@ -382,6 +382,11 @@ type agentState struct {
 	liveAnnouncement   string
 	turnSeq            int
 	turnChangeSeq      uint64
+
+	// Registered MCP tools published by editormcp.Server and cached keychain presence for built-in API key.
+	registeredTools   []AgentToolInfo
+	builtInKeyChecked bool
+	builtInKeyPresent bool
 }
 
 func (a *agentState) setScope(cx *core.Scope) {
@@ -889,6 +894,7 @@ func (e *Editor) CompleteConnectDialog() {
 		return
 	}
 	choice := e.ConnectDialogChoice()
+	apiKeyDraft := strings.TrimSpace(e.agent.connectAPIKey)
 	e.agent.mode = choice
 	e.agent.permissions = e.agent.connectPermsDraft
 	e.agent.connectOpen = false
@@ -909,6 +915,11 @@ func (e *Editor) CompleteConnectDialog() {
 		}
 	case AgentModeAPIKey:
 		e.agent.rightTab = RightTabAgent
+		if apiKeyDraft != "" {
+			if err := e.StoreAgentAPIKey(DefaultAgentAPIKeyAccount, apiKeyDraft); err != nil {
+				e.Status = err.Error()
+			}
+		}
 	}
 	e.notify()
 }
@@ -1458,6 +1469,7 @@ func (e *Editor) RecordExternalAgentToolCall(clientName, toolName, summary strin
 		StartedAt:  now,
 		FinishedAt: now,
 	})
+	e.RecordAgentRequest(1)
 	e.notify()
 }
 
@@ -1519,6 +1531,7 @@ func (e *Editor) SubmitAgentPrompt(prompt string) error {
 	e.agent.status = AgentStatusWorking
 	e.agent.workingStep = 1
 	e.agent.workingTotal = 0
+	e.RecordAgentRequest(1)
 	e.updateAgentAnnouncement()
 	e.notify()
 

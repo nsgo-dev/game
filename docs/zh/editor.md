@@ -941,9 +941,17 @@ func main() {
 
 当 `Editor.Library` 设为一个包库（`library.Open`）时（`nsgo game editor -library <索引>` 就会这样设置），资源浏览器旁会出现一个面板，列出库中每个包的类型、版本、描述以及打开的项目已安装的版本。面板上的 Install、Update 和 Remove 按钮调用 `InstallPack` 和 `RemovePack`：把包的文件写到 `game.yaml` 旁边，在项目中记录包及其新增的自动加载条目和插件，然后保存项目；插件包列出的已注册插件会立即启用。正在运行、没有打开项目或项目有未保存修改（`ErrProjectDirty`）时它们会拒绝执行；由于写入的文件无法撤销，它们会清空撤销历史。从 https 库获取包时不会阻塞事件循环，包到达之前按钮显示为忙碌状态（`FetchingPack`）。库的格式以及安装会写入什么，见[资源与插件库](library.md)。
 
-## 统一设置页面：项目、输入映射、音频总线、导出、通用偏好与快捷键（#907、#908、#909、#916、#1060、#1061）
+## 统一设置页面：智能体、项目、输入映射、音频总线、导出、通用偏好与快捷键（#907、#908、#909、#916、#1028、#1060、#1061）
 
-所有项目级 `game.yaml` 配置与每台电脑的编辑器偏好均汇集在统一的**设置**视图（`SettingsView`，通过 `OpenSettingsPage(page)` 打开、`SettingsOpen()` / `SettingsPage()` 查询、`CloseSettings()` 或 `Escape` 关闭）中，界面布局严格遵循 `docs/design/editor/Settings.dc.html` 与 `Spec.dc.html`，并在深色与浅色外观下统一使用 `SpecPalette` 令牌。左侧导航将 **`PROJECT · game.yaml`**（**Project**、**Input map**、**Audio buses**、**Export**）与 **`EDITOR · THIS COMPUTER`**（**General**、**Shortcuts**）分组展示；每一行包含标签、说明文本、值控件与智能体权限徽章（**Agent may change** 或 **You only**）；全部页面上的交互控件均使用真实可聚焦的 `ui.Button` / `ui.*` 组件，支持 `Tab` 键逐项到达并显示焦点环。
+所有每台电脑的智能体控制、项目级 `game.yaml` 配置与编辑器偏好均汇集在统一的**设置**视图（`SettingsView`，通过 `OpenSettingsPage(page)` 打开、`SettingsOpen()` / `SettingsPage()` 查询、`CloseSettings()` 或 `Escape` 关闭）中，界面布局严格遵循 `docs/design/editor/Settings.dc.html` 与 `Spec.dc.html`，并在深色与浅色外观下统一使用 `SpecPalette` 令牌。左侧导航将 **`AGENT`**（**Models and connections**、**Tools**、**Usage and privacy**，全部保存在此计算机且为**仅限用户**）、**`PROJECT · game.yaml`**（**Project**、**Input map**、**Audio buses**、**Export**）与 **`EDITOR · THIS COMPUTER`**（**General**、**Shortcuts**）分组展示；每一行包含标签、说明文本、值控件与智能体权限徽章（**Agent may change** 或 **You only**）；全部页面上的交互控件均使用真实可聚焦的 `ui.Button` / `ui.*` 组件，支持 `Tab` 键逐项到达并显示焦点环。
+
+### 智能体设置页：模型与连接、工具、用量与隐私（#1028）
+
+全部保存在每台电脑的 `EditorSettings`（`editor.yaml` 的 `agent` 小节，从不写入项目目录），且所有修改方法都会拒绝来自智能体的调用（`ErrAgentSettingsYouOnly`）：
+
+- **模型与连接（`SettingsPageModels`）**：展示已连接的本机 MCP 智能体（如 Claude Code）、内置 API 连接（`Anthropic API`，密钥通过 `StoreAgentAPIKey`、`HasAgentAPIKey`、`DeleteAgentAPIKey` 和 `AgentAPIKey` 仅保存在系统钥匙串 `AgentKeychainServiceName` 中，绝不写入 `editor.yaml` 或任何项目文件）、打开 `ConnectAgentDialogView` 的 **+ 连接其他智能体或模型** 按钮，以及 **任务分工**（`AgentTaskRoute` / `SetAgentTaskRoute`）。导航栏徽章实时显示已连接数量（`AgentActiveConnectionCount`，如 `2 个已连接`）。
+- **工具（`SettingsPageTools`）**：列出编辑器 MCP 服务器注册的全部工具（`RegisteredMCPTools`），每项显示等宽工具名、说明与带 `role="switch"` 的开关（`IsMCPToolEnabled` / `SetMCPToolEnabled`），导航栏显示 `"已开启 / 总数"`（`EnabledMCPToolCount`）。`game_delete_file` 默认关闭；关闭任一工具会立即将其从已连接客户端的工具列表中移除（发送 `tools/list_changed`），若智能体仍调用该工具则会收到可读的拒绝原因。下方 **智能体可使用的其他 MCP 服务器** 默认包含 **Running game · nsgo dev**（`nsgo-game` / `go tool nsgo mcp`）并提供 **+ 添加服务器**（`AddAgentMCPServer`、`SetAgentMCPServerEnabled`、`RemoveAgentMCPServer`），已启用的服务器会自动同步到项目的 `.mcp.json` 与 `.codex/config.toml`（`editormcp.InstallWithServers`）。
+- **用量与隐私（`SettingsPageUsage`）**：展示 **本周请求** 与用户设定的每周限额进度条（`WeeklyRequestLimit` / `SetWeeklyRequestLimit` / `RecordAgentRequest`）、审查后 **保留率**（`RecordAgentReviewOutcome`）以及本地 **试玩次数**（`RecordPlaytestRun`），下方提供四项 **允许离开此计算机的内容** 开关（`AgentPrivacy` / `SetAgentPrivacy`）：**场景与数据文件**（开）、**视口画面**（开）、**Go 源代码**（关）与 **美术与音频文件**（关）。只要某类内容处于关闭状态，编辑器的 MCP 服务器就会对所有智能体拒绝返回此类内容的工具调用或资源读取，并在错误中说明原因。
 
 ### 项目设置页（#907、#1060）
 
@@ -1120,7 +1128,7 @@ func main() {
 
 编辑器界面通过内嵌的带版本号 `l10n` YAML 字符串表（`editor/locales/en.yaml`、`editor/locales/zh.yaml`）同时提供英文（`en`）与简体中文（`zh`）界面，并将每名用户的编辑器偏好设置作为确定性的带版本号 YAML 保存在项目之外：
 
-- **用户级设置文件（`EditorSettings`、`SettingsVersion = 1`）**：默认保存在 `DefaultSettingsPath()`（`os.UserConfigDir()` 下的 `nsgo-game/editor.yaml`，位于所有游戏项目之外），通过 `ParseEditorSettings`、`EncodeEditorSettings`、`LoadEditorSettings`、`SaveEditorSettings`、`Editor.LoadSettings`、`Editor.LoadUserSettings` 和 `Editor.SaveSettings` 读写。文件保存 `language`、`appearance`、可选的 `autoSave`（省略时默认为 `true`）、可选的 `viewportOverlays`（按字典序排列的已启用 2D 视口叠加层 ID 列表；省略时使用默认组合，`[]` 表示全部关闭）以及可选的 `shortcuts`。未知字段、YAML 锚点/别名/合并键、多余文档和非法枚举值都会被拒绝并返回 `*loaderr.Error`。已发布的 JSON Schema 为 `https://game.nsgo.dev/schemas/editor-settings.v1.json`（`SettingsSchemaURL`）。
+- **用户级设置文件（`EditorSettings`、`SettingsVersion = 1`）**：默认保存在 `DefaultSettingsPath()`（`os.UserConfigDir()` 下的 `nsgo-game/editor.yaml`，位于所有游戏项目之外），通过 `ParseEditorSettings`、`EncodeEditorSettings`、`LoadEditorSettings`、`SaveEditorSettings`、`Editor.LoadSettings`、`Editor.LoadUserSettings` 和 `Editor.SaveSettings` 读写。文件保存 `language`、`appearance`、可选的 `autoSave`（省略时默认为 `true`）、可选的 `viewportOverlays`（按字典序排列的已启用 2D 视口叠加层 ID 列表；省略时使用默认组合，`[]` 表示全部关闭）、可选的 `shortcuts` 以及可选的 `agent` 偏好（任务路由、MCP 工具开关、外部 MCP 服务器、每周请求限额、出站隐私开关与本地用量统计；API 密钥等机密绝不写入 `editor.yaml`）。未知字段、YAML 锚点/别名/合并键、多余文档和非法枚举值都会被拒绝并返回 `*loaderr.Error`。已发布的 JSON Schema 为 `https://game.nsgo.dev/schemas/editor-settings.v1.json`（`SettingsSchemaURL`）。
   ```yaml
   # yaml-language-server: $schema=https://game.nsgo.dev/schemas/editor-settings.v1.json
   version: 1

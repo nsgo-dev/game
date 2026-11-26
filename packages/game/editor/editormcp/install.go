@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/nsgo-dev/game/packages/game/editor"
 )
 
 const (
@@ -50,15 +52,77 @@ func InstallCommand() (string, []string) {
 // Install writes the project-level MCP configuration files that Claude Code (.mcp.json) and Codex (.codex/config.toml) read so they find the editor's MCP server automatically.
 // Existing unrelated MCP servers or settings in either file are preserved, and running Install twice produces byte-for-byte identical files.
 func Install(path string) (*InstallResult, error) {
+	return InstallWithServers(path, nil)
+}
+
+func validInstallServerName(name string) bool {
+	if len(name) == 0 || len(name) > 64 {
+		return false
+	}
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-') {
+			return false
+		}
+	}
+	return true
+}
+
+func hasInstallControlChar(s string) bool {
+	for _, r := range s {
+		if r < 0x20 || r == 0x7f {
+			return true
+		}
+	}
+	return false
+}
+
+func validateInstallExtraServers(extra []editor.AgentMCPServer, removed []string) error {
+	for _, srv := range extra {
+		if srv.Name == "" || srv.Name == ServerName {
+			continue
+		}
+		if !validInstallServerName(srv.Name) {
+			return fmt.Errorf("editormcp: invalid MCP server name %q", srv.Name)
+		}
+		if srv.IsEnabled() {
+			if strings.TrimSpace(srv.Command) == "" || hasInstallControlChar(srv.Command) {
+				return fmt.Errorf("editormcp: invalid command for MCP server %q", srv.Name)
+			}
+			for _, arg := range srv.Args {
+				if strings.IndexByte(arg, 0) >= 0 {
+					return fmt.Errorf("editormcp: invalid argument for MCP server %q", srv.Name)
+				}
+			}
+		}
+	}
+	for _, rem := range removed {
+		if rem == "" || rem == ServerName {
+			continue
+		}
+		if !validInstallServerName(rem) {
+			return fmt.Errorf("editormcp: invalid removed MCP server name %q", rem)
+		}
+	}
+	return nil
+}
+
+// InstallWithServers writes the editor's MCP server plus any enabled external MCP servers from Settings › Tools
+// into Claude Code (.mcp.json) and Codex (.codex/config.toml), removing disabled or removed managed server entries
+// while preserving unrelated servers and comments.
+func InstallWithServers(path string, extra []editor.AgentMCPServer, removed ...string) (*InstallResult, error) {
+	if err := validateInstallExtraServers(extra, removed); err != nil {
+		return nil, err
+	}
 	root, err := ProjectRoot(path)
 	if err != nil {
 		return nil, err
 	}
-	claudeFile, err := installClaudeConfig(root)
+	claudeFile, err := installClaudeConfig(root, extra, removed)
 	if err != nil {
 		return nil, err
 	}
-	codexFile, err := installCodexConfig(root)
+	codexFile, err := installCodexConfig(root, extra, removed)
 	if err != nil {
 		return nil, err
 	}
@@ -179,7 +243,7 @@ func readCappedInstallFile(path string, maxBytes int64) ([]byte, os.FileMode, bo
 	return data, perm, true, nil
 }
 
-func installClaudeConfig(root string) (InstallFile, error) {
+func installClaudeConfig(root string, extra []editor.AgentMCPServer, removed []string) (InstallFile, error) {
 	target, err := verifyInstallPathWithinRoot(root, ClaudeConfigFile)
 	if err != nil {
 		return InstallFile{}, err
@@ -214,6 +278,27 @@ func installClaudeConfig(root string) (InstallFile, error) {
 		"command": cmd,
 		"args":    args,
 	}
+	for _, rem := range removed {
+		if rem != "" && rem != ServerName {
+			delete(servers, rem)
+		}
+	}
+	for _, srv := range extra {
+		if srv.Name == "" || srv.Name == ServerName {
+			continue
+		}
+		if !srv.IsEnabled() {
+			delete(servers, srv.Name)
+			continue
+		}
+		entry := map[string]any{
+			"command": srv.Command,
+		}
+		if len(srv.Args) > 0 {
+			entry["args"] = slices.Clone(srv.Args)
+		}
+		servers[srv.Name] = entry
+	}
 	doc["mcpServers"] = servers
 
 	encoded, err := json.MarshalIndent(doc, "", "  ")
@@ -236,7 +321,7 @@ func installClaudeConfig(root string) (InstallFile, error) {
 	}, nil
 }
 
-func installCodexConfig(root string) (InstallFile, error) {
+func installCodexConfig(root string, extra []editor.AgentMCPServer, removed []string) (InstallFile, error) {
 	target, err := verifyInstallPathWithinRoot(root, CodexConfigFile)
 	if err != nil {
 		return InstallFile{}, err
@@ -246,7 +331,7 @@ func installCodexConfig(root string) (InstallFile, error) {
 		return InstallFile{}, fmt.Errorf("editormcp: read %s: %w", CodexConfigFile, err)
 	}
 
-	encoded, err := upsertCodexTOML(string(existing))
+	encoded, err := upsertCodexTOMLWithServers(string(existing), extra, removed)
 	if err != nil {
 		return InstallFile{}, fmt.Errorf("editormcp: parse existing %s: %w", CodexConfigFile, err)
 	}
@@ -267,17 +352,24 @@ func installCodexConfig(root string) (InstallFile, error) {
 	}, nil
 }
 
+func codexServerSectionLines(name, cmd string, args []string) []string {
+	lines := []string{
+		fmt.Sprintf("[mcp_servers.%s]", name),
+		fmt.Sprintf("command = %q", cmd),
+	}
+	if len(args) > 0 {
+		quotedArgs := make([]string, len(args))
+		for i, a := range args {
+			quotedArgs[i] = fmt.Sprintf("%q", a)
+		}
+		lines = append(lines, fmt.Sprintf("args = [%s]", strings.Join(quotedArgs, ", ")))
+	}
+	return lines
+}
+
 func codexSectionLines() []string {
 	cmd, args := InstallCommand()
-	quotedArgs := make([]string, len(args))
-	for i, a := range args {
-		quotedArgs[i] = fmt.Sprintf("%q", a)
-	}
-	return []string{
-		fmt.Sprintf("[mcp_servers.%s]", ServerName),
-		fmt.Sprintf("command = %q", cmd),
-		fmt.Sprintf("args = [%s]", strings.Join(quotedArgs, ", ")),
-	}
+	return codexServerSectionLines(ServerName, cmd, args)
 }
 
 // stripTOMLComment removes a trailing # comment that occurs outside single/double quotes.
@@ -317,10 +409,14 @@ func stripTOMLComment(line string) string {
 	return strings.TrimSpace(line)
 }
 
-func isCodexTargetHeader(line string) bool {
+func isCodexServerHeader(line, name string) bool {
 	trimmed := stripTOMLComment(line)
-	return trimmed == fmt.Sprintf("[mcp_servers.%s]", ServerName) ||
-		trimmed == fmt.Sprintf(`[mcp_servers.%q]`, ServerName)
+	return trimmed == fmt.Sprintf("[mcp_servers.%s]", name) ||
+		trimmed == fmt.Sprintf(`[mcp_servers.%q]`, name)
+}
+
+func isCodexTargetHeader(line string) bool {
+	return isCodexServerHeader(line, ServerName)
 }
 
 // isTOMLTableHeader validates that line (outside any multi-line array) is a well-formed TOML
@@ -430,9 +526,53 @@ func updateBracketDepth(depth int, line string) int {
 
 // upsertCodexTOML inserts or replaces the [mcp_servers.nsgo-game-editor] section deterministically while preserving all other sections and comments.
 func upsertCodexTOML(src string) ([]byte, error) {
-	section := codexSectionLines()
+	return upsertCodexTOMLSection(src, ServerName, codexSectionLines())
+}
+
+func upsertCodexTOMLWithServers(src string, extra []editor.AgentMCPServer, removed []string) ([]byte, error) {
+	cur, err := upsertCodexTOML(src)
+	if err != nil {
+		return nil, err
+	}
+	out := string(cur)
+	for _, rem := range removed {
+		if rem == "" || rem == ServerName {
+			continue
+		}
+		b, err := upsertCodexTOMLSection(out, rem, nil)
+		if err != nil {
+			return nil, err
+		}
+		out = string(b)
+	}
+	sorted := slices.Clone(extra)
+	slices.SortFunc(sorted, func(a, b editor.AgentMCPServer) int {
+		return strings.Compare(a.Name, b.Name)
+	})
+	for _, srv := range sorted {
+		if srv.Name == "" || srv.Name == ServerName {
+			continue
+		}
+		var sec []string
+		if srv.IsEnabled() {
+			sec = codexServerSectionLines(srv.Name, srv.Command, srv.Args)
+		}
+		b, err := upsertCodexTOMLSection(out, srv.Name, sec)
+		if err != nil {
+			return nil, err
+		}
+		out = string(b)
+	}
+	return []byte(out), nil
+}
+
+// upsertCodexTOMLSection inserts, replaces, or removes (when section is nil) the [mcp_servers.<name>] section deterministically.
+func upsertCodexTOMLSection(src, name string, section []string) ([]byte, error) {
 	normalized := strings.ReplaceAll(src, "\r\n", "\n")
 	if strings.TrimSpace(normalized) == "" {
+		if len(section) == 0 {
+			return []byte(""), nil
+		}
 		return []byte(strings.Join(section, "\n") + "\n"), nil
 	}
 
@@ -446,8 +586,8 @@ func upsertCodexTOML(src string) ([]byte, error) {
 			if err != nil {
 				return nil, err
 			}
-			if isHdr && isCodexTargetHeader(lines[i]) {
-				if !replaced {
+			if isHdr && isCodexServerHeader(lines[i], name) {
+				if len(section) > 0 && !replaced {
 					out = append(out, section...)
 					replaced = true
 				}
@@ -467,10 +607,10 @@ func upsertCodexTOML(src string) ([]byte, error) {
 					i++
 				}
 				if secDepth != 0 {
-					return nil, errors.New("unclosed '[' array inside [mcp_servers.nsgo-game-editor]")
+					return nil, fmt.Errorf("unclosed '[' array inside [mcp_servers.%s]", name)
 				}
 				// Preserve a blank separator line before the following section if one exists.
-				if i < len(lines) && (len(out) == 0 || strings.TrimSpace(out[len(out)-1]) != "") {
+				if i < len(lines) && len(out) > 0 && strings.TrimSpace(out[len(out)-1]) != "" {
 					out = append(out, "")
 				}
 				continue
@@ -487,7 +627,7 @@ func upsertCodexTOML(src string) ([]byte, error) {
 	if bracketDepth != 0 {
 		return nil, errors.New("unclosed '[' array in config.toml")
 	}
-	if !replaced {
+	if len(section) > 0 && !replaced {
 		for len(out) > 0 && strings.TrimSpace(out[len(out)-1]) == "" {
 			out = out[:len(out)-1]
 		}
@@ -498,6 +638,9 @@ func upsertCodexTOML(src string) ([]byte, error) {
 	}
 	for len(out) > 0 && strings.TrimSpace(out[len(out)-1]) == "" {
 		out = out[:len(out)-1]
+	}
+	if len(out) == 0 {
+		return []byte(""), nil
 	}
 	return []byte(strings.Join(out, "\n") + "\n"), nil
 }

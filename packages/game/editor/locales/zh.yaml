@@ -852,6 +852,39 @@ strings:
   settings.metaReady: 就绪
   settings.metaSetUp: 需配置
   settings.metaUnsaved: 未保存
+  settings.models.apiKeyCancel: 取消
+  settings.models.apiKeyEdit: 更新密钥
+  settings.models.apiKeyHint: 仅保存在系统钥匙串中，绝不写入 editor.yaml 或任何项目文件。
+  settings.models.apiKeyLabel: 内置 API 密钥
+  settings.models.apiKeyPlaceholder: 粘贴 API 密钥
+  settings.models.apiKeyRemove: 移除
+  settings.models.apiKeySave: 保存密钥
+  settings.models.apiKeySet: 设置密钥
+  settings.models.builtInMissing: 内置 · 尚未保存密钥
+  settings.models.builtInStored: 内置 · 密钥存于系统钥匙串
+  settings.models.localDefault: 此计算机 · MCP · 默认
+  settings.models.localDisconnected: 已断开连接
+  settings.models.localIdle: 尚未连接
+  settings.models.localNone: 不使用智能体
+  settings.models.localNoneDesc: 智能体面板保持关闭
+  settings.models.localTitle: 本地 MCP 智能体
+  settings.models.metaOn: '{n} 个已连接'
+  settings.models.routeArtSound: 美术与音效
+  settings.models.routeArtSoundCost: 工具 → 添加服务器
+  settings.models.routeArtSoundNote: 需要生成服务器
+  settings.models.routeAskInPlace: 就地提问（⌘L）
+  settings.models.routeAskInPlaceCost: 每次约 5 秒
+  settings.models.routeAskInPlaceNote: 小型快速修改
+  settings.models.routePlaytest: 试玩分析
+  settings.models.routePlaytestCost: 每份报告约 20 秒
+  settings.models.routePlaytestNote: 分析回放与热力图
+  settings.models.routeProblems: 问题与修复
+  settings.models.routeProblemsCost: 约 30 秒
+  settings.models.routeProblemsNote: 在 game check 之后
+  settings.models.routeSceneEdits: 场景与数据编辑
+  settings.models.routeSceneEditsCost: 每次请求约 2 分钟
+  settings.models.routeSceneEditsNote: 大多数请求
+  settings.models.whoDoesWhat: 任务分工
   settings.modelsTitle: 模型与连接
   settings.navTitle: 设置
   settings.noProjectBody: 打开一个 game.yaml 项目以配置项目、输入映射、音频总线与导出设置。
@@ -864,10 +897,26 @@ strings:
   settings.page.generalSubtitle: 此计算机的语言与外观设置。
   settings.page.input: 输入映射
   settings.page.inputSubtitle: 动作及其在键盘、手柄与触屏上的触发方式。
+  settings.page.models: 模型与连接
+  settings.page.modelsSubtitle: 哪些智能体与模型参与此项目，以及各类任务由谁处理。
   settings.page.project: 项目
   settings.page.projectSubtitle: 名称、ID、窗口尺寸与主场景。
+  settings.page.tools: 工具
+  settings.page.toolsSubtitle: 智能体可通过 MCP 访问的工具：编辑器本身、运行中的游戏以及你添加的其他服务器。
+  settings.page.usage: 用量与隐私
+  settings.page.usageSubtitle: 智能体本周的工作量、审查保留率以及允许离开此计算机的内容。
   settings.policyAgent: 智能体可修改
   settings.policyYouOnly: 仅限用户
+  settings.privacy.artAndAudio: 美术与音频文件
+  settings.privacy.artAndAudioHelp: 图集、材质、精灵、模型与音频元数据
+  settings.privacy.goSource: Go 源代码
+  settings.privacy.goSourceHelp: Go 源文件（.go）与模块清单
+  settings.privacy.heading: 允许离开此计算机的内容
+  settings.privacy.note: 只要某种内容已关闭，编辑器的 MCP 服务器就会向所有智能体拒绝并返回原因。
+  settings.privacy.sceneAndData: 场景与数据文件
+  settings.privacy.sceneAndDataHelp: 场景、预制件、数据表、瓦片集与 game.yaml
+  settings.privacy.viewportImages: 视口画面
+  settings.privacy.viewportImagesHelp: 来自 viewport_image 与运行冻结帧的 PNG 截图
   settings.reload: 重新加载
   settings.reviewKeep: 保留
   settings.reviewPending: 待审阅：{summary}
@@ -909,8 +958,38 @@ strings:
   settings.thisComputer: 此计算机
   settings.title: 编辑器设置
   settings.tools: 工具 · MCP 生成器
+  settings.tools.addArgs: 启动参数
+  settings.tools.addArgsPlaceholder: tool my-server --stdio
+  settings.tools.addButton: + 添加服务器（精灵或音效生成、问题追踪器等…）
+  settings.tools.addCancel: 取消
+  settings.tools.addCommand: 命令
+  settings.tools.addCommandPlaceholder: go
+  settings.tools.addDesc: 说明
+  settings.tools.addDescPlaceholder: 精灵或音效生成
+  settings.tools.addName: 服务器名称
+  settings.tools.addNamePlaceholder: sprite-gen
+  settings.tools.addSubmit: 添加服务器
+  settings.tools.editorServerHeader: 编辑器的 MCP 服务器 · {n} 个工具
+  settings.tools.filterLabel: 筛选工具
+  settings.tools.filterPlaceholder: 按工具名称筛选…
+  settings.tools.otherServersHeader: 智能体可使用的其他 MCP 服务器
+  settings.tools.removeServer: 移除
   settings.toolsHelp: 已配置的图像与音效生成 MCP 服务器。
   settings.toolsNone: 未配置
+  settings.usage.keptCaption: 审查后保留的智能体改动比例
+  settings.usage.keptEmpty: 暂无已审查的改动
+  settings.usage.keptLabel: 保留率
+  settings.usage.limitApply: 应用
+  settings.usage.limitHelp: 用于本周进度条的软性请求限额（设为 0 表示不限制）。
+  settings.usage.limitInvalid: 请输入大于或等于 0 的整数。
+  settings.usage.limitLabel: 每周请求限额
+  settings.usage.limitNone: 未设置每周限额
+  settings.usage.limitPercent: 已使用所设每周限额的 {pct}%
+  settings.usage.playtestsCaption: 全部本地运行，不上传任何数据
+  settings.usage.playtestsLabel: 试玩次数
+  settings.usage.playtestsValue: '{n} 次运行'
+  settings.usage.thisWeekLabel: 本周请求
+  settings.usage.thisWeekValue: '{n} 次请求'
   shortcutsSheet.customize: 自定义快捷键…
   shortcutsSheet.subtitleMac: macOS 按键。可在“设置 › 快捷键”中重新绑定任意命令。
   shortcutsSheet.subtitleOther: Windows 与 Linux 按键。可在“设置 › 快捷键”中重新绑定任意命令。

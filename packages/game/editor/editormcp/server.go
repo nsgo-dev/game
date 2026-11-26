@@ -78,6 +78,11 @@ type Tool struct {
 	Target func(args json.RawMessage, ed *editor.Editor) (editor.PermissionAction, string)
 	// targets optionally derives multiple permission checks for built-in tools that touch more than one file or action (such as refactor_rename or merge_finish).
 	targets func(args json.RawMessage, ed *editor.Editor) []editor.PermissionRequest
+	// DefaultOff marks a tool that starts switched off in Settings › Tools (such as game_delete_file)
+	// and is not offered to connected agents until the person explicitly turns it on.
+	DefaultOff bool
+	// Destructive marks a tool that removes files or data so MCP annotations reflect it accurately.
+	Destructive bool
 	// Handler runs the tool on a goroutine of the server, never the editor's: it reaches the editor through Call.Editor, which runs a function on the editor's goroutine, so it may wait for work the editor does elsewhere, such as a project check, without stopping the editor.
 	Handler func(ctx context.Context, c *Call) (*Result, error)
 }
@@ -167,6 +172,8 @@ type Server struct {
 	tools           map[string]Tool
 	lastPermEval    editor.PermissionEvaluation
 	hasLastPermEval bool
+	advertised      map[string]bool
+	disabled        map[string]bool
 	nextReviewID    int
 	playtestReviews []storedPlaytestReview
 	// subs holds the resource URIs each session subscribes to. A session that ends without unsubscribing is dropped the next time changed looks (subscribed), so its subscriptions stop costing the editor anything.
@@ -215,6 +222,8 @@ func New(ed *editor.Editor, opts Options) *Server {
 		onPermAsk:      opts.OnPermissionAsk,
 		onPermDecision: opts.OnPermissionDecision,
 		tools:          map[string]Tool{},
+		advertised:     map[string]bool{},
+		disabled:       map[string]bool{},
 		subs:           map[*mcp.ServerSession]map[string]bool{},
 		conns:          map[net.Conn]struct{}{},
 		sessions:       map[*mcp.ServerSession]trackedSession{},
@@ -233,8 +242,22 @@ func New(ed *editor.Editor, opts Options) *Server {
 			Resources: &mcp.ResourceCapabilities{Subscribe: true, ListChanged: true},
 		},
 	})
+	s.sdk.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
+		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+			if method == "tools/call" {
+				if callReq, ok := req.(*mcp.CallToolRequest); ok && callReq != nil && callReq.Params != nil {
+					if s.isRegisteredAndDisabled(callReq.Params.Name) {
+						r := &mcp.CallToolResult{}
+						r.SetError(toolDisabledError(callReq.Params.Name))
+						return r, nil
+					}
+				}
+			}
+			return next(ctx, method, req)
+		}
+	})
 	for _, t := range builtinTools() {
-		if err := s.AddTool(t); err != nil {
+		if err := s.registerTool(t); err != nil {
 			panic(err)
 		}
 	}
@@ -245,6 +268,13 @@ func New(ed *editor.Editor, opts Options) *Server {
 		ed.AgentReconnectProbe = s.probeClient
 	}
 	ed.SetTaskHoldReleaseHook(s.ReleaseTaskHolds)
+	if ed.SyncMCPConfig == nil {
+		ed.SyncMCPConfig = func(root string, servers []editor.AgentMCPServer, removed []string) error {
+			_, err := InstallWithServers(root, servers, removed...)
+			return err
+		}
+	}
+	s.syncTools(true)
 	s.wg.Add(1)
 	go s.sendNotices()
 	return s
@@ -252,6 +282,14 @@ func New(ed *editor.Editor, opts Options) *Server {
 
 // AddTool adds t to the server, which tells connected clients the tool list changed. It refuses a tool without a name or a handler, with an invalid input schema, or with a name already on the server.
 func (s *Server) AddTool(t Tool) error {
+	if err := s.registerTool(t); err != nil {
+		return err
+	}
+	s.syncTools(false)
+	return nil
+}
+
+func (s *Server) registerTool(t Tool) error {
 	if t.Name == "" || !validToolName(t.Name) {
 		return fmt.Errorf("editormcp: tool name %q must be 1 to 128 letters, digits, '_', '-' or '.'", t.Name)
 	}
@@ -279,7 +317,6 @@ func (s *Server) AddTool(t Tool) error {
 	}
 	s.tools[t.Name] = t
 	s.mu.Unlock()
-	s.sdk.AddTool(sdkTool(t), s.handler(t))
 	return nil
 }
 
@@ -290,7 +327,7 @@ func (s *Server) RemoveTool(name string) {
 	delete(s.tools, name)
 	s.mu.Unlock()
 	if ok {
-		s.sdk.RemoveTools(name)
+		s.syncTools(false)
 	}
 }
 
@@ -738,7 +775,13 @@ func (s *Server) callWithSession(ctx context.Context, t Tool, args json.RawMessa
 			res, err = nil, fmt.Errorf("editormcp: tool %s failed: %v", t.Name, failure)
 		}
 	}()
+	if !s.isToolEnabled(t.Name) {
+		return nil, toolDisabledError(t.Name)
+	}
 	if err := s.checkPermission(ctx, t, args, onEditor); err != nil {
+		return nil, err
+	}
+	if err = s.checkPrivacyPre(ctx, t, args, onEditor); err != nil {
 		return nil, err
 	}
 	res, err = t.Handler(ctx, &Call{
@@ -748,6 +791,11 @@ func (s *Server) callWithSession(ctx context.Context, t Tool, args json.RawMessa
 		session:  session,
 		taskID:   s.sessionTaskID(session),
 	})
+	if err == nil {
+		if perr := s.checkPrivacyPost(ctx, t, res, onEditor); perr != nil {
+			res, err = nil, perr
+		}
+	}
 	if warn := s.saveFailureWarning(ctx, onEditor); warn != nil {
 		if err != nil {
 			err = &saveWarningError{err: err, warning: warn}
@@ -802,7 +850,7 @@ func (s *Server) saveFailureWarning(ctx context.Context, onEditor bool) *SaveWar
 // sdkTool is t as the SDK lists it.
 func sdkTool(t Tool) *mcp.Tool {
 	readOnly := t.Action == ActionRead
-	destructive := t.Action == ActionDelete
+	destructive := t.Destructive || t.Action == ActionDelete
 	return &mcp.Tool{
 		Name:        t.Name,
 		Title:       t.Title,

@@ -112,6 +112,8 @@ type EditorSettings struct {
 	// SeenTips lists the onboarding tip IDs already seen or skipped by this user in canonical sorted order.
 	// Help › Replay tips clears the first-run review tip IDs so each tip shows again.
 	SeenTips []string `yaml:"seenTips,omitempty"`
+	// Agent stores per-computer preferences for connected models, MCP tools, external MCP servers, weekly usage limit, and outbound privacy rules. Secrets such as API keys are never stored here.
+	Agent *AgentSettings `yaml:"agent,omitempty"`
 }
 
 // AutoSaveEnabled reports whether automatic saving of kept changes is enabled (true when AutoSave is nil).
@@ -295,6 +297,9 @@ func ValidateEditorSettings(s *EditorSettings) error {
 			seen[id] = struct{}{}
 		}
 	}
+	if err := validateAgentSettings(s.Agent); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -331,6 +336,7 @@ func EncodeEditorSettings(s *EditorSettings) ([]byte, error) {
 		Language:   s.Language,
 		Appearance: s.Appearance,
 		Shortcuts:  shortcuts,
+		Agent:      cloneAgentSettings(s.Agent),
 	}
 	if s.AutoSave != nil {
 		v := *s.AutoSave
@@ -405,6 +411,7 @@ func (e *Editor) Settings() EditorSettings {
 	if e == nil {
 		return DefaultEditorSettings()
 	}
+	e.settingsMu.RLock()
 	s := e.settings
 	if s.Version == 0 {
 		s.Version = SettingsVersion
@@ -437,6 +444,8 @@ func (e *Editor) Settings() EditorSettings {
 	} else {
 		s.SeenTips = nil
 	}
+	s.Agent = cloneAgentSettings(s.Agent)
+	e.settingsMu.RUnlock()
 	return s
 }
 
@@ -464,7 +473,9 @@ func (e *Editor) SetAutoSave(enabled bool) error {
 	changed := cur.AutoSave == nil || *cur.AutoSave != enabled
 	v := enabled
 	cur.AutoSave = &v
+	e.settingsMu.Lock()
 	e.settings = cur
+	e.settingsMu.Unlock()
 	if enabled {
 		e.scheduleAutoSaveIfNeeded()
 	} else {
@@ -507,7 +518,9 @@ func (e *Editor) SetLanguage(lang Language) error {
 		return nil
 	}
 	cur.Language = lang
+	e.settingsMu.Lock()
 	e.settings = cur
+	e.settingsMu.Unlock()
 	if e.SettingsPath != "" {
 		if err := SaveEditorSettings(e.SettingsPath, &cur); err != nil {
 			e.notify()
@@ -529,7 +542,9 @@ func (e *Editor) SetAppearance(appearance Appearance) error {
 	cur := e.Settings()
 	changed := cur.Appearance != appearance
 	cur.Appearance = appearance
+	e.settingsMu.Lock()
 	e.settings = cur
+	e.settingsMu.Unlock()
 	if e.scope != nil {
 		e.scope.SetAppearance(appearance.CoreAppearance())
 	}
@@ -586,7 +601,11 @@ func (e *Editor) ApplySettings(s EditorSettings) error {
 	} else {
 		s.SeenTips = nil
 	}
+	s.Agent = cloneAgentSettings(s.Agent)
+	e.settingsMu.Lock()
 	e.settings = s
+	e.settingsMu.Unlock()
+	e.agent.builtInKeyChecked = false
 	e.syncOverlaysFromSettings()
 	if s.AutoSaveEnabled() {
 		e.scheduleAutoSaveIfNeeded()
@@ -648,6 +667,12 @@ func (e *Editor) SaveSettings() error {
 type SettingsPage string
 
 const (
+	// SettingsPageModels configures connected agents, built-in keychain API connection, and task routing (This computer, You only).
+	SettingsPageModels SettingsPage = "models"
+	// SettingsPageTools toggles every tool registered on the editor's MCP server and configures external MCP servers (This computer, You only).
+	SettingsPageTools SettingsPage = "tools"
+	// SettingsPageUsage tracks weekly agent requests against a limit, kept review share, local playtest runs, and outbound privacy switches (This computer, You only).
+	SettingsPageUsage SettingsPage = "usage"
 	// SettingsPageProject edits game.yaml's project metadata, window, display, physics, autoload, and plugins.
 	SettingsPageProject SettingsPage = "project"
 	// SettingsPageInput edits game.yaml's input actions, bindings, touch/mouse regions, and axes.
@@ -671,7 +696,17 @@ const (
 // Valid reports whether p is a recognized Settings page.
 func (p SettingsPage) Valid() bool {
 	switch p {
-	case SettingsPageProject, SettingsPageInput, SettingsPageAudio, SettingsPageExport, SettingsPagePermissions, SettingsPageGeneral, SettingsPageShortcuts, SettingsPageBrief, SettingsPageRules:
+	case SettingsPageModels, SettingsPageTools, SettingsPageUsage, SettingsPageProject, SettingsPageInput, SettingsPageAudio, SettingsPageExport, SettingsPagePermissions, SettingsPageGeneral, SettingsPageShortcuts, SettingsPageBrief, SettingsPageRules:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsAgentPage reports whether p is one of the per-computer Agent Settings pages (Models and connections, Tools, Usage and privacy).
+func (p SettingsPage) IsAgentPage() bool {
+	switch p {
+	case SettingsPageModels, SettingsPageTools, SettingsPageUsage:
 		return true
 	default:
 		return false

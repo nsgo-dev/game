@@ -52,6 +52,14 @@
       "items": {
         "type": "string"
       }
+    },
+    "agent": {
+      "description": "Agent stores per-computer preferences for connected models, MCP tools, external MCP servers, weekly usage limit, and outbound privacy rules. Secrets such as API keys are never stored here.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/AgentSettings"
+        }
+      ]
     }
   },
   "required": [
@@ -59,5 +67,157 @@
     "language",
     "appearance"
   ],
-  "additionalProperties": false
+  "additionalProperties": false,
+  "definitions": {
+    "AgentMCPServer": {
+      "description": "AgentMCPServer configures an external MCP server the agent may use alongside the editor's server. Entries configured here are written into the project's agent MCP configuration (.mcp.json and .codex/config.toml).",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Name is the unique MCP server identifier (letters, digits, '_', '-').",
+          "type": "string"
+        },
+        "title": {
+          "description": "Title is the display name shown in Settings › Tools (for example \"Running game · nsgo dev\").",
+          "type": "string"
+        },
+        "description": {
+          "description": "Description briefly describes what the server offers (for example \"inspect and drive the live game\").",
+          "type": "string"
+        },
+        "command": {
+          "description": "Command is the executable launched over stdio (for example \"go\").",
+          "type": "string"
+        },
+        "args": {
+          "description": "Args are optional arguments passed to Command (for example [\"tool\", \"nsgo\", \"mcp\"]).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "enabled": {
+          "description": "Enabled controls whether this server is included in the agent's MCP configuration (default true when omitted).",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "command"
+      ],
+      "additionalProperties": false
+    },
+    "AgentPrivacySettings": {
+      "description": "AgentPrivacySettings is the YAML representation of WHAT MAY LEAVE THIS COMPUTER in EditorSettings. Omitted fields fall back to DefaultAgentPrivacyPolicy (SceneAndData=true, ViewportImages=true, GoSource=false, ArtAndAudio=false).",
+      "type": "object",
+      "properties": {
+        "sceneAndData": {
+          "description": "SceneAndData allows MCP tools to return scene, prefab, data table, and project YAML files (default true).",
+          "type": "boolean"
+        },
+        "viewportImages": {
+          "description": "ViewportImages allows viewport_image and frozen-frame tools to return PNG images (default true).",
+          "type": "boolean"
+        },
+        "goSource": {
+          "description": "GoSource allows MCP tools to return Go source code and go.mod files (default false).",
+          "type": "boolean"
+        },
+        "artAndAudio": {
+          "description": "ArtAndAudio allows MCP tools to return art and audio assets or metadata files (default false).",
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "AgentSettings": {
+      "description": "AgentSettings stores per-computer AI agent preferences in editor.yaml (Settings › Agent group). Secrets such as API keys are NEVER stored in this struct or any file; they live exclusively in the OS keychain.",
+      "type": "object",
+      "properties": {
+        "builtInProvider": {
+          "description": "BuiltInProvider names the built-in API connection configured in the system keychain (for example \"Anthropic API\"); never stores an API key.",
+          "type": "string"
+        },
+        "routes": {
+          "description": "Routes maps task keys (\"scene_edits\", \"playtest_analysis\", \"problems_fixes\", \"ask_in_place\", \"art_and_sound\") to preferred model labels.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "tools": {
+          "description": "Tools overrides per-tool MCP enabled state keyed by tool name (for example \"game_delete_file\": false).",
+          "type": "object",
+          "additionalProperties": {
+            "type": "boolean"
+          }
+        },
+        "mcpServers": {
+          "description": "MCPServers configures other MCP servers the agent may use alongside the editor's own server.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AgentMCPServer"
+          }
+        },
+        "weeklyRequestLimit": {
+          "description": "WeeklyRequestLimit sets the weekly agent request budget (0 disables the limit; omitted defaults to 300).",
+          "type": "integer",
+          "minimum": -9223372036854776000,
+          "maximum": 9223372036854776000
+        },
+        "privacy": {
+          "description": "Privacy controls WHAT MAY LEAVE THIS COMPUTER across every connected agent.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/AgentPrivacySettings"
+            }
+          ]
+        },
+        "usage": {
+          "description": "Usage stores local usage counters (requests this week, kept review share, and local playtest runs).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/AgentUsageStats"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "AgentUsageStats": {
+      "description": "AgentUsageStats records per-computer local agent usage metrics persisted in editor.yaml. No prompts, file contents, or secrets are stored here.",
+      "type": "object",
+      "properties": {
+        "weekStart": {
+          "description": "WeekStart is the UTC Monday date (YYYY-MM-DD) for WeeklyRequests, when recorded.",
+          "type": "string"
+        },
+        "weeklyRequests": {
+          "description": "WeeklyRequests is the number of agent requests made during WeekStart's week.",
+          "type": "integer",
+          "minimum": -9223372036854776000,
+          "maximum": 9223372036854776000
+        },
+        "reviewedChanges": {
+          "description": "ReviewedChanges is the total number of agent change reviews resolved (kept or reverted).",
+          "type": "integer",
+          "minimum": -9223372036854776000,
+          "maximum": 9223372036854776000
+        },
+        "keptChanges": {
+          "description": "KeptChanges is the number of reviewed agent changes kept by the person.",
+          "type": "integer",
+          "minimum": -9223372036854776000,
+          "maximum": 9223372036854776000
+        },
+        "playtestRuns": {
+          "description": "PlaytestRuns is the number of local headless playtest runs recorded on this computer.",
+          "type": "integer",
+          "minimum": -9223372036854776000,
+          "maximum": 9223372036854776000
+        }
+      },
+      "additionalProperties": false
+    }
+  }
 }

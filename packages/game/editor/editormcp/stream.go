@@ -80,6 +80,9 @@ func (s *Server) addResources() {
 	s.sdk.AddResource(resources[0], func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
 		var data []byte
 		err := s.Editor(ctx, func(ed *editor.Editor) (err error) {
+			if !ed.AgentPrivacy().SceneAndData {
+				return editor.PrivacyRefusalError(editor.PrivacySceneAndData, SceneURI)
+			}
 			data, err = sceneYAML(ed)
 			return err
 		})
@@ -91,6 +94,9 @@ func (s *Server) addResources() {
 	s.sdk.AddResource(resources[1], func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
 		var data []byte
 		err := s.Editor(ctx, func(ed *editor.Editor) error {
+			if !ed.AgentPrivacy().SceneAndData {
+				return editor.PrivacyRefusalError(editor.PrivacySceneAndData, SelectionURI)
+			}
 			data = selectionJSON(ed)
 			return nil
 		})
@@ -105,7 +111,14 @@ func (s *Server) addResources() {
 			png  []byte
 		)
 		err := s.Editor(ctx, func(ed *editor.Editor) error {
+			policy := ed.AgentPrivacy()
+			if !policy.SceneAndData {
+				return editor.PrivacyRefusalError(editor.PrivacySceneAndData, AgentTurnURI)
+			}
 			data, png, _, _ = agentTurnResourceJSON(ed)
+			if len(png) > 0 && !policy.ViewportImages {
+				return editor.PrivacyRefusalError(editor.PrivacyViewportImages, AgentTurnURI)
+			}
 			return nil
 		})
 		if err != nil {
@@ -126,6 +139,9 @@ func (s *Server) addResources() {
 	s.sdk.AddResource(resources[3], func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
 		var text string
 		err := s.Editor(ctx, func(ed *editor.Editor) error {
+			if !ed.AgentPrivacy().SceneAndData {
+				return editor.PrivacyRefusalError(editor.PrivacySceneAndData, BriefURI)
+			}
 			text = briefResourceText(ed)
 			return nil
 		})
@@ -137,6 +153,9 @@ func (s *Server) addResources() {
 	s.sdk.AddResource(resources[4], func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
 		var text string
 		err := s.Editor(ctx, func(ed *editor.Editor) error {
+			if !ed.AgentPrivacy().SceneAndData {
+				return editor.PrivacyRefusalError(editor.PrivacySceneAndData, RulesURI)
+			}
 			text = ed.ProjectRules()
 			return nil
 		})
@@ -148,6 +167,9 @@ func (s *Server) addResources() {
 	s.sdk.AddResource(resources[5], func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
 		var data []byte
 		err := s.Editor(ctx, func(ed *editor.Editor) error {
+			if !ed.AgentPrivacy().SceneAndData {
+				return editor.PrivacyRefusalError(editor.PrivacySceneAndData, ContextURI)
+			}
 			data = contextJSON(ed)
 			return nil
 		})
@@ -214,6 +236,10 @@ func (s *Server) subscribedAll() (scene, selection, agentTurn, brief, rules, ctx
 func (s *Server) changed() {
 	if s.opened && s.ed.ProjectPath != s.projectPath {
 		s.follow()
+	}
+	s.syncTools(true)
+	if !s.ed.AgentPrivacy().SceneAndData {
+		return
 	}
 	wantScene, wantSelection, wantTurn, wantBrief, wantRules, wantContext := s.subscribedAll()
 	if !wantScene && !wantSelection && !wantTurn && !wantBrief && !wantRules && !wantContext {

@@ -311,6 +311,14 @@ func gamePlaytest(ctx context.Context, c *Call) (*Result, error) {
 	if err := playtest.ValidateReport(rep); err != nil {
 		return nil, fmt.Errorf("game_playtest: invalid report: %w", err)
 	}
+	runs := len(rep.Runs)
+	if runs <= 0 {
+		runs = max(1, cfg.Runs.Count)
+	}
+	_ = c.Editor(ctx, func(ed *editor.Editor) error {
+		ed.RecordPlaytestRun(runs)
+		return nil
+	})
 	if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
 		return nil, fmt.Errorf("game_playtest: %w", err)
 	}

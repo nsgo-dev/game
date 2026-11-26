@@ -10,6 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/nsgo-dev/game/packages/game/editor"
 	"github.com/nsgo-dev/game/packages/game/editor/editormcp"
 )
 
@@ -54,7 +55,13 @@ func runMCPInstall(a *app, defaultDir string, args []string) error {
 	if sub.NArg() > 0 {
 		return usagef("expected no arguments after install, got %d", sub.NArg())
 	}
-	res, err := editormcp.Install(*dir)
+	var extra []editor.AgentMCPServer
+	if settingsPath, perr := editor.DefaultSettingsPath(); perr == nil {
+		if s, serr := editor.LoadEditorSettings(settingsPath); serr == nil && s.Agent != nil && len(s.Agent.MCPServers) > 0 {
+			extra = s.Agent.MCPServers
+		}
+	}
+	res, err := editormcp.InstallWithServers(*dir, extra)
 	if err != nil {
 		return err
 	}
