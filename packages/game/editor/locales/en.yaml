@@ -304,9 +304,11 @@ strings:
   history.filterLabel: Show
   history.footer: Click a step to preview the scene at that point; Restore rolls back to it as one new step, so nothing is ever lost.
   history.now: Now
+  history.previewing: Previewing %s · editing is off
   history.restore: Restore
   history.saved: saved
   history.title: History
+  history.undone: undone
   history.unsaved: unsaved
   inspector.addComponent: Add component
   inspector.addProperty: Add property

@@ -86,6 +86,12 @@ func (e *Editor) nextTabID() uint64 {
 func (e *Editor) newTabHistory() *History {
 	h := NewHistory()
 	h.clock = e.historyPanel.clock
+	h.beforeExecute = func() error {
+		if e.HistoryPreviewActive() {
+			return ErrHistoryPreview
+		}
+		return nil
+	}
 	h.onRecord = func(cmd Command, rec *historyRecord) {
 		e.recordHistoryStep(cmd, rec)
 	}
@@ -255,6 +261,7 @@ func (e *Editor) cancelTransientInteraction() {
 	e.endGridMapStrokeForChange()
 	e.endTerrainStrokeForChange()
 	e.exitTileReviewBeforePreview()
+	e.ExitHistoryPreview()
 	e.CloseObjectContextMenu()
 	e.resetViewport3DAgentPrompt(false)
 	e.resetTextInputFocus()
@@ -517,6 +524,7 @@ func (e *Editor) SaveTab(index int) error {
 		e.cancelBackgroundPreview()
 		e.endTileStrokeForChange()
 		e.exitTileReviewBeforePreview()
+		e.ExitHistoryPreview()
 		e.saveViewStateQuietly()
 		e.endGridMapStrokeForChange()
 		e.endTerrainStrokeForChange()
@@ -535,6 +543,7 @@ func (e *Editor) SaveTab(index int) error {
 			e.sceneSaved = append([]byte(nil), data...)
 			e.tabs[e.activeTab].placeholder = false
 			e.syncActiveTab()
+			e.noteSavedHistoryFile(e.historyActiveSceneFile())
 			e.invalidateProjectIndex()
 			e.rebuildDependentTabs(e.activeTabID())
 			e.recordSaveSucceededFor(e.activeTabID(), false)

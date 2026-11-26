@@ -130,7 +130,7 @@ type tileHover struct {
 //
 // It returns false and starts nothing while playing, in 3D, while another stroke is under way, for non-finite coordinates, when the active layer has no inline tilemap to edit, for an edit stroke on a locked or hidden layer (reporting why in the status bar), for a terrain stroke without a valid terrain set, and when required tile/stamp/random parameters are invalid.
 func (e *Editor) BeginTileStroke(mode TileStrokeMode, x, y float32) bool {
-	if e == nil || e.playing || e.ViewMode != ViewMode2D || e.stroke != nil {
+	if e == nil || e.playing || e.HistoryPreviewActive() || e.ViewMode != ViewMode2D || e.stroke != nil {
 		return false
 	}
 	if !isFiniteFloat32(x) || !isFiniteFloat32(y) {

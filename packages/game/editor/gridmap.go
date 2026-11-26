@@ -1112,7 +1112,7 @@ func (e *Editor) GridMapBoxPreview() (minC, maxC world3d.GridCoord, ok bool) {
 // pixel (sx, sy) on the current floor height. Call ContinueGridMapStroke as the pointer moves and
 // EndGridMapStroke on release to commit the entire stroke as a single undoable History step.
 func (e *Editor) BeginGridMapStroke(tool GridMapTool, sx, sy, w, h float32) bool {
-	if e == nil || e.playing || e.ViewMode != ViewMode3D || e.gridMap.stroke != nil || e.gridMap.grid == nil {
+	if e == nil || e.playing || e.HistoryPreviewActive() || e.ViewMode != ViewMode3D || e.gridMap.stroke != nil || e.gridMap.grid == nil {
 		return false
 	}
 	if tool <= GridMapToolNone || tool > GridMapToolBoxFill {

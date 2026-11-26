@@ -1032,7 +1032,7 @@ func (e *Editor) TerrainStrokeActive() bool {
 // ContinueTerrainStroke extends the stroke along pointer movement, and
 // EndTerrainStroke commits the entire stroke as one undo step in History.
 func (e *Editor) BeginTerrainStroke(worldX, worldZ float32) bool {
-	if e == nil || e.playing || !e.TerrainOpen() || e.terrain.stroke != nil {
+	if e == nil || e.playing || e.HistoryPreviewActive() || !e.TerrainOpen() || e.terrain.stroke != nil {
 		return false
 	}
 	b := e.terrainBrush

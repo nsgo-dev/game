@@ -67,7 +67,7 @@ func (e *Editor) BeginMarquee2D(x, y float32) bool {
 // when toggle is true (Mod), matched objects are toggled in the existing selection;
 // otherwise the marquee replaces the selection. mode chooses enclose vs touch matching.
 func (e *Editor) BeginMarquee2DWith(x, y float32, add, toggle bool, mode MarqueeMode) bool {
-	if e == nil || e.playing || e.ViewMode != ViewMode2D || e.Tool != ToolSelect || e.marquee.active || !isFiniteFloat32(x) || !isFiniteFloat32(y) {
+	if e == nil || e.playing || e.HistoryPreviewActive() || e.ViewMode != ViewMode2D || e.Tool != ToolSelect || e.marquee.active || !isFiniteFloat32(x) || !isFiniteFloat32(y) {
 		return false
 	}
 	e.marquee = marqueeState{

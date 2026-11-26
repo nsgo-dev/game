@@ -552,7 +552,7 @@ func (e *Editor) scheduleAutoSaveIfNeeded() {
 	if e == nil {
 		return
 	}
-	if !e.AutoSave() || e.playing || e.HasOpenReview() || e.isAutoSaveBlockedByPrompt() {
+	if !e.AutoSave() || e.playing || e.HistoryPreviewActive() || e.HasOpenReview() || e.isAutoSaveBlockedByPrompt() {
 		e.cancelAutoSaveTimer()
 		return
 	}
@@ -690,7 +690,7 @@ func (e *Editor) openSaveAsFromStatusBar() {
 }
 
 func (e *Editor) startAutoSaveFlight() {
-	if e == nil || !e.AutoSave() || e.playing || e.HasOpenReview() || e.isAutoSaveBlockedByPrompt() {
+	if e == nil || !e.AutoSave() || e.playing || e.HistoryPreviewActive() || e.HasOpenReview() || e.isAutoSaveBlockedByPrompt() {
 		return
 	}
 	if e.hasInteractiveDragInProgress() {

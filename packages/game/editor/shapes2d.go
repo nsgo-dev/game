@@ -342,7 +342,7 @@ func circleCanvasPoints(m math2d.Affine, c sceneformat.Circle) []math2d.Vec2 {
 }
 
 func (e *Editor) shapeHandlesEnabled() bool {
-	return e != nil && !e.playing && e.ViewMode == ViewMode2D &&
+	return e != nil && !e.playing && !e.HistoryPreviewActive() && e.ViewMode == ViewMode2D &&
 		(e.Tool == ToolSelect || e.Tool == ToolMove) &&
 		e.SelectedID != "" && !e.viewportFrozen(e.SelectedID)
 }
