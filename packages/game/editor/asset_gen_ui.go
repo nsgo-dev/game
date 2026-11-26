@@ -1,7 +1,6 @@
 package editor
 
 import (
-	"context"
 	"fmt"
 	"image"
 	"math"
@@ -44,11 +43,42 @@ func AssetGeneratorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 		_ = rev.Get()
 		return ed.assetGenRev()
 	})
+	activeImgReqID := core.NewMemo(cx, func() string {
+		_ = genRev.Get()
+		snap := ed.snapshotAssetGenView()
+		if snap.activeImageReq != nil {
+			return snap.activeImageReq.ID
+		}
+		return ""
+	})
+	hasImgReq := core.NewMemo(cx, func() bool {
+		return activeImgReqID.Get() != ""
+	})
+	licEditPath := core.NewMemo(cx, func() string {
+		_ = genRev.Get()
+		p, _, _ := ed.assetGenLicenseEditState()
+		return p
+	})
+	hasLicEdit := core.NewMemo(cx, func() bool {
+		return licEditPath.Get() != ""
+	})
+
+	refineDraftSig := core.NewSignal(cx, ed.assetGenRefineDraft())
+	_, initLicDraft, initLicComm := ed.assetGenLicenseEditState()
+	licDraftSig := core.NewSignal(cx, initLicDraft)
+	licCommSig := core.NewSignal(cx, initLicComm)
+
+	onBeginEditLicense := func(assetPath string) {
+		ed.BeginEditGeneratedLicense(assetPath)
+		_, draft, comm := ed.assetGenLicenseEditState()
+		licDraftSig.Set(draft)
+		licCommSig.Set(comm)
+	}
 
 	return core.View{
 		TestID: "asset-gen-screen",
 		Role:   core.RoleRegion,
-		Label:  "Generated assets",
+		Label:  ed.T("assetGen.title"),
 		Style: core.Style{
 			Width:      core.Pct(100),
 			Height:     core.Pct(100),
@@ -58,34 +88,100 @@ func AssetGeneratorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 		Children: []core.Node{
 			core.Dynamic(func(cx *core.Scope) core.Node {
 				_ = genRev.Get()
-				snap := ed.snapshotAssetGenView()
-				return core.View{
-					Style: core.Style{
-						FlexGrow:  1,
-						FlexBasis: core.Pt(0),
-						Width:     core.Pct(100),
-						Height:    core.Pct(100),
-						Overflow:  core.Hidden,
-					},
-					Children: []core.Node{
-						assetGenHeaderView(ed, snap),
-						core.View{
-							Style: core.Style{
-								Direction: core.Row,
-								FlexGrow:  1,
-								FlexBasis: core.Pt(0),
-								MinHeight: core.Pt(0),
-								Overflow:  core.Hidden,
+				return assetGenHeaderView(ed, ed.snapshotAssetGenView())
+			}),
+			core.View{
+				Style: core.Style{
+					Direction: core.Row,
+					FlexGrow:  1,
+					FlexBasis: core.Pt(0),
+					MinHeight: core.Pt(0),
+					Overflow:  core.Hidden,
+				},
+				Children: []core.Node{
+					core.Dynamic(func(cx *core.Scope) core.Node {
+						_ = genRev.Get()
+						return assetGenLeftRailView(ed, ed.snapshotAssetGenView())
+					}),
+					// Center column: ScrollView stays mounted across genRev updates; Refine input bar sits outside Dynamic so typing never drops focus.
+					core.View{
+						Style: core.Style{
+							FlexGrow:   1,
+							FlexBasis:  core.Pt(0),
+							MinWidth:   core.Pt(0),
+							MinHeight:  core.Pt(0),
+							Background: specBg,
+							Overflow:   core.Hidden,
+						},
+						Children: []core.Node{
+							ui.ScrollView{
+								TestID: "asset-gen-center",
+								Style: core.Style{
+									FlexGrow:   1,
+									FlexBasis:  core.Pt(0),
+									MinWidth:   core.Pt(0),
+									MinHeight:  core.Pt(0),
+									Background: specBg,
+								},
+								ContentStyle: core.Style{
+									Padding: core.All(20),
+									Gap:     16,
+								},
+								Children: []core.Node{
+									core.Dynamic(func(cx *core.Scope) core.Node {
+										_ = genRev.Get()
+										return assetGenCenterContentView(ed, ed.snapshotAssetGenView())
+									}),
+								},
 							},
-							Children: []core.Node{
-								assetGenLeftRailView(ed, snap),
-								assetGenCenterView(ed, snap),
-								assetGenRightInspectorView(ed, snap),
+							core.Show{
+								When: hasImgReq.Get,
+								Then: func(cx *core.Scope) core.Node {
+									return assetGenRefineBarView(ed, genRev, activeImgReqID, refineDraftSig)
+								},
 							},
 						},
 					},
-				}
-			}),
+					// Right inspector column: ScrollView stays mounted; inline license editor bar sits outside Dynamic so typing never drops focus.
+					core.View{
+						TestID: "asset-gen-inspector",
+						Style: core.Style{
+							Width:       core.Pt(380),
+							FlexShrink:  0,
+							Background:  specPanel,
+							Borders:     core.Edges{Left: 1},
+							BorderColor: specLine,
+							MinHeight:   core.Pt(0),
+							Overflow:    core.Hidden,
+						},
+						Children: []core.Node{
+							core.Dynamic(func(cx *core.Scope) core.Node {
+								_ = genRev.Get()
+								return assetGenRightInspectorHeader(ed.snapshotAssetGenView())
+							}),
+							ui.ScrollView{
+								Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), MinHeight: core.Pt(0)},
+								ContentStyle: core.Style{
+									Padding: core.All(16),
+									Gap:     16,
+								},
+								Children: []core.Node{
+									core.Dynamic(func(cx *core.Scope) core.Node {
+										_ = genRev.Get()
+										return assetGenRightInspectorBody(ed, ed.snapshotAssetGenView(), onBeginEditLicense)
+									}),
+								},
+							},
+							core.Show{
+								When: hasLicEdit.Get,
+								Then: func(cx *core.Scope) core.Node {
+									return assetGenLicenseEditorBar(ed, licEditPath, licDraftSig, licCommSig)
+								},
+							},
+						},
+					},
+				},
+			},
 		},
 	}
 }
@@ -101,13 +197,17 @@ type assetGenViewSnapshot struct {
 	brief           AssetStyleBrief
 	bg              AssetPreviewBackground
 	licenses        []credits.GeneratedAssetLicense
+	licenseScanErr  string
 	playingReqID    string
 	playingCandID   string
 	refineDraft     string
 	licenseEditPath string
 	licenseDraft    string
 	approvalAuthor  string
+	busy            bool
+	busyLabel       string
 	playingGame     bool
+	mergeConflict   bool
 }
 
 func (e *Editor) snapshotAssetGenView() assetGenViewSnapshot {
@@ -132,11 +232,14 @@ func (e *Editor) snapshotAssetGenView() assetGenViewSnapshot {
 	brief.Backgrounds = slicesCopy(brief.Backgrounds)
 	bg := currentPreviewBGLocked(&e.assetGen)
 	licenses := slicesCopy(e.assetGen.licenses)
+	licScanErr := e.assetGen.licenseScanErr
 	playReq := e.assetGen.playingReqID
 	playCand := e.assetGen.playingCandID
 	refineDraft := e.assetGen.refineDraft
 	licEditPath := e.assetGen.licenseEditPath
 	licDraft := e.assetGen.licenseDraft
+	busy := e.assetGen.busy
+	busyLabel := e.assetGen.busyLabel
 	e.assetGen.mu.Unlock()
 
 	var imgReq, sndReq *AssetGenerationRequest
@@ -187,13 +290,17 @@ func (e *Editor) snapshotAssetGenView() assetGenViewSnapshot {
 		brief:           brief,
 		bg:              bg,
 		licenses:        licenses,
+		licenseScanErr:  licScanErr,
 		playingReqID:    playReq,
 		playingCandID:   playCand,
 		refineDraft:     refineDraft,
 		licenseEditPath: licEditPath,
 		licenseDraft:    licDraft,
 		approvalAuthor:  author,
+		busy:            busy,
+		busyLabel:       busyLabel,
 		playingGame:     e.Playing(),
+		mergeConflict:   e.MergeConflictOpen(),
 	}
 }
 
@@ -229,7 +336,9 @@ func assetGenHeaderView(ed *Editor, snap assetGenViewSnapshot) core.Node {
 	pillTextColor := specText
 	pillText := "Connect an MCP generator server in Settings › Tools to generate candidates"
 
-	if r := snap.selectedReq; r != nil {
+	if snap.busy && snap.busyLabel != "" {
+		pillText = snap.busyLabel
+	} else if r := snap.selectedReq; r != nil {
 		if r.PickedCandidateID != "" {
 			pillDot = specAdded
 			pillBg = specRaised
@@ -260,7 +369,7 @@ func assetGenHeaderView(ed *Editor, snap assetGenViewSnapshot) core.Node {
 			ui.Button{
 				TestID:  "asset-gen-back",
 				Icon:    lucide.ArrowLeft,
-				Label:   "Back to scene editor",
+				Label:   ed.T("assetGen.back"),
 				Variant: ui.ButtonGhost,
 				Size:    ui.SizeSmall,
 				Color:   func() core.Color { return specRaised },
@@ -337,7 +446,7 @@ func assetGenHeaderView(ed *Editor, snap assetGenViewSnapshot) core.Node {
 			core.View{Style: core.Style{FlexGrow: 1}},
 			ui.Button{
 				TestID:  "asset-gen-play",
-				Text:    "Play",
+				Text:    ed.T("assetGen.play"),
 				Icon:    lucide.Play,
 				Variant: ui.ButtonGhost,
 				Size:    ui.SizeSmall,
@@ -501,7 +610,7 @@ func assetGenLeftRailView(ed *Editor, snap assetGenViewSnapshot) core.Node {
 	serverNodes := make([]core.Node, 0, max(1, len(snap.servers)))
 	if len(snap.servers) == 0 {
 		serverNodes = append(serverNodes, core.Text{
-			Content: "No MCP servers connected",
+			Content: ed.T("assetGen.noServers"),
 			Style:   core.Style{FontSize: 12, Color: specTextMuted},
 		})
 	} else {
@@ -582,7 +691,7 @@ func assetGenLeftRailView(ed *Editor, snap assetGenViewSnapshot) core.Node {
 					},
 					ui.Button{
 						TestID:  "asset-gen-settings-tools",
-						Text:    "Settings › Tools",
+						Text:    ed.T("assetGen.settingsTools"),
 						Variant: ui.ButtonGhost,
 						Size:    ui.SizeSmall,
 						TextStyle: core.Style{
@@ -625,7 +734,7 @@ func assetGenStatusDisplay(r *AssetGenerationRequest) (string, core.Color) {
 	}
 }
 
-func assetGenCenterView(ed *Editor, snap assetGenViewSnapshot) core.Node {
+func assetGenCenterContentView(ed *Editor, snap assetGenViewSnapshot) core.Node {
 	var sections []core.Node
 
 	if snap.activeImageReq != nil {
@@ -646,31 +755,152 @@ func assetGenCenterView(ed *Editor, snap assetGenViewSnapshot) core.Node {
 			},
 			Children: []core.Node{
 				core.Text{
-					Content: "No generated asset requests yet",
+					Content: ed.T("assetGen.emptyTitle"),
 					Style:   core.Style{FontSize: 15, FontWeight: 600, Color: specTextStrong},
 				},
 				core.Text{
-					Content: "Connect an MCP generator server in Settings › Tools to preview image or sound candidates without writing to disk.",
+					Content: ed.T("assetGen.emptyBody"),
 					Style:   core.Style{FontSize: 12.5, Color: specTextMuted},
 				},
 			},
 		})
 	}
 
-	return ui.ScrollView{
-		TestID: "asset-gen-center",
-		Style: core.Style{
-			FlexGrow:   1,
-			FlexBasis:  core.Pt(0),
-			MinWidth:   core.Pt(0),
-			MinHeight:  core.Pt(0),
-			Background: specBg,
-		},
-		ContentStyle: core.Style{
-			Padding: core.All(20),
-			Gap:     16,
-		},
+	return core.View{
+		Style:    core.Style{Gap: 16},
 		Children: sections,
+	}
+}
+
+// assetGenRefineBarView mounts outside the coarse assetGenRev Dynamic so typing in the Refine input
+// never remounts or drops keyboard focus during background updates or candidate picks.
+func assetGenRefineBarView(ed *Editor, genRev *core.Memo[uint64], activeImgReqID *core.Memo[string], refineDraftSig *core.Signal[string]) core.Node {
+	return core.View{
+		TestID: "asset-gen-refine-bar",
+		Style: core.Style{
+			Direction:   core.Row,
+			AlignItems:  core.AlignCenter,
+			Gap:         8,
+			Padding:     core.Symmetric(10, 20),
+			Background:  specBg,
+			Borders:     core.Edges{Top: 1},
+			BorderColor: specLine,
+			FlexShrink:  0,
+		},
+		Children: []core.Node{
+			core.View{
+				Style: core.Style{
+					Direction:    core.Row,
+					AlignItems:   core.AlignCenter,
+					FlexGrow:     1,
+					Height:       core.Pt(32),
+					Padding:      core.Symmetric(0, 10),
+					Gap:          8,
+					CornerRadius: 8,
+					Background:   specRaised,
+					BorderWidth:  1,
+					BorderColor:  specLineRaised,
+				},
+				Children: []core.Node{
+					core.Icon{SVG: lucide.Sparkles(), Style: core.Style{FontSize: 14, Color: specAgent}},
+					ui.Input{
+						TestID:      "asset-gen-refine-input",
+						Label:       ed.T("assetGen.refine"),
+						Value:       refineDraftSig.Get,
+						Placeholder: ed.T("assetGen.refinePlaceholder"),
+						OnChange: func(v string) {
+							refineDraftSig.Set(v)
+							ed.setAssetGenRefineDraft(v)
+						},
+						OnSubmit: func(v string) {
+							reqID := activeImgReqID.Get()
+							if reqID != "" && strings.TrimSpace(v) != "" {
+								ed.report(ed.startRefineGeneratedAssetAsync(reqID, v))
+							}
+						},
+						Style: core.Style{
+							FlexGrow:         1,
+							MinWidth:         core.Pt(0),
+							Height:           core.Pt(28),
+							Background:       core.Transparent,
+							BorderWidth:      0,
+							FontSize:         12,
+							Color:            specText,
+							PlaceholderColor: specTextMuted,
+						},
+					},
+				},
+			},
+			core.Dynamic(func(cx *core.Scope) core.Node {
+				_ = genRev.Get()
+				snap := ed.snapshotAssetGenView()
+				reqID := ""
+				candCount := 4
+				if snap.activeImageReq != nil {
+					reqID = snap.activeImageReq.ID
+					candCount = max(1, len(snap.activeImageReq.Candidates))
+				}
+				disabled := reqID == "" || snap.busy || snap.playingGame || snap.mergeConflict
+				return core.View{
+					Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8},
+					Children: []core.Node{
+						ui.Button{
+							TestID:   "asset-gen-refine-btn",
+							Text:     ed.T("assetGen.refine"),
+							Icon:     lucide.Pencil,
+							Variant:  ui.ButtonGhost,
+							Size:     ui.SizeSmall,
+							Disabled: func() bool { return disabled },
+							Color:    func() core.Color { return specAssetGenBtnSec },
+							Tint:     func() core.Color { return specText },
+							TextStyle: core.Style{
+								FontSize: 12,
+								Color:    specText,
+							},
+							Style: core.Style{
+								Height:       core.Pt(32),
+								Padding:      core.Symmetric(0, 12),
+								CornerRadius: 8,
+								FocusVisible: specFocusRingStyle,
+							},
+							OnPress: func() {
+								draft := ed.assetGenRefineDraft()
+								if strings.TrimSpace(draft) == "" || reqID == "" {
+									return
+								}
+								ed.report(ed.startRefineGeneratedAssetAsync(reqID, draft))
+							},
+						},
+						ui.Button{
+							TestID:   "asset-gen-regen-btn",
+							Text:     fmt.Sprintf("Regenerate %d", candCount),
+							Icon:     lucide.RefreshCw,
+							Variant:  ui.ButtonGhost,
+							Size:     ui.SizeSmall,
+							Disabled: func() bool { return disabled },
+							Color:    func() core.Color { return specAssetGenBtnSec },
+							Tint:     func() core.Color { return specText },
+							TextStyle: core.Style{
+								FontSize: 12,
+								Color:    specText,
+							},
+							Style: core.Style{
+								Height:       core.Pt(32),
+								Padding:      core.Symmetric(0, 12),
+								CornerRadius: 8,
+								FocusVisible: specFocusRingStyle,
+							},
+							OnPress: func() {
+								if reqID == "" {
+									return
+								}
+								ed.report(ed.startRegenerateAssetAsync(reqID))
+							},
+						},
+					},
+				}
+			}),
+		},
 	}
 }
 
@@ -716,109 +946,7 @@ func assetGenImageRequestSection(ed *Editor, req *AssetGenerationRequest, snap a
 	candCards := make([]core.Node, 0, len(req.Candidates))
 	for i := range req.Candidates {
 		cand := req.Candidates[i]
-		candCards = append(candCards, assetGenCandidateCard(ed, req, cand, snap.bg))
-	}
-
-	refineRow := core.View{
-		Style: core.Style{
-			Direction:  core.Row,
-			AlignItems: core.AlignCenter,
-			Gap:        8,
-		},
-		Children: []core.Node{
-			core.View{
-				Style: core.Style{
-					Direction:    core.Row,
-					AlignItems:   core.AlignCenter,
-					FlexGrow:     1,
-					Height:       core.Pt(32),
-					Padding:      core.Symmetric(0, 10),
-					Gap:          8,
-					CornerRadius: 8,
-					Background:   specRaised,
-					BorderWidth:  1,
-					BorderColor:  specLineRaised,
-				},
-				Children: []core.Node{
-					core.Icon{SVG: lucide.Sparkles(), Style: core.Style{FontSize: 14, Color: specAgent}},
-					ui.Input{
-						TestID:      "asset-gen-refine-input",
-						Label:       "Refine with words",
-						Value:       func() string { return ed.assetGenRefineDraft() },
-						Placeholder: "Refine with words… e.g. frost only on top, same eyes as slime.png",
-						OnChange: func(v string) {
-							ed.setAssetGenRefineDraft(v)
-						},
-						OnSubmit: func(v string) {
-							if strings.TrimSpace(v) != "" {
-								_, err := ed.RefineGeneratedAsset(context.Background(), req.ID, v)
-								ed.report(err)
-							}
-						},
-						Style: core.Style{
-							FlexGrow:         1,
-							MinWidth:         core.Pt(0),
-							Height:           core.Pt(28),
-							Background:       core.Transparent,
-							BorderWidth:      0,
-							FontSize:         12,
-							Color:            specText,
-							PlaceholderColor: specTextMuted,
-						},
-					},
-				},
-			},
-			ui.Button{
-				TestID:  "asset-gen-refine-btn",
-				Text:    "Refine",
-				Icon:    lucide.Pencil,
-				Variant: ui.ButtonGhost,
-				Size:    ui.SizeSmall,
-				Color:   func() core.Color { return specAssetGenBtnSec },
-				Tint:    func() core.Color { return specText },
-				TextStyle: core.Style{
-					FontSize: 12,
-					Color:    specText,
-				},
-				Style: core.Style{
-					Height:       core.Pt(32),
-					Padding:      core.Symmetric(0, 12),
-					CornerRadius: 8,
-					FocusVisible: specFocusRingStyle,
-				},
-				OnPress: func() {
-					draft := ed.assetGenRefineDraft()
-					if strings.TrimSpace(draft) == "" {
-						return
-					}
-					_, err := ed.RefineGeneratedAsset(context.Background(), req.ID, draft)
-					ed.report(err)
-				},
-			},
-			ui.Button{
-				TestID:  "asset-gen-regen-btn",
-				Text:    fmt.Sprintf("Regenerate %d", max(1, len(req.Candidates))),
-				Icon:    lucide.RefreshCw,
-				Variant: ui.ButtonGhost,
-				Size:    ui.SizeSmall,
-				Color:   func() core.Color { return specAssetGenBtnSec },
-				Tint:    func() core.Color { return specText },
-				TextStyle: core.Style{
-					FontSize: 12,
-					Color:    specText,
-				},
-				Style: core.Style{
-					Height:       core.Pt(32),
-					Padding:      core.Symmetric(0, 12),
-					CornerRadius: 8,
-					FocusVisible: specFocusRingStyle,
-				},
-				OnPress: func() {
-					_, err := ed.RegenerateAsset(context.Background(), req.ID)
-					ed.report(err)
-				},
-			},
-		},
+		candCards = append(candCards, assetGenCandidateCard(ed, req, cand, snap))
 	}
 
 	children := []core.Node{
@@ -860,7 +988,7 @@ func assetGenImageRequestSection(ed *Editor, req *AssetGenerationRequest, snap a
 				core.View{
 					Style: core.Style{AlignItems: core.AlignEnd, Gap: 4, FlexShrink: 0},
 					Children: []core.Node{
-						core.Text{Content: "PREVIEW ON", Style: core.Style{FontSize: 11, FontWeight: 600, Color: specTextMuted}},
+						core.Text{Content: ed.T("assetGen.previewOn"), Style: core.Style{FontSize: 11, FontWeight: 600, Color: specTextMuted}},
 						core.View{
 							Style: core.Style{
 								Direction:    core.Row,
@@ -885,7 +1013,6 @@ func assetGenImageRequestSection(ed *Editor, req *AssetGenerationRequest, snap a
 			},
 			Children: candCards,
 		},
-		refineRow,
 	}
 
 	if req.LastNote != "" {
@@ -902,7 +1029,8 @@ func assetGenImageRequestSection(ed *Editor, req *AssetGenerationRequest, snap a
 	}
 }
 
-func assetGenCandidateCard(ed *Editor, req *AssetGenerationRequest, cand GeneratedCandidate, bg AssetPreviewBackground) core.Node {
+func assetGenCandidateCard(ed *Editor, req *AssetGenerationRequest, cand GeneratedCandidate, snap assetGenViewSnapshot) core.Node {
+	bg := snap.bg
 	selected := req.SelectedCandidateID == cand.ID
 	picked := req.PickedCandidateID == cand.ID
 	cardBg := specRaised
@@ -963,7 +1091,7 @@ func assetGenCandidateCard(ed *Editor, req *AssetGenerationRequest, cand Generat
 				JustifyContent: core.JustifyCenter,
 			},
 			Children: []core.Node{
-				core.Text{Content: "Picked", Style: core.Style{FontSize: 11, FontWeight: 600, Color: specBg}},
+				core.Text{Content: ed.T("assetGen.picked"), Style: core.Style{FontSize: 11, FontWeight: 600, Color: specBg}},
 			},
 		})
 	}
@@ -1005,9 +1133,9 @@ func assetGenCandidateCard(ed *Editor, req *AssetGenerationRequest, cand Generat
 		})
 	}
 
-	pickText := "Pick " + cand.ID
+	pickText := ed.T("assetGen.pick") + " " + cand.ID
 	if picked {
-		pickText = "Undo pick"
+		pickText = ed.T("assetGen.undoPick")
 	}
 	pickBg := specAssetGenBtnSec
 	pickTxtCol := specText
@@ -1018,6 +1146,7 @@ func assetGenCandidateCard(ed *Editor, req *AssetGenerationRequest, cand Generat
 
 	reqID := req.ID
 	candID := cand.ID
+	actionDisabled := snap.playingGame || snap.mergeConflict
 	return core.View{
 		TestID: "asset-gen-cand-" + cand.ID,
 		Style: core.Style{
@@ -1053,11 +1182,12 @@ func assetGenCandidateCard(ed *Editor, req *AssetGenerationRequest, cand Generat
 				Style: core.Style{Direction: core.Row, Gap: 8},
 				Children: []core.Node{
 					ui.Button{
-						TestID:  "asset-gen-pick-" + cand.ID,
-						Text:    pickText,
-						Variant: ui.ButtonGhost,
-						Size:    ui.SizeSmall,
-						Color:   func() core.Color { return pickBg },
+						TestID:   "asset-gen-pick-" + cand.ID,
+						Text:     pickText,
+						Variant:  ui.ButtonGhost,
+						Size:     ui.SizeSmall,
+						Disabled: func() bool { return actionDisabled },
+						Color:    func() core.Color { return pickBg },
 						TextStyle: core.Style{
 							FontSize:   12,
 							FontWeight: 600,
@@ -1071,18 +1201,19 @@ func assetGenCandidateCard(ed *Editor, req *AssetGenerationRequest, cand Generat
 						},
 						OnPress: func() {
 							if picked {
-								ed.Undo()
+								ed.report(ed.UndoPickedCandidate(reqID, candID))
 							} else {
 								ed.report(ed.PickGeneratedCandidate(reqID, candID))
 							}
 						},
 					},
 					ui.Button{
-						TestID:  "asset-gen-vary-" + cand.ID,
-						Text:    "Vary this",
-						Variant: ui.ButtonGhost,
-						Size:    ui.SizeSmall,
-						Color:   func() core.Color { return specAssetGenBtnSec },
+						TestID:   "asset-gen-vary-" + cand.ID,
+						Text:     ed.T("assetGen.varyThis"),
+						Variant:  ui.ButtonGhost,
+						Size:     ui.SizeSmall,
+						Disabled: func() bool { return actionDisabled || snap.busy },
+						Color:    func() core.Color { return specAssetGenBtnSec },
 						TextStyle: core.Style{
 							FontSize: 12,
 							Color:    specText,
@@ -1094,8 +1225,7 @@ func assetGenCandidateCard(ed *Editor, req *AssetGenerationRequest, cand Generat
 							FocusVisible: specFocusRingStyle,
 						},
 						OnPress: func() {
-							_, err := ed.VaryGeneratedCandidate(context.Background(), reqID, candID)
-							ed.report(err)
+							ed.report(ed.startVaryGeneratedCandidateAsync(reqID, candID))
 						},
 					},
 				},
@@ -1105,6 +1235,7 @@ func assetGenCandidateCard(ed *Editor, req *AssetGenerationRequest, cand Generat
 }
 
 func assetGenSoundRequestSection(ed *Editor, req *AssetGenerationRequest, snap assetGenViewSnapshot) core.Node {
+	actionDisabled := snap.playingGame || snap.mergeConflict
 	rows := make([]core.Node, 0, len(req.Candidates))
 	for i := range req.Candidates {
 		cand := req.Candidates[i]
@@ -1134,11 +1265,11 @@ func assetGenSoundRequestSection(ed *Editor, req *AssetGenerationRequest, snap a
 		}
 		pickBg := specAssetGenBtnSec
 		pickTxtCol := specText
-		pickTxt := "Pick"
+		pickTxt := ed.T("assetGen.pick")
 		if picked {
 			pickBg = specAccent
 			pickTxtCol = specBg
-			pickTxt = "Picked"
+			pickTxt = ed.T("assetGen.picked")
 		}
 		reqID := req.ID
 		candID := cand.ID
@@ -1162,13 +1293,14 @@ func assetGenSoundRequestSection(ed *Editor, req *AssetGenerationRequest, snap a
 			},
 			Children: []core.Node{
 				ui.Button{
-					TestID:  "asset-gen-sound-play-" + cand.ID,
-					Icon:    playSym,
-					Label:   "Play candidate " + cand.ID,
-					Variant: ui.ButtonGhost,
-					Size:    ui.SizeSmall,
-					Color:   func() core.Color { return playBg },
-					Tint:    func() core.Color { return playTint },
+					TestID:   "asset-gen-sound-play-" + cand.ID,
+					Icon:     playSym,
+					Label:    "Play candidate " + cand.ID,
+					Variant:  ui.ButtonGhost,
+					Size:     ui.SizeSmall,
+					Disabled: func() bool { return actionDisabled },
+					Color:    func() core.Color { return playBg },
+					Tint:     func() core.Color { return playTint },
 					Style: core.Style{
 						Width:        core.Pt(30),
 						Height:       core.Pt(30),
@@ -1207,11 +1339,12 @@ func assetGenSoundRequestSection(ed *Editor, req *AssetGenerationRequest, snap a
 					Style:    core.Style{Width: core.Pt(160), FontSize: 11.5, Color: checkCol},
 				},
 				ui.Button{
-					TestID:  "asset-gen-sound-pick-" + cand.ID,
-					Text:    pickTxt,
-					Variant: ui.ButtonGhost,
-					Size:    ui.SizeSmall,
-					Color:   func() core.Color { return pickBg },
+					TestID:   "asset-gen-sound-pick-" + cand.ID,
+					Text:     pickTxt,
+					Variant:  ui.ButtonGhost,
+					Size:     ui.SizeSmall,
+					Disabled: func() bool { return actionDisabled },
+					Color:    func() core.Color { return pickBg },
 					TextStyle: core.Style{
 						FontSize:   12,
 						FontWeight: 600,
@@ -1225,7 +1358,7 @@ func assetGenSoundRequestSection(ed *Editor, req *AssetGenerationRequest, snap a
 					},
 					OnPress: func() {
 						if picked {
-							ed.Undo()
+							ed.report(ed.UndoPickedCandidate(reqID, candID))
 						} else {
 							ed.report(ed.PickGeneratedCandidate(reqID, candID))
 						}
@@ -1266,7 +1399,7 @@ func assetGenSoundRequestSection(ed *Editor, req *AssetGenerationRequest, snap a
 	}
 }
 
-func assetGenRightInspectorView(ed *Editor, snap assetGenViewSnapshot) core.Node {
+func assetGenRightInspectorHeader(snap assetGenViewSnapshot) core.Node {
 	headerTitle := "Candidate"
 	headerSub := ""
 	if snap.selectedCand != nil {
@@ -1275,7 +1408,25 @@ func assetGenRightInspectorView(ed *Editor, snap assetGenViewSnapshot) core.Node
 			headerSub = fmt.Sprintf("· seed %d", *snap.selectedCand.Seed)
 		}
 	}
+	return core.View{
+		Style: core.Style{
+			Direction:   core.Row,
+			AlignItems:  core.AlignCenter,
+			Height:      core.Pt(44),
+			FlexShrink:  0,
+			Padding:     core.Symmetric(0, 16),
+			Gap:         8,
+			Borders:     core.Edges{Bottom: 1},
+			BorderColor: specLine,
+		},
+		Children: []core.Node{
+			core.Text{Content: headerTitle, Style: core.Style{FontSize: 14, FontWeight: 600, Color: specTextStrong}},
+			core.Text{Content: headerSub, Style: core.Style{FontSize: 12.5, Color: specTextMuted}},
+		},
+	}
+}
 
+func assetGenRightInspectorBody(ed *Editor, snap assetGenViewSnapshot, onBeginEditLicense func(assetPath string)) core.Node {
 	// 1. Style against brief.yaml
 	var styleNodes []core.Node
 	styleNodes = append(styleNodes,
@@ -1378,7 +1529,26 @@ func assetGenRightInspectorView(ed *Editor, snap assetGenViewSnapshot) core.Node
 	}
 
 	// 3. LICENSES · CHECKED AT EXPORT
-	licenseRows := make([]core.Node, 0, len(snap.licenses))
+	licenseRows := make([]core.Node, 0, len(snap.licenses)+1)
+	if snap.licenseScanErr != "" {
+		licenseRows = append(licenseRows, core.View{
+			TestID: "asset-gen-license-error",
+			Style: core.Style{
+				Padding:      core.Symmetric(8, 10),
+				CornerRadius: 8,
+				Background:   specRaised,
+				BorderWidth:  1.5,
+				BorderColor:  specProblem,
+			},
+			Children: []core.Node{
+				core.Text{
+					Content: snap.licenseScanErr,
+					Style:   core.Style{FontSize: 11.5, Color: specAssetGenProblemText},
+				},
+			},
+		})
+	}
+	actionDisabled := snap.playingGame || snap.mergeConflict
 	for i, lic := range snap.licenses {
 		lc := lic
 		var rowBg core.Color
@@ -1408,11 +1578,12 @@ func assetGenRightInspectorView(ed *Editor, snap assetGenViewSnapshot) core.Node
 		if lc.UnknownLicense {
 			assetPath := lc.Asset
 			rowChildren = append(rowChildren, ui.Button{
-				TestID:  fmt.Sprintf("asset-gen-set-license-%d", i),
-				Text:    "Set license",
-				Variant: ui.ButtonGhost,
-				Size:    ui.SizeSmall,
-				Color:   func() core.Color { return specAssetGenBtnSec },
+				TestID:   fmt.Sprintf("asset-gen-set-license-%d", i),
+				Text:     ed.T("assetGen.setLicense"),
+				Variant:  ui.ButtonGhost,
+				Size:     ui.SizeSmall,
+				Disabled: func() bool { return actionDisabled },
+				Color:    func() core.Color { return specAssetGenBtnSec },
 				TextStyle: core.Style{
 					FontSize: 11.5,
 					Color:    specText,
@@ -1424,7 +1595,7 @@ func assetGenRightInspectorView(ed *Editor, snap assetGenViewSnapshot) core.Node
 					FocusVisible: specFocusRingStyle,
 				},
 				OnPress: func() {
-					ed.report(ed.SetGeneratedAssetLicense(assetPath, "CC0-1.0", true))
+					onBeginEditLicense(assetPath)
 				},
 			})
 		}
@@ -1445,83 +1616,185 @@ func assetGenRightInspectorView(ed *Editor, snap assetGenViewSnapshot) core.Node
 	}
 	if len(licenseRows) == 0 {
 		licenseRows = append(licenseRows, core.Text{
-			Content: "No generated .source.yaml files written yet.",
+			Content: ed.T("assetGen.noLicenses"),
 			Style:   core.Style{FontSize: 11.5, Color: specTextMuted},
 		})
 	}
 
 	return core.View{
-		TestID: "asset-gen-inspector",
-		Style: core.Style{
-			Width:       core.Pt(380),
-			FlexShrink:  0,
-			Background:  specPanel,
-			Borders:     core.Edges{Left: 1},
-			BorderColor: specLine,
-			MinHeight:   core.Pt(0),
-		},
+		Style: core.Style{Gap: 16},
 		Children: []core.Node{
+			core.View{Style: core.Style{Gap: 8}, Children: styleNodes},
 			core.View{
-				Style: core.Style{
-					Direction:   core.Row,
-					AlignItems:  core.AlignCenter,
-					Height:      core.Pt(44),
-					Padding:     core.Symmetric(0, 16),
-					Gap:         8,
-					Borders:     core.Edges{Bottom: 1},
-					BorderColor: specLine,
-				},
+				Style: core.Style{Gap: 8},
 				Children: []core.Node{
-					core.Text{Content: headerTitle, Style: core.Style{FontSize: 14, FontWeight: 600, Color: specTextStrong}},
-					core.Text{Content: headerSub, Style: core.Style{FontSize: 12.5, Color: specTextMuted}},
-				},
-			},
-			ui.ScrollView{
-				Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0)},
-				ContentStyle: core.Style{
-					Padding: core.All(16),
-					Gap:     16,
-				},
-				Children: []core.Node{
-					core.View{Style: core.Style{Gap: 8}, Children: styleNodes},
 					core.View{
-						Style: core.Style{Gap: 8},
+						Style: core.Style{Direction: core.Row, JustifyContent: core.JustifySpaceBetween, AlignItems: core.AlignCenter},
 						Children: []core.Node{
-							core.View{
-								Style: core.Style{Direction: core.Row, JustifyContent: core.JustifySpaceBetween, AlignItems: core.AlignCenter},
-								Children: []core.Node{
-									core.Text{Content: "SOURCE", Style: core.Style{FontSize: 11, FontWeight: 600, Color: specTextMuted}},
-									core.Text{Content: sourceFileName, Style: core.Style{FontSize: 11, FontFamily: core.FontMonospace, Color: specTextMuted}},
-								},
-							},
-							core.View{
-								TestID: "asset-gen-source-preview",
-								Style: core.Style{
-									Padding:      core.Symmetric(8, 0),
-									CornerRadius: 12,
-									Background:   specRaised,
-									BorderWidth:  1,
-									BorderColor:  specLineRaised,
-									Gap:          2,
-								},
-								Children: sourceLineNodes,
-							},
-							core.Text{
-								TestID:  "asset-gen-untrusted-notice",
-								Content: "Generator output is untrusted: shown as pixels only, nothing is written before a pick",
-								Style:   core.Style{FontSize: 11.5, Color: specTextMuted},
-							},
+							core.Text{Content: "SOURCE", Style: core.Style{FontSize: 11, FontWeight: 600, Color: specTextMuted}},
+							core.Text{Content: sourceFileName, Style: core.Style{FontSize: 11, FontFamily: core.FontMonospace, Color: specTextMuted}},
 						},
 					},
 					core.View{
-						TestID: "asset-gen-licenses",
-						Style:  core.Style{Gap: 6},
-						Children: append([]core.Node{
-							core.Text{Content: "LICENSES · CHECKED AT EXPORT", Style: core.Style{FontSize: 11, FontWeight: 600, Color: specTextMuted}},
-						}, licenseRows...),
+						TestID: "asset-gen-source-preview",
+						Style: core.Style{
+							Padding:      core.Symmetric(8, 0),
+							CornerRadius: 12,
+							Background:   specRaised,
+							BorderWidth:  1,
+							BorderColor:  specLineRaised,
+							Gap:          2,
+						},
+						Children: sourceLineNodes,
+					},
+					core.Text{
+						TestID:  "asset-gen-untrusted-notice",
+						Content: ed.T("assetGen.untrustedNotice"),
+						Style:   core.Style{FontSize: 11.5, Color: specTextMuted},
 					},
 				},
 			},
+			core.View{
+				TestID: "asset-gen-licenses",
+				Style:  core.Style{Gap: 6},
+				Children: append([]core.Node{
+					core.Text{Content: ed.T("assetGen.licensesHeader"), Style: core.Style{FontSize: 11, FontWeight: 600, Color: specTextMuted}},
+				}, licenseRows...),
+			},
+		},
+	}
+}
+
+// assetGenLicenseEditorBar mounts outside the coarse assetGenRev Dynamic so typing a license string
+// never remounts or loses focus, and never silently fabricates a license identifier.
+func assetGenLicenseEditorBar(ed *Editor, licEditPath *core.Memo[string], licDraftSig *core.Signal[string], licCommSig *core.Signal[bool]) core.Node {
+	return core.View{
+		TestID: "asset-gen-license-editor",
+		Style: core.Style{
+			Padding:     core.All(12),
+			Gap:         8,
+			Background:  specRaised,
+			Borders:     core.Edges{Top: 1},
+			BorderColor: specLineRaised,
+			FlexShrink:  0,
+		},
+		Children: []core.Node{
+			core.Dynamic(func(cx *core.Scope) core.Node {
+				target := path.Base(licEditPath.Get())
+				return core.Text{
+					Content: fmt.Sprintf("%s · %s", ed.T("assetGen.licenseEditTitle"), target),
+					Style:   core.Style{FontSize: 11.5, FontWeight: 600, Color: specTextStrong},
+				}
+			}),
+			ui.Input{
+				TestID:      "asset-gen-license-input",
+				Label:       ed.T("assetGen.licenseEditTitle"),
+				Value:       licDraftSig.Get,
+				Placeholder: ed.T("assetGen.licensePlaceholder"),
+				OnChange: func(v string) {
+					licDraftSig.Set(v)
+					ed.SetGeneratedLicenseDraft(v)
+				},
+				OnSubmit: func(v string) {
+					ed.SetGeneratedLicenseDraft(v)
+					ed.report(ed.SaveEditedGeneratedLicense())
+				},
+				Style: core.Style{
+					Height:           core.Pt(30),
+					Padding:          core.Symmetric(0, 8),
+					CornerRadius:     6,
+					Background:       specBg,
+					BorderWidth:      1,
+					BorderColor:      specLineRaised,
+					FontSize:         12,
+					Color:            specText,
+					PlaceholderColor: specTextMuted,
+				},
+			},
+			core.Dynamic(func(cx *core.Scope) core.Node {
+				comm := licCommSig.Get()
+				boxBg := specBg
+				boxBorder := specLineRaised
+				iconCol := core.Transparent
+				if comm {
+					boxBg = specAccent
+					boxBorder = specAccent
+					iconCol = specBg
+				}
+				return core.View{
+					Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8},
+					Children: []core.Node{
+						ui.Button{
+							TestID:  "asset-gen-license-commercial",
+							Text:    ed.T("assetGen.commercialUse"),
+							Icon:    lucide.Check,
+							Variant: ui.ButtonGhost,
+							Size:    ui.SizeSmall,
+							Color:   func() core.Color { return boxBg },
+							Tint:    func() core.Color { return iconCol },
+							TextStyle: core.Style{
+								FontSize: 11.5,
+								Color:    specText,
+							},
+							Style: core.Style{
+								Height:       core.Pt(26),
+								Padding:      core.Symmetric(0, 8),
+								CornerRadius: 6,
+								BorderWidth:  1,
+								BorderColor:  boxBorder,
+								FocusVisible: specFocusRingStyle,
+							},
+							OnPress: func() {
+								next := !licCommSig.Get()
+								licCommSig.Set(next)
+								ed.SetGeneratedLicenseCommercial(next)
+							},
+						},
+						core.View{Style: core.Style{FlexGrow: 1}},
+						ui.Button{
+							TestID:  "asset-gen-license-cancel",
+							Text:    ed.T("assetGen.cancel"),
+							Variant: ui.ButtonGhost,
+							Size:    ui.SizeSmall,
+							Color:   func() core.Color { return specAssetGenBtnSec },
+							TextStyle: core.Style{
+								FontSize: 11.5,
+								Color:    specText,
+							},
+							Style: core.Style{
+								Height:       core.Pt(26),
+								Padding:      core.Symmetric(0, 10),
+								CornerRadius: 6,
+								FocusVisible: specFocusRingStyle,
+							},
+							OnPress: func() {
+								ed.CancelEditGeneratedLicense()
+							},
+						},
+						ui.Button{
+							TestID:  "asset-gen-license-save",
+							Text:    ed.T("assetGen.saveLicense"),
+							Variant: ui.ButtonGhost,
+							Size:    ui.SizeSmall,
+							Color:   func() core.Color { return specAccent },
+							TextStyle: core.Style{
+								FontSize:   11.5,
+								FontWeight: 600,
+								Color:      specBg,
+							},
+							Style: core.Style{
+								Height:       core.Pt(26),
+								Padding:      core.Symmetric(0, 10),
+								CornerRadius: 6,
+								FocusVisible: specFocusRingStyle,
+							},
+							OnPress: func() {
+								ed.report(ed.SaveEditedGeneratedLicense())
+							},
+						},
+					},
+				}
+			}),
 		},
 	}
 }
@@ -1591,7 +1864,10 @@ func formatSeedsOnly(req *AssetGenerationRequest) string {
 }
 
 func formatLoudnessLabel(dbfs float64) string {
-	if math.IsInf(dbfs, -1) || math.IsNaN(dbfs) {
+	if math.IsNaN(dbfs) {
+		return "— dBFS"
+	}
+	if math.IsInf(dbfs, -1) {
 		return "−∞ dBFS"
 	}
 	return fmt.Sprintf("%.1f dBFS", dbfs)

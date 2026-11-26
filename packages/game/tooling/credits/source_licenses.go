@@ -2,6 +2,7 @@ package credits
 
 import (
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -10,6 +11,8 @@ import (
 
 	"github.com/nsgo-dev/game/packages/game/tooling/importsettings"
 )
+
+const maxSourceSidecarBytes = 1 << 20 // 1 MiB
 
 // GeneratedAssetLicense summarizes the provenance and license recorded in one generated asset's *.source.yaml sidecar.
 type GeneratedAssetLicense struct {
@@ -73,6 +76,14 @@ func ScanGeneratedLicenses(root string) ([]GeneratedAssetLicense, error) {
 	if !info.IsDir() {
 		return nil, nil
 	}
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return nil, fmt.Errorf("credits: %w", err)
+	}
+	rootReal, err := filepath.EvalSymlinks(rootAbs)
+	if err != nil {
+		rootReal = rootAbs
+	}
 	var out []GeneratedAssetLicense
 	err = filepath.WalkDir(root, func(p string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -95,7 +106,18 @@ func ScanGeneratedLicenses(root string) ([]GeneratedAssetLicense, error) {
 			return err
 		}
 		relSlash := filepath.ToSlash(rel)
-		data, err := os.ReadFile(p)
+		if d.Type()&fs.ModeSymlink != 0 {
+			return fmt.Errorf("credits: %s: symlink source sidecar is not allowed", relSlash)
+		}
+		targetReal, err := filepath.EvalSymlinks(p)
+		if err != nil {
+			return fmt.Errorf("credits: %s: %w", relSlash, err)
+		}
+		relReal, err := filepath.Rel(rootReal, targetReal)
+		if err != nil || relReal == ".." || strings.HasPrefix(relReal, ".."+string(filepath.Separator)) || filepath.IsAbs(relReal) {
+			return fmt.Errorf("credits: %s: resolves outside project root", relSlash)
+		}
+		data, err := readBoundedFile(p, maxSourceSidecarBytes)
 		if err != nil {
 			return fmt.Errorf("credits: %s: %w", relSlash, err)
 		}
@@ -141,4 +163,20 @@ func CheckGeneratedLicenses(root string) ([]GeneratedAssetLicense, error) {
 		return items, &UnknownLicenseError{Assets: unknown}
 	}
 	return items, nil
+}
+
+func readBoundedFile(path string, maxBytes int64) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	data, err := io.ReadAll(io.LimitReader(f, maxBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, fmt.Errorf("file exceeds maximum size of %d bytes", maxBytes)
+	}
+	return data, nil
 }

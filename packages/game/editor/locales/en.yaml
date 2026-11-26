@@ -3,6 +3,29 @@ version: 1
 locale: en
 strings:
   app.defaultName: NSGo Scene Editor
+  assetGen.back: Back to scene editor
+  assetGen.cancel: Cancel
+  assetGen.commercialUse: Commercial use allowed
+  assetGen.emptyBody: Connect an MCP generator server in Settings › Tools to preview image or sound candidates without writing to disk.
+  assetGen.emptyTitle: No generated asset requests yet
+  assetGen.licenseEditTitle: Edit license
+  assetGen.licensePlaceholder: License (e.g. CC0-1.0, CC-BY-4.0, Commercial)
+  assetGen.licensesHeader: LICENSES · CHECKED AT EXPORT
+  assetGen.noLicenses: No generated .source.yaml files written yet.
+  assetGen.noServers: No MCP servers connected
+  assetGen.pick: Pick
+  assetGen.picked: Picked
+  assetGen.play: Play
+  assetGen.previewOn: PREVIEW ON
+  assetGen.refine: Refine
+  assetGen.refinePlaceholder: Refine with words… e.g. frost only on top, same eyes as slime.png
+  assetGen.saveLicense: Save license
+  assetGen.setLicense: Set license
+  assetGen.settingsTools: Settings › Tools
+  assetGen.title: Generated assets
+  assetGen.undoPick: Undo pick
+  assetGen.untrustedNotice: 'Generator output is untrusted: shown as pixels only, nothing is written before a pick'
+  assetGen.varyThis: Vary this
   assets.empty: No atlas assets loaded
   assets.placePrefab: Place prefab
   assets.prefab: Prefab

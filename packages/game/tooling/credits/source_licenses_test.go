@@ -1,7 +1,10 @@
 package credits_test
 
 import (
+	"bytes"
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -67,5 +70,33 @@ func TestCollectUsesKnownSourceSidecarCredit(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("art/sky.png missing from collected credits")
+	}
+}
+
+func TestScanGeneratedLicensesRejectsSymlinkAndOversizedFile(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	outsideFile := filepath.Join(outside, "leak.source.yaml")
+	if err := os.WriteFile(outsideFile, []byte("version: 1\ngenerator: pixel-gen\nprompt: test\nlicense: CC0-1.0\ncommercialUse: true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	linkPath := filepath.Join(root, "escape.png.source.yaml")
+	if err := os.Symlink(outsideFile, linkPath); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+	if _, err := credits.ScanGeneratedLicenses(root); err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("ScanGeneratedLicenses on symlink = %v, want symlink error", err)
+	}
+	if err := os.Remove(linkPath); err != nil {
+		t.Fatal(err)
+	}
+
+	// Oversized .source.yaml (> 1 MiB) must be refused without OOM.
+	big := append([]byte("version: 1\ngenerator: pixel-gen\nprompt: "), bytes.Repeat([]byte("a"), (1<<20)+1024)...)
+	if err := os.WriteFile(filepath.Join(root, "huge.png.source.yaml"), big, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := credits.ScanGeneratedLicenses(root); err == nil || !strings.Contains(err.Error(), "exceeds maximum size") {
+		t.Fatalf("ScanGeneratedLicenses on >1MiB file = %v, want size limit error", err)
 	}
 }
