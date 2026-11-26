@@ -210,3 +210,129 @@ func TestBuildReleaseScreenMacOSScreenshots(t *testing.T) {
 	app.Settle()
 	app.Screenshot("build-release-readiness-ios")
 }
+
+// TestBuildReleaseNotesAndReviewUploadsMacOSScreenshots captures real native macOS screenshots of
+// RELEASE NOTES ("Drafted from 14 commits since 0.3.2") + Publish footer and the Review uploads
+// confirmation dialog listing itch.io, Google Play internal testing, and TestFlight (#1050).
+func TestBuildReleaseNotesAndReviewUploadsMacOSScreenshots(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, project.FileName), []byte(buildReleaseScreenshotGameYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, project.NSGoFileName), []byte("name: dungeon-run\nid: dev.dungeonrun.game\nversion: 0.4.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ed, err := editor.New(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ed.Keychain = editor.NewMemoryKeychain()
+	ed.GitRunner = func(d string, args ...string) (string, error) {
+		switch strings.Join(args, " ") {
+		case "rev-parse --short HEAD":
+			return "5b0e8a4\n", nil
+		case "rev-parse --abbrev-ref HEAD":
+			return "main\n", nil
+		case "describe --tags --abbrev=0":
+			return "v0.3.2\n", nil
+		case "rev-list --count v0.3.2..HEAD":
+			return "14\n", nil
+		case "log --pretty=format:%s -n 32 v0.3.2..HEAD":
+			return strings.Join([]string{
+				"feat(coins): coins are worth 25 points instead of 10",
+				"feat(ai): slimes turn at ledges instead of walking off",
+				"feat(audio): the door creaks, and stays locked until you pull the lever",
+				"fix(render): the Knight was drawn behind slimes",
+			}, "\n") + "\n", nil
+		default:
+			return "", nil
+		}
+	}
+	ed.ReleaseCheckRunner = func(ctx context.Context, d string) ([]assetcheck.Problem, time.Duration, error) {
+		return nil, 4 * time.Second, nil
+	}
+	ed.ReleaseReadinessInspector = func(platform, _ string, _ *project.File) []editor.BuildReadinessItem {
+		return nil
+	}
+	ed.ExportCommandRunner = func(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+		return nil
+	}
+	ed.ReleaseMeasureRunner = func(ctx context.Context, platform string, plan *releaseplan.Plan) (editor.BuildArtifactResult, error) {
+		switch platform {
+		case "web":
+			return editor.BuildArtifactResult{
+				ArtifactPath:   filepath.Join(plan.OutputDir, "dungeon-run-0.4.0-web.zip"),
+				ArtifactName:   "dungeon-run-0.4.0-web.zip",
+				SizeBytes:      mbToBytes(18.9),
+				DeltaBytes:     mbToBytes(0.4),
+				HasLastRelease: true,
+				Breakdown: editor.BuildSizeBreakdown{
+					CodeBytes: mbToBytes(6.1), TexturesBytes: mbToBytes(9.8), AudioBytes: mbToBytes(2.6), OtherBytes: mbToBytes(0.4),
+					GrowthSummary: "Grew 0.4 MB: audio/door_creak.ogg.",
+				},
+				FrameTimeP95Ms: 9.8,
+				TestURL:        "http://192.168.1.24:8731/",
+			}, nil
+		case "android":
+			return editor.BuildArtifactResult{
+				ArtifactPath:   filepath.Join(plan.OutputDir, "dungeon-run-0.4.0.aab"),
+				ArtifactName:   "dungeon-run-0.4.0.aab",
+				SizeBytes:      mbToBytes(34.2),
+				DeltaBytes:     mbToBytes(0.8),
+				HasLastRelease: true,
+				FrameTimeP95Ms: 11.6,
+			}, nil
+		case "ios":
+			return editor.BuildArtifactResult{
+				ArtifactPath:   filepath.Join(plan.OutputDir, "dungeon-run-0.4.0.ipa"),
+				ArtifactName:   "dungeon-run-0.4.0.ipa",
+				SizeBytes:      mbToBytes(38.6),
+				DeltaBytes:     mbToBytes(0.9),
+				HasLastRelease: true,
+				FrameTimeP95Ms: 10.4,
+			}, nil
+		default:
+			return editor.BuildArtifactResult{
+				ArtifactPath:   filepath.Join(plan.OutputDir, "dungeon-run-0.4.0-"+platform+".zip"),
+				ArtifactName:   "dungeon-run-0.4.0-" + platform + ".zip",
+				SizeBytes:      mbToBytes(41.7),
+				DeltaBytes:     mbToBytes(1.2),
+				HasLastRelease: true,
+				FrameTimeP95Ms: 11.2,
+			}, nil
+		}
+	}
+
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+	ed.SetLastReleaseBaseline(editor.LastReleaseBaseline{Version: "0.3.2"})
+	ed.SetReleaseKeptReviews([]string{"Floor 1 has a slime guarding the plank and a coin trail to the door"})
+	_ = ed.SetAgentPermissionProfile(editor.PermissionProfileAutonomous)
+	_ = ed.StorePublishCredential(editor.PublishDestItchIO, "dungeon-studio", "itch-demo-token")
+	_ = ed.StorePublishCredential(editor.PublishDestGooglePlay, "dungeon-studio", "gplay-demo-token")
+
+	if err := ed.OpenBuildReleaseScreen(); err != nil {
+		t.Fatal(err)
+	}
+	_ = ed.SetBuildPresetIncluded("macos", false)
+	_ = ed.SetBuildPresetIncluded("windows", false)
+	_ = ed.SetBuildPresetIncluded("linux", false)
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1440, 900))
+
+	app.Press("id:build-release-primary-action")
+	app.WaitUntil(5*time.Second, func() bool { return !ed.ReleaseBuildRunning() })
+	app.Settle()
+
+	app.Press("id:build-preset-pick-web")
+	app.Settle()
+	app.Screenshot("build-release-notes-and-publish")
+
+	app.Press("id:build-release-review-uploads")
+	app.Settle()
+	app.Screenshot("build-release-review-uploads-dialog")
+}

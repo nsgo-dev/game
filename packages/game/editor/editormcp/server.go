@@ -286,7 +286,9 @@ func (s *Server) asAgent(fn func(ed *editor.Editor) error) (err error) {
 			err = fmt.Errorf("editormcp: %v", failure)
 		}
 	}()
-	return fn(s.ed)
+	return s.ed.WithAgentActor(func() error {
+		return fn(s.ed)
+	})
 }
 
 // Connect serves one MCP session on t until the client disconnects or the server closes, as Open does for each client of the endpoint and as a test or an in-process agent does with mcp.NewInMemoryTransports.

@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -411,6 +412,14 @@ type Editor struct {
 	OnReleaseReadinessPersonAction func(platform string, item BuildReadinessItem) error
 	// OnReviewReleaseUploads is called when the author presses "Review uploads..." on the Build and Release screen; nothing is uploaded automatically.
 	OnReviewReleaseUploads func(snapshot BuildReleaseSnapshot) error
+	// ReleaseNotesDrafter generates player-facing Markdown release notes from commits since the last release,
+	// kept reviews, and changelog fragments; when nil, DefaultReleaseNotesDraft is used.
+	ReleaseNotesDrafter func(ctx context.Context, req ReleaseNotesDraftRequest) (ReleaseNotesDraft, error)
+	// ReleaseUploader uploads a single user-confirmed artifact to a store destination (itch.io, Google Play internal testing, or TestFlight).
+	// It is never invoked until the person confirms in Review uploads, whatever the permission profile.
+	ReleaseUploader ReleaseUploader
+	// Keychain stores and retrieves store upload credentials outside project files; when nil, DefaultKeychain() is used.
+	Keychain Keychain
 	// OpenOutputFolder opens the release output directory in the OS file manager after a successful non-dry-run build; when nil the editor uses the host platform's default opener.
 	OpenOutputFolder func(dir string) error
 	// RunGameCommand starts the child game process for RunGame / RunGameWith, streaming output to stdout and stderr; when nil the editor launches `go tool game dev` in the open project directory in its own process group on desktop.
@@ -635,6 +644,8 @@ type Editor struct {
 	exportPanel exportPanelState
 	// buildRelease holds the full-window Build and Release screen state, preflight checks, preset build steps, logs, failures, results, and readiness checks.
 	buildRelease buildReleaseState
+	// agentActorDepth tracks active agent calls (via WithAgentActor / editormcp) to enforce strict human-only boundaries such as store uploads.
+	agentActorDepth atomic.Int32
 	// search holds the cached project search index, active search results and Find References state.
 	search projectSearchState
 	// assetDrawer holds the Assets rail/drawer state, filter/sort/selection, preview playback, and drag-to-viewport state.
