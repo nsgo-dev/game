@@ -784,9 +784,11 @@ func agentAttachedImageChipsView(ed *Editor, p SpecPalette) []core.Node {
 	return nodes
 }
 
-// agentAlwaysBriefRowView renders the "Always" context row with the brief.yaml chip (and pinned reference count)
-// matching Threads.dc.html and Sketch.dc.html. Hovering or pressing previews the pinned reference images.
-func agentAlwaysBriefRowView(ed *Editor, p SpecPalette) core.Node {
+// agentBriefAlwaysChipView renders the locked brief.yaml Always chip (including pinned reference
+// count when non-zero) for the unified AgentComposerView Always row. When pinned references exist,
+// hovering or pressing previews the pinned reference images; when none exist and chipID is provided,
+// hovering shows the exact brief.yaml YAML payload preview while pressing opens the brief reference popover.
+func agentBriefAlwaysChipView(ed *Editor, p SpecPalette, chipID string) core.Node {
 	exists, refs := ed.readBriefMeta()
 	if !exists && len(refs) == 0 {
 		return nil
@@ -798,7 +800,7 @@ func agentAlwaysBriefRowView(ed *Editor, p SpecPalette) core.Node {
 		label = strings.ReplaceAll(ed.T("agent.ref.briefCountMany"), "{count}", fmt.Sprintf("%d", len(refs)))
 	}
 
-	previewing := ed.AgentImagePreviewID() == AgentBriefPreviewID
+	previewing := ed.AgentImagePreviewID() == AgentBriefPreviewID || (chipID != "" && ed.HoveredChipID() == chipID)
 	borderCol := p.LineRaised
 	textCol := p.TextFaint
 	if len(refs) > 0 {
@@ -829,7 +831,7 @@ func agentAlwaysBriefRowView(ed *Editor, p SpecPalette) core.Node {
 		},
 	}
 
-	briefChip := core.View{
+	return core.View{
 		TestID: "agent-always-brief",
 		Role:   core.RoleButton,
 		Label:  strings.ReplaceAll(ed.T("agent.ref.alwaysIncluded"), "{label}", label),
@@ -845,19 +847,33 @@ func agentAlwaysBriefRowView(ed *Editor, p SpecPalette) core.Node {
 			FocusVisible: p.FocusRing(2),
 		},
 		OnMouseEnter: func(core.MouseEvent) {
-			ed.SetAgentImagePreviewID(AgentBriefPreviewID)
+			if len(refs) > 0 || chipID == "" {
+				ed.SetAgentImagePreviewID(AgentBriefPreviewID)
+			} else {
+				ed.SetHoveredChip(chipID)
+			}
 		},
 		OnMouseLeave: func(core.MouseEvent) {
 			if ed.AgentImagePreviewID() == AgentBriefPreviewID {
 				ed.SetAgentImagePreviewID("")
 			}
+			if chipID != "" && ed.HoveredChipID() == chipID {
+				ed.SetHoveredChip("")
+			}
 		},
 		OnFocus: func() {
-			ed.SetAgentImagePreviewID(AgentBriefPreviewID)
+			if len(refs) > 0 || chipID == "" {
+				ed.SetAgentImagePreviewID(AgentBriefPreviewID)
+			} else {
+				ed.SetHoveredChip(chipID)
+			}
 		},
 		OnBlur: func() {
 			if ed.AgentImagePreviewID() == AgentBriefPreviewID {
 				ed.SetAgentImagePreviewID("")
+			}
+			if chipID != "" && ed.HoveredChipID() == chipID {
+				ed.SetHoveredChip("")
 			}
 		},
 		OnPress: func(core.PressEvent) {
@@ -868,26 +884,6 @@ func agentAlwaysBriefRowView(ed *Editor, p SpecPalette) core.Node {
 			}
 		},
 		Children: chipChildren,
-	}
-
-	return core.View{
-		TestID: "agent-always-row",
-		Style: core.Style{
-			Direction:  core.Row,
-			Wrap:       core.Wrap,
-			AlignItems: core.AlignCenter,
-			Gap:        6,
-		},
-		Children: []core.Node{
-			core.Text{
-				Content: ed.T("agent.ref.always"),
-				Style: core.Style{
-					FontSize: 11,
-					Color:    p.TextFaint,
-				},
-			},
-			briefChip,
-		},
 	}
 }
 
