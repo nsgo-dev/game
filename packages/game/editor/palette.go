@@ -392,6 +392,11 @@ func CommandPaletteView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 		return true
 	})
 
+	onDialogClose := bindDialogFocusRestore(cx, ed, func() bool {
+		_ = rev.Get()
+		return ed.CommandPaletteOpen()
+	})
+
 	return ui.CommandDialog{
 		TestID: "editor-command-palette",
 		Open: func() bool {
@@ -404,6 +409,7 @@ func CommandPaletteView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) co
 			}
 			ed.SetCommandPaletteOpen(open)
 		},
+		OnClose: onDialogClose,
 		Command: ui.Command{
 			TestID:      "editor-command-palette-list",
 			Label:       ed.T("palette.label"),

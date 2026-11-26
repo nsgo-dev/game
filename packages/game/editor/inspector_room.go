@@ -544,7 +544,7 @@ func roomInspectorView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 			},
 
 			sectionHeader("ROOM MAP"),
-			fieldRow("Grid Snap", ui.Switch{
+			fieldRow("Grid Snap", SpecSwitch{
 				TestID:   "inspector-room-snap",
 				Label:    "Snap Room Edges to Tile Grid",
 				Disabled: disabled,
@@ -784,7 +784,7 @@ func roomsSceneSection(
 								MaxLines: 1,
 								Style:    core.Style{FontSize: 11, Color: colors.Muted()},
 							},
-							fieldRow("Grid Snap", ui.Switch{
+							fieldRow("Grid Snap", SpecSwitch{
 								TestID:   "inspector-rooms-snap",
 								Label:    "Snap Room Edges to Tile Grid",
 								Disabled: disabled,

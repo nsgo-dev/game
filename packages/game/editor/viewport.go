@@ -1374,6 +1374,11 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 	})
 
 	spec := ed.SpecPalette(cx)
+	if ed.focus.ctrl != nil {
+		ed.focus.ctrl.registerCandidate(cx, RegionViewport, &frame, func() bool {
+			return !ed.Playing()
+		})
+	}
 	return core.View{
 		TestID: "editor-viewport-container",
 		OnKeyDown: func(ev core.KeyEvent) bool {
@@ -1494,8 +1499,21 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 					openViewportContextMenu(hx, hy)
 				},
 				Trigger: modelDropTarget(cx, ed, core.View{
-					TestID:     "editor-viewport-frame",
-					Ref:        &frame,
+					TestID: "editor-viewport-frame",
+					Ref:    &frame,
+					// In the viewport, focus is the selection: no focus ring on the canvas
+					// itself (the RegionViewport wrapper draws the inset -2 px ring when
+					// entered via F6), and Tab / Shift-Tab select the next and previous object.
+					Focusable: func() bool { return !ed.Playing() },
+					OnKeyDown: func(ev core.KeyEvent) bool {
+						if ev.Key != "tab" || ev.Modifiers.Ctrl || ev.Modifiers.Meta || ev.Modifiers.Alt || ed.Playing() || ed.shortcutCaptureActive || ed.ObjectContextMenuOpen() {
+							return false
+						}
+						if ev.Modifiers.Shift {
+							return ed.SelectPreviousObject() != ""
+						}
+						return ed.SelectNextObject() != ""
+					},
 					Style:      core.Style{FlexGrow: 1},
 					OnFileDrop: func(uris []string) { ed.dropModelFiles(uris) },
 					OnWheel: func(ev core.WheelEvent) {

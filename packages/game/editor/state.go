@@ -471,6 +471,8 @@ type Editor struct {
 	ChangesClipboard func(text string)
 	// OnAskAgent, when set, is called when the author triggers "Ask the agent about this" (AskAgentAboutObject / mod+l) on an object.
 	OnAskAgent func(AgentPromptRequest)
+	// OnStopAgent is invoked by Mod+. (even while a modal dialog is open, per Spec rule 04) to stop an active agent run without disturbing reviewable changes.
+	OnStopAgent func()
 
 	playing            bool
 	playSnapshot       []byte
@@ -777,6 +779,8 @@ type Editor struct {
 	inspectorReviewChanges []InspectorReviewChange
 	// inspectorFieldProblems holds explicit field-level problems shown as problem pills in the inspector.
 	inspectorFieldProblems []InspectorFieldProblem
+	// focus holds the editor's keyboard region controller, per-region focus memory, dialog focus trap state, and text-input typing state.
+	focus focusRegionState
 }
 
 // DefaultSceneDoc returns a valid starter SceneDoc suitable for a new editor session.

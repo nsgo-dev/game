@@ -1615,6 +1615,12 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 
 		// Name row (shown unfiltered or when matching "name").
 		if !filtering || matchesInspectorFilter(q, "", "", "name", ed.T("inspector.name")) {
+			nameInputRef := &core.Ref{}
+			if ed.focus.ctrl != nil {
+				ed.focus.ctrl.registerCandidate(cx, RegionInspector, nameInputRef, func() bool {
+					return !disabled()
+				})
+			}
 			nodes = append(nodes, inspectorFieldRow(
 				ed, rev, objID, "", "name", "inspector-name",
 				labelWithOverride("name", withTooltip(core.Text{
@@ -1626,7 +1632,8 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 						Color:      specTextSecondary,
 					},
 				}, "")),
-				controlWithRevert("name", ed.T("inspector.name"), ui.Input{
+				controlWithRevert("name", ed.T("inspector.name"), specInputField(cx, ed, ui.Input{
+					Ref:      nameInputRef,
 					TestID:   "inspector-name",
 					Label:    ed.T("inspector.objectName"),
 					Disabled: disabled,
@@ -1640,7 +1647,7 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 					OnChange: func(text string) {
 						ed.report(ed.SetObjectName(objID, text))
 					},
-				}),
+				})),
 			))
 		}
 

@@ -409,7 +409,7 @@ func viewportOverlayRowView(ed *Editor, rev *core.Signal[uint64], p SpecPalette,
 					Color:      p.TextFaint,
 				},
 			},
-			ui.Switch{
+			SpecSwitch{
 				TestID: "viewport-overlay-switch-" + id,
 				Label:  name,
 				Size:   ui.SizeSmall,

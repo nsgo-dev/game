@@ -1218,7 +1218,13 @@ func main() {
 - **插件自定义叠加层（`ViewportOverlay`）**：插件可通过 `Plugin.Overlays`（或直接在编辑器上调用 `Editor.RegisterViewportOverlay`）注册带 `ID`、`Name`/`NameKey`、可选 `Count` 计数回调与 `Draw func(*Editor, *core.Drawing, *sceneformat.BuiltScene)` 绘制函数的自定义叠加层。启用的插件叠加层会自动出现在弹出层、`View > Overlays` 菜单以及 `editormcp` 的 `viewport_image` 工具中。
 - **用户级持久化**：切换任意叠加层（`SetViewportOverlay`、`ToggleViewportOverlay`、`SetViewportOverlays`）都会把 `viewportOverlays` 写入项目之外的 `Editor.SettingsPath`（`EditorSettings` YAML），绝不改动任何项目或场景文件，重启后保持不变（全部关闭时显式写为 `[]`）。
 - **与 `editormcp` 的 `viewport_image` 共用**：`Editor.DrawViewportWithOverlays(d, size, overlayIDs)` 将完全一致的叠加层渲染进 `viewport_image`。省略 `viewport_overlays` 时默认使用编辑器当前已开启的叠加层；传入名称列表（或 `[]`）时仅覆盖本次截图而不修改编辑器设置。
+<<<<<<< HEAD
 
+||||||| parent of a5fa7835 (feat(editor): add Spec focus rings, F6 region cycling, and dialog focus restoration)
+
+
+=======
+>>>>>>> a5fa7835 (feat(editor): add Spec focus rings, F6 region cycling, and dialog focus restoration)
 ## 分节检查器、字段筛选、拖拽微调、打开 YAML 与请智能体添加（#1038）
 
 对象检查器（`InspectorView`）采用 `docs/design/editor/Spec.dc.html` 设计令牌并对应 `Inspector.dc.html`、`Main.dc.html` 与 `Viewport3D.dc.html`，将对象属性组织为紧凑的可折叠标题分区，同时保持每个控件都对应一个 `Editor` 方法与匹配的 `editormcp` 工具：
@@ -1230,7 +1236,6 @@ func main() {
 - **分组“添加组件”与“请智能体添加”**：对象尚未挂载的已注册组件按 `GAMEPLAY`、`PHYSICS` 与 `AUDIO AND VISUAL` 分组展示（`ComponentCategoryOf`、`AddableComponentGroups`）；输入框旁的 **Ask to add**（`AskToAddComponent`、`ComposerDraft`、`SetComposerDraft`、`Editor.OnComposerPrompt`）会在智能体输入框预填 `"Add a component to <object> that "`。
 - **审查提示、问题胶囊与页脚**：处于智能体审查中的字段（`SetInspectorReviewChanges`）会显示琥珀色左侧指示条与 `"was <old> · in review"`；未通过项目检查或范围校验的字段（`SetInspectorFieldProblems` / `Editor.Problems`）会在控件下方与分区标题显示红色问题胶囊；底部页脚提示 `"Everything else about this object is in its YAML. Ask the agent, or open the file."`。
 - **配套 MCP 工具（`editormcp`）**：新增 `object_set_field`（复用 `Editor` 命令以单步撤销修改任意对象字段、组件字段或自定义属性）与 `object_locate_yaml`（返回对象的 1-based YAML 行号与代码片段，可选触发 `OnOpenFileAtLine`），并补齐 `scene_edit` `set` 对 `particles`、`model`、`gridMap`、`occluder`、`light` 与 `camera` 的全量支持。
-
 ## 通过 MCP 生成器服务器生成资源（#1053）
 
 通过 `Project > 生成资源` 或命令面板（`CmdGeneratedAssets` / `SetAssetGeneratorOpen`）可打开全窗口的**生成资源**界面（`AssetGeneratorView`）。界面严格遵循 `docs/design/editor/Spec.dc.html` 令牌并对应 `docs/design/editor/Assets.dc.html` 第 2 屏，用于连接外部 MCP 图像与音效生成器服务器、依据 `brief.yaml` 校验候选结果，并在用户明确选定前绝不向磁盘写入任何文件：
@@ -1240,3 +1245,14 @@ func main() {
 - **背景预览、`brief.yaml` 风格检查与音效试听**：图像候选与参考资源并排显示在可切换的背景上（`PREVIEW ON`：Floor 3、Floor 1、Checker，`SetAssetGenPreviewBackground`），逐项展示**调色板色数（Palette）**、**像素网格对齐（Pixel grid）**、**相对参考资源的尺寸（Size）**以及**相对关卡墙面的对比度（Contrast）**通过/失败结论与原因（`LoadAssetStyleBrief`、`SetAssetStyleBrief`）。音效候选展示波形、时长、RMS 响度（`dBFS`）、峰值与响度检查结果，并支持内存试听（`PlayGeneratedSoundCandidate`、`StopGeneratedSoundCandidate`）。
 - **单步原子可撤销的选定与来源旁注文件（`<file>.source.yaml`）**：点击 **Pick**（`PickGeneratedCandidate`）在 `Editor.History` 的**单个可撤销步骤**中原子写出选定的媒体文件及其确定性的版本 1 `<file>.source.yaml` 旁注文件（`importsettings.AssetSource`、`AssetSourceVersion = 1`、Schema `https://game.nsgo.dev/schemas/source.v1.json`），记录 `version`、`generator`、`model`、`prompt`、`seed`、`references`、`license`、`commercialUse` 与 `approvedBy`；执行一次 `Editor.Undo()` 即可同时移除两个文件。**Vary this**（`VaryGeneratedCandidate`）、**Refine**（`RefineGeneratedAsset`）与 **Regenerate N**（`RegenerateAsset`）使用相同参考重新调用生成器，同样不写磁盘。
 - **导出许可证门禁（`LICENSES · CHECKED AT EXPORT`）**：`credits.ScanGeneratedLicenses`、`credits.CheckGeneratedLicenses`、`credits.Collect`、`releaseplan.Build`、`game release` 以及编辑器的导出面板（`CheckExportCredits`）会扫描项目中的所有 `*.source.yaml` 文件。任何许可证为空或未知（`license: ""` 或 `license: unknown`）的生成资源都会以 `*credits.UnknownLicenseError` 阻止发布构建并在错误信息中列出其路径，直到通过 `SetGeneratedAssetLicense` / **Set license** 设置合法许可证为止。
+
+## 焦点环与 F6 键盘区域（#1003）
+
+编辑器中的每个交互控件都遵循 `docs/design/editor/Spec.dc.html` 规范，在键盘聚焦时绘制焦点环，并可通过 `Tab`、`F6` 或方向键访问：
+
+- **仅键盘焦点环（`:focus-visible`）**：`EditorView` 安装 `SpecTheme()`（`FocusTheme()` 亦返回同一主题），将 `info`、`focus` 与 `ring` 映射为规范强调色（深色 `#3B7BFF`、浅色 `#1D5CE6`）并保持深浅两套外观表面。按钮、切换按钮、下拉选择、复选框以及 `SpecIconButton` / `SpecSwitch` 仅在键盘聚焦时绘制 2 px、`+2 px` 偏移的强调色焦点环，鼠标点击不会绘制焦点环。
+- **内嵌焦点环与 `:focus-within`**：树节点行（`SceneTreeView`、`LayersView`）、列表行（`AssetBrowserView`、`FilesView`）、文本与数值输入框（`ui.Input`、`ui.NumberInput`）以及通过 `F6` 聚焦的整个区域均通过 `SpecPalette.FocusRing(-2)` 绘制 `-2 px` 内嵌偏移的强调色焦点环，确保滚动父容器不会裁剪它。同时被选中和聚焦的行会同时显示选中背景填充与内嵌焦点环；输入框/卡片容器（`SpecFocusWithinCard`、`hud-composer-card`）则通过 `:focus-within` 在卡片外圈绘制 `+2 px` 焦点环。
+- **固定顺序的键盘区域（`F6` / `Shift-F6`）**：`F6` 移至下一个可见区域，`Shift-F6` 返回上一个可见区域，严格遵循规范顺序：**Header 顶栏**（`RegionHeader`）→ **Scene tree 左侧栏**（`RegionSceneTree`）→ **Viewport 视口**（`RegionViewport`）→ **Agent 与 Inspector 右侧栏**（`RegionInspector`）→ **Status bar 状态栏**（`RegionStatusBar`）→ **Toast 提示**（`RegionToast`，仅在 `ToastView` 通过 `Editor.ShowToast` 显示提示时参与循环）。每次进入区域都会绘制该区域的 `-2 px` 内嵌焦点环，并恢复该区域上一次聚焦的控件；在快捷键录制及全窗口页面期间 `F6` / `Shift-F6` 会自动暂停，并在切换区域时关闭打开的对象右键菜单。
+- **视口内焦点即选中对象**：视口画布本身不绘制焦点环；当焦点位于视口（`editor-viewport-frame`）内时，`Tab`（`Editor.SelectNextObject`）与 `Shift-Tab`（`Editor.SelectPreviousObject`）按场景顺序循环选中下一个/上一个可见且未锁定的对象。
+- **对话框焦点限制与关闭恢复**：所有编辑器对话框（`EditorSettingsDialogView`、`ShortcutsSheetView`、`CommandPaletteView`、未保存提示、场景路径对话框与保存冲突对话框）会将 `Tab` / `Shift-Tab` 限制在最顶层模态框内（同时不干扰 `Settings › Shortcuts` 的按键录制），在对话框打开期间屏蔽全局快捷键（除用于停止智能体的 `⌘.` / `Ctrl+.`，即 `Editor.OnStopAgent` 外），并在按 `Esc` 取消或点击操作按钮关闭后将焦点精确恢复到打开该对话框的控件。
+- **焦点稳定性**：在拖拽或检查器数值微调进行中（`Editor.IsDragging`）或用户正在文本字段中输入时（`Editor.IsTyping`），编辑器不会自动抢占焦点；弹出 Toast 不会抢走焦点；`Editor.ShouldFocusAgentPrompt` 仅在未拖拽、未输入且焦点原本就位于智能体面板内（`Editor.SetAgentPanelRef`）时才返回 `true`。
