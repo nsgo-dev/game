@@ -1100,7 +1100,13 @@ func agentMismatchSection(ed *Editor, turnIdx int, turn AgentTurn, p SpecPalette
 // QUEUED · N list (while offline AND after returning online until each item is explicitly sent or removed).
 func agentOfflineAndQueueSection(ed *Editor, p SpecPalette) []core.Node {
 	offline := ed.AgentOffline()
-	queue := ed.AgentQueuedRequests()
+	allQueued := ed.AgentQueuedRequests()
+	var queue []AgentQueuedRequest
+	for _, q := range allQueued {
+		if q.Offline {
+			queue = append(queue, q)
+		}
+	}
 	if !offline && len(queue) == 0 {
 		return nil
 	}
@@ -1196,7 +1202,7 @@ func agentOfflineAndQueueSection(ed *Editor, p SpecPalette) []core.Node {
 					},
 				},
 			}
-			if !offline {
+			if !offline && !ed.AgentWeeklyLimitReached() {
 				rowKids = append(rowKids, core.View{
 					TestID: fmt.Sprintf("agent-queue-send-%d", qi),
 					Role:   core.RoleButton,

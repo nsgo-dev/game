@@ -241,12 +241,13 @@ func (r AgentModelRoute) IsBuiltIn() bool {
 	return r == AgentRouteBuiltInDefault || r == AgentRouteBuiltInFast
 }
 
-// AgentQueuedRequest is a prompt queued while the weekly request limit is reached (waiting for user send after reset or limit raise).
+// AgentQueuedRequest is a prompt queued while offline or while the weekly request limit is reached (waiting for explicit user send).
 type AgentQueuedRequest struct {
 	ID       string
 	Task     AgentTaskKind
 	Prompt   string
 	QueuedAt time.Time
+	Offline  bool
 }
 
 // AgentModelErrorState describes a live model API error card (such as HTTP 529 overloaded) with retry progress and an optional switch to another connected agent.
@@ -381,7 +382,7 @@ func (e *Editor) AgentWeeklyLimitReached() bool {
 }
 
 func (e *Editor) refreshAgentLimitStatus() {
-	if e == nil || e.agent.mode == AgentModeNone {
+	if e == nil || e.agent.mode == AgentModeNone || e.agent.offline {
 		return
 	}
 	if e.AgentWeeklyLimitReached() {
@@ -431,11 +432,14 @@ func (e *Editor) RemoveQueuedAgentRequest(id string) bool {
 	return false
 }
 
-// SendQueuedAgentRequest dispatches one queued request once the weekly limit has reset or been raised.
-// While the weekly limit is still reached, it returns ErrAgentLimitReached and leaves the item queued.
+// SendQueuedAgentRequest dispatches one queued request once back online and below the weekly limit.
+// While offline or while the weekly limit is still reached, it returns an error and leaves the item queued.
 func (e *Editor) SendQueuedAgentRequest(id string) error {
 	if e == nil {
 		return errors.New("editor: nil editor")
+	}
+	if e.AgentOffline() {
+		return errors.New("editor: cannot send queued request while offline")
 	}
 	e.refreshAgentLimitStatus()
 	if e.AgentWeeklyLimitReached() {
@@ -455,10 +459,12 @@ func (e *Editor) SendQueuedAgentRequest(id string) error {
 	e.agent.queued = append(e.agent.queued[:idx], e.agent.queued[idx+1:]...)
 	if err := e.SubmitAgentTaskPrompt(q.Task, q.Prompt); err != nil {
 		// Restore on failure so the user does not lose their queued prompt.
-		e.agent.queued = slices.Insert(e.agent.queued, idx, q)
+		pos := min(idx, len(e.agent.queued))
+		e.agent.queued = slices.Insert(e.agent.queued, pos, q)
 		e.notify()
 		return err
 	}
+	e.notify()
 	return nil
 }
 
@@ -549,11 +555,16 @@ func (e *Editor) submitAgentTaskPromptInternal(task AgentTaskKind, prompt string
 	if !task.Valid() {
 		task = AgentTaskSceneEdit
 	}
+	fromComposer := strings.TrimSpace(prompt) == ""
 	text := strings.TrimSpace(prompt)
-	if text == "" {
+	if fromComposer {
 		text = strings.TrimSpace(e.agent.composerText)
 	}
 	if text == "" {
+		return nil
+	}
+	if e.agent.offline {
+		e.queueAgentTaskRequest(task, prompt, true)
 		return nil
 	}
 	if e.agent.activeRunCancel != nil {
@@ -565,7 +576,9 @@ func (e *Editor) submitAgentTaskPromptInternal(task AgentTaskKind, prompt string
 		if len(e.agent.queued) >= maxQueuedAgentRequests {
 			return fmt.Errorf("editor: request queue is full (%d queued requests)", maxQueuedAgentRequests)
 		}
-		e.agent.composerText = ""
+		if fromComposer || text == strings.TrimSpace(e.agent.composerText) {
+			e.agent.composerText = ""
+		}
 		e.agent.queueSeq++
 		e.agent.queued = append(e.agent.queued, AgentQueuedRequest{
 			ID:       fmt.Sprintf("queued-%d", e.agent.queueSeq),
@@ -585,7 +598,9 @@ func (e *Editor) submitAgentTaskPromptInternal(task AgentTaskKind, prompt string
 	}
 
 	attachedImgs, briefImgs, allImgs := e.collectRequestReferenceImages()
-	e.agent.composerText = ""
+	if fromComposer || text == strings.TrimSpace(e.agent.composerText) {
+		e.agent.composerText = ""
+	}
 	e.agent.attachedImages = nil
 	e.agent.attachErr = ""
 	e.agent.previewImageID = ""
@@ -619,6 +634,8 @@ func (e *Editor) submitAgentTaskPromptInternal(task AgentTaskKind, prompt string
 		CreatedAt: now,
 		StartedAt: now,
 	})
+	e.trimAgentTurnAttachments()
+	e.initTurnBaseline(&e.agent.turns[len(e.agent.turns)-1])
 
 	e.agent.activeRunID++
 	runID := e.agent.activeRunID
@@ -636,6 +653,7 @@ func (e *Editor) submitAgentTaskPromptInternal(task AgentTaskKind, prompt string
 	if !skipUsageIncrement {
 		e.RecordAgentRequest(1)
 	}
+	e.cancelAutoSaveTimer()
 	e.updateAgentAnnouncement()
 	e.upsertTurnNotificationTask(AgentTask{
 		ID:        turnID,
