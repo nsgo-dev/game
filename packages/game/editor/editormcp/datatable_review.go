@@ -2,13 +2,22 @@ package editormcp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/nsgo-dev/game/packages/game/editor"
 	"github.com/nsgo-dev/game/packages/game/tooling/datatable"
+)
+
+const (
+	maxDataTableReviewFiles     = 64
+	maxDataTableReviewChecks    = 64
+	maxDataTableReviewYAMLBytes = 4 << 20 // 4 MiB per data table file
 )
 
 // The names of the Data Table review tools added to the editor's MCP server.
@@ -98,6 +107,7 @@ func dataTableReviewTools() []Tool {
 			Description: "Validate one or more version-1 YAML data table files against datatable.ParseDocument (and any registered Go row type) and open the row-by-row Data Table review screen with old → new, Δ%, per-record Revert/Restore, and optional named agent check figures, without modifying disk until Keep.",
 			InputSchema: []byte(dtReviewProposeSchema),
 			Action:      ActionEdit,
+			targets:     dtReviewProposeTargets,
 			Handler:     dtReviewPropose,
 		},
 		{
@@ -106,6 +116,7 @@ func dataTableReviewTools() []Tool {
 			Description: "Attach or refresh the agent's named check figures (label, value, before, basis) on the active Data Table review turn and clear the out-of-date flag after the person reverts, edits, or reorders records.",
 			InputSchema: []byte(dtReviewChecksSchema),
 			Action:      ActionEdit,
+			targets:     dtReviewChecksTargets,
 			Handler:     dtReviewSetChecks,
 		},
 		{
@@ -117,6 +128,62 @@ func dataTableReviewTools() []Tool {
 			Handler:     dtReviewStatus,
 		},
 	}
+}
+
+func dtReviewProposeTargets(args json.RawMessage, ed *editor.Editor) []editor.PermissionRequest {
+	var in struct {
+		Files []struct {
+			File string `json:"file"`
+		} `json:"files"`
+	}
+	_ = json.Unmarshal(args, &in)
+	if len(in.Files) == 0 {
+		return nil
+	}
+	root := ""
+	if ed != nil {
+		root = projectRoot(ed)
+	}
+	reqs := make([]editor.PermissionRequest, 0, len(in.Files))
+	for _, f := range in.Files {
+		raw := strings.TrimSpace(f.File)
+		target := raw
+		if raw != "" && root != "" {
+			if resolved, err := editor.ResolvePermissionFileTarget(root, raw); err == nil && resolved != "" {
+				target = resolved
+			}
+		}
+		// datatable_review_propose never writes to disk until the person clicks Keep,
+		// so every target evaluates as PermissionActionEdit (matching cutscene_write review mode).
+		reqs = append(reqs, editor.PermissionRequest{
+			Tool:   ToolDataTableReviewPropose,
+			Action: editor.PermissionActionEdit,
+			Target: target,
+		})
+	}
+	return reqs
+}
+
+func dtReviewChecksTargets(_ json.RawMessage, ed *editor.Editor) []editor.PermissionRequest {
+	if ed == nil {
+		return nil
+	}
+	files := ed.DataTableReviewFiles()
+	if len(files) == 0 {
+		return nil
+	}
+	reqs := make([]editor.PermissionRequest, 0, len(files))
+	for _, f := range files {
+		if strings.TrimSpace(f.RelPath) == "" {
+			continue
+		}
+		reqs = append(reqs, editor.PermissionRequest{
+			Tool:   ToolDataTableReviewChecks,
+			Action: editor.PermissionActionEdit,
+			Target: f.RelPath,
+		})
+	}
+	return reqs
 }
 
 type dtReviewProposeFileArg struct {
@@ -160,26 +227,28 @@ func buildDataTableReviewStatusResult(ed *editor.Editor) DataTableReviewStatusRe
 	if !ed.DataTableReviewPending() {
 		return res
 	}
-	// Report all changed, reverted, or user-edited records in the active file.
-	prevFilter := ed.DataTableReviewFilter()
-	prevSearch := ed.DataTableReviewSearch()
-	// Collect from visible records without mutating filter by scanning snapshot if unfiltered,
-	// or collect directly from active records.
-	if prevFilter == editor.DataTableReviewFilterAll && strings.TrimSpace(prevSearch) == "" {
-		for _, r := range ed.DataTableReviewVisibleRecords() {
-			if r.Changed || r.Reverted || r.UserEdited || r.UserReordered {
-				res.ActiveRecords = append(res.ActiveRecords, DataTableReviewRecordStatus{
-					Key:           r.Key,
-					DisplayName:   r.DisplayName,
-					Changed:       r.Changed,
-					Reverted:      r.Reverted,
-					UserEdited:    r.UserEdited,
-					UserReordered: r.UserReordered,
-				})
-			}
+	// Report all changed, reverted, or user-edited records in the active file regardless of UI filter/search.
+	for _, r := range ed.DataTableReviewAllRecords() {
+		if r.Changed || r.Reverted || r.UserEdited || r.UserReordered {
+			res.ActiveRecords = append(res.ActiveRecords, DataTableReviewRecordStatus{
+				Key:           r.Key,
+				DisplayName:   r.DisplayName,
+				Changed:       r.Changed,
+				Reverted:      r.Reverted,
+				UserEdited:    r.UserEdited,
+				UserReordered: r.UserReordered,
+			})
 		}
 	}
 	return res
+}
+
+func dtReviewPathKey(p string) string {
+	clean := filepath.Clean(p)
+	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
+		return strings.ToLower(clean)
+	}
+	return clean
 }
 
 func dtReviewPropose(ctx context.Context, c *Call) (*Result, error) {
@@ -189,6 +258,12 @@ func dtReviewPropose(ctx context.Context, c *Call) (*Result, error) {
 	}
 	if len(args.Files) == 0 {
 		return nil, fmt.Errorf("%s: files must contain at least one data table", ToolDataTableReviewPropose)
+	}
+	if len(args.Files) > maxDataTableReviewFiles {
+		return nil, fmt.Errorf("%s: too many files (%d, max %d)", ToolDataTableReviewPropose, len(args.Files), maxDataTableReviewFiles)
+	}
+	if len(args.Checks) > maxDataTableReviewChecks {
+		return nil, fmt.Errorf("%s: too many checks (%d, max %d)", ToolDataTableReviewPropose, len(args.Checks), maxDataTableReviewChecks)
 	}
 
 	type parsedProposal struct {
@@ -202,10 +277,14 @@ func dtReviewPropose(ctx context.Context, c *Call) (*Result, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", ToolDataTableReviewPropose, err)
 		}
-		if _, dup := seen[clean]; dup {
+		key := dtReviewPathKey(clean)
+		if _, dup := seen[key]; dup {
 			return nil, fmt.Errorf("%s: duplicate file %q in review", ToolDataTableReviewPropose, clean)
 		}
-		seen[clean] = struct{}{}
+		seen[key] = struct{}{}
+		if len(f.YAML) > maxDataTableReviewYAMLBytes {
+			return nil, fmt.Errorf("%s: %s: yaml is %d bytes (max %d)", ToolDataTableReviewPropose, clean, len(f.YAML), maxDataTableReviewYAMLBytes)
+		}
 		if strings.TrimSpace(f.YAML) == "" {
 			return nil, fmt.Errorf("%s: %s: yaml must not be empty", ToolDataTableReviewPropose, clean)
 		}
@@ -221,19 +300,38 @@ func dtReviewPropose(ctx context.Context, c *Call) (*Result, error) {
 		if ed.Playing() {
 			return fmt.Errorf("%s: %w", ToolDataTableReviewPropose, editor.ErrPlaying)
 		}
+		if ed.HistoryPreviewActive() {
+			return fmt.Errorf("%s: %w", ToolDataTableReviewPropose, editor.ErrHistoryPreview)
+		}
 		root := projectRoot(ed)
 		if root == "" {
 			return fmt.Errorf("%s: no project is open in the editor; open one with go tool game editor <project-dir>", ToolDataTableReviewPropose)
 		}
 
 		specs := make([]editor.DataTableReviewFileSpec, 0, len(parsed))
+		seenAbs := make(map[string]struct{}, len(parsed))
 		for _, p := range parsed {
 			abs, exists, err := resolveProjectTargetPath(root, p.clean)
 			if err != nil {
 				return fmt.Errorf("%s: %w", ToolDataTableReviewPropose, err)
 			}
+			absKey := dtReviewPathKey(abs)
+			if _, dup := seenAbs[absKey]; dup {
+				return fmt.Errorf("%s: duplicate file %q in review", ToolDataTableReviewPropose, p.clean)
+			}
+			seenAbs[absKey] = struct{}{}
 			var baseDoc *datatable.Document
 			if exists {
+				st, serr := os.Stat(abs)
+				if serr != nil {
+					return fmt.Errorf("%s: %s: %w", ToolDataTableReviewPropose, p.clean, serr)
+				}
+				if !st.Mode().IsRegular() {
+					return fmt.Errorf("%s: %s: not a regular file", ToolDataTableReviewPropose, p.clean)
+				}
+				if st.Size() > maxDataTableReviewYAMLBytes {
+					return fmt.Errorf("%s: %s: file is %d bytes (max %d)", ToolDataTableReviewPropose, p.clean, st.Size(), maxDataTableReviewYAMLBytes)
+				}
 				raw, rerr := os.ReadFile(abs)
 				if rerr != nil {
 					return fmt.Errorf("%s: %s: %w", ToolDataTableReviewPropose, p.clean, rerr)
@@ -275,8 +373,17 @@ func dtReviewSetChecks(ctx context.Context, c *Call) (*Result, error) {
 	if err := c.Decode(&args); err != nil {
 		return nil, fmt.Errorf("%s: %w", ToolDataTableReviewChecks, err)
 	}
+	if len(args.Checks) > maxDataTableReviewChecks {
+		return nil, fmt.Errorf("%s: too many checks (%d, max %d)", ToolDataTableReviewChecks, len(args.Checks), maxDataTableReviewChecks)
+	}
 	var res DataTableReviewStatusResult
 	if err := c.Editor(ctx, func(ed *editor.Editor) error {
+		if ed.Playing() {
+			return fmt.Errorf("%s: %w", ToolDataTableReviewChecks, editor.ErrPlaying)
+		}
+		if ed.HistoryPreviewActive() {
+			return fmt.Errorf("%s: %w", ToolDataTableReviewChecks, editor.ErrHistoryPreview)
+		}
 		if !ed.DataTableReviewPending() {
 			return errors.New("datatable_review_checks: no data table review is active")
 		}

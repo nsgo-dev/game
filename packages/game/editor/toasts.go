@@ -868,6 +868,7 @@ func (e *Editor) viewportVisibleOnScreen() bool {
 		e.FirstRunFullScreenOpen() ||
 		e.ReviewOpen() ||
 		e.MergeConflictOpen() ||
+		e.DataTableReviewOpen() ||
 		e.ChangesOpen() ||
 		e.BuildReleaseScreenOpen() ||
 		e.UsagesScreenOpen() ||

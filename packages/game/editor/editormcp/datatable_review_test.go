@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/nsgo-dev/game/packages/game/editor"
 	"github.com/nsgo-dev/game/packages/game/editor/editormcp"
 )
 
@@ -171,5 +173,124 @@ func TestDataTableReviewMCPProposeChecksStatusAndRefresh(t *testing.T) {
 	f.ed.Undo()
 	if undone, _ := os.ReadFile(itemsPath); !bytes.Equal(undone, []byte(mcpItemsBefore)) {
 		t.Fatal("one Undo did not restore data/items.yaml byte for byte")
+	}
+}
+
+func TestDataTableReviewMCPSecurityPermissionsAndFilteredStatus(t *testing.T) {
+	f := openFixture(t)
+	dataDir := filepath.Join(f.dir, "data")
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	itemsPath := filepath.Join(dataDir, "items.yaml")
+	if err := os.WriteFile(itemsPath, []byte(mcpItemsBefore), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := editormcp.New(f.ed, editormcp.Options{})
+	t.Cleanup(func() { _ = s.Close() })
+	cs := connect(t, s, nil)
+
+	// 1. You-only file (permissions.yaml) must be refused even under Autonomous profile.
+	if err := f.ed.SelectPermissionProfile(editor.PermissionProfileAutonomous); err != nil {
+		t.Fatal(err)
+	}
+	youOnlyRes := call(t, cs, editormcp.ToolDataTableReviewPropose, map[string]any{
+		"prompt": "try modifying permissions",
+		"files": []map[string]any{
+			{"file": "permissions.yaml", "yaml": mcpEmptyShop5},
+		},
+	})
+	if !youOnlyRes.IsError || !strings.Contains(text(youOnlyRes), "You only") {
+		t.Fatalf("expected You-only refusal, got isError=%v text=%q", youOnlyRes.IsError, text(youOnlyRes))
+	}
+
+	// 2. Deny edit data/** permission rule must block datatable_review_propose on data/items.yaml
+	// (verifies per-file targets resolver evaluates files[] rather than falling back to open scene).
+	perms := editor.PermissionPreset(editor.PermissionProfileBalanced)
+	perms.Rules = append([]editor.PermissionRule{{
+		Action:   editor.PermissionActionEdit,
+		Patterns: []string{"data/**"},
+		Decision: editor.PermissionDeny,
+	}}, perms.Rules...)
+	if err := f.ed.SetPermissions(perms); err != nil {
+		t.Fatal(err)
+	}
+	deniedRes := call(t, cs, editormcp.ToolDataTableReviewPropose, map[string]any{
+		"prompt": "rebalance",
+		"files": []map[string]any{
+			{"file": "data/items.yaml", "yaml": mcpItemsAfter},
+		},
+	})
+	if !deniedRes.IsError || !strings.Contains(strings.ToLower(text(deniedRes)), "denied") {
+		t.Fatalf("expected permission deny for data/items.yaml, got isError=%v text=%q", deniedRes.IsError, text(deniedRes))
+	}
+	if f.ed.DataTableReviewPending() {
+		t.Fatal("denied propose must not open review")
+	}
+
+	// Restore Balanced profile.
+	if err := f.ed.SelectPermissionProfile(editor.PermissionProfileBalanced); err != nil {
+		t.Fatal(err)
+	}
+
+	// 3. Symlink escape outside project root must be refused.
+	outsideDir := t.TempDir()
+	outsideFile := filepath.Join(outsideDir, "secret.yaml")
+	if err := os.WriteFile(outsideFile, []byte(mcpItemsBefore), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	escapeLink := filepath.Join(dataDir, "escape.yaml")
+	if err := os.Symlink(outsideFile, escapeLink); err == nil {
+		escRes := call(t, cs, editormcp.ToolDataTableReviewPropose, map[string]any{
+			"prompt": "symlink escape",
+			"files": []map[string]any{
+				{"file": "data/escape.yaml", "yaml": mcpItemsAfter},
+			},
+		})
+		if !escRes.IsError {
+			t.Fatalf("expected symlink escape to be refused, got %s", text(escRes))
+		}
+	}
+
+	// 4. Open valid review, apply a restrictive UI filter & search query, and verify datatable_review_status
+	// still returns ALL changed ActiveRecords!
+	mustOK(t, call(t, cs, editormcp.ToolDataTableReviewPropose, map[string]any{
+		"prompt": "rebalance",
+		"files": []map[string]any{
+			{"file": "data/items.yaml", "yaml": mcpItemsAfter},
+		},
+	}))
+	f.ed.SetDataTableReviewFilter(editor.DataTableReviewFilterReverted)
+	f.ed.SetDataTableReviewSearch("nonexistent_item_xyz")
+
+	statusRes := call(t, cs, editormcp.ToolDataTableReviewStatus, map[string]any{})
+	mustOK(t, statusRes)
+	var st editormcp.DataTableReviewStatusResult
+	structured(t, statusRes, &st)
+	if len(st.ActiveRecords) != 2 {
+		t.Fatalf("ActiveRecords while UI filtered = %+v, want 2 changed records", st.ActiveRecords)
+	}
+
+	// 5. Switching off SceneAndData privacy must refuse datatable_review_status, datatable_review_checks,
+	// and datatable_review_propose.
+	if err := f.ed.SetAgentPrivacy(editor.PrivacySceneAndData, false); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		tool string
+		args map[string]any
+	}{
+		{editormcp.ToolDataTableReviewStatus, map[string]any{}},
+		{editormcp.ToolDataTableReviewChecks, map[string]any{"checks": []map[string]any{{"label": "Check", "value": "ok"}}}},
+		{editormcp.ToolDataTableReviewPropose, map[string]any{"files": []map[string]any{{"file": "data/items.yaml", "yaml": mcpItemsAfter}}}},
+	} {
+		res := call(t, cs, tc.tool, tc.args)
+		if !res.IsError {
+			t.Fatalf("%s succeeded with SceneAndData disabled; want privacy refusal", tc.tool)
+		}
+	}
+	if err := f.ed.SetAgentPrivacy(editor.PrivacySceneAndData, true); err != nil {
+		t.Fatal(err)
 	}
 }

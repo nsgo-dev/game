@@ -27,8 +27,18 @@ type dtReviewDropHint struct {
 // DataTableReviewView renders the full-window row-by-row Data Table review screen matching
 // docs/design/editor/ReviewData.dc.html using exclusively SpecPalette tokens (Dark & Light).
 func DataTableReviewView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+	reviewShortcutsActive := func() bool {
+		return ed.DataTableReviewOpen() &&
+			!ed.shortcutCaptureActive &&
+			!ed.CommandPaletteOpen() &&
+			!ed.SettingsOpen() &&
+			!ed.PermissionsDraftOpen() &&
+			!ed.StartScreenOpen() &&
+			!ed.FirstRunFullScreenOpen() &&
+			!ed.MergeConflictOpen()
+	}
 	cx.OnKeyWith("escape", core.KeyOptions{When: core.KeyAlways}, func() {
-		if !ed.DataTableReviewOpen() {
+		if !reviewShortcutsActive() {
 			return
 		}
 		if _, _, editing := ed.EditingDataTableReviewCell(); editing {
@@ -37,28 +47,28 @@ func DataTableReviewView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 		}
 		ed.PauseDataTableReview()
 	})
-	cx.OnKeyWith("mod+enter", core.KeyOptions{When: core.KeyAlways}, func() {
-		if ed.DataTableReviewOpen() {
+	cx.OnKeyWith("mod+enter", core.KeyOptions{When: core.KeyNotEditing}, func() {
+		if reviewShortcutsActive() {
 			ed.report(ed.KeepDataTableReview())
 		}
 	})
 	cx.OnKeyWith("mod+backspace", core.KeyOptions{When: core.KeyNotEditing}, func() {
-		if ed.DataTableReviewOpen() {
+		if reviewShortcutsActive() {
 			ed.report(ed.RevertAllDataTableReview())
 		}
 	})
 	cx.OnKeyWith("j", core.KeyOptions{When: core.KeyNotEditing}, func() {
-		if ed.DataTableReviewOpen() {
+		if reviewShortcutsActive() {
 			ed.StepDataTableReviewFocus(+1)
 		}
 	})
 	cx.OnKeyWith("k", core.KeyOptions{When: core.KeyNotEditing}, func() {
-		if ed.DataTableReviewOpen() {
+		if reviewShortcutsActive() {
 			ed.StepDataTableReviewFocus(-1)
 		}
 	})
 	cx.OnKeyWith("x", core.KeyOptions{When: core.KeyNotEditing}, func() {
-		if ed.DataTableReviewOpen() {
+		if reviewShortcutsActive() {
 			if key := ed.DataTableReviewFocusKey(); key != "" {
 				ed.report(ed.ToggleDataTableReviewRecord(key))
 			}
@@ -69,14 +79,21 @@ func DataTableReviewView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 		_ = rev.Get()
 		return ed.dataTableReviewRev()
 	})
-	darkMemo := core.NewMemo(cx, func() bool {
+	type reviewChrome struct {
+		dark bool
+		lang string
+	}
+	chromeMemo := core.NewMemo(cx, func() reviewChrome {
 		_ = rev.Get()
-		return ed.SpecPalette(cx).Dark
+		return reviewChrome{
+			dark: ed.SpecPalette(cx).Dark,
+			lang: ed.ResolvedLanguage(),
+		}
 	})
 	dropHint := core.NewSignal(cx, dtReviewDropHint{})
 
 	return core.Dynamic(func(cx *core.Scope) core.Node {
-		p := SpecPaletteFor(darkMemo.Get())
+		p := SpecPaletteFor(chromeMemo.Get().dark)
 		return core.View{
 			TestID: "dt-review-screen",
 			Role:   core.RoleRegion,
@@ -320,7 +337,7 @@ func dtReviewLeftSidebar(cx *core.Scope, p SpecPalette, ed *Editor, reviewRev *c
 			})
 		}
 
-		if len(checks) > 0 || stale {
+		if len(checks) > 0 {
 			children = append(children, dtReviewChecksCard(p, ed, checks, stale))
 		}
 
@@ -332,10 +349,21 @@ func dtReviewLeftSidebar(cx *core.Scope, p SpecPalette, ed *Editor, reviewRev *c
 				Background:  p.Panel,
 				Borders:     core.Edges{Right: 1},
 				BorderColor: p.Line,
-				Padding:     core.Symmetric(specSpace12, specSpace8),
-				Gap:         specSpace4,
+				Overflow:    core.Hidden,
 			},
-			Children: children,
+			Children: []core.Node{
+				ui.ScrollView{
+					Style: core.Style{
+						FlexGrow:  1,
+						FlexBasis: core.Pt(0),
+					},
+					ContentStyle: core.Style{
+						Padding: core.Symmetric(specSpace12, specSpace8),
+						Gap:     specSpace4,
+					},
+					Children: children,
+				},
+			},
 		}
 	})
 }
@@ -1325,7 +1353,11 @@ func dtReviewValueCell(p SpecPalette, ed *Editor, rec DataTableReviewRecord, col
 	if showPill {
 		style.Background = p.Changed.Fill
 		style.BorderWidth = 1.5
-		if diff.UserEdited {
+		if rec.Removed {
+			style.Background = p.Removed.Fill
+			style.BorderColor = p.Removed.Edge
+			style.BorderStyle = core.BorderDashed
+		} else if diff.UserEdited {
 			style.BorderColor = p.Accent.Edge
 			style.BorderStyle = core.BorderSolid
 		} else {
@@ -1350,8 +1382,8 @@ func dtReviewValueCell(p SpecPalette, ed *Editor, rec DataTableReviewRecord, col
 }
 
 func dtReviewInlineCellEditor(cx *core.Scope, p SpecPalette, ed *Editor, recKey string, col DataTableReviewColumn, diff DataTableReviewCellDiff) core.Node {
-	initial := ""
-	if diff.HasCurrent {
+	initial := ed.DataTableReviewEditDraft()
+	if initial == "" && diff.HasCurrent {
 		initial = diff.Current.Display()
 	}
 	draft := core.NewSignal(cx, initial)
@@ -1392,7 +1424,9 @@ func dtReviewInlineCellEditor(cx *core.Scope, p SpecPalette, ed *Editor, recKey 
 						if rec, ok := f.recordByKey[recKey]; ok {
 							d := f.cellDiff(rec, col.Name)
 							if d.HasCurrent {
-								draft.Set(d.Current.Display())
+								next := d.Current.Display()
+								ed.SetDataTableReviewEditDraft(next)
+								draft.Set(next)
 							}
 						}
 					}
@@ -1417,8 +1451,11 @@ func dtReviewInlineCellEditor(cx *core.Scope, p SpecPalette, ed *Editor, recKey 
 					BorderWidth: 0,
 					CaretColor:  p.Accent.Edge,
 				},
-				Value:    draft.Get,
-				OnChange: draft.Set,
+				Value: draft.Get,
+				OnChange: func(text string) {
+					ed.SetDataTableReviewEditDraft(text)
+					draft.Set(text)
+				},
 				OnSubmit: commit,
 			},
 		},
@@ -1444,7 +1481,9 @@ func dtReviewInlineCellEditor(cx *core.Scope, p SpecPalette, ed *Editor, recKey 
 						if rec, ok := f.recordByKey[recKey]; ok {
 							d := f.cellDiff(rec, col.Name)
 							if d.HasCurrent {
-								draft.Set(d.Current.Display())
+								next := d.Current.Display()
+								ed.SetDataTableReviewEditDraft(next)
+								draft.Set(next)
 							}
 						}
 					}

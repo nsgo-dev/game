@@ -310,6 +310,7 @@ strings:
   dtReview.resumeReview: 继续审查
   dtReview.revert: 还原
   dtReview.revertAll: 全部还原
+  dtReview.reviewWaiting: 等待审查
   dtReview.showRows: 显示行
   dtReview.title: 审查
   dtReview.toastKept: 已保留 {kept} · 已还原 {reverted}
