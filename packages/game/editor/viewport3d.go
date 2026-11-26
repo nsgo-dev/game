@@ -1775,6 +1775,7 @@ func (e *Editor) EndGizmoDrag3D() bool {
 	}
 	st := e.drag3D
 	e.drag3D = drag3DState{}
+	defer e.resumeAutoSaveAfterInteraction()
 	if st.mode == Gizmo3DCollider {
 		return e.endColliderDrag3D(st)
 	}
@@ -1946,6 +1947,7 @@ func (e *Editor) CancelGizmoDrag3D() {
 	}
 	st := e.drag3D
 	e.drag3D = drag3DState{}
+	defer e.resumeAutoSaveAfterInteraction()
 	if st.mode == Gizmo3DCollider {
 		if obj, _, _ := e.FindObject(st.objectID); obj != nil {
 			restoreColliderDragState(obj, &st)

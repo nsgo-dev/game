@@ -293,7 +293,7 @@ func (e *Editor) Save() error {
 		e.syncActiveTab()
 		e.invalidateProjectIndex()
 		e.rebuildDependentTabs(e.activeTabID())
-		e.recordSaveSucceeded()
+		e.recordSaveSucceededFor(e.activeTabID(), false)
 		e.Status = "Saved scene"
 		e.notify()
 		e.CheckProblems()

@@ -338,11 +338,13 @@ func (e *Editor) Close() error {
 	e.stopProblemCheckTimer()
 	e.stopDiskWatcher()
 	e.stopAgentTimers()
+	e.stopAutoSave()
 	e.cancelCreateProject()
 	var playErr error
 	if e.Playing() {
 		playErr = e.Stop()
 	}
+	e.stopAutoSave()
 	profErr := e.DisconnectProfiler()
 	remoteErr := e.DisconnectRemote()
 	stopErr := e.StopGame()

@@ -2,6 +2,7 @@ package editor
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -107,18 +108,21 @@ type autoSavePlanItem struct {
 type autoSaveFlightResult struct {
 	gen        uint64
 	plan       []autoSavePlanItem
+	succeeded  int
 	err        error
 	failedPath string
 	failedTab  uint64
 }
 
 type autoSaveState struct {
-	mu      sync.Mutex
-	scope   *core.Scope
-	pending *autoSaveFlightResult
+	mu             sync.Mutex
+	scope          *core.Scope
+	pending        *autoSaveFlightResult
+	inFlightHashes map[string][sha256.Size]byte
 
 	// UI/editor-goroutine-only state below.
-	reviewOpen bool
+	reviewOpen        bool
+	unsavedPromptOpen bool
 
 	debounceGen   uint64
 	debounceTimer *time.Timer
@@ -213,6 +217,9 @@ func (e *Editor) HasOpenReview() bool {
 		return true
 	}
 	if e.CutsceneReviewOpen() {
+		return true
+	}
+	if e.TileReviewOpen() || e.tileReview != nil {
 		return true
 	}
 	if e.playtest.session != nil && e.playtest.session.ReviewProposalID != "" {
@@ -310,6 +317,63 @@ func (e *Editor) setAutoSaveScope(cx *core.Scope) {
 	e.scheduleAutoSaveIfNeeded()
 }
 
+func (e *Editor) setInFlightAutoSaveHashes(plan []autoSavePlanItem) {
+	if e == nil {
+		return
+	}
+	hashes := make(map[string][sha256.Size]byte, len(plan)*2)
+	for _, item := range plan {
+		if item.onSave != nil {
+			continue
+		}
+		if item.path != "" {
+			hashes[filepath.Clean(item.path)] = sha256.Sum256(item.data)
+		}
+		if item.nsgoPath != "" && len(item.nsgoData) > 0 {
+			hashes[filepath.Clean(item.nsgoPath)] = sha256.Sum256(item.nsgoData)
+		}
+	}
+	e.autosave.mu.Lock()
+	e.autosave.inFlightHashes = hashes
+	e.autosave.mu.Unlock()
+}
+
+func (e *Editor) clearInFlightAutoSaveHashes() {
+	if e == nil {
+		return
+	}
+	e.autosave.mu.Lock()
+	e.autosave.inFlightHashes = nil
+	e.autosave.mu.Unlock()
+}
+
+func (e *Editor) isInFlightAutoSaveHash(path string, sum [sha256.Size]byte) bool {
+	if e == nil || path == "" {
+		return false
+	}
+	key := filepath.Clean(path)
+	e.autosave.mu.Lock()
+	expected, ok := e.autosave.inFlightHashes[key]
+	e.autosave.mu.Unlock()
+	return ok && expected == sum
+}
+
+func (e *Editor) setUnsavedPromptOpen(open bool) {
+	if e == nil || e.autosave.unsavedPromptOpen == open {
+		return
+	}
+	e.autosave.unsavedPromptOpen = open
+	if open {
+		e.cancelAutoSaveTimer()
+	} else {
+		e.scheduleAutoSaveIfNeeded()
+	}
+}
+
+func (e *Editor) isAutoSaveBlockedByPrompt() bool {
+	return e != nil && (e.autosave.unsavedPromptOpen || e.UnsavedPromptOpen())
+}
+
 func (e *Editor) stopAutoSave() {
 	if e == nil {
 		return
@@ -326,6 +390,7 @@ func (e *Editor) stopAutoSave() {
 	e.autosave.mu.Lock()
 	e.autosave.scope = nil
 	e.autosave.pending = nil
+	e.autosave.inFlightHashes = nil
 	e.autosave.mu.Unlock()
 }
 
@@ -342,17 +407,10 @@ func (e *Editor) resetAutoSaveState() {
 	e.autosave.inFlight = false
 	e.autosave.showingSaving = false
 	e.autosave.reschedulePending = false
-	e.autosave.failed = false
-	e.autosave.autoSaveFailure = false
-	e.autosave.errKind = SaveErrorNone
-	e.autosave.rawErr = ""
-	e.autosave.freeBytes = 0
-	e.autosave.hasFreeBytes = false
-	e.autosave.targetPath = ""
-	e.autosave.failedTabID = 0
-	e.autosave.failedAt = time.Time{}
+	e.clearSaveFailureFields()
 	e.autosave.mu.Lock()
 	e.autosave.pending = nil
+	e.autosave.inFlightHashes = nil
 	e.autosave.mu.Unlock()
 }
 
@@ -369,6 +427,18 @@ func (e *Editor) cancelAutoSaveTimer() {
 	e.autosave.debounceDue = time.Time{}
 }
 
+func (e *Editor) clearSaveFailureFields() {
+	e.autosave.failed = false
+	e.autosave.autoSaveFailure = false
+	e.autosave.errKind = SaveErrorNone
+	e.autosave.rawErr = ""
+	e.autosave.freeBytes = 0
+	e.autosave.hasFreeBytes = false
+	e.autosave.targetPath = ""
+	e.autosave.failedTabID = 0
+	e.autosave.failedAt = time.Time{}
+}
+
 func (e *Editor) recordSaveSucceeded() {
 	if e == nil {
 		return
@@ -381,15 +451,37 @@ func (e *Editor) recordSaveSucceeded() {
 	e.autosave.showingSaving = false
 	e.autosave.lastSavedAt = e.now()
 	e.autosave.hasSaved = true
-	e.autosave.failed = false
-	e.autosave.autoSaveFailure = false
-	e.autosave.errKind = SaveErrorNone
-	e.autosave.rawErr = ""
-	e.autosave.freeBytes = 0
-	e.autosave.hasFreeBytes = false
-	e.autosave.targetPath = ""
-	e.autosave.failedTabID = 0
-	e.autosave.failedAt = time.Time{}
+	e.clearSaveFailureFields()
+}
+
+// recordSaveSucceededFor records a successful manual save of either the project (isProject == true)
+// or a specific scene tab (tabID), preserving an active failure that belongs to another dirty target.
+func (e *Editor) recordSaveSucceededFor(tabID uint64, isProject bool) {
+	if e == nil {
+		return
+	}
+	if !e.autosave.failed {
+		e.recordSaveSucceeded()
+		return
+	}
+	matches := (isProject && e.autosave.failedTabID == 0) || (!isProject && tabID != 0 && e.autosave.failedTabID == tabID)
+	if matches || (!e.hasAutoSaveableDirtyChanges() && !e.hasDirtyDocuments()) {
+		e.recordSaveSucceeded()
+		return
+	}
+	e.autosave.lastSavedAt = e.now()
+	e.autosave.hasSaved = true
+}
+
+// clearSaveFailureForTab clears an active save failure when the failing scene tab is closed
+// (or when no dirty documents remain).
+func (e *Editor) clearSaveFailureForTab(tabID uint64) {
+	if e == nil || !e.autosave.failed {
+		return
+	}
+	if (tabID != 0 && e.autosave.failedTabID == tabID) || (!e.hasAutoSaveableDirtyChanges() && !e.hasDirtyDocuments()) {
+		e.clearSaveFailureFields()
+	}
 }
 
 func (e *Editor) clearSaveFailureIfClean() {
@@ -397,15 +489,7 @@ func (e *Editor) clearSaveFailureIfClean() {
 		return
 	}
 	if !e.hasAutoSaveableDirtyChanges() && !e.hasDirtyDocuments() {
-		e.autosave.failed = false
-		e.autosave.autoSaveFailure = false
-		e.autosave.errKind = SaveErrorNone
-		e.autosave.rawErr = ""
-		e.autosave.freeBytes = 0
-		e.autosave.hasFreeBytes = false
-		e.autosave.targetPath = ""
-		e.autosave.failedTabID = 0
-		e.autosave.failedAt = time.Time{}
+		e.clearSaveFailureFields()
 	}
 }
 
@@ -422,9 +506,20 @@ func (e *Editor) hasInteractiveDragInProgress() bool {
 		e.cameraDrag.active ||
 		e.cameraBoundsDrag.active ||
 		e.roomDrag.active ||
+		e.inspectorScrub.active ||
 		e.stroke != nil ||
 		e.gridMap.stroke != nil ||
 		(e.terrain != nil && e.terrain.stroke != nil)
+}
+
+func (e *Editor) resumeAutoSaveAfterInteraction() {
+	if e == nil || e.hasInteractiveDragInProgress() {
+		return
+	}
+	if e.autosave.reschedulePending {
+		e.autosave.reschedulePending = false
+		e.scheduleAutoSaveIfNeeded()
+	}
 }
 
 func (e *Editor) hasAutoSaveableDirtyChanges() bool {
@@ -451,7 +546,7 @@ func (e *Editor) scheduleAutoSaveIfNeeded() {
 	if e == nil {
 		return
 	}
-	if !e.AutoSave() || e.playing || e.HasOpenReview() {
+	if !e.AutoSave() || e.playing || e.HasOpenReview() || e.isAutoSaveBlockedByPrompt() {
 		e.cancelAutoSaveTimer()
 		return
 	}
@@ -461,8 +556,10 @@ func (e *Editor) scheduleAutoSaveIfNeeded() {
 		return
 	}
 	if e.hasInteractiveDragInProgress() {
+		e.autosave.reschedulePending = true
 		return
 	}
+	e.autosave.reschedulePending = false
 	delay := e.autoSaveDelay()
 	e.autosave.debounceGen++
 	gen := e.autosave.debounceGen
@@ -557,8 +654,12 @@ func (e *Editor) RetrySave() error {
 		return nil
 	}
 	writer := e.saveWriter()
+	succeeded := 0
 	for _, item := range plan {
 		if err := executeAutoSaveItem(item, writer); err != nil {
+			if succeeded > 0 {
+				e.commitAutoSaveItems(plan[:succeeded])
+			}
 			target := item.path
 			if target == "" {
 				target = item.displayPath
@@ -566,13 +667,13 @@ func (e *Editor) RetrySave() error {
 			e.recordAutoSaveFailure(err, target, item.tabID)
 			return err
 		}
+		succeeded++
 	}
 	e.commitAutoSavePlan(plan)
 	return nil
 }
 
-// SetSaveFailedForTest seeds a deterministic failed autosave state for UI screenshot verification.
-// Prefer real read-only folders or SaveFileWriter in behavioral tests.
+// openSaveAsFromStatusBar invokes the Save as… sheet callback registered by EditorView.
 func (e *Editor) openSaveAsFromStatusBar() {
 	if e == nil {
 		return
@@ -583,7 +684,11 @@ func (e *Editor) openSaveAsFromStatusBar() {
 }
 
 func (e *Editor) startAutoSaveFlight() {
-	if e == nil || !e.AutoSave() || e.playing || e.HasOpenReview() || e.hasInteractiveDragInProgress() {
+	if e == nil || !e.AutoSave() || e.playing || e.HasOpenReview() || e.isAutoSaveBlockedByPrompt() {
+		return
+	}
+	if e.hasInteractiveDragInProgress() {
+		e.autosave.reschedulePending = true
 		return
 	}
 	if e.autosave.inFlight {
@@ -604,6 +709,36 @@ func (e *Editor) startAutoSaveFlight() {
 		return
 	}
 
+	// Execute OnSave callbacks synchronously on the editor goroutine so caller-owned hooks
+	// never race with editor/test state; run only disk file writes off-goroutine.
+	var onSaveSucceeded []autoSavePlanItem
+	var diskPlan []autoSavePlanItem
+	for _, item := range plan {
+		if item.onSave != nil {
+			if err := item.onSave(item.data); err != nil {
+				if len(onSaveSucceeded) > 0 {
+					e.commitAutoSaveItems(onSaveSucceeded)
+				}
+				target := item.path
+				if target == "" {
+					target = item.displayPath
+				}
+				e.recordAutoSaveFailure(err, target, item.tabID)
+				return
+			}
+			onSaveSucceeded = append(onSaveSucceeded, item)
+			continue
+		}
+		diskPlan = append(diskPlan, item)
+	}
+	if len(diskPlan) == 0 {
+		e.commitAutoSavePlan(onSaveSucceeded)
+		return
+	}
+	if len(onSaveSucceeded) > 0 {
+		e.commitAutoSaveItems(onSaveSucceeded)
+	}
+
 	e.autosave.flightGen++
 	gen := e.autosave.flightGen
 	e.autosave.inFlight = true
@@ -615,6 +750,8 @@ func (e *Editor) startAutoSaveFlight() {
 		e.autosave.indicatorTimer.Stop()
 		e.autosave.indicatorTimer = nil
 	}
+
+	e.setInFlightAutoSaveHashes(diskPlan)
 
 	e.autosave.mu.Lock()
 	scope := e.autosave.scope
@@ -635,7 +772,8 @@ func (e *Editor) startAutoSaveFlight() {
 		var writeErr error
 		var errPath string
 		var errTab uint64
-		for _, item := range plan {
+		succeeded := 0
+		for _, item := range diskPlan {
 			if err := executeAutoSaveItem(item, writer); err != nil {
 				writeErr = err
 				errPath = item.path
@@ -645,10 +783,12 @@ func (e *Editor) startAutoSaveFlight() {
 				errTab = item.tabID
 				break
 			}
+			succeeded++
 		}
 		res := &autoSaveFlightResult{
 			gen:        gen,
-			plan:       plan,
+			plan:       diskPlan,
+			succeeded:  succeeded,
 			err:        writeErr,
 			failedPath: errPath,
 			failedTab:  errTab,
@@ -700,10 +840,15 @@ func (e *Editor) applyPendingAutoSaveResult() bool {
 	e.autosave.indicatorDue = time.Time{}
 
 	if res.err != nil {
+		if res.succeeded > 0 {
+			e.commitAutoSaveItems(res.plan[:res.succeeded])
+		}
+		e.clearInFlightAutoSaveHashes()
 		e.recordAutoSaveFailure(res.err, res.failedPath, res.failedTab)
 		return true
 	}
 	e.commitAutoSavePlan(res.plan)
+	e.clearInFlightAutoSaveHashes()
 	if e.autosave.reschedulePending || e.hasAutoSaveableDirtyChanges() {
 		e.autosave.reschedulePending = false
 		e.scheduleAutoSaveIfNeeded()
@@ -812,12 +957,10 @@ func (e *Editor) buildAutoSavePlan() ([]autoSavePlanItem, string, uint64, error)
 	return plan, "", 0, nil
 }
 
-func (e *Editor) commitAutoSavePlan(plan []autoSavePlanItem) {
+func (e *Editor) commitAutoSaveItems(plan []autoSavePlanItem) (savedAnyScene, savedAnyProject bool) {
 	if e == nil {
-		return
+		return false, false
 	}
-	savedAnyScene := false
-	savedAnyProject := false
 	for _, item := range plan {
 		switch item.kind {
 		case autoSaveTargetProject:
@@ -861,13 +1004,19 @@ func (e *Editor) commitAutoSavePlan(plan []autoSavePlanItem) {
 		e.filesRev++
 		e.snapshotProjectTree()
 		e.invalidateProjectIndex()
-	}
-	e.recordSaveSucceeded()
-	e.notify()
-	if savedAnyScene || savedAnyProject {
 		e.CheckProblems()
 		e.RefreshChangesCount()
 	}
+	return savedAnyScene, savedAnyProject
+}
+
+func (e *Editor) commitAutoSavePlan(plan []autoSavePlanItem) {
+	if e == nil {
+		return
+	}
+	e.commitAutoSaveItems(plan)
+	e.recordSaveSucceeded()
+	e.notify()
 }
 
 func (e *Editor) recordAutoSaveFailure(err error, targetPath string, tabID uint64) {

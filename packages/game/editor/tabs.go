@@ -528,7 +528,7 @@ func (e *Editor) SaveTab(index int) error {
 			e.syncActiveTab()
 			e.invalidateProjectIndex()
 			e.rebuildDependentTabs(e.activeTabID())
-			e.recordSaveSucceeded()
+			e.recordSaveSucceededFor(e.activeTabID(), false)
 			e.Status = "Saved scene"
 			e.notify()
 			e.CheckProblems()
@@ -557,7 +557,7 @@ func (e *Editor) SaveTab(index int) error {
 		t.placeholder = false
 		e.invalidateProjectIndex()
 		e.rebuildDependentTabs(t.id)
-		e.recordSaveSucceeded()
+		e.recordSaveSucceededFor(t.id, false)
 		e.Status = "Saved scene"
 		e.notify()
 		e.CheckProblems()
@@ -583,7 +583,7 @@ func (e *Editor) SaveTab(index int) error {
 		e.snapshotProjectTree()
 		e.invalidateProjectIndex()
 		e.rebuildDependentTabs(t.id)
-		e.recordSaveSucceeded()
+		e.recordSaveSucceededFor(t.id, false)
 		e.Status = "Saved " + t.filePath
 		e.notify()
 		e.CheckProblems()
@@ -608,6 +608,7 @@ func (e *Editor) CloseTab(index int) error {
 		return fmt.Errorf("editor: tab index %d out of range", index)
 	}
 	closedLabel := e.tabPromptLabel(index)
+	closedID := e.tabs[index].id
 
 	if len(e.tabs) == 1 {
 		e.saveViewStateQuietly()
@@ -639,13 +640,13 @@ func (e *Editor) CloseTab(index int) error {
 		e.Rebuild()
 		e.resetNavMeshForScene()
 		e.refreshOpenSceneSearch()
+		e.clearSaveFailureForTab(closedID)
 		e.Status = "Closed " + closedLabel
 		e.notify()
 		return nil
 	}
 
 	if index != e.activeTab {
-		closedID := e.tabs[index].id
 		e.tabs = append(e.tabs[:index], e.tabs[index+1:]...)
 		if index < e.activeTab {
 			e.activeTab--
@@ -654,6 +655,7 @@ func (e *Editor) CloseTab(index int) error {
 			e.disk.saveConflict = nil
 			e.disk.saveConflictTabID = 0
 		}
+		e.clearSaveFailureForTab(closedID)
 		e.refreshOpenSceneSearch()
 		e.Status = "Closed " + closedLabel
 		e.notify()
@@ -681,6 +683,7 @@ func (e *Editor) CloseTab(index int) error {
 	}
 	e.resetNavMeshForScene()
 	e.tryAutoloadNavMesh3D()
+	e.clearSaveFailureForTab(closedID)
 	e.refreshOpenSceneSearch()
 	e.Status = "Closed " + closedLabel
 	e.notify()

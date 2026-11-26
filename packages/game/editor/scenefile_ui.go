@@ -141,9 +141,13 @@ func bindSceneFileHooks(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], di
 			cancel: func() {},
 		})
 	}
+	cx.Effect(func() {
+		ed.setUnsavedPromptOpen(prompt.Get() != nil)
+	})
 	cx.Cleanup(func() {
 		ed.askUnsaved = nil
 		ed.askCloseTab = nil
+		ed.setUnsavedPromptOpen(false)
 	})
 
 	// The title is a memo, so the window is retitled only when the title changes, not on every revision, which Play makes on every frame.
@@ -405,18 +409,19 @@ func sceneFileButtons(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirt
 								}
 								return ed.T("toolbar.unsavedLabel")
 							},
-							Style: core.Style{
-								Width:        core.Pt(6),
-								Height:       core.Pt(6),
-								CornerRadius: 3,
-							},
 							StyleFunc: func() core.Style {
 								_ = rev.Get()
-								bg := specChanged
+								p := ed.SpecPalette(cx)
+								bg := p.Changed.Fg
 								if ed.SaveFailed() {
-									bg = specProblem
+									bg = p.Problem().Fg
 								}
-								return core.Style{Background: bg}
+								return core.Style{
+									Width:        core.Pt(6),
+									Height:       core.Pt(6),
+									CornerRadius: 3,
+									Background:   bg,
+								}
 							},
 						}
 					},

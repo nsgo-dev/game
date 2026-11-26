@@ -1131,6 +1131,7 @@ func (e *Editor) EndDrag2D() bool {
 	}
 	st := e.drag2D
 	e.drag2D = drag2DState{}
+	defer e.resumeAutoSaveAfterInteraction()
 	if len(st.targets) > 0 {
 		verb := "Move"
 		switch {
@@ -1253,6 +1254,7 @@ func (e *Editor) CancelDrag2D() bool {
 	}
 	st := e.drag2D
 	e.drag2D = drag2DState{}
+	defer e.resumeAutoSaveAfterInteraction()
 	if len(st.targets) > 0 {
 		restored := false
 		for _, t := range st.targets {

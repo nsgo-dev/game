@@ -856,6 +856,7 @@ func (e *Editor) FinishMerge() error {
 		e.Status = "Merged scene resolved and verified"
 	}
 	e.merge.rev++
+	e.scheduleAutoSaveIfNeeded()
 	e.notify()
 	return nil
 }
@@ -905,6 +906,7 @@ func (e *Editor) AbortMerge() error {
 	e.filesRev++
 	e.invalidateProjectIndex()
 	e.CheckProblems()
+	e.scheduleAutoSaveIfNeeded()
 	e.Status = "Merge aborted"
 	e.notify()
 	return nil

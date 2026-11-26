@@ -155,6 +155,9 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 		if ed.Playing() || ed.Project == nil || ed.ProjectPath == "" {
 			return
 		}
+		if failedID := ed.autosave.failedTabID; failedID != 0 && failedID != ed.activeTabID() {
+			_ = ed.SelectTabByID(failedID)
+		}
 		p := ed.ScenePath
 		if p == "" {
 			p = "scenes/untitled.scene.yaml"
