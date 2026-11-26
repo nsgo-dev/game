@@ -91,6 +91,8 @@ func (e *Editor) SaveAll() error {
 	if err := e.checkSaveAllConflicts(); err != nil {
 		return err
 	}
+	e.beginSaveHistoryBatch()
+	defer e.endSaveHistoryBatch()
 	if e.ProjectDirty() {
 		if err := e.SaveProject(); err != nil {
 			return err
@@ -232,6 +234,8 @@ func (e *Editor) Save() error {
 	if err := e.checkSaveConflicts(); err != nil {
 		return err
 	}
+	e.beginSaveHistoryBatch()
+	defer e.endSaveHistoryBatch()
 	projectSaved := false
 	if e.ProjectDirty() {
 		if err := e.SaveProject(); err != nil {
@@ -291,6 +295,7 @@ func (e *Editor) Save() error {
 		}
 		e.sceneSaved = data
 		e.syncActiveTab()
+		e.noteSavedHistoryFile(e.historyActiveSceneFile())
 		e.invalidateProjectIndex()
 		e.rebuildDependentTabs(e.activeTabID())
 		e.recordSaveSucceededFor(e.activeTabID(), false)
@@ -565,6 +570,17 @@ func (c *replaceSceneCmd) Label() string { return c.label }
 func (c *replaceSceneCmd) Do() { c.ed.setDoc(c.after.Clone()) }
 
 func (c *replaceSceneCmd) Undo() { c.ed.setDoc(c.before.Clone()) }
+
+func (c *replaceSceneCmd) historyMeta() HistoryMeta {
+	author := HistoryAuthorYou
+	if strings.HasPrefix(c.label, "Switched branch") {
+		author = HistoryAuthorGit
+	}
+	return HistoryMeta{
+		Author:  author,
+		Summary: c.label,
+	}
+}
 
 // setDoc makes doc the scene, keeping the active layer when doc has it and choosing its first layer otherwise.
 func (e *Editor) setDoc(doc *sceneformat.SceneDoc) {

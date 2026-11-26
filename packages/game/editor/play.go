@@ -273,6 +273,7 @@ func (e *Editor) startPlaySession(cx *core.Scope, playback *replay.Recording, st
 	e.resetFirstRunFlow()
 	e.cancelAutoSaveTimer()
 	e.stopRunningTasksForPlay()
+	e.ExitHistoryPreview()
 
 	// A 2D drag or particle curve drag in progress is put back, so Play and the scene Stop restores start from the last recorded state.
 	e.CancelDrag2D()

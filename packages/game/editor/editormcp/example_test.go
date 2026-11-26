@@ -89,6 +89,7 @@ func ExampleServer_AddTool() {
 	// cutscene_write edit
 	// game_check run
 	// game_playtest run
+	// history_list read
 	// merge_abort run
 	// merge_finish run
 	// merge_resolve edit

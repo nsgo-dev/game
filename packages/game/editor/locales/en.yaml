@@ -133,6 +133,8 @@ strings:
   cmd.gizmoTranslate.label: '3D Gizmo: Translate'
   cmd.group.desc: Wrap the selected objects under a new empty parent at their common centre
   cmd.group.label: Group Selected Objects
+  cmd.historyPanel.desc: Toggle the unified History timeline of your edits, agent turns, and saved points
+  cmd.historyPanel.label: History
   cmd.inspectorTab.desc: Switch the right panel to the Property Inspector
   cmd.inspectorTab.label: Inspector Panel
   cmd.lightingPreview.desc: Show or hide live 2D lights, occluder shadows, and ambient darkness in the 2D viewport
@@ -291,6 +293,21 @@ strings:
   gizmo.spaceGlobal: Global
   gizmo.spaceLocal: Local
   gizmo.translate: Translate
+  history.back: Back
+  history.close: Close History
+  history.empty: No edits yet. Your edits and the agent's turns appear here on one timeline.
+  history.emptyAgent: No agent turns recorded yet.
+  history.emptyYou: No manual edits recorded yet.
+  history.filter.agent: Agent
+  history.filter.all: All
+  history.filter.you: You
+  history.filterLabel: Show
+  history.footer: Click a step to preview the scene at that point; Restore rolls back to it as one new step, so nothing is ever lost.
+  history.now: Now
+  history.restore: Restore
+  history.saved: saved
+  history.title: History
+  history.unsaved: unsaved
   inspector.addComponent: Add component
   inspector.addProperty: Add property
   inspector.alpha: Alpha
@@ -483,6 +500,7 @@ strings:
   menu.gizmo3d: 3D Gizmo
   menu.group: Group
   menu.help: Help
+  menu.history: History
   menu.inspectorPanel: Inspector Panel
   menu.lightingPreview: 2D Lighting Preview
   menu.localization: Localization Strings
@@ -970,6 +988,7 @@ strings:
   toolbar.group.tools: Tools
   toolbar.group.view2d: 2D View
   toolbar.group.viewMode: View Mode
+  toolbar.historyLabel: History
   toolbar.input: Input
   toolbar.inputLabel: Toggle the Input Map panel
   toolbar.label: Editor Tools

@@ -344,7 +344,13 @@ func (s *Server) Editor(ctx context.Context, fn func(ed *editor.Editor) error) e
 // asAgent runs fn as the agent's, recovering a panic as an error.
 func (s *Server) asAgent(fn func(ed *editor.Editor) error) (err error) {
 	s.agent++
+	if s.ed != nil {
+		s.ed.EnterAgentContext()
+	}
 	defer func() {
+		if s.ed != nil {
+			s.ed.LeaveAgentContext()
+		}
 		s.agent--
 		if failure := recover(); failure != nil {
 			err = fmt.Errorf("editormcp: %v", failure)

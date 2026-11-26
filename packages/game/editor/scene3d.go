@@ -182,10 +182,14 @@ func (e *Editor) scene3DFilesRoot() string {
 	return ""
 }
 
-// scene3D brings the 3D build up to date with the open scene, building it again when its look changed, and returns it with its nodes posed (sync3D).
+// scene3D brings the 3D build up to date with the open scene (or active history preview scene), building it again when its look changed, and returns it with its nodes posed (sync3D).
 func (e *Editor) scene3D() *scene3DState {
 	s := &e.s3d
-	if e.Doc == nil {
+	activeDoc := e.Doc
+	if e.historyPanel.preview != nil && e.historyPanel.preview.doc != nil {
+		activeDoc = e.historyPanel.preview.doc
+	}
+	if activeDoc == nil {
 		// gen only grows, so a renderer still holding the last build's upload never takes the next build for it.
 		*s = scene3DState{gen: s.gen, files: s.files, projectPath: s.projectPath, filesRoot: s.filesRoot, assetsRev: s.assetsRev, scenesRev: s.scenesRev, importRev: s.importRev, materialRev: s.materialRev, materialLibRev: s.materialLibRev, modelResolver: s.modelResolver}
 		return s
@@ -212,12 +216,12 @@ func (e *Editor) scene3D() *scene3DState {
 	if materialChanged {
 		s.stale = true
 	}
-	if s.stale || s.doc != e.Doc {
-		key, comparable := lookKey3D(e.Doc)
-		if !comparable || s.world == nil || s.err != nil || key != s.key || e.ProjectPath != s.projectPath || filesRoot != s.filesRoot || e.assetsRev != s.assetsRev || (e.scenesRev != s.scenesRev && e.Doc.RefersToScenes()) || e.importRev != s.importRev || materialChanged || e.ModelResolver != s.modelResolver {
+	if s.stale || s.doc != activeDoc {
+		key, comparable := lookKey3D(activeDoc)
+		if !comparable || s.world == nil || s.err != nil || key != s.key || e.ProjectPath != s.projectPath || filesRoot != s.filesRoot || e.assetsRev != s.assetsRev || (e.scenesRev != s.scenesRev && activeDoc.RefersToScenes()) || e.importRev != s.importRev || materialChanged || e.ModelResolver != s.modelResolver {
 			e.build3D(s)
 		}
-		s.doc, s.key, s.stale = e.Doc, key, false
+		s.doc, s.key, s.stale = activeDoc, key, false
 		s.projectPath, s.filesRoot, s.assetsRev, s.scenesRev, s.importRev, s.materialRev, s.materialLibRev, s.modelResolver = e.ProjectPath, filesRoot, e.assetsRev, e.scenesRev, e.importRev, e.materialRev, e.currentMaterialLibRev(), e.ModelResolver
 	}
 	if s.built != nil {
@@ -231,6 +235,9 @@ func (e *Editor) build3D(s *scene3DState) {
 	s.gen++
 	s.world, s.built, s.err, s.bounds, s.edges = nil, nil, nil, nil, nil
 	doc := e.Doc
+	if e.historyPanel.preview != nil && e.historyPanel.preview.doc != nil {
+		doc = e.historyPanel.preview.doc
+	}
 	if doc.RefersToScenes() {
 		scenes, _ := e.Resolver.(sceneformat.SceneResolver)
 		resolved, err := sceneformat.Resolve(doc, scenes)

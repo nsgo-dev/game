@@ -1417,7 +1417,26 @@ func (e *Editor) KeepCutsceneReview() error {
 		afterSaved:  afterSaved,
 		baseYAML:    baseYAML,
 	}
-	return e.History.execute(cmd)
+	summary := rev.prompt
+	if summary == "" {
+		summary = "cutscene edits"
+	}
+	var touched []string
+	if filePath != "" {
+		touched = []string{e.displayHistoryPath(filePath)}
+	}
+	prevMeta := e.historyPanel.pendingMeta
+	e.historyPanel.pendingMeta = &HistoryMeta{
+		Author:      HistoryAuthorAgent,
+		Summary:     summary,
+		Detail:      formatAgentTurnDetail("", total, kept),
+		Files:       touched,
+		ChangeCount: total,
+		KeptCount:   kept,
+	}
+	err = e.History.execute(cmd)
+	e.historyPanel.pendingMeta = prevMeta
+	return err
 }
 
 // CutsceneHandleKeyEvent handles cutscene timeline keyboard shortcuts:

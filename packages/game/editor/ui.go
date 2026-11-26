@@ -640,7 +640,18 @@ func mainRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []core.Node {
 				core.Show{
 					When: assetsMode.Get,
 					Then: func(cx *core.Scope) core.Node {
-						return AssetInspectorView(cx, ed, rev)
+						return core.Show{
+							When: func() bool {
+								_ = rev.Get()
+								return !ed.Playing() && ed.HistoryPanelOpen()
+							},
+							Then: func(cx *core.Scope) core.Node {
+								return HistoryPanelView(cx, ed, rev)
+							},
+							Else: func(cx *core.Scope) core.Node {
+								return AssetInspectorView(cx, ed, rev)
+							},
+						}
 					},
 					Else: func(cx *core.Scope) core.Node {
 						return core.View{
@@ -651,22 +662,33 @@ func mainRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) []core.Node {
 								core.Show{
 									When: func() bool {
 										_ = rev.Get()
-										return !ed.Playing() && ed.ProblemAgentPanelOpen()
+										return !ed.Playing() && ed.HistoryPanelOpen()
 									},
 									Then: func(cx *core.Scope) core.Node {
-										return ProblemAgentPanelView(cx, ed, rev)
+										return HistoryPanelView(cx, ed, rev)
 									},
 									Else: func(cx *core.Scope) core.Node {
 										return core.Show{
 											When: func() bool {
 												_ = rev.Get()
-												return !ed.Playing() && ed.ViewMode == ViewMode2D && ed.TileReviewOpen()
+												return !ed.Playing() && ed.ProblemAgentPanelOpen()
 											},
 											Then: func(cx *core.Scope) core.Node {
-												return TileReviewPanelView(cx, ed, rev)
+												return ProblemAgentPanelView(cx, ed, rev)
 											},
 											Else: func(cx *core.Scope) core.Node {
-												return RightRailView(cx, ed, rev)
+												return core.Show{
+													When: func() bool {
+														_ = rev.Get()
+														return !ed.Playing() && ed.ViewMode == ViewMode2D && ed.TileReviewOpen()
+													},
+													Then: func(cx *core.Scope) core.Node {
+														return TileReviewPanelView(cx, ed, rev)
+													},
+													Else: func(cx *core.Scope) core.Node {
+														return RightRailView(cx, ed, rev)
+													},
+												}
 											},
 										}
 									},
@@ -852,6 +874,29 @@ func toolbarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], fileButto
 						},
 					},
 					ui.HStack{Gap: 6, Children: fileButtons},
+					ui.Tooltip{
+						TestID: "toolbar-history-tooltip",
+						TextFunc: func() string {
+							_ = rev.Get()
+							base := ed.T("toolbar.historyLabel")
+							if sc := ed.EffectiveShortcut(CmdHistoryPanel); sc != "" {
+								return base + " · " + FormatShortcut(sc, cx.Env().OS())
+							}
+							return base
+						},
+						Trigger: ui.Button{
+							TestID:   "toolbar-history",
+							Icon:     lucide.RotateCcwClock,
+							Label:    ed.T("toolbar.historyLabel"),
+							Size:     ui.SizeSmall,
+							Side:     28,
+							Variant:  ui.ButtonGhost,
+							Disabled: notPlaying,
+							OnPress: func() {
+								ed.ToggleHistoryPanel()
+							},
+						},
+					},
 					ui.Tooltip{
 						TextFunc: func() string {
 							_ = rev.Get()
