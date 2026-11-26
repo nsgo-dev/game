@@ -811,13 +811,13 @@ func viewportOverlayLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 				}
 				p := SpecPaletteFor(k.dark)
 				leftPt := core.Pt(10)
-				topPt := core.Pt(10)
-				compact3D := k.viewMode == ViewMode3D
-				if compact3D {
-					// Sit cleanly beneath view3d-bar + view3d-help in the 3D viewport's top-left corner
-					// using a compact 2×3 layout so the middle-left orbit/pan zone stays unobstructed.
+				topPt := core.Pt(8)
+				if k.viewMode == ViewMode3D {
+					// Sit as a compact 1×6 strip at y ∈ [120, 148] beneath view3d-bar + view3d-help
+					// and the top-right orientation widget, clear of top-view ortho pick targets (y≈110),
+					// upper-left 3D plugin tool drags (y=100), and middle-left orbit/pan drags (y=170).
 					leftPt = core.Pt(16)
-					topPt = core.Pt(92)
+					topPt = core.Pt(120)
 				}
 
 				legendLabel := func(kind OverlayKind) string {
@@ -864,23 +864,17 @@ func viewportOverlayLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 					label := legendLabel(kind)
 					swatchAlpha := float32(1)
 					textColor := p.TextSecondary
+					chipBg := ui.Alpha(role.Fill, 0.7)
+					chipBorder := ui.Alpha(role.Edge, 0.45)
 					if !on {
-						swatchAlpha = 0.35
+						swatchAlpha = 0.32
 						textColor = p.TextFaint
-					}
-					trackBg := p.LineRaised
-					knobLeft := core.Pt(2)
-					if on {
-						trackBg = role.Fg
-						knobLeft = core.Pt(12)
-					}
-					knobBg := specHandleFill(p)
-					if on && p.Dark {
-						knobBg = role.OnFill
+						chipBg = core.Transparent
+						chipBorder = core.Transparent
 					}
 
 					swatch := core.Canvas{
-						Style: core.Style{Width: core.Pt(26), Height: core.Pt(12), FlexShrink: 0},
+						Style: core.Style{Width: core.Pt(18), Height: core.Pt(12), FlexShrink: 0},
 						Draw: func(d *core.Drawing, _ core.Size) {
 							d.Save()
 							edge := ui.Alpha(role.Edge, swatchAlpha)
@@ -889,89 +883,52 @@ func viewportOverlayLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 							case OverlayKindSelection:
 								// 1.5 px solid accent line + two corner handle squares.
 								d.SetStrokeColor(edge).SetLineWidth(1.5)
-								d.BeginPath().MoveTo(4, 6).LineTo(22, 6).Stroke()
+								d.BeginPath().MoveTo(3, 6).LineTo(15, 6).Stroke()
 								hf := ui.Alpha(specHandleFill(p), swatchAlpha)
-								for _, hx := range [2]float32{1.5, 19.5} {
-									d.SetFillColor(hf).BeginPath().RoundRect(hx, 3.5, 5, 5, 1).Fill()
-									d.SetStrokeColor(edge).SetLineWidth(1.2).BeginPath().RoundRect(hx, 3.5, 5, 5, 1).Stroke()
+								for _, hx := range [2]float32{1, 13} {
+									d.SetFillColor(hf).BeginPath().RoundRect(hx, 4, 4, 4, 1).Fill()
+									d.SetStrokeColor(edge).SetLineWidth(1.1).BeginPath().RoundRect(hx, 4, 4, 4, 1).Stroke()
 								}
 							case OverlayKindAgent:
 								// 1.5 px solid agent violet line + 4-point agent sparkle glyph.
 								d.SetStrokeColor(edge).SetLineWidth(1.5)
-								d.BeginPath().MoveTo(1.5, 6).LineTo(14.5, 6).Stroke()
-								drawAgentSparkleGlyph(d, 21, 6, 4.2, fg)
+								d.BeginPath().MoveTo(1, 6).LineTo(9.5, 6).Stroke()
+								drawAgentSparkleGlyph(d, 14, 6, 3.6, fg)
 							case OverlayKindAdded:
 								// 1.5 px dashed added green line + "+" cue.
-								d.SetStrokeColor(edge).SetLineWidth(1.5).SetLineDash(3.5, 2)
-								d.BeginPath().MoveTo(1.5, 6).LineTo(15.5, 6).Stroke()
+								d.SetStrokeColor(edge).SetLineWidth(1.5).SetLineDash(3, 2)
+								d.BeginPath().MoveTo(1, 6).LineTo(10, 6).Stroke()
 								d.SetLineDash()
-								d.SetStrokeColor(fg).SetLineWidth(1.5).SetLineCap(core.CapRound)
-								d.BeginPath().MoveTo(18.5, 6).LineTo(24.5, 6).MoveTo(21.5, 3).LineTo(21.5, 9).Stroke()
+								d.SetStrokeColor(fg).SetLineWidth(1.4).SetLineCap(core.CapRound)
+								d.BeginPath().MoveTo(12, 6).LineTo(17, 6).MoveTo(14.5, 3.5).LineTo(14.5, 8.5).Stroke()
 							case OverlayKindChanged:
 								// 1.5 px dashed changed amber line + "→" cue.
-								d.SetStrokeColor(edge).SetLineWidth(1.5).SetLineDash(3.5, 2)
-								d.BeginPath().MoveTo(1.5, 6).LineTo(14.5, 6).Stroke()
+								d.SetStrokeColor(edge).SetLineWidth(1.5).SetLineDash(3, 2)
+								d.BeginPath().MoveTo(1, 6).LineTo(9.5, 6).Stroke()
 								d.SetLineDash()
-								d.SetStrokeColor(fg).SetLineWidth(1.5).SetLineCap(core.CapRound).SetLineJoin(core.JoinRound)
-								d.BeginPath().MoveTo(17.5, 6).LineTo(24.5, 6).MoveTo(22, 3.5).LineTo(24.5, 6).LineTo(22, 8.5).Stroke()
+								d.SetStrokeColor(fg).SetLineWidth(1.4).SetLineCap(core.CapRound).SetLineJoin(core.JoinRound)
+								d.BeginPath().MoveTo(11.5, 6).LineTo(17, 6).MoveTo(15, 4).LineTo(17, 6).LineTo(15, 8).Stroke()
 							case OverlayKindRemoved:
 								// 1.5 px solid removed red frame around a 25% grey ghost + strikethrough cue.
-								d.SetFillColor(ui.Alpha(p.TextFaint, 0.28*swatchAlpha)).BeginPath().RoundRect(2.5, 2.5, 11, 7, 1.5).Fill()
-								d.SetStrokeColor(edge).SetLineWidth(1.5).BeginPath().RoundRect(1.5, 1.5, 13, 9, 2).Stroke()
-								d.SetStrokeColor(fg).SetLineWidth(1.4).SetLineCap(core.CapRound)
-								d.BeginPath().MoveTo(17, 6).LineTo(24.5, 6).Stroke()
+								d.SetFillColor(ui.Alpha(p.TextFaint, 0.28*swatchAlpha)).BeginPath().RoundRect(2, 2.5, 8, 7, 1.5).Fill()
+								d.SetStrokeColor(edge).SetLineWidth(1.5).BeginPath().RoundRect(1, 1.5, 10, 9, 2).Stroke()
+								d.SetStrokeColor(fg).SetLineWidth(1.3).SetLineCap(core.CapRound)
+								d.BeginPath().MoveTo(12.5, 6).LineTo(17.5, 6).Stroke()
 							case OverlayKindProblem:
 								// 2 px solid problem red line + filled alert triangle badge.
 								d.SetStrokeColor(edge).SetLineWidth(2)
-								d.BeginPath().MoveTo(1.5, 6).LineTo(12.5, 6).Stroke()
-								d.SetFillColor(fg).BeginPath().RoundRect(15, 0.5, 11, 11, 5.5).Fill()
+								d.BeginPath().MoveTo(1, 6).LineTo(7, 6).Stroke()
+								d.SetFillColor(fg).BeginPath().RoundRect(8.5, 1, 9.5, 9.5, 4.75).Fill()
 								onFill := ui.Alpha(role.OnFill, swatchAlpha)
-								d.SetStrokeColor(onFill).SetLineWidth(1.2).SetLineCap(core.CapRound).SetLineJoin(core.JoinRound)
-								d.BeginPath().MoveTo(20.5, 2.5).LineTo(23.8, 8.8).LineTo(17.2, 8.8).ClosePath().Stroke()
-								d.BeginPath().MoveTo(20.5, 5).LineTo(20.5, 6.7).Stroke()
+								d.SetStrokeColor(onFill).SetLineWidth(1.1).SetLineCap(core.CapRound).SetLineJoin(core.JoinRound)
+								d.BeginPath().MoveTo(13.25, 2.8).LineTo(16, 8.2).LineTo(10.5, 8.2).ClosePath().Stroke()
+								d.BeginPath().MoveTo(13.25, 4.8).LineTo(13.25, 6.4).Stroke()
 							}
 							d.Restore()
 						},
 					}
 
-					switchTrack := core.View{
-						PointerEvents: core.PointerEventsNone,
-						Style: core.Style{
-							Position:     core.Relative,
-							Width:        core.Pt(22),
-							Height:       core.Pt(12),
-							CornerRadius: 6,
-							Background:   trackBg,
-							FlexShrink:   0,
-						},
-						Children: []core.Node{
-							core.View{
-								Style: core.Style{
-									Position:     core.Absolute,
-									Left:         knobLeft,
-									Top:          core.Pt(2),
-									Width:        core.Pt(8),
-									Height:       core.Pt(8),
-									CornerRadius: 4,
-									Background:   knobBg,
-								},
-							},
-						},
-					}
-
 					kindCopy := kind
-					rowStyle := core.Style{
-						Direction:    core.Row,
-						AlignItems:   core.AlignCenter,
-						Gap:          6,
-						Height:       core.Pt(20),
-						Padding:      core.Symmetric(0, 4),
-						CornerRadius: 5,
-						FocusVisible: p.FocusRing(2),
-					}
-					if compact3D {
-						rowStyle.MinWidth = core.Pt(138)
-					}
 					return core.View{
 						TestID:    "legend-" + string(kind),
 						Role:      core.RoleSwitch,
@@ -981,69 +938,35 @@ func viewportOverlayLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 						OnPress: func(core.PressEvent) {
 							ed.report(ed.ToggleOverlayKind(kindCopy))
 						},
-						Style: rowStyle,
+						Style: core.Style{
+							Direction:    core.Row,
+							AlignItems:   core.AlignCenter,
+							Gap:          3,
+							Height:       core.Pt(20),
+							Padding:      core.Symmetric(0, 4),
+							CornerRadius: 5,
+							Background:   chipBg,
+							BorderWidth:  1,
+							BorderColor:  chipBorder,
+							FlexShrink:   0,
+							FocusVisible: p.FocusRing(2),
+						},
 						Children: []core.Node{
 							swatch,
 							core.Text{
 								Content:  label,
 								MaxLines: 1,
 								Style: core.Style{
-									FlexGrow:   1,
-									FontSize:   11,
+									FontSize:   10,
 									FontWeight: 500,
 									Color:      textColor,
 								},
 							},
-							switchTrack,
-						},
-					}
-				}
-				if compact3D {
-					kinds := OverlayLegendKinds()
-					leftCol := make([]core.Node, 0, 3)
-					rightCol := make([]core.Node, 0, 3)
-					for i, kind := range kinds {
-						if i < 3 {
-							leftCol = append(leftCol, legendRow(kind))
-						} else {
-							rightCol = append(rightCol, legendRow(kind))
-						}
-					}
-					return core.View{
-						TestID: "viewport-overlay-legend",
-						Role:   core.RoleGroup,
-						Label:  ed.T("overlays.legendTitle"),
-						Style: core.Style{
-							Position:     core.Absolute,
-							Left:         leftPt,
-							Top:          topPt,
-							Direction:    core.Row,
-							Gap:          6,
-							Padding:      core.Symmetric(4, 5),
-							CornerRadius: 8,
-							Background:   p.Raised,
-							BorderWidth:  1,
-							BorderColor:  p.LineRaised,
-						},
-						Children: []core.Node{
-							core.View{Style: core.Style{Gap: 2}, Children: leftCol},
-							core.View{Style: core.Style{Gap: 2}, Children: rightCol},
 						},
 					}
 				}
 
-				children := make([]core.Node, 0, 7)
-				children = append(children, core.Text{
-					TestID:  "viewport-overlay-legend-title",
-					Content: ed.T("overlays.legendTitle"),
-					Style: core.Style{
-						FontSize:      9.5,
-						FontWeight:    600,
-						LetterSpacing: 0.6,
-						Color:         p.TextFaint,
-						Padding:       core.Edges{Left: 4, Right: 4, Top: 1, Bottom: 1},
-					},
-				})
+				children := make([]core.Node, 0, 6)
 				for _, kind := range OverlayLegendKinds() {
 					children = append(children, legendRow(kind))
 				}
@@ -1056,9 +979,10 @@ func viewportOverlayLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 						Position:     core.Absolute,
 						Left:         leftPt,
 						Top:          topPt,
-						MinWidth:     core.Pt(150),
-						Padding:      core.Symmetric(4, 4),
-						Gap:          1,
+						Direction:    core.Row,
+						AlignItems:   core.AlignCenter,
+						Gap:          2,
+						Padding:      core.Symmetric(3, 4),
 						CornerRadius: 8,
 						Background:   p.Raised,
 						BorderWidth:  1,
