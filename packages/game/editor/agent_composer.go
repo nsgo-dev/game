@@ -322,6 +322,8 @@ func (e *Editor) resetAgentComposerForProject() {
 	}
 	e.agent.threadID = "thread-1"
 	e.composerDraft = ""
+	e.agent.composerText = ""
+	e.agent.composerHighlighted = false
 }
 
 // closeComposerPopovers closes transient composer popovers (mention picker, breakdown, hover preview)
@@ -366,6 +368,7 @@ func (e *Editor) composerKeysBlocked() bool {
 		e.RightRailTab() != RightTabAgent ||
 		e.AgentMode() == AgentModeNone ||
 		e.AgentSwitcherOpen() ||
+		e.AgentRewindOpenTurnID() != "" ||
 		e.AskInPlaceOpen() || e.contextMenu.open ||
 		e.PermissionsDraftOpen() ||
 		e.StartScreenOpen() || e.MergeConflictOpen() || e.PlaytestReportOpen() ||
@@ -465,6 +468,8 @@ func (e *Editor) updateComposerDraftFromInput(text string) {
 		return
 	}
 	e.composerDraft = text
+	e.agent.composerText = text
+	e.agent.composerHighlighted = false
 	if start, query, ok := detectMentionTrigger(text); ok {
 		prevQuery := e.agentComposer.pickerQuery
 		e.agentComposer.pickerOpen = true
@@ -679,7 +684,9 @@ func (e *Editor) AcceptMentionItem(id string) (AgentContextChip, bool) {
 	}
 	if start, _, ok := detectMentionTrigger(e.composerDraft); ok {
 		e.composerDraft = e.composerDraft[:start]
+		e.agent.composerText = e.composerDraft
 	}
+	e.agent.composerHighlighted = false
 	e.agentComposer.pickerOpen = false
 	e.agentComposer.pickerOpenedByAt = false
 	e.agentComposer.pickerQuery = ""
@@ -2294,6 +2301,9 @@ func joinContextBlocksBounded(blocks []string, maxBytes int) string {
 
 func cloneAgentRequest(req AgentRequest) AgentRequest {
 	out := req
+	if len(req.PriorTurns) > 0 {
+		out.PriorTurns = slices.Clone(req.PriorTurns)
+	}
 	if len(req.ViewportImage) > 0 {
 		out.ViewportImage = slices.Clone(req.ViewportImage)
 	}
@@ -2378,6 +2388,10 @@ func (e *Editor) SendComposerPrompt() (AgentRequest, error) {
 	}
 
 	e.composerDraft = ""
+	e.agent.composerText = ""
+	e.agent.composerHighlighted = false
+	e.agent.rewindOpenTurnID = ""
+	e.agent.lastRewind = nil
 	e.agentComposer.pickerOpen = false
 	e.agentComposer.pickerOpenedByAt = false
 	e.agentComposer.pickerQuery = ""
@@ -2430,12 +2444,16 @@ func (e *Editor) RecallLastComposerPrompt() bool {
 	}
 	if len(e.agentComposer.turns) > 0 {
 		e.composerDraft = e.agentComposer.turns[len(e.agentComposer.turns)-1].Prompt
+		e.agent.composerText = e.composerDraft
+		e.agent.composerHighlighted = false
 		e.notify()
 		return true
 	}
 	for i := len(e.agent.turns) - 1; i >= 0; i-- {
 		if !e.agent.turns[i].External && strings.TrimSpace(e.agent.turns[i].Prompt) != "" {
 			e.composerDraft = e.agent.turns[i].Prompt
+			e.agent.composerText = e.composerDraft
+			e.agent.composerHighlighted = false
 			e.notify()
 			return true
 		}
@@ -2804,6 +2822,12 @@ func (e *Editor) StartFreshAgentThread() (string, error) {
 	e.agent.threadID = e.agentComposer.threadID
 	e.agent.sessionID = ""
 	e.agent.turns = nil
+	e.agent.checkpoints = nil
+	e.agent.rewindOpenTurnID = ""
+	e.agent.lastRewind = nil
+	e.agent.composerHighlighted = false
+	e.agent.pointingTurnID = ""
+	e.agent.openReviewTurnID = ""
 	e.agent.turnChangeSeq++
 	e.agentComposer.turns = nil
 	e.agentComposer.compactedSummary = ""

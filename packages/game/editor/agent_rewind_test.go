@@ -1068,3 +1068,87 @@ func TestAgentRewindWithSceneGroupedThreads(t *testing.T) {
 		t.Fatalf("runner saw sessions %v, want [sess-persisted-0 sess-persisted-0]", seenSessions)
 	}
 }
+
+func TestAgentRewindIntegratesWithAgentComposerDraftAndPopovers(t *testing.T) {
+	_, ed, _, coinFile, _ := setupRewindProject(t)
+	defer ed.Close()
+
+	ed.AgentRunner = editor.AgentRunnerFunc(func(_ context.Context, req editor.AgentRequest, emit func(editor.AgentEvent)) error {
+		_ = os.WriteFile(coinFile, []byte("version: 1\nname: coin\nspin: true\nbob: false\n"), 0o644)
+		emit(editor.AgentEvent{Kind: editor.AgentEventSession, SessionID: "sess-1"})
+		emit(editor.AgentEvent{Kind: editor.AgentEventDone, Text: "Updated coin."})
+		return nil
+	})
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1280, 820))
+
+	if err := ed.SubmitAgentPrompt("Make coins spin"); err != nil {
+		t.Fatalf("SubmitAgentPrompt: %v", err)
+	}
+	waitAgentIdleWithTurns(t, app, ed, 1)
+
+	// Stage a composer draft with an open @-mention trigger before opening Rewind.
+	ed.SetComposerDraft("check @coin")
+	if !ed.MentionPickerOpen() {
+		t.Fatal("expected mention picker open for @coin draft")
+	}
+	turnID := ed.AgentTurns()[0].ID
+	if !ed.OpenAgentRewindPopover(turnID) {
+		t.Fatal("OpenAgentRewindPopover failed")
+	}
+	if ed.MentionPickerOpen() {
+		t.Fatal("opening rewind popover should close mention picker")
+	}
+	app.Settle()
+
+	if err := ed.ConfirmAgentRewind(); err != nil {
+		t.Fatalf("ConfirmAgentRewind: %v", err)
+	}
+	app.Settle()
+
+	if got := ed.ComposerDraft(); got != "Make coins spin" {
+		t.Fatalf("ComposerDraft after rewind = %q, want %q", got, "Make coins spin")
+	}
+	if got := ed.AgentComposerText(); got != "Make coins spin" {
+		t.Fatalf("AgentComposerText after rewind = %q, want %q", got, "Make coins spin")
+	}
+	if !ed.AgentComposerRewound() {
+		t.Fatal("expected AgentComposerRewound true after rewind")
+	}
+	if !app.Exists("id:agent-rewind-banner") || !app.Exists("id:agent-composer-card") {
+		t.Fatal("expected rewind banner and composer card rendered")
+	}
+
+	// Typing into the composer clears the rewound highlight.
+	ed.SetComposerDraft("Make coins spin slowly")
+	if ed.AgentComposerRewound() {
+		t.Fatal("expected SetComposerDraft to clear AgentComposerRewound")
+	}
+
+	// Redo restores the prior composer draft ("check @coin") and clears banner/highlight.
+	if err := ed.RedoAgentRewind(); err != nil {
+		t.Fatalf("RedoAgentRewind: %v", err)
+	}
+	if got := ed.ComposerDraft(); got != "check @coin" {
+		t.Fatalf("ComposerDraft after redo = %q, want %q", got, "check @coin")
+	}
+	if ed.AgentComposerRewound() {
+		t.Fatal("expected AgentComposerRewound false after redo")
+	}
+
+	// Rewind again, then StartFreshAgentThread must clear stale rewind/redo state.
+	if err := ed.RewindAgentTurn(turnID, editor.AgentRewindBoth); err != nil {
+		t.Fatalf("second RewindAgentTurn: %v", err)
+	}
+	if !ed.CanRedoAgentRewind() {
+		t.Fatal("expected CanRedoAgentRewind true before StartFreshAgentThread")
+	}
+	if _, err := ed.StartFreshAgentThread(); err != nil {
+		t.Fatalf("StartFreshAgentThread: %v", err)
+	}
+	if ed.CanRedoAgentRewind() || ed.AgentComposerRewound() || ed.AgentRewindOpenTurnID() != "" {
+		t.Fatal("expected StartFreshAgentThread to clear rewind redo, highlight, and open popover state")
+	}
+}

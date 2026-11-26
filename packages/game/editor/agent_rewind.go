@@ -440,6 +440,11 @@ func (e *Editor) OpenAgentRewindPopover(turnID string) bool {
 		e.agentThreads.switcherQuery = ""
 		e.agentThreads.rev++
 	}
+	e.agentComposer.pickerOpen = false
+	e.agentComposer.pickerOpenedByAt = false
+	e.agentComposer.pickerActiveIndex = 0
+	e.agentComposer.breakdownOpen = false
+	e.agentComposer.hoveredChipID = ""
 	e.agent.rewindOpenTurnID = turnID
 	e.notify()
 	return true
@@ -626,6 +631,10 @@ func (e *Editor) RewindAgentTurn(turnID string, mode AgentRewindMode) error {
 	}
 
 	// Clone current thread state for Redo before mutating anything.
+	prevDraft := e.composerDraft
+	if prevDraft == "" {
+		prevDraft = e.agent.composerText
+	}
 	rec := &agentRewindRecord{
 		state: AgentRewindState{
 			TurnID:        turnID,
@@ -636,7 +645,7 @@ func (e *Editor) RewindAgentTurn(turnID string, mode AgentRewindMode) error {
 			TurnsDropped:  preview.DroppedTurns,
 		},
 		root:                 root,
-		previousComposerText: e.agent.composerText,
+		previousComposerText: prevDraft,
 		previousTurns:        e.AgentTurns(),
 		previousSessionID:    e.agent.sessionID,
 		previousCheckpoints:  cloneCheckpointMap(e.agent.checkpoints),
@@ -725,8 +734,15 @@ func (e *Editor) RewindAgentTurn(turnID string, mode AgentRewindMode) error {
 	}
 
 	if targetTurn.Prompt != "" {
+		e.composerDraft = targetTurn.Prompt
 		e.agent.composerText = targetTurn.Prompt
 		e.agent.composerHighlighted = true
+		e.agentComposer.pickerOpen = false
+		e.agentComposer.pickerOpenedByAt = false
+		e.agentComposer.pickerQuery = ""
+		e.agentComposer.pickerActiveIndex = 0
+		e.agentComposer.breakdownOpen = false
+		e.agentComposer.hoveredChipID = ""
 	} else {
 		e.agent.composerHighlighted = false
 	}
@@ -807,8 +823,15 @@ func (e *Editor) RedoAgentRewind() error {
 		e.restoreIdleAgentStatus()
 	}
 
+	e.composerDraft = rec.previousComposerText
 	e.agent.composerText = rec.previousComposerText
 	e.agent.composerHighlighted = false
+	e.agentComposer.pickerOpen = false
+	e.agentComposer.pickerOpenedByAt = false
+	e.agentComposer.pickerQuery = ""
+	e.agentComposer.pickerActiveIndex = 0
+	e.agentComposer.breakdownOpen = false
+	e.agentComposer.hoveredChipID = ""
 	e.agent.rewindOpenTurnID = ""
 	e.agent.lastRewind = nil
 	e.updateAgentAnnouncement()
