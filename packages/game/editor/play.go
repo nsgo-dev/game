@@ -265,6 +265,7 @@ func (e *Editor) startPlaySession(cx *core.Scope, playback *replay.Recording, st
 		return errors.New("editor: cannot play nil scene document")
 	}
 	e.CloseAskInPlace()
+	e.closeComposerPopovers()
 	e.endTileStrokeForChange()
 	e.endGridMapStrokeForChange()
 	e.endTerrainStrokeForChange()

@@ -1,6 +1,9 @@
 package editor_test
 
 import (
+	"bytes"
+	"encoding/binary"
+	"hash/crc32"
 	"image"
 	"image/color"
 	"image/png"
@@ -8,8 +11,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/nsgo-dev/game/packages/game/editor"
+	"github.com/nsgo-dev/game/packages/game/project"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/game/packages/game/sprite"
 	"github.com/nsgo-dev/nsgo/core"
@@ -539,5 +544,422 @@ func TestComposerPickerGroupsTabsKeysAndChipRemoval(t *testing.T) {
 	app.Settle()
 	if chips := ed.ComposerChips(); len(chips) != 0 {
 		t.Fatalf("after Backspace in empty composer, chips = %+v, want empty", chips)
+	}
+}
+
+func makeFakeDimensionPNG(width, height uint32) []byte {
+	var buf bytes.Buffer
+	buf.Write([]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'})
+	writeChunk := func(typ string, data []byte) {
+		_ = binary.Write(&buf, binary.BigEndian, uint32(len(data)))
+		buf.WriteString(typ)
+		buf.Write(data)
+		crc := crc32.NewIEEE()
+		_, _ = crc.Write([]byte(typ))
+		_, _ = crc.Write(data)
+		_ = binary.Write(&buf, binary.BigEndian, crc.Sum32())
+	}
+	ihdr := make([]byte, 13)
+	binary.BigEndian.PutUint32(ihdr[0:4], width)
+	binary.BigEndian.PutUint32(ihdr[4:8], height)
+	ihdr[8] = 8 // bit depth
+	ihdr[9] = 6 // RGBA
+	writeChunk("IHDR", ihdr)
+	writeChunk("IEND", nil)
+	return buf.Bytes()
+}
+
+func TestComposerSecurityPathTraversalSymlinkSizeAndImageBomb(t *testing.T) {
+	dir, ed := setupComposerProject(t)
+
+	outside := t.TempDir()
+	secretPath := filepath.Join(outside, "secret.txt")
+	if err := os.WriteFile(secretPath, []byte("TOP_SECRET_OUTSIDE_DATA\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outsideSub := filepath.Join(outside, "sub")
+	if err := os.MkdirAll(outsideSub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outsideSub, "leak.md"), []byte("SUBDIR_SECRET_LEAK\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Path traversal, absolute path outside project, and .git paths are refused.
+	if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".git", "config"), []byte("[core]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{
+		"../secret.txt",
+		"rules/../../secret.txt",
+		secretPath,
+		".git/config",
+		"C:\\Windows\\win.ini",
+	} {
+		if _, err := ed.AttachFileChip(bad); err == nil {
+			t.Fatalf("AttachFileChip(%q) succeeded, want error", bad)
+		}
+		payload := ed.ResolveChipPayload(editor.AgentContextChip{
+			ID:     "file:" + bad,
+			Kind:   editor.ChipKindFile,
+			Target: bad,
+		})
+		if strings.Contains(payload.Text, "TOP_SECRET_OUTSIDE_DATA") || strings.Contains(payload.Text, "[core]") {
+			t.Fatalf("ResolveChipPayload(%q) leaked forbidden file content: %q", bad, payload.Text)
+		}
+	}
+
+	// 2. Symlink file and symlinked parent directory are refused everywhere (AttachFileChip, AlwaysChips, SearchMentions, ResolveChipPayload).
+	if err := os.Symlink(secretPath, filepath.Join(dir, "rules", "escape.md")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if err := os.Symlink(outsideSub, filepath.Join(dir, "rules", "escapedir")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ed.AttachFileChip("rules/escape.md"); err == nil {
+		t.Fatal("AttachFileChip must refuse symlink file")
+	}
+	if _, err := ed.AttachFileChip("rules/escapedir/leak.md"); err == nil {
+		t.Fatal("AttachFileChip must refuse file under symlinked parent escaping project root")
+	}
+	if p := ed.ResolveChipPayload(editor.AgentContextChip{
+		ID:     "rule:rules/escape.md",
+		Kind:   editor.ChipKindRule,
+		Target: "rules/escape.md",
+	}); strings.Contains(p.Text, "TOP_SECRET_OUTSIDE_DATA") {
+		t.Fatalf("ResolveChipPayload leaked symlinked rule content: %q", p.Text)
+	}
+	if p := ed.ResolveChipPayload(editor.AgentContextChip{
+		ID:     "rule:rules/escapedir/leak.md",
+		Kind:   editor.ChipKindRule,
+		Target: "rules/escapedir/leak.md",
+	}); strings.Contains(p.Text, "SUBDIR_SECRET_LEAK") {
+		t.Fatalf("ResolveChipPayload leaked symlinked parent dir content: %q", p.Text)
+	}
+
+	// Replace brief.yaml and AGENTS.md with symlinks and reopen: AlwaysChips must refuse them.
+	_ = os.Remove(filepath.Join(dir, "brief.yaml"))
+	_ = os.Remove(filepath.Join(dir, "AGENTS.md"))
+	if err := os.Symlink(secretPath, filepath.Join(dir, "brief.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(secretPath, filepath.Join(dir, "AGENTS.md")); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+	if always := ed.AlwaysChips(); len(always) != 0 {
+		t.Fatalf("AlwaysChips() included symlinked brief.yaml/AGENTS.md: %+v", always)
+	}
+	for _, m := range ed.SearchMentions("", editor.MentionGroupRules) {
+		if strings.Contains(m.Meta, "TOP_SECRET_OUTSIDE_DATA") || strings.Contains(m.Meta, "SUBDIR_SECRET_LEAK") {
+			t.Fatalf("SearchMentions leaked symlinked rule summary: %+v", m)
+		}
+	}
+
+	// 3. Oversized file (> 1 MiB) is refused cleanly without reading unbounded memory.
+	bigData := bytes.Repeat([]byte("a"), (1<<20)+128)
+	if err := os.WriteFile(filepath.Join(dir, "rules", "huge.md"), bigData, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bigPayload := ed.ResolveChipPayload(editor.AgentContextChip{
+		ID:     "file:rules/huge.md",
+		Kind:   editor.ChipKindFile,
+		Target: "rules/huge.md",
+	})
+	if bigPayload.Text != "" {
+		t.Fatalf("oversized file should not be loaded into payload text, got len=%d", len(bigPayload.Text))
+	}
+
+	// 4. Image decompression bomb (5000x5000 PNG header) does not decode RGBA pixels.
+	if err := os.WriteFile(filepath.Join(dir, "art", "enemies", "bomb.png"), makeFakeDimensionPNG(5000, 5000), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bombPayload := ed.ResolveChipPayload(editor.AgentContextChip{
+		ID:     "asset:art/enemies/bomb.png",
+		Kind:   editor.ChipKindAsset,
+		Target: "art/enemies/bomb.png",
+	})
+	if bombPayload.ImagePNG != nil || bombPayload.ImageSrc.Pixels != nil {
+		t.Fatal("oversized dimension PNG must not be decoded into pixel buffers")
+	}
+	if !strings.Contains(bombPayload.Header, "5000 × 5000") {
+		t.Fatalf("expected dimension header for oversized PNG, got %q", bombPayload.Header)
+	}
+
+	// 5. UTF-8 rune-safe truncation for multi-byte CJK rules and thread summaries.
+	cjkRule := strings.Repeat("这是中文规则测试内容", 20) + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "rules", "cjk.md"), []byte(cjkRule), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range ed.SearchMentions("cjk", editor.MentionGroupRules) {
+		if !utf8.ValidString(m.Meta) {
+			t.Fatalf("CJK rule meta truncated mid-rune (invalid UTF-8): %q", m.Meta)
+		}
+	}
+	ed.AddAgentThreadTurn(editor.AgentThreadTurn{
+		Prompt: strings.Repeat("调整关卡障碍物与敌人速度", 20),
+		Reply:  strings.Repeat("已完成史莱姆巡逻路径优化", 20),
+	})
+	ed.AddAgentThreadTurn(editor.AgentThreadTurn{Prompt: "最后一步微调"})
+	summary, err := ed.CompactAgentThread()
+	if err != nil {
+		t.Fatalf("CompactAgentThread: %v", err)
+	}
+	if !utf8.ValidString(summary) {
+		t.Fatalf("compacted CJK summary contains invalid UTF-8: %q", summary)
+	}
+}
+
+func TestComposerAttachedChipCapAndContextBudget(t *testing.T) {
+	dir, ed := setupComposerProject(t)
+
+	// Create 35 small files and verify the 32-chip cap.
+	for i := 0; i < 35; i++ {
+		rel := filepath.Join("rules", "f"+string(rune('a'+i/26))+string(rune('a'+i%26))+".txt")
+		if err := os.WriteFile(filepath.Join(dir, rel), []byte("ok\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		_, err := ed.AttachFileChip(filepath.ToSlash(rel))
+		if i < 32 && err != nil {
+			t.Fatalf("AttachFileChip #%d failed unexpectedly: %v", i, err)
+		}
+		if i >= 32 && err == nil {
+			t.Fatalf("AttachFileChip #%d should fail once chip cap (32) is reached", i)
+		}
+	}
+	if got := len(ed.ComposerChips()); got != 32 {
+		t.Fatalf("len(ComposerChips()) = %d, want 32", got)
+	}
+
+	// Verify 2 MiB assembled context budget truncates cleanly with valid UTF-8.
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatal(err)
+	}
+	chunk := strings.Repeat("关卡配置行内容\n", 45000) // ~945 KiB each, under 1 MiB per file
+	for _, name := range []string{"big1.txt", "big2.txt", "big3.txt"} {
+		if err := os.WriteFile(filepath.Join(dir, "rules", name), []byte(chunk), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := ed.AttachFileChip("rules/" + name); err != nil {
+			t.Fatalf("AttachFileChip(%s): %v", name, err)
+		}
+	}
+	req := ed.AssembleAgentRequest("Review big files")
+	if len(req.AssembledContext) > (2 << 20) {
+		t.Fatalf("AssembledContext len = %d exceeds 2 MiB budget", len(req.AssembledContext))
+	}
+	if !utf8.ValidString(req.AssembledContext) {
+		t.Fatal("truncated AssembledContext is not valid UTF-8")
+	}
+	if !strings.Contains(req.AssembledContext, "truncated to context budget") {
+		t.Fatal("expected truncation marker when exceeding 2 MiB budget")
+	}
+}
+
+func TestComposerFocusStabilityThemeSwitchAndUnmountTypingSafety(t *testing.T) {
+	_, ed := setupComposerProject(t)
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1400, 900))
+
+	app.Press("id:right-tab-agent")
+	app.Settle()
+
+	app.Focus("id:agent-composer-input")
+	app.Settle()
+	if !ed.IsTyping() {
+		t.Fatal("expected IsTyping() == true while agent composer input is focused")
+	}
+
+	// Type @sli and toggle Dark -> Light -> Dark appearance mid-typing: input must stay mounted and focused.
+	app.Type("id:agent-composer-input", "Move @sli")
+	app.Settle()
+	app.Post(func() {
+		_ = ed.SetAppearance(editor.AppearanceLight)
+	})
+	app.Settle()
+	if !app.Exists("id:agent-composer-input") {
+		t.Fatal("composer input missing after switching to Spec Light")
+	}
+	if got := ed.ComposerDraft(); got != "Move @sli" {
+		t.Fatalf("draft after theme switch = %q, want %q", got, "Move @sli")
+	}
+	if !ed.IsTyping() {
+		t.Fatal("expected composer input to keep focus across Spec Dark -> Light switch")
+	}
+
+	// Switching right rail back to Inspector while focused unmounts AgentComposerView:
+	// IsTyping() MUST return false (no leaked textInputFocusCount).
+	app.Post(func() {
+		ed.SetRightRailTab(editor.RightTabInspector)
+	})
+	app.Settle()
+	if ed.IsTyping() {
+		t.Fatal("IsTyping() remained stuck true after unmounting AgentComposerView")
+	}
+}
+
+func TestComposerShortcutIsolationAndNoDoubleFire(t *testing.T) {
+	_, ed := setupComposerProject(t)
+
+	sendCount := 0
+	ed.OnSendAgentComposerRequest = func(req editor.AgentRequest) (editor.AgentResponse, error) {
+		sendCount++
+		return editor.AgentResponse{Reply: "ok"}, nil
+	}
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1400, 900))
+	app.Press("id:right-tab-agent")
+	app.Settle()
+
+	// 1. Backspace in empty composer must remove EXACTLY 1 chip per press (no OnKeyPress + OnKeyWith double-fire).
+	if _, err := ed.AttachObjectChip("door"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ed.AttachObjectChip("lever_01"); err != nil {
+		t.Fatal(err)
+	}
+	app.Settle()
+	app.Focus("id:agent-composer-input")
+	app.Key("backspace")
+	app.Settle()
+	if chips := ed.ComposerChips(); len(chips) != 1 || chips[0].Target != "door" {
+		t.Fatalf("after 1 Backspace, chips = %+v, want [door] (1 removed, not 2)", chips)
+	}
+
+	// 2. Pressing Enter while @-mention picker is open adds the chip and NEVER prematurely sends.
+	app.Type("id:agent-composer-input", "Adjust @slime_02")
+	app.Settle()
+	if !ed.MentionPickerOpen() {
+		t.Fatal("expected mention picker open")
+	}
+	app.Key("enter")
+	app.Settle()
+	if sendCount != 0 {
+		t.Fatalf("Enter on mention picker prematurely sent %d requests", sendCount)
+	}
+	if ed.MentionPickerOpen() {
+		t.Fatal("expected mention picker closed after Enter")
+	}
+
+	// 3. When Settings modal opens while mention picker is open, Tab/Down/Esc must NOT drive the mention picker behind the modal.
+	app.Post(func() {
+		ed.OpenMentionPicker("sli")
+		ed.SetSettingsOpen(true)
+	})
+	app.Settle()
+	groupBefore := ed.MentionPickerGroup()
+	idxBefore := ed.MentionPickerActiveIndex()
+	app.Key("tab")
+	app.Key("down")
+	app.Settle()
+	if ed.MentionPickerGroup() != groupBefore || ed.MentionPickerActiveIndex() != idxBefore {
+		t.Fatalf("composer picker keys leaked behind Settings modal: group %q->%q idx %d->%d",
+			groupBefore, ed.MentionPickerGroup(), idxBefore, ed.MentionPickerActiveIndex())
+	}
+	app.Post(func() {
+		ed.SetSettingsOpen(false)
+	})
+	app.Settle()
+
+	// 4. Opening Ask-in-place closes composer popovers cleanly.
+	app.Post(func() {
+		ed.OpenMentionPicker("sli")
+		_ = ed.OpenAskInPlace()
+	})
+	app.Settle()
+	if ed.MentionPickerOpen() {
+		t.Fatal("opening Ask-in-place must close mention picker popover")
+	}
+}
+
+func TestComposerLifecycleResetsAndLiveBriefRulesSync(t *testing.T) {
+	dir, ed := setupComposerProject(t)
+
+	// 1. Live edits to brief.yaml and AGENTS.md via #1026 APIs sync immediately into AlwaysChips & ResolveChipPayload.
+	if err := ed.EditBrief("Update pitch", func(b *project.Brief) {
+		b.Pitch = "Fast subterranean platformer"
+	}); err != nil {
+		t.Fatalf("EditBrief: %v", err)
+	}
+	if err := ed.SetProjectRules("Update project rules", "# Rules\n- Keep slime speed <= 60.\n"); err != nil {
+		t.Fatalf("SetProjectRules: %v", err)
+	}
+	req := ed.AssembleAgentRequest("Check rules")
+	if !strings.Contains(req.AssembledContext, "Fast subterranean platformer") {
+		t.Fatalf("AssembledContext missing live brief edit:\n%s", req.AssembledContext)
+	}
+	if !strings.Contains(req.AssembledContext, "Keep slime speed <= 60.") {
+		t.Fatalf("AssembledContext missing live AGENTS.md edit:\n%s", req.AssembledContext)
+	}
+
+	// 2. NewScene & SelectTab close transient popovers.
+	ed.OpenMentionPicker("sli")
+	ed.SetContextBreakdownOpen(true)
+	if _, err := ed.NewScene("scenes/level_02.scene.yaml"); err != nil {
+		t.Fatalf("NewScene: %v", err)
+	}
+	if ed.MentionPickerOpen() || ed.ContextBreakdownOpen() {
+		t.Fatal("NewScene must close transient composer popovers")
+	}
+	ed.OpenMentionPicker("sli")
+	if err := ed.SelectTab(0); err != nil {
+		t.Fatalf("SelectTab(0): %v", err)
+	}
+	if ed.MentionPickerOpen() {
+		t.Fatal("SelectTab must close transient composer popovers")
+	}
+
+	// 3. Play-in-editor closes popovers and blocks TriggerAskAgentShortcut.
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1200, 800))
+	app.Post(func() {
+		ed.OpenMentionPicker("sli")
+		if err := ed.Play(); err != nil {
+			t.Errorf("Play: %v", err)
+		}
+	})
+	app.Settle()
+	if ed.MentionPickerOpen() {
+		t.Fatal("Play must close composer popovers")
+	}
+	if err := ed.TriggerAskAgentShortcut(); err != editor.ErrPlaying {
+		t.Fatalf("TriggerAskAgentShortcut during Play = %v, want ErrPlaying", err)
+	}
+	app.Post(func() {
+		_ = ed.Stop()
+	})
+	app.Settle()
+
+	// 4. OpenDemo resets composer chips, draft, turns, and popovers.
+	_, _ = ed.AttachObjectChip("door")
+	ed.SetComposerDraft("Leftover draft")
+	ed.AddAgentThreadTurn(editor.AgentThreadTurn{Prompt: "Old project turn"})
+	if err := ed.OpenDemo(); err != nil {
+		t.Fatalf("OpenDemo: %v", err)
+	}
+	if len(ed.ComposerChips()) != 0 || ed.ComposerDraft() != "" || len(ed.AgentThreadTurns()) != 0 {
+		t.Fatalf("OpenDemo did not reset composer state: chips=%d draft=%q turns=%d",
+			len(ed.ComposerChips()), ed.ComposerDraft(), len(ed.AgentThreadTurns()))
+	}
+
+	// 5. Reopening project resets cleanly too.
+	if err := ed.OpenProject(dir); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+	if len(ed.ComposerChips()) != 0 || ed.MentionPickerOpen() || ed.ContextBreakdownOpen() {
+		t.Fatal("OpenProject did not reset composer state")
 	}
 }

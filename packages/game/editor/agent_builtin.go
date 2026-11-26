@@ -656,7 +656,7 @@ func (e *Editor) submitAgentTaskPromptInternal(task AgentTaskKind, prompt string
 		}
 	}
 	req.AgentKind = agentKind
-	reqCopy := req
+	reqCopy := cloneAgentRequest(req)
 	e.agentComposer.lastRequest = &reqCopy
 	now := e.nowTime()
 	turnImages := make([]AgentReferenceImage, len(allImgs))

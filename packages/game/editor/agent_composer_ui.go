@@ -141,6 +141,14 @@ func agentComposerThreadNodes(ed *Editor, p SpecPalette, turns []AgentThreadTurn
 func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	inputRef := &core.Ref{}
 	composerFocused := core.NewSignal(cx, false)
+	var textInputFocused bool
+	var suppressSubmit bool
+	cx.Cleanup(func() {
+		if textInputFocused {
+			textInputFocused = false
+			ed.noteTextInputFocus(false)
+		}
+	})
 	if ed.focus.ctrl != nil {
 		ed.focus.ctrl.registerCandidate(cx, RegionInspector, inputRef, func() bool {
 			return ed.RightRailTab() == RightTabAgent
@@ -160,36 +168,64 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 
 	// Shift+Enter inserts a newline while the composer is focused; plain Enter submits.
 	cx.OnKeyWith("shift+enter", core.KeyOptions{When: core.KeyAlways}, func() {
-		if composerFocused.Get() && !ed.MentionPickerOpen() {
+		if ed.composerKeysBlocked() {
+			return
+		}
+		if (composerFocused.Get() || inputRef.HoldsFocus()) && !ed.MentionPickerOpen() {
 			ed.InsertAgentComposerNewline()
 		}
 	})
 
 	// Keyboard navigation while the @-mention picker is open (↑↓ move, ↵ add, Tab next group, Esc close).
+	// Unmounted automatically whenever a higher-priority modal, Play-in-editor, or non-Agent tab is active.
 	pickerKeyScope := core.Show{
 		When: func() bool {
 			_ = rev.Get()
-			return ed.MentionPickerOpen()
+			return ed.MentionPickerOpen() && !ed.composerKeysBlocked()
 		},
 		Then: func(cx *core.Scope) core.Node {
 			opts := core.KeyOptions{When: core.KeyAlways}
 			cx.OnKeyWith("down", opts, func() {
+				if ed.composerKeysBlocked() {
+					return
+				}
 				ed.MoveMentionSelection(+1)
 			})
 			cx.OnKeyWith("up", opts, func() {
+				if ed.composerKeysBlocked() {
+					return
+				}
 				ed.MoveMentionSelection(-1)
 			})
 			cx.OnKeyWith("tab", opts, func() {
+				if ed.composerKeysBlocked() {
+					return
+				}
 				ed.CycleMentionPickerGroup(+1)
 			})
 			cx.OnKeyWith("shift+tab", opts, func() {
+				if ed.composerKeysBlocked() {
+					return
+				}
 				ed.CycleMentionPickerGroup(-1)
 			})
 			cx.OnKeyWith("enter", opts, func() {
+				if ed.composerKeysBlocked() {
+					return
+				}
+				suppressSubmit = true
 				ed.AcceptActiveMention()
+				inputRef.Focus()
+				cx.Post(func() {
+					suppressSubmit = false
+				})
 			})
 			cx.OnKeyWith("escape", opts, func() {
+				if ed.composerKeysBlocked() {
+					return
+				}
 				ed.CloseMentionPicker()
+				inputRef.Focus()
 			})
 			return nil
 		},
@@ -199,10 +235,13 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 	breakdownKeyScope := core.Show{
 		When: func() bool {
 			_ = rev.Get()
-			return ed.ContextBreakdownOpen()
+			return ed.ContextBreakdownOpen() && !ed.composerKeysBlocked()
 		},
 		Then: func(cx *core.Scope) core.Node {
 			cx.OnKeyWith("escape", core.KeyOptions{When: core.KeyAlways}, func() {
+				if ed.composerKeysBlocked() {
+					return
+				}
 				ed.SetContextBreakdownOpen(false)
 			})
 			return nil
@@ -212,35 +251,102 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 	// Composer keys while picker is closed: Backspace removes last attached chip in empty composer,
 	// Mod+Enter sends, Up recalls last prompt when empty.
 	cx.OnKeyWith("backspace", core.KeyOptions{When: core.KeyAlways}, func() {
-		if ed.MentionPickerOpen() || ed.ComposerDraft() != "" {
+		if ed.composerKeysBlocked() || ed.MentionPickerOpen() || ed.ComposerDraft() != "" {
 			return
 		}
-		if inputRef.HoldsFocus() {
+		if inputRef.HoldsFocus() || composerFocused.Get() {
 			ed.RemoveLastComposerChip()
 		}
 	})
 	cx.OnKeyWith("mod+enter", core.KeyOptions{When: core.KeyAlways}, func() {
-		if !inputRef.HoldsFocus() {
+		if ed.composerKeysBlocked() {
+			return
+		}
+		if !inputRef.HoldsFocus() && !composerFocused.Get() {
 			return
 		}
 		if ed.MentionPickerOpen() {
+			suppressSubmit = true
 			ed.AcceptActiveMention()
+			inputRef.Focus()
+			cx.Post(func() {
+				suppressSubmit = false
+			})
 			return
 		}
 		ed.submitComposerFromUI()
 	})
 	cx.OnKeyWith("up", core.KeyOptions{When: core.KeyAlways}, func() {
-		if ed.MentionPickerOpen() || ed.ComposerDraft() != "" {
+		if ed.composerKeysBlocked() || ed.MentionPickerOpen() || ed.ComposerDraft() != "" {
 			return
 		}
-		if inputRef.HoldsFocus() {
+		if inputRef.HoldsFocus() || composerFocused.Get() {
 			ed.RecallLastComposerPrompt()
 		}
 	})
 
-	// Popovers above the composer card (dynamic on rev).
-	popoversView := core.Dynamic(func(cx *core.Scope) core.Node {
+	// Fine-grained memo keys so normal typing in composerInput never triggers disk I/O or rebuilds
+	// chip rows, action buttons, or popovers on every keystroke.
+	popoverKey := core.NewMemo(cx, func() string {
 		_ = rev.Get()
+		pickerOpen := ed.MentionPickerOpen()
+		breakdownOpen := ed.ContextBreakdownOpen()
+		hovered := ed.HoveredChipID()
+		if !pickerOpen && !breakdownOpen && hovered == "" {
+			return ""
+		}
+		dark := ed.SpecPalette(cx).Dark
+		lang := ed.ResolvedLanguage()
+		var b strings.Builder
+		fmt.Fprintf(&b, "%v|%s|%v|%v|%s|", dark, lang, pickerOpen, breakdownOpen, hovered)
+		if pickerOpen {
+			fmt.Fprintf(&b, "p:%s|%s|%d|%d|%d|%d|",
+				ed.MentionPickerGroup(), ed.MentionPickerQuery(), ed.MentionPickerActiveIndex(),
+				len(ed.agentComposer.attached), ed.filesRev, ed.Revision())
+		}
+		if breakdownOpen {
+			fmt.Fprintf(&b, "b:%d|%d|%v|%d|",
+				ed.agentComposer.threadRev, len(ed.agentComposer.attached), ed.ViewportImageIncluded(), ed.Revision())
+		}
+		if hovered != "" {
+			fmt.Fprintf(&b, "h:%s|%d|", hovered, ed.Revision())
+		}
+		return b.String()
+	})
+
+	chipRowsKey := core.NewMemo(cx, func() string {
+		_ = rev.Get()
+		dark := ed.SpecPalette(cx).Dark
+		lang := ed.ResolvedLanguage()
+		var b strings.Builder
+		fmt.Fprintf(&b, "%v|%s|%s|%s|%v|%s|%d|%d|",
+			dark, lang, ed.SelectedID, ed.HoveredChipID(), ed.ViewportImageIncluded(),
+			ed.ProjectPath, ed.filesRev, ed.AgentDocsRevision())
+		for _, c := range ed.agentComposer.attached {
+			b.WriteString(c.ID)
+			b.WriteByte('=')
+			b.WriteString(c.Name)
+			b.WriteByte(';')
+		}
+		return b.String()
+	})
+
+	actionsKey := core.NewMemo(cx, func() string {
+		_ = rev.Get()
+		dark := ed.SpecPalette(cx).Dark
+		lang := ed.ResolvedLanguage()
+		hasDraft := strings.TrimSpace(ed.ComposerDraft()) != ""
+		meter := ed.ContextMeter()
+		return fmt.Sprintf("%v|%s|%v|%v|%v|%v|%d|%d",
+			dark, lang, ed.MentionPickerOpen(), ed.ContextBreakdownOpen(),
+			hasDraft, ed.AgentWorking(), meter.Percent, meter.Level)
+	})
+
+	// Popovers above the composer card (rebuilt only when popoverKey changes).
+	popoversView := core.Dynamic(func(cx *core.Scope) core.Node {
+		if popoverKey.Get() == "" {
+			return nil
+		}
 		p := ed.SpecPalette(cx)
 		pickerOpen := ed.MentionPickerOpen()
 		breakdownOpen := ed.ContextBreakdownOpen()
@@ -248,7 +354,7 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 
 		var topPopovers []core.Node
 		if pickerOpen {
-			topPopovers = append(topPopovers, mentionPickerView(p, ed))
+			topPopovers = append(topPopovers, mentionPickerView(p, ed, inputRef))
 		}
 		if breakdownOpen {
 			topPopovers = append(topPopovers, contextBreakdownView(p, ed))
@@ -267,7 +373,7 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 
 	// Chip rows (attached, suggested, always, viewport image toggle) above the stable Input.
 	chipRowsView := core.Dynamic(func(cx *core.Scope) core.Node {
-		_ = rev.Get()
+		_ = chipRowsKey.Get()
 		p := ed.SpecPalette(cx)
 		attached := ed.ComposerChips()
 		suggested, hasSuggested := ed.SuggestedChip()
@@ -337,6 +443,7 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 						},
 						OnPress: func(core.PressEvent) {
 							ed.RemoveComposerChip(chip.ID)
+							inputRef.Focus()
 						},
 						Children: []core.Node{
 							specIcon(lucide.X, 10, p.TextMuted),
@@ -357,7 +464,7 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 					Gap:          specSpace4,
 					Padding:      core.Symmetric(0, specSpace8),
 					CornerRadius: specRadiusControl,
-					Background:   core.RGBA(0x000000, 0),
+					Background:   core.Transparent,
 					BorderWidth:  1,
 					BorderColor:  p.LineRaised,
 					Cursor:       core.CursorPointer,
@@ -366,6 +473,7 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 				},
 				OnPress: func(core.PressEvent) {
 					ed.AcceptSuggestedChip()
+					inputRef.Focus()
 				},
 				Children: []core.Node{
 					specIcon(lucide.Plus, 10, p.TextMuted),
@@ -431,7 +539,7 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 			})
 		}
 
-		vpBg := core.RGBA(0x000000, 0)
+		vpBg := core.Transparent
 		vpBorder := p.LineRaised
 		vpText := p.TextFaint
 		if vpOn {
@@ -519,21 +627,22 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 
 	// Action bar (@, context meter ring, Send) below the stable Input.
 	actionsView := core.Dynamic(func(cx *core.Scope) core.Node {
-		_ = rev.Get()
+		_ = actionsKey.Get()
 		p := ed.SpecPalette(cx)
 		pickerOpen := ed.MentionPickerOpen()
 		breakdownOpen := ed.ContextBreakdownOpen()
 		meter := ed.ContextMeter()
 
-		atBg := core.RGBA(0x000000, 0)
+		atBg := core.Transparent
 		atFg := p.TextMuted
 		if pickerOpen {
 			atBg = p.LineRaised
 			atFg = p.TextPrimary
 		}
 
-		ringBtnBg := core.RGBA(0x000000, 0)
-		ringBtnBorder := core.RGBA(0x000000, 0)
+		ringBtnBg := core.Transparent
+		ringBtnHoverBg := p.LineRaised
+		ringBtnBorder := core.Transparent
 		var ringBtnBorderW core.Points
 		ringTextCol := p.TextMuted
 		switch meter.Level {
@@ -541,6 +650,7 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 			ringTextCol = p.Changed.Fg
 		case ContextMeterCritical:
 			ringBtnBg = p.Warning.Fill
+			ringBtnHoverBg = p.Warning.Fill
 			ringBtnBorder = p.Warning.Edge
 			ringBtnBorderW = 1
 			ringTextCol = p.Warning.Fg
@@ -564,9 +674,10 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 
 		var actionBtn core.Node
 		if ed.AgentWorking() {
+			stopLabel := ed.T("toolbar.stop")
 			actionBtn = base.Button{
 				TestID: "agent-composer-stop",
-				Label:  "Stop",
+				Label:  stopLabel,
 				Style: core.Style{
 					Direction:      core.Row,
 					AlignItems:     core.AlignCenter,
@@ -592,7 +703,7 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 						},
 					},
 					core.Text{
-						Content: "Stop",
+						Content: stopLabel,
 						Style: core.Style{
 							FontSize:   12,
 							FontWeight: core.FontWeightMedium,
@@ -653,6 +764,7 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 					},
 					OnPress: func(core.PressEvent) {
 						ed.ToggleMentionPicker()
+						inputRef.Focus()
 					},
 					Children: []core.Node{
 						specIcon(lucide.AtSign, specIconSize, atFg),
@@ -674,7 +786,7 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 						BorderWidth:  ringBtnBorderW,
 						BorderColor:  ringBtnBorder,
 						Cursor:       core.CursorPointer,
-						Hover:        &core.Style{Background: p.LineRaised},
+						Hover:        &core.Style{Background: ringBtnHoverBg},
 						FocusVisible: p.FocusRing(2),
 					},
 					OnPress: func(core.PressEvent) {
@@ -716,23 +828,32 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 		},
 		OnFocus: func() {
 			composerFocused.Set(true)
-			ed.noteTextInputFocus(true)
+			if !textInputFocused {
+				textInputFocused = true
+				ed.noteTextInputFocus(true)
+			}
 		},
 		OnBlur: func() {
 			composerFocused.Set(false)
-			ed.noteTextInputFocus(false)
+			if textInputFocused {
+				textInputFocused = false
+				ed.noteTextInputFocus(false)
+			}
 		},
 		OnChange: func(v string) {
 			ed.updateComposerDraftFromInput(v)
 		},
-		OnKeyPress: func(key string) {
-			if key == "Backspace" && ed.ComposerDraft() == "" && !ed.MentionPickerOpen() {
-				ed.RemoveLastComposerChip()
-			}
-		},
 		OnSubmit: func(string) {
+			if suppressSubmit {
+				suppressSubmit = false
+				return
+			}
+			if ed.composerKeysBlocked() {
+				return
+			}
 			if ed.MentionPickerOpen() {
 				ed.AcceptActiveMention()
+				inputRef.Focus()
 				return
 			}
 			ed.submitComposerFromUI()
@@ -799,7 +920,9 @@ func AgentComposerView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 	}
 }
 
-func mentionPickerView(p SpecPalette, ed *Editor) core.Node {
+const maxMentionPickerRenderedRows = 200
+
+func mentionPickerView(p SpecPalette, ed *Editor, inputRef *core.Ref) core.Node {
 	items := ed.MentionPickerItems()
 	activeGroup := ed.MentionPickerGroup()
 	activeIdx := ed.MentionPickerActiveIndex()
@@ -837,6 +960,9 @@ func mentionPickerView(p SpecPalette, ed *Editor) core.Node {
 			},
 			OnPress: func(core.PressEvent) {
 				ed.SetMentionPickerGroup(grp)
+				if inputRef != nil {
+					inputRef.Focus()
+				}
 			},
 			Children: []core.Node{
 				core.Text{
@@ -851,10 +977,11 @@ func mentionPickerView(p SpecPalette, ed *Editor) core.Node {
 		})
 	}
 
+	renderedLimit := min(len(items), maxMentionPickerRenderedRows)
 	var rowNodes []core.Node
 	var lastGroup MentionGroup
-	for i, it := range items {
-		item := it
+	for i := 0; i < renderedLimit; i++ {
+		item := items[i]
 		if item.Group != lastGroup {
 			lastGroup = item.Group
 			rowNodes = append(rowNodes, core.View{
@@ -867,8 +994,8 @@ func mentionPickerView(p SpecPalette, ed *Editor) core.Node {
 			})
 		}
 		isActive := i == activeIdx
-		rowBg := core.RGBA(0x000000, 0)
-		rowBorder := core.RGBA(0x000000, 0)
+		rowBg := core.Transparent
+		rowBorder := core.Transparent
 		var rowBorderW core.Points
 		if isActive {
 			rowBg = p.Accent.Fill
@@ -895,6 +1022,9 @@ func mentionPickerView(p SpecPalette, ed *Editor) core.Node {
 			},
 			OnPress: func(core.PressEvent) {
 				ed.AcceptMentionItem(item.ID)
+				if inputRef != nil {
+					inputRef.Focus()
+				}
 			},
 			Children: []core.Node{
 				core.View{

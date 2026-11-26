@@ -969,7 +969,8 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 	threadKey := core.NewMemo(cx, func() string {
 		_ = rev.Get()
 		var b strings.Builder
-		fmt.Fprintf(&b, "%s|%s|seq=%d|at=%d|rev=%s:%d|off=%v|lim=%v|q=%d|pt=%s|rv=%s|t=%d|th=%d:%s:%s|ct=%d:%d:%s|",
+		fmt.Fprintf(&b, "%v|%s|%s|seq=%d|at=%d|rev=%s:%d|off=%v|lim=%v|q=%d|pt=%s|rv=%s|t=%d|th=%d:%s:%s|ct=%d:%d:%d:%s|",
+			ed.SpecPalette(cx).Dark,
 			ed.ResolvedLanguage(),
 			ed.AgentStatus(),
 			ed.AgentTurnSeq(),
@@ -986,6 +987,7 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 			ed.agentThreads.activeThreadID,
 			ed.agentThreads.expandedRequestID,
 			len(ed.agentComposer.turns),
+			ed.agentComposer.threadRev,
 			len(ed.AgentThreadSummary()),
 			ed.AgentThreadID(),
 		)
@@ -1034,135 +1036,141 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 		return ed.SpecPalette(cx).Dark
 	})
 
-	return core.Dynamic(func(cx *core.Scope) core.Node {
+	tabBar := core.Dynamic(func(cx *core.Scope) core.Node {
 		p := SpecPaletteFor(darkMemo.Get())
-		bodyArea := core.Dynamic(func(cx *core.Scope) core.Node {
-			_ = threadKey.Get()
-			turns := ed.AgentTurns()
-			composerTurns := ed.AgentThreadTurns()
-			summary := ed.AgentThreadSummary()
-			openReq := ed.AgentOpenRequest()
-			hasReviewCard := ed.HasAgentPanelCard()
-			dtPending := ed.DataTableReviewPending()
-			queued := ed.AgentQueuedRequests()
-			var limitQueued []AgentQueuedRequest
-			for _, q := range queued {
-				if !q.Offline {
-					limitQueued = append(limitQueued, q)
-				}
-			}
-			limitReached := ed.AgentWeeklyLimitReached()
-			active := ed.ActiveAgentThread()
-			turnSnap, hasPendingTurn := ed.CurrentAgentTurn()
-			activeRev := ed.ActiveAgentReview()
-			offlineNodes := agentOfflineAndQueueSection(ed, p)
+		return rightRailTabBar(cx, ed, rev, p, true)
+	})
 
-			if active != nil && len(active.Requests) > 0 {
-				return agentThreadConversationBody(cx, ed, rev, p, active, turns, openReq, openReqRef)
+	bodyArea := core.Dynamic(func(cx *core.Scope) core.Node {
+		_ = threadKey.Get()
+		p := ed.SpecPalette(cx)
+		turns := ed.AgentTurns()
+		composerTurns := ed.AgentThreadTurns()
+		summary := ed.AgentThreadSummary()
+		openReq := ed.AgentOpenRequest()
+		hasReviewCard := ed.HasAgentPanelCard()
+		dtPending := ed.DataTableReviewPending()
+		queued := ed.AgentQueuedRequests()
+		var limitQueued []AgentQueuedRequest
+		for _, q := range queued {
+			if !q.Offline {
+				limitQueued = append(limitQueued, q)
 			}
-			ready := ed.ReadyToReviewTurns()
-			if summary != "" || len(turns) > 0 || len(composerTurns) > 0 || openReq != nil || len(ready) > 0 || hasReviewCard || dtPending || len(queued) > 0 || limitReached || hasPendingTurn || len(offlineNodes) > 0 || activeRev != nil {
-				var items []core.Node
-				if len(ready) > 0 {
-					items = append(items, agentReadyToReviewBanner(ed, p, len(ready)))
-				}
-				if limitReached {
-					items = append(items, agentLimitReachedCard(ed, p))
-					if len(limitQueued) > 0 {
-						items = append(items, agentQueuedRequestsView(ed, limitQueued, limitReached, p))
-					}
-				}
-				if summary != "" {
-					items = append(items, agentComposerSummaryCard(ed, p, summary))
-				}
-				for ti, turn := range turns {
-					items = append(items, agentTurnView(ed, rev, ti, turn, p))
-				}
-				if len(composerTurns) > 0 {
-					items = append(items, agentComposerThreadNodes(ed, p, composerTurns)...)
-				}
-				if hasReviewCard {
-					items = append(items, agentReviewPanelCards(ed, p, turns)...)
-				}
-				if dtPending {
-					items = append(items, agentPendingDataTableReviewCard(ed, p))
-				}
-				if hasPendingTurn {
-					items = append(items, agentTurnSection(cx, ed, p, turnSnap))
-				}
-				if len(offlineNodes) > 0 {
-					items = append(items, offlineNodes...)
-				}
-				if activeRev != nil {
-					items = append(items, agentTurnReviewDrawer(ed, activeRev, p))
-				}
-				if openReq != nil && !strings.HasSuffix(openReq.ID, "-stuck") && !strings.HasSuffix(openReq.ID, "-reconnect-ask") {
-					items = append(items, agentOpenRequestCard(ed, openReq, openReqRef, p))
-				}
-				if !limitReached && len(limitQueued) > 0 {
+		}
+		limitReached := ed.AgentWeeklyLimitReached()
+		active := ed.ActiveAgentThread()
+		turnSnap, hasPendingTurn := ed.CurrentAgentTurn()
+		activeRev := ed.ActiveAgentReview()
+		offlineNodes := agentOfflineAndQueueSection(ed, p)
+
+		if active != nil && len(active.Requests) > 0 {
+			return agentThreadConversationBody(cx, ed, rev, p, active, turns, openReq, openReqRef)
+		}
+		ready := ed.ReadyToReviewTurns()
+		if summary != "" || len(turns) > 0 || len(composerTurns) > 0 || openReq != nil || len(ready) > 0 || hasReviewCard || dtPending || len(queued) > 0 || limitReached || hasPendingTurn || len(offlineNodes) > 0 || activeRev != nil {
+			var items []core.Node
+			if len(ready) > 0 {
+				items = append(items, agentReadyToReviewBanner(ed, p, len(ready)))
+			}
+			if limitReached {
+				items = append(items, agentLimitReachedCard(ed, p))
+				if len(limitQueued) > 0 {
 					items = append(items, agentQueuedRequestsView(ed, limitQueued, limitReached, p))
 				}
-				return ui.ScrollView{
-					TestID: "agent-thread-scroll",
-					Style: core.Style{
-						FlexGrow:  1,
-						FlexBasis: core.Pt(0),
-					},
-					Children: []core.Node{
-						core.View{
-							TestID: "agent-thread-list",
-							Style: core.Style{
-								Gap:     14,
-								Padding: core.All(16),
-							},
-							Children: items,
-						},
-					},
-				}
 			}
-			return agentEmptyThreadBody(cx, ed, p)
-		})
+			if summary != "" {
+				items = append(items, agentComposerSummaryCard(ed, p, summary))
+			}
+			for ti, turn := range turns {
+				items = append(items, agentTurnView(ed, rev, ti, turn, p))
+			}
+			if len(composerTurns) > 0 {
+				items = append(items, agentComposerThreadNodes(ed, p, composerTurns)...)
+			}
+			if hasReviewCard {
+				items = append(items, agentReviewPanelCards(ed, p, turns)...)
+			}
+			if dtPending {
+				items = append(items, agentPendingDataTableReviewCard(ed, p))
+			}
+			if hasPendingTurn {
+				items = append(items, agentTurnSection(cx, ed, p, turnSnap))
+			}
+			if len(offlineNodes) > 0 {
+				items = append(items, offlineNodes...)
+			}
+			if activeRev != nil {
+				items = append(items, agentTurnReviewDrawer(ed, activeRev, p))
+			}
+			if openReq != nil && !strings.HasSuffix(openReq.ID, "-stuck") && !strings.HasSuffix(openReq.ID, "-reconnect-ask") {
+				items = append(items, agentOpenRequestCard(ed, openReq, openReqRef, p))
+			}
+			if !limitReached && len(limitQueued) > 0 {
+				items = append(items, agentQueuedRequestsView(ed, limitQueued, limitReached, p))
+			}
+			return ui.ScrollView{
+				TestID: "agent-thread-scroll",
+				Style: core.Style{
+					FlexGrow:  1,
+					FlexBasis: core.Pt(0),
+				},
+				Children: []core.Node{
+					core.View{
+						TestID: "agent-thread-list",
+						Style: core.Style{
+							Gap:     14,
+							Padding: core.All(16),
+						},
+						Children: items,
+					},
+				},
+			}
+		}
+		return agentEmptyThreadBody(cx, ed, p)
+	})
 
-		return core.View{
-			TestID: "agent-panel",
-			Ref:    panelRef,
-			Role:   core.RoleRegion,
-			Label:  "Agent panel",
-			Style: core.Style{
+	return core.View{
+		TestID: "agent-panel",
+		Ref:    panelRef,
+		Role:   core.RoleRegion,
+		Label:  "Agent panel",
+		StyleFunc: func() core.Style {
+			p := SpecPaletteFor(darkMemo.Get())
+			return core.Style{
 				Width:       core.Pt(380),
 				FlexShrink:  0,
 				Background:  p.Panel,
 				Borders:     core.Edges{Left: 1},
 				BorderColor: p.Line,
 				Overflow:    core.Hidden,
-			},
-			Children: []core.Node{
-				rightRailTabBar(cx, ed, rev, p, true),
-				agentThreadHeaderBar(cx, ed, rev, switcherBtnRef),
-				core.View{
-					TestID: "editor-agent-panel",
-					Style: core.Style{
-						FlexGrow:  1,
-						FlexBasis: core.Pt(0),
-						Overflow:  core.Hidden,
-					},
-					Children: []core.Node{
-						bodyArea,
-						core.Show{
-							When: func() bool {
-								_ = rev.Get()
-								return ed.AgentSwitcherOpen()
-							},
-							Then: func(cx *core.Scope) core.Node {
-								return agentThreadSwitcherPopover(cx, ed, rev)
-							},
+			}
+		},
+		Children: []core.Node{
+			tabBar,
+			agentThreadHeaderBar(cx, ed, rev, switcherBtnRef),
+			core.View{
+				TestID: "editor-agent-panel",
+				Style: core.Style{
+					FlexGrow:  1,
+					FlexBasis: core.Pt(0),
+					Overflow:  core.Hidden,
+				},
+				Children: []core.Node{
+					bodyArea,
+					core.Show{
+						When: func() bool {
+							_ = rev.Get()
+							return ed.AgentSwitcherOpen()
+						},
+						Then: func(cx *core.Scope) core.Node {
+							return agentThreadSwitcherPopover(cx, ed, rev)
 						},
 					},
 				},
-				AgentComposerView(cx, ed, rev),
 			},
-		}
-	})
+			AgentComposerView(cx, ed, rev),
+		},
+	}
 }
 
 func agentReadyToReviewBanner(ed *Editor, p SpecPalette, count int) core.Node {
