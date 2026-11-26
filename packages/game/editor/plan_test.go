@@ -512,6 +512,9 @@ func TestAgentPlanUIAndScreenshots(t *testing.T) {
 	if !app.Exists("id:plan-header-pill") {
 		t.Fatal("plan-header-pill did not render")
 	}
+	if !app.Exists("id:status-plan-summary") {
+		t.Fatal("status-plan-summary did not render")
+	}
 	if !app.Exists("id:plan-files-panel") {
 		t.Fatal("plan-files-panel did not render")
 	}
