@@ -22,7 +22,7 @@ type canvasRect struct {
 //     coexisting with Selection on the same object) + dark pill with violet sparkle glyph and activity
 //   - Problem: 2 px solid problem outline + filled pill with alert glyph and message
 func (e *Editor) drawAgentLiveOverlays(d *core.Drawing, scene *sceneformat.BuiltScene) {
-	if e == nil || d == nil || scene == nil || e.playing {
+	if e == nil || d == nil || scene == nil || e.playing || e.HistoryPreviewActive() {
 		return
 	}
 	spec := e.SpecPalette(nil)
@@ -52,17 +52,17 @@ func (e *Editor) drawAgentLiveOverlays(d *core.Drawing, scene *sceneformat.Built
 		switch ov.Kind {
 		case OverlayLegendAdded:
 			drawLiveOutlineBox(d, rect, ov.OutsetPx, 1.5, spec.Added.Edge, ui.Alpha(spec.Added.Fg, 0.16), true)
-			placedPills = append(placedPills, drawMonoOverlayPill(d, rect.x+rect.w*0.5, pillBottom, ov.Label, spec.Added.Fg, ui.Alpha(spec.PillBg, 0.94), ui.Alpha(spec.Added.Edge, 0.65), placedPills))
+			placedPills = append(placedPills, drawMonoOverlayPill(d, rect.x+rect.w*0.5, pillBottom, e.canvasW, ov.Label, spec.Added.Fg, ui.Alpha(spec.PillBg, 0.94), ui.Alpha(spec.Added.Edge, 0.65), placedPills))
 
 		case OverlayLegendChanged:
 			drawLiveOutlineBox(d, rect, ov.OutsetPx, 1.5, spec.Changed.Edge, core.Transparent, true)
-			placedPills = append(placedPills, drawMonoOverlayPill(d, rect.x+rect.w*0.5, pillBottom, ov.Label, spec.Changed.Fg, ui.Alpha(spec.PillBg, 0.94), ui.Alpha(spec.Changed.Edge, 0.65), placedPills))
+			placedPills = append(placedPills, drawMonoOverlayPill(d, rect.x+rect.w*0.5, pillBottom, e.canvasW, ov.Label, spec.Changed.Fg, ui.Alpha(spec.PillBg, 0.94), ui.Alpha(spec.Changed.Edge, 0.65), placedPills))
 
 		case OverlayLegendRemoved:
 			// Grey ghost at 25% opacity with 1.5 px solid red outline.
 			ghostFill := ui.Alpha(spec.TextFaint, 0.25)
 			drawLiveOutlineBox(d, rect, ov.OutsetPx, 1.5, spec.Removed.Edge, ghostFill, false)
-			placedPills = append(placedPills, drawRemovedOverlayPill(d, rect.x+rect.w*0.5, pillBottom, ov.Detail, "removed", spec.Removed.Fg, ui.Alpha(spec.PillBg, 0.94), ui.Alpha(spec.Removed.Edge, 0.65), placedPills))
+			placedPills = append(placedPills, drawRemovedOverlayPill(d, rect.x+rect.w*0.5, pillBottom, e.canvasW, ov.Detail, "removed", spec.Removed.Fg, ui.Alpha(spec.PillBg, 0.94), ui.Alpha(spec.Removed.Edge, 0.65), placedPills))
 
 		case OverlayLegendAgent:
 			alpha := e.AgentPulseOpacity()
@@ -71,11 +71,11 @@ func (e *Editor) drawAgentLiveOverlays(d *core.Drawing, scene *sceneformat.Built
 				fill = ui.Alpha(spec.Agent.Fg, 0.18*alpha)
 			}
 			drawLiveOutlineBox(d, rect, ov.OutsetPx, 1.5, ui.Alpha(spec.Agent.Edge, alpha), fill, false)
-			placedPills = append(placedPills, drawAgentWorkingPill(d, rect.x+rect.w*0.5, pillBottom, ov.Label, spec.Agent.Fg, spec.TextSecondary, ui.Alpha(spec.PillBg, 0.94), ui.Alpha(spec.Agent.Edge, 0.7), placedPills))
+			placedPills = append(placedPills, drawAgentWorkingPill(d, rect.x+rect.w*0.5, pillBottom, e.canvasW, ov.Label, spec.Agent.Fg, spec.TextSecondary, ui.Alpha(spec.PillBg, 0.94), ui.Alpha(spec.Agent.Edge, 0.7), placedPills))
 
 		case OverlayLegendProblem:
 			drawLiveOutlineBox(d, rect, ov.OutsetPx, 2.0, spec.Problem().Edge, core.Transparent, false)
-			placedPills = append(placedPills, drawProblemOverlayPill(d, rect.x+rect.w*0.5, pillBottom, ov.Label, spec.Problem().OnFill, spec.Problem().Fg, placedPills))
+			placedPills = append(placedPills, drawProblemOverlayPill(d, rect.x+rect.w*0.5, pillBottom, e.canvasW, ov.Label, spec.Problem().OnFill, spec.Problem().Fg, placedPills))
 		}
 	}
 	d.Restore()
@@ -83,7 +83,7 @@ func (e *Editor) drawAgentLiveOverlays(d *core.Drawing, scene *sceneformat.Built
 
 // drawAgentLiveOverlays3D projects live agent overlays onto the 3D viewport canvas using the active 3D camera.
 func (e *Editor) drawAgentLiveOverlays3D(d *core.Drawing, w, h float32) {
-	if e == nil || d == nil || e.playing || w <= 0 || h <= 0 {
+	if e == nil || d == nil || e.playing || e.HistoryPreviewActive() || w <= 0 || h <= 0 {
 		return
 	}
 	overlays := e.VisibleViewportLiveOverlays()
@@ -108,20 +108,20 @@ func (e *Editor) drawAgentLiveOverlays3D(d *core.Drawing, w, h float32) {
 		switch ov.Kind {
 		case OverlayLegendAdded:
 			drawLiveOutlineBox(d, rect, ov.OutsetPx, 1.5, spec.Added.Edge, ui.Alpha(spec.Added.Fg, 0.14), true)
-			placedPills = append(placedPills, drawMonoOverlayPill(d, rect.x+rect.w*0.5, pillBottom, ov.Label, spec.Added.Fg, ui.Alpha(spec.PillBg, 0.94), ui.Alpha(spec.Added.Edge, 0.65), placedPills))
+			placedPills = append(placedPills, drawMonoOverlayPill(d, rect.x+rect.w*0.5, pillBottom, w, ov.Label, spec.Added.Fg, ui.Alpha(spec.PillBg, 0.94), ui.Alpha(spec.Added.Edge, 0.65), placedPills))
 		case OverlayLegendChanged:
 			drawLiveOutlineBox(d, rect, ov.OutsetPx, 1.5, spec.Changed.Edge, core.Transparent, true)
-			placedPills = append(placedPills, drawMonoOverlayPill(d, rect.x+rect.w*0.5, pillBottom, ov.Label, spec.Changed.Fg, ui.Alpha(spec.PillBg, 0.94), ui.Alpha(spec.Changed.Edge, 0.65), placedPills))
+			placedPills = append(placedPills, drawMonoOverlayPill(d, rect.x+rect.w*0.5, pillBottom, w, ov.Label, spec.Changed.Fg, ui.Alpha(spec.PillBg, 0.94), ui.Alpha(spec.Changed.Edge, 0.65), placedPills))
 		case OverlayLegendRemoved:
 			drawLiveOutlineBox(d, rect, ov.OutsetPx, 1.5, spec.Removed.Edge, ui.Alpha(spec.TextFaint, 0.25), false)
-			placedPills = append(placedPills, drawRemovedOverlayPill(d, rect.x+rect.w*0.5, pillBottom, ov.Detail, "removed", spec.Removed.Fg, ui.Alpha(spec.PillBg, 0.94), ui.Alpha(spec.Removed.Edge, 0.65), placedPills))
+			placedPills = append(placedPills, drawRemovedOverlayPill(d, rect.x+rect.w*0.5, pillBottom, w, ov.Detail, "removed", spec.Removed.Fg, ui.Alpha(spec.PillBg, 0.94), ui.Alpha(spec.Removed.Edge, 0.65), placedPills))
 		case OverlayLegendAgent:
 			alpha := e.AgentPulseOpacity()
 			drawLiveOutlineBox(d, rect, ov.OutsetPx, 1.5, ui.Alpha(spec.Agent.Edge, alpha), core.Transparent, false)
-			placedPills = append(placedPills, drawAgentWorkingPill(d, rect.x+rect.w*0.5, pillBottom, ov.Label, spec.Agent.Fg, spec.TextSecondary, ui.Alpha(spec.PillBg, 0.94), ui.Alpha(spec.Agent.Edge, 0.7), placedPills))
+			placedPills = append(placedPills, drawAgentWorkingPill(d, rect.x+rect.w*0.5, pillBottom, w, ov.Label, spec.Agent.Fg, spec.TextSecondary, ui.Alpha(spec.PillBg, 0.94), ui.Alpha(spec.Agent.Edge, 0.7), placedPills))
 		case OverlayLegendProblem:
 			drawLiveOutlineBox(d, rect, ov.OutsetPx, 2.0, spec.Problem().Edge, core.Transparent, false)
-			placedPills = append(placedPills, drawProblemOverlayPill(d, rect.x+rect.w*0.5, pillBottom, ov.Label, spec.Problem().OnFill, spec.Problem().Fg, placedPills))
+			placedPills = append(placedPills, drawProblemOverlayPill(d, rect.x+rect.w*0.5, pillBottom, w, ov.Label, spec.Problem().OnFill, spec.Problem().Fg, placedPills))
 		}
 	}
 	d.Restore()
@@ -270,38 +270,60 @@ func drawLiveOutlineBox(d *core.Drawing, r canvasRect, outset, lineWidth float32
 	d.Restore()
 }
 
-func resolvePillRect(centerX, bottomY, pillW, pillH float32, placed []canvasRect) canvasRect {
+func resolvePillRect(centerX, bottomY, canvasW, pillW, pillH float32, placed []canvasRect) canvasRect {
 	const gap float32 = 4
+	const margin float32 = 6
 	px := centerX - pillW*0.5
-	py := max(bottomY-pillH, 6)
-	for iter := 0; iter < 12; iter++ {
-		collided := false
+	if canvasW > 0 {
+		if px+pillW > canvasW-margin {
+			px = canvasW - pillW - margin
+		}
+		if px < margin {
+			px = margin
+		}
+	}
+	py := max(bottomY-pillH, margin)
+	hit := func(y float32) (canvasRect, bool) {
 		for _, other := range placed {
 			if px < other.x+other.w+gap && px+pillW+gap > other.x &&
-				py < other.y+other.h+gap && py+pillH+gap > other.y {
-				nextY := other.y - pillH - gap
-				if nextY < 6 {
-					break
-				}
-				py = nextY
-				collided = true
-				break
+				y < other.y+other.h+gap && y+pillH+gap > other.y {
+				return other, true
 			}
 		}
+		return canvasRect{}, false
+	}
+	// Prefer stacking upward; if top margin is reached, step downward so pills never overlap.
+	stackDown := false
+	for iter := 0; iter < 16; iter++ {
+		other, collided := hit(py)
 		if !collided {
 			break
 		}
+		if !stackDown {
+			nextY := other.y - pillH - gap
+			if nextY >= margin {
+				py = nextY
+				continue
+			}
+			stackDown = true
+			py = max(bottomY-pillH, margin)
+		}
+		other, collided = hit(py)
+		if !collided {
+			break
+		}
+		py = other.y + other.h + gap
 	}
 	return canvasRect{x: px, y: py, w: pillW, h: pillH}
 }
 
-func drawMonoOverlayPill(d *core.Drawing, centerX, bottomY float32, text string, fg, bg, border core.Color, placed []canvasRect) canvasRect {
+func drawMonoOverlayPill(d *core.Drawing, centerX, bottomY, canvasW float32, text string, fg, bg, border core.Color, placed []canvasRect) canvasRect {
 	const pillH float32 = 22
 	const padX float32 = 9
 	font := core.Font{Family: core.FontMonospace, Size: 11}
 	tw := float32(len([]rune(text))) * 6.8
 	pillW := tw + padX*2
-	r := resolvePillRect(centerX, bottomY, pillW, pillH, placed)
+	r := resolvePillRect(centerX, bottomY, canvasW, pillW, pillH, placed)
 
 	d.Save()
 	d.SetFillColor(bg).BeginPath().RoundRect(r.x, r.y, r.w, r.h, 11).Fill()
@@ -311,7 +333,7 @@ func drawMonoOverlayPill(d *core.Drawing, centerX, bottomY float32, text string,
 	return r
 }
 
-func drawRemovedOverlayPill(d *core.Drawing, centerX, bottomY float32, name, suffix string, fg, bg, border core.Color, placed []canvasRect) canvasRect {
+func drawRemovedOverlayPill(d *core.Drawing, centerX, bottomY, canvasW float32, name, suffix string, fg, bg, border core.Color, placed []canvasRect) canvasRect {
 	const pillH float32 = 22
 	const padX float32 = 9
 	const gap float32 = 6
@@ -320,7 +342,7 @@ func drawRemovedOverlayPill(d *core.Drawing, centerX, bottomY float32, name, suf
 	nameW := float32(len([]rune(name))) * 6.8
 	sufW := float32(len([]rune(suffix))) * 6.3
 	pillW := padX*2 + nameW + gap + sufW
-	r := resolvePillRect(centerX, bottomY, pillW, pillH, placed)
+	r := resolvePillRect(centerX, bottomY, canvasW, pillW, pillH, placed)
 
 	d.Save()
 	d.SetFillColor(bg).BeginPath().RoundRect(r.x, r.y, r.w, r.h, 11).Fill()
@@ -334,7 +356,7 @@ func drawRemovedOverlayPill(d *core.Drawing, centerX, bottomY float32, name, suf
 	return r
 }
 
-func drawAgentWorkingPill(d *core.Drawing, centerX, bottomY float32, text string, glyphColor, fg, bg, border core.Color, placed []canvasRect) canvasRect {
+func drawAgentWorkingPill(d *core.Drawing, centerX, bottomY, canvasW float32, text string, glyphColor, fg, bg, border core.Color, placed []canvasRect) canvasRect {
 	const pillH float32 = 22
 	const padX float32 = 10
 	const glyphW float32 = 10
@@ -342,7 +364,7 @@ func drawAgentWorkingPill(d *core.Drawing, centerX, bottomY float32, text string
 	font := core.Font{Size: 11}
 	tw := float32(len([]rune(text))) * 6.5
 	pillW := padX*2 + glyphW + gap + tw
-	r := resolvePillRect(centerX, bottomY, pillW, pillH, placed)
+	r := resolvePillRect(centerX, bottomY, canvasW, pillW, pillH, placed)
 
 	d.Save()
 	d.SetFillColor(bg).BeginPath().RoundRect(r.x, r.y, r.w, r.h, 11).Fill()
@@ -365,7 +387,7 @@ func drawAgentWorkingPill(d *core.Drawing, centerX, bottomY float32, text string
 	return r
 }
 
-func drawProblemOverlayPill(d *core.Drawing, centerX, bottomY float32, text string, fg, bg core.Color, placed []canvasRect) canvasRect {
+func drawProblemOverlayPill(d *core.Drawing, centerX, bottomY, canvasW float32, text string, fg, bg core.Color, placed []canvasRect) canvasRect {
 	const pillH float32 = 22
 	const padX float32 = 9
 	const iconW float32 = 10
@@ -373,7 +395,7 @@ func drawProblemOverlayPill(d *core.Drawing, centerX, bottomY float32, text stri
 	font := core.Font{Size: 11, Weight: core.FontWeightSemibold}
 	tw := float32(len([]rune(text))) * 6.5
 	pillW := padX*2 + iconW + gap + tw
-	r := resolvePillRect(centerX, bottomY, pillW, pillH, placed)
+	r := resolvePillRect(centerX, bottomY, canvasW, pillW, pillH, placed)
 
 	d.Save()
 	d.SetFillColor(bg).BeginPath().RoundRect(r.x, r.y, r.w, r.h, 11).Fill()
@@ -409,7 +431,7 @@ func toolbarAgentPillView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) 
 			n = len(ed.agentLive.turn.changes)
 		}
 		return pillKey{
-			dark:   cx.Dark(),
+			dark:   ed.SpecPalette(cx).Dark,
 			lang:   ed.ResolvedLanguage(),
 			state:  st,
 			detail: detail,
@@ -615,7 +637,6 @@ func inspectorAgentWorkingBannerView(cx *core.Scope, ed *Editor, rev *core.Signa
 			return ed.AgentTouchingObject(objID)
 		},
 		Then: func(cx *core.Scope) core.Node {
-			p := ed.SpecPalette(cx)
 			return core.View{
 				TestID: "inspector-agent-working-banner",
 				Role:   core.RoleStatus,
@@ -625,14 +646,20 @@ func inspectorAgentWorkingBannerView(cx *core.Scope, ed *Editor, rev *core.Signa
 					Gap:          8,
 					Padding:      core.Symmetric(8, 10),
 					CornerRadius: 8,
-					Background:   p.Agent.Fill,
 					BorderWidth:  1,
-					BorderColor:  ui.Alpha(p.Agent.Edge, 0.55),
+				},
+				StyleFunc: func() core.Style {
+					p := ed.SpecPalette(cx)
+					return core.Style{
+						Background:  p.Agent.Fill,
+						BorderColor: ui.Alpha(p.Agent.Edge, 0.55),
+					}
 				},
 				Children: []core.Node{
 					core.Canvas{
 						Style: core.Style{Width: core.Pt(12), Height: core.Pt(12), FlexShrink: 0},
 						Draw: func(d *core.Drawing, _ core.Size) {
+							p := ed.SpecPalette(cx)
 							d.SetFillColor(p.Agent.Fg).BeginPath().
 								MoveTo(6, 1).LineTo(7.6, 4.4).LineTo(11, 6).LineTo(7.6, 7.6).
 								LineTo(6, 11).LineTo(4.4, 7.6).LineTo(1, 6).LineTo(4.4, 4.4).ClosePath().Fill()
@@ -646,8 +673,10 @@ func inspectorAgentWorkingBannerView(cx *core.Scope, ed *Editor, rev *core.Signa
 						Style: core.Style{
 							FontSize:   11.5,
 							FontWeight: 500,
-							Color:      p.TextSecondary,
 							FlexShrink: 1,
+						},
+						StyleFunc: func() core.Style {
+							return core.Style{Color: ed.SpecPalette(cx).TextSecondary}
 						},
 					},
 				},

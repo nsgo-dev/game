@@ -775,11 +775,10 @@ func viewportOverlayLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 	return core.Show{
 		When: func() bool {
 			_ = rev.Get()
-			return ed.OverlayLegendOpen() || ed.HasAgentLiveOverlays()
+			return !ed.Playing() && !ed.HistoryPreviewActive() && (ed.OverlayLegendOpen() || ed.HasAgentLiveOverlays())
 		},
 		Then: func(cx *core.Scope) core.Node {
-			p := ed.SpecPalette(cx)
-			row := func(testID string, kind OverlayLegendKind, labelKey string, col core.Color, dashed bool) core.Node {
+			row := func(testID string, kind OverlayLegendKind, labelKey string, colFn func(SpecPalette) core.Color, dashed bool) core.Node {
 				k := kind
 				isOn := func() bool {
 					_ = rev.Get()
@@ -798,7 +797,9 @@ func viewportOverlayLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 						Height:       core.Pt(28),
 						Padding:      core.Symmetric(0, 6),
 						CornerRadius: 6,
-						FocusVisible: p.FocusRing(2),
+					},
+					StyleFunc: func() core.Style {
+						return core.Style{FocusVisible: ed.SpecPalette(cx).FocusRing(2)}
 					},
 					OnPress: func(core.PressEvent) {
 						ed.report(ed.ToggleOverlayLegendKind(k))
@@ -807,7 +808,9 @@ func viewportOverlayLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 						core.Canvas{
 							Style: core.Style{Width: core.Pt(18), Height: core.Pt(10), FlexShrink: 0},
 							Draw: func(d *core.Drawing, _ core.Size) {
-								c := col
+								_ = rev.Get()
+								p := ed.SpecPalette(cx)
+								c := colFn(p)
 								if !ed.OverlayLegendKindEnabled(k) {
 									c = ui.Alpha(p.TextFaint, 0.45)
 								}
@@ -826,9 +829,9 @@ func viewportOverlayLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 							Style: core.Style{
 								FontSize:   11.5,
 								FontWeight: 500,
-								Color:      p.TextSecondary,
 							},
 							StyleFunc: func() core.Style {
+								p := ed.SpecPalette(cx)
 								if !isOn() {
 									return core.Style{
 										Color:          p.TextFaint,
@@ -850,9 +853,14 @@ func viewportOverlayLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 					Padding:      core.Symmetric(8, 10),
 					Gap:          0,
 					CornerRadius: 10,
-					Background:   p.Raised,
 					BorderWidth:  1,
-					BorderColor:  p.LineRaised,
+				},
+				StyleFunc: func() core.Style {
+					p := ed.SpecPalette(cx)
+					return core.Style{
+						Background:  p.Raised,
+						BorderColor: p.LineRaised,
+					}
 				},
 				Children: []core.Node{
 					core.Text{
@@ -864,16 +872,18 @@ func viewportOverlayLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 							FontSize:      10.5,
 							FontWeight:    600,
 							LetterSpacing: 0.6,
-							Color:         p.TextFaint,
 							Padding:       core.Edges{Left: 6, Right: 6, Bottom: 4},
 						},
+						StyleFunc: func() core.Style {
+							return core.Style{Color: ed.SpecPalette(cx).TextFaint}
+						},
 					},
-					row("legend-selection", OverlayLegendSelection, "agent.legendSelection", p.Accent.Edge, false),
-					row("legend-agent", OverlayLegendAgent, "agent.legendAgent", p.Agent.Edge, false),
-					row("legend-added", OverlayLegendAdded, "agent.legendAdded", p.Added.Edge, true),
-					row("legend-changed", OverlayLegendChanged, "agent.legendChanged", p.Changed.Edge, true),
-					row("legend-removed", OverlayLegendRemoved, "agent.legendRemoved", p.Removed.Edge, false),
-					row("legend-problem", OverlayLegendProblem, "agent.legendProblem", p.Problem().Edge, false),
+					row("legend-selection", OverlayLegendSelection, "agent.legendSelection", func(p SpecPalette) core.Color { return p.Accent.Edge }, false),
+					row("legend-agent", OverlayLegendAgent, "agent.legendAgent", func(p SpecPalette) core.Color { return p.Agent.Edge }, false),
+					row("legend-added", OverlayLegendAdded, "agent.legendAdded", func(p SpecPalette) core.Color { return p.Added.Edge }, true),
+					row("legend-changed", OverlayLegendChanged, "agent.legendChanged", func(p SpecPalette) core.Color { return p.Changed.Edge }, true),
+					row("legend-removed", OverlayLegendRemoved, "agent.legendRemoved", func(p SpecPalette) core.Color { return p.Removed.Edge }, false),
+					row("legend-problem", OverlayLegendProblem, "agent.legendProblem", func(p SpecPalette) core.Color { return p.Problem().Edge }, false),
 				},
 			}
 		},

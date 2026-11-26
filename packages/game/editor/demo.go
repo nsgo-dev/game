@@ -194,6 +194,7 @@ func (e *Editor) OpenDemo() error {
 	e.stopTileAnimLoop()
 	e.tileset = nil
 	e.tileReview = nil
+	e.clearAgentLiveForSceneReset()
 	e.paletteImgCache = paletteFileImageCache{}
 	e.ActiveTerrain = ""
 	e.particles = nil

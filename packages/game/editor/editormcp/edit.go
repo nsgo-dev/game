@@ -137,11 +137,7 @@ func sceneEdit(ctx context.Context, c *Call) (*Result, error) {
 			}
 		}()
 	}
-	var (
-		res        EditResult
-		openedTurn bool
-		autoStep   bool
-	)
+	var res EditResult
 	err := c.Editor(ctx, func(ed *editor.Editor) error {
 		root := projectRoot(ed)
 		name := sceneName(ed, root)
@@ -168,21 +164,26 @@ func sceneEdit(ctx context.Context, c *Call) (*Result, error) {
 		if label == "" {
 			label = editLabel(args.Edits)
 		}
-		if !ed.AgentTurnPending() {
+		openedTurn := !ed.AgentTurnPending()
+		if openedTurn {
 			ed.BeginAgentTurn(label)
-			openedTurn = true
+			defer ed.DiscardEmptyAgentTurn()
 		}
 		touched := touchedEditIDs(args.Edits)
 		activity := stepActivityLabel(args.Label, args.Edits)
 		if !c.s.explicitStep {
 			ed.BeginAgentStep(touched, activity)
-			autoStep = true
+			defer func() {
+				if !c.s.explicitStep {
+					ed.EndAgentStep()
+				}
+			}()
 		}
 		title := strings.TrimSpace(strings.TrimPrefix(label, "Agent:"))
 		if title == "" {
 			title = label
 		}
-		err := ed.RecordAgentTurn(editor.AgentTurnOptions{
+		return ed.RecordAgentTurn(editor.AgentTurnOptions{
 			Title:       title,
 			UndoLabel:   label,
 			ChangeCount: len(args.Edits),
@@ -199,20 +200,6 @@ func sceneEdit(ctx context.Context, c *Call) (*Result, error) {
 			}
 			return nil
 		})
-		if err != nil {
-			if autoStep {
-				ed.EndAgentStep()
-				autoStep = false
-			}
-			if openedTurn {
-				ed.DiscardEmptyAgentTurn()
-			}
-			return err
-		}
-		if autoStep && len(res.Objects) > 0 {
-			ed.BeginAgentStep(append(touched, res.Objects...), activity)
-		}
-		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -224,9 +211,6 @@ func sceneEdit(ctx context.Context, c *Call) (*Result, error) {
 	err = c.Editor(ctx, func(ed *editor.Editor) error {
 		res.Undo = ed.History.UndoLabel()
 		res.Revision = ed.Revision()
-		if autoStep && !c.s.explicitStep {
-			ed.EndAgentStep()
-		}
 		return nil
 	})
 	if err != nil {

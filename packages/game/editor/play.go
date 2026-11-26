@@ -336,6 +336,7 @@ func (e *Editor) startPlaySession(cx *core.Scope, playback *replay.Recording, st
 	e.stopCutsceneLoop()
 	e.SetCutsceneReviewPeekBefore(false)
 	e.stopTileAnimLoop()
+	e.stopAgentPulseLoop()
 	e.SetStatesDriveWithKeys(false)
 	e.stopParticlePreviewLoop()
 	e.stopSceneEmitterLoop()
@@ -624,6 +625,7 @@ func (e *Editor) stopInternal(sendMarks bool) error {
 		e.Doc = restored
 	}
 	e.Rebuild()
+	e.syncAgentPulseLoop()
 	e.clearDiskWatchNotified()
 	e.scheduleAutoSaveIfNeeded()
 	e.Status = "Stopped"

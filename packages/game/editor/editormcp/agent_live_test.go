@@ -242,3 +242,41 @@ func TestMCPLiveTurnOverlaysLegendReadOnlyAndKeepRevert(t *testing.T) {
 		t.Fatal("expected RevertAgentTurn to restore slime_01")
 	}
 }
+
+func TestMCPNoOpEditDiscardsEmptyTurnAndPreservesExplicitStep(t *testing.T) {
+	f := openFixture(t)
+	s := editormcp.New(f.ed, editormcp.Options{})
+	t.Cleanup(func() { _ = s.Close() })
+	cs := connect(t, s, nil)
+
+	// No-op edit (hero.z is already 0) must not leave an empty pending turn blocking autosave.
+	mustOK(t, call(t, cs, editormcp.ToolSceneEdit, map[string]any{
+		"edits": []any{
+			map[string]any{
+				"op":     "set",
+				"id":     "hero",
+				"fields": map[string]any{"z": 0},
+			},
+		},
+	}))
+	if f.ed.AgentTurnPending() || f.ed.HasOpenReview() {
+		t.Fatalf("no-op scene_edit left empty turn open: pending=%v openReview=%v",
+			f.ed.AgentTurnPending(), f.ed.HasOpenReview())
+	}
+
+	// Running game_check while an explicit step is active must not clear the explicit step lock.
+	ctx := context.Background()
+	if err := s.BeginStep(ctx, []string{"hero"}, "inspecting hero"); err != nil {
+		t.Fatalf("BeginStep: %v", err)
+	}
+	mustOK(t, call(t, cs, editormcp.ToolGameCheck, nil))
+	if !f.ed.AgentTouchingObject("hero") {
+		t.Fatal("game_check cleared active explicit step lock on hero")
+	}
+	if err := s.EndStep(ctx); err != nil {
+		t.Fatalf("EndStep: %v", err)
+	}
+	if f.ed.AgentTouchingObject("hero") {
+		t.Fatal("EndStep did not release hero")
+	}
+}

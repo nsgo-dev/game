@@ -2,9 +2,11 @@ package editor_test
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nsgo-dev/game/packages/game/editor"
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
@@ -381,5 +383,188 @@ func TestAgentHeaderPillAndReducedMotionAndCameraInvariant(t *testing.T) {
 	}
 	if ed.Camera3D != cam3DBefore {
 		t.Fatalf("3D camera moved during agent activity: got %+v, want %+v", ed.Camera3D, cam3DBefore)
+	}
+}
+
+func TestAgentLiveHardeningHistoryAutosaveAndPreview(t *testing.T) {
+	ed := newAgentLiveTestEditor(t)
+	now := time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC)
+	ed.Now = func() time.Time { return now }
+	ed.SetHistoryClock(func() time.Time { return now })
+	ed.OnSave = func([]byte) error { return nil }
+
+	// Seed one manual edit so History has a baseline entry to preview.
+	if err := ed.MoveObject("knight", 250, 230); err != nil {
+		t.Fatal(err)
+	}
+	baseEntries := ed.HistoryEntries()
+	if len(baseEntries) != 1 {
+		t.Fatalf("baseline HistoryEntries = %d, want 1", len(baseEntries))
+	}
+	baseEntryID := baseEntries[0].ID
+
+	// Pending agent turn pauses autosave via HasOpenReview() and collapses History timeline entries on Keep.
+	ed.BeginAgentTurn("Agent: add slime and move door")
+	if !ed.HasOpenReview() {
+		t.Fatal("HasOpenReview() = false while AgentTurnPending, want true")
+	}
+	if err := ed.RunAsAgent(func() error {
+		if _, err := ed.PlaceObject("Actors", sceneformat.ObjectDoc{ID: "slime_01", Name: "slime_01", X: 300, Y: 260}); err != nil {
+			return err
+		}
+		return ed.SetObjectZ("door", 15)
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// HistoryPreviewActive hides live overlays and blocks KeepAgentTurn / RevertAgentTurn.
+	if err := ed.PreviewHistoryEntry(baseEntryID); err != nil {
+		t.Fatalf("PreviewHistoryEntry: %v", err)
+	}
+	if !ed.HistoryPreviewActive() {
+		t.Fatal("expected HistoryPreviewActive() == true")
+	}
+	if got := ed.ViewportLiveOverlays(); len(got) != 0 {
+		t.Fatalf("ViewportLiveOverlays during HistoryPreview = %d, want 0", len(got))
+	}
+	if err := ed.KeepAgentTurn(); !errors.Is(err, editor.ErrHistoryPreview) {
+		t.Fatalf("KeepAgentTurn during HistoryPreview err = %v, want ErrHistoryPreview", err)
+	}
+	if err := ed.RevertAgentTurn(); !errors.Is(err, editor.ErrHistoryPreview) {
+		t.Fatalf("RevertAgentTurn during HistoryPreview err = %v, want ErrHistoryPreview", err)
+	}
+	ed.ExitHistoryPreview()
+
+	// Keep collapses the two commands into ONE Agent entry on the History timeline and arms autosave.
+	if err := ed.KeepAgentTurn(); err != nil {
+		t.Fatalf("KeepAgentTurn: %v", err)
+	}
+	if ed.HasOpenReview() {
+		t.Fatal("HasOpenReview() = true after KeepAgentTurn, want false")
+	}
+	if !ed.AutoSavePending() {
+		t.Fatal("expected AutoSavePending() after KeepAgentTurn")
+	}
+	entries := ed.HistoryEntries()
+	if len(entries) != 2 {
+		t.Fatalf("HistoryEntries after collapsed Keep = %d (%+v), want 2 (1 manual + 1 collapsed agent)", len(entries), entries)
+	}
+	if entries[0].Author != editor.HistoryAuthorAgent {
+		t.Fatalf("newest History entry author = %q, want %q", entries[0].Author, editor.HistoryAuthorAgent)
+	}
+
+	// Revert truncates intermediate timeline records so a later manual edit never revives them.
+	ed.BeginAgentTurn("Agent: doomed edit")
+	if err := ed.RunAsAgent(func() error {
+		return ed.SetObjectZ("door", 42)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ed.RevertAgentTurn(); err != nil {
+		t.Fatalf("RevertAgentTurn: %v", err)
+	}
+	if err := ed.SetObjectZ("door", 18); err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range ed.HistoryEntries() {
+		if strings.Contains(entry.Summary, "doomed") {
+			t.Fatalf("reverted agent turn leaked into HistoryEntries: %+v", entry)
+		}
+	}
+}
+
+func TestAgentLiveHardeningLifecycleLocksThemeAndPulse(t *testing.T) {
+	ed := newAgentLiveTestEditor(t)
+	_ = ed.SetAppearance(editor.AppearanceSystem)
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1280, 800), nsgotest.Environment(core.Environment{
+		OS:     core.OSMacOS,
+		Idiom:  core.IdiomDesktop,
+		Dark:   true,
+		Locale: "en-US",
+	}))
+	app.Settle()
+
+	// Begin turn with a removed object, a light edit, and an active agent step on knight.
+	ed.BeginAgentTurn("Light and cleanup")
+	if err := ed.RunAsAgent(func() error {
+		if err := ed.SetObjectLight("door", &sceneformat.LightDoc{Kind: sceneformat.LightPoint, Intensity: sceneformat.Float32(2)}); err != nil {
+			return err
+		}
+		return ed.DeleteObject("coin_04")
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if ch, ok := ed.AgentObjectChange("door"); !ok || ch.Kind != editor.AgentChangeChanged {
+		t.Fatalf("expected door light edit to show as AgentChangeChanged, got %+v (ok=%v)", ch, ok)
+	}
+
+	ed.SelectObject("knight")
+	ed.BeginAgentStep([]string{"knight"}, "tuning Knight")
+	app.Settle()
+
+	// Additional mutating entry points must refuse edits to touched knight.
+	if err := ed.SetObjectOccluder("knight", &sceneformat.OccluderDoc{Mode: sceneformat.OccluderBox}); !errors.Is(err, editor.ErrAgentTouchingObject) {
+		t.Fatalf("SetObjectOccluder err = %v, want ErrAgentTouchingObject", err)
+	}
+	if err := ed.SetObjectReflectionProbe("knight", &sceneformat.ReflectionProbeDoc{}); !errors.Is(err, editor.ErrAgentTouchingObject) {
+		t.Fatalf("SetObjectReflectionProbe err = %v, want ErrAgentTouchingObject", err)
+	}
+	if err := ed.SetObjectLightProbeGrid("knight", &sceneformat.LightProbeGridDoc{}); !errors.Is(err, editor.ErrAgentTouchingObject) {
+		t.Fatalf("SetObjectLightProbeGrid err = %v, want ErrAgentTouchingObject", err)
+	}
+	if _, err := ed.GroupObjects("knight", "door"); !errors.Is(err, editor.ErrAgentTouchingObject) {
+		t.Fatalf("GroupObjects err = %v, want ErrAgentTouchingObject", err)
+	}
+
+	// Live Dark -> Light theme switch updates overlay legend and banner styling without remounting.
+	wantLight := editor.SpecPaletteFor(false)
+	app.SetEnvironment(core.Environment{
+		OS:     core.OSMacOS,
+		Idiom:  core.IdiomDesktop,
+		Dark:   false,
+		Locale: "en-US",
+	})
+	app.Settle()
+	if got := app.Find("id:viewport-overlay-legend").Style.Background; got != wantLight.Raised {
+		t.Fatalf("overlay legend background after live Dark->Light switch = %v, want %v", got, wantLight.Raised)
+	}
+	if got := app.Find("id:header-agent-pill").Style.Background; got != wantLight.Agent.Fill {
+		t.Fatalf("header agent pill background after live Dark->Light switch = %v, want %v", got, wantLight.Agent.Fill)
+	}
+	// Inspector lives inside inspectorThemeScope (Spec Dark subtree), so its banner stays in dark contrast tokens.
+	wantDark := editor.DarkSpecPalette()
+	if got := app.Find("id:inspector-agent-working-banner").Style.Background; got != wantDark.Agent.Fill {
+		t.Fatalf("inspector banner background = %v, want dark subtree token %v", got, wantDark.Agent.Fill)
+	}
+
+	// Switching to a second tab isolates pending turn, working lock, review changes, and state; switching back restores them.
+	secondPath := filepath.Join(t.TempDir(), "other.scene.yaml")
+	if err := os.WriteFile(secondPath, []byte(agentLiveTestScene), 0o644); err != nil {
+		t.Fatalf("write second scene: %v", err)
+	}
+	if err := ed.OpenFile(secondPath); err != nil {
+		t.Fatalf("OpenFile second tab: %v", err)
+	}
+	if ed.AgentTurnPending() || ed.AgentTouchingObject("knight") || len(ed.InspectorReviewChanges()) != 0 {
+		t.Fatalf("second tab leaked tab 0 live state: pending=%v touching=%v review=%d",
+			ed.AgentTurnPending(), ed.AgentTouchingObject("knight"), len(ed.InspectorReviewChanges()))
+	}
+	if err := ed.SelectTab(0); err != nil {
+		t.Fatalf("SelectTab(0): %v", err)
+	}
+	if !ed.AgentTurnPending() || !ed.AgentTouchingObject("knight") {
+		t.Fatalf("switching back to tab 0 lost turn/step: pending=%v touching=%v",
+			ed.AgentTurnPending(), ed.AgentTouchingObject("knight"))
+	}
+
+	// OpenDemo resets all live agent state cleanly.
+	if err := ed.OpenDemo(); err != nil {
+		t.Fatalf("OpenDemo: %v", err)
+	}
+	if ed.AgentTurnPending() || ed.HasAgentLiveOverlays() || ed.AgentTouchingObject("knight") {
+		t.Fatal("OpenDemo did not reset live agent state")
 	}
 }

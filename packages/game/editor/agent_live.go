@@ -144,16 +144,19 @@ type agentTurnState struct {
 }
 
 type agentLiveState struct {
-	turn            *agentTurnState
-	state           AgentState
-	stateDetail     string
-	workingIDs      []string
-	workingSet      map[string]bool
-	workingActivity string
-	pulseStart      time.Time
-	pulsePhase      float64
-	pulseStop       func()
-	reducedMotion   *bool
+	turn              *agentTurnState
+	state             AgentState
+	stateDetail       string
+	workingIDs        []string
+	workingSet        map[string]bool
+	workingActivity   string
+	pulseStart        time.Time
+	pulsePhase        float64
+	pulseStop         func()
+	pulseRev          uint64
+	nextPulseListener uint64
+	pulseListeners    map[uint64]func()
+	reducedMotion     *bool
 }
 
 const (
@@ -288,10 +291,14 @@ func (e *Editor) KeepAgentTurn() error {
 	if e.playing {
 		return ErrPlaying
 	}
+	if e.HistoryPreviewActive() {
+		return ErrHistoryPreview
+	}
 	turn := e.agentLive.turn
 	turn.inKeepOrRevert = true
 	if e.History != nil && turn.historyStart >= 0 && e.History.Index() > turn.historyStart+1 {
-		// Collapse every command executed during the turn into a single undo step (Spec: one undo step ⌘Z).
+		// Collapse every command executed during the turn into a single undo step (Spec: one undo step ⌘Z)
+		// and replace the intermediate timeline entries with one unified Agent History entry.
 		start := turn.historyStart
 		end := e.History.Index()
 		merged := make([]Command, end-start)
@@ -300,12 +307,32 @@ func (e *Editor) KeepAgentTurn() error {
 		if label == "" {
 			label = fmt.Sprintf("Agent turn (%d changes)", len(turn.changes))
 		}
+		summary := strings.TrimSpace(strings.TrimPrefix(label, "Agent:"))
+		if summary == "" {
+			summary = label
+		}
 		collapsed := &groupCmd{label: label, cmds: merged}
+		e.History.truncateRecordsAfterCommand(start)
 		next := make([]Command, 0, start+1)
 		next = append(next, e.History.commands[:start]...)
 		next = append(next, collapsed)
 		e.History.commands = next
 		e.History.cursor = len(next)
+
+		prevMeta := e.historyPanel.pendingMeta
+		nChanges := len(turn.changes)
+		if nChanges <= 0 {
+			nChanges = len(merged)
+		}
+		e.historyPanel.pendingMeta = &HistoryMeta{
+			Author:      HistoryAuthorAgent,
+			Summary:     summary,
+			Detail:      formatAgentTurnDetail("", nChanges, nChanges),
+			ChangeCount: nChanges,
+			KeptCount:   nChanges,
+		}
+		e.History.recordCommand(collapsed, e.History.cursor)
+		e.historyPanel.pendingMeta = prevMeta
 	}
 	e.stopAgentPulseLoop()
 	e.agentLive.turn = nil
@@ -317,6 +344,7 @@ func (e *Editor) KeepAgentTurn() error {
 	e.inspectorReviewChanges = nil
 	e.Status = e.T("agent.statusKept")
 	e.syncActiveTab()
+	e.scheduleAutoSaveIfNeeded()
 	e.notify()
 	return nil
 }
@@ -330,6 +358,9 @@ func (e *Editor) RevertAgentTurn() error {
 	if e.playing {
 		return ErrPlaying
 	}
+	if e.HistoryPreviewActive() {
+		return ErrHistoryPreview
+	}
 	turn := e.agentLive.turn
 	turn.inKeepOrRevert = true
 	e.stopAgentPulseLoop()
@@ -337,6 +368,7 @@ func (e *Editor) RevertAgentTurn() error {
 	e.CancelShapeDrag2D()
 	e.CancelInspectorScrub()
 	e.CancelGizmoDrag3D()
+	e.CancelHandleDrag3D()
 	e.CancelComponentGizmoDrag3D()
 
 	restoredViaHistory := false
@@ -355,6 +387,8 @@ func (e *Editor) RevertAgentTurn() error {
 				clear(e.History.commands[turn.historyStart:])
 				e.History.commands = e.History.commands[:turn.historyStart]
 			}
+			e.History.truncateRecordsAfterCommand(turn.historyStart)
+			e.History.syncUndoFlags()
 			restoredViaHistory = true
 		}
 	}
@@ -373,6 +407,7 @@ func (e *Editor) RevertAgentTurn() error {
 	e.inspectorReviewChanges = nil
 	e.Status = e.T("agent.statusReverted")
 	e.syncActiveTab()
+	e.scheduleAutoSaveIfNeeded()
 	e.notify()
 	return nil
 }
@@ -396,15 +431,46 @@ func (e *Editor) BeginAgentStep(objectIDs []string, activity string) {
 		clean = append(clean, id)
 	}
 	// Cancel any in-flight manual drag or inspector scrub touching a newly locked object.
-	if e.drag2D.handle != Handle2DNone && set[e.drag2D.objectID] {
-		e.CancelDrag2D()
+	if e.drag2D.handle != Handle2DNone {
+		cancel2D := set[e.drag2D.objectID]
+		if !cancel2D {
+			for _, tgt := range e.drag2D.targets {
+				if set[tgt.id] {
+					cancel2D = true
+					break
+				}
+			}
+		}
+		if cancel2D {
+			e.CancelDrag2D()
+		}
+	}
+	if e.shapeDrag.active && set[e.shapeDrag.handle.ObjectID] {
+		e.CancelShapeDrag2D()
 	}
 	if e.inspectorScrub.active && set[e.inspectorScrub.spec.ObjectID] {
 		e.CancelInspectorScrub()
 	}
-	if e.drag3D.kind != drag3DNone && set[e.SelectedID] {
-		e.CancelGizmoDrag3D()
+	if e.compGizmoDrag.active && set[e.compGizmoDrag.objectID] {
 		e.CancelComponentGizmoDrag3D()
+	}
+	if e.drag3D.kind != drag3DNone {
+		cancel3D := set[e.drag3D.objectID] || set[e.SelectedID]
+		if !cancel3D {
+			for _, tgt := range e.drag3D.targets {
+				if set[tgt.id] {
+					cancel3D = true
+					break
+				}
+			}
+		}
+		if cancel3D {
+			if e.drag3D.kind == drag3DHandle {
+				e.CancelHandleDrag3D()
+			} else {
+				e.CancelGizmoDrag3D()
+			}
+		}
 	}
 
 	e.agentLive.workingIDs = clean
@@ -416,11 +482,7 @@ func (e *Editor) BeginAgentStep(objectIDs []string, activity string) {
 	e.agentLive.workingActivity = strings.TrimSpace(activity)
 	e.agentLive.state = AgentStateWorking
 	e.agentLive.stateDetail = e.agentLive.workingActivity
-	if len(clean) > 0 {
-		e.startAgentPulseLoop()
-	} else {
-		e.stopAgentPulseLoop()
-	}
+	e.syncAgentPulseLoop()
 	e.syncActiveTab()
 	e.notify()
 }
@@ -546,12 +608,54 @@ func (e *Editor) SetReducedMotionOverride(v *bool) {
 		cp := *v
 		e.agentLive.reducedMotion = &cp
 	}
-	if e.prefersReducedMotion() {
-		e.stopAgentPulseLoop()
-	} else if len(e.agentLive.workingIDs) > 0 {
-		e.startAgentPulseLoop()
-	}
+	e.syncAgentPulseLoop()
 	e.notify()
+}
+
+// AgentPulseRevision returns a monotonically increasing counter bumped on viewport-only agent pulse ticks
+// without bumping Editor.Revision().
+func (e *Editor) AgentPulseRevision() uint64 {
+	if e == nil {
+		return 0
+	}
+	return e.agentLive.pulseRev
+}
+
+// SubscribeAgentPulse registers fn to run on viewport-only agent pulse ticks and returns an unsubscribe function.
+func (e *Editor) SubscribeAgentPulse(fn func()) func() {
+	if e == nil || fn == nil {
+		return func() {}
+	}
+	e.agentLive.nextPulseListener++
+	id := e.agentLive.nextPulseListener
+	if e.agentLive.pulseListeners == nil {
+		e.agentLive.pulseListeners = make(map[uint64]func())
+	}
+	e.agentLive.pulseListeners[id] = fn
+	return func() {
+		delete(e.agentLive.pulseListeners, id)
+	}
+}
+
+func (e *Editor) notifyAgentPulse() {
+	if e == nil {
+		return
+	}
+	e.agentLive.pulseRev++
+	for _, fn := range e.agentLive.pulseListeners {
+		fn()
+	}
+}
+
+func (e *Editor) syncAgentPulseLoop() {
+	if e == nil {
+		return
+	}
+	if e.playing || e.scope == nil || e.prefersReducedMotion() || len(e.agentLive.workingIDs) == 0 {
+		e.stopAgentPulseLoop()
+		return
+	}
+	e.startAgentPulseLoop()
 }
 
 func (e *Editor) prefersReducedMotion() bool {
@@ -580,7 +684,7 @@ func (e *Editor) AgentPulseOpacity() float32 {
 }
 
 func (e *Editor) startAgentPulseLoop() {
-	if e == nil || e.scope == nil || e.prefersReducedMotion() || e.agentLive.pulseStop != nil {
+	if e == nil || e.playing || e.scope == nil || e.prefersReducedMotion() || e.agentLive.pulseStop != nil {
 		return
 	}
 	nowFn := e.Now
@@ -592,13 +696,13 @@ func (e *Editor) startAgentPulseLoop() {
 	loop := &game.Loop{
 		Rate: 30,
 		Update: func(dt time.Duration) {
-			if e.agentLive.pulseStop == nil || len(e.agentLive.workingIDs) == 0 || e.prefersReducedMotion() {
+			if e.playing || e.agentLive.pulseStop == nil || len(e.agentLive.workingIDs) == 0 || e.prefersReducedMotion() {
 				e.stopAgentPulseLoop()
 				return
 			}
 			elapsed := nowFn().Sub(e.agentLive.pulseStart)
 			e.agentLive.pulsePhase = math.Mod(float64(elapsed)/float64(agentPulsePeriod), 1.0)
-			e.notify()
+			e.notifyAgentPulse()
 		},
 	}
 	e.scope.Run(func() {
@@ -724,7 +828,7 @@ func (e *Editor) ToggleOverlayLegendKind(kind OverlayLegendKind) error {
 // (Selection, Added, Changed, Removed, Agent working, and Problem), each carrying its visibility
 // according to the Overlay Legend toggles.
 func (e *Editor) ViewportLiveOverlays() []ViewportLiveOverlay {
-	if e == nil || e.playing {
+	if e == nil || e.playing || e.HistoryPreviewActive() {
 		return nil
 	}
 	var out []ViewportLiveOverlay
@@ -1137,8 +1241,55 @@ func diffObjectFields(base, cur agentFlatSceneObj) []AgentFieldDiff {
 	if b.Model != c.Model {
 		add("", "model", fmtStringVal(b.Model), fmtStringVal(c.Model))
 	}
+	if b.ModelNode != c.ModelNode {
+		add("", "modelNode", fmtStringVal(b.ModelNode), fmtStringVal(c.ModelNode))
+	}
+	if b.ModelMesh != c.ModelMesh {
+		add("", "modelMesh", fmtStringVal(b.ModelMesh), fmtStringVal(c.ModelMesh))
+	}
 	if b.GridMap != c.GridMap {
 		add("", "gridMap", fmtStringVal(b.GridMap), fmtStringVal(c.GridMap))
+	}
+	if b.Prefab != c.Prefab {
+		add("", "prefab", fmtStringVal(b.Prefab), fmtStringVal(c.Prefab))
+	}
+	if b.Scene != c.Scene {
+		add("", "scene", fmtStringVal(b.Scene), fmtStringVal(c.Scene))
+	}
+	if !reflect.DeepEqual(b.Occluder, c.Occluder) {
+		oldVal, newVal := fmtPresenceVal(b.Occluder != nil), fmtPresenceVal(c.Occluder != nil)
+		if oldVal == newVal {
+			oldVal, newVal = "previous", "updated"
+		}
+		add("", "occluder", oldVal, newVal)
+	}
+	if !reflect.DeepEqual(b.Light, c.Light) {
+		oldVal, newVal := fmtLightVal(b.Light), fmtLightVal(c.Light)
+		if oldVal == newVal {
+			oldVal, newVal = "previous", "updated"
+		}
+		add("", "light", oldVal, newVal)
+	}
+	if !reflect.DeepEqual(b.Camera, c.Camera) {
+		oldVal, newVal := fmtCameraVal(b.Camera), fmtCameraVal(c.Camera)
+		if oldVal == newVal {
+			oldVal, newVal = "previous", "updated"
+		}
+		add("", "camera", oldVal, newVal)
+	}
+	if !reflect.DeepEqual(b.ReflectionProbe, c.ReflectionProbe) {
+		oldVal, newVal := fmtPresenceVal(b.ReflectionProbe != nil), fmtPresenceVal(c.ReflectionProbe != nil)
+		if oldVal == newVal {
+			oldVal, newVal = "previous", "updated"
+		}
+		add("", "reflectionProbe", oldVal, newVal)
+	}
+	if !reflect.DeepEqual(b.LightProbeGrid, c.LightProbeGrid) {
+		oldVal, newVal := fmtPresenceVal(b.LightProbeGrid != nil), fmtPresenceVal(c.LightProbeGrid != nil)
+		if oldVal == newVal {
+			oldVal, newVal = "previous", "updated"
+		}
+		add("", "lightProbeGrid", oldVal, newVal)
 	}
 	if base.layer != cur.layer {
 		add("", "layer", base.layer, cur.layer)
@@ -1234,6 +1385,33 @@ func fmtParticlesRef(r *sceneformat.ParticlesRef) string {
 		return "none"
 	}
 	return r.File
+}
+
+func fmtPresenceVal(present bool) string {
+	if !present {
+		return "none"
+	}
+	return "configured"
+}
+
+func fmtLightVal(l *sceneformat.LightDoc) string {
+	if l == nil {
+		return "none"
+	}
+	if l.Kind != "" {
+		return string(l.Kind)
+	}
+	return "light"
+}
+
+func fmtCameraVal(cam *sceneformat.Camera3DDoc) string {
+	if cam == nil {
+		return "none"
+	}
+	if cam.Projection != "" {
+		return string(cam.Projection)
+	}
+	return "camera"
 }
 
 func fmtAnyVal(v any) string {

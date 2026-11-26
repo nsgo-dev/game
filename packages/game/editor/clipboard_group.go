@@ -1362,6 +1362,11 @@ func (e *Editor) GroupObjects(ids ...string) (string, error) {
 	if len(roots) == 0 {
 		return "", errors.New("editor: no objects to group")
 	}
+	for _, id := range roots {
+		if err := e.checkAgentTouchLockSubtree(id); err != nil {
+			return "", err
+		}
+	}
 
 	// Determine target layer and common parent (if all roots share the exact same parent).
 	firstLoc := locateObject(e.Doc, roots[0])

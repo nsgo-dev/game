@@ -311,6 +311,9 @@ func (e *Editor) SetObjectOccluder(id string, occ *sceneformat.OccluderDoc) erro
 	if e.playing {
 		return ErrPlaying
 	}
+	if err := e.checkAgentTouchLock(id); err != nil {
+		return err
+	}
 	obj, _, _ := e.FindObject(id)
 	if obj == nil {
 		if info := e.ObjectOverrideInfo(id); info.Origin != ObjectLocal {
