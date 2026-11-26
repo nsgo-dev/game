@@ -136,6 +136,7 @@ func (e *Editor) OpenAskInPlaceFor(ids ...string) error {
 }
 
 func (e *Editor) openAskInPlaceForTargets(ids []string) error {
+	e.closeComposerPopovers()
 	if e.contextMenu.open {
 		e.contextMenu.open = false
 		e.contextMenu.targetID = ""

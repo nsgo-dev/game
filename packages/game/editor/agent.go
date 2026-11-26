@@ -642,6 +642,7 @@ func (e *Editor) resetAgentForProject() {
 	e.agent.lastPinCmd = nil
 	e.agent.briefRefCache = nil
 	e.agent.briefMeta = cachedBriefMeta{}
+	e.resetAgentComposerForProject()
 	e.agent.workingStep = 0
 	e.agent.workingTotal = 0
 	e.agent.openRequest = nil

@@ -356,6 +356,19 @@ strings:
   composer.always: 始终附加
   composer.alwaysTooltip: 每次请求都会读取
   composer.attachedSceneStatus: 已将整个场景附加到智能体输入框
+  composer.bucket.alwaysList: 始终附加 · {items}
+  composer.bucket.alwaysNone: 始终附加 · 无
+  composer.bucket.attachedList: 已附加 · {items}
+  composer.bucket.attachedMore: 已附加 · {items} +{more}
+  composer.bucket.attachedNone: 已附加 · 无
+  composer.bucket.conversationMany: 对话 · {count} 条请求
+  composer.bucket.conversationOne: 对话 · 1 条请求
+  composer.bucket.conversationSummaryMany: 对话 · 摘要 + {count} 条请求
+  composer.bucket.conversationSummaryOne: 对话 · 摘要 + 1 条请求
+  composer.bucket.openScene: 当前场景 · {scene}
+  composer.bucket.toolsAndInstr: 工具与指令
+  composer.bucket.viewportImage: 视口图像
+  composer.chipLimitStatus: 已达到附加标签上限（{max} 个）
   composer.compactCaption: 压缩会将之前的 {count} 条请求折叠为摘要，并完整保留最后一条请求。使用摘要新开会话会以该摘要启动新线程。
   composer.compactNow: 立即压缩
   composer.compactThread: 压缩线程

@@ -253,6 +253,7 @@ func (e *Editor) onActiveSceneTabChanged() {
 	e.disk.mu.Lock()
 	e.disk.mirrored.notifiedSceneHas = false
 	e.disk.mu.Unlock()
+	e.onSceneChangedForComposer()
 	e.syncDiskWatchTargets()
 }
 

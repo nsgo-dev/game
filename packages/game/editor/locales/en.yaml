@@ -356,6 +356,19 @@ strings:
   composer.always: Always
   composer.alwaysTooltip: Read with every request
   composer.attachedSceneStatus: Attached whole scene to agent composer
+  composer.bucket.alwaysList: Always · {items}
+  composer.bucket.alwaysNone: Always · none
+  composer.bucket.attachedList: Attached · {items}
+  composer.bucket.attachedMore: Attached · {items} +{more}
+  composer.bucket.attachedNone: Attached · none
+  composer.bucket.conversationMany: Conversation · {count} requests
+  composer.bucket.conversationOne: Conversation · 1 request
+  composer.bucket.conversationSummaryMany: Conversation · summary + {count} requests
+  composer.bucket.conversationSummaryOne: Conversation · summary + 1 request
+  composer.bucket.openScene: Open scene · {scene}
+  composer.bucket.toolsAndInstr: Tools and instructions
+  composer.bucket.viewportImage: Viewport image
+  composer.chipLimitStatus: Maximum attached chips reached ({max})
   composer.compactCaption: Compact folds the {count} earlier requests into a summary and keeps the last one whole. Start fresh opens a new thread seeded with that summary.
   composer.compactNow: compact now
   composer.compactThread: Compact thread

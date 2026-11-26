@@ -10,6 +10,7 @@ import (
 	_ "image/gif"
 	_ "image/jpeg"
 	"image/png"
+	"io"
 	"io/fs"
 	"math"
 	"os"
@@ -22,6 +23,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/nsgo-dev/game/packages/game/l10n"
 	gamemcp "github.com/nsgo-dev/game/packages/game/mcp"
 	"github.com/nsgo-dev/game/packages/game/playtest"
 	"github.com/nsgo-dev/game/packages/game/project"
@@ -247,10 +249,17 @@ type ContextMeterSnapshot struct {
 }
 
 const (
-	defaultContextLimitTokens = 200_000
-	defaultToolsInstrTokens   = 10_000
-	defaultViewportImgTokens  = 6_000
-	maxComposerReadBytes      = 1 << 20
+	defaultContextLimitTokens   = 200_000
+	defaultToolsInstrTokens     = 10_000
+	defaultViewportImgTokens    = 6_000
+	maxComposerReadBytes        = 1 << 20
+	maxComposerFirstLineBytes   = 8 << 10
+	maxComposerImageHeaderBytes = 64 << 10
+	maxComposerImageDim         = 4096
+	maxComposerImagePixels      = 16_000_000
+	maxComposerViewportDim      = 1280
+	maxAttachedChips            = 32
+	maxAssembledContextBytes    = 2 << 20
 )
 
 type agentComposerState struct {
@@ -266,6 +275,7 @@ type agentComposerState struct {
 	breakdownOpen      bool
 	threadID           string
 	threadSeq          int
+	threadRev          uint64
 	turns              []AgentThreadTurn
 	compactedSummary   string
 	summarySeed        string
@@ -278,6 +288,11 @@ type agentComposerState struct {
 	cachedViewportW    int
 	cachedViewportH    int
 	cachedViewportRev  uint64
+	metaCacheRoot      string
+	metaCacheFP        string
+	ruleSummaryCache   map[string]string
+	imageDimsCache     map[string][2]int
+	imageDimsKnown     map[string]bool
 }
 
 func (e *Editor) initAgentComposer() {
@@ -307,6 +322,56 @@ func (e *Editor) resetAgentComposerForProject() {
 	}
 	e.agent.threadID = "thread-1"
 	e.composerDraft = ""
+}
+
+// closeComposerPopovers closes transient composer popovers (mention picker, breakdown, hover preview)
+// without altering the draft or attached chips.
+func (e *Editor) closeComposerPopovers() {
+	if e == nil {
+		return
+	}
+	changed := e.agentComposer.pickerOpen || e.agentComposer.breakdownOpen || e.agentComposer.hoveredChipID != ""
+	e.agentComposer.pickerOpen = false
+	e.agentComposer.pickerOpenedByAt = false
+	e.agentComposer.pickerActiveIndex = 0
+	e.agentComposer.breakdownOpen = false
+	e.agentComposer.hoveredChipID = ""
+	if changed {
+		e.notify()
+	}
+}
+
+// onSceneChangedForComposer closes stale scene-bound popovers and invalidates the cached viewport image
+// whenever the active scene tab changes (SelectTab, OpenScene, NewScene, CloseTab).
+func (e *Editor) onSceneChangedForComposer() {
+	if e == nil {
+		return
+	}
+	e.agentComposer.pickerOpen = false
+	e.agentComposer.pickerOpenedByAt = false
+	e.agentComposer.pickerActiveIndex = 0
+	e.agentComposer.breakdownOpen = false
+	e.agentComposer.hoveredChipID = ""
+	e.agentComposer.cachedViewportPNG = nil
+	e.agentComposer.cachedViewportSrc = core.ImageSource{}
+	e.agentComposer.cachedViewportW = 0
+	e.agentComposer.cachedViewportH = 0
+	e.agentComposer.cachedViewportRev = 0
+}
+
+// composerKeysBlocked reports whether higher-priority modal dialogs, full-screen modes,
+// Play-in-editor, shortcut capture, or an inactive Agent rail should suppress composer keybindings.
+func (e *Editor) composerKeysBlocked() bool {
+	return e == nil || e.playing || e.shortcutCaptureActive ||
+		e.RightRailTab() != RightTabAgent ||
+		e.AgentMode() == AgentModeNone ||
+		e.AgentSwitcherOpen() ||
+		e.AskInPlaceOpen() || e.contextMenu.open ||
+		e.PermissionsDraftOpen() ||
+		e.StartScreenOpen() || e.MergeConflictOpen() || e.PlaytestReportOpen() ||
+		e.UsagesScreenOpen() || e.ChangesOpen() || e.HUDLayoutOpen() ||
+		e.SettingsOpen() || e.ShortcutsSheetOpen() || e.BuildReleaseScreenOpen() ||
+		e.ConnectDialogOpen() || e.AssetGeneratorOpen() || e.CommandPaletteOpen()
 }
 
 // RightRailMode returns which panel currently occupies the right rail.
@@ -342,6 +407,12 @@ func (e *Editor) TriggerAskAgentShortcut() error {
 	if e == nil || e.Doc == nil {
 		return errors.New("editor: no scene open")
 	}
+	if e.playing {
+		return ErrPlaying
+	}
+	if e.agent.mode == AgentModeNone {
+		return errors.New("editor: agent is disabled")
+	}
 	e.SetRightRailTab(RightTabAgent)
 	e.agentComposer.composerFocusSeq++
 	if e.SelectedID != "" {
@@ -367,12 +438,13 @@ func detectMentionTrigger(draft string) (start int, query string, ok bool) {
 	if draft == "" {
 		return 0, "", false
 	}
-	for i := len(draft) - 1; i >= 0; i-- {
-		ch := draft[i]
-		if ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' {
+	for i := len(draft); i > 0; {
+		r, size := utf8.DecodeLastRuneInString(draft[:i])
+		i -= size
+		if unicode.IsSpace(r) {
 			return 0, "", false
 		}
-		if ch == '@' {
+		if r == '@' {
 			if i == 0 {
 				return 0, draft[1:], true
 			}
@@ -599,7 +671,11 @@ func (e *Editor) AcceptMentionItem(id string) (AgentContextChip, bool) {
 		return AgentContextChip{}, false
 	}
 	chip := mentionItemToChip(*found)
-	e.addAttachedChip(chip)
+	if !e.addAttachedChip(chip) {
+		e.Status = e.T("composer.chipLimitStatus", l10n.Param("max", maxAttachedChips))
+		e.notify()
+		return AgentContextChip{}, false
+	}
 	if start, _, ok := detectMentionTrigger(e.composerDraft); ok {
 		e.composerDraft = e.composerDraft[:start]
 	}
@@ -815,6 +891,7 @@ func (e *Editor) collectMentionItems(query string, group MentionGroup) []Mention
 		}
 
 		// Classify project files into Prefabs, Assets, Rules, and Files.
+		e.syncComposerMetaCache(ix.rootDir, ix.fingerprint)
 		for _, f := range ix.files {
 			p := f.path
 			low := strings.ToLower(p)
@@ -827,7 +904,7 @@ func (e *Editor) collectMentionItems(query string, group MentionGroup) []Mention
 			switch {
 			case isRuleProjectFile(p):
 				meta := dirMeta
-				if summary := firstNonEmptyLine(filepath.Join(ix.rootDir, filepath.FromSlash(p))); summary != "" {
+				if summary := e.cachedRuleFirstLine(ix.rootDir, p); summary != "" {
 					meta = summary
 				}
 				addIfMatch(MentionItem{
@@ -860,7 +937,7 @@ func (e *Editor) collectMentionItems(query string, group MentionGroup) []Mention
 				}, p, base)
 			case isImageAssetPath(low):
 				meta := dirMeta
-				if w, h, ok := readImageDims(filepath.Join(ix.rootDir, filepath.FromSlash(p))); ok {
+				if w, h, ok := e.cachedImageDims(ix.rootDir, p); ok {
 					if meta != "" {
 						meta += " · "
 					}
@@ -1011,9 +1088,13 @@ func (e *Editor) collectMentionItems(query string, group MentionGroup) []Mention
 
 	// 5. History steps (applied undo steps in History + CommitMilestones).
 	if wantsGroup(MentionGroupHistory) && e.History != nil {
-		applied := e.History.Index()
+		applied := min(e.History.Index(), len(e.History.commands))
 		for i := applied - 1; i >= 0; i-- {
-			lbl := e.History.commands[i].Label()
+			cmd := e.History.commands[i]
+			if cmd == nil {
+				continue
+			}
+			lbl := cmd.Label()
 			if lbl == "" {
 				lbl = fmt.Sprintf("Step %d", i+1)
 			}
@@ -1104,30 +1185,69 @@ func isOtherAssetPath(low string) bool {
 	return strings.HasSuffix(low, ".ttf") || strings.HasSuffix(low, ".otf") || strings.HasSuffix(low, ".glb") || strings.HasSuffix(low, ".gltf")
 }
 
-func firstNonEmptyLine(absPath string) string {
-	data, err := os.ReadFile(absPath)
-	if err != nil || len(data) == 0 || !utf8.Valid(data) {
+func (e *Editor) syncComposerMetaCache(rootDir, fingerprint string) {
+	if e.agentComposer.metaCacheRoot == rootDir && e.agentComposer.metaCacheFP == fingerprint && e.agentComposer.ruleSummaryCache != nil {
+		return
+	}
+	e.agentComposer.metaCacheRoot = rootDir
+	e.agentComposer.metaCacheFP = fingerprint
+	e.agentComposer.ruleSummaryCache = make(map[string]string)
+	e.agentComposer.imageDimsCache = make(map[string][2]int)
+	e.agentComposer.imageDimsKnown = make(map[string]bool)
+}
+
+func (e *Editor) cachedRuleFirstLine(rootDir, rel string) string {
+	if s, ok := e.agentComposer.ruleSummaryCache[rel]; ok {
+		return s
+	}
+	s := firstNonEmptyLineSafe(rootDir, rel)
+	e.agentComposer.ruleSummaryCache[rel] = s
+	return s
+}
+
+func (e *Editor) cachedImageDims(rootDir, rel string) (int, int, bool) {
+	if known, ok := e.agentComposer.imageDimsKnown[rel]; ok {
+		if !known {
+			return 0, 0, false
+		}
+		d := e.agentComposer.imageDimsCache[rel]
+		return d[0], d[1], true
+	}
+	w, h, ok := readImageDimsSafe(rootDir, rel)
+	e.agentComposer.imageDimsKnown[rel] = ok
+	if ok {
+		e.agentComposer.imageDimsCache[rel] = [2]int{w, h}
+	}
+	return w, h, ok
+}
+
+func firstNonEmptyLineSafe(rootDir, rel string) string {
+	data, err := readProjectPrefixSafe(rootDir, rel, maxComposerFirstLineBytes)
+	if err != nil || len(data) == 0 || bytes.IndexByte(data, 0) >= 0 {
+		return ""
+	}
+	// Strip an incomplete trailing UTF-8 sequence if truncated mid-rune.
+	for len(data) > 0 && !utf8.Valid(data) {
+		data = data[:len(data)-1]
+	}
+	if len(data) == 0 {
 		return ""
 	}
 	for line := range strings.SplitSeq(string(data), "\n") {
 		trimmed := strings.TrimSpace(strings.TrimLeft(line, "# "))
 		if trimmed != "" {
-			if len(trimmed) > 72 {
-				return trimmed[:72] + "…"
-			}
-			return trimmed
+			return truncateRunes(trimmed, 72)
 		}
 	}
 	return ""
 }
 
-func readImageDims(absPath string) (int, int, bool) {
-	f, err := os.Open(absPath)
-	if err != nil {
+func readImageDimsSafe(rootDir, rel string) (int, int, bool) {
+	data, err := readProjectPrefixSafe(rootDir, rel, maxComposerImageHeaderBytes)
+	if err != nil || len(data) == 0 {
 		return 0, 0, false
 	}
-	defer f.Close()
-	cfg, _, err := image.DecodeConfig(f)
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil || cfg.Width <= 0 || cfg.Height <= 0 {
 		return 0, 0, false
 	}
@@ -1181,14 +1301,18 @@ func (e *Editor) AddComposerPlaytestRun(run ComposerPlaytestRun) {
 
 // --- Context Chips ---
 
-func (e *Editor) addAttachedChip(chip AgentContextChip) {
+func (e *Editor) addAttachedChip(chip AgentContextChip) bool {
 	for i := range e.agentComposer.attached {
 		if e.agentComposer.attached[i].ID == chip.ID {
 			e.agentComposer.attached[i] = chip
-			return
+			return true
 		}
 	}
+	if len(e.agentComposer.attached) >= maxAttachedChips {
+		return false
+	}
 	e.agentComposer.attached = append(e.agentComposer.attached, chip)
+	return true
 }
 
 // ComposerChips returns the currently attached context chips (excluding suggested and always chips).
@@ -1225,7 +1349,9 @@ func (e *Editor) AttachObjectChip(id string) (AgentContextChip, error) {
 		Icon:      MentionIconObject,
 		ColorRole: objectColorRole(obj),
 	}
-	e.addAttachedChip(chip)
+	if !e.addAttachedChip(chip) {
+		return AgentContextChip{}, fmt.Errorf("editor: maximum attached chips reached (%d)", maxAttachedChips)
+	}
 	e.notify()
 	return chip, nil
 }
@@ -1237,16 +1363,22 @@ func (e *Editor) AttachWholeSceneChip() (AgentContextChip, error) {
 	}
 	sceneRel := e.openSceneRelPath()
 	sceneShort := e.openSceneShortName()
+	wholeLabel := e.T("composer.wholeScene")
+	if wholeLabel == "" || wholeLabel == "composer.wholeScene" {
+		wholeLabel = "whole scene"
+	}
 	chip := AgentContextChip{
 		ID:        "scene:" + sceneRel,
 		Kind:      ChipKindWholeScene,
-		Name:      sceneShort + " · whole scene",
+		Name:      sceneShort + " · " + wholeLabel,
 		Target:    sceneRel,
 		SceneFile: sceneRel,
 		Icon:      MentionIconScene,
 		ColorRole: "accent",
 	}
-	e.addAttachedChip(chip)
+	if !e.addAttachedChip(chip) {
+		return AgentContextChip{}, fmt.Errorf("editor: maximum attached chips reached (%d)", maxAttachedChips)
+	}
 	e.notify()
 	return chip, nil
 }
@@ -1256,9 +1388,18 @@ func (e *Editor) AttachFileChip(relPath string) (AgentContextChip, error) {
 	if e == nil {
 		return AgentContextChip{}, errors.New("editor: nil editor")
 	}
-	clean := e.normalizeProjectPath(relPath)
-	if clean == "" {
-		return AgentContextChip{}, fmt.Errorf("editor: invalid project path %q", relPath)
+	root := ""
+	if e.Project != nil && e.ProjectPath != "" {
+		root = filepath.Dir(e.ProjectPath)
+	}
+	clean, err := sanitizeComposerProjectRelPath(root, relPath)
+	if err != nil {
+		return AgentContextChip{}, err
+	}
+	if root != "" {
+		if _, err := resolveSafeProjectRegularPath(root, clean); err != nil {
+			return AgentContextChip{}, err
+		}
 	}
 	chip := AgentContextChip{
 		ID:        "file:" + clean,
@@ -1268,7 +1409,9 @@ func (e *Editor) AttachFileChip(relPath string) (AgentContextChip, error) {
 		Icon:      MentionIconFile,
 		ColorRole: "accent",
 	}
-	e.addAttachedChip(chip)
+	if !e.addAttachedChip(chip) {
+		return AgentContextChip{}, fmt.Errorf("editor: maximum attached chips reached (%d)", maxAttachedChips)
+	}
 	e.notify()
 	return chip, nil
 }
@@ -1343,7 +1486,11 @@ func (e *Editor) AcceptSuggestedChip() (AgentContextChip, bool) {
 		return AgentContextChip{}, false
 	}
 	s.Suggested = false
-	e.addAttachedChip(s)
+	if !e.addAttachedChip(s) {
+		e.Status = e.T("composer.chipLimitStatus", l10n.Param("max", maxAttachedChips))
+		e.notify()
+		return AgentContextChip{}, false
+	}
 	e.notify()
 	return s, true
 }
@@ -1355,8 +1502,20 @@ func (e *Editor) AlwaysChips() []AgentContextChip {
 	}
 	root := filepath.Dir(e.ProjectPath)
 	var out []AgentContextChip
-	for _, rel := range []string{"brief.yaml", "AGENTS.md"} {
-		if _, err := readProjectTextFileSafe(root, rel); err == nil {
+	for _, rel := range []string{project.BriefFileName, ProjectRulesFileName} {
+		present := false
+		switch rel {
+		case project.BriefFileName:
+			present = e.BriefExists()
+		case ProjectRulesFileName:
+			present = e.ProjectRulesExists()
+		}
+		if !present {
+			if _, err := readProjectTextFileSafe(root, rel); err == nil {
+				present = true
+			}
+		}
+		if present {
 			out = append(out, AgentContextChip{
 				ID:        "always:" + rel,
 				Kind:      ChipKindAlways,
@@ -1402,10 +1561,16 @@ const viewportImageChipID = "viewport:image"
 
 // ViewportImageChip returns the chip descriptor for the Viewport image toggle.
 func (e *Editor) ViewportImageChip() AgentContextChip {
+	name := "Viewport image"
+	if e != nil {
+		if lbl := e.T("composer.viewportImage"); lbl != "" && lbl != "composer.viewportImage" {
+			name = lbl
+		}
+	}
 	return AgentContextChip{
 		ID:        viewportImageChipID,
 		Kind:      ChipKindViewportImage,
-		Name:      "Viewport image",
+		Name:      name,
 		Target:    "viewport",
 		Icon:      MentionIconViewport,
 		ColorRole: "muted",
@@ -1524,17 +1689,27 @@ func (e *Editor) ResolveChipPayload(chip AgentContextChip) AgentChipPayload {
 			low := strings.ToLower(chip.Target)
 			if isImageAssetPath(low) {
 				if raw, err := readProjectBinaryFileSafe(root, chip.Target); err == nil {
-					if img, _, decErr := image.Decode(bytes.NewReader(raw)); decErr == nil {
-						b := img.Bounds()
-						payload.ImageW = b.Dx()
-						payload.ImageH = b.Dy()
-						payload.ImageSrc = core.ImageSource{Pixels: imageToRGBA(img)}
-						var buf bytes.Buffer
-						if png.Encode(&buf, img) == nil {
-							payload.ImagePNG = buf.Bytes()
+					if cfg, _, cfgErr := image.DecodeConfig(bytes.NewReader(raw)); cfgErr == nil && cfg.Width > 0 && cfg.Height > 0 {
+						payload.ImageW = cfg.Width
+						payload.ImageH = cfg.Height
+						payload.Header = fmt.Sprintf("# %s · %d × %d", chip.Target, cfg.Width, cfg.Height)
+						if cfg.Width <= maxComposerImageDim && cfg.Height <= maxComposerImageDim &&
+							int64(cfg.Width)*int64(cfg.Height) <= maxComposerImagePixels {
+							if img, _, decErr := image.Decode(bytes.NewReader(raw)); decErr == nil {
+								b := img.Bounds()
+								payload.ImageW = b.Dx()
+								payload.ImageH = b.Dy()
+								payload.ImageSrc = core.ImageSource{Pixels: imageToRGBA(img)}
+								var buf bytes.Buffer
+								if png.Encode(&buf, img) == nil {
+									payload.ImagePNG = buf.Bytes()
+								}
+								payload.Header = fmt.Sprintf("# %s · %d × %d", chip.Target, payload.ImageW, payload.ImageH)
+								payload.Tokens = estimateImageTokens(payload.ImageW, payload.ImageH)
+								return payload
+							}
 						}
-						payload.Header = fmt.Sprintf("# %s · %d × %d", chip.Target, payload.ImageW, payload.ImageH)
-						payload.Tokens = estimateImageTokens(payload.ImageW, payload.ImageH)
+						payload.Tokens = estimateTextTokens(payload.Header)
 						return payload
 					}
 				}
@@ -1625,7 +1800,11 @@ func (e *Editor) sceneBytesForChip(sceneRel string) ([]byte, string) {
 		// When the open scene has no unsaved edits and exists on disk, read disk bytes so
 		// comments and line numbers match the file on disk (same rule as editormcp scene_read).
 		if e.FilePath != "" && !e.SceneDirty() {
-			if data, err := os.ReadFile(e.FilePath); err == nil {
+			root := ""
+			if e.Project != nil && e.ProjectPath != "" {
+				root = filepath.Dir(e.ProjectPath)
+			}
+			if data, err := readBoundedRegularFileSafe(root, e.FilePath, maxComposerReadBytes); err == nil {
 				return data, label
 			}
 		}
@@ -1635,6 +1814,17 @@ func (e *Editor) sceneBytesForChip(sceneRel string) ([]byte, string) {
 		return nil, label
 	}
 	label := path.Base(sceneRel)
+	// If the referenced scene is open in an inactive tab with unsaved edits, encode its live doc.
+	for i, t := range e.tabs {
+		if i == e.activeTab || t == nil || t.doc == nil {
+			continue
+		}
+		if t.scenePath == sceneRel && e.tabDirtyAt(i) {
+			if data, err := sceneformat.Encode(t.doc); err == nil {
+				return data, label
+			}
+		}
+	}
 	if e.Project != nil && e.ProjectPath != "" {
 		if data, err := readProjectTextFileSafe(filepath.Dir(e.ProjectPath), sceneRel); err == nil {
 			return data, label
@@ -1652,10 +1842,26 @@ func (e *Editor) readFileChipText(rel string) (string, bool) {
 			return string(data), true
 		}
 	}
+	if rel == project.BriefFileName && e.BriefExists() && e.BriefDirty() {
+		if data, err := e.BriefYAML(); err == nil && len(data) > 0 {
+			return string(data), true
+		}
+	}
+	if rel == ProjectRulesFileName && e.ProjectRulesExists() && e.ProjectRulesDirty() {
+		return e.ProjectRules(), true
+	}
 	if e.Project != nil && e.ProjectPath != "" {
 		if data, err := readProjectTextFileSafe(filepath.Dir(e.ProjectPath), rel); err == nil {
 			return string(data), true
 		}
+	}
+	if rel == project.BriefFileName && e.BriefExists() {
+		if data, err := e.BriefYAML(); err == nil && len(data) > 0 {
+			return string(data), true
+		}
+	}
+	if rel == ProjectRulesFileName && e.ProjectRulesExists() {
+		return e.ProjectRules(), true
 	}
 	if p, ok := e.Prefabs[rel]; ok {
 		obj := sceneformat.ObjectDoc{
@@ -1676,6 +1882,135 @@ func (e *Editor) readFileChipText(rel string) (string, bool) {
 	return "", false
 }
 
+func sanitizeComposerProjectRelPath(root, rel string) (string, error) {
+	raw := strings.TrimSpace(rel)
+	if raw == "" || strings.ContainsRune(raw, 0) {
+		return "", fmt.Errorf("editor: invalid project path %q", rel)
+	}
+	// Reject Windows drive-letter prefixes (e.g. C:\...) on all platforms.
+	if len(raw) >= 2 && raw[1] == ':' && ((raw[0] >= 'a' && raw[0] <= 'z') || (raw[0] >= 'A' && raw[0] <= 'Z')) {
+		if root == "" {
+			return "", fmt.Errorf("editor: path leaves project %q", rel)
+		}
+	}
+	if filepath.IsAbs(raw) || strings.HasPrefix(raw, "/") || strings.HasPrefix(raw, `\`) {
+		if root == "" {
+			return "", fmt.Errorf("editor: path leaves project %q", rel)
+		}
+		absRoot, err := filepath.Abs(root)
+		if err != nil {
+			return "", err
+		}
+		relFromRoot, err := filepath.Rel(absRoot, filepath.Clean(raw))
+		if err != nil || relFromRoot == "." || relFromRoot == ".." || strings.HasPrefix(relFromRoot, ".."+string(filepath.Separator)) || filepath.IsAbs(relFromRoot) {
+			return "", fmt.Errorf("editor: path leaves project %q", rel)
+		}
+		raw = relFromRoot
+	}
+	slashed := strings.ReplaceAll(raw, `\`, "/")
+	clean := path.Clean(slashed)
+	if path.IsAbs(clean) || clean == "." || clean == ".." || strings.HasPrefix(clean, "../") || strings.ContainsRune(clean, ':') {
+		return "", fmt.Errorf("editor: path leaves project %q", rel)
+	}
+	if clean == ".git" || strings.HasPrefix(clean, ".git/") {
+		return "", fmt.Errorf("editor: .git path %q is not attachable", rel)
+	}
+	return clean, nil
+}
+
+func resolveSafeProjectRegularPath(root, rel string) (string, error) {
+	if root == "" {
+		return "", fs.ErrNotExist
+	}
+	clean, err := sanitizeComposerProjectRelPath(root, rel)
+	if err != nil {
+		return "", err
+	}
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return "", err
+	}
+	abs := filepath.Join(absRoot, filepath.FromSlash(clean))
+	lfi, err := os.Lstat(abs)
+	if err != nil {
+		return "", err
+	}
+	if lfi.Mode()&os.ModeSymlink != 0 {
+		return "", errors.New("editor: symlink file refused")
+	}
+	if !lfi.Mode().IsRegular() {
+		return "", errors.New("editor: not a regular file")
+	}
+	if err := verifyFileWithinRoot(absRoot, abs, clean); err != nil {
+		return "", err
+	}
+	realPath, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return "", err
+	}
+	return realPath, nil
+}
+
+func readBoundedRegularFileSafe(root, absPath string, maxBytes int64) ([]byte, error) {
+	if absPath == "" {
+		return nil, fs.ErrNotExist
+	}
+	lfi, err := os.Lstat(absPath)
+	if err != nil {
+		return nil, err
+	}
+	if lfi.Mode()&os.ModeSymlink != 0 {
+		return nil, errors.New("editor: symlink file refused")
+	}
+	if !lfi.Mode().IsRegular() {
+		return nil, errors.New("editor: not a regular file")
+	}
+	if root != "" {
+		if err := verifyFileWithinRoot(root, absPath, absPath); err != nil {
+			return nil, err
+		}
+	}
+	return readBoundedOpenFile(absPath, maxBytes, false)
+}
+
+func readBoundedOpenFile(path string, maxBytes int64, allowTruncate bool) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	st, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !st.Mode().IsRegular() {
+		return nil, errors.New("editor: not a regular file")
+	}
+	if !allowTruncate && st.Size() > maxBytes {
+		return nil, errors.New("editor: file exceeds size limit")
+	}
+	limit := maxBytes
+	if !allowTruncate {
+		limit = maxBytes + 1
+	}
+	data, err := io.ReadAll(io.LimitReader(f, limit))
+	if err != nil {
+		return nil, err
+	}
+	if !allowTruncate && int64(len(data)) > maxBytes {
+		return nil, errors.New("editor: file exceeds size limit")
+	}
+	return data, nil
+}
+
+func readProjectPrefixSafe(root, rel string, maxBytes int64) ([]byte, error) {
+	realPath, err := resolveSafeProjectRegularPath(root, rel)
+	if err != nil {
+		return nil, err
+	}
+	return readBoundedOpenFile(realPath, maxBytes, true)
+}
+
 func readProjectTextFileSafe(root, rel string) ([]byte, error) {
 	data, err := readProjectBinaryFileSafe(root, rel)
 	if err != nil {
@@ -1688,40 +2023,11 @@ func readProjectTextFileSafe(root, rel string) ([]byte, error) {
 }
 
 func readProjectBinaryFileSafe(root, rel string) ([]byte, error) {
-	if root == "" || rel == "" {
-		return nil, fs.ErrNotExist
-	}
-	clean := path.Clean(strings.ReplaceAll(rel, `\`, "/"))
-	if path.IsAbs(clean) || clean == "." || clean == ".." || strings.HasPrefix(clean, "../") {
-		return nil, errors.New("editor: path leaves project")
-	}
-	absRoot, err := filepath.Abs(root)
+	realPath, err := resolveSafeProjectRegularPath(root, rel)
 	if err != nil {
 		return nil, err
 	}
-	if realRoot, err := filepath.EvalSymlinks(absRoot); err == nil {
-		absRoot = realRoot
-	}
-	abs := filepath.Join(absRoot, filepath.FromSlash(clean))
-	realPath, err := filepath.EvalSymlinks(abs)
-	if err != nil {
-		return nil, err
-	}
-	inside, err := filepath.Rel(absRoot, realPath)
-	if err != nil || inside == ".." || strings.HasPrefix(inside, ".."+string(filepath.Separator)) {
-		return nil, errors.New("editor: symlink escapes project root")
-	}
-	st, err := os.Stat(realPath)
-	if err != nil {
-		return nil, err
-	}
-	if !st.Mode().IsRegular() {
-		return nil, errors.New("editor: not a regular file")
-	}
-	if st.Size() > maxComposerReadBytes {
-		return nil, errors.New("editor: file exceeds size limit")
-	}
-	return os.ReadFile(realPath)
+	return readBoundedOpenFile(realPath, maxComposerReadBytes, false)
 }
 
 // extractSceneObjectBlock locates object id inside YAML scene bytes data, returning its
@@ -1877,6 +2183,11 @@ func (e *Editor) captureComposerViewportImage() ([]byte, core.ImageSource, int, 
 	var d core.Drawing
 	e.DrawViewport(&d, core.Size{Width: core.Points(w), Height: core.Points(h)})
 	pw, ph := max(1, int(math.Round(float64(w)))), max(1, int(math.Round(float64(h))))
+	if pw > maxComposerViewportDim || ph > maxComposerViewportDim {
+		scale := float64(maxComposerViewportDim) / float64(max(pw, ph))
+		pw = max(1, int(math.Round(float64(pw)*scale)))
+		ph = max(1, int(math.Round(float64(ph)*scale)))
+	}
 	res, err := gamemcp.RenderPNG(d.Ops, pw, ph, 0)
 	if err != nil || len(res.PNG) == 0 {
 		return nil, core.ImageSource{}, pw, ph
@@ -1925,6 +2236,9 @@ func (e *Editor) AssembleAgentRequest(prompt string) AgentRequest {
 	req.Attachments = make([]AgentChipPayload, 0, len(chips))
 	for _, c := range chips {
 		payload := e.ResolveChipPayload(c)
+		if len(payload.ImagePNG) > 0 {
+			payload.ImagePNG = slices.Clone(payload.ImagePNG)
+		}
 		req.Attachments = append(req.Attachments, payload)
 		if c.Kind == ChipKindViewportImage {
 			req.HasViewportImg = true
@@ -1941,8 +2255,57 @@ func (e *Editor) AssembleAgentRequest(prompt string) AgentRequest {
 		}
 	}
 
-	req.AssembledContext = strings.Join(blocks, "\n\n")
+	req.AssembledContext = joinContextBlocksBounded(blocks, maxAssembledContextBytes)
 	return req
+}
+
+func joinContextBlocksBounded(blocks []string, maxBytes int) string {
+	if len(blocks) == 0 || maxBytes <= 0 {
+		return ""
+	}
+	const truncMarker = "\n… (truncated to context budget)"
+	var b strings.Builder
+	for i, blk := range blocks {
+		sep := ""
+		if i > 0 {
+			sep = "\n\n"
+		}
+		if b.Len()+len(sep)+len(blk) <= maxBytes {
+			b.WriteString(sep)
+			b.WriteString(blk)
+			continue
+		}
+		remain := maxBytes - b.Len() - len(sep) - len(truncMarker)
+		if remain > 0 {
+			b.WriteString(sep)
+			// Truncate cleanly on a UTF-8 rune boundary.
+			cut := remain
+			for cut > 0 && !utf8.RuneStart(blk[cut]) {
+				cut--
+			}
+			b.WriteString(blk[:cut])
+		}
+		b.WriteString(truncMarker)
+		break
+	}
+	return b.String()
+}
+
+func cloneAgentRequest(req AgentRequest) AgentRequest {
+	out := req
+	if len(req.ViewportImage) > 0 {
+		out.ViewportImage = slices.Clone(req.ViewportImage)
+	}
+	if len(req.Attachments) > 0 {
+		out.Attachments = make([]AgentChipPayload, len(req.Attachments))
+		for i, a := range req.Attachments {
+			if len(a.ImagePNG) > 0 {
+				a.ImagePNG = slices.Clone(a.ImagePNG)
+			}
+			out.Attachments[i] = a
+		}
+	}
+	return out
 }
 
 // SendComposerPrompt assembles the request from the current draft and active chips (and nothing else),
@@ -1999,7 +2362,8 @@ func (e *Editor) SendComposerPrompt() (AgentRequest, error) {
 		Outcome:   "sent",
 	}
 	e.agentComposer.turns = append(e.agentComposer.turns, turn)
-	reqCopy := req
+	e.agentComposer.threadRev++
+	reqCopy := cloneAgentRequest(req)
 	e.agentComposer.lastRequest = &reqCopy
 
 	if resp.Usage != nil {
@@ -2045,23 +2409,33 @@ func (e *Editor) submitComposerFromUI() {
 	}
 }
 
-// LastSentAgentRequest returns the last request assembled and sent by SendComposerPrompt, or nil.
+// LastSentAgentRequest returns a copy of the last request assembled and sent by SendComposerPrompt, or nil.
 func (e *Editor) LastSentAgentRequest() *AgentRequest {
 	if e == nil || e.agentComposer.lastRequest == nil {
 		return nil
 	}
-	c := *e.agentComposer.lastRequest
+	c := cloneAgentRequest(*e.agentComposer.lastRequest)
 	return &c
 }
 
 // RecallLastComposerPrompt restores the most recently sent prompt into an empty composer (Spec: ↑ in empty composer).
 func (e *Editor) RecallLastComposerPrompt() bool {
-	if e == nil || strings.TrimSpace(e.composerDraft) != "" || len(e.agentComposer.turns) == 0 {
+	if e == nil || strings.TrimSpace(e.composerDraft) != "" {
 		return false
 	}
-	e.composerDraft = e.agentComposer.turns[len(e.agentComposer.turns)-1].Prompt
-	e.notify()
-	return true
+	if len(e.agentComposer.turns) > 0 {
+		e.composerDraft = e.agentComposer.turns[len(e.agentComposer.turns)-1].Prompt
+		e.notify()
+		return true
+	}
+	for i := len(e.agent.turns) - 1; i >= 0; i-- {
+		if !e.agent.turns[i].External && strings.TrimSpace(e.agent.turns[i].Prompt) != "" {
+			e.composerDraft = e.agent.turns[i].Prompt
+			e.notify()
+			return true
+		}
+	}
+	return false
 }
 
 // --- Context Meter, Breakdown, Compact & Start Fresh ---
@@ -2098,6 +2472,7 @@ func (e *Editor) AddAgentThreadTurn(turn AgentThreadTurn) {
 		turn.Tokens = max(64, estimateTextTokens(turn.Prompt)+estimateTextTokens(turn.Reply))
 	}
 	e.agentComposer.turns = append(e.agentComposer.turns, turn)
+	e.agentComposer.threadRev++
 	e.notify()
 }
 
@@ -2191,7 +2566,7 @@ func (e *Editor) ContextMeter() ContextMeterSnapshot {
 	}
 
 	convLabel := e.formatConversationBucketLabel()
-	sceneLabel := "Open scene · " + e.openSceneShortName()
+	sceneLabel := e.T("composer.bucket.openScene", l10n.Param("scene", e.openSceneShortName()))
 	attachedLabel := e.formatAttachedBucketLabel()
 	alwaysLabel := e.formatAlwaysBucketLabel()
 
@@ -2204,8 +2579,8 @@ func (e *Editor) ContextMeter() ContextMeterSnapshot {
 		{"scene", sceneLabel, usage.OpenScene},
 		{"attached", attachedLabel, usage.Attached},
 		{"always", alwaysLabel, usage.Always},
-		{"tools", "Tools and instructions", usage.ToolsAndInstr},
-		{"viewport", "Viewport image", usage.ViewportImage},
+		{"tools", e.T("composer.bucket.toolsAndInstr"), usage.ToolsAndInstr},
+		{"viewport", e.T("composer.bucket.viewportImage"), usage.ViewportImage},
 	}
 
 	rows := make([]ContextBreakdownRow, len(rawRows))
@@ -2290,40 +2665,43 @@ func (e *Editor) formatConversationBucketLabel() string {
 	n := len(e.agentComposer.turns)
 	if e.agentComposer.compactedSummary != "" {
 		if n == 1 {
-			return "Conversation · summary + 1 request"
+			return e.T("composer.bucket.conversationSummaryOne")
 		}
-		return fmt.Sprintf("Conversation · summary + %d requests", n)
+		return e.T("composer.bucket.conversationSummaryMany", l10n.Param("count", n))
 	}
 	if n == 1 {
-		return "Conversation · 1 request"
+		return e.T("composer.bucket.conversationOne")
 	}
-	return fmt.Sprintf("Conversation · %d requests", n)
+	return e.T("composer.bucket.conversationMany", l10n.Param("count", n))
 }
 
 func (e *Editor) formatAttachedBucketLabel() string {
 	if len(e.agentComposer.attached) == 0 {
-		return "Attached · none"
+		return e.T("composer.bucket.attachedNone")
 	}
 	names := make([]string, 0, len(e.agentComposer.attached))
 	for _, c := range e.agentComposer.attached {
 		names = append(names, c.Name)
 	}
 	if len(names) > 3 {
-		return fmt.Sprintf("Attached · %s +%d", strings.Join(names[:3], ", "), len(names)-3)
+		return e.T("composer.bucket.attachedMore",
+			l10n.Param("items", strings.Join(names[:3], ", ")),
+			l10n.Param("more", len(names)-3),
+		)
 	}
-	return "Attached · " + strings.Join(names, ", ")
+	return e.T("composer.bucket.attachedList", l10n.Param("items", strings.Join(names, ", ")))
 }
 
 func (e *Editor) formatAlwaysBucketLabel() string {
 	always := e.AlwaysChips()
 	if len(always) == 0 {
-		return "Always · none"
+		return e.T("composer.bucket.alwaysNone")
 	}
 	names := make([]string, 0, len(always))
 	for _, c := range always {
 		names = append(names, c.Name)
 	}
-	return "Always · " + strings.Join(names, ", ")
+	return e.T("composer.bucket.alwaysList", l10n.Param("items", strings.Join(names, ", ")))
 }
 
 // CompactAgentThread folds earlier requests into a concise summary while keeping the last request
@@ -2364,6 +2742,7 @@ func (e *Editor) CompactAgentThread() (string, error) {
 	if len(last) > 0 {
 		e.agentComposer.turns = slices.Clone(last)
 	}
+	e.agentComposer.threadRev++
 
 	if customUsage != nil {
 		u := *customUsage
@@ -2413,9 +2792,14 @@ func (e *Editor) StartFreshAgentThread() (string, error) {
 		}
 	}
 
+	e.StopAgentRun()
 	e.agentComposer.threadSeq++
 	e.agentComposer.threadID = fmt.Sprintf("thread-%d", e.agentComposer.threadSeq)
+	e.agentComposer.threadRev++
 	e.agent.threadID = e.agentComposer.threadID
+	e.agent.sessionID = ""
+	e.agent.turns = nil
+	e.agent.turnChangeSeq++
 	e.agentComposer.turns = nil
 	e.agentComposer.compactedSummary = ""
 	e.agentComposer.summarySeed = summary
@@ -2445,14 +2829,10 @@ func buildThreadSummary(existing string, turns []AgentThreadTurn) string {
 		if p == "" {
 			continue
 		}
-		if len(p) > 100 {
-			p = p[:100] + "…"
-		}
+		p = truncateRunes(p, 100)
 		line := "- " + p
 		if r := strings.TrimSpace(t.Reply); r != "" {
-			if len(r) > 80 {
-				r = r[:80] + "…"
-			}
+			r = truncateRunes(r, 80)
 			line += " → " + r
 		}
 		parts = append(parts, line)
