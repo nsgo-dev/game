@@ -1549,6 +1549,7 @@ func (e *Editor) Redo() bool {
 // Returns true if selection succeeded (or cleared).
 func (e *Editor) SelectObject(id string) bool {
 	if id != e.SelectedID {
+		e.CancelInspectorScrub()
 		e.CancelComponentGizmoDrag3D()
 	}
 	if id == "" {

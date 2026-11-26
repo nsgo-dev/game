@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/nsgo-dev/game/packages/game/editor"
@@ -186,31 +185,39 @@ func objectLocateYAML(ctx context.Context, c *Call) (*Result, error) {
 		if targetID == "" {
 			targetID = ed.SelectedID
 		}
-		path, line, err := ed.FindObjectYAMLLine(targetID)
-		if err != nil {
-			return fmt.Errorf("object_locate_yaml: %w", err)
+		var (
+			path   string
+			line   int
+			opened bool
+			err    error
+		)
+		if args.Open {
+			path, line, opened, err = ed.OpenObjectYAML(targetID)
+			if err != nil {
+				if errors.Is(err, editor.ErrPlaying) {
+					root := projectRoot(ed)
+					return &EditError{File: sceneName(ed, root), Problem: "the scene is playing in the editor, which refuses opening YAML", Fix: "stop playing first"}
+				}
+				return fmt.Errorf("object_locate_yaml: %w", err)
+			}
+		} else {
+			path, line, err = ed.FindObjectYAMLLine(targetID)
+			if err != nil {
+				return fmt.Errorf("object_locate_yaml: %w", err)
+			}
 		}
 		loc.File = path
 		loc.Object = targetID
 		loc.Line = line
+		loc.Opened = opened
 		if targetID != "" {
-			var yamlBytes []byte
-			if ed.FilePath != "" && !ed.SceneDirty() {
-				yamlBytes, _ = os.ReadFile(ed.FilePath)
-			}
+			yamlBytes, _ := ed.ReadSceneYAMLForLocate()
 			if len(yamlBytes) == 0 {
 				yamlBytes, _ = sceneYAML(ed)
 			}
 			if _, block := objectBlock(yamlBytes, targetID); block != "" {
 				loc.YAML = block
 			}
-		}
-		if args.Open {
-			if ed.OnOpenFileAtLine != nil {
-				ed.OnOpenFileAtLine(path, line)
-			}
-			ed.Status = fmt.Sprintf("Opened %s:%d", path, line)
-			loc.Opened = true
 		}
 		return nil
 	})

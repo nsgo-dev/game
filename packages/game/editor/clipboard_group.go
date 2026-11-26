@@ -205,6 +205,7 @@ func (e *Editor) ClearViewportPointer() {
 func (e *Editor) cancelActiveObjectDrags() {
 	e.CancelDrag2D()
 	e.CancelMarquee2D()
+	e.CancelInspectorScrub()
 	e.CancelShapeDrag2D()
 	e.CancelPluginDrag2D()
 	e.CancelComponentGizmoDrag3D()

@@ -3,16 +3,46 @@ package editor
 import (
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/nsgo-dev/game/packages/game/sceneformat"
 	"github.com/nsgo-dev/nsgo/core"
 	"go.yaml.in/yaml/v3"
 )
+
+const maxInspectorYAMLBytes = 4 << 20 // 4 MiB cap when reading clean scene YAML from disk.
+
+func isFiniteFloat64(v float64) bool {
+	return !math.IsNaN(v) && !math.IsInf(v, 0)
+}
+
+func clampInt32Float(v float64) float64 {
+	if v < math.MinInt32 {
+		return math.MinInt32
+	}
+	if v > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	return v
+}
+
+func (e *Editor) resetInspectorSessionState() {
+	if e == nil {
+		return
+	}
+	e.inspectorFilter = ""
+	e.inspectorReviewChanges = nil
+	e.inspectorFieldProblems = nil
+	e.composerDraft = ""
+}
 
 // ComponentCategory groups registered component types in the Inspector's Add component picker.
 type ComponentCategory string
@@ -243,7 +273,7 @@ func (e *Editor) inspectorFieldProblemFor(objectID, component, field string) (st
 		}
 	}
 	if component != "" {
-		if obj, _, _ := e.FindObject(objectID); obj != nil {
+		if obj, _ := e.FindResolvedObject(objectID); obj != nil {
 			if cm, ok := obj.Components[component].(map[string]any); ok {
 				if val, exists := cm[field]; exists {
 					if ct, ok := e.lookupComponentType(component); ok {
@@ -271,20 +301,116 @@ func (e *Editor) inspectorFieldProblemFor(objectID, component, field string) (st
 		if sceneRel != "" && p.File != "" && p.File != sceneRel {
 			continue
 		}
-		if !strings.Contains(p.Message, quotedObj) && !strings.Contains(p.Message, objectID) {
+		if !strings.Contains(p.Message, quotedObj) && !containsIdentifierToken(p.Message, objectID, false) {
 			continue
 		}
 		if component != "" {
-			if strings.Contains(p.Message, quotedComp) && strings.Contains(p.Message, quotedField) {
+			if (strings.Contains(p.Message, quotedComp) || containsIdentifierToken(p.Message, component, false)) &&
+				(strings.Contains(p.Message, quotedField) || matchesProblemFieldToken(p.Message, bareField)) {
 				return p.Message, true
 			}
 			continue
 		}
-		if strings.Contains(p.Message, quotedField) || strings.Contains(strings.ToLower(p.Message), strings.ToLower(bareField)) {
+		if strings.Contains(p.Message, quotedField) || matchesProblemFieldToken(p.Message, bareField) {
 			return p.Message, true
 		}
 	}
 	return "", false
+}
+
+func isIdentRune(r rune) bool {
+	return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-'
+}
+
+// containsIdentifierToken reports whether msg contains token bounded by non-identifier runes,
+// preventing short IDs like "box" from matching "skybox" or "box_2".
+func containsIdentifierToken(msg, token string, foldCase bool) bool {
+	if msg == "" || token == "" {
+		return false
+	}
+	hay := msg
+	needle := token
+	if foldCase {
+		hay = strings.ToLower(msg)
+		needle = strings.ToLower(token)
+	}
+	for offset := 0; offset < len(hay); {
+		idx := strings.Index(hay[offset:], needle)
+		if idx < 0 {
+			return false
+		}
+		start := offset + idx
+		end := start + len(needle)
+		leftOK := start == 0
+		if !leftOK {
+			r, _ := utf8DecodeLast(hay[:start])
+			leftOK = !isIdentRune(r)
+		}
+		rightOK := end == len(hay)
+		if !rightOK {
+			r, _ := utf8DecodeFirst(hay[end:])
+			rightOK = !isIdentRune(r)
+		}
+		if leftOK && rightOK {
+			return true
+		}
+		offset = start + 1
+	}
+	return false
+}
+
+func utf8DecodeFirst(s string) (rune, int) {
+	return utf8.DecodeRuneInString(s)
+}
+
+func utf8DecodeLast(s string) (rune, int) {
+	return utf8.DecodeLastRuneInString(s)
+}
+
+// matchesProblemFieldToken matches a field name in a problem message without letting 1-character
+// field names like "x", "y", or "z" false-positive on ordinary words like "texture", "layer", or "size".
+func matchesProblemFieldToken(msg, bareField string) bool {
+	if bareField == "" {
+		return false
+	}
+	if len(bareField) == 1 {
+		lower := strings.ToLower(msg)
+		f := strings.ToLower(bareField)
+		// Require explicit field reference syntax for single-letter axes (".x", "x:", "x=", "field x").
+		for _, pat := range []string{"." + f, f + ":", f + "=", "field " + f} {
+			if containsFieldPattern(lower, pat) {
+				return true
+			}
+		}
+		return false
+	}
+	return containsIdentifierToken(msg, bareField, true)
+}
+
+func containsFieldPattern(lower, pat string) bool {
+	for offset := 0; offset < len(lower); {
+		idx := strings.Index(lower[offset:], pat)
+		if idx < 0 {
+			return false
+		}
+		start := offset + idx
+		end := start + len(pat)
+		leftOK := start == 0
+		if !leftOK {
+			r, _ := utf8DecodeLast(lower[:start])
+			leftOK = !isIdentRune(r) || pat[0] == '.'
+		}
+		rightOK := end == len(lower)
+		if !rightOK {
+			r, _ := utf8DecodeFirst(lower[end:])
+			rightOK = !isIdentRune(r) || pat[len(pat)-1] == ':' || pat[len(pat)-1] == '='
+		}
+		if leftOK && rightOK {
+			return true
+		}
+		offset = start + 1
+	}
+	return false
 }
 
 func checkFieldBoundsProblem(f sceneformat.Field, val any) (string, bool) {
@@ -304,6 +430,74 @@ func checkFieldBoundsProblem(f sceneformat.Field, val any) (string, bool) {
 	return "", false
 }
 
+// verifyInspectorYAMLPath resolves e.FilePath and ensures it stays strictly inside the project
+// root (following symlinks via resolvePathWithinRoot) whenever a project is open.
+func (e *Editor) verifyInspectorYAMLPath() (string, error) {
+	if e == nil || e.FilePath == "" {
+		return "", nil
+	}
+	absFile, err := filepath.Abs(e.FilePath)
+	if err != nil {
+		return "", err
+	}
+	if e.ProjectPath == "" {
+		return absFile, nil
+	}
+	rootAbs, err := filepath.Abs(filepath.Dir(e.ProjectPath))
+	if err != nil {
+		return "", err
+	}
+	realRoot, err := filepath.EvalSymlinks(rootAbs)
+	if err != nil {
+		realRoot = filepath.Clean(rootAbs)
+	}
+	_, resolved, err := resolvePathWithinRoot(realRoot, absFile)
+	if err != nil {
+		return "", err
+	}
+	return resolved, nil
+}
+
+func readCappedYAMLFile(path string, maxBytes int64) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	if info, err := f.Stat(); err == nil && info.Size() > maxBytes {
+		return nil, fmt.Errorf("editor: %s exceeds %d byte YAML inspect cap", path, maxBytes)
+	}
+	data, err := io.ReadAll(io.LimitReader(f, maxBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, fmt.Errorf("editor: %s exceeds %d byte YAML inspect cap", path, maxBytes)
+	}
+	return data, nil
+}
+
+// ReadSceneYAMLForLocate returns the open scene's YAML bytes for line/snippet inspection: when
+// the scene is clean on disk it reads the verified, size-capped disk file (preserving comments);
+// otherwise it returns Editor.SaveYAML.
+func (e *Editor) ReadSceneYAMLForLocate() ([]byte, error) {
+	if e == nil || e.Doc == nil {
+		return nil, errors.New("editor: no scene is open")
+	}
+	if e.FilePath != "" {
+		verified, err := e.verifyInspectorYAMLPath()
+		if err != nil {
+			return nil, err
+		}
+		if !e.SceneDirty() && verified != "" {
+			if diskData, err := readCappedYAMLFile(verified, maxInspectorYAMLBytes); err == nil {
+				return diskData, nil
+			}
+		}
+	}
+	return e.SaveYAML()
+}
+
 // FindObjectYAMLLine locates the 1-based line number where objectID begins in the open scene's
 // YAML and returns (path, line, nil). When objectID is empty, it returns line 1 of the open scene.
 // While the open scene has no unsaved edits and a file on disk, line numbers match the file on
@@ -313,6 +507,11 @@ func (e *Editor) FindObjectYAMLLine(objectID string) (string, int, error) {
 		return "", 0, errors.New("editor: no scene is open")
 	}
 	openPath := e.FilePath
+	if e.FilePath != "" {
+		if _, err := e.verifyInspectorYAMLPath(); err != nil {
+			return "", 0, err
+		}
+	}
 	if openPath == "" {
 		openPath = e.ScenePath
 	}
@@ -326,9 +525,11 @@ func (e *Editor) FindObjectYAMLLine(objectID string) (string, int, error) {
 		return "", 0, fmt.Errorf("editor: object %q not found", objectID)
 	}
 	if e.FilePath != "" && !e.SceneDirty() {
-		if diskData, err := os.ReadFile(e.FilePath); err == nil {
-			if line := findObjectLineInYAML(diskData, objectID); line > 0 {
-				return openPath, line, nil
+		if verified, err := e.verifyInspectorYAMLPath(); err == nil && verified != "" {
+			if diskData, err := readCappedYAMLFile(verified, maxInspectorYAMLBytes); err == nil {
+				if line := findObjectLineInYAML(diskData, objectID); line > 0 {
+					return openPath, line, nil
+				}
 			}
 		}
 	}
@@ -342,20 +543,36 @@ func (e *Editor) FindObjectYAMLLine(objectID string) (string, int, error) {
 	return "", 0, fmt.Errorf("editor: object %q not found in scene YAML", objectID)
 }
 
+// OpenObjectYAML locates objectID's 1-based line in the scene YAML (or line 1 when empty),
+// verifies project-root containment, invokes Editor.OnOpenFileAtLine(path, line) when set,
+// updates Editor.Status, and reports whether OnOpenFileAtLine actually ran.
+func (e *Editor) OpenObjectYAML(objectID string) (string, int, bool, error) {
+	if e == nil {
+		return "", 0, false, errors.New("editor: nil editor")
+	}
+	if e.playing {
+		return "", 0, false, ErrPlaying
+	}
+	path, line, err := e.FindObjectYAMLLine(objectID)
+	if err != nil {
+		return "", 0, false, err
+	}
+	opened := false
+	if e.OnOpenFileAtLine != nil {
+		e.OnOpenFileAtLine(path, line)
+		opened = true
+	}
+	e.Status = fmt.Sprintf("Opened %s:%d", path, line)
+	e.notify()
+	return path, line, opened, nil
+}
+
 // OpenSelectedObjectYAML locates the selected object's 1-based line in the scene YAML (or line 1
 // when no object is selected), invokes Editor.OnOpenFileAtLine(path, line) when set, and updates
 // Editor.Status with "Opened <path>:<line>".
 func (e *Editor) OpenSelectedObjectYAML() error {
-	path, line, err := e.FindObjectYAMLLine(e.SelectedID)
-	if err != nil {
-		return err
-	}
-	if e.OnOpenFileAtLine != nil {
-		e.OnOpenFileAtLine(path, line)
-	}
-	e.Status = fmt.Sprintf("Opened %s:%d", path, line)
-	e.notify()
-	return nil
+	_, _, _, err := e.OpenObjectYAML(e.SelectedID)
+	return err
 }
 
 // findObjectLineInYAML parses data as a YAML document and returns the 1-based starting line of
@@ -533,15 +750,30 @@ func (e *Editor) BeginInspectorScrub(spec InspectorScrubField) error {
 	if spec.ObjectID == "" || spec.Field == "" {
 		return errors.New("editor: scrub requires objectID and field")
 	}
+	if math.IsNaN(spec.Step) || math.IsInf(spec.Step, 0) {
+		return errors.New("editor: scrub step must be finite")
+	}
+	if spec.Min != nil && !isFiniteFloat64(*spec.Min) {
+		return errors.New("editor: scrub min must be finite")
+	}
+	if spec.Max != nil && !isFiniteFloat64(*spec.Max) {
+		return errors.New("editor: scrub max must be finite")
+	}
+	if spec.Min != nil && spec.Max != nil && *spec.Min > *spec.Max {
+		return errors.New("editor: scrub min must not exceed max")
+	}
 	e.CancelInspectorScrub()
 
-	obj, _, _ := e.FindObject(spec.ObjectID)
+	obj, _ := e.FindResolvedObject(spec.ObjectID)
 	if obj == nil {
 		return fmt.Errorf("editor: object %q not found", spec.ObjectID)
 	}
 	startVal, isInt, err := e.readInspectorNumericField(obj, spec)
 	if err != nil {
 		return err
+	}
+	if !isFiniteFloat64(startVal) {
+		return fmt.Errorf("editor: field %q has non-finite value", spec.Field)
 	}
 	if isInt {
 		spec.Integer = true
@@ -579,9 +811,12 @@ func (e *Editor) UpdateInspectorScrub(deltaPx float64, shift bool) (float64, err
 		e.CancelInspectorScrub()
 		return 0, ErrPlaying
 	}
+	if !isFiniteFloat64(deltaPx) {
+		return e.inspectorScrub.currentVal, errors.New("editor: scrub delta must be finite")
+	}
 	s := &e.inspectorScrub
 	effStep := s.spec.Step
-	if effStep <= 0 {
+	if !isFiniteFloat64(effStep) || effStep <= 0 {
 		effStep = 1
 	}
 	if shift {
@@ -591,8 +826,18 @@ func (e *Editor) UpdateInspectorScrub(deltaPx float64, shift bool) (float64, err
 			effStep *= 10
 		}
 	}
+	if !isFiniteFloat64(effStep) {
+		return s.currentVal, errors.New("editor: scrub step overflow")
+	}
 	steps := math.Round(deltaPx / scrubPixelsPerStep)
-	next := roundToStepPrecision(s.startVal+steps*effStep, effStep)
+	rawNext := s.startVal + steps*effStep
+	if !isFiniteFloat64(rawNext) {
+		return s.currentVal, errors.New("editor: scrub value overflow")
+	}
+	next := roundToStepPrecision(rawNext, effStep)
+	if !isFiniteFloat64(next) {
+		next = rawNext
+	}
 	if s.spec.Min != nil && next < *s.spec.Min {
 		next = *s.spec.Min
 	}
@@ -600,7 +845,9 @@ func (e *Editor) UpdateInspectorScrub(deltaPx float64, shift bool) (float64, err
 		next = *s.spec.Max
 	}
 	if s.spec.Integer {
-		next = math.Round(next)
+		next = clampInt32Float(math.Round(next))
+	} else if isFloat32ScrubField(s.spec.Field) && math.Abs(next) > math.MaxFloat32 {
+		return s.currentVal, errors.New("editor: scrub value exceeds float32 range")
 	}
 	if next == s.currentVal {
 		return s.currentVal, nil
@@ -801,8 +1048,24 @@ func (e *Editor) readInspectorNumericField(obj *sceneformat.ObjectDoc, spec Insp
 	return 0, false, fmt.Errorf("editor: unknown numeric scrub field %q", spec.Field)
 }
 
+func isFloat32ScrubField(field string) bool {
+	switch field {
+	case "x", "y", "rotation", "scaleX", "scaleY", "alpha", "originX", "originY",
+		"posZ", "rotX", "rotY", "rotZ", "scaleZ", "depth":
+		return true
+	default:
+		return false
+	}
+}
+
 func applyInspectorNumericField(e *Editor, spec InspectorScrubField, v float64) error {
-	obj, _, _ := e.FindObject(spec.ObjectID)
+	if !isFiniteFloat64(v) {
+		return errors.New("editor: scrub value must be finite")
+	}
+	if isFloat32ScrubField(spec.Field) && math.Abs(v) > math.MaxFloat32 {
+		return errors.New("editor: scrub value exceeds float32 range")
+	}
+	obj, _ := e.FindResolvedObject(spec.ObjectID)
 	if obj == nil {
 		return fmt.Errorf("editor: object %q not found", spec.ObjectID)
 	}
@@ -812,7 +1075,7 @@ func applyInspectorNumericField(e *Editor, spec InspectorScrubField, v float64) 
 	case "y":
 		return e.MoveObject(spec.ObjectID, obj.X, float32(v))
 	case "z":
-		return e.SetObjectZ(spec.ObjectID, int(math.Round(v)))
+		return e.SetObjectZ(spec.ObjectID, int(clampInt32Float(math.Round(v))))
 	case "rotation":
 		return e.RotateObject(spec.ObjectID, float32(v))
 	case "scaleX":
@@ -840,7 +1103,7 @@ func applyInspectorNumericField(e *Editor, spec InspectorScrubField, v float64) 
 	}
 	if key, ok := strings.CutPrefix(spec.Field, "prop:"); ok {
 		if spec.Integer {
-			return e.SetProperty(spec.ObjectID, key, int(math.Round(v)))
+			return e.SetProperty(spec.ObjectID, key, int(clampInt32Float(math.Round(v))))
 		}
 		return e.SetProperty(spec.ObjectID, key, v)
 	}
@@ -850,7 +1113,7 @@ func applyInspectorNumericField(e *Editor, spec InspectorScrubField, v float64) 
 			return fmt.Errorf("editor: invalid component scrub target %q", spec.Field)
 		}
 		if spec.Integer {
-			return e.SetComponentField(spec.ObjectID, comp, field, int(math.Round(v)))
+			return e.SetComponentField(spec.ObjectID, comp, field, int(clampInt32Float(math.Round(v))))
 		}
 		return e.SetComponentField(spec.ObjectID, comp, field, v)
 	}
@@ -870,6 +1133,10 @@ func inspectorObjectKindLabel(obj *sceneformat.ObjectDoc) string {
 		return "Light"
 	case obj.Camera != nil:
 		return "Camera"
+	case obj.ReflectionProbe != nil:
+		return "Reflection probe"
+	case obj.LightProbeGrid != nil:
+		return "Light probe grid"
 	case obj.Model != "":
 		return "Model"
 	case obj.GridMap != "":
@@ -897,6 +1164,8 @@ func objectSwatchColor(obj *sceneformat.ObjectDoc) core.Color {
 	case obj.Light != nil:
 		return specWarning
 	case obj.Camera != nil:
+		return specAccent
+	case obj.ReflectionProbe != nil || obj.LightProbeGrid != nil:
 		return specAccent
 	case obj.Model != "" || obj.Mesh != "" || obj.GridMap != "":
 		return specAdded

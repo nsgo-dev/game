@@ -319,6 +319,7 @@ func (e *Editor) Close() error {
 	if e == nil {
 		return nil
 	}
+	e.CancelInspectorScrub()
 	e.stopClipLoop()
 	e.stopStatesLoop()
 	e.stopCutsceneLoop()

@@ -437,3 +437,241 @@ func TestInspectorSpecUIAndScreenshots(t *testing.T) {
 	}
 	app.Screenshot("inspector-sections-3d")
 }
+
+func TestInspectorScrubLifecycleNeverLeaksHistoryGroup(t *testing.T) {
+	ed := newInspectorSpecEditor(t)
+
+	// Start scrubbing slime_02.x, update it, then switch selection to knight.
+	beforeIdx := ed.History.Index()
+	if err := ed.BeginInspectorScrub(editor.InspectorScrubField{ObjectID: "slime_02", Field: "x", Step: 1}); err != nil {
+		t.Fatalf("BeginInspectorScrub: %v", err)
+	}
+	if _, err := ed.UpdateInspectorScrub(40, false); err != nil {
+		t.Fatalf("UpdateInspectorScrub: %v", err)
+	}
+	ed.SelectObject("knight")
+	if ed.InspectorScrubbing() {
+		t.Fatal("SelectObject did not cancel active scrub")
+	}
+	slime, _, _ := ed.FindObject("slime_02")
+	if slime.X != 284 {
+		t.Fatalf("slime.X after SelectObject cancel = %v, want 284", slime.X)
+	}
+	if ed.History.Index() != beforeIdx {
+		t.Fatalf("History.Index = %d after cancel, want %d", ed.History.Index(), beforeIdx)
+	}
+	// Prove History.group was NOT left dangling: next edit must push onto History normally.
+	if err := ed.MoveObject("knight", 150, 340); err != nil {
+		t.Fatalf("MoveObject after scrub cancel: %v", err)
+	}
+	if ed.History.Index() != beforeIdx+1 {
+		t.Fatalf("History.Index after MoveObject = %d, want %d (History.group leaked!)", ed.History.Index(), beforeIdx+1)
+	}
+
+	// OpenDemo cancels active scrub and clears session filter, review changes, field problems, and composer draft.
+	ed.SelectObject("slime_02")
+	ed.SetInspectorFilter("speed")
+	ed.SetInspectorReviewChanges([]editor.InspectorReviewChange{{ObjectID: "slime_02", Field: "x", OldValue: "1", NewValue: "2"}})
+	ed.SetInspectorFieldProblems([]editor.InspectorFieldProblem{{ObjectID: "slime_02", Field: "x", Message: "bad"}})
+	ed.SetComposerDraft("Add something")
+	if err := ed.BeginInspectorScrub(editor.InspectorScrubField{ObjectID: "slime_02", Field: "x", Step: 1}); err != nil {
+		t.Fatalf("BeginInspectorScrub before OpenDemo: %v", err)
+	}
+	if err := ed.OpenDemo(); err != nil {
+		t.Fatalf("OpenDemo: %v", err)
+	}
+	if ed.InspectorScrubbing() {
+		t.Fatal("OpenDemo left scrub active")
+	}
+	if ed.InspectorFilter() != "" || len(ed.InspectorReviewChanges()) != 0 || len(ed.InspectorFieldProblems()) != 0 || ed.ComposerDraft() != "" {
+		t.Fatalf("OpenDemo did not reset inspector session state: filter=%q reviews=%d problems=%d draft=%q",
+			ed.InspectorFilter(), len(ed.InspectorReviewChanges()), len(ed.InspectorFieldProblems()), ed.ComposerDraft())
+	}
+
+	// Close cancels an active scrub cleanly too.
+	if err := ed.BeginInspectorScrub(editor.InspectorScrubField{ObjectID: "hero", Field: "x", Step: 1}); err != nil {
+		t.Fatalf("BeginInspectorScrub before Close: %v", err)
+	}
+	_, _ = ed.UpdateInspectorScrub(20, false)
+	_ = ed.Close()
+	if ed.InspectorScrubbing() {
+		t.Fatal("Close did not cancel active scrub")
+	}
+}
+
+func TestInspectorScrubRejectsNonFiniteAndOverflow(t *testing.T) {
+	ed := newInspectorSpecEditor(t)
+	if err := ed.SetProperty("slime_02", "count", 5); err != nil {
+		t.Fatalf("SetProperty: %v", err)
+	}
+
+	// Non-finite step/min/max and inverted bounds refused on Begin.
+	nan := math.NaN()
+	inf := math.Inf(1)
+	lo, hi := 10.0, 2.0
+	for _, spec := range []editor.InspectorScrubField{
+		{ObjectID: "slime_02", Field: "x", Step: nan},
+		{ObjectID: "slime_02", Field: "x", Step: inf},
+		{ObjectID: "slime_02", Field: "x", Min: &nan},
+		{ObjectID: "slime_02", Field: "x", Max: &inf},
+		{ObjectID: "slime_02", Field: "x", Min: &lo, Max: &hi},
+	} {
+		if err := ed.BeginInspectorScrub(spec); err == nil {
+			t.Fatalf("BeginInspectorScrub(%+v) succeeded, want error", spec)
+		}
+	}
+
+	// Non-finite and huge float32-overflow deltas refused on Update without corrupting field.
+	if err := ed.BeginInspectorScrub(editor.InspectorScrubField{ObjectID: "slime_02", Field: "x", Step: 1}); err != nil {
+		t.Fatalf("BeginInspectorScrub x: %v", err)
+	}
+	for _, delta := range []float64{math.NaN(), math.Inf(1), math.Inf(-1), 1e308, 1e50} {
+		if _, err := ed.UpdateInspectorScrub(delta, false); err == nil {
+			t.Fatalf("UpdateInspectorScrub(%v) succeeded, want error", delta)
+		}
+	}
+	slime, _, _ := ed.FindObject("slime_02")
+	if slime.X != 284 || math.IsNaN(float64(slime.X)) || math.IsInf(float64(slime.X), 0) {
+		t.Fatalf("slime.X corrupted = %v", slime.X)
+	}
+	ed.CancelInspectorScrub()
+
+	// Integer scrub clamps cleanly within int32 range without overflowing int.
+	if err := ed.BeginInspectorScrub(editor.InspectorScrubField{ObjectID: "slime_02", Field: "prop:count", Step: 1, Integer: true}); err != nil {
+		t.Fatalf("BeginInspectorScrub prop:count: %v", err)
+	}
+	got, err := ed.UpdateInspectorScrub(1e15, false)
+	if err != nil {
+		t.Fatalf("UpdateInspectorScrub large int delta: %v", err)
+	}
+	if got != math.MaxInt32 {
+		t.Fatalf("clamped int scrub = %v, want MaxInt32 (%d)", got, math.MaxInt32)
+	}
+	ed.CancelInspectorScrub()
+}
+
+func TestInspectorNumberBoxEscapeDiscardsUncommittedTypedText(t *testing.T) {
+	ed := newInspectorSpecEditor(t)
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1280, 1200))
+
+	beforeIdx := ed.History.Index()
+	// Focus inspector-x, type uncommitted text "999", then press Escape.
+	app.Focus("id:inspector-x")
+	app.Type("id:inspector-x", "999")
+	app.Key("escape")
+
+	slime, _, _ := ed.FindObject("slime_02")
+	if slime.X != 284 {
+		t.Fatalf("slime.X after Escape on uncommitted text = %v, want 284", slime.X)
+	}
+	if ed.History.Index() != beforeIdx {
+		t.Fatalf("History.Index after Escape = %d, want %d", ed.History.Index(), beforeIdx)
+	}
+	if got := allText(app.Find("id:inspector-x")); !strings.Contains(got, "284") {
+		t.Fatalf("inspector-x displayed value after Escape = %q, want %q", got, "284")
+	}
+
+	// Focus inspector-x, step up with arrow key, then Escape restores value and History cleanly.
+	app.Focus("id:inspector-x")
+	app.Key("up")
+	if slime.X == 284 {
+		t.Fatal("expected arrow up to step slime.X")
+	}
+	app.Key("escape")
+	if slime.X != 284 {
+		t.Fatalf("slime.X after step+Escape = %v, want 284", slime.X)
+	}
+	if ed.History.Index() != beforeIdx {
+		t.Fatalf("History.Index after step+Escape = %d, want %d (extra undo step pushed)", ed.History.Index(), beforeIdx)
+	}
+}
+
+func TestInspectorMultiAxisReviewAndProblemSubRowsOnYZAndOriginY(t *testing.T) {
+	ed := newInspectorSpecEditor(t)
+	ed.SetInspectorReviewChanges([]editor.InspectorReviewChange{
+		{ObjectID: "slime_02", Field: "y", OldValue: "300", NewValue: "340"},
+		{ObjectID: "slime_02", Field: "originY", OldValue: "0", NewValue: "16"},
+	})
+	ed.SetInspectorFieldProblems([]editor.InspectorFieldProblem{
+		{ObjectID: "slime_02", Field: "scaleY", Message: "Scale Y must be non-zero"},
+	})
+
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(1280, 1400))
+
+	if got := allText(app.Find("id:inspector-position-review")); !strings.Contains(got, "y: was 300 · in review") {
+		t.Fatalf("position Y review sub-row = %q", got)
+	}
+	if got := allText(app.Find("id:inspector-origin-review")); !strings.Contains(got, "originY: was 0 · in review") {
+		t.Fatalf("origin Y review sub-row = %q", got)
+	}
+	if got := allText(app.Find("id:inspector-scale-problem")); !strings.Contains(got, "scaleY: Scale Y must be non-zero") {
+		t.Fatalf("scale Y problem pill = %q", got)
+	}
+}
+
+func TestInspectorOpenYAMLContainmentAndPlayGuard(t *testing.T) {
+	projDir := t.TempDir()
+	outsideDir := t.TempDir()
+	projFile := filepath.Join(projDir, "game.yaml")
+	if err := os.WriteFile(projFile, []byte("version: 1\nname: test\n"), 0o644); err != nil {
+		t.Fatalf("write game.yaml: %v", err)
+	}
+	ed := newInspectorSpecEditor(t)
+	yamlBytes, err := ed.SaveYAML()
+	if err != nil {
+		t.Fatalf("SaveYAML: %v", err)
+	}
+	outsideScene := filepath.Join(outsideDir, "secret.scene.yaml")
+	if err := os.WriteFile(outsideScene, yamlBytes, 0o644); err != nil {
+		t.Fatalf("write outside scene: %v", err)
+	}
+	symlinkScene := filepath.Join(projDir, "escape.scene.yaml")
+	if err := os.Symlink(outsideScene, symlinkScene); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	ed.ProjectPath = projFile
+	ed.FilePath = symlinkScene
+	if _, _, err := ed.FindObjectYAMLLine("slime_02"); err == nil {
+		t.Fatal("FindObjectYAMLLine allowed symlink escaping project root")
+	}
+	if _, _, _, err := ed.OpenObjectYAML("slime_02"); err == nil {
+		t.Fatal("OpenObjectYAML allowed symlink escaping project root")
+	}
+
+	// Valid in-project scene works; opened=false when OnOpenFileAtLine is nil, true when set.
+	insideScene := filepath.Join(projDir, "level.scene.yaml")
+	if err := os.WriteFile(insideScene, yamlBytes, 0o644); err != nil {
+		t.Fatalf("write inside scene: %v", err)
+	}
+	ed.FilePath = insideScene
+	revBefore := ed.Revision()
+	_, line, opened, err := ed.OpenObjectYAML("slime_02")
+	if err != nil {
+		t.Fatalf("OpenObjectYAML inside project: %v", err)
+	}
+	if line <= 1 || opened {
+		t.Fatalf("OpenObjectYAML without handler: line=%d opened=%v, want line>1 opened=false", line, opened)
+	}
+	if ed.Revision() <= revBefore {
+		t.Fatal("OpenObjectYAML did not notify listeners")
+	}
+
+	// Play mode refuses OpenObjectYAML.
+	var rootScope *core.Scope
+	nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		rootScope = cx
+		return editor.EditorView(cx, ed)
+	}, nsgotest.Size(800, 600))
+	if err := ed.PlayIn(rootScope); err != nil {
+		t.Fatalf("PlayIn: %v", err)
+	}
+	defer func() { _ = ed.Stop() }()
+	if _, _, _, err := ed.OpenObjectYAML("slime_02"); err == nil {
+		t.Fatal("OpenObjectYAML allowed during Play mode")
+	}
+}
