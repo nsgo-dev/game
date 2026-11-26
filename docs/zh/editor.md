@@ -929,32 +929,36 @@ func main() {
 
 当 `Editor.Library` 设为一个包库（`library.Open`）时（`nsgo game editor -library <索引>` 就会这样设置），资源浏览器旁会出现一个面板，列出库中每个包的类型、版本、描述以及打开的项目已安装的版本。面板上的 Install、Update 和 Remove 按钮调用 `InstallPack` 和 `RemovePack`：把包的文件写到 `game.yaml` 旁边，在项目中记录包及其新增的自动加载条目和插件，然后保存项目；插件包列出的已注册插件会立即启用。正在运行、没有打开项目或项目有未保存修改（`ErrProjectDirty`）时它们会拒绝执行；由于写入的文件无法撤销，它们会清空撤销历史。从 https 库获取包时不会阻塞事件循环，包到达之前按钮显示为忙碌状态（`FetchingPack`）。库的格式以及安装会写入什么，见[资源与插件库](library.md)。
 
-## 项目设置面板（#907）
+## 统一设置页面：项目、输入映射、音频总线、导出与通用偏好（#907、#908、#909、#916、#1060）
 
-打开项目后，工具栏的 **Settings** 按钮（`ProjectSettingsOpen` / `SetProjectSettingsOpen`）会在视口下方切换显示 `ProjectSettingsPanelView`，完全通过 `EditProject` 编辑 `game.yaml`：每一次修改都经过 `project.Validate` 校验，纳入撤销/重做历史，并在点击 **Save**（`SaveProject`）时同时写回 `game.yaml` 与同步更新的 `nsgo.yaml`：
+所有项目级 `game.yaml` 配置与每台电脑的编辑器偏好均汇集在统一的**设置**视图（`SettingsView`，通过 `OpenSettingsPage(page)` 打开、`SettingsOpen()` / `SettingsPage()` 查询、`CloseSettings()` 或 `Escape` 关闭）中，界面布局严格遵循 `docs/design/editor/Settings.dc.html` 与 `Spec.dc.html`。左侧导航将 **`PROJECT · game.yaml`**（**Project**、**Input map**、**Audio buses**、**Export**）与 **`EDITOR · THIS COMPUTER`**（**General**）分组展示；每一行包含标签、说明文本、值控件与智能体权限徽章（**Agent may change** 或 **You only**）；全部页面上的交互控件均使用真实可聚焦的 `ui.Button` / `ui.*` 组件，支持 `Tab` 键逐项到达并显示焦点环。
 
-- **常规（General）**：编辑 `name`、`id` 和 `appVersion`（`SetProjectName`、`SetProjectID`、`SetProjectAppVersion`）。
+### 项目设置页（#907、#1060）
+
+打开项目后，工具栏的 **Settings** 按钮（`ProjectSettingsOpen` / `SetProjectSettingsOpen` 或 `OpenSettingsPage(SettingsPageProject)`）会在 `SettingsView` 中打开 **Project** 页面（`ProjectSettingsPanelView`），完全通过 `EditProject` 编辑 `game.yaml`：每一次修改都经过 `project.Validate` 校验，纳入撤销/重做历史，并在点击 **Save**（`SaveProject`）时同时写回 `game.yaml` 与同步更新的 `nsgo.yaml`：
+
+- **常规（General）**：在概览页直接编辑 `name`、`id`、`window` 宽高、`autoload.mainScene` 与 `appVersion`（`SetProjectName`、`SetProjectID`、`SetProjectWindowSize`、`SetProjectMainScene`、`SetProjectAppVersion`）。
 - **窗口（Window）**：编辑 `window.title`、`width`/`height`、`minWidth`/`minHeight`/`maxWidth`/`maxHeight` 尺寸限制、`resizable` 和 `appearance`（`SetProjectWindowTitle`、`SetProjectWindowSize`、`SetProjectWindowLimits`、`SetProjectWindowResizable`、`SetProjectWindowAppearance`）。
 - **显示（Display）**：开关可选的 `display` 小节（`SetProjectDisplayEnabled`），并编辑虚拟分辨率 `width`/`height`、`mode`（`fit`、`fill`、`stretch`、`expand`）、`integerScale`、`pixelSnap` 与 `barColor`（`SetProjectDisplaySize`、`SetProjectDisplayMode`、`SetProjectDisplayIntegerScale`、`SetProjectDisplayPixelSnap`、`SetProjectDisplayBarColor`）。
 - **自动加载（Autoload）**：选择 `autoload.mainScene`（`SetProjectMainScene`），并增改删 `autoload.scenes` 与 `autoload.resources` 条目（`AddProjectAutoloadScene`、`UpdateProjectAutoloadScene`、`RemoveProjectAutoloadScene`、`AddProjectAutoloadResource`、`UpdateProjectAutoloadResource`、`RemoveProjectAutoloadResource`），文件路径可从当前项目文件列表中搜索选择（`ProjectSceneFiles`、`ProjectResourceFiles`）。
 - **物理（Physics）**：编辑 `physics.gravity2D`、`physics.gravity3D`、`physics.solverIterations2D` / `solverIterations3D` 以及具名碰撞层 `physics.layers`（`SetProjectPhysicsGravity2D`、`SetProjectPhysicsGravity3D`、`SetProjectPhysicsSolverIterations`、`AddProjectPhysicsLayer`、`RemoveProjectPhysicsLayer`）。
 - **编辑器插件（Plugins）**：为每个已注册插件（`RegisteredPlugins`）提供调用 `SetPluginEnabled` 的开关，同时列出 `game.yaml` 中声明但当前编辑器程序未内置的插件（`MissingPlugins`）并支持移除。
 
-输入、音频与导出设置各自拥有独立面板，此处不重复提供。任何被 `project.Validate` 拒绝的值都会在对应字段旁显示校验错误，且不会改动项目或撤销历史。在打开项目首次保存之前（`ProjectCanonicalSavePending`），面板顶部会显示明确提示，说明保存将以规范 YAML 形式写出 `game.yaml`，不会保留注释。
+任何被 `project.Validate` 拒绝的值都会在对应设置行内显示校验错误，且不会改动项目或撤销历史。在打开项目首次保存之前（`ProjectCanonicalSavePending`），页面顶部会显示明确提示，说明保存将以规范 YAML 形式写出 `game.yaml`，不会保留注释。
 
-## 音频总线混音器（#909）
+### 音频总线页（#909、#1060）
 
-打开项目后，工具栏的 **Mixer** 按钮（`AudioMixerOpen` / `SetAudioMixerOpen`）会在视口下方切换显示 `AudioMixerPanelView`，通过 `EditProject` 直接编辑 `game.yaml` 的 `audio` 小节：每一次修改都经过 `project.Validate` 校验，纳入编辑器的撤销/重做历史，并在点击 **Save**（`SaveProject`）时写回文件：
+打开项目后，工具栏的 **Audio** 按钮（`AudioMixerOpen` / `SetAudioMixerOpen` 或 `OpenSettingsPage(SettingsPageAudio)`）会在 `SettingsView` 中打开 **Audio buses** 设置页（`AudioMixerPanelView`），通过 `EditProject` 直接编辑 `game.yaml` 的 `audio` 小节：每一次修改都经过 `project.Validate` 校验，纳入编辑器的撤销/重做历史，并在点击 **Save**（`SaveProject`）时写回文件：
 
-- **主音量与总线**：调节主音量滑块（`SetAudioMasterVolume`），新增总线（`AddAudioBus`）、重命名（`RenameAudioBus`）、删除（`DeleteAudioBus`）、调整顺序（`MoveAudioBus`），以及调节每条总线的音量滑块（`SetAudioBusVolume`）。在未设置主音量时删除最后一条总线会一并移除空的 `audio` 小节，撤销可将其恢复。
+- **主音量与总线**：调节带分贝读数的主音量滑块（`SetAudioMasterVolume`），新增总线（`AddAudioBus`）、重命名（`RenameAudioBus`）、删除（`DeleteAudioBus`）、调整顺序（`MoveAudioBus`），查看并调节每条总线的路由（`Into Master`）与音量滑块（`SetAudioBusVolume`）。在未设置主音量时删除最后一条总线会一并移除空的 `audio` 小节，撤销可将其恢复。
 - **单总线 DSP 效果链**：为每条总线添加（`AddAudioBusEffect` / `AddAudioBusEffectKind`）、移除（`RemoveAudioBusEffect`）、重排（`MoveAudioBusEffect`）和编辑（`SetAudioBusEffect`）`project.Effect` 支持的全部六种效果（`lowPass`、`highPass`、`delay`、`reverb`、`gain`、`bitcrush`）。数值控件将参数约束在 `project.Validate` 允许的范围内（配合 `ClampAudioEffect`），Go API 则会拒绝越界值且不改动项目或历史。
 - **实时试听**：从当前项目中选择音频文件（`ProjectAudioFiles`、`SelectAudioFile`），点击 **Audition**（`AuditionAudioBus`、`StopAudition`、`SetAuditionLoop`）即可经由 `project.File.ConfigureMixer` 配置好的编辑器 `sound.Mixer` 通过选中总线播放。调节主音量或总线音量会立即作用于正在播放的音频而不中断播放；修改效果链或撤销/重做会立即通过 `sound.Mixer.ProcessSource` 重新处理并播放，使听感与游戏运行时完全一致。
 
-## 输入映射编辑器（#908）
+### 输入映射页（#908、#1060）
 
-打开项目后，工具栏的 **Input** 按钮（`InputMapOpen` / `SetInputMapOpen`）会在视口下方切换显示 `InputMapPanelView`，通过 `EditProject` 直接编辑 `game.yaml` 的 `input` 小节，提供完整的撤销/重做与 `project.Validate` 校验：
+打开项目后，工具栏的 **Input** 按钮（`InputMapOpen` / `SetInputMapOpen` 或 `OpenSettingsPage(SettingsPageInput)`）会在 `SettingsView` 中打开 **Input map** 设置页（`InputMapPanelView`），通过 `EditProject` 直接编辑 `game.yaml` 的 `input` 小节，提供完整的撤销/重做与 `project.Validate` 校验：
 
-- **动作与绑定**：新增（`AddInputAction`）、重命名（`RenameInputAction`）和删除（`DeleteInputAction`）动作，并添加（`AddInputBinding`）、编辑（`SetInputBinding`）或移除（`RemoveInputBinding`）`game/input` 支持的全部绑定类型：`key`、`keyCode`、`gamepadButton`、`mouseButton`、`touchRegion` 与 `mouseRegion`。重命名动作时会在同一步可撤销操作中原子更新 `input.axes` 中所有引用该动作的轴，撤销与重做也会保持一致。
+- **动作概览与编辑**：列出每个已配置动作及其键盘、手柄与触控触发方式，并提供按钮直接跳转到该动作的编辑视图。支持新增（`AddInputAction`）、重命名（`RenameInputAction`）和删除（`DeleteInputAction`）动作，以及添加（`AddInputBinding`）、编辑（`SetInputBinding`）或移除（`RemoveInputBinding`）`game/input` 支持的全部绑定类型：`key`、`keyCode`、`gamepadButton`、`mouseButton`、`touchRegion` 与 `mouseRegion`。重命名动作时会在同一步可撤销操作中原子更新 `input.axes` 中所有引用该动作的轴，撤销与重做也会保持一致。
 - **按键捕获**：点击 **Press a key**（`BeginKeyCapture`，`project.KindKey`）或 **Press code**（`project.KindKeyCode`）进入捕获模式，将下一次硬件按键（`CaptureKeyEvent`）直接绑定到当前动作，点击 **Cancel**（`CancelKeyCapture`）可退出而不改动项目。
 - **虚拟显示尺寸上的区域绘制与拖拽**：区域画布按项目的 `display` 虚拟分辨率等比缩放（未配置 `display` 时回退到 `window` 尺寸，`InputMapDisplaySize`），绘制全部 `touchRegion` 和 `mouseRegion` 区域；可拖拽已有区域移动、拖拽选中区域右下角手柄调整大小，或在空白处拖拽绘制新区域（`BeginRegionDrag` / `UpdateRegionDrag` / `EndRegionDrag` / `SetInputRegion`），每次拖拽作为单个可撤销的 `EditProject` 步骤提交。
 - **动作轴、运动轴与手柄摇杆轴**：**Axes** 标签页可编辑动作轴（`AddInputAxis`、`SetInputAxis`、`DeleteInputAxis`）、设备运动传感器轴（`AddInputMotionAxis`、`SetInputMotionAxis`、`DeleteInputMotionAxis`）和手柄模拟摇杆轴（`AddInputGamepadAxis`、`SetInputGamepadAxis`、`DeleteInputGamepadAxis`）。`BuildInputActions` 通过 `project.File.BindInput` 将当前项目的输入映射绑定到实时的 `*input.Actions`。
@@ -975,11 +979,11 @@ func main() {
 
 每行显示一条问题的文件路径、从 1 开始的行号（有行号时）和错误信息，与在同一项目上运行 `nsgo game check` 报告的问题一致，并补充 `project.Check` 发现的项目级问题（例如 `nsgo.yaml` 与 `game.yaml` 不一致、已安装包的文件缺失，或非 `.scene.yaml` 扩展名的自动加载场景无效）。点击某一行（`OpenProblem`）时，若该文件是场景（`*.scene.yaml`、`*.scene.yml` 或 `autoload.scenes` 中列出的场景）则直接打开该场景；若是其他项目文件或无法解析的场景，则在文件浏览器中选中该文件（`SelectedFile`、`SelectFile`）。问题位于已打开的场景时只选中该文件，不会重新加载场景；有未保存的修改时打开另一个场景，会像文件浏览器那样先询问保存、丢弃还是取消。在 Go 代码中，可从任意协程安全调用 `Problems`、`ProblemCount`、`ProblemErr`、`CheckingProblems` 和 `WaitForProblems` 读取或等待后台检查结果。
 
-## 导出与发布构建（#916）
+## 导出与发布构建（#916、#1060）
 
-打开项目后，工具栏的 **Export** 按钮（`ExportPanelOpen` / `SetExportPanelOpen`）会在视口下方切换显示 `ExportPanelView`，用于在编辑器中直接编辑 `game.yaml` 的 `export` 小节并执行发布构建：
+打开项目后，工具栏的 **Export** 按钮（`ExportPanelOpen` / `SetExportPanelOpen` 或 `OpenSettingsPage(SettingsPageExport)`）会在 `SettingsView` 中打开 **Export** 设置页（`ExportPanelView`），用于在编辑器中直接编辑 `game.yaml` 的 `export` 小节并执行发布构建：
 
-- **预设与输出目录**：编辑 `export.output`（`SetExportOutput`），添加、删除和重排各平台预设（`AddExportPreset`、`RemoveExportPreset`、`MoveExportPreset`），并仅从各平台合法目标 `project.TargetsOf(platform)` 中选择构建目标（`SetExportPresetTargets`、`ToggleExportPresetTarget`）。所有修改都通过 `EditProject` 完成（经 `project.Validate` 校验并支持撤销/重做），在 `export` 为空时自动清理该小节，点击 **Save**（`SaveProject`）时写出规范 YAML 并同步 `nsgo.yaml`，与 `gameproject targets` 保持一致。
+- **预设、就绪状态与输出目录**：带行内校验地编辑 `export.output`（`SetExportOutput`），添加、删除和重排各平台预设（`AddExportPreset`、`RemoveExportPreset`、`MoveExportPreset`），并仅从各平台合法目标 `project.TargetsOf(platform)` 中选择构建目标（`SetExportPresetTargets`、`ToggleExportPresetTarget`）。每个预设行都会显示就绪状态（`ExportPresetReadiness`：**Ready**，或在缺少签名/团队配置或资源鸣谢时显示 **Set up**）与权限徽章，左侧导航的 **Export** 条目在存在待配置预设时也会显示警告徽章（`ExportNavWarningMeta`）。所有修改都通过 `EditProject` 完成（经 `project.Validate` 校验并支持撤销/重做），在 `export` 为空时自动清理该小节，点击 **Save**（`SaveProject`）时写出规范 YAML 并同步 `nsgo.yaml`，与 `gameproject targets` 保持一致。
 - **鸣谢（Credits）预检**：面板打开、刷新（`CheckExportCredits`）或开始构建前，都会执行与 `game release` 相同的 `tooling/credits` 扫描。任何缺少鸣谢信息的资源都会连同其对应的 `*.import.yaml` 边车路径一并列出，并在补全前阻止发布构建；补全鸣谢后刷新即可清除告警，成功构建时会在输出目录写入 `CREDITS.md`。
 - **构建、演练与输出流**：支持构建全部预设或勾选指定目标（`ExportSelectedTargets`），并可配置分发渠道（`SetExportChannel`）、发布说明文件（`SetExportReleaseNotes`）以及 **Dry Run** 开关（`SetExportDryRun`）。`StartExportBuild` / `RunExportBuild` 与 `nsgo game release` 共用同一套发布命令规划器，因此演练构建会在 UI 协程之外将完全一致的 `nsgo build` 命令行流式输出到面板的 Output 区域，非演练构建成功后自动打开解析出的输出目录（`OpenOutputFolder` / `OpenExportOutputFolder`）。
 
@@ -1096,6 +1100,9 @@ func main() {
   - **命令作用域**：每个 `EditorCommand` 和 `PluginCommand` 都带有 `Scope`（`ScopeGlobal`、`ScopeViewport`、`ScopeViewport2D`、`ScopeViewport3D`、`ScopeSceneTree`、`ScopeTile`、`ScopeAnimation`、`ScopePlay`，未指定时默认为 `ScopeGlobal`）。
   - **设置 › 快捷键（`EditorSettingsTabShortcuts`、`OpenShortcutsSettings`、`CmdShortcutsSettings`）**：列出所有已注册的内置、自定义与已启用插件命令及其作用域和当前按键，支持按命令名称、按键或作用域搜索（`FilterShortcutCommands`）。点击命令的按键按钮即可进入按键录制模式（`ShortcutFromKeyEvent`，按 `Escape` 可取消录制而不关闭设置对话框）。若按键在**同一作用域**中已被占用（`ShortcutConflict` / `*ShortcutConflictError`），会在行内原地提示并提供**交换**按钮（`SwapShortcut`，交换后两条命令互换按键且均保持绑定）；若按键仅在**不同作用域**中被使用（`RebindShortcut`），则会立即绑定而不弹出冲突提示。支持单行**重置**（`ResetShortcut`）与顶部**全部重置**（`ResetAllShortcuts`）。
   - **持久化与全界面即时同步**：自定义按键保存在 `EditorSettings` 的 `shortcuts` 字段（`editor.yaml`，位于所有项目之外），重绑后立即同步到 `EffectiveShortcut`、工具栏提示与无障碍标签、桌面菜单栏（`ApplicationMenu`）、命令面板（`CommandPaletteView`）、实时按键调度以及 **`⌘/` 快捷键速查表**（`ShortcutsSheetView`、`CmdShortcutsSheet` / `mod+/`）。
+
+- **实时语言切换**：`Language` 支持 `LanguageSystem`（`"system"`）、`LanguageEnglish`（`"en"`）和 `LanguageChinese`（`"zh"`）。调用 `Editor.SetLanguage` 或在统一**设置**视图的 **`EDITOR · THIS COMPUTER` > General** 页面（`SettingsView` / `EditorSettingsDialogView`，可通过工具栏的**偏好设置**按钮、`文件 > 编辑器设置…` 或 `mod+shift+,` 打开）中切换语言后，工具栏、桌面菜单栏、文件浏览器、资源浏览器、场景树、图层面板、检查器、底部面板、对话框、命令面板与状态栏都会立即切换，无需重启。`Editor.ResolvedLanguage()` 返回当前生效的语言（`"en"` 或 `"zh"`），并通过 `selection_get` 传递给连接的 MCP 智能体。
+- **外观（`core.Scope.SetAppearance`）**：`Appearance` 支持 `AppearanceSystem`（`"system"`）、`AppearanceLight`（`"light"`）和 `AppearanceDark`（`"dark"`）。`Editor.SetAppearance` 会立即通过 NSGo 的 `core.Scope.SetAppearance` 生效（即使系统为浅色也可保持深色，反之亦然），并在设置了 `Editor.SettingsPath` 时自动持久化，重启后保持不变。
 - **插件本地化**：插件可提供 `Catalog *l10n.Catalog` 或带版本号的 `LocaleYAML [][]byte` 字符串表（`RegisterPlugin` 会严格校验），并在面板、工具和命令上设置可选的 `TitleKey` / `LabelKey` / `DescriptionKey` / `CategoryKey`。在 `Panel.View` 和 `Inspector.View` 中，插件可调用 `Editor.PluginT(pluginName, key, args...)` 与 `Editor.PluginPlural(...)`，使插件界面实时跟随编辑器当前语言。
 
 ## 2D 骨骼绑定编辑器（#886）

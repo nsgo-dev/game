@@ -32,9 +32,8 @@ const (
 	regionDragCreate
 )
 
-// inputMapState holds the Input Map panel's transient UI state, key capture mode and region canvas drag state.
+// inputMapState holds the Input Map page's transient UI state, key capture mode and region canvas drag state.
 type inputMapState struct {
-	open            bool
 	tab             InputMapTab
 	selectedAction  string
 	selectedBinding int
@@ -67,21 +66,25 @@ func (e *Editor) resetInputMapTransient() {
 	e.inputMap.dragChanged = false
 }
 
-// InputMapOpen reports whether the Input Map panel is shown.
+// InputMapOpen reports whether the Settings view is open on the Input map page.
 func (e *Editor) InputMapOpen() bool {
-	return e != nil && e.inputMap.open
+	return e != nil && e.settingsOpen && e.settingsPage == SettingsPageInput
 }
 
-// SetInputMapOpen opens or closes the Input Map panel. Closing cancels any active key capture or region drag.
+// SetInputMapOpen opens the Settings view on the Input map page, or closes Settings when open is false and the Input map page is active. Closing cancels any active key capture or region drag.
 func (e *Editor) SetInputMapOpen(open bool) {
-	if e == nil || e.inputMap.open == open {
+	if e == nil {
 		return
 	}
-	e.inputMap.open = open
-	if !open {
-		e.resetInputMapTransient()
+	if open {
+		e.OpenSettingsPage(SettingsPageInput)
+		return
 	}
-	e.notify()
+	if e.InputMapOpen() {
+		e.CloseSettings()
+		return
+	}
+	e.resetInputMapTransient()
 }
 
 // InputMapTab returns the active tab of the Input Map panel, defaulting to InputMapTabActions.
@@ -1089,8 +1092,52 @@ func InputMapPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 	}
 }
 
+func formatInputActionTriggers(act project.Action) string {
+	if len(act.Bindings) == 0 {
+		return "No bindings"
+	}
+	var keys, pads, touches []string
+	for _, b := range act.Bindings {
+		switch b.Kind {
+		case project.KindKey:
+			if b.Key != "" {
+				keys = append(keys, b.Key)
+			}
+		case project.KindKeyCode:
+			if b.Code != "" {
+				keys = append(keys, b.Code)
+			}
+		case project.KindGamepadButton:
+			if b.Button != "" {
+				pads = append(pads, b.Button)
+			}
+		case project.KindMouseButton:
+			if b.Button != "" {
+				keys = append(keys, "mouse "+b.Button)
+			}
+		case project.KindTouchRegion:
+			touches = append(touches, "touch region")
+		case project.KindMouseRegion:
+			touches = append(touches, "mouse region")
+		}
+	}
+	var groups []string
+	if len(keys) > 0 {
+		groups = append(groups, strings.Join(keys, " "))
+	}
+	if len(pads) > 0 {
+		groups = append(groups, strings.Join(pads, " "))
+	}
+	if len(touches) > 0 {
+		groups = append(groups, strings.Join(touches, " "))
+	}
+	if len(groups) == 0 {
+		return fmt.Sprintf("%d binding(s)", len(act.Bindings))
+	}
+	return strings.Join(groups, " · ")
+}
+
 func inputMapPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
-	colors := ui.ColorsOf(cx)
 	newActionName := core.NewSignal(cx, "")
 	addBindingKind := core.NewSignal(cx, project.KindKey)
 	renameText := core.NewSignal(cx, ed.SelectedInputAction())
@@ -1115,7 +1162,7 @@ func inputMapPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 		}
 		var b strings.Builder
 		for i, a := range ed.Project.Input.Actions {
-			fmt.Fprintf(&b, "%d:%s:%d|", i, a.Name, len(a.Bindings))
+			fmt.Fprintf(&b, "%d:%s:%d:%s|", i, a.Name, len(a.Bindings), formatInputActionTriggers(a))
 		}
 		return b.String()
 	})
@@ -1136,10 +1183,16 @@ func inputMapPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 		return b.String()
 	})
 
-	header := ui.HStack{
-		Gap: 8,
+	header := core.View{
+		Style: core.Style{
+			Direction:   core.Row,
+			AlignItems:  core.AlignCenter,
+			Gap:         8,
+			Padding:     core.Edges{Bottom: 12},
+			Borders:     core.Edges{Bottom: 1},
+			BorderColor: specLine,
+		},
 		Children: []core.Node{
-			core.Text{Content: "Input Map", Style: core.Style{FontSize: 13, FontWeight: 700, Color: colors.Text()}},
 			ui.ToggleButton{
 				TestID: "input-tab-actions",
 				Text:   "Actions",
@@ -1167,28 +1220,90 @@ func inputMapPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 				},
 			},
 			core.View{Style: core.Style{FlexGrow: 1}},
-			ui.Button{
-				TestID:  "input-map-close",
-				Text:    "Close",
-				Size:    ui.SizeSmall,
-				Variant: ui.ButtonGhost,
-				OnPress: func() { ed.SetInputMapOpen(false) },
-			},
+			settingsSpecButton("input-map-close", "Close", "Close Input map", false, nil, func() {
+				ed.SetInputMapOpen(false)
+			}),
 		},
 	}
+
+	// Overview summary rows matching Settings.dc.html (action, Keyboard · gamepad · touch, trigger value button, policy).
+	actionSummary := core.Dynamic(func(cx *core.Scope) core.Node {
+		if actionListKey.Get() == "" {
+			return nil
+		}
+		actions := ed.Project.Input.Actions
+		rows := make([]core.Node, 0, len(actions))
+		for i, act := range actions {
+			actName := act.Name
+			idx := i
+			summary := formatInputActionTriggers(act)
+			policy := policyAgentMayChange
+			if strings.EqualFold(actName, "pause") {
+				policy = policyYouOnly
+			}
+			rows = append(rows, settingsRow(
+				fmt.Sprintf("settings-input-row-%d", idx),
+				actName,
+				"Keyboard · gamepad · touch",
+				ui.Button{
+					TestID:  fmt.Sprintf("settings-input-row-%d-edit", idx),
+					Text:    summary,
+					Label:   "Edit triggers for " + actName,
+					Variant: ui.ButtonGhost,
+					Size:    ui.SizeSmall,
+					Color: func() core.Color {
+						if selectedAction.Get() == actName {
+							return specSettingsActiveNav
+						}
+						return specRaised
+					},
+					TextStyle: core.Style{
+						FontSize:   12,
+						FontWeight: 500,
+						Color:      specText,
+					},
+					Style: core.Style{
+						Height:       core.Pt(28),
+						CornerRadius: 8,
+						BorderWidth:  1,
+						BorderColor:  specLineRaised,
+						FocusVisible: specFocusRingStyle,
+					},
+					OnPress: func() {
+						ed.SetInputMapTab(InputMapTabActions)
+						ed.SelectInputAction(actName)
+					},
+				},
+				policy,
+				nil,
+			))
+		}
+		return core.View{
+			TestID: "settings-input-summary",
+			Style: core.Style{
+				MaxHeight: core.Pt(184),
+				Overflow:  core.Hidden,
+			},
+			Children: []core.Node{
+				ui.ScrollView{
+					Style:    core.Style{FlexGrow: 1},
+					Children: rows,
+				},
+			},
+		}
+	})
 
 	return core.View{
 		TestID: "input-map-panel",
 		Style: core.Style{
-			Height:      core.Pt(300),
-			Padding:     core.Symmetric(8, 12),
-			Gap:         8,
-			Background:  colors.Inset(),
-			Borders:     core.Edges{Top: 1},
-			BorderColor: colors.Line(),
+			FlexGrow:  1,
+			FlexBasis: core.Pt(0),
+			Gap:       12,
+			Overflow:  core.Hidden,
 		},
 		Children: []core.Node{
 			header,
+			actionSummary,
 			core.Show{
 				When: func() bool {
 					_ = rev.Get()
@@ -1217,9 +1332,8 @@ func inputActionsTab(
 	bindingListKey *core.Memo[string],
 	disabled func() bool,
 ) core.Node {
-	colors := ui.ColorsOf(cx)
 	label := func(text string) core.Node {
-		return core.Text{Content: text, Style: core.Style{FontSize: 11, FontWeight: 700, Color: colors.Muted()}}
+		return core.Text{Content: text, Style: core.Style{FontSize: 11, FontWeight: 600, LetterSpacing: 0.66, Color: specTextMuted}}
 	}
 
 	kindOpts := make([]ui.Option[string], len(project.BindingKinds))
@@ -1230,18 +1344,19 @@ func inputActionsTab(
 	actionsColumn := core.View{
 		TestID: "input-actions-column",
 		Style: core.Style{
-			Width:       core.Pt(220),
-			Gap:         6,
-			Padding:     core.Edges{Right: 10},
+			Width:       core.Pt(244),
+			FlexShrink:  0,
+			Gap:         8,
+			Padding:     core.Edges{Right: 12},
 			Borders:     core.Edges{Right: 1},
-			BorderColor: colors.Line(),
+			BorderColor: specLine,
 		},
 		Children: []core.Node{
 			ui.HStack{
-				Gap: 6,
+				Gap: 8,
 				Children: []core.Node{
 					core.View{
-						Style: core.Style{FlexGrow: 1},
+						Style: core.Style{FlexGrow: 1, FlexBasis: core.Pt(0), MinWidth: core.Pt(0)},
 						Children: []core.Node{
 							ui.Input{
 								TestID:      "input-new-action-name",
@@ -1250,28 +1365,21 @@ func inputActionsTab(
 								Disabled:    disabled,
 								Value:       newActionName.Get,
 								OnChange:    newActionName.Set,
+								Style:       core.Style{Width: core.Pct(100), MinWidth: core.Pt(0)},
 							},
 						},
 					},
-					ui.Button{
-						TestID:   "input-add-action",
-						Text:     "Add",
-						Label:    "Add Action",
-						Size:     ui.SizeSmall,
-						Variant:  ui.ButtonSecondary,
-						Disabled: disabled,
-						OnPress: func() {
-							name := strings.TrimSpace(newActionName.Get())
-							if name == "" {
-								name = ed.nextDefaultActionName()
-							}
-							if err := ed.AddInputAction(name); err != nil {
-								ed.report(err)
-								return
-							}
-							newActionName.Set("")
-						},
-					},
+					settingsSpecButton("input-add-action", "Add", "Add Action", false, disabled, func() {
+						name := strings.TrimSpace(newActionName.Get())
+						if name == "" {
+							name = ed.nextDefaultActionName()
+						}
+						if err := ed.AddInputAction(name); err != nil {
+							ed.report(err)
+							return
+						}
+						newActionName.Set("")
+					}),
 				},
 			},
 			ui.ScrollView{
@@ -1283,7 +1391,7 @@ func inputActionsTab(
 							return core.Text{
 								TestID:  "input-empty-actions",
 								Content: "No actions yet. Add an action to bind keys, gamepad or regions.",
-								Style:   core.Style{FontSize: 11, Color: colors.Muted()},
+								Style:   core.Style{FontSize: 11.5, Color: specTextMuted},
 							}
 						}
 						actions := ed.Project.Input.Actions
@@ -1295,48 +1403,56 @@ func inputActionsTab(
 							rows = append(rows, core.View{
 								TestID: fmt.Sprintf("input-action-%d", idx),
 								StyleFunc: func() core.Style {
-									bg := colors.Surface()
+									bg := specPanel
+									border := specLine
 									if selectedAction.Get() == actName {
-										bg = colors.Raised()
+										bg = specRaised
+										border = specSettingsAccentEdge
 									}
 									return core.Style{
 										Direction:    core.Row,
 										AlignItems:   core.AlignCenter,
 										Gap:          4,
-										Padding:      core.Symmetric(3, 6),
-										CornerRadius: 4,
+										Padding:      core.Symmetric(4, 8),
+										CornerRadius: 8,
 										Background:   bg,
-										Borders:      core.Edges{Top: 1, Right: 1, Bottom: 1, Left: 1},
-										BorderColor:  colors.Line(),
+										BorderWidth:  1,
+										BorderColor:  border,
 									}
 								},
 								Children: []core.Node{
-									core.View{
-										TestID: fmt.Sprintf("input-action-%d-select", idx),
-										Role:   core.RoleButton,
-										Label:  "Select Action " + actName,
-										Style:  core.Style{FlexGrow: 1, Padding: core.Symmetric(2, 2)},
-										OnPress: func(core.PressEvent) {
+									ui.Button{
+										TestID:  fmt.Sprintf("input-action-%d-select", idx),
+										Text:    fmt.Sprintf("%s (%d)", actName, bindCount),
+										Label:   "Select Action " + actName,
+										Variant: ui.ButtonGhost,
+										Size:    ui.SizeSmall,
+										Flex:    1,
+										Color: func() core.Color {
+											if selectedAction.Get() == actName {
+												return specSettingsActiveNav
+											}
+											return specPanel
+										},
+										TextStyle: core.Style{
+											FontSize:   12,
+											FontWeight: 600,
+											Color:      specTextStrong,
+											FlexGrow:   1,
+											TextAlign:  core.TextAlignLeft,
+										},
+										Style: core.Style{
+											Height:       core.Pt(28),
+											CornerRadius: 6,
+											FocusVisible: specFocusRingStyle,
+										},
+										OnPress: func() {
 											ed.SelectInputAction(actName)
 										},
-										Children: []core.Node{
-											core.Text{
-												Content: fmt.Sprintf("%s (%d)", actName, bindCount),
-												Style:   core.Style{FontSize: 11, FontWeight: 600, Color: colors.Text()},
-											},
-										},
 									},
-									ui.Button{
-										TestID:   fmt.Sprintf("input-action-%d-delete", idx),
-										Text:     "×",
-										Label:    "Delete Action " + actName,
-										Size:     ui.SizeSmall,
-										Variant:  ui.ButtonGhost,
-										Disabled: disabled,
-										OnPress: func() {
-											ed.report(ed.DeleteInputAction(actName))
-										},
-									},
+									settingsSpecButton(fmt.Sprintf("input-action-%d-delete", idx), "×", "Delete Action "+actName, false, disabled, func() {
+										ed.report(ed.DeleteInputAction(actName))
+									}),
 								},
 							})
 						}
@@ -1352,20 +1468,25 @@ func inputActionsTab(
 		Style: core.Style{
 			FlexGrow:    1,
 			FlexBasis:   core.Pt(0),
-			Gap:         6,
-			Padding:     core.Symmetric(0, 10),
+			Gap:         8,
+			Padding:     core.Symmetric(0, 12),
 			Borders:     core.Edges{Right: 1},
-			BorderColor: colors.Line(),
+			BorderColor: specLine,
 		},
 		Children: []core.Node{
 			core.Show{
 				When: func() bool { return selectedAction.Get() != "" },
 				Then: func(cx *core.Scope) core.Node {
 					return core.View{
-						Style: core.Style{FlexGrow: 1, Gap: 6},
+						Style: core.Style{FlexGrow: 1, Gap: 8},
 						Children: []core.Node{
-							ui.HStack{
-								Gap: 6,
+							core.View{
+								Style: core.Style{
+									Direction:  core.Row,
+									Wrap:       core.Wrap,
+									AlignItems: core.AlignCenter,
+									Gap:        8,
+								},
 								Children: []core.Node{
 									label("ACTION"),
 									core.View{
@@ -1380,47 +1501,24 @@ func inputActionsTab(
 											},
 										},
 									},
-									ui.Button{
-										TestID:  "input-action-rename",
-										Text:    "Rename",
-										Size:    ui.SizeSmall,
-										Variant: ui.ButtonSecondary,
-										Disabled: func() bool {
-											if disabled() {
-												return true
-											}
-											cur := selectedAction.Get()
-											next := strings.TrimSpace(renameText.Get())
-											return cur == "" || next == "" || next == cur
-										},
-										OnPress: func() {
-											ed.report(ed.RenameInputAction(selectedAction.Get(), strings.TrimSpace(renameText.Get())))
-										},
-									},
-									ui.Button{
-										TestID:   "input-capture-key",
-										Text:     "Press a key",
-										Label:    "Capture key binding",
-										Size:     ui.SizeSmall,
-										Variant:  ui.ButtonPrimary,
-										Disabled: disabled,
-										OnPress: func() {
-											ed.report(ed.BeginKeyCapture(selectedAction.Get(), project.KindKey))
-										},
-									},
-									ui.Button{
-										TestID:   "input-capture-keycode",
-										Text:     "Press code",
-										Label:    "Capture physical keyCode binding",
-										Size:     ui.SizeSmall,
-										Variant:  ui.ButtonSecondary,
-										Disabled: disabled,
-										OnPress: func() {
-											ed.report(ed.BeginKeyCapture(selectedAction.Get(), project.KindKeyCode))
-										},
-									},
+									settingsSpecButton("input-action-rename", "Rename", "Rename selected action", false, func() bool {
+										if disabled() {
+											return true
+										}
+										cur := selectedAction.Get()
+										next := strings.TrimSpace(renameText.Get())
+										return cur == "" || next == "" || next == cur
+									}, func() {
+										ed.report(ed.RenameInputAction(selectedAction.Get(), strings.TrimSpace(renameText.Get())))
+									}),
+									settingsSpecButton("input-capture-key", "Press a key", "Capture key binding", true, disabled, func() {
+										ed.report(ed.BeginKeyCapture(selectedAction.Get(), project.KindKey))
+									}),
+									settingsSpecButton("input-capture-keycode", "Press code", "Capture physical keyCode binding", false, disabled, func() {
+										ed.report(ed.BeginKeyCapture(selectedAction.Get(), project.KindKeyCode))
+									}),
 									core.View{
-										Style: core.Style{Width: core.Pt(125)},
+										Style: core.Style{Width: core.Pt(148), FlexShrink: 0},
 										Children: []core.Node{
 											ui.Select[string]{
 												TestID:   "input-add-binding-kind",
@@ -1429,25 +1527,19 @@ func inputActionsTab(
 												Options:  kindOpts,
 												Value:    addBindingKind.Get,
 												OnChange: addBindingKind.Set,
+												Style:    core.Style{Width: core.Pt(148)},
 											},
 										},
 									},
-									ui.Button{
-										TestID:   "input-add-binding",
-										Text:     "Add Binding",
-										Size:     ui.SizeSmall,
-										Variant:  ui.ButtonSecondary,
-										Disabled: disabled,
-										OnPress: func() {
-											b, err := ed.DefaultInputBinding(addBindingKind.Get())
-											if err != nil {
-												ed.report(err)
-												return
-											}
-											_, err = ed.AddInputBinding(selectedAction.Get(), b)
+									settingsSpecButton("input-add-binding", "Add Binding", "Add input binding", false, disabled, func() {
+										b, err := ed.DefaultInputBinding(addBindingKind.Get())
+										if err != nil {
 											ed.report(err)
-										},
-									},
+											return
+										}
+										_, err = ed.AddInputBinding(selectedAction.Get(), b)
+										ed.report(err)
+									}),
 								},
 							},
 							core.Show{
@@ -1477,7 +1569,7 @@ func inputActionsTab(
 											return core.Text{
 												TestID:  "input-empty-bindings",
 												Content: "No bindings yet. Press \"Press a key\" or add a binding.",
-												Style:   core.Style{FontSize: 11, Color: colors.Muted()},
+												Style:   core.Style{FontSize: 11.5, Color: specTextMuted},
 											}
 										}
 										rows := make([]core.Node, 0, len(binds))
@@ -1494,7 +1586,7 @@ func inputActionsTab(
 				Else: func(cx *core.Scope) core.Node {
 					return core.Text{
 						Content: "Select or add an action to edit its bindings.",
-						Style:   core.Style{FontSize: 11, Color: colors.Muted()},
+						Style:   core.Style{FontSize: 12, Color: specTextMuted},
 					}
 				},
 			},
@@ -1515,7 +1607,6 @@ func inputActionsTab(
 }
 
 func keyCaptureBanner(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
-	colors := ui.ColorsOf(cx)
 	captureRef := &core.Ref{}
 
 	// Record keys already held when capture begins so a key held across clicking the button is not captured immediately.
@@ -1569,11 +1660,12 @@ func keyCaptureBanner(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 			Direction:    core.Row,
 			AlignItems:   core.AlignCenter,
 			Gap:          8,
-			Padding:      core.Symmetric(5, 8),
-			CornerRadius: 4,
-			Background:   colors.Raised(),
-			Borders:      core.Edges{Top: 1, Right: 1, Bottom: 1, Left: 1},
-			BorderColor:  colors.Accent(),
+			Padding:      core.Symmetric(8, 12),
+			CornerRadius: 8,
+			Background:   specSettingsAccentTint,
+			BorderWidth:  1,
+			BorderColor:  specAccent,
+			FocusVisible: specFocusRingStyle,
 		},
 		Children: []core.Node{
 			core.Text{
@@ -1582,22 +1674,16 @@ func keyCaptureBanner(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core
 					_ = rev.Get()
 					return fmt.Sprintf("Press a key to bind %s to %q...", ed.CaptureKeyKind(), ed.CaptureKeyAction())
 				},
-				Style: core.Style{FontSize: 11, FontWeight: 700, Color: colors.Text(), FlexGrow: 1},
+				Style: core.Style{FontSize: 12, FontWeight: 600, Color: specTextStrong, FlexGrow: 1},
 			},
-			ui.Button{
-				TestID:  "input-key-capture-cancel",
-				Text:    "Cancel",
-				Size:    ui.SizeSmall,
-				Variant: ui.ButtonGhost,
-				OnPress: func() { ed.CancelKeyCapture() },
-			},
+			settingsSpecButton("input-key-capture-cancel", "Cancel", "Cancel key capture", false, nil, func() {
+				ed.CancelKeyCapture()
+			}),
 		},
 	}
 }
 
 func inputBindingRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], actName string, bi int, kind string, disabled func() bool) core.Node {
-	colors := ui.ColorsOf(cx)
-
 	readBinding := func() (project.Binding, bool) {
 		ai := ed.findInputActionIndex(actName)
 		if ai < 0 || bi < 0 || bi >= len(ed.Project.Input.Actions[ai].Bindings) {
@@ -1710,55 +1796,65 @@ func inputBindingRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], actNa
 
 	rowChildren := make([]core.Node, 0, len(editorControls)+3)
 	rowChildren = append(rowChildren,
-		core.View{
-			TestID: fmt.Sprintf("input-binding-%d-select", bi),
-			Role:   core.RoleButton,
-			Label:  fmt.Sprintf("Select Binding %d", bi),
-			Style:  core.Style{Width: core.Pt(96)},
-			OnPress: func(core.PressEvent) {
-				ed.SelectInputBinding(bi)
+		ui.Button{
+			TestID:  fmt.Sprintf("input-binding-%d-select", bi),
+			Text:    bindingKindLabel(kind),
+			Label:   fmt.Sprintf("Select Binding %d", bi),
+			Variant: ui.ButtonGhost,
+			Size:    ui.SizeSmall,
+			Color: func() core.Color {
+				_ = rev.Get()
+				if ed.SelectedInputBinding() == bi {
+					return specSettingsActiveNav
+				}
+				return specPanel
 			},
-			Children: []core.Node{
-				core.Text{
-					Content: bindingKindLabel(kind),
-					Style:   core.Style{FontSize: 11, FontWeight: 600, Color: colors.Muted()},
-				},
+			TextStyle: core.Style{
+				FontSize:   11.5,
+				FontWeight: 600,
+				Color:      specTextSecondary,
+				FlexGrow:   1,
+				TextAlign:  core.TextAlignLeft,
+			},
+			Style: core.Style{
+				Width:        core.Pt(112),
+				Height:       core.Pt(28),
+				CornerRadius: 6,
+				FocusVisible: specFocusRingStyle,
+			},
+			OnPress: func() {
+				ed.SelectInputBinding(bi)
 			},
 		},
 	)
 	rowChildren = append(rowChildren, editorControls...)
 	rowChildren = append(rowChildren,
 		core.View{Style: core.Style{FlexGrow: 1}},
-		ui.Button{
-			TestID:   fmt.Sprintf("input-binding-%d-remove", bi),
-			Text:     "Remove",
-			Label:    fmt.Sprintf("Remove Binding %d", bi),
-			Size:     ui.SizeSmall,
-			Variant:  ui.ButtonGhost,
-			Disabled: disabled,
-			OnPress: func() {
-				ed.report(ed.RemoveInputBinding(actName, bi))
-			},
-		},
+		settingsSpecButton(fmt.Sprintf("input-binding-%d-remove", bi), "Remove", fmt.Sprintf("Remove Binding %d", bi), false, disabled, func() {
+			ed.report(ed.RemoveInputBinding(actName, bi))
+		}),
 	)
 
 	return core.View{
 		TestID: fmt.Sprintf("input-binding-%d", bi),
 		StyleFunc: func() core.Style {
 			_ = rev.Get()
-			bg := colors.Surface()
+			bg := specPanel
+			border := specLine
 			if ed.SelectedInputBinding() == bi {
-				bg = colors.Raised()
+				bg = specRaised
+				border = specSettingsAccentEdge
 			}
 			return core.Style{
 				Direction:    core.Row,
+				Wrap:         core.Wrap,
 				AlignItems:   core.AlignCenter,
-				Gap:          6,
-				Padding:      core.Symmetric(4, 6),
-				CornerRadius: 4,
+				Gap:          8,
+				Padding:      core.Symmetric(4, 8),
+				CornerRadius: 8,
 				Background:   bg,
-				Borders:      core.Edges{Top: 1, Right: 1, Bottom: 1, Left: 1},
-				BorderColor:  colors.Line(),
+				BorderWidth:  1,
+				BorderColor:  border,
 			}
 		},
 		Children: rowChildren,
@@ -1838,7 +1934,6 @@ func regionFields(ed *Editor, rev *core.Signal[uint64], actName string, bi int, 
 }
 
 func inputRegionCanvasColumn(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled func() bool) core.Node {
-	colors := ui.ColorsOf(cx)
 	const maxCanvasW float32 = 240
 	const maxCanvasH float32 = 156
 
@@ -1857,12 +1952,12 @@ func inputRegionCanvasColumn(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 		TestID: "input-region-column",
 		Style: core.Style{
 			Width:   core.Pt(264),
-			Gap:     6,
-			Padding: core.Edges{Left: 10},
+			Gap:     8,
+			Padding: core.Edges{Left: 12},
 		},
 		Children: []core.Node{
 			ui.HStack{
-				Gap: 6,
+				Gap: 8,
 				Children: []core.Node{
 					core.Text{
 						TestID: "input-region-size",
@@ -1871,7 +1966,7 @@ func inputRegionCanvasColumn(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 							dw, dh := ed.InputMapDisplaySize()
 							return fmt.Sprintf("Regions (%g×%g)", dw, dh)
 						},
-						Style: core.Style{FontSize: 11, FontWeight: 700, Color: colors.Muted(), FlexGrow: 1},
+						Style: core.Style{FontSize: 11, FontWeight: 600, LetterSpacing: 0.66, Color: specTextMuted, FlexGrow: 1},
 					},
 					ui.ToggleButton{
 						TestID:   "input-region-draw-mouse",
@@ -1899,8 +1994,12 @@ func inputRegionCanvasColumn(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 				return core.View{
 					TestID: "input-region-canvas",
 					Style: core.Style{
-						Width:  core.Pt(core.Points(cw)),
-						Height: core.Pt(core.Points(ch)),
+						Width:        core.Pt(core.Points(cw)),
+						Height:       core.Pt(core.Points(ch)),
+						CornerRadius: 8,
+						BorderWidth:  1,
+						BorderColor:  specLineRaised,
+						Background:   specPanel,
 					},
 					OnTouch: func(ev core.TouchEvent) {
 						if disabled() {
@@ -1985,15 +2084,13 @@ func inputRegionCanvasColumn(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 			}),
 			core.Text{
 				Content: "Drag a region to move, its corner to resize, or empty space to draw.",
-				Style:   core.Style{FontSize: 10, Color: colors.Muted()},
+				Style:   core.Style{FontSize: 11, Color: specTextMuted},
 			},
 		},
 	}
 }
 
 func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled func() bool) core.Node {
-	colors := ui.ColorsOf(cx)
-
 	newAxisName := core.NewSignal(cx, "")
 	newAxisNeg := core.NewSignal(cx, "")
 	newAxisPos := core.NewSignal(cx, "")
@@ -2060,7 +2157,7 @@ func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled
 	})
 
 	sectionHeader := func(title string) core.Node {
-		return core.Text{Content: title, Style: core.Style{FontSize: 11, FontWeight: 700, Color: colors.Muted()}}
+		return core.Text{Content: title, Style: core.Style{FontSize: 11, FontWeight: 600, LetterSpacing: 0.66, Color: specTextMuted}}
 	}
 
 	actionAxesCol := core.View{
@@ -2068,10 +2165,10 @@ func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled
 		Style: core.Style{
 			FlexGrow:    1,
 			FlexBasis:   core.Pt(0),
-			Gap:         6,
-			Padding:     core.Edges{Right: 8},
+			Gap:         8,
+			Padding:     core.Edges{Right: 12},
 			Borders:     core.Edges{Right: 1},
-			BorderColor: colors.Line(),
+			BorderColor: specLine,
 		},
 		Children: []core.Node{
 			sectionHeader("ACTION AXES"),
@@ -2119,35 +2216,27 @@ func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled
 							},
 						},
 					},
-					ui.Button{
-						TestID:   "input-add-axis",
-						Text:     "Add",
-						Label:    "Add Axis",
-						Size:     ui.SizeSmall,
-						Variant:  ui.ButtonSecondary,
-						Disabled: disabled,
-						OnPress: func() {
-							name := strings.TrimSpace(newAxisName.Get())
-							if name == "" {
-								used := make([]string, 0)
-								for _, ax := range ed.InputAxes() {
-									used = append(used, ax.Name)
-								}
-								name = ed.nextDefaultAxisName("axis", used)
+					settingsSpecButton("input-add-axis", "Add", "Add Axis", false, disabled, func() {
+						name := strings.TrimSpace(newAxisName.Get())
+						if name == "" {
+							used := make([]string, 0)
+							for _, ax := range ed.InputAxes() {
+								used = append(used, ax.Name)
 							}
-							neg, pos := newAxisNeg.Get(), newAxisPos.Get()
-							if neg == "" && pos == "" {
-								if acts := ed.InputActions(); len(acts) > 0 {
-									pos = acts[0].Name
-								}
+							name = ed.nextDefaultAxisName("axis", used)
+						}
+						neg, pos := newAxisNeg.Get(), newAxisPos.Get()
+						if neg == "" && pos == "" {
+							if acts := ed.InputActions(); len(acts) > 0 {
+								pos = acts[0].Name
 							}
-							if err := ed.AddInputAxis(project.Axis{Name: name, Negative: neg, Positive: pos}); err != nil {
-								ed.report(err)
-								return
-							}
-							newAxisName.Set("")
-						},
-					},
+						}
+						if err := ed.AddInputAxis(project.Axis{Name: name, Negative: neg, Positive: pos}); err != nil {
+							ed.report(err)
+							return
+						}
+						newAxisName.Set("")
+					}),
 				},
 			},
 			ui.ScrollView{
@@ -2159,7 +2248,7 @@ func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled
 							return core.Text{
 								TestID:  "input-empty-axes",
 								Content: "No action axes.",
-								Style:   core.Style{FontSize: 11, Color: colors.Muted()},
+								Style:   core.Style{FontSize: 11.5, Color: specTextMuted},
 							}
 						}
 						axes := ed.Project.Input.Axes
@@ -2173,17 +2262,17 @@ func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled
 									Direction:    core.Row,
 									AlignItems:   core.AlignCenter,
 									Gap:          4,
-									Padding:      core.Symmetric(3, 6),
-									CornerRadius: 4,
-									Background:   colors.Surface(),
-									Borders:      core.Edges{Top: 1, Right: 1, Bottom: 1, Left: 1},
-									BorderColor:  colors.Line(),
+									Padding:      core.Symmetric(4, 8),
+									CornerRadius: 8,
+									Background:   specPanel,
+									BorderWidth:  1,
+									BorderColor:  specLine,
 								},
 								Children: []core.Node{
 									core.Text{
 										TestID:  fmt.Sprintf("input-axis-%d-name", idx),
 										Content: axName,
-										Style:   core.Style{FontSize: 11, FontWeight: 600, Color: colors.Text(), Width: core.Pt(70)},
+										Style:   core.Style{FontSize: 12, FontWeight: 600, Color: specTextStrong, Width: core.Pt(70)},
 									},
 									core.View{
 										Style: core.Style{FlexGrow: 1},
@@ -2237,15 +2326,9 @@ func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled
 											},
 										},
 									},
-									ui.Button{
-										TestID:   fmt.Sprintf("input-axis-%d-delete", idx),
-										Text:     "×",
-										Label:    "Delete Axis " + axName,
-										Size:     ui.SizeSmall,
-										Variant:  ui.ButtonGhost,
-										Disabled: disabled,
-										OnPress:  func() { ed.report(ed.DeleteInputAxis(idx)) },
-									},
+									settingsSpecButton(fmt.Sprintf("input-axis-%d-delete", idx), "×", "Delete Axis "+axName, false, disabled, func() {
+										ed.report(ed.DeleteInputAxis(idx))
+									}),
 								},
 							})
 						}
@@ -2261,10 +2344,10 @@ func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled
 		Style: core.Style{
 			FlexGrow:    1,
 			FlexBasis:   core.Pt(0),
-			Gap:         6,
-			Padding:     core.Symmetric(0, 8),
+			Gap:         8,
+			Padding:     core.Symmetric(0, 12),
 			Borders:     core.Edges{Right: 1},
-			BorderColor: colors.Line(),
+			BorderColor: specLine,
 		},
 		Children: []core.Node{
 			sectionHeader("MOTION AXES"),
@@ -2297,29 +2380,21 @@ func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled
 							},
 						},
 					},
-					ui.Button{
-						TestID:   "input-add-motion",
-						Text:     "Add",
-						Label:    "Add Motion Axis",
-						Size:     ui.SizeSmall,
-						Variant:  ui.ButtonSecondary,
-						Disabled: disabled,
-						OnPress: func() {
-							name := strings.TrimSpace(newMotionName.Get())
-							if name == "" {
-								used := make([]string, 0)
-								for _, m := range ed.InputMotionAxes() {
-									used = append(used, m.Name)
-								}
-								name = ed.nextDefaultAxisName("motion", used)
+					settingsSpecButton("input-add-motion", "Add", "Add Motion Axis", false, disabled, func() {
+						name := strings.TrimSpace(newMotionName.Get())
+						if name == "" {
+							used := make([]string, 0)
+							for _, m := range ed.InputMotionAxes() {
+								used = append(used, m.Name)
 							}
-							if err := ed.AddInputMotionAxis(project.MotionAxis{Name: name, Axis: newMotionAxis.Get()}); err != nil {
-								ed.report(err)
-								return
-							}
-							newMotionName.Set("")
-						},
-					},
+							name = ed.nextDefaultAxisName("motion", used)
+						}
+						if err := ed.AddInputMotionAxis(project.MotionAxis{Name: name, Axis: newMotionAxis.Get()}); err != nil {
+							ed.report(err)
+							return
+						}
+						newMotionName.Set("")
+					}),
 				},
 			},
 			ui.ScrollView{
@@ -2331,7 +2406,7 @@ func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled
 							return core.Text{
 								TestID:  "input-empty-motion",
 								Content: "No motion axes.",
-								Style:   core.Style{FontSize: 11, Color: colors.Muted()},
+								Style:   core.Style{FontSize: 11.5, Color: specTextMuted},
 							}
 						}
 						list := ed.Project.Input.MotionAxes
@@ -2343,11 +2418,11 @@ func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled
 								TestID: fmt.Sprintf("input-motion-%d", idx),
 								Style: core.Style{
 									Gap:          4,
-									Padding:      core.Symmetric(4, 6),
-									CornerRadius: 4,
-									Background:   colors.Surface(),
-									Borders:      core.Edges{Top: 1, Right: 1, Bottom: 1, Left: 1},
-									BorderColor:  colors.Line(),
+									Padding:      core.Symmetric(8, 8),
+									CornerRadius: 8,
+									Background:   specPanel,
+									BorderWidth:  1,
+									BorderColor:  specLine,
 								},
 								Children: []core.Node{
 									ui.HStack{
@@ -2355,7 +2430,7 @@ func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled
 										Children: []core.Node{
 											core.Text{
 												Content: mName,
-												Style:   core.Style{FontSize: 11, FontWeight: 600, Color: colors.Text(), FlexGrow: 1},
+												Style:   core.Style{FontSize: 12, FontWeight: 600, Color: specTextStrong, FlexGrow: 1},
 											},
 											core.View{
 												Style: core.Style{Width: core.Pt(86)},
@@ -2404,15 +2479,9 @@ func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled
 													ed.report(ed.SetInputMotionAxis(idx, next))
 												},
 											},
-											ui.Button{
-												TestID:   fmt.Sprintf("input-motion-%d-delete", idx),
-												Text:     "×",
-												Label:    "Delete Motion Axis " + mName,
-												Size:     ui.SizeSmall,
-												Variant:  ui.ButtonGhost,
-												Disabled: disabled,
-												OnPress:  func() { ed.report(ed.DeleteInputMotionAxis(idx)) },
-											},
+											settingsSpecButton(fmt.Sprintf("input-motion-%d-delete", idx), "×", "Delete Motion Axis "+mName, false, disabled, func() {
+												ed.report(ed.DeleteInputMotionAxis(idx))
+											}),
 										},
 									},
 									ui.HStack{
@@ -2444,8 +2513,8 @@ func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled
 		Style: core.Style{
 			FlexGrow:  1,
 			FlexBasis: core.Pt(0),
-			Gap:       6,
-			Padding:   core.Edges{Left: 8},
+			Gap:       8,
+			Padding:   core.Edges{Left: 12},
 		},
 		Children: []core.Node{
 			sectionHeader("GAMEPAD STICKS"),
@@ -2478,29 +2547,21 @@ func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled
 							},
 						},
 					},
-					ui.Button{
-						TestID:   "input-add-gamepad-axis",
-						Text:     "Add",
-						Label:    "Add Gamepad Axis",
-						Size:     ui.SizeSmall,
-						Variant:  ui.ButtonSecondary,
-						Disabled: disabled,
-						OnPress: func() {
-							name := strings.TrimSpace(newGamepadName.Get())
-							if name == "" {
-								used := make([]string, 0)
-								for _, g := range ed.InputGamepadAxes() {
-									used = append(used, g.Name)
-								}
-								name = ed.nextDefaultAxisName("stick", used)
+					settingsSpecButton("input-add-gamepad-axis", "Add", "Add Gamepad Axis", false, disabled, func() {
+						name := strings.TrimSpace(newGamepadName.Get())
+						if name == "" {
+							used := make([]string, 0)
+							for _, g := range ed.InputGamepadAxes() {
+								used = append(used, g.Name)
 							}
-							if err := ed.AddInputGamepadAxis(project.GamepadAxis{Name: name, Axis: newGamepadAxis.Get()}); err != nil {
-								ed.report(err)
-								return
-							}
-							newGamepadName.Set("")
-						},
-					},
+							name = ed.nextDefaultAxisName("stick", used)
+						}
+						if err := ed.AddInputGamepadAxis(project.GamepadAxis{Name: name, Axis: newGamepadAxis.Get()}); err != nil {
+							ed.report(err)
+							return
+						}
+						newGamepadName.Set("")
+					}),
 				},
 			},
 			ui.ScrollView{
@@ -2512,7 +2573,7 @@ func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled
 							return core.Text{
 								TestID:  "input-empty-gamepad-axes",
 								Content: "No gamepad stick axes.",
-								Style:   core.Style{FontSize: 11, Color: colors.Muted()},
+								Style:   core.Style{FontSize: 11.5, Color: specTextMuted},
 							}
 						}
 						list := ed.Project.Input.GamepadAxes
@@ -2524,11 +2585,11 @@ func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled
 								TestID: fmt.Sprintf("input-gamepad-axis-%d", idx),
 								Style: core.Style{
 									Gap:          4,
-									Padding:      core.Symmetric(4, 6),
-									CornerRadius: 4,
-									Background:   colors.Surface(),
-									Borders:      core.Edges{Top: 1, Right: 1, Bottom: 1, Left: 1},
-									BorderColor:  colors.Line(),
+									Padding:      core.Symmetric(8, 8),
+									CornerRadius: 8,
+									Background:   specPanel,
+									BorderWidth:  1,
+									BorderColor:  specLine,
 								},
 								Children: []core.Node{
 									ui.HStack{
@@ -2536,7 +2597,7 @@ func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled
 										Children: []core.Node{
 											core.Text{
 												Content: gName,
-												Style:   core.Style{FontSize: 11, FontWeight: 600, Color: colors.Text(), FlexGrow: 1},
+												Style:   core.Style{FontSize: 12, FontWeight: 600, Color: specTextStrong, FlexGrow: 1},
 											},
 											core.View{
 												Style: core.Style{Width: core.Pt(86)},
@@ -2606,15 +2667,9 @@ func inputAxesTab(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled
 													ed.report(ed.SetInputGamepadAxis(idx, next))
 												},
 											},
-											ui.Button{
-												TestID:   fmt.Sprintf("input-gamepad-axis-%d-delete", idx),
-												Text:     "×",
-												Label:    "Delete Gamepad Axis " + gName,
-												Size:     ui.SizeSmall,
-												Variant:  ui.ButtonGhost,
-												Disabled: disabled,
-												OnPress:  func() { ed.report(ed.DeleteInputGamepadAxis(idx)) },
-											},
+											settingsSpecButton(fmt.Sprintf("input-gamepad-axis-%d-delete", idx), "×", "Delete Gamepad Axis "+gName, false, disabled, func() {
+												ed.report(ed.DeleteInputGamepadAxis(idx))
+											}),
 										},
 									},
 									ui.HStack{

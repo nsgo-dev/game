@@ -714,9 +714,10 @@ type Editor struct {
 	// terrain holds the open 3D terrain editing session (heightmap, layer weights, foliage density maps) and active brush state.
 	terrain      *terrainState
 	terrainBrush TerrainBrush
-	// settings holds the per-user editor language, appearance, and shortcut override preferences.
+	// settings holds the per-user editor language, appearance, and shortcut override preferences and the unified Settings screen state.
 	settings              EditorSettings
-	editorSettingsOpen    bool
+	settingsOpen          bool
+	settingsPage          SettingsPage
 	editorSettingsTab     EditorSettingsTab
 	shortcutsSheetOpen    bool
 	shortcutCaptureActive bool

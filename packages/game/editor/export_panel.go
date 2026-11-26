@@ -6,12 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
 	"sync"
+
+	"go.yaml.in/yaml/v3"
 
 	"github.com/nsgo-dev/game/packages/game/internal/releaseplan"
 	"github.com/nsgo-dev/game/packages/game/project"
@@ -70,7 +73,6 @@ func (r *exportBuildRun) finish() {
 
 type exportPanelState struct {
 	mu               sync.Mutex
-	open             bool
 	selectedPlatform string
 	selectedTargets  []string
 	channel          string
@@ -84,23 +86,133 @@ type exportPanelState struct {
 	run              *exportBuildRun
 }
 
-// ExportPanelOpen reports whether the Export & Release panel is open.
+// ExportPanelOpen reports whether the Settings view is open on the Export page.
 func (e *Editor) ExportPanelOpen() bool {
-	return e != nil && e.exportPanel.open
+	return e != nil && e.settingsOpen && e.settingsPage == SettingsPageExport
 }
 
-// SetExportPanelOpen opens or closes the Export & Release panel. Opening refreshes the pre-flight credits check.
+// SetExportPanelOpen opens the Settings view on the Export page (refreshing the pre-flight credits check), or closes Settings when open is false and the Export page is active.
 func (e *Editor) SetExportPanelOpen(open bool) {
-	if e == nil || e.exportPanel.open == open {
+	if e == nil {
 		return
 	}
-	e.exportPanel.open = open
 	if open {
-		e.syncExportPanel()
-		e.CheckExportCredits()
+		e.OpenSettingsPage(SettingsPageExport)
 		return
 	}
-	e.notify()
+	if e.ExportPanelOpen() {
+		e.CloseSettings()
+	}
+}
+
+// ExportPresetReadiness reports whether a platform export preset is ready to build ("Ready") or needs setup ("Set up"), along with a concise detail string matching docs/design/editor/Settings.dc.html.
+func (e *Editor) ExportPresetReadiness(platform string) (ready bool, detail string) {
+	switch platform {
+	case "ios", "tvos", "watchos":
+		if !e.nsgoHasAppleTeamID() {
+			return false, "Needs a team ID"
+		}
+	}
+	if e != nil {
+		if c := e.ExportCredits(); c.Configured && !c.OK() {
+			return false, "Needs asset credits"
+		}
+	}
+	if e != nil && e.Project != nil {
+		if cur, ok := e.Project.Preset(platform); ok && len(cur.Targets) > 0 {
+			return true, strings.Join(cur.Targets, ", ")
+		}
+	}
+	switch platform {
+	case "macos":
+		return true, "Universal, macOS targets"
+	case "windows":
+		return true, "Windows x64 / arm64"
+	case "linux":
+		return true, "Linux x64 / arm64"
+	case "web":
+		return true, "WebAssembly, compressed"
+	case "android":
+		return true, "Android arm64 / x64"
+	default:
+		return true, "default (" + platform + ")"
+	}
+}
+
+// ExportNavWarningMeta returns the warning badge label for the Export page in the Settings navigation sidebar (for example "iOS" when an iOS preset needs a team ID, or "Credits" when asset credits are missing), or empty when every configured preset is ready.
+func (e *Editor) ExportNavWarningMeta() string {
+	if e == nil || e.Project == nil {
+		return ""
+	}
+	for _, p := range e.ExportPresets() {
+		if ready, _ := e.ExportPresetReadiness(p.Platform); !ready {
+			return exportPlatformDisplayName(p.Platform)
+		}
+	}
+	if c := e.ExportCredits(); c.Configured && !c.OK() {
+		return "Credits"
+	}
+	return ""
+}
+
+func exportPlatformDisplayName(platform string) string {
+	switch platform {
+	case "macos":
+		return "macOS"
+	case "windows":
+		return "Windows"
+	case "linux":
+		return "Linux"
+	case "ios":
+		return "iOS"
+	case "tvos":
+		return "tvOS"
+	case "watchos":
+		return "watchOS"
+	case "android":
+		return "Android"
+	case "harmonyos":
+		return "HarmonyOS"
+	case "web":
+		return "Web"
+	case "miniprogram":
+		return "Mini Program"
+	default:
+		return platform
+	}
+}
+
+func (e *Editor) nsgoHasAppleTeamID() bool {
+	if e == nil || e.ProjectPath == "" {
+		return false
+	}
+	data, err := os.ReadFile(filepath.Join(filepath.Dir(e.ProjectPath), project.NSGoFileName))
+	if err != nil {
+		return false
+	}
+	var cfg struct {
+		TeamID string `yaml:"team_id"`
+		Apple  struct {
+			TeamID string `yaml:"team_id"`
+		} `yaml:"apple"`
+		IOS struct {
+			TeamID string `yaml:"team_id"`
+		} `yaml:"ios"`
+		Signing struct {
+			TeamID string `yaml:"team_id"`
+			Apple  struct {
+				TeamID string `yaml:"team_id"`
+			} `yaml:"apple"`
+		} `yaml:"signing"`
+	}
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return false
+	}
+	return strings.TrimSpace(cfg.TeamID) != "" ||
+		strings.TrimSpace(cfg.Apple.TeamID) != "" ||
+		strings.TrimSpace(cfg.IOS.TeamID) != "" ||
+		strings.TrimSpace(cfg.Signing.TeamID) != "" ||
+		strings.TrimSpace(cfg.Signing.Apple.TeamID) != ""
 }
 
 // ExportOutput returns the open project's export.output directory, or empty when unset.
@@ -828,7 +940,7 @@ func (e *Editor) resetExportPanelForProject() {
 	e.exportPanel.credits = ExportCreditsReport{}
 	e.exportPanel.mu.Unlock()
 	e.syncExportPanel()
-	if e.exportPanel.open {
+	if e.ExportPanelOpen() {
 		e.CheckExportCredits()
 	}
 }
@@ -957,8 +1069,8 @@ func ExportPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 }
 
 func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
-	colors := ui.ColorsOf(cx)
 	outputDraft := core.NewSignal(cx, ed.ExportOutput())
+	outputErr := core.NewSignal(cx, "")
 	addPlatform := core.NewSignal(cx, firstAvailableExportPlatform(ed))
 
 	// Keep the output directory draft synced with project edits and Undo/Redo.
@@ -968,6 +1080,7 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 	})
 	cx.Effect(func() {
 		outputDraft.Set(projectOutput.Get())
+		outputErr.Set("")
 	})
 
 	// Keep the Add Preset dropdown synced to an available platform.
@@ -994,9 +1107,12 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 
 	commitOutput := func() {
 		if err := ed.SetExportOutput(outputDraft.Get()); err != nil {
+			outputErr.Set(err.Error())
 			ed.report(err)
 			outputDraft.Set(ed.ExportOutput())
+			return
 		}
+		outputErr.Set("")
 	}
 
 	presetsKey := core.NewMemo(cx, func() string {
@@ -1027,7 +1143,7 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 	})
 
 	label := func(text string) core.Node {
-		return core.Text{Content: text, Style: core.Style{FontSize: 11, FontWeight: 700, Color: colors.Muted()}}
+		return core.Text{Content: text, Style: core.Style{FontSize: 11, FontWeight: 600, LetterSpacing: 0.66, Color: specTextMuted}}
 	}
 
 	channelOptions := []ui.Option[string]{
@@ -1038,10 +1154,20 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 		{Value: "none", Label: "none"},
 	}
 
-	header := ui.HStack{
-		Gap: 8,
+	// Build & release action bar styled with Spec tokens.
+	buildBar := core.View{
+		Style: core.Style{
+			Direction:    core.Row,
+			Wrap:         core.Wrap,
+			AlignItems:   core.AlignCenter,
+			Gap:          8,
+			Padding:      core.Symmetric(8, 12),
+			CornerRadius: 12,
+			Background:   specPanel,
+			BorderWidth:  1,
+			BorderColor:  specLine,
+		},
 		Children: []core.Node{
-			core.Text{Content: "Export", Style: core.Style{FontSize: 13, FontWeight: 700, Color: colors.Text()}},
 			label("OUTPUT"),
 			core.View{
 				Style: core.Style{Width: core.Pt(140)},
@@ -1051,29 +1177,27 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 						Label:       "Export Output Directory",
 						Placeholder: "dist (default)",
 						Disabled:    editDisabled,
+						Invalid:     func() bool { return outputErr.Get() != "" },
 						Value:       outputDraft.Get,
-						OnChange:    outputDraft.Set,
-						OnSubmit:    func(string) { commitOutput() },
+						OnChange: func(v string) {
+							outputDraft.Set(v)
+							outputErr.Set("")
+						},
+						OnSubmit: func(string) { commitOutput() },
 					},
 				},
 			},
-			ui.Button{
-				TestID:   "export-output-apply",
-				Text:     "Set",
-				Size:     ui.SizeSmall,
-				Variant:  ui.ButtonSecondary,
-				Disabled: editDisabled,
-				OnPress:  commitOutput,
-			},
+			settingsSpecButton("export-output-apply", "Set", "Apply export output directory", false, editDisabled, commitOutput),
 			label("CHANNEL"),
 			core.View{
-				Style: core.Style{Width: core.Pt(106)},
+				Style: core.Style{Width: core.Pt(118), FlexShrink: 0},
 				Children: []core.Node{
 					ui.Select[string]{
 						TestID:   "export-channel-select",
 						Label:    "Release Channel",
 						Disabled: editDisabled,
 						Options:  channelOptions,
+						Style:    core.Style{Width: core.Pt(118)},
 						Value: func() string {
 							_ = rev.Get()
 							return ed.ExportChannel()
@@ -1086,13 +1210,14 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 			},
 			label("NOTES"),
 			core.View{
-				Style: core.Style{Width: core.Pt(140)},
+				Style: core.Style{Width: core.Pt(148), FlexShrink: 0},
 				Children: []core.Node{
 					ui.Input{
 						TestID:      "export-notes-input",
 						Label:       "Release Notes File",
 						Placeholder: "release-notes.md",
 						Disabled:    editDisabled,
+						Style:       core.Style{Width: core.Pt(148)},
 						Value: func() string {
 							_ = rev.Get()
 							return ed.ExportReleaseNotes()
@@ -1114,7 +1239,7 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 			ui.Button{
 				TestID:  "export-build",
 				Size:    ui.SizeSmall,
-				Variant: ui.ButtonPrimary,
+				Variant: ui.ButtonGhost,
 				Disabled: func() bool {
 					_ = rev.Get()
 					return ed.Playing() || ed.Project == nil || ed.ExportRunning()
@@ -1130,6 +1255,18 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 					}
 					return "Build"
 				},
+				Color: func() core.Color { return specAccent },
+				TextStyle: core.Style{
+					FontSize:   12,
+					FontWeight: 600,
+					Color:      specBg, // Spec.dc.html: #101216 on #3B7BFF (4.88:1 AA).
+				},
+				Style: core.Style{
+					Height:       core.Pt(28),
+					CornerRadius: 8,
+					FlexShrink:   0,
+					FocusVisible: specFocusRingStyle,
+				},
 				OnPress: func() {
 					ed.report(ed.RunExportBuild())
 				},
@@ -1140,49 +1277,36 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 					return ed.ExportRunning()
 				},
 				Then: func(cx *core.Scope) core.Node {
-					return ui.Button{
-						TestID:  "export-cancel",
-						Text:    "Cancel",
-						Size:    ui.SizeSmall,
-						Variant: ui.ButtonSecondary,
-						OnPress: func() { ed.CancelExportBuild() },
-					}
+					return settingsSpecButton("export-cancel", "Cancel", "Cancel export build", false, nil, func() {
+						ed.CancelExportBuild()
+					})
 				},
 			},
-			ui.Button{
-				TestID:  "export-open-output",
-				Text:    "Open Output",
-				Size:    ui.SizeSmall,
-				Variant: ui.ButtonSecondary,
-				Disabled: func() bool {
-					_ = rev.Get()
-					return ed.Project == nil
-				},
-				OnPress: func() { ed.report(ed.OpenExportOutputFolder()) },
-			},
+			settingsSpecButton("export-open-output", "Open Output", "Open export output folder", false, func() bool {
+				_ = rev.Get()
+				return ed.Project == nil
+			}, func() { ed.report(ed.OpenExportOutputFolder()) }),
 			core.View{Style: core.Style{FlexGrow: 1}},
-			ui.Button{
-				TestID:  "export-close",
-				Text:    "Close",
-				Size:    ui.SizeSmall,
-				Variant: ui.ButtonGhost,
-				OnPress: func() { ed.SetExportPanelOpen(false) },
-			},
+			settingsSpecButton("export-close", "Close", "Close Export settings", false, nil, func() {
+				ed.SetExportPanelOpen(false)
+			}),
 		},
 	}
 
 	presetsColumn := core.View{
 		TestID: "export-presets-column",
 		Style: core.Style{
-			Width:       core.Pt(430),
-			Gap:         6,
-			Padding:     core.Edges{Right: 10},
+			FlexGrow:    1,
+			FlexBasis:   core.Pt(0),
+			MinWidth:    core.Pt(420),
+			Gap:         8,
+			Padding:     core.Edges{Right: 16},
 			Borders:     core.Edges{Right: 1},
-			BorderColor: colors.Line(),
+			BorderColor: specLine,
 		},
 		Children: []core.Node{
 			ui.HStack{
-				Gap: 6,
+				Gap: 8,
 				Children: []core.Node{
 					core.View{
 						Style: core.Style{FlexGrow: 1},
@@ -1208,34 +1332,27 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 							},
 						},
 					},
-					ui.Button{
-						TestID:  "export-add-preset",
-						Text:    "Add Preset",
-						Size:    ui.SizeSmall,
-						Variant: ui.ButtonSecondary,
-						Disabled: func() bool {
-							return editDisabled() || addPlatform.Get() == ""
-						},
-						OnPress: func() {
-							plat := addPlatform.Get()
-							if plat == "" {
-								return
-							}
-							ed.report(ed.AddExportPreset(plat))
-						},
-					},
+					settingsSpecButton("export-add-preset", "Add Preset", "Add platform export preset", false, func() bool {
+						return editDisabled() || addPlatform.Get() == ""
+					}, func() {
+						plat := addPlatform.Get()
+						if plat == "" {
+							return
+						}
+						ed.report(ed.AddExportPreset(plat))
+					}),
 				},
 			},
 			ui.ScrollView{
 				Style:        core.Style{FlexGrow: 1, FlexBasis: core.Pt(0)},
-				ContentStyle: core.Style{Gap: 6},
+				ContentStyle: core.Style{Gap: 4},
 				Children: []core.Node{
 					core.Dynamic(func(cx *core.Scope) core.Node {
 						if presetsKey.Get() == "" {
 							return core.Text{
 								TestID:  "export-empty-presets",
 								Content: "No export presets yet. Default platforms will be built until a preset is added.",
-								Style:   core.Style{FontSize: 11, Color: colors.Muted()},
+								Style:   core.Style{FontSize: 12, Color: specTextMuted, Padding: core.Symmetric(12, 0)},
 							}
 						}
 						presets := ed.ExportPresets()
@@ -1243,7 +1360,7 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 						for i, p := range presets {
 							rows = append(rows, exportPresetRow(cx, ed, rev, i, p, len(presets), editDisabled))
 						}
-						return core.View{Style: core.Style{Gap: 6}, Children: rows}
+						return core.View{Style: core.Style{Gap: 8}, Children: rows}
 					}),
 				},
 			},
@@ -1251,14 +1368,14 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 			core.View{
 				TestID: "export-build-scope",
 				Style: core.Style{
-					Gap:         4,
-					Padding:     core.Edges{Top: 6},
+					Gap:         8,
+					Padding:     core.Edges{Top: 12},
 					Borders:     core.Edges{Top: 1},
-					BorderColor: colors.Line(),
+					BorderColor: specLine,
 				},
 				Children: []core.Node{
 					ui.HStack{
-						Gap: 6,
+						Gap: 8,
 						Children: []core.Node{
 							label("BUILD TARGETS"),
 							ui.ToggleButton{
@@ -1315,7 +1432,8 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 		Style: core.Style{
 			FlexGrow:  1,
 			FlexBasis: core.Pt(0),
-			Gap:       6,
+			Gap:       8,
+			Padding:   core.Edges{Left: 16},
 			Overflow:  core.Hidden,
 		},
 		Children: []core.Node{
@@ -1323,25 +1441,30 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 			core.Dynamic(func(cx *core.Scope) core.Node {
 				_ = creditsKey.Get()
 				report := ed.ExportCredits()
-				borderColor := colors.Line()
-				statusColor := colors.Muted()
+				borderColor := specLine
+				statusColor := specTextMuted
+				bg := specPanel
 				statusText := "No assets section in game.yaml (no CREDITS.md will be written)"
 				if report.Configured {
 					switch {
 					case report.Err != nil:
-						borderColor = colors.Danger()
-						statusColor = colors.Danger()
+						borderColor = specProblemEdge
+						statusColor = specProblem
+						bg = specSettingsProblemBg
 						statusText = "Credits error: " + report.Err.Error()
 					case len(report.Missing) > 0:
-						borderColor = colors.Danger()
-						statusColor = colors.Danger()
+						borderColor = specProblemEdge
+						statusColor = specProblem
+						bg = specSettingsProblemBg
 						noun := "assets have"
 						if len(report.Missing) == 1 {
 							noun = "asset has"
 						}
 						statusText = fmt.Sprintf("Credits required: %d %s no credit (release builds are blocked)", len(report.Missing), noun)
 					default:
-						statusColor = colors.Text()
+						borderColor = specAddedEdge
+						statusColor = specAdded
+						bg = specAddedFill
 						statusText = fmt.Sprintf("Credits OK: %d asset(s) credited", len(report.Entries))
 					}
 				}
@@ -1352,15 +1475,11 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 							core.Text{
 								TestID:  "export-credits-status",
 								Content: statusText,
-								Style:   core.Style{FontSize: 11, FontWeight: 600, Color: statusColor, FlexGrow: 1},
+								Style:   core.Style{FontSize: 11.5, FontWeight: 600, Color: statusColor, FlexGrow: 1},
 							},
-							ui.Button{
-								TestID:  "export-credits-refresh",
-								Text:    "Refresh Credits",
-								Size:    ui.SizeSmall,
-								Variant: ui.ButtonSecondary,
-								OnPress: func() { ed.CheckExportCredits() },
-							},
+							settingsSpecButton("export-credits-refresh", "Refresh Credits", "Refresh asset credits check", false, nil, func() {
+								ed.CheckExportCredits()
+							}),
 						},
 					},
 				}
@@ -1372,18 +1491,18 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 					children = append(children, core.Text{
 						TestID:  "export-credits-missing",
 						Content: strings.Join(missingLines, "\n"),
-						Style:   core.Style{FontSize: 10, Color: colors.Danger()},
+						Style:   core.Style{FontSize: 11, FontFamily: core.FontMonospace, Color: specProblem},
 					})
 				}
 				return core.View{
 					TestID: "export-credits-section",
 					Style: core.Style{
 						Gap:          4,
-						Padding:      core.Symmetric(6, 8),
-						CornerRadius: 6,
+						Padding:      core.Symmetric(8, 12),
+						CornerRadius: 8,
 						BorderWidth:  1,
 						BorderColor:  borderColor,
-						Background:   colors.Surface(),
+						Background:   bg,
 					},
 					Children: children,
 				}
@@ -1408,30 +1527,23 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 							}
 							return "Idle"
 						},
-						Style: core.Style{FontSize: 11, Color: colors.Muted(), FlexGrow: 1},
+						Style: core.Style{FontSize: 11.5, Color: specTextMuted, FlexGrow: 1},
 					},
-					ui.Button{
-						TestID:  "export-log-clear",
-						Text:    "Clear",
-						Size:    ui.SizeSmall,
-						Variant: ui.ButtonGhost,
-						Disabled: func() bool {
-							_ = rev.Get()
-							return ed.ExportRunning() || len(ed.ExportOutputLines()) == 0
-						},
-						OnPress: func() { ed.ClearExportOutput() },
-					},
+					settingsSpecButton("export-log-clear", "Clear", "Clear export build output", false, func() bool {
+						_ = rev.Get()
+						return ed.ExportRunning() || len(ed.ExportOutputLines()) == 0
+					}, func() { ed.ClearExportOutput() }),
 				},
 			},
 			ui.ScrollView{
 				Style: core.Style{
 					FlexGrow:     1,
 					FlexBasis:    core.Pt(0),
-					Background:   colors.Surface(),
-					CornerRadius: 6,
+					Background:   specPanel,
+					CornerRadius: 8,
 					BorderWidth:  1,
-					BorderColor:  colors.Line(),
-					Padding:      core.All(8),
+					BorderColor:  specLine,
+					Padding:      core.All(12),
 				},
 				Children: []core.Node{
 					core.Text{
@@ -1444,7 +1556,7 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 							}
 							return txt
 						},
-						Style: core.Style{FontSize: 11, Color: colors.Text()},
+						Style: core.Style{FontSize: 11.5, FontFamily: core.FontMonospace, Color: specText},
 					},
 				},
 			},
@@ -1454,21 +1566,19 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 	return core.View{
 		TestID: "export-panel",
 		Style: core.Style{
-			Height:      core.Pt(300),
-			Gap:         8,
-			Padding:     core.Symmetric(8, 12),
-			Background:  colors.Inset(),
-			Borders:     core.Edges{Top: 1},
-			BorderColor: colors.Line(),
+			FlexGrow:  1,
+			FlexBasis: core.Pt(0),
+			Gap:       12,
+			Overflow:  core.Hidden,
 		},
 		Children: []core.Node{
-			header,
+			buildBar,
+			psErrorText("export-output-error", outputErr),
 			core.View{
 				Style: core.Style{
 					Direction: core.Row,
 					FlexGrow:  1,
 					FlexBasis: core.Pt(0),
-					Gap:       10,
 					Overflow:  core.Hidden,
 				},
 				Children: []core.Node{presetsColumn, outputColumn},
@@ -1478,7 +1588,6 @@ func exportPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node
 }
 
 func exportPresetRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], idx int, p project.Preset, total int, disabled func() bool) core.Node {
-	colors := ui.ColorsOf(cx)
 	plat := p.Platform
 	validTargets := project.TargetsOf(plat)
 	targetBtns := make([]core.Node, 0, len(validTargets))
@@ -1500,69 +1609,113 @@ func exportPresetRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], idx i
 			},
 		})
 	}
+	policy := policyYouOnly
+	if plat == "web" {
+		policy = policyAgentMayChange
+	}
+
 	return core.View{
 		TestID: "export-preset-" + plat,
 		Style: core.Style{
-			Gap:          4,
-			Padding:      core.All(6),
-			CornerRadius: 6,
+			Gap:          8,
+			Padding:      core.Symmetric(12, 12),
+			CornerRadius: 8,
 			BorderWidth:  1,
-			BorderColor:  colors.Line(),
-			Background:   colors.Surface(),
+			BorderColor:  specLine,
+			Background:   specPanel,
 		},
 		Children: []core.Node{
-			ui.HStack{
-				Gap: 6,
+			core.View{
+				Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 12},
 				Children: []core.Node{
-					core.Text{
-						Content: plat,
-						Style:   core.Style{FontSize: 12, FontWeight: 700, Color: colors.Text()},
-					},
-					core.Text{
-						TestID: "export-preset-summary-" + plat,
-						ContentFunc: func() string {
-							_ = rev.Get()
-							cur, ok := ed.Project.Preset(plat)
-							if !ok || len(cur.Targets) == 0 {
-								return "default (" + plat + ")"
-							}
-							return strings.Join(cur.Targets, ", ")
+					core.View{
+						Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 2},
+						Children: []core.Node{
+							core.Text{
+								Content: exportPlatformDisplayName(plat),
+								Style:   core.Style{FontSize: 12.5, FontWeight: 600, Color: specTextStrong},
+							},
+							core.Text{
+								TestID: "export-preset-summary-" + plat,
+								ContentFunc: func() string {
+									_ = rev.Get()
+									_, detail := ed.ExportPresetReadiness(plat)
+									return detail
+								},
+								StyleFunc: func() core.Style {
+									_ = rev.Get()
+									ready, _ := ed.ExportPresetReadiness(plat)
+									c := specTextMuted
+									if !ready {
+										c = specWarning
+									}
+									return core.Style{FontSize: 11.5, Color: c}
+								},
+							},
 						},
-						Style: core.Style{FontSize: 10, Color: colors.Muted(), FlexGrow: 1},
 					},
-					ui.Button{
-						TestID:   "export-preset-up-" + plat,
-						Text:     "Up",
-						Size:     ui.SizeSmall,
-						Variant:  ui.ButtonGhost,
-						Disabled: func() bool { return disabled() || idx == 0 },
-						OnPress:  func() { ed.report(ed.MoveExportPreset(plat, -1)) },
+					core.View{
+						TestID: "export-preset-readiness-" + plat,
+						StyleFunc: func() core.Style {
+							_ = rev.Get()
+							ready, _ := ed.ExportPresetReadiness(plat)
+							bg, border := specAddedFill, specAddedEdge
+							if !ready {
+								bg, border = specWarningFill, specWarningEdge
+							}
+							return core.Style{
+								Height:         core.Pt(24),
+								Padding:        core.Symmetric(0, 10),
+								CornerRadius:   6,
+								Background:     bg,
+								BorderWidth:    1,
+								BorderColor:    border,
+								AlignItems:     core.AlignCenter,
+								JustifyContent: core.JustifyCenter,
+							}
+						},
+						Children: []core.Node{
+							core.Text{
+								ContentFunc: func() string {
+									_ = rev.Get()
+									if ready, _ := ed.ExportPresetReadiness(plat); ready {
+										return "Ready"
+									}
+									return "Set up"
+								},
+								StyleFunc: func() core.Style {
+									_ = rev.Get()
+									c := specAdded
+									if ready, _ := ed.ExportPresetReadiness(plat); !ready {
+										c = specWarning
+									}
+									return core.Style{FontSize: 11.5, FontWeight: 600, Color: c}
+								},
+							},
+						},
 					},
-					ui.Button{
-						TestID:   "export-preset-down-" + plat,
-						Text:     "Down",
-						Size:     ui.SizeSmall,
-						Variant:  ui.ButtonGhost,
-						Disabled: func() bool { return disabled() || idx >= total-1 },
-						OnPress:  func() { ed.report(ed.MoveExportPreset(plat, 1)) },
-					},
-					ui.Button{
-						TestID:   "export-preset-remove-" + plat,
-						Text:     "Remove",
-						Size:     ui.SizeSmall,
-						Variant:  ui.ButtonGhost,
-						Disabled: disabled,
-						OnPress:  func() { ed.report(ed.RemoveExportPreset(plat)) },
-					},
+					settingsPolicyBadge(policy),
 				},
 			},
 			core.View{
 				Style: core.Style{
-					Direction: core.Row,
-					Wrap:      core.Wrap,
-					Gap:       4,
+					Direction:  core.Row,
+					Wrap:       core.Wrap,
+					AlignItems: core.AlignCenter,
+					Gap:        4,
 				},
-				Children: targetBtns,
+				Children: append(targetBtns,
+					core.View{Style: core.Style{FlexGrow: 1}},
+					settingsSpecButton("export-preset-up-"+plat, "Up", "Move "+plat+" preset up", false, func() bool {
+						return disabled() || idx == 0
+					}, func() { ed.report(ed.MoveExportPreset(plat, -1)) }),
+					settingsSpecButton("export-preset-down-"+plat, "Down", "Move "+plat+" preset down", false, func() bool {
+						return disabled() || idx >= total-1
+					}, func() { ed.report(ed.MoveExportPreset(plat, 1)) }),
+					settingsSpecButton("export-preset-remove-"+plat, "Remove", "Remove "+plat+" preset", false, disabled, func() {
+						ed.report(ed.RemoveExportPreset(plat))
+					}),
+				),
 			},
 		},
 	}

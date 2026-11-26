@@ -200,9 +200,8 @@ func cloneAudioEffect(e project.Effect) project.Effect {
 	return out
 }
 
-// audioMixerState holds the audio bus mixer panel's UI state and live audition sound.Mixer.
+// audioMixerState holds the audio bus mixer's transient UI state and live audition sound.Mixer.
 type audioMixerState struct {
-	open           bool
 	selectedBus    string
 	selectedFile   string
 	loop           bool
@@ -218,23 +217,28 @@ type audioMixerState struct {
 	auditionSource audio.Source
 }
 
-// AudioMixerOpen reports whether the Audio Bus Mixer panel is shown.
+// AudioMixerOpen reports whether the Settings view is open on the Audio buses page.
 func (e *Editor) AudioMixerOpen() bool {
-	return e != nil && e.audioMixer.open
+	return e != nil && e.settingsOpen && e.settingsPage == SettingsPageAudio
 }
 
-// SetAudioMixerOpen opens or closes the Audio Bus Mixer panel. Closing stops any active audition.
+// SetAudioMixerOpen opens the Settings view on the Audio buses page, or closes Settings when open is false and the Audio buses page is active. Closing stops any active audition.
 func (e *Editor) SetAudioMixerOpen(open bool) {
-	if e == nil || e.audioMixer.open == open {
+	if e == nil {
 		return
 	}
-	e.audioMixer.open = open
-	if !open {
-		e.stopAudioAudition()
-	} else {
-		e.syncAudioMixer()
+	if open {
+		e.OpenSettingsPage(SettingsPageAudio)
+		return
 	}
-	e.notify()
+	if e.AudioMixerOpen() {
+		e.CloseSettings()
+		return
+	}
+	if e.audioMixer.auditioning {
+		e.stopAudioAudition()
+		e.notify()
+	}
 }
 
 // SelectedAudioBus returns the currently selected audio bus name in the mixer panel, falling back to the first declared bus when the selection is unset or no longer exists.
@@ -869,8 +873,21 @@ func AudioMixerPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) c
 	}
 }
 
+func formatGainDB(gain float32) string {
+	if gain <= 0.0001 {
+		return "−∞ dB"
+	}
+	db := 20 * math.Log10(float64(gain))
+	if math.Abs(db) < 0.05 {
+		return "0.0 dB"
+	}
+	if db < 0 {
+		return fmt.Sprintf("−%.1f dB", -db)
+	}
+	return fmt.Sprintf("+%.1f dB", db)
+}
+
 func audioMixerPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
-	colors := ui.ColorsOf(cx)
 	newBusName := core.NewSignal(cx, "")
 	addEffectKind := core.NewSignal(cx, AudioEffectReverb)
 	renameText := core.NewSignal(cx, ed.SelectedAudioBus())
@@ -933,46 +950,84 @@ func audioMixerPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 	}, slices.Equal)
 
 	label := func(text string) core.Node {
-		return core.Text{Content: text, Style: core.Style{FontSize: 11, FontWeight: 700, Color: colors.Muted()}}
+		return core.Text{Content: text, Style: core.Style{FontSize: 11, FontWeight: 600, LetterSpacing: 0.66, Color: specTextMuted}}
 	}
 
-	header := ui.HStack{
-		Gap: 8,
-		Children: []core.Node{
-			core.Text{Content: "Audio Mixer", Style: core.Style{FontSize: 13, FontWeight: 700, Color: colors.Text()}},
-			label("MASTER"),
-			core.View{
-				Style: core.Style{Width: core.Pt(130)},
-				Children: []core.Node{
-					ui.Slider{
-						TestID:   "mixer-master-slider",
-						Label:    "Master Volume",
-						Min:      0,
-						Max:      1,
-						Step:     0.01,
-						Disabled: disabled,
-						Value: func() float64 {
-							_ = rev.Get()
-							return float64(ed.AudioMasterVolume())
+	// Master output row in the Settings.dc.html row layout (label, help, value control, policy).
+	masterRow := settingsRow(
+		"mixer-master-row",
+		"Master",
+		"Output",
+		ui.HStack{
+			Gap: 8,
+			Children: []core.Node{
+				core.View{
+					Style: core.Style{Width: core.Pt(160)},
+					Children: []core.Node{
+						ui.Slider{
+							TestID:   "mixer-master-slider",
+							Label:    "Master Volume",
+							Min:      0,
+							Max:      1,
+							Step:     0.01,
+							Disabled: disabled,
+							Value: func() float64 {
+								_ = rev.Get()
+								return float64(ed.AudioMasterVolume())
+							},
+							ValueText: func(v float64) string { return strconv.FormatFloat(v, 'f', 2, 64) },
+							OnChange: func(v float64) {
+								ed.report(ed.SetAudioMasterVolume(float32(clampFiniteRange(v, 0, 1))))
+							},
 						},
-						ValueText: func(v float64) string { return strconv.FormatFloat(v, 'f', 2, 64) },
-						OnChange: func(v float64) {
-							ed.report(ed.SetAudioMasterVolume(float32(clampFiniteRange(v, 0, 1))))
+					},
+				},
+				core.View{
+					Style: core.Style{
+						Height:         core.Pt(28),
+						MinWidth:       core.Pt(72),
+						Padding:        core.Symmetric(0, 8),
+						CornerRadius:   6,
+						Background:     specRaised,
+						BorderWidth:    1,
+						BorderColor:    specLineRaised,
+						AlignItems:     core.AlignCenter,
+						JustifyContent: core.JustifyCenter,
+					},
+					Children: []core.Node{
+						core.Text{
+							TestID: "mixer-master-value",
+							ContentFunc: func() string {
+								_ = rev.Get()
+								return formatGainDB(ed.AudioMasterVolume())
+							},
+							Style: core.Style{FontSize: 11.5, FontFamily: core.FontMonospace, Color: specText},
 						},
 					},
 				},
 			},
-			core.Text{
-				TestID: "mixer-master-value",
-				ContentFunc: func() string {
-					_ = rev.Get()
-					return fmt.Sprintf("%.2f", ed.AudioMasterVolume())
-				},
-				Style: core.Style{FontSize: 11, Color: colors.Text(), Width: core.Pt(34)},
-			},
+		},
+		policyAgentMayChange,
+		nil,
+	)
+
+	// Audition toolbar row styled with Spec tokens.
+	auditionBar := core.View{
+		Style: core.Style{
+			Direction:    core.Row,
+			Wrap:         core.Wrap,
+			AlignItems:   core.AlignCenter,
+			Gap:          8,
+			Padding:      core.Symmetric(8, 12),
+			CornerRadius: 12,
+			Background:   specPanel,
+			BorderWidth:  1,
+			BorderColor:  specLine,
+		},
+		Children: []core.Node{
 			label("AUDITION"),
 			core.View{
-				Style: core.Style{Width: core.Pt(180)},
+				Style: core.Style{Width: core.Pt(220)},
 				Children: []core.Node{
 					ui.Select[string]{
 						TestID:      "mixer-audition-file",
@@ -1011,7 +1066,7 @@ func audioMixerPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 			ui.Button{
 				TestID:  "mixer-audition-play",
 				Size:    ui.SizeSmall,
-				Variant: ui.ButtonPrimary,
+				Variant: ui.ButtonGhost,
 				Disabled: func() bool {
 					_ = rev.Get()
 					if ed.Playing() || ed.Project == nil {
@@ -1029,6 +1084,18 @@ func audioMixerPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 					}
 					return "Audition"
 				},
+				Color: func() core.Color { return specAccent },
+				TextStyle: core.Style{
+					FontSize:   12,
+					FontWeight: 600,
+					Color:      specBg, // Spec.dc.html: #101216 on #3B7BFF (4.88:1 AA).
+				},
+				Style: core.Style{
+					Height:       core.Pt(28),
+					CornerRadius: 8,
+					Padding:      core.Symmetric(0, 12),
+					FocusVisible: specFocusRingStyle,
+				},
 				OnPress: func() {
 					if ed.Auditioning() {
 						ed.StopAudition()
@@ -1038,28 +1105,26 @@ func audioMixerPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 				},
 			},
 			core.View{Style: core.Style{FlexGrow: 1}},
-			ui.Button{
-				TestID:  "mixer-close",
-				Text:    "Close",
-				Size:    ui.SizeSmall,
-				Variant: ui.ButtonGhost,
-				OnPress: func() { ed.SetAudioMixerOpen(false) },
-			},
+			settingsSpecButton("mixer-close", "Close", "Close Audio buses", false, nil, func() {
+				ed.SetAudioMixerOpen(false)
+			}),
 		},
 	}
 
 	busColumn := core.View{
 		TestID: "mixer-bus-column",
 		Style: core.Style{
-			Width:       core.Pt(300),
-			Gap:         6,
-			Padding:     core.Edges{Right: 10},
+			FlexGrow:    1,
+			FlexBasis:   core.Pt(0),
+			MinWidth:    core.Pt(340),
+			Gap:         8,
+			Padding:     core.Edges{Right: 16},
 			Borders:     core.Edges{Right: 1},
-			BorderColor: colors.Line(),
+			BorderColor: specLine,
 		},
 		Children: []core.Node{
 			ui.HStack{
-				Gap: 6,
+				Gap: 8,
 				Children: []core.Node{
 					core.View{
 						Style: core.Style{FlexGrow: 1},
@@ -1067,31 +1132,24 @@ func audioMixerPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 							ui.Input{
 								TestID:      "mixer-new-bus-name",
 								Label:       "New Bus Name",
-								Placeholder: "Bus name",
+								Placeholder: "Bus name (e.g. music, effects, voice)",
 								Disabled:    disabled,
 								Value:       newBusName.Get,
 								OnChange:    newBusName.Set,
 							},
 						},
 					},
-					ui.Button{
-						TestID:   "mixer-add-bus",
-						Text:     "Add Bus",
-						Size:     ui.SizeSmall,
-						Variant:  ui.ButtonSecondary,
-						Disabled: disabled,
-						OnPress: func() {
-							name := strings.TrimSpace(newBusName.Get())
-							if name == "" {
-								name = ed.nextDefaultBusName()
-							}
-							if err := ed.AddAudioBus(name); err != nil {
-								ed.report(err)
-								return
-							}
-							newBusName.Set("")
-						},
-					},
+					settingsSpecButton("mixer-add-bus", "Add Bus", "Add Audio Bus", false, disabled, func() {
+						name := strings.TrimSpace(newBusName.Get())
+						if name == "" {
+							name = ed.nextDefaultBusName()
+						}
+						if err := ed.AddAudioBus(name); err != nil {
+							ed.report(err)
+							return
+						}
+						newBusName.Set("")
+					}),
 				},
 			},
 			ui.ScrollView{
@@ -1103,7 +1161,7 @@ func audioMixerPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 							return core.Text{
 								TestID:  "mixer-empty-buses",
 								Content: "No audio buses yet. Add a bus to mix and audition.",
-								Style:   core.Style{FontSize: 11, Color: colors.Muted()},
+								Style:   core.Style{FontSize: 12, Color: specTextMuted, Padding: core.Symmetric(12, 0)},
 							}
 						}
 						buses := ed.Project.Audio.Buses
@@ -1128,18 +1186,23 @@ func audioMixerPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 		Style: core.Style{
 			FlexGrow:  1,
 			FlexBasis: core.Pt(0),
-			Gap:       6,
-			Padding:   core.Edges{Left: 10},
+			Gap:       8,
+			Padding:   core.Edges{Left: 16},
 		},
 		Children: []core.Node{
 			core.Show{
 				When: func() bool { return selectedBus.Get() != "" },
 				Then: func(cx *core.Scope) core.Node {
 					return core.View{
-						Style: core.Style{FlexGrow: 1, Gap: 6},
+						Style: core.Style{FlexGrow: 1, Gap: 8},
 						Children: []core.Node{
-							ui.HStack{
-								Gap: 6,
+							core.View{
+								Style: core.Style{
+									Direction:  core.Row,
+									Wrap:       core.Wrap,
+									AlignItems: core.AlignCenter,
+									Gap:        8,
+								},
 								Children: []core.Node{
 									label("BUS"),
 									core.View{
@@ -1154,26 +1217,19 @@ func audioMixerPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 											},
 										},
 									},
-									ui.Button{
-										TestID:  "mixer-bus-rename",
-										Text:    "Rename",
-										Size:    ui.SizeSmall,
-										Variant: ui.ButtonSecondary,
-										Disabled: func() bool {
-											if disabled() {
-												return true
-											}
-											cur := selectedBus.Get()
-											next := strings.TrimSpace(renameText.Get())
-											return cur == "" || next == "" || next == cur
-										},
-										OnPress: func() {
-											ed.report(ed.RenameAudioBus(selectedBus.Get(), strings.TrimSpace(renameText.Get())))
-										},
-									},
+									settingsSpecButton("mixer-bus-rename", "Rename", "Rename selected audio bus", false, func() bool {
+										if disabled() {
+											return true
+										}
+										cur := selectedBus.Get()
+										next := strings.TrimSpace(renameText.Get())
+										return cur == "" || next == "" || next == cur
+									}, func() {
+										ed.report(ed.RenameAudioBus(selectedBus.Get(), strings.TrimSpace(renameText.Get())))
+									}),
 									core.View{Style: core.Style{FlexGrow: 1}},
 									core.View{
-										Style: core.Style{Width: core.Pt(140)},
+										Style: core.Style{Width: core.Pt(136)},
 										Children: []core.Node{
 											ui.Select[AudioEffectKind]{
 												TestID:   "mixer-add-effect-kind",
@@ -1182,25 +1238,19 @@ func audioMixerPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 												Options:  effectOpts,
 												Value:    addEffectKind.Get,
 												OnChange: addEffectKind.Set,
+												Style:    core.Style{Width: core.Pt(136)},
 											},
 										},
 									},
-									ui.Button{
-										TestID:   "mixer-add-effect",
-										Text:     "Add Effect",
-										Size:     ui.SizeSmall,
-										Variant:  ui.ButtonSecondary,
-										Disabled: disabled,
-										OnPress: func() {
-											_, err := ed.AddAudioBusEffectKind(selectedBus.Get(), addEffectKind.Get())
-											ed.report(err)
-										},
-									},
+									settingsSpecButton("mixer-add-effect", "Add Effect", "Add DSP effect to bus", false, disabled, func() {
+										_, err := ed.AddAudioBusEffectKind(selectedBus.Get(), addEffectKind.Get())
+										ed.report(err)
+									}),
 								},
 							},
 							ui.ScrollView{
 								Style:        core.Style{FlexGrow: 1},
-								ContentStyle: core.Style{Gap: 6},
+								ContentStyle: core.Style{Gap: 8},
 								Children: []core.Node{
 									core.Dynamic(func(cx *core.Scope) core.Node {
 										if effectListKey.Get() == "" {
@@ -1216,14 +1266,14 @@ func audioMixerPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 											return core.Text{
 												TestID:  "mixer-empty-effects",
 												Content: "No effects on this bus. Choose an effect type and press Add Effect.",
-												Style:   core.Style{FontSize: 11, Color: colors.Muted()},
+												Style:   core.Style{FontSize: 11.5, Color: specTextMuted, Padding: core.Symmetric(8, 0)},
 											}
 										}
 										rows := make([]core.Node, 0, len(effects))
 										for ei, fx := range effects {
 											rows = append(rows, mixerEffectRow(cx, ed, rev, busName, ei, len(effects), AudioEffectKindOf(fx), disabled))
 										}
-										return core.View{Style: core.Style{Gap: 6}, Children: rows}
+										return core.View{Style: core.Style{Gap: 8}, Children: rows}
 									}),
 								},
 							},
@@ -1232,8 +1282,8 @@ func audioMixerPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 				},
 				Else: func(cx *core.Scope) core.Node {
 					return core.Text{
-						Content: "Select or add a bus to edit its name, volume and effect chain.",
-						Style:   core.Style{FontSize: 11, Color: colors.Muted()},
+						Content: "Select or add a bus to edit its name, volume, routing and effect chain.",
+						Style:   core.Style{FontSize: 12, Color: specTextMuted},
 					}
 				},
 			},
@@ -1243,15 +1293,14 @@ func audioMixerPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 	return core.View{
 		TestID: "audio-mixer-panel",
 		Style: core.Style{
-			Height:      core.Pt(270),
-			Padding:     core.Symmetric(8, 12),
-			Gap:         8,
-			Background:  colors.Inset(),
-			Borders:     core.Edges{Top: 1},
-			BorderColor: colors.Line(),
+			FlexGrow:  1,
+			FlexBasis: core.Pt(0),
+			Gap:       12,
+			Overflow:  core.Hidden,
 		},
 		Children: []core.Node{
-			header,
+			masterRow,
+			auditionBar,
 			core.View{
 				Style: core.Style{
 					Direction: core.Row,
@@ -1266,77 +1315,81 @@ func audioMixerPanel(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.
 }
 
 func mixerBusRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], idx int, busName string, total int, selectedBus *core.Memo[string], disabled func() bool) core.Node {
-	colors := ui.ColorsOf(cx)
 	return core.View{
 		TestID: fmt.Sprintf("mixer-bus-%d", idx),
 		StyleFunc: func() core.Style {
-			bg := colors.Surface()
+			bg := specPanel
+			border := specLine
 			if selectedBus.Get() == busName {
-				bg = colors.Raised()
+				bg = specRaised
+				border = specSettingsAccentEdge
 			}
 			return core.Style{
-				Padding:      core.Symmetric(4, 6),
-				Gap:          4,
-				CornerRadius: 4,
+				Padding:      core.Symmetric(8, 12),
+				Gap:          8,
+				CornerRadius: 8,
 				Background:   bg,
-				Borders:      core.Edges{Top: 1, Right: 1, Bottom: 1, Left: 1},
-				BorderColor:  colors.Line(),
+				BorderWidth:  1,
+				BorderColor:  border,
 			}
 		},
 		Children: []core.Node{
-			ui.HStack{
-				Gap: 4,
+			core.View{
+				Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8},
 				Children: []core.Node{
-					core.View{
-						TestID: fmt.Sprintf("mixer-bus-%d-select", idx),
-						Role:   core.RoleButton,
-						Label:  "Select Bus " + busName,
-						Style:  core.Style{FlexGrow: 1, Padding: core.Symmetric(2, 4)},
-						OnPress: func(core.PressEvent) {
+					ui.Button{
+						TestID:  fmt.Sprintf("mixer-bus-%d-select", idx),
+						Text:    busName,
+						Label:   "Select Bus " + busName,
+						Variant: ui.ButtonGhost,
+						Size:    ui.SizeSmall,
+						Flex:    1,
+						Color: func() core.Color {
+							if selectedBus.Get() == busName {
+								return specSettingsActiveNav
+							}
+							return specPanel
+						},
+						TextStyle: core.Style{
+							FontSize:   12.5,
+							FontWeight: 600,
+							Color:      specTextStrong,
+							FlexGrow:   1,
+							TextAlign:  core.TextAlignLeft,
+						},
+						Style: core.Style{
+							Height:       core.Pt(28),
+							CornerRadius: 6,
+							FocusVisible: specFocusRingStyle,
+						},
+						OnPress: func() {
 							ed.SelectAudioBus(busName)
 						},
-						Children: []core.Node{
-							core.Text{
-								Content: busName,
-								Style:   core.Style{FontSize: 12, FontWeight: 700, Color: colors.Text()},
-							},
+					},
+					core.Text{
+						ContentFunc: func() string {
+							_ = rev.Get()
+							bi := ed.findAudioBusIndex(busName)
+							if bi >= 0 && len(ed.Project.Audio.Buses[bi].Effects) > 0 {
+								return fmt.Sprintf("Into Master · %d fx", len(ed.Project.Audio.Buses[bi].Effects))
+							}
+							return "Into Master"
 						},
+						Style: core.Style{FontSize: 11, Color: specTextMuted},
 					},
-					ui.Button{
-						TestID:  fmt.Sprintf("mixer-bus-%d-up", idx),
-						Text:    "Up",
-						Label:   "Move Bus " + busName + " Up",
-						Size:    ui.SizeSmall,
-						Variant: ui.ButtonGhost,
-						Disabled: func() bool {
-							return disabled() || idx == 0
-						},
-						OnPress: func() { ed.report(ed.MoveAudioBus(idx, idx-1)) },
-					},
-					ui.Button{
-						TestID:  fmt.Sprintf("mixer-bus-%d-down", idx),
-						Text:    "Down",
-						Label:   "Move Bus " + busName + " Down",
-						Size:    ui.SizeSmall,
-						Variant: ui.ButtonGhost,
-						Disabled: func() bool {
-							return disabled() || idx >= total-1
-						},
-						OnPress: func() { ed.report(ed.MoveAudioBus(idx, idx+1)) },
-					},
-					ui.Button{
-						TestID:   fmt.Sprintf("mixer-bus-%d-delete", idx),
-						Text:     "Del",
-						Label:    "Delete Bus " + busName,
-						Size:     ui.SizeSmall,
-						Variant:  ui.ButtonGhost,
-						Disabled: disabled,
-						OnPress:  func() { ed.report(ed.DeleteAudioBus(busName)) },
-					},
+					settingsSpecButton(fmt.Sprintf("mixer-bus-%d-up", idx), "Up", "Move Bus "+busName+" Up", false, func() bool {
+						return disabled() || idx == 0
+					}, func() { ed.report(ed.MoveAudioBus(idx, idx-1)) }),
+					settingsSpecButton(fmt.Sprintf("mixer-bus-%d-down", idx), "Down", "Move Bus "+busName+" Down", false, func() bool {
+						return disabled() || idx >= total-1
+					}, func() { ed.report(ed.MoveAudioBus(idx, idx+1)) }),
+					settingsSpecButton(fmt.Sprintf("mixer-bus-%d-delete", idx), "Del", "Delete Bus "+busName, false, disabled, func() {
+						ed.report(ed.DeleteAudioBus(busName))
+					}),
 				},
 			},
-			ui.HStack{
-				Gap: 6,
+			core.View{
+				Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8},
 				Children: []core.Node{
 					core.View{
 						Style: core.Style{FlexGrow: 1},
@@ -1360,15 +1413,31 @@ func mixerBusRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], idx int, 
 							},
 						},
 					},
-					core.Text{
-						TestID: fmt.Sprintf("mixer-bus-%d-volume-value", idx),
-						ContentFunc: func() string {
-							_ = rev.Get()
-							v, _ := ed.AudioBusVolume(busName)
-							return fmt.Sprintf("%.2f", v)
+					core.View{
+						Style: core.Style{
+							Height:         core.Pt(24),
+							MinWidth:       core.Pt(64),
+							Padding:        core.Symmetric(0, 8),
+							CornerRadius:   6,
+							Background:     specBg,
+							BorderWidth:    1,
+							BorderColor:    specLineRaised,
+							AlignItems:     core.AlignCenter,
+							JustifyContent: core.JustifyCenter,
 						},
-						Style: core.Style{FontSize: 11, Color: colors.Muted(), Width: core.Pt(32)},
+						Children: []core.Node{
+							core.Text{
+								TestID: fmt.Sprintf("mixer-bus-%d-volume-value", idx),
+								ContentFunc: func() string {
+									_ = rev.Get()
+									v, _ := ed.AudioBusVolume(busName)
+									return formatGainDB(v)
+								},
+								Style: core.Style{FontSize: 11, FontFamily: core.FontMonospace, Color: specText},
+							},
+						},
 					},
+					settingsPolicyBadge(policyAgentMayChange),
 				},
 			},
 		},
@@ -1376,7 +1445,6 @@ func mixerBusRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], idx int, 
 }
 
 func mixerEffectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], busName string, ei, total int, kind AudioEffectKind, disabled func() bool) core.Node {
-	colors := ui.ColorsOf(cx)
 	readEffect := func() (project.Effect, bool) {
 		_ = rev.Get()
 		bi := ed.findAudioBusIndex(busName)
@@ -1399,7 +1467,7 @@ func mixerEffectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], busNam
 		return ui.HStack{
 			Gap: 4,
 			Children: []core.Node{
-				core.Text{Content: caption, Style: core.Style{FontSize: 11, Color: colors.Muted()}},
+				core.Text{Content: caption, Style: core.Style{FontSize: 11, Color: specTextMuted}},
 				core.View{
 					Style: core.Style{Width: core.Pt(86)},
 					Children: []core.Node{
@@ -1623,57 +1691,40 @@ func mixerEffectRow(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], busNam
 	return core.View{
 		TestID: fmt.Sprintf("mixer-effect-%d", ei),
 		Style: core.Style{
-			Padding:      core.Symmetric(6, 8),
-			Gap:          6,
-			CornerRadius: 4,
-			Background:   colors.Surface(),
-			Borders:      core.Edges{Top: 1, Right: 1, Bottom: 1, Left: 1},
-			BorderColor:  colors.Line(),
+			Padding:      core.Symmetric(8, 12),
+			Gap:          8,
+			CornerRadius: 8,
+			Background:   specPanel,
+			BorderWidth:  1,
+			BorderColor:  specLine,
 		},
 		Children: []core.Node{
 			ui.HStack{
-				Gap: 6,
+				Gap: 8,
 				Children: []core.Node{
 					core.Text{
 						TestID:  fmt.Sprintf("mixer-effect-%d-title", ei),
 						Content: fmt.Sprintf("%d. %s", ei+1, kind.Label()),
-						Style:   core.Style{FontSize: 12, FontWeight: 700, Color: colors.Text(), FlexGrow: 1},
+						Style:   core.Style{FontSize: 12.5, FontWeight: 600, Color: specTextStrong, FlexGrow: 1},
 					},
-					ui.Button{
-						TestID:  fmt.Sprintf("mixer-effect-%d-up", ei),
-						Text:    "Up",
-						Label:   fmt.Sprintf("Move Effect %d Up", ei),
-						Size:    ui.SizeSmall,
-						Variant: ui.ButtonGhost,
-						Disabled: func() bool {
-							return disabled() || ei == 0
-						},
-						OnPress: func() { ed.report(ed.MoveAudioBusEffect(busName, ei, ei-1)) },
-					},
-					ui.Button{
-						TestID:  fmt.Sprintf("mixer-effect-%d-down", ei),
-						Text:    "Down",
-						Label:   fmt.Sprintf("Move Effect %d Down", ei),
-						Size:    ui.SizeSmall,
-						Variant: ui.ButtonGhost,
-						Disabled: func() bool {
-							return disabled() || ei >= total-1
-						},
-						OnPress: func() { ed.report(ed.MoveAudioBusEffect(busName, ei, ei+1)) },
-					},
-					ui.Button{
-						TestID:   fmt.Sprintf("mixer-effect-%d-remove", ei),
-						Text:     "Remove",
-						Label:    fmt.Sprintf("Remove Effect %d", ei),
-						Size:     ui.SizeSmall,
-						Variant:  ui.ButtonGhost,
-						Disabled: disabled,
-						OnPress:  func() { ed.report(ed.RemoveAudioBusEffect(busName, ei)) },
-					},
+					settingsSpecButton(fmt.Sprintf("mixer-effect-%d-up", ei), "Up", fmt.Sprintf("Move Effect %d Up", ei), false, func() bool {
+						return disabled() || ei == 0
+					}, func() { ed.report(ed.MoveAudioBusEffect(busName, ei, ei-1)) }),
+					settingsSpecButton(fmt.Sprintf("mixer-effect-%d-down", ei), "Down", fmt.Sprintf("Move Effect %d Down", ei), false, func() bool {
+						return disabled() || ei >= total-1
+					}, func() { ed.report(ed.MoveAudioBusEffect(busName, ei, ei+1)) }),
+					settingsSpecButton(fmt.Sprintf("mixer-effect-%d-remove", ei), "Remove", fmt.Sprintf("Remove Effect %d", ei), false, disabled, func() {
+						ed.report(ed.RemoveAudioBusEffect(busName, ei))
+					}),
 				},
 			},
-			ui.HStack{
-				Gap:      10,
+			core.View{
+				Style: core.Style{
+					Direction:  core.Row,
+					Wrap:       core.Wrap,
+					AlignItems: core.AlignCenter,
+					Gap:        12,
+				},
 				Children: params,
 			},
 		},

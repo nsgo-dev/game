@@ -554,6 +554,17 @@ strings:
   settings.language: Language
   settings.languageHelp: Editor text; the agent answers in it too.
   settings.light: Light
+  settings.navTitle: Settings
+  settings.page.audio: Audio buses
+  settings.page.audioSubtitle: Levels and routing for music, effects and voice.
+  settings.page.export: Export
+  settings.page.exportSubtitle: Build presets for each platform.
+  settings.page.general: General
+  settings.page.generalSubtitle: Language and appearance for this computer.
+  settings.page.input: Input map
+  settings.page.inputSubtitle: Actions and what triggers them on keyboard, gamepad and touch.
+  settings.page.project: Project
+  settings.page.projectSubtitle: Name, ID, window and main scene.
   settings.sectionEditor: EDITOR · THIS COMPUTER
   settings.shortcuts: Shortcuts
   settings.shortcutsCaptureCancel: Cancel
