@@ -1326,7 +1326,6 @@ func main() {
 - **视口内焦点即选中对象**：视口画布本身不绘制焦点环；当焦点位于视口（`editor-viewport-frame`）内时，`Tab`（`Editor.SelectNextObject`）与 `Shift-Tab`（`Editor.SelectPreviousObject`）按场景顺序循环选中下一个/上一个可见且未锁定的对象。
 - **对话框焦点限制与关闭恢复**：所有编辑器对话框（`EditorSettingsDialogView`、`ShortcutsSheetView`、`CommandPaletteView`、未保存提示、场景路径对话框与保存冲突对话框）会将 `Tab` / `Shift-Tab` 限制在最顶层模态框内（同时不干扰 `Settings › Shortcuts` 的按键录制），在对话框打开期间屏蔽全局快捷键（除用于停止智能体的 `⌘.` / `Ctrl+.`，即 `Editor.OnStopAgent` 外），并在按 `Esc` 取消或点击操作按钮关闭后将焦点精确恢复到打开该对话框的控件。
 - **焦点稳定性**：在拖拽或检查器数值微调进行中（`Editor.IsDragging`）或用户正在文本字段中输入时（`Editor.IsTyping`），编辑器不会自动抢占焦点；弹出 Toast 不会抢走焦点；`Editor.ShouldFocusAgentPrompt` 仅在未拖拽、未输入且焦点原本就位于智能体面板内（`Editor.SetAgentPanelRef`）时才返回 `true`。
-
 ## 连接智能体与状态胶囊（#1009）
 
 在编辑器内或通过 `go tool game mcp install` 连接本机的外部编程智能体（Claude Code、Codex 或任意 MCP 客户端），界面严格遵循 `docs/design/editor/Spec.dc.html` 设计 Token 并对应 `docs/design/editor/Connect.dc.html`、`docs/design/editor/AgentStates.dc.html` 与 `docs/design/editor/Settings.dc.html`：
@@ -1504,3 +1503,13 @@ func main() {
 - **场景树标记**：新增节点显示 `NEW` 徽章，修改节点显示 `MOD` 徽章，被移除节点以带删除线的虚影行与 `DEL` 徽章保留在树中，智能体正在操作的节点显示紫色圆点，直至执行 **Keep** 或 **Revert**。
 - **顶栏状态胶囊**：随智能体状态自动切换（`Editor.SetAgentState` / `Editor.AgentState`）：工作中显示紫色胶囊（`"Agent is <activity> · manual edits stay available"`），等待确认显示警告胶囊（`"Waiting for you · <detail>"`），待审查状态显示改动数量与 **Keep**（`KeepAgentTurn`，将整个回合合并为单步撤销）/**Revert**（`RevertAgentTurn`，回滚回合改动并还原已删除对象）按钮，空闲时自动隐藏。
 - **左上角可交互叠加层图例**：当存在任意实时叠加层（或 `OverlayLegendOpen` 为真）时自动显示。图例中的每一行（**Selection**、**Agent working**、**Added**、**Changed**、**Removed**、**Problem**）都是可点击的 `RoleSwitch` 开关（`ToggleOverlayLegendKind` / `SetOverlayLegendKind`），隐藏项按用户持久化到项目之外的 `EditorSettings.HiddenOverlayKinds`（`editor.yaml` 中的 `hiddenOverlayKinds`，Schema 为 `editor-settings.v1.json`），绝不污染项目文件。
+
+## 按工作线与场景分组的智能体线程（#1019）
+
+右侧栏（`RightRailView`）可在**智能体**（`AgentPanelView` / `AgentThreadsView`）、**检查器**（`InspectorView`，默认标签）与**历史记录**（`AgentHistoryView`）之间切换，全部使用 `docs/design/editor/Spec.dc.html` 的深浅双主题规范令牌并对应 `Threads.dc.html`：
+
+- **`.nsgo/threads/` 下每条线程一个 YAML 文件（`AgentThread`、`AgentThreadFileVersion = 1`）**：每条线程以严格版本化的 YAML 文档保存在 `.nsgo/threads/<id>.yaml`（同时自动写出 `.nsgo/.gitignore` 使其被 git 忽略），记录 `id`、`title`（自动取自首条请求）、`scenePath`、外部智能体会话 `sessionId`（`SetAgentThreadSessionID`）、时间戳以及按顺序排列的 `requests`（包含 `steps`、审查结果 `outcome`（`pending`、`kept`、`reverted`）、修改计数、受影响的 `objects` 与 `historyStep` 链接）。通过 `ParseAgentThreadYAML` 严格解析并以 `EncodeAgentThreadYAML` 写出规范形式（JSON Schema：`https://game.nsgo.dev/schemas/agent-thread.v1.json`）。
+- **分组线程切换器、搜索与 `⌘N`（`AgentThreadGroups`、`CmdNewAgentThread`）**：切换器按`<当前场景> · 当前场景`、其他场景以及`项目 · 无场景`分组展示线程，每行附带相对时间与状态（如“刚刚 · 3 项待审查修改”、“1 小时前 · 已保留 5/6 项”、“昨天 · 已还原”或涉及文件）。打开或切换场景会自动进入该场景最近使用的线程（或新的空白草稿），绝不把上一场景的线程带到新场景；在智能体作用域（`ScopeAgent`）中按 `⌘N` 可新建空白线程。
+- **折叠较早请求、跳转历史记录与跳到最新**：已审查的较早请求折叠为单行（`N 条较早请求`），点击展开显示完整提示词、变更明细、步骤列表以及**在历史记录中打开此步骤**（`OpenHistoryStep`）链接，点击后在统一历史时间线中高亮该步骤；展开较早请求时底部浮现**跳到最新**按钮（`JumpToLatestAgentRequest`）。
+- **空白线程视图（`AgentAlwaysReadItems`、`AgentBriefSuggestions`）**：空白线程会列出智能体每次请求必读的上下文（`<场景> · 整个场景`、`brief.yaml`、`AGENTS.md`、`视口图像`），并安全读取项目 `brief.yaml` 中的建议提示（`来自项目简报`）。
+- **检查器页脚来源链接（`LastAgentChangeForObject`、`OpenAgentRequest`）**：当选中对象曾被未还原的智能体请求修改（无论是通过 `SendAgentRequestWith`、`RecordAgentStep` 还是 `editormcp` 的 `scene_edit`），检查器页脚会显示“修改自“<请求标题>” · <时间>”，点击即可打开对应线程并定位/展开该请求。

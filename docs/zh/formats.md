@@ -2089,6 +2089,48 @@ projects:
     lastOpened: "2026-11-24T12:30:00Z"
 ```
 
+<!-- format: editor#agent-thread -->
+### 编辑器智能体线程
+
+| 文件 | 版本 | 读写函数 | 字段 |
+| --- | --- | --- | --- |
+| `.nsgo/threads/<id>.yaml`（`editor.AgentThreadsDir`，由 `.nsgo/.gitignore` 忽略） | `version: 1` | `editor.ParseAgentThreadYAML`、`editor.EncodeAgentThreadYAML` | [编辑器](editor.md#按工作线与场景分组的智能体线程1019)；Schema 为 `https://game.nsgo.dev/schemas/agent-thread.v1.json` |
+
+每条工作线对应一个严格版本化的 YAML 文件，记录 `id`、`title`（由首条请求自动命名）、`scenePath`（为空表示“项目 · 无场景”线程）、`sessionId`（便于后续请求延续同一外部智能体会话）、RFC3339 时间戳以及按时间顺序排列的 `requests`（包含 `steps`、审查结果 `outcome`（`pending`、`kept`、`reverted`）、修改计数、受影响的 `objects` 与 `historyStep` 引用）。
+
+```yaml
+# yaml-language-server: $schema=https://game.nsgo.dev/schemas/agent-thread.v1.json
+version: 1
+id: door-lever-pulls
+title: Door opens after two lever pulls
+scenePath: scenes/level_01.scene.yaml
+sessionId: sess_claude_01
+createdAt: "2026-11-26T13:40:00Z"
+updatedAt: "2026-11-26T14:18:00Z"
+requests:
+  - id: req-001
+    title: Door opens after two lever pulls
+    prompt: Keep the door shut until the lever is pulled twice, then let it open.
+    createdAt: "2026-11-26T13:40:00Z"
+    updatedAt: "2026-11-26T13:41:00Z"
+    outcome: kept
+    changesTotal: 3
+    changesKept: 3
+    files:
+      - prefabs/door.prefab.yaml
+      - scenes/level_01.scene.yaml
+    objects:
+      - Door
+      - lever_01
+    detail: Door.locked, Door.opens_after_pulls, lever_01.pulls
+    historyStep: 'Agent: Door opens after two lever pulls'
+    historyIndex: 1
+    steps:
+      - id: step-001
+        label: Read level_01.scene.yaml and door.prefab.yaml
+        status: done
+```
+
 <!-- format: tooling/assetbuild -->
 ### 资源构建缓存
 

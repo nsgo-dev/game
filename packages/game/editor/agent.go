@@ -23,8 +23,15 @@ type RightRailTab string
 const (
 	// RightTabInspector shows the property / scene / layer inspector (default).
 	RightTabInspector RightRailTab = "inspector"
-	// RightTabAgent shows the Agent panel with status chip, thread, and composer.
+	// RightTabAgent shows the Agent panel with status chip, threads, and composer.
 	RightTabAgent RightRailTab = "agent"
+	// RightTabHistory shows the unified timeline of agent and manual steps.
+	RightTabHistory RightRailTab = "history"
+
+	// RightRailInspector, RightRailAgent, and RightRailHistory alias the right-rail tabs.
+	RightRailInspector = RightTabInspector
+	RightRailAgent     = RightTabAgent
+	RightRailHistory   = RightTabHistory
 )
 
 // AgentMode selects how the editor connects to an AI agent.
@@ -573,24 +580,24 @@ func (e *Editor) resetAgentForProject() {
 	e.updateAgentAnnouncement()
 }
 
-// RightRailTab returns the active tab in the right sidebar (RightTabInspector or RightTabAgent).
+// RightRailTab returns the active tab in the right sidebar (RightTabInspector, RightTabAgent, or RightTabHistory).
 func (e *Editor) RightRailTab() RightRailTab {
 	if e == nil || e.agent.rightTab == "" {
 		return RightTabInspector
 	}
-	if e.agent.mode == AgentModeNone {
+	if e.agent.mode == AgentModeNone && e.agent.rightTab == RightTabAgent {
 		return RightTabInspector
 	}
 	return e.agent.rightTab
 }
 
-// SetRightRailTab switches the right sidebar between Inspector and Agent.
+// SetRightRailTab switches the right sidebar between Inspector, Agent, and History.
 // When AgentModeNone is active, the Agent panel stays closed.
 func (e *Editor) SetRightRailTab(tab RightRailTab) {
 	if e == nil {
 		return
 	}
-	if tab != RightTabAgent {
+	if tab != RightTabAgent && tab != RightTabHistory {
 		tab = RightTabInspector
 	}
 	if tab == RightTabAgent && e.agent.mode == AgentModeNone {
@@ -600,6 +607,10 @@ func (e *Editor) SetRightRailTab(tab RightRailTab) {
 		return
 	}
 	e.agent.rightTab = tab
+	if tab != RightTabAgent {
+		e.agentThreads.switcherOpen = false
+	}
+	e.agentThreads.rev++
 	e.notify()
 }
 

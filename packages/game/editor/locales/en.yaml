@@ -137,6 +137,7 @@ strings:
   cmd.bakeNavMesh3d.label: Bake 3D NavMesh
   cmd.buildRelease.desc: Open the Build and Release screen with readiness, pre-build checks, and release size comparison
   cmd.buildRelease.label: Build & Release Screen
+  cmd.category.agent: Agent
   cmd.category.edit: Edit
   cmd.category.file: File
   cmd.category.gizmo3d: 3D Gizmo
@@ -194,6 +195,8 @@ strings:
   cmd.navMeshOverlay.label: Show 3D NavMesh Overlay
   cmd.navMeshPanel.desc: Toggle the 3D navigation mesh bake settings panel
   cmd.navMeshPanel.label: 3D NavMesh Bake Panel
+  cmd.newAgentThread.desc: Start a new empty agent thread for the open scene
+  cmd.newAgentThread.label: New Agent Thread
   cmd.newProject.desc: Open the Start Screen to create a new project from a template
   cmd.newProject.label: New Project...
   cmd.openProject.desc: Choose a project folder to open in the editor
@@ -848,6 +851,7 @@ strings:
   sceneTree.ungroup: Ungroup
   sceneTree.unlock: Unlock
   sceneTree.unlockNamed: Unlock {id}
+  scope.agent: Agent
   scope.animation: Animation
   scope.global: Global
   scope.play: Play
@@ -1182,6 +1186,57 @@ strings:
   tasks.sectionTitle: Tasks
   tasks.send: Send
   tasks.whenToStart: When to start
+  threads.action.keep: Keep
+  threads.action.revert: Revert
+  threads.age.hoursAgo: '{count} h ago'
+  threads.age.minutesAgo: '{count} min ago'
+  threads.age.now: now
+  threads.age.yesterday: yesterday
+  threads.composer.always: Always
+  threads.composer.label: Ask the agent
+  threads.composer.placeholder: Describe a change · @ to mention
+  threads.composer.send: Send
+  threads.context.viewportImage: Viewport image
+  threads.context.wholeScene: '{scene} · whole scene'
+  threads.earlierRequestsMany: '{count} EARLIER REQUESTS'
+  threads.earlierRequestsOne: 1 EARLIER REQUEST
+  threads.empty.fromBrief: FROM YOUR BRIEF
+  threads.empty.readsHeading: 'The agent reads these with every request:'
+  threads.group.openScene: '{scene} · OPEN SCENE'
+  threads.group.project: PROJECT · NO SCENE
+  threads.history.agentPrefix: Agent · {label}
+  threads.history.backToThread: Back to thread
+  threads.history.clean: saved
+  threads.history.now: Now
+  threads.history.openedStatus: Opened step in History
+  threads.history.saved: Saved
+  threads.history.subtitle: your edits and the agent's, one timeline
+  threads.history.title: History
+  threads.history.undoStep: Undo step {index}
+  threads.history.unsaved: unsaved
+  threads.history.youPrefix: You · {label}
+  threads.inspectorFooter: Changed in “{title}” · {age}
+  threads.jumpToLatest: Jump to latest
+  threads.meta.changesToReview: '{count} changes to review'
+  threads.meta.empty: new · no requests yet
+  threads.meta.inProgress: in progress
+  threads.meta.kept: kept
+  threads.meta.keptOf: kept {kept} of {total}
+  threads.meta.oneChangeToReview: 1 change to review
+  threads.meta.reverted: reverted
+  threads.newButton: New
+  threads.newThread: New thread
+  threads.openInHistory: Open this step in History
+  threads.readingPlaceholder: Reading {file}…
+  threads.reviewCard.summary: '{changes} changes · {files} files'
+  threads.searchPlaceholder: Search threads
+  threads.storageFooter: .nsgo/threads/ · ignored by git
+  threads.suggestion.blockOut: Block out {scene} with three platforms and an exit door
+  threads.suggestion.enemyPatrol: Add a slime that patrols the floor and costs the Knight one heart
+  threads.suggestion.hud: 'Set up the HUD: three hearts and a coin counter'
+  threads.switcherEmpty: No matching threads
+  threads.switcherTriggerLabel: 'Thread: {title}. Switch thread'
+  threads.tab.agent: Agent
   tilePalette.flipDiag: Flip diagonally
   tilePalette.flipHoriz: Flip horizontally
   tilePalette.flipVert: Flip vertically

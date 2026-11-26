@@ -179,6 +179,27 @@ func TestSceneEditPlacesAnObjectAsOneUndoStep(t *testing.T) {
 	}
 }
 
+func TestSceneEditRecordsAttributionOnActiveAgentThread(t *testing.T) {
+	f := openFixture(t)
+	s := editormcp.New(f.ed, editormcp.Options{})
+	t.Cleanup(func() { _ = s.Close() })
+	cs := connect(t, s, nil)
+
+	req, err := f.ed.SendAgentRequest("Move the hero right")
+	if err != nil {
+		t.Fatalf("SendAgentRequest: %v", err)
+	}
+	mustOK(t, call(t, cs, editormcp.ToolSceneEdit, map[string]any{
+		"edits": []any{
+			map[string]any{"op": "move", "id": "hero", "x": 120, "y": 40},
+		},
+	}))
+	attr, ok := f.ed.LastAgentChangeForObject("hero")
+	if !ok || attr.RequestID != req.ID || attr.RequestTitle != "Move the hero right" {
+		t.Fatalf("LastAgentChangeForObject(hero) = (%+v, %v), want req %q", attr, ok, req.ID)
+	}
+}
+
 // Each kind of edit reaches the editor's method for it.
 func TestSceneEditOps(t *testing.T) {
 	f := openFixture(t)

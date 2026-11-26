@@ -137,6 +137,7 @@ strings:
   cmd.bakeNavMesh3d.label: 烘焙 3D 导航网格
   cmd.buildRelease.desc: 打开包含就绪检查、构建前校验与版本体积对比的构建与发布界面
   cmd.buildRelease.label: 构建与发布界面
+  cmd.category.agent: 智能体
   cmd.category.edit: 编辑
   cmd.category.file: 文件
   cmd.category.gizmo3d: 3D 操纵杆
@@ -194,6 +195,8 @@ strings:
   cmd.navMeshOverlay.label: 显示 3D 导航网格叠加层
   cmd.navMeshPanel.desc: 切换 3D 导航网格烘焙设置面板
   cmd.navMeshPanel.label: 3D 导航网格烘焙面板
+  cmd.newAgentThread.desc: 为当前打开的场景新建一条空白智能体线程
+  cmd.newAgentThread.label: 新建智能体线程
   cmd.newProject.desc: 打开开始界面并从模板创建新项目
   cmd.newProject.label: 新建项目…
   cmd.openProject.desc: 选择要在编辑器中打开的项目目录
@@ -848,6 +851,7 @@ strings:
   sceneTree.ungroup: 取消编组
   sceneTree.unlock: 解锁
   sceneTree.unlockNamed: 解锁 {id}
+  scope.agent: 智能体
   scope.animation: 动画
   scope.global: 全局
   scope.play: 运行
@@ -1182,6 +1186,57 @@ strings:
   tasks.sectionTitle: 任务
   tasks.send: 发送
   tasks.whenToStart: 启动方式
+  threads.action.keep: 保留
+  threads.action.revert: 还原
+  threads.age.hoursAgo: '{count} 小时前'
+  threads.age.minutesAgo: '{count} 分钟前'
+  threads.age.now: 刚刚
+  threads.age.yesterday: 昨天
+  threads.composer.always: 始终包含
+  threads.composer.label: 向智能体提问
+  threads.composer.placeholder: 描述修改内容 · 输入 @ 引用对象或文件
+  threads.composer.send: 发送
+  threads.context.viewportImage: 视口图像
+  threads.context.wholeScene: '{scene} · 整个场景'
+  threads.earlierRequestsMany: '{count} 条较早请求'
+  threads.earlierRequestsOne: 1 条较早请求
+  threads.empty.fromBrief: 来自项目简报
+  threads.empty.readsHeading: 智能体每次请求都会读取以下内容：
+  threads.group.openScene: '{scene} · 当前场景'
+  threads.group.project: 项目 · 无场景
+  threads.history.agentPrefix: 智能体 · {label}
+  threads.history.backToThread: 返回线程
+  threads.history.clean: 已保存
+  threads.history.now: 现在
+  threads.history.openedStatus: 已在历史记录中打开该步骤
+  threads.history.saved: 已保存
+  threads.history.subtitle: 你和智能体的修改共用一条时间线
+  threads.history.title: 历史记录
+  threads.history.undoStep: 撤销步骤 {index}
+  threads.history.unsaved: 未保存
+  threads.history.youPrefix: 你 · {label}
+  threads.inspectorFooter: 修改自“{title}” · {age}
+  threads.jumpToLatest: 跳到最新
+  threads.meta.changesToReview: '{count} 项待审查修改'
+  threads.meta.empty: 新建 · 暂无请求
+  threads.meta.inProgress: 进行中
+  threads.meta.kept: 已保留
+  threads.meta.keptOf: 已保留 {kept}/{total} 项
+  threads.meta.oneChangeToReview: 1 项待审查修改
+  threads.meta.reverted: 已还原
+  threads.newButton: 新建
+  threads.newThread: 新建线程
+  threads.openInHistory: 在历史记录中打开此步骤
+  threads.readingPlaceholder: 正在读取 {file}…
+  threads.reviewCard.summary: '{changes} 项修改 · {files} 个文件'
+  threads.searchPlaceholder: 搜索线程
+  threads.storageFooter: .nsgo/threads/ · 已由 git 忽略
+  threads.suggestion.blockOut: 用三个平台和一扇出口门搭建 {scene} 的白模
+  threads.suggestion.enemyPatrol: 添加一只在地面巡逻并扣减骑士一颗心的史莱姆
+  threads.suggestion.hud: 设置 HUD：三颗生命值和金币计数器
+  threads.switcherEmpty: 没有匹配的线程
+  threads.switcherTriggerLabel: 线程：{title}。切换线程
+  threads.tab.agent: 智能体
   tilePalette.flipDiag: 沿对角线翻转
   tilePalette.flipHoriz: 水平翻转
   tilePalette.flipVert: 垂直翻转
