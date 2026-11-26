@@ -611,43 +611,64 @@ func playAskFrozenFrameDialog(cx *core.Scope, ed *Editor, rev *core.Signal[uint6
 									_ = rev.Get()
 									d.Save()
 									d.SetFillColor(specBg).FillRect(0, 0, float32(size.Width), float32(size.Height))
+									// Preserve the main viewport's canvas size so drawing the thumbnail
+									// does not overwrite Editor.canvasW/canvasH.
+									prevW, prevH := ed.canvasW, ed.canvasH
+									defer func() { ed.canvasW, ed.canvasH = prevW, prevH }()
 									ed.DrawViewport(d, size)
 									d.Restore()
 								},
 							},
 						},
 					},
-					// Attachment chips
-					core.Dynamic(func(cx *core.Scope) core.Node {
-						_ = rev.Get()
-						frameNum := ed.AskFrozenFrameNumber()
-						rollingFrames := ed.PlayRollingFrameCount()
-						sec := float64(rollingFrames) / float64(max(1, ed.PlayRateHz()))
-						replayLabel := fmt.Sprintf("Replay · %s frames", formatPlayFrameNumber(rollingFrames))
-						if sec >= 1 {
-							replayLabel = fmt.Sprintf("Replay · last %.0f s", math.Round(sec))
+					// Attachment chips (memoized so typing in play-ask-input does not remount chips)
+					func() core.Node {
+						type chipKey struct {
+							frame         int
+							rollingFrames int
+							rate          int
+							selectedID    string
+							liveChanges   int
 						}
-						chips := []core.Node{
-							chip("Frame "+formatPlayFrameNumber(frameNum), specTextSecondary),
-							chip(replayLabel, specTextSecondary),
-						}
-						if ed.SelectedID != "" {
-							chips = append(chips, chip(ed.SelectedID+" · live state", specChanged))
-						} else {
-							chips = append(chips, chip("Live state", specAdded))
-						}
-						if n := len(ed.RemoteLiveChanges()); n > 0 {
-							unit := "live changes"
-							if n == 1 {
-								unit = "live change"
+						chipsMemo := core.NewMemo(cx, func() chipKey {
+							_ = rev.Get()
+							return chipKey{
+								frame:         ed.AskFrozenFrameNumber(),
+								rollingFrames: ed.PlayRollingFrameCount(),
+								rate:          max(1, ed.PlayRateHz()),
+								selectedID:    ed.SelectedID,
+								liveChanges:   len(ed.RemoteLiveChanges()),
 							}
-							chips = append(chips, chip(fmt.Sprintf("%d %s", n, unit), specChanged))
-						}
-						return core.View{
-							Style:    core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 4},
-							Children: chips,
-						}
-					}),
+						})
+						return core.Dynamic(func(cx *core.Scope) core.Node {
+							k := chipsMemo.Get()
+							sec := float64(k.rollingFrames) / float64(k.rate)
+							replayLabel := fmt.Sprintf("Replay · %s frames", formatPlayFrameNumber(k.rollingFrames))
+							if sec >= 1 {
+								replayLabel = fmt.Sprintf("Replay · last %.0f s", math.Round(sec))
+							}
+							chips := []core.Node{
+								chip("Frame "+formatPlayFrameNumber(k.frame), specTextSecondary),
+								chip(replayLabel, specTextSecondary),
+							}
+							if k.selectedID != "" {
+								chips = append(chips, chip(k.selectedID+" · live state", specChanged))
+							} else {
+								chips = append(chips, chip("Live state", specAdded))
+							}
+							if k.liveChanges > 0 {
+								unit := "live changes"
+								if k.liveChanges == 1 {
+									unit = "live change"
+								}
+								chips = append(chips, chip(fmt.Sprintf("%d %s", k.liveChanges, unit), specChanged))
+							}
+							return core.View{
+								Style:    core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 4},
+								Children: chips,
+							}
+						})
+					}(),
 					// Prompt field
 					ui.Input{
 						TestID:      "play-ask-input",
@@ -856,8 +877,27 @@ func playInspectorTabBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64
 // playAgentPanelView renders the Play-mode Agent tab in the right inspector:
 // MARKS · N list with time, frame, "replay attached", "Send marks now", and active question + step log.
 func playAgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
-	return core.Dynamic(func(cx *core.Scope) core.Node {
+	panelKey := core.NewMemo(cx, func() string {
 		_ = rev.Get()
+		var b strings.Builder
+		b.WriteString(ed.playMarks.sentQuestion)
+		b.WriteByte('\x00')
+		b.WriteString(ed.playMarks.sentMeta)
+		b.WriteByte('\x00')
+		for _, st := range ed.PlayAgentSteps() {
+			b.WriteString(st.Status)
+			b.WriteByte(':')
+			b.WriteString(st.Text)
+			b.WriteByte('\x00')
+		}
+		b.WriteByte('|')
+		for _, m := range ed.PlayMarks() {
+			fmt.Fprintf(&b, "%d:%d:%v:%s;", m.ID, m.Frame, m.Sent, m.TimeLabel)
+		}
+		return b.String()
+	})
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		_ = panelKey.Get()
 		marks := ed.PlayMarks()
 		unsentCount := len(ed.UnsentPlayMarks())
 		steps := ed.PlayAgentSteps()

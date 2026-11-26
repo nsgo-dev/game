@@ -211,6 +211,7 @@ func (e *Editor) OpenDemo() error {
 	e.resetHUDForProject()
 	e.hud.open = false
 	e.resetPlaytestForProject()
+	e.resetPlayMarksForProject()
 	e.resetUsagesForProject()
 	e.resetContextMenuForProject()
 	e.resetAssetGenForProject()

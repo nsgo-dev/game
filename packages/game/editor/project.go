@@ -250,6 +250,7 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 	e.syncNavMeshForProject()
 	e.resetHUDForProject()
 	e.resetPlaytestForProject()
+	e.resetPlayMarksForProject()
 	e.resetUsagesForProject()
 	e.resetContextMenuForProject()
 	e.resetAssetGenForProject()
