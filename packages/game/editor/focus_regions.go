@@ -621,7 +621,14 @@ func (c *focusRegionController) restoreSettingsOpener(cx *core.Scope, ed *Editor
 	if target == nil && fallbackRegion == RegionNone {
 		return
 	}
-	cx.Post(func() {
+	postScope := c.cx
+	if postScope == nil {
+		postScope = cx
+	}
+	if postScope == nil {
+		return
+	}
+	postScope.Post(func() {
 		if refMounted(target) {
 			target.Focus()
 			return
@@ -653,6 +660,9 @@ func bindViewFocusRestore(cx *core.Scope, ed *Editor, isOpen func() bool) {
 		})
 	})
 	cx.Cleanup(func() {
+		if wasOpen && !ed.SettingsOpen() && ed.focus.ctrl != nil {
+			ed.focus.ctrl.restoreSettingsOpener(ed.focus.ctrl.cx, ed)
+		}
 		wasOpen = false
 	})
 }

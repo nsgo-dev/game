@@ -103,6 +103,28 @@ func TestSettingsWindowCmdCommaAndEscRestoresFocus(t *testing.T) {
 	if !viewOrDescendantFocused(appNoProj.Find("id:toolbar-editor-settings")) {
 		t.Fatal("Escape did not return focus to toolbar-editor-settings")
 	}
+
+	// 3. On the Start screen (top-level Settings mount), ⌘, opens Settings and Esc restores focus to the Start screen opener.
+	appNoProj.Post(func() { edNoProj.SetStartScreenOpen(true) })
+	appNoProj.Settle()
+	appNoProj.Focus("id:start-filter-all")
+	appNoProj.Settle()
+	if !viewOrDescendantFocused(appNoProj.Find("id:start-filter-all")) {
+		t.Fatal("start-filter-all did not receive initial focus")
+	}
+	appNoProj.Key("mod+,")
+	appNoProj.Settle()
+	if !edNoProj.SettingsOpen() || !appNoProj.Exists("id:settings-view") {
+		t.Fatal("⌘, did not open top-level Settings from Start screen")
+	}
+	appNoProj.Key("escape")
+	appNoProj.Settle()
+	if edNoProj.SettingsOpen() || appNoProj.Exists("id:settings-view") {
+		t.Fatal("Escape did not close top-level Settings on Start screen")
+	}
+	if !viewOrDescendantFocused(appNoProj.Find("id:start-filter-all")) {
+		t.Fatal("Escape from top-level Settings did not return focus to start-filter-all")
+	}
 }
 
 // #1005 Acceptance 2: Changing snap step, angle, grid, show agent changes, 3D navigation,
@@ -180,6 +202,27 @@ func TestSettingsViewportSnapPersistsSurvivesRestartAndRoundTrips(t *testing.T) 
 	if ed.EffectiveGridSize() != 16 || !app.Exists("id:editor-settings-snap-error") {
 		t.Fatalf("invalid snap step mutated grid size (%v) or omitted inline error", ed.EffectiveGridSize())
 	}
+
+	// Background rev bumps while typing in snap step must not clobber the in-progress draft or steal focus.
+	app.Focus("id:editor-settings-snap-step")
+	app.Clear("id:editor-settings-snap-step")
+	app.Type("id:editor-settings-snap-step", "24")
+	app.Post(func() {
+		ed.SetShowGrid(false)
+		ed.SetShowGrid(true)
+	})
+	app.Settle()
+	if !viewOrDescendantFocused(app.Find("id:editor-settings-snap-step")) {
+		t.Fatal("background rev bump stole focus from editor-settings-snap-step")
+	}
+	if got := app.Find("id:editor-settings-snap-step").Text; got != "24" {
+		t.Fatalf("background rev bump clobbered snap step draft: got %q, want 24", got)
+	}
+	// Restore 16 before checking persisted file contents below.
+	app.Clear("id:editor-settings-snap-step")
+	app.Type("id:editor-settings-snap-step", "16")
+	app.Submit("id:editor-settings-snap-step")
+	app.Settle()
 
 	// Verify YAML file on disk and lossless byte-for-byte round trip.
 	raw, err := os.ReadFile(settingsPath)
@@ -335,6 +378,20 @@ func TestSettingsSearchNarrowsNavigationRowsAndOffersAgent(t *testing.T) {
 		t.Fatal("non-matching General rows were not narrowed out for '2 s'")
 	}
 
+	// 3b. Searching "automation" narrows to AGENT › Automations and switches to SettingsPageAutomations.
+	app.Press("id:settings-search-clear")
+	app.Type("id:settings-search", "automation")
+	app.Settle()
+	if !app.Exists("id:settings-nav-group-agent") || app.Exists("id:settings-nav-group-project") || app.Exists("id:settings-nav-group-editor") {
+		t.Fatal("expected only AGENT sidebar group visible for query 'automation'")
+	}
+	if !app.Exists("id:settings-nav-automations") {
+		t.Fatal("expected Automations nav item visible for query 'automation'")
+	}
+	if ed.SettingsPage() != editor.SettingsPageAutomations {
+		t.Fatalf("active page = %q, want automations for query 'automation'", ed.SettingsPage())
+	}
+
 	// 4. Query with no matching setting hides all empty groups and offers sending to the agent.
 	app.Press("id:settings-search-clear")
 	app.Type("id:settings-search", "make the boss jump higher")
@@ -400,6 +457,7 @@ func TestSettingsKeyboardNavigationSwitchesAriaAndTabReachability(t *testing.T) 
 		editor.SettingsPageBrief,
 		editor.SettingsPageRules,
 		editor.SettingsPageTools,
+		editor.SettingsPageAutomations,
 		editor.SettingsPageUsage,
 		editor.SettingsPageProject,
 		editor.SettingsPageInput,
@@ -530,10 +588,16 @@ func TestSettingsKeyboardNavigationSwitchesAriaAndTabReachability(t *testing.T) 
 		}
 	}
 
-	// Verify SettingsPageContext includes Viewport.
+	// Verify SettingsPageContext includes Viewport and Agent pages (including Automations).
 	gotID, _, gotScope, gotFile := ed.SettingsPageContext()
 	if gotID != "viewport" || gotScope != "This computer" || gotFile != "" {
 		t.Fatalf("SettingsPageContext(viewport) = (%q, %q, %q), want (viewport, This computer, '')", gotID, gotScope, gotFile)
+	}
+	app.Post(func() { ed.OpenSettingsPage(editor.SettingsPageAutomations) })
+	app.Settle()
+	gotID, _, _, gotFile = ed.SettingsPageContext()
+	if gotID != "automations" || gotFile != editor.AutomationsFileName {
+		t.Fatalf("SettingsPageContext(automations) = (%q, %q), want (automations, %q)", gotID, gotFile, editor.AutomationsFileName)
 	}
 	if !slices.Contains(ed.ActiveViewportOverlays(), editor.OverlayCollisionShapes) {
 		t.Fatal("expected default collision_shapes overlay active")

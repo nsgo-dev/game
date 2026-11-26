@@ -1122,6 +1122,22 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 		}
 	})
 
+	type pageBodyKey struct {
+		noMatch  bool
+		page     SettingsPage
+		projOpen bool
+	}
+	bodyKey := core.NewMemo(cx, func() pageBodyKey {
+		q := strings.TrimSpace(searchQuery.Get())
+		if q != "" && len(visibleNavPages(false)) == 0 {
+			return pageBodyKey{noMatch: true}
+		}
+		return pageBodyKey{
+			page:     activePage.Get(),
+			projOpen: hasProject.Get(),
+		}
+	})
+
 	pageBody := core.View{
 		TestID: "settings-page-body",
 		Style: core.Style{
@@ -1132,15 +1148,14 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 		},
 		Children: []core.Node{
 			core.Dynamic(func(cx *core.Scope) core.Node {
-				q := strings.TrimSpace(searchQuery.Get())
-				if q != "" && len(visibleNavPages(false)) == 0 {
-					return settingsSearchNoMatchView(cx, ed, rev, p, scale, q, func() {
+				bk := bodyKey.Get()
+				if bk.noMatch {
+					return settingsSearchNoMatchView(cx, ed, rev, p, scale, searchQuery, func() {
 						searchQuery.Set("")
 					})
 				}
-				page := activePage.Get()
-				projOpen := hasProject.Get()
-				if page.IsProjectPage() && !projOpen {
+				page := bk.page
+				if page.IsProjectPage() && !bk.projOpen {
 					return settingsNoProjectView(p, ed)
 				}
 				switch page {
@@ -1246,7 +1261,13 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 	}
 }
 
-func settingsSearchNoMatchView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p SpecPalette, scale float32, query string, onClear func()) core.Node {
+func settingsSearchNoMatchView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], p SpecPalette, scale float32, searchQuery *core.Signal[string], onClear func()) core.Node {
+	trimmedQuery := func() string {
+		return strings.TrimSpace(searchQuery.Get())
+	}
+	sendLabel := func() string {
+		return ed.T("settings.searchSendToAgent", l10n.Param("query", trimmedQuery()))
+	}
 	return core.View{
 		TestID: "settings-search-no-match",
 		Style: core.Style{
@@ -1262,8 +1283,10 @@ func settingsSearchNoMatchView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 				Style:   core.Style{FontSize: settingsScaledFont(14, scale), FontWeight: 600, Color: p.TextPrimary},
 			},
 			core.Text{
-				Content: ed.T("settings.searchNoMatchBody", l10n.Param("query", query)),
-				Style:   core.Style{FontSize: settingsScaledFont(12.5, scale), Color: p.TextSecondary},
+				ContentFunc: func() string {
+					return ed.T("settings.searchNoMatchBody", l10n.Param("query", trimmedQuery()))
+				},
+				Style: core.Style{FontSize: settingsScaledFont(12.5, scale), Color: p.TextSecondary},
 			},
 			core.Text{
 				Content: ed.T("settings.searchNoMatchHint"),
@@ -1278,14 +1301,35 @@ func settingsSearchNoMatchView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 							return ed.AgentMode() != AgentModeNone
 						},
 						Then: func(cx *core.Scope) core.Node {
-							lbl := ed.T("settings.searchSendToAgent", l10n.Param("query", query))
-							return settingsSpecButton(p, "settings-search-send-agent", lbl, lbl, true, func() bool {
-								_ = rev.Get()
-								return ed.Playing() || ed.MergeConflictOpen()
-							}, func() {
-								ed.AskAgentFromSettings("search", query)
-								onClear()
-							})
+							return ui.Button{
+								TestID:    "settings-search-send-agent",
+								TextFunc:  sendLabel,
+								LabelFunc: sendLabel,
+								Variant:   ui.ButtonGhost,
+								Size:      ui.SizeSmall,
+								Disabled: func() bool {
+									_ = rev.Get()
+									return ed.Playing() || ed.MergeConflictOpen()
+								},
+								Color: func() core.Color { return p.Accent.Fg },
+								TextStyle: core.Style{
+									FontSize:   12,
+									FontWeight: 600,
+									Color:      p.Accent.OnFill,
+								},
+								Style: core.Style{
+									Height:       core.Pt(28),
+									CornerRadius: 8,
+									FlexShrink:   0,
+									FocusVisible: p.FocusRing(2),
+								},
+								OnPress: func() {
+									if q := strings.TrimSpace(searchQuery.GetUntracked()); q != "" {
+										ed.AskAgentFromSettings("search", q)
+										onClear()
+									}
+								},
+							}
 						},
 					},
 					settingsSpecButton(p, "settings-search-no-match-clear", ed.T("settings.searchClear"), ed.T("settings.searchClear"), false, nil, onClear),
@@ -1549,20 +1593,27 @@ func editorSettingsViewportPage(cx *core.Scope, ed *Editor, rev *core.Signal[uin
 	stepDraft := core.NewSignal(cx, formatSettingsStep(ed.EffectiveGridSize()))
 	angleDraft := core.NewSignal(cx, formatSettingsStep(ed.EffectiveRotationSnapDeg()))
 	snapErr := core.NewSignal(cx, "")
+	stepRef := &core.Ref{}
+	angleRef := &core.Ref{}
 
-	// Keep snap draft inputs synchronized with live editor snap values when changed externally.
+	// Keep snap draft inputs synchronized with live editor snap values when changed externally,
+	// without clobbering an in-progress edit while either numeric field holds keyboard focus.
 	cx.Effect(func() {
 		_ = rev.Get()
 		if snapErr.GetUntracked() != "" {
 			return
 		}
-		wantStep := formatSettingsStep(ed.EffectiveGridSize())
-		if stepDraft.GetUntracked() != wantStep {
-			stepDraft.Set(wantStep)
+		if !stepRef.HoldsFocus() {
+			wantStep := formatSettingsStep(ed.EffectiveGridSize())
+			if stepDraft.GetUntracked() != wantStep {
+				stepDraft.Set(wantStep)
+			}
 		}
-		wantAngle := formatSettingsStep(ed.EffectiveRotationSnapDeg())
-		if angleDraft.GetUntracked() != wantAngle {
-			angleDraft.Set(wantAngle)
+		if !angleRef.HoldsFocus() {
+			wantAngle := formatSettingsStep(ed.EffectiveRotationSnapDeg())
+			if angleDraft.GetUntracked() != wantAngle {
+				angleDraft.Set(wantAngle)
+			}
 		}
 	})
 
@@ -1661,6 +1712,7 @@ func editorSettingsViewportPage(cx *core.Scope, ed *Editor, rev *core.Signal[uin
 										Style: core.Style{Width: settingsScaledLen(64, scale)},
 										Children: []core.Node{
 											specInputField(cx, ed, ui.Input{
+												Ref:    stepRef,
 												TestID: "editor-settings-snap-step",
 												Label:  ed.T("settings.viewportSnapStepLabel"),
 												Value:  stepDraft.Get,
@@ -1693,6 +1745,7 @@ func editorSettingsViewportPage(cx *core.Scope, ed *Editor, rev *core.Signal[uin
 										Style: core.Style{Width: settingsScaledLen(56, scale)},
 										Children: []core.Node{
 											specInputField(cx, ed, ui.Input{
+												Ref:    angleRef,
 												TestID: "editor-settings-snap-angle",
 												Label:  ed.T("settings.viewportSnapAngleLabel"),
 												Value:  angleDraft.Get,
