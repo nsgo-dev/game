@@ -524,8 +524,10 @@ func (e *Editor) LoadAssetStyleBrief() AssetStyleBrief {
 
 func parseBriefStyleYAML(data []byte, base AssetStyleBrief) AssetStyleBrief {
 	var doc struct {
-		Summary string `yaml:"summary"`
-		Art     struct {
+		Summary      string `yaml:"summary"`
+		Pitch        string `yaml:"pitch"`
+		ArtDirection string `yaml:"artDirection"`
+		Art          struct {
 			Summary       string  `yaml:"summary"`
 			Style         string  `yaml:"style"`
 			PixelGrid     int     `yaml:"pixelGrid"`
@@ -556,7 +558,11 @@ func parseBriefStyleYAML(data []byte, base AssetStyleBrief) AssetStyleBrief {
 		base.Summary = s
 	} else if s := strings.TrimSpace(doc.Art.Style); s != "" {
 		base.Summary = s
+	} else if s := strings.TrimSpace(doc.ArtDirection); s != "" {
+		base.Summary = s
 	} else if s := strings.TrimSpace(doc.Summary); s != "" {
+		base.Summary = s
+	} else if s := strings.TrimSpace(doc.Pitch); s != "" {
 		base.Summary = s
 	}
 	if doc.Art.PixelGrid > 0 {

@@ -659,15 +659,42 @@ func settingsShellView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 					return strings.TrimSpace(searchQuery.Get()) != ""
 				},
 				Then: func(cx *core.Scope) core.Node {
+					askLabel := func() string {
+						_ = langMemo.Get()
+						return ed.T("settings.searchAskAgent", l10n.Param("query", strings.TrimSpace(searchQuery.Get())))
+					}
 					return core.View{
 						Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8},
 						Children: []core.Node{
-							settingsSpecButton(p, "settings-search-ask", ed.T("settings.searchAskAgent", l10n.Param("query", strings.TrimSpace(searchQuery.Get()))), ed.T("settings.searchAskAgent", l10n.Param("query", strings.TrimSpace(searchQuery.Get()))), true, nil, func() {
-								if trimmed := strings.TrimSpace(searchQuery.Get()); trimmed != "" {
-									ed.AskAgentFromSettings("search", trimmed)
-									searchQuery.Set("")
-								}
-							}),
+							ui.Button{
+								TestID:    "settings-search-ask",
+								TextFunc:  askLabel,
+								LabelFunc: askLabel,
+								Variant:   ui.ButtonGhost,
+								Size:      ui.SizeSmall,
+								Disabled: func() bool {
+									_ = rev.Get()
+									return ed.Playing() || ed.MergeConflictOpen()
+								},
+								Color: func() core.Color { return p.Accent.Fg },
+								TextStyle: core.Style{
+									FontSize:   12,
+									FontWeight: 600,
+									Color:      p.Accent.OnFill,
+								},
+								Style: core.Style{
+									Height:       core.Pt(28),
+									CornerRadius: 8,
+									FlexShrink:   0,
+									FocusVisible: p.FocusRing(2),
+								},
+								OnPress: func() {
+									if trimmed := strings.TrimSpace(searchQuery.Get()); trimmed != "" {
+										ed.AskAgentFromSettings("search", trimmed)
+										searchQuery.Set("")
+									}
+								},
+							},
 							settingsSpecButton(p, "settings-search-clear", ed.T("settings.searchClear"), ed.T("settings.searchClear"), false, nil, func() {
 								searchQuery.Set("")
 							}),

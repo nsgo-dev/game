@@ -216,6 +216,7 @@ func (e *Editor) OpenDemo() error {
 	e.resetUsagesForProject()
 	e.resetContextMenuForProject()
 	e.resetAssetGenForProject()
+	e.loadAgentDocsForProject("")
 	e.resetViewport3DAgentPrompt(true)
 	e.resetPermissionsForProject()
 	e.resetTextInputFocus()

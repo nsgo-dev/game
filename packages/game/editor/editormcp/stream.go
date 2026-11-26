@@ -51,12 +51,15 @@ var resources = []*mcp.Resource{
 
 // changeStream is what the editor showed when the stream last looked, to tell a change from a notification that changed nothing.
 type changeStream struct {
-	scene     []byte
-	selection []byte
-	turnSeq   uint64
-	brief     []byte
-	rules     []byte
-	context   []byte
+	scene       []byte
+	selection   []byte
+	turnSeq     uint64
+	brief       []byte
+	rules       []byte
+	context     []byte
+	docsRev     uint64
+	docsProject string
+	docsLang    string
 }
 
 // reset records what ed shows now.
@@ -67,6 +70,9 @@ func (c *changeStream) reset(ed *editor.Editor) {
 	c.brief = []byte(briefResourceText(ed))
 	c.rules = []byte(ed.ProjectRules())
 	c.context = contextJSON(ed)
+	c.docsRev = ed.AgentDocsRevision()
+	c.docsProject = ed.ProjectPath
+	c.docsLang = ed.ResolvedLanguage()
 }
 
 // addResources adds the resources and their read handlers to the SDK server.
@@ -241,22 +247,32 @@ func (s *Server) changed() {
 			s.queue(AgentTurnURI, turnMeta)
 		}
 	}
-	if wantBrief {
-		if data := []byte(briefResourceText(s.ed)); !bytes.Equal(data, s.stream.brief) {
-			s.stream.brief = data
-			s.queue(BriefURI, meta)
-		}
-	}
-	if wantRules {
-		if data := []byte(s.ed.ProjectRules()); !bytes.Equal(data, s.stream.rules) {
-			s.stream.rules = data
-			s.queue(RulesURI, meta)
-		}
-	}
-	if wantContext {
-		if data := contextJSON(s.ed); !bytes.Equal(data, s.stream.context) {
-			s.stream.context = data
-			s.queue(ContextURI, meta)
+	if wantBrief || wantRules || wantContext {
+		docsRev := s.ed.AgentDocsRevision()
+		docsProj := s.ed.ProjectPath
+		docsLang := s.ed.ResolvedLanguage()
+		if docsRev != s.stream.docsRev || docsProj != s.stream.docsProject || docsLang != s.stream.docsLang {
+			s.stream.docsRev = docsRev
+			s.stream.docsProject = docsProj
+			s.stream.docsLang = docsLang
+			if wantBrief {
+				if data := []byte(briefResourceText(s.ed)); !bytes.Equal(data, s.stream.brief) {
+					s.stream.brief = data
+					s.queue(BriefURI, meta)
+				}
+			}
+			if wantRules {
+				if data := []byte(s.ed.ProjectRules()); !bytes.Equal(data, s.stream.rules) {
+					s.stream.rules = data
+					s.queue(RulesURI, meta)
+				}
+			}
+			if wantContext {
+				if data := contextJSON(s.ed); !bytes.Equal(data, s.stream.context) {
+					s.stream.context = data
+					s.queue(ContextURI, meta)
+				}
+			}
 		}
 	}
 }

@@ -18,6 +18,8 @@ const (
 	ToolBriefEdit = "brief_edit"
 	// ToolRulesEdit proposes an edit or new rule for AGENTS.md as a reviewable change without modifying disk until kept.
 	ToolRulesEdit = "rules_edit"
+
+	maxMCPDocBytes = 1 << 20
 )
 
 // BriefContext is the brief.yaml section of ProjectContext.
@@ -258,9 +260,18 @@ func briefEditTool(ctx context.Context, c *Call) (*Result, error) {
 	if args.YAML != nil && hasFields {
 		return nil, errors.New("brief_edit: provide either yaml or structured fields, not both")
 	}
+	if args.YAML != nil && len(*args.YAML) > maxMCPDocBytes {
+		return nil, fmt.Errorf("brief_edit: yaml exceeds maximum size of %d bytes", maxMCPDocBytes)
+	}
 
 	var review *editor.DocReview
 	if err := c.Editor(ctx, func(ed *editor.Editor) error {
+		if ed.Playing() {
+			return fmt.Errorf("brief_edit: %w", editor.ErrPlaying)
+		}
+		if ed.MergeConflictOpen() {
+			return fmt.Errorf("brief_edit: %w", editor.ErrMergeConflictInProgress)
+		}
 		var next *project.Brief
 		if args.YAML != nil {
 			parsed, err := project.ParseBrief([]byte(*args.YAML))
@@ -330,9 +341,21 @@ func rulesEditTool(ctx context.Context, c *Call) (*Result, error) {
 	if args.Markdown != nil && args.AppendRule != nil {
 		return nil, errors.New("rules_edit: provide either markdown or appendRule, not both")
 	}
+	if args.Markdown != nil && len(*args.Markdown) > maxMCPDocBytes {
+		return nil, fmt.Errorf("rules_edit: markdown exceeds maximum size of %d bytes", maxMCPDocBytes)
+	}
+	if args.AppendRule != nil && len(*args.AppendRule) > maxMCPDocBytes {
+		return nil, fmt.Errorf("rules_edit: appendRule exceeds maximum size of %d bytes", maxMCPDocBytes)
+	}
 
 	var review *editor.DocReview
 	if err := c.Editor(ctx, func(ed *editor.Editor) error {
+		if ed.Playing() {
+			return fmt.Errorf("rules_edit: %w", editor.ErrPlaying)
+		}
+		if ed.MergeConflictOpen() {
+			return fmt.Errorf("rules_edit: %w", editor.ErrMergeConflictInProgress)
+		}
 		var next string
 		summary := args.Summary
 		if args.Markdown != nil {
@@ -358,6 +381,9 @@ func rulesEditTool(ctx context.Context, c *Call) (*Result, error) {
 			if summary == "" {
 				summary = "Add rule: " + rule
 			}
+		}
+		if len(next) > maxMCPDocBytes {
+			return fmt.Errorf("rules_edit: resulting AGENTS.md exceeds maximum size of %d bytes", maxMCPDocBytes)
 		}
 		r, err := ed.ProposeProjectRulesReview(next, summary, args.Rationale, "agent")
 		if err != nil {
