@@ -127,15 +127,28 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 		}
 	})
 
+	settingsOpen := func() bool {
+		_ = rev.Get()
+		return ed.SettingsOpen()
+	}
+
 	workspace := core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = chromeKey.Get()
 		files := sceneFileDialogs(ed, rev, prompt, pathMode, pathTarget)
 		return core.View{
+			Disabled:                    settingsOpen,
+			AccessibilityElementsHidden: settingsOpen,
 			Style: core.Style{
 				FlexGrow:  1,
 				FlexBasis: core.Pt(0),
 				Width:     core.Pct(100),
 				Height:    core.Pct(100),
+			},
+			StyleFunc: func() core.Style {
+				if settingsOpen() {
+					return core.Style{PointerEvents: core.PointerEventsNone}
+				}
+				return core.Style{}
 			},
 			Children: append([]core.Node{
 				core.Show{
@@ -248,13 +261,9 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 																								EnvironmentPanelView(cx, ed, rev),
 																								StatesPanelView(cx, ed, rev),
 																								NavMeshPanelView(cx, ed, rev),
-																								ProjectSettingsPanelView(cx, ed, rev),
-																								AudioMixerPanelView(cx, ed, rev),
-																								InputMapPanelView(cx, ed, rev),
 																								LocalizationPanelView(cx, ed, rev),
 																								SearchPanelView(cx, ed, rev),
 																								ProblemsView(cx, ed, rev),
-																								ExportPanelView(cx, ed, rev),
 																								ProfilerPanelView(cx, ed, rev),
 																								OutputPanelView(cx, ed, rev),
 																							},
@@ -295,7 +304,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 		},
 		Children: []core.Node{
 			workspace,
-			EditorSettingsDialogView(cx, ed, rev),
+			SettingsView(cx, ed, rev),
 			ShortcutsSheetView(cx, ed, rev),
 		},
 	}

@@ -275,8 +275,10 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 			}
 		}
 		var b strings.Builder
-		fmt.Fprintf(&b, "%s|%v|%d|%v|%v|%v|%v|%v|%v|%s|%v|%v|%v|%v|%d|%v|%v|%v|%d|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%d|%d|%v|%v|%v|%d|%s|%v",
+		fmt.Fprintf(&b, "%s|%v|%s|%v|%d|%v|%v|%v|%v|%v|%v|%s|%v|%v|%v|%v|%d|%v|%v|%v|%d|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%d|%d|%v|%v|%v|%d|%s|%v",
 			e.ResolvedLanguage(),
+			e.SettingsOpen(),
+			e.SettingsPage(),
 			e.EditorSettingsOpen(),
 			e.EditorSettingsTab(),
 			e.ShortcutsSheetOpen(),

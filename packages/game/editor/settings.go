@@ -536,31 +536,162 @@ func (e *Editor) SaveSettings() error {
 	return SaveEditorSettings(path, &s)
 }
 
-// EditorSettingsOpen reports whether the Editor Settings dialog is currently open.
-func (e *Editor) EditorSettingsOpen() bool {
-	return e != nil && e.editorSettingsOpen
+// SettingsPage identifies a page in the unified Settings view (docs/design/editor/Settings.dc.html).
+type SettingsPage string
+
+const (
+	// SettingsPageProject edits game.yaml's project metadata, window, display, physics, autoload, and plugins.
+	SettingsPageProject SettingsPage = "project"
+	// SettingsPageInput edits game.yaml's input actions, bindings, touch/mouse regions, and axes.
+	SettingsPageInput SettingsPage = "input"
+	// SettingsPageAudio edits game.yaml's audio master level, buses, DSP effect chains, and live audition.
+	SettingsPageAudio SettingsPage = "audio"
+	// SettingsPageExport edits game.yaml's export output, platform presets, credits pre-flight, and release builds.
+	SettingsPageExport SettingsPage = "export"
+	// SettingsPageGeneral edits per-computer editor language and appearance preferences.
+	SettingsPageGeneral SettingsPage = "general"
+	// SettingsPageShortcuts edits per-computer command keyboard shortcuts within a scope.
+	SettingsPageShortcuts SettingsPage = "shortcuts"
+)
+
+// Valid reports whether p is a recognized Settings page.
+func (p SettingsPage) Valid() bool {
+	switch p {
+	case SettingsPageProject, SettingsPageInput, SettingsPageAudio, SettingsPageExport, SettingsPageGeneral, SettingsPageShortcuts:
+		return true
+	default:
+		return false
+	}
 }
 
-// SetEditorSettingsOpen opens or closes the Editor Settings dialog.
-func (e *Editor) SetEditorSettingsOpen(open bool) {
-	if e == nil || e.editorSettingsOpen == open {
+// IsProjectPage reports whether p edits the open project's game.yaml rather than per-computer editor preferences.
+func (p SettingsPage) IsProjectPage() bool {
+	switch p {
+	case SettingsPageProject, SettingsPageInput, SettingsPageAudio, SettingsPageExport:
+		return true
+	default:
+		return false
+	}
+}
+
+// SettingsOpen reports whether the unified Settings view is currently open.
+func (e *Editor) SettingsOpen() bool {
+	return e != nil && e.settingsOpen
+}
+
+// SettingsPage returns the active page of the unified Settings view, defaulting to SettingsPageGeneral.
+func (e *Editor) SettingsPage() SettingsPage {
+	if e == nil || !e.settingsPage.Valid() {
+		return SettingsPageGeneral
+	}
+	return e.settingsPage
+}
+
+// OpenSettingsPage opens the unified Settings view on page (or switches to page if already open).
+func (e *Editor) OpenSettingsPage(page SettingsPage) {
+	if e == nil || !page.Valid() {
 		return
 	}
-	e.editorSettingsOpen = open
-	if open {
-		e.shortcutsSheetOpen = false
-	} else {
+	prevOpen := e.settingsOpen
+	prevPage := e.settingsPage
+	if prevOpen && prevPage == page {
+		return
+	}
+	if prevOpen && prevPage == SettingsPageInput && page != SettingsPageInput {
+		e.resetInputMapTransient()
+	}
+	if page != SettingsPageShortcuts {
 		e.shortcutCaptureActive = false
+	}
+	e.shortcutsSheetOpen = false
+	e.settingsOpen = true
+	e.settingsPage = page
+	if page == SettingsPageShortcuts {
+		e.editorSettingsTab = EditorSettingsTabShortcuts
+	} else if page == SettingsPageGeneral {
+		e.editorSettingsTab = EditorSettingsTabGeneral
+	}
+	switch page {
+	case SettingsPageProject:
+		if e.projectSettings.section == "" {
+			e.projectSettings.section = ProjectSectionGeneral
+		}
+	case SettingsPageAudio:
+		e.syncAudioMixer()
+	case SettingsPageExport:
+		e.syncExportPanel()
+		e.CheckExportCredits()
+		return
 	}
 	e.notify()
 }
 
-// ToggleEditorSettings toggles the Editor Settings dialog open or closed.
+// CloseSettings closes the unified Settings view, cancelling any active input key capture/drag and stopping audio audition when leaving the Audio buses page.
+func (e *Editor) CloseSettings() {
+	if e == nil || !e.settingsOpen {
+		return
+	}
+	prevPage := e.settingsPage
+	e.settingsOpen = false
+	e.shortcutCaptureActive = false
+	if prevPage == SettingsPageInput {
+		e.resetInputMapTransient()
+	}
+	if prevPage == SettingsPageAudio {
+		e.stopAudioAudition()
+	}
+	e.notify()
+}
+
+// SetSettingsOpen opens or closes the unified Settings view. Opening shows the previously active page (or SettingsPageProject when a project is open and no page has been selected yet).
+func (e *Editor) SetSettingsOpen(open bool) {
+	if e == nil {
+		return
+	}
+	if !open {
+		e.CloseSettings()
+		return
+	}
+	page := e.settingsPage
+	if !page.Valid() {
+		if e.Project != nil {
+			page = SettingsPageProject
+		} else {
+			page = SettingsPageGeneral
+		}
+	}
+	e.OpenSettingsPage(page)
+}
+
+// EditorSettingsOpen reports whether the Settings view is currently open on the General or Shortcuts (editor preferences) page.
+func (e *Editor) EditorSettingsOpen() bool {
+	return e != nil && e.settingsOpen && (e.settingsPage == SettingsPageGeneral || e.settingsPage == SettingsPageShortcuts)
+}
+
+// SetEditorSettingsOpen opens the Settings view on the General page, or closes Settings when open is false and an editor preferences page is active.
+func (e *Editor) SetEditorSettingsOpen(open bool) {
+	if e == nil {
+		return
+	}
+	if open {
+		e.OpenSettingsPage(SettingsPageGeneral)
+		return
+	}
+	if e.EditorSettingsOpen() {
+		e.CloseSettings()
+	}
+}
+
+// ToggleEditorSettings toggles the Settings view's General (editor preferences) page open or closed.
 func (e *Editor) ToggleEditorSettings() {
 	if e == nil {
 		return
 	}
-	e.SetEditorSettingsOpen(!e.editorSettingsOpen)
+	if e.EditorSettingsOpen() {
+		e.CloseSettings()
+		return
+	}
+	e.OpenSettingsPage(SettingsPageGeneral)
 }
 
 // EditorSettingsTab returns the active page in the Editor Settings dialog.
@@ -573,25 +704,35 @@ func (e *Editor) EditorSettingsTab() EditorSettingsTab {
 
 // SetEditorSettingsTab switches the active page in the Editor Settings dialog.
 func (e *Editor) SetEditorSettingsTab(tab EditorSettingsTab) {
-	if e == nil || e.editorSettingsTab == tab {
+	if e == nil {
 		return
 	}
+	changed := e.editorSettingsTab != tab
 	e.editorSettingsTab = tab
 	if tab != EditorSettingsTabShortcuts {
 		e.shortcutCaptureActive = false
 	}
-	e.notify()
+	if e.settingsOpen {
+		if tab == EditorSettingsTabShortcuts {
+			e.OpenSettingsPage(SettingsPageShortcuts)
+			return
+		}
+		if tab == EditorSettingsTabGeneral {
+			e.OpenSettingsPage(SettingsPageGeneral)
+			return
+		}
+	}
+	if changed {
+		e.notify()
+	}
 }
 
-// OpenShortcutsSettings opens the Editor Settings dialog directly to the Shortcuts page.
+// OpenShortcutsSettings opens the Settings view directly to the Shortcuts page.
 func (e *Editor) OpenShortcutsSettings() {
 	if e == nil {
 		return
 	}
-	e.shortcutsSheetOpen = false
-	e.editorSettingsTab = EditorSettingsTabShortcuts
-	e.editorSettingsOpen = true
-	e.notify()
+	e.OpenSettingsPage(SettingsPageShortcuts)
 }
 
 // ShortcutsSheetOpen reports whether the ⌘/ Keyboard Shortcuts reference sheet is open.
@@ -606,7 +747,7 @@ func (e *Editor) SetShortcutsSheetOpen(open bool) {
 	}
 	e.shortcutsSheetOpen = open
 	if open {
-		e.editorSettingsOpen = false
+		e.CloseSettings()
 		e.shortcutCaptureActive = false
 	}
 	e.notify()

@@ -554,6 +554,17 @@ strings:
   settings.language: 语言
   settings.languageHelp: 编辑器界面语言；智能体也会使用该语言回复。
   settings.light: 浅色
+  settings.navTitle: 设置
+  settings.page.audio: 音频总线
+  settings.page.audioSubtitle: 音乐、音效与语音的电平与路由。
+  settings.page.export: 导出
+  settings.page.exportSubtitle: 各平台的构建预设与就绪状态。
+  settings.page.general: 通用
+  settings.page.generalSubtitle: 此计算机的语言与外观设置。
+  settings.page.input: 输入映射
+  settings.page.inputSubtitle: 动作及其在键盘、手柄与触屏上的触发方式。
+  settings.page.project: 项目
+  settings.page.projectSubtitle: 名称、ID、窗口尺寸与主场景。
   settings.sectionEditor: 编辑器 · 此计算机
   settings.shortcuts: 快捷键
   settings.shortcutsCaptureCancel: 取消

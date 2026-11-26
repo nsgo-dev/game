@@ -124,7 +124,6 @@ func cleanEmptyPhysics(f *project.File) {
 }
 
 func psPhysicsSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disabled func() bool) core.Node {
-	colors := ui.ColorsOf(cx)
 	newName := core.NewSignal(cx, "")
 	newBit := core.NewSignal(cx, 0)
 	layerErr := core.NewSignal(cx, "")
@@ -137,19 +136,8 @@ func psPhysicsSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disa
 		return ed.Project.Physics
 	}
 
-	numRow := func(testID, caption string, step float64, read func() float64, apply func(float64) error) core.Node {
-		return psFieldLayout(colors, caption, ui.NumberInput{
-			TestID:   testID,
-			Label:    caption,
-			Step:     step,
-			Disabled: disabled,
-			Value:    read,
-			OnChange: func(v float64) {
-				if err := apply(v); err != nil {
-					ed.report(err)
-				}
-			},
-		}, nil)
+	numRow := func(testID, caption, help string, step float64, read func() float64, apply func(float64) error) core.Node {
+		return psNumberField(cx, ed, rev, testID, caption, help, caption, step, policyAgentMayChange, disabled, read, apply)
 	}
 
 	layerList := core.Dynamic(func(cx *core.Scope) core.Node {
@@ -158,35 +146,36 @@ func psPhysicsSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disa
 			return core.Text{
 				TestID:  "project-settings-physics-layers-empty",
 				Content: "No named collision layers declared",
-				Style:   core.Style{FontSize: 11, Color: colors.Muted()},
+				Style:   core.Style{FontSize: 11.5, Color: specTextMuted},
 			}
 		}
 		rows := make([]core.Node, 0, len(p.Layers))
 		for i, l := range p.Layers {
 			idx := i
-			rows = append(rows, ui.HStack{
-				Gap: 8,
+			rows = append(rows, core.View{
+				Style: core.Style{
+					Direction:   core.Row,
+					AlignItems:  core.AlignCenter,
+					Gap:         8,
+					Padding:     core.Symmetric(8, 0),
+					Borders:     core.Edges{Bottom: 1},
+					BorderColor: specLine,
+				},
 				Children: []core.Node{
 					core.Text{
 						TestID:  "project-settings-physics-layer-" + strconv.Itoa(idx),
 						Content: fmt.Sprintf("Bit %d: %s", l.Bit, l.Name),
-						Style:   core.Style{FontSize: 12, Color: colors.Text(), FlexGrow: 1},
+						Style:   core.Style{FontSize: 12.5, Color: specText, FlexGrow: 1},
 					},
-					ui.Button{
-						TestID:   "project-settings-physics-layer-remove-" + strconv.Itoa(idx),
-						Text:     "Remove",
-						Size:     ui.SizeSmall,
-						Variant:  ui.ButtonGhost,
-						Disabled: disabled,
-						OnPress: func() {
-							if err := ed.RemoveProjectPhysicsLayer(idx); err != nil {
-								layerErr.Set(err.Error())
-								ed.report(err)
-								return
-							}
-							layerErr.Set("")
-						},
-					},
+					settingsSpecButton("project-settings-physics-layer-remove-"+strconv.Itoa(idx), "Remove", fmt.Sprintf("Remove collision layer %s", l.Name), false, disabled, func() {
+						if err := ed.RemoveProjectPhysicsLayer(idx); err != nil {
+							layerErr.Set(err.Error())
+							ed.report(err)
+							return
+						}
+						layerErr.Set("")
+					}),
+					settingsPolicyBadge(policyAgentMayChange),
 				},
 			})
 		}
@@ -209,10 +198,10 @@ func psPhysicsSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disa
 
 	return core.View{
 		TestID: "project-settings-physics",
-		Style:  core.Style{Gap: 8},
+		Style:  core.Style{Gap: 4},
 		Children: []core.Node{
-			psSectionHeading(colors, "PHYSICS 2D"),
-			numRow("project-settings-physics-g2x", "Gravity 2D X", 10, func() float64 {
+			psSectionHeading("PHYSICS 2D"),
+			numRow("project-settings-physics-g2x", "Gravity 2D X", "Horizontal 2D world gravity", 10, func() float64 {
 				if p := readPhys(); p != nil && p.Gravity2D != nil {
 					return float64(p.Gravity2D.X)
 				}
@@ -224,7 +213,7 @@ func psPhysicsSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disa
 				}
 				return ed.SetProjectPhysicsGravity2D(float32(v), y)
 			}),
-			numRow("project-settings-physics-g2y", "Gravity 2D Y", 10, func() float64 {
+			numRow("project-settings-physics-g2y", "Gravity 2D Y", "Vertical 2D world gravity", 10, func() float64 {
 				if p := readPhys(); p != nil && p.Gravity2D != nil {
 					return float64(p.Gravity2D.Y)
 				}
@@ -236,7 +225,7 @@ func psPhysicsSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disa
 				}
 				return ed.SetProjectPhysicsGravity2D(x, float32(v))
 			}),
-			numRow("project-settings-physics-iter2d", "Solver Iterations 2D", 1, func() float64 {
+			numRow("project-settings-physics-iter2d", "Solver iterations 2D", "Constraint solver iterations per 2D step", 1, func() float64 {
 				if p := readPhys(); p != nil {
 					return float64(p.SolverIterations2D)
 				}
@@ -248,8 +237,8 @@ func psPhysicsSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disa
 				}
 				return ed.SetProjectPhysicsSolverIterations(int(math.Round(v)), i3)
 			}),
-			psSectionHeading(colors, "PHYSICS 3D"),
-			numRow("project-settings-physics-g3x", "Gravity 3D X", 0.5, func() float64 {
+			psSectionHeading("PHYSICS 3D"),
+			numRow("project-settings-physics-g3x", "Gravity 3D X", "3D world gravity along X", 0.5, func() float64 {
 				if p := readPhys(); p != nil && p.Gravity3D != nil {
 					return float64(p.Gravity3D.X)
 				}
@@ -261,7 +250,7 @@ func psPhysicsSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disa
 				}
 				return ed.SetProjectPhysicsGravity3D(float32(v), y, z)
 			}),
-			numRow("project-settings-physics-g3y", "Gravity 3D Y", 0.5, func() float64 {
+			numRow("project-settings-physics-g3y", "Gravity 3D Y", "3D world gravity along Y", 0.5, func() float64 {
 				if p := readPhys(); p != nil && p.Gravity3D != nil {
 					return float64(p.Gravity3D.Y)
 				}
@@ -273,7 +262,7 @@ func psPhysicsSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disa
 				}
 				return ed.SetProjectPhysicsGravity3D(x, float32(v), z)
 			}),
-			numRow("project-settings-physics-g3z", "Gravity 3D Z", 0.5, func() float64 {
+			numRow("project-settings-physics-g3z", "Gravity 3D Z", "3D world gravity along Z", 0.5, func() float64 {
 				if p := readPhys(); p != nil && p.Gravity3D != nil {
 					return float64(p.Gravity3D.Z)
 				}
@@ -285,7 +274,7 @@ func psPhysicsSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disa
 				}
 				return ed.SetProjectPhysicsGravity3D(x, y, float32(v))
 			}),
-			numRow("project-settings-physics-iter3d", "Solver Iterations 3D", 1, func() float64 {
+			numRow("project-settings-physics-iter3d", "Solver iterations 3D", "Constraint solver iterations per 3D step", 1, func() float64 {
 				if p := readPhys(); p != nil {
 					return float64(p.SolverIterations3D)
 				}
@@ -297,10 +286,10 @@ func psPhysicsSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disa
 				}
 				return ed.SetProjectPhysicsSolverIterations(i2, int(math.Round(v)))
 			}),
-			psSectionHeading(colors, "COLLISION LAYERS"),
+			psSectionHeading("COLLISION LAYERS"),
 			layerList,
 			ui.HStack{
-				Gap: 6,
+				Gap: 8,
 				Children: []core.Node{
 					core.View{
 						Style: core.Style{FlexGrow: 1},
@@ -327,17 +316,10 @@ func psPhysicsSection(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], disa
 							OnChange: func(v float64) { newBit.Set(int(math.Round(v))) },
 						}},
 					},
-					ui.Button{
-						TestID:   "project-settings-physics-layer-add",
-						Text:     "Add",
-						Size:     ui.SizeSmall,
-						Variant:  ui.ButtonSecondary,
-						Disabled: disabled,
-						OnPress:  addLayer,
-					},
+					settingsSpecButton("project-settings-physics-layer-add", "Add", "Add collision layer", false, disabled, addLayer),
 				},
 			},
-			psErrorText(colors, "project-settings-physics-layer-error", layerErr),
+			psErrorText("project-settings-physics-layer-error", layerErr),
 		},
 	}
 }
