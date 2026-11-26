@@ -232,7 +232,16 @@ func layerTilemapSection(
 		},
 	}
 
-	tmNow, refNow := resolvedTM()
+	// Read the resolved tilemap untracked so layers that already have a tilemap do not subscribe the enclosing inspector Dynamic to rev.
+	type resolvedTilemapSnapshot struct {
+		tm  *sceneformat.TilemapDoc
+		ref string
+	}
+	tmSnap := core.Untracked(cx, func() resolvedTilemapSnapshot {
+		tm, ref := resolvedTM()
+		return resolvedTilemapSnapshot{tm: tm, ref: ref}
+	})
+	tmNow, refNow := tmSnap.tm, tmSnap.ref
 	if tmNow != nil && tmNow.IsInline() {
 		if !tmNow.IsLayered() {
 			nodes = append(nodes, fieldRow("Tileset", ui.Select[string]{

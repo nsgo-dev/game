@@ -69,8 +69,10 @@ func RightRailView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.No
 										rightRailTabBar(cx, ed, rev, p, false),
 										core.View{
 											Style: core.Style{
+												Direction: core.Row,
 												FlexGrow:  1,
 												FlexBasis: core.Pt(0),
+												MinHeight: core.Pt(0),
 												Overflow:  core.Hidden,
 											},
 											Children: []core.Node{InspectorView(cx, ed, rev)},
