@@ -509,8 +509,14 @@ func (e *Editor) SelectTab(index int) error {
 		return fmt.Errorf("editor: tab index %d out of range", index)
 	}
 	if index == e.activeTab {
+		if e.sceneOpenErr != nil {
+			e.sceneOpenErr = nil
+			e.notify()
+		}
 		return nil
 	}
+	e.sceneOpenErr = nil
+	e.proposedNewObjects = nil
 	e.saveViewStateQuietly()
 	e.ExitHistoryPreview()
 	e.cancelTransientInteraction()
@@ -683,6 +689,8 @@ func (e *Editor) CloseTab(index int) error {
 	closedID := e.tabs[index].id
 
 	if len(e.tabs) == 1 {
+		e.sceneOpenErr = nil
+		e.proposedNewObjects = nil
 		e.saveViewStateQuietly()
 		e.cancelTransientInteraction()
 		doc := DefaultSceneDoc()
@@ -735,6 +743,8 @@ func (e *Editor) CloseTab(index int) error {
 		return nil
 	}
 
+	e.sceneOpenErr = nil
+	e.proposedNewObjects = nil
 	e.saveViewStateQuietly()
 	e.cancelTransientInteraction()
 	e.tabs = append(e.tabs[:index], e.tabs[index+1:]...)

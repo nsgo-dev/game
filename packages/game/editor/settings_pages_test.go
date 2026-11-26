@@ -40,11 +40,11 @@ func TestSettingsPagesNavigationAndToolbarTriggers(t *testing.T) {
 		wantTitle string
 		wantScope string
 	}{
+		{editor.CmdEditorSettings, editor.SettingsPageGeneral, "editor-settings-dialog", "General", "This computer"},
 		{editor.CmdProjectSettings, editor.SettingsPageProject, "project-settings-panel", "Project", "Project · game.yaml"},
 		{editor.CmdInputMap, editor.SettingsPageInput, "input-map-panel", "Input map", "Project · game.yaml"},
 		{editor.CmdAudioMixer, editor.SettingsPageAudio, "audio-mixer-panel", "Audio buses", "Project · game.yaml"},
 		{editor.CmdExport, editor.SettingsPageExport, "export-panel", "Export", "Project · game.yaml"},
-		{editor.CmdEditorSettings, editor.SettingsPageGeneral, "editor-settings-dialog", "General", "This computer"},
 	}
 
 	for _, tc := range cases {

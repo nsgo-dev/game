@@ -18,12 +18,12 @@ import (
 func viewportOverlaysBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	visible := core.NewMemo(cx, func() bool {
 		_ = rev.Get()
-		return ed.ViewMode == ViewMode2D && !ed.Playing()
+		return ed.ViewMode == ViewMode2D && !ed.Playing() && ed.WorkspaceState() == WorkspaceReady
 	})
 	overlayListKey := core.NewMemo(cx, func() string {
 		_ = rev.Get()
 		var b strings.Builder
-		if cx.Dark() {
+		if ed.SpecPalette(cx).Dark {
 			b.WriteString("D:")
 		} else {
 			b.WriteString("L:")

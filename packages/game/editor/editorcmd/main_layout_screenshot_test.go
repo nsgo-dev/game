@@ -84,6 +84,7 @@ func TestMainLayoutMacOSScreenshots(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		t.Cleanup(func() { _ = ed.Close() })
 		if err := ed.OpenProject(dir); err != nil {
 			t.Fatal(err)
 		}
@@ -132,6 +133,7 @@ func TestMainLayoutMacOSScreenshots(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		t.Cleanup(func() { _ = ed.Close() })
 		app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 			return editor.EditorView(cx, ed)
 		}, nsgotest.Size(1440, 900), nsgotest.Environment(core.Environment{

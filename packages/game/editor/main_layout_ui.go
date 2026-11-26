@@ -40,12 +40,13 @@ const (
 // SceneOpenError captures the structured details of a failed scene open
 // (covering missing files and YAML/schema errors from open_errors_test.go).
 type SceneOpenError struct {
-	Path    string
-	Line    int
-	Column  int
-	Message string
-	Fix     string
-	Err     error
+	Path     string
+	Line     int
+	Column   int
+	Message  string
+	Fix      string
+	Err      error
+	openPath string
 }
 
 // Inline Lucide stroke icons (1.8 px stroke at 15 px, currentColor, decorative / aria-hidden in core.Icon).
@@ -67,9 +68,10 @@ func (e *Editor) recordSceneOpenError(filePath string, err error) {
 		return
 	}
 	se := &SceneOpenError{
-		Path:    filePath,
-		Message: err.Error(),
-		Err:     err,
+		Path:     filePath,
+		Message:  err.Error(),
+		Err:      err,
+		openPath: filePath,
 	}
 	var le *loaderr.Error
 	if errors.As(err, &le) && le != nil {
@@ -86,6 +88,8 @@ func (e *Editor) recordSceneOpenError(filePath string, err error) {
 	if se.Fix == "" {
 		se.Fix = "Check that the scene file exists and contains valid YAML."
 	}
+	e.projectLoading = false
+	e.projectLoadingPath = ""
 	e.sceneOpenErr = se
 	e.Status = "Failed to open " + filepath.Base(se.Path)
 	e.notify()
@@ -114,7 +118,10 @@ func (e *Editor) RetryOpenScene() error {
 	if e == nil || e.sceneOpenErr == nil {
 		return nil
 	}
-	p := e.sceneOpenErr.Path
+	p := e.sceneOpenErr.openPath
+	if p == "" {
+		p = e.sceneOpenErr.Path
+	}
 	if p == "" {
 		e.ClearSceneOpenError()
 		return nil
@@ -190,20 +197,22 @@ func (e *Editor) WorkspaceState() WorkspaceState {
 	return WorkspaceReady
 }
 
-// workspaceStateKey returns a digest of WorkspaceState plus loading/error details so
-// reactive memos re-render when one scene-open error is replaced by another.
+// workspaceStateKey returns a digest of WorkspaceState plus loading/error details and
+// resolved language so reactive memos re-render when one scene-open error is replaced
+// by another or when the editor language changes.
 func (e *Editor) workspaceStateKey() string {
 	ws := e.WorkspaceState()
+	lang := e.ResolvedLanguage()
 	switch ws {
 	case WorkspaceLoading:
-		return fmt.Sprintf("loading|%s", e.projectLoadingPath)
+		return fmt.Sprintf("loading|%s|%s", lang, e.projectLoadingPath)
 	case WorkspaceSceneError:
 		if se := e.sceneOpenErr; se != nil {
-			return fmt.Sprintf("error|%s|%d|%d|%s|%s", se.Path, se.Line, se.Column, se.Message, se.Fix)
+			return fmt.Sprintf("error|%s|%s|%d|%d|%s|%s", lang, se.Path, se.Line, se.Column, se.Message, se.Fix)
 		}
-		return "error|"
+		return "error|" + lang
 	default:
-		return fmt.Sprintf("state|%d", ws)
+		return fmt.Sprintf("state|%s|%d", lang, ws)
 	}
 }
 
@@ -436,15 +445,25 @@ func (e *Editor) SceneRailObjectKind(id string) string {
 	if len(obj.Children) > 0 && obj.Sprite == nil {
 		return "group"
 	}
+	var hasCamera, hasLight, hasTrigger bool
 	for name := range obj.Components {
 		switch strings.ToLower(name) {
-		case "trigger", "trigger2d", "trigger3d":
-			return "trigger"
-		case "light", "light2d", "light3d":
-			return "light"
 		case "camera", "camera2d", "camera3d":
-			return "camera"
+			hasCamera = true
+		case "light", "light2d", "light3d":
+			hasLight = true
+		case "trigger", "trigger2d", "trigger3d":
+			hasTrigger = true
 		}
+	}
+	if hasCamera {
+		return "camera"
+	}
+	if hasLight {
+		return "light"
+	}
+	if hasTrigger {
+		return "trigger"
 	}
 	if obj.Sprite != nil {
 		return "sprite"
@@ -1041,6 +1060,8 @@ func mainHeaderView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], dirty 
 			},
 			// Flexible spacer before trailing actions.
 			core.View{Style: core.Style{FlexGrow: 1}},
+			// Live agent state pill (#1013): hidden when idle, shows working / waiting / pending review Keep & Revert.
+			toolbarAgentPillView(cx, ed, rev),
 			// Right: History (⌘Y), Search ⌘K, Play (⌘P) as the one primary button.
 			core.View{
 				Style: core.Style{
@@ -1273,11 +1294,13 @@ func leftRailSceneView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 	})
 	darkMemo := core.NewMemo(cx, func() bool {
 		_ = rev.Get()
-		return cx.Dark()
+		return ed.SpecPalette(cx).Dark
 	})
 	filesKey := core.NewMemo(cx, func() string {
 		_ = rev.Get()
 		var b strings.Builder
+		b.WriteString(ed.ResolvedLanguage())
+		b.WriteByte('|')
 		b.WriteString(ed.ScenePath)
 		b.WriteByte('|')
 		b.WriteString(ed.FilePath)
@@ -1438,7 +1461,7 @@ func leftRailSceneView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 						testID: "rail-file-scene",
 						path:   sp,
 						dot:    p.Accent.Fg,
-						onOpen: func() { _ = ed.OpenProjectFile(sp) },
+						onOpen: func() { ed.report(ed.OpenProjectFile(sp)) },
 					})
 				} else if ed.FilePath != "" {
 					fp := filepath.Base(ed.FilePath)
@@ -1495,9 +1518,10 @@ func leftRailSceneView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 						},
 					})
 				} else {
+					fileItems := make([]core.Node, 0, len(entries))
 					for _, ent := range entries {
 						e := ent
-						rows = append(rows, base.Button{
+						fileItems = append(fileItems, base.Button{
 							TestID: e.testID,
 							Label:  e.path,
 							Style: core.Style{
@@ -1543,6 +1567,18 @@ func leftRailSceneView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 							},
 						})
 					}
+					rows = append(rows, core.Scroll{
+						Style: core.Style{
+							MaxHeight: core.Pt(160),
+							Width:     core.Pct(100),
+						},
+						Children: []core.Node{
+							core.View{
+								Style:    core.Style{Gap: specSpace4},
+								Children: fileItems,
+							},
+						},
+					})
 				}
 				return core.View{
 					TestID: "left-rail-files",
@@ -1613,7 +1649,7 @@ func viewportWorkspaceStateOverlay(cx *core.Scope, ed *Editor, rev *core.Signal[
 	})
 	darkMemo := core.NewMemo(cx, func() bool {
 		_ = rev.Get()
-		return cx.Dark()
+		return ed.SpecPalette(cx).Dark
 	})
 
 	return core.Dynamic(func(cx *core.Scope) core.Node {
@@ -2236,7 +2272,12 @@ func mainStatusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 									ed.report(ed.OpenChangesPanel())
 								},
 								Children: []core.Node{
-									specIcon(lucide.GitBranch, 12, ed.SpecPalette(cx).TextFaint),
+									core.Icon{
+										SVG: lucide.GitBranch(),
+										StyleFunc: func() core.Style {
+											return core.Style{Width: core.Pt(12), Height: core.Pt(12), Color: ed.SpecPalette(cx).TextFaint, FlexShrink: 0}
+										},
+									},
 									core.Text{
 										ContentFunc: func() string {
 											_ = rev.Get()
@@ -2272,7 +2313,12 @@ func mainStatusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 									ed.report(ed.OpenMergeConflict(""))
 								},
 								Children: []core.Node{
-									specIcon(lucide.GitMerge, 12, ed.SpecPalette(cx).Warning.Fg),
+									core.Icon{
+										SVG: lucide.GitMerge(),
+										StyleFunc: func() core.Style {
+											return core.Style{Width: core.Pt(12), Height: core.Pt(12), Color: ed.SpecPalette(cx).Warning.Fg, FlexShrink: 0}
+										},
+									},
 									core.Text{
 										ContentFunc: func() string {
 											_ = rev.Get()
@@ -2301,6 +2347,7 @@ func mainStatusBarView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) cor
 								TestID: "status-playtest-report",
 								Label:  "Playtest Report",
 								StyleFunc: func() core.Style {
+									_ = rev.Get()
 									cur := ed.SpecPalette(cx)
 									st := statusBtnStyle(false)
 									st.BorderWidth = 1

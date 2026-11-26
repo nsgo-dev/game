@@ -141,6 +141,10 @@ func (e *Editor) OpenDemo() error {
 		if err := e.OnOpenDemo(); err != nil {
 			return err
 		}
+		e.sceneOpenErr = nil
+		e.projectLoading = false
+		e.projectLoadingPath = ""
+		e.proposedNewObjects = nil
 		e.setStartScreenEntered()
 		e.notify()
 		return nil
@@ -150,6 +154,10 @@ func (e *Editor) OpenDemo() error {
 			return err
 		}
 	}
+	e.sceneOpenErr = nil
+	e.projectLoading = false
+	e.projectLoadingPath = ""
+	e.proposedNewObjects = nil
 	e.CancelInspectorScrub()
 	e.resetInspectorSessionState()
 	e.resetFirstRunFlow()

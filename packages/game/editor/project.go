@@ -29,19 +29,29 @@ func (e *Editor) OpenProjectScene(path, scene string) error {
 
 // openProject opens the project file at path and, when withScene is set, the scene file at scene, or else the project's main scene when it names one.
 func (e *Editor) openProject(path, scene string, withScene bool) error {
+	clearLoading := func() {
+		if e.projectLoading || e.projectLoadingPath != "" {
+			e.projectLoading = false
+			e.projectLoadingPath = ""
+			e.notify()
+		}
+	}
 	if info, err := os.Stat(path); err == nil && info.IsDir() {
 		path = filepath.Join(path, project.FileName)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
+		clearLoading()
 		return err
 	}
 	f, err := project.Parse(data)
 	if err != nil {
+		clearLoading()
 		return fmt.Errorf("%s: %w", path, err)
 	}
 	saved, err := project.Encode(f)
 	if err != nil {
+		clearLoading()
 		return err
 	}
 	var openedDoc *sceneformat.SceneDoc
@@ -118,6 +128,7 @@ func (e *Editor) openProject(path, scene string, withScene bool) error {
 	e.sceneOpenErr = nil
 	e.projectLoading = false
 	e.projectLoadingPath = ""
+	e.proposedNewObjects = nil
 	// Save the views of the project closing before replacing tabs.
 	e.saveViewStateQuietly()
 	if e.playing {
