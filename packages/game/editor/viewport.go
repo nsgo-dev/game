@@ -880,18 +880,6 @@ func (e *Editor) drawAgentTaskOverlays(d *core.Drawing, scene *sceneformat.Built
 			continue
 		}
 		paired := e.IsSelected(ov.ObjectID) && e.OverlayKindVisible(OverlayKindSelection)
-		// Draw the pulsing/holding outline on every target object (pill drawn once per task group below).
-		DrawObjectOverlay(d, spec, ObjectOverlay{
-			Kind:                OverlayKindAgent,
-			TaskNumber:          ov.TaskNumber,
-			Holding:             ov.Holding,
-			Bounds:              bounds,
-			CanvasSize:          canvas,
-			PairedWithSelection: paired,
-			Elapsed:             now.Sub(e.overlayEpoch),
-			HasElapsed:          true,
-			ReduceMotion:        rm,
-		})
 		boxes = append(boxes, objBox{ov: ov, bounds: bounds, paired: paired})
 	}
 
@@ -902,16 +890,39 @@ func (e *Editor) drawAgentTaskOverlays(d *core.Drawing, scene *sceneformat.Built
 		holding bool
 	}
 	var groupOrder []pillGroupKey
-	anchorByGroup := make(map[pillGroupKey]objBox)
-	for _, b := range boxes {
+	anchorIdxByGroup := make(map[pillGroupKey]int)
+	for i, b := range boxes {
 		k := pillGroupKey{taskID: b.ov.TaskID, holding: b.ov.Holding}
-		prev, exists := anchorByGroup[k]
+		prevIdx, exists := anchorIdxByGroup[k]
 		if !exists {
 			groupOrder = append(groupOrder, k)
-			anchorByGroup[k] = b
-		} else if b.bounds.Origin.Y < prev.bounds.Origin.Y {
-			anchorByGroup[k] = b
+			anchorIdxByGroup[k] = i
+		} else if b.bounds.Origin.Y < boxes[prevIdx].bounds.Origin.Y {
+			anchorIdxByGroup[k] = i
 		}
+	}
+	isAnchor := make([]bool, len(boxes))
+	for _, idx := range anchorIdxByGroup {
+		isAnchor[idx] = true
+	}
+
+	// Draw outline-only on non-anchor target objects (anchors draw outline + pill once below so
+	// semi-transparent pulsing/holding outlines are never double-stroked).
+	for i, b := range boxes {
+		if isAnchor[i] {
+			continue
+		}
+		DrawObjectOverlay(d, spec, ObjectOverlay{
+			Kind:                OverlayKindAgent,
+			TaskNumber:          b.ov.TaskNumber,
+			Holding:             b.ov.Holding,
+			Bounds:              b.bounds,
+			CanvasSize:          canvas,
+			PairedWithSelection: b.paired,
+			Elapsed:             now.Sub(e.overlayEpoch),
+			HasElapsed:          true,
+			ReduceMotion:        rm,
+		})
 	}
 
 	overlapsAny := func(r core.Bounds, placed []core.Bounds) bool {
@@ -928,7 +939,7 @@ func (e *Editor) drawAgentTaskOverlays(d *core.Drawing, scene *sceneformat.Built
 	var placed []core.Bounds
 
 	for _, k := range groupOrder {
-		b := anchorByGroup[k]
+		b := boxes[anchorIdxByGroup[k]]
 		stackOff := float32(0)
 		if b.paired {
 			stackOff = 24
@@ -1290,38 +1301,49 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 
 	// Animate active Agent working pulses (1.6 s) and change overlay fade-ins (240 ms).
 	// Disabled completely when ReduceMotion is enabled so nothing fades or pulses.
+	// Uses an explicit running flag so a subsequent change fade re-arms the timer cleanly
+	// after an earlier 240 ms fade has completed.
 	overlayAnimRev := core.NewSignal(cx, uint64(0))
-	animateOverlays := core.NewMemo(cx, func() bool {
-		_ = rev.Get()
-		if cx.Env().ReduceMotion() || ed.ReduceMotion() {
-			return false
-		}
-		return ed.hasAnimatedOverlays()
-	})
-	cx.Effect(func() {
-		if !animateOverlays.Get() {
-			return
-		}
-		stopped := false
+	{
 		var stop func() bool
+		running := false
+		disposed := false
+		stopTimer := func() {
+			if stop != nil {
+				stop()
+				stop = nil
+			}
+			running = false
+		}
 		var tick func()
 		tick = func() {
-			if stopped {
+			if disposed {
 				return
 			}
 			overlayAnimRev.Set(overlayAnimRev.Get() + 1)
 			if !cx.Env().ReduceMotion() && ed.hasAnimatedOverlays() {
 				stop = cx.AfterFunc(33*time.Millisecond, tick)
+			} else {
+				stop = nil
+				running = false
 			}
 		}
-		stop = cx.AfterFunc(33*time.Millisecond, tick)
-		cx.Cleanup(func() {
-			stopped = true
-			if stop != nil {
-				stop()
+		cx.Effect(func() {
+			_ = rev.Get()
+			if cx.Env().ReduceMotion() || !ed.hasAnimatedOverlays() {
+				stopTimer()
+				return
+			}
+			if !running {
+				running = true
+				stop = cx.AfterFunc(33*time.Millisecond, tick)
 			}
 		})
-	})
+		cx.Cleanup(func() {
+			disposed = true
+			stopTimer()
+		})
+	}
 	var g viewportGestures
 	var g3 viewport3DGestures
 	// frame is the view the 3D viewport's flight locks the pointer to.

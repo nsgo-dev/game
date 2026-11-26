@@ -2,6 +2,7 @@ package editor
 
 import (
 	"fmt"
+	"maps"
 	"math"
 	"slices"
 	"strings"
@@ -190,6 +191,29 @@ func specHandleFill(p SpecPalette) core.Color {
 	return p.Raised
 }
 
+// isWideOverlayRune reports whether r is a fullwidth/CJK rune that occupies roughly twice the
+// horizontal advance of an ASCII glyph in overlay pills.
+func isWideOverlayRune(r rune) bool {
+	return (r >= 0x2E80 && r <= 0x9FFF) ||
+		(r >= 0xAC00 && r <= 0xD7AF) ||
+		(r >= 0xF900 && r <= 0xFAFF) ||
+		(r >= 0xFF00 && r <= 0xFFEF)
+}
+
+// overlayTextWidth estimates the drawn width of s in canvas points, matching asciiAdvance per rune
+// for ASCII/Latin/arrow strings while expanding CJK/fullwidth characters so localized pills never clip.
+func overlayTextWidth(s string, asciiAdvance float32) float32 {
+	var units float32
+	for _, r := range s {
+		if isWideOverlayRune(r) {
+			units += 1.85
+		} else {
+			units += 1
+		}
+	}
+	return units * asciiAdvance
+}
+
 // DrawObjectOverlay is the single Spec viewport overlay drawing helper in editor.
 // It draws any of the seven Spec overlay kinds (Selection, Agent working, Added, Changed,
 // Removed, Problem, Focused change in Review) using exclusively SpecPalette tokens at the
@@ -346,7 +370,7 @@ func drawSelectionSpecOverlay(d *core.Drawing, p SpecPalette, ov ObjectOverlay, 
 	}
 	font := core.Font{Size: 10.5, Weight: 600}
 	const tagH float32 = 18
-	tagW := float32(len([]rune(ov.Label)))*6.3 + 12
+	tagW := overlayTextWidth(ov.Label, 6.3) + 12
 	tx, ty := clampOverlayPillPos((minX+maxX)*0.5, minY, maxY, handleHalf, tagW, tagH, ov.PillStackOffset, ov.CanvasSize)
 
 	d.SetFillColor(p.Accent.Fg)
@@ -387,7 +411,7 @@ func drawAgentSpecOverlay(d *core.Drawing, p SpecPalette, ov ObjectOverlay, bx, 
 
 	const pillH float32 = 22
 	fontLbl := core.Font{Size: 11, Weight: 500}
-	textW := float32(len([]rune(ov.Label))) * 6.2
+	textW := overlayTextWidth(ov.Label, 6.2)
 	var pillW float32
 	if ov.TaskNumber > 0 {
 		clockW := float32(0)
@@ -417,15 +441,16 @@ func drawAgentSpecOverlay(d *core.Drawing, p SpecPalette, ov ObjectOverlay, bx, 
 	if ov.TaskNumber > 0 {
 		fontNum := core.Font{Size: 10, Weight: 600}
 		numStr := fmt.Sprintf("%d", ov.TaskNumber)
+		numHalfW := float32(len(numStr)) * 3
 		badgeCX := px + 12
 		badgeCY := py + pillH*0.5
 		if ov.Holding {
 			d.SetStrokeColor(p.Agent.Edge).SetLineWidth(1.5)
 			d.BeginPath().Ellipse(badgeCX, badgeCY, 7.5, 7.5).Stroke()
-			d.SetFillColor(p.TextSecondary).FillText(numStr, badgeCX-3, badgeCY+3.5, fontNum)
+			d.SetFillColor(p.TextSecondary).FillText(numStr, badgeCX-numHalfW, badgeCY+3.5, fontNum)
 		} else {
 			d.SetFillColor(p.Agent.Fg).BeginPath().Ellipse(badgeCX, badgeCY, 8, 8).Fill()
-			d.SetFillColor(p.Agent.OnFill).FillText(numStr, badgeCX-3, badgeCY+3.5, fontNum)
+			d.SetFillColor(p.Agent.OnFill).FillText(numStr, badgeCX-numHalfW, badgeCY+3.5, fontNum)
 		}
 		curX := px + 26
 		if ov.Holding {
@@ -533,15 +558,15 @@ func drawChangeSpecOverlay(d *core.Drawing, p SpecPalette, ov ObjectOverlay, bas
 	fontBody := core.Font{Size: 11, Weight: 500}
 	var pillW float32
 	secondary := ov.SecondaryLabel
+	nameW := overlayTextWidth(label, 6.4)
 	if base == OverlayKindRemoved {
 		if secondary == "" {
 			secondary = "removed"
 		}
-		nameW := float32(len([]rune(label))) * 6.4
-		secW := float32(len([]rune(secondary))) * 6.0
+		secW := overlayTextWidth(secondary, 6.0)
 		pillW = 8 + nameW + 6 + secW + 8
 	} else {
-		pillW = 8 + float32(len([]rune(label)))*6.4 + 8
+		pillW = 8 + nameW + 8
 	}
 
 	px, py := clampOverlayPillPos(bx+bw*0.5, by, by+bh, pad, pillW, pillH, ov.PillStackOffset, ov.CanvasSize)
@@ -562,7 +587,6 @@ func drawChangeSpecOverlay(d *core.Drawing, p SpecPalette, ov ObjectOverlay, bas
 	fg := ui.Alpha(role.Fg, alpha)
 	if base == OverlayKindRemoved {
 		nameX := px + 8
-		nameW := float32(len([]rune(label))) * 6.4
 		d.SetFillColor(fg).FillText(label, nameX, py+14.5, fontMono)
 		// Explicit strikethrough line across the removed object's name (never color alone).
 		strikeY := py + pillH*0.5
@@ -596,7 +620,7 @@ func drawProblemSpecOverlay(d *core.Drawing, p SpecPalette, ov ObjectOverlay, bx
 	const pillH float32 = 22
 	const iconW float32 = 12
 	font := core.Font{Size: 11, Weight: 600}
-	pillW := 8 + iconW + 6 + float32(len([]rune(ov.Label)))*6.3 + 8
+	pillW := 8 + iconW + 6 + overlayTextWidth(ov.Label, 6.3) + 8
 	px, py := clampOverlayPillPos(bx+bw*0.5, by, by+bh, pad, pillW, pillH, ov.PillStackOffset, ov.CanvasSize)
 
 	// Solid filled Problem pill with alert triangle icon + message in Problem.OnFill.
@@ -699,6 +723,22 @@ func (e *Editor) ClearReduceMotion() {
 	e.notify()
 }
 
+func cloneSceneOverlayEntry(ent SceneOverlayEntry) SceneOverlayEntry {
+	if ent.GhostBounds != nil {
+		r := *ent.GhostBounds
+		ent.GhostBounds = &r
+	}
+	if ent.GhostPos3D != nil {
+		v := *ent.GhostPos3D
+		ent.GhostPos3D = &v
+	}
+	if ent.GhostSize3D != nil {
+		v := *ent.GhostSize3D
+		ent.GhostSize3D = &v
+	}
+	return ent
+}
+
 // SetSceneOverlays replaces the active live scene overlays (agent working, added, changed, removed,
 // focused review change) drawn over the open scene in both 2D and 3D viewports.
 func (e *Editor) SetSceneOverlays(entries []SceneOverlayEntry) {
@@ -719,19 +759,7 @@ func (e *Editor) SetSceneOverlays(entries []SceneOverlayEntry) {
 		if ent.StartedAt.IsZero() {
 			ent.StartedAt = now
 		}
-		if ent.GhostBounds != nil {
-			r := *ent.GhostBounds
-			ent.GhostBounds = &r
-		}
-		if ent.GhostPos3D != nil {
-			v := *ent.GhostPos3D
-			ent.GhostPos3D = &v
-		}
-		if ent.GhostSize3D != nil {
-			v := *ent.GhostSize3D
-			ent.GhostSize3D = &v
-		}
-		cp[i] = ent
+		cp[i] = cloneSceneOverlayEntry(ent)
 	}
 	e.sceneOverlays = cp
 	e.notify()
@@ -745,18 +773,7 @@ func (e *Editor) AddSceneOverlay(entry SceneOverlayEntry) {
 	if entry.StartedAt.IsZero() {
 		entry.StartedAt = e.overlayNow()
 	}
-	if entry.GhostBounds != nil {
-		r := *entry.GhostBounds
-		entry.GhostBounds = &r
-	}
-	if entry.GhostPos3D != nil {
-		v := *entry.GhostPos3D
-		entry.GhostPos3D = &v
-	}
-	if entry.GhostSize3D != nil {
-		v := *entry.GhostSize3D
-		entry.GhostSize3D = &v
-	}
+	entry = cloneSceneOverlayEntry(entry)
 	if entry.ID != "" {
 		for i := range e.sceneOverlays {
 			if e.sceneOverlays[i].ID == entry.ID {
@@ -800,20 +817,22 @@ func (e *Editor) ClearSceneOverlays() {
 	e.SetSceneOverlays(nil)
 }
 
-// SceneOverlays returns a copy of the active live scene overlay entries.
+// SceneOverlays returns a deep copy of the active live scene overlay entries.
 func (e *Editor) SceneOverlays() []SceneOverlayEntry {
 	if e == nil || len(e.sceneOverlays) == 0 {
 		return nil
 	}
 	out := make([]SceneOverlayEntry, len(e.sceneOverlays))
-	copy(out, e.sceneOverlays)
+	for i, ent := range e.sceneOverlays {
+		out[i] = cloneSceneOverlayEntry(ent)
+	}
 	return out
 }
 
 // hasAnimatedOverlays reports whether any currently visible scene or task overlay needs
 // active animation ticks (pulsing agent outline or fading change overlay < 240 ms).
 func (e *Editor) hasAnimatedOverlays() bool {
-	if e == nil || e.playing || e.ReduceMotion() {
+	if e == nil || e.playing || e.HistoryPreviewActive() || e.ReduceMotion() || !e.ShowAgentChanges() {
 		return false
 	}
 	if e.OverlayKindVisible(OverlayKindAgent) {
@@ -851,13 +870,30 @@ func (e *Editor) hasAnimatedOverlays() bool {
 
 func (e *Editor) effectiveOverlayLegendSet() map[OverlayKind]bool {
 	set := make(map[OverlayKind]bool, 6)
-	if e != nil && e.settings.OverlayLegend != nil {
-		for _, id := range *e.settings.OverlayLegend {
+	if e != nil {
+		e.settingsMu.RLock()
+		legend := e.settings.OverlayLegend
+		hidden := e.settings.HiddenOverlayKinds
+		if legend != nil {
+			for _, id := range *legend {
+				k := OverlayKind(id)
+				if k.IsLegendKind() {
+					set[k] = true
+				}
+			}
+			e.settingsMu.RUnlock()
+			return set
+		}
+		for _, k := range OverlayLegendKinds() {
+			set[k] = true
+		}
+		for _, id := range hidden {
 			k := OverlayKind(id)
 			if k.IsLegendKind() {
-				set[k] = true
+				delete(set, k)
 			}
 		}
+		e.settingsMu.RUnlock()
 		return set
 	}
 	for _, k := range OverlayLegendKinds() {
@@ -944,26 +980,34 @@ func (e *Editor) SetOverlayLegendKinds(kinds []OverlayKind) error {
 
 func (e *Editor) commitOverlayLegendSet(set map[OverlayKind]bool) error {
 	list := make([]string, 0, len(set))
-	for k, on := range set {
-		if on && k.IsLegendKind() {
+	var hidden []string
+	for _, k := range OverlayLegendKinds() {
+		if set[k] {
 			list = append(list, string(k))
+		} else {
+			hidden = append(hidden, string(k))
 		}
 	}
 	slices.Sort(list)
-	cur := e.Settings()
-	cur.OverlayLegend = &list
-	e.settings = cur
+	slices.Sort(hidden)
+	e.settingsMu.Lock()
+	e.normalizeSettingsLocked()
+	e.settings.OverlayLegend = &list
+	if len(hidden) > 0 {
+		e.settings.HiddenOverlayKinds = hidden
+	} else {
+		e.settings.HiddenOverlayKinds = nil
+	}
+	e.settingsMu.Unlock()
 
 	// Keep legacy problemOverlayHidden in sync with the Problem legend toggle.
 	e.problems.mu.Lock()
 	e.problems.problemOverlayHidden = !set[OverlayKindProblem]
 	e.problems.mu.Unlock()
 
-	if e.SettingsPath != "" {
-		if err := SaveEditorSettings(e.SettingsPath, &cur); err != nil {
-			e.notify()
-			return err
-		}
+	if err := e.persistEditorSettings(); err != nil {
+		e.notify()
+		return err
 	}
 	e.notify()
 	return nil
@@ -1015,9 +1059,10 @@ func (e *Editor) objectDisplayName(bo *sceneformat.BuiltObject, fallbackID strin
 }
 
 // drawSceneOverlays2D draws all live SceneOverlayEntry items (Agent working, Added, Changed,
-// Removed, Focused change) in the 2D viewport through DrawObjectOverlay, honoring legend toggles.
+// Removed, Focused change) in the 2D viewport through DrawObjectOverlay, honoring legend toggles
+// and Editor.ShowAgentChanges().
 func (e *Editor) drawSceneOverlays2D(d *core.Drawing, scene *sceneformat.BuiltScene) {
-	if e == nil || d == nil || scene == nil || e.playing || len(e.sceneOverlays) == 0 {
+	if e == nil || d == nil || scene == nil || e.playing || !e.ShowAgentChanges() || len(e.sceneOverlays) == 0 {
 		return
 	}
 	spec := e.SpecPalette(nil)
@@ -1061,9 +1106,10 @@ func (e *Editor) drawSceneOverlays2D(d *core.Drawing, scene *sceneformat.BuiltSc
 			continue
 		}
 
-		pairedSel := ent.Kind == OverlayKindAgent && e.IsSelected(ent.ObjectID) && e.OverlayKindVisible(OverlayKindSelection)
+		selOnObj := e.IsSelected(ent.ObjectID) && e.OverlayKindVisible(OverlayKindSelection)
+		pairedSel := ent.Kind == OverlayKindAgent && selOnObj
 		stackOff := float32(0)
-		if pairedSel {
+		if selOnObj && ent.Kind != OverlayKindSelection {
 			stackOff = 24
 		}
 		DrawObjectOverlay(d, spec, ObjectOverlay{
@@ -1082,12 +1128,8 @@ func (e *Editor) drawSceneOverlays2D(d *core.Drawing, scene *sceneformat.BuiltSc
 	}
 }
 
-// projectObject3DBounds projects a 3D object's 8 corners onto canvas-space 2D bounds.
-func (e *Editor) projectObject3DBounds(o *sceneformat.ObjectDoc, parent aff3, vc view3DCam, w, h float32) (core.Bounds, bool) {
-	if o == nil {
-		return core.Bounds{}, false
-	}
-	corners := e.objectCorners3DUnder(o, parent)
+// projectCorners3DBounds projects 8 world-space 3D corners onto canvas-space 2D bounds.
+func projectCorners3DBounds(corners [8][3]float32, vc view3DCam, w, h float32) (core.Bounds, bool) {
 	var minX, minY, maxX, maxY float32
 	anyVis := false
 	for _, c := range corners {
@@ -1113,11 +1155,33 @@ func (e *Editor) projectObject3DBounds(o *sceneformat.ObjectDoc, parent aff3, vc
 	}, true
 }
 
+// projectBox3DBounds projects an axis-aligned 3D box centered at pos with extents ext onto canvas bounds.
+func projectBox3DBounds(pos, ext [3]float32, vc view3DCam, w, h float32) (core.Bounds, bool) {
+	hx, hy, hz := ext[0]*0.5, ext[1]*0.5, ext[2]*0.5
+	var corners [8][3]float32
+	for i, s := range boxSigns3D {
+		corners[i] = [3]float32{
+			pos[0] + float32(s[0])*hx,
+			pos[1] + float32(s[1])*hy,
+			pos[2] + float32(s[2])*hz,
+		}
+	}
+	return projectCorners3DBounds(corners, vc, w, h)
+}
+
+// projectObject3DBounds projects a 3D object's 8 corners onto canvas-space 2D bounds.
+func (e *Editor) projectObject3DBounds(o *sceneformat.ObjectDoc, parent aff3, vc view3DCam, w, h float32) (core.Bounds, bool) {
+	if o == nil {
+		return core.Bounds{}, false
+	}
+	return projectCorners3DBounds(e.objectCorners3DUnder(o, parent), vc, w, h)
+}
+
 // drawSceneOverlays3D draws Spec Agent working, Added, Changed, Removed, Focused change, and Problem
 // overlays on projected 3D object bounds in the 3D viewport through DrawObjectOverlay, sharing the
 // exact same legend toggles as the 2D viewport.
 func (e *Editor) drawSceneOverlays3D(d *core.Drawing, w, h float32) {
-	if e == nil || d == nil || e.playing {
+	if e == nil || d == nil || e.playing || e.HistoryPreviewActive() {
 		return
 	}
 	spec := e.SpecPalette(nil)
@@ -1155,7 +1219,8 @@ func (e *Editor) drawSceneOverlays3D(d *core.Drawing, w, h float32) {
 	}
 
 	// 1. Live agent task overlays in 3D.
-	if e.OverlayKindVisible(OverlayKindAgent) {
+	showAgentChanges := e.ShowAgentChanges()
+	if showAgentChanges && e.OverlayKindVisible(OverlayKindAgent) {
 		for _, ov := range e.SceneTaskOverlays() {
 			ref, ok := byID[ov.ObjectID]
 			if !ok {
@@ -1187,58 +1252,61 @@ func (e *Editor) drawSceneOverlays3D(d *core.Drawing, w, h float32) {
 	}
 
 	// 2. Live scene overlay entries (Agent working, Added, Changed, Removed, Focused change).
-	for _, ent := range e.sceneOverlays {
-		checkKind := ent.Kind
-		if ent.Kind == OverlayKindFocusedChange {
-			base := ent.ChangeKind
-			if !base.IsChangeKind() {
-				base = OverlayKindAdded
+	if showAgentChanges {
+		for _, ent := range e.sceneOverlays {
+			checkKind := ent.Kind
+			if ent.Kind == OverlayKindFocusedChange {
+				base := ent.ChangeKind
+				if !base.IsChangeKind() {
+					base = OverlayKindAdded
+				}
+				checkKind = base
 			}
-			checkKind = base
-		}
-		if !e.OverlayKindVisible(checkKind) {
-			continue
-		}
-		var bounds core.Bounds
-		var vis bool
-		if ref, ok := byID[ent.ObjectID]; ok {
-			bounds, vis = e.projectObject3DBounds(ref.obj, ref.parent, vc, w, h)
-		} else if ent.GhostPos3D != nil && (ent.Kind == OverlayKindRemoved || (ent.Kind == OverlayKindFocusedChange && ent.ChangeKind == OverlayKindRemoved)) {
-			pos := *ent.GhostPos3D
-			ext := [3]float32{16, 16, 16}
-			if ent.GhostSize3D != nil {
-				ext = *ent.GhostSize3D
+			if !e.OverlayKindVisible(checkKind) {
+				continue
 			}
-			ghost := &sceneformat.ObjectDoc{X: pos[0], Y: pos[1], PosZ: pos[2], Depth: ext[2]}
-			bounds, vis = e.projectObject3DBounds(ghost, ident3, vc, w, h)
+			var bounds core.Bounds
+			var vis bool
+			if ref, ok := byID[ent.ObjectID]; ok {
+				bounds, vis = e.projectObject3DBounds(ref.obj, ref.parent, vc, w, h)
+			} else if ent.GhostPos3D != nil && (ent.Kind == OverlayKindRemoved || (ent.Kind == OverlayKindFocusedChange && ent.ChangeKind == OverlayKindRemoved)) {
+				pos := *ent.GhostPos3D
+				ext := [3]float32{16, 16, 16}
+				if ent.GhostSize3D != nil {
+					ext = *ent.GhostSize3D
+				}
+				bounds, vis = projectBox3DBounds(pos, ext, vc, w, h)
+			}
+			if !vis {
+				continue
+			}
+			selOnObj := e.IsSelected(ent.ObjectID) && e.OverlayKindVisible(OverlayKindSelection)
+			pairedSel := ent.Kind == OverlayKindAgent && selOnObj
+			stackOff := float32(0)
+			if selOnObj && ent.Kind != OverlayKindSelection {
+				stackOff = 24
+			}
+			DrawObjectOverlay(d, spec, ObjectOverlay{
+				Kind:                ent.Kind,
+				ChangeKind:          ent.ChangeKind,
+				Label:               ent.Label,
+				SecondaryLabel:      ent.SecondaryLabel,
+				Bounds:              bounds,
+				CanvasSize:          canvas,
+				PairedWithSelection: pairedSel,
+				PillStackOffset:     stackOff,
+				Elapsed:             now.Sub(ent.StartedAt),
+				HasElapsed:          true,
+				ReduceMotion:        rm,
+			})
 		}
-		if !vis {
-			continue
-		}
-		pairedSel := ent.Kind == OverlayKindAgent && e.IsSelected(ent.ObjectID) && e.OverlayKindVisible(OverlayKindSelection)
-		stackOff := float32(0)
-		if pairedSel {
-			stackOff = 24
-		}
-		DrawObjectOverlay(d, spec, ObjectOverlay{
-			Kind:                ent.Kind,
-			ChangeKind:          ent.ChangeKind,
-			Label:               ent.Label,
-			SecondaryLabel:      ent.SecondaryLabel,
-			Bounds:              bounds,
-			CanvasSize:          canvas,
-			PairedWithSelection: pairedSel,
-			PillStackOffset:     stackOff,
-			Elapsed:             now.Sub(ent.StartedAt),
-			HasElapsed:          true,
-			ReduceMotion:        rm,
-		})
 	}
 
-	// 3. Live Problem overlays in 3D.
+	// 3. Live Problem overlays in 3D (sorted deterministically by object ID).
 	if e.OverlayKindVisible(OverlayKindProblem) {
 		objProbs := e.openSceneObjectProblems()
-		for objID, probs := range objProbs {
+		for _, objID := range slices.Sorted(maps.Keys(objProbs)) {
+			probs := objProbs[objID]
 			if len(probs) == 0 {
 				continue
 			}
@@ -1254,11 +1322,16 @@ func (e *Editor) drawSceneOverlays3D(d *core.Drawing, w, h float32) {
 			if len(probs) > 1 {
 				label = fmt.Sprintf("%s (+%d)", label, len(probs)-1)
 			}
+			stackOff := float32(0)
+			if e.IsSelected(objID) && e.OverlayKindVisible(OverlayKindSelection) {
+				stackOff = 24
+			}
 			DrawObjectOverlay(d, spec, ObjectOverlay{
-				Kind:       OverlayKindProblem,
-				Label:      label,
-				Bounds:     bounds,
-				CanvasSize: canvas,
+				Kind:            OverlayKindProblem,
+				Label:           label,
+				Bounds:          bounds,
+				CanvasSize:      canvas,
+				PillStackOffset: stackOff,
 			})
 		}
 	}

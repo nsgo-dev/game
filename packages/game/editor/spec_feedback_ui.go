@@ -777,25 +777,17 @@ func viewportOverlayLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 		dark     bool
 		viewMode ViewMode
 		lang     string
-		mask     uint8
 	}
 	keyMemo := core.NewMemo(cx, func() legendStateKey {
 		_ = rev.Get()
 		if ed == nil || ed.Playing() || ed.HistoryPreviewActive() || !ed.OverlayLegendOpen() {
 			return legendStateKey{}
 		}
-		var mask uint8
-		for i, k := range OverlayLegendKinds() {
-			if ed.OverlayKindVisible(k) {
-				mask |= 1 << uint(i)
-			}
-		}
 		return legendStateKey{
 			visible:  true,
-			dark:     cx.Dark(),
+			dark:     ed.SpecPalette(cx).Dark,
 			viewMode: ed.ViewMode,
 			lang:     ed.ResolvedLanguage(),
-			mask:     mask,
 		}
 	})
 
@@ -859,27 +851,22 @@ func viewportOverlayLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 				}
 
 				legendRow := func(kind OverlayKind) core.Node {
-					on := ed.OverlayKindVisible(kind)
-					role := legendRole(kind)
-					label := legendLabel(kind)
-					swatchAlpha := float32(1)
-					textColor := p.TextSecondary
-					chipBg := ui.Alpha(role.Fill, 0.7)
-					chipBorder := ui.Alpha(role.Edge, 0.45)
-					if !on {
-						swatchAlpha = 0.32
-						textColor = p.TextFaint
-						chipBg = core.Transparent
-						chipBorder = core.Transparent
-					}
+					kindCopy := kind
+					role := legendRole(kindCopy)
+					label := legendLabel(kindCopy)
 
 					swatch := core.Canvas{
 						Style: core.Style{Width: core.Pt(18), Height: core.Pt(12), FlexShrink: 0},
 						Draw: func(d *core.Drawing, _ core.Size) {
+							_ = rev.Get()
+							swatchAlpha := float32(1)
+							if !ed.OverlayKindVisible(kindCopy) {
+								swatchAlpha = 0.32
+							}
 							d.Save()
 							edge := ui.Alpha(role.Edge, swatchAlpha)
 							fg := ui.Alpha(role.Fg, swatchAlpha)
-							switch kind {
+							switch kindCopy {
 							case OverlayKindSelection:
 								// 1.5 px solid accent line + two corner handle squares.
 								d.SetStrokeColor(edge).SetLineWidth(1.5)
@@ -928,9 +915,8 @@ func viewportOverlayLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 						},
 					}
 
-					kindCopy := kind
 					return core.View{
-						TestID:    "legend-" + string(kind),
+						TestID:    "legend-" + string(kindCopy),
 						Role:      core.RoleSwitch,
 						Label:     label,
 						Checked:   func() bool { _ = rev.Get(); return ed.OverlayKindVisible(kindCopy) },
@@ -938,28 +924,44 @@ func viewportOverlayLegendView(cx *core.Scope, ed *Editor, rev *core.Signal[uint
 						OnPress: func(core.PressEvent) {
 							ed.report(ed.ToggleOverlayKind(kindCopy))
 						},
-						Style: core.Style{
-							Direction:    core.Row,
-							AlignItems:   core.AlignCenter,
-							Gap:          3,
-							Height:       core.Pt(20),
-							Padding:      core.Symmetric(0, 4),
-							CornerRadius: 5,
-							Background:   chipBg,
-							BorderWidth:  1,
-							BorderColor:  chipBorder,
-							FlexShrink:   0,
-							FocusVisible: p.FocusRing(2),
+						StyleFunc: func() core.Style {
+							_ = rev.Get()
+							chipBg := ui.Alpha(role.Fill, 0.7)
+							chipBorder := ui.Alpha(role.Edge, 0.45)
+							if !ed.OverlayKindVisible(kindCopy) {
+								chipBg = core.Transparent
+								chipBorder = core.Transparent
+							}
+							return core.Style{
+								Direction:    core.Row,
+								AlignItems:   core.AlignCenter,
+								Gap:          3,
+								Height:       core.Pt(20),
+								Padding:      core.Symmetric(0, 4),
+								CornerRadius: 5,
+								Background:   chipBg,
+								BorderWidth:  1,
+								BorderColor:  chipBorder,
+								FlexShrink:   0,
+								FocusVisible: p.FocusRing(2),
+							}
 						},
 						Children: []core.Node{
 							swatch,
 							core.Text{
 								Content:  label,
 								MaxLines: 1,
-								Style: core.Style{
-									FontSize:   10,
-									FontWeight: 500,
-									Color:      textColor,
+								StyleFunc: func() core.Style {
+									_ = rev.Get()
+									textColor := p.TextSecondary
+									if !ed.OverlayKindVisible(kindCopy) {
+										textColor = p.TextFaint
+									}
+									return core.Style{
+										FontSize:   10,
+										FontWeight: 500,
+										Color:      textColor,
+									}
 								},
 							},
 						},

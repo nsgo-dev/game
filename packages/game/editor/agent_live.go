@@ -773,12 +773,12 @@ func (e *Editor) HasAgentLiveOverlays() bool {
 }
 
 // OverlayLegendKindEnabled reports whether the Spec overlay legend row kind is currently toggled on.
-// All kinds default to enabled unless persisted in EditorSettings.HiddenOverlayKinds.
+// All kinds default to enabled unless persisted in EditorSettings.OverlayLegend / HiddenOverlayKinds.
 func (e *Editor) OverlayLegendKindEnabled(kind OverlayLegendKind) bool {
 	if e == nil || !kind.Valid() {
 		return true
 	}
-	return !slices.Contains(e.settings.HiddenOverlayKinds, string(kind))
+	return e.OverlayKindVisible(OverlayKind(kind))
 }
 
 // SetOverlayLegendKind turns the Spec overlay legend row kind on or off and persists the choice
@@ -790,29 +790,7 @@ func (e *Editor) SetOverlayLegendKind(kind OverlayLegendKind, on bool) error {
 	if !kind.Valid() {
 		return fmt.Errorf("editor: unknown overlay legend kind %q", kind)
 	}
-	if e.OverlayLegendKindEnabled(kind) == on {
-		return nil
-	}
-	cur := e.Settings()
-	k := string(kind)
-	if on {
-		cur.HiddenOverlayKinds = slices.DeleteFunc(cur.HiddenOverlayKinds, func(s string) bool { return s == k })
-		if len(cur.HiddenOverlayKinds) == 0 {
-			cur.HiddenOverlayKinds = nil
-		}
-	} else if !slices.Contains(cur.HiddenOverlayKinds, k) {
-		cur.HiddenOverlayKinds = append(cur.HiddenOverlayKinds, k)
-		slices.Sort(cur.HiddenOverlayKinds)
-	}
-	e.settings = cur
-	if e.SettingsPath != "" {
-		if err := SaveEditorSettings(e.SettingsPath, &cur); err != nil {
-			e.notify()
-			return err
-		}
-	}
-	e.notify()
-	return nil
+	return e.SetOverlayKindVisible(OverlayKind(kind), on)
 }
 
 // ToggleOverlayLegendKind flips the Spec overlay legend row kind between shown and hidden
