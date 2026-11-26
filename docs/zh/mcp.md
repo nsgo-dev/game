@@ -297,7 +297,9 @@ claude mcp add game-editor -- nsgo game mcp
 | `game_check` | run | 无 | 运行问题面板的检查（使用编辑器组件注册表的 `assetcheck`，以及 `project.Check`，并包含编辑器中打开且未保存的文档），返回其中的可见问题，每条带文件、从 1 开始的行号、列号（可定位时）和消息。 |
 | `problem_propose_fix` | read | `problem`（必填）、`explanation`（必填）、`edit`（必填） | 在克隆场景上校验针对实时问题的修复建议，计算精确的 `-`/`+` YAML 差异，并在编辑器的 Agent 面板展示审查卡片（含应用修复、定位查看、忽略与提问）。绝不自动应用修复或修改任何文件——没有任何 MCP 工具会直接应用修复。 |
 | `history_list` | read | `author`（`all`、`you`、`agent`）、`limit`（1–500，默认 50）（均可选） | 读取编辑器统一的 History 时间线（按最新优先排列），包含手动编辑、智能体回合、外部 Git 重载与保存点的作者、摘要、详情、涉及文件、时间戳、变更/保留计数、未保存状态以及当前预览条目 ID。 |
-| `review_status` | read | 无 | 返回当前或最近一次逐项智能体回合审核的状态：是否打开或挂起、用户请求文本、按文件统计摘要、每项改动的已读与撤回标记、当前阻塞项以及最近一次保留/撤回结果。仅限只读：保留或撤回始终由开发者决定。 |
+| `review_status` | read | 无 | 返回当前或最近一次逐项智能体回合审核的状态：是否打开或挂起、用户请求文本、轮次状态、按文件统计摘要、每项改动的已读与撤回标记、当前阻塞项以及最近一次保留/撤回结果。绝不暴露未发送草稿批注，强制执行隐私策略，且保留或撤回始终由开发者决定。 |
+| `review_notes_get` | read | 无 | 读取当前智能体回合审核的轮次状态、改动列表以及作者通过 **Send N notes** 或 **Revert and redo with this note** 显式发送的批注（含 `change_id`、`file`、`object`、`field`、`kind`、`note`、`revert_first`）。未发送草稿与发送前移除的批注绝不返回。 |
+| `review_redo` | edit | `changes`（必填非空数组，每项含 `change_id` 及可选 `detail`、`x`、`y`、`component`、`fields`、`file_content`、`old_value`、`new_value`、`delta`、`yaml_lines`） | 仅重做当前审核中作者留有批注的改动，在同一回合内推进至 Round 2+ 并以只读方式保留先前轮次。未加批注的改动（以及 `file_content` 中夹带的未批注项）会被原子拒绝；重做项重新标为未读且 Why 更新为 `"Redone from your note: …"`，**Keep** 仍将最新一轮作为单个撤销步骤应用。 |
 | `game_playtest` | run | `file`、`run`、`count`、`seeds`、`out`、`recordings`（均可选） | 校验 `playtest.yaml`，无头运行配置好的机器人试玩并按种子录制 `.replay.yaml` 回放，写出 YAML 报告并返回每项指标的值、目标状态（`met` 或 `missed`）以及热力图坐标数据。 |
 | `playtest_define` | edit | `metric`（必填）、`file`、`rationale`、`replace`（可选） | 校验提议的试玩指标，生成规范的 `playtest.yaml` 差异并作为待审查提案排队（`Server.PlaytestReviews` / `ApplyPlaytestReview` / `DismissPlaytestReview`），在审查确认前不改写磁盘上的 `playtest.yaml`。 |
 | `playtest_report` | edit | `file`、`open`、`read`、`suggestions`、`watchRun`（均可选） | 打开或查看编辑器的试玩报告界面，加载 `playtest.report.yaml` 报告文件，更新 Agent 解读与可执行建议，或在播放模式中打开指定轮次（从 1 开始）已保存的 `.replay.yaml` 回放录制。 |

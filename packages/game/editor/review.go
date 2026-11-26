@@ -24,6 +24,14 @@ import (
 const (
 	// maxReviewFileBytes bounds individual before/after snapshots accepted by StartTurnReview (8 MiB).
 	maxReviewFileBytes = 8 << 20
+	// maxReviewNoteLen bounds the length (in runes) of one change-scoped review note.
+	maxReviewNoteLen = 4096
+	// maxReviewNotesCount bounds how many unsent or pending notes can exist simultaneously in one review.
+	maxReviewNotesCount = 256
+	// maxReviewRounds bounds how many redo rounds a single review session can advance through.
+	maxReviewRounds = 20
+	// maxReviewRedoYAMLLines bounds custom YAML diff lines provided on one review_redo item.
+	maxReviewRedoYAMLLines = 2000
 )
 
 var (
@@ -31,6 +39,24 @@ var (
 	ErrNoReview = errors.New("editor: no agent turn review is open")
 	// ErrReviewBlocked is returned by KeepTurnReview when an unresolved blocker prevents keeping.
 	ErrReviewBlocked = errors.New("editor: review has an unresolved blocker")
+	// ErrReviewReadOnlyRound is returned when trying to edit, revert, or add notes while viewing an earlier round.
+	ErrReviewReadOnlyRound = errors.New("editor: earlier review rounds are read-only")
+	// ErrReviewNoteEmpty is returned when saving or sending an empty note.
+	ErrReviewNoteEmpty = errors.New("editor: review note cannot be empty")
+	// ErrReviewNoteTooLong is returned when a review note exceeds maxReviewNoteLen runes.
+	ErrReviewNoteTooLong = errors.New("editor: review note exceeds maximum length")
+	// ErrReviewNotesLimit is returned when a review exceeds maxReviewNotesCount simultaneous notes.
+	ErrReviewNotesLimit = errors.New("editor: review has too many active notes")
+	// ErrReviewNoNotesToSend is returned by SendReviewNotes when no unsent notes exist.
+	ErrReviewNoNotesToSend = errors.New("editor: no unsent review notes to send")
+	// ErrReviewChangeNotFound is returned when a change ID does not exist in the active review.
+	ErrReviewChangeNotFound = errors.New("editor: review change not found")
+	// ErrReviewChangeNotNoted is returned by ApplyReviewRedo when targeting a change that was not noted and sent.
+	ErrReviewChangeNotNoted = errors.New("editor: review_redo can modify only changes you left notes on")
+	// ErrReviewMaxRounds is returned when a review reaches maxReviewRounds.
+	ErrReviewMaxRounds = errors.New("editor: review reached maximum number of rounds")
+	// ErrReviewInvalidRound is returned when selecting an out-of-range review round.
+	ErrReviewInvalidRound = errors.New("editor: invalid review round")
 )
 
 // ReviewFileKind classifies the kind of file touched by an agent turn.
@@ -128,6 +154,25 @@ type ReviewBlocker struct {
 	Reason   string `json:"reason"`
 }
 
+// ReviewChangeVersion holds one round's immutable snapshot of a ReviewChange (1-based).
+type ReviewChangeVersion struct {
+	Round         int                    `json:"round"`
+	Detail        string                 `json:"detail"`
+	Why           string                 `json:"why"`
+	OldValue      string                 `json:"oldValue,omitempty"`
+	NewValue      string                 `json:"newValue,omitempty"`
+	DeltaPct      string                 `json:"deltaPct,omitempty"`
+	Line          int                    `json:"line,omitempty"`
+	X             float32                `json:"x,omitempty"`
+	Y             float32                `json:"y,omitempty"`
+	YAMLLines     []ReviewYAMLLine       `json:"yamlLines,omitempty"`
+	afterObj      *sceneformat.ObjectDoc `json:"-"`
+	afterLayer    string                 `json:"-"`
+	parentID      string                 `json:"-"`
+	afterYAMLNode *yaml.Node             `json:"-"`
+	cellDiffs     []ReviewDataCellDiff   `json:"-"`
+}
+
 // ReviewChange is one reviewable change inside an agent turn.
 type ReviewChange struct {
 	ID                string                 `json:"id"`
@@ -151,6 +196,10 @@ type ReviewChange struct {
 	Seen              bool                   `json:"seen"`
 	Reverted          bool                   `json:"reverted"`
 	Note              string                 `json:"note,omitempty"`
+	SentNote          string                 `json:"sentNote,omitempty"`
+	RedoneInRound     int                    `json:"redoneInRound,omitempty"`
+	RedoneNote        string                 `json:"redoneNote,omitempty"`
+	Versions          []ReviewChangeVersion  `json:"versions,omitempty"`
 	Blocker           string                 `json:"blocker,omitempty"`
 	GoRequiresConfirm bool                   `json:"goRequiresConfirm,omitempty"`
 	GoConfirmed       bool                   `json:"goConfirmed,omitempty"`
@@ -256,26 +305,42 @@ type ReviewTurnInput struct {
 
 // ReviewSnapshot is the read-only state returned by Editor.ReviewStatus and editormcp's review_status tool.
 type ReviewSnapshot struct {
-	Active         bool                    `json:"active"`
-	Open           bool                    `json:"open"`
-	Outcome        ReviewOutcome           `json:"outcome"`
-	Request        string                  `json:"request,omitempty"`
-	TotalChanges   int                     `json:"totalChanges"`
-	SeenCount      int                     `json:"seenCount"`
-	KeptCount      int                     `json:"keptCount"`
-	RevertedCount  int                     `json:"revertedCount"`
-	FileCount      int                     `json:"fileCount"`
-	FocusedID      string                  `json:"focusedId,omitempty"`
-	FocusedRowKey  string                  `json:"focusedRowKey,omitempty"`
-	Filter         ReviewFilter            `json:"filter,omitempty"`
-	Search         string                  `json:"search,omitempty"`
-	PeekBefore     bool                    `json:"peekBefore"`
-	RevertConfirm  bool                    `json:"revertConfirm"`
-	Blockers       []ReviewBlocker         `json:"blockers,omitempty"`
-	OverlayLegend  ReviewOverlayVisibility `json:"overlayLegend"`
-	Files          []ReviewFileSummary     `json:"files,omitempty"`
-	Changes        []ReviewChange          `json:"changes,omitempty"`
-	LastOutcomeMsg string                  `json:"lastOutcomeMsg,omitempty"`
+	Active               bool                    `json:"active"`
+	Open                 bool                    `json:"open"`
+	Outcome              ReviewOutcome           `json:"outcome"`
+	Request              string                  `json:"request,omitempty"`
+	Round                int                     `json:"round,omitempty"`
+	ViewRound            int                     `json:"viewRound,omitempty"`
+	ViewingReadOnlyRound bool                    `json:"viewingReadOnlyRound,omitempty"`
+	DraftNoteCount       int                     `json:"draftNoteCount,omitempty"`
+	ComposingChangeID    string                  `json:"composingChangeId,omitempty"`
+	PendingBatch         *ReviewNoteBatch        `json:"pendingBatch,omitempty"`
+	RoundBanner          string                  `json:"roundBanner,omitempty"`
+	TotalChanges         int                     `json:"totalChanges"`
+	SeenCount            int                     `json:"seenCount"`
+	KeptCount            int                     `json:"keptCount"`
+	RevertedCount        int                     `json:"revertedCount"`
+	FileCount            int                     `json:"fileCount"`
+	FocusedID            string                  `json:"focusedId,omitempty"`
+	FocusedRowKey        string                  `json:"focusedRowKey,omitempty"`
+	Filter               ReviewFilter            `json:"filter,omitempty"`
+	Search               string                  `json:"search,omitempty"`
+	PeekBefore           bool                    `json:"peekBefore"`
+	RevertConfirm        bool                    `json:"revertConfirm"`
+	Blockers             []ReviewBlocker         `json:"blockers,omitempty"`
+	OverlayLegend        ReviewOverlayVisibility `json:"overlayLegend"`
+	Files                []ReviewFileSummary     `json:"files,omitempty"`
+	Changes              []ReviewChange          `json:"changes,omitempty"`
+	LastRounds           int                     `json:"lastRounds,omitempty"`
+	LastOutcomeMsg       string                  `json:"lastOutcomeMsg,omitempty"`
+}
+
+type reviewFileRound struct {
+	afterYAML  []byte
+	afterDoc   *sceneformat.SceneDoc
+	afterTable *datatable.Document
+	built      *sceneformat.BuiltScene
+	builtDirty bool
 }
 
 type reviewFileState struct {
@@ -291,6 +356,7 @@ type reviewFileState struct {
 	builtDirty    bool
 	beforeTable   *datatable.Document
 	afterTable    *datatable.Document
+	rounds        []reviewFileRound
 	sceneView     View2D
 	sceneFramed   bool
 	canvasW       float32
@@ -302,6 +368,12 @@ type turnReviewState struct {
 	outcome        ReviewOutcome
 	request        string
 	defaultWhy     string
+	round          int
+	viewRound      int
+	composingID    string
+	noteDraft      string
+	pendingBatch   *ReviewNoteBatch
+	roundRedone    map[int]int
 	files          []*reviewFileState
 	filesByPath    map[string]*reviewFileState
 	changes        []*ReviewChange
@@ -320,6 +392,7 @@ type turnReviewState struct {
 	lastReverted   int
 	lastTotal      int
 	lastFileCount  int
+	lastRounds     int
 	lastRequest    string
 	lastOutcomeMsg string
 	uiRev          uint64
@@ -455,6 +528,9 @@ func (e *Editor) StartTurnReview(input ReviewTurnInput) error {
 		outcome:        ReviewOutcomePending,
 		request:        strings.TrimSpace(input.Request),
 		defaultWhy:     strings.TrimSpace(input.DefaultWhy),
+		round:          1,
+		viewRound:      1,
+		roundRedone:    make(map[int]int),
 		filesByPath:    make(map[string]*reviewFileState, len(input.Files)),
 		changesByID:    make(map[string]*ReviewChange),
 		filter:         ReviewFilterAll,
@@ -508,9 +584,12 @@ func (e *Editor) StartTurnReview(input ReviewTurnInput) error {
 		if len(fileChanges) == 0 {
 			continue
 		}
+		fs.initRound1()
 		st.files = append(st.files, fs)
 		st.filesByPath[cleanPath] = fs
 		for _, ch := range fileChanges {
+			ch.Note = truncateReviewNote(strings.TrimSpace(ch.Note))
+			ch.initRound1()
 			st.changes = append(st.changes, ch)
 			st.changesByID[ch.ID] = ch
 		}
@@ -1681,46 +1760,73 @@ func (e *Editor) allFileChangesReverted(filePath string) bool {
 }
 
 func (e *Editor) effectiveReviewSceneDoc(fs *reviewFileState) *sceneformat.SceneDoc {
+	return e.effectiveReviewSceneDocForRound(fs, e.reviewActiveViewRound())
+}
+
+func (e *Editor) effectiveReviewSceneDocForRound(fs *reviewFileState, round int) *sceneformat.SceneDoc {
 	if fs == nil {
 		return nil
 	}
+	rs := fs.roundState(round)
+	afterDoc := fs.afterDoc
+	if rs != nil && rs.afterDoc != nil {
+		afterDoc = rs.afterDoc
+	}
 	if fs.beforeDoc == nil {
-		return cloneSceneDoc(fs.afterDoc)
+		return cloneSceneDoc(afterDoc)
 	}
 	doc := cloneSceneDoc(fs.beforeDoc)
 
-	// Index active (non-reverted) changes for this scene.
-	revertedRemoved := make(map[string]bool)
+	// Index active (non-reverted) changes for this scene at the requested round.
 	activeRemoved := make(map[string]bool)
-	activeChanged := make(map[string]*ReviewChange)
-	var activeAdded []*ReviewChange
+	activeChanged := make(map[string]struct {
+		ch  *ReviewChange
+		ver ReviewChangeVersion
+	})
+	var activeAdded []struct {
+		ch  *ReviewChange
+		ver ReviewChangeVersion
+	}
 
 	for _, ch := range e.review.changes {
 		if ch.File != fs.path {
 			continue
 		}
+		ver := ch.VersionFor(round)
 		switch ch.Kind {
 		case ReviewChangeRemoved:
-			if ch.Reverted {
-				revertedRemoved[ch.ObjectID] = true
-			} else {
-				activeRemoved[ch.ObjectID] = true
+			if !ch.Reverted {
+				// If a later redo turned a removal into a kept/repositioned object (afterObj != nil), treat it as changed.
+				if ver.afterObj != nil {
+					activeChanged[ch.ObjectID] = struct {
+						ch  *ReviewChange
+						ver ReviewChangeVersion
+					}{ch: ch, ver: ver}
+				} else {
+					activeRemoved[ch.ObjectID] = true
+				}
 			}
 		case ReviewChangeChanged:
 			if !ch.Reverted {
-				activeChanged[ch.ObjectID] = ch
+				activeChanged[ch.ObjectID] = struct {
+					ch  *ReviewChange
+					ver ReviewChangeVersion
+				}{ch: ch, ver: ver}
 			}
 		case ReviewChangeAdded:
 			if !ch.Reverted {
-				activeAdded = append(activeAdded, ch)
+				activeAdded = append(activeAdded, struct {
+					ch  *ReviewChange
+					ver ReviewChangeVersion
+				}{ch: ch, ver: ver})
 			}
 		}
 	}
-	_ = revertedRemoved
 
 	// 1. Apply active removals & in-place changes on doc, detaching objects whose layer or parent moved.
 	type movedObj struct {
 		ch  *ReviewChange
+		ver ReviewChangeVersion
 		obj sceneformat.ObjectDoc
 	}
 	var moved []movedObj
@@ -1732,17 +1838,17 @@ func (e *Editor) effectiveReviewSceneDoc(fs *reviewFileState) *sceneformat.Scene
 			if activeRemoved[o.ID] {
 				continue
 			}
-			ch, isChanged := activeChanged[o.ID]
-			if isChanged && ch.afterObj != nil {
+			entry, isChanged := activeChanged[o.ID]
+			if isChanged && entry.ver.afterObj != nil {
 				children := o.Children
-				o = cloneObjectDoc(*ch.afterObj)
+				o = cloneObjectDoc(*entry.ver.afterObj)
 				o.Children = children
 			}
 			if len(o.Children) > 0 {
 				o.Children = applySlice(o.Children)
 			}
-			if isChanged && (ch.beforeLayer != ch.afterLayer || ch.beforeParentID != ch.ParentID) {
-				moved = append(moved, movedObj{ch: ch, obj: o})
+			if isChanged && (entry.ch.beforeLayer != entry.ver.afterLayer || entry.ch.beforeParentID != entry.ver.parentID) {
+				moved = append(moved, movedObj{ch: entry.ch, ver: entry.ver, obj: o})
 				continue
 			}
 			out = append(out, o)
@@ -1754,37 +1860,37 @@ func (e *Editor) effectiveReviewSceneDoc(fs *reviewFileState) *sceneformat.Scene
 	}
 
 	// 2. Apply active additions to their target layers/parents.
-	for _, ch := range activeAdded {
-		if ch.afterObj == nil {
+	for _, entry := range activeAdded {
+		if entry.ver.afterObj == nil {
 			continue
 		}
-		obj := cloneObjectDoc(*ch.afterObj)
+		obj := cloneObjectDoc(*entry.ver.afterObj)
 		obj.Children = nil
-		if ch.ParentID != "" {
-			if insertChildByID(doc, ch.ParentID, obj) {
+		if entry.ver.parentID != "" {
+			if insertChildByID(doc, entry.ver.parentID, obj) {
 				continue
 			}
 		}
-		targetLayer := ch.afterLayer
+		targetLayer := entry.ver.afterLayer
 		if targetLayer == "" && len(doc.Layers) > 0 {
 			targetLayer = doc.Layers[0].Name
 		}
-		li := findOrCreateReviewLayer(doc, targetLayer, fs.afterDoc)
+		li := findOrCreateReviewLayer(doc, targetLayer, afterDoc)
 		doc.Layers[li].Objects = append(doc.Layers[li].Objects, obj)
 	}
 
 	// 3. Re-insert moved/reparented objects at their target parents/layers (after additions so newly added parents exist).
 	for _, m := range moved {
-		if m.ch.ParentID != "" {
-			if insertChildByID(doc, m.ch.ParentID, m.obj) {
+		if m.ver.parentID != "" {
+			if insertChildByID(doc, m.ver.parentID, m.obj) {
 				continue
 			}
 		}
-		targetLayer := m.ch.afterLayer
+		targetLayer := m.ver.afterLayer
 		if targetLayer == "" && len(doc.Layers) > 0 {
 			targetLayer = doc.Layers[0].Name
 		}
-		li := findOrCreateReviewLayer(doc, targetLayer, fs.afterDoc)
+		li := findOrCreateReviewLayer(doc, targetLayer, afterDoc)
 		doc.Layers[li].Objects = append(doc.Layers[li].Objects, m.obj)
 	}
 
@@ -1834,13 +1940,22 @@ func findOrCreateReviewLayer(doc *sceneformat.SceneDoc, name string, afterDoc *s
 }
 
 func (e *Editor) effectiveReviewFileBytes(fs *reviewFileState) ([]byte, bool, error) {
+	return e.effectiveReviewFileBytesForRound(fs, e.reviewLatestRound())
+}
+
+func (e *Editor) effectiveReviewFileBytesForRound(fs *reviewFileState, round int) ([]byte, bool, error) {
 	if fs == nil {
 		return nil, false, nil
 	}
 	if e.allFileChangesReverted(fs.path) {
 		return append([]byte(nil), fs.beforeYAML...), fs.existedBefore, nil
 	}
-	// If no changes in this file are reverted, preserve exact AfterYAML!
+	rs := fs.roundState(round)
+	afterYAML := fs.afterYAML
+	if rs != nil {
+		afterYAML = rs.afterYAML
+	}
+	// If no changes in this file are reverted, preserve exact AfterYAML for the requested round!
 	anyReverted := false
 	for _, ch := range e.review.changes {
 		if ch.File == fs.path && ch.Reverted {
@@ -1849,19 +1964,19 @@ func (e *Editor) effectiveReviewFileBytes(fs *reviewFileState) ([]byte, bool, er
 		}
 	}
 	if !anyReverted {
-		return append([]byte(nil), fs.afterYAML...), len(fs.afterYAML) > 0, nil
+		return append([]byte(nil), afterYAML...), len(afterYAML) > 0, nil
 	}
 
 	switch fs.kind {
 	case ReviewFileScene:
-		doc := e.effectiveReviewSceneDoc(fs)
+		doc := e.effectiveReviewSceneDocForRound(fs, round)
 		b, err := sceneformat.Encode(doc)
 		if err != nil {
 			return nil, false, err
 		}
 		return b, true, nil
 	case ReviewFileData:
-		doc := e.effectiveReviewDataTableDoc(fs)
+		doc := e.effectiveReviewDataTableDocForRound(fs, round)
 		if doc == nil {
 			return append([]byte(nil), fs.beforeYAML...), fs.existedBefore, nil
 		}
@@ -1871,18 +1986,30 @@ func (e *Editor) effectiveReviewFileBytes(fs *reviewFileState) ([]byte, bool, er
 		}
 		return b, true, nil
 	case ReviewFilePrefab:
-		b, err := e.effectiveReviewPrefabBytes(fs)
+		b, err := e.effectiveReviewPrefabBytesForRound(fs, round)
 		if err != nil {
 			return nil, false, err
 		}
 		return b, len(b) > 0, nil
 	default:
-		return append([]byte(nil), fs.afterYAML...), len(fs.afterYAML) > 0, nil
+		return append([]byte(nil), afterYAML...), len(afterYAML) > 0, nil
 	}
 }
 
 func (e *Editor) effectiveReviewDataTableDoc(fs *reviewFileState) *datatable.Document {
-	if fs == nil || (fs.beforeTable == nil && fs.afterTable == nil) {
+	return e.effectiveReviewDataTableDocForRound(fs, e.reviewActiveViewRound())
+}
+
+func (e *Editor) effectiveReviewDataTableDocForRound(fs *reviewFileState, round int) *datatable.Document {
+	if fs == nil {
+		return nil
+	}
+	rs := fs.roundState(round)
+	afterTable := fs.afterTable
+	if rs != nil && rs.afterTable != nil {
+		afterTable = rs.afterTable
+	}
+	if fs.beforeTable == nil && afterTable == nil {
 		return nil
 	}
 	base := fs.beforeTable.Clone()
@@ -1890,8 +2017,8 @@ func (e *Editor) effectiveReviewDataTableDoc(fs *reviewFileState) *datatable.Doc
 		base = datatable.NewDocument()
 	}
 	afterByID := make(map[string]datatable.Row)
-	if fs.afterTable != nil {
-		for _, r := range fs.afterTable.Rows() {
+	if afterTable != nil {
+		for _, r := range afterTable.Rows() {
 			afterByID[dataRowID(r)] = r
 		}
 	}
@@ -1941,8 +2068,17 @@ func (e *Editor) effectiveReviewDataTableDoc(fs *reviewFileState) *datatable.Doc
 }
 
 func (e *Editor) effectiveReviewPrefabBytes(fs *reviewFileState) ([]byte, error) {
+	return e.effectiveReviewPrefabBytesForRound(fs, e.reviewActiveViewRound())
+}
+
+func (e *Editor) effectiveReviewPrefabBytesForRound(fs *reviewFileState, round int) ([]byte, error) {
+	rs := fs.roundState(round)
+	afterYAML := fs.afterYAML
+	if rs != nil {
+		afterYAML = rs.afterYAML
+	}
 	if len(bytes.TrimSpace(fs.beforeYAML)) == 0 {
-		return append([]byte(nil), fs.afterYAML...), nil
+		return append([]byte(nil), afterYAML...), nil
 	}
 	var root yaml.Node
 	if err := yaml.Unmarshal(fs.beforeYAML, &root); err != nil {
@@ -1952,10 +2088,11 @@ func (e *Editor) effectiveReviewPrefabBytes(fs *reviewFileState) ([]byte, error)
 		if ch.File != fs.path || ch.Reverted {
 			continue
 		}
+		ver := ch.VersionFor(round)
 		switch ch.Kind {
 		case ReviewChangeChanged, ReviewChangeAdded:
-			if ch.afterYAMLNode != nil {
-				setYAMLNodeAtPath(&root, strings.Split(ch.Field, "."), ch.afterYAMLNode)
+			if ver.afterYAMLNode != nil {
+				setYAMLNodeAtPath(&root, strings.Split(ch.Field, "."), ver.afterYAMLNode)
 			}
 		case ReviewChangeRemoved:
 			deleteYAMLNodeAtPath(&root, strings.Split(ch.Field, "."))
@@ -2044,6 +2181,10 @@ func deleteYAMLNodeAtPath(root *yaml.Node, segs []string) {
 // --- Review scene building, framing, overlays, and data table previews ---
 
 func (e *Editor) reviewSceneBuilt(fs *reviewFileState, before bool) *sceneformat.BuiltScene {
+	return e.reviewSceneBuiltForRound(fs, e.reviewActiveViewRound(), before)
+}
+
+func (e *Editor) reviewSceneBuiltForRound(fs *reviewFileState, round int, before bool) *sceneformat.BuiltScene {
 	if e == nil || fs == nil || fs.kind != ReviewFileScene {
 		return nil
 	}
@@ -2056,8 +2197,21 @@ func (e *Editor) reviewSceneBuilt(fs *reviewFileState, before bool) *sceneformat
 		}
 		return fs.beforeBuilt
 	}
+	if rs := fs.roundState(round); rs != nil {
+		if rs.builtDirty || rs.built == nil {
+			doc := e.effectiveReviewSceneDocForRound(fs, round)
+			if doc != nil {
+				if b, err := sceneformat.Build(doc, e.Resolver); err == nil {
+					b.DrawAllTiles = true
+					rs.built = b
+					rs.builtDirty = false
+				}
+			}
+		}
+		return rs.built
+	}
 	if fs.builtDirty || fs.currentBuilt == nil {
-		doc := e.effectiveReviewSceneDoc(fs)
+		doc := e.effectiveReviewSceneDocForRound(fs, round)
 		if doc != nil {
 			if b, err := sceneformat.Build(doc, e.Resolver); err == nil {
 				b.DrawAllTiles = true
@@ -2078,9 +2232,14 @@ func (e *Editor) ReviewDataTablePreviewFor(filePath string) *ReviewDataTablePrev
 	if fs == nil || fs.kind != ReviewFileData {
 		return nil
 	}
-	eff := e.effectiveReviewDataTableDoc(fs)
+	round := e.reviewActiveViewRound()
+	eff := e.effectiveReviewDataTableDocForRound(fs, round)
 	if eff == nil {
 		return nil
+	}
+	afterTable := fs.afterTable
+	if rs := fs.roundState(round); rs != nil && rs.afterTable != nil {
+		afterTable = rs.afterTable
 	}
 	colSet := make(map[string]bool)
 	var cols []string
@@ -2096,7 +2255,7 @@ func (e *Editor) ReviewDataTablePreviewFor(filePath string) *ReviewDataTablePrev
 		}
 	}
 	addCols(fs.beforeTable)
-	addCols(fs.afterTable)
+	addCols(afterTable)
 	// Put "id" first.
 	if idx := slices.Index(cols, "id"); idx > 0 {
 		cols = append([]string{"id"}, append(cols[:idx], cols[idx+1:]...)...)
@@ -2125,6 +2284,7 @@ func (e *Editor) ReviewDataTablePreviewFor(filePath string) *ReviewDataTablePrev
 		}
 		row := ReviewDataRow{ID: id, Values: vals}
 		if ch, ok := changeByRow[id]; ok {
+			ver := ch.VersionFor(round)
 			row.ChangeID = ch.ID
 			row.Focused = ch.ID == e.review.focusedID
 			if !ch.Reverted {
@@ -2133,8 +2293,8 @@ func (e *Editor) ReviewDataTablePreviewFor(filePath string) *ReviewDataTablePrev
 					row.Added = true
 				case ReviewChangeChanged:
 					row.Changed = true
-					row.CellDiffs = make(map[string]ReviewDataCellDiff, len(ch.cellDiffs))
-					for _, d := range ch.cellDiffs {
+					row.CellDiffs = make(map[string]ReviewDataCellDiff, len(ver.cellDiffs))
+					for _, d := range ver.cellDiffs {
 						row.CellDiffs[d.Column] = d
 					}
 				}
@@ -2187,8 +2347,10 @@ func (e *Editor) frameFocusedReviewChange() {
 	if fs == nil {
 		return
 	}
-	obj := ch.afterObj
-	if obj == nil || ch.Reverted || ch.Kind == ReviewChangeRemoved {
+	round := e.reviewActiveViewRound()
+	ver := ch.VersionFor(round)
+	obj := ver.afterObj
+	if obj == nil || ch.Reverted || (ch.Kind == ReviewChangeRemoved && ver.afterObj == nil) {
 		if ch.beforeObj != nil {
 			obj = ch.beforeObj
 		}
@@ -2196,7 +2358,7 @@ func (e *Editor) frameFocusedReviewChange() {
 	if obj == nil {
 		return
 	}
-	built := e.reviewSceneBuilt(fs, ch.Kind == ReviewChangeRemoved && !ch.Reverted)
+	built := e.reviewSceneBuiltForRound(fs, round, ch.Kind == ReviewChangeRemoved && ver.afterObj == nil && !ch.Reverted)
 	cx, cy := obj.X, obj.Y
 	if built != nil {
 		if bo := built.Object(ch.ObjectID); bo != nil {
@@ -2257,8 +2419,9 @@ func (e *Editor) reviewOverlaysForFile(filePath string) []ReviewSceneOverlay {
 	if fs == nil || fs.kind != ReviewFileScene {
 		return nil
 	}
-	effBuilt := e.reviewSceneBuilt(fs, false)
-	beforeBuilt := e.reviewSceneBuilt(fs, true)
+	round := e.reviewActiveViewRound()
+	effBuilt := e.reviewSceneBuiltForRound(fs, round, false)
+	beforeBuilt := e.reviewSceneBuiltForRound(fs, round, true)
 	var out []ReviewSceneOverlay
 	for _, ch := range e.review.changes {
 		if ch.File != filePath || ch.Reverted {
@@ -2267,9 +2430,10 @@ func (e *Editor) reviewOverlaysForFile(filePath string) []ReviewSceneOverlay {
 		if !e.reviewOverlayKindVisible(ch.Kind) {
 			continue
 		}
+		ver := ch.VersionFor(round)
 		focused := e.review.open && ch.ID == e.review.focusedID
 		var bo *sceneformat.BuiltObject
-		if ch.Kind == ReviewChangeRemoved {
+		if ch.Kind == ReviewChangeRemoved && ver.afterObj == nil {
 			if beforeBuilt != nil {
 				bo = beforeBuilt.Object(ch.ObjectID)
 			}
@@ -2282,7 +2446,7 @@ func (e *Editor) reviewOverlaysForFile(filePath string) []ReviewSceneOverlay {
 			p0 := bo.World.TransformPoint(math2d.Vec2{X: rx, Y: ry})
 			x, y, w, h = p0.X, p0.Y, rw, rh
 		} else {
-			obj := ch.afterObj
+			obj := ver.afterObj
 			if obj == nil {
 				obj = ch.beforeObj
 			}
@@ -2300,8 +2464,8 @@ func (e *Editor) reviewOverlaysForFile(filePath string) []ReviewSceneOverlay {
 		case ReviewChangeAdded:
 			pill = "+ " + ch.Title
 		case ReviewChangeChanged:
-			if ch.Detail != "" {
-				pill = ch.Detail
+			if ver.Detail != "" {
+				pill = ver.Detail
 			}
 		case ReviewChangeRemoved:
 			pill = ch.Title + " removed"
@@ -2366,16 +2530,17 @@ func (e *Editor) ReviewChipCount(f ReviewFilter) int {
 	if e == nil || e.review.outcome != ReviewOutcomePending {
 		return 0
 	}
+	viewingLatest := !e.ReviewViewingReadOnlyRound()
 	n := 0
 	for _, ch := range e.review.changes {
-		if reviewMatchesFilter(ch, f) {
+		if reviewMatchesFilter(ch, f, viewingLatest) {
 			n++
 		}
 	}
 	return n
 }
 
-func reviewMatchesFilter(ch *ReviewChange, f ReviewFilter) bool {
+func reviewMatchesFilter(ch *ReviewChange, f ReviewFilter, viewingLatest bool) bool {
 	if ch == nil {
 		return false
 	}
@@ -2391,7 +2556,10 @@ func reviewMatchesFilter(ch *ReviewChange, f ReviewFilter) bool {
 	case ReviewFilterUnseen:
 		return !ch.Seen
 	case ReviewFilterNotes:
-		return strings.TrimSpace(ch.Note) != ""
+		if strings.TrimSpace(ch.Note) != "" || strings.TrimSpace(ch.SentNote) != "" {
+			return true
+		}
+		return viewingLatest && ch.RedoneInRound > 1 && strings.TrimSpace(ch.RedoneNote) != ""
 	default:
 		return true
 	}
@@ -2441,7 +2609,7 @@ func (e *Editor) ReviewVisibleRows() []ReviewVisibleRow {
 					revertedCnt++
 				}
 			}
-			if reviewMatchesFilter(ch, e.review.filter) && reviewMatchesSearch(ch, e.review.search) {
+			if reviewMatchesFilter(ch, e.review.filter, !e.ReviewViewingReadOnlyRound()) && reviewMatchesSearch(ch, e.review.search) {
 				matched = append(matched, ch)
 			}
 		}
@@ -2622,8 +2790,9 @@ func (e *Editor) StepReviewChange(delta int) string {
 	}
 	// If all visible files are folded, fall back to matching changes across all files.
 	if len(cardIDs) == 0 {
+		viewingLatest := !e.ReviewViewingReadOnlyRound()
 		for _, ch := range e.review.changes {
-			if reviewMatchesFilter(ch, e.review.filter) && reviewMatchesSearch(ch, e.review.search) {
+			if reviewMatchesFilter(ch, e.review.filter, viewingLatest) && reviewMatchesSearch(ch, e.review.search) {
 				cardIDs = append(cardIDs, ch.ID)
 			}
 		}
@@ -2747,7 +2916,7 @@ func (e *Editor) ToggleReviewKindCollapsed(filePath string, kind ReviewChangeKin
 
 // ToggleReviewChangeReverted toggles reverted state on one change card.
 func (e *Editor) ToggleReviewChangeReverted(changeID string) bool {
-	if e == nil || e.review.outcome != ReviewOutcomePending {
+	if e == nil || e.review.outcome != ReviewOutcomePending || e.ReviewViewingReadOnlyRound() {
 		return false
 	}
 	ch := e.review.changesByID[changeID]
@@ -2756,7 +2925,7 @@ func (e *Editor) ToggleReviewChangeReverted(changeID string) bool {
 	}
 	ch.Reverted = !ch.Reverted
 	if fs := e.review.filesByPath[ch.File]; fs != nil {
-		fs.builtDirty = true
+		fs.markAllRoundsDirty()
 	}
 	e.refreshPrefabImpacts()
 	e.bumpReviewUIRev()
@@ -2766,7 +2935,7 @@ func (e *Editor) ToggleReviewChangeReverted(changeID string) bool {
 
 // ToggleReviewFileReverted reverts all revertable changes in filePath (or restores them all if already all reverted).
 func (e *Editor) ToggleReviewFileReverted(filePath string) bool {
-	if e == nil || e.review.outcome != ReviewOutcomePending {
+	if e == nil || e.review.outcome != ReviewOutcomePending || e.ReviewViewingReadOnlyRound() {
 		return false
 	}
 	fs := e.review.filesByPath[filePath]
@@ -2792,7 +2961,7 @@ func (e *Editor) ToggleReviewFileReverted(filePath string) bool {
 			ch.Reverted = target
 		}
 	}
-	fs.builtDirty = true
+	fs.markAllRoundsDirty()
 	e.refreshPrefabImpacts()
 	e.bumpReviewUIRev()
 	e.notify()
@@ -2801,7 +2970,7 @@ func (e *Editor) ToggleReviewFileReverted(filePath string) bool {
 
 // ToggleReviewKindReverted reverts (or restores) all changes of kind within filePath.
 func (e *Editor) ToggleReviewKindReverted(filePath string, kind ReviewChangeKind) bool {
-	if e == nil || e.review.outcome != ReviewOutcomePending {
+	if e == nil || e.review.outcome != ReviewOutcomePending || e.ReviewViewingReadOnlyRound() {
 		return false
 	}
 	fs := e.review.filesByPath[filePath]
@@ -2827,7 +2996,7 @@ func (e *Editor) ToggleReviewKindReverted(filePath string, kind ReviewChangeKind
 			ch.Reverted = target
 		}
 	}
-	fs.builtDirty = true
+	fs.markAllRoundsDirty()
 	e.refreshPrefabImpacts()
 	e.bumpReviewUIRev()
 	e.notify()
@@ -2837,7 +3006,7 @@ func (e *Editor) ToggleReviewKindReverted(filePath string, kind ReviewChangeKind
 // ToggleFocusedReviewRevert implements the X shortcut in Review scope:
 // reverts or restores the focused file group, kind group, or change card.
 func (e *Editor) ToggleFocusedReviewRevert() bool {
-	if e == nil || e.review.outcome != ReviewOutcomePending {
+	if e == nil || e.review.outcome != ReviewOutcomePending || e.ReviewViewingReadOnlyRound() {
 		return false
 	}
 	key := e.review.focusedRowKey
@@ -2879,18 +3048,13 @@ func (e *Editor) ReviewPeekingBefore() bool {
 	return e != nil && e.review.outcome == ReviewOutcomePending && e.review.peekBefore
 }
 
-// SetReviewChangeNote sets or clears an annotation note on changeID (plug-in hook for Notes / Round 2).
+// SetReviewChangeNote sets or clears an unsent annotation note on changeID.
 func (e *Editor) SetReviewChangeNote(changeID, note string) {
-	if e == nil || e.review.outcome != ReviewOutcomePending {
+	if strings.TrimSpace(note) == "" {
+		_ = e.RemoveReviewNote(changeID)
 		return
 	}
-	ch := e.review.changesByID[changeID]
-	if ch == nil {
-		return
-	}
-	ch.Note = strings.TrimSpace(note)
-	e.bumpReviewUIRev()
-	e.notify()
+	_ = e.SetReviewNote(changeID, note)
 }
 
 // SetReviewChangeBlocker sets or clears a blocker reason on changeID (plug-in hook for Conflicts / YAML errors).
@@ -2947,6 +3111,8 @@ func (e *Editor) PauseReview() {
 	e.review.open = false
 	e.review.revertConfirm = false
 	e.review.peekBefore = false
+	e.review.composingID = ""
+	e.review.noteDraft = ""
 	e.showAgentTabForReview()
 	e.bumpReviewUIRev()
 	e.notify()
@@ -3171,6 +3337,7 @@ func (e *Editor) KeepTurnReview() error {
 		reverted:   reverted,
 		total:      len(savedState.changes),
 		fileCount:  len(savedState.files),
+		rounds:     max(savedState.round, 1),
 		request:    savedState.request,
 		priorState: savedState,
 	}
@@ -3189,6 +3356,8 @@ func (e *Editor) ConfirmReviewRevertAll() error {
 	savedState := e.review
 	savedState.revertConfirm = false
 	savedState.peekBefore = false
+	savedState.composingID = ""
+	savedState.noteDraft = ""
 
 	writes := make([]reviewFileWrite, 0, len(e.review.files))
 	for _, fs := range e.review.files {
@@ -3345,6 +3514,7 @@ type agentTurnKeepCmd struct {
 	reverted   int
 	total      int
 	fileCount  int
+	rounds     int
 	request    string
 	priorState turnReviewState
 }
@@ -3386,7 +3556,7 @@ func (c *agentTurnKeepCmd) do() error {
 	if err := c.ed.applyReviewFileWrites(c.writes, true); err != nil {
 		return err
 	}
-	msg := formatKeptSummary(c.kept, c.reverted)
+	msg := formatKeptSummary(c.kept, c.reverted, c.rounds)
 	c.ed.review = turnReviewState{
 		open:           false,
 		outcome:        ReviewOutcomeKept,
@@ -3395,6 +3565,7 @@ func (c *agentTurnKeepCmd) do() error {
 		lastReverted:   c.reverted,
 		lastTotal:      c.total,
 		lastFileCount:  c.fileCount,
+		lastRounds:     max(c.rounds, 1),
 		lastRequest:    c.request,
 		lastOutcomeMsg: msg,
 		legend:         c.priorState.legend,
@@ -3480,6 +3651,7 @@ func (c *agentTurnRevertAllCmd) do() error {
 		lastReverted:   c.total,
 		lastTotal:      c.total,
 		lastFileCount:  c.fileCount,
+		lastRounds:     max(c.priorState.round, 1),
 		lastRequest:    c.request,
 		lastOutcomeMsg: msg,
 		legend:         c.priorState.legend,
@@ -3524,11 +3696,16 @@ func formatKeptToast(kept, reverted int) string {
 	return fmt.Sprintf("Kept %d %s", kept, pluralWord(kept, "change", "changes"))
 }
 
-func formatKeptSummary(kept, reverted int) string {
+func formatKeptSummary(kept, reverted, rounds int) string {
+	parts := []string{fmt.Sprintf("Kept %d", kept)}
 	if reverted > 0 {
-		return fmt.Sprintf("Kept %d · reverted %d · one undo step", kept, reverted)
+		parts = append(parts, fmt.Sprintf("reverted %d", reverted))
 	}
-	return fmt.Sprintf("Kept %d · one undo step", kept)
+	if rounds > 1 {
+		parts = append(parts, fmt.Sprintf("%d rounds", rounds))
+	}
+	parts = append(parts, "one undo step")
+	return strings.Join(parts, " · ")
 }
 
 func (e *Editor) reviewKeptAndRevertedCounts() (kept, reverted int) {
@@ -3563,6 +3740,7 @@ func (e *Editor) ReviewStatus() ReviewSnapshot {
 		PeekBefore:     st.peekBefore,
 		RevertConfirm:  st.revertConfirm,
 		OverlayLegend:  st.legend,
+		LastRounds:     st.lastRounds,
 		LastOutcomeMsg: st.lastOutcomeMsg,
 	}
 	if st.outcome != ReviewOutcomePending {
@@ -3576,6 +3754,14 @@ func (e *Editor) ReviewStatus() ReviewSnapshot {
 		return snap
 	}
 
+	viewRound := e.reviewActiveViewRound()
+	snap.Round = e.reviewLatestRound()
+	snap.ViewRound = viewRound
+	snap.ViewingReadOnlyRound = e.ReviewViewingReadOnlyRound()
+	snap.DraftNoteCount = e.ReviewDraftNoteCount()
+	snap.ComposingChangeID = st.composingID
+	snap.PendingBatch = e.PendingReviewNotes()
+	snap.RoundBanner = e.ReviewRoundBannerText()
 	snap.TotalChanges = len(st.changes)
 	snap.FileCount = len(st.files)
 	snap.Blockers = e.ReviewBlockers()
@@ -3590,7 +3776,15 @@ func (e *Editor) ReviewStatus() ReviewSnapshot {
 			seen++
 		}
 		cp := *ch
-		cp.YAMLLines = slices.Clone(ch.YAMLLines)
+		ver := ch.VersionFor(viewRound)
+		cp.Detail = ver.Detail
+		cp.Why = ver.Why
+		cp.OldValue = ver.OldValue
+		cp.NewValue = ver.NewValue
+		cp.DeltaPct = ver.DeltaPct
+		cp.Line = ver.Line
+		cp.YAMLLines = slices.Clone(ver.YAMLLines)
+		cp.Versions = cloneReviewChangeVersions(ch.Versions)
 		snap.Changes[i] = cp
 	}
 	snap.SeenCount = seen

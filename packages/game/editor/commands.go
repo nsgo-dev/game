@@ -123,6 +123,7 @@ const (
 	CmdReplayTips         = "help.replayTips"
 	CmdReviewNext         = "review.next"
 	CmdReviewPrev         = "review.prev"
+	CmdReviewNote         = "review.note"
 	CmdReviewToggleRevert = "review.toggleRevert"
 	CmdReviewPeekBefore   = "review.peekBefore"
 	CmdReviewKeep         = "review.keep"
@@ -1827,6 +1828,21 @@ func (e *Editor) initBuiltinCommands() {
 			},
 		},
 		{
+			ID:          CmdReviewNote,
+			Label:       "Review: Note for the Agent",
+			Description: "Open the inline note composer on the focused change in Review",
+			Category:    "Review",
+			Keywords:    []string{"review", "note", "comment", "redo", "agent"},
+			Scope:       ScopeReview,
+			Shortcut:    "c",
+			Enabled: func() bool {
+				return e.ReviewOpen() && !e.reviewModalBlocking() && !e.ReviewViewingReadOnlyRound() && e.review.focusedID != ""
+			},
+			Run: func() error {
+				return e.OpenFocusedReviewNoteComposer()
+			},
+		},
+		{
 			ID:          CmdReviewToggleRevert,
 			Label:       "Review: Revert or Restore",
 			Description: "Revert or restore the focused change or file group in Review",
@@ -1834,7 +1850,9 @@ func (e *Editor) initBuiltinCommands() {
 			Keywords:    []string{"review", "revert", "restore", "toggle", "agent"},
 			Scope:       ScopeReview,
 			Shortcut:    "x",
-			Enabled:     func() bool { return e.ReviewOpen() && !e.reviewModalBlocking() },
+			Enabled: func() bool {
+				return e.ReviewOpen() && !e.reviewModalBlocking() && !e.ReviewViewingReadOnlyRound()
+			},
 			Run: func() error {
 				e.ToggleFocusedReviewRevert()
 				return nil
