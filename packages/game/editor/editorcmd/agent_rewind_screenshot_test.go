@@ -95,26 +95,6 @@ func TestAgentRewindMacOSScreenshots(t *testing.T) {
 		return nil
 	})
 
-	// Run both turns before starting the native macOS window so all setup mutations happen before UI attachment.
-	if err := ed.SubmitAgentPrompt(prompt1); err != nil {
-		t.Fatal(err)
-	}
-	waitUntil := func(cond func() bool) {
-		deadline := time.Now().Add(5 * time.Second)
-		for time.Now().Before(deadline) {
-			if cond() {
-				return
-			}
-			time.Sleep(10 * time.Millisecond)
-		}
-		t.Fatal("timed out waiting for agent turn to finish")
-	}
-	waitUntil(func() bool { return !ed.AgentWorking() && len(ed.AgentTurns()) == 1 })
-	if err := ed.SubmitAgentPrompt(prompt2); err != nil {
-		t.Fatal(err)
-	}
-	waitUntil(func() bool { return !ed.AgentWorking() && len(ed.AgentTurns()) == 2 })
-
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		return editor.EditorView(cx, ed)
 	}, nsgotest.Size(1440, 900), nsgotest.Environment(core.Environment{
@@ -123,6 +103,21 @@ func TestAgentRewindMacOSScreenshots(t *testing.T) {
 		Dark:   true,
 		Locale: "en-US",
 	}))
+	app.Settle()
+
+	if err := ed.SubmitAgentPrompt(prompt1); err != nil {
+		t.Fatal(err)
+	}
+	app.WaitUntil(5*time.Second, func() bool {
+		return !ed.AgentWorking() && len(ed.AgentTurns()) == 1
+	})
+	app.Settle()
+	if err := ed.SubmitAgentPrompt(prompt2); err != nil {
+		t.Fatal(err)
+	}
+	app.WaitUntil(5*time.Second, func() bool {
+		return !ed.AgentWorking() && len(ed.AgentTurns()) == 2
+	})
 	app.Settle()
 
 	// 1. Dark: hover message 2 + open Rewind popover.

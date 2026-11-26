@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path"
@@ -82,24 +83,19 @@ type agentTurnCheckpoint struct {
 	root string
 
 	// fullBefore holds the complete directory scan while a turn is running;
-	// finalizeTurnCheckpoint compacts it into beforeFiles/afterFiles and clears it.
+	// finalizeTurnCheckpoint compacts it into beforeFiles and clears it.
 	fullBefore map[string]fileSnapshot
 
 	beforeFiles map[string]fileSnapshot
-	afterFiles  map[string]fileSnapshot
 
 	beforeDoc          *sceneformat.SceneDoc
 	beforeDocYAML      []byte
 	beforeSceneSaved   []byte
 	beforeFilePath     string
-	afterDoc           *sceneformat.SceneDoc
-	afterSceneSaved    []byte
 	docChanged         bool
 	beforeProject      *project.File
 	beforeProjectYAML  []byte
 	beforeProjectSaved []byte
-	afterProject       *project.File
-	afterProjectSaved  []byte
 	projectChanged     bool
 
 	finalized bool
@@ -117,10 +113,21 @@ type agentRewindRecord struct {
 	hadDocRestore      bool
 	redoDoc            *sceneformat.SceneDoc
 	redoSceneSaved     []byte
+	redoFilePath       string
 	hadProjectRestore  bool
 	redoProject        *project.File
 	redoProjectSaved   []byte
 	filesRestoredCount int
+}
+
+func sameCleanPath(a, b string) bool {
+	if a == "" && b == "" {
+		return true
+	}
+	if a == "" || b == "" {
+		return false
+	}
+	return filepath.Clean(a) == filepath.Clean(b)
 }
 
 func skipCheckpointDir(name string) bool {
@@ -181,7 +188,11 @@ func captureProjectFileTree(root string) map[string]fileSnapshot {
 		if relSlash == "." || relSlash == ".." || strings.HasPrefix(relSlash, "../") || path.IsAbs(relSlash) {
 			return nil
 		}
-		data, err := os.ReadFile(p)
+		// Never snapshot You-only configuration files (permissions, tools, models, usage).
+		if _, isYouOnly := MatchYouOnlyPath(relSlash); isYouOnly {
+			return nil
+		}
+		data, err := readCheckpointFileBounded(p, maxRewindCheckpointFileBytes)
 		if err != nil {
 			return nil
 		}
@@ -262,19 +273,16 @@ func (e *Editor) finalizeTurnCheckpoint(turnID string) {
 	if cp.root != "" {
 		curFiles := captureProjectFileTree(cp.root)
 		cp.beforeFiles = make(map[string]fileSnapshot)
-		cp.afterFiles = make(map[string]fileSnapshot)
 		for rel, before := range cp.fullBefore {
 			after := curFiles[rel]
 			if !before.equal(after) {
 				cp.beforeFiles[rel] = before
-				cp.afterFiles[rel] = after
 				addChanged(rel)
 			}
 		}
-		for rel, after := range curFiles {
+		for rel := range curFiles {
 			if _, existed := cp.fullBefore[rel]; !existed {
 				cp.beforeFiles[rel] = fileSnapshot{exists: false}
-				cp.afterFiles[rel] = after
 				addChanged(rel)
 			}
 		}
@@ -290,12 +298,13 @@ func (e *Editor) finalizeTurnCheckpoint(turnID string) {
 					Components:    e.components,
 					PhysicsLayers: e.PhysicsLayers(),
 				}); err == nil {
-					e.Doc = doc
+					e.setDoc(doc)
 					if enc, err := sceneformat.Encode(doc); err == nil {
 						e.sceneSaved = enc
 					}
 					e.recordSceneDiskSnapshot(e.FilePath, data)
 					e.Rebuild()
+					e.pruneSelection()
 					e.syncActiveTab()
 				}
 			}
@@ -307,17 +316,16 @@ func (e *Editor) finalizeTurnCheckpoint(turnID string) {
 					if enc, err := project.Encode(f); err == nil {
 						e.projectSaved = enc
 					}
+					e.syncAudioMixer()
 					e.recordProjectDiskSnapshot(e.ProjectPath, data)
 				}
 			}
 		}
 	}
 
-	if cp.beforeDoc != nil && e.Doc != nil {
+	if cp.beforeDoc != nil && e.Doc != nil && sameCleanPath(e.FilePath, cp.beforeFilePath) {
 		if curYAML, err := e.SaveYAML(); err == nil && !bytes.Equal(curYAML, cp.beforeDocYAML) {
 			cp.docChanged = true
-			cp.afterDoc = e.Doc.Clone()
-			cp.afterSceneSaved = slices.Clone(e.sceneSaved)
 			sceneRel := e.ScenePath
 			if sceneRel == "" && e.FilePath != "" && cp.root != "" {
 				if rel, err := filepath.Rel(cp.root, e.FilePath); err == nil {
@@ -332,18 +340,16 @@ func (e *Editor) finalizeTurnCheckpoint(turnID string) {
 			}
 			addChanged(sceneRel)
 		}
-		cp.beforeDocYAML = nil
 	}
+	cp.beforeDocYAML = nil
 
 	if cp.beforeProject != nil && e.Project != nil {
 		if curProjYAML, err := project.Encode(e.Project); err == nil && !bytes.Equal(curProjYAML, cp.beforeProjectYAML) {
 			cp.projectChanged = true
-			cp.afterProject = e.Project.Clone()
-			cp.afterProjectSaved = slices.Clone(e.projectSaved)
 			addChanged(project.FileName)
 		}
-		cp.beforeProjectYAML = nil
 	}
+	cp.beforeProjectYAML = nil
 
 	slices.Sort(changed)
 	if turn != nil {
@@ -417,7 +423,7 @@ func (e *Editor) SetAgentRewindMode(mode AgentRewindMode) {
 
 // OpenAgentRewindPopover opens the "Rewind to before this message" popover for turnID.
 func (e *Editor) OpenAgentRewindPopover(turnID string) bool {
-	if e == nil || e.playing || e.AgentWorking() {
+	if e == nil || e.playing || e.AgentWorking() || e.agent.mode == AgentModeNone {
 		return false
 	}
 	if e.findAgentTurnIndex(turnID) < 0 {
@@ -504,7 +510,7 @@ func (e *Editor) AgentRewindBanner() (AgentRewindState, bool) {
 
 // CanRedoAgentRewind reports whether a rewound turn can currently be restored with RedoAgentRewind.
 func (e *Editor) CanRedoAgentRewind() bool {
-	return e != nil && e.agent.lastRewind != nil && !e.playing && !e.AgentWorking()
+	return e != nil && e.agent.lastRewind != nil && !e.playing && !e.AgentWorking() && e.agent.mode != AgentModeNone
 }
 
 // DismissAgentRewindBanner hides the post-rewind banner without redoing.
@@ -546,6 +552,9 @@ func (e *Editor) RewindAgentTurn(turnID string, mode AgentRewindMode) error {
 	if e.playing {
 		return ErrPlaying
 	}
+	if e.agent.mode == AgentModeNone {
+		return errors.New("editor: agent is disabled")
+	}
 	if e.AgentWorking() {
 		return errors.New("editor: cannot rewind while the agent is working")
 	}
@@ -570,6 +579,7 @@ func (e *Editor) RewindAgentTurn(turnID string, mode AgentRewindMode) error {
 	targetBeforeFiles := make(map[string]fileSnapshot)
 	var beforeDoc *sceneformat.SceneDoc
 	var beforeSceneSaved []byte
+	var beforeFilePath string
 	var docChanged bool
 	var beforeProject *project.File
 	var beforeProjectSaved []byte
@@ -591,10 +601,11 @@ func (e *Editor) RewindAgentTurn(turnID string, mode AgentRewindMode) error {
 				targetBeforeFiles[rel] = snap
 			}
 		}
-		if cp.docChanged && !docChanged && cp.beforeDoc != nil {
+		if cp.docChanged && !docChanged && cp.beforeDoc != nil && sameCleanPath(e.FilePath, cp.beforeFilePath) {
 			docChanged = true
 			beforeDoc = cp.beforeDoc.Clone()
 			beforeSceneSaved = slices.Clone(cp.beforeSceneSaved)
+			beforeFilePath = cp.beforeFilePath
 		}
 		if cp.projectChanged && !projectChanged && cp.beforeProject != nil {
 			projectChanged = true
@@ -636,6 +647,7 @@ func (e *Editor) RewindAgentTurn(turnID string, mode AgentRewindMode) error {
 			rec.hadDocRestore = true
 			rec.redoDoc = e.Doc.Clone()
 			rec.redoSceneSaved = slices.Clone(e.sceneSaved)
+			rec.redoFilePath = e.FilePath
 		}
 		if e.Project != nil && (projectChanged || e.isPathAffected(root, e.ProjectPath, targetBeforeFiles)) {
 			rec.hadProjectRestore = true
@@ -651,13 +663,22 @@ func (e *Editor) RewindAgentTurn(turnID string, mode AgentRewindMode) error {
 			rec.filesRestoredCount = len(targetBeforeFiles)
 		}
 
+		if e.HistoryPreviewActive() {
+			e.ExitHistoryPreview()
+		}
+
 		// Keep open scene, inactive tabs, project, and file browser in sync with the restored files.
-		e.syncEditorAfterFileRestore(root, targetBeforeFiles, docChanged, beforeDoc, beforeSceneSaved, projectChanged, beforeProject, beforeProjectSaved)
+		e.syncEditorAfterFileRestore(root, targetBeforeFiles, docChanged, beforeFilePath, beforeDoc, beforeSceneSaved, projectChanged, beforeProject, beforeProjectSaved)
 	} else {
 		rec.state.FilesRestored = nil
 	}
 
 	if restoreConv {
+		if e.agent.checkpoints != nil {
+			for j := idx; j < len(e.agent.turns); j++ {
+				delete(e.agent.checkpoints, e.agent.turns[j].ID)
+			}
+		}
 		e.agent.turns = e.agent.turns[:idx]
 		e.agent.sessionID = targetTurn.SessionIDBefore
 		if e.agent.openRequest != nil {
@@ -690,6 +711,9 @@ func (e *Editor) RedoAgentRewind() error {
 	if e.playing {
 		return ErrPlaying
 	}
+	if e.agent.mode == AgentModeNone {
+		return errors.New("editor: agent is disabled")
+	}
 	if e.AgentWorking() {
 		return errors.New("editor: cannot redo rewind while the agent is working")
 	}
@@ -711,10 +735,14 @@ func (e *Editor) RedoAgentRewind() error {
 				return err
 			}
 		}
+		if e.HistoryPreviewActive() {
+			e.ExitHistoryPreview()
+		}
 		e.syncEditorAfterFileRestore(
 			rec.root,
 			rec.redoFiles,
 			rec.hadDocRestore,
+			rec.redoFilePath,
 			rec.redoDoc,
 			rec.redoSceneSaved,
 			rec.hadProjectRestore,
@@ -735,7 +763,7 @@ func (e *Editor) RedoAgentRewind() error {
 	e.agent.rewindOpenTurnID = ""
 	e.agent.lastRewind = nil
 	e.updateAgentAnnouncement()
-	e.Status = "Redid rewind"
+	e.Status = e.T("agent.rewind.redidStatus")
 	e.notify()
 	return nil
 }
@@ -746,10 +774,7 @@ func cloneAgentTurns(turns []AgentTurn) []AgentTurn {
 	}
 	out := make([]AgentTurn, len(turns))
 	for i, t := range turns {
-		cp := t
-		cp.Steps = slices.Clone(t.Steps)
-		cp.ChangedFiles = slices.Clone(t.ChangedFiles)
-		out[i] = cp
+		out[i] = cloneAgentTurn(t)
 	}
 	return out
 }
@@ -765,9 +790,28 @@ func cloneCheckpointMap(m map[string]*agentTurnCheckpoint) map[string]*agentTurn
 	return out
 }
 
+func readCheckpointFileBounded(abs string, maxBytes int64) ([]byte, error) {
+	f, err := os.Open(abs)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, maxBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, fmt.Errorf("editor: checkpoint file %q exceeds %d byte limit", filepath.Base(abs), maxBytes)
+	}
+	return data, nil
+}
+
 func resolveSafeCheckpointPath(root, relSlash string) (string, error) {
 	if root == "" {
 		return "", errors.New("editor: checkpoint root is empty")
+	}
+	if strings.ContainsAny(relSlash, "\\\x00") {
+		return "", fmt.Errorf("editor: invalid checkpoint path %q", relSlash)
 	}
 	cleanRoot := filepath.Clean(root)
 	cleanRel := path.Clean(relSlash)
@@ -775,8 +819,13 @@ func resolveSafeCheckpointPath(root, relSlash string) (string, error) {
 		return "", fmt.Errorf("editor: invalid checkpoint path %q", relSlash)
 	}
 	parts := strings.Split(cleanRel, "/")
-	if skipCheckpointDir(parts[0]) {
-		return "", fmt.Errorf("editor: refusing to touch protected path %q", relSlash)
+	for _, seg := range parts {
+		if skipCheckpointDir(seg) {
+			return "", fmt.Errorf("editor: refusing to touch protected path %q", relSlash)
+		}
+	}
+	if _, isYouOnly := MatchYouOnlyPath(cleanRel); isYouOnly {
+		return "", fmt.Errorf("editor: refusing to touch You-only file %q", relSlash)
 	}
 	// Verify no existing ancestor component or target inside root is a symlink.
 	cur := cleanRoot
@@ -798,11 +847,22 @@ func resolveSafeCheckpointPath(root, relSlash string) (string, error) {
 	if err != nil || relCheck == ".." || strings.HasPrefix(relCheck, ".."+string(os.PathSeparator)) {
 		return "", fmt.Errorf("editor: checkpoint path %q escapes project root", relSlash)
 	}
+	if resolvedRoot, ok := resolvePathThroughExistingAncestors(cleanRoot); ok {
+		resolvedAbs, okAbs := resolvePathThroughExistingAncestors(abs)
+		if !okAbs {
+			return "", fmt.Errorf("editor: cannot resolve checkpoint path %q", relSlash)
+		}
+		realRel, relErr := filepath.Rel(resolvedRoot, resolvedAbs)
+		if relErr != nil || realRel == "." || realRel == ".." || strings.HasPrefix(realRel, ".."+string(os.PathSeparator)) {
+			return "", fmt.Errorf("editor: checkpoint path %q escapes project root", relSlash)
+		}
+	}
 	return abs, nil
 }
 
 func snapshotDiskFiles(root string, keys map[string]fileSnapshot) (map[string]fileSnapshot, error) {
 	out := make(map[string]fileSnapshot, len(keys))
+	var totalBytes int64
 	for rel := range keys {
 		abs, err := resolveSafeCheckpointPath(root, rel)
 		if err != nil {
@@ -819,10 +879,20 @@ func snapshotDiskFiles(root string, keys map[string]fileSnapshot) (map[string]fi
 		if fi.Mode()&os.ModeSymlink != 0 {
 			return nil, fmt.Errorf("editor: refusing to snapshot symlink %q", rel)
 		}
-		data, err := os.ReadFile(abs)
+		if !fi.Mode().IsRegular() {
+			return nil, fmt.Errorf("editor: refusing to snapshot non-regular file %q", rel)
+		}
+		if fi.Size() > maxRewindCheckpointFileBytes || totalBytes+fi.Size() > maxRewindCheckpointTotalBytes {
+			return nil, fmt.Errorf("editor: file %q exceeds checkpoint size limit", rel)
+		}
+		data, err := readCheckpointFileBounded(abs, maxRewindCheckpointFileBytes)
 		if err != nil {
 			return nil, err
 		}
+		if totalBytes+int64(len(data)) > maxRewindCheckpointTotalBytes {
+			return nil, fmt.Errorf("editor: rewind snapshot exceeds %d byte total limit", maxRewindCheckpointTotalBytes)
+		}
+		totalBytes += int64(len(data))
 		mode := fi.Mode().Perm()
 		if mode == 0 {
 			mode = 0o644
@@ -864,8 +934,10 @@ func applyFileSnapshots(root string, target, rollback map[string]fileSnapshot) e
 					_ = os.Chmod(abs, orig.mode)
 				}
 			} else {
-				_ = os.Remove(abs)
-				pruneEmptyParents(cleanRoot, filepath.Dir(abs))
+				if fi, lerr := os.Lstat(abs); lerr == nil && !fi.IsDir() && fi.Mode()&os.ModeSymlink == 0 {
+					_ = os.Remove(abs)
+					pruneEmptyParents(cleanRoot, filepath.Dir(abs))
+				}
 			}
 		}
 	}
@@ -890,6 +962,19 @@ func applyFileSnapshots(root string, target, rollback map[string]fileSnapshot) e
 				_ = os.Chmod(abs, snap.mode)
 			}
 		} else {
+			if fi, lerr := os.Lstat(abs); lerr == nil {
+				if fi.IsDir() {
+					rollbackApplied()
+					return fmt.Errorf("editor: refusing to remove directory at checkpoint file path %q", rel)
+				}
+				if fi.Mode()&os.ModeSymlink != 0 {
+					rollbackApplied()
+					return fmt.Errorf("editor: refusing to remove symlink at checkpoint file path %q", rel)
+				}
+			} else if !errors.Is(lerr, os.ErrNotExist) {
+				rollbackApplied()
+				return lerr
+			}
 			if err := os.Remove(abs); err != nil && !errors.Is(err, os.ErrNotExist) {
 				rollbackApplied()
 				return err
@@ -905,6 +990,10 @@ func pruneEmptyParents(root, dir string) {
 	cleanRoot := filepath.Clean(root)
 	cur := filepath.Clean(dir)
 	for cur != cleanRoot && strings.HasPrefix(cur, cleanRoot+string(os.PathSeparator)) {
+		fi, err := os.Lstat(cur)
+		if err != nil || !fi.IsDir() || fi.Mode()&os.ModeSymlink != 0 {
+			return
+		}
 		entries, err := os.ReadDir(cur)
 		if err != nil || len(entries) > 0 {
 			return
@@ -933,6 +1022,7 @@ func (e *Editor) syncEditorAfterFileRestore(
 	root string,
 	restoredFiles map[string]fileSnapshot,
 	docChanged bool,
+	expectedFilePath string,
 	fallbackDoc *sceneformat.SceneDoc,
 	fallbackSceneSaved []byte,
 	projectChanged bool,
@@ -950,15 +1040,18 @@ func (e *Editor) syncEditorAfterFileRestore(
 				if enc, err := project.Encode(f); err == nil {
 					e.projectSaved = enc
 				}
+				e.syncAudioMixer()
 				e.recordProjectDiskSnapshot(e.ProjectPath, data)
 			}
 		}
 	} else if projectChanged && fallbackProject != nil {
 		e.Project = fallbackProject.Clone()
 		e.projectSaved = slices.Clone(fallbackProjectSaved)
+		e.syncAudioMixer()
 	}
 
-	// Reload active open scene if its file was restored on disk, or restore in-memory doc snapshot.
+	// Reload active open scene if its file was restored on disk, or restore in-memory doc snapshot
+	// when the same scene is still open.
 	sceneReloaded := false
 	if e.FilePath != "" && e.isPathAffected(root, e.FilePath, restoredFiles) {
 		if data, err := os.ReadFile(e.FilePath); err == nil {
@@ -967,7 +1060,7 @@ func (e *Editor) syncEditorAfterFileRestore(
 				Components:    e.components,
 				PhysicsLayers: e.PhysicsLayers(),
 			}); err == nil {
-				e.Doc = doc
+				e.setDoc(doc)
 				if enc, err := sceneformat.Encode(doc); err == nil {
 					e.sceneSaved = enc
 				}
@@ -976,20 +1069,14 @@ func (e *Editor) syncEditorAfterFileRestore(
 			}
 		}
 	}
-	if !sceneReloaded && docChanged && fallbackDoc != nil {
-		e.Doc = fallbackDoc.Clone()
-		if len(fallbackSceneSaved) > 0 {
-			e.sceneSaved = slices.Clone(fallbackSceneSaved)
-		}
+	if !sceneReloaded && docChanged && fallbackDoc != nil && sameCleanPath(e.FilePath, expectedFilePath) {
+		e.setDoc(fallbackDoc.Clone())
+		e.sceneSaved = slices.Clone(fallbackSceneSaved)
 		sceneReloaded = true
 	}
 	if sceneReloaded && e.Doc != nil {
 		e.Rebuild()
-		if e.SelectedID != "" {
-			if obj, _, _ := e.FindObject(e.SelectedID); obj == nil {
-				e.clearSelectionFields()
-			}
-		}
+		e.pruneSelection()
 		e.syncActiveTab()
 	}
 
@@ -1025,6 +1112,7 @@ func (e *Editor) syncEditorAfterFileRestore(
 
 	e.filesRev++
 	e.snapshotProjectTree()
+	e.invalidateProjectIndex()
 	e.RefreshChangesCount()
 	if e.Project != nil {
 		e.CheckProblems()

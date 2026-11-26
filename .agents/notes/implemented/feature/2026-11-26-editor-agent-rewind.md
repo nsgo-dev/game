@@ -15,8 +15,8 @@ Two design constraints shaped the implementation:
 
 ### Compact per-turn checkpoints (`agent_rewind.go`)
 
-- Before launching a composer turn in `Editor.SubmitAgentPrompt`, the editor captures a pre-turn snapshot (`captureTurnStartCheckpoint`) of regular files under `agentProjectRoot()` (skipping `.git`, `.nsgo`, `node_modules`, `.svn`, `.hg`, and symlinks, with per-file and total byte caps) along with cloned in-memory `Doc` and `Project` snapshots and `SessionIDBefore`.
-- When the turn finishes (`finishAgentRun`) or is stopped (`StopAgentRun`), `finalizeTurnCheckpoint` computes the exact diff against the pre-turn scan, retains only the changed/created/deleted file entries (`beforeFiles` and `afterFiles`), drops the full baseline map to keep memory bounded, records sorted `AgentTurn.ChangedFiles`, and records `AgentTurn.SessionIDAfter`.
+- Before launching a composer turn in `Editor.SubmitAgentPrompt`, the editor captures a pre-turn snapshot (`captureTurnStartCheckpoint`) of regular files under `agentProjectRoot()` (skipping `.git`, `.nsgo`, `node_modules`, `.svn`, `.hg`, symlinks, and You-only settings files, with per-file and total byte caps) along with cloned in-memory `Doc` and `Project` snapshots and `SessionIDBefore`.
+- When the turn finishes (`finishAgentRun`) or is stopped (`StopAgentRun`), `finalizeTurnCheckpoint` computes the exact diff against the pre-turn scan, retains only the changed/created/deleted pre-turn file entries (`beforeFiles`), drops the full baseline map to keep memory bounded, records sorted `AgentTurn.ChangedFiles`, and records `AgentTurn.SessionIDAfter`.
 - Checkpoints live in `agentState.checkpoints[turnID]` rather than directly inside `AgentTurn` so `Editor.AgentTurns()` never clones file byte slices during UI renders.
 
 ### Three rewind modes, atomic rollback, and Redo (`RewindAgentTurn` / `RedoAgentRewind`)

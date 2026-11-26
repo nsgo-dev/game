@@ -1141,12 +1141,10 @@ func AgentPanelView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.N
 	threadKey := core.NewMemo(cx, func() string {
 		_ = rev.Get()
 		var b strings.Builder
-		fmt.Fprintf(&b, "%v|%s|%s|rw=%s:%s|seq=%d|at=%d|rev=%s:%d|off=%v|lim=%v|q=%d|pt=%s|rv=%s|t=%d|th=%d:%s:%s|ct=%d:%d:%d:%s|",
+		fmt.Fprintf(&b, "%v|%s|%s|seq=%d|at=%d|rev=%s:%d|off=%v|lim=%v|q=%d|pt=%s|rv=%s|t=%d|th=%d:%s:%s|ct=%d:%d:%d:%s|",
 			ed.SpecPalette(cx).Dark,
 			ed.ResolvedLanguage(),
 			ed.AgentStatus(),
-			ed.AgentRewindOpenTurnID(),
-			ed.AgentRewindMode(),
 			ed.AgentTurnSeq(),
 			ed.agentTurnRev,
 			ed.review.outcome,
@@ -1649,6 +1647,10 @@ func agentTurnView(ed *Editor, rev *core.Signal[uint64], turnIdx int, turn Agent
 							TestID: fmt.Sprintf("agent-rewind-trigger-%d", turnIdx),
 							Role:   core.RoleButton,
 							Label:  ed.T("agent.rewind.trigger"),
+							Expanded: func() bool {
+								_ = rev.Get()
+								return ed.AgentRewindOpenTurnID() == turnID
+							},
 							Style: core.Style{
 								Direction:    core.Row,
 								AlignItems:   core.AlignCenter,
@@ -1685,9 +1687,15 @@ func agentTurnView(ed *Editor, rev *core.Signal[uint64], turnIdx int, turn Agent
 				},
 			},
 		})
-		if ed.AgentRewindOpenTurnID() == turnID {
-			children = append(children, agentRewindPopoverView(ed, rev, turnID, p))
-		}
+		children = append(children, core.Show{
+			When: func() bool {
+				_ = rev.Get()
+				return ed.AgentRewindOpenTurnID() == turnID
+			},
+			Then: func(cx *core.Scope) core.Node {
+				return agentRewindPopoverView(ed, rev, turnID, p)
+			},
+		})
 	}
 
 	// Stopped card renders DONE and NOT DONE sections directly inside the card; avoid duplicating steps above it.
@@ -2492,6 +2500,11 @@ func agentRewindPopoverView(ed *Editor, rev *core.Signal[uint64], turnID string,
 			TestID: testID,
 			Role:   core.RoleRadio,
 			Label:  label,
+			Checked: func() bool {
+				_ = rev.Get()
+				return ed.AgentRewindMode() == mode
+			},
+			Focusable: func() bool { return true },
 			StyleFunc: func() core.Style {
 				_ = rev.Get()
 				selected := ed.AgentRewindMode() == mode
@@ -2743,6 +2756,10 @@ func agentRewindBannerView(ed *Editor, rev *core.Signal[uint64], p SpecPalette) 
 								TestID: "agent-rewind-redo",
 								Role:   core.RoleButton,
 								Label:  ed.T("agent.rewind.redo"),
+								Disabled: func() bool {
+									_ = rev.Get()
+									return !ed.CanRedoAgentRewind()
+								},
 								Style: core.Style{
 									Height:         core.Pt(30),
 									Padding:        core.Symmetric(0, 12),

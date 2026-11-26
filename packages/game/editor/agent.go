@@ -765,6 +765,7 @@ func (e *Editor) SetRightRailTab(tab RightRailTab) {
 		e.agentComposer.pickerOpen = false
 		e.agentComposer.breakdownOpen = false
 		e.agentComposer.hoveredChipID = ""
+		e.agent.rewindOpenTurnID = ""
 	}
 	e.agentThreads.rev++
 	e.notify()
@@ -1143,6 +1144,7 @@ func (e *Editor) CompleteConnectDialog() {
 		e.stopAgentTimers()
 		e.agent.queued = nil
 		e.agent.rightTab = RightTabInspector
+		e.agent.rewindOpenTurnID = ""
 		e.agent.status = AgentStatusNotConnected
 		e.updateAgentAnnouncement()
 	case AgentModeLocal:
@@ -1603,6 +1605,7 @@ func cloneAgentTurn(t AgentTurn) AgentTurn {
 		cp.NotChecked = slices.Clone(t.PendingReview.NotChecked)
 		t.PendingReview = &cp
 	}
+	t.ChangedFiles = slices.Clone(t.ChangedFiles)
 	t.Context.SelectionIDs = slices.Clone(t.Context.SelectionIDs)
 	t.Context.SelectionNames = slices.Clone(t.Context.SelectionNames)
 	t.Context.ViewportPNG = slices.Clone(t.Context.ViewportPNG)
@@ -1677,9 +1680,7 @@ func (e *Editor) AgentTurns() []AgentTurn {
 	}
 	out := make([]AgentTurn, len(e.agent.turns))
 	for i := range e.agent.turns {
-		cp := cloneAgentTurn(e.agent.turns[i])
-		cp.ChangedFiles = slices.Clone(e.agent.turns[i].ChangedFiles)
-		out[i] = cp
+		out[i] = cloneAgentTurn(e.agent.turns[i])
 	}
 	return out
 }

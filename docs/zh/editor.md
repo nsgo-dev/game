@@ -1644,7 +1644,7 @@ func main() {
 
 可将智能体对话回退到任意已发送消息之前（对应 `docs/design/editor/Checkpoints.dc.html`，全部界面仅使用 `docs/design/editor/Spec.dc.html` 设计 Token）：
 
-- **每轮文件与场景检查点**：每次通过输入框发送请求（`SubmitAgentPrompt`）前，编辑器会为项目磁盘文件（跳过 `.git`、`.nsgo`、`node_modules` 与符号链接）以及当前打开的场景与 `game.yaml` 拍摄前快照，并在回合结束或停止时压缩为差异检查点（`AgentTurn.ChangedFiles`、`AgentTurn.SessionIDBefore`、`AgentTurn.SessionIDAfter`）。
+- **每轮文件与场景检查点**：每次通过输入框发送请求（`SubmitAgentPrompt`）前，编辑器会为项目磁盘文件（跳过 `.git`、`.nsgo`、`node_modules`、符号链接以及仅限用户配置文件）以及当前打开的场景与 `game.yaml` 拍摄前快照，并在回合结束或停止时压缩为差异检查点（`AgentTurn.ChangedFiles`、`AgentTurn.SessionIDBefore`、`AgentTurn.SessionIDAfter`）。
 - **悬停或聚焦显示“回退到此处”与三种选项**：在 `AgentPanelView` 中悬停或键盘聚焦任意已发送的用户消息即可显示 **Rewind to here** / **回退到此处**（`OpenAgentRewindPopover` / `ToggleAgentRewindPopover`），打开“回退到此消息之前”弹层（`AgentRewindPreview`），提供三个选项（`AgentRewindMode`）、**Cancel** / **取消**（或按 `Esc`）与 **Rewind** / **回退**（`ConfirmAgentRewind` / `RewindAgentTurn`）：
   - **文件与对话（`AgentRewindBoth`）**：从检查点还原目标回合及之后所有受影响的文件（并同步刷新当前场景、其他打开的场景标签页、`game.yaml` 与文件树），从对话中移除后续请求与回复，并将 `AgentSessionID` 恢复至 `SessionIDBefore`，使下一次提问直接从该消息之前继续会话。
   - **仅文件（`AgentRewindFilesOnly`）**：从回合检查点还原文件，同时保持对话记录与会话不变。
