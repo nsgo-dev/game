@@ -733,7 +733,8 @@ func (e *Editor) RequestRenameObject(id string) error {
 }
 
 // AskAgentAboutObject builds an AgentPromptRequest draft for object id, invokes Editor.OnAskAgent if set,
-// stores it as LastAgentPrompt, updates Status, and returns the request.
+// stores it as LastAgentPrompt, opens the anchored ⌘L in-place composer for the target (or the current
+// multi-selection when id is part of it), updates Status, and returns the request.
 func (e *Editor) AskAgentAboutObject(id string) (AgentPromptRequest, error) {
 	if e == nil || e.Doc == nil {
 		return AgentPromptRequest{}, errors.New("editor: no scene open")
@@ -761,7 +762,17 @@ func (e *Editor) AskAgentAboutObject(id string) (AgentPromptRequest, error) {
 	if e.OnAskAgent != nil {
 		e.OnAskAgent(req)
 	}
-	e.notify()
+	targets := []string{obj.ID}
+	if e.IsSelected(obj.ID) {
+		if sel := e.SelectedIDs(); len(sel) > 0 {
+			targets = sel
+		}
+	}
+	if !e.askInPlaceBlocked() {
+		_ = e.openAskInPlaceForTargets(targets)
+	} else {
+		e.notify()
+	}
 	return req, nil
 }
 
@@ -775,6 +786,7 @@ func (e *Editor) LastAgentPrompt() AgentPromptRequest {
 
 func (e *Editor) contextMenuBlocked() bool {
 	return e == nil || e.Doc == nil || e.playing ||
+		e.AskInPlaceOpen() ||
 		e.StartScreenOpen() || e.MergeConflictOpen() || e.PlaytestReportOpen() ||
 		e.UsagesScreenOpen() || e.ChangesOpen() || e.HUDLayoutOpen() ||
 		e.EditorSettingsOpen() || e.ShortcutsSheetOpen() || e.BuildReleaseScreenOpen()

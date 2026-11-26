@@ -118,6 +118,7 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 		ed.CloseObjectContextMenu()
 		ed.stopAgentTimers()
 		ed.stopAutoSave()
+		ed.CloseAskInPlace()
 		_ = ed.DisconnectProfiler()
 		ed.cancelAssetGenOps()
 		ed.DisconnectAllAssetGenerators()

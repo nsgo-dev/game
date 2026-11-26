@@ -11,7 +11,45 @@ strings:
   agent.status.waitingShort: Waiting
   agent.status.workingShort: Working
   agent.tab: Agent
+  agentPanel.emptyHint: Press {askKey} in the viewport to ask about the selection in place, or type a request below.
+  agentPanel.emptyTitle: Ask the agent
+  agentPanel.inputLabel: Ask the agent
+  agentPanel.mcpReady: MCP
+  agentPanel.placeholder: Describe a change…
+  agentPanel.skipPlanBadge: In-place · skips plan
+  agentPanel.skipPlanHint: Small edits with {askKey} skip the plan.
+  agentPanel.statusDone: Done
+  agentPanel.statusPending: Sent via MCP
+  agentPanel.statusRunning: Working…
+  agentPanel.statusStopped: Stopped
+  agentPanel.tab: Agent
+  agentPanel.viewportImage: Viewport image
   app.defaultName: NSGo Scene Editor
+  askInPlace.announceScene: Asking about open scene {scene}
+  askInPlace.announceSelection: '{count} selected: {names}'
+  askInPlace.close: Close ask composer
+  askInPlace.hint: '{askKey} asks about the selection · {searchKey} searches · right-click ''Ask the agent'''
+  askInPlace.inputLabelScene: Ask the agent about {scene}
+  askInPlace.inputLabelSelection: Ask the agent about the selection
+  askInPlace.placeholderScene: Describe a change for {scene}…
+  askInPlace.placeholderSelection: Ask the agent what to change…
+  askInPlace.sceneChip: Scene · {scene}
+  askInPlace.selectedCount: '{count} selected'
+  askInPlace.selectedManyChip: '{count} selected · {names}'
+  askInPlace.selectedOneChip: 1 selected · {name}
+  askInPlace.send: Send
+  askInPlace.statusSent: 'Sent to agent: {prompt}'
+  askInPlace.suggest.addPatrol: Add patrol movement
+  askInPlace.suggest.fitCamera: Fit bounds to this room
+  askInPlace.suggest.flickerLight: Add a subtle flicker
+  askInPlace.suggest.prefabVariant: Make them a prefab variant
+  askInPlace.suggest.sceneLayout: Check this scene for layout issues
+  askInPlace.suggest.scenePopulate: Add patrol enemies and coins
+  askInPlace.suggest.singlePrefabVariant: Make it a prefab variant
+  askInPlace.suggest.smoothFollow: Add smooth follow
+  askInPlace.suggest.softenLight: Soften the light radius
+  askInPlace.suggest.spaceEvenly: Space them evenly
+  askInPlace.suggested: 'Suggested:'
   assetGen.back: Back to scene editor
   assetGen.cancel: Cancel
   assetGen.commercialUse: Commercial use allowed
@@ -42,6 +80,10 @@ strings:
   assets.title: Assets
   cmd.agentPanel.desc: Toggle the right sidebar between the Agent panel and the Inspector
   cmd.agentPanel.label: Agent Panel
+  cmd.agentTab.desc: Switch the right panel to the Agent thread
+  cmd.agentTab.label: Agent Panel
+  cmd.askAgent.desc: Open the anchored in-place composer to ask the agent about the selection or open scene
+  cmd.askAgent.label: Ask the Agent About Selection
   cmd.askFrozenFrame.desc: Pause Play mode and ask the agent about the frozen frame with replay and live state attached
   cmd.askFrozenFrame.label: Something Looks Wrong
   cmd.assetDrawer.desc: Switch the left rail between Scene and Assets drawer mode
@@ -90,6 +132,8 @@ strings:
   cmd.gizmoTranslate.label: '3D Gizmo: Translate'
   cmd.group.desc: Wrap the selected objects under a new empty parent at their common centre
   cmd.group.label: Group Selected Objects
+  cmd.inspectorTab.desc: Switch the right panel to the Property Inspector
+  cmd.inspectorTab.label: Inspector Panel
   cmd.lightingPreview.desc: Show or hide live 2D lights, occluder shadows, and ambient darkness in the 2D viewport
   cmd.lightingPreview.label: Toggle 2D Lighting Preview
   cmd.localization.desc: Toggle the Localization string table panel
@@ -407,7 +451,9 @@ strings:
   material.shape.sphere: Sphere
   material.shape.sprite: Sprite
   material.title: Material Editor
+  menu.agentPanel: Agent Panel
   menu.applyOverridesToSource: Apply Overrides to Source
+  menu.askAgent: Ask the Agent About Selection
   menu.askFrozenFrame: Something Looks Wrong
   menu.audioMixer: Audio Bus Mixer
   menu.buildRelease: Build & Release...
@@ -431,6 +477,7 @@ strings:
   menu.generatedAssets: Generated Assets
   menu.gizmo3d: 3D Gizmo
   menu.group: Group
+  menu.inspectorPanel: Inspector Panel
   menu.lightingPreview: 2D Lighting Preview
   menu.localization: Localization Strings
   menu.makeInstanceLocal: Make Instance Local

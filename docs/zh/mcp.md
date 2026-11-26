@@ -328,6 +328,8 @@ claude mcp add game-editor -- nsgo game mcp
 | `object_find_usages` | read | `id`（可选） | 在打开的项目中查找对象的实例化场景、预制体或 ID 的引用与搜索匹配（对场景/预制体路径打开查找用法界面，对普通 ID 打开搜索面板）。 |
 | `release_notes_draft` | edit | `markdown`、`kept_reviews`（均可选） | 根据自上一发布标签（无标签时自初始提交）以来的 git 提交、已保留的审查摘要及 `changelog.d` 片段起草面向玩家的 Markdown 发布说明（或直接保存经校验的 `markdown`，上限 256 KiB），并仅原子写入 `game release -release-notes` 读取的同一文件。 |
 | `release_review_uploads` | run | 无 | 打开构建与发布界面的 **Review uploads** 确认对话框，列出每个产物的名称、体积、目标商店（`itch.io`、`Google Play · internal testing`、`TestFlight`）与版本号。绝不启动上传：无论权限配置如何，商店上传始终需要开发者本人显式确认。 |
+| `agent_turn_get` | read | `turnId`、`includeScene`、`includeImage`（可选） | 读取从 `⌘L` 就地提问框或智能体面板提交的最新（或指定）请求，返回提示词、`skipPlan` 标记、选中对象 ID 与名称、打开场景的路径与 YAML，以及捕获的视口 PNG 图像。 |
+| `agent_turn_reply` | edit | `turnId`、`reply`、`status`（可选） | 更新智能体面板对话线程中指定回合的状态（`pending`、`running`、`done`、`stopped`）和/或写入智能体回复文本。 |
 
 `scene_edit` 接受的编辑，每项是一个带 `op` 的对象：
 
@@ -352,7 +354,7 @@ claude mcp add game-editor -- nsgo game mcp
 
 ### 变更流
 
-服务器有两个资源：`editor://scene` 是编辑器当前持有的打开场景的 YAML，`editor://selection` 是 `selection_get` 所报告的选择内容（JSON）。订阅它们的客户端会在每次变化时收到通知，通知的 `_meta` 说明是谁做的改动：工具调用为 `"nsgo.dev/by": "agent"`，编辑器自身的控件为 `"person"`，编辑器的修订号在 `"nsgo.dev/revision"` 下。一连串变化可能合并为一条通知。
+服务器有三个资源：`editor://scene` 是编辑器当前持有的打开场景的 YAML，`editor://selection` 是 `selection_get` 所报告的选择内容（JSON），`editor://agent/turn` 是通过 `⌘L` 就地提问框或智能体面板发起的最新请求（包含 `selectionIds`、`scenePath`、`sceneYaml` 与 `skipPlan` 的 JSON 载荷，以及捕获的 `image/png` 视口二进制图像）。订阅它们的客户端会在每次变化时收到通知，通知的 `_meta` 说明是谁做的改动：工具调用为 `"nsgo.dev/by": "agent"`，编辑器自身的控件为 `"person"`，编辑器的修订号在 `"nsgo.dev/revision"` 下（`editor://agent/turn` 通知还会附带 `"nsgo.dev/turnId"` 与 `"nsgo.dev/skipPlan"`）。一连串变化可能合并为一条通知。
 
 ### 添加工具
 

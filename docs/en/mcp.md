@@ -328,6 +328,8 @@ claude mcp add game-editor -- nsgo game mcp
 | `object_find_usages` | read | `id` (optional) | Finds project-wide references or search matches for an object's instanced scene, prefab, or ID in the open project (opening the Find Usages screen for scene/prefab targets or the Search panel for plain IDs). |
 | `release_notes_draft` | edit | `markdown`, `kept_reviews` (optional) | Drafts player-facing Markdown release notes from git commits since the last release tag (or initial commit), kept review summaries, and `changelog.d` fragments (or saves validated `markdown`, capped at 256 KiB), writing atomically and exclusively to the file read by `game release -release-notes`. |
 | `release_review_uploads` | run | none | Opens the Build and Release screen's **Review uploads** confirmation dialog listing every artifact, size, store destination (`itch.io`, `Google Play · internal testing`, `TestFlight`), and version. Never starts an upload: store uploads always require the person's explicit confirmation, whatever the permission profile. |
+| `agent_turn_get` | read | `turnId`, `includeScene`, `includeImage` (optional) | Reads the latest (or specified) agent turn submitted from the `⌘L` in-place composer or Agent panel, returning the prompt, `skipPlan` flag, selected object IDs and names, open scene path and YAML, and the captured viewport PNG as an image. |
+| `agent_turn_reply` | edit | `turnId`, `reply`, `status` (optional) | Updates an agent turn's status (`pending`, `running`, `done`, `stopped`) and/or appends the agent's reply text in the editor's Agent panel thread. |
 
 The edits `scene_edit` takes, each an object with `op`:
 
@@ -352,7 +354,7 @@ While the editor's automatic saving is failing (for example into a read-only fol
 
 ### The change stream
 
-The server has two resources: `editor://scene`, the open scene's YAML as the editor holds it, and `editor://selection`, the selection as `selection_get` reports it in JSON. A client that subscribes to them is notified of each change, and the notice's `_meta` says who made it, `"nsgo.dev/by": "agent"` for a tool call and `"person"` for the editor's own controls, with the editor's revision under `"nsgo.dev/revision"`. A burst of changes may come as one notice.
+The server has three resources: `editor://scene`, the open scene's YAML as the editor holds it; `editor://selection`, the selection as `selection_get` reports it in JSON; and `editor://agent/turn`, the latest request started from the `⌘L` in-place composer or Agent panel (JSON metadata including `selectionIds`, `scenePath`, `sceneYaml`, and `skipPlan`, plus the captured `image/png` viewport blob). A client that subscribes to them is notified of each change, and the notice's `_meta` says who made it, `"nsgo.dev/by": "agent"` for a tool call and `"person"` for the editor's own controls, with the editor's revision under `"nsgo.dev/revision"` (and `"nsgo.dev/turnId"` / `"nsgo.dev/skipPlan"` on `editor://agent/turn` notices). A burst of changes may come as one notice.
 
 ### Adding tools
 

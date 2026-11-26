@@ -1408,7 +1408,7 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 			core.Show{
 				When: func() bool {
 					_ = rev.Get()
-					if ed.CommandPaletteOpen() || ed.PickingConnectionTarget() {
+					if ed.CommandPaletteOpen() || ed.PickingConnectionTarget() || ed.AskInPlaceOpen() {
 						return false
 					}
 					_, gmActive := ed.GridMapStrokeActive()
@@ -1834,6 +1834,7 @@ func ViewportView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Nod
 			viewportOverlaysBarView(cx, ed, rev),
 			viewportOverlayLegendView(cx, ed, rev),
 			playViewportOverlaysView(cx, ed, rev),
+			AskInPlaceComposerView(cx, ed, rev),
 		}, append(viewportTileOverlays(cx, ed, rev), ToastView(cx, ed, rev))...),
 	}
 }

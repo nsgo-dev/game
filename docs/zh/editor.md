@@ -1285,6 +1285,7 @@ func main() {
 - **视口内焦点即选中对象**：视口画布本身不绘制焦点环；当焦点位于视口（`editor-viewport-frame`）内时，`Tab`（`Editor.SelectNextObject`）与 `Shift-Tab`（`Editor.SelectPreviousObject`）按场景顺序循环选中下一个/上一个可见且未锁定的对象。
 - **对话框焦点限制与关闭恢复**：所有编辑器对话框（`EditorSettingsDialogView`、`ShortcutsSheetView`、`CommandPaletteView`、未保存提示、场景路径对话框与保存冲突对话框）会将 `Tab` / `Shift-Tab` 限制在最顶层模态框内（同时不干扰 `Settings › Shortcuts` 的按键录制），在对话框打开期间屏蔽全局快捷键（除用于停止智能体的 `⌘.` / `Ctrl+.`，即 `Editor.OnStopAgent` 外），并在按 `Esc` 取消或点击操作按钮关闭后将焦点精确恢复到打开该对话框的控件。
 - **焦点稳定性**：在拖拽或检查器数值微调进行中（`Editor.IsDragging`）或用户正在文本字段中输入时（`Editor.IsTyping`），编辑器不会自动抢占焦点；弹出 Toast 不会抢走焦点；`Editor.ShouldFocusAgentPrompt` 仅在未拖拽、未输入且焦点原本就位于智能体面板内（`Editor.SetAgentPanelRef`）时才返回 `true`。
+
 ## 连接智能体与状态胶囊（#1009）
 
 在编辑器内或通过 `go tool game mcp install` 连接本机的外部编程智能体（Claude Code、Codex 或任意 MCP 客户端），界面严格遵循 `docs/design/editor/Spec.dc.html` 设计 Token 并对应 `docs/design/editor/Connect.dc.html`、`docs/design/editor/AgentStates.dc.html` 与 `docs/design/editor/Settings.dc.html`：
@@ -1307,7 +1308,6 @@ func main() {
 - **运行控制栏与标记（`alt+f` / `CmdPlayMark`）**：本地运行模式在主工具栏下方展示 Spec 风格的运行控制栏（`playModeBarView`，不增加 2D 工具栏按钮），包含运行/暂停状态徽章、暂停/继续（`mod+shift+p`、`SetPlayPaused`）、单帧步进（暂停时按 `.`、`StepPlay`）、时间倍率（`0.25×`–`2×`、`SetPlayTimeScale`）、**Mark `⌥F`**（`AddPlayMark`）、**Something looks wrong `⌘L`** 与 **Stop**。按下 `alt+f` 不会停止运行，会保存对应的 `.replay.yaml`、在 60 秒帧耗时条上标注旗标，并在右侧 **Agent** 标签页的 **MARKS · N** 列表中展示时间、帧号与 `"replay attached"`（`PlayInspectorTab`、`PlayMarks`）。停止运行（`Stop`）或提前点击 **Send marks now**（`SendPlayMarks`）会将全部未发送标记打包为**同一条线程**派发给 `Editor.OnPlayMarksThread`（并保存在 `LastPlayMarksThread` 中）。
 - **冻结帧提问（`mod+l` / `CmdAskFrozenFrame`）与 MCP 回放步进**：按下 `mod+l` 或点击 **Something looks wrong**（`OpenAskFrozenFrame`）会立即暂停运行、截取当前视口 PNG 并打开 **"Ask about frame N"** 弹窗，展示冻结帧缩略图、附件标签、输入框（`"What looks wrong? e.g. the slime walks through the wall"`）、`"A fix comes back as a review"` 提示及 **Cancel** / **Ask** 按钮。提交（`SubmitAskFrozenFrame`）后会保存滚动回放、附上帧图像与实时实体状态快照、触发 `Editor.OnAskFrozenFrame` 并切到 **Agent** 标签页。智能体通过 `editormcp` 的 `play_frozen_context` 获取冻结帧上下文，并通过 `play_replay_step`（`AgentStepPlayReplay`）步进回放；视口显示智能体徽章（`"agent stepping frames A–B"`），Agent 标签页记录步进日志（`"Stepped frames A–B with game_loop_step…"`），且游戏保持暂停直至用户手动恢复。
 - **输出面板崩溃卡片与回放到崩溃前**：`ParsePanicTrace` 会解析游戏运行输出或 Play 模式恢复的 Go panic 消息与调用栈（`OutputPanic`、`SetOutputPanic`）。`OutputPanelView` 以 Spec 风格卡片展示错误消息、可点击跳转到源码文件的游戏调用帧 `file:line` 链接、折叠的运行时调用帧（`"N frames in the game runtime · Show"` / `"Hide"` 切换，`SetOutputPanicRuntimeExpanded`）、**Ask the agent to fix**（`AskAgentToFixPanic`、`Editor.OnAskPanicFix`）以及 **Replay up to the panic**（`ReplayUpToPanic`、`ReplayUpToFrame`），后者重置场景（设置时调用 `Editor.OnPlayReset`）、经由 `PlayActiveInput()` 回放已保存录制，并在崩溃帧前一帧（`panicFrame - 1`）精确停住并暂停而不触发崩溃。
-
 ## 权限方案与 MCP 规则强制执行（#1010）
 
 编辑器通过位于 `game.yaml` 旁的版本化 YAML 文件 `permissions.yaml` 控制所有修改类与运行类 MCP 工具调用（将 `.nsgo/` 保留为 Git 忽略的本机编辑器状态，把团队共享的权限规则纳入版本控制）：
@@ -1320,3 +1320,12 @@ func main() {
 - **设置 › 权限（`PermissionsSettingsView`）**：可通过 `文件 > 权限…`、命令面板（`CmdPermissionsSettings`）或被拦截步骤的链接打开。页面包含三张方案卡片（修改规则后保留当前方案名并显示 **已修改** 标记）、可上下排序和增删的规则表、每行支持方向键切换的 **允许 / 询问 / 拒绝** 单选组，以及右侧的拦截步骤与待审批卡片栏。
 - **拦截步骤跳转与“始终允许”提示条**：`deny` 规则绝不会调用底层 MCP 工具，并会记录被拦截步骤，点击其链接（如 `"Settings › Permissions · rule 7 of 7"`）会直接打开 **设置 › 权限** 并聚焦到对应规则行。在 `ask` 请求卡片上选择 **始终允许** 会在询问规则之前插入一条 `allow` 规则、保存到 `permissions.yaml`，并显示带 **查看（Show）** 和 **撤销（Undo）** 按钮的 `"Always permission rule saved"` 提示条。
 - **仅作用于编辑器 MCP**：规则仅约束编辑器的 MCP 服务器工具；外部智能体直接写入磁盘的文件仍通过磁盘监视器提示。
+
+## 使用 `⌘L` 就地向智能体提问与智能体面板（#1037）
+
+在任意文本输入框之外按 `⌘L`（Windows/Linux 为 `Ctrl+L`，在 `ScopeGlobal` 中注册为 `CmdAskAgent` 并受 `core.KeyNotEditing` 保护）会在视口选中对象旁打开锚定就地提问框（`AskInPlaceComposerView`，严格遵循 `docs/design/editor/Spec.dc.html` 设计令牌并对应 `AskInPlace.dc.html`）：
+
+- **锚定定位与边界约束（`OpenAskInPlace`、`AskInPlacePlacement`、`ComputeAskInPlacePlacement`）**：默认锚定在选区视口包围盒下方（靠近底部时自动翻转到选区上方），并严格约束在视口容器内部，确保始终位于屏幕内且绝不遮挡右侧面板（检查器 / 智能体面板）。未选中任何对象时锚定在视口内询问当前打开的场景。按 `Esc`（`CloseAskInPlace`）会直接关闭而不发送，并将键盘焦点还原回打开前的控件。在检查器或任何文本框中输入时按 `⌘L` 不会误触发提问框。
+- **可播报选区标签、多行输入与上下文建议**：顶部以 `RoleStatus` / `LiveRegionPolite` 标签播报选区数量与对象名称（例如 `"已选中 2 项 · slime_01, slime_02"`）；主体为带无障碍标签的真实多行输入框（`⇧↵` 插入换行，`↵` 或 `⌘↵` 发送）；下方提供最多两条上下文建议（如多选时的“将它们做成预制体变体”与“均匀排列它们”），可用方向键与 `↵` 选取且绝不阻塞自由输入；视口左下角显示本地化提示 `"⌘L 询问选中内容 · ⌘K 搜索 · 右键“向智能体询问此项”"`。
+- **右键菜单联动**：视口右键菜单与场景树右键菜单中的**向智能体询问此项**（`AskAgentAboutObject`）都会打开同一个锚定就地提问框（目标对象属于多选时自动带入整个选区）。
+- **智能体面板与 MCP 上下文投递**：发送后会创建标记为 `SkipPlan: true` 的 `AgentTurn`（遵循 `Plan.dc.html`：“使用 ⌘L 发起的小修改会跳过计划”），附带选中对象 ID 与名称、打开的场景文件路径与 YAML 以及实时渲染的视口 PNG（`RenderViewportPNG`），将右侧栏（`RightRailView` / `RightRailTab`，可通过 `⌘1` / `⌘2` 切换）切至**智能体**标签页（`AgentPanelView`）展示该条对话与上下文标签，并通过 `editormcp` 的 `editor://agent/turn` 资源与 `agent_turn_get` / `agent_turn_reply` 工具推送给已连接的 MCP 客户端。
