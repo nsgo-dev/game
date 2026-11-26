@@ -999,7 +999,7 @@ func main() {
 - **鸣谢（Credits）预检**：面板打开、刷新（`CheckExportCredits`）或开始构建前，都会执行与 `game release` 相同的 `tooling/credits` 扫描。任何缺少鸣谢信息的资源都会连同其对应的 `*.import.yaml` 边车路径一并列出，并在补全前阻止发布构建；补全鸣谢后刷新即可清除告警，成功构建时会在输出目录写入 `CREDITS.md`。
 - **构建、演练与输出流**：支持构建全部预设或勾选指定目标（`ExportSelectedTargets`），并可配置分发渠道（`SetExportChannel`）、发布说明文件（`SetExportReleaseNotes`）以及 **Dry Run** 开关（`SetExportDryRun`）。`StartExportBuild` / `RunExportBuild` 与 `nsgo game release` 共用同一套发布命令规划器，因此演练构建会在 UI 协程之外将完全一致的 `nsgo build` 命令行流式输出到面板的 Output 区域，非演练构建成功后自动打开解析出的输出目录（`OpenOutputFolder` / `OpenExportOutputFolder`）。
 
-### 构建与发布界面（#1048）
+### 构建与发布界面（#1048、#1050）
 
 如需完整的发布前准备与对比，可通过 **Project > 构建与发布…**（`CmdBuildRelease`，快捷键 `mod+shift+r`，或调用 `OpenBuildReleaseScreen` / `CloseBuildReleaseScreen` / `BuildReleaseScreenOpen`）打开采用 Spec 设计令牌渲染的全窗口 `BuildReleaseScreenView`：
 
@@ -1007,6 +1007,8 @@ func main() {
 - **导出预设、有序步骤与日志流**：列出每个平台的勾选复选框（`SetBuildPresetIncluded`）、平台摘要、实时状态（`Queued`、`Building`、`Notarizing`、`Done`、`Failed`、`Set up`）、产物大小及相对上一版本的增量（`SetLastReleaseBaseline`）。选中运行中的预设会展示 6 个按序执行的步骤（`Check project`、`Compile Go`、`Pack assets`、`Sign`、`Smoke playtest`、`Measure`）、与 `game release -dry-run` 一致的 `releaseplan` 命令以及持续跟随的日志（`build/<platform>.log`）。多个预设逐一串行构建；**Stop** 会保留已完成步骤，**Resume** 从中断步骤继续执行。
 - **失败隔离与代理预设修复**：当某个预设失败（例如在 `Sign` 步骤缺少签名密钥）时，界面会展示错误标题、失败步骤与耗时、失败命令以及 `"Other platforms keep building. Nothing was uploaded."`，同时继续完成其余已勾选预设的构建。代理提出的预设修复差异（`SetBuildPresetFixProposal`）支持一键应用并重新构建（`ApplyBuildPresetFixAndRebuild`）。
 - **构建结果与平台就绪检查**：构建完成后展示产物路径、体积与相对上一版本的增减量、`code` / `textures` / `audio` / `other` 分类占比与增长原因、下载体积与帧耗时 p95 的预算达标/超标徽章、冒烟试玩摘要、**Show in Finder**（`ShowBuildArtifactInFinder`）、**Edit preset** 以及 Web 构建的本地测试链接二维码卡片。尚未具备构建条件的平台（例如 iOS）会展示 **READINESS** 清单（`EvaluateBuildReadiness`：Bundle ID、应用图标、分发证书、描述文件、隐私清单、触控输入），明确区分代理可直接代办的事项（`RunBuildReadinessAction` / `RunBuildReadinessAgentSetup`，如生成 `PrivacyInfo.xcprivacy`）与需要开发者本人完成的步骤（如登录 Apple 账号）。
+- **基于提交与已保留审查自动起草发布说明（#1050）**：**RELEASE NOTES** 会读取自上一发布标签（无标签时自初始提交）以来的 git 提交记录、已保留的审查摘要（`SetReleaseKeptReviews` / `AddReleaseKeptReview`）以及 `changelog.d/*.md` 片段，生成面向玩家的 Markdown 发布说明（`DraftReleaseNotes`、`RedraftReleaseNotes`、`DefaultReleaseNotesDraft`，支持通过 `Editor.ReleaseNotesDrafter` 接入智能体起草，并在 `editormcp` 中提供 `release_notes_draft` 工具），并显示 `"Drafted from N commits since <标签/引用>"` 徽章。在界面中就地编辑发布说明（`SetReleaseNotesText` / `SaveReleaseNotes`）会直接原子写入 `game release -release-notes` 读取的同一个 Markdown 文件（`ReleaseNotesFile` / `SetReleaseNotesFile`，默认为 `release-notes.md`），且仅修改该文件本身。
+- **始终先询问的商店上传与系统钥匙串凭据（#1050）**：点击 **Review uploads…**（`ReviewReleaseUploads` / `OpenReviewUploads`，或在 `editormcp` 中调用 `release_review_uploads`）会打开 **Review uploads** 确认对话框，在发送任何内容之前列出每个产物的名称、路径、大小、目标商店（`itch.io`、`Google Play · internal testing`、`TestFlight`）、版本号以及系统钥匙串凭据状态。严格信任边界确保无论权限配置如何（哪怕处于 `PermissionProfileAutonomous` 全权模式），未经开发者本人在 **Review uploads** 中显式确认（单次会话 `ConfirmReleaseUploads`；直接调用 `StartReleaseUpload` 或代理上下文 `WithAgentActor` / `editormcp` 尝试确认均会被拒绝），绝不会启动任何上传。上传凭据仅通过跨平台系统钥匙串抽象（`Keychain`、`StorePublishCredential`、`HasPublishCredential`、`DeletePublishCredential`——分别对接 macOS Keychain、Linux Secret Service、Windows Credential Manager 以及测试用 `NewMemoryKeychain`）保存，绝不写入项目文件或序列化到快照中；确认后的上传通过可插拔的 `Editor.ReleaseUploader` 执行并实时报告逐产物进度与错误。
 ## 项目搜索与查找引用（#914）
 
 打开项目后，文件浏览器的 **Search** 按钮（`SearchOpen` / `SetSearchOpen`）会在视口下方切换显示搜索与引用面板（`SearchPanelView`），用于在项目内快速跳转或回答“哪些文件引用了当前文件”：

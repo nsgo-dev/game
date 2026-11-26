@@ -264,29 +264,34 @@ type ReleaseStepRequest struct {
 
 // BuildReleaseSnapshot is a thread-safe value copy of the Build and Release screen state.
 type BuildReleaseSnapshot struct {
-	Open                bool                  `json:"open"`
-	ProjectName         string                `json:"projectName"`
-	Version             string                `json:"version"`
-	GitCommit           string                `json:"gitCommit"`
-	GitBranch           string                `json:"gitBranch"`
-	LastReleaseVersion  string                `json:"lastReleaseVersion"`
-	CommitsSinceRelease int                   `json:"commitsSinceRelease"`
-	ReleaseNotes        string                `json:"releaseNotes"`
-	Preflight           BuildPreflightSummary `json:"preflight"`
-	Presets             []BuildPresetEntry    `json:"presets"`
-	SelectedPlatform    string                `json:"selectedPlatform"`
-	ActivePlatform      string                `json:"activePlatform"`
-	SelectedDeviceID    string                `json:"selectedDeviceId"`
-	Devices             []BuildDeviceEntry    `json:"devices"`
-	Running             bool                  `json:"running"`
-	Stopped             bool                  `json:"stopped"`
-	DryRun              bool                  `json:"dryRun"`
-	FollowLog           bool                  `json:"followLog"`
-	ShowWholeLog        bool                  `json:"showWholeLog"`
-	EditingPreset       bool                  `json:"editingPreset"`
-	PlanCommandLine     string                `json:"planCommandLine"`
-	DryRunOutput        string                `json:"dryRunOutput"`
-	LastErr             string                `json:"lastErr,omitempty"`
+	Open                   bool                        `json:"open"`
+	ProjectName            string                      `json:"projectName"`
+	Version                string                      `json:"version"`
+	GitCommit              string                      `json:"gitCommit"`
+	GitBranch              string                      `json:"gitBranch"`
+	LastReleaseVersion     string                      `json:"lastReleaseVersion"`
+	CommitsSinceRelease    int                         `json:"commitsSinceRelease"`
+	ReleaseNotes           string                      `json:"releaseNotes"`
+	ReleaseNotesFile       string                      `json:"releaseNotesFile"`
+	ReleaseNotesProvenance string                      `json:"releaseNotesProvenance"`
+	ReleaseNotesSinceRef   string                      `json:"releaseNotesSinceRef"`
+	PermissionProfile      AgentPermissionProfile      `json:"permissionProfile"`
+	UploadReview           ReleaseUploadReviewSnapshot `json:"uploadReview"`
+	Preflight              BuildPreflightSummary       `json:"preflight"`
+	Presets                []BuildPresetEntry          `json:"presets"`
+	SelectedPlatform       string                      `json:"selectedPlatform"`
+	ActivePlatform         string                      `json:"activePlatform"`
+	SelectedDeviceID       string                      `json:"selectedDeviceId"`
+	Devices                []BuildDeviceEntry          `json:"devices"`
+	Running                bool                        `json:"running"`
+	Stopped                bool                        `json:"stopped"`
+	DryRun                 bool                        `json:"dryRun"`
+	FollowLog              bool                        `json:"followLog"`
+	ShowWholeLog           bool                        `json:"showWholeLog"`
+	EditingPreset          bool                        `json:"editingPreset"`
+	PlanCommandLine        string                      `json:"planCommandLine"`
+	DryRunOutput           string                      `json:"dryRunOutput"`
+	LastErr                string                      `json:"lastErr,omitempty"`
 }
 
 // SelectedPreset returns the currently selected preset from the snapshot, or nil if no presets exist.
@@ -324,7 +329,14 @@ type buildReleaseState struct {
 	lastReleaseVersion  string
 	commitsSinceRelease int
 	releaseNotes        string
+	notesFile           string
+	notesSinceRef       string
+	notesProvenance     string
+	keptReviews         []string
 	notesInitialized    bool
+	permissionProfile   AgentPermissionProfile
+	keychainAccounts    map[PublishDestination]string
+	uploadReview        releaseUploadReviewState
 	preflight           BuildPreflightSummary
 	baseline            LastReleaseBaseline
 	presets             []BuildPresetEntry
@@ -419,6 +431,9 @@ func (e *Editor) closeBuildReleaseScreenSilent() bool {
 	}
 	e.buildRelease.open = false
 	e.buildRelease.editingPreset = false
+	e.buildRelease.uploadReview.open = false
+	e.buildRelease.uploadReview.sessionID = 0
+	e.buildRelease.uploadReview.keychainEditorOpen = false
 	e.buildRelease.rev++
 	e.buildRelease.mu.Unlock()
 	return true
@@ -494,30 +509,68 @@ func (e *Editor) BuildReleaseSnapshot() BuildReleaseSnapshot {
 	if e.buildRelease.lastErr != nil {
 		lastErrText = e.buildRelease.lastErr.Error()
 	}
+	profile := e.buildRelease.permissionProfile
+	if !profile.Valid() {
+		profile = PermissionProfileBalanced
+	}
+	notesFile := strings.TrimSpace(e.ExportReleaseNotes())
+	if notesFile == "" {
+		notesFile = strings.TrimSpace(e.buildRelease.notesFile)
+	}
+	if notesFile == "" {
+		notesFile = DefaultReleaseNotesFile
+	}
+	notesPreview := ""
+	for _, line := range splitNonEmptyLines(e.buildRelease.releaseNotes) {
+		notesPreview = strings.TrimSpace(line)
+		break
+	}
+	uploadLastErr := ""
+	if e.buildRelease.uploadReview.lastErr != nil {
+		uploadLastErr = e.buildRelease.uploadReview.lastErr.Error()
+	}
+	uploadReviewSnap := ReleaseUploadReviewSnapshot{
+		Open:                e.buildRelease.uploadReview.open,
+		SessionID:           e.buildRelease.uploadReview.sessionID,
+		PermissionProfile:   profile,
+		ReleaseNotesFile:    filepath.ToSlash(notesFile),
+		ReleaseNotesPreview: notesPreview,
+		Items:               slices.Clone(e.buildRelease.uploadReview.items),
+		Running:             e.buildRelease.uploadReview.run != nil,
+		Completed:           e.buildRelease.uploadReview.completed,
+		KeychainEditorOpen:  e.buildRelease.uploadReview.keychainEditorOpen,
+		KeychainDest:        e.buildRelease.uploadReview.keychainDest,
+		LastErr:             uploadLastErr,
+	}
 	return BuildReleaseSnapshot{
-		Open:                e.buildRelease.open,
-		ProjectName:         projectName,
-		Version:             version,
-		GitCommit:           e.buildRelease.gitCommit,
-		GitBranch:           e.buildRelease.gitBranch,
-		LastReleaseVersion:  lastVer,
-		CommitsSinceRelease: e.buildRelease.commitsSinceRelease,
-		ReleaseNotes:        e.buildRelease.releaseNotes,
-		Preflight:           e.buildRelease.preflight,
-		Presets:             presets,
-		SelectedPlatform:    e.buildRelease.selectedPlatform,
-		ActivePlatform:      e.buildRelease.activePlatform,
-		SelectedDeviceID:    e.buildRelease.selectedDeviceID,
-		Devices:             e.buildDevicesLocked(),
-		Running:             e.buildRelease.run != nil,
-		Stopped:             e.buildRelease.stopped,
-		DryRun:              e.buildRelease.dryRun,
-		FollowLog:           e.buildRelease.followLog,
-		ShowWholeLog:        e.buildRelease.showWholeLog,
-		EditingPreset:       e.buildRelease.editingPreset,
-		PlanCommandLine:     e.buildRelease.planCommandLine,
-		DryRunOutput:        e.buildRelease.dryRunOutput,
-		LastErr:             lastErrText,
+		Open:                   e.buildRelease.open,
+		ProjectName:            projectName,
+		Version:                version,
+		GitCommit:              e.buildRelease.gitCommit,
+		GitBranch:              e.buildRelease.gitBranch,
+		LastReleaseVersion:     lastVer,
+		CommitsSinceRelease:    e.buildRelease.commitsSinceRelease,
+		ReleaseNotes:           e.buildRelease.releaseNotes,
+		ReleaseNotesFile:       filepath.ToSlash(notesFile),
+		ReleaseNotesProvenance: e.buildRelease.notesProvenance,
+		ReleaseNotesSinceRef:   e.buildRelease.notesSinceRef,
+		PermissionProfile:      profile,
+		UploadReview:           uploadReviewSnap,
+		Preflight:              e.buildRelease.preflight,
+		Presets:                presets,
+		SelectedPlatform:       e.buildRelease.selectedPlatform,
+		ActivePlatform:         e.buildRelease.activePlatform,
+		SelectedDeviceID:       e.buildRelease.selectedDeviceID,
+		Devices:                e.buildDevicesLocked(),
+		Running:                e.buildRelease.run != nil,
+		Stopped:                e.buildRelease.stopped,
+		DryRun:                 e.buildRelease.dryRun,
+		FollowLog:              e.buildRelease.followLog,
+		ShowWholeLog:           e.buildRelease.showWholeLog,
+		EditingPreset:          e.buildRelease.editingPreset,
+		PlanCommandLine:        e.buildRelease.planCommandLine,
+		DryRunOutput:           e.buildRelease.dryRunOutput,
+		LastErr:                lastErrText,
 	}
 }
 
@@ -568,7 +621,8 @@ func (e *Editor) SetReleaseVersion(version string) error {
 	return nil
 }
 
-// SetReleaseNotesText sets the release notes draft shown in the Build and Release screen.
+// SetReleaseNotesText updates the release notes shown in the Build and Release screen and saves
+// them directly to the exact Markdown file that `game release -release-notes` reads, touching ONLY that file.
 func (e *Editor) SetReleaseNotesText(notes string) {
 	if e == nil {
 		return
@@ -582,6 +636,13 @@ func (e *Editor) SetReleaseNotesText(notes string) {
 	e.buildRelease.notesInitialized = true
 	e.buildRelease.rev++
 	e.buildRelease.mu.Unlock()
+	if err := e.writeReleaseNotesFile(notes); err != nil {
+		e.buildRelease.mu.Lock()
+		e.buildRelease.lastErr = err
+		e.buildRelease.rev++
+		e.buildRelease.mu.Unlock()
+		e.Status = "Save release notes failed: " + err.Error()
+	}
 	e.notify()
 }
 
@@ -1518,13 +1579,32 @@ func (e *Editor) ShowBuildArtifactInFinder(platform string) error {
 	return e.OpenExportOutputFolder()
 }
 
-// ReviewReleaseUploads invokes OnReviewReleaseUploads (if set) without uploading any artifact automatically.
+// ReviewReleaseUploads opens the Review uploads confirmation dialog listing every artifact,
+// its size, destination (itch.io, Google Play internal testing, TestFlight), and version before
+// anything is sent, and invokes OnReviewReleaseUploads (if set). It NEVER starts an upload automatically.
 func (e *Editor) ReviewReleaseUploads() error {
 	if e == nil {
 		return ErrNoProject
 	}
+	items := e.buildReviewUploadItems()
+
+	e.buildRelease.mu.Lock()
+	rev := &e.buildRelease.uploadReview
+	rev.open = true
+	rev.keychainEditorOpen = false
+	if rev.run == nil {
+		rev.nextSessionID++
+		rev.sessionID = rev.nextSessionID
+		rev.items = items
+		rev.completed = false
+		rev.lastErr = nil
+	}
+	e.buildRelease.rev++
+	e.buildRelease.mu.Unlock()
+
 	snap := e.BuildReleaseSnapshot()
 	if e.OnReviewReleaseUploads != nil {
+		e.notify()
 		return e.OnReviewReleaseUploads(snap)
 	}
 	e.Status = "Review uploads: each store upload asks first before uploading."
@@ -2206,6 +2286,7 @@ func (e *Editor) resetBuildReleaseForProject() {
 		return
 	}
 	e.stopReleaseBuild()
+	e.CancelReleaseUpload()
 	e.buildRelease.mu.Lock()
 	e.buildRelease.open = false
 	e.buildRelease.gitCommit = ""
@@ -2213,7 +2294,13 @@ func (e *Editor) resetBuildReleaseForProject() {
 	e.buildRelease.lastReleaseVersion = ""
 	e.buildRelease.commitsSinceRelease = 0
 	e.buildRelease.releaseNotes = ""
+	e.buildRelease.notesFile = ""
+	e.buildRelease.notesSinceRef = ""
+	e.buildRelease.notesProvenance = ""
+	e.buildRelease.keptReviews = nil
 	e.buildRelease.notesInitialized = false
+	e.buildRelease.keychainAccounts = nil
+	e.buildRelease.uploadReview = releaseUploadReviewState{}
 	e.buildRelease.preflight = BuildPreflightSummary{}
 	e.buildRelease.baseline = LastReleaseBaseline{}
 	e.buildRelease.presets = nil
@@ -2246,6 +2333,7 @@ func (e *Editor) refreshBuildReleaseMetadata() {
 	commit := "local"
 	branch := "main"
 	lastTag := ""
+	sinceRef := ""
 	commitsCount := 0
 	var commitSubjects []string
 
@@ -2260,17 +2348,7 @@ func (e *Editor) refreshBuildReleaseMetadata() {
 				branch = s
 			}
 		}
-		if out, err := e.runBuildGit(dir, "describe", "--tags", "--abbrev=0"); err == nil {
-			if s := strings.TrimSpace(out); s != "" {
-				lastTag = strings.TrimPrefix(s, "v")
-				if cnt, cerr := e.runBuildGit(dir, "rev-list", "--count", s+"..HEAD"); cerr == nil {
-					_, _ = fmt.Sscanf(strings.TrimSpace(cnt), "%d", &commitsCount)
-				}
-				if logOut, lerr := e.runBuildGit(dir, "log", "--pretty=format:%s", "-n", "8", s+"..HEAD"); lerr == nil {
-					commitSubjects = splitNonEmptyLines(logOut)
-				}
-			}
-		}
+		lastTag, sinceRef, commitsCount, commitSubjects = e.readReleaseGitHistory(dir)
 
 		// Load last-release.yaml from build/ or export output dir when no baseline was injected.
 		e.buildRelease.mu.Lock()
@@ -2294,23 +2372,76 @@ func (e *Editor) refreshBuildReleaseMetadata() {
 	if lastTag != "" && e.buildRelease.lastReleaseVersion == "" {
 		e.buildRelease.lastReleaseVersion = lastTag
 	}
-	e.buildRelease.commitsSinceRelease = commitsCount
-	if !e.buildRelease.notesInitialized {
-		if len(commitSubjects) > 0 {
-			var b strings.Builder
-			for _, subj := range commitSubjects {
-				b.WriteString("- ")
-				b.WriteString(subj)
-				b.WriteByte('\n')
-			}
-			e.buildRelease.releaseNotes = strings.TrimSpace(b.String())
+	if sinceRef == "" {
+		if e.buildRelease.lastReleaseVersion != "" {
+			sinceRef = e.buildRelease.lastReleaseVersion
 		} else {
-			e.buildRelease.releaseNotes = fmt.Sprintf("Release %s.", e.Project.AppVersion)
+			sinceRef = "initial commit"
 		}
-		e.buildRelease.notesInitialized = true
 	}
-	e.buildRelease.rev++
+	e.buildRelease.commitsSinceRelease = commitsCount
+	e.buildRelease.notesSinceRef = sinceRef
+	alreadyInit := e.buildRelease.notesInitialized
+	kept := slices.Clone(e.buildRelease.keptReviews)
 	e.buildRelease.mu.Unlock()
+
+	if !alreadyInit {
+		// If the release notes Markdown file already exists and is non-empty on disk, load it so user edits persist.
+		loaded := false
+		if dir != "" {
+			if abs, err := e.ReleaseNotesAbsPath(); err == nil {
+				if data, rerr := os.ReadFile(abs); rerr == nil && strings.TrimSpace(string(data)) != "" {
+					prov := formatReleaseNotesProvenance(commitsCount, sinceRef, len(kept))
+					e.buildRelease.mu.Lock()
+					e.buildRelease.releaseNotes = strings.TrimRight(string(data), "\r\n")
+					e.buildRelease.notesProvenance = prov
+					e.buildRelease.notesInitialized = true
+					e.buildRelease.rev++
+					e.buildRelease.mu.Unlock()
+					loaded = true
+				}
+			}
+		}
+		if !loaded {
+			req := ReleaseNotesDraftRequest{
+				ProjectName:      e.Project.Name,
+				Version:          e.Project.AppVersion,
+				LastReleaseTag:   lastTag,
+				SinceRef:         sinceRef,
+				CommitCount:      commitsCount,
+				CommitSubjects:   commitSubjects,
+				KeptReviews:      kept,
+				ChangelogEntries: readProjectChangelogFragments(dir),
+			}
+			var draft ReleaseNotesDraft
+			if e.ReleaseNotesDrafter != nil {
+				if d, err := e.ReleaseNotesDrafter(context.Background(), req); err == nil {
+					draft = d
+				} else {
+					draft = DefaultReleaseNotesDraft(req)
+				}
+			} else {
+				draft = DefaultReleaseNotesDraft(req)
+			}
+			if strings.TrimSpace(draft.Provenance) == "" {
+				draft.Provenance = formatReleaseNotesProvenance(req.CommitCount, req.SinceRef, len(req.KeptReviews))
+			}
+			_ = e.writeReleaseNotesFile(draft.Markdown)
+			e.buildRelease.mu.Lock()
+			e.buildRelease.releaseNotes = draft.Markdown
+			e.buildRelease.notesProvenance = draft.Provenance
+			e.buildRelease.notesInitialized = true
+			e.buildRelease.rev++
+			e.buildRelease.mu.Unlock()
+		}
+	} else {
+		e.buildRelease.mu.Lock()
+		if e.buildRelease.notesProvenance == "" {
+			e.buildRelease.notesProvenance = formatReleaseNotesProvenance(commitsCount, sinceRef, len(kept))
+		}
+		e.buildRelease.rev++
+		e.buildRelease.mu.Unlock()
+	}
 }
 
 func (e *Editor) syncBuildReleasePresets() {

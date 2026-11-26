@@ -104,6 +104,8 @@ func ExampleServer_AddTool() {
 	// playtest_report edit
 	// refactor_rename edit
 	// refs_find read
+	// release_notes_draft edit
+	// release_review_uploads run
 	// scene_edit edit
 	// scene_name read
 	// scene_read read
