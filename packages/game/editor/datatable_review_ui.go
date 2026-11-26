@@ -285,7 +285,7 @@ func dtReviewLeftSidebar(cx *core.Scope, p SpecPalette, ed *Editor, reviewRev *c
 		for i, f := range files {
 			idx := i
 			selected := i == activeIdx
-			bg := core.RGBA(0, 0)
+			bg := core.Color(0)
 			if selected {
 				bg = p.Accent.Fill
 			}
@@ -534,7 +534,7 @@ func dtReviewCenterPane(cx *core.Scope, p SpecPalette, ed *Editor, reviewRev *co
 							FontSize:         12.5,
 							Color:            p.TextPrimary,
 							PlaceholderColor: p.TextFaint,
-							Background:       core.RGBA(0, 0),
+							Background:       core.Color(0),
 							BorderWidth:      0,
 							CaretColor:       p.Accent.Edge,
 						},
@@ -629,7 +629,7 @@ func dtReviewToolbar(cx *core.Scope, p SpecPalette, ed *Editor, reviewRev *core.
 		for _, c := range defs {
 			cd := c
 			on := active == cd.id
-			bg := core.RGBA(0, 0)
+			bg := core.Color(0)
 			border := p.Line
 			fg := p.TextMuted
 			countFg := p.TextFaint
@@ -1178,7 +1178,7 @@ func dtReviewDataRow(
 		Role:   core.RoleRow,
 		StyleFunc: func() core.Style {
 			h := dropHint.Get()
-			bg := core.RGBA(0, 0)
+			bg := core.Color(0)
 			leftW := core.Points(0)
 			leftCol := p.Line
 			if focused {
@@ -1447,7 +1447,7 @@ func dtReviewInlineCellEditor(cx *core.Scope, p SpecPalette, ed *Editor, recKey 
 					FontFamily:  core.FontMonospace,
 					FontSize:    11.5,
 					Color:       p.TextPrimary,
-					Background:  core.RGBA(0, 0),
+					Background:  core.Color(0),
 					BorderWidth: 0,
 					CaretColor:  p.Accent.Edge,
 				},
@@ -1537,7 +1537,7 @@ func dtReviewRightYAML(cx *core.Scope, p SpecPalette, ed *Editor, reviewRev *cor
 
 		lineNodes := make([]core.Node, 0, len(lines))
 		for i, ln := range lines {
-			bg := core.RGBA(0, 0)
+			bg := core.Color(0)
 			fg := p.TextFaint
 			switch ln.Sign {
 			case "+":
