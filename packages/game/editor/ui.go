@@ -56,6 +56,9 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 		if ed.shortcutCaptureActive {
 			return
 		}
+		if ed.AgentTurnWorking() {
+			ed.report(ed.StopAgentTurn())
+		}
 		ed.StopRunningTasks()
 		if ed.OnStopAgent != nil {
 			ed.OnStopAgent()
@@ -75,6 +78,10 @@ func EditorView(cx *core.Scope, ed *Editor) core.Node {
 			if err := ed.KeepTurnReview(); err != nil && !errors.Is(err, ErrReviewBlocked) {
 				ed.report(err)
 			}
+			return
+		}
+		if ed.HasPendingAgentTurn() && !ed.AgentTurnWorking() && !ed.Playing() {
+			ed.report(ed.KeepAgentTurn())
 		}
 	})
 	cx.OnKeyWith("shift+f5", core.KeyOptions{When: core.KeyNotEditing}, func() {

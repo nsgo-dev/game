@@ -17,8 +17,9 @@ import (
 
 // sceneEditSchema is scene_edit's input schema.
 const sceneEditSchema = `{"type":"object","additionalProperties":false,"required":["edits"],"properties":{` +
-	`"file":{"type":"string","description":"The scene to edit, by its path from the project root; it must be the scene open in the editor, which an empty file names"},` +
+	`"file":{"type":"string","description":"The scene or prefab to edit, by its path from the project root; empty names the scene open in the editor (during an active turn, any scene or prefab in the project may be edited in memory)"},` +
 	`"label":{"type":"string","description":"What the edits do, as the undo step names it; derived from the edits when absent"},` +
+	`"why":{"type":"string","description":"Optional reason explaining why these edits were made, shown alongside derived changes in turn review"},` +
 	`"edits":{"type":"array","minItems":1,"maxItems":500,"items":{"type":"object","additionalProperties":false,"required":["op"],"properties":{` +
 	`"op":{"type":"string","enum":["add","remove","move","set","add_component","remove_component","set_property","remove_property","reparent","move_to_layer"]},` +
 	`"id":{"type":"string","description":"The object the edit changes"},` +
@@ -30,13 +31,15 @@ const sceneEditSchema = `{"type":"object","additionalProperties":false,"required
 	`"component":{"type":"string","description":"set, add_component, remove_component: the component's type name"},` +
 	`"fields":{"type":"object","description":"set: the fields to change; add_component: field values to set after adding"},` +
 	`"key":{"type":"string","description":"set_property, remove_property: the property's key"},` +
-	`"value":{"description":"set_property: a string, number or boolean"}` +
+	`"value":{"description":"set_property: a string, number or boolean"},` +
+	`"why":{"type":"string","description":"Optional reason for this edit, shown in turn review"}` +
 	`}}}}}`
 
 // sceneEditArgs are scene_edit's arguments.
 type sceneEditArgs struct {
 	File  string     `json:"file"`
 	Label string     `json:"label"`
+	Why   string     `json:"why"`
 	Edits []editArgs `json:"edits"`
 }
 
@@ -54,6 +57,7 @@ type editArgs struct {
 	Fields    map[string]json.RawMessage `json:"fields"`
 	Key       string                     `json:"key"`
 	Value     json.RawMessage            `json:"value"`
+	Why       string                     `json:"why"`
 }
 
 // EditError is a scene_edit the editor refused. Nothing of the call applied: the open scene, its undo history and its file on disk are as they were.
@@ -137,20 +141,28 @@ func sceneEdit(ctx context.Context, c *Call) (*Result, error) {
 			}
 		}()
 	}
-	var res EditResult
+	var (
+		res    EditResult
+		inTurn bool
+	)
 	err := c.Editor(ctx, func(ed *editor.Editor) error {
 		root := projectRoot(ed)
 		name := sceneName(ed, root)
-		res.File = name
+		targetFile := ""
 		if args.File != "" {
 			clean, err := cleanProjectPath(args.File)
 			if err != nil {
-				return &EditError{File: args.File, Problem: err.Error(), Fix: "name the open scene, " + name}
+				return &EditError{File: args.File, Problem: err.Error(), Fix: "name a scene or prefab inside the project, such as " + name}
 			}
 			if clean != scenePath(ed, root) {
-				return &EditError{File: clean, Problem: "scene_edit edits the scene open in the editor, which is " + name, Fix: "open " + clean + " in the editor first, or leave file empty to edit " + name}
+				if !ed.AgentTurnWorking() {
+					return &EditError{File: clean, Problem: "scene_edit edits the scene open in the editor, which is " + name, Fix: "open " + clean + " in the editor first, or leave file empty to edit " + name}
+				}
+				targetFile = clean
+				name = clean
 			}
 		}
+		res.File = name
 		if len(args.Edits) == 0 {
 			return &EditError{File: name, Problem: "no edits", Fix: "list at least one edit in edits"}
 		}
@@ -162,6 +174,25 @@ func sceneEdit(ctx context.Context, c *Call) (*Result, error) {
 		}
 		if c.taskID != "" {
 			c.s.captureTaskBeforeYAML(c.taskID, ed)
+		}
+		if ed.AgentTurnWorking() {
+			inTurn = true
+			reasons := buildEditReasons(args.Why, args.Edits)
+			return ed.RunAgentSceneEdit(targetFile, reasons, func(target *editor.Editor) error {
+				for i, e := range args.Edits {
+					id, err := applyEdit(target, e)
+					if err != nil {
+						return editError(name, i+1, e, err)
+					}
+					if id != "" {
+						res.Objects = append(res.Objects, id)
+						if w := strings.TrimSpace(e.Why); w != "" {
+							reasons["obj:"+id] = w
+						}
+					}
+				}
+				return nil
+			})
 		}
 		label := args.Label
 		if label == "" {
@@ -230,21 +261,76 @@ func sceneEdit(ctx context.Context, c *Call) (*Result, error) {
 		c.s.recordTaskEdits(c.taskID, res.File, args.Edits, res.Objects)
 	}
 	err = c.Editor(ctx, func(ed *editor.Editor) error {
-		res.Undo = ed.History.UndoLabel()
+		if !inTurn {
+			res.Undo = ed.History.UndoLabel()
+		}
 		res.Revision = ed.Revision()
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	text := fmt.Sprintf("Applied %d edits to %s as one undo step, %q; they are not saved.", len(args.Edits), res.File, res.Undo)
-	if len(args.Edits) == 1 {
-		text = fmt.Sprintf("Applied 1 edit to %s as one undo step, %q; it is not saved.", res.File, res.Undo)
+	var text string
+	if inTurn {
+		if len(args.Edits) == 1 {
+			text = fmt.Sprintf("Recorded 1 edit to %s in the active agent turn; it stays unsaved until kept.", res.File)
+		} else {
+			text = fmt.Sprintf("Recorded %d edits to %s in the active agent turn; they stay unsaved until kept.", len(args.Edits), res.File)
+		}
+	} else {
+		text = fmt.Sprintf("Applied %d edits to %s as one undo step, %q; they are not saved.", len(args.Edits), res.File, res.Undo)
+		if len(args.Edits) == 1 {
+			text = fmt.Sprintf("Applied 1 edit to %s as one undo step, %q; it is not saved.", res.File, res.Undo)
+		}
 	}
 	if len(res.Objects) > 0 {
 		text += " Added " + strings.Join(res.Objects, ", ") + "."
 	}
 	return &Result{Text: text, Structured: res}, nil
+}
+
+func buildEditReasons(topWhy string, edits []editArgs) map[string]string {
+	reasons := map[string]string{}
+	if w := strings.TrimSpace(topWhy); w != "" {
+		reasons["*"] = w
+	}
+	for _, e := range edits {
+		w := strings.TrimSpace(e.Why)
+		if w == "" {
+			continue
+		}
+		id := e.ID
+		if e.Op == "add" && id == "" {
+			var obj struct {
+				ID string `json:"id"`
+			}
+			_ = json.Unmarshal(e.Object, &obj)
+			id = obj.ID
+		}
+		if id == "" {
+			continue
+		}
+		reasons["obj:"+id] = w
+		if e.Op == "set" {
+			if e.Component != "" {
+				for fn := range e.Fields {
+					reasons["obj:"+id+"::component:"+e.Component+"."+fn] = w
+				}
+			} else {
+				for fn := range e.Fields {
+					reasons["obj:"+id+"::"+fn] = w
+				}
+			}
+		} else if e.Op == "set_property" || e.Op == "remove_property" {
+			reasons["obj:"+id+"::property:"+e.Key] = w
+		} else if e.Op == "add_component" || e.Op == "remove_component" {
+			reasons["obj:"+id+"::component:"+e.Component] = w
+		}
+	}
+	if len(reasons) == 0 {
+		return nil
+	}
+	return reasons
 }
 
 // editLabel names the undo step of edits that came without a label.

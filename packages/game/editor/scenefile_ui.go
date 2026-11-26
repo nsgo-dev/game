@@ -125,7 +125,7 @@ func unsavedMemo(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) *core.Mem
 				scene:    sceneDirty,
 				anyScene: anySceneDirty,
 				project:  ed.ProjectDirty(),
-				other:    ed.GridMapDirty() || ed.TerrainDirty() || ed.RoomsDirty() || ed.TilesetDirty() || ed.LocalizationDirty() || ed.ClipDirty() || ed.CutsceneDirty() || ed.DataTableDirty() || ed.RigDirty() || ed.MaterialDirty(),
+				other:    ed.GridMapDirty() || ed.TerrainDirty() || ed.RoomsDirty() || ed.TilesetDirty() || ed.LocalizationDirty() || ed.ClipDirty() || ed.CutsceneDirty() || ed.DataTableDirty() || ed.RigDirty() || ed.MaterialDirty() || ed.hasDirtyKeptStagedFiles(),
 			}
 			computed = true
 		}
@@ -183,6 +183,17 @@ func bindSceneFileHooks(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], di
 		w.OnClosing(cx, func(c *desktop.WindowClosing) {
 			// The view is kept whether or not the edits are, so the scene opens where it was left next time.
 			ed.saveViewStateQuietly()
+			if ed.HasPendingAgentTurn() {
+				c.Cancel()
+				ed.askPendingTurn("Close window", func() {
+					if !ed.HasUnsavedChanges() {
+						cx.Post(w.Close)
+						return
+					}
+					ed.whenSaved(func() { cx.Post(w.Close) }, nil)
+				}, nil)
+				return
+			}
 			if !ed.HasUnsavedChanges() {
 				return
 			}
@@ -193,7 +204,21 @@ func bindSceneFileHooks(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], di
 	}
 	desktop.OnQuitRequest(cx, func(q *desktop.QuitRequest) {
 		ed.saveViewStateQuietly()
-		if q.Forced() || !ed.HasUnsavedChanges() {
+		if q.Forced() {
+			return
+		}
+		if ed.HasPendingAgentTurn() {
+			answer := q.Defer()
+			ed.askPendingTurn("Quit editor", func() {
+				if !ed.HasUnsavedChanges() {
+					answer(true)
+					return
+				}
+				ed.whenSaved(func() { answer(true) }, func() { answer(false) })
+			}, func() { answer(false) })
+			return
+		}
+		if !ed.HasUnsavedChanges() {
 			return
 		}
 		answer := q.Defer()
@@ -381,6 +406,7 @@ func sceneFileDialogs(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], prom
 			},
 		},
 		saveConflictDialog(cx, ed, rev),
+		pendingTurnDialog(cx, ed, rev),
 	}
 }
 

@@ -24,6 +24,29 @@ type authoredCommand interface {
 	Actor() HistoryActor
 }
 
+// CommandAuthor identifies who originated a History command (used by agent turns and UndoAuthor/RedoAuthor).
+type CommandAuthor string
+
+const (
+	// AuthorPerson is an ordinary edit made directly by the person in the editor.
+	AuthorPerson CommandAuthor = "person"
+	// AuthorAgent is an agent turn kept as one undo step.
+	AuthorAgent CommandAuthor = "agent"
+	// AuthorExternal is a change observed outside the editor (for example a git checkout or external reload).
+	AuthorExternal CommandAuthor = "external"
+)
+
+// commandAuthorSource is an optional interface a Command may implement to declare its CommandAuthor.
+type commandAuthorSource interface {
+	Command
+	Author() CommandAuthor
+}
+
+type filesCommand interface {
+	Command
+	TouchedFiles() []string
+}
+
 // ErrHistoryPreview is returned when an edit is attempted while read-only History point-in-time preview is active.
 var ErrHistoryPreview = errors.New("editor: cannot edit while previewing history")
 
@@ -713,6 +736,68 @@ func (h *History) RedoLabel() string {
 		return ""
 	}
 	return h.commands[h.cursor].Label()
+}
+
+// UndoAuthor returns the author of the next command Undo would revert, or "" when nothing can be undone.
+func (h *History) UndoAuthor() CommandAuthor {
+	if !h.CanUndo() {
+		return ""
+	}
+	return commandAuthorOf(h.commands[h.cursor-1])
+}
+
+// RedoAuthor returns the author of the next command Redo would re-apply, or "" when nothing can be redone.
+func (h *History) RedoAuthor() CommandAuthor {
+	if !h.CanRedo() {
+		return ""
+	}
+	return commandAuthorOf(h.commands[h.cursor])
+}
+
+func commandAuthorOf(cmd Command) CommandAuthor {
+	if cmd == nil {
+		return AuthorPerson
+	}
+	if ac, ok := cmd.(commandAuthorSource); ok && ac.Author() != "" {
+		return ac.Author()
+	}
+	if mc, ok := cmd.(historyMetaCommand); ok {
+		switch mc.historyMeta().Author {
+		case HistoryAuthorAgent:
+			return AuthorAgent
+		case HistoryAuthorGit:
+			return AuthorExternal
+		}
+	}
+	if a, ok := cmd.(authoredCommand); ok && a.Actor() == HistoryActorAgent {
+		return AuthorAgent
+	}
+	return AuthorPerson
+}
+
+// pushCommitted records an already-applied command onto the undo stack without calling Do() again.
+func (h *History) pushCommitted(cmd Command) {
+	if h == nil || cmd == nil {
+		return
+	}
+	if h.group != nil {
+		h.group.cmds = append(h.group.cmds, cmd)
+		if h.onChange != nil {
+			h.onChange()
+		}
+		return
+	}
+	if h.cursor < len(h.commands) {
+		h.markSupersededAfterCursor()
+		clear(h.commands[h.cursor:])
+		h.commands = h.commands[:h.cursor]
+	}
+	h.commands = append(h.commands, cmd)
+	h.cursor = len(h.commands)
+	h.recordCommand(cmd, h.cursor)
+	if h.onChange != nil {
+		h.onChange()
+	}
 }
 
 // Group runs fn and records every command fn executes through h as one step labeled label, so that one Undo reverts them all, last first, and one Redo applies them again. When fn returns an error, Group undoes the commands fn executed, last first, records nothing and returns the error, leaving the history as it was. A group in which fn executes nothing records nothing. While fn runs, a nested Group joins the outer one, and a Clear drops what the group collected, since it belonged to the document the clear left behind; fn must not call Undo or Redo.

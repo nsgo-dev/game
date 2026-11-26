@@ -64,15 +64,15 @@ func (e *Editor) DataTableDirty() bool {
 	return err != nil || !bytes.Equal(data, e.tableSaved)
 }
 
-// hasDirtyDocuments reports whether any open document currently differs from its last saved encoding.
+// hasDirtyDocuments reports whether any open document or kept multi-file agent turn file currently differs from its last saved encoding.
 func (e *Editor) hasDirtyDocuments() bool {
 	if e == nil {
 		return false
 	}
-	return e.AnySceneDirty() || e.ProjectDirty() || e.GridMapDirty() || e.TerrainDirty() || e.RoomsDirty() || e.TilesetDirty() || e.LocalizationDirty() || e.ClipDirty() || e.CutsceneDirty() || e.DataTableDirty() || e.RigDirty() || e.MaterialDirty()
+	return e.AnySceneDirty() || e.ProjectDirty() || e.GridMapDirty() || e.TerrainDirty() || e.RoomsDirty() || e.TilesetDirty() || e.LocalizationDirty() || e.ClipDirty() || e.CutsceneDirty() || e.DataTableDirty() || e.RigDirty() || e.MaterialDirty() || e.hasDirtyKeptStagedFiles()
 }
 
-// HasUnsavedChanges reports whether any open scene tab, the shared project, GridMap, terrain, room map, tileset, localization workspace, animation clip, cutscene, data table, skeletal rig, or material has edits that are not saved (or an active failed save), which switching projects or quitting would lose.
+// HasUnsavedChanges reports whether any open scene tab, the shared project, GridMap, terrain, room map, tileset, localization workspace, animation clip, cutscene, data table, skeletal rig, material, or kept multi-file agent turn file has edits that are not saved (or an active failed save), which switching projects or quitting would lose.
 func (e *Editor) HasUnsavedChanges() bool {
 	if e == nil {
 		return false
@@ -80,13 +80,16 @@ func (e *Editor) HasUnsavedChanges() bool {
 	return e.hasDirtyDocuments() || e.autosave.failed
 }
 
-// SaveAll persists all currently dirty editors (project, every dirty open scene tab, GridMap, terrain, room map, localizations, clip, cutscene, data table, skeletal rig, and material) that have a save destination configured.
+// SaveAll persists all currently dirty editors (project, every dirty open scene tab, GridMap, terrain, room map, localizations, clip, cutscene, data table, skeletal rig, material, and kept multi-file agent turn files) that have a save destination configured.
 func (e *Editor) SaveAll() error {
 	if e == nil {
 		return nil
 	}
 	if e.playing {
 		return ErrPlaying
+	}
+	if e.HasPendingAgentTurn() {
+		return errors.New("editor: keep or revert the pending agent turn before saving")
 	}
 	e.ExitHistoryPreview()
 	if err := e.checkSaveAllConflicts(); err != nil {
@@ -171,6 +174,9 @@ func (e *Editor) SaveAll() error {
 			return err
 		}
 	}
+	if _, err := e.saveKeptStagedFiles(); err != nil {
+		return err
+	}
 	e.RefreshChangesCount()
 	e.recordSaveSucceeded()
 	e.notify()
@@ -211,6 +217,9 @@ func (e *Editor) windowTitle(unsaved bool) string {
 func (e *Editor) Save() error {
 	if e.playing {
 		return ErrPlaying
+	}
+	if e.HasPendingAgentTurn() {
+		return errors.New("editor: keep or revert the pending agent turn before saving")
 	}
 	// A drag in progress is put back first, so the file holds the scene as it was before the drag and not a half-dragged object; a tile, GridMap, or terrain stroke under way is recorded first so the file and history agree.
 	e.CancelDrag2D()
@@ -273,12 +282,16 @@ func (e *Editor) Save() error {
 		}
 		materialSaved = true
 	}
+	stagedSaved, err := e.saveKeptStagedFiles()
+	if err != nil {
+		return err
+	}
 	if !e.SceneDirty() && (e.OnSave != nil || e.FilePath == "" || fileExists(e.FilePath)) {
 		// Rewriting an unedited scene would only drop its comments and hand-kept layout.
 		if e.RoomsDirty() {
 			return ErrNoRoomsFile
 		}
-		if projectSaved || gridMapSaved || terrainSaved || roomsSaved || materialSaved {
+		if projectSaved || gridMapSaved || terrainSaved || roomsSaved || materialSaved || stagedSaved {
 			e.RefreshChangesCount()
 		} else {
 			e.Status = "No unsaved changes"

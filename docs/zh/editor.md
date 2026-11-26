@@ -1306,7 +1306,6 @@ func main() {
 - **分组“添加组件”与“请智能体添加”**：对象尚未挂载的已注册组件按 `GAMEPLAY`、`PHYSICS` 与 `AUDIO AND VISUAL` 分组展示（`ComponentCategoryOf`、`AddableComponentGroups`）；输入框旁的 **Ask to add**（`AskToAddComponent`、`ComposerDraft`、`SetComposerDraft`、`Editor.OnComposerPrompt`）会在智能体输入框预填 `"Add a component to <object> that "`。
 - **审查提示、问题胶囊与页脚**：处于智能体审查中的字段（`SetInspectorReviewChanges`）会显示琥珀色左侧指示条与 `"was <old> · in review"`；未通过项目检查或范围校验的字段（`SetInspectorFieldProblems` / `Editor.Problems`）会在控件下方与分区标题显示红色问题胶囊；底部页脚提示 `"Everything else about this object is in its YAML. Ask the agent, or open the file."`。
 - **配套 MCP 工具（`editormcp`）**：新增 `object_set_field`（复用 `Editor` 命令以单步撤销修改任意对象字段、组件字段或自定义属性）与 `object_locate_yaml`（返回对象的 1-based YAML 行号与代码片段，可选触发 `OnOpenFileAtLine`），并补齐 `scene_edit` `set` 对 `particles`、`model`、`gridMap`、`occluder`、`light` 与 `camera` 的全量支持。
-
 ## 通过 MCP 生成器服务器生成资源（#1053）
 
 通过 `Project > 生成资源` 或命令面板（`CmdGeneratedAssets` / `SetAssetGeneratorOpen`）可打开全窗口的**生成资源**界面（`AssetGeneratorView`）。界面严格遵循 `docs/design/editor/Spec.dc.html` 令牌并对应 `docs/design/editor/Assets.dc.html` 第 2 屏，用于连接外部 MCP 图像与音效生成器服务器、依据 `brief.yaml` 校验候选结果，并在用户明确选定前绝不向磁盘写入任何文件：
@@ -1464,7 +1463,6 @@ func main() {
   - `daily`（24 小时制 `HH:MM` 的 `time`）：编辑器打开期间每天到达或超过指定时间后最多触发一次（由 UI 调度器定期检查，也可通过 `Editor.StepAutomations` 确定性驱动）。
 - **运行前检查点、权限、后台任务与待审查机制**：每次自动化运行开始前，编辑器都会先将受追踪的项目文本/YAML/Go 文件快照（跳过符号链接、内部状态与仅限用户文件，并受文件数与总字节上限约束）写入 `.nsgo/checkpoints/<id>/`（已被 git 忽略，可通过 `AutomationCheckpoints` 查看、通过 `RestoreAutomationCheckpoint` 在路径与符号链接隔离校验下恢复）。任务在有界并发与超时保护下运行于 `WithAgentActor` 与项目权限规则（`Editor.Permissions` / `CheckAutomationActionPermission`）约束内，同步登记到共享后台任务列表（`TaskSourceAutomation`）并以 `AgentTurn` 落入智能体面板的 **待审查**（`AgentReviewReady`），提供 **保留**、**忽略** 与 **恢复检查点** 按钮。`automations.yaml` 与 `.nsgo/automations-state.yaml` 受“仅限用户”边界（`YouOnlyAutomations`）保护，自动化永远无法直接应用“仅限用户”草案（`PermissionsDraft`、`AutomationDraft`）、确认暂挂的权限放宽或提议删除，或自行保留审查（返回 `ErrAutomationYouOnly`）。
 - **设置 › 自动化页面（`SettingsPageAutomations`）**：以 `WHEN → THE AGENT` 卡片展示每项自动化、本周运行次数（`AutomationWeeklyRuns`，保存在被 git 忽略的 `.nsgo/automations-state.yaml` 中）及 `SpecSwitch`（`core.RoleSwitch`）开关，支持 **+ 用一句话新建自动化**（`DraftAutomationFromWords` 生成草稿卡片并由用户点击 `KeepAutomationDraft` 保留）、**今天暂停全部自动化**（`PauseAutomationsForToday` / `ResumeAutomations`，暂停所有触发直至次日自动恢复）以及 **本页智能体** 卡片，深浅色外观均严格使用 `SpecPalette` 令牌。
-
 ## 逐项审核智能体回合改动（#1014）
 
 当智能体完成一轮编辑（`Editor.StartTurnReview`）后，全窗口的**审核**界面（`ReviewScreenView`，对应 `docs/design/editor/Review.dc.html`，严格遵循 `Spec.dc.html` 深浅双主题令牌）允许作者按文件和改动类型逐条检查场景、预制体、数据表与 Go 文件的改动，最后一步保留或整体撤回：
@@ -1523,7 +1521,6 @@ func main() {
 - **场景树标记**：新增节点显示 `NEW` 徽章，修改节点显示 `MOD` 徽章，被移除节点以带删除线的虚影行与 `DEL` 徽章保留在树中，智能体正在操作的节点显示紫色圆点，直至执行 **Keep** 或 **Revert**。
 - **顶栏状态胶囊**：随智能体状态自动切换（`Editor.SetAgentState` / `Editor.AgentState`）：工作中显示紫色胶囊（`"Agent is <activity> · manual edits stay available"`），等待确认显示警告胶囊（`"Waiting for you · <detail>"`），待审查状态显示改动数量与 **Keep**（`KeepAgentTurn`，将整个回合合并为单步撤销）/**Revert**（`RevertAgentTurn`，回滚回合改动并还原已删除对象）按钮，空闲时自动隐藏。
 - **左上角可交互叠加层图例**：当存在任意实时叠加层（或 `OverlayLegendOpen` 为真）时自动显示。图例中的每一行（**Selection**、**Agent working**、**Added**、**Changed**、**Removed**、**Problem**）都是可点击的 `RoleSwitch` 开关（`ToggleOverlayLegendKind` / `SetOverlayLegendKind`），隐藏项按用户持久化到项目之外的 `EditorSettings.HiddenOverlayKinds`（`editor.yaml` 中的 `hiddenOverlayKinds`，Schema 为 `editor-settings.v1.json`），绝不污染项目文件。
-
 ## 按工作线与场景分组的智能体线程（#1019）
 
 右侧栏（`RightRailView`）可在**智能体**（`AgentPanelView` / `AgentThreadsView`）、**检查器**（`InspectorView`，默认标签）与**历史记录**（`AgentHistoryView`）之间切换，全部使用 `docs/design/editor/Spec.dc.html` 的深浅双主题规范令牌并对应 `Threads.dc.html`：
@@ -1552,3 +1549,18 @@ func main() {
 - **带悬停预览的单次请求标签**：每张附加的图片都会显示为包含缩略图、文件名、**Pin to brief** 按钮与 **×** 移除按钮的标签（`RemoveAgentReferenceImage`）。悬停或聚焦标签会在输入框上方弹出预览卡片，展示解码后的图片、格式、尺寸及作用范围（仅随本次请求发送）。发送请求（`SubmitAgentPrompt`）会将附加图片随 `AgentRequest.AttachedImages` 与 `AgentRequest.Images` 传入（并在 `AgentTurn.Images` 中记录缩略图），随后立即清空单次附加标签，确保下一次请求不再携带。
 - **固定到简报（`PinAgentReferenceImage`）**：点击 **Pin to brief** 会将图片复制到 `art/reference/<name>`（存在不同内容同名文件时自动去重而不覆盖），并通过 YAML AST 编辑在 `brief.yaml` 的 `art.references` 下新增一条记录（完整保留原有字段与注释），整个操作作为 `Editor.History` 中的**单个原子可撤销步骤**执行。两个文件会立即出现在审查/变更列表（`RefreshChanges`）中，确认卡片会展示带 `+` 高亮的 YAML 差异及 **Undo** 按钮（`UndoLastBriefPin`）；执行一次撤销即可同时移除复制的图片文件与新增的 YAML 行（若 `brief.yaml` 与空 `art/reference/` 目录是本次创建的也会一并清理）。
 - **始终附带标签（`brief.yaml`）**：只要项目存在 `brief.yaml`，输入框中就会显示 **Always** 行及带锁图标的 `brief.yaml` 标签（有固定参考图时显示数量）。悬停或点击该标签可预览全部已固定参考图，后续每次智能体请求都会通过 `AgentRequest.BriefImages` 与 `AgentRequest.Images` 自动携带这些图片。
+
+## 智能体回合：跨文件待确认改动与单步撤销（#1011）
+
+智能体在一次请求起止之间（从右侧 Agent 面板发起，或通过 MCP 的 `turn_start` 开启、`turn_end` 结束）经由编辑器 MCP 服务器所做的全部编辑，都会归入**同一个待确认智能体回合**，统一涵盖它触及的所有文件——场景、预制体、数据表、`game.yaml` 与动画片段：
+
+- **内存实时生效、保留保存前零落盘**：所有编辑立即在内存中生效，视口、场景树、检查器与 `scene_read` 都能实时看到（`Editor.StagedFileYAML`），但在用户保留回合并保存之前绝不向磁盘写入任何文件。存在待确认回合时，直接保存（`Save` / `SaveAll`）会被拒绝，自动保存也会暂停。
+- **带 `why` 说明的结构化派生差异**：编辑器不是记录原始命令流水，而是把每个被触及的文件与回合前状态做结构化对比来派生变更（场景与预制体按对象 ID 与字段/组件/属性/图层/父级，数据表按记录，`game.yaml` 按点分键，动画片段按头信息/轨道/事件）。每条派生的 `AgentTurnChange` 带有 `Kind`（`added`、`changed`、`removed`）、`Title`、简明 `Detail`（如 `z 10 → 12`）、`File`、从 1 开始的 YAML `Line`、可选的 `Why` 说明（来自 MCP 编辑工具的 `why` 参数）与 `Reverted` 标记，并附带每个文件精确的 `+added −removed` 行数统计。
+- **待确认期间按单条或按文件还原与恢复**：回合处于待确认或已停止状态（`⌘.` / `CmdStopAgentTurn`）时，用户可以随时还原或恢复任意单条变更（`RevertAgentTurnChange` / `RestoreAgentTurnChange` / `ToggleAgentTurnChange`）或某个文件中的全部变更（`RevertAgentTurnFile` / `RestoreAgentTurnFile`）。被还原的变更立即从内存状态移除，恢复时干净回到原位，且不影响未触及对象上的其他改动（包括用户并发做的编辑）。
+- **Keep 与 Revert 的单步撤销及 Spec 提示条**：
+  - **Keep**（`KeepAgentTurn` / `⌘↵` / `CmdKeepAgentTurn`）把所有文件上剩余的改动合并提交为 `Editor.History` 中的**单个** `AuthorAgent` / `HistoryAuthorAgent` 撤销步骤（可通过 `History.Entries()`、`History.UndoAuthor()`、`History.RedoAuthor()` 区分用户与智能体）。一次 `⌘Z` 即可把所有被改动文件按字节还原，一次 `⇧⌘Z` 即可重做整个保留的回合，并弹出带 **Undo（`⌘Z`）** 按钮的 Spec `ToastSuccess`。
+  - **Revert**（`RevertAgentTurn` / `⌘⌫` / `CmdRevertAgentTurn`）把每个被触及的文件按字节还原到请求前状态，并弹出带 **Undo（`⌘Z`）** 按钮的 Spec `ToastInfo`，点击后（`UndoRevertAgentTurn`）可将回合重新恢复为待确认状态。
+  - **Checkpoints `⌘Z` 规则**：智能体正在工作（`AgentTurnWorking`）时，`⌘Z` 仅撤销用户自己的编辑；在打开的审查（`AgentTurnReviewOpen`）中，`⌘Z` 先撤销用户在审查期间所做的编辑，再还原整个审查；保留或空闲后，`⌘Z` 按普通历史栈撤销。
+- **右侧 Agent 标签页与摘要卡片（`RightRailView` / `AgentPanelView`）**：右侧栏顶部支持在 **Agent**（`mod+shift+1` / `CmdRightTabAgent`）与 **Inspector**（`mod+shift+2` / `CmdRightTabInspector`）之间切换，并显示待确认状态点与 MCP 连接状态。界面严格使用 `Spec.dc.html` 令牌并对应 `Main.dc.html` 布局，展示请求气泡、进度步骤、工作中的 **Stop（`⌘.`）** 按钮、完成摘要、精简摘要卡片（`"6 changes · 1 file · +38 −0"`、按类型展示的变更列表与单条/按文件还原恢复按钮、**Keep** / **Review** / **Revert**）、已保留/已还原状态（`"one undo step (⌘Z)"`）以及带 `"Edits stay unsaved until you keep them"` 提示的输入框。
+- **切换场景/项目与关闭保护**：存在待确认回合时，打开其他场景（`RequestOpenScene`）、切换项目（`RequestOpenProject`）、关闭窗口或退出应用都会弹出 **Keep / Revert / Cancel** 确认框（`pendingTurnDialog`），与未保存修改的行为保持一致。
+- **MCP 工具（`editormcp`）**：提供 `turn_start`、`turn_end`、`turn_status`（只读，如实报告已还原的变更）和 `file_edit`（在内存中校验并编辑 `game.yaml`、数据表、动画片段、预制体与场景），并为 `scene_edit` 与 `object_set_field` 增加 `why` 参数；按设计不提供可由智能体调用的保留或还原回合工具。

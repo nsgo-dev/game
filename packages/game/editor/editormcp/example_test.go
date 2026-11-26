@@ -92,6 +92,7 @@ func ExampleServer_AddTool() {
 	// datatable_review_checks edit
 	// datatable_review_propose edit
 	// datatable_review_status read
+	// file_edit edit
 	// game_check run
 	// game_delete_file delete
 	// game_playtest run
@@ -147,5 +148,8 @@ func ExampleServer_AddTool() {
 	// tile_review_status read
 	// tileset_edit edit
 	// tileset_read read
+	// turn_end edit
+	// turn_start edit
+	// turn_status read
 	// viewport_image read
 }

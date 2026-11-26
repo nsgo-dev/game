@@ -290,8 +290,12 @@ claude mcp add game-editor -- nsgo game mcp
 
 | 工具 | 动作 | 参数 | 作用 |
 | --- | --- | --- | --- |
-| `scene_read` | read | `file`、`offset`、`limit`（均可选） | 以从 1 开始编号的行读取项目中的场景、预制体、数据表或其他文本文件，或 `game.yaml`。编辑器对打开的场景或 `game.yaml` 有未保存的编辑时，该文件按编辑器当前持有的内容读取，回复会注明这一点，并说明其行号与磁盘上的文件不同；否则，以及其他任何文件，都从磁盘读取，保留注释，行号与 `game_check` 报告的一致。不给 `file` 时读取打开的场景。路径必须相对于项目根目录，且不能离开项目。 |
-| `scene_edit` | edit | `edits`（必填）、`file`、`label`（可选） | 按顺序把这些编辑应用到编辑器中打开的场景，作为一个撤销步骤，标签为 `label`（或由编辑内容生成）。这些编辑在用户保存前一直未保存。 |
+| `scene_read` | read | `file`、`offset`、`limit`（均可选） | 以从 1 开始编号的行读取项目中的场景、预制体、数据表或其他文本文件，或 `game.yaml`。编辑器对打开的场景或 `game.yaml` 有未保存的编辑、或待确认智能体回合在内存中暂存了改动时，该文件按编辑器当前持有的内容读取，回复会注明这一点并说明其行号与磁盘上的文件不同；否则，以及其他任何文件，都从磁盘读取，保留注释，行号与 `game_check` 报告的一致。不给 `file` 时读取打开的场景。路径必须相对于项目根目录，且不能离开项目。 |
+| `scene_edit` | edit | `edits`（必填）、`file`、`label`、`why`（可选；每项编辑也可单独带 `why`） | 按顺序把编辑应用到打开的场景（或在智能体回合进行中，在内存中应用到项目中的任意场景或预制体），不写入磁盘。在活跃回合内，这些编辑归入同一个待确认回合，并把 `why` 说明记录到对应的派生变更上；在回合之外则记录为一条标签为 `label` 的普通撤销步骤。改动在保留并保存前一直不落盘。 |
+| `turn_start` | edit | `prompt`（可选） | 开启一个待确认智能体回合，使随后的 `scene_edit`、`object_set_field` 与 `file_edit` 跨文件编辑合并为同一个可审查回合，并在用户保留时成为单个撤销步骤。 |
+| `turn_end` | edit | `summary`、`step`（可选） | 将当前进行中的回合标记为待用户审查状态，附带可选的完成摘要（以及可选的进度步骤），并返回当前派生回合快照。 |
+| `turn_status` | read | 无 | 只读返回当前智能体回合的快照：状态（`working`、`pending`、`stopped`、`kept`、`reverted`）、请求提示词、进度步骤、摘要、每个文件的增删行数（`+added`/`−removed`）以及结构化派生的变更列表（含 `kind`、`title`、`detail`、`file`、从 1 开始的 `line`、`why` 与 `reverted`）。刻意不提供用于保留或还原回合的 MCP 工具，决定权始终在用户手中。 |
+| `file_edit` | edit | `file`（必填）、`yaml`（必填）、`why`（可选） | 在活跃智能体回合内校验并在内存中编辑 `game.yaml`、数据表（`*.table.yaml`）、动画片段（`*.clip.yaml`）、预制体（`*.prefab.yaml`）或场景（`*.scene.yaml`），在用户保留并保存前不写入磁盘。 |
 | `selection_get` | read | 无 | 打开的场景、当前图层、选中的对象及其 YAML 行（行号与 `scene_read` 一致）、多选时的全部选中对象列表 `selectedIds`、文件浏览器中选中的文件、当前工具和视图模式。 |
 | `viewport_image` | read | `scale`（可选，0.25 到 4）、`viewport_overlays`（可选字符串数组） | 视口当前样子的 PNG：通过编辑器视图看到的场景，以及相机框、瓦片网格、选择框与视口叠加层，尺寸为视口的点尺寸乘以 `scale`。省略 `viewport_overlays` 时使用编辑器当前启用的叠加层集合；传入叠加层 ID（`collision_shapes`、`triggers`、`connections`、`patrol_paths`、`navigation`、`camera_bounds`、`labels` 或已启用的插件叠加层 ID）时仅覆盖本次截图，传 `[]` 则不绘制任何叠加层。叠加层文字（如连接箭头上的 `"pulled → open"`）会渲染到 PNG 中；不在内存中的图片会被略去并给出数量。 |
 | `game_check` | run | 无 | 运行问题面板的检查（使用编辑器组件注册表的 `assetcheck`，以及 `project.Check`，并包含编辑器中打开且未保存的文档），返回其中的可见问题，每条带文件、从 1 开始的行号、列号（可定位时）和消息。 |
@@ -368,7 +372,7 @@ claude mcp add game-editor -- nsgo game mcp
 
 `add` 的对象由场景格式自己的读取器配合编辑器的组件注册表读取，因此会像打开文件时那样被拒绝。一次调用中只要有一项编辑被编辑器拒绝，所有编辑都不生效：场景、其撤销历史和磁盘上的文件都保持原样，工具错误会写出文件、编辑序号、对象、组件和字段以及修正方法，例如 `scene_edit: scenes/room.scene.yaml: edit 2 (set) on object "hero" component "body" field "sped": unknown field (registered: friction, layer, solid, speed); use a component and fields the project registers, as the message lists them. Nothing was changed.` 结构化结果以 `editormcp.EditError` 的形式包含同样的信息。
 
-把智能体的一次请求归为一个由用户保留或还原的回合、以及实时绘制智能体的编辑，会在各自的改动中基于这个服务器实现；在那之前，每次 `scene_edit` 调用就是一个普通的撤销步骤。
+在智能体回合进行期间（从 `turn_start` 到 `turn_end`，或从编辑器右侧 Agent 面板发起请求），智能体通过 `scene_edit`、`object_set_field` 与 `file_edit` 对场景、预制体、数据表、`game.yaml` 与动画片段所做的全部编辑都会暂存在内存中并归入同一个待确认回合，绝不提前写盘。编辑器通过把每个被改动文件与回合前状态做结构化对比来派生变更（并保留工具调用附带的 `why` 说明），允许用户在待确认期间按单条变更或按整个文件随时还原与恢复；用户点击 **Keep** 时把剩余改动跨全部文件提交为一条标记为 `AuthorAgent` 的撤销步骤，点击 **Revert** 时把每个文件按字节恢复到回合前状态。`turn_status` 会如实报告派生变更以及用户已还原的条目；按设计不存在可由智能体调用的保留或还原回合 MCP 工具。在回合之外，每次 `scene_edit` 或 `object_set_field` 仍是打开场景上的单个普通撤销步骤。
 
 当编辑器的自动保存处于失败状态时（例如目标目录只读或磁盘已满），`editormcp` 返回的每次工具结果都会追加一条警告，说明当前更改尚未写入磁盘并附上失败原因（同时在 `_meta` 中附带 `nsgo.dev/editsNotOnDisk`、`nsgo.dev/saveError`、`nsgo.dev/saveWarning`，并在 `Result` / `AutomationResult` 中填充 `SaveWarning`），直到保存成功为止，避免智能体基于未落盘的编辑继续构建。
 
