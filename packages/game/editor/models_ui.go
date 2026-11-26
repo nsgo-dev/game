@@ -2,11 +2,14 @@ package editor
 
 import (
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 
+	"github.com/nsgo-dev/game/packages/game/l10n"
 	"github.com/nsgo-dev/nsgo/base/dragdrop"
 	"github.com/nsgo-dev/nsgo/core"
+	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
 )
 
@@ -145,8 +148,8 @@ func modelTestID(m ModelEntry) string {
 func modelListView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
 	colors := ui.ColorsOf(cx)
 	thumbRev := core.NewSignal(cx, uint64(0))
-	ed.thumbs.onReady = func() { thumbRev.Set(thumbRev.GetUntracked() + 1) }
-	cx.Cleanup(func() { ed.thumbs.onReady = nil })
+	unsubThumb := ed.thumbs.subscribe(func() { thumbRev.Set(thumbRev.GetUntracked() + 1) })
+	cx.Cleanup(unsubThumb)
 	models := core.NewMemoFunc(cx, func() []ModelEntry {
 		_ = rev.Get()
 		return ed.Models()
@@ -351,5 +354,759 @@ func modelField(ed *Editor, rev *core.Signal[uint64], objID string, disabled fun
 		Value:    current,
 		OnChange: func(p string) { ed.report(ed.SetObjectModel(objID, p)) },
 		OnClear:  func() { ed.report(ed.SetObjectModel(objID, "")) },
+	}
+}
+
+// Viewport3DModelsStripView renders the bottom MODELS strip along the 3D viewport (docs/design/editor/Viewport3D.dc.html),
+// showing offscreen-rendered thumbnails of the project's models and built-in primitives with drag-into-viewport placement,
+// tooltips, an "Or ask for one" button, and an inline agent prompt bar when opened. All surfaces, borders, text, focus rings,
+// and icons come strictly from SpecPalette tokens.
+func Viewport3DModelsStripView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]) core.Node {
+	thumbRev := core.NewSignal(cx, uint64(0))
+	unsubThumb := ed.thumbs.subscribe(func() { thumbRev.Set(thumbRev.GetUntracked() + 1) })
+	cx.Cleanup(unsubThumb)
+
+	models := core.NewMemoFunc(cx, func() []ModelEntry {
+		_ = rev.Get()
+		return ed.StripModels()
+	}, slices.Equal[[]ModelEntry])
+
+	promptDraft := core.NewSignal(cx, "")
+	spec := ed.SpecPalette(cx)
+
+	promptBar := core.Show{
+		When: func() bool {
+			_ = rev.Get()
+			return ed.Viewport3DAgentPromptOpen()
+		},
+		Then: func(cx *core.Scope) core.Node {
+			cur := ed.SpecPalette(cx)
+			submit := func(text string) {
+				if _, err := ed.SubmitViewport3DAgentPrompt(text); err != nil {
+					ed.report(err)
+					return
+				}
+				promptDraft.Set("")
+			}
+			return core.View{
+				TestID: "viewport3d-agent-prompt-bar",
+				Style: core.Style{
+					Direction:   core.Row,
+					AlignItems:  core.AlignCenter,
+					Gap:         8,
+					Padding:     core.Symmetric(8, 12),
+					Background:  cur.Raised,
+					Borders:     core.Edges{Top: 1},
+					BorderColor: cur.Line,
+				},
+				Children: []core.Node{
+					core.Icon{
+						SVG:   lucide.Sparkles(),
+						Style: core.Style{Width: core.Pt(14), Height: core.Pt(14), Color: cur.Agent.Fg, FlexShrink: 0},
+					},
+					core.View{
+						Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
+						Children: []core.Node{
+							core.Dynamic(func(cx *core.Scope) core.Node {
+								_ = rev.Get()
+								ph := ed.Viewport3DAgentPromptPlaceholder()
+								return ui.Input{
+									TestID:      "viewport3d-agent-prompt-input",
+									Label:       ph,
+									Placeholder: ph,
+									Value:       promptDraft.Get,
+									OnChange:    promptDraft.Set,
+									OnSubmit:    submit,
+								}
+							}),
+						},
+					},
+					core.View{
+						TestID: "viewport3d-agent-prompt-send",
+						Role:   core.RoleButton,
+						Label:  ed.T("models.promptSend"),
+						Style: core.Style{
+							Height:         core.Pt(30),
+							Padding:        core.Symmetric(0, 12),
+							CornerRadius:   8,
+							Background:     cur.TextPrimary,
+							Direction:      core.Row,
+							AlignItems:     core.AlignCenter,
+							JustifyContent: core.JustifyCenter,
+							FlexShrink:     0,
+							FocusVisible:   cur.FocusRing(2),
+						},
+						OnPress: func(core.PressEvent) {
+							submit(promptDraft.Get())
+						},
+						Children: []core.Node{
+							core.Text{
+								Content: ed.T("models.promptSend"),
+								Style: core.Style{
+									FontSize:   12,
+									FontWeight: 600,
+									Color:      cur.OnTextPrimary,
+								},
+							},
+						},
+					},
+					ui.IconButton{
+						TestID: "viewport3d-agent-prompt-close",
+						Icon:   lucide.X,
+						Label:  ed.T("models.promptClose"),
+						OnPress: func() {
+							promptDraft.Set("")
+							ed.CloseViewport3DAgentPrompt()
+						},
+					},
+				},
+			}
+		},
+	}
+
+	cards := core.Dynamic(func(cx *core.Scope) core.Node {
+		entries := models.Get()
+		items := make([]core.Node, 0, len(entries))
+		for _, entry := range entries {
+			m := entry
+			id := modelTestID(m)
+			fileLabel := m.FileLabel()
+			tip := ed.T("models.dragTooltip", l10n.Param("name", fileLabel))
+			card := core.View{
+				TestID: "viewport3d-model-card-" + id,
+				Role:   core.RoleButton,
+				Label:  tip,
+				StyleFunc: func() core.Style {
+					_ = rev.Get()
+					p := ed.SpecPalette(cx)
+					bg, border := p.Raised, p.LineRaised
+					if ed.SelectedModel != nil && *ed.SelectedModel == m {
+						bg, border = p.Accent.Fill, p.Accent.Edge
+					}
+					return core.Style{
+						Width:          core.Pt(88),
+						Height:         core.Pt(68),
+						FlexShrink:     0,
+						AlignItems:     core.AlignCenter,
+						JustifyContent: core.JustifyEnd,
+						Gap:            4,
+						Padding:        core.Edges{Top: 6, Right: 6, Bottom: 8, Left: 6},
+						CornerRadius:   8,
+						BorderWidth:    1,
+						BorderColor:    border,
+						Background:     bg,
+						FocusVisible:   p.FocusRing(2),
+					}
+				},
+				Disabled: func() bool {
+					_ = rev.Get()
+					return ed.Playing()
+				},
+				OnPress: func(core.PressEvent) {
+					ed.report(ed.SelectModel(m))
+					if ed.ViewMode == ViewMode3D {
+						ed.SetTool(ToolPlace)
+					}
+				},
+				Children: []core.Node{
+					core.Canvas{
+						TestID: "viewport3d-model-thumb-" + id,
+						Style: core.Style{
+							Width:  core.Pt(40),
+							Height: core.Pt(34),
+						},
+						Draw: func(d *core.Drawing, size core.Size) {
+							_ = thumbRev.Get()
+							_ = rev.Get()
+							img, err := ed.ModelThumbnail(m)
+							if err != nil || img == nil {
+								return
+							}
+							sw, sh := float32(size.Width), float32(size.Height)
+							side := min(sw, sh)
+							px := float32(img.Bounds().Dx())
+							d.DrawImageFrom(core.ImageSource{Pixels: img}, 0, 0, px, px, (sw-side)/2, (sh-side)/2, side, side)
+						},
+					},
+					core.Text{
+						Content:  fileLabel,
+						MaxLines: 1,
+						StyleFunc: func() core.Style {
+							_ = rev.Get()
+							p := ed.SpecPalette(cx)
+							fg := p.TextMuted
+							if ed.SelectedModel != nil && *ed.SelectedModel == m {
+								fg = p.TextPrimary
+							}
+							return core.Style{
+								FontSize: 11,
+								Color:    fg,
+								MaxWidth: core.Pt(76),
+							}
+						},
+					},
+				},
+			}
+			src := dragdrop.Source{
+				View: card,
+				Data: func() any { return m },
+				Preview: func(any) core.Node {
+					p := ed.SpecPalette(cx)
+					return core.View{
+						Style: core.Style{
+							Padding:      core.Symmetric(4, 8),
+							CornerRadius: 6,
+							Background:   p.Raised,
+							BorderWidth:  1,
+							BorderColor:  p.LineRaised,
+						},
+						Children: []core.Node{
+							core.Text{
+								Content: fileLabel,
+								Style: core.Style{
+									FontSize: 12,
+									Color:    p.TextSecondary,
+								},
+							},
+						},
+					}
+				},
+			}
+			items = append(items, withTooltip(src, tip))
+		}
+
+		return core.View{
+			Style: core.Style{
+				Direction:  core.Row,
+				AlignItems: core.AlignCenter,
+				Gap:        8,
+			},
+			Children: items,
+		}
+	})
+
+	askBtn := core.View{
+		TestID: "viewport3d-ask-for-model",
+		Role:   core.RoleButton,
+		Label:  ed.T("models.askForOne"),
+		StyleFunc: func() core.Style {
+			_ = rev.Get()
+			p := ed.SpecPalette(cx)
+			bg := p.Panel
+			border := p.LineRaised
+			if ed.Viewport3DAgentPromptKind() == Viewport3DAgentPromptModel {
+				bg = p.Agent.Fill
+				border = p.Agent.Edge
+			}
+			return core.Style{
+				Height:         core.Pt(68),
+				FlexShrink:     0,
+				Direction:      core.Row,
+				AlignItems:     core.AlignCenter,
+				JustifyContent: core.JustifyCenter,
+				Gap:            8,
+				Padding:        core.Symmetric(0, 14),
+				CornerRadius:   8,
+				BorderWidth:    1,
+				BorderColor:    border,
+				Background:     bg,
+				FocusVisible:   p.FocusRing(2),
+			}
+		},
+		Disabled: func() bool {
+			_ = rev.Get()
+			return ed.Playing()
+		},
+		OnPress: func(core.PressEvent) {
+			if ed.Viewport3DAgentPromptKind() == Viewport3DAgentPromptModel {
+				ed.CloseViewport3DAgentPrompt()
+				return
+			}
+			ed.OpenModelAgentPrompt()
+		},
+		Children: []core.Node{
+			core.Icon{
+				SVG:   lucide.Sparkles(),
+				Style: core.Style{Width: core.Pt(14), Height: core.Pt(14), Color: spec.Agent.Fg, FlexShrink: 0},
+			},
+			core.Text{
+				Content: ed.T("models.askForOne"),
+				Style: core.Style{
+					FontSize: 12,
+					Color:    spec.TextMuted,
+				},
+			},
+		},
+	}
+
+	strip := core.View{
+		TestID: "viewport3d-models-strip",
+		Style: core.Style{
+			Height:      core.Pt(88),
+			FlexShrink:  0,
+			Direction:   core.Row,
+			AlignItems:  core.AlignCenter,
+			Gap:         8,
+			Padding:     core.Symmetric(0, 12),
+			Background:  spec.Panel,
+			Borders:     core.Edges{Top: 1},
+			BorderColor: spec.Line,
+		},
+		Children: []core.Node{
+			core.View{
+				Style: core.Style{
+					Width:      core.Pt(64),
+					FlexShrink: 0,
+					Gap:        4,
+				},
+				Children: []core.Node{
+					core.Text{
+						TestID:  "viewport3d-models-strip-title",
+						Content: ed.T("models.stripTitle"),
+						Style: core.Style{
+							FontSize:   11,
+							FontWeight: 600,
+							Color:      spec.TextFaint,
+						},
+					},
+					core.Text{
+						TestID:  "viewport3d-models-strip-hint",
+						Content: ed.T("models.dragIn"),
+						Style: core.Style{
+							FontSize: 11,
+							Color:    spec.TextFaint,
+						},
+					},
+				},
+			},
+			ui.ScrollView{
+				Horizontal: true,
+				Style: core.Style{
+					FlexGrow:   1,
+					FlexShrink: 1,
+					MinWidth:   core.Pt(0),
+					Height:     core.Pt(76),
+				},
+				ContentStyle: core.Style{
+					Direction:  core.Row,
+					AlignItems: core.AlignCenter,
+					Padding:    core.Symmetric(4, 2),
+				},
+				Children: []core.Node{cards},
+			},
+			askBtn,
+		},
+	}
+
+	return ownDragArea(cx, core.View{
+		Style: core.Style{FlexShrink: 1, MinHeight: core.Pt(0), Overflow: core.Hidden},
+		Children: []core.Node{
+			promptBar,
+			strip,
+		},
+	})
+}
+
+// inspectorModel3DSections renders the Viewport3D.dc.html inspector cards for a placed 3D object or group:
+// CHILDREN (for a group), MODEL (thumbnail, path, triangle count & material count, plus the project model picker),
+// MATERIAL (material file & roughness/metallic summary), COLLIDER ("Convex hull · static" etc.),
+// and "Ask to add a component…". All colors use SpecPalette tokens exclusively.
+func inspectorModel3DSections(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], objID string, disabled func() bool, modelPickerRow core.Node) []core.Node {
+	thumbRev := core.NewSignal(cx, uint64(0))
+	unsubThumb := ed.thumbs.subscribe(func() { thumbRev.Set(thumbRev.GetUntracked() + 1) })
+	cx.Cleanup(unsubThumb)
+
+	spec := ed.SpecPalette(cx)
+	sectionLabel := func(testID, title string) core.Node {
+		return core.Text{
+			TestID:  testID,
+			Content: title,
+			Style: core.Style{
+				FontSize:   11,
+				FontWeight: 600,
+				Color:      spec.TextFaint,
+			},
+		}
+	}
+
+	// CHILDREN section (for a group / object with child objects).
+	childrenSection := core.Show{
+		When: func() bool {
+			_ = rev.Get()
+			_, ok := ed.ObjectChildrenSummary3D(objID)
+			return ok
+		},
+		Then: func(cx *core.Scope) core.Node {
+			p := ed.SpecPalette(cx)
+			return core.View{
+				TestID: "inspector-children-section",
+				Style:  core.Style{Gap: 8},
+				Children: []core.Node{
+					sectionLabel("inspector-children-header", ed.T("inspector.section.children")),
+					core.View{
+						Style: core.Style{
+							Padding:      core.Symmetric(8, 12),
+							CornerRadius: 12,
+							Background:   p.Raised,
+							BorderWidth:  1,
+							BorderColor:  p.LineRaised,
+						},
+						Children: []core.Node{
+							core.Text{
+								TestID: "inspector-children-summary",
+								ContentFunc: func() string {
+									_ = rev.Get()
+									if s, ok := ed.ObjectChildrenSummary3D(objID); ok {
+										return s.Summary
+									}
+									return ""
+								},
+								Style: core.Style{
+									FontFamily: core.FontMonospace,
+									FontSize:   11.5,
+									Color:      p.TextMuted,
+								},
+							},
+						},
+					},
+				},
+			}
+		},
+	}
+
+	// MODEL section: always shows the MODEL header and project model picker, plus the raised summary card
+	// (thumbnail + path + triangle count & material count) when the object draws a model or built-in primitive.
+	modelSection := core.View{
+		TestID: "inspector-model-section",
+		Style:  core.Style{Gap: 8},
+		Children: []core.Node{
+			sectionLabel("inspector-model-header", ed.T("inspector.section.model")),
+			core.Show{
+				When: func() bool {
+					_ = rev.Get()
+					_, ok := ed.ObjectModelSummary3D(objID)
+					return ok
+				},
+				Then: func(cx *core.Scope) core.Node {
+					p := ed.SpecPalette(cx)
+					return core.View{
+						TestID: "inspector-model-card",
+						Style: core.Style{
+							Direction:    core.Row,
+							AlignItems:   core.AlignCenter,
+							Gap:          12,
+							Padding:      core.All(8),
+							CornerRadius: 12,
+							Background:   p.Raised,
+							BorderWidth:  1,
+							BorderColor:  p.LineRaised,
+						},
+						Children: []core.Node{
+							core.Canvas{
+								TestID: "inspector-model-thumb",
+								Style: core.Style{
+									Width:        core.Pt(44),
+									Height:       core.Pt(44),
+									CornerRadius: 6,
+									Background:   p.Inset,
+									FlexShrink:   0,
+								},
+								Draw: func(d *core.Drawing, size core.Size) {
+									_ = thumbRev.Get()
+									_ = rev.Get()
+									s, ok := ed.ObjectModelSummary3D(objID)
+									if !ok {
+										return
+									}
+									img, err := ed.ModelThumbnail(s.Entry())
+									if err != nil || img == nil {
+										return
+									}
+									sw, sh := float32(size.Width), float32(size.Height)
+									side := min(sw, sh)
+									px := float32(img.Bounds().Dx())
+									d.DrawImageFrom(core.ImageSource{Pixels: img}, 0, 0, px, px, (sw-side)/2, (sh-side)/2, side, side)
+								},
+							},
+							core.View{
+								Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 2},
+								Children: []core.Node{
+									core.Text{
+										TestID:   "inspector-model-path",
+										MaxLines: 1,
+										ContentFunc: func() string {
+											_ = rev.Get()
+											s, ok := ed.ObjectModelSummary3D(objID)
+											if !ok {
+												return ""
+											}
+											if s.Path != "" {
+												return s.Path
+											}
+											return ed.T("inspector.modelPrimitive", l10n.Param("mesh", s.Mesh))
+										},
+										Style: core.Style{
+											FontFamily: core.FontMonospace,
+											FontSize:   11.5,
+											Color:      p.TextSecondary,
+										},
+									},
+									core.Text{
+										TestID:   "inspector-model-stats",
+										MaxLines: 1,
+										ContentFunc: func() string {
+											_ = rev.Get()
+											if s, ok := ed.ObjectModelSummary3D(objID); ok {
+												return s.StatsText()
+											}
+											return ""
+										},
+										Style: core.Style{
+											FontSize: 11.5,
+											Color:    p.TextFaint,
+										},
+									},
+								},
+							},
+						},
+					}
+				},
+			},
+			modelPickerRow,
+		},
+	}
+
+	// MATERIAL summary (material file + roughness & metallic meters).
+	metricRow := func(testID, label string, read func() float32) core.Node {
+		return core.View{
+			TestID: testID,
+			Style: core.Style{
+				Direction:  core.Row,
+				AlignItems: core.AlignCenter,
+				Gap:        8,
+			},
+			Children: []core.Node{
+				core.Text{
+					Content: label,
+					Style: core.Style{
+						Width:      core.Pt(68),
+						FlexShrink: 0,
+						FontSize:   12,
+						Color:      spec.TextMuted,
+					},
+				},
+				core.Canvas{
+					Style: core.Style{
+						FlexGrow:   1,
+						FlexShrink: 1,
+						MinWidth:   core.Pt(32),
+						Height:     core.Pt(16),
+					},
+					Draw: func(d *core.Drawing, size core.Size) {
+						_ = rev.Get()
+						p := ed.SpecPalette(cx)
+						v := clampUnit32(read())
+						w, h := float32(size.Width), float32(size.Height)
+						if w <= 8 || h <= 0 {
+							return
+						}
+						cy := h / 2
+						r := float32(5)
+						x0, x1 := r, w-r
+						d.Save().SetFillColor(p.LineRaised).FillRect(x0, cy-2, x1-x0, 4).Restore()
+						kx := x0 + (x1-x0)*v
+						if kx > x0 {
+							d.Save().SetFillColor(p.Accent.Fg).FillRect(x0, cy-2, kx-x0, 4).Restore()
+						}
+						d.Save().SetFillColor(p.Accent.Fg).BeginPath().Arc(kx, cy, r, 0, 6.2831853, false).Fill().Restore()
+					},
+				},
+				core.Text{
+					TestID: testID + "-value",
+					ContentFunc: func() string {
+						_ = rev.Get()
+						return fmt.Sprintf("%.2f", clampUnit32(read()))
+					},
+					Style: core.Style{
+						Width:      core.Pt(34),
+						FlexShrink: 0,
+						FontFamily: core.FontMonospace,
+						FontSize:   11.5,
+						Color:      spec.TextSecondary,
+					},
+				},
+			},
+		}
+	}
+
+	materialCard := core.Show{
+		When: func() bool {
+			_ = rev.Get()
+			_, ok := ed.ObjectMaterialSummary3D(objID)
+			return ok
+		},
+		Then: func(cx *core.Scope) core.Node {
+			p := ed.SpecPalette(cx)
+			return core.View{
+				TestID: "inspector-material3d-card",
+				Style:  core.Style{Gap: 8},
+				Children: []core.Node{
+					core.Text{
+						TestID:   "inspector-material3d-header",
+						MaxLines: 1,
+						ContentFunc: func() string {
+							_ = rev.Get()
+							s, ok := ed.ObjectMaterialSummary3D(objID)
+							if !ok {
+								return ed.T("inspector.section.material")
+							}
+							name := s.FileName
+							if name == "" {
+								name = ed.T("inspector.materialEmbedded")
+							}
+							return ed.T("inspector.section.material") + " · " + name
+						},
+						Style: core.Style{
+							FontSize:   11,
+							FontWeight: 600,
+							Color:      p.TextFaint,
+						},
+					},
+					metricRow("inspector-material3d-roughness", ed.T("inspector.materialRoughness"), func() float32 {
+						if s, ok := ed.ObjectMaterialSummary3D(objID); ok && s.HasValues {
+							return s.Roughness
+						}
+						return 1
+					}),
+					metricRow("inspector-material3d-metallic", ed.T("inspector.materialMetallic"), func() float32 {
+						if s, ok := ed.ObjectMaterialSummary3D(objID); ok && s.HasValues {
+							return s.Metallic
+						}
+						return 0
+					}),
+				},
+			}
+		},
+	}
+
+	// COLLIDER summary card ("Convex hull · static").
+	colliderCard := core.Show{
+		When: func() bool {
+			_ = rev.Get()
+			_, ok := ed.ObjectColliderSummary3D(objID)
+			return ok
+		},
+		Then: func(cx *core.Scope) core.Node {
+			p := ed.SpecPalette(cx)
+			return core.View{
+				TestID: "inspector-collider3d-card",
+				Style:  core.Style{Gap: 8},
+				Children: []core.Node{
+					sectionLabel("inspector-collider3d-header", ed.T("inspector.section.collider")),
+					core.View{
+						TestID: "inspector-collider3d-summary",
+						Style: core.Style{
+							Height:         core.Pt(28),
+							Direction:      core.Row,
+							AlignItems:     core.AlignCenter,
+							JustifyContent: core.JustifySpaceBetween,
+							Padding:        core.Symmetric(0, 8),
+							CornerRadius:   6,
+							Background:     p.Raised,
+							BorderWidth:    1,
+							BorderColor:    p.LineRaised,
+						},
+						Children: []core.Node{
+							core.Text{
+								TestID: "inspector-collider3d-shape",
+								ContentFunc: func() string {
+									_ = rev.Get()
+									if s, ok := ed.ObjectColliderSummary3D(objID); ok {
+										return s.Shape
+									}
+									return ""
+								},
+								Style: core.Style{
+									FontSize: 12,
+									Color:    p.TextSecondary,
+								},
+							},
+							core.Text{
+								TestID: "inspector-collider3d-kind",
+								ContentFunc: func() string {
+									_ = rev.Get()
+									if s, ok := ed.ObjectColliderSummary3D(objID); ok {
+										return s.BodyKind
+									}
+									return ""
+								},
+								Style: core.Style{
+									FontSize: 11.5,
+									Color:    p.TextFaint,
+								},
+							},
+						},
+					},
+				},
+			}
+		},
+	}
+
+	// "Ask to add a component…" button.
+	askAddComponentBtn := core.View{
+		TestID:   "inspector-ask-add-component",
+		Role:     core.RoleButton,
+		Label:    ed.T("inspector.askAddComponent"),
+		Disabled: disabled,
+		StyleFunc: func() core.Style {
+			_ = rev.Get()
+			p := ed.SpecPalette(cx)
+			bg := p.Panel
+			border := p.LineRaised
+			if ed.Viewport3DAgentPromptKind() == Viewport3DAgentPromptComponent && ed.Viewport3DAgentPromptObjectID() == objID {
+				bg = p.Agent.Fill
+				border = p.Agent.Edge
+			}
+			return core.Style{
+				Height:         core.Pt(32),
+				Direction:      core.Row,
+				AlignItems:     core.AlignCenter,
+				JustifyContent: core.JustifyCenter,
+				Gap:            8,
+				CornerRadius:   8,
+				BorderWidth:    1,
+				BorderColor:    border,
+				Background:     bg,
+				FocusVisible:   p.FocusRing(2),
+			}
+		},
+		OnPress: func(core.PressEvent) {
+			if ed.Viewport3DAgentPromptKind() == Viewport3DAgentPromptComponent && ed.Viewport3DAgentPromptObjectID() == objID {
+				ed.CloseViewport3DAgentPrompt()
+				return
+			}
+			ed.OpenComponentAgentPrompt(objID)
+		},
+		Children: []core.Node{
+			core.Icon{
+				SVG:   lucide.Sparkles(),
+				Style: core.Style{Width: core.Pt(13), Height: core.Pt(13), Color: spec.Agent.Fg, FlexShrink: 0},
+			},
+			core.Text{
+				Content: ed.T("inspector.askAddComponent"),
+				Style: core.Style{
+					FontSize: 12,
+					Color:    spec.TextMuted,
+				},
+			},
+		},
+	}
+
+	return []core.Node{
+		childrenSection,
+		modelSection,
+		materialCard,
+		colliderCard,
+		askAddComponentBtn,
 	}
 }

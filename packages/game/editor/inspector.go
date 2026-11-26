@@ -1773,6 +1773,10 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 			}
 		}
 
+		if ed.ViewMode == ViewMode3D {
+			nodes = append(nodes, inspectorModel3DSections(cx, ed, rev, objID, disabled, overrideFieldRow("model", ed.T("inspector.model"), modelField(ed, rev, objID, disabled)))...)
+		}
+
 		// TRANSFORM titled section with compact Position/Rotation/Scale X Y (and Z in 3D), Alpha, Z order.
 		{
 			tfTitle := ed.T("inspector.section.transform")
@@ -2172,9 +2176,6 @@ func inspectorFieldsView(cx *core.Scope, ed *Editor, rev *core.Signal[uint64], o
 						}
 					},
 				}))
-			}
-			if matchesInspectorFilter(q, t3dTitle, "", "model") {
-				rows3d = append(rows3d, overrideFieldRow("model", "Model", modelField(ed, rev, objID, disabled)))
 			}
 			if matchesInspectorFilter(q, t3dTitle, "", "gridmap") {
 				rows3d = append(rows3d, overrideFieldRow("gridMap", "GridMap", ui.Select[string]{
