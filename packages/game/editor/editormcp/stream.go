@@ -16,6 +16,9 @@ const (
 	SceneURI = "editor://scene"
 	// SelectionURI is what the person has selected, as selection_get reports it, in JSON.
 	SelectionURI = "editor://selection"
+	// AgentTurnURI is the latest agent turn submitted from the ⌘L in-place composer or Agent panel,
+	// including selection object IDs, open scene YAML, skipPlan flag, and the captured viewport PNG.
+	AgentTurnURI = "editor://agent/turn"
 )
 
 // The keys of a resource notice's _meta.
@@ -24,24 +27,31 @@ const (
 	MetaBy = "nsgo.dev/by"
 	// MetaRevision is the editor's revision (editor.Editor.Revision) after the change.
 	MetaRevision = "nsgo.dev/revision"
+	// MetaTurnID names the agent turn carried by an editor://agent/turn notification.
+	MetaTurnID = "nsgo.dev/turnId"
+	// MetaSkipPlan reports whether the notified agent turn is a small in-place ⌘L request that skips the plan.
+	MetaSkipPlan = "nsgo.dev/skipPlan"
 )
 
 // resources are the server's resources, which the proxy of go tool game mcp lists too.
 var resources = []*mcp.Resource{
 	{URI: SceneURI, Name: "scene", Title: "Open scene", Description: "The scene open in the editor as YAML, with every edit not yet saved. Subscribe to hear of each change.", MIMEType: "application/yaml"},
 	{URI: SelectionURI, Name: "selection", Title: "Selection", Description: "What the person has selected in the editor, as selection_get reports it. Subscribe to hear of each change.", MIMEType: "application/json"},
+	{URI: AgentTurnURI, Name: "agent-turn", Title: "Latest agent turn", Description: "The latest request sent from the editor's ⌘L in-place composer or Agent panel, with selection object IDs, open scene, skipPlan flag, and viewport PNG image. Subscribe to hear of each request.", MIMEType: "application/json"},
 }
 
 // changeStream is what the editor showed when the stream last looked, to tell a change from a notification that changed nothing.
 type changeStream struct {
 	scene     []byte
 	selection []byte
+	turnSeq   uint64
 }
 
 // reset records what ed shows now.
 func (c *changeStream) reset(ed *editor.Editor) {
 	c.scene, _ = sceneYAML(ed)
 	c.selection = selectionJSON(ed)
+	c.turnSeq = ed.AgentTurnSeq()
 }
 
 // addResources adds the resources and their read handlers to the SDK server.
@@ -68,6 +78,30 @@ func (s *Server) addResources() {
 		}
 		return &mcp.ReadResourceResult{Contents: []*mcp.ResourceContents{{URI: SelectionURI, MIMEType: "application/json", Text: string(data)}}}, nil
 	})
+	s.sdk.AddResource(resources[2], func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+		var (
+			data []byte
+			png  []byte
+		)
+		err := s.Editor(ctx, func(ed *editor.Editor) error {
+			data, png, _, _ = agentTurnResourceJSON(ed)
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		contents := []*mcp.ResourceContents{
+			{URI: AgentTurnURI, MIMEType: "application/json", Text: string(data)},
+		}
+		if len(png) > 0 {
+			contents = append(contents, &mcp.ResourceContents{
+				URI:      AgentTurnURI + "/viewport.png",
+				MIMEType: "image/png",
+				Blob:     png,
+			})
+		}
+		return &mcp.ReadResourceResult{Contents: contents}, nil
+	})
 }
 
 // subscribe records a session's subscription to a resource.
@@ -92,8 +126,8 @@ func (s *Server) unsubscribe(_ context.Context, req *mcp.UnsubscribeRequest) err
 	return nil
 }
 
-// subscribed reports whether a session still connected subscribes to the scene and to the selection, first dropping the subscriptions of sessions that ended without unsubscribing.
-func (s *Server) subscribed() (scene, selection bool) {
+// subscribed reports whether a session still connected subscribes to the scene, selection, or agent turns, first dropping the subscriptions of sessions that ended without unsubscribing.
+func (s *Server) subscribed() (scene, selection, agentTurn bool) {
 	live := map[*mcp.ServerSession]bool{}
 	for ss := range s.sdk.Sessions() {
 		live[ss] = true
@@ -107,8 +141,9 @@ func (s *Server) subscribed() (scene, selection bool) {
 		}
 		scene = scene || uris[SceneURI]
 		selection = selection || uris[SelectionURI]
+		agentTurn = agentTurn || uris[AgentTurnURI]
 	}
-	return scene, selection
+	return scene, selection, agentTurn
 }
 
 // changed runs on the editor's goroutine after every change to the editor's state: it follows the project to its endpoint and queues a notice for each subscribed resource whose content changed, saying whether the agent or the person changed it.
@@ -116,8 +151,8 @@ func (s *Server) changed() {
 	if s.opened && s.ed.ProjectPath != s.projectPath {
 		s.follow()
 	}
-	wantScene, wantSelection := s.subscribed()
-	if !wantScene && !wantSelection {
+	wantScene, wantSelection, wantTurn := s.subscribed()
+	if !wantScene && !wantSelection && !wantTurn {
 		return
 	}
 	by := "person"
@@ -135,6 +170,17 @@ func (s *Server) changed() {
 		if data := selectionJSON(s.ed); !bytes.Equal(data, s.stream.selection) {
 			s.stream.selection = data
 			s.queue(SelectionURI, meta)
+		}
+	}
+	if wantTurn {
+		if seq := s.ed.AgentTurnSeq(); seq != s.stream.turnSeq {
+			s.stream.turnSeq = seq
+			turnMeta := mcp.Meta{MetaBy: by, MetaRevision: s.ed.Revision()}
+			if turn, ok := s.ed.LatestAgentTurn(); ok {
+				turnMeta[MetaTurnID] = turn.ID
+				turnMeta[MetaSkipPlan] = turn.SkipPlan
+			}
+			s.queue(AgentTurnURI, turnMeta)
 		}
 	}
 }

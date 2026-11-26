@@ -188,8 +188,12 @@ func (e *Editor) ApplicationMenu() []desktop.MenuItem {
 	viewMenu := desktop.MenuItem{
 		Label: e.T("menu.view"),
 		Items: []desktop.MenuItem{
+			cmdItem(CmdAskAgent, e.T("menu.askAgent"), false),
 			cmdItem(CmdCommandPalette, e.T("menu.commandPalette"), false),
 			cmdItem(CmdShortcutsSheet, e.T("menu.shortcutsSheet"), false),
+			sep,
+			cmdItem(CmdAgentTab, e.T("menu.agentPanel"), false),
+			cmdItem(CmdInspectorTab, e.T("menu.inspectorPanel"), false),
 			sep,
 			cmdItem(CmdView2D, e.T("menu.view2d"), true),
 			cmdItem(CmdView3D, e.T("menu.view3d"), true),
@@ -280,7 +284,7 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 			}
 		}
 		var b strings.Builder
-		fmt.Fprintf(&b, "%s|%v|%s|%v|%d|%v|%v|%v|%v|%v|%v|%v|%s|%v|%v|%v|%v|%v|%v|%d|%v|%v|%v|%d|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%d|%d|%v|%v|%v|%d|%s|%v|%v|%v|%s",
+		fmt.Fprintf(&b, "%s|%v|%s|%v|%d|%v|%v|%v|%v|%v|%v|%v|%s|%v|%v|%v|%v|%v|%v|%d|%v|%v|%v|%d|%d|%d|%d|%d|%s|%s|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%v|%d|%d|%v|%v|%v|%d|%s|%v|%v|%v|%s|%v",
 			e.ResolvedLanguage(),
 			e.SettingsOpen(),
 			e.SettingsPage(),
@@ -346,6 +350,7 @@ func (e *Editor) bindApplicationMenu(cx *core.Scope, rev *core.Signal[uint64]) {
 			e.ConnectDialogOpen(),
 			e.AgentPanelOpen(),
 			e.AgentMode(),
+			e.AskInPlaceOpen(),
 		)
 		for _, ov := range e.ViewportOverlays() {
 			b.WriteByte('|')

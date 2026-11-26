@@ -11,7 +11,45 @@ strings:
   agent.status.waitingShort: 等待你
   agent.status.workingShort: 处理中
   agent.tab: 智能体
+  agentPanel.emptyHint: 在视口中按 {askKey} 就地询问选中内容，或在下方输入请求。
+  agentPanel.emptyTitle: 向智能体提问
+  agentPanel.inputLabel: 向智能体提问
+  agentPanel.mcpReady: MCP
+  agentPanel.placeholder: 描述你想做的修改…
+  agentPanel.skipPlanBadge: 就地编辑 · 跳过计划
+  agentPanel.skipPlanHint: 使用 {askKey} 发起的小修改会跳过计划。
+  agentPanel.statusDone: 已完成
+  agentPanel.statusPending: 已通过 MCP 发送
+  agentPanel.statusRunning: 处理中…
+  agentPanel.statusStopped: 已停止
+  agentPanel.tab: 智能体
+  agentPanel.viewportImage: 视口图像
   app.defaultName: NSGo 场景编辑器
+  askInPlace.announceScene: 正在询问打开的场景 {scene}
+  askInPlace.announceSelection: 已选中 {count} 项：{names}
+  askInPlace.close: 关闭提问框
+  askInPlace.hint: '{askKey} 询问选中内容 · {searchKey} 搜索 · 右键“向智能体询问此项”'
+  askInPlace.inputLabelScene: 向智能体询问 {scene}
+  askInPlace.inputLabelSelection: 向智能体询问选中内容
+  askInPlace.placeholderScene: 描述对 {scene} 的修改…
+  askInPlace.placeholderSelection: 告诉智能体你想修改什么…
+  askInPlace.sceneChip: 场景 · {scene}
+  askInPlace.selectedCount: 已选中 {count} 项
+  askInPlace.selectedManyChip: 已选中 {count} 项 · {names}
+  askInPlace.selectedOneChip: 已选中 1 项 · {name}
+  askInPlace.send: 发送
+  askInPlace.statusSent: 已发送给智能体：{prompt}
+  askInPlace.suggest.addPatrol: 添加巡逻移动
+  askInPlace.suggest.fitCamera: 让边界贴合当前房间
+  askInPlace.suggest.flickerLight: 添加轻微闪烁效果
+  askInPlace.suggest.prefabVariant: 将它们做成预制体变体
+  askInPlace.suggest.sceneLayout: 检查当前场景的布局问题
+  askInPlace.suggest.scenePopulate: 添加巡逻敌人与金币
+  askInPlace.suggest.singlePrefabVariant: 做成预制体变体
+  askInPlace.suggest.smoothFollow: 添加平滑跟随
+  askInPlace.suggest.softenLight: 柔化光照半径
+  askInPlace.suggest.spaceEvenly: 均匀排列它们
+  askInPlace.suggested: 建议：
   assetGen.back: 返回场景编辑器
   assetGen.cancel: 取消
   assetGen.commercialUse: 允许商业使用
@@ -42,6 +80,10 @@ strings:
   assets.title: 资源
   cmd.agentPanel.desc: 在右侧栏的“智能体”与“检视器”面板之间切换
   cmd.agentPanel.label: 智能体面板
+  cmd.agentTab.desc: 将右侧面板切换为智能体对话线程
+  cmd.agentTab.label: 智能体面板
+  cmd.askAgent.desc: 打开锚定就地输入框，向智能体询问选中对象或当前场景
+  cmd.askAgent.label: 向智能体询问选中内容
   cmd.askFrozenFrame.desc: 暂停运行模式并携带回放与实时状态向智能体询问当前冻结帧
   cmd.askFrozenFrame.label: 画面看起来不对
   cmd.assetDrawer.desc: 在左侧栏的“场景”与“资源抽屉”模式之间切换
@@ -90,6 +132,8 @@ strings:
   cmd.gizmoTranslate.label: 3D 操纵杆：平移
   cmd.group.desc: 将选中的对象归组到位于其共同中心的新空父级下
   cmd.group.label: 编组选中对象
+  cmd.inspectorTab.desc: 将右侧面板切换为属性检查器
+  cmd.inspectorTab.label: 检查器面板
   cmd.lightingPreview.desc: 在 2D 视口中显示或隐藏实时 2D 灯光、遮挡阴影与环境暗度
   cmd.lightingPreview.label: 切换 2D 光照预览
   cmd.localization.desc: 切换本地化字符串表面板
@@ -407,7 +451,9 @@ strings:
   material.shape.sphere: 球体
   material.shape.sprite: 精灵
   material.title: 材质编辑器
+  menu.agentPanel: 智能体面板
   menu.applyOverridesToSource: 将覆盖应用到源场景
+  menu.askAgent: 向智能体询问选中内容
   menu.askFrozenFrame: 画面看起来不对
   menu.audioMixer: 音频总线混音器
   menu.buildRelease: 构建与发布…
@@ -431,6 +477,7 @@ strings:
   menu.generatedAssets: 生成资源
   menu.gizmo3d: 3D 操纵杆
   menu.group: 编组
+  menu.inspectorPanel: 检查器面板
   menu.lightingPreview: 2D 光照预览
   menu.localization: 本地化字符串
   menu.makeInstanceLocal: 使实例本地化

@@ -536,6 +536,8 @@ type Editor struct {
 	AgentScheduleAfter func(d time.Duration, fn func()) (cancel func())
 	// OnFocusAgentRequest, when set, is called when the user clicks the "Waiting for you" status chip to focus the open request.
 	OnFocusAgentRequest func(req AgentOpenRequest)
+	// OnAgentTurn, when set, is called whenever the author sends a request from the ⌘L in-place composer or Agent panel.
+	OnAgentTurn func(AgentTurn)
 	// ProblemCheckDebounce controls the debounce delay before live problem checks run after edits (defaults to 80ms when <= 0).
 	ProblemCheckDebounce time.Duration
 	// OnAskAboutProblem, when set, is called when the author submits a question from "Ask about this problem…" with the problem attached.
@@ -872,6 +874,8 @@ type Editor struct {
 	autosave autoSaveState
 	// perms holds the project's MCP permission profile/rules (permissions.yaml), Settings › Permissions state, blocked steps, pending asks, and the Always saved toast.
 	perms permissionsState
+	// askInPlace holds the anchored ⌘L in-place composer state, contextual suggestions, and return focus.
+	askInPlace askInPlaceState
 }
 
 // DefaultSceneDoc returns a valid starter SceneDoc suitable for a new editor session.

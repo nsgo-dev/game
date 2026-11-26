@@ -82,6 +82,8 @@ func ExampleServer_AddTool() {
 	}
 	// Output:
 	// <nil>
+	// agent_turn_get read
+	// agent_turn_reply edit
 	// cutscene_scrub read
 	// cutscene_write edit
 	// game_check run

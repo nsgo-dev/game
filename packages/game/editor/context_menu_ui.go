@@ -386,7 +386,7 @@ func objectContextMenuItems(cx *core.Scope, ed *Editor, rev *core.Signal[uint64]
 		ui.MenuItem{
 			TestID:   "context-menu-ask-agent",
 			Text:     ed.T("contextMenu.askAgent"),
-			Shortcut: "mod+l",
+			Shortcut: ed.EffectiveShortcut(CmdAskAgent),
 			Leading:  ui.Icon(lucide.Sparkles, 14, func() core.Color { return p.Agent.Fg }),
 			OnSelect: func() {
 				_, err := ed.AskAgentAboutObject(id)
@@ -578,12 +578,6 @@ func bindObjectContextMenuKeys(cx *core.Scope, ed *Editor) {
 	cx.OnKeyWith("h", opts, func() {
 		if inScene() && ed.SelectedID != "" {
 			_, err := ed.ToggleObjectHidden(ed.SelectedID)
-			ed.report(err)
-		}
-	})
-	cx.OnKeyWith("mod+l", opts, func() {
-		if inScene() && ed.SelectedID != "" {
-			_, err := ed.AskAgentAboutObject(ed.SelectedID)
 			ed.report(err)
 		}
 	})

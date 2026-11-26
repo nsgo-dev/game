@@ -71,6 +71,9 @@ const (
 	CmdToggleSnapScale        = "view.snap.scale"
 	CmdToggleNavMesh2D        = "view.navmesh2d"
 	CmdViewportOverlays       = "view.overlays"
+	CmdAskAgent               = "agent.askInPlace"
+	CmdAgentTab               = "view.agentTab"
+	CmdInspectorTab           = "view.inspectorTab"
 	CmdCommandPalette         = "view.palette"
 	CmdShortcutsSheet         = "view.shortcuts"
 	CmdPlayStop               = "project.play"
@@ -1294,6 +1297,48 @@ func (e *Editor) initBuiltinCommands() {
 			},
 		},
 		{
+			ID:          CmdAskAgent,
+			Label:       "Ask the Agent About Selection",
+			Description: "Open the anchored in-place composer to ask the agent about the selection or open scene",
+			Category:    "View",
+			Keywords:    []string{"ask", "agent", "ai", "mcp", "selection", "composer", "in place"},
+			Scope:       ScopeGlobal,
+			Shortcut:    "mod+l",
+			Enabled:     func() bool { return !e.askInPlaceBlocked() },
+			Checked:     func() bool { return e.AskInPlaceOpen() },
+			Run: func() error {
+				return e.OpenAskInPlace()
+			},
+		},
+		{
+			ID:          CmdAgentTab,
+			Label:       "Agent Panel",
+			Description: "Switch the right panel to the Agent thread",
+			Category:    "View",
+			Keywords:    []string{"agent", "ai", "chat", "thread", "panel", "mcp"},
+			Scope:       ScopeGlobal,
+			Shortcut:    "mod+1",
+			Checked:     func() bool { return e.RightPanelTab() == RightPanelAgent },
+			Run: func() error {
+				e.SetRightPanelTab(RightPanelAgent)
+				return nil
+			},
+		},
+		{
+			ID:          CmdInspectorTab,
+			Label:       "Inspector Panel",
+			Description: "Switch the right panel to the Property Inspector",
+			Category:    "View",
+			Keywords:    []string{"inspector", "properties", "panel"},
+			Scope:       ScopeGlobal,
+			Shortcut:    "mod+2",
+			Checked:     func() bool { return e.RightPanelTab() == RightPanelInspector },
+			Run: func() error {
+				e.SetRightPanelTab(RightPanelInspector)
+				return nil
+			},
+		},
+		{
 			ID:          CmdCommandPalette,
 			Label:       "Command Palette",
 			Description: "Search and run editor commands, plugin tools, panels, and project files",
@@ -1855,6 +1900,9 @@ var builtinCommandKeys = map[string][3]string{
 	CmdView3DOrthographic:    {"cmd.view3dOrtho.label", "cmd.view3dOrtho.desc", "cmd.category.view"},
 	CmdToggleLightingPreview: {"cmd.lightingPreview.label", "cmd.lightingPreview.desc", "cmd.category.view"},
 	CmdToggleNavMesh2D:       {"cmd.navMesh2dOverlay.label", "cmd.navMesh2dOverlay.desc", "cmd.category.view"},
+	CmdAskAgent:              {"cmd.askAgent.label", "cmd.askAgent.desc", "cmd.category.view"},
+	CmdAgentTab:              {"cmd.agentTab.label", "cmd.agentTab.desc", "cmd.category.view"},
+	CmdInspectorTab:          {"cmd.inspectorTab.label", "cmd.inspectorTab.desc", "cmd.category.view"},
 	CmdCommandPalette:        {"cmd.commandPalette.label", "cmd.commandPalette.desc", "cmd.category.view"},
 	CmdShortcutsSheet:        {"cmd.shortcutsSheet.label", "cmd.shortcutsSheet.desc", "cmd.category.view"},
 	CmdPlayStop:              {"cmd.playStop.label", "cmd.playStop.desc", "cmd.category.project"},
