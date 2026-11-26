@@ -271,6 +271,9 @@ func (e *Editor) startPlaySession(cx *core.Scope, playback *replay.Recording, st
 	e.exitTileReviewBeforePreview()
 	e.resetViewport3DAgentPrompt(false)
 	e.resetFirstRunFlow()
+	if e.ReviewOpen() {
+		e.PauseReview()
+	}
 	e.cancelAutoSaveTimer()
 	e.stopRunningTasksForPlay()
 	e.ExitHistoryPreview()

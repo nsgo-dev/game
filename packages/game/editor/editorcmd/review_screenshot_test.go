@@ -318,4 +318,13 @@ rows:
 	app.Post(func() { ed.PauseReview() })
 	app.Settle()
 	app.Screenshot("review-paused-editor-dark")
+
+	// 6. Spec Light appearance of the full-window Review screen.
+	app.Post(func() {
+		ed.SetAppearance(editor.AppearanceLight)
+		_ = ed.ResumeReview()
+		ed.FocusReviewChange(snap.Changes[2].ID)
+	})
+	app.Settle()
+	app.Screenshot("review-scene-light")
 }

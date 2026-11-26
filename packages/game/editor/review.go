@@ -2,7 +2,6 @@ package editor
 
 import (
 	"bytes"
-	"cmp"
 	"errors"
 	"fmt"
 	"math"
@@ -20,6 +19,11 @@ import (
 	"github.com/nsgo-dev/game/packages/game/tooling/datatable"
 	"github.com/nsgo-dev/nsgo/core"
 	"go.yaml.in/yaml/v3"
+)
+
+const (
+	// maxReviewFileBytes bounds individual before/after snapshots accepted by StartTurnReview (8 MiB).
+	maxReviewFileBytes = 8 << 20
 )
 
 var (
@@ -154,6 +158,7 @@ type ReviewChange struct {
 	afterObj          *sceneformat.ObjectDoc `json:"-"`
 	beforeLayer       string                 `json:"-"`
 	afterLayer        string                 `json:"-"`
+	beforeParentID    string                 `json:"-"`
 	beforeYAMLNode    *yaml.Node             `json:"-"`
 	afterYAMLNode     *yaml.Node             `json:"-"`
 	cellDiffs         []ReviewDataCellDiff   `json:"-"`
@@ -360,6 +365,78 @@ func (e *Editor) ReviewOutcome() ReviewOutcome {
 	return e.review.outcome
 }
 
+// resetTurnReviewForProject clears pending turn review state when switching projects or opening the Demo Room,
+// preserving uiRev monotonicity so subscribed UI memos refresh cleanly.
+func (e *Editor) resetTurnReviewForProject() {
+	if e == nil {
+		return
+	}
+	nextRev := e.review.uiRev + 1
+	e.review = turnReviewState{uiRev: nextRev}
+}
+
+// reviewModalBlocking reports whether a modal overlay or shortcut capture is active on top of the Review screen
+// and must prevent Review shortcuts/key handlers from firing underneath it.
+func (e *Editor) reviewModalBlocking() bool {
+	if e == nil {
+		return true
+	}
+	return e.ReviewRevertAllDialogOpen() ||
+		e.SettingsOpen() ||
+		e.CommandPaletteOpen() ||
+		e.ShortcutsSheetOpen() ||
+		e.PermissionsDraftOpen() ||
+		e.ConnectDialogOpen() ||
+		e.AgentReviewOpen() ||
+		e.shortcutCaptureActive
+}
+
+// reviewKeepShortcutAllowed reports whether ⌘↵ (CmdReviewKeep) may run right now without
+// crossing You-only trust boundaries, firing behind modals, or colliding with other screens.
+func (e *Editor) reviewKeepShortcutAllowed() bool {
+	if e == nil || !e.HasPendingReview() || e.reviewModalBlocking() {
+		return false
+	}
+	if e.ReviewOpen() {
+		return true
+	}
+	return !e.Playing() &&
+		!e.AskInPlaceOpen() &&
+		!e.StartScreenOpen() &&
+		!e.FirstRunFullScreenOpen() &&
+		!e.MergeConflictOpen() &&
+		!e.ChangesOpen() &&
+		!e.BuildReleaseScreenOpen() &&
+		!e.UsagesScreenOpen() &&
+		!e.PlaytestReportOpen() &&
+		!e.AssetGeneratorOpen() &&
+		!e.HUDLayoutOpen() &&
+		!e.CutsceneOpen()
+}
+
+func (e *Editor) validateReviewRelPath(raw string) (string, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" || strings.ContainsRune(trimmed, 0) {
+		return "", fmt.Errorf("editor: invalid review file path %q", raw)
+	}
+	slashed := strings.ReplaceAll(trimmed, `\`, "/")
+	if strings.HasPrefix(slashed, "/") || strings.ContainsRune(slashed, ':') {
+		return "", fmt.Errorf("editor: invalid review file path %q", raw)
+	}
+	cleanPath := path.Clean(slashed)
+	if cleanPath == "." || cleanPath == ".." || cleanPath == "" || strings.HasPrefix(cleanPath, "../") || path.IsAbs(cleanPath) {
+		return "", fmt.Errorf("editor: invalid review file path %q", raw)
+	}
+	lower := strings.ToLower(cleanPath)
+	if lower == ".git" || strings.HasPrefix(lower, ".git/") || strings.Contains(lower, "/.git/") {
+		return "", fmt.Errorf("editor: review cannot modify git metadata %q", cleanPath)
+	}
+	if dom, ok := e.CheckYouOnlyTarget(cleanPath); ok {
+		return "", fmt.Errorf("editor: review cannot modify You-only file %q (%s)", cleanPath, dom.DisplayName())
+	}
+	return cleanPath, nil
+}
+
 // StartTurnReview analyzes the agent turn's before/after file snapshots into grouped file/kind changes
 // and opens the full-window Review screen (or leaves it pending when input.StartPending is true).
 func (e *Editor) StartTurnReview(input ReviewTurnInput) error {
@@ -373,7 +450,7 @@ func (e *Editor) StartTurnReview(input ReviewTurnInput) error {
 		return errors.New("editor: review turn has no files")
 	}
 
-	st := agentReviewState{
+	st := turnReviewState{
 		open:           !input.StartPending,
 		outcome:        ReviewOutcomePending,
 		request:        strings.TrimSpace(input.Request),
@@ -394,9 +471,12 @@ func (e *Editor) StartTurnReview(input ReviewTurnInput) error {
 
 	seenPaths := make(map[string]bool, len(input.Files))
 	for _, fi := range input.Files {
-		cleanPath := path.Clean(strings.ReplaceAll(strings.TrimSpace(fi.Path), `\`, "/"))
-		if cleanPath == "." || cleanPath == "" || strings.HasPrefix(cleanPath, "../") || path.IsAbs(cleanPath) {
-			return fmt.Errorf("editor: invalid review file path %q", fi.Path)
+		cleanPath, err := e.validateReviewRelPath(fi.Path)
+		if err != nil {
+			return err
+		}
+		if len(fi.BeforeYAML) > maxReviewFileBytes || len(fi.AfterYAML) > maxReviewFileBytes {
+			return fmt.Errorf("editor: review file %q exceeds %d byte limit", cleanPath, maxReviewFileBytes)
 		}
 		if seenPaths[cleanPath] {
 			return fmt.Errorf("editor: duplicate review file path %q", cleanPath)
@@ -449,6 +529,7 @@ func (e *Editor) StartTurnReview(input ReviewTurnInput) error {
 	st.lastTotal = len(st.changes)
 	st.lastFileCount = len(st.files)
 
+	e.ExitHistoryPreview()
 	e.review = st
 	e.cancelAutoSaveTimer()
 	if input.StartPending {
@@ -621,24 +702,25 @@ func (e *Editor) diffReviewSceneFile(fs *reviewFileState, fi ReviewFileInput, de
 			}
 			line, ylines := buildChangedObjectYAMLDiff(fs.beforeYAML, fs.afterYAML, b.obj, a.obj)
 			ch := &ReviewChange{
-				ID:          reviewChangeID(fs.path, ReviewChangeChanged, a.obj.ID),
-				File:        fs.path,
-				FileKind:    ReviewFileScene,
-				Kind:        ReviewChangeChanged,
-				Title:       a.obj.ID,
-				Detail:      detail,
-				Why:         reviewLookupReason(fi.Reasons, a.obj.ID, defaultWhy),
-				ObjectID:    a.obj.ID,
-				Layer:       a.layer,
-				ParentID:    a.parentID,
-				Line:        line,
-				YAMLLines:   ylines,
-				Note:        fi.Notes[a.obj.ID],
-				Blocker:     fi.Blockers[a.obj.ID],
-				beforeObj:   b.obj,
-				afterObj:    a.obj,
-				beforeLayer: b.layer,
-				afterLayer:  a.layer,
+				ID:             reviewChangeID(fs.path, ReviewChangeChanged, a.obj.ID),
+				File:           fs.path,
+				FileKind:       ReviewFileScene,
+				Kind:           ReviewChangeChanged,
+				Title:          a.obj.ID,
+				Detail:         detail,
+				Why:            reviewLookupReason(fi.Reasons, a.obj.ID, defaultWhy),
+				ObjectID:       a.obj.ID,
+				Layer:          a.layer,
+				ParentID:       a.parentID,
+				Line:           line,
+				YAMLLines:      ylines,
+				Note:           fi.Notes[a.obj.ID],
+				Blocker:        fi.Blockers[a.obj.ID],
+				beforeObj:      b.obj,
+				afterObj:       a.obj,
+				beforeLayer:    b.layer,
+				afterLayer:     a.layer,
+				beforeParentID: b.parentID,
 			}
 			changed = append(changed, ch)
 		}
@@ -987,8 +1069,8 @@ func (e *Editor) diffReviewPrefabFile(fs *reviewFileState, fi ReviewFileInput, d
 				OldValue:       b.value,
 				Line:           b.line,
 				YAMLLines:      buildFieldYAMLDiff(fs.beforeYAML, fs.afterYAML, b.line, 0),
-				Note:           firstNonEmpty(fi.Notes[b.path], fi.Notes[displayField]),
-				Blocker:        firstNonEmpty(fi.Blockers[b.path], fi.Blockers[displayField]),
+				Note:           reviewFirstNonEmpty(fi.Notes[b.path], fi.Notes[displayField]),
+				Blocker:        reviewFirstNonEmpty(fi.Blockers[b.path], fi.Blockers[displayField]),
 				beforeYAMLNode: b.node,
 			}
 			removed = append(removed, ch)
@@ -1276,9 +1358,13 @@ func findObjectBlockInYAML(data []byte, objectID string) (startLine int, lines [
 	all := splitLinesNoCR(data)
 	needle := "- id: " + objectID
 	needleQuoted := fmt.Sprintf("- id: %q", objectID)
+	needleSingle := fmt.Sprintf("- id: '%s'", objectID)
+	idPlain := "id: " + objectID
+	idQuoted := fmt.Sprintf("id: %q", objectID)
+	idSingle := fmt.Sprintf("id: '%s'", objectID)
 	for i, l := range all {
 		trimmed := strings.TrimSpace(l)
-		if trimmed == needle || trimmed == needleQuoted || trimmed == "id: "+objectID {
+		if trimmed == needle || trimmed == needleQuoted || trimmed == needleSingle || trimmed == idPlain || trimmed == idQuoted || trimmed == idSingle {
 			indent := len(l) - len(strings.TrimLeft(l, " "))
 			end := i + 1
 			for end < len(all) {
@@ -1632,9 +1718,39 @@ func (e *Editor) effectiveReviewSceneDoc(fs *reviewFileState) *sceneformat.Scene
 	}
 	_ = revertedRemoved
 
-	// 1. Apply active removals & in-place changes on doc.
+	// 1. Apply active removals & in-place changes on doc, detaching objects whose layer or parent moved.
+	type movedObj struct {
+		ch  *ReviewChange
+		obj sceneformat.ObjectDoc
+	}
+	var moved []movedObj
+	var applySlice func(objs []sceneformat.ObjectDoc) []sceneformat.ObjectDoc
+	applySlice = func(objs []sceneformat.ObjectDoc) []sceneformat.ObjectDoc {
+		out := make([]sceneformat.ObjectDoc, 0, len(objs))
+		for i := range objs {
+			o := objs[i]
+			if activeRemoved[o.ID] {
+				continue
+			}
+			ch, isChanged := activeChanged[o.ID]
+			if isChanged && ch.afterObj != nil {
+				children := o.Children
+				o = cloneObjectDoc(*ch.afterObj)
+				o.Children = children
+			}
+			if len(o.Children) > 0 {
+				o.Children = applySlice(o.Children)
+			}
+			if isChanged && (ch.beforeLayer != ch.afterLayer || ch.beforeParentID != ch.ParentID) {
+				moved = append(moved, movedObj{ch: ch, obj: o})
+				continue
+			}
+			out = append(out, o)
+		}
+		return out
+	}
 	for li := range doc.Layers {
-		doc.Layers[li].Objects = applyReviewChangesToObjectSlice(doc.Layers[li].Objects, activeRemoved, activeChanged)
+		doc.Layers[li].Objects = applySlice(doc.Layers[li].Objects)
 	}
 
 	// 2. Apply active additions to their target layers/parents.
@@ -1657,27 +1773,22 @@ func (e *Editor) effectiveReviewSceneDoc(fs *reviewFileState) *sceneformat.Scene
 		doc.Layers[li].Objects = append(doc.Layers[li].Objects, obj)
 	}
 
-	return doc
-}
-
-func applyReviewChangesToObjectSlice(objs []sceneformat.ObjectDoc, removed map[string]bool, changed map[string]*ReviewChange) []sceneformat.ObjectDoc {
-	out := make([]sceneformat.ObjectDoc, 0, len(objs))
-	for i := range objs {
-		o := objs[i]
-		if removed[o.ID] {
-			continue
+	// 3. Re-insert moved/reparented objects at their target parents/layers (after additions so newly added parents exist).
+	for _, m := range moved {
+		if m.ch.ParentID != "" {
+			if insertChildByID(doc, m.ch.ParentID, m.obj) {
+				continue
+			}
 		}
-		if ch, ok := changed[o.ID]; ok && ch.afterObj != nil {
-			children := o.Children
-			o = cloneObjectDoc(*ch.afterObj)
-			o.Children = children
+		targetLayer := m.ch.afterLayer
+		if targetLayer == "" && len(doc.Layers) > 0 {
+			targetLayer = doc.Layers[0].Name
 		}
-		if len(o.Children) > 0 {
-			o.Children = applyReviewChangesToObjectSlice(o.Children, removed, changed)
-		}
-		out = append(out, o)
+		li := findOrCreateReviewLayer(doc, targetLayer, fs.afterDoc)
+		doc.Layers[li].Objects = append(doc.Layers[li].Objects, m.obj)
 	}
-	return out
+
+	return doc
 }
 
 func insertChildByID(doc *sceneformat.SceneDoc, parentID string, child sceneformat.ObjectDoc) bool {
@@ -2939,6 +3050,76 @@ func (e *Editor) reviewShortcutHint(cmdID, fallback string) string {
 	return FormatShortcut(sc, targetOS)
 }
 
+func (e *Editor) resolveSafeReviewWritePath(relPath string) (string, error) {
+	cleanRel, err := e.validateReviewRelPath(relPath)
+	if err != nil {
+		return "", err
+	}
+	abs := e.reviewAbsPath(cleanRel)
+	if abs == "" {
+		return "", fmt.Errorf("editor: cannot resolve review path %q", relPath)
+	}
+	if e.ProjectPath != "" {
+		projRoot := filepath.Dir(e.ProjectPath)
+		realRoot, rerr := filepath.EvalSymlinks(projRoot)
+		if rerr != nil {
+			realRoot, rerr = filepath.Abs(projRoot)
+			if rerr != nil {
+				return "", fmt.Errorf("editor: resolve project root: %w", rerr)
+			}
+		}
+		realTarget, ok := resolvePathThroughExistingAncestors(abs)
+		if !ok {
+			return "", fmt.Errorf("editor: cannot resolve review target %q", cleanRel)
+		}
+		rel, rerr := filepath.Rel(realRoot, realTarget)
+		if rerr != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+			return "", fmt.Errorf("editor: review target %q escapes project root", cleanRel)
+		}
+		if dom, isYO := e.CheckYouOnlyTarget(realTarget); isYO {
+			return "", fmt.Errorf("editor: review cannot modify You-only file %q (%s)", cleanRel, dom.DisplayName())
+		}
+	}
+	if st, lerr := os.Lstat(abs); lerr == nil && st.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("editor: review refuses to overwrite or delete symlink %q", cleanRel)
+	}
+	return abs, nil
+}
+
+func writeReviewFileAtomic(absPath string, data []byte) error {
+	dir := filepath.Dir(absPath)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, ".nsgo-review-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = os.Remove(tmpName)
+		}
+	}()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(0o644); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpName, absPath); err != nil {
+		return err
+	}
+	cleanup = false
+	return nil
+}
+
 // KeepTurnReview applies all non-reverted changes across every touched file as ONE History undo step,
 // saves them cleanly, shows a Toast with Undo, and updates the Agent panel summary.
 // When any blocker is active, KeepTurnReview jumps to the first blocker and returns ErrReviewBlocked.
@@ -2956,13 +3137,17 @@ func (e *Editor) KeepTurnReview() error {
 		if fs.kind == ReviewFileGo {
 			continue
 		}
+		abs, err := e.resolveSafeReviewWritePath(fs.path)
+		if err != nil {
+			return err
+		}
 		afterBytes, existsAfter, err := e.effectiveReviewFileBytes(fs)
 		if err != nil {
 			return fmt.Errorf("editor: encode review file %s: %w", fs.path, err)
 		}
 		writes = append(writes, reviewFileWrite{
 			relPath:       fs.path,
-			absPath:       e.reviewAbsPath(fs.path),
+			absPath:       abs,
 			existedBefore: fs.existedBefore,
 			beforeBytes:   append([]byte(nil), fs.beforeYAML...),
 			existedAfter:  existsAfter,
@@ -2970,6 +3155,7 @@ func (e *Editor) KeepTurnReview() error {
 		})
 	}
 
+	e.ExitHistoryPreview()
 	kept, reverted := e.reviewKeptAndRevertedCounts()
 	savedState := e.review
 	label := "Keep review"
@@ -3006,9 +3192,19 @@ func (e *Editor) ConfirmReviewRevertAll() error {
 
 	writes := make([]reviewFileWrite, 0, len(e.review.files))
 	for _, fs := range e.review.files {
-		abs := e.reviewAbsPath(fs.path)
+		abs, err := e.resolveSafeReviewWritePath(fs.path)
+		if err != nil {
+			return err
+		}
 		curBytes, err := os.ReadFile(abs)
-		existedCur := err == nil
+		existedCur := true
+		if err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("editor: read review file %s before revert: %w", fs.path, err)
+			}
+			existedCur = false
+			curBytes = nil
+		}
 		writes = append(writes, reviewFileWrite{
 			relPath:       fs.path,
 			absPath:       abs,
@@ -3019,6 +3215,7 @@ func (e *Editor) ConfirmReviewRevertAll() error {
 		})
 	}
 
+	e.ExitHistoryPreview()
 	cmd := &agentTurnRevertAllCmd{
 		ed:         e,
 		label:      fmt.Sprintf("Revert all %d changes", len(savedState.changes)),
@@ -3045,6 +3242,10 @@ func (e *Editor) applyReviewFileWrites(writes []reviewFileWrite, forward bool) e
 		if w.absPath == "" {
 			continue
 		}
+		if _, err := e.resolveSafeReviewWritePath(w.relPath); err != nil {
+			e.rollbackReviewFileWrites(writes[:i], !forward)
+			return err
+		}
 		if !wantExist {
 			if err := os.Remove(w.absPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 				// Best-effort rollback of earlier writes.
@@ -3053,11 +3254,7 @@ func (e *Editor) applyReviewFileWrites(writes []reviewFileWrite, forward bool) e
 			}
 			continue
 		}
-		if err := os.MkdirAll(filepath.Dir(w.absPath), 0o755); err != nil {
-			e.rollbackReviewFileWrites(writes[:i], !forward)
-			return err
-		}
-		if err := os.WriteFile(w.absPath, data, 0o644); err != nil {
+		if err := writeReviewFileAtomic(w.absPath, data); err != nil {
 			e.rollbackReviewFileWrites(writes[:i], !forward)
 			return err
 		}
@@ -3079,7 +3276,7 @@ func (e *Editor) rollbackReviewFileWrites(writes []reviewFileWrite, toAfter bool
 		if !wantExist {
 			_ = os.Remove(w.absPath)
 		} else {
-			_ = os.WriteFile(w.absPath, data, 0o644)
+			_ = writeReviewFileAtomic(w.absPath, data)
 		}
 	}
 }
@@ -3087,9 +3284,6 @@ func (e *Editor) rollbackReviewFileWrites(writes []reviewFileWrite, toAfter bool
 func (e *Editor) syncOpenSceneAfterReviewWrites(writes []reviewFileWrite, forward bool) {
 	openRel := e.openSceneProjectRelPath()
 	for _, w := range writes {
-		if openRel == "" || w.relPath != openRel {
-			continue
-		}
 		data, wantExist := w.beforeBytes, w.existedBefore
 		if forward {
 			data, wantExist = w.afterBytes, w.existedAfter
@@ -3097,20 +3291,49 @@ func (e *Editor) syncOpenSceneAfterReviewWrites(writes []reviewFileWrite, forwar
 		if !wantExist || len(data) == 0 {
 			continue
 		}
-		doc, err := sceneformat.ParseWith(data, sceneformat.ParseOptions{Components: e.components})
-		if err != nil {
+		if openRel != "" && w.relPath == openRel {
+			doc, err := sceneformat.ParseWith(data, sceneformat.ParseOptions{Components: e.components})
+			if err != nil {
+				continue
+			}
+			e.Doc = doc
+			e.Rebuild()
+			if canon, err := sceneformat.Encode(doc); err == nil {
+				e.sceneSaved = canon
+			}
+			e.syncActiveTab()
+			e.recordSceneDiskSnapshot(w.absPath, data)
+			e.cancelAutoSaveTimer()
+			e.recordSaveSucceededFor(e.activeTabID(), false)
 			continue
 		}
-		e.Doc = doc
-		e.Rebuild()
-		if canon, err := sceneformat.Encode(doc); err == nil {
-			e.sceneSaved = canon
+		// Keep any inactive open scene tabs whose path matches w.relPath in sync so switching tabs
+		// never reveals stale pre-review scene docs or triggers false disk conflicts.
+		for ti, tab := range e.tabs {
+			if tab == nil || ti == e.activeTab {
+				continue
+			}
+			tabRel := path.Clean(strings.ReplaceAll(tab.scenePath, `\`, "/"))
+			if tabRel != w.relPath && !sameHostFilePath(tab.filePath, w.absPath) {
+				continue
+			}
+			doc, err := sceneformat.ParseWith(data, sceneformat.ParseOptions{Components: e.components})
+			if err != nil {
+				continue
+			}
+			tab.doc = doc
+			if built, berr := sceneformat.Build(doc, e.liveResolver()); berr == nil {
+				built.DrawAllTiles = true
+				tab.built = built
+				tab.buildErr = nil
+			}
+			if canon, cerr := sceneformat.Encode(doc); cerr == nil {
+				tab.sceneSaved = canon
+			}
+			tab.liveYAMLValid = false
+			tab.sceneDisk = makeDiskSnapshot(w.absPath, data)
+			e.recordSaveSucceededFor(tab.id, false)
 		}
-		e.syncActiveTab()
-		e.recordSceneDiskSnapshot(w.absPath, data)
-		e.cancelAutoSaveTimer()
-		e.recordSaveSucceededFor(e.activeTabID(), false)
-		break
 	}
 }
 
@@ -3123,19 +3346,48 @@ type agentTurnKeepCmd struct {
 	total      int
 	fileCount  int
 	request    string
-	priorState agentReviewState
+	priorState turnReviewState
 }
 
-func (c *agentTurnKeepCmd) Label() string { return c.label }
-func (c *agentTurnKeepCmd) Do()           { _ = c.do() }
-func (c *agentTurnKeepCmd) Undo()         { _ = c.undo() }
+func (c *agentTurnKeepCmd) Label() string       { return c.label }
+func (c *agentTurnKeepCmd) Actor() HistoryActor { return HistoryActorAgent }
+func (c *agentTurnKeepCmd) Do()                 { c.ed.report(c.do()) }
+func (c *agentTurnKeepCmd) Undo()               { c.ed.report(c.undo()) }
+
+func (c *agentTurnKeepCmd) historyMeta() HistoryMeta {
+	files := make([]string, 0, len(c.writes))
+	beforeFiles := make(map[string]historyFileSnapshot, len(c.writes))
+	afterFiles := make(map[string]historyFileSnapshot, len(c.writes))
+	openRel := c.ed.openSceneProjectRelPath()
+	for _, w := range c.writes {
+		files = append(files, w.relPath)
+		if w.relPath != openRel {
+			beforeFiles[w.relPath] = historyFileSnapshot{exists: w.existedBefore, data: slices.Clone(w.beforeBytes)}
+			afterFiles[w.relPath] = historyFileSnapshot{exists: w.existedAfter, data: slices.Clone(w.afterBytes)}
+		}
+	}
+	summary := strings.TrimSpace(c.request)
+	if summary == "" {
+		summary = "Kept review"
+	}
+	return HistoryMeta{
+		Author:      HistoryAuthorAgent,
+		Summary:     summary,
+		Detail:      formatAgentTurnDetail("", c.total, c.kept),
+		Files:       files,
+		ChangeCount: c.total,
+		KeptCount:   c.kept,
+		BeforeFiles: beforeFiles,
+		AfterFiles:  afterFiles,
+	}
+}
 
 func (c *agentTurnKeepCmd) do() error {
 	if err := c.ed.applyReviewFileWrites(c.writes, true); err != nil {
 		return err
 	}
 	msg := formatKeptSummary(c.kept, c.reverted)
-	c.ed.review = agentReviewState{
+	c.ed.review = turnReviewState{
 		open:           false,
 		outcome:        ReviewOutcomeKept,
 		request:        c.request,
@@ -3185,19 +3437,42 @@ type agentTurnRevertAllCmd struct {
 	total      int
 	fileCount  int
 	request    string
-	priorState agentReviewState
+	priorState turnReviewState
 }
 
-func (c *agentTurnRevertAllCmd) Label() string { return c.label }
-func (c *agentTurnRevertAllCmd) Do()           { _ = c.do() }
-func (c *agentTurnRevertAllCmd) Undo()         { _ = c.undo() }
+func (c *agentTurnRevertAllCmd) Label() string       { return c.label }
+func (c *agentTurnRevertAllCmd) Actor() HistoryActor { return HistoryActorPerson }
+func (c *agentTurnRevertAllCmd) Do()                 { c.ed.report(c.do()) }
+func (c *agentTurnRevertAllCmd) Undo()               { c.ed.report(c.undo()) }
+
+func (c *agentTurnRevertAllCmd) historyMeta() HistoryMeta {
+	files := make([]string, 0, len(c.writes))
+	beforeFiles := make(map[string]historyFileSnapshot, len(c.writes))
+	afterFiles := make(map[string]historyFileSnapshot, len(c.writes))
+	openRel := c.ed.openSceneProjectRelPath()
+	for _, w := range c.writes {
+		files = append(files, w.relPath)
+		if w.relPath != openRel {
+			beforeFiles[w.relPath] = historyFileSnapshot{exists: w.existedBefore, data: slices.Clone(w.beforeBytes)}
+			afterFiles[w.relPath] = historyFileSnapshot{exists: w.existedAfter, data: slices.Clone(w.afterBytes)}
+		}
+	}
+	return HistoryMeta{
+		Author:      HistoryAuthorYou,
+		Summary:     c.label,
+		Detail:      fmt.Sprintf("%d %s reverted", c.total, pluralWord(c.total, "change", "changes")),
+		Files:       files,
+		BeforeFiles: beforeFiles,
+		AfterFiles:  afterFiles,
+	}
+}
 
 func (c *agentTurnRevertAllCmd) do() error {
 	if err := c.ed.applyReviewFileWrites(c.writes, true); err != nil {
 		return err
 	}
 	msg := fmt.Sprintf("Reverted all %d · files are as they were before this request", c.total)
-	c.ed.review = agentReviewState{
+	c.ed.review = turnReviewState{
 		open:           false,
 		outcome:        ReviewOutcomeReverted,
 		request:        c.request,
@@ -3367,6 +3642,3 @@ func (e *Editor) ReviewRevertAllFileList() string {
 	}
 	return joinEnglishList(names)
 }
-
-// sortStringsStable is kept minimal; cmp is imported for deterministic sorting helpers if needed.
-var _ = cmp.Compare[string]

@@ -1579,7 +1579,7 @@ func (e *Editor) initBuiltinCommands() {
 			Shortcut:    "mod+shift+r",
 			Scope:       ScopeGlobal,
 			Enabled: func() bool {
-				return !e.StartScreenOpen() && !e.FirstRunFullScreenOpen() && !e.MergeConflictOpen() && !e.Playing() && (e.BuildReleaseScreenOpen() || e.Project != nil)
+				return !e.StartScreenOpen() && !e.FirstRunFullScreenOpen() && !e.ReviewOpen() && !e.MergeConflictOpen() && !e.Playing() && (e.BuildReleaseScreenOpen() || e.Project != nil)
 			},
 			Checked: func() bool { return e.BuildReleaseScreenOpen() },
 			Run: func() error {
@@ -1760,7 +1760,7 @@ func (e *Editor) initBuiltinCommands() {
 			Scope:       ScopeGlobal,
 			Shortcut:    "mod+shift+y",
 			Enabled: func() bool {
-				return !e.StartScreenOpen() && !e.FirstRunFullScreenOpen() && !e.MergeConflictOpen() && !e.Playing()
+				return !e.StartScreenOpen() && !e.FirstRunFullScreenOpen() && !e.ReviewOpen() && !e.MergeConflictOpen() && !e.Playing()
 			},
 			Checked: func() bool { return e.PlaytestReportOpen() },
 			Run: func() error {
@@ -1775,7 +1775,7 @@ func (e *Editor) initBuiltinCommands() {
 			Category:    "Project",
 			Keywords:    []string{"generate", "assets", "mcp", "candidates", "license", "source", "brief", "sprite", "sound"},
 			Enabled: func() bool {
-				return !e.StartScreenOpen() && !e.FirstRunFullScreenOpen() && !e.MergeConflictOpen() && !e.Playing()
+				return !e.StartScreenOpen() && !e.FirstRunFullScreenOpen() && !e.ReviewOpen() && !e.MergeConflictOpen() && !e.Playing()
 			},
 			Checked: func() bool { return e.AssetGeneratorOpen() },
 			Run: func() error {
@@ -1802,7 +1802,7 @@ func (e *Editor) initBuiltinCommands() {
 			Keywords:    []string{"review", "next", "change", "agent"},
 			Scope:       ScopeReview,
 			Shortcut:    "j",
-			Enabled:     func() bool { return e.ReviewOpen() && !e.ReviewRevertAllDialogOpen() },
+			Enabled:     func() bool { return e.ReviewOpen() && !e.reviewModalBlocking() },
 			Run: func() error {
 				e.StepReviewChange(+1)
 				return nil
@@ -1816,7 +1816,7 @@ func (e *Editor) initBuiltinCommands() {
 			Keywords:    []string{"review", "previous", "prev", "change", "agent"},
 			Scope:       ScopeReview,
 			Shortcut:    "k",
-			Enabled:     func() bool { return e.ReviewOpen() && !e.ReviewRevertAllDialogOpen() },
+			Enabled:     func() bool { return e.ReviewOpen() && !e.reviewModalBlocking() },
 			Run: func() error {
 				e.StepReviewChange(-1)
 				return nil
@@ -1830,7 +1830,7 @@ func (e *Editor) initBuiltinCommands() {
 			Keywords:    []string{"review", "revert", "restore", "toggle", "agent"},
 			Scope:       ScopeReview,
 			Shortcut:    "x",
-			Enabled:     func() bool { return e.ReviewOpen() && !e.ReviewRevertAllDialogOpen() },
+			Enabled:     func() bool { return e.ReviewOpen() && !e.reviewModalBlocking() },
 			Run: func() error {
 				e.ToggleFocusedReviewRevert()
 				return nil
@@ -1844,7 +1844,7 @@ func (e *Editor) initBuiltinCommands() {
 			Keywords:    []string{"review", "before", "peek", "compare", "agent"},
 			Scope:       ScopeReview,
 			Shortcut:    "b",
-			Enabled:     func() bool { return e.ReviewOpen() && !e.ReviewRevertAllDialogOpen() },
+			Enabled:     func() bool { return e.ReviewOpen() && !e.reviewModalBlocking() },
 			Run: func() error {
 				// Holding B is driven live by core.KeyHeld in ReviewScreenView; invoking the command directly toggles peek.
 				e.ToggleReviewPeekBefore()
@@ -1859,7 +1859,7 @@ func (e *Editor) initBuiltinCommands() {
 			Keywords:    []string{"review", "keep", "apply", "accept", "agent"},
 			Scope:       ScopeReview,
 			Shortcut:    "mod+enter",
-			Enabled:     func() bool { return e.HasPendingReview() && !e.ReviewRevertAllDialogOpen() },
+			Enabled:     func() bool { return e.reviewKeepShortcutAllowed() },
 			Run: func() error {
 				if err := e.KeepTurnReview(); err != nil && !errors.Is(err, ErrReviewBlocked) {
 					return err
@@ -1876,7 +1876,7 @@ func (e *Editor) initBuiltinCommands() {
 			Scope:              ScopeReview,
 			Shortcut:           "mod+backspace",
 			AlternateShortcuts: []string{"mod+delete"},
-			Enabled:            func() bool { return e.ReviewOpen() && !e.ReviewRevertAllDialogOpen() },
+			Enabled:            func() bool { return e.ReviewOpen() && !e.reviewModalBlocking() },
 			Run: func() error {
 				e.OpenReviewRevertAllDialog()
 				return nil
